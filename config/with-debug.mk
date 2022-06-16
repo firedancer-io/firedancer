@@ -1,0 +1,2 @@
+CPPFLAGS+=-g
+LDFLAGS+=-rdynamic
