@@ -326,12 +326,9 @@ FD_FN_CONST static inline double fd_double_if( int c, double t, double f ) { ret
 
 /* fd_ulong_svw_enc_sz returns the number of bytes needed to encode
    x as a symmetric variable width encoded integer.  This is at most
-   FD_ULONG_SVW_ENC_MAX==fd_ulong_svn_enc_max().  Result will be in
-   {1,2,3,4,5,8,9}. */
+   FD_ULONG_SVW_ENC_MAX (9).  Result will be in {1,2,3,4,5,8,9}. */
 
-enum { FD_ULONG_SVW_ENC_MAX = 9 }; /* For compile time use */
-
-FD_FN_CONST static inline ulong fd_ulong_svw_enc_max( void ) { return (ulong)FD_ULONG_SVW_ENC_MAX; }
+#define FD_ULONG_SVW_ENC_MAX (9UL) /* For compile time use */
 
 FD_FN_CONST static inline ulong
 fd_ulong_svw_enc_sz( ulong x ) {
