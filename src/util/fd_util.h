@@ -1,15 +1,19 @@
 #ifndef HEADER_fd_src_util_fd_util_h
 #define HEADER_fd_src_util_fd_util_h
 
-//#include "fd_util_base.h"
-//#include "bits/fd_bits.h" /* includes fd_util_base.h */
-//#include "cstr/fd_cstr.h" /* includes bits/fd_bits.h */
-//#include "env/fd_env.h"   /* includes cstr/fd_cstr.h */
-#include "rng/fd_rng.h"     /* includes bits/fd_bits.h */
-#include "log/fd_log.h"     /* includes envs/fd_env.h */
+//#include "fd_util_base.h"  /* includes stdalign.h, string.h, limits.h, float.h */
+//#include "bits/fd_bits.h"  /* includes fd_util_base.h */
+//#include "cstr/fd_cstr.h"  /* includes bits/fd_bits.h */
+//#include "env/fd_env.h"    /* includes cstr/fd_cstr.h */
+#include "rng/fd_rng.h"      /* includes bits/fd_bits.h */
+#include "log/fd_log.h"      /* includes env/fd_env.h */
 
-// bits/fd_float.h not included by default
-// bits/fd_uwide.h not included by default
+/* Additional fd_util APIs that are not included by default */
+
+//#include "bits/fd_float.h" /* includes bits/fd_bits.h */
+//#include "bits/fd_uwide.h" /* includes bits/fd_bits.h */
+//#include "math/fd_sqrt.h"  /* includes bits/fd_bits.h */
+//#include "math/fd_fxp.h"   /* includes math/fd_sqrt.h, (!FD_HAS_INT128) bits/fd_uwide.h */
 
 FD_PROTOTYPES_BEGIN
 
