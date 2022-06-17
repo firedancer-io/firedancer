@@ -218,7 +218,7 @@ int
 main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
-  FD_LOG_WARNING(( "skip (unit test requires FD_HAS_INT128 capability)" ));
+  FD_LOG_WARNING(( "skip: unit test requires FD_HAS_INT128 capability" ));
   fd_halt();
   return 0;
 }
