@@ -362,9 +362,10 @@ static int    fd_log_private_dedup;        /* 0 on start */
 
 void
 fd_log_flush( void ) {
-  if( fd_log_private_file ) {
-    fflush( fd_log_private_file );
-    fsync( fileno( fd_log_private_file ) );
+  FILE * log_file = FD_VOLATILE_CONST( fd_log_private_file );
+  if( log_file ) {
+    fflush( log_file );
+    fsync( fileno( log_file ) );
   }
   fflush( stderr );
 }
@@ -426,8 +427,9 @@ fd_log_private_1( int          level,
   char const * cpu    = fd_log_cpu();
   ulong        tid    = fd_log_tid();
 
-  int to_logfile = (!!fd_log_private_file);
-  int to_stderr  = (level>=fd_log_level_stderr());
+  FILE * log_file   = FD_VOLATILE_CONST( fd_log_private_file );
+  int    to_logfile = (!!log_file);
+  int    to_stderr  = (level>=fd_log_level_stderr());
   if( !(to_logfile | to_stderr) ) return;
 
   /* Deduplicate the log if requested */
@@ -465,7 +467,7 @@ fd_log_private_1( int          level,
         char then_cstr[ FD_LOG_WALLCLOCK_CSTR_BUF_SZ ];
         fd_log_wallclock_cstr( then, then_cstr );
 
-        if( to_logfile ) fprintf( fd_log_private_file, "SNIP    %s %6lu:%-6lu %s:%s:%-4s %s:%s:%-4s "
+        if( to_logfile ) fprintf( log_file, "SNIP    %s %6lu:%-6lu %s:%s:%-4s %s:%s:%-4s "
                                   "stopped repeating (%lu identical messages)\n",
                                   then_cstr, fd_log_group_id(),tid, fd_log_user(),fd_log_host(),cpu,
                                   fd_log_app(),fd_log_group(),thread, dedup_cnt+1UL );
@@ -497,8 +499,7 @@ fd_log_private_1( int          level,
       if( (now-dedup_last) >= dedup_throttle ) {
         char now_cstr[ FD_LOG_WALLCLOCK_CSTR_BUF_SZ ];
         fd_log_wallclock_cstr( now, now_cstr );
-        if( to_logfile ) fprintf( fd_log_private_file,
-                                  "SNIP    %s %6lu:%-6lu %s:%s:%-4s %s:%s:%-4s repeating (%lu identical messages)\n",
+        if( to_logfile ) fprintf( log_file, "SNIP    %s %6lu:%-6lu %s:%s:%-4s %s:%s:%-4s repeating (%lu identical messages)\n",
                                   now_cstr, fd_log_group_id(),tid, fd_log_user(),fd_log_host(),cpu,
                                   fd_log_app(),fd_log_group(),thread, dedup_cnt+1UL );
         if( to_stderr ) {
@@ -520,7 +521,7 @@ fd_log_private_1( int          level,
   char now_cstr[ FD_LOG_WALLCLOCK_CSTR_BUF_SZ ];
   fd_log_wallclock_cstr( now, now_cstr );
 
-  if( to_logfile ) fprintf( fd_log_private_file, "%s %s %6lu:%-6lu %s:%s:%-4s %s:%s:%-4s %s(%i)[%s]: %s\n",
+  if( to_logfile ) fprintf( log_file, "%s %s %6lu:%-6lu %s:%s:%-4s %s:%s:%-4s %s(%i)[%s]: %s\n",
                             level_str[level], now_cstr, fd_log_group_id(),tid, fd_log_user(),fd_log_host(),cpu,
                             fd_log_app(),fd_log_group(),thread, file,line,func, msg );
 
@@ -543,7 +544,7 @@ fd_log_private_2( int          level,
                   char const * msg ) {
   fd_log_private_1( level, now, file, line, func, msg );
 
-  if( level<fd_log_level_core() ) exit(1); /* Calls fd_halt which calls fd_log_private_halt which cleans up */
+  if( level<fd_log_level_core() ) exit(1); /* atexit will call fd_log_private_cleanup implicitly */
 
   abort();
 }
@@ -551,25 +552,82 @@ fd_log_private_2( int          level,
 /* BOOT/HALT APIS *****************************************************/
 
 static void
+fd_log_private_cleanup( void ) {
+
+  /* The atexit below means  that all calls to "exit();" implicitly
+     become "fd_log_private_cleanup(); exit();".  It also implies that
+     programs that terminate via a top level return from main implicitly
+     call fd_log_private_cleanup().
+
+     As such it is possible that a thread other than the booter will
+     trigger cleanup either by triggering this directly (e.g. calling
+     exit) or indirectly (e.g. by logging a message with an exit
+     triggering priority) and that the booter itself might call this
+     more than once sequentially (e.g. fd_halt() calling cleanup
+     explicitly followed by return from main triggering it again.
+
+     Accordingly we protect this with a ONCE block so it only will
+     execute once per program.  Further cleanup gets triggered by
+     multiple threads concurrently, the ONCE block will prevent them
+     from progressing until the first thread that hits the once block
+     has completed cleanup. */
+
+  FD_ONCE_BEGIN {
+    FILE * log_file = FD_VOLATILE_CONST( fd_log_private_file );
+    if(      !log_file                           ) fprintf( stderr, "No log\n" );
+    else if( !strcmp( fd_log_private_path, "-" ) ) fprintf( stderr, "Log to stdout\n" );
+    else {
+#     if FD_HAS_THREADS
+      if( fd_log_private_thread_id_ctr>1UL ) { /* There are potentially other log users running */
+        /* Just closing the permanent log file is not multithreading
+           safe in the case where other threads are still running
+           normally and thus potentially logging to the permanent log.
+           Such should not happen in a correctly written and functioning
+           application but logging exists in large part to help
+           understand when applications misbehave.  So we try to be as
+           robust and informative as we can here.  FIXME: THE SECOND
+           USLEEP IS AN UGLY HACK TO REDUCE (BUT NOT FULLY ELIMINATE)
+           THE RISK OF USE AFTER CLOSE BY THOSE OTHER THREADS.  IT IS
+           POSSIBLE WITH A MORE INVASIVE CHANGES TO FULLY ELIMINATE THIS
+           RISK. */
+        usleep( (useconds_t)40000 ); /* Give potentially concurrent users a chance to get their dying messages out */
+        FD_COMPILER_MFENCE();
+        FD_VOLATILE( fd_log_private_file ) = NULL; /* Turn off the permanent log for concurrent users */
+        FD_COMPILER_MFENCE();
+        usleep( (useconds_t)40000 ); /* Give any concurrent log operations progress at turn off a chance to wrap */
+      }
+#     else
+      FD_VOLATILE( fd_log_private_file ) = NULL;
+#     endif
+      fclose( log_file );
+      sync();
+      fprintf( stderr, "Log at \"%s\"\n", fd_log_private_path );
+    }
+    fflush( stderr );
+  } FD_ONCE_END;
+}
+
+static void
 fd_log_private_sig_abort( int         sig,
                           siginfo_t * info,
                           void *      context ) {
   (void)info; (void)context;
+
   fflush( stdout );
+
+  /* Hopefully all out streams are idle now and we have flushed out
+     all non-logging activity ... log a backtrace */
 
   void * btrace[128];
   int n_btrace = backtrace( btrace, 128 );
 
-  if( fd_log_private_file ) {
-    fprintf( fd_log_private_file, "Caught signal %i, backtrace:\n", sig );
-    fflush( fd_log_private_file );
-    int fd = fileno( fd_log_private_file );
+  FILE * log_file = FD_VOLATILE_CONST( fd_log_private_file );
+  if( log_file ) {
+    fprintf( log_file, "Caught signal %i, backtrace:\n", sig );
+    fflush( log_file );
+    int fd = fileno( log_file );
     backtrace_symbols_fd( btrace, n_btrace, fd );
     fsync( fd );
-    if( strcmp( fd_log_private_path, "-" ) ) {
-      fclose( fd_log_private_file );
-      sync();
-    }
   }
 
   fprintf( stderr, "\nCaught signal %i, backtrace:\n", sig );
@@ -578,13 +636,13 @@ fd_log_private_sig_abort( int         sig,
   backtrace_symbols_fd( btrace, n_btrace, fd );
   fsync( fd );
 
-  if(      !fd_log_private_file                ) fprintf( stderr, "No log\n" );
-  else if( !strcmp( fd_log_private_path, "-" ) ) fprintf( stderr, "Log to stdout\n" );
-  else                                           fprintf( stderr, "Log at \"%s\"\n", fd_log_private_path );
+  /* Do final log cleanup */
 
-  sleep(1); /* Give application time to let log messages make it out */
+  fd_log_private_cleanup();
 
-  raise( sig ); /* Fall back on the default to get the core */
+  usleep( (useconds_t)1000000 ); /* Give some time to let streams drain */
+
+  raise( sig ); /* Contiue with the original handler (probably the default and that will produce the core) */
 }
 
 static void
@@ -715,25 +773,32 @@ fd_log_private_boot( int  *   pargc,
     ulong len; fd_cstr_printf( fd_log_private_path, 1024UL, &len, "/tmp/fd-%i.%i.%i_%lu_%s_%s_%s",
                                FD_VERSION_MAJOR, FD_VERSION_MINOR, FD_VERSION_PATCH,
                                fd_log_group_id(), fd_log_user(), fd_log_host(), tag );
-    if( len==1023UL ) FD_LOG_ERR(( "fd_log: default log path too long" ));
+    if( len==1023UL ) { fprintf( stderr, "default log path too long; unable to boot\n" ); exit(1); }
   }
   else if( log_path_sz==1UL    ) fd_log_private_path[0] = '\0'; /* User disabled */
   else if( log_path_sz<=1024UL ) memcpy( fd_log_private_path, log_path, log_path_sz ); /* User specified */
-  else                           FD_LOG_ERR(( "fd_log: --log-path too long; unable to boot" )); /* Invalid */
+  else                           { fprintf( stderr, "--log-path too long; unable to boot\n" ); exit(1); } /* Invalid */
 
+  FILE * log_file;
   if( fd_log_private_path[0]=='\0' ) {
     fprintf( stderr, "--log-path \"\"\nNo log\n" );
-    fd_log_private_file = NULL;
+    log_file = NULL;
   } else if( !strcmp( fd_log_private_path, "-" ) ) {
     fprintf( stderr, "--log-path \"-\"\nLog to stdout\n" );
-    fd_log_private_file = stdout;
+    log_file = stdout;
   } else {
     if( !log_path_sz ) fprintf( stderr, "--log-path not specified; using autogenerated path\n" );
-    fd_log_private_file = fopen( fd_log_private_path, "a" );
-    if( !fd_log_private_file ) FD_LOG_ERR(( "fd_log: fopen failed (--log-path \"%s\")", fd_log_private_path ));
+    log_file = fopen( fd_log_private_path, "a" );
+    if( !log_file ) {
+      fprintf( stderr, "fopen failed (--log-path \"%s\"); unable to boot\n", fd_log_private_path );
+      exit(1);
+    }
     fprintf( stderr, "Log at \"%s\"\n", fd_log_private_path );
   }
-  
+  FD_VOLATILE( fd_log_private_file ) = log_file;
+
+  if( atexit( fd_log_private_cleanup ) ) { fprintf( stderr, "atexit failed; unable to boot\n" ); exit(1); }
+
   /* At this point, logging online */
 
   FD_LOG_INFO(( "fd_log: --log-path          %s",  fd_log_private_path    ));
@@ -764,23 +829,18 @@ fd_log_private_halt( void ) {
   FD_LOG_INFO(( "fd_log: halting" ));
 
   fd_log_flush();
-  if( fd_log_private_file && strcmp( fd_log_private_path, "-" ) ) {
-    fclose( fd_log_private_file );
-    sync();
-  }
-  if(      !fd_log_private_file                ) fprintf( stderr, "No log\n" );
-  else if( !strcmp( fd_log_private_path, "-" ) ) fprintf( stderr, "Log to stdout\n" );
-  else                                           fprintf( stderr, "Log at \"%s\"\n", fd_log_private_path );
+  fd_log_private_cleanup();
 
   /* At this point, log is offline */
 
-  fd_log_private_file           = NULL;
   fd_log_private_path[0]        = '\0';
+/*fd_log_private_file           = NULL;*/ /* Already handled by cleanup */
+  fd_log_private_dedup          = 0;
+
   fd_log_private_level_core     = 0;
   fd_log_private_level_flush    = 0;
   fd_log_private_level_stderr   = 0;
   fd_log_private_level_logfile  = 0;
-  fd_log_private_dedup          = 0;
 
   fd_log_private_user[0]        = '\0';
   fd_log_private_tid_init       = 0;

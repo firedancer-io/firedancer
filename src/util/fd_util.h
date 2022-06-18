@@ -21,7 +21,10 @@
 
 FD_PROTOTYPES_BEGIN
 
-/* Boot/halt up all fd_util services.
+/* Boot/halt up all fd_util services.  fd_boot is intended to be called
+   explicitly once immediately after the main thread starts.  fd_halt is
+   intended to be called explicitly once immediately before normal
+   program shutdown.
 
    Command line / environment options (last option on command line takes
    precedence, command line will be stripped of these options):
