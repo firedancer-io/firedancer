@@ -5,8 +5,9 @@
 //#include "bits/fd_bits.h"  /* includes fd_util_base.h */
 //#include "cstr/fd_cstr.h"  /* includes bits/fd_bits.h */
 //#include "env/fd_env.h"    /* includes cstr/fd_cstr.h */
+//#include "log/fd_log.h"    /* includes env/fd_env.h */
 #include "rng/fd_rng.h"      /* includes bits/fd_bits.h */
-#include "log/fd_log.h"      /* includes env/fd_env.h */
+#include "tile/fd_tile.h"    /* includes log/fd_log.h */
 
 /* Additional fd_util APIs that are not included by default */
 
@@ -191,7 +192,34 @@ FD_PROTOTYPES_BEGIN
 
        Setting logfile, stderr, flush <=0 and core==4 makes the log
        maximally chatty.  Setting logfile, stderr, flush, core >7 makes
-       the log minimally chatty. */
+       the log minimally chatty.
+
+     --tile-cpus [cpu-list] / FD_TILE_CPUS=[cpu-list]
+
+       For a thread group of an application on a hosted target,
+       --tile-cpus [cpu-list] are stripped from the command line with
+       the last pair giving the list of cpus to use.  E.g.
+
+         --tile-cpus 1-3,9,7
+
+       specifies this application thread group has 5 tiles that should
+       be mapped to cpus on this host as:
+
+         tile 0 on cpu 1
+         tile 1 on cpu 2
+         tile 2 on cpu 3
+         tile 3 on cpu 9
+         tile 4 on cpu 7
+
+       The booter will become tile 0.  The cpus in the list must be
+       unique (e.g. multiple tiles cannot be assigned to the same cpu)
+       and ranges in the list ("x-y") must be non-empty (i.e. x<=y).  If
+       --tile-cpus is not provided, this thread group will be assumed to
+       be single threaded and the cpu will be whatever the OS assigned
+       to the booter.
+
+       For best results, use taskset -c [cpu for tile 0] at startup to
+       place the booter on the correct cpu from the start. */
 
 void
 fd_boot( int *    pargc,
