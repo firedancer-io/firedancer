@@ -40,7 +40,7 @@
    - FD_LOG_CRIT and above are FD_LOG_WARNING + the program will
      do a backtrace if possible to the log file and stderr and, after a
      brief delay to let any pending fd_log writes complete, aborts the
-     program (which will typically also produces a core dump).
+     program (which typically also produces a core dump).
 
    These log level names mirror the Linux syslog levels.
 
@@ -97,11 +97,11 @@
 
    - A thread will run on only one architecture for its lifetime.
 
-   - An application thread's thread id is unique all running threads
-     in an application.
+   - An application thread's thread id is unique over all running
+     threads in an application.
 
    - An application thread's thread id reasonably cheaply identifies the
-     thread group to which it belongs.
+     thread group to which the thread belongs.
 
    - Typically, the set of threads in a thread group will be constant
      for the lifetime of the thread group (but this is not strictly
@@ -412,8 +412,8 @@ fd_log_private_boot( int *    pargc,
 void
 fd_log_private_halt( void );
 
-/* These are exposed to allow that that to override the values set
-   at boot/halt time.  If these are used, they are usually a sign of
+/* These are exposed to allow the user to override the values set at
+   boot/halt time.  If these are used, they are usually a sign of
    working around a higher level architectural or operational issue. */
 
 void fd_log_private_app_id_set   ( ulong app_id    );
