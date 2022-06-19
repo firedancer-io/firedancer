@@ -137,18 +137,18 @@
 
    ! Does not assume the sign of char.  A naked char should be treated
      as cstr character and mathematical operations should be avoided on
-     them).  This is less than ideal as the patterns for integer types
-     in the C/C++ language spec itself are far more consistent with a
-     nake char naturally being treated as signed (see above).  But there
-     are lots of conflicts between architectures, languages and standard
+     them.  This is less than ideal as the patterns for integer types in
+     the C/C++ language spec itself are far more consistent with a nake
+     char naturally being treated as signed (see above).  But there are
+     lots of conflicts between architectures, languages and standard
      libraries about this so any use of a naked char shouldn't assume
      the sign ...  sigh.
 
    !! Only available if FD_HAS_INT128 is defined
 
    !!! Should only used if FD_HAS_DOUBLE is defined but see note in
-       FD_HAS_DOUBLE about the languages use of silent promotions of
-       floats in va_arg lists.
+       FD_HAS_DOUBLE about C/C++ silent promotions of float to double in
+       va_arg lists.
 
    Note also that these token names more naturally interoperate with
    integer constant declarations, type generic code generation
@@ -161,12 +161,16 @@
    are 8 / 16 / 32 / 64 twos complement integers and float is IEEE-754
    single precision.  Further assumes little endian, truncating signed
    integer divison and sign extending (arithmetic) signed right shift.
+   Also, except for int128/uint128, assumes that aligned access to these
+   will be naturally atomic.  Lastly assumes that unaligned access to
+   these is functionally valid but does not assume that unaligned access
+   to these is efficient or atomic.
 
    For values meant to be held in registers, code should prefer long /
    ulong types (improves asm generation given the prevalence of 64-bit
    targets and also to avoid lots of tricky bugs with silent promotions
-   in the language ... e.g. ushort should only be used for in-memory
-   representations).
+   in the language ... e.g. ushort should ideally only be used for
+   in-memory representations).
 
    These are currently not prefixed given how often they are used.  If
    this becomes problematic prefixes can be added as necessary.
@@ -547,13 +551,14 @@ fd_type_pun_const( void const * p ) {
 FD_PROTOTYPES_BEGIN
 
 /* fd_memcpy(d,s,sz):  On modern x86 in some circumstances, rep mov will
-   be faster than memcpy under the hood (basically due cache protocol
-   RFO optimizations in the cache protocol under the hood that aren't
-   easily done from the ISA ... see Intel docs on enhanced rep).
-   Compile time configurable though as this is not always true so the
-   application can tune to taste.  Hard to beat for code density though
-   (2 bytes) and pretty hard to beat in situations needing a completely
-   generic memcpy. */
+   be faster than memcpy under the hood (basically due to RFO /
+   read-for-ownership optimizations in the cache protocol under the hood
+   that aren't easily done from the ISA ... see Intel docs on enhanced
+   rep mov).  Compile time configurable though as this is not always
+   true.  So application can tune to taste.  Hard to beat rep mov for
+   code density though (2 bytes) and pretty hard to beat in situations
+   needing a completely generic memcpy.  But it can be beaten in
+   specialized situations for the usual reasons. */
 
 /* FIXME: CONSIDER MEMSET AND MEMCMP TOO! */
 /* FIXME: CONSIDER MEMCPY RELATED FUNC ATTRS */
