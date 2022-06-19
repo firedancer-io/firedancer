@@ -35,8 +35,8 @@ main( int     argc,
   fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
 
   ulong max = 1024UL; // FIXME: CURRENTLY SOME THINGS ARE 1024 CENTRIC IN TEST
-  //ulong max = fd_cstr_strip_cmdline_ulong( &argc, &argv, "--max", 1024UL );
-  //FD_LOG_NOTICE(( "--max %lu", max ));
+//ulong max = fd_cstr_strip_cmdline_ulong( &argc, &argv, "--max", 1024UL );
+//FD_LOG_NOTICE(( "--max %lu", max ));
 
   FD_LOG_NOTICE(( "Testing construction" ));
 
