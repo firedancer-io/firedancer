@@ -225,7 +225,7 @@ SET_(footprint)( ulong max ) {
   return sizeof(SET_(private_t))-sizeof(SET_(t)) + sizeof(SET_(t))*SET_(private_word_cnt)( max );
 }
 
-static inline void *
+FD_FN_UNUSED static void * /* Work around -Winline */
 SET_(new)( void * shmem,
            ulong  max ) {
   SET_(private_t) * hdr = (SET_(private_t) *)shmem;
