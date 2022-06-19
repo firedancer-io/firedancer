@@ -21,12 +21,12 @@
   will declare the following static inline APIs as a header only style
   library in the compilation unit:
 
-    // footprint/align - Return the footprint/alignment required for a
+    // align/footprint - Return the alignment/footprint required for a
     // memory region to be used as mymap.
     //
     // new - Format a memory region pointed to by shmem into a mymap.
-    // Assumes shmem points to a region with the required footprint and
-    // alignment not in use by anything else.  Caller is not joined on
+    // Assumes shmem points to a region with the required alignment and
+    // footprint not in use by anything else.  Caller is not joined on
     // return.  Returns shmem.
     //
     // join - Join a mymap.  Assumes shmap points at a region formatted
@@ -39,8 +39,8 @@
     // shmymap points to a formatted region with no current joins.
     // Returns a pointer to the unformated memory region.
 
-    ulong     mymap_footprint( void              );
     ulong     mymap_align    ( void              );
+    ulong     mymap_footprint( void              );
     void *    mymap_new      ( void *    shmem   );
     mymap_t * mymap_join     ( void *    shmymap );
     void *    mymap_leave    ( mymap_t * mymap   );
@@ -285,8 +285,8 @@ FD_FN_CONST static inline ulong MAP_(private_next) ( ulong      slot ) { return 
 
 /* Public APIS ********************************************************/
 
-FD_FN_CONST static inline ulong MAP_(footprint)( void ) { return sizeof(MAP_T)*MAP_SLOT_CNT; }
 FD_FN_CONST static inline ulong MAP_(align)    ( void ) { return alignof(MAP_T); }
+FD_FN_CONST static inline ulong MAP_(footprint)( void ) { return sizeof(MAP_T)*MAP_SLOT_CNT; }
 
 static inline void *
 MAP_(new)( void *  shmem ) {

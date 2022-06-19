@@ -16,13 +16,13 @@
   will declare the following static inline APIs as a header only style
   library in the compilation unit: 
 
-    // footprint/align - Return the footprint/alignment required for a
+    // align/footprint - Return the alignment/footprint required for a
     // memory region to be used as eventq that can hold up to max
     // events.
     //
     // new - Format a memory region pointed to by shmem into a eventq.
-    // Assumes shmem points to a region with the required footprint and
-    // alignment not in use by anything else.  Caller is not joined on
+    // Assumes shmem points to a region with the required alignment and
+    // footprint not in use by anything else.  Caller is not joined on
     // return.  Returns shmem.
     //
     // join - Join an eventq.  Assumes sheventq points at a region
@@ -43,8 +43,8 @@
     // sheventq points to a formatted region with no current joins.
     // Returns a pointer to the unformated memory region.
 
-    ulong     eventq_footprint( ulong      max              );
     ulong     eventq_align    ( void                        );
+    ulong     eventq_footprint( ulong      max              );
     void *    eventq_new      ( void *     shmem, ulong max );
     event_t * eventq_join     ( void *     sheventq         ); // not just a cast of sheventq
     void *    eventq_leave    ( eventq_t * heap             ); // not just a cast of eventq
@@ -339,14 +339,14 @@ PRQ_(private_fill_hole)( PRQ_T * heap,
 
 /* Public APIS ********************************************************/
 
+static inline ulong PRQ_(align)( void ) { return alignof(PRQ_(private_t)); }
+
 static inline ulong
 PRQ_(footprint)( ulong max ) {
   /* 2UL is for the dummy slots, -1UL is because PRQ_(private_t)
      includes heap root. */
   return sizeof(PRQ_(private_t)) + (max+2UL-1UL)*sizeof(PRQ_T);
 }
-
-static inline ulong PRQ_(align)( void ) { return alignof(PRQ_(private_t)); }
 
 static inline void *
 PRQ_(new)( void * mem,

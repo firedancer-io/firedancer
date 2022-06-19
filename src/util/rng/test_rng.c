@@ -20,10 +20,10 @@ main( int     argc,
 
 # define TEST(c) do if( !(c) ) { FD_LOG_WARNING(( "FAIL: " #c )); return 1; } while(0)
 
-  FD_LOG_NOTICE(( "Testing footprint / align" ));
+  FD_LOG_NOTICE(( "Testing align / footprint" ));
 
-  TEST( fd_rng_footprint()==sizeof (fd_rng_t) );
   TEST( fd_rng_align    ()==alignof(fd_rng_t) );
+  TEST( fd_rng_footprint()==sizeof (fd_rng_t) );
 
   FD_LOG_NOTICE(( "Testing new" ));
 

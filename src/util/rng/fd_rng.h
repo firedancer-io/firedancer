@@ -56,16 +56,16 @@ fd_rng_private_contract( ulong eseq ) {
   return (uint)fd_ulong_hash_inverse( eseq );
 }
 
-/* fd_rng_footprint and fd_rng_align give the needed footprint and
-   alignment for a memory region suitable to hold a fd_rng's state.
-   malloc / alloca / declaration friendly (e.g. a memory region declared
-   as "fd_rng_t _rng[1];", or created by "malloc(sizeof(fd_rng_t))" or
+/* fd_rng_{align,footprint} give the needed alignment and footprint
+   for a memory region suitable to hold a fd_rng's state.  malloc /
+   alloca / declaration friendly (e.g. a memory region declared as
+   "fd_rng_t _rng[1];", or created by "malloc(sizeof(fd_rng_t))" or
    created by "alloca(sizeof(fd_rng_t))" will all automatically have the
    needed footprint and alignment).
 
    fd_rng_new takes ownership of the memory region pointed to by mem
-   (which is assumed to be non-NULL with the appropriate footprint and
-   alignment) and formats it as a fd_rng.  The random number generator
+   (which is assumed to be non-NULL with the appropriate alignment and
+   footprint) and formats it as a fd_rng.  The random number generator
    stream will initialized to use pseudo random sequence "seq" and will
    start at slot "idx".  Returns mem (which will be formatted for use).
    The caller will not be joined to the region on return.
@@ -88,8 +88,8 @@ fd_rng_private_contract( ulong eseq ) {
    to the caller.  There should be no joins in the system on the fd_rng.
    Returns a pointer to the underlying memory region. */
 
-FD_FN_CONST static inline ulong fd_rng_footprint( void ) { return sizeof ( fd_rng_t ); }
 FD_FN_CONST static inline ulong fd_rng_align    ( void ) { return alignof( fd_rng_t ); }
+FD_FN_CONST static inline ulong fd_rng_footprint( void ) { return sizeof ( fd_rng_t ); }
 
 static inline void *
 fd_rng_new( void * mem,

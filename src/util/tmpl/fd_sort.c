@@ -20,20 +20,20 @@
 
      int sort_double_descend_stable_cnt_valid( ulong cnt );
 
-     // Return the footprint and alignment required for a scratch region
+     // Return the alignment and footprint required for a scratch region
      // adequate for sorting up to cnt elements.  The results will be
      // standard allocator and standard declaration friendly.  (E.g. a
      // declaration "double scratch[ cnt ];" will be fine as a scratch
      // region.)
 
-     ulong sort_double_descend_stable_scratch_footprint( ulong cnt );
      ulong sort_double_descend_stable_scratch_align    ( void      );
+     ulong sort_double_descend_stable_scratch_footprint( ulong cnt );
 
      // Sort key[i] for i in [0,cnt) stable in best / average / worst
      // case of O(N lg N) / O(N lg N) / O(N lg N) operations.  Scratch
-     // is a scratch workspace of suitable footprint alignment.  Returns
-     // where the sorted values ended up.  Will be at either key or
-     // (double *)scratch.
+     // is a scratch workspace of suitable alignment and footprint.
+     // Returns where the sorted values ended up.  Will be at either key
+     // or (double *)scratch.
 
      double *
      sort_double_descend_stable_fast( double * key,
@@ -578,8 +578,8 @@ FD_FN_CONST static inline int SORT_(stable_cnt_valid)( SORT_IDX_T cnt ) {
   return (!cnt) | ((((SORT_IDX_T)0)<cnt) & (cnt<max)) | (cnt==max);
 }
 
-FD_FN_CONST static inline ulong SORT_(stable_scratch_footprint)( SORT_IDX_T cnt ) { return sizeof (SORT_KEY_T)*(ulong)cnt; }
 FD_FN_CONST static inline ulong SORT_(stable_scratch_align)    ( void )           { return alignof(SORT_KEY_T); } 
+FD_FN_CONST static inline ulong SORT_(stable_scratch_footprint)( SORT_IDX_T cnt ) { return sizeof (SORT_KEY_T)*(ulong)cnt; }
 
 static inline SORT_KEY_T *
 SORT_(stable_fast)( SORT_KEY_T * key,

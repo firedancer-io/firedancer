@@ -63,8 +63,8 @@ main( int     argc,
   }
   sort_pair_inplace( ref, max );
 
-  TEST( map_footprint()==(sizeof(pair_t)*(1UL<<LG_SLOT_CNT)) );
   TEST( map_align()    ==alignof(pair_t) );
+  TEST( map_footprint()==(sizeof(pair_t)*(1UL<<LG_SLOT_CNT)) );
 
   void   * shmap = map_new ( _map  ); TEST( shmap );
   pair_t * map   = map_join( shmap ); TEST( map   );

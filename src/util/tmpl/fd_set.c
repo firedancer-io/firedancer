@@ -19,7 +19,7 @@
      ulong      my_set_align    ( void             ); // required byte alignment of a my_set_t
      ulong      my_set_footprint( void             ); // required byte footprint of a my_set_t
      void *     my_set_new      ( void     * shmem ); // format memory region into a my_set, my_set will be empty
-                                                      // (caller not joined on return, mem has required footprint/align, etc)
+                                                      // (caller not joined on return, mem has required align/foorprint, etc)
      my_set_t * my_set_join     ( void     * shset ); // join a my_set_t (unlimited joins, etc)
      void *     my_set_leave    ( my_set_t *   set ); // leave a my_set_t (matched with join, etc)
      void *     my_set_delete   ( void     * shset ); // unformat memory (no active joins, etc)
@@ -198,8 +198,8 @@ SET_(private_full_last_word)( void ) {
 
 /* Public APIs ********************************************************/
 
+FD_FN_CONST static inline ulong SET_(align)    ( void ) { return alignof(ulong); }
 FD_FN_CONST static inline ulong SET_(footprint)( void ) { return 8UL*(ulong)SET_(word_cnt); }
-FD_FN_CONST static inline ulong SET_(align    )( void ) { return alignof(ulong); }
 
 static inline void    * SET_(new)   ( void *    shmem ) { return memset( shmem, 0, SET_(footprint)() ); }
 static inline SET_(t) * SET_(join)  ( void *    shset ) { return (SET_(t) *)shset; }

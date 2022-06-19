@@ -33,6 +33,7 @@ FD_PROTOTYPES_BEGIN
 
    fd_ulong_pop_lsb    ( x          ) returns x with the least significant set bit cleared (0 returns 0).
 
+   FIXME: CONSIDER HAVING (A,X) INSTEAD OF (X,A)?
    fd_ulong_is_aligned ( x, a       ) returns 1 if x is an integral multiple of a and 0 otherwise.  U.B. if !fd_ulong_is_pow2( a )
    fd_ulong_alignment  ( x, a       ) returns x mod a.  U.B. if !fd_ulong_is_pow2( a )
    fd_ulong_align_dn   ( x, a       ) returns x rounded down to the closest multiple of a <= x.  U.B. if !fd_ulong_is_pow2( a )
