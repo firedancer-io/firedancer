@@ -1,13 +1,14 @@
 #ifndef HEADER_fd_src_util_fd_util_h
 #define HEADER_fd_src_util_fd_util_h
 
-//#include "fd_util_base.h"  /* includes stdalign.h, string.h, limits.h, float.h */
-//#include "bits/fd_bits.h"  /* includes fd_util_base.h */
-//#include "cstr/fd_cstr.h"  /* includes bits/fd_bits.h */
-//#include "env/fd_env.h"    /* includes cstr/fd_cstr.h */
-//#include "log/fd_log.h"    /* includes env/fd_env.h */
-#include "rng/fd_rng.h"      /* includes bits/fd_bits.h */
-#include "tile/fd_tile.h"    /* includes log/fd_log.h */
+//#include "fd_util_base.h"     /* includes stdalign.h, string.h, limits.h, float.h */
+//#include "bits/fd_bits.h"     /* includes fd_util_base.h */
+//#include "cstr/fd_cstr.h"     /* includes bits/fd_bits.h */
+//#include "env/fd_env.h"       /* includes cstr/fd_cstr.h */
+//#include "log/fd_log.h"       /* includes env/fd_env.h */
+#include "rng/fd_rng.h"         /* includes bits/fd_bits.h */
+#include "scratch/fd_scratch.h" /* includes log/fd_log.h */
+#include "tile/fd_tile.h"       /* includes log/fd_log.h */
 
 /* Additional fd_util APIs that are not included by default */
 
