@@ -8,6 +8,7 @@
 //#include "log/fd_log.h"       /* includes env/fd_env.h */
 #include "rng/fd_rng.h"         /* includes bits/fd_bits.h */
 #include "scratch/fd_scratch.h" /* includes log/fd_log.h */
+#include "shmem/fd_shmem.h"     /* includes log/fd_log.h */
 #include "tile/fd_tile.h"       /* includes log/fd_log.h */
 
 /* Additional fd_util APIs that are not included by default */
