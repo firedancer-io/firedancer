@@ -93,6 +93,15 @@
 #define FD_HAS_DOUBLE 0
 #endif
 
+/* FD_HAS_ALLOCA:  If the build target supports fast alloca-style
+   dynamic stack memory allocation (e.g. alloca.h / __builtin_alloca
+   more or less work normally), define FD_HAS_ALLOCA to 1 to enable use
+   of it in implementations. */
+
+#ifndef FD_HAS_ALLOCA
+#define FD_HAS_ALLOCA 0
+#endif
+
 /* FD_HAS_X86:  If the build target supports x86 specific features and
    can benefit from x86 specific optimizations, define FD_HAS_X86.  Code
    needing more specific target features (Intel / AMD / SSE / AVX2 /

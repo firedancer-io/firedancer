@@ -3,8 +3,10 @@
 #define SMAX  (16384UL)
 #define DEPTH (16UL)
 
+#if !FD_HAS_ALLOCA
 static FD_TLS uchar smem[ SMAX  ] __attribute__((aligned(FD_SCRATCH_SMEM_ALIGN)));
 static FD_TLS ulong fmem[ DEPTH ];
+#endif
 
 int
 main( int     argc,
@@ -14,6 +16,13 @@ main( int     argc,
 # define TEST(c) do if( FD_UNLIKELY( !(c) ) ) { FD_LOG_WARNING(( "FAIL: " #c )); return 1; } while(0)
 
   fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
+
+# if FD_HAS_ALLOCA
+  uchar * smem = fd_alloca( fd_scratch_smem_align(), fd_scratch_smem_footprint( SMAX  ) );
+  ulong * fmem = fd_alloca( fd_scratch_fmem_align(), fd_scratch_fmem_footprint( DEPTH ) );
+  TEST( smem ); TEST( fd_ulong_is_aligned( (ulong)smem, FD_SCRATCH_SMEM_ALIGN ) );
+  TEST( fmem ); TEST( fd_ulong_is_aligned( (ulong)fmem, FD_SCRATCH_FMEM_ALIGN ) );
+# endif
 
   TEST( fd_ulong_is_pow2( FD_SCRATCH_ALIGN_MIN     )     );
   TEST( fd_ulong_is_pow2( FD_SCRATCH_ALIGN_DEFAULT )     );

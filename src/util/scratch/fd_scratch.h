@@ -1,12 +1,18 @@
 #ifndef HEADER_src_util_spad_fd_spad_h
 #define HEADER_src_util_scratch_fd_scratch_h
 
-/* APIs for high performance scratch pad memory allocation */
+/* APIs for high performance scratch pad memory allocation.  There
+   are two allocators provided.  One is fd_alloca, which is an alignment
+   aware equivalent of alloca.  It is meant for use anywhere alloca
+   would normally be used.  This is only available if the built target
+   has the FD_HAS_ALLOCA capability.  The second as fd_scratch_alloc.
+   It is meant for use in situations that have very complex and large
+   temporary memory usage. */
 
 #include "../log/fd_log.h"
 
 /* FD_SCRATCH_USE_HANDHOLDING:  Define this to non-zero at compile time
-   to turn on additional debugging checks. */
+   to turn on additional run-time checks. */
 
 #ifndef FD_SCRATCH_USE_HANDHOLDING
 #define FD_SCRATCH_USE_HANDHOLDING 0
@@ -35,8 +41,12 @@
 #define FD_SCRATCH_ALIGN_DEFAULT (128UL) /* integer power-of-2 >=min */
 
 /* FD_SCRATCH_{SMEM,FMEM}_ALIGN give the alignment requirements for
-   regions used as scratch pad memories.  They are discussed in more
-   detail below. */
+   the memory regions used to a scratch pad memory.  There are not many
+   restrictions on the SMEM alignment practically other than it be a
+   reasonable integer power of two.  128 was picked to harmonize with
+   FD_SCRATCH_ALIGN_DEFAULT (which does have more technical motivations
+   behind its choice) but this is not strictly required.
+   FD_SCRATCH_FMEM_ALIGN is required to be sizeof(ulong). */
 
 #define FD_SCRATCH_SMEM_ALIGN (128UL) /* integer power-of-2, harmonized with ALIGN_DEFAULT */
 #define FD_SCRATCH_FMEM_ALIGN   (8UL) /* ==sizeof(ulong) but avoids bugs with some compilers */
@@ -66,19 +76,29 @@ extern FD_TLS ulong   fd_scratch_private_frame_max;
    should point to a region of huge or gigantic page backed memory on
    the caller's numa node.
    
+   A shared memory region for smem is fine for smem.  This could be used
+   for example to allow other threads / processes to access a scratch
+   allocation from this thread for the lifetime of a scratch allocation.
+
+   Even more generally, a shared memory region for both smem and fmem
+   could make it is theoretically possible to have a scratch pad memory
+   that is shared across multiple threads / processes.  The API is not
+   well designed for such though (the main reason to use fmem in shared
+   memory would be convenience and/or addiing hot swapping
+   functionality).  In the common scratch scenario, every thread would
+   attach to their local join of the shared smem and shared fmem.  But
+   since the operations below are not designed to be thread safe, the
+   threads would have to protect against concurrent use of push and pop
+   (and attach would probably need to be tweaked to make it easier to
+   attach to an already in use scratch pad).
+
    Compile time allocation is possible via the FD_SCRATCH_SMEM_ALIGN
    define.  E.g.:
 
      uchar my_smem[ MY_SMAX ] __attribute__((aligned(FD_SCRATCH_SMEM_ALIGN)));
    
    will be valid to use as a scratch smem with space for up to MY_SMAX
-   bytes.
-
-   There are not many restrictions on the alignment practically other
-   than it be a reasonable integer power of two.  128 was picked to
-   harmonize with FD_SCRATCH_ALIGN_DEFAULT (which does have more
-   technical motivations behind its choice) but this is not strictly
-   required. */
+   bytes. */
 
 FD_FN_CONST static inline ulong fd_scratch_smem_align( void ) { return (ulong)FD_SCRATCH_SMEM_ALIGN; }
 
@@ -354,6 +374,38 @@ fd_scratch_alloc_is_safe( ulong align,
   if( FD_UNLIKELY( free < smem ) ) return 0; /* sz overflow */
   return free <= fd_scratch_private_stop;
 }
+
+/* fd_alloca is variant of alloca that works like aligned_alloc.  That
+   is, it returns an allocation of sz bytes with an alignment of at
+   least align.  Like alloca, this allocation will be in the stack frame
+   of the calling function with a lifetime of until the calling function
+   returns.  Stack overflow handling is likewise identical to alloca
+   (stack overflows will overlap the top stack guard, typically
+   triggering a seg fault when the overflow region is touched that will
+   be caught and handled by the logger to terminate the calling thread
+   group).  As such, like alloca, these really should only be used for
+   smallish (<< few KiB) quick allocations in bounded recursion depth
+   circumstances.
+
+   Like fd_scratch_alloc, align must be an 0 or a non-negative integer
+   power of 2.  0 will be treated as align_default.  align smaller than
+   align_min will be bumped up to align_min.
+
+   The caller promises sz + true_align( align ) - 1 <= ULONG_MAX.
+
+   This has to be implemented as a macro for linguistic reasons.
+
+   FIXME: CONSIDER HANDHOLDING VARIANTS THAT DO MORE CHECKING AND OR USE
+   MORE ADVANCE COMPILER FEATURES HERE (E.G. __BUILTIN_ALLOCA_WITH_ALIGN
+   / __BUILTIN_ALLOCA_WITH_ALIGN_AND_MAX? */
+
+#if FD_HAS_ALLOCA
+#define fd_alloca(align,sz) (__extension__({                                                                          \
+    ulong _fd_alloca_align = fd_scratch_private_true_align( (align) ); /* compile time typically */                   \
+    ulong _fd_alloca_sz    = (sz);                                                                                    \
+    (void *)fd_ulong_align_up( (ulong)__builtin_alloca( _fd_alloca_sz + _fd_alloca_align - 1UL ), _fd_alloca_align ); \
+  }))
+#endif
 
 FD_PROTOTYPES_END
 
