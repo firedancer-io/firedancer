@@ -514,6 +514,10 @@ fd_tile_private_boot( int *    pargc,
                       char *** pargv ) {
   FD_LOG_INFO(( "fd_tile: boot" ));
 
+# if FD_HAS_X86
+  if( FD_UNLIKELY( numa_available()==-1 ) ) FD_LOG_ERR(( "fd_tile: numa_avaiable failed" ));
+# endif
+
   /* Extract the tile configuration from the command line */
 
   char const * cpus = fd_env_strip_cmdline_cstr( pargc, pargv, "--tile-cpus", "FD_TILE_CPUS", NULL );
