@@ -177,6 +177,8 @@ query() {
     fi
   done
   if [ -d $SHMEM_PATH ]; then
+    echo "FD_SHMEM_PATH=$SHMEM_PATH"
+    echo ""
     for t in $ALL_TYPES; do
       echo "$t page backed shared memory regions ($SHMEM_PATH/.$t):"
       for r in `ls $SHMEM_PATH/.$t`; do
