@@ -5,7 +5,7 @@
 
 SHMEM_PATH="${FD_SHMEM_PATH:-/mnt/.fd}"
 
-ALL_TYPES="gigantic huge"
+ALL_TYPES="gigantic huge normal"
 
 NUMA_CNT=`hwloc-calc -N numa machine:0 2> /dev/null`
 if [ "$NUMA_CNT" = "" ]; then # Handle boxes with no NUMA
@@ -13,7 +13,9 @@ if [ "$NUMA_CNT" = "" ]; then # Handle boxes with no NUMA
 fi
 
 get_page_size() {
-  if [ "$1" = "huge" ]; then
+  if [ "$1" = "normal" ]; then
+    echo 4096
+  elif [ "$1" = "huge" ]; then
     echo 2097152
   elif [ "$1" = "gigantic" ]; then
     echo 1073741824
@@ -98,15 +100,25 @@ init() {
     # system DRAM (in the proc/meminfo total memory sense) for maximum
     # flexibility.  Since the pages themselves are large, the number of
     # inodes required in the mount is still quite small practically.
-    msz=`free -b | grep Mem | awk '{ print $2 }'` # FIXME: Ugly
-    psz=`get_page_size $t`
-    msz=$((psz*(msz/psz))) # Round down to whole pages to be on safe side
+    # For normal pages, we need to use a tmpfs.
     try_defrag_memory 2> /dev/null > /dev/null
-    mount -v -t hugetlbfs -o pagesize=$psz,size=$msz none $MNT_PATH
-    if [ "$?" != "0" ]; then
-      echo "init $1 $2 $3: fail, mount failed"
-      echo "Do $0 help for help"
-      exit 1
+    if [ "$t" = "normal" ]; then
+      mount -v -t tmpfs tmpfs $MNT_PATH
+      if [ "$?" != "0" ]; then
+        echo "init $1 $2 $3: fail, mount failed"
+        echo "Do $0 help for help"
+        exit 1
+      fi
+    else
+      msz=`free -b | grep Mem | awk '{ print $2 }'` # FIXME: Ugly
+      psz=`get_page_size $t`
+      msz=$((psz*(msz/psz))) # Round down to whole pages to be on safe side
+      mount -v -t hugetlbfs -o pagesize=$psz,size=$msz none $MNT_PATH
+      if [ "$?" != "0" ]; then
+        echo "init $1 $2 $3: fail, mount failed"
+        echo "Do $0 help for help"
+        exit 1
+      fi
     fi
     try_defrag_memory 2> /dev/null > /dev/null
   done
@@ -134,9 +146,8 @@ fini() {
     for t in $ALL_TYPES; do
       umount -v $SHMEM_PATH/.$t
       if [ "$?" != "0" ]; then
-        echo "fini: fail, umount failed"
+        echo "fini: fail, umount failed; attempting to continue"
         echo "Do $0 help for help"
-        exit 1
       fi
     done
     rm -rfv $SHMEM_PATH
@@ -157,11 +168,13 @@ fini() {
 query() {
   echo ""
   for t in $ALL_TYPES; do
-    echo "$t pages:"
-    for((n=0;n<NUMA_CNT;n++)); do
-      echo -e "\tnuma $n: `get_page_total $t $n` total, `get_page_free $t $n` free"
-      echo ""
-    done
+    if [ "$t" != "normal" ]; then
+      echo "$t pages:"
+      for((n=0;n<NUMA_CNT;n++)); do
+        echo -e "\tnuma $n: `get_page_total $t $n` total, `get_page_free $t $n` free"
+        echo ""
+      done
+    fi
   done
   if [ -d $SHMEM_PATH ]; then
     for t in $ALL_TYPES; do
@@ -183,6 +196,12 @@ alloc() {
   CNT=$1
   TYPE=$2
   NUMA=$3
+
+  if [ "$TYPE" = "normal" ]; then
+    echo "alloc $1 $2 $3: fail, normal pages do not require explicit allocation"
+    echo "Do $0 help for help"
+    exit 1
+  fi
 
   T=`get_page_total $TYPE $NUMA`
   F=`get_page_free  $TYPE $NUMA`
@@ -276,7 +295,7 @@ while [ $# -gt 0 ]; do
     echo ""
     echo "  alloc [PAGE_CNT] [PAGE_TYPE] [NUMA_NODE]"
     echo "  - Reserve [PAGE_CNT] [PAGE_TYPE] DRAM-backed pages on numa [NUMA_NODE]"
-    echo "    systemwide."
+    echo "    systemwide.  Does not apply to normal pages."
     echo "  - This likely needs to run as a superuser or with sudo."
     echo ""
     echo "  free [PAGE_TYPE] [NUMA_NODE]"
