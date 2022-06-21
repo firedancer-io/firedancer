@@ -32,12 +32,21 @@
 #define FD_SHMEM_HUGE_PAGE_SZ        (2097152UL)
 #define FD_SHMEM_GIGANTIC_PAGE_SZ (1073741824UL)
 
+/* FD_SHMEM_NAME_MAX gives the maximum number of bytes needed to hold
+   the cstr with the name fd_shmem region.  That is, a valid fd_shmem
+   region name will have a strlen in [1,FD_SHMEM_NAME_MAX).  (Harmonized
+   with FD_LOG_NAME_MAX but this is not strictly required.) */
+
+#define FD_SHMEM_NAME_MAX FD_LOG_NAME_MAX
+
 /* FD_SHMEM_PAGE_SZ_CSTR_MAX is the size of a buffer large enough to
    hold an shmem page sz cstr (==strlen("gigantic")+1). */
 
 #define FD_SHMEM_PAGE_SZ_CSTR_MAX (9UL)
 
 FD_PROTOTYPES_BEGIN
+
+/* NUMA topology APIs *************************************************/
 
 /* fd_shmem_{numa,cpu}_cnt returns the number of numa nodes / logical
    cpus configured in system.  numa nodes are indexed in
@@ -55,14 +64,44 @@ FD_FN_PURE ulong fd_shmem_cpu_cnt ( void );
 
 FD_FN_PURE ulong fd_shmem_numa_idx( ulong cpu_idx );
 
-/* Parsing helpers ****************************************************/
+/* fd_shmem_create creates a shared memory region whose name is given
+   by the cstr pointed to by name backed by page_sz pages.  The region
+   consistent of page_cnt pages near cpu_idx.  mode specifies the
+   permissions for this region (the usual POSIX open umask caveats
+   apply).  Returns 0 on success and an strerror friendly error code on
+   failure (also logs extensive details on error).  Reasons for failure
+   include name is invalid (EINVAL), page_sz is invalid (EINVAL),
+   page_cnt is zero (EINVAL), cnt*page_sz overflows an off_t (EINVAL),
+   open fails (errno of the open, e.g. region with the same name and
+   page_sz in the thread domain already exists), ftruncate fails (errno
+   of ftruncate, e.g. no suitable memory available near cpu_idx), etc.
+   */
 
-/* FD_SHMEM_NAME_MAX gives the maximum number of bytes needed to hold
-   the cstr with the name fd_shmem region.  That is, a valid fd_shmem
-   region name will have a strlen in [1,FD_SHMEM_NAME_MAX).  (Harmonized
-   with FD_LOG_NAME_MAX but this is not strictly required.) */
+int                                     /* 0 on success, strerror compatible error code on failure */
+fd_shmem_create( char const * name,     /* Should point to cstr with a valid name for a shared memory region */
+                 ulong        page_sz,  /* Should be a FD_SHMEM_{NORMAL,HUGE,GIGANTIC}_PAGE_SZ */
+                 ulong        page_cnt, /* Should be positive, page_cnt*page_sz <= ULONG_MAX */
+                 ulong        cpu_idx,  /* Should be in [0,fd_shmem_cpu_cnt()) */
+                 uint         mode );   /* E.g. 0660 for user rw, group rw, world none */
 
-#define FD_SHMEM_NAME_MAX FD_LOG_NAME_MAX
+/* fd_shmem_unlink removes the name of the page_sz backed shared memory
+   in the thread groups shared memory domain such that it can no longer
+   be mapped into any thread group's address space.  The pages used for
+   that region will be freed once there are no longer in use by any
+   existing thread group.  Return 0 on success and strerror friendly
+   error code on failure (also logs extensive details on error).
+   Reasons for failure include name is invalid (EINVAL), page_sz is
+   invalid (EINVAL), unlink failed (error of the unlink, e.g. there
+   is no region backed by page_sz pages in the thread group's shared
+   memory domain currently with that name), etc. */
+
+int
+fd_shmem_unlink( char const * name,
+                 ulong        page_sz );
+
+/* FIXME: FD_SHMEM INFO */
+
+/* Parsing APIs *******************************************************/
 
 /* fd_shmem_name_len:  If name points at a cstr holding a valid name,
    returns strlen( name ) (which is guaranteed to be in
