@@ -4,6 +4,9 @@
 
 #include <ctype.h> /* For isalnum */
 
+FD_STATIC_ASSERT( FD_SHMEM_NUMA_MAX> 0L,                unit_test );
+FD_STATIC_ASSERT( FD_SHMEM_CPU_MAX >=FD_SHMEM_NUMA_MAX, unit_test );
+
 FD_STATIC_ASSERT( FD_SHMEM_NAME_MAX==FD_LOG_NAME_MAX, unit_test );
 
 FD_STATIC_ASSERT( FD_SHMEM_UNKNOWN_LG_PAGE_SZ ==-1, unit_test );
@@ -25,6 +28,17 @@ main( int     argc,
 
   fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
   
+  ulong numa_cnt = fd_shmem_numa_cnt(); TEST( (1UL<=numa_cnt) & (numa_cnt<=FD_SHMEM_NUMA_MAX) );
+  ulong cpu_cnt  = fd_shmem_cpu_cnt (); TEST( (1UL<=cpu_cnt ) & (cpu_cnt <=FD_SHMEM_CPU_MAX ) );
+  TEST( numa_cnt<=cpu_cnt );
+
+  TEST( fd_shmem_numa_idx( cpu_cnt )==ULONG_MAX );
+  for( ulong cpu_idx=0UL; cpu_idx<cpu_cnt; cpu_idx++ ) {
+    ulong numa_idx = fd_shmem_numa_idx( cpu_idx );
+    TEST( numa_idx<numa_cnt );
+    FD_LOG_NOTICE(( "cpu %lu -> numa %lu", cpu_idx, numa_idx ));
+  }
+
   TEST( !fd_shmem_name_len( NULL ) ); /* NULL name */
 
   for( int i=0; i<1000000; i++ ) {

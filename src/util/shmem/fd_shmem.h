@@ -3,11 +3,19 @@
 
 /* APIs for NUMA aware, huge and gigantic page aware manipulating shared
    memory regions.  This API is designed to interoperate with the
-   fd_shmem_cfg command and control script for host configuration. */
+   fd_shmem_cfg command and control script for host configuration.  fd
+   must be booted to use the APIs in this module. */
 
 #include "../log/fd_log.h"
 
 #if FD_HAS_HOSTED && FD_HAS_X86
+
+/* FD_SHMEM_{NUMA,CPU}_MAX give the maximum number of numa nodes and
+   logical cpus supported by fd_shmem.
+   FD_SHMEM_CPU_MAX>=FD_SHMEM_NUMA_MAX>0. */
+
+#define FD_SHMEM_NUMA_MAX (64UL)
+#define FD_SHMEM_CPU_MAX  (1024UL)
 
 /* FD_SHMEM_{UNKNOWN,NORMAL,HUGE,GIGANTIC}_{PAGE_LG_SZ,PAGE_SZ} give the
    log2 page size / page size on a hosted x86 target.  These are
@@ -24,7 +32,28 @@
 #define FD_SHMEM_HUGE_PAGE_SZ        (2097152UL)
 #define FD_SHMEM_GIGANTIC_PAGE_SZ (1073741824UL)
 
+/* FD_SHMEM_PAGE_SZ_CSTR_MAX is the size of a buffer large enough to
+   hold an shmem page sz cstr (==strlen("gigantic")+1). */
+
+#define FD_SHMEM_PAGE_SZ_CSTR_MAX (9UL)
+
 FD_PROTOTYPES_BEGIN
+
+/* fd_shmem_{numa,cpu}_cnt returns the number of numa nodes / logical
+   cpus configured in system.  numa nodes are indexed in
+   [0,fd_shmem_numa_cnt()) where fd_shmem_numa_cnt() is in
+   [1,FD_SHMEM_NUMA_MAX] and simiarly for logical cpus.  This value is
+   determined at thread group boot.  cpu_cnt>=numa_cnt. */
+
+FD_FN_PURE ulong fd_shmem_numa_cnt( void );
+FD_FN_PURE ulong fd_shmem_cpu_cnt ( void );
+
+/* fd_shmem_numa_idx returns the closest numa node to the given logical
+   cpu_idx.  Given a cpu_idx in [0,fd_shmem_cpu_cnt()), returns a value
+   in [0,fd_shmem_numa_cnt()).  Returns ULONG_MAX otherwise.  The cpu ->
+   numa mapping is determined at thread group boot. */
+
+FD_FN_PURE ulong fd_shmem_numa_idx( ulong cpu_idx );
 
 /* Parsing helpers ****************************************************/
 
@@ -44,6 +73,14 @@ FD_PROTOTYPES_BEGIN
 
 FD_FN_PURE ulong fd_shmem_name_len( char const * name );
 
+/* fd_shmem_page_sz_valid:  Returns 1 if page_sz is a valid page size
+   or 0 otherwise. */
+
+FD_FN_CONST static inline int
+fd_shmem_is_page_sz( ulong page_sz ) {
+  return (page_sz==FD_SHMEM_NORMAL_PAGE_SZ) | (page_sz==FD_SHMEM_HUGE_PAGE_SZ) | (page_sz==FD_SHMEM_GIGANTIC_PAGE_SZ);
+}
+
 /* fd_cstr_to_shmem_lg_page_sz:  Convert a cstr pointed to by cstr to
    a shmem log2 page size (guaranteed to be one of
    FD_SHMEM_*_LG_PAGE_SZ) via case insensitive comparison with various
@@ -59,7 +96,8 @@ fd_cstr_to_shmem_lg_page_sz( char const * cstr );
    be non-NULL with an infinite lifetime.  If lg_page_sz is not a valid
    shmem log2 page size, the cstr will be "unknown".  Otherwise, the
    returned cstr is guaranteed to be compatible with
-   fd_cstr_to_shmem_lg_page_sz / fd_cstr_to_shmem_page_sz. */
+   fd_cstr_to_shmem_lg_page_sz / fd_cstr_to_shmem_page_sz.  strlen of
+   the returned result will be in in [1,FD_SHMEM_PAGE_SZ_CSTR_MAX]. */
 
 FD_FN_CONST char const *
 fd_shmem_lg_page_sz_to_cstr( int lg_page_sz );
@@ -79,7 +117,8 @@ fd_cstr_to_shmem_page_sz( char const * cstr );
    infinite lifetime.  If page_sz is not a valid shmem page size, the
    cstr will be "unknown".  Otherwise, the returned cstr is guaranteed
    to be compatible with fd_cstr_to_shmem_lg_page_sz /
-   fd_cstr_to_shmem_page_sz. */
+   fd_cstr_to_shmem_page_sz.  strlen of the returned result in
+   [1,FD_SHMEM_PAGE_SZ_CSTR_MAX].  */
 
 FD_FN_CONST char const *
 fd_shmem_page_sz_to_cstr( ulong page_sz );
