@@ -88,5 +88,18 @@ FD_PROTOTYPES_END
 
 #endif /* FD_HAS_HOSTED && FD_HAS_X86 */
 
+/* These functions are for fd_shmem internal use only. */
+
+FD_PROTOTYPES_BEGIN
+
+void
+fd_shmem_private_boot( int *    pargc,
+                       char *** pargv );
+
+void
+fd_shmem_private_halt( void );
+
+FD_PROTOTYPES_END
+
 #endif /* HEADER_fd_src_util_shmem_fd_shmem_h */
 

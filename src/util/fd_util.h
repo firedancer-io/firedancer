@@ -196,6 +196,12 @@ FD_PROTOTYPES_BEGIN
        maximally chatty.  Setting logfile, stderr, flush, core >7 makes
        the log minimally chatty.
 
+     --shmem-path [path] / FD_SHMEM_PATH=[path]
+
+       Give the location of the hugetlbs mounts for the shared memory
+       domain this thread group will use.  Defaults to "/mnt/.fd" if not
+       specified.  Ignored if not a hosted x86 implementation.
+
      --tile-cpus [cpu-list] / FD_TILE_CPUS=[cpu-list]
 
        For a thread group of an application on a hosted target,
