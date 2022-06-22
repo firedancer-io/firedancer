@@ -66,16 +66,23 @@ FD_FN_PURE ulong fd_shmem_numa_idx( ulong cpu_idx );
 
 /* fd_shmem_create creates a shared memory region whose name is given
    by the cstr pointed to by name backed by page_sz pages.  The region
-   consistent of page_cnt pages near cpu_idx.  mode specifies the
+   will consist of page_cnt pages near cpu_idx.  mode specifies the
    permissions for this region (the usual POSIX open umask caveats
-   apply).  Returns 0 on success and an strerror friendly error code on
-   failure (also logs extensive details on error).  Reasons for failure
-   include name is invalid (EINVAL), page_sz is invalid (EINVAL),
-   page_cnt is zero (EINVAL), cnt*page_sz overflows an off_t (EINVAL),
-   open fails (errno of the open, e.g. region with the same name and
-   page_sz in the thread domain already exists), ftruncate fails (errno
-   of ftruncate, e.g. no suitable memory available near cpu_idx), etc.
-   */
+   apply).
+
+   Returns 0 on success and an strerror friendly error code on failure
+   (also logs extensive details on error).  Reasons for failure include
+   name is invalid (EINVAL), page_sz is invalid (EINVAL), page_cnt is
+   zero (EINVAL), cnt*page_sz overflows an off_t (EINVAL), open fails
+   (errno of the open, e.g. region with the same name and page_sz in the
+   thread domain already exists), ftruncate fails (errno of ftruncate,
+   e.g. no suitable memory available near cpu_idx), etc.
+
+   Note that each page_sz has its own namespace.  As such, names are
+   unique over caller's shared memory domain for a given page_sz.  Names
+   can be reused between two different page_sz (and such will correspond
+   to two unrelated mappings).  Generally, it is a good idea to have
+   unique names over all page_sz but this is not required. */
 
 int                                     /* 0 on success, strerror compatible error code on failure */
 fd_shmem_create( char const * name,     /* Should point to cstr with a valid name for a shared memory region */
@@ -85,21 +92,52 @@ fd_shmem_create( char const * name,     /* Should point to cstr with a valid nam
                  uint         mode );   /* E.g. 0660 for user rw, group rw, world none */
 
 /* fd_shmem_unlink removes the name of the page_sz backed shared memory
-   in the thread groups shared memory domain such that it can no longer
-   be mapped into any thread group's address space.  The pages used for
-   that region will be freed once there are no longer in use by any
-   existing thread group.  Return 0 on success and strerror friendly
-   error code on failure (also logs extensive details on error).
-   Reasons for failure include name is invalid (EINVAL), page_sz is
-   invalid (EINVAL), unlink failed (error of the unlink, e.g. there
-   is no region backed by page_sz pages in the thread group's shared
-   memory domain currently with that name), etc. */
+   region in the thread group's shared memory domain such that it can no
+   longer be mapped into a thread group's address space.  The pages used
+   for that region will be freed once there are no longer in use by any
+   existing thread group.
+
+   Return 0 on success and strerror friendly error code on failure (also
+   logs extensive details on error).  Reasons for failure include name
+   is invalid (EINVAL), page_sz is invalid (EINVAL), unlink failed
+   (error of the unlink, e.g. there is no region backed by page_sz pages
+   in the thread group's shared memory domain currently with that name),
+   etc. */
 
 int
 fd_shmem_unlink( char const * name,
                  ulong        page_sz );
 
-/* FIXME: FD_SHMEM INFO */
+/* fd_shmem_info returns info about the given page_sz backed shared
+   memory region in the thread groups' shared memory domain.  If the
+   page_sz is zero, the page size will be discovered.  If there are
+   multiple regions with different page sizes but the same name, the
+   region backed by the largest (non-atomic) page size will be queried.
+
+   Returns 0 on success and a strerror friendly error code on failure
+   (logs extensive details on error with the exception of ENOENT / there
+   is no region with that name so that existence checks can be done
+   without generating excessive log chatter).  Reasons for failure
+   include name is invalid (EINVAL), page_sz is invalid (EINVAL), open
+   failed (error of the open, e.g. there is no region), stat failed
+   (error of the stat) or the mounts have been corrupted (EFAULT).
+
+   On success, if opt_buf is non-NULL, *opt_buf will contain additional
+   metadata about the region as observed at some point between when the
+   call was made and when it returned.  On failure, *opt_buf not be
+   touched. */
+
+struct fd_shmem_info {
+  ulong page_sz;
+  ulong page_cnt;
+};
+
+typedef struct fd_shmem_info fd_shmem_info_t;
+
+int
+fd_shmem_info( char const *      name,
+               ulong             page_sz,
+               fd_shmem_info_t * opt_info );
 
 /* Parsing APIs *******************************************************/
 

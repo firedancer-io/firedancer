@@ -15,6 +15,7 @@
 #include <fcntl.h>
 #include <linux/mempolicy.h>
 #include <numaif.h>
+#include <sys/stat.h>
 #include <sys/mman.h>
 
 /* NUMA TOPOLOGY APIS *************************************************/
@@ -37,8 +38,8 @@ ulong fd_shmem_numa_idx( ulong cpu_idx ) {
      -> BASE_MAX-1  +2           +PAGE_MAX-1  +1          +NAME_MAX-1  +1 == BUF_MAX
      -> BASE_MAX == BUF_MAX - NAME_MAX - PAGE_MAX - 1 */
 
-#define FD_SHMEM_PRIVATE_PATH_BUF_MAX  (256UL)
-#define FD_SHMEM_PRIVATE_BASE_MAX (FD_SHMEM_PRIVATE_PATH_BUF_MAX-FD_SHMEM_NAME_MAX-FD_SHMEM_PAGE_SZ_CSTR_MAX-1UL)
+#define FD_SHMEM_PRIVATE_PATH_BUF_MAX (256UL)
+#define FD_SHMEM_PRIVATE_BASE_MAX     (FD_SHMEM_PRIVATE_PATH_BUF_MAX-FD_SHMEM_NAME_MAX-FD_SHMEM_PAGE_SZ_CSTR_MAX-1UL)
 
 static char  fd_shmem_private_base[ FD_SHMEM_PRIVATE_BASE_MAX ]; /* ""  at thread group start, initialized at boot */
 static ulong fd_shmem_private_base_len;                          /* 0UL at ",                  initialized at boot */
@@ -255,6 +256,59 @@ fd_shmem_unlink( char const * name,
     return errno;
   }
 
+  return 0;
+}
+
+int
+fd_shmem_info( char const *      name,
+               ulong             page_sz,
+               fd_shmem_info_t * opt_info ) {
+
+  if( FD_UNLIKELY( !fd_shmem_name_len( name ) ) ) { FD_LOG_WARNING(( "bad name (%s)", name )); return EINVAL; }
+
+  if( !page_sz ) {
+    if( !fd_shmem_info( name, FD_SHMEM_GIGANTIC_PAGE_SZ, opt_info ) ) return 0;
+    if( !fd_shmem_info( name, FD_SHMEM_HUGE_PAGE_SZ,     opt_info ) ) return 0;
+    if( !fd_shmem_info( name, FD_SHMEM_NORMAL_PAGE_SZ,   opt_info ) ) return 0;
+    return ENOENT;
+  }
+
+  if( FD_UNLIKELY( !fd_shmem_is_page_sz( page_sz ) ) ) { FD_LOG_WARNING(( "bad page_sz (%lu)", page_sz )); return EINVAL; }
+
+  char path[ FD_SHMEM_PRIVATE_PATH_BUF_MAX ];
+  int  fd = open( fd_shmem_private_path( name, page_sz, path ), O_RDONLY, (mode_t)0 );
+  if( FD_UNLIKELY( fd==-1 ) ) return errno; /* no logging here as this might be an existence check */
+
+  struct stat stat[1];
+  if( FD_UNLIKELY( fstat( fd, stat ) ) ) {
+    FD_LOG_WARNING(( "fstat failed (%i-%s)", errno, strerror( errno ) ));
+    int err = errno;
+    if( FD_UNLIKELY( close( fd ) ) )
+      FD_LOG_WARNING(( "close(\"%s\") failed (%i-%s); attempting to continue", path, errno, strerror( errno ) ));
+    return err;
+  }
+
+  ulong sz = (ulong)stat->st_size;
+  if( FD_UNLIKELY( !fd_ulong_is_aligned( sz, page_sz ) ) ) {
+    FD_LOG_WARNING(( "\"%s\" size (%lu) not a page size (%lu) multiple\n\t"
+                     "This thread group's hugetlbfs mount path (--shmem-path / FD_SHMEM_PATH):\n\t"
+                     "\t%s\n\t"
+                     "has probably been corrupted and needs to be redone.\n\t"
+                     "See 'bin/fd_shmem_cfg help' for more information.",
+                     path, sz, page_sz, fd_shmem_private_base ));
+    if( FD_UNLIKELY( close( fd ) ) )
+      FD_LOG_WARNING(( "close(\"%s\") failed (%i-%s); attempting to continue", path, errno, strerror( errno ) ));
+    return EFAULT;
+  }
+  ulong page_cnt = sz / page_sz;
+
+  if( FD_UNLIKELY( close( fd ) ) )
+    FD_LOG_WARNING(( "close(\"%s\") failed (%i-%s); attempting to continue", path, errno, strerror( errno ) ));
+
+  if( opt_info ) {
+    opt_info->page_sz  = page_sz;
+    opt_info->page_cnt = page_cnt;
+  }
   return 0;
 }
 

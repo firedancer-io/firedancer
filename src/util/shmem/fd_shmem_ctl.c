@@ -1,6 +1,8 @@
 #include "../fd_util.h"
 
 #if FD_HAS_HOSTED
+#include <stdio.h>
+#include <errno.h>
 #include <sys/stat.h>
 #endif
 
@@ -39,8 +41,16 @@ main( int     argc,
         "\n\t"
         "\tunlink name page_sz\n\t"
         "\t- Unlinks a page_sz page backed shared memory region named name.\n\t"
-        "\t  If page_sz is zero, shared memory region backed by the largest\n\t"
-        "\t  page size will be deleted."
+        "\t- If page_sz is zero, this will attempt to detected the page_sz\n\t"
+        "\t  If there are multiple with the same name, one will be\n\t"
+        "\t  deleted (typically the one backed by the largest page_sz)\n\t"
+        "\n\t"
+        "\tquery name page_sz\n\t"
+        "\t- Pretty prints info to stdout and log (INFO) about a shared\n\t"
+        "\t  memory region named name.\n\t"
+        "\t- If page_sz is zero, this will attempt to detected the page_sz\n\t"
+        "\t  If there are multiple with the same name, one will be\n\t"
+        "\t  queried (typically the one backed by the largest page_sz)\n\t"
         "\n\t", bin ));
       FD_LOG_NOTICE(( "%i: %s %s: success", cnt, bin, cmd ));
 
@@ -71,11 +81,45 @@ main( int     argc,
       ulong        page_sz  = fd_cstr_to_shmem_page_sz( argv[1] );
 
       if( !page_sz ) {
-        FD_LOG_ERR(( "%i: %s %s %s: FIXME: IMPLEMENT THIS\n\tDo %s help for help", cnt, cmd, name, argv[1], bin ));
+        fd_shmem_info_t info[1];
+        if( FD_UNLIKELY( fd_shmem_info( name, page_sz, info ) ) )
+          FD_LOG_ERR(( "%i: %s %s %s: not found\n\tDo %s help for help", cnt, cmd, name, argv[1], bin ));
+        page_sz = info->page_sz;
       }
 
       if( FD_UNLIKELY( fd_shmem_unlink( name, page_sz ) ) )
         FD_LOG_ERR(( "%i: %s %s %s: FAIL\n\tDo %s help for help", cnt, cmd, name, argv[1], bin ));
+
+      FD_LOG_NOTICE(( "%i: %s %s %s: success", cnt, cmd, name, argv[1]));
+      SHIFT(2);
+
+    } else if( !strcmp( cmd, "query" ) ) {
+
+      if( FD_UNLIKELY( argc<2 ) ) FD_LOG_ERR(( "%i: %s: too few arguments\n\tDo %s help for help", cnt, cmd, bin ));
+
+      char const * name     =                           argv[0];
+      ulong        page_sz  = fd_cstr_to_shmem_page_sz( argv[1] );
+
+      fd_shmem_info_t info[1];
+      int err = fd_shmem_info( name, page_sz, info );
+      if( FD_UNLIKELY( err ) ) {
+#       if FD_HAS_HOSTED
+        if( FD_UNLIKELY( err!=ENOENT ) ) FD_LOG_ERR(( "%i: %s %s %s: FAIL\n\tDo %s help for help", cnt, cmd, name, argv[1], bin ));
+        /* FIXME: ALLOW PERMISSIONS CASES TO NOT FAIL? */
+#       endif
+        FD_LOG_INFO(( "query %s: 0 %lu", name, page_sz ));
+#       if FD_HAS_HOSTED
+        fprintf( stdout, "query %s: 0 %lu\n", name, page_sz );
+#       endif
+
+      } else {
+
+        FD_LOG_INFO(( "query %s: %lu %lu", name, info->page_cnt, info->page_sz ));
+#       if FD_HAS_HOSTED
+        fprintf( stdout, "query %s: %lu %lu\n", name, info->page_cnt, info->page_sz );
+#       endif
+
+      }
 
       FD_LOG_NOTICE(( "%i: %s %s %s: success", cnt, cmd, name, argv[1]));
       SHIFT(2);
