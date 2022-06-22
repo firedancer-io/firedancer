@@ -61,7 +61,7 @@ fd_shmem_create( char const * name,
 
   /* Check input args */
 
-  if( FD_UNLIKELY( !fd_shmem_name_len( name ) ) ) { FD_LOG_WARNING(( "bad name (%s)", name )); return EINVAL; }
+  if( FD_UNLIKELY( !fd_shmem_name_len( name ) ) ) { FD_LOG_WARNING(( "bad name (%s)", name ? name : "NULL" )); return EINVAL; }
 
   if( FD_UNLIKELY( !fd_shmem_is_page_sz( page_sz ) ) ) { FD_LOG_WARNING(( "bad page_sz (%lu)", page_sz )); return EINVAL; }
 
@@ -245,7 +245,7 @@ fd_shmem_unlink( char const * name,
 
   /* Check input args */
 
-  if( FD_UNLIKELY( !fd_shmem_name_len( name ) ) ) { FD_LOG_WARNING(( "bad name (%s)", name )); return EINVAL; }
+  if( FD_UNLIKELY( !fd_shmem_name_len( name ) ) ) { FD_LOG_WARNING(( "bad name (%s)", name ? name : "NULL" )); return EINVAL; }
 
   if( FD_UNLIKELY( !fd_shmem_is_page_sz( page_sz ) ) ) { FD_LOG_WARNING(( "bad page_sz (%lu)", page_sz )); return EINVAL; }
 
@@ -264,7 +264,7 @@ fd_shmem_info( char const *      name,
                ulong             page_sz,
                fd_shmem_info_t * opt_info ) {
 
-  if( FD_UNLIKELY( !fd_shmem_name_len( name ) ) ) { FD_LOG_WARNING(( "bad name (%s)", name )); return EINVAL; }
+  if( FD_UNLIKELY( !fd_shmem_name_len( name ) ) ) { FD_LOG_WARNING(( "bad name (%s)", name ? name : "NULL" )); return EINVAL; }
 
   if( !page_sz ) {
     if( !fd_shmem_info( name, FD_SHMEM_GIGANTIC_PAGE_SZ, opt_info ) ) return 0;
