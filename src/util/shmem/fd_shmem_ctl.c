@@ -1,10 +1,10 @@
 #include "../fd_util.h"
 
-#if FD_HAS_HOSTED
+#if FD_HAS_HOSTED && FD_HAS_X86
+
 #include <stdio.h>
 #include <errno.h>
 #include <sys/stat.h>
-#endif
 
 int
 main( int     argc,
@@ -16,9 +16,7 @@ main( int     argc,
   char const * bin = argv[0];
   SHIFT(1);
   
-# if FD_HAS_HOSTED
   umask( (mode_t)0 ); /* So mode setting gets respected */
-# endif
 
   int cnt = 0;
   while( argc ) {
@@ -64,8 +62,6 @@ main( int     argc,
       ulong        cpu_idx  = fd_cstr_to_ulong        ( argv[3] );
       uint         mode     = fd_cstr_to_uint         ( argv[4] );
 
-      /* FIXME: CONSIDER SETTING THE UMASK HERE? */
-
       if( FD_UNLIKELY( fd_shmem_create( name, page_sz, page_cnt, cpu_idx, mode ) ) )
         FD_LOG_ERR(( "%i: %s %s %lu %s %lu 0%03o: FAIL\n\t"
                      "Do %s help for help", cnt, cmd, name, page_cnt, argv[2], cpu_idx, mode, bin ));
@@ -83,7 +79,7 @@ main( int     argc,
       if( !page_sz ) {
         fd_shmem_info_t info[1];
         if( FD_UNLIKELY( fd_shmem_info( name, page_sz, info ) ) )
-          FD_LOG_ERR(( "%i: %s %s %s: not found\n\tDo %s help for help", cnt, cmd, name, argv[1], bin ));
+          FD_LOG_ERR(( "%i: %s %s %s: not found or bad permissions\n\tDo %s help for help", cnt, cmd, name, argv[1], bin ));
         page_sz = info->page_sz;
       }
 
@@ -140,3 +136,17 @@ main( int     argc,
   return 0;
 }
 
+#else
+
+int
+main( int     argc,
+      char ** argv ) {
+  fd_boot( &argc, &argv );
+  if( FD_UNLIKELY( argc<1 ) ) FD_LOG_ERR(( "No arguments" ));
+  if( FD_UNLIKELY( argc>1 ) ) FD_LOG_ERR(( "fd_shmem_ctl not supported on this platform" ));
+  FD_LOG_NOTICE(( "processed 0 commands" ));
+  fd_halt();
+  return 0;
+}
+
+#endif
