@@ -1,22 +1,31 @@
+#if FD_HAS_THREADS && FD_HAS_X86 /* THREADS implies HOSTED */
+#define _GNU_SOURCE
+#endif
+
+#include "fd_shmem_private.h"
+
 #if FD_HAS_HOSTED && FD_HAS_X86
 
-#define _GNU_SOURCE
-#include "fd_shmem.h"
+/* Note: There is an error in system headers (on RHEL8 at least) such
+   that linux/mempolicy.h must be before numaif.h */
 
-/* Hideously ugly ... there is an error in system headers (on RHEL8 at
-   least) such that linux/mempolicy.h must be before numaif.h when
-   _GNU_SOURCE is defined (which is needed for MADV_DONTDUMP). */
-
-#include <errno.h>
 #include <ctype.h>
 #include <strings.h>
-#include <numa.h>
+#include <errno.h>
 #include <unistd.h>
 #include <fcntl.h>
+#include <numa.h>
 #include <linux/mempolicy.h>
 #include <numaif.h>
-#include <sys/stat.h>
 #include <sys/mman.h>
+#include <sys/stat.h>
+
+#if FD_HAS_THREADS
+pthread_mutex_t fd_shmem_private_lock[1] = { PTHREAD_RECURSIVE_MUTEX_INITIALIZER_NP };
+#endif
+
+char  fd_shmem_private_base[ FD_SHMEM_PRIVATE_BASE_MAX ]; /* ""  at thread group start, initialized at boot */
+ulong fd_shmem_private_base_len;                          /* 0UL at ",                  initialized at boot */
 
 /* NUMA TOPOLOGY APIS *************************************************/
 
@@ -33,24 +42,6 @@ ulong fd_shmem_numa_idx( ulong cpu_idx ) {
 }
 
 /* SHMEM REGION CREATION AND DESTRUCTION ******************************/
-
-/* Want strlen(base)+strlen("/.")+strlen(page)+strlen("/")+strlen(name)+1 <= BUF_MAX
-     -> BASE_MAX-1  +2           +PAGE_MAX-1  +1          +NAME_MAX-1  +1 == BUF_MAX
-     -> BASE_MAX == BUF_MAX - NAME_MAX - PAGE_MAX - 1 */
-
-#define FD_SHMEM_PRIVATE_PATH_BUF_MAX (256UL)
-#define FD_SHMEM_PRIVATE_BASE_MAX     (FD_SHMEM_PRIVATE_PATH_BUF_MAX-FD_SHMEM_NAME_MAX-FD_SHMEM_PAGE_SZ_CSTR_MAX-1UL)
-
-static char  fd_shmem_private_base[ FD_SHMEM_PRIVATE_BASE_MAX ]; /* ""  at thread group start, initialized at boot */
-static ulong fd_shmem_private_base_len;                          /* 0UL at ",                  initialized at boot */
-
-static inline char *                         /* ==buf always */
-fd_shmem_private_path( char const * name,    /* Valid name */
-                       ulong        page_sz, /* Valid page size (normal, huge, gigantic) */
-                       char *       buf ) {  /* Non-NULL with FD_SHMEM_PRIVATE_PATH_BUF_MAX bytes */
-  return fd_cstr_printf( buf, FD_SHMEM_PRIVATE_PATH_BUF_MAX, NULL, "%s/.%s/%s",
-                         fd_shmem_private_base, fd_shmem_page_sz_to_cstr( page_sz ), name );
-}
 
 int
 fd_shmem_create( char const * name,
@@ -75,11 +66,15 @@ fd_shmem_create( char const * name,
   ulong sz       = page_cnt*page_sz;
   ulong numa_idx = fd_shmem_numa_idx( cpu_idx );
 
+  /* We use the FD_SHMEM_LOCK in create just to be safe given some
+     thread safety ambiguities in the documentation for some of the
+     below APIs. */
+
+  FD_SHMEM_LOCK;
+
   int err;
 # define ERROR( cleanup ) do { err = errno; goto cleanup; } while(0)
 
-  /* FIXME: CONSIDER USING A TURNSTILE HERE IN CASE THERE IS ANY
-     WONKINESS WITH THREAD SAFETY OF SOME OF THESE APIS. */
   /* FIXME: PORT THIS METHODOLOGY OVER TILE STACK CREATION? */
 
   int    orig_mempolicy;
@@ -217,12 +212,6 @@ fd_shmem_create( char const * name,
 
   err = 0;
 
-  /* Recommend we don't dump this region to avoid large shared mappings
-     in concurrent use by multiple processes destoring the system with
-     core files if the mapping gets corrupted. */
-
-  if( FD_UNLIKELY( madvise( shmem, sz, MADV_DONTDUMP ) ) )
-    FD_LOG_WARNING(( "madvise(\"%s\",%lu KiB) failed (%i-%s); attempting to continue", path, sz>>10, errno, strerror( errno ) ));
 unmap:
   if( FD_UNLIKELY( munmap( shmem, sz ) ) )
     FD_LOG_WARNING(( "munmap(\"%s\",%lu KiB) failed (%i-%s); attempting to continue", path, sz>>10, errno, strerror( errno ) ));
@@ -235,6 +224,7 @@ restore:
   if( FD_UNLIKELY( set_mempolicy( orig_mempolicy, &orig_nodemask, FD_SHMEM_NUMA_MAX ) ) )
     FD_LOG_WARNING(( "set_mempolicy failed (%i-%s); attempting to continue", errno, strerror( errno ) ));
 done:
+  FD_SHMEM_UNLOCK;
   return err;
 }
 
@@ -448,8 +438,6 @@ fd_shmem_private_halt( void ) {
 }
 
 #else /* unhosted or not x86 */
-
-#include "fd_shmem.h"
 
 void
 fd_shmem_private_boot( int *    pargc,

@@ -1,14 +1,29 @@
 #ifndef HEADER_fd_src_util_shmem_fd_shmem_h
 #define HEADER_fd_src_util_shmem_fd_shmem_h
 
-/* APIs for NUMA aware, huge and gigantic page aware manipulating shared
-   memory regions.  This API is designed to interoperate with the
-   fd_shmem_cfg command and control script for host configuration.  fd
-   must be booted to use the APIs in this module. */
+/* APIs for NUMA aware and page size aware manipulation of complex
+   interprocess shared memory topologies.  This API is designed to
+   interoperate with the fd_shmem_cfg command and control script for
+   host configuration.  fd must be booted to use the APIs in this
+   module. */
 
 #include "../log/fd_log.h"
 
 #if FD_HAS_HOSTED && FD_HAS_X86
+
+/* FD_SHMEM_JOIN_MAX gives the maximum number of unique fd shmem regions
+   that can be in mapped concurrently into the thread group's local
+   address space.  Should be positive.  Powers of two minus 1 have good
+   Feng Shui but this is not strictly required. */
+
+#define FD_SHMEM_JOIN_MAX (255UL)
+
+/* FD_SHMEM_JOIN_MODE_* are used to specify how a memory region should
+   be initialy mapped into the thread group's local address space by
+   fd_shmem_join. */
+
+#define FD_SHMEM_JOIN_MODE_READ_ONLY   (0)
+#define FD_SHMEM_JOIN_MODE_READ_WRITE  (1)
 
 /* FD_SHMEM_{NUMA,CPU}_MAX give the maximum number of numa nodes and
    logical cpus supported by fd_shmem.
@@ -44,9 +59,157 @@
 
 #define FD_SHMEM_PAGE_SZ_CSTR_MAX (9UL)
 
+/* fd_shmem_private_key_t is for internal use (tmpl/fd_map
+   interoperability). */
+
+struct fd_shmem_private_key {
+  char cstr[ FD_SHMEM_JOIN_MAX ];
+};
+
+typedef struct fd_shmem_private_key fd_shmem_private_key_t;
+
+/* A fd_shmem_join_info_t used by various APIs to provide low level
+   details about a join. */
+
+struct fd_shmem_join_info {
+  long   ref_cnt;  /* Number of joins, -1L indicates a join/leave is in progress.
+                      Will be -1 the join is in join/leave func and positive otherwise. */
+  void * join;     /* Local join handle (i.e. what join_func returned).  Will be NULL in a call join func. */
+  void * shmem;    /* Location in the thread group local address space of name.  Will be non-NULL and page_sz aligned. */
+  ulong  page_sz;  /* Page size unsed for the region.  Will be a supported page size (e.g. non-zero integer power-of-two) */
+  ulong  page_cnt; /* Number of pages in the region.  Will be non-zero, page_sz*page_cnt will not overflow */
+  int    mode;     /* Will be in FD_SHMEM_JOIN_MODE_{READ_ONLY,READ_WRITE}.  Attemping to execute and (if read-only) write in the
+                      shmem region will fault the thread group. */
+  uint   hash;     /* Will be (uint)fd_hash( 0UL, name, FD_SHMEM_NAME_MAX ) */
+  union {
+    char                   name[ FD_SHMEM_NAME_MAX ]; /* cstr with the region name at join time (guaranteed '\0' terminated) */
+    fd_shmem_private_key_t key;                       /* For easy interoperability tmpl/fd_map.h */
+  };
+};
+
+typedef struct fd_shmem_join_info fd_shmem_join_info_t;
+
+/* A fd_shmem_joinleave_func_t is optionally used by fd_shmem_join /
+   fd_shmem_leave to wrap / unwrap a shared memory region with
+   additional thread group local context when it is mapped / unmapped. */
+
+typedef void *
+(*fd_shmem_joinleave_func_t)( void *                       context,
+                              fd_shmem_join_info_t const * join_info );
+
+/* A fd_shmem_info_t used by various APIs to provide low level details
+   of a shared memory region. */
+
+struct fd_shmem_info {
+  ulong page_sz;  /* page size of the region, will be a suported page size (e.g. non-zero, integer power of two) */
+  ulong page_cnt; /* number of pages in the region, will be positive, page_sz*page_cnt will not overflow */
+};
+
+typedef struct fd_shmem_info fd_shmem_info_t;
+
 FD_PROTOTYPES_BEGIN
 
-/* NUMA topology APIs *************************************************/
+/* User APIs **********************************************************/
+
+/* fd_shmem_{join,leave} joins/leaves the caller to/from a named fd
+   shared memory region.
+
+   It is very convenient to be able to join the same region multiple
+   times within a thread group.  And it is safe and reasonably efficient
+   to do so (O(1) but neither lockfree nor ultra HPC).  To facilitate
+   this, when a join requires mapping the region into the thread group's
+   local address space (e.g. the first join to the region in the thread
+   group), this will try to discover the page size that is backing the
+   region (if there multiple regions with same name, this will try to
+   join the one backed by the largest page size).  Then the region is
+   mapped into the address appropriately for the given access mode
+   (FD_SHMEM_JOIN_MODE_{READ_ONLY,READ_WRITE}).  Lastly, any user
+   provided fd_shmem_join_func_t is the mapping.
+
+   A fd_shmem_join_func_t is meant to do any additional local address
+   translations and what not as a one-time upfront cost on behalf of all
+   subsequent joins.  It is called if the underlying shared memory needs
+   to be mapped into the thread group's address space and ignored
+   otherwise.  The input to a join_func is a pointer to any user context
+   (i.e. the context passed to fd_shmem_join) and a pointer to
+   information about the region (lifetime is the duration of the call
+   and should not be assumed to be longer).
+
+   On success, a join_func returns a the join that wraps the shmem
+   (often just a shmem); it should be one-to-one with shmem (i.e. while
+   a thread group is joined, name cstr / shmem / join are uniquely
+   identify the name cstr / shmem / join).  On failure, a join_func
+   returns NULL (ideally without impacting thread group state while
+   logging details about the failure).
+
+   Pass NULL for join_func if no special handling is needed.  The join
+   handle will be just a pointer to the first byte of the region's local
+   mapping.
+
+   All joins should be paired with a leave.
+
+   fd_shmem_leave is just the inverse of this.  It cannot fail from the
+   caller's POV (but will log extensive details if there is any
+   wonkiness under the hood).
+
+   IMPORTANT!  It is safe to have join/leave functions themselves call
+   fd_shmem_join/fd_shmem_leave to join additional regions as necessary.
+   This allows very complex interdependent shared memory topologies to
+   be constructed in a natural way.  The only restriction (beyond the
+   total number of regions that can be joined) is that there can't be
+   join/leave cycles (e.g. fd_shmem_join("region1") calls join_func
+   region1_join("region1") which calls fd_shmem_join("region2") which
+   calls join_func region2_join("region2") which calls
+   shmem_join("region1")).  Such cycles will be detected, logged and
+   failed. */
+
+void *
+fd_shmem_join( char const *               name,
+               int                        mode,
+               fd_shmem_joinleave_func_t  join_func,
+               void *                     context );
+
+void
+fd_shmem_leave( void *                    join,
+                fd_shmem_joinleave_func_t leave_func,
+                void *                    context );
+
+/* FIXME: CONSIDER OPTION FOR SLIGHTLY MORE ALGO EFFICIENT LEAVE BY NAME
+   VARIANT? */
+
+/* fd_shmem_join_query_by_{name,join,addr} queries if the cstr pointed
+   by name is already joined by the caller's thread group / the join
+   handle is a valid current join handle / addr points to a byte in the
+   shared memory region of a current join.
+
+   On success, returns 0 and, if opt_info non-NULL, *opt_info will hold
+   details about the join (as observed at a point between when the call
+   was made and when it returned).  On failure, returns a non-zero
+   strerror friendly error code (these do not log anything so they can
+   be use in situations where the query might fail in normal operation
+   without being excessively chatty in the log).  Reasons for failure
+   include name is not valid (EINVAL) and there is no join currently
+   (ENOENT).
+
+   query by name is a reasonably fast O(1).  query by join and by addr
+   are theoretically O(FD_SHMEM_JOIN_MAX) but still quite fast
+   practically. */
+
+int
+fd_shmem_join_query_by_name( char const *           name,
+                             fd_shmem_join_info_t * opt_info );
+
+int
+fd_shmem_join_query_by_join( void *                 join,
+                             fd_shmem_join_info_t * opt_info );
+
+int
+fd_shmem_join_query_by_addr( void *                 addr,
+                             fd_shmem_join_info_t * opt_info );
+
+/* Administrative APIs ************************************************/
+
+/* Numa topology API */
 
 /* fd_shmem_{numa,cpu}_cnt returns the number of numa nodes / logical
    cpus configured in system.  numa nodes are indexed in
@@ -63,6 +226,8 @@ FD_FN_PURE ulong fd_shmem_cpu_cnt ( void );
    numa mapping is determined at thread group boot. */
 
 FD_FN_PURE ulong fd_shmem_numa_idx( ulong cpu_idx );
+
+/* Creation/destruction APIs */
 
 /* fd_shmem_create creates a shared memory region whose name is given
    by the cstr pointed to by name backed by page_sz pages.  The region
@@ -82,7 +247,8 @@ FD_FN_PURE ulong fd_shmem_numa_idx( ulong cpu_idx );
    unique over caller's shared memory domain for a given page_sz.  Names
    can be reused between two different page_sz (and such will correspond
    to two unrelated mappings).  Generally, it is a good idea to have
-   unique names over all page_sz but this is not required. */
+   unique names over all page_sz but this is not strcitly required (the
+   APIs may not work particularly well in this case though). */
 
 int                                     /* 0 on success, strerror compatible error code on failure */
 fd_shmem_create( char const * name,     /* Should point to cstr with a valid name for a shared memory region */
@@ -127,19 +293,12 @@ fd_shmem_unlink( char const * name,
    call was made and when it returned.  On failure, *opt_buf not be
    touched. */
 
-struct fd_shmem_info {
-  ulong page_sz;
-  ulong page_cnt;
-};
-
-typedef struct fd_shmem_info fd_shmem_info_t;
-
 int
 fd_shmem_info( char const *      name,
                ulong             page_sz,
                fd_shmem_info_t * opt_info );
 
-/* Parsing APIs *******************************************************/
+/* Parsing APIs */
 
 /* fd_shmem_name_len:  If name points at a cstr holding a valid name,
    returns strlen( name ) (which is guaranteed to be in
