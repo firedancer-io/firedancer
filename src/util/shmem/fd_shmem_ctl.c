@@ -33,9 +33,9 @@ main( int     argc,
         "\t- Prints this message\n\t"
         "\n\t"
         "\tcreate name page_cnt page_sz cpu_idx mode\n\t"
-        "\t- Create a shared memory region named name from  page_cnt page_sz\n\t"
+        "\t- Create a shared memory region named name from page_cnt page_sz\n\t"
         "\t  pages near logical cpu_idx.  The region will have the unix\n\t"
-        "\t  specified by mode.\n\t"
+        "\t  permissions specified by mode.\n\t"
         "\n\t"
         "\tunlink name page_sz\n\t"
         "\t- Unlinks a page_sz page backed shared memory region named name.\n\t"
@@ -50,7 +50,7 @@ main( int     argc,
         "\t  If there are multiple with the same name, one will be\n\t"
         "\t  queried (typically the one backed by the largest page_sz)\n\t"
         "\n\t", bin ));
-      FD_LOG_NOTICE(( "%i: %s %s: success", cnt, bin, cmd ));
+      FD_LOG_NOTICE(( "%i: %s: success", cnt, cmd ));
 
     } else if( !strcmp( cmd, "create" ) ) {
 
