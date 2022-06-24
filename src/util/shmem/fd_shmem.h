@@ -233,6 +233,19 @@ FD_FN_PURE ulong fd_shmem_cpu_cnt ( void );
 
 FD_FN_PURE ulong fd_shmem_numa_idx( ulong cpu_idx );
 
+/* fd_shmem_numa_validate returns 0 if all the pages in the page_cnt
+   page_sz pages pointed to by mem are on a numa node near cpu_idx and a
+   strerror friendly non-zero error code otherwise (logs details).
+   Pages in mem will be queried (potentially non-atomically) over some
+   point in time between when the call was made and when the call
+   returns. */
+
+int
+fd_shmem_numa_validate( void const * mem,
+                        ulong        page_sz,
+                        ulong        page_cnt,
+                        ulong        cpu_idx );
+
 /* Creation/destruction APIs */
 
 /* fd_shmem_create creates a shared memory region whose name is given
@@ -303,6 +316,31 @@ int
 fd_shmem_info( char const *      name,
                ulong             page_sz,
                fd_shmem_info_t * opt_info );
+
+/* Raw page allocation */
+
+/* fd_shmem_acquire allocates page_cnt page_sz pages of physical DRAM
+   near cpu_idx from the operating system and maps them contiguously in
+   the thread group's local address space for the private use of that
+   thread group.  The lifetime of a page in the allocation is until the
+   thread group terminates or the page is explicitly released.  Returns
+   a pointer to the location in the local address space of the mapped
+   pages on success and NULL on failure (logs details). */
+
+void *
+fd_shmem_acquire( ulong page_sz,
+                  ulong page_cnt,
+                  ulong cpu_idx );
+
+/* fd_shmem_release releases page_cnt page_sz pages of memory allocated
+   by fd_shmem_acquire.  This always succeeds from the caller's POV but
+   logs details if there is any wonkiness under the hood.  It is fine to
+   release subregions of individual previous acquisitions. */
+
+void
+fd_shmem_release( void * mem,
+                  ulong  page_sz,
+                  ulong  page_cnt );
 
 /* Parsing APIs */
 

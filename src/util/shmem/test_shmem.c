@@ -175,7 +175,7 @@ main( int     argc,
           TEST( fd_ulong_is_aligned( (ulong)shmem, page_sz )                       );
           TEST( fd_shmem_is_page_sz( page_sz )                                     );
           TEST( page_cnt     > 0UL                                                 );
-          TEST( page_cnt     <=(ULONG_MAX/page_sz)                                 );
+          TEST( page_cnt     <=((ulong)LONG_MAX/page_sz)                           );
           TEST( info->mode   ==mode                                                );
           TEST( info->hash   ==(uint)fd_hash( 0UL, info->name, FD_SHMEM_NAME_MAX ) );
           TEST( !strcmp( info->name, name )                                        );
@@ -298,6 +298,22 @@ main( int     argc,
       }
     }
   }
+
+  /* FIXME: DO MORE EXTENSIVE TESTS OF ACQUIRE / RELEASE */
+
+# define TEST_ACQ(psz,pcnt,cpu) do {                                \
+    void * _page = fd_shmem_acquire( (psz), (pcnt), (cpu) );        \
+    TEST( _page );                                                  \
+    TEST( fd_ulong_is_aligned( (ulong)_page, (psz) ) );             \
+    TEST( !fd_shmem_numa_validate( _page, (psz), (pcnt), (cpu) ) ); \
+    fd_shmem_release( _page, (psz), (pcnt) );                       \
+  } while(0)
+
+  TEST_ACQ( FD_SHMEM_NORMAL_PAGE_SZ,   3UL, 0UL );
+  TEST_ACQ( FD_SHMEM_HUGE_PAGE_SZ,     2UL, 0UL );
+  TEST_ACQ( FD_SHMEM_GIGANTIC_PAGE_SZ, 1UL, 0UL );
+
+# undef TEST_ACQ
 
   fd_rng_leave( fd_rng_delete( rng ) );
 

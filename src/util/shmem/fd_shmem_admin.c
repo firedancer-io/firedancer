@@ -19,6 +19,7 @@
 #include <numaif.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
+#include <linux/mman.h>
 
 #if FD_HAS_THREADS
 pthread_mutex_t fd_shmem_private_lock[1] = { PTHREAD_RECURSIVE_MUTEX_INITIALIZER_NP };
@@ -39,6 +40,64 @@ ulong fd_shmem_cpu_cnt ( void ) { return fd_shmem_private_cpu_cnt;  }
 ulong fd_shmem_numa_idx( ulong cpu_idx ) {
   if( FD_UNLIKELY( cpu_idx>=fd_shmem_private_cpu_cnt ) ) return ULONG_MAX;
   return fd_shmem_private_numa_idx[ cpu_idx ];
+}
+
+int
+fd_shmem_numa_validate( void const * mem,
+                        ulong        page_sz,
+                        ulong        page_cnt,
+                        ulong        cpu_idx ) {
+  if( FD_UNLIKELY( !mem ) ) {
+    FD_LOG_WARNING(( "NULL mem" ));
+    return EINVAL;
+  }
+
+  if( FD_UNLIKELY( !fd_shmem_is_page_sz( page_sz ) ) ) {
+    FD_LOG_WARNING(( "bad page_sz (%lu)", page_sz ));
+    return EINVAL;
+  }
+
+  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)mem, page_sz ) ) ) {
+    FD_LOG_WARNING(( "misaligned mem" ));
+    return EINVAL;
+  }
+
+  if( FD_UNLIKELY( !((1UL<=page_cnt) & (page_cnt<=(((ulong)LONG_MAX)/page_sz))) ) ) {
+    FD_LOG_WARNING(( "bad page_cnt (%lu)", page_cnt ));
+    return EINVAL;
+  }
+
+  if( FD_UNLIKELY( !(cpu_idx<fd_shmem_cpu_cnt()) ) ) {
+    FD_LOG_WARNING(( "bad cpu_idx (%lu)", cpu_idx ));
+    return EINVAL;
+  }
+
+  ulong numa_idx = fd_shmem_numa_idx( cpu_idx );
+
+  ulong   page = (ulong)mem;
+  int     batch_status[ 512 ];
+  void *  batch_page  [ 512 ];
+  ulong   batch_cnt = 0UL;
+  while( page_cnt ) {
+    batch_page[ batch_cnt++ ] = (void *)page;
+    page += page_sz;
+    page_cnt--;
+    if( FD_UNLIKELY( ((batch_cnt==512UL) | (!page_cnt) ) ) ) {
+      if( FD_UNLIKELY( move_pages( 0, batch_cnt, batch_page, NULL, batch_status, 0 ) ) ) {
+        FD_LOG_WARNING(( "move_pages query failed (%i-%s)", errno, strerror( errno ) ));
+        return errno;
+      }
+      for( ulong batch_idx=0UL; batch_idx<batch_cnt; batch_idx++ ) {
+        if( FD_UNLIKELY( batch_status[batch_idx]!=(int)numa_idx ) ) {
+          FD_LOG_WARNING(( "page allocated to numa %i instead of numa %lu", batch_status[batch_idx], numa_idx ));
+          return EFAULT;
+        }
+      }
+      batch_cnt = 0UL;
+    }
+  }
+
+  return 0;
 }
 
 /* SHMEM REGION CREATION AND DESTRUCTION ******************************/
@@ -74,8 +133,6 @@ fd_shmem_create( char const * name,
 
   int err;
 # define ERROR( cleanup ) do { err = errno; goto cleanup; } while(0)
-
-  /* FIXME: PORT THIS METHODOLOGY OVER TILE STACK CREATION? */
 
   int    orig_mempolicy;
   ulong  orig_nodemask;
@@ -186,43 +243,27 @@ fd_shmem_create( char const * name,
   /* And since the mbind still often will ignore requests, we double
      check that the pages are in the right place. */
 
-  int    batch_status[ 512 ];
-  void * batch_page  [ 512 ];
-  ulong  batch_cnt = 0UL;
-  for( ulong page_off=0UL; page_off<sz; page_off+=page_sz ) {
-    batch_page[ batch_cnt++ ] = ((uchar *)shmem) + page_off;
-    if( FD_UNLIKELY( ((batch_cnt==512UL) | ((page_off+page_sz)>=sz)) ) ) {
-      if( FD_UNLIKELY( move_pages( 0, batch_cnt, batch_page, NULL, batch_status, 0 ) ) ) {
-        FD_LOG_WARNING(( "\"%s\":%lu move_pages query failed (%i-%s)", path, sz>>10, errno, strerror( errno ) ));
-        ERROR( unmap );
-      }
-      for( ulong batch_idx=0UL; batch_idx<batch_cnt; batch_idx++ ) {
-        if( FD_UNLIKELY( batch_status[batch_idx]!=(int)numa_idx ) ) {
-          FD_LOG_WARNING(( "\"%s\":%lu page allocated to numa %i instead of numa %lu",
-                           path, sz>>10, batch_status[batch_idx], numa_idx ));
-          errno = EFAULT;
-          ERROR( unmap );
-        }
-      }
-      batch_cnt = 0UL;
-    }
-  }
+  err = fd_shmem_numa_validate( shmem, page_sz, page_cnt, cpu_idx ); /* logs details */
+  if( FD_UNLIKELY( err ) )
+    FD_LOG_WARNING(( "mmap(NULL,%lu KiB,PROT_READ|PROT_WRITE,MAP_SHARED,\"%s\",0) numa binding failed (%i-%s)",
+                     sz>>10, path, err, strerror( err ) ));
 
 # undef ERROR
-
-  err = 0;
 
 unmap:
   if( FD_UNLIKELY( munmap( shmem, sz ) ) )
     FD_LOG_WARNING(( "munmap(\"%s\",%lu KiB) failed (%i-%s); attempting to continue", path, sz>>10, errno, strerror( errno ) ));
+
 close:
   if( FD_UNLIKELY( err ) && FD_UNLIKELY( unlink( path ) ) )
     FD_LOG_WARNING(( "unlink(\"%s\") failed (%i-%s)", path, errno, strerror( errno ) )); /* Don't log "attempting ..." */
   if( FD_UNLIKELY( close( fd ) ) )
     FD_LOG_WARNING(( "close(\"%s\") failed (%i-%s); attempting to continue", path, errno, strerror( errno ) ));
+
 restore:
   if( FD_UNLIKELY( set_mempolicy( orig_mempolicy, &orig_nodemask, FD_SHMEM_NUMA_MAX ) ) )
     FD_LOG_WARNING(( "set_mempolicy failed (%i-%s); attempting to continue", errno, strerror( errno ) ));
+
 done:
   FD_SHMEM_UNLOCK;
   return err;
@@ -300,6 +341,136 @@ fd_shmem_info( char const *      name,
     opt_info->page_cnt = page_cnt;
   }
   return 0;
+}
+
+/* RAW PAGE ALLOCATION APIS *******************************************/
+
+void *
+fd_shmem_acquire( ulong page_sz,
+                  ulong page_cnt,
+                  ulong cpu_idx ) {
+
+  if( FD_UNLIKELY( !fd_shmem_is_page_sz( page_sz ) ) ) {
+    FD_LOG_WARNING(( "bad page_sz (%lu)", page_sz ));
+    return NULL;
+  }
+
+  if( FD_UNLIKELY( !((1UL<=page_cnt) & (page_cnt<=(((ulong)LONG_MAX)/page_sz))) ) ) {
+    FD_LOG_WARNING(( "bad page_cnt (%lu)", page_cnt ));
+    return NULL;
+  }
+
+  if( FD_UNLIKELY( !(cpu_idx<fd_shmem_cpu_cnt()) ) ) {
+    FD_LOG_WARNING(( "bad cpu_idx (%lu)", cpu_idx ));
+    return NULL;
+  }
+
+  ulong sz       = page_cnt*page_sz;
+  ulong numa_idx = fd_shmem_numa_idx( cpu_idx );
+
+  int flags = MAP_PRIVATE | MAP_ANONYMOUS;
+  if( page_sz==FD_SHMEM_HUGE_PAGE_SZ     ) flags |= MAP_HUGETLB | MAP_HUGE_2MB;
+  if( page_sz==FD_SHMEM_GIGANTIC_PAGE_SZ ) flags |= MAP_HUGETLB | MAP_HUGE_1GB;
+
+  /* See fd_shmem_create for details on the locking, mempolicy
+     and what not tricks */
+
+  FD_SHMEM_LOCK;
+
+  int err;
+# define ERROR( cleanup ) do { err = errno; goto cleanup; } while(0)
+
+  int    orig_mempolicy;
+  ulong  orig_nodemask;
+  ulong  nodemask;
+  void * mem = NULL;
+
+  if( FD_UNLIKELY( get_mempolicy( &orig_mempolicy, &orig_nodemask, FD_SHMEM_NUMA_MAX, NULL, 0UL ) ) ) {
+    FD_LOG_WARNING(( "get_mempolicy failed (%i-%s)", errno, strerror( errno ) ));
+    ERROR( done );
+  }
+
+  nodemask = 1UL << numa_idx;
+  if( FD_UNLIKELY( set_mempolicy( MPOL_BIND | MPOL_F_STATIC_NODES, &nodemask, FD_SHMEM_NUMA_MAX ) ) ) {
+    FD_LOG_WARNING(( "set_mempolicy failed (%i-%s)", errno, strerror( errno ) ));
+    ERROR( done );
+  }
+
+  mem = mmap( NULL, sz, PROT_READ | PROT_WRITE, flags, -1, (off_t)0);
+  if( FD_UNLIKELY( mem==MAP_FAILED ) ) {
+    FD_LOG_WARNING(( "mmap(NULL,%lu KiB,PROT_READ|PROT_WRITE,%x,-1,0) failed (%i-%s)", sz>>10, flags, errno, strerror( errno ) ));
+    ERROR( restore );
+  }
+
+  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)mem, page_sz ) ) ) {
+    FD_LOG_WARNING(( "mmap(NULL,%lu KiB,PROT_READ|PROT_WRITE,%x,-1,0) misaligned", sz>>10, flags ));
+    errno = EFAULT; /* ENOMEM is arguable */
+    ERROR( unmap );
+  }
+
+  if( FD_UNLIKELY( mlock( mem, sz ) ) ) {
+    FD_LOG_WARNING(( "mlock(anon,%lu KiB) failed (%i-%s)", sz>>10, errno, strerror( errno ) ));
+    ERROR( unmap );
+  }
+
+  /* FIXME: NUMA TOUCH HERE (ALSO WOULD A LOCAL TOUCH WORK GIVEN THE
+     MEMPOLICY DONE ABOVE?) */
+
+  nodemask = 1UL << numa_idx; /* Just in case set_mempolicy clobbered it */
+  if( FD_UNLIKELY( mbind( mem, sz, MPOL_BIND, &nodemask, FD_SHMEM_NUMA_MAX, MPOL_MF_MOVE | MPOL_MF_STRICT ) ) ) {
+    FD_LOG_WARNING(( "mbind(anon,%lu KiB,MPOL_BIND,1UL<<%lu,MPOL_MF_MOVE|MPOL_MF_STRICT) failed (%i-%s)",
+                     sz>>10, numa_idx, errno, strerror( errno ) ));
+    ERROR( unmap );
+  }
+
+  err = fd_shmem_numa_validate( mem, page_sz, page_cnt, numa_idx ); /* logs details */
+  if( FD_UNLIKELY( err ) )
+    FD_LOG_WARNING(( "mmap(NULL,%lu KiB,PROT_READ|PROT_WRITE,%x,-1,0) numa binding failed (%i-%s)",
+                     sz>>10, flags, err, strerror( err ) ));
+
+# undef ERROR
+
+unmap:
+  if( FD_UNLIKELY( err ) && FD_UNLIKELY( munmap( mem, sz ) ) )
+    FD_LOG_WARNING(( "munmap(anon,%lu KiB) failed (%i-%s); attempting to continue", sz>>10, errno, strerror( errno ) ));
+
+restore:
+  if( FD_UNLIKELY( set_mempolicy( orig_mempolicy, &orig_nodemask, FD_SHMEM_NUMA_MAX ) ) )
+    FD_LOG_WARNING(( "set_mempolicy failed (%i-%s); attempting to continue", errno, strerror( errno ) ));
+
+done:
+  FD_SHMEM_UNLOCK;
+  return err ? NULL : mem;
+}
+
+void
+fd_shmem_release( void * mem,
+                  ulong  page_sz,
+                  ulong  page_cnt ) {
+  if( FD_UNLIKELY( !mem ) ) {
+    FD_LOG_WARNING(( "NULL mem" ));
+    return;
+  }
+
+  if( FD_UNLIKELY( !fd_shmem_is_page_sz( page_sz ) ) ) {
+    FD_LOG_WARNING(( "bad page_sz (%lu)", page_sz ));
+    return;
+  }
+
+  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)mem, page_sz ) ) ) {
+    FD_LOG_WARNING(( "misaligned mem" ));
+    return;
+  }
+
+  if( FD_UNLIKELY( !((1UL<=page_cnt) & (page_cnt<=(((ulong)LONG_MAX)/page_sz))) ) ) {
+    FD_LOG_WARNING(( "bad page_cnt (%lu)", page_cnt ));
+    return;
+  }
+
+  ulong sz = page_sz*page_cnt;
+
+  if( FD_UNLIKELY( munmap( mem, sz ) ) )
+    FD_LOG_WARNING(( "munmap(anon,%lu KiB) failed (%i-%s); attempting to continue", sz>>10, errno, strerror( errno ) ));
 }
 
 /* SHMEM PARSING APIS *************************************************/
