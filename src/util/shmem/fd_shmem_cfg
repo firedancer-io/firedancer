@@ -137,6 +137,13 @@ init() {
     exit 1
   fi
 
+  chmod -v +t $SHMEM_PATH/.normal
+  if [ "$?" != "0" ]; then
+    echo "init $1 $2 $3: fail, chmod failed"
+    echo "Do $0 help for help"
+    exit 1
+  fi
+
   echo init $1 $2 $3: success
 }
 
