@@ -143,7 +143,13 @@
     mymap_remove( map, slot );
     ... the mapping of keys to map slots might have been changed by the
     ... mymap_remove.  Any motion of slots was done via:
-    ... MAP_MOVE( dst_slot, src_slot ) */
+    ... MAP_MOVE( dst_slot, src_slot )
+
+  fd_map align and footprint are declaration friendly.  E.g.
+
+    mymap_t map[ ... map slot cnt ... ];
+
+  will have the appropriate footprint and alignment for a mymap_t map. */
 
 #include "../bits/fd_bits.h"
 
