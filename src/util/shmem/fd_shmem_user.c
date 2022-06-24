@@ -81,7 +81,8 @@ void *
 fd_shmem_join( char const *               name,
                int                        mode,
                fd_shmem_joinleave_func_t  join_func,
-               void *                     context ) {
+               void *                     context,
+               fd_shmem_join_info_t *     opt_info ) {
 
   /* Check input args */
 
@@ -125,7 +126,7 @@ fd_shmem_join( char const *               name,
   fd_shmem_info_t shmem_info[1];
   if( FD_UNLIKELY( fd_shmem_info( name, 0UL, shmem_info ) ) ) {
     FD_SHMEM_UNLOCK;
-    FD_LOG_WARNING(( "unable to query region \"%s\" (probably does not exist)", name ));
+    FD_LOG_WARNING(( "unable to query region \"%s\"\n\tprobably does not exist or bad permissions", name ));
     return NULL;
   }
   ulong page_sz  = shmem_info->page_sz;
@@ -217,6 +218,7 @@ fd_shmem_join( char const *               name,
   join_info->ref_cnt = 1UL;
   join_info->join    = join;
 
+  if( opt_info ) *opt_info = *join_info;
   FD_SHMEM_UNLOCK;
   return join;
 }

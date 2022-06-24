@@ -127,7 +127,7 @@ main( int     argc,
 
   /* These should all fail */
   /* FIXME: COVERAGE OF LEAVE WITH NO JOIN BEHAVIOR */
-  /* FIXME: COVERAGE OF JOIN/LEAVE FUNCS */
+  /* FIXME: COVERAGE OF JOIN/LEAVE FUNCS AND JOIN OPT_INFO */
 
   TEST( fd_shmem_join_query_by_name( NULL, NULL )==EINVAL ); TEST( fd_shmem_join_query_by_name( NULL, info )==EINVAL );
   TEST( fd_shmem_join_query_by_join( NULL, NULL )==EINVAL ); TEST( fd_shmem_join_query_by_join( NULL, info )==EINVAL );
@@ -157,7 +157,7 @@ main( int     argc,
           TEST( fd_shmem_join_query_by_name( name, NULL )==ENOENT );
           TEST( fd_shmem_join_query_by_name( name, info )==ENOENT );
 
-          void * join = fd_shmem_join( name, mode, NULL, NULL );
+          void * join = fd_shmem_join( name, mode, NULL, NULL, NULL );
           TEST( join );
 
           TEST( !fd_shmem_join_query_by_name( name, NULL ) );
@@ -169,16 +169,16 @@ main( int     argc,
           ulong  sz       = page_sz*page_cnt;
           ulong  off      = fd_rng_ulong_roll( rng, sz );
 
-          TEST( info->ref_cnt==1L                                            );
-          TEST( info->join   ==join                                          );
-          TEST( shmem        ==join                                          );
-          TEST( fd_ulong_is_aligned( (ulong)shmem, page_sz )                 );
-          TEST( fd_shmem_is_page_sz( page_sz )                               );
-          TEST( page_cnt     > 0UL                                           );
-          TEST( page_cnt     <=(ULONG_MAX/page_sz)                           );
-          TEST( info->mode   ==mode                                          );
+          TEST( info->ref_cnt==1L                                                  );
+          TEST( info->join   ==join                                                );
+          TEST( shmem        ==join                                                );
+          TEST( fd_ulong_is_aligned( (ulong)shmem, page_sz )                       );
+          TEST( fd_shmem_is_page_sz( page_sz )                                     );
+          TEST( page_cnt     > 0UL                                                 );
+          TEST( page_cnt     <=(ULONG_MAX/page_sz)                                 );
+          TEST( info->mode   ==mode                                                );
           TEST( info->hash   ==(uint)fd_hash( 0UL, info->name, FD_SHMEM_NAME_MAX ) );
-          TEST( !strcmp( info->name, name )                                  );
+          TEST( !strcmp( info->name, name )                                        );
 
           fd_shmem_join_info_t * ref = &ref_info[idx];
 
@@ -217,7 +217,7 @@ main( int     argc,
           TEST( !fd_shmem_join_query_by_addr( ((uchar *)shmem) + off, info ) );
           TEST( !memcmp( info, ref, sizeof(fd_shmem_join_info_t) ) );
 
-          TEST( fd_shmem_join( name, mode, NULL, NULL )==join );
+          TEST( fd_shmem_join( name, mode, NULL, NULL, NULL )==join );
           ref_info[idx].ref_cnt++;
 
           memset( info, 0, sizeof(fd_shmem_join_info_t) );

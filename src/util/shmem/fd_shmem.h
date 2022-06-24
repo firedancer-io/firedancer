@@ -148,6 +148,11 @@ FD_PROTOTYPES_BEGIN
 
    All joins should be paired with a leave.
 
+   On success, if opt_info is non-NULL, *opt_info will also provide
+   additional details about the join (i.e. the same details one would
+   get if querying the join atomically with respect to join operations
+   immediately afterward).  On failure, *opt_info is ignored.
+
    fd_shmem_leave is just the inverse of this.  It cannot fail from the
    caller's POV (but will log extensive details if there is any
    wonkiness under the hood).
@@ -167,7 +172,8 @@ void *
 fd_shmem_join( char const *               name,
                int                        mode,
                fd_shmem_joinleave_func_t  join_func,
-               void *                     context );
+               void *                     context,
+               fd_shmem_join_info_t *     opt_info );
 
 void
 fd_shmem_leave( void *                    join,
