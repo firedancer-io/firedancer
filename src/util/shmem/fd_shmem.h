@@ -200,11 +200,11 @@ fd_shmem_join_query_by_name( char const *           name,
                              fd_shmem_join_info_t * opt_info );
 
 int
-fd_shmem_join_query_by_join( void *                 join,
+fd_shmem_join_query_by_join( void const *           join,
                              fd_shmem_join_info_t * opt_info );
 
 int
-fd_shmem_join_query_by_addr( void *                 addr,
+fd_shmem_join_query_by_addr( void const *           addr,
                              fd_shmem_join_info_t * opt_info );
 
 /* Administrative APIs ************************************************/

@@ -54,7 +54,7 @@ FD_STATIC_ASSERT( FD_SHMEM_JOIN_MAX < FD_SHMEM_PRIVATE_MAP_SLOT_CNT, increase_lg
 
 static inline fd_shmem_join_info_t *
 fd_shmem_private_map_query_by_join( fd_shmem_join_info_t * map,
-                                    void *                 join,
+                                    void const *           join,
                                     fd_shmem_join_info_t * def ) {
   for( ulong slot_idx=0UL; slot_idx<FD_SHMEM_PRIVATE_MAP_SLOT_CNT; slot_idx++ )
     if( ((!fd_shmem_private_map_key_inval( map[slot_idx].key )) & (map[slot_idx].join==join)) ) return &map[slot_idx];
@@ -63,7 +63,7 @@ fd_shmem_private_map_query_by_join( fd_shmem_join_info_t * map,
 
 static inline fd_shmem_join_info_t *
 fd_shmem_private_map_query_by_addr( fd_shmem_join_info_t * map,
-                                    void *                 addr,
+                                    void const *           addr,
                                     fd_shmem_join_info_t * def ) {
   ulong a = (ulong)addr;
   for( ulong slot_idx=0UL; slot_idx<FD_SHMEM_PRIVATE_MAP_SLOT_CNT; slot_idx++ ) {
@@ -294,7 +294,7 @@ fd_shmem_join_query_by_name( char const *           name,
 }
 
 int
-fd_shmem_join_query_by_join( void *                 join,
+fd_shmem_join_query_by_join( void const *           join,
                              fd_shmem_join_info_t * opt_info ) {
   if( FD_UNLIKELY( !join ) ) return EINVAL;
 
@@ -310,7 +310,7 @@ fd_shmem_join_query_by_join( void *                 join,
 }
 
 int
-fd_shmem_join_query_by_addr( void *                 addr,
+fd_shmem_join_query_by_addr( void const *           addr,
                              fd_shmem_join_info_t * opt_info ) {
   if( FD_UNLIKELY( !addr ) ) return EINVAL;
 
