@@ -12,9 +12,6 @@
 
 #if FD_HAS_X86
 #include <sys/mman.h>
-#include <linux/mman.h>
-#include <numa.h>
-#include <numaif.h>
 #endif
 
 #include "fd_tile.h"
@@ -76,32 +73,19 @@ fd_tile_private_cpu_restore( fd_tile_private_cpu_config_t * save ) {
 
 #if FD_HAS_X86
 
-#define FD_TILE_PRIVATE_NORM_PAGE_SZ (1UL<<12) /* 4KiB */
-#define FD_TILE_PRIVATE_HUGE_PAGE_SZ (1UL<<21) /* 2MiB */
-#define FD_TILE_PRIVATE_STACK_SZ     (4UL*FD_TILE_PRIVATE_HUGE_PAGE_SZ) /* 8MiB, must be a huge page multiple */
-
-static void *
-fd_tile_private_stack_new_thread( void * _stack ) {
-  uchar * mem = (uchar *)_stack;
-  for( ulong b=0UL; b<FD_TILE_PRIVATE_STACK_SZ; b+=FD_TILE_PRIVATE_NORM_PAGE_SZ ) {
-    FD_VOLATILE( mem[b] ) = (uchar)~FD_VOLATILE_CONST( mem[b] );
-    FD_VOLATILE( mem[b] ) = (uchar)~FD_VOLATILE_CONST( mem[b] );
-  }
-  return NULL;
-}
+#define FD_TILE_PRIVATE_STACK_PAGE_SZ  FD_SHMEM_HUGE_PAGE_SZ
+#define FD_TILE_PRIVATE_STACK_PAGE_CNT (4UL)
+#define FD_TILE_PRIVATE_STACK_SZ       (FD_TILE_PRIVATE_STACK_PAGE_SZ*FD_TILE_PRIVATE_STACK_PAGE_CNT)
 
 static void *
 fd_tile_private_stack_new( ulong cpu_idx ) {
-  ulong numa_idx = (ulong)numa_node_of_cpu( (int)cpu_idx );
 
-  /* Allocate the huge pages with some extra space */
-
-  void * base = mmap( NULL, FD_TILE_PRIVATE_HUGE_PAGE_SZ + FD_TILE_PRIVATE_STACK_SZ + FD_TILE_PRIVATE_HUGE_PAGE_SZ,
-                      PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_HUGETLB | MAP_HUGE_2MB, -1, (off_t)0 );
-  if( FD_UNLIKELY( base==MAP_FAILED ) ) {
+  void * base = fd_shmem_acquire( FD_TILE_PRIVATE_STACK_PAGE_SZ, FD_TILE_PRIVATE_STACK_PAGE_CNT+2UL, cpu_idx ); /* logs details */
+  if( FD_UNLIKELY( !base ) ) {
+    ulong numa_idx = fd_shmem_numa_idx( cpu_idx );
     static ulong warn = 0UL;
     if( FD_LIKELY( !(warn & (1UL<<numa_idx) ) ) ) {
-      FD_LOG_WARNING(( "fd_tile: mmap failed (%i-%s)\n\t"
+      FD_LOG_WARNING(( "fd_tile: fd_shmem_acquire failed\n\t"
                        "There are probably not enough huge pages allocated by the OS on numa\n\t"
                        "node %lu.  Falling back on normal page backed stack for tile on cpu %lu\n\t"
                        "and attempting to continue.  Run:\n\t"
@@ -109,113 +93,30 @@ fd_tile_private_stack_new( ulong cpu_idx ) {
                        "(probably as superuser) or equivalent where [CNT] is a sufficient number\n\t"
                        "huge pages to reserve on this numa node system wide to eliminate this\n\t"
                        "warning.",
-                       errno, strerror( errno ), numa_idx, cpu_idx, numa_idx ));
+                       numa_idx, cpu_idx, numa_idx ));
       warn |= 1UL<<numa_idx;
     }
     return NULL;
   }
 
-  uchar * stack     = (uchar *)base + FD_TILE_PRIVATE_HUGE_PAGE_SZ;
-  uchar * stack_end = stack         + FD_TILE_PRIVATE_STACK_SZ;
+  uchar * stack = (uchar *)base + FD_TILE_PRIVATE_STACK_PAGE_SZ;
 
   /* Create the guard regions in the extra space */
 
-  do {
-    if( FD_UNLIKELY( munmap( base, FD_TILE_PRIVATE_HUGE_PAGE_SZ ) ) ) {
-      FD_LOG_WARNING(( "fd_tile: munmap failed (%i-%s)\n\t"
-                       "Attempting to continue without stack guards for tile on cpu %lu.",
-                       errno, strerror( errno ), cpu_idx ));
-      break;
-    }
-    
-    void * guard_lo = mmap( stack - FD_TILE_PRIVATE_NORM_PAGE_SZ, FD_TILE_PRIVATE_NORM_PAGE_SZ,
-                            PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, -1, (off_t)0 );
-    if( FD_UNLIKELY( guard_lo==MAP_FAILED ) ) {
-      FD_LOG_WARNING(( "fd_tile: mmap failed (%i-%s)\n\t"
-                       "Attempting to continue without stack guards for tile on cpu %lu.",
-                       errno, strerror( errno ), cpu_idx ));
-      break;
-    }
+  void * guard_lo = (void *)(stack - FD_SHMEM_NORMAL_PAGE_SZ);
+  fd_shmem_release( base, FD_TILE_PRIVATE_STACK_PAGE_SZ, 1UL );
+  if( FD_UNLIKELY( mmap( guard_lo, FD_SHMEM_NORMAL_PAGE_SZ, PROT_NONE,
+                         MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, -1, (off_t)0 )!=guard_lo ) )
+    FD_LOG_WARNING(( "fd_tile: mmap failed (%i-%s)\n\t"
+                     "Attempting to continue without lo stack guard for tile on cpu %lu.",
+                     errno, strerror( errno ), cpu_idx ));
 
-
-    if( FD_UNLIKELY( munmap( stack_end, FD_TILE_PRIVATE_HUGE_PAGE_SZ ) ) ) {
-      FD_LOG_WARNING(( "fd_tile: munmap failed (%i-%s)\n\t"
-                       "Attempting to continue without stack guards for tile on cpu %lu.",
-                       errno, strerror( errno ), cpu_idx ));
-      break;
-    }
-
-    void * guard_hi = mmap( stack_end, FD_TILE_PRIVATE_NORM_PAGE_SZ,
-                            PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, -1, (off_t)0 );
-    if( FD_UNLIKELY( guard_hi==MAP_FAILED ) ) {
-      FD_LOG_WARNING(( "fd_tile: mmap failed (%i-%s)\n\t"
-                       "Attempting to continue without stack guards for tile on cpu %lu.",
-                       errno, strerror( errno ), cpu_idx ));
-      break;
-    }
-  } while(0);
-
-  /* Kernel first touch them from the target to back it by DRAM and get
-     it on the correct numa node. */
-
-  pthread_attr_t attr[1];
-  int err = pthread_attr_init( attr );
-  if( FD_UNLIKELY( err ) ) {
-    FD_LOG_WARNING(( "fd_tile: pthread_attr_init failed (%i-%s)\n\t"
-                     "Unable to optimize the stack numa affinity for tile on cpu %lu.\n\t"
-                     "Attempting to continue but this thread group's performance and stability\n\t"
-                     "are potentially compromised (possibly catastrophically so).  Update\n\t"
-                     "--tile-cpus to specify a set of allowed cpus that have been reserved for\n\t"
-                     "this thread group on this host to eliminate this warning.",
-                     err, strerror( err ), cpu_idx ));
-  } else {
-
-    cpu_set_t cpu_set[1];
-    CPU_ZERO( cpu_set );
-    CPU_SET( cpu_idx, cpu_set );
-    err = pthread_attr_setaffinity_np( attr, sizeof(cpu_set_t), cpu_set );
-    if( FD_UNLIKELY( err ) )
-      FD_LOG_WARNING(( "fd_tile: pthread_attr_setaffinity_np failed (%i-%s)\n\t"
-                       "Unable to set the thread affinity for tile on cpu %lu.  Attempting to\n\t"
-                       "continue without explicitly specifying this cpu's thread affinity but it\n\t"
-                       "is likely this thread group's performance and stability are compromised\n\t"
-                       "(possibly catastrophically so).  Update --tile-cpus to specify a set of\n\t"
-                       "allowed cpus that have been reserved for this thread group on this host\n\t"
-                       "to eliminate this warning.",
-                       err, strerror( err ), cpu_idx ));
-
-    pthread_t pthread[1];
-    err = pthread_create( pthread, attr, fd_tile_private_stack_new_thread, stack );
-    if( FD_UNLIKELY( err ) ) {
-      FD_LOG_WARNING(( "fd_tile: pthread_create failed (%i-%s)\n\t"
-                       "Unable to optimize the stack numa affinity for tile on cpu %lu.\n\t"
-                       "Attempting to continue but this thread group's performance and stability\n\t"
-                       "are potentially compromised (possibly catastrophically so).  Update\n\t"
-                       "--tile-cpus to specify a set of allowed cpus that have been reserved for\n\t"
-                       "this thread group on this host to eliminate this warning.",
-                       err, strerror( err ), cpu_idx ));
-    } else {
-      void * dummy[1];
-      err = pthread_join( pthread[0], dummy );
-      if( FD_UNLIKELY( err ) )
-        FD_LOG_ERR(( "fd_tile: pthread_join failed (%i-%s) for tile on cpu %lu", err, strerror( err ), cpu_idx ));
-      if( FD_UNLIKELY( dummy[0] ) )
-        FD_LOG_ERR(( "fd_tile: corrupt thread return for tile on cpu %lu", cpu_idx ));
-    }
-
-    if( FD_UNLIKELY( pthread_attr_destroy( attr ) ) )
-      FD_LOG_WARNING(( "fd_tile: pthread_attr_destroy failed (%i-%s); attempting to continue", err, strerror( err ) ));
-  }
-
-  /* Bind the memory to the numa node of the cpu so it stays close to the cpu */
-  /* FIXME: SYSTEMS WITH MORE THAN 64 NUMA NODES? */
-
-  ulong node_set = 1UL << numa_node_of_cpu( (int)cpu_idx );
-  if( FD_UNLIKELY( mbind( stack, FD_TILE_PRIVATE_STACK_SZ, MPOL_BIND, &node_set, 64UL, MPOL_MF_MOVE | MPOL_MF_STRICT ) ) )
-    FD_LOG_WARNING(( "fd_tile: mbind failed (%i-%s)\n\t"
-                     "Unable to optimize the stack numa affinity for tile on cpu %lu.\n\t"
-                     "Attempting to continue but this thread group's performance and stability\n\t"
-                     "are potentially compromised (possibly catastrophically so).",
+  void * guard_hi = (void *)(stack + FD_TILE_PRIVATE_STACK_SZ);
+  fd_shmem_release( guard_hi, FD_TILE_PRIVATE_STACK_PAGE_SZ, 1UL );
+  if( FD_UNLIKELY( mmap( guard_hi, FD_SHMEM_NORMAL_PAGE_SZ, PROT_NONE,
+                         MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, -1, (off_t)0 )!=guard_hi ) )
+    FD_LOG_WARNING(( "fd_tile: mmap failed (%i-%s)\n\t"
+                     "Attempting to continue without hi stack guard for tile on cpu %lu.",
                      errno, strerror( errno ), cpu_idx ));
 
   return stack;
@@ -226,22 +127,24 @@ fd_tile_private_stack_delete( void * _stack ) {
   if( FD_UNLIKELY( !_stack ) ) return;
 
   uchar * stack    = (uchar *)_stack;
-  uchar * guard_lo = stack - FD_TILE_PRIVATE_NORM_PAGE_SZ;
+  uchar * guard_lo = stack - FD_SHMEM_NORMAL_PAGE_SZ;
   uchar * guard_hi = stack + FD_TILE_PRIVATE_STACK_SZ;
 
-  if( FD_UNLIKELY( munmap( guard_hi, FD_TILE_PRIVATE_NORM_PAGE_SZ ) ) )
+  if( FD_UNLIKELY( munmap( guard_hi, FD_SHMEM_NORMAL_PAGE_SZ ) ) )
     FD_LOG_WARNING(( "fd_tile: munmap failed (%i-%s); attempting to continue", errno, strerror( errno ) ));
 
-  if( FD_UNLIKELY( munmap( guard_lo, FD_TILE_PRIVATE_NORM_PAGE_SZ ) ) )
+  if( FD_UNLIKELY( munmap( guard_lo, FD_SHMEM_NORMAL_PAGE_SZ ) ) )
     FD_LOG_WARNING(( "fd_tile: munmap failed (%i-%s); attempting to continue", errno, strerror( errno ) ));
 
-  if( FD_UNLIKELY( munmap( stack, FD_TILE_PRIVATE_STACK_SZ ) ) )
-    FD_LOG_WARNING(( "fd_tile: munmap failed (%i-%s); attempting to continue", errno, strerror( errno ) ));
+  fd_shmem_release( stack, FD_TILE_PRIVATE_STACK_PAGE_SZ, FD_TILE_PRIVATE_STACK_PAGE_CNT );
 }
 
 #else
 
-#define FD_TILE_PRIVATE_STACK_SZ (0UL) /* Irrelevant */
+#define FD_TILE_PRIVATE_STACK_PAGE_SZ  (0UL) /* Irrelevant */
+#define FD_TILE_PRIVATE_STACK_PAGE_CNT (0UL) /* Irrelevant */
+#define FD_TILE_PRIVATE_STACK_SZ       (0UL) /* Irrelevant */
+
 static void * fd_tile_private_stack_new   ( ulong cpu_idx ) { (void)cpu_idx; return NULL; }
 static void   fd_tile_private_stack_delete( void * stack  ) { (void)stack; }
 
@@ -513,10 +416,6 @@ void
 fd_tile_private_boot( int *    pargc,
                       char *** pargv ) {
   FD_LOG_INFO(( "fd_tile: boot" ));
-
-# if FD_HAS_X86
-  if( FD_UNLIKELY( numa_available()==-1 ) ) FD_LOG_ERR(( "fd_tile: numa_avaiable failed" ));
-# endif
 
   /* Extract the tile configuration from the command line */
 

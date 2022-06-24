@@ -9,7 +9,7 @@
 //#include "shmem/fd_shmem.h"   /* includes log/fd_log.h */
 #include "rng/fd_rng.h"         /* includes bits/fd_bits.h */
 #include "scratch/fd_scratch.h" /* includes log/fd_log.h */
-#include "tile/fd_tile.h"       /* includes log/fd_log.h */
+#include "tile/fd_tile.h"       /* includes shmem/fd_shmem.h */
 #include "wksp/fd_wksp.h"       /* includes shmem/fd_shmem.h */
 
 /* Additional fd_util APIs that are not included by default */

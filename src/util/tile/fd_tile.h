@@ -5,7 +5,7 @@
 
 /* fd_tile is used for fast dispatching of task within a thread group. */
 
-#include "../log/fd_log.h"
+#include "../shmem/fd_shmem.h"
 
 #define FD_TILE_MAX (1024UL)
 
