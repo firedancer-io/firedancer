@@ -549,7 +549,7 @@ fd_tile_private_boot( int *    pargc,
       FD_LOG_WARNING(( "fd_tile: --tile-cpus for tile 0 may not match initial kernel affinity\n\t"
                        "Tile 0 might not be fully optimized because of kernel first touch.\n\t"
                        "Overriding fd_log_cpu_id(), fd_log_cpu(), fd_log_thread() on tile 0 to\n\t"
-                       "match --tile-cpus 0 and attempting to continue.  Launch this thread\n\t"
+                       "match --tile-cpus and attempting to continue.  Launch this thread\n\t"
                        "group via 'taskset -c %lu' or equivalent to eliminate this warning.",
                        tile_to_cpu[0] ));
       CPU_ZERO( cpu_set );
