@@ -52,16 +52,40 @@ main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
 
-  FD_LOG_NOTICE(( "cnt %lu", fd_tile_cnt() )); TEST( fd_tile_cnt()>0UL ); TEST( fd_tile_cnt()<=FD_TILE_MAX );
+  ulong tile_cnt = fd_tile_cnt();
+
+  FD_LOG_NOTICE(( "cnt %lu", tile_cnt      )); TEST( tile_cnt>0UL ); TEST( tile_cnt<=FD_TILE_MAX );
   FD_LOG_NOTICE(( "id0 %lu", fd_tile_id0() ));
-  FD_LOG_NOTICE(( "id1 %lu", fd_tile_id1() )); TEST( fd_tile_cnt()==(fd_tile_id1()-fd_tile_id0()) );
+  FD_LOG_NOTICE(( "id1 %lu", fd_tile_id1() )); TEST( tile_cnt==(fd_tile_id1()-fd_tile_id0()) );
   FD_LOG_NOTICE(( "id  %lu", fd_tile_id () )); TEST( fd_tile_id()==fd_tile_id0() );
   FD_LOG_NOTICE(( "idx %lu", fd_tile_idx() )); TEST( fd_tile_idx()==0UL );
+
+# if FD_HAS_HOSTED && FD_HAS_X86 /* FIXME: MAKE SOME NUMA FUNCTIONALITY HERE MORE GENERIC */
+  ulong cpu_cnt = fd_shmem_cpu_cnt();
+
+  ulong cpu_seen = 0UL;
+  for( ulong tile_idx=0UL; tile_idx<tile_cnt; tile_idx++ ) {
+    ulong cpu_id = fd_tile_cpu_id( tile_idx );
+    TEST( cpu_id<cpu_cnt );
+    FD_LOG_NOTICE(( "tile %lu -> cpu %lu", tile_idx, cpu_id ));
+    if( FD_LIKELY( cpu_id<64UL ) ) {
+      TEST( !fd_ulong_extract_bit( cpu_seen, (int)cpu_id ) );
+      cpu_seen = fd_ulong_set_bit( cpu_seen, (int)cpu_id );
+    } else {
+      static int warn = 0;
+      if( !warn ) {
+        FD_LOG_WARNING(( "Test can only fully validate fd_tile_cpu_id for cpus in [0,64)" ));
+        warn = 1;
+      }
+    }
+  }
+# endif
+
   fd_log_flush();
 
   TEST( fd_tile_id()==fd_log_thread_id() );
 
-  for( ulong idx=1UL; idx<fd_tile_cnt()-1UL; idx++ ) {
+  for( ulong idx=1UL; idx<tile_cnt-1UL; idx++ ) {
     int     argc = (int)idx;
     char ** argv = (char **)_argv;
 

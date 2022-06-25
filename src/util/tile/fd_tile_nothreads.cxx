@@ -14,6 +14,8 @@ static ulong fd_tile_private_idx; /* 0 outside boot/halt, init on boot */
 ulong fd_tile_id ( void ) { return fd_tile_private_id;  }
 ulong fd_tile_idx( void ) { return fd_tile_private_idx; }
 
+ulong fd_tile_cpu_id( ulong tile_idx ) { return tile_idx ? ULONG_MAX : fd_log_cpu_id(); }
+
 /* Dispatch side APIs ************************************************/
 
 struct fd_tile_exec_private {

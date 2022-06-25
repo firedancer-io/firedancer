@@ -166,6 +166,12 @@ static FD_TLS ulong fd_tile_private_idx; /* Zeroed at app/thread start, initiali
 ulong fd_tile_id ( void ) { return fd_tile_private_id;  }
 ulong fd_tile_idx( void ) { return fd_tile_private_idx; }
 
+static ushort fd_tile_private_cpu_id[ FD_TILE_MAX ]; /* Zeroed at app start, initialized by boot */
+ulong
+fd_tile_cpu_id( ulong tile_idx ) {
+  return (tile_idx<fd_tile_private_cnt) ? ((ulong)fd_tile_private_cpu_id[ tile_idx ]) : ULONG_MAX;
+}
+
 /* This is used for the OS services to communicate information with the
    tile managers */
 
@@ -365,7 +371,7 @@ fd_tile_exec_done( fd_tile_exec_t const * exec ) {
 /* Parse a list of cpu tiles */
 static ulong
 fd_tile_private_cpus_parse( char const * cstr,
-                            ulong *      tile_to_cpu ) {
+                            ushort *     tile_to_cpu ) {
   if( !cstr ) return 0UL;
   ulong cnt = 0UL;
 
@@ -403,7 +409,7 @@ fd_tile_private_cpus_parse( char const * cstr,
       if( FD_UNLIKELY( cpu>=(ulong)CPU_SETSIZE        ) ) FD_LOG_ERR(( "fd_tile: malformed --tile-cpus (invalid cpu index)" ));
       if( FD_UNLIKELY( CPU_ISSET( cpu, assigned_set ) ) ) FD_LOG_ERR(( "fd_tile: malformed --tile-cpus (repeated cpu)" ));
       if( FD_UNLIKELY( cnt>=FD_TILE_MAX               ) ) FD_LOG_ERR(( "fd_tile: too many --tile-cpus" ));
-      tile_to_cpu[ cnt++ ] = cpu;
+      tile_to_cpu[ cnt++ ] = (ushort)cpu;
     }
   }
 
@@ -422,13 +428,14 @@ fd_tile_private_boot( int *    pargc,
   char const * cpus = fd_env_strip_cmdline_cstr( pargc, pargv, "--tile-cpus", "FD_TILE_CPUS", NULL );
   if( !cpus ) FD_LOG_INFO(( "fd_tile: --tile-cpus not specified" ));
   else        FD_LOG_INFO(( "fd_tile: --tile-cpus \"%s\"", cpus ));
-  ulong tile_to_cpu[ FD_TILE_MAX ];
-  ulong tile_cnt = fd_tile_private_cpus_parse( cpus, tile_to_cpu );
+  ushort tile_to_cpu[ FD_TILE_MAX ];
+  ulong  tile_cnt = fd_tile_private_cpus_parse( cpus, tile_to_cpu );
 
   if( FD_UNLIKELY( !tile_cnt ) ) {
 
     FD_LOG_INFO(( "fd_tile: no cpus specified; treating thread group as single tile running on O/S assigned cpu(s)" ));
-    tile_cnt = 1UL;
+    tile_to_cpu[0] = (ushort)fd_log_cpu_id();
+    tile_cnt       = 1UL;
 
   } else {
 
@@ -436,12 +443,12 @@ fd_tile_private_boot( int *    pargc,
     cpu_set_t cpu_set[1];
     if( FD_UNLIKELY( sched_getaffinity( (pid_t)0, sizeof(cpu_set_t), cpu_set ) ) ) {
       FD_LOG_WARNING(( "fd_tile: sched_getaffinity failed (%i-%s) for tile 0 on cpu %lu",
-                       errno, strerror( errno ), tile_to_cpu[ 0UL ] ));
+                       errno, strerror( errno ), (ulong)tile_to_cpu[ 0UL ] ));
       good_taskset = 0;
     } else {
       ulong cnt = (ulong)CPU_COUNT( cpu_set );
       ulong idx; for( idx=0UL; idx<CPU_SETSIZE; idx++ ) if( CPU_ISSET( idx, cpu_set ) ) break;
-      good_taskset = (cnt==1UL) & (idx==tile_to_cpu[0]);
+      good_taskset = (cnt==1UL) & (idx==(ulong)tile_to_cpu[0]);
     }
 
     if( FD_UNLIKELY( !good_taskset ) ) {
@@ -450,7 +457,7 @@ fd_tile_private_boot( int *    pargc,
                        "Overriding fd_log_cpu_id(), fd_log_cpu(), fd_log_thread() on tile 0 to\n\t"
                        "match --tile-cpus and attempting to continue.  Launch this thread\n\t"
                        "group via 'taskset -c %lu' or equivalent to eliminate this warning.",
-                       tile_to_cpu[0] ));
+                       (ulong)tile_to_cpu[0] ));
       CPU_ZERO( cpu_set );
       CPU_SET( (int)tile_to_cpu[ 0UL ], cpu_set );
       if( FD_UNLIKELY( sched_setaffinity( (pid_t)0, sizeof(cpu_set_t), cpu_set ) ) )
@@ -461,8 +468,8 @@ fd_tile_private_boot( int *    pargc,
                          "(possibly catastrophically so).  Update --tile-cpus to specify a set of\n\t"
                          "allowed cpus that have been reserved for this thread group on this host\n\t"
                          "to eliminate this warning.",
-                         errno, strerror( errno ), tile_to_cpu[ 0UL ] ));
-      fd_log_private_cpu_id_set( tile_to_cpu[ 0UL ] );
+                         errno, strerror( errno ), (ulong)tile_to_cpu[ 0UL ] ));
+      fd_log_private_cpu_id_set( (ulong)tile_to_cpu[ 0UL ] );
       fd_log_cpu_set   ( NULL );
       fd_log_thread_set( NULL );
     }
@@ -476,7 +483,7 @@ fd_tile_private_boot( int *    pargc,
   ulong host_id = fd_log_host_id();
   FD_LOG_INFO(( "fd_tile: booting thread group %lu:%lu/%lu", app_id, fd_tile_private_id0, fd_tile_private_cnt ));
 
-  FD_LOG_INFO(( "fd tile: booting tile %lu on cpu %lu:%lu", 0UL, host_id, tile_to_cpu[0] ));
+  FD_LOG_INFO(( "fd tile: booting tile %lu on cpu %lu:%lu", 0UL, host_id, (ulong)tile_to_cpu[0] ));
 
   /* Tile 0 "pthread create" */
   fd_tile_private[0].pthread = pthread_self();
@@ -492,9 +499,9 @@ fd_tile_private_boot( int *    pargc,
                 fd_tile_private_idx, app_id, fd_tile_private_id, app_id, fd_tile_private_id0, fd_tile_private_cnt ));
 
   for( ulong tile_idx=1UL; tile_idx<tile_cnt; tile_idx++ ) {
-    ulong cpu_idx = tile_to_cpu[ tile_idx ];
+    ulong cpu_idx = (ulong)tile_to_cpu[ tile_idx ];
 
-    FD_LOG_INFO(( "fd_tile: booting tile %lu on cpu %lu:%lu", tile_idx, host_id, tile_to_cpu[ tile_idx ] ));
+    FD_LOG_INFO(( "fd_tile: booting tile %lu on cpu %lu:%lu", tile_idx, host_id, (ulong)tile_to_cpu[ tile_idx ] ));
 
     pthread_attr_t * attr;
     void *           stack;
@@ -584,12 +591,16 @@ fd_tile_private_boot( int *    pargc,
     }
   }
 
+  memcpy( fd_tile_private_cpu_id, tile_to_cpu, fd_tile_private_cnt*sizeof(ushort) );
+
   FD_LOG_INFO(( "fd_tile: boot success" ));
 }
 
 void
 fd_tile_private_halt( void ) {
   FD_LOG_INFO(( "fd_tile: halt" ));
+
+  memset( fd_tile_private_cpu_id, 0, fd_tile_private_cnt*sizeof(ushort) );
 
   ulong tile_cnt = fd_tile_private_cnt;
 
