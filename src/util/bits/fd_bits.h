@@ -331,7 +331,7 @@ FD_FN_CONST static inline double fd_double_if( int c, double t, double f ) { ret
 
 #define FD_ULONG_SVW_ENC_MAX (9UL) /* For compile time use */
 
-FD_FN_CONST static inline ulong
+FD_FN_UNUSED FD_FN_CONST static ulong /* Work around -Winline */
 fd_ulong_svw_enc_sz( ulong x ) {
   /* FIXME: CONSIDER FIND_MSB BASED TABLE LOOKUP? */
   if( FD_LIKELY( x<(1UL<< 6) ) ) return 1UL;
@@ -367,7 +367,7 @@ fd_ulong_svw_enc( uchar * b,
    encoded integer to a value that is <= the current value.  Returns
    b+csz. */
 
-static inline uchar *
+FD_FN_UNUSED static uchar * /* Work around -Winline */
 fd_ulong_svw_enc_fixed( uchar * b,
                         ulong   csz,
                         ulong   x ) {
