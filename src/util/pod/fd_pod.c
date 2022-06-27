@@ -467,7 +467,7 @@ fd_pod_private_alloc_node( fd_pod_subpod_path_t * FD_RESTRICT parent,
 
     if( ((key_sz-1UL)==prefix_len) && !memcmp( key, path, prefix_len ) ) { /* Found leading key in pod */
 
-      if( !delim ) { /* Path was a single key.  Fail as key already in ark. */
+      if( !delim ) { /* Path was a single key.  Fail as key already in pod. */
 
         return NULL;
 
