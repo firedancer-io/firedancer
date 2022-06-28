@@ -1,4 +1,4 @@
-#ifndef HEADER_src_util_spad_fd_spad_h
+#ifndef HEADER_src_util_scratch_fd_scratch_h
 #define HEADER_src_util_scratch_fd_scratch_h
 
 /* APIs for high performance scratch pad memory allocation.  There
@@ -75,7 +75,7 @@ extern FD_TLS ulong   fd_scratch_private_frame_max;
    concerned.  In typical use cases though, the scratch pad memory
    should point to a region of huge or gigantic page backed memory on
    the caller's numa node.
-   
+
    A shared memory region for smem is fine for smem.  This could be used
    for example to allow other threads / processes to access a scratch
    allocation from this thread for the lifetime of a scratch allocation.
@@ -100,18 +100,18 @@ extern FD_TLS ulong   fd_scratch_private_frame_max;
    will be valid to use as a scratch smem with space for up to MY_SMAX
    bytes. */
 
-FD_FN_CONST static inline ulong fd_scratch_smem_align( void ) { return (ulong)FD_SCRATCH_SMEM_ALIGN; }
+FD_FN_CONST static inline ulong fd_scratch_smem_align( void ) { return FD_SCRATCH_SMEM_ALIGN; }
 
 FD_FN_CONST static inline ulong
 fd_scratch_smem_footprint( ulong smax ) {
-  return fd_ulong_align_up( smax, (ulong)FD_SCRATCH_SMEM_ALIGN ); 
+  return fd_ulong_align_up( smax, FD_SCRATCH_SMEM_ALIGN );
 }
 
 /* fd_scratch_fmem_{align,footprint} return the alignment and footprint
    of a memory region suitable for holding the scratch pad memory
    metadata (typically very small).  The scratch pad memory will be
    capable of holding up to depth scratch frames.
-   
+
    Compile time allocation is possible via the FD_SCRATCH_FMEM_ALIGN
    define.  E.g.
 
