@@ -730,17 +730,17 @@ main( int     argc,
       TEST( fd_short_max( x, y    )==((x>y) ? x : y)                          );
     }
 
-    TEST( fd_short_zz_enc( (short)       0 )==(ushort)            0 );
-    TEST( fd_short_zz_enc( (short)      -1 )==(ushort)            1 );
-    TEST( fd_short_zz_enc( (short)       1 )==(ushort)            2 );
-    TEST( fd_short_zz_enc( (short)SHRT_MIN )==(ushort) USHRT_MAX    );
-    TEST( fd_short_zz_enc( (short)SHRT_MAX )==(ushort)(USHRT_MAX-1) );
+    TEST( fd_short_zz_enc( (short)        0 )==(ushort)             0 );
+    TEST( fd_short_zz_enc( (short)       -1 )==(ushort)             1 );
+    TEST( fd_short_zz_enc( (short)        1 )==(ushort)             2 );
+    TEST( fd_short_zz_enc( (short)SHORT_MIN )==(ushort) USHORT_MAX    );
+    TEST( fd_short_zz_enc( (short)SHORT_MAX )==(ushort)(USHORT_MAX-1) );
 
-    TEST( fd_short_zz_dec( (ushort)            0 )==(short)       0 );
-    TEST( fd_short_zz_dec( (ushort)            1 )==(short)      -1 );
-    TEST( fd_short_zz_dec( (ushort)            2 )==(short)       1 );
-    TEST( fd_short_zz_dec( (ushort) USHRT_MAX    )==(short)SHRT_MIN );
-    TEST( fd_short_zz_dec( (ushort)(USHRT_MAX-1) )==(short)SHRT_MAX );
+    TEST( fd_short_zz_dec( (ushort)             0 )==(short)        0 );
+    TEST( fd_short_zz_dec( (ushort)             1 )==(short)       -1 );
+    TEST( fd_short_zz_dec( (ushort)             2 )==(short)        1 );
+    TEST( fd_short_zz_dec( (ushort) USHORT_MAX    )==(short)SHORT_MIN );
+    TEST( fd_short_zz_dec( (ushort)(USHORT_MAX-1) )==(short)SHORT_MAX );
   }
 
   if( 1 ) {
