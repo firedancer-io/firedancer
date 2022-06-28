@@ -149,7 +149,7 @@
 
     mymap_t map[ ... map slot cnt ... ];
 
-  will have the appropriate footprint and alignment for a mymap_t map. */
+  will have the appropriate alignment and footprint for a mymap_t map. */
 
 #include "../bits/fd_bits.h"
 
