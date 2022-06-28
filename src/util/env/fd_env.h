@@ -25,7 +25,7 @@ FD_PROTOTYPES_BEGIN
    fd_env_strip_cmdline_cstr will return the actual pointer to the
    matching POSIX enviroment val cstr, command line val cstr or def cstr
    with the corresponding lifetime implications.
-   
+
    A NULL pargc, pargv or key indicates the command line should not be
    searched / stripped.  A NULL env_key indicates the environment should
    not be searched.  env_key will be ignored on build targets that do
