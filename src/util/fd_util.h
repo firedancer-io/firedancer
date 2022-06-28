@@ -206,9 +206,8 @@ FD_PROTOTYPES_BEGIN
 
      --tile-cpus [cpu-list] / FD_TILE_CPUS=[cpu-list]
 
-       For a thread group of an application on a hosted target,
-       --tile-cpus [cpu-list] are stripped from the command line with
-       the last pair giving the list of cpus to use.  E.g.
+       For a thread group of an application on a hosted target, this
+       specifies the cpus to use.  E.g.
 
          --tile-cpus 1-3,9,7
 
