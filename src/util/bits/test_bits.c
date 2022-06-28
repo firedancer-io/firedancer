@@ -3,6 +3,8 @@
 /* FIXME: TEST BASE10_DIG_CNT! */
 /* FIXME: TEST FLOAT_IF, DOUBLE_IF */
 
+FD_STATIC_ASSERT( FD_ULONG_SVW_ENC_MAX==9UL, unit_test );
+
 int
 main( int     argc,
       char ** argv ) {
