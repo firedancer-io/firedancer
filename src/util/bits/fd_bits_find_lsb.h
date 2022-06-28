@@ -89,7 +89,8 @@ fd_uchar_find_lsb_w_default( uchar x,
 }
 
 FD_FN_CONST static inline int 
-fd_ushort_find_lsb_w_default( ushort  x, int d ) { 
+fd_ushort_find_lsb_w_default( ushort x,
+                              int    d ) {
   union { int i; uint u; } r, c;
   c.i = d;
   r.u = (uint)x;  
