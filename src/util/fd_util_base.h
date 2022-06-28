@@ -29,7 +29,7 @@
    capabilities as a portable fallback along with build target specific
    optimized implementations that are invoked when the build target
    supports the appropriate capabilities.
-   
+
    The base development itself provide lots of functionality to help
    with implementing portable fallbacks while making very minimal
    assumptions about the build targets and zero use of 3rd party
@@ -147,11 +147,11 @@
    ! Does not assume the sign of char.  A naked char should be treated
      as cstr character and mathematical operations should be avoided on
      them.  This is less than ideal as the patterns for integer types in
-     the C/C++ language spec itself are far more consistent with a nake
+     the C/C++ language spec itself are far more consistent with a naked
      char naturally being treated as signed (see above).  But there are
      lots of conflicts between architectures, languages and standard
      libraries about this so any use of a naked char shouldn't assume
-     the sign ...  sigh.
+     the sign ... sigh.
 
    !! Only available if FD_HAS_INT128 is defined
 
@@ -325,7 +325,7 @@ typedef char FD_EXPAND_THEN_CONCAT4(static_assert_failed_at_line_,__LINE__,_with
    radically underestimate the impact in raw average performance and
    jitter and the probability of branch mispredicts or the cost to the
    CPU of having lots of branches).  This is not asm volatile (use
-   UNPREDICTABEL below for that) and has no clobbers.  So if var is not
+   UNPREDICTABLE below for that) and has no clobbers.  So if var is not
    used after the forget, the compiler can optimize the FORGET away
    (along with operations preceeding it used to produce var). */
 
