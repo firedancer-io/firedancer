@@ -8,7 +8,7 @@ log_ref( ulong const * ref,
          uint          seq,
          ulong         idx ) {
   FD_LOG_NOTICE(( "ulong x%u_%lu[10] = {", seq, idx ));
-  for( int i=0; i<10; i++ ) FD_LOG_NOTICE(( "  0x%016lxUL%s\n", ref[i], i<9 ? "," : "" ));
+  for( int i=0; i<10; i++ ) FD_LOG_NOTICE(( "  0x%016lxUL%s", ref[i], i<9 ? "," : "" ));
   FD_LOG_NOTICE(( "};" ));
 }
 

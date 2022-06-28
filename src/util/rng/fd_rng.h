@@ -48,8 +48,8 @@ fd_rng_private_expand( uint seq ) {
   return fd_ulong_hash( 0x900df00d00000000UL ^ (ulong)seq );
 }
 
-/* Private: fd_rng_private_constract(eseq) extract the original 32-bit
-   seq from its expanded value */
+/* Private: fd_rng_private_contract(seq) extract the original 32-bit seq
+   from its expanded value */
 
 FD_FN_CONST static inline uint
 fd_rng_private_contract( ulong eseq ) {
