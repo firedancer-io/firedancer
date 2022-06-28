@@ -1,7 +1,7 @@
 #ifndef HEADER_fd_src_pod_fd_pod_h
 #define HEADER_fd_src_pod_fd_pod_h
 
-/* pod is a set a of APIs for managing flexibly hierarchies of typed
+/* pod is a set a of APIs for managing flexible hierarchies of typed
    key-val pairs.  A pod is a data structure for holds these in memory
    contiguously and compactly such that it can be easily saved to
    permanent storage, sent over networks, distributed between different
@@ -21,9 +21,9 @@
    it is easy to lookup deeply nested values in a pod via their key
    path.  (Essentially, a pod a simple in-memory file system.)
 
-   As such pods are incredible useful building blocks for dealing with
-   heterogeneous distributed environment / configuration, checkpointing,
-   etc.
+   As such pods are an incredible useful building blocks for dealing
+   with heterogeneous distributed environment / configuration,
+   checkpointing, etc.
 
    The current implementation of POD below assumes little endian
    architecture and that the platform can reasonably efficient access
@@ -109,12 +109,12 @@ typedef struct fd_pod_info fd_pod_info_t;
 
 struct fd_pod_info {
   ulong           key_sz;   /* Size of key in pod (includes terminating '\0') */
-  char const *    key;      /* Pointer location of first byte of key cstr in pod */
+  char const *    key;      /* Pointer to first byte of this pod key cstr */
   int             val_type; /* Type of val (in [0,255], a FD_POD_VAL_TYPE_*) */
   ulong           val_sz;   /* Size of val in bytes (pod encoded form) */
   void const *    val;      /* Pointer to first byte of val (in pod encoded form).  For a cstr type, if val_sz==0, ignore this and
                                treat as NULL (FIXME: CONSIDER HANDLING THIS UNDER THE HOOD?).  */
-  fd_pod_info_t * parent;   /* For a recursive listing, NULL if the key is not in a subpod of the pod getting listed. Otherwise,
+  fd_pod_info_t * parent;   /* For a recursive listing, NULL if the key is not in a subpod of the pod getting listed.  Otherwise,
                                points to an (earlier) info with details about the subpod.  For a non-recursive listing or query,
                                NULL. */
 };
