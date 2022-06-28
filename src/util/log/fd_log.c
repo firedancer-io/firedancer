@@ -85,7 +85,7 @@ fd_log_thread_set( char const * thread ) {
     fd_log_private_thread_default( fd_log_private_thread );
     fd_log_private_thread_init = 1;
   } else if( FD_LIKELY( thread!=fd_log_private_thread ) ) {
-    fd_cstr_fini( fd_cstr_append_cstr_safe( fd_cstr_init( fd_log_private_thread ), thread, (ulong)(FD_LOG_NAME_MAX-1) ) );
+    fd_cstr_fini( fd_cstr_append_cstr_safe( fd_cstr_init( fd_log_private_thread ), thread, FD_LOG_NAME_MAX-1UL ) );
     fd_log_private_thread_init = 1;
   }
 }
@@ -100,12 +100,12 @@ void
 fd_log_private_app_set( char const * app ) {
   if( FD_UNLIKELY( !app ) ) app = "[app]";
   if( FD_LIKELY( app!=fd_log_private_app ) )
-    fd_cstr_fini( fd_cstr_append_cstr_safe( fd_cstr_init( fd_log_private_app ), app, (ulong)(FD_LOG_NAME_MAX-1) ) );
+    fd_cstr_fini( fd_cstr_append_cstr_safe( fd_cstr_init( fd_log_private_app ), app, FD_LOG_NAME_MAX-1UL ) );
 }
 
 /* APPLICATION PHYSICAL ID APIS ***************************************/
 
-/* Host id */
+/* Host ID */
 
 static ulong fd_log_private_host_id; /* 0 outside boot/halt, initialized on boot */
 
@@ -123,10 +123,10 @@ void
 fd_log_private_host_set( char const * host ) {
   if( FD_UNLIKELY( !host ) || FD_UNLIKELY( host[0]=='\0') ) host = "[host]";
   if( FD_LIKELY( host!=fd_log_private_host ) )
-    fd_cstr_fini( fd_cstr_append_cstr_safe( fd_cstr_init( fd_log_private_host ), host, (ulong)(FD_LOG_NAME_MAX-1) ) );
+    fd_cstr_fini( fd_cstr_append_cstr_safe( fd_cstr_init( fd_log_private_host ), host, FD_LOG_NAME_MAX-1UL ) );
 }
 
-/* CPU_ID */
+/* CPU ID */
 
 /* First CPU scheduled to run on or ULONG_MAX on failure */
 
@@ -153,6 +153,8 @@ fd_log_cpu_id( void ) {
   return fd_log_private_cpu_id;
 }
 
+/* CPU */
+
 /* Initialize name to a reasonable default CPU description (FIXME: WEEN
    THIS OFF STDLIB) */
 
@@ -170,8 +172,6 @@ fd_log_private_cpu_default( char * name ) { /* FD_LOG_NAME_MAX bytes */
   sprintf( name, (cnt>1) ? "f%lu" : "%lu", idx );
 }
 
-/* CPU */
-
 static FD_TLS char fd_log_private_cpu[ FD_LOG_NAME_MAX ]; /* "" at thread start */
 static FD_TLS int  fd_log_private_cpu_init;               /* 0  at thread start */
 
@@ -181,7 +181,7 @@ fd_log_cpu_set( char const * cpu ) {
     fd_log_private_cpu_default( fd_log_private_cpu );
     fd_log_private_cpu_init = 1;
   } else if( FD_LIKELY( cpu!=fd_log_private_cpu ) ) {
-    fd_cstr_fini( fd_cstr_append_cstr_safe( fd_cstr_init( fd_log_private_cpu ), cpu, (ulong)(FD_LOG_NAME_MAX-1) ) );
+    fd_cstr_fini( fd_cstr_append_cstr_safe( fd_cstr_init( fd_log_private_cpu ), cpu, FD_LOG_NAME_MAX-1UL ) );
     fd_log_private_cpu_init = 1;
   }
 }
@@ -212,7 +212,7 @@ void
 fd_log_private_group_set( char const * group ) {
   if( FD_UNLIKELY( !group ) || FD_UNLIKELY( group[0]=='\0') ) group = "[group]";
   if( FD_LIKELY( group!=fd_log_private_group ) )
-    fd_cstr_fini( fd_cstr_append_cstr_safe( fd_cstr_init( fd_log_private_group ), group, (ulong)(FD_LOG_NAME_MAX-1) ) );
+    fd_cstr_fini( fd_cstr_append_cstr_safe( fd_cstr_init( fd_log_private_group ), group, FD_LOG_NAME_MAX-1UL ) );
 }
 
 /* System TID or ULONG_MAX on failure */
@@ -248,7 +248,7 @@ void
 fd_log_private_user_set( char const * user ) {
   if( FD_UNLIKELY( !user ) || FD_UNLIKELY( user[0]=='\0') ) user = "[user]";
   if( FD_LIKELY( user!=fd_log_private_user ) )
-    fd_cstr_fini( fd_cstr_append_cstr_safe( fd_cstr_init( fd_log_private_user ), user, (ulong)(FD_LOG_NAME_MAX-1) ) );
+    fd_cstr_fini( fd_cstr_append_cstr_safe( fd_cstr_init( fd_log_private_user ), user, FD_LOG_NAME_MAX-1UL ) );
 }
 
 /* WALLCLOCK APIS *****************************************************/
@@ -284,12 +284,8 @@ fd_log_wallclock_cstr( long   now,
 
   if( FD_LIKELY( (now_ref<=now) & (now<(now_ref+ns_per_m)) ) ) {
 
-    /* now is near the reference timestamp so we reuse the the reference
-       calculation timestamp.  USINGS HOURS FOR CACHE TIMESCALE (LESS
-       FREQUENT RECOMPUTING THE CACHE BUT MORE DIVISION HERE) OR USING
-       SECONDS (NO DIVISION HERE BUT MORE FREQUENT CACHE RECOMPUTE)?
-       THE ONE DIVISION HERE WILL PROBABLY BE DONE VIA BIT TRICKS IN THE
-       COMPILER. */
+    /* now is near the reference timestamp so we reuse the reference
+       calculation timestamp. */
 
     YYYY = YYYY_ref;
     MM   = MM_ref;
@@ -452,7 +448,7 @@ fd_log_private_1( int          level,
     init = 1;
 
     /* Update how many messages from this thread in row have been
-       dubplicates */
+       duplicates */
 
     static FD_TLS ulong dedup_cnt;   /* 0UL on thread start */
     static FD_TLS int   in_dedup;    /* 0   on thread start */
@@ -554,7 +550,7 @@ fd_log_private_2( int          level,
 static void
 fd_log_private_cleanup( void ) {
 
-  /* The atexit below means  that all calls to "exit();" implicitly
+  /* The atexit below means that all calls to "exit();" implicitly
      become "fd_log_private_cleanup(); exit();".  It also implies that
      programs that terminate via a top level return from main implicitly
      call fd_log_private_cleanup().
@@ -642,7 +638,7 @@ fd_log_private_sig_abort( int         sig,
 
   usleep( (useconds_t)1000000 ); /* Give some time to let streams drain */
 
-  raise( sig ); /* Contiue with the original handler (probably the default and that will produce the core) */
+  raise( sig ); /* Continue with the original handler (probably the default and that will produce the core) */
 }
 
 static void
@@ -690,7 +686,7 @@ fd_log_private_boot( int  *   pargc,
   fd_log_private_host_id_set( fd_env_strip_cmdline_ulong( pargc, pargv, "--log-host-id", "FD_LOG_HOST_ID", 0UL ) );
 
   char const * host = fd_env_strip_cmdline_cstr( pargc, pargv, "--log-host", "FD_LOG_HOST", NULL );
-  if( !host ) { if( !gethostname( buf, (ulong)FD_LOG_NAME_MAX ) ) buf[ FD_LOG_NAME_MAX-1 ] = '\0', host = buf; }
+  if( !host ) { if( !gethostname( buf, FD_LOG_NAME_MAX ) ) buf[ FD_LOG_NAME_MAX-1UL ] = '\0', host = buf; }
   fd_log_private_host_set( host );
 
   fd_env_strip_cmdline_ulong( pargc, pargv, "--log-cpu-id", "FD_LOG_CPU_ID", 0UL ); /* FIXME: LOG IGNORING? */
@@ -758,8 +754,6 @@ fd_log_private_boot( int  *   pargc,
     fd_log_private_sig_trap( SIGXCPU   );
     fd_log_private_sig_trap( SIGXFSZ   );
   }
-
-  /* At this point, ephemeral log online. */
 
   /* Hook up the permanent log */
 
