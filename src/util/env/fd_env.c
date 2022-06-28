@@ -4,7 +4,8 @@
 #include <stdlib.h>
 char const * fd_env_get( char const * key ) { return getenv( key ); }
 #else
-char const * fd_env_get( char const * key ) { (void)key; return NULL; }
+/* Work around -Wsuggest-attribute=const */
+char const * fd_env_get( char const * key ) { key = NULL; return FD_VOLATILE_CONST( key ); }
 #endif
 
 #define FD_ENV_STRIP_CMDLINE_IMPL( T, what )                                   \
