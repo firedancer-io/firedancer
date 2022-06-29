@@ -336,7 +336,7 @@ main( int     argc,
 
   /* FIXME: ADD HASH QUALITY CHECKER HERE */
 
-  fd_rng_leave( fd_rng_delete( rng ) );
+  fd_rng_delete( fd_rng_leave( rng ) );
 
 # undef TEST
 
