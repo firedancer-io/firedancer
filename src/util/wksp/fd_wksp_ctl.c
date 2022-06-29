@@ -151,8 +151,8 @@ main( int     argc,
         "\treset wksp\n\t"
         "\t- Free all allocations in a workspace.\n\t"
         "\n\t"
-        "\tusage wksp\n\t"
-        "\t- Print the detailed workspace usage to stdout.\n\t"
+        "\tquery wksp\n\t"
+        "\t- Print the detailed workspace query to stdout.\n\t"
         "\n\t", bin ));
       FD_LOG_NOTICE(( "%i: %s: success", cnt, cmd ));
 
@@ -311,7 +311,7 @@ main( int     argc,
       FD_LOG_NOTICE(( "%i: %s %s: success", cnt, cmd, name ));
       SHIFT(1);
 
-    } else if( !strcmp( cmd, "usage" ) ) {
+    } else if( !strcmp( cmd, "query" ) ) {
 
       if( FD_UNLIKELY( argc<1 ) ) FD_LOG_ERR(( "%i: %s: too few arguments\n\tDo %s help for help", cnt, cmd, bin ));
 
