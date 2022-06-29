@@ -167,6 +167,7 @@ ulong fd_tile_id ( void ) { return fd_tile_private_id;  }
 ulong fd_tile_idx( void ) { return fd_tile_private_idx; }
 
 static ushort fd_tile_private_cpu_id[ FD_TILE_MAX ]; /* Zeroed at app start, initialized by boot */
+
 ulong
 fd_tile_cpu_id( ulong tile_idx ) {
   return (tile_idx<fd_tile_private_cnt) ? ((ulong)fd_tile_private_cpu_id[ tile_idx ]) : ULONG_MAX;
@@ -175,15 +176,15 @@ fd_tile_cpu_id( ulong tile_idx ) {
 /* This is used for the OS services to communicate information with the
    tile managers */
 
-#define FD_TILE_STATE_BOOT (0) /* Tile is booting */
-#define FD_TILE_STATE_IDLE (1) /* Tile is idle */
-#define FD_TILE_STATE_EXEC (2) /* Tile is executing a task */
-#define FD_TILE_STATE_HALT (3) /* Tile is halting */
+#define FD_TILE_PRIVATE_STATE_BOOT (0) /* Tile is booting */
+#define FD_TILE_PRIVATE_STATE_IDLE (1) /* Tile is idle */
+#define FD_TILE_PRIVATE_STATE_EXEC (2) /* Tile is executing a task */
+#define FD_TILE_PRIVATE_STATE_HALT (3) /* Tile is halting */
 
 struct __attribute__((aligned(128))) fd_tile_private { /* Double cache line aligned to avoid aclpf false sharing */
   ulong          id;
   ulong          idx;
-  int            state;  /* FD_TILE_STATE_* */
+  int            state;  /* FD_TILE_PRIVATE_STATE_* */
   int            argc;
   char **        argv;
   fd_tile_task_t task;
@@ -219,7 +220,7 @@ fd_tile_private_manager( void * _args ) {
   fd_tile_private_t tile[1];
   FD_VOLATILE( tile->id    ) = id;
   FD_VOLATILE( tile->idx   ) = idx;
-  FD_VOLATILE( tile->state ) = FD_TILE_STATE_BOOT;
+  FD_VOLATILE( tile->state ) = FD_TILE_PRIVATE_STATE_BOOT;
   FD_VOLATILE( tile->argc  ) = 0;
   FD_VOLATILE( tile->argv  ) = NULL;
   FD_VOLATILE( tile->task  ) = NULL;
@@ -240,7 +241,7 @@ fd_tile_private_manager( void * _args ) {
                 idx, app_id, id, app_id, fd_tile_private_id0, fd_tile_private_cnt ));
 
   FD_COMPILER_MFENCE();
-  FD_VOLATILE( tile->state ) = FD_TILE_STATE_IDLE;
+  FD_VOLATILE( tile->state ) = FD_TILE_PRIVATE_STATE_IDLE;
   FD_VOLATILE( args->tile  ) = tile;
 
   for(;;) {
@@ -248,8 +249,8 @@ fd_tile_private_manager( void * _args ) {
     /* We are awake ... see what we should do next */
 
     int state = FD_VOLATILE_CONST( tile->state );
-    if( FD_UNLIKELY( state!=FD_TILE_STATE_EXEC ) ) {
-      if( FD_UNLIKELY( state!=FD_TILE_STATE_IDLE ) ) break;
+    if( FD_UNLIKELY( state!=FD_TILE_PRIVATE_STATE_EXEC ) ) {
+      if( FD_UNLIKELY( state!=FD_TILE_PRIVATE_STATE_IDLE ) ) break;
       /* state is IDLE ... try again */
       FD_SPIN_PAUSE();
       continue;
@@ -257,7 +258,7 @@ fd_tile_private_manager( void * _args ) {
 
     /* state is EXEC ... the run assigned task and then
        transition to IDLE when done */
-    /* FIXME: MORE SOPHISTCATED HANDLING OF EXCEPTIONS ALA JS_TPOOL */
+    /* FIXME: MORE SOPHISTCATED HANDLING OF EXCEPTIONS */
 
     int            argc = FD_VOLATILE_CONST( tile->argc );
     char **        argv = FD_VOLATILE_CONST( tile->argv );
@@ -270,7 +271,7 @@ fd_tile_private_manager( void * _args ) {
     }
 
     FD_COMPILER_MFENCE();
-    FD_VOLATILE( tile->state ) = FD_TILE_STATE_IDLE;
+    FD_VOLATILE( tile->state ) = FD_TILE_PRIVATE_STATE_IDLE;
   }
 
   /* state is HALT, clean up and then reset back to BOOT */
@@ -278,7 +279,7 @@ fd_tile_private_manager( void * _args ) {
   FD_LOG_INFO(( "fd_tile: halting tile %lu", idx ));
 
   FD_COMPILER_MFENCE();
-  FD_VOLATILE( tile->state ) = FD_TILE_STATE_BOOT;
+  FD_VOLATILE( tile->state ) = FD_TILE_PRIVATE_STATE_BOOT;
   return stack;
 }
 
@@ -331,7 +332,7 @@ fd_tile_exec_new( ulong          idx,
   FD_VOLATILE( tile->argv ) = argv;
   FD_VOLATILE( tile->task ) = task;
   FD_COMPILER_MFENCE();
-  FD_VOLATILE( tile->state ) = FD_TILE_STATE_EXEC;
+  FD_VOLATILE( tile->state ) = FD_TILE_PRIVATE_STATE_EXEC;
   return (fd_tile_exec_t *)tile;
 }
 
@@ -344,7 +345,7 @@ fd_tile_exec_delete( fd_tile_exec_t * exec,
   int state;
   for(;;) {
     state = FD_VOLATILE_CONST( tile->state );
-    if( FD_LIKELY( state==FD_TILE_STATE_IDLE ) ) break;
+    if( FD_LIKELY( state==FD_TILE_PRIVATE_STATE_IDLE ) ) break;
     FD_SPIN_PAUSE();
   }
   /* state is IDLE at this point */
@@ -363,7 +364,7 @@ char **        fd_tile_exec_argv( fd_tile_exec_t const * exec ) { return ((fd_ti
 int
 fd_tile_exec_done( fd_tile_exec_t const * exec ) {
   fd_tile_private_t const * tile = (fd_tile_private_t const *)exec;
-  return FD_VOLATILE_CONST( tile->state )==FD_TILE_STATE_IDLE;
+  return FD_VOLATILE_CONST( tile->state )==FD_TILE_PRIVATE_STATE_IDLE;
 }
 
 /* Boot/halt APIs ****************************************************/
@@ -612,11 +613,11 @@ fd_tile_private_halt( void ) {
 
   FD_LOG_INFO(( "fd_tile: waiting for all tasks to complete" ));
   for( ulong tile_idx=1UL; tile_idx<tile_cnt; tile_idx++ )
-    while( FD_VOLATILE_CONST( tile[ tile_idx ]->state )!=FD_TILE_STATE_IDLE ) FD_SPIN_PAUSE();
+    while( FD_VOLATILE_CONST( tile[ tile_idx ]->state )!=FD_TILE_PRIVATE_STATE_IDLE ) FD_SPIN_PAUSE();
   /* All halt transitions will be valid at this point */
 
   FD_LOG_INFO(( "fd_tile: signaling all tiles to halt" ));
-  for( ulong tile_idx=1UL; tile_idx<tile_cnt; tile_idx++ ) FD_VOLATILE( tile[ tile_idx ]->state ) = FD_TILE_STATE_HALT;
+  for( ulong tile_idx=1UL; tile_idx<tile_cnt; tile_idx++ ) FD_VOLATILE( tile[ tile_idx ]->state ) = FD_TILE_PRIVATE_STATE_HALT;
   /* All tiles are halting at this point.  tile[*] is no longer safe */
 
   FD_LOG_INFO(( "fd_tile: waiting for all tiles to halt" ));

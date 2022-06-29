@@ -13,7 +13,7 @@
 #define FD_TILE_MAX (1024UL)
 
 /* A fd_tile_task_t is a function point with the function signature for
-   of a tasks that can be dispatched to a tile. */
+   tasks that can be dispatched to a tile. */
 
 typedef int (*fd_tile_task_t)( int argc, char ** argv );
 
@@ -41,7 +41,7 @@ FD_FN_PURE ulong fd_tile_cnt( void ); /* == fd_tile_id1()-fd_tile_id0() > 0 */
 
 FD_FN_PURE ulong fd_tile_cpu_id( ulong tile_idx );
 
-/* fd_tile_exec_new start parallel execution of task( argc, argv ) on
+/* fd_tile_exec_new starts parallel execution of task( argc, argv ) on
    tile idx (in [0,fd_tile_cnt()).  Returns a handle for this exec on
    success (tile idx was signaled to start execution of task) or NULL on
    failure (e.g.  tried to dispatch to self or tried dispatch to tile 0,
@@ -101,7 +101,7 @@ FD_FN_PURE char **        fd_tile_exec_argv( fd_tile_exec_t const * exec );
 
 int fd_tile_exec_done( fd_tile_exec_t const * exec );
 
-/* These functions for for fd_tile internal use only. */
+/* These functions are for fd_tile internal use only. */
 
 void
 fd_tile_private_boot( int *    pargc,
