@@ -5,12 +5,10 @@ git.project-firedancer.org](https://git.project-firedancer.org) for code review.
 learning curve, but its back-and-forth review workflow is much nicer than GitHub's.
 
 Using Gerrit also avoids sharing a single point of failure with the Solana Labs implementation - we only use
-GitHub for issue tracking and as a read-only mirror of the repository. GitHub has a global Git CDN, so if you
-plan to clone the repository a _lot_ in an automated fashion, please clone it from GitHub.
+GitHub for issue tracking and as a read-only mirror of the repository.
 
-If you just want to take a look, just clone the repository from GitHub or Gerrit like you normally would. For
-contributions directly to this project, you'll have to instead clone it directly from Gerrit
-and authenticate.
+In order to upload changes to Gerrit, you must clone the repository from Gerrit
+with authentication, either via SSH or HTTPS.
 
 We do not actively use GitHub pull requests, but if there is demand for community contributions via
 GitHub PRs, we will be happy to accept them.
@@ -72,8 +70,8 @@ becomes one review** (called "changelist"/CL in Gerrit). The commit message is u
 
 This has a number of advantages:
 
-- It enforces a clean commit history where each commit is self-contained and has a meaningful commit message (
-  which can be reviewed along with the code change).
+- It enforces a clean commit history where each commit is self-contained and has a meaningful commit message
+  (which can be reviewed along with the code change).
 - It allows for **dependent changes to be stacked** by simply having multiple commits on the same branch.
 - CI runs independently on each commit.
 
@@ -83,7 +81,7 @@ In order to submit one or multiple commits to Gerrit, simply push them to a spec
 
     git push origin HEAD:refs/for/main
 
-This ask Gerrit to create a new CL against `main` for each commit you pushed. Normally, CLs are always made
+This asks Gerrit to create a new CL against `main` for each commit you pushed. Normally, CLs are always made
 against the `main` branch, but rarely, you may want to submit a change to a feature or release branch instead.
 
 In order to ask for review, simply add reviewers using the Gerrit UI. You can also add CCs or reviewers
@@ -127,7 +125,7 @@ Typically, you'd use `git commit --amend` (for the top commit on a stack) or `gi
 of changes, as
 is [git commit --fixup](https://blog.sebastian-daschner.com/entries/git-commit-fixup-autosquash).
 
-All of this is plain Git usage, so there's typically very good editor support - IntelliJ/CLion can
+All of this is plain Git usage, so there's very good editor support - IntelliJ/CLion can
 conveniently create fixup commits and do an interactive rebase by selecting
 a previous commit in the commit log. Other recommended tools are [Magit](https://magit.vc/) for Emacs
 and [GitLens](https://marketplace.visualstudio.com/items?itemName=eamodio.gitlens) for VSCode.
