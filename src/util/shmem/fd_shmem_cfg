@@ -179,8 +179,8 @@ query() {
       echo "$t pages:"
       for((n=0;n<NUMA_CNT;n++)); do
         echo -e "\tnuma $n: `get_page_total $t $n` total, `get_page_free $t $n` free"
-        echo ""
       done
+      echo ""
     fi
   done
   if [ -d $SHMEM_PATH ]; then
