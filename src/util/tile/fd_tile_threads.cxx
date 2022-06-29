@@ -370,6 +370,9 @@ fd_tile_exec_done( fd_tile_exec_t const * exec ) {
 /* Boot/halt APIs ****************************************************/
 
 /* Parse a list of cpu tiles */
+
+FD_STATIC_ASSERT( CPU_SETSIZE<65536, update_tile_to_cpu_type );
+
 static ulong
 fd_tile_private_cpus_parse( char const * cstr,
                             ushort *     tile_to_cpu ) {
