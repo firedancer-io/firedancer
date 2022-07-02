@@ -1025,7 +1025,7 @@ fd_fxp_log2_approx( ulong x,
      implementation of a minimax Pade(4,3) approximant to log2(1+x) over
      the domain [0,1].  In exact math, the approximation has an accuracy
      better than 1/2 ulp over the whole domain and is exact at the
-     endpoints.  As implemented the accuracy is O(1) ulp over the whole
+     endpoints.  As implemented, the accuracy is O(1) ulp over the whole
      domain (with round nearest flavored rounding), monotonic and still
      exact at the endpoints. */
 
@@ -1060,13 +1060,12 @@ fd_fxp_log2_approx( ulong x,
 
      y/2^30 ~ exp2( x/2^30 )
 
-   with an error of O(1) ulp for x/2^30 < ~1.  This works identical to
-   exp2m1.h but uses a minimax polynomial that is better than 0.5 ulp
-   accurate in exact arithmetic.  As implemented this is +/-1 ulp of the
-   correctly rounded RNE result when x<=2^30, has the leading ~30 bits
-   correct for larger x and is exact for input values that yield exactly
-   representable outputs.  Returns ULONG_MAX if output would overflow a
-   34.30u input. */
+   with an error of O(1) ulp for x/2^30 < ~1.  This uses a minimax
+   polynomial that is better than 0.5 ulp accurate in exact arithmetic.
+   As implemented, this is +/-1 ulp of the correctly rounded RNE result
+   when x<=2^30, has the leading ~30 bits correct for larger x and is
+   exact for input values that yield exactly representable outputs.
+   Returns ULONG_MAX if output would overflow the 34.30u output. */
 /* FIXME: CONSIDER MAKING THIS A FUNCTION CALL? */
 
 FD_FN_CONST static inline ulong
@@ -1094,11 +1093,11 @@ fd_fxp_exp2_approx( ulong x ) {
 
      y/2^30 ~ exp2( -x/2^30 )
 
-   with an error of O(1) ulp everywhere.  This works identical to
-   rexp2.h but uses a minimax polynomial that is better than 0.5 ulp
-   accurate in exact arithmetic.  As implemented this is +/-1 ulp of the
-   correctly rounded RNE result everywhere and exact for input values
-   that have exactly representable outputs. */
+   with an error of O(1) ulp everywhere.  This uses a minimax polynomial
+   that is better than 0.5 ulp accurate in exact arithmetic.  As
+   implemented, this is +/-1 ulp of the correctly rounded RNE result
+   everywhere and exact for input values that have exactly representable
+   outputs. */
 /* FIXME: CONSIDER MAKING THIS A FUNCTION CALL? */
 
 FD_FN_CONST static inline ulong
