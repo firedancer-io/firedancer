@@ -154,9 +154,9 @@ fd_pod_new( void * shmem,
   return shmem;
 }
 
-static inline uchar * fd_pod_join  ( void  *  shpod ) { return (uchar *)shpod; }
-static inline void  * fd_pod_leave ( uchar *  pod   ) { return (void *)pod;    }
-static inline void  * fd_pod_delete( void  *  shpod ) { return shpod;          }
+static inline uchar * fd_pod_join  ( void        * shpod ) { return (uchar *)shpod; }
+static inline void  * fd_pod_leave ( uchar const * pod   ) { return (void *)pod;    }
+static inline void  * fd_pod_delete( void        * shpod ) { return shpod;          }
 
 /* Accessors **********************************************************/
 
