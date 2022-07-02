@@ -228,6 +228,38 @@ fd_wksp_cstr_parse( char const * cstr,     /* cstr to parse */
 
 /* High level public APIs *********************************************/
 
+static char *
+fd_wksp_private_cstr( char const * name,
+                      ulong        gaddr,
+                      char *       cstr ) {
+  fd_cstr_fini( fd_cstr_append_ulong_as_text( fd_cstr_append_char( fd_cstr_append_cstr( fd_cstr_init( cstr ),
+    name ), ':' ), ' ', '\0', gaddr, fd_ulong_base10_dig_cnt( gaddr ) ) );
+  return cstr;
+}
+
+char *
+fd_wksp_cstr( fd_wksp_t const * wksp,
+              ulong             gaddr,
+              char *            cstr ) {
+
+  if( FD_UNLIKELY( !wksp ) ) {
+    FD_LOG_WARNING(( "NULL wksp" ));
+    return NULL;
+  }
+
+  if( FD_UNLIKELY( !( (!gaddr) | ((wksp->gaddr_lo<=gaddr) & (gaddr<wksp->gaddr_hi)) ) ) ) {
+    FD_LOG_WARNING(( "unmappable gaddr" ));
+    return NULL;
+  }
+
+  if( FD_UNLIKELY( !cstr ) ) {
+    FD_LOG_WARNING(( "NULL cstr" ));
+    return NULL;
+  }
+
+  return fd_wksp_private_cstr( wksp->name, gaddr, cstr );
+}
+
 char *
 fd_wksp_cstr_alloc( char const * name,
                     ulong        align,
@@ -249,8 +281,7 @@ fd_wksp_cstr_alloc( char const * name,
   }
 
   fd_wksp_detach( wksp ); /* logs details */
-  fd_cstr_printf( cstr, FD_WKSP_CSTR_ALLOC_CSTR_MAX, NULL, "%s:%lu", name, gaddr );
-  return cstr;
+  return fd_wksp_private_cstr( name, gaddr, cstr );
 }
 
 void
@@ -283,7 +314,7 @@ fd_wksp_cstr_memset( char const * cstr,
 }
 
 void *
-fd_wksp_cstr_map( char const * cstr ) {
+fd_wksp_map( char const * cstr ) {
   char  name[ FD_SHMEM_NAME_MAX ];
   ulong gaddr;
   if( FD_UNLIKELY( !fd_wksp_cstr_parse( cstr, name, &gaddr ) ) ) return NULL; /* logs details */
@@ -292,9 +323,9 @@ fd_wksp_cstr_map( char const * cstr ) {
   if( FD_UNLIKELY( !wksp ) ) return NULL;
 
   /* While fd_wksp_laddr will accept gaddrs at gaddr_hi, we don't here
-     because fd_wksp_cstr_unmap is not guaranteed to be able to figure
-     out the wksp from the resulting pointer.  (FIXME: CONSIDER FOOTER
-     ON WKSP TO ACCOMODATE THIS?) */
+     because fd_wksp_unmap is not guaranteed to be able to figure out
+     the wksp from the resulting pointer.  (FIXME: CONSIDER FOOTER ON
+     WKSP TO ACCOMODATE THIS?) */
 
   if( FD_UNLIKELY( gaddr==wksp->gaddr_hi ) ) {
     FD_LOG_WARNING(( "out of range gaddr" ));
@@ -315,7 +346,7 @@ fd_wksp_cstr_map( char const * cstr ) {
 }
 
 void
-fd_wksp_cstr_unmap( void * laddr ) {
+fd_wksp_unmap( void const * laddr ) {
   if( FD_UNLIKELY( !laddr ) ) return; /* Silent because NULL might not be an error case (i.e. gaddr passed to map was 0/NULL) */
 
   /* Technically more efficient given current implementation to do:
@@ -324,7 +355,7 @@ fd_wksp_cstr_unmap( void * laddr ) {
 
   fd_shmem_join_info_t info[1];
   if( FD_UNLIKELY( fd_shmem_join_query_by_addr( laddr, info ) ) ) {
-    FD_LOG_WARNING(( "laddr does not seem to be from fd_wksp_cstr_map" ));
+    FD_LOG_WARNING(( "laddr does not seem to be from fd_wksp_map" ));
     return;
   }
 

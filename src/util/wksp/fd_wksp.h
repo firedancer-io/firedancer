@@ -101,10 +101,10 @@
 
    See below for more details. */
 
-/* FD_WKSP_CSTR_ALLOC_CSTR_MAX is the number of bytes maximum that can
+/* FD_WKSP_CSTR_MAX is the number of bytes maximum that can
    be a wksp global address cstr. */
 
-#define FD_WKSP_CSTR_ALLOC_CSTR_MAX (FD_SHMEM_NAME_MAX + 21UL)
+#define FD_WKSP_CSTR_MAX (FD_SHMEM_NAME_MAX + 21UL)
 
 /* FD_WKSP_ALLOC_ALIGN_{MIN,DEFAULT} give the minimal and default
    alignments of a wksp allocation.  MIN and DEFAULT must a positive
@@ -126,18 +126,31 @@ FD_PROTOTYPES_BEGIN
 /* Overall, these are meant for use at application startup / shutdown
    and not in critical loops. */
 
+/* fd_wksp_cstr prints the wksp global address gaddr into cstr as a
+   [fd_wksp_name(wksp)]:[gaddr].  Caller promises that cstr has room for
+   FD_WKSP_CSTR_MAX bytes.  Returns cstr on success and NULL on failure
+   (logs details).  Reasons for failure include NULL wksp, gaddr bad
+   (i.e. a good gaddr is either 0 or a pointer to byte strictly inside
+   the workspace global address space such fd_wksp_map( cstr ) can work)
+   and NULL cstr. */
+
+char *
+fd_wksp_cstr( fd_wksp_t const * wksp,
+              ulong             gaddr,
+              char *            cstr );
+
 /* fd_wksp_cstr_alloc allocates sz bytes with alignment align from wksp
    with name.  align and sz have the exact same semantics as
    fd_wksp_alloc.  cstr must be non-NULL with space for up to
-   FD_WKSP_CSTR_ALLOC_CSTR_MAX bytes.
+   FD_WKSP_CSTR_MAX bytes.
 
    Returns cstr on success and NULL on failure (logs details).  On
    success, cstr will contain a [name]:[gaddr] string suitable for use
-   by fd_wksp_cstr_map and fd_wksp_cstr_free.  cstr will be untouched
+   by fd_wksp_map and fd_wksp_cstr_free.  cstr will be untouched
    otherwise.  Ignoring error trapping and such, equivalent to:
 
      fd_wksp_t * wksp  = fd_wksp_attach( name );
-     ulong       gaddr = fd_wksp_alloc( name, align, sz );
+     ulong       gaddr = fd_wksp_alloc( wksp, align, sz );
      fd_wksp_detach( wksp );
      sprintf( cstr, "%s:%lu", name, gaddr );
      return cstr;
@@ -185,47 +198,45 @@ void
 fd_wksp_cstr_memset( char const * cstr,
                      int          c );
 
-/* fd_wksp_cstr_map returns a pointer in the caller's address space to
-   the wksp allocation specified by a cstr containing [name]:[gaddr].
+/* fd_wksp_map returns a pointer in the caller's address space to the
+   wksp allocation specified by a cstr containing [name]:[gaddr].
    [name] is the name of the shared memory region holding the wksp.
-   [gaddr] is converted to a number via cstr_to_ulong that should
+   [gaddr] is converted to a number via fd_cstr_to_ulong that should
    correspond to a valid non-NULL global address in that wksp.
    Notwithstanding parsing and edge cases, does:
 
      fd_wksp_laddr( fd_wksp_attach( name ), gaddr )
 
    Returns non-NULL on successful (the lifetime of the returned pointer
-   will be until fd_wksp_cstr_unmap is called on it).  Returns NULL and
-   logs details on failure.
+   will be until fd_wksp_unmap is called on it).  Returns NULL and logs
+   details on failure.
 
-   fd_wksp_cstr_map should not be used to map open or half open
-   intervals.  E.g. in ["wksp:lo","wksp:hi"), "wksp:hi" might refer to a
-   location just outside the wksp (that fd_wksp_cstr_unmap might not be
-   able to deal with).  Such cases should instead be handled by using lo
-   / sz representation (e.g. ["wksp:lo","wksp:lo"+sz) or via the
-   advanced APIs.
+   fd_wksp_map should not be used to map open or half open intervals.
+   E.g. in ["wksp:lo","wksp:hi"), "wksp:hi" might refer to a location
+   just outside the wksp (that fd_wksp_unmap might not be able to deal
+   with).  Such cases should instead be handled by using lo / sz
+   representation (e.g. ["wksp:lo","wksp:lo"+sz) or via the advanced
+   APIs.
 
-   fd_wksp_cstr_map is algorithmically efficient and reasonably low
-   overhead (especially if is this not the first attachment to the
-   wksp).
+   fd_wksp_map is algorithmically efficient and reasonably low overhead
+   (especially if is this not the first attachment to the wksp).
 
-   FIXME: CONST-VARIANTS? */
+   FIXME: READ-ONLY VARIANT? */
 
 void *
-fd_wksp_cstr_map( char const * cstr );
+fd_wksp_map( char const * cstr );
 
-/* fd_wksp_cstr_unmap unmaps a pointer returned by fd_wksp_cstr_map,
-   logs details if anything weird is detected.  Essentially:
+/* fd_wksp_unmap unmaps a pointer returned by fd_wksp_map, logs details
+   if anything weird is detected.  Essentially:
 
      fd_wksp_detach( fd_wksp_containing( laddr ) )
 
-   Undefined behavior if laddr is not currently mapped by
-   fd_wksp_cstr_map.  fd_wksp_cstr_unmap is not algorithmically
-   efficient but practically still quite fast (especially if this is not
-   the last attachment to wksp). */
+   Undefined behavior if laddr is not currently mapped by fd_wksp_map.
+   fd_wksp_unmap is not algorithmically efficient but practically still
+   quite fast (especially if this is not the last attachment to wksp). */
 
 void
-fd_wksp_cstr_unmap( void * laddr );
+fd_wksp_unmap( void const * laddr );
 
 /**********************************************************************/
 

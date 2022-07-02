@@ -169,6 +169,8 @@ main( int     argc,
   for( ulong tile_idx=1UL; tile_idx<tile_cnt; tile_idx++ )
     fd_tile_exec_delete( exec[tile_idx], NULL );
 
+  /* FIXME: TEST CSTR/MAP/UNMAP STUFF */
+
   FD_LOG_NOTICE(( "Detaching from wksp" ));
 
   fd_wksp_detach( _wksp );

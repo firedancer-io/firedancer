@@ -252,7 +252,7 @@ main( int     argc,
       ulong        align = fd_cstr_to_ulong( argv[1] );
       ulong        sz    = fd_cstr_to_ulong( argv[2] );
 
-      char name_gaddr[ FD_WKSP_CSTR_ALLOC_CSTR_MAX ];
+      char name_gaddr[ FD_WKSP_CSTR_MAX ];
       if( !fd_wksp_cstr_alloc( name, align, sz, name_gaddr ) ) /* logs details */
         FD_LOG_ERR(( "%i: %s %s %lu %lu: fd_wksp_cstr_alloc failed", cnt, cmd, name, align, sz ));
       printf( "%s\n", name_gaddr );
