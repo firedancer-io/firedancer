@@ -112,6 +112,28 @@
 #define FD_HAS_X86 0
 #endif
 
+/* These allow even more precise targeting for X86. */
+
+/* FD_HAS_SSE indicates the target supports Intel SSE4 style SIMD
+   (basically do the 128-bit wide parts of "x86intrin.h" work).
+   Recommend using the math/fd_sse.h APIs instead of raw Intel
+   intrinsics for readability and to facilitate portability to non-x86
+   platforms.  Implies FD_HAS_X86. */
+
+#ifndef FD_HAS_SSE
+#define FD_HAS_SSE 0
+#endif
+
+/* FD_HAS_AVX indicates the target supports Intel AVX2 style SIMD
+   (basically do the 256-bit wide parts of "x86intrin.h" work).
+   Recommend using the math/fd_avx.h APIs instead of raw Intel
+   intrinsics for readability and to facilitate portability to non-x86
+   platforms.  Implies FD_HAS_SSE. */
+
+#ifndef FD_HAS_AVX
+#define FD_HAS_AVX 0
+#endif
+
 /* Base development environment ***************************************/
 
 /* The functionality provided by these vanilla headers are always
