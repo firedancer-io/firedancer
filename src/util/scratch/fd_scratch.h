@@ -1,5 +1,5 @@
-#ifndef HEADER_src_util_scratch_fd_scratch_h
-#define HEADER_src_util_scratch_fd_scratch_h
+#ifndef HEADER_fd_src_util_scratch_fd_scratch_h
+#define HEADER_fd_src_util_scratch_fd_scratch_h
 
 /* APIs for high performance scratch pad memory allocation.  There
    are two allocators provided.  One is fd_alloca, which is an alignment
@@ -409,4 +409,4 @@ fd_scratch_alloc_is_safe( ulong align,
 
 FD_PROTOTYPES_END
 
-#endif /* HEADER_src_util_scratch_fd_scratch_h */
+#endif /* HEADER_fd_src_util_scratch_fd_scratch_h */
