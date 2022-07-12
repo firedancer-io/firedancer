@@ -138,7 +138,7 @@
 
 /* The functionality provided by these vanilla headers are always
    available within the base development environment.  Notably, stdio.h
-   / stdlib.h / et at are not included here as these make lots of
+   / stdlib.h / et al at are not included here as these make lots of
    assumptions about the build target that may not be true (especially
    for on-chain and custom hardware use).  Code should prefer the fd
    util equivalents for such functionality when possible. */
@@ -246,7 +246,7 @@ __extension__ typedef unsigned __int128 uint128;
    stringification and pasting.  FD_STRINGIFY returns the argument as a
    cstr (e.g. FD_STRINGIFY(foo) -> "foo").  FD_CONCAT* pastes the tokens
    together into a single token (e.g.  FD_CONCAT3(a,b,c) -> abc).  The
-   EXPAND variants first expend their arguments and then do the token
+   EXPAND variants first expand their arguments and then do the token
    operation (e.g.  FD_EXPAND_THEN_STRINGIFY(__LINE__) -> "104" if done
    on line 104 of the source code file). */
 
