@@ -26,10 +26,10 @@
 
 FD_PROTOTYPES_BEGIN
 
-/* Boot/halt up all fd_util services.  fd_boot is intended to be called
-   explicitly once immediately after the main thread starts.  fd_halt is
-   intended to be called explicitly once immediately before normal
-   program shutdown.
+/* Boot/halt all fd_util services.  fd_boot is intended to be called
+   explicitly once immediately after the main thread in a thread group
+   starts.  fd_halt is intended to be called explicitly once immediately
+   before normal thread group shutdown.
 
    Command line / environment options (last option on command line takes
    precedence, command line will be stripped of these options):
@@ -42,22 +42,22 @@ FD_PROTOTYPES_BEGIN
        almost certainly be globally unique.  If specified as an empty
        string, will disable the permanent log for this process.  If
        specified as "-", the permanent log will be written to stdout.
-       The shortened emphemeral log will always be written to stderr.
+       The shortened ephemeral log will always be written to stderr.
        This option might be ignored by some targets (e.g. unhosted
        machine targets).
 
      --log-dedup [int] / FD_LOG_DEDUP=[int]
 
-       Zero indicates the logger should not try to do any deduplication
-       of log messages.  Non-zero indicates it should.  Defaults to 1.
+       Zero indicates the logger should not try to do any log message
+       deduplication.  Non-zero indicates it should.  Defaults to 1.
        This option might be ignored by some targets (e.g. unhosted
        machine targets where deduplication would be handled by the
        pretty printer at the other side of the tether).
 
      --log-backtrace [int] / FD_LOG_BACKTRACE=[int]
 
-       Zero indicates the logging should not try to any backtracing
-       in response to signals (by default) terminate the thread group.
+       Zero indicates the logging should not try to any backtracing in
+       response to signals that (by default) terminate the thread group.
        Non-zero indicates it should.  Defaults to 1.  This option might
        be ignored by some targets (e.g. unhosted machine targets where
        backtracing would be handled by the pretty printer at the other
@@ -68,8 +68,8 @@ FD_PROTOTYPES_BEGIN
        Provides the application id of the application running the
        caller.  If not provided, defaults to 0.  An application id is
        intended to be, at a minimum, enterprise unique over all
-       currently running applications.  It is the launchers
-       responsibility for determining this.
+       currently running applications.  It is the thread group
+       launcher's responsibility for determining this.
 
      --log-app [cstr] / FD_LOG_APP=[cstr]
 
@@ -79,24 +79,25 @@ FD_PROTOTYPES_BEGIN
 
      --log-thread-id [ulong] / FD_LOG_THREAD_ID=[ulong]
 
-       Provides the first application thread id use in application
-       thread group to which the caller belongs.  If not provided
-       defaults to 0.  A thread id is intended to be, at a minimum,
-       application wide unique over all currently running threads in the
-       application (this is neither a tid nor a contiguous).  The caller
-       will be assigned this first id.  If there can be more than one
-       thread in the thread group to which the caller belongs,
-       subsequently created threads will be assigned thread ids
-       sequentially from this.  The launcher is responsible for setting
-       the initial thread id for each application thread group such that
-       ids will not collide with application ids from other thread
-       groups (e.g. assign non-overlapping blocks of thread ids to each
-       application thread group and pass the first thread each block for
-       the fd_boot to the corresponding thread group here ... note that
-       as a result, it is possible for a launcher to assign thread ids
-       to all application threads sequentially from zero in the common
-       case of applications that have a fixed number of threads for the
-       application's lifetime).
+       Provides the first application thread id to use in the
+       application thread group to which the caller belongs.  If not
+       provided defaults to 0.  A thread id is intended to be, at a
+       minimum, application wide unique over all currently running
+       threads in the application (this is neither a tid nor
+       contiguous).  The caller will be assigned this first id.  If
+       there can be more than one thread in the thread group to which
+       the caller belongs, subsequently created threads will be assigned
+       thread ids sequentially from this.  The thread group launcher is
+       responsible for setting the initial thread id for each
+       application thread group such that ids will not collide with
+       application ids from other thread groups (e.g. assign
+       non-overlapping blocks of thread ids to each application thread
+       group and pass the first thread each block for the fd_boot to the
+       corresponding thread group here ... note that as a result, it is
+       possible for a launcher to assign thread ids to all application
+       threads sequentially from zero in the common case of applications
+       that have a fixed number of threads for the application's
+       lifetime).
 
      --log-thread [cstr] / FD_LOG_THREAD=[cstr]
 
@@ -110,8 +111,8 @@ FD_PROTOTYPES_BEGIN
        Provides the host id of the host running the caller.  If not
        provided, defaults to 0.  It is intended that this be, at a
        minimum, application wide unique over all hosts currently running
-       application threads.  It is the launchers responsibility for
-       guaranteeing this.
+       application threads.  It is the thread group launcher's
+       responsibility for guaranteeing this.
 
      --log-host [cstr] / FD_LOG_HOST=[cstr]
 
@@ -177,7 +178,7 @@ FD_PROTOTYPES_BEGIN
        minimal level for which the logger should write detailed messages
        to the permanent log file (if there is one).  stderr is the
        minimal level for which the logger should write summarized
-       messages to the ephemeral log file.  flush is the minimal level
+       messages to the ephemeral log stream.  flush is the minimal level
        at which the logger should try to immediately flush out messages.
        core is the level at which an abortive log message should attempt
        to write out a core and do a backtrace.
@@ -191,8 +192,8 @@ FD_PROTOTYPES_BEGIN
          6 - ALERT
          7 - EMERG
 
-       If these are set weirdly (i.e. not non-describing and core is not
-       at least 4), they will overriden to values that are sensible.
+       If these are set weirdly (i.e. decreasing or core is not at least
+       4), they will overriden to values that are sensible.
 
        Setting logfile, stderr, flush <=0 and core==4 makes the log
        maximally chatty.  Setting logfile, stderr, flush, core >7 makes
