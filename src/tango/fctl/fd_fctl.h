@@ -291,12 +291,51 @@ fd_fctl_cr_query( fd_fctl_t const * fctl,
 
   /* Note: it is possible to do this in vectorized / in parallel */
 
+  /* Note that the rx_cr_query calc is robust against overflow /
+     misconfigured receivers / etc.  Let delta by the number of sequence
+     numbers that that the transmitter is ahead of the receiver and note
+     that the calc can be written as rx_cr_query=max(rx_cr_test,0) where
+     rx_cr_test is rx_cr_max-max(delta,0).
+
+     In normal operation, delta is in [0,rx_cr_max] (i.e. the
+     transmitter is at or ahead of the receiver but has not overrun the
+     receiver).  Then max(delta,0)==delta and is in [0,rx_cr_max].  As
+     such, rx_cr_test is in [0,rx_cr_max] and the result is thus also in
+     [0,rx_cr_max] (so no overflow).  The result here is a lower bound
+     of the credits the transmitter can use without overrunning the
+     receiver.
+
+     Suppose, the transmitter has or appears to have overrun the
+     receiver (e.g. the transmitter initialized with a sequence number
+     well ahead of the receiver).  Then delta is in
+     (rx_cr_max,LONG_MAX].  max(delta,0)==delta and is in
+     (rx_cr_max,LONG_MAX].  As such, in exact arithmetic, rx_cr_test is
+     in [rx_cr_max-LONG_MAX,0).  But since rx_cr_max was restricted to
+     be in [1,LONG_MAX) on initialization, this result is thus in
+     [-LONG_MAX+1,0) and thus is computed without overflow (note that
+     LONG_MIN==-LONG_MAX-1).  Since this situation always produces a
+     negative cr_test result, rx_cr_query will be capped at 0.  This
+     correctly indicates that the transmitter cannot send anything
+     because it would exacerbate the already overrun receiver.
+
+     Conversely, suppose the receiver appears to be ahead of the
+     transmitter (e.g. the receiver was initialized with a sequence
+     number ahead of the transmitter).  Then delta is in [LONG_MIN,0).
+     And max(delta,0)==0 such that rx_cr_test = rx_cr_query = rx_cr_max.
+     The result here in conservative lower bound of the credits the
+     transmitter can use.  Conversative in the sense that it has been
+     capped by rx_cr_max even though the value advertised by the
+     receiver in principle would allow more (as a receiver getting ahead
+     of the transmitter is a good sign of some breakage though, this
+     situation strongly suggests the rx_seq value shouldn't be trusted
+     such that rx_cr_max is a fallback in this case). */
+
   for( ulong rx_idx=0UL; rx_idx<rx_cnt; rx_idx++ ) {
     ulong const * _rx_seq = rx[ rx_idx ].seq_laddr;
     if( FD_UNLIKELY( !_rx_seq ) ) continue; /* Skip inactive rx */
 
     ulong rx_seq      = FD_VOLATILE_CONST( *_rx_seq );
-    ulong rx_cr_query = (ulong)fd_long_max( rx[ rx_idx ].cr_max - fd_seq_diff( tx_seq, rx_seq ), 0L );
+    ulong rx_cr_query = (ulong)fd_long_max( rx[ rx_idx ].cr_max - fd_long_max( fd_seq_diff( tx_seq, rx_seq ), 0L ), 0L );
     rx_idx_slow       = fd_ulong_if( rx_cr_query<cr_query, rx_idx, rx_idx_slow );
     cr_query          = fd_ulong_min( rx_cr_query, cr_query );
   }
