@@ -311,8 +311,8 @@ fd_fctl_cr_query( fd_fctl_t const * fctl,
      (rx_cr_max,LONG_MAX].  max(delta,0)==delta and is in
      (rx_cr_max,LONG_MAX].  As such, in exact arithmetic, rx_cr_test is
      in [rx_cr_max-LONG_MAX,0).  But since rx_cr_max was restricted to
-     be in [1,LONG_MAX) on initialization, this result is thus in
-     [-LONG_MAX+1,0) and thus is computed without overflow (note that
+     be in [1,LONG_MAX] on initialization, this result is thus in
+     [-LONG_MAX+1,0) and is computed without overflow (note that
      LONG_MIN==-LONG_MAX-1).  Since this situation always produces a
      negative cr_test result, rx_cr_query will be capped at 0.  This
      correctly indicates that the transmitter cannot send anything
