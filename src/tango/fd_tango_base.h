@@ -131,7 +131,7 @@
    this to be something like a positive integer multiple or an integer
    power of two divisor of a cache line size. */
 
-#define FD_FRAG_META_LG_SZ     (5UL)
+#define FD_FRAG_META_LG_SZ     (5)
 #define FD_FRAG_META_ALIGN     (32UL) /* == 2^FD_FRAG_META_LG_SZ, explicit to workaround compiler limitations */
 #define FD_FRAG_META_FOOTPRINT (32UL) /* " */
 #define FD_FRAG_META_SZ        (32UL) /* " */
