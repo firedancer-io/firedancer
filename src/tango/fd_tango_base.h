@@ -321,6 +321,25 @@ FD_FN_CONST static inline ulong fd_frag_meta_avx_tspub ( __m256i avx ) { return 
 
 #endif
 
+/* fd_frag_meta_ts_{comp,decomp}:  Given the longs ts and tsref that
+   are reasonably close to each other (|ts-tsref| < 2^31 ... about
+   +/-2.1 seconds if ts and tsref are reasonably well synchronized
+   fd_log_wallclock measurements), this pair of functions can quickly
+   and losslessly compress / decompress ts by a factor of 2 exactly
+   using tsref as the compressor / decompressor "state". */
+
+FD_FN_CONST static inline ulong   /* In [0,UINT_MAX] */
+fd_frag_meta_ts_comp( long ts ) {
+  return (ulong)(uint)ts;
+}
+
+FD_FN_CONST static inline long
+fd_frag_meta_ts_decomp( ulong tscomp,   /* In [0,UINT_MAX] */
+                        long  tsref ) {
+  ulong msb = ((ulong)tsref) + fd_ulong_mask_lsb(31) - tscomp;
+  return (long)((msb & ~fd_ulong_mask_lsb(32)) | tscomp);
+}
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_tango_fd_tango_base_h */

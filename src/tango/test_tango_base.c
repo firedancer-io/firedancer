@@ -145,6 +145,23 @@ main( int     argc,
   }
 # endif
 
+  for( ulong iter=0UL; iter<100000000UL; iter++ ) {
+    uint r     = fd_rng_uint( rng );
+    int  sign  = (int)(r &  1U); r>>=1;
+    int  extr  = (int)(r &  1U); r>>=1;
+    int  shift = (int)(r & 31U); r>>=5;
+
+    long tsref = (long)fd_rng_ulong( rng );
+    long delta = (long)( (extr ? UINT_MAX : fd_rng_uint( rng )) >> shift);
+    delta >>= 1;
+    if( sign ) delta = -delta;
+    long ts      = tsref + delta;
+
+    ulong tscomp = fd_frag_meta_ts_comp( ts );
+    TEST( tscomp <= (ulong)UINT_MAX );
+    TEST( fd_frag_meta_ts_decomp( tscomp, tsref )==ts );
+  }
+
 # undef TEST
 
   fd_rng_delete( fd_rng_leave( rng ) );
