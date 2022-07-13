@@ -331,7 +331,7 @@ SORT_(private_quick)( SORT_KEY_T * key,
          - keys [i,j) are in [p1,p2] (center partition)
          - keys [j,k] are not yet partitioned (region is non-empty)
          - keys (k,h) are after p2 (right partition)
-         Decide where key j shoudl be moved. */
+         Decide where key j should be moved. */
 
       SORT_KEY_T kj = key[j];
 

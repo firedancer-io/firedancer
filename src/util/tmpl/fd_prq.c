@@ -233,12 +233,12 @@ PRQ_(private_fill_hole_up)( PRQ_T *       heap,     /* Heap, indexed 0:hole+1 */
   PRQ_TMP_ST( heap + hole, tmp_event );                           /* ... fill the hole with the event to schedule */
 }
 
-/* fill_hole_dn fills the hold in heap with the least event on the
-   heap and bubbles it down toward the leaves until the heap
-   propery is restored.  This requires that the hole to fill is the root
-   of the heap (i.e. a remove-min) or the hole's parent timeout is less
-   than or equal to the timeout of the heap's last event (i.e. as might
-   happen in a cancel). */
+/* fill_hole_dn fills the hole in heap with the last event on the heap
+   and bubbles it down toward the leaves until the heap property is
+   restored.  This requires that the hole to fill is the root of the
+   heap (i.e. a remove-min) or the hole's parent timeout is less than or
+   equal to the timeout of the heap's last event (i.e. as might happen
+   in a cancel). */
 
 FD_FN_UNUSED static void /* Work around -Winline */
 PRQ_(private_fill_hole_dn)( PRQ_T * heap,   /* Heap, half cache line aligned for best perf (assuming 32-byte PRQ_T),
