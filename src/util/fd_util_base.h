@@ -639,6 +639,43 @@ fd_hash_memcpy( ulong                    seed,
                 void const * FD_RESTRICT s,
                 ulong                    sz );
 
+#if FD_HAS_X86
+
+/* fd_tickcount:  Reads the hardware invariant tickcounter ("RDTSC").
+   This monotonically increases at an approximately constant rate
+   relative to the system wallclock and is synchronous across all CPUs
+   on a host.
+
+   The rate this ticks at is not precisely defined (see Intel docs for
+   more details) but it is typically in the ballpark of the CPU base
+   clock frequency.  The relationship to the wallclock is very well
+   approximated as linear over short periods of time (i.e. less than a
+   fraction of a second).  It can drift over longer time for the myriad
+   of the usual clock synchronization reasons.  Notably, its rate is not
+   directly impacted by CPU clock frequency adaptation / Turbo mode (see
+   other Intel performance monitoring counters for various CPU cycle
+   counters).
+
+   This is a reasonably fast O(1) cost (~6-8 ns on recent Intel).
+   Because of all compiler options and parallel execution going on in
+   modern CPUs cores, other instructions might be reordered around this
+   by the compiler and/or CPU.  It is up to the user to do lower level
+   tricks as necessary when the precise location of this in the
+   execution stream and/or when executed by the CPU is needed.  (This is
+   often unnecessary as such levels of precision are not frequently
+   required and often have self-defeating overheads.)
+
+   It is worth noting that RDTSC and/or (even more frequently) lower
+   level performance counters are often restricted from use in user
+   space applications.  It is recommended that applications use this
+   primarily for debugging / performance tuning on unrestricted hosts
+   and/or when the developer is confident that applications using this
+   will have appropriate permissions when deployed. */
+
+#define fd_tickcount() ((long)__builtin_ia32_rdtsc())
+
+#endif
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_util_fd_util_base_h */

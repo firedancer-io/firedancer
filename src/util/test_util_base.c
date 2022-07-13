@@ -337,6 +337,19 @@ main( int     argc,
     TEST( !memcmp( dst+d0, src+s0, sz ) );
   }
 
+# if FD_HAS_X86
+
+  /* Test fd_tickcount (FIXME: TEST MORE THAN MONOTONICITY?) */
+
+  long tic = fd_tickcount();
+  for( ulong iter=0UL; iter<1000000UL; iter++ ) {
+    long toc = fd_tickcount();
+    TEST( (toc - tic) > 0L );
+    tic = toc;
+  } while(0);
+
+# endif
+
   /* FIXME: ADD HASH QUALITY CHECKER HERE */
 
   fd_rng_delete( fd_rng_leave( rng ) );
