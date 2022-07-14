@@ -80,8 +80,45 @@ main( int     argc,
     ulong ctl    = (ulong)(ushort)tx_seq;
     ulong tsorig = (ulong)(uint  )tx_seq;
     ulong tspub  = (ulong)(uint  )tx_seq;
+
+#   define PUBLISH_STYLE 0
+
+#   if PUBLISH_STYLE==0 /* Incompatible with WAIT_STYLE==2 */
+
+    fd_frag_meta_t * meta = mcache + fd_mcache_line_idx( tx_seq, depth );
+    FD_COMPILER_MFENCE();
+    meta->seq    = fd_seq_dec( tx_seq, 1UL );
+    FD_COMPILER_MFENCE();
+    meta->sig    =         sig;
+    meta->chunk  = (uint  )chunk;
+    meta->sz     = (ushort)sz;
+    meta->ctl    = (ushort)ctl;
+    meta->tsorig = (uint  )tsorig;
+    meta->tspub  = (uint  )tspub;
+    FD_COMPILER_MFENCE();
+    meta->seq    = tx_seq;
+    FD_COMPILER_MFENCE();
+
+#   elif PUBLISH_STYLE==1 /* Incompatible with WAIT_STYLE==2 */
+
+    __m128i meta_sse0 = fd_frag_meta_sse0( fd_seq_dec( tx_seq, 1UL ), sig );
+    __m128i meta_sse1 = fd_frag_meta_sse1( chunk, sz, ctl, tsorig, tspub );
+    fd_frag_meta_t * meta = mcache + fd_mcache_line_idx( tx_seq, depth );
+    FD_COMPILER_MFENCE();
+    _mm_store_si128( &meta->sse0, meta_sse0 );
+    FD_COMPILER_MFENCE();
+    _mm_store_si128( &meta->sse1, meta_sse1 );
+    FD_COMPILER_MFENCE();
+    meta->seq = tx_seq;
+    FD_COMPILER_MFENCE();
+
+#   else /* Compatible with all wait styles */
+
     __m256i meta_avx = fd_frag_meta_avx( tx_seq, sig, chunk, sz, ctl, tsorig, tspub );
     _mm256_store_si256( &mcache[ fd_mcache_line_idx( tx_seq, depth ) ].avx, meta_avx );
+
+#   endif
+
     tx_seq = fd_seq_inc( tx_seq, 1UL );
     cr_avail--;
 

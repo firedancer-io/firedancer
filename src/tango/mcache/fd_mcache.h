@@ -28,7 +28,7 @@
 
 /* FD_MCACHE_{LG_BLOCK,LG_INTERLEAVE,BLOCK} specifies how recent
    fragment meta data should be packed into mcaches.  LG_BLOCK should be
-   in [0,64).  LG_INTERLEAVE should be in [0,FD_MCACHE_BLOCK).  BLOCK ==
+   in [1,64).  LG_INTERLEAVE should be in [0,FD_MCACHE_BLOCK).  BLOCK ==
    2^LG_BLOCK.  See below for more details. */
 
 #define FD_MCACHE_LG_BLOCK      (7)
@@ -236,14 +236,149 @@ fd_mcache_line_idx( ulong seq,
 
 #endif
 
+#if FD_HAS_X86
+
+/* FD_MCACHE_WAIT does a blocking wait for a frag producer to produce
+   frag seq_expected.  mcache (fd_frag_meta_t const * compatible) is a
+   current local join to the mcache the producer uses to cache metadata
+   for the frags it is producing and depth (a ulong compatible integer
+   power of two greater than 1) is the number of entries in this cache.
+   meta (fd_frag_meta_t * compatible) is the location on the caller
+   where the wait should save the found metadata (typically a stack
+   temporary).
+
+   On completion of the WAIT, seq_diff (long compatible) will not be
+   negative.
+
+   If seq_diff is zero, the caller is within depth of the producer and
+   *meta will be a local copy of the desired metadata.
+
+   If seq_diff is positive, the caller has fallen more than depth behind
+   the producer such that metadata for frag seq_expected is no longer
+   available via the mcache.  IMPORTANT! *META MIGHT NOT BE VALID FOR
+   SEQ_FOUND (e.g. if the producer is paused after it starts writing
+   metadata but before it has completed writing it ... an unreliable
+   overrun consumer that reads the metadata while the producer is paused
+   will observe metadata that is a mix of the new metadata and old
+   metadata with an bogus sequence number on it.)  seq_diff is a lower
+   bound of how far the caller has fallen behind the producer and
+   seq_found is a lower bound of where producer is currently at.
+
+   This assumes the producer either writes the entire metadata cache
+   line atomically (on targets where aligned AVX writes are in fact
+   atomic) or writes the metadata cache line in a particular order:
+
+     FD_COMPILER_MFENCE();
+     mcache_line->seq = fd_seq_dec( seq, 1UL ); // atomically marks cache line as in the process of writing seq
+                                                // This implicitly atomically evicts frag metadata for cache line
+                                                // seq-depth cycle
+     FD_COMPILER_MFENCE();
+     ... update the actual cache line body without changing mcache_line->seq ...
+     FD_COMPILER_MFENCE();
+     mcache_line->seq = seq; // atomically marks metadata for frag seq as available for consumers
+     FD_COMPILER_MFENCE();
+
+   Note that above writes can be SSE accelerated on AVX platforms (where
+   aligned SSE writes are guaranteed to be atomic) as:
+
+     FD_COMPILER_MFENCE();
+     _mm_store_si128( &mcache_line->sse0, fd_frag_meta_sse0( fd_seq_dec( seq, 1UL ), sig );
+     FD_COMPILER_MFENCE();
+     _mm_store_si128( &mcache_line->sse1, fd_frag_meta_sse1( chunk, sz, ctl, tsorig, tspub );
+     FD_COMPILER_MFENCE();
+     mcache_line->seq = seq;
+     FD_COMPILER_MFENCE();
+
+   Note that the above uses no expensive atomic operations or hardware
+   memory fences under the hood as these are not required for x86-style
+   cache coherency.  Specifically, Intel Architecture Software Developer
+   Manual 3A-8-9:
+
+     "Reads are not reordered with other reads."
+
+   and 3A-8-10:
+
+     "Writes by a single processor are observed in the same order by all
+     processors."
+
+   This makes heavy use of compiler memory fences though to insure that
+   compiler optimizations do not reorder how the operations are issued
+   to CPUs (and thus also imply the operation acts as a compiler memory
+   fence overall).
+
+   Non-x86 platforms that use different cache coherency models may
+   require modification of the below to use more explicit fencing or
+   what not.
+
+   The below is implemented as a macro to faciliate use in ultra high
+   performance run loops and support multiple return values.  This macro
+   is robust. */
+
+#define FD_MCACHE_WAIT( meta, seq_found, seq_diff, mcache, depth, seq_expected ) do {                  \
+    ulong                  _seq_expected  = (seq_expected);                                            \
+    fd_frag_meta_t const * _mcache_line   = (mcache) + fd_mcache_line_idx( _seq_expected, (depth) );   \
+    fd_frag_meta_t *       _meta          = (meta);                                                    \
+    ulong                  _seq_found;                                                                 \
+    long                   _seq_diff;                                                                  \
+    for(;;) {                                                                                          \
+      FD_COMPILER_MFENCE();                                                                            \
+      _seq_found = _mcache_line->seq; /* atomic */                                                     \
+      FD_COMPILER_MFENCE();                                                                            \
+      *_meta = *_mcache_line; /* probably non-atomic, typically fast L1 cache hit */                   \
+      FD_COMPILER_MFENCE();                                                                            \
+      ulong _seq_test = _mcache_line->seq; /* atomic, typically fast L1 cache hit */                   \
+      FD_COMPILER_MFENCE();                                                                            \
+      _seq_diff  = fd_long_if( _seq_found==_seq_test, fd_seq_diff( _seq_found, _seq_expected ), -1L ); \
+      if( FD_LIKELY( _seq_diff>=0L ) ) break;                                                          \
+      FD_SPIN_PAUSE();                                                                                 \
+    }                                                                                                  \
+    (seq_found) = _seq_found;                                                                          \
+    (seq_diff)  = _seq_diff;                                                                           \
+  } while(0)
+
 #if FD_HAS_AVX
 
-/* FIXME: DOCUMENT */
-/* FIXME: IMPORT FALLBACKS TO OTHER NON-AVX PLATFORMS */
-/* Note: this is only valid on x86 CPUs that have atomic AVX load /
-   stores. */
+/* FD_MCACHE_WAIT_SSE: similar to FD_MCACHE_WAIT but uses a pair of SSE
+   registers to hold the metadata instead of a local buffer.  This is
+   only valid on targets with the FD_HAS_AVX capability (see
+   fd_tango_base.h for details on Intel's atomicity guarantees). */
 
-#define FD_MCACHE_AVX_WAIT( meta_avx, seq_found, seq_diff, mcache, seq_expected, depth ) do {       \
+#define FD_MCACHE_WAIT_SSE( meta_sse0, meta_sse1, seq_found, seq_diff, mcache, depth, seq_expected ) do { \
+    ulong                  _seq_expected  = (seq_expected);                                               \
+    fd_frag_meta_t const * _mcache_line   = (mcache) + fd_mcache_line_idx( _seq_expected, (depth) );      \
+    __m128i                _frag_meta_sse0;                                                               \
+    __m128i                _frag_meta_sse1;                                                               \
+    ulong                  _seq_found;                                                                    \
+    long                   _seq_diff;                                                                     \
+    for(;;) {                                                                                             \
+      FD_COMPILER_MFENCE();                                                                               \
+      _frag_meta_sse0 = _mm_load_si128( &_mcache_line->sse0 ); /* atomic */                               \
+      FD_COMPILER_MFENCE();                                                                               \
+      _frag_meta_sse1 = _mm_load_si128( &_mcache_line->sse1 ); /* atomic, typically fast L1 cache hit */  \
+      FD_COMPILER_MFENCE();                                                                               \
+      ulong _seq_test = _mcache_line->seq; /* atomic, typically fast L1 cache hit */                      \
+      FD_COMPILER_MFENCE();                                                                               \
+      _seq_found = fd_frag_meta_sse0_seq( _frag_meta_sse0 );                                              \
+      _seq_diff  = fd_long_if( _seq_found==_seq_test, fd_seq_diff( _seq_found, _seq_expected ), -1L );    \
+      if( FD_LIKELY( _seq_diff>=0L ) ) break;                                                             \
+      FD_SPIN_PAUSE();                                                                                    \
+    }                                                                                                     \
+    (meta_sse0) = _frag_meta_sse0;                                                                        \
+    (meta_sse1) = _frag_meta_sse1;                                                                        \
+    (seq_found) = _seq_found;                                                                             \
+    (seq_diff)  = _seq_diff;                                                                              \
+  } while(0)
+
+/* FD_MCACHE_WAIT_AVX: similar to FD_MCACHE_WAIT_SSE but uses a single
+   AVX register to hold the found metadata instead of a local buffer.
+   This is only valid for targets that have atomic AVX load / stores
+   (not guaranteed across all AVX supporting CPUs and Intel is
+   deliberately vague about which ones do have it) and a producer that
+   similarly uses atomic AVX writes for metadata publication.  On the
+   overrun case here, meta_avx will in fact by the metadata for the
+   overrun sequence number. */
+
+#define FD_MCACHE_WAIT_AVX( meta_avx, seq_found, seq_diff, mcache, depth, seq_expected ) do {       \
     ulong           _seq_expected         = (seq_expected);                                         \
     __m256i const * _mcache_line = &((mcache)[ fd_mcache_line_idx( _seq_expected, (depth) ) ].avx); \
     __m256i         _frag_meta_avx;                                                                 \
@@ -251,7 +386,7 @@ fd_mcache_line_idx( ulong seq,
     long            _seq_diff;                                                                      \
     for(;;) {                                                                                       \
       FD_COMPILER_MFENCE();                                                                         \
-      _frag_meta_avx = _mm256_load_si256( _mcache_line );                                           \
+      _frag_meta_avx = _mm256_load_si256( _mcache_line ); /* atomic */                              \
       FD_COMPILER_MFENCE();                                                                         \
       _seq_found = fd_frag_meta_avx_seq( _frag_meta_avx );                                          \
       _seq_diff  = fd_seq_diff( _seq_found, _seq_expected );                                        \
@@ -262,6 +397,8 @@ fd_mcache_line_idx( ulong seq,
     (seq_found) = _seq_found;                                                                       \
     (seq_diff)  = _seq_diff;                                                                        \
   } while(0)
+
+#endif
 
 #endif
 

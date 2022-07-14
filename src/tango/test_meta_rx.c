@@ -47,10 +47,29 @@ main( int     argc,
 
     /* Wait for frag rx_seq */
 
-    __m256i meta_avx;
     ulong   seq_found;
     long    diff;
-    FD_MCACHE_AVX_WAIT( meta_avx, seq_found, diff, mcache, rx_seq, depth );
+
+#   define WAIT_STYLE 0
+#   define VALIDATE   1
+
+#   if WAIT_STYLE==0 /* Compat with all PUBLISH_STYLE */
+
+    fd_frag_meta_t meta[1];
+    FD_MCACHE_WAIT( meta, seq_found, diff, mcache, depth, rx_seq );
+
+#   elif WAIT_STYLE==1 /* Compat with all PUBLISH_STYLE */
+
+    __m128i meta_sse0;
+    __m128i meta_sse1;
+    FD_MCACHE_WAIT_SSE( meta_sse0, meta_sse1, seq_found, diff, mcache, depth, rx_seq );
+
+#   else /* Compat with PUBLISH_STYLE==2, needs platforms with atomic AVX load / store */
+
+    __m256i meta_avx;
+    FD_MCACHE_WAIT_AVX( meta_avx, seq_found, diff, mcache, depth, rx_seq );
+
+#   endif
 
     /* At this point, we atomically loaded the header metadata and it
        corresponded to a frag seq_found.  Seq_found is either rx_seq or,
@@ -60,8 +79,11 @@ main( int     argc,
     //FD_LOG_NOTICE(( "Overrun (skipping from %lu to %lu to try to recover)", rx_seq, seq_found ));
       ovrn_cnt++;
       rx_seq = seq_found;
+#     if WAIT_STYLE!=2
+      continue; /* We can't trust the metadata we just loaded, so we try again */
+#     endif
 
-      /* Note: we could also do
+      /* Note: we could also do (for any wait style)
            rx_seq = FD_VOLATILE_CONST( *_tx_seq );
            continue;
          here to recover from the most recent advertised point from the
@@ -73,7 +95,36 @@ main( int     argc,
     /* At this point, we've atomically loaded the fragment metadata
        for rx_seq (the fragment we were looking for).  Validate it.*/
 
-#   if 0 /* For code implementation testing */
+#   if WAIT_STYLE==0
+
+#   if VALIDATE /* For code implementation testing */
+    TEST( meta->sig   ==        rx_seq );
+    TEST( meta->chunk ==(uint  )rx_seq );
+    TEST( meta->sz    ==(ushort)rx_seq );
+    TEST( meta->ctl   ==(ushort)rx_seq );
+    TEST( meta->tsorig==(uint  )rx_seq );
+    TEST( meta->tspub ==(uint  )rx_seq );
+#   else /* For hardware performance benchmarking */
+    (void)meta->sig;
+#   endif
+
+#   elif WAIT_STYLE==1
+
+#   if VALIDATE /* For code implementation testing */
+    TEST( fd_frag_meta_sse0_sig   ( meta_sse0 )==               rx_seq );
+    TEST( fd_frag_meta_sse1_chunk ( meta_sse1 )==(ulong)(uint  )rx_seq );
+    TEST( fd_frag_meta_sse1_sz    ( meta_sse1 )==(ulong)(ushort)rx_seq );
+    TEST( fd_frag_meta_sse1_ctl   ( meta_sse1 )==(ulong)(ushort)rx_seq );
+    TEST( fd_frag_meta_sse1_tsorig( meta_sse1 )==(ulong)(uint  )rx_seq );
+    TEST( fd_frag_meta_sse1_tspub ( meta_sse1 )==(ulong)(uint  )rx_seq );
+#   else /* For hardware performance benchmarking */
+    (void)meta_sse0;
+    (void)meta_sse1;
+#   endif
+
+#   else
+
+#   if VALIDATE /* For code implementation testing */
     TEST( fd_frag_meta_avx_sig   ( meta_avx )==               rx_seq );
     TEST( fd_frag_meta_avx_chunk ( meta_avx )==(ulong)(uint  )rx_seq );
     TEST( fd_frag_meta_avx_sz    ( meta_avx )==(ulong)(ushort)rx_seq );
@@ -81,7 +132,9 @@ main( int     argc,
     TEST( fd_frag_meta_avx_tsorig( meta_avx )==(ulong)(uint  )rx_seq );
     TEST( fd_frag_meta_avx_tspub ( meta_avx )==(ulong)(uint  )rx_seq );
 #   else /* For hardware performance benchmarking */
-    FD_COMPILER_FORGET( meta_avx );
+    (void)meta_avx;
+#   endif
+
 #   endif
 
     rx_seq = fd_seq_inc( rx_seq, 1UL );
