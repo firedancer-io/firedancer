@@ -85,37 +85,16 @@ main( int     argc,
 
 #   if PUBLISH_STYLE==0 /* Incompatible with WAIT_STYLE==2 */
 
-    fd_frag_meta_t * meta = mcache + fd_mcache_line_idx( tx_seq, depth );
-    FD_COMPILER_MFENCE();
-    meta->seq    = fd_seq_dec( tx_seq, 1UL );
-    FD_COMPILER_MFENCE();
-    meta->sig    =         sig;
-    meta->chunk  = (uint  )chunk;
-    meta->sz     = (ushort)sz;
-    meta->ctl    = (ushort)ctl;
-    meta->tsorig = (uint  )tsorig;
-    meta->tspub  = (uint  )tspub;
-    FD_COMPILER_MFENCE();
-    meta->seq    = tx_seq;
-    FD_COMPILER_MFENCE();
+    fd_mcache_publish( mcache, depth, tx_seq, sig, chunk, sz, ctl, tsorig, tspub );
 
 #   elif PUBLISH_STYLE==1 /* Incompatible with WAIT_STYLE==2 */
 
-    __m128i meta_sse0 = fd_frag_meta_sse0( fd_seq_dec( tx_seq, 1UL ), sig );
-    __m128i meta_sse1 = fd_frag_meta_sse1( chunk, sz, ctl, tsorig, tspub );
-    fd_frag_meta_t * meta = mcache + fd_mcache_line_idx( tx_seq, depth );
-    FD_COMPILER_MFENCE();
-    _mm_store_si128( &meta->sse0, meta_sse0 );
-    FD_COMPILER_MFENCE();
-    _mm_store_si128( &meta->sse1, meta_sse1 );
-    FD_COMPILER_MFENCE();
-    meta->seq = tx_seq;
-    FD_COMPILER_MFENCE();
+    fd_mcache_publish_sse( mcache, depth, tx_seq, sig, chunk, sz, ctl, tsorig, tspub );
 
-#   else /* Compatible with all wait styles */
+#   else /* Compatible with all wait styles, requires target with atomic
+            aligned AVX load/store support */
 
-    __m256i meta_avx = fd_frag_meta_avx( tx_seq, sig, chunk, sz, ctl, tsorig, tspub );
-    _mm256_store_si256( &mcache[ fd_mcache_line_idx( tx_seq, depth ) ].avx, meta_avx );
+    fd_mcache_publish_avx( mcache, depth, tx_seq, sig, chunk, sz, ctl, tsorig, tspub );
 
 #   endif
 

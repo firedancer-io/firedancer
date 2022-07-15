@@ -238,6 +238,91 @@ fd_mcache_line_idx( ulong seq,
 
 #if FD_HAS_X86
 
+/* fd_mcache_publish inserts the metadata for frag seq into the given
+   depth entry mcache in a way compatible with FD_MCACHE_WAIT and
+   FD_MCACHE_WAIT_SSE (but not FD_MCACHE_WAIT_AVX (see FD_MCACHE_WAIT
+   for more details).  This implicitly evicts the metadata for the
+   sequence number currently stored at fd_mcache_line_idx( seq, depth ).
+   In the typical case where sequence numbers are published into the
+   mcache sequentially, the evicted metadata is typically for frag
+   seq-depth (cyclic).  This does no error checking or the like as it is
+   frequently used in ultra high performance contexts.  This operation
+   implies a compiler mfence to the caller. */
+
+static inline void
+fd_mcache_publish( fd_frag_meta_t * mcache,   /* Assumed a current local join */
+                   ulong            depth,    /* Assumed an integer power-of-2 > 1 */
+                   ulong            seq,
+                   ulong            sig,
+                   ulong            chunk,    /* Assumed in [0,UINT_MAX] */
+                   ulong            sz,       /* Assumed in [0,USHORT_MAX] */
+                   ulong            ctl,      /* Assumed in [0,USHORT_MAX] */
+                   ulong            tsorig,   /* Assumed in [0,UINT_MAX] */
+                   ulong            tspub ) { /* Assumed in [0,UINT_MAX] */
+  fd_frag_meta_t * meta = mcache + fd_mcache_line_idx( seq, depth );
+  FD_COMPILER_MFENCE();
+  meta->seq    = fd_seq_dec( seq, 1UL );
+  FD_COMPILER_MFENCE();
+  meta->sig    =         sig;
+  meta->chunk  = (uint  )chunk;
+  meta->sz     = (ushort)sz;
+  meta->ctl    = (ushort)ctl;
+  meta->tsorig = (uint  )tsorig;
+  meta->tspub  = (uint  )tspub;
+  FD_COMPILER_MFENCE();
+  meta->seq    = seq;
+  FD_COMPILER_MFENCE();
+}
+
+#if FD_HAS_AVX
+
+/* fd_mcache_publish_sse is a SSE implementation of fd_mcache_publish.
+   It is compatible with FD_MCACHE_WAIT and FD_MCACHE_WAIT_SSE. */
+
+static inline void
+fd_mcache_publish_sse( fd_frag_meta_t * mcache,   /* Assumed a current local join */
+                       ulong            depth,    /* Assumed an integer power-of-2 > 1 */
+                       ulong            seq,
+                       ulong            sig,
+                       ulong            chunk,    /* Assumed in [0,UINT_MAX] */
+                       ulong            sz,       /* Assumed in [0,USHORT_MAX] */
+                       ulong            ctl,      /* Assumed in [0,USHORT_MAX] */
+                       ulong            tsorig,   /* Assumed in [0,UINT_MAX] */
+                       ulong            tspub ) { /* Assumed in [0,UINT_MAX] */
+  fd_frag_meta_t * meta = mcache + fd_mcache_line_idx( seq, depth );
+  __m128i meta_sse0 = fd_frag_meta_sse0( fd_seq_dec( seq, 1UL ), sig );
+  __m128i meta_sse1 = fd_frag_meta_sse1( chunk, sz, ctl, tsorig, tspub );
+  FD_COMPILER_MFENCE();
+  _mm_store_si128( &meta->sse0, meta_sse0 );
+  FD_COMPILER_MFENCE();
+  _mm_store_si128( &meta->sse1, meta_sse1 );
+  FD_COMPILER_MFENCE();
+  meta->seq = seq;
+  FD_COMPILER_MFENCE();
+}
+
+/* fd_mcache_publish_avx is an AVX implementation of fd_mcache_publish.
+   It is compatible with FD_MCACHE_WAIT, FD_MCACHE_WAIT_SSE and
+   FD_MCACHE_WAIT_AVX.  It requires a target for which aligned AVX
+   stores are guaranteed atomic under the hood (see below for more
+   details). */
+
+static inline void
+fd_mcache_publish_avx( fd_frag_meta_t * mcache,   /* Assumed a current local join */
+                       ulong            depth,    /* Assumed an integer power-of-2 > 1 */
+                       ulong            seq,
+                       ulong            sig,
+                       ulong            chunk,    /* Assumed in [0,UINT_MAX] */
+                       ulong            sz,       /* Assumed in [0,USHORT_MAX] */
+                       ulong            ctl,      /* Assumed in [0,USHORT_MAX] */
+                       ulong            tsorig,   /* Assumed in [0,UINT_MAX] */
+                       ulong            tspub ) { /* Assumed in [0,UINT_MAX] */
+  _mm256_store_si256( &mcache[ fd_mcache_line_idx( seq, depth ) ].avx,
+                      fd_frag_meta_avx( seq, sig, chunk, sz, ctl, tsorig, tspub ) );
+}
+
+#endif
+
 /* FD_MCACHE_WAIT does a blocking wait for a frag producer to produce
    frag seq_expected.  mcache (fd_frag_meta_t const * compatible) is a
    current local join to the mcache the producer uses to cache metadata
