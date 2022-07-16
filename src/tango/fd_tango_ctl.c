@@ -31,10 +31,10 @@ main( int     argc,
         "\thelp\n\t"
         "\t- Prints this message\n\t"
         "\n\t"
-        "\tnew-mcache wksp depth init\n\t"
-        "\t- Creates a frag meta data cache in wksp with the given depth\n\t"
-        "\t  and initial sequence number.  Prints the wksp gaddr of the\n\t"
-        "\t  mcache to stdout.\n\t"
+        "\tnew-mcache wksp depth app-sz seq0\n\t"
+        "\t- Creates a frag meta data cache in wksp with the given depth,\n\t"
+        "\t  application region size and initial sequence number.  Prints\n\t"
+        "\t  the wksp gaddr of the mcache to stdout.\n\t"
         "\n\t"
         "\tdelete-mcache gaddr\n\t"
         "\t- Destroys the mcache at gaddr.\n\t"
@@ -46,16 +46,18 @@ main( int     argc,
 
     } else if( !strcmp( cmd, "new-mcache" ) ) {
 
-      if( FD_UNLIKELY( argc<3 ) ) FD_LOG_ERR(( "%i: %s: too few arguments\n\tDo %s help for help", cnt, cmd, bin ));
+      if( FD_UNLIKELY( argc<4 ) ) FD_LOG_ERR(( "%i: %s: too few arguments\n\tDo %s help for help", cnt, cmd, bin ));
 
-      char const * _wksp =                   argv[0];
-      ulong        depth = fd_cstr_to_ulong( argv[1] );
-      ulong        init  = fd_cstr_to_ulong( argv[2] );
+      char const * _wksp  =                   argv[0];
+      ulong        depth  = fd_cstr_to_ulong( argv[1] );
+      ulong        app_sz = fd_cstr_to_ulong( argv[2] );
+      ulong        seq0   = fd_cstr_to_ulong( argv[3] );
 
       ulong align     = fd_mcache_align();
-      ulong footprint = fd_mcache_footprint( depth );
-      if( FD_UNLIKELY( !footprint ) ) FD_LOG_ERR(( "%i: %s: depth (%lu) must a power-of-2 and at least %lu\n\tDo %s help for help",
-                                                   cnt, cmd, depth, FD_MCACHE_BLOCK, bin ));
+      ulong footprint = fd_mcache_footprint( depth, app_sz );
+      if( FD_UNLIKELY( !footprint ) )
+        FD_LOG_ERR(( "%i: %s: depth (%lu) must a power-of-2 and at least %lu and depth and app_sz (%lu) must yield a footprint "
+                     "smaller than 2^64.\n\tDo %s help for help", cnt, cmd, depth, FD_MCACHE_BLOCK, app_sz, bin ));
 
       fd_wksp_t * wksp = fd_wksp_attach( _wksp );
       if( FD_UNLIKELY( !wksp ) ) {
@@ -76,12 +78,12 @@ main( int     argc,
         FD_LOG_ERR(( "%i: %s: fd_wksp_laddr( \"%s\", %lu ) failed\n\tDo %s help for help", cnt, cmd, _wksp, gaddr, bin ));
       }
 
-      void * shmcache = fd_mcache_new( shmem, depth, init );
+      void * shmcache = fd_mcache_new( shmem, depth, app_sz, seq0 );
       if( FD_UNLIKELY( !shmcache ) ) {
         fd_wksp_free( wksp, gaddr );
         fd_wksp_detach( wksp );
-        FD_LOG_ERR(( "%i: %s: fd_mcache_new( %s:%lu, %lu, %lu ) failed\n\tDo %s help for help",
-                     cnt, cmd, _wksp, gaddr, depth, init, bin ));
+        FD_LOG_ERR(( "%i: %s: fd_mcache_new( %s:%lu, %lu, %lu, %lu ) failed\n\tDo %s help for help",
+                     cnt, cmd, _wksp, gaddr, depth, app_sz, seq0, bin ));
       }
 
       char buf[ FD_WKSP_CSTR_MAX ];
@@ -89,8 +91,8 @@ main( int     argc,
 
       fd_wksp_detach( wksp );
 
-      FD_LOG_NOTICE(( "%i: %s %s %lu %lu: success", cnt, cmd, _wksp, depth, init ));
-      SHIFT( 3 );
+      FD_LOG_NOTICE(( "%i: %s %s %lu %lu %lu: success", cnt, cmd, _wksp, depth, app_sz, seq0 ));
+      SHIFT( 4 );
 
     } else if( !strcmp( cmd, "delete-mcache" ) ) {
 
@@ -126,8 +128,9 @@ main( int     argc,
 
       fd_mcache_private_hdr_t * hdr = fd_mcache_private_hdr( mcache );
       printf( "mcache %s\n", _shmcache );
-      printf( "\tdepth   %lu\n", hdr->depth );
-      printf( "\tseq0    %lu\n", hdr->seq0  );
+      printf( "\tdepth   %lu\n", hdr->depth  );
+      printf( "\tapp-sz  %lu\n", hdr->app_sz );
+      printf( "\tseq0    %lu\n", hdr->seq0   );
 
       ulong seq_cnt;
       for( seq_cnt=FD_MCACHE_SEQ_CNT; seq_cnt; seq_cnt-- ) if( hdr->seq[seq_cnt-1UL] ) break;
@@ -135,18 +138,20 @@ main( int     argc,
       for( ulong idx=1UL; idx<seq_cnt; idx++ ) printf( "\tseq[%2lu] %lu\n", idx, hdr->seq[idx] );
       if( seq_cnt<FD_MCACHE_SEQ_CNT ) printf( "\t        ... snip (all remaining are zero) ...\n" );
 
-      ulong app_sz;
-      for( app_sz=FD_MCACHE_APP_FOOTPRINT; app_sz; app_sz-- ) if( hdr->app[app_sz-1UL] ) break;
-      ulong   off = 0UL;
-      uchar * a   = hdr->app;
-      printf( "\tapp     %04lx: %02x %02x %02x %02x %02x %02x %02x %02x  %02x %02x %02x %02x %02x %02x %02x %02x\n", off,
-              (uint)a[ 0], (uint)a[ 1], (uint)a[ 2], (uint)a[ 3], (uint)a[ 4], (uint)a[ 5], (uint)a[ 6], (uint)a[ 7],
-              (uint)a[ 8], (uint)a[ 9], (uint)a[10], (uint)a[11], (uint)a[12], (uint)a[13], (uint)a[14], (uint)a[15] );
-      for( off+=16UL, a+=16UL; off<app_sz; off+=16UL, a+=16UL )
-        printf( "\t        %04lx: %02x %02x %02x %02x %02x %02x %02x %02x  %02x %02x %02x %02x %02x %02x %02x %02x\n", off,
+      if( hdr->app_sz ) {
+        uchar const * a = fd_mcache_app_laddr_const( mcache );
+        ulong app_sz;
+        for( app_sz=hdr->app_sz; app_sz; app_sz-- ) if( a[app_sz-1UL] ) break;
+        ulong         off = 0UL;
+        printf( "\tapp     %04lx: %02x %02x %02x %02x %02x %02x %02x %02x  %02x %02x %02x %02x %02x %02x %02x %02x\n", off,
                 (uint)a[ 0], (uint)a[ 1], (uint)a[ 2], (uint)a[ 3], (uint)a[ 4], (uint)a[ 5], (uint)a[ 6], (uint)a[ 7],
                 (uint)a[ 8], (uint)a[ 9], (uint)a[10], (uint)a[11], (uint)a[12], (uint)a[13], (uint)a[14], (uint)a[15] );
-      if( off<FD_MCACHE_APP_FOOTPRINT ) printf( "\t        ... snip (all remaining are zero) ...\n" );
+        for( off+=16UL, a+=16UL; off<app_sz; off+=16UL, a+=16UL )
+          printf( "\t        %04lx: %02x %02x %02x %02x %02x %02x %02x %02x  %02x %02x %02x %02x %02x %02x %02x %02x\n", off,
+                  (uint)a[ 0], (uint)a[ 1], (uint)a[ 2], (uint)a[ 3], (uint)a[ 4], (uint)a[ 5], (uint)a[ 6], (uint)a[ 7],
+                  (uint)a[ 8], (uint)a[ 9], (uint)a[10], (uint)a[11], (uint)a[12], (uint)a[13], (uint)a[14], (uint)a[15] );
+        if( off<hdr->app_sz ) printf( "\t        ... snip (all remaining are zero) ...\n" );
+      }
 
       fd_wksp_unmap( fd_mcache_leave( mcache ) );
       

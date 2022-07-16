@@ -3,10 +3,11 @@
 #if FD_HAS_HOSTED && FD_HAS_AVX
 
 /* This test uses the mcache application region for holding the rx
-   flow controls.  We'll use a cache line pair for each reliable
-   rx_seq and the very end will hold backpressure counters. */
+   flow controls and tx backpressure counters.  We'll use a cache line
+   pair for each reliable rx_seq and the very end will hold backpressure
+   counters. */
 
-#define RX_MAX (FD_MCACHE_APP_FOOTPRINT/136UL)
+#define RX_MAX (256UL)
 
 static uchar __attribute__((aligned(FD_FCTL_ALIGN))) shmem[ FD_FCTL_FOOTPRINT( RX_MAX ) ];
 
@@ -31,15 +32,22 @@ main( int     argc,
   fd_frag_meta_t * mcache = fd_mcache_join( fd_wksp_map( _mcache ) );
   if( FD_UNLIKELY( !mcache ) ) FD_LOG_ERR(( "join failed" ));
 
-  ulong   depth = fd_mcache_depth    ( mcache );
+  ulong   depth   = fd_mcache_depth    ( mcache );
   ulong * _tx_seq = fd_mcache_seq_laddr( mcache );
-  ulong   tx_seq  = _init ? fd_cstr_to_ulong( _init ) : FD_VOLATILE_CONST( *_tx_seq );
+  uchar * app     = fd_mcache_app_laddr( mcache );
+  ulong   app_sz  = fd_mcache_app_sz   ( mcache );
+
+  if( FD_UNLIKELY( rx_cnt*136UL>app_sz ) )
+    FD_LOG_ERR(( "increase mcache app_sz to at least %lu for this --rx_cnt", rx_cnt*136UL ));
+
+  ulong tx_seq = _init ? fd_cstr_to_ulong( _init ) : FD_VOLATILE_CONST( *_tx_seq );
 
   FD_LOG_NOTICE(( "Configuring for --rx-cnt %lu reliable consumers", rx_cnt ));
 
   fd_fctl_t * fctl = fd_fctl_join( fd_fctl_new( shmem, rx_cnt ) );
-  uchar * fctl_top = fd_mcache_app_laddr( mcache );
-  uchar * fctl_bot = fctl_top + FD_MCACHE_APP_FOOTPRINT;
+
+  uchar * fctl_top = app;
+  uchar * fctl_bot = app + fd_ulong_align_dn( app_sz, 8UL );
   for( ulong rx_idx=0UL; rx_idx<rx_cnt; rx_idx++ ) {
     ulong * rx_lseq  = (ulong *) fctl_top;      fctl_top += 128UL;
     ulong * rx_backp = (ulong *)(fctl_bot-8UL); fctl_bot -=   8UL;

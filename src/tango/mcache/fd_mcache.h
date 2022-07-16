@@ -4,27 +4,25 @@
 #include "../fd_tango_base.h"
 
 /* FD_MCACHE_{ALIGN,FOOTPRINT} specify the alignment and footprint
-   needed for a mcache.  ALIGN must be >= FD_FRAG_META_ALIGN.  Depth is
-   assumed to be valid.  These are provided to facilitate compile time
-   mcache declarations. */
+   needed for a mcache with depth entries and an application region of
+   size app_sz.  ALIGN is at least FD_FRAG_META_ALIGN and recommended to
+   be at least double cache line to mitigate various kinds of false
+   sharing.  Depth is assumed to be valid (i.e. an integer power of 2 of
+   at least FD_MCACHE_BLOCK).  These are provided to facilitate compile
+   time mcache declarations. */
 
-#define FD_MCACHE_ALIGN              (4096UL)
-#define FD_MCACHE_FOOTPRINT( depth ) ((4096UL+(depth)*sizeof(fd_frag_meta_t)+(FD_MCACHE_ALIGN-1UL)) & (~(FD_MCACHE_ALIGN-1UL)))
+#define FD_MCACHE_ALIGN (128UL)
+#define FD_MCACHE_FOOTPRINT( depth, app_sz )                                                       \
+  ( 128UL                                                                             /* hdr  */ + \
+    128UL                                                                             /* seq  */ + \
+    (((depth)*sizeof(fd_frag_meta_t)+FD_MCACHE_ALIGN-1UL) & (~(FD_MCACHE_ALIGN-1UL))) /* meta */ + \
+    (((app_sz)                      +FD_MCACHE_ALIGN-1UL) & (~(FD_MCACHE_ALIGN-1UL))) /* app  */ )
 
-/* FD_MCACHE_SEQ_{ALIGN,CNT} give the alignemnt and number entries in
-   the mcache's seq array.  ALIGN is double cache lined for false
-   sharing protection reasons.  CNT should be a multiple of 16. */
+/* FD_MCACHE_SEQ_CNT specifies the number of entries in the mcache's seq
+   storage region.  It is aligned FD_CACHE_ALIGN.  CNT should be a
+   multiple of 16.  seq[0] has special meaning; see below for details. */
 
-#define FD_MCACHE_SEQ_ALIGN (128UL)
-#define FD_MCACHE_SEQ_CNT   (16UL)
-
-/* FD_MCACHE_{ALIGN,FOOTPRINT} specify the alignment and footprint of
-   the portion of an mcache set aside for application use.  This region
-   is double cache line aligned to help mitigate various kinds of false
-   sharing. */
-
-#define FD_MCACHE_APP_ALIGN     (128UL)
-#define FD_MCACHE_APP_FOOTPRINT (3840UL)
+#define FD_MCACHE_SEQ_CNT (16UL)
 
 /* FD_MCACHE_{LG_BLOCK,LG_INTERLEAVE,BLOCK} specifies how recent
    fragment meta data should be packed into mcaches.  LG_BLOCK should be
@@ -42,22 +40,25 @@ FD_PROTOTYPES_BEGIN
 /* fd_mcache_{align,footprint} return the required alignment and
    footprint of a memory region suitable for use as mcache with depth
    entries.  align returns FD_MCACHE_ALIGN.  If depth is invalid (e.g.
-   not an integer power-of-2 >= FD_MCACHE_BLOCK, footprint will silently
-   return 0 (and thus can be used by the caller to validate depth
-   configuration parameters). */
+   not an integer power-of-2 >= FD_MCACHE_BLOCK or the footprint is
+   larger than ULONG_MAX), footprint will silently return 0 (and thus
+   can be used by the caller to validate mcache configuration
+   parameters). */
 
 FD_FN_CONST ulong
 fd_mcache_align( void );
 
 FD_FN_CONST ulong
-fd_mcache_footprint( ulong depth );
+fd_mcache_footprint( ulong depth,
+                     ulong app_sz );
 
 /* fd_mcache_new formats an unused memory region for use as a mcache.
    shmem is a non-NULL pointer to this region in the local address space
    with the required footprint and alignment.  depth is the number of
    cache entries (should be an integer power of 2 >= FD_MCACHE_BLOCK).
-   seq0 is the initial fragment sequence number a producer for this
-   mcache.
+   The mcache will also have an app_sz byte application region for
+   application specific usage.  seq0 is the initial fragment sequence
+   number a producer should use for this mcache.
 
    The cache entries will be initialized such all queries for any
    sequence number will fail immediately after creation.  They will
@@ -75,6 +76,8 @@ fd_mcache_footprint( ulong depth );
    over multiple fragments) and have the ERR bit set (so they don't
    think there is any validity to the meta data or payload).
 
+   The application region will be initialized to zero.
+
    Returns shmem (and the memory region it points to will be formatted
    as a mcache) on success and NULL on failure (logs details).  Reasons
    for failure include obviously bad shmem or bad depth. */
@@ -82,6 +85,7 @@ fd_mcache_footprint( ulong depth );
 void *
 fd_mcache_new( void * shmem,
                ulong  depth,
+               ulong  app_sz,
                ulong  seq0 );
 
 /* fd_mcache_join joins the caller to the mcache.  shmcache points to
@@ -125,14 +129,15 @@ fd_mcache_delete( void * shmcache );
 /* fd_mcache_{depth,seq0} return the values corresponding to those use
    at the mcache's construction.  Assume mcache is a current local join. */
 
-FD_FN_PURE ulong fd_mcache_depth( fd_frag_meta_t const * mcache );
-FD_FN_PURE ulong fd_mcache_seq0 ( fd_frag_meta_t const * mcache );
+FD_FN_PURE ulong fd_mcache_depth ( fd_frag_meta_t const * mcache );
+FD_FN_PURE ulong fd_mcache_app_sz( fd_frag_meta_t const * mcache );
+FD_FN_PURE ulong fd_mcache_seq0  ( fd_frag_meta_t const * mcache );
 
 /* fd_mcache_seq_laddr returns location in the caller's local address
    space of mcache's sequence array.  This array is indexed
-   [0,FD_MCACHE_SEQ_CNT) with FD_MCACHE_SEQ_ALIGN alignment (double
-   cache line).  laddr_const is a const correct version.  Assumes mcache
-   is a current local join.
+   [0,FD_MCACHE_SEQ_CNT) with FD_MCACHE_ALIGN alignment (double cache
+   line).  laddr_const is a const correct version.  Assumes mcache is a
+   current local join.
 
    seq[0] has special meaning.  Specifically, sequence numbers in
    [seq0,seq[0]) cyclic are guaranteed to have been published.  seq[0]
@@ -141,28 +146,28 @@ FD_FN_PURE ulong fd_mcache_seq0 ( fd_frag_meta_t const * mcache );
    somewhat.  As seq[0] is moderately to aggressively frequently updated
    by the mcache's producer (depending on the application), this is on
    its own cache line pair to avoid false sharing.  seq[0] is mostly
-   used for monitoring, initialization and support for some methods or
+   used for monitoring, initialization and support for some methods for
    unreliable consumer overrun handling.
 
    The meaning of the remaining sequence numbers is application
    dependent.  Application should try to restrict any use of these to
-   ones cache-friendly with seq[0] (e.g. use for producer write oriented
-   cases or use for rarely used cases). */
+   ones that are seq[0] cache-friendly (e.g. use for producer write
+   oriented cases or use for rarely used cases). */
 
 FD_FN_CONST ulong const * fd_mcache_seq_laddr_const( fd_frag_meta_t const * mcache );
 FD_FN_CONST ulong *       fd_mcache_seq_laddr      ( fd_frag_meta_t *       mcache );
 
 /* fd_mcache_app_laddr returns location in the caller's local address
    space of memory set aside for application specific usage.  Assumes
-   mcache is a current local join.  This region has FD_MCACHE_APP_ALIGN
-   alignment (double cache line) and is FD_MCACHE_APP_FOOTPRINT in size.
-   This is quite large with multiple cache line pairs of space to
+   mcache is a current local join.  This region has FD_MCACHE_ALIGN
+   alignment (double cache line) and is fd_mcache_app_sz( mcache ) in
+   size.  This is quite large with multiple cache line pairs of space to
    support multiple use cases with good DRAM cache proprieties,
    including flow control, command and control, and real time
    monitoring.  laddr_const is a const-correct version. */
 
-FD_FN_CONST uchar const * fd_mcache_app_laddr_const( fd_frag_meta_t const * mcache );
-FD_FN_CONST uchar *       fd_mcache_app_laddr      ( fd_frag_meta_t *       mcache );
+FD_FN_PURE uchar const * fd_mcache_app_laddr_const( fd_frag_meta_t const * mcache );
+FD_FN_PURE uchar *       fd_mcache_app_laddr      ( fd_frag_meta_t *       mcache );
 
 /* fd_mcache_line_idx returns the index of the cache line in a depth
    entry mcache (depth is asssumed to be a power of 2) where the
@@ -332,7 +337,9 @@ fd_mcache_publish_avx( fd_frag_meta_t * mcache,   /* Assumed a current local joi
    wait should save the found metadata (typically a stack temporary).
    poll_max (ulong compatible) is the number of times FD_MCACHE_WAIT
    will poll the mcache for seq_expected before timing out.  poll_max
-   should be positive on input.
+   should be positive on input.  (Note: using ULONG_MAX for poll_max
+   practically turns this into a blocking wait as this take hundreds of
+   years to complete on realistic platforms.)
 
    On completion of the WAIT, if poll_max is zero, the WAIT timed out
    and none of the other outputs (meta, seq_found, seq_diff) should be

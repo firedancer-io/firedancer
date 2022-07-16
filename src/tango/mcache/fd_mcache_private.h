@@ -13,24 +13,28 @@
 
 struct __attribute__((aligned(FD_MCACHE_ALIGN))) fd_mcache_private_hdr {
 
-  /* This point is normal page aligned */
+  /* This point is FD_MCACHE_ALIGN aligned  */
 
-  ulong magic; /* == FD_MCACHE_MAGIC */
-  ulong depth; /* == 2^lg_depth >= FD_MCACHE_LG_BLOCK */
-  ulong seq0;  /* Initial sequence number passed on creation */
+  ulong magic;   /* == FD_MCACHE_MAGIC */
+  ulong depth;   /* == 2^lg_depth >= FD_MCACHE_LG_BLOCK */
+  ulong app_sz;  /* Size of the application region in bytes */
+  ulong seq0;    /* Initial sequence number passed on creation */
+  ulong app_off; /* Location of the application region relative to the first byte of the header */
 
-  /* Padding to FD_MCACHE_SEQ_ALIGN here (lots of room for additional static data here) */
+  /* Padding to FD_MCACHE_ALIGN here (lots of room for additional static data here) */
 
-  ulong __attribute__((aligned(FD_MCACHE_SEQ_ALIGN))) seq[ FD_MCACHE_SEQ_CNT ]; 
+  ulong __attribute__((aligned(FD_MCACHE_ALIGN))) seq[ FD_MCACHE_SEQ_CNT ];
 
-  /* Padding to FD_MCACHE_APP_ALIGN here (probably zero) */
-
-  uchar __attribute__((aligned(FD_MCACHE_APP_ALIGN))) app[ FD_MCACHE_APP_FOOTPRINT ];
-  
   /* Padding to FD_MCACHE_ALIGN here (probably zero), this is implicity FD_FRAG_META_ALIGNED */
+
   /* depth fd_frag_meta_t here */
+
   /* Padding to FD_MCACHE_ALIGN (probably zero) */
 
+  /* app_off points here */
+  /* app_sz byte reserved here */
+
+  /* Padding to FD_MCACHE_ALIGN here */
 };
 
 typedef struct fd_mcache_private_hdr fd_mcache_private_hdr_t;

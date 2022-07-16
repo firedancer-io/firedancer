@@ -2,7 +2,7 @@
 
 #if FD_HAS_HOSTED && FD_HAS_AVX
 
-#define RX_MAX (FD_MCACHE_APP_FOOTPRINT/136UL)
+#define RX_MAX (256UL)
 
 int
 main( int     argc,
@@ -29,12 +29,19 @@ main( int     argc,
 
   ulong         depth   = fd_mcache_depth          ( mcache );
   ulong const * _tx_seq = fd_mcache_seq_laddr_const( mcache );
-  ulong         rx_seq  = _init ? fd_cstr_to_ulong( _init ) : FD_VOLATILE_CONST( *_tx_seq );
+  uchar *       app     = fd_mcache_app_laddr      ( mcache );
+  ulong         app_sz  = fd_mcache_app_sz         ( mcache );
+
+  ulong rx_seq = _init ? fd_cstr_to_ulong( _init ) : FD_VOLATILE_CONST( *_tx_seq );
 
   ulong   local_rx_seq[1];
   ulong * _rx_seq;
   if( rx_idx==ULONG_MAX ) _rx_seq = local_rx_seq; /* Unreliable consumer ... don't need to communicate fctl */
-  else                    _rx_seq = (ulong *)(fd_mcache_app_laddr( mcache ) + 128UL*rx_idx);
+  else { /* Reliable consumer ... communicate fctl via appropriate cache line pair in app region */
+    if( FD_UNLIKELY( (rx_idx+1UL)*136UL > app_sz ) )
+      FD_LOG_ERR(( "Increase mcache app-sz to at least %lu for this --rx-idx", (rx_idx+1UL)*136UL ));
+    _rx_seq = (ulong *)(app + rx_idx*128UL);
+  }
   FD_VOLATILE( *_rx_seq ) = rx_seq; /* Note: this can be amortized */
 
   FD_LOG_NOTICE(( "Running --init %lu (%s) --max %lu --rx-idx %lu", rx_seq, _init ? "manual" : "auto", max, rx_idx ));

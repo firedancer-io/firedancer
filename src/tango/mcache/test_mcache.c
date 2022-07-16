@@ -4,66 +4,91 @@ FD_STATIC_ASSERT( FD_FRAG_META_ALIGN    ==32UL, unit_test );
 FD_STATIC_ASSERT( FD_FRAG_META_FOOTPRINT==32UL, unit_test );
 /* FIXME: VERIFY MORE OF THE FRAG_META LAYOUT TO SNIFF OUT SILENT ABI CHANGES */
 
-FD_STATIC_ASSERT( FD_MCACHE_ALIGN        ==4096UL, unit_test );
-FD_STATIC_ASSERT( FD_MCACHE_SEQ_ALIGN    == 128UL, unit_test );
-FD_STATIC_ASSERT( FD_MCACHE_SEQ_CNT      ==  16UL, unit_test );
-FD_STATIC_ASSERT( FD_MCACHE_APP_ALIGN    == 128UL, unit_test );
-FD_STATIC_ASSERT( FD_MCACHE_APP_FOOTPRINT==3840UL, unit_test );
+FD_STATIC_ASSERT( FD_MCACHE_ALIGN                 == 128UL, unit_test );
+FD_STATIC_ASSERT( FD_MCACHE_FOOTPRINT(128UL,  0UL)==4352UL, unit_test );
+FD_STATIC_ASSERT( FD_MCACHE_FOOTPRINT(128UL,  1UL)==4480UL, unit_test );
+FD_STATIC_ASSERT( FD_MCACHE_FOOTPRINT(128UL,128UL)==4480UL, unit_test );
+FD_STATIC_ASSERT( FD_MCACHE_FOOTPRINT(128UL,129UL)==4608UL, unit_test );
+FD_STATIC_ASSERT( FD_MCACHE_FOOTPRINT(256UL,  0UL)==8448UL, unit_test );
+FD_STATIC_ASSERT( FD_MCACHE_FOOTPRINT(256UL,  1UL)==8576UL, unit_test );
+FD_STATIC_ASSERT( FD_MCACHE_FOOTPRINT(256UL,128UL)==8576UL, unit_test );
+FD_STATIC_ASSERT( FD_MCACHE_FOOTPRINT(256UL,129UL)==8704UL, unit_test );
+
+FD_STATIC_ASSERT( FD_MCACHE_SEQ_CNT==16UL, unit_test );
+
 FD_STATIC_ASSERT( FD_MCACHE_LG_BLOCK     ==     7, unit_test );
 FD_STATIC_ASSERT( FD_MCACHE_LG_INTERLEAVE==     2, unit_test );
 FD_STATIC_ASSERT( FD_MCACHE_BLOCK        == 128UL, unit_test );
 
-#define DEPTH_MAX (1024L)
+#define DEPTH_MAX (1024UL)
+#define APP_MAX   (4096UL)
 
-static uchar __attribute__((aligned(FD_MCACHE_ALIGN))) shmem[ FD_MCACHE_FOOTPRINT( DEPTH_MAX ) ];
+static uchar __attribute__((aligned(FD_MCACHE_ALIGN))) shmem[ FD_MCACHE_FOOTPRINT( DEPTH_MAX, APP_MAX ) ];
 
 int
 main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
 
-  ulong depth = fd_env_strip_cmdline_ulong( &argc, &argv, "--depth", NULL,        256UL );
-  ulong seq0  = fd_env_strip_cmdline_ulong( &argc, &argv, "--seq0",  NULL, 1234567890UL );
+  ulong depth  = fd_env_strip_cmdline_ulong( &argc, &argv, "--depth",  NULL,    DEPTH_MAX );
+  ulong app_sz = fd_env_strip_cmdline_ulong( &argc, &argv, "--app-sz", NULL,      APP_MAX );
+  ulong seq0   = fd_env_strip_cmdline_ulong( &argc, &argv, "--seq0",   NULL, 1234567890UL );
 
-  if( FD_UNLIKELY( depth>DEPTH_MAX ) ) FD_LOG_ERR(( "Increase unit test DEPTH_MAX to support this large --depth" ));
+  if( FD_UNLIKELY( depth >DEPTH_MAX ) ) FD_LOG_ERR(( "Increase unit test DEPTH_MAX to support this large --depth" ));
+  if( FD_UNLIKELY( app_sz>APP_MAX   ) ) FD_LOG_ERR(( "Increase unit test APP_MAX to support this large --app-sz" ));
+
+  FD_LOG_NOTICE(( "Testing with --depth %lu and --app-sz %lu", depth, app_sz ));
 
   fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
 
 # define TEST(c) do if( FD_UNLIKELY( !(c) ) ) { FD_LOG_WARNING(( "FAIL: " #c )); return 1; } while(0)
 
+  /* Test mcache procurement */
+
   TEST( fd_mcache_align()==FD_MCACHE_ALIGN );
 
-  TEST( !fd_mcache_footprint( 0UL                     ) );
-  TEST( !fd_mcache_footprint(     FD_MCACHE_BLOCK-1UL ) );
-  TEST(  fd_mcache_footprint(     FD_MCACHE_BLOCK     ) );
-  TEST( !fd_mcache_footprint(     FD_MCACHE_BLOCK+1UL ) );
-  TEST( !fd_mcache_footprint( 2UL*FD_MCACHE_BLOCK-1UL ) );
-  TEST(  fd_mcache_footprint( 2UL*FD_MCACHE_BLOCK     ) );
-  TEST( !fd_mcache_footprint( 2UL*FD_MCACHE_BLOCK+1UL ) );
+  /* FIXME: MORE fd_mcache_footprint TESTS */
+  for( ulong iter=0UL; iter<1000000UL; iter++ ) {
+    ulong _depth     = fd_rng_ulong_roll( rng, DEPTH_MAX+1UL ); /* In [0,DEPTH_MAX] */
+    ulong _app_sz    = fd_rng_ulong_roll( rng,   APP_MAX+1UL ); /* In [0,  APP_MAX] */
+    TEST( fd_mcache_footprint( _depth, _app_sz )==fd_ulong_if( (_depth>=FD_MCACHE_BLOCK) & fd_ulong_is_pow2(_depth),
+                                                               FD_MCACHE_FOOTPRINT( _depth, _app_sz ), 0UL ) );
+  }
 
-  ulong footprint = fd_mcache_footprint( depth );
+  /* Test mcache creation */
+
+  ulong footprint = fd_mcache_footprint( depth, app_sz );
   if( FD_UNLIKELY( !footprint ) ) FD_LOG_ERR(( "Bad --depth" ));
-  TEST( footprint==FD_MCACHE_FOOTPRINT( depth     ) );
-  TEST( footprint<=FD_MCACHE_FOOTPRINT( DEPTH_MAX ) );
+  TEST( footprint==FD_MCACHE_FOOTPRINT( depth,     app_sz  ) );
+  TEST( footprint<=FD_MCACHE_FOOTPRINT( DEPTH_MAX, APP_MAX ) );
 
-  void *           shmcache = fd_mcache_new ( shmem, depth, seq0 ); TEST( shmcache );
-  fd_frag_meta_t * mcache   = fd_mcache_join( shmcache );           TEST( mcache );
+  void *           shmcache = fd_mcache_new ( shmem, depth, app_sz, seq0 ); TEST( shmcache );
+  fd_frag_meta_t * mcache   = fd_mcache_join( shmcache );                   TEST( mcache );
 
-  TEST( fd_mcache_depth( mcache )==depth );
-  TEST( fd_mcache_seq0 ( mcache )==seq0  );
+  /* Test mcache accessors */
+
+  TEST( fd_mcache_depth ( mcache )==depth  );
+  TEST( fd_mcache_app_sz( mcache )==app_sz );
+  TEST( fd_mcache_seq0  ( mcache )==seq0   );
 
   ulong const * _seq_const = fd_mcache_seq_laddr_const( mcache );
   ulong       * _seq       = fd_mcache_seq_laddr      ( mcache );
   TEST( (ulong)_seq==(ulong)_seq_const );
+  TEST( fd_ulong_is_aligned( (ulong)_seq, FD_MCACHE_ALIGN ) );
 
   uchar const * _app_const  = fd_mcache_app_laddr_const( mcache );
   uchar       * _app        = fd_mcache_app_laddr      ( mcache );
   TEST( (ulong)_app==(ulong)_app_const );
+  TEST( fd_ulong_is_aligned( (ulong)_app, FD_MCACHE_ALIGN ) );
 
-  /* Test the initial state of the mcache */
+  /* Test mcache initial state */
 
-  TEST( (*_seq_const)==seq0 );
-  TEST( (*_seq      )==seq0 );
+  TEST( (*_seq)==seq0 );
+  for( ulong idx=1UL; idx<FD_MCACHE_SEQ_CNT; idx++ ) TEST( !_seq[idx] );
+
+  uchar * p = _app;
+  for( ulong rem=app_sz; rem; rem-- ) { TEST( !*p ); *p = (uchar)'a'; p++; }
+
   for( ulong iter=0UL; iter<1000000UL; iter++ ) {
 
     /* Generate random sequence number with a bias towards sequence
@@ -92,6 +117,8 @@ main( int     argc,
     TEST( fd_frag_meta_ctl_eom( ctl ) );
     TEST( fd_frag_meta_ctl_err( ctl ) );
   }
+
+  /* Test mcache entry operations */
 
   for( ulong iter=0UL; iter<1000000UL; iter++ ) {
     ulong next = *_seq;
@@ -136,6 +163,23 @@ main( int     argc,
     mcache[ line ].seq = next;
     *_seq = fd_seq_inc(next,1UL);
   }
+
+  /* Test mcache for corruption */
+
+  TEST( fd_mcache_depth          ( mcache )==depth      );
+  TEST( fd_mcache_app_sz         ( mcache )==app_sz     );
+  TEST( fd_mcache_seq0           ( mcache )==seq0       );
+  TEST( fd_mcache_seq_laddr_const( mcache )==_seq_const );
+  TEST( fd_mcache_seq_laddr      ( mcache )==_seq       );
+  TEST( fd_mcache_app_laddr_const( mcache )==_app_const );
+  TEST( fd_mcache_app_laddr      ( mcache )==_app       );
+
+  for( ulong idx=1UL; idx<FD_MCACHE_SEQ_CNT; idx++ ) TEST( !_seq[idx] );
+
+  uchar const * q = _app_const;
+  for( ulong rem=app_sz; rem; rem-- ) { TEST( (*q)==(uchar)'a' ); q++; }
+
+  /* Test mcache destruction */
 
   TEST( fd_mcache_leave ( mcache   )==shmcache );
   TEST( fd_mcache_delete( shmcache )==shmem    );
