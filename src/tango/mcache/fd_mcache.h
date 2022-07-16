@@ -323,31 +323,106 @@ fd_mcache_publish_avx( fd_frag_meta_t * mcache,   /* Assumed a current local joi
 
 #endif
 
-/* FD_MCACHE_WAIT does a blocking wait for a frag producer to produce
+/* FD_MCACHE_WAIT does a bounded wait for a frag producer to produce
    frag seq_expected.  mcache (fd_frag_meta_t const * compatible) is a
    current local join to the mcache the producer uses to cache metadata
-   for the frags it is producing and depth (a ulong compatible integer
-   power of two greater than 1) is the number of entries in this cache.
-   meta (fd_frag_meta_t * compatible) is the location on the caller
-   where the wait should save the found metadata (typically a stack
-   temporary).
+   for the frags it is producing and depth (a ulong compatible power of
+   two greater than 1) is the number of entries in this cache.  meta
+   (fd_frag_meta_t * compatible) is the location on the caller where the
+   wait should save the found metadata (typically a stack temporary).
+   poll_max (ulong compatible) is the number of times FD_MCACHE_WAIT
+   will poll the mcache for seq_expected before timing out.  poll_max
+   should be positive on input.
 
-   On completion of the WAIT, seq_diff (long compatible) will not be
-   negative.
+   On completion of the WAIT, if poll_max is zero, the WAIT timed out
+   and none of the other outputs (meta, seq_found, seq_diff) should be
+   trusted.  If poll_max is non-zero, it will be the original poll_max
+   value decremented by the number of polls it took for the WAIT to
+   complete.
 
-   If seq_diff is zero, the caller is within depth of the producer and
-   *meta will be a local copy of the desired metadata.
+   When the WAIT did not timeout, seq_found (ulong compatible) and
+   seq_diff (long compatible) can be trusted.  If seq_diff is positive,
+   the caller has fallen more than depth behind the producer such that
+   metadata for frag seq_expected is no longer available via the mcache.
+   IMPORTANT!  *META MIGHT NOT BE VALID FOR SEQ_FOUND (e.g. if the
+   producer is paused after it starts writing metadata but before it has
+   completed writing it ... an unreliable overrun consumer that reads
+   the metadata while the producer is paused will observe metadata that
+   is a mix of the new metadata and old metadata with an bogus sequence
+   number on it.)  seq_diff is a lower bound of how far the caller has
+   fallen behind the producer and seq_found is a lower bound of where
+   producer is currently at.
 
-   If seq_diff is positive, the caller has fallen more than depth behind
-   the producer such that metadata for frag seq_expected is no longer
-   available via the mcache.  IMPORTANT! *META MIGHT NOT BE VALID FOR
-   SEQ_FOUND (e.g. if the producer is paused after it starts writing
-   metadata but before it has completed writing it ... an unreliable
-   overrun consumer that reads the metadata while the producer is paused
-   will observe metadata that is a mix of the new metadata and old
-   metadata with an bogus sequence number on it.)  seq_diff is a lower
-   bound of how far the caller has fallen behind the producer and
-   seq_found is a lower bound of where producer is currently at.
+   Otherwise, the caller is within depth of the producer and *meta will
+   be a local copy of the desired metadata.
+
+   TL;DR  Typical usage:
+
+     ... Example HPC receiver run loop setup
+
+     ulong                  poll_max = ... number of polls until next housekeeping (positive)
+     fd_frag_meta_t const * mcache   = ... local join to producer's mcache
+     ulong                  depth    = ... producer's mcache depth
+     ulong                  rx_seq   = ... next sequence number to receive from producer
+
+     ... Example HPC receiver run loop structure
+
+     for(;;) {
+
+       fd_frag_meta_t meta[1];
+       ulong          tx_seq;
+       long           seq_diff;
+       FD_MCACHE_WAIT( meta, tx_seq, seq_diff, poll_max, mcache, depth, rx_seq );
+
+       ... At this point, poll_max can be trusted and has been
+       ... decremented the number of polls that were done by the wait
+       ... from its value at the start of the wait.  We either timed
+       ... out waiting, detected we've been overrun or received the
+       ... desired meta data.
+
+       if( FD_UNLIKELY( !poll_max ) ) {
+
+         ... We timed out.  Do background housekeeping.
+
+         poll_max = ... Reload for the next housekeeping (positive and
+                    ... ideally somewhat randomized each time).  Value
+                    ... depends on how aggressively the run loop needs
+                    ... to do background tasks such as
+                    ... command-and-control interactions, monitoring
+                    ... diagnostics, maintenance, etc).
+
+         continue;
+       }
+
+       ... At this point, poll_max, tx_seq and seq_diff can be trusted.
+       ... We either have been overrun or received the desired meta
+       ... data.  poll_max>=0UL and seq_diff==fd_seq_diff(tx_seq,rx_seq).
+
+       if( FD_UNLIKELY( seq_diff ) ) {
+
+         ... We got overrun by the producer.  tx_seq is an estimate
+         ... (typically within depth and often much closer) of where the
+         ... producer currently is at.  Technically, this branch should
+         ... never be exercised on reliable consumers but is a generally
+         ... good idea regardless to detect / protect against flow
+         ... control misconfigurations, bugs in the consumer, etc.
+         ... Overrun handling could be as simple as "rx_seq = tx_seq;"
+         ... here (but applications will typically do more elaborate
+         ... application specific handling)
+
+         continue;
+       }
+
+       ... We received meta data for frag rx_seq.  At this point, meta,
+       ... tx_seq, seq_diff and poll_max can be trusted.  poll_max>=0UL,
+       ... tx_seq==rx_seq and seq_diff==0L.
+
+       ... Process meta->* at the run loop's leisure
+
+       ... Advance to the producer's next sequence number.
+
+       rx_seq = fd_seq_inc( rx_seq, 1UL );
+     }
 
    This assumes the producer either writes the entire metadata cache
    line atomically (on targets where aligned AVX writes are in fact
@@ -397,28 +472,34 @@ fd_mcache_publish_avx( fd_frag_meta_t * mcache,   /* Assumed a current local joi
 
    The below is implemented as a macro to faciliate use in ultra high
    performance run loops and support multiple return values.  This macro
-   is robust. */
+   is robust (e.g. it evaluates its argument a minimal number of times). */
 
-#define FD_MCACHE_WAIT( meta, seq_found, seq_diff, mcache, depth, seq_expected ) do {                  \
-    ulong                  _seq_expected  = (seq_expected);                                            \
-    fd_frag_meta_t const * _mcache_line   = (mcache) + fd_mcache_line_idx( _seq_expected, (depth) );   \
-    fd_frag_meta_t *       _meta          = (meta);                                                    \
-    ulong                  _seq_found;                                                                 \
-    long                   _seq_diff;                                                                  \
-    for(;;) {                                                                                          \
-      FD_COMPILER_MFENCE();                                                                            \
-      _seq_found = _mcache_line->seq; /* atomic */                                                     \
-      FD_COMPILER_MFENCE();                                                                            \
-      *_meta = *_mcache_line; /* probably non-atomic, typically fast L1 cache hit */                   \
-      FD_COMPILER_MFENCE();                                                                            \
-      ulong _seq_test = _mcache_line->seq; /* atomic, typically fast L1 cache hit */                   \
-      FD_COMPILER_MFENCE();                                                                            \
-      _seq_diff  = fd_long_if( _seq_found==_seq_test, fd_seq_diff( _seq_found, _seq_expected ), -1L ); \
-      if( FD_LIKELY( _seq_diff>=0L ) ) break;                                                          \
-      FD_SPIN_PAUSE();                                                                                 \
-    }                                                                                                  \
-    (seq_found) = _seq_found;                                                                          \
-    (seq_diff)  = _seq_diff;                                                                           \
+#define FD_MCACHE_WAIT( meta, seq_found, seq_diff, poll_max, mcache, depth, seq_expected ) do {                           \
+    ulong                  _fd_mcache_wait_seq_expected = (seq_expected);                                                 \
+    fd_frag_meta_t const * _fd_mcache_wait_mcache_line  = (mcache)                                                        \
+                                                        + fd_mcache_line_idx( _fd_mcache_wait_seq_expected, (depth) );    \
+    fd_frag_meta_t *       _fd_mcache_wait_meta         = (meta);                                                         \
+    ulong                  _fd_mcache_wait_seq_found;                                                                     \
+    long                   _fd_mcache_wait_seq_diff;                                                                      \
+    ulong                  _fd_mcache_wait_poll_max     = (poll_max);                                                     \
+    for(;;) {                                                                                                             \
+      FD_COMPILER_MFENCE();                                                                                               \
+      _fd_mcache_wait_seq_found = _fd_mcache_wait_mcache_line->seq; /* atomic */                                          \
+      FD_COMPILER_MFENCE();                                                                                               \
+      *_fd_mcache_wait_meta = *_fd_mcache_wait_mcache_line; /* probably non-atomic, typically fast L1 cache hit */        \
+      FD_COMPILER_MFENCE();                                                                                               \
+      ulong _fd_mcache_wait_seq_test = _fd_mcache_wait_mcache_line->seq; /* atomic, typically fast L1 cache hit */        \
+      FD_COMPILER_MFENCE();                                                                                               \
+      _fd_mcache_wait_seq_diff = fd_seq_diff( _fd_mcache_wait_seq_found, _fd_mcache_wait_seq_expected );                  \
+      int _fd_mcache_wait_done = ((_fd_mcache_wait_seq_found==_fd_mcache_wait_seq_test) & (_fd_mcache_wait_seq_diff>=0L)) \
+                               | (!--_fd_mcache_wait_poll_max);                                                           \
+      FD_COMPILER_FORGET( _fd_mcache_wait_done ); /* inhibit compiler from turning this into branch nest */               \
+      if( FD_LIKELY( _fd_mcache_wait_done ) ) break; /* opt for exit, single exit to help spin_pause cpu hinting */       \
+      FD_SPIN_PAUSE();                                                                                                    \
+    }                                                                                                                     \
+    (seq_found) = _fd_mcache_wait_seq_found;                                                                              \
+    (seq_diff)  = _fd_mcache_wait_seq_diff;                                                                               \
+    (poll_max)  = _fd_mcache_wait_poll_max;                                                                               \
   } while(0)
 
 #if FD_HAS_AVX
@@ -428,30 +509,36 @@ fd_mcache_publish_avx( fd_frag_meta_t * mcache,   /* Assumed a current local joi
    only valid on targets with the FD_HAS_AVX capability (see
    fd_tango_base.h for details on Intel's atomicity guarantees). */
 
-#define FD_MCACHE_WAIT_SSE( meta_sse0, meta_sse1, seq_found, seq_diff, mcache, depth, seq_expected ) do { \
-    ulong                  _seq_expected  = (seq_expected);                                               \
-    fd_frag_meta_t const * _mcache_line   = (mcache) + fd_mcache_line_idx( _seq_expected, (depth) );      \
-    __m128i                _frag_meta_sse0;                                                               \
-    __m128i                _frag_meta_sse1;                                                               \
-    ulong                  _seq_found;                                                                    \
-    long                   _seq_diff;                                                                     \
-    for(;;) {                                                                                             \
-      FD_COMPILER_MFENCE();                                                                               \
-      _frag_meta_sse0 = _mm_load_si128( &_mcache_line->sse0 ); /* atomic */                               \
-      FD_COMPILER_MFENCE();                                                                               \
-      _frag_meta_sse1 = _mm_load_si128( &_mcache_line->sse1 ); /* atomic, typically fast L1 cache hit */  \
-      FD_COMPILER_MFENCE();                                                                               \
-      ulong _seq_test = _mcache_line->seq; /* atomic, typically fast L1 cache hit */                      \
-      FD_COMPILER_MFENCE();                                                                               \
-      _seq_found = fd_frag_meta_sse0_seq( _frag_meta_sse0 );                                              \
-      _seq_diff  = fd_long_if( _seq_found==_seq_test, fd_seq_diff( _seq_found, _seq_expected ), -1L );    \
-      if( FD_LIKELY( _seq_diff>=0L ) ) break;                                                             \
-      FD_SPIN_PAUSE();                                                                                    \
-    }                                                                                                     \
-    (meta_sse0) = _frag_meta_sse0;                                                                        \
-    (meta_sse1) = _frag_meta_sse1;                                                                        \
-    (seq_found) = _seq_found;                                                                             \
-    (seq_diff)  = _seq_diff;                                                                              \
+#define FD_MCACHE_WAIT_SSE( meta_sse0, meta_sse1, seq_found, seq_diff, poll_max, mcache, depth, seq_expected ) do {        \
+    ulong                  _fd_mcache_wait_seq_expected = (seq_expected);                                                  \
+    fd_frag_meta_t const * _fd_mcache_wait_mcache_line  = (mcache)                                                         \
+                                                        + fd_mcache_line_idx( _fd_mcache_wait_seq_expected, (depth) );     \
+    __m128i                _fd_mcache_wait_meta_sse0;                                                                      \
+    __m128i                _fd_mcache_wait_meta_sse1;                                                                      \
+    ulong                  _fd_mcache_wait_seq_found;                                                                      \
+    long                   _fd_mcache_wait_seq_diff;                                                                       \
+    ulong                  _fd_mcache_wait_poll_max     = (poll_max);                                                      \
+    for(;;) {                                                                                                              \
+      FD_COMPILER_MFENCE();                                                                                                \
+      _fd_mcache_wait_meta_sse0 = _mm_load_si128( &_fd_mcache_wait_mcache_line->sse0 ); /* atomic */                       \
+      FD_COMPILER_MFENCE();                                                                                                \
+      _fd_mcache_wait_meta_sse1 = _mm_load_si128( &_fd_mcache_wait_mcache_line->sse1 ); /* atomic, typ fast L1 hit */      \
+      FD_COMPILER_MFENCE();                                                                                                \
+      ulong _fd_mcache_wait_seq_test = _fd_mcache_wait_mcache_line->seq; /* atomic, typically fast L1 cache hit */         \
+      FD_COMPILER_MFENCE();                                                                                                \
+      _fd_mcache_wait_seq_found = fd_frag_meta_sse0_seq( _fd_mcache_wait_meta_sse0 );                                      \
+      _fd_mcache_wait_seq_diff  = fd_seq_diff( _fd_mcache_wait_seq_found, _fd_mcache_wait_seq_expected );                  \
+      int _fd_mcache_wait_done  = ((_fd_mcache_wait_seq_found==_fd_mcache_wait_seq_test) & (_fd_mcache_wait_seq_diff>=0L)) \
+                                | (!--_fd_mcache_wait_poll_max);                                                           \
+      FD_COMPILER_FORGET( _fd_mcache_wait_done ); /* inhibit compiler from turning this into branch nest */                \
+      if( FD_LIKELY( _fd_mcache_wait_done ) ) break; /* opt for exit, single exit to help spin_pause cpu hinting */        \
+      FD_SPIN_PAUSE();                                                                                                     \
+    }                                                                                                                      \
+    (meta_sse0) = _fd_mcache_wait_meta_sse0;                                                                               \
+    (meta_sse1) = _fd_mcache_wait_meta_sse1;                                                                               \
+    (seq_found) = _fd_mcache_wait_seq_found;                                                                               \
+    (seq_diff)  = _fd_mcache_wait_seq_diff;                                                                                \
+    (poll_max)  = _fd_mcache_wait_poll_max;                                                                                \
   } while(0)
 
 /* FD_MCACHE_WAIT_AVX: similar to FD_MCACHE_WAIT_SSE but uses a single
@@ -463,24 +550,29 @@ fd_mcache_publish_avx( fd_frag_meta_t * mcache,   /* Assumed a current local joi
    overrun case here, meta_avx will in fact by the metadata for the
    overrun sequence number. */
 
-#define FD_MCACHE_WAIT_AVX( meta_avx, seq_found, seq_diff, mcache, depth, seq_expected ) do {       \
-    ulong           _seq_expected         = (seq_expected);                                         \
-    __m256i const * _mcache_line = &((mcache)[ fd_mcache_line_idx( _seq_expected, (depth) ) ].avx); \
-    __m256i         _frag_meta_avx;                                                                 \
-    ulong           _seq_found;                                                                     \
-    long            _seq_diff;                                                                      \
-    for(;;) {                                                                                       \
-      FD_COMPILER_MFENCE();                                                                         \
-      _frag_meta_avx = _mm256_load_si256( _mcache_line ); /* atomic */                              \
-      FD_COMPILER_MFENCE();                                                                         \
-      _seq_found = fd_frag_meta_avx_seq( _frag_meta_avx );                                          \
-      _seq_diff  = fd_seq_diff( _seq_found, _seq_expected );                                        \
-      if( FD_LIKELY( _seq_diff>=0L ) ) break;                                                       \
-      FD_SPIN_PAUSE();                                                                              \
-    }                                                                                               \
-    (meta_avx)  = _frag_meta_avx;                                                                   \
-    (seq_found) = _seq_found;                                                                       \
-    (seq_diff)  = _seq_diff;                                                                        \
+#define FD_MCACHE_WAIT_AVX( meta_avx, seq_found, seq_diff, poll_max, mcache, depth, seq_expected ) do {                \
+    ulong                  _fd_mcache_wait_seq_expected = (seq_expected);                                              \
+    fd_frag_meta_t const * _fd_mcache_wait_mcache_line  = (mcache)                                                     \
+                                                        + fd_mcache_line_idx( _fd_mcache_wait_seq_expected, (depth) ); \
+    __m256i                _fd_mcache_wait_meta_avx;                                                                   \
+    ulong                  _fd_mcache_wait_seq_found;                                                                  \
+    long                   _fd_mcache_wait_seq_diff;                                                                   \
+    ulong                  _fd_mcache_wait_poll_max     = (poll_max);                                                  \
+    for(;;) {                                                                                                          \
+      FD_COMPILER_MFENCE();                                                                                            \
+      _fd_mcache_wait_meta_avx  = _mm256_load_si256( &_fd_mcache_wait_mcache_line->avx ); /* atomic */                 \
+      FD_COMPILER_MFENCE();                                                                                            \
+      _fd_mcache_wait_seq_found = fd_frag_meta_avx_seq( _fd_mcache_wait_meta_avx );                                    \
+      _fd_mcache_wait_seq_diff  = fd_seq_diff( _fd_mcache_wait_seq_found, _fd_mcache_wait_seq_expected );              \
+      int _fd_mcache_wait_done  = (_fd_mcache_wait_seq_diff>=0L) | (!--_fd_mcache_wait_poll_max);                      \
+      FD_COMPILER_FORGET( _fd_mcache_wait_done ); /* inhibit compiler from turning this into branch nest */            \
+      if( FD_LIKELY( _fd_mcache_wait_done ) ) break; /* opt for exit, single exit to help spin_pause cpu hinting */    \
+      FD_SPIN_PAUSE();                                                                                                 \
+    }                                                                                                                  \
+    (meta_avx)  = _fd_mcache_wait_meta_avx;                                                                            \
+    (seq_found) = _fd_mcache_wait_seq_found;                                                                           \
+    (seq_diff)  = _fd_mcache_wait_seq_diff;                                                                            \
+    (poll_max)  = _fd_mcache_wait_poll_max;                                                                            \
   } while(0)
 
 #endif
