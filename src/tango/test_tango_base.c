@@ -155,11 +155,16 @@ main( int     argc,
     long delta = (long)( (extr ? UINT_MAX : fd_rng_uint( rng )) >> shift);
     delta >>= 1;
     if( sign ) delta = -delta;
-    long ts      = tsref + delta;
+    long ts    = tsref + delta;
 
     ulong tscomp = fd_frag_meta_ts_comp( ts );
     TEST( tscomp <= (ulong)UINT_MAX );
     TEST( fd_frag_meta_ts_decomp( tscomp, tsref )==ts );
+
+    ulong async_min = 1UL << shift;
+    ulong async_rem = fd_async_reload( rng, async_min );
+    TEST( async_min<=async_rem     );
+    TEST( async_rem< 2UL*async_min );
   }
 
 # undef TEST

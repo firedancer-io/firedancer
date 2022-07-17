@@ -18,15 +18,16 @@ main( int     argc,
 
 # define TEST(c) do if( FD_UNLIKELY( !(c) ) ) { FD_LOG_WARNING(( "FAIL: " #c )); return 1; } while(0)
 
-  char const * _mcache = fd_env_strip_cmdline_cstr ( &argc, &argv, "--mcache", NULL,      NULL );
-  char const * _init   = fd_env_strip_cmdline_cstr ( &argc, &argv, "--init",   NULL,      NULL );
-  ulong        max     = fd_env_strip_cmdline_ulong( &argc, &argv, "--max",    NULL, ULONG_MAX );
-  ulong        rx_cnt  = fd_env_strip_cmdline_ulong( &argc, &argv, "--rx-cnt", NULL,       0UL ); /* Num reliable consumers */
+  char const * _mcache = fd_env_strip_cmdline_cstr ( &argc, &argv, "--mcache", NULL,                 NULL );
+  char const * _init   = fd_env_strip_cmdline_cstr ( &argc, &argv, "--init",   NULL,                 NULL );
+  ulong        rx_cnt  = fd_env_strip_cmdline_ulong( &argc, &argv, "--rx-cnt", NULL,                  0UL ); /* num rel rx */
+  uint         seed    = fd_env_strip_cmdline_uint ( &argc, &argv, "--seed",   NULL, (uint)fd_tickcount() );
+  ulong        max     = fd_env_strip_cmdline_ulong( &argc, &argv, "--max",    NULL,            ULONG_MAX );
 
   if( FD_UNLIKELY( !_mcache       ) ) FD_LOG_ERR(( "--mcache not specified" ));
   if( FD_UNLIKELY( rx_cnt>=RX_MAX ) ) FD_LOG_ERR(( "--rx-cnt too large for this unit-test" ));
 
-  fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
+  fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, seed, 0UL ) );
 
   FD_LOG_NOTICE(( "Joining to --mcache %s", _mcache ));
   fd_frag_meta_t * mcache = fd_mcache_join( fd_wksp_map( _mcache ) );
@@ -55,11 +56,12 @@ main( int     argc,
     *rx_backp = 0UL;
   }
   fd_fctl_cfg_done( fctl, 0UL, 0UL, 0UL, 0UL );
-  
-  ulong cr_avail  = 0UL;
-  ulong async_rem = 0UL;
 
-  FD_LOG_NOTICE(( "Running --init %lu (%s) --max %lu", tx_seq, _init ? "manual" : "auto", max ));
+  ulong async_min = 1UL<<13;
+  ulong async_rem = 0UL;
+  ulong cr_avail  = 0UL;
+
+  FD_LOG_NOTICE(( "Running --init %lu (%s) --seed %u --max %lu", tx_seq, _init ? "manual" : "auto", seed, max ));
 
 # define RELOAD (100000000UL)
   ulong iter = 0UL;
@@ -67,12 +69,12 @@ main( int     argc,
   long  tic  = fd_log_wallclock();
   while( iter<max ) {
 
-    /* Do housekeeping */
+    /* Do housekeeping in the background */
 
     if( FD_UNLIKELY( !async_rem ) ) {
       FD_VOLATILE( *_tx_seq ) = tx_seq;
       cr_avail = fd_fctl_tx_cr_update( fctl, cr_avail, tx_seq );
-      async_rem = 10000UL; /* FIXME: IDEALLY SHOULD RANDOMIZE THIS */
+      async_rem = fd_async_reload( rng, async_min );
     }
     async_rem--;
 

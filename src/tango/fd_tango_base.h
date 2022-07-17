@@ -340,6 +340,20 @@ fd_frag_meta_ts_decomp( ulong tscomp,   /* In [0,UINT_MAX] */
   return (long)((msb & ~fd_ulong_mask_lsb(32)) | tscomp);
 }
 
+/* fd_async_reload returns a quality random number very quickly in
+   [async_min,2*async_min).  Assumes async_min is an integer power of 2
+   in [1,2^31].  Consumes exactly 1 rng slot.  This is typically used to
+   randomize the timing of background task processing to avoid auto
+   synchronization anomalies while providing given strong lower and
+   upper bounds on the interval between between processing background
+   tasks. */
+
+static inline ulong
+fd_async_reload( fd_rng_t * rng,
+                 ulong      async_min ) {
+  return async_min + (((ulong)fd_rng_uint( rng )) & (async_min-1UL));
+}
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_tango_fd_tango_base_h */

@@ -11,17 +11,16 @@ main( int     argc,
 
 # define TEST(c) do if( FD_UNLIKELY( !(c) ) ) { FD_LOG_WARNING(( "FAIL: " #c )); return 1; } while(0)
 
-  char const * _mcache = fd_env_strip_cmdline_cstr ( &argc, &argv, "--mcache", NULL,      NULL );
-  char const * _init   = fd_env_strip_cmdline_cstr ( &argc, &argv, "--init",   NULL,      NULL );
-  ulong        max     = fd_env_strip_cmdline_ulong( &argc, &argv, "--max",    NULL, ULONG_MAX );
-  ulong        rx_idx  = fd_env_strip_cmdline_ulong( &argc, &argv, "--rx-idx", NULL, ULONG_MAX ); /* ULONG_MAX <> unreliable rx */
+  char const * _mcache = fd_env_strip_cmdline_cstr ( &argc, &argv, "--mcache", NULL,                 NULL );
+  char const * _init   = fd_env_strip_cmdline_cstr ( &argc, &argv, "--init",   NULL,                 NULL );
+  ulong        rx_idx  = fd_env_strip_cmdline_ulong( &argc, &argv, "--rx-idx", NULL,            ULONG_MAX ); /* ULONG_MAX<>unrel */
+  uint         seed    = fd_env_strip_cmdline_uint ( &argc, &argv, "--seed",   NULL, (uint)fd_tickcount() );
+  ulong        max     = fd_env_strip_cmdline_ulong( &argc, &argv, "--max",    NULL,            ULONG_MAX );
 
   if( FD_UNLIKELY( !_mcache                               ) ) FD_LOG_ERR(( "--mcache not specified" ));
   if( FD_UNLIKELY( (rx_idx!=ULONG_MAX) & (rx_idx>=RX_MAX) ) ) FD_LOG_ERR(( "--rx-idx too large for this unit-test" ));
 
   fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
-
-  ulong poll_rem = 10000UL;
 
   FD_LOG_NOTICE(( "Joining to --mcache %s", _mcache ));
   fd_frag_meta_t * mcache = fd_mcache_join( fd_wksp_map( _mcache ) );
@@ -42,9 +41,13 @@ main( int     argc,
       FD_LOG_ERR(( "Increase mcache app-sz to at least %lu for this --rx-idx", (rx_idx+1UL)*136UL ));
     _rx_seq = (ulong *)(app + rx_idx*128UL);
   }
-  FD_VOLATILE( *_rx_seq ) = rx_seq; /* Note: this can be amortized */
+  FD_VOLATILE( *_rx_seq ) = rx_seq;
 
-  FD_LOG_NOTICE(( "Running --init %lu (%s) --max %lu --rx-idx %lu", rx_seq, _init ? "manual" : "auto", max, rx_idx ));
+  ulong async_min = 1UL << 13;
+  ulong async_rem = fd_async_reload( rng, async_min );
+
+  FD_LOG_NOTICE(( "Running --init %lu (%s) --rx-idx %lu --seed %u --max %lu",
+                  rx_seq, _init ? "manual" : "auto", rx_idx, seed, max ));
 
   ulong ovrn_cnt = 0UL; /* FIXME: PUT THIS IN A SHARED LOCATION */
 
@@ -65,26 +68,30 @@ main( int     argc,
 #   if WAIT_STYLE==0 /* Compatible with all PUBLISH_STYLE */
 
     fd_frag_meta_t meta[1];
-    FD_MCACHE_WAIT( meta, seq_found, diff, poll_rem, mcache, depth, rx_seq );
+    FD_MCACHE_WAIT( meta, seq_found, diff, async_rem, mcache, depth, rx_seq );
 
 #   elif WAIT_STYLE==1 /* Compatible with all PUBLISH_STYLE */
 
     __m128i meta_sse0;
     __m128i meta_sse1;
-    FD_MCACHE_WAIT_SSE( meta_sse0, meta_sse1, seq_found, diff, poll_rem, mcache, depth, rx_seq );
+    FD_MCACHE_WAIT_SSE( meta_sse0, meta_sse1, seq_found, diff, async_rem, mcache, depth, rx_seq );
 
 #   else /* Compatible with PUBLISH_STYLE==2, requires target with atomic aligned AVX load / store */
 
     __m256i meta_avx;
-    FD_MCACHE_WAIT_AVX( meta_avx, seq_found, diff, poll_rem, mcache, depth, rx_seq );
+    FD_MCACHE_WAIT_AVX( meta_avx, seq_found, diff, async_rem, mcache, depth, rx_seq );
 
 #   endif
 
-    if( FD_UNLIKELY( !poll_rem ) ) {
-    //FD_LOG_NOTICE(( "Timeout" ));
-      poll_rem = 10000UL;
+    /* Do housekeeping in background */
+
+    if( FD_UNLIKELY( !async_rem ) ) {
+      FD_VOLATILE( *_rx_seq ) = rx_seq;
+      async_rem = fd_async_reload( rng, async_min );
       continue;
     }
+
+    /* Handle overrun */
 
     if( FD_UNLIKELY( diff ) ) {
     //FD_LOG_NOTICE(( "Overrun (skipping from %lu to %lu to try to recover)", rx_seq, seq_found ));
@@ -149,7 +156,6 @@ main( int     argc,
 #   endif
 
     rx_seq = fd_seq_inc( rx_seq, 1UL );
-    FD_VOLATILE( *_rx_seq ) = rx_seq; /* Note: this can be amortized */
 
     /* This iteration was successful, go to the next iteration and,
        every once in a while, log some performance metrics. */
@@ -169,6 +175,7 @@ main( int     argc,
 
   FD_LOG_NOTICE(( "Cleaning up" ));
 
+  FD_VOLATILE( *_rx_seq ) = rx_seq;
   fd_wksp_unmap( fd_mcache_leave( mcache ) );
   fd_rng_delete( fd_rng_leave( rng ) );
 
