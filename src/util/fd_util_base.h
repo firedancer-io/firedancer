@@ -650,11 +650,12 @@ fd_hash_memcpy( ulong                    seed,
    more details) but it is typically in the ballpark of the CPU base
    clock frequency.  The relationship to the wallclock is very well
    approximated as linear over short periods of time (i.e. less than a
-   fraction of a second).  It can drift over longer time for the myriad
-   of the usual clock synchronization reasons.  Notably, its rate is not
+   fraction of a second) and this should not exhibit any sudden changes
+   in its rate relative to the wallclock.  Notably, its rate is not
    directly impacted by CPU clock frequency adaptation / Turbo mode (see
    other Intel performance monitoring counters for various CPU cycle
-   counters).
+   counters).  It can drift over longer period time for the usual clock
+   synchronization reasons.
 
    This is a reasonably fast O(1) cost (~6-8 ns on recent Intel).
    Because of all compiler options and parallel execution going on in
