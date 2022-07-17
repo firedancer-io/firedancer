@@ -21,7 +21,7 @@ fd_mcache_footprint( ulong depth,
   if( footprint<meta_footprint ) return 0UL; /* overflow */
 
   footprint += sizeof(fd_mcache_private_hdr_t); /* header and seq */
-  if( FD_UNLIKELY( footprint < sizeof(fd_mcache_private_hdr_t) ) ) return 0UL; /* overflow */
+  if( FD_UNLIKELY( footprint<sizeof(fd_mcache_private_hdr_t) ) ) return 0UL; /* overflow */
 
   return footprint;
 }
@@ -77,6 +77,7 @@ fd_mcache_new( void * shmem,
 
 fd_frag_meta_t *
 fd_mcache_join( void * shmcache ) {
+
   if( FD_UNLIKELY( !shmcache ) ) {
     FD_LOG_WARNING(( "NULL shmcache" ));
     return NULL;
@@ -93,6 +94,7 @@ fd_mcache_join( void * shmcache ) {
 
 void *
 fd_mcache_leave( fd_frag_meta_t const * mcache ) {
+
   if( FD_UNLIKELY( !mcache ) ) {
     FD_LOG_WARNING(( "NULL mcache" ));
     return NULL;
@@ -103,6 +105,7 @@ fd_mcache_leave( fd_frag_meta_t const * mcache ) {
  
 void *
 fd_mcache_delete( void * shmcache ) {
+
   if( FD_UNLIKELY( !shmcache ) ) {
     FD_LOG_WARNING(( "NULL shmcache" ));
     return NULL;

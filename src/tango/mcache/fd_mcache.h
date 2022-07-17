@@ -92,17 +92,18 @@ fd_mcache_new( void * shmem,
    the first byte of the memory region backing the mcache in the
    caller's addresss space.
 
-   Returns a pointer in the local address space to the mcache on success
-   (IMPORTANT! THIS IS NOT JUST A CAST OF SHMCACHE) and NULL on failure
-   (logs details).  Reasons for failure are that shmcache is obviously
-   not a pointer to memory region holding a mcache.  Every successful
-   join should have a matching leave.
-   
-   Cache lines are indexed [0,depth) and the mapping from sequence
-   number to depth is nontrivial (see below for accessors and mapping
-   functions).  There is no restrictions on the number of joins overall
-   and a single thread can join multiple times (all joins to the same
-   shmcache laddr will return same mcache laddr). */
+   Returns a pointer in the local address space to the mcache's entries
+   on success (IMPORTANT! THIS IS NOT JUST A CAST OF SHMCACHE) and NULL
+   on failure (logs details).  Reasons for failure are that shmcache is
+   obviously not a pointer to memory region holding a mcache.  Every
+   successful join should have a matching leave.  The lifetime of the
+   join is until the matching leave or thread group is terminated.
+
+   Entries are indexed [0,depth) and the mapping from sequence number to
+   depth is nontrivial (see below for accessors and mapping functions).
+   There is no restrictions on the number of joins overall and a single
+   thread can join multiple times (all joins to the same shmcache laddr
+   will return same mcache laddr). */
 
 fd_frag_meta_t *
 fd_mcache_join( void * shmcache );
@@ -137,7 +138,8 @@ FD_FN_PURE ulong fd_mcache_seq0  ( fd_frag_meta_t const * mcache );
    space of mcache's sequence array.  This array is indexed
    [0,FD_MCACHE_SEQ_CNT) with FD_MCACHE_ALIGN alignment (double cache
    line).  laddr_const is a const correct version.  Assumes mcache is a
-   current local join.
+   current local join.  The lifetime of the returned pointer is the same
+   as the underlying join.
 
    seq[0] has special meaning.  Specifically, sequence numbers in
    [seq0,seq[0]) cyclic are guaranteed to have been published.  seq[0]
@@ -159,12 +161,10 @@ FD_FN_CONST ulong *       fd_mcache_seq_laddr      ( fd_frag_meta_t *       mcac
 
 /* fd_mcache_app_laddr returns location in the caller's local address
    space of memory set aside for application specific usage.  Assumes
-   mcache is a current local join.  This region has FD_MCACHE_ALIGN
+   mcache is a current local join.  The lifetime of the returned pointer
+   is the same as the underlying join.  This region has FD_MCACHE_ALIGN
    alignment (double cache line) and is fd_mcache_app_sz( mcache ) in
-   size.  This is quite large with multiple cache line pairs of space to
-   support multiple use cases with good DRAM cache proprieties,
-   including flow control, command and control, and real time
-   monitoring.  laddr_const is a const-correct version. */
+   size.  laddr_const is a const-correct version. */
 
 FD_FN_PURE uchar const * fd_mcache_app_laddr_const( fd_frag_meta_t const * mcache );
 FD_FN_PURE uchar *       fd_mcache_app_laddr      ( fd_frag_meta_t *       mcache );

@@ -64,6 +64,7 @@ main( int     argc,
 
   void *           shmcache = fd_mcache_new ( shmem, depth, app_sz, seq0 ); TEST( shmcache );
   fd_frag_meta_t * mcache   = fd_mcache_join( shmcache );                   TEST( mcache );
+  TEST( fd_ulong_is_aligned( (ulong)mcache, FD_MCACHE_ALIGN ) );
 
   /* Test mcache accessors */
 
