@@ -41,7 +41,7 @@ main( int     argc,
   if( FD_UNLIKELY( rx_cnt*136UL>app_sz ) )
     FD_LOG_ERR(( "increase mcache app_sz to at least %lu for this --rx_cnt", rx_cnt*136UL ));
 
-  ulong tx_seq = _init ? fd_cstr_to_ulong( _init ) : FD_VOLATILE_CONST( *_tx_seq );
+  ulong tx_seq = _init ? fd_cstr_to_ulong( _init ) : fd_mcache_seq_query( _tx_seq );
 
   FD_LOG_NOTICE(( "Configuring for --rx-cnt %lu reliable consumers", rx_cnt ));
 
@@ -72,7 +72,7 @@ main( int     argc,
     /* Do housekeeping in the background */
 
     if( FD_UNLIKELY( !async_rem ) ) {
-      FD_VOLATILE( *_tx_seq ) = tx_seq;
+      fd_mcache_seq_update( _tx_seq, tx_seq );
       cr_avail = fd_fctl_tx_cr_update( fctl, cr_avail, tx_seq );
       async_rem = fd_async_reload( rng, async_min );
     }
@@ -137,7 +137,7 @@ main( int     argc,
 
   FD_LOG_NOTICE(( "Cleaning up" ));
 
-  FD_VOLATILE( *_tx_seq ) = tx_seq;
+  fd_mcache_seq_update( _tx_seq, tx_seq ); /* Record where we got to */
   fd_fctl_delete( fd_fctl_leave( fctl ) );
   fd_wksp_unmap( fd_mcache_leave( mcache ) );
   fd_rng_delete( fd_rng_leave( rng ) );

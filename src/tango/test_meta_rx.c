@@ -31,20 +31,19 @@ main( int     argc,
   uchar *       app     = fd_mcache_app_laddr      ( mcache );
   ulong         app_sz  = fd_mcache_app_sz         ( mcache );
 
-  ulong rx_seq = _init ? fd_cstr_to_ulong( _init ) : FD_VOLATILE_CONST( *_tx_seq );
+  ulong rx_seq = _init ? fd_cstr_to_ulong( _init ) : fd_mcache_seq_query( _tx_seq );
 
   ulong   local_rx_seq[1];
   ulong * _rx_seq;
-  if( rx_idx==ULONG_MAX ) _rx_seq = local_rx_seq; /* Unreliable consumer ... don't need to communicate fctl */
+  if( rx_idx==ULONG_MAX ) _rx_seq = local_rx_seq; /* Unreliable consumer ... don't need to communicate fctl so use dummy */
   else { /* Reliable consumer ... communicate fctl via appropriate cache line pair in app region */
     if( FD_UNLIKELY( (rx_idx+1UL)*136UL > app_sz ) )
       FD_LOG_ERR(( "Increase mcache app-sz to at least %lu for this --rx-idx", (rx_idx+1UL)*136UL ));
     _rx_seq = (ulong *)(app + rx_idx*128UL);
   }
-  FD_VOLATILE( *_rx_seq ) = rx_seq;
 
-  ulong async_min = 1UL << 13;
-  ulong async_rem = 1UL;
+  ulong async_min = 1UL<<13;
+  ulong async_rem = 1UL; /* Do housekeeping on first iteration */
 
   FD_LOG_NOTICE(( "Running --init %lu (%s) --rx-idx %lu --seed %u --max %lu",
                   rx_seq, _init ? "manual" : "auto", rx_idx, seed, max ));
@@ -102,7 +101,7 @@ main( int     argc,
 #     endif
 
       /* Note: we could also do (for any wait style)
-           rx_seq = FD_VOLATILE_CONST( *_tx_seq );
+           rx_seq = fd_mcache_seq_query( _tx_seq );
            continue;
          here to recover from the most recent seq advertised by the
          producer.  But this can create cache hotspots and the simpler
@@ -175,7 +174,7 @@ main( int     argc,
 
   FD_LOG_NOTICE(( "Cleaning up" ));
 
-  FD_VOLATILE( *_rx_seq ) = rx_seq;
+  fd_fctl_rx_cr_return( _rx_seq, rx_seq ); /* Record where we got to */
   fd_wksp_unmap( fd_mcache_leave( mcache ) );
   fd_rng_delete( fd_rng_leave( rng ) );
 

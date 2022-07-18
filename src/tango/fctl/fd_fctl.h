@@ -269,11 +269,13 @@ fd_fctl_rx_backp_laddr_const( fd_fctl_t const * fctl,
    rx_seq_laddr above) the position of the receiver in sequence space.
    This should be done moderately frequently (e.g. in background
    housekeeping) after the receiver has moved forward in sequence space
-   since the last update.  Even more aggressively is usually fine.  This
-   also serves as a compiler memory fence to ensure credits are returned
-   at a well defined point in the instruction stream (e.g. so that
-   compiler doesn't move any loads that might be clobbered by the return
-   to after the return). */
+   since the last update and should be monotonically non-decreasing.
+   Even more aggressively is usually fine.  This also should be done
+   when the receiver is shutdown to facilitate cleanly restarting a
+   consumer and what not.  This also serves as a compiler memory fence
+   to ensure credits are returned at a well defined point in the
+   instruction stream (e.g. so that compiler doesn't move any loads that
+   might be clobbered by the return to after the return). */
 
 static inline void
 fd_fctl_rx_cr_return( ulong * _rx_seq,

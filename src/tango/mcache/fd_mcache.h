@@ -169,6 +169,39 @@ FD_FN_CONST ulong *       fd_mcache_seq_laddr      ( fd_frag_meta_t *       mcac
 FD_FN_PURE uchar const * fd_mcache_app_laddr_const( fd_frag_meta_t const * mcache );
 FD_FN_PURE uchar *       fd_mcache_app_laddr      ( fd_frag_meta_t *       mcache );
 
+/* fd_mcache_seq_query atomically reads the mcache's seq[0] (e.g. from
+   fd_mcache_seq_laddr_const) to get a lower bound of where the producer
+   is at in sequence space.  This is usually done at consumer startup
+   and, for some unreliable consumer overrun handling, during consumer
+   overrun recovery.  It is strongly not recommend to use this
+   aggressively to avoid cache line ping-ponging with the producer. */
+
+static inline ulong
+fd_mcache_seq_query( ulong const * _seq ) {
+  return FD_VOLATILE_CONST( *_seq );
+}
+
+/* fd_mcache_seq_update updates the mcache's seq[0] (e.g. from
+   fd_mcache_seq_laddr) above where the producer a lower bound of where
+   the producer is currently at in sequence space (should be
+   monotonically non-decreasing).  This should be done moderately
+   frequently (e.g. in background housekeeping) after the producer has
+   moved forward in sequence space since the last update.  Even more
+   aggressively is usually fine.  This should also be done when the
+   producer is shutdown to faciliate cleanly restarting a producer and
+   what not.  This also serves as a compiler memory fence to ensure
+   credits are returned at a well defined point in the instruction
+   stream (e.g. so that compiler doesn't move any stores from before the
+   update to after the above). */
+
+static inline void
+fd_mcache_seq_update( ulong * _seq,
+                      ulong   seq ) {
+  FD_COMPILER_MFENCE();
+  FD_VOLATILE( *_seq ) = seq;
+  FD_COMPILER_MFENCE();
+}
+
 /* fd_mcache_line_idx returns the index of the cache line in a depth
    entry mcache (depth is asssumed to be a power of 2) where the
    metadata for the frag with sequence number seq will be stored when it
@@ -322,8 +355,10 @@ fd_mcache_publish_avx( fd_frag_meta_t * mcache,   /* Assumed a current local joi
                        ulong            ctl,      /* Assumed in [0,USHORT_MAX] */
                        ulong            tsorig,   /* Assumed in [0,UINT_MAX] */
                        ulong            tspub ) { /* Assumed in [0,UINT_MAX] */
+  FD_COMPILER_MFENCE();
   _mm256_store_si256( &mcache[ fd_mcache_line_idx( seq, depth ) ].avx,
                       fd_frag_meta_avx( seq, sig, chunk, sz, ctl, tsorig, tspub ) );
+  FD_COMPILER_MFENCE();
 }
 
 #endif
