@@ -44,7 +44,7 @@ main( int     argc,
   FD_VOLATILE( *_rx_seq ) = rx_seq;
 
   ulong async_min = 1UL << 13;
-  ulong async_rem = fd_async_reload( rng, async_min );
+  ulong async_rem = 1UL;
 
   FD_LOG_NOTICE(( "Running --init %lu (%s) --rx-idx %lu --seed %u --max %lu",
                   rx_seq, _init ? "manual" : "auto", rx_idx, seed, max ));
@@ -86,7 +86,7 @@ main( int     argc,
     /* Do housekeeping in background */
 
     if( FD_UNLIKELY( !async_rem ) ) {
-      FD_VOLATILE( *_rx_seq ) = rx_seq;
+      fd_fctl_rx_cr_return( _rx_seq, rx_seq );
       async_rem = fd_async_reload( rng, async_min );
       continue;
     }
@@ -165,7 +165,7 @@ main( int     argc,
     if( FD_UNLIKELY( !rem ) ) {
       long  toc  = fd_log_wallclock();
       float mfps = (1e3f*(float)RELOAD) / (float)(toc-tic);
-      FD_LOG_NOTICE(( "%11lu: %7.3f Mfrag/s rx (ovrn %lu)", iter, (double)mfps, ovrn_cnt ));
+      FD_LOG_NOTICE(( "%lu: %7.3f Mfrag/s rx (ovrn %lu)", iter, (double)mfps, ovrn_cnt ));
       rem      = RELOAD;
       tic      = fd_log_wallclock();
       ovrn_cnt = 0UL;

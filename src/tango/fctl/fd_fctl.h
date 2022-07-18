@@ -265,6 +265,24 @@ fd_fctl_rx_backp_laddr_const( fd_fctl_t const * fctl,
   return fd_fctl_private_rx_const( fctl )[rx_idx].backp_laddr;
 }
 
+/* fd_fctl_rx_cr_return updates users of _rx_seq flow control (from
+   rx_seq_laddr above) the position of the receiver in sequence space.
+   This should be done moderately frequently (e.g. in background
+   housekeeping) after the receiver has moved forward in sequence space
+   since the last update.  Even more aggressively is usually fine.  This
+   also serves as a compiler memory fence to ensure credits are returned
+   at a well defined point in the instruction stream (e.g. so that
+   compiler doesn't move any loads that might be clobbered by the return
+   to after the return). */
+
+static inline void
+fd_fctl_rx_cr_return( ulong * _rx_seq,
+                      ulong   rx_seq ) {
+  FD_COMPILER_MFENCE();
+  FD_VOLATILE( *_rx_seq ) = rx_seq;
+  FD_COMPILER_MFENCE();
+}
+
 /**********************************************************************/
 
 /* fd_fctl_cr_query returns a lower bound of the number of credits

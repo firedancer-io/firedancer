@@ -80,7 +80,10 @@ main( int     argc,
 
     /* Check if we are backpressured */
 
-    if( FD_UNLIKELY( !cr_avail ) ) continue; /* Backpressuring */
+    if( FD_UNLIKELY( !cr_avail ) ) {
+      FD_SPIN_PAUSE();
+      continue;
+    }
     
     /* We are not backpressured, so send metadata with a test pattern */
     
@@ -119,7 +122,7 @@ main( int     argc,
     if( FD_UNLIKELY( !rem ) ) {
       long  toc  = fd_log_wallclock();
       float mfps = (1e3f*(float)RELOAD) / (float)(toc-tic);
-      FD_LOG_NOTICE(( "%10lu: %7.3f Mfrag/s tx", iter, (double)mfps ));
+      FD_LOG_NOTICE(( "%lu: %7.3f Mfrag/s tx", iter, (double)mfps ));
       for( ulong rx_idx=0UL; rx_idx<rx_cnt; rx_idx++ ) {
         ulong * rx_backp = fd_fctl_rx_backp_laddr( fctl, rx_idx );
         FD_LOG_NOTICE(( "backp[%lu] %lu", rx_idx, *rx_backp ));
