@@ -84,7 +84,7 @@ main( int     argc,
 
   /* Test mcache initial state */
 
-  TEST( (*_seq)==seq0 );
+  TEST( fd_mcache_seq_query( _seq_const )==seq0 );
   for( ulong idx=1UL; idx<FD_MCACHE_SEQ_CNT; idx++ ) TEST( !_seq[idx] );
 
   uchar * p = _app;
@@ -122,7 +122,7 @@ main( int     argc,
   /* Test mcache entry operations */
 
   for( ulong iter=0UL; iter<1000000UL; iter++ ) {
-    ulong next = *_seq;
+    ulong next = fd_mcache_seq_query( _seq_const );
 
     /* At this point iter lines with sequence numbers [seq0,next) cyclic
        have been inserted into mcache and the most recent
@@ -162,7 +162,7 @@ main( int     argc,
     ulong line = fd_mcache_line_idx( next, depth );
     TEST( line<depth );
     mcache[ line ].seq = next;
-    *_seq = fd_seq_inc(next,1UL);
+    fd_mcache_seq_update( _seq, fd_seq_inc(next,1UL) );
   }
 
   /* Test mcache for corruption */

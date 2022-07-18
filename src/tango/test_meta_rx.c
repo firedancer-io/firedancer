@@ -174,7 +174,7 @@ main( int     argc,
 
   FD_LOG_NOTICE(( "Cleaning up" ));
 
-  fd_fctl_rx_cr_return( _rx_seq, rx_seq ); /* Record where we got to */
+  fd_fctl_rx_cr_return( _rx_seq, rx_seq ); /* Record where rx should resume from */
   fd_wksp_unmap( fd_mcache_leave( mcache ) );
   fd_rng_delete( fd_rng_leave( rng ) );
 

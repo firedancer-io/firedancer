@@ -171,10 +171,12 @@ FD_FN_PURE uchar *       fd_mcache_app_laddr      ( fd_frag_meta_t *       mcach
 
 /* fd_mcache_seq_query atomically reads the mcache's seq[0] (e.g. from
    fd_mcache_seq_laddr_const) to get a lower bound of where the producer
-   is at in sequence space.  This is usually done at consumer startup
-   and, for some unreliable consumer overrun handling, during consumer
-   overrun recovery.  It is strongly not recommend to use this
-   aggressively to avoid cache line ping-ponging with the producer. */
+   is at in sequence space (in the sense that the producer guarantees it
+   has produced all sequence numbers striclty before the return value
+   cyclic).  This is usually done at consumer startup and, for some
+   unreliable consumer overrun handling, during consumer overrun
+   recovery.  It is strongly not recommended to use this aggressively to
+   avoid cache line ping-ponging with the producer. */
 
 static inline ulong
 fd_mcache_seq_query( ulong const * _seq ) {
@@ -183,16 +185,17 @@ fd_mcache_seq_query( ulong const * _seq ) {
 
 /* fd_mcache_seq_update updates the mcache's seq[0] (e.g. from
    fd_mcache_seq_laddr) above where the producer a lower bound of where
-   the producer is currently at in sequence space (should be
-   monotonically non-decreasing).  This should be done moderately
-   frequently (e.g. in background housekeeping) after the producer has
-   moved forward in sequence space since the last update.  Even more
-   aggressively is usually fine.  This should also be done when the
-   producer is shutdown to faciliate cleanly restarting a producer and
-   what not.  This also serves as a compiler memory fence to ensure
-   credits are returned at a well defined point in the instruction
-   stream (e.g. so that compiler doesn't move any stores from before the
-   update to after the above). */
+   the producer is currently at (in the sense that the producer has
+   produced all sequence numbers strictly before seq cyclic).  This
+   should be monotonically non-decreasing.  This should be done
+   moderately frequently (e.g. in background housekeeping) after the
+   producer has moved forward in sequence space since the last update.
+   Even more aggressively is usually fine.  This should also be done
+   when the producer is shutdown to facilitate cleanly restarting a
+   producer and what not.  This also serves as a compiler memory fence
+   to ensure credits are returned at a well defined point in the
+   instruction stream (e.g. so that compiler doesn't move any stores
+   from before the update to after the above). */
 
 static inline void
 fd_mcache_seq_update( ulong * _seq,

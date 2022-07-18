@@ -78,7 +78,8 @@ main( int     argc,
     TEST( fd_fctl_rx_backp_laddr( fctl, rx_idx )==&rx_backp[ rx_idx ]    );
   }
 
-  /* FIXME: MORE EXTENSIVE TESTING HERE */
+  /* FIXME: MORE EXTENSIVE TESTING HERE (INCL COVERAGE OF
+     FD_FCTL_RX_CR_RETURN) */
   ulong rx_idx_slow; ulong cr_avail = fd_fctl_cr_query( fctl, 0UL, &rx_idx_slow );
   TEST( cr_avail<=cr_max );
   TEST( (rx_idx_slow<=rx_cnt) | (rx_idx_slow==ULONG_MAX) );

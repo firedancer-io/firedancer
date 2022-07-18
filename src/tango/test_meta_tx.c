@@ -137,7 +137,7 @@ main( int     argc,
 
   FD_LOG_NOTICE(( "Cleaning up" ));
 
-  fd_mcache_seq_update( _tx_seq, tx_seq ); /* Record where we got to */
+  fd_mcache_seq_update( _tx_seq, tx_seq ); /* Record where tx should resume from */
   fd_fctl_delete( fd_fctl_leave( fctl ) );
   fd_wksp_unmap( fd_mcache_leave( mcache ) );
   fd_rng_delete( fd_rng_leave( rng ) );
