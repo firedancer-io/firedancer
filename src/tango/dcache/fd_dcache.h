@@ -42,9 +42,12 @@
    can be concurrently preparing up to burst (should be positive) frag
    payloads.  Assumes mtu, depth, burst and compact are valid and
    payload footprints are rounded up to at most a FD_DCACHE_ALIGN
-   multiple when written by a producer.  (Note that payloads written by
-   a producer will generally be at least FD_DCACHE_ALIGN aligned to
-   facilitate interoperability with fd_frag_meta_t chunk indexing.) */
+   multiple when written by a producer.  Note that payloads written by a
+   producer will generally be at least FD_DCACHE_ALIGN aligned to
+   facilitate interoperability with fd_frag_meta_t chunk indexing.  Also
+   note that for a compactly stored ring, it is not useful to use a
+   burst larger than 1 (but not particularly harmful outside resulting a
+   data region larger than necessary). */
 
 #define FD_DCACHE_REQ_DATA_SZ( mtu, depth, burst, compact ) (FD_DCACHE_SLOT_FOOTPRINT( mtu )*((depth)+(burst)+(ulong)!!(compact)))
 
@@ -147,6 +150,119 @@ FD_FN_PURE ulong fd_dcache_app_sz ( uchar const * dcache );
 
 FD_FN_PURE uchar const * fd_dcache_app_laddr_const( uchar const * dcache );
 FD_FN_PURE uchar *       fd_dcache_app_laddr      ( uchar *       dcache );
+
+/* fd_dcache_compact_is_safe return whether the dcache can safely store
+   frags in compactly quasi ring like as described in
+   fd_dcache_chunk_next below.
+
+   Chunks are indexed relative to base (e.g. the wksp containing the
+   dcache to facilitate multiple dcaches written by multiple producers
+   concurrently in the same wksp using a common chunk indexing scheme at
+   consumers ... base==dcache is fine and implies chunks in this dcache
+   region will be indexed starting from zero).
+
+   base and dcache should be double chunk aligned, dcache should be
+   current local join, base and dcache should be relatively spaced
+   identically between different thread groups that might use the chunk
+   indices and sufficiently close in the local address space that the
+   all data region chunk addresses can be losslessly compressed and
+   shared via a 32-bit fd_frag_meta_t chunk field.
+
+   mtu is the maximum frag that a producer might write into this dcache.
+   It is assumed that the producer will round up the footprint of frags
+   into the dcache into double chunk aligned boundaries.
+
+   depth is the maximum number of frags that might be concurrently
+   accessing frags in this dcache.
+
+   Returns 1 if the dcache is safe and 0 if not (with details logged). */
+
+int
+fd_dcache_compact_is_safe( void const * base,
+                           void const * dcache,
+                           ulong        mtu,
+                           ulong        depth );
+
+/* fd_dcache_compact_{chunk0,chunk1,wmark} returns the range of chunk indices
+   [chunk0,chunk1) that relative to the base address covered by the
+   dcache's data region and watermark chunk index for use by
+   fd_dcache_compact_chunk_next below.
+   0<=chunk0<=wmark<=chunk1<=UINT_MAX.  These assume dcache is current
+   local join and the base / dcache pass fd_dcache_is_compact_safe
+   above. */
+
+FD_FN_CONST static inline ulong
+fd_dcache_compact_chunk0( void const * base,
+                          void const * dcache ) {
+  return ((ulong)dcache - (ulong)base) >> FD_CHUNK_LG_SZ;
+}
+
+FD_FN_PURE static inline ulong
+fd_dcache_compact_chunk1( void const * base,
+                          void const * dcache ) {
+  return ((ulong)dcache + fd_dcache_data_sz( (uchar const *)dcache ) - (ulong)base) >> FD_CHUNK_LG_SZ;
+}
+
+FD_FN_PURE static inline ulong
+fd_dcache_compact_wmark( void const * base,
+                         void const * dcache,
+                         ulong        mtu ) {
+  ulong chunk_mtu = ((mtu + 2UL*FD_CHUNK_SZ-1UL) >> (1+FD_CHUNK_LG_SZ)) << 1;
+  return fd_dcache_compact_chunk1( base, dcache ) - chunk_mtu;
+}
+
+/* fd_dcache_compact_chunk_next:
+
+   Let a dcache have space for at least chunk_mtu*(depth+2)-1 chunks
+   where chunks are indexed [chunk0,chunk1) and chunk_mtu is a
+   sufficient number of chunks to hold the worst case frag size.
+   Further, let the dcache's producer write frags into the dcache at
+   chunk aligned positions with a footprint of at most chunk_mtu chunks
+   (with one exception noted below).  Lastly, let the producer write
+   frags contiguously into the dcache such that consumers do not need to
+   do any special handling for frags that wrap around the end of the
+   dcache.
+
+   Since the producer does not necessarily know the size of a frag as it
+   is producing it but does know a priori the maximum size of a frag it
+   might produce, the producer can achieve this by making the first
+   chunk of any frag it writes in:
+
+     [chunk0,wmark]
+
+   where:
+
+     wmark = chunk1 - chunk_mtu
+
+   This is equivalent saying that, if there are at least chunk_mtu
+   chunks until the end of a dcache after a frag, that frag's footprint
+   will be enough contiguous chunks to cover the frag (up to chunk_mtu).
+   But if there there are less than chunk_mtu chunks, that frag's
+   footprint will be until the end of the dcache.
+
+   This implies, in the worst case, there at least depth+1 chunk_mtu
+   footprint frags (those not near the end) and 1 frag with a
+   2*chunk_mtu-1 footprint (the one frag nearest the dcache end) in the
+   dcache.  depth of these are exposed to consumers and 1 in prepration
+   by the producer.  It also implies that the set of chunks in the
+   dcache in use is cyclically contiguous starting from the oldest
+   consumer exposed frag until the currently exposed frag.
+
+   Noting that the act of publishing in the in preparation frag also
+   unpublishes the oldest exposed frag.  Given the above, this
+   guarantees that there is at least chunk_mtu contiguous space
+   available for use by the next frag so long as chunk_mtu is large
+   enough to cover the worst case frag and the dcache has room at least
+   for chunk_mtu*(depth+2)-1 chunks. */
+
+FD_FN_CONST static inline ulong         /* Will be in [chunk0,wmark] */
+fd_dcache_compact_next( ulong chunk,    /* Assumed in [chunk0,wmark] */
+                        ulong sz,       /* Assumed in [0,mtu] */
+                        ulong chunk0,   /* From fd_dcache_compact_chunk0 */
+                        ulong wmark ) { /* From fd_dcache_compact_wmark */
+  chunk += ((sz+(2UL*FD_CHUNK_SZ-1UL)) >> (1+FD_CHUNK_LG_SZ)) << 1; /* Advance to next chunk pair, no overflow if init passed */
+  return fd_ulong_if( chunk>wmark, chunk0, chunk );                 /* If that goes over the high water mark, wrap to zero */
+}
 
 FD_PROTOTYPES_END
 

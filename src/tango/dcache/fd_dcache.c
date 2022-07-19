@@ -153,3 +153,97 @@ fd_dcache_app_laddr( uchar * dcache ) {
   return (uchar *)(((ulong)hdr) + hdr->app_off);
 }
 
+int
+fd_dcache_compact_is_safe( void const * base,
+                           void const * dcache,
+                           ulong        mtu,
+                           ulong        depth ) {
+
+  /* Validate base */
+
+  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)base, 2UL*FD_CHUNK_SZ ) ) ) {
+    FD_LOG_WARNING(( "base is not double chunk aligned" ));
+    return 0;
+  }
+
+  if( FD_UNLIKELY( (ulong)dcache < (ulong)base ) ) {
+    FD_LOG_WARNING(( "dcache before base" ));
+    return 0;
+  }
+
+  /* Validate dcache */
+
+  if( FD_UNLIKELY( !dcache ) ) {
+    FD_LOG_WARNING(( "NULL dcache" ));
+    return 0;
+  }
+
+  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)dcache, 2UL*FD_CHUNK_SZ ) ) ) { /* Should be impossible if valid join */
+    FD_LOG_WARNING(( "bad dcache (alignment)" ));
+    return 0;
+  }
+
+  ulong data_sz = fd_dcache_data_sz( (uchar const *)dcache );
+  if( FD_UNLIKELY( ((ulong)dcache + (ulong)data_sz) < (ulong)dcache ) ) { /* Should be impossible if valid join */
+    FD_LOG_WARNING(( "bad dcache (data_sz)" ));
+    return 0;
+  }
+
+  ulong chunk0 = ((ulong)dcache - (ulong)base) >> FD_CHUNK_LG_SZ; /* No overflow */
+  ulong chunk1 = ((ulong)dcache + data_sz - (ulong)base) >> FD_CHUNK_LG_SZ; /* No overflow */
+
+  if( FD_UNLIKELY( chunk1>(ulong)UINT_MAX ) ) {
+    FD_LOG_WARNING(( "base to dcache address space span too large" ));
+    return 0;
+  }
+
+  /* At this point, complete chunks in dcache cover [chunk0,chunk1)
+     relative to the base address and any range of chunks in the dcache
+     can be be losslessly compressed into two 32-bit values. */
+
+  /* Validate mtu */
+
+  if( FD_UNLIKELY( !mtu ) ) {
+    FD_LOG_WARNING(( "zero mtu" ));
+    return 0;
+  }
+
+  ulong mtu_up = mtu + (2UL*FD_CHUNK_SZ-1UL);
+
+  if( FD_UNLIKELY( mtu_up < mtu ) ) {
+    FD_LOG_WARNING(( "too large mtu" ));
+    return 0;
+  }
+
+  ulong chunk_mtu = (mtu_up >> (1+FD_CHUNK_LG_SZ)) << 1; /* >0 */
+
+  /* At this point, mtu is non-zero, chunk_mtu is non-zero and a
+     sufficient number of chunks to cover an mtu frag.  Further, the
+     fd_dcache_chunk_next calculation is guaranteed overflow safe for
+     any size in [0,mtu]. */
+
+  /* Validate depth */
+
+  if( FD_UNLIKELY( !depth ) ) {
+    FD_LOG_WARNING(( "zero depth" ));
+    return 0;
+  }
+
+  ulong overhead  = 2UL*chunk_mtu-1UL; /* no overflow chunk_sz >> 1, chunk_mtu << ULONG_MAX/2 */
+  ulong depth_max = (ULONG_MAX-overhead) / chunk_mtu; /* no overflow as overhead < ULONG_MAX */
+
+  if( FD_UNLIKELY( depth > depth_max ) ) {
+    FD_LOG_WARNING(( "too large depth" ));
+    return 0;
+  }
+
+  ulong chunk_req = depth*chunk_mtu + overhead; /* (depth+2)*chunk_mtu-1, no overflow */
+
+  if( FD_UNLIKELY( (chunk1-chunk0) < chunk_req ) ) {
+    FD_LOG_WARNING(( "too small dcache" ));
+    return 0;
+  }
+
+  return 1;
+}
+
