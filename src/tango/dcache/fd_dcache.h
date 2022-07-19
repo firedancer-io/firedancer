@@ -45,9 +45,10 @@
    multiple when written by a producer.  Note that payloads written by a
    producer will generally be at least FD_DCACHE_ALIGN aligned to
    facilitate interoperability with fd_frag_meta_t chunk indexing.  Also
-   note that for a compactly stored ring, it is not useful to use a
-   burst larger than 1 (but not particularly harmful outside resulting a
-   data region larger than necessary). */
+   note that for a compactly stored ring, it is usually not useful to
+   use a burst larger than 1 (but not particularly harmful outside
+   resulting a data region larger than necessary ... might use it to
+   quasi-batch publish frags). */
 
 #define FD_DCACHE_REQ_DATA_SZ( mtu, depth, burst, compact ) (FD_DCACHE_SLOT_FOOTPRINT( mtu )*((depth)+(burst)+(ulong)!!(compact)))
 
