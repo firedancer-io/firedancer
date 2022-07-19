@@ -1,4 +1,4 @@
-#include "fd_util.c"
+#include "fd_util.h"
 
 int
 main( int     argc,
