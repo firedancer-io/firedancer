@@ -37,8 +37,7 @@ fprintf_wksp( FILE *      file,
   int err;
 # define TRAP(x) do { err = (x); if( err<0 ) { fd_wksp_private_unlock( wksp ); return err; } ret += err; } while(0)
 
-  TRAP( fprintf( file, "wksp "    ) );
-  TRAP( fprintf( file, wksp->name ) );
+  TRAP( fprintf( file, "wksp %s", wksp->name ) );
   TRAP( fprintf( file, "\n\tpart_cnt %li part_max %li gaddr [0x%016lx,0x%016lx)", part_cnt, part_max, gaddr_lo, gaddr_hi ) );
   if( ! (1UL<=part_max)                                         ) { cnt++; TRAP( fprintf( file, " max_err"     ) ); }
   if( !((1UL<=part_cnt) & (part_cnt<=part_max))                 ) { cnt++; TRAP( fprintf( file, " cnt_err"     ) ); }
