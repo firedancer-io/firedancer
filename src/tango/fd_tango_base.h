@@ -238,7 +238,8 @@ FD_FN_CONST static inline long fd_seq_diff( ulong a, ulong b ) { return (long)(a
 /* fd_chunk_to_laddr: returns a pointer in the local address space to
    the first byte of the chunk with the given compressed relative
    address chunk given the pointer in the local address space of the
-   chunk whose index is 0 (chunk0).
+   chunk whose index is 0 (chunk0).  fd_chunk_to_laddr_const is for
+   const-correctness.
 
    fd_laddr_to_chunk: vica versa. */
 
@@ -248,9 +249,15 @@ fd_chunk_to_laddr( void * chunk0,   /* Assumed aligned FD_CHUNK_ALIGN */
   return (void *)(((ulong)chunk0) + (chunk << FD_CHUNK_LG_SZ));
 }
 
-FD_FN_CONST static inline ulong     /* Will be in [0,UINT_MAX] */
-fd_laddr_to_chunk( void * chunk0,   /* Assumed aligned FD_CHUNK_ALIGN */
-                   void * laddr ) { /* Assumed aligned FD_CHUNK_ALIGN and in [ chunk0, chunk0 + FD_CHUNK_SZ*(UINT_MAX+1) ) */
+FD_FN_CONST static inline void const *
+fd_chunk_to_laddr_const( void const * chunk0,
+                         ulong        chunk ) {
+  return (void const *)(((ulong)chunk0) + (chunk << FD_CHUNK_LG_SZ));
+}
+
+FD_FN_CONST static inline ulong           /* Will be in [0,UINT_MAX] */
+fd_laddr_to_chunk( void const * chunk0,   /* Assumed aligned FD_CHUNK_ALIGN */
+                   void const * laddr ) { /* Assumed aligned FD_CHUNK_ALIGN and in [ chunk0, chunk0 + FD_CHUNK_SZ*(UINT_MAX+1) ) */
   return (((ulong)laddr)-((ulong)chunk0)) >> FD_CHUNK_LG_SZ;
 }
 
