@@ -5,4 +5,5 @@ $(call make-unit-test,test_tango_base,test_tango_base,fd_tango fd_util)
 $(call make-unit-test,test_meta_tx,test_meta_tx,fd_tango fd_util)
 $(call make-unit-test,test_meta_rx,test_meta_rx,fd_tango fd_util)
 $(call make-unit-test,test_frag_tx,test_frag_tx,fd_tango fd_util)
+$(call make-unit-test,test_frag_rx,test_frag_rx,fd_tango fd_util)
 

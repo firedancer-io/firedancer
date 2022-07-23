@@ -6,10 +6,10 @@
 
 FD_STATIC_ASSERT( FD_CHUNK_SZ==64UL, unit_test );
 
-/* This test uses the mcache application region for holding the rx
-   flow controls and tx backpressure counters.  We'll use a cache line
-   pair for each reliable rx_seq and the very end will hold backpressure
-   counters. */
+/* This test uses the mcache application region for holding the rx flow
+   controls and tx backpressure counters.  We'll use a cache line pair
+   for each reliable rx_seq and the very end will hold backpressure
+   counters for each reliable rx. */
 
 #define TX_MAX (256UL) /* Less than FD_FRAG_META_ORIG_MAX */
 #define RX_MAX (256UL)
@@ -182,7 +182,7 @@ main( int     argc,
   } while( FD_UNLIKELY( !burst_rem ) );
   ulong tsorig = 0UL; /* Irrelevant value at init */
 
-# define RELOAD (100000UL)
+# define RELOAD (1000000UL)
   ulong iter = 0UL;
   ulong rem  = RELOAD;
   long  tic  = fd_log_wallclock();
