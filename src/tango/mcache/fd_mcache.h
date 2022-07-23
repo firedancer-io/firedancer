@@ -622,6 +622,32 @@ fd_mcache_publish_avx( fd_frag_meta_t * mcache,   /* Assumed a current local joi
 
 #endif
 
+/* fd_mcache_query returns seq_query if seq_query is still in the mcache
+   (assumed to be a current local mcache join) with depth entries (depth
+   is assumed to be an integer power of two of at least
+   FD_MCACHE_BLOCK).  It will return a sequence number before seq_query
+   if the seq_query has not yet been published.  It will return a
+   sequence after seq_query if seq_query is no longer available in the
+   mcache.  In this last case, seq_query will be typically be within
+   depth of the most recently published sequence number as of some point
+   in time between when the call was made and the call returned (in many
+   common uses, this is typically very very close to most recently
+   published sequence number).  This acts as a compiler memory fence.
+
+   FIXME: WHILE THE COMPILER IN PRINCIPLE SHOULD AMORTIZE THE COST OF
+   THE FD_MCACHE_LINE_IDX CALC IN MANY COMMON USE CASES, PROBABLY SHOULD
+   TWEAK THIS API TO GUARANTEE IT TO BE AMORTIZED. */
+
+static inline ulong
+fd_mcache_query( fd_frag_meta_t const * mcache,
+                 ulong                  depth,
+                 ulong                  seq_query ) {
+  FD_COMPILER_MFENCE();
+  ulong seq_found =  FD_VOLATILE_CONST( mcache[ fd_mcache_line_idx( seq_query, depth ) ].seq );
+  FD_COMPILER_MFENCE();
+  return seq_found;
+}
+
 #endif
 
 FD_PROTOTYPES_END

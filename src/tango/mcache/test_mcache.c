@@ -158,11 +158,18 @@ main( int     argc,
       TEST( fd_seq_lt( mcache[line].seq, seq ) );
     }
 
-    /* Insert next into the mcache */
-    ulong line = fd_mcache_line_idx( next, depth );
-    TEST( line<depth );
-    mcache[ line ].seq = next;
-    fd_mcache_seq_update( _seq, fd_seq_inc(next,1UL) );
+    /* Insert next into the mcache and advance to the next sequence
+       number for the next iteration */
+
+    TEST( fd_seq_gt( next, fd_mcache_query( mcache, depth, next ) ) );
+
+    fd_mcache_publish( mcache, depth, next, 0UL, 1UL, 2UL, 3UL, 4UL, 5UL );
+
+    TEST( fd_seq_eq( next, fd_mcache_query( mcache, depth, next ) ) );
+    ulong evict = fd_seq_dec( next, depth );
+    TEST( fd_seq_lt( evict, fd_mcache_query( mcache, depth, evict ) ) );
+
+    fd_mcache_seq_update( _seq, fd_seq_inc( next, 1UL ) );
   }
 
   /* Test mcache for corruption */
