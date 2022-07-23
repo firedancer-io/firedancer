@@ -2,10 +2,10 @@
 
 #if FD_HAS_HOSTED && FD_HAS_AVX
 
-/* This test uses the mcache application region for holding the rx
-   flow controls and tx backpressure counters.  We'll use a cache line
-   pair for each reliable rx_seq and the very end will hold backpressure
-   counters. */
+/* This test uses the mcache application region for holding the rx flow
+   controls and tx backpressure counters.  We'll use a cache line pair
+   for each reliable rx_seq and the very end will hold backpressure
+   counters for each reliable rx. */
 
 #define RX_MAX (256UL)
 
