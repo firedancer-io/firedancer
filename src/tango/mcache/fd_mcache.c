@@ -83,6 +83,11 @@ fd_mcache_join( void * shmcache ) {
     return NULL;
   }
 
+  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)shmcache, fd_mcache_align() ) ) ) {
+    FD_LOG_WARNING(( "misaligned shmcache" ));
+    return NULL;
+  }
+
   fd_mcache_private_hdr_t * hdr = (fd_mcache_private_hdr_t *)shmcache;
   if( FD_UNLIKELY( hdr->magic!=FD_MCACHE_MAGIC ) ) {
     FD_LOG_WARNING(( "bad magic" ));
@@ -102,12 +107,17 @@ fd_mcache_leave( fd_frag_meta_t const * mcache ) {
 
   return (void *)fd_mcache_private_hdr_const( mcache ); /* Kinda ugly const cast */
 }
- 
+
 void *
 fd_mcache_delete( void * shmcache ) {
 
   if( FD_UNLIKELY( !shmcache ) ) {
     FD_LOG_WARNING(( "NULL shmcache" ));
+    return NULL;
+  }
+
+  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)shmcache, fd_mcache_align() ) ) ) {
+    FD_LOG_WARNING(( "misaligned shmcache" ));
     return NULL;
   }
 

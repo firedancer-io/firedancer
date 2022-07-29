@@ -79,8 +79,9 @@ fd_mcache_footprint( ulong depth,
    The application region will be initialized to zero.
 
    Returns shmem (and the memory region it points to will be formatted
-   as a mcache) on success and NULL on failure (logs details).  Reasons
-   for failure include obviously bad shmem or bad depth. */
+   as a mcache, caller is not joined) on success and NULL on failure
+   (logs details).  Reasons for failure include obviously bad shmem or
+   bad depth. */
 
 void *
 fd_mcache_new( void * shmem,
@@ -622,6 +623,8 @@ fd_mcache_publish_avx( fd_frag_meta_t * mcache,   /* Assumed a current local joi
 
 #endif
 
+#endif
+
 /* fd_mcache_query returns seq_query if seq_query is still in the mcache
    (assumed to be a current local mcache join) with depth entries (depth
    is assumed to be an integer power of two of at least
@@ -647,8 +650,6 @@ fd_mcache_query( fd_frag_meta_t const * mcache,
   FD_COMPILER_MFENCE();
   return seq_found;
 }
-
-#endif
 
 FD_PROTOTYPES_END
 
