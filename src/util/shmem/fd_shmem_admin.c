@@ -135,8 +135,8 @@ fd_shmem_create( char const * name,
 # define ERROR( cleanup ) do { err = errno; goto cleanup; } while(0)
 
   int    orig_mempolicy;
-  ulong  orig_nodemask;
-  ulong  nodemask;
+  ulong  orig_nodemask[ (FD_SHMEM_NUMA_MAX+63UL)/64UL ];
+  ulong  nodemask[ (FD_SHMEM_NUMA_MAX+63UL)/64UL ];
   char   path[ FD_SHMEM_PRIVATE_PATH_BUF_MAX ];
   int    fd;
   void * shmem;
@@ -151,13 +151,14 @@ fd_shmem_create( char const * name,
      pages between numa nodes after allocation as for entertainment
      purposes only. */
 
-  if( FD_UNLIKELY( get_mempolicy( &orig_mempolicy, &orig_nodemask, FD_SHMEM_NUMA_MAX, NULL, 0UL ) ) ) {
+  if( FD_UNLIKELY( get_mempolicy( &orig_mempolicy, orig_nodemask, FD_SHMEM_NUMA_MAX, NULL, 0UL ) ) ) {
     FD_LOG_WARNING(( "get_mempolicy failed (%i-%s)", errno, strerror( errno ) ));
     ERROR( done );
   }
 
-  nodemask = 1UL << numa_idx;
-  if( FD_UNLIKELY( set_mempolicy( MPOL_BIND | MPOL_F_STATIC_NODES, &nodemask, FD_SHMEM_NUMA_MAX ) ) ) {
+  memset( nodemask, 0, 8UL*((FD_SHMEM_NUMA_MAX+63UL)/64UL) );
+  nodemask[ numa_idx >> 6 ] = 1UL << (numa_idx & 63UL);
+  if( FD_UNLIKELY( set_mempolicy( MPOL_BIND | MPOL_F_STATIC_NODES, nodemask, FD_SHMEM_NUMA_MAX ) ) ) {
     FD_LOG_WARNING(( "set_mempolicy failed (%i-%s)", errno, strerror( errno ) ));
     ERROR( done );
   }
@@ -233,8 +234,10 @@ fd_shmem_create( char const * name,
   /* mbind the memory region to this numa node to nominally stay put
      after we unmap it. */
 
-  nodemask = 1UL << numa_idx; /* Just in case set_mempolicy clobbered it */
-  if( FD_UNLIKELY( mbind( shmem, sz, MPOL_BIND, &nodemask, FD_SHMEM_NUMA_MAX, MPOL_MF_MOVE | MPOL_MF_STRICT ) ) ) {
+  /* Just in case set_mempolicy clobbered it */
+  memset( nodemask, 0, 8UL*((FD_SHMEM_NUMA_MAX+63UL)/64UL) );
+  nodemask[ numa_idx >> 6 ] = 1UL << (numa_idx & 63UL);
+  if( FD_UNLIKELY( mbind( shmem, sz, MPOL_BIND, nodemask, FD_SHMEM_NUMA_MAX, MPOL_MF_MOVE | MPOL_MF_STRICT ) ) ) {
     FD_LOG_WARNING(( "mbind(\"%s\",%lu KiB,MPOL_BIND,1UL<<%lu,MPOL_MF_MOVE|MPOL_MF_STRICT) failed (%i-%s)",
                      path, sz>>10, numa_idx, errno, strerror( errno ) ));
     ERROR( unmap );
@@ -261,7 +264,7 @@ close:
     FD_LOG_WARNING(( "close(\"%s\") failed (%i-%s); attempting to continue", path, errno, strerror( errno ) ));
 
 restore:
-  if( FD_UNLIKELY( set_mempolicy( orig_mempolicy, &orig_nodemask, FD_SHMEM_NUMA_MAX ) ) )
+  if( FD_UNLIKELY( set_mempolicy( orig_mempolicy, orig_nodemask, FD_SHMEM_NUMA_MAX ) ) )
     FD_LOG_WARNING(( "set_mempolicy failed (%i-%s); attempting to continue", errno, strerror( errno ) ));
 
 done:
@@ -381,17 +384,18 @@ fd_shmem_acquire( ulong page_sz,
 # define ERROR( cleanup ) do { err = errno; goto cleanup; } while(0)
 
   int    orig_mempolicy;
-  ulong  orig_nodemask;
-  ulong  nodemask;
+  ulong  orig_nodemask[ (FD_SHMEM_NUMA_MAX+63UL)/64UL ];
+  ulong  nodemask[ (FD_SHMEM_NUMA_MAX+63UL)/64UL ];
   void * mem = NULL;
 
-  if( FD_UNLIKELY( get_mempolicy( &orig_mempolicy, &orig_nodemask, FD_SHMEM_NUMA_MAX, NULL, 0UL ) ) ) {
+  if( FD_UNLIKELY( get_mempolicy( &orig_mempolicy, orig_nodemask, FD_SHMEM_NUMA_MAX, NULL, 0UL ) ) ) {
     FD_LOG_WARNING(( "get_mempolicy failed (%i-%s)", errno, strerror( errno ) ));
     ERROR( done );
   }
 
-  nodemask = 1UL << numa_idx;
-  if( FD_UNLIKELY( set_mempolicy( MPOL_BIND | MPOL_F_STATIC_NODES, &nodemask, FD_SHMEM_NUMA_MAX ) ) ) {
+  memset( nodemask, 0, 8UL*((FD_SHMEM_NUMA_MAX+63UL)/64UL) );
+  nodemask[ numa_idx >> 6 ] = 1UL << (numa_idx & 63UL);
+  if( FD_UNLIKELY( set_mempolicy( MPOL_BIND | MPOL_F_STATIC_NODES, nodemask, FD_SHMEM_NUMA_MAX ) ) ) {
     FD_LOG_WARNING(( "set_mempolicy failed (%i-%s)", errno, strerror( errno ) ));
     ERROR( done );
   }
@@ -416,8 +420,10 @@ fd_shmem_acquire( ulong page_sz,
   /* FIXME: NUMA TOUCH HERE (ALSO WOULD A LOCAL TOUCH WORK GIVEN THE
      MEMPOLICY DONE ABOVE?) */
 
-  nodemask = 1UL << numa_idx; /* Just in case set_mempolicy clobbered it */
-  if( FD_UNLIKELY( mbind( mem, sz, MPOL_BIND, &nodemask, FD_SHMEM_NUMA_MAX, MPOL_MF_MOVE | MPOL_MF_STRICT ) ) ) {
+  /* Just in case set_mempolicy clobbered it */
+  memset( nodemask, 0, 8UL*((FD_SHMEM_NUMA_MAX+63UL)/64UL) );
+  nodemask[ numa_idx >> 6 ] = 1UL << (numa_idx & 63UL);
+  if( FD_UNLIKELY( mbind( mem, sz, MPOL_BIND, nodemask, FD_SHMEM_NUMA_MAX, MPOL_MF_MOVE | MPOL_MF_STRICT ) ) ) {
     FD_LOG_WARNING(( "mbind(anon,%lu KiB,MPOL_BIND,1UL<<%lu,MPOL_MF_MOVE|MPOL_MF_STRICT) failed (%i-%s)",
                      sz>>10, numa_idx, errno, strerror( errno ) ));
     ERROR( unmap );
@@ -435,7 +441,7 @@ unmap:
     FD_LOG_WARNING(( "munmap(anon,%lu KiB) failed (%i-%s); attempting to continue", sz>>10, errno, strerror( errno ) ));
 
 restore:
-  if( FD_UNLIKELY( set_mempolicy( orig_mempolicy, &orig_nodemask, FD_SHMEM_NUMA_MAX ) ) )
+  if( FD_UNLIKELY( set_mempolicy( orig_mempolicy, orig_nodemask, FD_SHMEM_NUMA_MAX ) ) )
     FD_LOG_WARNING(( "set_mempolicy failed (%i-%s); attempting to continue", errno, strerror( errno ) ));
 
 done:

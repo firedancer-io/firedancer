@@ -29,7 +29,7 @@
    logical cpus supported by fd_shmem.
    FD_SHMEM_CPU_MAX>=FD_SHMEM_NUMA_MAX>0. */
 
-#define FD_SHMEM_NUMA_MAX (64UL)
+#define FD_SHMEM_NUMA_MAX (1024UL)
 #define FD_SHMEM_CPU_MAX  (1024UL)
 
 /* FD_SHMEM_{UNKNOWN,NORMAL,HUGE,GIGANTIC}_{PAGE_LG_SZ,PAGE_SZ} give the
