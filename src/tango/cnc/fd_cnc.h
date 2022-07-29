@@ -184,13 +184,13 @@ fd_cnc_leave( fd_cnc_t const * cnc );
 void *
 fd_cnc_delete( void * shcnc );
 
-/* fd_cnc_app returns local address of the cnc's application region.
-   This will have FD_CNC_APP_{ALIGN,FOOTPRINT} alignment and footprint.
-   Assumes cnc is a current local join.  fd_cnc_app_const is for const
-   correctness. */
+/* fd_cnc_app_laddr returns local address of the cnc's application
+   region.  This will have FD_CNC_APP_{ALIGN,FOOTPRINT} alignment and
+   footprint.  Assumes cnc is a current local join.
+   fd_cnc_app_laddr_const is for const correctness. */
 
-FD_FN_CONST static inline void *       fd_cnc_app      ( fd_cnc_t *       cnc ) { return (void *)cnc->app; }
-FD_FN_CONST static inline void const * fd_cnc_app_const( fd_cnc_t const * cnc ) { return (void *)cnc->app; }
+FD_FN_CONST static inline void *       fd_cnc_app_laddr      ( fd_cnc_t *       cnc ) { return (void *)cnc->app; }
+FD_FN_CONST static inline void const * fd_cnc_app_laddr_const( fd_cnc_t const * cnc ) { return (void *)cnc->app; }
 
 /* fd_cnc_type returns the application defined type of a cnc.  Assumes
    cnc is a current local join. */

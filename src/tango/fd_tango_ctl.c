@@ -65,6 +65,17 @@ main( int     argc,
         "\n\t"
         "\tquery-dcache gaddr\n\t"
         "\t- Queries the dcache at gaddr.\n\t"
+        "\n\t"
+        "\tnew-cnc wksp type now\n\t"
+        "\t- Creates an command and control variable with the given type.\n\t"
+        "\t- If now is '-', the wallclock will be used for the initial\n\t"
+        "\t  heartbeat value.\n\t"
+        "\n\t"
+        "\tdelete-cnc gaddr\n\t"
+        "\t- Destroys the cnc at gaddr.\n\t"
+        "\n\t"
+        "\tquery-cnc gaddr\n\t"
+        "\t- Queries the cnc at gaddr.\n\t"
         "\n\t", bin ));
       FD_LOG_NOTICE(( "%i: %s: success", cnt, cmd ));
 
@@ -146,11 +157,11 @@ main( int     argc,
       if( FD_UNLIKELY( !shmcache ) )
         FD_LOG_ERR(( "%i: %s: fd_wksp_map( \"%s\" ) failed\n\tDo %s help for help", cnt, cmd, _shmcache, bin ));
 
-      fd_frag_meta_t * mcache = fd_mcache_join( shmcache );
+      fd_frag_meta_t const * mcache = fd_mcache_join( shmcache );
       if( FD_UNLIKELY( !mcache ) )
         FD_LOG_ERR(( "%i: %s: fd_mcache_join( \"%s\" ) failed\n\tDo %s help for help", cnt, cmd, _shmcache, bin ));
 
-      fd_mcache_private_hdr_t * hdr = fd_mcache_private_hdr( mcache );
+      fd_mcache_private_hdr_t const * hdr = fd_mcache_private_hdr_const( mcache );
       printf( "mcache %s\n", _shmcache );
       printf( "\tdepth   %lu\n", hdr->depth  );
       printf( "\tapp-sz  %lu\n", hdr->app_sz );
@@ -320,11 +331,11 @@ main( int     argc,
       if( FD_UNLIKELY( !shdcache ) )
         FD_LOG_ERR(( "%i: %s: fd_wksp_map( \"%s\" ) failed\n\tDo %s help for help", cnt, cmd, _shdcache, bin ));
 
-      uchar * dcache = fd_dcache_join( shdcache );
+      uchar const * dcache = fd_dcache_join( shdcache );
       if( FD_UNLIKELY( !dcache ) )
         FD_LOG_ERR(( "%i: %s: fd_dcache_join( \"%s\" ) failed\n\tDo %s help for help", cnt, cmd, _shdcache, bin ));
 
-      fd_dcache_private_hdr_t * hdr = fd_dcache_private_hdr( dcache );
+      fd_dcache_private_hdr_t const * hdr = fd_dcache_private_hdr_const( dcache );
       printf( "dcache %s\n", _shdcache );
       printf( "\tdata-sz %lu\n", hdr->data_sz );
       printf( "\tapp-sz  %lu\n", hdr->app_sz  );
@@ -347,6 +358,111 @@ main( int     argc,
       fd_wksp_unmap( fd_dcache_leave( dcache ) );
 
       FD_LOG_NOTICE(( "%i: %s %s: success", cnt, cmd, _shdcache ));
+      SHIFT( 1 );
+
+    } else if( !strcmp( cmd, "new-cnc" ) ) {
+
+      if( FD_UNLIKELY( argc<3 ) ) FD_LOG_ERR(( "%i: %s: too few arguments\n\tDo %s help for help", cnt, cmd, bin ));
+
+      char const * _wksp     =                                            argv[0];
+      ulong        type      =                          fd_cstr_to_ulong( argv[1] );
+      long         heartbeat = strcmp( argv[2], "-" ) ? fd_cstr_to_long ( argv[2] ) : fd_log_wallclock();
+      /* FIXME: PRESERVE CREATION HEARTBEAT IN CNC? */
+
+      ulong align     = fd_cnc_align();
+      ulong footprint = fd_cnc_footprint();
+
+      fd_wksp_t * wksp = fd_wksp_attach( _wksp );
+      if( FD_UNLIKELY( !wksp ) ) {
+        FD_LOG_ERR(( "%i: %s: fd_wksp_attach( \"%s\" ) failed\n\tDo %s help for help", cnt, cmd, _wksp, bin ));
+      }
+
+      /* FIXME: DO ARRAY ALLOCATION GIVEN WKSP_ALIGN_MIN >> ALIGN HERE?
+         USE LARGER OR DYNAMICALLY SIZED APP REGION? */
+      ulong gaddr = fd_wksp_alloc( wksp, align, footprint );
+      if( FD_UNLIKELY( !gaddr ) ) {
+        fd_wksp_detach( wksp );
+        FD_LOG_ERR(( "%i: %s: fd_wksp_alloc( \"%s\", %lu, %lu ) failed\n\tDo %s help for help",
+                     cnt, cmd, _wksp, align, footprint, bin ));
+      }
+
+      void * shmem = fd_wksp_laddr( wksp, gaddr );
+      if( FD_UNLIKELY( !shmem ) ) {
+        fd_wksp_free( wksp, gaddr );
+        fd_wksp_detach( wksp );
+        FD_LOG_ERR(( "%i: %s: fd_wksp_laddr( \"%s\", %lu ) failed\n\tDo %s help for help", cnt, cmd, _wksp, gaddr, bin ));
+      }
+
+      void * shcnc = fd_cnc_new( shmem, type, heartbeat );
+      if( FD_UNLIKELY( !shcnc ) ) {
+        fd_wksp_free( wksp, gaddr );
+        fd_wksp_detach( wksp );
+        FD_LOG_ERR(( "%i: %s: fd_cnc_new( %s:%lu, %lu, %li ) failed\n\tDo %s help for help",
+                     cnt, cmd, _wksp, gaddr, type, heartbeat, bin ));
+      }
+
+      char buf[ FD_WKSP_CSTR_MAX ];
+      printf( "%s\n", fd_wksp_cstr( wksp, gaddr, buf ) );
+
+      fd_wksp_detach( wksp );
+
+      FD_LOG_NOTICE(( "%i: %s %s %lu %li: success", cnt, cmd, _wksp, type, heartbeat ));
+      SHIFT( 3 );
+
+    } else if( !strcmp( cmd, "delete-cnc" ) ) {
+
+      if( FD_UNLIKELY( argc<1 ) ) FD_LOG_ERR(( "%i: %s: too few arguments\n\tDo %s help for help", cnt, cmd, bin ));
+
+      char const * _shcnc = argv[0];
+
+      void * shcnc = fd_wksp_map( _shcnc );
+      if( FD_UNLIKELY( !shcnc ) )
+        FD_LOG_ERR(( "%i: %s: fd_wksp_map( \"%s\" ) failed\n\tDo %s help for help", cnt, cmd, _shcnc, bin ));
+      if( FD_UNLIKELY( !fd_cnc_delete( shcnc ) ) )
+        FD_LOG_ERR(( "%i: %s: fd_cnc_delete( \"%s\" ) failed\n\tDo %s help for help", cnt, cmd, _shcnc, bin ));
+      fd_wksp_unmap( shcnc );
+
+      fd_wksp_cstr_free( _shcnc );
+
+      FD_LOG_NOTICE(( "%i: %s %s: success", cnt, cmd, _shcnc ));
+      SHIFT( 1 );
+
+    } else if( !strcmp( cmd, "query-cnc" ) ) {
+
+      if( FD_UNLIKELY( argc<1 ) ) FD_LOG_ERR(( "%i: %s: too few arguments\n\tDo %s help for help", cnt, cmd, bin ));
+
+      char const * _shcnc = argv[0];
+
+      void * shcnc = fd_wksp_map( _shcnc );
+      if( FD_UNLIKELY( !shcnc ) )
+        FD_LOG_ERR(( "%i: %s: fd_wksp_map( \"%s\" ) failed\n\tDo %s help for help", cnt, cmd, _shcnc, bin ));
+
+      fd_cnc_t const * cnc = fd_cnc_join( shcnc );
+      if( FD_UNLIKELY( !cnc ) )
+        FD_LOG_ERR(( "%i: %s: fd_cnc_join( \"%s\" ) failed\n\tDo %s help for help", cnt, cmd, _shcnc, bin ));
+
+      printf( "cnc %s\n", _shcnc );
+      printf( "\ttype      %u\n",  cnc->type      );
+      printf( "\theartbeat %li\n", cnc->heartbeat );
+      printf( "\tlock      %lu\n", cnc->lock      );
+      printf( "\tsignal    %lu\n", cnc->signal    );
+
+      uchar const * a = (uchar const *)fd_cnc_app_laddr_const( cnc );
+      ulong app_sz;
+      for( app_sz=FD_CNC_APP_FOOTPRINT; app_sz; app_sz-- ) if( a[app_sz-1UL] ) break;
+      ulong off = 0UL;
+      printf( "\tapp       %04lx: %02x %02x %02x %02x %02x %02x %02x %02x  %02x %02x %02x %02x %02x %02x %02x %02x\n", off,
+              (uint)a[ 0], (uint)a[ 1], (uint)a[ 2], (uint)a[ 3], (uint)a[ 4], (uint)a[ 5], (uint)a[ 6], (uint)a[ 7],
+              (uint)a[ 8], (uint)a[ 9], (uint)a[10], (uint)a[11], (uint)a[12], (uint)a[13], (uint)a[14], (uint)a[15] );
+      for( off+=16UL, a+=16UL; off<app_sz; off+=16UL, a+=16UL )
+        printf( "\t          %04lx: %02x %02x %02x %02x %02x %02x %02x %02x  %02x %02x %02x %02x %02x %02x %02x %02x\n", off,
+                (uint)a[ 0], (uint)a[ 1], (uint)a[ 2], (uint)a[ 3], (uint)a[ 4], (uint)a[ 5], (uint)a[ 6], (uint)a[ 7],
+                (uint)a[ 8], (uint)a[ 9], (uint)a[10], (uint)a[11], (uint)a[12], (uint)a[13], (uint)a[14], (uint)a[15] );
+      if( off<FD_CNC_APP_FOOTPRINT ) printf( "\t          ... snip (all remaining are zero) ...\n" );
+
+      fd_wksp_unmap( fd_cnc_leave( cnc ) );
+
+      FD_LOG_NOTICE(( "%i: %s %s: success", cnt, cmd, _shcnc ));
       SHIFT( 1 );
 
     } else {

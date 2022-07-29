@@ -42,8 +42,8 @@ app_main( int     argc,
   TEST( cnc );
   TEST( fd_cnc_signal_query( cnc )==FD_CNC_SIGNAL_BOOT );
 
-  ulong * app = (ulong *)fd_cnc_app( cnc );
-  ulong const * app_const = (ulong const *)fd_cnc_app_const( cnc );
+  ulong * app = (ulong *)fd_cnc_app_laddr( cnc );
+  ulong const * app_const = (ulong const *)fd_cnc_app_laddr_const( cnc );
   TEST( (ulong)app==(ulong)app_const );
   TEST( fd_ulong_is_aligned( (ulong)app, FD_CNC_APP_ALIGN ) );
 
@@ -116,8 +116,8 @@ main( int     argc,
   void * shcnc = fd_cnc_new( shmem, type, now ); TEST( shcnc );
   fd_cnc_t * cnc = fd_cnc_join( shcnc );         TEST( cnc );
 
-  ulong *       app       = (ulong       *)fd_cnc_app( cnc );
-  ulong const * app_const = (ulong const *)fd_cnc_app_const( cnc );
+  ulong *       app       = (ulong       *)fd_cnc_app_laddr( cnc );
+  ulong const * app_const = (ulong const *)fd_cnc_app_laddr_const( cnc );
   TEST( (ulong)app==(ulong)app_const );
   TEST( fd_ulong_is_aligned( (ulong)app, FD_CNC_APP_ALIGN ) );
 
