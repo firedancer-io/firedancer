@@ -58,7 +58,7 @@ main( int     argc,
   fd_fctl_cfg_done( fctl, 0UL, 0UL, 0UL, 0UL );
 
   ulong async_min = 1UL<<13;
-  ulong async_rem = 0UL;
+  ulong async_rem = 1UL; /* Do housekeeping on the first iteration */
   ulong cr_avail  = 0UL;
 
   FD_LOG_NOTICE(( "Running --init %lu (%s) --seed %u --max %lu", tx_seq, _init ? "manual" : "auto", seed, max ));
@@ -71,12 +71,12 @@ main( int     argc,
 
     /* Do housekeeping in the background */
 
+    async_rem--;
     if( FD_UNLIKELY( !async_rem ) ) {
       fd_mcache_seq_update( _tx_seq, tx_seq );
       cr_avail = fd_fctl_tx_cr_update( fctl, cr_avail, tx_seq );
       async_rem = fd_async_reload( rng, async_min );
     }
-    async_rem--;
 
     /* Check if we are backpressured */
 
