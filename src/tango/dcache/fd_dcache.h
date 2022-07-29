@@ -91,8 +91,9 @@ fd_dcache_footprint( ulong data_sz,
 
    Returns shmem (and the memory region it points to will be formatted
    as a dcache with the data and application regions initialized to
-   zero) on success and NULL on failure (logs details).  Reasons for
-   failure include obviously bad shmem, bad data_sz or bad app_sz. */
+   zero, caller is not joined) on success and NULL on failure (logs
+   details).  Reasons for failure include obviously bad shmem, bad
+   data_sz or bad app_sz. */
 
 void *
 fd_dcache_new( void * shmem,

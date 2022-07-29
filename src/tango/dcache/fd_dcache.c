@@ -90,6 +90,11 @@ fd_dcache_join( void * shdcache ) {
     return NULL;
   }
 
+  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)shdcache, fd_dcache_align() ) ) ) {
+    FD_LOG_WARNING(( "misaligned shdcache" ));
+    return NULL;
+  }
+
   fd_dcache_private_hdr_t * hdr = (fd_dcache_private_hdr_t *)shdcache;
   if( FD_UNLIKELY( hdr->magic!=FD_DCACHE_MAGIC ) ) {
     FD_LOG_WARNING(( "bad magic" ));
@@ -115,6 +120,11 @@ fd_dcache_delete( void * shdcache ) {
 
   if( FD_UNLIKELY( !shdcache ) ) {
     FD_LOG_WARNING(( "NULL shdcache" ));
+    return NULL;
+  }
+
+  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)shdcache, fd_dcache_align() ) ) ) {
+    FD_LOG_WARNING(( "misaligned shdcache" ));
     return NULL;
   }
 
