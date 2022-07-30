@@ -35,7 +35,7 @@ main( int     argc,
         "\tcreate name page_cnt page_sz cpu_idx mode\n\t"
         "\t- Create a shared memory region named name from page_cnt page_sz\n\t"
         "\t  pages near logical cpu_idx.  The region will have the unix\n\t"
-        "\t  permissions specified by mode.\n\t"
+        "\t  permissions specified by mode (assumed octal).\n\t"
         "\n\t"
         "\tunlink name page_sz\n\t"
         "\t- Unlinks a page_sz page backed shared memory region named name.\n\t"
@@ -60,13 +60,13 @@ main( int     argc,
       ulong        page_cnt = fd_cstr_to_ulong        ( argv[1] );
       ulong        page_sz  = fd_cstr_to_shmem_page_sz( argv[2] );
       ulong        cpu_idx  = fd_cstr_to_ulong        ( argv[3] );
-      uint         mode     = fd_cstr_to_uint         ( argv[4] );
+      ulong        mode     = fd_cstr_to_ulong_octal  ( argv[4] );
 
       if( FD_UNLIKELY( fd_shmem_create( name, page_sz, page_cnt, cpu_idx, mode ) ) )
-        FD_LOG_ERR(( "%i: %s %s %lu %s %lu 0%03o: FAIL\n\t"
+        FD_LOG_ERR(( "%i: %s %s %lu %s %lu 0%03lo: FAIL\n\t"
                      "Do %s help for help", cnt, cmd, name, page_cnt, argv[2], cpu_idx, mode, bin ));
 
-      FD_LOG_NOTICE(( "%i: %s %s %lu %s %lu 0%03o: success", cnt, cmd, name, page_cnt, argv[2], cpu_idx, mode ));
+      FD_LOG_NOTICE(( "%i: %s %s %lu %s %lu 0%03lo: success", cnt, cmd, name, page_cnt, argv[2], cpu_idx, mode ));
       SHIFT(5);
 
     } else if( !strcmp( cmd, "unlink" ) ) {

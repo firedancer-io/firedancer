@@ -274,7 +274,7 @@ fd_shmem_create( char const * name,     /* Should point to cstr with a valid nam
                  ulong        page_sz,  /* Should be a FD_SHMEM_{NORMAL,HUGE,GIGANTIC}_PAGE_SZ */
                  ulong        page_cnt, /* Should be positive, page_cnt*page_sz <= ULONG_MAX */
                  ulong        cpu_idx,  /* Should be in [0,fd_shmem_cpu_cnt()) */
-                 uint         mode );   /* E.g. 0660 for user rw, group rw, world none */
+                 ulong        mode );   /* E.g. 0660 for user rw, group rw, world none */
 
 /* fd_shmem_unlink removes the name of the page_sz backed shared memory
    region in the thread group's shared memory domain such that it can no

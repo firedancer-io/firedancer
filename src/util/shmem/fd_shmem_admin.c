@@ -106,7 +106,7 @@ fd_shmem_create( char const * name,
                  ulong        page_sz,
                  ulong        page_cnt,
                  ulong        cpu_idx,
-                 uint         mode ) {
+                 ulong        mode ) {
 
   /* Check input args */
 
@@ -120,6 +120,8 @@ fd_shmem_create( char const * name,
   }
 
   if( FD_UNLIKELY( !(cpu_idx<fd_shmem_cpu_cnt()) ) ) { FD_LOG_WARNING(( "bad cpu_idx (%lu)", cpu_idx )); return EINVAL; }
+
+  if( FD_UNLIKELY( mode!=(ulong)(mode_t)mode ) ) { FD_LOG_WARNING(( "bad mode (0%03lo)", mode )); return EINVAL; }
 
   ulong sz       = page_cnt*page_sz;
   ulong numa_idx = fd_shmem_numa_idx( cpu_idx );
@@ -166,7 +168,7 @@ fd_shmem_create( char const * name,
 
   fd = open( fd_shmem_private_path( name, page_sz, path ), O_RDWR | O_CREAT | O_EXCL, (mode_t)mode );
   if( FD_UNLIKELY( fd==-1 ) ) {
-    FD_LOG_WARNING(( "open(\"%s\",O_RDWR|O_CREAT|O_EXCL,0%03o) failed (%i-%s)", path, mode, errno, strerror( errno ) ));
+    FD_LOG_WARNING(( "open(\"%s\",O_RDWR|O_CREAT|O_EXCL,0%03lo) failed (%i-%s)", path, mode, errno, strerror( errno ) ));
     ERROR( restore );
   }
 

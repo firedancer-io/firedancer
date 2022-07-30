@@ -119,7 +119,7 @@ main( int     argc,
         "\tnew wksp page_cnt page_sz cpu_idx mode\n\t"
         "\t- Create a workspace named wksp from page_cnt page_sz pages near\n\t"
         "\t  logical cpu_idx.  The region will have the unix\n\t"
-        "\t  permissions specified by mode.\n\t"
+        "\t  permissions specified by mode (assumed octal).\n\t"
         "\n\t"
         "\tdelete wksp\n\t"
         "\t- Delete a workspace named wksp.  If multiple shmem regions\n\t"
@@ -164,18 +164,18 @@ main( int     argc,
       ulong        page_cnt = fd_cstr_to_ulong        ( argv[1] );
       ulong        page_sz  = fd_cstr_to_shmem_page_sz( argv[2] );
       ulong        cpu_idx  = fd_cstr_to_ulong        ( argv[3] );
-      uint         mode     = fd_cstr_to_uint         ( argv[4] );
+      ulong        mode     = fd_cstr_to_ulong_octal  ( argv[4] );
 
       /* Create the shared memory region for the workspace */
 
       if( FD_UNLIKELY( fd_shmem_create( name, page_sz, page_cnt, cpu_idx, mode ) ) ) /* logs details */
-        FD_LOG_ERR(( "%i: %s %s %lu %s %lu 0%03o: fd_shmem_create failed\n\t"
+        FD_LOG_ERR(( "%i: %s %s %lu %s %lu 0%03lo: fd_shmem_create failed\n\t"
                      "Do %s help for help", cnt, cmd, name, page_cnt, argv[2], cpu_idx, mode, bin ));
 
       ulong sz = page_cnt*page_sz; /* Safe as create succeeded */
       if( FD_UNLIKELY( !((fd_wksp_align()<=page_sz) & (fd_wksp_footprint( sz )==sz)) ) ) { /* paranoid checks */
         fd_shmem_unlink( name, page_sz ); /* logs details */
-        FD_LOG_ERR(( "%i: %s %s %lu %s %lu 0%03o: internal error\n\t"
+        FD_LOG_ERR(( "%i: %s %s %lu %s %lu 0%03lo: internal error\n\t"
                      "Do %s help for help", cnt, cmd, name, page_cnt, argv[2], cpu_idx, mode, bin ));
       }
 
@@ -185,14 +185,14 @@ main( int     argc,
       void * shmem = fd_shmem_join( name, FD_SHMEM_JOIN_MODE_READ_WRITE, NULL, NULL, info );
       if( FD_UNLIKELY( !shmem ) ) {
         fd_shmem_unlink( name, page_sz ); /* logs details */
-        FD_LOG_ERR(( "%i: %s %s %lu %s %lu 0%03o: fd_shmem_join failed\n\t"
+        FD_LOG_ERR(( "%i: %s %s %lu %s %lu 0%03lo: fd_shmem_join failed\n\t"
                      "Do %s help for help", cnt, cmd, name, page_cnt, argv[2], cpu_idx, mode, bin ));
       }
 
       if( FD_UNLIKELY( ((info->page_sz!=page_sz) | (info->page_cnt!=page_cnt)) ) ) { /* paranoid checks */
         fd_shmem_unlink( name, page_sz ); /* logs details */
         fd_shmem_leave( shmem, NULL, NULL ); /* logs details */ /* after the unlink as per unix file semantics */
-        FD_LOG_ERR(( "%i: %s %s %lu %s %lu 0%03o: multiple regions with same name but different sizes detected\n\t"
+        FD_LOG_ERR(( "%i: %s %s %lu %s %lu 0%03lo: multiple regions with same name but different sizes detected\n\t"
                      "Do %s help for help", cnt, cmd, name, page_cnt, argv[2], cpu_idx, mode, bin ));
       }
 
@@ -201,14 +201,14 @@ main( int     argc,
       if( FD_UNLIKELY( !fd_wksp_new( shmem, name, sz, 0UL ) ) ) {
         fd_shmem_unlink( name, page_sz ); /* logs details */
         fd_shmem_leave( shmem, NULL, NULL ); /* logs details */ /* after the unlink as per unix file semantics */
-        FD_LOG_ERR(( "%i: %s %s %lu %s %lu 0%03o: fd_wksp_new failed\n\t"
+        FD_LOG_ERR(( "%i: %s %s %lu %s %lu 0%03lo: fd_wksp_new failed\n\t"
                      "Do %s help for help", cnt, cmd, name, page_cnt, argv[2], cpu_idx, mode, bin ));
       }
 
       /* Leave the region */
 
       fd_shmem_leave( shmem, NULL, NULL ); /* logs details */
-      FD_LOG_NOTICE(( "%i: %s %s %lu %s %lu 0%03o: success", cnt, cmd, name, page_cnt, argv[2], cpu_idx, mode ));
+      FD_LOG_NOTICE(( "%i: %s %s %lu %s %lu 0%03lo: success", cnt, cmd, name, page_cnt, argv[2], cpu_idx, mode ));
       SHIFT(5);
 
     } else if( !strcmp( cmd, "delete" ) ) {
