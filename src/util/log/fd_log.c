@@ -350,6 +350,25 @@ fd_log_wallclock_cstr( long   now,
   return buf;
 }
 
+long
+fd_log_sleep( long dt ) {
+  if( FD_UNLIKELY( dt < 1L ) ) {
+    sched_yield();
+    return 0L;
+  }
+
+  /* dt is in [1,LONG_MAX] at this point */
+  long ns_dt = fd_long_min( dt, (((long)1e9)<<31)-1L ); /* in [1,2^31*1e9) and <= dt at this point */
+  dt -= ns_dt;
+
+  struct timespec req[1];
+  struct timespec rem[1];
+  req->tv_sec  = (time_t)( ((ulong)ns_dt) / ((ulong)1e9) ); /* in [0,2^31-1] */
+  req->tv_nsec = (long)  ( ((ulong)ns_dt) % ((ulong)1e9) ); /* in [0,1e9) */
+  if( FD_UNLIKELY( nanosleep( req, rem ) ) && FD_LIKELY( errno==EINTR ) ) dt += ((long)1e9)*((long)rem->tv_sec) + rem->tv_nsec;
+  return dt;
+}
+
 /* LOG APIS ***********************************************************/
 
 static char   fd_log_private_path[ 1024 ]; /* empty string on start */

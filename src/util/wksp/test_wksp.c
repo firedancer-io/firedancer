@@ -2,8 +2,6 @@
 
 #if FD_HAS_HOSTED && FD_HAS_X86
 
-#include <unistd.h> /* For sleep */
-
 static int go = 0;
 
 static fd_wksp_t * _wksp;
@@ -156,7 +154,7 @@ main( int     argc,
 
   FD_LOG_NOTICE(( "Waiting one second and then starting tests" ));
 
-  sleep( 1 );
+  fd_log_sleep( (long)1e9 );
 
   FD_COMPILER_MFENCE();
   go = 1;

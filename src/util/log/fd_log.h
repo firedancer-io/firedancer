@@ -361,6 +361,13 @@ char *
 fd_log_wallclock_cstr( long   t,
                        char * buf );
 
+/* fd_log_sleep puts the calling thread to sleep for dt ns.  dt<=0 is
+   assumed to be a sched_yield request.  Returns the amount of sleep
+   remaining if the sleep was interrupted. */
+
+long
+fd_log_sleep( long dt );
+
 /* fd_log_flush() manually flushes the log (e.g. log a bunch of low
    priority messages and then flush to ensure the bunch gets written out
    before proceeding). */

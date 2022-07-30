@@ -2,8 +2,6 @@
 
 #if FD_HAS_HOSTED && FD_HAS_ATOMIC
 
-#include <unistd.h>
-
 FD_STATIC_ASSERT( FD_CNC_ALIGN    ==128UL, unit_test );
 FD_STATIC_ASSERT( FD_CNC_FOOTPRINT==128UL, unit_test );
 

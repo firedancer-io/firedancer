@@ -61,6 +61,11 @@ main( int     argc,
   for( int i=0; i<10; i++ ) { tic = toc; toc = fd_log_wallclock(); }
   FD_LOG_NOTICE((  "Test wallclock dt %li ns", toc-tic         ));
 
+  tic = fd_log_wallclock();
+  toc = (long)1e9; do toc = fd_log_sleep( toc ); while( toc );
+  tic = fd_log_wallclock() - tic;
+  TEST( ((long)0.9e9)<tic && tic<((long)1.1e9) );
+
   /* Debugging helpers */
   static uchar const hex[16] = { 0x0, 0x1, 0x2, 0x3, 0x4, 0x5, 0x6, 0x7, 0x8, 0x9, 0xa, 0xb, 0xc, 0xd, 0xe, 0xf };
   FD_LOG_NOTICE((  "Test hex          " FD_LOG_HEX16_FMT, FD_LOG_HEX16_FMT_ARGS( hex ) ));
