@@ -150,7 +150,8 @@ fd_cnc_open( fd_cnc_t * cnc ) {
       return FD_CNC_ERR_FAIL;
     }
 
-    FD_LOG_WARNING(( "signal %lu in progress on app thread; try again later?", signal ));
+    char buf[ FD_CNC_SIGNAL_CSTR_BUF_MAX ];
+    FD_LOG_WARNING(( "signal %s (%lu) in progress on app thread; try again later?", fd_cnc_signal_cstr( signal, buf ), signal ));
     return FD_CNC_ERR_AGAIN;
   }
 
