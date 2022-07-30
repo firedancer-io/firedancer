@@ -170,7 +170,9 @@ static ushort fd_tile_private_cpu_id[ FD_TILE_MAX ]; /* Zeroed at app start, ini
 
 ulong
 fd_tile_cpu_id( ulong tile_idx ) {
-  return (tile_idx<fd_tile_private_cnt) ? ((ulong)fd_tile_private_cpu_id[ tile_idx ]) : ULONG_MAX;
+  if( FD_UNLIKELY( tile_idx>=fd_tile_private_cnt ) ) return ULONG_MAX;
+  ulong cpu_idx = (ulong)fd_tile_private_cpu_id[ tile_idx ];
+  return fd_ulong_if( cpu_idx<65535UL, cpu_idx, ULONG_MAX-1UL );
 }
 
 /* This is used for the OS services to communicate information with the
@@ -371,7 +373,7 @@ fd_tile_exec_done( fd_tile_exec_t const * exec ) {
 
 /* Parse a list of cpu tiles */
 
-FD_STATIC_ASSERT( CPU_SETSIZE<65536, update_tile_to_cpu_type );
+FD_STATIC_ASSERT( CPU_SETSIZE<65535, update_tile_to_cpu_type );
 
 static ulong
 fd_tile_private_cpus_parse( char const * cstr,
@@ -384,10 +386,20 @@ fd_tile_private_cpus_parse( char const * cstr,
 
   char const * p = cstr;
   for(;;) {
-    ulong cpu0;
-    ulong cpu1;
 
     while( isspace( (int)p[0] ) ) p++; /* Munch whitespace */
+
+    if( p[0]=='f' ) { /* This tile has been requested to float on the original core set */
+      p++;
+      while( isspace( (int)p[0] ) ) p++; /* Munch whitespace */
+      if( FD_UNLIKELY( !( p[0]==',' || p[0]=='\0' ) ) ) FD_LOG_ERR(( "fd_tile: malformed --tile-cpus (bad range delimiter)" ));
+      if( p[0]==',' ) p++;
+      tile_to_cpu[ cnt++ ] = (ushort)65535;
+      continue;
+    }
+
+    ulong cpu0;
+    ulong cpu1;
     if( !isdigit( (int)p[0] ) ) {
       if( FD_UNLIKELY( p[0]!='\0' ) ) FD_LOG_ERR(( "fd_tile: malformed --tile-cpus (range lo not a cpu)" ));
       break;  
@@ -414,6 +426,7 @@ fd_tile_private_cpus_parse( char const * cstr,
       if( FD_UNLIKELY( CPU_ISSET( cpu, assigned_set ) ) ) FD_LOG_ERR(( "fd_tile: malformed --tile-cpus (repeated cpu)" ));
       if( FD_UNLIKELY( cnt>=FD_TILE_MAX               ) ) FD_LOG_ERR(( "fd_tile: too many --tile-cpus" ));
       tile_to_cpu[ cnt++ ] = (ushort)cpu;
+      CPU_SET( cpu, assigned_set );
     }
   }
 
@@ -436,12 +449,12 @@ fd_tile_private_boot( int *    pargc,
   ulong  tile_cnt = fd_tile_private_cpus_parse( cpus, tile_to_cpu );
 
   if( FD_UNLIKELY( !tile_cnt ) ) {
-
     FD_LOG_INFO(( "fd_tile: no cpus specified; treating thread group as single tile running on O/S assigned cpu(s)" ));
-    tile_to_cpu[0] = (ushort)fd_log_cpu_id();
+    tile_to_cpu[0] = (ushort)65535;
     tile_cnt       = 1UL;
-
-  } else {
+  }
+  
+  if( tile_to_cpu[ 0UL ]<(ushort)65535 ) {
 
     int good_taskset;
     cpu_set_t cpu_set[1];
@@ -477,6 +490,7 @@ fd_tile_private_boot( int *    pargc,
       fd_log_cpu_set   ( NULL );
       fd_log_thread_set( NULL );
     }
+
   }
 
   fd_tile_private_id0 = fd_log_thread_id();
@@ -487,7 +501,9 @@ fd_tile_private_boot( int *    pargc,
   ulong host_id = fd_log_host_id();
   FD_LOG_INFO(( "fd_tile: booting thread group %lu:%lu/%lu", app_id, fd_tile_private_id0, fd_tile_private_cnt ));
 
-  FD_LOG_INFO(( "fd tile: booting tile %lu on cpu %lu:%lu", 0UL, host_id, (ulong)tile_to_cpu[0] ));
+  ulong cpu_idx = (ulong)tile_to_cpu[ 0UL ];
+  if( cpu_idx<65535UL ) FD_LOG_INFO(( "fd tile: booting tile %lu on cpu %lu:%lu",   0UL, host_id, cpu_idx ));
+  else                  FD_LOG_INFO(( "fd tile: booting tile %lu on cpu %lu:float", 0UL, host_id ));
 
   /* Tile 0 "pthread create" */
   fd_tile_private[0].pthread = pthread_self();
@@ -503,57 +519,57 @@ fd_tile_private_boot( int *    pargc,
                 fd_tile_private_idx, app_id, fd_tile_private_id, app_id, fd_tile_private_id0, fd_tile_private_cnt ));
 
   for( ulong tile_idx=1UL; tile_idx<tile_cnt; tile_idx++ ) {
-    ulong cpu_idx = (ulong)tile_to_cpu[ tile_idx ];
 
-    FD_LOG_INFO(( "fd_tile: booting tile %lu on cpu %lu:%lu", tile_idx, host_id, (ulong)tile_to_cpu[ tile_idx ] ));
+    cpu_idx = (ulong)tile_to_cpu[ tile_idx ];
+    if( cpu_idx<65535UL ) FD_LOG_INFO(( "fd tile: booting tile %lu on cpu %lu:%lu",   tile_idx, host_id, cpu_idx ));
+    else                  FD_LOG_INFO(( "fd tile: booting tile %lu on cpu %lu:float", tile_idx, host_id ));
 
-    pthread_attr_t * attr;
-    void *           stack;
+    pthread_attr_t * attr  = NULL;
+    void *           stack = NULL;
 
     pthread_attr_t _attr[1];
-    int err = pthread_attr_init( _attr );
-    if( FD_UNLIKELY( err ) ) {
 
-      FD_LOG_WARNING(( "fd_tile: pthread_attr_init failed (%i-%s)\n\t"
-                       "Unable to optimize affinity or stack for tile %lu on cpu %lu.\n\t"
-                       "Attempting to continue with default thread attributes but it is\n\t"
-                       "likely this thread group's performance and stability are compromised\n\t"
-                       "(possibly catastrophically so).",
-                       err, strerror( err ), tile_idx, cpu_idx ));
-      attr  = NULL;
-      stack = NULL;
+    if( cpu_idx<65535UL ) {
+      int err = pthread_attr_init( _attr );
+      if( FD_UNLIKELY( err ) ) {
+        FD_LOG_WARNING(( "fd_tile: pthread_attr_init failed (%i-%s)\n\t"
+                         "Unable to optimize affinity or stack for tile %lu on cpu %lu.\n\t"
+                         "Attempting to continue with default thread attributes but it is\n\t"
+                         "likely this thread group's performance and stability are compromised\n\t"
+                         "(possibly catastrophically so).",
+                         err, strerror( err ), tile_idx, cpu_idx ));
+      } else {
 
-    } else {
+        attr = _attr;
 
-      attr = _attr;
+        cpu_set_t cpu_set[1];
+        CPU_ZERO( cpu_set );
+        CPU_SET( cpu_idx, cpu_set );
+        err = pthread_attr_setaffinity_np( attr, sizeof(cpu_set_t), cpu_set );
+        if( FD_UNLIKELY( err ) ) FD_LOG_WARNING(( "fd_tile: pthread_attr_setaffinity_failed (%i-%s)\n\t"
+                                                  "Unable to set the thread affinity for tile %lu on cpu %lu.  Attempting to\n\t"
+                                                  "continue without explicitly specifying this cpu's thread affinity but it\n\t"
+                                                  "is likely this thread group's performance and stability are compromised\n\t"
+                                                  "(possibly catastrophically so).  Update --tile-cpus to specify a set of\n\t"
+                                                  "allowed cpus that have been reserved for this thread group on this host\n\t"
+                                                  "to eliminate this warning.",
+                                                  err, strerror( err ), tile_idx, cpu_idx ));
 
-      cpu_set_t cpu_set[1];
-      CPU_ZERO( cpu_set );
-      CPU_SET( cpu_idx, cpu_set );
-      err = pthread_attr_setaffinity_np( attr, sizeof(cpu_set_t), cpu_set );
-      if( FD_UNLIKELY( err ) ) FD_LOG_WARNING(( "fd_tile: pthread_attr_setaffinity_failed (%i-%s)\n\t"
-                                                "Unable to set the thread affinity for tile %lu on cpu %lu.  Attempting to\n\t"
-                                                "continue without explicitly specifying this cpu's thread affinity but it\n\t"
-                                                "is likely this thread group's performance and stability are compromised\n\t"
-                                                "(possibly catastrophically so).  Update --tile-cpus to specify a set of\n\t"
-                                                "allowed cpus that have been reserved for this thread group on this host\n\t"
-                                                "to eliminate this warning.",
-                                                err, strerror( err ), tile_idx, cpu_idx ));
-
-      stack = fd_tile_private_stack_new( cpu_idx );
-      if( FD_LIKELY( stack ) ) {
-        err = pthread_attr_setstack( attr, stack, FD_TILE_PRIVATE_STACK_SZ );
-        if( FD_UNLIKELY( err ) ) {
-          FD_LOG_WARNING(( "fd_tile: pthread_attr_setstack failed (%i-%s)\n\t"
-                           "Unable to configure an optimized stack for tile %lu on cpu %lu.\n\t"
-                           "Attempting to continue with the default stack but it is likely this\n\t"
-                           "thread group's performance and stability are compromised (possibly\n\t"
-                           "catastrophically so).",
-                           err, strerror( err ), tile_idx, cpu_idx ));
-          fd_tile_private_stack_delete( stack );
-          stack = NULL;
-        }
-      } 
+        stack = fd_tile_private_stack_new( cpu_idx );
+        if( FD_LIKELY( stack ) ) {
+          err = pthread_attr_setstack( attr, stack, FD_TILE_PRIVATE_STACK_SZ );
+          if( FD_UNLIKELY( err ) ) {
+            FD_LOG_WARNING(( "fd_tile: pthread_attr_setstack failed (%i-%s)\n\t"
+                             "Unable to configure an optimized stack for tile %lu on cpu %lu.\n\t"
+                             "Attempting to continue with the default stack but it is likely this\n\t"
+                             "thread group's performance and stability are compromised (possibly\n\t"
+                             "catastrophically so).",
+                             err, strerror( err ), tile_idx, cpu_idx ));
+            fd_tile_private_stack_delete( stack );
+            stack = NULL;
+          }
+        } 
+      }
     }
 
     FD_VOLATILE( fd_tile_private[ tile_idx ].tile ) = NULL;
@@ -567,13 +583,18 @@ fd_tile_private_boot( int *    pargc,
 
     FD_COMPILER_MFENCE();
 
-    err = pthread_create( &fd_tile_private[tile_idx].pthread, attr, fd_tile_private_manager, args );
-    if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_tile: pthread_create failed (%i-%s)\n\t"
-                                          "Unable to start up the tile %lu on cpu %lu.  Likely causes for this include\n\t"
-                                          "this cpu is restricted from the user or does not exist on this host.\n\t"
-                                          "Update --tile-cpus to specify a set of allowed cpus that have been reserved\n\t"
-                                          "for this thread group on this host.",
-                                          err, strerror( err ), tile_idx, cpu_idx ));
+    int err = pthread_create( &fd_tile_private[tile_idx].pthread, attr, fd_tile_private_manager, args );
+    if( FD_UNLIKELY( err ) ) {
+      if( cpu_idx<65535UL )
+        FD_LOG_ERR(( "fd_tile: pthread_create failed (%i-%s)\n\t"
+                     "Unable to start up the tile %lu on cpu %lu.  Likely causes for this include\n\t"
+                     "this cpu is restricted from the user or does not exist on this host.\n\t"
+                     "Update --tile-cpus to specify a set of allowed cpus that have been reserved\n\t"
+                     "for this thread group on this host.",
+                     err, strerror( err ), tile_idx, cpu_idx ));
+      FD_LOG_ERR(( "fd_tile: pthread_create failed (%i-%s)\n\tUnable to start up the tile %lu (floating).",
+                   err, strerror( err ), tile_idx ));
+    }
 
     /* Wait for the tile to be ready to exec */
 
@@ -587,7 +608,7 @@ fd_tile_private_boot( int *    pargc,
 
     /* Tile is running, args is safe to reuse */
 
-    if( FD_LIKELY( attr ) ) {
+    if( FD_LIKELY( attr ) ) { /* Note: only non-NULL if cpu_idx < 65535UL */
       err = pthread_attr_destroy( attr );
       if( FD_UNLIKELY( err ) )
         FD_LOG_WARNING(( "fd_tile: pthread_attr_destroy failed (%i-%s) for tile %lu on cpu %lu; attempting to continue",

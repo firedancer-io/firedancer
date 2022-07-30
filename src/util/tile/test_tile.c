@@ -66,16 +66,19 @@ main( int     argc,
   ulong cpu_seen = 0UL;
   for( ulong tile_idx=0UL; tile_idx<tile_cnt; tile_idx++ ) {
     ulong cpu_id = fd_tile_cpu_id( tile_idx );
-    TEST( cpu_id<cpu_cnt );
-    FD_LOG_NOTICE(( "tile %lu -> cpu %lu", tile_idx, cpu_id ));
-    if( FD_LIKELY( cpu_id<64UL ) ) {
-      TEST( !fd_ulong_extract_bit( cpu_seen, (int)cpu_id ) );
-      cpu_seen = fd_ulong_set_bit( cpu_seen, (int)cpu_id );
-    } else {
-      static int warn = 0;
-      if( !warn ) {
-        FD_LOG_WARNING(( "Test can only fully validate fd_tile_cpu_id for cpus in [0,64)" ));
-        warn = 1;
+    TEST( (cpu_id<cpu_cnt) | (cpu_id==(ULONG_MAX-1UL)) );
+    if( cpu_id==(ULONG_MAX-1UL) ) FD_LOG_NOTICE(( "tile %lu -> floating", tile_idx ));
+    else {
+      FD_LOG_NOTICE(( "tile %lu -> cpu %lu", tile_idx, cpu_id ));
+      if( FD_LIKELY( cpu_id<64UL ) ) {
+        TEST( !fd_ulong_extract_bit( cpu_seen, (int)cpu_id ) );
+        cpu_seen = fd_ulong_set_bit( cpu_seen, (int)cpu_id );
+      } else {
+        static int warn = 0;
+        if( !warn ) {
+          FD_LOG_WARNING(( "Test can only fully validate fd_tile_cpu_id for cpus in [0,64)" ));
+          warn = 1;
+        }
       }
     }
   }

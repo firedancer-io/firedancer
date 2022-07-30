@@ -37,7 +37,8 @@ FD_FN_PURE ulong fd_tile_cnt( void ); /* == fd_tile_id1()-fd_tile_id0() > 0 */
    matches the --tile-cpus / FD_TILE_CPUS configuration extracted from
    the command line / environment when tile services were booted.  Will
    be constant while tile services are booted.  Returns ULONG_MAX if
-   tile_idx is is not in [0,td_tile_cnt()). */
+   tile_idx is not in [0,td_tile_cnt()) and ULONG_MAX-1 if tile_idx was
+   configured to float. */
 
 FD_FN_PURE ulong fd_tile_cpu_id( ulong tile_idx );
 
