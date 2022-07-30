@@ -260,6 +260,7 @@ main( int     argc,
     FD_COMPILER_MFENCE();
 
     FD_SPIN_PAUSE();
+    FD_YIELD();
 
     TEST( FD_VOLATILE_CONST( ctr[0] )==0 );
     FD_VOLATILE( ctr[0] ) = 1; TEST( FD_VOLATILE_CONST( ctr[0] )==1 );

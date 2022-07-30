@@ -413,6 +413,16 @@ fd_type_pun_const( void const * p ) {
 #define FD_SPIN_PAUSE() ((void)0)
 #endif
 
+/* FD_YIELD():  Yields the logical core of the calling thread to the
+   operating system scheduler if a hosted target and does a spin pause
+   otherwise. */
+
+#if FD_HAS_HOSTED
+#define FD_YIELD() fd_yield()
+#else
+#define FD_YIELD() FD_SPIN_PAUSE()
+#endif
+
 /* FD_VOLATILE_CONST(x):  Tells the compiler is not able to predict the
    value obtained by dereferencing x and that deferencing x might have
    other side effects (e.g. maybe another thread could change the value
@@ -674,6 +684,15 @@ fd_hash_memcpy( ulong                    seed,
    will have appropriate permissions when deployed. */
 
 #define fd_tickcount() ((long)__builtin_ia32_rdtsc())
+
+#endif
+
+#if FD_HAS_HOSTED
+
+/* fd_yield yields the calling thread to the operating system scheduler. */
+
+void
+fd_yield( void );
 
 #endif
 

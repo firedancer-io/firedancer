@@ -3,7 +3,6 @@
 #if FD_HAS_HOSTED && FD_HAS_ATOMIC
 
 #include <unistd.h>
-#include <sched.h>
 
 FD_STATIC_ASSERT( FD_CNC_ALIGN    ==128UL, unit_test );
 FD_STATIC_ASSERT( FD_CNC_FOOTPRINT==128UL, unit_test );
@@ -83,14 +82,14 @@ app_main( int     argc,
 
     /* Dummy run operations */
 
-    sched_yield();
+    FD_YIELD();
   }
 
   /* Halt the app thread (we are in HALT state) */
   
   /* Dummy halt operations */
 
-  sched_yield();
+  FD_YIELD();
 
   /* Signal we are doing halting and it was a clean halt before
      terminating execution. */
@@ -183,7 +182,7 @@ main( int     argc,
     TEST( FD_VOLATILE_CONST( app[2] )==ball+2UL );
     TEST( FD_VOLATILE_CONST( app[3] )==ball+3UL );
 
-    sched_yield();
+    FD_YIELD();
   }
 
   /* Tell the app thread to halt and wait for it to finish halting */

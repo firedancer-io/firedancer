@@ -286,7 +286,7 @@ fd_cnc_wait( fd_cnc_t const * cnc,
     int done = ((obs!=test) | ((now-then)>dt));
     FD_COMPILER_FORGET( done ); /* avoid compiler misoptimization */
     if( FD_LIKELY( done ) ) break; /* optimize for exit, single exit to optimize spin pause hinting */
-    sched_yield();
+    FD_YIELD();
     now = fd_log_wallclock();
   }
 

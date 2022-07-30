@@ -3,7 +3,6 @@
 #if FD_HAS_HOSTED && FD_HAS_X86
 
 #include <errno.h>
-#include <sched.h>
 #include <signal.h>
 #include <xmmintrin.h>
 
@@ -170,7 +169,7 @@ fd_wksp_private_lock( fd_wksp_t * wksp ) {
        In any case, we don't have the lock.  Wait a while to limit O/S
        contention and try again. */
 
-    sched_yield();
+    FD_YIELD();
   }
 
   /* never get here */

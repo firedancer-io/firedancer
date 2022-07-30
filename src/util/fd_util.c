@@ -19,3 +19,11 @@ fd_halt( void ) {
   fd_log_private_halt  ();
 }
 
+#if FD_HAS_HOSTED
+
+#include <sched.h>
+
+void fd_yield( void ) { sched_yield(); }
+
+#endif
+
