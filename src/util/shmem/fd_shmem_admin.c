@@ -10,7 +10,6 @@
    that linux/mempolicy.h must be before numaif.h */
 
 #include <ctype.h>
-#include <strings.h>
 #include <errno.h>
 #include <unistd.h>
 #include <fcntl.h>
@@ -502,9 +501,9 @@ int
 fd_cstr_to_shmem_lg_page_sz( char const * cstr ) {
   if( !cstr ) return FD_SHMEM_UNKNOWN_LG_PAGE_SZ;
 
-  if( !strcasecmp( cstr, "normal"   ) ) return FD_SHMEM_NORMAL_LG_PAGE_SZ;
-  if( !strcasecmp( cstr, "huge"     ) ) return FD_SHMEM_HUGE_LG_PAGE_SZ;
-  if( !strcasecmp( cstr, "gigantic" ) ) return FD_SHMEM_GIGANTIC_LG_PAGE_SZ;
+  if( !fd_cstr_casecmp( cstr, "normal"   ) ) return FD_SHMEM_NORMAL_LG_PAGE_SZ;
+  if( !fd_cstr_casecmp( cstr, "huge"     ) ) return FD_SHMEM_HUGE_LG_PAGE_SZ;
+  if( !fd_cstr_casecmp( cstr, "gigantic" ) ) return FD_SHMEM_GIGANTIC_LG_PAGE_SZ;
 
   int i = fd_cstr_to_int( cstr );
   if( i==FD_SHMEM_NORMAL_LG_PAGE_SZ   ) return FD_SHMEM_NORMAL_LG_PAGE_SZ;
@@ -529,9 +528,9 @@ ulong
 fd_cstr_to_shmem_page_sz( char const * cstr ) {
   if( !cstr ) return FD_SHMEM_UNKNOWN_PAGE_SZ;
 
-  if( !strcasecmp( cstr, "normal"   ) ) return FD_SHMEM_NORMAL_PAGE_SZ;
-  if( !strcasecmp( cstr, "huge"     ) ) return FD_SHMEM_HUGE_PAGE_SZ;
-  if( !strcasecmp( cstr, "gigantic" ) ) return FD_SHMEM_GIGANTIC_PAGE_SZ;
+  if( !fd_cstr_casecmp( cstr, "normal"   ) ) return FD_SHMEM_NORMAL_PAGE_SZ;
+  if( !fd_cstr_casecmp( cstr, "huge"     ) ) return FD_SHMEM_HUGE_PAGE_SZ;
+  if( !fd_cstr_casecmp( cstr, "gigantic" ) ) return FD_SHMEM_GIGANTIC_PAGE_SZ;
 
   ulong u = fd_cstr_to_ulong( cstr );
   if( u==FD_SHMEM_NORMAL_PAGE_SZ   ) return FD_SHMEM_NORMAL_PAGE_SZ;

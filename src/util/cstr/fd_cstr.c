@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdarg.h>
+#include <strings.h>
 
 char const * fd_cstr_to_cstr  ( char const * cstr ) { return cstr;                             }
 char         fd_cstr_to_char  ( char const * cstr ) { return cstr[0];                          }
@@ -19,6 +20,12 @@ float        fd_cstr_to_float ( char const * cstr ) { return         strtof ( cs
 #if FD_HAS_DOUBLE
 double       fd_cstr_to_double( char const * cstr ) { return         strtod ( cstr, NULL    ); }
 #endif
+
+int
+fd_cstr_casecmp( char const * a,
+                 char const * b ) {
+  return strcasecmp( a, b );
+}
 
 char *
 fd_cstr_printf( char *       buf,
