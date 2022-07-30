@@ -76,6 +76,15 @@ main( int     argc,
         "\n\t"
         "\tquery-cnc gaddr\n\t"
         "\t- Queries the cnc at gaddr.\n\t"
+        "\n\t"
+        "\tsignal-cnc gaddr sig\n\t"
+        "\t- Sends signal sig to cnc at gaddr and waits for the response.\n\t"
+        "\t- Assumes sig is a valid signal to send.  E.g. halt (3).\n\t"
+        "\t- Blocking waits for sig to be processed and prints the\n\t"
+        "\t  response to stdout.  Typical responses are:\n\t"
+        "\t    run  (0): thread resumed running\n\t"
+        "\t    boot (1): thread halted and can be safely restarted.\n\t"
+        "\t    fail (2): thread halted and cannot be safely restated.\n\t"
         "\n\t", bin ));
       FD_LOG_NOTICE(( "%i: %s: success", cnt, cmd ));
 
@@ -441,11 +450,13 @@ main( int     argc,
       if( FD_UNLIKELY( !cnc ) )
         FD_LOG_ERR(( "%i: %s: fd_cnc_join( \"%s\" ) failed\n\tDo %s help for help", cnt, cmd, _shcnc, bin ));
 
+      char buf[ FD_CNC_SIGNAL_CSTR_BUF_MAX ];
+
       printf( "cnc %s\n", _shcnc );
-      printf( "\ttype      %u\n",  cnc->type      );
-      printf( "\theartbeat %li\n", cnc->heartbeat );
-      printf( "\tlock      %lu\n", cnc->lock      );
-      printf( "\tsignal    %lu\n", cnc->signal    );
+      printf( "\ttype      %u\n",       cnc->type                                           );
+      printf( "\theartbeat %li\n",      cnc->heartbeat                                      );
+      printf( "\tlock      %lu\n",      cnc->lock                                           );
+      printf( "\tsignal    %s (%lu)\n", fd_cnc_signal_cstr( cnc->signal, buf ), cnc->signal );
 
       uchar const * a = (uchar const *)fd_cnc_app_laddr_const( cnc );
       ulong app_sz;
@@ -464,6 +475,44 @@ main( int     argc,
 
       FD_LOG_NOTICE(( "%i: %s %s: success", cnt, cmd, _shcnc ));
       SHIFT( 1 );
+
+    } else if( !strcmp( cmd, "signal-cnc" ) ) {
+
+      if( FD_UNLIKELY( argc<2 ) ) FD_LOG_ERR(( "%i: %s: too few arguments\n\tDo %s help for help", cnt, cmd, bin ));
+
+      char const * _shcnc =                        argv[0];
+      ulong        signal = fd_cstr_to_cnc_signal( argv[1] );
+
+      char buf[ FD_CNC_SIGNAL_CSTR_BUF_MAX ];
+
+      if( FD_UNLIKELY( signal<FD_CNC_SIGNAL_HALT ) )
+        FD_LOG_ERR(( "%i: %s: invalid signal %s (%lu) to send\n\tDo %s help for help",
+                     cnt, cmd, fd_cnc_signal_cstr( signal, buf ), signal, bin ));
+
+      void * shcnc = fd_wksp_map( _shcnc );
+      if( FD_UNLIKELY( !shcnc ) )
+        FD_LOG_ERR(( "%i: %s: fd_wksp_map( \"%s\" ) failed\n\tDo %s help for help", cnt, cmd, _shcnc, bin ));
+
+      fd_cnc_t * cnc = fd_cnc_join( shcnc );
+      if( FD_UNLIKELY( !cnc ) )
+        FD_LOG_ERR(( "%i: %s: fd_cnc_join( \"%s\" ) failed\n\tDo %s help for help", cnt, cmd, _shcnc, bin ));
+
+      int err = fd_cnc_open( cnc );
+      if( FD_UNLIKELY( err ) )
+        FD_LOG_ERR(( "%i: %s: fd_cnc_open( \"%s\" ) failed (%i-%s)\n\tDo %s help for help",
+                     cnt, cmd, _shcnc, err, fd_cnc_strerror( err ), bin ));
+
+      fd_cnc_signal( cnc, signal );
+
+      ulong response = fd_cnc_wait( cnc, signal, LONG_MAX, NULL );
+      printf( "%s\n", fd_cnc_signal_cstr( response, buf ) );
+
+      fd_cnc_close( cnc );
+
+      fd_wksp_unmap( fd_cnc_leave( cnc ) );
+
+      FD_LOG_NOTICE(( "%i: %s %s %s: success", cnt, cmd, _shcnc, fd_cnc_signal_cstr( signal, buf ) ));
+      SHIFT( 2 );
 
     } else {
 

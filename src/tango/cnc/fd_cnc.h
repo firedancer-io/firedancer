@@ -98,10 +98,10 @@
    ([4,ULONG_MAX]) are available to implement user defined signals.
    Details of the standard signals are provided above. */
 
-#define FD_CNC_SIGNAL_BOOT (0UL)
-#define FD_CNC_SIGNAL_RUN  (1UL)
-#define FD_CNC_SIGNAL_HALT (2UL)
-#define FD_CNC_SIGNAL_FAIL (3UL)
+#define FD_CNC_SIGNAL_RUN  (0UL)
+#define FD_CNC_SIGNAL_BOOT (1UL)
+#define FD_CNC_SIGNAL_FAIL (2UL)
+#define FD_CNC_SIGNAL_HALT (3UL)
 
 /* FD_CNC_SUCCESS, FD_CNC_ERR_* are error code return values used by
    some cnc APIs.  SUCCESS must be zero, ERR_* are negative and
@@ -355,6 +355,26 @@ fd_cnc_close( fd_cnc_t * cnc ) {
 
 FD_FN_CONST char const *
 fd_cnc_strerror( int err );
+
+/* fd_cstr_to_cnc_signal converts the cstr pointed to by into a cnc
+   signal value.  Return value undefined if cstr does not point to a cnc
+   signal cstr. */
+
+FD_FN_PURE ulong
+fd_cstr_to_cnc_signal( char const * cstr );
+
+/* fd_cnc_signal_cstr pretty prints the cnc signal value into buf.  buf
+   must point to a character buffer with at least
+   FD_CNC_SIGNAL_CSTR_BUF_MAX bytes.  Always returns buf.  If buf is
+   non-NULL, the buffer pointed at will be populated with a proper '\0'
+   terminated cstr on return (and one that fd_cstr_to_cnc_signal
+   properly convert back to signal). */
+
+#define FD_CNC_SIGNAL_CSTR_BUF_MAX (21UL)
+
+char *
+fd_cnc_signal_cstr( ulong  signal,
+                    char * buf );
 
 FD_PROTOTYPES_END
 

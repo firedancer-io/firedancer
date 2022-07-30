@@ -25,6 +25,8 @@ fd_cnc_new( void * shmem,
 
   cnc->type      = (uint)type;
   cnc->heartbeat = now;
+  cnc->lock      = 0UL;
+  cnc->signal    = FD_CNC_SIGNAL_BOOT;
 
   FD_COMPILER_MFENCE();
   FD_VOLATILE( cnc->magic ) = FD_CNC_MAGIC;
@@ -302,5 +304,30 @@ fd_cnc_strerror( int err ) {
   default: break;
   }
   return "unknown---possibly not a cnc error code";
+}
+
+ulong
+fd_cstr_to_cnc_signal( char const * cstr ) {
+  if( FD_UNLIKELY( !cstr ) ) return FD_CNC_SIGNAL_RUN;
+  if( !fd_cstr_casecmp( cstr, "run"  ) ) return FD_CNC_SIGNAL_RUN;
+  if( !fd_cstr_casecmp( cstr, "boot" ) ) return FD_CNC_SIGNAL_BOOT;
+  if( !fd_cstr_casecmp( cstr, "fail" ) ) return FD_CNC_SIGNAL_FAIL;
+  if( !fd_cstr_casecmp( cstr, "halt" ) ) return FD_CNC_SIGNAL_HALT;
+  return fd_cstr_to_ulong( cstr );
+}
+
+char *
+fd_cnc_signal_cstr( ulong  signal,
+                    char * buf ) {
+  if( FD_LIKELY( buf ) ) {
+    switch( signal ) {
+    case FD_CNC_SIGNAL_RUN:  strcpy( buf, "run"  ); break;
+    case FD_CNC_SIGNAL_BOOT: strcpy( buf, "boot" ); break;
+    case FD_CNC_SIGNAL_FAIL: strcpy( buf, "fail" ); break;
+    case FD_CNC_SIGNAL_HALT: strcpy( buf, "halt" ); break;
+    default:                 fd_cstr_printf( buf, FD_CNC_SIGNAL_CSTR_BUF_MAX, NULL, "%lu", signal ); break;
+    }
+  }
+  return buf;
 }
 

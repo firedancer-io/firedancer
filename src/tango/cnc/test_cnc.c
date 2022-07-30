@@ -11,10 +11,10 @@ FD_STATIC_ASSERT( FD_CNC_FOOTPRINT==128UL, unit_test );
 FD_STATIC_ASSERT( FD_CNC_APP_ALIGN    ==32UL, unit_test );
 FD_STATIC_ASSERT( FD_CNC_APP_FOOTPRINT==96UL, unit_test );
 
-FD_STATIC_ASSERT( FD_CNC_SIGNAL_BOOT==0UL, unit_test );
-FD_STATIC_ASSERT( FD_CNC_SIGNAL_RUN ==1UL, unit_test );
-FD_STATIC_ASSERT( FD_CNC_SIGNAL_HALT==2UL, unit_test );
-FD_STATIC_ASSERT( FD_CNC_SIGNAL_FAIL==3UL, unit_test );
+FD_STATIC_ASSERT( FD_CNC_SIGNAL_RUN ==0UL, unit_test );
+FD_STATIC_ASSERT( FD_CNC_SIGNAL_BOOT==1UL, unit_test );
+FD_STATIC_ASSERT( FD_CNC_SIGNAL_FAIL==2UL, unit_test );
+FD_STATIC_ASSERT( FD_CNC_SIGNAL_HALT==3UL, unit_test );
 
 FD_STATIC_ASSERT( FD_CNC_SUCCESS  == 0, unit_test );
 FD_STATIC_ASSERT( FD_CNC_ERR_UNSUP==-1, unit_test );
@@ -133,6 +133,19 @@ main( int     argc,
   FD_LOG_NOTICE(( "fd_cnc_strerror( FD_CNC_ERR_AGAIN ): %s", fd_cnc_strerror( FD_CNC_ERR_AGAIN ) ));
   FD_LOG_NOTICE(( "fd_cnc_strerror( FD_CNC_ERR_FAIL  ): %s", fd_cnc_strerror( FD_CNC_ERR_FAIL  ) ));
   FD_LOG_NOTICE(( "fd_cnc_strerror( 1                ): %s", fd_cnc_strerror( 1                ) ));
+
+  char buf[ FD_CNC_SIGNAL_CSTR_BUF_MAX ];
+  TEST( !strcmp( fd_cnc_signal_cstr( FD_CNC_SIGNAL_RUN,  buf ), "run"  ) );
+  TEST( !strcmp( fd_cnc_signal_cstr( FD_CNC_SIGNAL_BOOT, buf ), "boot" ) );
+  TEST( !strcmp( fd_cnc_signal_cstr( FD_CNC_SIGNAL_FAIL, buf ), "fail" ) );
+  TEST( !strcmp( fd_cnc_signal_cstr( FD_CNC_SIGNAL_HALT, buf ), "halt" ) );
+  TEST( !strcmp( fd_cnc_signal_cstr( 4UL,                buf ), "4"    ) );
+
+  TEST( fd_cstr_to_cnc_signal( "run"  )==FD_CNC_SIGNAL_RUN  );
+  TEST( fd_cstr_to_cnc_signal( "boot" )==FD_CNC_SIGNAL_BOOT );
+  TEST( fd_cstr_to_cnc_signal( "fail" )==FD_CNC_SIGNAL_FAIL );
+  TEST( fd_cstr_to_cnc_signal( "halt" )==FD_CNC_SIGNAL_HALT );
+  TEST( fd_cstr_to_cnc_signal( "4"    )==4UL                );
 
   /* Start up the app thread and wait to finish booting */
 
