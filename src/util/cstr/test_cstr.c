@@ -1,8 +1,8 @@
 #include "../fd_util.h"
 
-/* FIXME: COVERAGE FOR FD_CSTR_CASECMP, FD_CSTR_APPEND_PRINTF,
-   FD_CSTR_APPEND_CSTR, FD_CSTR_APPEND_CSTR_SAFE, FD_CSTR_HASH,
-   FD_CSTR_HASH_APPEND */
+/* FIXME: COVERAGE FOR FD_CSTR_CASECMP, FD_CSTR_TO_ULONG_OCTAL,
+   FD_CSTR_APPEND_PRINTF, FD_CSTR_APPEND_CSTR, FD_CSTR_APPEND_CSTR_SAFE,
+   FD_CSTR_HASH, FD_CSTR_HASH_APPEND */
 
 char const * ref_text    = "\n\nThe quick brown fox jumps over the lazy dog\nThe quick brown fox jumps over the lazy dog.\n";
 char const * ref_uchar   = "0\n0\n+0\n-0\n1\n1\n+1\n-1\n 9\n09\n +9\n -9\n10\n10\n+10\n-10\n 99\n099\n +99\n -99\n100\n100\n+100\n-100\n 254\n0254\n +254\n -254\n 255\n0255\n +255\n -255\n";

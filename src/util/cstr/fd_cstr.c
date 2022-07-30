@@ -21,6 +21,8 @@ float        fd_cstr_to_float ( char const * cstr ) { return         strtof ( cs
 double       fd_cstr_to_double( char const * cstr ) { return         strtod ( cstr, NULL    ); }
 #endif
 
+ulong fd_cstr_to_ulong_octal( char const * cstr ) { return (ulong)strtoul( cstr, NULL, 8 ); }
+
 int
 fd_cstr_casecmp( char const * a,
                  char const * b ) {

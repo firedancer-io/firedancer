@@ -25,7 +25,12 @@ FD_PROTOTYPES_BEGIN
    need to treat a char as an integer.
 
    fd_cstr_to_cstr and fd_cstr_to_char exist primarily for type system
-   completeness / facilitate various generic programming practices. */
+   completeness / facilitate various generic programming practices.
+
+   The integer converters work in the strtol sense with base 0 (and thus
+   ignore leading whitespace, handle leading signs and assume octal if
+   the body is prefixed with 0, hexadecimal if prefixed with 0x and
+   decimal otherwise). */
 
 FD_FN_CONST char const * fd_cstr_to_cstr  ( char const * s );
 FD_FN_PURE  char         fd_cstr_to_char  ( char const * s );
@@ -41,6 +46,12 @@ FD_FN_PURE  float        fd_cstr_to_float ( char const * s );
 #if FD_HAS_DOUBLE
 FD_FN_PURE  double       fd_cstr_to_double( char const * s );
 #endif
+
+/* fd_cstr_to_ulong_octal is the same as fd_cstr_to_ulong but assumes s
+   points is octal.  This is mostly used when dealing parsing UNIX style
+   file permissions. */
+
+FD_FN_PURE ulong fd_cstr_to_ulong_octal( char const * s );
 
 /* fd_cstr_hash hashes the cstr pointed to by key to a ulong.
    fd_cstr_hash_append updates the hash value (it will be as though the
