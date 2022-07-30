@@ -347,7 +347,7 @@ main( int     argc,
     long toc = fd_tickcount();
     TEST( (toc - tic) > 0L );
     tic = toc;
-  } while(0);
+  }
 
 # endif
 
