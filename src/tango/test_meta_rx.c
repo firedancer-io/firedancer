@@ -4,8 +4,12 @@
 
 /* This test uses the mcache application region for holding the rx flow
    controls and tx backpressure counters.  We'll use a cache line pair
-   for each reliable rx_seq and the very end will hold backpressure
-   counters for each reliable rx. */
+   for each reliable rx_seq (as these are all written frequently by
+   different rx's) and the very end will hold backpressure counters for
+   each reliable rx (as these are all written infrequently by the tx).
+   We store the rx overrun accumulator in the rx's cnc app region so all
+   rx's (regardless of being reliable or not) have a remotely
+   monitorable overrun counter. */
 
 #define RX_MAX (256UL)
 
@@ -16,18 +20,30 @@ main( int     argc,
 
 # define TEST(c) do if( FD_UNLIKELY( !(c) ) ) { FD_LOG_WARNING(( "FAIL: " #c )); return 1; } while(0)
 
+  char const * _cnc    = fd_env_strip_cmdline_cstr ( &argc, &argv, "--cnc",    NULL,                 NULL );
   char const * _mcache = fd_env_strip_cmdline_cstr ( &argc, &argv, "--mcache", NULL,                 NULL );
   char const * _init   = fd_env_strip_cmdline_cstr ( &argc, &argv, "--init",   NULL,                 NULL );
   ulong        rx_idx  = fd_env_strip_cmdline_ulong( &argc, &argv, "--rx-idx", NULL,            ULONG_MAX ); /* ULONG_MAX<>unrel */
   uint         seed    = fd_env_strip_cmdline_uint ( &argc, &argv, "--seed",   NULL, (uint)fd_tickcount() );
-  ulong        max     = fd_env_strip_cmdline_ulong( &argc, &argv, "--max",    NULL,            ULONG_MAX );
 
+  if( FD_UNLIKELY( !_cnc                                  ) ) FD_LOG_ERR(( "--cnc not specified" ));
   if( FD_UNLIKELY( !_mcache                               ) ) FD_LOG_ERR(( "--mcache not specified" ));
   if( FD_UNLIKELY( (rx_idx!=ULONG_MAX) & (rx_idx>=RX_MAX) ) ) FD_LOG_ERR(( "--rx-idx too large for this unit-test" ));
 
+  FD_LOG_NOTICE(( "Creating rng --seed %u", seed ));
+
   fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
 
+  FD_LOG_NOTICE(( "Joining to --cnc %s", _cnc ));
+
+  fd_cnc_t * cnc = fd_cnc_join( fd_wksp_map( _cnc ) );
+  if( FD_UNLIKELY( !cnc ) ) FD_LOG_ERR(( "join failed" ));
+
+  ulong * _ovrn_cnt = fd_cnc_app_laddr( cnc );
+  *_ovrn_cnt = 0UL;
+
   FD_LOG_NOTICE(( "Joining to --mcache %s", _mcache ));
+
   fd_frag_meta_t * mcache = fd_mcache_join( fd_wksp_map( _mcache ) );
   if( FD_UNLIKELY( !mcache ) ) FD_LOG_ERR(( "join failed" ));
 
@@ -38,28 +54,28 @@ main( int     argc,
 
   ulong rx_seq = _init ? fd_cstr_to_ulong( _init ) : fd_mcache_seq_query( _tx_seq );
 
+  FD_LOG_NOTICE(( "Configuring flow control for --rx-idx %lu", rx_idx ));
+
   ulong   local_rx_seq[1];
   ulong * _rx_seq;
   if( rx_idx==ULONG_MAX ) _rx_seq = local_rx_seq; /* Unreliable consumer ... don't need to communicate fctl so use dummy */
   else { /* Reliable consumer ... communicate fctl via appropriate cache line pair in app region */
     if( FD_UNLIKELY( (rx_idx+1UL)*136UL > app_sz ) )
-      FD_LOG_ERR(( "Increase mcache app-sz to at least %lu for this --rx-idx", (rx_idx+1UL)*136UL ));
+      FD_LOG_ERR(( "Increase mcache app-sz to at least %lu", (rx_idx+1UL)*136UL ));
     _rx_seq = (ulong *)(app + rx_idx*128UL);
   }
 
   ulong async_min = 1UL<<13;
   ulong async_rem = 1UL; /* Do housekeeping on first iteration */
 
-  FD_LOG_NOTICE(( "Running --init %lu (%s) --rx-idx %lu --seed %u --max %lu",
-                  rx_seq, _init ? "manual" : "auto", rx_idx, seed, max ));
+  FD_LOG_NOTICE(( "Running --init %lu (%s)", rx_seq, _init ? "manual" : "auto" ));
 
-  ulong ovrn_cnt = 0UL; /* FIXME: PUT THIS IN A SHARED LOCATION */
-
-# define RELOAD (100000000UL)
+  long  then     = fd_log_wallclock();
   ulong iter     = 0UL;
-  ulong rem      = RELOAD;
-  long  tic      = fd_log_wallclock();
-  while( iter<max ) {
+  ulong ovrn_cnt = 0UL;
+
+  fd_cnc_signal( cnc, FD_CNC_SIGNAL_RUN );
+  for(;;) {
 
     /* Wait for frag rx_seq */
 
@@ -90,7 +106,36 @@ main( int     argc,
     /* Do housekeeping in background */
 
     if( FD_UNLIKELY( !async_rem ) ) {
+
+      /* Send flow control credits */
+
       fd_fctl_rx_cr_return( _rx_seq, rx_seq );
+
+      /* Send monitoring info */
+
+      long now = fd_log_wallclock();
+      fd_cnc_heartbeat( cnc, fd_log_wallclock() );
+
+      long dt = now - then;
+      if( FD_UNLIKELY( dt > (long)1e9 ) ) {
+        float mfps = (1e3f*(float)iter) / (float)dt;
+        FD_LOG_NOTICE(( "%7.3f Mfrag/s rx (ovrn %lu)", (double)mfps, ovrn_cnt ));
+        *_ovrn_cnt += ovrn_cnt;
+        then     = now;
+        iter     = 0UL;
+        ovrn_cnt = 0UL;
+      }
+
+      /* Receive command-and-control signals */
+
+      ulong s = fd_cnc_signal_query( cnc );
+      if( FD_UNLIKELY( s!=FD_CNC_SIGNAL_RUN ) ) {
+        if( FD_LIKELY( s==FD_CNC_SIGNAL_HALT ) ) break;
+        char buf[ FD_CNC_SIGNAL_CSTR_BUF_MAX ];
+        FD_LOG_WARNING(( "Unexpected signal %s (%lu) received; trying to resume", fd_cnc_signal_cstr( s, buf ), s ));
+        fd_cnc_signal( cnc, FD_CNC_SIGNAL_RUN );
+      }
+
       async_rem = fd_async_reload( rng, async_min );
       continue;
     }
@@ -160,27 +205,14 @@ main( int     argc,
 #   endif
 
     rx_seq = fd_seq_inc( rx_seq, 1UL );
-
-    /* This iteration was successful, go to the next iteration and,
-       every once in a while, log some performance metrics. */
-
     iter++;
-    rem--;
-    if( FD_UNLIKELY( !rem ) ) {
-      long  toc  = fd_log_wallclock();
-      float mfps = (1e3f*(float)RELOAD) / (float)(toc-tic);
-      FD_LOG_NOTICE(( "%lu: %7.3f Mfrag/s rx (ovrn %lu)", iter, (double)mfps, ovrn_cnt ));
-      rem      = RELOAD;
-      tic      = fd_log_wallclock();
-      ovrn_cnt = 0UL;
-    }
-
   }
 
   FD_LOG_NOTICE(( "Cleaning up" ));
 
-  fd_fctl_rx_cr_return( _rx_seq, rx_seq ); /* Record where rx should resume from */
   fd_wksp_unmap( fd_mcache_leave( mcache ) );
+  fd_cnc_signal( cnc, FD_CNC_SIGNAL_BOOT );
+  fd_wksp_unmap( fd_cnc_leave( cnc ) );
   fd_rng_delete( fd_rng_leave( rng ) );
 
 # undef TEST
