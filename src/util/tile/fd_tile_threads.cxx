@@ -394,6 +394,7 @@ fd_tile_private_cpus_parse( char const * cstr,
       while( isspace( (int)p[0] ) ) p++; /* Munch whitespace */
       if( FD_UNLIKELY( !( p[0]==',' || p[0]=='\0' ) ) ) FD_LOG_ERR(( "fd_tile: malformed --tile-cpus (bad range delimiter)" ));
       if( p[0]==',' ) p++;
+      if( FD_UNLIKELY( cnt>=FD_TILE_MAX ) ) FD_LOG_ERR(( "fd_tile: too many --tile-cpus" ));
       tile_to_cpu[ cnt++ ] = (ushort)65535;
       continue;
     }
@@ -453,7 +454,7 @@ fd_tile_private_boot( int *    pargc,
     tile_to_cpu[0] = (ushort)65535;
     tile_cnt       = 1UL;
   }
-  
+
   if( tile_to_cpu[ 0UL ]<(ushort)65535 ) {
 
     int good_taskset;
@@ -602,7 +603,7 @@ fd_tile_private_boot( int *    pargc,
     for(;;) {
       tile = FD_VOLATILE_CONST( args->tile );
       if( FD_LIKELY( tile ) ) break;
-      FD_SPIN_PAUSE();
+      FD_YIELD();
     }
     FD_VOLATILE( fd_tile_private[ tile_idx ].tile ) = tile;
 
@@ -637,7 +638,7 @@ fd_tile_private_halt( void ) {
 
   FD_LOG_INFO(( "fd_tile: waiting for all tasks to complete" ));
   for( ulong tile_idx=1UL; tile_idx<tile_cnt; tile_idx++ )
-    while( FD_VOLATILE_CONST( tile[ tile_idx ]->state )!=FD_TILE_PRIVATE_STATE_IDLE ) FD_SPIN_PAUSE();
+    while( FD_VOLATILE_CONST( tile[ tile_idx ]->state )!=FD_TILE_PRIVATE_STATE_IDLE ) FD_YIELD();
   /* All halt transitions will be valid at this point */
 
   FD_LOG_INFO(( "fd_tile: signaling all tiles to halt" ));
