@@ -789,7 +789,7 @@ fd_log_private_boot( int  *   pargc,
     if( len==1023UL ) { fprintf( stderr, "default log path too long; unable to boot\n" ); exit(1); }
   }
   else if( log_path_sz==1UL    ) fd_log_private_path[0] = '\0'; /* User disabled */
-  else if( log_path_sz<=1024UL ) memcpy( fd_log_private_path, log_path, log_path_sz ); /* User specified */
+  else if( log_path_sz<=1024UL ) fd_memcpy( fd_log_private_path, log_path, log_path_sz ); /* User specified */
   else                           { fprintf( stderr, "--log-path too long; unable to boot\n" ); exit(1); } /* Invalid */
 
   FILE * log_file;

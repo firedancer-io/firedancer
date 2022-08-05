@@ -237,7 +237,7 @@ SET_(new)( void * shmem,
   hdr->full_last_word = SET_(private_full_last_word)( max );
 
   SET_(t) * set = hdr->set; FD_COMPILER_FORGET( set );
-  memset( set, 0, sizeof(SET_(t))*word_cnt );
+  fd_memset( set, 0, sizeof(SET_(t))*word_cnt );
 
   return hdr;
 }

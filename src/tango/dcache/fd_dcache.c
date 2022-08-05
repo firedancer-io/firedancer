@@ -67,7 +67,7 @@ fd_dcache_new( void * shmem,
     return NULL;
   }
 
-  memset( shmem, 0, footprint );
+  fd_memset( shmem, 0, footprint );
 
   fd_dcache_private_hdr_t * hdr = (fd_dcache_private_hdr_t *)shmem;
 

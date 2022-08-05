@@ -157,7 +157,7 @@ fd_shmem_create( char const * name,
     ERROR( done );
   }
 
-  memset( nodemask, 0, 8UL*((FD_SHMEM_NUMA_MAX+63UL)/64UL) );
+  fd_memset( nodemask, 0, 8UL*((FD_SHMEM_NUMA_MAX+63UL)/64UL) );
   nodemask[ numa_idx >> 6 ] = 1UL << (numa_idx & 63UL);
   if( FD_UNLIKELY( set_mempolicy( MPOL_BIND | MPOL_F_STATIC_NODES, nodemask, FD_SHMEM_NUMA_MAX ) ) ) {
     FD_LOG_WARNING(( "set_mempolicy failed (%i-%s)", errno, strerror( errno ) ));
@@ -236,7 +236,7 @@ fd_shmem_create( char const * name,
      after we unmap it. */
 
   /* Just in case set_mempolicy clobbered it */
-  memset( nodemask, 0, 8UL*((FD_SHMEM_NUMA_MAX+63UL)/64UL) );
+  fd_memset( nodemask, 0, 8UL*((FD_SHMEM_NUMA_MAX+63UL)/64UL) );
   nodemask[ numa_idx >> 6 ] = 1UL << (numa_idx & 63UL);
   if( FD_UNLIKELY( mbind( shmem, sz, MPOL_BIND, nodemask, FD_SHMEM_NUMA_MAX, MPOL_MF_MOVE | MPOL_MF_STRICT ) ) ) {
     FD_LOG_WARNING(( "mbind(\"%s\",%lu KiB,MPOL_BIND,1UL<<%lu,MPOL_MF_MOVE|MPOL_MF_STRICT) failed (%i-%s)",
@@ -394,7 +394,7 @@ fd_shmem_acquire( ulong page_sz,
     ERROR( done );
   }
 
-  memset( nodemask, 0, 8UL*((FD_SHMEM_NUMA_MAX+63UL)/64UL) );
+  fd_memset( nodemask, 0, 8UL*((FD_SHMEM_NUMA_MAX+63UL)/64UL) );
   nodemask[ numa_idx >> 6 ] = 1UL << (numa_idx & 63UL);
   if( FD_UNLIKELY( set_mempolicy( MPOL_BIND | MPOL_F_STATIC_NODES, nodemask, FD_SHMEM_NUMA_MAX ) ) ) {
     FD_LOG_WARNING(( "set_mempolicy failed (%i-%s)", errno, strerror( errno ) ));
@@ -422,7 +422,7 @@ fd_shmem_acquire( ulong page_sz,
      MEMPOLICY DONE ABOVE?) */
 
   /* Just in case set_mempolicy clobbered it */
-  memset( nodemask, 0, 8UL*((FD_SHMEM_NUMA_MAX+63UL)/64UL) );
+  fd_memset( nodemask, 0, 8UL*((FD_SHMEM_NUMA_MAX+63UL)/64UL) );
   nodemask[ numa_idx >> 6 ] = 1UL << (numa_idx & 63UL);
   if( FD_UNLIKELY( mbind( mem, sz, MPOL_BIND, nodemask, FD_SHMEM_NUMA_MAX, MPOL_MF_MOVE | MPOL_MF_STRICT ) ) ) {
     FD_LOG_WARNING(( "mbind(anon,%lu KiB,MPOL_BIND,1UL<<%lu,MPOL_MF_MOVE|MPOL_MF_STRICT) failed (%i-%s)",
@@ -589,7 +589,7 @@ fd_shmem_private_boot( int *    pargc,
   while( (len>1UL) && (shmem_base[len-1UL]=='/') ) len--; /* lop off any trailing slashes */
   if( FD_UNLIKELY( !len ) ) FD_LOG_ERR(( "Too short --shmem-base" ));
   if( FD_UNLIKELY( len>=FD_SHMEM_PRIVATE_BASE_MAX ) ) FD_LOG_ERR(( "Too long --shmem-base" ));
-  memcpy( fd_shmem_private_base, shmem_base, len );
+  fd_memcpy( fd_shmem_private_base, shmem_base, len );
   fd_shmem_private_base[len] = '\0';
   fd_shmem_private_base_len = (ulong)len;
 
@@ -607,7 +607,7 @@ fd_shmem_private_halt( void ) {
 
   fd_shmem_private_numa_cnt = 0;
   fd_shmem_private_cpu_cnt  = 0;
-  memset( fd_shmem_private_numa_idx, 0, FD_SHMEM_CPU_MAX );
+  fd_memset( fd_shmem_private_numa_idx, 0, FD_SHMEM_CPU_MAX );
 
   fd_shmem_private_base[0] = '\0';
   fd_shmem_private_base_len = 0UL;

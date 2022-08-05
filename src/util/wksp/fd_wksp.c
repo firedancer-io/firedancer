@@ -219,7 +219,7 @@ fd_wksp_cstr_parse( char const * cstr,     /* cstr to parse */
     return NULL;
   }
 
-  memcpy( name, cstr, name_len );
+  fd_memcpy( name, cstr, name_len );
   name[name_len] = '\0';
   gaddr[0] = fd_cstr_to_ulong( cstr + name_len + 1UL );
   return name;
@@ -497,7 +497,7 @@ fd_wksp_new( void *       shmem,
   wksp->part_max = part_max;
   wksp->gaddr_lo = gaddr_lo;
   wksp->gaddr_hi = gaddr_hi;
-  memcpy( wksp->name, name, name_len+1UL );
+  fd_memcpy( wksp->name, name, name_len+1UL );
   wksp->part[0]  = fd_wksp_private_part( 0, gaddr_lo );
   wksp->part[1]  = fd_wksp_private_part( 1, gaddr_hi ); /* active is used to indicate there is nothing allocatable beyond the wksp
                                                            end (free makes use of this for merging logic) */
@@ -831,7 +831,7 @@ fd_wksp_memset( fd_wksp_t * wksp,
     /* If addr is in this active partition, ... */
 
     if( ((lo<=gaddr) & (gaddr<hi)) ) { /* Yes, strict < for hi */
-      memset( fd_wksp_laddr( wksp, gaddr ), c, hi-lo );
+      fd_memset( fd_wksp_laddr( wksp, gaddr ), c, hi-lo );
       fd_wksp_private_unlock( wksp );
       return;
     }

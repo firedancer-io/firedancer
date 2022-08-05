@@ -23,8 +23,8 @@ fd_shmem_private_key( fd_shmem_private_key_t * key,
                       char const *             name ) {
   ulong len = fd_shmem_name_len( name );
   if( FD_UNLIKELY( !len ) ) return NULL;
-  memset( key->cstr, 0, FD_SHMEM_NAME_MAX );
-  memcpy( key->cstr, name, len );
+  fd_memset( key->cstr, 0, FD_SHMEM_NAME_MAX );
+  fd_memcpy( key->cstr, name, len );
   return key;
 }
 

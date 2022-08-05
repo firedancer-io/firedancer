@@ -253,7 +253,7 @@ main( int     argc,
     TEST( fd_type_pun      ( ctr )==(void       *)ctr );
     TEST( fd_type_pun_const( ctr )==(void const *)ctr );
 
-    struct __attribute__((packed)) { char c; int i; } p; memset( &p, 0, sizeof(p) );
+    struct __attribute__((packed)) { char c; int i; } p; fd_memset( &p, 0, sizeof(p) );
     int * pi  = FD_ADDRESS_OF_PACKED_MEMBER( p.i ); TEST( (ulong)pi==(((ulong)&p)+1UL) );
     ((void)p.c);
 
@@ -322,6 +322,13 @@ main( int     argc,
 
     ulong hs0 = fd_hash( 0UL, src, s0 ); ulong hs1 = fd_hash( 0UL, src+s1, 2048UL-s1 );
     ulong hd0 = fd_hash( 0UL, dst, d0 ); ulong hd1 = fd_hash( 0UL, dst+d1, 2048UL-d1 );
+
+    int c = (int)fd_rng_uchar( rng );
+    memset( src+s0, c, sz );
+    TEST( fd_memset( dst+d0, c, sz )==(dst+d0) );
+    TEST( !memcmp( dst+d0, src+s0, sz ) );
+    TEST( fd_hash( 0UL, src, s0 )==hs0 ); TEST( fd_hash( 0UL, src+s1, 2048UL-s1 )==hs1 );
+    TEST( fd_hash( 0UL, dst, d0 )==hd0 ); TEST( fd_hash( 0UL, dst+d1, 2048UL-d1 )==hd1 );
 
     for( ulong b=s0; b<s1; b++ ) src[b] = fd_rng_uchar( rng );
 

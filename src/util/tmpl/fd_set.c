@@ -201,7 +201,7 @@ SET_(private_full_last_word)( void ) {
 FD_FN_CONST static inline ulong SET_(align)    ( void ) { return alignof(ulong); }
 FD_FN_CONST static inline ulong SET_(footprint)( void ) { return 8UL*(ulong)SET_(word_cnt); }
 
-static inline void    * SET_(new)   ( void *    shmem ) { return memset( shmem, 0, SET_(footprint)() ); }
+static inline void    * SET_(new)   ( void *    shmem ) { return fd_memset( shmem, 0, SET_(footprint)() ); }
 static inline SET_(t) * SET_(join)  ( void *    shset ) { return (SET_(t) *)shset; }
 static inline void    * SET_(leave) ( SET_(t) * set   ) { return (void *)set; }
 static inline void    * SET_(delete)( void *    shset ) { return shset; }

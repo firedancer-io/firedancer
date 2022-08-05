@@ -122,7 +122,7 @@ main( int     argc,
 
     fd_frag_meta_t meta[1];
 
-    memset( meta, 0, sizeof(fd_frag_meta_t) );
+    fd_memset( meta, 0, sizeof(fd_frag_meta_t) );
     _mm_store_si128( &meta->sse0, sse0 );
     _mm_store_si128( &meta->sse1, sse1 );
     TEST(        meta->seq   ==seq    );
@@ -133,7 +133,7 @@ main( int     argc,
     TEST( (ulong)meta->tsorig==tsorig );
     TEST( (ulong)meta->tspub ==tspub  );
 
-    memset( meta, 0, sizeof(fd_frag_meta_t) );
+    fd_memset( meta, 0, sizeof(fd_frag_meta_t) );
     _mm256_store_si256( &meta->avx, avx );
     TEST(        meta->seq   ==seq    );
     TEST(        meta->sig   ==sig    );

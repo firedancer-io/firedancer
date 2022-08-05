@@ -21,7 +21,7 @@ fd_cnc_new( void * shmem,
     return NULL;
   }
 
-  memset( cnc, 0, FD_CNC_FOOTPRINT );
+  fd_memset( cnc, 0, FD_CNC_FOOTPRINT );
 
   cnc->type      = (uint)type;
   cnc->heartbeat = now;

@@ -601,7 +601,7 @@ FD_PROTOTYPES_BEGIN
    needing a completely generic memcpy.  But it can be beaten in
    specialized situations for the usual reasons. */
 
-/* FIXME: CONSIDER MEMSET AND MEMCMP TOO! */
+/* FIXME: CONSIDER MEMCMP TOO! */
 /* FIXME: CONSIDER MEMCPY RELATED FUNC ATTRS */
 
 #ifndef FD_USE_ARCH_MEMCPY
@@ -626,6 +626,37 @@ fd_memcpy( void       * FD_RESTRICT d,
            void const * FD_RESTRICT s,
            ulong                    sz ) {
   return memcpy( d, s, sz );
+}
+
+#endif
+
+/* fd_memset(d,c,sz): architecturally optimized memset.  See fd_memcpy
+   for considerations. */
+
+/* FIXME: CONSIDER MEMSET RELATED FUNC ATTRS */
+
+#ifndef FD_USE_ARCH_MEMSET
+#define FD_USE_ARCH_MEMSET 1
+#endif
+
+#if FD_HAS_X86 && FD_USE_ARCH_MEMSET
+
+static inline void *
+fd_memset( void  * d,
+           int     c,
+           ulong   sz ) {
+  void * p = d;
+  __asm__ __volatile__( "rep stosb" : "+D" (p), "+c" (sz) : "a" (c) : "memory" );
+  return d;
+}
+
+#else
+
+static inline void *
+fd_memset( void  * d,
+           int     c,
+           ulong   sz ) {
+  return memset( d, c, sz );
 }
 
 #endif
