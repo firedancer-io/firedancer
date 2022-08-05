@@ -66,7 +66,7 @@ app_main( int     argc,
         ulong ball = FD_VOLATILE_CONST( app[0] );
         FD_VOLATILE( app[1] ) = ball+1UL;
         fd_cnc_signal( cnc, USER_PING );
-        TEST( fd_cnc_wait( cnc, USER_PING, (long)0.1e9, &now )==USER_PONG );
+        TEST( fd_cnc_wait( cnc, USER_PING, (long)30e9, &now )==USER_PONG );
 
         /* Test legal game, return ball and finish game */
         TEST( FD_VOLATILE_CONST( app[0] )==ball     );
@@ -147,7 +147,7 @@ main( int     argc,
   /* Start up the app thread and wait to finish booting */
 
   fd_tile_exec_t * app_thread = fd_tile_exec_new( 1UL, app_main, 0, (char **)shcnc );
-  TEST( fd_cnc_wait( cnc, FD_CNC_SIGNAL_BOOT, (long)0.1e9, &now )==FD_CNC_SIGNAL_RUN );
+  TEST( fd_cnc_wait( cnc, FD_CNC_SIGNAL_BOOT, (long)30e9, &now )==FD_CNC_SIGNAL_RUN );
 
   /* Start a command and control session with the app thread */
 
@@ -159,13 +159,13 @@ main( int     argc,
     
     /* Request ack */
     fd_cnc_signal( cnc, USER_ACK );
-    TEST( fd_cnc_wait( cnc, USER_ACK, (long)0.1e9, &now )==FD_CNC_SIGNAL_RUN );
+    TEST( fd_cnc_wait( cnc, USER_ACK, (long)30e9, &now )==FD_CNC_SIGNAL_RUN );
 
     /* Request a game and wait for serve */
     ulong ball = fd_ulong_hash( iter );
     FD_VOLATILE( app[0] ) = ball;
     fd_cnc_signal( cnc, USER_GAME );
-    TEST( fd_cnc_wait( cnc, USER_GAME, (long)0.1e9, &now )==USER_PING );
+    TEST( fd_cnc_wait( cnc, USER_GAME, (long)30e9, &now )==USER_PING );
 
     /* Test legal game, return the ball and wait for game to finish */
     TEST( FD_VOLATILE_CONST( app[0] )==ball     );
@@ -174,7 +174,7 @@ main( int     argc,
     fd_cnc_signal( cnc, USER_PONG );
 
     /* Test legal game */
-    TEST( fd_cnc_wait( cnc, USER_PONG, (long)0.1e9, &now )==FD_CNC_SIGNAL_RUN );
+    TEST( fd_cnc_wait( cnc, USER_PONG, (long)30e9, &now )==FD_CNC_SIGNAL_RUN );
     TEST( FD_VOLATILE_CONST( app[0] )==ball     );
     TEST( FD_VOLATILE_CONST( app[1] )==ball+1UL );
     TEST( FD_VOLATILE_CONST( app[2] )==ball+2UL );
@@ -186,7 +186,7 @@ main( int     argc,
   /* Tell the app thread to halt and wait for it to finish halting */
 
   fd_cnc_signal( cnc, FD_CNC_SIGNAL_HALT );
-  TEST( fd_cnc_wait( cnc, FD_CNC_SIGNAL_HALT, (long)0.1e9, &now )==FD_CNC_SIGNAL_BOOT );
+  TEST( fd_cnc_wait( cnc, FD_CNC_SIGNAL_HALT, (long)30e9, &now )==FD_CNC_SIGNAL_BOOT );
 
   /* Finish command and control session with the app thread */
 
