@@ -27,9 +27,18 @@ typedef struct fd_tile_private_cpu_config fd_tile_private_cpu_config_t;
 /* Configure the CPU optimally */
 
 static inline void
-fd_tile_private_cpu_config( fd_tile_private_cpu_config_t * save ) {
+fd_tile_private_cpu_config( fd_tile_private_cpu_config_t * save,
+                            ulong                          cpu_idx ) {
 
-  /* Configure high scheduler priority */
+  /* If a floating tile, leave scheduler priority unchanged from however
+     the thread group launcher configured it. */
+
+  if( cpu_idx==65535UL ) {
+    save->prio = INT_MIN;
+    return;
+  }
+
+  /* Otherwise, configure high scheduler priority */
 
   errno = 0;
   int prio = getpriority( PRIO_PROCESS, (id_t)0 );
@@ -199,6 +208,7 @@ typedef struct fd_tile_private fd_tile_private_t;
 struct fd_tile_private_manager_args {
   ulong               id;
   ulong               idx;
+  ulong               cpu_idx;
   void *              stack;
   fd_tile_private_t * tile;
 };
@@ -236,7 +246,7 @@ fd_tile_private_manager( void * _args ) {
   fd_tile_private_idx = idx;
 
   fd_tile_private_cpu_config_t dummy[1];
-  fd_tile_private_cpu_config( dummy );
+  fd_tile_private_cpu_config( dummy, args->cpu_idx );
 
   ulong app_id = fd_log_app_id();
   FD_LOG_INFO(( "fd_tile: boot tile %lu success (thread %lu:%lu in thread group %lu:%lu/%lu)",
@@ -513,7 +523,7 @@ fd_tile_private_boot( int *    pargc,
   /* Tile 0 "thread manager init" */
   fd_tile_private_id  = fd_tile_private_id0;
   fd_tile_private_idx = 0UL;
-  fd_tile_private_cpu_config( fd_tile_private_cpu_config_save );
+  fd_tile_private_cpu_config( fd_tile_private_cpu_config_save, cpu_idx );
   fd_tile_private[0].tile = NULL; /* Can't dispatch to tile 0 */
 
   FD_LOG_INFO(( "fd_tile: boot tile %lu success (thread %lu:%lu in thread group %lu:%lu/%lu)",
@@ -577,10 +587,11 @@ fd_tile_private_boot( int *    pargc,
 
     fd_tile_private_manager_args_t args[1];
 
-    FD_VOLATILE( args->id    ) = fd_tile_private_id0 + tile_idx;
-    FD_VOLATILE( args->idx   ) = tile_idx;
-    FD_VOLATILE( args->stack ) = stack;
-    FD_VOLATILE( args->tile  ) = NULL;
+    FD_VOLATILE( args->id      ) = fd_tile_private_id0 + tile_idx;
+    FD_VOLATILE( args->idx     ) = tile_idx;
+    FD_VOLATILE( args->cpu_idx ) = cpu_idx;
+    FD_VOLATILE( args->stack   ) = stack;
+    FD_VOLATILE( args->tile    ) = NULL;
 
     FD_COMPILER_MFENCE();
 
@@ -617,7 +628,7 @@ fd_tile_private_boot( int *    pargc,
     }
   }
 
-  memcpy( fd_tile_private_cpu_id, tile_to_cpu, fd_tile_private_cnt*sizeof(ushort) );
+  fd_memcpy( fd_tile_private_cpu_id, tile_to_cpu, fd_tile_private_cnt*sizeof(ushort) );
 
   FD_LOG_INFO(( "fd_tile: boot success" ));
 }
@@ -626,7 +637,7 @@ void
 fd_tile_private_halt( void ) {
   FD_LOG_INFO(( "fd_tile: halt" ));
 
-  memset( fd_tile_private_cpu_id, 0, fd_tile_private_cnt*sizeof(ushort) );
+  fd_memset( fd_tile_private_cpu_id, 0, fd_tile_private_cnt*sizeof(ushort) );
 
   ulong tile_cnt = fd_tile_private_cnt;
 
@@ -664,7 +675,7 @@ fd_tile_private_halt( void ) {
 
   for( ulong tile_idx=1UL; tile_idx<tile_cnt; tile_idx++ ) fd_tile_private_unlock( tile_idx, NULL );
 
-  memset( fd_tile_private_cpu_config_save, 0, sizeof(fd_tile_private_cpu_config_t) );
+  fd_memset( fd_tile_private_cpu_config_save, 0, sizeof(fd_tile_private_cpu_config_t) );
 
   fd_tile_private_idx = 0UL;
   fd_tile_private_id  = 0UL;
