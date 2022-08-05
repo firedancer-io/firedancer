@@ -141,6 +141,10 @@ main( int     argc,
       TEST( fd_uchar_abs  ( x       )==x                             );
       TEST( fd_uchar_min  ( x, y    )==((x<y) ? x : y)               );
       TEST( fd_uchar_max  ( x, y    )==((x>y) ? x : y)               );
+
+      int n = (int)fd_rng_uint( rng );
+      TEST( fd_uchar_rotate_left ( x, n )==(uchar)((x<<(n&7))|(x>>(8-(n&7)))) );
+      TEST( fd_uchar_rotate_right( x, n )==(uchar)((x>>(n&7))|(x<<(8-(n&7)))) );
     }
   }
 
@@ -270,6 +274,10 @@ main( int     argc,
       TEST( fd_ushort_abs  ( x       )==x                             );
       TEST( fd_ushort_min  ( x, y    )==((x<y) ? x : y)               );
       TEST( fd_ushort_max  ( x, y    )==((x>y) ? x : y)               );
+
+      int n = (int)fd_rng_uint( rng );
+      TEST( fd_ushort_rotate_left ( x, n )==(ushort)((x<<(n&15))|(x>>(16-(n&15)))) );
+      TEST( fd_ushort_rotate_right( x, n )==(ushort)((x>>(n&15))|(x<<(16-(n&15)))) );
     }
   }
 
@@ -399,6 +407,10 @@ main( int     argc,
       TEST( fd_uint_abs  ( x       )==x                             );
       TEST( fd_uint_min  ( x, y    )==((x<y) ? x : y)               );
       TEST( fd_uint_max  ( x, y    )==((x>y) ? x : y)               );
+
+      int n = (int)y;
+      TEST( fd_uint_rotate_left ( x, n )==((x<<(n&31))|(x>>(32-(n&31)))) );
+      TEST( fd_uint_rotate_right( x, n )==((x>>(n&31))|(x<<(32-(n&31)))) );
     }
   }
 
@@ -529,6 +541,10 @@ main( int     argc,
       TEST( fd_ulong_abs  ( x       )==x                             );
       TEST( fd_ulong_min  ( x, y    )==((x<y) ? x : y)               );
       TEST( fd_ulong_max  ( x, y    )==((x>y) ? x : y)               );
+
+      int n = (int)(uint)y;
+      TEST( fd_ulong_rotate_left ( x, n )==((x<<(n&63))|(x>>(64-(n&63)))) );
+      TEST( fd_ulong_rotate_right( x, n )==((x>>(n&63))|(x<<(64-(n&63)))) );
 
       int s0 = (int)(m & 63UL); m >>= 6;
       int s1 = (int)(m & 63UL);
@@ -675,12 +691,16 @@ main( int     argc,
       uint128 m = fd_rng_uint128( rng );
       uint128 x = fd_rng_uint128( rng );
       uint128 y = fd_rng_uint128( rng );
-      int   c = fd_uint128_extract_bit( m, 0 );
+      int     c = fd_uint128_extract_bit( m, 0 );
       TEST( fd_uint128_blend( m, x, y )==((x & m) | (y & ~m)) );
       TEST( fd_uint128_if   ( c, x, y )==(c ? x : y)          );
       TEST( fd_uint128_abs  ( x       )==x                    );
       TEST( fd_uint128_min  ( x, y    )==((x<y) ? x : y)      );
       TEST( fd_uint128_max  ( x, y    )==((x>y) ? x : y)      );
+
+      int n = (int)(uint)y;
+      TEST( fd_uint128_rotate_left ( x, n )==((x<<(n&127))|(x>>(128-(n&127)))) );
+      TEST( fd_uint128_rotate_right( x, n )==((x>>(n&127))|(x<<(128-(n&127)))) );
     }
   }
 # endif

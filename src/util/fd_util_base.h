@@ -552,7 +552,7 @@ fd_type_pun_const( void const * p ) {
         _fd_once_block_state = 1; \
         break;                    \
       }                           \
-      FD_SPIN_PAUSE();            \
+      FD_YIELD();                 \
     }                             \
   } while(0)
 

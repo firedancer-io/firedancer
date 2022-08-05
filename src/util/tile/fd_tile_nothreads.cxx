@@ -44,7 +44,7 @@ fd_tile_exec_new( ulong          idx,
 char const *
 fd_tile_exec_delete( fd_tile_exec_t * exec,
                      int *            opt_ret ) {
-  while( !FD_VOLATILE_CONST( exec->done ) ) FD_SPIN_PAUSE();
+  while( !FD_VOLATILE_CONST( exec->done ) ) FD_YIELD();
   (void)opt_ret;
   return "fd_tile_exec_delete with no matching successful new";
 }
