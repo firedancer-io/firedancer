@@ -61,8 +61,8 @@ FD_PROTOTYPES_BEGIN
    Similarly for uchar,ushort,uint,uint128
 
    FIXME: mask_msb, clear_msb, set_msb, flip_msb, extract_msb,
-   insert_msb, bitrev, wide shifts, wide rotates, signed extending
-   shifts, rounding right shift, ... */
+   insert_msb, bitrev, wide shifts, signed extending shifts, rounding
+   right shift, ... */
 
 #define FD_SRC_UTIL_BITS_FD_BITS_IMPL(T,w)                                                                                        \
 FD_FN_CONST static inline int fd_##T##_is_pow2     ( T x               ) { return (!!x) & (!(x & (x-(T)1)));                    } \
