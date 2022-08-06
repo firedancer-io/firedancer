@@ -210,26 +210,32 @@ FD_PROTOTYPES_BEGIN
        For a thread group of an application on a hosted target, this
        specifies the cpus to use.  E.g.
 
-         --tile-cpus f,1-3,f,9,7
+         --tile-cpus f,1-3,f2,9,7
 
-       specifies this application thread group has 7 tiles that should
+       specifies this application thread group has 8 tiles that should
        be mapped to cpus on this host as:
 
-         tile 0 on floating on whatever the OS assigned to the booter
+         tile 0 on floating
          tile 1 on cpu 1
          tile 2 on cpu 2
          tile 3 on cpu 3
-         tile 4 on floating on whatever the OS assigned to the booter
-         tile 5 on cpu 9
-         tile 6 on cpu 7
+         tile 4 on floating
+         tile 5 on floating
+         tile 6 on cpu 9
+         tile 7 on cpu 7
+
+       Floating tiles run on the cores the job launcher initially the
+       thread group with whatever priority was initially assigned the
+       thread group.  Fixed tiles run on the specified tile with high
+       scheduler priority.
 
        The booter will become tile 0.  The non-floating cpus in the list
        must be unique (e.g. multiple non-floating tiles cannot be
        assigned to the same cpu) and ranges in the list ("x-y") must be
-       non-empty (i.e. x<=y) and non-floating.  If --tile-cpus is not
-       provided, this thread group will be assumed to be single threaded
-       and the cpu will be whatever the OS assigned to the booter
-       (equivalent to "--tile-cpus f").
+       non-empty (i.e. x<=y).  If --tile-cpus is not provided, this
+       thread group will be assumed to be single threaded and the cpu
+       will be whatever the OS assigned to the booter (equivalent to
+       "--tile-cpus f").
 
        If tile 0 is not a floating tile, recommend using
        "taskset -c [cpu for tile 0]" or equivalent at thread group launch

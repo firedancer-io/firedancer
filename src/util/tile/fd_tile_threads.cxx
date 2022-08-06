@@ -399,13 +399,30 @@ fd_tile_private_cpus_parse( char const * cstr,
 
     while( isspace( (int)p[0] ) ) p++; /* Munch whitespace */
 
-    if( p[0]=='f' ) { /* This tile has been requested to float on the original core set */
+    if( p[0]=='f' ) { /* These tiles have been requested to float on the original core set */
       p++;
+
+      ulong float_cnt;
+
       while( isspace( (int)p[0] ) ) p++; /* Munch whitespace */
-      if( FD_UNLIKELY( !( p[0]==',' || p[0]=='\0' ) ) ) FD_LOG_ERR(( "fd_tile: malformed --tile-cpus (bad range delimiter)" ));
-      if( p[0]==',' ) p++;
-      if( FD_UNLIKELY( cnt>=FD_TILE_MAX ) ) FD_LOG_ERR(( "fd_tile: too many --tile-cpus" ));
-      tile_to_cpu[ cnt++ ] = (ushort)65535;
+      if     ( p[0]==','             ) float_cnt = 1UL, p++;
+      else if( p[0]=='\0'            ) float_cnt = 1UL;
+      else if( !isdigit( (int)p[0] ) ) FD_LOG_ERR(( "fd_tile: malformed --tile-cpus (malformed count)" ));
+      else {
+        float_cnt = fd_cstr_to_ulong( p );
+        if( FD_UNLIKELY( !float_cnt ) ) FD_LOG_ERR(( "fd_tile: malformed --tile-cpus (bad count)" ));
+        p++; while( isdigit( (int)p[0] ) ) p++; /* FIXME: USE STRTOUL ENDPTR FOR CORRECT HANDLING OF NON-BASE-10 */
+        while( isspace( (int)p[0] ) ) p++; /* Munch whitespace */
+        if( FD_UNLIKELY( !( p[0]==',' || p[0]=='\0' ) ) ) FD_LOG_ERR(( "fd_tile: malformed --tile-cpus (bad count delimiter)" ));
+        if( p[0]==',' ) p++;
+      }
+
+      /* float_cnt is at least 1 at this point */
+      do {
+        if( FD_UNLIKELY( cnt>=FD_TILE_MAX ) ) FD_LOG_ERR(( "fd_tile: too many --tile-cpus" ));
+        tile_to_cpu[ cnt++ ] = (ushort)65535;
+      } while( --float_cnt );
+
       continue;
     }
 
@@ -465,45 +482,6 @@ fd_tile_private_boot( int *    pargc,
     tile_cnt       = 1UL;
   }
 
-  if( tile_to_cpu[ 0UL ]<(ushort)65535 ) {
-
-    int good_taskset;
-    cpu_set_t cpu_set[1];
-    if( FD_UNLIKELY( sched_getaffinity( (pid_t)0, sizeof(cpu_set_t), cpu_set ) ) ) {
-      FD_LOG_WARNING(( "fd_tile: sched_getaffinity failed (%i-%s) for tile 0 on cpu %lu",
-                       errno, strerror( errno ), (ulong)tile_to_cpu[ 0UL ] ));
-      good_taskset = 0;
-    } else {
-      ulong cnt = (ulong)CPU_COUNT( cpu_set );
-      ulong idx; for( idx=0UL; idx<CPU_SETSIZE; idx++ ) if( CPU_ISSET( idx, cpu_set ) ) break;
-      good_taskset = (cnt==1UL) & (idx==(ulong)tile_to_cpu[0]);
-    }
-
-    if( FD_UNLIKELY( !good_taskset ) ) {
-      FD_LOG_WARNING(( "fd_tile: --tile-cpus for tile 0 may not match initial kernel affinity\n\t"
-                       "Tile 0 might not be fully optimized because of kernel first touch.\n\t"
-                       "Overriding fd_log_cpu_id(), fd_log_cpu(), fd_log_thread() on tile 0 to\n\t"
-                       "match --tile-cpus and attempting to continue.  Launch this thread\n\t"
-                       "group via 'taskset -c %lu' or equivalent to eliminate this warning.",
-                       (ulong)tile_to_cpu[0] ));
-      CPU_ZERO( cpu_set );
-      CPU_SET( (int)tile_to_cpu[ 0UL ], cpu_set );
-      if( FD_UNLIKELY( sched_setaffinity( (pid_t)0, sizeof(cpu_set_t), cpu_set ) ) )
-        FD_LOG_WARNING(( "fd_tile: sched_setaffinity_failed (%i-%s)\n\t"
-                         "Unable to set the thread affinity for tile 0 on cpu %lu.  Attempting to\n\t"
-                         "continue without explicitly specifying this cpu's thread affinity but it\n\t"
-                         "is likely this thread group's performance and stability are compromised\n\t"
-                         "(possibly catastrophically so).  Update --tile-cpus to specify a set of\n\t"
-                         "allowed cpus that have been reserved for this thread group on this host\n\t"
-                         "to eliminate this warning.",
-                         errno, strerror( errno ), (ulong)tile_to_cpu[ 0UL ] ));
-      fd_log_private_cpu_id_set( (ulong)tile_to_cpu[ 0UL ] );
-      fd_log_cpu_set   ( NULL );
-      fd_log_thread_set( NULL );
-    }
-
-  }
-
   fd_tile_private_id0 = fd_log_thread_id();
   fd_tile_private_id1 = fd_tile_private_id0 + tile_cnt;
   fd_tile_private_cnt = tile_cnt;
@@ -512,26 +490,13 @@ fd_tile_private_boot( int *    pargc,
   ulong host_id = fd_log_host_id();
   FD_LOG_INFO(( "fd_tile: booting thread group %lu:%lu/%lu", app_id, fd_tile_private_id0, fd_tile_private_cnt ));
 
-  ulong cpu_idx = (ulong)tile_to_cpu[ 0UL ];
-  if( cpu_idx<65535UL ) FD_LOG_INFO(( "fd tile: booting tile %lu on cpu %lu:%lu",   0UL, host_id, cpu_idx ));
-  else                  FD_LOG_INFO(( "fd tile: booting tile %lu on cpu %lu:float", 0UL, host_id ));
-
-  /* Tile 0 "pthread create" */
-  fd_tile_private[0].pthread = pthread_self();
-  /* FIXME: ON X86, DETECT IF TILE 0 STACK ISN'T HUGE PAGE AND WARN AS NECESSARY? */
-
-  /* Tile 0 "thread manager init" */
-  fd_tile_private_id  = fd_tile_private_id0;
-  fd_tile_private_idx = 0UL;
-  fd_tile_private_cpu_config( fd_tile_private_cpu_config_save, cpu_idx );
-  fd_tile_private[0].tile = NULL; /* Can't dispatch to tile 0 */
-
-  FD_LOG_INFO(( "fd_tile: boot tile %lu success (thread %lu:%lu in thread group %lu:%lu/%lu)",
-                fd_tile_private_idx, app_id, fd_tile_private_id, app_id, fd_tile_private_id0, fd_tile_private_cnt ));
+  /* We create the tiles [1,tile_cnt) first so that any floating tiles
+     in this inherit the appropriate scheduler priorities and affinities
+     from the thread group launcher. */
 
   for( ulong tile_idx=1UL; tile_idx<tile_cnt; tile_idx++ ) {
 
-    cpu_idx = (ulong)tile_to_cpu[ tile_idx ];
+    ulong cpu_idx = (ulong)tile_to_cpu[ tile_idx ];
     if( cpu_idx<65535UL ) FD_LOG_INFO(( "fd tile: booting tile %lu on cpu %lu:%lu",   tile_idx, host_id, cpu_idx ));
     else                  FD_LOG_INFO(( "fd tile: booting tile %lu on cpu %lu:float", tile_idx, host_id ));
 
@@ -627,6 +592,61 @@ fd_tile_private_boot( int *    pargc,
                          err, strerror( err ), tile_idx, cpu_idx ));
     }
   }
+
+  /* And now we "boot" tile 0 */
+
+  ulong cpu_idx = (ulong)tile_to_cpu[ 0UL ];
+  if( cpu_idx<65535UL ) FD_LOG_INFO(( "fd tile: booting tile %lu on cpu %lu:%lu",   0UL, host_id, cpu_idx ));
+  else                  FD_LOG_INFO(( "fd tile: booting tile %lu on cpu %lu:float", 0UL, host_id ));
+
+  if( cpu_idx<65535UL ) {
+
+    int good_taskset;
+    cpu_set_t cpu_set[1];
+    if( FD_UNLIKELY( sched_getaffinity( (pid_t)0, sizeof(cpu_set_t), cpu_set ) ) ) {
+      FD_LOG_WARNING(( "fd_tile: sched_getaffinity failed (%i-%s) for tile 0 on cpu %lu", errno, strerror( errno ), cpu_idx ));
+      good_taskset = 0;
+    } else {
+      ulong cnt = (ulong)CPU_COUNT( cpu_set );
+      ulong idx; for( idx=0UL; idx<CPU_SETSIZE; idx++ ) if( CPU_ISSET( idx, cpu_set ) ) break;
+      good_taskset = (cnt==1UL) & (idx==cpu_idx);
+    }
+
+    if( FD_UNLIKELY( !good_taskset ) ) {
+      FD_LOG_WARNING(( "fd_tile: --tile-cpus for tile 0 may not match initial kernel affinity\n\t"
+                       "Tile 0 might not be fully optimized because of kernel first touch.\n\t"
+                       "Overriding fd_log_cpu_id(), fd_log_cpu(), fd_log_thread() on tile 0 to\n\t"
+                       "match --tile-cpus and attempting to continue.  Launch this thread\n\t"
+                       "group via 'taskset -c %lu' or equivalent to eliminate this warning.", cpu_idx ));
+      CPU_ZERO( cpu_set );
+      CPU_SET( (int)cpu_idx, cpu_set );
+      if( FD_UNLIKELY( sched_setaffinity( (pid_t)0, sizeof(cpu_set_t), cpu_set ) ) )
+        FD_LOG_WARNING(( "fd_tile: sched_setaffinity_failed (%i-%s)\n\t"
+                         "Unable to set the thread affinity for tile 0 on cpu %lu.  Attempting to\n\t"
+                         "continue without explicitly specifying this cpu's thread affinity but it\n\t"
+                         "is likely this thread group's performance and stability are compromised\n\t"
+                         "(possibly catastrophically so).  Update --tile-cpus to specify a set of\n\t"
+                         "allowed cpus that have been reserved for this thread group on this host\n\t"
+                         "to eliminate this warning.",
+                         errno, strerror( errno ), cpu_idx ));
+      fd_log_private_cpu_id_set( cpu_idx );
+      fd_log_cpu_set   ( NULL );
+      fd_log_thread_set( NULL );
+    }
+  }
+
+  /* Tile 0 "pthread_create" */
+  fd_tile_private[0].pthread = pthread_self();
+  /* FIXME: ON X86, DETECT IF TILE 0 STACK ISN'T HUGE PAGE AND WARN AS NECESSARY? */
+
+  /* Tile 0 "thread manager init" */
+  fd_tile_private_id  = fd_tile_private_id0;
+  fd_tile_private_idx = 0UL;
+  fd_tile_private_cpu_config( fd_tile_private_cpu_config_save, cpu_idx );
+  fd_tile_private[0].tile = NULL; /* Can't dispatch to tile 0 */
+
+  FD_LOG_INFO(( "fd_tile: boot tile %lu success (thread %lu:%lu in thread group %lu:%lu/%lu)",
+                fd_tile_private_idx, app_id, fd_tile_private_id, app_id, fd_tile_private_id0, fd_tile_private_cnt ));
 
   fd_memcpy( fd_tile_private_cpu_id, tile_to_cpu, fd_tile_private_cnt*sizeof(ushort) );
 
