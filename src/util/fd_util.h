@@ -227,7 +227,11 @@ FD_PROTOTYPES_BEGIN
        Floating tiles run on the cores the job launcher initially the
        thread group with whatever priority was initially assigned the
        thread group.  Fixed tiles run on the specified tile with high
-       scheduler priority.
+       scheduler priority.  Tile 0's stack is the default stack used by
+       the job launcher.  Floating tiles use the default stack provided
+       by pthread_create.  All other tiles (i.e. high performance fixed
+       tiles) use an 8 MiB huge page backed numa optimized stack (if
+       possible).
 
        The booter will become tile 0.  The non-floating cpus in the list
        must be unique (e.g. multiple non-floating tiles cannot be
