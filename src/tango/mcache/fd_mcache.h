@@ -7,9 +7,10 @@
    needed for a mcache with depth entries and an application region of
    size app_sz.  ALIGN is at least FD_FRAG_META_ALIGN and recommended to
    be at least double cache line to mitigate various kinds of false
-   sharing.  Depth is assumed to be valid (i.e. an integer power of 2 of
-   at least FD_MCACHE_BLOCK).  These are provided to facilitate compile
-   time mcache declarations. */
+   sharing.  depth and app_sz are assumed to be valid (i.e. depth is an
+   integer power of 2 of at least FD_MCACHE_BLOCK and the combination
+   will not require a footprint larger than ULONG_MAX).  These are
+   provided to facilitate compile time mcache declarations. */
 
 #define FD_MCACHE_ALIGN (128UL)
 #define FD_MCACHE_FOOTPRINT( depth, app_sz )                                                       \
@@ -645,8 +646,9 @@ static inline ulong
 fd_mcache_query( fd_frag_meta_t const * mcache,
                  ulong                  depth,
                  ulong                  seq_query ) {
+  fd_frag_meta_t const * meta = &mcache[ fd_mcache_line_idx( seq_query, depth ) ];
   FD_COMPILER_MFENCE();
-  ulong seq_found =  FD_VOLATILE_CONST( mcache[ fd_mcache_line_idx( seq_query, depth ) ].seq );
+  ulong seq_found = FD_VOLATILE_CONST( meta->seq );
   FD_COMPILER_MFENCE();
   return seq_found;
 }
