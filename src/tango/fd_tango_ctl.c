@@ -66,8 +66,10 @@ main( int     argc,
         "\tquery-dcache gaddr\n\t"
         "\t- Queries the dcache at gaddr.\n\t"
         "\n\t"
-        "\tnew-cnc wksp type now\n\t"
-        "\t- Creates an command and control variable with the given type.\n\t"
+        "\tnew-cnc wksp type now app-sz\n\t"
+        "\t- Creates an command and control variable with the given type,\n\t"
+        "\t  initial heartbeat of now and an application region size of\n\t"
+        "\t  app-sz.\n\t"
         "\t- If now is '-', the wallclock will be used for the initial\n\t"
         "\t  heartbeat value.\n\t"
         "\n\t"
@@ -371,23 +373,25 @@ main( int     argc,
 
     } else if( !strcmp( cmd, "new-cnc" ) ) {
 
-      if( FD_UNLIKELY( argc<3 ) ) FD_LOG_ERR(( "%i: %s: too few arguments\n\tDo %s help for help", cnt, cmd, bin ));
+      if( FD_UNLIKELY( argc<4 ) ) FD_LOG_ERR(( "%i: %s: too few arguments\n\tDo %s help for help", cnt, cmd, bin ));
 
       char const * _wksp     =                                            argv[0];
       ulong        type      =                          fd_cstr_to_ulong( argv[1] );
       long         heartbeat = strcmp( argv[2], "-" ) ? fd_cstr_to_long ( argv[2] ) : fd_log_wallclock();
+      ulong        app_sz    =                          fd_cstr_to_ulong( argv[3] );
       /* FIXME: PRESERVE CREATION HEARTBEAT IN CNC? */
 
       ulong align     = fd_cnc_align();
-      ulong footprint = fd_cnc_footprint();
+      ulong footprint = fd_cnc_footprint( app_sz );
+      if( FD_UNLIKELY( !footprint ) ) {
+        FD_LOG_ERR(( "%i: %s: bad app-sz (%lu)\n\tDo %s help for help", cnt, cmd, app_sz, bin ));
+      }
 
       fd_wksp_t * wksp = fd_wksp_attach( _wksp );
       if( FD_UNLIKELY( !wksp ) ) {
         FD_LOG_ERR(( "%i: %s: fd_wksp_attach( \"%s\" ) failed\n\tDo %s help for help", cnt, cmd, _wksp, bin ));
       }
 
-      /* FIXME: DO ARRAY ALLOCATION GIVEN WKSP_ALIGN_MIN >> ALIGN HERE?
-         USE LARGER OR DYNAMICALLY SIZED APP REGION? */
       ulong gaddr = fd_wksp_alloc( wksp, align, footprint );
       if( FD_UNLIKELY( !gaddr ) ) {
         fd_wksp_detach( wksp );
@@ -402,12 +406,12 @@ main( int     argc,
         FD_LOG_ERR(( "%i: %s: fd_wksp_laddr( \"%s\", %lu ) failed\n\tDo %s help for help", cnt, cmd, _wksp, gaddr, bin ));
       }
 
-      void * shcnc = fd_cnc_new( shmem, type, heartbeat );
+      void * shcnc = fd_cnc_new( shmem, app_sz, type, heartbeat );
       if( FD_UNLIKELY( !shcnc ) ) {
         fd_wksp_free( wksp, gaddr );
         fd_wksp_detach( wksp );
-        FD_LOG_ERR(( "%i: %s: fd_cnc_new( %s:%lu, %lu, %li ) failed\n\tDo %s help for help",
-                     cnt, cmd, _wksp, gaddr, type, heartbeat, bin ));
+        FD_LOG_ERR(( "%i: %s: fd_cnc_new( %s:%lu, %lu, %lu, %li ) failed\n\tDo %s help for help",
+                     cnt, cmd, _wksp, gaddr, app_sz, type, heartbeat, bin ));
       }
 
       char buf[ FD_WKSP_CSTR_MAX ];
@@ -415,8 +419,8 @@ main( int     argc,
 
       fd_wksp_detach( wksp );
 
-      FD_LOG_NOTICE(( "%i: %s %s %lu %li: success", cnt, cmd, _wksp, type, heartbeat ));
-      SHIFT( 3 );
+      FD_LOG_NOTICE(( "%i: %s %s %lu %li %lu: success", cnt, cmd, _wksp, type, heartbeat, app_sz ));
+      SHIFT( 4 );
 
     } else if( !strcmp( cmd, "delete-cnc" ) ) {
 
@@ -453,23 +457,25 @@ main( int     argc,
       char buf[ FD_CNC_SIGNAL_CSTR_BUF_MAX ];
 
       printf( "cnc %s\n", _shcnc );
-      printf( "\ttype      %u\n",       cnc->type                                           );
-      printf( "\theartbeat %li\n",      cnc->heartbeat                                      );
-      printf( "\tlock      %lu\n",      cnc->lock                                           );
-      printf( "\tsignal    %s (%lu)\n", fd_cnc_signal_cstr( cnc->signal, buf ), cnc->signal );
+      printf( "\tapp-sz     %lu\n",      cnc->app_sz                                         );
+      printf( "\ttype       %lu\n",      cnc->type                                           );
+      printf( "\theartbeat0 %li\n",      cnc->heartbeat0                                     );
+      printf( "\theartbeat  %li\n",      cnc->heartbeat                                      );
+      printf( "\tlock       %lu\n",      cnc->lock                                           );
+      printf( "\tsignal     %s (%lu)\n", fd_cnc_signal_cstr( cnc->signal, buf ), cnc->signal );
 
       uchar const * a = (uchar const *)fd_cnc_app_laddr_const( cnc );
       ulong app_sz;
-      for( app_sz=FD_CNC_APP_FOOTPRINT; app_sz; app_sz-- ) if( a[app_sz-1UL] ) break;
+      for( app_sz=cnc->app_sz; app_sz; app_sz-- ) if( a[app_sz-1UL] ) break;
       ulong off = 0UL;
-      printf( "\tapp       %04lx: %02x %02x %02x %02x %02x %02x %02x %02x  %02x %02x %02x %02x %02x %02x %02x %02x\n", off,
+      printf( "\tapp        %04lx: %02x %02x %02x %02x %02x %02x %02x %02x  %02x %02x %02x %02x %02x %02x %02x %02x\n", off,
               (uint)a[ 0], (uint)a[ 1], (uint)a[ 2], (uint)a[ 3], (uint)a[ 4], (uint)a[ 5], (uint)a[ 6], (uint)a[ 7],
               (uint)a[ 8], (uint)a[ 9], (uint)a[10], (uint)a[11], (uint)a[12], (uint)a[13], (uint)a[14], (uint)a[15] );
       for( off+=16UL, a+=16UL; off<app_sz; off+=16UL, a+=16UL )
-        printf( "\t          %04lx: %02x %02x %02x %02x %02x %02x %02x %02x  %02x %02x %02x %02x %02x %02x %02x %02x\n", off,
+        printf( "\t           %04lx: %02x %02x %02x %02x %02x %02x %02x %02x  %02x %02x %02x %02x %02x %02x %02x %02x\n", off,
                 (uint)a[ 0], (uint)a[ 1], (uint)a[ 2], (uint)a[ 3], (uint)a[ 4], (uint)a[ 5], (uint)a[ 6], (uint)a[ 7],
                 (uint)a[ 8], (uint)a[ 9], (uint)a[10], (uint)a[11], (uint)a[12], (uint)a[13], (uint)a[14], (uint)a[15] );
-      if( off<FD_CNC_APP_FOOTPRINT ) printf( "\t          ... snip (all remaining are zero) ...\n" );
+      if( off<cnc->app_sz ) printf( "\t           ... snip (all remaining are zero) ...\n" );
 
       fd_wksp_unmap( fd_cnc_leave( cnc ) );
 

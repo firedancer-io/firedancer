@@ -2,11 +2,12 @@
 
 #if FD_HAS_HOSTED && FD_HAS_ATOMIC
 
-FD_STATIC_ASSERT( FD_CNC_ALIGN    ==128UL, unit_test );
-FD_STATIC_ASSERT( FD_CNC_FOOTPRINT==128UL, unit_test );
+FD_STATIC_ASSERT( FD_CNC_ALIGN          ==128UL, unit_test );
+FD_STATIC_ASSERT( FD_CNC_FOOTPRINT( 0UL)==128UL, unit_test );
+FD_STATIC_ASSERT( FD_CNC_FOOTPRINT(64UL)==128UL, unit_test );
+FD_STATIC_ASSERT( FD_CNC_FOOTPRINT(65UL)==256UL, unit_test );
 
-FD_STATIC_ASSERT( FD_CNC_APP_ALIGN    ==32UL, unit_test );
-FD_STATIC_ASSERT( FD_CNC_APP_FOOTPRINT==96UL, unit_test );
+FD_STATIC_ASSERT( FD_CNC_APP_ALIGN==64UL, unit_test );
 
 FD_STATIC_ASSERT( FD_CNC_SIGNAL_RUN ==0UL, unit_test );
 FD_STATIC_ASSERT( FD_CNC_SIGNAL_BOOT==1UL, unit_test );
@@ -19,7 +20,9 @@ FD_STATIC_ASSERT( FD_CNC_ERR_INVAL==-2, unit_test );
 FD_STATIC_ASSERT( FD_CNC_ERR_AGAIN==-3, unit_test );
 FD_STATIC_ASSERT( FD_CNC_ERR_FAIL ==-4, unit_test );
 
-uchar __attribute__((aligned(FD_CNC_ALIGN))) shmem[ FD_CNC_FOOTPRINT ];
+#define APP_MIN (32UL)
+#define APP_MAX (192UL)
+uchar __attribute__((aligned(FD_CNC_ALIGN))) shmem[ FD_CNC_FOOTPRINT( APP_MAX ) ];
 
 #define TEST(c) do if( FD_UNLIKELY( !(c) ) ) { FD_LOG_WARNING(( "FAIL: " #c )); return 1; } while(0)
 
@@ -102,23 +105,30 @@ main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
 
-  ulong type = fd_env_strip_cmdline_ulong( &argc, &argv, "--type", NULL, 1234UL );
+  ulong app_sz = fd_env_strip_cmdline_ulong( &argc, &argv, "--app-sz", NULL,  192UL );
+  ulong type   = fd_env_strip_cmdline_ulong( &argc, &argv, "--type",   NULL, 1234UL );
 
+  if( FD_UNLIKELY( app_sz<APP_MIN     ) ) FD_LOG_ERR(( "app_sz should be at least %lu for this unit test", APP_MIN ));
+  if( FD_UNLIKELY( app_sz>APP_MAX     ) ) FD_LOG_ERR(( "increase APP_MAX for this app_sz"  ));
   if( FD_UNLIKELY( fd_tile_cnt()!=2UL ) ) FD_LOG_ERR(( "this unit-test requires two tiles" ));
 
-  TEST( fd_cnc_align()    ==FD_CNC_ALIGN     );
-  TEST( fd_cnc_footprint()==FD_CNC_FOOTPRINT );
+  TEST( !fd_cnc_footprint( ULONG_MAX ) );
+
+  TEST( fd_cnc_align()            ==FD_CNC_ALIGN               );
+  TEST( fd_cnc_footprint( app_sz )==FD_CNC_FOOTPRINT( app_sz ) );
 
   long now = fd_log_wallclock();
-  void * shcnc = fd_cnc_new( shmem, type, now ); TEST( shcnc );
-  fd_cnc_t * cnc = fd_cnc_join( shcnc );         TEST( cnc );
+  void * shcnc = fd_cnc_new( shmem, app_sz, type, now ); TEST( shcnc );
+  fd_cnc_t * cnc = fd_cnc_join( shcnc );                 TEST( cnc );
 
+  TEST( fd_cnc_app_sz( cnc )==app_sz );
   ulong *       app       = (ulong       *)fd_cnc_app_laddr( cnc );
   ulong const * app_const = (ulong const *)fd_cnc_app_laddr_const( cnc );
   TEST( (ulong)app==(ulong)app_const );
   TEST( fd_ulong_is_aligned( (ulong)app, FD_CNC_APP_ALIGN ) );
 
   TEST( fd_cnc_type           ( cnc )==type               );
+  TEST( fd_cnc_heartbeat0     ( cnc )==now                );
   TEST( fd_cnc_heartbeat_query( cnc )==now                );
   TEST( fd_cnc_signal_query   ( cnc )==FD_CNC_SIGNAL_BOOT );
 

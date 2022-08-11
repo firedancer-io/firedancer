@@ -1,7 +1,19 @@
 #include "fd_cnc.h"
 
+ulong
+fd_cnc_align( void ) {
+  return FD_CNC_ALIGN;
+}
+
+ulong
+fd_cnc_footprint( ulong app_sz ) {
+  if( FD_UNLIKELY( app_sz > (ULONG_MAX-191UL) ) ) return 0UL; /* overflow */
+  return FD_CNC_FOOTPRINT( app_sz );
+}
+
 void *
 fd_cnc_new( void * shmem,
+            ulong  app_sz,
             ulong  type,
             long   now ) {
   fd_cnc_t * cnc = (fd_cnc_t *)shmem;
@@ -16,17 +28,20 @@ fd_cnc_new( void * shmem,
     return NULL;
   }
 
-  if( FD_UNLIKELY( type!=(ulong)(uint)type ) ) {
-    FD_LOG_WARNING(( "bad type" ));
+  ulong footprint = fd_cnc_footprint( app_sz );
+  if( FD_UNLIKELY( !footprint ) ) {
+    FD_LOG_WARNING(( "bad app_sz (%lu)", app_sz ));
     return NULL;
   }
 
-  fd_memset( cnc, 0, FD_CNC_FOOTPRINT );
+  fd_memset( cnc, 0, footprint );
 
-  cnc->type      = (uint)type;
-  cnc->heartbeat = now;
-  cnc->lock      = 0UL;
-  cnc->signal    = FD_CNC_SIGNAL_BOOT;
+  cnc->app_sz     = app_sz;
+  cnc->type       = type;
+  cnc->heartbeat0 = now;
+  cnc->heartbeat  = now;
+  cnc->lock       = 0UL;
+  cnc->signal     = FD_CNC_SIGNAL_BOOT;
 
   FD_COMPILER_MFENCE();
   FD_VOLATILE( cnc->magic ) = FD_CNC_MAGIC;
@@ -90,7 +105,7 @@ fd_cnc_delete( void * shcnc ) {
   }
 
   FD_COMPILER_MFENCE();
-  FD_VOLATILE( cnc->magic ) = 0U;
+  FD_VOLATILE( cnc->magic ) = 0UL;
   FD_COMPILER_MFENCE();
 
   return (void *)cnc;

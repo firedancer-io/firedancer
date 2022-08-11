@@ -49,7 +49,7 @@
     it stops running, it should transition its cnc to BOOT (FAIL) if the
     app thread can (cannot) be booted again safely.  Note that the cnc
     state alone does not indicate if a USER defined signal was processed
-    successfully (e.g. the app thread might chose to ignore a malform
+    successfully (e.g. the app thread might chose to ignore a malformed
     command, log the details, and then resume running).  For such
     information, the application can encode additional inputs and
     outputs regarding commands in the cnc app region.  USER defined to
@@ -77,22 +77,22 @@
   distinguish between what USER defined signals might be supported by a
   particular app thread. */
 
-/* FD_CNC_{ALIGN,FOOTPRINT} describe the alignment and footprint of
-   a fd_cnc_t.  ALIGN is a positive integer power of 2.  FOOTPRINT is a
-   multiple of ALIGN.  These exist to faciliate compile time
-   allocations.  Recommend this to be something like a double cache
-   line. */
+/* FD_CNC_{ALIGN,FOOTPRINT} describe the alignment and footprint of a
+   fd_cnc_t.  ALIGN is a positive integer power of 2.  FOOTPRINT is a
+   multiple of ALIGN.  ALIGN is recommended to be at least double cache
+   line to mitigate various kinds of false sharing.  app_sz is assumed
+   to be valid (e.g. will not require a footprint larger than
+   ULONG_MAX).  These are provided to facilitate compile time
+   declarations. */
 
-#define FD_CNC_ALIGN     (128UL)
-#define FD_CNC_FOOTPRINT (128UL)
+#define FD_CNC_ALIGN               (128UL)
+#define FD_CNC_FOOTPRINT( app_sz ) ((64UL + (app_sz) + FD_CNC_ALIGN-1UL) & (~(FD_CNC_ALIGN-1UL)))
 
-/* FD_CNC_{ALIGN,FOOTPRINT} describe the alignment and footprint of
-   a fd_cnc_t's application region.  FD_CNC_APP_ALIGN is at most
-   FD_CNC_ALIGN.  FD_CNC_APP_FOOTPRINT is a multiple of FD_CNC_APP_ALIGN
-   and less than FD_CNC_FOOTPRINT. */
+/* FD_CNC_ALIGN describes the alignment and footprint of a fd_cnc_t's
+   application region.  This is a power of 2 of the minimal malloc
+   alignment (typically 8) and at most FD_CNC_ALIGN. */
 
-#define FD_CNC_APP_ALIGN     (32UL)
-#define FD_CNC_APP_FOOTPRINT (96UL)
+#define FD_CNC_APP_ALIGN (64UL)
 
 /* FD_CNC_SIGNAL_* are the standard cnc signals.  All remaining values
    ([4,ULONG_MAX]) are available to implement user defined signals.
@@ -104,8 +104,7 @@
 #define FD_CNC_SIGNAL_HALT (3UL)
 
 /* FD_CNC_SUCCESS, FD_CNC_ERR_* are error code return values used by
-   some cnc APIs.  SUCCESS must be zero, ERR_* are negative and
-   distinct. */
+   cnc APIs.  SUCCESS must be zero, ERR_* are negative and distinct. */
 
 #define FD_CNC_SUCCESS   (0)  /* success */
 #define FD_CNC_ERR_UNSUP (-1) /* unsupported on this caller */
@@ -117,15 +116,19 @@
    Details are exposed here to facilitate inlining of many cnc
    operations in performance critical app thread paths. */
 
-#define FD_CNC_MAGIC (0xfdc2c000U) /* fd cnc ver 0 */
+#define FD_CNC_MAGIC (0xf17eda2c37c2c000UL) /* firedancer cnc ver 0 */
 
 struct __attribute__((aligned(FD_CNC_ALIGN))) fd_cnc_private {
-  uint  magic;     /* ==FD_CNC_MAGIC */
-  uint  type;
+  ulong magic;     /* ==FD_CNC_MAGIC */
+  ulong app_sz;
+  ulong type;
+  long  heartbeat0;
   long  heartbeat;
   ulong lock;
   ulong signal;
-  uchar app[ FD_CNC_APP_FOOTPRINT ];
+  /* Padding to FD_CNC_APP_ALIGN here */
+  /* app_sz bytes here */
+  /* Padding to FD_CNC_ALIGN here */
 };
 
 typedef struct fd_cnc_private fd_cnc_t;
@@ -133,11 +136,16 @@ typedef struct fd_cnc_private fd_cnc_t;
 FD_PROTOTYPES_BEGIN
 
 /* fd_cnc_{align,footprint} return the required alignment and footprint
-   of a memory region suitable for use as cnc.  align returns
-   FD_CNC_ALIGN.  footprint returns FD_CNC_FOOTPRINT. */
+   of a memory region suitable for use as a cnc.  fd_cnc_align returns
+   FD_CNC_ALIGN.  If footprint is larger than ULONG_MAX, footprint will
+   silently return 0 (and thus can be used by the caller to validate the
+   cnc configuration parameters). */
 
-FD_FN_CONST static inline ulong fd_cnc_align    ( void ) { return alignof(fd_cnc_t); }
-FD_FN_CONST static inline ulong fd_cnc_footprint( void ) { return sizeof (fd_cnc_t); }
+FD_FN_CONST ulong
+fd_cnc_align( void );
+
+FD_FN_CONST ulong
+fd_cnc_footprint( ulong app_sz );
 
 /* fd_cnc_new formats an unused memory region for use as a cnc.  Assumes
    shmem is a non-NULL pointer to this region in the local address space
@@ -147,10 +155,11 @@ FD_FN_CONST static inline ulong fd_cnc_footprint( void ) { return sizeof (fd_cnc
    initialized to zero.  Returns shmem (and the memory region it points
    to will be formatted as a cnc, caller is not joined) and NULL on
    failure (logs details).  Reasons for failure include an obviously bad
-   shmem region or bad type. */
+   shmem region or app_sz. */
 
 void *
 fd_cnc_new( void * shmem,
+            ulong  app_sz,
             ulong  type,
             long   now );
 
@@ -184,18 +193,28 @@ fd_cnc_leave( fd_cnc_t const * cnc );
 void *
 fd_cnc_delete( void * shcnc );
 
-/* fd_cnc_app_laddr returns local address of the cnc's application
-   region.  This will have FD_CNC_APP_{ALIGN,FOOTPRINT} alignment and
-   footprint.  Assumes cnc is a current local join.
-   fd_cnc_app_laddr_const is for const correctness. */
+/* fd_cnc_app_sz returns the size of a the cnc's application region.
+   Assumes cnc is a current local join. */
 
-FD_FN_CONST static inline void *       fd_cnc_app_laddr      ( fd_cnc_t *       cnc ) { return (void *)cnc->app; }
-FD_FN_CONST static inline void const * fd_cnc_app_laddr_const( fd_cnc_t const * cnc ) { return (void *)cnc->app; }
+FD_FN_PURE static inline ulong fd_cnc_app_sz( fd_cnc_t const * cnc ) { return cnc->app_sz; }
+
+/* fd_cnc_app_laddr returns local address of the cnc's application
+   region.  This will have FD_CNC_APP_ALIGN alignment and room for at
+   least fd_cnc_app_sz( cnc ) bytes.  Assumes cnc is a current local
+   join.  fd_cnc_app_laddr_const is for const correctness. */
+
+FD_FN_CONST static inline void *       fd_cnc_app_laddr      ( fd_cnc_t *       cnc ) { return (void *      )(((ulong)cnc)+64UL); }
+FD_FN_CONST static inline void const * fd_cnc_app_laddr_const( fd_cnc_t const * cnc ) { return (void const *)(((ulong)cnc)+64UL); }
 
 /* fd_cnc_type returns the application defined type of a cnc.  Assumes
    cnc is a current local join. */
 
 FD_FN_PURE static inline ulong fd_cnc_type( fd_cnc_t const * cnc ) { return cnc->type; }
+
+/* fd_cnc_heartbeat0 returns the heartbeat assigned when the cnc was
+   created.  Assumes cnc is a current local join. */
+
+FD_FN_PURE static inline long fd_cnc_heartbeat0( fd_cnc_t const * cnc ) { return cnc->heartbeat0; }
 
 /* fd_cnc_heartbeat_query returns the value of the cnc's heartbeat
    as of some point in time between when this was called and when this
