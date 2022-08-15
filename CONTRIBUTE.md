@@ -103,7 +103,7 @@ that the code looks good to you, but someone else must approve the change. A +2 
 merging. Typically, +2 votes are added by the code owner of a given component.
 
 Code review votes are invalidated when a change is updated, unless the update was a trivial rebase that
-didn't introduce new changes, or changes only to the commit message.
+didn't introduce new changes, or changes only the commit message.
 
 There are no negative votes, but before a change can be submitted, all **comments must be marked resolved**.
 Comments can be marked resolve either by the reviewer or by the author.
@@ -138,7 +138,7 @@ After updating a change or stack of changes, simply push it to the `refs/for/mai
 
 - Gerrit's dashboard shows you a list of all CLs that require your attention.
 
-- Use `git pull --rebase` to update your working copy. It will automatically skip over any local commits
+- Use `git pull --rebase` to update your working copy. It will automatically skip over any local commits.
 
 - Never push to another author's change. Instead, push your own change that is based on theirs. Generally,
   this is tricky business - **avoid working on top of other people's in-flight changes**. Gerrit's workflow
@@ -154,7 +154,8 @@ After updating a change or stack of changes, simply push it to the `refs/for/mai
   very [powerful search feature](https://gerrit-review.googlesource.com/Documentation/user-search.html) which
   supports complex queries.
 
-- Related changes can be grouped together using hashtags.
+- Related changes can be grouped together using hashtags and topics. A change can have multiple hashtags,
+  but only one topic. Hashtags are usually generic, while a topic uniquely identifies a certain feature.
 
 - Configure your editor to hard-wrap commit messages at 72 characters like Gerrit does.
 
