@@ -1,5 +1,16 @@
 #!/bin/sh
 
+# Note that this script is used by internally at Jump to configure the
+# development environment on a host.  For non-Jump hosts, this
+# implicitly documents the external required dependencies.
+#
+# In short, very little.  There are virtuall no external dependencies
+# other than a standard modern Linux install (usually use RHEL8.3
+# internally but are not too dependent on choice of distribution),
+# usually compiled with gcc-9.3.0 (but are not be too dependent on
+# choice or version of compiler) and need the numactl-devel package
+# installed.
+
 if [ $# -gt 0 ] && [ "$1" = "install" ]; then
   # Install Packages needed for dev hosts
   sudo yum install        \
