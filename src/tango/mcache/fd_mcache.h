@@ -174,7 +174,7 @@ FD_FN_PURE uchar *       fd_mcache_app_laddr      ( fd_frag_meta_t *       mcach
 /* fd_mcache_seq_query atomically reads the mcache's seq[0] (e.g. from
    fd_mcache_seq_laddr_const) to get a lower bound of where the producer
    is at in sequence space (in the sense that the producer guarantees it
-   has produced all sequence numbers striclty before the return value
+   has produced all sequence numbers strictly before the return value
    cyclic).  This is usually done at consumer startup and, for some
    unreliable consumer overrun handling, during consumer overrun
    recovery.  It is strongly not recommended to use this aggressively to
@@ -182,7 +182,10 @@ FD_FN_PURE uchar *       fd_mcache_app_laddr      ( fd_frag_meta_t *       mcach
 
 static inline ulong
 fd_mcache_seq_query( ulong const * _seq ) {
-  return FD_VOLATILE_CONST( *_seq );
+  FD_COMPILER_MFENCE();
+  ulong seq = FD_VOLATILE_CONST( *_seq );
+  FD_COMPILER_MFENCE();
+  return seq;
 }
 
 /* fd_mcache_seq_update updates the mcache's seq[0] (e.g. from
