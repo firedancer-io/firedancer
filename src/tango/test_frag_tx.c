@@ -7,18 +7,17 @@
 FD_STATIC_ASSERT( FD_CHUNK_SZ==64UL, unit_test );
 
 /* This test uses the mcache application region for holding the rx flow
-   controls and tx backpressure counters.  We'll use a cache line pair
-   for each reliable rx_seq (as these are all written frequently by
-   different rx's) and the very end will hold backpressure counters for
-   each reliable rx (as these are all written infrequently by the tx).
-   We store the rx overrun accumulator in the rx's cnc app region so all
-   rx's (regardless of being reliable or not) have a remotely
-   monitorable overrun counter. */
+   controls.  We'll use a cache line pair for each reliable rx_seq (as
+   these are all written frequently by different rx's).  We store the tx
+   backpressure counters in the tx's cnc app region and the rx overrun
+   counters in the rx's cnc app region so all tx's and rx's (regardless
+   of being reliable or not) have a remotely monitorable backpressure
+   and overrun counters. */
 
-#define TX_MAX (256UL) /* Less than FD_FRAG_META_ORIG_MAX */
-#define RX_MAX (256UL)
+#define TX_MAX (128UL) /* Less than FD_FRAG_META_ORIG_MAX */
+#define RX_MAX (128UL)
 
-static uchar __attribute__((aligned(FD_FCTL_ALIGN))) fctl_mem[ FD_FCTL_FOOTPRINT( RX_MAX ) ];
+static uchar fctl_mem[ FD_FCTL_FOOTPRINT( RX_MAX ) ] __attribute__((aligned(FD_FCTL_ALIGN)));
 
 int
 main( int     argc,
@@ -27,13 +26,13 @@ main( int     argc,
 
 # define TEST(c) do if( FD_UNLIKELY( !(c) ) ) { FD_LOG_WARNING(( "FAIL: " #c )); return 1; } while(0)
 
-  char const * _cnc    = fd_env_strip_cmdline_cstr ( &argc, &argv, "--cnc",    NULL,         NULL ); /* (req) tx's cnc */
-  char const * _mcache = fd_env_strip_cmdline_cstr ( &argc, &argv, "--mcache", NULL,         NULL ); /* (req) tx's mcache */
-  char const * _dcache = fd_env_strip_cmdline_cstr ( &argc, &argv, "--dcache", NULL,         NULL ); /* (req) tx's dcache */
-  char const * _init   = fd_env_strip_cmdline_cstr ( &argc, &argv, "--init",   NULL,         NULL ); /* (opt) initial tx_seq */
-  ulong        tx_idx  = fd_env_strip_cmdline_ulong( &argc, &argv, "--tx-idx", NULL,          0UL ); /* (opt) tx identity */
-  ulong        rx_cnt  = fd_env_strip_cmdline_ulong( &argc, &argv, "--rx-cnt", NULL,          0UL ); /* (opt) num rel rx for tx */
-  uint         seed    = fd_env_strip_cmdline_uint ( &argc, &argv, "--seed",   NULL, (uint)tx_idx ); /* (opt) rng seed */
+  char const * _cnc    = fd_env_strip_cmdline_cstr ( &argc, &argv, "--cnc",    NULL,                 NULL ); /* (req) cnc */
+  char const * _mcache = fd_env_strip_cmdline_cstr ( &argc, &argv, "--mcache", NULL,                 NULL ); /* (req) mcache */
+  char const * _dcache = fd_env_strip_cmdline_cstr ( &argc, &argv, "--dcache", NULL,                 NULL ); /* (req) dcache */
+  char const * _init   = fd_env_strip_cmdline_cstr ( &argc, &argv, "--init",   NULL,                 NULL ); /* (opt) init seq */
+  ulong        tx_idx  = fd_env_strip_cmdline_ulong( &argc, &argv, "--tx-idx", NULL,                  0UL ); /* (opt) origin */
+  ulong        rx_cnt  = fd_env_strip_cmdline_ulong( &argc, &argv, "--rx-cnt", NULL,                  0UL ); /* (opt) num rel rx for tx */
+  uint         seed    = fd_env_strip_cmdline_uint ( &argc, &argv, "--seed",   NULL, (uint)fd_tickcount() ); /* (opt) rng seed */
 
   if( FD_UNLIKELY( !_cnc          ) ) FD_LOG_ERR(( "--cnc not specified" ));
   if( FD_UNLIKELY( !_mcache       ) ) FD_LOG_ERR(( "--mcache not specified" ));
@@ -85,8 +84,8 @@ main( int     argc,
   if( FD_UNLIKELY( !(0.f<pkt_bw) ) ) FD_LOG_ERR(( "--pkt-bw out of range" ));
 
   /* Compute the average rate of the burst payload bytes.  Note that the
-     number of packet framing bytes in a burst is very well approximated
-     (exact in the limit of continuum arithmetic) by:
+     average number of packet framing bytes in a burst is very well
+     approximated (exact in the limit of continuum arithmetic) by:
 
        integral_{0,infinity} dburst_sz pkt_framing ceil( burst_sz / pkt_payload_max ) burst_pdf( burst_sz )
 
@@ -137,6 +136,12 @@ main( int     argc,
   fd_cnc_t * cnc = fd_cnc_join( fd_wksp_map( _cnc ) );
   if( FD_UNLIKELY( !cnc ) ) FD_LOG_ERR(( "join failed" ));
 
+  FD_LOG_NOTICE(( "Joining to monitoring" ));
+
+  ulong diag_footprint = rx_cnt*sizeof(ulong);
+  if( FD_UNLIKELY( fd_cnc_app_sz( cnc ) < diag_footprint ) ) FD_LOG_ERR(( "increase cnc app sz to at least %lu", diag_footprint ));
+  ulong * diag_backp = (ulong *)fd_cnc_app_laddr( cnc );
+
   FD_LOG_NOTICE(( "Joining to --mcache %s", _mcache ));
 
   fd_frag_meta_t * mcache = fd_mcache_join( fd_wksp_map( _mcache ) );
@@ -154,29 +159,39 @@ main( int     argc,
   uchar * dcache = fd_dcache_join( fd_wksp_map( _dcache ) );
   if( FD_UNLIKELY( !dcache ) ) FD_LOG_ERR(( "join failed" ));
 
-  if( FD_UNLIKELY( !fd_dcache_compact_is_safe( dcache, dcache, pkt_max, depth ) ) )
-    FD_LOG_ERR(( "--dcache not compatible with --pkt-framing, --pkt-payload-max and --mcache depth" ));
+  void * base = fd_wksp_containing( dcache );
+  if( FD_UNLIKELY( !base ) ) FD_LOG_ERR(( "fd_wksp_containing failed" ));
 
-  ulong chunk = 0UL; /* FIXME: command line / auto recover this from dcache app region for clean dcache recovery too */
-  ulong wmark = fd_dcache_compact_wmark( dcache, dcache, pkt_max ); /* Note: chunk0==0 as this test uses dcache as chunk base */
+  if( FD_UNLIKELY( !fd_dcache_compact_is_safe( base, dcache, pkt_max, depth ) ) )
+    FD_LOG_ERR(( "--dcache not compatible with wksp base, --pkt-framing, --pkt-payload-max and --mcache depth" ));
+
+  ulong chunk0 = fd_dcache_compact_chunk0( base, dcache );
+  ulong wmark  = fd_dcache_compact_wmark ( base, dcache, pkt_max );
+  ulong chunk  = chunk0; /* FIXME: command line / auto recover this from dcache app region for clean dcache recovery too */
 
   FD_LOG_NOTICE(( "Configuring fctl for --rx-cnt %lu reliable consumers", rx_cnt ));
 
-  if( FD_UNLIKELY( rx_cnt*136UL>app_sz ) ) FD_LOG_ERR(( "increase mcache app_sz to at least %lu", rx_cnt*136UL ));
+  if( FD_UNLIKELY( rx_cnt*128UL>app_sz ) ) FD_LOG_ERR(( "increase mcache app_sz to at least %lu", rx_cnt*128UL ));
 
   fd_fctl_t * fctl = fd_fctl_join( fd_fctl_new( fctl_mem, rx_cnt ) );
+  if( FD_UNLIKELY( !fctl ) ) FD_LOG_ERR(( "join failed" ));
 
   uchar * fctl_top = app;
-  uchar * fctl_bot = app + fd_ulong_align_dn( app_sz, 8UL );
   for( ulong rx_idx=0UL; rx_idx<rx_cnt; rx_idx++ ) {
-    ulong * rx_lseq  = (ulong *) fctl_top;      fctl_top += 128UL;
-    ulong * rx_backp = (ulong *)(fctl_bot-8UL); fctl_bot -=   8UL;
-    fd_fctl_cfg_rx_add( fctl, depth, rx_lseq, rx_backp );
-    *rx_backp = 0UL;
+    ulong * rx_lseq = (ulong *)fctl_top; fctl_top += 128UL;
+    if( FD_UNLIKELY( !fd_fctl_cfg_rx_add( fctl, depth, rx_lseq, &diag_backp[ rx_idx ] ) ) )
+      FD_LOG_ERR(( "fd_fctl_cfg_rx_add failed" ));
+    diag_backp[ rx_idx ] = 0UL;
   }
-  fd_fctl_cfg_done( fctl, 0UL, 0UL, 0UL, 0UL );
 
-  ulong async_min = 1UL<<13;
+  /* cr_burst is 1 because we only send at most 1 fragment metadata
+     between checking cr_avail.  We use defaults cr_max, cr_resume and
+     cr_refill. */
+  if( FD_UNLIKELY( !fd_fctl_cfg_done( fctl, 1UL, 0UL, 0UL, 0UL ) ) ) FD_LOG_ERR(( "fd_fctl_cfg_done failed" ));
+  FD_LOG_NOTICE(( "cr_burst %lu cr_max %lu cr_resume %lu cr_refill %lu",
+                  fd_fctl_cr_burst( fctl ), fd_fctl_cr_max( fctl ), fd_fctl_cr_resume( fctl ), fd_fctl_cr_refill( fctl ) ));
+
+  ulong async_min = 1UL<<7;
   ulong async_rem = 1UL; /* Do housekeeping on the first iteration */
   ulong cr_avail  = 0UL;
 
@@ -287,7 +302,7 @@ main( int     argc,
   /*ulong tsorig = ... set at burst start ...; */
   /*ulong tspub  = ... set "after" finished receiving from the "NIC" ...; */
 
-    uchar * p   = (uchar *)fd_chunk_to_laddr( dcache, chunk );
+    uchar * p   = (uchar *)fd_chunk_to_laddr( base, chunk );
     __m256i avx = _mm256_set1_epi64x( (long)tx_seq );
     for( ulong off=0UL; off<sz; off+=128UL ) {
       _mm256_store_si256( (__m256i *)(p     ), avx );
@@ -322,7 +337,7 @@ main( int     argc,
 
     /* Wind up for the next iteration */
 
-    chunk  = fd_dcache_compact_next( chunk, sz, 0UL, wmark );
+    chunk  = fd_dcache_compact_next( chunk, sz, chunk0, wmark );
     tx_seq = fd_seq_inc( tx_seq, 1UL );
     cr_avail--;
 

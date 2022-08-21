@@ -3,15 +3,14 @@
 #if FD_HAS_HOSTED && FD_HAS_AVX
 
 /* This test uses the mcache application region for holding the rx flow
-   controls and tx backpressure counters.  We'll use a cache line pair
-   for each reliable rx_seq (as these are all written frequently by
-   different rx's) and the very end will hold backpressure counters for
-   each reliable rx (as these are all written infrequently by the tx).
-   We store the rx overrun accumulator in the rx's cnc app region so all
-   rx's (regardless of being reliable or not) have a remotely
-   monitorable overrun counter. */
+   controls.  We'll use a cache line pair for each reliable rx_seq (as
+   these are all written frequently by different rx's).  We store the tx
+   backpressure counters in the tx's cnc app region and the rx overrun
+   counters in the rx's cnc app region so all tx's and rx's (regardless
+   of being reliable or not) have a remotely monitorable backpressure
+   and overrun counters. */
 
-#define RX_MAX (256UL)
+#define RX_MAX (128UL)
 
 int
 main( int     argc,
@@ -39,6 +38,8 @@ main( int     argc,
   fd_cnc_t * cnc = fd_cnc_join( fd_wksp_map( _cnc ) );
   if( FD_UNLIKELY( !cnc ) ) FD_LOG_ERR(( "join failed" ));
 
+  FD_LOG_NOTICE(( "Joining to monitoring" ));
+
   ulong * _ovrn_cnt = fd_cnc_app_laddr( cnc );
   *_ovrn_cnt = 0UL;
 
@@ -60,12 +61,12 @@ main( int     argc,
   ulong * _rx_seq;
   if( rx_idx==ULONG_MAX ) _rx_seq = local_rx_seq; /* Unreliable consumer ... don't need to communicate fctl so use dummy */
   else { /* Reliable consumer ... communicate fctl via appropriate cache line pair in app region */
-    if( FD_UNLIKELY( (rx_idx+1UL)*136UL > app_sz ) )
-      FD_LOG_ERR(( "Increase mcache app-sz to at least %lu", (rx_idx+1UL)*136UL ));
+    if( FD_UNLIKELY( (rx_idx+1UL)*128UL > app_sz ) )
+      FD_LOG_ERR(( "Increase mcache app-sz to at least %lu", (rx_idx+1UL)*128UL ));
     _rx_seq = (ulong *)(app + rx_idx*128UL);
   }
 
-  ulong async_min = 1UL<<13;
+  ulong async_min = 1UL<<7;
   ulong async_rem = 1UL; /* Do housekeeping on first iteration */
 
   FD_LOG_NOTICE(( "Running --init %lu (%s)", rx_seq, _init ? "manual" : "auto" ));

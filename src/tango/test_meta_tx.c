@@ -3,17 +3,16 @@
 #if FD_HAS_HOSTED && FD_HAS_AVX
 
 /* This test uses the mcache application region for holding the rx flow
-   controls and tx backpressure counters.  We'll use a cache line pair
-   for each reliable rx_seq (as these are all written frequently by
-   different rx's) and the very end will hold backpressure counters for
-   each reliable rx (as these are all written infrequently by the tx).
-   We store the rx overrun accumulator in the rx's cnc app region so all
-   rx's (regardless of being reliable or not) have a remotely
-   monitorable overrun counter. */
+   controls.  We'll use a cache line pair for each reliable rx_seq (as
+   these are all written frequently by different rx's).  We store the tx
+   backpressure counters in the tx's cnc app region and the rx overrun
+   counters in the rx's cnc app region so all tx's and rx's (regardless
+   of being reliable or not) have a remotely monitorable backpressure
+   and overrun counters. */
 
-#define RX_MAX (256UL)
+#define RX_MAX (128UL)
 
-static uchar __attribute__((aligned(FD_FCTL_ALIGN))) shmem[ FD_FCTL_FOOTPRINT( RX_MAX ) ];
+static uchar fctl_mem[ FD_FCTL_FOOTPRINT( RX_MAX ) ] __attribute__((aligned(FD_FCTL_ALIGN)));
 
 int
 main( int     argc,
@@ -41,6 +40,12 @@ main( int     argc,
   fd_cnc_t * cnc = fd_cnc_join( fd_wksp_map( _cnc ) );
   if( FD_UNLIKELY( !cnc ) ) FD_LOG_ERR(( "join failed" ));
 
+  FD_LOG_NOTICE(( "Joining to monitoring" ));
+
+  ulong diag_footprint = rx_cnt*sizeof(ulong);
+  if( FD_UNLIKELY( fd_cnc_app_sz( cnc ) < diag_footprint ) ) FD_LOG_ERR(( "increase cnc app sz to at least %lu", diag_footprint ));
+  ulong * diag_backp = (ulong *)fd_cnc_app_laddr( cnc );
+
   FD_LOG_NOTICE(( "Joining to --mcache %s", _mcache ));
 
   fd_frag_meta_t * mcache = fd_mcache_join( fd_wksp_map( _mcache ) );
@@ -55,21 +60,27 @@ main( int     argc,
 
   FD_LOG_NOTICE(( "Configuring for --rx-cnt %lu reliable consumers", rx_cnt ));
 
-  if( FD_UNLIKELY( rx_cnt*136UL>app_sz ) ) FD_LOG_ERR(( "increase mcache app_sz to at least %lu", rx_cnt*136UL ));
+  if( FD_UNLIKELY( rx_cnt*128UL>app_sz ) ) FD_LOG_ERR(( "increase mcache app_sz to at least %lu", rx_cnt*128UL ));
 
-  fd_fctl_t * fctl = fd_fctl_join( fd_fctl_new( shmem, rx_cnt ) );
+  fd_fctl_t * fctl = fd_fctl_join( fd_fctl_new( fctl_mem, rx_cnt ) );
+  if( FD_UNLIKELY( !fctl ) ) FD_LOG_ERR(( "join failed" ));
 
   uchar * fctl_top = app;
-  uchar * fctl_bot = app + fd_ulong_align_dn( app_sz, 8UL );
   for( ulong rx_idx=0UL; rx_idx<rx_cnt; rx_idx++ ) {
-    ulong * rx_lseq  = (ulong *) fctl_top;      fctl_top += 128UL;
-    ulong * rx_backp = (ulong *)(fctl_bot-8UL); fctl_bot -=   8UL;
-    fd_fctl_cfg_rx_add( fctl, depth, rx_lseq, rx_backp );
-    *rx_backp = 0UL;
+    ulong * rx_lseq = (ulong *)fctl_top; fctl_top += 128UL;
+    if( FD_UNLIKELY( !fd_fctl_cfg_rx_add( fctl, depth, rx_lseq, &diag_backp[ rx_idx ] ) ) )
+      FD_LOG_ERR(( "fd_fctl_cfg_rx_add failed" ));
+    diag_backp[ rx_idx ] = 0UL;
   }
-  fd_fctl_cfg_done( fctl, 0UL, 0UL, 0UL, 0UL );
 
-  ulong async_min = 1UL<<13;
+  /* cr_burst is 1 because we only send at most 1 fragment metadata
+     between checking cr_avail.  We use defaults cr_max, cr_resume and
+     cr_refill. */
+  if( FD_UNLIKELY( !fd_fctl_cfg_done( fctl, 1UL, 0UL, 0UL, 0UL ) ) ) FD_LOG_ERR(( "fd_fctl_cfg_done failed" ));
+  FD_LOG_NOTICE(( "cr_burst %lu cr_max %lu cr_resume %lu cr_refill %lu",
+                  fd_fctl_cr_burst( fctl ), fd_fctl_cr_max( fctl ), fd_fctl_cr_resume( fctl ), fd_fctl_cr_refill( fctl ) ));
+
+  ulong async_min = 1UL<<7;
   ulong async_rem = 1UL; /* Do housekeeping on the first iteration */
   ulong cr_avail  = 0UL;
 

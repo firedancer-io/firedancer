@@ -5,16 +5,15 @@
 FD_STATIC_ASSERT( FD_CHUNK_SZ==64UL, unit_test );
 
 /* This test uses the mcache application region for holding the rx flow
-   controls and tx backpressure counters.  We'll use a cache line pair
-   for each reliable rx_seq (as these are all written frequently by
-   different rx's) and the very end will hold backpressure counters for
-   each reliable rx (as these are all written infrequently by the tx).
-   We store the rx overrun accumulator in the rx's cnc app region so all
-   rx's (regardless of being reliable or not) have a remotely
-   monitorable overrun counter. */
+   controls.  We'll use a cache line pair for each reliable rx_seq (as
+   these are all written frequently by different rx's).  We store the tx
+   backpressure counters in the tx's cnc app region and the rx overrun
+   counters in the rx's cnc app region so all tx's and rx's (regardless
+   of being reliable or not) have a remotely monitorable backpressure
+   and overrun counters. */
 
-#define TX_MAX (256UL) /* Less than FD_FRAG_META_ORIG_MAX */
-#define RX_MAX (256UL)
+#define TX_MAX (128UL) /* Less than FD_FRAG_META_ORIG_MAX */
+#define RX_MAX (128UL)
 
 int
 main( int     argc,
@@ -23,13 +22,13 @@ main( int     argc,
 
 # define TEST(c) do if( FD_UNLIKELY( !(c) ) ) { FD_LOG_WARNING(( "FAIL: " #c )); return 1; } while(0)
 
-  char const * _cnc    = fd_env_strip_cmdline_cstr ( &argc, &argv, "--cnc",    NULL,                  NULL );
-  char const * _mcache = fd_env_strip_cmdline_cstr ( &argc, &argv, "--mcache", NULL,                  NULL );
-  char const * _dcache = fd_env_strip_cmdline_cstr ( &argc, &argv, "--dcache", NULL,                  NULL );
-  char const * _init   = fd_env_strip_cmdline_cstr ( &argc, &argv, "--init",   NULL,                  NULL );
-  ulong        tx_cnt  = fd_env_strip_cmdline_ulong( &argc, &argv, "--tx-cnt", NULL,                   1UL );
-  ulong        rx_idx  = fd_env_strip_cmdline_ulong( &argc, &argv, "--rx-idx", NULL,             ULONG_MAX );
-  uint         seed    = fd_env_strip_cmdline_uint ( &argc, &argv, "--seed",   NULL, (uint)(tx_cnt+rx_idx) );
+  char const * _cnc    = fd_env_strip_cmdline_cstr ( &argc, &argv, "--cnc",    NULL,                 NULL );
+  char const * _mcache = fd_env_strip_cmdline_cstr ( &argc, &argv, "--mcache", NULL,                 NULL );
+  char const * _dcache = fd_env_strip_cmdline_cstr ( &argc, &argv, "--dcache", NULL,                 NULL );
+  char const * _init   = fd_env_strip_cmdline_cstr ( &argc, &argv, "--init",   NULL,                 NULL );
+  ulong        tx_cnt  = fd_env_strip_cmdline_ulong( &argc, &argv, "--tx-cnt", NULL,                  1UL );
+  ulong        rx_idx  = fd_env_strip_cmdline_ulong( &argc, &argv, "--rx-idx", NULL,            ULONG_MAX );
+  uint         seed    = fd_env_strip_cmdline_uint ( &argc, &argv, "--seed",   NULL, (uint)fd_tickcount() );
 
   if( FD_UNLIKELY( !_cnc                                  ) ) FD_LOG_ERR(( "--cnc not specified" ));
   if( FD_UNLIKELY( !_mcache                               ) ) FD_LOG_ERR(( "--mcache not specified" ));
@@ -45,6 +44,8 @@ main( int     argc,
 
   fd_cnc_t * cnc = fd_cnc_join( fd_wksp_map( _cnc ) );
   if( FD_UNLIKELY( !cnc ) ) FD_LOG_ERR(( "join failed" ));
+
+  FD_LOG_NOTICE(( "Joining to monitoring" ));
 
   ulong * _ovrn_cnt = fd_cnc_app_laddr( cnc );
   _ovrn_cnt[0] = 0UL; /* ovrnp */
@@ -67,18 +68,21 @@ main( int     argc,
   uchar const * dcache = fd_dcache_join( fd_wksp_map( _dcache ) );
   if( FD_UNLIKELY( !dcache ) ) FD_LOG_ERR(( "join failed" ));
 
+  void const * base = fd_wksp_containing( dcache );
+  if( FD_UNLIKELY( !base ) ) FD_LOG_ERR(( "fd_wksp_containing failed" ));
+
   FD_LOG_NOTICE(( "Configuring flow control for --rx-idx %lu", rx_idx ));
 
   ulong   local_rx_seq[1];
   ulong * _rx_seq;
   if( rx_idx==ULONG_MAX ) _rx_seq = local_rx_seq; /* Unreliable consumer ... don't need to communicate fctl so use dummy */
   else { /* Reliable consumer ... communicate fctl via appropriate cache line pair in app region */
-    if( FD_UNLIKELY( (rx_idx+1UL)*136UL > app_sz ) )
-      FD_LOG_ERR(( "Increase mcache app-sz to at least %lu", (rx_idx+1UL)*136UL ));
+    if( FD_UNLIKELY( (rx_idx+1UL)*128UL > app_sz ) )
+      FD_LOG_ERR(( "Increase mcache app-sz to at least %lu", (rx_idx+1UL)*128UL ));
     _rx_seq = (ulong *)(app + rx_idx*128UL);
   }
 
-  ulong async_min = 1UL<<13;
+  ulong async_min = 1UL<<7;
   ulong async_rem = 1UL; /* Do housekeeping on first iteration */
 
   FD_LOG_NOTICE(( "Running --init %lu (%s)", rx_seq, _init ? "manual" : "auto" ));
@@ -214,7 +218,7 @@ main( int     argc,
     (void)ctl;                 /* FIXME: ADD REASSEMBLY LOGIC */
     (void)tsorig; (void)tspub; /* FIXME: ADD LATENCY AND BANDWIDTH STATS */
 
-    uchar const * p = (uchar const *)fd_chunk_to_laddr_const( dcache, chunk );
+    uchar const * p = (uchar const *)fd_chunk_to_laddr_const( base, chunk );
     __m256i avx = _mm256_set1_epi64x( (long)rx_seq );
     int mask0 = -1;
     int mask1 = -1;
