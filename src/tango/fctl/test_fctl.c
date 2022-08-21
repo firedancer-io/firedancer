@@ -17,8 +17,8 @@ main( int     argc,
   ulong rx_max    = fd_env_strip_cmdline_ulong( &argc, &argv, "--rx-max",    NULL,    16UL );
   ulong rx_cnt    = fd_env_strip_cmdline_ulong( &argc, &argv, "--rx-cnt",    NULL,     3UL );
   ulong rx_cr_max = fd_env_strip_cmdline_ulong( &argc, &argv, "--rx-cr-max", NULL, 12345UL );
-  ulong cr_burst  = fd_env_strip_cmdline_ulong( &argc, &argv, "--cr-burst",  NULL,     0UL ); /* 0 <> Use defaults */
-  ulong cr_max    = fd_env_strip_cmdline_ulong( &argc, &argv, "--cr-max",    NULL,     0UL ); /* " */
+  ulong cr_burst  = fd_env_strip_cmdline_ulong( &argc, &argv, "--cr-burst",  NULL,     1UL );
+  ulong cr_max    = fd_env_strip_cmdline_ulong( &argc, &argv, "--cr-max",    NULL,     0UL ); /* 0 <> use defaults */
   ulong cr_resume = fd_env_strip_cmdline_ulong( &argc, &argv, "--cr-resume", NULL,     0UL ); /* " */
   ulong cr_refill = fd_env_strip_cmdline_ulong( &argc, &argv, "--cr-refill", NULL,     0UL ); /* " */
 

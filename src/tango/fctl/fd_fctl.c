@@ -91,8 +91,6 @@ fd_fctl_cfg_done( fd_fctl_t * fctl,
   for( ulong rx_idx=0UL; rx_idx<rx_cnt; rx_idx++ ) cr_burst_max = fd_ulong_min( cr_burst_max, (ulong)rx[rx_idx].cr_max );
   /* cr_burst_max is min( LONG_MAX, rx[:].cr_max ), which is in [1,LONG_MAX] as rx[:].cr_max is positive */
 
-  if( !cr_burst ) cr_burst = cr_burst_max;
-
   if( FD_UNLIKELY( !((1UL<=cr_burst) & (cr_burst<=cr_burst_max)) ) ) {
     FD_LOG_WARNING(( "cr_burst (%lu) must be in [%lu,%lu] for receiver config", cr_burst, 1UL, cr_burst_max ));
     return NULL;
@@ -101,7 +99,7 @@ fd_fctl_cfg_done( fd_fctl_t * fctl,
   /* At this point, cr_burst is in [1,cr_burst_max], which is in [1,LONG_MAX] */
 
   if( !cr_max ) {
-    cr_max = cr_burst;
+    cr_max = cr_burst_max;
     for( ulong rx_idx=0UL; rx_idx<rx_cnt; rx_idx++ ) cr_max = fd_ulong_max( cr_max, (ulong)rx[rx_idx].cr_max );
     /* cr_max is in [cr_burst,LONG_MAX] as rx[:].cr_max is positive */
   }

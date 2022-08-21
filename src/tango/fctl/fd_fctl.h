@@ -172,43 +172,41 @@ fd_fctl_cfg_rx_add( fd_fctl_t *   fctl,
    Assumes the fctl configuration is not yet complete (FIXME: CONSIDER
    EXPLICITLY VERIFYING THIS?).
 
-   cr_burst indicates the maximum number of credits a transmitter can
-   use up in a single burst (e.g. MTU for Ethernet-like protocols, MSS
-   for a byte oriented TCP-like protocols, number of slots in a batch
-   for slot oriented protocols, etc).  Should be in
-   [1,min(rx[:].cr_max)].  0 indicates to pick a reasonable default
-   (e.g. min(LONG_MAX,rx[:].cr_max) such that a single transmitter burst
-   can't overwhelm the lowest capacity receiver when that receiver is
-   caught up).
+   cr_burst is the maximum number of credits a transmitter will use in a
+   burst (i.e. deduct from its credits available before checking that it
+   still had credits available again, e.g. MTU for Ethernet-like
+   protocols, MSS for a byte oriented TCP-like protocols, number of
+   slots in a batch for slot oriented protocols like a batch of frag
+   metadata, etc).  Should be in [1,cr_burst_max] where cr_burst_max is
+   min(rx[:].cr_max) and LONG_MAX when there are no receivers.
 
-   cr_max is an upper bound to the number of credits a transmiter can
+   cr_max is an upper bound of the number of credits a transmiter can
    have (e.g. how many credits a transmitter should get from a query
    when there are no active receivers).  Should be in
-   [actual_cr_burst,LONG_MAX] where actual_cr_burst is the value
-   determined above.  0 indicates to pick a reasonable default for the
-   configured receivers (e.g. max(actual_cr_burst,rx[:].cr_max)).  This
-   limit is mostly for dynamic configured flow control situations (e.g.
-   it provides an upper limit to how lazy the transmitter can be with
-   flow control operations).
+   [cr_burst,LONG_MAX].  0 indicates to pick a reasonable default for
+   the configured receivers (e.g. cr_burst_max).  This limit is mostly
+   for dynamic configured flow control situations (e.g. it provides an
+   upper limit to how lazy the transmitter can be with flow control
+   operations).
 
    cr_resume is the credit threshold (in a >= sense) for the fctl to
    stop trying to refill credits from active receivers.  Should be in
-   [actual_cr_burst,actual_cr_max] where actual_cr_{burst,max} are the
-   values determined above.  0 indicates to pick a reasonable default
-   (e.g. actual_cr_burst+floor((2/3)(actual_cr_max-actual_cr_burst)).
+   [cr_burst,actual_cr_max] where actual_cr_max is the value determined
+   above.  0 indicates to pick a reasonable default (e.g.
+   cr_burst+floor((2/3)(actual_cr_max-cr_burst)).
 
    cr_refill is the credit threshold (in a < sense) for the fctl to
    start trying to refill its credits from active receivers.  Should be
-   in [actual_cr_burst,actual_cr_resume] where actual_cr_{burst,resume}
-   are the values determined above.  0 indicates to pick a reasonable
-   default (e.g. 1UL+floor((1/2)(actual_cr_resume-1UL))
+   in [cr_burst,actual_cr_resume] where actual_cr_resume is the value
+   determined above.  0 indicates to pick a reasonable default (e.g.
+   cr_burst+floor((1/2)(actual_cr_resume-cr_burst)).
 
    Returns fctl on success (fctl configuration will be complete on
    return) and NULL on failure (logs details).  Reasons for failure
    include NULL fctl, too large cr_max, cr_resume, cr_refill.
 
-   TL;DR Just say zeros for cr_* if you don't understand the above and
-   this will usually do something reasonable. */
+   TL;DR Just say zeros for cr_{max,resume,refill} if you don't
+   understand the above and this will usually do something reasonable. */
 
 fd_fctl_t *
 fd_fctl_cfg_done( fd_fctl_t * fctl,
