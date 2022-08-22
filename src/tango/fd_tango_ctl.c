@@ -66,10 +66,23 @@ main( int     argc,
         "\tquery-dcache gaddr\n\t"
         "\t- Queries the dcache at gaddr.\n\t"
         "\n\t"
+        "\tnew-fseq wksp seq0\n\t"
+        "\t- Creates a flow control variable in wksp initialized to seq0.\n\t"
+        "\t  Prints the wksp gaddr of the created fseq to stdout.\n\t"
+        "\n\t"
+        "\tdelete-fseq gaddr\n\t"
+        "\t- Destroys the fseq at gaddr.\n\t"
+        "\n\t"
+        "\tquery-fseq gaddr\n\t"
+        "\t- Queries the fseq at gaddr and prints to stdout seq and seq0.\n\t"
+        "\n\t"
+        "\tupdate-fseq gaddr seq\n\t"
+        "\t- Updates the flow control variable at gaddr to seq.\n\t"
+        "\n\t"
         "\tnew-cnc wksp type now app-sz\n\t"
-        "\t- Creates an command and control variable with the given type,\n\t"
+        "\t- Creates a command and control variable with the given type,\n\t"
         "\t  initial heartbeat of now and an application region size of\n\t"
-        "\t  app-sz.\n\t"
+        "\t  app-sz.  Prints the wksp gaddr of the cnc to stdout.\n\t"
         "\t- If now is '-', the wallclock will be used for the initial\n\t"
         "\t  heartbeat value.\n\t"
         "\n\t"
@@ -87,7 +100,7 @@ main( int     argc,
         "\t    run  (0): thread resumed running\n\t"
         "\t    boot (1): thread halted and can be safely restarted.\n\t"
         "\t    fail (2): thread halted and cannot be safely restated.\n\t"
-        "\n\t", bin ));
+        "", bin ));
       FD_LOG_NOTICE(( "%i: %s: success", cnt, cmd ));
 
     } else if( !strcmp( cmd, "new-mcache" ) ) {
@@ -371,6 +384,111 @@ main( int     argc,
       FD_LOG_NOTICE(( "%i: %s %s: success", cnt, cmd, _shdcache ));
       SHIFT( 1 );
 
+    } else if( !strcmp( cmd, "new-fseq" ) ) {
+
+      if( FD_UNLIKELY( argc<2 ) ) FD_LOG_ERR(( "%i: %s: too few arguments\n\tDo %s help for help", cnt, cmd, bin ));
+
+      char const * _wksp =                   argv[0];
+      ulong        seq0  = fd_cstr_to_ulong( argv[1] );
+
+      ulong align     = fd_fseq_align();
+      ulong footprint = fd_fseq_footprint();
+
+      fd_wksp_t * wksp = fd_wksp_attach( _wksp );
+      if( FD_UNLIKELY( !wksp ) ) {
+        FD_LOG_ERR(( "%i: %s: fd_wksp_attach( \"%s\" ) failed\n\tDo %s help for help", cnt, cmd, _wksp, bin ));
+      }
+
+      ulong gaddr = fd_wksp_alloc( wksp, align, footprint );
+      if( FD_UNLIKELY( !gaddr ) ) {
+        fd_wksp_detach( wksp );
+        FD_LOG_ERR(( "%i: %s: fd_wksp_alloc( \"%s\", %lu, %lu ) failed\n\tDo %s help for help",
+                     cnt, cmd, _wksp, align, footprint, bin ));
+      }
+
+      void * shmem = fd_wksp_laddr( wksp, gaddr );
+      if( FD_UNLIKELY( !shmem ) ) {
+        fd_wksp_free( wksp, gaddr );
+        fd_wksp_detach( wksp );
+        FD_LOG_ERR(( "%i: %s: fd_wksp_laddr( \"%s\", %lu ) failed\n\tDo %s help for help", cnt, cmd, _wksp, gaddr, bin ));
+      }
+
+      void * shfseq = fd_fseq_new( shmem, seq0 );
+      if( FD_UNLIKELY( !shfseq ) ) {
+        fd_wksp_free( wksp, gaddr );
+        fd_wksp_detach( wksp );
+        FD_LOG_ERR(( "%i: %s: fd_fseq_new( %s:%lu, %lu ) failed\n\tDo %s help for help", cnt, cmd, _wksp, gaddr, seq0, bin ));
+      }
+
+      char buf[ FD_WKSP_CSTR_MAX ];
+      printf( "%s\n", fd_wksp_cstr( wksp, gaddr, buf ) );
+
+      fd_wksp_detach( wksp );
+
+      FD_LOG_NOTICE(( "%i: %s %s %lu: success", cnt, cmd, _wksp, seq0 ));
+      SHIFT( 2 );
+
+    } else if( !strcmp( cmd, "delete-fseq" ) ) {
+
+      if( FD_UNLIKELY( argc<1 ) ) FD_LOG_ERR(( "%i: %s: too few arguments\n\tDo %s help for help", cnt, cmd, bin ));
+
+      char const * _shfseq = argv[0];
+
+      void * shfseq = fd_wksp_map( _shfseq );
+      if( FD_UNLIKELY( !shfseq ) )
+        FD_LOG_ERR(( "%i: %s: fd_wksp_map( \"%s\" ) failed\n\tDo %s help for help", cnt, cmd, _shfseq, bin ));
+      if( FD_UNLIKELY( !fd_fseq_delete( shfseq ) ) )
+        FD_LOG_ERR(( "%i: %s: fd_fseq_delete( \"%s\" ) failed\n\tDo %s help for help", cnt, cmd, _shfseq, bin ));
+      fd_wksp_unmap( shfseq );
+
+      fd_wksp_cstr_free( _shfseq );
+
+      FD_LOG_NOTICE(( "%i: %s %s: success", cnt, cmd, _shfseq ));
+      SHIFT( 1 );
+
+    } else if( !strcmp( cmd, "query-fseq" ) ) {
+
+      if( FD_UNLIKELY( argc<1 ) ) FD_LOG_ERR(( "%i: %s: too few arguments\n\tDo %s help for help", cnt, cmd, bin ));
+
+      char const * _shfseq = argv[0];
+
+      void * shfseq = fd_wksp_map( _shfseq );
+      if( FD_UNLIKELY( !shfseq ) )
+        FD_LOG_ERR(( "%i: %s: fd_wksp_map( \"%s\" ) failed\n\tDo %s help for help", cnt, cmd, _shfseq, bin ));
+
+      ulong const * fseq = fd_fseq_join( shfseq );
+      if( FD_UNLIKELY( !fseq ) )
+        FD_LOG_ERR(( "%i: %s: fd_fseq_join( \"%s\" ) failed\n\tDo %s help for help", cnt, cmd, _shfseq, bin ));
+
+      printf( "%lu %lu\n", fd_fseq_query( fseq ), fd_fseq_seq0( fseq ) );
+
+      fd_wksp_unmap( fd_fseq_leave( fseq ) );
+
+      FD_LOG_NOTICE(( "%i: %s %s: success", cnt, cmd, _shfseq ));
+      SHIFT( 1 );
+
+    } else if( !strcmp( cmd, "update-fseq" ) ) {
+
+      if( FD_UNLIKELY( argc<2 ) ) FD_LOG_ERR(( "%i: %s: too few arguments\n\tDo %s help for help", cnt, cmd, bin ));
+
+      char const * _shfseq =                   argv[0];
+      ulong        seq     = fd_cstr_to_ulong( argv[1] );
+
+      void * shfseq = fd_wksp_map( _shfseq );
+      if( FD_UNLIKELY( !shfseq ) )
+        FD_LOG_ERR(( "%i: %s: fd_wksp_map( \"%s\" ) failed\n\tDo %s help for help", cnt, cmd, _shfseq, bin ));
+
+      ulong * fseq = fd_fseq_join( shfseq );
+      if( FD_UNLIKELY( !fseq ) )
+        FD_LOG_ERR(( "%i: %s: fd_fseq_join( \"%s\" ) failed\n\tDo %s help for help", cnt, cmd, _shfseq, bin ));
+
+      fd_fseq_update( fseq, seq );
+
+      fd_wksp_unmap( fd_fseq_leave( fseq ) );
+
+      FD_LOG_NOTICE(( "%i: %s %s %lu: success", cnt, cmd, _shfseq, seq ));
+      SHIFT( 2 );
+
     } else if( !strcmp( cmd, "new-cnc" ) ) {
 
       if( FD_UNLIKELY( argc<4 ) ) FD_LOG_ERR(( "%i: %s: too few arguments\n\tDo %s help for help", cnt, cmd, bin ));
@@ -379,7 +497,6 @@ main( int     argc,
       ulong        type      =                          fd_cstr_to_ulong( argv[1] );
       long         heartbeat = strcmp( argv[2], "-" ) ? fd_cstr_to_long ( argv[2] ) : fd_log_wallclock();
       ulong        app_sz    =                          fd_cstr_to_ulong( argv[3] );
-      /* FIXME: PRESERVE CREATION HEARTBEAT IN CNC? */
 
       ulong align     = fd_cnc_align();
       ulong footprint = fd_cnc_footprint( app_sz );
