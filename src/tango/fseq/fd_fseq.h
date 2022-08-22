@@ -23,10 +23,10 @@ FD_PROTOTYPES_BEGIN
    of a memory region suitable for use as a fseq.  fd_fseq_align returns
    FD_FSEQ_ALIGN.  fd_fseq_footprint returns FD_FSEQ_FOOTPRINT. */
 
-ulong
+FD_FN_CONST ulong
 fd_fseq_align( void );
 
-ulong
+FD_FN_CONST ulong
 fd_fseq_footprint( void );
 
 /* fd_fseq_new formats an unused memory region for use as a fseq.  Assumes
