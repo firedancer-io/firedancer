@@ -176,8 +176,8 @@ fd_cnc_new( void * shmem,
 fd_cnc_t *
 fd_cnc_join( void * shcnc );
 
-/* fd_cnc_leave leaves a current local join.  Returns a pointer to
-   the underlying shared memory region on success (this should not be
+/* fd_cnc_leave leaves a current local join.  Returns a pointer to the
+   underlying shared memory region on success (this should not be
    assumed to be just a cast of cnc) and NULL on failure (logs details).
    Reasons for failure include cnc is NULL. */
 
@@ -188,7 +188,7 @@ fd_cnc_leave( fd_cnc_t const * cnc );
    nobody is joined to the region.  Returns a pointer to the underlying
    shared memory region or NULL if used obviously in error (e.g. shcnc
    obviously does not point to a cnc ... logs details).  The ownership
-   of the memory region is transferred to the caller. */
+   of the memory region is transferred to the caller on success. */
 
 void *
 fd_cnc_delete( void * shcnc );
