@@ -3,6 +3,9 @@
 FD_STATIC_ASSERT( FD_FSEQ_ALIGN    ==128UL, unit_test );
 FD_STATIC_ASSERT( FD_FSEQ_FOOTPRINT==128UL, unit_test );
 
+FD_STATIC_ASSERT( FD_FSEQ_APP_ALIGN    ==32UL, unit_test );
+FD_STATIC_ASSERT( FD_FSEQ_APP_FOOTPRINT==96UL, unit_test );
+
 static uchar shmem[ FD_FSEQ_FOOTPRINT ] __attribute__((aligned(FD_FSEQ_ALIGN)));
 
 int
@@ -23,6 +26,12 @@ main( int     argc,
 
   void *  shfseq = fd_fseq_new( shmem, seq0 ); TEST( shfseq );
   ulong * fseq   = fd_fseq_join( shfseq );     TEST( fseq );
+
+  uchar *       app       = fd_fseq_app_laddr      ( fseq );
+  uchar const * app_const = fd_fseq_app_laddr_const( fseq );
+  TEST( (ulong)app==(ulong)app_const );
+  TEST( fd_ulong_is_aligned( (ulong)app, FD_FSEQ_APP_ALIGN ) );
+  for( ulong b=0UL; b<FD_FSEQ_APP_FOOTPRINT; b++ ) TEST( !app_const[b] );
 
   TEST( fd_fseq_seq0 ( fseq )==seq0 );
   TEST( fd_fseq_query( fseq )==seq0 );

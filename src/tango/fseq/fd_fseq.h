@@ -17,6 +17,13 @@
 #define FD_FSEQ_ALIGN     (128UL)
 #define FD_FSEQ_FOOTPRINT (128UL)
 
+/* FD_FSEQ_APP_{ALIGN,FOOTPRINT} specify the alignment and footprint of
+   a fseq's application region.  ALIGN is a positive integer power of 2.
+   FOOTPRINT is a multiple of ALIGN. */
+
+#define FD_FSEQ_APP_ALIGN     (32UL)
+#define FD_FSEQ_APP_FOOTPRINT (96UL)
+
 FD_PROTOTYPES_BEGIN
 
 /* fd_fseq_{align,footprint} return the required alignment and footprint
@@ -32,10 +39,10 @@ fd_fseq_footprint( void );
 /* fd_fseq_new formats an unused memory region for use as a fseq.  Assumes
    shmem is a non-NULL pointer to this region in the local address space
    with the required footprint and alignment.  The fseq will be
-   initialized to seq0.  Returns shmem (and the memory region it points
-   to will be formatted as a fseq, caller is not joined) and NULL on
-   failure (logs details).  Reasons for failure include an obviously bad
-   memory region. */
+   initialized to seq0 and the application region will be cleared to 0.
+   Returns shmem (and the memory region it points to will be formatted
+   as a fseq, caller is not joined) and NULL on failure (logs details).
+   Reasons for failure include an obviously bad memory region. */
 
 void *
 fd_fseq_new( void * shmem,
@@ -71,13 +78,19 @@ fd_fseq_leave( ulong const * fseq );
 void *
 fd_fseq_delete( void * shfseq );
 
+/* fd_fctl_app_laddr returns local address of the fctl's application
+   region.  This will have FD_FCTL_APP_ALIGN alignment and room for at
+   least FD_FCTL_APP_FOOTPRINT bytes.  Assumes fseq is a current local
+   join.  fd_cnc_app_laddr_const is for const correctness.  The return
+   values are valid for the lifetime of the local join. */
+
+FD_FN_CONST static inline void *       fd_fseq_app_laddr      ( ulong *       fseq ) { return (void       *)&fseq[2]; }
+FD_FN_CONST static inline void const * fd_fseq_app_laddr_const( ulong const * fseq ) { return (void const *)&fseq[2]; }
+
 /* fd_fseq_seq0 returns the sequencer number used when the fseq was
    created.  Assumes fseq is a current local join. */
 
-FD_FN_PURE static inline ulong
-fd_fseq_seq0( ulong const * fseq ) {
-  return fseq[-1];
-}
+FD_FN_PURE static inline ulong fd_fseq_seq0( ulong const * fseq ) { return fseq[-1]; }
 
 /* fd_fseq_query reads the current sequence number stored the fseq.  The
    value is observed at some point between when the call started and the

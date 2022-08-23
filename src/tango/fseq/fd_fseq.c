@@ -9,6 +9,8 @@ struct __attribute__((aligned(FD_FSEQ_ALIGN))) fd_fseq_shmem {
   ulong magic; /* == FD_FSEQ_MAGIC */
   ulong seq0;  /* Initial sequence number */
   ulong seq;   /* Current sequence number */
+  /* Padding to FD_FSEQ_APP_ALIGN here */
+  /* FD_FSEQ_APP_FOOTPRINT for app region here */
   /* Padding to FD_FSEQ_ALIGN here */
 };
 
@@ -27,7 +29,6 @@ fd_fseq_footprint( void ) {
 void *
 fd_fseq_new( void * shmem,
              ulong  seq0 ) {
-  fd_fseq_shmem_t * fseq = (fd_fseq_shmem_t *)shmem;
 
    if( FD_UNLIKELY( !shmem ) ) {
     FD_LOG_WARNING(( "NULL shmem" ));
@@ -38,6 +39,10 @@ fd_fseq_new( void * shmem,
     FD_LOG_WARNING(( "misaligned shmem" ));
     return NULL;
   } 
+
+  fd_fseq_shmem_t * fseq = (fd_fseq_shmem_t *)shmem;
+
+  memset( fseq, 0, FD_FSEQ_FOOTPRINT );
 
   fseq->seq0 = seq0;
   fseq->seq  = seq0;
