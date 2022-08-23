@@ -201,7 +201,8 @@ FD_FN_PURE static inline ulong fd_cnc_app_sz( fd_cnc_t const * cnc ) { return cn
 /* fd_cnc_app_laddr returns local address of the cnc's application
    region.  This will have FD_CNC_APP_ALIGN alignment and room for at
    least fd_cnc_app_sz( cnc ) bytes.  Assumes cnc is a current local
-   join.  fd_cnc_app_laddr_const is for const correctness. */
+   join.  fd_cnc_app_laddr_const is for const correctness.  The return
+   values are valid for the lifetime of the local join. */
 
 FD_FN_CONST static inline void *       fd_cnc_app_laddr      ( fd_cnc_t *       cnc ) { return (void *      )(((ulong)cnc)+64UL); }
 FD_FN_CONST static inline void const * fd_cnc_app_laddr_const( fd_cnc_t const * cnc ) { return (void const *)(((ulong)cnc)+64UL); }
