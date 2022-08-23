@@ -34,14 +34,15 @@ main( int     argc,
         "\n\t"
         "\tnew-mcache wksp depth app-sz seq0\n\t"
         "\t- Creates a frag meta cache in wksp with the given depth,\n\t"
-        "\t  application region size and initial sequence number.  Prints\n\t"
-        "\t  the wksp gaddr of the mcache to stdout.\n\t"
+        "\t  application region size app-sz and initial sequence number\n\t"
+        "\t  seq0.  Prints the wksp gaddr of the mcache to stdout.\n\t"
         "\n\t"
         "\tdelete-mcache gaddr\n\t"
         "\t- Destroys the mcache at gaddr.\n\t"
         "\n\t"
-        "\tquery-mcache gaddr\n\t"
-        "\t- Queries the mcache at gaddr.\n\t"
+        "\tquery-mcache gaddr verbose\n\t"
+        "\t- Queries the mcache at gaddr.  If verbose is 0, prints seq to\n\t"
+        "\t  stdout.  Otherwise, prints a detailed query to stdout.\n\t"
         "\n\t"
         "\tnew-dcache wksp mtu depth burst compact app-sz\n\t"
         "\t- Creates a frag data cache in wksp optimized for frag payloads\n\t"
@@ -63,8 +64,10 @@ main( int     argc,
         "\tdelete-dcache gaddr\n\t"
         "\t- Destroys the dcache at gaddr.\n\t"
         "\n\t"
-        "\tquery-dcache gaddr\n\t"
-        "\t- Queries the dcache at gaddr.\n\t"
+        "\tquery-dcache gaddr verbose\n\t"
+        "\t- Queries the dcache at gaddr.  If verbose is 0, prints 0\n\t"
+        "\t  to stdout (implicitly verifying gaddr is a dcache).\n\t"
+        "\t  Otherwise, prints a detailed query to stdout.\n\t" 
         "\n\t"
         "\tnew-fseq wksp seq0\n\t"
         "\t- Creates a flow control variable in wksp initialized to seq0.\n\t"
@@ -73,8 +76,9 @@ main( int     argc,
         "\tdelete-fseq gaddr\n\t"
         "\t- Destroys the fseq at gaddr.\n\t"
         "\n\t"
-        "\tquery-fseq gaddr\n\t"
-        "\t- Queries the fseq at gaddr and prints to stdout seq and seq0.\n\t"
+        "\tquery-fseq gaddr verbose\n\t"
+        "\t- Queries the fseq at gaddr.  If verbose is 0, prints seq to\n\t"
+        "\t  stdout.  Otherwise, prints a detailed query to stdout.\n\t"
         "\n\t"
         "\tupdate-fseq gaddr seq\n\t"
         "\t- Updates the flow control variable at gaddr to seq.\n\t"
@@ -89,8 +93,9 @@ main( int     argc,
         "\tdelete-cnc gaddr\n\t"
         "\t- Destroys the cnc at gaddr.\n\t"
         "\n\t"
-        "\tquery-cnc gaddr\n\t"
-        "\t- Queries the cnc at gaddr.\n\t"
+        "\tquery-cnc gaddr verbose\n\t"
+        "\t- Queries the cnc at gaddr.  If verbose is 0, prints signal to\n\t"
+        "\t  stdout.  Otherwise, prints a detailed query to stdout.\n\t"
         "\n\t"
         "\tsignal-cnc gaddr sig\n\t"
         "\t- Sends signal sig to cnc at gaddr and waits for the response.\n\t"
@@ -173,9 +178,10 @@ main( int     argc,
 
     } else if( !strcmp( cmd, "query-mcache" ) ) {
 
-      if( FD_UNLIKELY( argc<1 ) ) FD_LOG_ERR(( "%i: %s: too few arguments\n\tDo %s help for help", cnt, cmd, bin ));
+      if( FD_UNLIKELY( argc<2 ) ) FD_LOG_ERR(( "%i: %s: too few arguments\n\tDo %s help for help", cnt, cmd, bin ));
 
-      char const * _shmcache = argv[0];
+      char const * _shmcache =                 argv[0];
+      int          verbose   = fd_cstr_to_int( argv[1] );
 
       void * shmcache = fd_wksp_map( _shmcache );
       if( FD_UNLIKELY( !shmcache ) )
@@ -186,36 +192,39 @@ main( int     argc,
         FD_LOG_ERR(( "%i: %s: fd_mcache_join( \"%s\" ) failed\n\tDo %s help for help", cnt, cmd, _shmcache, bin ));
 
       fd_mcache_private_hdr_t const * hdr = fd_mcache_private_hdr_const( mcache );
-      printf( "mcache %s\n", _shmcache );
-      printf( "\tdepth   %lu\n", hdr->depth  );
-      printf( "\tapp-sz  %lu\n", hdr->app_sz );
-      printf( "\tseq0    %lu\n", hdr->seq0   );
+      if( !verbose ) printf( "%lu\n", *hdr->seq );
+      else {
+        printf( "mcache %s\n", _shmcache );
+        printf( "\tdepth   %lu\n", hdr->depth  );
+        printf( "\tapp-sz  %lu\n", hdr->app_sz );
+        printf( "\tseq0    %lu\n", hdr->seq0   );
 
-      ulong seq_cnt;
-      for( seq_cnt=FD_MCACHE_SEQ_CNT; seq_cnt; seq_cnt-- ) if( hdr->seq[seq_cnt-1UL] ) break;
-      printf( "\tseq[ 0] %lu\n", *hdr->seq );
-      for( ulong idx=1UL; idx<seq_cnt; idx++ ) printf( "\tseq[%2lu] %lu\n", idx, hdr->seq[idx] );
-      if( seq_cnt<FD_MCACHE_SEQ_CNT ) printf( "\t        ... snip (all remaining are zero) ...\n" );
+        ulong seq_cnt;
+        for( seq_cnt=FD_MCACHE_SEQ_CNT; seq_cnt; seq_cnt-- ) if( hdr->seq[seq_cnt-1UL] ) break;
+        printf( "\tseq[ 0] %lu\n", *hdr->seq );
+        for( ulong idx=1UL; idx<seq_cnt; idx++ ) printf( "\tseq[%2lu] %lu\n", idx, hdr->seq[idx] );
+        if( seq_cnt<FD_MCACHE_SEQ_CNT ) printf( "\t        ... snip (all remaining are zero) ...\n" );
 
-      if( hdr->app_sz ) {
-        uchar const * a = fd_mcache_app_laddr_const( mcache );
-        ulong app_sz;
-        for( app_sz=hdr->app_sz; app_sz; app_sz-- ) if( a[app_sz-1UL] ) break;
-        ulong         off = 0UL;
-        printf( "\tapp     %04lx: %02x %02x %02x %02x %02x %02x %02x %02x  %02x %02x %02x %02x %02x %02x %02x %02x\n", off,
-                (uint)a[ 0], (uint)a[ 1], (uint)a[ 2], (uint)a[ 3], (uint)a[ 4], (uint)a[ 5], (uint)a[ 6], (uint)a[ 7],
-                (uint)a[ 8], (uint)a[ 9], (uint)a[10], (uint)a[11], (uint)a[12], (uint)a[13], (uint)a[14], (uint)a[15] );
-        for( off+=16UL, a+=16UL; off<app_sz; off+=16UL, a+=16UL )
-          printf( "\t        %04lx: %02x %02x %02x %02x %02x %02x %02x %02x  %02x %02x %02x %02x %02x %02x %02x %02x\n", off,
+        if( hdr->app_sz ) {
+          uchar const * a = fd_mcache_app_laddr_const( mcache );
+          ulong app_sz;
+          for( app_sz=hdr->app_sz; app_sz; app_sz-- ) if( a[app_sz-1UL] ) break;
+          ulong         off = 0UL;
+          printf( "\tapp     %04lx: %02x %02x %02x %02x %02x %02x %02x %02x  %02x %02x %02x %02x %02x %02x %02x %02x\n", off,
                   (uint)a[ 0], (uint)a[ 1], (uint)a[ 2], (uint)a[ 3], (uint)a[ 4], (uint)a[ 5], (uint)a[ 6], (uint)a[ 7],
                   (uint)a[ 8], (uint)a[ 9], (uint)a[10], (uint)a[11], (uint)a[12], (uint)a[13], (uint)a[14], (uint)a[15] );
-        if( off<hdr->app_sz ) printf( "\t        ... snip (all remaining are zero) ...\n" );
+          for( off+=16UL, a+=16UL; off<app_sz; off+=16UL, a+=16UL )
+            printf( "\t        %04lx: %02x %02x %02x %02x %02x %02x %02x %02x  %02x %02x %02x %02x %02x %02x %02x %02x\n", off,
+                    (uint)a[ 0], (uint)a[ 1], (uint)a[ 2], (uint)a[ 3], (uint)a[ 4], (uint)a[ 5], (uint)a[ 6], (uint)a[ 7],
+                    (uint)a[ 8], (uint)a[ 9], (uint)a[10], (uint)a[11], (uint)a[12], (uint)a[13], (uint)a[14], (uint)a[15] );
+          if( off<hdr->app_sz ) printf( "\t        ... snip (all remaining are zero) ...\n" );
+        }
       }
 
       fd_wksp_unmap( fd_mcache_leave( mcache ) );
 
-      FD_LOG_NOTICE(( "%i: %s %s: success", cnt, cmd, _shmcache ));
-      SHIFT( 1 );
+      FD_LOG_NOTICE(( "%i: %s %s %i: success", cnt, cmd, _shmcache, verbose ));
+      SHIFT( 2 );
 
     } else if( !strcmp( cmd, "new-dcache" ) ) {
 
@@ -347,9 +356,10 @@ main( int     argc,
 
     } else if( !strcmp( cmd, "query-dcache" ) ) {
 
-      if( FD_UNLIKELY( argc<1 ) ) FD_LOG_ERR(( "%i: %s: too few arguments\n\tDo %s help for help", cnt, cmd, bin ));
+      if( FD_UNLIKELY( argc<2 ) ) FD_LOG_ERR(( "%i: %s: too few arguments\n\tDo %s help for help", cnt, cmd, bin ));
 
-      char const * _shdcache = argv[0];
+      char const * _shdcache =                 argv[0];
+      int          verbose   = fd_cstr_to_int( argv[1] );
 
       void * shdcache = fd_wksp_map( _shdcache );
       if( FD_UNLIKELY( !shdcache ) )
@@ -359,30 +369,33 @@ main( int     argc,
       if( FD_UNLIKELY( !dcache ) )
         FD_LOG_ERR(( "%i: %s: fd_dcache_join( \"%s\" ) failed\n\tDo %s help for help", cnt, cmd, _shdcache, bin ));
 
-      fd_dcache_private_hdr_t const * hdr = fd_dcache_private_hdr_const( dcache );
-      printf( "dcache %s\n", _shdcache );
-      printf( "\tdata-sz %lu\n", hdr->data_sz );
-      printf( "\tapp-sz  %lu\n", hdr->app_sz  );
+      if( !verbose ) printf( "0\n" );
+      else {
+        fd_dcache_private_hdr_t const * hdr = fd_dcache_private_hdr_const( dcache );
+        printf( "dcache %s\n", _shdcache );
+        printf( "\tdata-sz %lu\n", hdr->data_sz );
+        printf( "\tapp-sz  %lu\n", hdr->app_sz  );
 
-      if( hdr->app_sz ) {
-        uchar const * a = fd_dcache_app_laddr_const( dcache );
-        ulong app_sz;
-        for( app_sz=hdr->app_sz; app_sz; app_sz-- ) if( a[app_sz-1UL] ) break;
-        ulong         off = 0UL;
-        printf( "\tapp     %04lx: %02x %02x %02x %02x %02x %02x %02x %02x  %02x %02x %02x %02x %02x %02x %02x %02x\n", off,
-                (uint)a[ 0], (uint)a[ 1], (uint)a[ 2], (uint)a[ 3], (uint)a[ 4], (uint)a[ 5], (uint)a[ 6], (uint)a[ 7],
-                (uint)a[ 8], (uint)a[ 9], (uint)a[10], (uint)a[11], (uint)a[12], (uint)a[13], (uint)a[14], (uint)a[15] );
-        for( off+=16UL, a+=16UL; off<app_sz; off+=16UL, a+=16UL )
-          printf( "\t        %04lx: %02x %02x %02x %02x %02x %02x %02x %02x  %02x %02x %02x %02x %02x %02x %02x %02x\n", off,
+        if( hdr->app_sz ) {
+          uchar const * a = fd_dcache_app_laddr_const( dcache );
+          ulong app_sz;
+          for( app_sz=hdr->app_sz; app_sz; app_sz-- ) if( a[app_sz-1UL] ) break;
+          ulong         off = 0UL;
+          printf( "\tapp     %04lx: %02x %02x %02x %02x %02x %02x %02x %02x  %02x %02x %02x %02x %02x %02x %02x %02x\n", off,
                   (uint)a[ 0], (uint)a[ 1], (uint)a[ 2], (uint)a[ 3], (uint)a[ 4], (uint)a[ 5], (uint)a[ 6], (uint)a[ 7],
                   (uint)a[ 8], (uint)a[ 9], (uint)a[10], (uint)a[11], (uint)a[12], (uint)a[13], (uint)a[14], (uint)a[15] );
-        if( off<hdr->app_sz ) printf( "\t        ... snip (all remaining are zero) ...\n" );
+          for( off+=16UL, a+=16UL; off<app_sz; off+=16UL, a+=16UL )
+            printf( "\t        %04lx: %02x %02x %02x %02x %02x %02x %02x %02x  %02x %02x %02x %02x %02x %02x %02x %02x\n", off,
+                    (uint)a[ 0], (uint)a[ 1], (uint)a[ 2], (uint)a[ 3], (uint)a[ 4], (uint)a[ 5], (uint)a[ 6], (uint)a[ 7],
+                    (uint)a[ 8], (uint)a[ 9], (uint)a[10], (uint)a[11], (uint)a[12], (uint)a[13], (uint)a[14], (uint)a[15] );
+          if( off<hdr->app_sz ) printf( "\t        ... snip (all remaining are zero) ...\n" );
+        }
       }
 
       fd_wksp_unmap( fd_dcache_leave( dcache ) );
 
-      FD_LOG_NOTICE(( "%i: %s %s: success", cnt, cmd, _shdcache ));
-      SHIFT( 1 );
+      FD_LOG_NOTICE(( "%i: %s %s %i: success", cnt, cmd, _shdcache, verbose ));
+      SHIFT( 2 );
 
     } else if( !strcmp( cmd, "new-fseq" ) ) {
 
@@ -448,9 +461,10 @@ main( int     argc,
 
     } else if( !strcmp( cmd, "query-fseq" ) ) {
 
-      if( FD_UNLIKELY( argc<1 ) ) FD_LOG_ERR(( "%i: %s: too few arguments\n\tDo %s help for help", cnt, cmd, bin ));
+      if( FD_UNLIKELY( argc<2 ) ) FD_LOG_ERR(( "%i: %s: too few arguments\n\tDo %s help for help", cnt, cmd, bin ));
 
-      char const * _shfseq = argv[0];
+      char const * _shfseq =                 argv[0];
+      int          verbose = fd_cstr_to_int( argv[1] );
 
       void * shfseq = fd_wksp_map( _shfseq );
       if( FD_UNLIKELY( !shfseq ) )
@@ -460,12 +474,29 @@ main( int     argc,
       if( FD_UNLIKELY( !fseq ) )
         FD_LOG_ERR(( "%i: %s: fd_fseq_join( \"%s\" ) failed\n\tDo %s help for help", cnt, cmd, _shfseq, bin ));
 
-      printf( "%lu %lu\n", fd_fseq_query( fseq ), fd_fseq_seq0( fseq ) );
+      if( !verbose ) printf( "%lu\n", fd_fseq_query( fseq ) );
+      else {
+        printf( "fseq %s\n", _shfseq );
+        printf( "\tseq0 %lu\n", fd_fseq_seq0 ( fseq ) );
+        printf( "\tseq  %lu\n", fd_fseq_query( fseq ) );
+        uchar const * a = (uchar const *)fd_fseq_app_laddr_const( fseq );
+        ulong app_sz;
+        for( app_sz=FD_FSEQ_APP_FOOTPRINT; app_sz; app_sz-- ) if( a[app_sz-1UL] ) break;
+        ulong off = 0UL;
+        printf( "\tapp  %04lx: %02x %02x %02x %02x %02x %02x %02x %02x  %02x %02x %02x %02x %02x %02x %02x %02x\n", off,
+                (uint)a[ 0], (uint)a[ 1], (uint)a[ 2], (uint)a[ 3], (uint)a[ 4], (uint)a[ 5], (uint)a[ 6], (uint)a[ 7],
+                (uint)a[ 8], (uint)a[ 9], (uint)a[10], (uint)a[11], (uint)a[12], (uint)a[13], (uint)a[14], (uint)a[15] );
+        for( off+=16UL, a+=16UL; off<app_sz; off+=16UL, a+=16UL )
+          printf( "\t     %04lx: %02x %02x %02x %02x %02x %02x %02x %02x  %02x %02x %02x %02x %02x %02x %02x %02x\n", off,
+                  (uint)a[ 0], (uint)a[ 1], (uint)a[ 2], (uint)a[ 3], (uint)a[ 4], (uint)a[ 5], (uint)a[ 6], (uint)a[ 7],
+                  (uint)a[ 8], (uint)a[ 9], (uint)a[10], (uint)a[11], (uint)a[12], (uint)a[13], (uint)a[14], (uint)a[15] );
+        if( off<FD_FSEQ_APP_FOOTPRINT ) printf( "\t     ... snip (all remaining are zero) ...\n" );
+      }
 
       fd_wksp_unmap( fd_fseq_leave( fseq ) );
 
-      FD_LOG_NOTICE(( "%i: %s %s: success", cnt, cmd, _shfseq ));
-      SHIFT( 1 );
+      FD_LOG_NOTICE(( "%i: %s %s %i: success", cnt, cmd, _shfseq, verbose ));
+      SHIFT( 2 );
 
     } else if( !strcmp( cmd, "update-fseq" ) ) {
 
@@ -559,9 +590,10 @@ main( int     argc,
 
     } else if( !strcmp( cmd, "query-cnc" ) ) {
 
-      if( FD_UNLIKELY( argc<1 ) ) FD_LOG_ERR(( "%i: %s: too few arguments\n\tDo %s help for help", cnt, cmd, bin ));
+      if( FD_UNLIKELY( argc<2 ) ) FD_LOG_ERR(( "%i: %s: too few arguments\n\tDo %s help for help", cnt, cmd, bin ));
 
-      char const * _shcnc = argv[0];
+      char const * _shcnc  =                 argv[0];
+      int          verbose = fd_cstr_to_int( argv[1] );
 
       void * shcnc = fd_wksp_map( _shcnc );
       if( FD_UNLIKELY( !shcnc ) )
@@ -573,31 +605,34 @@ main( int     argc,
 
       char buf[ FD_CNC_SIGNAL_CSTR_BUF_MAX ];
 
-      printf( "cnc %s\n", _shcnc );
-      printf( "\tapp-sz     %lu\n",      cnc->app_sz                                         );
-      printf( "\ttype       %lu\n",      cnc->type                                           );
-      printf( "\theartbeat0 %li\n",      cnc->heartbeat0                                     );
-      printf( "\theartbeat  %li\n",      cnc->heartbeat                                      );
-      printf( "\tlock       %lu\n",      cnc->lock                                           );
-      printf( "\tsignal     %s (%lu)\n", fd_cnc_signal_cstr( cnc->signal, buf ), cnc->signal );
+      if( !verbose ) printf( "%lu\n", cnc->signal );
+      else {
+        printf( "cnc %s\n", _shcnc );
+        printf( "\tapp-sz     %lu\n",      cnc->app_sz                                         );
+        printf( "\ttype       %lu\n",      cnc->type                                           );
+        printf( "\theartbeat0 %li\n",      cnc->heartbeat0                                     );
+        printf( "\theartbeat  %li\n",      cnc->heartbeat                                      );
+        printf( "\tlock       %lu\n",      cnc->lock                                           );
+        printf( "\tsignal     %s (%lu)\n", fd_cnc_signal_cstr( cnc->signal, buf ), cnc->signal );
 
-      uchar const * a = (uchar const *)fd_cnc_app_laddr_const( cnc );
-      ulong app_sz;
-      for( app_sz=cnc->app_sz; app_sz; app_sz-- ) if( a[app_sz-1UL] ) break;
-      ulong off = 0UL;
-      printf( "\tapp        %04lx: %02x %02x %02x %02x %02x %02x %02x %02x  %02x %02x %02x %02x %02x %02x %02x %02x\n", off,
-              (uint)a[ 0], (uint)a[ 1], (uint)a[ 2], (uint)a[ 3], (uint)a[ 4], (uint)a[ 5], (uint)a[ 6], (uint)a[ 7],
-              (uint)a[ 8], (uint)a[ 9], (uint)a[10], (uint)a[11], (uint)a[12], (uint)a[13], (uint)a[14], (uint)a[15] );
-      for( off+=16UL, a+=16UL; off<app_sz; off+=16UL, a+=16UL )
-        printf( "\t           %04lx: %02x %02x %02x %02x %02x %02x %02x %02x  %02x %02x %02x %02x %02x %02x %02x %02x\n", off,
+        uchar const * a = (uchar const *)fd_cnc_app_laddr_const( cnc );
+        ulong app_sz;
+        for( app_sz=cnc->app_sz; app_sz; app_sz-- ) if( a[app_sz-1UL] ) break;
+        ulong off = 0UL;
+        printf( "\tapp        %04lx: %02x %02x %02x %02x %02x %02x %02x %02x  %02x %02x %02x %02x %02x %02x %02x %02x\n", off,
                 (uint)a[ 0], (uint)a[ 1], (uint)a[ 2], (uint)a[ 3], (uint)a[ 4], (uint)a[ 5], (uint)a[ 6], (uint)a[ 7],
                 (uint)a[ 8], (uint)a[ 9], (uint)a[10], (uint)a[11], (uint)a[12], (uint)a[13], (uint)a[14], (uint)a[15] );
-      if( off<cnc->app_sz ) printf( "\t           ... snip (all remaining are zero) ...\n" );
+        for( off+=16UL, a+=16UL; off<app_sz; off+=16UL, a+=16UL )
+          printf( "\t           %04lx: %02x %02x %02x %02x %02x %02x %02x %02x  %02x %02x %02x %02x %02x %02x %02x %02x\n", off,
+                  (uint)a[ 0], (uint)a[ 1], (uint)a[ 2], (uint)a[ 3], (uint)a[ 4], (uint)a[ 5], (uint)a[ 6], (uint)a[ 7],
+                  (uint)a[ 8], (uint)a[ 9], (uint)a[10], (uint)a[11], (uint)a[12], (uint)a[13], (uint)a[14], (uint)a[15] );
+        if( off<cnc->app_sz ) printf( "\t           ... snip (all remaining are zero) ...\n" );
+      }
 
       fd_wksp_unmap( fd_cnc_leave( cnc ) );
 
       FD_LOG_NOTICE(( "%i: %s %s: success", cnt, cmd, _shcnc ));
-      SHIFT( 1 );
+      SHIFT( 2 );
 
     } else if( !strcmp( cmd, "signal-cnc" ) ) {
 
