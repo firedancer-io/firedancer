@@ -266,6 +266,61 @@ fd_cstr_append_fxp10_as_text( char * p,
   return p;
 }
 
+/* fd_cstr_tokenize tokenizes the cstr of the form whose first
+   byte is pointed to by cstr:
+
+     [WS][TOKEN 0][DELIM][WS][TOKEN 1][DELIM]...[WS][TOKEN N]{[DELIM][WS][NUL],[NUL]}
+
+   in-place, into:
+
+     [WS][TOKEN 0][NUL][WS][TOKEN 1][NUL]...[WS][TOKEN tok_cnt-1][NUL]
+
+   and returns tok_cnt.
+
+   Further, on return, tok[i] for i in [0,min(tok_cnt,tok_max)) where
+   tok_cnt is the number of tokens in cstr will point to the first
+   byte of each token.  Due to the tokenization, each one of these will
+   be properly '\0' terminated.
+
+   Above, [WS] is a sequence of zero or more whitespace characters,
+   [TOKEN *] are a sequence of zero or more non-delim and non-NUL
+   characters and delim is assumed to be a non-NUL non-whitespace
+   character (e.g. ',').
+
+   As such:
+   - The original cstr is clobbered by this call.
+   - tok[*] point to a properly terminated cstr into the original cstr
+     on return.  They thus have the same lifetime issues as the original
+     cstr.
+   - If tok_cnt > tok_max, tok wasn't large enough to hold all the
+     tokens found in the cstr.  Only the first max are available in
+     tok[*] (the entire string was still tokenized though).
+   - Found tokens will not have any leading whitespace.
+   - Found tokens might have internal or trailing whitespace.
+   - Zero length tokens are possible.  E.g. assuming delim==':', the cstr
+     "a: b::d: :f" has the tokens: "a", "b", "", "d", "", "f".
+   - If the final token is zero length, it should use an explicit
+     delimiter.  E.g. assuming delim=='|':
+       "a|b"     has tokens "a", "b"
+       "a|b|"    has tokens "a", "b"
+       "a|b| "   has tokens "a", "b"
+       "a|b||"   has tokens "a", "b", ""
+       "a|b| |"  has tokens "a", "b", ""
+       "a|b| | " has tokens "a", "b", ""
+   - This is also true if the final token is the initial token.  E.g.
+     assuming delim==';':
+       ""    has no tokens
+       " "   has no tokens
+       ";"   has the token ""
+       " ;"  has the token ""
+       " ; " has the token "" */
+
+ulong
+fd_cstr_tokenize( char ** tok,
+                  ulong   tok_max,
+                  char *  cstr,
+                  char    delim );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_cstr_fd_cstr_h */

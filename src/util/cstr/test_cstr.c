@@ -130,6 +130,79 @@ main( int     argc,
     }
   } while(0);
 
+  do {
+    char * tok[  8 ];
+
+    TEST( !fd_cstr_tokenize( tok, 8UL, NULL, ',' ) );
+    strcpy( buf, ""          ); TEST( fd_cstr_tokenize( tok, 8UL, buf, '|' )==0UL );
+    strcpy( buf, " "         ); TEST( fd_cstr_tokenize( tok, 8UL, buf, '|' )==0UL );
+    strcpy( buf, "|"         ); TEST( fd_cstr_tokenize( tok, 8UL, buf, '|' )==1UL ); TEST( !strcmp( tok[0], ""     ) );
+    strcpy( buf, " |"        ); TEST( fd_cstr_tokenize( tok, 8UL, buf, '|' )==1UL ); TEST( !strcmp( tok[0], ""     ) );
+    strcpy( buf, "| "        ); TEST( fd_cstr_tokenize( tok, 8UL, buf, '|' )==1UL ); TEST( !strcmp( tok[0], ""     ) );
+    strcpy( buf, " | "       ); TEST( fd_cstr_tokenize( tok, 8UL, buf, '|' )==1UL ); TEST( !strcmp( tok[0], ""     ) );
+    strcpy( buf, "a"         ); TEST( fd_cstr_tokenize( tok, 8UL, buf, '|' )==1UL ); TEST( !strcmp( tok[0], "a"    ) );
+    strcpy( buf, " a"        ); TEST( fd_cstr_tokenize( tok, 8UL, buf, '|' )==1UL ); TEST( !strcmp( tok[0], "a"    ) );
+    strcpy( buf, "a "        ); TEST( fd_cstr_tokenize( tok, 8UL, buf, '|' )==1UL ); TEST( !strcmp( tok[0], "a "   ) );
+    strcpy( buf, " a "       ); TEST( fd_cstr_tokenize( tok, 8UL, buf, '|' )==1UL ); TEST( !strcmp( tok[0], "a "   ) );
+    strcpy( buf, "ab"        ); TEST( fd_cstr_tokenize( tok, 8UL, buf, '|' )==1UL ); TEST( !strcmp( tok[0], "ab"   ) );
+    strcpy( buf, " ab"       ); TEST( fd_cstr_tokenize( tok, 8UL, buf, '|' )==1UL ); TEST( !strcmp( tok[0], "ab"   ) );
+    strcpy( buf, "ab "       ); TEST( fd_cstr_tokenize( tok, 8UL, buf, '|' )==1UL ); TEST( !strcmp( tok[0], "ab "  ) );
+    strcpy( buf, " ab "      ); TEST( fd_cstr_tokenize( tok, 8UL, buf, '|' )==1UL ); TEST( !strcmp( tok[0], "ab "  ) );
+    strcpy( buf, "a b"       ); TEST( fd_cstr_tokenize( tok, 8UL, buf, '|' )==1UL ); TEST( !strcmp( tok[0], "a b"  ) );
+    strcpy( buf, " a b"      ); TEST( fd_cstr_tokenize( tok, 8UL, buf, '|' )==1UL ); TEST( !strcmp( tok[0], "a b"  ) );
+    strcpy( buf, "a b "      ); TEST( fd_cstr_tokenize( tok, 8UL, buf, '|' )==1UL ); TEST( !strcmp( tok[0], "a b " ) );
+    strcpy( buf, " a b "     ); TEST( fd_cstr_tokenize( tok, 8UL, buf, '|' )==1UL ); TEST( !strcmp( tok[0], "a b " ) );
+    strcpy( buf, ";c"        ); TEST( fd_cstr_tokenize( tok, 8UL, buf, ';' )==2UL ); TEST( !strcmp( tok[0], ""     ) ); TEST( !strcmp( tok[1], "c"    ) );
+    strcpy( buf, " ;c"       ); TEST( fd_cstr_tokenize( tok, 8UL, buf, ';' )==2UL ); TEST( !strcmp( tok[0], ""     ) ); TEST( !strcmp( tok[1], "c"    ) );
+    strcpy( buf, " a;c"      ); TEST( fd_cstr_tokenize( tok, 8UL, buf, ';' )==2UL ); TEST( !strcmp( tok[0], "a"    ) ); TEST( !strcmp( tok[1], "c"    ) );
+    strcpy( buf, "a ;c"      ); TEST( fd_cstr_tokenize( tok, 8UL, buf, ';' )==2UL ); TEST( !strcmp( tok[0], "a "   ) ); TEST( !strcmp( tok[1], "c"    ) );
+    strcpy( buf, " a ;c"     ); TEST( fd_cstr_tokenize( tok, 8UL, buf, ';' )==2UL ); TEST( !strcmp( tok[0], "a "   ) ); TEST( !strcmp( tok[1], "c"    ) );
+    strcpy( buf, "ab;c"      ); TEST( fd_cstr_tokenize( tok, 8UL, buf, ';' )==2UL ); TEST( !strcmp( tok[0], "ab"   ) ); TEST( !strcmp( tok[1], "c"    ) );
+    strcpy( buf, " ab;c"     ); TEST( fd_cstr_tokenize( tok, 8UL, buf, ';' )==2UL ); TEST( !strcmp( tok[0], "ab"   ) ); TEST( !strcmp( tok[1], "c"    ) );
+    strcpy( buf, "ab ;c"     ); TEST( fd_cstr_tokenize( tok, 8UL, buf, ';' )==2UL ); TEST( !strcmp( tok[0], "ab "  ) ); TEST( !strcmp( tok[1], "c"    ) );
+    strcpy( buf, " ab ;c"    ); TEST( fd_cstr_tokenize( tok, 8UL, buf, ';' )==2UL ); TEST( !strcmp( tok[0], "ab "  ) ); TEST( !strcmp( tok[1], "c"    ) );
+    strcpy( buf, "a b;c"     ); TEST( fd_cstr_tokenize( tok, 8UL, buf, ';' )==2UL ); TEST( !strcmp( tok[0], "a b"  ) ); TEST( !strcmp( tok[1], "c"    ) );
+    strcpy( buf, " a b;c"    ); TEST( fd_cstr_tokenize( tok, 8UL, buf, ';' )==2UL ); TEST( !strcmp( tok[0], "a b"  ) ); TEST( !strcmp( tok[1], "c"    ) );
+    strcpy( buf, "a b ;c"    ); TEST( fd_cstr_tokenize( tok, 8UL, buf, ';' )==2UL ); TEST( !strcmp( tok[0], "a b " ) ); TEST( !strcmp( tok[1], "c"    ) );
+    strcpy( buf, " a b ;c"   ); TEST( fd_cstr_tokenize( tok, 8UL, buf, ';' )==2UL ); TEST( !strcmp( tok[0], "a b " ) ); TEST( !strcmp( tok[1], "c"    ) );
+    strcpy( buf, "c;"        ); TEST( fd_cstr_tokenize( tok, 8UL, buf, ';' )==1UL );                                    TEST( !strcmp( tok[0], "c"    ) );
+    strcpy( buf, "c; "       ); TEST( fd_cstr_tokenize( tok, 8UL, buf, ';' )==1UL );                                    TEST( !strcmp( tok[0], "c"    ) );
+    strcpy( buf, "c;;"       ); TEST( fd_cstr_tokenize( tok, 8UL, buf, ';' )==2UL ); TEST( !strcmp( tok[1], ""     ) ); TEST( !strcmp( tok[0], "c"    ) );
+    strcpy( buf, "c;; "      ); TEST( fd_cstr_tokenize( tok, 8UL, buf, ';' )==2UL ); TEST( !strcmp( tok[1], ""     ) ); TEST( !strcmp( tok[0], "c"    ) );
+    strcpy( buf, "c; ;"      ); TEST( fd_cstr_tokenize( tok, 8UL, buf, ';' )==2UL ); TEST( !strcmp( tok[1], ""     ) ); TEST( !strcmp( tok[0], "c"    ) );
+    strcpy( buf, "c; ; "     ); TEST( fd_cstr_tokenize( tok, 8UL, buf, ';' )==2UL ); TEST( !strcmp( tok[1], ""     ) ); TEST( !strcmp( tok[0], "c"    ) );
+    strcpy( buf, "c;a"       ); TEST( fd_cstr_tokenize( tok, 8UL, buf, ';' )==2UL ); TEST( !strcmp( tok[1], "a"    ) ); TEST( !strcmp( tok[0], "c"    ) );
+    strcpy( buf, "c; a"      ); TEST( fd_cstr_tokenize( tok, 8UL, buf, ';' )==2UL ); TEST( !strcmp( tok[1], "a"    ) ); TEST( !strcmp( tok[0], "c"    ) );
+    strcpy( buf, "c;a "      ); TEST( fd_cstr_tokenize( tok, 8UL, buf, ';' )==2UL ); TEST( !strcmp( tok[1], "a "   ) ); TEST( !strcmp( tok[0], "c"    ) );
+    strcpy( buf, "c; a "     ); TEST( fd_cstr_tokenize( tok, 8UL, buf, ';' )==2UL ); TEST( !strcmp( tok[1], "a "   ) ); TEST( !strcmp( tok[0], "c"    ) );
+    strcpy( buf, "c;ab"      ); TEST( fd_cstr_tokenize( tok, 8UL, buf, ';' )==2UL ); TEST( !strcmp( tok[1], "ab"   ) ); TEST( !strcmp( tok[0], "c"    ) );
+    strcpy( buf, "c; ab"     ); TEST( fd_cstr_tokenize( tok, 8UL, buf, ';' )==2UL ); TEST( !strcmp( tok[1], "ab"   ) ); TEST( !strcmp( tok[0], "c"    ) );
+    strcpy( buf, "c;ab "     ); TEST( fd_cstr_tokenize( tok, 8UL, buf, ';' )==2UL ); TEST( !strcmp( tok[1], "ab "  ) ); TEST( !strcmp( tok[0], "c"    ) );
+    strcpy( buf, "c; ab "    ); TEST( fd_cstr_tokenize( tok, 8UL, buf, ';' )==2UL ); TEST( !strcmp( tok[1], "ab "  ) ); TEST( !strcmp( tok[0], "c"    ) );
+    strcpy( buf, "c;a b"     ); TEST( fd_cstr_tokenize( tok, 8UL, buf, ';' )==2UL ); TEST( !strcmp( tok[1], "a b"  ) ); TEST( !strcmp( tok[0], "c"    ) );
+    strcpy( buf, "c; a b"    ); TEST( fd_cstr_tokenize( tok, 8UL, buf, ';' )==2UL ); TEST( !strcmp( tok[1], "a b"  ) ); TEST( !strcmp( tok[0], "c"    ) );
+    strcpy( buf, "c;a b "    ); TEST( fd_cstr_tokenize( tok, 8UL, buf, ';' )==2UL ); TEST( !strcmp( tok[1], "a b " ) ); TEST( !strcmp( tok[0], "c"    ) );
+    strcpy( buf, "c; a b "   ); TEST( fd_cstr_tokenize( tok, 8UL, buf, ';' )==2UL ); TEST( !strcmp( tok[1], "a b " ) ); TEST( !strcmp( tok[0], "c"    ) );
+    strcpy( buf, "a;;d"      ); TEST( fd_cstr_tokenize( tok, 8UL, buf, ';' )==3UL ); TEST( !strcmp( tok[0], "a"    ) ); TEST( !strcmp( tok[2], "d"    ) ); TEST( !strcmp( tok[1], ""     ) );
+    strcpy( buf, "a; ;d"     ); TEST( fd_cstr_tokenize( tok, 8UL, buf, ';' )==3UL ); TEST( !strcmp( tok[0], "a"    ) ); TEST( !strcmp( tok[2], "d"    ) ); TEST( !strcmp( tok[1], ""     ) );
+    strcpy( buf, "a;b;d"     ); TEST( fd_cstr_tokenize( tok, 8UL, buf, ';' )==3UL ); TEST( !strcmp( tok[0], "a"    ) ); TEST( !strcmp( tok[2], "d"    ) ); TEST( !strcmp( tok[1], "b"    ) );
+    strcpy( buf, "a; b;d"    ); TEST( fd_cstr_tokenize( tok, 8UL, buf, ';' )==3UL ); TEST( !strcmp( tok[0], "a"    ) ); TEST( !strcmp( tok[2], "d"    ) ); TEST( !strcmp( tok[1], "b"    ) );
+    strcpy( buf, "a;b ;d"    ); TEST( fd_cstr_tokenize( tok, 8UL, buf, ';' )==3UL ); TEST( !strcmp( tok[0], "a"    ) ); TEST( !strcmp( tok[2], "d"    ) ); TEST( !strcmp( tok[1], "b "   ) );
+    strcpy( buf, "a; b ;d"   ); TEST( fd_cstr_tokenize( tok, 8UL, buf, ';' )==3UL ); TEST( !strcmp( tok[0], "a"    ) ); TEST( !strcmp( tok[2], "d"    ) ); TEST( !strcmp( tok[1], "b "   ) );
+    strcpy( buf, "a;bc;d"    ); TEST( fd_cstr_tokenize( tok, 8UL, buf, ';' )==3UL ); TEST( !strcmp( tok[0], "a"    ) ); TEST( !strcmp( tok[2], "d"    ) ); TEST( !strcmp( tok[1], "bc"   ) );
+    strcpy( buf, "a; bc;d"   ); TEST( fd_cstr_tokenize( tok, 8UL, buf, ';' )==3UL ); TEST( !strcmp( tok[0], "a"    ) ); TEST( !strcmp( tok[2], "d"    ) ); TEST( !strcmp( tok[1], "bc"   ) );
+    strcpy( buf, "a;bc ;d"   ); TEST( fd_cstr_tokenize( tok, 8UL, buf, ';' )==3UL ); TEST( !strcmp( tok[0], "a"    ) ); TEST( !strcmp( tok[2], "d"    ) ); TEST( !strcmp( tok[1], "bc "  ) );
+    strcpy( buf, "a; bc ;d"  ); TEST( fd_cstr_tokenize( tok, 8UL, buf, ';' )==3UL ); TEST( !strcmp( tok[0], "a"    ) ); TEST( !strcmp( tok[2], "d"    ) ); TEST( !strcmp( tok[1], "bc "  ) );
+    strcpy( buf, "a;b c;d"   ); TEST( fd_cstr_tokenize( tok, 8UL, buf, ';' )==3UL ); TEST( !strcmp( tok[0], "a"    ) ); TEST( !strcmp( tok[2], "d"    ) ); TEST( !strcmp( tok[1], "b c"  ) );
+    strcpy( buf, "a; b c;d"  ); TEST( fd_cstr_tokenize( tok, 8UL, buf, ';' )==3UL ); TEST( !strcmp( tok[0], "a"    ) ); TEST( !strcmp( tok[2], "d"    ) ); TEST( !strcmp( tok[1], "b c"  ) );
+    strcpy( buf, "a;b c ;d"  ); TEST( fd_cstr_tokenize( tok, 8UL, buf, ';' )==3UL ); TEST( !strcmp( tok[0], "a"    ) ); TEST( !strcmp( tok[2], "d"    ) ); TEST( !strcmp( tok[1], "b c " ) );
+    strcpy( buf, "a; b c ;d" ); TEST( fd_cstr_tokenize( tok, 8UL, buf, ';' )==3UL ); TEST( !strcmp( tok[0], "a"    ) ); TEST( !strcmp( tok[2], "d"    ) ); TEST( !strcmp( tok[1], "b c " ) );
+
+    char buf2[16];
+    strcpy( buf2, "a; b c ;d" ); TEST( fd_cstr_tokenize( NULL,0UL, buf2, ';' )==3UL ); TEST( !strcmp( buf, buf2 ) );
+    strcpy( buf2, "a; b c ;d" ); TEST( fd_cstr_tokenize( tok, 1UL, buf2, ';' )==3UL ); TEST( !strcmp( buf, buf2 ) ); TEST( !strcmp( tok[0], "a" ) );
+  } while(0);
+
   fd_rng_delete( fd_rng_leave( rng ) );
 
 # undef TEST

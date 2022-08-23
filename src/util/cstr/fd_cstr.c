@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <stdarg.h>
 #include <strings.h>
+#include <ctype.h>
 
 char const * fd_cstr_to_cstr  ( char const * cstr ) { return cstr;                             }
 char         fd_cstr_to_char  ( char const * cstr ) { return cstr[0];                          }
@@ -57,5 +58,31 @@ fd_cstr_append_printf( char *       buf,
   int ret = vsprintf( buf, fmt, ap );
   va_end( ap );
   return buf + fd_ulong_if( ret<0, 0UL, (ulong)ret );
+}
+
+ulong
+fd_cstr_tokenize( char ** tok,
+                  ulong   tok_max,
+                  char *  p,
+                  char    delim ) {
+  if( FD_UNLIKELY( !p ) ) return 0UL;
+
+  ulong tok_cnt = 0UL;
+  for(;;) {
+
+    /* Find token start and record it (if possible) */
+    while( isspace( (int)p[0] ) ) p++;
+    if( p[0]=='\0' ) break;
+    if( tok_cnt<tok_max ) tok[ tok_cnt ] = p;
+    tok_cnt++;
+
+    /* Find the token end and terminate it */
+    while( ((p[0]!=delim) & (p[0]!='\0')) ) p++;
+    if( p[0]=='\0' ) break;
+    p[0] = '\0';
+    p++;
+  }
+
+  return tok_cnt;
 }
 
