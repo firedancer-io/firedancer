@@ -138,8 +138,8 @@ fd_rng_idx_set( fd_rng_t * rng,
    diehard, dieharder, testu01, etc).  Assumes rng is a current join.
    fd_rng_{schar,short,int,long} are the same but return a value in
    [0,2^(N-1)).  (A signed generator that can assume all possible values
-   of of a signed int uniform IID can be obtained by casting the output
-   of the unsigned generator of the same, assuming a typical twos
+   of a signed int uniform IID can be obtained by casting the output of
+   the unsigned generator of the same, assuming a typical twos
    complement arithmetic platform.)
    
    The theory for this that fd_ulong_hash(i) for i in [0,2^64) specifies
@@ -217,7 +217,7 @@ static inline int128 fd_rng_int128( fd_rng_t * rng ) { return (int128)( fd_rng_u
    each interval is _exactly_ representable is N = 2^24 (2^53).
 
    Given then a uniform IID uint random input, the
-   fd_rng_uint_to_float_c0 converter output is as though an continuous
+   fd_rng_uint_to_float_c0 converter output is as though a continuous
    IID uniform random in [0,1) was generated and then rounded down to
    the start of the containing interval (2^24 intervals).  As such, this
    generator can never return exactly 1 but it can exactly return +0.
@@ -362,8 +362,8 @@ fd_rng_coin_tosses( fd_rng_t * rng ) {
    Similarly for the double precision variant.  Typically consumes 3
    slots.  Reasonably fast O(1).
 
-   fd_rng_float_exp generates a random number with an
-   exponential distribution.
+   fd_rng_float_exp generates a random number with an exponential
+   distribution.
 
    PDF:
      f(x) ~ exp(-x), x>=0
@@ -405,8 +405,8 @@ fd_rng_coin_tosses( fd_rng_t * rng ) {
 
    Consumes 2 slots.  Reasonably fast O(1).
 
-   fd_rng_float_norm generates a random number with an
-   normal distribution.
+   fd_rng_float_norm generates a random number with a normal
+   distribution.
 
    PDF:
      f(x) ~ exp(-x^2/2) / sqrt(2 pi)
