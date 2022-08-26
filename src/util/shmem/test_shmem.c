@@ -41,10 +41,19 @@ main( int     argc,
   TEST( numa_cnt<=cpu_cnt );
 
   TEST( fd_shmem_numa_idx( cpu_cnt )==ULONG_MAX );
+  TEST( fd_shmem_cpu_idx( numa_cnt )==ULONG_MAX );
   for( ulong cpu_idx=0UL; cpu_idx<cpu_cnt; cpu_idx++ ) {
     ulong numa_idx = fd_shmem_numa_idx( cpu_idx );
     TEST( numa_idx<numa_cnt );
+    TEST( fd_shmem_cpu_idx( numa_idx )<=cpu_idx );
     FD_LOG_NOTICE(( "cpu %lu -> numa %lu", cpu_idx, numa_idx ));
+  }
+
+  for( ulong numa_idx=0UL; numa_idx<numa_cnt; numa_idx++ ) {
+    ulong cpu_idx = fd_shmem_cpu_idx( numa_idx );
+    TEST( cpu_idx<cpu_cnt );
+    TEST( fd_shmem_numa_idx( cpu_idx )==numa_idx );
+    FD_LOG_NOTICE(( "numa %lu -> cpu %lu", numa_idx, cpu_idx ));
   }
 
   TEST( !fd_shmem_name_len( NULL ) ); /* NULL name */

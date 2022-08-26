@@ -284,6 +284,13 @@ FD_FN_PURE ulong fd_shmem_cpu_cnt ( void );
 
 FD_FN_PURE ulong fd_shmem_numa_idx( ulong cpu_idx );
 
+/* fd_shmem_cpu_idx returns the smallest cpu_idx of a cpu close to
+   numa_idx.  Given a numa_idx in [0,fd_shmem_numa_cnt()), returns a
+   value in [0,fd_shmem_cpu_cnt()).  Returns ULONG_MAX otherwise.  The
+   numa -> cpu mapping is determined at thread group boot. */
+
+FD_FN_PURE ulong fd_shmem_cpu_idx( ulong numa_idx );
+
 /* fd_shmem_numa_validate returns 0 if all the pages in the page_cnt
    page_sz pages pointed to by mem are on a numa node near cpu_idx and a
    strerror friendly non-zero error code otherwise (logs details).

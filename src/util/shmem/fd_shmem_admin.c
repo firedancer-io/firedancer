@@ -29,16 +29,24 @@ ulong fd_shmem_private_base_len;                          /* 0UL at ",          
 
 /* NUMA TOPOLOGY APIS *************************************************/
 
-static ulong fd_shmem_private_numa_cnt;                     /* 0UL at thread group start, initialized at boot */
-static ulong fd_shmem_private_cpu_cnt;                      /* " */
-static uchar fd_shmem_private_numa_idx[ FD_SHMEM_CPU_MAX ]; /* " */
+static ulong  fd_shmem_private_numa_cnt;                      /* 0UL at thread group start, initialized at boot */
+static ulong  fd_shmem_private_cpu_cnt;                       /* " */
+static ushort fd_shmem_private_numa_idx[ FD_SHMEM_CPU_MAX  ]; /* " */
+static ushort fd_shmem_private_cpu_idx [ FD_SHMEM_NUMA_MAX ]; /* " */
 
 ulong fd_shmem_numa_cnt( void ) { return fd_shmem_private_numa_cnt; }
 ulong fd_shmem_cpu_cnt ( void ) { return fd_shmem_private_cpu_cnt;  }
 
-ulong fd_shmem_numa_idx( ulong cpu_idx ) {
+ulong
+fd_shmem_numa_idx( ulong cpu_idx ) {
   if( FD_UNLIKELY( cpu_idx>=fd_shmem_private_cpu_cnt ) ) return ULONG_MAX;
-  return fd_shmem_private_numa_idx[ cpu_idx ];
+  return (ulong)fd_shmem_private_numa_idx[ cpu_idx ];
+}
+
+ulong
+fd_shmem_cpu_idx( ulong numa_idx ) {
+  if( FD_UNLIKELY( numa_idx>=fd_shmem_private_numa_cnt ) ) return ULONG_MAX;
+  return (ulong)fd_shmem_private_cpu_idx[ numa_idx ];
 }
 
 int
@@ -574,11 +582,12 @@ fd_shmem_private_boot( int *    pargc,
     FD_LOG_ERR(( "fd_shmem: unexpected cpu_cnt %i (expected in [1,%lu])", cpu_cnt, FD_SHMEM_CPU_MAX ));
   fd_shmem_private_cpu_cnt = (ulong)cpu_cnt;
 
-  for( int cpu_idx=0; cpu_idx<cpu_cnt; cpu_idx++ ) {
+  for( int cpu_idx=cpu_cnt-1; cpu_idx>=0; cpu_idx-- ) {
     int numa_idx = numa_node_of_cpu( cpu_idx );
     if( FD_UNLIKELY( !((0<=numa_idx) & (numa_idx<(int)FD_SHMEM_NUMA_MAX)) ) )
       FD_LOG_ERR(( "fd_shmem: unexpected numa idx (%i) for cpu idx %i (%i-%s)", numa_idx, cpu_idx, errno, strerror( errno ) ));
-    fd_shmem_private_numa_idx[ cpu_idx ] = (uchar)numa_idx;
+    fd_shmem_private_numa_idx[ cpu_idx  ] = (ushort)numa_idx;
+    fd_shmem_private_cpu_idx [ numa_idx ] = (ushort)cpu_idx;
   }
 
   /* Determine the shared memory domain for this thread group */
