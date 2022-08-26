@@ -101,7 +101,7 @@
 
 /* A fd_pod_info_t is used when listing the contents of a pod.  It is
    not stored explicitly in the pod itself.  The lifetime guarantees of
-   all pointers in an info that of the pod itself or any invalidating
+   all pointers in an info is that of the pod itself or any invalidating
    operaiton on that pod. */
 
 struct fd_pod_info;
@@ -195,7 +195,7 @@ fd_pod_avail( uchar const * pod ) {
 
      int foo 1
      pod bar {
-       int baz {
+       pod baz {
          int bay 2
          int bax 3
        }
@@ -217,8 +217,8 @@ fd_pod_info_t *
 fd_pod_list( uchar const   * FD_RESTRICT pod,
              fd_pod_info_t * FD_RESTRICT info );
 
-/* fd_pod_list_recursive is the same as fd_pod_list but will recurse
-   into subpods.  info is indexed [0,fd_pod_cnt_recursive(pod)).
+/* fd_pod_list_recursive is the same as fd_pod_list but will depth-first
+   recurse into subpods.  info is indexed [0,fd_pod_cnt_recursive(pod)).
    E.g. for the above example, list_recursive will return 7 key-val
    pairs:
 
@@ -311,7 +311,7 @@ fd_pod_reset( uchar * pod ) {
 
    That is, if the pod points to the first byte of a pod currently held
    in memory region of new_max bytes in size (where pod used<=new_max),
-   this will adjust pod max to make much of the new memory region as
+   this will adjust pod max to make as much of the new memory region as
    possible available to the pod for adding new key-val pairs.
 
    This operation is O(pod_used) worst case.
@@ -612,8 +612,8 @@ fd_pod_insert_int128( uchar      * FD_RESTRICT pod,
 
 /* Specific query APIs ************************************************/
 
-/* fd_pod_query_subpod queries for the subpod in pod at path.  Returns
-   a pointer to the pod in the local address space on success or NULL on
+/* fd_pod_query_subpod queries for the subpod in pod at path.  Returns a
+   pointer to the pod in the local address space on success or NULL on
    failure.  The return pointer's lifetime is the pod's local join
    lifetime or an invalidating operation is done on the pod. */
 
