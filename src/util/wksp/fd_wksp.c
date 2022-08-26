@@ -353,7 +353,7 @@ fd_wksp_unmap( void const * laddr ) {
      but the below is more official from a software maintainability POV */
 
   fd_shmem_join_info_t info[1];
-  if( FD_UNLIKELY( fd_shmem_join_query_by_addr( laddr, info ) ) ) {
+  if( FD_UNLIKELY( fd_shmem_join_query_by_addr( laddr, 1UL, info ) ) ) {
     FD_LOG_WARNING(( "laddr does not seem to be from fd_wksp_map" ));
     return;
   }
@@ -583,7 +583,7 @@ fd_wksp_containing( void const * laddr ) {
   if( FD_UNLIKELY( !laddr ) ) return NULL;
 
   fd_shmem_join_info_t info[1];
-  if( FD_UNLIKELY( fd_shmem_join_query_by_addr( laddr, info ) ) ) return NULL;
+  if( FD_UNLIKELY( fd_shmem_join_query_by_addr( laddr, 1UL, info ) ) ) return NULL;
 
   fd_wksp_t * wksp = (fd_wksp_t *)info->join;
   if( FD_UNLIKELY( !wksp ) ) return NULL;

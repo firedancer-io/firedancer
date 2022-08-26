@@ -17,7 +17,7 @@
                            alloc 256     huge 0 \
                            alloc 256     huge 1
 
-   and then some of these memory could be formating into fd_wksp for
+   and then some of these memory could be formatted into fd_wksp for
    each NUMA node:
 
      bin/fd_shmem_ctl new my-wksp-numa-0 1 gigantic 0 \
@@ -58,13 +58,13 @@
    Likewise, if the workspaces are no longer in use, they can be deleted
    via something like:
 
-     skx/bin/fd_wksp_ctl delete my-wksp-numa-0 \
-                         delete my-wksp-numa-1
+     bin/fd_wksp_ctl delete my-wksp-numa-0 \
+                     delete my-wksp-numa-1
 
    All allocations can be freed via something like:
 
-     skx/bin/fd_wksp_ctl reset my-wksp-numa-0 \
-                         reset my-wksp-numa-1
+     bin/fd_wksp_ctl reset my-wksp-numa-0 \
+                     reset my-wksp-numa-1
 
    or in code:
 
@@ -101,8 +101,8 @@
 
    See below for more details. */
 
-/* FD_WKSP_CSTR_MAX is the number of bytes maximum that can
-   be a wksp global address cstr. */
+/* FD_WKSP_CSTR_MAX is the number of bytes maximum that can be a wksp
+   global address cstr. */
 
 #define FD_WKSP_CSTR_MAX (FD_SHMEM_NAME_MAX + 21UL)
 
