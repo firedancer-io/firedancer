@@ -386,7 +386,7 @@ fd_shmem_join_anonymous( char const * name,
 
   ulong sz = page_cnt*page_sz;
   ulong a0 = (ulong)mem;
-  ulong a1 = a0 + sz;
+  ulong a1 = a0 + sz-1UL;
   if( FD_UNLIKELY( a1<a0 ) ) {
     FD_LOG_WARNING(( "bad mem range" ));
     return EINVAL;

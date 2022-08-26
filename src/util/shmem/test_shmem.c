@@ -313,7 +313,7 @@ main( int     argc,
   static ulong const test_psz [3] = { FD_SHMEM_NORMAL_PAGE_SZ, FD_SHMEM_HUGE_PAGE_SZ, FD_SHMEM_GIGANTIC_PAGE_SZ };
   static ulong const test_pcnt[3] = { 3UL,                     2UL,                   1UL                       };
   static ulong const test_cpu [3] = { 0UL,                     0UL,                   0UL                       };
-  for( ulong test_idx=0; test_idx<test_cnt; test_idx++ ) {
+  for( ulong test_idx=0UL; test_idx<test_cnt; test_idx++ ) {
     ulong psz  = test_psz [ test_idx ];
     ulong pcnt = test_pcnt[ test_idx ];
     ulong cpu  = test_cpu [ test_idx ];

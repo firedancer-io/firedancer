@@ -102,7 +102,7 @@
 /* A fd_pod_info_t is used when listing the contents of a pod.  It is
    not stored explicitly in the pod itself.  The lifetime guarantees of
    all pointers in an info is that of the pod itself or any invalidating
-   operaiton on that pod. */
+   operation on that pod. */
 
 struct fd_pod_info;
 typedef struct fd_pod_info fd_pod_info_t;

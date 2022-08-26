@@ -101,7 +101,7 @@
 
    See below for more details. */
 
-/* FD_WKSP_CSTR_MAX is the number of bytes maximum that can be a wksp
+/* FD_WKSP_CSTR_MAX is the number of bytes maximum that can be in a wksp
    global address cstr. */
 
 #define FD_WKSP_CSTR_MAX (FD_SHMEM_NAME_MAX + 21UL)
