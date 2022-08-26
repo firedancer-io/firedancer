@@ -129,10 +129,18 @@ main( int     argc,
   /* FIXME: COVERAGE OF LEAVE WITH NO JOIN BEHAVIOR */
   /* FIXME: COVERAGE OF JOIN/LEAVE FUNCS AND JOIN OPT_INFO */
 
-  TEST( fd_shmem_join_query_by_name( NULL, NULL )==EINVAL ); TEST( fd_shmem_join_query_by_name( NULL, info )==EINVAL );
-  TEST( fd_shmem_join_query_by_join( NULL, NULL )==EINVAL ); TEST( fd_shmem_join_query_by_join( NULL, info )==EINVAL );
-  TEST( fd_shmem_join_query_by_addr( NULL, NULL )==EINVAL ); TEST( fd_shmem_join_query_by_addr( NULL, info )==EINVAL );
-  TEST( fd_shmem_join_query_by_name( "",   NULL )==EINVAL ); TEST( fd_shmem_join_query_by_name( "",   info )==EINVAL );
+  TEST( fd_shmem_join_query_by_name( NULL,      NULL )==EINVAL ); TEST( fd_shmem_join_query_by_name( NULL,      info )==EINVAL );
+  TEST( fd_shmem_join_query_by_name( "",        NULL )==EINVAL ); TEST( fd_shmem_join_query_by_name( "",        info )==EINVAL );
+  TEST( fd_shmem_join_query_by_join( NULL,      NULL )==EINVAL ); TEST( fd_shmem_join_query_by_join( NULL,      info )==EINVAL );
+
+  TEST( fd_shmem_join_query_by_addr( NULL, 0UL, NULL )==ENOENT );
+  TEST( fd_shmem_join_query_by_addr( NULL, 0UL, info )==ENOENT );
+
+  TEST( fd_shmem_join_query_by_addr( NULL, 1UL, NULL )==ENOENT );
+  TEST( fd_shmem_join_query_by_addr( NULL, 1UL, info )==ENOENT );
+
+  TEST( fd_shmem_join_query_by_addr( (void *)ULONG_MAX, 2UL, NULL )==EINVAL );
+  TEST( fd_shmem_join_query_by_addr( (void *)ULONG_MAX, 2UL, info )==EINVAL );
 
   if( argc>1 ) {
     ulong name_cnt = fd_ulong_min( (ulong)(argc-1), FD_SHMEM_JOIN_MAX );
@@ -188,8 +196,8 @@ main( int     argc,
           TEST( !memcmp( ref, info, sizeof(fd_shmem_join_info_t) ) );
 
           fd_memset( ref, 0, sizeof(fd_shmem_join_info_t) );
-          TEST( !fd_shmem_join_query_by_addr( ((uchar *)shmem) + off, NULL ) );
-          TEST( !fd_shmem_join_query_by_addr( ((uchar *)shmem) + off, ref  ) );
+          TEST( !fd_shmem_join_query_by_addr( ((uchar *)shmem) + off, 1UL, NULL ) );
+          TEST( !fd_shmem_join_query_by_addr( ((uchar *)shmem) + off, 1UL, ref  ) );
           TEST( !memcmp( ref, info, sizeof(fd_shmem_join_info_t) ) );
 
         } else { /* this join just increments the ref cnt */
@@ -213,8 +221,8 @@ main( int     argc,
           TEST( !memcmp( info, ref, sizeof(fd_shmem_join_info_t) ) );
 
           fd_memset( info, 0, sizeof(fd_shmem_join_info_t) );
-          TEST( !fd_shmem_join_query_by_addr( ((uchar *)shmem) + off, NULL ) );
-          TEST( !fd_shmem_join_query_by_addr( ((uchar *)shmem) + off, info ) );
+          TEST( !fd_shmem_join_query_by_addr( ((uchar *)shmem) + off, 1UL, NULL ) );
+          TEST( !fd_shmem_join_query_by_addr( ((uchar *)shmem) + off, 1UL, info ) );
           TEST( !memcmp( info, ref, sizeof(fd_shmem_join_info_t) ) );
 
           TEST( fd_shmem_join( name, mode, NULL, NULL, NULL )==join );
@@ -231,8 +239,8 @@ main( int     argc,
           TEST( !memcmp( info, ref, sizeof(fd_shmem_join_info_t) ) );
 
           fd_memset( info, 0, sizeof(fd_shmem_join_info_t) );
-          TEST( !fd_shmem_join_query_by_addr( ((uchar *)shmem) + off, NULL ) );
-          TEST( !fd_shmem_join_query_by_addr( ((uchar *)shmem) + off, info ) );
+          TEST( !fd_shmem_join_query_by_addr( ((uchar *)shmem) + off, 1UL, NULL ) );
+          TEST( !fd_shmem_join_query_by_addr( ((uchar *)shmem) + off, 1UL, info ) );
           TEST( !memcmp( info, ref, sizeof(fd_shmem_join_info_t) ) );
         }
 
@@ -259,8 +267,8 @@ main( int     argc,
         TEST( !memcmp( info, ref, sizeof(fd_shmem_join_info_t) ) );
 
         fd_memset( info, 0, sizeof(fd_shmem_join_info_t) );
-        TEST( !fd_shmem_join_query_by_addr( ((uchar *)shmem) + off, NULL ) );
-        TEST( !fd_shmem_join_query_by_addr( ((uchar *)shmem) + off, info ) );
+        TEST( !fd_shmem_join_query_by_addr( ((uchar *)shmem) + off, 1UL, NULL ) );
+        TEST( !fd_shmem_join_query_by_addr( ((uchar *)shmem) + off, 1UL, info ) );
         TEST( !memcmp( info, ref, sizeof(fd_shmem_join_info_t) ) );
 
         fd_shmem_leave( join, NULL, NULL );
@@ -274,8 +282,8 @@ main( int     argc,
           TEST( fd_shmem_join_query_by_join( join, NULL )==ENOENT );
           TEST( fd_shmem_join_query_by_join( join, info )==ENOENT );
 
-          TEST( fd_shmem_join_query_by_addr( ((uchar *)shmem) + off, NULL )==ENOENT );
-          TEST( fd_shmem_join_query_by_addr( ((uchar *)shmem) + off, info )==ENOENT );
+          TEST( fd_shmem_join_query_by_addr( ((uchar *)shmem) + off, 1UL, NULL )==ENOENT );
+          TEST( fd_shmem_join_query_by_addr( ((uchar *)shmem) + off, 1UL, info )==ENOENT );
 
         } else if( ref_info[idx].ref_cnt>1L ) { /* this leave just decrements the ref cnt */
 
@@ -290,8 +298,8 @@ main( int     argc,
           TEST( !memcmp( info, ref, sizeof(fd_shmem_join_info_t) ) );
 
           fd_memset( info, 0, sizeof(fd_shmem_join_info_t) );
-          TEST( !fd_shmem_join_query_by_addr( ((uchar *)shmem) + off, NULL ) );
-          TEST( !fd_shmem_join_query_by_addr( ((uchar *)shmem) + off, info ) );
+          TEST( !fd_shmem_join_query_by_addr( ((uchar *)shmem) + off, 1UL, NULL ) );
+          TEST( !fd_shmem_join_query_by_addr( ((uchar *)shmem) + off, 1UL, info ) );
           TEST( !memcmp( info, ref, sizeof(fd_shmem_join_info_t) ) );
 
         }
@@ -301,19 +309,105 @@ main( int     argc,
 
   /* FIXME: DO MORE EXTENSIVE TESTS OF ACQUIRE / RELEASE */
 
-# define TEST_ACQ(psz,pcnt,cpu) do {                                \
-    void * _page = fd_shmem_acquire( (psz), (pcnt), (cpu) );        \
-    TEST( _page );                                                  \
-    TEST( fd_ulong_is_aligned( (ulong)_page, (psz) ) );             \
-    TEST( !fd_shmem_numa_validate( _page, (psz), (pcnt), (cpu) ) ); \
-    fd_shmem_release( _page, (psz), (pcnt) );                       \
-  } while(0)
+  ulong test_cnt = 3UL;
+  static ulong const test_psz [3] = { FD_SHMEM_NORMAL_PAGE_SZ, FD_SHMEM_HUGE_PAGE_SZ, FD_SHMEM_GIGANTIC_PAGE_SZ };
+  static ulong const test_pcnt[3] = { 3UL,                     2UL,                   1UL                       };
+  static ulong const test_cpu [3] = { 0UL,                     0UL,                   0UL                       };
+  for( ulong test_idx=0; test_idx<test_cnt; test_idx++ ) {
+    ulong psz  = test_psz [ test_idx ];
+    ulong pcnt = test_pcnt[ test_idx ];
+    ulong cpu  = test_cpu [ test_idx ];
 
-  TEST_ACQ( FD_SHMEM_NORMAL_PAGE_SZ,   3UL, 0UL );
-  TEST_ACQ( FD_SHMEM_HUGE_PAGE_SZ,     2UL, 0UL );
-  TEST_ACQ( FD_SHMEM_GIGANTIC_PAGE_SZ, 1UL, 0UL );
+    void * page = fd_shmem_acquire( psz, pcnt, cpu );
+    TEST( page );
+    TEST( fd_ulong_is_aligned( (ulong)page, psz ) );
+    TEST( !fd_shmem_numa_validate( page, psz, pcnt, cpu ) );
 
-# undef TEST_ACQ
+    void * join = (void *)((ulong)page + (fd_rng_ulong( rng ) & (psz-1UL)));
+    char * name = "test";
+    int    mode = fd_rng_int( rng ) & 1;
+
+    fd_shmem_join_info_t ref[1];
+    memset( ref, 0, sizeof(fd_shmem_join_info_t) );
+    ref->ref_cnt  = 1L;
+    ref->join     = join;
+    ref->shmem    = page;
+    ref->page_sz  = psz;
+    ref->page_cnt = pcnt;
+    ref->mode     = mode;
+    strcpy( ref->name, name );
+    ref->hash     = (uint)fd_hash( 0UL, ref->name, FD_SHMEM_NAME_MAX );
+
+    fd_shmem_join_info_t nop[1];
+    fd_shmem_join_info_t info[1];
+
+    memset( nop, fd_rng_int( rng ), sizeof(fd_shmem_join_info_t) ); *info = *nop;
+    TEST(  fd_shmem_join_query_by_name( name,      NULL ) ); TEST( !memcmp( info, nop, sizeof(fd_shmem_join_info_t) ) );
+    TEST(  fd_shmem_join_query_by_name( name,      info ) ); TEST( !memcmp( info, nop, sizeof(fd_shmem_join_info_t) ) );
+    memset( nop, fd_rng_int( rng ), sizeof(fd_shmem_join_info_t) ); *info = *nop;
+    TEST(  fd_shmem_join_query_by_join( join,      NULL ) ); TEST( !memcmp( info, nop, sizeof(fd_shmem_join_info_t) ) );
+    TEST(  fd_shmem_join_query_by_join( join,      info ) ); TEST( !memcmp( info, nop, sizeof(fd_shmem_join_info_t) ) );
+    memset( nop, fd_rng_int( rng ), sizeof(fd_shmem_join_info_t) ); *info = *nop;
+    TEST(  fd_shmem_join_query_by_addr( page, 1UL, NULL ) ); TEST( !memcmp( info, nop, sizeof(fd_shmem_join_info_t) ) );
+    TEST(  fd_shmem_join_query_by_addr( page, 1UL, info ) ); TEST( !memcmp( info, nop, sizeof(fd_shmem_join_info_t) ) );
+
+    TEST( !fd_shmem_join_anonymous( name, mode, join, page, psz, pcnt ) );
+
+    memset( nop, fd_rng_int( rng ), sizeof(fd_shmem_join_info_t) ); *info = *nop;
+    TEST( !fd_shmem_join_query_by_name( name,      NULL ) ); TEST( !memcmp( info, nop, sizeof(fd_shmem_join_info_t) ) );
+    TEST( !fd_shmem_join_query_by_name( name,      info ) ); TEST( !memcmp( info, ref, sizeof(fd_shmem_join_info_t) ) );
+    memset( nop, fd_rng_int( rng ), sizeof(fd_shmem_join_info_t) ); *info = *nop;
+    TEST( !fd_shmem_join_query_by_join( join,      NULL ) ); TEST( !memcmp( info, nop, sizeof(fd_shmem_join_info_t) ) );
+    TEST( !fd_shmem_join_query_by_join( join,      info ) ); TEST( !memcmp( info, ref, sizeof(fd_shmem_join_info_t) ) );
+    memset( nop, fd_rng_int( rng ), sizeof(fd_shmem_join_info_t) ); *info = *nop;
+    TEST( !fd_shmem_join_query_by_addr( page, 1UL, NULL ) ); TEST( !memcmp( info, nop, sizeof(fd_shmem_join_info_t) ) );
+    TEST( !fd_shmem_join_query_by_addr( page, 1UL, info ) ); TEST( !memcmp( info, ref, sizeof(fd_shmem_join_info_t) ) );
+
+    memset( nop, fd_rng_int( rng ), sizeof(fd_shmem_join_info_t) ); *info = *nop;
+    TEST( fd_shmem_join( name, fd_rng_int( rng ) & 1, NULL, NULL, info )==join ); ref->ref_cnt++;
+    TEST( !memcmp( info, ref, sizeof(fd_shmem_join_info_t) ) );
+
+    memset( nop, fd_rng_int( rng ), sizeof(fd_shmem_join_info_t) ); *info = *nop;
+    TEST( fd_shmem_join( name, fd_rng_int( rng ) & 1, NULL, NULL, info )==join ); ref->ref_cnt++;
+    TEST( !memcmp( info, ref, sizeof(fd_shmem_join_info_t) ) );
+
+    memset( nop, fd_rng_int( rng ), sizeof(fd_shmem_join_info_t) ); *info = *nop;
+    TEST( !fd_shmem_join_query_by_name( name,      NULL ) ); TEST( !memcmp( info, nop, sizeof(fd_shmem_join_info_t) ) );
+    TEST( !fd_shmem_join_query_by_name( name,      info ) ); TEST( !memcmp( info, ref, sizeof(fd_shmem_join_info_t) ) );
+    memset( nop, fd_rng_int( rng ), sizeof(fd_shmem_join_info_t) ); *info = *nop;
+    TEST( !fd_shmem_join_query_by_join( join,      NULL ) ); TEST( !memcmp( info, nop, sizeof(fd_shmem_join_info_t) ) );
+    TEST( !fd_shmem_join_query_by_join( join,      info ) ); TEST( !memcmp( info, ref, sizeof(fd_shmem_join_info_t) ) );
+    memset( nop, fd_rng_int( rng ), sizeof(fd_shmem_join_info_t) ); *info = *nop;
+    TEST( !fd_shmem_join_query_by_addr( page, 1UL, NULL ) ); TEST( !memcmp( info, nop, sizeof(fd_shmem_join_info_t) ) );
+    TEST( !fd_shmem_join_query_by_addr( page, 1UL, info ) ); TEST( !memcmp( info, ref, sizeof(fd_shmem_join_info_t) ) );
+
+    fd_shmem_leave( join, NULL, NULL ); ref->ref_cnt--;
+    fd_shmem_leave( join, NULL, NULL ); ref->ref_cnt--;
+
+    memset( nop, fd_rng_int( rng ), sizeof(fd_shmem_join_info_t) ); *info = *nop;
+    TEST( !fd_shmem_join_query_by_name( name,      NULL ) ); TEST( !memcmp( info, nop, sizeof(fd_shmem_join_info_t) ) );
+    TEST( !fd_shmem_join_query_by_name( name,      info ) ); TEST( !memcmp( info, ref, sizeof(fd_shmem_join_info_t) ) );
+    memset( nop, fd_rng_int( rng ), sizeof(fd_shmem_join_info_t) ); *info = *nop;
+    TEST( !fd_shmem_join_query_by_join( join,      NULL ) ); TEST( !memcmp( info, nop, sizeof(fd_shmem_join_info_t) ) );
+    TEST( !fd_shmem_join_query_by_join( join,      info ) ); TEST( !memcmp( info, ref, sizeof(fd_shmem_join_info_t) ) );
+    memset( nop, fd_rng_int( rng ), sizeof(fd_shmem_join_info_t) ); *info = *nop;
+    TEST( !fd_shmem_join_query_by_addr( page, 1UL, NULL ) ); TEST( !memcmp( info, nop, sizeof(fd_shmem_join_info_t) ) );
+    TEST( !fd_shmem_join_query_by_addr( page, 1UL, info ) ); TEST( !memcmp( info, ref, sizeof(fd_shmem_join_info_t) ) );
+
+    fd_shmem_leave_anonymous( join ); ref->ref_cnt--;
+
+    memset( nop, fd_rng_int( rng ), sizeof(fd_shmem_join_info_t) ); *info = *nop;
+    TEST(  fd_shmem_join_query_by_name( name,      NULL ) ); TEST( !memcmp( info, nop, sizeof(fd_shmem_join_info_t) ) );
+    TEST(  fd_shmem_join_query_by_name( name,      info ) ); TEST( !memcmp( info, nop, sizeof(fd_shmem_join_info_t) ) );
+    memset( nop, fd_rng_int( rng ), sizeof(fd_shmem_join_info_t) ); *info = *nop;
+    TEST(  fd_shmem_join_query_by_join( join,      NULL ) ); TEST( !memcmp( info, nop, sizeof(fd_shmem_join_info_t) ) );
+    TEST(  fd_shmem_join_query_by_join( join,      info ) ); TEST( !memcmp( info, nop, sizeof(fd_shmem_join_info_t) ) );
+    memset( nop, fd_rng_int( rng ), sizeof(fd_shmem_join_info_t) ); *info = *nop;
+    TEST(  fd_shmem_join_query_by_addr( page, 1UL, NULL ) ); TEST( !memcmp( info, nop, sizeof(fd_shmem_join_info_t) ) );
+    TEST(  fd_shmem_join_query_by_addr( page, 1UL, info ) ); TEST( !memcmp( info, nop, sizeof(fd_shmem_join_info_t) ) );
+
+    fd_shmem_release( page, psz, pcnt );
+  }
 
   fd_rng_delete( fd_rng_leave( rng ) );
 

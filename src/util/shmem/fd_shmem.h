@@ -63,7 +63,7 @@
    interoperability). */
 
 struct fd_shmem_private_key {
-  char cstr[ FD_SHMEM_JOIN_MAX ];
+  char cstr[ FD_SHMEM_NAME_MAX ];
 };
 
 typedef struct fd_shmem_private_key fd_shmem_private_key_t;
@@ -124,7 +124,7 @@ FD_PROTOTYPES_BEGIN
    join the one backed by the largest page size).  Then the region is
    mapped into the address appropriately for the given access mode
    (FD_SHMEM_JOIN_MODE_{READ_ONLY,READ_WRITE}).  Lastly, any user
-   provided fd_shmem_join_func_t is the mapping.
+   provided fd_shmem_join_func_t is called on the mapping.
 
    A fd_shmem_join_func_t is meant to do any additional local address
    translations and what not as a one-time upfront cost on behalf of all
@@ -135,12 +135,12 @@ FD_PROTOTYPES_BEGIN
    information about the region (lifetime is the duration of the call
    and should not be assumed to be longer).
 
-   On success, a join_func returns a the join that wraps the shmem
-   (often just a shmem); it should be one-to-one with shmem (i.e. while
-   a thread group is joined, name cstr / shmem / join are uniquely
-   identify the name cstr / shmem / join).  On failure, a join_func
-   returns NULL (ideally without impacting thread group state while
-   logging details about the failure).
+   On success, a join_func returns the join that wraps the shmem (often
+   just a shmem); it should be one-to-one with shmem (i.e. while a
+   thread group is joined, name cstr / shmem / join uniquely identify
+   the name cstr / shmem / join).  On failure, a join_func returns NULL
+   (ideally without impacting thread group state while logging details
+   about the failure).
 
    Pass NULL for join_func if no special handling is needed.  The join
    handle will be just a pointer to the first byte of the region's local
@@ -185,8 +185,8 @@ fd_shmem_leave( void *                    join,
 
 /* fd_shmem_join_query_by_{name,join,addr} queries if the cstr pointed
    by name is already joined by the caller's thread group / the join
-   handle is a valid current join handle / addr points to a byte in the
-   shared memory region of a current join.
+   handle is a valid current join handle / [addr,addr+sz-1] overlaps (at
+   least partially) with a shared memory region of a current join.
 
    On success, returns 0 and, if opt_info non-NULL, *opt_info will hold
    details about the join (as observed at a point between when the call
@@ -196,6 +196,13 @@ fd_shmem_leave( void *                    join,
    without being excessively chatty in the log).  Reasons for failure
    include name is not valid (EINVAL) and there is no join currently
    (ENOENT).
+
+   For query_by_addr, returns ENOENT if sz is 0 (no overlap with an
+   empty set) and EINVAL if the address range wrapps around the end of
+   address space.  If there are multiple joins overlapped by the range,
+   returns 0 and, if opt_info is non-NULL, *opt_info will have details
+   about one of the joins (it is undefined which join).  Note it is
+   impossible for a range to overlap multiple joins when sz==1.
 
    query by name is a reasonably fast O(1).  query by join and by addr
    are theoretically O(FD_SHMEM_JOIN_MAX) but still quite fast
@@ -211,7 +218,51 @@ fd_shmem_join_query_by_join( void const *           join,
 
 int
 fd_shmem_join_query_by_addr( void const *           addr,
+                             ulong                  sz,
                              fd_shmem_join_info_t * opt_info );
+
+/* fd_shmem_join_anonymous treats with region pointed to by mem (which
+   must be non-NULL with page_sz alignment and page_sz*page_cnt
+   footprint) as a shmem join with the local join handle join, cstr name
+   and mode.
+
+   Other code in the thread group can fd_shmem_join( name, ... ) as
+   though the fd_shmem_join_anonymous was done for the mapping join for
+   name in the thread group.  This is useful to allow memory regions
+   procured out-of-band (e.g. a private anonymous mmap, interfacing with
+   custom hardware that provides its own functions for getting access to
+   its memory, etc) as a normal join.
+
+   Returns 0 on failure and a strerror friendly error code on failure
+   (logs details).  Reasons for failure include bad name (NULL / too
+   short / too long / bad characters / already joined), bad join (NULL
+   join / already joined), bad mem (NULL mem / unaligned mem / already
+   joined), unsupported page_sz, zero page cnt, unsupported mode (not
+   FD_SHMEM_JOIN_MODE_{READ_ONLY,READ_WRITE}.
+
+   This will shadow any named shared memory region in the calling thread
+   group (but not other thread groups).
+
+   fd_shmem_leave_anonymous is just the inverse of this.  It cannot fail
+   from the caller's POV (but will log extensive details if there is any
+   wonkiness under the hood).  FIXME: CONSIDER RETURNING THE JOIN INFO?
+
+   IMPORTANT!  The join will have a ref cnt of 1 on return from
+   join_anonymous.  The final leave of something joined by
+   fd_shmem_join_anonymous should done only by fd_shmem_leave_anonymous.
+   Conversely, fd_shmem_leave_anonymous should only be used for the
+   final leave of any anonymous join. */
+
+int
+fd_shmem_join_anonymous( char const * name,
+                         int          mode,
+                         void *       join,
+                         void *       mem,
+                         ulong        page_sz,
+                         ulong        page_cnt );
+
+void
+fd_shmem_leave_anonymous( void * join );
 
 /* Administrative APIs ************************************************/
 
