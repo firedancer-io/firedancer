@@ -12,8 +12,8 @@
 
 #define FD_TILE_MAX (1024UL)
 
-/* A fd_tile_task_t is a function point with the function signature for
-   tasks that can be dispatched to a tile. */
+/* A fd_tile_task_t is a function pointer with the function signature
+   for tasks that can be dispatched to a tile. */
 
 typedef int (*fd_tile_task_t)( int argc, char ** argv );
 
