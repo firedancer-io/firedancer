@@ -298,14 +298,15 @@ fd_tile_private_manager( void * _args ) {
 /* Dispatch side APIs ************************************************/
 
 static struct __attribute__((aligned(128))) { /* Each on its own cache line pair to limit false sharing in parallel dispatch */
-  fd_tile_private_t * tile; /* Non-NULL if tile idx is available for dispatch */
+  fd_tile_private_t * lock; /* Non-NULL if tile idx is available for dispatch, ==tile otherwise */
+  fd_tile_private_t * tile;
   pthread_t           pthread;
 } fd_tile_private[ FD_TILE_MAX ];
 
 /* FIXME: ATOMIC_XCHG BASED INSTEAD? */
 static inline fd_tile_private_t *
 fd_tile_private_trylock( ulong tile_idx ) {
-  fd_tile_private_t * volatile * vtile = (fd_tile_private_t * volatile *)&fd_tile_private[ tile_idx ].tile;
+  fd_tile_private_t * volatile * vtile = (fd_tile_private_t * volatile *)&fd_tile_private[ tile_idx ].lock;
   fd_tile_private_t * tile = *vtile;
   if( FD_LIKELY( tile ) && FD_LIKELY( FD_ATOMIC_CAS( vtile, tile, NULL )==tile ) ) return tile;
   return NULL;
@@ -313,7 +314,7 @@ fd_tile_private_trylock( ulong tile_idx ) {
 
 static inline fd_tile_private_t *
 fd_tile_private_lock( ulong tile_idx ) {
-  fd_tile_private_t * volatile * vtile = (fd_tile_private_t * volatile *)&fd_tile_private[ tile_idx ].tile;
+  fd_tile_private_t * volatile * vtile = (fd_tile_private_t * volatile *)&fd_tile_private[ tile_idx ].lock;
   fd_tile_private_t * tile;
   for(;;) {
     tile = *vtile;
@@ -326,7 +327,7 @@ fd_tile_private_lock( ulong tile_idx ) {
 static inline void
 fd_tile_private_unlock( ulong               tile_idx,
                         fd_tile_private_t * tile ) {
-  FD_VOLATILE( fd_tile_private[ tile_idx ].tile ) = tile;
+  FD_VOLATILE( fd_tile_private[ tile_idx ].lock ) = tile;
 }
 
 fd_tile_exec_t *
@@ -366,6 +367,8 @@ fd_tile_exec_delete( fd_tile_exec_t * exec,
   fd_tile_private_unlock( tile_idx, tile );
   return fail;
 }
+
+fd_tile_exec_t * fd_tile_exec( ulong tile_idx ) { return (fd_tile_exec_t *)fd_tile_private[ tile_idx ].tile; }
 
 ulong          fd_tile_exec_id  ( fd_tile_exec_t const * exec ) { return ((fd_tile_private_t const *)exec)->id;   }
 ulong          fd_tile_exec_idx ( fd_tile_exec_t const * exec ) { return ((fd_tile_private_t const *)exec)->idx;  }
@@ -548,7 +551,7 @@ fd_tile_private_boot( int *    pargc,
       }
     }
 
-    FD_VOLATILE( fd_tile_private[ tile_idx ].tile ) = NULL;
+    FD_VOLATILE( fd_tile_private[ tile_idx ].lock ) = NULL;
 
     fd_tile_private_manager_args_t args[1];
 
@@ -582,6 +585,7 @@ fd_tile_private_boot( int *    pargc,
       FD_YIELD();
     }
     FD_VOLATILE( fd_tile_private[ tile_idx ].tile ) = tile;
+    FD_VOLATILE( fd_tile_private[ tile_idx ].lock ) = tile;
 
     /* Tile is running, args is safe to reuse */
 
@@ -643,7 +647,8 @@ fd_tile_private_boot( int *    pargc,
   fd_tile_private_id  = fd_tile_private_id0;
   fd_tile_private_idx = 0UL;
   fd_tile_private_cpu_config( fd_tile_private_cpu_config_save, cpu_idx );
-  fd_tile_private[0].tile = NULL; /* Can't dispatch to tile 0 */
+  fd_tile_private[0].lock = NULL; /* Can't dispatch to tile 0 */
+  fd_tile_private[0].tile = NULL; /* " */
 
   FD_LOG_INFO(( "fd_tile: boot tile %lu success (thread %lu:%lu in thread group %lu:%lu/%lu)",
                 fd_tile_private_idx, app_id, fd_tile_private_id, app_id, fd_tile_private_id0, fd_tile_private_cnt ));

@@ -88,6 +88,16 @@ char const *
 fd_tile_exec_delete( fd_tile_exec_t * exec,
                      int *            opt_ret );
 
+/* fd_tile_exec returns the fd_tile_exec_t * running on tile tile_idx.
+   fd_tile_exec_by_id_new same but tile to specified by the application
+   thread index.  Undefined if tile_idx is not in [0,fd_tile_cnt()) (or
+   tile_id is not in [fd_tile_id0(),fd_tile_id1()) or called outside a
+   fd_tile_exec*_new / fd_tile_exec_delete pair. */
+
+FD_FN_PURE fd_tile_exec_t * fd_tile_exec( ulong tile_idx );
+
+static inline fd_tile_exec_t * fd_tile_exec_by_id( ulong tile_id ) { return fd_tile_exec( tile_id-fd_tile_id0() ); }
+
 /* fd_tile_exec_{id,idx,task,argc,argv} access details exec pointed to
    by exec.  These assume exec points to a current exec. */
 

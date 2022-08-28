@@ -28,6 +28,9 @@ tile_main( int     argc,
     ulong idx = fd_tile_idx()+1UL;
     fd_tile_exec_t * exec = fd_tile_exec_new( idx, tile_main, argc+1, argv );
 
+    TEST( fd_tile_exec      (               idx )==exec );
+    TEST( fd_tile_exec_by_id( fd_tile_id0()+idx )==exec );
+
     TEST( fd_tile_exec_idx ( exec )==idx       );
     TEST( fd_tile_exec_task( exec )==tile_main );
     TEST( fd_tile_exec_argc( exec )==argc+1    );
@@ -95,6 +98,9 @@ main( int     argc,
     TEST( !fd_tile_exec_new( 0UL, tile_main, argc, argv ) ); /* Can't dispatch to self or tile 0 */
 
     fd_tile_exec_t * exec = fd_tile_exec_new( idx, tile_main, argc, argv );
+
+    TEST( fd_tile_exec      (               idx )==exec );
+    TEST( fd_tile_exec_by_id( fd_tile_id0()+idx )==exec );
 
     TEST( fd_tile_exec_idx ( exec )==idx       );
     TEST( fd_tile_exec_task( exec )==tile_main );

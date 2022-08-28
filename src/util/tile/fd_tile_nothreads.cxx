@@ -36,6 +36,8 @@ fd_tile_exec_new( ulong          idx,
   return NULL;
 }
 
+fd_tile_exec_t * fd_tile_exec( ulong tile_idx ) { FD_VOLATILE_CONST( tile_idx ); /* Suppress compiler warnings */ return NULL; }
+
 /* These should arguably FD_LOG_CRIT.  As it stands, they'll probably
    seg fault because they are probably passed NULL pointers (which is
    what the threaded implementation would do).  FD_LOG_CRIT would also
