@@ -35,7 +35,7 @@ fd_fctl_t *
 fd_fctl_cfg_rx_add( fd_fctl_t *   fctl,
                     ulong         cr_max,
                     ulong const * seq_laddr,
-                    ulong *       backp_laddr ) {
+                    ulong *       slow_laddr ) {
   if( FD_UNLIKELY( !fctl ) ) {
     FD_LOG_WARNING(( "NULL fctl" ));
     return NULL;
@@ -53,8 +53,8 @@ fd_fctl_cfg_rx_add( fd_fctl_t *   fctl,
 
   /* NULL seq_laddr okay (indicates disabled for time being) */
 
-  if( FD_UNLIKELY( !backp_laddr ) ) {
-    FD_LOG_WARNING(( "NULL backp_laddr" ));
+  if( FD_UNLIKELY( !slow_laddr ) ) {
+    FD_LOG_WARNING(( "NULL slow_laddr" ));
     return NULL;
   }
 
@@ -65,9 +65,9 @@ fd_fctl_cfg_rx_add( fd_fctl_t *   fctl,
   }
 
   fd_fctl_private_rx_t * rx = fd_fctl_private_rx( fctl );
-  rx[ rx_idx ].cr_max      = (long)cr_max;
-  rx[ rx_idx ].seq_laddr   = seq_laddr;
-  rx[ rx_idx ].backp_laddr = backp_laddr;
+  rx[ rx_idx ].cr_max     = (long)cr_max;
+  rx[ rx_idx ].seq_laddr  = seq_laddr;
+  rx[ rx_idx ].slow_laddr = slow_laddr;
 
   fctl->rx_cnt = (ushort)(rx_idx+1UL);
   return fctl;

@@ -37,9 +37,9 @@ typedef struct fd_fctl_private fd_fctl_t;
    flow control operations in performance critical loops. */
 
 struct fd_fctl_private_rx {
-  long          cr_max;      /* See fd_fctl_cfg_rx_add for details, should be positive */
-  ulong const * seq_laddr;   /* ", NULL indicates an inactive rx */
-  ulong *       backp_laddr; /* " */
+  long          cr_max;     /* See fd_fctl_cfg_rx_add for details, should be positive */
+  ulong const * seq_laddr;  /* ", NULL indicates an inactive rx */
+  ulong *       slow_laddr; /* " */
 };
 
 typedef struct fd_fctl_private_rx fd_fctl_private_rx_t;
@@ -153,20 +153,20 @@ static inline void *      fd_fctl_delete( void *      shfctl ) { return shfctl; 
    *seq_laddr.  NULL is fine here (the fctl will ignore this receiver
    until it is set, potentially post configuration).
 
-   backp_laddr is the location in the user's local address space where
-   the fctl should accumulate backpressure events attributed to this
-   receiver.  It is fine if other events are accumulated to this
+   slow_laddr is the location in the user's local address space where
+   the fctl should accumulate statistics for which receiver is running
+   the slowest.  It is fine if other events are accumulated to this
    location (e.g. the user doesn't need ultra fine grained diagnostics).
 
    Returns fctl on success and NULL on failure (logs details).  Reasons
-   for failure include NULL fctl, NULL backp, too many fctl receivers,
-   too small cr_max, too large cr_max. */
+   for failure include NULL fctl, NULL slow_laddr, too many fctl
+   receivers, too small cr_max, too large cr_max. */
 
 fd_fctl_t *
 fd_fctl_cfg_rx_add( fd_fctl_t *   fctl,
                     ulong         cr_max,
                     ulong const * seq_laddr,
-                    ulong *       backp_laddr );
+                    ulong *       slow_laddr );
 
 /* fd_fctl_cfg_done completes the configuration of a flow control.
    Assumes the fctl configuration is not yet complete (FIXME: CONSIDER
@@ -220,13 +220,13 @@ fd_fctl_cfg_done( fd_fctl_t * fctl,
 /* fd_fctl_{rx_max,rx_cnt,
             cr_burst,cr_max,cr_resume,cr_refill,
             rx_cr_max,rx_seq_laddr,
-            rx_seq_backp_laddr,rx_seq_backp_laddr_const}
+            rx_seq_slow_laddr,rx_seq_slow_laddr_const}
    return the values configured during fctl initialization.
 
    These assume fctl is a local join to a configured fctl.  rx_cr_max,
-   rx_seq_laddr, rx_backp_laddr and rx_backp_laddr_const further assume
-   rx_idx is in [0,rx_cnt).  backp_laddr_const is a const-correct
-   version of rx_backp_laddr.
+   rx_seq_laddr, rx_slow_laddr and rx_slow_laddr_const further assume
+   rx_idx is in [0,rx_cnt).  slow_laddr_const is a const-correct
+   version of rx_slow_laddr.
    
    (FIXME: CONSIDER ACCESSES FOR DISTIGUISHING WHETHER CR_MAX /
    CR_RESUME / CR_REFILL WERE AUTOCONFIGURED.  EXPOSE IN_REFILL?
@@ -252,15 +252,15 @@ fd_fctl_rx_seq_laddr( fd_fctl_t const * fctl,
 }
 
 FD_FN_PURE static inline ulong *
-fd_fctl_rx_backp_laddr( fd_fctl_t * fctl,
-                        ulong       rx_idx ) {
-  return fd_fctl_private_rx( fctl )[rx_idx].backp_laddr;
+fd_fctl_rx_slow_laddr( fd_fctl_t * fctl,
+                       ulong       rx_idx ) {
+  return fd_fctl_private_rx( fctl )[rx_idx].slow_laddr;
 }
 
 FD_FN_PURE static inline ulong const *
-fd_fctl_rx_backp_laddr_const( fd_fctl_t const * fctl,
-                              ulong             rx_idx ) {
-  return fd_fctl_private_rx_const( fctl )[rx_idx].backp_laddr;
+fd_fctl_rx_slow_laddr_const( fd_fctl_t const * fctl,
+                             ulong             rx_idx ) {
+  return fd_fctl_private_rx_const( fctl )[rx_idx].slow_laddr;
 }
 
 /* fd_fctl_rx_cr_return updates users of _rx_seq flow control (e.g. from
@@ -533,7 +533,7 @@ fd_fctl_tx_cr_update( fd_fctl_t * fctl,
          / potentially causing backpressure / etc).  We don't bother
          with a proper atomic increment as this is just diagnostic;
          exact precision is not required for correctness (also, if there
-         is no multiplexing of the rx's backp counter with counters on
+         is no multiplexing of the rx's slow counter with counters on
          different threads, as is often the case, it will be exact
          anyway).  Note that because the refilling is typically
          triggered well before the transmitter is actual not able to
@@ -542,8 +542,8 @@ fd_fctl_tx_cr_update( fd_fctl_t * fctl,
          "rx_idx_slow caused a stall". */
 
       if( FD_LIKELY( rx_idx_slow!=ULONG_MAX ) ) {
-        ulong * backp = fd_fctl_private_rx( fctl )[ rx_idx_slow ].backp_laddr;
-        FD_VOLATILE( backp[0] ) = FD_VOLATILE_CONST( backp[0] ) + 1UL;
+        ulong * slow = fd_fctl_private_rx( fctl )[ rx_idx_slow ].slow_laddr;
+        FD_VOLATILE( slow[0] ) = FD_VOLATILE_CONST( slow[0] ) + 1UL;
       }
       fctl->in_refill = 1;
 

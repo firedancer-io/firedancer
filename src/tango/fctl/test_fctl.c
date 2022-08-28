@@ -6,8 +6,8 @@ FD_STATIC_ASSERT( FD_FCTL_ALIGN==sizeof(ulong), unit_test );
 
 #define RX_MAX (128UL)
 static uchar __attribute__((aligned(FD_FCTL_ALIGN))) shmem[ FD_FCTL_FOOTPRINT( RX_MAX ) ];
-static ulong rx_seq  [ RX_MAX ]; /* Init to zero */
-static ulong rx_backp[ RX_MAX ];
+static ulong rx_seq [ RX_MAX ]; /* Init to zero */
+static ulong rx_slow[ RX_MAX ];
 
 int
 main( int     argc,
@@ -46,7 +46,7 @@ main( int     argc,
   fd_fctl_t * fctl   = fd_fctl_join( shfctl );        TEST( fctl   );
 
   for( ulong rx_idx=0UL; rx_idx<rx_cnt; rx_idx++ )
-    TEST( fd_fctl_cfg_rx_add( fctl, (rx_idx+1UL)*rx_cr_max, &rx_seq[ rx_idx ], &rx_backp[ rx_idx ] ) );
+    TEST( fd_fctl_cfg_rx_add( fctl, (rx_idx+1UL)*rx_cr_max, &rx_seq[ rx_idx ], &rx_slow[ rx_idx ] ) );
   TEST( fd_fctl_cfg_done( fctl, cr_burst, cr_max, cr_resume, cr_refill ) );
 
   TEST( fd_fctl_rx_max( fctl )==rx_max );
@@ -73,9 +73,9 @@ main( int     argc,
   TEST( cr_burst<=fd_fctl_cr_refill( fctl ) ); TEST( fd_fctl_cr_refill( fctl )<=cr_resume       );
 
   for( ulong rx_idx=0UL; rx_idx<rx_cnt; rx_idx++ ) {
-    TEST( fd_fctl_rx_cr_max     ( fctl, rx_idx )==(rx_idx+1UL)*rx_cr_max );
-    TEST( fd_fctl_rx_seq_laddr  ( fctl, rx_idx )==&rx_seq  [ rx_idx ]    );
-    TEST( fd_fctl_rx_backp_laddr( fctl, rx_idx )==&rx_backp[ rx_idx ]    );
+    TEST( fd_fctl_rx_cr_max    ( fctl, rx_idx )==(rx_idx+1UL)*rx_cr_max );
+    TEST( fd_fctl_rx_seq_laddr ( fctl, rx_idx )==&rx_seq [ rx_idx ]     );
+    TEST( fd_fctl_rx_slow_laddr( fctl, rx_idx )==&rx_slow[ rx_idx ]     );
   }
 
   /* FIXME: MORE EXTENSIVE TESTING HERE (INCL COVERAGE OF
