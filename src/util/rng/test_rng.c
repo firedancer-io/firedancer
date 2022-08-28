@@ -3,6 +3,9 @@
 
 /* FIXME: ADD COVERAGE FOR ROLL */
 
+FD_STATIC_ASSERT( FD_RNG_ALIGN    ==alignof(fd_rng_t), unit_test );
+FD_STATIC_ASSERT( FD_RNG_FOOTPRINT==sizeof (fd_rng_t), unit_test );
+
 static void
 log_ref( ulong const * ref,
          uint          seq,
@@ -22,8 +25,8 @@ main( int     argc,
 
   FD_LOG_NOTICE(( "Testing align / footprint" ));
 
-  TEST( fd_rng_align    ()==alignof(fd_rng_t) );
-  TEST( fd_rng_footprint()==sizeof (fd_rng_t) );
+  TEST( fd_rng_align    ()==FD_RNG_ALIGN     );
+  TEST( fd_rng_footprint()==FD_RNG_FOOTPRINT );
 
   FD_LOG_NOTICE(( "Testing new" ));
 

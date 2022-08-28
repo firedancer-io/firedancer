@@ -14,11 +14,19 @@
 
 #include "../bits/fd_bits.h"
 
+/* FD_RNG_{ALIGN,FOOTPRINT} describe the alignment and footprint needed
+   for a rng.  ALIGN should be a positive integer power of 2.  FOOTPRINT
+   is multiple of ALIGN.  These are provided to facilitate compile time
+   declarations.  */
+
+#define FD_RNG_ALIGN     (16UL)
+#define FD_RNG_FOOTPRINT (16UL)
+
 /* fd_rng_t should be treated as an opaque handle of a pseudo random
    number generator.  (It technically isn't here to facilitate inlining
    of fd_rng operations.) */
 
-struct fd_rng_private {
+struct __attribute__((aligned(FD_RNG_ALIGN))) fd_rng_private {
   ulong seq;
   ulong idx;
 };
@@ -61,7 +69,8 @@ fd_rng_private_contract( ulong eseq ) {
    alloca / declaration friendly (e.g. a memory region declared as
    "fd_rng_t _rng[1];", or created by "malloc(sizeof(fd_rng_t))" or
    created by "alloca(sizeof(fd_rng_t))" will all automatically have the
-   needed footprint and alignment).
+   needed footprint and alignment).  fd_rng_{align,footprint} return the
+   same value as FD_RNG_{ALIGN,FOOTPRINT}.
 
    fd_rng_new takes ownership of the memory region pointed to by mem
    (which is assumed to be non-NULL with the appropriate alignment and
