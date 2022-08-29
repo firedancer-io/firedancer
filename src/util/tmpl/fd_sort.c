@@ -155,14 +155,14 @@ SORT_KEY_T *
 SORT_(private_quick)( SORT_KEY_T * key,
                       SORT_IDX_T   cnt );
 
-SORT_KEY_T
+SORT_KEY_T *
 SORT_(private_select)( SORT_KEY_T * key,
                        SORT_IDX_T   cnt,
                        SORT_IDX_T   rnk );
 
 #else /* need implementations */
 
-#if SORT_IMPL_STLYE==0 /* local only */
+#if SORT_IMPL_STYLE==0 /* local only */
 #define SORT_IMPL_STATIC static
 #else
 #define SORT_IMPL_STATIC
