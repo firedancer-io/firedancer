@@ -1,9 +1,18 @@
 #include "../fd_util.h"
 
 /* FIXME: TEST BASE10_DIG_CNT! */
-/* FIXME: TEST FLOAT_IF, DOUBLE_IF */
 
 FD_STATIC_ASSERT( FD_ULONG_SVW_ENC_MAX==9UL, unit_test );
+
+/* Treat a binary bit pattern as a floating point number and vice versa. */
+
+static inline uint   float_as_uint( float f ) { union { float f; uint u; } t; t.f = f; return t.u; }
+static inline float  uint_as_float( uint  u ) { union { float f; uint u; } t; t.u = u; return t.f; }
+
+#if FD_HAS_DOUBLE
+static inline ulong  double_as_ulong( double f ) { union { double f; ulong u; } t; t.f = f; return t.u; }
+static inline double ulong_as_double( ulong  u ) { union { double f; ulong u; } t; t.u = u; return t.f; }
+#endif
 
 int
 main( int     argc,
@@ -717,6 +726,12 @@ main( int     argc,
 
   if( 1 ) {
     FD_LOG_NOTICE(( "Testing schar" ));
+    TEST( fd_schar_abs(  (schar)SCHAR_MIN )==(uchar)1+(uchar)SCHAR_MAX );
+    TEST( fd_schar_abs( -(schar)SCHAR_MAX )==         (uchar)SCHAR_MAX );
+    TEST( fd_schar_abs(         -(schar)1 )==                 (uchar)1 );
+    TEST( fd_schar_abs(          (schar)0 )==                 (uchar)0 );
+    TEST( fd_schar_abs(          (schar)1 )==                 (uchar)1 );
+    TEST( fd_schar_abs(  (schar)SCHAR_MAX )==         (uchar)SCHAR_MAX );
     for( int iter=0; iter<16777216; iter++ ) {
       int c = (int)(fd_rng_ulong( rng ) & 1UL);
       schar x = (schar)fd_rng_ulong( rng );
@@ -742,6 +757,12 @@ main( int     argc,
 
   if( 1 ) {
     FD_LOG_NOTICE(( "Testing short" ));
+    TEST( fd_short_abs(  (short)SHORT_MIN )==(ushort)1+(ushort)SHORT_MAX );
+    TEST( fd_short_abs( -(short)SHORT_MAX )==          (ushort)SHORT_MAX );
+    TEST( fd_short_abs(         -(short)1 )==                  (ushort)1 );
+    TEST( fd_short_abs(          (short)0 )==                  (ushort)0 );
+    TEST( fd_short_abs(          (short)1 )==                  (ushort)1 );
+    TEST( fd_short_abs(  (short)SHORT_MAX )==          (ushort)SHORT_MAX );
     for( int iter=0; iter<16777216; iter++ ) {
       int c = (int)(fd_rng_ulong( rng ) & 1UL);
       short x = (short)fd_rng_ulong( rng );
@@ -767,6 +788,12 @@ main( int     argc,
 
   if( 1 ) {
     FD_LOG_NOTICE(( "Testing int" ));
+    TEST( fd_int_abs(  INT_MIN )==1U+(uint)INT_MAX );
+    TEST( fd_int_abs( -INT_MAX )==   (uint)INT_MAX );
+    TEST( fd_int_abs(       -1 )==              1U );
+    TEST( fd_int_abs(        0 )==              0U );
+    TEST( fd_int_abs(        1 )==              1U );
+    TEST( fd_int_abs(  INT_MAX )==   (uint)INT_MAX );
     for( int iter=0; iter<16777216; iter++ ) {
       int c = (int)(fd_rng_ulong( rng ) & 1UL);
       int x = (int)fd_rng_ulong( rng );
@@ -792,6 +819,12 @@ main( int     argc,
 
   if( 1 ) {
     FD_LOG_NOTICE(( "Testing long" ));
+    TEST( fd_long_abs(  LONG_MIN )==1UL+(ulong)LONG_MAX );
+    TEST( fd_long_abs( -LONG_MAX )==    (ulong)LONG_MAX );
+    TEST( fd_long_abs(       -1L )==                1UL );
+    TEST( fd_long_abs(        0L )==                0UL );
+    TEST( fd_long_abs(        1L )==                1UL );
+    TEST( fd_long_abs(  LONG_MAX )==    (ulong)LONG_MAX );
     for( int iter=0; iter<16777216; iter++ ) {
       int  c = (int)(fd_rng_ulong( rng ) & 1UL);
       long x = (long)fd_rng_ulong( rng );
@@ -818,6 +851,12 @@ main( int     argc,
 # if FD_HAS_INT128
   if( 1 ) {
     FD_LOG_NOTICE(( "Testing int128" ));
+    TEST( fd_int128_abs(  INT128_MIN )==(uint128)1+(uint128)INT128_MAX );
+    TEST( fd_int128_abs( -INT128_MAX )==           (uint128)INT128_MAX );
+    TEST( fd_int128_abs(  -(int128)1 )==                    (uint128)1 );
+    TEST( fd_int128_abs(   (int128)0 )==                    (uint128)0 );
+    TEST( fd_int128_abs(   (int128)1 )==                    (uint128)1 );
+    TEST( fd_int128_abs(  INT128_MAX )==           (uint128)INT128_MAX );
     for( int iter=0; iter<16777216; iter++ ) {
       int    c = (int)(fd_rng_ulong( rng ) & 1UL);
       int128 x = (int128)fd_rng_uint128( rng );
@@ -839,6 +878,94 @@ main( int     argc,
     TEST( fd_int128_zz_dec(               (uint128)2 )== (int128)1 );
     TEST( fd_int128_zz_dec(  UINT128_MAX             )==INT128_MIN );
     TEST( fd_int128_zz_dec( (UINT128_MAX-(uint128)1) )==INT128_MAX );
+  }
+# endif
+
+  if( 1 ) {
+    FD_LOG_NOTICE(( "Testing float" ));
+
+    float psnan = uint_as_float(            (255U<<23) | (1U<<22) );
+    float pqnan = uint_as_float(            (255U<<23) |  1U      );
+    float pinf  = uint_as_float(            (255U<<23)            );
+    float pzero = uint_as_float(                               0U );
+    float nzero = uint_as_float( (1U<<31)                         );
+    float ninf  = uint_as_float( (1U<<31) | (255U<<23)            );
+    float nqnan = uint_as_float( (1U<<31) | (255U<<23) |  1U      );
+    float nsnan = uint_as_float( (1U<<31) | (255U<<23) | (1U<<22) );
+
+#   if 0 /* Detailed tester only works if fast math is disabled (most like -ffinite-math) */
+#   define _(x,y,z,w) TEST( fd_float_eq( x, y )==z && (x==y)==w )
+    _( psnan, psnan, 1, 0 ); _( pqnan, psnan, 0, 0 ); _( pinf , psnan, 0, 0 ); _( pzero, psnan, 0, 0 ); _( nzero, psnan, 0, 0 ); _( ninf , psnan, 0, 0 ); _( nqnan, psnan, 0, 0 ); _( nsnan, psnan, 0, 0 );
+    _( psnan, pqnan, 0, 0 ); _( pqnan, pqnan, 1, 0 ); _( pinf , pqnan, 0, 0 ); _( pzero, pqnan, 0, 0 ); _( nzero, pqnan, 0, 0 ); _( ninf , pqnan, 0, 0 ); _( nqnan, pqnan, 0, 0 ); _( nsnan, pqnan, 0, 0 );
+    _( psnan, pinf , 0, 0 ); _( pqnan, pinf , 0, 0 ); _( pinf , pinf , 1, 1 ); _( pzero, pinf , 0, 0 ); _( nzero, pinf , 0, 0 ); _( ninf , pinf , 0, 0 ); _( nqnan, pinf , 0, 0 ); _( nsnan, pinf , 0, 0 );
+    _( psnan, pzero, 0, 0 ); _( pqnan, pzero, 0, 0 ); _( pinf , pzero, 0, 0 ); _( pzero, pzero, 1, 1 ); _( nzero, pzero, 0, 1 ); _( ninf , pzero, 0, 0 ); _( nqnan, pzero, 0, 0 ); _( nsnan, pzero, 0, 0 );
+    _( psnan, nzero, 0, 0 ); _( pqnan, nzero, 0, 0 ); _( pinf , nzero, 0, 0 ); _( pzero, nzero, 0, 1 ); _( nzero, nzero, 1, 1 ); _( ninf , nzero, 0, 0 ); _( nqnan, nzero, 0, 0 ); _( nsnan, nzero, 0, 0 );
+    _( psnan, ninf , 0, 0 ); _( pqnan, ninf , 0, 0 ); _( pinf , ninf , 0, 0 ); _( pzero, ninf , 0, 0 ); _( nzero, ninf , 0, 0 ); _( ninf , ninf , 1, 1 ); _( nqnan, ninf , 0, 0 ); _( nsnan, ninf , 0, 0 );
+    _( psnan, nqnan, 0, 0 ); _( pqnan, nqnan, 0, 0 ); _( pinf , nqnan, 0, 0 ); _( pzero, nqnan, 0, 0 ); _( nzero, nqnan, 0, 0 ); _( ninf , nqnan, 0, 0 ); _( nqnan, nqnan, 1, 0 ); _( nsnan, nqnan, 0, 0 );
+    _( psnan, nsnan, 0, 0 ); _( pqnan, nsnan, 0, 0 ); _( pinf , nsnan, 0, 0 ); _( pzero, nsnan, 0, 0 ); _( nzero, nsnan, 0, 0 ); _( ninf , nsnan, 0, 0 ); _( nqnan, nsnan, 0, 0 ); _( nsnan, nsnan, 1, 0 );
+#   undef _
+#   endif
+
+    TEST( float_as_uint( fd_float_abs( psnan ) )==float_as_uint( psnan ) );
+    TEST( float_as_uint( fd_float_abs( pqnan ) )==float_as_uint( pqnan ) );
+    TEST( float_as_uint( fd_float_abs( pinf  ) )==float_as_uint( pinf  ) );
+    TEST( float_as_uint( fd_float_abs( pzero ) )==float_as_uint( pzero ) );
+    TEST( float_as_uint( fd_float_abs( nzero ) )==float_as_uint( pzero ) );
+    TEST( float_as_uint( fd_float_abs( ninf  ) )==float_as_uint( pinf  ) );
+    TEST( float_as_uint( fd_float_abs( nqnan ) )==float_as_uint( pqnan ) );
+    TEST( float_as_uint( fd_float_abs( nsnan ) )==float_as_uint( psnan ) );
+
+    for( int iter=0; iter<16777216; iter++ ) {
+      int   c = (int)(fd_rng_uint( rng ) & 1U);
+      float x = uint_as_float( fd_rng_uint( rng ) );
+      float y = uint_as_float( fd_rng_uint( rng ) );
+      TEST( fd_float_eq( fd_float_if( c, x, y ), (c ? x : y) ) );
+      TEST( float_as_uint( fd_float_abs( x ) )==(((float_as_uint( x ))<<1)>>1) );
+    }
+  }
+
+# if FD_HAS_DOUBLE
+  if( 1 ) {
+    FD_LOG_NOTICE(( "Testing double" ));
+
+    double psnan = ulong_as_double(             (2047UL<<52) | (1UL<<51) );
+    double pqnan = ulong_as_double(             (2047UL<<52) |  1UL      );
+    double pinf  = ulong_as_double(             (2047UL<<52)             );
+    double pzero = ulong_as_double(                                  0UL );
+    double nzero = ulong_as_double( (1UL<<63)                            );
+    double ninf  = ulong_as_double( (1UL<<63) | (2047UL<<52)             );
+    double nqnan = ulong_as_double( (1UL<<63) | (2047UL<<52) |  1UL      );
+    double nsnan = ulong_as_double( (1UL<<63) | (2047UL<<52) | (1UL<<51) );
+
+#   if 0 /* Detailed tester only works if fast math is disabled (most like -ffinite-math) */
+#   define _(x,y,z,w) TEST( fd_double_eq( x, y )==z && (x==y)==w )
+    _( psnan, psnan, 1, 0 ); _( pqnan, psnan, 0, 0 ); _( pinf , psnan, 0, 0 ); _( pzero, psnan, 0, 0 ); _( nzero, psnan, 0, 0 ); _( ninf , psnan, 0, 0 ); _( nqnan, psnan, 0, 0 ); _( nsnan, psnan, 0, 0 );
+    _( psnan, pqnan, 0, 0 ); _( pqnan, pqnan, 1, 0 ); _( pinf , pqnan, 0, 0 ); _( pzero, pqnan, 0, 0 ); _( nzero, pqnan, 0, 0 ); _( ninf , pqnan, 0, 0 ); _( nqnan, pqnan, 0, 0 ); _( nsnan, pqnan, 0, 0 );
+    _( psnan, pinf , 0, 0 ); _( pqnan, pinf , 0, 0 ); _( pinf , pinf , 1, 1 ); _( pzero, pinf , 0, 0 ); _( nzero, pinf , 0, 0 ); _( ninf , pinf , 0, 0 ); _( nqnan, pinf , 0, 0 ); _( nsnan, pinf , 0, 0 );
+    _( psnan, pzero, 0, 0 ); _( pqnan, pzero, 0, 0 ); _( pinf , pzero, 0, 0 ); _( pzero, pzero, 1, 1 ); _( nzero, pzero, 0, 1 ); _( ninf , pzero, 0, 0 ); _( nqnan, pzero, 0, 0 ); _( nsnan, pzero, 0, 0 );
+    _( psnan, nzero, 0, 0 ); _( pqnan, nzero, 0, 0 ); _( pinf , nzero, 0, 0 ); _( pzero, nzero, 0, 1 ); _( nzero, nzero, 1, 1 ); _( ninf , nzero, 0, 0 ); _( nqnan, nzero, 0, 0 ); _( nsnan, nzero, 0, 0 );
+    _( psnan, ninf , 0, 0 ); _( pqnan, ninf , 0, 0 ); _( pinf , ninf , 0, 0 ); _( pzero, ninf , 0, 0 ); _( nzero, ninf , 0, 0 ); _( ninf , ninf , 1, 1 ); _( nqnan, ninf , 0, 0 ); _( nsnan, ninf , 0, 0 );
+    _( psnan, nqnan, 0, 0 ); _( pqnan, nqnan, 0, 0 ); _( pinf , nqnan, 0, 0 ); _( pzero, nqnan, 0, 0 ); _( nzero, nqnan, 0, 0 ); _( ninf , nqnan, 0, 0 ); _( nqnan, nqnan, 1, 0 ); _( nsnan, nqnan, 0, 0 );
+    _( psnan, nsnan, 0, 0 ); _( pqnan, nsnan, 0, 0 ); _( pinf , nsnan, 0, 0 ); _( pzero, nsnan, 0, 0 ); _( nzero, nsnan, 0, 0 ); _( ninf , nsnan, 0, 0 ); _( nqnan, nsnan, 0, 0 ); _( nsnan, nsnan, 1, 0 );
+#   undef _
+#   endif
+
+    TEST( double_as_ulong( fd_double_abs( psnan ) )==double_as_ulong( psnan ) );
+    TEST( double_as_ulong( fd_double_abs( pqnan ) )==double_as_ulong( pqnan ) );
+    TEST( double_as_ulong( fd_double_abs( pinf  ) )==double_as_ulong( pinf  ) );
+    TEST( double_as_ulong( fd_double_abs( pzero ) )==double_as_ulong( pzero ) );
+    TEST( double_as_ulong( fd_double_abs( nzero ) )==double_as_ulong( pzero ) );
+    TEST( double_as_ulong( fd_double_abs( ninf  ) )==double_as_ulong( pinf  ) );
+    TEST( double_as_ulong( fd_double_abs( nqnan ) )==double_as_ulong( pqnan ) );
+    TEST( double_as_ulong( fd_double_abs( nsnan ) )==double_as_ulong( psnan ) );
+
+    for( int iter=0; iter<16777216; iter++ ) {
+      int    c = (int)(fd_rng_uint( rng ) & 1U);
+      double x = ulong_as_double( fd_rng_ulong( rng ) );
+      double y = ulong_as_double( fd_rng_ulong( rng ) );
+      TEST( fd_double_eq( fd_double_if( c, x, y ), (c ? x : y) ) );
+      TEST( double_as_ulong( fd_double_abs( x ) )==(((double_as_ulong( x ))<<1)>>1) );
+    }
   }
 # endif
 

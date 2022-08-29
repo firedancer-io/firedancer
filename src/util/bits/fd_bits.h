@@ -232,6 +232,8 @@ FD_FN_CONST static inline char fd_char_if( int c, char t, char f ) { return c ? 
    to schar.  We don't provide a fd_char_abs because it will not produce
    equivalent results between platforms. */
 
+#if 0
+
 FD_FN_CONST static inline uchar  fd_schar_abs( schar x ) { return (uchar )fd_schar_if( x<(schar)0, (schar)-x, x ); }
 FD_FN_CONST static inline ushort fd_short_abs( short x ) { return (ushort)fd_short_if( x<(short)0, (short)-x, x ); }
 FD_FN_CONST static inline uint   fd_int_abs  ( int   x ) { return (uint  )fd_int_if  ( x<(int  )0, (int  )-x, x ); }
@@ -239,6 +241,20 @@ FD_FN_CONST static inline ulong  fd_long_abs ( long  x ) { return (ulong )fd_lon
 
 #if FD_HAS_INT128
 FD_FN_CONST static inline uint128 fd_int128_abs( int128 x ) { return (uint128)fd_int128_if( x<(int128)0, (int128)-x, x ); }
+#endif
+
+#else
+
+FD_FN_CONST static inline uint    fd_int_abs   ( int    x ) { int    m = x>>31;  return (uint   )((x+m)^m); }
+FD_FN_CONST static inline ulong   fd_long_abs  ( long   x ) { long   m = x>>63;  return (ulong  )((x+m)^m); }
+
+#if FD_HAS_INT128
+FD_FN_CONST static inline uint128 fd_int128_abs( int128 x ) { int128 m = x>>127; return (uint128)((x+m)^m); }
+#endif
+
+FD_FN_CONST static inline uchar   fd_schar_abs ( schar  x ) { return (uchar )fd_int_abs( (int)x ); }
+FD_FN_CONST static inline ushort  fd_short_abs ( short  x ) { return (ushort)fd_int_abs( (int)x ); }
+
 #endif
 
 /* FIXME: ADD HASHING PAIRS FOR UCHAR AND USHORT? */
@@ -324,10 +340,38 @@ FD_SRC_UTIL_BITS_FD_BITS_IMPL(ulong, 20UL) /* 18446744073709551615 -> 20 dig */
 
 #undef FD_SRC_UTIL_BITS_FD_BITS_IMPL
 
-FD_FN_CONST static inline float  fd_float_if ( int c, float  t, float  f ) { return c ? t : f; }
+/* fd_float_if, fd_float_abs are described above.  Ideally, the system
+   will implement fd_float_abs by just clearing the sign bit.
+   fd_float_eq tests to floating point values for whether or not their
+   bit representations are identical.  Useful when IEEE handling of
+   equality with +/-0 or nan are not desired (e.g. can test if nans have
+   different signs or syndromes). */
+
+FD_FN_CONST static inline float fd_float_if ( int c, float t, float f ) { return c ? t : f; }
+FD_FN_CONST static inline float fd_float_abs( float x ) { return __builtin_fabsf( x ); }
+FD_FN_CONST static inline float
+fd_float_eq( float x,
+             float y ) {
+  union { float f; uint u; } tx, ty;
+  tx.f = x;
+  ty.f = y;
+  return tx.u==ty.u;
+}
+
+/* fd_double_if, fd_double_abs and fd_double_eq are double precision
+   versions of the above. */
 
 #if FD_HAS_DOUBLE
-FD_FN_CONST static inline double fd_double_if( int c, double t, double f ) { return c ? t : f; }
+FD_FN_CONST static inline double fd_double_if ( int c, double t, double f ) { return c ? t : f; }
+FD_FN_CONST static inline double fd_double_abs( double x ) { return __builtin_fabs( x ); }
+FD_FN_CONST static inline double
+fd_double_eq( double x,
+              double y ) {
+  union { double f; ulong u; } tx, ty;
+  tx.f = x;
+  ty.f = y;
+  return tx.u==ty.u;
+}
 #endif
 
 /* fd_ulong_svw_enc_sz returns the number of bytes needed to encode
