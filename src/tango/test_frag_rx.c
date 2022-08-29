@@ -16,13 +16,15 @@ main( int     argc,
   char const * _cnc    = fd_env_strip_cmdline_cstr( &argc, &argv, "--cnc",    NULL, NULL                 );
   char const * _mcache = fd_env_strip_cmdline_cstr( &argc, &argv, "--mcache", NULL, NULL                 );
   char const * _dcache = fd_env_strip_cmdline_cstr( &argc, &argv, "--dcache", NULL, NULL                 );
-  char const * _fctl   = fd_env_strip_cmdline_cstr( &argc, &argv, "--fctl",   NULL, NULL                 );
+  char const * _wksp   = fd_env_strip_cmdline_cstr( &argc, &argv, "--wksp",   NULL, NULL                 );
+  char const * _fseq   = fd_env_strip_cmdline_cstr( &argc, &argv, "--fseq",   NULL, NULL                 );
   char const * _init   = fd_env_strip_cmdline_cstr( &argc, &argv, "--init",   NULL, NULL                 );
   uint         seed    = fd_env_strip_cmdline_uint( &argc, &argv, "--seed",   NULL, (uint)fd_tickcount() );
+  int          lazy    = fd_env_strip_cmdline_int ( &argc, &argv, "--lazy",   NULL, 7                    );
 
-  if( FD_UNLIKELY( !_cnc    ) ) FD_LOG_ERR(( "--cnc not specified" ));
-  if( FD_UNLIKELY( !_mcache ) ) FD_LOG_ERR(( "--mcache not specified" ));
-  if( FD_UNLIKELY( !_dcache ) ) FD_LOG_ERR(( "--dcache not specified" ));
+  if( FD_UNLIKELY( !_cnc              ) ) FD_LOG_ERR(( "--cnc not specified" ));
+  if( FD_UNLIKELY( !_mcache           ) ) FD_LOG_ERR(( "--mcache not specified" ));
+  if( FD_UNLIKELY( !_dcache && !_wksp ) ) FD_LOG_ERR(( "--dcache or --wksp not specified" ));
 
   FD_LOG_NOTICE(( "Creating rng --seed %u", seed ));
 
@@ -38,48 +40,55 @@ main( int     argc,
   fd_frag_meta_t * mcache = fd_mcache_join( fd_wksp_map( _mcache ) );
   if( FD_UNLIKELY( !mcache ) ) FD_LOG_ERR(( "join failed" ));
 
-  ulong         depth   = fd_mcache_depth          ( mcache );
-  ulong const * _tx_seq = fd_mcache_seq_laddr_const( mcache );
+  ulong         depth = fd_mcache_depth          ( mcache );
+  ulong const * sync  = fd_mcache_seq_laddr_const( mcache );
 
-  ulong rx_seq = _init ? fd_cstr_to_ulong( _init ) : fd_mcache_seq_query( _tx_seq );
+  ulong seq = _init ? fd_cstr_to_ulong( _init ) : fd_mcache_seq_query( sync );
 
-  FD_LOG_NOTICE(( "Joining to --dcache %s", _dcache ));
-
-  uchar const * dcache = fd_dcache_join( fd_wksp_map( _dcache ) );
-  if( FD_UNLIKELY( !dcache ) ) FD_LOG_ERR(( "join failed" ));
-
-  void const * base = fd_wksp_containing( dcache );
-  if( FD_UNLIKELY( !base ) ) FD_LOG_ERR(( "fd_wksp_containing failed" ));
-
-  ulong * _rx_seq;
-  if( !_fctl ) {
-    FD_LOG_NOTICE(( "Unreliable mode; will not send flow control information to transmitter" ));
-    _rx_seq = fd_fseq_join( fd_fseq_new( fseq_mem, 0UL ) );
+  uchar const * dcache = NULL;
+  fd_wksp_t * wksp;
+  if( !_wksp ) {
+    FD_LOG_NOTICE(( "Joining to --dcache %s", _dcache ));
+    dcache = fd_dcache_join( fd_wksp_map( _dcache ) );
+    if( FD_UNLIKELY( !dcache ) ) FD_LOG_ERR(( "join failed" ));
+    wksp = fd_wksp_containing( dcache );
+    if( FD_UNLIKELY( !wksp ) ) FD_LOG_ERR(( "fd_wksp_containing failed" ));
   } else {
-    FD_LOG_NOTICE(( "Reliable mode; joining to --fctl %s for sending flow control information to transmitter", _fctl ));
-    _rx_seq = fd_fseq_join( fd_wksp_map( _fctl ) );
+    FD_LOG_NOTICE(( "Joining to --wksp %s", _wksp ));
+    wksp = fd_wksp_attach( _wksp );
+    if( FD_UNLIKELY( !wksp ) ) FD_LOG_ERR(( "fd_wksp_attach failed" ));
   }
-  if( FD_UNLIKELY( !_rx_seq ) ) FD_LOG_ERR(( "join failed" ));
 
-  ulong * _ovrn_cnt = (ulong *)fd_fseq_app_laddr( _rx_seq );
+  ulong * fseq;
+  if( !_fseq ) {
+    FD_LOG_NOTICE(( "Unreliable mode; will not send flow control information to transmitter" ));
+    fseq = fd_fseq_join( fd_fseq_new( fseq_mem, 0UL ) );
+  } else {
+    FD_LOG_NOTICE(( "Reliable mode; joining to --fseq %s for sending flow control information to transmitter", _fseq ));
+    fseq = fd_fseq_join( fd_wksp_map( _fseq ) );
+  }
+  if( FD_UNLIKELY( !fseq ) ) FD_LOG_ERR(( "join failed" ));
 
-  FD_VOLATILE( _ovrn_cnt[0] ) = 0UL; /* ovrnp */
-  FD_VOLATILE( _ovrn_cnt[1] ) = 0UL; /* ovrnr */
+  ulong * fseq_diag = (ulong *)fd_fseq_app_laddr( fseq );
 
-  ulong async_min = 1UL<<7;
+  FD_VOLATILE( fseq_diag[ FD_MUX_FSEQ_DIAG_OVRNP_CNT ] ) = 0UL; /* ovrnp */
+  FD_VOLATILE( fseq_diag[ FD_MUX_FSEQ_DIAG_OVRNP_CNT ] ) = 0UL; /* ovrnr */
+
+  ulong ovrnp_cnt = 0UL; /* Count of overruns while polling for next seq */
+  ulong ovrnr_cnt = 0UL; /* Count of overruns while processing seq payload */
+
+  FD_LOG_NOTICE(( "Running --init %lu (%s) --lazy %i", seq, _init ? "manual" : "auto", lazy ));
+
+  ulong async_min = 1UL << lazy;
   ulong async_rem = 1UL; /* Do housekeeping on first iteration */
 
-  FD_LOG_NOTICE(( "Running --init %lu (%s)", rx_seq, _init ? "manual" : "auto" ));
-
-  long  then      = fd_log_wallclock();
-  ulong iter      = 0UL;
-  ulong ovrnp_cnt = 0UL; /* Count of overruns while polling for next rx_seq */
-  ulong ovrnr_cnt = 0UL; /* Count of overruns while processing rx_seq payload */
+  long  then = fd_log_wallclock();
+  ulong iter = 0UL;
 
   fd_cnc_signal( cnc, FD_CNC_SIGNAL_RUN );
   for(;;) {
 
-    /* Wait for frag rx_seq */
+    /* Wait for frag seq */
 
     ulong seq_found;
     long  diff;
@@ -90,48 +99,46 @@ main( int     argc,
 #   if WAIT_STYLE==0 /* Compatible with all PUBLISH_STYLE */
 
     fd_frag_meta_t meta[1];
-    FD_MCACHE_WAIT( meta, seq_found, diff, async_rem, mcache, depth, rx_seq );
+    FD_MCACHE_WAIT( meta, seq_found, diff, async_rem, mcache, depth, seq );
 
 #   elif WAIT_STYLE==1 /* Compatible with all PUBLISH_STYLE */
 
     __m128i meta_sse0;
     __m128i meta_sse1;
-    FD_MCACHE_WAIT_SSE( meta_sse0, meta_sse1, seq_found, diff, async_rem, mcache, depth, rx_seq );
+    FD_MCACHE_WAIT_SSE( meta_sse0, meta_sse1, seq_found, diff, async_rem, mcache, depth, seq );
 
 #   else /* Compatible with PUBLISH_STYLE==2, requires target with atomic aligned AVX load / store */
 
     __m256i meta_avx;
-    FD_MCACHE_WAIT_AVX( meta_avx, seq_found, diff, async_rem, mcache, depth, rx_seq );
+    FD_MCACHE_WAIT_AVX( meta_avx, seq_found, diff, async_rem, mcache, depth, seq );
 
 #   endif
 
     /* Do housekeeping in background */
-
     if( FD_UNLIKELY( !async_rem ) ) {
 
       /* Send flow control credits */
+      fd_fctl_rx_cr_return( fseq, seq );
 
-      fd_fctl_rx_cr_return( _rx_seq, rx_seq );
-
-      /* Send monitoring info */
-
+      /* Send diagnostic info */
       long now = fd_log_wallclock();
-      fd_cnc_heartbeat( cnc, fd_log_wallclock() );
+      fd_cnc_heartbeat( cnc, now );
 
       long dt = now - then;
       if( FD_UNLIKELY( dt > (long)1e9 ) ) {
         float mfps = (1e3f*(float)iter) / (float)dt;
         FD_LOG_NOTICE(( "%7.3f Mfrag/s rx (ovrnp %lu ovrnr %lu)", (double)mfps, ovrnp_cnt, ovrnr_cnt ));
-        _ovrn_cnt[0] += ovrnp_cnt;
-        _ovrn_cnt[1] += ovrnr_cnt;
-        then      = now;
-        iter      = 0UL;
+        FD_VOLATILE( fseq_diag[ FD_MUX_FSEQ_DIAG_OVRNP_CNT ] ) =
+          FD_VOLATILE_CONST( fseq_diag[ FD_MUX_FSEQ_DIAG_OVRNP_CNT ] ) + ovrnp_cnt;
+        FD_VOLATILE( fseq_diag[ FD_MUX_FSEQ_DIAG_OVRNP_CNT ] ) =
+          FD_VOLATILE_CONST( fseq_diag[ FD_MUX_FSEQ_DIAG_OVRNP_CNT ] ) + ovrnr_cnt;
         ovrnp_cnt = 0UL;
         ovrnr_cnt = 0UL;
+        then      = now;
+        iter      = 0UL;
       }
 
       /* Receive command-and-control signals */
-
       ulong s = fd_cnc_signal_query( cnc );
       if( FD_UNLIKELY( s!=FD_CNC_SIGNAL_RUN ) ) {
         if( FD_LIKELY( s==FD_CNC_SIGNAL_HALT ) ) break;
@@ -140,6 +147,7 @@ main( int     argc,
         fd_cnc_signal( cnc, FD_CNC_SIGNAL_RUN );
       }
 
+      /* Reload housekeeping timer */
       async_rem = fd_async_reload( rng, async_min );
       continue;
     }
@@ -147,15 +155,14 @@ main( int     argc,
     /* Handle overrun */
 
     if( FD_UNLIKELY( diff ) ) {
-    //FD_LOG_NOTICE(( "Overrun while polling (skipping from %lu to %lu to try to recover)", rx_seq, seq_found ));
+    //FD_LOG_NOTICE(( "Overrun while polling (skipping from %lu to %lu to try to recover)", seq, seq_found ));
       ovrnp_cnt++;
-      rx_seq = seq_found;
+      seq = seq_found;
 #     if WAIT_STYLE!=2
       continue; /* We can't trust the metadata we just loaded, so we try again */
 #     endif
-
       /* Note: we could also do (for any wait style)
-           rx_seq = fd_mcache_seq_query( _tx_seq );
+           seq = fd_mcache_seq_query( sync );
            continue;
          here to recover from the most recent seq advertised by the
          producer.  But this can create cache hotspots and the simpler
@@ -164,13 +171,13 @@ main( int     argc,
     }
 
     /* At this point, we've atomically loaded the fragment metadata for
-       rx_seq (the fragment we were looking for).  Validate the metadata
+       seq (the fragment we were looking for).  Validate the metadata
        and validate the corresponding fragment in the dcache. */
+    /* FIXME: HAVE WAIT VARIANT THAT UNPACKS STRAIGHT INTO REGISTERS. */
 
 #   if WAIT_STYLE==0
  
-    TEST( meta->sig==rx_seq );
-
+    ulong sig    = (ulong)meta->sig;
     ulong chunk  = (ulong)meta->chunk;
     ulong sz     = (ulong)meta->sz;
     ulong ctl    = (ulong)meta->ctl;
@@ -179,8 +186,7 @@ main( int     argc,
 
 #   elif WAIT_STYLE==1
 
-    TEST( fd_frag_meta_sse0_sig( meta_sse0 )==rx_seq );
-
+    ulong sig    = fd_frag_meta_sse0_sig   ( meta_sse0 );
     ulong chunk  = fd_frag_meta_sse1_chunk ( meta_sse1 );
     ulong sz     = fd_frag_meta_sse1_sz    ( meta_sse1 );
     ulong ctl    = fd_frag_meta_sse1_ctl   ( meta_sse1 );
@@ -189,8 +195,7 @@ main( int     argc,
 
 #   else
 
-    TEST( fd_frag_meta_avx_sig( meta_avx )==rx_seq );
-
+    ulong sig    = fd_frag_meta_avx_sig   ( meta_avx );
     ulong chunk  = fd_frag_meta_avx_chunk ( meta_avx );
     ulong sz     = fd_frag_meta_avx_sz    ( meta_avx );
     ulong ctl    = fd_frag_meta_avx_ctl   ( meta_avx );
@@ -202,8 +207,8 @@ main( int     argc,
     (void)ctl;                 /* FIXME: ADD REASSEMBLY LOGIC */
     (void)tsorig; (void)tspub; /* FIXME: ADD LATENCY AND BANDWIDTH STATS */
 
-    uchar const * p = (uchar const *)fd_chunk_to_laddr_const( base, chunk );
-    __m256i avx = _mm256_set1_epi64x( (long)rx_seq );
+    uchar const * p = (uchar const *)fd_chunk_to_laddr_const( wksp, chunk );
+    __m256i avx = _mm256_set1_epi64x( (long)sig );
     int mask0 = -1;
     int mask1 = -1;
     int mask2 = -1;
@@ -224,31 +229,32 @@ main( int     argc,
        operation is typically a very fast L1 cache hit on the already
        loaded metadata above (the tx is unlikely clobbered the value or
        touched the same cache or an adjacent one since). */
+    /* FIXME: HAVE FD_MCACHE_WAIT RETURN THE POLLING META LOCATION
+       INSTEAD OF RECOMPUTING. */
 
-    seq_found = fd_mcache_query( mcache, depth, rx_seq );
-    if( FD_UNLIKELY( seq_found!=rx_seq ) ) {
-    //FD_LOG_NOTICE(( "Overrun while reading (skipping from %lu to %lu to try to recover)", rx_seq, seq_found ));
+    seq_found = fd_mcache_query( mcache, depth, seq );
+    if( FD_UNLIKELY( seq_found!=seq ) ) {
+    //FD_LOG_NOTICE(( "Overrun while reading (skipping from %lu to %lu to try to recover)", seq, seq_found ));
       ovrnr_cnt++;
-      rx_seq = seq_found;
+      seq = seq_found;
       continue;
     }
 
     /* Validate that the frag payload was as expected */
-
     int corrupt = ((mask0 & mask1 & mask2 & mask3)!=-1);
     if( FD_UNLIKELY( corrupt ) ) FD_LOG_ERR(( "Corrupt payload received" ));
 
     /* Wind up for the next iteration */
-
-    rx_seq = fd_seq_inc( rx_seq, 1UL );
+    seq = fd_seq_inc( seq, 1UL );
     iter++;
   }
 
   FD_LOG_NOTICE(( "Cleaning up" ));
 
-  if( !_fctl ) fd_wksp_delete( fd_fseq_leave( _rx_seq ) );
-  else         fd_wksp_unmap ( fd_fseq_leave( _rx_seq ) );
-  fd_wksp_unmap( fd_dcache_leave( dcache ) );
+  if( !_fseq ) fd_wksp_delete( fd_fseq_leave( fseq ) );
+  else         fd_wksp_unmap ( fd_fseq_leave( fseq ) );
+  if( !_wksp ) fd_wksp_unmap ( fd_dcache_leave( dcache ) );
+  else         fd_wksp_detach( wksp );
   fd_wksp_unmap( fd_mcache_leave( mcache ) );
   fd_cnc_signal( cnc, FD_CNC_SIGNAL_BOOT );
   fd_wksp_unmap( fd_cnc_leave( cnc ) );
