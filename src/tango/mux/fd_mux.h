@@ -7,6 +7,7 @@
    entire process is zero copy for the actual fragment payloads and thus
    has extremely high throughput and extremely high scalability. */
 
+#include "../tempo/fd_tempo.h"
 #include "../cnc/fd_cnc.h"
 #include "../fseq/fd_fseq.h"
 #include "../fctl/fd_fctl.h"
@@ -191,6 +192,15 @@ FD_PROTOTYPES_BEGIN
    assuming, as is typically the case, outs are allowed to lag the mux
    by up mux.depth frags and in[*].cr_max is the same as in[*].depth.
 
+   lazy is the ballpark interval in for how often to receive credits
+   from an out (and, equivalently, how often to return credits to an
+   in).  Too small a lazy will drown the system in cache coherence
+   traffic.  Too lazy a lazy will system throughput because of producers
+   are stalled waiting for credits.  lazy should be roughly proportional
+   to mux_cr_max and the constant of proportionality should be less than
+   how fast a consumer can process frags, ignoring lighthousing under
+   the hood.  <=0 indicates to pick a conservative default.
+
    fd_mux_tile_scratch_align and fd_mux_tile_scratch_footprint return
    the required alignment and footprint needed for this region.  This
    memory region is exclusively owned by the mux tile while the tile is
@@ -216,8 +226,9 @@ fd_mux_tile( ulong         in_cnt,      /* Number of input frag streams to multi
              char const ** _in_mcache,  /* _in_mcache[in_idx] is the workspace gaddr for input in_idx's mcache */
              char const ** _in_fseq,    /* _in_fseq  [in_idx] is the workspace gaddr for input in_idx's fseq */
              char const *  _mux_mcache, /* Workspace gaddr for mcache of the multiplexed frag streams */
-             ulong         mux_cr_max,  /* Maximum number of flow control credits, use 0 for default. */
+             ulong         mux_cr_max,  /* Maximum number of flow control credits, 0 means use a reasonable default */
              char const ** _out_fseq,   /* _out_fseq [out_idx] is the workspace gaddr for reliable consumer out_idx's fseq */
+             long          lazy,        /* Lazyiness, <=0 means use a reasonable default */
              uint          seed,        /* Random number generator seed */
              void *        scratch );   /* Tile scratch memory */
 

@@ -37,6 +37,7 @@ struct test_mux_cfg {
   ulong       mux_mcache_gaddr;  ulong mux_mcache_footprint;
   ulong       mux_scratch_gaddr; ulong mux_scratch_footprint;
   ulong       mux_cr_max;
+  long        mux_lazy;
   uint        mux_seed;
 
   ulong       rx_cnt;
@@ -276,7 +277,7 @@ mux_tile_main( int     argc,
 # undef MAKE_WKSP_CSTR
 
   if( FD_UNLIKELY( fd_mux_tile( cfg->tx_cnt, cfg->rx_cnt, _cnc, _tx_mcache, _tx_fseq, _mux_mcache, cfg->mux_cr_max, _rx_fseq,
-                                cfg->mux_seed, fd_wksp_laddr( cfg->wksp, cfg->mux_scratch_gaddr ) ) ) )
+                                cfg->mux_lazy, cfg->mux_seed, fd_wksp_laddr( cfg->wksp, cfg->mux_scratch_gaddr ) ) ) )
     FD_LOG_ERR(( "fd_mux_tile failed" ));
 
   return 0;
@@ -431,13 +432,14 @@ main( int     argc,
   int          tx_lazy    = fd_env_strip_cmdline_int  ( &argc, &argv, "--tx-lazy",    NULL, 7                            );
   ulong        mux_depth  = fd_env_strip_cmdline_ulong( &argc, &argv, "--mux-depth",  NULL, 32768UL                      );
   ulong        mux_cr_max = fd_env_strip_cmdline_ulong( &argc, &argv, "--mux-cr-max", NULL, 0UL /* use default */        );
+  long         mux_lazy   = fd_env_strip_cmdline_long ( &argc, &argv, "--mux-lazy",   NULL, 0L /* use default */         );
   ulong        rx_cnt     = fd_env_strip_cmdline_ulong( &argc, &argv, "--rx-cnt",     NULL, 2UL                          );
   int          rx_lazy    = fd_env_strip_cmdline_int  ( &argc, &argv, "--rx-lazy",    NULL, 7                            );
   long         duration   = fd_env_strip_cmdline_long ( &argc, &argv, "--duration",   NULL, (long)10e9                   );
 
   float burst_avg       = fd_env_strip_cmdline_float( &argc, &argv, "--burst-avg",       NULL, 1472.f );
   ulong pkt_payload_max = fd_env_strip_cmdline_ulong( &argc, &argv, "--pkt-payload-max", NULL, 1472UL );
-  ulong pkt_framing     = fd_env_strip_cmdline_ulong( &argc, &argv, "--pkt-framing",     NULL,   84UL );
+  ulong pkt_framing     = fd_env_strip_cmdline_ulong( &argc, &argv, "--pkt-framing",     NULL,   70UL );
   float pkt_bw          = fd_env_strip_cmdline_float( &argc, &argv, "--pkt-bw",          NULL,  25e9f );
 
   ulong page_sz = fd_cstr_to_shmem_page_sz( _page_sz );
@@ -604,6 +606,7 @@ main( int     argc,
   cfg->mux_mcache_gaddr  = mux_mcache_gaddr;                         cfg->mux_mcache_footprint  = mux_mcache_footprint;
   cfg->mux_scratch_gaddr = mux_scratch_gaddr;                        cfg->mux_scratch_footprint = mux_scratch_footprint;
   cfg->mux_cr_max        = mux_cr_max;
+  cfg->mux_lazy          = mux_lazy;
   cfg->mux_seed          = rng_seq++;
 
   cfg->rx_cnt            = rx_cnt;
@@ -637,8 +640,8 @@ main( int     argc,
     fd_cnc_leave( cnc );
   }
 
-  FD_LOG_NOTICE(( "Running (--duration %li ns, --tx-lazy %i, --mux-cr-max %lu, --rx-lazy %i)",
-                  duration, tx_lazy, mux_cr_max, rx_lazy ));
+  FD_LOG_NOTICE(( "Running (--duration %li ns, --tx-lazy %i, --mux-cr-max %lu, --mux-lazy %li ns, --rx-lazy %i)",
+                  duration, tx_lazy, mux_cr_max, mux_lazy, rx_lazy ));
 
   /* FIXME: DO MONITORING WHILE RUNNING */
   fd_log_sleep( duration );

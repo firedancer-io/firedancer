@@ -19,6 +19,7 @@ main( int     argc,
   char const * mux_mcache = fd_env_strip_cmdline_cstr ( &argc, &argv, "--mux-mcache", NULL, NULL );
   ulong        mux_cr_max = fd_env_strip_cmdline_ulong( &argc, &argv, "--mux-cr-max", NULL, 0UL  ); /* 0 <> use default */
   char const * out_fseqs  = fd_env_strip_cmdline_cstr ( &argc, &argv, "--out-fseqs",  NULL, ""   );
+  long         lazy       = fd_env_strip_cmdline_long ( &argc, &argv, "--lazy",       NULL, 0L   ); /* 0 <> use default */
   uint         seed       = fd_env_strip_cmdline_uint ( &argc, &argv, "--seed",       NULL, (uint)(ulong)fd_tickcount() );
 
   if( !cnc        ) FD_LOG_ERR(( "--cnc not specified"        ));
@@ -44,7 +45,7 @@ main( int     argc,
     FD_LOG_ERR(( "fd_shmem_acquire failed (need at least %lu free huge pages on numa node %lu)",
                  page_cnt, fd_shmem_numa_idx( cpu_idx ) ));
 
-  int err = fd_mux_tile( in_cnt, out_cnt, cnc, in_mcache, in_fseq, mux_mcache, mux_cr_max, out_fseq, seed, scratch );
+  int err = fd_mux_tile( in_cnt, out_cnt, cnc, in_mcache, in_fseq, mux_mcache, mux_cr_max, out_fseq, lazy, seed, scratch );
   if( FD_UNLIKELY( err ) ) FD_LOG_WARNING(( "fd_mux_tile failed (%i)", err ));
 
   fd_shmem_release( scratch, page_sz, page_cnt );

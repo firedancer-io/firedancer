@@ -88,6 +88,7 @@ fd_mux_tile( ulong         in_cnt,
              char const *  _mux_mcache,
              ulong         mux_cr_max, /* holds the maximum number of flow control credits for publishing downstream (const) */
              char const ** _out_fseq,
+             long          lazy,
              uint          seed,
              void *        scratch ) {
 
@@ -115,7 +116,6 @@ fd_mux_tile( ulong         in_cnt,
   ulong      event_idx; /* next housekeeping event to handle, in [0,event_cnt) */
   fd_rng_t * rng;       /* local join to local random number generator */
   ulong      async_min; /* minimum number of run loop iterations between processing a housekeeping event, power of 2 */
-  ulong      async_rem; /* number of run loop iterations until next housekeeping event, in [0,2*async_min] */
 
   /* run loop state */
   ulong in_poll;  /* in mcache to poll next, in [0,in_cnt) */
@@ -310,25 +310,49 @@ fd_mux_tile( ulong         in_cnt,
       out_seq [ out_idx ] = fd_fseq_query( out_fseq[ out_idx ] );
     }
 
+    /* For the lazy default, given a 100G link line-rating minimal sized
+       Ethernet frames (672 bits) into a mcache / dcache and consumers
+       that are keeping up (both highly unrealistically harsh situations
+       in the real world as this implies the consumer is processing
+       packets every 6.72 ns and the UDP payload of a minimal sized
+       Ethernet frame is much much smaller than real world frames), we'd
+       ideally be returning credits at least in the time it takes the
+       producer to fill up the mcache (and ideally a little more for
+       safety).  This implies we need to cycle through all housekeeping
+       events more often than:
+
+         ~(mux_cr_max pkt)(672 bit/pkt/100 Gbit/ns)
+
+       and given that the typical cycle time is at most ~1.5 lazy (from
+       below), we have:
+
+         lazy < ~mux_cr_max*672/100e9/1.5 ~ 4.48 mux_cr_max
+
+       We go with 2.25 to keep things simple. */
+
+    if( lazy<=0L ) lazy = (9L*(long)mux_cr_max) >> 2;
+    FD_LOG_INFO(( "Configuring housekeeping (lazy %li ns, seed %u)", lazy, seed ));
+
     /* event state init */
-    /* FIXME: ALLOW USER TO SPECIFY ASYNC_MIN?
-       FIXME: USE PRQ TO DO EVENT ORDERING / TIMEOUTS BASED EVENTS?
+    /* FIXME: USE PRQ TO DO EVENT ORDERING / TIMEOUTS BASED EVENTS?
        USING A DETERMINISTIC ORDERING OF THE EVENTS CAN INDUCE SOME
        LIGHTHOUSE-STYLE BIASES. */
 
-    event_cnt = in_cnt + 1UL + out_cnt;
-    event_idx = out_cnt; /* Next async event to do (out_cnt is mux housekeeping) */
+    event_cnt  = in_cnt + 1UL + out_cnt;
+    event_idx  = out_cnt; /* Next async event to do (out_cnt is mux housekeeping) */
 
-    FD_LOG_INFO(( "Creating rng seed %u", seed ));
     rng = fd_rng_join( fd_rng_new( SCRATCH_ALLOC( fd_rng_align(), fd_rng_footprint() ), seed, 0UL ) );
 
-    /* We approximately divide async_min by the number of periodic
-       events (1 for each in and 1 for the tile itself) to keep the
-       average rate flow control credits are sent/received and
-       housekeeping done approximately independent of in_cnt and
-       out_cnt. */
-    async_min = 1UL << fd_int_max( 9 - fd_ulong_find_msb( event_cnt ), 0 );
-    async_rem = 0UL; /* Do mux housekeeping on first run loop iteration */
+    /* Pick a range of async_min such that the run loop will cycle
+       through all the housekeeping events every ~lazy ns.  More
+       precisely, the typical cycle time will be
+       ~1.5*async_min*event_cnt where async_min is at least
+       ~0.5*lazy/event_cnt and at most ~lazy/event_cnt.  As such, the
+       typical cycle time is at least ~0.75*lazy and at most ~1.5*lazy. */
+
+    long async_target = (long)(0.5 + fd_tempo_tick_per_ns( NULL )*(double)lazy / (double)event_cnt);
+    if( FD_UNLIKELY( async_target<=0L ) ) { FD_LOG_WARNING(( "bad lazy" )); return 1; }
+    async_min = 1UL << fd_ulong_find_msb( (ulong)async_target );
 
     /* run loop state init */
 
@@ -341,13 +365,15 @@ fd_mux_tile( ulong         in_cnt,
 
   FD_LOG_INFO(( "Running mux" ));
   fd_cnc_signal( cnc, FD_CNC_SIGNAL_RUN );
+  long next = fd_tickcount();
+  long now  = next;
   for(;;) {
 
     /* Do housekeeping in the background; async_rem is checked and
        decremented every iteration to insure no starvation effects occur
        under heavy load conditions. */
 
-    if( FD_UNLIKELY( !async_rem ) ) {
+    if( FD_UNLIKELY( (now-next)>=0L ) ) {
 
       /* Do the next async event.  async idx:
             <out_cnt - receive credits from out event_idx
@@ -426,9 +452,8 @@ fd_mux_tile( ulong         in_cnt,
 
       event_idx++;
       if( event_idx>=event_cnt ) event_idx = 0UL; /* cmov */
-      async_rem = fd_async_reload( rng, async_min );
+      next = now + (long)fd_async_reload( rng, async_min );
     }
-    async_rem--;
 
     /* Check if we are backpressured.  If so, count any transition into
        a backpressured regime and spin to wait for flow control credits
@@ -445,12 +470,13 @@ fd_mux_tile( ulong         in_cnt,
         in_backp = 1;
       }
       FD_SPIN_PAUSE();
+      now = fd_tickcount();
       continue;
     }
 
     /* Select which in to poll next (round robin) */
 
-    if( FD_UNLIKELY( !in_cnt ) ) continue;
+    if( FD_UNLIKELY( !in_cnt ) ) { now = fd_tickcount(); continue; }
     fd_mux_tile_in_t * this_in = &in[ in_poll ];
     in_poll++;
     if( in_poll>=in_cnt ) in_poll = 0UL; /* cmov */
@@ -471,6 +497,7 @@ fd_mux_tile( ulong         in_cnt,
         this_in->accum[ FD_MUX_FSEQ_DIAG_OVRNP_CNT ]++;
       }
       /* Don't bother with spin as polling multiple locations */
+      now = fd_tickcount();
       continue;
     }
 
@@ -497,6 +524,7 @@ fd_mux_tile( ulong         in_cnt,
       this_in->seq = seq_test; /* Resume from here (probably reasonably current, could query in mcache sync instead) */
       this_in->accum[ FD_MUX_FSEQ_DIAG_OVRNR_CNT ]++;
       /* Don't bother with spin as polling multiple locations */
+      now = fd_tickcount();
       continue;
     }
 
@@ -505,8 +533,10 @@ fd_mux_tile( ulong         in_cnt,
 
     ulong should_filter = 0UL; /* FIXME: FILTERING LOGIC HERE */
 
-    if( FD_LIKELY( !should_filter ) ) { /* Optimize for publish path */
-      ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
+    if( FD_UNLIKELY( should_filter ) ) now = fd_tickcount(); /* Optimize for forwarding path */
+    else {
+      now = fd_tickcount();
+      ulong tspub = (ulong)fd_frag_meta_ts_comp( now );
       fd_mcache_publish( mux_mcache, mux_depth, mux_seq, sig, chunk, sz, ctl, tsorig, tspub );
       mux_cr_avail--;
       mux_seq = fd_seq_inc( mux_seq, 1UL );
