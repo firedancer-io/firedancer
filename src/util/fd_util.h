@@ -7,6 +7,7 @@
 //#include "env/fd_env.h"       /* includes cstr/fd_cstr.h */
 //#include "log/fd_log.h"       /* includes env/fd_env.h */
 //#include "shmem/fd_shmem.h"   /* includes log/fd_log.h */
+#include "math/fd_stat.h"       /* includes bits/fd_bits.h */
 #include "rng/fd_rng.h"         /* includes bits/fd_bits.h */
 #include "pod/fd_pod.h"         /* includes bits/fd_bits.h */
 #include "scratch/fd_scratch.h" /* includes log/fd_log.h */
