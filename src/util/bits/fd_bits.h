@@ -349,7 +349,7 @@ FD_SRC_UTIL_BITS_FD_BITS_IMPL(ulong, 20UL) /* 18446744073709551615 -> 20 dig */
 
 FD_FN_CONST static inline float fd_float_if ( int c, float t, float f ) { return c ? t : f; }
 FD_FN_CONST static inline float fd_float_abs( float x ) { return __builtin_fabsf( x ); }
-FD_FN_CONST static inline float
+FD_FN_CONST static inline int
 fd_float_eq( float x,
              float y ) {
   union { float f; uint u; } tx, ty;
@@ -364,7 +364,7 @@ fd_float_eq( float x,
 #if FD_HAS_DOUBLE
 FD_FN_CONST static inline double fd_double_if ( int c, double t, double f ) { return c ? t : f; }
 FD_FN_CONST static inline double fd_double_abs( double x ) { return __builtin_fabs( x ); }
-FD_FN_CONST static inline double
+FD_FN_CONST static inline int
 fd_double_eq( double x,
               double y ) {
   union { double f; ulong u; } tx, ty;
