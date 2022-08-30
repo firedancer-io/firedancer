@@ -97,7 +97,8 @@ FD_STAT_DECL( double  );
    majority of the samples are equal, mu=mode,sigma=0.
 
    scratch points to a float aligned region with space for up to cnt
-   float.  It will be clobbered on return. */
+   float.  It will be clobbered on return.  It is fine to pass x as
+   scratch if destructive operation is fine. */
 
 ulong
 fd_stat_robust_norm_fit_float( float *       opt_mu,
