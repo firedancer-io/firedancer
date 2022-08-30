@@ -20,7 +20,7 @@ main( int     argc,
   /* FIXME: ADD AVG TESTS */
 
 # define TEST(c) do if( FD_UNLIKELY( !(c) ) ) { FD_LOG_WARNING(( "FAIL: " #c )); return 1; } while(0)
-  
+
 # define FILT_TEST(T,UT)                           \
   for( ulong iter=0UL; iter<1000000UL; iter++ ) {  \
     uint  r = fd_rng_uint( rng );                  \

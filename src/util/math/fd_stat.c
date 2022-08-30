@@ -84,7 +84,7 @@ fd_stat_robust_norm_fit_float( float *       opt_mu,
   return cnt;
 }
 
-ulong  
+ulong
 fd_stat_robust_exp_fit_float( float *       opt_x0,
                               float *       opt_tau,
                               float const * x,
@@ -138,7 +138,7 @@ fd_stat_robust_norm_fit_double( double *       opt_mu,
   return cnt;
 }
 
-ulong  
+ulong
 fd_stat_robust_exp_fit_double( double *       opt_x0,
                                double *       opt_tau,
                                double const * x,

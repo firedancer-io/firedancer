@@ -43,12 +43,12 @@ static inline double  fd_stat_avg2_double ( double  x, double  y ) { return 0.5*
    Undefined behavior any x is NaN.  Returns 0 if cnt is zero.  The
    current implementation is O(cnt) (and not the fastest algorithmically
    possible when cnt is even ... should use a quick multiselect instead
-   of two quick selects). 
+   of two quick selects).
 
    Similarly for the other types.  For even cnt and integral types, the
    returned median will be rounded toward negative infinity. */
 
-#define FD_STAT_FILTER_DECL( T )        \
+#define FD_STAT_DECL( T )               \
 ulong                                   \
 fd_stat_filter_##T( T *       y,        \
                     T const * x,        \
@@ -59,24 +59,24 @@ T                                       \
 fd_stat_median_##T( T *   x,            \
                     ulong cnt )
 
-FD_STAT_FILTER_DECL( schar   );
-FD_STAT_FILTER_DECL( short   );
-FD_STAT_FILTER_DECL( int     );
-FD_STAT_FILTER_DECL( long    );
-FD_STAT_FILTER_DECL( uchar   );
-FD_STAT_FILTER_DECL( ushort  );
-FD_STAT_FILTER_DECL( uint    );
-FD_STAT_FILTER_DECL( ulong   );
+FD_STAT_DECL( schar   );
+FD_STAT_DECL( short   );
+FD_STAT_DECL( int     );
+FD_STAT_DECL( long    );
+FD_STAT_DECL( uchar   );
+FD_STAT_DECL( ushort  );
+FD_STAT_DECL( uint    );
+FD_STAT_DECL( ulong   );
 #if FD_HAS_INT128
-FD_STAT_FILTER_DECL( int128  );
-FD_STAT_FILTER_DECL( uint128 );
+FD_STAT_DECL( int128  );
+FD_STAT_DECL( uint128 );
 #endif
-FD_STAT_FILTER_DECL( float   );
+FD_STAT_DECL( float   );
 #if FD_HAS_DOUBLE
-FD_STAT_FILTER_DECL( double  );
+FD_STAT_DECL( double  );
 #endif
 
-#undef FD_STAT_FILTER_DECL
+#undef FD_STAT_DECL
 
 /* fd_stat_robust_norm_fit_float estimates the mean and rms of the
    cnt samples of x, indexed [0,cnt), assuming that most x are IID
