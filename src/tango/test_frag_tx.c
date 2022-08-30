@@ -46,10 +46,10 @@ main( int     argc,
      pkt_bw is the average rate packet bandwidth (i.e. burst data bytes
      plus packet framing bytes) in bit/second (with 8 bit bytes).
 
-     E.g. pkt_bw <= 1e9, pkt_framing = 84, pkt_payload_max = 1472 would
+     E.g. pkt_bw <= 1e9, pkt_framing = 70, pkt_payload_max = 1472 would
      accurately and precisely describe a 1G Ethernet link that runs UDP
      / IP4 / VLAN tagged non-Jumbo Ethernet packets at up to line rate.
-     pkt_bw <= 1e9 comes from 1G Ethernet, pkt_framing = 84 from 8 byte
+     pkt_bw <= 1e9 comes from 1G Ethernet, pkt_framing = 70 from 8 byte
      preamble + 14 byte Ethernet header + 4 byte VLAN tag + 20 byte IP4
      header (without options) + 8 byte UDP header + 4 byte
      frame-check-sequence + 12 byte interframe gap, 1472 comes from a
@@ -58,7 +58,7 @@ main( int     argc,
 
   float burst_avg       = fd_env_strip_cmdline_float( &argc, &argv, "--burst-avg",       NULL, 1472.f );
   ulong pkt_payload_max = fd_env_strip_cmdline_ulong( &argc, &argv, "--pkt-payload-max", NULL, 1472UL );
-  ulong pkt_framing     = fd_env_strip_cmdline_ulong( &argc, &argv, "--pkt-framing",     NULL,   84UL );
+  ulong pkt_framing     = fd_env_strip_cmdline_ulong( &argc, &argv, "--pkt-framing",     NULL,   70UL );
   float pkt_bw          = fd_env_strip_cmdline_float( &argc, &argv, "--pkt-bw",          NULL,  25e9f );
 
   FD_LOG_NOTICE(( "Configuring synthetic load (--burst-avg %g B --pkt-framing %lu B --pkt-payload-max %lu B --pkt-bw %g b/s)",
