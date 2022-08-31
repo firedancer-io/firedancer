@@ -459,9 +459,9 @@ fd_mux_tile( ulong         in_cnt,
       if( event_seq>=event_cnt ) {
         event_seq = 0UL; /* cmov */
         /* Randomize the order of event processing for the next event
-           cnt to avoid lighthousing effects causing input credit
-           starvation at extreme fan in, extreme in load and high credit
-           return laziness. */
+           event_cnt events to avoid lighthousing effects causing input
+           credit starvation at extreme fan in/fan out, extreme in load
+           and high credit return laziness. */
         ulong  swap_idx = (ulong)fd_rng_uint_roll( rng, (uint)event_cnt );
         ushort swap_tmp     = event_map[swap_idx];
         event_map[swap_idx] = event_map[0       ];
