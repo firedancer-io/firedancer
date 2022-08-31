@@ -98,7 +98,9 @@ fd_mux_tile( ulong         in_cnt,
   ulong *    cnc_diag; /* ==fd_cnc_app_laddr( cnc ), local address of the mux tile cnc diagnostic region */
 
   /* in state */
-  fd_mux_tile_in_t * in; /* in[in_idx] for in_idx in [0,in_cnt) has information about input fragment stream in_idx */
+  fd_mux_tile_in_t * in; /* in[in_seq] for in_seq in [0,in_cnt) has information about input fragment stream currently at position
+                            in_seq in the in_idx polling sequence.  The ordering of this array is continuously shuffled to avoid
+                            lighthousing effects in the output fragment stream at extreme fan-in and load */
 
   /* mux state */
   fd_frag_meta_t * mux_mcache;   /* Local join to the mcache where input fragment metadata will be multiplexed */
@@ -120,7 +122,7 @@ fd_mux_tile( ulong         in_cnt,
   ulong      async_min;   /* minimum number of run loop iterations between processing a housekeeping event, power of 2 */
 
   /* run loop state */
-  ulong in_poll;  /* in mcache to poll next, in [0,in_cnt) */
+  ulong in_seq;   /* in mcache to poll next, in [0,in_cnt) */
   int   in_backp; /* is the run loop currently backpressured by one or more of the outs, in [0,1] */
 
   do {
@@ -267,10 +269,10 @@ fd_mux_tile( ulong         in_cnt,
        [-(mux_cr_max-mux_cr_resume),in_cr_max-1] does not contain 0
        Since in_cr_max is positive though, this can never be true.
 
-       With continuous replenishing, exposed_cnt will alwasy improve as
+       With continuous replenishing, exposed_cnt will always improve as
        the outs make progress and this improvement will then always be
-       reflected all the ways to the ins, preventing deadlock / livelock
-       situations.
+       reflected all the way to all the ins, preventing deadlock /
+       livelock situations.
 
        Since we need to continuously replenish our credits when all the
        outs aren't full caught up and we want to optimize for the common
@@ -343,7 +345,7 @@ fd_mux_tile( ulong         in_cnt,
     event_cnt = in_cnt + 1UL + out_cnt;
     event_map = SCRATCH_ALLOC( alignof(ushort), event_cnt*sizeof(ushort) );
     event_seq = 0UL;                                     event_map[ event_seq++ ] = (ushort) out_cnt;
-    for( ulong  in_idx=0UL;  in_idx< in_cnt;  in_idx++ ) event_map[ event_seq++ ] = (ushort)( in_idx+out_cnt+1UL);
+    for( ulong  in_idx=0UL;  in_idx< in_cnt;  in_idx++ ) event_map[ event_seq++ ] = (ushort)(in_idx+out_cnt+1UL);
     for( ulong out_idx=0UL; out_idx<out_cnt; out_idx++ ) event_map[ event_seq++ ] = (ushort) out_idx;
     event_seq = 0UL;
 
@@ -361,7 +363,7 @@ fd_mux_tile( ulong         in_cnt,
 
     /* run loop state init */
 
-    in_poll  = 0UL; /* First in to poll */
+    in_seq   = 0UL; /* First in to poll */
     in_backp = 1;   /* Is the run loop currently backpressured due to slow reliable consumers */
                     /* Cleared after initial polls of output sources */
     FD_VOLATILE( cnc_diag[ FD_MUX_CNC_DIAG_IN_BACKP ] ) = 1UL; /* Cleared on first iteration if credits available */
@@ -452,20 +454,32 @@ fd_mux_tile( ulong         in_cnt,
         }
       }
 
-      /* Select which event to do next (round robin) and reload the
-         housekeeping timer. */
+      /* Select which event to do next (randomized round robin) and
+         reload the housekeeping timer. */
 
       event_seq++;
-      if( event_seq>=event_cnt ) {
-        event_seq = 0UL; /* cmov */
+      if( FD_UNLIKELY( event_seq>=event_cnt ) ) {
+        event_seq = 0UL;
+
         /* Randomize the order of event processing for the next event
            event_cnt events to avoid lighthousing effects causing input
            credit starvation at extreme fan in/fan out, extreme in load
            and high credit return laziness. */
+
         ulong  swap_idx = (ulong)fd_rng_uint_roll( rng, (uint)event_cnt );
-        ushort swap_tmp     = event_map[swap_idx];
-        event_map[swap_idx] = event_map[0       ];
-        event_map[0       ] = swap_tmp;
+        ushort map_tmp        = event_map[ swap_idx ];
+        event_map[ swap_idx ] = event_map[ 0        ];
+        event_map[ 0        ] = map_tmp;
+
+        /* We also do the same with the ins to prevent there being a
+           correlated order frag origins from different inputs
+           downstream at extreme fan in and extreme in load. */
+
+        swap_idx = (ulong)fd_rng_uint_roll( rng, (uint)in_cnt );
+        fd_mux_tile_in_t in_tmp;
+        in_tmp         = in[ swap_idx ];
+        in[ swap_idx ] = in[ 0        ];
+        in[ 0        ] = in_tmp;
       }
 
       next = now + (long)fd_async_reload( rng, async_min );
@@ -490,12 +504,12 @@ fd_mux_tile( ulong         in_cnt,
       continue;
     }
 
-    /* Select which in to poll next (round robin) */
+    /* Select which in to poll next (randomized round robin) */
 
     if( FD_UNLIKELY( !in_cnt ) ) { now = fd_tickcount(); continue; }
-    fd_mux_tile_in_t * this_in = &in[ in_poll ];
-    in_poll++;
-    if( in_poll>=in_cnt ) in_poll = 0UL; /* cmov */
+    fd_mux_tile_in_t * this_in = &in[ in_seq ];
+    in_seq++;
+    if( in_seq>=in_cnt ) in_seq = 0UL; /* cmov */
 
     /* Check if this in has any new fragments to mux */
 
