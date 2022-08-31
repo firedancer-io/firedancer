@@ -612,7 +612,7 @@ main( int     argc,
   cfg->rx_cnt            = rx_cnt;
   cfg->rx_lazy           = rx_lazy;
   cfg->rx_cnc_gaddr      = cnc_gaddr  + (tx_cnt+1UL)* cnc_footprint; cfg->rx_cnc_footprint      = cnc_footprint;
-  cfg->rx_rng_gaddr      = rng_gaddr  + (tx_cnt+1UL)* rng_footprint; cfg->rx_rng_footprint      = rng_footprint;
+  cfg->rx_rng_gaddr      = rng_gaddr  +  tx_cnt     * rng_footprint; cfg->rx_rng_footprint      = rng_footprint;
   cfg->rx_fseq_gaddr     = fseq_gaddr +  tx_cnt     *fseq_footprint; cfg->rx_fseq_footprint     = fseq_footprint;
 
   cfg->pkt_framing       = pkt_framing;
