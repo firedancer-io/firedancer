@@ -71,11 +71,12 @@ fd_mux_tile_scratch_footprint( ulong in_cnt,
   if( FD_UNLIKELY( in_cnt >FD_MUX_TILE_IN_MAX  ) ) return 0UL;
   if( FD_UNLIKELY( out_cnt>FD_MUX_TILE_OUT_MAX ) ) return 0UL;
   ulong scratch_top = 0UL;
-  SCRATCH_ALLOC( alignof(fd_mux_tile_in_t),  in_cnt*sizeof(fd_mux_tile_in_t) ); /* in */
-  SCRATCH_ALLOC( alignof(ulong *),          out_cnt*sizeof(ulong *)          ); /* out_fseq */
-  SCRATCH_ALLOC( alignof(ulong *),          out_cnt*sizeof(ulong *)          ); /* out_slow */
-  SCRATCH_ALLOC( alignof(ulong),            out_cnt*sizeof(ulong)            ); /* out_seq */
-  SCRATCH_ALLOC( fd_rng_align(),            fd_rng_footprint()               ); /* rng */
+  SCRATCH_ALLOC( alignof(fd_mux_tile_in_t), in_cnt*sizeof(fd_mux_tile_in_t)     ); /* in */
+  SCRATCH_ALLOC( alignof(ulong *),          out_cnt*sizeof(ulong *)             ); /* out_fseq */
+  SCRATCH_ALLOC( alignof(ulong *),          out_cnt*sizeof(ulong *)             ); /* out_slow */
+  SCRATCH_ALLOC( alignof(ulong),            out_cnt*sizeof(ulong)               ); /* out_seq */
+  SCRATCH_ALLOC( alignof(ushort),           (in_cnt+out_cnt+1UL)*sizeof(ushort) ); /* event_map */
+  SCRATCH_ALLOC( fd_rng_align(),            fd_rng_footprint()                  ); /* rng */
   return fd_ulong_align_up( scratch_top, fd_mux_tile_scratch_align() );
 }
 
@@ -112,10 +113,11 @@ fd_mux_tile( ulong         in_cnt,
   ulong *  out_seq;  /* out_seq [out_idx] is the most recent observation of out_fseq[out_idx] */
 
   /* event state */
-  ulong      event_cnt; /* ==in_cnt+out_cnt+1, total number of housekeeping events */
-  ulong      event_idx; /* next housekeeping event to handle, in [0,event_cnt) */
-  fd_rng_t * rng;       /* local join to local random number generator */
-  ulong      async_min; /* minimum number of run loop iterations between processing a housekeeping event, power of 2 */
+  ulong      event_cnt;   /* ==in_cnt+out_cnt+1, total number of housekeeping events */
+  ulong      event_seq;   /* current position in housekeeping event sequence, in [0,event_cnt) */
+  ushort *   event_map;   /* current mapping of event sequence to event idx, event_map[ event_seq ] is next event to process */
+  fd_rng_t * rng;         /* local join to local random number generator */
+  ulong      async_min;   /* minimum number of run loop iterations between processing a housekeeping event, power of 2 */
 
   /* run loop state */
   ulong in_poll;  /* in mcache to poll next, in [0,in_cnt) */
@@ -334,14 +336,16 @@ fd_mux_tile( ulong         in_cnt,
     FD_LOG_INFO(( "Configuring housekeeping (lazy %li ns, seed %u)", lazy, seed ));
 
     /* event state init */
-    /* FIXME: USE PRQ TO DO EVENT ORDERING / TIMEOUTS BASED EVENTS?
-       USING A DETERMINISTIC ORDERING OF THE EVENTS CAN INDUCE SOME
-       LIGHTHOUSE-STYLE BIASES. */
+    /* Initialize the initial event sequence to immediately update
+       cr_avail on the first run loop iteration and then update all the
+       ins accordingly. */
 
-    event_cnt  = in_cnt + 1UL + out_cnt;
-    event_idx  = out_cnt; /* Next async event to do (out_cnt is mux housekeeping) */
-
-    rng = fd_rng_join( fd_rng_new( SCRATCH_ALLOC( fd_rng_align(), fd_rng_footprint() ), seed, 0UL ) );
+    event_cnt = in_cnt + 1UL + out_cnt;
+    event_map = SCRATCH_ALLOC( alignof(ushort), event_cnt*sizeof(ushort) );
+    event_seq = 0UL;                                     event_map[ event_seq++ ] = (ushort) out_cnt;
+    for( ulong  in_idx=0UL;  in_idx< in_cnt;  in_idx++ ) event_map[ event_seq++ ] = (ushort)( in_idx+out_cnt+1UL);
+    for( ulong out_idx=0UL; out_idx<out_cnt; out_idx++ ) event_map[ event_seq++ ] = (ushort) out_idx;
+    event_seq = 0UL;
 
     /* Pick a range of async_min such that the run loop will cycle
        through all the housekeeping events every ~lazy ns.  More
@@ -350,6 +354,7 @@ fd_mux_tile( ulong         in_cnt,
        ~0.5*lazy/event_cnt and at most ~lazy/event_cnt.  As such, the
        typical cycle time is at least ~0.75*lazy and at most ~1.5*lazy. */
 
+    rng = fd_rng_join( fd_rng_new( SCRATCH_ALLOC( fd_rng_align(), fd_rng_footprint() ), seed, 0UL ) );
     long async_target = (long)(0.5 + fd_tempo_tick_per_ns( NULL )*(double)lazy / (double)event_cnt);
     if( FD_UNLIKELY( async_target<=0L ) ) { FD_LOG_WARNING(( "bad lazy" )); return 1; }
     async_min = 1UL << fd_ulong_find_msb( (ulong)async_target );
@@ -374,6 +379,7 @@ fd_mux_tile( ulong         in_cnt,
        under heavy load conditions. */
 
     if( FD_UNLIKELY( (now-next)>=0L ) ) {
+      ulong event_idx = (ulong)event_map[ event_seq ];
 
       /* Do the next async event.  async idx:
             <out_cnt - receive credits from out event_idx
@@ -444,14 +450,24 @@ fd_mux_tile( ulong         in_cnt,
           /* FIXME: CONSIDER A DIAGNOSTIC DUMP COMMAND? */
           fd_cnc_signal( cnc, FD_CNC_SIGNAL_RUN );
         }
-
       }
 
       /* Select which event to do next (round robin) and reload the
          housekeeping timer. */
 
-      event_idx++;
-      if( event_idx>=event_cnt ) event_idx = 0UL; /* cmov */
+      event_seq++;
+      if( event_seq>=event_cnt ) {
+        event_seq = 0UL; /* cmov */
+        /* Randomize the order of event processing for the next event
+           cnt to avoid lighthousing effects causing input credit
+           starvation at extreme fan in, extreme in load and high credit
+           return laziness. */
+        ulong  swap_idx = (ulong)fd_rng_uint_roll( rng, (uint)event_cnt );
+        ushort swap_tmp     = event_map[swap_idx];
+        event_map[swap_idx] = event_map[0       ];
+        event_map[0       ] = swap_tmp;
+      }
+
       next = now + (long)fd_async_reload( rng, async_min );
     }
 

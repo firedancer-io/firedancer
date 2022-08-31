@@ -111,8 +111,8 @@
    time declarations. */
 
 #define FD_MUX_TILE_SCRATCH_ALIGN     (128UL)
-#define FD_MUX_TILE_SCRATCH_FOOTPRINT( in_cnt, out_cnt )                                               \
-  ( ( (in_cnt)*64UL + (((out_cnt)*24UL+FD_RNG_ALIGN-1UL) & (~(FD_RNG_ALIGN-1UL))) + FD_RNG_FOOTPRINT + \
+#define FD_MUX_TILE_SCRATCH_FOOTPRINT( in_cnt, out_cnt )                                                       \
+  ( ( (((in_cnt)*66UL + (out_cnt)*26UL + 2UL + FD_RNG_ALIGN-1UL) & (~(FD_RNG_ALIGN-1UL))) + FD_RNG_FOOTPRINT + \
       FD_MUX_TILE_SCRATCH_ALIGN-1UL ) & (~(FD_MUX_TILE_SCRATCH_ALIGN-1UL)) )
 
 FD_PROTOTYPES_BEGIN
