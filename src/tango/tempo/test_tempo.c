@@ -48,7 +48,7 @@ main( int     argc,
     double avg_ = fd_tempo_tick_per_ns( &rms_ );
     TEST( avg_==avg );
     TEST( rms_==rms );
-    FD_LOG_NOTICE(( "tick_per_ns: avg %8.3f ghz  rms %8.3f ghz", avg, rms ));
+    FD_LOG_NOTICE(( "tick_per_ns: avg %8.3f ghz  rms %8.2e ghz", avg, rms ));
   }
 
   long now;

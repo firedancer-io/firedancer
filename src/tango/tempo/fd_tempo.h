@@ -14,8 +14,8 @@ FD_PROTOTYPES_BEGIN
    *opt_tau will contain an estimate of typical jitter associated with a
    tickcount call (such that the tickcount call can be modeled as a
    shifted exponential distribution with minimum of t0 and wait time of
-   tau, average cost of t0 + tau, rms of tau).  The first call this in a
-   thread group will be slow and all subsequent calls in the thread
+   tau, average cost of t0 + tau, rms of tau).  The first call of this
+   in a thread group will be slow and all subsequent calls in the thread
    group will be fast and return the identical parameters to the first
    call.  t0 will be finite and positive and the tau will be finite and
    non-negative.  If the tickcount cannot be sanely parameterized on the
@@ -45,7 +45,7 @@ fd_tempo_wallclock_model( double * opt_tau );
    jitter, similar for the wallclock, etc).  As this is an invariant
    counter, reasons for it to fluctuate do _NOT_ include directly things
    like turbo mode cpu clock frequency changes (it might be slightly
-   indirectly implated due to correlated changes to system thermal and
+   indirectly impact it  due to correlated changes to system thermal and
    electric conditions from the changed power draw).  As such, this is
    mostly meant for useful for getting a thread group wide consistent
    estimate of the number of ticks in a short interval of ns.

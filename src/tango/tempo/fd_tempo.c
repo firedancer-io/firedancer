@@ -18,9 +18,10 @@ fd_tempo_tickcount_model( double * opt_tau ) {
        model call overhead then as a shifted exponential random
        variable.  To parameterize the model, we repeatedly measure how
        long a call takes.  The minimum of a bunch of IID samples is very
-       fast converging for estimating the minimum if there is weird
-       outliers on the negative side.  As such, we use a robust
-       estimator to estimate the minimal overhead and jitter. */
+       fast converging for estimating the minimum but easily corrupted
+       if there are weird outliers on the negative side.  As such, we
+       use a robust estimator to estimate the minimal overhead and
+       jitter. */
 
     ulong iter = 0UL;
     for(;;) { 
@@ -67,8 +68,8 @@ fd_tempo_wallclock_model( double * opt_tau ) {
 
     ulong iter = 0UL;
     for(;;) { 
-#     define TRIAL_CNT 1024UL
-#     define TRIM_CNT  128UL
+#     define TRIAL_CNT 512UL
+#     define TRIM_CNT  64UL
       double trial[ TRIAL_CNT ]; 
       for( ulong trial_idx=0UL; trial_idx<TRIAL_CNT; trial_idx++ ) {
         FD_COMPILER_MFENCE();
@@ -168,7 +169,8 @@ fd_tempo_observe_pair( long * opt_now,
          tickcount
 
        observations and pick the wallclock observation that had the
-       smallest elapsed time between adjacent tickcount observations.
+       smallest elapsed number of ticks between adjacent tickcount
+       observations.
 
        Since the wallclock / tickcounter returns a monotonically
        non-decreasing observation of the wallclock / tickcount at a
@@ -190,7 +192,7 @@ fd_tempo_observe_pair( long * opt_now,
        is way more accurate than say the estimating the average of a
        normally distributed random variable). */
 
-#   define TRIAL_CNT (4) /* 1 "warmup", 4 real reads */
+#   define TRIAL_CNT (4) /* 1 "warmup", 3 real reads */
 
     long wc[ TRIAL_CNT+1 ];
     long tc[ TRIAL_CNT+1 ];
