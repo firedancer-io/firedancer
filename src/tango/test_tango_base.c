@@ -132,6 +132,7 @@ main( int     argc,
     TEST( (ulong)meta->ctl   ==ctl    );
     TEST( (ulong)meta->tsorig==tsorig );
     TEST( (ulong)meta->tspub ==tspub  );
+    TEST( fd_frag_meta_seq_query( meta )==seq );
 
     fd_memset( meta, 0, sizeof(fd_frag_meta_t) );
     _mm256_store_si256( &meta->avx, avx );
@@ -142,6 +143,7 @@ main( int     argc,
     TEST( (ulong)meta->ctl   ==ctl    );
     TEST( (ulong)meta->tsorig==tsorig );
     TEST( (ulong)meta->tspub ==tspub  );
+    TEST( fd_frag_meta_seq_query( meta )==seq );
   }
 # endif
 

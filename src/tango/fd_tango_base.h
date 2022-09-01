@@ -183,7 +183,7 @@ union __attribute__((aligned(FD_FRAG_META_ALIGN))) fd_frag_meta {
        their memory operands to be 16-byte aligned.)
        
      That is accesses to "sse0" and "sse1" below are atomic when AVX
-     support is available given the overall structure alignment given
+     support is available given the overall structure alignment,
      appropriate intrinsics and what not.  Accesses to avx are likely
      atomic on many x86 platforms but this is not guaranteed and such
      should not be assumed. */
@@ -259,6 +259,19 @@ FD_FN_CONST static inline ulong           /* Will be in [0,UINT_MAX] */
 fd_laddr_to_chunk( void const * chunk0,   /* Assumed aligned FD_CHUNK_ALIGN */
                    void const * laddr ) { /* Assumed aligned FD_CHUNK_ALIGN and in [ chunk0, chunk0 + FD_CHUNK_SZ*(UINT_MAX+1) ) */
   return (((ulong)laddr)-((ulong)chunk0)) >> FD_CHUNK_LG_SZ;
+}
+
+/* fd_frag_meta_seq_query returns the sequence number pointed to by meta
+   as atomically observed at some point of time between when the call
+   was made and the call returns.  Assumes meta is valid.  This acts as
+   a compiler memory fence. */
+
+static inline ulong
+fd_frag_meta_seq_query( fd_frag_meta_t const * meta ) { /* Assumed non-NULL */
+  FD_COMPILER_MFENCE();
+  ulong seq = FD_VOLATILE_CONST( meta->seq );
+  FD_COMPILER_MFENCE();
+  return seq;
 }
 
 /* fd_frag_meta_ctl, fd_frag_meta_ctl_{som,eom,err} pack and unpack the
