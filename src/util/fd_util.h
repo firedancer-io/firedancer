@@ -18,6 +18,7 @@
 
 //#include "net/fd_eth.h"    /* includes bits/fd_bits.h */
 //#include "net/fd_ip4.h"    /* includes bits/fd_bits.h */
+//#include "net/fd_pcap.h"   /* includes net/fd_eth.h */
 //#include "net/fd_igmp.h"   /* includes net/fd_ip4.h */
 //#include "net/fd_udp.h"    /* includes net/fd_ip4.h */
 //#include "bits/fd_float.h" /* includes bits/fd_bits.h */
