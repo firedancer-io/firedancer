@@ -137,7 +137,7 @@ fd_tempo_tick_per_ns( double * opt_sigma ) {
       iter++;
       if( iter==3UL ) {
         FD_LOG_WARNING(( "unable to measure tick_per_ns accurately; using fallback and attempting to continue" ));
-        mu = 3.; sigma = 0.;
+        mu = 3.; sigma = 1e-7;
         break;
       }
     }
