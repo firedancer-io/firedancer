@@ -207,25 +207,9 @@ fd_pcap_fwrite_pkt( long         ts,
   return 1UL;
 }
 
-#if 0
-  /* Try to detect the L2 header size and encode in the iter address.
-     Note that this assumes last 2 bits of a file are 0 and that
-     all packets in the pcap have same L2 header size. */
-  int l2_hdr_type = 0; /* unknown header type */
-  if( pcap->network==PCAP_HDR_NETWORK_LINUX_SLL ) l2_hdr_type = 1; /* pcap_iter_next returns these as untagged Ethernet */
-  else {
-    char  buf[ 1542 ];
-    long  ts;
-    ulong sz = pcap_iter_next( (pcap_iter_t *)file, &ts, buf, 1542UL );
-    if( FD_UNLIKELY( sz<=14UL ) ) FD_LOG_WARNING(( "Empty pcap file, runt frame or empty ethernet payload detected" ));
-    if( fd_ushort_bswap( *(ushort *)(buf+12) )!=FD_NET_ETH_HDR_TYPE_VLAN ) l2_hdr_type = 1; /* untagged Ethernet */
-    else if( sz<=18UL ) FD_LOG_WARNING(( "Runt VLAN tagged frame or empty ethernet payload detected" ));
-    else l2_hdr_type = 2; /* VLAN tagged Ethernet */
-    fd_pcap_iter_reset( (pcap_iter_t *)file );
-  }
-#endif
-
 #else
+
+/* Implement pcap support for this target */
 
 #endif
 
