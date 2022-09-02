@@ -1,8 +1,8 @@
 #!/bin/sh
 
-if [ $# -ne 2 ] || [ ! -f tmp/test_mux_ipc.conf ]; then
+if [ $# -lt 2 ] || [ ! -f tmp/test_mux_ipc.conf ]; then
   echo ""
-  echo "        Usage: $0 [TX_CNT] [RX_CNT]"
+  echo "        Usage: $0 [TX_CNT] [RX_CNT] [tx command line options]"
   echo ""
   echo "        This test requires that test_mux_ipc_init has been done to"
   echo "        create the shared memory objects that will be used for IPC."
@@ -22,6 +22,7 @@ export FD_LOG_PATH
 
 tx_cnt=$1
 rx_cnt=$2
+shift 2
 
 CORE_FIRST=$NUMA_IDX
 NUMA_STRIDE=$NUMA_CNT
@@ -67,7 +68,7 @@ CORE_NEXT=$((CORE_NEXT+NUMA_STRIDE))
 # Start up the transmitters
 
 for((tx_idx=0;tx_idx<tx_cnt;tx_idx++)); do
-  taskset -c $CORE_NEXT unit-test/test_frag_tx --tile-cpus $CORE_NEXT --cnc ${TX_CNC[tx_idx]} --mcache ${TX_MCACHE[tx_idx]} --dcache ${TX_DCACHE[tx_idx]} --fseqs ${TX_FSEQ[tx_idx]} --tx-idx $tx_idx &
+  taskset -c $CORE_NEXT unit-test/test_frag_tx --tile-cpus $CORE_NEXT --cnc ${TX_CNC[tx_idx]} --mcache ${TX_MCACHE[tx_idx]} --dcache ${TX_DCACHE[tx_idx]} --fseqs ${TX_FSEQ[tx_idx]} --tx-idx $tx_idx $* &
   CORE_NEXT=$((CORE_NEXT+NUMA_STRIDE))
 done
 
