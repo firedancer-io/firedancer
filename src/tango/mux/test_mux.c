@@ -322,12 +322,18 @@ rx_tile_main( int     argc,
   for(;;) {
 
     /* Wait for frag seq while doing housekeeping in the background */
-    /* FIXME: HAVE FD_MCACHE_WAIT DO DIRECT INTO REGISTERS INSTEAD OF
-       L1 STACK META? */
-    ulong          seq_found;
-    long           diff;
-    fd_frag_meta_t meta[1];
-    FD_MCACHE_WAIT( meta, seq_found, diff, async_rem, mcache, depth, seq );
+
+    fd_frag_meta_t const * mline;
+    ulong                  seq_found;
+    long                   diff;
+
+    ulong sig;
+    ulong chunk;
+    ulong sz;
+    ulong ctl;
+    ulong tsorig;
+    ulong tspub;
+    FD_MCACHE_WAIT_REG( sig, chunk, sz, ctl, tsorig, tspub, mline, seq_found, diff, async_rem, mcache, depth, seq );
     if( FD_UNLIKELY( !async_rem ) ) {
 
       /* Send flow control credits */
@@ -363,12 +369,7 @@ rx_tile_main( int     argc,
        the individual tx streams via sig too, validate control bits, add
        latency and bandwidth stats). */
 
-    ulong sig    = (ulong)meta->sig;
-    ulong chunk  = (ulong)meta->chunk;
-    ulong sz     = (ulong)meta->sz;
-  //ulong ctl    = (ulong)meta->ctl;
-  //ulong tsorig = (ulong)meta->tsorig;
-  //ulong tspub  = (ulong)meta->tspub;
+    (void)ctl; (void)tsorig; (void)tspub;
 
     uchar const * p = (uchar const *)fd_chunk_to_laddr_const( wksp, chunk );
     __m256i avx = _mm256_set1_epi64x( (long)sig );
@@ -385,7 +386,7 @@ rx_tile_main( int     argc,
     }
 
     /* Check that we weren't overrun while processing. */
-    seq_found = fd_mcache_query( mcache, depth, seq );
+    seq_found = fd_frag_meta_seq_query( mline );
     if( FD_UNLIKELY( fd_seq_ne( seq_found, seq ) ) ) FD_LOG_ERR(( "Overrun while reading" ));
 
     /* Validate that the frag payload was as expected */

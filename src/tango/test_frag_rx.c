@@ -90,27 +90,38 @@ main( int     argc,
 
     /* Wait for frag seq */
 
-    ulong seq_found;
-    long  diff;
-
-#   define WAIT_STYLE 0
+#   define WAIT_STYLE -1
 #   define VALIDATE   1
 
-#   if WAIT_STYLE==0 /* Compatible with all PUBLISH_STYLE */
+    fd_frag_meta_t const * mline;
+    ulong                  seq_found;
+    long                   diff;
+
+#   if WAIT_STYLE==-1 /* Compatible with all PUBLISH_STYLE */
+
+    ulong sig;
+    ulong chunk;
+    ulong sz;
+    ulong ctl;
+    ulong tsorig;
+    ulong tspub;
+    FD_MCACHE_WAIT_REG( sig, chunk, sz, ctl, tsorig, tspub, mline, seq_found, diff, async_rem, mcache, depth, seq );
+
+#   elif WAIT_STYLE==0 /* Compatible with all PUBLISH_STYLE */
 
     fd_frag_meta_t meta[1];
-    FD_MCACHE_WAIT( meta, seq_found, diff, async_rem, mcache, depth, seq );
+    FD_MCACHE_WAIT( meta, mline, seq_found, diff, async_rem, mcache, depth, seq );
 
 #   elif WAIT_STYLE==1 /* Compatible with all PUBLISH_STYLE */
 
     __m128i meta_sse0;
     __m128i meta_sse1;
-    FD_MCACHE_WAIT_SSE( meta_sse0, meta_sse1, seq_found, diff, async_rem, mcache, depth, seq );
+    FD_MCACHE_WAIT_SSE( meta_sse0, meta_sse1, mline, seq_found, diff, async_rem, mcache, depth, seq );
 
 #   else /* Compatible with PUBLISH_STYLE==2, requires target with atomic aligned AVX load / store */
 
     __m256i meta_avx;
-    FD_MCACHE_WAIT_AVX( meta_avx, seq_found, diff, async_rem, mcache, depth, seq );
+    FD_MCACHE_WAIT_AVX( meta_avx, mline, seq_found, diff, async_rem, mcache, depth, seq );
 
 #   endif
 
@@ -173,9 +184,12 @@ main( int     argc,
     /* At this point, we've atomically loaded the fragment metadata for
        seq (the fragment we were looking for).  Validate the metadata
        and validate the corresponding fragment in the dcache. */
-    /* FIXME: HAVE WAIT VARIANT THAT UNPACKS STRAIGHT INTO REGISTERS. */
 
-#   if WAIT_STYLE==0
+#   if WAIT_STYLE==-1
+
+    /* Already loaded into registers as part of the wait */
+
+#   elif WAIT_STYLE==0
  
     ulong sig    = (ulong)meta->sig;
     ulong chunk  = (ulong)meta->chunk;
@@ -204,9 +218,7 @@ main( int     argc,
 
 #   endif
 
-    (void)ctl;                 /* FIXME: ADD REASSEMBLY LOGIC */
-    (void)tsorig; (void)tspub; /* FIXME: ADD LATENCY AND BANDWIDTH STATS */
-
+#   if VALIDATE
     uchar const * p = (uchar const *)fd_chunk_to_laddr_const( wksp, chunk );
     __m256i avx = _mm256_set1_epi64x( (long)sig );
     int mask0 = -1;
@@ -220,6 +232,11 @@ main( int     argc,
       mask3 &= _mm256_movemask_epi8( _mm256_cmpeq_epi8( _mm256_load_si256( (__m256i *)(p+96UL) ), avx ) );
       p += 128UL;
     }
+#   else
+    (void)sig; (void)chunk; (void)sz;
+#   endif
+    (void)ctl;                 /* FIXME: ADD REASSEMBLY LOGIC */
+    (void)tsorig; (void)tspub; /* FIXME: ADD LATENCY AND BANDWIDTH STATS */
 
     /* At this point, we've loaded the metadata and speculatively
        processed the fragment payload.  Check that we weren't overrun
@@ -229,20 +246,20 @@ main( int     argc,
        operation is typically a very fast L1 cache hit on the already
        loaded metadata above (the tx is unlikely clobbered the value or
        touched the same cache or an adjacent one since). */
-    /* FIXME: HAVE FD_MCACHE_WAIT RETURN THE POLLING META LOCATION
-       INSTEAD OF RECOMPUTING. */
 
-    seq_found = fd_mcache_query( mcache, depth, seq );
-    if( FD_UNLIKELY( seq_found!=seq ) ) {
+    seq_found = fd_frag_meta_seq_query( mline );
+    if( FD_UNLIKELY( fd_seq_ne( seq_found, seq ) ) ) {
     //FD_LOG_NOTICE(( "Overrun while reading (skipping from %lu to %lu to try to recover)", seq, seq_found ));
       ovrnr_cnt++;
       seq = seq_found;
       continue;
     }
 
+#   if VALIDATE
     /* Validate that the frag payload was as expected */
     int corrupt = ((mask0 & mask1 & mask2 & mask3)!=-1);
     if( FD_UNLIKELY( corrupt ) ) FD_LOG_ERR(( "Corrupt payload received" ));
+#   endif
 
     /* Wind up for the next iteration */
     seq = fd_seq_inc( seq, 1UL );

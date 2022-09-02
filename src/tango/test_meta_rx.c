@@ -69,27 +69,38 @@ main( int     argc,
 
     /* Wait for frag seq */
 
-    ulong seq_found;
-    long  diff;
+    fd_frag_meta_t const * mline;
+    ulong                  seq_found;
+    long                   diff;
 
-#   define WAIT_STYLE 0
-#   define VALIDATE   1
+#   define WAIT_STYLE -1
+#   define VALIDATE    1
 
-#   if WAIT_STYLE==0 /* Compatible with all PUBLISH_STYLE */
+#   if WAIT_STYLE==-1 /* Compatible with all PUBLISH_STYLE */
+
+    ulong sig;
+    ulong chunk;
+    ulong sz;
+    ulong ctl;
+    ulong tsorig;
+    ulong tspub;
+    FD_MCACHE_WAIT_REG( sig, chunk, sz, ctl, tsorig, tspub, mline, seq_found, diff, async_rem, mcache, depth, seq );
+
+#   elif WAIT_STYLE==0 /* Compatible with all PUBLISH_STYLE */
 
     fd_frag_meta_t meta[1];
-    FD_MCACHE_WAIT( meta, seq_found, diff, async_rem, mcache, depth, seq );
+    FD_MCACHE_WAIT( meta, mline, seq_found, diff, async_rem, mcache, depth, seq );
 
 #   elif WAIT_STYLE==1 /* Compatible with all PUBLISH_STYLE */
 
     __m128i meta_sse0;
     __m128i meta_sse1;
-    FD_MCACHE_WAIT_SSE( meta_sse0, meta_sse1, seq_found, diff, async_rem, mcache, depth, seq );
+    FD_MCACHE_WAIT_SSE( meta_sse0, meta_sse1, mline, seq_found, diff, async_rem, mcache, depth, seq );
 
 #   else /* Compatible with PUBLISH_STYLE==2, requires target with atomic aligned AVX load / store */
 
     __m256i meta_avx;
-    FD_MCACHE_WAIT_AVX( meta_avx, seq_found, diff, async_rem, mcache, depth, seq );
+    FD_MCACHE_WAIT_AVX( meta_avx, mline, seq_found, diff, async_rem, mcache, depth, seq );
 
 #   endif
 
@@ -153,7 +164,17 @@ main( int     argc,
        given how test_meta_tx generates these.  tsorig and tspub are not
        validated but could be used to do latency diagnostics. */
 
-#   if WAIT_STYLE==0
+#   if WAIT_STYLE==-1
+
+#   if VALIDATE /* For code implementation testing */
+    TEST( chunk ==(uint  )sig );
+    TEST( sz    ==(ushort)sig );
+#   else /* For hardware performance benchmarking */
+    (void)sig; (void)chunk; (void)sz;
+#   endif
+    (void)tspub; (void)tsorig; (void)ctl;
+
+#   elif WAIT_STYLE==0
 
 #   if VALIDATE /* For code implementation testing */
     ulong sig = meta->sig;
@@ -185,6 +206,8 @@ main( int     argc,
 #   endif
 
 #   endif
+
+    (void)mline; /* Don't need to do any verification as we aren't processing payloads */
 
     /* Wind up for the next iteration */
     seq = fd_seq_inc( seq, 1UL );
