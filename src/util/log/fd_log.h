@@ -159,15 +159,15 @@
    E.g.
 
      FD_LOG_DEBUG(( "cache line %016lx\n\t"
-                    "%02x: " LOG_HEX16_FMT "\n\t"
-                    "%02x: " LOG_HEX16_FMT "\n\t"
-                    "%02x: " LOG_HEX16_FMT "\n\t"
-                    "%02x: " LOG_HEX16_FMT,
+                    "%02x: " FD_LOG_HEX16_FMT "\n\t"
+                    "%02x: " FD_LOG_HEX16_FMT "\n\t"
+                    "%02x: " FD_LOG_HEX16_FMT "\n\t"
+                    "%02x: " FD_LOG_HEX16_FMT,
                     (ulong)mem,
-                     0U, LOG_HEX16_FMT_ARGS( mem    ),
-                    16U, LOG_HEX16_FMT_ARGS( mem+16 ),
-                    32U, LOG_HEX16_FMT_ARGS( mem+32 ),
-                    48U, LOG_HEX16_FMT_ARGS( mem+48 ) ));
+                     0U, FD_LOG_HEX16_FMT_ARGS( mem    ),
+                    16U, FD_LOG_HEX16_FMT_ARGS( mem+16 ),
+                    32U, FD_LOG_HEX16_FMT_ARGS( mem+32 ),
+                    48U, FD_LOG_HEX16_FMT_ARGS( mem+48 ) ));
 
    would log something like:
 
