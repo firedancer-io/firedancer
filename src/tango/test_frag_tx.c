@@ -129,12 +129,13 @@ main( int     argc,
   FD_LOG_NOTICE(( "Joining to --cnc %s", _cnc ));
 
   fd_cnc_t * cnc = fd_cnc_join( fd_wksp_map( _cnc ) );
-  if( FD_UNLIKELY( !cnc ) ) FD_LOG_ERR(( "join failed" ));
-  ulong *    cnc_diag = (ulong *)fd_cnc_app_laddr( cnc );
-  int        in_backp = 1;
+  if( FD_UNLIKELY( !cnc                      ) ) FD_LOG_ERR(( "join failed" ));
+  if( FD_UNLIKELY( fd_cnc_app_sz( cnc )<16UL ) ) FD_LOG_ERR(( "cnc app sz must be at least 16" ));
 
-  FD_VOLATILE( cnc_diag[ FD_MUX_CNC_DIAG_IN_BACKP  ] ) = 1UL;
-  FD_VOLATILE( cnc_diag[ FD_MUX_CNC_DIAG_BACKP_CNT ] ) = 0UL;
+  ulong * cnc_diag = (ulong *)fd_cnc_app_laddr( cnc );
+  int     in_backp = 1;
+  FD_VOLATILE( cnc_diag[ FD_CNC_DIAG_IN_BACKP  ] ) = 1UL;
+  FD_VOLATILE( cnc_diag[ FD_CNC_DIAG_BACKP_CNT ] ) = 0UL;
 
   FD_LOG_NOTICE(( "Joining to --mcache %s", _mcache ));
 
@@ -173,10 +174,10 @@ main( int     argc,
     if( FD_UNLIKELY( !fseq ) ) FD_LOG_ERR(( "join failed" ));
     ulong * fseq_diag = (ulong *)fd_fseq_app_laddr( fseq );
 
-    if( FD_UNLIKELY( !fd_fctl_cfg_rx_add( fctl, depth, fseq, &fseq_diag[ FD_MUX_FSEQ_DIAG_SLOW_CNT ] ) ) )
+    if( FD_UNLIKELY( !fd_fctl_cfg_rx_add( fctl, depth, fseq, &fseq_diag[ FD_FSEQ_DIAG_SLOW_CNT ] ) ) )
       FD_LOG_ERR(( "fd_fctl_cfg_rx_add failed" ));
 
-    FD_VOLATILE( fseq_diag[ FD_MUX_FSEQ_DIAG_SLOW_CNT ] ) = 0UL;
+    FD_VOLATILE( fseq_diag[ FD_FSEQ_DIAG_SLOW_CNT ] ) = 0UL;
   }
 
   /* cr_burst is 1 because we only send at most 1 fragment metadata
@@ -222,14 +223,14 @@ main( int     argc,
       if( FD_UNLIKELY( dt > (long)1e9 ) ) {
         float mfps = (1e3f*(float)iter) / (float)dt;
         FD_LOG_NOTICE(( "%7.3f Mfrag/s tx (in_backp %lu backp_cnt %lu)", (double)mfps,
-                        FD_VOLATILE_CONST( cnc_diag[ FD_MUX_CNC_DIAG_IN_BACKP  ] ),
-                        FD_VOLATILE_CONST( cnc_diag[ FD_MUX_CNC_DIAG_BACKP_CNT ] ) ));
+                        FD_VOLATILE_CONST( cnc_diag[ FD_CNC_DIAG_IN_BACKP  ] ),
+                        FD_VOLATILE_CONST( cnc_diag[ FD_CNC_DIAG_BACKP_CNT ] ) ));
         for( ulong rx_idx=0UL; rx_idx<rx_cnt; rx_idx++ ) {
           ulong * slow = fd_fctl_rx_slow_laddr( fctl, rx_idx );
           FD_LOG_NOTICE(( "slow%lu %lu", rx_idx, FD_VOLATILE_CONST( *slow ) ));
           FD_VOLATILE( *slow ) = 0UL;
         }
-        FD_VOLATILE( cnc_diag[ FD_MUX_CNC_DIAG_BACKP_CNT ] ) = 0UL;
+        FD_VOLATILE( cnc_diag[ FD_CNC_DIAG_BACKP_CNT ] ) = 0UL;
         then = now;
         iter = 0UL;
       }
@@ -247,7 +248,7 @@ main( int     argc,
       cr_avail = fd_fctl_tx_cr_update( fctl, cr_avail, seq );
       if( FD_UNLIKELY( in_backp ) ) {
         if( FD_LIKELY( cr_avail ) ) {
-          FD_VOLATILE( cnc_diag[ FD_MUX_CNC_DIAG_IN_BACKP ] ) = 0UL;
+          FD_VOLATILE( cnc_diag[ FD_CNC_DIAG_IN_BACKP ] ) = 0UL;
           in_backp = 0;
         }
       }
@@ -260,8 +261,8 @@ main( int     argc,
     /* Check if we are backpressured */
     if( FD_UNLIKELY( !cr_avail ) ) {
       if( FD_UNLIKELY( !in_backp ) ) {
-        FD_VOLATILE( cnc_diag[ FD_MUX_CNC_DIAG_IN_BACKP  ] ) = 0UL;
-        FD_VOLATILE( cnc_diag[ FD_MUX_CNC_DIAG_BACKP_CNT ] ) = FD_VOLATILE_CONST( cnc_diag[ FD_MUX_CNC_DIAG_BACKP_CNT ] ) + 1UL;
+        FD_VOLATILE( cnc_diag[ FD_CNC_DIAG_IN_BACKP  ] ) = 0UL;
+        FD_VOLATILE( cnc_diag[ FD_CNC_DIAG_BACKP_CNT ] ) = FD_VOLATILE_CONST( cnc_diag[ FD_CNC_DIAG_BACKP_CNT ] ) + 1UL;
         in_backp = 1;
       }
       FD_SPIN_PAUSE();

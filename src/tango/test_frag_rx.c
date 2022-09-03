@@ -71,8 +71,8 @@ main( int     argc,
 
   ulong * fseq_diag = (ulong *)fd_fseq_app_laddr( fseq );
 
-  FD_VOLATILE( fseq_diag[ FD_MUX_FSEQ_DIAG_OVRNP_CNT ] ) = 0UL; /* ovrnp */
-  FD_VOLATILE( fseq_diag[ FD_MUX_FSEQ_DIAG_OVRNP_CNT ] ) = 0UL; /* ovrnr */
+  FD_VOLATILE( fseq_diag[ FD_FSEQ_DIAG_OVRNP_CNT ] ) = 0UL;
+  FD_VOLATILE( fseq_diag[ FD_FSEQ_DIAG_OVRNP_CNT ] ) = 0UL;
 
   ulong ovrnp_cnt = 0UL; /* Count of overruns while polling for next seq */
   ulong ovrnr_cnt = 0UL; /* Count of overruns while processing seq payload */
@@ -139,10 +139,8 @@ main( int     argc,
       if( FD_UNLIKELY( dt > (long)1e9 ) ) {
         float mfps = (1e3f*(float)iter) / (float)dt;
         FD_LOG_NOTICE(( "%7.3f Mfrag/s rx (ovrnp %lu ovrnr %lu)", (double)mfps, ovrnp_cnt, ovrnr_cnt ));
-        FD_VOLATILE( fseq_diag[ FD_MUX_FSEQ_DIAG_OVRNP_CNT ] ) =
-          FD_VOLATILE_CONST( fseq_diag[ FD_MUX_FSEQ_DIAG_OVRNP_CNT ] ) + ovrnp_cnt;
-        FD_VOLATILE( fseq_diag[ FD_MUX_FSEQ_DIAG_OVRNP_CNT ] ) =
-          FD_VOLATILE_CONST( fseq_diag[ FD_MUX_FSEQ_DIAG_OVRNP_CNT ] ) + ovrnr_cnt;
+        FD_VOLATILE( fseq_diag[ FD_FSEQ_DIAG_OVRNP_CNT ] ) = FD_VOLATILE_CONST( fseq_diag[ FD_FSEQ_DIAG_OVRNP_CNT ] ) + ovrnp_cnt;
+        FD_VOLATILE( fseq_diag[ FD_FSEQ_DIAG_OVRNP_CNT ] ) = FD_VOLATILE_CONST( fseq_diag[ FD_FSEQ_DIAG_OVRNP_CNT ] ) + ovrnr_cnt;
         ovrnp_cnt = 0UL;
         ovrnr_cnt = 0UL;
         then      = now;

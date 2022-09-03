@@ -52,7 +52,7 @@ main( int     argc,
 
   ulong * fseq_diag = (ulong *)fd_fseq_app_laddr( fseq );
 
-  FD_VOLATILE( fseq_diag[ FD_MUX_FSEQ_DIAG_OVRNP_CNT ] ) = 0UL;
+  FD_VOLATILE( fseq_diag[ FD_FSEQ_DIAG_OVRNP_CNT ] ) = 0UL;
 
   ulong ovrn_cnt = 0UL;
 
@@ -118,8 +118,7 @@ main( int     argc,
       if( FD_UNLIKELY( dt > (long)1e9 ) ) {
         float mfps = (1e3f*(float)iter) / (float)dt;
         FD_LOG_NOTICE(( "%7.3f Mfrag/s rx (ovrn %lu)", (double)mfps, ovrn_cnt ));
-        FD_VOLATILE( fseq_diag[ FD_MUX_FSEQ_DIAG_OVRNP_CNT ] ) =
-          FD_VOLATILE_CONST( fseq_diag[ FD_MUX_FSEQ_DIAG_OVRNP_CNT ] ) + ovrn_cnt;
+        FD_VOLATILE( fseq_diag[ FD_FSEQ_DIAG_OVRNP_CNT ] ) = FD_VOLATILE_CONST( fseq_diag[ FD_FSEQ_DIAG_OVRNP_CNT ] ) + ovrn_cnt;
         ovrn_cnt = 0UL;
         then     = now;
         iter     = 0UL;
