@@ -25,10 +25,10 @@
 #define FD_FSEQ_APP_FOOTPRINT (96UL)
 
 /* FD_FSEQ_DIAG_* specify standard locations in the fseq's application
-   region that can be used across a wide variety of different types
-   of producers and consumers for accumulating common flow control
-   diagnostics across a wide variety of tiles.  Treating the application
-   region as an array of ulongs:
+   region that can be used across a wide variety communicating producers
+   and consumers for accumulating flow control diagnostics in a standard
+   remote monitoring friendly way.  Treating the application region as
+   an array of ulongs:
 
      PUB_CNT   is the number of received fragments processed/forwarded by the consumer
      PUB_SZ    is the number of received fragment payload bytes processed/forward by the consumer
@@ -38,7 +38,7 @@
      OVRNR_CNT is the number of input overruns detected while reading metadata by the consumer
      SLOW_CNT  is the number of times the consumer was detected as rate limiting consumer by the producer
 
-   It is worth noting that, given proper configured flow control:
+   It is worth noting that, given properly configured flow control:
 
      OVRNP_CNT==OVRNR_CNT==0
      PUB_CNT+FILT_CNT==RX_CNT==TX_CNT
