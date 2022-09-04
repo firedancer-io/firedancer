@@ -88,7 +88,8 @@ main( int     argc,
         "\t  initial heartbeat of now and an application region size of\n\t"
         "\t  app-sz.  Prints the wksp gaddr of the cnc to stdout.\n\t"
         "\t- If now is '-', the wallclock will be used for the initial\n\t"
-        "\t  heartbeat value.\n\t"
+        "\t  heartbeat value.  If now is 'tic', the tickcounter will be\n\t"
+        "\t  used for the initial heartbeat value.\n\t"
         "\n\t"
         "\tdelete-cnc gaddr\n\t"
         "\t- Destroys the cnc at gaddr.\n\t"
@@ -524,10 +525,12 @@ main( int     argc,
 
       if( FD_UNLIKELY( argc<4 ) ) FD_LOG_ERR(( "%i: %s: too few arguments\n\tDo %s help for help", cnt, cmd, bin ));
 
-      char const * _wksp     =                                            argv[0];
-      ulong        type      =                          fd_cstr_to_ulong( argv[1] );
-      long         heartbeat = strcmp( argv[2], "-" ) ? fd_cstr_to_long ( argv[2] ) : fd_log_wallclock();
-      ulong        app_sz    =                          fd_cstr_to_ulong( argv[3] );
+      char const * _wksp     =                                                 argv[0];
+      ulong        type      =                               fd_cstr_to_ulong( argv[1] );
+      long         heartbeat = (!strcmp( argv[2], "-"   )) ? fd_log_wallclock() :
+                             ( (!strcmp( argv[2], "tic" )) ? fd_tickcount()     :
+                                                             fd_cstr_to_long ( argv[2] ) );
+      ulong        app_sz    =                               fd_cstr_to_ulong( argv[3] );
 
       ulong align     = fd_cnc_align();
       ulong footprint = fd_cnc_footprint( app_sz );
