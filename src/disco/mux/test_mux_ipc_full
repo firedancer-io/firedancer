@@ -62,7 +62,7 @@ done
 
 # Start up the mux
 
-taskset -c $CORE_NEXT bin/fd_mux_tile --tile-cpus $CORE_NEXT --cnc ${MUX_CNC[0]} --mux-mcache ${MUX_MCACHE[0]} --in-mcaches ${IN_MCACHES} --in-fseqs ${IN_FSEQS} --out-fseqs ${OUT_FSEQS} &
+taskset -c $CORE_NEXT bin/fd_mux_tile --tile-cpus $CORE_NEXT --cnc ${MUX_CNC[0]} --mcache ${MUX_MCACHE[0]} --in-mcaches ${IN_MCACHES} --in-fseqs ${IN_FSEQS} --out-fseqs ${OUT_FSEQS} &
 CORE_NEXT=$((CORE_NEXT+NUMA_STRIDE))
 
 # Start up the transmitters

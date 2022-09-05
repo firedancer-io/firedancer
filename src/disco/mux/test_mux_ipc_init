@@ -77,7 +77,7 @@ $BIN/fd_wksp_ctl new $WKSP $WKSP_CNT $WKSP_PAGE $NUMA_IDX 0600 || exit $?
 # FIXME: CONSIDER HAVING USER APP_SZ IN FSEQ CALL?
 
 for((tx_idx=0;tx_idx<TX_MAX;tx_idx++)); do
-  TX_CNC[$tx_idx]=`$BIN/fd_tango_ctl new-cnc $WKSP 0 - $APP_SZ` || exit $?
+  TX_CNC[$tx_idx]=`$BIN/fd_tango_ctl new-cnc $WKSP 0 tic $APP_SZ` || exit $?
   TX_MCACHE[$tx_idx]=`$BIN/fd_tango_ctl new-mcache $WKSP $TX_DEPTH $APP_SZ 0` || exit $?
   TX_DCACHE[$tx_idx]=`$BIN/fd_tango_ctl new-dcache $WKSP $TX_MTU $TX_DEPTH 1 1 $APP_SZ` || exit $?
   TX_FSEQ[$tx_idx]=`$BIN/fd_tango_ctl new-fseq $WKSP 0` || exit $?
@@ -86,14 +86,14 @@ done
 # Setup muxs
 
 for((mux_idx=0;mux_idx<MUX_MAX;mux_idx++)); do
-  MUX_CNC[$mux_idx]=`$BIN/fd_tango_ctl new-cnc $WKSP 1 - $APP_SZ` || exit $?
+  MUX_CNC[$mux_idx]=`$BIN/fd_tango_ctl new-cnc $WKSP 1 tic $APP_SZ` || exit $?
   MUX_MCACHE[$mux_idx]=`$BIN/fd_tango_ctl new-mcache $WKSP $MUX_DEPTH $APP_SZ 0` || exit $?
 done
 
 # Setup rxs
 
 for((rx_idx=0;rx_idx<RX_MAX;rx_idx++)); do
-  RX_CNC[$rx_idx]=`$BIN/fd_tango_ctl new-cnc $WKSP 2 - $APP_SZ` || exit $?
+  RX_CNC[$rx_idx]=`$BIN/fd_tango_ctl new-cnc $WKSP 2 tic $APP_SZ` || exit $?
   RX_FSEQ[$rx_idx]=`$BIN/fd_tango_ctl new-fseq $WKSP 0` || exit $?
 done
 

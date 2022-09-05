@@ -1,4 +1,4 @@
-#include "../fd_tango.h"
+#include "../fd_disco.h"
 
 #if FD_HAS_HOSTED && FD_HAS_AVX
 
@@ -6,13 +6,13 @@
 
 FD_STATIC_ASSERT( FD_MUX_CNC_SIGNAL_ACK==4UL, unit_test );
 
-FD_STATIC_ASSERT( FD_MUX_FSEQ_DIAG_PUB_CNT  ==0UL, unit_test );
-FD_STATIC_ASSERT( FD_MUX_FSEQ_DIAG_PUB_SZ   ==1UL, unit_test );
-FD_STATIC_ASSERT( FD_MUX_FSEQ_DIAG_FILT_CNT ==2UL, unit_test );
-FD_STATIC_ASSERT( FD_MUX_FSEQ_DIAG_FILT_SZ  ==3UL, unit_test );
-FD_STATIC_ASSERT( FD_MUX_FSEQ_DIAG_OVRNP_CNT==4UL, unit_test );
-FD_STATIC_ASSERT( FD_MUX_FSEQ_DIAG_OVRNR_CNT==5UL, unit_test );
-FD_STATIC_ASSERT( FD_MUX_FSEQ_DIAG_SLOW_CNT ==6UL, unit_test );
+FD_STATIC_ASSERT( FD_FSEQ_DIAG_PUB_CNT  ==0UL, unit_test );
+FD_STATIC_ASSERT( FD_FSEQ_DIAG_PUB_SZ   ==1UL, unit_test );
+FD_STATIC_ASSERT( FD_FSEQ_DIAG_FILT_CNT ==2UL, unit_test );
+FD_STATIC_ASSERT( FD_FSEQ_DIAG_FILT_SZ  ==3UL, unit_test );
+FD_STATIC_ASSERT( FD_FSEQ_DIAG_OVRNP_CNT==4UL, unit_test );
+FD_STATIC_ASSERT( FD_FSEQ_DIAG_OVRNR_CNT==5UL, unit_test );
+FD_STATIC_ASSERT( FD_FSEQ_DIAG_SLOW_CNT ==6UL, unit_test );
 
 FD_STATIC_ASSERT( FD_MUX_TILE_IN_MAX ==8192UL, unit_test );
 FD_STATIC_ASSERT( FD_MUX_TILE_OUT_MAX==8192UL, unit_test );
@@ -71,8 +71,8 @@ tx_tile_main( int     argc,
   ulong *    cnc_diag = (ulong *)fd_cnc_app_laddr( cnc );
   int        in_backp = 1;
 
-  FD_VOLATILE( cnc_diag[ FD_MUX_CNC_DIAG_IN_BACKP  ] ) = 1UL;
-  FD_VOLATILE( cnc_diag[ FD_MUX_CNC_DIAG_BACKP_CNT ] ) = 0UL;
+  FD_VOLATILE( cnc_diag[ FD_CNC_DIAG_IN_BACKP  ] ) = 1UL;
+  FD_VOLATILE( cnc_diag[ FD_CNC_DIAG_BACKP_CNT ] ) = 0UL;
 
   /* Hook up to the tx mcache */
   fd_frag_meta_t * mcache = fd_mcache_join( fd_wksp_laddr( wksp, cfg->tx_mcache_gaddr + tx_idx*cfg->tx_mcache_footprint ) );
@@ -90,11 +90,11 @@ tx_tile_main( int     argc,
   ulong * fseq      = fd_fseq_join( fd_wksp_laddr( wksp, cfg->tx_fseq_gaddr + tx_idx*cfg->tx_fseq_footprint ) );
   ulong * fseq_diag = (ulong *)fd_fseq_app_laddr( fseq );
 
-  FD_VOLATILE( fseq_diag[ FD_MUX_FSEQ_DIAG_SLOW_CNT ] ) = 0UL;
+  FD_VOLATILE( fseq_diag[ FD_FSEQ_DIAG_SLOW_CNT ] ) = 0UL;
 
   /* Hook up to the tx flow control state */
   fd_fctl_t * fctl = fd_fctl_join( fd_wksp_laddr( wksp, cfg->tx_fctl_gaddr + tx_idx*cfg->tx_fctl_footprint ) );
-  fd_fctl_cfg_rx_add( fctl, depth, fseq, &fseq_diag[ FD_MUX_FSEQ_DIAG_SLOW_CNT ] );
+  fd_fctl_cfg_rx_add( fctl, depth, fseq, &fseq_diag[ FD_FSEQ_DIAG_SLOW_CNT ] );
   fd_fctl_cfg_done( fctl, 1UL, 0UL, 0UL, 0UL );
   ulong cr_avail = 0UL;
 
@@ -140,11 +140,11 @@ tx_tile_main( int     argc,
       if( FD_UNLIKELY( dt > (long)1e9 ) ) {
         float mfps = (1e3f*(float)iter) / (float)dt;
         FD_LOG_NOTICE(( "%7.3f Mfrag/s tx (in_backp %lu backp_cnt %lu slow_cnt %lu)", (double)mfps,
-                        FD_VOLATILE_CONST( cnc_diag[ FD_MUX_CNC_DIAG_IN_BACKP  ] ),
-                        FD_VOLATILE_CONST( cnc_diag[ FD_MUX_CNC_DIAG_BACKP_CNT ] ),
-                        fseq_diag[ FD_MUX_FSEQ_DIAG_SLOW_CNT ] ));
-        FD_VOLATILE( cnc_diag [ FD_MUX_CNC_DIAG_BACKP_CNT ] ) = 0UL;
-        FD_VOLATILE( fseq_diag[ FD_MUX_FSEQ_DIAG_SLOW_CNT ] ) = 0UL;
+                        FD_VOLATILE_CONST( cnc_diag[ FD_CNC_DIAG_IN_BACKP  ] ),
+                        FD_VOLATILE_CONST( cnc_diag[ FD_CNC_DIAG_BACKP_CNT ] ),
+                        fseq_diag[ FD_FSEQ_DIAG_SLOW_CNT ] ));
+        FD_VOLATILE( cnc_diag [ FD_CNC_DIAG_BACKP_CNT ] ) = 0UL;
+        FD_VOLATILE( fseq_diag[ FD_FSEQ_DIAG_SLOW_CNT ] ) = 0UL;
         then = now;
         iter = 0UL;
       }
@@ -160,7 +160,7 @@ tx_tile_main( int     argc,
       cr_avail = fd_fctl_tx_cr_update( fctl, cr_avail, seq );
       if( FD_UNLIKELY( in_backp ) ) {
         if( FD_LIKELY( cr_avail ) ) {
-          FD_VOLATILE( cnc_diag[ FD_MUX_CNC_DIAG_IN_BACKP ] ) = 0UL;
+          FD_VOLATILE( cnc_diag[ FD_CNC_DIAG_IN_BACKP ] ) = 0UL;
           in_backp = 0;
         }
       }
@@ -173,8 +173,8 @@ tx_tile_main( int     argc,
     /* Check if we are backpressured */
     if( FD_UNLIKELY( !cr_avail ) ) {
       if( FD_UNLIKELY( !in_backp ) ) {
-        FD_VOLATILE( cnc_diag[ FD_MUX_CNC_DIAG_IN_BACKP  ] ) = 0UL;
-        FD_VOLATILE( cnc_diag[ FD_MUX_CNC_DIAG_BACKP_CNT ] ) = FD_VOLATILE_CONST( cnc_diag[ FD_MUX_CNC_DIAG_BACKP_CNT ] ) + 1UL;
+        FD_VOLATILE( cnc_diag[ FD_CNC_DIAG_IN_BACKP  ] ) = 0UL;
+        FD_VOLATILE( cnc_diag[ FD_CNC_DIAG_BACKP_CNT ] ) = FD_VOLATILE_CONST( cnc_diag[ FD_CNC_DIAG_BACKP_CNT ] ) + 1UL;
         in_backp = 1;
       }
       FD_SPIN_PAUSE();
@@ -276,9 +276,9 @@ mux_tile_main( int     argc,
 
 # undef MAKE_WKSP_CSTR
 
-  if( FD_UNLIKELY( fd_mux_tile( cfg->tx_cnt, cfg->rx_cnt, _cnc, _tx_mcache, _tx_fseq, _mux_mcache, cfg->mux_cr_max, _rx_fseq,
-                                cfg->mux_lazy, cfg->mux_seed, fd_wksp_laddr( cfg->wksp, cfg->mux_scratch_gaddr ) ) ) )
-    FD_LOG_ERR(( "fd_mux_tile failed" ));
+  int err = fd_mux_tile( _cnc, cfg->tx_cnt, _tx_mcache, _tx_fseq, _mux_mcache, cfg->rx_cnt, _rx_fseq,
+                         cfg->mux_cr_max, cfg->mux_lazy, cfg->mux_seed, fd_wksp_laddr( cfg->wksp, cfg->mux_scratch_gaddr ) );
+  if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_mux_tile failed (%i)", err ));
 
   return 0;
 }
