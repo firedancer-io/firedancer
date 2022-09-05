@@ -17,11 +17,15 @@
 #define FD_FCTL_RX_MAX_MAX (65535UL)
 
 /* FD_FCTL_{ALIGN,FOOTPRINT} specify the alignment and footprint needed
-   for a fctl.  ALIGN should be sizeof(ulong) (a "normal" alignment).
-   FOOTPRINT assumes rx_max is in [0,FD_FCTL_RX_MAX_RX_MAX]. */
+   for a fctl.  ALIGN will be positive integer power of 2.  FOOTPRINT
+   assumes rx_max is in [0,FD_FCTL_RX_MAX_RX_MAX]. */
 
-#define FD_FCTL_ALIGN               (8UL)
-#define FD_FCTL_FOOTPRINT( rx_max ) (sizeof(fd_fctl_t)+(rx_max)*sizeof(fd_fctl_private_rx_t))
+#define FD_FCTL_ALIGN (8UL)
+#define FD_FCTL_FOOTPRINT( rx_max )                                         \
+  FD_LAYOUT_FINI( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( FD_LAYOUT_INIT,       \
+    alignof(fd_fctl_t),                     sizeof(fd_fctl_t)            ), \
+    alignof(fd_fctl_private_rx_t), (rx_max)*sizeof(fd_fctl_private_rx_t) ), \
+    FD_FCTL_ALIGN )
 
 /* A fd_fctl_t is an opaque handle to an flow control object that can
    manage flow control on behalf of a transmitter for a zero or more

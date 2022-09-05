@@ -85,8 +85,12 @@
    ULONG_MAX).  These are provided to facilitate compile time
    declarations. */
 
-#define FD_CNC_ALIGN               (128UL)
-#define FD_CNC_FOOTPRINT( app_sz ) ((64UL + (app_sz) + FD_CNC_ALIGN-1UL) & (~(FD_CNC_ALIGN-1UL)))
+#define FD_CNC_ALIGN (128UL)
+#define FD_CNC_FOOTPRINT( app_sz )                                    \
+  FD_LAYOUT_FINI( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( FD_LAYOUT_INIT, \
+    FD_CNC_ALIGN,     64UL     ),                                     \
+    FD_CNC_APP_ALIGN, (app_sz) ),                                     \
+    FD_CNC_ALIGN )
 
 /* FD_CNC_ALIGN describes the alignment and footprint of a fd_cnc_t's
    application region.  This is a power of 2 of the minimal malloc

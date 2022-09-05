@@ -12,11 +12,13 @@
    provided to facilitate compile time dcache declarations. */
 
 #define FD_DCACHE_ALIGN (128UL)
-#define FD_DCACHE_FOOTPRINT( data_sz, app_sz )                                 \
-  ( 128UL                                                        /* hdr   */ + \
-    128UL                                                        /* guard */ + \
-    (((data_sz)+FD_DCACHE_ALIGN-1UL) & (~(FD_DCACHE_ALIGN-1UL))) /* data  */ + \
-    (((app_sz) +FD_DCACHE_ALIGN-1UL) & (~(FD_DCACHE_ALIGN-1UL))) /* app   */ )
+#define FD_DCACHE_FOOTPRINT( data_sz, app_sz )                                                            \
+  FD_LAYOUT_FINI( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( FD_LAYOUT_INIT, \
+    FD_DCACHE_ALIGN, 128UL     ), /* hdr   */                                                             \
+    FD_DCACHE_ALIGN, 128UL     ), /* guard */                                                             \
+    FD_DCACHE_ALIGN, (data_sz) ), /* data  */                                                             \
+    FD_DCACHE_ALIGN, (app_sz)  ), /* app   */                                                             \
+    FD_DCACHE_ALIGN )
 
 /* FD_DCACHE_GUARD_FOOTPRINT specify the footprint of the guard region
    immediately before the dcache data region.  The guard region
@@ -33,7 +35,7 @@
    Returns 0 if mtu is not valid (i.e. so large that the required slot
    size is larger than ULONG_MAX). */
 
-#define FD_DCACHE_SLOT_FOOTPRINT( mtu ) (((mtu)+FD_DCACHE_ALIGN-1UL) & (~(FD_DCACHE_ALIGN-1UL)))
+#define FD_DCACHE_SLOT_FOOTPRINT( mtu ) FD_ULONG_ALIGN_UP( (mtu), FD_DCACHE_ALIGN )
 
 /* FD_DCACHE_REQ_DATA_SZ returns the size of a data region in bytes
    sufficient for a dcache whose producer writes frag payloads up to mtu

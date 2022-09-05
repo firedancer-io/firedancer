@@ -38,13 +38,21 @@
    at least be at least double cache line to mitigate various kinds of
    false sharing.  FOOTPRINT will be an integer multiple of ALIGN.
    {in,out}_cnt are assumed to be valid (i.e. at most
-   FD_MUX_TILE_{IN,OUT}_MAX).  These are provided to facilitate compile
-   time declarations. */
+   FD_MUX_TILE_{IN,OUT}_MAX).  in_cnt and out_cnt are assumed to be
+   valid and safe against multiple evaluation.  These are provided to
+   facilitate compile time declarations. */
 
-#define FD_MUX_TILE_SCRATCH_ALIGN     (128UL)
-#define FD_MUX_TILE_SCRATCH_FOOTPRINT( in_cnt, out_cnt )                                                       \
-  ( ( (((in_cnt)*66UL + (out_cnt)*26UL + 2UL + FD_RNG_ALIGN-1UL) & (~(FD_RNG_ALIGN-1UL))) + FD_RNG_FOOTPRINT + \
-      FD_MUX_TILE_SCRATCH_ALIGN-1UL ) & (~(FD_MUX_TILE_SCRATCH_ALIGN-1UL)) )
+#define FD_MUX_TILE_SCRATCH_ALIGN (128UL)
+#define FD_MUX_TILE_SCRATCH_FOOTPRINT( in_cnt, out_cnt )                \
+  FD_LAYOUT_FINI( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( \
+  FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( FD_LAYOUT_INIT, \
+    64UL,             (in_cnt)*64UL                           ),        \
+    alignof(ulong *), (out_cnt)*sizeof(ulong *)               ),        \
+    alignof(ulong *), (out_cnt)*sizeof(ulong *)               ),        \
+    alignof(ulong),   (out_cnt)*sizeof(ulong)                 ),        \
+    alignof(ushort),  ((in_cnt)+(out_cnt)+1UL)*sizeof(ushort) ),        \
+    FD_RNG_ALIGN,     FD_RNG_FOOTPRINT                        ),        \
+    FD_MUX_TILE_SCRATCH_ALIGN )
 
 FD_PROTOTYPES_BEGIN
 
