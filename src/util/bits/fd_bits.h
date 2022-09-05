@@ -544,6 +544,52 @@ FD_FN_CONST static inline uint128 fd_int128_zz_enc(  int128 x ) { return (uint12
 FD_FN_CONST static inline int128  fd_int128_zz_dec( uint128 x ) { return  (int128)((       x  >>   1) ^ -(       x  &  1UL)); }
 #endif
 
+/* FD_ULONG_ALIGN_UP is the same as fd_ulong_align_up but can be used
+   at compile time.  The tradeoff is a must be safe against multiple
+   evaluation at compile time.  x and a should be ulong compatible. */
+
+#define FD_ULONG_ALIGN_UP( x, a ) (((x)+((a)-1UL)) & (~((a)-1UL)))
+
+/* FD_LAYOUT_{INIT,APPEND,FINI} are useful for compile time
+   determination of the required footprint of shared memory regions with
+   dynamic sizes and complex alignment restrictions.
+
+   FD_LAYOUT_INIT starts a layout.  Returns a handle to the layout.
+
+   FD_LAYOUT_APPEND appends a s byte region of alignment a to a layout
+   where l is an in progress layout.
+
+   FD_LAYOUT_FINI returns the final layout footprint.  a is the
+   alignment to be used for the overall layout.  It should be the
+   alignment of all appends.  The final footprint will be a multiple of
+   a.
+
+   All arguments should be ulong compatible.  All alignment should be a
+   positive integer power of 2 and safe against multiple evaluation.
+
+   The caller further promises the layout is not unreasonably large that
+   overflow might be an issue (i.e. will be at most
+   fd_ulong_align_dn(ULONG_MAX,a) where is the a used for FINI in size).
+
+   Example usage:
+
+     FD_LAYOUT_FINI( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( FD_LAYOUT_INIT,
+       align0, size0 ),
+       align0, size1 ),
+       page_sz )
+
+   would return the number of pages as a page_sz multiple for a shared
+   memory region that starts with a initial/final region of size0/size1
+   bytes and alignment align0/align1.  Correct operation requires
+   page_sz>=max(align0,align1),  page_sz, align0 and align1 be positive
+   integer powers of 2, page_sz, size0, align0 and align1 should be
+   ulong compatible, page_sz, align0 and align1 be safe against multiple
+   evaluation, and the final size be at most ULONG_MAX-page_sz+1. */
+
+#define FD_LAYOUT_INIT              (0UL)
+#define FD_LAYOUT_APPEND( l, a, s ) (FD_ULONG_ALIGN_UP( (l), (a) ) + (s))
+#define FD_LAYOUT_FINI( l, a )      FD_ULONG_ALIGN_UP( (l), (a) )
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_util_bits_fd_bits_h */

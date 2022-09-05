@@ -1,5 +1,6 @@
 #include "../fd_util.h"
 
+/* FIXME: TEST LAYOUT MACROS */
 /* FIXME: TEST BASE10_DIG_CNT! */
 
 FD_STATIC_ASSERT( FD_ULONG_SVW_ENC_MAX==9UL, unit_test );
@@ -527,16 +528,19 @@ main( int     argc,
       TEST( fd_ulong_alignment ( zeros, align )==zeros );
       TEST( fd_ulong_align_dn  ( zeros, align )==zeros );
       TEST( fd_ulong_align_up  ( zeros, align )==zeros );
+      TEST( FD_ULONG_ALIGN_UP  ( zeros, align )==zeros );
       TEST( fd_ulong_is_aligned( ones,  align )==(!i)  );
       TEST( fd_ulong_alignment ( ones,  align )==lo    );
       TEST( fd_ulong_align_dn  ( ones,  align )==hi    );
       TEST( fd_ulong_align_up  ( ones,  align )==((!i) ? ones : zeros) );
+      TEST( FD_ULONG_ALIGN_UP  ( ones,  align )==((!i) ? ones : zeros) );
       for( int j=0; j<w; j++ ) {
         ulong x = (ulong)(1UL<<j);
         TEST( fd_ulong_is_aligned( x, align )==(j>=i)        );
         TEST( fd_ulong_alignment ( x, align )==( x     & lo) );
         TEST( fd_ulong_align_dn  ( x, align )==( x     & hi) );
         TEST( fd_ulong_align_up  ( x, align )==((x+lo) & hi) );
+        TEST( FD_ULONG_ALIGN_UP  ( x, align )==((x+lo) & hi) );
       }
     }
 
