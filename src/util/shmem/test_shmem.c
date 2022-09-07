@@ -403,7 +403,7 @@ main( int     argc,
     TEST( !fd_shmem_join_query_by_addr( page, 1UL, NULL ) ); TEST( !memcmp( info, nop, sizeof(fd_shmem_join_info_t) ) );
     TEST( !fd_shmem_join_query_by_addr( page, 1UL, info ) ); TEST( !memcmp( info, ref, sizeof(fd_shmem_join_info_t) ) );
 
-    fd_shmem_leave_anonymous( join ); ref->ref_cnt--;
+    TEST( !fd_shmem_leave_anonymous( join, NULL ) ); ref->ref_cnt--;
 
     memset( nop, fd_rng_int( rng ), sizeof(fd_shmem_join_info_t) ); *info = *nop;
     TEST(  fd_shmem_join_query_by_name( name,      NULL ) ); TEST( !memcmp( info, nop, sizeof(fd_shmem_join_info_t) ) );

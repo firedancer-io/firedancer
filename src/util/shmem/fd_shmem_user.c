@@ -453,34 +453,45 @@ fd_shmem_join_anonymous( char const * name,
   return 0;
 }
 
-void
-fd_shmem_leave_anonymous( void * join ) {
-  if( FD_UNLIKELY( !join ) ) { FD_LOG_WARNING(( "NULL join" )); return; }
+int
+fd_shmem_leave_anonymous( void *                 join,
+                          fd_shmem_join_info_t * opt_info ) {
+
+  if( FD_UNLIKELY( !join ) ) {
+    FD_LOG_WARNING(( "NULL join" ));
+    return EINVAL;
+  }
 
   FD_SHMEM_LOCK;
 
   if( FD_UNLIKELY( !fd_shmem_private_map_cnt ) ) {
     FD_SHMEM_UNLOCK;
     FD_LOG_WARNING(( "join is not a current join" ));
-    return;
+    return EINVAL;
   }
 
   fd_shmem_join_info_t * join_info = fd_shmem_private_map_query_by_join( fd_shmem_private_map, join, NULL );
   if( FD_UNLIKELY( !join_info ) ) {
     FD_SHMEM_UNLOCK;
     FD_LOG_WARNING(( "join is not a current join" ));
-    return;
+    return EINVAL;
   }
 
-  if( join_info->ref_cnt!=1L ) {
+  if( FD_UNLIKELY( join_info->ref_cnt!=1L ) ) {
     FD_SHMEM_UNLOCK;
     FD_LOG_WARNING(( "join ref_cnt is not 1" ));
-    return;
+    return EINVAL;
+  }
+
+  if( opt_info ) {
+    *opt_info = *join_info;
+    opt_info->ref_cnt = 0L;
   }
 
   fd_shmem_private_map_remove( fd_shmem_private_map, join_info );
   fd_shmem_private_map_cnt--;
   FD_SHMEM_UNLOCK;
+  return 0;
 }
 
 #endif

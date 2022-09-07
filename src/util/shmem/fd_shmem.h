@@ -234,18 +234,23 @@ fd_shmem_join_query_by_addr( void const *           addr,
    its memory, etc) as a normal join.
 
    Returns 0 on failure and a strerror friendly error code on failure
-   (logs details).  Reasons for failure include bad name (NULL / too
-   short / too long / bad characters / already joined), bad join (NULL
-   join / already joined), bad mem (NULL mem / unaligned mem / already
-   joined), unsupported page_sz, zero page cnt, unsupported mode (not
-   FD_SHMEM_JOIN_MODE_{READ_ONLY,READ_WRITE}.
+   (logs details).  Reasons for failure include EINVAL: bad name (NULL /
+   too short / too long / bad characters / already joined), bad join
+   (NULL join / already joined), bad mem (NULL mem / unaligned mem /
+   already joined), unsupported page_sz, zero page cnt, unsupported mode
+   (not FD_SHMEM_JOIN_MODE_{READ_ONLY,READ_WRITE}.
 
    This will shadow any named shared memory region in the calling thread
    group (but not other thread groups).
 
-   fd_shmem_leave_anonymous is just the inverse of this.  It cannot fail
-   from the caller's POV (but will log extensive details if there is any
-   wonkiness under the hood).  FIXME: CONSIDER RETURNING THE JOIN INFO?
+   fd_shmem_leave_anonymous is just the inverse of this.  Returns 0 on
+   success and a non-zero strerror friendly error code on failure (logs
+   details on failure).  On success, if opt_info is non-NULL, *opt_info
+   will contain details about the former join (e.g. determine details
+   like the original name, mode, mem, page_sz and page_cnt of the join,
+   ... opt_info->ref_cnt will be zero).  It is untouched otherwise.
+   Reasons for failure include EINVAL: join is obviously not an
+   anonymous join with a reference count of 1.
 
    IMPORTANT!  The join will have a ref cnt of 1 on return from
    join_anonymous.  The final leave of something joined by
@@ -261,8 +266,9 @@ fd_shmem_join_anonymous( char const * name,
                          ulong        page_sz,
                          ulong        page_cnt );
 
-void
-fd_shmem_leave_anonymous( void * join );
+int
+fd_shmem_leave_anonymous( void *                 join,
+                          fd_shmem_join_info_t * opt_info );
 
 /* Administrative APIs ************************************************/
 
