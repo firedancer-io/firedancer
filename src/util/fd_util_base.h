@@ -272,6 +272,17 @@ __extension__ typedef unsigned __int128 uint128;
 #define FD_STATIC_ASSERT(c,err) \
 typedef char FD_EXPAND_THEN_CONCAT4(static_assert_failed_at_line_,__LINE__,_with_error_,err)[ (2*!!(c))-1 ]
 
+/* FD_ADDRESS_OF_PACKED_MEMBER(x):  Linguistically does &(x) but without
+   recent compiler complaints that &x might be unaligned if x is a
+   member of a packed datastructure.  (Often needed for interfacing with
+   hardware / packets / etc.) */
+
+#define FD_ADDRESS_OF_PACKED_MEMBER( x ) (__extension__({                                      \
+    char * _fd_aopm = (char *)&(x);                                                            \
+    __asm__( "# FD_ADDRESS_OF_PACKED_MEMBER(" #x ") @" FD_SRC_LOCATION : "+r" (_fd_aopm) :: ); \
+    (__typeof__(&(x)))_fd_aopm;                                                                \
+  }))
+
 /* FD_PROTOTYPES_{BEGIN,END}:  Headers that might be included in C++
    source should encapsulate the prototypes of code and globals
    contained in compilation units compiled as C with a
@@ -289,6 +300,8 @@ typedef char FD_EXPAND_THEN_CONCAT4(static_assert_failed_at_line_,__LINE__,_with
 #define FD_PROTOTYPES_END
 #endif
 
+/* Optimizer tricks ***************************************************/
+
 /* FD_RESTRICT is a pointer modifier for to designate a pointer as
    restricted.  Hoops jumped because C++-17 still doesn't understand
    restrict ... sigh */
@@ -301,7 +314,23 @@ typedef char FD_EXPAND_THEN_CONCAT4(static_assert_failed_at_line_,__LINE__,_with
 #endif
 #endif
 
-/* Optimizer hints ****************************************************/
+/* fd_type_pun(p), fd_type_pun_const(p):  These allow use of type
+   punning while keeping strict aliasing optimizations enabled (e.g.
+   some UNIX APIs, like sockaddr related APIs are dependent on type
+   punning).  These allow these API's to be used cleanly while keeping
+   strict aliasing optimizations enabled and strict alias checking done. */
+
+static inline void *
+fd_type_pun( void * p ) {
+  __asm__( "# fd_type_pun @" FD_SRC_LOCATION : "+r" (p) :: "memory" );
+  return p;
+}
+
+static inline void const *
+fd_type_pun_const( void const * p ) {
+  __asm__( "# fd_type_pun_const @" FD_SRC_LOCATION : "+r" (p) :: "memory" );
+  return p;
+}
 
 /* FD_{LIKELY,UNLIKELY}(c):  Evaluates c and returns whether it is
    logical true/false as long (1L/0L).  It also hints to the optimizer
@@ -362,35 +391,6 @@ typedef char FD_EXPAND_THEN_CONCAT4(static_assert_failed_at_line_,__LINE__,_with
    useful CPU side effects out of a critical loop. */
 
 #define FD_COMPILER_UNPREDICTABLE(var) __asm__ __volatile__( "# FD_COMPILER_UNPREDICTABLE(" #var ")@" FD_SRC_LOCATION : "+r" (var) )
-
-/* fd_type_pun(p), fd_type_pun_const(p):  These allow use of type
-   punning while keeping strict aliasing optimizations enabled (e.g.
-   some UNIX APIs, like sockaddr related APIs are dependent on type
-   punning).  These allow these API's to be used cleanly while keeping
-   strict aliasing optimizations enabled and strict alias checking done. */
-
-static inline void *
-fd_type_pun( void * p ) {
-  __asm__( "# fd_type_pun @" FD_SRC_LOCATION : "+r" (p) :: "memory" );
-  return p;
-}
-
-static inline void const *
-fd_type_pun_const( void const * p ) {
-  __asm__( "# fd_type_pun_const @" FD_SRC_LOCATION : "+r" (p) :: "memory" );
-  return p;
-}
-
-/* FD_ADDRESS_OF_PACKED_MEMBER(x):  Linguistically does &(x) but without
-   recent compiler complaints that &x might be unaligned if x is a
-   member of a packed datastructure.  (Often needed for interfacing with
-   hardware / packets / etc.) */
-
-#define FD_ADDRESS_OF_PACKED_MEMBER( x ) (__extension__({                                      \
-    char * _fd_aopm = (char *)&(x);                                                            \
-    __asm__( "# FD_ADDRESS_OF_PACKED_MEMBER(" #x ") @" FD_SRC_LOCATION : "+r" (_fd_aopm) :: ); \
-    (__typeof__(&(x)))_fd_aopm;                                                                \
-  }))
 
 /* Atomic tricks ******************************************************/
 
