@@ -108,7 +108,7 @@ fd_stat_robust_norm_fit_float( float *       opt_mu,
                                void  *       scratch );
 
 /* fd_stat_robust_exp_fit_float is same as the above with a shifted
-   expeonental distribution.  x0 is the estimated minimum of this
+   exponential distribution.  x0 is the estimated minimum of this
    distribution and tau is the estimated decay length.  For pathological
    cases, if there were no valid samples, x0=tau=0 and, if the majority
    of the samples are equal, x0=mode,tau=0. */
