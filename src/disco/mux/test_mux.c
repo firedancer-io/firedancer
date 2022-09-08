@@ -617,6 +617,24 @@ main( int     argc,
 
   FD_LOG_NOTICE(( "Cleaning up" ));
 
+  for( ulong rx_idx=0UL; rx_idx<rx_cnt; rx_idx++ ) {
+    TEST( fd_fseq_delete( cfg->rx_fseq_mem + rx_idx*cfg->rx_fseq_footprint ) );
+    TEST( fd_rng_delete ( cfg->rx_rng_mem  + rx_idx*cfg->rx_rng_footprint  ) );
+    TEST( fd_cnc_delete ( cfg->rx_cnc_mem  + rx_idx*cfg->rx_cnc_footprint  ) );
+  }
+
+  TEST( fd_mcache_delete( cfg->mux_mcache_mem ) );
+  TEST( fd_cnc_delete   ( cfg->mux_cnc_mem    ) );
+
+  for( ulong tx_idx=0UL; tx_idx<tx_cnt; tx_idx++ ) {
+    TEST( fd_fctl_delete  ( cfg->tx_fctl_mem   + tx_idx*cfg->tx_fctl_footprint   ) );
+    TEST( fd_dcache_delete( cfg->tx_dcache_mem + tx_idx*cfg->tx_dcache_footprint ) );
+    TEST( fd_mcache_delete( cfg->tx_mcache_mem + tx_idx*cfg->tx_mcache_footprint ) );
+    TEST( fd_fseq_delete  ( cfg->tx_fseq_mem   + tx_idx*cfg->tx_fseq_footprint   ) );
+    TEST( fd_rng_delete   ( cfg->tx_rng_mem    + tx_idx*cfg->tx_rng_footprint    ) );
+    TEST( fd_cnc_delete   ( cfg->tx_cnc_mem    + tx_idx*cfg->tx_cnc_footprint    ) );
+  }
+
   fd_wksp_free_laddr( mux_scratch_mem );
   fd_wksp_free_laddr( mux_mcache_mem  );
   fd_wksp_free_laddr( tx_fctl_mem     );
