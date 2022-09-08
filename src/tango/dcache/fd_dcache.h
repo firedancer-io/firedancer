@@ -14,10 +14,10 @@
 #define FD_DCACHE_ALIGN (128UL)
 #define FD_DCACHE_FOOTPRINT( data_sz, app_sz )                                                            \
   FD_LAYOUT_FINI( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( FD_LAYOUT_INIT, \
-    FD_DCACHE_ALIGN, 128UL     ), /* hdr   */                                                             \
-    FD_DCACHE_ALIGN, 128UL     ), /* guard */                                                             \
-    FD_DCACHE_ALIGN, (data_sz) ), /* data  */                                                             \
-    FD_DCACHE_ALIGN, (app_sz)  ), /* app   */                                                             \
+    FD_DCACHE_ALIGN, 128UL                     ), /* hdr   */                                             \
+    FD_DCACHE_ALIGN, FD_DCACHE_GUARD_FOOTPRINT ), /* guard */                                             \
+    FD_DCACHE_ALIGN, (data_sz)                 ), /* data  */                                             \
+    FD_DCACHE_ALIGN, (app_sz)                  ), /* app   */                                             \
     FD_DCACHE_ALIGN )
 
 /* FD_DCACHE_GUARD_FOOTPRINT specify the footprint of the guard region
@@ -238,7 +238,7 @@ fd_dcache_compact_wmark( void const * base,
 
      wmark = chunk1 - chunk_mtu
 
-   This is equivalent saying that, if there are at least chunk_mtu
+   This is equivalent to saying that, if there are at least chunk_mtu
    chunks until the end of a dcache after a frag, that frag's footprint
    will be enough contiguous chunks to cover the frag (up to chunk_mtu).
    But if there there are less than chunk_mtu chunks, that frag's
