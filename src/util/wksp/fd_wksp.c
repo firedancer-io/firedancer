@@ -260,6 +260,30 @@ fd_wksp_cstr( fd_wksp_t const * wksp,
 }
 
 char *
+fd_wksp_cstr_laddr( void const * laddr,
+                    char *       cstr ) {
+
+  fd_wksp_t const * wksp = fd_wksp_containing( laddr );
+  if( FD_UNLIKELY( !wksp ) ) {
+    FD_LOG_WARNING(( "laddr does not appear to be from a workspace" ));
+    return NULL;
+  }
+
+  ulong gaddr = ((ulong)laddr) - ((ulong)wksp);
+  if( FD_UNLIKELY( !((wksp->gaddr_lo<=gaddr) & (gaddr<wksp->gaddr_hi)) ) ) { /* should not happen given wksp_containing success */
+    FD_LOG_WARNING(( "laddr does not appear to be from a workspace" ));
+    return 0UL;
+  }
+
+  if( FD_UNLIKELY( !cstr ) ) {
+    FD_LOG_WARNING(( "NULL cstr" ));
+    return NULL;
+  }
+
+  return fd_wksp_private_cstr( wksp->name, gaddr, cstr );
+}
+
+char *
 fd_wksp_cstr_alloc( char const * name,
                     ulong        align,
                     ulong        sz,
@@ -804,6 +828,34 @@ fd_wksp_free( fd_wksp_t * wksp,
   FD_LOG_WARNING(( "gaddr does not seem to point to a current wksp allocation" ));
 }
 
+void *
+fd_wksp_alloc_laddr( fd_wksp_t * wksp,
+                     ulong       align,
+                     ulong       sz ) {
+  ulong gaddr = fd_wksp_alloc( wksp, align, sz );
+  if( FD_UNLIKELY( !gaddr ) ) return NULL;
+  return (void *)(((ulong)wksp) + gaddr);
+}
+
+void
+fd_wksp_free_laddr( void * laddr ) {
+  if( FD_UNLIKELY( !laddr ) ) return;
+
+  fd_wksp_t * wksp = fd_wksp_containing( laddr );
+  if( FD_UNLIKELY( !wksp ) ) {
+    FD_LOG_WARNING(( "laddr does not appear to be from a workspace" ));
+    return;
+  }
+
+  ulong gaddr = ((ulong)laddr) - ((ulong)wksp);
+  if( FD_UNLIKELY( !((wksp->gaddr_lo<=gaddr) & (gaddr<wksp->gaddr_hi)) ) ) { /* should not happen given wksp_containing success */
+    FD_LOG_WARNING(( "laddr does not appear to be from a workspace" ));
+    return;
+  }
+
+  fd_wksp_free( wksp, gaddr );
+}
+
 void
 fd_wksp_memset( fd_wksp_t * wksp,
                 ulong       gaddr,
@@ -895,6 +947,44 @@ fd_wksp_reset( fd_wksp_t * wksp ) {
   FD_COMPILER_MFENCE();
 
   fd_wksp_private_unlock( wksp );
+}
+
+fd_wksp_t *
+fd_wksp_new_anonymous( ulong        page_sz,
+                       ulong        page_cnt,
+                       ulong        cpu_idx,
+                       char const * name,
+                       ulong        opt_part_max ) {
+
+  void * mem = fd_shmem_acquire( page_sz, page_cnt, cpu_idx ); /* logs details */
+  if( FD_UNLIKELY( !mem ) ) return NULL;
+  ulong sz = page_sz*page_cnt; /* no overflow given fd_shmem_acquire success */
+
+  if( FD_UNLIKELY( !fd_wksp_new( mem, name, sz, opt_part_max ) ) ) { /* logs details */
+    fd_shmem_release( mem, page_sz, page_cnt );
+    return NULL;
+  }
+
+  fd_wksp_t * wksp = fd_wksp_join( mem ); /* logs details */
+  if( FD_UNLIKELY( !wksp ) ) { /* should not happen given fd_wksp_new success */
+    fd_shmem_release( fd_wksp_delete( mem ), page_sz, page_cnt ); /* logs details */
+    return NULL;
+  }
+
+  if( FD_UNLIKELY( fd_shmem_join_anonymous( name, FD_SHMEM_JOIN_MODE_READ_WRITE,
+                                            wksp, mem, page_sz, page_cnt ) ) ) { /* logs details */
+    fd_shmem_release( fd_wksp_delete( fd_wksp_leave( wksp ) ), page_sz, page_cnt ); /* logs details */
+    return NULL;
+  }
+
+  return wksp;
+}
+
+void
+fd_wksp_delete_anonymous( fd_wksp_t * wksp ) {
+  fd_shmem_join_info_t info[1];
+  if( FD_UNLIKELY( fd_shmem_leave_anonymous( wksp, info ) ) ) return; /* logs details */
+  fd_shmem_release( fd_wksp_delete( fd_wksp_leave( wksp ) ), info->page_sz, info->page_cnt ); /* logs details */
 }
 
 #endif

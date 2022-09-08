@@ -139,6 +139,20 @@ fd_wksp_cstr( fd_wksp_t const * wksp,
               ulong             gaddr,
               char *            cstr );
 
+/* fd_wksp_cstr_laddr is the same fd_wksp_cstr but takes a pointer in
+   the caller's local address space to a wksp location.  Ignoring error
+   trapping, this is an efficient implementation of:
+
+     fd_wksp_t * wksp = fd_wksp_containing( laddr );
+     return fd_wksp_cstr( wksp, fd_wksp_gaddr( wksp, laddr ), cstr );
+
+   Returns NULL if laddr does not point strictly inside a workspace
+   (logs details). */
+
+char *
+fd_wksp_cstr_laddr( void const * laddr,
+                    char *       cstr );
+
 /* fd_wksp_cstr_alloc allocates sz bytes with alignment align from wksp
    with name.  align and sz have the exact same semantics as
    fd_wksp_alloc.  cstr must be non-NULL with space for up to
@@ -450,6 +464,27 @@ void
 fd_wksp_free( fd_wksp_t * wksp,
               ulong       gaddr );
 
+/* fd_wksp_alloc_laddr is the same as fd_wksp_alloc but returns a
+   pointer in the caller's local address space if the allocation was
+   successful (and NULL if not).  It is an efficient implementation of:
+
+     fd_wksp_laddr( wksp, fd_wksp_alloc( wksp, align, sz ) ) */
+
+void *
+fd_wksp_alloc_laddr( fd_wksp_t * wksp,
+                     ulong       align,
+                     ulong       sz );
+
+/* fd_wksp_free_laddr is the same as fd_wksp_free but takes a pointer
+   in the caller's local address space into a workspace allocation.
+   Ignoring error trapping, this is basically a shorthand for:
+
+     fd_wksp_t * wksp = fd_wksp_containing( laddr );
+     fd_wksp_free( wksp, fd_wksp_gaddr( wksp, laddr ) ); */
+
+void
+fd_wksp_free_laddr( void * laddr );
+
 /* fd_wksp_memset sets a wksp allocation to character c.  gaddr is a
    global address that points to any byte in the allocation (i.e. can
    point to anything in [gbase,gbase+sz) where sz is value provided to
@@ -479,6 +514,41 @@ fd_wksp_check( fd_wksp_t * wksp );
 
 void
 fd_wksp_reset( fd_wksp_t * wksp );
+
+/* fd_wksp_new_anonymous acquires page_cnt pages of size page_sz near
+   cpu_idx, formats them into a workspace with the given name, joins the
+   workspace and registers the join as a fd_shmem anonymous join (there
+   must be no current shmem joins to name and the anonymous join will
+   shadow any preexisting fd_shmem region with the same name in the
+   calling thread group).  Returns the joined workspace on success and
+   NULL on failure (logs details).  The final leave and delete to this
+   workspace should be through fd_wksp_delete_anonymous.  Ignoring error
+   trapping, this is a shorthand for:
+
+     void * mem = fd_shmem_acquire( page_sz, page_cnt, cpu_idx );
+     fd_wksp_t * wksp = fd_wksp_join( fd_wksp_new( mem, name, page_sz*page_cnt, opt_part_max ) );
+     fd_shmem_join_anonymous( name, FD_SHMEM_JOIN_MODE_READ_WRITE, wksp, mem, page_sz, page_cnt );
+     return wksp;
+
+   TL;DR Create a workspace local to this thread group that otherwise
+   looks and behaves _exactly_ like a workspace shared between multiple
+   thread groups on this host of the same name, TLB and NUMA properties. */
+
+fd_wksp_t *
+fd_wksp_new_anonymous( ulong        page_sz,
+                       ulong        page_cnt,
+                       ulong        cpu_idx,
+                       char const * name,
+                       ulong        opt_part_max );
+
+/* fd_wksp_delete_anonymous deletes a workspace created with
+   fd_wksp_new_anonymous.  There should not be any other joins /
+   attachments to wksp when this is called.  This cannot fail from the
+   caller's POV; logs details if any wonkiness is detected during the
+   delete. */
+
+void
+fd_wksp_delete_anonymous( fd_wksp_t * wksp );
 
 FD_PROTOTYPES_END
 
