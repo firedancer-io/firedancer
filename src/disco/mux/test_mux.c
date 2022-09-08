@@ -13,7 +13,7 @@ FD_STATIC_ASSERT( FD_MUX_TILE_SCRATCH_ALIGN==128UL, unit_test );
 
 #define TEST(c) do if( FD_UNLIKELY( !(c) ) ) { FD_LOG_WARNING(( "FAIL: " #c )); return 1; } while(0)
 
-struct test_mux_cfg {
+struct test_cfg {
   fd_wksp_t * wksp;
 
   ulong       tx_cnt;
@@ -44,7 +44,7 @@ struct test_mux_cfg {
   float       burst_avg;
 };
 
-typedef struct test_mux_cfg test_mux_cfg_t;
+typedef struct test_cfg test_cfg_t;
 
 /* TX tile ************************************************************/
 
@@ -54,9 +54,9 @@ typedef struct test_mux_cfg test_mux_cfg_t;
 static int
 tx_tile_main( int     argc,
               char ** argv ) {
-  ulong            tx_idx = (ulong)(uint)argc;
-  test_mux_cfg_t * cfg    = (test_mux_cfg_t *)argv;
-  fd_wksp_t *      wksp   = cfg->wksp;
+  ulong        tx_idx = (ulong)(uint)argc;
+  test_cfg_t * cfg    = (test_cfg_t *)argv;
+  fd_wksp_t *  wksp   = cfg->wksp;
 
   /* Hook up to tx command-and-control */
   fd_cnc_t * cnc      = fd_cnc_join( cfg->tx_cnc_mem + tx_idx*cfg->tx_cnc_footprint );
@@ -242,7 +242,7 @@ static int
 mux_tile_main( int     argc,
                char ** argv ) {
   (void)argc;
-  test_mux_cfg_t * cfg = (test_mux_cfg_t *)argv;
+  test_cfg_t * cfg = (test_cfg_t *)argv;
 
   if( FD_UNLIKELY( cfg->tx_cnt>128UL ) ) FD_LOG_ERR(( "update unit test for this large a tx_cnt" ));
   if( FD_UNLIKELY( cfg->rx_cnt>128UL ) ) FD_LOG_ERR(( "update unit test for this large a rx_cnt" ));
@@ -289,9 +289,9 @@ mux_tile_main( int     argc,
 static int
 rx_tile_main( int     argc,
               char ** argv ) {
-  ulong            rx_idx = (ulong)(uint)argc;
-  test_mux_cfg_t * cfg    = (test_mux_cfg_t *)argv;
-  fd_wksp_t *      wksp   = cfg->wksp;
+  ulong        rx_idx = (ulong)(uint)argc;
+  test_cfg_t * cfg    = (test_cfg_t *)argv;
+  fd_wksp_t *  wksp   = cfg->wksp;
 
   /* Hook up to rx cnc */
   fd_cnc_t * cnc = fd_cnc_join( cfg->rx_cnc_mem + rx_idx*cfg->rx_cnc_footprint );
@@ -470,8 +470,8 @@ main( int     argc,
   if( FD_UNLIKELY( !(burst_tau<2.1e17f) ) ) FD_LOG_ERR(( "--pkt-bw out of range" ));
 
   FD_LOG_NOTICE(( "Creating workspace with --page-cnt %lu --page-sz %s pages on --numa-idx %lu", page_cnt, _page_sz, numa_idx ));
-  fd_wksp_t * wksp = fd_wksp_new_anonymous( fd_cstr_to_shmem_page_sz( _page_sz ), page_cnt,
-                                            fd_shmem_cpu_idx( numa_idx ), "wksp", 0UL ); TEST( wksp );
+  fd_wksp_t * wksp = fd_wksp_new_anonymous( page_sz, page_cnt, fd_shmem_cpu_idx( numa_idx ), "wksp", 0UL );
+  TEST( wksp );
 
   FD_LOG_NOTICE(( "Creating cncs (--tx-cnt %lu, mux-cnt 1, --rx-cnt %lu, app-sz 64)", tx_cnt, rx_cnt ));
   ulong   cnc_footprint = fd_cnc_footprint( 64UL ); /* Room for 8 64-bit diagnostic counters */
@@ -518,7 +518,7 @@ main( int     argc,
 
   long now = fd_tickcount();
 
-  test_mux_cfg_t cfg[1];
+  test_cfg_t cfg[1];
 
   cfg->wksp = wksp;
 
