@@ -15,15 +15,15 @@
 #define FD_MCACHE_ALIGN (128UL)
 #define FD_MCACHE_FOOTPRINT( depth, app_sz )                                                              \
   FD_LAYOUT_FINI( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( FD_LAYOUT_INIT, \
-    FD_MCACHE_ALIGN, 128UL                          ), /* hdr  */                                         \
-    FD_MCACHE_ALIGN, 128UL                          ), /* seq  */                                         \
-    FD_MCACHE_ALIGN, (depth)*sizeof(fd_frag_meta_t) ), /* meta */                                         \
-    FD_MCACHE_ALIGN, (app_sz)                       ), /* app  */                                         \
+    FD_MCACHE_ALIGN, 128UL                           ), /* hdr  */                                        \
+    FD_MCACHE_ALIGN, FD_MCACHE_SEQ_CNT*sizeof(ulong) ), /* seq  */                                        \
+    FD_MCACHE_ALIGN, (depth)*sizeof(fd_frag_meta_t)  ), /* meta */                                        \
+    FD_MCACHE_ALIGN, (app_sz)                        ), /* app  */                                        \
     FD_MCACHE_ALIGN )
 
 /* FD_MCACHE_SEQ_CNT specifies the number of entries in the mcache's seq
-   storage region.  It is aligned FD_CACHE_ALIGN.  CNT should be a
-   multiple of 16.  seq[0] has special meaning; see below for details. */
+   storage region.  It is aligned FD_MCACHE_ALIGN.  Multiples of 16 have
+   good Feng Shui.  seq[0] has special meaning; see below for details. */
 
 #define FD_MCACHE_SEQ_CNT (16UL)
 
@@ -179,8 +179,9 @@ FD_FN_PURE uchar *       fd_mcache_app_laddr      ( fd_frag_meta_t *       mcach
    has produced all sequence numbers strictly before the return value
    cyclic).  This is usually done at consumer startup and, for some
    unreliable consumer overrun handling, during consumer overrun
-   recovery.  It is strongly not recommended to use this aggressively to
-   avoid cache line ping-ponging with the producer. */
+   recovery.  It is strongly recommended for consumers to avoid using
+   this as much as possible to limit cache line ping-ponging with the
+   producer. */
 
 static inline ulong
 fd_mcache_seq_query( ulong const * _seq ) {
@@ -200,8 +201,8 @@ fd_mcache_seq_query( ulong const * _seq ) {
    Even more aggressively is usually fine.  This should also be done
    when the producer is shutdown to facilitate cleanly restarting a
    producer and what not.  This also serves as a compiler memory fence
-   to ensure credits are returned at a well defined point in the
-   instruction stream (e.g. so that compiler doesn't move any stores
+   to ensure the sequence number is updated at a well defined point in
+   the instruction stream (e.g. so that compiler doesn't move any stores
    from before the update to after the above). */
 
 static inline void
@@ -241,11 +242,11 @@ fd_mcache_seq_update( ulong * _seq,
    How useful block interleaving is somewhat application dependent.
    Different values have different trade offs between optimizing for
    fast and slow consumers and for different sizes of meta data and
-   different page sizes backing memory.
+   different page size backing memory.
 
    Using 0 / B for FD_MCACHE_LG_INTERLEAVE / LG_BLOCK will disable meta
    data interleaving while still requiring mcaches be at least 2^B in
-   size.  This implicit optimizes for slow consumers.  Something like
+   size.  This implicitly optimizes for slow consumers.  Something like
    2 / 7 (with a 32-byte size 32-byte aligned fd_frag_meta_t and a
    mcache that is at least normal page aligned) will access cached meta
    data in sequential blocks of 128 message fragments that are normal
@@ -288,7 +289,7 @@ fd_mcache_line_idx( ulong seq,
 
 /* fd_mcache_publish inserts the metadata for frag seq into the given
    depth entry mcache in a way compatible with FD_MCACHE_WAIT and
-   FD_MCACHE_WAIT_SSE (but not FD_MCACHE_WAIT_AVX (see FD_MCACHE_WAIT
+   FD_MCACHE_WAIT_SSE (but not FD_MCACHE_WAIT_AVX ... see FD_MCACHE_WAIT
    for more details).  This implicitly evicts the metadata for the
    sequence number currently stored at fd_mcache_line_idx( seq, depth ).
    In the typical case where sequence numbers are published into the
@@ -429,8 +430,8 @@ fd_mcache_publish_avx( fd_frag_meta_t * mcache,   /* Assumed a current local joi
    producer is paused after it starts writing metadata but before it has
    completed writing it ... an unreliable overrun consumer that reads
    the metadata while the producer is paused will observe metadata that
-   is a mix of the new metadata and old metadata with an bogus sequence
-   number on it.) seq_diff is a lower bound of how far the caller has
+   is a mix of the new metadata and old metadata with a bogus sequence
+   number on it).  seq_diff is a lower bound of how far the caller has
    fallen behind the producer and seq_found is a lower bound of where
    producer is currently at.
 
