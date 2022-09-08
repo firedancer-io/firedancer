@@ -6,14 +6,6 @@
 
 FD_STATIC_ASSERT( FD_MUX_CNC_SIGNAL_ACK==4UL, unit_test );
 
-FD_STATIC_ASSERT( FD_FSEQ_DIAG_PUB_CNT  ==0UL, unit_test );
-FD_STATIC_ASSERT( FD_FSEQ_DIAG_PUB_SZ   ==1UL, unit_test );
-FD_STATIC_ASSERT( FD_FSEQ_DIAG_FILT_CNT ==2UL, unit_test );
-FD_STATIC_ASSERT( FD_FSEQ_DIAG_FILT_SZ  ==3UL, unit_test );
-FD_STATIC_ASSERT( FD_FSEQ_DIAG_OVRNP_CNT==4UL, unit_test );
-FD_STATIC_ASSERT( FD_FSEQ_DIAG_OVRNR_CNT==5UL, unit_test );
-FD_STATIC_ASSERT( FD_FSEQ_DIAG_SLOW_CNT ==6UL, unit_test );
-
 FD_STATIC_ASSERT( FD_MUX_TILE_IN_MAX ==8192UL, unit_test );
 FD_STATIC_ASSERT( FD_MUX_TILE_OUT_MAX==8192UL, unit_test );
 
@@ -26,25 +18,25 @@ struct test_mux_cfg {
 
   ulong       tx_cnt;
   int         tx_lazy;
-  ulong       tx_cnc_gaddr;      ulong tx_cnc_footprint;
-  ulong       tx_rng_gaddr;      ulong tx_rng_footprint;
-  ulong       tx_fseq_gaddr;     ulong tx_fseq_footprint;
-  ulong       tx_mcache_gaddr;   ulong tx_mcache_footprint;
-  ulong       tx_dcache_gaddr;   ulong tx_dcache_footprint;
-  ulong       tx_fctl_gaddr;     ulong tx_fctl_footprint;
+  uchar *     tx_cnc_mem;      ulong tx_cnc_footprint;
+  uchar *     tx_rng_mem;      ulong tx_rng_footprint;
+  uchar *     tx_fseq_mem;     ulong tx_fseq_footprint;
+  uchar *     tx_mcache_mem;   ulong tx_mcache_footprint;
+  uchar *     tx_dcache_mem;   ulong tx_dcache_footprint;
+  uchar *     tx_fctl_mem;     ulong tx_fctl_footprint;
 
-  ulong       mux_cnc_gaddr;     ulong mux_cnc_footprint;
-  ulong       mux_mcache_gaddr;  ulong mux_mcache_footprint;
-  ulong       mux_scratch_gaddr; ulong mux_scratch_footprint;
+  uchar *     mux_cnc_mem;
+  uchar *     mux_mcache_mem;
+  uchar *     mux_scratch_mem;
   ulong       mux_cr_max;
   long        mux_lazy;
   uint        mux_seed;
 
   ulong       rx_cnt;
   int         rx_lazy;
-  ulong       rx_cnc_gaddr;      ulong rx_cnc_footprint;
-  ulong       rx_fseq_gaddr;     ulong rx_fseq_footprint;
-  ulong       rx_rng_gaddr;      ulong rx_rng_footprint;
+  uchar *     rx_cnc_mem;      ulong rx_cnc_footprint;
+  uchar *     rx_rng_mem;      ulong rx_rng_footprint;
+  uchar *     rx_fseq_mem;     ulong rx_fseq_footprint;
 
   ulong       pkt_framing;
   ulong       pkt_payload_max;
@@ -67,7 +59,7 @@ tx_tile_main( int     argc,
   fd_wksp_t *      wksp   = cfg->wksp;
 
   /* Hook up to tx command-and-control */
-  fd_cnc_t * cnc      = fd_cnc_join( fd_wksp_laddr( wksp, cfg->tx_cnc_gaddr + tx_idx*cfg->tx_cnc_footprint ) );
+  fd_cnc_t * cnc      = fd_cnc_join( cfg->tx_cnc_mem + tx_idx*cfg->tx_cnc_footprint );
   ulong *    cnc_diag = (ulong *)fd_cnc_app_laddr( cnc );
   int        in_backp = 1;
 
@@ -75,31 +67,31 @@ tx_tile_main( int     argc,
   FD_VOLATILE( cnc_diag[ FD_CNC_DIAG_BACKP_CNT ] ) = 0UL;
 
   /* Hook up to the tx mcache */
-  fd_frag_meta_t * mcache = fd_mcache_join( fd_wksp_laddr( wksp, cfg->tx_mcache_gaddr + tx_idx*cfg->tx_mcache_footprint ) );
+  fd_frag_meta_t * mcache = fd_mcache_join( cfg->tx_mcache_mem + tx_idx*cfg->tx_mcache_footprint );
   ulong            depth  = fd_mcache_depth( mcache );
   ulong *          sync   = fd_mcache_seq_laddr( mcache );
   ulong            seq    = fd_mcache_seq_query( sync );
 
   /* Hook up to the tx dcache */
-  uchar * dcache = fd_dcache_join( fd_wksp_laddr( wksp, cfg->tx_dcache_gaddr + tx_idx*cfg->tx_dcache_footprint ) );
+  uchar * dcache = fd_dcache_join( cfg->tx_dcache_mem + tx_idx*cfg->tx_dcache_footprint );
   ulong   chunk0 = fd_dcache_compact_chunk0( wksp, dcache );
   ulong   wmark  = fd_dcache_compact_wmark ( wksp, dcache, cfg->pkt_framing + cfg->pkt_payload_max );
   ulong   chunk  = chunk0;
 
   /* Hook up to the tx flow control inputs */
-  ulong * fseq      = fd_fseq_join( fd_wksp_laddr( wksp, cfg->tx_fseq_gaddr + tx_idx*cfg->tx_fseq_footprint ) );
+  ulong * fseq      = fd_fseq_join( cfg->tx_fseq_mem + tx_idx*cfg->tx_fseq_footprint );
   ulong * fseq_diag = (ulong *)fd_fseq_app_laddr( fseq );
 
   FD_VOLATILE( fseq_diag[ FD_FSEQ_DIAG_SLOW_CNT ] ) = 0UL;
 
   /* Hook up to the tx flow control state */
-  fd_fctl_t * fctl = fd_fctl_join( fd_wksp_laddr( wksp, cfg->tx_fctl_gaddr + tx_idx*cfg->tx_fctl_footprint ) );
+  fd_fctl_t * fctl = fd_fctl_join( cfg->tx_fctl_mem + tx_idx*cfg->tx_fctl_footprint );
   fd_fctl_cfg_rx_add( fctl, depth, fseq, &fseq_diag[ FD_FSEQ_DIAG_SLOW_CNT ] );
   fd_fctl_cfg_done( fctl, 1UL, 0UL, 0UL, 0UL );
   ulong cr_avail = 0UL;
 
   /* Hook up to the random number generator */
-  fd_rng_t * rng = fd_rng_join( fd_wksp_laddr( wksp, cfg->tx_rng_gaddr + tx_idx*cfg->tx_rng_footprint ) );
+  fd_rng_t * rng = fd_rng_join( cfg->tx_rng_mem + tx_idx*cfg->tx_rng_footprint );
 
   /* Configure housekeeping */
   ulong async_min = 1UL << cfg->tx_lazy;
@@ -257,27 +249,32 @@ mux_tile_main( int     argc,
 
   char   buf[ (1UL+128UL+128UL+1UL+128UL)*FD_WKSP_CSTR_MAX ];
   char * p = buf;
-# define MAKE_WKSP_CSTR(gaddr) (__extension__({ char const * _cstr = p; fd_wksp_cstr( cfg->wksp, (gaddr), p ); p += FD_WKSP_CSTR_MAX; _cstr; }))
+# define MAKE_WKSP_CSTR(laddr) (__extension__({ \
+    char const * _cstr = p;                     \
+    fd_wksp_cstr_laddr( (laddr), p );           \
+    p += FD_WKSP_CSTR_MAX;                      \
+    _cstr;                                      \
+  }))
 
-  char const * _cnc = MAKE_WKSP_CSTR( cfg->mux_cnc_gaddr );
+  char const * _cnc = MAKE_WKSP_CSTR( cfg->mux_cnc_mem );
 
   char const * _tx_mcache[ 128 ];
   char const * _tx_fseq  [ 128 ];
   for( ulong tx_idx=0UL; tx_idx<cfg->tx_cnt; tx_idx++ ) {
-    _tx_mcache[ tx_idx ] = MAKE_WKSP_CSTR( cfg->tx_mcache_gaddr + tx_idx*cfg->tx_mcache_footprint );
-    _tx_fseq  [ tx_idx ] = MAKE_WKSP_CSTR( cfg->tx_fseq_gaddr   + tx_idx*cfg->tx_fseq_footprint   );
+    _tx_mcache[ tx_idx ] = MAKE_WKSP_CSTR( cfg->tx_mcache_mem + tx_idx*cfg->tx_mcache_footprint );
+    _tx_fseq  [ tx_idx ] = MAKE_WKSP_CSTR( cfg->tx_fseq_mem   + tx_idx*cfg->tx_fseq_footprint   );
   }
 
-  char const * _mux_mcache = MAKE_WKSP_CSTR( cfg->mux_mcache_gaddr );
+  char const * _mux_mcache = MAKE_WKSP_CSTR( cfg->mux_mcache_mem );
 
   char const * _rx_fseq[ 128 ];
   for( ulong rx_idx=0UL; rx_idx<cfg->rx_cnt; rx_idx++ )
-    _rx_fseq  [ rx_idx ] = MAKE_WKSP_CSTR( cfg->rx_fseq_gaddr + rx_idx*cfg->rx_fseq_footprint );
+    _rx_fseq[ rx_idx ] = MAKE_WKSP_CSTR( cfg->rx_fseq_mem + rx_idx*cfg->rx_fseq_footprint );
 
 # undef MAKE_WKSP_CSTR
 
   int err = fd_mux_tile( _cnc, cfg->tx_cnt, _tx_mcache, _tx_fseq, _mux_mcache, cfg->rx_cnt, _rx_fseq,
-                         cfg->mux_cr_max, cfg->mux_lazy, cfg->mux_seed, fd_wksp_laddr( cfg->wksp, cfg->mux_scratch_gaddr ) );
+                         cfg->mux_cr_max, cfg->mux_lazy, cfg->mux_seed, cfg->mux_scratch_mem );
   if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_mux_tile failed (%i)", err ));
 
   return 0;
@@ -297,19 +294,19 @@ rx_tile_main( int     argc,
   fd_wksp_t *      wksp   = cfg->wksp;
 
   /* Hook up to rx cnc */
-  fd_cnc_t * cnc = fd_cnc_join( fd_wksp_laddr( wksp, cfg->rx_cnc_gaddr + rx_idx*cfg->rx_cnc_footprint ) );
+  fd_cnc_t * cnc = fd_cnc_join( cfg->rx_cnc_mem + rx_idx*cfg->rx_cnc_footprint );
 
   /* Hook up to mux mcache */
-  fd_frag_meta_t const * mcache = fd_mcache_join( fd_wksp_laddr( wksp, cfg->mux_mcache_gaddr ) );
+  fd_frag_meta_t const * mcache = fd_mcache_join( cfg->mux_mcache_mem );
   ulong                  depth  = fd_mcache_depth( mcache );
   ulong const *          sync   = fd_mcache_seq_laddr_const( mcache );
   ulong                  seq    = fd_mcache_seq_query( sync );
 
   /* Hook up to mux flow control */
-  ulong * fseq = fd_fseq_join( fd_wksp_laddr( wksp, cfg->rx_fseq_gaddr + rx_idx*cfg->rx_fseq_footprint ) );
+  ulong * fseq = fd_fseq_join( cfg->rx_fseq_mem + rx_idx*cfg->rx_fseq_footprint );
 
   /* Hook up to the random number generator */
-  fd_rng_t * rng = fd_rng_join( fd_wksp_laddr( wksp, cfg->rx_rng_gaddr + rx_idx*cfg->rx_rng_footprint ) );
+  fd_rng_t * rng = fd_rng_join( cfg->rx_rng_mem + rx_idx*cfg->rx_rng_footprint );
 
   /* Configure housekeeping */
   ulong async_min = 1UL << cfg->rx_lazy;
@@ -473,155 +470,112 @@ main( int     argc,
   if( FD_UNLIKELY( !(burst_tau<2.1e17f) ) ) FD_LOG_ERR(( "--pkt-bw out of range" ));
 
   FD_LOG_NOTICE(( "Creating workspace with --page-cnt %lu --page-sz %s pages on --numa-idx %lu", page_cnt, _page_sz, numa_idx ));
-  /* FIXME: CONSIDER MAKING THIS A WKSP HELPER */
-  void * wksp_mem = fd_shmem_acquire( page_sz, page_cnt, fd_shmem_cpu_idx( numa_idx ) );
-  if( FD_UNLIKELY( !wksp_mem ) ) FD_LOG_ERR(( "fd_shmem_acquire failed" ));
-  void * wksp_obj = fd_wksp_new( wksp_mem, "wksp", page_sz*page_cnt, 0UL );
-  if( FD_UNLIKELY( !wksp_obj ) ) FD_LOG_ERR(( "fd_wksp_new failed" ));
-  fd_wksp_t * wksp = fd_wksp_join( wksp_obj );
-  if( FD_UNLIKELY( !wksp ) ) FD_LOG_ERR(( "fd_wksp_join failed" ));
-  int err = fd_shmem_join_anonymous( "wksp", FD_SHMEM_JOIN_MODE_READ_ONLY, wksp, wksp_mem, page_sz, page_cnt );
-  if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_shmem_join_anonymous failed (%i)", err ));
+  fd_wksp_t * wksp = fd_wksp_new_anonymous( fd_cstr_to_shmem_page_sz( _page_sz ), page_cnt,
+                                            fd_shmem_cpu_idx( numa_idx ), "wksp", 0UL ); TEST( wksp );
 
-  FD_LOG_NOTICE(( "Allocating cncs (--tx-cnt %lu, mux-cnt 1, --rx-cnt %lu, app-sz 64)", tx_cnt, rx_cnt ));
-  ulong cnc_cnt       = tx_cnt + 1UL + rx_cnt; /* Cnc for the txs, mux and rxs */
-  ulong cnc_align     = fd_cnc_align();
-  ulong cnc_footprint = fd_cnc_footprint( 64UL ); /* Room for 8 64-bit diagnostic counters */
-  ulong cnc_gaddr     = fd_wksp_alloc( wksp, cnc_align, cnc_footprint*cnc_cnt );
-  if( FD_UNLIKELY( !cnc_gaddr ) ) FD_LOG_ERR(( "fd_wksp_alloc failed" ));
+  FD_LOG_NOTICE(( "Creating cncs (--tx-cnt %lu, mux-cnt 1, --rx-cnt %lu, app-sz 64)", tx_cnt, rx_cnt ));
+  ulong   cnc_footprint = fd_cnc_footprint( 64UL ); /* Room for 8 64-bit diagnostic counters */
+  uchar * cnc_mem       = (uchar *)fd_wksp_alloc_laddr( wksp, fd_cnc_align(), cnc_footprint*(tx_cnt+1UL+rx_cnt) );
+  TEST( cnc_mem );
 
-  FD_LOG_NOTICE(( "Allocating fseqs" ));
-  ulong fseq_cnt       = tx_cnt + rx_cnt; /* Fseq for the txs and rxs */
-  ulong fseq_align     = fd_fseq_align();
-  ulong fseq_footprint = fd_fseq_footprint();
-  ulong fseq_gaddr     = fd_wksp_alloc( wksp, fseq_align, fseq_footprint*fseq_cnt );
-  if( FD_UNLIKELY( !fseq_gaddr ) ) FD_LOG_ERR(( "fd_wksp_alloc failed" ));
+  FD_LOG_NOTICE(( "Creating fseqs" ));
+  ulong   fseq_footprint = fd_fseq_footprint();
+  uchar * fseq_mem       = (uchar *)fd_wksp_alloc_laddr( wksp, fd_fseq_align(), fseq_footprint*(tx_cnt+rx_cnt) );
+  TEST( fseq_mem );
 
-  FD_LOG_NOTICE(( "Allocating rngs" ));
-  ulong rng_cnt       = tx_cnt + rx_cnt; /* Rng for the txs and rxs (mux makes it own) */
-  ulong rng_align     = fd_ulong_max( fd_rng_align(), 128UL ); /* overalign to avoid false sharing */
-  ulong rng_footprint = fd_ulong_align_up( fd_rng_footprint(), rng_align );
-  ulong rng_gaddr     = fd_wksp_alloc( wksp, rng_align, rng_footprint*rng_cnt );
-  if( FD_UNLIKELY( !rng_gaddr ) ) FD_LOG_ERR(( "fd_wksp_alloc failed" ));
+  FD_LOG_NOTICE(( "Creating rngs" ));
+  ulong   rng_align     = fd_ulong_max( fd_rng_align(), 128UL ); /* overalign to avoid false sharing */
+  ulong   rng_footprint = fd_ulong_align_up( fd_rng_footprint(), rng_align );
+  uchar * rng_mem       = (uchar *)fd_wksp_alloc_laddr( wksp, rng_align, rng_footprint*(tx_cnt+rx_cnt) );
+  TEST( rng_mem );
 
-  FD_LOG_NOTICE(( "Allocating tx mcaches (--tx-depth %lu, app-sz 0)", tx_depth ));
-  ulong tx_mcache_align     = fd_mcache_align();
-  ulong tx_mcache_footprint = fd_mcache_footprint( tx_depth, 0UL ); /* No app region for the mcache */
-  ulong tx_mcache_gaddr     = fd_wksp_alloc( wksp, tx_mcache_align, tx_mcache_footprint*tx_cnt );
-  if( FD_UNLIKELY( !tx_mcache_gaddr ) ) FD_LOG_ERR(( "fd_wksp_alloc failed" ));
+  FD_LOG_NOTICE(( "Creating tx mcaches (--tx-depth %lu, app-sz 0)", tx_depth ));
+  ulong   tx_mcache_footprint = fd_mcache_footprint( tx_depth, 0UL ); /* No app region for the mcache */
+  uchar * tx_mcache_mem       = (uchar *)fd_wksp_alloc_laddr( wksp, fd_mcache_align(), tx_mcache_footprint*tx_cnt );
+  TEST( tx_mcache_mem );
 
-  FD_LOG_NOTICE(( "Allocating tx dcaches (--tx-mtu %lu, tx-burst 1, tx-compact 1, app-sz 0)", tx_mtu ));
-  ulong tx_data_sz = fd_dcache_req_data_sz( tx_mtu, tx_depth, 1UL, 1  );
-  if( FD_UNLIKELY( !tx_data_sz ) ) FD_LOG_ERR(( "fd_dcache_req_data_sz failed" ));
-  ulong tx_dcache_align     = fd_dcache_align();
-  ulong tx_dcache_footprint = fd_dcache_footprint( tx_data_sz, 0UL ); /* No app region for the dcache */
-  ulong tx_dcache_gaddr     = fd_wksp_alloc( wksp, tx_dcache_align, tx_dcache_footprint*tx_cnt );
-  if( FD_UNLIKELY( !tx_dcache_gaddr ) ) FD_LOG_ERR(( "fd_wksp_alloc failed" ));
+  FD_LOG_NOTICE(( "Creating tx dcaches (--tx-mtu %lu, tx-burst 1, tx-compact 1, app-sz 0)", tx_mtu ));
+  ulong   tx_data_sz          = fd_dcache_req_data_sz( tx_mtu, tx_depth, 1UL, 1  ); TEST( tx_data_sz );
+  ulong   tx_dcache_footprint = fd_dcache_footprint( tx_data_sz, 0UL ); /* No app region for the dcache */
+  uchar * tx_dcache_mem       = (uchar *)fd_wksp_alloc_laddr( wksp, fd_dcache_align(), tx_dcache_footprint*tx_cnt );
+  TEST( tx_dcache_mem );
 
-  FD_LOG_NOTICE(( "Allocating tx fctls (--tx-depth %lu, app-sz 0)", tx_depth ));
-  ulong tx_fctl_align     = fd_ulong_max( fd_fctl_align(), 128UL ); /* overalign to avoid false sharing */
-  ulong tx_fctl_footprint = fd_ulong_align_up( fd_fctl_footprint( 1UL ), tx_fctl_align );
-  ulong tx_fctl_gaddr     = fd_wksp_alloc( wksp, tx_fctl_align, tx_fctl_footprint*tx_cnt );
-  if( FD_UNLIKELY( !tx_fctl_gaddr ) ) FD_LOG_ERR(( "fd_wksp_alloc failed" ));
+  FD_LOG_NOTICE(( "Creating tx fctls (--tx-depth %lu, app-sz 0)", tx_depth ));
+  ulong   tx_fctl_align     = fd_ulong_max( fd_fctl_align(), 128UL ); /* overalign to avoid false sharing */
+  ulong   tx_fctl_footprint = fd_ulong_align_up( fd_fctl_footprint( 1UL ), tx_fctl_align );
+  uchar * tx_fctl_mem       = (uchar *)fd_wksp_alloc_laddr( wksp, tx_fctl_align, tx_fctl_footprint*tx_cnt );
+  TEST( tx_fctl_mem );
 
-  FD_LOG_NOTICE(( "Allocating mux mcache (--mux-depth %lu, app-sz 0)", mux_depth ));
-  ulong mux_mcache_align     = fd_mcache_align();
-  ulong mux_mcache_footprint = fd_mcache_footprint( mux_depth, 0UL ); /* No app region for the mcache */
-  ulong mux_mcache_gaddr     = fd_wksp_alloc( wksp, mux_mcache_align, mux_mcache_footprint );
-  if( FD_UNLIKELY( !mux_mcache_gaddr ) ) FD_LOG_ERR(( "fd_wksp_alloc failed" ));
+  FD_LOG_NOTICE(( "Creating mux mcache (--mux-depth %lu, app-sz 0)", mux_depth ));
+  ulong   mux_mcache_footprint = fd_mcache_footprint( mux_depth, 0UL ); /* No app region for the mcache */
+  uchar * mux_mcache_mem       = (uchar *)fd_wksp_alloc_laddr( wksp, fd_mcache_align(), mux_mcache_footprint );
+  TEST( mux_mcache_mem );
 
-  FD_LOG_NOTICE(( "Allocating mux scratch" ));
-  ulong mux_scratch_align     = fd_mux_tile_scratch_align();
-  ulong mux_scratch_footprint = fd_mux_tile_scratch_footprint( tx_cnt, rx_cnt );
-  ulong mux_scratch_gaddr     = fd_wksp_alloc( wksp, mux_scratch_align, mux_scratch_footprint );
-  if( FD_UNLIKELY( !mux_scratch_gaddr ) ) FD_LOG_ERR(( "fd_wksp_alloc failed" ));
+  FD_LOG_NOTICE(( "Creating mux scratch" ));
+  ulong   mux_scratch_footprint = fd_mux_tile_scratch_footprint( tx_cnt, rx_cnt );
+  uchar * mux_scratch_mem       = (uchar *)fd_wksp_alloc_laddr( wksp, fd_mux_tile_scratch_align(), mux_scratch_footprint );
+  TEST( mux_scratch_mem );
 
-  uchar * cnc_mem         = fd_wksp_laddr( wksp, cnc_gaddr         );
-  uchar * fseq_mem        = fd_wksp_laddr( wksp, fseq_gaddr        );
-  uchar * rng_mem         = fd_wksp_laddr( wksp, rng_gaddr         );
-  uchar * tx_mcache_mem   = fd_wksp_laddr( wksp, tx_mcache_gaddr   );
-  uchar * tx_dcache_mem   = fd_wksp_laddr( wksp, tx_dcache_gaddr   );
-  uchar * tx_fctl_mem     = fd_wksp_laddr( wksp, tx_fctl_gaddr     );
-  uchar * mux_mcache_mem  = fd_wksp_laddr( wksp, mux_mcache_gaddr  );
-  uchar * mux_scratch_mem = fd_wksp_laddr( wksp, mux_scratch_gaddr );
-
-  if( FD_UNLIKELY( !cnc_mem         ) ) FD_LOG_ERR(( "fd_wksp_laddr failed" ));
-  if( FD_UNLIKELY( !fseq_mem        ) ) FD_LOG_ERR(( "fd_wksp_laddr failed" ));
-  if( FD_UNLIKELY( !rng_mem         ) ) FD_LOG_ERR(( "fd_wksp_laddr failed" ));
-  if( FD_UNLIKELY( !tx_mcache_mem   ) ) FD_LOG_ERR(( "fd_wksp_laddr failed" ));
-  if( FD_UNLIKELY( !tx_dcache_mem   ) ) FD_LOG_ERR(( "fd_wksp_laddr failed" ));
-  if( FD_UNLIKELY( !tx_fctl_mem     ) ) FD_LOG_ERR(( "fd_wksp_laddr failed" ));
-  if( FD_UNLIKELY( !mux_mcache_mem  ) ) FD_LOG_ERR(( "fd_wksp_laddr failed" ));
-  if( FD_UNLIKELY( !mux_scratch_mem ) ) FD_LOG_ERR(( "fd_wksp_laddr failed" ));
-
-  long now = fd_log_wallclock();
-
-  for( ulong tx_idx=0UL; tx_idx<tx_cnt; tx_idx++ ) {
-    ulong tx_seq0 = fd_rng_ulong( rng );
-    if( FD_UNLIKELY( !fd_cnc_new   ( cnc_mem, 64UL, 0UL, now               ) ) ) FD_LOG_ERR(( "fd_cnc_new failed"    ));
-    if( FD_UNLIKELY( !fd_rng_new   ( rng_mem, rng_seq++, 0UL               ) ) ) FD_LOG_ERR(( "fd_rng_new failed"    ));
-    if( FD_UNLIKELY( !fd_fseq_new  ( fseq_mem, tx_seq0                     ) ) ) FD_LOG_ERR(( "fd_fseq_new failed"   ));
-    if( FD_UNLIKELY( !fd_mcache_new( tx_mcache_mem, tx_depth, 0UL, tx_seq0 ) ) ) FD_LOG_ERR(( "fd_mcache_new failed" ));
-    if( FD_UNLIKELY( !fd_dcache_new( tx_dcache_mem, tx_data_sz, 0UL        ) ) ) FD_LOG_ERR(( "fd_dcache_new failed" ));
-    if( FD_UNLIKELY( !fd_fctl_new  ( tx_fctl_mem, 1UL                      ) ) ) FD_LOG_ERR(( "fd_fctl_new failed"   ));
-
-    cnc_mem       += cnc_footprint;
-    rng_mem       += rng_footprint;
-    fseq_mem      += fseq_footprint;
-    tx_mcache_mem += tx_mcache_footprint;
-    tx_dcache_mem += tx_dcache_footprint;
-    tx_fctl_mem   += tx_fctl_footprint;
-  }
-
-  ulong mux_seq0 = fd_rng_ulong( rng );
-  if( FD_UNLIKELY( !fd_cnc_new   ( cnc_mem, 64UL, 1UL, now                  ) ) ) FD_LOG_ERR(( "fd_cnc_new failed"    ));
-  if( FD_UNLIKELY( !fd_mcache_new( mux_mcache_mem, mux_depth, 0UL, mux_seq0 ) ) ) FD_LOG_ERR(( "fd_mcache_new failed" ));
-
-  cnc_mem        += cnc_footprint;
-  mux_mcache_mem += mux_mcache_footprint;
-
-  for( ulong rx_idx=0UL; rx_idx<rx_cnt; rx_idx++ ) {
-    if( FD_UNLIKELY( !fd_cnc_new ( cnc_mem, 64UL, 2UL, now ) ) ) FD_LOG_ERR(( "fd_cnc_new failed"  ));
-    if( FD_UNLIKELY( !fd_rng_new ( rng_mem, rng_seq++, 0UL ) ) ) FD_LOG_ERR(( "fd_rng_new failed"  ));
-    if( FD_UNLIKELY( !fd_fseq_new( fseq_mem, mux_seq0      ) ) ) FD_LOG_ERR(( "fd_fseq_new failed" ));
-
-    cnc_mem  += cnc_footprint;
-    rng_mem  += rng_footprint;
-    fseq_mem += fseq_footprint;
-  }
+  long now = fd_tickcount();
 
   test_mux_cfg_t cfg[1];
 
-  cfg->wksp              = wksp;
+  cfg->wksp = wksp;
 
-  cfg->tx_cnt            = tx_cnt;
-  cfg->tx_lazy           = tx_lazy;
-  cfg->tx_cnc_gaddr      = cnc_gaddr;                                cfg->tx_cnc_footprint      = cnc_footprint;
-  cfg->tx_rng_gaddr      = rng_gaddr;                                cfg->tx_rng_footprint      = rng_footprint;
-  cfg->tx_fseq_gaddr     = fseq_gaddr;                               cfg->tx_fseq_footprint     = fseq_footprint;
-  cfg->tx_mcache_gaddr   = tx_mcache_gaddr;                          cfg->tx_mcache_footprint   = tx_mcache_footprint;
-  cfg->tx_dcache_gaddr   = tx_dcache_gaddr;                          cfg->tx_dcache_footprint   = tx_dcache_footprint;
-  cfg->tx_fctl_gaddr     = tx_fctl_gaddr;                            cfg->tx_fctl_footprint     = tx_fctl_footprint;
+  cfg->tx_cnt        = tx_cnt;
+  cfg->tx_lazy       = tx_lazy;
+  cfg->tx_cnc_mem    = cnc_mem;       cfg->tx_cnc_footprint    = cnc_footprint;
+  cfg->tx_rng_mem    = rng_mem;       cfg->tx_rng_footprint    = rng_footprint;
+  cfg->tx_fseq_mem   = fseq_mem;      cfg->tx_fseq_footprint   = fseq_footprint;
+  cfg->tx_mcache_mem = tx_mcache_mem; cfg->tx_mcache_footprint = tx_mcache_footprint;
+  cfg->tx_dcache_mem = tx_dcache_mem; cfg->tx_dcache_footprint = tx_dcache_footprint;
+  cfg->tx_fctl_mem   = tx_fctl_mem;   cfg->tx_fctl_footprint   = tx_fctl_footprint;
 
-  cfg->mux_cnc_gaddr     = cnc_gaddr  +  tx_cnt     * cnc_footprint; cfg->mux_cnc_footprint     = cnc_footprint;
-  cfg->mux_mcache_gaddr  = mux_mcache_gaddr;                         cfg->mux_mcache_footprint  = mux_mcache_footprint;
-  cfg->mux_scratch_gaddr = mux_scratch_gaddr;                        cfg->mux_scratch_footprint = mux_scratch_footprint;
-  cfg->mux_cr_max        = mux_cr_max;
-  cfg->mux_lazy          = mux_lazy;
-  cfg->mux_seed          = rng_seq++;
+  cfg->mux_cnc_mem     = cnc_mem + tx_cnt*cnc_footprint;
+  cfg->mux_mcache_mem  = mux_mcache_mem;
+  cfg->mux_scratch_mem = mux_scratch_mem;
+  cfg->mux_cr_max      = mux_cr_max;
+  cfg->mux_lazy        = mux_lazy;
+  cfg->mux_seed        = rng_seq++;
 
-  cfg->rx_cnt            = rx_cnt;
-  cfg->rx_lazy           = rx_lazy;
-  cfg->rx_cnc_gaddr      = cnc_gaddr  + (tx_cnt+1UL)* cnc_footprint; cfg->rx_cnc_footprint      = cnc_footprint;
-  cfg->rx_rng_gaddr      = rng_gaddr  +  tx_cnt     * rng_footprint; cfg->rx_rng_footprint      = rng_footprint;
-  cfg->rx_fseq_gaddr     = fseq_gaddr +  tx_cnt     *fseq_footprint; cfg->rx_fseq_footprint     = fseq_footprint;
+  cfg->rx_cnt      = rx_cnt;
+  cfg->rx_lazy     = rx_lazy;
+  cfg->rx_cnc_mem  = cnc_mem  + (tx_cnt+1UL)*cnc_footprint;  cfg->rx_cnc_footprint  = cnc_footprint;
+  cfg->rx_rng_mem  = rng_mem  +  tx_cnt     *rng_footprint;  cfg->rx_rng_footprint  = rng_footprint;
+  cfg->rx_fseq_mem = fseq_mem +  tx_cnt     *fseq_footprint; cfg->rx_fseq_footprint = fseq_footprint;
+  
+  cfg->pkt_framing     = pkt_framing;
+  cfg->pkt_payload_max = pkt_payload_max;
+  cfg->burst_tau       = burst_tau;
+  cfg->burst_avg       = burst_avg;
 
-  cfg->pkt_framing       = pkt_framing;
-  cfg->pkt_payload_max   = pkt_payload_max;
-  cfg->burst_tau         = burst_tau;
-  cfg->burst_avg         = burst_avg;
+  for( ulong tx_idx=0UL; tx_idx<tx_cnt; tx_idx++ ) {
+    ulong tx_seq0 = fd_rng_ulong( rng );
+    TEST( fd_cnc_new   ( cfg->tx_cnc_mem    + tx_idx*cfg->tx_cnc_footprint,    64UL, 0UL, now         ) );
+    TEST( fd_rng_new   ( cfg->tx_rng_mem    + tx_idx*cfg->tx_rng_footprint,    rng_seq++, 0UL         ) );
+    TEST( fd_fseq_new  ( cfg->tx_fseq_mem   + tx_idx*cfg->tx_fseq_footprint,   tx_seq0                ) );
+    TEST( fd_mcache_new( cfg->tx_mcache_mem + tx_idx*cfg->tx_mcache_footprint, tx_depth, 0UL, tx_seq0 ) );
+    TEST( fd_dcache_new( cfg->tx_dcache_mem + tx_idx*cfg->tx_dcache_footprint, tx_data_sz, 0UL        ) );
+    TEST( fd_fctl_new  ( cfg->tx_fctl_mem   + tx_idx*cfg->tx_fctl_footprint,   1UL                    ) );
+  }
+
+  ulong mux_seq0 = fd_rng_ulong( rng );
+  TEST( fd_cnc_new   ( cfg->mux_cnc_mem,    64UL, 1UL, now           ) );
+  TEST( fd_mcache_new( cfg->mux_mcache_mem, mux_depth, 0UL, mux_seq0 ) );
+
+  for( ulong rx_idx=0UL; rx_idx<rx_cnt; rx_idx++ ) {
+    TEST( fd_cnc_new ( cfg->rx_cnc_mem  + rx_idx*cfg->rx_cnc_footprint,  64UL, 2UL, now ) );
+    TEST( fd_rng_new ( cfg->rx_rng_mem  + rx_idx*cfg->rx_rng_footprint,  rng_seq++, 0UL ) );
+    TEST( fd_fseq_new( cfg->rx_fseq_mem + rx_idx*cfg->rx_fseq_footprint, mux_seq0       ) );
+  }
 
   FD_LOG_NOTICE(( "Booting" ));
+
+  fd_cnc_t * cnc[ FD_TILE_MAX ];
+  for( ulong tile_idx=1UL; tile_idx<tile_cnt; tile_idx++ ) {
+    cnc[ tile_idx ]= fd_cnc_join( cnc_mem + (tile_idx-1UL)*cnc_footprint );
+    TEST( cnc[ tile_idx ] );
+  }
 
   for( ulong tile_idx=tile_cnt-1UL; tile_idx>0UL; tile_idx-- ) { /* reverse order to bring rxs -> mux -> txs */
     fd_tile_task_t tile_main;
@@ -630,16 +584,11 @@ main( int     argc,
     if(      tile_idx<= tx_cnt      ) { tile_main =  tx_tile_main; argc = (int)(uint)(tile_idx-1UL);        }
     else if( tile_idx==(tx_cnt+1UL) ) { tile_main = mux_tile_main; argc = 0;                                }
     else                              { tile_main =  rx_tile_main; argc = (int)(uint)(tile_idx-tx_cnt-2UL); }
-    if( FD_UNLIKELY( !fd_tile_exec_new( tile_idx, tile_main, argc, argv ) ) ) FD_LOG_ERR(( "fd_tile_exec_new failed" ));
+    TEST( fd_tile_exec_new( tile_idx, tile_main, argc, argv ) );
   }
 
-  for( ulong tile_idx=1UL; tile_idx<tile_cnt; tile_idx++ ) {
-    void * cnc_mem = fd_wksp_laddr( wksp, cnc_gaddr + (tile_idx-1UL)*cnc_footprint );
-    fd_cnc_t * cnc = fd_cnc_join( cnc_mem );
-    if( FD_UNLIKELY( fd_cnc_wait( cnc, FD_CNC_SIGNAL_BOOT, (long)5e9, NULL )!=FD_CNC_SIGNAL_RUN ) )
-      FD_LOG_ERR(( "tile failed to boot in a timely fashion" ));
-    fd_cnc_leave( cnc );
-  }
+  for( ulong tile_idx=1UL; tile_idx<tile_cnt; tile_idx++ )
+    TEST( fd_cnc_wait( cnc[ tile_idx ], FD_CNC_SIGNAL_BOOT, (long)5e9, NULL )==FD_CNC_SIGNAL_RUN );
 
   FD_LOG_NOTICE(( "Running (--duration %li ns, --tx-lazy %i, --mux-cr-max %lu, --mux-lazy %li ns, --rx-lazy %i)",
                   duration, tx_lazy, mux_cr_max, mux_lazy, rx_lazy ));
@@ -650,37 +599,34 @@ main( int     argc,
   FD_LOG_NOTICE(( "Halting" ));
 
   for( ulong tile_idx=1UL; tile_idx<tile_cnt; tile_idx++ ) {
-    void * cnc_mem = fd_wksp_laddr( wksp, cnc_gaddr + (tile_idx-1UL)*cnc_footprint );
-    fd_cnc_t * cnc = fd_cnc_join( cnc_mem );
-    fd_cnc_open( cnc );
-    fd_cnc_signal( cnc, FD_CNC_SIGNAL_HALT );
-    fd_cnc_close( cnc );
-    fd_cnc_leave( cnc );
+    TEST( !fd_cnc_open( cnc[ tile_idx ] ) );
+    fd_cnc_signal( cnc[ tile_idx ], FD_CNC_SIGNAL_HALT );
+    fd_cnc_close( cnc[ tile_idx ] );
   }
 
+  for( ulong tile_idx=1UL; tile_idx<tile_cnt; tile_idx++ )
+    TEST( fd_cnc_wait( cnc[ tile_idx ], FD_CNC_SIGNAL_HALT, (long)5e9, NULL )==FD_CNC_SIGNAL_BOOT );
+
   for( ulong tile_idx=1UL; tile_idx<tile_cnt; tile_idx++ ) {
-    void * cnc_mem = fd_wksp_laddr( wksp, cnc_gaddr + (tile_idx-1UL)*cnc_footprint );
-    fd_cnc_t * cnc = fd_cnc_join( cnc_mem );
-    if( FD_UNLIKELY( fd_cnc_wait( cnc, FD_CNC_SIGNAL_HALT, (long)5e9, NULL )!=FD_CNC_SIGNAL_BOOT ) )
-      FD_LOG_ERR(( "tile failed to halt in a timely fashion" ));
-    fd_cnc_leave( cnc );
+    int ret;
+    TEST( !fd_tile_exec_delete( fd_tile_exec( tile_idx ), &ret ) );
+    TEST( !ret );
   }
+
+  for( ulong tile_idx=1UL; tile_idx<tile_cnt; tile_idx++ ) TEST( fd_cnc_leave( cnc[ tile_idx ] ) );
 
   FD_LOG_NOTICE(( "Cleaning up" ));
 
-  for( ulong tile_idx=1UL; tile_idx<tile_cnt; tile_idx++ ) fd_tile_exec_delete( fd_tile_exec( tile_idx ), NULL );
+  fd_wksp_free_laddr( mux_scratch_mem );
+  fd_wksp_free_laddr( mux_mcache_mem  );
+  fd_wksp_free_laddr( tx_fctl_mem     );
+  fd_wksp_free_laddr( tx_dcache_mem   );
+  fd_wksp_free_laddr( tx_mcache_mem   );
+  fd_wksp_free_laddr( rng_mem         );
+  fd_wksp_free_laddr( fseq_mem        );
+  fd_wksp_free_laddr( cnc_mem         );
 
-  fd_wksp_free( wksp, mux_scratch_gaddr );
-  fd_wksp_free( wksp, mux_mcache_gaddr  );
-  fd_wksp_free( wksp, tx_fctl_gaddr     );
-  fd_wksp_free( wksp, tx_dcache_gaddr   );
-  fd_wksp_free( wksp, tx_mcache_gaddr   );
-  fd_wksp_free( wksp, rng_gaddr         );
-  fd_wksp_free( wksp, fseq_gaddr        );
-  fd_wksp_free( wksp, cnc_gaddr         );
-
-  fd_shmem_leave_anonymous( wksp );
-  fd_shmem_release( fd_wksp_delete( fd_wksp_leave( wksp ) ), page_sz, page_cnt );
+  fd_wksp_delete_anonymous( wksp );
 
   fd_rng_delete( fd_rng_leave( rng ) );
 
