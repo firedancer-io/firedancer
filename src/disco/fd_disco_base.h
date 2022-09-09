@@ -24,7 +24,7 @@ FD_PROTOTYPES_BEGIN
    somewhat faster than:
 
      cr_max max( typical time it takes a producer to consume a credit,
-                 typical time it takes a consumer to return  a credit )
+                 typical time it takes a consumer to produce a credit )
 
    Practical considerations applied to this yield a useful conservative
    lower bound:
@@ -36,7 +36,7 @@ FD_PROTOTYPES_BEGIN
    consumers that are keeping up with this producer (both highly
    unrealistically harsh situations in the real world as this implies
    Ethernet payloads much much smaller than typical real world payloads
-   and a consumer that can process packets in just a handful of ns, the
+   and a consumer that can process packets in just a handful of ns), the
    above suggests housekeeping done somewhat than:
 
      ~(cr_max pkt)(672 bit/pkt/100 Gbit/ns)
