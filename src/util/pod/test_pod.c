@@ -25,7 +25,12 @@ FD_STATIC_ASSERT( FD_POD_VAL_TYPE_UINT128==13, unit_test );
 FD_STATIC_ASSERT( FD_POD_VAL_TYPE_FLOAT  ==14, unit_test );
 FD_STATIC_ASSERT( FD_POD_VAL_TYPE_DOUBLE ==15, unit_test );
 
+FD_STATIC_ASSERT( FD_POD_VAL_TYPE_CSTR_MAX==8UL, unit_test );
+
 FD_STATIC_ASSERT( FD_POD_FOOTPRINT_MIN==3UL, unit_test );
+
+FD_STATIC_ASSERT( FD_POD_ALIGN             ==  1UL, unit_test );
+FD_STATIC_ASSERT( FD_POD_FOOTPRINT( 123UL )==123UL, unit_test );
 
 int
 main( int     argc,
@@ -36,11 +41,80 @@ main( int     argc,
 
 # define TEST(c) do if( !(c) ) { FD_LOG_WARNING(( "FAIL: " #c )); return 1; } while(0)
 
+  TEST( fd_pod_align()==FD_POD_ALIGN );
+  for( ulong iter=0UL; iter<10000UL; iter++ ) {
+    TEST( fd_pod_footprint( iter )==fd_ulong_if( iter<FD_POD_FOOTPRINT_MIN, 0UL, iter ) );
+    TEST( FD_POD_FOOTPRINT( iter )==iter );
+  }
+
   ulong max = fd_env_strip_cmdline_ulong( &argc, &argv, "--max", NULL, 16384UL );
   if( FD_UNLIKELY( !((FD_POD_FOOTPRINT_MIN<=max) & (max<=16384UL)) ) ) {
     FD_LOG_WARNING(( "SKIP: invalid --max %lu for current unit test", max ));
     return 0;
   }
+
+  do {
+    TEST( fd_cstr_to_pod_val_type( NULL      )==FD_POD_ERR_INVAL        );
+    TEST( fd_cstr_to_pod_val_type( "foo"     )==FD_POD_ERR_INVAL        );
+    TEST( fd_cstr_to_pod_val_type( "user-1"  )==FD_POD_ERR_INVAL        );
+    TEST( fd_cstr_to_pod_val_type( "user256" )==FD_POD_ERR_INVAL        );
+
+    TEST( fd_cstr_to_pod_val_type( "subpod"  )==FD_POD_VAL_TYPE_SUBPOD  );
+    TEST( fd_cstr_to_pod_val_type( "buf"     )==FD_POD_VAL_TYPE_BUF     );
+    TEST( fd_cstr_to_pod_val_type( "cstr"    )==FD_POD_VAL_TYPE_CSTR    );
+    TEST( fd_cstr_to_pod_val_type( "schar"   )==FD_POD_VAL_TYPE_SCHAR   );
+    TEST( fd_cstr_to_pod_val_type( "short"   )==FD_POD_VAL_TYPE_SHORT   );
+    TEST( fd_cstr_to_pod_val_type( "int"     )==FD_POD_VAL_TYPE_INT     );
+    TEST( fd_cstr_to_pod_val_type( "long"    )==FD_POD_VAL_TYPE_LONG    );
+    TEST( fd_cstr_to_pod_val_type( "int128"  )==FD_POD_VAL_TYPE_INT128  );
+    TEST( fd_cstr_to_pod_val_type( "uchar"   )==FD_POD_VAL_TYPE_UCHAR   );
+    TEST( fd_cstr_to_pod_val_type( "ushort"  )==FD_POD_VAL_TYPE_USHORT  );
+    TEST( fd_cstr_to_pod_val_type( "uint"    )==FD_POD_VAL_TYPE_UINT    );
+    TEST( fd_cstr_to_pod_val_type( "ulong"   )==FD_POD_VAL_TYPE_ULONG   );
+    TEST( fd_cstr_to_pod_val_type( "uint128" )==FD_POD_VAL_TYPE_UINT128 );
+    TEST( fd_cstr_to_pod_val_type( "float"   )==FD_POD_VAL_TYPE_FLOAT   );
+    TEST( fd_cstr_to_pod_val_type( "double"  )==FD_POD_VAL_TYPE_DOUBLE  );
+
+    TEST( fd_cstr_to_pod_val_type( "SUBPOD"  )==FD_POD_VAL_TYPE_SUBPOD  );
+    TEST( fd_cstr_to_pod_val_type( "BUF"     )==FD_POD_VAL_TYPE_BUF     );
+    TEST( fd_cstr_to_pod_val_type( "CSTR"    )==FD_POD_VAL_TYPE_CSTR    );
+    TEST( fd_cstr_to_pod_val_type( "SCHAR"   )==FD_POD_VAL_TYPE_SCHAR   );
+    TEST( fd_cstr_to_pod_val_type( "SHORT"   )==FD_POD_VAL_TYPE_SHORT   );
+    TEST( fd_cstr_to_pod_val_type( "INT"     )==FD_POD_VAL_TYPE_INT     );
+    TEST( fd_cstr_to_pod_val_type( "LONG"    )==FD_POD_VAL_TYPE_LONG    );
+    TEST( fd_cstr_to_pod_val_type( "INT128"  )==FD_POD_VAL_TYPE_INT128  );
+    TEST( fd_cstr_to_pod_val_type( "UCHAR"   )==FD_POD_VAL_TYPE_UCHAR   );
+    TEST( fd_cstr_to_pod_val_type( "USHORT"  )==FD_POD_VAL_TYPE_USHORT  );
+    TEST( fd_cstr_to_pod_val_type( "UINT"    )==FD_POD_VAL_TYPE_UINT    );
+    TEST( fd_cstr_to_pod_val_type( "ULONG"   )==FD_POD_VAL_TYPE_ULONG   );
+    TEST( fd_cstr_to_pod_val_type( "UINT128" )==FD_POD_VAL_TYPE_UINT128 );
+    TEST( fd_cstr_to_pod_val_type( "FLOAT"   )==FD_POD_VAL_TYPE_FLOAT   );
+    TEST( fd_cstr_to_pod_val_type( "DOUBLE"  )==FD_POD_VAL_TYPE_DOUBLE  );
+
+    char buf[ FD_POD_VAL_TYPE_CSTR_MAX ];
+    TEST( !strcmp( "subpod",  fd_pod_val_type_to_cstr( FD_POD_VAL_TYPE_SUBPOD,  buf ) ) );
+    TEST( !strcmp( "buf",     fd_pod_val_type_to_cstr( FD_POD_VAL_TYPE_BUF,     buf ) ) );
+    TEST( !strcmp( "cstr",    fd_pod_val_type_to_cstr( FD_POD_VAL_TYPE_CSTR,    buf ) ) );
+    TEST( !strcmp( "schar",   fd_pod_val_type_to_cstr( FD_POD_VAL_TYPE_SCHAR,   buf ) ) );
+    TEST( !strcmp( "short",   fd_pod_val_type_to_cstr( FD_POD_VAL_TYPE_SHORT,   buf ) ) );
+    TEST( !strcmp( "int",     fd_pod_val_type_to_cstr( FD_POD_VAL_TYPE_INT,     buf ) ) );
+    TEST( !strcmp( "long",    fd_pod_val_type_to_cstr( FD_POD_VAL_TYPE_LONG,    buf ) ) );
+    TEST( !strcmp( "int128",  fd_pod_val_type_to_cstr( FD_POD_VAL_TYPE_INT128,  buf ) ) );
+    TEST( !strcmp( "uchar",   fd_pod_val_type_to_cstr( FD_POD_VAL_TYPE_UCHAR,   buf ) ) );
+    TEST( !strcmp( "ushort",  fd_pod_val_type_to_cstr( FD_POD_VAL_TYPE_USHORT,  buf ) ) );
+    TEST( !strcmp( "uint",    fd_pod_val_type_to_cstr( FD_POD_VAL_TYPE_UINT,    buf ) ) );
+    TEST( !strcmp( "ulong",   fd_pod_val_type_to_cstr( FD_POD_VAL_TYPE_ULONG,   buf ) ) );
+    TEST( !strcmp( "uint128", fd_pod_val_type_to_cstr( FD_POD_VAL_TYPE_UINT128, buf ) ) );
+    TEST( !strcmp( "float",   fd_pod_val_type_to_cstr( FD_POD_VAL_TYPE_FLOAT,   buf ) ) );
+    TEST( !strcmp( "double",  fd_pod_val_type_to_cstr( FD_POD_VAL_TYPE_DOUBLE,  buf ) ) );
+
+    for( int val_type=0; val_type<256; val_type++ ) {
+      char cstr[ FD_POD_VAL_TYPE_CSTR_MAX ];
+      fd_cstr_printf( cstr, FD_POD_VAL_TYPE_CSTR_MAX, NULL, "user%i", val_type );
+      TEST( fd_cstr_to_pod_val_type( cstr )==val_type );
+      if( val_type>=16 ) TEST( !strcmp( cstr, fd_pod_val_type_to_cstr( val_type, buf ) ) );
+    }
+  } while(0);
 
   FD_LOG_NOTICE(( "Testing with --max %lu", max ));
 

@@ -306,6 +306,58 @@ fd_pod_compact( uchar * pod,
   return new_max;
 }
 
+int
+fd_cstr_to_pod_val_type( char const * cstr ) {
+  if( FD_UNLIKELY( !cstr ) ) return FD_POD_ERR_INVAL;
+  if( !fd_cstr_casecmp( cstr, "subpod"  ) ) return FD_POD_VAL_TYPE_SUBPOD;
+  if( !fd_cstr_casecmp( cstr, "buf"     ) ) return FD_POD_VAL_TYPE_BUF;
+  if( !fd_cstr_casecmp( cstr, "cstr"    ) ) return FD_POD_VAL_TYPE_CSTR;
+  if( !fd_cstr_casecmp( cstr, "schar"   ) ) return FD_POD_VAL_TYPE_SCHAR;
+  if( !fd_cstr_casecmp( cstr, "short"   ) ) return FD_POD_VAL_TYPE_SHORT;
+  if( !fd_cstr_casecmp( cstr, "int"     ) ) return FD_POD_VAL_TYPE_INT;
+  if( !fd_cstr_casecmp( cstr, "long"    ) ) return FD_POD_VAL_TYPE_LONG;
+  if( !fd_cstr_casecmp( cstr, "int128"  ) ) return FD_POD_VAL_TYPE_INT128;
+  if( !fd_cstr_casecmp( cstr, "uchar"   ) ) return FD_POD_VAL_TYPE_UCHAR;
+  if( !fd_cstr_casecmp( cstr, "ushort"  ) ) return FD_POD_VAL_TYPE_USHORT;
+  if( !fd_cstr_casecmp( cstr, "uint"    ) ) return FD_POD_VAL_TYPE_UINT;
+  if( !fd_cstr_casecmp( cstr, "ulong"   ) ) return FD_POD_VAL_TYPE_ULONG;
+  if( !fd_cstr_casecmp( cstr, "uint128" ) ) return FD_POD_VAL_TYPE_UINT128;
+  if( !fd_cstr_casecmp( cstr, "float"   ) ) return FD_POD_VAL_TYPE_FLOAT;
+  if( !fd_cstr_casecmp( cstr, "double"  ) ) return FD_POD_VAL_TYPE_DOUBLE;
+  /* FIXME: ADD FD_CSTR_NCASECMP */
+  if( !strncmp( cstr, "user", 4UL ) || !strncmp( cstr, "USER", 4UL ) || !strncmp( cstr, "User", 4UL ) ) {
+    int val_type = fd_cstr_to_int( cstr+4UL );
+    if( FD_LIKELY( ((0<=val_type) & (val_type<=255)) ) ) return val_type;
+  }
+  return FD_POD_ERR_INVAL;
+}
+
+char *
+fd_pod_val_type_to_cstr( int    val_type,
+                         char * cstr ) {
+  if( FD_UNLIKELY( !cstr ) ) return NULL;
+  switch( val_type ) {
+  case FD_POD_VAL_TYPE_SUBPOD:  return strcpy( cstr, "subpod"  );
+  case FD_POD_VAL_TYPE_BUF:     return strcpy( cstr, "buf"     );
+  case FD_POD_VAL_TYPE_CSTR:    return strcpy( cstr, "cstr"    );
+  case FD_POD_VAL_TYPE_SCHAR:   return strcpy( cstr, "schar"   );
+  case FD_POD_VAL_TYPE_SHORT:   return strcpy( cstr, "short"   );
+  case FD_POD_VAL_TYPE_INT:     return strcpy( cstr, "int"     );
+  case FD_POD_VAL_TYPE_LONG:    return strcpy( cstr, "long"    );
+  case FD_POD_VAL_TYPE_INT128:  return strcpy( cstr, "int128"  );
+  case FD_POD_VAL_TYPE_UCHAR:   return strcpy( cstr, "uchar"   );
+  case FD_POD_VAL_TYPE_USHORT:  return strcpy( cstr, "ushort"  );
+  case FD_POD_VAL_TYPE_UINT:    return strcpy( cstr, "uint"    );
+  case FD_POD_VAL_TYPE_ULONG:   return strcpy( cstr, "ulong"   );
+  case FD_POD_VAL_TYPE_UINT128: return strcpy( cstr, "uint128" );
+  case FD_POD_VAL_TYPE_FLOAT:   return strcpy( cstr, "float"   );
+  case FD_POD_VAL_TYPE_DOUBLE:  return strcpy( cstr, "double"  );
+  default: break;
+  }
+  if( FD_UNLIKELY( !((0<=val_type) & (val_type<=255)) ) ) return NULL;
+  return fd_cstr_printf( cstr, FD_POD_VAL_TYPE_CSTR_MAX, NULL, "user%i", val_type );
+}
+
 /* fd_pod_subpod_grow increases the amount of space for key-val pairs
    in the deepest nested subpod on the subpod path by needed bytes.
    This operation can impact the location of items all the subpods along

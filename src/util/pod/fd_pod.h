@@ -63,7 +63,7 @@
    restrictions (up to the size of a ulong) on the size of a key or a
    val. */
 
-#include "../bits/fd_bits.h"
+#include "../cstr/fd_cstr.h"
 
 /* FD_POD_ERR_* gives a number of error codes used by fd_pod APIs. */
 
@@ -95,6 +95,12 @@
 #define FD_POD_VAL_TYPE_FLOAT   (14) /* Val is a RAW IEEE-754 float  (little endian) */
 #define FD_POD_VAL_TYPE_DOUBLE  (15) /* Val is a RAW IEEE-754 double (little endian) */
 
+/* FD_POD_VAL_TYPE_CSTR_MAX is the maximum number of bytes (including
+   terminating '\0') required for hold the cstr representation of a
+   value type. */
+
+#define FD_POD_VAL_TYPE_CSTR_MAX (8UL)
+
 /* FD_POD_FOOTPRINT_MIN gives the minimum pod byte footprint possible */
 
 #define FD_POD_FOOTPRINT_MIN (3UL)
@@ -121,6 +127,15 @@ struct fd_pod_info {
 
 typedef struct fd_pod_info fd_pod_info_t;
 
+/* FD_POD_{ALIGN,FOOTPRINT} return the alignment and footprint required
+   for a memory region to be used as a pod.  ALIGN will 1 (no alignment
+   requirements) and FOOTPRINT will be max.  Max is assumed to be at
+   least FD_POD_FOOTPRINT_MIN.  These are provided to facilitate compile
+   time construction and for consistency with other constructors. */
+
+#define FD_POD_ALIGN            (1UL)
+#define FD_POD_FOOTPRINT( max ) (max)
+
 FD_PROTOTYPES_BEGIN
 
 /* Constructors *******************************************************/
@@ -141,13 +156,16 @@ FD_PROTOTYPES_BEGIN
    key-val pairs can be added to it. */
 
 FD_FN_CONST static inline ulong fd_pod_align    ( void      ) { return 1UL; }
-FD_FN_CONST static inline ulong fd_pod_footprint( ulong max ) { return max; } /* Assumes max>=FD_POD_FOOTPRINT_MIN */
+FD_FN_CONST static inline ulong fd_pod_footprint( ulong max ) { return fd_ulong_if( max>=FD_POD_FOOTPRINT_MIN, max, 0UL ); }
 
 static inline void *
 fd_pod_new( void * shmem,
-            ulong  max ) { /* Assumes max>=FD_POD_FOOTPRINT_MIN */
+            ulong  max ) {
+  if( FD_UNLIKELY( !shmem ) ) return NULL;
+  ulong footprint = fd_pod_footprint( max );
+  if( FD_UNLIKELY( !footprint ) ) return NULL;
   uchar * pod = (uchar *)shmem;
-  ulong csz = fd_ulong_svw_enc_sz( max );
+  ulong   csz = fd_ulong_svw_enc_sz( max );
   fd_ulong_svw_enc_fixed( pod,           csz, max     );
   fd_ulong_svw_enc_fixed( pod + csz,     csz, 3UL*csz ); /* used */
   fd_ulong_svw_enc_fixed( pod + csz*2UL, csz, 0UL     );
@@ -342,6 +360,23 @@ fd_pod_resize( uchar * pod,
 ulong
 fd_pod_compact( uchar * pod,
                 int     full );
+
+/* fd_cstr_to_pod_val_type:  Convert a cstr pointed to by cstr into a
+   FD_POD_VAL_TYPE_*.  On success, returns the val type (will be in
+   0:255) and on failure returns a negative value (an FD_POD_ERR_*
+   code). */
+
+FD_FN_PURE int
+fd_cstr_to_pod_val_type( char const * cstr );
+
+/* fd_pod_val_type_to_cstr:  Populate the buffer cstr (which has enough
+   room for FD_POD_VAL_TYPE_CSTR_MAX bytes) with the cstr corresponding
+   to val_type (should be in 0:255).  Returns cstr on success and NULL
+   on failure (cstr is untouched on failure). */
+
+char *
+fd_pod_val_type_to_cstr( int    val_type,
+                         char * cstr );
 
 /* General alloc APIs *************************************************/
 
