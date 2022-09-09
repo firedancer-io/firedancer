@@ -397,7 +397,7 @@ fd_ulong_svw_enc_sz( ulong x ) {
    fd_ulong_svw_env_sz(x) (note that 9 is sufficient for all possible
    x).  Returns the next location in the byte system. */
 
-static inline uchar *
+FD_FN_UNUSED static uchar * /* Work around -Winline */
 fd_ulong_svw_enc( uchar * b,
                   ulong   x ) {
   if( FD_LIKELY( x<(1UL<< 6) ) ) { *          b = (uchar )                        (x<<1) ;                                   return b+1; } /* 0    | x( 6) |    0 */
