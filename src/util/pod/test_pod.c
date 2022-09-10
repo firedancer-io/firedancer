@@ -62,6 +62,7 @@ main( int     argc,
     TEST( fd_cstr_to_pod_val_type( "subpod"  )==FD_POD_VAL_TYPE_SUBPOD  );
     TEST( fd_cstr_to_pod_val_type( "buf"     )==FD_POD_VAL_TYPE_BUF     );
     TEST( fd_cstr_to_pod_val_type( "cstr"    )==FD_POD_VAL_TYPE_CSTR    );
+    TEST( fd_cstr_to_pod_val_type( "char"    )==FD_POD_VAL_TYPE_CHAR    );
     TEST( fd_cstr_to_pod_val_type( "schar"   )==FD_POD_VAL_TYPE_SCHAR   );
     TEST( fd_cstr_to_pod_val_type( "short"   )==FD_POD_VAL_TYPE_SHORT   );
     TEST( fd_cstr_to_pod_val_type( "int"     )==FD_POD_VAL_TYPE_INT     );
@@ -78,6 +79,7 @@ main( int     argc,
     TEST( fd_cstr_to_pod_val_type( "SUBPOD"  )==FD_POD_VAL_TYPE_SUBPOD  );
     TEST( fd_cstr_to_pod_val_type( "BUF"     )==FD_POD_VAL_TYPE_BUF     );
     TEST( fd_cstr_to_pod_val_type( "CSTR"    )==FD_POD_VAL_TYPE_CSTR    );
+    TEST( fd_cstr_to_pod_val_type( "CHAR"    )==FD_POD_VAL_TYPE_CHAR    );
     TEST( fd_cstr_to_pod_val_type( "SCHAR"   )==FD_POD_VAL_TYPE_SCHAR   );
     TEST( fd_cstr_to_pod_val_type( "SHORT"   )==FD_POD_VAL_TYPE_SHORT   );
     TEST( fd_cstr_to_pod_val_type( "INT"     )==FD_POD_VAL_TYPE_INT     );
@@ -95,6 +97,7 @@ main( int     argc,
     TEST( !strcmp( "subpod",  fd_pod_val_type_to_cstr( FD_POD_VAL_TYPE_SUBPOD,  buf ) ) );
     TEST( !strcmp( "buf",     fd_pod_val_type_to_cstr( FD_POD_VAL_TYPE_BUF,     buf ) ) );
     TEST( !strcmp( "cstr",    fd_pod_val_type_to_cstr( FD_POD_VAL_TYPE_CSTR,    buf ) ) );
+    TEST( !strcmp( "char",    fd_pod_val_type_to_cstr( FD_POD_VAL_TYPE_CHAR,    buf ) ) );
     TEST( !strcmp( "schar",   fd_pod_val_type_to_cstr( FD_POD_VAL_TYPE_SCHAR,   buf ) ) );
     TEST( !strcmp( "short",   fd_pod_val_type_to_cstr( FD_POD_VAL_TYPE_SHORT,   buf ) ) );
     TEST( !strcmp( "int",     fd_pod_val_type_to_cstr( FD_POD_VAL_TYPE_INT,     buf ) ) );

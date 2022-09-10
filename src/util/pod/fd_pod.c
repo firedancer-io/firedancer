@@ -312,6 +312,7 @@ fd_cstr_to_pod_val_type( char const * cstr ) {
   if( !fd_cstr_casecmp( cstr, "subpod"  ) ) return FD_POD_VAL_TYPE_SUBPOD;
   if( !fd_cstr_casecmp( cstr, "buf"     ) ) return FD_POD_VAL_TYPE_BUF;
   if( !fd_cstr_casecmp( cstr, "cstr"    ) ) return FD_POD_VAL_TYPE_CSTR;
+  if( !fd_cstr_casecmp( cstr, "char"    ) ) return FD_POD_VAL_TYPE_CHAR;
   if( !fd_cstr_casecmp( cstr, "schar"   ) ) return FD_POD_VAL_TYPE_SCHAR;
   if( !fd_cstr_casecmp( cstr, "short"   ) ) return FD_POD_VAL_TYPE_SHORT;
   if( !fd_cstr_casecmp( cstr, "int"     ) ) return FD_POD_VAL_TYPE_INT;
@@ -340,6 +341,7 @@ fd_pod_val_type_to_cstr( int    val_type,
   case FD_POD_VAL_TYPE_SUBPOD:  return strcpy( cstr, "subpod"  );
   case FD_POD_VAL_TYPE_BUF:     return strcpy( cstr, "buf"     );
   case FD_POD_VAL_TYPE_CSTR:    return strcpy( cstr, "cstr"    );
+  case FD_POD_VAL_TYPE_CHAR:    return strcpy( cstr, "char"    );
   case FD_POD_VAL_TYPE_SCHAR:   return strcpy( cstr, "schar"   );
   case FD_POD_VAL_TYPE_SHORT:   return strcpy( cstr, "short"   );
   case FD_POD_VAL_TYPE_INT:     return strcpy( cstr, "int"     );
