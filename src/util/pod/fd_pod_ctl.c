@@ -6,6 +6,11 @@
 #include <stdlib.h>
 #include <ctype.h>
 
+static inline int
+issingleprint( int c ) {
+  return isalnum( c ) | ispunct( c ) | (c==' ');
+}
+
 static void
 printf_path( fd_pod_info_t const * info ) {
   if( FD_UNLIKELY( !info ) ) return;
@@ -55,10 +60,17 @@ printf_val( fd_pod_info_t const * info ) {
     printf( "sz %lu", sz );
     for( ulong off=0UL; off<sz; off++ ) {
       ulong col = off & 15UL;
+      /* FIXME: USER SPECIFIED INDENT AND CONFIGURE OFF WIDTH BASED ON SZ */
       if( FD_UNLIKELY( col==0UL ) ) printf( "\n\t\t%04lx: ", off );
-      if( FD_UNLIKELY( col==8UL ) ) printf( " " );
-      printf( "%02x", (uint)buf[ off ] );
-      if( FD_LIKELY( (col!=15UL) & ((off+1UL)<sz) ) ) printf( " " );
+      if( FD_UNLIKELY( col==8UL ) ) putc( ' ', stdout );
+      printf( "%02x ", (uint)buf[ off ] );
+      if( FD_UNLIKELY( (col==15UL) | ((off+1UL)==sz) ) ) { /* End of row */
+        /* Output whitespace to align 2nd column */
+        for( ulong rem=48UL-3UL*col; rem; rem-- ) putc( ' ', stdout );
+        /* Output single character friendly bytes from row in 2nd column */
+        char const * p = (char const *)(buf + (off & ~15UL));
+        for( ulong rem=col+1UL; rem; rem-- ) { int c = (int)*(p++); putc( issingleprint( c ) ? c : '.', stdout ); }
+      }
     }
     break;
   }
@@ -71,8 +83,8 @@ printf_val( fd_pod_info_t const * info ) {
 
   case FD_POD_VAL_TYPE_CHAR: {
     int c = (int)*(char *)info->val;
-    if( isalnum( c ) || ispunct( c ) || c==' ' ) printf( "'%c'", c );
-    else                                         printf( "0x%02x", (uint)(uchar)c );
+    if( issingleprint( c ) ) printf( "'%c'", c );
+    else                     printf( "0x%02x", (uint)(uchar)c );
     break;
   }
 
@@ -104,10 +116,9 @@ printf_val( fd_pod_info_t const * info ) {
   }
 # endif
 
-  /* FIXME: DOUBLE CHECK PRECISION REQS */
-  case FD_POD_VAL_TYPE_FLOAT:  { float  f = *(float  *)info->val; printf( "%.20e", (double)f ); break; }
+  case FD_POD_VAL_TYPE_FLOAT:  { float  f = *(float  *)info->val; printf( "%.21e", (double)f ); break; }
 # if FD_HAS_DOUBLE
-  case FD_POD_VAL_TYPE_DOUBLE: { double f = *(double *)info->val; printf( "%.20e", f );         break; }
+  case FD_POD_VAL_TYPE_DOUBLE: { double f = *(double *)info->val; printf( "%.21e", f );         break; }
 # endif
 
   }
@@ -159,10 +170,14 @@ main( int     argc,
         "\tremove pod path\n\t"
         "\t- Remove the path (and any path.*) from the pod\n\t"
         "\n\t"
+        "\tcompact pod full\n\t"
+        "\t- Compacts the pod.  If full is non-zero, a full compaction is\n\t"
+        "\t  done (pod_max=pod_used and the pod header is compacted).\n\t"
+        "\n\t"
         "\tquery what pod path\n\t"
         "\t- Query pod for path.  what determines what will be printed to\n\t"
         "\t  stdout as a result of the query.\n\t"
-        "\t    test: 0 at point if pod:path exists\n\t"
+        "\t    test: 0 if pod:path exists\n\t"
         "\t          a negative error code if not\n\t"
         "\t    type: type of value at pod:path if it exists,\n\t"
         "\t          void if not\n\t"
@@ -392,6 +407,33 @@ main( int     argc,
                      cnt, cmd, cstr, path, err, fd_pod_strerror( err ), bin ));
 
       FD_LOG_NOTICE(( "%i: %s %s %s: success", cnt, cmd, cstr, path ));
+      SHIFT(2);
+
+    } else if( !strcmp( cmd, "compact" ) ) {
+
+      if( FD_UNLIKELY( argc<2 ) ) FD_LOG_ERR(( "%i: %s: too few arguments\n\tDo %s help for help", cnt, cmd, bin ));
+
+      char const * cstr =                 argv[0];
+      int          full = fd_cstr_to_int( argv[1] );
+
+      void * shmem = fd_wksp_map( cstr );
+      if( FD_UNLIKELY( !shmem ) )
+        FD_LOG_ERR(( "%i: %s: fd_wksp_map( \"%s\" ) failed\n\tDo %s help for help", cnt, cmd, cstr, bin ));
+
+      uchar * pod = fd_pod_join( shmem );
+      if( FD_UNLIKELY( !pod ) ) {
+        fd_wksp_unmap( shmem );
+        FD_LOG_ERR(( "%i: %s: fd_pod_join( \"%s\" ) failed\n\tDo %s help for help", cnt, cmd, cstr, bin ));
+      }
+
+      ulong new_max = fd_pod_compact( pod, full );
+
+      fd_wksp_unmap( fd_pod_leave( pod ) );
+
+      if( FD_UNLIKELY( !new_max ) )
+        FD_LOG_ERR(( "%i: %s: fd_pod_compact( \"%s\", %i ) failed\n\tDo %s help for help", cnt, cmd, cstr, full, bin ));
+
+      FD_LOG_NOTICE(( "%i: %s %s %i: success", cnt, cmd, cstr, full ));
       SHIFT(2);
 
     } else if( !strcmp( cmd, "query" ) ) {
