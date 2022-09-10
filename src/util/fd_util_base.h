@@ -625,6 +625,7 @@ static inline void *
 fd_memcpy( void       * FD_RESTRICT d,
            void const * FD_RESTRICT s,
            ulong                    sz ) {
+//if( FD_UNLIKELY( !sz ) ) return d; /* Standard says sz 0 is UB, uncomment if target is insane and doesn't treat sz 0 as a nop */
   return memcpy( d, s, sz );
 }
 
@@ -656,6 +657,7 @@ static inline void *
 fd_memset( void  * d,
            int     c,
            ulong   sz ) {
+//if( FD_UNLIKELY( !sz ) ) return d; /* See fd_memcpy note */
   return memset( d, c, sz );
 }
 
