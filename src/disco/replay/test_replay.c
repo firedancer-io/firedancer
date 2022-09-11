@@ -184,7 +184,7 @@ main( int     argc,
   }
 
   ulong cpu_idx = fd_tile_cpu_id( fd_tile_idx() );
-  if( cpu_idx>fd_tile_cnt() ) cpu_idx = 0UL;
+  if( cpu_idx>fd_shmem_cpu_cnt() ) cpu_idx = 0UL;
 
   char const * _page_sz  = fd_env_strip_cmdline_cstr ( &argc, &argv, "--page-sz",   NULL, "gigantic"                   );
   ulong        page_cnt  = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt",  NULL, 1UL                          );
