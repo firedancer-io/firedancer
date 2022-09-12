@@ -266,7 +266,7 @@ FD_FN_CONST static inline ushort  fd_short_abs ( short  x ) { return (ushort)fd_
    domain).  Not cryptographically secure but passes various strict
    tests of randomness when used as a PRNG. */
 
-static inline uint
+FD_FN_CONST static inline uint
 fd_uint_hash( uint x ) {
   x ^= x >> 16;
   x *= 0x85ebca6bU;
@@ -276,7 +276,7 @@ fd_uint_hash( uint x ) {
   return x;
 }
 
-static inline ulong
+FD_FN_CONST static inline ulong
 fd_ulong_hash( ulong x ) {
   x ^= x >> 33;
   x *= 0xff51afd7ed558ccdUL;
@@ -296,7 +296,7 @@ fd_ulong_hash( ulong x ) {
    operation counts concretely demonstrates that none of these are
    standalone cryptographically secure. */
 
-static inline uint
+FD_FN_CONST static inline uint
 fd_uint_hash_inverse( uint x ) {
   x ^= x >> 16;
   x *= 0x7ed1b41dU;
@@ -306,7 +306,7 @@ fd_uint_hash_inverse( uint x ) {
   return x;
 }
 
-static inline ulong
+FD_FN_CONST static inline ulong
 fd_ulong_hash_inverse( ulong x ) {
   x ^= x >> 33;
   x *= 0x9cb4b2f8129337dbUL;
@@ -575,7 +575,7 @@ FD_FN_CONST static inline int128  fd_int128_zz_dec( uint128 x ) { return  (int12
 
      FD_LAYOUT_FINI( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( FD_LAYOUT_INIT,
        align0, size0 ),
-       align0, size1 ),
+       align1, size1 ),
        page_sz )
 
    would return the number of pages as a page_sz multiple for a shared
