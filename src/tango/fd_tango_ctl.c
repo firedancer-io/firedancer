@@ -106,6 +106,20 @@ main( int     argc,
         "\t    run  (0): thread resumed running\n\t"
         "\t    boot (1): thread halted and can be safely restarted.\n\t"
         "\t    fail (2): thread halted and cannot be safely restated.\n\t"
+        "\n\t"
+        "\tnew-tcache wksp depth map-cnt\n\t"
+        "\t- Creates a tag cache with the given depth and map-cnt.\n\t"
+        "\t  A map-cnt of zero indicates to use a reasonable default.\n\t"
+        "\t  Prints the wksp gaddr of the tcache to stdout.\n\t"
+        "\n\t"
+        "\tdelete-tcache gaddr\n\t"
+        "\t- Destroys the tcache at gaddr.\n\t"
+        "\n\t"
+        "\tquery-tcache gaddr verbose\n\t"
+        "\t- Queries the tcache at gaddr.  verbose is currently ignored.\n\t"
+        "\n\t"
+        "\treset-tcache gaddr\n\t"
+        "\t- Resets the tcache at gaddr.\n\t"
         "", bin ));
       FD_LOG_NOTICE(( "%i: %s: success", cnt, cmd ));
 
@@ -634,7 +648,7 @@ main( int     argc,
 
       fd_wksp_unmap( fd_cnc_leave( cnc ) );
 
-      FD_LOG_NOTICE(( "%i: %s %s: success", cnt, cmd, _shcnc ));
+      FD_LOG_NOTICE(( "%i: %s %s %i: success", cnt, cmd, _shcnc, verbose ));
       SHIFT( 2 );
 
     } else if( !strcmp( cmd, "signal-cnc" ) ) {
@@ -674,6 +688,119 @@ main( int     argc,
 
       FD_LOG_NOTICE(( "%i: %s %s %s: success", cnt, cmd, _shcnc, fd_cnc_signal_cstr( signal, buf ) ));
       SHIFT( 2 );
+
+    } else if( !strcmp( cmd, "new-tcache" ) ) {
+
+      if( FD_UNLIKELY( argc<3 ) ) FD_LOG_ERR(( "%i: %s: too few arguments\n\tDo %s help for help", cnt, cmd, bin ));
+
+      char const * _wksp     =                   argv[0];
+      ulong        depth     = fd_cstr_to_ulong( argv[1] );
+      ulong        map_cnt   = fd_cstr_to_ulong( argv[2] );
+
+      ulong align     = fd_tcache_align();
+      ulong footprint = fd_tcache_footprint( depth, map_cnt );
+      if( FD_UNLIKELY( !footprint ) ) {
+        FD_LOG_ERR(( "%i: %s: bad depth (%lu) and/or map_cnt (%lu)\n\tDo %s help for help", cnt, cmd, depth, map_cnt, bin ));
+      }
+
+      fd_wksp_t * wksp = fd_wksp_attach( _wksp );
+      if( FD_UNLIKELY( !wksp ) ) {
+        FD_LOG_ERR(( "%i: %s: fd_wksp_attach( \"%s\" ) failed\n\tDo %s help for help", cnt, cmd, _wksp, bin ));
+      }
+
+      ulong gaddr = fd_wksp_alloc( wksp, align, footprint );
+      if( FD_UNLIKELY( !gaddr ) ) {
+        fd_wksp_detach( wksp );
+        FD_LOG_ERR(( "%i: %s: fd_wksp_alloc( \"%s\", %lu, %lu ) failed\n\tDo %s help for help",
+                     cnt, cmd, _wksp, align, footprint, bin ));
+      }
+
+      void * shmem = fd_wksp_laddr( wksp, gaddr );
+      if( FD_UNLIKELY( !shmem ) ) {
+        fd_wksp_free( wksp, gaddr );
+        fd_wksp_detach( wksp );
+        FD_LOG_ERR(( "%i: %s: fd_wksp_laddr( \"%s\", %lu ) failed\n\tDo %s help for help", cnt, cmd, _wksp, gaddr, bin ));
+      }
+
+      void * _tcache = fd_tcache_new( shmem, depth, map_cnt );
+      if( FD_UNLIKELY( !_tcache ) ) {
+        fd_wksp_free( wksp, gaddr );
+        fd_wksp_detach( wksp );
+        FD_LOG_ERR(( "%i: %s: fd_tcache_new( %s:%lu, %lu, %lu ) failed\n\tDo %s help for help",
+                     cnt, cmd, _wksp, gaddr, depth, map_cnt, bin ));
+      }
+
+      char buf[ FD_WKSP_CSTR_MAX ];
+      printf( "%s\n", fd_wksp_cstr( wksp, gaddr, buf ) );
+
+      fd_wksp_detach( wksp );
+
+      FD_LOG_NOTICE(( "%i: %s %s %lu %lu: success", cnt, cmd, _wksp, depth, map_cnt ));
+      SHIFT( 3 );
+
+    } else if( !strcmp( cmd, "delete-tcache" ) ) {
+
+      if( FD_UNLIKELY( argc<1 ) ) FD_LOG_ERR(( "%i: %s: too few arguments\n\tDo %s help for help", cnt, cmd, bin ));
+
+      char const * gaddr = argv[0];
+
+      void * _tcache = fd_wksp_map( gaddr );
+      if( FD_UNLIKELY( !_tcache ) )
+        FD_LOG_ERR(( "%i: %s: fd_wksp_map( \"%s\" ) failed\n\tDo %s help for help", cnt, cmd, gaddr, bin ));
+      if( FD_UNLIKELY( !fd_tcache_delete( _tcache ) ) )
+        FD_LOG_ERR(( "%i: %s: fd_tcache_delete( \"%s\" ) failed\n\tDo %s help for help", cnt, cmd, gaddr, bin ));
+      fd_wksp_unmap( _tcache );
+
+      fd_wksp_cstr_free( gaddr );
+
+      FD_LOG_NOTICE(( "%i: %s %s: success", cnt, cmd, gaddr ));
+      SHIFT( 1 );
+
+    } else if( !strcmp( cmd, "query-tcache" ) ) {
+
+      if( FD_UNLIKELY( argc<2 ) ) FD_LOG_ERR(( "%i: %s: too few arguments\n\tDo %s help for help", cnt, cmd, bin ));
+
+      char const * gaddr  =                  argv[0];
+      int          verbose = fd_cstr_to_int( argv[1] );
+
+      void * _tcache = fd_wksp_map( gaddr );
+      if( FD_UNLIKELY( !_tcache ) )
+        FD_LOG_ERR(( "%i: %s: fd_wksp_map( \"%s\" ) failed\n\tDo %s help for help", cnt, cmd, gaddr, bin ));
+
+      fd_tcache_t * tcache = fd_tcache_join( _tcache );
+      if( FD_UNLIKELY( !tcache ) )
+        FD_LOG_ERR(( "%i: %s: fd_tcache_join( \"%s\" ) failed\n\tDo %s help for help", cnt, cmd, gaddr, bin ));
+
+      printf( "tcache %s\n", gaddr );
+      printf( "\tdepth   %lu\n", tcache->depth   );
+      printf( "\tmap_cnt %lu\n", tcache->map_cnt );
+
+      fd_wksp_unmap( fd_tcache_leave( tcache ) );
+
+      FD_LOG_NOTICE(( "%i: %s %s %i: success", cnt, cmd, gaddr, verbose ));
+      SHIFT( 2 );
+
+    } else if( !strcmp( cmd, "reset-tcache" ) ) {
+
+      if( FD_UNLIKELY( argc<1 ) ) FD_LOG_ERR(( "%i: %s: too few arguments\n\tDo %s help for help", cnt, cmd, bin ));
+
+      char const * gaddr = argv[0];
+
+      void * _tcache = fd_wksp_map( gaddr );
+      if( FD_UNLIKELY( !_tcache ) )
+        FD_LOG_ERR(( "%i: %s: fd_wksp_map( \"%s\" ) failed\n\tDo %s help for help", cnt, cmd, gaddr, bin ));
+
+      fd_tcache_t * tcache = fd_tcache_join( _tcache );
+      if( FD_UNLIKELY( !tcache ) )
+        FD_LOG_ERR(( "%i: %s: fd_tcache_join( \"%s\" ) failed\n\tDo %s help for help", cnt, cmd, gaddr, bin ));
+
+      fd_tcache_reset( fd_tcache_ring_laddr( tcache ), fd_tcache_depth  ( tcache ),
+                       fd_tcache_map_laddr ( tcache ), fd_tcache_map_cnt( tcache ) );
+
+      fd_wksp_unmap( fd_tcache_leave( tcache ) );
+
+      FD_LOG_NOTICE(( "%i: %s %s: success", cnt, cmd, gaddr ));
+      SHIFT( 1 );
 
     } else {
 
