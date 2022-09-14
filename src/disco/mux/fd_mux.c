@@ -21,22 +21,38 @@ typedef struct fd_mux_tile_in fd_mux_tile_in_t;
 /* fd_mux_tile_in_update returns flow control credits to the in assuming
    that there are at most exposed_cnt frags currently exposed to
    reliable outs and drains the run-time diagnostics accumulated since
-   the last update.  See note below about quasi-atomic draining.
+   the last update.  Note that, once an in sequence number has been
+   confirmed to have been consumed downstream, it will remain consumed.
+   So, we can optimize this (and guarantee a monotonically increasing
+   fseq from the in's point of view) by only sending when
+   this_in_seq-exposed_cnt ends up ahead of this_in_fseq.  We still
+   drain diagnostics every update as we might still have diagnostic
+   accumulated since last update even when we don't need to update
+   this_in_fseq.  See note below about quasi-atomic draining.
 
-   (In principle, we could only drain diagnostics when in->seq has
-   changed since last update but this is probably not worth the effort
-   as these will be remotely polled infrequently and thus the draining
-   is likely an L1 cache hit.  Even if in->seq hasn't changed, we still
-   need to return cr upstream because exposed_cnt might have changed.
-   We could in principle only do the credit return in->seq-exposed_cnt
-   is unchanged but this too is probably more trouble than it is worth
-   for similar reasons.) */
+   For a simple example in normal operation of this, consider the case
+   where, at last update for this in, outs were caught up, and since
+   then, the mux forwarded 1 frag from this in, the mux forwarded 1 frag
+   from another in, and the outs didn't make any progress on the
+   forwarded frags.  At this point then, for the implementation below,
+   exposed_cnt will be 2 but this_in_seq will have advanced only 1 such
+   that this_in_seq-exposed_cnt will be before this_in_fseq.  Thus, we
+   will have diagnostics to accumulate for this in but no update needed
+   for this_in_fseq. */
 
 static inline void
 fd_mux_tile_in_update( fd_mux_tile_in_t * in,
                        ulong              exposed_cnt ) {
+
+  /* Technically we don't need to use fd_fseq_query here as *in_fseq
+     is not volatile from the mux's point of view.  But we are paranoid,
+     it won't affect performance in this case and it is consistent with
+     typical fseq usages. */
+
   ulong * in_fseq = in->fseq;
-  fd_fctl_rx_cr_return( in_fseq, fd_seq_dec( in->seq, exposed_cnt ) );
+  ulong seq = fd_seq_dec( in->seq, exposed_cnt );
+  if( FD_LIKELY( fd_seq_gt( seq, fd_fseq_query( in_fseq ) ) ) ) fd_fseq_update( in_fseq, seq );
+
   ulong * diag  = (ulong *)fd_fseq_app_laddr( in_fseq );
   uint *  accum = in->accum;
   ulong a0 = (ulong)accum[0]; ulong a1 = (ulong)accum[1]; ulong a2 = (ulong)accum[2];
