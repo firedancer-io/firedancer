@@ -1,8 +1,8 @@
-load("//src/util:package.bzl", "fd_util_library", "fd_util_package", "fd_util_test")
+load("//bazel:fd_build_system.bzl", "fd_cc_library", "fd_cc_test")
 
-fd_util_package()
+package(default_visibility = ["//src/util:__subpackages__"])
 
-fd_util_library(
+fd_cc_library(
     name = "tmpl",
     textual_hdrs = [
         "fd_map.c",
@@ -15,16 +15,37 @@ fd_util_library(
     ],
 )
 
-fd_util_test(srcs = ["test_map_dynamic.c"])
+fd_cc_test(
+    srcs = ["test_map_dynamic.c"],
+    deps = ["//src/util"],
+)
 
-fd_util_test(srcs = ["test_map.c"])
+fd_cc_test(
+    srcs = ["test_map.c"],
+    deps = ["//src/util"],
+)
 
-fd_util_test(srcs = ["test_prq.c"])
+fd_cc_test(
+    srcs = ["test_prq.c"],
+    deps = ["//src/util"],
+)
 
-fd_util_test(srcs = ["test_set_dynamic.c"])
+fd_cc_test(
+    srcs = ["test_set_dynamic.c"],
+    deps = ["//src/util"],
+)
 
-fd_util_test(srcs = ["test_set.c"])
+fd_cc_test(
+    srcs = ["test_set.c"],
+    deps = ["//src/util"],
+)
 
-fd_util_test(srcs = ["test_smallset.c"])
+fd_cc_test(
+    srcs = ["test_smallset.c"],
+    deps = ["//src/util"],
+)
 
-fd_util_test(srcs = ["test_sort.c"])
+fd_cc_test(
+    srcs = ["test_sort.c"],
+    deps = ["//src/util"],
+)

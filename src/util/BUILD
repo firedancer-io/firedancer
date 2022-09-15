@@ -1,7 +1,6 @@
-load("//bazel:fd_build_system.bzl", "fd_cc_library")
-load("//src/util:package.bzl", "fd_util_package", "fd_util_test")
+load("//bazel:fd_build_system.bzl", "fd_cc_library", "fd_cc_test")
 
-fd_util_package()
+package(default_visibility = ["//src/util:__subpackages__"])
 
 fd_cc_library(
     name = "base_lib",
@@ -41,6 +40,12 @@ fd_cc_library(
     ],
 )
 
-fd_util_test(srcs = ["test_util_base.c"])
+fd_cc_test(
+    srcs = ["test_util_base.c"],
+    deps = ["//src/util"],
+)
 
-fd_util_test(srcs = ["test_util.c"])
+fd_cc_test(
+    srcs = ["test_util.c"],
+    deps = ["//src/util"],
+)

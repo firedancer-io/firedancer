@@ -1,8 +1,8 @@
-load("//src/tango:package.bzl", "fd_tango_library", "fd_tango_package", "fd_tango_test")
+load("//bazel:fd_build_system.bzl", "fd_cc_library", "fd_cc_test")
 
-fd_tango_package()
+package(default_visibility = ["//src/tango:__subpackages__"])
 
-fd_tango_library(
+fd_cc_library(
     name = "fseq",
     srcs = [
         "fd_fseq.c",
@@ -10,6 +10,10 @@ fd_tango_library(
     hdrs = [
         "fd_fseq.h",
     ],
+    deps = ["//src/tango:base_lib"],
 )
 
-fd_tango_test(srcs = ["test_fseq.c"])
+fd_cc_test(
+    srcs = ["test_fseq.c"],
+    deps = ["//src/tango"],
+)

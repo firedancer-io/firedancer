@@ -25,13 +25,3 @@ def fd_cc_library(
         defines = defines,
         textual_hdrs = textual_hdrs,
     )
-
-def fd_cc_sub_library_macro(
-        deps = [],
-        visibility = []):
-    def rule(**kwargs):
-        kwargs["deps"] = deps + kwargs.get("deps", [])
-        kwargs["visibility"] = visibility + kwargs.get("visibility", [])
-        return fd_cc_library(**kwargs)
-
-    return rule

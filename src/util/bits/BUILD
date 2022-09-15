@@ -1,8 +1,8 @@
-load("//src/util:package.bzl", "fd_util_library", "fd_util_package", "fd_util_test")
+load("//bazel:fd_build_system.bzl", "fd_cc_library", "fd_cc_test")
 
-fd_util_package()
+package(default_visibility = ["//src/util:__subpackages__"])
 
-fd_util_library(
+fd_cc_library(
     name = "bits",
     hdrs = [
         "fd_bits.h",
@@ -11,12 +11,25 @@ fd_util_library(
         "fd_float.h",
         "fd_uwide.h",
     ],
+    deps = ["//src/util:base_lib"],
 )
 
-fd_util_test(srcs = ["test_bits.c"])
+fd_cc_test(
+    srcs = ["test_bits.c"],
+    deps = ["//src/util"],
+)
 
-fd_util_test(srcs = ["test_float.c"])
+fd_cc_test(
+    srcs = ["test_float.c"],
+    deps = ["//src/util"],
+)
 
-fd_util_test(srcs = ["test_hash.c"])
+fd_cc_test(
+    srcs = ["test_hash.c"],
+    deps = ["//src/util"],
+)
 
-fd_util_test(srcs = ["test_uwide.c"])
+fd_cc_test(
+    srcs = ["test_uwide.c"],
+    deps = ["//src/util"],
+)

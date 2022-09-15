@@ -1,8 +1,8 @@
-load("//src/util:package.bzl", "fd_util_library", "fd_util_package", "fd_util_test")
+load("//bazel:fd_build_system.bzl", "fd_cc_library", "fd_cc_test")
 
-fd_util_package()
+package(default_visibility = ["//src/util:__subpackages__"])
 
-fd_util_library(
+fd_cc_library(
     name = "math",
     srcs = [
         "fd_stat.c",
@@ -18,6 +18,12 @@ fd_util_library(
     ],
 )
 
-fd_util_test(srcs = ["test_fxp.c"])
+fd_cc_test(
+    srcs = ["test_fxp.c"],
+    deps = ["//src/util"],
+)
 
-fd_util_test(srcs = ["test_sqrt.c"])
+fd_cc_test(
+    srcs = ["test_sqrt.c"],
+    deps = ["//src/util"],
+)

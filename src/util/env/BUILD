@@ -1,8 +1,8 @@
-load("//src/util:package.bzl", "fd_util_library", "fd_util_package", "fd_util_test")
+load("//bazel:fd_build_system.bzl", "fd_cc_library", "fd_cc_test")
 
-fd_util_package()
+package(default_visibility = ["//src/util:__subpackages__"])
 
-fd_util_library(
+fd_cc_library(
     name = "env",
     srcs = [
         "fd_env.c",
@@ -15,4 +15,7 @@ fd_util_library(
     ],
 )
 
-fd_util_test(srcs = ["test_env.c"])
+fd_cc_test(
+    srcs = ["test_env.c"],
+    deps = ["//src/util"],
+)
