@@ -429,14 +429,13 @@ fd_tile_private_cpus_parse( char const * cstr,
       continue;
     }
 
-    ulong cpu0;
-    ulong cpu1;
     if( !isdigit( (int)p[0] ) ) {
       if( FD_UNLIKELY( p[0]!='\0' ) ) FD_LOG_ERR(( "fd_tile: malformed --tile-cpus (range lo not a cpu)" ));
       break;  
     }
-    cpu0 = fd_cstr_to_ulong( p );
-    cpu1 = cpu0;
+    ulong cpu0   = fd_cstr_to_ulong( p );
+    ulong cpu1   = cpu0;
+    ulong stride = 1UL;
     p++; while( isdigit( (int)p[0] ) ) p++; /* FIXME: USE STRTOUL ENDPTR FOR CORRECT HANDLING OF NON-BASE-10 */
     while( isspace( (int)p[0] ) ) p++;
     if( p[0]=='-' ) {
@@ -445,14 +444,23 @@ fd_tile_private_cpus_parse( char const * cstr,
       if( FD_UNLIKELY( !isdigit( (int)p[0] ) ) ) FD_LOG_ERR(( "fd_tile: malformed --tile-cpus (range hi not a cpu)" ));
       cpu1 = fd_cstr_to_ulong( p );
       p++; while( isdigit( (int)p[0] ) ) p++; /* FIXME: USE STRTOUL ENDPTR FOR CORRECT HANDLING OF NON-BASE-10 */
+      while( isspace( (int)p[0] ) ) p++;
+      if( p[0]=='/' ) {
+        p++;
+        while( isspace( (int)p[0] ) ) p++;
+        if( FD_UNLIKELY( !isdigit( (int)p[0] ) ) ) FD_LOG_ERR(( "fd_tile: malformed --tile-cpus (stride not an int)" ));
+        stride = fd_cstr_to_ulong( p );
+        p++; while( isdigit( (int)p[0] ) ) p++; /* FIXME: USE STRTOUL ENDPTR FOR CORRECT HANDLING OF NON-BASE-10 */
+      }
     }
     while( isspace( (int)p[0] ) ) p++;
     if( FD_UNLIKELY( !( p[0]==',' || p[0]=='\0' ) ) ) FD_LOG_ERR(( "fd_tile: malformed --tile-cpus (bad range delimiter)" ));
     if( p[0]==',' ) p++;
     cpu1++;
-    if( FD_UNLIKELY( cpu1<=cpu0 ) ) FD_LOG_ERR(( "fd_tile: malformed --tile-cpus (invalid range)" ));
+    if( FD_UNLIKELY( cpu1<=cpu0 ) ) FD_LOG_ERR(( "fd_tile: malformed --tile-cpus (invalid range)"  ));
+    if( FD_UNLIKELY( !stride    ) ) FD_LOG_ERR(( "fd_tile: malformed --tile-cpus (invalid stride)" ));
 
-    for( ulong cpu=cpu0; cpu<cpu1; cpu++ ) {
+    for( ulong cpu=cpu0; cpu<cpu1; cpu+=stride ) {
       if( FD_UNLIKELY( cpu>=(ulong)CPU_SETSIZE        ) ) FD_LOG_ERR(( "fd_tile: malformed --tile-cpus (invalid cpu index)" ));
       if( FD_UNLIKELY( CPU_ISSET( cpu, assigned_set ) ) ) FD_LOG_ERR(( "fd_tile: malformed --tile-cpus (repeated cpu)" ));
       if( FD_UNLIKELY( cnt>=FD_TILE_MAX               ) ) FD_LOG_ERR(( "fd_tile: too many --tile-cpus" ));
