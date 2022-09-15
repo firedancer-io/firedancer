@@ -212,19 +212,23 @@ FD_PROTOTYPES_BEGIN
        For a thread group of an application on a hosted target, this
        specifies the cpus to use.  E.g.
 
-         --tile-cpus f,1-3,f2,9,7
+         --tile-cpus f,1-3,f2,9,7,11-17/2
 
-       specifies this application thread group has 8 tiles that should
+       specifies this application thread group has 12 tiles that should
        be mapped to cpus on this host as:
 
-         tile 0 on floating
-         tile 1 on cpu 1
-         tile 2 on cpu 2
-         tile 3 on cpu 3
-         tile 4 on floating
-         tile 5 on floating
-         tile 6 on cpu 9
-         tile 7 on cpu 7
+         tile  0 on floating
+         tile  1 on cpu 1
+         tile  2 on cpu 2
+         tile  3 on cpu 3
+         tile  4 on floating
+         tile  5 on floating
+         tile  6 on cpu 9
+         tile  7 on cpu 7
+         tile  8 on cpu 11
+         tile  9 on cpu 13
+         tile 10 on cpu 15
+         tile 11 on cpu 17
 
        Floating tiles run on the cores the job launcher initially the
        thread group with whatever priority was initially assigned the
