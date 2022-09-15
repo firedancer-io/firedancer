@@ -3,6 +3,7 @@ load("//bazel:fd_build_system.bzl", "fd_cc_binary", "fd_cc_library", "fd_cc_test
 fd_cc_library(
     name = "base_lib",
     hdrs = [
+        "fd_tango.h",
         "fd_tango_base.h",
     ],
     linkstatic = True,
@@ -14,9 +15,6 @@ fd_cc_library(
 
 fd_cc_library(
     name = "tango",
-    hdrs = [
-        "fd_tango.h",
-    ],
     linkstatic = True,
     visibility = ["//visibility:public"],
     deps = [
@@ -26,6 +24,8 @@ fd_cc_library(
         "//src/tango/fctl",
         "//src/tango/fseq",
         "//src/tango/mcache",
+        "//src/tango/tcache",
+        "//src/tango/tempo",
     ],
 )
 
