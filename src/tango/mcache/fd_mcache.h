@@ -323,7 +323,7 @@ fd_mcache_publish( fd_frag_meta_t * mcache,   /* Assumed a current local join */
   FD_COMPILER_MFENCE();
 }
 
-#if FD_HAS_AVX
+#if FD_HAS_SSE
 
 /* fd_mcache_publish_sse is a SSE implementation of fd_mcache_publish.
    It is compatible with FD_MCACHE_WAIT and FD_MCACHE_WAIT_SSE. */
@@ -350,6 +350,10 @@ fd_mcache_publish_sse( fd_frag_meta_t * mcache,   /* Assumed a current local joi
   FD_COMPILER_MFENCE();
 }
 
+#endif
+
+#if FD_HAS_AVX
+
 /* fd_mcache_publish_avx is an AVX implementation of fd_mcache_publish.
    It is compatible with FD_MCACHE_WAIT, FD_MCACHE_WAIT_SSE and
    FD_MCACHE_WAIT_AVX.  It requires a target for which aligned AVX
@@ -366,9 +370,10 @@ fd_mcache_publish_avx( fd_frag_meta_t * mcache,   /* Assumed a current local joi
                        ulong            ctl,      /* Assumed in [0,USHORT_MAX] */
                        ulong            tsorig,   /* Assumed in [0,UINT_MAX] */
                        ulong            tspub ) { /* Assumed in [0,UINT_MAX] */
+  fd_frag_meta_t * meta = mcache + fd_mcache_line_idx( seq, depth );
+  __m256i meta_avx = fd_frag_meta_avx( seq, sig, chunk, sz, ctl, tsorig, tspub );
   FD_COMPILER_MFENCE();
-  _mm256_store_si256( &mcache[ fd_mcache_line_idx( seq, depth ) ].avx,
-                      fd_frag_meta_avx( seq, sig, chunk, sz, ctl, tsorig, tspub ) );
+  _mm256_store_si256( &meta->avx, meta_avx );
   FD_COMPILER_MFENCE();
 }
 
