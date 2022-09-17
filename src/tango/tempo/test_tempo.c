@@ -1,7 +1,5 @@
 #include "../fd_tango.h"
 
-#if FD_HAS_X86 && FD_HAS_DOUBLE
-
 int
 main( int     argc,
       char ** argv ) {
@@ -10,6 +8,23 @@ main( int     argc,
   fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
 
 # define TEST(c) do if( FD_UNLIKELY( !(c) ) ) { FD_LOG_WARNING(( "FAIL: " #c )); return 1; } while(0)
+
+# if FD_HAS_DOUBLE
+
+  for( ulong iter=0; iter<10; iter++ ) {
+    double tau;
+    double t0 = fd_tempo_wallclock_model( &tau );
+    TEST( ((0.< t0 ) & (t0 <=DBL_MAX)) );
+    TEST( ((0.<=tau) & (tau<=DBL_MAX)) );
+
+    double tau_;
+    double t0_ = fd_tempo_wallclock_model( &tau_ );
+    TEST( t0_ ==t0  );
+    TEST( tau_==tau );
+    FD_LOG_NOTICE(( "wallclock:   min %8.3f ns   tau %8.2e ns", t0, tau ));
+  }
+
+# if FD_HAS_X86
 
   for( ulong iter=0; iter<10; iter++ ) {
     double tau;
@@ -22,20 +37,7 @@ main( int     argc,
     TEST( t0_ ==t0  );
     TEST( tau_==tau );
 
-    FD_LOG_NOTICE(( "tickcount:   min %8.3f tick tau %8.3f tick", t0, tau ));
-  }
-
-  for( ulong iter=0; iter<10; iter++ ) {
-    double tau;
-    double t0 = fd_tempo_wallclock_model( &tau );
-    TEST( ((0.< t0 ) & (t0 <=DBL_MAX)) );
-    TEST( ((0.<=tau) & (tau<=DBL_MAX)) );
-
-    double tau_;
-    double t0_ = fd_tempo_wallclock_model( &tau_ );
-    TEST( t0_ ==t0  );
-    TEST( tau_==tau );
-    FD_LOG_NOTICE(( "wallclock:   min %8.3f ns   tau %8.3f ns", t0, tau ));
+    FD_LOG_NOTICE(( "tickcount:   min %8.3f tick tau %8.2e tick", t0, tau ));
   }
 
   for( ulong iter=0; iter<10; iter++ ) {
@@ -50,6 +52,11 @@ main( int     argc,
     TEST( rms_==rms );
     FD_LOG_NOTICE(( "tick_per_ns: avg %8.3f ghz  rms %8.2e ghz", avg, rms ));
   }
+
+# endif
+# endif
+
+# if FD_HAS_X86
 
   long now;
   long toc;
@@ -80,6 +87,15 @@ main( int     argc,
                     then, tic, jit, now, toc, jot, now-then, toc-tic, jot-jit ));
   }
 
+# endif
+
+  TEST( fd_tempo_lazy_default( 0UL       )== 9L      );
+  TEST( fd_tempo_lazy_default( 1UL       )== 9L      );
+  TEST( fd_tempo_lazy_default( 3UL       )== 9L      );
+  TEST( fd_tempo_lazy_default( 3UL       )== 9L      );
+  TEST( fd_tempo_lazy_default( 4UL       )==18L      );
+  TEST( fd_tempo_lazy_default( ULONG_MAX )<=LONG_MAX );
+
 # undef TEST
 
   fd_rng_delete( fd_rng_leave( rng ) );
@@ -88,17 +104,4 @@ main( int     argc,
   fd_halt();
   return 0;
 }
-
-#else
-
-int
-main( int     argc,
-      char ** argv ) {
-  fd_boot( &argc, &argv );
-  FD_LOG_WARNING(( "skip: unit test requires FD_HAS_X86 and FD_HAS_DOUBLE capabilities" ));
-  fd_halt();
-  return 0;
-}
-
-#endif
 

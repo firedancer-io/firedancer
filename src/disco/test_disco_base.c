@@ -9,12 +9,7 @@ main( int     argc,
 
 # define TEST(c) do if( FD_UNLIKELY( !(c) ) ) { FD_LOG_WARNING(( "FAIL: " #c )); return 1; } while(0)
 
-  TEST( fd_disco_lazy_default( 0UL       )== 9L      );
-  TEST( fd_disco_lazy_default( 1UL       )== 9L      );
-  TEST( fd_disco_lazy_default( 3UL       )== 9L      );
-  TEST( fd_disco_lazy_default( 3UL       )== 9L      );
-  TEST( fd_disco_lazy_default( 4UL       )==18L      );
-  TEST( fd_disco_lazy_default( ULONG_MAX )<=LONG_MAX );
+  /* This is currently just a stub in anticipation of future tests */
 
 # undef TEST
 

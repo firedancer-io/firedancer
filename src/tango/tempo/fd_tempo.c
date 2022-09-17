@@ -1,61 +1,6 @@
 #include "../fd_tango.h"
 
-#if FD_HAS_X86 && FD_HAS_DOUBLE
-
-double
-fd_tempo_tickcount_model( double * opt_tau ) {
-  static double t0;
-  static double tau;
-
-  FD_ONCE_BEGIN {
-
-    /* Assuming tickcount observes the tickcounter at a consistent point
-       between when the call was made and when it returns, the
-       difference between two adjacent calls is an estimate of the
-       number of ticks required for a call.  We expect this difference
-       to have a well defined minimum time with occassional delays due
-       to various sources of CPU jitter.  The natural approach is to
-       model call overhead then as a shifted exponential random
-       variable.  To parameterize the model, we repeatedly measure how
-       long a call takes.  The minimum of a bunch of IID samples is very
-       fast converging for estimating the minimum but easily corrupted
-       if there are weird outliers on the negative side.  As such, we
-       use a robust estimator to estimate the minimal overhead and
-       jitter. */
-
-    ulong iter = 0UL;
-    for(;;) { 
-#     define TRIAL_CNT 512UL
-#     define TRIM_CNT  64UL
-      double trial[ TRIAL_CNT ]; 
-      for( ulong trial_idx=0UL; trial_idx<TRIAL_CNT; trial_idx++ ) {
-        FD_COMPILER_MFENCE();
-        long tic = fd_tickcount();
-        FD_COMPILER_MFENCE();
-        long toc = fd_tickcount();
-        FD_COMPILER_MFENCE();
-        trial[ trial_idx ] = (double)(toc - tic);
-        FD_COMPILER_MFENCE();
-      }
-      double * sample     = trial + TRIM_CNT;
-      ulong    sample_cnt = TRIAL_CNT - 2UL*TRIM_CNT;
-      ulong    thresh     = sample_cnt >> 1;
-      if( FD_LIKELY( fd_stat_robust_exp_fit_double( &t0, &tau, sample, sample_cnt, sample )>thresh ) && FD_LIKELY( t0>0. ) ) break;
-#     undef TRIM_CNT
-#     undef TRIAL_CNT
-      iter++;
-      if( iter==3UL ) {
-        FD_LOG_WARNING(( "unable to model fd_tickcount() performance; using fallback and attempting to continue" ));
-        t0 = 24.; tau = 4.;
-        break;
-      }
-    }
-
-  } FD_ONCE_END;
-
-  if( opt_tau ) opt_tau[0] = tau;
-  return t0;
-}
+#if FD_HAS_DOUBLE
 
 double
 fd_tempo_wallclock_model( double * opt_tau ) {
@@ -64,7 +9,19 @@ fd_tempo_wallclock_model( double * opt_tau ) {
 
   FD_ONCE_BEGIN {
 
-    /* This is the same as the above but for the wallclock */
+    /* Assuming fd_log_wallclock() observes the application wallclock at
+       a consistent point between when the call was made and when it
+       returns, the difference between two adjacent calls is an estimate
+       of the number of ns required for a call.  We expect this
+       difference to have a well defined minimum time with sporadic
+       delays due to various sources of jitter.  The natural approach is
+       to model call overhead then as a shifted exponential random
+       variable.  To parameterize the model, we repeatedly measure how
+       long a call takes.  The minimum of a bunch of IID samples is very
+       fast converging for estimating the minimum but easily corrupted
+       if there are weird outliers on the negative side.  As such, we
+       use a robust estimator to estimate the minimal overhead and
+       jitter. */
 
     ulong iter = 0UL;
     for(;;) { 
@@ -90,6 +47,51 @@ fd_tempo_wallclock_model( double * opt_tau ) {
       if( iter==3UL ) {
         FD_LOG_WARNING(( "unable to model fd_log_wallclock() performance; using fallback and attempting to continue" ));
         t0 = 27.; tau = 1.;
+        break;
+      }
+    }
+
+  } FD_ONCE_END;
+
+  if( opt_tau ) opt_tau[0] = tau;
+  return t0;
+}
+
+#if FD_HAS_X86
+
+double
+fd_tempo_tickcount_model( double * opt_tau ) {
+  static double t0;
+  static double tau;
+
+  FD_ONCE_BEGIN {
+
+    /* Same as the above but for fd_tickcount(). */
+
+    ulong iter = 0UL;
+    for(;;) { 
+#     define TRIAL_CNT 512UL
+#     define TRIM_CNT  64UL
+      double trial[ TRIAL_CNT ]; 
+      for( ulong trial_idx=0UL; trial_idx<TRIAL_CNT; trial_idx++ ) {
+        FD_COMPILER_MFENCE();
+        long tic = fd_tickcount();
+        FD_COMPILER_MFENCE();
+        long toc = fd_tickcount();
+        FD_COMPILER_MFENCE();
+        trial[ trial_idx ] = (double)(toc - tic);
+        FD_COMPILER_MFENCE();
+      }
+      double * sample     = trial + TRIM_CNT;
+      ulong    sample_cnt = TRIAL_CNT - 2UL*TRIM_CNT;
+      ulong    thresh     = sample_cnt >> 1;
+      if( FD_LIKELY( fd_stat_robust_exp_fit_double( &t0, &tau, sample, sample_cnt, sample )>thresh ) && FD_LIKELY( t0>0. ) ) break;
+#     undef TRIM_CNT
+#     undef TRIAL_CNT
+      iter++;
+      if( iter==3UL ) {
+        FD_LOG_WARNING(( "unable to model fd_tickcount() performance; using fallback and attempting to continue" ));
+        t0 = 24.; tau = 4.;
         break;
       }
     }
@@ -147,6 +149,11 @@ fd_tempo_tick_per_ns( double * opt_sigma ) {
   if( opt_sigma ) opt_sigma[0] = sigma;
   return mu;
 }
+
+#endif
+#endif
+
+#if FD_HAS_X86
 
 long
 fd_tempo_observe_pair( long * opt_now,

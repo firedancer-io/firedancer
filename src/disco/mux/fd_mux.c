@@ -359,7 +359,7 @@ fd_mux_tile( char const *  _cnc,
        the typical cycle time is at least ~0.75*lazy in ns and at most
        ~1.5*lazy ns. */
 
-    if( lazy<=0L ) lazy = fd_disco_lazy_default( cr_max );
+    if( lazy<=0L ) lazy = fd_tempo_lazy_default( cr_max );
     FD_LOG_INFO(( "Configuring housekeeping (lazy %li ns, seed %u)", lazy, seed ));
 
     long async_target = (long)(0.5 + fd_tempo_tick_per_ns( NULL )*(double)lazy / (double)event_cnt);
