@@ -239,6 +239,43 @@ fd_tempo_observe_pair( long * opt_now,
   if( opt_tic ) opt_tic[0] = best_tc - (best_jt>>1); /* Use lower and upper bound midpoint (could be improved statistically) */
   return best_jt;
 }
-
 #endif
+
+ulong
+fd_tempo_async_min( long  lazy,
+                    ulong event_cnt,
+                    float tick_per_ns ) {
+  if( FD_UNLIKELY( !((1L<=lazy) & (lazy<(1L<<31))) ) ) {
+    FD_LOG_WARNING(( "lazy should be in [1,2^31)" ));
+    return 0UL;
+  }
+
+  if( FD_UNLIKELY( !((1UL<=event_cnt) & (event_cnt<(1UL<<31)) ) ) ) {
+    FD_LOG_WARNING(( "event_cnt should be in [1,2^31)" ));
+    return 0UL;
+  }
+
+  float tick_per_ns_max = FLT_MAX / (float)(1L<<31); /* exact, compile time, ~1.5e29 */
+  if( FD_UNLIKELY( !((0.f<tick_per_ns) & (tick_per_ns<=tick_per_ns_max)) ) ) { /* robust against nan */
+    FD_LOG_WARNING(( "tick_per_ns should in (0,~1.5e29)" ));
+    return 0UL;
+  }
+
+  float _lazy         = (float)lazy;      /* typically exact, up to 0.5 ulp error if >~ 2^24 */
+  float _event_cnt    = (float)event_cnt; /* typically exact, up to 0.5 ulp error if >~ 2^24 */
+  float _async_target = (tick_per_ns*_lazy) / _event_cnt; /* non-negative finite result, O(1) ulp error typically */
+
+  if( FD_UNLIKELY( !(1.f<=_async_target) ) ) {
+    FD_LOG_WARNING(( "lazy, event_cnt and tick_per_ns imply an unreasonably small async_min" ));
+    return 0UL;
+  }
+
+  if( FD_UNLIKELY( !(_async_target<((float)(1UL<<32))) ) ) {
+    FD_LOG_WARNING(( "lazy, event_cnt and tick_per_ns imply an unreasonably large async_min" ));
+    return 0UL;
+  }
+
+  ulong async_target = (ulong)_async_target;       /* in [1,2^32), O(1) ulp error typically (biased conservative) */
+  return 1UL << fd_ulong_find_msb( async_target ); /* guaranteed power of 2 in [1,2^31] */
+}
 

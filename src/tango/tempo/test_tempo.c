@@ -96,6 +96,23 @@ main( int     argc,
   TEST( fd_tempo_lazy_default( 4UL       )==18L      );
   TEST( fd_tempo_lazy_default( ULONG_MAX )<=LONG_MAX );
 
+# if FD_HAS_X86 && FD_HAS_DOUBLE
+
+//TEST( !fd_tempo_async_min(   0L,     1UL, 1.f ) );
+//TEST( !fd_tempo_async_min(   1L,     0UL, 1.f ) );
+//TEST( !fd_tempo_async_min(   1L,     1UL, 0.f ) );
+//TEST( !fd_tempo_async_min( 100L, 10000UL, 1.f ) );
+  TEST( fd_ulong_is_pow2( fd_tempo_async_min( 100000L, 1UL, 1.f ) ) );
+
+# endif
+
+  for( ulong iter=0UL; iter<1000000UL; iter++ ) {
+    ulong async_min = 1UL << (int)(fd_rng_uint( rng ) & 31U );
+    ulong async_rem = fd_tempo_async_reload( rng, async_min );
+    TEST( async_min<=async_rem     );
+    TEST( async_rem< 2UL*async_min );
+  }
+
 # undef TEST
 
   fd_rng_delete( fd_rng_leave( rng ) );

@@ -340,9 +340,12 @@ fd_mux_tile( char const *  _cnc,
 
     /* housekeeping init */
 
-    /* Initialize the initial event sequence to immediately update
-       cr_avail on the first run loop iteration and then update all the
-       ins accordingly. */
+    if( lazy<=0L ) lazy = fd_tempo_lazy_default( cr_max );
+    FD_LOG_INFO(( "Configuring housekeeping (lazy %li ns, seed %u)", lazy, seed ));
+
+    /* Initialize the initial housekeeping event sequence to immediately
+       update cr_avail on the first run loop iteration and then update
+       all the ins accordingly. */
 
     event_cnt = in_cnt + 1UL + out_cnt;
     event_map = (ushort *)SCRATCH_ALLOC( alignof(ushort), event_cnt*sizeof(ushort) );
@@ -351,20 +354,8 @@ fd_mux_tile( char const *  _cnc,
     for( ulong out_idx=0UL; out_idx<out_cnt; out_idx++ ) event_map[ event_seq++ ] = (ushort)out_idx;
     event_seq = 0UL;
 
-    /* Pick a range of async_min such that the run loop will cycle
-       through all the housekeeping events every ~lazy ns.  More
-       precisely, the typical event cycle time will be
-       ~1.5*async_min*event_cnt ticks where async_min is at least
-       ~0.5*lazy/event_cnt ns and at most ~lazy/event_cnt ns.  As such,
-       the typical cycle time is at least ~0.75*lazy in ns and at most
-       ~1.5*lazy ns. */
-
-    if( lazy<=0L ) lazy = fd_tempo_lazy_default( cr_max );
-    FD_LOG_INFO(( "Configuring housekeeping (lazy %li ns, seed %u)", lazy, seed ));
-
-    long async_target = (long)(0.5 + fd_tempo_tick_per_ns( NULL )*(double)lazy / (double)event_cnt);
-    if( FD_UNLIKELY( async_target<=0L ) ) { FD_LOG_WARNING(( "bad lazy for this tick per ns" )); return 1; }
-    async_min = 1UL << fd_ulong_find_msb( (ulong)async_target );
+    async_min = fd_tempo_async_min( lazy, event_cnt, (float)fd_tempo_tick_per_ns( NULL ) );
+    if( FD_UNLIKELY( !async_min ) ) { FD_LOG_WARNING(( "bad lazy" )); return 1; }
 
     rng = fd_rng_join( fd_rng_new( SCRATCH_ALLOC( fd_rng_align(), fd_rng_footprint() ), seed, 0UL ) );
 
@@ -482,7 +473,7 @@ fd_mux_tile( char const *  _cnc,
       }
 
       /* Reload housekeeping timer */
-      then = now + (long)fd_async_reload( rng, async_min );
+      then = now + (long)fd_tempo_async_reload( rng, async_min );
     }
 
     /* Check if we are backpressured.  If so, count any transition into

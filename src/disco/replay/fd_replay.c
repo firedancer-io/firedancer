@@ -274,7 +274,7 @@ fd_replay_tile( char const *  _cnc,
       cr_avail = fd_fctl_tx_cr_update( fctl, cr_avail, seq );
 
       /* Reload housekeeping timer */
-      then = now + (long)fd_async_reload( rng, async_min );
+      then = now + (long)fd_tempo_async_reload( rng, async_min );
     }
 
     /* Check if we are backpressured.  If so, count any transition into

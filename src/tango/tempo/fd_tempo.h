@@ -151,6 +151,57 @@ fd_tempo_lazy_default( ulong cr_max ) {
   return (long)(9UL*((fd_ulong_min( cr_max, ULONG_MAX>>3 ) >> 2) + 1UL));
 }
 
+/* fd_tempo_async_min picks a reasonable minimum interval in ticks
+   between housekeeping events.  On success, returns positive integer
+   power of two in [1,2^31].  On failure, returns zero (logs details).
+   Reasons for failure include lazy is not in [1,2^31), event_cnt is not
+   in [1,2^31), tick_per_ns is not in (0,~1.5e29), the combination would
+   require an unreasonably small (sub-tick) or large (more than 2^31)
+   async_min.
+
+   More precisely, consider a run loop where event_cnt out-of-band
+   housekeeping events are cyclicly scheduled to be done with a IID
+   uniform random interval between events in [async_min,2*async_min]
+   ticks (as is commonly the case).  A suppose we need to housekeeping
+   to complete an event cycle roughly every lazy ns for system
+   considerations.
+
+   If we were to use a reguarly scheduled interval between events (which
+   is a stunningly bad idea in an distributed system and all too
+   commonly done), we'd space housekeeping events by:
+
+     async_target ~ tick_per_ns*lazy/event_cnt ticks
+
+   where tick_per_ns is the conversion ratio to use between the
+   wallclock and the tickrate of whatever counter is used to schedule
+   housekeeping events.
+
+   Consider using the largest integer power of two less than or equal to
+   async_target for async_min.  In ns then, async_min will be at least
+   ~0.5*lazy/event_cnt and at most lazy/event_cnt.  And since it takes,
+   on average, 1.5*async_min*event_cnt to process a cycle, this value
+   for async min will yield an average cycle time of at least ~0.75*lazy
+   in ns and at most ~1.5*lazy ns. */
+
+ulong
+fd_tempo_async_min( long  lazy,
+                    ulong event_cnt,
+                    float tick_per_ns );
+
+/* fd_tempo_async_reload returns a quality random number very quickly in
+   [async_min,2*async_min).  Assumes async_min is an integer power of 2
+   in [1,2^31].  Consumes exactly 1 rng slot.  This is typically used to
+   randomize the timing of background task processing to avoid auto
+   synchronization anomalies while providing given strong lower and
+   upper bounds on the interval between between processing background
+   tasks. */
+
+static inline ulong
+fd_tempo_async_reload( fd_rng_t * rng,
+                       ulong      async_min ) {
+  return async_min + (((ulong)fd_rng_uint( rng )) & (async_min-1UL));
+}
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_tango_tempo_fd_tempo_h */

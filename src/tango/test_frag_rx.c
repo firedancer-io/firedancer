@@ -157,7 +157,7 @@ main( int     argc,
       }
 
       /* Reload housekeeping timer */
-      async_rem = fd_async_reload( rng, async_min );
+      async_rem = fd_tempo_async_reload( rng, async_min );
       continue;
     }
 
