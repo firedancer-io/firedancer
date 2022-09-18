@@ -6,17 +6,15 @@ main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
 
-# define TEST(c) do if( !(c) ) { FD_LOG_WARNING(( "FAIL: " #c )); return 1; } while(0)
-
-# define _(_f,_u,_s,_b,_m) do {                                      \
-    ulong u = fd_fltbits       ( _f ); TEST( u==_u                ); \
-    ulong s = fd_fltbits_sign  ( u  ); TEST( s==_s                ); \
-    ulong b = fd_fltbits_bexp  ( u  ); TEST( b==_b                ); \
-    ulong m = fd_fltbits_mant  ( u  ); TEST( m==_m                ); \
-    long  e = fd_fltbits_unbias( b  ); TEST( e==(((long)_b)-127L) ); \
-    TEST( fd_fltbits_bias( e )==b );                                 \
-    TEST( fd_fltbits_pack( s, b, m )==u );                           \
-    TEST( fd_float( u )==_f );                                       \
+# define _(_f,_u,_s,_b,_m) do {                                         \
+    ulong u = fd_fltbits       ( _f ); FD_TEST( u==_u                ); \
+    ulong s = fd_fltbits_sign  ( u  ); FD_TEST( s==_s                ); \
+    ulong b = fd_fltbits_bexp  ( u  ); FD_TEST( b==_b                ); \
+    ulong m = fd_fltbits_mant  ( u  ); FD_TEST( m==_m                ); \
+    long  e = fd_fltbits_unbias( b  ); FD_TEST( e==(((long)_b)-127L) ); \
+    FD_TEST( fd_fltbits_bias( e )==b );                                 \
+    FD_TEST( fd_fltbits_pack( s, b, m )==u );                           \
+    FD_TEST( fd_float( u )==_f );                                       \
   } while(0)
   _(  0.f,         0x00000000UL, 0UL,   0UL,       0UL ); 
   _(  FLT_MIN,     0x00800000UL, 0UL,   1UL,       0UL ); 
@@ -31,15 +29,15 @@ main( int     argc,
 # undef _
 
 # if FD_HAS_DOUBLE
-# define _(_f,_u,_s,_b,_m) do {                                       \
-    ulong u = fd_dblbits       ( _f ); TEST( u==_u                 ); \
-    ulong s = fd_dblbits_sign  ( u  ); TEST( s==_s                 ); \
-    ulong b = fd_dblbits_bexp  ( u  ); TEST( b==_b                 ); \
-    ulong m = fd_dblbits_mant  ( u  ); TEST( m==_m                 ); \
-    long  e = fd_dblbits_unbias( b  ); TEST( e==(((long)_b)-1023L) ); \
-    TEST( fd_dblbits_bias( e )==b );                                  \
-    TEST( fd_dblbits_pack( s, b, m )==u );                            \
-    TEST( fd_double( u )==_f );                                       \
+# define _(_f,_u,_s,_b,_m) do {                                          \
+    ulong u = fd_dblbits       ( _f ); FD_TEST( u==_u                 ); \
+    ulong s = fd_dblbits_sign  ( u  ); FD_TEST( s==_s                 ); \
+    ulong b = fd_dblbits_bexp  ( u  ); FD_TEST( b==_b                 ); \
+    ulong m = fd_dblbits_mant  ( u  ); FD_TEST( m==_m                 ); \
+    long  e = fd_dblbits_unbias( b  ); FD_TEST( e==(((long)_b)-1023L) ); \
+    FD_TEST( fd_dblbits_bias( e )==b );                                  \
+    FD_TEST( fd_dblbits_pack( s, b, m )==u );                            \
+    FD_TEST( fd_double( u )==_f );                                       \
   } while(0)
   _(  0.,          0x0000000000000000UL, 0UL,    0UL,                0UL );
   _(  DBL_MIN,     0x0010000000000000UL, 0UL,    1UL,                0UL );
@@ -53,8 +51,6 @@ main( int     argc,
   _( -DBL_MAX,     0xffefffffffffffffUL, 1UL, 2046UL, 4503599627370495UL );
 # undef _
 # endif
-
-# undef TEST
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

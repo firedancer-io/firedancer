@@ -25,9 +25,9 @@ main( int     argc,
     uint x = (uint)i;
     uint y = fd_uint_hash( x );
     uint z = fd_uint_hash_inverse( y );
-    if( y!=ref32[i] ) { FD_LOG_WARNING(( "ref32: FAIL" )); return 1; }
-    if( x!=z        ) { FD_LOG_WARNING(( "inv32: FAIL" )); return 1; }
-    if( fd_uint_hash( fd_uint_hash_inverse( x ) )!=x ) { FD_LOG_WARNING(( "INV32: FAIL" )); return 1; }
+    if( y!=ref32[i] ) FD_LOG_ERR(( "FAIL: ref32" ));
+    if( x!=z        ) FD_LOG_ERR(( "FAIL: inv32" ));
+    if( fd_uint_hash( fd_uint_hash_inverse( x ) )!=x ) FD_LOG_ERR(( "FAIL: INV32" ));
   }
 
   static ulong const ref64[10] = {
@@ -47,9 +47,9 @@ main( int     argc,
     ulong x = (ulong)i;
     ulong y = fd_ulong_hash( x );
     ulong z = fd_ulong_hash_inverse( y );
-    if( y!=ref64[i] ) { FD_LOG_WARNING(( "ref64: FAIL" )); return 1; }
-    if( x!=z        ) { FD_LOG_WARNING(( "inv64: FAIL" )); return 1; }
-    if( fd_ulong_hash( fd_ulong_hash_inverse( x ) )!=x ) { FD_LOG_WARNING(( "INV64: FAIL" )); return 1; }
+    if( y!=ref64[i] ) FD_LOG_ERR(( "FAIL: ref64" ));
+    if( x!=z        ) FD_LOG_ERR(( "FAIL: inv64" ));
+    if( fd_ulong_hash( fd_ulong_hash_inverse( x ) )!=x ) FD_LOG_ERR(( "FAIL: INV64" ));
   }
 
   ulong seq      = 0UL;
@@ -77,7 +77,7 @@ main( int     argc,
       for( int j=0; j<32; j++ )
         jit_max = fd_uint_max( jit_max, fd_int_abs( cnt[i*32+j] - cnt_avg ) );
     float fluct_max = ((float)jit_max)/((float)iter_cnt);
-    if( !(fluct_max<0.005f) ) { FD_LOG_WARNING(( "FAIL (fluct_max %f)", (double)fluct_max )); return 1; }
+    if( !(fluct_max<0.005f) ) FD_LOG_ERR(( "FAIL: fluct_max %f", (double)fluct_max ));
     FD_LOG_NOTICE(( "fluct_max %f", (double)fluct_max ));
   } while(0);
 
@@ -102,7 +102,7 @@ main( int     argc,
       for( int j=0; j<32; j++ )
         jit_max = fd_uint_max( jit_max, fd_int_abs( cnt[i*32+j] - cnt_avg ) );
     float fluct_max = ((float)jit_max)/((float)iter_cnt);
-    if( !(fluct_max<0.005f) ) { FD_LOG_WARNING(( "FAIL (fluct_max %f)", (double)fluct_max )); return 1; }
+    if( !(fluct_max<0.005f) ) FD_LOG_ERR(( "FAIL: fluct_max %f", (double)fluct_max ));
     FD_LOG_NOTICE(( "fluct_max %f", (double)fluct_max ));
   } while(0);
 
@@ -127,7 +127,7 @@ main( int     argc,
       for( int j=0; j<64; j++ )
         jit_max = fd_uint_max( jit_max, fd_int_abs( cnt[i*64+j] - cnt_avg ) );
     float fluct_max = ((float)jit_max)/((float)iter_cnt);
-    if( !(fluct_max<0.005f) ) { FD_LOG_WARNING(( "FAIL (fluct_max %f)", (double)fluct_max )); return 1; }
+    if( !(fluct_max<0.005f) ) FD_LOG_ERR(( "FAIL: fluct_max %f", (double)fluct_max ));
     FD_LOG_NOTICE(( "fluct_max %f", (double)fluct_max ));
   } while(0);
 
@@ -152,7 +152,7 @@ main( int     argc,
       for( int j=0; j<64; j++ )
         jit_max = fd_uint_max( jit_max, fd_int_abs( cnt[i*64+j] - cnt_avg ) );
     float fluct_max = ((float)jit_max)/((float)iter_cnt);
-    if( !(fluct_max<0.005f) ) { FD_LOG_WARNING(( "FAIL (fluct_max %f)", (double)fluct_max )); return 1; }
+    if( !(fluct_max<0.005f) ) FD_LOG_ERR(( "FAIL: fluct_max %f", (double)fluct_max ));
     FD_LOG_NOTICE(( "fluct_max %f", (double)fluct_max ));
   } while(0);
 

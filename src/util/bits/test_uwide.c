@@ -40,12 +40,10 @@ main( int     argc,
       uint128 z0 = (uint128)c + x; ulong w0 = (ulong)(z0<x); z0 += y; w0 += (ulong)(z0<y);
       ulong zh,zl, w = fd_uwide_add( &zh,&zl, xh,xl, yh,yl, c );
       uint128 z = join( zh,zl );
-      if( z!=z0 || w!=w0 ) {
-        FD_LOG_WARNING(( "FAIL: iter %i op fd_uwide_add\n\t"
-                         "x %016lx %016lx y %016lx %016lx c %016lx z %016lx %016lx w %016lx z0 %016lx %016lx w0 %016lx",
-                         i, xh,xl, yh,yl, c, zh,zl,w, split_hi(z0),split_lo(z0),w0 ));
-        return 1;
-      }
+      if( z!=z0 || w!=w0 )
+        FD_LOG_ERR(( "FAIL: iter %i op fd_uwide_add\n\t"
+                     "x %016lx %016lx y %016lx %016lx c %016lx z %016lx %016lx w %016lx z0 %016lx %016lx w0 %016lx",
+                     i, xh,xl, yh,yl, c, zh,zl,w, split_hi(z0),split_lo(z0),w0 ));
     } while(0);
 
     /* Increment random uint128 x by random 64-bit c */
@@ -54,12 +52,10 @@ main( int     argc,
       uint128 z0 = x + c;
       ulong zh,zl; fd_uwide_inc( &zh,&zl, xh,xl, c );
       uint128 z = join( zh,zl );
-      if( z!=z0 ) {
-        FD_LOG_WARNING(( "FAIL: iter %i op fd_uwide_inc\n\t"
-                         "x %016lx %016lx c %016lx z %016lx %016lx z0 %016lx %016lx",
-                         i, xh,xl, c, zh,zl, split_hi(z0),split_lo(z0) ));
-        return 1;
-      }
+      if( z!=z0 )
+        FD_LOG_ERR(( "FAIL: iter %i op fd_uwide_inc\n\t"
+                     "x %016lx %016lx c %016lx z %016lx %016lx z0 %016lx %016lx",
+                     i, xh,xl, c, zh,zl, split_hi(z0),split_lo(z0) ));
     } while(0);
 
     /* Subtract two random uint128 x and y with a random 64-bit borrow c */
@@ -68,12 +64,10 @@ main( int     argc,
       ulong w0 = (ulong)(x<(uint128)c); uint128 z0 = x - (uint128)c; w0 += (ulong)(z0<y); z0 -= y;
       ulong zh,zl, w = fd_uwide_sub( &zh,&zl, xh,xl, yh,yl, c );
       uint128 z = join( zh,zl );
-      if( z!=z0 || w!=w0 ) {
-        FD_LOG_WARNING(( "FAIL: iter %i op fd_uwide_sub\n\t"
-                         "x %016lx %016lx y %016lx %016lx c %016lx z %016lx %016lx w %016lx z0 %016lx %016lx w0 %016lx",
-                         i, xh,xl, yh,yl, c, zh,zl,w, split_hi(z0),split_lo(z0),w0 ));
-        return 1;
-      }
+      if( z!=z0 || w!=w0 )
+        FD_LOG_ERR(( "FAIL: iter %i op fd_uwide_sub\n\t"
+                     "x %016lx %016lx y %016lx %016lx c %016lx z %016lx %016lx w %016lx z0 %016lx %016lx w0 %016lx",
+                     i, xh,xl, yh,yl, c, zh,zl,w, split_hi(z0),split_lo(z0),w0 ));
     } while(0);
 
     /* Decrement random uint128 x by random 64-bit c */
@@ -82,12 +76,10 @@ main( int     argc,
       uint128 z0 = x - c;
       ulong zh,zl; fd_uwide_dec( &zh,&zl, xh,xl, c );
       uint128 z = join( zh,zl );
-      if( z!=z0 ) {
-        FD_LOG_WARNING(( "FAIL: iter %i op fd_uwide_dec\n\t"
-                         "x %016lx %016lx c %016lx z %016lx %016lx z0 %016lx %016lx",
-                         i, xh,xl, c, zh,zl, split_hi(z0),split_lo(z0) ));
-        return 1;
-      }
+      if( z!=z0 )
+        FD_LOG_ERR(( "FAIL: iter %i op fd_uwide_dec\n\t"
+                     "x %016lx %016lx c %016lx z %016lx %016lx z0 %016lx %016lx",
+                     i, xh,xl, c, zh,zl, split_hi(z0),split_lo(z0) ));
     } while(0);
 
     /* Multiply two random uint128 x and y */
@@ -96,12 +88,10 @@ main( int     argc,
       uint128 z0 = ((uint128)xl)*((uint128)yl);
       ulong zh,zl; fd_uwide_mul( &zh,&zl, xl,yl );
       uint128 z = join( zh,zl );
-      if( z!=z0 ) {
-        FD_LOG_WARNING(( "FAIL: iter %i op fd_uwide_mul\n\t"
-                         "x %016lx y %016lx z %016lx %016lx z0 %016lx %016lx",
-                         i, xl, yl, zh,zl, split_hi(z0),split_lo(z0) ));
-        return 1;
-      }
+      if( z!=z0 )
+        FD_LOG_ERR(( "FAIL: iter %i op fd_uwide_mul\n\t"
+                     "x %016lx y %016lx z %016lx %016lx z0 %016lx %016lx",
+                     i, xl, yl, zh,zl, split_hi(z0),split_lo(z0) ));
     } while(0);
 
     /* Divide a random uint128 x by a random non-zero d */
@@ -111,12 +101,10 @@ main( int     argc,
       uint128 z0 = x / (uint128)d;
       ulong   zh,zl; fd_uwide_div( &zh,&zl, xh,xl, d );
       uint128 z = join( zh,zl );
-      if( z!=z0 ) {
-        FD_LOG_WARNING(( "FAIL: iter %i op fd_uwide_div\n\t"
-                         "x %016lx %016lx d %016lx z %016lx %016lx z0 %016lx %016lx",
-                         i, xh,xl, d, zh,zl, split_hi(z0),split_lo(z0) ));
-        return 1;
-      }
+      if( z!=z0 )
+        FD_LOG_ERR(( "FAIL: iter %i op fd_uwide_div\n\t"
+                     "x %016lx %016lx d %016lx z %016lx %016lx z0 %016lx %016lx",
+                     i, xh,xl, d, zh,zl, split_hi(z0),split_lo(z0) ));
     } while(0);
 
     /* Divide a random uint128 x by a random non-zero d and get the remainder */
@@ -127,12 +115,10 @@ main( int     argc,
       ulong   w0 = (ulong)(x % (uint128)d);
       ulong   zh,zl; ulong w = fd_uwide_divrem( &zh,&zl, xh,xl, d );
       uint128 z = join( zh,zl );
-      if( z!=z0 || w!=w0 ) {
-        FD_LOG_WARNING(( "FAIL: iter %i op fd_uwide_divrem\n\t"
-                         "x %016lx %016lx d %016lx z %016lx %016lx w %016lx z0 %016lx %016lx w0 %016lx",
-                         i, xh,xl, d, zh,zl,w, split_hi(z0),split_lo(z0),w0 ));
-        return 1;
-      }
+      if( z!=z0 || w!=w0 )
+        FD_LOG_ERR(( "FAIL: iter %i op fd_uwide_divrem\n\t"
+                     "x %016lx %016lx d %016lx z %016lx %016lx w %016lx z0 %016lx %016lx w0 %016lx",
+                     i, xh,xl, d, zh,zl,w, split_hi(z0),split_lo(z0),w0 ));
     } while(0);
 
     /* Compute the log2 of a random uint128 x (sets leading bit of x)  */
@@ -141,12 +127,10 @@ main( int     argc,
       x |= ((uint128)1) << (nx-1); xh = split_hi( x ); xl = split_lo( x ); /* Set the leading bit */
       int n0 = nx-1;
       int n  = fd_uwide_find_msb( xh, xl );
-      if( n!=n0 ) {
-        FD_LOG_WARNING(( "FAIL: iter %i op fd_uwide_find_msb\n\t"
-                         "x %016lx %016lx n %i n0 %i",
-                         i, xh,xl, n, n0 ));
-        return 1;
-      }
+      if( n!=n0 )
+        FD_LOG_ERR(( "FAIL: iter %i op fd_uwide_find_msb\n\t"
+                     "x %016lx %016lx n %i n0 %i",
+                     i, xh,xl, n, n0 ));
     } while(0);
 
     /* Compute the log2 of a random uint128 x with default (clobbers leading bit of x) */
@@ -156,21 +140,17 @@ main( int     argc,
         x = (uint128)b0; xh = split_hi( x ); xl = split_lo( x );
         int n0 = (x ? 0 : 1234);
         int n  = fd_uwide_find_msb_def( xh,xl, 1234 );
-        if( n!=n0 ) {
-          FD_LOG_WARNING(( "FAIL: iter %i op fd_uwide_find_msb_def\n\t"
-                           "x %016lx %016lx n %i n0 %i",
-                           i, xh,xl, n, n0 ));
-          return 1;
-        }
+        if( n!=n0 )
+          FD_LOG_ERR(( "FAIL: iter %i op fd_uwide_find_msb_def\n\t"
+                       "x %016lx %016lx n %i n0 %i",
+                       i, xh,xl, n, n0 ));
       } else { /* If wider, def should not happen (assumes leading bit of x set) */
         int n  = fd_uwide_find_msb_def( xh, xl, 1234 );
         int n0 = nx-1;
-        if( n!=n0 ) {
-          FD_LOG_WARNING(( "FAIL: iter %i op fd_uwide_find_msb_def\n\t"
-                           "x %016lx %016lx n %i n0 %i",
-                           i, xh,xl, n, n0 ));
-          return 1;
-        }
+        if( n!=n0 )
+          FD_LOG_ERR(( "FAIL: iter %i op fd_uwide_find_msb_def\n\t"
+                       "x %016lx %016lx n %i n0 %i",
+                       i, xh,xl, n, n0 ));
       }
     } while(0);
 
@@ -181,12 +161,10 @@ main( int     argc,
       int     f0           = (s==0) ? 0 : (s==128) ? !!y : !!(y>>(128-s));
       ulong   zh,zl; int f = fd_uwide_sl( &zh,&zl, yh,yl, s );
       uint128 z            = join( zh,zl );
-      if( z!=z0 || f!=f0 ) {
-        FD_LOG_WARNING(( "FAIL: iter %i op fd_uwide_sl\n\t"
-                         "y %016lx %016lx s %i z %016lx %016lx f %i z0 %016lx %016lx f0 %i",
-                         i, yh,yl, s, zh,zl, f, split_hi(z0),split_lo(z0), f0 ));
-        return 1;
-      }
+      if( z!=z0 || f!=f0 )
+        FD_LOG_ERR(( "FAIL: iter %i op fd_uwide_sl\n\t"
+                     "y %016lx %016lx s %i z %016lx %016lx f %i z0 %016lx %016lx f0 %i",
+                     i, yh,yl, s, zh,zl, f, split_hi(z0),split_lo(z0), f0 ));
     } while(0);
 
     /* Right shift a random uint128 y */
@@ -196,12 +174,10 @@ main( int     argc,
       int     f0           = (s==0) ? 0 : (s==128) ? !!y : !!(y<<(128-s));
       ulong   zh,zl; int f = fd_uwide_sr( &zh,&zl, yh,yl, s );
       uint128 z            = join( zh,zl );
-      if( z!=z0 || f!=f0 ) {
-        FD_LOG_WARNING(( "FAIL: iter %i op fd_uwide_sr\n\t"
-                         "y %016lx %016lx s %i z %016lx %016lx f %i z0 %016lx %016lx f0 %i",
-                         i, yh,yl, s, zh,zl, f, split_hi(z0),split_lo(z0), f0 ));
-        return 1;
-      }
+      if( z!=z0 || f!=f0 )
+        FD_LOG_ERR(( "FAIL: iter %i op fd_uwide_sr\n\t"
+                     "y %016lx %016lx s %i z %016lx %016lx f %i z0 %016lx %016lx f0 %i",
+                     i, yh,yl, s, zh,zl, f, split_hi(z0),split_lo(z0), f0 ));
     } while(0);
   }
 
