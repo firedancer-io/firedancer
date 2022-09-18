@@ -13,60 +13,58 @@ main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
 
-# define TEST(c) do if( FD_UNLIKELY( !(c) ) ) { FD_LOG_WARNING(( "FAIL: " #c )); return 1; } while(0)
-
   fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
 
 # if FD_HAS_ALLOCA
   uchar * smem = fd_alloca( fd_scratch_smem_align(), fd_scratch_smem_footprint( SMAX  ) );
   ulong * fmem = fd_alloca( fd_scratch_fmem_align(), fd_scratch_fmem_footprint( DEPTH ) );
-  TEST( smem ); TEST( fd_ulong_is_aligned( (ulong)smem, FD_SCRATCH_SMEM_ALIGN ) );
-  TEST( fmem ); TEST( fd_ulong_is_aligned( (ulong)fmem, FD_SCRATCH_FMEM_ALIGN ) );
+  FD_TEST( smem ); FD_TEST( fd_ulong_is_aligned( (ulong)smem, FD_SCRATCH_SMEM_ALIGN ) );
+  FD_TEST( fmem ); FD_TEST( fd_ulong_is_aligned( (ulong)fmem, FD_SCRATCH_FMEM_ALIGN ) );
 # endif
 
-  TEST( fd_ulong_is_pow2( FD_SCRATCH_ALIGN_MIN     )     );
-  TEST( fd_ulong_is_pow2( FD_SCRATCH_ALIGN_DEFAULT )     );
-  TEST( FD_SCRATCH_ALIGN_DEFAULT >= FD_SCRATCH_ALIGN_MIN );
+  FD_TEST( fd_ulong_is_pow2( FD_SCRATCH_ALIGN_MIN     )     );
+  FD_TEST( fd_ulong_is_pow2( FD_SCRATCH_ALIGN_DEFAULT )     );
+  FD_TEST( FD_SCRATCH_ALIGN_DEFAULT >= FD_SCRATCH_ALIGN_MIN );
 
-  TEST( fd_scratch_smem_align()==(ulong)FD_SCRATCH_SMEM_ALIGN );
-  TEST( fd_ulong_is_pow2( fd_scratch_smem_align() ) );
+  FD_TEST( fd_scratch_smem_align()==(ulong)FD_SCRATCH_SMEM_ALIGN );
+  FD_TEST( fd_ulong_is_pow2( fd_scratch_smem_align() ) );
 
   for( ulong smax=1UL; smax<=SMAX; smax++ )
-    TEST( fd_scratch_smem_footprint( smax )==fd_ulong_align_up( smax, fd_scratch_smem_align() ) );
+    FD_TEST( fd_scratch_smem_footprint( smax )==fd_ulong_align_up( smax, fd_scratch_smem_align() ) );
 
-  TEST( fd_scratch_fmem_align()==(ulong)FD_SCRATCH_FMEM_ALIGN );
-  TEST( fd_scratch_fmem_align()==sizeof(ulong)                );
-  TEST( fd_ulong_is_pow2( fd_scratch_fmem_align() )           );
+  FD_TEST( fd_scratch_fmem_align()==(ulong)FD_SCRATCH_FMEM_ALIGN );
+  FD_TEST( fd_scratch_fmem_align()==sizeof(ulong)                );
+  FD_TEST( fd_ulong_is_pow2( fd_scratch_fmem_align() )           );
 
-  for( ulong depth=1UL; depth<=DEPTH; depth++ ) TEST( fd_scratch_fmem_footprint( depth )==sizeof(ulong)*depth );
+  for( ulong depth=1UL; depth<=DEPTH; depth++ ) FD_TEST( fd_scratch_fmem_footprint( depth )==sizeof(ulong)*depth );
 
-  TEST( !fd_scratch_used()       );
-  TEST( !fd_scratch_free()       );
-  TEST( !fd_scratch_frame_used() );
-  TEST( !fd_scratch_frame_free() );
+  FD_TEST( !fd_scratch_used()       );
+  FD_TEST( !fd_scratch_free()       );
+  FD_TEST( !fd_scratch_frame_used() );
+  FD_TEST( !fd_scratch_frame_free() );
 
   fd_scratch_attach( smem, fmem, SMAX, DEPTH );
 
-  TEST( !fd_scratch_used()      );
-  TEST( fd_scratch_free()==SMAX );
+  FD_TEST( !fd_scratch_used()      );
+  FD_TEST( fd_scratch_free()==SMAX );
 
-  TEST( !fd_scratch_frame_used()       );
-  TEST( fd_scratch_frame_free()==DEPTH );
+  FD_TEST( !fd_scratch_frame_used()       );
+  FD_TEST( fd_scratch_frame_free()==DEPTH );
 
   for( ulong i=0UL; i<DEPTH; i++ ) {
-    TEST( fd_scratch_frame_used()==i         );
-    TEST( fd_scratch_frame_free()==(DEPTH-i) );
+    FD_TEST( fd_scratch_frame_used()==i         );
+    FD_TEST( fd_scratch_frame_free()==(DEPTH-i) );
     fd_scratch_push();
   }
 
   for( ulong i=0UL; i<DEPTH; i++ ) {
-    TEST( fd_scratch_frame_used()==(DEPTH-i) );
-    TEST( fd_scratch_frame_free()==i         );
+    FD_TEST( fd_scratch_frame_used()==(DEPTH-i) );
+    FD_TEST( fd_scratch_frame_free()==i         );
     fd_scratch_pop();
   }
 
-  TEST( !fd_scratch_frame_used()       );
-  TEST( fd_scratch_frame_free()==DEPTH );
+  FD_TEST( !fd_scratch_frame_used()       );
+  FD_TEST( fd_scratch_frame_free()==DEPTH );
 
   void * mem;
 
@@ -75,18 +73,18 @@ main( int     argc,
   /* sz==0 behavior */
   for( ulong align=4096UL; align; align>>=1 ) {
     mem = fd_scratch_alloc( align, 0UL );
-    TEST( mem && fd_ulong_is_aligned( (ulong)mem, fd_ulong_max( FD_SCRATCH_ALIGN_MIN, align ) ) );
+    FD_TEST( mem && fd_ulong_is_aligned( (ulong)mem, fd_ulong_max( FD_SCRATCH_ALIGN_MIN, align ) ) );
   }
   mem = fd_scratch_alloc( 0UL, 0UL );
-  TEST( mem && fd_ulong_is_aligned( (ulong)mem, FD_SCRATCH_ALIGN_DEFAULT ) );
+  FD_TEST( mem && fd_ulong_is_aligned( (ulong)mem, FD_SCRATCH_ALIGN_DEFAULT ) );
 
   /* non-multiple size behavior */
   for( ulong align=4096UL; align; align>>=1 ) {
     mem = fd_scratch_alloc( align, 1UL );
-    TEST( mem && fd_ulong_is_aligned( (ulong)mem, fd_ulong_max( FD_SCRATCH_ALIGN_MIN, align ) ) );
+    FD_TEST( mem && fd_ulong_is_aligned( (ulong)mem, fd_ulong_max( FD_SCRATCH_ALIGN_MIN, align ) ) );
   }
   mem = fd_scratch_alloc( 0UL, 1UL );
-  TEST( mem && fd_ulong_is_aligned( (ulong)mem, FD_SCRATCH_ALIGN_DEFAULT ) );
+  FD_TEST( mem && fd_ulong_is_aligned( (ulong)mem, FD_SCRATCH_ALIGN_DEFAULT ) );
 
   fd_scratch_pop();
 
@@ -105,7 +103,7 @@ main( int     argc,
       continue;
     }
 
-    TEST( fd_scratch_push_is_safe()==(!!fd_scratch_frame_free()) );
+    FD_TEST( fd_scratch_push_is_safe()==(!!fd_scratch_frame_free()) );
     int do_push = (!(bits & 63UL)) & fd_scratch_push_is_safe(); bits >>= 6;
     if( do_push ) {
       frame[ frame_cnt++ ] = alloc_cnt;
@@ -113,7 +111,7 @@ main( int     argc,
       continue;
     }
 
-    TEST( fd_scratch_pop_is_safe()==(!!fd_scratch_frame_used()) );
+    FD_TEST( fd_scratch_pop_is_safe()==(!!fd_scratch_frame_used()) );
     int do_pop = (!(bits & 63UL)) & fd_scratch_pop_is_safe(); bits >>= 6;
     if( do_pop ) {
       alloc_cnt = frame[ --frame_cnt ];
@@ -131,13 +129,13 @@ main( int     argc,
     
     mem = fd_scratch_alloc( align, sz );
     ulong a = fd_ulong_max( fd_ulong_if( !align, FD_SCRATCH_ALIGN_DEFAULT, align ), FD_SCRATCH_ALIGN_MIN );
-    TEST( mem && fd_ulong_is_aligned( (ulong)mem, a ) );
+    FD_TEST( mem && fd_ulong_is_aligned( (ulong)mem, a ) );
 
     ulong new_m0 = (ulong)mem;
     ulong new_m1 = new_m0 + sz;
     for( ulong idx=0UL; idx<alloc_cnt; idx++ ) {
-      TEST( (fd_scratch_private_start<=new_m0) & (new_m0<=new_m1) & (new_m1<=fd_scratch_private_stop) );
-      TEST( (m1[idx]<=new_m0) | (new_m1<=m0[idx]) );
+      FD_TEST( (fd_scratch_private_start<=new_m0) & (new_m0<=new_m1) & (new_m1<=fd_scratch_private_stop) );
+      FD_TEST( (m1[idx]<=new_m0) | (new_m1<=m0[idx]) );
     }
 
     m0[ alloc_cnt ] = new_m0;
@@ -146,17 +144,15 @@ main( int     argc,
   }
 
   void * _fmem;
-  TEST( fd_scratch_detach( &_fmem )==smem );
-  TEST( _fmem==(void *)fmem );
+  FD_TEST( fd_scratch_detach( &_fmem )==smem );
+  FD_TEST( _fmem==(void *)fmem );
 
-  TEST( !fd_scratch_used()       );
-  TEST( !fd_scratch_free()       );
-  TEST( !fd_scratch_frame_used() );
-  TEST( !fd_scratch_frame_free() );
+  FD_TEST( !fd_scratch_used()       );
+  FD_TEST( !fd_scratch_free()       );
+  FD_TEST( !fd_scratch_frame_used() );
+  FD_TEST( !fd_scratch_frame_free() );
 
   fd_rng_delete( fd_rng_leave( rng ) );
-
-# undef TEST
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

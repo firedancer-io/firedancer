@@ -113,8 +113,6 @@ main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
 
-# define TEST(c) do if( FD_UNLIKELY( !(c) ) ) { FD_LOG_WARNING(( "FAIL: " #c )); return 1; } while(0)
-
   fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
 
   /* Test signed integer overflow is wrapping.  Needs to be at run time
@@ -127,24 +125,24 @@ main( int     argc,
 
   do {
     schar i = SCHAR_MIN; schar j = SCHAR_MAX;
-    TEST( (schar)(FD_VOLATILE(i)-(schar)1)==FD_VOLATILE(j) && (schar)(FD_VOLATILE(j)+(schar)1)==FD_VOLATILE(i) );
+    FD_TEST( (schar)(FD_VOLATILE(i)-(schar)1)==FD_VOLATILE(j) && (schar)(FD_VOLATILE(j)+(schar)1)==FD_VOLATILE(i) );
   } while(0);
   do {
     short i = SHORT_MIN; short j = SHORT_MAX;
-    TEST( (short)(FD_VOLATILE(i)-(short)1)==FD_VOLATILE(j) && (short)(FD_VOLATILE(j)+(short)1)==FD_VOLATILE(i) );
+    FD_TEST( (short)(FD_VOLATILE(i)-(short)1)==FD_VOLATILE(j) && (short)(FD_VOLATILE(j)+(short)1)==FD_VOLATILE(i) );
   } while(0);
   do {
     int   i =   INT_MIN; int   j =   INT_MAX;
-    TEST( (int  )(FD_VOLATILE(i)-(int  )1)==FD_VOLATILE(j) && (int  )(FD_VOLATILE(j)+(int  )1)==FD_VOLATILE(i) );
+    FD_TEST( (int  )(FD_VOLATILE(i)-(int  )1)==FD_VOLATILE(j) && (int  )(FD_VOLATILE(j)+(int  )1)==FD_VOLATILE(i) );
   } while(0);
   do {
     long  i =  LONG_MIN; long  j =  LONG_MAX;
-    TEST( (long )(FD_VOLATILE(i)-(long )1)==FD_VOLATILE(j) && (long )(FD_VOLATILE(j)+(long )1)==FD_VOLATILE(i) );
+    FD_TEST( (long )(FD_VOLATILE(i)-(long )1)==FD_VOLATILE(j) && (long )(FD_VOLATILE(j)+(long )1)==FD_VOLATILE(i) );
   } while(0);
 # if FD_HAS_INT128
   do {
     int128 i = INT128_MIN; int128 j = INT128_MAX;
-    TEST( (int128)(FD_VOLATILE(i)-(int128)1)==FD_VOLATILE(j) && (int128)(FD_VOLATILE(j)+(int128)1)==FD_VOLATILE(i) );
+    FD_TEST( (int128)(FD_VOLATILE(i)-(int128)1)==FD_VOLATILE(j) && (int128)(FD_VOLATILE(j)+(int128)1)==FD_VOLATILE(i) );
   } while(0);
 # endif
 
@@ -152,22 +150,22 @@ main( int     argc,
      done run time due to unfortunate language handling around fenv that
      prevents the compiler from verifying these via static assert. */
 
-  TEST( FLT_MIN    ==1.1754943508222875e-38f );
-  TEST( FLT_MAX    ==3.4028234663852886e+38f );
-  TEST( FLT_EPSILON==1.1920928955078125e-07f );
-  TEST( (1.f+      FLT_EPSILON)> 1.f ); /* RNE to 1+eps */
-  TEST( (1.f+0.50f*FLT_EPSILON)==1.f ); /* RNE to 1 */
-  TEST( (1.f-0.25f*FLT_EPSILON)==1.f ); /* RNE to 1 */
-  TEST( (1.f-0.50f*FLT_EPSILON)< 1.f ); /* RNE to 1-0.5eps */
+  FD_TEST( FLT_MIN    ==1.1754943508222875e-38f );
+  FD_TEST( FLT_MAX    ==3.4028234663852886e+38f );
+  FD_TEST( FLT_EPSILON==1.1920928955078125e-07f );
+  FD_TEST( (1.f+      FLT_EPSILON)> 1.f ); /* RNE to 1+eps */
+  FD_TEST( (1.f+0.50f*FLT_EPSILON)==1.f ); /* RNE to 1 */
+  FD_TEST( (1.f-0.25f*FLT_EPSILON)==1.f ); /* RNE to 1 */
+  FD_TEST( (1.f-0.50f*FLT_EPSILON)< 1.f ); /* RNE to 1-0.5eps */
 
 # if FD_HAS_DOUBLE
-  TEST( DBL_MIN    ==2.2250738585072014e-308 );
-  TEST( DBL_MAX    ==1.7976931348623157e+308 );
-  TEST( DBL_EPSILON==2.2204460492503131e-16  );
-  TEST( (1.+     DBL_EPSILON)> 1. ); /* RNE to 1+eps */
-  TEST( (1.+0.50*DBL_EPSILON)==1. ); /* RNE to 1 */
-  TEST( (1.-0.25*DBL_EPSILON)==1. ); /* RNE to 1 */
-  TEST( (1.-0.50*DBL_EPSILON)< 1. ); /* RNE to 1-0.5eps */
+  FD_TEST( DBL_MIN    ==2.2250738585072014e-308 );
+  FD_TEST( DBL_MAX    ==1.7976931348623157e+308 );
+  FD_TEST( DBL_EPSILON==2.2204460492503131e-16  );
+  FD_TEST( (1.+     DBL_EPSILON)> 1. ); /* RNE to 1+eps */
+  FD_TEST( (1.+0.50*DBL_EPSILON)==1. ); /* RNE to 1 */
+  FD_TEST( (1.-0.25*DBL_EPSILON)==1. ); /* RNE to 1 */
+  FD_TEST( (1.-0.50*DBL_EPSILON)< 1. ); /* RNE to 1-0.5eps */
 # endif
 
   /* Test little endian */
@@ -180,9 +178,9 @@ main( int     argc,
   } _;
   _.uc[0] = (uchar)0; _.uc[1] = (uchar)1; _.uc[2] = (uchar)2; _.uc[3] = (uchar)3;
   _.uc[4] = (uchar)4; _.uc[5] = (uchar)5; _.uc[6] = (uchar)6; _.uc[7] = (uchar)7;
-  TEST( _.us==(ushort)            0x0100   );
-  TEST( _.ui==                0x03020100U  );
-  TEST( _.ul==        0x0706050403020100UL );
+  FD_TEST( _.us==(ushort)            0x0100   );
+  FD_TEST( _.ui==                0x03020100U  );
+  FD_TEST( _.ul==        0x0706050403020100UL );
 
   /* Test unaligned access */
 
@@ -192,13 +190,13 @@ main( int     argc,
     ulong magic = 0x0706050403020100UL;
     for( ulong off=0UL; off<(256UL-8UL); off++ ) {
       ulong tmp = magic;
-#     define _(T) do {                                       \
-        T * ptr = (T *)(buf+off);                            \
-        FD_COMPILER_FORGET( ptr ); TEST( ptr[0]==(T)magic ); \
-        FD_COMPILER_FORGET( ptr ); ptr[0] = (T)(++tmp);      \
-        FD_COMPILER_FORGET( ptr ); TEST( ptr[0]==(T)tmp );   \
-        FD_COMPILER_FORGET( ptr ); ptr[0] = (T)magic;        \
-        FD_COMPILER_FORGET( ptr ); TEST( ptr[0]==(T)magic ); \
+#     define _(T) do {                                          \
+        T * ptr = (T *)(buf+off);                               \
+        FD_COMPILER_FORGET( ptr ); FD_TEST( ptr[0]==(T)magic ); \
+        FD_COMPILER_FORGET( ptr ); ptr[0] = (T)(++tmp);         \
+        FD_COMPILER_FORGET( ptr ); FD_TEST( ptr[0]==(T)tmp );   \
+        FD_COMPILER_FORGET( ptr ); ptr[0] = (T)magic;           \
+        FD_COMPILER_FORGET( ptr ); FD_TEST( ptr[0]==(T)magic ); \
       } while(0)
       _(uchar ); _(schar); _(char);
       _(ushort); _(short);
@@ -206,13 +204,13 @@ main( int     argc,
       _(ulong ); _(long );
 #     undef _
 
-#     define _(T) do {                              \
-        T * _f = (T *)(buf+off);                    \
-        T    f = (T)off;                            \
-        FD_COMPILER_FORGET( _f ); _f[0] = f;        \
-        FD_COMPILER_FORGET( _f ); TEST( _f[0]==f ); \
-        ulong * ptr = (ulong *)(buf+off);           \
-        FD_COMPILER_FORGET( ptr ); ptr[0] = magic;  \
+#     define _(T) do {                                 \
+        T * _f = (T *)(buf+off);                       \
+        T    f = (T)off;                               \
+        FD_COMPILER_FORGET( _f ); _f[0] = f;           \
+        FD_COMPILER_FORGET( _f ); FD_TEST( _f[0]==f ); \
+        ulong * ptr = (ulong *)(buf+off);              \
+        FD_COMPILER_FORGET( ptr ); ptr[0] = magic;     \
       } while(0);
       _(float );
 #     if FD_HAS_DOUBLE
@@ -227,13 +225,13 @@ main( int     argc,
     uint128 m128 = (((uint128)0x0f0e0d0c0b0a0908UL) << 64) | (uint128)0x0706050403020100UL;
     for( ulong off=0UL; off<(256UL-16UL); off++ ) {
       uint128 tmp = m128;
-#     define _(T) do {                                       \
-        T * ptr = (T *)(buf+off);                            \
-        FD_COMPILER_FORGET( ptr ); TEST( ptr[0]==(T)m128  ); \
-        FD_COMPILER_FORGET( ptr ); ptr[0] = (T)(++tmp);      \
-        FD_COMPILER_FORGET( ptr ); TEST( ptr[0]==(T)tmp );   \
-        FD_COMPILER_FORGET( ptr ); ptr[0] = (T)m128;         \
-        FD_COMPILER_FORGET( ptr ); TEST( ptr[0]==(T)m128 );  \
+#     define _(T) do {                                          \
+        T * ptr = (T *)(buf+off);                               \
+        FD_COMPILER_FORGET( ptr ); FD_TEST( ptr[0]==(T)m128  ); \
+        FD_COMPILER_FORGET( ptr ); ptr[0] = (T)(++tmp);         \
+        FD_COMPILER_FORGET( ptr ); FD_TEST( ptr[0]==(T)tmp );   \
+        FD_COMPILER_FORGET( ptr ); ptr[0] = (T)m128;            \
+        FD_COMPILER_FORGET( ptr ); FD_TEST( ptr[0]==(T)m128 );  \
       } while(0)
       _(uint128); _(int128);
 #     undef _
@@ -245,16 +243,16 @@ main( int     argc,
 
   do { /* FIXME: PROBABLY SHOULD MORE AGGRESIVELY TEST SOME OF THIS */
     int c = 1;
-    FD_COMPILER_FORGET(        c ); TEST( c==1 );
-    FD_COMPILER_UNPREDICTABLE( c ); TEST( c==1 );
+    FD_COMPILER_FORGET(        c ); FD_TEST( c==1 );
+    FD_COMPILER_UNPREDICTABLE( c ); FD_TEST( c==1 );
 
     int ctr[6]; ctr[0] = 0; ctr[1] = 0; ctr[2] = 0; ctr[3] = 0; ctr[4] = 0; ctr[5] = 0;
 
-    TEST( fd_type_pun      ( ctr )==(void       *)ctr );
-    TEST( fd_type_pun_const( ctr )==(void const *)ctr );
+    FD_TEST( fd_type_pun      ( ctr )==(void       *)ctr );
+    FD_TEST( fd_type_pun_const( ctr )==(void const *)ctr );
 
     struct __attribute__((packed)) { char c; int i; } p; fd_memset( &p, 0, sizeof(p) );
-    int * pi  = FD_ADDRESS_OF_PACKED_MEMBER( p.i ); TEST( (ulong)pi==(((ulong)&p)+1UL) );
+    int * pi  = FD_ADDRESS_OF_PACKED_MEMBER( p.i ); FD_TEST( (ulong)pi==(((ulong)&p)+1UL) );
     ((void)p.c);
 
     FD_COMPILER_MFENCE();
@@ -262,26 +260,26 @@ main( int     argc,
     FD_SPIN_PAUSE();
     FD_YIELD();
 
-    TEST( FD_VOLATILE_CONST( ctr[0] )==0 );
-    FD_VOLATILE( ctr[0] ) = 1; TEST( FD_VOLATILE_CONST( ctr[0] )==1 );
+    FD_TEST( FD_VOLATILE_CONST( ctr[0] )==0 );
+    FD_VOLATILE( ctr[0] ) = 1; FD_TEST( FD_VOLATILE_CONST( ctr[0] )==1 );
 #   if FD_HAS_ATOMIC
-    FD_VOLATILE( ctr[0] ) = 3; TEST( FD_ATOMIC_FETCH_AND_ADD( ctr, 5 )== 3 ); TEST( ctr[0]== 8 );
-    FD_VOLATILE( ctr[0] ) = 3; TEST( FD_ATOMIC_FETCH_AND_SUB( ctr, 5 )== 3 ); TEST( ctr[0]==-2 );
-    FD_VOLATILE( ctr[0] ) = 3; TEST( FD_ATOMIC_FETCH_AND_AND( ctr, 5 )== 3 ); TEST( ctr[0]== 1 );
-    FD_VOLATILE( ctr[0] ) = 3; TEST( FD_ATOMIC_FETCH_AND_OR(  ctr, 5 )== 3 ); TEST( ctr[0]== 7 );
-    FD_VOLATILE( ctr[0] ) = 3; TEST( FD_ATOMIC_FETCH_AND_XOR( ctr, 5 )== 3 ); TEST( ctr[0]== 6 );
+    FD_VOLATILE( ctr[0] ) = 3; FD_TEST( FD_ATOMIC_FETCH_AND_ADD( ctr, 5 )== 3 ); FD_TEST( ctr[0]== 8 );
+    FD_VOLATILE( ctr[0] ) = 3; FD_TEST( FD_ATOMIC_FETCH_AND_SUB( ctr, 5 )== 3 ); FD_TEST( ctr[0]==-2 );
+    FD_VOLATILE( ctr[0] ) = 3; FD_TEST( FD_ATOMIC_FETCH_AND_AND( ctr, 5 )== 3 ); FD_TEST( ctr[0]== 1 );
+    FD_VOLATILE( ctr[0] ) = 3; FD_TEST( FD_ATOMIC_FETCH_AND_OR(  ctr, 5 )== 3 ); FD_TEST( ctr[0]== 7 );
+    FD_VOLATILE( ctr[0] ) = 3; FD_TEST( FD_ATOMIC_FETCH_AND_XOR( ctr, 5 )== 3 ); FD_TEST( ctr[0]== 6 );
 
-    FD_VOLATILE( ctr[0] ) = 3; TEST( FD_ATOMIC_ADD_AND_FETCH( ctr, 5 )== 8 ); TEST( ctr[0]== 8 );
-    FD_VOLATILE( ctr[0] ) = 3; TEST( FD_ATOMIC_SUB_AND_FETCH( ctr, 5 )==-2 ); TEST( ctr[0]==-2 );
-    FD_VOLATILE( ctr[0] ) = 3; TEST( FD_ATOMIC_AND_AND_FETCH( ctr, 5 )== 1 ); TEST( ctr[0]== 1 );
-    FD_VOLATILE( ctr[0] ) = 3; TEST( FD_ATOMIC_OR_AND_FETCH(  ctr, 5 )== 7 ); TEST( ctr[0]== 7 );
-    FD_VOLATILE( ctr[0] ) = 3; TEST( FD_ATOMIC_XOR_AND_FETCH( ctr, 5 )== 6 ); TEST( ctr[0]== 6 );
+    FD_VOLATILE( ctr[0] ) = 3; FD_TEST( FD_ATOMIC_ADD_AND_FETCH( ctr, 5 )== 8 ); FD_TEST( ctr[0]== 8 );
+    FD_VOLATILE( ctr[0] ) = 3; FD_TEST( FD_ATOMIC_SUB_AND_FETCH( ctr, 5 )==-2 ); FD_TEST( ctr[0]==-2 );
+    FD_VOLATILE( ctr[0] ) = 3; FD_TEST( FD_ATOMIC_AND_AND_FETCH( ctr, 5 )== 1 ); FD_TEST( ctr[0]== 1 );
+    FD_VOLATILE( ctr[0] ) = 3; FD_TEST( FD_ATOMIC_OR_AND_FETCH(  ctr, 5 )== 7 ); FD_TEST( ctr[0]== 7 );
+    FD_VOLATILE( ctr[0] ) = 3; FD_TEST( FD_ATOMIC_XOR_AND_FETCH( ctr, 5 )== 6 ); FD_TEST( ctr[0]== 6 );
 
     FD_VOLATILE( ctr[0] ) = 1;
-    TEST( FD_ATOMIC_CAS( ctr, 0, 2 )==1 && FD_VOLATILE_CONST( ctr[0] )==1 );
-    TEST( FD_ATOMIC_CAS( ctr, 1, 3 )==1 && FD_VOLATILE_CONST( ctr[0] )==3 );
+    FD_TEST( FD_ATOMIC_CAS( ctr, 0, 2 )==1 && FD_VOLATILE_CONST( ctr[0] )==1 );
+    FD_TEST( FD_ATOMIC_CAS( ctr, 1, 3 )==1 && FD_VOLATILE_CONST( ctr[0] )==3 );
 #   endif
-    FD_VOLATILE( ctr[0] ) = 0; TEST( FD_VOLATILE_CONST( ctr[0] )==0 );
+    FD_VOLATILE( ctr[0] ) = 0; FD_TEST( FD_VOLATILE_CONST( ctr[0] )==0 );
 
     for( int i=0; i<10; i++ ) {
       FD_ONCE_BEGIN {
@@ -297,14 +295,14 @@ main( int     argc,
       } FD_THREAD_ONCE_END;
     }
 
-    TEST( ctr[0]==1 && ctr[1]==1 && ctr[2]==1 && ctr[3]==1 && ctr[4]==1 && ctr[5]==1 );
+    FD_TEST( ctr[0]==1 && ctr[1]==1 && ctr[2]==1 && ctr[3]==1 && ctr[4]==1 && ctr[5]==1 );
   } while(0);
 
   do {
     char const * buf = "The quick brown fox jumps over the lazy dog.";
     ulong        sz  = strlen(buf)+1UL;
-    TEST( fd_hash( 0UL, buf, sz )==0xf3f632730b075fa5UL );
-    TEST( fd_hash( 1UL, buf, sz )==0x9d33e5e77b3544ceUL );
+    FD_TEST( fd_hash( 0UL, buf, sz )==0xf3f632730b075fa5UL );
+    FD_TEST( fd_hash( 1UL, buf, sz )==0x9d33e5e77b3544ceUL );
   } while(0);
 
   for( ulong iter=0UL; iter<1000000UL; iter++ )  {
@@ -325,24 +323,24 @@ main( int     argc,
 
     int c = (int)fd_rng_uchar( rng );
     memset( src+s0, c, sz );
-    TEST( fd_memset( dst+d0, c, sz )==(dst+d0) );
-    TEST( !memcmp( dst+d0, src+s0, sz ) );
-    TEST( fd_hash( 0UL, src, s0 )==hs0 ); TEST( fd_hash( 0UL, src+s1, 2048UL-s1 )==hs1 );
-    TEST( fd_hash( 0UL, dst, d0 )==hd0 ); TEST( fd_hash( 0UL, dst+d1, 2048UL-d1 )==hd1 );
+    FD_TEST( fd_memset( dst+d0, c, sz )==(dst+d0) );
+    FD_TEST( !memcmp( dst+d0, src+s0, sz ) );
+    FD_TEST( fd_hash( 0UL, src, s0 )==hs0 ); FD_TEST( fd_hash( 0UL, src+s1, 2048UL-s1 )==hs1 );
+    FD_TEST( fd_hash( 0UL, dst, d0 )==hd0 ); FD_TEST( fd_hash( 0UL, dst+d1, 2048UL-d1 )==hd1 );
 
     for( ulong b=s0; b<s1; b++ ) src[b] = fd_rng_uchar( rng );
 
-    TEST( fd_memcpy( dst+d0, src+s0, sz )==(dst+d0) );
-    TEST( !memcmp( dst+d0, src+s0, sz ) );
-    TEST( fd_hash( 0UL, src, s0 )==hs0 ); TEST( fd_hash( 0UL, src+s1, 2048UL-s1 )==hs1 );
-    TEST( fd_hash( 0UL, dst, d0 )==hd0 ); TEST( fd_hash( 0UL, dst+d1, 2048UL-d1 )==hd1 );
+    FD_TEST( fd_memcpy( dst+d0, src+s0, sz )==(dst+d0) );
+    FD_TEST( !memcmp( dst+d0, src+s0, sz ) );
+    FD_TEST( fd_hash( 0UL, src, s0 )==hs0 ); FD_TEST( fd_hash( 0UL, src+s1, 2048UL-s1 )==hs1 );
+    FD_TEST( fd_hash( 0UL, dst, d0 )==hd0 ); FD_TEST( fd_hash( 0UL, dst+d1, 2048UL-d1 )==hd1 );
 
     for( ulong b=s0; b<s1; b++ ) src[b] = fd_rng_uchar( rng );
 
     ulong seed = fd_rng_ulong( rng );
     ulong hash = fd_hash( seed, src+s0, sz );
-    TEST( fd_hash_memcpy( seed, dst+d0, src+s0, sz )==hash );
-    TEST( !memcmp( dst+d0, src+s0, sz ) );
+    FD_TEST( fd_hash_memcpy( seed, dst+d0, src+s0, sz )==hash );
+    FD_TEST( !memcmp( dst+d0, src+s0, sz ) );
   }
 
 # if FD_HAS_X86
@@ -352,7 +350,7 @@ main( int     argc,
   long tic = fd_tickcount();
   for( ulong iter=0UL; iter<1000000UL; iter++ ) {
     long toc = fd_tickcount();
-    TEST( (toc - tic) > 0L );
+    FD_TEST( (toc - tic) > 0L );
     tic = toc;
   }
 
@@ -361,8 +359,6 @@ main( int     argc,
   /* FIXME: ADD HASH QUALITY CHECKER HERE */
 
   fd_rng_delete( fd_rng_leave( rng ) );
-
-# undef TEST
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

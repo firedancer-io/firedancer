@@ -18,29 +18,26 @@ log_ref( ulong const * ref,
 int
 main( int     argc,
       char ** argv ) {
-
   fd_boot( &argc, &argv );
-
-# define TEST(c) do if( !(c) ) { FD_LOG_WARNING(( "FAIL: " #c )); return 1; } while(0)
 
   FD_LOG_NOTICE(( "Testing align / footprint" ));
 
-  TEST( fd_rng_align    ()==FD_RNG_ALIGN     );
-  TEST( fd_rng_footprint()==FD_RNG_FOOTPRINT );
+  FD_TEST( fd_rng_align    ()==FD_RNG_ALIGN     );
+  FD_TEST( fd_rng_footprint()==FD_RNG_FOOTPRINT );
 
   FD_LOG_NOTICE(( "Testing new" ));
 
   fd_rng_t _rng[1];
-  void * shrng = fd_rng_new( _rng, 0U, 0UL ); TEST( !!shrng );
+  void * shrng = fd_rng_new( _rng, 0U, 0UL ); FD_TEST( !!shrng );
 
   FD_LOG_NOTICE(( "Testing join" ));
 
-  fd_rng_t * rng  = fd_rng_join( shrng ); TEST( !!rng );
+  fd_rng_t * rng  = fd_rng_join( shrng ); FD_TEST( !!rng );
 
   FD_LOG_NOTICE(( "Testing seq and idx" ));
 
-  TEST( fd_rng_seq( rng )==0U  );
-  TEST( fd_rng_idx( rng )==0UL );
+  FD_TEST( fd_rng_seq( rng )==0U  );
+  FD_TEST( fd_rng_idx( rng )==0UL );
 
   static ulong const x0_0[10] = {
     0xa036f9b67313c1aaUL,
@@ -59,16 +56,15 @@ main( int     argc,
   for( int i=0; i<10; i++ ) x[i] = fd_rng_ulong( rng );
   for( int i=0; i<10; i++ )
     if( x[i]!=x0_0[i] ) {
-      FD_LOG_WARNING(( "FAIL(0,0)" ));
       log_ref( x0_0, 0U, 0UL );
       log_ref( x,    0U, 0UL );
-      return 1;
+      FD_LOG_ERR(( "FAIL: (0,0)" ));
     }
 
-  TEST( fd_rng_seq( rng )== 0U  );
-  TEST( fd_rng_idx( rng )==20UL );
+  FD_TEST( fd_rng_seq( rng )== 0U  );
+  FD_TEST( fd_rng_idx( rng )==20UL );
 
-  TEST( fd_rng_seq_set( rng, 1U )==0U );
+  FD_TEST( fd_rng_seq_set( rng, 1U )==0U );
 
   static ulong const x1_20[10] = {
     0x55369a6a0817cbceUL,
@@ -86,31 +82,30 @@ main( int     argc,
   for( int i=0; i<10; i++ ) x[i] = fd_rng_ulong( rng );
   for( int i=0; i<10; i++ )
     if( x[i]!=x1_20[i] ) {
-      FD_LOG_WARNING(( "FAIL(1,20)" ));
       log_ref( x1_20, 1U, 20UL );
       log_ref( x,     1U, 20UL );
-      return 1;
+      FD_LOG_ERR(( "FAIL: 1,20" ));
     }
 
-  TEST( fd_rng_seq( rng )== 1U  );
-  TEST( fd_rng_idx( rng )==40UL );
+  FD_TEST( fd_rng_seq( rng )== 1U  );
+  FD_TEST( fd_rng_idx( rng )==40UL );
 
-  TEST( fd_rng_seq_set( rng, 0U  )== 1U  );
-  TEST( fd_rng_idx_set( rng, 0UL )==40UL );
+  FD_TEST( fd_rng_seq_set( rng, 0U  )== 1U  );
+  FD_TEST( fd_rng_idx_set( rng, 0UL )==40UL );
 
-  for( int i=0; i<10; i++ ) TEST( fd_rng_ulong( rng )==x0_0[i] );
+  for( int i=0; i<10; i++ ) FD_TEST( fd_rng_ulong( rng )==x0_0[i] );
 
   FD_LOG_NOTICE(( "Testing generator domains" ));
 
-  TEST( fd_rng_uint_to_float_c0  ( 0U  )==0.f ); TEST( fd_rng_uint_to_float_c0  ( ~0U  )< 1.f );
-  TEST( fd_rng_uint_to_float_c1  ( 0U  )> 0.f ); TEST( fd_rng_uint_to_float_c1  ( ~0U  )==1.f );
-  TEST( fd_rng_uint_to_float_c   ( 0U  )==0.f ); TEST( fd_rng_uint_to_float_c   ( ~0U  )==1.f );
-  TEST( fd_rng_uint_to_float_o   ( 0U  )> 0.f ); TEST( fd_rng_uint_to_float_o   ( ~0U  )< 1.f );
+  FD_TEST( fd_rng_uint_to_float_c0  ( 0U  )==0.f ); FD_TEST( fd_rng_uint_to_float_c0  ( ~0U  )< 1.f );
+  FD_TEST( fd_rng_uint_to_float_c1  ( 0U  )> 0.f ); FD_TEST( fd_rng_uint_to_float_c1  ( ~0U  )==1.f );
+  FD_TEST( fd_rng_uint_to_float_c   ( 0U  )==0.f ); FD_TEST( fd_rng_uint_to_float_c   ( ~0U  )==1.f );
+  FD_TEST( fd_rng_uint_to_float_o   ( 0U  )> 0.f ); FD_TEST( fd_rng_uint_to_float_o   ( ~0U  )< 1.f );
 # if FD_HAS_DOUBLE
-  TEST( fd_rng_ulong_to_double_c0( 0UL )==0.  ); TEST( fd_rng_ulong_to_double_c0( ~0UL )< 1.  );
-  TEST( fd_rng_ulong_to_double_c1( 0UL )> 0.  ); TEST( fd_rng_ulong_to_double_c1( ~0UL )==1.  );
-  TEST( fd_rng_ulong_to_double_c ( 0UL )==0.  ); TEST( fd_rng_ulong_to_double_c ( ~0UL )==1.  );
-  TEST( fd_rng_ulong_to_double_o ( 0UL )> 0.  ); TEST( fd_rng_ulong_to_double_o ( ~0UL )< 1.  );
+  FD_TEST( fd_rng_ulong_to_double_c0( 0UL )==0.  ); FD_TEST( fd_rng_ulong_to_double_c0( ~0UL )< 1.  );
+  FD_TEST( fd_rng_ulong_to_double_c1( 0UL )> 0.  ); FD_TEST( fd_rng_ulong_to_double_c1( ~0UL )==1.  );
+  FD_TEST( fd_rng_ulong_to_double_c ( 0UL )==0.  ); FD_TEST( fd_rng_ulong_to_double_c ( ~0UL )==1.  );
+  FD_TEST( fd_rng_ulong_to_double_o ( 0UL )> 0.  ); FD_TEST( fd_rng_ulong_to_double_o ( ~0UL )< 1.  );
 # endif
 
   ulong domain = 0UL;
@@ -122,29 +117,29 @@ main( int     argc,
 #   if FD_HAS_INT128
     uint128 u128 = fd_rng_uint128( rng );
 #   endif
-    schar   i8   = fd_rng_schar  ( rng ); TEST( i8  >=(schar)0  );
-    short   i16  = fd_rng_short  ( rng ); TEST( i16 >=(short)0  );
-    int     i32  = fd_rng_int    ( rng ); TEST( i32 >=       0  );
-    long    i64  = fd_rng_long   ( rng ); TEST( i64 >=       0L );
+    schar   i8   = fd_rng_schar  ( rng ); FD_TEST( i8  >=(schar)0  );
+    short   i16  = fd_rng_short  ( rng ); FD_TEST( i16 >=(short)0  );
+    int     i32  = fd_rng_int    ( rng ); FD_TEST( i32 >=       0  );
+    long    i64  = fd_rng_long   ( rng ); FD_TEST( i64 >=       0L );
 #   if FD_HAS_INT128
-    int128  i128 = fd_rng_int128 ( rng ); TEST( i128>=(int128)0 );
+    int128  i128 = fd_rng_int128 ( rng ); FD_TEST( i128>=(int128)0 );
 #   endif
 
-    float  fc0 = fd_rng_float_c0    ( rng ); TEST(      0.f<=fc0 && fc0< 1.f     );
-    float  fc1 = fd_rng_float_c1    ( rng ); TEST(      0.f< fc1 && fc1<=1.f     );
-    float  fc  = fd_rng_float_c     ( rng ); TEST(      0.f<=fc  && fc <=1.f     );
-    float  fnc = fd_rng_float_o     ( rng ); TEST(      0.f< fnc && fnc< 1.f     );
-    float  fr  = fd_rng_float_robust( rng ); TEST(      0.f<=fr  && fr <=1.f     );
-    float  fe  = fd_rng_float_exp   ( rng ); TEST(      0.f<=fe  && fe <=FLT_MAX );
-    float  fn  = fd_rng_float_norm  ( rng ); TEST( -FLT_MAX<=fn  && fn <=FLT_MAX );
+    float  fc0 = fd_rng_float_c0    ( rng ); FD_TEST(      0.f<=fc0 && fc0< 1.f     );
+    float  fc1 = fd_rng_float_c1    ( rng ); FD_TEST(      0.f< fc1 && fc1<=1.f     );
+    float  fc  = fd_rng_float_c     ( rng ); FD_TEST(      0.f<=fc  && fc <=1.f     );
+    float  fnc = fd_rng_float_o     ( rng ); FD_TEST(      0.f< fnc && fnc< 1.f     );
+    float  fr  = fd_rng_float_robust( rng ); FD_TEST(      0.f<=fr  && fr <=1.f     );
+    float  fe  = fd_rng_float_exp   ( rng ); FD_TEST(      0.f<=fe  && fe <=FLT_MAX );
+    float  fn  = fd_rng_float_norm  ( rng ); FD_TEST( -FLT_MAX<=fn  && fn <=FLT_MAX );
 #   if FD_HAS_DOUBLE
-    double dc0 = fd_rng_double_c0    ( rng ); TEST(       0.<=dc0 && dc0< 1.      );
-    double dc1 = fd_rng_double_c1    ( rng ); TEST(       0.< dc1 && dc1<=1.      );
-    double dc  = fd_rng_double_c     ( rng ); TEST(       0.<=dc  && dc <=1.      );
-    double dnc = fd_rng_double_o     ( rng ); TEST(       0.< dnc && dnc< 1.      );
-    double dr  = fd_rng_double_robust( rng ); TEST(       0.<=dr  && dr <=1.      );
-    double de  = fd_rng_double_exp   ( rng ); TEST(       0.<=de  && de <=DBL_MAX );
-    double dn  = fd_rng_double_norm  ( rng ); TEST( -DBL_MAX<=dn  && dn <=DBL_MAX );
+    double dc0 = fd_rng_double_c0    ( rng ); FD_TEST(       0.<=dc0 && dc0< 1.      );
+    double dc1 = fd_rng_double_c1    ( rng ); FD_TEST(       0.< dc1 && dc1<=1.      );
+    double dc  = fd_rng_double_c     ( rng ); FD_TEST(       0.<=dc  && dc <=1.      );
+    double dnc = fd_rng_double_o     ( rng ); FD_TEST(       0.< dnc && dnc< 1.      );
+    double dr  = fd_rng_double_robust( rng ); FD_TEST(       0.<=dr  && dr <=1.      );
+    double de  = fd_rng_double_exp   ( rng ); FD_TEST(       0.<=de  && de <=DBL_MAX );
+    double dn  = fd_rng_double_norm  ( rng ); FD_TEST( -DBL_MAX<=dn  && dn <=DBL_MAX );
 #   endif
 
     ulong  ct  = fd_rng_coin_tosses( rng );
@@ -236,7 +231,7 @@ main( int     argc,
 #   undef LO
   }
 
-  TEST( domain==fd_ulong_mask_lsb(50) );
+  FD_TEST( domain==fd_ulong_mask_lsb(50) );
 
   FD_LOG_NOTICE(( "Testing seed expansion" ));
 
@@ -250,7 +245,7 @@ main( int     argc,
     if( !ctr ) { FD_LOG_NOTICE(( "Completed %li iterations", i )); ctr = 100000000; }
     ctr--;
 
-    ulong seq = fd_rng_private_expand( (uint)i ); TEST( fd_rng_private_contract( seq )==(uint)i );
+    ulong seq = fd_rng_private_expand( (uint)i ); FD_TEST( fd_rng_private_contract( seq )==(uint)i );
     int pop  = fd_ulong_popcnt( seq );
     sum_pop  += (long) pop;
     sum_pop2 += (long)(pop*pop);
@@ -263,13 +258,11 @@ main( int     argc,
 
   FD_LOG_NOTICE(( "Testing leave" ));
 
-  TEST( fd_rng_leave( rng )==shrng );
+  FD_TEST( fd_rng_leave( rng )==shrng );
 
   FD_LOG_NOTICE(( "Testing delete" ));
 
-  TEST( fd_rng_delete( shrng )==_rng );
-
-# undef TEST
+  FD_TEST( fd_rng_delete( shrng )==_rng );
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

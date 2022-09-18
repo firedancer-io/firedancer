@@ -14,8 +14,6 @@ main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
 
-# define TEST(c) do if( !(c) ) { FD_LOG_WARNING(( "FAIL: " #c )); return 1; } while(0)
-
   /* Non-cancelling log messages */
   FD_LOG_DEBUG((   "Test DEBUG        (silent)"                                ));
   FD_LOG_INFO((    "Test INFO         (log file only)"                         ));
@@ -42,10 +40,10 @@ main( int     argc,
 
   FD_LOG_NOTICE(( "Testing log levels" ));
   int i;
-  i = fd_log_level_logfile(); fd_log_level_logfile_set(i-1); TEST( fd_log_level_logfile()==i-1 ); fd_log_level_logfile_set(i);
-  i = fd_log_level_stderr();  fd_log_level_stderr_set (i-1); TEST( fd_log_level_stderr() ==i-1 ); fd_log_level_stderr_set (i);
-  i = fd_log_level_flush();   fd_log_level_flush_set  (i-1); TEST( fd_log_level_flush()  ==i-1 ); fd_log_level_flush_set  (i);
-  i = fd_log_level_core();    fd_log_level_core_set   (i-1); TEST( fd_log_level_core()   ==i-1 ); fd_log_level_core_set   (i);
+  i = fd_log_level_logfile(); fd_log_level_logfile_set(i-1); FD_TEST( fd_log_level_logfile()==i-1 ); fd_log_level_logfile_set(i);
+  i = fd_log_level_stderr();  fd_log_level_stderr_set (i-1); FD_TEST( fd_log_level_stderr() ==i-1 ); fd_log_level_stderr_set (i);
+  i = fd_log_level_flush();   fd_log_level_flush_set  (i-1); FD_TEST( fd_log_level_flush()  ==i-1 ); fd_log_level_flush_set  (i);
+  i = fd_log_level_core();    fd_log_level_core_set   (i-1); FD_TEST( fd_log_level_core()   ==i-1 ); fd_log_level_core_set   (i);
 
   FD_LOG_NOTICE(( "Setting thread name" ));
   fd_log_thread_set( "main-thread" );
@@ -64,7 +62,7 @@ main( int     argc,
   tic = fd_log_wallclock();
   toc = (long)1e9; do toc = fd_log_sleep( toc ); while( toc );
   tic = fd_log_wallclock() - tic;
-  TEST( ((long)0.9e9)<tic && tic<((long)1.1e9) );
+  FD_TEST( ((long)0.9e9)<tic && tic<((long)1.1e9) );
 
   /* Debugging helpers */
   static uchar const hex[16] = { 0x0, 0x1, 0x2, 0x3, 0x4, 0x5, 0x6, 0x7, 0x8, 0x9, 0xa, 0xb, 0xc, 0xd, 0xe, 0xf };
@@ -79,8 +77,6 @@ main( int     argc,
   if( volatile_yes ) FD_LOG_ERR((     "Test ERR          (warning+exit program with error 1)"     ));
   /* Never get to this point */
   backtrace_test();
-
-# undef TEST
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
