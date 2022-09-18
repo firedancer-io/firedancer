@@ -19,29 +19,27 @@ main( int     argc,
 
   /* FIXME: ADD AVG TESTS */
 
-# define TEST(c) do if( FD_UNLIKELY( !(c) ) ) { FD_LOG_WARNING(( "FAIL: " #c )); return 1; } while(0)
-
-# define FILT_TEST(T,UT)                           \
-  for( ulong iter=0UL; iter<1000000UL; iter++ ) {  \
-    uint  r = fd_rng_uint( rng );                  \
-    ulong n = (ulong)(r & 15U); r >>= 4;           \
-    int   c = (int)  (r &  1U); r >>= 1;           \
-    T     t = fd_rng_##T( rng );                   \
-                                                   \
-    T x[16];                                       \
-    T y[16];                                       \
-    ulong j = 0UL;                                 \
-    for( ulong i=0UL; i<n; i++ ) {                 \
-      T xi = (T)fd_rng_##UT( rng );                \
-      x[i] = xi;                                   \
-      if( fd_##T##_abs( xi )<=(UT)t ) y[j++] = xi; \
-    }                                              \
-                                                   \
-    T w[16];                                       \
-    T * z = c ? x : w; /* in place vs out place */ \
-                                                   \
-    TEST( fd_stat_filter_##T( z, x, n, t )==j );   \
-    if( j ) TEST( !memcmp( y, z, j*sizeof(T) ) );  \
+# define FILT_TEST(T,UT)                             \
+  for( ulong iter=0UL; iter<1000000UL; iter++ ) {    \
+    uint  r = fd_rng_uint( rng );                    \
+    ulong n = (ulong)(r & 15U); r >>= 4;             \
+    int   c = (int)  (r &  1U); r >>= 1;             \
+    T     t = fd_rng_##T( rng );                     \
+                                                     \
+    T x[16];                                         \
+    T y[16];                                         \
+    ulong j = 0UL;                                   \
+    for( ulong i=0UL; i<n; i++ ) {                   \
+      T xi = (T)fd_rng_##UT( rng );                  \
+      x[i] = xi;                                     \
+      if( fd_##T##_abs( xi )<=(UT)t ) y[j++] = xi;   \
+    }                                                \
+                                                     \
+    T w[16];                                         \
+    T * z = c ? x : w; /* in place vs out place */   \
+                                                     \
+    FD_TEST( fd_stat_filter_##T( z, x, n, t )==j );  \
+    if( j ) FD_TEST( !memcmp( y, z, j*sizeof(T) ) ); \
   }
 
   FILT_TEST( schar,   uchar   )
@@ -61,6 +59,8 @@ main( int     argc,
   FILT_TEST( double,  double  )
 # endif
 
+# undef FILT_TEST
+
   for( ulong iter=0UL; iter<1000L; iter++ ) {
     float x      [128];
     float scratch[128];
@@ -72,22 +72,22 @@ main( int     argc,
     float mu_est;
     float sigma_est;
     ulong cnt_est = fd_stat_robust_norm_fit_float( &mu_est, &sigma_est, x, cnt, scratch );
-    TEST( cnt_est==cnt );
-    if(      FD_UNLIKELY( cnt==0UL ) ) TEST( mu_est==0.f  && sigma_est==0.f );
-    else if( FD_UNLIKELY( cnt==1UL ) ) TEST( mu_est==x[0] && sigma_est==0.f );
+    FD_TEST( cnt_est==cnt );
+    if(      FD_UNLIKELY( cnt==0UL ) ) FD_TEST( mu_est==0.f  && sigma_est==0.f );
+    else if( FD_UNLIKELY( cnt==1UL ) ) FD_TEST( mu_est==x[0] && sigma_est==0.f );
     else {
-      TEST( fd_float_abs( mu_est    - mu    )*sqrtf((float)cnt) < 6.f*sigma );
-      TEST( fd_float_abs( sigma_est - sigma )*sqrtf((float)cnt) < 6.f*sigma );
+      FD_TEST( fd_float_abs( mu_est    - mu    )*sqrtf((float)cnt) < 6.f*sigma );
+      FD_TEST( fd_float_abs( sigma_est - sigma )*sqrtf((float)cnt) < 6.f*sigma );
     }
 
     for( ulong idx=0UL; idx<cnt; idx++ ) x[idx] = mu + sigma*fd_rng_float_exp( rng );
     cnt_est = fd_stat_robust_exp_fit_float( &mu_est, &sigma_est, x, cnt, scratch );
-    TEST( cnt_est==cnt );
-    if(      FD_UNLIKELY( cnt==0UL ) ) TEST( mu_est==0.f  && sigma_est==0.f );
-    else if( FD_UNLIKELY( cnt==1UL ) ) TEST( mu_est==x[0] && sigma_est==0.f );
+    FD_TEST( cnt_est==cnt );
+    if(      FD_UNLIKELY( cnt==0UL ) ) FD_TEST( mu_est==0.f  && sigma_est==0.f );
+    else if( FD_UNLIKELY( cnt==1UL ) ) FD_TEST( mu_est==x[0] && sigma_est==0.f );
     else {
-      TEST( fd_float_abs( mu_est    - mu    ) < 6.f*sigma );
-      TEST( fd_float_abs( sigma_est - sigma ) < 6.f*sigma );
+      FD_TEST( fd_float_abs( mu_est    - mu    ) < 6.f*sigma );
+      FD_TEST( fd_float_abs( sigma_est - sigma ) < 6.f*sigma );
     }
   }
 
@@ -103,30 +103,28 @@ main( int     argc,
     double mu_est;
     double sigma_est;
     ulong cnt_est = fd_stat_robust_norm_fit_double( &mu_est, &sigma_est, x, cnt, scratch );
-    TEST( cnt_est==cnt );
-    if(      FD_UNLIKELY( cnt==0UL ) ) TEST( mu_est==0.   && sigma_est==0. );
-    else if( FD_UNLIKELY( cnt==1UL ) ) TEST( mu_est==x[0] && sigma_est==0. );
+    FD_TEST( cnt_est==cnt );
+    if(      FD_UNLIKELY( cnt==0UL ) ) FD_TEST( mu_est==0.   && sigma_est==0. );
+    else if( FD_UNLIKELY( cnt==1UL ) ) FD_TEST( mu_est==x[0] && sigma_est==0. );
     else {
-      TEST( fd_double_abs( mu_est    - mu    )*sqrt((double)cnt) < 6.*sigma );
-      TEST( fd_double_abs( sigma_est - sigma )*sqrt((double)cnt) < 6.*sigma );
+      FD_TEST( fd_double_abs( mu_est    - mu    )*sqrt((double)cnt) < 6.*sigma );
+      FD_TEST( fd_double_abs( sigma_est - sigma )*sqrt((double)cnt) < 6.*sigma );
     }
 
     for( ulong idx=0UL; idx<cnt; idx++ ) x[idx] = mu + sigma*fd_rng_double_exp( rng );
     cnt_est = fd_stat_robust_exp_fit_double( &mu_est, &sigma_est, x, cnt, scratch );
-    TEST( cnt_est==cnt );
-    if(      FD_UNLIKELY( cnt==0UL ) ) TEST( mu_est==0.   && sigma_est==0. );
-    else if( FD_UNLIKELY( cnt==1UL ) ) TEST( mu_est==x[0] && sigma_est==0. );
+    FD_TEST( cnt_est==cnt );
+    if(      FD_UNLIKELY( cnt==0UL ) ) FD_TEST( mu_est==0.   && sigma_est==0. );
+    else if( FD_UNLIKELY( cnt==1UL ) ) FD_TEST( mu_est==x[0] && sigma_est==0. );
     else {
-      TEST( fd_double_abs( mu_est    - mu    ) < 6.*sigma );
-      TEST( fd_double_abs( sigma_est - sigma ) < 6.*sigma );
+      FD_TEST( fd_double_abs( mu_est    - mu    ) < 6.*sigma );
+      FD_TEST( fd_double_abs( sigma_est - sigma ) < 6.*sigma );
     }
   }
 # endif
 
   /* Note that we already have a unit tester for the sorts in the form
      of the template unit tester. */
-
-# undef TEST
 
   fd_rng_delete( fd_rng_leave( rng ) );
 

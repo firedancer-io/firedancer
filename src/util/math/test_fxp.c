@@ -288,11 +288,9 @@ main( int     argc,
       ulong c0,z0 = fd_fxp_##op##_ref ( x, y, &c0 ); \
       ulong c1,z1 = fd_fxp_##op       ( x, y, &c1 ); \
       ulong    z2 = fd_fxp_##op##_fast( x, y );      \
-      if( c0!=c1 || z0!=z1 || (!c0 && z0!=z2) ) {    \
-        FD_LOG_WARNING(( "FAIL: %i fd_fxp_" #op " x %016lx y %016lx cz0 %016lx %016lx cz1 %016lx %016lx z2 %016lx", \
-                         i, x, y, c0,z0, c1,z1, z2 ));         \
-        return 1;                                    \
-      }                                              \
+      if( c0!=c1 || z0!=z1 || (!c0 && z0!=z2) )      \
+        FD_LOG_ERR(( "FAIL: %i fd_fxp_" #op " x %016lx y %016lx cz0 %016lx %016lx cz1 %016lx %016lx z2 %016lx", \
+                     i, x, y, c0,z0, c1,z1, z2 ));   \
     } while(0)
 
     TEST(add);
@@ -304,11 +302,9 @@ main( int     argc,
       ulong c0,z0 = fd_fxp_##op##_ref ( x, y, &c0 ); \
       ulong c1,z1 = fd_fxp_##op       ( x, y, &c1 ); \
       ulong    z2 = fd_fxp_##op##_fast( x, y );      \
-      if( c0!=c1 || z0!=z1 || (!c0 && z0<0x3c0000000UL && z0!=z2) ) { \
-        FD_LOG_WARNING(( "FAIL: %i fd_fxp_" #op " x %016lx y %016lx cz0 %016lx %016lx cz1 %016lx %016lx z2 %016lx", \
-                         i, x, y, c0,z0, c1,z1, z2 ));         \
-        return 1;                                    \
-      }                                              \
+      if( c0!=c1 || z0!=z1 || (!c0 && z0<0x3c0000000UL && z0!=z2) ) \
+        FD_LOG_ERR(( "FAIL: %i fd_fxp_" #op " x %016lx y %016lx cz0 %016lx %016lx cz1 %016lx %016lx z2 %016lx", \
+                     i, x, y, c0,z0, c1,z1, z2 ));   \
     } while(0)
 
     TEST(mul_rtz);
@@ -324,11 +320,9 @@ main( int     argc,
       ulong c0,z0 = fd_fxp_##op##_ref ( x, y, &c0 ); \
       ulong c1,z1 = fd_fxp_##op       ( x, y, &c1 ); \
       ulong    z2 = y ? fd_fxp_##op##_fast( x, y ) : 0UL; \
-      if( c0!=c1 || z0!=z1 || ((x<0x400000000UL) && (y<=ULONG_MAX-(x<<30)) && (z0!=z2)) ) { \
-        FD_LOG_WARNING(( "FAIL: %i fd_fxp_" #op " x %016lx y %016lx cz0 %016lx %016lx cz1 %016lx %016lx z2 %016lx", \
-                         i, x, y, c0,z0, c1,z1, z2 ));         \
-        return 1;                                    \
-      }                                              \
+      if( c0!=c1 || z0!=z1 || ((x<0x400000000UL) && (y<=ULONG_MAX-(x<<30)) && (z0!=z2)) ) \
+        FD_LOG_ERR(( "FAIL: %i fd_fxp_" #op " x %016lx y %016lx cz0 %016lx %016lx cz1 %016lx %016lx z2 %016lx", \
+                     i, x, y, c0,z0, c1,z1, z2 ));   \
     } while(0)
 
     TEST(div_rtz);
@@ -344,9 +338,8 @@ main( int     argc,
       ulong z1 = fd_fxp_##op       ( x ); \
       ulong z2 = fd_fxp_##op##_fast( x ); \
       if( test_fd_fxp_##op( x, z1 ) || ((x<0x400000000UL) && (z1!=z2)) ) { \
-        FD_LOG_WARNING(( "FAIL: %i fd_fxp_" #op " x %016lx z1 %016lx z2 %016lx", \
-                         i, x, z1, z2 ));           \
-        return 1;                         \
+        FD_LOG_ERR(( "FAIL: %i fd_fxp_" #op " x %016lx z1 %016lx z2 %016lx", \
+                     i, x, z1, z2 ));     \
       }                                   \
     } while(0)
 
@@ -361,26 +354,23 @@ main( int     argc,
       int e1; ulong f1 = fd_fxp_log2_approx( x, &e1 );
       ulong ulp = f0>f1 ? f0-f1 : f1-f0;
       if( ulp > fd_fxp_log2_approx_ulp ) fd_fxp_log2_approx_ulp = ulp;
-      if( e0!=e1 || (ulp > (FD_HAS_DOUBLE ? 2UL : 5263UL)) ) {
-        /* FIXME: when double support is not available, fxp is more
-           precise than the reference and the larger ULP limit reflects
-           this (and potentialy the build target also having a less
-           accurate libm). */
-        FD_LOG_WARNING(( "FAIL: %i fd_fxp_log2_approx x %016lx z0 %3i %016lx z1 %3i %016lx ulp %016lx", i, x, e0,f0, e1,f1, ulp ));
-        return 1;
-      }
+      /* FIXME: when double support is not available, fxp is more
+         precise than the reference and the larger ULP limit reflects
+         this (and potentialy the build target also having a less
+         accurate libm). */
+      if( e0!=e1 || (ulp > (FD_HAS_DOUBLE ? 2UL : 5263UL)) )
+        FD_LOG_ERR(( "FAIL: %i fd_fxp_log2_approx x %016lx z0 %3i %016lx z1 %3i %016lx ulp %016lx", i, x, e0,f0, e1,f1, ulp ));
     } while(0);
 
     do {
       ulong z0  = fd_fxp_exp2_ref   ( x );
       ulong z1  = fd_fxp_exp2_approx( x );
       ulong ulp = z0>z1 ? z0-z1 : z1-z0;
-      ulong ix = x>>30; if( 0UL<ix && ix<64UL ) ulp = (ulp + (1UL<<(ix-1UL))) >> ix; /* Only consider first 30 bits (with RNA rounding) for large x */
+      /* Only consider first 30 bits (with RNA rounding) for large x */
+      ulong ix = x>>30; if( 0UL<ix && ix<64UL ) ulp = (ulp + (1UL<<(ix-1UL))) >> ix;
       if( ulp > fd_fxp_exp2_approx_ulp ) fd_fxp_exp2_approx_ulp = ulp;
-      if( ulp > (FD_HAS_DOUBLE ? 1UL : 2865UL) ) {
-        FD_LOG_WARNING(( "FAIL: %i fd_fxp_exp2_approx x %016lx z0 %016lx z1 %016lx ulp %016lx", i, x, z0, z1, ulp ));
-        return 1;
-      }
+      if( ulp > (FD_HAS_DOUBLE ? 1UL : 2865UL) )
+        FD_LOG_ERR(( "FAIL: %i fd_fxp_exp2_approx x %016lx z0 %016lx z1 %016lx ulp %016lx", i, x, z0, z1, ulp ));
     } while(0);
 
     do {
@@ -388,14 +378,12 @@ main( int     argc,
       ulong z1 = fd_fxp_rexp2_approx( x );
       ulong ulp = z0>z1 ? z0-z1 : z1-z0;
       if( ulp > fd_fxp_rexp2_approx_ulp ) fd_fxp_rexp2_approx_ulp = ulp;
-      if( ulp > (FD_HAS_DOUBLE ? 1UL : 59UL) ) {
-        /* FIXME: when double support is not available, fxp is more
-           precise than the reference and the larger ULP limit reflects
-           this (and potentialy the build target also having a less
-           accurate libm). */
-        FD_LOG_WARNING(( "FAIL: %i fd_fxp_rexp2_approx x %016lx z0 %016lx z1 %016lx ulp %016lx", i, x, z0, z1, ulp ));
-        return 1;
-      }
+      /* FIXME: when double support is not available, fxp is more
+         precise than the reference and the larger ULP limit reflects
+         this (and potentialy the build target also having a less
+         accurate libm). */
+      if( ulp > (FD_HAS_DOUBLE ? 1UL : 59UL) )
+        FD_LOG_ERR(( "FAIL: %i fd_fxp_rexp2_approx x %016lx z0 %016lx z1 %016lx ulp %016lx", i, x, z0, z1, ulp ));
     } while(0);
 
   }
