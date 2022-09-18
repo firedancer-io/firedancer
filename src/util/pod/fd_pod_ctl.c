@@ -39,7 +39,7 @@ printf_path( fd_pod_info_t const * info ) {
     node = node->parent;
   } while( node );
 
-  printf( buf );
+  printf( "%s", buf );
   free( buf );
 }
 
