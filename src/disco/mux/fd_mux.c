@@ -61,8 +61,8 @@ fd_mux_tile_in_update( fd_mux_tile_in_t * in,
   diag[0] += a0;              diag[1] += a1;              diag[2] += a2;
   diag[3] += a3;              diag[4] += a4;              diag[5] += a5;
   FD_COMPILER_MFENCE();
-  accum[0] = 0U;              accum[1] = 1U;              accum[2] = 2U;
-  accum[3] = 3U;              accum[4] = 4U;              accum[5] = 5U;
+  accum[0] = 0U;              accum[1] = 0U;              accum[2] = 0U;
+  accum[3] = 0U;              accum[4] = 0U;              accum[5] = 0U;
 }
 
 #define SCRATCH_ALLOC( a, s ) (__extension__({                    \
