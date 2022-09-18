@@ -75,74 +75,72 @@ main( int     argc,
 
   fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
 
-# define TEST(c) do if( FD_UNLIKELY( !(c) ) ) { FD_LOG_WARNING(( "FAIL: " #c )); return 1; } while(0)
-
   /* Test dcache procurement */
 
-  TEST( fd_dcache_align()==FD_DCACHE_ALIGN );
+  FD_TEST( fd_dcache_align()==FD_DCACHE_ALIGN );
 
   /* FIXME: MORE fd_cache_footprint and fd_cache_req_data_sz TESTS */
   for( ulong iter=0UL; iter<1000000UL; iter++ ) {
     ulong _data_sz = fd_rng_ulong_roll( rng, DATA_MAX+1UL ); /* In [0,DATA_MAX] */
     ulong  _app_sz = fd_rng_ulong_roll( rng,  APP_MAX+1UL ); /* In [0, APP_MAX] */
-    TEST( fd_dcache_footprint( _data_sz, _app_sz )==FD_DCACHE_FOOTPRINT( _data_sz, _app_sz ) );
+    FD_TEST( fd_dcache_footprint( _data_sz, _app_sz )==FD_DCACHE_FOOTPRINT( _data_sz, _app_sz ) );
 
     uint r = fd_rng_uint( rng );
     ulong mtu     = (ulong)(r & 63U); r >>= 6;
     ulong depth   = (ulong)(r & 63U); r >>= 6;
     ulong burst   = (ulong)(r & 63U); r >>= 6;
     int   compact = (int)  (r &  1U); r >>= 1;
-    TEST( fd_dcache_req_data_sz( mtu, depth, burst, compact )
-          ==fd_ulong_if( (!!mtu) & (!!depth) & (!!burst), FD_DCACHE_REQ_DATA_SZ( mtu, depth, burst, compact ), 0UL ) );
+    FD_TEST( fd_dcache_req_data_sz( mtu, depth, burst, compact )
+             ==fd_ulong_if( (!!mtu) & (!!depth) & (!!burst), FD_DCACHE_REQ_DATA_SZ( mtu, depth, burst, compact ), 0UL ) );
   }
 
   /* Test dcache creation */
 
   ulong footprint = fd_dcache_footprint( data_sz, app_sz );
   if( FD_UNLIKELY( !footprint ) ) FD_LOG_ERR(( "Bad --data-sz or --app-sz" ));
-  TEST( footprint==FD_DCACHE_FOOTPRINT( data_sz,  app_sz  ) );
-  TEST( footprint<=FD_DCACHE_FOOTPRINT( DATA_MAX, APP_MAX ) );
+  FD_TEST( footprint==FD_DCACHE_FOOTPRINT( data_sz,  app_sz  ) );
+  FD_TEST( footprint<=FD_DCACHE_FOOTPRINT( DATA_MAX, APP_MAX ) );
 
-  void *  shdcache = fd_dcache_new( shmem, data_sz, app_sz ); TEST( shdcache );
-  uchar * dcache   = fd_dcache_join( shdcache );              TEST( dcache );
-  TEST( fd_ulong_is_aligned( (ulong)dcache, FD_DCACHE_ALIGN ) );
+  void *  shdcache = fd_dcache_new( shmem, data_sz, app_sz ); FD_TEST( shdcache );
+  uchar * dcache   = fd_dcache_join( shdcache );              FD_TEST( dcache );
+  FD_TEST( fd_ulong_is_aligned( (ulong)dcache, FD_DCACHE_ALIGN ) );
 
   /* Test the accessors */
 
-  TEST( fd_dcache_data_sz( dcache )==data_sz );
-  TEST( fd_dcache_app_sz ( dcache )== app_sz );
+  FD_TEST( fd_dcache_data_sz( dcache )==data_sz );
+  FD_TEST( fd_dcache_app_sz ( dcache )== app_sz );
 
-  uchar const * _app_const = fd_dcache_app_laddr_const( dcache ); TEST( _app_const );
-  uchar *       _app       = fd_dcache_app_laddr      ( dcache ); TEST( _app );
-  TEST( (ulong)_app==(ulong)_app_const );
-  TEST( fd_ulong_is_aligned( (ulong)_app, FD_DCACHE_ALIGN ) );
+  uchar const * _app_const = fd_dcache_app_laddr_const( dcache ); FD_TEST( _app_const );
+  uchar *       _app       = fd_dcache_app_laddr      ( dcache ); FD_TEST( _app );
+  FD_TEST( (ulong)_app==(ulong)_app_const );
+  FD_TEST( fd_ulong_is_aligned( (ulong)_app, FD_DCACHE_ALIGN ) );
 
   /* Test the regions were initialized correctly and fill them with
      a test pattern */
 
   uchar * p;
   p = dcache - FD_DCACHE_GUARD_FOOTPRINT;
-  for( ulong rem=FD_DCACHE_GUARD_FOOTPRINT; rem; rem-- ) { TEST( !*p ); *p = (uchar)'g'; p++; }
+  for( ulong rem=FD_DCACHE_GUARD_FOOTPRINT; rem; rem-- ) { FD_TEST( !*p ); *p = (uchar)'g'; p++; }
   p = dcache;
-  for( ulong rem=data_sz; rem; rem-- ) { TEST( !*p ); *p = (uchar)'d'; p++; }
+  for( ulong rem=data_sz; rem; rem-- ) { FD_TEST( !*p ); *p = (uchar)'d'; p++; }
   p = _app;
-  for( ulong rem=app_sz; rem; rem-- ) { TEST( !*p ); *p = (uchar)'a'; p++; }
+  for( ulong rem=app_sz; rem; rem-- ) { FD_TEST( !*p ); *p = (uchar)'a'; p++; }
 
   /* Test that filling the dcache didn't corrupt it and that the
      test pattern was written as expected. */
 
-  TEST( fd_dcache_data_sz        ( dcache )==data_sz    );
-  TEST( fd_dcache_app_sz         ( dcache )== app_sz    );
-  TEST( fd_dcache_app_laddr_const( dcache )==_app_const );
-  TEST( fd_dcache_app_laddr      ( dcache )==_app       );
+  FD_TEST( fd_dcache_data_sz        ( dcache )==data_sz    );
+  FD_TEST( fd_dcache_app_sz         ( dcache )== app_sz    );
+  FD_TEST( fd_dcache_app_laddr_const( dcache )==_app_const );
+  FD_TEST( fd_dcache_app_laddr      ( dcache )==_app       );
 
   uchar const * q;
   q = dcache - FD_DCACHE_GUARD_FOOTPRINT;
-  for( ulong rem=FD_DCACHE_GUARD_FOOTPRINT; rem; rem-- ) { TEST( (*q)==(uchar)'g' ); q++; }
+  for( ulong rem=FD_DCACHE_GUARD_FOOTPRINT; rem; rem-- ) { FD_TEST( (*q)==(uchar)'g' ); q++; }
   q = dcache;
-  for( ulong rem=data_sz; rem; rem-- ) { TEST( (*q)==(uchar)'d' ); q++; }
+  for( ulong rem=data_sz; rem; rem-- ) { FD_TEST( (*q)==(uchar)'d' ); q++; }
   q = _app_const;
-  for( ulong rem=app_sz; rem; rem-- ) { TEST( (*q)==(uchar)'a' ); q++; }
+  for( ulong rem=app_sz; rem; rem-- ) { FD_TEST( (*q)==(uchar)'a' ); q++; }
 
   ulong mtu   = 256UL;
   ulong depth =   2UL;
@@ -150,32 +148,30 @@ main( int     argc,
 
     ulong chunk_mtu = fd_ulong_align_up( mtu, 2UL*FD_CHUNK_SZ ) >> FD_CHUNK_LG_SZ;
 
-    TEST( fd_dcache_compact_is_safe( dcache, dcache, mtu, depth ) );
-    ulong chunk0 = fd_dcache_compact_chunk0( dcache, dcache );      TEST( chunk0==0UL );
-    ulong chunk1 = fd_dcache_compact_chunk1( dcache, dcache );      TEST( chunk1==(data_sz>>FD_CHUNK_LG_SZ) );
-    ulong wmark  = fd_dcache_compact_wmark ( dcache, dcache, mtu ); TEST( wmark ==chunk1-chunk_mtu );
+    FD_TEST( fd_dcache_compact_is_safe( dcache, dcache, mtu, depth ) );
+    ulong chunk0 = fd_dcache_compact_chunk0( dcache, dcache );      FD_TEST( chunk0==0UL );
+    ulong chunk1 = fd_dcache_compact_chunk1( dcache, dcache );      FD_TEST( chunk1==(data_sz>>FD_CHUNK_LG_SZ) );
+    ulong wmark  = fd_dcache_compact_wmark ( dcache, dcache, mtu ); FD_TEST( wmark ==chunk1-chunk_mtu );
 
-    TEST( fd_dcache_compact_is_safe( NULL, dcache, mtu, depth ) );
-    chunk0 = fd_dcache_compact_chunk0( NULL, dcache );      TEST( chunk0==(((ulong)dcache)>>FD_CHUNK_LG_SZ) );
-    chunk1 = fd_dcache_compact_chunk1( NULL, dcache );      TEST( chunk1==chunk0+(data_sz>>FD_CHUNK_LG_SZ)  );
-    wmark  = fd_dcache_compact_wmark ( NULL, dcache, mtu ); TEST( wmark ==chunk1-chunk_mtu                  );
+    FD_TEST( fd_dcache_compact_is_safe( NULL, dcache, mtu, depth ) );
+    chunk0 = fd_dcache_compact_chunk0( NULL, dcache );      FD_TEST( chunk0==(((ulong)dcache)>>FD_CHUNK_LG_SZ) );
+    chunk1 = fd_dcache_compact_chunk1( NULL, dcache );      FD_TEST( chunk1==chunk0+(data_sz>>FD_CHUNK_LG_SZ)  );
+    wmark  = fd_dcache_compact_wmark ( NULL, dcache, mtu ); FD_TEST( wmark ==chunk1-chunk_mtu                  );
 
     for( ulong iter=0UL; iter<100000UL; iter++ ) {
       ulong chunk = chunk0 + fd_rng_ulong_roll( rng, wmark-chunk0+1UL ); /* In [chunk0,wmark] */
       ulong sz    = fd_rng_ulong_roll( rng, mtu+1UL );                   /* In [0,mtu] */
       ulong next  = fd_dcache_compact_next( chunk, sz, chunk0, wmark );
-      TEST( chunk0<=next ); TEST( next<=wmark );
+      FD_TEST( chunk0<=next ); FD_TEST( next<=wmark );
       ulong fp    = fd_ulong_align_up( sz, 2UL*FD_CHUNK_SZ ) >> FD_CHUNK_LG_SZ;
-      TEST( next==fd_ulong_if( (chunk+fp)>wmark, chunk0, chunk+fp ) );
+      FD_TEST( next==fd_ulong_if( (chunk+fp)>wmark, chunk0, chunk+fp ) );
     }
   }
 
   /* Test mcache destruction */
 
-  TEST( fd_dcache_leave ( dcache   )==shdcache );
-  TEST( fd_dcache_delete( shdcache )==shmem    );
-
-# undef TEST
+  FD_TEST( fd_dcache_leave ( dcache   )==shdcache );
+  FD_TEST( fd_dcache_delete( shdcache )==shmem    );
 
   fd_rng_delete( fd_rng_leave( rng ) );
 

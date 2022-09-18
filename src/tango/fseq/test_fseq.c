@@ -27,35 +27,31 @@ main( int     argc,
 
   fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
 
-# define TEST(c) do if( FD_UNLIKELY( !(c) ) ) { FD_LOG_WARNING(( "FAIL: " #c )); return 1; } while(0)
+  FD_TEST( fd_fseq_align    ()==FD_FSEQ_ALIGN     );
+  FD_TEST( fd_fseq_footprint()==FD_FSEQ_FOOTPRINT );
 
-  TEST( fd_fseq_align    ()==FD_FSEQ_ALIGN     );
-  TEST( fd_fseq_footprint()==FD_FSEQ_FOOTPRINT );
-
-  void *  shfseq = fd_fseq_new( shmem, seq0 ); TEST( shfseq );
-  ulong * fseq   = fd_fseq_join( shfseq );     TEST( fseq );
+  void *  shfseq = fd_fseq_new( shmem, seq0 ); FD_TEST( shfseq );
+  ulong * fseq   = fd_fseq_join( shfseq );     FD_TEST( fseq );
 
   uchar *       app       = fd_fseq_app_laddr      ( fseq );
   uchar const * app_const = fd_fseq_app_laddr_const( fseq );
-  TEST( (ulong)app==(ulong)app_const );
-  TEST( fd_ulong_is_aligned( (ulong)app, FD_FSEQ_APP_ALIGN ) );
-  for( ulong b=0UL; b<FD_FSEQ_APP_FOOTPRINT; b++ ) TEST( !app_const[b] );
+  FD_TEST( (ulong)app==(ulong)app_const );
+  FD_TEST( fd_ulong_is_aligned( (ulong)app, FD_FSEQ_APP_ALIGN ) );
+  for( ulong b=0UL; b<FD_FSEQ_APP_FOOTPRINT; b++ ) FD_TEST( !app_const[b] );
 
-  TEST( fd_fseq_seq0 ( fseq )==seq0 );
-  TEST( fd_fseq_query( fseq )==seq0 );
+  FD_TEST( fd_fseq_seq0 ( fseq )==seq0 );
+  FD_TEST( fd_fseq_query( fseq )==seq0 );
 
   for( ulong iter=0UL; iter<1000000UL; iter++ ) {
     ulong seq = fd_rng_ulong( rng );
     fd_fseq_update( fseq, seq );
-    TEST( fd_fseq_seq0 ( fseq )==seq0 );
-    TEST( fd_fseq_query( fseq )==seq  );
+    FD_TEST( fd_fseq_seq0 ( fseq )==seq0 );
+    FD_TEST( fd_fseq_query( fseq )==seq  );
   }
 
-  TEST( fd_fseq_leave ( fseq   )==shfseq );
-  TEST( fd_fseq_delete( shfseq )==shmem  );
+  FD_TEST( fd_fseq_leave ( fseq   )==shfseq );
+  FD_TEST( fd_fseq_delete( shfseq )==shmem  );
   
-# undef TEST
-
   fd_rng_delete( fd_rng_leave( rng ) );
 
   FD_LOG_NOTICE(( "pass" ));

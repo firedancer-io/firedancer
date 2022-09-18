@@ -29,28 +29,26 @@ main( int     argc,
 
   fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
 
-# define TEST(c) do if( FD_UNLIKELY( !(c) ) ) { FD_LOG_WARNING(( "FAIL: " #c )); return 1; } while(0)
+  FD_TEST( fd_fctl_align()==FD_FCTL_ALIGN );
 
-  TEST( fd_fctl_align()==FD_FCTL_ALIGN );
-
-  TEST(  fd_fctl_footprint( 0UL                    ) );
-  TEST(  fd_fctl_footprint( FD_FCTL_RX_MAX_MAX     ) );
-  TEST( !fd_fctl_footprint( FD_FCTL_RX_MAX_MAX+1UL ) );
+  FD_TEST(  fd_fctl_footprint( 0UL                    ) );
+  FD_TEST(  fd_fctl_footprint( FD_FCTL_RX_MAX_MAX     ) );
+  FD_TEST( !fd_fctl_footprint( FD_FCTL_RX_MAX_MAX+1UL ) );
 
   ulong footprint = fd_fctl_footprint( rx_max );
   if( FD_UNLIKELY( !footprint ) ) FD_LOG_ERR(( "Bad --rx-max" ));
-  TEST( footprint==FD_FCTL_FOOTPRINT( rx_max ) );
-  TEST( footprint<=FD_FCTL_FOOTPRINT( RX_MAX ) );
+  FD_TEST( footprint==FD_FCTL_FOOTPRINT( rx_max ) );
+  FD_TEST( footprint<=FD_FCTL_FOOTPRINT( RX_MAX ) );
   
-  void *      shfctl = fd_fctl_new ( shmem, rx_max ); TEST( shfctl );
-  fd_fctl_t * fctl   = fd_fctl_join( shfctl );        TEST( fctl   );
+  void *      shfctl = fd_fctl_new ( shmem, rx_max ); FD_TEST( shfctl );
+  fd_fctl_t * fctl   = fd_fctl_join( shfctl );        FD_TEST( fctl   );
 
   for( ulong rx_idx=0UL; rx_idx<rx_cnt; rx_idx++ )
-    TEST( fd_fctl_cfg_rx_add( fctl, (rx_idx+1UL)*rx_cr_max, &rx_seq[ rx_idx ], &rx_slow[ rx_idx ] ) );
-  TEST( fd_fctl_cfg_done( fctl, cr_burst, cr_max, cr_resume, cr_refill ) );
+    FD_TEST( fd_fctl_cfg_rx_add( fctl, (rx_idx+1UL)*rx_cr_max, &rx_seq[ rx_idx ], &rx_slow[ rx_idx ] ) );
+  FD_TEST( fd_fctl_cfg_done( fctl, cr_burst, cr_max, cr_resume, cr_refill ) );
 
-  TEST( fd_fctl_rx_max( fctl )==rx_max );
-  TEST( fd_fctl_rx_cnt( fctl )==rx_cnt );
+  FD_TEST( fd_fctl_rx_max( fctl )==rx_max );
+  FD_TEST( fd_fctl_rx_cnt( fctl )==rx_cnt );
 
   if( !cr_burst  ) cr_burst  = fd_fctl_cr_burst ( fctl );
   if( !cr_max    ) cr_max    = fd_fctl_cr_max   ( fctl );
@@ -59,38 +57,36 @@ main( int     argc,
 
   FD_LOG_NOTICE(( "Got cr_burst %lu cr_max %lu cr_resume %lu cr_refill %lu", cr_burst, cr_max, cr_resume, cr_refill ));
 
-  TEST( fd_fctl_cr_burst ( fctl )==cr_burst  );
-  TEST( fd_fctl_cr_max   ( fctl )==cr_max    );
-  TEST( fd_fctl_cr_resume( fctl )==cr_resume );
-  TEST( fd_fctl_cr_refill( fctl )==cr_refill );
+  FD_TEST( fd_fctl_cr_burst ( fctl )==cr_burst  );
+  FD_TEST( fd_fctl_cr_max   ( fctl )==cr_max    );
+  FD_TEST( fd_fctl_cr_resume( fctl )==cr_resume );
+  FD_TEST( fd_fctl_cr_refill( fctl )==cr_refill );
   
   ulong cr_burst_max = (ulong)LONG_MAX;
   for( ulong rx_idx=0UL; rx_idx<rx_cnt; rx_idx++ ) cr_burst_max = fd_ulong_min( cr_burst_max, fd_fctl_rx_cr_max( fctl, rx_idx ) );
 
-  TEST(      1UL<=fd_fctl_cr_burst ( fctl ) ); TEST( fd_fctl_cr_burst ( fctl )<=cr_burst_max    );
-  TEST( cr_burst<=fd_fctl_cr_max   ( fctl ) ); TEST( fd_fctl_cr_max   ( fctl )<=(ulong)LONG_MAX );
-  TEST( cr_burst<=fd_fctl_cr_resume( fctl ) ); TEST( fd_fctl_cr_resume( fctl )<=cr_max          );
-  TEST( cr_burst<=fd_fctl_cr_refill( fctl ) ); TEST( fd_fctl_cr_refill( fctl )<=cr_resume       );
+  FD_TEST(      1UL<=fd_fctl_cr_burst ( fctl ) ); FD_TEST( fd_fctl_cr_burst ( fctl )<=cr_burst_max    );
+  FD_TEST( cr_burst<=fd_fctl_cr_max   ( fctl ) ); FD_TEST( fd_fctl_cr_max   ( fctl )<=(ulong)LONG_MAX );
+  FD_TEST( cr_burst<=fd_fctl_cr_resume( fctl ) ); FD_TEST( fd_fctl_cr_resume( fctl )<=cr_max          );
+  FD_TEST( cr_burst<=fd_fctl_cr_refill( fctl ) ); FD_TEST( fd_fctl_cr_refill( fctl )<=cr_resume       );
 
   for( ulong rx_idx=0UL; rx_idx<rx_cnt; rx_idx++ ) {
-    TEST( fd_fctl_rx_cr_max    ( fctl, rx_idx )==(rx_idx+1UL)*rx_cr_max );
-    TEST( fd_fctl_rx_seq_laddr ( fctl, rx_idx )==&rx_seq [ rx_idx ]     );
-    TEST( fd_fctl_rx_slow_laddr( fctl, rx_idx )==&rx_slow[ rx_idx ]     );
+    FD_TEST( fd_fctl_rx_cr_max    ( fctl, rx_idx )==(rx_idx+1UL)*rx_cr_max );
+    FD_TEST( fd_fctl_rx_seq_laddr ( fctl, rx_idx )==&rx_seq [ rx_idx ]     );
+    FD_TEST( fd_fctl_rx_slow_laddr( fctl, rx_idx )==&rx_slow[ rx_idx ]     );
   }
 
   /* FIXME: MORE EXTENSIVE TESTING HERE (INCL COVERAGE OF
      FD_FCTL_RX_CR_RETURN) */
   ulong rx_idx_slow; ulong cr_avail = fd_fctl_cr_query( fctl, 0UL, &rx_idx_slow );
-  TEST( cr_avail<=cr_max );
-  TEST( (rx_idx_slow<=rx_cnt) | (rx_idx_slow==ULONG_MAX) );
+  FD_TEST( cr_avail<=cr_max );
+  FD_TEST( (rx_idx_slow<=rx_cnt) | (rx_idx_slow==ULONG_MAX) );
 
   /* FIXME: TX_CR_UPDATE TESTING HERE */
   fd_fctl_tx_cr_update( fctl, 0UL, 0UL );
 
-  TEST( fd_fctl_leave ( fctl )==shfctl );
-  TEST( fd_fctl_delete( fctl )==shmem  );
-
-# undef TEST
+  FD_TEST( fd_fctl_leave ( fctl )==shfctl );
+  FD_TEST( fd_fctl_delete( fctl )==shmem  );
 
   fd_rng_delete( fd_rng_leave( rng ) );
 

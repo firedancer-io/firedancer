@@ -9,8 +9,6 @@ main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
 
-# define TEST(c) do if( FD_UNLIKELY( !(c) ) ) { FD_LOG_WARNING(( "FAIL: " #c )); return 1; } while(0)
-
   char const * _cnc    = fd_env_strip_cmdline_cstr( &argc, &argv, "--cnc",    NULL, NULL                 );
   char const * _mcache = fd_env_strip_cmdline_cstr( &argc, &argv, "--mcache", NULL, NULL                 );
   char const * _fseq   = fd_env_strip_cmdline_cstr( &argc, &argv, "--fseq",   NULL, NULL                 );
@@ -166,8 +164,8 @@ main( int     argc,
 #   if WAIT_STYLE==-1
 
 #   if VALIDATE /* For code implementation testing */
-    TEST( chunk ==(uint  )sig );
-    TEST( sz    ==(ushort)sig );
+    FD_TEST( chunk ==(uint  )sig );
+    FD_TEST( sz    ==(ushort)sig );
 #   else /* For hardware performance benchmarking */
     (void)sig; (void)chunk; (void)sz;
 #   endif
@@ -177,8 +175,8 @@ main( int     argc,
 
 #   if VALIDATE /* For code implementation testing */
     ulong sig = meta->sig;
-    TEST( meta->chunk ==(uint  )sig );
-    TEST( meta->sz    ==(ushort)sig );
+    FD_TEST( meta->chunk ==(uint  )sig );
+    FD_TEST( meta->sz    ==(ushort)sig );
 #   else /* For hardware performance benchmarking */
     (void)meta->sig;
 #   endif
@@ -187,8 +185,8 @@ main( int     argc,
 
 #   if VALIDATE /* For code implementation testing */
     ulong sig = fd_frag_meta_sse0_sig( meta_sse0 );
-    TEST( fd_frag_meta_sse1_chunk ( meta_sse1 )==(ulong)(uint  )sig );
-    TEST( fd_frag_meta_sse1_sz    ( meta_sse1 )==(ulong)(ushort)sig );
+    FD_TEST( fd_frag_meta_sse1_chunk ( meta_sse1 )==(ulong)(uint  )sig );
+    FD_TEST( fd_frag_meta_sse1_sz    ( meta_sse1 )==(ulong)(ushort)sig );
 #   else /* For hardware performance benchmarking */
     (void)meta_sse0;
     (void)meta_sse1;
@@ -198,8 +196,8 @@ main( int     argc,
 
 #   if VALIDATE /* For code implementation testing */
     ulong sig = fd_frag_meta_avx_sig( meta_avx );
-    TEST( fd_frag_meta_avx_chunk ( meta_avx )==(ulong)(uint  )sig );
-    TEST( fd_frag_meta_avx_sz    ( meta_avx )==(ulong)(ushort)sig );
+    FD_TEST( fd_frag_meta_avx_chunk ( meta_avx )==(ulong)(uint  )sig );
+    FD_TEST( fd_frag_meta_avx_sz    ( meta_avx )==(ulong)(ushort)sig );
 #   else /* For hardware performance benchmarking */
     (void)meta_avx;
 #   endif
@@ -221,8 +219,6 @@ main( int     argc,
   fd_cnc_signal( cnc, FD_CNC_SIGNAL_BOOT );
   fd_wksp_unmap( fd_cnc_leave( cnc ) );
   fd_rng_delete( fd_rng_leave( rng ) );
-
-# undef TEST
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

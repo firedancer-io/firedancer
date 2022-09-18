@@ -25,19 +25,17 @@ main( int     argc,
 
   fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
 
-# define TEST(c) do if( FD_UNLIKELY( !(c) ) ) { FD_LOG_WARNING(( "FAIL: " #c )); return 1; } while(0)
-
-  TEST( ((ulong)&(((fd_frag_meta_t *)NULL)->seq   ))== 0UL );
-  TEST( ((ulong)&(((fd_frag_meta_t *)NULL)->sig   ))== 8UL );
-  TEST( ((ulong)&(((fd_frag_meta_t *)NULL)->chunk ))==16UL );
-  TEST( ((ulong)&(((fd_frag_meta_t *)NULL)->sz    ))==20UL );
-  TEST( ((ulong)&(((fd_frag_meta_t *)NULL)->ctl   ))==22UL );
-  TEST( ((ulong)&(((fd_frag_meta_t *)NULL)->tsorig))==24UL );
-  TEST( ((ulong)&(((fd_frag_meta_t *)NULL)->tspub ))==28UL );
+  FD_TEST( ((ulong)&(((fd_frag_meta_t *)NULL)->seq   ))== 0UL );
+  FD_TEST( ((ulong)&(((fd_frag_meta_t *)NULL)->sig   ))== 8UL );
+  FD_TEST( ((ulong)&(((fd_frag_meta_t *)NULL)->chunk ))==16UL );
+  FD_TEST( ((ulong)&(((fd_frag_meta_t *)NULL)->sz    ))==20UL );
+  FD_TEST( ((ulong)&(((fd_frag_meta_t *)NULL)->ctl   ))==22UL );
+  FD_TEST( ((ulong)&(((fd_frag_meta_t *)NULL)->tsorig))==24UL );
+  FD_TEST( ((ulong)&(((fd_frag_meta_t *)NULL)->tspub ))==28UL );
 # if FD_HAS_AVX
-  TEST( ((ulong)&(((fd_frag_meta_t *)NULL)->sse0  ))== 0UL );
-  TEST( ((ulong)&(((fd_frag_meta_t *)NULL)->sse1  ))==16UL );
-  TEST( ((ulong)&(((fd_frag_meta_t *)NULL)->avx   ))== 0UL );
+  FD_TEST( ((ulong)&(((fd_frag_meta_t *)NULL)->sse0  ))== 0UL );
+  FD_TEST( ((ulong)&(((fd_frag_meta_t *)NULL)->sse1  ))==16UL );
+  FD_TEST( ((ulong)&(((fd_frag_meta_t *)NULL)->avx   ))== 0UL );
 # endif
 
   for( ulong iter=0UL; iter<100000000UL; iter++ ) {
@@ -51,34 +49,34 @@ main( int     argc,
     ulong f = fd_seq_inc( d, delta         );
     ulong g = fd_seq_inc( d, (1UL<<63)-1UL );
 
-    TEST(  fd_seq_lt( a, d ) ); TEST(  fd_seq_le( a, d ) ); TEST( !fd_seq_eq( a, d ) );
-    TEST(  fd_seq_lt( b, d ) ); TEST(  fd_seq_le( b, d ) ); TEST( !fd_seq_eq( b, d ) );
-    TEST( !fd_seq_lt( c, d ) ); TEST(  fd_seq_le( c, d ) ); TEST(  fd_seq_eq( c, d ) );
-    TEST( !fd_seq_lt( d, d ) ); TEST(  fd_seq_le( d, d ) ); TEST(  fd_seq_eq( d, d ) );
-    TEST( !fd_seq_lt( e, d ) ); TEST(  fd_seq_le( e, d ) ); TEST(  fd_seq_eq( e, d ) );
-    TEST( !fd_seq_lt( f, d ) ); TEST( !fd_seq_le( f, d ) ); TEST( !fd_seq_eq( f, d ) );
-    TEST( !fd_seq_lt( g, d ) ); TEST( !fd_seq_le( g, d ) ); TEST( !fd_seq_eq( g, d ) );
+    FD_TEST(  fd_seq_lt( a, d ) ); FD_TEST(  fd_seq_le( a, d ) ); FD_TEST( !fd_seq_eq( a, d ) );
+    FD_TEST(  fd_seq_lt( b, d ) ); FD_TEST(  fd_seq_le( b, d ) ); FD_TEST( !fd_seq_eq( b, d ) );
+    FD_TEST( !fd_seq_lt( c, d ) ); FD_TEST(  fd_seq_le( c, d ) ); FD_TEST(  fd_seq_eq( c, d ) );
+    FD_TEST( !fd_seq_lt( d, d ) ); FD_TEST(  fd_seq_le( d, d ) ); FD_TEST(  fd_seq_eq( d, d ) );
+    FD_TEST( !fd_seq_lt( e, d ) ); FD_TEST(  fd_seq_le( e, d ) ); FD_TEST(  fd_seq_eq( e, d ) );
+    FD_TEST( !fd_seq_lt( f, d ) ); FD_TEST( !fd_seq_le( f, d ) ); FD_TEST( !fd_seq_eq( f, d ) );
+    FD_TEST( !fd_seq_lt( g, d ) ); FD_TEST( !fd_seq_le( g, d ) ); FD_TEST( !fd_seq_eq( g, d ) );
 
-    TEST(  fd_seq_ne( a, d ) ); TEST( !fd_seq_ge( a, d ) ); TEST( !fd_seq_gt( a, d ) );
-    TEST(  fd_seq_ne( b, d ) ); TEST( !fd_seq_ge( b, d ) ); TEST( !fd_seq_gt( b, d ) );
-    TEST( !fd_seq_ne( c, d ) ); TEST(  fd_seq_ge( c, d ) ); TEST( !fd_seq_gt( c, d ) );
-    TEST( !fd_seq_ne( d, d ) ); TEST(  fd_seq_ge( d, d ) ); TEST( !fd_seq_gt( d, d ) );
-    TEST( !fd_seq_ne( e, d ) ); TEST(  fd_seq_ge( e, d ) ); TEST( !fd_seq_gt( e, d ) );
-    TEST(  fd_seq_ne( f, d ) ); TEST(  fd_seq_ge( f, d ) ); TEST(  fd_seq_gt( f, d ) );
-    TEST(  fd_seq_ne( g, d ) ); TEST(  fd_seq_ge( g, d ) ); TEST(  fd_seq_gt( g, d ) );
+    FD_TEST(  fd_seq_ne( a, d ) ); FD_TEST( !fd_seq_ge( a, d ) ); FD_TEST( !fd_seq_gt( a, d ) );
+    FD_TEST(  fd_seq_ne( b, d ) ); FD_TEST( !fd_seq_ge( b, d ) ); FD_TEST( !fd_seq_gt( b, d ) );
+    FD_TEST( !fd_seq_ne( c, d ) ); FD_TEST(  fd_seq_ge( c, d ) ); FD_TEST( !fd_seq_gt( c, d ) );
+    FD_TEST( !fd_seq_ne( d, d ) ); FD_TEST(  fd_seq_ge( d, d ) ); FD_TEST( !fd_seq_gt( d, d ) );
+    FD_TEST( !fd_seq_ne( e, d ) ); FD_TEST(  fd_seq_ge( e, d ) ); FD_TEST( !fd_seq_gt( e, d ) );
+    FD_TEST(  fd_seq_ne( f, d ) ); FD_TEST(  fd_seq_ge( f, d ) ); FD_TEST(  fd_seq_gt( f, d ) );
+    FD_TEST(  fd_seq_ne( g, d ) ); FD_TEST(  fd_seq_ge( g, d ) ); FD_TEST(  fd_seq_gt( g, d ) );
 
-    TEST( fd_seq_diff( a, d )==LONG_MIN     );
-    TEST( fd_seq_diff( b, d )==-(long)delta );
-    TEST( fd_seq_diff( c, d )==0L           );
-    TEST( fd_seq_diff( d, d )==0L           );
-    TEST( fd_seq_diff( e, d )==0L           );
-    TEST( fd_seq_diff( f, d )== (long)delta );
-    TEST( fd_seq_diff( g, d )==LONG_MAX     );
+    FD_TEST( fd_seq_diff( a, d )==LONG_MIN     );
+    FD_TEST( fd_seq_diff( b, d )==-(long)delta );
+    FD_TEST( fd_seq_diff( c, d )==0L           );
+    FD_TEST( fd_seq_diff( d, d )==0L           );
+    FD_TEST( fd_seq_diff( e, d )==0L           );
+    FD_TEST( fd_seq_diff( f, d )== (long)delta );
+    FD_TEST( fd_seq_diff( g, d )==LONG_MAX     );
 
     ulong chunk_idx = d & (CHUNK_CNT-1UL);
     uchar * chunk = fd_chunk_to_laddr( chunk_mem[0], chunk_idx );
-    TEST( chunk==chunk_mem[ chunk_idx ] );
-    TEST( fd_laddr_to_chunk( chunk_mem[0], chunk )==chunk_idx );
+    FD_TEST( chunk==chunk_mem[ chunk_idx ] );
+    FD_TEST( fd_laddr_to_chunk( chunk_mem[0], chunk )==chunk_idx );
 
     ulong ctl = d & (65535UL);
     int   mul = (int)fd_rng_uint( rng ); if( !mul ) mul = 1;
@@ -88,7 +86,7 @@ main( int     argc,
     int   eom  = fd_frag_meta_ctl_eom ( ctl )*mul;
     int   err  = fd_frag_meta_ctl_err ( ctl )*mul;
 
-    TEST( fd_frag_meta_ctl( orig, som, eom, err )==ctl );
+    FD_TEST( fd_frag_meta_ctl( orig, som, eom, err )==ctl );
   }
 
 # if FD_HAS_AVX
@@ -96,8 +94,8 @@ main( int     argc,
     ulong seq = fd_rng_ulong( rng );
     ulong sig = fd_rng_ulong( rng );
     __m128i sse0 = fd_frag_meta_sse0( seq, sig );
-    TEST( fd_frag_meta_sse0_seq( sse0 )==seq );
-    TEST( fd_frag_meta_sse0_sig( sse0 )==sig );
+    FD_TEST( fd_frag_meta_sse0_seq( sse0 )==seq );
+    FD_TEST( fd_frag_meta_sse0_sig( sse0 )==sig );
 
     ulong chunk  = (ulong)fd_rng_uint  ( rng );
     ulong sz     = (ulong)fd_rng_ushort( rng );
@@ -105,45 +103,45 @@ main( int     argc,
     ulong tsorig = (ulong)fd_rng_uint  ( rng );
     ulong tspub  = (ulong)fd_rng_uint  ( rng );
     __m128i sse1 = fd_frag_meta_sse1( chunk, sz, ctl, tsorig, tspub );
-    TEST( fd_frag_meta_sse1_chunk ( sse1 )==chunk  );
-    TEST( fd_frag_meta_sse1_sz    ( sse1 )==sz     );
-    TEST( fd_frag_meta_sse1_ctl   ( sse1 )==ctl    );
-    TEST( fd_frag_meta_sse1_tsorig( sse1 )==tsorig );
-    TEST( fd_frag_meta_sse1_tspub ( sse1 )==tspub  );
+    FD_TEST( fd_frag_meta_sse1_chunk ( sse1 )==chunk  );
+    FD_TEST( fd_frag_meta_sse1_sz    ( sse1 )==sz     );
+    FD_TEST( fd_frag_meta_sse1_ctl   ( sse1 )==ctl    );
+    FD_TEST( fd_frag_meta_sse1_tsorig( sse1 )==tsorig );
+    FD_TEST( fd_frag_meta_sse1_tspub ( sse1 )==tspub  );
 
     __m256i avx = fd_frag_meta_avx( seq, sig, chunk, sz, ctl, tsorig, tspub );
-    TEST( fd_frag_meta_avx_seq   ( avx )==seq    );
-    TEST( fd_frag_meta_avx_sig   ( avx )==sig    );
-    TEST( fd_frag_meta_avx_chunk ( avx )==chunk  );
-    TEST( fd_frag_meta_avx_sz    ( avx )==sz     );
-    TEST( fd_frag_meta_avx_ctl   ( avx )==ctl    );
-    TEST( fd_frag_meta_avx_tsorig( avx )==tsorig );
-    TEST( fd_frag_meta_avx_tspub ( avx )==tspub  );
+    FD_TEST( fd_frag_meta_avx_seq   ( avx )==seq    );
+    FD_TEST( fd_frag_meta_avx_sig   ( avx )==sig    );
+    FD_TEST( fd_frag_meta_avx_chunk ( avx )==chunk  );
+    FD_TEST( fd_frag_meta_avx_sz    ( avx )==sz     );
+    FD_TEST( fd_frag_meta_avx_ctl   ( avx )==ctl    );
+    FD_TEST( fd_frag_meta_avx_tsorig( avx )==tsorig );
+    FD_TEST( fd_frag_meta_avx_tspub ( avx )==tspub  );
 
     fd_frag_meta_t meta[1];
 
     fd_memset( meta, 0, sizeof(fd_frag_meta_t) );
     _mm_store_si128( &meta->sse0, sse0 );
     _mm_store_si128( &meta->sse1, sse1 );
-    TEST(        meta->seq   ==seq    );
-    TEST(        meta->sig   ==sig    );
-    TEST( (ulong)meta->chunk ==chunk  );
-    TEST( (ulong)meta->sz    ==sz     );
-    TEST( (ulong)meta->ctl   ==ctl    );
-    TEST( (ulong)meta->tsorig==tsorig );
-    TEST( (ulong)meta->tspub ==tspub  );
-    TEST( fd_frag_meta_seq_query( meta )==seq );
+    FD_TEST(        meta->seq   ==seq    );
+    FD_TEST(        meta->sig   ==sig    );
+    FD_TEST( (ulong)meta->chunk ==chunk  );
+    FD_TEST( (ulong)meta->sz    ==sz     );
+    FD_TEST( (ulong)meta->ctl   ==ctl    );
+    FD_TEST( (ulong)meta->tsorig==tsorig );
+    FD_TEST( (ulong)meta->tspub ==tspub  );
+    FD_TEST( fd_frag_meta_seq_query( meta )==seq );
 
     fd_memset( meta, 0, sizeof(fd_frag_meta_t) );
     _mm256_store_si256( &meta->avx, avx );
-    TEST(        meta->seq   ==seq    );
-    TEST(        meta->sig   ==sig    );
-    TEST( (ulong)meta->chunk ==chunk  );
-    TEST( (ulong)meta->sz    ==sz     );
-    TEST( (ulong)meta->ctl   ==ctl    );
-    TEST( (ulong)meta->tsorig==tsorig );
-    TEST( (ulong)meta->tspub ==tspub  );
-    TEST( fd_frag_meta_seq_query( meta )==seq );
+    FD_TEST(        meta->seq   ==seq    );
+    FD_TEST(        meta->sig   ==sig    );
+    FD_TEST( (ulong)meta->chunk ==chunk  );
+    FD_TEST( (ulong)meta->sz    ==sz     );
+    FD_TEST( (ulong)meta->ctl   ==ctl    );
+    FD_TEST( (ulong)meta->tsorig==tsorig );
+    FD_TEST( (ulong)meta->tspub ==tspub  );
+    FD_TEST( fd_frag_meta_seq_query( meta )==seq );
   }
 # endif
 
@@ -160,11 +158,9 @@ main( int     argc,
     long ts    = tsref + delta;
 
     ulong tscomp = fd_frag_meta_ts_comp( ts );
-    TEST( tscomp <= (ulong)UINT_MAX );
-    TEST( fd_frag_meta_ts_decomp( tscomp, tsref )==ts );
+    FD_TEST( tscomp <= (ulong)UINT_MAX );
+    FD_TEST( fd_frag_meta_ts_decomp( tscomp, tsref )==ts );
   }
-
-# undef TEST
 
   fd_rng_delete( fd_rng_leave( rng ) );
 

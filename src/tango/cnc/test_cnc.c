@@ -27,8 +27,6 @@ FD_STATIC_ASSERT( FD_CNC_DIAG_BACKP_CNT==1UL, unit_test );
 #define APP_MAX (192UL)
 uchar __attribute__((aligned(FD_CNC_ALIGN))) shmem[ FD_CNC_FOOTPRINT( APP_MAX ) ];
 
-#define TEST(c) do if( FD_UNLIKELY( !(c) ) ) { FD_LOG_WARNING(( "FAIL: " #c )); return 1; } while(0)
-
 #define USER_ACK  4UL
 #define USER_GAME 5UL
 #define USER_PING 6UL
@@ -40,15 +38,15 @@ app_main( int     argc,
 
   /* Boot up the app thread (we are in the BOOT state) */
 
-  TEST( !argc );
+  FD_TEST( !argc );
   fd_cnc_t * cnc = fd_cnc_join( (void *)argv );
-  TEST( cnc );
-  TEST( fd_cnc_signal_query( cnc )==FD_CNC_SIGNAL_BOOT );
+  FD_TEST( cnc );
+  FD_TEST( fd_cnc_signal_query( cnc )==FD_CNC_SIGNAL_BOOT );
 
   ulong * app = (ulong *)fd_cnc_app_laddr( cnc );
   ulong const * app_const = (ulong const *)fd_cnc_app_laddr_const( cnc );
-  TEST( (ulong)app==(ulong)app_const );
-  TEST( fd_ulong_is_aligned( (ulong)app, FD_CNC_APP_ALIGN ) );
+  FD_TEST( (ulong)app==(ulong)app_const );
+  FD_TEST( fd_ulong_is_aligned( (ulong)app, FD_CNC_APP_ALIGN ) );
 
   /* Signal we are doing booting and start running */
 
@@ -72,12 +70,12 @@ app_main( int     argc,
         ulong ball = FD_VOLATILE_CONST( app[0] );
         FD_VOLATILE( app[1] ) = ball+1UL;
         fd_cnc_signal( cnc, USER_PING );
-        TEST( fd_cnc_wait( cnc, USER_PING, (long)30e9, &now )==USER_PONG );
+        FD_TEST( fd_cnc_wait( cnc, USER_PING, (long)30e9, &now )==USER_PONG );
 
         /* Test legal game, return ball and finish game */
-        TEST( FD_VOLATILE_CONST( app[0] )==ball     );
-        TEST( FD_VOLATILE_CONST( app[1] )==ball+1UL );
-        TEST( FD_VOLATILE_CONST( app[2] )==ball+2UL );
+        FD_TEST( FD_VOLATILE_CONST( app[0] )==ball     );
+        FD_TEST( FD_VOLATILE_CONST( app[1] )==ball+1UL );
+        FD_TEST( FD_VOLATILE_CONST( app[2] )==ball+2UL );
         FD_VOLATILE( app[3] ) = ball+3UL;
         fd_cnc_signal( cnc, FD_CNC_SIGNAL_RUN );
 
@@ -99,7 +97,7 @@ app_main( int     argc,
      terminating execution. */
 
   fd_cnc_signal( cnc, FD_CNC_SIGNAL_BOOT );
-  TEST( fd_cnc_leave( cnc )==(void *)argv );
+  FD_TEST( fd_cnc_leave( cnc )==(void *)argv );
   return 0;
 }
 
@@ -115,27 +113,27 @@ main( int     argc,
   if( FD_UNLIKELY( app_sz>APP_MAX     ) ) FD_LOG_ERR(( "increase APP_MAX for this app_sz"  ));
   if( FD_UNLIKELY( fd_tile_cnt()!=2UL ) ) FD_LOG_ERR(( "this unit-test requires two tiles" ));
 
-  TEST( !fd_cnc_footprint( ULONG_MAX ) );
+  FD_TEST( !fd_cnc_footprint( ULONG_MAX ) );
 
-  TEST( fd_cnc_align()            ==FD_CNC_ALIGN               );
-  TEST( fd_cnc_footprint( app_sz )==FD_CNC_FOOTPRINT( app_sz ) );
+  FD_TEST( fd_cnc_align()            ==FD_CNC_ALIGN               );
+  FD_TEST( fd_cnc_footprint( app_sz )==FD_CNC_FOOTPRINT( app_sz ) );
 
   long now = fd_log_wallclock();
-  void * shcnc = fd_cnc_new( shmem, app_sz, type, now ); TEST( shcnc );
-  fd_cnc_t * cnc = fd_cnc_join( shcnc );                 TEST( cnc );
+  void * shcnc = fd_cnc_new( shmem, app_sz, type, now ); FD_TEST( shcnc );
+  fd_cnc_t * cnc = fd_cnc_join( shcnc );                 FD_TEST( cnc );
 
-  TEST( fd_cnc_app_sz( cnc )==app_sz );
+  FD_TEST( fd_cnc_app_sz( cnc )==app_sz );
   ulong *       app       = (ulong       *)fd_cnc_app_laddr( cnc );
   ulong const * app_const = (ulong const *)fd_cnc_app_laddr_const( cnc );
-  TEST( (ulong)app==(ulong)app_const );
-  TEST( fd_ulong_is_aligned( (ulong)app, FD_CNC_APP_ALIGN ) );
+  FD_TEST( (ulong)app==(ulong)app_const );
+  FD_TEST( fd_ulong_is_aligned( (ulong)app, FD_CNC_APP_ALIGN ) );
 
-  TEST( fd_cnc_type           ( cnc )==type               );
-  TEST( fd_cnc_heartbeat0     ( cnc )==now                );
-  TEST( fd_cnc_heartbeat_query( cnc )==now                );
-  TEST( fd_cnc_signal_query   ( cnc )==FD_CNC_SIGNAL_BOOT );
+  FD_TEST( fd_cnc_type           ( cnc )==type               );
+  FD_TEST( fd_cnc_heartbeat0     ( cnc )==now                );
+  FD_TEST( fd_cnc_heartbeat_query( cnc )==now                );
+  FD_TEST( fd_cnc_signal_query   ( cnc )==FD_CNC_SIGNAL_BOOT );
 
-//TEST( fd_cnc_open( cnc )==FD_CNC_ERR_AGAIN ); /* Should fail as app thread isn't running yet */
+//FD_TEST( fd_cnc_open( cnc )==FD_CNC_ERR_AGAIN ); /* Should fail as app thread isn't running yet */
 
   FD_LOG_NOTICE(( "fd_cnc_strerror( FD_CNC_SUCCESS   ): %s", fd_cnc_strerror( FD_CNC_SUCCESS   ) ));
   FD_LOG_NOTICE(( "fd_cnc_strerror( FD_CNC_ERR_UNSUP ): %s", fd_cnc_strerror( FD_CNC_ERR_UNSUP ) ));
@@ -145,53 +143,53 @@ main( int     argc,
   FD_LOG_NOTICE(( "fd_cnc_strerror( 1                ): %s", fd_cnc_strerror( 1                ) ));
 
   char buf[ FD_CNC_SIGNAL_CSTR_BUF_MAX ];
-  TEST( !strcmp( fd_cnc_signal_cstr( FD_CNC_SIGNAL_RUN,  buf ), "run"  ) );
-  TEST( !strcmp( fd_cnc_signal_cstr( FD_CNC_SIGNAL_BOOT, buf ), "boot" ) );
-  TEST( !strcmp( fd_cnc_signal_cstr( FD_CNC_SIGNAL_FAIL, buf ), "fail" ) );
-  TEST( !strcmp( fd_cnc_signal_cstr( FD_CNC_SIGNAL_HALT, buf ), "halt" ) );
-  TEST( !strcmp( fd_cnc_signal_cstr( 4UL,                buf ), "4"    ) );
+  FD_TEST( !strcmp( fd_cnc_signal_cstr( FD_CNC_SIGNAL_RUN,  buf ), "run"  ) );
+  FD_TEST( !strcmp( fd_cnc_signal_cstr( FD_CNC_SIGNAL_BOOT, buf ), "boot" ) );
+  FD_TEST( !strcmp( fd_cnc_signal_cstr( FD_CNC_SIGNAL_FAIL, buf ), "fail" ) );
+  FD_TEST( !strcmp( fd_cnc_signal_cstr( FD_CNC_SIGNAL_HALT, buf ), "halt" ) );
+  FD_TEST( !strcmp( fd_cnc_signal_cstr( 4UL,                buf ), "4"    ) );
 
-  TEST( fd_cstr_to_cnc_signal( "run"  )==FD_CNC_SIGNAL_RUN  );
-  TEST( fd_cstr_to_cnc_signal( "boot" )==FD_CNC_SIGNAL_BOOT );
-  TEST( fd_cstr_to_cnc_signal( "fail" )==FD_CNC_SIGNAL_FAIL );
-  TEST( fd_cstr_to_cnc_signal( "halt" )==FD_CNC_SIGNAL_HALT );
-  TEST( fd_cstr_to_cnc_signal( "4"    )==4UL                );
+  FD_TEST( fd_cstr_to_cnc_signal( "run"  )==FD_CNC_SIGNAL_RUN  );
+  FD_TEST( fd_cstr_to_cnc_signal( "boot" )==FD_CNC_SIGNAL_BOOT );
+  FD_TEST( fd_cstr_to_cnc_signal( "fail" )==FD_CNC_SIGNAL_FAIL );
+  FD_TEST( fd_cstr_to_cnc_signal( "halt" )==FD_CNC_SIGNAL_HALT );
+  FD_TEST( fd_cstr_to_cnc_signal( "4"    )==4UL                );
 
   /* Start up the app thread and wait to finish booting */
 
   fd_tile_exec_t * app_thread = fd_tile_exec_new( 1UL, app_main, 0, (char **)shcnc );
-  TEST( fd_cnc_wait( cnc, FD_CNC_SIGNAL_BOOT, (long)30e9, &now )==FD_CNC_SIGNAL_RUN );
+  FD_TEST( fd_cnc_wait( cnc, FD_CNC_SIGNAL_BOOT, (long)30e9, &now )==FD_CNC_SIGNAL_RUN );
 
   /* Start a command and control session with the app thread */
 
-  TEST( fd_cnc_open( cnc )==FD_CNC_SUCCESS   );
-//TEST( fd_cnc_open( cnc )==FD_CNC_ERR_AGAIN ); /* Should fail as we already have a session open */
+  FD_TEST( fd_cnc_open( cnc )==FD_CNC_SUCCESS   );
+//FD_TEST( fd_cnc_open( cnc )==FD_CNC_ERR_AGAIN ); /* Should fail as we already have a session open */
 
   for( ulong iter=0UL; iter<32UL; iter++ ) {
     FD_LOG_NOTICE(( "Test %2lu (app thread heartbeat %li)", iter, fd_cnc_heartbeat_query( cnc ) ));
     
     /* Request ack */
     fd_cnc_signal( cnc, USER_ACK );
-    TEST( fd_cnc_wait( cnc, USER_ACK, (long)30e9, &now )==FD_CNC_SIGNAL_RUN );
+    FD_TEST( fd_cnc_wait( cnc, USER_ACK, (long)30e9, &now )==FD_CNC_SIGNAL_RUN );
 
     /* Request a game and wait for serve */
     ulong ball = fd_ulong_hash( iter );
     FD_VOLATILE( app[0] ) = ball;
     fd_cnc_signal( cnc, USER_GAME );
-    TEST( fd_cnc_wait( cnc, USER_GAME, (long)30e9, &now )==USER_PING );
+    FD_TEST( fd_cnc_wait( cnc, USER_GAME, (long)30e9, &now )==USER_PING );
 
     /* Test legal game, return the ball and wait for game to finish */
-    TEST( FD_VOLATILE_CONST( app[0] )==ball     );
-    TEST( FD_VOLATILE_CONST( app[1] )==ball+1UL );
+    FD_TEST( FD_VOLATILE_CONST( app[0] )==ball     );
+    FD_TEST( FD_VOLATILE_CONST( app[1] )==ball+1UL );
     FD_VOLATILE( app[2] ) = ball+2UL;
     fd_cnc_signal( cnc, USER_PONG );
 
     /* Test legal game */
-    TEST( fd_cnc_wait( cnc, USER_PONG, (long)30e9, &now )==FD_CNC_SIGNAL_RUN );
-    TEST( FD_VOLATILE_CONST( app[0] )==ball     );
-    TEST( FD_VOLATILE_CONST( app[1] )==ball+1UL );
-    TEST( FD_VOLATILE_CONST( app[2] )==ball+2UL );
-    TEST( FD_VOLATILE_CONST( app[3] )==ball+3UL );
+    FD_TEST( fd_cnc_wait( cnc, USER_PONG, (long)30e9, &now )==FD_CNC_SIGNAL_RUN );
+    FD_TEST( FD_VOLATILE_CONST( app[0] )==ball     );
+    FD_TEST( FD_VOLATILE_CONST( app[1] )==ball+1UL );
+    FD_TEST( FD_VOLATILE_CONST( app[2] )==ball+2UL );
+    FD_TEST( FD_VOLATILE_CONST( app[3] )==ball+3UL );
 
     FD_YIELD();
   }
@@ -199,27 +197,25 @@ main( int     argc,
   /* Tell the app thread to halt and wait for it to finish halting */
 
   fd_cnc_signal( cnc, FD_CNC_SIGNAL_HALT );
-  TEST( fd_cnc_wait( cnc, FD_CNC_SIGNAL_HALT, (long)30e9, &now )==FD_CNC_SIGNAL_BOOT );
+  FD_TEST( fd_cnc_wait( cnc, FD_CNC_SIGNAL_HALT, (long)30e9, &now )==FD_CNC_SIGNAL_BOOT );
 
   /* Finish command and control session with the app thread */
 
   fd_cnc_close( cnc );
 
-//TEST( fd_cnc_open( cnc )==FD_CNC_ERR_AGAIN ); /* Should fail as app thread isn't running yet */
+//FD_TEST( fd_cnc_open( cnc )==FD_CNC_ERR_AGAIN ); /* Should fail as app thread isn't running yet */
 
   int ret;
-  TEST( !fd_tile_exec_delete( app_thread, &ret ) );
-  TEST( !ret );
+  FD_TEST( !fd_tile_exec_delete( app_thread, &ret ) );
+  FD_TEST( !ret );
 
-  TEST( fd_cnc_leave( cnc )==shcnc );
-  TEST( fd_cnc_delete( shcnc )==shmem );
+  FD_TEST( fd_cnc_leave( cnc )==shcnc );
+  FD_TEST( fd_cnc_delete( shcnc )==shmem );
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
   return 0;
 }
-
-#undef TEST
 
 #else
 

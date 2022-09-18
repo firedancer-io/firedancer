@@ -11,8 +11,6 @@ main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
 
-# define TEST(c) do if( FD_UNLIKELY( !(c) ) ) { FD_LOG_WARNING(( "FAIL: " #c )); return 1; } while(0)
-
   char const * _cnc    = fd_env_strip_cmdline_cstr( &argc, &argv, "--cnc",    NULL, NULL                 );
   char const * _mcache = fd_env_strip_cmdline_cstr( &argc, &argv, "--mcache", NULL, NULL                 );
   char const * _dcache = fd_env_strip_cmdline_cstr( &argc, &argv, "--dcache", NULL, NULL                 );
@@ -274,8 +272,6 @@ main( int     argc,
   fd_cnc_signal( cnc, FD_CNC_SIGNAL_BOOT );
   fd_wksp_unmap( fd_cnc_leave( cnc ) );
   fd_rng_delete( fd_rng_leave( rng ) );
-
-# undef TEST
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
