@@ -139,16 +139,16 @@ fd_tempo_observe_pair( long * opt_now,
 
      lazy < ~cr_max*672/100e9/1.5 ~ 4.48 cr_max
 
-   We use 9 (1+floor( cr_max/4 )) ~ 2.25 cr_max to keep things simple.
-   We also saturate cr_max at ULONG_MAX/8 to avoid overflow.  Note that
-   that while this might seem aggressive per credit, since cr_max is
-   typically values in thousands to hundreds of thousands, this
-   corresponds to default laziness in the tens microseconds to
-   millseconds.  */
+   We use 1+floor( 9*cr_max/4 )) ~ 2.25 cr_max to keep things simple.
+   Note that that while this might seem aggressive per credit, since
+   cr_max is typically values in thousands to hundreds of thousands,
+   this corresponds to default laziness in the tens microseconds to
+   millseconds.  We also saturate cr_max to keep the returned value in
+   [1,2^31] ns for all cr_max. */
 
 FD_FN_CONST static inline long
 fd_tempo_lazy_default( ulong cr_max ) {
-  return (long)(9UL*((fd_ulong_min( cr_max, ULONG_MAX>>3 ) >> 2) + 1UL));
+  return fd_long_if( cr_max>954437176UL, (long)INT_MAX, (long)(1UL+((9UL*cr_max)>>2)) );
 }
 
 /* fd_tempo_async_min picks a reasonable minimum interval in ticks

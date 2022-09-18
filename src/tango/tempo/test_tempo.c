@@ -89,12 +89,11 @@ main( int     argc,
 
 # endif
 
-  TEST( fd_tempo_lazy_default( 0UL       )== 9L      );
-  TEST( fd_tempo_lazy_default( 1UL       )== 9L      );
-  TEST( fd_tempo_lazy_default( 3UL       )== 9L      );
-  TEST( fd_tempo_lazy_default( 3UL       )== 9L      );
-  TEST( fd_tempo_lazy_default( 4UL       )==18L      );
-  TEST( fd_tempo_lazy_default( ULONG_MAX )<=LONG_MAX );
+  for( ulong cr_max=0UL; cr_max<10UL; cr_max++ ) TEST( fd_tempo_lazy_default( cr_max )==(long)(1UL+((9UL*cr_max)/4UL)) );
+  TEST( fd_tempo_lazy_default( 954437175UL )==2147483644L );
+  TEST( fd_tempo_lazy_default( 954437176UL )==2147483647L );
+  TEST( fd_tempo_lazy_default( 954437177UL )==2147483647L );
+  TEST( fd_tempo_lazy_default( ULONG_MAX   )==2147483647L );
 
 # if FD_HAS_X86 && FD_HAS_DOUBLE
 
