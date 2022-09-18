@@ -212,7 +212,8 @@ tx_tile_main( int     argc,
 
     int   is_dup = fd_rng_uint( rng ) < dup_thresh; 
     uint  age    = is_dup ? (uint)(int)(1.0f + dup_avg_age*fd_rng_float_exp( rng )) : 0U;
-    ulong sig    = fd_ulong_hash( (((ulong)tx_idx)<<32) | ((ulong)(dup_seq-age)) ) | (ulong)(sig==FD_TCACHE_TAG_NULL);
+    ulong sig    = fd_ulong_hash( (((ulong)tx_idx)<<32) | ((ulong)(dup_seq-age)) );
+    sig |= (ulong)(sig==FD_TCACHE_TAG_NULL);
     dup_seq += (uint)!is_dup;
 
   /*ulong chunk  = ... already at location where next packet will be written ...; */
