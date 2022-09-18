@@ -139,6 +139,9 @@ After updating a change or stack of changes, simply push it to the `refs/for/mai
 - Gerrit's dashboard shows you a list of all CLs that require your attention.
 
 - Use `git pull --rebase` to update your working copy. It will automatically skip over any local commits.
+  **Consider setting it as the default pull strategy in your Git config**:
+
+        git config --global pull.rebase true
 
 - Never push to another author's change. Instead, push your own change that is based on theirs. Generally,
   this is tricky business - **avoid working on top of other people's in-flight changes**. Gerrit's workflow
