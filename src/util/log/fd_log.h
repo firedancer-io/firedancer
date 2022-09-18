@@ -155,6 +155,24 @@
 #define FD_LOG_ALERT(a)   do { long _fd_log_msg_now = fd_log_wallclock(); fd_log_private_2( 6, _fd_log_msg_now, __FILE__, __LINE__, __func__, fd_log_private_0 a ); } while(0)
 #define FD_LOG_EMERG(a)   do { long _fd_log_msg_now = fd_log_wallclock(); fd_log_private_2( 7, _fd_log_msg_now, __FILE__, __LINE__, __func__, fd_log_private_0 a ); } while(0)
 
+/* FD_TEST is a single statement that evaluates condition c and, if c
+   evaluates to false, will FD_LOG_ERR that the condition failed.  It is
+   optimized for the case where c will is non-zero.  This is mostly
+   meant for use in things like unit tests.  Due to linguistic
+   limitations, c cannot contain things like double quotes, '%'
+   characters, etc.  E.g.
+
+     FD_TEST( broken_func_that_should_return_zero( arg1, arg2 )!=0 );
+
+   would typically cause the program to exist with error code 1, logging
+   something like:
+
+     ERR     01-23 04:56:07.890123 [45678] src/foo.c(901): FAIL: broken_func_that_should_return_zero( arg1, arg2 )!=0
+
+   This macro is robust. */
+
+#define FD_TEST(c) do { if( FD_UNLIKELY( !(c) ) ) FD_LOG_ERR(( "FAIL: " #c )); } while(0)
+
 /* Macros for doing hexedit / tcpdump-like logging of memory regions.
    E.g.
 

@@ -52,3 +52,7 @@ syn keyword cStatement    FD_ONCE_BEGIN FD_ONCE_END FD_THREAD_ONCE_BEGIN FD_THRE
 
 syn keyword cOperator     FD_LOG_DEBUG FD_LOG_INFO FD_LOG_NOTICE FD_LOG_WARNING FD_LOG_ERR FD_LOG_CRIT FD_LOG_ALERT FD_LOG_EMERG
 
+" Testing
+
+syn keyword cOperator     FD_TEST
+
