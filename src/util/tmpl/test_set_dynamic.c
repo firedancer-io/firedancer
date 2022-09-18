@@ -13,8 +13,6 @@ main( int     argc,
   fd_scratch_attach( scratch_smem, scratch_fmem, 16384UL, 2UL );
   fd_scratch_push();
 
-# define TEST(c) do if( FD_UNLIKELY( !(c) ) ) { FD_LOG_WARNING(( "FAIL: " #c )); return 1; } while(0)
-
   ulong max = fd_env_strip_cmdline_ulong( &argc, &argv, "--max", NULL, 12345UL );
   if( FD_UNLIKELY( max<2UL ) ) {
     FD_LOG_WARNING(( "SKIP: --max must be at least 2 for this test" ));
@@ -31,278 +29,278 @@ main( int     argc,
     return 0;
   }
 
-  TEST( fd_ulong_is_pow2( align ) );
-  TEST( fd_ulong_is_aligned( footprint, align ) );
-  TEST( footprint > ((max+7UL)/8UL) );
+  FD_TEST( fd_ulong_is_pow2( align ) );
+  FD_TEST( fd_ulong_is_aligned( footprint, align ) );
+  FD_TEST( footprint > ((max+7UL)/8UL) );
 
-  set_t * null = set_join( set_new( fd_scratch_alloc( align, footprint ), max ) ); TEST( null ); TEST( set_max( null )==max );
-  set_t * f0   = set_join( set_new( fd_scratch_alloc( align, footprint ), max ) ); TEST( f0   ); TEST( set_max( f0   )==max );
-  set_t * f1   = set_join( set_new( fd_scratch_alloc( align, footprint ), max ) ); TEST( f1   ); TEST( set_max( f1   )==max );
+  set_t * null = set_join( set_new( fd_scratch_alloc( align, footprint ), max ) ); FD_TEST( null ); FD_TEST( set_max( null )==max );
+  set_t * f0   = set_join( set_new( fd_scratch_alloc( align, footprint ), max ) ); FD_TEST( f0   ); FD_TEST( set_max( f0   )==max );
+  set_t * f1   = set_join( set_new( fd_scratch_alloc( align, footprint ), max ) ); FD_TEST( f1   ); FD_TEST( set_max( f1   )==max );
 
-  set_t * full = set_join( set_new( fd_scratch_alloc( align, footprint ), max ) ); TEST( full ); TEST( set_max( full )==max );
-  set_t * n0   = set_join( set_new( fd_scratch_alloc( align, footprint ), max ) ); TEST( n0   ); TEST( set_max( n0   )==max );
-  set_t * n1   = set_join( set_new( fd_scratch_alloc( align, footprint ), max ) ); TEST( n1   ); TEST( set_max( n1   )==max );
+  set_t * full = set_join( set_new( fd_scratch_alloc( align, footprint ), max ) ); FD_TEST( full ); FD_TEST( set_max( full )==max );
+  set_t * n0   = set_join( set_new( fd_scratch_alloc( align, footprint ), max ) ); FD_TEST( n0   ); FD_TEST( set_max( n0   )==max );
+  set_t * n1   = set_join( set_new( fd_scratch_alloc( align, footprint ), max ) ); FD_TEST( n1   ); FD_TEST( set_max( n1   )==max );
 
-  set_t * e    = set_join( set_new( fd_scratch_alloc( align, footprint ), max ) ); TEST( e    ); TEST( set_max( e    )==max );
-  set_t * ebar = set_join( set_new( fd_scratch_alloc( align, footprint ), max ) ); TEST( ebar ); TEST( set_max( ebar )==max );
-  set_t * t    = set_join( set_new( fd_scratch_alloc( align, footprint ), max ) ); TEST( t    ); TEST( set_max( t    )==max );
+  set_t * e    = set_join( set_new( fd_scratch_alloc( align, footprint ), max ) ); FD_TEST( e    ); FD_TEST( set_max( e    )==max );
+  set_t * ebar = set_join( set_new( fd_scratch_alloc( align, footprint ), max ) ); FD_TEST( ebar ); FD_TEST( set_max( ebar )==max );
+  set_t * t    = set_join( set_new( fd_scratch_alloc( align, footprint ), max ) ); FD_TEST( t    ); FD_TEST( set_max( t    )==max );
 
-  TEST( set_full( full )==full );
-  TEST( set_full( n0   )==n0   );
-  TEST( set_full( n1   )==n1   );
+  FD_TEST( set_full( full )==full );
+  FD_TEST( set_full( n0   )==n0   );
+  FD_TEST( set_full( n1   )==n1   );
 
-  TEST( set_full_if( t, 0 )==t ); TEST( set_eq( t, null ) );
-  TEST( set_full_if( t, 1 )==t ); TEST( set_eq( t, full ) );
+  FD_TEST( set_full_if( t, 0 )==t ); FD_TEST( set_eq( t, null ) );
+  FD_TEST( set_full_if( t, 1 )==t ); FD_TEST( set_eq( t, full ) );
 
   for( ulong idx=0UL; idx<max; idx++ ) {
     ulong idx2 = idx+1UL; if( idx2>=max ) idx2 = 0UL;
 
-    TEST( set_ele( e, idx )==e );
-    TEST( set_complement( ebar, e )==ebar );
+    FD_TEST( set_ele( e, idx )==e );
+    FD_TEST( set_complement( ebar, e )==ebar );
 
-    TEST( set_ele_if( t, 0, idx )==t && set_eq( t, null ) );
-    TEST( set_ele_if( t, 1, idx )==t && set_eq( t, e    ) );
+    FD_TEST( set_ele_if( t, 0, idx )==t && set_eq( t, null ) );
+    FD_TEST( set_ele_if( t, 1, idx )==t && set_eq( t, e    ) );
 
-    TEST( set_valid( null ) ); TEST( set_valid_idx( null, idx ) ); TEST( !set_valid_idx( null, idx+max ) );
-    TEST( set_valid( f0   ) ); TEST( set_valid_idx( f0,   idx ) ); TEST( !set_valid_idx( f0,   idx+max ) );
-    TEST( set_valid( f1   ) ); TEST( set_valid_idx( f1,   idx ) ); TEST( !set_valid_idx( f1,   idx+max ) );
-    TEST( set_valid( full ) ); TEST( set_valid_idx( full, idx ) ); TEST( !set_valid_idx( full, idx+max ) );
-    TEST( set_valid( n0   ) ); TEST( set_valid_idx( n0,   idx ) ); TEST( !set_valid_idx( n0,   idx+max ) );
-    TEST( set_valid( n1   ) ); TEST( set_valid_idx( n1,   idx ) ); TEST( !set_valid_idx( n1,   idx+max ) );
-    TEST( set_valid( e    ) ); TEST( set_valid_idx( e,    idx ) ); TEST( !set_valid_idx( e,    idx+max ) );
-    TEST( set_valid( ebar ) ); TEST( set_valid_idx( ebar, idx ) ); TEST( !set_valid_idx( ebar, idx+max ) );
-    TEST( set_valid( t    ) ); TEST( set_valid_idx( t,    idx ) ); TEST( !set_valid_idx( t,    idx+max ) );
+    FD_TEST( set_valid( null ) ); FD_TEST( set_valid_idx( null, idx ) ); FD_TEST( !set_valid_idx( null, idx+max ) );
+    FD_TEST( set_valid( f0   ) ); FD_TEST( set_valid_idx( f0,   idx ) ); FD_TEST( !set_valid_idx( f0,   idx+max ) );
+    FD_TEST( set_valid( f1   ) ); FD_TEST( set_valid_idx( f1,   idx ) ); FD_TEST( !set_valid_idx( f1,   idx+max ) );
+    FD_TEST( set_valid( full ) ); FD_TEST( set_valid_idx( full, idx ) ); FD_TEST( !set_valid_idx( full, idx+max ) );
+    FD_TEST( set_valid( n0   ) ); FD_TEST( set_valid_idx( n0,   idx ) ); FD_TEST( !set_valid_idx( n0,   idx+max ) );
+    FD_TEST( set_valid( n1   ) ); FD_TEST( set_valid_idx( n1,   idx ) ); FD_TEST( !set_valid_idx( n1,   idx+max ) );
+    FD_TEST( set_valid( e    ) ); FD_TEST( set_valid_idx( e,    idx ) ); FD_TEST( !set_valid_idx( e,    idx+max ) );
+    FD_TEST( set_valid( ebar ) ); FD_TEST( set_valid_idx( ebar, idx ) ); FD_TEST( !set_valid_idx( ebar, idx+max ) );
+    FD_TEST( set_valid( t    ) ); FD_TEST( set_valid_idx( t,    idx ) ); FD_TEST( !set_valid_idx( t,    idx+max ) );
 
-    TEST( set_cnt( null )==0UL     );
-    TEST( set_cnt( e    )==1UL     );
-    TEST( set_cnt( ebar )==max-1UL );
-    TEST( set_cnt( full )==max     );
+    FD_TEST( set_cnt( null )==0UL     );
+    FD_TEST( set_cnt( e    )==1UL     );
+    FD_TEST( set_cnt( ebar )==max-1UL );
+    FD_TEST( set_cnt( full )==max     );
 
-    TEST(  set_is_null( null ) ); TEST( !set_is_full( null ) );
-    TEST( !set_is_null( e    ) ); TEST( !set_is_full( e    ) );
-    TEST( !set_is_null( ebar ) ); TEST( !set_is_full( ebar ) );
-    TEST( !set_is_null( full ) ); TEST(  set_is_full( full ) );
+    FD_TEST(  set_is_null( null ) ); FD_TEST( !set_is_full( null ) );
+    FD_TEST( !set_is_null( e    ) ); FD_TEST( !set_is_full( e    ) );
+    FD_TEST( !set_is_null( ebar ) ); FD_TEST( !set_is_full( ebar ) );
+    FD_TEST( !set_is_null( full ) ); FD_TEST(  set_is_full( full ) );
 
-    TEST( set_first( null )>=max               );
-    TEST( set_first( e    )==idx               );
-    TEST( set_first( ebar )==(idx ? 0UL : 1UL) );
-    TEST( set_first( full )==0UL               );
+    FD_TEST( set_first( null )>=max               );
+    FD_TEST( set_first( e    )==idx               );
+    FD_TEST( set_first( ebar )==(idx ? 0UL : 1UL) );
+    FD_TEST( set_first( full )==0UL               );
 
-    TEST( set_copy( t, null )==t && set_eq( set_insert( t, idx ), e    ) );
-    TEST( set_copy( t, e    )==t && set_eq( set_insert( t, idx ), e    ) );
-    TEST( set_copy( t, ebar )==t && set_eq( set_insert( t, idx ), full ) );
-    TEST( set_copy( t, full )==t && set_eq( set_insert( t, idx ), full ) );
+    FD_TEST( set_copy( t, null )==t && set_eq( set_insert( t, idx ), e    ) );
+    FD_TEST( set_copy( t, e    )==t && set_eq( set_insert( t, idx ), e    ) );
+    FD_TEST( set_copy( t, ebar )==t && set_eq( set_insert( t, idx ), full ) );
+    FD_TEST( set_copy( t, full )==t && set_eq( set_insert( t, idx ), full ) );
 
-    TEST( set_copy( t, null )==t && set_eq( set_remove( t, idx ), null ) );
-    TEST( set_copy( t, e    )==t && set_eq( set_remove( t, idx ), null ) );
-    TEST( set_copy( t, ebar )==t && set_eq( set_remove( t, idx ), ebar ) );
-    TEST( set_copy( t, full )==t && set_eq( set_remove( t, idx ), ebar ) );
+    FD_TEST( set_copy( t, null )==t && set_eq( set_remove( t, idx ), null ) );
+    FD_TEST( set_copy( t, e    )==t && set_eq( set_remove( t, idx ), null ) );
+    FD_TEST( set_copy( t, ebar )==t && set_eq( set_remove( t, idx ), ebar ) );
+    FD_TEST( set_copy( t, full )==t && set_eq( set_remove( t, idx ), ebar ) );
 
-    TEST( set_copy( t, null )==t && set_eq( set_insert_if( t, 0, idx ), null ) );
-    TEST( set_copy( t, e    )==t && set_eq( set_insert_if( t, 0, idx ), e    ) );
-    TEST( set_copy( t, ebar )==t && set_eq( set_insert_if( t, 0, idx ), ebar ) );
-    TEST( set_copy( t, full )==t && set_eq( set_insert_if( t, 0, idx ), full ) );
+    FD_TEST( set_copy( t, null )==t && set_eq( set_insert_if( t, 0, idx ), null ) );
+    FD_TEST( set_copy( t, e    )==t && set_eq( set_insert_if( t, 0, idx ), e    ) );
+    FD_TEST( set_copy( t, ebar )==t && set_eq( set_insert_if( t, 0, idx ), ebar ) );
+    FD_TEST( set_copy( t, full )==t && set_eq( set_insert_if( t, 0, idx ), full ) );
 
-    TEST( set_copy( t, null )==t && set_eq( set_insert_if( t, 1, idx ), e    ) );
-    TEST( set_copy( t, e    )==t && set_eq( set_insert_if( t, 1, idx ), e    ) );
-    TEST( set_copy( t, ebar )==t && set_eq( set_insert_if( t, 1, idx ), full ) );
-    TEST( set_copy( t, full )==t && set_eq( set_insert_if( t, 1, idx ), full ) );
+    FD_TEST( set_copy( t, null )==t && set_eq( set_insert_if( t, 1, idx ), e    ) );
+    FD_TEST( set_copy( t, e    )==t && set_eq( set_insert_if( t, 1, idx ), e    ) );
+    FD_TEST( set_copy( t, ebar )==t && set_eq( set_insert_if( t, 1, idx ), full ) );
+    FD_TEST( set_copy( t, full )==t && set_eq( set_insert_if( t, 1, idx ), full ) );
 
-    TEST( set_copy( t, null )==t && set_eq( set_remove_if( t, 0, idx ), null ) );
-    TEST( set_copy( t, e    )==t && set_eq( set_remove_if( t, 0, idx ), e    ) );
-    TEST( set_copy( t, ebar )==t && set_eq( set_remove_if( t, 0, idx ), ebar ) );
-    TEST( set_copy( t, full )==t && set_eq( set_remove_if( t, 0, idx ), full ) );
+    FD_TEST( set_copy( t, null )==t && set_eq( set_remove_if( t, 0, idx ), null ) );
+    FD_TEST( set_copy( t, e    )==t && set_eq( set_remove_if( t, 0, idx ), e    ) );
+    FD_TEST( set_copy( t, ebar )==t && set_eq( set_remove_if( t, 0, idx ), ebar ) );
+    FD_TEST( set_copy( t, full )==t && set_eq( set_remove_if( t, 0, idx ), full ) );
 
-    TEST( set_copy( t, null )==t && set_eq( set_remove_if( t, 1, idx ), null ) );
-    TEST( set_copy( t, e    )==t && set_eq( set_remove_if( t, 1, idx ), null ) );
-    TEST( set_copy( t, ebar )==t && set_eq( set_remove_if( t, 1, idx ), ebar ) );
-    TEST( set_copy( t, full )==t && set_eq( set_remove_if( t, 1, idx ), ebar ) );
+    FD_TEST( set_copy( t, null )==t && set_eq( set_remove_if( t, 1, idx ), null ) );
+    FD_TEST( set_copy( t, e    )==t && set_eq( set_remove_if( t, 1, idx ), null ) );
+    FD_TEST( set_copy( t, ebar )==t && set_eq( set_remove_if( t, 1, idx ), ebar ) );
+    FD_TEST( set_copy( t, full )==t && set_eq( set_remove_if( t, 1, idx ), ebar ) );
 
-    TEST( !set_test( null, idx  ) ); TEST( !set_test( null, idx2 ) );
-    TEST(  set_test( e,    idx  ) ); TEST( !set_test( e,    idx2 ) );
-    TEST( !set_test( ebar, idx  ) ); TEST(  set_test( ebar, idx2 ) );
-    TEST(  set_test( full, idx  ) ); TEST(  set_test( full, idx2 ) );
+    FD_TEST( !set_test( null, idx  ) ); FD_TEST( !set_test( null, idx2 ) );
+    FD_TEST(  set_test( e,    idx  ) ); FD_TEST( !set_test( e,    idx2 ) );
+    FD_TEST( !set_test( ebar, idx  ) ); FD_TEST(  set_test( ebar, idx2 ) );
+    FD_TEST(  set_test( full, idx  ) ); FD_TEST(  set_test( full, idx2 ) );
 
-    TEST(  set_eq    ( null, null ) );
-    TEST( !set_eq    ( null, e    ) );
-    TEST( !set_eq    ( null, ebar ) );
-    TEST( !set_eq    ( null, full ) );
-    TEST( !set_eq    ( e,    null ) );
-    TEST(  set_eq    ( e,    e    ) );
-    TEST( !set_eq    ( e,    ebar ) );
-    TEST( !set_eq    ( e,    full ) );
-    TEST( !set_eq    ( ebar, null ) );
-    TEST( !set_eq    ( ebar, e    ) );
-    TEST(  set_eq    ( ebar, ebar ) );
-    TEST( !set_eq    ( ebar, full ) );
-    TEST( !set_eq    ( full, null ) );
-    TEST( !set_eq    ( full, e    ) );
-    TEST( !set_eq    ( full, ebar ) );
-    TEST(  set_eq    ( full, full ) );
-    TEST(  set_subset( null, null ) );
-    TEST(  set_subset( null, e    ) );
-    TEST(  set_subset( null, ebar ) );
-    TEST(  set_subset( null, full ) );
-    TEST( !set_subset( e,    null ) );
-    TEST(  set_subset( e,    e    ) );
-    TEST( !set_subset( e,    ebar ) );
-    TEST(  set_subset( e,    full ) );
-    TEST( !set_subset( ebar, null ) );
-    TEST( !set_subset( ebar, e    ) );
-    TEST(  set_subset( ebar, ebar ) );
-    TEST(  set_subset( ebar, full ) );
-    TEST( !set_subset( full, null ) );
-    TEST( !set_subset( full, e    ) );
-    TEST( !set_subset( full, ebar ) );
-    TEST(  set_subset( full, full ) );
+    FD_TEST(  set_eq    ( null, null ) );
+    FD_TEST( !set_eq    ( null, e    ) );
+    FD_TEST( !set_eq    ( null, ebar ) );
+    FD_TEST( !set_eq    ( null, full ) );
+    FD_TEST( !set_eq    ( e,    null ) );
+    FD_TEST(  set_eq    ( e,    e    ) );
+    FD_TEST( !set_eq    ( e,    ebar ) );
+    FD_TEST( !set_eq    ( e,    full ) );
+    FD_TEST( !set_eq    ( ebar, null ) );
+    FD_TEST( !set_eq    ( ebar, e    ) );
+    FD_TEST(  set_eq    ( ebar, ebar ) );
+    FD_TEST( !set_eq    ( ebar, full ) );
+    FD_TEST( !set_eq    ( full, null ) );
+    FD_TEST( !set_eq    ( full, e    ) );
+    FD_TEST( !set_eq    ( full, ebar ) );
+    FD_TEST(  set_eq    ( full, full ) );
+    FD_TEST(  set_subset( null, null ) );
+    FD_TEST(  set_subset( null, e    ) );
+    FD_TEST(  set_subset( null, ebar ) );
+    FD_TEST(  set_subset( null, full ) );
+    FD_TEST( !set_subset( e,    null ) );
+    FD_TEST(  set_subset( e,    e    ) );
+    FD_TEST( !set_subset( e,    ebar ) );
+    FD_TEST(  set_subset( e,    full ) );
+    FD_TEST( !set_subset( ebar, null ) );
+    FD_TEST( !set_subset( ebar, e    ) );
+    FD_TEST(  set_subset( ebar, ebar ) );
+    FD_TEST(  set_subset( ebar, full ) );
+    FD_TEST( !set_subset( full, null ) );
+    FD_TEST( !set_subset( full, e    ) );
+    FD_TEST( !set_subset( full, ebar ) );
+    FD_TEST(  set_subset( full, full ) );
 
-    TEST( set_copy      ( t, null       )==t && set_eq( t, null ) );
-    TEST( set_copy      ( t, e          )==t && set_eq( t, e    ) );
-    TEST( set_copy      ( t, ebar       )==t && set_eq( t, ebar ) );
-    TEST( set_copy      ( t, full       )==t && set_eq( t, full ) );
-    TEST( set_complement( t, null       )==t && set_eq( t, full ) );
-    TEST( set_complement( t, e          )==t && set_eq( t, ebar ) );
-    TEST( set_complement( t, ebar       )==t && set_eq( t, e    ) );
-    TEST( set_complement( t, full       )==t && set_eq( t, null ) );
-    TEST( set_union     ( t, null, null )==t && set_eq( t, null ) );
-    TEST( set_union     ( t, null, e    )==t && set_eq( t, e    ) );
-    TEST( set_union     ( t, null, ebar )==t && set_eq( t, ebar ) );
-    TEST( set_union     ( t, null, full )==t && set_eq( t, full ) );
-    TEST( set_union     ( t, e,    null )==t && set_eq( t, e    ) );
-    TEST( set_union     ( t, e,    e    )==t && set_eq( t, e    ) );
-    TEST( set_union     ( t, e,    ebar )==t && set_eq( t, full ) );
-    TEST( set_union     ( t, e,    full )==t && set_eq( t, full ) );
-    TEST( set_union     ( t, ebar, null )==t && set_eq( t, ebar ) );
-    TEST( set_union     ( t, ebar, e    )==t && set_eq( t, full ) );
-    TEST( set_union     ( t, ebar, ebar )==t && set_eq( t, ebar ) );
-    TEST( set_union     ( t, ebar, full )==t && set_eq( t, full ) );
-    TEST( set_union     ( t, full, null )==t && set_eq( t, full ) );
-    TEST( set_union     ( t, full, e    )==t && set_eq( t, full ) );
-    TEST( set_union     ( t, full, ebar )==t && set_eq( t, full ) );
-    TEST( set_union     ( t, full, full )==t && set_eq( t, full ) );
-    TEST( set_intersect ( t, null, null )==t && set_eq( t, null ) );
-    TEST( set_intersect ( t, null, e    )==t && set_eq( t, null ) );
-    TEST( set_intersect ( t, null, ebar )==t && set_eq( t, null ) );
-    TEST( set_intersect ( t, null, full )==t && set_eq( t, null ) );
-    TEST( set_intersect ( t, e,    null )==t && set_eq( t, null ) );
-    TEST( set_intersect ( t, e,    e    )==t && set_eq( t, e    ) );
-    TEST( set_intersect ( t, e,    ebar )==t && set_eq( t, null ) );
-    TEST( set_intersect ( t, e,    full )==t && set_eq( t, e    ) );
-    TEST( set_intersect ( t, ebar, null )==t && set_eq( t, null ) );
-    TEST( set_intersect ( t, ebar, e    )==t && set_eq( t, null ) );
-    TEST( set_intersect ( t, ebar, ebar )==t && set_eq( t, ebar ) );
-    TEST( set_intersect ( t, ebar, full )==t && set_eq( t, ebar ) );
-    TEST( set_intersect ( t, full, null )==t && set_eq( t, null ) );
-    TEST( set_intersect ( t, full, e    )==t && set_eq( t, e    ) );
-    TEST( set_intersect ( t, full, ebar )==t && set_eq( t, ebar ) );
-    TEST( set_intersect ( t, full, full )==t && set_eq( t, full ) );
-    TEST( set_subtract  ( t, null, null )==t && set_eq( t, null ) );
-    TEST( set_subtract  ( t, null, e    )==t && set_eq( t, null ) );
-    TEST( set_subtract  ( t, null, ebar )==t && set_eq( t, null ) );
-    TEST( set_subtract  ( t, null, full )==t && set_eq( t, null ) );
-    TEST( set_subtract  ( t, e,    null )==t && set_eq( t, e    ) );
-    TEST( set_subtract  ( t, e,    e    )==t && set_eq( t, null ) );
-    TEST( set_subtract  ( t, e,    ebar )==t && set_eq( t, e    ) );
-    TEST( set_subtract  ( t, e,    full )==t && set_eq( t, null ) );
-    TEST( set_subtract  ( t, ebar, null )==t && set_eq( t, ebar ) );
-    TEST( set_subtract  ( t, ebar, e    )==t && set_eq( t, ebar ) );
-    TEST( set_subtract  ( t, ebar, ebar )==t && set_eq( t, null ) );
-    TEST( set_subtract  ( t, ebar, full )==t && set_eq( t, null ) );
-    TEST( set_subtract  ( t, full, null )==t && set_eq( t, full ) );
-    TEST( set_subtract  ( t, full, e    )==t && set_eq( t, ebar ) );
-    TEST( set_subtract  ( t, full, ebar )==t && set_eq( t, e    ) );
-    TEST( set_subtract  ( t, full, full )==t && set_eq( t, null ) );
-    TEST( set_xor       ( t, null, null )==t && set_eq( t, null ) );
-    TEST( set_xor       ( t, null, e    )==t && set_eq( t, e    ) );
-    TEST( set_xor       ( t, null, ebar )==t && set_eq( t, ebar ) );
-    TEST( set_xor       ( t, null, full )==t && set_eq( t, full ) );
-    TEST( set_xor       ( t, e,    null )==t && set_eq( t, e    ) );
-    TEST( set_xor       ( t, e,    e    )==t && set_eq( t, null ) );
-    TEST( set_xor       ( t, e,    ebar )==t && set_eq( t, full ) );
-    TEST( set_xor       ( t, e,    full )==t && set_eq( t, ebar ) );
-    TEST( set_xor       ( t, ebar, null )==t && set_eq( t, ebar ) );
-    TEST( set_xor       ( t, ebar, e    )==t && set_eq( t, full ) );
-    TEST( set_xor       ( t, ebar, ebar )==t && set_eq( t, null ) );
-    TEST( set_xor       ( t, ebar, full )==t && set_eq( t, e    ) );
-    TEST( set_xor       ( t, full, null )==t && set_eq( t, full ) );
-    TEST( set_xor       ( t, full, e    )==t && set_eq( t, ebar ) );
-    TEST( set_xor       ( t, full, ebar )==t && set_eq( t, e    ) );
-    TEST( set_xor       ( t, full, full )==t && set_eq( t, null ) );
+    FD_TEST( set_copy      ( t, null       )==t && set_eq( t, null ) );
+    FD_TEST( set_copy      ( t, e          )==t && set_eq( t, e    ) );
+    FD_TEST( set_copy      ( t, ebar       )==t && set_eq( t, ebar ) );
+    FD_TEST( set_copy      ( t, full       )==t && set_eq( t, full ) );
+    FD_TEST( set_complement( t, null       )==t && set_eq( t, full ) );
+    FD_TEST( set_complement( t, e          )==t && set_eq( t, ebar ) );
+    FD_TEST( set_complement( t, ebar       )==t && set_eq( t, e    ) );
+    FD_TEST( set_complement( t, full       )==t && set_eq( t, null ) );
+    FD_TEST( set_union     ( t, null, null )==t && set_eq( t, null ) );
+    FD_TEST( set_union     ( t, null, e    )==t && set_eq( t, e    ) );
+    FD_TEST( set_union     ( t, null, ebar )==t && set_eq( t, ebar ) );
+    FD_TEST( set_union     ( t, null, full )==t && set_eq( t, full ) );
+    FD_TEST( set_union     ( t, e,    null )==t && set_eq( t, e    ) );
+    FD_TEST( set_union     ( t, e,    e    )==t && set_eq( t, e    ) );
+    FD_TEST( set_union     ( t, e,    ebar )==t && set_eq( t, full ) );
+    FD_TEST( set_union     ( t, e,    full )==t && set_eq( t, full ) );
+    FD_TEST( set_union     ( t, ebar, null )==t && set_eq( t, ebar ) );
+    FD_TEST( set_union     ( t, ebar, e    )==t && set_eq( t, full ) );
+    FD_TEST( set_union     ( t, ebar, ebar )==t && set_eq( t, ebar ) );
+    FD_TEST( set_union     ( t, ebar, full )==t && set_eq( t, full ) );
+    FD_TEST( set_union     ( t, full, null )==t && set_eq( t, full ) );
+    FD_TEST( set_union     ( t, full, e    )==t && set_eq( t, full ) );
+    FD_TEST( set_union     ( t, full, ebar )==t && set_eq( t, full ) );
+    FD_TEST( set_union     ( t, full, full )==t && set_eq( t, full ) );
+    FD_TEST( set_intersect ( t, null, null )==t && set_eq( t, null ) );
+    FD_TEST( set_intersect ( t, null, e    )==t && set_eq( t, null ) );
+    FD_TEST( set_intersect ( t, null, ebar )==t && set_eq( t, null ) );
+    FD_TEST( set_intersect ( t, null, full )==t && set_eq( t, null ) );
+    FD_TEST( set_intersect ( t, e,    null )==t && set_eq( t, null ) );
+    FD_TEST( set_intersect ( t, e,    e    )==t && set_eq( t, e    ) );
+    FD_TEST( set_intersect ( t, e,    ebar )==t && set_eq( t, null ) );
+    FD_TEST( set_intersect ( t, e,    full )==t && set_eq( t, e    ) );
+    FD_TEST( set_intersect ( t, ebar, null )==t && set_eq( t, null ) );
+    FD_TEST( set_intersect ( t, ebar, e    )==t && set_eq( t, null ) );
+    FD_TEST( set_intersect ( t, ebar, ebar )==t && set_eq( t, ebar ) );
+    FD_TEST( set_intersect ( t, ebar, full )==t && set_eq( t, ebar ) );
+    FD_TEST( set_intersect ( t, full, null )==t && set_eq( t, null ) );
+    FD_TEST( set_intersect ( t, full, e    )==t && set_eq( t, e    ) );
+    FD_TEST( set_intersect ( t, full, ebar )==t && set_eq( t, ebar ) );
+    FD_TEST( set_intersect ( t, full, full )==t && set_eq( t, full ) );
+    FD_TEST( set_subtract  ( t, null, null )==t && set_eq( t, null ) );
+    FD_TEST( set_subtract  ( t, null, e    )==t && set_eq( t, null ) );
+    FD_TEST( set_subtract  ( t, null, ebar )==t && set_eq( t, null ) );
+    FD_TEST( set_subtract  ( t, null, full )==t && set_eq( t, null ) );
+    FD_TEST( set_subtract  ( t, e,    null )==t && set_eq( t, e    ) );
+    FD_TEST( set_subtract  ( t, e,    e    )==t && set_eq( t, null ) );
+    FD_TEST( set_subtract  ( t, e,    ebar )==t && set_eq( t, e    ) );
+    FD_TEST( set_subtract  ( t, e,    full )==t && set_eq( t, null ) );
+    FD_TEST( set_subtract  ( t, ebar, null )==t && set_eq( t, ebar ) );
+    FD_TEST( set_subtract  ( t, ebar, e    )==t && set_eq( t, ebar ) );
+    FD_TEST( set_subtract  ( t, ebar, ebar )==t && set_eq( t, null ) );
+    FD_TEST( set_subtract  ( t, ebar, full )==t && set_eq( t, null ) );
+    FD_TEST( set_subtract  ( t, full, null )==t && set_eq( t, full ) );
+    FD_TEST( set_subtract  ( t, full, e    )==t && set_eq( t, ebar ) );
+    FD_TEST( set_subtract  ( t, full, ebar )==t && set_eq( t, e    ) );
+    FD_TEST( set_subtract  ( t, full, full )==t && set_eq( t, null ) );
+    FD_TEST( set_xor       ( t, null, null )==t && set_eq( t, null ) );
+    FD_TEST( set_xor       ( t, null, e    )==t && set_eq( t, e    ) );
+    FD_TEST( set_xor       ( t, null, ebar )==t && set_eq( t, ebar ) );
+    FD_TEST( set_xor       ( t, null, full )==t && set_eq( t, full ) );
+    FD_TEST( set_xor       ( t, e,    null )==t && set_eq( t, e    ) );
+    FD_TEST( set_xor       ( t, e,    e    )==t && set_eq( t, null ) );
+    FD_TEST( set_xor       ( t, e,    ebar )==t && set_eq( t, full ) );
+    FD_TEST( set_xor       ( t, e,    full )==t && set_eq( t, ebar ) );
+    FD_TEST( set_xor       ( t, ebar, null )==t && set_eq( t, ebar ) );
+    FD_TEST( set_xor       ( t, ebar, e    )==t && set_eq( t, full ) );
+    FD_TEST( set_xor       ( t, ebar, ebar )==t && set_eq( t, null ) );
+    FD_TEST( set_xor       ( t, ebar, full )==t && set_eq( t, e    ) );
+    FD_TEST( set_xor       ( t, full, null )==t && set_eq( t, full ) );
+    FD_TEST( set_xor       ( t, full, e    )==t && set_eq( t, ebar ) );
+    FD_TEST( set_xor       ( t, full, ebar )==t && set_eq( t, e    ) );
+    FD_TEST( set_xor       ( t, full, full )==t && set_eq( t, null ) );
 
-    TEST( set_if( t, 0, null, null )==t && set_eq( t, null ) );
-    TEST( set_if( t, 0, null, e    )==t && set_eq( t, e    ) );
-    TEST( set_if( t, 0, null, ebar )==t && set_eq( t, ebar ) );
-    TEST( set_if( t, 0, null, full )==t && set_eq( t, full ) );
-    TEST( set_if( t, 0, e,    null )==t && set_eq( t, null ) );
-    TEST( set_if( t, 0, e,    e    )==t && set_eq( t, e    ) );
-    TEST( set_if( t, 0, e,    ebar )==t && set_eq( t, ebar ) );
-    TEST( set_if( t, 0, e,    full )==t && set_eq( t, full ) );
-    TEST( set_if( t, 0, ebar, null )==t && set_eq( t, null ) );
-    TEST( set_if( t, 0, ebar, e    )==t && set_eq( t, e    ) );
-    TEST( set_if( t, 0, ebar, ebar )==t && set_eq( t, ebar ) );
-    TEST( set_if( t, 0, ebar, full )==t && set_eq( t, full ) );
-    TEST( set_if( t, 0, full, null )==t && set_eq( t, null ) );
-    TEST( set_if( t, 0, full, e    )==t && set_eq( t, e    ) );
-    TEST( set_if( t, 0, full, ebar )==t && set_eq( t, ebar ) );
-    TEST( set_if( t, 0, full, full )==t && set_eq( t, full ) );
+    FD_TEST( set_if( t, 0, null, null )==t && set_eq( t, null ) );
+    FD_TEST( set_if( t, 0, null, e    )==t && set_eq( t, e    ) );
+    FD_TEST( set_if( t, 0, null, ebar )==t && set_eq( t, ebar ) );
+    FD_TEST( set_if( t, 0, null, full )==t && set_eq( t, full ) );
+    FD_TEST( set_if( t, 0, e,    null )==t && set_eq( t, null ) );
+    FD_TEST( set_if( t, 0, e,    e    )==t && set_eq( t, e    ) );
+    FD_TEST( set_if( t, 0, e,    ebar )==t && set_eq( t, ebar ) );
+    FD_TEST( set_if( t, 0, e,    full )==t && set_eq( t, full ) );
+    FD_TEST( set_if( t, 0, ebar, null )==t && set_eq( t, null ) );
+    FD_TEST( set_if( t, 0, ebar, e    )==t && set_eq( t, e    ) );
+    FD_TEST( set_if( t, 0, ebar, ebar )==t && set_eq( t, ebar ) );
+    FD_TEST( set_if( t, 0, ebar, full )==t && set_eq( t, full ) );
+    FD_TEST( set_if( t, 0, full, null )==t && set_eq( t, null ) );
+    FD_TEST( set_if( t, 0, full, e    )==t && set_eq( t, e    ) );
+    FD_TEST( set_if( t, 0, full, ebar )==t && set_eq( t, ebar ) );
+    FD_TEST( set_if( t, 0, full, full )==t && set_eq( t, full ) );
 
-    TEST( set_if( t, 1, null, null )==t && set_eq( t, null ) );
-    TEST( set_if( t, 1, null, e    )==t && set_eq( t, null ) );
-    TEST( set_if( t, 1, null, ebar )==t && set_eq( t, null ) );
-    TEST( set_if( t, 1, null, full )==t && set_eq( t, null ) );
-    TEST( set_if( t, 1, e,    null )==t && set_eq( t, e    ) );
-    TEST( set_if( t, 1, e,    e    )==t && set_eq( t, e    ) );
-    TEST( set_if( t, 1, e,    ebar )==t && set_eq( t, e    ) );
-    TEST( set_if( t, 1, e,    full )==t && set_eq( t, e    ) );
-    TEST( set_if( t, 1, ebar, null )==t && set_eq( t, ebar ) );
-    TEST( set_if( t, 1, ebar, e    )==t && set_eq( t, ebar ) );
-    TEST( set_if( t, 1, ebar, ebar )==t && set_eq( t, ebar ) );
-    TEST( set_if( t, 1, ebar, full )==t && set_eq( t, ebar ) );
-    TEST( set_if( t, 1, full, null )==t && set_eq( t, full ) );
-    TEST( set_if( t, 1, full, e    )==t && set_eq( t, full ) );
-    TEST( set_if( t, 1, full, ebar )==t && set_eq( t, full ) );
-    TEST( set_if( t, 1, full, full )==t && set_eq( t, full ) );
+    FD_TEST( set_if( t, 1, null, null )==t && set_eq( t, null ) );
+    FD_TEST( set_if( t, 1, null, e    )==t && set_eq( t, null ) );
+    FD_TEST( set_if( t, 1, null, ebar )==t && set_eq( t, null ) );
+    FD_TEST( set_if( t, 1, null, full )==t && set_eq( t, null ) );
+    FD_TEST( set_if( t, 1, e,    null )==t && set_eq( t, e    ) );
+    FD_TEST( set_if( t, 1, e,    e    )==t && set_eq( t, e    ) );
+    FD_TEST( set_if( t, 1, e,    ebar )==t && set_eq( t, e    ) );
+    FD_TEST( set_if( t, 1, e,    full )==t && set_eq( t, e    ) );
+    FD_TEST( set_if( t, 1, ebar, null )==t && set_eq( t, ebar ) );
+    FD_TEST( set_if( t, 1, ebar, e    )==t && set_eq( t, ebar ) );
+    FD_TEST( set_if( t, 1, ebar, ebar )==t && set_eq( t, ebar ) );
+    FD_TEST( set_if( t, 1, ebar, full )==t && set_eq( t, ebar ) );
+    FD_TEST( set_if( t, 1, full, null )==t && set_eq( t, full ) );
+    FD_TEST( set_if( t, 1, full, e    )==t && set_eq( t, full ) );
+    FD_TEST( set_if( t, 1, full, ebar )==t && set_eq( t, full ) );
+    FD_TEST( set_if( t, 1, full, full )==t && set_eq( t, full ) );
 
-    TEST( set_remove( n0, idx )==n0 ); TEST( set_subtract( n1, n1, e )==n1 );
-    TEST( set_insert( f0, idx )==f0 ); TEST( set_union   ( f1, f1, e )==f1 );
+    FD_TEST( set_remove( n0, idx )==n0 ); FD_TEST( set_subtract( n1, n1, e )==n1 );
+    FD_TEST( set_insert( f0, idx )==f0 ); FD_TEST( set_union   ( f1, f1, e )==f1 );
 
     ulong sum;
 
-    TEST( set_copy( t, null )==t );
+    FD_TEST( set_copy( t, null )==t );
     sum = 0UL; for( ulong i=set_iter_init( t ); !set_iter_done( i ); i=set_iter_next( t, i ) ) sum += i+1UL;
-    TEST( sum==0UL && set_is_null(t) );
+    FD_TEST( sum==0UL && set_is_null(t) );
 
-    TEST( set_copy( t, e )==t );
+    FD_TEST( set_copy( t, e )==t );
     sum = 0UL; for( ulong i=set_iter_init( t ); !set_iter_done( i ); i=set_iter_next( t, i ) ) sum += i+1UL;
-    TEST( sum==idx+1UL && set_is_null(t) );
+    FD_TEST( sum==idx+1UL && set_is_null(t) );
 
-    TEST( set_copy( t, ebar )==t );
+    FD_TEST( set_copy( t, ebar )==t );
     sum = 0UL; for( ulong i=set_iter_init( t ); !set_iter_done( i ); i=set_iter_next( t, i ) ) sum += i+1UL;
-    TEST( sum==sum_full-(idx+1UL) && set_is_null(t) );
+    FD_TEST( sum==sum_full-(idx+1UL) && set_is_null(t) );
 
-    TEST( set_copy( t, full )==t );
+    FD_TEST( set_copy( t, full )==t );
     sum = 0UL; for( ulong i=set_iter_init( t ); !set_iter_done( i ); i=set_iter_next( t, i ) ) sum += i+1UL;
-    TEST( sum==sum_full && set_is_null(t) );
+    FD_TEST( sum==sum_full && set_is_null(t) );
 
-    TEST( set_copy( t, null )==t );
+    FD_TEST( set_copy( t, null )==t );
     sum = 0UL; for( ulong i=set_const_iter_init( t ); !set_const_iter_done( i ); i=set_const_iter_next( t, i ) ) sum += i+1UL;
-    TEST( sum==0UL && set_eq( t, null ) );
+    FD_TEST( sum==0UL && set_eq( t, null ) );
 
-    TEST( set_copy( t, e )==t );
+    FD_TEST( set_copy( t, e )==t );
     sum = 0UL; for( ulong i=set_const_iter_init( t ); !set_const_iter_done( i ); i=set_const_iter_next( t, i ) ) sum += i+1UL;
-    TEST( sum==idx+1UL && set_eq( t, e ) );
+    FD_TEST( sum==idx+1UL && set_eq( t, e ) );
 
-    TEST( set_copy( t, ebar )==t );
+    FD_TEST( set_copy( t, ebar )==t );
     sum = 0UL; for( ulong i=set_const_iter_init( t ); !set_const_iter_done( i ); i=set_const_iter_next( t, i ) ) sum += i+1UL;
-    TEST( sum==sum_full-(idx+1UL) && set_eq( t, ebar ) );
+    FD_TEST( sum==sum_full-(idx+1UL) && set_eq( t, ebar ) );
 
-    TEST( set_copy( t, full )==t );
+    FD_TEST( set_copy( t, full )==t );
     sum = 0UL; for( ulong i=set_const_iter_init( t ); !set_const_iter_done( i ); i=set_const_iter_next( t, i ) ) sum += i+1UL;
-    TEST( sum==sum_full && set_eq( t, full ) );
+    FD_TEST( sum==sum_full && set_eq( t, full ) );
   }
 
-  TEST( set_is_null( n0 ) ); TEST( set_is_null( n1 ) );
-  TEST( set_is_full( f0 ) ); TEST( set_is_full( f1 ) );
+  FD_TEST( set_is_null( n0 ) ); FD_TEST( set_is_null( n1 ) );
+  FD_TEST( set_is_full( f0 ) ); FD_TEST( set_is_full( f1 ) );
 
   /* FIXME: TEST SET -> SHSET -> MEM */
 
@@ -317,8 +315,6 @@ main( int     argc,
   set_delete( set_leave( f1   ) );
   set_delete( set_leave( f0   ) );
   set_delete( set_leave( null ) );
-
-# undef TEST
 
   FD_LOG_NOTICE(( "pass" ));
 

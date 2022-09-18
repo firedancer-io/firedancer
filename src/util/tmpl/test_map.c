@@ -45,8 +45,6 @@ main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
 
-# define TEST(c) do if( !(c) ) { FD_LOG_WARNING(( "FAIL: " #c )); return 1; } while(0)
-
   fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
 
   pair_t ref[511];
@@ -63,24 +61,24 @@ main( int     argc,
   }
   sort_pair_inplace( ref, max );
 
-  TEST( map_align()    ==alignof(pair_t) );
-  TEST( map_footprint()==(sizeof(pair_t)*(1UL<<LG_SLOT_CNT)) );
+  FD_TEST( map_align()    ==alignof(pair_t) );
+  FD_TEST( map_footprint()==(sizeof(pair_t)*(1UL<<LG_SLOT_CNT)) );
 
-  void   * shmap = map_new ( _map  ); TEST( shmap );
-  pair_t * map   = map_join( shmap ); TEST( map   );
+  void   * shmap = map_new ( _map  ); FD_TEST( shmap );
+  pair_t * map   = map_join( shmap ); FD_TEST( map   );
 
-  TEST( map_key_max() ==(fd_ulong_pow2( LG_SLOT_CNT )-1UL) );
-  TEST( map_slot_cnt()== fd_ulong_pow2( LG_SLOT_CNT )      );
+  FD_TEST( map_key_max() ==(fd_ulong_pow2( LG_SLOT_CNT )-1UL) );
+  FD_TEST( map_slot_cnt()== fd_ulong_pow2( LG_SLOT_CNT )      );
 
-  for( ulong slot_idx=0UL; slot_idx<map_slot_cnt(); slot_idx++ ) TEST( map_slot_idx( map, &map[slot_idx] )==slot_idx );
+  for( ulong slot_idx=0UL; slot_idx<map_slot_cnt(); slot_idx++ ) FD_TEST( map_slot_idx( map, &map[slot_idx] )==slot_idx );
 
-  TEST( map_key_inval( map_key_null() ) );
-  TEST( map_key_equal( map_key_null(), map_key_null() ) );
+  FD_TEST( map_key_inval( map_key_null() ) );
+  FD_TEST( map_key_equal( map_key_null(), map_key_null() ) );
   for( ulong i=0UL; i<max; i++ ) {
-    TEST( !map_key_inval( ref[i].mykey ) );
-    TEST( !map_key_equal( ref[i].mykey, map_key_null() ) );
-    TEST(  map_key_equal( ref[i].mykey, ref[i].mykey ) );
-    for( ulong j=0UL; j<i; j++ ) TEST( !map_key_equal( ref[i].mykey, ref[j].mykey ) );
+    FD_TEST( !map_key_inval( ref[i].mykey ) );
+    FD_TEST( !map_key_equal( ref[i].mykey, map_key_null() ) );
+    FD_TEST(  map_key_equal( ref[i].mykey, ref[i].mykey ) );
+    for( ulong j=0UL; j<i; j++ ) FD_TEST( !map_key_equal( ref[i].mykey, ref[j].mykey ) );
   }
 
   for( ulong iter=0UL; iter<100UL; iter++ ) {
@@ -99,31 +97,31 @@ main( int     argc,
       /* Make sure we can find all values inserted so far */
       for( ulong j=0UL; j<i; j++ ) {
         pair_t * p = map_query( map, tst[j].mykey, NULL );
-        TEST( p && p->val==tst[j].val );
+        FD_TEST( p && p->val==tst[j].val );
 #       if MEMOIZE
-        TEST( p->myhash==map_key_hash( p->mykey ) );
+        FD_TEST( p->myhash==map_key_hash( p->mykey ) );
 #       endif
       }
 
       /* Make sure ki isn't already in the map */
-      TEST( !map_query( map, ki, NULL ) );
+      FD_TEST( !map_query( map, ki, NULL ) );
 
       /* Insert the value */
       pair_t * p = map_insert( map, ki );
-      TEST( p && map_key_equal( p->mykey, ki ) );
+      FD_TEST( p && map_key_equal( p->mykey, ki ) );
 #     if MEMOIZE
-      TEST( p->myhash==hi );
+      FD_TEST( p->myhash==hi );
 #     endif
       p->val = vi;
 
       /* Make sure inserting again fails */
-      TEST( !map_insert( map, ki ) );
+      FD_TEST( !map_insert( map, ki ) );
 
       /* Make sure we can look up the inserted value */
       pair_t * q = map_query( map, tst[i].mykey, NULL );
-      TEST( q==p && map_key_equal( q->mykey, ki ) && q->val==vi );
+      FD_TEST( q==p && map_key_equal( q->mykey, ki ) && q->val==vi );
 #     if MEMOIZE
-      TEST( q->myhash==hi );
+      FD_TEST( q->myhash==hi );
 #     endif
     }
 
@@ -139,18 +137,18 @@ main( int     argc,
       uint  vi = tst[i].val;
 
       /* Make we've deleted all entries before i */
-      for( ulong j=0UL; j<i; j++ ) TEST( !map_query( map, tst[j].mykey, NULL ) );
+      for( ulong j=0UL; j<i; j++ ) FD_TEST( !map_query( map, tst[j].mykey, NULL ) );
 
       /* Look up entry i and make sure it is intact */
       pair_t * p = map_query( map, ki, NULL );
-      TEST( p && map_key_equal( p->mykey, ki ) && p->val==vi );
+      FD_TEST( p && map_key_equal( p->mykey, ki ) && p->val==vi );
 #     if MEMOIZE
-      TEST( p->myhash==hi );
+      FD_TEST( p->myhash==hi );
 #     endif
 
       /* Delete entry i and verify the deletion */
       map_remove( map, p );
-      TEST( !map_query( map, ki, NULL ) );
+      FD_TEST( !map_query( map, ki, NULL ) );
 
       /* Make sure all remaining entries are intact */
       for( ulong j=i+1UL; j<max; j++ ) {
@@ -160,9 +158,9 @@ main( int     argc,
 #       endif
         uint  vj = tst[j].val;
         pair_t * p = map_query( map, kj, NULL );
-        TEST( p && map_key_equal( p->mykey, kj ) && p->val==vj );
+        FD_TEST( p && map_key_equal( p->mykey, kj ) && p->val==vj );
 #       if MEMOIZE
-        TEST( p->myhash==hj );
+        FD_TEST( p->myhash==hj );
 #       endif
       }
 
@@ -170,8 +168,8 @@ main( int     argc,
     }
   }
 
-  TEST( map_leave ( map   )==shmap        );
-  TEST( map_delete( shmap )==(void *)_map );
+  FD_TEST( map_leave ( map   )==shmap        );
+  FD_TEST( map_delete( shmap )==(void *)_map );
 
   fd_rng_delete( fd_rng_leave( rng ) );
 
