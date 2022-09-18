@@ -205,20 +205,11 @@ fd_replay_tile( char const *  _cnc,
 
     /* housekeeping init */
 
-    /* Pick an async_min such that the run loop will do housekeeping
-       every ~lazy ns.  More precisely, the typical interval between
-       housekeeping events will be ~1.5*async_min ticks where async_min
-       is at least ~0.5*lazy ns and at most ~lazy ns.  As such, the
-       typical interval will be at least ~0.75*lazy ns and at most
-       ~1.5*lazy ns.  See mux tile for rationale behind the lazy default
-       setting. */
-
-    if( lazy<=0L ) lazy = (9L*(long)cr_max) >> 2;
+    if( lazy<=0L ) lazy = fd_tempo_lazy_default( cr_max );
     FD_LOG_INFO(( "Configuring housekeeping (lazy %li ns, seed %u)", lazy, seed ));
 
-    long async_target = (long)(0.5 + fd_tempo_tick_per_ns( NULL )*(double)lazy);
-    if( FD_UNLIKELY( async_target<=0L ) ) { FD_LOG_WARNING(( "bad lazy for this tick_per_ns" )); return 1; }
-    async_min = 1UL << fd_ulong_find_msb( (ulong)async_target );
+    async_min = fd_tempo_async_min( lazy, 1UL /*event_cnt*/, (float)fd_tempo_tick_per_ns( NULL ) );
+    if( FD_UNLIKELY( !async_min ) ) { FD_LOG_WARNING(( "bad lazy" )); return 1; }
 
     rng = fd_rng_join( fd_rng_new( SCRATCH_ALLOC( fd_rng_align(), fd_rng_footprint() ), seed, 0UL ) );
 
