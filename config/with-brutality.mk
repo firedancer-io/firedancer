@@ -17,4 +17,5 @@ CXXFLAGS+=-std=c++17
 # CPPFLAGS+=-Wsuggest-attribute=const
 # CPPFLAGS+=-Wsuggest-attribute=noreturn
 # CPPFLAGS+=-Wsuggest-attribute=format
+# CPPFLAGS+=-Wformat-security
 
