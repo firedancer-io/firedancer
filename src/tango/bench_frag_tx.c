@@ -2,6 +2,8 @@
 
 #if FD_HAS_HOSTED && FD_HAS_AVX
 
+/* FIXME: UPDATE TO TIME BASED HOUSEKEEPING */
+
 #include <math.h> /* For expm1f */
 
 FD_STATIC_ASSERT( FD_CHUNK_SZ==64UL, unit_test );

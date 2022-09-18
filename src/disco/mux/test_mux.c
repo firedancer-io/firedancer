@@ -17,7 +17,7 @@ struct test_cfg {
   fd_wksp_t * wksp;
 
   ulong       tx_cnt;
-  int         tx_lazy;
+  long        tx_lazy;
   uchar *     tx_cnc_mem;      ulong tx_cnc_footprint;
   uchar *     tx_rng_mem;      ulong tx_rng_footprint;
   uchar *     tx_fseq_mem;     ulong tx_fseq_footprint;
@@ -94,11 +94,17 @@ tx_tile_main( int     argc,
   fd_rng_t * rng = fd_rng_join( cfg->tx_rng_mem + tx_idx*cfg->tx_rng_footprint );
 
   /* Configure housekeeping */
-  ulong async_min = 1UL << cfg->tx_lazy;
-  ulong async_rem = 0UL;
+  float tick_per_ns = (float)fd_tempo_tick_per_ns( NULL );
+  ulong async_min   = fd_tempo_async_min( cfg->tx_lazy ? cfg->tx_lazy : fd_tempo_lazy_default( depth ),
+                                          1UL /*event_cnt*/, tick_per_ns );
+  if( FD_UNLIKELY( !async_min ) ) FD_LOG_ERR(( "bad --tx-lazy" ));
 
-  long  then = fd_log_wallclock();
-  ulong iter = 0UL;
+  long  now  = fd_tickcount();
+  long  then = now;            /* Do housekeeping on first iteration of run loop */
+
+  long  diag_interval = (long)(1e9f*tick_per_ns);
+  long  diag_last     = now;
+  ulong diag_iter     = 0UL;
 
   /* Configure the synthetic load model */
   ulong pkt_framing     = cfg->pkt_framing;
@@ -119,26 +125,26 @@ tx_tile_main( int     argc,
   for(;;) {
 
     /* Do housekeeping at a low rate in the background */
-    if( FD_UNLIKELY( !async_rem ) ) {
+
+    if( FD_UNLIKELY( (now-then)>=0L ) ) {
 
       /* Send synchronization info */
       fd_mcache_seq_update( sync, seq );
 
       /* Send diagnostic info */
-      long now = fd_log_wallclock();
       fd_cnc_heartbeat( cnc, now );
 
-      long dt = now - then;
-      if( FD_UNLIKELY( dt > (long)1e9 ) ) {
-        float mfps = (1e3f*(float)iter) / (float)dt;
+      long dt = now - diag_last;
+      if( FD_UNLIKELY( dt>=diag_interval ) ) {
+        float mfps = ((1e3f*tick_per_ns)*(float)diag_iter) / (float)dt;
         FD_LOG_NOTICE(( "%7.3f Mfrag/s tx (in_backp %lu backp_cnt %lu slow_cnt %lu)", (double)mfps,
                         FD_VOLATILE_CONST( cnc_diag[ FD_CNC_DIAG_IN_BACKP  ] ),
                         FD_VOLATILE_CONST( cnc_diag[ FD_CNC_DIAG_BACKP_CNT ] ),
                         fseq_diag[ FD_FSEQ_DIAG_SLOW_CNT ] ));
         FD_VOLATILE( cnc_diag [ FD_CNC_DIAG_BACKP_CNT ] ) = 0UL;
         FD_VOLATILE( fseq_diag[ FD_FSEQ_DIAG_SLOW_CNT ] ) = 0UL;
-        then = now;
-        iter = 0UL;
+        diag_last = now;
+        diag_iter = 0UL;
       }
 
       /* Receive command-and-control signals */
@@ -158,9 +164,8 @@ tx_tile_main( int     argc,
       }
 
       /* Reload housekeeping timer */
-      async_rem = fd_tempo_async_reload( rng, async_min );
+      then = now + (long)fd_tempo_async_reload( rng, async_min );
     }
-    async_rem--;
 
     /* Check if we are backpressured */
     if( FD_UNLIKELY( !cr_avail ) ) {
@@ -170,16 +175,21 @@ tx_tile_main( int     argc,
         in_backp = 1;
       }
       FD_SPIN_PAUSE();
+      now = fd_tickcount();
       continue;
     }
 
     /* Check if we are waiting for the next burst to start */
 
     if( FD_LIKELY( ctl_som ) ) {
-      if( FD_UNLIKELY( fd_log_wallclock()<burst_next ) ) continue; /* Optimize for burst starting */
+      if( FD_UNLIKELY( now<burst_next ) ) { /* Optimize for burst starting */
+        FD_SPIN_PAUSE();
+        now = fd_tickcount();
+        continue;
+      }
       /* We just "started receiving" the first bytes of the next burst
          from the "NIC".  Record the timestamp. */
-      burst_ts = fd_frag_meta_ts_comp( fd_tickcount() );
+      burst_ts = fd_frag_meta_ts_comp( burst_next );
     }
 
     /* We are in the process of "receiving" a burst fragment from the
@@ -213,7 +223,8 @@ tx_tile_main( int     argc,
        the "NIC".  Publish to consumers as frag seq.  This implicitly
        unpublishes frag seq-depth (cyclic) at the same time. */
 
-    ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
+    now = fd_tickcount();
+    ulong tspub = fd_frag_meta_ts_comp( now );
     fd_mcache_publish( mcache, depth, seq, sig, chunk, sz, ctl, tsorig, tspub );
 
     /* Wind up for the next iteration */
@@ -221,7 +232,6 @@ tx_tile_main( int     argc,
     chunk = fd_dcache_compact_next( chunk, sz, chunk0, wmark );
     seq   = fd_seq_inc( seq, 1UL );
     cr_avail--;
-    iter++;
     if( FD_UNLIKELY( !ctl_eom ) ) ctl_som = 0;
     else {
       ctl_som = 1;
@@ -230,6 +240,7 @@ tx_tile_main( int     argc,
         burst_rem   = (ulong)(long)(0.5f + burst_avg*fd_rng_float_exp( rng ));
       } while( FD_UNLIKELY( !burst_rem ) );
     }
+    diag_iter++;
   }
 
   fd_cnc_signal( cnc, FD_CNC_SIGNAL_BOOT );
@@ -427,7 +438,7 @@ main( int     argc,
   ulong        tx_cnt     = fd_env_strip_cmdline_ulong( &argc, &argv, "--tx-cnt",     NULL, 2UL                          );
   ulong        tx_depth   = fd_env_strip_cmdline_ulong( &argc, &argv, "--tx-depth",   NULL, 32768UL                      );
   ulong        tx_mtu     = fd_env_strip_cmdline_ulong( &argc, &argv, "--tx-mtu",     NULL, 1472UL                       );
-  int          tx_lazy    = fd_env_strip_cmdline_int  ( &argc, &argv, "--tx-lazy",    NULL, 7                            );
+  long         tx_lazy    = fd_env_strip_cmdline_long ( &argc, &argv, "--tx-lazy",    NULL, 0L                           );
   ulong        mux_depth  = fd_env_strip_cmdline_ulong( &argc, &argv, "--mux-depth",  NULL, 32768UL                      );
   ulong        mux_cr_max = fd_env_strip_cmdline_ulong( &argc, &argv, "--mux-cr-max", NULL, 0UL /* use default */        );
   long         mux_lazy   = fd_env_strip_cmdline_long ( &argc, &argv, "--mux-lazy",   NULL, 0L /* use default */         );
@@ -466,7 +477,8 @@ main( int     argc,
   float burst_bw = pkt_bw
                  / (1.f - ((((float)pkt_framing)/((float)burst_avg)) / expm1f( -((float)pkt_payload_max)/((float)burst_avg) )));
 
-  float burst_tau = burst_avg*(8.f*1e9f/burst_bw); /* Avg time in ns between bursts (8 bit/byte, 1e9 ns/s), bw in bit/s */
+  float tick_per_ns = (float)fd_tempo_tick_per_ns( NULL );
+  float burst_tau   = (tick_per_ns*burst_avg)*(8e9f/burst_bw); /* Avg time btw bursts in tick (8 b/B, 1e9 ns/s, bw b/s) */
   if( FD_UNLIKELY( !(burst_tau<2.1e17f) ) ) FD_LOG_ERR(( "--pkt-bw out of range" ));
 
   FD_LOG_NOTICE(( "Creating workspace with --page-cnt %lu --page-sz %s pages on --numa-idx %lu", page_cnt, _page_sz, numa_idx ));
@@ -590,7 +602,7 @@ main( int     argc,
   for( ulong tile_idx=1UL; tile_idx<tile_cnt; tile_idx++ )
     TEST( fd_cnc_wait( cnc[ tile_idx ], FD_CNC_SIGNAL_BOOT, (long)5e9, NULL )==FD_CNC_SIGNAL_RUN );
 
-  FD_LOG_NOTICE(( "Running (--duration %li ns, --tx-lazy %i, --mux-cr-max %lu, --mux-lazy %li ns, --rx-lazy %i)",
+  FD_LOG_NOTICE(( "Running (--duration %li ns, --tx-lazy %li ns, --mux-cr-max %lu, --mux-lazy %li ns, --rx-lazy %i)",
                   duration, tx_lazy, mux_cr_max, mux_lazy, rx_lazy ));
 
   /* FIXME: DO MONITORING WHILE RUNNING */

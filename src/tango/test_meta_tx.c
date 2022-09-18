@@ -20,7 +20,7 @@ main( int     argc,
   char const * _init   = fd_env_strip_cmdline_cstr ( &argc, &argv, "--init",   NULL, NULL                 );
   ulong        tx_idx  = fd_env_strip_cmdline_ulong( &argc, &argv, "--tx-idx", NULL, 0UL                  );
   uint         seed    = fd_env_strip_cmdline_uint ( &argc, &argv, "--seed",   NULL, (uint)fd_tickcount() );
-  int          lazy    = fd_env_strip_cmdline_int  ( &argc, &argv, "--lazy",   NULL, 7                    );
+  long         lazy    = fd_env_strip_cmdline_long ( &argc, &argv, "--lazy",   NULL, 0L                   );
 
   if( FD_UNLIKELY( !_cnc                         ) ) FD_LOG_ERR(( "--cnc not specified" ));
   if( FD_UNLIKELY( !_mcache                      ) ) FD_LOG_ERR(( "--mcache not specified" ));
@@ -81,30 +81,36 @@ main( int     argc,
 
   ulong cr_avail = 0UL;
 
-  FD_LOG_NOTICE(( "Running --tx-idx %lu --init %lu (%s) --lazy %i", tx_idx, seq, _init ? "manual" : "auto", lazy ));
+  lazy = fd_tempo_lazy_default( depth );
+  FD_LOG_NOTICE(( "Running --tx-idx %lu --init %lu (%s) --lazy %li ns", tx_idx, seq, _init ? "manual" : "auto", lazy ));
 
-  ulong async_min = 1UL << lazy;
-  ulong async_rem = 0UL; /* Do housekeeping on the first iteration */
+  float tick_per_ns = (float)fd_tempo_tick_per_ns( NULL );
+  ulong async_min   = fd_tempo_async_min( lazy, 1UL /*event_cnt*/, tick_per_ns );
+  if( FD_UNLIKELY( !async_min ) ) FD_LOG_ERR(( "bad lazy" ));
 
-  long  then = fd_log_wallclock();
-  ulong iter = 0UL;
+  long  now  = fd_tickcount();
+  long  then = now;            /* Do housekeeping on first iteration of run loop */
+
+  long  diag_interval = (long)(1e9f*tick_per_ns);
+  long  diag_last     = now;
+  ulong diag_iter     = 0UL;
 
   fd_cnc_signal( cnc, FD_CNC_SIGNAL_RUN );
   for(;;) {
 
-    /* Do housekeeping in the background */
-    if( FD_UNLIKELY( !async_rem ) ) {
+    /* Do housekeeping at a low rate in the background */
+
+    if( FD_UNLIKELY( (now-then)>=0L ) ) {
 
       /* Send synchronization info */
       fd_mcache_seq_update( sync, seq );
 
       /* Send diagnostic info */
-      long now = fd_log_wallclock();
       fd_cnc_heartbeat( cnc, now );
 
-      long dt = now - then;
-      if( FD_UNLIKELY( dt > (long)1e9 ) ) {
-        float mfps = (1e3f*(float)iter) / (float)dt;
+      long dt = now - diag_last;
+      if( FD_UNLIKELY( dt>=diag_interval ) ) {
+        float mfps = ((1e3f*tick_per_ns)*(float)diag_iter) / (float)dt;
         FD_LOG_NOTICE(( "%7.3f Mfrag/s tx (in_backp %lu backp_cnt %lu)", (double)mfps,
                         FD_VOLATILE_CONST( cnc_diag[ FD_CNC_DIAG_IN_BACKP  ] ),
                         FD_VOLATILE_CONST( cnc_diag[ FD_CNC_DIAG_BACKP_CNT ] ) ));
@@ -114,8 +120,8 @@ main( int     argc,
           FD_VOLATILE( *slow ) = 0UL;
         }
         FD_VOLATILE( cnc_diag[ FD_CNC_DIAG_BACKP_CNT ] ) = 0UL;
-        then = now;
-        iter = 0UL;
+        diag_last = now;
+        diag_iter = 0UL;
       }
 
       /* Receive command-and-control signals */
@@ -137,9 +143,8 @@ main( int     argc,
       }
 
       /* Reload housekeeping timer */
-      async_rem = fd_tempo_async_reload( rng, async_min );
+      then = now + (long)fd_tempo_async_reload( rng, async_min );
     }
-    async_rem--;
 
     /* Check if we are backpressured */
     if( FD_UNLIKELY( !cr_avail ) ) {
@@ -149,6 +154,7 @@ main( int     argc,
         in_backp = 1;
       }
       FD_SPIN_PAUSE();
+      now = fd_tickcount();
       continue;
     }
     
@@ -158,7 +164,9 @@ main( int     argc,
     ulong chunk  = (ulong)(uint  )seq;
     ulong sz     = (ulong)(ushort)seq;
     ulong ctl    = fd_frag_meta_ctl( tx_idx,1,1,1 );
-    ulong tsorig = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
+
+    now = fd_tickcount();
+    ulong tsorig = (ulong)fd_frag_meta_ts_comp( now );
     ulong tspub  = tsorig;
 
 #   define PUBLISH_STYLE 0
@@ -180,7 +188,7 @@ main( int     argc,
 
     seq = fd_seq_inc( seq, 1UL );
     cr_avail--;
-    iter++;
+    diag_iter++;
   }
 
   FD_LOG_NOTICE(( "Cleaning up" ));

@@ -25,7 +25,7 @@ main( int     argc,
   char const * _init   = fd_env_strip_cmdline_cstr ( &argc, &argv, "--init",   NULL, NULL                 ); /* (opt) init seq */
   ulong        tx_idx  = fd_env_strip_cmdline_ulong( &argc, &argv, "--tx-idx", NULL, 0UL                  ); /* (opt) origin */
   uint         seed    = fd_env_strip_cmdline_uint ( &argc, &argv, "--seed",   NULL, (uint)fd_tickcount() ); /* (opt) rng seed */
-  int          lazy    = fd_env_strip_cmdline_int  ( &argc, &argv, "--lazy",   NULL, 7                    ); /* (opt) lazyiness */
+  long         lazy    = fd_env_strip_cmdline_long ( &argc, &argv, "--lazy",   NULL, 0L                   ); /* (opt) lazyiness */
 
   if( FD_UNLIKELY( !_cnc                         ) ) FD_LOG_ERR(( "--cnc not specified" ));
   if( FD_UNLIKELY( !_mcache                      ) ) FD_LOG_ERR(( "--mcache not specified" ));
@@ -119,7 +119,8 @@ main( int     argc,
 
   /* See note above about 2.1e17 */
 
-  float burst_tau = burst_avg*(8.f*1e9f/burst_bw); /* Avg time in ns between bursts (8 bit/byte, 1e9 ns/s), bw in bit/s */
+  float tick_per_ns = (float)fd_tempo_tick_per_ns( NULL );
+  float burst_tau   = (tick_per_ns*burst_avg)*(8e9f/burst_bw); /* Avg time btw bursts in tick (8 b/B, 1e9 ns/s, bw in b/s) */
   if( FD_UNLIKELY( !(burst_tau<2.1e17f) ) ) FD_LOG_ERR(( "--pkt-bw out of range" ));
 
   FD_LOG_NOTICE(( "Creating rng --seed %u", seed ));
@@ -189,13 +190,18 @@ main( int     argc,
 
   ulong cr_avail = 0UL;
 
-  FD_LOG_NOTICE(( "Running --tx-idx %lu --init %lu (%s) --lazy %i", tx_idx, seq, _init ? "manual" : "auto", lazy ));
+  lazy = fd_tempo_lazy_default( depth );
+  FD_LOG_NOTICE(( "Running --tx-idx %lu --init %lu (%s) --lazy %li ns", tx_idx, seq, _init ? "manual" : "auto", lazy ));
 
-  ulong async_min = 1UL << lazy;
-  ulong async_rem = 1UL; /* Do housekeeping on the first iteration */
+  ulong async_min = fd_tempo_async_min( lazy, 1UL /*event_cnt*/, tick_per_ns );
+  if( FD_UNLIKELY( !async_min ) ) FD_LOG_ERR(( "bad lazy" ));
 
-  long  then = fd_log_wallclock();
-  ulong iter = 0UL;
+  long  now  = fd_tickcount();
+  long  then = now;            /* Do housekeeping on first iteration of run loop */
+
+  long  diag_interval = (long)(1e9f*tick_per_ns);
+  long  diag_last     = now;
+  ulong diag_iter     = 0UL;
 
   int   ctl_som    = 1;
   ulong burst_ts   = 0UL; /* Irrelevant value at init */
@@ -209,19 +215,19 @@ main( int     argc,
   fd_cnc_signal( cnc, FD_CNC_SIGNAL_RUN );
   for(;;) {
 
-    /* Do housekeeping in the background */
-    if( FD_UNLIKELY( !async_rem ) ) {
+    /* Do housekeeping at a low rate in the background */
+
+    if( FD_UNLIKELY( (now-then)>=0L ) ) {
 
       /* Send synchronization info */
       fd_mcache_seq_update( sync, seq );
 
       /* Send diagnostic info */
-      long now = fd_log_wallclock();
       fd_cnc_heartbeat( cnc, now );
 
-      long dt = now - then;
-      if( FD_UNLIKELY( dt > (long)1e9 ) ) {
-        float mfps = (1e3f*(float)iter) / (float)dt;
+      long dt = now - diag_last;
+      if( FD_UNLIKELY( dt>=diag_interval ) ) {
+        float mfps = ((1e3f*tick_per_ns)*(float)diag_iter) / (float)dt;
         FD_LOG_NOTICE(( "%7.3f Mfrag/s tx (in_backp %lu backp_cnt %lu)", (double)mfps,
                         FD_VOLATILE_CONST( cnc_diag[ FD_CNC_DIAG_IN_BACKP  ] ),
                         FD_VOLATILE_CONST( cnc_diag[ FD_CNC_DIAG_BACKP_CNT ] ) ));
@@ -231,8 +237,8 @@ main( int     argc,
           FD_VOLATILE( *slow ) = 0UL;
         }
         FD_VOLATILE( cnc_diag[ FD_CNC_DIAG_BACKP_CNT ] ) = 0UL;
-        then = now;
-        iter = 0UL;
+        diag_last = now;
+        diag_iter = 0UL;
       }
 
       /* Receive command-and-control signals */
@@ -254,9 +260,8 @@ main( int     argc,
       }
 
       /* Reload housekeeping timer */
-      async_rem = fd_tempo_async_reload( rng, async_min );
+      then = now + (long)fd_tempo_async_reload( rng, async_min );
     }
-    async_rem--;
 
     /* Check if we are backpressured */
     if( FD_UNLIKELY( !cr_avail ) ) {
@@ -266,19 +271,21 @@ main( int     argc,
         in_backp = 1;
       }
       FD_SPIN_PAUSE();
+      now = fd_tickcount();
       continue;
     }
 
     /* Check if we are waiting for the next burst to start */
 
     if( FD_LIKELY( ctl_som ) ) {
-      if( FD_UNLIKELY( fd_log_wallclock()<burst_next ) ) { /* Opt for start */
-        FD_SPIN_PAUSE(); /* Debatable given fd_log_wallclock overhead */
+      if( FD_UNLIKELY( now<burst_next ) ) { /* Opt for start */
+        FD_SPIN_PAUSE();
+        now = fd_tickcount();
         continue;
       }
       /* We just "started receiving" the first bytes of the next burst
          from the "NIC".  Record the timestamp. */
-      burst_ts = fd_frag_meta_ts_comp( fd_tickcount() );
+      burst_ts = fd_frag_meta_ts_comp( burst_next );
     }
 
     /* We are in the process of "receiving" a fragment from the NIC.
@@ -322,7 +329,8 @@ main( int     argc,
        the "NIC".  Publish to consumers as frag seq.  This implicitly
        unpublishes frag seq-depth (cyclic) at the same time. */
 
-    ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
+    now = fd_tickcount();
+    ulong tspub = fd_frag_meta_ts_comp( now );
 
 #   define PUBLISH_STYLE 0
 
@@ -346,7 +354,6 @@ main( int     argc,
     chunk = fd_dcache_compact_next( chunk, sz, chunk0, wmark );
     seq   = fd_seq_inc( seq, 1UL );
     cr_avail--;
-    iter++;
     if( FD_UNLIKELY( !ctl_eom ) ) ctl_som = 0;
     else {
       ctl_som = 1;
@@ -355,6 +362,7 @@ main( int     argc,
         burst_rem   = (ulong)(long)(0.5f + burst_avg*fd_rng_float_exp( rng ));
       } while( FD_UNLIKELY( !burst_rem ) );
     }
+    diag_iter++;
   }
 
   FD_LOG_NOTICE(( "Cleaning up" ));
