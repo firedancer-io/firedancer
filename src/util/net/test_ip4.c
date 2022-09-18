@@ -24,34 +24,30 @@ main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
 
-# define TEST(c) do if( !(c) ) { FD_LOG_WARNING(( "FAIL: " #c )); return 1; } while(0)
+  FD_TEST( (ulong)( &(((fd_ip4_hdr_t *)NULL)->tos         ) )== 1UL );
+  FD_TEST( (ulong)( &(((fd_ip4_hdr_t *)NULL)->net_tot_len ) )== 2UL );
+  FD_TEST( (ulong)( &(((fd_ip4_hdr_t *)NULL)->net_id      ) )== 4UL );
+  FD_TEST( (ulong)( &(((fd_ip4_hdr_t *)NULL)->net_frag_off) )== 6UL );
+  FD_TEST( (ulong)( &(((fd_ip4_hdr_t *)NULL)->ttl         ) )== 8UL );
+  FD_TEST( (ulong)( &(((fd_ip4_hdr_t *)NULL)->protocol    ) )== 9UL );
+  FD_TEST( (ulong)( &(((fd_ip4_hdr_t *)NULL)->check       ) )==10UL );
+  FD_TEST( (ulong)( &(((fd_ip4_hdr_t *)NULL)->saddr       ) )==12UL );
+  FD_TEST( (ulong)( &(((fd_ip4_hdr_t *)NULL)->daddr       ) )==16UL );
+  FD_TEST( (ulong)(  (((fd_ip4_hdr_t *)NULL)->u           ) )== 0UL );
 
-  TEST( (ulong)( &(((fd_ip4_hdr_t *)NULL)->tos         ) )== 1UL );
-  TEST( (ulong)( &(((fd_ip4_hdr_t *)NULL)->net_tot_len ) )== 2UL );
-  TEST( (ulong)( &(((fd_ip4_hdr_t *)NULL)->net_id      ) )== 4UL );
-  TEST( (ulong)( &(((fd_ip4_hdr_t *)NULL)->net_frag_off) )== 6UL );
-  TEST( (ulong)( &(((fd_ip4_hdr_t *)NULL)->ttl         ) )== 8UL );
-  TEST( (ulong)( &(((fd_ip4_hdr_t *)NULL)->protocol    ) )== 9UL );
-  TEST( (ulong)( &(((fd_ip4_hdr_t *)NULL)->check       ) )==10UL );
-  TEST( (ulong)( &(((fd_ip4_hdr_t *)NULL)->saddr       ) )==12UL );
-  TEST( (ulong)( &(((fd_ip4_hdr_t *)NULL)->daddr       ) )==16UL );
-  TEST( (ulong)(  (((fd_ip4_hdr_t *)NULL)->u           ) )== 0UL );
-
-  uint ip4_addr_ucast = FD_IP4_ADDR(  1,  2,  3,  4); TEST( ip4_addr_ucast==0x04030201U );
-  uint ip4_addr_mcast = FD_IP4_ADDR(239, 17, 34, 51); TEST( ip4_addr_mcast==0x332211efU );
-  uint ip4_addr_bcast = FD_IP4_ADDR(255,255,255,255); TEST( ip4_addr_bcast==0xffffffffU );
+  uint ip4_addr_ucast = FD_IP4_ADDR(  1,  2,  3,  4); FD_TEST( ip4_addr_ucast==0x04030201U );
+  uint ip4_addr_mcast = FD_IP4_ADDR(239, 17, 34, 51); FD_TEST( ip4_addr_mcast==0x332211efU );
+  uint ip4_addr_bcast = FD_IP4_ADDR(255,255,255,255); FD_TEST( ip4_addr_bcast==0xffffffffU );
 
   FD_LOG_NOTICE(( "Test ip4 addr fmt: " FD_IP4_ADDR_FMT, FD_IP4_ADDR_FMT_ARGS( ip4_addr_ucast ) ));
 
-  TEST( !fd_ip4_addr_is_mcast( ip4_addr_ucast ) ); TEST( !fd_ip4_addr_is_bcast( ip4_addr_ucast ) );
-  TEST(  fd_ip4_addr_is_mcast( ip4_addr_mcast ) ); TEST( !fd_ip4_addr_is_bcast( ip4_addr_mcast ) );
-  TEST( !fd_ip4_addr_is_mcast( ip4_addr_bcast ) ); TEST(  fd_ip4_addr_is_bcast( ip4_addr_bcast ) );
+  FD_TEST( !fd_ip4_addr_is_mcast( ip4_addr_ucast ) ); FD_TEST( !fd_ip4_addr_is_bcast( ip4_addr_ucast ) );
+  FD_TEST(  fd_ip4_addr_is_mcast( ip4_addr_mcast ) ); FD_TEST( !fd_ip4_addr_is_bcast( ip4_addr_mcast ) );
+  FD_TEST( !fd_ip4_addr_is_mcast( ip4_addr_bcast ) ); FD_TEST(  fd_ip4_addr_is_bcast( ip4_addr_bcast ) );
 
   /* FIXME: TEST FD_IP4_HDR_NET_FRAG_OFF_IS_UNFRAGMENTED */ 
   /* FIXME: TEST FD_IP4_HDR_CHECK */
   /* FIXME: TEST FD_IP4_HDR_CHECK_FAST */
-
-# undef TEST
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

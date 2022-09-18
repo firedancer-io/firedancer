@@ -13,8 +13,6 @@ main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
 
-# define TEST(c) do if( !(c) ) { FD_LOG_WARNING(( "FAIL: " #c )); return 1; } while(0)
-
   char const * in_path  = fd_env_strip_cmdline_cstr ( &argc, &argv, "--in",  NULL, NULL );
   char const * out_path = fd_env_strip_cmdline_cstr ( &argc, &argv, "--out", NULL, NULL );
   ulong        out_rem  = fd_env_strip_cmdline_ulong( &argc, &argv, "--max", NULL, 10UL );
@@ -34,16 +32,16 @@ main( int     argc,
     FD_LOG_NOTICE(( "Streaming up to --max %lu packets to --out %s", out_rem, out_path ));
     stream_out = fopen( out_path, "w" );
     if( FD_UNLIKELY( !stream_out ) ) FD_LOG_ERR(( "fopen failed" ));
-    TEST( fd_pcap_fwrite_hdr( stream_out )==1UL );
+    FD_TEST( fd_pcap_fwrite_hdr( stream_out )==1UL );
   } else {
     FD_LOG_NOTICE(( "--out not specified and/or --max is zero; not streaming out" ));
     stream_out = NULL;
     out_rem    = 0UL;
   }
 
-  fd_pcap_iter_t * iter = fd_pcap_iter_new( stream_in ); TEST( iter );
+  fd_pcap_iter_t * iter = fd_pcap_iter_new( stream_in ); FD_TEST( iter );
 
-  TEST( fd_pcap_iter_file( iter )==stream_in );
+  FD_TEST( fd_pcap_iter_file( iter )==stream_in );
 
   FD_LOG_NOTICE(( "Cooked pcap: %s", fd_pcap_iter_type( iter )==FD_PCAP_ITER_TYPE_COOKED ? "yes" : "no" ));
 
@@ -55,12 +53,12 @@ main( int     argc,
     if( FD_UNLIKELY( !sz ) ) break;
   //FD_LOG_NOTICE(( "sz %4lu ts %20li 0000: " FD_LOG_HEX16_FMT, sz, ts, FD_LOG_HEX16_FMT_ARGS( pkt ) ));
     if( FD_UNLIKELY( sz<64UL ) ) {
-      FD_LOG_WARNING(( "pcap appears to contain a runt frame (%lu); skipping",sz ));
+      FD_LOG_WARNING(( "pcap appears to contain a runt frame (%lu); skipping", sz ));
       continue;
     }
     if( out_rem ) {
       uint fcs = *(uint *)(pkt+sz-4UL); /* Assumes fcs in capture */
-      TEST( fd_pcap_fwrite_pkt( ts, NULL, 0UL, pkt, sz-4UL, fcs, stream_out )==1UL );
+      FD_TEST( fd_pcap_fwrite_pkt( ts, NULL, 0UL, pkt, sz-4UL, fcs, stream_out )==1UL );
       out_rem--;
     }
     cnt++;
@@ -68,12 +66,10 @@ main( int     argc,
 
   FD_LOG_NOTICE(( "%lu packets in pcap", cnt ));
 
-  TEST( fd_pcap_iter_delete( iter )==stream_in );
+  FD_TEST( fd_pcap_iter_delete( iter )==stream_in );
 
   if( stream_out && FD_UNLIKELY( fclose( stream_out ) ) ) FD_LOG_ERR(( "fclose failed" ));
   if( in_path    && FD_UNLIKELY( fclose( stream_in  ) ) ) FD_LOG_ERR(( "fclose failed" ));
-
-# undef TEST
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
