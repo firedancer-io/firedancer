@@ -15,7 +15,7 @@ main( int     argc,
 
   ulong max = fd_env_strip_cmdline_ulong( &argc, &argv, "--max", NULL, 12345UL );
   if( FD_UNLIKELY( max<2UL ) ) {
-    FD_LOG_WARNING(( "SKIP: --max must be at least 2 for this test" ));
+    FD_LOG_WARNING(( "skip: --max must be at least 2 for this test" ));
     return 0;
   }
   FD_LOG_NOTICE(( "Using --max %lu", max ));
@@ -25,7 +25,7 @@ main( int     argc,
   ulong align     = set_align();
   ulong footprint = set_footprint( max );
   if( FD_UNLIKELY( (9UL*(footprint+align-1UL)) > 16384UL ) ) {
-    FD_LOG_WARNING(( "SKIP: increase scratch space size for this --max" ));
+    FD_LOG_WARNING(( "skip: increase scratch space size for this --max" ));
     return 0;
   }
 
@@ -316,10 +316,10 @@ main( int     argc,
   set_delete( set_leave( f0   ) );
   set_delete( set_leave( null ) );
 
-  FD_LOG_NOTICE(( "pass" ));
-
   fd_scratch_pop();
   fd_scratch_detach( NULL );
+
+  FD_LOG_NOTICE(( "pass" ));
   fd_halt();
   return 0;
 }

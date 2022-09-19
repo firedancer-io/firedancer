@@ -50,7 +50,7 @@ main( int     argc,
   pair_t ref[511];
   pair_t tst[511];
   ulong max = (1UL<<LG_SLOT_CNT) - 1UL; /* Take map right to its algorithmic limit */
-  if( FD_UNLIKELY( max>511UL ) ) { FD_LOG_WARNING(( "SKIP: adjust ref and tst to support this test" )); return 0; }
+  if( FD_UNLIKELY( max>511UL ) ) { FD_LOG_WARNING(( "skip: adjust ref and tst to support this test" )); return 0; }
   for( ulong idx=0UL; idx<max; idx++ ) {
     ref[idx].mykey  = ((fd_rng_ulong( rng ) | 1UL) << 8) | idx; /* Every map key is unique and non-zero */
 #   if MEMOIZE

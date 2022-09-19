@@ -47,7 +47,7 @@ main( int     argc,
 
   ulong max = fd_env_strip_cmdline_ulong( &argc, &argv, "--max", NULL, 16384UL );
   if( FD_UNLIKELY( !((FD_POD_FOOTPRINT_MIN<=max) & (max<=16384UL)) ) ) {
-    FD_LOG_WARNING(( "SKIP: invalid --max %lu for current unit test", max ));
+    FD_LOG_WARNING(( "skip: invalid --max %lu for current unit test", max ));
     return 0;
   }
 

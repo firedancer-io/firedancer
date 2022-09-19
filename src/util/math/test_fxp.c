@@ -338,8 +338,7 @@ main( int     argc,
       ulong z1 = fd_fxp_##op       ( x ); \
       ulong z2 = fd_fxp_##op##_fast( x ); \
       if( test_fd_fxp_##op( x, z1 ) || ((x<0x400000000UL) && (z1!=z2)) ) { \
-        FD_LOG_ERR(( "FAIL: %i fd_fxp_" #op " x %016lx z1 %016lx z2 %016lx", \
-                     i, x, z1, z2 ));     \
+        FD_LOG_ERR(( "FAIL: %i fd_fxp_" #op " x %016lx z1 %016lx z2 %016lx", i, x, z1, z2 )); \
       }                                   \
     } while(0)
 

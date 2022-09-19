@@ -164,7 +164,7 @@
 
      FD_TEST( broken_func_that_should_return_zero( arg1, arg2 )!=0 );
 
-   would typically cause the program to exist with error code 1, logging
+   would typically cause the program to exit with error code 1, logging
    something like:
 
      ERR     01-23 04:56:07.890123 [45678] src/foo.c(901): FAIL: broken_func_that_should_return_zero( arg1, arg2 )!=0
