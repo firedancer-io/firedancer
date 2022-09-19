@@ -6,7 +6,8 @@ CPPFLAGS+=                 \
   -Wstrict-aliasing=2      \
   -Wimplicit-fallthrough=2 \
   -Wconversion             \
-  -Wdouble-promotion
+  -Wdouble-promotion       \
+  -Wformat-security
 
 CFLAGS+=  -std=c17
 CXXFLAGS+=-std=c++17
@@ -17,5 +18,4 @@ CXXFLAGS+=-std=c++17
 # CPPFLAGS+=-Wsuggest-attribute=const
 # CPPFLAGS+=-Wsuggest-attribute=noreturn
 # CPPFLAGS+=-Wsuggest-attribute=format
-# CPPFLAGS+=-Wformat-security
 
