@@ -31,17 +31,20 @@ main( int     argc,
     ctr--;
 
     char buf[ 128 ];                
-    char   c  = (char )fd_rng_uchar   ( rng ); buf[0] = c; buf[1] = '\0';                               FD_TEST( fd_cstr_to_cstr  ( buf )==buf );
-    /**/                                                                                                FD_TEST( fd_cstr_to_char  ( buf )==c   );
-    schar  sc = (schar)fd_rng_uchar   ( rng ); fd_cstr_printf( buf, 128UL, NULL, "%i",      (int )sc ); FD_TEST( fd_cstr_to_schar ( buf )==sc  );
-    short  s  = (short)fd_rng_ushort  ( rng ); fd_cstr_printf( buf, 128UL, NULL, "%i",      (int )s  ); FD_TEST( fd_cstr_to_short ( buf )==s   );
-    int    i  = (int  )fd_rng_uint    ( rng ); fd_cstr_printf( buf, 128UL, NULL, "%i",            i  ); FD_TEST( fd_cstr_to_int   ( buf )==i   );
-    long   l  = (long )fd_rng_ulong   ( rng ); fd_cstr_printf( buf, 128UL, NULL, "%li",           l  ); FD_TEST( fd_cstr_to_long  ( buf )==l   );
-    uchar  uc =        fd_rng_uchar   ( rng ); fd_cstr_printf( buf, 128UL, NULL, "%u",      (uint)uc ); FD_TEST( fd_cstr_to_uchar ( buf )==uc  );
-    ushort us =        fd_rng_ushort  ( rng ); fd_cstr_printf( buf, 128UL, NULL, "%u",      (uint)us ); FD_TEST( fd_cstr_to_ushort( buf )==us  );
-    uint   ui =        fd_rng_uint    ( rng ); fd_cstr_printf( buf, 128UL, NULL, "%u",            ui ); FD_TEST( fd_cstr_to_uint  ( buf )==ui  );
-    ulong  ul =        fd_rng_ulong   ( rng ); fd_cstr_printf( buf, 128UL, NULL, "%lu",           ul ); FD_TEST( fd_cstr_to_ulong ( buf )==ul  );
-    float  f  =        fd_rng_float_c0( rng ); fd_cstr_printf( buf, 128UL, NULL, "%.21e", (double)f  ); FD_TEST( fd_cstr_to_float ( buf )==f   );
+    char   c  = (char )fd_rng_uchar    ( rng ); buf[0] = c; buf[1] = '\0';                               FD_TEST( fd_cstr_to_cstr  ( buf )==buf );
+    /**/                                                                                                 FD_TEST( fd_cstr_to_char  ( buf )==c   );
+    schar  sc = (schar)fd_rng_uchar    ( rng ); fd_cstr_printf( buf, 128UL, NULL, "%i",      (int )sc ); FD_TEST( fd_cstr_to_schar ( buf )==sc  );
+    short  s  = (short)fd_rng_ushort   ( rng ); fd_cstr_printf( buf, 128UL, NULL, "%i",      (int )s  ); FD_TEST( fd_cstr_to_short ( buf )==s   );
+    int    i  = (int  )fd_rng_uint     ( rng ); fd_cstr_printf( buf, 128UL, NULL, "%i",            i  ); FD_TEST( fd_cstr_to_int   ( buf )==i   );
+    long   l  = (long )fd_rng_ulong    ( rng ); fd_cstr_printf( buf, 128UL, NULL, "%li",           l  ); FD_TEST( fd_cstr_to_long  ( buf )==l   );
+    uchar  uc =        fd_rng_uchar    ( rng ); fd_cstr_printf( buf, 128UL, NULL, "%u",      (uint)uc ); FD_TEST( fd_cstr_to_uchar ( buf )==uc  );
+    ushort us =        fd_rng_ushort   ( rng ); fd_cstr_printf( buf, 128UL, NULL, "%u",      (uint)us ); FD_TEST( fd_cstr_to_ushort( buf )==us  );
+    uint   ui =        fd_rng_uint     ( rng ); fd_cstr_printf( buf, 128UL, NULL, "%u",            ui ); FD_TEST( fd_cstr_to_uint  ( buf )==ui  );
+    ulong  ul =        fd_rng_ulong    ( rng ); fd_cstr_printf( buf, 128UL, NULL, "%lu",           ul ); FD_TEST( fd_cstr_to_ulong ( buf )==ul  );
+    float  f  =        fd_rng_float_c0 ( rng ); fd_cstr_printf( buf, 128UL, NULL, "%.21e", (double)f  ); FD_TEST( fd_cstr_to_float ( buf )==f   );
+#   if FD_HAS_DOUBLE
+    double d  =        fd_rng_double_c0( rng ); fd_cstr_printf( buf, 128UL, NULL, "%.21e",         d  ); FD_TEST( fd_cstr_to_double( buf )==d   );
+#   endif
   }
 
   char const * text = "The quick brown fox jumps over the lazy dog.";
