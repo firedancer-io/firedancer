@@ -39,7 +39,9 @@ install_deps () {
   sudo yum install                \
     numactl-devel                 \
     jump_module_gcc-9.3.0         \
-    jump_module_java-cacerts-jump
+    jump_module_clang-14.0        \
+    jump_module_java-cacerts-jump \
+    jump_module_buildifier-4.2.0
   set -e
 }
 
@@ -77,6 +79,9 @@ fi
 
 module purge
 module load gcc-9.3.0
+module load clang-14.0
 module load java-cacerts-jump
+module load buildifier-4.2.0
+module load Python-3.9
 module list
 
