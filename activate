@@ -41,7 +41,8 @@ install_deps () {
     jump_module_gcc-9.3.0         \
     jump_module_clang-14.0        \
     jump_module_java-cacerts-jump \
-    jump_module_buildifier-4.2.0
+    jump_module_buildifier-4.2.0  \
+    jump_module_python39_importlib-metadata-4.12.0
   set -e
 }
 

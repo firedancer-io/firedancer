@@ -1,0 +1,7 @@
+# Build with libFuzzer and address sanitizer
+build:asan-libfuzzer --action_env=CC=clang
+build:asan-libfuzzer --action_env=CXX=clang++
+build:asan-libfuzzer --//bazel:compiler-id=clang
+build:asan-libfuzzer --@rules_fuzzing//fuzzing:cc_engine=@rules_fuzzing//fuzzing/engines:libfuzzer
+build:asan-libfuzzer --@rules_fuzzing//fuzzing:cc_engine_instrumentation=libfuzzer
+build:asan-libfuzzer --@rules_fuzzing//fuzzing:cc_engine_sanitizer=asan

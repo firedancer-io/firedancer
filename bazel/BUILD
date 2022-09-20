@@ -1,4 +1,4 @@
-load("@bazel_skylib//rules:common_settings.bzl", "bool_flag")
+load("@bazel_skylib//rules:common_settings.bzl", "bool_flag", "string_flag")
 load("//bazel:fd_build_system.bzl", "fd_package")
 
 fd_package()
@@ -59,6 +59,13 @@ config_setting(
     },
 )
 
+config_setting(
+    name = "clang",
+    flag_values = {
+        "compiler-id": "clang",
+    }
+)
+
 # --------------------------------
 # Flags
 # --------------------------------
@@ -66,4 +73,9 @@ config_setting(
 bool_flag(
     name = "threads",
     build_setting_default = True,
+)
+
+string_flag(
+    name = "compiler-id",
+    build_setting_default = "gcc",
 )

@@ -24,10 +24,3 @@ def fd_cc_test(
         args = args,
         env = env,
     )
-
-def fd_cc_module_test_macro(deps = []):
-    def rule(**kwargs):
-        kwargs["deps"] = deps + kwargs.get("deps", [])
-        return fd_cc_test(**kwargs)
-
-    return rule

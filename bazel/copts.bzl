@@ -88,7 +88,10 @@ darwin_cppflags = [
 
 # C/C++ flags
 def fd_copts():
-    return select({
+    return [
+        "-Wno-misleading-indentation",
+        "-Wno-ignored-attributes",
+    ] + select({
         "//bazel:dbg_build": debug_cppflags,
         "//bazel:opt_build": optimization_cppflags,
         "//conditions:default": [],
