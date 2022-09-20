@@ -1,4 +1,4 @@
-load("//bazel:fd_build_system.bzl", "fd_cc_binary", "fd_cc_library", "fd_cc_test")
+load("//bazel:fd_build_system.bzl", "fd_cc_binary", "fd_cc_fuzz_test", "fd_cc_library", "fd_cc_test")
 
 package(default_visibility = ["//src/util:__subpackages__"])
 
@@ -46,7 +46,11 @@ fd_cc_binary(
 )
 
 fd_cc_test(
-    size = "small",
     srcs = ["test_udp.c"],
+    deps = ["//src/util"],
+)
+
+fd_cc_fuzz_test(
+    srcs = ["fuzz_pcap.c"],
     deps = ["//src/util"],
 )
