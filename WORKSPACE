@@ -13,15 +13,6 @@ http_archive(
     ],
 )
 
-# GCC toolchain
-http_archive(
-    name = "aspect_gcc",
-    sha256 = "3341394b1376fb96a87ac3ca01c582f7f18e7dc5e16e8cf40880a31dd7ac0e1e",
-    urls = [
-        "https://github.com/aspect-build/gcc-toolchain/archive/refs/tags/0.4.2.tar.gz",
-    ],
-)
-
 # Bazel dependency loads
 load("@bazel_skylib//:workspace.bzl", "bazel_skylib_workspace")
 
