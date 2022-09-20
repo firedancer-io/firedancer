@@ -1,24 +1,49 @@
 #!/bin/sh
 
+set -eu
+
 # Note that this script is used by internally at Jump to configure the
 # development environment on a host.  For non-Jump hosts, this
 # implicitly documents the external required dependencies.
 #
-# In short, very little.
 # Requires a standard modern Linux install (usually use RHEL8.3
 # internally but are not too dependent on choice of distribution),
 # usually compiled with gcc-9.3.0 (but are not be too dependent on
 # choice or version of compiler) and need the numactl-devel package
 # installed.
-# Also installs the Bazel compiler.
+# Also installs the Bazel compiler and config.
 
-if [ $# -gt 0 ] && [ "$1" = "install" ]; then
+install_bazelisk () {
+  # https://github.com/bazelbuild/bazelisk/releases
+  bazelisk_version="v1.14.0"
+  bazelisk_sha256sum="84e946ed8537eaaa4d540df338a593e373e70c5ddca9f2f49e1aaf3a04bdd6ca"
+
+  # Download from GitHub.
+  echo "Installing baselisk $bazelisk_version"
+  curl -sSfL -o "/tmp/.bazelisk.untrusted" \
+    "https://github.com/bazelbuild/bazelisk/releases/download/$bazelisk_version/bazelisk-linux-amd64"
+  # Enforce checksum.
+  echo "$bazelisk_sha256sum  /tmp/.bazelisk.untrusted" | sha256sum --check
+  # Install to home bin dir.
+  mkdir -p ~/bin
+  mv "/tmp/.bazelisk.untrusted" ~/bin/bazel
+  chmod +x ~/bin/bazel
+
+  echo "Installed bazelisk!"
+  echo "Make sure you have $HOME/bin in your path."
+}
+
+install_deps () {
+  set +e
   # Install Packages needed for dev hosts
   sudo yum install                \
     numactl-devel                 \
     jump_module_gcc-9.3.0         \
     jump_module_java-cacerts-jump
+  set -e
+}
 
+install_bazelrc () {
   # Install Bazel config.
   # The home .bazelrc file is special because it gets
   # automatically loaded on startup.
@@ -42,6 +67,12 @@ EOF
 startup --host_jvm_args="-Djavax.net.ssl.trustStore=/jump/software/rhel8/java-cacerts-jump/cacerts"
 build --java_runtime_version=remotejdk_11
 EOF
+}
+
+if [ $# -gt 0 ] && [ "$1" = "install" ]; then
+  install_deps
+  install_bazelisk
+  install_bazelrc
 fi
 
 module purge
