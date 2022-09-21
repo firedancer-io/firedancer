@@ -1,0 +1,3 @@
+[submodule "labs/solana"]
+	path = labs/solana
+	url = https://github.com/solana-labs/solana
