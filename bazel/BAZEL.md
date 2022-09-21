@@ -138,6 +138,18 @@ bazel build //src/...
 bazel build //src/tango:fd_tango_ctl
 ```
 
+### Running tests
+
+Syntax: `bazel test [flags] [targets]`
+
+```shell
+# Run all tests
+bazel test //src/...
+
+# Run only small tests
+bazel test //src/... --test_size_filters=small
+```
+
 ### Useful flags
 
 | Flag                       | Description                       |
@@ -168,3 +180,91 @@ Targets any CPU with 64-bit addressing and floating math support.
 
 Like `rh8_noarch64`, with support for 128-bit integers
 (most commonly found in SIMD unit).
+
+## Developing
+
+### Writing tests (hermetic)
+
+Hermetic/unit tests are invoked using `bazel test`.
+
+They are fully configured in build files and typically don't depend on external services.
+It is expected they execute somewhat deterministically and must have a bounded duration.
+
+Bazel docs:
+- https://bazel.build/reference/test-encyclopedia
+- https://bazel.build/reference/be/c-cpp#cc_test
+
+```python
+fd_cc_test(
+    srcs = ["test_dcache.c"],
+    deps = ["//src/tango"],
+    size = "small",
+)
+```
+
+If `name` is ommitted for sake of brevity, the implied target name
+is the base part of the first source file name, e.g. `test_dcache`.
+
+Use the `manual` tag to exclude a test from wildcard targets
+if special preparation is required. (e.g. elevated privileges needed).
+
+```python
+# requires privileges
+fd_cc_test(
+    srcs = ["test_shmem.c"],
+    deps = ["//src/util"],
+    tags = ["manual"],
+)
+```
+
+Don't use tags to exclude large tests. Rather, set `size = "large"`
+and use the `bazel test --test_size_filter` flag to exclude it.
+
+Bazel will cache test results and invalidate them if Bazel config or test files change.
+
+Although discouraged, sometimes tests depend on an external service.
+Changes in an out-of-bazel component won't magically invalidate cache,
+therefore the cache needs to be disabled.
+This can be done using the `external` tag.
+
+```python
+fd_cc_test(
+    src = ["test_solana_network_health.cxx"],
+    deps = ["//src/p2p"],
+    tags = ["external"],
+)
+```
+
+### Writing tests (custom)
+
+Tests that accept custom input are invoked using `bazel run`.
+
+```python
+fd_cc_binary(
+    name = "test_pcap",
+    srcs = ["test_pcap.c"],
+    deps = ["//src/util"],
+)
+```
+
+Even if a test program already has a `fd_cc_test` target,
+it might be useful to define a `fd_cc_binary` target too.
+Make sure both targets have different names though.
+
+**Example**
+
+```
+bazel run //src/util/net:test_pcap -- --in my.pcap
+```
+
+### Writing fuzz targets
+
+Fuzz targets are modeled as specializations of unit tests.
+
+An example libFuzzer target can be found at `./src/util/net/fuzz_pcap.c`
+
+Bazel docs:
+- https://github.com/bazelbuild/rules_fuzzing/blob/master/README.md
+- https://github.com/bazelbuild/rules_fuzzing/blob/master/docs/guide.md
+- https://github.com/bazelbuild/rules_fuzzing/blob/master/docs/cc-fuzzing-rules.md
+- https://github.com/bazelbuild/rules_fuzzing/tree/master/examples
