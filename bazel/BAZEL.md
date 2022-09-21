@@ -55,13 +55,13 @@ For the local source tree (workspace), the package path starts with `//`.
 
 ```shell
 # match everything in the util math package
-bazelisk build //src/util/math/...
+bazel build //src/util/math/...
 # match a specific target
-bazelisk build //src/util/math:test_sqrt
+bazel build //src/util/math:test_sqrt
 # match the default target
-bazelisk build //src/util/math
+bazel build //src/util/math
 # equal to
-bazelisk build //src/util/math:math
+bazel build //src/util/math:math
 ```
 
 External repositories are also supported (tarball from HTTP, Git repo, etc).
@@ -117,3 +117,54 @@ To quickly format everything, run buildifier recursively on the current workspac
 ```shell
 buildifier -r .
 ```
+
+## Usage
+
+### Building
+
+Syntax: `bazel build [flags] [targets]`
+
+Build artifacts are written to `bazel-bin`.
+
+**Example: Build everything**
+
+```
+bazel build //src/...
+```
+
+**Example: Build specific target**
+
+```
+bazel build //src/tango:fd_tango_ctl
+```
+
+### Useful flags
+
+| Flag                       | Description                       |
+|----------------------------|-----------------------------------|
+| `--config=asan-libfuzzer`  | Set `.bazelrc` profile            |
+| `-c dbg`                   | Debug build                       |
+| `-c opt`                   | Optimized build                   |
+| `-c opt --//:dbg`          | Optimized build with debug syms   |
+| `--platform=//:rh8_x86_64` | Set target platform               |
+| `--//:brutality=1`         | Enable extra compiler checks      |
+| `--//:brutality=2`         | Enable a lot more compiler checks |
+| `--//:threads=false`       | Disable multi-threading support   |
+| `--//:hosted=false`        | Disable hosted build environment  |
+
+### Platforms
+
+#### `rh8_x86_64`
+
+Targets an Icelake-era CPU with NUMA support on RHEL 8.
+
+Requires SSE2 and AVX.
+
+#### `rh8_noarch64`
+
+Targets any CPU with 64-bit addressing and floating math support.
+
+#### `rh8_noarch128`
+
+Like `rh8_noarch64`, with support for 128-bit integers
+(most commonly found in SIMD unit).

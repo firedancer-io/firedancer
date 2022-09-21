@@ -11,8 +11,8 @@ fd_cc_library(
         "fd_tile.h",
     ],
     textual_hdrs = select({
-        "//bazel:nothreads": ["fd_tile_nothreads.cxx"],
-        "//conditions:default": ["fd_tile_threads.cxx"],
+        "//src:has_threads": ["fd_tile_threads.cxx"],
+        "//conditions:default": ["fd_tile_nothreads.cxx"],
     }),
     deps = [
         "//src/util/shmem",
