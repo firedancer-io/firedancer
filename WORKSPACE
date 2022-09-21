@@ -54,3 +54,15 @@ rust_register_toolchains(
     edition = "2021",
     version = "1.63.0",
 )
+
+# Import cargo-raze generated crate targets.
+load("//labs/cargo:crates.bzl", "raze_fetch_remote_crates")
+
+raze_fetch_remote_crates()
+
+# Define Solana as source-only repository.
+new_local_repository(
+    name = "solana",
+    build_file = "./third_party/solana.BUILD",
+    path = "./third_party/solana",
+)

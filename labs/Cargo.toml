@@ -1,0 +1,41 @@
+[workspace]
+members = [
+    "clap-utils",
+    "cli-config",
+    "core",
+    "download-utils",
+    "entry",
+    "faucet",
+    "genesis",
+    "genesis-utils",
+    "gossip",
+    "ledger",
+    "logger",
+    "merkle-tree",
+    "metrics",
+    "net-utils",
+    "perf",
+    "poh",
+    "rpc",
+    "rpc-client",
+    "rpc-client-api",
+    "runtime",
+    "sdk",
+    "send-transaction-service",
+    "storage-bigtable",
+    "streamer",
+    "tpu-client",
+    "validator",
+    "version",
+]
+
+[workspace.metadata.raze]
+workspace_path = "//labs/cargo"
+targets = [
+    "x86_64-unknown-linux-gnu",
+]
+genmode = "Remote"
+render_package_aliases = true
+
+[workspace.metadata.raze.crates.tiny-bip39.'0.8.2']
+compile_data_attr = 'glob(["src/langs/*.txt"])'
