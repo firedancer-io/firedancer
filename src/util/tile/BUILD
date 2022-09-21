@@ -22,4 +22,5 @@ fd_cc_library(
 fd_cc_test(
     srcs = ["test_tile.c"],
     deps = ["//src/util"],
+    size = "small",
 )

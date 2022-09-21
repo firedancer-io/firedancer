@@ -17,19 +17,23 @@ fd_cc_library(
 fd_cc_test(
     srcs = ["test_bits.c"],
     deps = ["//src/util"],
+    size = "medium",
 )
 
 fd_cc_test(
     srcs = ["test_float.c"],
     deps = ["//src/util"],
+    size = "small",
 )
 
 fd_cc_test(
     srcs = ["test_hash.c"],
     deps = ["//src/util"],
+    size = "large",
 )
 
 fd_cc_test(
     srcs = ["test_uwide.c"],
     deps = ["//src/util"],
+    size = "medium",
 )

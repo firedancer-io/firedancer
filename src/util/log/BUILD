@@ -1,4 +1,4 @@
-load("//bazel:fd_build_system.bzl", "fd_cc_library", "fd_cc_test")
+load("//bazel:fd_build_system.bzl", "fd_cc_binary", "fd_cc_library")
 
 package(default_visibility = ["//src/util:__subpackages__"])
 
@@ -20,7 +20,9 @@ fd_cc_library(
     ],
 )
 
-fd_cc_test(
+# has exit code 1, so shouldn't be an fd_cc_test
+fd_cc_binary(
+    name = "test_log",
     srcs = ["test_log.c"],
     deps = ["//src/util"],
 )

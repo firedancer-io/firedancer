@@ -1,4 +1,4 @@
-load("//bazel:fd_build_system.bzl", "fd_cc_binary", "fd_cc_library", "fd_cc_test")
+load("//bazel:fd_build_system.bzl", "fd_cc_binary", "fd_cc_library")
 
 package(default_visibility = ["//src/util:__subpackages__"])
 
@@ -24,7 +24,8 @@ fd_cc_binary(
     deps = ["//src/util"],
 )
 
-fd_cc_test(
+fd_cc_binary(
+    name = "test_wksp",
     srcs = ["test_wksp.c"],
     deps = ["//src/util"],
 )

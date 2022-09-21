@@ -43,9 +43,11 @@ fd_cc_library(
 fd_cc_test(
     srcs = ["test_util_base.c"],
     deps = ["//src/util"],
+    size = "medium",
 )
 
 fd_cc_test(
     srcs = ["test_util.c"],
     deps = ["//src/util"],
+    size = "small",
 )

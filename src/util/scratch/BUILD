@@ -18,4 +18,5 @@ fd_cc_library(
 fd_cc_test(
     srcs = ["test_scratch.c"],
     deps = ["//src/util"],
+    size = "small",
 )

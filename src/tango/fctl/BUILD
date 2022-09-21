@@ -16,4 +16,5 @@ fd_cc_library(
 fd_cc_test(
     srcs = ["test_fctl.c"],
     deps = ["//src/tango"],
+    size = "small",
 )

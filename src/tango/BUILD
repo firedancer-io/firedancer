@@ -31,26 +31,44 @@ fd_cc_library(
 
 fd_cc_binary(
     name = "fd_tango_ctl",
-    srcs = [
-        "fd_tango_ctl.c",
-    ],
+    srcs = ["fd_tango_ctl.c"],
     visibility = ["//visibility:public"],
-    deps = [
-        ":tango",
-    ],
+    deps = [":tango"],
 )
 
 fd_cc_test(
     srcs = ["test_tango_base.c"],
     deps = ["//src/tango"],
+    size = "medium",
+)
+
+fd_cc_binary(
+    name = "bench_frag_tx",
+    srcs = ["bench_frag_tx.c"],
+    visibility = ["//visibility:public"],
+    deps = [":tango"],
+)
+
+fd_cc_test(
+    srcs = ["test_frag_rx.c"],
+    deps = ["//src/tango"],
+    size = "small",
+)
+
+fd_cc_test(
+    srcs = ["test_frag_tx.c"],
+    deps = ["//src/tango"],
+    size = "small",
 )
 
 fd_cc_test(
     srcs = ["test_meta_rx.c"],
     deps = ["//src/tango"],
+    size = "small",
 )
 
 fd_cc_test(
     srcs = ["test_meta_tx.c"],
     deps = ["//src/tango"],
+    size = "small",
 )
