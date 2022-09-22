@@ -29,6 +29,6 @@ fd_cc_binary(
 # requires privileges
 fd_cc_test(
     srcs = ["test_shmem.c"],
-    deps = ["//src/util"],
     tags = ["manual"],
+    deps = ["//src/util"],
 )

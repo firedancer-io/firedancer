@@ -16,43 +16,43 @@ fd_cc_library(
 )
 
 fd_cc_test(
+    size = "small",
     srcs = ["test_map_dynamic.c"],
     deps = ["//src/util"],
-    size = "small",
 )
 
 fd_cc_test(
+    size = "small",
     srcs = ["test_map.c"],
     deps = ["//src/util"],
-    size = "small",
 )
 
 fd_cc_test(
+    size = "small",
     srcs = ["test_prq.c"],
     deps = ["//src/util"],
-    size = "small",
 )
 
 fd_cc_test(
+    size = "medium",
     srcs = ["test_set_dynamic.c"],
     deps = ["//src/util"],
-    size = "medium",
 )
 
 fd_cc_test(
+    size = "medium",
     srcs = ["test_set.c"],
     deps = ["//src/util"],
-    size = "medium",
 )
 
 fd_cc_test(
+    size = "small",
     srcs = ["test_smallset.c"],
     deps = ["//src/util"],
-    size = "small",
 )
 
 fd_cc_test(
+    size = "medium",
     srcs = ["test_sort.c"],
     deps = ["//src/util"],
-    size = "medium",
 )

@@ -16,7 +16,7 @@ fd_cc_library(
 )
 
 fd_cc_test(
+    size = "large",
     srcs = ["test_rng.c"],
     deps = ["//src/util"],
-    size = "large",
 )

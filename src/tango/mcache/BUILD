@@ -15,7 +15,7 @@ fd_cc_library(
 )
 
 fd_cc_test(
+    size = "medium",
     srcs = ["test_mcache.c"],
     deps = ["//src/tango"],
-    size = "medium",
 )

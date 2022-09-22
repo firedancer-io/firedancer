@@ -16,6 +16,6 @@ fd_cc_library(
 # requires custom tile amount
 fd_cc_test(
     srcs = ["test_cnc.c"],
-    deps = ["//src/tango"],
     tags = ["manual"],
+    deps = ["//src/tango"],
 )

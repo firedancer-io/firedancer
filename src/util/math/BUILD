@@ -19,19 +19,19 @@ fd_cc_library(
 )
 
 fd_cc_test(
+    size = "small",
     srcs = ["test_fxp.c"],
     deps = ["//src/util"],
-    size = "small",
 )
 
 fd_cc_test(
+    size = "medium",
     srcs = ["test_sqrt.c"],
     deps = ["//src/util"],
-    size = "medium",
 )
 
 fd_cc_test(
+    size = "small",
     srcs = ["test_stat.c"],
     deps = ["//src/util"],
-    size = "small",
 )

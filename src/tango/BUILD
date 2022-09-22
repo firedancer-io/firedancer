@@ -37,9 +37,9 @@ fd_cc_binary(
 )
 
 fd_cc_test(
+    size = "medium",
     srcs = ["test_tango_base.c"],
     deps = ["//src/tango"],
-    size = "medium",
 )
 
 fd_cc_binary(
@@ -50,25 +50,25 @@ fd_cc_binary(
 )
 
 fd_cc_test(
+    size = "small",
     srcs = ["test_frag_rx.c"],
     deps = ["//src/tango"],
-    size = "small",
 )
 
 fd_cc_test(
+    size = "small",
     srcs = ["test_frag_tx.c"],
     deps = ["//src/tango"],
-    size = "small",
 )
 
 fd_cc_test(
+    size = "small",
     srcs = ["test_meta_rx.c"],
     deps = ["//src/tango"],
-    size = "small",
 )
 
 fd_cc_test(
+    size = "small",
     srcs = ["test_meta_tx.c"],
     deps = ["//src/tango"],
-    size = "small",
 )

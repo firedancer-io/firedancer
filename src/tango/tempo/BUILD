@@ -18,7 +18,7 @@ fd_cc_library(
 )
 
 fd_cc_test(
+    size = "small",
     srcs = ["test_tempo.c"],
     deps = ["//src/tango"],
-    size = "small",
 )
