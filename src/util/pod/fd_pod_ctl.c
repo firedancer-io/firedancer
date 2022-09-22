@@ -174,16 +174,43 @@ main( int     argc,
         "\t- Compacts the pod.  If full is non-zero, a full compaction is\n\t"
         "\t  done (pod_max=pod_used and the pod header is compacted).\n\t"
         "\n\t"
+        "\tquery-root what pod\n\t"
+        "\t- Query pod.  what determines what will be printed to\n\t"
+        "\t  stdout as a result of the query.\n\t"
+        "\t    test:       0 if pod exists, a negative error code if not\n\t"
+        "\t    max:        max bytes in pod if pod exists, 0 if not\n\t"
+        "\t    used:       used bytes in pod if pod exists, 0 if not\n\t"
+        "\t    avail:      free bytes in pod if pod exists, 0 if not\n\t"
+        "\t    cnt:        number of keys in pod if pod exists, 0 if not\n\t"
+        "\t    recursive:  number of keys (recursively) in pod if pod\n\t"
+        "\t                exists, 0 if not\n\t"
+        "\t    subpod-cnt: number of subpods in pod if pod exists, 0 if\n\t"
+        "\t                not\n\t"
+        "\n\t"
         "\tquery what pod path\n\t"
         "\t- Query pod for path.  what determines what will be printed to\n\t"
         "\t  stdout as a result of the query.\n\t"
-        "\t    test: 0 if pod:path exists\n\t"
-        "\t          a negative error code if not\n\t"
-        "\t    type: type of value at pod:path if it exists,\n\t"
-        "\t          void if not\n\t"
-        "\t    val:  pretty printed value at pod:path if it exists,\n\t"
-        "\t          nothing if not\n\t"
-        "\t    full: pretty printed verbose query\n\t"
+        "\t    test:       0 if pod:path exists\n\t"
+        "\t                a negative error code if not\n\t"
+        "\t    type:       type of value at pod:path if it exists,\n\t"
+        "\t                void if not\n\t"
+        "\t    val:        pretty printed value at pod:path if it\n\t"
+        "\t                exists, void if not\n\t"
+        "\t    max:        max bytes in pod:path if pod:path exists and\n\t"
+        "\t                is a subpod, 0 if not\n\t"
+        "\t    used:       used bytes in pod:path if pod:path exists and\n\t"
+        "\t                is a subpod, 0 if not\n\t"
+        "\t    avail:      free bytes in pod:path if pod:path exists and\n\t"
+        "\t                is a subpod, 0 if not\n\t"
+        "\t    cnt:        number of keys in pod:path if pod:path exists\n\t"
+        "\t                and is a subpod, 0 if not\n\t"
+        "\t    recursive:  number of keys (recursively) in pod:path if\n\t"
+        "\t                pod:path exists and is a subpod, 0 if not\n\t"
+        "\t    subpod-cnt: number of subpods in pod:path if pod:path\n\t"
+        "\t                exists and is a subpod, 0 if not\n\t"
+        "\t    gaddr:      current location of the pod encoded value if\n\t"
+        "\t                pod:path exists, null if not\n\t"
+        "\t    full:       pretty printed verbose query\n\t"
         "\n\t", bin ));
       FD_LOG_NOTICE(( "%i: %s: success", cnt, cmd ));
 
@@ -436,6 +463,37 @@ main( int     argc,
       FD_LOG_NOTICE(( "%i: %s %s %i: success", cnt, cmd, cstr, full ));
       SHIFT(2);
 
+    } else if( !strcmp( cmd, "query-root" ) ) {
+
+      if( FD_UNLIKELY( argc<2 ) ) FD_LOG_ERR(( "%i: %s: too few arguments\n\tDo %s help for help", cnt, cmd, bin ));
+
+      char const * what = argv[0];
+      char const * cstr = argv[1];
+
+      void *  shmem = NULL;
+      uchar * pod   = NULL;
+      int     err   = FD_POD_ERR_INVAL;
+
+      shmem = fd_wksp_map( cstr );
+      if( FD_LIKELY( shmem ) ) {
+        pod = fd_pod_join( shmem );
+        if( FD_LIKELY( pod ) ) err = 0;
+      }
+
+      if(      !strcmp( what, "test"       ) ) printf( "%i\n",  err );
+      else if( !strcmp( what, "max"        ) ) printf( "%lu\n", FD_LIKELY(!err) ? fd_pod_max          ( pod ) : 0UL );
+      else if( !strcmp( what, "used"       ) ) printf( "%lu\n", FD_LIKELY(!err) ? fd_pod_used         ( pod ) : 0UL );
+      else if( !strcmp( what, "avail"      ) ) printf( "%lu\n", FD_LIKELY(!err) ? fd_pod_avail        ( pod ) : 0UL );
+      else if( !strcmp( what, "cnt"        ) ) printf( "%lu\n", FD_LIKELY(!err) ? fd_pod_cnt          ( pod ) : 0UL );
+      else if( !strcmp( what, "recursive"  ) ) printf( "%lu\n", FD_LIKELY(!err) ? fd_pod_cnt_recursive( pod ) : 0UL );
+      else if( !strcmp( what, "subpod-cnt" ) ) printf( "%lu\n", FD_LIKELY(!err) ? fd_pod_cnt_subpod   ( pod ) : 0UL );
+      else                                     FD_LOG_ERR(( "unknown query %s", what ));
+
+      if( FD_LIKELY( pod   ) ) fd_pod_leave( pod );
+      if( FD_LIKELY( shmem ) ) fd_wksp_unmap( shmem );
+      FD_LOG_NOTICE(( "%i: %s %s %s: success", cnt, cmd, what, cstr ));
+      SHIFT(2);
+
     } else if( !strcmp( cmd, "query" ) ) {
 
       if( FD_UNLIKELY( argc<3 ) ) FD_LOG_ERR(( "%i: %s: too few arguments\n\tDo %s help for help", cnt, cmd, bin ));
@@ -449,6 +507,7 @@ main( int     argc,
       int           err   = FD_POD_ERR_INVAL;
       fd_pod_info_t info[1];
       char          type[ FD_POD_VAL_TYPE_CSTR_MAX ];
+      int           is_subpod = 0;
 
       shmem = fd_wksp_map( cstr );
       if( FD_LIKELY( shmem ) ) {
@@ -456,6 +515,7 @@ main( int     argc,
         if( FD_LIKELY( pod ) ) {
           err = fd_pod_query( pod, path, info );
           if( FD_LIKELY( !err ) ) {
+            is_subpod = (info->val_type==FD_POD_VAL_TYPE_SUBPOD);
             if( FD_UNLIKELY( !fd_pod_val_type_to_cstr( info->val_type, type ) ) ) { /* only possible if corruption */
               err = FD_POD_ERR_INVAL;
             }
@@ -463,25 +523,34 @@ main( int     argc,
         }
       }
 
-      if( !strcmp( what, "test" ) ) {
-        printf( "%i\n", err );
-      } else if( !strcmp( what, "type" ) ) {
-        printf( "%s\n", err ? "void" : type );
-      } else if( !strcmp( what, "val"  ) ) {
-        if( FD_LIKELY( !err ) ) {
+      if(      !strcmp( what, "test"       ) ) printf( "%i\n",  err );
+      else if( !strcmp( what, "type"       ) ) printf( "%s\n",  FD_LIKELY( !err )      ? type : "void" );
+      else if( !strcmp( what, "val"        ) ) {
+        if( FD_UNLIKELY( err ) ) printf( "void\n" );
+        else {
           printf_val( info );
           printf( "\n" );
         }
-      } else if( !strcmp( what, "full" ) ) {
-        if( FD_UNLIKELY( err ) ) printf( "%s: void %s\n", cstr, path );
+      }
+      else if( !strcmp( what, "max"        ) ) printf( "%lu\n", FD_LIKELY( is_subpod ) ? fd_pod_max          ( info->val ) : 0UL );
+      else if( !strcmp( what, "used"       ) ) printf( "%lu\n", FD_LIKELY( is_subpod ) ? fd_pod_used         ( info->val ) : 0UL );
+      else if( !strcmp( what, "avail"      ) ) printf( "%lu\n", FD_LIKELY( is_subpod ) ? fd_pod_avail        ( info->val ) : 0UL );
+      else if( !strcmp( what, "cnt"        ) ) printf( "%lu\n", FD_LIKELY( is_subpod ) ? fd_pod_cnt          ( info->val ) : 0UL );
+      else if( !strcmp( what, "recursive"  ) ) printf( "%lu\n", FD_LIKELY( is_subpod ) ? fd_pod_cnt_recursive( info->val ) : 0UL );
+      else if( !strcmp( what, "subpod-cnt" ) ) printf( "%lu\n", FD_LIKELY( is_subpod ) ? fd_pod_cnt_subpod   ( info->val ) : 0UL );
+      else if( !strcmp( what, "gaddr" ) ) {
+        char buf[ FD_WKSP_CSTR_MAX ];
+        printf( "%s\n", (FD_LIKELY( !err ) && FD_LIKELY( fd_wksp_cstr_laddr( info->val, buf ) )) ? buf : "null" );
+      }
+      else if( !strcmp( what, "full"         ) ) {
+        if( FD_UNLIKELY( err ) ) printf( "%s void %s void\n", cstr, path );
         else {
           printf( "%s %s %s ", cstr, type, path );
           printf_val( info );
           printf( "\n" );
         }
-      } else {
-        FD_LOG_ERR(( "unknown query %s", what ));
       }
+      else                                       FD_LOG_ERR(( "unknown query %s", what ));
 
       if( FD_LIKELY( pod   ) ) fd_pod_leave( pod );
       if( FD_LIKELY( shmem ) ) fd_wksp_unmap( shmem );
