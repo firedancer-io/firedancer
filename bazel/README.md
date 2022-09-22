@@ -88,34 +88,37 @@ Firedancer defines a set of useful rules that are detailed below.
 
 ## Installation
 
+### Bazelisk
+
 It is recommended to use `bazelisk`, which automatically downloads and runs Bazel according to the `.bazelversion` file.
 
-Available [via Homebrew](https://formulae.brew.sh/formula/bazelisk). (on Linux and macOS)
+- From source: `go install github.com/bazelbuild/bazelisk@latest`
+- Binary releases: https://github.com/bazelbuild/bazelisk/releases
+- Homebrew: `brew install bazelisk` [(formula)](https://formulae.brew.sh/formula/bazelisk)
+- NPM: `npm i -g @bazel/bazelisk` [(package)](https://www.npmjs.com/package/@bazel/bazelisk)
 
-```shell
-brew install bazelisk
-```
-
-Binary releases: https://github.com/bazelbuild/bazelisk/releases
-
-## Formatting
+### Buildifier
 
 Firedancer uses the [buildifier] formatter to keep a consistent Starlark style and avoid merge conflicts.
 
   [Starlark]: https://bazel.build/rules/language
   [buildifier]: https://github.com/bazelbuild/buildtools/blob/master/buildifier/README.md
 
+- From source: `go install github.com/bazelbuild/buildtools/buildifier@latest`
+- Binary releases: https://github.com/bazelbuild/buildtools/releases
+- Homebrew: `brew install buildifier` [(formula)](https://formulae.brew.sh/formula/buildifier)
+- NPM: `npm i -g @bazel/buildifier` [(package)](https://www.npmjs.com/package/@bazel/buildifier)
 
-Available [via Homebrew](https://formulae.brew.sh/formula/buildifier).
+### Jump on-prem
 
-```shell
-brew install bazelisk
+Note: If you work at Jump, ignore everything above and run this instead:
+
 ```
+# one-time installation
+./jump/install-bazel
 
-To quickly format everything, run buildifier recursively on the current workspace.
-
-```shell
-buildifier -r .
+# shell environment
+. activate
 ```
 
 ## Usage
@@ -268,3 +271,22 @@ Bazel docs:
 - https://github.com/bazelbuild/rules_fuzzing/blob/master/docs/guide.md
 - https://github.com/bazelbuild/rules_fuzzing/blob/master/docs/cc-fuzzing-rules.md
 - https://github.com/bazelbuild/rules_fuzzing/tree/master/examples
+
+### Formatting
+
+To quickly format everything, run buildifier recursively on the current workspace.
+
+```shell
+buildifier -r .
+```
+
+For Visual Studio Code, it is recommended to use format-on-save.
+`.vscode/settings.json`:
+
+```json
+{
+    "[starlark]": {
+        "editor.formatOnSave": true
+    }
+}
+```
