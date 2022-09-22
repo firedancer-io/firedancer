@@ -25,8 +25,8 @@ install_bazelisk () {
 install_deps () {
   # Install Packages needed for dev hosts
   sudo yum install                \
-    numactl-devel                 \
     jump_module_gcc-9.3.0         \
+    numactl-devel                 \
     jump_module_clang-14.0        \
     jump_module_java-cacerts-jump \
     jump_module_buildifier-4.2.0  \
