@@ -201,7 +201,7 @@ fd_pod_cnt( uchar const * pod ) {
   return fd_ulong_svw_dec_fixed( pod + 2UL*csz, csz );
 }
 
-FD_FN_PURE static inline ulong
+FD_FN_UNUSED FD_FN_PURE static ulong /* Work around -Winline */
 fd_pod_avail( uchar const * pod ) {
   ulong csz = fd_ulong_svw_dec_sz( pod );
   return fd_ulong_svw_dec_fixed( pod, csz ) - fd_ulong_svw_dec_fixed( pod + csz, csz );
@@ -234,6 +234,13 @@ fd_pod_avail( uchar const * pod ) {
 fd_pod_info_t *
 fd_pod_list( uchar const   * FD_RESTRICT pod,
              fd_pod_info_t * FD_RESTRICT info );
+
+/* fd_pod_cnt_subpod returns the number of subpods in the pod.  Does not
+   recurse into any subpods in the pod.  E.g. for the above example,
+   returns 1.  This operation is O(fd_pod_cnt(pod)) in pod. */
+
+FD_FN_PURE ulong
+fd_pod_cnt_subpod( uchar const * pod );
 
 /* fd_pod_list_recursive is the same as fd_pod_list but will depth-first
    recurse into subpods.  info is indexed [0,fd_pod_cnt_recursive(pod)).

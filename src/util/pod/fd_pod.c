@@ -89,6 +89,22 @@ fd_pod_list( uchar const   * FD_RESTRICT pod,
 }
 
 ulong
+fd_pod_cnt_subpod( uchar const * FD_RESTRICT pod ) {
+  if( FD_UNLIKELY( !pod ) ) return 0UL;
+
+  ulong cnt = 0UL;
+
+  uchar const * pair; uchar const * next;
+  ulong ksz; ulong key_sz; char const * key; int val_type;
+  ulong vsz; ulong val_sz; void const * val;
+  FD_POD_FOR_ALL_BEGIN( pod, pair, next, ksz, key_sz, key, val_type, vsz, val_sz, val ) {
+    cnt += (ulong)(val_type==FD_POD_VAL_TYPE_SUBPOD);
+  } FD_POD_FOR_ALL_END;
+
+  return cnt;
+}
+
+ulong
 fd_pod_cnt_recursive( uchar const * FD_RESTRICT pod ) {
   if( FD_UNLIKELY( !pod ) ) return 0UL;
 
