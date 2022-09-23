@@ -6,15 +6,9 @@ if ! command -v module >/dev/null 2>&1; then
   return
 fi
 
-if [ ! -f ~/bin/bazel ]; then
-  echo "ERROR: ~/bin/bazel does not exist. Run jump/install-bazel to install it."
-  return
-fi
-
 module purge
 module load gcc-9.3.0
-module load clang-14.0
-module load java-cacerts-jump
+module load bazelisk-1.14.0
 module load buildifier-4.2.0
 module load Python-3.9
 module list
