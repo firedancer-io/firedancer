@@ -295,7 +295,121 @@ fd_pod_query( uchar const   * FD_RESTRICT pod,
               char const    * FD_RESTRICT path,
               fd_pod_info_t * FD_RESTRICT opt_info );
 
-/* Miscellaneous APIs ************************************************/
+/* Iterator ***********************************************************/
+
+/* Typical usage of this iterator:
+
+   for( fd_pod_iter_t iter = fd_pod_iter_init( pod ); !fd_pod_iter_done( iter ); iter = fd_pod_iter_next( iter ) ) {
+     fd_pod_info_t info = fd_pod_iter_info( iter );
+
+     ... At this point, info.* contains the usual details about the next
+     ... key-val pair in the pod (info.parent will be NULL).  There is
+     ... no guarantee about the order in which key-val pairs will be
+     ... provided (other than it will be the same for each iteration
+     ... provided the pod itself hasn't been changed and the same order
+     ... given by fd_pod_list).  Iteration does not recurse into any
+     ... subpods.  Assumes the pod will not be changed during the
+     ... iteration.  It is okay to pass NULL for pod to the init (no
+     ... iteration will be done as there are ... no key-val pairs to
+     ... iterate over).
+
+     ... This process is algorithmically efficient but the
+     ... implementation is not as fast as it could be.  But iterating
+     ... over pods is typically only done during non-critical path
+     ... initialization processes.
+   }
+*/
+
+/* fd_pod_iter_t is an opaque handle for iterating over all the key-val
+   pairs in a pod.  This is exposed here to faciliate inlining iteration
+   operations. */
+
+struct fd_pod_iter_private {
+  uchar const * cursor;
+  uchar const * stop;
+};
+
+typedef struct fd_pod_iter_private fd_pod_iter_t;
+
+/* fd_pod_iter_init starts an iteration over the given pod (pod can be
+   nested inside another pod).  Assumes pod points to the first byte of
+   a well-formed static pod for iteration duration in the caller's local
+   address space or is NULL. */
+
+FD_FN_UNUSED static fd_pod_iter_t /* Work around -Winline */
+fd_pod_iter_init( uchar const * pod ) {
+  if( FD_UNLIKELY( !pod ) ) { fd_pod_iter_t iter; iter.cursor = NULL; iter.stop = NULL; return iter; }
+  ulong csz = fd_ulong_svw_dec_sz( pod );
+  fd_pod_iter_t iter;
+  iter.cursor = pod + csz*3UL;
+  iter.stop   = pod + fd_ulong_svw_dec_fixed( pod + csz, csz ); /* used */
+  return iter;
+}
+
+/* fd_pod_iter_done returns 0 if there are more key-val pairs to iterate
+   over or non-zero if not.  Assumes iter was either returned by
+   fd_pod_iter_init or fd_pod_iter_next. */
+
+static inline int
+fd_pod_iter_done( fd_pod_iter_t iter ) {
+  return iter.cursor>=iter.stop;
+}
+
+/* fd_pod_iter_next advances the iterator to the next key-val pair in
+   the pod (if any).  Assumes !fd_pod_iter_done(iter). */
+
+FD_FN_UNUSED static fd_pod_iter_t /* Work around -Winline */
+fd_pod_iter_next( fd_pod_iter_t iter ) {
+  uchar const * cursor = iter.cursor;
+
+  /* Skip over current key */
+  ulong ksz    = fd_ulong_svw_dec_sz( cursor );
+  ulong key_sz = fd_ulong_svw_dec_fixed( cursor, ksz );
+  cursor += ksz + key_sz;
+
+  /* Skip over current type */
+  cursor++;
+
+  /* Skip over current val */
+  ulong vsz    = fd_ulong_svw_dec_sz( cursor );
+  ulong val_sz = fd_ulong_svw_dec_fixed( cursor, vsz );
+  cursor += vsz + val_sz;
+
+  iter.cursor = cursor;
+  return iter;
+}
+
+/* fd_pod_iter_info returns information about the current iteration
+   key-val pair.  Assumes !fd_pod_iter_done( iter ).  The usual lifetime
+   restrictions about info.key and info.val apply (which, since the pod
+   is fixed for the iteration duration, mean the lifetime of these
+   pointers is at least the iteration).  info.parent will be NULL. */
+
+FD_FN_UNUSED static fd_pod_info_t /* Work around -Winline */
+fd_pod_iter_info( fd_pod_iter_t iter ) {
+  uchar const * cursor = iter.cursor;
+
+  fd_pod_info_t info;
+
+  /* Unpack key */
+  ulong ksz     = fd_ulong_svw_dec_sz( cursor );
+  info.key_sz   = fd_ulong_svw_dec_fixed( cursor, ksz ); cursor += ksz;
+  info.key      = (char const *)cursor;                  cursor += info.key_sz;
+
+  /* Unpack type */
+  info.val_type = (int)cursor[0];                        cursor++;
+
+  /* Unpack val */
+  ulong vsz     = fd_ulong_svw_dec_sz( cursor );
+  info.val_sz   = fd_ulong_svw_dec_fixed( cursor, vsz ); cursor += vsz;
+  info.val      = (void const *)cursor;                  cursor += info.val_sz;
+
+  info.parent   = NULL;
+
+  return info;
+}
+
+/* Miscellaneous APIs *************************************************/
 
 /* fd_pod_strerror converts an FD_POD_SUCCESS / FD_POD_ERR_* code into
    a human readable cstr.  The lifetime of the returned pointer is

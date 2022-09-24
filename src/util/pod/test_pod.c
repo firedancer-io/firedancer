@@ -131,6 +131,16 @@ main( int     argc,
   FD_LOG_NOTICE(( "Testing FULL    strerror (%i-%s)", FD_POD_ERR_FULL,    fd_pod_strerror( FD_POD_ERR_FULL    ) ));
   FD_LOG_NOTICE(( "Testing UNKNOWN strerror (%i-%s)", 1,                  fd_pod_strerror( 1                  ) ));
 
+  do {
+    ulong idx = 0UL;
+    for( fd_pod_iter_t iter = fd_pod_iter_init( NULL ); !fd_pod_iter_done( iter ); iter = fd_pod_iter_next( iter ) ) {
+      fd_pod_info_t info = fd_pod_iter_info( iter );
+      FD_TEST( !info.parent );
+      idx++;
+    }
+    FD_TEST( !idx );
+  } while(0);
+
   for( ulong iter=0UL; iter<1000; iter++ ) {
     ulong hdr_sz = 3UL*fd_ulong_svw_enc_sz( max );
     FD_TEST( fd_pod_max  ( pod )==max        );
@@ -174,6 +184,21 @@ main( int     argc,
           FD_TEST( list[idx].val     ==query->val      );
           FD_TEST( list[idx].parent  ==query->parent   );
         }
+
+        ulong idx = 0UL;
+        for( fd_pod_iter_t iter = fd_pod_iter_init( pod ); !fd_pod_iter_done( iter ); iter = fd_pod_iter_next( iter ) ) {
+          fd_pod_info_t info = fd_pod_iter_info( iter );
+          FD_TEST( info.key_sz  ==list[idx].key_sz   );
+          FD_TEST( info.key     ==list[idx].key      );
+          FD_TEST( info.val_type==list[idx].val_type );
+          FD_TEST( info.val_sz  ==list[idx].val_sz   );
+          FD_TEST( info.val     ==list[idx].val      );
+          FD_TEST( info.parent  ==list[idx].parent   );
+          FD_TEST( !info.parent                      );
+          idx++;
+        }
+        FD_TEST( idx==cnt );
+
       }
 
       ulong cnt2 = fd_pod_cnt_recursive( pod );
