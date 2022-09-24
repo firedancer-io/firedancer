@@ -237,7 +237,8 @@ fd_pod_list( uchar const   * FD_RESTRICT pod,
 
 /* fd_pod_cnt_subpod returns the number of subpods in the pod.  Does not
    recurse into any subpods in the pod.  E.g. for the above example,
-   returns 1.  This operation is O(fd_pod_cnt(pod)) in pod. */
+   returns 1.  This operation is O(fd_pod_cnt(pod)) in pod.  NULL
+   returns 0. */
 
 FD_FN_PURE ulong
 fd_pod_cnt_subpod( uchar const * pod );
@@ -773,7 +774,7 @@ fd_pod_insert_int128( uchar      * FD_RESTRICT pod,
    failure.  The return pointer's lifetime is the pod's local join
    lifetime or an invalidating operation is done on the pod. */
 
-FD_FN_PURE static inline uchar const *
+FD_FN_UNUSED static uchar const * /* Work around -Winline */
 fd_pod_query_subpod( uchar const * FD_RESTRICT pod,
                      char const  * FD_RESTRICT path ) {
   fd_pod_info_t info[1];
