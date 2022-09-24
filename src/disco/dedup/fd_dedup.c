@@ -470,11 +470,13 @@ fd_dedup_tile( char const *  _cnc,
            correlated order frag origins from different inputs
            downstream at extreme fan in and extreme in load. */
 
-        swap_idx = (ulong)fd_rng_uint_roll( rng, (uint)in_cnt );
-        fd_dedup_tile_in_t in_tmp;
-        in_tmp         = in[ swap_idx ];
-        in[ swap_idx ] = in[ 0        ];
-        in[ 0        ] = in_tmp;
+        if( FD_LIKELY( in_cnt>1UL ) ) {
+          swap_idx = (ulong)fd_rng_uint_roll( rng, (uint)in_cnt );
+          fd_dedup_tile_in_t in_tmp;
+          in_tmp         = in[ swap_idx ];
+          in[ swap_idx ] = in[ 0        ];
+          in[ 0        ] = in_tmp;
+        }
       }
 
       /* Reload housekeeping timer */
