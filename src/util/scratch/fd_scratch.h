@@ -391,20 +391,23 @@ fd_scratch_alloc_is_safe( ulong align,
    power of 2.  0 will be treated as align_default.  align smaller than
    align_min will be bumped up to align_min.
 
-   The caller promises sz + true_align( align ) - 1 <= ULONG_MAX.
-
-   This has to be implemented as a macro for linguistic reasons.
-
-   FIXME: CONSIDER HANDHOLDING VARIANTS THAT DO MORE CHECKING AND OR USE
-   MORE ADVANCE COMPILER FEATURES HERE (E.G. __BUILTIN_ALLOCA_WITH_ALIGN
-   / __BUILTIN_ALLOCA_WITH_ALIGN_AND_MAX? */
+   The caller promises request will not overflow the stack.  This has to
+   be implemented as a macro for linguistic reasons and align should be
+   safe against multiple evaluation and, due to compiler limitations,
+   must be a compile time constant.  Returns non-NULL on success and
+   NULL on failure (in most situations, can never fail from the caller's
+   POV).  sz==0 is okay (and will return non-NULL). */
 
 #if FD_HAS_ALLOCA
-#define fd_alloca(align,sz) (__extension__({                                                                          \
-    ulong _fd_alloca_align = fd_scratch_private_true_align( (align) ); /* compile time typically */                   \
-    ulong _fd_alloca_sz    = (sz);                                                                                    \
-    (void *)fd_ulong_align_up( (ulong)__builtin_alloca( _fd_alloca_sz + _fd_alloca_align - 1UL ), _fd_alloca_align ); \
-  }))
+
+/* Work around compiler limitations */
+#define FD_SCRATCH_PRIVATE_TRUE_ALIGN( align )                                \
+  ( (((align) ? (align) : FD_SCRATCH_ALIGN_DEFAULT) > FD_SCRATCH_ALIGN_MIN) ? \
+     ((align) ? (align) : FD_SCRATCH_ALIGN_DEFAULT) : FD_SCRATCH_ALIGN_MIN  )
+
+#define fd_alloca(align,sz) __builtin_alloca_with_align( fd_ulong_max( (sz), 1UL ), \
+                                                         8UL*FD_SCRATCH_PRIVATE_TRUE_ALIGN( (align) ) /*bits*/ )
+
 #endif
 
 FD_PROTOTYPES_END
