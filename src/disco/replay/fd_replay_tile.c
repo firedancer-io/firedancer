@@ -19,15 +19,15 @@ main( int     argc,
   char const * _dcache    = fd_env_strip_cmdline_cstr ( &argc, &argv, "--dcache",    NULL, NULL   );
   char const * _out_fseqs = fd_env_strip_cmdline_cstr ( &argc, &argv, "--out-fseqs", NULL, ""     );
   ulong        cr_max     = fd_env_strip_cmdline_ulong( &argc, &argv, "--cr-max",    NULL, 0UL    ); /*   0 <> use default */
-  uint         seed       = fd_env_strip_cmdline_uint ( &argc, &argv, "--seed",      NULL, (uint)(ulong)fd_tickcount() );
   long         lazy       = fd_env_strip_cmdline_long ( &argc, &argv, "--lazy",      NULL, 0L     ); /* <=0 <> use default */
+  uint         seed       = fd_env_strip_cmdline_uint ( &argc, &argv, "--seed",      NULL, (uint)(ulong)fd_tickcount() );
 
-  if( FD_UNLIKELY( !_cnc ) ) FD_LOG_ERR(( "--cnc not specified"    ));
+  if( FD_UNLIKELY( !_cnc ) ) FD_LOG_ERR(( "--cnc not specified" ));
   FD_LOG_NOTICE(( "Joining --cnc %s", _cnc ));
   fd_cnc_t * cnc = fd_cnc_join( fd_wksp_map( _cnc ) );
   if( FD_UNLIKELY( !cnc ) ) FD_LOG_ERR(( "fd_cnc_join failed" ));
 
-  if( FD_UNLIKELY( !_pcap ) ) FD_LOG_ERR(( "--pcap not specified"   ));
+  if( FD_UNLIKELY( !_pcap ) ) FD_LOG_ERR(( "--pcap not specified" ));
   FD_LOG_NOTICE(( "Using --pcap %s", _pcap ));
 
   if( FD_UNLIKELY( !_mcache ) ) FD_LOG_ERR(( "--mcache not specified" ));
@@ -46,10 +46,12 @@ main( int     argc,
 
   ulong * out_fseq[ 256 ];
   for( ulong out_idx=0UL; out_idx<out_cnt; out_idx++ ) {
-    FD_LOG_NOTICE(( "Joining --out-fseq[%lu] %s", out_idx, _out_fseq[ out_idx ] ));
+    FD_LOG_NOTICE(( "Joining --out-fseqs[%lu] %s", out_idx, _out_fseq[ out_idx ] ));
     out_fseq[ out_idx ] = fd_fseq_join( fd_wksp_map( _out_fseq[ out_idx ] ) );
     if( FD_UNLIKELY( !out_fseq[ out_idx ] ) ) FD_LOG_ERR(( "fd_fseq_join failed" ));
   }
+
+  FD_LOG_NOTICE(( "Using --cr-max %lu, --lazy %li", cr_max, lazy ));
 
   FD_LOG_NOTICE(( "Creating rng --seed %u", seed ));
   fd_rng_t _rng[1];
@@ -74,11 +76,11 @@ main( int     argc,
 
   fd_shmem_release( scratch, page_sz, page_cnt );
   fd_rng_delete( fd_rng_leave( rng ) );
-
   for( ulong out_idx=out_cnt; out_idx; out_idx-- ) fd_wksp_unmap( fd_fseq_leave( out_fseq[ out_idx-1UL ] ) );
   fd_wksp_unmap( fd_dcache_leave( dcache ) );
   fd_wksp_unmap( fd_mcache_leave( mcache ) );
   fd_wksp_unmap( fd_cnc_leave   ( cnc    ) );
+
   fd_halt();
   return err;
 }

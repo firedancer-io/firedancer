@@ -13,7 +13,6 @@
   }))
 
 FD_STATIC_ASSERT( FD_FCTL_ALIGN<=FD_REPLAY_TILE_SCRATCH_ALIGN, packing );
-FD_STATIC_ASSERT( FD_RNG_ALIGN <=FD_REPLAY_TILE_SCRATCH_ALIGN, packing );
 
 ulong
 fd_replay_tile_scratch_align( void ) {
