@@ -10,7 +10,7 @@ struct __attribute__((aligned(64))) fd_mux_tile_in {
   ulong                  depth;    /* == fd_mcache_depth( mcache ), depth of this in's cache (const) */
   ulong                  seq;      /* sequence number of next frag expected from the upstream producer,
                                       updated when frag from this in published/filtered */
-  fd_frag_meta_t const * meta;     /* == mcache + fd_mcache_line_idx( seq, depth ), location to poll next */
+  fd_frag_meta_t const * mline;    /* == mcache + fd_mcache_line_idx( seq, depth ), location to poll next */
   ulong *                fseq;     /* local join to the fseq used to return flow control credits the in */
   uint                   accum[6]; /* local diagnostic accumualtors.  These are drained during in housekeeping. */
                                    /* Assumes FD_FSEQ_DIAG_{PUB_CNT,PUB_SZ,FILT_CNT,FILT_SZ,OVRNP_CNT,OVRNR_CONT} are 0:5 */
@@ -72,7 +72,6 @@ fd_mux_tile_in_update( fd_mux_tile_in_t * in,
   }))
 
 FD_STATIC_ASSERT( alignof(fd_mux_tile_in_t)<=FD_MUX_TILE_SCRATCH_ALIGN, packing );
-FD_STATIC_ASSERT( FD_RNG_ALIGN             <=FD_MUX_TILE_SCRATCH_ALIGN, packing );
 
 ulong
 fd_mux_tile_scratch_align( void ) {
@@ -90,28 +89,26 @@ fd_mux_tile_scratch_footprint( ulong in_cnt,
   SCRATCH_ALLOC( alignof(ulong *),          out_cnt*sizeof(ulong *)             ); /* out_slow */
   SCRATCH_ALLOC( alignof(ulong),            out_cnt*sizeof(ulong)               ); /* out_seq */
   SCRATCH_ALLOC( alignof(ushort),           (in_cnt+out_cnt+1UL)*sizeof(ushort) ); /* event_map */
-  SCRATCH_ALLOC( fd_rng_align(),            fd_rng_footprint()                  ); /* rng */
   return fd_ulong_align_up( scratch_top, fd_mux_tile_scratch_align() );
 }
 
 int
-fd_mux_tile( char const *  _cnc,
-             ulong         in_cnt,
-             char const ** _in_mcache,
-             char const ** _in_fseq,
-             char const *  _mcache,
-             ulong         out_cnt,
-             char const ** _out_fseq,
-             ulong         cr_max,
-             long          lazy,
-             uint          seed,
-             void *        scratch ) {
+fd_mux_tile( fd_cnc_t *              cnc,
+             ulong                   in_cnt,
+             fd_frag_meta_t const ** in_mcache,
+             ulong **                in_fseq,
+             fd_frag_meta_t *        mcache,
+             ulong                   out_cnt,
+             ulong **                _out_fseq,
+             ulong                   cr_max,
+             long                    lazy,
+             fd_rng_t *              rng,
+             void *                  scratch ) {
 
   /* cnc state */
-  fd_cnc_t * cnc;                /* Local join to the mux's cnc */
-  ulong *    cnc_diag;           /* ==fd_cnc_app_laddr( cnc ), local address of the mux tile cnc diagnostic region */
-  ulong      cnc_diag_in_backp;  /* is the run loop currently backpressured by one or more of the outs, in [0,1] */
-  ulong      cnc_diag_backp_cnt; /* Accumulates number of transitions of tile to backpressured between housekeeping events */
+  ulong * cnc_diag;           /* ==fd_cnc_app_laddr( cnc ), local address of the mux tile cnc diagnostic region */
+  ulong   cnc_diag_in_backp;  /* is the run loop currently backpressured by one or more of the outs, in [0,1] */
+  ulong   cnc_diag_backp_cnt; /* Accumulates number of transitions of tile to backpressured between housekeeping events */
 
   /* in frag stream state */
   ulong              in_seq; /* current position in input poll sequence, in [0,in_cnt) */
@@ -120,22 +117,20 @@ fd_mux_tile( char const *  _cnc,
                                 shuffled to avoid lighthousing effects in the output fragment stream at extreme fan-in and load */
 
   /* out frag stream state */
-  fd_frag_meta_t * mcache; /* Local join to the mcache where input fragment metadata will be multiplexed */
-  ulong            depth;  /* ==fd_mcache_depth( mcache ), depth of the mcache / positive integer power of 2 */
-  ulong *          sync;   /* ==fd_mcache_seq_laddr( mcache ), local addr where mux mcache sync info is published */
-  ulong            seq;    /* next mux frag sequence number to publish */
+  ulong   depth; /* ==fd_mcache_depth( mcache ), depth of the mcache / positive integer power of 2 */
+  ulong * sync;  /* ==fd_mcache_seq_laddr( mcache ), local addr where mux mcache sync info is published */
+  ulong   seq;   /* next mux frag sequence number to publish */
 
   /* out flow control state */
-  ulong    cr_avail; /* number of flow control credits available to publish downstream, in [0,cr_max] */
-  ulong ** out_fseq; /* out_fseq[out_idx] for out_idx in [0,out_cnt) is where to receive fctl credits from outs */
-  ulong ** out_slow; /* out_slow[out_idx] for out_idx in [0,out_cnt) is where to accumulate slow events */
-  ulong *  out_seq;  /* out_seq [out_idx] is the most recent observation of out_fseq[out_idx] */
+  ulong          cr_avail; /* number of flow control credits available to publish downstream, in [0,cr_max] */
+  ulong const ** out_fseq; /* out_fseq[out_idx] for out_idx in [0,out_cnt) is where to receive fctl credits from outs */
+  ulong **       out_slow; /* out_slow[out_idx] for out_idx in [0,out_cnt) is where to accumulate slow events */
+  ulong *        out_seq;  /* out_seq [out_idx] is the most recent observation of out_fseq[out_idx] */
 
   /* housekeeping state */
   ulong      event_cnt; /* ==in_cnt+out_cnt+1, total number of housekeeping events */
   ulong      event_seq; /* current position in housekeeping event sequence, in [0,event_cnt) */
   ushort *   event_map; /* current mapping of event_seq to event idx, event_map[ event_seq ] is next event to process */
-  fd_rng_t * rng;       /* local join to local random number generator */
   ulong      async_min; /* minimum number of ticks between processing a housekeeping event, positive integer power of 2 */
 
   do {
@@ -158,11 +153,7 @@ fd_mux_tile( char const *  _cnc,
 
     /* cnc state init */
 
-    if( FD_UNLIKELY( !_cnc ) ) { FD_LOG_WARNING(( "NULL cnc" )); return 1; }
-    FD_LOG_INFO(( "Joining cnc %s", _cnc ));
-    cnc = fd_cnc_join( fd_wksp_map( _cnc ) );
-
-    if( FD_UNLIKELY( !cnc ) ) { FD_LOG_WARNING(( "join failed" )); return 1; }
+    if( FD_UNLIKELY( !cnc ) ) { FD_LOG_WARNING(( "NULL cnc" )); return 1; }
     if( FD_UNLIKELY( fd_cnc_app_sz( cnc )<16UL ) ) { FD_LOG_WARNING(( "cnc app sz must be at least 16" )); return 1; }
     if( FD_UNLIKELY( fd_cnc_signal_query( cnc )!=FD_CNC_SIGNAL_BOOT ) ) { FD_LOG_WARNING(( "already booted" )); return 1; }
 
@@ -180,28 +171,24 @@ fd_mux_tile( char const *  _cnc,
 
     ulong min_in_depth = (ulong)LONG_MAX;
 
-    if( FD_UNLIKELY( !!in_cnt && !_in_mcache ) ) { FD_LOG_WARNING(( "NULL in_mcache" )); return 1; }
-    if( FD_UNLIKELY( !!in_cnt && !_in_fseq   ) ) { FD_LOG_WARNING(( "NULL in_fseq"   )); return 1; }
+    if( FD_UNLIKELY( !!in_cnt && !in_mcache ) ) { FD_LOG_WARNING(( "NULL in_mcache" )); return 1; }
+    if( FD_UNLIKELY( !!in_cnt && !in_fseq   ) ) { FD_LOG_WARNING(( "NULL in_fseq"   )); return 1; }
     for( ulong in_idx=0UL; in_idx<in_cnt; in_idx++ ) {
-      fd_mux_tile_in_t * this_in = &in[ in_idx ];
-
-      if( FD_UNLIKELY( !_in_mcache[ in_idx ] ) ) { FD_LOG_WARNING(( "NULL in%lu mcache", in_idx )); return 1; }
-      FD_LOG_INFO(( "Joining in%lu mcache %s", in_idx, _in_mcache[ in_idx ] ));
-      this_in->mcache = fd_mcache_join( fd_wksp_map( _in_mcache[ in_idx ] ) );
-      if( FD_UNLIKELY( !this_in->mcache ) ) { FD_LOG_WARNING(( "join failed" )); return 1; }
-
-      ulong const * this_in_sync = fd_mcache_seq_laddr_const( this_in->mcache );
-
-      this_in->depth = fd_mcache_depth( this_in->mcache ); min_in_depth = fd_ulong_min( min_in_depth, this_in->depth );
-      this_in->seq   = fd_mcache_seq_query( this_in_sync ); /* FIXME: ALLOW OPTION FOR MANUAL SPECIFICATION? */
-      this_in->meta  = this_in->mcache + fd_mcache_line_idx( this_in->seq, this_in->depth );
 
       /* FIXME: CONSIDER NULL OR EMPTY CSTR IN_FCTL[ IN_IDX ] TO SPECIFY
          NO FLOW CONTROL FOR A PARTICULAR IN? */
-      if( FD_UNLIKELY( !_in_fseq[ in_idx ] ) ) { FD_LOG_WARNING(( "NULL in%lu fseq", in_idx )); return 1; }
-      FD_LOG_INFO(( "Joining in%lu fseq %s", in_idx, _in_fseq[ in_idx ] ));
-      this_in->fseq = fd_fseq_join( fd_wksp_map( _in_fseq[ in_idx ] ) );
-      if( FD_UNLIKELY( !this_in->fseq ) ) { FD_LOG_WARNING(( "join failed" )); return 1; }
+      if( FD_UNLIKELY( !in_mcache[ in_idx ] ) ) { FD_LOG_WARNING(( "NULL in_mcache[%lu]", in_idx )); return 1; }
+      if( FD_UNLIKELY( !in_fseq  [ in_idx ] ) ) { FD_LOG_WARNING(( "NULL in_fseq[%lu]",   in_idx )); return 1; }
+
+      fd_mux_tile_in_t * this_in = &in[ in_idx ];
+
+      this_in->mcache = in_mcache[ in_idx ];
+      this_in->fseq   = in_fseq[ in_idx ];
+      ulong const * this_in_sync = fd_mcache_seq_laddr_const( this_in->mcache );
+
+      this_in->depth  = fd_mcache_depth( this_in->mcache ); min_in_depth = fd_ulong_min( min_in_depth, this_in->depth );
+      this_in->seq    = fd_mcache_seq_query( this_in_sync ); /* FIXME: ALLOW OPTION FOR MANUAL SPECIFICATION? */
+      this_in->mline  = this_in->mcache + fd_mcache_line_idx( this_in->seq, this_in->depth );
 
       this_in->accum[0] = 0U; this_in->accum[1] = 0U; this_in->accum[2] = 0U;
       this_in->accum[3] = 0U; this_in->accum[4] = 0U; this_in->accum[5] = 0U;
@@ -209,11 +196,7 @@ fd_mux_tile( char const *  _cnc,
 
     /* out frag stream init */
 
-    if( FD_UNLIKELY( !_mcache ) ) { FD_LOG_WARNING(( "NULL mcache" )); return 1; }
-    FD_LOG_INFO(( "Joining mcache %s", _mcache ));
-
-    mcache = fd_mcache_join( fd_wksp_map( _mcache ) );
-    if( FD_UNLIKELY( !mcache ) ) { FD_LOG_WARNING(( "join failed" )); return 1; }
+    if( FD_UNLIKELY( !mcache ) ) { FD_LOG_WARNING(( "NULL mcache" )); return 1; }
 
     depth = fd_mcache_depth    ( mcache );
     sync  = fd_mcache_seq_laddr( mcache );
@@ -324,24 +307,22 @@ fd_mux_tile( char const *  _cnc,
 
     cr_avail = 0UL; /* Will be initialized by run loop */
 
-    out_fseq = (ulong **)SCRATCH_ALLOC( alignof(ulong *), out_cnt*sizeof(ulong *) );
-    out_slow = (ulong **)SCRATCH_ALLOC( alignof(ulong *), out_cnt*sizeof(ulong *) );
-    out_seq  = (ulong *) SCRATCH_ALLOC( alignof(ulong),   out_cnt*sizeof(ulong)   );
+    out_fseq = (ulong const **)SCRATCH_ALLOC( alignof(ulong const *), out_cnt*sizeof(ulong const *) );
+    out_slow = (ulong **)      SCRATCH_ALLOC( alignof(ulong *),       out_cnt*sizeof(ulong *)       );
+    out_seq  = (ulong *)       SCRATCH_ALLOC( alignof(ulong),         out_cnt*sizeof(ulong)         );
 
     if( FD_UNLIKELY( !!out_cnt && !_out_fseq ) ) { FD_LOG_WARNING(( "NULL out_fseq" )); return 1; }
     for( ulong out_idx=0UL; out_idx<out_cnt; out_idx++ ) {
-      if( FD_UNLIKELY( !_out_fseq[ out_idx ] ) ) { FD_LOG_WARNING(( "NULL out%lu fseq", out_idx )); return 1; }
-      FD_LOG_INFO(( "Joining out%lu fseq %s", out_idx, _out_fseq[ out_idx ] ));
-      out_fseq[ out_idx ] = fd_fseq_join( fd_wksp_map( _out_fseq[ out_idx ] ) );
-      if( FD_UNLIKELY( !out_fseq[out_idx] ) ) { FD_LOG_WARNING(( "join failed" )); return 1; }
-      out_slow[ out_idx ] = (ulong *)fd_fseq_app_laddr( out_fseq[ out_idx ] ) + FD_FSEQ_DIAG_SLOW_CNT;
+      if( FD_UNLIKELY( !_out_fseq[ out_idx ] ) ) { FD_LOG_WARNING(( "NULL out_fseq[%lu]", out_idx )); return 1; }
+      out_fseq[ out_idx ] = _out_fseq[ out_idx ];
+      out_slow[ out_idx ] = (ulong *)fd_fseq_app_laddr( _out_fseq[ out_idx ] ) + FD_FSEQ_DIAG_SLOW_CNT;
       out_seq [ out_idx ] = fd_fseq_query( out_fseq[ out_idx ] );
     }
 
     /* housekeeping init */
 
     if( lazy<=0L ) lazy = fd_tempo_lazy_default( cr_max );
-    FD_LOG_INFO(( "Configuring housekeeping (lazy %li ns, seed %u)", lazy, seed ));
+    FD_LOG_INFO(( "Configuring housekeeping (lazy %li ns)", lazy ));
 
     /* Initialize the initial housekeeping event sequence to immediately
        update cr_avail on the first run loop iteration and then update
@@ -356,8 +337,6 @@ fd_mux_tile( char const *  _cnc,
 
     async_min = fd_tempo_async_min( lazy, event_cnt, (float)fd_tempo_tick_per_ns( NULL ) );
     if( FD_UNLIKELY( !async_min ) ) { FD_LOG_WARNING(( "bad lazy" )); return 1; }
-
-    rng = fd_rng_join( fd_rng_new( SCRATCH_ALLOC( fd_rng_align(), fd_rng_footprint() ), seed, 0UL ) );
 
   } while(0);
 
@@ -502,11 +481,11 @@ fd_mux_tile( char const *  _cnc,
 
     /* Check if this in has any new fragments to mux */
 
-    ulong                  this_in_seq  = this_in->seq;
-    fd_frag_meta_t const * this_in_meta = this_in->meta;  /* Already at appropriate line for this_in_seq */
+    ulong                  this_in_seq   = this_in->seq;
+    fd_frag_meta_t const * this_in_mline = this_in->mline; /* Already at appropriate line for this_in_seq */
 
     FD_COMPILER_MFENCE();
-    ulong seq_found = this_in_meta->seq;
+    ulong seq_found = this_in_mline->seq;
     FD_COMPILER_MFENCE();
 
     long diff = fd_seq_diff( this_in_seq, seq_found );
@@ -530,13 +509,13 @@ fd_mux_tile( char const *  _cnc,
        sequence number for higher performance. */
 
     FD_COMPILER_MFENCE();
-    ulong sig      =        this_in_meta->sig;
-    ulong chunk    = (ulong)this_in_meta->chunk;
-    ulong sz       = (ulong)this_in_meta->sz;
-    ulong ctl      = (ulong)this_in_meta->ctl;
-    ulong tsorig   = (ulong)this_in_meta->tsorig;
+    ulong sig      =        this_in_mline->sig;
+    ulong chunk    = (ulong)this_in_mline->chunk;
+    ulong sz       = (ulong)this_in_mline->sz;
+    ulong ctl      = (ulong)this_in_mline->ctl;
+    ulong tsorig   = (ulong)this_in_mline->tsorig;
     FD_COMPILER_MFENCE();
-    ulong seq_test =        this_in_meta->seq;
+    ulong seq_test =        this_in_mline->seq;
     FD_COMPILER_MFENCE();
 
     if( FD_UNLIKELY( fd_seq_ne( seq_test, seq_found ) ) ) { /* Overrun while reading (impossible if this_in honoring our fctl) */
@@ -563,9 +542,9 @@ fd_mux_tile( char const *  _cnc,
 
     /* Windup for the next in poll and accumulate diagnostics */
 
-    this_in_seq   = fd_seq_inc( this_in_seq, 1UL );
-    this_in->seq  = this_in_seq;
-    this_in->meta = this_in->mcache + fd_mcache_line_idx( this_in_seq, this_in->depth );
+    this_in_seq    = fd_seq_inc( this_in_seq, 1UL );
+    this_in->seq   = this_in_seq;
+    this_in->mline = this_in->mcache + fd_mcache_line_idx( this_in_seq, this_in->depth );
 
     ulong diag_idx = FD_FSEQ_DIAG_PUB_CNT + should_filter*2UL;
     this_in->accum[ diag_idx     ]++;
@@ -576,35 +555,14 @@ fd_mux_tile( char const *  _cnc,
 
     FD_LOG_INFO(( "Halting mux" ));
 
-    FD_LOG_INFO(( "Destroying rng" ));
-    fd_rng_delete( fd_rng_leave( rng ) );
-
-    while( out_cnt ) {
-      ulong out_idx = --out_cnt;
-      FD_LOG_INFO(( "Leaving out%lu fseq", out_idx ));
-      fd_wksp_unmap( fd_fseq_leave( out_fseq[ out_idx ] ) );
-    }
-
-    FD_LOG_INFO(( "Leaving mcache" ));
-    fd_wksp_unmap( fd_mcache_leave( mcache ) );
-
     while( in_cnt ) {
       ulong in_idx = --in_cnt;
       fd_mux_tile_in_t * this_in = &in[ in_idx ];
       fd_mux_tile_in_update( this_in, 0UL ); /* exposed_cnt 0 assumes all reliable consumers caught up or shutdown */
-
-      FD_LOG_INFO(( "Leaving in%lu fseq", in_idx ));
-      fd_wksp_unmap( this_in->fseq );
-
-      FD_LOG_INFO(( "Leaving in%lu mcache", in_idx ));
-      fd_wksp_unmap( fd_mcache_leave( this_in->mcache ) );
     }
 
     FD_LOG_INFO(( "Halted mux" ));
     fd_cnc_signal( cnc, FD_CNC_SIGNAL_BOOT );
-
-    FD_LOG_INFO(( "Leaving cnc" ));
-    fd_wksp_unmap( fd_cnc_leave( cnc ) );
 
   } while(0);
 

@@ -256,36 +256,35 @@ mux_tile_main( int     argc,
   if( FD_UNLIKELY( cfg->tx_cnt>128UL ) ) FD_LOG_ERR(( "update unit test for this large a tx_cnt" ));
   if( FD_UNLIKELY( cfg->rx_cnt>128UL ) ) FD_LOG_ERR(( "update unit test for this large a rx_cnt" ));
 
-  char   buf[ (1UL+128UL+128UL+1UL+128UL)*FD_WKSP_CSTR_MAX ];
-  char * p = buf;
-# define MAKE_WKSP_CSTR(laddr) (__extension__({ \
-    char const * _cstr = p;                     \
-    fd_wksp_cstr_laddr( (laddr), p );           \
-    p += FD_WKSP_CSTR_MAX;                      \
-    _cstr;                                      \
-  }))
+  fd_cnc_t * cnc = fd_cnc_join( cfg->mux_cnc_mem );
 
-  char const * _cnc = MAKE_WKSP_CSTR( cfg->mux_cnc_mem );
+  fd_frag_meta_t const * tx_mcache[ 128 ];
+  for( ulong tx_idx=0UL; tx_idx<cfg->tx_cnt; tx_idx++ )
+    tx_mcache[ tx_idx ] = fd_mcache_join( cfg->tx_mcache_mem + tx_idx*cfg->tx_mcache_footprint );
 
-  char const * _tx_mcache[ 128 ];
-  char const * _tx_fseq  [ 128 ];
-  for( ulong tx_idx=0UL; tx_idx<cfg->tx_cnt; tx_idx++ ) {
-    _tx_mcache[ tx_idx ] = MAKE_WKSP_CSTR( cfg->tx_mcache_mem + tx_idx*cfg->tx_mcache_footprint );
-    _tx_fseq  [ tx_idx ] = MAKE_WKSP_CSTR( cfg->tx_fseq_mem   + tx_idx*cfg->tx_fseq_footprint   );
-  }
+  ulong * tx_fseq[ 128 ];
+  for( ulong tx_idx=0UL; tx_idx<cfg->tx_cnt; tx_idx++ )
+    tx_fseq[ tx_idx ] = fd_fseq_join( cfg->tx_fseq_mem + tx_idx*cfg->tx_fseq_footprint );
 
-  char const * _mux_mcache = MAKE_WKSP_CSTR( cfg->mux_mcache_mem );
+  fd_frag_meta_t * mux_mcache = fd_mcache_join( cfg->mux_mcache_mem );
 
-  char const * _rx_fseq[ 128 ];
+  ulong * rx_fseq[ 128 ];
   for( ulong rx_idx=0UL; rx_idx<cfg->rx_cnt; rx_idx++ )
-    _rx_fseq[ rx_idx ] = MAKE_WKSP_CSTR( cfg->rx_fseq_mem + rx_idx*cfg->rx_fseq_footprint );
+    rx_fseq[ rx_idx ] = fd_fseq_join( cfg->rx_fseq_mem + rx_idx*cfg->rx_fseq_footprint );
 
-# undef MAKE_WKSP_CSTR
+  fd_rng_t _rng[1];
+  fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, cfg->mux_seed, 0UL ) );
 
-  int err = fd_mux_tile( _cnc, cfg->tx_cnt, _tx_mcache, _tx_fseq, _mux_mcache, cfg->rx_cnt, _rx_fseq,
-                         cfg->mux_cr_max, cfg->mux_lazy, cfg->mux_seed, cfg->mux_scratch_mem );
+  int err = fd_mux_tile( cnc, cfg->tx_cnt, tx_mcache, tx_fseq, mux_mcache, cfg->rx_cnt, rx_fseq,
+                         cfg->mux_cr_max, cfg->mux_lazy, rng, cfg->mux_scratch_mem );
   if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_mux_tile failed (%i)", err ));
 
+  fd_rng_delete( fd_rng_leave( rng ) );
+  for( ulong rx_idx=cfg->rx_cnt; rx_idx; rx_idx-- ) fd_fseq_leave  ( rx_fseq  [ rx_idx-1UL ] );
+  fd_mcache_leave( mux_mcache );
+  for( ulong tx_idx=cfg->tx_cnt; tx_idx; tx_idx-- ) fd_fseq_leave  ( tx_fseq  [ tx_idx-1UL ] );
+  for( ulong tx_idx=cfg->tx_cnt; tx_idx; tx_idx-- ) fd_mcache_leave( tx_mcache[ tx_idx-1UL ] );
+  fd_cnc_leave( cnc );
   return 0;
 }
 
