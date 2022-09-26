@@ -45,13 +45,12 @@
 #define FD_DEDUP_TILE_SCRATCH_ALIGN (128UL)
 #define FD_DEDUP_TILE_SCRATCH_FOOTPRINT( in_cnt, out_cnt )              \
   FD_LAYOUT_FINI( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( \
-  FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( FD_LAYOUT_INIT, \
+  FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( FD_LAYOUT_INIT,                   \
     64UL,             (in_cnt)*64UL                           ),        \
     alignof(ulong *), (out_cnt)*sizeof(ulong *)               ),        \
     alignof(ulong *), (out_cnt)*sizeof(ulong *)               ),        \
     alignof(ulong),   (out_cnt)*sizeof(ulong)                 ),        \
     alignof(ushort),  ((in_cnt)+(out_cnt)+1UL)*sizeof(ushort) ),        \
-    FD_RNG_ALIGN,     FD_RNG_FOOTPRINT                        ),        \
     FD_DEDUP_TILE_SCRATCH_ALIGN )
 
 FD_PROTOTYPES_BEGIN
@@ -221,21 +220,23 @@ FD_PROTOTYPES_BEGIN
    Clearing is up to monitoring scripts.  It is recommend that inputs
    and outputs also use their cnc and fseq application regions similarly
    for monitoring simplicity / consistency.
-   
-   The lifetime of the cnc, mcaches, fseqs and scratch used by this tile
-   should be a superset of this tile's lifetime.  While this tile is
-   running, no other tile should use cnc for its command and control,
-   publish into mcache, or use scratch for anything.  This tile will act
-   as a reliable consumer of in_mcache metadata.  This tile use the
+
+   The lifetime of the cnc, mcaches, fseqs, tcache, rng and scratch used
+   by this tile should be a superset of this tile's lifetime.  While
+   this tile is running, no other tile should use cnc for its command
+   and control, modify the tcache, publish into mcache, use the rng for
+   anything (and the rng should be be seeded distinctly from all other
+   rngs in the system), or use scratch for anything.  This tile will act
+   as a reliable consumer of in_mcache metadata.  This tile uses the
    in_fseqs passed to it in the usual consumer ways (e.g. publishing
    recent locations in the producers sequence space and updating
    consumer oriented diagnostics) and the out_fseqs passed to it in the
    usual producer ways (i.e. discovering the location of reliable
    consumers in sequence space and updating producer oriented
-   diagnostics).  The workspace gaddr cstrs / cstr arrays used to
-   specify these will not be used the after the tile has booted
-   (transitioned the cnc from BOOT to RUN) or returned (e.g. failed to
-   boot), whichever comes first. */
+   diagnostics).  The in_mcache, in_fseq and out_fseq arrays will not be
+   used the after the tile has successfully booted (transitioned the cnc
+   from BOOT to RUN) or returned (e.g. failed to boot), whichever comes
+   first. */
 
 FD_FN_CONST ulong
 fd_dedup_tile_scratch_align( void );
@@ -245,18 +246,18 @@ fd_dedup_tile_scratch_footprint( ulong in_cnt,
                                  ulong out_cnt );
 
 int
-fd_dedup_tile( char const *  _cnc,       /* Workspace gaddr for dedup's command-and-control communications */
-               ulong         in_cnt,     /* Number of input mcache's to dedup, mcache streams are indexed [0,in_cnt) */
-               char const ** _in_mcache, /* _in_mcache[in_idx] is the workspace gaddr for input in_idx's mcache */
-               char const ** _in_fseq,   /* _in_fseq  [in_idx] is the workspace gaddr for input in_idx's fseq */
-               char const *  _tcache,    /* Workspace gaddr for dedup's unique signature cache */
-               char const *  _mcache,    /* Workspace gaddr for mcache of the dedup frag streams */
-               ulong         out_cnt,    /* Number of reliable consumers, reliable consumers are indexed [0,out_cnt) */
-               char const ** _out_fseq,  /* _out_fseq [out_idx] is the workspace gaddr for reliable consumer out_idx's fseq */
-               ulong         cr_max,     /* Maximum number of flow control credits, 0 means use a reasonable default */
-               long          lazy,       /* Lazyiness, <=0 means use a reasonable default */
-               uint          seed,       /* Random number generator seed */
-               void *        scratch );  /* Tile scratch memory */
+fd_dedup_tile( fd_cnc_t *              cnc,       /* Local join to the dedup's command-and-control */
+               ulong                   in_cnt,    /* Number of input mcaches to dedup, inputs are indexed [0,in_cnt) */
+               fd_frag_meta_t const ** in_mcache, /* in_mcache[in_idx] is the local join to input in_idx's mcache */
+               ulong **                in_fseq,   /* in_fseq  [in_idx] is the local join to input in_idx's fseq */
+               fd_tcache_t *           tcache,    /* Local join to the dedup's unique signature cache */
+               fd_frag_meta_t *        mcache,    /* Local join to the dedup's frag stream output mcache */
+               ulong                   out_cnt,   /* Number of reliable consumers, reliable consumers are indexed [0,out_cnt) */
+               ulong **                out_fseq,  /* out_fseq[out_idx] is the local join to reliable consumer out_idx's fseq */
+               ulong                   cr_max,    /* Maximum number of flow control credits, 0 means use a reasonable default */
+               long                    lazy,      /* Lazyiness, <=0 means use a reasonable default */
+               fd_rng_t *              rng,       /* Local join to the rng this dedup should use */
+               void *                  scratch ); /* Tile scratch memory */
 
 FD_PROTOTYPES_END
 
