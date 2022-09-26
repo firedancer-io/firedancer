@@ -58,10 +58,9 @@
    facilitate compile time declarations. */
 
 #define FD_REPLAY_TILE_SCRATCH_ALIGN (128UL)
-#define FD_REPLAY_TILE_SCRATCH_FOOTPRINT( out_cnt )                   \
-  FD_LAYOUT_FINI( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( FD_LAYOUT_INIT, \
-    FD_FCTL_ALIGN, FD_FCTL_FOOTPRINT( (out_cnt) ) ),                  \
-    FD_RNG_ALIGN,  FD_RNG_FOOTPRINT               ),                  \
+#define FD_REPLAY_TILE_SCRATCH_FOOTPRINT( out_cnt )  \
+  FD_LAYOUT_FINI( FD_LAYOUT_APPEND( FD_LAYOUT_INIT,  \
+    FD_FCTL_ALIGN, FD_FCTL_FOOTPRINT( (out_cnt) ) ), \
     FD_REPLAY_TILE_SCRATCH_ALIGN )
 
 FD_PROTOTYPES_BEGIN
@@ -123,15 +122,16 @@ FD_PROTOTYPES_BEGIN
    fd_replay_tile_scratch_footprint will return the same value as
    FD_REPLAY_TILE_SCRATCH_FOOTPRINT.
    
-   The lifetime of the cnc, mcache, dcache, fseqs and scratch used by
-   this tile should be a superset of this tile's lifetime.  While this
-   tile is running, no other tile should use cnc for its command and
-   control, publish into mcache or dcache, or use scratch for anything.
-   This tile uses the fseqs passed to it in the usual producer ways
-   (e.g. discovering the location of reliable consumers in the mcache's
-   sequence space and updating producer oriented diagnostics).  The
-   workspace gaddr cstrs / cstr arrays used to specify the locations of
-   these objects will not be used the after the tile has successfully
+   The lifetime of the cnc, mcache, dcache, out_fseq[*], rng and scratch
+   used by this tile should be a superset of this tile's lifetime.
+   While this tile is running, no other tile should use cnc for its
+   command and control, use the rng for anything (and the rng should be
+   seeded distinctly from all other rngs in the system), publish into
+   mcache or dcache, or use scratch for anything.  This tile uses the
+   fseqs passed to it in the usual producer ways (e.g. discovering the
+   location of reliable consumers in the mcache's sequence space and
+   updating producer oriented diagnostics).  The out_fseq array and
+   pcap_path cstr will not be used the after the tile has successfully
    booted (transitioned the cnc from BOOT to RUN) or returned (e.g.
    failed to boot), whichever comes first. */
 
@@ -142,18 +142,18 @@ FD_FN_CONST ulong
 fd_replay_tile_scratch_footprint( ulong out_cnt );
 
 int
-fd_replay_tile( char const *  _cnc,      /* Workspace gaddr for replay's command-and-control communications */
-                char const *  pcap_path, /* cstr with the path to the pcap to use */
-                ulong         pkt_max,   /* Upper bound of a size of packet in the pcap */
-                ulong         orig,      /* Origin for this pcap fragment stream, in [0,FD_FRAG_META_ORIG_MAX) */
-                char const *  _mcache,   /* Workspace gaddr for replay's frag stream output mcache */
-                char const *  _dcache,   /* Workspace gaddr for replay's frag stream output dcache */
-                ulong         out_cnt,   /* Number of reliable consumers, reliable consumers are indexed [0,out_cnt) */
-                char const ** _out_fseq, /* _out_fseq[out_idx] is the workspace gaddr for reliable consumer out_idx's fseq */
-                ulong         cr_max,    /* Maximum number of flow control credits, 0 means use a reasonable default */
-                long          lazy,      /* Lazyiness, <=0 means use a reasonable default */
-                uint          seed,      /* Random number generator seed */
-                void *        scratch ); /* Tile scratch memory */
+fd_replay_tile( fd_cnc_t *       cnc,       /* Local join to the replay's command-and-control */
+                char const *     pcap_path, /* Points to first byte of cstr with the path to the pcap to use */
+                ulong            pkt_max,   /* Upper bound of a size of packet in the pcap */
+                ulong            orig,      /* Origin for this pcap fragment stream, in [0,FD_FRAG_META_ORIG_MAX) */
+                fd_frag_meta_t * mcache,    /* Local join to the replay's frag stream output mcache */
+                uchar *          dcache,    /* Local join to the replay's frag stream output dcache */
+                ulong            out_cnt,   /* Number of reliable consumers, reliable consumers are indexed [0,out_cnt) */
+                ulong **         out_fseq,  /* out_fseq[out_idx] is the workspace gaddr for reliable consumer out_idx's fseq */
+                ulong            cr_max,    /* Maximum number of flow control credits, 0 means use a reasonable default */
+                long             lazy,      /* Lazyiness, <=0 means use a reasonable default */
+                fd_rng_t *       rng,       /* Local join to the rng this replay should use */
+                void *           scratch ); /* Tile scratch memory */
 
 FD_PROTOTYPES_END
 

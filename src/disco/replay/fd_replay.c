@@ -25,46 +25,42 @@ fd_replay_tile_scratch_footprint( ulong out_cnt ) {
   if( FD_UNLIKELY( out_cnt>FD_REPLAY_TILE_OUT_MAX ) ) return 0UL;
   ulong scratch_top = 0UL;
   SCRATCH_ALLOC( fd_fctl_align(), fd_fctl_footprint( out_cnt ) ); /* fctl */
-  SCRATCH_ALLOC( fd_rng_align(),  fd_rng_footprint()           ); /* rng  */
   return fd_ulong_align_up( scratch_top, fd_replay_tile_scratch_align() );
 }
 
 int
-fd_replay_tile( char const *  _cnc,
-                char const *  pcap_path,
-                ulong         pkt_max,
-                ulong         orig,
-                char const *  _mcache,
-                char const *  _dcache,
-                ulong         out_cnt,
-                char const ** _out_fseq,
-                ulong         cr_max,
-                long          lazy,
-                uint          seed,
-                void *        scratch ) {
+fd_replay_tile( fd_cnc_t *       cnc,
+                char const *     pcap_path,
+                ulong            pkt_max,
+                ulong            orig,
+                fd_frag_meta_t * mcache,
+                uchar *          dcache,
+                ulong            out_cnt,
+                ulong **         out_fseq,
+                ulong            cr_max,
+                long             lazy,
+                fd_rng_t *       rng,
+                void *           scratch ) {
 
   /* cnc state */
-  fd_cnc_t * cnc;                    /* Local join to the replay's cnc */
-  ulong *    cnc_diag;               /* ==fd_cnc_app_laddr( cnc ), local address of the replay tile cnc diagnostic region */
-  ulong      cnc_diag_in_backp;      /* is the run loop currently backpressured by one or more of the outs, in [0,1] */
-  ulong      cnc_diag_backp_cnt;     /* Accumulates number of transitions of tile to backpressured between housekeeping events */
-  ulong      cnc_diag_pcap_done;     /* is the pcap file stream replay done */
-  ulong      cnc_diag_pcap_pub_cnt;  /* Accumulates number of pcap packets published between housekeeping events */
-  ulong      cnc_diag_pcap_pub_sz;   /* Accumulates pcap payload bytes publised between housekeeping events */
-  ulong      cnc_diag_pcap_filt_cnt; /* Accumulates number of pcap packets filtered between housekeeping events */
-  ulong      cnc_diag_pcap_filt_sz;  /* Accumulates pcap payload bytes filtered between housekeeping events */
+  ulong * cnc_diag;               /* ==fd_cnc_app_laddr( cnc ), local address of the replay tile cnc diagnostic region */
+  ulong   cnc_diag_in_backp;      /* is the run loop currently backpressured by one or more of the outs, in [0,1] */
+  ulong   cnc_diag_backp_cnt;     /* Accumulates number of transitions of tile to backpressured between housekeeping events */
+  ulong   cnc_diag_pcap_done;     /* is the pcap file stream replay done */
+  ulong   cnc_diag_pcap_pub_cnt;  /* Accumulates number of pcap packets published between housekeeping events */
+  ulong   cnc_diag_pcap_pub_sz;   /* Accumulates pcap payload bytes publised between housekeeping events */
+  ulong   cnc_diag_pcap_filt_cnt; /* Accumulates number of pcap packets filtered between housekeeping events */
+  ulong   cnc_diag_pcap_filt_sz;  /* Accumulates pcap payload bytes filtered between housekeeping events */
 
   /* in pcap stream state */
   FILE *           pcap_file; /* handle of pcap file stream */
   fd_pcap_iter_t * pcap_iter; /* iterator for the pcap file stream */
 
   /* out frag stream state */
-  fd_frag_meta_t * mcache; /* Local join to the mcache where pcap metadata will be written */
-  ulong            depth;  /* ==fd_mcache_depth( mcache ), depth of the mcache / positive integer power of 2 */
-  ulong *          sync;   /* ==fd_mcache_seq_laddr( mcache ), local addr where replay mcache sync info is published */
-  ulong            seq;    /* seq replay frag sequence number to publish */
+  ulong   depth;  /* ==fd_mcache_depth( mcache ), depth of the mcache / positive integer power of 2 */
+  ulong * sync;   /* ==fd_mcache_seq_laddr( mcache ), local addr where replay mcache sync info is published */
+  ulong   seq;    /* seq replay frag sequence number to publish */
 
-  uchar * dcache; /* Local join to the dcache where pcap payloads will be written */
   void *  base;   /* ==fd_wksp_containing( dcache ), chunk reference address in the tile's local address space */
   ulong   chunk0; /* ==fd_dcache_compact_chunk0( base, dcache, pkt_max ) */
   ulong   wmark;  /* ==fd_dcache_compact_wmark ( base, dcache, _pkt_max ), packets chunks start in [chunk0,wmark] */
@@ -75,8 +71,7 @@ fd_replay_tile( char const *  _cnc,
   ulong       cr_avail; /* number of flow control credits available to publish downstream, in [0,cr_max] */
 
   /* housekeeping state */
-  fd_rng_t * rng;       /* local join to local random number generator */
-  ulong      async_min; /* minimum number of ticks between processing a housekeeping event, positive integer power of 2 */
+  ulong async_min; /* minimum number of ticks between processing a housekeeping event, positive integer power of 2 */
 
   do {
 
@@ -97,11 +92,7 @@ fd_replay_tile( char const *  _cnc,
 
     /* cnc state init */
 
-    if( FD_UNLIKELY( !_cnc ) ) { FD_LOG_WARNING(( "NULL cnc" )); return 1; }
-    FD_LOG_INFO(( "Joining cnc %s", _cnc ));
-    cnc = fd_cnc_join( fd_wksp_map( _cnc ) );
-
-    if( FD_UNLIKELY( !cnc ) ) { FD_LOG_WARNING(( "join failed" )); return 1; }
+    if( FD_UNLIKELY( !cnc ) ) { FD_LOG_WARNING(( "NULL cnc" )); return 1; }
     if( FD_UNLIKELY( fd_cnc_app_sz( cnc )<64UL ) ) { FD_LOG_WARNING(( "cnc app sz must be at least 64" )); return 1; }
     if( FD_UNLIKELY( fd_cnc_signal_query( cnc )!=FD_CNC_SIGNAL_BOOT ) ) { FD_LOG_WARNING(( "already booted" )); return 1; }
 
@@ -133,22 +124,13 @@ fd_replay_tile( char const *  _cnc,
 
     /* out frag stream init */
 
-    if( FD_UNLIKELY( !_mcache ) ) { FD_LOG_WARNING(( "NULL mcache" )); return 1; }
-    FD_LOG_INFO(( "Joining mcache %s", _mcache ));
-
-    mcache = fd_mcache_join( fd_wksp_map( _mcache ) );
-    if( FD_UNLIKELY( !mcache ) ) { FD_LOG_WARNING(( "join failed" )); return 1; }
-
+    if( FD_UNLIKELY( !mcache ) ) { FD_LOG_WARNING(( "NULL mcache" )); return 1; }
     depth = fd_mcache_depth    ( mcache );
     sync  = fd_mcache_seq_laddr( mcache );
 
     seq = fd_mcache_seq_query( sync ); /* FIXME: ALLOW OPTION FOR MANUAL SPECIFICATION */
 
-    if( FD_UNLIKELY( !_dcache ) ) { FD_LOG_WARNING(( "NULL dcache" )); return 1; }
-    FD_LOG_NOTICE(( "Joining to --dcache %s", _dcache ));
-
-    dcache = fd_dcache_join( fd_wksp_map( _dcache ) );
-    if( FD_UNLIKELY( !dcache ) ) { FD_LOG_WARNING(( "join failed" )); return 1; }
+    if( FD_UNLIKELY( !dcache ) ) { FD_LOG_WARNING(( "NULL dcache" )); return 1; }
 
     base = fd_wksp_containing( dcache );
     if( FD_UNLIKELY( !base ) ) { FD_LOG_WARNING(( "fd_wksp_containing failed" )); return 1; }
@@ -167,17 +149,15 @@ fd_replay_tile( char const *  _cnc,
 
     /* out flow control init */
 
-    if( FD_UNLIKELY( !!out_cnt && !_out_fseq ) ) { FD_LOG_WARNING(( "NULL out_fseq" )); return 1; }
+    if( FD_UNLIKELY( !!out_cnt && !out_fseq ) ) { FD_LOG_WARNING(( "NULL out_fseq" )); return 1; }
 
     fctl = fd_fctl_join( fd_fctl_new( SCRATCH_ALLOC( fd_fctl_align(), fd_fctl_footprint( out_cnt ) ), out_cnt ) );
     if( FD_UNLIKELY( !fctl ) ) { FD_LOG_WARNING(( "join failed" )); return 1; }
 
     for( ulong out_idx=0UL; out_idx<out_cnt; out_idx++ ) {
 
-      if( FD_UNLIKELY( !_out_fseq[ out_idx ] ) ) { FD_LOG_WARNING(( "NULL out%lu fseq", out_idx )); return 1; }
-      FD_LOG_INFO(( "Joining out%lu fseq %s", out_idx, _out_fseq[ out_idx ] ));
-      ulong * fseq = fd_fseq_join( fd_wksp_map( _out_fseq[ out_idx ] ) );
-      if( FD_UNLIKELY( !fseq ) ) { FD_LOG_WARNING(( "join failed" )); return 1; }
+      ulong * fseq = out_fseq[ out_idx ];
+      if( FD_UNLIKELY( !fseq ) ) { FD_LOG_WARNING(( "NULL out_fseq[%lu]", out_idx )); return 1; }
       ulong * fseq_diag = (ulong *)fd_fseq_app_laddr( fseq );
 
       /* Assumes lag_max==depth */
@@ -206,12 +186,10 @@ fd_replay_tile( char const *  _cnc,
     /* housekeeping init */
 
     if( lazy<=0L ) lazy = fd_tempo_lazy_default( cr_max );
-    FD_LOG_INFO(( "Configuring housekeeping (lazy %li ns, seed %u)", lazy, seed ));
+    FD_LOG_INFO(( "Configuring housekeeping (lazy %li ns)", lazy ));
 
     async_min = fd_tempo_async_min( lazy, 1UL /*event_cnt*/, (float)fd_tempo_tick_per_ns( NULL ) );
     if( FD_UNLIKELY( !async_min ) ) { FD_LOG_WARNING(( "bad lazy" )); return 1; }
-
-    rng = fd_rng_join( fd_rng_new( SCRATCH_ALLOC( fd_rng_align(), fd_rng_footprint() ), seed, 0UL ) );
 
   } while(0);
 
@@ -331,21 +309,8 @@ fd_replay_tile( char const *  _cnc,
 
     FD_LOG_INFO(( "Halting replay" ));
 
-    FD_LOG_INFO(( "Destroying rng" ));
-    fd_rng_delete( fd_rng_leave( rng ) );
-
-    while( out_cnt ) {
-      ulong out_idx = --out_cnt;
-      FD_LOG_INFO(( "Leaving out%lu fseq", out_idx ));
-      fd_wksp_unmap( fd_fseq_leave( fd_fctl_rx_seq_laddr( fctl, out_idx ) ) );
-    }
+    FD_LOG_INFO(( "Destroying fctl" ));
     fd_fctl_delete( fd_fctl_leave( fctl ) );
-
-    FD_LOG_INFO(( "Leaving dcache" ));
-    fd_wksp_unmap( fd_dcache_leave( dcache ) );
-
-    FD_LOG_INFO(( "Leaving mcache" ));
-    fd_wksp_unmap( fd_mcache_leave( mcache ) );
 
     FD_LOG_INFO(( "Closing pcap" ));
     if( FD_UNLIKELY( fclose( fd_pcap_iter_delete( pcap_iter ) ) ) )
@@ -353,9 +318,6 @@ fd_replay_tile( char const *  _cnc,
 
     FD_LOG_INFO(( "Halted replay" ));
     fd_cnc_signal( cnc, FD_CNC_SIGNAL_BOOT );
-
-    FD_LOG_INFO(( "Leaving cnc" ));
-    fd_wksp_unmap( fd_cnc_leave( cnc ) );
 
   } while(0);
 

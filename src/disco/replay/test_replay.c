@@ -18,21 +18,20 @@ FD_STATIC_ASSERT( FD_REPLAY_TILE_SCRATCH_ALIGN==128UL, unit_test );
 struct test_cfg {
   fd_wksp_t *  wksp;
 
-  void *       tx_cnc_mem;
-  char const * tx_pcap;
-  ulong        tx_mtu;
-  ulong        tx_orig;
-  void *       tx_mcache_mem;
-  void *       tx_dcache_mem;
-  ulong        tx_cr_max;
-  long         tx_lazy;
-  uint         tx_seed;
-  void *       tx_scratch_mem;
+  fd_cnc_t *       tx_cnc;
+  char const *     tx_pcap;
+  ulong            tx_mtu;
+  ulong            tx_orig;
+  fd_frag_meta_t * tx_mcache;
+  uchar *          tx_dcache;
+  ulong            tx_cr_max;
+  long             tx_lazy;
+  uint             tx_seed;
 
-  void *       rx_cnc_mem;
-  void *       rx_fseq_mem;
-  void *       rx_rng_mem;
-  int          rx_lazy;
+  fd_cnc_t *       rx_cnc;
+  ulong *          rx_fseq;
+  uint             rx_seed;
+  int              rx_lazy;
 };
 
 typedef struct test_cfg test_cfg_t;
@@ -42,19 +41,18 @@ typedef struct test_cfg test_cfg_t;
 static int
 tx_tile_main( int     argc,
               char ** argv ) {
-  ulong        tx_idx = (ulong)argc;
-  test_cfg_t * cfg    = (test_cfg_t *)argv;
-  (void)tx_idx;
+  (void)argc;
+  test_cfg_t * cfg = (test_cfg_t *)argv;
 
-  char cnc   [ FD_WKSP_CSTR_MAX ]; FD_TEST( fd_wksp_cstr_laddr( cfg->tx_cnc_mem,    cnc    ) );
-  char mcache[ FD_WKSP_CSTR_MAX ]; FD_TEST( fd_wksp_cstr_laddr( cfg->tx_mcache_mem, mcache ) );
-  char dcache[ FD_WKSP_CSTR_MAX ]; FD_TEST( fd_wksp_cstr_laddr( cfg->tx_dcache_mem, dcache ) );
-  char fseq  [ FD_WKSP_CSTR_MAX ]; FD_TEST( fd_wksp_cstr_laddr( cfg->rx_fseq_mem,   fseq   ) );
-  char const * fseqs[1]; fseqs[0] = fseq;
+  fd_rng_t _rng[1];
+  fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, cfg->tx_seed, 0UL ) );
 
-  FD_TEST( !fd_replay_tile( cnc, cfg->tx_pcap, cfg->tx_mtu, cfg->tx_orig, mcache, dcache, 1UL, fseqs,
-                            cfg->tx_cr_max, cfg->tx_lazy, cfg->tx_seed, cfg->tx_scratch_mem ) );
+  uchar scratch[ FD_REPLAY_TILE_SCRATCH_FOOTPRINT( 1UL ) ] __attribute__((aligned( FD_REPLAY_TILE_SCRATCH_ALIGN )));
 
+  FD_TEST( !fd_replay_tile( cfg->tx_cnc, cfg->tx_pcap, cfg->tx_mtu, cfg->tx_orig, cfg->tx_mcache, cfg->tx_dcache,
+                            1UL, &cfg->rx_fseq, cfg->tx_cr_max, cfg->tx_lazy, rng, scratch ) );
+
+  fd_rng_delete( fd_rng_leave( rng ) );
   return 0;
 }
 
@@ -69,19 +67,20 @@ rx_tile_main( int     argc,
   (void)rx_idx;
 
   /* Hook up to rx cnc */
-  fd_cnc_t * cnc = fd_cnc_join( cfg->rx_cnc_mem );
+  fd_cnc_t * cnc = cfg->rx_cnc;
 
   /* Hook up to tx mcache */
-  fd_frag_meta_t const * mcache = fd_mcache_join( cfg->tx_mcache_mem );
+  fd_frag_meta_t const * mcache = cfg->tx_mcache;
   ulong                  depth  = fd_mcache_depth( mcache );
   ulong const *          sync   = fd_mcache_seq_laddr_const( mcache );
   ulong                  seq    = fd_mcache_seq_query( sync );
 
   /* Hook up to tx flow control */
-  ulong * fseq = fd_fseq_join( cfg->rx_fseq_mem );
+  ulong * fseq = cfg->rx_fseq;
 
   /* Hook up to the random number generator */
-  fd_rng_t * rng = fd_rng_join( cfg->rx_rng_mem );
+  fd_rng_t _rng[1];
+  fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, cfg->rx_seed, 0UL ) );
 
   /* Configure housekeeping */
   ulong async_min = 1UL << cfg->rx_lazy;
@@ -160,6 +159,7 @@ rx_tile_main( int     argc,
     seq = fd_seq_inc( seq, 1UL );
   }
 
+  fd_rng_delete( fd_rng_leave( rng ) );
   fd_cnc_signal( cnc, FD_CNC_SIGNAL_BOOT );
   return 0;
 }
@@ -212,61 +212,55 @@ main( int     argc,
   FD_TEST( cfg->wksp );
 
   FD_LOG_NOTICE(( "Creating tx cnc (app_sz 64, type 0, heartbeat0 %li)", hb0 ));
-  cfg->tx_cnc_mem = fd_cnc_new( fd_wksp_alloc_laddr( cfg->wksp, fd_cnc_align(), fd_cnc_footprint( 64UL ) ), 64UL, 0UL, hb0 );
-  FD_TEST( cfg->tx_cnc_mem );
+  cfg->tx_cnc = fd_cnc_join( fd_cnc_new( fd_wksp_alloc_laddr( cfg->wksp, fd_cnc_align(), fd_cnc_footprint( 64UL ) ),
+                             64UL, 0UL, hb0 ) );
+  FD_TEST( cfg->tx_cnc );
 
   cfg->tx_pcap = tx_pcap;
   cfg->tx_mtu  = tx_mtu;
   cfg->tx_orig = tx_orig;
 
   FD_LOG_NOTICE(( "Creating tx mcache (--tx-depth %lu, app_sz 0, seq0 %lu)", tx_depth, seq0 ));
-  cfg->tx_mcache_mem =
-    fd_mcache_new( fd_wksp_alloc_laddr( cfg->wksp, fd_mcache_align(), fd_mcache_footprint( tx_depth, 0UL ) ), tx_depth, 0UL, seq0 );
-  FD_TEST( cfg->tx_mcache_mem );
+  cfg->tx_mcache = fd_mcache_join( fd_mcache_new( fd_wksp_alloc_laddr( cfg->wksp,
+                                                                       fd_mcache_align(), fd_mcache_footprint( tx_depth, 0UL ) ),
+                                                  tx_depth, 0UL, seq0 ) );
+  FD_TEST( cfg->tx_mcache );
 
   FD_LOG_NOTICE(( "Creating tx dcache (--tx-mtu %lu, burst 1, compact 1, app_sz 0)", tx_mtu ));
   ulong tx_data_sz = fd_dcache_req_data_sz( tx_mtu, tx_depth, 1UL, 1 ); FD_TEST( tx_data_sz );
-  cfg->tx_dcache_mem =
-    fd_dcache_new( fd_wksp_alloc_laddr( cfg->wksp, fd_dcache_align(), fd_dcache_footprint( tx_data_sz, 0UL ) ), tx_data_sz, 0UL );
-  FD_TEST( cfg->tx_dcache_mem );
+  cfg->tx_dcache = fd_dcache_join( fd_dcache_new( fd_wksp_alloc_laddr( cfg->wksp,
+                                                                       fd_dcache_align(), fd_dcache_footprint( tx_data_sz, 0UL ) ),
+                                                  tx_data_sz, 0UL ) );
+  FD_TEST( cfg->tx_dcache );
 
   cfg->tx_cr_max = tx_cr_max;
   cfg->tx_lazy   = tx_lazy;
   cfg->tx_seed   = rng_seq++;
 
-  FD_LOG_NOTICE(( "Creating tx scratch (out_cnt 1)" ));
-  cfg->tx_scratch_mem = fd_wksp_alloc_laddr( cfg->wksp, fd_replay_tile_scratch_align(), fd_replay_tile_scratch_footprint( 1UL ) );
-  FD_TEST( cfg->tx_scratch_mem );
-
   FD_LOG_NOTICE(( "Creating rx cnc (app_sz 64, type 1, heartbeat0 %li)", hb0 ));
-  cfg->rx_cnc_mem = fd_cnc_new( fd_wksp_alloc_laddr( cfg->wksp, fd_cnc_align(), fd_cnc_footprint( 64UL ) ), 64UL, 1UL, hb0 );
-  FD_TEST( cfg->rx_cnc_mem );
+  cfg->rx_cnc = fd_cnc_join( fd_cnc_new( fd_wksp_alloc_laddr( cfg->wksp, fd_cnc_align(), fd_cnc_footprint( 64UL ) ),
+                                         64UL, 1UL, hb0 ) );
+  FD_TEST( cfg->rx_cnc );
 
   FD_LOG_NOTICE(( "Creating rx fseq (seq0 %lu)", seq0 ));
-  cfg->rx_fseq_mem = fd_fseq_new( fd_wksp_alloc_laddr( cfg->wksp, fd_fseq_align(), fd_fseq_footprint() ), seq0 );
-  FD_TEST( cfg->rx_fseq_mem );
+  cfg->rx_fseq = fd_fseq_join( fd_fseq_new( fd_wksp_alloc_laddr( cfg->wksp, fd_fseq_align(), fd_fseq_footprint() ), seq0 ) );
+  FD_TEST( cfg->rx_fseq );
 
-  FD_LOG_NOTICE(( "Creating rx rng (seq %u, idx 0)", rng_seq ));
-  cfg->rx_rng_mem = fd_rng_new( fd_wksp_alloc_laddr( cfg->wksp, fd_rng_align(), fd_rng_footprint() ), rng_seq++, 0UL );
-  FD_TEST( cfg->rx_rng_mem );
-
+  cfg->rx_seed = rng_seq++;
   cfg->rx_lazy = rx_lazy;
 
   FD_LOG_NOTICE(( "Booting" ));
 
-  fd_cnc_t * tx_cnc = fd_cnc_join( cfg->tx_cnc_mem ); FD_TEST( tx_cnc );
-  fd_cnc_t * rx_cnc = fd_cnc_join( cfg->rx_cnc_mem ); FD_TEST( rx_cnc );
-
   fd_tile_exec_t * rx_exec = fd_tile_exec_new( 2UL, rx_tile_main, 0, (char **)fd_type_pun( cfg ) ); FD_TEST( rx_exec );
   fd_tile_exec_t * tx_exec = fd_tile_exec_new( 1UL, tx_tile_main, 0, (char **)fd_type_pun( cfg ) ); FD_TEST( tx_exec );
 
-  FD_TEST( fd_cnc_wait( tx_cnc, FD_CNC_SIGNAL_BOOT, (long)5e9, NULL )==FD_CNC_SIGNAL_RUN );
-  FD_TEST( fd_cnc_wait( rx_cnc, FD_CNC_SIGNAL_BOOT, (long)5e9, NULL )==FD_CNC_SIGNAL_RUN );
+  FD_TEST( fd_cnc_wait( cfg->tx_cnc, FD_CNC_SIGNAL_BOOT, (long)5e9, NULL )==FD_CNC_SIGNAL_RUN );
+  FD_TEST( fd_cnc_wait( cfg->rx_cnc, FD_CNC_SIGNAL_BOOT, (long)5e9, NULL )==FD_CNC_SIGNAL_RUN );
 
   FD_LOG_NOTICE(( "Running (--duration %li ns, --tx-lazy %li ns, --tx-cr-max %lu, tx_seed %u, --rx-lazy %i)",
                   duration, tx_lazy, tx_cr_max, cfg->tx_seed, rx_lazy ));
 
-  ulong const * tx_cnc_diag = (ulong const *)fd_cnc_app_laddr( tx_cnc );
+  ulong const * tx_cnc_diag = (ulong const *)fd_cnc_app_laddr( cfg->tx_cnc );
 
   long now  = fd_log_wallclock();
   long next = now;
@@ -301,28 +295,29 @@ main( int     argc,
 
   FD_LOG_NOTICE(( "Halting" ));
 
-  FD_TEST( !fd_cnc_open( tx_cnc ) ); fd_cnc_signal( tx_cnc, FD_CNC_SIGNAL_HALT ); fd_cnc_close( tx_cnc );
-  FD_TEST( !fd_cnc_open( rx_cnc ) ); fd_cnc_signal( rx_cnc, FD_CNC_SIGNAL_HALT ); fd_cnc_close( rx_cnc );
+  FD_TEST( !fd_cnc_open( cfg->tx_cnc ) );
+  FD_TEST( !fd_cnc_open( cfg->rx_cnc ) );
 
-  FD_TEST( fd_cnc_wait( tx_cnc, FD_CNC_SIGNAL_HALT, (long)5e9, NULL )==FD_CNC_SIGNAL_BOOT );
-  FD_TEST( fd_cnc_wait( rx_cnc, FD_CNC_SIGNAL_HALT, (long)5e9, NULL )==FD_CNC_SIGNAL_BOOT );
+  fd_cnc_signal( cfg->tx_cnc, FD_CNC_SIGNAL_HALT );
+  fd_cnc_signal( cfg->rx_cnc, FD_CNC_SIGNAL_HALT );
+
+  FD_TEST( fd_cnc_wait( cfg->tx_cnc, FD_CNC_SIGNAL_HALT, (long)5e9, NULL )==FD_CNC_SIGNAL_BOOT );
+  FD_TEST( fd_cnc_wait( cfg->rx_cnc, FD_CNC_SIGNAL_HALT, (long)5e9, NULL )==FD_CNC_SIGNAL_BOOT );
+
+  fd_cnc_close( cfg->tx_cnc );
+  fd_cnc_close( cfg->rx_cnc );
 
   int ret;
   FD_TEST( !fd_tile_exec_delete( tx_exec, &ret ) ); FD_TEST( !ret );
   FD_TEST( !fd_tile_exec_delete( rx_exec, &ret ) ); FD_TEST( !ret );
 
-  fd_cnc_leave( tx_cnc );
-  fd_cnc_leave( rx_cnc );
-
   FD_LOG_NOTICE(( "Cleaning up" ));
   
-  fd_wksp_free_laddr( fd_rng_delete   ( cfg->rx_rng_mem     ) );
-  fd_wksp_free_laddr( fd_fseq_delete  ( cfg->rx_fseq_mem    ) );
-  fd_wksp_free_laddr( fd_cnc_delete   ( cfg->rx_cnc_mem     ) );
-  fd_wksp_free_laddr(                   cfg->tx_scratch_mem   );
-  fd_wksp_free_laddr( fd_dcache_delete( cfg->tx_dcache_mem  ) );
-  fd_wksp_free_laddr( fd_mcache_delete( cfg->tx_mcache_mem  ) );
-  fd_wksp_free_laddr( fd_cnc_delete   ( cfg->tx_cnc_mem     ) );
+  fd_wksp_free_laddr( fd_fseq_delete  ( fd_fseq_leave  ( cfg->rx_fseq   ) ) );
+  fd_wksp_free_laddr( fd_cnc_delete   ( fd_cnc_leave   ( cfg->rx_cnc    ) ) );
+  fd_wksp_free_laddr( fd_dcache_delete( fd_dcache_leave( cfg->tx_dcache ) ) );
+  fd_wksp_free_laddr( fd_mcache_delete( fd_mcache_leave( cfg->tx_mcache ) ) );
+  fd_wksp_free_laddr( fd_cnc_delete   ( fd_cnc_leave   ( cfg->tx_cnc    ) ) );
 
   fd_wksp_delete_anonymous( cfg->wksp );
 
