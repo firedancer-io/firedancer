@@ -188,7 +188,7 @@ FD_PROTOTYPES_BEGIN
    publish into mcache, use the rng for anything (and the rng should be
    be seeded distinctly from all other rngs in the system), or use
    scratch for anything.  This tile will act as a reliable consumer of
-   in_mcache metadata.  This tile use the in_fseqs passed to it in the
+   in_mcache metadata.  This tile uses the in_fseqs passed to it in the
    usual consumer ways (e.g. publishing recent locations in the
    producers sequence space and updating consumer oriented diagnostics)
    and the out_fseqs passed to it in the usual producer ways (i.e.
@@ -207,7 +207,7 @@ fd_mux_tile_scratch_footprint( ulong in_cnt,
 
 int
 fd_mux_tile( fd_cnc_t *              cnc,       /* Local join to the mux's command-and-control */
-             ulong                   in_cnt,    /* Number of input mcache's to multiplex, mcache streams are indexed [0,in_cnt) */
+             ulong                   in_cnt,    /* Number of input mcaches to multiplex, inputs are indexed [0,in_cnt) */
              fd_frag_meta_t const ** in_mcache, /* in_mcache[in_idx] is the local join to input in_idx's mcache */
              ulong **                in_fseq,   /* in_fseq  [in_idx] is the local join to input in_idx's fseq */
              fd_frag_meta_t *        mcache,    /* Local join to the mux's frag stream output mcache */

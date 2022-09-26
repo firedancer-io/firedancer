@@ -85,7 +85,7 @@ fd_mux_tile_scratch_footprint( ulong in_cnt,
   if( FD_UNLIKELY( out_cnt>FD_MUX_TILE_OUT_MAX ) ) return 0UL;
   ulong scratch_top = 0UL;
   SCRATCH_ALLOC( alignof(fd_mux_tile_in_t), in_cnt*sizeof(fd_mux_tile_in_t)     ); /* in */
-  SCRATCH_ALLOC( alignof(ulong *),          out_cnt*sizeof(ulong *)             ); /* out_fseq */
+  SCRATCH_ALLOC( alignof(ulong const *),    out_cnt*sizeof(ulong const *)       ); /* out_fseq */
   SCRATCH_ALLOC( alignof(ulong *),          out_cnt*sizeof(ulong *)             ); /* out_slow */
   SCRATCH_ALLOC( alignof(ulong),            out_cnt*sizeof(ulong)               ); /* out_seq */
   SCRATCH_ALLOC( alignof(ushort),           (in_cnt+out_cnt+1UL)*sizeof(ushort) ); /* event_map */
@@ -183,7 +183,7 @@ fd_mux_tile( fd_cnc_t *              cnc,
       fd_mux_tile_in_t * this_in = &in[ in_idx ];
 
       this_in->mcache = in_mcache[ in_idx ];
-      this_in->fseq   = in_fseq[ in_idx ];
+      this_in->fseq   = in_fseq  [ in_idx ];
       ulong const * this_in_sync = fd_mcache_seq_laddr_const( this_in->mcache );
 
       this_in->depth  = fd_mcache_depth( this_in->mcache ); min_in_depth = fd_ulong_min( min_in_depth, this_in->depth );
