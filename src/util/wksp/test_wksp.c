@@ -2,6 +2,8 @@
 
 #if FD_HAS_HOSTED && FD_HAS_X86
 
+/* FIXME: ADD COVERAGE FOR WKSP_POD APIS */
+
 static int go = 0;
 
 static fd_wksp_t * _wksp;

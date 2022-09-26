@@ -1,6 +1,7 @@
 #ifndef HEADER_fd_src_util_wksp_fd_wksp_h
 #define HEADER_fd_src_util_wksp_fd_wksp_h
 
+#include "../pod/fd_pod.h"
 #include "../shmem/fd_shmem.h"
 
 #if FD_HAS_HOSTED && FD_HAS_X86
@@ -251,6 +252,59 @@ fd_wksp_map( char const * cstr );
 
 void
 fd_wksp_unmap( void const * laddr );
+
+/* Simple APIs for robust interaction with config pods ****************/
+
+/* Ignoring error trapping, fd_wksp_pod_attach( gaddr ) is shorthand
+   for:
+
+     fd_pod_join( fd_wksp_map( gaddr ) )
+
+   Cannot fail from the caller's point of view (will terminate the
+   thread group of the caller with a detailed FD_LOG_ERR message on
+   failure.  Calls to fd_wksp_pod_attach should be paired with calls to
+   fd_wksp_pod_detach when pod usage is done. */
+
+uchar const *
+fd_wksp_pod_attach( char const * gaddr );
+
+/* Ignoring error trapping, fd_wksp_pod_detach( pod ) is shorthand for:
+
+     fd_wksp_unmap( fd_pod_leave( pod ) )
+
+   Provided for symmetry with fd_wksp_pod_attach.  Cannot fail from the
+   caller's point of view (will terminate the thread group of the caller
+   with a detailed FD_LOG_ERR message on failure and will FD_LOG_WARNING
+   if anything wonky occurs in the unmap under the hood). */
+
+void
+fd_wksp_pod_detach( uchar const * pod );
+
+/* Ignoring error trapping, fd_wksp_pod_map( pod, path ) is shorthand
+   for:
+
+     fd_wksp_map( fd_pod_query_cstr( pod, path, NULL ) )
+
+   Cannot fail from the caller's point of view (will terminate the
+   thread group of the caller with detailed FD_LOG_ERR message on
+   failure).  Calls to fd_wksp_pod_map should be paired with calls to
+   fd_wksp_pod_unmap. */
+
+void *
+fd_wksp_pod_map( uchar const * pod,
+                 char const *  path );
+
+/* Ignoring error trapping, fd_wksp_pod_unmap( obj ) is shorthand for:
+
+     fd_wksp_unmap( obj )
+
+   Provided for symmetry with fd_wksp_pod_map.  Cannot fail from the
+   caller's point of view (will terminate the thread group of the caller
+   with a detailed FD_LOG_ERR message on failure and will FD_LOG_WARNING
+   if anything wonky occurs in the unmap under the hood). */
+
+void
+fd_wksp_pod_unmap( void * obj );
 
 /**********************************************************************/
 
