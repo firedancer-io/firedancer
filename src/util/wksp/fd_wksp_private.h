@@ -19,8 +19,8 @@ FD_STATIC_ASSERT( FD_WKSP_ALLOC_ALIGN_MIN==4096UL, update_fd_wksp_magic );
 
 /* fd_wksp_private_part_t indicates where a partition of the wksp data
    region starts and whether that partition is active (allocated) or
-   inactive (partition).  fd_wksp_part_t is cheap and easy to read /
-   write atomically. */
+   inactive (free).  fd_wksp_part_t is cheap and easy to read / write
+   atomically. */
 
 typedef ulong fd_wksp_private_part_t;
 
@@ -35,8 +35,8 @@ struct __attribute__((aligned(FD_WKSP_ALLOC_ALIGN_MIN))) fd_wksp_private {
                      workspace.  If pid is dead, the workspace is recoverable */
   ulong part_cnt; /* Number of partitions in the workspace.  0<part_cnt<=part_max.
                      partition i is completely described by ( part[i].active, part[i].lo, part[i+1].hi ) */
-  ulong part_max; /* Maximum number of partitions of the workspace.  Positive.  In practice, this will typically be large
-                     enough to accommodate a worst case partitioning of the workspace. */
+  ulong part_max; /* Maximum number of partitions of the workspace.  Positive.  This will typically be large enough to accommodate
+                     a worst case partitioning of the workspace. */
   ulong gaddr_lo; /* (Convenience==part[0       ].off), data region covers bytes [gaddr_lo,gaddr_hi) relative to wksp */
   ulong gaddr_hi; /* (Convenience==part[part_cnt].off), " */
 
@@ -77,9 +77,8 @@ static inline int   fd_wksp_private_part_active( fd_wksp_private_part_t part ) {
 static inline ulong fd_wksp_private_part_gaddr ( fd_wksp_private_part_t part ) { return part & ~1UL; }
 
 /* fd_wksp_private_lock locks the wksp for use by the caller.  Will
-   recover from from other processes that locked the workspace and died
-   while holding the lock.  Assumes the caller does not already have the
-   lock. */
+   recover from other processes that locked the workspace and died while
+   holding the lock.  Assumes the caller does not already have the lock. */
 
 void
 fd_wksp_private_lock( fd_wksp_t * wksp );
