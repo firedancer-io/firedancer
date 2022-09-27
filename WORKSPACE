@@ -66,3 +66,26 @@ new_local_repository(
     build_file = "./third_party/solana.BUILD",
     path = "./third_party/solana",
 )
+
+# Import GCC toolchain.
+http_archive(
+    name = "aspect_gcc_toolchain",
+    sha256 = "dd07660d9a28a6be19eac90a992f5a971a3db6c9d0a52814f111e41aea5afba4",
+    strip_prefix = "gcc-toolchain-0.4.2",
+    urls = ["https://github.com/aspect-build/gcc-toolchain/archive/refs/tags/0.4.2.zip"],
+)
+
+load("@aspect_gcc_toolchain//toolchain:repositories.bzl", "gcc_toolchain_dependencies")
+
+gcc_toolchain_dependencies()
+
+load("@aspect_gcc_toolchain//toolchain:defs.bzl", "gcc_register_toolchain")
+
+# GCC 11.3.0
+gcc_register_toolchain(
+    name = "gcc11_x86-64-v2",
+    sha256 = "4313a04996173bd79935ffaec48b97ba7c32332880774ec61b40ab76804b8fbb",
+    strip_prefix = "x86-64-v2--glibc--stable-2022.08-1",
+    target_arch = "x86_64",
+    url = "https://toolchains.bootlin.com/downloads/releases/toolchains/x86-64-v2/tarballs/x86-64-v2--glibc--stable-2022.08-1.tar.bz2",
+)

@@ -12,6 +12,7 @@ fd_cc_library(
         "fd_wksp_private.h",
     ],
     deps = [
+        "//src/util/pod",
         "//src/util/shmem",
     ],
 )
