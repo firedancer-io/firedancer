@@ -59,7 +59,6 @@ copts_threads = [
 ]
 linkopts_threads = [
     "-pthread",
-    "-lnuma",
 ]
 
 # x86_64: floats, dynamic stack

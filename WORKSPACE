@@ -101,3 +101,12 @@ gcc_register_toolchain(
     target_arch = "x86_64",
     url = "https://toolchains.bootlin.com/downloads/releases/toolchains/x86-64-v2/tarballs/x86-64-v2--glibc--stable-2022.08-1.tar.bz2",
 )
+
+# Fetch libnuma
+http_archive(
+    name = "numa",
+    build_file = "@//:third_party/numa.BUILD",
+    sha256 = "1508bb02f56f1b9376243980ba96291856ba083e7a3480fdcb0fbf11ff01d6fa",
+    strip_prefix = "numactl-2.0.15",
+    url = "https://github.com/numactl/numactl/archive/refs/tags/v2.0.15.tar.gz",
+)
