@@ -61,3 +61,12 @@ config_setting(
         "//:threads": "True",
     },
 )
+
+config_setting(
+    name = "x86_64_linux_llvm",
+    constraint_values = [
+        "@platforms//os:linux",
+        "@platforms//cpu:x86_64",
+        "//bazel/compiler:llvm",
+    ],
+)

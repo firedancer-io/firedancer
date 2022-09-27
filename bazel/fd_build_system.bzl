@@ -1,9 +1,6 @@
 load("//bazel:copts.bzl", "fd_copts", "fd_linkopts")
 load("@rules_fuzzing//fuzzing:cc_defs.bzl", "cc_fuzz_test")
 
-def fd_package():
-    native.package(default_visibility = ["//visibility:public"])
-
 def fd_cc_binary(
         name,
         copts = [],
@@ -31,7 +28,7 @@ def fd_cc_fuzz_test(
         name = srcs[0].rsplit(".", 1)[0]
     if target_compatible_with == None:
         target_compatible_with = select({
-            "//bazel/compiler:clang": [],
+            "//bazel/compiler:llvm": [],
             "//conditions:default": ["@platforms//:incompatible"],
         })
     cc_fuzz_test(

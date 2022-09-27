@@ -99,8 +99,28 @@ gcc_register_toolchain(
     sha256 = "4313a04996173bd79935ffaec48b97ba7c32332880774ec61b40ab76804b8fbb",
     strip_prefix = "x86-64-v2--glibc--stable-2022.08-1",
     target_arch = "x86_64",
+    target_compatible_with = ["@//bazel/compiler:gcc"],
     url = "https://toolchains.bootlin.com/downloads/releases/toolchains/x86-64-v2/tarballs/x86-64-v2--glibc--stable-2022.08-1.tar.bz2",
 )
+
+# Import LLVM toolchain.
+http_archive(
+    name = "grail_llvm_toolchain",
+    sha256 = "7fa5a8624b1148c36e09c7fa29ef6ee8b83f865219c9c219c9125aac78924758",
+    strip_prefix = "bazel-toolchain-c3131a6894804ee586d059c57ffe8e88d44172e1",
+    # version 0.7.2 plus fixes, including support for RHEL.
+    url = "https://github.com/grailbio/bazel-toolchain/archive/c3131a6894804ee586d059c57ffe8e88d44172e1.zip",
+)
+
+# LLVM 14.0.0
+load("@grail_llvm_toolchain//toolchain:rules.bzl", "llvm_toolchain")
+
+llvm_toolchain(
+    name = "llvm14",
+    llvm_version = "14.0.0",
+)
+
+register_toolchains("//bazel/toolchains:x86_64_linux_llvm")
 
 # Fetch libnuma
 http_archive(

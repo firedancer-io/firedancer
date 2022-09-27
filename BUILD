@@ -7,25 +7,20 @@ package(default_visibility = ["//visibility:public"])
 # --------------------------------
 
 platform(
-    name = "rh8_x86_64",
+    name = "linux_x86_64_gcc",
     constraint_values = [
         "@platforms//os:linux",
         "@platforms//cpu:x86_64",
+        "//bazel/compiler:gcc",
     ],
 )
 
 platform(
-    name = "rh8_noarch64",
+    name = "linux_x86_64_llvm",
     constraint_values = [
         "@platforms//os:linux",
-    ],
-)
-
-platform(
-    name = "rh8_noarch128",
-    constraint_values = [
-        "@platforms//os:linux",
-        "//src:has_int128",
+        "@platforms//cpu:x86_64",
+        "//bazel/compiler:llvm",
     ],
 )
 

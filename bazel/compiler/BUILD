@@ -1,11 +1,13 @@
-constraint_setting(name = "flavor")
+package(default_visibility = ["//visibility:public"])
+
+constraint_setting(name = "collection")
 
 constraint_value(
-    name = "clang",
-    constraint_setting = ":flavor",
+    name = "llvm",
+    constraint_setting = ":collection",
 )
 
 constraint_value(
     name = "gcc",
-    constraint_setting = ":flavor",
+    constraint_setting = ":collection",
 )

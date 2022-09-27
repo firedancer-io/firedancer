@@ -1,3 +1,1 @@
-load("//bazel:fd_build_system.bzl", "fd_package")
-
-fd_package()
+# Placeholder to mark directory as package.
