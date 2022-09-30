@@ -1,0 +1,205 @@
+#include "fd_txn.h"
+#include "fd_compact_u16.h"
+
+ulong
+fd_txn_parse( uchar const * payload,
+              ulong         payload_sz,
+              void        * out_buf ) {
+  ulong i = 0UL;
+  /* This code does non-trivial parsing of untrusted user input, which is a potentially dangerous thing.
+     The main invariants we need to ensure are
+         A)   i<=payload_sz  at all times
+         B)   i< payload_sz  prior to reading
+     As long as these invariants hold, it's safe to read payload[ i ].
+     To ensure this, we force the following discipline for all parsing steps:
+       Step 1. Assert there are enough bytes to read the field
+       Step 2. Read the field
+       Step 3. Advance i
+       Step 4. Validate the field (if there's anything to do)
+     This code is structured highly horizontally to make it very clear that it
+     is correct.
+
+     The first 3 steps are in three columns.  The variable `i` only appears in
+     very specific locations on the line (try searching for \<i\> in VIM to see
+     this).
+
+     The CHECK_LEFT( x ) call in the first column and the i+=x in the third
+     column always have the same argument, which ensures invariant A holds.
+     "Prior to reading" from invariant B corresponds to the middle column,
+     which is the only place `i` is read. Because x is positive, the
+     CHECK_LEFT( x ) in the first column ensures invariant B holds.
+
+     Unfortunately for variable length integers, we have to combine the first
+     two columns into a call to READ_CHECKED_COMPACT_U16 that also promises not
+     to use any out-of-bounds data (although it may tail read by <= 3 bytes).
+
+     The assignments are done at the end, in the same order as the variables
+     are declared in the struct, making it very clear every variable has been
+     initialized.
+     We pay a small memcpy cost in exchange for this clarity, but I think it's
+     the right tradeoff. */
+
+  /* A temporary for storing the return value of fd_cu16_dec_sz */
+  ulong bytes_consumed = 0UL;
+
+  /* Clean up and return immediately if cond is false. */
+  #define CHECK( cond )  do { if( FD_UNLIKELY( !(cond) ) ) { return 0UL; } } while( 0 )
+  /* CHECK that it is safe to read at least n more bytes assuming i is the
+     current location. n is untrusted and could trigger overflow, so don't do
+     i+n<=payload_sz */
+  #define CHECK_LEFT( n ) CHECK( (n)<=(payload_sz-i) )
+  /* READ_CHECKED_COMPACT_U16 safely reads a compact-u16 from the indicated
+     location in the payload.  It stores the resulting value in the ushort
+     variable called var_name.  It stores the size in out_sz. */
+  #define READ_CHECKED_COMPACT_U16( out_sz, var_name, where )               \
+    do {                                                                    \
+      ulong _where = (where);                                               \
+      ulong _out_sz = fd_cu16_dec_sz( payload+_where, payload_sz-_where );  \
+      CHECK( _out_sz );                                                     \
+      var_name = fd_cu16_dec_fixed( payload+_where, _out_sz );              \
+      out_sz = _out_sz;                                                     \
+    } while( 0 )
+
+  /* Minimal instr has 1B for program id, 1B acct_addr list, 1B for no data */
+  #define MIN_INSTR_SZ (3UL)
+  CHECK( payload_sz<=USHORT_MAX );
+
+  /* The documentation sometimes calls this field a compact-u16 and sometimes a u8.
+     Because of transaction size caps, even allowing for a 3k transaction caps the
+     signatures at 48, so we're comfortably in the range where a compact-u16 and a
+     u8 are represented the same way. */
+  CHECK_LEFT( 1UL                               );   uchar signature_cnt  = payload[ i ];     i++;
+  /* Must have at least one signer for the fee payer */
+  CHECK( (1UL<=signature_cnt) & (signature_cnt<=FD_TXN_SIG_MAX) );
+  CHECK_LEFT( FD_TXN_SIGNATURE_SZ*signature_cnt );   ulong signature_off  =          i  ;     i+=FD_TXN_SIGNATURE_SZ*signature_cnt;
+
+  /* Not actually parsing anything, just store. */   ulong message_off    =          i  ;
+  CHECK_LEFT( 1UL                               );   uchar header_b0      = payload[ i ];     i++;
+
+  uchar transaction_version;
+  if( FD_LIKELY( (ulong)header_b0 & 0x80UL ) ) {
+    /* This is a versioned transaction */
+    transaction_version = header_b0 & 0x7F;
+    CHECK( transaction_version==FD_TXN_V0 ); /* Only recognized one so far */
+
+    CHECK_LEFT( 1UL                             );   CHECK(  signature_cnt==payload[ i ] );   i++;
+  } else {
+    transaction_version = FD_TXN_VLEGACY;
+    CHECK( signature_cnt==header_b0 );
+  }
+  CHECK_LEFT( 1UL                               );   uchar ro_signed_cnt  = payload[ i ];     i++;
+  /* Must have at least one writable signer for the fee payer */
+  CHECK( ro_signed_cnt<signature_cnt );
+
+  CHECK_LEFT( 1UL                               );   uchar ro_unsigned_cnt= payload[ i ];     i++;
+
+  ushort acct_addr_cnt = (ushort)0;
+  READ_CHECKED_COMPACT_U16( bytes_consumed,                acct_addr_cnt,            i );     i+=bytes_consumed;
+  CHECK( (signature_cnt<=acct_addr_cnt) & (acct_addr_cnt<=FD_TXN_ACCT_ADDR_MAX) );
+  CHECK( (ulong)signature_cnt+(ulong)ro_unsigned_cnt<=(ulong)acct_addr_cnt );
+
+  CHECK_LEFT( FD_TXN_ACCT_ADDR_SZ*acct_addr_cnt );   ulong acct_addr_off  =          i  ;     i+=FD_TXN_ACCT_ADDR_SZ*acct_addr_cnt;
+  CHECK_LEFT( FD_TXN_BLOCKHASH_SZ               );   ulong recent_blockhash_off =    i  ;     i+=FD_TXN_BLOCKHASH_SZ;
+
+  ushort instr_cnt = (ushort)0;
+  READ_CHECKED_COMPACT_U16( bytes_consumed,                instr_cnt,                i );     i+=bytes_consumed;
+
+  CHECK_LEFT( MIN_INSTR_SZ*instr_cnt            );
+
+  fd_txn_t * parsed = (fd_txn_t *)out_buf;
+
+  parsed->transaction_version           = transaction_version;
+  parsed->signature_cnt                 = signature_cnt;
+  parsed->signature_off                 = (ushort)signature_off;
+  parsed->message_off                   = (ushort)message_off;
+  parsed->readonly_signed_cnt           = ro_signed_cnt;
+  parsed->readonly_unsigned_cnt         = ro_unsigned_cnt;
+  parsed->acct_addr_cnt                 = acct_addr_cnt;
+  parsed->acct_addr_off                 = (ushort)acct_addr_off;
+  parsed->recent_blockhash_off          = (ushort)recent_blockhash_off;
+  /* Need to assign addr_table_lookup_cnt, addr_table_adtl_writable_cnt,
+     addr_table_adtl_cnt, _padding_reserved_1 later */
+  parsed->instr_cnt                     = instr_cnt;
+
+
+  for( ulong j=0UL; j<instr_cnt; j++ ) {
+    ushort acct_cnt = (ushort)0;
+    ushort data_sz  = (ushort)0;
+    CHECK_LEFT( MIN_INSTR_SZ                    );   uchar program_id     = payload[ i ];     i++;
+    READ_CHECKED_COMPACT_U16( bytes_consumed,             acct_cnt,                  i );     i+=bytes_consumed;
+    CHECK_LEFT( acct_cnt                        );   ulong acct_off       =          i  ;     i+=acct_cnt;
+    READ_CHECKED_COMPACT_U16( bytes_consumed,             data_sz,                   i );     i+=bytes_consumed;
+    CHECK_LEFT( data_sz                         );   ulong data_off       =          i  ;     i+=data_sz;
+
+    parsed->instr[ j ].program_id          = program_id;
+    parsed->instr[ j ]._padding_reserved_1 = (uchar)0;
+    parsed->instr[ j ].acct_cnt            = acct_cnt;
+    parsed->instr[ j ].data_sz             = data_sz;
+    /* By our invariant, i<size when it was copied into acct_off and data_off,
+       and size<=USHORT_MAX from above, so this cast is safe */
+    parsed->instr[ j ].acct_off            = (ushort)acct_off;
+    parsed->instr[ j ].data_off            = (ushort)data_off;
+  }
+  #undef MIN_INSTR_SIZE
+
+  ushort addr_table_cnt               = 0;
+  ulong  addr_table_adtl_writable_cnt = 0;
+  ulong  addr_table_adtl_cnt          = 0;
+
+  /* parsed->instr_cnt set above, so calling get_address_tables is safe */
+  fd_txn_acct_addr_lut_t * address_tables = fd_txn_get_address_tables( parsed );
+  if( FD_LIKELY( transaction_version==FD_TXN_V0 ) ) {
+  #define MIN_ADDR_LUT_SIZE (34UL)
+    READ_CHECKED_COMPACT_U16( bytes_consumed,             addr_table_cnt,            i );     i+=bytes_consumed;
+    CHECK( addr_table_cnt <= FD_TXN_ADDR_TABLE_LOOKUP_MAX );
+    CHECK_LEFT( MIN_ADDR_LUT_SIZE*addr_table_cnt );
+
+    for( ulong j=0; j<addr_table_cnt; j++ ) {
+      CHECK_LEFT( FD_TXN_ACCT_ADDR_SZ           );   ulong addr_off       =          i  ;     i+=FD_TXN_ACCT_ADDR_SZ;
+
+      ushort writable_cnt = 0;
+      ushort readonly_cnt = 0;
+      READ_CHECKED_COMPACT_U16( bytes_consumed,            writable_cnt,             i );     i+=bytes_consumed;
+      CHECK_LEFT( writable_cnt                  );   ulong writable_off   =          i  ;     i+=writable_cnt;
+      READ_CHECKED_COMPACT_U16( bytes_consumed,            readonly_cnt,             i );     i+=bytes_consumed;
+      CHECK_LEFT( readonly_cnt                  );   ulong readonly_off   =          i  ;     i+=readonly_cnt;
+
+      CHECK( writable_cnt<=FD_TXN_ACCT_ADDR_MAX-acct_addr_cnt ); /* implies <256 */
+      CHECK( readonly_cnt<=FD_TXN_ACCT_ADDR_MAX-acct_addr_cnt );
+      address_tables[ j ].addr_off      = (ushort)addr_off;
+      address_tables[ j ].writable_cnt  = (uchar )writable_cnt;
+      address_tables[ j ].readonly_cnt  = (uchar )readonly_cnt;
+      address_tables[ j ].writable_off  = (ushort)writable_off;
+      address_tables[ j ].readonly_off  = (ushort)readonly_off;
+
+      addr_table_adtl_writable_cnt += (ulong)writable_cnt;
+      addr_table_adtl_cnt          += (ulong)writable_cnt + (ulong)readonly_cnt;
+    }
+  }
+  #undef MIN_ADDR_LUT_SIZE
+  /* Check for leftover bytes */
+  CHECK( i==payload_sz );
+
+  CHECK( acct_addr_cnt+addr_table_adtl_cnt<=256UL ); /* implies addr_table_adtl_cnt<256 */
+
+
+  /* Final validation that all the account address indices are in range */
+  for( ulong j=0; j<instr_cnt; j++ ) {
+    /* Account 0 is the fee payer and the program can't be the fee payer */
+    CHECK( (0 < parsed->instr[ j ].program_id) & (parsed->instr[ j ].program_id < acct_addr_cnt + addr_table_adtl_cnt) );
+    for( ulong k=0; k<parsed->instr[ j ].acct_cnt; k++ ) {
+      CHECK( payload[ parsed->instr[ j ].acct_off + k ] < acct_addr_cnt + addr_table_adtl_cnt );
+    }
+  }
+  /* Assign final variables */
+  parsed->addr_table_lookup_cnt         = (uchar)addr_table_cnt;
+  parsed->addr_table_adtl_writable_cnt  = (uchar)addr_table_adtl_writable_cnt;
+  parsed->addr_table_adtl_cnt           = (uchar)addr_table_adtl_cnt;
+  parsed->_padding_reserved_1           = (uchar)0;
+
+  return fd_txn_footprint( instr_cnt, addr_table_cnt );
+
+  #undef CHECK
+  #undef CHECK_LEFT
+  #undef READ_CHECKED_COMPACT_U16
+}
