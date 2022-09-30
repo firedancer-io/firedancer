@@ -386,6 +386,29 @@ fd_log_wallclock_cstr( long   t,
 long
 fd_log_sleep( long dt );
 
+/* fd_log_wait_until waits until fd_log_wallclock() is at least then.
+   Returns the time on the clock when the wait ended (will be at least
+   then).  This makes a best effort to be a good citizen and sleep /
+   yield / hyperthreading friendly the caller while also being as
+   precise on the wait as possible (i.e. limited by the overhead
+   fd_log_wallclock).  That is, as the time remaining to wait decreases,
+   the wait gets progressively more precise and CPU intensive.  If
+   remaining is the number of ns remaining in the wait, then:
+
+               remaining <~   1 us: spin
+       1 us <~ remaining <~ 100 ms: hyper threading friendly spin
+     100 ms <~ remaining <~   1  s: yielding spin
+       1  s <~ remaining          : sleep until ~100 ms remaining
+
+   If (as is usually the case) fd_log_sleep precision is much better
+   than <<~100 ms accurate, FD_YIELD() delays take <<~100ms and
+   FD_SPIN_PAUSE() << 1 us, the return value will be an accurate read of
+   the fd_log_wallclock at the time of return and within the overhead of
+   fd_log_wallclock. */
+
+long
+fd_log_wait_until( long then );
+
 /* fd_log_flush() manually flushes the log (e.g. log a bunch of low
    priority messages and then flush to ensure the bunch gets written out
    before proceeding). */

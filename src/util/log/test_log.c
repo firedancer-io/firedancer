@@ -57,12 +57,18 @@ main( int     argc,
   long tic;
   long toc = fd_log_wallclock();
   for( int i=0; i<10; i++ ) { tic = toc; toc = fd_log_wallclock(); }
-  FD_LOG_NOTICE((  "Test wallclock dt %li ns", toc-tic         ));
+  FD_LOG_NOTICE((  "Test wallclock overhead %li ns", toc-tic ));
 
   tic = fd_log_wallclock();
   toc = (long)1e9; do toc = fd_log_sleep( toc ); while( toc );
-  tic = fd_log_wallclock() - tic;
-  FD_TEST( ((long)0.9e9)<tic && tic<((long)1.1e9) );
+  tic = fd_log_wallclock() - (tic+(long)1e9);
+  FD_LOG_NOTICE(( "Test fd_log_sleep delta %li ns", tic ));
+  FD_TEST( fd_long_abs( tic ) < (ulong)25e6 );
+
+  tic = fd_log_wallclock();
+  tic = fd_log_wait_until( tic+(long)1e9 ) - (tic+(long)1e9);
+  FD_LOG_NOTICE(( "Test fd_log_wait_until delta %li ns", tic ));
+  FD_TEST( fd_long_abs( tic ) < (ulong)25e3 );
 
   /* Debugging helpers */
   static uchar const hex[16] = { 0x0, 0x1, 0x2, 0x3, 0x4, 0x5, 0x6, 0x7, 0x8, 0x9, 0xa, 0xb, 0xc, 0xd, 0xe, 0xf };
@@ -74,9 +80,8 @@ main( int     argc,
   fd_log_flush();
 
   /* Cancelling log messages */
-  if( volatile_yes ) FD_LOG_ERR((     "Test ERR          (warning+exit program with error 1)"     ));
-  /* Never get to this point */
-  backtrace_test();
+  if( !volatile_yes ) FD_LOG_ERR((     "Test ERR          (warning+exit program with error 1)"     ));
+  if( !volatile_yes ) backtrace_test();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

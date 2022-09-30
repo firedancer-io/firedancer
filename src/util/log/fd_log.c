@@ -369,6 +369,30 @@ fd_log_sleep( long dt ) {
   return dt;
 }
 
+long
+fd_log_wait_until( long then ) {
+  long now;
+  for(;;) {
+    now = fd_log_wallclock();
+    long rem = then - now;
+    if( FD_LIKELY( rem<=0L ) ) break; /* we've waited long enough */
+    if( FD_UNLIKELY( rem>(long)1e9 ) ) { /* long wait (over ~1 s) ... sleep until medium long */
+      fd_log_sleep( rem-(long)0.1e9 );
+      continue;
+    }
+    if( FD_UNLIKELY( rem>(long)0.1e9 ) ) { /* medium long wait (over ~0.1 s) ... yield */
+      FD_YIELD();
+      continue;
+    }
+    if( FD_UNLIKELY( rem>(long)1e3 ) ) { /* medium short wait (over ~1 us) ... hyperthreading friendly spin */
+      FD_SPIN_PAUSE();
+      continue;
+    }
+    /* short wait ... spin on fd_log_wallclock */
+  }
+  return now;
+}
+
 /* LOG APIS ***********************************************************/
 
 static char   fd_log_private_path[ 1024 ]; /* empty string on start */
