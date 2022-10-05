@@ -6,6 +6,46 @@
 #include <stdlib.h>
 #include <ctype.h>
 
+static int
+supported_val_type( int val_type ) {
+  return (val_type==FD_POD_VAL_TYPE_CSTR  ) | (val_type==FD_POD_VAL_TYPE_CHAR  )
+       | (val_type==FD_POD_VAL_TYPE_SCHAR ) | (val_type==FD_POD_VAL_TYPE_SHORT )
+       | (val_type==FD_POD_VAL_TYPE_INT   ) | (val_type==FD_POD_VAL_TYPE_LONG  )
+       | (val_type==FD_POD_VAL_TYPE_UCHAR ) | (val_type==FD_POD_VAL_TYPE_USHORT)
+       | (val_type==FD_POD_VAL_TYPE_UINT  ) | (val_type==FD_POD_VAL_TYPE_ULONG )
+       | (val_type==FD_POD_VAL_TYPE_FLOAT )
+#      if FD_HAS_DOUBLE
+       | (val_type==FD_POD_VAL_TYPE_DOUBLE)
+#      endif
+  ;
+}
+
+static ulong
+insert_val( uchar *      pod,
+            char const * path,
+            int          val_type,
+            char const * val ) {
+  ulong off;
+  switch( val_type ) {
+  case FD_POD_VAL_TYPE_CSTR:   off = fd_pod_insert_cstr  ( pod, path, fd_cstr_to_cstr  ( val ) ); break;
+  case FD_POD_VAL_TYPE_CHAR:   off = fd_pod_insert_char  ( pod, path, fd_cstr_to_char  ( val ) ); break;
+  case FD_POD_VAL_TYPE_SCHAR:  off = fd_pod_insert_schar ( pod, path, fd_cstr_to_schar ( val ) ); break;
+  case FD_POD_VAL_TYPE_SHORT:  off = fd_pod_insert_short ( pod, path, fd_cstr_to_short ( val ) ); break;
+  case FD_POD_VAL_TYPE_INT:    off = fd_pod_insert_int   ( pod, path, fd_cstr_to_int   ( val ) ); break;
+  case FD_POD_VAL_TYPE_LONG:   off = fd_pod_insert_long  ( pod, path, fd_cstr_to_long  ( val ) ); break;
+  case FD_POD_VAL_TYPE_UCHAR:  off = fd_pod_insert_uchar ( pod, path, fd_cstr_to_uchar ( val ) ); break;
+  case FD_POD_VAL_TYPE_USHORT: off = fd_pod_insert_ushort( pod, path, fd_cstr_to_ushort( val ) ); break;
+  case FD_POD_VAL_TYPE_UINT:   off = fd_pod_insert_uint  ( pod, path, fd_cstr_to_uint  ( val ) ); break;
+  case FD_POD_VAL_TYPE_ULONG:  off = fd_pod_insert_ulong ( pod, path, fd_cstr_to_ulong ( val ) ); break;
+  case FD_POD_VAL_TYPE_FLOAT:  off = fd_pod_insert_float ( pod, path, fd_cstr_to_float ( val ) ); break;
+# if FD_HAS_DOUBLE
+  case FD_POD_VAL_TYPE_DOUBLE: off = fd_pod_insert_double( pod, path, fd_cstr_to_double( val ) ); break;
+# endif
+  default: FD_LOG_ERR(( "never get here" ));
+  }
+  return off;
+}
+
 static inline int
 issingleprint( int c ) {
   return isalnum( c ) | ispunct( c ) | (c==' ');
@@ -166,13 +206,42 @@ main( int     argc,
         "\n\t"
         "\tinsert pod type path val\n\t"
         "\t- Inserts type into the pod at path with value val\n\t"
+        "\t- Fails if path already exists in the pod.\n\t"
+        "\t- Might change the locations of existing values in the pod\n\t"
         "\n\t"
         "\tremove pod path\n\t"
         "\t- Remove the path (and any path.*) from the pod\n\t"
+        "\t- Fails if path does not already exist in the pod.\n\t"
+        "\t- Might change the locations of existing values in the pod\n\t"
+        "\n\t"
+        "\tupdate pod type path val\n\t"
+        "\t- Update path to val (failing if path to type does not already\n\t"
+        "\t  exist).  Specifically, in pseudocode:\n\t"
+        "\t    t = query type pod path  # check if path to type exists\n\t"
+        "\t    if t!=type, fail         # no\n\t"
+        "\t    remove pod path          # remove old val\n\t"
+        "\t    insert pod type path val # insert new val\n\t"
+        "\t- In the implementation currently, if the insert fails, the\n\t"
+        "\t  original value will be lost.\n\t"
+        "\t- Might change the locations of existing values in the pod\n\t"
+        "\n\t"
+        "\tset pod type path val\n\t"
+        "\t- Set path to val (inserting path if path does not already\n\t"
+        "\t  exist).  Will not change the type at end of an existing\n\t"
+        "\t  path.  Specifically, in pseudocode:\n\t"
+        "\t    t = query type pod path       # check if path exists\n\t"
+        "\t    if   t==type, remove pod path # yes and to right type \n\t"
+        "\t    elif t!=void, fail            # yes but to wrong type\n\t"
+        "\t    fi\n\t                        # no"
+        "\t    insert pod type val           # insert new val\n\t"
+        "\t- In the implementation currently, if the insert fails, the\n\t"
+        "\t  original value at path (if any) will be lost.\n\t"
+        "\t- Might change the locations of existing values in the pod\n\t"
         "\n\t"
         "\tcompact pod full\n\t"
         "\t- Compacts the pod.  If full is non-zero, a full compaction is\n\t"
         "\t  done (pod_max=pod_used and the pod header is compacted).\n\t"
+        "\t  Might change the locations of existing values in the pod.\n\t"
         "\n\t"
         "\tquery-root what pod\n\t"
         "\t- Query pod.  what determines what will be printed to\n\t"
@@ -211,6 +280,8 @@ main( int     argc,
         "\t    gaddr:      current location of the pod encoded value if\n\t"
         "\t                pod:path exists, null if not\n\t"
         "\t    full:       pretty printed verbose query\n\t"
+        "\n\t"
+        "\tThe current implementation assumes no concurrent pod users."
         "\n\t", bin ));
       FD_LOG_NOTICE(( "%i: %s: success", cnt, cmd ));
 
@@ -370,6 +441,10 @@ main( int     argc,
       char const * path = argv[2];
       char const * val  = argv[3];
 
+      int val_type = fd_cstr_to_pod_val_type( type );
+      if( FD_UNLIKELY( !supported_val_type( val_type ) ) )
+        FD_LOG_ERR(( "%i: %s: unsupported type %s\n\tDo %s help for help", cnt, cmd, type, bin ));
+
       void * shmem = fd_wksp_map( cstr );
       if( FD_UNLIKELY( !shmem ) )
         FD_LOG_ERR(( "%i: %s: fd_wksp_map( \"%s\" ) failed\n\tDo %s help for help", cnt, cmd, cstr, bin ));
@@ -380,24 +455,7 @@ main( int     argc,
         FD_LOG_ERR(( "%i: %s: fd_pod_join( \"%s\" ) failed\n\tDo %s help for help", cnt, cmd, cstr, bin ));
       }
 
-      ulong off;
-      switch( fd_cstr_to_pod_val_type( type ) ) {
-      case FD_POD_VAL_TYPE_CSTR:   off = fd_pod_insert_cstr  ( pod, path, fd_cstr_to_cstr  ( val ) ); break;
-      case FD_POD_VAL_TYPE_CHAR:   off = fd_pod_insert_char  ( pod, path, fd_cstr_to_char  ( val ) ); break;
-      case FD_POD_VAL_TYPE_SCHAR:  off = fd_pod_insert_schar ( pod, path, fd_cstr_to_schar ( val ) ); break;
-      case FD_POD_VAL_TYPE_SHORT:  off = fd_pod_insert_short ( pod, path, fd_cstr_to_short ( val ) ); break;
-      case FD_POD_VAL_TYPE_INT:    off = fd_pod_insert_int   ( pod, path, fd_cstr_to_int   ( val ) ); break;
-      case FD_POD_VAL_TYPE_LONG:   off = fd_pod_insert_long  ( pod, path, fd_cstr_to_long  ( val ) ); break;
-      case FD_POD_VAL_TYPE_UCHAR:  off = fd_pod_insert_uchar ( pod, path, fd_cstr_to_uchar ( val ) ); break;
-      case FD_POD_VAL_TYPE_USHORT: off = fd_pod_insert_ushort( pod, path, fd_cstr_to_ushort( val ) ); break;
-      case FD_POD_VAL_TYPE_UINT:   off = fd_pod_insert_uint  ( pod, path, fd_cstr_to_uint  ( val ) ); break;
-      case FD_POD_VAL_TYPE_ULONG:  off = fd_pod_insert_ulong ( pod, path, fd_cstr_to_ulong ( val ) ); break;
-      case FD_POD_VAL_TYPE_FLOAT:  off = fd_pod_insert_float ( pod, path, fd_cstr_to_float ( val ) ); break;
-#     if FD_HAS_DOUBLE                                                                             
-      case FD_POD_VAL_TYPE_DOUBLE: off = fd_pod_insert_double( pod, path, fd_cstr_to_double( val ) ); break;
-#     endif
-      default:                     off = 0UL; break;
-      }
+      ulong off = insert_val( pod, path, val_type, val );
 
       fd_wksp_unmap( fd_pod_leave( pod ) );
 
@@ -435,6 +493,125 @@ main( int     argc,
 
       FD_LOG_NOTICE(( "%i: %s %s %s: success", cnt, cmd, cstr, path ));
       SHIFT(2);
+
+    } else if( !strcmp( cmd, "update" ) ) {
+
+      if( FD_UNLIKELY( argc<4 ) ) FD_LOG_ERR(( "%i: %s: too few arguments\n\tDo %s help for help", cnt, cmd, bin ));
+
+      char const * cstr = argv[0];
+      char const * type = argv[1];
+      char const * path = argv[2];
+      char const * val  = argv[3];
+
+      int val_type = fd_cstr_to_pod_val_type( type );
+      if( FD_UNLIKELY( !supported_val_type( val_type ) ) )
+        FD_LOG_ERR(( "%i: %s: unsupported type %s\n\tDo %s help for help", cnt, cmd, type, bin ));
+
+      void * shmem = fd_wksp_map( cstr );
+      if( FD_UNLIKELY( !shmem ) )
+        FD_LOG_ERR(( "%i: %s: fd_wksp_map( \"%s\" ) failed\n\tDo %s help for help", cnt, cmd, cstr, bin ));
+
+      uchar * pod = fd_pod_join( shmem );
+      if( FD_UNLIKELY( !pod ) ) {
+        fd_wksp_unmap( shmem );
+        FD_LOG_ERR(( "%i: %s: fd_pod_join( \"%s\" ) failed\n\tDo %s help for help", cnt, cmd, cstr, bin ));
+      }
+
+      fd_pod_info_t info[1];
+      int err = fd_pod_query( pod, path, info );
+      if( FD_UNLIKELY( !!err ) ) {
+        fd_wksp_unmap( fd_pod_leave( pod ) );
+        FD_LOG_ERR(( "%i: %s: no path %s to type (%i-%s) in pod %s (%i-%s)\n\tDo %s help for help",
+                     cnt, cmd, path, val_type, type, cstr, err, fd_pod_strerror( err ), bin ));
+      }
+
+      if( FD_UNLIKELY( info->val_type!=val_type ) ) {
+        fd_wksp_unmap( fd_pod_leave( pod ) );
+        char buf[ FD_POD_VAL_TYPE_CSTR_MAX ];
+        FD_LOG_ERR(( "%i: %s: type (%i-%s) at %s %s does not match requested type (%i-%s)\n\tDo %s help for help",
+                     cnt, cmd, info->val_type, fd_pod_val_type_to_cstr( info->val_type, buf ),
+                     cstr, path, val_type, type, bin ));
+      }
+
+      err = fd_pod_remove( pod, path );
+      if( FD_UNLIKELY( err ) ) {
+        fd_wksp_unmap( fd_pod_leave( pod ) );
+        FD_LOG_ERR(( "%i: %s: fd_pod_remove( \"%s\", \"%s\" ) failed (%i-%s)\n\tDo %s help for help",
+                     cnt, cmd, cstr, path, err, fd_pod_strerror( err ), bin ));
+      }
+
+      ulong off = insert_val( pod, path, val_type, val );
+
+      fd_wksp_unmap( fd_pod_leave( pod ) );
+
+      if( FD_UNLIKELY( !off ) )
+        FD_LOG_ERR(( "%i: %s: fd_pod_insert_%s( \"%s\", \"%s\", \"%s\" ) failed\n\tDo %s help for help",
+                     cnt, cmd, type, cstr, path, val, bin ));
+
+      FD_LOG_NOTICE(( "%i: %s %s %s %s %s: success", cnt, cmd, cstr, type, path, val ));
+      SHIFT(4);
+
+    } else if( !strcmp( cmd, "set" ) ) {
+
+      if( FD_UNLIKELY( argc<4 ) ) FD_LOG_ERR(( "%i: %s: too few arguments\n\tDo %s help for help", cnt, cmd, bin ));
+
+      char const * cstr = argv[0];
+      char const * type = argv[1];
+      char const * path = argv[2];
+      char const * val  = argv[3];
+
+      int val_type = fd_cstr_to_pod_val_type( type );
+      if( FD_UNLIKELY( !supported_val_type( val_type ) ) )
+        FD_LOG_ERR(( "%i: %s: unsupported type %s\n\tDo %s help for help", cnt, cmd, type, bin ));
+
+      void * shmem = fd_wksp_map( cstr );
+      if( FD_UNLIKELY( !shmem ) )
+        FD_LOG_ERR(( "%i: %s: fd_wksp_map( \"%s\" ) failed\n\tDo %s help for help", cnt, cmd, cstr, bin ));
+
+      uchar * pod = fd_pod_join( shmem );
+      if( FD_UNLIKELY( !pod ) ) {
+        fd_wksp_unmap( shmem );
+        FD_LOG_ERR(( "%i: %s: fd_pod_join( \"%s\" ) failed\n\tDo %s help for help", cnt, cmd, cstr, bin ));
+      }
+
+      fd_pod_info_t info[1];
+      int err = fd_pod_query( pod, path, info );
+      if( FD_LIKELY( !err ) ) {
+
+        if( FD_UNLIKELY( info->val_type!=val_type ) ) {
+          fd_wksp_unmap( fd_pod_leave( pod ) );
+          char buf[ FD_POD_VAL_TYPE_CSTR_MAX ];
+          FD_LOG_ERR(( "%i: %s: type (%i-%s) at %s %s does not match requested type (%i-%s)\n\tDo %s help for help",
+                       cnt, cmd, info->val_type, fd_pod_val_type_to_cstr( info->val_type, buf ),
+                       cstr, path, val_type, type, bin ));
+        }
+
+        err = fd_pod_remove( pod, path );
+        if( FD_UNLIKELY( err ) ) {
+          fd_wksp_unmap( fd_pod_leave( pod ) );
+          FD_LOG_ERR(( "%i: %s: fd_pod_remove( \"%s\", \"%s\" ) failed (%i-%s)\n\tDo %s help for help",
+                       cnt, cmd, cstr, path, err, fd_pod_strerror( err ), bin ));
+        }
+
+      } else if( FD_UNLIKELY( err!=FD_POD_ERR_RESOLVE ) ) {
+
+        fd_wksp_unmap( fd_pod_leave( pod ) );
+        FD_LOG_ERR(( "%i: %s: fd_pod_query( \"%s\", \"%s\" ) failed (%i-%s)\n\tDo %s help for help",
+                     cnt, cmd, cstr, path, err, fd_pod_strerror( err ), bin ));
+
+      }
+
+      ulong off = insert_val( pod, path, val_type, val );
+
+      fd_wksp_unmap( fd_pod_leave( pod ) );
+
+      if( FD_UNLIKELY( !off ) )
+        FD_LOG_ERR(( "%i: %s: fd_pod_insert_%s( \"%s\", \"%s\", \"%s\" ) failed\n\tDo %s help for help",
+                     cnt, cmd, type, cstr, path, val, bin ));
+
+      FD_LOG_NOTICE(( "%i: %s %s %s %s %s: success", cnt, cmd, cstr, type, path, val ));
+      SHIFT(4);
+
 
     } else if( !strcmp( cmd, "compact" ) ) {
 
