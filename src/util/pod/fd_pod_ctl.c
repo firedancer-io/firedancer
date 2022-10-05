@@ -232,7 +232,7 @@ main( int     argc,
         "\t    t = query type pod path       # check if path exists\n\t"
         "\t    if   t==type, remove pod path # yes and to right type \n\t"
         "\t    elif t!=void, fail            # yes but to wrong type\n\t"
-        "\t    fi\n\t                        # no"
+        "\t    fi                            # no\n\t"
         "\t    insert pod type val           # insert new val\n\t"
         "\t- In the implementation currently, if the insert fails, the\n\t"
         "\t  original value at path (if any) will be lost.\n\t"
