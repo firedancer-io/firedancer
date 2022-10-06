@@ -3,6 +3,37 @@
 #if FD_HAS_FRANK
 
 #include <stdio.h>
+#include <signal.h>
+
+static fd_cnc_t * fd_frank_main_cnc = NULL;
+
+static void
+fd_frank_sigaction( int         sig,
+                    siginfo_t * info,
+                    void *      context ) {
+  (void)info;
+  (void)context;
+  /* FIXME: add support to fd_log for robust logging inside a signal
+     handler (i.e. make sure that behavior of calling a log when the
+     interrupted thread might be in the middle of preparing a log
+     message is well defined) */
+  FD_LOG_NOTICE(( "received POSIX signal %i; sending halt to main", sig ));
+  if( FD_UNLIKELY( fd_cnc_open( fd_frank_main_cnc ) ) ) { /* logs details */
+    FD_LOG_WARNING(( "unable to send halt (fd_cnc_open failed); shutdown will be unclean" ));
+    raise( sig ); /* fall back on default handler so thread still terminates */
+  }
+  fd_cnc_signal( fd_frank_main_cnc, FD_CNC_SIGNAL_HALT );
+  fd_cnc_close ( fd_frank_main_cnc );
+}
+
+static void
+fd_frank_signal_trap( int sig ) {
+  struct sigaction act[1];
+  act->sa_sigaction = fd_frank_sigaction;
+  if( FD_UNLIKELY( sigemptyset( &act->sa_mask ) ) ) FD_LOG_ERR(( "sigempty set failed" ));
+  act->sa_flags = (int)(SA_SIGINFO | SA_RESETHAND);
+  if( FD_UNLIKELY( sigaction( sig, act, NULL ) ) ) FD_LOG_ERR(( "unable to override signal %i", sig ));
+}
 
 int
 main( int     argc,
@@ -84,7 +115,7 @@ main( int     argc,
 
   } while(0);
 
-  /* Boot all the tiles main controls */
+  /* Boot all the tiles that main controls */
 
   for( ulong tile_idx=1UL; tile_idx<tile_cnt; tile_idx++ ) {
     FD_LOG_NOTICE(( "booting tile %s", tile_name[ tile_idx ] ));
@@ -123,6 +154,12 @@ main( int     argc,
   FD_VOLATILE( cnc_diag[ FD_CNC_DIAG_IN_BACKP  ] ) = 0UL;
   FD_VOLATILE( cnc_diag[ FD_CNC_DIAG_BACKP_CNT ] ) = 0UL;
   FD_COMPILER_MFENCE();
+
+  /* Configure normal kill and ctrl-c to do a clean shutdown */
+
+  FD_VOLATILE( fd_frank_main_cnc ) = cnc;
+  fd_frank_signal_trap( SIGTERM );
+  fd_frank_signal_trap( SIGINT  );
 
   /* Run command and control */
 
