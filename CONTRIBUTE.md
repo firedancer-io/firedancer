@@ -20,9 +20,9 @@ haven't already. If you have a @jumptrading.com email address, log in using comp
 
 ### Via SSH
 
-First, [configure your SSH public key(s)](https://git.firedancer.io//settings/#SSHKeys) in Gerrit.
+First, [configure your SSH public key(s)](https://git.firedancer.io/settings/#SSHKeys) in Gerrit.
 Then, navigate to
-the [firedancer repo overview](https://git.firedancer.io//admin/repos/firedancer,general),
+the [firedancer repo overview](https://git.firedancer.io/admin/repos/firedancer,general),
 select "SSH" and copy and run the *"Clone with commit-msg hook"* command.
 
 The commit hook will automatically add a `Change-Id` tag to each commit message, which allows Gerrit
@@ -36,12 +36,12 @@ to uniquely identify changes across rebases.
 If you are behind certain corporate firewalls or otherwise unable to use SSH, you can use instead use HTTPS
 token authentication to clone the repository. If you can, we recommend using SSH.
 
-First, [generate a HTTP password](https://git.firedancer.io//settings/#HTTPCredentials) and store
+First, [generate a HTTP password](https://git.firedancer.io/settings/#HTTPCredentials) and store
 it in your password manager (you can only have one, generating a new one will invalidate the old one). Keep
 it safe - anyone in possession of it can push and review code on your behalf!
 
 Then, select "HTTPS" on
-the [firedancer repo overview](https://git.firedancer.io//admin/repos/firedancer,general) and copy and
+the [firedancer repo overview](https://git.firedancer.io/admin/repos/firedancer,general) and copy and
 run the *"Clone with commit-msg hook"* command. When
 prompted for credentials, use your Gerrit username (usually your GitHub username or SSO name - it's also in
 the clone URL you just copied) and the generated HTTP password.
