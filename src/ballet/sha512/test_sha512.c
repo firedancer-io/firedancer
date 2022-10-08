@@ -80,16 +80,24 @@ main( int     argc,
   /* do a quick benchmark of sha-512 to UDP payloads of MTU Ethernet
      packets on UDP/IP4/VLAN/Ethernet */
 
-  uchar buf[ 1472 ] __attribute__((aligned(64)));
+# define SZ (1472UL)
+  uchar buf[ SZ ] __attribute__((aligned(64)));
+  for( ulong b=0UL; b<SZ; b++ ) buf[b] = fd_rng_uchar( rng );
 
-  for( ulong b=0UL; b<1472UL; b++ ) buf[b] = fd_rng_uchar( rng );
-
+  /* warmup */
+  ulong iter = 10000UL;
   long dt = fd_log_wallclock();
-  ulong iter = 100000UL;
-  for( ulong rem=iter; rem; rem-- ) fd_sha512_fini( fd_sha512_append( fd_sha512_init( sha ), buf, 1472UL ), hash );
+  for( ulong rem=iter; rem; rem-- ) fd_sha512_fini( fd_sha512_append( fd_sha512_init( sha ), buf, SZ ), hash );
   dt = fd_log_wallclock() - dt;
 
-  FD_LOG_NOTICE(( "~%.3f Gbps Ethernet equiv throughput per core", (double)(((float)(8UL*(84UL+1472UL)*iter))/((float)dt)) ));
+  /* for real */
+  iter = 100000UL;
+  dt = fd_log_wallclock();
+  for( ulong rem=iter; rem; rem-- ) fd_sha512_fini( fd_sha512_append( fd_sha512_init( sha ), buf, SZ ), hash );
+  dt = fd_log_wallclock() - dt;
+
+  FD_LOG_NOTICE(( "~%.3f Gbps Ethernet equiv throughput per core", (double)(((float)(8UL*(70UL+SZ)*iter))/((float)dt)) ));
+# undef SZ
 
   /* clean up */
 
