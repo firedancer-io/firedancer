@@ -65,12 +65,14 @@ fd_rng_private_contract( ulong eseq ) {
 }
 
 /* fd_rng_{align,footprint} give the needed alignment and footprint
-   for a memory region suitable to hold a fd_rng's state.  malloc /
-   alloca / declaration friendly (e.g. a memory region declared as
-   "fd_rng_t _rng[1];", or created by "malloc(sizeof(fd_rng_t))" or
-   created by "alloca(sizeof(fd_rng_t))" will all automatically have the
-   needed footprint and alignment).  fd_rng_{align,footprint} return the
-   same value as FD_RNG_{ALIGN,FOOTPRINT}.
+   for a memory region suitable to hold a fd_rng's state.  Declaration /
+   aligned_alloc / fd_alloca friendly (e.g. a memory region declared as
+   "fd_rng_t _rng[1];", or created by
+   "aligned_alloc(alignof(fd_rng_t),sizeof(fd_rng_t))" or created by
+   "fd_alloca(alignof(fd_rng_t),sizeof(fd_rng_t))" will all
+   automatically have the needed alignment and footprint).
+   fd_rng_{align,footprint} return the same value as
+   FD_RNG_{ALIGN,FOOTPRINT}.
 
    fd_rng_new takes ownership of the memory region pointed to by mem
    (which is assumed to be non-NULL with the appropriate alignment and
