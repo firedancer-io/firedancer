@@ -13,7 +13,7 @@
 #define TEXT_NORMAL "\033[0m"
 #define TEXT_BLUE   "\033[34m"
 #define TEXT_GREEN  "\033[32m"
-#define TEXT_YELLOW "\033[33m"
+#define TEXT_YELLOW "\033[93m"
 #define TEXT_RED    "\033[31m"
 
 /* printf_age prints _dt in ns as an age to stdout, will be exactly 10
@@ -70,8 +70,8 @@ printf_heart( long hb_now,
 static char const *
 sig_color( ulong sig ) {
   switch( sig ) {
-  case FD_CNC_SIGNAL_BOOT: return TEXT_YELLOW; break; /* Yellow -> Possibly abnormal */
-  case FD_CNC_SIGNAL_HALT: return TEXT_BLUE;   break; /* Blue -> waiting for tile to process */
+  case FD_CNC_SIGNAL_BOOT: return TEXT_BLUE;   break; /* Blue -> waiting for tile to start */
+  case FD_CNC_SIGNAL_HALT: return TEXT_YELLOW; break; /* Yellow -> waiting for tile to process */
   case FD_CNC_SIGNAL_RUN:  return TEXT_GREEN;  break; /* Green -> Normal */
   case FD_CNC_SIGNAL_FAIL: return TEXT_RED;    break; /* Red -> Definitely abnormal */
   default: break; /* Unknown, don't colorize */
@@ -96,8 +96,8 @@ printf_sig( ulong sig_now,
 static void
 printf_err_bool( ulong err_now,
                  ulong err_then ) {
-  printf( "%5s(%5s)", err_now  ? TEXT_RED "ERR" TEXT_NORMAL : TEXT_GREEN "  -" TEXT_NORMAL,
-                      err_then ? TEXT_RED "ERR" TEXT_NORMAL : TEXT_GREEN "  -" TEXT_NORMAL );
+  printf( "%5s(%5s)", err_now  ? TEXT_RED "err" TEXT_NORMAL : TEXT_GREEN "  -" TEXT_NORMAL,
+                      err_then ? TEXT_RED "err" TEXT_NORMAL : TEXT_GREEN "  -" TEXT_NORMAL );
 }
 
 /* printf_err_cnt will print to stdout a 64-bit counter holding the
@@ -235,6 +235,7 @@ struct snap {
 
   ulong cnc_diag_in_backp;
   ulong cnc_diag_backp_cnt;
+  ulong cnc_diag_errsv_cnt;
 
   ulong mcache_seq;
 
@@ -269,8 +270,9 @@ snap( ulong             tile_cnt,     /* Number of tiles to snapshot */
       snap->cnc_signal    = fd_cnc_signal_query   ( cnc );
       ulong const * cnc_diag = (ulong const *)fd_cnc_app_laddr_const( cnc );
       FD_COMPILER_MFENCE();
-      snap->cnc_diag_in_backp  = cnc_diag[ FD_CNC_DIAG_IN_BACKP  ];
-      snap->cnc_diag_backp_cnt = cnc_diag[ FD_CNC_DIAG_BACKP_CNT ];
+      snap->cnc_diag_in_backp  = cnc_diag[ FD_FRANK_CNC_DIAG_IN_BACKP  ];
+      snap->cnc_diag_backp_cnt = cnc_diag[ FD_FRANK_CNC_DIAG_BACKP_CNT ];
+      snap->cnc_diag_errsv_cnt = cnc_diag[ FD_FRANK_CNC_DIAG_ERRSV_CNT ];
       FD_COMPILER_MFENCE();
 
       pmap |= 1UL;
@@ -443,8 +445,8 @@ main( int     argc,
 
     char now_cstr[ FD_LOG_WALLCLOCK_CSTR_BUF_SZ ];
     printf( "snapshot for %s\n", fd_log_wallclock_cstr( now, now_cstr ) );
-    printf( "  tile |      stale | heart |        sig | in backp |           backp cnt |                    tx seq |                    rx seq\n" );
-    printf( "-------+------------+-------+------------+----------+---------------------+---------------------------+---------------------------\n" );
+    printf( "  tile |      stale | heart |        sig | in backp |           backp cnt |           errsv cnt |                    tx seq |                    rx seq\n" );
+    printf( "-------+------------+-------+------------+----------+---------------------+---------------------+---------------------------+---------------------------\n" );
     for( ulong tile_idx=0UL; tile_idx<tile_cnt; tile_idx++ ) {
       snap_t * prv = &snap_prv[ tile_idx ];
       snap_t * cur = &snap_cur[ tile_idx ];
@@ -455,6 +457,7 @@ main( int     argc,
         printf( " | " ); printf_sig     ( cur->cnc_signal,         prv->cnc_signal         );
         printf( " | " ); printf_err_bool( cur->cnc_diag_in_backp,  prv->cnc_diag_in_backp  );
         printf( " | " ); printf_err_cnt ( cur->cnc_diag_backp_cnt, prv->cnc_diag_backp_cnt );
+        printf( " | " ); printf_err_cnt ( cur->cnc_diag_errsv_cnt, prv->cnc_diag_errsv_cnt );
       } else {
         printf(       " |          - |     - |          - |        - |                   -" );
       }

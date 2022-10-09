@@ -7,6 +7,22 @@
 #define FD_HAS_FRANK FD_HAS_HOSTED && FD_HAS_ALLOCA && FD_HAS_X86
 
 #include "../../disco/fd_disco.h"
+#include "../../ballet/fd_ballet.h" /* FIXME: CONSIDER HAVING THIS IN DISCO_BASE */
+
+/* FD_FRANK_CNC_DIAG_* are FD_CNC_DIAG_* style diagnostics and thus the
+   same considerations apply.  Further they are harmonized with the
+   standard FD_CNC_DIAG_*.  Specifically:
+
+     IN_BACKP is same as standard IN_BACKP
+
+     BACKP_CNT is same as standard BACKP_CNT
+
+     ERRSV_CNT is frank speccific and the number of times a transaction
+     was dropped by a verify tile due to failing signature verification. */
+
+#define FD_FRANK_CNC_DIAG_IN_BACKP  FD_CNC_DIAG_IN_BACKP  /* ==0 */
+#define FD_FRANK_CNC_DIAG_BACKP_CNT FD_CNC_DIAG_BACKP_CNT /* ==1 */
+#define FD_FRANK_CNC_DIAG_ERRSV_CNT (2UL)                 /* updated by verify tile, ideally never */
 
 FD_PROTOTYPES_BEGIN
 

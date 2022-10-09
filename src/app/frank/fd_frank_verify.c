@@ -37,8 +37,10 @@ fd_frank_verify_task( int     argc,
   ulong * cnc_diag = (ulong *)fd_cnc_app_laddr( cnc );
   if( FD_UNLIKELY( !cnc_diag ) ) FD_LOG_ERR(( "fd_cnc_app_laddr failed" ));
   int in_backp = 1;
-  FD_VOLATILE( cnc_diag[ FD_CNC_DIAG_IN_BACKP  ] ) = 1UL;
-  FD_VOLATILE( cnc_diag[ FD_CNC_DIAG_BACKP_CNT ] ) = 0UL;
+
+  FD_VOLATILE( cnc_diag[ FD_FRANK_CNC_DIAG_IN_BACKP  ] ) = 1UL;
+  FD_VOLATILE( cnc_diag[ FD_FRANK_CNC_DIAG_BACKP_CNT ] ) = 0UL;
+  FD_VOLATILE( cnc_diag[ FD_FRANK_CNC_DIAG_ERRSV_CNT ] ) = 0UL;
 
   FD_LOG_INFO(( "joining %s.verify.%s.mcache", cfg_path, verify_name ));
   fd_frag_meta_t * mcache = fd_mcache_join( fd_wksp_pod_map( verify_pod, "mcache" ) );
@@ -127,7 +129,7 @@ fd_frank_verify_task( int     argc,
       cr_avail = fd_fctl_tx_cr_update( fctl, cr_avail, seq );
       if( FD_UNLIKELY( in_backp ) ) {
         if( FD_LIKELY( cr_avail ) ) {
-          FD_VOLATILE( cnc_diag[ FD_CNC_DIAG_IN_BACKP ] ) = 0UL;
+          FD_VOLATILE( cnc_diag[ FD_FRANK_CNC_DIAG_IN_BACKP ] ) = 0UL;
           in_backp = 0;
         }
       }
@@ -139,8 +141,8 @@ fd_frank_verify_task( int     argc,
     /* Check if we are backpressured */
     if( FD_UNLIKELY( !cr_avail ) ) {
       if( FD_UNLIKELY( !in_backp ) ) {
-        FD_VOLATILE( cnc_diag[ FD_CNC_DIAG_IN_BACKP  ] ) = 0UL;
-        FD_VOLATILE( cnc_diag[ FD_CNC_DIAG_BACKP_CNT ] ) = FD_VOLATILE_CONST( cnc_diag[ FD_CNC_DIAG_BACKP_CNT ] ) + 1UL;
+        FD_VOLATILE( cnc_diag[ FD_FRANK_CNC_DIAG_IN_BACKP  ] ) = 1UL;
+        FD_VOLATILE( cnc_diag[ FD_FRANK_CNC_DIAG_BACKP_CNT ] ) = FD_VOLATILE_CONST( cnc_diag[ FD_FRANK_CNC_DIAG_BACKP_CNT ] )+1UL;
         in_backp = 1;
       }
       FD_SPIN_PAUSE();

@@ -150,10 +150,10 @@ main( int     argc,
   fd_cnc_t * cnc = tile_cnc[ 0 ];
   if( FD_UNLIKELY( fd_cnc_signal_query( cnc )!=FD_CNC_SIGNAL_BOOT ) ) FD_LOG_ERR(( "cnc not in boot state" ));
   ulong * cnc_diag = (ulong *)fd_cnc_app_laddr( tile_cnc[ 0 ] );
-  FD_COMPILER_MFENCE();
-  FD_VOLATILE( cnc_diag[ FD_CNC_DIAG_IN_BACKP  ] ) = 0UL;
-  FD_VOLATILE( cnc_diag[ FD_CNC_DIAG_BACKP_CNT ] ) = 0UL;
-  FD_COMPILER_MFENCE();
+
+  FD_VOLATILE( cnc_diag[ FD_FRANK_CNC_DIAG_IN_BACKP  ] ) = 0UL;
+  FD_VOLATILE( cnc_diag[ FD_FRANK_CNC_DIAG_BACKP_CNT ] ) = 0UL;
+  FD_VOLATILE( cnc_diag[ FD_FRANK_CNC_DIAG_ERRSV_CNT ] ) = 0UL;
 
   /* Configure normal kill and ctrl-c to do a clean shutdown */
 
