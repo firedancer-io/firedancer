@@ -102,7 +102,7 @@ main( int     argc,
   /* clean up */
 
   FD_TEST( fd_sha512_leave ( sha )==obj );
-  FD_TEST( fd_sha512_delete( sha )==mem );
+  FD_TEST( fd_sha512_delete( obj )==mem );
   fd_rng_delete( fd_rng_leave( rng ) );
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
