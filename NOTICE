@@ -91,3 +91,21 @@ and crypto/perlasm/x86_64-xlate.pl#L1:
 Further description of the modifications can be found in the
 implementation itself.
 
+=======================================================================
+
+The ed25519 implementation in src/ballet/ed25519 is currently a very
+heavily optimized implementation originally based on the OpenSSL ed25519
+implementation circa 2022-Oct.
+
+From
+https://github.com/openssl/openssl/blob/master/crypto/ec/curve25519.c#L1:
+
+/*
+ * Copyright 2016-2019 The OpenSSL Project Authors. All Rights Reserved.
+ *
+ * Licensed under the OpenSSL license (the "License").  You may not use
+ * this file except in compliance with the License.  You can obtain a copy
+ * in the file LICENSE in the source distribution or at
+ * https://www.openssl.org/source/license.html
+ */
+
