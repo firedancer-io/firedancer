@@ -7,6 +7,8 @@ FD_STATIC_ASSERT( FD_SHA512_FOOTPRINT==256UL, unit_test );
 FD_STATIC_ASSERT( FD_SHA512_ALIGN    ==alignof(fd_sha512_t), unit_test );
 FD_STATIC_ASSERT( FD_SHA512_FOOTPRINT==sizeof (fd_sha512_t), unit_test );
 
+FD_STATIC_ASSERT( FD_SHA512_HASH_SZ==64UL, unit_test );
+
 int
 main( int     argc,
       char ** argv ) {

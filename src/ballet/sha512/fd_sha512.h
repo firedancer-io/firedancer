@@ -21,6 +21,10 @@
 
 #define FD_SHA512_MAGIC (0xF17EDA2CE54A5120) /* FIREDANCE SHA512 V0 */
 
+/* FD_SHA512_HASH_SZ returns the size of a hash in bytes. */
+
+#define FD_SHA512_HASH_SZ (64UL)
+
 struct __attribute__((aligned(FD_SHA512_ALIGN))) fd_sha512_private {
 
   /* This point is 128-byte aligned */
