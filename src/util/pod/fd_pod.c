@@ -195,7 +195,7 @@ fd_pod_query( uchar const   * FD_RESTRICT pod,
   return FD_POD_ERR_RESOLVE;
 }
 
-FD_FN_CONST char const *
+char const *
 fd_pod_strerror( int err ) {
   switch( err ) {
   case FD_POD_SUCCESS:     return "success";
