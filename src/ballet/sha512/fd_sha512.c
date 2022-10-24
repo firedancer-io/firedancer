@@ -96,11 +96,21 @@ fd_sha512_delete( void * shsha ) {
   return (void *)sha;
 }
 
+#ifndef FD_SHA512_CORE_IMPL
+#if FD_HAS_AVX
+#define FD_SHA512_CORE_IMPL 1
+#else
+#define FD_SHA512_CORE_IMPL 0
+#endif
+#endif
+
+#if FD_SHA512_CORE_IMPL==0
+
 /* The implementation below was derived from Openssl's sha512
    implementation (Apache 2 licensed).  See in particular:
 
      https://github.com/openssl/openssl/blob/master/crypto/sha/sha512.c
-   
+
    (link valid circa 2022-Oct).  It has been made more strict with more
    extensive implementation documentation, has been simplified and has
    been streamlined specifically for use inside Firedancer base machine
@@ -110,7 +120,7 @@ fd_sha512_delete( void * shsha ) {
    OPENSSL_SMALL_FOOTPRINT SHA-512 implementation (Apache licensed).
    This should work anywhere but it is not the highest performance
    implementation possible.
-   
+
    It is also straightforward to replace these implementations with HPC
    implementations that target specific machine capabilities without
    requiring any changes to caller code. */
@@ -218,12 +228,20 @@ fd_sha512_core_ref( ulong *       state,        /* 64-byte aligned, 8 entries */
 
 }
 
-static inline void
-fd_sha512_core( ulong *       state,        /* 64-byte aligned, 8 entries */
-                uchar const * block,        /* potentially unaligned, 128*block_cnt in size */
-                ulong         block_cnt ) { /* positive */
-  fd_sha512_core_ref( state, block, block_cnt );
-}
+#define fd_sha512_core fd_sha512_core_ref
+
+#elif FD_SHA512_CORE_IMPL==1
+
+void
+fd_sha512_core_avx2( ulong *       state,       /* 64-byte aligned, 8 entries */
+                     uchar const * block,       /* ideally 128-byte aligned (but not required), 128*block_cnt in size */
+                     ulong         block_cnt ); /* positive */
+
+#define fd_sha512_core fd_sha512_core_avx2
+
+#else
+#error "Unsupported FD_SHA512_CORE_IMPL"
+#endif
 
 fd_sha512_t *
 fd_sha512_init( fd_sha512_t * sha ) {
@@ -361,4 +379,6 @@ fd_sha512_fini( fd_sha512_t * sha,
   hash[7] = fd_ulong_bswap( state[7] );
   return _hash;
 }
+
+#undef fd_sha512_core
 
