@@ -86,6 +86,17 @@ endef
 add-objs = $(eval $(call _add-objs,$(1),$(2)))
 
 ##############################
+# Usage: $(call add-asms,asms,lib)
+
+define _add-asms
+
+$(OBJDIR)/lib/lib$(2).a: $(foreach obj,$(1),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/obj/%,$(OBJDIR)/$(MKPATH)$(obj).o))
+
+endef
+
+add-asms = $(eval $(call _add-asms,$(1),$(2)))
+
+##############################
 # Usage: $(call add-hdrs,hdrs)
 
 define _add-hdrs
@@ -189,6 +200,13 @@ $(OBJDIR)/obj/%.o : src/%.cxx
 	#######################################################################
 	$(MKDIR) $(dir $@) && \
 $(CXX) $(CPPFLAGS) $(CXXFLAGS) -c $< -o $@
+
+$(OBJDIR)/obj/%.o : src/%.s
+	#######################################################################
+	# Compiling asm source $< to $@
+	#######################################################################
+	$(MKDIR) $(dir $@) && \
+$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
 
 $(OBJDIR)/obj/%.s : src/%.c
 	#######################################################################
