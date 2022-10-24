@@ -116,7 +116,7 @@
 
 /* FD_HAS_SSE indicates the target supports Intel SSE4 style SIMD
    (basically do the 128-bit wide parts of "x86intrin.h" work).
-   Recommend using the math/fd_sse.h APIs instead of raw Intel
+   Recommend using the simd/fd_sse.h APIs instead of raw Intel
    intrinsics for readability and to facilitate portability to non-x86
    platforms.  Implies FD_HAS_X86. */
 
