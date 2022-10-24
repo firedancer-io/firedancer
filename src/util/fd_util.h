@@ -26,6 +26,7 @@
 //#include "math/fd_sqrt.h"  /* includes bits/fd_bits.h */
 //#include "math/fd_fxp.h"   /* includes math/fd_sqrt.h, (!FD_HAS_INT128) bits/fd_uwide.h */
 //#include "simd/fd_sse.h"   /* includes bits/fd_bits.h, requires FD_HAS_SSE */
+//#include "simd/fd_avx.h"   /* includes bits/fd_bits.h, requires FD_HAS_AVX */
 
 FD_PROTOTYPES_BEGIN
 

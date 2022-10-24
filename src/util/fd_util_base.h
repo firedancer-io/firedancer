@@ -126,7 +126,7 @@
 
 /* FD_HAS_AVX indicates the target supports Intel AVX2 style SIMD
    (basically do the 256-bit wide parts of "x86intrin.h" work).
-   Recommend using the math/fd_avx.h APIs instead of raw Intel
+   Recommend using the simd/fd_avx.h APIs instead of raw Intel
    intrinsics for readability and to facilitate portability to non-x86
    platforms.  Implies FD_HAS_SSE. */
 
