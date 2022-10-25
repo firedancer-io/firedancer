@@ -276,22 +276,31 @@ fd_ed25519_fe_t *
 fd_ed25519_fe_pow22523( fd_ed25519_fe_t *       out,
                         fd_ed25519_fe_t const * z );
 
-/* FD_ED25519_FE_VMUL_FAST indicates whether the implementation can
-   perform multiple multiplies, squares and double squares faster than
-   it can do them sequentially. */
-
-#define FD_ED25519_FE_VMUL_FAST 0
-
-/* fd_ed25519_fe_vmul is equivalent to:
+/* fd_ed25519_fe_mul4 is equivalent to:
      fd_ed25519_fe_mul( ha, fa, ga );
      fd_ed25519_fe_mul( hb, fb, gb );
      fd_ed25519_fe_mul( hc, fc, gc );
      fd_ed25519_fe_mul( hd, fd, gd );
-   but computed faster if FD_ED25519_FE_VMUL_FAST is non-zero.  The
-   outputs should not overlap. */
+   Similarly for fe_mul2 and fe_mul3.  The outputs should not overlap. */
 
 static inline void
-fd_ed25519_fe_vmul( fd_ed25519_fe_t * ha, fd_ed25519_fe_t const * fa, fd_ed25519_fe_t const * ga,
+fd_ed25519_fe_mul2( fd_ed25519_fe_t * ha, fd_ed25519_fe_t const * fa, fd_ed25519_fe_t const * ga,
+                    fd_ed25519_fe_t * hb, fd_ed25519_fe_t const * fb, fd_ed25519_fe_t const * gb ) {
+  fd_ed25519_fe_mul( ha, fa, ga );
+  fd_ed25519_fe_mul( hb, fb, gb );
+}
+
+static inline void
+fd_ed25519_fe_mul3( fd_ed25519_fe_t * ha, fd_ed25519_fe_t const * fa, fd_ed25519_fe_t const * ga,
+                    fd_ed25519_fe_t * hb, fd_ed25519_fe_t const * fb, fd_ed25519_fe_t const * gb,
+                    fd_ed25519_fe_t * hc, fd_ed25519_fe_t const * fc, fd_ed25519_fe_t const * gc ) {
+  fd_ed25519_fe_mul( ha, fa, ga );
+  fd_ed25519_fe_mul( hb, fb, gb );
+  fd_ed25519_fe_mul( hc, fc, gc );
+}
+
+static inline void
+fd_ed25519_fe_mul4( fd_ed25519_fe_t * ha, fd_ed25519_fe_t const * fa, fd_ed25519_fe_t const * ga,
                     fd_ed25519_fe_t * hb, fd_ed25519_fe_t const * fb, fd_ed25519_fe_t const * gb,
                     fd_ed25519_fe_t * hc, fd_ed25519_fe_t const * fc, fd_ed25519_fe_t const * gc,
                     fd_ed25519_fe_t * hd, fd_ed25519_fe_t const * fd, fd_ed25519_fe_t const * gd ) {
@@ -301,16 +310,31 @@ fd_ed25519_fe_vmul( fd_ed25519_fe_t * ha, fd_ed25519_fe_t const * fa, fd_ed25519
   fd_ed25519_fe_mul( hd, fd, gd );
 }
 
-/* fd_ed25519_fe_vsqn is equivalent to:
+/* fd_ed25519_fe_sqn4 is equivalent to:
      if( na==1L ) fd_ed25519_fe_sq( ha, fa ); else fd_ed25519_fe_sq2( ha, fa );
      if( nb==1L ) fd_ed25519_fe_sq( hb, fb ); else fd_ed25519_fe_sq2( hb, fb );
      if( nc==1L ) fd_ed25519_fe_sq( hc, fc ); else fd_ed25519_fe_sq2( hc, fc );
      if( nd==1L ) fd_ed25519_fe_sq( hd, fd ); else fd_ed25519_fe_sq2( hd, fd );
-   but computed faster if FD_ED25519_FE_VMUL_FAST is non-zero.  The
-   outputs should not overlap. */
+   Similarly for fe_sqn2 and fe_sqn3.  The outputs should not overlap. */
 
 static inline void
-fd_ed25519_fe_vsqn( fd_ed25519_fe_t * ha, fd_ed25519_fe_t const * fa, long na,    /* Should be 1 or 2 */
+fd_ed25519_fe_sqn2( fd_ed25519_fe_t * ha, fd_ed25519_fe_t const * fa, long na,    /* Should be 1 or 2 */
+                    fd_ed25519_fe_t * hb, fd_ed25519_fe_t const * fb, long nb ) { /* " */
+  if( na==1L ) fd_ed25519_fe_sq( ha, fa ); else fd_ed25519_fe_sq2( ha, fa );
+  if( nb==1L ) fd_ed25519_fe_sq( hb, fb ); else fd_ed25519_fe_sq2( hb, fb );
+}
+
+static inline void
+fd_ed25519_fe_sqn3( fd_ed25519_fe_t * ha, fd_ed25519_fe_t const * fa, long na,    /* Should be 1 or 2 */
+                    fd_ed25519_fe_t * hb, fd_ed25519_fe_t const * fb, long nb,    /* " */
+                    fd_ed25519_fe_t * hc, fd_ed25519_fe_t const * fc, long nc ) { /* " */
+  if( na==1L ) fd_ed25519_fe_sq( ha, fa ); else fd_ed25519_fe_sq2( ha, fa );
+  if( nb==1L ) fd_ed25519_fe_sq( hb, fb ); else fd_ed25519_fe_sq2( hb, fb );
+  if( nc==1L ) fd_ed25519_fe_sq( hc, fc ); else fd_ed25519_fe_sq2( hc, fc );
+}
+
+static inline void
+fd_ed25519_fe_sqn4( fd_ed25519_fe_t * ha, fd_ed25519_fe_t const * fa, long na,    /* Should be 1 or 2 */
                     fd_ed25519_fe_t * hb, fd_ed25519_fe_t const * fb, long nb,    /* " */
                     fd_ed25519_fe_t * hc, fd_ed25519_fe_t const * fc, long nc,    /* " */
                     fd_ed25519_fe_t * hd, fd_ed25519_fe_t const * fd, long nd ) { /* " */

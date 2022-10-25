@@ -121,24 +121,16 @@ fd_ed25519_ge_p3_to_p2( fd_ed25519_ge_p2_t *       r,
 static inline fd_ed25519_ge_p2_t *
 fd_ed25519_ge_p1p1_to_p2( fd_ed25519_ge_p2_t *         r,
                           fd_ed25519_ge_p1p1_t * const p ) {
-# if FD_ED25519_FE_VMUL_FAST
-  fd_ed25519_fe_t t[1];
-  fd_ed25519_fe_vmul( r->X, p->X, p->T,
+  fd_ed25519_fe_mul3( r->X, p->X, p->T,
                       r->Y, p->Y, p->Z,
-                      r->Z, p->Z, p->T,
-                      t,    p->Z, p->T ); /* dummy */
-# else
-  fd_ed25519_fe_mul ( r->X, p->X, p->T );
-  fd_ed25519_fe_mul ( r->Y, p->Y, p->Z );
-  fd_ed25519_fe_mul ( r->Z, p->Z, p->T );
-# endif
+                      r->Z, p->Z, p->T );
   return r;
 }
 
 static inline fd_ed25519_ge_p3_t *
 fd_ed25519_ge_p1p1_to_p3( fd_ed25519_ge_p3_t *         r,
                           fd_ed25519_ge_p1p1_t const * p ) {
-  fd_ed25519_fe_vmul( r->X, p->X, p->T,
+  fd_ed25519_fe_mul4( r->X, p->X, p->T,
                       r->Y, p->Y, p->Z,
                       r->Z, p->Z, p->T,
                       r->T, p->X, p->Y );
@@ -150,7 +142,7 @@ fd_ed25519_ge_p2_dbl( fd_ed25519_ge_p1p1_t *     r,
                       fd_ed25519_ge_p2_t const * p ) {
   fd_ed25519_fe_t t0[1];
   fd_ed25519_fe_add ( r->Y, p->X, p->Y );
-  fd_ed25519_fe_vsqn( r->X, p->X, 1L,
+  fd_ed25519_fe_sqn4( r->X, p->X, 1L,
                       r->Z, p->Y, 1L,
                       r->T, p->Z, 2L,
                       t0,   r->Y, 1L   );
@@ -177,7 +169,7 @@ fd_ed25519_ge_add( fd_ed25519_ge_p1p1_t *         r,
   fd_ed25519_fe_t t0[1];
   fd_ed25519_fe_add ( r->X, p->Y,   p->X       );
   fd_ed25519_fe_sub ( r->Y, p->Y,   p->X       );
-  fd_ed25519_fe_vmul( r->Z, r->X,   q->YplusX,
+  fd_ed25519_fe_mul4( r->Z, r->X,   q->YplusX,
                       r->Y, r->Y,   q->YminusX,
                       r->T, q->T2d, p->T,
                       r->X, p->Z,   q->Z       );
@@ -196,7 +188,7 @@ fd_ed25519_ge_sub( fd_ed25519_ge_p1p1_t *         r,
   fd_ed25519_fe_t t0[1];
   fd_ed25519_fe_add ( r->X, p->Y,   p->X       );
   fd_ed25519_fe_sub ( r->Y, p->Y,   p->X       );
-  fd_ed25519_fe_vmul( r->Z, r->X,   q->YminusX,
+  fd_ed25519_fe_mul4( r->Z, r->X,   q->YminusX,
                       r->Y, r->Y,   q->YplusX,
                       r->T, q->T2d, p->T,
                       r->X, p->Z,   q->Z       );
@@ -215,16 +207,9 @@ fd_ed25519_ge_madd( fd_ed25519_ge_p1p1_t *          r,
   fd_ed25519_fe_t t0[1];
   fd_ed25519_fe_add ( r->X, p->Y,    p->X       );
   fd_ed25519_fe_sub ( r->Y, p->Y,    p->X       );
-# if FD_ED25519_FE_VMUL_FAST
-  fd_ed25519_fe_vmul( r->Z, r->X,    q->yplusx,
+  fd_ed25519_fe_mul3( r->Z, r->X,    q->yplusx,
                       r->Y, r->Y,    q->yminusx,
-                      r->T, q->xy2d, p->T,
-                      t0,   q->xy2d, p->T       );
-# else
-  fd_ed25519_fe_mul ( r->Z, r->X,    q->yplusx  );
-  fd_ed25519_fe_mul ( r->Y, r->Y,    q->yminusx );
-  fd_ed25519_fe_mul ( r->T, q->xy2d, p->T       );
-# endif
+                      r->T, q->xy2d, p->T       );
   fd_ed25519_fe_add ( t0,   p->Z,    p->Z       );
   fd_ed25519_fe_sub ( r->X, r->Z,    r->Y       );
   fd_ed25519_fe_add ( r->Y, r->Z,    r->Y       );
@@ -240,16 +225,9 @@ fd_ed25519_ge_msub( fd_ed25519_ge_p1p1_t *          r,
   fd_ed25519_fe_t t0[1];
   fd_ed25519_fe_add ( r->X, p->Y,    p->X       );
   fd_ed25519_fe_sub ( r->Y, p->Y,    p->X       );
-# if FD_ED25519_FE_VMUL_FAST
-  fd_ed25519_fe_vmul( r->Z, r->X,    q->yminusx,
+  fd_ed25519_fe_mul3( r->Z, r->X,    q->yminusx,
                       r->Y, r->Y,    q->yplusx,
-                      r->T, q->xy2d, p->T,
-                      t0,   q->xy2d, p->T       );
-# else
-  fd_ed25519_fe_mul ( r->Z, r->X,    q->yminusx );
-  fd_ed25519_fe_mul ( r->Y, r->Y,    q->yplusx  );
-  fd_ed25519_fe_mul ( r->T, q->xy2d, p->T       );
-# endif
+                      r->T, q->xy2d, p->T       );
   fd_ed25519_fe_add ( t0,   p->Z,    p->Z       );
   fd_ed25519_fe_sub ( r->X, r->Z,    r->Y       );
   fd_ed25519_fe_add ( r->Y, r->Z,    r->Y       );
@@ -313,16 +291,8 @@ uchar *
 fd_ed25519_ge_tobytes( uchar *                    s,
                        fd_ed25519_ge_p2_t const * h ) {
   fd_ed25519_fe_t recip[1]; fd_ed25519_fe_invert( recip, h->Z );
-# if FD_ED25519_FE_VMUL_FAST
-  fd_ed25519_fe_t x[1]; fd_ed25519_fe_t y[1]; fd_ed25519_fe_t z[1]; fd_ed25519_fe_t t[1];
-  fd_ed25519_fe_vmul( x, h->X, recip,
-                      y, h->Y, recip,
-                      z, h->X, recip,   /* dummy */
-                      t, h->Y, recip ); /* dummy */
-# else
-  fd_ed25519_fe_t x[1]; fd_ed25519_fe_mul( x, h->X, recip );
-  fd_ed25519_fe_t y[1]; fd_ed25519_fe_mul( y, h->Y, recip );
-# endif
+  fd_ed25519_fe_t x[1];
+  fd_ed25519_fe_t y[1];     fd_ed25519_fe_mul2( x, h->X, recip, y, h->Y, recip );
   fd_ed25519_fe_tobytes( s, y );
   s[31] ^= (uchar)(fd_ed25519_fe_isnegative( x ) << 7);
   return s;
@@ -332,16 +302,8 @@ uchar *
 fd_ed25519_ge_p3_tobytes( uchar *                    s,
                           fd_ed25519_ge_p3_t const * h ) {
   fd_ed25519_fe_t recip[1]; fd_ed25519_fe_invert( recip,  h->Z  );
-# if FD_ED25519_FE_VMUL_FAST
-  fd_ed25519_fe_t x[1]; fd_ed25519_fe_t y[1]; fd_ed25519_fe_t z[1]; fd_ed25519_fe_t t[1];
-  fd_ed25519_fe_vmul( x, h->X, recip,
-                      y, h->Y, recip,
-                      z, h->X, recip,   /* dummy */
-                      t, h->Y, recip ); /* dummy */
-# else
-  fd_ed25519_fe_t x[1]; fd_ed25519_fe_mul( x, h->X, recip );
-  fd_ed25519_fe_t y[1]; fd_ed25519_fe_mul( y, h->Y, recip );
-# endif
+  fd_ed25519_fe_t x[1];
+  fd_ed25519_fe_t y[1];     fd_ed25519_fe_mul2( x, h->X, recip, y, h->Y, recip );
   fd_ed25519_fe_tobytes( s, y );
   s[31] ^= (uchar)(fd_ed25519_fe_isnegative( x ) << 7);
   return s;

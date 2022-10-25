@@ -136,16 +136,32 @@ fd_ed25519_fe_t *
 fd_ed25519_fe_pow22523( fd_ed25519_fe_t *       out,
                         fd_ed25519_fe_t const * z );
 
-#define FD_ED25519_FE_VMUL_FAST 1
+void
+fd_ed25519_fe_mul2( fd_ed25519_fe_t * ha, fd_ed25519_fe_t const * fa, fd_ed25519_fe_t const * ga,
+                    fd_ed25519_fe_t * hb, fd_ed25519_fe_t const * fb, fd_ed25519_fe_t const * gb );
 
 void
-fd_ed25519_fe_vmul( fd_ed25519_fe_t * ha, fd_ed25519_fe_t const * fa, fd_ed25519_fe_t const * ga,
+fd_ed25519_fe_mul3( fd_ed25519_fe_t * ha, fd_ed25519_fe_t const * fa, fd_ed25519_fe_t const * ga,
+                    fd_ed25519_fe_t * hb, fd_ed25519_fe_t const * fb, fd_ed25519_fe_t const * gb,
+                    fd_ed25519_fe_t * hc, fd_ed25519_fe_t const * fc, fd_ed25519_fe_t const * gc );
+
+void
+fd_ed25519_fe_mul4( fd_ed25519_fe_t * ha, fd_ed25519_fe_t const * fa, fd_ed25519_fe_t const * ga,
                     fd_ed25519_fe_t * hb, fd_ed25519_fe_t const * fb, fd_ed25519_fe_t const * gb,
                     fd_ed25519_fe_t * hc, fd_ed25519_fe_t const * fc, fd_ed25519_fe_t const * gc,
                     fd_ed25519_fe_t * hd, fd_ed25519_fe_t const * fd, fd_ed25519_fe_t const * gd );
 
 void
-fd_ed25519_fe_vsqn( fd_ed25519_fe_t * ha, fd_ed25519_fe_t const * fa, long na,
+fd_ed25519_fe_sqn2( fd_ed25519_fe_t * ha, fd_ed25519_fe_t const * fa, long na,
+                    fd_ed25519_fe_t * hb, fd_ed25519_fe_t const * fb, long nb );
+
+void
+fd_ed25519_fe_sqn3( fd_ed25519_fe_t * ha, fd_ed25519_fe_t const * fa, long na,
+                    fd_ed25519_fe_t * hb, fd_ed25519_fe_t const * fb, long nb,
+                    fd_ed25519_fe_t * hc, fd_ed25519_fe_t const * fc, long nc );
+
+void
+fd_ed25519_fe_sqn4( fd_ed25519_fe_t * ha, fd_ed25519_fe_t const * fa, long na,
                     fd_ed25519_fe_t * hb, fd_ed25519_fe_t const * fb, long nb,
                     fd_ed25519_fe_t * hc, fd_ed25519_fe_t const * fc, long nc,
                     fd_ed25519_fe_t * hd, fd_ed25519_fe_t const * fd, long nd );
