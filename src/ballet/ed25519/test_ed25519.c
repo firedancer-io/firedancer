@@ -659,10 +659,10 @@ test_verify( fd_rng_t *    rng,
     ED25519_sign( ref_sig, ref_msg, sz, ref_pub, ref_prv );
 
     uint r = fd_rng_uint( rng );
-    int corrupt_sig = !(r & 31U); r >>= 1;
-    int corrupt_msg = !(r & 31U); r >>= 1;
-    int corrupt_sz  = !(r & 31U); r >>= 1;
-    int corrupt_pub = !(r & 31U); r >>= 1;
+    int corrupt_sig = !(r & 31U); r >>= 5;
+    int corrupt_msg = !(r & 31U); r >>= 5;
+    int corrupt_sz  = !(r & 31U); r >>= 5;
+    int corrupt_pub = !(r & 31U); r >>= 5;
 
     if( corrupt_sig ) {
       ulong idx  = (ulong)fd_rng_uint_roll( rng, 512UL );
