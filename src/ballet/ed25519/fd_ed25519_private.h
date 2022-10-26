@@ -101,6 +101,12 @@ int
 fd_ed25519_ge_frombytes_vartime( fd_ed25519_ge_p3_t * h,
                                  uchar const *        s ); /* 32 */
 
+int
+fd_ed25519_ge_frombytes_vartime_2( fd_ed25519_ge_p3_t * h0,
+                                   fd_ed25519_ge_p3_t * h1,
+                                   uchar const *        s0,
+                                   uchar const *        s1 ); /* 32 */
+
 static inline fd_ed25519_ge_p2_t *
 fd_ed25519_ge_p2_0( fd_ed25519_ge_p2_t * h ) {
   fd_ed25519_fe_0( h->X );

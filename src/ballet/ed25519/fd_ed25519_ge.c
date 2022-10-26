@@ -287,6 +287,84 @@ fd_ed25519_ge_frombytes_vartime( fd_ed25519_ge_p3_t * h,
   return FD_ED25519_SUCCESS;
 }
 
+int
+fd_ed25519_ge_frombytes_vartime_2( fd_ed25519_ge_p3_t * h0,
+                                   fd_ed25519_ge_p3_t * h1,
+                                   uchar const *        s0,
+                                   uchar const *        s1 ) {
+
+  static const fd_ed25519_fe_t d[1] = {{
+    { -10913610, 13857413, -15372611, 6949391, 114729, -8787816, -6275908, -3247719, -18696448, -12055116 }
+  }};
+
+  static const fd_ed25519_fe_t sqrtm1[1] = {{
+    { -32595792, -7943725, 9377950, 3500415, 12389472, -272473, -25146209, -2005654, 326686, 11406482 }
+  }};
+
+  fd_ed25519_fe_t u0[1];
+  fd_ed25519_fe_t v0[1];
+  fd_ed25519_fe_t u1[1];
+  fd_ed25519_fe_t v1[1];
+  fd_ed25519_fe_frombytes  ( h0->Y, s0       );
+  fd_ed25519_fe_frombytes  ( h1->Y, s1       );
+  fd_ed25519_fe_1          ( h0->Z           );
+  fd_ed25519_fe_1          ( h1->Z           );
+  fd_ed25519_fe_sqn2       ( u0, h0->Y, 1,
+                             u1, h1->Y, 1    );
+  fd_ed25519_fe_mul2       ( v0, u0, d,
+                             v1, u1, d       );
+  fd_ed25519_fe_sub        ( u0, u0, h0->Z   );     /* u = y^2-1 */
+  fd_ed25519_fe_sub        ( u1, u1, h1->Z   );     /* u = y^2-1 */
+  fd_ed25519_fe_add        ( v0, v0, h0->Z   );     /* v = dy^2+1 */
+  fd_ed25519_fe_add        ( v1, v1, h1->Z   );     /* v = dy^2+1 */
+
+  fd_ed25519_fe_t v30_0[1]; fd_ed25519_fe_t v30_1[1];
+  fd_ed25519_fe_sqn2      ( v30_0, v0, 1,
+                            v30_1, v1, 1     );
+  fd_ed25519_fe_mul2      ( v30_0, v30_0, v0,       /* v3 = v^3 */
+                            v30_1, v30_1, v1 );     /* v3 = v^3 */
+  fd_ed25519_fe_sqn2      ( h0->X, v30_0, 1,
+                            h1->X, v30_1, 1  );
+  fd_ed25519_fe_mul2      ( h0->X, h0->X, v0,
+                            h1->X, h1->X, v1 );
+  fd_ed25519_fe_mul2      ( h0->X, h0->X, u0,       /* x = uv^7 */
+                            h1->X, h1->X, u1 );     /* x = uv^7 */
+
+  fd_ed25519_fe_pow22523_2( h0->X, h1->X,           /* x = (uv^7)^((q-5)/8) */
+                            h0->X, h1->X        );  /* x = (uv^7)^((q-5)/8) */
+  fd_ed25519_fe_mul2      ( h0->X, h0->X, v30_0,
+                            h1->X, h1->X, v30_1 );
+  fd_ed25519_fe_mul2      ( h0->X, h0->X, u0,       /* x = uv^3(uv^7)^((q-5)/8) */
+                            h1->X, h1->X, u1    );  /* x = uv^3(uv^7)^((q-5)/8) */
+
+  fd_ed25519_fe_t vxx0[1]; fd_ed25519_fe_t check0[1];
+  fd_ed25519_fe_t vxx1[1]; fd_ed25519_fe_t check1[1];
+  fd_ed25519_fe_sqn2      ( vxx0,   h0->X, 1,
+                            vxx1,   h1->X, 1 );
+  fd_ed25519_fe_mul2      ( vxx0,   vxx0, v0,
+                            vxx1,   vxx1, v1 );
+  fd_ed25519_fe_sub       ( check0, vxx0, u0 ); /* vx^2-u */
+  fd_ed25519_fe_sub       ( check1, vxx1, u1 ); /* vx^2-u */
+
+  if( fd_ed25519_fe_isnonzero( check0 ) ) { /* unclear prob */
+    fd_ed25519_fe_add( check0, vxx0, u0 );  /* vx^2+u */
+    if( FD_UNLIKELY( fd_ed25519_fe_isnonzero( check0 ) ) ) return FD_ED25519_ERR_PUBKEY;
+    fd_ed25519_fe_mul( h0->X, h0->X, sqrtm1 );
+  }
+  if( fd_ed25519_fe_isnegative( h0->X )!=(s0[31] >> 7) ) fd_ed25519_fe_neg( h0->X, h0->X ); /* unclear prob */
+  fd_ed25519_fe_mul( h0->T, h0->X, h0->Y );
+
+  if( fd_ed25519_fe_isnonzero( check1 ) ) { /* unclear prob */
+    fd_ed25519_fe_add( check1, vxx1, u1 );  /* vx^2+u */
+    if( FD_UNLIKELY( fd_ed25519_fe_isnonzero( check1 ) ) ) return FD_ED25519_ERR_PUBKEY;
+    fd_ed25519_fe_mul( h1->X, h1->X, sqrtm1 );
+  }
+  if( fd_ed25519_fe_isnegative( h1->X )!=(s1[31] >> 7) ) fd_ed25519_fe_neg( h1->X, h1->X ); /* unclear prob */
+  fd_ed25519_fe_mul( h1->T, h1->X, h1->Y );
+
+  return FD_ED25519_SUCCESS;
+}
+
 uchar *
 fd_ed25519_ge_tobytes( uchar *                    s,
                        fd_ed25519_ge_p2_t const * h ) {

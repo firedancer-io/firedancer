@@ -1151,6 +1151,89 @@ wl_shr_x19( wl_t x,
   wl_t carry9 = wl_add( h9, b24 ); h0 = wl_add( h0, wl_shr_x19( carry9, 25 ) ); h9 = wl_sub( h9, wl_and( carry9, m39u ) ); \
   /**/ carry0 = wl_add( h0, b25 ); h1 = wl_add( h1, wl_shr    ( carry0, 26 ) ); h0 = wl_sub( h0, wl_and( carry0, m38u ) )
 
+#define SQ_AVX_CORE_LOOP                                                                                                   \
+  wl_t f0_2  = wl_add( f0, f0 );     wl_t f1_2  = wl_add( f1, f1 );                                                        \
+  wl_t f2_2  = wl_add( f2, f2 );     wl_t f3_2  = wl_add( f3, f3 );                                                        \
+  wl_t f4_2  = wl_add( f4, f4 );     wl_t f5_2  = wl_add( f5, f5 );                                                        \
+  wl_t f6_2  = wl_add( f6, f6 );     wl_t f7_2  = wl_add( f7, f7 );                                                        \
+                                                                                                                           \
+  wl_t _38   = wl_bcast( 38L );      wl_t _19   = wl_bcast( 19L );                                                         \
+                                                                                                                           \
+  wl_t f5_38 = wl_mul_ll( _38, f5 ); wl_t f6_19 = wl_mul_ll( _19, f6 );                                                    \
+  wl_t f7_38 = wl_mul_ll( _38, f7 ); wl_t f8_19 = wl_mul_ll( _19, f8 );                                                    \
+  wl_t f9_38 = wl_mul_ll( _38, f9 );                                                                                       \
+                                                                                                                           \
+  wl_t f0f0    = wl_mul_ll( f0  , f0    ); wl_t f0f1_2  = wl_mul_ll( f0_2, f1    );                                        \
+  wl_t f0f2_2  = wl_mul_ll( f0_2, f2    ); wl_t f0f3_2  = wl_mul_ll( f0_2, f3    );                                        \
+  wl_t f0f4_2  = wl_mul_ll( f0_2, f4    ); wl_t f0f5_2  = wl_mul_ll( f0_2, f5    );                                        \
+  wl_t f0f6_2  = wl_mul_ll( f0_2, f6    ); wl_t f0f7_2  = wl_mul_ll( f0_2, f7    );                                        \
+  wl_t f0f8_2  = wl_mul_ll( f0_2, f8    ); wl_t f0f9_2  = wl_mul_ll( f0_2, f9    );                                        \
+                                                                                                                           \
+  wl_t f1f1_2  = wl_mul_ll( f1_2, f1    ); wl_t f1f2_2  = wl_mul_ll( f1_2, f2    );                                        \
+  wl_t f1f3_4  = wl_mul_ll( f1_2, f3_2  ); wl_t f1f4_2  = wl_mul_ll( f1_2, f4    );                                        \
+  wl_t f1f5_4  = wl_mul_ll( f1_2, f5_2  ); wl_t f1f6_2  = wl_mul_ll( f1_2, f6    );                                        \
+  wl_t f1f7_4  = wl_mul_ll( f1_2, f7_2  ); wl_t f1f8_2  = wl_mul_ll( f1_2, f8    );                                        \
+  wl_t f1f9_76 = wl_mul_ll( f1_2, f9_38 );                                                                                 \
+                                                                                                                           \
+  wl_t f2f2    = wl_mul_ll( f2  , f2    ); wl_t f2f3_2  = wl_mul_ll( f2_2, f3    );                                        \
+  wl_t f2f4_2  = wl_mul_ll( f2_2, f4    ); wl_t f2f5_2  = wl_mul_ll( f2_2, f5    );                                        \
+  wl_t f2f6_2  = wl_mul_ll( f2_2, f6    ); wl_t f2f7_2  = wl_mul_ll( f2_2, f7    );                                        \
+  wl_t f2f8_38 = wl_mul_ll( f2_2, f8_19 ); wl_t f2f9_38 = wl_mul_ll( f2  , f9_38 );                                        \
+                                                                                                                           \
+  wl_t f3f3_2  = wl_mul_ll( f3_2, f3    ); wl_t f3f4_2  = wl_mul_ll( f3_2, f4    );                                        \
+  wl_t f3f5_4  = wl_mul_ll( f3_2, f5_2  ); wl_t f3f6_2  = wl_mul_ll( f3_2, f6    );                                        \
+  wl_t f3f7_76 = wl_mul_ll( f3_2, f7_38 ); wl_t f3f8_38 = wl_mul_ll( f3_2, f8_19 );                                        \
+  wl_t f3f9_76 = wl_mul_ll( f3_2, f9_38 );                                                                                 \
+                                                                                                                           \
+  wl_t f4f4    = wl_mul_ll( f4  , f4    ); wl_t f4f5_2  = wl_mul_ll( f4_2, f5    );                                        \
+  wl_t f4f6_38 = wl_mul_ll( f4_2, f6_19 ); wl_t f4f7_38 = wl_mul_ll( f4  , f7_38 );                                        \
+  wl_t f4f8_38 = wl_mul_ll( f4_2, f8_19 ); wl_t f4f9_38 = wl_mul_ll( f4  , f9_38 );                                        \
+                                                                                                                           \
+  wl_t f5f5_38 = wl_mul_ll( f5  , f5_38 ); wl_t f5f6_38 = wl_mul_ll( f5_2, f6_19 );                                        \
+  wl_t f5f7_76 = wl_mul_ll( f5_2, f7_38 ); wl_t f5f8_38 = wl_mul_ll( f5_2, f8_19 );                                        \
+  wl_t f5f9_76 = wl_mul_ll( f5_2, f9_38 );                                                                                 \
+                                                                                                                           \
+  wl_t f6f6_19 = wl_mul_ll( f6  , f6_19 ); wl_t f6f7_38 = wl_mul_ll( f6  , f7_38 );                                        \
+  wl_t f6f8_38 = wl_mul_ll( f6_2, f8_19 ); wl_t f6f9_38 = wl_mul_ll( f6  , f9_38 );                                        \
+                                                                                                                           \
+  wl_t f7f7_38 = wl_mul_ll( f7  , f7_38 ); wl_t f7f8_38 = wl_mul_ll( f7_2, f8_19 );                                        \
+  wl_t f7f9_76 = wl_mul_ll( f7_2, f9_38 );                                                                                 \
+                                                                                                                           \
+  wl_t f8f8_19 = wl_mul_ll( f8  , f8_19 ); wl_t f8f9_38 = wl_mul_ll( f8  , f9_38 );                                        \
+                                                                                                                           \
+  wl_t f9f9_38 = wl_mul_ll( f9  , f9_38 );                                                                                 \
+                                                                                                                           \
+  wl_t m  = wl( 1L-na, 1L-nb, 1L-nc, 1L-nd );                                                                              \
+                                                                                                                           \
+  f0 = REDUCE_6( f0f0  , f1f9_76, f2f8_38, f3f7_76, f4f6_38, f5f5_38 ); f0 = wl_add( f0, wl_and( f0, m ) );                \
+  f1 = REDUCE_5( f0f1_2, f2f9_38, f3f8_38, f4f7_38, f5f6_38          ); f1 = wl_add( f1, wl_and( f1, m ) );                \
+  f2 = REDUCE_6( f0f2_2, f1f1_2 , f3f9_76, f4f8_38, f5f7_76, f6f6_19 ); f2 = wl_add( f2, wl_and( f2, m ) );                \
+  f3 = REDUCE_5( f0f3_2, f1f2_2 , f4f9_38, f5f8_38, f6f7_38          ); f3 = wl_add( f3, wl_and( f3, m ) );                \
+  f4 = REDUCE_6( f0f4_2, f1f3_4 , f2f2   , f5f9_76, f6f8_38, f7f7_38 ); f4 = wl_add( f4, wl_and( f4, m ) );                \
+  f5 = REDUCE_5( f0f5_2, f1f4_2 , f2f3_2 , f6f9_38, f7f8_38          ); f5 = wl_add( f5, wl_and( f5, m ) );                \
+  f6 = REDUCE_6( f0f6_2, f1f5_4 , f2f4_2 , f3f3_2 , f7f9_76, f8f8_19 ); f6 = wl_add( f6, wl_and( f6, m ) );                \
+  f7 = REDUCE_5( f0f7_2, f1f6_2 , f2f5_2 , f3f4_2 , f8f9_38          ); f7 = wl_add( f7, wl_and( f7, m ) );                \
+  f8 = REDUCE_6( f0f8_2, f1f7_4 , f2f6_2 , f3f5_4 , f4f4   , f9f9_38 ); f8 = wl_add( f8, wl_and( f8, m ) );                \
+  f9 = REDUCE_5( f0f9_2, f1f8_2 , f2f7_2 , f3f6_2 , f4f5_2           ); f9 = wl_add( f9, wl_and( f9, m ) );                \
+                                                                                                                           \
+  wl_t m38u = wl_bcast( (long)FD_MASK_MSB(38) );                                                                           \
+  wl_t m39u = wl_bcast( (long)FD_MASK_MSB(39) );                                                                           \
+  wl_t b24  = wl_bcast( 1L << 24 );                                                                                        \
+  wl_t b25  = wl_bcast( 1L << 25 );                                                                                        \
+                                                                                                                           \
+  wl_t carry0 = wl_add( f0, b25 ); f1 = wl_add( f1, wl_shr    ( carry0, 26 ) ); f0 = wl_sub( f0, wl_and( carry0, m38u ) ); \
+  wl_t carry4 = wl_add( f4, b25 ); f5 = wl_add( f5, wl_shr    ( carry4, 26 ) ); f4 = wl_sub( f4, wl_and( carry4, m38u ) ); \
+  wl_t carry1 = wl_add( f1, b24 ); f2 = wl_add( f2, wl_shr    ( carry1, 25 ) ); f1 = wl_sub( f1, wl_and( carry1, m39u ) ); \
+  wl_t carry5 = wl_add( f5, b24 ); f6 = wl_add( f6, wl_shr    ( carry5, 25 ) ); f5 = wl_sub( f5, wl_and( carry5, m39u ) ); \
+  wl_t carry2 = wl_add( f2, b25 ); f3 = wl_add( f3, wl_shr    ( carry2, 26 ) ); f2 = wl_sub( f2, wl_and( carry2, m38u ) ); \
+  wl_t carry6 = wl_add( f6, b25 ); f7 = wl_add( f7, wl_shr    ( carry6, 26 ) ); f6 = wl_sub( f6, wl_and( carry6, m38u ) ); \
+  wl_t carry3 = wl_add( f3, b24 ); f4 = wl_add( f4, wl_shr    ( carry3, 25 ) ); f3 = wl_sub( f3, wl_and( carry3, m39u ) ); \
+  wl_t carry7 = wl_add( f7, b24 ); f8 = wl_add( f8, wl_shr    ( carry7, 25 ) ); f7 = wl_sub( f7, wl_and( carry7, m39u ) ); \
+  /**/ carry4 = wl_add( f4, b25 ); f5 = wl_add( f5, wl_shr    ( carry4, 26 ) ); f4 = wl_sub( f4, wl_and( carry4, m38u ) ); \
+  wl_t carry8 = wl_add( f8, b25 ); f9 = wl_add( f9, wl_shr    ( carry8, 26 ) ); f8 = wl_sub( f8, wl_and( carry8, m38u ) ); \
+  wl_t carry9 = wl_add( f9, b24 ); f0 = wl_add( f0, wl_shr_x19( carry9, 25 ) ); f9 = wl_sub( f9, wl_and( carry9, m39u ) ); \
+  /**/ carry0 = wl_add( f0, b25 ); f1 = wl_add( f1, wl_shr    ( carry0, 26 ) ); f0 = wl_sub( f0, wl_and( carry0, m38u ) )
+
 void
 fd_ed25519_fe_mul2( fd_ed25519_fe_t * ha, fd_ed25519_fe_t const * fa, fd_ed25519_fe_t const * ga,
                     fd_ed25519_fe_t * hb, fd_ed25519_fe_t const * fb, fd_ed25519_fe_t const * gb ) {
@@ -1217,3 +1300,96 @@ fd_ed25519_fe_sqn4( fd_ed25519_fe_t * ha, fd_ed25519_fe_t const * fa, long na,
   SWIZZLE_OUT4( ha,hb,hc,hd, h0,h1,h2,h3,h4,h5,h6,h7,h8,h9 );
 }
 
+static void
+fd_ed25519_fe_sqn2_loop( fd_ed25519_fe_t * ha, long na,
+                         fd_ed25519_fe_t * hb, long nb, long N ) {
+
+  wl_t f0; wl_t f1; wl_t f2; wl_t f3; wl_t f4; wl_t f5; wl_t f6; wl_t f7; wl_t f8; wl_t f9;
+  long nc = 1L; long nd = 1L;
+  SWIZZLE_IN2( f0,f1,f2,f3,f4,f5,f6,f7,f8,f9, ha,hb );
+  for (long l_i=0; l_i<N; l_i++) { SQ_AVX_CORE_LOOP; }
+  SWIZZLE_OUT2( ha,hb, f0,f1,f2,f3,f4,f5,f6,f7,f8,f9 );
+}
+
+void
+fd_ed25519_fe_pow22523_2( fd_ed25519_fe_t *       out0,
+                          fd_ed25519_fe_t *       out1,
+                          fd_ed25519_fe_t const * z0,
+                          fd_ed25519_fe_t const * z1 ) {
+  fd_ed25519_fe_t t0_0[1]; fd_ed25519_fe_t t0_1[1];
+  fd_ed25519_fe_t t1_0[1]; fd_ed25519_fe_t t1_1[1];
+  fd_ed25519_fe_t t2_0[1]; fd_ed25519_fe_t t2_1[1];
+
+  fd_ed25519_fe_sqn2     ( t0_0,   z0, 1,
+                           t0_1,   z1, 1     );
+  fd_ed25519_fe_sqn2     ( t1_0, t0_0, 1,
+                           t1_1, t0_1, 1     );
+  fd_ed25519_fe_sqn2     ( t1_0, t1_0, 1,
+                           t1_1, t1_1, 1     );
+
+  fd_ed25519_fe_mul2     ( t1_0, z0,   t1_0,
+                           t1_1, z1,   t1_1  );
+  fd_ed25519_fe_mul2     ( t0_0, t0_0, t1_0,
+                           t0_1, t0_1, t1_1  );
+  fd_ed25519_fe_sqn2     ( t0_0, t0_0, 1,
+                           t0_1, t0_1, 1     );
+  fd_ed25519_fe_mul2     ( t0_0, t1_0, t0_0,
+                           t0_1, t1_1, t0_1  );
+  fd_ed25519_fe_sqn2     ( t1_0, t0_0, 1,
+                           t1_1, t0_1, 1     );
+  fd_ed25519_fe_sqn2_loop( t1_0, 1,
+                           t1_1, 1, 4        );
+
+  fd_ed25519_fe_mul2     ( t0_0, t1_0, t0_0,
+                           t0_1, t1_1, t0_1  );
+  fd_ed25519_fe_sqn2     ( t1_0, t0_0, 1,
+                           t1_1, t0_1, 1     );
+  fd_ed25519_fe_sqn2_loop( t1_0, 1,
+                           t1_1, 1, 9        );
+
+  fd_ed25519_fe_mul2     ( t1_0, t1_0, t0_0,
+                           t1_1, t1_1, t0_1  );
+  fd_ed25519_fe_sqn2     ( t2_0, t1_0, 1,
+                           t2_1, t1_1, 1     );
+  fd_ed25519_fe_sqn2_loop( t2_0, 1,
+                           t2_1, 1, 19       );
+
+  fd_ed25519_fe_mul2     ( t1_0, t2_0, t1_0,
+                           t1_1, t2_1, t1_1  );
+  fd_ed25519_fe_sqn2     ( t1_0, t1_0, 1,
+                           t1_1, t1_1, 1     );
+  fd_ed25519_fe_sqn2_loop( t1_0, 1,
+                           t1_1, 1, 9        );
+
+  fd_ed25519_fe_mul2     ( t0_0, t1_0, t0_0,
+                           t0_1, t1_1, t0_1  );
+  fd_ed25519_fe_sqn2     ( t1_0, t0_0, 1,
+                           t1_1, t0_1, 1     );
+  fd_ed25519_fe_sqn2_loop( t1_0, 1,
+                           t1_1, 1, 49       );
+
+  fd_ed25519_fe_mul2     ( t1_0, t1_0, t0_0,
+                           t1_1, t1_1, t0_1  );
+  fd_ed25519_fe_sqn2     ( t2_0, t1_0, 1,
+                           t2_1, t1_1, 1     );
+
+  fd_ed25519_fe_sqn2_loop( t2_0, 1,
+                           t2_1, 1, 99       );
+
+  fd_ed25519_fe_mul2     ( t1_0, t2_0, t1_0,
+                           t1_1, t2_1, t1_1  );
+  fd_ed25519_fe_sqn2     ( t1_0, t1_0, 1,
+                           t1_1, t1_1, 1     );
+  fd_ed25519_fe_sqn2_loop( t1_0, 1,
+                           t1_1, 1, 49       );
+
+  fd_ed25519_fe_mul2     ( t0_0, t1_0, t0_0,
+                           t0_1, t1_1, t0_1  );
+  fd_ed25519_fe_sqn2     ( t0_0, t0_0, 1,
+                           t0_1, t0_1, 1     );
+  fd_ed25519_fe_sqn2     ( t0_0, t0_0, 1,
+                           t0_1, t0_1, 1     );
+
+  fd_ed25519_fe_mul2     ( out0, t0_0, z0,
+                           out1, t0_1, z1    );
+}

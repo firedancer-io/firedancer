@@ -166,5 +166,12 @@ fd_ed25519_fe_sqn4( fd_ed25519_fe_t * ha, fd_ed25519_fe_t const * fa, long na,
                     fd_ed25519_fe_t * hc, fd_ed25519_fe_t const * fc, long nc,
                     fd_ed25519_fe_t * hd, fd_ed25519_fe_t const * fd, long nd );
 
+#define FD_ED25519_FE_POW25523_2_FAST 1
+
+void
+fd_ed25519_fe_pow22523_2( fd_ed25519_fe_t *       out0,
+                          fd_ed25519_fe_t *       out1,
+                          fd_ed25519_fe_t const * z0,
+                          fd_ed25519_fe_t const * z1 );
 FD_PROTOTYPES_END
 
