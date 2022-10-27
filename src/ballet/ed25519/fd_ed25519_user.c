@@ -351,13 +351,13 @@ fd_ed25519_verify( void const *  msg,
   uchar const * r = (uchar const *)sig;
   uchar const * s = r + 32;
 
-#ifndef FD_ED25519_VERIFY_USE_2POINT
-#if FD_ED25519_FE_POW25523_2_FAST
-#define FD_ED25519_VERIFY_USE_2POINT 1
-#else
-#define FD_ED25519_VERIFY_USE_2POINT 0
-#endif
-#endif
+# ifndef FD_ED25519_VERIFY_USE_2POINT
+# if FD_ED25519_FE_POW25523_2_FAST
+# define FD_ED25519_VERIFY_USE_2POINT 1
+# else
+# define FD_ED25519_VERIFY_USE_2POINT 0
+# endif
+# endif
 
   /* Check 0 <= s < L where:
 
@@ -394,14 +394,14 @@ fd_ed25519_verify( void const *  msg,
 
   fd_ed25519_ge_p3_t A[1];
 
-#if FD_ED25519_VERIFY_USE_2POINT
+# if FD_ED25519_VERIFY_USE_2POINT
   /* 2-point decompression - this approach avoids doing a compression
      (and hence an inversion) at the end */
   fd_ed25519_ge_p3_t rD[1];
-  int err = fd_ed25519_ge_frombytes_vartime_2( A, rD, public_key, r ); if( FD_UNLIKELY( err ) ) return err;
-#else
+  int err = fd_ed25519_ge_frombytes_vartime_2( A, public_key, rD, r ); if( FD_UNLIKELY( err ) ) return err;
+# else
   int err = fd_ed25519_ge_frombytes_vartime( A, public_key ); if( FD_UNLIKELY( err ) ) return err;
-#endif
+# endif
 
   fd_ed25519_fe_neg( A->X, A->X );
   fd_ed25519_fe_neg( A->T, A->T );
@@ -414,7 +414,7 @@ fd_ed25519_verify( void const *  msg,
   fd_ed25519_ge_p2_t R[1];
   fd_ed25519_ge_double_scalarmult_vartime( R, h, A, s );
 
-#if FD_ED25519_VERIFY_USE_2POINT
+# if FD_ED25519_VERIFY_USE_2POINT
   /* Comparison:
        r.x * R.Z == R.X
        r.y * R.Z == R.Y */
@@ -423,11 +423,11 @@ fd_ed25519_verify( void const *  msg,
                       &y_Z, R->Z, rD->Y );
   return (memcmp( &x_Z, R->X, 32UL ) |
           memcmp( &y_Z, R->Y, 32UL ) ) ? FD_ED25519_ERR_MSG : FD_ED25519_SUCCESS;
-#else
+# else
   uchar rcheck[ 32 ];
   fd_ed25519_ge_tobytes( rcheck, R );
   return memcmp( rcheck, r, 32UL ) ? FD_ED25519_ERR_MSG : FD_ED25519_SUCCESS;
-#endif
+# endif
 }
 
 char const *

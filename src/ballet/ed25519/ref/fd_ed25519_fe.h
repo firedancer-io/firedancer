@@ -81,7 +81,7 @@ fd_ed25519_fe_1( fd_ed25519_fe_t * h ) {
    to by h.  rng is a local join to random number generator to use.
    Consumes 10 slots in the rng sequence. */
 
-static inline fd_ed25519_fe_t *
+FD_FN_UNUSED static fd_ed25519_fe_t * /* Work around -Winline */
 fd_ed25519_fe_rng( fd_ed25519_fe_t * h,
                    fd_rng_t *        rng ) {
   uint m26 = (uint)FD_MASK_LSB(26); uint m25 = (uint)FD_MASK_LSB(25);
@@ -105,7 +105,7 @@ fd_ed25519_fe_rng( fd_ed25519_fe_t * h,
    Postconditions:
       |h| bounded by 1.1*2^26,1.1*2^25,1.1*2^26,1.1*2^25,etc. */
 
-static inline fd_ed25519_fe_t *
+FD_FN_UNUSED static fd_ed25519_fe_t * /* Work around -Winline */
 fd_ed25519_fe_add( fd_ed25519_fe_t *       h,
                    fd_ed25519_fe_t const * f,
                    fd_ed25519_fe_t const * g ) {
@@ -129,7 +129,7 @@ fd_ed25519_fe_add( fd_ed25519_fe_t *       h,
    Postconditions:
       |h| bounded by 1.1*2^26,1.1*2^25,1.1*2^26,1.1*2^25,etc. */
 
-static inline fd_ed25519_fe_t *
+FD_FN_UNUSED static fd_ed25519_fe_t * /* Work around -Winline */
 fd_ed25519_fe_sub( fd_ed25519_fe_t *       h,
                    fd_ed25519_fe_t const * f,
                    fd_ed25519_fe_t const * g ) {
@@ -202,7 +202,7 @@ fd_ed25519_fe_neg( fd_ed25519_fe_t *       h,
    to by h.  This currently does not optimize implicitly the case of
    h==f and tries to have a deterministic timing. */
 
-static inline fd_ed25519_fe_t *
+FD_FN_UNUSED static fd_ed25519_fe_t * /* Work around -Winline */
 fd_ed25519_fe_if( fd_ed25519_fe_t *       h,
                   int                     c,
                   fd_ed25519_fe_t const * f,
@@ -347,10 +347,8 @@ fd_ed25519_fe_sqn4( fd_ed25519_fe_t * ha, fd_ed25519_fe_t const * fa, long na,  
 #define FD_ED25519_FE_POW25523_2_FAST 0
 
 static inline void
-fd_ed25519_fe_pow22523_2( fd_ed25519_fe_t *       out0,
-                          fd_ed25519_fe_t *       out1,
-                          fd_ed25519_fe_t const * z0,
-                          fd_ed25519_fe_t const * z1 ) {
+fd_ed25519_fe_pow22523_2( fd_ed25519_fe_t * out0, fd_ed25519_fe_t const * z0,
+                          fd_ed25519_fe_t * out1, fd_ed25519_fe_t const * z1 ) {
   fd_ed25519_fe_pow22523( out0, z0 );
   fd_ed25519_fe_pow22523( out1, z1 );
 }

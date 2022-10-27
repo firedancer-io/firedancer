@@ -162,7 +162,7 @@ fd_ed25519_ge_p3_dbl( fd_ed25519_ge_p1p1_t *     r,
   return r;
 }
 
-static inline fd_ed25519_ge_p1p1_t *
+FD_FN_UNUSED static fd_ed25519_ge_p1p1_t * /* Work around -Winline */
 fd_ed25519_ge_add( fd_ed25519_ge_p1p1_t *         r,
                    fd_ed25519_ge_p3_t const *     p,
                    fd_ed25519_ge_cached_t const * q ) {
@@ -288,10 +288,8 @@ fd_ed25519_ge_frombytes_vartime( fd_ed25519_ge_p3_t * h,
 }
 
 int
-fd_ed25519_ge_frombytes_vartime_2( fd_ed25519_ge_p3_t * h0,
-                                   fd_ed25519_ge_p3_t * h1,
-                                   uchar const *        s0,
-                                   uchar const *        s1 ) {
+fd_ed25519_ge_frombytes_vartime_2( fd_ed25519_ge_p3_t * h0, uchar const * s0,
+                                   fd_ed25519_ge_p3_t * h1, uchar const * s1 ) {
 
   static const fd_ed25519_fe_t d[1] = {{
     { -10913610, 13857413, -15372611, 6949391, 114729, -8787816, -6275908, -3247719, -18696448, -12055116 }
@@ -330,8 +328,8 @@ fd_ed25519_ge_frombytes_vartime_2( fd_ed25519_ge_p3_t * h0,
   fd_ed25519_fe_mul2      ( h0->X, h0->X, u0,       /* x = uv^7 */
                             h1->X, h1->X, u1 );     /* x = uv^7 */
 
-  fd_ed25519_fe_pow22523_2( h0->X, h1->X,           /* x = (uv^7)^((q-5)/8) */
-                            h0->X, h1->X        );  /* x = (uv^7)^((q-5)/8) */
+  fd_ed25519_fe_pow22523_2( h0->X, h0->X,           /* x = (uv^7)^((q-5)/8) */
+                            h1->X, h1->X        );  /* x = (uv^7)^((q-5)/8) */
   fd_ed25519_fe_mul2      ( h0->X, h0->X, v30_0,
                             h1->X, h1->X, v30_1 );
   fd_ed25519_fe_mul2      ( h0->X, h0->X, u0,       /* x = uv^3(uv^7)^((q-5)/8) */
