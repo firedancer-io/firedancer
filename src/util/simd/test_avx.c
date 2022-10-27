@@ -652,10 +652,17 @@ main( int     argc,
     FD_TEST( wd_test( wd_bcast_pair( x0,x1 ), x0, x1, x0, x1 ) );
     FD_TEST( wd_test( wd_bcast_wide( x0,x1 ), x0, x0, x1, x1 ) );
 
-    FD_TEST( wd_test( wd_bcast_even(    x ), x0, x0, x2, x2 ) );
-    FD_TEST( wd_test( wd_bcast_odd(     x ), x1, x1, x3, x3 ) );
-    FD_TEST( wd_test( wd_exch_adj(      x ), x1, x0, x3, x2 ) );
-    FD_TEST( wd_test( wd_exch_adj_pair( x ), x2, x3, x0, x1 ) );
+    FD_TEST( wd_test( wd_permute( x, 0, 0, 0, 0 ), x0, x0, x0, x0 ) );
+    FD_TEST( wd_test( wd_permute( x, 1, 1, 1, 1 ), x1, x1, x1, x1 ) );
+    FD_TEST( wd_test( wd_permute( x, 2, 2, 2, 2 ), x2, x2, x2, x2 ) );
+    FD_TEST( wd_test( wd_permute( x, 3, 3, 3, 3 ), x3, x3, x3, x3 ) );
+    FD_TEST( wd_test( wd_permute( x, 0, 1, 2, 3 ), x0, x1, x2, x3 ) );
+    FD_TEST( wd_test( wd_permute( x, 0, 0, 2, 2 ), x0, x0, x2, x2 ) );
+    FD_TEST( wd_test( wd_permute( x, 1, 1, 3, 3 ), x1, x1, x3, x3 ) );
+    FD_TEST( wd_test( wd_permute( x, 1, 0, 3, 2 ), x1, x0, x3, x2 ) );
+    FD_TEST( wd_test( wd_permute( x, 2, 3, 0, 1 ), x2, x3, x0, x1 ) );
+    FD_TEST( wd_test( wd_permute( x, 0, 2, 1, 3 ), x0, x2, x1, x3 ) );
+    FD_TEST( wd_test( wd_permute( x, 3, 2, 1, 0 ), x3, x2, x1, x0 ) );
 
     /* Arithmetic operations */
 
@@ -757,10 +764,17 @@ main( int     argc,
     FD_TEST( wl_test( wl_bcast_pair( x0, x1 ), x0, x1, x0, x1 ) );
     FD_TEST( wl_test( wl_bcast_wide( x0, x1 ), x0, x0, x1, x1 ) );
 
-    FD_TEST( wl_test( wl_bcast_even(    x ), x0, x0, x2, x2 ) );
-    FD_TEST( wl_test( wl_bcast_odd(     x ), x1, x1, x3, x3 ) );
-    FD_TEST( wl_test( wl_exch_adj(      x ), x1, x0, x3, x2 ) );
-    FD_TEST( wl_test( wl_exch_adj_pair( x ), x2, x3, x0, x1 ) );
+    FD_TEST( wl_test( wl_permute( x, 0, 0, 0, 0 ), x0, x0, x0, x0 ) );
+    FD_TEST( wl_test( wl_permute( x, 1, 1, 1, 1 ), x1, x1, x1, x1 ) );
+    FD_TEST( wl_test( wl_permute( x, 2, 2, 2, 2 ), x2, x2, x2, x2 ) );
+    FD_TEST( wl_test( wl_permute( x, 3, 3, 3, 3 ), x3, x3, x3, x3 ) );
+    FD_TEST( wl_test( wl_permute( x, 0, 1, 2, 3 ), x0, x1, x2, x3 ) );
+    FD_TEST( wl_test( wl_permute( x, 0, 0, 2, 2 ), x0, x0, x2, x2 ) );
+    FD_TEST( wl_test( wl_permute( x, 1, 1, 3, 3 ), x1, x1, x3, x3 ) );
+    FD_TEST( wl_test( wl_permute( x, 1, 0, 3, 2 ), x1, x0, x3, x2 ) );
+    FD_TEST( wl_test( wl_permute( x, 2, 3, 0, 1 ), x2, x3, x0, x1 ) );
+    FD_TEST( wl_test( wl_permute( x, 0, 2, 1, 3 ), x0, x2, x1, x3 ) );
+    FD_TEST( wl_test( wl_permute( x, 3, 2, 1, 0 ), x3, x2, x1, x0 ) );
 
     /* Bit operations */
 

@@ -18,8 +18,7 @@
 
 /* Given the long values, return ... */
 
-#define wl(l0,l1,l2,l3) /* [ l0 l1 l2 l3 ] */ \
-  _mm256_setr_epi64x( (l0), (l1), (l2), (l3) )
+#define wl(l0,l1,l2,l3) _mm256_setr_epi64x( (l0), (l1), (l2), (l3) ) /* [ l0 l1 l2 l3 ] */
 
 #define wl_bcast(l0) _mm256_set1_epi64x( (l0) ) /* [ l0 l0 l0 l0 ] */
 
@@ -33,18 +32,10 @@ wl_bcast_wide( long l0, long l1 ) {
   return _mm256_setr_epi64x( l0, l0, l1, l1 );
 }
 
-/* No general vl_permute due to cross-128-bit lane limitations in AVX.
-   Useful cases are provided below.  Given [ l0 l1 l2 l3 ], return ... */
+/* wl_permute returns [ l(imm_l0) l(imm_l1) l(imm_l2) l(imm_l3) ].
+   imm_l* should be compile time constants in 0:3. */
 
-#define wl_bcast_even(x) _mm256_castpd_si256( _mm256_permute_pd( _mm256_castsi256_pd( (x) ),  0 ) ) /* [ l0 l0 l2 l2 ] */
-#define wl_bcast_odd(x)  _mm256_castpd_si256( _mm256_permute_pd( _mm256_castsi256_pd( (x) ), 15 ) ) /* [ l1 l1 l3 l3 ] */
-#define wl_exch_adj(x)   _mm256_castpd_si256( _mm256_permute_pd( _mm256_castsi256_pd( (x) ),  5 ) ) /* [ l1 l0 l3 l2 ] */
-
-static inline wl_t
-wl_exch_adj_pair( wl_t l ) { /* [ d2 d3 d0 d1 ] */
-  __m256d _l = _mm256_castsi256_pd( l );
-  return _mm256_castpd_si256( _mm256_permute2f128_pd( _l, _l, 1 ) );
-}
+#define wl_permute(x,imm_l0,imm_l1,imm_l2,imm_l3) _mm256_permute4x64_epi64( (x), (imm_l0)+4*(imm_l1)+16*(imm_l2)+64*(imm_l3) )
 
 /* Predefined constants */
 

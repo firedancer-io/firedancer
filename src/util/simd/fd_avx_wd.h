@@ -49,17 +49,10 @@ wd_bcast_wide( double d0, double d1 ) {
   return _mm256_setr_pd( d0, d0, d1, d1 );
 }
 
-/* No general vd_permute due to cross-128-bit lane limitations in AVX.
-   Useful cases are provided below.  Given [ d0 d1 d2 d3 ], return ... */
+/* wd_permute returns [ d(imm_l0) d(imm_l1) d(imm_l2) d(imm_l3) ].
+   imm_l* should be compile time constants in 0:3. */
 
-#define wd_bcast_even(d) _mm256_permute_pd( (d),  0 ) /* [ d0 d0 d2 d2 ] */
-#define wd_bcast_odd(d)  _mm256_permute_pd( (d), 15 ) /* [ d1 d1 d3 d3 ] */
-#define wd_exch_adj(d)   _mm256_permute_pd( (d),  5 ) /* [ d1 d0 d3 d2 ] */
-
-static inline wd_t
-wd_exch_adj_pair( wd_t d ) { /* [ d2 d3 d0 d1 ] */
-  return _mm256_permute2f128_pd( d, d, 1 );
-}
+#define wd_permute(x,imm_l0,imm_l1,imm_l2,imm_l3) _mm256_permute4x64_pd( (x), (imm_l0)+4*(imm_l1)+16*(imm_l2)+64*(imm_l3) )
 
 /* Predefined constants */
 
