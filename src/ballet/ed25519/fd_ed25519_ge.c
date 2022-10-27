@@ -483,27 +483,12 @@ fd_ed25519_ge_double_scalarmult_vartime( fd_ed25519_ge_p2_t *       r,
   fd_ed25519_ge_p3_to_cached( Ai[0], A         );
   fd_ed25519_ge_p3_dbl      ( t,     A         );
   fd_ed25519_ge_p1p1_to_p3  ( A2,    t         );
-  fd_ed25519_ge_add         ( t,     A2, Ai[0] );
-  fd_ed25519_ge_p1p1_to_p3  ( u,     t         );
-  fd_ed25519_ge_p3_to_cached( Ai[1], u         );
-  fd_ed25519_ge_add         ( t,     A2, Ai[1] );
-  fd_ed25519_ge_p1p1_to_p3  ( u,     t         );
-  fd_ed25519_ge_p3_to_cached( Ai[2], u         );
-  fd_ed25519_ge_add         ( t,     A2, Ai[2] );
-  fd_ed25519_ge_p1p1_to_p3  ( u,     t         );
-  fd_ed25519_ge_p3_to_cached( Ai[3], u         );
-  fd_ed25519_ge_add         ( t,     A2, Ai[3] );
-  fd_ed25519_ge_p1p1_to_p3  ( u,     t         );
-  fd_ed25519_ge_p3_to_cached( Ai[4], u         );
-  fd_ed25519_ge_add         ( t,     A2, Ai[4] );
-  fd_ed25519_ge_p1p1_to_p3  ( u,     t         );
-  fd_ed25519_ge_p3_to_cached( Ai[5], u         );
-  fd_ed25519_ge_add         ( t,     A2, Ai[5] );
-  fd_ed25519_ge_p1p1_to_p3  ( u,     t         );
-  fd_ed25519_ge_p3_to_cached( Ai[6], u         );
-  fd_ed25519_ge_add         ( t,     A2, Ai[6] );
-  fd_ed25519_ge_p1p1_to_p3  ( u,     t         );
-  fd_ed25519_ge_p3_to_cached( Ai[7], u         );
+  for( int i=0; i<7; i++ ) {
+    fd_ed25519_ge_add         ( t,       A2, Ai[i] );
+    fd_ed25519_ge_p1p1_to_p3  ( u,       t         );
+    fd_ed25519_ge_p3_to_cached( Ai[i+1], u         );
+  }
+
   fd_ed25519_ge_p2_0( r );
 
   int i;
