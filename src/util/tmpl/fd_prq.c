@@ -47,7 +47,7 @@
     ulong     eventq_footprint( ulong      max              );
     void *    eventq_new      ( void *     shmem, ulong max );
     event_t * eventq_join     ( void *     sheventq         ); // not just a cast of sheventq
-    void *    eventq_leave    ( eventq_t * heap             ); // not just a cast of eventq
+    void *    eventq_leave    ( event_t *  heap             ); // not just a cast of eventq
     void *    eventq_delete   ( void *     sheventq         );
 
     // cnt returns the current number events in the heap
@@ -219,18 +219,16 @@ PRQ_(private_fill_hole_up)( PRQ_T *       heap,     /* Heap, indexed 0:hole+1 */
                             ulong         hole,     /* Location of the hole to fill */
                             PRQ_T const * event ) { /* Event to fill the hole with */
 
-  PRQ_TMP_LD( tmp_event, event );                                 /* Load the event to fill the hole with */
-  PRQ_TIMEOUT_T event_timeout = PRQ_TMP_TIMEOUT( tmp_event );
-  while( hole ) {                                                 /* If the hole to fill has a parent */
-    ulong parent = (hole-1UL) >> 1;                               /*   Load the parent */
+  PRQ_TMP_LD( tmp_event, event );                                    /* Load the event to fill the hole with */
+  while( hole ) {                                                    /* If the hole to fill has a parent */
+    ulong parent = (hole-1UL) >> 1;                                  /*   Load the parent */
     PRQ_TMP_LD( tmp_parent, heap + parent );
-    PRQ_TIMEOUT_T parent_timeout = PRQ_TMP_TIMEOUT( tmp_parent );
-    if( FD_LIKELY( parent_timeout <= event_timeout ) ) break;     /*   If the parent at least as old as the event, ... */
-    PRQ_TMP_ST( heap + hole, tmp_parent );                        /*   Otherwise, fill the hole with the hole's parent */
-    hole = parent;                                                /*   and recurse on the created hole at parent */
+    if( FD_LIKELY( !PRQ_TMP_AFTER( tmp_parent, tmp_event )) ) break; /*   If the parent at least as old as the event, ... */
+    PRQ_TMP_ST( heap + hole, tmp_parent );                           /*   Otherwise, fill the hole with the hole's parent */
+    hole = parent;                                                   /*   and recurse on the created hole at parent */
   }
 
-  PRQ_TMP_ST( heap + hole, tmp_event );                           /* ... fill the hole with the event to schedule */
+  PRQ_TMP_ST( heap + hole, tmp_event );                              /* ... fill the hole with the event to schedule */
 }
 
 /* fill_hole_dn fills the hole in heap with the last event on the heap
