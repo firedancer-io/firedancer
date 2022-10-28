@@ -6,9 +6,9 @@ Host setup
 
 The below describes building Firedancer from scratch and running it
 optimized on a stock GCP `n2-standard-80` instance with a stock GCP
-RHEL8 image.  For reference, this instance is a dual socket 20 physical
-core Intel Cascade Lake at 2.8 GHz with hyperthreading enabled -> 2 NUMA
-nodes total, 80 logical cores total).
+RHEL8.5 image.  For reference, this instance is a dual socket 20
+physical core Intel Cascade Lake at 2.8 GHz with hyperthreading enabled
+-> 2 NUMA nodes total, 80 logical cores total).
 
 Setup for other reasonably modern x86_64 architecture hosts (reasonable
 modern here AVX2 support, this includes most Intel architectures since
@@ -24,20 +24,20 @@ validator).  Though it is possible to run Firedancer without any of
 these tunings, it is not recommended and the below assumes the user has
 the necessary `sudo` access.
 
-- Log into the host and configure user environment to taste (e.g. 
+- Log into the host and configure user environment to taste (e.g.
   install favorite editors / code development environment, etc).  This
   is not specific to Firedancer but note hosts like this have very
   minimal installs on first login.
-  
- - Install standard development tools.
-     ```
-     $ sudo dnf groupinstall development
-     ```
-   As mentioned above, the minimal installs are missing even basic
-   development tools.  The `development` group includes such things as
-   the stock `gcc` compiler, build tools like `make` , etc.  Firedancer
-   likely can use other tool chains / compilers (e.g.  `clang`) but this
-   is not routinely tested.
+
+- Install standard development tools.
+    ```
+    $ sudo dnf groupinstall development
+    ```
+  As mentioned above, the minimal installs are missing even basic
+  development tools.  The `development` group includes such things as
+  the stock `gcc` compiler, build tools like `make`, version control
+  systems like `git`, etc.  Firedancer likely can use other tool chains
+  / compilers (e.g. `clang`) but this is not routinely tested currently.
 
 - Install additional dependencies.
     ```
@@ -59,12 +59,12 @@ the necessary `sudo` access.
     * - nice -20
     * - rtprio unlimited
     ```
-  (The user might only opt to be more restrictiv if desired, e.g., 
-  only allow Firedancer users to do this.)  Recommend logging out and
-  then logging back in again after making these changes.  `ulimit -a`
-  can be used to tell if the new user limits have taken effect.  E.g.:
-  as a regular user, the following would indicate that the changes are
-  in effect:
+  (The user might only opt to be more restrictiv if desired, e.g. only
+  allow Firedancer users to do this.)  Recommend logging out and then
+  logging back in again after making these changes.  `ulimit -a` can be
+  used to tell if the new user limits have taken effect.  E.g., as a
+  regular user, the following would indicate that the changes are in
+  effect:
     ```
     $ ulimit -a
     ... snip ...
@@ -107,8 +107,8 @@ the necessary `sudo` access.
   will reserve
       8 2GiB pages on numa node 0,
       8 2GiB pages on numa node 1,
-    512 2MiB pages on numa node 0,
-    512 2MiB pages on numa node 1,
+    512 2MiB pages on numa node 0, and
+    512 2MiB pages on numa node 1
   on the host for application use (assuming the host in fact has enough
   free contiguous physical DRAM availability).  Adjust this as necessary
   for the number of cores, system DRAM availabiity, application mix,
