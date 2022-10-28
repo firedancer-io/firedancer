@@ -100,8 +100,9 @@ fd_tile_private_stack_new( ulong cpu_idx ) {
                        "and attempting to continue.  Run:\n\t"
                        "\techo [CNT] > /sys/devices/system/node/node%lu/hugepages/hugepages-2048kB/nr_hugepages\n\t"
                        "(probably as superuser) or equivalent where [CNT] is a sufficient number\n\t"
-                       "huge pages to reserve on this numa node system wide to eliminate this\n\t"
-                       "warning.",
+                       "huge pages to reserve on this numa node system wide and/or adjust\n\t"
+                       "/etc/security/limits.conf to permit this user to lock a sufficient\n\t"
+                       "amount of memory to eliminate this warning.",
                        numa_idx, cpu_idx, numa_idx ));
       warn |= 1UL<<numa_idx;
     }
