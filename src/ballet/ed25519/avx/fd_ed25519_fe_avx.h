@@ -1,5 +1,5 @@
 #ifndef HEADER_fd_src_ballet_ed25519_fd_ed25519_private_h
-#error "Do not include use this without fd_ed25519_private.h"
+#error "Do not include this; use fd_ed25519_private.h"
 #endif
 
 /* Some quick extensions to the wl APIs useful here */
@@ -70,866 +70,253 @@ wl_subadd_12( wl_t f ) {
 
 FD_PROTOTYPES_END
 
-/* FE_AVX API *********************************************************/
+#include "fd_ed25519_fe_avx_inl.h"
 
-/* FE_AVX_DECL declares 10 wl_ts named f0, f1, ... f9 for holding 4
-   field elements as a 10x4 long matrix in the local scope.  Each lane
-   of the wl_t holds the 10 limbs of a field element. */
+FD_PROTOTYPES_BEGIN
 
-#define FE_AVX_DECL(f) wl_t f##0; wl_t f##1; wl_t f##2; wl_t f##3; wl_t f##4; wl_t f##5; wl_t f##6; wl_t f##7; wl_t f##8; wl_t f##9
+static inline long *
+fe_avx_ld4( long *                  z,
+            fd_ed25519_fe_t const * a,
+            fd_ed25519_fe_t const * b,
+            fd_ed25519_fe_t const * c,
+            fd_ed25519_fe_t const * d ) {
+  FE_AVX_INL_DECL( vz );
+  FE_AVX_INL_SWIZZLE_IN4( vz, a, b, c, d );
+  FE_AVX_INL_ST( z, vz );
+  return z;
+}
 
-/* FE_AVX_ZERO sets the 4 field elements stored in 10 wl_ts declared via
-   FE_AVX_DECL to zero. */
+static inline long *
+fe_avx_ld3( long *                  z,
+            fd_ed25519_fe_t const * a,
+            fd_ed25519_fe_t const * b,
+            fd_ed25519_fe_t const * c ) {
+  FE_AVX_INL_DECL( vz );
+  FE_AVX_INL_SWIZZLE_IN3( vz, a, b, c );
+  FE_AVX_INL_ST( z, vz );
+  return z;
+}
 
-#define FE_AVX_ZERO(h) do { \
-    wl_t _z = wl_zero();    \
-    h##0 = _z; h##1 = _z;   \
-    h##2 = _z; h##3 = _z;   \
-    h##4 = _z; h##5 = _z;   \
-    h##6 = _z; h##7 = _z;   \
-    h##8 = _z; h##9 = _z;   \
-  } while(0)
+static inline long *
+fe_avx_ld2( long *                  z,
+            fd_ed25519_fe_t const * a,
+            fd_ed25519_fe_t const * b ) {
+  FE_AVX_INL_DECL( vz );
+  FE_AVX_INL_SWIZZLE_IN2( vz, a, b );
+  FE_AVX_INL_ST( z, vz );
+  return z;
+}
 
-/* FE_AVX_PERMUTE permutes the lanes of the f and stores the results in
-   g.  imm_l* should be compile time and in 0:3.  In place operation
-   is fine. */
+static inline void
+fe_avx_st4( fd_ed25519_fe_t * a,
+            fd_ed25519_fe_t * b,
+            fd_ed25519_fe_t * c,
+            fd_ed25519_fe_t * d,
+            long *            z ) {
+  FE_AVX_INL_DECL( vz );
+  FE_AVX_INL_LD( vz, z );
+  FE_AVX_INL_SWIZZLE_OUT4( a, b, c, d, vz );
+}
 
-#define FE_AVX_PERMUTE(h,f,imm_l0,imm_l1,imm_l2,imm_l3) do {           \
-    h##0 = wl_permute( f##0, (imm_l0), (imm_l1), (imm_l2), (imm_l3) ); \
-    h##1 = wl_permute( f##1, (imm_l0), (imm_l1), (imm_l2), (imm_l3) ); \
-    h##2 = wl_permute( f##2, (imm_l0), (imm_l1), (imm_l2), (imm_l3) ); \
-    h##3 = wl_permute( f##3, (imm_l0), (imm_l1), (imm_l2), (imm_l3) ); \
-    h##4 = wl_permute( f##4, (imm_l0), (imm_l1), (imm_l2), (imm_l3) ); \
-    h##5 = wl_permute( f##5, (imm_l0), (imm_l1), (imm_l2), (imm_l3) ); \
-    h##6 = wl_permute( f##6, (imm_l0), (imm_l1), (imm_l2), (imm_l3) ); \
-    h##7 = wl_permute( f##7, (imm_l0), (imm_l1), (imm_l2), (imm_l3) ); \
-    h##8 = wl_permute( f##8, (imm_l0), (imm_l1), (imm_l2), (imm_l3) ); \
-    h##9 = wl_permute( f##9, (imm_l0), (imm_l1), (imm_l2), (imm_l3) ); \
-  } while(0)
+static inline void
+fe_avx_st3( fd_ed25519_fe_t * a,
+            fd_ed25519_fe_t * b,
+            fd_ed25519_fe_t * c,
+            long *            z ) {
+  FE_AVX_INL_DECL( vz );
+  FE_AVX_INL_LD( vz, z );
+  FE_AVX_INL_SWIZZLE_OUT3( a, b, c, vz );
+}
 
-/* FE_AVX_COPY is an optimized version of FE_AVX_PERMUTE(h,f,0,1,2,3).
-   In place operation is fine. */
+static inline void
+fe_avx_st2( fd_ed25519_fe_t * a,
+            fd_ed25519_fe_t * b,
+            long *            z ) {
+  FE_AVX_INL_DECL( vz );
+  FE_AVX_INL_LD( vz, z );
+  FE_AVX_INL_SWIZZLE_OUT2( a, b, vz );
+}
 
-#define FE_AVX_COPY( h, f ) do { \
-   h##0 = f##0; h##1 = f##1;     \
-   h##2 = f##2; h##3 = f##3;     \
-   h##4 = f##4; h##5 = f##5;     \
-   h##6 = f##6; h##7 = f##7;     \
-   h##8 = f##8; h##9 = f##9;     \
- } while(0)
+static inline long *
+fe_avx_zero( long * z ) {
+  FE_AVX_INL_DECL( vx    );
+  FE_AVX_INL_ZERO( vx    );
+  FE_AVX_INL_ST  ( z, vx );
+  return z;
+}
 
-/* FE_AVX memory operations *******************************************/
+static inline long *
+fe_avx_permute( long *       z,
+                long const * x,
+                int          imm_l0,
+                int          imm_l1,
+                int          imm_l2,
+                int          imm_l3 ) {
+  FE_AVX_INL_DECL   ( vx     );
+  FE_AVX_INL_LD     ( vx, x  );
+  FE_AVX_INL_PERMUTE( vx, vx, imm_l0, imm_l1, imm_l2, imm_l3 );
+  FE_AVX_INL_ST     ( z,  vx );
+  return z;
+}
 
-/* FE_AVX_LD loads into h the 4 field elements in the 40 long (32-byte
-   aligned) memory region pointed to by p.  The memory region layout is:
-     ha0 hb0 hc0 hd0
-     ha1 hb1 hc1 hd1
-     ...
-     ha9 hb9 hc9 hd9 */
+static inline long *
+fe_avx_copy( long *       z,
+             long const * x ) {
+  FE_AVX_INL_DECL( vx     );
+  FE_AVX_INL_LD  ( vx, x  );
+  FE_AVX_INL_ST  ( z,  vx );
+  return z;
+}
 
-#define FE_AVX_LD( h, p ) do {                         \
-   long const * _p = (p);                              \
-   h##0 = wl_ld( _p + 4*0 ); h##1 = wl_ld( _p + 4*1 ); \
-   h##2 = wl_ld( _p + 4*2 ); h##3 = wl_ld( _p + 4*3 ); \
-   h##4 = wl_ld( _p + 4*4 ); h##5 = wl_ld( _p + 4*5 ); \
-   h##6 = wl_ld( _p + 4*6 ); h##7 = wl_ld( _p + 4*7 ); \
-   h##8 = wl_ld( _p + 4*8 ); h##9 = wl_ld( _p + 4*9 ); \
- } while(0)
+static inline long *
+fe_avx_add( long *       z,
+            long const * x,
+            long const * y ) {
+  FE_AVX_INL_DECL( vx         );
+  FE_AVX_INL_DECL( vy         );
+  FE_AVX_INL_LD  ( vx, x      );
+  FE_AVX_INL_LD  ( vy, y      );
+  FE_AVX_INL_ADD ( vx, vx, vy );
+  FE_AVX_INL_ST  ( z,  vx     );
+  return z;
+}
 
-/* FE_AVX_ST stores the 4 field elements in f into the 40 long (32-byte
-   aligned) memory region pointed by p.  The memory region layout is:
-      fa0 fb0 fc0 fd0
-      fa1 fb1 fc1 fd1
-      ...
-      fa9 fb9 fc9 fd9 */
+static inline long *
+fe_avx_sub( long *       z,
+            long const * x,
+            long const * y ) {
+  FE_AVX_INL_DECL( vx         );
+  FE_AVX_INL_DECL( vy         );
+  FE_AVX_INL_LD  ( vx, x      );
+  FE_AVX_INL_LD  ( vy, y      );
+  FE_AVX_INL_SUB ( vx, vx, vy );
+  FE_AVX_INL_ST  ( z,  vx     );
+  return z;
+}
 
-#define FE_AVX_ST( p, f ) do {                         \
-   long * _p = (p);                                    \
-   wl_st( _p + 4*0, f##0 ); wl_st( _p + 4*1, f##1 );   \
-   wl_st( _p + 4*2, f##2 ); wl_st( _p + 4*3, f##3 );   \
-   wl_st( _p + 4*4, f##4 ); wl_st( _p + 4*5, f##5 );   \
-   wl_st( _p + 4*6, f##6 ); wl_st( _p + 4*7, f##7 );   \
-   wl_st( _p + 4*8, f##8 ); wl_st( _p + 4*9, f##9 );   \
- } while(0)
+FD_FN_UNUSED static long * /* Don't even try to inline this due to instruction limits */
+fe_avx_mul( long *       z,
+            long const * x,
+            long const * y ) {
+  FE_AVX_INL_DECL( vx         );
+  FE_AVX_INL_DECL( vy         );
+  FE_AVX_INL_LD  ( vx, x      );
+  FE_AVX_INL_LD  ( vy, y      );
+  FE_AVX_INL_MUL ( vx, vx, vy );
+  FE_AVX_INL_ST  ( z,  vx     );
+  return z;
+}
 
-/* FE_AVX_SWIZZLE_IN4 loads 4 field elements pointed to by a,b,c,d into
-   a 10x4 long matrix stored in 10 wl_ts declared via FE_AVX_DECL.
+FD_FN_UNUSED static long * /* Don't even try to inline this due to instruction limits */
+fe_avx_sqn( long *       z,
+            long const * x,
+            int          na,
+            int          nb,
+            int          nc,
+            int          nd ) {
+  FE_AVX_INL_DECL( vx     );
+  FE_AVX_INL_LD  ( vx, x  );
+  FE_AVX_INL_SQN ( vx, vx, na,nb,nc,nd );
+  FE_AVX_INL_ST  ( z,  vx );
+  return z;
+}
 
-   Does limbs 0:7 as a 8x8->8x8 int matrix transpose (recursive top down
-   implementation) optimized for the case where input row 1,3,5,7 are zero.
-   Result can be treated as a 8x4 long matrix with no additional operations.
+FD_FN_UNUSED static long * /* Don't even try to inline this due to instruction limits */
+fe_avx_sq( long *       z,
+           long const * x ) {
+  FE_AVX_INL_DECL( vx     );
+  FE_AVX_INL_LD  ( vx, x  );
+  FE_AVX_INL_SQ  ( vx, vx );
+  FE_AVX_INL_ST  ( z,  vx );
+  return z;
+}
 
-   Does limbs 8:9 as a 8x2->2x8 int matrix transpose (recursive top down
-   implementation) optimized for the case where input rows 1,3,5,7 are
-   zero.  Result can be treated as a 2x4 long matrix with no additional
-   operations.
+static inline long *
+fe_avx_sq_iter( long *       z,
+                long const * x,
+                ulong        n ) {
+  if( !n ) fe_avx_copy( z, x );
+  else {
+    fe_avx_sq( z, x );
+    for( n--; n; n-- ) fe_avx_sq( z, z );
+  }
+  return z;
+}
 
-   These two tranposes are then interleaved for lots of ILP. */
+static inline long *
+fe_avx_pow22523( long *       h,
+                 long const * f ) {
+  long t0[ 40 ] __attribute__((aligned(64)));
+  long t1[ 40 ] __attribute__((aligned(64)));
+  long t2[ 40 ] __attribute__((aligned(64)));
+  fe_avx_sq     ( t0, f         );
+  fe_avx_sq_iter( t1, t0, 2UL   );
+  fe_avx_mul    ( t1, f,  t1    );
+  fe_avx_mul    ( t0, t0, t1    );
+  fe_avx_sq     ( t0, t0        );
+  fe_avx_mul    ( t0, t1, t0    );
+  fe_avx_sq_iter( t1, t0, 5UL   );
+  fe_avx_mul    ( t0, t1, t0    );
+  fe_avx_sq_iter( t1, t0, 10UL  );
+  fe_avx_mul    ( t1, t1, t0    );
+  fe_avx_sq_iter( t2, t1, 20UL  );
+  fe_avx_mul    ( t1, t2, t1    );
+  fe_avx_sq_iter( t1, t1, 10UL  );
+  fe_avx_mul    ( t0, t1, t0    );
+  fe_avx_sq_iter( t1, t0, 50UL  );
+  fe_avx_mul    ( t1, t1, t0    );
+  fe_avx_sq_iter( t2, t1, 100UL );
+  fe_avx_mul    ( t1, t2, t1    );
+  fe_avx_sq_iter( t1, t1, 50UL  );
+  fe_avx_mul    ( t0, t1, t0    );
+  fe_avx_sq_iter( t0, t0, 2UL   );
+  fe_avx_mul    ( h,  t0, f     );
+  return h;
+}
 
-#define FE_AVX_SWIZZLE_IN4( v, a,b,c,d ) do {                          \
-    int const * _a = (a)->limb;                                        \
-    int const * _b = (b)->limb;                                        \
-    int const * _c = (c)->limb;                                        \
-    int const * _d = (d)->limb;                                        \
-    wi_t _z  = wi_zero();                                              \
-    wi_t _r0 = wi_ld( _a   );                                          \
-    wi_t _r8 = wi_ld( _a+8 );                                          \
-    wi_t _r2 = wi_ld( _b   );                                          \
-    wi_t _ra = wi_ld( _b+8 );                                          \
-    wi_t _r4 = wi_ld( _c   );                                          \
-    wi_t _rc = wi_ld( _c+8 );                                          \
-    wi_t _r6 = wi_ld( _d   );                                          \
-    wi_t _re = wi_ld( _d+8 );                                          \
-    wi_t _ta = _r0; _r0 = _mm256_permute2f128_si256( _ta, _r4, 0x20 ); \
-    /**/            _r4 = _mm256_permute2f128_si256( _ta, _r4, 0x31 ); \
-    wi_t _tc = _r2; _r2 = _mm256_permute2f128_si256( _tc, _r6, 0x20 ); \
-    /**/            _r6 = _mm256_permute2f128_si256( _tc, _r6, 0x31 ); \
-    wi_t _ti = _r8; _r8 = _mm256_permute2f128_si256( _ti, _rc, 0x20 ); \
-    /**/            _rc = _mm256_permute2f128_si256( _ti, _rc, 0x31 ); \
-    wi_t _tk = _ra; _ra = _mm256_permute2f128_si256( _tk, _re, 0x20 ); \
-    /**/            _re = _mm256_permute2f128_si256( _tk, _re, 0x31 ); \
-    wi_t _te = _r0; _r0 = _mm256_unpacklo_epi32    ( _te, _r2       ); \
-    /**/            _r2 = _mm256_unpackhi_epi32    ( _te, _r2       ); \
-    wi_t _tg = _r4; _r4 = _mm256_unpacklo_epi32    ( _tg, _r6       ); \
-    /**/            _r6 = _mm256_unpackhi_epi32    ( _tg, _r6       ); \
-    /**/            _r8 = _mm256_unpacklo_epi32    ( _r8, _ra       ); \
-    v##0 = _mm256_unpacklo_epi32( _r0, _z );                           \
-    v##1 = _mm256_unpackhi_epi32( _r0, _z );                           \
-    v##2 = _mm256_unpacklo_epi32( _r2, _z );                           \
-    v##3 = _mm256_unpackhi_epi32( _r2, _z );                           \
-    v##4 = _mm256_unpacklo_epi32( _r4, _z );                           \
-    v##5 = _mm256_unpackhi_epi32( _r4, _z );                           \
-    v##6 = _mm256_unpacklo_epi32( _r6, _z );                           \
-    v##7 = _mm256_unpackhi_epi32( _r6, _z );                           \
-    v##8 = _mm256_unpacklo_epi32( _r8, _z );                           \
-    v##9 = _mm256_unpackhi_epi32( _r8, _z );                           \
-  } while(0)
+static inline long *
+fe_avx_lane_select( long *       z,
+                    long const * x,
+                    int          c0,
+                    int          c1,
+                    int          c2,
+                    int          c3 ) {
+  FE_AVX_INL_DECL       ( vx     );
+  FE_AVX_INL_LD         ( vx, x  );
+  FE_AVX_INL_LANE_SELECT( vx, vx, c0, c1, c2, c3 );
+  FE_AVX_INL_ST         ( z,  vx );
+  return z;
+}
 
-/* FE_AVX_SWIZZLE_IN3 is FE_AVX_SWIZZLE_IN4 optimized for the d column
-   zeroed. */
+static inline long *
+fe_avx_dbl_mix( long *       h,
+                long const * f ) {
+  FE_AVX_INL_DECL   ( vf     );
+  FE_AVX_INL_LD     ( vf, f  );
+  FE_AVX_INL_DBL_MIX( vf, vf );
+  FE_AVX_INL_ST     ( h,  vf );
+  return h;
+}
 
-#define FE_AVX_SWIZZLE_IN3( v, a,b,c ) do {                            \
-    int const * _a = (a)->limb;                                        \
-    int const * _b = (b)->limb;                                        \
-    int const * _c = (c)->limb;                                        \
-    wi_t _z  = wi_zero();                                              \
-    wi_t _r0 = wi_ld( _a   );                                          \
-    wi_t _r8 = wi_ld( _a+8 );                                          \
-    wi_t _r2 = wi_ld( _b   );                                          \
-    wi_t _ra = wi_ld( _b+8 );                                          \
-    wi_t _r4 = wi_ld( _c   );                                          \
-    wi_t _rc = wi_ld( _c+8 );                                          \
-    wi_t _ta = _r0; _r0 = _mm256_permute2f128_si256( _ta, _r4, 0x20 ); \
-    /**/            _r4 = _mm256_permute2f128_si256( _ta, _r4, 0x31 ); \
-    wi_t _tc = _r2; _r2 = _mm256_permute2f128_si256( _tc, _z,  0x20 ); \
-    wi_t            _r6 = _mm256_permute2f128_si256( _tc, _z,  0x31 ); \
-    wi_t _ti = _r8; _r8 = _mm256_permute2f128_si256( _ti, _rc, 0x20 ); \
-    /**/            _rc = _mm256_permute2f128_si256( _ti, _rc, 0x31 ); \
-    wi_t _tk = _ra; _ra = _mm256_permute2f128_si256( _tk, _z,  0x20 ); \
-    wi_t _te = _r0; _r0 = _mm256_unpacklo_epi32    ( _te, _r2       ); \
-    /**/            _r2 = _mm256_unpackhi_epi32    ( _te, _r2       ); \
-    wi_t _tg = _r4; _r4 = _mm256_unpacklo_epi32    ( _tg, _r6       ); \
-    /**/            _r6 = _mm256_unpackhi_epi32    ( _tg, _r6       ); \
-    /**/            _r8 = _mm256_unpacklo_epi32    ( _r8, _ra       ); \
-    v##0 = _mm256_unpacklo_epi32( _r0, _z );                           \
-    v##1 = _mm256_unpackhi_epi32( _r0, _z );                           \
-    v##2 = _mm256_unpacklo_epi32( _r2, _z );                           \
-    v##3 = _mm256_unpackhi_epi32( _r2, _z );                           \
-    v##4 = _mm256_unpacklo_epi32( _r4, _z );                           \
-    v##5 = _mm256_unpackhi_epi32( _r4, _z );                           \
-    v##6 = _mm256_unpacklo_epi32( _r6, _z );                           \
-    v##7 = _mm256_unpackhi_epi32( _r6, _z );                           \
-    v##8 = _mm256_unpacklo_epi32( _r8, _z );                           \
-    v##9 = _mm256_unpackhi_epi32( _r8, _z );                           \
-  } while(0)
+static inline long *
+fe_avx_sub_mix( long *       h,
+                long const * f ) {
+  FE_AVX_INL_DECL   ( vf     );
+  FE_AVX_INL_LD     ( vf, f  );
+  FE_AVX_INL_SUB_MIX( vf, vf );
+  FE_AVX_INL_ST     ( h,  vf );
+  return h;
+}
 
-/* FE_AVX_SWIZZLE_IN2 is FE_AVX_SWIZZLE_IN3 optimized for the c column
-   zeroed. */
+static inline long *
+fe_avx_subadd_12( long *       h,
+                  long const * f ) {
+  FE_AVX_INL_DECL     ( vf     );
+  FE_AVX_INL_LD       ( vf, f  );
+  FE_AVX_INL_SUBADD_12( vf, vf );
+  FE_AVX_INL_ST       ( h,  vf );
+  return h;
+}
 
-#define FE_AVX_SWIZZLE_IN2( v, a,b ) do {                              \
-    int const * _a = (a)->limb;                                        \
-    int const * _b = (b)->limb;                                        \
-    wi_t _z  = wi_zero();                                              \
-    wi_t _r0 = wi_ld( _a   );                                          \
-    wi_t _r8 = wi_ld( _a+8 );                                          \
-    wi_t _r2 = wi_ld( _b   );                                          \
-    wi_t _ra = wi_ld( _b+8 );                                          \
-    wi_t _ta = _r0; _r0 = _mm256_permute2f128_si256( _ta, _z,  0x20 ); \
-    wi_t            _r4 = _mm256_permute2f128_si256( _ta, _z,  0x31 ); \
-    wi_t _tc = _r2; _r2 = _mm256_permute2f128_si256( _tc, _z,  0x20 ); \
-    wi_t            _r6 = _mm256_permute2f128_si256( _tc, _z,  0x31 ); \
-    wi_t _ti = _r8; _r8 = _mm256_permute2f128_si256( _ti, _z,  0x20 ); \
-    wi_t _tk = _ra; _ra = _mm256_permute2f128_si256( _tk, _z,  0x20 ); \
-    wi_t _te = _r0; _r0 = _mm256_unpacklo_epi32    ( _te, _r2       ); \
-    /**/            _r2 = _mm256_unpackhi_epi32    ( _te, _r2       ); \
-    wi_t _tg = _r4; _r4 = _mm256_unpacklo_epi32    ( _tg, _r6       ); \
-    /**/            _r6 = _mm256_unpackhi_epi32    ( _tg, _r6       ); \
-    /**/            _r8 = _mm256_unpacklo_epi32    ( _r8, _ra       ); \
-    v##0 = _mm256_unpacklo_epi32( _r0, _z );                           \
-    v##1 = _mm256_unpackhi_epi32( _r0, _z );                           \
-    v##2 = _mm256_unpacklo_epi32( _r2, _z );                           \
-    v##3 = _mm256_unpackhi_epi32( _r2, _z );                           \
-    v##4 = _mm256_unpacklo_epi32( _r4, _z );                           \
-    v##5 = _mm256_unpackhi_epi32( _r4, _z );                           \
-    v##6 = _mm256_unpacklo_epi32( _r6, _z );                           \
-    v##7 = _mm256_unpackhi_epi32( _r6, _z );                           \
-    v##8 = _mm256_unpacklo_epi32( _r8, _z );                           \
-    v##9 = _mm256_unpackhi_epi32( _r8, _z );                           \
-  } while(0)
+FD_PROTOTYPES_END
 
-/* FE_AVX_SWIZZLE_OUT4 writes a 10x4 long matrix (where every element is
-   fits into 32-bits) in 10 wl_t into 4 field elements.  The input 10x4
-   long matrix can be reinterpreted for free as a 10x8 int matrix where
-   columns 1,3,5,7.
-
-   This then does a 8x8 int matrix transpose (recursive bottom up
-   implementation) for the first 8 rows.  As the first step does
-   transposes for 2x2 subblocks, the zeros in columns 1,3,5,7
-   immediately get compacted into the rows 1,3,5,7 and thus can be
-   immediately discarded.
-
-   Similar, the last two rows are done as an 2x8 int matrix transpose in
-   the same matter and the operations are interleaved for lots of ILP. */
-
-#define FE_AVX_SWIZZLE_OUT4( a,b,c,d, v ) do {                                                                      \
-    wf_t _z  = wf_zero();                                                                                           \
-    wf_t _r0 = _mm256_shuffle_ps( _mm256_castsi256_ps( v##0 ), _mm256_castsi256_ps( v##1 ), _MM_SHUFFLE(2,0,2,0) ); \
-    wf_t _r2 = _mm256_shuffle_ps( _mm256_castsi256_ps( v##2 ), _mm256_castsi256_ps( v##3 ), _MM_SHUFFLE(2,0,2,0) ); \
-    wf_t _r4 = _mm256_shuffle_ps( _mm256_castsi256_ps( v##4 ), _mm256_castsi256_ps( v##5 ), _MM_SHUFFLE(2,0,2,0) ); \
-    wf_t _r6 = _mm256_shuffle_ps( _mm256_castsi256_ps( v##6 ), _mm256_castsi256_ps( v##7 ), _MM_SHUFFLE(2,0,2,0) ); \
-    wf_t _r8 = _mm256_shuffle_ps( _mm256_castsi256_ps( v##8 ), _mm256_castsi256_ps( v##9 ), _MM_SHUFFLE(2,0,2,0) ); \
-    wf_t _ta = _r0; _r0 = _mm256_shuffle_ps( _ta, _r2, _MM_SHUFFLE(2,0,2,0) );                                      \
-                    _r2 = _mm256_shuffle_ps( _ta, _r2, _MM_SHUFFLE(3,1,3,1) );                                      \
-    wf_t _tb = _r4; _r4 = _mm256_shuffle_ps( _tb, _r6, _MM_SHUFFLE(2,0,2,0) );                                      \
-                    _r6 = _mm256_shuffle_ps( _tb, _r6, _MM_SHUFFLE(3,1,3,1) );                                      \
-    wf_t _tc = _r8; _r8 = _mm256_shuffle_ps( _tc, _z,  _MM_SHUFFLE(2,0,2,0) );                                      \
-    wf_t            _ra = _mm256_shuffle_ps( _tc, _z,  _MM_SHUFFLE(3,1,3,1) );                                      \
-    wf_t _td = _r0; _r0 = _mm256_permute2f128_ps( _td, _r4, 0x20 );                                                 \
-                    _r4 = _mm256_permute2f128_ps( _td, _r4, 0x31 );                                                 \
-    wf_t _te = _r2; _r2 = _mm256_permute2f128_ps( _te, _r6, 0x20 );                                                 \
-                    _r6 = _mm256_permute2f128_ps( _te, _r6, 0x31 );                                                 \
-    wf_t _tf = _r8; _r8 = _mm256_permute2f128_ps( _tf, _z,  0x20 );                                                 \
-    wf_t            _rc = _mm256_permute2f128_ps( _tf, _z,  0x31 );                                                 \
-    wf_t _tg = _ra; _ra = _mm256_permute2f128_ps( _tg, _z,  0x20 );                                                 \
-    wf_t            _re = _mm256_permute2f128_ps( _tg, _z,  0x31 );                                                 \
-    int * _a = (a)->limb;                                                                                           \
-    int * _b = (b)->limb;                                                                                           \
-    int * _c = (c)->limb;                                                                                           \
-    int * _d = (d)->limb;                                                                                           \
-    wi_st( _a,   _mm256_castps_si256( _r0 ) );                                                                      \
-    wi_st( _a+8, _mm256_castps_si256( _r8 ) );                                                                      \
-    wi_st( _b,   _mm256_castps_si256( _r2 ) );                                                                      \
-    wi_st( _b+8, _mm256_castps_si256( _ra ) );                                                                      \
-    wi_st( _c,   _mm256_castps_si256( _r4 ) );                                                                      \
-    wi_st( _c+8, _mm256_castps_si256( _rc ) );                                                                      \
-    wi_st( _d,   _mm256_castps_si256( _r6 ) );                                                                      \
-    wi_st( _d+8, _mm256_castps_si256( _re ) );                                                                      \
-  } while(0)
-
-/* FE_AVX_SWIZZLE_OUT3 is FE_AVX_SWIZZLE_OUT4 optimized to discard the d
-   column */
-
-#define FE_AVX_SWIZZLE_OUT3( a,b,c, v ) do {                                                                        \
-    wf_t _z  = wf_zero();                                                                                           \
-    wf_t _r0 = _mm256_shuffle_ps( _mm256_castsi256_ps( v##0 ), _mm256_castsi256_ps( v##1 ), _MM_SHUFFLE(2,0,2,0) ); \
-    wf_t _r2 = _mm256_shuffle_ps( _mm256_castsi256_ps( v##2 ), _mm256_castsi256_ps( v##3 ), _MM_SHUFFLE(2,0,2,0) ); \
-    wf_t _r4 = _mm256_shuffle_ps( _mm256_castsi256_ps( v##4 ), _mm256_castsi256_ps( v##5 ), _MM_SHUFFLE(2,0,2,0) ); \
-    wf_t _r6 = _mm256_shuffle_ps( _mm256_castsi256_ps( v##6 ), _mm256_castsi256_ps( v##7 ), _MM_SHUFFLE(2,0,2,0) ); \
-    wf_t _r8 = _mm256_shuffle_ps( _mm256_castsi256_ps( v##8 ), _mm256_castsi256_ps( v##9 ), _MM_SHUFFLE(2,0,2,0) ); \
-    wf_t _ta = _r0; _r0 = _mm256_shuffle_ps( _ta, _r2, _MM_SHUFFLE(2,0,2,0) );                                      \
-                    _r2 = _mm256_shuffle_ps( _ta, _r2, _MM_SHUFFLE(3,1,3,1) );                                      \
-    wf_t _tb = _r4; _r4 = _mm256_shuffle_ps( _tb, _r6, _MM_SHUFFLE(2,0,2,0) );                                      \
-                    _r6 = _mm256_shuffle_ps( _tb, _r6, _MM_SHUFFLE(3,1,3,1) );                                      \
-    wf_t _ra = _r8; _r8 = _mm256_shuffle_ps( _ra, _z,  _MM_SHUFFLE(2,0,2,0) );                                      \
-    /**/            _ra = _mm256_shuffle_ps( _ra, _z,  _MM_SHUFFLE(3,1,3,1) );                                      \
-    wf_t _tc = _r0; _r0 = _mm256_permute2f128_ps( _tc, _r4, 0x20 );                                                 \
-                    _r4 = _mm256_permute2f128_ps( _tc, _r4, 0x31 );                                                 \
-    /**/            _r2 = _mm256_permute2f128_ps( _r2, _r6, 0x20 );                                                 \
-    wf_t _rc = _r8; _r8 = _mm256_permute2f128_ps( _rc, _z,  0x20 );                                                 \
-    /**/            _rc = _mm256_permute2f128_ps( _rc, _z,  0x31 );                                                 \
-    /**/            _ra = _mm256_permute2f128_ps( _ra, _z,  0x20 );                                                 \
-    int * _a = (a)->limb;                                                                                           \
-    int * _b = (b)->limb;                                                                                           \
-    int * _c = (c)->limb;                                                                                           \
-    wi_st( _a,   _mm256_castps_si256( _r0 ) );                                                                      \
-    wi_st( _a+8, _mm256_castps_si256( _r8 ) );                                                                      \
-    wi_st( _b,   _mm256_castps_si256( _r2 ) );                                                                      \
-    wi_st( _b+8, _mm256_castps_si256( _ra ) );                                                                      \
-    wi_st( _c,   _mm256_castps_si256( _r4 ) );                                                                      \
-    wi_st( _c+8, _mm256_castps_si256( _rc ) );                                                                      \
-  } while(0)
-
-/* FE_AVX_SWIZZLE_OUT2 is FE_AVX_SWIZZLE_OUT3 optimized to discard the c
-   column */
-
-#define FE_AVX_SWIZZLE_OUT2( a,b, v ) do {                                                                          \
-    wf_t _z  = wf_zero();                                                                                           \
-    wf_t _r0 = _mm256_shuffle_ps( _mm256_castsi256_ps( v##0 ), _mm256_castsi256_ps( v##1 ), _MM_SHUFFLE(2,0,2,0) ); \
-    wf_t _r2 = _mm256_shuffle_ps( _mm256_castsi256_ps( v##2 ), _mm256_castsi256_ps( v##3 ), _MM_SHUFFLE(2,0,2,0) ); \
-    wf_t _r4 = _mm256_shuffle_ps( _mm256_castsi256_ps( v##4 ), _mm256_castsi256_ps( v##5 ), _MM_SHUFFLE(2,0,2,0) ); \
-    wf_t _r6 = _mm256_shuffle_ps( _mm256_castsi256_ps( v##6 ), _mm256_castsi256_ps( v##7 ), _MM_SHUFFLE(2,0,2,0) ); \
-    wf_t _r8 = _mm256_shuffle_ps( _mm256_castsi256_ps( v##8 ), _mm256_castsi256_ps( v##9 ), _MM_SHUFFLE(2,0,2,0) ); \
-    wf_t _ta = _r0; _r0 = _mm256_shuffle_ps( _ta, _r2, _MM_SHUFFLE(2,0,2,0) );                                      \
-                    _r2 = _mm256_shuffle_ps( _ta, _r2, _MM_SHUFFLE(3,1,3,1) );                                      \
-    wf_t _tb = _r4; _r4 = _mm256_shuffle_ps( _tb, _r6, _MM_SHUFFLE(2,0,2,0) );                                      \
-                    _r6 = _mm256_shuffle_ps( _tb, _r6, _MM_SHUFFLE(3,1,3,1) );                                      \
-    wf_t _ra = _r8; _r8 = _mm256_shuffle_ps( _ra, _z,  _MM_SHUFFLE(2,0,2,0) );                                      \
-    /**/            _ra = _mm256_shuffle_ps( _ra, _z,  _MM_SHUFFLE(3,1,3,1) );                                      \
-    /**/            _r0 = _mm256_permute2f128_ps( _r0, _r4, 0x20 );                                                 \
-    /**/            _r2 = _mm256_permute2f128_ps( _r2, _r6, 0x20 );                                                 \
-    /**/            _r8 = _mm256_permute2f128_ps( _r8, _z,  0x20 );                                                 \
-    /**/            _ra = _mm256_permute2f128_ps( _ra, _z,  0x20 );                                                 \
-    int * _a = (a)->limb;                                                                                           \
-    int * _b = (b)->limb;                                                                                           \
-    wi_st( _a,   _mm256_castps_si256( _r0 ) );                                                                      \
-    wi_st( _a+8, _mm256_castps_si256( _r8 ) );                                                                      \
-    wi_st( _b,   _mm256_castps_si256( _r2 ) );                                                                      \
-    wi_st( _b+8, _mm256_castps_si256( _ra ) );                                                                      \
-  } while(0)
-
-/* FE_AVX_PAIR_SWIZZLE_IN4 is an optimized implementation of:
-     FE_AVX_SWIZZLE_IN4( v, a,b,c,d )
-     FE_AVX_SWIZZLE_IN4( w, e,f,g,h )
-   Basically, the 2 8x8 transposes are done as before but the 2 2x8
-   transposes are merged into 1 2x4 transpose. */
-
-#define FE_AVX_PAIR_SWIZZLE_IN4( v, a,b,c,d, w, e,f,g,h ) do {                                                                    \
-    wi_t _z  = wi_zero();                                                                                                         \
-    int const * _a = (a)->limb;                                         int const * _e = (e)->limb;                               \
-    int const * _b = (b)->limb;                                         int const * _f = (f)->limb;                               \
-    int const * _c = (c)->limb;                                         int const * _g = (g)->limb;                               \
-    int const * _d = (d)->limb;                                         int const * _h = (h)->limb;                               \
-    wi_t _r0 = wi_ld( _a   );                                           wi_t _s0 = wi_ld( _e   );                                 \
-    wi_t _r8 = wi_ld( _a+8 );                                           wi_t _s8 = wi_ld( _e+8 );                                 \
-    wi_t _r2 = wi_ld( _b   );                                           wi_t _s2 = wi_ld( _f   );                                 \
-    wi_t _ra = wi_ld( _b+8 );                                           wi_t _sa = wi_ld( _f+8 );                                 \
-    wi_t _r4 = wi_ld( _c   );                                           wi_t _s4 = wi_ld( _g   );                                 \
-    wi_t _rc = wi_ld( _c+8 );                                           wi_t _sc = wi_ld( _g+8 );                                 \
-    wi_t _r6 = wi_ld( _d   );                                           wi_t _s6 = wi_ld( _h   );                                 \
-    wi_t _re = wi_ld( _d+8 );                                           wi_t _se = wi_ld( _h+8 );                                 \
-    wi_t _ta = _r0; _r0 = _mm256_permute2f128_si256( _ta, _r4, 0x20 );  wi_t _ua = _s0; _s0 = _mm256_permute2f128_si256( _ua, _s4, 0x20 ); \
-    /**/            _r4 = _mm256_permute2f128_si256( _ta, _r4, 0x31 );  /**/            _s4 = _mm256_permute2f128_si256( _ua, _s4, 0x31 ); \
-    wi_t _tc = _r2; _r2 = _mm256_permute2f128_si256( _tc, _r6, 0x20 );  wi_t _uc = _s2; _s2 = _mm256_permute2f128_si256( _uc, _s6, 0x20 ); \
-    /**/            _r6 = _mm256_permute2f128_si256( _tc, _r6, 0x31 );  /**/            _s6 = _mm256_permute2f128_si256( _uc, _s6, 0x31 ); \
-    /**/            _r8 = _mm256_permute2f128_si256( _r8, _s8, 0x20 );  /**/            _ra = _mm256_permute2f128_si256( _ra, _sa, 0x20 ); \
-    /**/            _rc = _mm256_permute2f128_si256( _rc, _sc, 0x20 );  /**/            _re = _mm256_permute2f128_si256( _re, _se, 0x20 ); \
-    wi_t _te = _r0; _r0 = _mm256_unpacklo_epi32    ( _te, _r2       );  wi_t _ue = _s0; _s0 = _mm256_unpacklo_epi32    ( _ue, _s2       ); \
-    /**/            _r2 = _mm256_unpackhi_epi32    ( _te, _r2       );  /**/            _s2 = _mm256_unpackhi_epi32    ( _ue, _s2       ); \
-    wi_t _tg = _r4; _r4 = _mm256_unpacklo_epi32    ( _tg, _r6       );  wi_t _ug = _s4; _s4 = _mm256_unpacklo_epi32    ( _ug, _s6       ); \
-    /**/            _r6 = _mm256_unpackhi_epi32    ( _tg, _r6       );  /**/            _s6 = _mm256_unpackhi_epi32    ( _ug, _s6       ); \
-    wi_t _ti = _r8; _r8 = _mm256_permute2f128_si256( _ti, _rc, 0x20 );  /**/            _rc = _mm256_permute2f128_si256( _ti, _rc, 0x31 ); \
-    wi_t _tk = _ra; _ra = _mm256_permute2f128_si256( _tk, _re, 0x20 );  /**/            _re = _mm256_permute2f128_si256( _tk, _re, 0x31 ); \
-    /**/            _r8 = _mm256_unpacklo_epi32    ( _r8, _ra       );  /**/            _rc = _mm256_unpacklo_epi32    ( _rc, _re       ); \
-    v##0 = _mm256_unpacklo_epi32( _r0, _z );                            w##0 = _mm256_unpacklo_epi32( _s0, _z );                  \
-    v##1 = _mm256_unpackhi_epi32( _r0, _z );                            w##1 = _mm256_unpackhi_epi32( _s0, _z );                  \
-    v##2 = _mm256_unpacklo_epi32( _r2, _z );                            w##2 = _mm256_unpacklo_epi32( _s2, _z );                  \
-    v##3 = _mm256_unpackhi_epi32( _r2, _z );                            w##3 = _mm256_unpackhi_epi32( _s2, _z );                  \
-    v##4 = _mm256_unpacklo_epi32( _r4, _z );                            w##4 = _mm256_unpacklo_epi32( _s4, _z );                  \
-    v##5 = _mm256_unpackhi_epi32( _r4, _z );                            w##5 = _mm256_unpackhi_epi32( _s4, _z );                  \
-    v##6 = _mm256_unpacklo_epi32( _r6, _z );                            w##6 = _mm256_unpacklo_epi32( _s6, _z );                  \
-    v##7 = _mm256_unpackhi_epi32( _r6, _z );                            w##7 = _mm256_unpackhi_epi32( _s6, _z );                  \
-    v##8 = _mm256_unpacklo_epi32( _r8, _z );                            w##8 = _mm256_unpacklo_epi32( _rc, _z );                  \
-    v##9 = _mm256_unpackhi_epi32( _r8, _z );                            w##9 = _mm256_unpackhi_epi32( _rc, _z );                  \
-  } while(0)
-
-/* FE_AVX_PAIR_SWIZZLE_IN3 is FE_AVX_PAIR_SWIZZLE_IN4 optimized for the
-   d and h column zeroed. */
-
-#define FE_AVX_PAIR_SWIZZLE_IN3( v, a,b,c, w, e,f,g ) do {                                                                        \
-    wi_t _z  = wi_zero();                                                                                                         \
-    int const * _a = (a)->limb;                                         int const * _e = (e)->limb;                               \
-    int const * _b = (b)->limb;                                         int const * _f = (f)->limb;                               \
-    int const * _c = (c)->limb;                                         int const * _g = (g)->limb;                               \
-    wi_t _r0 = wi_ld( _a   );                                           wi_t _s0 = wi_ld( _e   );                                 \
-    wi_t _r8 = wi_ld( _a+8 );                                           wi_t _s8 = wi_ld( _e+8 );                                 \
-    wi_t _r2 = wi_ld( _b   );                                           wi_t _s2 = wi_ld( _f   );                                 \
-    wi_t _ra = wi_ld( _b+8 );                                           wi_t _sa = wi_ld( _f+8 );                                 \
-    wi_t _r4 = wi_ld( _c   );                                           wi_t _s4 = wi_ld( _g   );                                 \
-    wi_t _rc = wi_ld( _c+8 );                                           wi_t _sc = wi_ld( _g+8 );                                 \
-    wi_t _ta = _r0; _r0 = _mm256_permute2f128_si256( _ta, _r4, 0x20 );  wi_t _ua = _s0; _s0 = _mm256_permute2f128_si256( _ua, _s4, 0x20 ); \
-    /**/            _r4 = _mm256_permute2f128_si256( _ta, _r4, 0x31 );  /**/            _s4 = _mm256_permute2f128_si256( _ua, _s4, 0x31 ); \
-    wi_t _tc = _r2; _r2 = _mm256_permute2f128_si256( _tc, _z,  0x20 );  wi_t _uc = _s2; _s2 = _mm256_permute2f128_si256( _uc, _z,  0x20 ); \
-    wi_t            _r6 = _mm256_permute2f128_si256( _tc, _z,  0x31 );  wi_t            _s6 = _mm256_permute2f128_si256( _uc, _z,  0x31 ); \
-    /**/            _r8 = _mm256_permute2f128_si256( _r8, _s8, 0x20 );  /**/            _ra = _mm256_permute2f128_si256( _ra, _sa, 0x20 ); \
-    /**/            _rc = _mm256_permute2f128_si256( _rc, _sc, 0x20 );                                                                     \
-    wi_t _te = _r0; _r0 = _mm256_unpacklo_epi32    ( _te, _r2       );  wi_t _ue = _s0; _s0 = _mm256_unpacklo_epi32    ( _ue, _s2       ); \
-    /**/            _r2 = _mm256_unpackhi_epi32    ( _te, _r2       );  /**/            _s2 = _mm256_unpackhi_epi32    ( _ue, _s2       ); \
-    wi_t _tg = _r4; _r4 = _mm256_unpacklo_epi32    ( _tg, _r6       );  wi_t _ug = _s4; _s4 = _mm256_unpacklo_epi32    ( _ug, _s6       ); \
-    /**/            _r6 = _mm256_unpackhi_epi32    ( _tg, _r6       );  /**/            _s6 = _mm256_unpackhi_epi32    ( _ug, _s6       ); \
-    wi_t _ti = _r8; _r8 = _mm256_permute2f128_si256( _ti, _rc, 0x20 );  /**/            _rc = _mm256_permute2f128_si256( _ti, _rc, 0x31 ); \
-    wi_t _tk = _ra; _ra = _mm256_permute2f128_si256( _tk, _z,  0x20 );  wi_t            _re = _mm256_permute2f128_si256( _tk, _z,  0x31 ); \
-    /**/            _r8 = _mm256_unpacklo_epi32    ( _r8, _ra       );  /**/            _rc = _mm256_unpacklo_epi32    ( _rc, _re       ); \
-    v##0 = _mm256_unpacklo_epi32( _r0, _z );                            w##0 = _mm256_unpacklo_epi32( _s0, _z );                  \
-    v##1 = _mm256_unpackhi_epi32( _r0, _z );                            w##1 = _mm256_unpackhi_epi32( _s0, _z );                  \
-    v##2 = _mm256_unpacklo_epi32( _r2, _z );                            w##2 = _mm256_unpacklo_epi32( _s2, _z );                  \
-    v##3 = _mm256_unpackhi_epi32( _r2, _z );                            w##3 = _mm256_unpackhi_epi32( _s2, _z );                  \
-    v##4 = _mm256_unpacklo_epi32( _r4, _z );                            w##4 = _mm256_unpacklo_epi32( _s4, _z );                  \
-    v##5 = _mm256_unpackhi_epi32( _r4, _z );                            w##5 = _mm256_unpackhi_epi32( _s4, _z );                  \
-    v##6 = _mm256_unpacklo_epi32( _r6, _z );                            w##6 = _mm256_unpacklo_epi32( _s6, _z );                  \
-    v##7 = _mm256_unpackhi_epi32( _r6, _z );                            w##7 = _mm256_unpackhi_epi32( _s6, _z );                  \
-    v##8 = _mm256_unpacklo_epi32( _r8, _z );                            w##8 = _mm256_unpacklo_epi32( _rc, _z );                  \
-    v##9 = _mm256_unpackhi_epi32( _r8, _z );                            w##9 = _mm256_unpackhi_epi32( _rc, _z );                  \
-  } while(0)
-
-/* FE_AVX_PAIR_SWIZZLE_IN2 is FE_AVX_PAIR_SWIZZLE_IN3 optimized for the
-   c and g column zeroed. */
-
-#define FE_AVX_PAIR_SWIZZLE_IN2( v, a,b, w, e,f ) do {                                                                            \
-    wi_t _z  = wi_zero();                                                                                                         \
-    int const * _a = (a)->limb;                                         int const * _e = (e)->limb;                               \
-    int const * _b = (b)->limb;                                         int const * _f = (f)->limb;                               \
-    wi_t _r0 = wi_ld( _a   );                                           wi_t _s0 = wi_ld( _e   );                                 \
-    wi_t _r8 = wi_ld( _a+8 );                                           wi_t _s8 = wi_ld( _e+8 );                                 \
-    wi_t _r2 = wi_ld( _b   );                                           wi_t _s2 = wi_ld( _f   );                                 \
-    wi_t _ra = wi_ld( _b+8 );                                           wi_t _sa = wi_ld( _f+8 );                                 \
-    wi_t _ta = _r0; _r0 = _mm256_permute2f128_si256( _ta, _z,  0x20 );  wi_t _ua = _s0; _s0 = _mm256_permute2f128_si256( _ua, _z,  0x20 ); \
-    wi_t            _r4 = _mm256_permute2f128_si256( _ta, _z,  0x31 );  wi_t            _s4 = _mm256_permute2f128_si256( _ua, _z,  0x31 ); \
-    wi_t _tc = _r2; _r2 = _mm256_permute2f128_si256( _tc, _z,  0x20 );  wi_t _uc = _s2; _s2 = _mm256_permute2f128_si256( _uc, _z,  0x20 ); \
-    wi_t            _r6 = _mm256_permute2f128_si256( _tc, _z,  0x31 );  wi_t            _s6 = _mm256_permute2f128_si256( _uc, _z,  0x31 ); \
-    /**/            _r8 = _mm256_permute2f128_si256( _r8, _s8, 0x20 );  /**/            _ra = _mm256_permute2f128_si256( _ra, _sa, 0x20 ); \
-    wi_t _te = _r0; _r0 = _mm256_unpacklo_epi32    ( _te, _r2       );  wi_t _ue = _s0; _s0 = _mm256_unpacklo_epi32    ( _ue, _s2       ); \
-    /**/            _r2 = _mm256_unpackhi_epi32    ( _te, _r2       );  /**/            _s2 = _mm256_unpackhi_epi32    ( _ue, _s2       ); \
-    wi_t _tg = _r4; _r4 = _mm256_unpacklo_epi32    ( _tg, _r6       );  wi_t _ug = _s4; _s4 = _mm256_unpacklo_epi32    ( _ug, _s6       ); \
-    /**/            _r6 = _mm256_unpackhi_epi32    ( _tg, _r6       );  /**/            _s6 = _mm256_unpackhi_epi32    ( _ug, _s6       ); \
-    wi_t _ti = _r8; _r8 = _mm256_permute2f128_si256( _ti, _z,  0x20 );  wi_t            _rc = _mm256_permute2f128_si256( _ti, _z,  0x31 ); \
-    wi_t _tk = _ra; _ra = _mm256_permute2f128_si256( _tk, _z,  0x20 );  wi_t            _re = _mm256_permute2f128_si256( _tk, _z,  0x31 ); \
-    /**/            _r8 = _mm256_unpacklo_epi32    ( _r8, _ra       );  /**/            _rc = _mm256_unpacklo_epi32    ( _rc, _re       ); \
-    v##0 = _mm256_unpacklo_epi32( _r0, _z );                            w##0 = _mm256_unpacklo_epi32( _s0, _z );                  \
-    v##1 = _mm256_unpackhi_epi32( _r0, _z );                            w##1 = _mm256_unpackhi_epi32( _s0, _z );                  \
-    v##2 = _mm256_unpacklo_epi32( _r2, _z );                            w##2 = _mm256_unpacklo_epi32( _s2, _z );                  \
-    v##3 = _mm256_unpackhi_epi32( _r2, _z );                            w##3 = _mm256_unpackhi_epi32( _s2, _z );                  \
-    v##4 = _mm256_unpacklo_epi32( _r4, _z );                            w##4 = _mm256_unpacklo_epi32( _s4, _z );                  \
-    v##5 = _mm256_unpackhi_epi32( _r4, _z );                            w##5 = _mm256_unpackhi_epi32( _s4, _z );                  \
-    v##6 = _mm256_unpacklo_epi32( _r6, _z );                            w##6 = _mm256_unpacklo_epi32( _s6, _z );                  \
-    v##7 = _mm256_unpackhi_epi32( _r6, _z );                            w##7 = _mm256_unpackhi_epi32( _s6, _z );                  \
-    v##8 = _mm256_unpacklo_epi32( _r8, _z );                            w##8 = _mm256_unpacklo_epi32( _rc, _z );                  \
-    v##9 = _mm256_unpackhi_epi32( _r8, _z );                            w##9 = _mm256_unpackhi_epi32( _rc, _z );                  \
-  } while(0)
-
-/* FE_AVX arithmetic operations ***************************************/
-
-/* FE_AVX_ADD does a simple add of the corresponding lanes of f and g
-   (with no reduction) and stores the result in h.  In place operation
-   is fine. */
-
-#define FE_AVX_ADD(h,f,g) do {   \
-    h##0 = wl_add( f##0, g##0 ); \
-    h##1 = wl_add( f##1, g##1 ); \
-    h##2 = wl_add( f##2, g##2 ); \
-    h##3 = wl_add( f##3, g##3 ); \
-    h##4 = wl_add( f##4, g##4 ); \
-    h##5 = wl_add( f##5, g##5 ); \
-    h##6 = wl_add( f##6, g##6 ); \
-    h##7 = wl_add( f##7, g##7 ); \
-    h##8 = wl_add( f##8, g##8 ); \
-    h##9 = wl_add( f##9, g##9 ); \
-  } while(0)
-
-/* FE_AVX_SUB does a simple subtract of the corresponding lanes of f and
-   g (with no reduction) and stores the result in h.  In place operation
-   is fine. */
-
-#define FE_AVX_SUB(h,f,g) do {   \
-    h##0 = wl_sub( f##0, g##0 ); \
-    h##1 = wl_sub( f##1, g##1 ); \
-    h##2 = wl_sub( f##2, g##2 ); \
-    h##3 = wl_sub( f##3, g##3 ); \
-    h##4 = wl_sub( f##4, g##4 ); \
-    h##5 = wl_sub( f##5, g##5 ); \
-    h##6 = wl_sub( f##6, g##6 ); \
-    h##7 = wl_sub( f##7, g##7 ); \
-    h##8 = wl_sub( f##8, g##8 ); \
-    h##9 = wl_sub( f##9, g##9 ); \
-  } while(0)
-
-#define FE_AVX_MUL(h,f,g) do {                                                                                                  \
-    wl_t _19      = wl_bcast( 19L );                                                                                            \
-                                                                                                                                \
-    wl_t _g1_19   = wl_mul_ll( _19, g##1 );    wl_t _g2_19   = wl_mul_ll( _19, g##2 );                                          \
-    wl_t _g3_19   = wl_mul_ll( _19, g##3 );    wl_t _g4_19   = wl_mul_ll( _19, g##4 );                                          \
-    wl_t _g5_19   = wl_mul_ll( _19, g##5 );    wl_t _g6_19   = wl_mul_ll( _19, g##6 );                                          \
-    wl_t _g7_19   = wl_mul_ll( _19, g##7 );    wl_t _g8_19   = wl_mul_ll( _19, g##8 );                                          \
-    wl_t _g9_19   = wl_mul_ll( _19, g##9 );                                                                                     \
-                                                                                                                                \
-    wl_t _f1_2    = wl_add( f##1, f##1 );      wl_t _f3_2    = wl_add( f##3, f##3 );                                            \
-    wl_t _f5_2    = wl_add( f##5, f##5 );      wl_t _f7_2    = wl_add( f##7, f##7 );                                            \
-    wl_t _f9_2    = wl_add( f##9, f##9 );                                                                                       \
-                                                                                                                                \
-    wl_t _f0g0    = wl_mul_ll( f##0, g##0   ); wl_t _f0g1    = wl_mul_ll( f##0,  g##1   );                                      \
-    wl_t _f0g2    = wl_mul_ll( f##0, g##2   ); wl_t _f0g3    = wl_mul_ll( f##0,  g##3   );                                      \
-    wl_t _f0g4    = wl_mul_ll( f##0, g##4   ); wl_t _f0g5    = wl_mul_ll( f##0,  g##5   );                                      \
-    wl_t _f0g6    = wl_mul_ll( f##0, g##6   ); wl_t _f0g7    = wl_mul_ll( f##0,  g##7   );                                      \
-    wl_t _f0g8    = wl_mul_ll( f##0, g##8   ); wl_t _f0g9    = wl_mul_ll( f##0,  g##9   );                                      \
-                                                                                                                                \
-    wl_t _f1g0    = wl_mul_ll( f##1, g##0   ); wl_t _f1g1_2  = wl_mul_ll( _f1_2, g##1   );                                      \
-    wl_t _f1g2    = wl_mul_ll( f##1, g##2   ); wl_t _f1g3_2  = wl_mul_ll( _f1_2, g##3   );                                      \
-    wl_t _f1g4    = wl_mul_ll( f##1, g##4   ); wl_t _f1g5_2  = wl_mul_ll( _f1_2, g##5   );                                      \
-    wl_t _f1g6    = wl_mul_ll( f##1, g##6   ); wl_t _f1g7_2  = wl_mul_ll( _f1_2, g##7   );                                      \
-    wl_t _f1g8    = wl_mul_ll( f##1, g##8   ); wl_t _f1g9_38 = wl_mul_ll( _f1_2, _g9_19 );                                      \
-                                                                                                                                \
-    wl_t _f2g0    = wl_mul_ll( f##2, g##0   ); wl_t _f2g1    = wl_mul_ll( f##2,  g##1   );                                      \
-    wl_t _f2g2    = wl_mul_ll( f##2, g##2   ); wl_t _f2g3    = wl_mul_ll( f##2,  g##3   );                                      \
-    wl_t _f2g4    = wl_mul_ll( f##2, g##4   ); wl_t _f2g5    = wl_mul_ll( f##2,  g##5   );                                      \
-    wl_t _f2g6    = wl_mul_ll( f##2, g##6   ); wl_t _f2g7    = wl_mul_ll( f##2,  g##7   );                                      \
-    wl_t _f2g8_19 = wl_mul_ll( f##2, _g8_19 ); wl_t _f2g9_19 = wl_mul_ll( f##2,  _g9_19 );                                      \
-                                                                                                                                \
-    wl_t _f3g0    = wl_mul_ll( f##3, g##0   ); wl_t _f3g1_2  = wl_mul_ll( _f3_2, g##1   );                                      \
-    wl_t _f3g2    = wl_mul_ll( f##3, g##2   ); wl_t _f3g3_2  = wl_mul_ll( _f3_2, g##3   );                                      \
-    wl_t _f3g4    = wl_mul_ll( f##3, g##4   ); wl_t _f3g5_2  = wl_mul_ll( _f3_2, g##5   );                                      \
-    wl_t _f3g6    = wl_mul_ll( f##3, g##6   ); wl_t _f3g7_38 = wl_mul_ll( _f3_2, _g7_19 );                                      \
-    wl_t _f3g8_19 = wl_mul_ll( f##3, _g8_19 ); wl_t _f3g9_38 = wl_mul_ll( _f3_2, _g9_19 );                                      \
-                                                                                                                                \
-    wl_t _f4g0    = wl_mul_ll( f##4, g##0   ); wl_t _f4g1    = wl_mul_ll( f##4,  g##1   );                                      \
-    wl_t _f4g2    = wl_mul_ll( f##4, g##2   ); wl_t _f4g3    = wl_mul_ll( f##4,  g##3   );                                      \
-    wl_t _f4g4    = wl_mul_ll( f##4, g##4   ); wl_t _f4g5    = wl_mul_ll( f##4,  g##5   );                                      \
-    wl_t _f4g6_19 = wl_mul_ll( f##4, _g6_19 ); wl_t _f4g7_19 = wl_mul_ll( f##4,  _g7_19 );                                      \
-    wl_t _f4g8_19 = wl_mul_ll( f##4, _g8_19 ); wl_t _f4g9_19 = wl_mul_ll( f##4,  _g9_19 );                                      \
-                                                                                                                                \
-    wl_t _f5g0    = wl_mul_ll( f##5, g##0   ); wl_t _f5g1_2  = wl_mul_ll( _f5_2, g##1   );                                      \
-    wl_t _f5g2    = wl_mul_ll( f##5, g##2   ); wl_t _f5g3_2  = wl_mul_ll( _f5_2, g##3   );                                      \
-    wl_t _f5g4    = wl_mul_ll( f##5, g##4   ); wl_t _f5g5_38 = wl_mul_ll( _f5_2, _g5_19 );                                      \
-    wl_t _f5g6_19 = wl_mul_ll( f##5, _g6_19 ); wl_t _f5g7_38 = wl_mul_ll( _f5_2, _g7_19 );                                      \
-    wl_t _f5g8_19 = wl_mul_ll( f##5, _g8_19 ); wl_t _f5g9_38 = wl_mul_ll( _f5_2, _g9_19 );                                      \
-                                                                                                                                \
-    wl_t _f6g0    = wl_mul_ll( f##6, g##0   ); wl_t _f6g1    = wl_mul_ll( f##6,  g##1   );                                      \
-    wl_t _f6g2    = wl_mul_ll( f##6, g##2   ); wl_t _f6g3    = wl_mul_ll( f##6,  g##3   );                                      \
-    wl_t _f6g4_19 = wl_mul_ll( f##6, _g4_19 ); wl_t _f6g5_19 = wl_mul_ll( f##6,  _g5_19 );                                      \
-    wl_t _f6g6_19 = wl_mul_ll( f##6, _g6_19 ); wl_t _f6g7_19 = wl_mul_ll( f##6,  _g7_19 );                                      \
-    wl_t _f6g8_19 = wl_mul_ll( f##6, _g8_19 ); wl_t _f6g9_19 = wl_mul_ll( f##6,  _g9_19 );                                      \
-                                                                                                                                \
-    wl_t _f7g0    = wl_mul_ll( f##7, g##0   ); wl_t _f7g1_2  = wl_mul_ll( _f7_2, g##1   );                                      \
-    wl_t _f7g2    = wl_mul_ll( f##7, g##2   ); wl_t _f7g3_38 = wl_mul_ll( _f7_2, _g3_19 );                                      \
-    wl_t _f7g4_19 = wl_mul_ll( f##7, _g4_19 ); wl_t _f7g5_38 = wl_mul_ll( _f7_2, _g5_19 );                                      \
-    wl_t _f7g6_19 = wl_mul_ll( f##7, _g6_19 ); wl_t _f7g7_38 = wl_mul_ll( _f7_2, _g7_19 );                                      \
-    wl_t _f7g8_19 = wl_mul_ll( f##7, _g8_19 ); wl_t _f7g9_38 = wl_mul_ll( _f7_2, _g9_19 );                                      \
-                                                                                                                                \
-    wl_t _f8g0    = wl_mul_ll( f##8, g##0   ); wl_t _f8g1    = wl_mul_ll( f##8,  g##1   );                                      \
-    wl_t _f8g2_19 = wl_mul_ll( f##8, _g2_19 ); wl_t _f8g3_19 = wl_mul_ll( f##8,  _g3_19 );                                      \
-    wl_t _f8g4_19 = wl_mul_ll( f##8, _g4_19 ); wl_t _f8g5_19 = wl_mul_ll( f##8,  _g5_19 );                                      \
-    wl_t _f8g6_19 = wl_mul_ll( f##8, _g6_19 ); wl_t _f8g7_19 = wl_mul_ll( f##8,  _g7_19 );                                      \
-    wl_t _f8g8_19 = wl_mul_ll( f##8, _g8_19 ); wl_t _f8g9_19 = wl_mul_ll( f##8,  _g9_19 );                                      \
-                                                                                                                                \
-    wl_t _f9g0    = wl_mul_ll( f##9, g##0   ); wl_t _f9g1_38 = wl_mul_ll( _f9_2, _g1_19 );                                      \
-    wl_t _f9g2_19 = wl_mul_ll( f##9, _g2_19 ); wl_t _f9g3_38 = wl_mul_ll( _f9_2, _g3_19 );                                      \
-    wl_t _f9g4_19 = wl_mul_ll( f##9, _g4_19 ); wl_t _f9g5_38 = wl_mul_ll( _f9_2, _g5_19 );                                      \
-    wl_t _f9g6_19 = wl_mul_ll( f##9, _g6_19 ); wl_t _f9g7_38 = wl_mul_ll( _f9_2, _g7_19 );                                      \
-    wl_t _f9g8_19 = wl_mul_ll( f##9, _g8_19 ); wl_t _f9g9_38 = wl_mul_ll( _f9_2, _g9_19 );                                      \
-                                                                                                                                \
-    h##0 = wl_add10( _f0g0, _f1g9_38, _f2g8_19, _f3g7_38, _f4g6_19, _f5g5_38, _f6g4_19, _f7g3_38, _f8g2_19, _f9g1_38 );         \
-    h##1 = wl_add10( _f0g1, _f1g0   , _f2g9_19, _f3g8_19, _f4g7_19, _f5g6_19, _f6g5_19, _f7g4_19, _f8g3_19, _f9g2_19 );         \
-    h##2 = wl_add10( _f0g2, _f1g1_2 , _f2g0   , _f3g9_38, _f4g8_19, _f5g7_38, _f6g6_19, _f7g5_38, _f8g4_19, _f9g3_38 );         \
-    h##3 = wl_add10( _f0g3, _f1g2   , _f2g1   , _f3g0   , _f4g9_19, _f5g8_19, _f6g7_19, _f7g6_19, _f8g5_19, _f9g4_19 );         \
-    h##4 = wl_add10( _f0g4, _f1g3_2 , _f2g2   , _f3g1_2 , _f4g0   , _f5g9_38, _f6g8_19, _f7g7_38, _f8g6_19, _f9g5_38 );         \
-    h##5 = wl_add10( _f0g5, _f1g4   , _f2g3   , _f3g2   , _f4g1   , _f5g0   , _f6g9_19, _f7g8_19, _f8g7_19, _f9g6_19 );         \
-    h##6 = wl_add10( _f0g6, _f1g5_2 , _f2g4   , _f3g3_2 , _f4g2   , _f5g1_2 , _f6g0   , _f7g9_38, _f8g8_19, _f9g7_38 );         \
-    h##7 = wl_add10( _f0g7, _f1g6   , _f2g5   , _f3g4   , _f4g3   , _f5g2   , _f6g1   , _f7g0   , _f8g9_19, _f9g8_19 );         \
-    h##8 = wl_add10( _f0g8, _f1g7_2 , _f2g6   , _f3g5_2 , _f4g4   , _f5g3_2 , _f6g2   , _f7g1_2 , _f8g0   , _f9g9_38 );         \
-    h##9 = wl_add10( _f0g9, _f1g8   , _f2g7   , _f3g6   , _f4g5   , _f5g4   , _f6g3   , _f7g2   , _f8g1   , _f9g0    );         \
-                                                                                                                                \
-    wl_t _m38u = wl_bcast( (long)FD_MASK_MSB(38) );                                                                             \
-    wl_t _m39u = wl_bcast( (long)FD_MASK_MSB(39) );                                                                             \
-    wl_t _b24  = wl_bcast( 1L << 24 );                                                                                          \
-    wl_t _b25  = wl_bcast( 1L << 25 );                                                                                          \
-                                                                                                                                \
-    wl_t _c0 = wl_add( h##0, _b25 ); h##1 = wl_add( h##1, wl_shr    ( _c0, 26 ) ); h##0 = wl_sub( h##0, wl_and( _c0, _m38u ) ); \
-    wl_t _c4 = wl_add( h##4, _b25 ); h##5 = wl_add( h##5, wl_shr    ( _c4, 26 ) ); h##4 = wl_sub( h##4, wl_and( _c4, _m38u ) ); \
-    wl_t _c1 = wl_add( h##1, _b24 ); h##2 = wl_add( h##2, wl_shr    ( _c1, 25 ) ); h##1 = wl_sub( h##1, wl_and( _c1, _m39u ) ); \
-    wl_t _c5 = wl_add( h##5, _b24 ); h##6 = wl_add( h##6, wl_shr    ( _c5, 25 ) ); h##5 = wl_sub( h##5, wl_and( _c5, _m39u ) ); \
-    wl_t _c2 = wl_add( h##2, _b25 ); h##3 = wl_add( h##3, wl_shr    ( _c2, 26 ) ); h##2 = wl_sub( h##2, wl_and( _c2, _m38u ) ); \
-    wl_t _c6 = wl_add( h##6, _b25 ); h##7 = wl_add( h##7, wl_shr    ( _c6, 26 ) ); h##6 = wl_sub( h##6, wl_and( _c6, _m38u ) ); \
-    wl_t _c3 = wl_add( h##3, _b24 ); h##4 = wl_add( h##4, wl_shr    ( _c3, 25 ) ); h##3 = wl_sub( h##3, wl_and( _c3, _m39u ) ); \
-    wl_t _c7 = wl_add( h##7, _b24 ); h##8 = wl_add( h##8, wl_shr    ( _c7, 25 ) ); h##7 = wl_sub( h##7, wl_and( _c7, _m39u ) ); \
-    /**/ _c4 = wl_add( h##4, _b25 ); h##5 = wl_add( h##5, wl_shr    ( _c4, 26 ) ); h##4 = wl_sub( h##4, wl_and( _c4, _m38u ) ); \
-    wl_t _c8 = wl_add( h##8, _b25 ); h##9 = wl_add( h##9, wl_shr    ( _c8, 26 ) ); h##8 = wl_sub( h##8, wl_and( _c8, _m38u ) ); \
-    wl_t _c9 = wl_add( h##9, _b24 ); h##0 = wl_add( h##0, wl_shr_x19( _c9, 25 ) ); h##9 = wl_sub( h##9, wl_and( _c9, _m39u ) ); \
-    /**/ _c0 = wl_add( h##0, _b25 ); h##1 = wl_add( h##1, wl_shr    ( _c0, 26 ) ); h##0 = wl_sub( h##0, wl_and( _c0, _m38u ) ); \
-  } while(0)
-
-#define FE_AVX_SQN(h,f,na,nb,nc,nd) do {                                                                                        \
-    wl_t _f0_2    = wl_add( f##0, f##0 );       wl_t _f1_2    = wl_add( f##1, f##1 );                                           \
-    wl_t _f2_2    = wl_add( f##2, f##2 );       wl_t _f3_2    = wl_add( f##3, f##3 );                                           \
-    wl_t _f4_2    = wl_add( f##4, f##4 );       wl_t _f5_2    = wl_add( f##5, f##5 );                                           \
-    wl_t _f6_2    = wl_add( f##6, f##6 );       wl_t _f7_2    = wl_add( f##7, f##7 );                                           \
-                                                                                                                                \
-    wl_t _38      = wl_bcast( 38L );            wl_t _19      = wl_bcast( 19L );                                                \
-                                                                                                                                \
-    wl_t _f5_38   = wl_mul_ll( _38, f##5 );     wl_t _f6_19   = wl_mul_ll( _19, f##6 );                                         \
-    wl_t _f7_38   = wl_mul_ll( _38, f##7 );     wl_t _f8_19   = wl_mul_ll( _19, f##8 );                                         \
-    wl_t _f9_38   = wl_mul_ll( _38, f##9 );                                                                                     \
-                                                                                                                                \
-    wl_t _f0f0    = wl_mul_ll( f##0,  f##0   ); wl_t _f0f1_2  = wl_mul_ll( _f0_2, f##1   );                                     \
-    wl_t _f0f2_2  = wl_mul_ll( _f0_2, f##2   ); wl_t _f0f3_2  = wl_mul_ll( _f0_2, f##3   );                                     \
-    wl_t _f0f4_2  = wl_mul_ll( _f0_2, f##4   ); wl_t _f0f5_2  = wl_mul_ll( _f0_2, f##5   );                                     \
-    wl_t _f0f6_2  = wl_mul_ll( _f0_2, f##6   ); wl_t _f0f7_2  = wl_mul_ll( _f0_2, f##7   );                                     \
-    wl_t _f0f8_2  = wl_mul_ll( _f0_2, f##8   ); wl_t _f0f9_2  = wl_mul_ll( _f0_2, f##9   );                                     \
-                                                                                                                                \
-    wl_t _f1f1_2  = wl_mul_ll( _f1_2, f##1   ); wl_t _f1f2_2  = wl_mul_ll( _f1_2, f##2   );                                     \
-    wl_t _f1f3_4  = wl_mul_ll( _f1_2, _f3_2  ); wl_t _f1f4_2  = wl_mul_ll( _f1_2, f##4   );                                     \
-    wl_t _f1f5_4  = wl_mul_ll( _f1_2, _f5_2  ); wl_t _f1f6_2  = wl_mul_ll( _f1_2, f##6   );                                     \
-    wl_t _f1f7_4  = wl_mul_ll( _f1_2, _f7_2  ); wl_t _f1f8_2  = wl_mul_ll( _f1_2, f##8   );                                     \
-    wl_t _f1f9_76 = wl_mul_ll( _f1_2, _f9_38 );                                                                                 \
-                                                                                                                                \
-    wl_t _f2f2    = wl_mul_ll( f##2,  f##2   ); wl_t _f2f3_2  = wl_mul_ll( _f2_2, f##3   );                                     \
-    wl_t _f2f4_2  = wl_mul_ll( _f2_2, f##4   ); wl_t _f2f5_2  = wl_mul_ll( _f2_2, f##5   );                                     \
-    wl_t _f2f6_2  = wl_mul_ll( _f2_2, f##6   ); wl_t _f2f7_2  = wl_mul_ll( _f2_2, f##7   );                                     \
-    wl_t _f2f8_38 = wl_mul_ll( _f2_2, _f8_19 ); wl_t _f2f9_38 = wl_mul_ll( f##2 , _f9_38 );                                     \
-                                                                                                                                \
-    wl_t _f3f3_2  = wl_mul_ll( _f3_2, f##3   ); wl_t _f3f4_2  = wl_mul_ll( _f3_2, f##4   );                                     \
-    wl_t _f3f5_4  = wl_mul_ll( _f3_2, _f5_2  ); wl_t _f3f6_2  = wl_mul_ll( _f3_2, f##6   );                                     \
-    wl_t _f3f7_76 = wl_mul_ll( _f3_2, _f7_38 ); wl_t _f3f8_38 = wl_mul_ll( _f3_2, _f8_19 );                                     \
-    wl_t _f3f9_76 = wl_mul_ll( _f3_2, _f9_38 );                                                                                 \
-                                                                                                                                \
-    wl_t _f4f4    = wl_mul_ll( f##4,  f##4   ); wl_t _f4f5_2  = wl_mul_ll( _f4_2, f##5   );                                     \
-    wl_t _f4f6_38 = wl_mul_ll( _f4_2, _f6_19 ); wl_t _f4f7_38 = wl_mul_ll( f##4,  _f7_38 );                                     \
-    wl_t _f4f8_38 = wl_mul_ll( _f4_2, _f8_19 ); wl_t _f4f9_38 = wl_mul_ll( f##4,  _f9_38 );                                     \
-                                                                                                                                \
-    wl_t _f5f5_38 = wl_mul_ll( f##5,  _f5_38 ); wl_t _f5f6_38 = wl_mul_ll( _f5_2, _f6_19 );                                     \
-    wl_t _f5f7_76 = wl_mul_ll( _f5_2, _f7_38 ); wl_t _f5f8_38 = wl_mul_ll( _f5_2, _f8_19 );                                     \
-    wl_t _f5f9_76 = wl_mul_ll( _f5_2, _f9_38 );                                                                                 \
-                                                                                                                                \
-    wl_t _f6f6_19 = wl_mul_ll( f##6,  _f6_19 ); wl_t _f6f7_38 = wl_mul_ll( f##6,  _f7_38 );                                     \
-    wl_t _f6f8_38 = wl_mul_ll( _f6_2, _f8_19 ); wl_t _f6f9_38 = wl_mul_ll( f##6,  _f9_38 );                                     \
-                                                                                                                                \
-    wl_t _f7f7_38 = wl_mul_ll( f##7,  _f7_38 ); wl_t _f7f8_38 = wl_mul_ll( _f7_2, _f8_19 );                                     \
-    wl_t _f7f9_76 = wl_mul_ll( _f7_2, _f9_38 );                                                                                 \
-                                                                                                                                \
-    wl_t _f8f8_19 = wl_mul_ll( f##8,  _f8_19 ); wl_t _f8f9_38 = wl_mul_ll( f##8,  _f9_38 );                                     \
-                                                                                                                                \
-    wl_t _f9f9_38 = wl_mul_ll( f##9,  _f9_38 );                                                                                 \
-                                                                                                                                \
-    wl_t _m = wl( 1L-na, 1L-nb, 1L-nc, 1L-nd );                                                                                 \
-                                                                                                                                \
-    h##0 = wl_add6( _f0f0  , _f1f9_76, _f2f8_38, _f3f7_76, _f4f6_38, _f5f5_38 ); h##0 = wl_add( h##0, wl_and( h##0, _m ) );     \
-    h##1 = wl_add5( _f0f1_2, _f2f9_38, _f3f8_38, _f4f7_38, _f5f6_38           ); h##1 = wl_add( h##1, wl_and( h##1, _m ) );     \
-    h##2 = wl_add6( _f0f2_2, _f1f1_2 , _f3f9_76, _f4f8_38, _f5f7_76, _f6f6_19 ); h##2 = wl_add( h##2, wl_and( h##2, _m ) );     \
-    h##3 = wl_add5( _f0f3_2, _f1f2_2 , _f4f9_38, _f5f8_38, _f6f7_38           ); h##3 = wl_add( h##3, wl_and( h##3, _m ) );     \
-    h##4 = wl_add6( _f0f4_2, _f1f3_4 , _f2f2   , _f5f9_76, _f6f8_38, _f7f7_38 ); h##4 = wl_add( h##4, wl_and( h##4, _m ) );     \
-    h##5 = wl_add5( _f0f5_2, _f1f4_2 , _f2f3_2 , _f6f9_38, _f7f8_38           ); h##5 = wl_add( h##5, wl_and( h##5, _m ) );     \
-    h##6 = wl_add6( _f0f6_2, _f1f5_4 , _f2f4_2 , _f3f3_2 , _f7f9_76, _f8f8_19 ); h##6 = wl_add( h##6, wl_and( h##6, _m ) );     \
-    h##7 = wl_add5( _f0f7_2, _f1f6_2 , _f2f5_2 , _f3f4_2 , _f8f9_38           ); h##7 = wl_add( h##7, wl_and( h##7, _m ) );     \
-    h##8 = wl_add6( _f0f8_2, _f1f7_4 , _f2f6_2 , _f3f5_4 , _f4f4   , _f9f9_38 ); h##8 = wl_add( h##8, wl_and( h##8, _m ) );     \
-    h##9 = wl_add5( _f0f9_2, _f1f8_2 , _f2f7_2 , _f3f6_2 , _f4f5_2            ); h##9 = wl_add( h##9, wl_and( h##9, _m ) );     \
-                                                                                                                                \
-    wl_t _m38u = wl_bcast( (long)FD_MASK_MSB(38) );                                                                             \
-    wl_t _m39u = wl_bcast( (long)FD_MASK_MSB(39) );                                                                             \
-    wl_t _b24  = wl_bcast( 1L << 24 );                                                                                          \
-    wl_t _b25  = wl_bcast( 1L << 25 );                                                                                          \
-                                                                                                                                \
-    wl_t _c0 = wl_add( h##0, _b25 ); h##1 = wl_add( h##1, wl_shr    ( _c0, 26 ) ); h##0 = wl_sub( h##0, wl_and( _c0, _m38u ) ); \
-    wl_t _c4 = wl_add( h##4, _b25 ); h##5 = wl_add( h##5, wl_shr    ( _c4, 26 ) ); h##4 = wl_sub( h##4, wl_and( _c4, _m38u ) ); \
-    wl_t _c1 = wl_add( h##1, _b24 ); h##2 = wl_add( h##2, wl_shr    ( _c1, 25 ) ); h##1 = wl_sub( h##1, wl_and( _c1, _m39u ) ); \
-    wl_t _c5 = wl_add( h##5, _b24 ); h##6 = wl_add( h##6, wl_shr    ( _c5, 25 ) ); h##5 = wl_sub( h##5, wl_and( _c5, _m39u ) ); \
-    wl_t _c2 = wl_add( h##2, _b25 ); h##3 = wl_add( h##3, wl_shr    ( _c2, 26 ) ); h##2 = wl_sub( h##2, wl_and( _c2, _m38u ) ); \
-    wl_t _c6 = wl_add( h##6, _b25 ); h##7 = wl_add( h##7, wl_shr    ( _c6, 26 ) ); h##6 = wl_sub( h##6, wl_and( _c6, _m38u ) ); \
-    wl_t _c3 = wl_add( h##3, _b24 ); h##4 = wl_add( h##4, wl_shr    ( _c3, 25 ) ); h##3 = wl_sub( h##3, wl_and( _c3, _m39u ) ); \
-    wl_t _c7 = wl_add( h##7, _b24 ); h##8 = wl_add( h##8, wl_shr    ( _c7, 25 ) ); h##7 = wl_sub( h##7, wl_and( _c7, _m39u ) ); \
-    /**/ _c4 = wl_add( h##4, _b25 ); h##5 = wl_add( h##5, wl_shr    ( _c4, 26 ) ); h##4 = wl_sub( h##4, wl_and( _c4, _m38u ) ); \
-    wl_t _c8 = wl_add( h##8, _b25 ); h##9 = wl_add( h##9, wl_shr    ( _c8, 26 ) ); h##8 = wl_sub( h##8, wl_and( _c8, _m38u ) ); \
-    wl_t _c9 = wl_add( h##9, _b24 ); h##0 = wl_add( h##0, wl_shr_x19( _c9, 25 ) ); h##9 = wl_sub( h##9, wl_and( _c9, _m39u ) ); \
-    /**/ _c0 = wl_add( h##0, _b25 ); h##1 = wl_add( h##1, wl_shr    ( _c0, 26 ) ); h##0 = wl_sub( h##0, wl_and( _c0, _m38u ) ); \
-  } while(0)
-
-#define FE_AVX_SQ(h,f) do {                                                                                                     \
-    wl_t _f0_2    = wl_add( f##0, f##0 );       wl_t _f1_2    = wl_add( f##1, f##1 );                                           \
-    wl_t _f2_2    = wl_add( f##2, f##2 );       wl_t _f3_2    = wl_add( f##3, f##3 );                                           \
-    wl_t _f4_2    = wl_add( f##4, f##4 );       wl_t _f5_2    = wl_add( f##5, f##5 );                                           \
-    wl_t _f6_2    = wl_add( f##6, f##6 );       wl_t _f7_2    = wl_add( f##7, f##7 );                                           \
-                                                                                                                                \
-    wl_t _38      = wl_bcast( 38L );            wl_t _19      = wl_bcast( 19L );                                                \
-                                                                                                                                \
-    wl_t _f5_38   = wl_mul_ll( _38, f##5 );     wl_t _f6_19   = wl_mul_ll( _19, f##6 );                                         \
-    wl_t _f7_38   = wl_mul_ll( _38, f##7 );     wl_t _f8_19   = wl_mul_ll( _19, f##8 );                                         \
-    wl_t _f9_38   = wl_mul_ll( _38, f##9 );                                                                                     \
-                                                                                                                                \
-    wl_t _f0f0    = wl_mul_ll( f##0,  f##0   ); wl_t _f0f1_2  = wl_mul_ll( _f0_2, f##1   );                                     \
-    wl_t _f0f2_2  = wl_mul_ll( _f0_2, f##2   ); wl_t _f0f3_2  = wl_mul_ll( _f0_2, f##3   );                                     \
-    wl_t _f0f4_2  = wl_mul_ll( _f0_2, f##4   ); wl_t _f0f5_2  = wl_mul_ll( _f0_2, f##5   );                                     \
-    wl_t _f0f6_2  = wl_mul_ll( _f0_2, f##6   ); wl_t _f0f7_2  = wl_mul_ll( _f0_2, f##7   );                                     \
-    wl_t _f0f8_2  = wl_mul_ll( _f0_2, f##8   ); wl_t _f0f9_2  = wl_mul_ll( _f0_2, f##9   );                                     \
-                                                                                                                                \
-    wl_t _f1f1_2  = wl_mul_ll( _f1_2, f##1   ); wl_t _f1f2_2  = wl_mul_ll( _f1_2, f##2   );                                     \
-    wl_t _f1f3_4  = wl_mul_ll( _f1_2, _f3_2  ); wl_t _f1f4_2  = wl_mul_ll( _f1_2, f##4   );                                     \
-    wl_t _f1f5_4  = wl_mul_ll( _f1_2, _f5_2  ); wl_t _f1f6_2  = wl_mul_ll( _f1_2, f##6   );                                     \
-    wl_t _f1f7_4  = wl_mul_ll( _f1_2, _f7_2  ); wl_t _f1f8_2  = wl_mul_ll( _f1_2, f##8   );                                     \
-    wl_t _f1f9_76 = wl_mul_ll( _f1_2, _f9_38 );                                                                                 \
-                                                                                                                                \
-    wl_t _f2f2    = wl_mul_ll( f##2,  f##2   ); wl_t _f2f3_2  = wl_mul_ll( _f2_2, f##3   );                                     \
-    wl_t _f2f4_2  = wl_mul_ll( _f2_2, f##4   ); wl_t _f2f5_2  = wl_mul_ll( _f2_2, f##5   );                                     \
-    wl_t _f2f6_2  = wl_mul_ll( _f2_2, f##6   ); wl_t _f2f7_2  = wl_mul_ll( _f2_2, f##7   );                                     \
-    wl_t _f2f8_38 = wl_mul_ll( _f2_2, _f8_19 ); wl_t _f2f9_38 = wl_mul_ll( f##2 , _f9_38 );                                     \
-                                                                                                                                \
-    wl_t _f3f3_2  = wl_mul_ll( _f3_2, f##3   ); wl_t _f3f4_2  = wl_mul_ll( _f3_2, f##4   );                                     \
-    wl_t _f3f5_4  = wl_mul_ll( _f3_2, _f5_2  ); wl_t _f3f6_2  = wl_mul_ll( _f3_2, f##6   );                                     \
-    wl_t _f3f7_76 = wl_mul_ll( _f3_2, _f7_38 ); wl_t _f3f8_38 = wl_mul_ll( _f3_2, _f8_19 );                                     \
-    wl_t _f3f9_76 = wl_mul_ll( _f3_2, _f9_38 );                                                                                 \
-                                                                                                                                \
-    wl_t _f4f4    = wl_mul_ll( f##4,  f##4   ); wl_t _f4f5_2  = wl_mul_ll( _f4_2, f##5   );                                     \
-    wl_t _f4f6_38 = wl_mul_ll( _f4_2, _f6_19 ); wl_t _f4f7_38 = wl_mul_ll( f##4,  _f7_38 );                                     \
-    wl_t _f4f8_38 = wl_mul_ll( _f4_2, _f8_19 ); wl_t _f4f9_38 = wl_mul_ll( f##4,  _f9_38 );                                     \
-                                                                                                                                \
-    wl_t _f5f5_38 = wl_mul_ll( f##5,  _f5_38 ); wl_t _f5f6_38 = wl_mul_ll( _f5_2, _f6_19 );                                     \
-    wl_t _f5f7_76 = wl_mul_ll( _f5_2, _f7_38 ); wl_t _f5f8_38 = wl_mul_ll( _f5_2, _f8_19 );                                     \
-    wl_t _f5f9_76 = wl_mul_ll( _f5_2, _f9_38 );                                                                                 \
-                                                                                                                                \
-    wl_t _f6f6_19 = wl_mul_ll( f##6,  _f6_19 ); wl_t _f6f7_38 = wl_mul_ll( f##6,  _f7_38 );                                     \
-    wl_t _f6f8_38 = wl_mul_ll( _f6_2, _f8_19 ); wl_t _f6f9_38 = wl_mul_ll( f##6,  _f9_38 );                                     \
-                                                                                                                                \
-    wl_t _f7f7_38 = wl_mul_ll( f##7,  _f7_38 ); wl_t _f7f8_38 = wl_mul_ll( _f7_2, _f8_19 );                                     \
-    wl_t _f7f9_76 = wl_mul_ll( _f7_2, _f9_38 );                                                                                 \
-                                                                                                                                \
-    wl_t _f8f8_19 = wl_mul_ll( f##8,  _f8_19 ); wl_t _f8f9_38 = wl_mul_ll( f##8,  _f9_38 );                                     \
-                                                                                                                                \
-    wl_t _f9f9_38 = wl_mul_ll( f##9,  _f9_38 );                                                                                 \
-                                                                                                                                \
-    h##0 = wl_add6( _f0f0  , _f1f9_76, _f2f8_38, _f3f7_76, _f4f6_38, _f5f5_38 );                                                \
-    h##1 = wl_add5( _f0f1_2, _f2f9_38, _f3f8_38, _f4f7_38, _f5f6_38           );                                                \
-    h##2 = wl_add6( _f0f2_2, _f1f1_2 , _f3f9_76, _f4f8_38, _f5f7_76, _f6f6_19 );                                                \
-    h##3 = wl_add5( _f0f3_2, _f1f2_2 , _f4f9_38, _f5f8_38, _f6f7_38           );                                                \
-    h##4 = wl_add6( _f0f4_2, _f1f3_4 , _f2f2   , _f5f9_76, _f6f8_38, _f7f7_38 );                                                \
-    h##5 = wl_add5( _f0f5_2, _f1f4_2 , _f2f3_2 , _f6f9_38, _f7f8_38           );                                                \
-    h##6 = wl_add6( _f0f6_2, _f1f5_4 , _f2f4_2 , _f3f3_2 , _f7f9_76, _f8f8_19 );                                                \
-    h##7 = wl_add5( _f0f7_2, _f1f6_2 , _f2f5_2 , _f3f4_2 , _f8f9_38           );                                                \
-    h##8 = wl_add6( _f0f8_2, _f1f7_4 , _f2f6_2 , _f3f5_4 , _f4f4   , _f9f9_38 );                                                \
-    h##9 = wl_add5( _f0f9_2, _f1f8_2 , _f2f7_2 , _f3f6_2 , _f4f5_2            );                                                \
-                                                                                                                                \
-    wl_t _m38u = wl_bcast( (long)FD_MASK_MSB(38) );                                                                             \
-    wl_t _m39u = wl_bcast( (long)FD_MASK_MSB(39) );                                                                             \
-    wl_t _b24  = wl_bcast( 1L << 24 );                                                                                          \
-    wl_t _b25  = wl_bcast( 1L << 25 );                                                                                          \
-                                                                                                                                \
-    wl_t _c0 = wl_add( h##0, _b25 ); h##1 = wl_add( h##1, wl_shr    ( _c0, 26 ) ); h##0 = wl_sub( h##0, wl_and( _c0, _m38u ) ); \
-    wl_t _c4 = wl_add( h##4, _b25 ); h##5 = wl_add( h##5, wl_shr    ( _c4, 26 ) ); h##4 = wl_sub( h##4, wl_and( _c4, _m38u ) ); \
-    wl_t _c1 = wl_add( h##1, _b24 ); h##2 = wl_add( h##2, wl_shr    ( _c1, 25 ) ); h##1 = wl_sub( h##1, wl_and( _c1, _m39u ) ); \
-    wl_t _c5 = wl_add( h##5, _b24 ); h##6 = wl_add( h##6, wl_shr    ( _c5, 25 ) ); h##5 = wl_sub( h##5, wl_and( _c5, _m39u ) ); \
-    wl_t _c2 = wl_add( h##2, _b25 ); h##3 = wl_add( h##3, wl_shr    ( _c2, 26 ) ); h##2 = wl_sub( h##2, wl_and( _c2, _m38u ) ); \
-    wl_t _c6 = wl_add( h##6, _b25 ); h##7 = wl_add( h##7, wl_shr    ( _c6, 26 ) ); h##6 = wl_sub( h##6, wl_and( _c6, _m38u ) ); \
-    wl_t _c3 = wl_add( h##3, _b24 ); h##4 = wl_add( h##4, wl_shr    ( _c3, 25 ) ); h##3 = wl_sub( h##3, wl_and( _c3, _m39u ) ); \
-    wl_t _c7 = wl_add( h##7, _b24 ); h##8 = wl_add( h##8, wl_shr    ( _c7, 25 ) ); h##7 = wl_sub( h##7, wl_and( _c7, _m39u ) ); \
-    /**/ _c4 = wl_add( h##4, _b25 ); h##5 = wl_add( h##5, wl_shr    ( _c4, 26 ) ); h##4 = wl_sub( h##4, wl_and( _c4, _m38u ) ); \
-    wl_t _c8 = wl_add( h##8, _b25 ); h##9 = wl_add( h##9, wl_shr    ( _c8, 26 ) ); h##8 = wl_sub( h##8, wl_and( _c8, _m38u ) ); \
-    wl_t _c9 = wl_add( h##9, _b24 ); h##0 = wl_add( h##0, wl_shr_x19( _c9, 25 ) ); h##9 = wl_sub( h##9, wl_and( _c9, _m39u ) ); \
-    /**/ _c0 = wl_add( h##0, _b25 ); h##1 = wl_add( h##1, wl_shr    ( _c0, 26 ) ); h##0 = wl_sub( h##0, wl_and( _c0, _m38u ) ); \
-  } while(0)
-
-/* FE_AVX miscellaneous ***********************************************/
-
-/* FE_AVX_LANE_SELECT does
-     h(n) = f(n) if cn is non-zero and 0 otherwise
-   for n in 0:3.  In-place operation fine.  Recommended that cn be
-   compile time constants. */
-
-#define FE_AVX_LANE_SELECT(h,f,c0,c1,c2,c3) do {                                   \
-    wl_t _mask = wl( -(long)!!(c0), -(long)!!(c1), -(long)!!(c2), -(long)!!(c3) ); \
-    h##0 = wl_and( f##0, _mask );                                                  \
-    h##1 = wl_and( f##1, _mask );                                                  \
-    h##2 = wl_and( f##2, _mask );                                                  \
-    h##3 = wl_and( f##3, _mask );                                                  \
-    h##4 = wl_and( f##4, _mask );                                                  \
-    h##5 = wl_and( f##5, _mask );                                                  \
-    h##6 = wl_and( f##6, _mask );                                                  \
-    h##7 = wl_and( f##7, _mask );                                                  \
-    h##8 = wl_and( f##8, _mask );                                                  \
-    h##9 = wl_and( f##9, _mask );                                                  \
-  } while(0)
-
-/* FE_AVX_DBL_MIX( h, f ) does
-     [ha hb hc hd] = [fa-fb-fc fb+fc fc-fc fd-fb+fc].
-   In place operation fine. */
-
-#define FE_AVX_DBL_MIX( h, f ) do {                       \
-    h##0 = wl_dbl_mix( f##0 ); h##1 = wl_dbl_mix( f##1 ); \
-    h##2 = wl_dbl_mix( f##2 ); h##3 = wl_dbl_mix( f##3 ); \
-    h##4 = wl_dbl_mix( f##4 ); h##5 = wl_dbl_mix( f##5 ); \
-    h##6 = wl_dbl_mix( f##6 ); h##7 = wl_dbl_mix( f##7 ); \
-    h##8 = wl_dbl_mix( f##8 ); h##9 = wl_dbl_mix( f##9 ); \
-  } while(0)
-
-/* FE_AVX_SUB_MIX( h, f ) does
-     [ha hb hc hd] = [fc-fb fc+fb 2*fa-fd 2*fa-fc]
-   In place operation fine. */
-
-#define FE_AVX_SUB_MIX( h, f ) do {                       \
-    h##0 = wl_sub_mix( f##0 ); h##1 = wl_sub_mix( f##1 ); \
-    h##2 = wl_sub_mix( f##2 ); h##3 = wl_sub_mix( f##3 ); \
-    h##4 = wl_sub_mix( f##4 ); h##5 = wl_sub_mix( f##5 ); \
-    h##6 = wl_sub_mix( f##6 ); h##7 = wl_sub_mix( f##7 ); \
-    h##8 = wl_sub_mix( f##8 ); h##9 = wl_sub_mix( f##9 ); \
-  } while(0)
-
-/* FE_AVX_SUBADD_12( h, f ) does
-     [ha hb hc hd] = [fa fb-fc fb+fc fd]
-   In place operation fine. */
-
-#define FE_AVX_SUBADD_12( h, f ) do {                         \
-    h##0 = wl_subadd_12( f##0 ); h##1 = wl_subadd_12( f##1 ); \
-    h##2 = wl_subadd_12( f##2 ); h##3 = wl_subadd_12( f##3 ); \
-    h##4 = wl_subadd_12( f##4 ); h##5 = wl_subadd_12( f##5 ); \
-    h##6 = wl_subadd_12( f##6 ); h##7 = wl_subadd_12( f##7 ); \
-    h##8 = wl_subadd_12( f##8 ); h##9 = wl_subadd_12( f##9 ); \
-  } while(0)
-
-/* WARNING: THE LANE_ADD / LANE_SUB / LANE_ADDSUB IMPLEMENTATIONS AREN'T
-   PARTICULARLY FAST AND GENERALLY BEST AVOIDED IN PERFORMANCE REASONS.
-   THEY ARE USEFUL DURING DEVELOPMENT OF CALCULATIONS SO THEY ARE KEPT
-   HERE. */
-
-/* FE_AVX_LANE_ADD adds without reduction the field element in lane lf
-   of f to the field in lane lg of g and stores the result in lane lh of
-   h.  That is:
-     h(imm_lh) = f(imm_lf) + g(imm_lg)
-   imm_l* should be compile time constants in 0:3.  In-place operation
-   fine. */
-
-#define FE_AVX_LANE_ADD(h,imm_lh,f,imm_lf,g,imm_lg) do {                                             \
-    h##0 = wl_insert( h##0, (imm_lh), wl_extract( f##0, (imm_lf) ) + wl_extract( g##0, (imm_lg) ) ); \
-    h##1 = wl_insert( h##1, (imm_lh), wl_extract( f##1, (imm_lf) ) + wl_extract( g##1, (imm_lg) ) ); \
-    h##2 = wl_insert( h##2, (imm_lh), wl_extract( f##2, (imm_lf) ) + wl_extract( g##2, (imm_lg) ) ); \
-    h##3 = wl_insert( h##3, (imm_lh), wl_extract( f##3, (imm_lf) ) + wl_extract( g##3, (imm_lg) ) ); \
-    h##4 = wl_insert( h##4, (imm_lh), wl_extract( f##4, (imm_lf) ) + wl_extract( g##4, (imm_lg) ) ); \
-    h##5 = wl_insert( h##5, (imm_lh), wl_extract( f##5, (imm_lf) ) + wl_extract( g##5, (imm_lg) ) ); \
-    h##6 = wl_insert( h##6, (imm_lh), wl_extract( f##6, (imm_lf) ) + wl_extract( g##6, (imm_lg) ) ); \
-    h##7 = wl_insert( h##7, (imm_lh), wl_extract( f##7, (imm_lf) ) + wl_extract( g##7, (imm_lg) ) ); \
-    h##8 = wl_insert( h##8, (imm_lh), wl_extract( f##8, (imm_lf) ) + wl_extract( g##8, (imm_lg) ) ); \
-    h##9 = wl_insert( h##9, (imm_lh), wl_extract( f##9, (imm_lf) ) + wl_extract( g##9, (imm_lg) ) ); \
-  } while(0)
-
-/* FE_AVX_LANE_SUB subtracts without reduction the field element in lane
-   lf of f to the field in lane lg of g and stores the result in lane lh
-   of h.  That is:
-     h(imm_lh) = f(imm_lf) + g(imm_lg)
-   imm_l* should be compile time constants in 0:3.  In-place operation
-   fine. */
-
-#define FE_AVX_LANE_SUB(h,imm_lh,f,imm_lf,g,imm_lg) do {                                             \
-    h##0 = wl_insert( h##0, (imm_lh), wl_extract( f##0, (imm_lf) ) - wl_extract( g##0, (imm_lg) ) ); \
-    h##1 = wl_insert( h##1, (imm_lh), wl_extract( f##1, (imm_lf) ) - wl_extract( g##1, (imm_lg) ) ); \
-    h##2 = wl_insert( h##2, (imm_lh), wl_extract( f##2, (imm_lf) ) - wl_extract( g##2, (imm_lg) ) ); \
-    h##3 = wl_insert( h##3, (imm_lh), wl_extract( f##3, (imm_lf) ) - wl_extract( g##3, (imm_lg) ) ); \
-    h##4 = wl_insert( h##4, (imm_lh), wl_extract( f##4, (imm_lf) ) - wl_extract( g##4, (imm_lg) ) ); \
-    h##5 = wl_insert( h##5, (imm_lh), wl_extract( f##5, (imm_lf) ) - wl_extract( g##5, (imm_lg) ) ); \
-    h##6 = wl_insert( h##6, (imm_lh), wl_extract( f##6, (imm_lf) ) - wl_extract( g##6, (imm_lg) ) ); \
-    h##7 = wl_insert( h##7, (imm_lh), wl_extract( f##7, (imm_lf) ) - wl_extract( g##7, (imm_lg) ) ); \
-    h##8 = wl_insert( h##8, (imm_lh), wl_extract( f##8, (imm_lf) ) - wl_extract( g##8, (imm_lg) ) ); \
-    h##9 = wl_insert( h##9, (imm_lh), wl_extract( f##9, (imm_lf) ) - wl_extract( g##9, (imm_lg) ) ); \
-  } while(0)
-
-/* FE_AVX_LANE_ADDSUB adds/subtracts without reduction the field element
-   in lane lf of f to the field in lane lg of g and stores the results
-   in lane lh of h and lane li of i.
-     h(imm_lh) = f(imm_lf) + g(imm_lg)
-     i(imm_li) = f(imm_lf) - g(imm_lg)
-   imm_l* should be compile time constants in 0:3.  In-place operation
-   fine. */
-
-#define FE_AVX_LANE_ADDSUB(h,imm_lh,i,imm_li,f,imm_lf,g,imm_lg) do {                                                                                                                  \
-    long _fl0 = wl_extract( f##0, (imm_lf) ); long _gl0 = wl_extract( g##0, (imm_lg) ); h##0 = wl_insert( h##0, (imm_lh), _fl0+_gl0 ); i##0 = wl_insert( i##0, (imm_li), _fl0-_gl0 ); \
-    long _fl1 = wl_extract( f##1, (imm_lf) ); long _gl1 = wl_extract( g##1, (imm_lg) ); h##1 = wl_insert( h##1, (imm_lh), _fl1+_gl1 ); i##1 = wl_insert( i##1, (imm_li), _fl1-_gl1 ); \
-    long _fl2 = wl_extract( f##2, (imm_lf) ); long _gl2 = wl_extract( g##2, (imm_lg) ); h##2 = wl_insert( h##2, (imm_lh), _fl2+_gl2 ); i##2 = wl_insert( i##2, (imm_li), _fl2-_gl2 ); \
-    long _fl3 = wl_extract( f##3, (imm_lf) ); long _gl3 = wl_extract( g##3, (imm_lg) ); h##3 = wl_insert( h##3, (imm_lh), _fl3+_gl3 ); i##3 = wl_insert( i##3, (imm_li), _fl3-_gl3 ); \
-    long _fl4 = wl_extract( f##4, (imm_lf) ); long _gl4 = wl_extract( g##4, (imm_lg) ); h##4 = wl_insert( h##4, (imm_lh), _fl4+_gl4 ); i##4 = wl_insert( i##4, (imm_li), _fl4-_gl4 ); \
-    long _fl5 = wl_extract( f##5, (imm_lf) ); long _gl5 = wl_extract( g##5, (imm_lg) ); h##5 = wl_insert( h##5, (imm_lh), _fl5+_gl5 ); i##5 = wl_insert( i##5, (imm_li), _fl5-_gl5 ); \
-    long _fl6 = wl_extract( f##6, (imm_lf) ); long _gl6 = wl_extract( g##6, (imm_lg) ); h##6 = wl_insert( h##6, (imm_lh), _fl6+_gl6 ); i##6 = wl_insert( i##6, (imm_li), _fl6-_gl6 ); \
-    long _fl7 = wl_extract( f##7, (imm_lf) ); long _gl7 = wl_extract( g##7, (imm_lg) ); h##7 = wl_insert( h##7, (imm_lh), _fl7+_gl7 ); i##7 = wl_insert( i##7, (imm_li), _fl7-_gl7 ); \
-    long _fl8 = wl_extract( f##8, (imm_lf) ); long _gl8 = wl_extract( g##8, (imm_lg) ); h##8 = wl_insert( h##8, (imm_lh), _fl8+_gl8 ); i##8 = wl_insert( i##8, (imm_li), _fl8-_gl8 ); \
-    long _fl9 = wl_extract( f##9, (imm_lf) ); long _gl9 = wl_extract( g##9, (imm_lg) ); h##9 = wl_insert( h##9, (imm_lh), _fl9+_gl9 ); i##9 = wl_insert( i##9, (imm_li), _fl9-_gl9 ); \
-  } while(0)

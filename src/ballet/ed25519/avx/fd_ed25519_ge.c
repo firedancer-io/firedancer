@@ -222,75 +222,79 @@ int
 fd_ed25519_ge_frombytes_vartime_2( fd_ed25519_ge_p3_t * h0, uchar const * s0,
                                    fd_ed25519_ge_p3_t * h1, uchar const * s1 ) {
 
-  static const fd_ed25519_fe_t d[1] = {{
-    { -10913610, 13857413, -15372611, 6949391, 114729, -8787816, -6275908, -3247719, -18696448, -12055116 }
-  }};
+  /* Note: experiments found no significant difference from aggressively
+     inlining field element operations in microbenchmarks.  So we use
+     non-inlined versions to reduce L1 instruction cache pressure in
+     real world scenarios. */
 
-  static const fd_ed25519_fe_t sqrtm1[1] = {{
+  fd_ed25519_fe_frombytes( h0->Y, s0 ); fd_ed25519_fe_frombytes( h1->Y, s1 );
+  fd_ed25519_fe_1        ( h0->Z     ); fd_ed25519_fe_1        ( h1->Z     );
+
+  static long const ldd00[40] __attribute__((aligned(64))) = {
+    (long)(uint)-10913610, (long)(uint)-10913610, 0L, 0L, /* Do not sign extend */
+    (long)(uint) 13857413, (long)(uint) 13857413, 0L, 0L, /* " */
+    (long)(uint)-15372611, (long)(uint)-15372611, 0L, 0L, /* " */
+    (long)(uint)  6949391, (long)(uint)  6949391, 0L, 0L, /* " */
+    (long)(uint)   114729, (long)(uint)   114729, 0L, 0L, /* " */
+    (long)(uint) -8787816, (long)(uint) -8787816, 0L, 0L, /* " */
+    (long)(uint) -6275908, (long)(uint) -6275908, 0L, 0L, /* " */
+    (long)(uint) -3247719, (long)(uint) -3247719, 0L, 0L, /* " */
+    (long)(uint)-18696448, (long)(uint)-18696448, 0L, 0L, /* " */
+    (long)(uint)-12055116, (long)(uint)-12055116, 0L, 0L  /* " */
+  };
+
+  long vh[40] __attribute__((aligned(64)));
+  long vu[40] __attribute__((aligned(64)));
+  long vv[40] __attribute__((aligned(64)));
+  long vw[40] __attribute__((aligned(64)));
+
+  fe_avx_ld2( vh, h0->Y, h1->Y );
+
+  fe_avx_sq      ( vu, vh        );
+  fe_avx_mul     ( vv, vu, ldd00 );
+  vu[0] -= 1L; vu[1] -= 1L;         /* u = y^2-1 */
+  vv[0] += 1L; vv[1] += 1L;         /* v = dy^2+1 */
+  fe_avx_sq      ( vw, vv        ); /* vv30 <> vw */
+  fe_avx_mul     ( vw, vw, vv    ); /* v3 = v^3 */
+  fe_avx_sq      ( vh, vw        );
+  fe_avx_mul     ( vh, vh, vv    );
+  fe_avx_mul     ( vh, vh, vu    );
+  fe_avx_pow22523( vh, vh        ); /* x = (uv^7)^((q-5)/8) */
+  fe_avx_mul     ( vh, vh, vw    );
+  fe_avx_mul     ( vh, vh, vu    ); /* x = uv^3(uv^7)^((q-5)/8) */
+
+  fe_avx_sq      ( vw, vh        ); /* vw <> vvxx */
+  fe_avx_mul     ( vw, vw, vv    );
+  fe_avx_sub     ( vv, vw, vu    ); /* vv <> vcheck */
+
+  /* FIXME: COULD PAIR AND USING SWIZZLE_OUT4 (EST SAVE ~(low tens ns)) */
+  /**/                                                  fe_avx_st2( h0->X,  h1->X,  vh );
+  fd_ed25519_fe_t u0   [1];  fd_ed25519_fe_t u1   [1];  fe_avx_st2( u0,     u1,     vu );
+  fd_ed25519_fe_t vxx0 [1];  fd_ed25519_fe_t vxx1 [1];  fe_avx_st2( vxx0,   vxx1,   vw );
+  fd_ed25519_fe_t check0[1]; fd_ed25519_fe_t check1[1]; fe_avx_st2( check0, check1, vv );
+
+  /* FIXME: COULD VECTORIZE (EST SAVE ~O(low hundreds ns)) */
+
+  static fd_ed25519_fe_t const sqrtm1[1] = {{
     { -32595792, -7943725, 9377950, 3500415, 12389472, -272473, -25146209, -2005654, 326686, 11406482 }
   }};
-
-  fd_ed25519_fe_t u0[1];
-  fd_ed25519_fe_t v0[1];
-  fd_ed25519_fe_t u1[1];
-  fd_ed25519_fe_t v1[1];
-  fd_ed25519_fe_frombytes  ( h0->Y, s0       );
-  fd_ed25519_fe_frombytes  ( h1->Y, s1       );
-  fd_ed25519_fe_1          ( h0->Z           );
-  fd_ed25519_fe_1          ( h1->Z           );
-  fd_ed25519_fe_sqn2       ( u0, h0->Y, 1,
-                             u1, h1->Y, 1    );
-  fd_ed25519_fe_mul2       ( v0, u0, d,
-                             v1, u1, d       );
-  fd_ed25519_fe_sub        ( u0, u0, h0->Z   );     /* u = y^2-1 */
-  fd_ed25519_fe_sub        ( u1, u1, h1->Z   );     /* u = y^2-1 */
-  fd_ed25519_fe_add        ( v0, v0, h0->Z   );     /* v = dy^2+1 */
-  fd_ed25519_fe_add        ( v1, v1, h1->Z   );     /* v = dy^2+1 */
-
-  fd_ed25519_fe_t v30_0[1]; fd_ed25519_fe_t v30_1[1];
-  fd_ed25519_fe_sqn2      ( v30_0, v0, 1,
-                            v30_1, v1, 1     );
-  fd_ed25519_fe_mul2      ( v30_0, v30_0, v0,       /* v3 = v^3 */
-                            v30_1, v30_1, v1 );     /* v3 = v^3 */
-  fd_ed25519_fe_sqn2      ( h0->X, v30_0, 1,
-                            h1->X, v30_1, 1  );
-  fd_ed25519_fe_mul2      ( h0->X, h0->X, v0,
-                            h1->X, h1->X, v1 );
-  fd_ed25519_fe_mul2      ( h0->X, h0->X, u0,       /* x = uv^7 */
-                            h1->X, h1->X, u1 );     /* x = uv^7 */
-
-  fd_ed25519_fe_pow22523_2( h0->X, h0->X,           /* x = (uv^7)^((q-5)/8) */
-                            h1->X, h1->X        );  /* x = (uv^7)^((q-5)/8) */
-  fd_ed25519_fe_mul2      ( h0->X, h0->X, v30_0,
-                            h1->X, h1->X, v30_1 );
-  fd_ed25519_fe_mul2      ( h0->X, h0->X, u0,       /* x = uv^3(uv^7)^((q-5)/8) */
-                            h1->X, h1->X, u1    );  /* x = uv^3(uv^7)^((q-5)/8) */
-
-  fd_ed25519_fe_t vxx0[1]; fd_ed25519_fe_t check0[1];
-  fd_ed25519_fe_t vxx1[1]; fd_ed25519_fe_t check1[1];
-  fd_ed25519_fe_sqn2      ( vxx0,   h0->X, 1,
-                            vxx1,   h1->X, 1 );
-  fd_ed25519_fe_mul2      ( vxx0,   vxx0, v0,
-                            vxx1,   vxx1, v1 );
-  fd_ed25519_fe_sub       ( check0, vxx0, u0 ); /* vx^2-u */
-  fd_ed25519_fe_sub       ( check1, vxx1, u1 ); /* vx^2-u */
 
   if( fd_ed25519_fe_isnonzero( check0 ) ) { /* unclear prob */
     fd_ed25519_fe_add( check0, vxx0, u0 );  /* vx^2+u */
     if( FD_UNLIKELY( fd_ed25519_fe_isnonzero( check0 ) ) ) return FD_ED25519_ERR_PUBKEY;
     fd_ed25519_fe_mul( h0->X, h0->X, sqrtm1 );
   }
-  if( fd_ed25519_fe_isnegative( h0->X )!=(s0[31] >> 7) ) fd_ed25519_fe_neg( h0->X, h0->X ); /* unclear prob */
-  fd_ed25519_fe_mul( h0->T, h0->X, h0->Y );
 
   if( fd_ed25519_fe_isnonzero( check1 ) ) { /* unclear prob */
     fd_ed25519_fe_add( check1, vxx1, u1 );  /* vx^2+u */
     if( FD_UNLIKELY( fd_ed25519_fe_isnonzero( check1 ) ) ) return FD_ED25519_ERR_PUBKEY;
     fd_ed25519_fe_mul( h1->X, h1->X, sqrtm1 );
   }
-  if( fd_ed25519_fe_isnegative( h1->X )!=(s1[31] >> 7) ) fd_ed25519_fe_neg( h1->X, h1->X ); /* unclear prob */
-  fd_ed25519_fe_mul( h1->T, h1->X, h1->Y );
 
+  if( fd_ed25519_fe_isnegative( h0->X )!=(s0[31] >> 7) ) fd_ed25519_fe_neg( h0->X, h0->X ); /* unclear prob */
+  if( fd_ed25519_fe_isnegative( h1->X )!=(s1[31] >> 7) ) fd_ed25519_fe_neg( h1->X, h1->X ); /* unclear prob */
+
+  fd_ed25519_fe_mul2( h0->T, h0->X, h0->Y,  h1->T, h1->X, h1->Y );
   return FD_ED25519_SUCCESS;
 }
 
@@ -395,6 +399,12 @@ fd_ed25519_ge_slide( int *         r,
   return r;
 }
 
+#if 1 /* FIXME: MAKE COMPILE TIME SWITCH? */
+
+/* This verison aggressively inlines all field element operations.  It
+   is ~5% then the below but might create an excessive amount of L1
+   cache pressure. */
+
 fd_ed25519_ge_p2_t *
 fd_ed25519_ge_double_scalarmult_vartime( fd_ed25519_ge_p2_t *       r,
                                          uchar const *              a,
@@ -406,14 +416,14 @@ fd_ed25519_ge_double_scalarmult_vartime( fd_ed25519_ge_p2_t *       r,
   int aslide[256]; fd_ed25519_ge_slide( aslide, a );
   int bslide[256]; fd_ed25519_ge_slide( bslide, b );
 
-  FE_AVX_DECL( vr );
-  FE_AVX_DECL( vt );
-  FE_AVX_DECL( vu );
+  FE_AVX_INL_DECL( vr );
+  FE_AVX_INL_DECL( vt );
+  FE_AVX_INL_DECL( vu );
 
   long Ai[8][40] __attribute__((aligned(64))); // A,A3,A5,A7,A9,A11,A13,A15
   do {
 
-    static long const l111d2[40] __attribute__((aligned(64))) = { /* This holds 1 | 0 | 0 | d2 */
+    static long const l111d2[40] __attribute__((aligned(64))) = { /* This holds 1 | 1 | 1 | d2 */
       1L, 1L, 1L, (long)(uint)-21827239, /* Do not sign extend */
       0L, 0L, 0L, (long)(uint) -5839606, /* " */
       0L, 0L, 0L, (long)(uint)-30745221, /* " */
@@ -425,53 +435,53 @@ fd_ed25519_ge_double_scalarmult_vartime( fd_ed25519_ge_p2_t *       r,
       0L, 0L, 0L, (long)(uint) 29715968, /* " */
       0L, 0L, 0L, (long)(uint)  9444199  /* " */
     };
-    FE_AVX_DECL( v111d2 );
-    FE_AVX_LD( v111d2, l111d2 );
+    FE_AVX_INL_DECL( v111d2 );
+    FE_AVX_INL_LD( v111d2, l111d2 );
 
-    FE_AVX_SWIZZLE_IN4( vr, A->Z, A->Y, A->X, A->T );
+    FE_AVX_INL_SWIZZLE_IN4( vr, A->Z, A->Y, A->X, A->T );
 
   //fd_ed25519_ge_p3_to_cached( Ai[0], A );
-    FE_AVX_MUL      ( vu,    vr, v111d2 );
-    FE_AVX_SUBADD_12( vu,    vu         );
-    FE_AVX_ST       ( Ai[0], vu         ); /* Z, YminusX, YplusX, T2d */
+    FE_AVX_INL_MUL      ( vu,    vr, v111d2 );
+    FE_AVX_INL_SUBADD_12( vu,    vu         );
+    FE_AVX_INL_ST       ( Ai[0], vu         ); /* Z, YminusX, YplusX, T2d */
 
   //fd_ed25519_ge_p3_dbl( t, A );
-    FE_AVX_PERMUTE    ( vt, vr, 2,1,2,0 );
-    FE_AVX_PERMUTE    ( vr, vr, 1,0,3,2 );
-    FE_AVX_LANE_SELECT( vr, vr, 1,0,0,0 );
-    FE_AVX_ADD        ( vt, vt, vr      );
-    FE_AVX_SQN        ( vt, vt, 1,1,1,2 );
-    FE_AVX_DBL_MIX    ( vt, vt          );
+    FE_AVX_INL_PERMUTE    ( vt, vr, 2,1,2,0 );
+    FE_AVX_INL_PERMUTE    ( vr, vr, 1,0,3,2 );
+    FE_AVX_INL_LANE_SELECT( vr, vr, 1,0,0,0 );
+    FE_AVX_INL_ADD        ( vt, vt, vr      );
+    FE_AVX_INL_SQN        ( vt, vt, 1,1,1,2 );
+    FE_AVX_INL_DBL_MIX    ( vt, vt          );
 
   //fd_ed25519_ge_p1p1_to_p3( A2, t );
-    FE_AVX_PERMUTE( vr, vt, 2,1,0,0 );
-    FE_AVX_PERMUTE( vt, vt, 3,2,3,1 );
-    FE_AVX_MUL    ( vr, vt, vr      );
+    FE_AVX_INL_PERMUTE( vr, vt, 2,1,0,0 );
+    FE_AVX_INL_PERMUTE( vt, vt, 3,2,3,1 );
+    FE_AVX_INL_MUL    ( vr, vt, vr      );
 
-    FE_AVX_SUBADD_12( vr, vr ); // hoisted from ge_add below
+    FE_AVX_INL_SUBADD_12( vr, vr ); // hoisted from ge_add below
 
     for( int i=0; i<7; i++ ) {
 
     //fd_ed25519_ge_add( t, A2, Ai[i] );
-      FE_AVX_MUL    ( vt, vr, vu );
-      FE_AVX_ADD    ( vu, vt, vt );
-      FE_AVX_SUB_MIX( vt, vt     );
+      FE_AVX_INL_MUL    ( vt, vr, vu );
+      FE_AVX_INL_ADD    ( vu, vt, vt );
+      FE_AVX_INL_SUB_MIX( vt, vt     );
       // Fused final perm for add with the below
 
     //fd_ed25519_ge_p1p1_to_p3( u, t );
-      FE_AVX_PERMUTE( vu, vt, 3,1,0,0 );
-      FE_AVX_PERMUTE( vt, vt, 2,3,2,1 );
-      FE_AVX_MUL    ( vt, vt, vu      );
+      FE_AVX_INL_PERMUTE( vu, vt, 3,1,0,0 );
+      FE_AVX_INL_PERMUTE( vt, vt, 2,3,2,1 );
+      FE_AVX_INL_MUL    ( vt, vt, vu      );
 
     //fd_ed25519_ge_p3_to_cached( Ai[i+1], u );
-      FE_AVX_MUL      ( vu, vt, v111d2 );
-      FE_AVX_SUBADD_12( vu, vu         );
-      FE_AVX_ST       ( Ai[i+1], vu    ); /* Z, YminusX, YplusX, T2d */
+      FE_AVX_INL_MUL      ( vu, vt, v111d2 );
+      FE_AVX_INL_SUBADD_12( vu, vu         );
+      FE_AVX_INL_ST       ( Ai[i+1], vu    ); /* Z, YminusX, YplusX, T2d */
     }
   } while(0);
 
 //fd_ed25519_ge_p2_0( r );
-  FE_AVX_ZERO( vr );
+  FE_AVX_INL_ZERO( vr );
   vr0 = wl_insert( vr0,1, 1L );
   vr0 = wl_insert( vr0,2, 1L );
 
@@ -480,12 +490,12 @@ fd_ed25519_ge_double_scalarmult_vartime( fd_ed25519_ge_p2_t *       r,
   for(      ; i>=0; i-- ) {
 
   //fd_ed25519_ge_p2_dbl( t, r );
-    FE_AVX_PERMUTE    ( vt, vr, 0,1,0,2 );
-    FE_AVX_PERMUTE    ( vu, vr, 1,0,3,2 );
-    FE_AVX_LANE_SELECT( vu, vu, 1,0,0,0 );
-    FE_AVX_ADD        ( vt, vt, vu      );
-    FE_AVX_SQN        ( vt, vt, 1,1,1,2 );
-    FE_AVX_DBL_MIX    ( vt, vt          );
+    FE_AVX_INL_PERMUTE    ( vt, vr, 0,1,0,2 );
+    FE_AVX_INL_PERMUTE    ( vu, vr, 1,0,3,2 );
+    FE_AVX_INL_LANE_SELECT( vu, vu, 1,0,0,0 );
+    FE_AVX_INL_ADD        ( vt, vt, vu      );
+    FE_AVX_INL_SQN        ( vt, vt, 1,1,1,2 );
+    FE_AVX_INL_DBL_MIX    ( vt, vt          );
 
     for( int j=0; j<2; j++ ) { /* a or b */
       int slide_i = (j ? bslide : aslide)[i]; /* cmov */
@@ -493,26 +503,155 @@ fd_ed25519_ge_double_scalarmult_vartime( fd_ed25519_ge_p2_t *       r,
         long const * precomp = j ? bi_precomp[0] : Ai[0];
 
       //fd_ed25519_ge_p1p1_to_p3( u, t );
-        FE_AVX_PERMUTE( vu, vt, 2,1,0,0 );
-        FE_AVX_PERMUTE( vt, vt, 3,2,3,1 );
-        FE_AVX_MUL    ( vt, vu, vt      );
+        FE_AVX_INL_PERMUTE( vu, vt, 2,1,0,0 );
+        FE_AVX_INL_PERMUTE( vt, vt, 3,2,3,1 );
+        FE_AVX_INL_MUL    ( vt, vu, vt      );
 
       //fd_ed25519_ge_{add,sub,madd,msub}( t, u, {Ai,Ai,bi_precomp,bi_precomp}[ ({+aslide,-aslide,+bslide,-bslide}[i]) / 2 ] );
-        FE_AVX_LD( vu, precomp + 40UL*(ulong)(fd_int_abs( slide_i ) >> 1) );
-        if( slide_i<0 ) FE_AVX_PERMUTE( vu, vu, 0,2,1,3 ); /* FIXME: ABSORB INTO TABLE? */
-        FE_AVX_SUBADD_12( vt, vt     );
-        FE_AVX_MUL      ( vt, vt, vu );
-        FE_AVX_SUB_MIX  ( vt, vt     );
-        if( !(slide_i<0) ) FE_AVX_PERMUTE( vt, vt, 0,1,3,2 ); /* FIXME: Use branchless conditional select instead? */
+        FE_AVX_INL_LD( vu, precomp + 40UL*(ulong)(fd_int_abs( slide_i ) >> 1) );
+        if( slide_i<0 ) FE_AVX_INL_PERMUTE( vu, vu, 0,2,1,3 ); /* FIXME: ABSORB INTO TABLE? */
+        FE_AVX_INL_SUBADD_12( vt, vt     );
+        FE_AVX_INL_MUL      ( vt, vt, vu );
+        FE_AVX_INL_SUB_MIX  ( vt, vt     );
+        if( !(slide_i<0) ) FE_AVX_INL_PERMUTE( vt, vt, 0,1,3,2 ); /* FIXME: Use branchless conditional select instead? */
       }
     }
 
   //fd_ed25519_ge_p1p1_to_p2( r, t );
-    FE_AVX_PERMUTE( vr, vt, 3,2,3,3 );              /* vr = t->{T,Z,T,T} */
-    FE_AVX_MUL    ( vr, vt, vr      );
+    FE_AVX_INL_PERMUTE( vr, vt, 3,2,3,3 );              /* vr = t->{T,Z,T,T} */
+    FE_AVX_INL_MUL    ( vr, vt, vr      );
   }
 
-  FE_AVX_SWIZZLE_OUT3( r->X, r->Y, r->Z, vr );
+  FE_AVX_INL_SWIZZLE_OUT3( r->X, r->Y, r->Z, vr );
   return r;
 }
 
+#else
+
+/* This version has a lot lower instruction footprint because it is not
+   aggressively inlined.  It about ~5% slower in a microbenchmark but
+   might be faster in real world situations due to lower cache pressure. */
+
+fd_ed25519_ge_p2_t *
+fd_ed25519_ge_double_scalarmult_vartime( fd_ed25519_ge_p2_t *       r,
+                                         uchar const *              a,
+                                         fd_ed25519_ge_p3_t const * A,
+                                         uchar const *              b ) {
+
+# include "../table/fd_ed25519_ge_bi_precomp_avx.c"
+
+  int aslide[256]; fd_ed25519_ge_slide( aslide, a );
+  int bslide[256]; fd_ed25519_ge_slide( bslide, b );
+
+  long vr[40] __attribute__((aligned(64)));
+  long vt[40] __attribute__((aligned(64)));
+  long vu[40] __attribute__((aligned(64)));
+
+  long Ai[8][40] __attribute__((aligned(64))); // A,A3,A5,A7,A9,A11,A13,A15
+  do {
+
+    static long const l111d2[40] __attribute__((aligned(64))) = { /* This holds 1 | 1 | 1 | d2 */
+      1L, 1L, 1L, (long)(uint)-21827239, /* Do not sign extend */
+      0L, 0L, 0L, (long)(uint) -5839606, /* " */
+      0L, 0L, 0L, (long)(uint)-30745221, /* " */
+      0L, 0L, 0L, (long)(uint) 13898782, /* " */
+      0L, 0L, 0L, (long)(uint)   229458, /* " */
+      0L, 0L, 0L, (long)(uint) 15978800, /* " */
+      0L, 0L, 0L, (long)(uint)-12551817, /* " */
+      0L, 0L, 0L, (long)(uint) -6495438, /* " */
+      0L, 0L, 0L, (long)(uint) 29715968, /* " */
+      0L, 0L, 0L, (long)(uint)  9444199  /* " */
+    };
+
+    fe_avx_ld4( vr, A->Z, A->Y, A->X, A->T );
+
+    // Note: fe_avx_copies could be optimized out
+
+  //fd_ed25519_ge_p3_to_cached( Ai[0], A );
+    fe_avx_mul      ( vu,    vr, l111d2 );
+    fe_avx_subadd_12( vu,    vu         );
+    fe_avx_copy     ( Ai[0], vu         ); /* Z, YminusX, YplusX, T2d */
+
+  //fd_ed25519_ge_p3_dbl( t, A );
+    fe_avx_permute    ( vt, vr, 2,1,2,0 );
+    fe_avx_permute    ( vr, vr, 1,0,3,2 );
+    fe_avx_lane_select( vr, vr, 1,0,0,0 );
+    fe_avx_add        ( vt, vt, vr      );
+    fe_avx_sqn        ( vt, vt, 1,1,1,2 );
+    fe_avx_dbl_mix    ( vt, vt          );
+
+  //fd_ed25519_ge_p1p1_to_p3( A2, t );
+    fe_avx_permute( vr, vt, 2,1,0,0 );
+    fe_avx_permute( vt, vt, 3,2,3,1 );
+    fe_avx_mul    ( vr, vt, vr      );
+
+    fe_avx_subadd_12( vr, vr ); // hoisted from ge_add below
+
+    for( int i=0; i<7; i++ ) {
+
+    //fd_ed25519_ge_add( t, A2, Ai[i] );
+      fe_avx_mul    ( vt, vr, vu );
+      fe_avx_add    ( vu, vt, vt );
+      fe_avx_sub_mix( vt, vt     );
+      // Fused final perm for add with the below
+
+    //fd_ed25519_ge_p1p1_to_p3( u, t );
+      fe_avx_permute( vu, vt, 3,1,0,0 );
+      fe_avx_permute( vt, vt, 2,3,2,1 );
+      fe_avx_mul    ( vt, vt, vu      );
+
+    //fd_ed25519_ge_p3_to_cached( Ai[i+1], u );
+      fe_avx_mul      ( vu,      vt, l111d2 );
+      fe_avx_subadd_12( vu,      vu         );
+      fe_avx_copy     ( Ai[i+1], vu         ); /* Z, YminusX, YplusX, T2d */
+    }
+  } while(0);
+
+//fd_ed25519_ge_p2_0( r );
+  fe_avx_zero( vr );
+  vr[1] = 1L;
+  vr[2] = 1L;
+
+  int i;
+  for( i=255; i>=0; i-- ) if( aslide[i] || bslide[i] ) break;
+  for(      ; i>=0; i-- ) {
+
+  //fd_ed25519_ge_p2_dbl( t, r );
+    fe_avx_permute    ( vt, vr, 0,1,0,2 );
+    fe_avx_permute    ( vu, vr, 1,0,3,2 );
+    fe_avx_lane_select( vu, vu, 1,0,0,0 );
+    fe_avx_add        ( vt, vt, vu      );
+    fe_avx_sqn        ( vt, vt, 1,1,1,2 );
+    fe_avx_dbl_mix    ( vt, vt          );
+
+    for( int j=0; j<2; j++ ) { /* a or b */
+      int slide_i = (j ? bslide : aslide)[i]; /* cmov */
+      if( FD_UNLIKELY( slide_i ) ) { /* empirically observed */
+        long const * precomp = j ? bi_precomp[0] : Ai[0];
+
+      //fd_ed25519_ge_p1p1_to_p3( u, t );
+        fe_avx_permute( vu, vt, 2,1,0,0 );
+        fe_avx_permute( vt, vt, 3,2,3,1 );
+        fe_avx_mul    ( vt, vu, vt      );
+
+      //fd_ed25519_ge_{add,sub,madd,msub}( t, u, {Ai,Ai,bi_precomp,bi_precomp}[ ({+aslide,-aslide,+bslide,-bslide}[i]) / 2 ] );
+        /* FIXME: The copy permute here could be optimized a little bit */
+        fe_avx_copy( vu, precomp + 40UL*(ulong)(fd_int_abs( slide_i ) >> 1) );
+        if( slide_i<0 ) fe_avx_permute( vu, vu, 0,2,1,3 ); /* FIXME: ABSORB INTO TABLE? */
+        fe_avx_subadd_12( vt, vt     );
+        fe_avx_mul      ( vt, vt, vu );
+        fe_avx_sub_mix  ( vt, vt     );
+        if( !(slide_i<0) ) fe_avx_permute( vt, vt, 0,1,3,2 ); /* FIXME: Use branchless conditional select instead? */
+      }
+    }
+
+  //fd_ed25519_ge_p1p1_to_p2( r, t );
+    fe_avx_permute( vr, vt, 3,2,3,3 );              /* vr = t->{T,Z,T,T} */
+    fe_avx_mul    ( vr, vt, vr      );
+  }
+
+  fe_avx_st3( r->X, r->Y, r->Z, vr );
+  return r;
+}
+
+#endif

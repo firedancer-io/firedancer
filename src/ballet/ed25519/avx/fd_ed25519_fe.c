@@ -590,20 +590,20 @@ fd_ed25519_fe_pow22523( fd_ed25519_fe_t *       out,
 void
 fd_ed25519_fe_mul2( fd_ed25519_fe_t * ha, fd_ed25519_fe_t const * fa, fd_ed25519_fe_t const * ga,
                     fd_ed25519_fe_t * hb, fd_ed25519_fe_t const * fb, fd_ed25519_fe_t const * gb ) {
-  FE_AVX_DECL(f); FE_AVX_DECL(g);
-  FE_AVX_PAIR_SWIZZLE_IN2( f, fa,fb, g, ga,gb );
-  FE_AVX_MUL(f,f,g);
-  FE_AVX_SWIZZLE_OUT2( ha,hb, f );
+  FE_AVX_INL_DECL(f); FE_AVX_INL_DECL(g);
+  FE_AVX_INL_PAIR_SWIZZLE_IN2( f, fa,fb, g, ga,gb );
+  FE_AVX_INL_MUL(f,f,g);
+  FE_AVX_INL_SWIZZLE_OUT2( ha,hb, f );
 }
 
 void
 fd_ed25519_fe_mul3( fd_ed25519_fe_t * ha, fd_ed25519_fe_t const * fa, fd_ed25519_fe_t const * ga,
                     fd_ed25519_fe_t * hb, fd_ed25519_fe_t const * fb, fd_ed25519_fe_t const * gb,
                     fd_ed25519_fe_t * hc, fd_ed25519_fe_t const * fc, fd_ed25519_fe_t const * gc ) {
-  FE_AVX_DECL(f); FE_AVX_DECL(g);
-  FE_AVX_PAIR_SWIZZLE_IN3( f, fa,fb,fc, g, ga,gb,gc );
-  FE_AVX_MUL(f,f,g);
-  FE_AVX_SWIZZLE_OUT3( ha,hb,hc, f );
+  FE_AVX_INL_DECL(f); FE_AVX_INL_DECL(g);
+  FE_AVX_INL_PAIR_SWIZZLE_IN3( f, fa,fb,fc, g, ga,gb,gc );
+  FE_AVX_INL_MUL(f,f,g);
+  FE_AVX_INL_SWIZZLE_OUT3( ha,hb,hc, f );
 }
 
 void
@@ -611,29 +611,29 @@ fd_ed25519_fe_mul4( fd_ed25519_fe_t * ha, fd_ed25519_fe_t const * fa, fd_ed25519
                     fd_ed25519_fe_t * hb, fd_ed25519_fe_t const * fb, fd_ed25519_fe_t const * gb,
                     fd_ed25519_fe_t * hc, fd_ed25519_fe_t const * fc, fd_ed25519_fe_t const * gc,
                     fd_ed25519_fe_t * hd, fd_ed25519_fe_t const * fd, fd_ed25519_fe_t const * gd ) {
-  FE_AVX_DECL(f); FE_AVX_DECL(g);
-  FE_AVX_PAIR_SWIZZLE_IN4( f, fa,fb,fc,fd, g, ga,gb,gc,gd );
-  FE_AVX_MUL(f,f,g);
-  FE_AVX_SWIZZLE_OUT4( ha,hb,hc,hd, f );
+  FE_AVX_INL_DECL(f); FE_AVX_INL_DECL(g);
+  FE_AVX_INL_PAIR_SWIZZLE_IN4( f, fa,fb,fc,fd, g, ga,gb,gc,gd );
+  FE_AVX_INL_MUL(f,f,g);
+  FE_AVX_INL_SWIZZLE_OUT4( ha,hb,hc,hd, f );
 }
 
 void
 fd_ed25519_fe_sqn2( fd_ed25519_fe_t * ha, fd_ed25519_fe_t const * fa, long na,
                     fd_ed25519_fe_t * hb, fd_ed25519_fe_t const * fb, long nb ) {
-  FE_AVX_DECL(f);
-  FE_AVX_SWIZZLE_IN2( f, fa,fb );
-  FE_AVX_SQN( f,f, na,nb,1L,1L );
-  FE_AVX_SWIZZLE_OUT2( ha,hb, f );
+  FE_AVX_INL_DECL(f);
+  FE_AVX_INL_SWIZZLE_IN2( f, fa,fb );
+  FE_AVX_INL_SQN( f,f, na,nb,1L,1L );
+  FE_AVX_INL_SWIZZLE_OUT2( ha,hb, f );
 }
 
 void
 fd_ed25519_fe_sqn3( fd_ed25519_fe_t * ha, fd_ed25519_fe_t const * fa, long na,
                     fd_ed25519_fe_t * hb, fd_ed25519_fe_t const * fb, long nb,
                     fd_ed25519_fe_t * hc, fd_ed25519_fe_t const * fc, long nc ) {
-  FE_AVX_DECL(f);
-  FE_AVX_SWIZZLE_IN3( f, fa,fb,fc );
-  FE_AVX_SQN( f,f, na,nb,nc,1L );
-  FE_AVX_SWIZZLE_OUT3( ha,hb,hc, f );
+  FE_AVX_INL_DECL(f);
+  FE_AVX_INL_SWIZZLE_IN3( f, fa,fb,fc );
+  FE_AVX_INL_SQN( f,f, na,nb,nc,1L );
+  FE_AVX_INL_SWIZZLE_OUT3( ha,hb,hc, f );
 }
 
 void
@@ -641,39 +641,18 @@ fd_ed25519_fe_sqn4( fd_ed25519_fe_t * ha, fd_ed25519_fe_t const * fa, long na,
                     fd_ed25519_fe_t * hb, fd_ed25519_fe_t const * fb, long nb,
                     fd_ed25519_fe_t * hc, fd_ed25519_fe_t const * fc, long nc,
                     fd_ed25519_fe_t * hd, fd_ed25519_fe_t const * fd, long nd ) {
-  FE_AVX_DECL(f);
-  FE_AVX_SWIZZLE_IN4( f, fa,fb,fc,fd );
-  FE_AVX_SQN( f,f, na,nb,nc,nd );
-  FE_AVX_SWIZZLE_OUT4( ha,hb,hc,hd, f );
+  FE_AVX_INL_DECL(f);
+  FE_AVX_INL_SWIZZLE_IN4( f, fa,fb,fc,fd );
+  FE_AVX_INL_SQN( f,f, na,nb,nc,nd );
+  FE_AVX_INL_SWIZZLE_OUT4( ha,hb,hc,hd, f );
 }
 
 void
 fd_ed25519_fe_pow22523_2( fd_ed25519_fe_t * outa, fd_ed25519_fe_t const * za,
                           fd_ed25519_fe_t * outb, fd_ed25519_fe_t const * zb ) {
-  FE_AVX_DECL(z); FE_AVX_DECL(t0); FE_AVX_DECL(t1); FE_AVX_DECL(t2);
-  FE_AVX_SWIZZLE_IN2( z, za,zb );
-  FE_AVX_SQ ( t0, z      );
-  FE_AVX_SQ ( t1, t0     ); for( int i=1; i<  2; i++ ) FE_AVX_SQ( t1, t1 );
-  FE_AVX_MUL( t1, z,  t1 );
-  FE_AVX_MUL( t0, t0, t1 );
-  FE_AVX_SQ ( t0, t0     );
-  FE_AVX_MUL( t0, t1, t0 );
-  FE_AVX_SQ ( t1, t0     ); for( int i=1; i<  5; i++ ) FE_AVX_SQ( t1, t1 );
-  FE_AVX_MUL( t0, t1, t0 );
-  FE_AVX_SQ ( t1, t0     ); for( int i=1; i< 10; i++ ) FE_AVX_SQ( t1, t1 );
-  FE_AVX_MUL( t1, t1, t0 );
-  FE_AVX_SQ ( t2, t1     ); for( int i=1; i< 20; i++ ) FE_AVX_SQ( t2, t2 );
-  FE_AVX_MUL( t1, t2, t1 );
-  FE_AVX_SQ ( t1, t1     ); for( int i=1; i< 10; i++ ) FE_AVX_SQ( t1, t1 );
-  FE_AVX_MUL( t0, t1, t0 );
-  FE_AVX_SQ ( t1, t0     ); for( int i=1; i< 50; i++ ) FE_AVX_SQ( t1, t1 );
-  FE_AVX_MUL( t1, t1, t0 );
-  FE_AVX_SQ ( t2, t1     ); for( int i=1; i<100; i++ ) FE_AVX_SQ( t2, t2 );
-  FE_AVX_MUL( t1, t2, t1 );
-  FE_AVX_SQ ( t1, t1     ); for( int i=1; i< 50; i++ ) FE_AVX_SQ( t1, t1 );
-  FE_AVX_MUL( t0, t1, t0 );
-  FE_AVX_SQ ( t0, t0     ); for( int i=1; i<  2; i++ ) FE_AVX_SQ( t0, t0 );
-  FE_AVX_MUL( z,  t0, z  );
-  FE_AVX_SWIZZLE_OUT2( outa,outb, z );
+  FE_AVX_INL_DECL(z);
+  FE_AVX_INL_SWIZZLE_IN2( z, za,zb );
+  FE_AVX_INL_POW22523( z, z );
+  FE_AVX_INL_SWIZZLE_OUT2( outa,outb, z );
 }
 
