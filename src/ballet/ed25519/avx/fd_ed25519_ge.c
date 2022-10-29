@@ -413,8 +413,8 @@ fd_ed25519_ge_double_scalarmult_vartime( fd_ed25519_ge_p2_t *       r,
   long Ai[8][40] __attribute__((aligned(64))); // A,A3,A5,A7,A9,A11,A13,A15
   do {
 
-    static long const l100d2[40] __attribute__((aligned(64))) = { /* This holds 1 | 0 | 0 | d2 */
-      1L, 0L, 0L, (long)(uint)-21827239, /* Do not sign extend */
+    static long const l111d2[40] __attribute__((aligned(64))) = { /* This holds 1 | 0 | 0 | d2 */
+      1L, 1L, 1L, (long)(uint)-21827239, /* Do not sign extend */
       0L, 0L, 0L, (long)(uint) -5839606, /* " */
       0L, 0L, 0L, (long)(uint)-30745221, /* " */
       0L, 0L, 0L, (long)(uint) 13898782, /* " */
@@ -425,49 +425,48 @@ fd_ed25519_ge_double_scalarmult_vartime( fd_ed25519_ge_p2_t *       r,
       0L, 0L, 0L, (long)(uint) 29715968, /* " */
       0L, 0L, 0L, (long)(uint)  9444199  /* " */
     };
-    FE_AVX_DECL( v100d2 );
-    FE_AVX_LD( v100d2, l100d2 );
-    
-  //fd_ed25519_ge_p3_to_cached( Ai[0], A );
+    FE_AVX_DECL( v111d2 );
+    FE_AVX_LD( v111d2, l111d2 );
+
     FE_AVX_SWIZZLE_IN4( vr, A->Z, A->Y, A->X, A->T );
-    FE_AVX_MUL( vu, vr, v100d2 );
-    FE_AVX_LANE_ADDSUB( vu,2, vu,1, vr,1, vr,2 );
-    FE_AVX_ST( Ai[0], vu ); /* Z, YminusX, YplusX, T2d */
+
+  //fd_ed25519_ge_p3_to_cached( Ai[0], A );
+    FE_AVX_MUL      ( vu,    vr, v111d2 );
+    FE_AVX_SUBADD_12( vu,    vu         );
+    FE_AVX_ST       ( Ai[0], vu         ); /* Z, YminusX, YplusX, T2d */
 
   //fd_ed25519_ge_p3_dbl( t, A );
-    FE_AVX_PERMUTE    ( vt, vr, 2,1,2,0 );        /* vt = [ rX           rY        rX      rZ           ] */
-    FE_AVX_LANE_ADD   ( vt,0, vr,2, vr,1 );       /* vt = [ (rX+rY)      rY        rX      rZ           ] */
-    FE_AVX_SQN        ( vt, vt, 1L,1L,1L,2L );    /* vt = [ (rX+rY)^2    rY^2      rX^2    2*rZ^2       ] */
-    /**/                                          /*    = [ tY           tZ        tX      tT           ] */
-    FE_AVX_LANE_ADDSUB( vt,1, vt,2, vt,1, vt,2 ); /* vt = [ tY           (tZ+tX)   (tZ-tX) tT           ] */
-    FE_AVX_LANE_SUB   ( vt,0, vt,0, vt,1 );
-    FE_AVX_LANE_SUB   ( vt,3, vt,3, vt,2 );       /* vt = [ (tY-(tZ+tX)) (tZ+tX)   (tZ-tX) (tT-(tZ-tX)) ] */
+    FE_AVX_PERMUTE    ( vt, vr, 2,1,2,0 );
+    FE_AVX_PERMUTE    ( vr, vr, 1,0,3,2 );
+    FE_AVX_LANE_SELECT( vr, vr, 1,0,0,0 );
+    FE_AVX_ADD        ( vt, vt, vr      );
+    FE_AVX_SQN        ( vt, vt, 1,1,1,2 );
+    FE_AVX_DBL_MIX    ( vt, vt          );
 
   //fd_ed25519_ge_p1p1_to_p3( A2, t );
-    FE_AVX_PERMUTE( vr, vt, 2,1,0,0 );            /* vr = [ tX    tY    tZ    tX    ] */
-    FE_AVX_PERMUTE( vt, vt, 3,2,3,1 );            /* vt = [ tT    tZ    tT    tY    ] */
-    FE_AVX_MUL( vr, vt, vr );                     /* vr = [ tX*tT tY*tZ tZ*tT tX*tY ] */
+    FE_AVX_PERMUTE( vr, vt, 2,1,0,0 );
+    FE_AVX_PERMUTE( vt, vt, 3,2,3,1 );
+    FE_AVX_MUL    ( vr, vt, vr      );
 
-  //hoisted from ge_add below
-    FE_AVX_LANE_ADDSUB( vr,2, vr,1, vr,1, vr,2 ); /* vt = [ uZ (uY-uX) (uY+uX) uT ] */
+    FE_AVX_SUBADD_12( vr, vr ); // hoisted from ge_add below
 
     for( int i=0; i<7; i++ ) {
 
     //fd_ed25519_ge_add( t, A2, Ai[i] );
-      FE_AVX_MUL( vt, vr, vu );
-      FE_AVX_ADD( vu, vt, vt );                     /* vu = [ 2*tX  2*tY  2*tZ    2*tT    ] */
-      FE_AVX_LANE_ADDSUB( vt,1, vt,0, vt,2, vt,1 ); /* vt = [ tZ-tY tZ+tY tZ      tT      ] */
-      FE_AVX_LANE_ADDSUB( vt,2, vt,3, vu,0, vt,3 ); /* vt = [ tZ-tY tZ+tY 2*tX+tT 2*tX-tT ] */
+      FE_AVX_MUL    ( vt, vr, vu );
+      FE_AVX_ADD    ( vu, vt, vt );
+      FE_AVX_SUB_MIX( vt, vt     );
+      // Fused final perm for add with the below
 
     //fd_ed25519_ge_p1p1_to_p3( u, t );
-      FE_AVX_PERMUTE( vu, vt, 2,1,0,0 );            /* vu = [ tX    tY    tZ    tX    ] */
-      FE_AVX_PERMUTE( vt, vt, 3,2,3,1 );            /* vt = [ tT    tZ    tT    tY    ] */
-      FE_AVX_MUL( vt, vt, vu );                     /* vt = [ tX*tT tY*tZ tZ*tT tX*tY ] */
+      FE_AVX_PERMUTE( vu, vt, 3,1,0,0 );
+      FE_AVX_PERMUTE( vt, vt, 2,3,2,1 );
+      FE_AVX_MUL    ( vt, vt, vu      );
 
     //fd_ed25519_ge_p3_to_cached( Ai[i+1], u );
-      FE_AVX_MUL( vu, vt, v100d2 );
-      FE_AVX_LANE_ADDSUB( vu,2, vu,1, vt,1, vt,2 );
-      FE_AVX_ST( Ai[i+1], vu ); /* Z, YminusX, YplusX, T2d */
+      FE_AVX_MUL      ( vu, vt, v111d2 );
+      FE_AVX_SUBADD_12( vu, vu         );
+      FE_AVX_ST       ( Ai[i+1], vu    ); /* Z, YminusX, YplusX, T2d */
     }
   } while(0);
 
@@ -481,81 +480,36 @@ fd_ed25519_ge_double_scalarmult_vartime( fd_ed25519_ge_p2_t *       r,
   for(      ; i>=0; i-- ) {
 
   //fd_ed25519_ge_p2_dbl( t, r );
-    FE_AVX_PERMUTE    ( vt, vr, 0,1,0,2 );        /* vt = [ rX           rY        rX      rZ           ] */
-    FE_AVX_LANE_ADD   ( vt,0, vr,0, vr,1 );       /* vt = [ (rX+rY)      rY        rX      rZ           ] */
-    FE_AVX_SQN        ( vt, vt, 1L,1L,1L,2L );    /* vt = [ (rX+rY)^2    rY^2      rX^2    2*rZ^2       ] */
-    /**/                                          /*    = [ tY           tZ        tX      tT           ] */
-    FE_AVX_LANE_ADDSUB( vt,1, vt,2, vt,1, vt,2 ); /* vt = [ tY           (tZ+tX)   (tZ-tX) tT           ] */
-    FE_AVX_LANE_SUB   ( vt,0, vt,0, vt,1 );
-    FE_AVX_LANE_SUB   ( vt,3, vt,3, vt,2 );       /* vt = [ (tY-(tZ+tX)) (tZ+tX)   (tZ-tX) (tT-(tZ-tX)) ] */
+    FE_AVX_PERMUTE    ( vt, vr, 0,1,0,2 );
+    FE_AVX_PERMUTE    ( vu, vr, 1,0,3,2 );
+    FE_AVX_LANE_SELECT( vu, vu, 1,0,0,0 );
+    FE_AVX_ADD        ( vt, vt, vu      );
+    FE_AVX_SQN        ( vt, vt, 1,1,1,2 );
+    FE_AVX_DBL_MIX    ( vt, vt          );
 
-    if( aslide[i] > 0 ) {
+    for( int j=0; j<2; j++ ) { /* a or b */
+      int slide_i = (j ? bslide : aslide)[i]; /* cmov */
+      if( FD_UNLIKELY( slide_i ) ) { /* empirically observed */
+        long const * precomp = j ? bi_precomp[0] : Ai[0];
 
-    //fd_ed25519_ge_p1p1_to_p3( u, t );
-      FE_AVX_PERMUTE( vu, vt, 2,1,0,0 );            /* vu = [ tZ    tY    tX    tX    ] */
-      FE_AVX_PERMUTE( vt, vt, 3,2,3,1 );            /* vt = [ tT    tZ    tT    tY    ] */
-      FE_AVX_MUL( vt, vu, vt );                     /* vu = [ tZ*tT tY*tZ tX*tT tX*tY ] */
+      //fd_ed25519_ge_p1p1_to_p3( u, t );
+        FE_AVX_PERMUTE( vu, vt, 2,1,0,0 );
+        FE_AVX_PERMUTE( vt, vt, 3,2,3,1 );
+        FE_AVX_MUL    ( vt, vu, vt      );
 
-    //fd_ed25519_ge_add ( t, u, Ai[ aslide[i] / 2 ] );
-      FE_AVX_LD( vu, Ai[ aslide[i] / 2 ] );
-      FE_AVX_LANE_ADDSUB( vt,2, vt,1, vt,1, vt,2 ); /* vt = [ uZ (uY-uX) (uY+uX) uT ] */
-      FE_AVX_MUL( vt, vt, vu );
-      FE_AVX_ADD( vu, vt, vt );                     /* vu = [ 2*tX  2*tY  2*tZ    2*tT    ] */
-      FE_AVX_LANE_ADDSUB( vt,1, vt,0, vt,2, vt,1 ); /* vt = [ tZ-tY tZ+tY tZ      tT      ] */
-      FE_AVX_LANE_ADDSUB( vt,2, vt,3, vu,0, vt,3 ); /* vt = [ tZ-tY tZ+tY 2*tX+tT 2*tX-tT ] */
-
-    } else if( aslide[i] < 0 ) {
-
-    //fd_ed25519_ge_p1p1_to_p3( u, t );
-      FE_AVX_PERMUTE( vu, vt, 2,1,0,0 );            /* vu = [ tZ    tY    tX    tX    ] */
-      FE_AVX_PERMUTE( vt, vt, 3,2,3,1 );            /* vt = [ tT    tZ    tT    tY    ] */
-      FE_AVX_MUL( vt, vu, vt );                     /* vu = [ tZ*tT tY*tZ tX*tT tX*tY ] */
-  
-    //fd_ed25519_ge_sub ( t, u, Ai[ (-aslide[i]) / 2 ] );
-      FE_AVX_LD( vu, Ai[ (-aslide[i]) / 2 ] );
-      FE_AVX_PERMUTE( vu, vu, 0,2,1,3 );
-      FE_AVX_LANE_ADDSUB( vt,2, vt,1, vt,1, vt,2 ); /* vt = [ uZ (uY-uX) (uY+uX) uT ] */
-      FE_AVX_MUL( vt, vt, vu );
-      FE_AVX_ADD( vu, vt, vt );                     /* vu = [ 2*tX  2*tY  2*tZ    2*tT    ] */
-      FE_AVX_LANE_ADDSUB( vt,1, vt,0, vt,2, vt,1 ); /* vt = [ tZ-tY tZ+tY tZ      tT      ] */
-      FE_AVX_LANE_ADDSUB( vt,3, vt,2, vu,0, vt,3 ); /* vt = [ tZ-tY tZ+tY 2*tX+tT 2*tX-tT ] */
-    }
-
-    if( bslide[i] > 0 ) {
-
-    //fd_ed25519_ge_p1p1_to_p3( u, t );
-      FE_AVX_PERMUTE( vu, vt, 2,1,0,0 );            /* vu = [ tZ    tY    tX    tX    ] */
-      FE_AVX_PERMUTE( vt, vt, 3,2,3,1 );            /* vt = [ tT    tZ    tT    tY    ] */
-      FE_AVX_MUL( vt, vu, vt );                     /* vu = [ tZ*tT tY*tZ tX*tT tX*tY ] */
-
-    //fd_ed25519_ge_madd( t, u, bi_precomp[  bslide[i]  / 2] );
-      FE_AVX_LD( vu, bi_precomp[ bslide[i] / 2 ] ); 
-      FE_AVX_LANE_ADDSUB( vt,2, vt,1, vt,1, vt,2 ); /* vt = [ uZ (uY-uX) (uY+uX) uT ] */
-      FE_AVX_MUL( vt, vt, vu );
-      FE_AVX_ADD( vu, vt, vt );                     /* vu = [ 2*tX  2*tY  2*tZ    2*tT    ] */
-      FE_AVX_LANE_ADDSUB( vt,1, vt,0, vt,2, vt,1 ); /* vt = [ tZ-tY tZ+tY tZ      tT      ] */
-      FE_AVX_LANE_ADDSUB( vt,2, vt,3, vu,0, vt,3 ); /* vt = [ tZ-tY tZ+tY 2*tX+tT 2*tX-tT ] */
-
-    } else if( bslide[i] < 0 ) {
-
-    //fd_ed25519_ge_p1p1_to_p3( u, t );
-      FE_AVX_PERMUTE( vu, vt, 2,1,0,0 );            /* vu = [ tZ    tY    tX    tX    ] */
-      FE_AVX_PERMUTE( vt, vt, 3,2,3,1 );            /* vt = [ tT    tZ    tT    tY    ] */
-      FE_AVX_MUL( vt, vu, vt );                     /* vu = [ tZ*tT tY*tZ tX*tT tX*tY ] */
-
-    //fd_ed25519_ge_msub( t, u, bi_precomp[(-bslide[i]) / 2] );
-      FE_AVX_LD( vu, bi_precomp[ (-bslide[i]) / 2 ] ); 
-      FE_AVX_PERMUTE( vu, vu, 0,2,1,3 );
-      FE_AVX_LANE_ADDSUB( vt,2, vt,1, vt,1, vt,2 ); /* vt = [ uZ (uY-uX) (uY+uX) uT ] */
-      FE_AVX_MUL( vt, vt, vu );
-      FE_AVX_ADD( vu, vt, vt );                     /* vu = [ 2*tX  2*tY  2*tZ    2*tT    ] */
-      FE_AVX_LANE_ADDSUB( vt,1, vt,0, vt,2, vt,1 ); /* vt = [ tZ-tY tZ+tY tZ      tT      ] */
-      FE_AVX_LANE_ADDSUB( vt,3, vt,2, vu,0, vt,3 ); /* vt = [ tZ-tY tZ+tY 2*tX+tT 2*tX-tT ] */
+      //fd_ed25519_ge_{add,sub,madd,msub}( t, u, {Ai,Ai,bi_precomp,bi_precomp}[ ({+aslide,-aslide,+bslide,-bslide}[i]) / 2 ] );
+        FE_AVX_LD( vu, precomp + 40UL*(ulong)(fd_int_abs( slide_i ) >> 1) );
+        if( slide_i<0 ) FE_AVX_PERMUTE( vu, vu, 0,2,1,3 ); /* FIXME: ABSORB INTO TABLE? */
+        FE_AVX_SUBADD_12( vt, vt     );
+        FE_AVX_MUL      ( vt, vt, vu );
+        FE_AVX_SUB_MIX  ( vt, vt     );
+        if( !(slide_i<0) ) FE_AVX_PERMUTE( vt, vt, 0,1,3,2 ); /* FIXME: Use branchless conditional select instead? */
+      }
     }
 
   //fd_ed25519_ge_p1p1_to_p2( r, t );
     FE_AVX_PERMUTE( vr, vt, 3,2,3,3 );              /* vr = t->{T,Z,T,T} */
-    FE_AVX_MUL( vr, vt, vr );
+    FE_AVX_MUL    ( vr, vt, vr      );
   }
 
   FE_AVX_SWIZZLE_OUT3( r->X, r->Y, r->Z, vr );

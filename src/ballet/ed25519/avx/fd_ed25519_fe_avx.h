@@ -29,6 +29,45 @@ wl_shr_x19( wl_t x,
   return wl_add3( x, wl_shl( x, 1 ), wl_shl( x, 4 ) );
 }
 
+/* wl_dbl_mix(f) for f = [fa fb fc fd] returns
+   [fa-fb-fc fb+fc fc-fc fd-fb+fc] */
+
+static inline wl_t
+wl_dbl_mix( wl_t f ) {
+  wl_t _zero = wl_zero();           /* Should be hoisted */
+  wl_t _mask = wl(-1L, 0L, 0L,-1L); /* Should be hoisted */
+  wl_t _tmp  = wl_permute( f, 1,0,2,3 );                       /* = [ fb  fa  fc  fd ] */
+  _tmp = _mm256_unpacklo_epi64( _tmp, wl_sub( _zero, _tmp ) ); /* = [ fb -fb  fc -fc ] */
+  return wl_add3( wl_and( f, _mask ),                          /* = [ fa   0   0  fd ] */
+                  wl_permute( _tmp, 1,0,0,1 ),                 /* + [-fb  fb  fb -fb ] */
+                  wl_permute( _tmp, 3,2,3,2 ) );               /* + [-fc  fc -fc  fc ] */
+}
+
+/* wl_sub_mix(f) for f = [fa fb fc fd] returns
+   [fc-fb fc+fb 2*fa-fd 2*fa+fd] */
+
+static inline wl_t
+wl_sub_mix( wl_t f ) {
+  wl_t _zero = wl_zero();           /* Should be hoisted */
+  wl_t _mask = wl( 0L, 0L,-1L,-1L); /* Should be hoisted */
+  wl_t _tmp = wl_permute( f, 2,2,0,0 );                             /* tmp = [  Z  Z  X  X ] */
+  return wl_add3( _tmp,                                             /* h   = [  Z  Z  X  X ] */
+                  wl_and( _tmp, _mask ),                            /*     + [  0  0  X  X ] */
+                  _mm256_unpackhi_epi64( wl_sub( _zero, f ), f ) ); /*     + [ -Y  Y -T  T ] */
+}
+
+/* wl_subadd_12(f) for f = [fa fb fc fd] returns
+   [fa fb-fc fb+fc fd] */
+
+static inline wl_t
+wl_subadd_12( wl_t f ) {
+  wl_t _zero = wl_zero();           /* Should be hoisted */
+  wl_t _mask = wl( 0L,-1L,-1L, 0L); /* Should be hoisted */
+  wl_t _tmp = wl_permute( f, 2,2,2,2 );                                                   /* tmp = [  C  C  C  C ] */ \
+  return wl_add( wl_permute( f, 0,1,1,3 ),                                                /* h   = [  A  B  B  D ] */ \
+                 wl_and( _mm256_unpacklo_epi64( _tmp, wl_sub( _zero, _tmp ) ), _mask ) ); /*     + [  0 -C  C  0 ] */
+}
+
 FD_PROTOTYPES_END
 
 /* FE_AVX API *********************************************************/
@@ -772,8 +811,67 @@ FD_PROTOTYPES_END
     /**/ _c0 = wl_add( h##0, _b25 ); h##1 = wl_add( h##1, wl_shr    ( _c0, 26 ) ); h##0 = wl_sub( h##0, wl_and( _c0, _m38u ) ); \
   } while(0)
 
-/* FE_AVX_LANE operations *********************************************/
-/* FIXME: THERE ARE PROBABLY MORE CLEVER IMPLEMENTATIONS POSSIBLE */
+/* FE_AVX miscellaneous ***********************************************/
+
+/* FE_AVX_LANE_SELECT does
+     h(n) = f(n) if cn is non-zero and 0 otherwise
+   for n in 0:3.  In-place operation fine.  Recommended that cn be
+   compile time constants. */
+
+#define FE_AVX_LANE_SELECT(h,f,c0,c1,c2,c3) do {                                   \
+    wl_t _mask = wl( -(long)!!(c0), -(long)!!(c1), -(long)!!(c2), -(long)!!(c3) ); \
+    h##0 = wl_and( f##0, _mask );                                                  \
+    h##1 = wl_and( f##1, _mask );                                                  \
+    h##2 = wl_and( f##2, _mask );                                                  \
+    h##3 = wl_and( f##3, _mask );                                                  \
+    h##4 = wl_and( f##4, _mask );                                                  \
+    h##5 = wl_and( f##5, _mask );                                                  \
+    h##6 = wl_and( f##6, _mask );                                                  \
+    h##7 = wl_and( f##7, _mask );                                                  \
+    h##8 = wl_and( f##8, _mask );                                                  \
+    h##9 = wl_and( f##9, _mask );                                                  \
+  } while(0)
+
+/* FE_AVX_DBL_MIX( h, f ) does
+     [ha hb hc hd] = [fa-fb-fc fb+fc fc-fc fd-fb+fc].
+   In place operation fine. */
+
+#define FE_AVX_DBL_MIX( h, f ) do {                       \
+    h##0 = wl_dbl_mix( f##0 ); h##1 = wl_dbl_mix( f##1 ); \
+    h##2 = wl_dbl_mix( f##2 ); h##3 = wl_dbl_mix( f##3 ); \
+    h##4 = wl_dbl_mix( f##4 ); h##5 = wl_dbl_mix( f##5 ); \
+    h##6 = wl_dbl_mix( f##6 ); h##7 = wl_dbl_mix( f##7 ); \
+    h##8 = wl_dbl_mix( f##8 ); h##9 = wl_dbl_mix( f##9 ); \
+  } while(0)
+
+/* FE_AVX_SUB_MIX( h, f ) does
+     [ha hb hc hd] = [fc-fb fc+fb 2*fa-fd 2*fa-fc]
+   In place operation fine. */
+
+#define FE_AVX_SUB_MIX( h, f ) do {                       \
+    h##0 = wl_sub_mix( f##0 ); h##1 = wl_sub_mix( f##1 ); \
+    h##2 = wl_sub_mix( f##2 ); h##3 = wl_sub_mix( f##3 ); \
+    h##4 = wl_sub_mix( f##4 ); h##5 = wl_sub_mix( f##5 ); \
+    h##6 = wl_sub_mix( f##6 ); h##7 = wl_sub_mix( f##7 ); \
+    h##8 = wl_sub_mix( f##8 ); h##9 = wl_sub_mix( f##9 ); \
+  } while(0)
+
+/* FE_AVX_SUBADD_12( h, f ) does
+     [ha hb hc hd] = [fa fb-fc fb+fc fd]
+   In place operation fine. */
+
+#define FE_AVX_SUBADD_12( h, f ) do {                         \
+    h##0 = wl_subadd_12( f##0 ); h##1 = wl_subadd_12( f##1 ); \
+    h##2 = wl_subadd_12( f##2 ); h##3 = wl_subadd_12( f##3 ); \
+    h##4 = wl_subadd_12( f##4 ); h##5 = wl_subadd_12( f##5 ); \
+    h##6 = wl_subadd_12( f##6 ); h##7 = wl_subadd_12( f##7 ); \
+    h##8 = wl_subadd_12( f##8 ); h##9 = wl_subadd_12( f##9 ); \
+  } while(0)
+
+/* WARNING: THE LANE_ADD / LANE_SUB / LANE_ADDSUB IMPLEMENTATIONS AREN'T
+   PARTICULARLY FAST AND GENERALLY BEST AVOIDED IN PERFORMANCE REASONS.
+   THEY ARE USEFUL DURING DEVELOPMENT OF CALCULATIONS SO THEY ARE KEPT
+   HERE. */
 
 /* FE_AVX_LANE_ADD adds without reduction the field element in lane lf
    of f to the field in lane lg of g and stores the result in lane lh of
