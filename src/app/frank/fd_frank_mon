@@ -1,0 +1,17 @@
+#!/bin/sh
+
+if [ $# -lt 1 ]; then
+  echo ""
+  echo "        Usage: $0 [APP] [other args]"
+  echo ""
+  exit 1
+fi
+
+APP=$1
+shift 1
+
+CONF=tmp/$APP.cfg
+. $CONF || exit $?
+
+$BUILD/bin/fd_frank_mon.bin $MON_ARGS $*
+

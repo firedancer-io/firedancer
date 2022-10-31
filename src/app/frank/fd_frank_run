@@ -14,5 +14,5 @@ shift 2
 CONF=tmp/$APP.cfg
 . $CONF || exit $?
 
-$BUILD/bin/fd_frank $CMDLINE_ARGS --tile-cpus f,$RESERVED_CPUS $*
+$BUILD/bin/fd_frank_run.bin $RUN_ARGS --tile-cpus f,$RESERVED_CPUS $*
 
