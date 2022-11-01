@@ -38,9 +38,14 @@ fd_frank_verify_task( int     argc,
   if( FD_UNLIKELY( !cnc_diag ) ) FD_LOG_ERR(( "fd_cnc_app_laddr failed" ));
   int in_backp = 1;
 
-  FD_VOLATILE( cnc_diag[ FD_FRANK_CNC_DIAG_IN_BACKP  ] ) = 1UL;
-  FD_VOLATILE( cnc_diag[ FD_FRANK_CNC_DIAG_BACKP_CNT ] ) = 0UL;
-  FD_VOLATILE( cnc_diag[ FD_FRANK_CNC_DIAG_ERRSV_CNT ] ) = 0UL;
+  FD_COMPILER_MFENCE();
+  FD_VOLATILE( cnc_diag[ FD_FRANK_CNC_DIAG_IN_BACKP    ] ) = 1UL;
+  FD_VOLATILE( cnc_diag[ FD_FRANK_CNC_DIAG_BACKP_CNT   ] ) = 0UL;
+  FD_VOLATILE( cnc_diag[ FD_FRANK_CNC_DIAG_HA_FILT_CNT ] ) = 0UL;
+  FD_VOLATILE( cnc_diag[ FD_FRANK_CNC_DIAG_HA_FILT_SZ  ] ) = 0UL;
+  FD_VOLATILE( cnc_diag[ FD_FRANK_CNC_DIAG_SV_FILT_CNT ] ) = 0UL;
+  FD_VOLATILE( cnc_diag[ FD_FRANK_CNC_DIAG_SV_FILT_SZ  ] ) = 0UL;
+  FD_COMPILER_MFENCE();
 
   FD_LOG_INFO(( "joining %s.verify.%s.mcache", cfg_path, verify_name ));
   fd_frag_meta_t * mcache = fd_mcache_join( fd_wksp_pod_map( verify_pod, "mcache" ) );
@@ -99,6 +104,26 @@ fd_frank_verify_task( int     argc,
   fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, seed, 0UL ) );
   if( FD_UNLIKELY( !rng ) ) FD_LOG_ERR(( "fd_rng_join failed" ));
 
+  /* FIXME: PROBABLY SHOULD PUT THIS IN WORKSPACE */
+# define TCACHE_DEPTH   (16UL) /* Should be ~1/2-1/4 MAP_CNT */
+# define TCACHE_MAP_CNT (64UL) /* Power of two */
+  uchar tcache_mem[ FD_TCACHE_FOOTPRINT( TCACHE_DEPTH, TCACHE_MAP_CNT ) ] __attribute__((aligned(FD_TCACHE_ALIGN)));
+  fd_tcache_t * tcache  = fd_tcache_join( fd_tcache_new( tcache_mem, TCACHE_DEPTH, TCACHE_MAP_CNT ) );
+  ulong   tcache_depth   = fd_tcache_depth       ( tcache );
+  ulong   tcache_map_cnt = fd_tcache_map_cnt     ( tcache );
+  ulong * _tcache_sync   = fd_tcache_oldest_laddr( tcache );
+  ulong * _tcache_ring   = fd_tcache_ring_laddr  ( tcache );
+  ulong * _tcache_map    = fd_tcache_map_laddr   ( tcache );
+  ulong   tcache_oldest  = FD_VOLATILE_CONST( *_tcache_sync );
+
+  ulong accum_ha_filt_cnt = 0UL; ulong accum_ha_filt_sz = 0UL;
+
+  fd_sha512_t _sha[1];
+  fd_sha512_t * sha = fd_sha512_join( fd_sha512_new( _sha ) );
+  if( FD_UNLIKELY( !sha ) ) FD_LOG_ERR(( "fd_sha512 join failed" ));
+
+  ulong accum_sv_filt_cnt = 0UL; ulong accum_sv_filt_sz = 0UL;
+
   /* Start verifying */
 
   FD_LOG_INFO(( "verify.%s run", verify_name ));
@@ -114,9 +139,22 @@ fd_frank_verify_task( int     argc,
 
       /* Send synchronization info */
       fd_mcache_seq_update( sync, seq );
+      FD_COMPILER_MFENCE();
+      FD_VOLATILE( *_tcache_sync ) = tcache_oldest;
+      FD_COMPILER_MFENCE();
 
       /* Send diagnostic info */
       fd_cnc_heartbeat( cnc, now );
+      FD_COMPILER_MFENCE();
+      FD_VOLATILE( cnc_diag[ FD_FRANK_CNC_DIAG_HA_FILT_CNT ] ) = FD_VOLATILE_CONST( cnc_diag[ FD_FRANK_CNC_DIAG_HA_FILT_CNT ] ) + accum_ha_filt_cnt;
+      FD_VOLATILE( cnc_diag[ FD_FRANK_CNC_DIAG_HA_FILT_SZ  ] ) = FD_VOLATILE_CONST( cnc_diag[ FD_FRANK_CNC_DIAG_HA_FILT_SZ  ] ) + accum_ha_filt_sz;
+      FD_VOLATILE( cnc_diag[ FD_FRANK_CNC_DIAG_SV_FILT_CNT ] ) = FD_VOLATILE_CONST( cnc_diag[ FD_FRANK_CNC_DIAG_SV_FILT_CNT ] ) + accum_sv_filt_cnt;
+      FD_VOLATILE( cnc_diag[ FD_FRANK_CNC_DIAG_SV_FILT_SZ  ] ) = FD_VOLATILE_CONST( cnc_diag[ FD_FRANK_CNC_DIAG_SV_FILT_SZ  ] ) + accum_sv_filt_sz;
+      FD_COMPILER_MFENCE();
+      accum_ha_filt_cnt = 0UL;
+      accum_ha_filt_sz  = 0UL;
+      accum_sv_filt_cnt = 0UL;
+      accum_sv_filt_sz  = 0UL;
 
       /* Receive command-and-control signals */
       ulong s = fd_cnc_signal_query( cnc );
@@ -150,17 +188,23 @@ fd_frank_verify_task( int     argc,
       continue;
     }
 
-    now = fd_tickcount();
-
     /* Placeholder for sig verify */
+    (void)_tcache_map;
+    (void)_tcache_ring;
+    (void)tcache_depth;
+    (void)tcache_map_cnt;
     (void)chunk;
     (void)wmark;
+    now = fd_tickcount();
+
   }
 
   /* Clean up */
 
   fd_cnc_signal( cnc, FD_CNC_SIGNAL_BOOT );
   FD_LOG_INFO(( "verify.%s fini", verify_name ));
+  fd_sha512_delete ( fd_sha512_leave( sha    ) );
+  fd_tcache_delete ( fd_tcache_leave( tcache ) );
   fd_rng_delete    ( fd_rng_leave   ( rng    ) );
   fd_fctl_delete   ( fd_fctl_leave  ( fctl   ) );
   fd_wksp_pod_unmap( fd_fseq_leave  ( fseq   ) );

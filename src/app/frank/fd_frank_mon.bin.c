@@ -235,7 +235,10 @@ struct snap {
 
   ulong cnc_diag_in_backp;
   ulong cnc_diag_backp_cnt;
-  ulong cnc_diag_errsv_cnt;
+  ulong cnc_diag_ha_filt_cnt;
+  ulong cnc_diag_ha_filt_sz;
+  ulong cnc_diag_sv_filt_cnt;
+  ulong cnc_diag_sv_filt_sz;
 
   ulong mcache_seq;
 
@@ -270,9 +273,12 @@ snap( ulong             tile_cnt,     /* Number of tiles to snapshot */
       snap->cnc_signal    = fd_cnc_signal_query   ( cnc );
       ulong const * cnc_diag = (ulong const *)fd_cnc_app_laddr_const( cnc );
       FD_COMPILER_MFENCE();
-      snap->cnc_diag_in_backp  = cnc_diag[ FD_FRANK_CNC_DIAG_IN_BACKP  ];
-      snap->cnc_diag_backp_cnt = cnc_diag[ FD_FRANK_CNC_DIAG_BACKP_CNT ];
-      snap->cnc_diag_errsv_cnt = cnc_diag[ FD_FRANK_CNC_DIAG_ERRSV_CNT ];
+      snap->cnc_diag_in_backp    = cnc_diag[ FD_FRANK_CNC_DIAG_IN_BACKP    ];
+      snap->cnc_diag_backp_cnt   = cnc_diag[ FD_FRANK_CNC_DIAG_BACKP_CNT   ];
+      snap->cnc_diag_ha_filt_cnt = cnc_diag[ FD_FRANK_CNC_DIAG_HA_FILT_CNT ];
+      snap->cnc_diag_ha_filt_sz  = cnc_diag[ FD_FRANK_CNC_DIAG_HA_FILT_SZ  ];
+      snap->cnc_diag_sv_filt_cnt = cnc_diag[ FD_FRANK_CNC_DIAG_SV_FILT_CNT ];
+      snap->cnc_diag_sv_filt_sz  = cnc_diag[ FD_FRANK_CNC_DIAG_SV_FILT_SZ  ];
       FD_COMPILER_MFENCE();
 
       pmap |= 1UL;
@@ -445,7 +451,7 @@ main( int     argc,
 
     char now_cstr[ FD_LOG_WALLCLOCK_CSTR_BUF_SZ ];
     printf( "snapshot for %s\n", fd_log_wallclock_cstr( now, now_cstr ) );
-    printf( "  tile |      stale | heart |        sig | in backp |           backp cnt |           errsv cnt |                    tx seq |                    rx seq\n" );
+    printf( "  tile |      stale | heart |        sig | in backp |           backp cnt |         sv_filt cnt |                    tx seq |                    rx seq\n" );
     printf( "-------+------------+-------+------------+----------+---------------------+---------------------+---------------------------+---------------------------\n" );
     for( ulong tile_idx=0UL; tile_idx<tile_cnt; tile_idx++ ) {
       snap_t * prv = &snap_prv[ tile_idx ];
@@ -453,11 +459,11 @@ main( int     argc,
       printf( " %5s", tile_name[ tile_idx ] );
       if( FD_LIKELY( cur->pmap & 1UL ) ) {
         printf( " | " ); printf_stale   ( (long)(0.5+ns_per_tic*(double)(toc - cur->cnc_heartbeat)), dt_min );
-        printf( " | " ); printf_heart   ( cur->cnc_heartbeat,      prv->cnc_heartbeat      );
-        printf( " | " ); printf_sig     ( cur->cnc_signal,         prv->cnc_signal         );
-        printf( " | " ); printf_err_bool( cur->cnc_diag_in_backp,  prv->cnc_diag_in_backp  );
-        printf( " | " ); printf_err_cnt ( cur->cnc_diag_backp_cnt, prv->cnc_diag_backp_cnt );
-        printf( " | " ); printf_err_cnt ( cur->cnc_diag_errsv_cnt, prv->cnc_diag_errsv_cnt );
+        printf( " | " ); printf_heart   ( cur->cnc_heartbeat,        prv->cnc_heartbeat        );
+        printf( " | " ); printf_sig     ( cur->cnc_signal,           prv->cnc_signal           );
+        printf( " | " ); printf_err_bool( cur->cnc_diag_in_backp,    prv->cnc_diag_in_backp    );
+        printf( " | " ); printf_err_cnt ( cur->cnc_diag_backp_cnt,   prv->cnc_diag_backp_cnt   );
+        printf( " | " ); printf_err_cnt ( cur->cnc_diag_sv_filt_cnt, prv->cnc_diag_sv_filt_cnt );
       } else {
         printf(       " |          - |     - |          - |        - |                   -" );
       }
@@ -474,20 +480,33 @@ main( int     argc,
       printf( "\n" );
     }
     printf( "\n" );
-    printf( "         link |  tot TPS |  tot bps | filt tr%% | filt bw%% |           ovrnp cnt |           ovrnr cnt |            slow cnt\n" );
-    printf( "--------------+----------+----------+----------+----------+---------------------+---------------------+---------------------\n" );
+    printf( "         link |  tot TPS |  tot bps | uniq TPS | uniq bps |   ha tr%% | uniq bw%% | filt tr%% | filt bw%% |           ovrnp cnt |           ovrnr cnt |            slow cnt\n" );
+    printf( "--------------+----------+----------+---------+----------+----------+----------+-----------+----------+---------------------+---------------------+---------------------\n" );
     for( ulong tile_idx=2UL; tile_idx<tile_cnt; tile_idx++ ) {
       snap_t * prv = &snap_prv[ tile_idx ];
       snap_t * cur = &snap_cur[ tile_idx ];
       if( tile_idx==2UL ) printf( " %5s->%-5s", tile_name[ 2        ], tile_name[ 1 ] );
       else                printf( " %5s->%-5s", tile_name[ tile_idx ], tile_name[ 2 ] );
       long dt = now-then;
+      ulong cur_raw_cnt = cur->cnc_diag_ha_filt_cnt + cur->fseq_diag_tot_cnt;
+      ulong cur_raw_sz  = cur->cnc_diag_ha_filt_sz  + cur->fseq_diag_tot_sz;
+      ulong prv_raw_cnt = prv->cnc_diag_ha_filt_cnt + prv->fseq_diag_tot_cnt;
+      ulong prv_raw_sz  = prv->cnc_diag_ha_filt_sz  + prv->fseq_diag_tot_sz;
+
+      printf( " | " ); printf_rate( 1e9, 0., cur_raw_cnt,             prv_raw_cnt,             dt );
+      printf( " | " ); printf_rate( 8e9, 0., cur_raw_sz,              prv_raw_sz,              dt ); /* Assumes sz incl framing */
       printf( " | " ); printf_rate( 1e9, 0., cur->fseq_diag_tot_cnt,  prv->fseq_diag_tot_cnt,  dt );
       printf( " | " ); printf_rate( 8e9, 0., cur->fseq_diag_tot_sz,   prv->fseq_diag_tot_sz,   dt ); /* Assumes sz incl framing */
+
+      printf( " | " ); printf_pct ( cur->fseq_diag_tot_cnt,  prv->fseq_diag_tot_cnt, 0.,
+                                    cur_raw_cnt,             prv_raw_cnt,            DBL_MIN );
+      printf( " | " ); printf_pct ( cur->fseq_diag_tot_sz,   prv->fseq_diag_tot_sz,  0.,
+                                    cur_raw_sz,              prv_raw_sz,             DBL_MIN ); /* Assumes sz incl framing */
       printf( " | " ); printf_pct ( cur->fseq_diag_filt_cnt, prv->fseq_diag_filt_cnt, 0.,
                                     cur->fseq_diag_tot_cnt,  prv->fseq_diag_tot_cnt,  DBL_MIN );
       printf( " | " ); printf_pct ( cur->fseq_diag_filt_sz,  prv->fseq_diag_filt_sz, 0.,
                                     cur->fseq_diag_tot_sz,   prv->fseq_diag_tot_sz,  DBL_MIN ); /* Assumes sz incl framing */
+
       printf( " | " ); printf_err_cnt( cur->fseq_diag_ovrnp_cnt, prv->fseq_diag_ovrnp_cnt );
       printf( " | " ); printf_err_cnt( cur->fseq_diag_ovrnr_cnt, prv->fseq_diag_ovrnr_cnt );
       printf( " | " ); printf_err_cnt( cur->fseq_diag_slow_cnt,  prv->fseq_diag_slow_cnt  );
