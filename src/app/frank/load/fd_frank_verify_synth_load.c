@@ -137,12 +137,12 @@ fd_frank_verify_task( int     argc,
      signature (just 1 signature, which is typical though there are
      bursts where averages up to ~1.4 signatures are seen).  (FIXME:
      PROBABLY SHOULD DEDUCT SOME EXTRA BYTES FOR THE QUIC HEADER
-     OVERHEAD FROM THE WORST CASE HERE.)  For every possible size
-     then, we precomp a packet for each size with a valid signature
-     to serve as our reference traffic. */
+     OVERHEAD AND SIGNATURE CNT FROM THE WORST CASE HERE.)  For every
+     possible size then, we precomp a packet for each size with a valid
+     signature to serve as our reference traffic. */
 
 # define MSG_SZ_MIN (0UL)
-# define MSG_SZ_MAX (1472UL-64UL-32UL)
+# define MSG_SZ_MAX (1232UL-64UL-32UL)
   ulong ref_msg_mem_footprint = 0UL;
   for( ulong msg_sz=MSG_SZ_MIN; msg_sz<=MSG_SZ_MAX; msg_sz++ ) ref_msg_mem_footprint += fd_ulong_align_up( msg_sz + 96UL, 128UL );
   uchar * ref_msg_mem = fd_alloca( 128UL, ref_msg_mem_footprint );
@@ -183,12 +183,12 @@ fd_frank_verify_task( int     argc,
 # if SYNTH_LOAD
 
   ulong ha_cnt       = fd_pod_query_ulong( verify_pod, "ha-cnt",      fd_pod_query_ulong( cfg_pod, "verify.ha-cnt",      2UL    ) );
-  float burst_avg    = fd_pod_query_float( verify_pod, "burst-avg",   fd_pod_query_float( cfg_pod, "verify.burst-avg",   (float)MSG_SZ_MAX ) );
+  float burst_avg    = fd_pod_query_float( verify_pod, "burst-avg",   fd_pod_query_float( cfg_pod, "verify.burst-avg",   324.f  ) );
   ulong msg_max      = fd_pod_query_ulong( verify_pod, "msg-max",     fd_pod_query_ulong( cfg_pod, "verify.msg-max",     MSG_SZ_MAX ) );
   ulong msg_framing  = fd_pod_query_ulong( verify_pod, "msg-framing", fd_pod_query_ulong( cfg_pod, "verify.msg-framing", 70UL+32UL+64UL ) );
-  float pkt_bw       = fd_pod_query_float( verify_pod, "pkt-bw",      fd_pod_query_float( cfg_pod, "verify.pkt-bw",      1e9f ) );
+  float pkt_bw       = fd_pod_query_float( verify_pod, "pkt-bw",      fd_pod_query_float( cfg_pod, "verify.pkt-bw",      1e9f   ) );
   float dup_frac     = fd_pod_query_float( verify_pod, "dup-frac",    fd_pod_query_float( cfg_pod, "verify.dup-frac",    0.01f  ) );
-  float dup_avg_age  = fd_pod_query_float( verify_pod, "dup-avg-age", fd_pod_query_float( cfg_pod, "verify.dup-avg-age",  0.0f  ) );
+  float dup_avg_age  = fd_pod_query_float( verify_pod, "dup-avg-age", fd_pod_query_float( cfg_pod, "verify.dup-avg-age", 0.0f   ) );
   float errsv_frac   = fd_pod_query_float( verify_pod, "errsv-frac",  fd_pod_query_float( cfg_pod, "verify.errsv-frac",  1e-3f  ) );
   FD_LOG_NOTICE(( "burst-avg %f msg-max %lu msg-framing %lu pkt-bw %e dup-frac %f dup-avg-age %f errsv-frac %e",
                   (double)burst_avg, msg_max, msg_framing, (double)pkt_bw, (double)dup_frac, (double)dup_avg_age, (double)errsv_frac ));
