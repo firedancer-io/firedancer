@@ -112,8 +112,8 @@
 
 #include "../util/fd_util.h"
 
-#if FD_HAS_AVX
-#include "x86intrin.h"
+#if FD_HAS_SSE /* also covers FD_HAS_AVX */
+#include <x86intrin.h>
 #endif
 
 /* FD_CHUNK_{LG_SZ,ALIGN,FOOTPRINT,SZ} describe the granularity of
@@ -165,7 +165,6 @@ union __attribute__((aligned(FD_FRAG_META_ALIGN))) fd_frag_meta {
 
   };
 
-# if FD_HAS_AVX
 
   /* Intel architecture manual 3A section 8.1.1 (April 2022):
 
@@ -188,13 +187,15 @@ union __attribute__((aligned(FD_FRAG_META_ALIGN))) fd_frag_meta {
      atomic on many x86 platforms but this is not guaranteed and such
      should not be assumed. */
 
+# if FD_HAS_SSE
   struct {
     __m128i sse0; /* naturally atomic r/w, covers seq and sig */
     __m128i sse1; /* naturally atomic r/w, covers chunk, sz, ctl, tsorig and tspub */
   };
+# endif
 
+# if FD_HAS_AVX
   __m256i avx; /* Possibly non-atomic but can hold the metadata in a single register */
-
 # endif
 
 };
@@ -290,7 +291,7 @@ FD_FN_CONST static inline int   fd_frag_meta_ctl_som ( ulong ctl ) { return (int
 FD_FN_CONST static inline int   fd_frag_meta_ctl_eom ( ulong ctl ) { return (int)((ctl>>1) & 1UL); }
 FD_FN_CONST static inline int   fd_frag_meta_ctl_err ( ulong ctl ) { return (int)((ctl>>2) & 1UL); }
 
-#if FD_HAS_AVX
+#if FD_HAS_SSE
 
 FD_FN_CONST static inline __m128i
 fd_frag_meta_sse0( ulong seq,
@@ -316,6 +317,9 @@ FD_FN_CONST static inline ulong fd_frag_meta_sse1_sz    ( __m128i sse1 ) { retur
 FD_FN_CONST static inline ulong fd_frag_meta_sse1_ctl   ( __m128i sse1 ) { return (ulong)(ushort)_mm_extract_epi16( sse1, 3 ); }
 FD_FN_CONST static inline ulong fd_frag_meta_sse1_tsorig( __m128i sse1 ) { return (ulong)(uint  )_mm_extract_epi32( sse1, 2 ); }
 FD_FN_CONST static inline ulong fd_frag_meta_sse1_tspub ( __m128i sse1 ) { return (ulong)(uint  )_mm_extract_epi32( sse1, 3 ); }
+
+#endif
+#if FD_HAS_AVX
 
 FD_FN_CONST static inline __m256i
 fd_frag_meta_avx( ulong seq,
