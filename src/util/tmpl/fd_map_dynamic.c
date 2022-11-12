@@ -340,7 +340,7 @@ MAP_(join)( void * shmap ) {
 static inline void * MAP_(leave) ( MAP_T * slot  ) { return (void *)MAP_(private_from_slot)( slot ); }
 static inline void * MAP_(delete)( void *  shmap ) { return shmap; }
 
-FD_FN_CONST static inline ulong MAP_(key_cnt)    ( MAP_T const * slot ) { return MAP_(private_from_slot_const)( slot )->key_cnt;       }
+FD_FN_PURE  static inline ulong MAP_(key_cnt)    ( MAP_T const * slot ) { return MAP_(private_from_slot_const)( slot )->key_cnt;       }
 FD_FN_CONST static inline ulong MAP_(key_max)    ( MAP_T const * slot ) { return MAP_(private_from_slot_const)( slot )->slot_mask;     }
 FD_FN_CONST static inline int   MAP_(lg_slot_cnt)( MAP_T const * slot ) { return MAP_(private_from_slot_const)( slot )->lg_slot_cnt;   }
 FD_FN_CONST static inline ulong MAP_(slot_cnt)   ( MAP_T const * slot ) { return MAP_(private_from_slot_const)( slot )->slot_mask+1UL; }
