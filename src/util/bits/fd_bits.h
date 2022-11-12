@@ -389,7 +389,7 @@ fd_ulong_svw_enc_sz( ulong x ) {
   if( FD_LIKELY( x<(1UL<<24) ) ) return 4UL;
   if( FD_LIKELY( x<(1UL<<32) ) ) return 5UL;
   if( FD_LIKELY( x<(1UL<<56) ) ) return 8UL;
-  /**/                           return 9UL;
+  return                                9UL;
 }
 
 /* fd_ulong_svw_enc appends x to the byte stream b as a symmetric
@@ -490,7 +490,7 @@ fd_ulong_svw_dec_fixed( uchar const * b,
   if( FD_LIKELY( csz==4UL ) ) return (((ulong)*(uint   *)b) >> 4) &          16777215UL;
   if( FD_LIKELY( csz==5UL ) ) return (((ulong)*(uint   *)b) >> 4) | ((((ulong)b[4]) & 0x0fUL) << 28);
   if( FD_LIKELY( csz==8UL ) ) return ((       *(ulong  *)b) >> 4) & 72057594037927935UL;
-  /**/        /* csz==9UL */  return ((       *(ulong  *)b) >> 4) | ( ((ulong)b[8])           << 60);
+  return       /*csz==9UL*/          ((       *(ulong  *)b) >> 4) | ( ((ulong)b[8])           << 60);
 }
 
 /* fd_ulong_svw_dec decodes a ulong encoded as a symmetric variable
