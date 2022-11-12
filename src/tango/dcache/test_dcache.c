@@ -157,7 +157,7 @@ main( int     argc,
     ulong delta = fd_ulong_max( footprint, 1UL<<(31+FD_CHUNK_LG_SZ) ) - footprint;
     ref = (uchar const *)((ulong)shdcache - fd_ulong_min( (ulong)shdcache, delta ));
 
-    FD_TEST( fd_dcache_compact_is_safe( dcache, dcache, mtu, depth ) );
+    FD_TEST( fd_dcache_compact_is_safe( ref, dcache, mtu, depth ) );
     chunk0 = fd_dcache_compact_chunk0( ref, dcache );      FD_TEST( chunk0==(((ulong)(dcache-ref))>>FD_CHUNK_LG_SZ) );
     chunk1 = fd_dcache_compact_chunk1( ref, dcache );      FD_TEST( chunk1==chunk0+(data_sz>>FD_CHUNK_LG_SZ)        );
     wmark  = fd_dcache_compact_wmark ( ref, dcache, mtu ); FD_TEST( wmark ==chunk1-chunk_mtu                        );
