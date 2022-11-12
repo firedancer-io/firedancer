@@ -133,8 +133,9 @@ fd_wksp_private_lock( fd_wksp_t * wksp ) {
              TRAILING TO GET ACTIVE BIT PROPAGATION BETTER TO SPEED UP
              COMPACT HOLES?) */
 
-          for( ulong i=1UL; i<part_cnt; i++ )
-            if( ((!fd_wksp_private_part_active( part[i-1UL] )) & (!fd_wksp_private_part_active( part[i] ))) ) {
+          for( ulong i=1UL; i<part_cnt; i++ ) 
+            if( ((int)!fd_wksp_private_part_active( part[i-1UL] )) &
+                ((int)!fd_wksp_private_part_active( part[i    ] )) ) { /* clang makes babies cry */
               FD_COMPILER_MFENCE();
               FD_VOLATILE( part[i] ) = part[i-1UL];
               FD_COMPILER_MFENCE();
