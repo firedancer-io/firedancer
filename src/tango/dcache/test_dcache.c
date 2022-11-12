@@ -148,15 +148,29 @@ main( int     argc,
 
     ulong chunk_mtu = fd_ulong_align_up( mtu, 2UL*FD_CHUNK_SZ ) >> FD_CHUNK_LG_SZ;
 
-    FD_TEST( fd_dcache_compact_is_safe( dcache, dcache, mtu, depth ) );
-    ulong chunk0 = fd_dcache_compact_chunk0( dcache, dcache );      FD_TEST( chunk0==0UL );
-    ulong chunk1 = fd_dcache_compact_chunk1( dcache, dcache );      FD_TEST( chunk1==(data_sz>>FD_CHUNK_LG_SZ) );
-    ulong wmark  = fd_dcache_compact_wmark ( dcache, dcache, mtu ); FD_TEST( wmark ==chunk1-chunk_mtu );
+    uchar const * ref = dcache;
+    FD_TEST( fd_dcache_compact_is_safe( ref, dcache, mtu, depth ) );
+    ulong chunk0 = fd_dcache_compact_chunk0( ref, dcache );      FD_TEST( chunk0==0UL );
+    ulong chunk1 = fd_dcache_compact_chunk1( ref, dcache );      FD_TEST( chunk1==(data_sz>>FD_CHUNK_LG_SZ) );
+    ulong wmark  = fd_dcache_compact_wmark ( ref, dcache, mtu ); FD_TEST( wmark ==chunk1-chunk_mtu );
 
-    FD_TEST( fd_dcache_compact_is_safe( NULL, dcache, mtu, depth ) );
-    chunk0 = fd_dcache_compact_chunk0( NULL, dcache );      FD_TEST( chunk0==(((ulong)dcache)>>FD_CHUNK_LG_SZ) );
-    chunk1 = fd_dcache_compact_chunk1( NULL, dcache );      FD_TEST( chunk1==chunk0+(data_sz>>FD_CHUNK_LG_SZ)  );
-    wmark  = fd_dcache_compact_wmark ( NULL, dcache, mtu ); FD_TEST( wmark ==chunk1-chunk_mtu                  );
+    ulong delta = fd_ulong_max( footprint, 1UL<<(31+FD_CHUNK_LG_SZ) ) - footprint;
+    ref = (uchar const *)((ulong)shdcache - fd_ulong_min( (ulong)shdcache, delta ));
+
+    FD_TEST( fd_dcache_compact_is_safe( dcache, dcache, mtu, depth ) );
+    chunk0 = fd_dcache_compact_chunk0( ref, dcache );      FD_TEST( chunk0==(((ulong)(dcache-ref))>>FD_CHUNK_LG_SZ) );
+    chunk1 = fd_dcache_compact_chunk1( ref, dcache );      FD_TEST( chunk1==chunk0+(data_sz>>FD_CHUNK_LG_SZ)        );
+    wmark  = fd_dcache_compact_wmark ( ref, dcache, mtu ); FD_TEST( wmark ==chunk1-chunk_mtu                        );
+
+    /* Clang seems to put the global variables in a far away memory
+       region such that using NULL is not a usable base.  So we only run
+       these tests if it is safe. */
+
+    if( FD_LIKELY( fd_dcache_compact_is_safe( NULL, dcache, mtu, depth ) ) ) {
+      chunk0 = fd_dcache_compact_chunk0( NULL, dcache );      FD_TEST( chunk0==(((ulong)dcache)>>FD_CHUNK_LG_SZ) );
+      chunk1 = fd_dcache_compact_chunk1( NULL, dcache );      FD_TEST( chunk1==chunk0+(data_sz>>FD_CHUNK_LG_SZ)  );
+      wmark  = fd_dcache_compact_wmark ( NULL, dcache, mtu ); FD_TEST( wmark ==chunk1-chunk_mtu                  );
+    }
 
     for( ulong iter=0UL; iter<100000UL; iter++ ) {
       ulong chunk = chunk0 + fd_rng_ulong_roll( rng, wmark-chunk0+1UL ); /* In [chunk0,wmark] */
