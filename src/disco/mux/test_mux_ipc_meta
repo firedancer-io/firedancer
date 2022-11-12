@@ -56,19 +56,19 @@ CORE_NEXT=$CORE_FIRST
 # Start up the receivers
 
 for((rx_idx=0;rx_idx<rx_cnt;rx_idx++)); do
-  taskset -c $CORE_NEXT unit-test/test_meta_rx --tile-cpus $CORE_NEXT --cnc ${RX_CNC[rx_idx]} --mcache ${MUX_MCACHE[0]} --fseq ${RX_FSEQ[rx_idx]} &
+  taskset -c $CORE_NEXT $UNIT_TEST/test_meta_rx --tile-cpus $CORE_NEXT --cnc ${RX_CNC[rx_idx]} --mcache ${MUX_MCACHE[0]} --fseq ${RX_FSEQ[rx_idx]} &
   CORE_NEXT=$((CORE_NEXT+NUMA_STRIDE))
 done
 
 # Start up the mux
 
-taskset -c $CORE_NEXT bin/fd_mux_tile --tile-cpus $CORE_NEXT --cnc ${MUX_CNC[0]} --mcache ${MUX_MCACHE[0]} --in-mcaches ${IN_MCACHES} --in-fseqs ${IN_FSEQS} --out-fseqs ${OUT_FSEQS} &
+taskset -c $CORE_NEXT $BIN/fd_mux_tile --tile-cpus $CORE_NEXT --cnc ${MUX_CNC[0]} --mcache ${MUX_MCACHE[0]} --in-mcaches ${IN_MCACHES} --in-fseqs ${IN_FSEQS} --out-fseqs ${OUT_FSEQS} &
 CORE_NEXT=$((CORE_NEXT+NUMA_STRIDE))
 
 # Start up the transmitters
 
 for((tx_idx=0;tx_idx<tx_cnt;tx_idx++)); do
-  taskset -c $CORE_NEXT unit-test/test_meta_tx --tile-cpus $CORE_NEXT --cnc ${TX_CNC[tx_idx]} --mcache ${TX_MCACHE[tx_idx]} --fseqs ${TX_FSEQ[tx_idx]} --tx-idx $tx_idx $* &
+  taskset -c $CORE_NEXT $UNIT_TEST/test_meta_tx --tile-cpus $CORE_NEXT --cnc ${TX_CNC[tx_idx]} --mcache ${TX_MCACHE[tx_idx]} --fseqs ${TX_FSEQ[tx_idx]} --tx-idx $tx_idx $* &
   CORE_NEXT=$((CORE_NEXT+NUMA_STRIDE))
 done
 
@@ -78,7 +78,7 @@ sleep 10
 
 # Send halt commands
 
-bin/fd_tango_ctl $HALT_ALL 
+$BIN/fd_tango_ctl $HALT_ALL
 
 wait
 exit 0
