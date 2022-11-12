@@ -113,6 +113,17 @@ wf_exch_adj_quad( wf_t f ) { /* [ f4 f5 f6 f7 f0 f1 f2 f3 ] */
    ALTERNATIVELY, IT IS WORTHWHILE TO SPECIAL CASE 0 AND 4 EXTRACTION AS
    PER THE BELOW? */
 
+#if FD_USING_CLANG /* Sigh ... clang is sad and can't handle passing compile time const expressions through a static inline */
+
+static inline float
+wf_extract( wf_t a, int imm ) {
+  union { float f[8]; __m256 v[1]; } t[1];
+  _mm256_store_ps( t->f, a );
+  return t->f[ imm ];
+}
+
+#else
+
 static inline float
 wf_extract( wf_t a, int imm ) {
   int avx_lane = imm >> 2; /* compile time eval */
@@ -122,6 +133,8 @@ wf_extract( wf_t a, int imm ) {
     t = _mm_castsi128_ps( _mm_insert_epi32( _mm_setzero_si128(), _mm_extract_epi32( _mm_castps_si128( t ), sse_lane ), 0 ) );
   return _mm_cvtss_f32( t );
 }
+
+#endif
 
 #define wf_insert(a,imm,v)                                              \
   _mm256_castsi256_ps( _mm256_insert_epi32( _mm256_castps_si256( (a) ), \
@@ -280,6 +293,22 @@ wf_insert_variable( wf_t a, int n, float v ) {
 #define wf_to_wd(a,imm_hi) _mm256_cvtps_pd( _mm256_extractf128_ps( (a), !!(imm_hi) ) )
 
 /* FIXME: IS IT FASTER TO USE INSERT / EXTRACT HERE? */
+
+#if FD_USING_CLANG /* Sigh ... clang is sad and can't handle passing compile time const expressions through a static inline */
+
+#define wf_to_wl( f, imm_hi ) (__extension__({                                \
+    union { float f[4]; __m128  v[1]; } _wf_to_wl_t[1];                       \
+    union { long  l[4]; __m256i v[1]; } _wf_to_wl_u[1];                       \
+    _mm_store_ps( _wf_to_wl_t->f, _mm256_extractf128_ps( (f), !!(imm_hi) ) ); \
+    _wf_to_wl_u->l[0] = (long)_wf_to_wl_t->f[0];                              \
+    _wf_to_wl_u->l[1] = (long)_wf_to_wl_t->f[1];                              \
+    _wf_to_wl_u->l[2] = (long)_wf_to_wl_t->f[2];                              \
+    _wf_to_wl_u->l[3] = (long)_wf_to_wl_t->f[3];                              \
+    _mm256_load_si256( _wf_to_wl_u->v );                                      \
+  }))
+
+#else
+
 static inline __m256i wf_to_wl( wf_t f, int imm_hi ) { /* FIXME: workaround wl_t isn't declared at this point */
   union { float f[4]; __m128  v[1]; } t[1];
   union { long  l[4]; __m256i v[1]; } u[1];
@@ -290,6 +319,8 @@ static inline __m256i wf_to_wl( wf_t f, int imm_hi ) { /* FIXME: workaround wl_t
   u->l[3] = (long)t->f[3];
   return _mm256_load_si256( u->v );
 }
+
+#endif
 
 #define wf_to_wc_raw(a) _mm256_castps_si256( (a) )
 #define wf_to_wi_raw(a) _mm256_castps_si256( (a) )

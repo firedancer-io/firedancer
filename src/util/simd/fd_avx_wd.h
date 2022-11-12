@@ -101,6 +101,16 @@ wd_extract( wd_t a, int imm ) { /* FIXME: USE EPI64 HACKS? */
   return d[imm];
 }
 
+#if FD_USING_CLANG /* Sigh ... clang is sad and can't handle passing compile time const expressions through a static inline */
+
+#define wd_insert( a, imm, v ) (__extension__({                                                      \
+    union { double v; long i; } _wd_insert_t;                                                        \
+    _wd_insert_t.v = v;                                                                              \
+    _mm256_castsi256_pd( _mm256_insert_epi64( _mm256_castpd_si256( (a) ), _wd_insert_t.i, (imm) ) ); \
+  }))
+
+#else
+
 static inline wd_t
 wd_insert( wd_t a, int imm, double v ) {
   union { double v; long i; } t;
@@ -108,6 +118,7 @@ wd_insert( wd_t a, int imm, double v ) {
   return _mm256_castsi256_pd( _mm256_insert_epi64( _mm256_castpd_si256( a ), t.i, imm ) );
 }
 
+#endif
 
 static inline double
 wd_extract_variable( wd_t a, int n ) {

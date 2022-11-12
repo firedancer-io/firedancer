@@ -35,7 +35,24 @@ wl_bcast_wide( long l0, long l1 ) {
 /* wl_permute returns [ l(imm_l0) l(imm_l1) l(imm_l2) l(imm_l3) ].
    imm_l* should be compile time constants in 0:3. */
 
+#if FD_USING_CLANG /* Sigh ... clang is sad and can't handle passing compile time const expressions through a static inline */
+
+static inline wl_t
+wl_permute( wl_t x, int imm_l0, int imm_l1, int imm_l2, int imm_l3 ) {
+  union { long l[4]; __m256i v[1]; } t, u;
+  _mm256_store_si256( t.v, x );
+  u.l[0] = t.l[ imm_l0 ];
+  u.l[1] = t.l[ imm_l1 ];
+  u.l[2] = t.l[ imm_l2 ];
+  u.l[3] = t.l[ imm_l3 ];
+  return _mm256_load_si256( u.v );
+}
+
+#else
+
 #define wl_permute(x,imm_l0,imm_l1,imm_l2,imm_l3) _mm256_permute4x64_epi64( (x), (imm_l0)+4*(imm_l1)+16*(imm_l2)+64*(imm_l3) )
+
+#endif
 
 /* Predefined constants */
 

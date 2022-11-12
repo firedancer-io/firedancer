@@ -240,10 +240,21 @@ vf_insert_variable( vf_t a, int n, float v ) {
 
 #define vf_to_vd(a,imm_l0,imm_l1) _mm_cvtps_pd( _mm_permute_ps( (a), _MM_SHUFFLE(3,2,(imm_l1),(imm_l0)) ) )
 
+#if FD_USING_CLANG /* Sigh ... clang is sad and can't handle passing compile time const expressions through a static inline */
+
+#define vf_to_vl(f,imm_l0,imm_l1) (__extension__({                                                \
+    vf_t _vf_to_vl_tmp = _mm_permute_ps( (f), _MM_SHUFFLE(3,2,(imm_l1),(imm_l0)) );               \
+    _mm_set_epi64x( (long)vf_extract( _vf_to_vl_tmp, 1 ), (long)vf_extract( _vf_to_vl_tmp, 0 ) ); \
+  }))
+
+#else
+
 static inline __m128i vf_to_vl( vf_t f, int imm_l0, int imm_l1 ) { /* FIXME: workaround vl_t isn't declared at this point */
-  vf_t t =  _mm_permute_ps( f, _MM_SHUFFLE(3,2,imm_l1,imm_l0) );
+  vf_t t = _mm_permute_ps( f, _MM_SHUFFLE(3,2,imm_l1,imm_l0) );
   return _mm_set_epi64x( (long)vf_extract( t, 1 ), (long)vf_extract( t, 0 ) ); /* Sigh ... backwards Intel */
 }
+
+#endif
 
 #define vf_to_vc_raw(a) _mm_castps_si128( (a) )
 #define vf_to_vi_raw(a) _mm_castps_si128( (a) )

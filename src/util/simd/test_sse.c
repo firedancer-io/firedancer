@@ -364,8 +364,8 @@ main( int     argc,
 
     /* Logical operations */
 
-    FD_TEST( vc_test( vf_lnot(    x ),  !x0,  !x1,  !x2,  !x3 ) );
-    FD_TEST( vc_test( vf_lnotnot( x ), !!x0, !!x1, !!x2, !!x3 ) );
+    FD_TEST( vc_test( vf_lnot(    x ),   x0==0.f,    x1==0.f,    x2==0.f,    x3==0.f  ) ); /* clang makes babies cry */
+    FD_TEST( vc_test( vf_lnotnot( x ), !(x0==0.f), !(x1==0.f), !(x2==0.f), !(x3==0.f) ) ); /* floating point too */
     FD_TEST( vc_test( vf_signbit( x ), signbit(x0), signbit(x1), signbit(x2), signbit(x3) ) );
 
     FD_TEST( vc_test( vf_eq( x, y ), x0==y0, x1==y1, x2==y2, x3==y3 ) );
@@ -383,7 +383,7 @@ main( int     argc,
     /* Conversion operations */
     /* FIXME: TEST LARGE MAG CONVERSION */
 
-    FD_TEST( vc_test( vf_to_vc( x ), !!x0, !!x1, !!x2, !!x3 ) );
+    FD_TEST( vc_test( vf_to_vc( x ), !(x0==0.f), !(x1==0.f), !(x2==0.f), !(x3==0.f) ) ); /* see vf_lnotnot */
 
     FD_TEST( vi_test( vf_to_vi( x ), (int)x0, (int)x1, (int)x2, (int)x3 ) );
 
@@ -618,8 +618,8 @@ main( int     argc,
 
     /* Logical operations */
 
-    FD_TEST( vc_test( vd_lnot(    x ),  !x0,  !x0,  !x1,  !x1 ) );
-    FD_TEST( vc_test( vd_lnotnot( x ), !!x0, !!x0, !!x1, !!x1 ) );
+    FD_TEST( vc_test( vd_lnot(    x ),   x0==0.,    x0==0.,    x1==0.,    x1==0.  ) ); /* clang makes babies cry */
+    FD_TEST( vc_test( vd_lnotnot( x ), !(x0==0.), !(x0==0.), !(x1==0.), !(x1==0.) ) ); /* floating point too */
     FD_TEST( vc_test( vd_signbit( x ), signbit(x0), signbit(x0), signbit(x1), signbit(x1) ) );
 
     FD_TEST( vc_test( vd_eq( x, y ), x0==y0, x0==y0, x1==y1, x1==y1 ) );
@@ -637,7 +637,7 @@ main( int     argc,
     /* Conversion operations */
     /* FIXME: TEST LARGE MAG CONVERSION */
 
-    FD_TEST( vc_test( vd_to_vc( x ), !!x0, !!x0, !!x1, !!x1 ) );
+    FD_TEST( vc_test( vd_to_vc( x ), !(x0==0.), !(x0==0.), !(x1==0.), !(x1==0.) ) ); /* see vd_lnotnot */
 
     FD_TEST( vf_test( vd_to_vf( x, vf( 0.f, 1.f, 2.f, 3.f ), 0 ), (float)x0, (float)x1, 2.f, 3.f ) );
     FD_TEST( vf_test( vd_to_vf( x, vf( 0.f, 1.f, 2.f, 3.f ), 1 ), 0.f, 1.f, (float)x0, (float)x1 ) );

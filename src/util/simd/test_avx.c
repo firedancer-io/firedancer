@@ -479,8 +479,8 @@ main( int     argc,
 
     /* Logical operations */
 
-    FD_TEST( wc_test( wf_lnot(    x ),  !x0,  !x1,  !x2,  !x3,  !x4,  !x5,  !x6,  !x7 ) );
-    FD_TEST( wc_test( wf_lnotnot( x ), !!x0, !!x1, !!x2, !!x3, !!x4, !!x5, !!x6, !!x7 ) );
+    FD_TEST( wc_test( wf_lnot(    x ),   x0==0.f,    x1==0.f,    x2==0.f,    x3==0.f,    x4==0.f,    x5==0.f,    x6==0.f,    x7==0.f  ) ); /* clang makes babies cry */
+    FD_TEST( wc_test( wf_lnotnot( x ), !(x0==0.f), !(x1==0.f), !(x2==0.f), !(x3==0.f), !(x4==0.f), !(x5==0.f), !(x6==0.f), !(x7==0.f) ) ); /* floating point too */
     FD_TEST( wc_test( wf_signbit( x ), signbit(x0), signbit(x1), signbit(x2), signbit(x3),
                                        signbit(x4), signbit(x5), signbit(x6), signbit(x7) ) );
 
@@ -501,7 +501,7 @@ main( int     argc,
     /* Conversion operations */
     /* FIXME: TEST LARGE MAG CONVERSION */
 
-    FD_TEST( wc_test( wf_to_wc( x ), !!x0, !!x1, !!x2, !!x3, !!x4, !!x5, !!x6, !!x7 ) );
+    FD_TEST( wc_test( wf_to_wc( x ), !(x0==0.f), !(x1==0.f), !(x2==0.f), !(x3==0.f), !(x4==0.f), !(x5==0.f), !(x6==0.f), !(x7==0.f) ) ); /* see wf_lnotnot */
 
     FD_TEST( wi_test( wf_to_wi( x ), (int)x0, (int)x1, (int)x2, (int)x3, (int)x4, (int)x5, (int)x6, (int)x7 ) );
     FD_TEST( wi_test( wf_to_wi_fast( x ), (int)rintf(x0), (int)rintf(x1), (int)rintf(x2), (int)rintf(x3),
@@ -701,8 +701,8 @@ main( int     argc,
 
     /* Logical operations */
 
-    FD_TEST( wc_test( wd_lnot(    x ),  !x0,  !x0,  !x1,  !x1,  !x2,  !x2,  !x3,  !x3 ) );
-    FD_TEST( wc_test( wd_lnotnot( x ), !!x0, !!x0, !!x1, !!x1, !!x2, !!x2, !!x3, !!x3 ) );
+    FD_TEST( wc_test( wd_lnot(    x ),   x0==0.,    x0==0.,    x1==0.,    x1==0.,    x2==0.,    x2==0.,    x3==0.,    x3==0.  ) ); /* clang makes babies cry */
+    FD_TEST( wc_test( wd_lnotnot( x ), !(x0==0.), !(x0==0.), !(x1==0.), !(x1==0.), !(x2==0.), !(x2==0.), !(x3==0.), !(x3==0.) ) ); /* floating point too */
     FD_TEST( wc_test( wd_signbit( x ), signbit(x0), signbit(x0), signbit(x1), signbit(x1),
                                        signbit(x2), signbit(x2), signbit(x3), signbit(x3) ) );
 
@@ -721,7 +721,7 @@ main( int     argc,
     /* Conversion operations */
     /* FIXME: TEST LARGE MAG CONVERSION */
 
-    FD_TEST( wc_test( wd_to_wc( x ), !!x0, !!x0, !!x1, !!x1, !!x2, !!x2, !!x3, !!x3 ) );
+    FD_TEST( wc_test( wd_to_wc( x ), !(x0==0.), !(x0==0.), !(x1==0.), !(x1==0.), !(x2==0.), !(x2==0.), !(x3==0.), !(x3==0.) ) ); /* see wd_lnotnot */
 
     FD_TEST( wf_test( wd_to_wf( x, wf( 0.f, 1.f, 2.f, 3.f, 4.f, 5.f, 6.f, 7.f ), 0 ),
                       (float)x0, (float)x1, (float)x2, (float)x3, 4.f, 5.f, 6.f, 7.f ) );
