@@ -315,7 +315,7 @@ fd_scratch_private_true_align( ulong align ) {
   return fd_ulong_max( fd_ulong_if( !align, FD_SCRATCH_ALIGN_DEFAULT, align ), FD_SCRATCH_ALIGN_MIN ); /* compile time typically */
 }
 
-__attribute__((malloc,alloc_align(1),alloc_size(2),nonnull)) static inline void *
+__attribute__((malloc,alloc_align(1),alloc_size(2))) static inline void *
 fd_scratch_private_alloc( ulong true_align,
                           ulong sz ) {
   ulong smem = fd_ulong_align_up( fd_scratch_private_free, true_align );
