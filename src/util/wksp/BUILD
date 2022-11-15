@@ -6,6 +6,7 @@ fd_cc_library(
     name = "wksp",
     srcs = [
         "fd_wksp.c",
+        "fd_wksp_pod.c",
     ],
     hdrs = [
         "fd_wksp.h",
