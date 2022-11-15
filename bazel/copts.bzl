@@ -1,6 +1,6 @@
-# --------------------------------
-# Flag definitions
-# --------------------------------
+"""
+Defines project wide flags.
+"""
 
 # base: Always enabled flags
 copts_base = [
