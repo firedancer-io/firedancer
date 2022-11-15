@@ -101,7 +101,7 @@ def fd_copts():
         "@platforms//cpu:x86_64": copts_x86_64,
         "//conditions:default": [],
     }) + select({
-        "//bazel/cpu:icelake": copts_icelake,
+        "//bazel/cpu/x86_64:icelake_server": copts_icelake,
         "//conditions:default": [],
     }) + select({
         "//src:has_hosted": copts_hosted,
