@@ -1,7 +1,7 @@
 MAKEFLAGS += --no-builtin-rules
 MAKEFLAGS += --no-builtin-variables
 .SUFFIXES:
-.SUFFIXES: .h .hxx .c .cxx .o .a .d .s .i
+.SUFFIXES: .h .hxx .c .cxx .o .a .d .s .S .i
 .PHONY: all bin include lib unit-test help clean distclean asm ppp show-deps
 .SECONDARY:
 .SECONDEXPANSION:
