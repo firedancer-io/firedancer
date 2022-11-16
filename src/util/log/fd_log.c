@@ -13,6 +13,7 @@
 #include <stdarg.h>
 #include <ctype.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <unistd.h>
 #include <signal.h>
 #include <sched.h>
@@ -638,7 +639,72 @@ fd_log_private_cleanup( void ) {
 #     else
       FD_VOLATILE( fd_log_private_file ) = NULL;
 #     endif
+
+      /* IMPORTANT!  fclose is AS-unsafe (and so is fflush for that
+         matter).  For example, fclose implementations will frequently
+         have a per-file handle lock to support thread safe usage.  For
+         such an implementation, if a signal handler is invoked on a
+         thread that is in the middle of a log_file operation, the
+         fclose here will deadlock.  (If another thread is the middle of
+         a file operation, this is fine as the fclose here will proceed
+         once the other thread releases the lock and, if multiple
+         threads hit this signal handler concurrently, the ONCE block
+         above will prevent this code path from being executed more than
+         once as described above.)
+
+         At the same time, normal kill and Ctrl-C are common operational
+         patterns that invoke signal handling and signal handling is
+         also often invoked on abnormal program termination (e.g. seg
+         fault).  In these circumstances, it is critical for both
+         debugging and archival reasons to make a best effort to get any
+         final log messages committed to permanent storage.  Another
+         common operational process termination pattern is to attempt a
+         normal kill of the process and, if the process has gone off the
+         rails and does not shutdown in a timely fashion, do a more
+         brutal "kill -9".
+
+         Lacking non-blocking variants of fclose / fflush (maybe a UNIX
+         guru can show the one true way here), we are presented with a
+         dilemma.  We can cleanup the open log_file here or we can
+         terminate without closing it.
+
+         Closing the log_file here means that we usually have better
+         debugging diagnostics at program termination and keep people
+         like regulators happy because there is less risk of loss in the
+         archival record of what happened at the time they are most
+         likely to be interested (e.g. when things are behaving
+         abnormally).  But this creates potential deadlock risk (which
+         typically will be cleaned up via the operational patterns
+         described above).  This deadlock risk can make automated tools
+         like thread sanitizers unhappy.
+
+         Not closing has the converse tradoff: sanitizers will be happy
+         but debugging will be harder and regulators might be irritated.
+
+         Big picture, when this code path is encountered by a signal
+         handler, this is in the "the plane is going down and we are
+         trying our best to get all diagnostics into the black box
+         flight data recorder for crash investigators to prevent this in
+         the future" code path.  Thus, we know already not executing
+         normally and all bets are off regardless.  Likewise, the fact
+         that there doesn't seem to be a robust way to clean up open
+         file handles in a signal handler is more sign that standards
+         around UNIX signal handling and stdio file I/O are critically
+         botched in real world situations.
+
+         TL;DR The current choice is to make debugging easier and
+         regulators happy.  Free feel to comment out the fclose here to
+         make sanitizers happy though.
+
+         (Hat tip to runtimeverification for useful discussions here.)
+
+         FIXME: As per the UNIX guru comment above, consider instead
+         avoiding stdio file handles entirely and using POSIX file I/O
+         directly along with dprintf and hand rolled buffering as an
+         alternative implementation. */
+
       fclose( log_file );
+
       sync();
       fprintf( stderr, "Log at \"%s\"\n", fd_log_private_path );
     }
@@ -658,21 +724,21 @@ fd_log_private_sig_abort( int         sig,
      all non-logging activity ... log a backtrace */
 
   void * btrace[128];
-  int n_btrace = backtrace( btrace, 128 );
+  int btrace_cnt = backtrace( btrace, 128 );
 
   FILE * log_file = FD_VOLATILE_CONST( fd_log_private_file );
   if( log_file ) {
     fprintf( log_file, "Caught signal %i, backtrace:\n", sig );
     fflush( log_file );
     int fd = fileno( log_file );
-    backtrace_symbols_fd( btrace, n_btrace, fd );
+    backtrace_symbols_fd( btrace, btrace_cnt, fd );
     fsync( fd );
   }
 
   fprintf( stderr, "\nCaught signal %i, backtrace:\n", sig );
   fflush( stderr );
   int fd = fileno( stderr );
-  backtrace_symbols_fd( btrace, n_btrace, fd );
+  backtrace_symbols_fd( btrace, btrace_cnt, fd );
   fsync( fd );
 
   /* Do final log cleanup */
@@ -773,6 +839,27 @@ fd_log_private_boot( int  *   pargc,
 
   int log_backtrace = fd_env_strip_cmdline_int( pargc, pargv, "--log-backtrace", "FD_LOG_BACKTRACE", 1 );
   if( log_backtrace ) {
+
+    /* If libgcc isn't already linked into the program when a trapped
+       signal is received by an application, calls to backtrace and
+       backtrace_symbols_fd within the signal handler can silently
+       invoke the dynamic linker, which in turn can do silent async
+       signal unsafe behavior behind our back.  We do dummy calls to
+       backtrace and backtrace_symbols_fd here to avoid dynamic linking
+       surprises in the signal handler.  (Hat tip to runtimeverification
+       for finding this.) */
+
+    void * btrace[128];
+    int btrace_cnt = backtrace( btrace, 128 );
+    int fd = open( "/dev/null", O_WRONLY | O_APPEND );
+    if( FD_UNLIKELY( fd==-1 ) ) fprintf( stderr, "open( \"/dev/null\", O_WRONLY | O_APPEND ) failed; attempting to continue\n" );
+    else {
+      backtrace_symbols_fd( btrace, btrace_cnt, fd );
+      int err = close( fd );
+      if( FD_UNLIKELY( err ) )
+        fprintf( stderr, "close( \"/dev/null\" ) failed (%i-%s); attempting to continue\n", errno, strerror( errno ) );
+    }
+
     /* This is all overridable POSIX sigs whose default behavior is to
        abort the program.  It will backtrace and then fallback to the
        default behavior. */
