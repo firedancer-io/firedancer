@@ -1,10 +1,13 @@
 #include "fd_txn.h"
 #include "fd_compact_u16.h"
 
+
+
 ulong
-fd_txn_parse( uchar const * payload,
-              ulong         payload_sz,
-              void        * out_buf ) {
+fd_txn_parse( uchar const             * payload,
+              ulong                     payload_sz,
+              void                    * out_buf,
+              fd_txn_parse_counters_t * counters_opt ) {
   ulong i = 0UL;
   /* This code does non-trivial parsing of untrusted user input, which is a potentially dangerous thing.
      The main invariants we need to ensure are
@@ -31,19 +34,24 @@ fd_txn_parse( uchar const * payload,
 
      Unfortunately for variable length integers, we have to combine the first
      two columns into a call to READ_CHECKED_COMPACT_U16 that also promises not
-     to use any out-of-bounds data (although it may tail read by <= 3 bytes).
+     to use any out-of-bounds data.
 
-     The assignments are done at the end, in the same order as the variables
-     are declared in the struct, making it very clear every variable has been
-     initialized.
-     We pay a small memcpy cost in exchange for this clarity, but I think it's
-     the right tradeoff. */
+     The assignments are done in chunks in as close to the same order as
+     possible as the variables are declared in the struct, making it very clear
+     every variable has been initialized. */
 
   /* A temporary for storing the return value of fd_cu16_dec_sz */
   ulong bytes_consumed = 0UL;
 
-  /* Clean up and return immediately if cond is false. */
-  #define CHECK( cond )  do { if( FD_UNLIKELY( !(cond) ) ) { return 0UL; } } while( 0 )
+  /* Increment counters and return immediately if cond is false. */
+  #define CHECK( cond )  do {                                                                                   \
+    if( FD_UNLIKELY( !(cond) ) ) {                                                                              \
+      if( FD_LIKELY( counters_opt ) ) {                                                                         \
+        counters_opt->failure_ring[ ( counters_opt->failure_cnt++ )%FD_TXN_PARSE_COUNTERS_RING_SZ ] = __LINE__; \
+      }                                                                                                         \
+      return 0UL;                                                                                               \
+    }                                                                                                           \
+  } while( 0 )
   /* CHECK that it is safe to read at least n more bytes assuming i is the
      current location. n is untrusted and could trigger overflow, so don't do
      i+n<=payload_sz */
@@ -197,6 +205,7 @@ fd_txn_parse( uchar const * payload,
   parsed->addr_table_adtl_cnt           = (uchar)addr_table_adtl_cnt;
   parsed->_padding_reserved_1           = (uchar)0;
 
+  if( FD_LIKELY( counters_opt ) ) counters_opt->success_cnt++;
   return fd_txn_footprint( instr_cnt, addr_table_cnt );
 
   #undef CHECK

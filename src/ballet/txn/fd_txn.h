@@ -317,6 +317,27 @@ struct fd_txn_acct_addr_lut {
 
 typedef struct fd_txn_acct_addr_lut fd_txn_acct_addr_lut_t;
 
+#define FD_TXN_PARSE_COUNTERS_RING_SZ (32UL)
+
+/* Counters for collecting some metrics about the outcome of parsing
+   transactions */
+struct fd_txn_parse_counters {
+  /* success_cnt: the number of times a transaction parsed successfully */
+  ulong success_cnt;
+  /* failure_cnt: the number of times a transaction was ill-formed and failed
+     to parse for any reason */
+  ulong failure_cnt;
+  /* failure_ring: some information about the causes of recent transaction
+     parsing failures.  Specifically, the line of code which detected that the
+     ith malformed transaction was malformed maps to 
+     failure_ring[ i%FD_TXN_PARSE_COUNTERS_RING_SZ ] (where i starts at 0), and the
+     last instance mapping to each element of the array is the one that is
+     actually present.  If fewer than FD_TXN_PARSE_COUNTERS_RING_SZ failures have
+     occurred, the contents of some entries in this array are undefined. */
+  ulong failure_ring[ FD_TXN_PARSE_COUNTERS_RING_SZ ];
+};
+typedef struct fd_txn_parse_counters fd_txn_parse_counters_t;
+
 FD_PROTOTYPES_BEGIN
 /* fd_txn_get_address_tables: Returns the array of address tables in this
    transaction.  This depends on the value of txn->instr_cnt being correct.  The
@@ -345,10 +366,12 @@ fd_txn_footprint( ulong instr_cnt,
    will be stored.  out_buf must have room for at least FD_TXN_MAX_SZ bytes.
    Returns the total size of the resulting fd_txn struct on success and 0 on
    failure.  On failure, the contents of out_buf are undefined, although
-   nothing will be written beyond FD_TXN_MAX_SZ bytes.  Note: The returned txn
-   object is not self-contained since it refers to byte ranges inside the
+   nothing will be written beyond FD_TXN_MAX_SZ bytes.  If counters_opt is
+   non-NULL, some some counters about the result of the parsing process will be
+   accumulated into the struct pointed to by counters_opt. Note: The returned
+   txn object is not self-contained since it refers to byte ranges inside the
    payload. */
-ulong fd_txn_parse( uchar const * payload, ulong payload_sz, void * out_buf );
+ulong fd_txn_parse( uchar const * payload, ulong payload_sz, void * out_buf, fd_txn_parse_counters_t * counters_opt );
 
 FD_PROTOTYPES_END
 
