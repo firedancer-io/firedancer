@@ -290,3 +290,25 @@ For Visual Studio Code, it is recommended to use format-on-save.
     }
 }
 ```
+
+### Code Coverage
+
+Code coverage testing does not support hermetic toolchain builds.
+
+The following tools are required on your system:
+  - GCC compiler with `gcov` support
+  - `lcov`
+
+Run all tests with code coverage reporting:
+
+```
+bazel coverage //src/...
+```
+
+Render this lcov report as HTML:
+
+```
+genhtml --output genhtml "$(bazel info output_path)/_coverage/_coverage_report.dat"
+```
+
+The output will be at `/genhtml/index.html`.
