@@ -95,8 +95,8 @@ FD_FN_CONST static inline T   fd_##T##_if          ( int c, T t, T f   ) { retur
 FD_FN_CONST static inline T   fd_##T##_abs         ( T x               ) { return x;                                            } \
 FD_FN_CONST static inline T   fd_##T##_min         ( T x, T y          ) { return (x<y) ? x : y; /* cmov */                     } \
 FD_FN_CONST static inline T   fd_##T##_max         ( T x, T y          ) { return (x>y) ? x : y; /* cmov */                     } \
-FD_FN_CONST static inline T   fd_##T##_rotate_left ( T x, int n        ) { n &= w-1; return (T)((x << n) | (x >> (w-n)));       } \
-FD_FN_CONST static inline T   fd_##T##_rotate_right( T x, int n        ) { n &= w-1; return (T)((x >> n) | (x << (w-n)));       }
+FD_FN_CONST static inline T   fd_##T##_rotate_left ( T x, int n        ) { return (T)((x << (n&(w-1))) | (x >> ((-n)&(w-1))));  } \
+FD_FN_CONST static inline T   fd_##T##_rotate_right( T x, int n        ) { return (T)((x >> (n&(w-1))) | (x << ((-n)&(w-1))));  }
 
 FD_SRC_UTIL_BITS_FD_BITS_IMPL(uchar,  8)
 FD_SRC_UTIL_BITS_FD_BITS_IMPL(ushort,16)
