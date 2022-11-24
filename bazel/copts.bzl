@@ -12,6 +12,7 @@ linkopts_base = []
 # dbg: Debug symbols and pretty backtraces
 copts_dbg = [
     "-g",
+    "-O1",
 ]
 linkopts_dbg = [
     "-rdynamic",
