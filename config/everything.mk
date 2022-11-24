@@ -1,7 +1,7 @@
 MAKEFLAGS += --no-builtin-rules
 MAKEFLAGS += --no-builtin-variables
 .SUFFIXES:
-.SUFFIXES: .h .hxx .c .cxx .o .a .d .s .S .i
+.SUFFIXES: .h .hxx .c .cxx .o .a .d .S .i
 .PHONY: all bin include lib unit-test help clean distclean asm ppp show-deps
 .SECONDARY:
 .SECONDEXPANSION:
@@ -175,7 +175,7 @@ $(OBJDIR)/obj/%.d : src/%.c
 	#######################################################################
 	$(MKDIR) $(dir $@) && \
 $(CC) $(CPPFLAGS) $(CFLAGS) -M $< -o $@.tmp && \
-$(SED) 's,\($(notdir $*)\)\.o[ :]*,$(OBJDIR)/obj/$*.o $(OBJDIR)/obj/$*.s $(OBJDIR)/obj/$*.i $@ : ,g' < $@.tmp > $@ && \
+$(SED) 's,\($(notdir $*)\)\.o[ :]*,$(OBJDIR)/obj/$*.o $(OBJDIR)/obj/$*.S $(OBJDIR)/obj/$*.i $@ : ,g' < $@.tmp > $@ && \
 $(RM) $@.tmp
 
 $(OBJDIR)/obj/%.d : src/%.cxx
@@ -184,7 +184,7 @@ $(OBJDIR)/obj/%.d : src/%.cxx
 	#######################################################################
 	$(MKDIR) $(dir $@) && \
 $(CXX) $(CPPFLAGS) $(CXXFLAGS) -M $< -o $@.tmp && \
-$(SED) 's,\($(notdir $*)\)\.o[ :]*,$(OBJDIR)/obj/$*.o $(OBJDIR)/obj/$*.s $(OBJDIR)/obj/$*.i $@ : ,g' < $@.tmp > $@ && \
+$(SED) 's,\($(notdir $*)\)\.o[ :]*,$(OBJDIR)/obj/$*.o $(OBJDIR)/obj/$*.S $(OBJDIR)/obj/$*.i $@ : ,g' < $@.tmp > $@ && \
 $(RM) $@.tmp
 
 $(OBJDIR)/obj/%.o : src/%.c
@@ -201,14 +201,14 @@ $(OBJDIR)/obj/%.o : src/%.cxx
 	$(MKDIR) $(dir $@) && \
 $(CXX) $(CPPFLAGS) $(CXXFLAGS) -c $< -o $@
 
-$(OBJDIR)/obj/%.o : src/%.s
+$(OBJDIR)/obj/%.o : src/%.S
 	#######################################################################
 	# Compiling asm source $< to $@
 	#######################################################################
 	$(MKDIR) $(dir $@) && \
 $(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
 
-$(OBJDIR)/obj/%.s : src/%.c
+$(OBJDIR)/obj/%.S : src/%.c
 	#######################################################################
 	# Compiling C source $< to assembly $@
 	#######################################################################
@@ -217,7 +217,7 @@ $(CC) $(patsubst -g,,$(CPPFLAGS) $(CFLAGS)) -S -fverbose-asm $< -o $@.tmp && \
 $(SED) 's,^#,                                                                                               #,g' < $@.tmp > $@ && \
 $(RM) $@.tmp
 
-$(OBJDIR)/obj/%.s : src/%.cxx
+$(OBJDIR)/obj/%.S : src/%.cxx
 	#######################################################################
 	# Compiling C++ source $< to assembly $@
 	#######################################################################
@@ -290,7 +290,7 @@ include $(DEPFILES)
 # Define the asm target.  Must be after the make fragments include so that
 # DEPFILES is fully populated
 
-asm: $(DEPFILES:.d=.s)
+asm: $(DEPFILES:.d=.S)
 
 # Define the ppp target.  Must be after the make fragments include so that
 # DEPFILES is fully populated
