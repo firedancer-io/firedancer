@@ -2,6 +2,41 @@
 #error "Implement logging support for this build target"
 #endif
 
+/* If FD_LOG_FLUSH_{STDOUT,STDERR,LOG_FILE} are non-zero, fd_log_boot
+   will not change the buffering modes for stdout (typically line
+   buffered), stderr (typically unbuffered) and log_file (typically
+   fully buffered but potentially line buffered if the application
+   requested to stdout for the permanent log).  While faster in normal
+   operation, at abnormal program termination, the most critical
+   messages (e.g. diagnostic I/O immediately preceeding a crash) to the
+   operator at a terminal / permanent archive / etc might be lost due to
+   buffering.
+
+   Ideally this would be handled by flushing and closing the streams as
+   appropriate in a signal handler run at abnormal program termination.
+   But functions like fflush and fclose are technically AS-unsafe.
+
+   By defining any of these to zero, fd_log will configure the
+   corresponding stream to be unbuffered.  While slower in normal
+   operation (and maybe slightly more surprising but more predictable
+   from a user POV), this should eliminate the need to flush and close
+   streams at abnormal program termination.  This in turn then improves
+   signal handler async safety.  (See lengthy note in the
+   fd_log_private_sig_abort below for more details and hat tip to Robert
+   Chen for pointing out the setbuf API.) */
+
+#ifndef FD_LOG_FFLUSH_STDOUT
+#define FD_LOG_FFLUSH_STDOUT 0
+#endif
+
+#ifndef FD_LOG_FFLUSH_STDERR
+#define FD_LOG_FFLUSH_STDERR 0
+#endif
+
+#ifndef FD_LOG_FFLUSH_LOG_FILE
+#define FD_LOG_FFLUSH_LOG_FILE 0
+#endif
+
 /* FIXME: SANITIZE VARIOUS USER SET STRINGS */
 
 #define _GNU_SOURCE
@@ -404,10 +439,14 @@ void
 fd_log_flush( void ) {
   FILE * log_file = FD_VOLATILE_CONST( fd_log_private_file );
   if( log_file ) {
+#   if FD_LOG_FFLUSH_LOG_FILE
     fflush( log_file );
+#   endif
     fsync( fileno( log_file ) );
   }
+# if FD_LOG_FFLUSH_STDERR
   fflush( stderr );
+# endif
 }
 
 static int fd_log_private_level_logfile; /* 0 outside boot/halt, init at boot */
@@ -607,7 +646,7 @@ fd_log_private_cleanup( void ) {
      explicitly followed by return from main triggering it again.
 
      Accordingly we protect this with a ONCE block so it only will
-     execute once per program.  Further cleanup gets triggered by
+     execute once per program.  Further, if cleanup gets triggered by
      multiple threads concurrently, the ONCE block will prevent them
      from progressing until the first thread that hits the once block
      has completed cleanup. */
@@ -698,17 +737,31 @@ fd_log_private_cleanup( void ) {
 
          (Hat tip to runtimeverification for useful discussions here.)
 
-         FIXME: As per the UNIX guru comment above, consider instead
-         avoiding stdio file handles entirely and using POSIX file I/O
-         directly along with dprintf and hand rolled buffering as an
-         alternative implementation. */
+         As an alternative, if FD_LOG_FFLUSH_{STDOUT,STDERR,LOG_FILE}
+         are set to zero, the log will turn off I/O buffering for
+         {stdout,stderr,log_file}.  This implies that there is no need
+         to use fflush on the stream and that we shouldn't lose anything
+         if the file stream isn't closed on abnormal program termination
+         (we still do a fsync on the underlying file handle to be on the
+         safe side).
 
+         FIXME: consider instead avoiding stdio file handles entirely
+         and using POSIX file I/O directly along with dprintf and hand
+         rolled buffering as an alternative implementation. */
+
+#     if FD_LOG_FFLUSH_LOG_FILE
+      fflush( log_file );
+#     endif
+      fsync( fileno( log_file ) );
+#     if FD_LOG_FFLUSH_LOG_FILE
       fclose( log_file );
-
+#     endif
       sync();
       fprintf( stderr, "Log at \"%s\"\n", fd_log_private_path );
     }
+#   if FD_LOG_FFLUSH_STDERR
     fflush( stderr );
+#   endif
   } FD_ONCE_END;
 }
 
@@ -718,7 +771,9 @@ fd_log_private_sig_abort( int         sig,
                           void *      context ) {
   (void)info; (void)context;
 
+# if FD_LOG_FFLUSH_STDOUT
   fflush( stdout );
+# endif
 
   /* Hopefully all out streams are idle now and we have flushed out
      all non-logging activity ... log a backtrace */
@@ -729,14 +784,18 @@ fd_log_private_sig_abort( int         sig,
   FILE * log_file = FD_VOLATILE_CONST( fd_log_private_file );
   if( log_file ) {
     fprintf( log_file, "Caught signal %i, backtrace:\n", sig );
+#   if FD_LOG_FFLUSH_LOG_FILE
     fflush( log_file );
+#   endif
     int fd = fileno( log_file );
     backtrace_symbols_fd( btrace, btrace_cnt, fd );
     fsync( fd );
   }
 
   fprintf( stderr, "\nCaught signal %i, backtrace:\n", sig );
+# if FD_LOG_FFLUSH_STDERR
   fflush( stderr );
+# endif
   int fd = fileno( stderr );
   backtrace_symbols_fd( btrace, btrace_cnt, fd );
   fsync( fd );
@@ -920,6 +979,27 @@ fd_log_private_boot( int  *   pargc,
     fprintf( stderr, "Log at \"%s\"\n", fd_log_private_path );
   }
   FD_VOLATILE( fd_log_private_file ) = log_file;
+
+  /* Adjust buffering status of stdout, stderr and/or log file as appropriate */
+
+# if !FD_LOG_FFLUSH_STDOUT
+  if( setvbuf( stdout, NULL, _IONBF, 0UL ) ) {
+    fprintf( stderr, "setvbuf( stdout, NULL, _IONBF, 0UL ) failed; unable to boot\n" );
+    exit(1);
+  }
+# endif
+# if !FD_LOG_FFLUSH_STDERR
+  if( setvbuf( stderr, NULL, _IONBF, 0UL ) ) {
+    fprintf( stderr, "setvbuf( stderr, NULL, _IONBF, 0UL ) failed; unable to boot\n" );
+    exit(1);
+  }
+# endif
+# if !FD_LOG_FFLUSH_LOG_FILE
+  if( log_file && log_file!=stdout && setvbuf( log_file, NULL, _IONBF, 0UL ) ) {
+    fprintf( stderr, "setvbuf( log_file, NULL, _IONBF, 0UL ) failed; unable to boot\n" );
+    exit(1);
+  }
+# endif
 
   if( atexit( fd_log_private_cleanup ) ) { fprintf( stderr, "atexit failed; unable to boot\n" ); exit(1); }
 
