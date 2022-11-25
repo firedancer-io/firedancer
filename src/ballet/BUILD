@@ -21,5 +21,6 @@ fd_cc_library(
         ":base_lib",
         "//src/ballet/ed25519",
         "//src/ballet/sha512",
+        "//src/ballet/shred",
     ],
 )
