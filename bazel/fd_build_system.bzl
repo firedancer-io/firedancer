@@ -88,6 +88,7 @@ def fd_cc_test(
         srcs = [],
         copts = [],
         linkopts = [],
+        env = {},
         **kwargs):
     """
     Wraps cc_test.
@@ -106,5 +107,8 @@ def fd_cc_test(
         srcs = srcs,
         copts = fd_copts() + copts,
         linkopts = fd_linkopts() + linkopts,
+        env = dict({
+            "FD_LOG_PATH": "-",
+        }, **env),
         **kwargs
     )
