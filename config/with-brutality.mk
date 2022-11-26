@@ -8,9 +8,6 @@ CPPFLAGS+=            \
   -Wdouble-promotion  \
   -Wformat-security
 
-CFLAGS+=  -std=c17
-CXXFLAGS+=-std=c++17
-
 ifdef FD_USING_CLANG # CLANG specific
 
 CPPFLAGS+=-Wimplicit-fallthrough
@@ -31,4 +28,3 @@ CPPFLAGS+=-Wimplicit-fallthrough=2
 #CPPFLAGS+=-Wsuggest-attribute=format
 
 endif
-

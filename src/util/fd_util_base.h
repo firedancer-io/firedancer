@@ -3,6 +3,22 @@
 
 /* Base development environment */
 
+/* Compiler checks ****************************************************/
+
+#ifdef __cplusplus
+
+#if __cplusplus<201103L
+#error "Firedancer requires C++17 or later"
+#endif
+
+#else
+
+#if __STDC_VERSION__<201112L
+#error "Firedancer requires C Standard version C11 or later"
+#endif
+
+#endif //__cplusplus
+
 /* Versioning macros **************************************************/
 
 /* FD_VERSION_{MAJOR,MINOR,PATCH} programmatically specify the
@@ -269,8 +285,11 @@ __extension__ typedef unsigned __int128 uint128;
    it aborts the compile with an error.  err itself should be a token
    (e.g. not a string, no whitespace, etc). */
 
-#define FD_STATIC_ASSERT(c,err) \
-typedef char FD_EXPAND_THEN_CONCAT4(static_assert_failed_at_line_,__LINE__,_with_error_,err)[ (2*!!(c))-1 ]
+#ifdef __cplusplus
+#define FD_STATIC_ASSERT(c,err) static_assert(c, #err)
+#else
+#define FD_STATIC_ASSERT(c,err) _Static_assert(c, #err)
+#endif
 
 /* FD_ADDRESS_OF_PACKED_MEMBER(x):  Linguistically does &(x) but without
    recent compiler complaints that &x might be unaligned if x is a
@@ -472,7 +491,7 @@ fd_type_pun_const( void const * p ) {
 #define FD_ATOMIC_AND_AND_FETCH(p,v) __sync_and_and_fetch( (p), (v) )
 #define FD_ATOMIC_XOR_AND_FETCH(p,v) __sync_xor_and_fetch( (p), (v) )
 
-/* FD_ATOMIC_CAS(p,c,s): 
+/* FD_ATOMIC_CAS(p,c,s):
 
    o = FD_ATOMIC_CAS(p,c,s) conceptually does:
      o = *p;
@@ -732,4 +751,3 @@ fd_yield( void );
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_util_fd_util_base_h */
-

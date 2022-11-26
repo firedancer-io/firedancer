@@ -1,9 +1,9 @@
 SHELL:=/bin/sh
 CPPFLAGS:=
 CC:=gcc
-CFLAGS:=
+CFLAGS:=-std=c17
 CXX:=g++
-CXXFLAGS:=
+CXXFLAGS:=-std=c++17
 LD:=g++
 LDFLAGS:=-lm
 AR:=ar
@@ -16,4 +16,3 @@ RMDIR:=rm -rfv
 SED:=sed
 FIND:=find
 SCRUB:=$(FIND) . -type f -name "*~" -o -name "\#*" | xargs $(RM)
-
