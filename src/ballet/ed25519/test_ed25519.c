@@ -355,7 +355,9 @@ test_fe_if( fd_rng_t * rng ) {
   for( ulong rem=100000UL; rem; rem-- ) {
     fe ref_f; fe ref_g; fe ref_h;
     c = (int)(fd_rng_uint( rng ) & 1U);
-    fd_memcpy( ref_h, ref_g, sizeof(fe) ); fe_cmov( ref_h, fe_rng( ref_f, rng ), (uint)c );
+    fe_rng( ref_f, rng );
+    fe_rng( ref_g, rng );
+    fd_memcpy( ref_h, ref_g, sizeof(fe) ); fe_cmov( ref_h, ref_f, (uint)c );
     fd_memcpy( f, ref_f, sizeof(fe) );
     fd_memcpy( g, ref_g, sizeof(fe) );
     FD_TEST( fd_ed25519_fe_if( h, c, f, g )==h );
