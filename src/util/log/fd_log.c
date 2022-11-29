@@ -914,8 +914,7 @@ fd_log_private_boot( int  *   pargc,
     if( FD_UNLIKELY( fd==-1 ) ) fprintf( stderr, "open( \"/dev/null\", O_WRONLY | O_APPEND ) failed; attempting to continue\n" );
     else {
       backtrace_symbols_fd( btrace, btrace_cnt, fd );
-      int err = close( fd );
-      if( FD_UNLIKELY( err ) )
+      if( FD_UNLIKELY( close( fd ) ) )
         fprintf( stderr, "close( \"/dev/null\" ) failed (%i-%s); attempting to continue\n", errno, strerror( errno ) );
     }
 
@@ -1032,8 +1031,15 @@ void
 fd_log_private_halt( void ) {
   FD_LOG_INFO(( "fd_log: halting" ));
 
-  fd_log_flush();
+# if !FD_LOG_FFLUSH_LOG_FILE
+  FILE * log_file = FD_VOLATILE_CONST( fd_log_private_file );
+# endif
+
   fd_log_private_cleanup();
+
+# if !FD_LOG_FFLUSH_LOG_FILE
+  if( log_file && log_file!=stdout ) fclose( log_file );
+# endif
 
   /* At this point, log is offline */
 
