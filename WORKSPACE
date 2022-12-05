@@ -130,3 +130,59 @@ http_archive(
     strip_prefix = "numactl-2.0.15",
     url = "https://github.com/numactl/numactl/archive/refs/tags/v2.0.15.tar.gz",
 )
+
+################################################################################
+# Wireshark plugin dependencies (optional)                                     #
+################################################################################
+
+# Source GLib headers from local distribution.
+#
+# We generally try to avoid sourcing local files, as those break deterministic builds.
+# However, GLib uses the Meson/Ninja build system which we cannot easily import from Bazel.
+#
+# GLib is currently only used for Wireshark support, making this workaround acceptable.
+new_local_repository(
+    name = "glib_includes",
+    build_file_content = """
+cc_library(
+    name = "glib_includes",
+    hdrs = glob(["**/*.h"]),
+    includes = ["."],
+    visibility = ["//visibility:public"],
+    deps = ["@glib_lib64_config"],
+)
+""",
+    path = "/usr/include/glib-2.0",
+)
+
+# Ancillary repo for the system-specific GLib header.
+# It simply exports the "/usr/lib64/glib-2.0/include/glibconfig.h" as a system include.
+new_local_repository(
+    name = "glib_lib64_config",
+    build_file_content = """
+cc_library(
+    name = "glib_lib64_config",
+    hdrs = ["glibconfig.h"],
+    includes = ["."],
+    visibility = ["//visibility:public"],
+)
+""",
+    path = "/usr/lib64/glib-2.0/include",
+)
+
+# Fetch Wireshark headers
+http_archive(
+    name = "wireshark",
+    build_file_content = """
+cc_library(
+    name = "includes",
+    hdrs = glob(["**/*.h"]),
+    includes = ["."],
+    visibility = ["//visibility:public"],
+    deps = ["@glib_includes"],
+)
+""",
+    sha256 = "d499d050fdd7f3d55238d63610ffa87df2a52d8c3f1c84cb181f6f79f836e9a2",
+    strip_prefix = "wireshark-v3.6.9",
+    url = "https://gitlab.com/wireshark/wireshark/-/archive/v3.6.9/wireshark-v3.6.9.tar.gz",
+)
