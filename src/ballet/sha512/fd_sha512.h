@@ -25,11 +25,15 @@
 
 #define FD_SHA512_HASH_SZ (64UL)
 
+/* FD_SHA512_BUF_MAX is the size of the internal hash buffer. */
+
+#define FD_SHA512_BUF_MAX (128UL)
+
 struct __attribute__((aligned(FD_SHA512_ALIGN))) fd_sha512_private {
 
   /* This point is 128-byte aligned */
 
-  uchar buf[128]; /* Buffered message bytes (these have not been added to the hash yet), indexed [0,buf_used) */
+  uchar buf[FD_SHA512_BUF_MAX]; /* Buffered message bytes (these have not been added to the hash yet), indexed [0,buf_used) */
 
   /* This point is 128-byte aligned */
 
@@ -64,7 +68,7 @@ FD_PROTOTYPES_BEGIN
    shmem points on the caller to the first byte of the memory region
    owned by the caller to use.  Returns shmem on success and NULL on
    failure (logs details).  The memory region will be owned by the state
-   on successful return.  The caller is not joined on return. 
+   on successful return.  The caller is not joined on return.
 
    fd_sha512_join joins the caller to a sha512 calculation state.
    Assumes shsha points to the first byte of the memory region holding
@@ -121,7 +125,7 @@ fd_sha512_init( fd_sha512_t * sha );
    be unmodified while this is running with no interest retained after
    return ... data==NULL is fine if sz==0).  Returns sha (on return, sha
    will have the updated state of the in-progress calculation).
-   
+
    It does not matter how the user group data bytes for a sha512
    calculation; the final hash will be identical.  It is preferable for
    performance to try to append as many bytes as possible as a time
