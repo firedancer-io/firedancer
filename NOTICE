@@ -50,6 +50,9 @@ From https://github.com/aappleby/smhasher/blob/master/src/MurmurHash3.cpp#L2
 
 =======================================================================
 
+The sha256 implementation in src/ballet/sha256 is currently a modified
+implementation of the OpenSSL 3.0.7.
+
 The sha512 implementation in src/ballet/sha512 is currently a modified
 implementation of the OpenSSL sha512 implementation circa 2022-Oct.
 From
