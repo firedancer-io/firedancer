@@ -5,13 +5,8 @@ load("@bazel_skylib//lib:selects.bzl", "selects")
 # --------------------------------
 
 config_setting(
-    name = "brutality_1",
-    flag_values = {"//:brutality": "1"},
-)
-
-config_setting(
-    name = "brutality_2",
-    flag_values = {"//:brutality": "2"},
+    name = "brutality",
+    flag_values = {"//:brutality": "True"},
 )
 
 config_setting(

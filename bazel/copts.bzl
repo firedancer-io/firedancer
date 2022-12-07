@@ -4,8 +4,20 @@ Defines project wide flags.
 
 # base: Always enabled flags
 copts_base = [
+    "-Werror",
+    "-Wall",
+    "-Wextra",
+    "-Wpedantic",
+    "-Wconversion",
+    "-Wdouble-promotion",
+    "-Wformat-security",
+    "-Wstrict-aliasing=2",
+    "-Wimplicit-fallthrough=2",
+
+    # Disable false positives
     "-Wno-misleading-indentation",
     "-Wno-ignored-attributes",
+    "-Wno-overlength-strings",
 ]
 linkopts_base = []
 
@@ -19,18 +31,7 @@ linkopts_dbg = [
 ]
 
 # brutality: Aggressive compiler checks
-copts_brutality_1 = [
-    "-Werror",
-    "-Wall",
-    "-Wextra",
-    "-Wpedantic",
-    "-Wstrict-aliasing=2",
-    "-Wimplicit-fallthrough=2",
-    "-Wconversion",
-    "-Wdouble-promotion",
-    "-Wformat-security",
-]
-copts_brutality_2 = [
+copts_brutality = [
     "-Winline",
     "-Wsuggest-attribute=pure",
     "-Wsuggest-attribute=const",
@@ -95,8 +96,7 @@ def fd_copts():
         "//src:opt_build": copts_opt,
         "//conditions:default": [],
     }) + select({
-        "//src:brutality_1": copts_brutality_1,
-        "//src:brutality_2": copts_brutality_1 + copts_brutality_2,
+        "//src:brutality": copts_brutality,
         "//conditions:default": [],
     }) + select({
         "@platforms//cpu:x86_64": copts_x86_64,

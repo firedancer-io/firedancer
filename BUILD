@@ -1,4 +1,4 @@
-load("@bazel_skylib//rules:common_settings.bzl", "bool_flag", "int_flag")
+load("@bazel_skylib//rules:common_settings.bzl", "bool_flag")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -28,9 +28,9 @@ platform(
 # Flags
 # --------------------------------
 
-int_flag(
+bool_flag(
     name = "brutality",
-    build_setting_default = 0,
+    build_setting_default = False,
 )
 
 bool_flag(
