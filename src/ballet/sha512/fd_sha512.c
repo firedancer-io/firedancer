@@ -232,6 +232,7 @@ fd_sha512_core_ref( ulong *       state,        /* 64-byte aligned, 8 entries */
 
 #elif FD_SHA512_CORE_IMPL==1
 
+__attribute__((sysv_abi))
 void
 fd_sha512_core_avx2( ulong *       state,       /* 64-byte aligned, 8 entries */
                      uchar const * block,       /* ideally 128-byte aligned (but not required), 128*block_cnt in size */
