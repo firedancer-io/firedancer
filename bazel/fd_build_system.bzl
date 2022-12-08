@@ -67,6 +67,7 @@ def fd_cc_library(
         name,
         copts = [],
         linkopts = [],
+        linkstatic = True,
         **kwargs):
     """
     Wraps cc_library.
@@ -80,6 +81,7 @@ def fd_cc_library(
         name = name,
         copts = fd_copts() + copts,
         linkopts = fd_linkopts() + linkopts,
+        linkstatic = linkstatic,
         **kwargs
     )
 
