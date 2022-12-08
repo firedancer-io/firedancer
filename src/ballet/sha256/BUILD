@@ -6,10 +6,12 @@ fd_cc_library(
     name = "sha256",
     srcs = [
         "fd_sha256.c",
+        "fd_sha256_mb_avx2.S",
     ],
     hdrs = [
         "fd_sha256.h",
     ],
+    linkstatic = True,
     deps = [
         "//src/ballet:base_lib",
     ],
