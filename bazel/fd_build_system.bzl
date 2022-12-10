@@ -111,6 +111,7 @@ def fd_cc_test(
         linkopts = fd_linkopts() + linkopts,
         env = dict({
             "FD_LOG_PATH": "-",
+            "FD_LOG_LEVEL_STDERR": "7",
         }, **env),
         **kwargs
     )
