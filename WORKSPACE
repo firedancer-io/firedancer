@@ -177,12 +177,15 @@ http_archive(
 cc_library(
     name = "includes",
     hdrs = glob(["**/*.h"]),
-    includes = ["."],
+    includes = [".", "include"],
     visibility = ["//visibility:public"],
-    deps = ["@glib_includes"],
+    deps = [
+        "@//third_party/wireshark_gen:includes",
+        "@glib_includes",
+    ],
 )
 """,
-    sha256 = "d499d050fdd7f3d55238d63610ffa87df2a52d8c3f1c84cb181f6f79f836e9a2",
-    strip_prefix = "wireshark-v3.6.9",
-    url = "https://gitlab.com/wireshark/wireshark/-/archive/v3.6.9/wireshark-v3.6.9.tar.gz",
+    sha256 = "425c0454734dfb74ac3b384689a3c9c99077fbce2b52b9794165b9cc965d8301",
+    strip_prefix = "wireshark-v4.0.2",
+    url = "https://gitlab.com/wireshark/wireshark/-/archive/v4.0.2/wireshark-v4.0.2.tar.gz",
 )
