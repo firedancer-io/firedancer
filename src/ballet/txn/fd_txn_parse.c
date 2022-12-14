@@ -64,8 +64,8 @@ fd_txn_parse( uchar const             * payload,
       ulong _where = (where);                                               \
       ulong _out_sz = fd_cu16_dec_sz( payload+_where, payload_sz-_where );  \
       CHECK( _out_sz );                                                     \
-      var_name = fd_cu16_dec_fixed( payload+_where, _out_sz );              \
-      out_sz = _out_sz;                                                     \
+      (var_name) = fd_cu16_dec_fixed( payload+_where, _out_sz );            \
+      (out_sz)   = _out_sz;                                                 \
     } while( 0 )
 
   /* Minimal instr has 1B for program id, 1B acct_addr list, 1B for no data */
@@ -188,12 +188,15 @@ fd_txn_parse( uchar const             * payload,
   /* Check for leftover bytes */
   CHECK( i==payload_sz );
 
-  CHECK( acct_addr_cnt+addr_table_adtl_cnt<=256UL ); /* implies addr_table_adtl_cnt<256 */
+  CHECK( acct_addr_cnt+addr_table_adtl_cnt<=FD_TXN_ACCT_ADDR_MAX ); /* implies addr_table_adtl_cnt<256 */
 
 
   /* Final validation that all the account address indices are in range */
   for( ulong j=0; j<instr_cnt; j++ ) {
-    /* Account 0 is the fee payer and the program can't be the fee payer */
+    /* Account 0 is the fee payer and the program can't be the fee payer. 
+       The fee payer account must be owned by the system program, but the
+       program must be an executable account and the system program is not
+       permitted to own any executable account. */
     CHECK( (0 < parsed->instr[ j ].program_id) & (parsed->instr[ j ].program_id < acct_addr_cnt + addr_table_adtl_cnt) );
     for( ulong k=0; k<parsed->instr[ j ].acct_cnt; k++ ) {
       CHECK( payload[ parsed->instr[ j ].acct_off + k ] < acct_addr_cnt + addr_table_adtl_cnt );
