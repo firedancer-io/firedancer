@@ -47,3 +47,12 @@ bool_flag(
     name = "threads",
     build_setting_default = True,
 )
+
+# --------------------------------
+# Tools
+# --------------------------------
+
+py_binary(
+    name = "contrib/cavp_generate",
+    srcs = [":contrib/cavp_generate.py"],
+)
