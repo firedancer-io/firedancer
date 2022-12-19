@@ -12,6 +12,8 @@ fd_cc_library(
         "fd_set_dynamic.c",
         "fd_smallset.c",
         "fd_sort.c",
+        "fd_deque.c",
+        "fd_deque_dynamic.c",
     ],
 )
 
@@ -54,5 +56,16 @@ fd_cc_test(
 fd_cc_test(
     size = "medium",
     srcs = ["test_sort.c"],
+    deps = ["//src/util"],
+)
+fd_cc_test(
+    size = "small",
+    srcs = ["test_deque_dynamic.c"],
+    deps = ["//src/util"],
+)
+
+fd_cc_test(
+    size = "small",
+    srcs = ["test_deque.c"],
     deps = ["//src/util"],
 )
