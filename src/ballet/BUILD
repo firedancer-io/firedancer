@@ -21,6 +21,7 @@ fd_cc_library(
         ":base_lib",
         "//src/ballet/bmtree",
         "//src/ballet/ed25519",
+        "//src/ballet/pack",
         "//src/ballet/poh",
         "//src/ballet/sha256",
         "//src/ballet/sha512",
