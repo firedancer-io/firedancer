@@ -1,9 +1,11 @@
 workspace(name = "firedancer")
 
-# Bazel system loads
 load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
 
-# Common useful functions and rules for Bazel
+################################################################################
+# Bazel Skylib                                                                 #
+################################################################################
+
 http_archive(
     name = "bazel_skylib",
     sha256 = "f7be3474d42aae265405a592bb7da8e171919d74c16f082a5457840f06054728",
@@ -13,28 +15,32 @@ http_archive(
     ],
 )
 
-# Bazel dependency loads
 load("@bazel_skylib//:workspace.bzl", "bazel_skylib_workspace")
 
 bazel_skylib_workspace()
 
-# libFuzzer support
+################################################################################
+# Python                                                                       #
+################################################################################
+
 http_archive(
-    name = "rules_fuzzing",
-    sha256 = "d9002dd3cd6437017f08593124fdd1b13b3473c7b929ceb0e60d317cb9346118",
-    strip_prefix = "rules_fuzzing-0.3.2",
-    urls = ["https://github.com/bazelbuild/rules_fuzzing/archive/v0.3.2.zip"],
+    name = "rules_python",
+    sha256 = "497ca47374f48c8b067d786b512ac10a276211810f4a580178ee9b9ad139323a",
+    strip_prefix = "rules_python-0.16.1",
+    url = "https://github.com/bazelbuild/rules_python/archive/refs/tags/0.16.1.tar.gz",
 )
 
-load("@rules_fuzzing//fuzzing:repositories.bzl", "rules_fuzzing_dependencies")
+load("@rules_python//python:repositories.bzl", "python_register_toolchains")
 
-rules_fuzzing_dependencies()
+python_register_toolchains(
+    name = "python3_10",
+    python_version = "3.10",
+)
 
-load("@rules_fuzzing//fuzzing:init.bzl", "rules_fuzzing_init")
+################################################################################
+# Foreign C/C++ build systems                                                  #
+################################################################################
 
-rules_fuzzing_init()
-
-# Foreign C/C++ support
 http_archive(
     name = "rules_foreign_cc",
     sha256 = "2a4d07cd64b0719b39a7c12218a3e507672b82a97b98c6a89d38565894cf7c51",
@@ -46,38 +52,38 @@ load("@rules_foreign_cc//foreign_cc:repositories.bzl", "rules_foreign_cc_depende
 
 rules_foreign_cc_dependencies()
 
-# Rustc support
+################################################################################
+# Fuzzing                                                                      #
+################################################################################
+
 http_archive(
-    name = "rules_rust",
-    sha256 = "0cc7e6b39e492710b819e00d48f2210ae626b717a3ab96e048c43ab57e61d204",
-    urls = [
-        "https://mirror.bazel.build/github.com/bazelbuild/rules_rust/releases/download/0.10.0/rules_rust-v0.10.0.tar.gz",
-        "https://github.com/bazelbuild/rules_rust/releases/download/0.10.0/rules_rust-v0.10.0.tar.gz",
-    ],
+    name = "rules_fuzzing",
+    sha256 = "d9002dd3cd6437017f08593124fdd1b13b3473c7b929ceb0e60d317cb9346118",
+    strip_prefix = "rules_fuzzing-0.3.2",
+    urls = ["https://github.com/bazelbuild/rules_fuzzing/archive/v0.3.2.zip"],
 )
 
-load("@rules_rust//rust:repositories.bzl", "rules_rust_dependencies", "rust_register_toolchains")
+load("@rules_fuzzing//fuzzing:repositories.bzl", "rules_fuzzing_dependencies")
 
-rules_rust_dependencies()
+rules_fuzzing_dependencies()
 
-# Make sure to keep this synced to Solana upstream.
-# See: ./labs/solana/ci/rust-version.sh
-rust_register_toolchains(
-    edition = "2021",
-    version = "1.63.0",
+load("@python3_10//:defs.bzl", python_interpreter = "interpreter")
+load("@rules_python//python:pip.bzl", "pip_parse")
+
+pip_parse(
+    name = "fuzzing_py_deps",
+    extra_pip_args = ["--require-hashes"],
+    python_interpreter_target = python_interpreter,
+    requirements_lock = "@rules_fuzzing//fuzzing:requirements.txt",
 )
 
-# Import cargo-raze generated crate targets.
-load("//labs/cargo:crates.bzl", "raze_fetch_remote_crates")
+load("@fuzzing_py_deps//:requirements.bzl", install_python_fuzzing_deps = "install_deps")
 
-raze_fetch_remote_crates()
+install_python_fuzzing_deps()
 
-# Define Solana as source-only repository.
-new_local_repository(
-    name = "solana",
-    build_file = "./third_party/solana.BUILD",
-    path = "./third_party/solana",
-)
+################################################################################
+# GNU Compiler Collection                                                      #
+################################################################################
 
 # Import GCC toolchain.
 http_archive(
@@ -88,10 +94,9 @@ http_archive(
 )
 
 load("@aspect_gcc_toolchain//toolchain:repositories.bzl", "gcc_toolchain_dependencies")
+load("@aspect_gcc_toolchain//toolchain:defs.bzl", "gcc_register_toolchain")
 
 gcc_toolchain_dependencies()
-
-load("@aspect_gcc_toolchain//toolchain:defs.bzl", "gcc_register_toolchain")
 
 # GCC 11.3.0
 gcc_register_toolchain(
@@ -103,13 +108,15 @@ gcc_register_toolchain(
     url = "https://toolchains.bootlin.com/downloads/releases/toolchains/x86-64-v2/tarballs/x86-64-v2--glibc--stable-2022.08-1.tar.bz2",
 )
 
-# Import LLVM toolchain.
+################################################################################
+# LLVM                                                                         #
+################################################################################
+
 http_archive(
     name = "grail_llvm_toolchain",
-    sha256 = "7fa5a8624b1148c36e09c7fa29ef6ee8b83f865219c9c219c9125aac78924758",
-    strip_prefix = "bazel-toolchain-c3131a6894804ee586d059c57ffe8e88d44172e1",
-    # version 0.7.2 plus fixes, including support for RHEL.
-    url = "https://github.com/grailbio/bazel-toolchain/archive/c3131a6894804ee586d059c57ffe8e88d44172e1.zip",
+    sha256 = "06e1421091f153029c070f1ae364f8cb5a61dab20ede97a844a0f7bfcec632a4",
+    strip_prefix = "bazel-toolchain-0.8",
+    url = "https://github.com/grailbio/bazel-toolchain/archive/refs/tags/0.8.zip",
 )
 
 # LLVM 14.0.0
@@ -122,7 +129,10 @@ llvm_toolchain(
 
 register_toolchains("//bazel/toolchains:x86_64_linux_llvm")
 
-# Fetch libnuma
+################################################################################
+# Core C dependencies                                                          #
+################################################################################
+
 http_archive(
     name = "numa",
     build_file = "@//:third_party/numa.BUILD",
@@ -135,6 +145,15 @@ http_archive(
 # Wireshark plugin dependencies (optional)                                     #
 ################################################################################
 
+# Fetch Wireshark
+http_archive(
+    name = "wireshark",
+    build_file = "//:third_party/wireshark.BUILD",
+    sha256 = "425c0454734dfb74ac3b384689a3c9c99077fbce2b52b9794165b9cc965d8301",
+    strip_prefix = "wireshark-v4.0.2",
+    url = "https://gitlab.com/wireshark/wireshark/-/archive/v4.0.2/wireshark-v4.0.2.tar.gz",
+)
+
 # Source GLib headers from local distribution.
 #
 # We generally try to avoid sourcing local files, as those break deterministic builds.
@@ -143,15 +162,7 @@ http_archive(
 # GLib is currently only used for Wireshark support, making this workaround acceptable.
 new_local_repository(
     name = "glib_includes",
-    build_file_content = """
-cc_library(
-    name = "glib_includes",
-    hdrs = glob(["**/*.h"]),
-    includes = ["."],
-    visibility = ["//visibility:public"],
-    deps = ["@glib_lib64_config"],
-)
-""",
+    build_file = "//:third_party/glib_includes.BUILD",
     path = "/usr/include/glib-2.0",
 )
 
@@ -159,33 +170,6 @@ cc_library(
 # It simply exports the "/usr/lib64/glib-2.0/include/glibconfig.h" as a system include.
 new_local_repository(
     name = "glib_lib64_config",
-    build_file_content = """
-cc_library(
-    name = "glib_lib64_config",
-    hdrs = ["glibconfig.h"],
-    includes = ["."],
-    visibility = ["//visibility:public"],
-)
-""",
+    build_file = "//:third_party/glib_lib64_config.BUILD",
     path = "/usr/lib64/glib-2.0/include",
-)
-
-# Fetch Wireshark headers
-http_archive(
-    name = "wireshark",
-    build_file_content = """
-cc_library(
-    name = "includes",
-    hdrs = glob(["**/*.h"]),
-    includes = [".", "include"],
-    visibility = ["//visibility:public"],
-    deps = [
-        "@//third_party/wireshark_gen:includes",
-        "@glib_includes",
-    ],
-)
-""",
-    sha256 = "425c0454734dfb74ac3b384689a3c9c99077fbce2b52b9794165b9cc965d8301",
-    strip_prefix = "wireshark-v4.0.2",
-    url = "https://gitlab.com/wireshark/wireshark/-/archive/v4.0.2/wireshark-v4.0.2.tar.gz",
 )

@@ -2,6 +2,8 @@
 CPU constraints for the x86_64 arch.
 """
 
+package(default_visibility = ["//visibility:public"])
+
 constraint_setting(name = "cpu")
 
 # Target x86-64-v2 feature level (Intel Nehalem gen).

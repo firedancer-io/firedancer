@@ -75,3 +75,6 @@ coverage --incompatible_strict_action_env=false
 coverage --incompatible_enable_cc_toolchain_resolution=false
 coverage --combined_report=lcov
 coverage --coverage_report_generator=@bazel_tools//tools/test/CoverageOutputGenerator/java/com/google/devtools/coverageoutputgenerator:Main
+coverage --instrumentation_filter=^//src/,!*_test\..*
+coverage --platforms=//:linux_x86_64_gcc
+coverage --instrument_test_targets
