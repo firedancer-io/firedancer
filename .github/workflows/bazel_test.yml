@@ -3,16 +3,63 @@ on:
   push:
     branches:
       - main
+  workflow_dispatch:
 jobs:
-  bazel-build-test:
-    runs-on: ubuntu-latest
+  bazel-test-coverage:
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v3
+
       - uses: bazelbuild/setup-bazelisk@v2
+
       - name: Mount bazel cache
         uses: actions/cache@v3
         with:
           path: "~/.cache/bazel"
           key: bazel-ubuntu-latest
-      - run: bazel build //...
-      - run: bazel test //...
+
+      - name: Build everything
+        run: bazel build //...
+
+      - name: Test with coverage
+        run: bazel coverage --test_output=errors //...
+
+      - name: Create coverage report
+        run: |
+          sudo apt-get install -y lcov
+          genhtml --output coverage-report "$(bazel info output_path)/_coverage/_coverage_report.dat"
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v3
+        with:
+          name: coverage-report
+          path: coverage-report
+
+  publish-coverage:
+    runs-on: ubuntu-22.04
+    needs: [bazel-test-coverage]
+
+    permissions:
+      pages: write     # to deploy to Pages
+      id-token: write  # to verify the deployment originates from an appropriate source
+
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Download coverage report
+        uses: actions/download-artifact@v3
+        with:
+          name: coverage-report
+          path: _site/coverage-report
+
+      - name: Re-package coverage report
+        uses: actions/upload-pages-artifact@v1
+        with:
+          path: _site
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v1
+        if: github.ref == 'refs/heads/main'
