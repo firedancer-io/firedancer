@@ -23,5 +23,6 @@ fd_cc_library(
         "//src/ballet/sha256",
         "//src/ballet/sha512",
         "//src/ballet/shred",
+        "//src/ballet/txn",
     ],
 )
