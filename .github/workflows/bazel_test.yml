@@ -16,10 +16,7 @@ jobs:
         uses: actions/cache@v3
         with:
           path: "~/.cache/bazel"
-          key: bazel-ubuntu-latest
-
-      - name: Build everything
-        run: bazel build //...
+          key: bazel-coverage-ubuntu-2204
 
       - name: Test with coverage
         run: bazel coverage --test_output=errors //...
