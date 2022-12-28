@@ -21,19 +21,20 @@
 
 #define FD_SHA256_MAGIC (0xF17EDA2CE54A2560) /* FIREDANCE SHA256 V0 */
 
-/* FD_SHA256_HASH_SZ is the size of a hash in bytes. */
+/* FD_SHA256_HASH_SZ is the size of a hash in bytes.
+   It is equal to the internal state size of SHA-256 */
 
 #define FD_SHA256_HASH_SZ (32UL)
 
-/* FD_SHA256_BUF_MAX is the size of the internal hash buffer. */
+/* FD_SHA256_BLOCK_SZ is the block size of SHA-256. */
 
-#define FD_SHA256_BUF_MAX (64UL)
+#define FD_SHA256_BLOCK_SZ (64UL)
 
 struct __attribute__((aligned(FD_SHA256_ALIGN))) fd_sha256_private {
 
   /* This point is 128-byte aligned */
 
-  uchar buf[FD_SHA256_BUF_MAX];
+  uchar buf[FD_SHA256_BLOCK_SZ];
 
   /* This point is 64-byte aligned */
 
@@ -42,7 +43,7 @@ struct __attribute__((aligned(FD_SHA256_ALIGN))) fd_sha256_private {
   /* This point is 32-byte aligned */
 
   ulong magic;    /* ==FD_SH256_MAGIC */
-  ulong buf_used; /* Number of buffered bytes, in [0,FD_SHA256_BUF_MAX) */
+  ulong buf_used; /* Number of buffered bytes, in [0,FD_SHA256_BLOCK_SZ) */
   ulong bit_cnt;  /* How many bits have been appended total */
 
   /* Padding to 128-byte here */
@@ -61,6 +62,9 @@ fd_sha256_align( void );
 FD_FN_CONST ulong
 fd_sha256_footprint( void );
 
+// Synchronization functions
+// =========================
+
 void *
 fd_sha256_new( void * shmem );
 
@@ -72,6 +76,9 @@ fd_sha256_leave( fd_sha256_t * sha );
 
 void *
 fd_sha256_delete( void * shsha );
+
+// Simple interface
+// ================
 
 /* fd_sha256_init starts a sha256 calculation.  sha is assumed to be a
    current local join to a sha256 calculation state with no other
@@ -117,6 +124,47 @@ fd_sha256_append( fd_sha256_t * sha,
 void *
 fd_sha256_fini( fd_sha256_t * sha,
                 void *        hash );
+
+// Advanced interface
+// ==================
+
+/* FD_SHA256_INIT_n are the eight 32-bit integers that comprise the initial hash state.
+   Note that the byte order of each integer is reversed (little-endian). */
+
+#define FD_SHA256_INIT_0 (0x6a09e667U)
+#define FD_SHA256_INIT_1 (0xbb67ae85U)
+#define FD_SHA256_INIT_2 (0x3c6ef372U)
+#define FD_SHA256_INIT_3 (0xa54ff53aU)
+#define FD_SHA256_INIT_4 (0x510e527fU)
+#define FD_SHA256_INIT_5 (0x9b05688cU)
+#define FD_SHA256_INIT_6 (0x1f83d9abU)
+#define FD_SHA256_INIT_7 (0x5be0cd19U)
+
+/* fd_sha256_init_state loads the 32 byte initial state value into the given buffer. */
+
+static inline void fd_sha256_init_state( uchar * state ) {
+  uint * s = (uint *)state;
+  s[0] = FD_SHA256_INIT_0;
+  s[1] = FD_SHA256_INIT_1;
+  s[2] = FD_SHA256_INIT_2;
+  s[3] = FD_SHA256_INIT_3;
+  s[4] = FD_SHA256_INIT_4;
+  s[5] = FD_SHA256_INIT_5;
+  s[6] = FD_SHA256_INIT_6;
+  s[7] = FD_SHA256_INIT_7;
+}
+
+/* fd_sha256_core invokes the internal block function of SHA-256 block_cnt times.
+   For each iteration, reads and advances the block ptr by one block and updates state.
+
+   state is a buffer of size FD_SHA256_HASH_SZ.
+   block is a buffer of size FD_SHA256_BLOCK_SZ times block_cnt.
+   The state and block buffers must not overlap. */
+
+void
+fd_sha256_core( uchar       * FD_RESTRICT state,
+                uchar const * FD_RESTRICT block,
+                ulong                     block_cnt );
 
 FD_PROTOTYPES_END
 

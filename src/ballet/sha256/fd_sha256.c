@@ -102,9 +102,9 @@ fd_sha256_delete( void * shsha ) {
     https://github.com/openssl/openssl/blob/openssl-3.0.7/crypto/sha/sha256.c */
 
 static void
-fd_sha256_core_ref( uint *        state,
-                    uchar const * block,
-                    ulong         block_cnt ) {
+fd_sha256_core_ref( uint        * FD_RESTRICT state,
+                    uchar const * FD_RESTRICT block,
+                    ulong                     block_cnt ) {
 
   static uint const K[64] = {
     0x428a2f98UL, 0x71374491UL, 0xb5c0fbcfUL, 0xe9b5dba5UL,
@@ -200,7 +200,19 @@ fd_sha256_core_ref( uint *        state,
 
 }
 
-#define fd_sha256_core fd_sha256_core_ref
+/* Name of internal definition of block function.
+   See fd_sha256_core_ref (reference implementation) for the method signature.
+   block_cnt must be greater than zero. */
+#define fd_sha256_core_ fd_sha256_core_ref
+
+/* Export block function */
+void
+fd_sha256_core( uchar       * FD_RESTRICT state,
+                uchar const * FD_RESTRICT block,
+                ulong                     block_cnt ) {
+  if( FD_UNLIKELY( block_cnt==0UL ) ) return;
+  fd_sha256_core_ref( (uint *)state, block, block_cnt );
+}
 
 fd_sha256_t *
 fd_sha256_init( fd_sha256_t * sha ) {
@@ -248,7 +260,7 @@ fd_sha256_append( fd_sha256_t * sha,
     /* If the append isn't large enough to complete the current block,
        buffer these bytes too and return */
 
-    ulong buf_rem = FD_SHA256_BUF_MAX - buf_used; /* In (0,64) */
+    ulong buf_rem = FD_SHA256_BLOCK_SZ - buf_used; /* In (0,64) */
     if( FD_UNLIKELY( sz < buf_rem ) ) { /* optimize for large append */
       fd_memcpy( buf + buf_used, data, sz );
       sha->buf_used = buf_used + sz;
@@ -263,20 +275,20 @@ fd_sha256_append( fd_sha256_t * sha,
     data += buf_rem;
     sz   -= buf_rem;
 
-    fd_sha256_core( state, buf, 1UL );
+    fd_sha256_core_( state, buf, 1UL );
     sha->buf_used = 0UL;
   }
 
   /* Append the bulk of the data */
 
-  ulong block_cnt = sz / FD_SHA256_BUF_MAX;
-  if( FD_LIKELY( block_cnt ) ) fd_sha256_core( state, data, block_cnt ); /* optimized for large append */
+  ulong block_cnt = sz / FD_SHA256_BLOCK_SZ;
+  if( FD_LIKELY( block_cnt ) ) fd_sha256_core_( state, data, block_cnt ); /* optimized for large append */
 
   /* Buffer any leftover bytes */
 
-  buf_used = sz & (FD_SHA256_BUF_MAX-1); /* In [0,64) */
+  buf_used = sz & (FD_SHA256_BLOCK_SZ-1); /* In [0,64) */
   if( FD_UNLIKELY( buf_used ) ) { /* optimized for well aligned use of append */
-    fd_memcpy( buf, data + (block_cnt*FD_SHA256_BUF_MAX), buf_used );
+    fd_memcpy( buf, data + (block_cnt*FD_SHA256_BLOCK_SZ), buf_used );
     sha->buf_used = buf_used; /* In (0,64) */
   }
 
@@ -303,9 +315,9 @@ fd_sha256_fini( fd_sha256_t * sha,
      the end of the in progress block, clear the rest of the in progress
      block, update the hash and start a new block. */
 
-  if( FD_UNLIKELY( buf_used > (FD_SHA256_BUF_MAX-8) ) ) { /* optimize for well aligned use of append */
-    fd_memset( buf + buf_used, 0, FD_SHA256_BUF_MAX-buf_used );
-    fd_sha256_core( state, buf, 1UL );
+  if( FD_UNLIKELY( buf_used > (FD_SHA256_BLOCK_SZ-8) ) ) { /* optimize for well aligned use of append */
+    fd_memset( buf + buf_used, 0, FD_SHA256_BLOCK_SZ-buf_used );
+    fd_sha256_core_( state, buf, 1UL );
     buf_used = 0UL;
   }
 
@@ -316,10 +328,10 @@ fd_sha256_fini( fd_sha256_t * sha,
   uint bit_cnt_lo = (uint)(bit_cnt);
   uint bit_cnt_hi = (uint)(bit_cnt>>32);
 
-  fd_memset( buf + buf_used, 0, FD_SHA256_BUF_MAX-8-buf_used );
-  *((uint *)(buf+FD_SHA256_BUF_MAX-8)) = fd_uint_bswap( bit_cnt_hi );
-  *((uint *)(buf+FD_SHA256_BUF_MAX-4)) = fd_uint_bswap( bit_cnt_lo );
-  fd_sha256_core( state, buf, 1UL );
+  fd_memset( buf + buf_used, 0, FD_SHA256_BLOCK_SZ-8-buf_used );
+  *((uint *)(buf+FD_SHA256_BLOCK_SZ-8)) = fd_uint_bswap( bit_cnt_hi );
+  *((uint *)(buf+FD_SHA256_BLOCK_SZ-4)) = fd_uint_bswap( bit_cnt_lo );
+  fd_sha256_core_( state, buf, 1UL );
 
   /* Unpack the result into md (annoying bswaps here) */
 
