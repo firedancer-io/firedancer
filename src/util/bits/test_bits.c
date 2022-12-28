@@ -151,6 +151,9 @@ main( int     argc,
       FD_TEST( fd_uchar_max  ( x, y    )==((x>y) ? x : y)               );
 
       int n = (int)fd_rng_uint( rng );
+      int s = n & 15;
+      FD_TEST( fd_uchar_shift_left  ( x, s )==((s>7) ? ((uchar)0) : (uchar)(x<<s)) );
+      FD_TEST( fd_uchar_shift_right ( x, s )==((s>7) ? ((uchar)0) : (uchar)(x>>s)) );
       FD_TEST( fd_uchar_rotate_left ( x, n )==(uchar)((x<<(n&7))|(x>>((-n)&7))) );
       FD_TEST( fd_uchar_rotate_right( x, n )==(uchar)((x>>(n&7))|(x<<((-n)&7))) );
     }
@@ -284,6 +287,9 @@ main( int     argc,
       FD_TEST( fd_ushort_max  ( x, y    )==((x>y) ? x : y)               );
 
       int n = (int)fd_rng_uint( rng );
+      int s = n & 31;
+      FD_TEST( fd_ushort_shift_left  ( x, s )==((s>15) ? ((ushort)0) : (ushort)(x<<s)) );
+      FD_TEST( fd_ushort_shift_right ( x, s )==((s>15) ? ((ushort)0) : (ushort)(x>>s)) );
       FD_TEST( fd_ushort_rotate_left ( x, n )==(ushort)((x<<(n&15))|(x>>((-n)&15))) );
       FD_TEST( fd_ushort_rotate_right( x, n )==(ushort)((x>>(n&15))|(x<<((-n)&15))) );
     }
@@ -417,6 +423,9 @@ main( int     argc,
       FD_TEST( fd_uint_max  ( x, y    )==((x>y) ? x : y)               );
 
       int n = (int)y;
+      int s = n & 63;
+      FD_TEST( fd_uint_shift_left  ( x, s )==((s>31) ? 0U : (uint)(x<<s)) );
+      FD_TEST( fd_uint_shift_right ( x, s )==((s>31) ? 0U : (uint)(x>>s)) );
       FD_TEST( fd_uint_rotate_left ( x, n )==((x<<(n&31))|(x>>((-n)&31))) );
       FD_TEST( fd_uint_rotate_right( x, n )==((x>>(n&31))|(x<<((-n)&31))) );
     }
@@ -554,6 +563,9 @@ main( int     argc,
       FD_TEST( fd_ulong_max  ( x, y    )==((x>y) ? x : y)               );
 
       int n = (int)(uint)y;
+      int s = n & 127;
+      FD_TEST( fd_ulong_shift_left  ( x, s )==((s>63) ? 0UL : (ulong)(x<<s)) );
+      FD_TEST( fd_ulong_shift_right ( x, s )==((s>63) ? 0UL : (ulong)(x>>s)) );
       FD_TEST( fd_ulong_rotate_left ( x, n )==((x<<(n&63))|(x>>((-n)&63))) );
       FD_TEST( fd_ulong_rotate_right( x, n )==((x>>(n&63))|(x<<((-n)&63))) );
 
@@ -710,6 +722,9 @@ main( int     argc,
       FD_TEST( fd_uint128_max  ( x, y    )==((x>y) ? x : y)      );
 
       int n = (int)(uint)y;
+      int s = n & 255;
+      FD_TEST( fd_uint128_shift_left  ( x, s )==((s>127) ? (uint128)0 : (uint128)(x<<s)) );
+      FD_TEST( fd_uint128_shift_right ( x, s )==((s>127) ? (uint128)0 : (uint128)(x>>s)) );
       FD_TEST( fd_uint128_rotate_left ( x, n )==((x<<(n&127))|(x>>((-n)&127))) );
       FD_TEST( fd_uint128_rotate_right( x, n )==((x>>(n&127))|(x<<((-n)&127))) );
     }
@@ -742,6 +757,14 @@ main( int     argc,
       FD_TEST( fd_schar_abs( x       )==(uchar)((x<(schar)0) ? ((schar)-x) : x) );
       FD_TEST( fd_schar_min( x, y    )==((x<y) ? x : y)                         );
       FD_TEST( fd_schar_max( x, y    )==((x>y) ? x : y)                         );
+
+      int   n = (int)fd_rng_uint( rng );
+      int   s = n & 15;
+      uchar m = (uchar)-(((uchar)x) >> 7);
+      FD_TEST( fd_schar_shift_left  ( x, s )==(schar)fd_uchar_shift_left  ( (uchar)x, s ) );
+      FD_TEST( fd_schar_shift_right ( x, s )==(schar)(uchar)(fd_uchar_shift_right( (uchar)(((uchar)x) ^ m), s ) ^ m) );
+      FD_TEST( fd_schar_rotate_left ( x, n )==(schar)fd_uchar_rotate_left ( (uchar)x, n ) );
+      FD_TEST( fd_schar_rotate_right( x, n )==(schar)fd_uchar_rotate_right( (uchar)x, n ) );
     }
 
     FD_TEST( fd_schar_zz_enc( (schar)        0 )==(uchar)            0 );
@@ -773,6 +796,14 @@ main( int     argc,
       FD_TEST( fd_short_abs( x       )==(ushort)((x<(short)0) ? ((short)-x) : x) );
       FD_TEST( fd_short_min( x, y    )==((x<y) ? x : y)                          );
       FD_TEST( fd_short_max( x, y    )==((x>y) ? x : y)                          );
+
+      int    n = (int)fd_rng_uint( rng );
+      int    s = n & 31;
+      ushort m = (ushort)-(((ushort)x) >> 15);
+      FD_TEST( fd_short_shift_left  ( x, s )==(short)fd_ushort_shift_left  ( (ushort)x, s ) );
+      FD_TEST( fd_short_shift_right ( x, s )==(short)(ushort)(fd_ushort_shift_right( (ushort)(((ushort)x) ^ m), s ) ^ m) );
+      FD_TEST( fd_short_rotate_left ( x, n )==(short)fd_ushort_rotate_left ( (ushort)x, n ) );
+      FD_TEST( fd_short_rotate_right( x, n )==(short)fd_ushort_rotate_right( (ushort)x, n ) );
     }
 
     FD_TEST( fd_short_zz_enc( (short)        0 )==(ushort)             0 );
@@ -804,6 +835,14 @@ main( int     argc,
       FD_TEST( fd_int_abs( x       )==(uint)((x<(int)0) ? ((int)-x) : x) );
       FD_TEST( fd_int_min( x, y    )==((x<y) ? x : y)                    );
       FD_TEST( fd_int_max( x, y    )==((x>y) ? x : y)                    );
+
+      int  n = (int)fd_rng_uint( rng );
+      int  s = n & 63;
+      uint m = (uint)-(((uint)x) >> 31);
+      FD_TEST( fd_int_shift_left  ( x, s )==(int)fd_uint_shift_left  ( (uint)x, s ) );
+      FD_TEST( fd_int_shift_right ( x, s )==(int)(fd_uint_shift_right( ((uint)x)^m, s )^m) );
+      FD_TEST( fd_int_rotate_left ( x, n )==(int)fd_uint_rotate_left ( (uint)x, n ) );
+      FD_TEST( fd_int_rotate_right( x, n )==(int)fd_uint_rotate_right( (uint)x, n ) );
     }
 
     FD_TEST( fd_int_zz_enc(       0 )==           0U );
@@ -835,6 +874,14 @@ main( int     argc,
       FD_TEST( fd_long_abs( x       )==(ulong)((x<(long)0) ? ((long)-x) : x) );
       FD_TEST( fd_long_min( x, y    )==((x<y) ? x : y)                       );
       FD_TEST( fd_long_max( x, y    )==((x>y) ? x : y)                       );
+
+      int   n = (int)fd_rng_uint( rng );
+      int   s = n & 127;
+      ulong m = (ulong)-(((ulong)x) >> 63);
+      FD_TEST( fd_long_shift_left  ( x, s )==(long)fd_ulong_shift_left  ( (ulong)x, s ) );
+      FD_TEST( fd_long_shift_right ( x, s )==(long)(fd_ulong_shift_right( ((ulong)x)^m, s )^m) );
+      FD_TEST( fd_long_rotate_left ( x, n )==(long)fd_ulong_rotate_left ( (ulong)x, n ) );
+      FD_TEST( fd_long_rotate_right( x, n )==(long)fd_ulong_rotate_right( (ulong)x, n ) );
     }
 
     FD_TEST( fd_long_zz_enc(       0L )==            0UL );
@@ -867,6 +914,14 @@ main( int     argc,
       FD_TEST( fd_int128_abs( x       )==(uint128)((x<(int128)0) ? -x : x) );
       FD_TEST( fd_int128_min( x, y    )==((x<y) ? x : y)                   );
       FD_TEST( fd_int128_max( x, y    )==((x>y) ? x : y)                   );
+
+      int     n = (int)fd_rng_uint( rng );
+      int     s = n & 255;
+      uint128 m = (uint128)-(((uint128)x) >> 127);
+      FD_TEST( fd_int128_shift_left  ( x, s )==(int128)fd_uint128_shift_left  ( (uint128)x, s ) );
+      FD_TEST( fd_int128_shift_right ( x, s )==(int128)(fd_uint128_shift_right( ((uint128)x)^m, s )^m) );
+      FD_TEST( fd_int128_rotate_left ( x, n )==(int128)fd_uint128_rotate_left ( (uint128)x, n ) );
+      FD_TEST( fd_int128_rotate_right( x, n )==(int128)fd_uint128_rotate_right( (uint128)x, n ) );
     }
 
     FD_TEST( fd_int128_zz_enc(  (int128)0 )==              (uint128)0 );

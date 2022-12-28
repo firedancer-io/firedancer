@@ -46,6 +46,8 @@ FD_PROTOTYPES_BEGIN
    fd_ulong_min        ( x, y       ) returns min(x,y)
    fd_ulong_max        ( x, y       ) returns max(x,y)
 
+   fd_ulong_shift_left  ( x, n ) returns x with its bits shifted left n times (n>63 shifts to zero), U.B. if n<0
+   fd_ulong_shift_right ( x, n ) returns x with its bits shifted right n times (n>63 shifts to zero), U.B. if n<0
    fd_ulong_rotate_left ( x, n ) returns x with its bits rotated left n times (negative values rotate right)
    fd_ulong_rotate_right( x, n ) returns x with its bits rotated right n times (negative values rotate left)
 
@@ -58,11 +60,16 @@ FD_PROTOTYPES_BEGIN
    fd_ulong_pow2_up           ( x    ) returns y mod 2^64 where y is the smallest integer power of 2 >= x.
                                        x returns 0 (U.B. behavior or 1 might arguable alternatives here)
 
-   Similarly for uchar,ushort,uint,uint128
+   Similarly for uchar,ushort,uint,uint128.  Note that the signed
+   versions of shift_left, rotate_left, rotate_right operate on the bit
+   pattern of the underlying type directly.  Signed shift_right is sign
+   extending while unsigned shift_right is zero padding (such that if x
+   is negative/non-negative, a large magnitude shift will shift to
+   -1/0).
 
    FIXME: mask_msb, clear_msb, set_msb, flip_msb, extract_msb,
-   insert_msb, bitrev, wide shifts, signed extending shifts, rounding
-   right shift, ... */
+   insert_msb, bitrev, sign, copysign, flipsign, rounding right shift,
+   ... */
 
 #define FD_SRC_UTIL_BITS_FD_BITS_IMPL(T,w)                                                                                        \
 FD_FN_CONST static inline int fd_##T##_is_pow2     ( T x               ) { return (!!x) & (!(x & (x-(T)1)));                    } \
@@ -95,6 +102,8 @@ FD_FN_CONST static inline T   fd_##T##_if          ( int c, T t, T f   ) { retur
 FD_FN_CONST static inline T   fd_##T##_abs         ( T x               ) { return x;                                            } \
 FD_FN_CONST static inline T   fd_##T##_min         ( T x, T y          ) { return (x<y) ? x : y; /* cmov */                     } \
 FD_FN_CONST static inline T   fd_##T##_max         ( T x, T y          ) { return (x>y) ? x : y; /* cmov */                     } \
+FD_FN_CONST static inline T   fd_##T##_shift_left  ( T x, int n        ) { return (T)(((n>(w-1)) ? ((T)0) : x) << (n&(w-1)));   } \
+FD_FN_CONST static inline T   fd_##T##_shift_right ( T x, int n        ) { return (T)(((n>(w-1)) ? ((T)0) : x) >> (n&(w-1)));   } \
 FD_FN_CONST static inline T   fd_##T##_rotate_left ( T x, int n        ) { return (T)((x << (n&(w-1))) | (x >> ((-n)&(w-1))));  } \
 FD_FN_CONST static inline T   fd_##T##_rotate_right( T x, int n        ) { return (T)((x >> (n&(w-1))) | (x << ((-n)&(w-1))));  }
 
@@ -204,58 +213,55 @@ fd_uint128_pow2_up( uint128 x ) {
 }
 #endif
 
-#define FD_SRC_UTIL_BITS_FD_BITS_IMPL(T,w)                                                        \
-FD_FN_CONST static inline T fd_##T##_if ( int c, T t, T f ) { return c ? t : f;      /* cmov */ } \
-FD_FN_CONST static inline T fd_##T##_min( T x, T y        ) { return (x<=y) ? x : y; /* cmov */ } \
-FD_FN_CONST static inline T fd_##T##_max( T x, T y        ) { return (x>=y) ? x : y; /* cmov */ }
+/* Brokeness of indeterminant char sign strikes again ... sigh.  We
+   explicitly provide the unsigned variant of the token to these
+   macros because the uchar token is not related to the schar token
+   by simply prepending u to schar. */
 
-FD_SRC_UTIL_BITS_FD_BITS_IMPL(schar,   8)
-FD_SRC_UTIL_BITS_FD_BITS_IMPL(short,  16)
-FD_SRC_UTIL_BITS_FD_BITS_IMPL(int,    32)
-FD_SRC_UTIL_BITS_FD_BITS_IMPL(long,   64)
+/* Note: the implementations of abs and right_shift below do not exploit
+   the sign extending right shift behavior specified by the machine
+   model (and thus can be used safely in more general machine models)
+   but are slightly more expensive.
 
+   FD_FN_CONST static inline UT fd_##T##_abs( T x ) { UT u = (UT)x; UT m = (UT)-(u>>(w-1)); return (UT)((u+m)^m); }
+
+   FD_FN_CONST static inline T
+   fd_##T##_shift_right( T   x,
+                         int n ) {
+     UT u = (UT)x;
+     UT m = (UT)-(u >> (w-1));
+     return (T)(fd_##UT##_shift_right( u ^ m, n ) ^ m);
+   }
+*/
+
+#define FD_SRC_UTIL_BITS_FD_BITS_IMPL(T,UT,w)                                                                                  \
+FD_FN_CONST static inline T  fd_##T##_if          ( int c, T t, T f ) { return c ? t : f;      /* cmov */ }                    \
+FD_FN_CONST static inline UT fd_##T##_abs         ( T x             ) { UT m = (UT)(x >> (w-1)); return (UT)((((UT)x)+m)^m); } \
+FD_FN_CONST static inline T  fd_##T##_min         ( T x, T y        ) { return (x<=y) ? x : y; /* cmov */ }                    \
+FD_FN_CONST static inline T  fd_##T##_max         ( T x, T y        ) { return (x>=y) ? x : y; /* cmov */ }                    \
+FD_FN_CONST static inline T  fd_##T##_shift_left  ( T x, int n      ) { return (T)fd_##UT##_shift_left  ( (UT)x, n ); }        \
+FD_FN_CONST static inline T  fd_##T##_shift_right ( T x, int n      ) { return (T)(x >> ((n>(w-1)) ? (w-1) : n)); /* cmov */ } \
+FD_FN_CONST static inline T  fd_##T##_rotate_left ( T x, int n      ) { return (T)fd_##UT##_rotate_left ( (UT)x, n ); }        \
+FD_FN_CONST static inline T  fd_##T##_rotate_right( T x, int n      ) { return (T)fd_##UT##_rotate_right( (UT)x, n ); }
+
+FD_SRC_UTIL_BITS_FD_BITS_IMPL(schar, uchar,    8)
+FD_SRC_UTIL_BITS_FD_BITS_IMPL(short, ushort,  16)
+FD_SRC_UTIL_BITS_FD_BITS_IMPL(int,   uint,    32)
+FD_SRC_UTIL_BITS_FD_BITS_IMPL(long,  ulong,   64)
 #if FD_HAS_INT128
-FD_SRC_UTIL_BITS_FD_BITS_IMPL(int128,128)
+FD_SRC_UTIL_BITS_FD_BITS_IMPL(int128,uint128,128)
 #endif
 
 #undef FD_SRC_UTIL_BITS_FD_BITS_IMPL
 
 /* Brokeness of indeterminant char sign strikes again ... sigh.  We
    can't provide a char_min/char_max between platforms as they don't
-   necessarily produce the same results.  But it is useful to have a
-   char_if to help with string operations. */
+   necessarily produce the same results.  Likewise, we don't provide a
+   fd_char_abs because it will not produce equivalent results between
+   platforms.  But it is useful to have a char_if to help with making
+   branchless string operation implementations. */
 
 FD_FN_CONST static inline char fd_char_if( int c, char t, char f ) { return c ? t : f; }
-
-/* Brokeness of indeterminant char sign strikes again ... sigh.  The
-   uchar token is not related to the schar token by simply appending u
-   to schar.  We don't provide a fd_char_abs because it will not produce
-   equivalent results between platforms. */
-
-#if 0
-
-FD_FN_CONST static inline uchar  fd_schar_abs( schar x ) { return (uchar )fd_schar_if( x<(schar)0, (schar)-x, x ); }
-FD_FN_CONST static inline ushort fd_short_abs( short x ) { return (ushort)fd_short_if( x<(short)0, (short)-x, x ); }
-FD_FN_CONST static inline uint   fd_int_abs  ( int   x ) { return (uint  )fd_int_if  ( x<(int  )0, (int  )-x, x ); }
-FD_FN_CONST static inline ulong  fd_long_abs ( long  x ) { return (ulong )fd_long_if ( x<(long )0, (long )-x, x ); }
-
-#if FD_HAS_INT128
-FD_FN_CONST static inline uint128 fd_int128_abs( int128 x ) { return (uint128)fd_int128_if( x<(int128)0, (int128)-x, x ); }
-#endif
-
-#else
-
-FD_FN_CONST static inline uint    fd_int_abs   ( int    x ) { int    m = x>>31;  return (uint   )((x+m)^m); }
-FD_FN_CONST static inline ulong   fd_long_abs  ( long   x ) { long   m = x>>63;  return (ulong  )((x+m)^m); }
-
-#if FD_HAS_INT128
-FD_FN_CONST static inline uint128 fd_int128_abs( int128 x ) { int128 m = x>>127; return (uint128)((x+m)^m); }
-#endif
-
-FD_FN_CONST static inline uchar   fd_schar_abs ( schar  x ) { return (uchar )fd_int_abs( (int)x ); }
-FD_FN_CONST static inline ushort  fd_short_abs ( short  x ) { return (ushort)fd_int_abs( (int)x ); }
-
-#endif
 
 /* FIXME: ADD HASHING PAIRS FOR UCHAR AND USHORT? */
 
