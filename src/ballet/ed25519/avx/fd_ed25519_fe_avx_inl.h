@@ -565,8 +565,8 @@
     h##8 = wl_add10( _f0g8, _f1g7_2 , _f2g6   , _f3g5_2 , _f4g4   , _f5g3_2 , _f6g2   , _f7g1_2 , _f8g0   , _f9g9_38 );         \
     h##9 = wl_add10( _f0g9, _f1g8   , _f2g7   , _f3g6   , _f4g5   , _f5g4   , _f6g3   , _f7g2   , _f8g1   , _f9g0    );         \
                                                                                                                                 \
-    wl_t _m38u = wl_bcast( (long)FD_MASK_MSB(38) );                                                                             \
-    wl_t _m39u = wl_bcast( (long)FD_MASK_MSB(39) );                                                                             \
+    wl_t _m38u = wl_bcast( (long)FD_ULONG_MASK_MSB(38) );                                                                       \
+    wl_t _m39u = wl_bcast( (long)FD_ULONG_MASK_MSB(39) );                                                                       \
     wl_t _b24  = wl_bcast( 1L << 24 );                                                                                          \
     wl_t _b25  = wl_bcast( 1L << 25 );                                                                                          \
                                                                                                                                 \
@@ -654,8 +654,8 @@
     h##8 = wl_add6( _f0f8_2, _f1f7_4 , _f2f6_2 , _f3f5_4 , _f4f4   , _f9f9_38 ); h##8 = wl_add( h##8, wl_and( h##8, _m ) );     \
     h##9 = wl_add5( _f0f9_2, _f1f8_2 , _f2f7_2 , _f3f6_2 , _f4f5_2            ); h##9 = wl_add( h##9, wl_and( h##9, _m ) );     \
                                                                                                                                 \
-    wl_t _m38u = wl_bcast( (long)FD_MASK_MSB(38) );                                                                             \
-    wl_t _m39u = wl_bcast( (long)FD_MASK_MSB(39) );                                                                             \
+    wl_t _m38u = wl_bcast( (long)FD_ULONG_MASK_MSB(38) );                                                                       \
+    wl_t _m39u = wl_bcast( (long)FD_ULONG_MASK_MSB(39) );                                                                       \
     wl_t _b24  = wl_bcast( 1L << 24 );                                                                                          \
     wl_t _b25  = wl_bcast( 1L << 25 );                                                                                          \
                                                                                                                                 \
@@ -739,8 +739,8 @@
     h##8 = wl_add6( _f0f8_2, _f1f7_4 , _f2f6_2 , _f3f5_4 , _f4f4   , _f9f9_38 );                                                \
     h##9 = wl_add5( _f0f9_2, _f1f8_2 , _f2f7_2 , _f3f6_2 , _f4f5_2            );                                                \
                                                                                                                                 \
-    wl_t _m38u = wl_bcast( (long)FD_MASK_MSB(38) );                                                                             \
-    wl_t _m39u = wl_bcast( (long)FD_MASK_MSB(39) );                                                                             \
+    wl_t _m38u = wl_bcast( (long)FD_ULONG_MASK_MSB(38) );                                                                       \
+    wl_t _m39u = wl_bcast( (long)FD_ULONG_MASK_MSB(39) );                                                                       \
     wl_t _b24  = wl_bcast( 1L << 24 );                                                                                          \
     wl_t _b25  = wl_bcast( 1L << 25 );                                                                                          \
                                                                                                                                 \

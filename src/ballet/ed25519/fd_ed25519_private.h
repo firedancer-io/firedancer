@@ -3,43 +3,6 @@
 
 #include "fd_ed25519.h"
 
-/* Helpers for writing implementations ********************************/
-
-/* FD_MASK_{LSB,MSB} returns a ulong with the {least,most} n significant
-   bits set. */
-
-#define FD_MASK_LSB(n) ((1UL<<(n))-1UL)
-#define FD_MASK_MSB(n) (~FD_MASK_LSB(64-(n)))
-
-FD_PROTOTYPES_BEGIN
-
-/* load_n loads the n (for n in 1:8) bytes at p into the least
-   significant bytes of a ulong and zero pads the rest of the ulong and
-   returns the result.  load_n_fast is the same but assumes it is safe
-   to tail read a limited number of bytes past n in the buffer. */
-
-FD_FN_PURE static inline ulong fd_load_1( uchar const * p ) { return (ulong)*                p; }
-FD_FN_PURE static inline ulong fd_load_2( uchar const * p ) { return (ulong)*(ushort const *)p; }
-FD_FN_PURE static inline ulong fd_load_4( uchar const * p ) { return (ulong)*(uint   const *)p; }
-FD_FN_PURE static inline ulong fd_load_8( uchar const * p ) { return        *(ulong  const *)p; }
-
-FD_FN_PURE static inline ulong fd_load_3( uchar const * p ) { return fd_load_2( p ) | (fd_load_1( p+2UL )<<16); }
-FD_FN_PURE static inline ulong fd_load_5( uchar const * p ) { return fd_load_4( p ) | (fd_load_1( p+4UL )<<32); }
-FD_FN_PURE static inline ulong fd_load_6( uchar const * p ) { return fd_load_4( p ) | (fd_load_2( p+4UL )<<32); }
-FD_FN_PURE static inline ulong fd_load_7( uchar const * p ) { return fd_load_6( p ) | (fd_load_1( p+6UL )<<48); }
-
-#define fd_load_1_fast fd_load_1 /* No tail read */
-#define fd_load_2_fast fd_load_2 /* No tail read */
-#define fd_load_4_fast fd_load_4 /* No tail read */
-#define fd_load_8_fast fd_load_8 /* No tail read */
-
-FD_FN_PURE static inline ulong fd_load_3_fast( uchar const * p ) { return fd_load_4( p ) & FD_MASK_LSB(24); } /* Tail read 1B */
-FD_FN_PURE static inline ulong fd_load_5_fast( uchar const * p ) { return fd_load_8( p ) & FD_MASK_LSB(40); } /* Tail read 3B */
-FD_FN_PURE static inline ulong fd_load_6_fast( uchar const * p ) { return fd_load_8( p ) & FD_MASK_LSB(48); } /* Tail read 2B */
-FD_FN_PURE static inline ulong fd_load_7_fast( uchar const * p ) { return fd_load_8( p ) & FD_MASK_LSB(56); } /* Tail read 1B */
-
-FD_PROTOTYPES_END
-
 /* Field element API **************************************************/
 
 #ifndef FD_ED25519_FE_IMPL

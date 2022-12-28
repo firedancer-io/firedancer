@@ -6,18 +6,18 @@ fd_ed25519_sc_reduce( uchar *       out,
 
   /* Load the 512 bits to reduce */
 
-  ulong in0 = fd_load_8_fast( in      );
-  ulong in1 = fd_load_8_fast( in +  8 );
-  ulong in2 = fd_load_8_fast( in + 16 );
-  ulong in3 = fd_load_8_fast( in + 24 );
-  ulong in4 = fd_load_8_fast( in + 32 );
-  ulong in5 = fd_load_8_fast( in + 40 );
-  ulong in6 = fd_load_8_fast( in + 48 );
-  ulong in7 = fd_load_8_fast( in + 56 );
+  ulong in0 = fd_ulong_load_8_fast( in      );
+  ulong in1 = fd_ulong_load_8_fast( in +  8 );
+  ulong in2 = fd_ulong_load_8_fast( in + 16 );
+  ulong in3 = fd_ulong_load_8_fast( in + 24 );
+  ulong in4 = fd_ulong_load_8_fast( in + 32 );
+  ulong in5 = fd_ulong_load_8_fast( in + 40 );
+  ulong in6 = fd_ulong_load_8_fast( in + 48 );
+  ulong in7 = fd_ulong_load_8_fast( in + 56 );
 
   /* Unpack into 23 21-bit integers and a 29-bit straggler */
 
-  ulong mask = FD_MASK_LSB( 21 );
+  ulong mask = FD_ULONG_MASK_LSB( 21 );
 
   long s0  = (long)(              in0      & mask); long s1  = (long)((in0>>21) & mask); long s2  = (long)((in0>>42) & mask);
   long s3  = (long)(((in0>>63) | (in1<<1)) & mask); long s4  = (long)((in1>>20) & mask); long s5  = (long)((in1>>41) & mask);
@@ -117,14 +117,14 @@ fd_ed25519_sc_muladd( uchar *       s,
 
   /* Load a, b and c */
 
-  ulong ia0 = fd_load_8( a      ); ulong ib0 = fd_load_8( b      ); ulong ic0 = fd_load_8( c      );
-  ulong ia1 = fd_load_8( a +  8 ); ulong ib1 = fd_load_8( b +  8 ); ulong ic1 = fd_load_8( c +  8 );
-  ulong ia2 = fd_load_8( a + 16 ); ulong ib2 = fd_load_8( b + 16 ); ulong ic2 = fd_load_8( c + 16 );
-  ulong ia3 = fd_load_8( a + 24 ); ulong ib3 = fd_load_8( b + 24 ); ulong ic3 = fd_load_8( c + 24 );
+  ulong ia0 = fd_ulong_load_8( a      ); ulong ib0 = fd_ulong_load_8( b      ); ulong ic0 = fd_ulong_load_8( c      );
+  ulong ia1 = fd_ulong_load_8( a +  8 ); ulong ib1 = fd_ulong_load_8( b +  8 ); ulong ic1 = fd_ulong_load_8( c +  8 );
+  ulong ia2 = fd_ulong_load_8( a + 16 ); ulong ib2 = fd_ulong_load_8( b + 16 ); ulong ic2 = fd_ulong_load_8( c + 16 );
+  ulong ia3 = fd_ulong_load_8( a + 24 ); ulong ib3 = fd_ulong_load_8( b + 24 ); ulong ic3 = fd_ulong_load_8( c + 24 );
 
   /* Unpack each into 11 21-bit integers and a 25-bit straggler */
 
-  ulong mask = FD_MASK_LSB( 21 );
+  ulong mask = FD_ULONG_MASK_LSB( 21 );
 
   long a0  = (long)(              ia0      & mask); long a1  = (long)((ia0>>21) & mask); long a2  = (long)((ia0>>42) & mask);
   long a3  = (long)(((ia0>>63) | (ia1<<1)) & mask); long a4  = (long)((ia1>>20) & mask); long a5  = (long)((ia1>>41) & mask);

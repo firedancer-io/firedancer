@@ -84,7 +84,7 @@ fd_ed25519_fe_1( fd_ed25519_fe_t * h ) {
 FD_FN_UNUSED static fd_ed25519_fe_t * /* Work around -Winline */
 fd_ed25519_fe_rng( fd_ed25519_fe_t * h,
                    fd_rng_t *        rng ) {
-  uint m26 = (uint)FD_MASK_LSB(26); uint m25 = (uint)FD_MASK_LSB(25);
+  uint m26 = (uint)FD_ULONG_MASK_LSB(26); uint m25 = (uint)FD_ULONG_MASK_LSB(25);
   h->limb[0] = (int)(fd_rng_uint( rng ) & m26); h->limb[1] = (int)(fd_rng_uint( rng ) & m25);
   h->limb[2] = (int)(fd_rng_uint( rng ) & m26); h->limb[3] = (int)(fd_rng_uint( rng ) & m25);
   h->limb[4] = (int)(fd_rng_uint( rng ) & m26); h->limb[5] = (int)(fd_rng_uint( rng ) & m25);

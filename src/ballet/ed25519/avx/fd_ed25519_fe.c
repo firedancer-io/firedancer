@@ -12,25 +12,25 @@ fd_ed25519_fe_frombytes( fd_ed25519_fe_t * h,
      INTERMEDIATES BIT LEVEL EXACT TOO).  CHECK FD_LOADS ELSEWHERE TO
      MAKE SURE THIS IS THE CASE IN GENERAL. */
 
-  long h0 = (long)  fd_load_4_fast( s      );
-  long h1 = (long)  fd_load_3_fast( s +  4 ) << 6;
-  long h2 = (long)  fd_load_3_fast( s +  7 ) << 5;
-  long h3 = (long)  fd_load_3_fast( s + 10 ) << 3;
-  long h4 = (long)  fd_load_3_fast( s + 13 ) << 2;
-  long h5 = (long)  fd_load_4_fast( s + 16 );
-  long h6 = (long)  fd_load_3_fast( s + 20 ) << 7;
-  long h7 = (long)  fd_load_3_fast( s + 23 ) << 5;
-  long h8 = (long)  fd_load_3_fast( s + 26 ) << 4;
-  long h9 = (long)((fd_load_3     ( s + 29 ) & 0x7fffffUL) << 2); /* Ignores top bit of h. */
+  long h0 = (long)  fd_ulong_load_4_fast( s      );
+  long h1 = (long)  fd_ulong_load_3_fast( s +  4 ) << 6;
+  long h2 = (long)  fd_ulong_load_3_fast( s +  7 ) << 5;
+  long h3 = (long)  fd_ulong_load_3_fast( s + 10 ) << 3;
+  long h4 = (long)  fd_ulong_load_3_fast( s + 13 ) << 2;
+  long h5 = (long)  fd_ulong_load_4_fast( s + 16 );
+  long h6 = (long)  fd_ulong_load_3_fast( s + 20 ) << 7;
+  long h7 = (long)  fd_ulong_load_3_fast( s + 23 ) << 5;
+  long h8 = (long)  fd_ulong_load_3_fast( s + 26 ) << 4;
+  long h9 = (long)((fd_ulong_load_3     ( s + 29 ) & 0x7fffffUL) << 2); /* Ignores top bit of h. */
 
-  long m39u = (long)FD_MASK_MSB(39);
+  long m39u = (long)FD_ULONG_MASK_MSB(39);
   long carry9 = h9 + (1 << 24); h0 += (carry9 >> 25)*19L; h9 -= carry9 & m39u;
   long carry1 = h1 + (1 << 24); h2 +=  carry1 >> 25;      h1 -= carry1 & m39u;
   long carry3 = h3 + (1 << 24); h4 +=  carry3 >> 25;      h3 -= carry3 & m39u;
   long carry5 = h5 + (1 << 24); h6 +=  carry5 >> 25;      h5 -= carry5 & m39u;
   long carry7 = h7 + (1 << 24); h8 +=  carry7 >> 25;      h7 -= carry7 & m39u;
 
-  long m38u = (long)FD_MASK_MSB(38);
+  long m38u = (long)FD_ULONG_MASK_MSB(38);
   long carry0 = h0 + (1 << 25); h1 +=  carry0 >> 26;      h0 -= carry0 & m38u;
   long carry2 = h2 + (1 << 25); h3 +=  carry2 >> 26;      h2 -= carry2 & m38u;
   long carry4 = h4 + (1 << 25); h5 +=  carry4 >> 26;      h4 -= carry4 & m38u;
@@ -90,8 +90,8 @@ fd_ed25519_fe_tobytes( uchar *                 s,
 
   /* Goal: Output h-2^255 q, which is between 0 and 2^255-20. */
 
-  int m26 = (int)FD_MASK_LSB(26);
-  int m25 = (int)FD_MASK_LSB(25);
+  int m26 = (int)FD_ULONG_MASK_LSB(26);
+  int m25 = (int)FD_ULONG_MASK_LSB(25);
 
   h1 += h0 >> 26; h0 &= m26; h2 += h1 >> 25; h1 &= m25;
   h3 += h2 >> 26; h2 &= m26; h4 += h3 >> 25; h3 &= m25;
@@ -236,8 +236,8 @@ fd_ed25519_fe_mul( fd_ed25519_fe_t *       h,
      |h1| <= (1.65*1.65*2^51*(1+1+19+19+19+19+19+19+19+19))
        i.e. |h1| <= 1.7*2^59; narrower ranges for h3, h5, h7, h9 */
 
-  long m38u = (long)FD_MASK_MSB(38);
-  long m39u = (long)FD_MASK_MSB(39);
+  long m38u = (long)FD_ULONG_MASK_MSB(38);
+  long m39u = (long)FD_ULONG_MASK_MSB(39);
 
   long carry0 = h0 + (1L << 25); h1 += carry0 >> 26; h0 -= carry0 & m38u;
   long carry4 = h4 + (1L << 25); h5 += carry4 >> 26; h4 -= carry4 & m38u;
@@ -362,8 +362,8 @@ fd_ed25519_fe_sq( fd_ed25519_fe_t *       h,
   long h8 = f0f8_2 + f1f7_4  + f2f6_2  + f3f5_4  + f4f4    + f9f9_38;
   long h9 = f0f9_2 + f1f8_2  + f2f7_2  + f3f6_2  + f4f5_2;
 
-  long m38u = (long)FD_MASK_MSB(38);
-  long m39u = (long)FD_MASK_MSB(39);
+  long m38u = (long)FD_ULONG_MASK_MSB(38);
+  long m39u = (long)FD_ULONG_MASK_MSB(39);
 
   long carry0 = h0 + (1 << 25); h1 +=  carry0 >> 26;      h0 -= carry0 & m38u;
   long carry4 = h4 + (1 << 25); h5 +=  carry4 >> 26;      h4 -= carry4 & m38u;
@@ -464,8 +464,8 @@ fd_ed25519_fe_sq2( fd_ed25519_fe_t *       h,
   long h8 = f0f8_2 + f1f7_4  + f2f6_2  + f3f5_4  + f4f4    + f9f9_38; h8 += h8;
   long h9 = f0f9_2 + f1f8_2  + f2f7_2  + f3f6_2  + f4f5_2;            h9 += h9;
 
-  long m38u = (long)FD_MASK_MSB(38);
-  long m39u = (long)FD_MASK_MSB(39);
+  long m38u = (long)FD_ULONG_MASK_MSB(38);
+  long m39u = (long)FD_ULONG_MASK_MSB(39);
 
   long carry0 = h0 + (1 << 25); h1 +=  carry0 >> 26;      h0 -= carry0 & m38u;
   long carry4 = h4 + (1 << 25); h5 +=  carry4 >> 26;      h4 -= carry4 & m38u;

@@ -35,7 +35,7 @@ log_bench( char const * descr,
 static int *
 fe_rng( int *      h,
         fd_rng_t * rng ) {
-  uint m26 = (uint)FD_MASK_LSB(26); uint m25 = (uint)FD_MASK_LSB(25);
+  uint m26 = (uint)FD_ULONG_MASK_LSB(26); uint m25 = (uint)FD_ULONG_MASK_LSB(25);
   h[0] = (int)(fd_rng_uint( rng ) & m26); h[1] = (int)(fd_rng_uint( rng ) & m25);
   h[2] = (int)(fd_rng_uint( rng ) & m26); h[3] = (int)(fd_rng_uint( rng ) & m25);
   h[4] = (int)(fd_rng_uint( rng ) & m26); h[5] = (int)(fd_rng_uint( rng ) & m25);
