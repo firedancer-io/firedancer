@@ -146,6 +146,50 @@ main( int     argc,
   } while(0);
 # endif
 
+  /* Test signed shifts */
+
+  for( ulong iter=0UL; iter<1048576UL; iter++ ) {
+    schar x = (schar)fd_rng_uchar( rng );
+    int   n = (int)(fd_rng_uint( rng ) & 7U);
+    uchar m = (uchar)-(((uchar)x)>>7);
+    FD_TEST( (schar)(x<<n)==(schar)(((uchar)x)<<n) );
+    FD_TEST( (schar)(x>>n)==(schar)(((((uchar)x)^m)>>n)^m) );
+  }
+
+  for( ulong iter=0UL; iter<1048576UL; iter++ ) {
+    short  x = (short)fd_rng_ushort( rng );
+    int    n = (int)(fd_rng_uint( rng ) & 15U);
+    ushort m = (ushort)-(((ushort)x)>>15);
+    FD_TEST( (short)(x<<n)==(short)(((ushort)x)<<n) );
+    FD_TEST( (short)(x>>n)==(short)(((((ushort)x)^m)>>n)^m) );
+  }
+
+  for( ulong iter=0UL; iter<1048576UL; iter++ ) {
+    int  x = (int)fd_rng_uint( rng );
+    int  n = (int)(fd_rng_uint( rng ) & 31U);
+    uint m = -(((uint)x)>>31);
+    FD_TEST( (x<<n)==(int)(((uint)x)<<n)         );
+    FD_TEST( (x>>n)==(int)(((((uint)x)^m)>>n)^m) );
+  }
+
+  for( ulong iter=0UL; iter<1048576UL; iter++ ) {
+    long  x = (long)fd_rng_ulong( rng );
+    int   n = (int)(fd_rng_uint( rng ) & 63U);
+    ulong m = -(((ulong)x)>>63);
+    FD_TEST( (x<<n)==(long)(((ulong)x)<<n)         );
+    FD_TEST( (x>>n)==(long)(((((ulong)x)^m)>>n)^m) );
+  }
+
+# if FD_HAS_INT128
+  for( ulong iter=0UL; iter<1048576UL; iter++ ) {
+    int128  x = (int128)fd_rng_uint128( rng );
+    int     n = (int)(fd_rng_uint( rng ) & 127U);
+    uint128 m = -(((uint128)x)>>127);
+    FD_TEST( (x<<n)==(int128)(((uint128)x)<<n)         );
+    FD_TEST( (x>>n)==(int128)(((((uint128)x)^m)>>n)^m) );
+  }
+# endif
+
   /* Test floating point handling is as expected.  This also has to be
      done run time due to unfortunate language handling around fenv that
      prevents the compiler from verifying these via static assert. */

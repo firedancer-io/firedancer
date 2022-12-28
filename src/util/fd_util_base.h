@@ -207,11 +207,14 @@
    typical build target usage, ..., assumes char / short / int / long
    are 8 / 16 / 32 / 64 twos complement integers and float is IEEE-754
    single precision.  Further assumes little endian, truncating signed
-   integer divison and sign extending (arithmetic) signed right shift.
-   Also, except for int128/uint128, assumes that aligned access to these
-   will be naturally atomic.  Lastly assumes that unaligned access to
-   these is functionally valid but does not assume that unaligned access
-   to these is efficient or atomic.
+   integer divison, sign extending (arithmetic) signed right shift and
+   signed left shift behaves the same as an unsigned left shift from bit
+   operations point of view (technically the standard says signed left
+   shift is undefined if the result would overflow).  Also, except for
+   int128/uint128, assumes that aligned access to these will be
+   naturally atomic.  Lastly assumes that unaligned access to these is
+   functionally valid but does not assume that unaligned access to these
+   is efficient or atomic.
 
    For values meant to be held in registers, code should prefer long /
    ulong types (improves asm generation given the prevalence of 64-bit
