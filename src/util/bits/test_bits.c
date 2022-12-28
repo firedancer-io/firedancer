@@ -151,8 +151,8 @@ main( int     argc,
       FD_TEST( fd_uchar_max  ( x, y    )==((x>y) ? x : y)               );
 
       int n = (int)fd_rng_uint( rng );
-      FD_TEST( fd_uchar_rotate_left ( x, n )==(uchar)((x<<(n&7))|(x>>(8-(n&7)))) );
-      FD_TEST( fd_uchar_rotate_right( x, n )==(uchar)((x>>(n&7))|(x<<(8-(n&7)))) );
+      FD_TEST( fd_uchar_rotate_left ( x, n )==(uchar)((x<<(n&7))|(x>>((-n)&7))) );
+      FD_TEST( fd_uchar_rotate_right( x, n )==(uchar)((x>>(n&7))|(x<<((-n)&7))) );
     }
   }
 
@@ -284,8 +284,8 @@ main( int     argc,
       FD_TEST( fd_ushort_max  ( x, y    )==((x>y) ? x : y)               );
 
       int n = (int)fd_rng_uint( rng );
-      FD_TEST( fd_ushort_rotate_left ( x, n )==(ushort)((x<<(n&15))|(x>>(16-(n&15)))) );
-      FD_TEST( fd_ushort_rotate_right( x, n )==(ushort)((x>>(n&15))|(x<<(16-(n&15)))) );
+      FD_TEST( fd_ushort_rotate_left ( x, n )==(ushort)((x<<(n&15))|(x>>((-n)&15))) );
+      FD_TEST( fd_ushort_rotate_right( x, n )==(ushort)((x>>(n&15))|(x<<((-n)&15))) );
     }
   }
 
@@ -417,8 +417,8 @@ main( int     argc,
       FD_TEST( fd_uint_max  ( x, y    )==((x>y) ? x : y)               );
 
       int n = (int)y;
-      FD_TEST( fd_uint_rotate_left ( x, n )==((x<<(n&31))|(x>>(32-(n&31)))) );
-      FD_TEST( fd_uint_rotate_right( x, n )==((x>>(n&31))|(x<<(32-(n&31)))) );
+      FD_TEST( fd_uint_rotate_left ( x, n )==((x<<(n&31))|(x>>((-n)&31))) );
+      FD_TEST( fd_uint_rotate_right( x, n )==((x>>(n&31))|(x<<((-n)&31))) );
     }
   }
 
@@ -554,8 +554,8 @@ main( int     argc,
       FD_TEST( fd_ulong_max  ( x, y    )==((x>y) ? x : y)               );
 
       int n = (int)(uint)y;
-      FD_TEST( fd_ulong_rotate_left ( x, n )==((x<<(n&63))|(x>>(64-(n&63)))) );
-      FD_TEST( fd_ulong_rotate_right( x, n )==((x>>(n&63))|(x<<(64-(n&63)))) );
+      FD_TEST( fd_ulong_rotate_left ( x, n )==((x<<(n&63))|(x>>((-n)&63))) );
+      FD_TEST( fd_ulong_rotate_right( x, n )==((x>>(n&63))|(x<<((-n)&63))) );
 
       int s0 = (int)(m & 63UL); m >>= 6;
       int s1 = (int)(m & 63UL);
@@ -710,8 +710,8 @@ main( int     argc,
       FD_TEST( fd_uint128_max  ( x, y    )==((x>y) ? x : y)      );
 
       int n = (int)(uint)y;
-      FD_TEST( fd_uint128_rotate_left ( x, n )==((x<<(n&127))|(x>>(128-(n&127)))) );
-      FD_TEST( fd_uint128_rotate_right( x, n )==((x>>(n&127))|(x<<(128-(n&127)))) );
+      FD_TEST( fd_uint128_rotate_left ( x, n )==((x<<(n&127))|(x>>((-n)&127))) );
+      FD_TEST( fd_uint128_rotate_right( x, n )==((x>>(n&127))|(x<<((-n)&127))) );
     }
   }
 # endif
