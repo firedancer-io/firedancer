@@ -1026,6 +1026,31 @@ main( int     argc,
   }
 # endif
 
+  if(1) {
+    FD_LOG_NOTICE(( "Testing unaligned" ));
+
+    uchar buf[2048];
+    for( ulong i=0UL; i<2048UL; i++ ) buf[i] = fd_rng_uchar( rng );
+    for( ulong i=0UL; i<(2048UL-8UL); i++ ) {
+      uchar const * p = buf + i;
+      ulong         ref; memcpy( &ref, p, 8UL );
+      FD_TEST( fd_ulong_load_8( p )==ref ); FD_TEST( fd_ulong_load_8_fast( p )==ref ); p++; ref >>= 8;
+      FD_TEST( fd_ulong_load_7( p )==ref ); FD_TEST( fd_ulong_load_7_fast( p )==ref ); p++; ref >>= 8;
+      FD_TEST( fd_ulong_load_6( p )==ref ); FD_TEST( fd_ulong_load_6_fast( p )==ref ); p++; ref >>= 8;
+      FD_TEST( fd_ulong_load_5( p )==ref ); FD_TEST( fd_ulong_load_5_fast( p )==ref ); p++; ref >>= 8;
+      FD_TEST( fd_ulong_load_4( p )==ref ); FD_TEST( fd_ulong_load_4_fast( p )==ref ); p++; ref >>= 8;
+      FD_TEST( fd_ulong_load_3( p )==ref ); FD_TEST( fd_ulong_load_3_fast( p )==ref ); p++; ref >>= 8;
+      FD_TEST( fd_ulong_load_2( p )==ref ); FD_TEST( fd_ulong_load_2_fast( p )==ref ); p++; ref >>= 8;
+      FD_TEST( fd_ulong_load_1( p )==ref ); FD_TEST( fd_ulong_load_1_fast( p )==ref ); //p++; ref >>= 8;
+    }
+
+    for( ulong i=0UL; i<16777216UL; i++ ) {
+      uchar * p = buf + (fd_rng_uint( rng ) & 1023U);
+      float   f = fd_rng_float_c0 ( rng ); memcpy( p, &f, 4UL ); FD_TEST( fd_float_load ( p )==f );
+      double  d = fd_rng_double_c0( rng ); memcpy( p, &d, 8UL ); FD_TEST( fd_double_load( p )==d );
+    }
+  }
+
   fd_rng_delete( fd_rng_leave( rng ) );
 
   FD_LOG_NOTICE(( "pass" ));

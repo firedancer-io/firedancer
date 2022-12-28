@@ -393,6 +393,102 @@ fd_double_eq( double x,
 }
 #endif
 
+/* FD_ULONG_{MASK_LSB,MASK_MSB,ALIGN_UP} are the same as
+   fd_ulong_{mask_lsb,mask_msb,align_up} but can be used at compile
+   time.  The tradeoff is n/a must be safe against multiple evaluation
+   at compile time.  x should be ulong compatible and n/a should be int
+   compatible. */
+
+#define FD_ULONG_MASK_LSB( n )    ((((ulong)((n)<=63)) << ((n) & 63)) - 1UL)
+#define FD_ULONG_MASK_MSB( n )    (~FD_ULONG_MASK_LSB(64-(n)))
+#define FD_ULONG_ALIGN_UP( x, a ) (((x)+((a)-1UL)) & (~((a)-1UL)))
+
+/* Unaligned access annotations.  fd_ulong_load_n loads the n bytes
+   into the least significant n bytes of a ulong, zeros any remaining
+   bytes and returns the result.  fd_ulong_load_n_fast is the same but
+   assumes it is safe to tail read a couple of bytes past the end for
+   high performance. */
+
+#if 0
+
+/* This implementation does not assume it is safe to access unaligned
+   memory directly (and thus can be used on platforms outside the
+   development environment's machine model) but it does still assume
+   little endian byte ordering.
+
+   It is based on memcpy and, in principle, the compiler should elide
+   the memcpy and replace this with optimized asm on platforms where
+   this is safe (which is virtually all commercially viable platforms as
+   packet processing deal heavily with unaligned accesses and virtually
+   all platforms are near universally networked and networking needs to
+   do packet processing efficiently).  But this fails often enough in
+   practice that this should not be relied upon, especially if
+   performance is important as performance is glacial when the compiler
+   mucks up.  (fd_memcpy is an especially bad idea here because the
+   risk of the compiler mucking it up is much greater.)
+
+   It is also more than little bizarre that this is an encouraged
+   practice nowadays.  That is, practically, we are using a low level
+   language (C/C++) that have language constructs (dereference a
+   pointer to a primitive type) that map directly onto low level
+   hardware operations (asm load operation) that are actually supported
+   by the target hardware here (fine if pointer is not aligned to
+   width of the type).
+
+   But instead of encouraging developers to write short, readable,
+   library-independent code that generates fast and ultra compact asm,
+   they are encouraged to write long, obtuse, library-dependent code
+   that naively would generate slow bloated asm in hopes the compiler
+   will realize can be turned into the simple implementation and turn it
+   back into the developer's original intent and then generate good asm.
+   Hmmm. */
+
+FD_FN_PURE static inline ulong  fd_ulong_load_1     ( void const * p ) { return (ulong)*(uchar const *)p; }
+FD_FN_PURE static inline ulong  fd_ulong_load_2     ( void const * p ) { ushort t;       memcpy( &t, p, 2UL ); return (ulong)t; }
+FD_FN_PURE static inline ulong  fd_ulong_load_3     ( void const * p ) { uint   t = 0UL; memcpy( &t, p, 3UL ); return (ulong)t; }
+FD_FN_PURE static inline ulong  fd_ulong_load_4     ( void const * p ) { uint   t;       memcpy( &t, p, 4UL ); return (ulong)t; }
+FD_FN_PURE static inline ulong  fd_ulong_load_5     ( void const * p ) { ulong  t = 0UL; memcpy( &t, p, 5UL ); return        t; }
+FD_FN_PURE static inline ulong  fd_ulong_load_6     ( void const * p ) { ulong  t = 0UL; memcpy( &t, p, 6UL ); return        t; }
+FD_FN_PURE static inline ulong  fd_ulong_load_7     ( void const * p ) { ulong  t = 0UL; memcpy( &t, p, 7UL ); return        t; }
+FD_FN_PURE static inline ulong  fd_ulong_load_8     ( void const * p ) { ulong  t;       memcpy( &t, p, 8UL ); return        t; }
+
+FD_FN_PURE static inline ulong  fd_ulong_load_1_fast( void const * p ) { return (ulong)*(uchar const *)p; }
+FD_FN_PURE static inline ulong  fd_ulong_load_2_fast( void const * p ) { ushort t; memcpy( &t, p, 2UL ); return ((ulong)t); }
+FD_FN_PURE static inline ulong  fd_ulong_load_3_fast( void const * p ) { uint   t; memcpy( &t, p, 4UL ); return ((ulong)t) & FD_ULONG_MASK_LSB(24); }
+FD_FN_PURE static inline ulong  fd_ulong_load_4_fast( void const * p ) { uint   t; memcpy( &t, p, 4UL ); return ((ulong)t); }
+FD_FN_PURE static inline ulong  fd_ulong_load_5_fast( void const * p ) { ulong  t; memcpy( &t, p, 8UL ); return         t  & FD_ULONG_MASK_LSB(40); }
+FD_FN_PURE static inline ulong  fd_ulong_load_6_fast( void const * p ) { ulong  t; memcpy( &t, p, 8UL ); return         t  & FD_ULONG_MASK_LSB(48); }
+FD_FN_PURE static inline ulong  fd_ulong_load_7_fast( void const * p ) { ulong  t; memcpy( &t, p, 8UL ); return         t  & FD_ULONG_MASK_LSB(56); }
+FD_FN_PURE static inline ulong  fd_ulong_load_8_fast( void const * p ) { ulong  t; memcpy( &t, p, 8UL ); return         t; }
+
+FD_FN_PURE static inline float  fd_float_load       ( void const * p ) { float  t; memcpy( &t, p, 4UL ); return t; }
+FD_FN_PURE static inline double fd_double_load      ( void const * p ) { double t; memcpy( &t, p, 8UL ); return t; }
+
+#else
+
+FD_FN_PURE static inline ulong  fd_ulong_load_1     ( void const * p ) { return ((ulong)*(uchar  const *)p); }
+FD_FN_PURE static inline ulong  fd_ulong_load_2     ( void const * p ) { return ((ulong)*(ushort const *)p); }
+FD_FN_PURE static inline ulong  fd_ulong_load_4     ( void const * p ) { return ((ulong)*(uint   const *)p); }
+FD_FN_PURE static inline ulong  fd_ulong_load_8     ( void const * p ) { return (       *(ulong  const *)p); }
+FD_FN_PURE static inline ulong  fd_ulong_load_3     ( void const * p ) { return fd_ulong_load_2(p) | (fd_ulong_load_1(((uchar const *)p)+2UL)<<16); }
+FD_FN_PURE static inline ulong  fd_ulong_load_5     ( void const * p ) { return fd_ulong_load_4(p) | (fd_ulong_load_1(((uchar const *)p)+4UL)<<32); }
+FD_FN_PURE static inline ulong  fd_ulong_load_6     ( void const * p ) { return fd_ulong_load_4(p) | (fd_ulong_load_2(((uchar const *)p)+4UL)<<32); }
+FD_FN_PURE static inline ulong  fd_ulong_load_7     ( void const * p ) { return fd_ulong_load_6(p) | (fd_ulong_load_1(((uchar const *)p)+6UL)<<48); }
+
+FD_FN_PURE static inline ulong  fd_ulong_load_1_fast( void const * p ) { return ((ulong)*(uchar  const *)p); }
+FD_FN_PURE static inline ulong  fd_ulong_load_2_fast( void const * p ) { return ((ulong)*(ushort const *)p); }
+FD_FN_PURE static inline ulong  fd_ulong_load_4_fast( void const * p ) { return ((ulong)*(uint   const *)p); }
+FD_FN_PURE static inline ulong  fd_ulong_load_8_fast( void const * p ) { return (       *(ulong  const *)p); }
+FD_FN_PURE static inline ulong  fd_ulong_load_3_fast( void const * p ) { return ((ulong)*(uint   const *)p) & FD_ULONG_MASK_LSB(24); } /*Tail read 1B*/
+FD_FN_PURE static inline ulong  fd_ulong_load_5_fast( void const * p ) { return (       *(ulong  const *)p) & FD_ULONG_MASK_LSB(40); } /*Tail read 3B*/
+FD_FN_PURE static inline ulong  fd_ulong_load_6_fast( void const * p ) { return (       *(ulong  const *)p) & FD_ULONG_MASK_LSB(48); } /*Tail read 2B*/
+FD_FN_PURE static inline ulong  fd_ulong_load_7_fast( void const * p ) { return (       *(ulong  const *)p) & FD_ULONG_MASK_LSB(56); } /*Tail read 1B*/
+
+FD_FN_PURE static inline float  fd_float_load       ( void const * p ) { return *(float  const *)p; }
+FD_FN_PURE static inline double fd_double_load      ( void const * p ) { return *(double const *)p; }
+
+#endif
+
 /* fd_ulong_svw_enc_sz returns the number of bytes needed to encode
    x as a symmetric variable width encoded integer.  This is at most
    FD_ULONG_SVW_ENC_MAX (9).  Result will be in {1,2,3,4,5,8,9}. */
@@ -503,13 +599,13 @@ fd_ulong_svw_dec_tail_sz( uchar const * b ) {
 FD_FN_UNUSED static ulong /* Work around -Winline */
 fd_ulong_svw_dec_fixed( uchar const * b,
                         ulong         csz ) {
-  if( FD_LIKELY( csz==1UL ) ) return (((ulong)*          b) >> 1);
-  if( FD_LIKELY( csz==2UL ) ) return (((ulong)*(ushort *)b) >> 3) &              1023UL;
-  if( FD_LIKELY( csz==3UL ) ) return (((ulong)*(ushort *)b) >> 3) | ((((ulong)b[2]) & 0x1fUL) << 13);
-  if( FD_LIKELY( csz==4UL ) ) return (((ulong)*(uint   *)b) >> 4) &          16777215UL;
-  if( FD_LIKELY( csz==5UL ) ) return (((ulong)*(uint   *)b) >> 4) | ((((ulong)b[4]) & 0x0fUL) << 28);
-  if( FD_LIKELY( csz==8UL ) ) return ((       *(ulong  *)b) >> 4) & 72057594037927935UL;
-  return       /*csz==9UL*/          ((       *(ulong  *)b) >> 4) | ( ((ulong)b[8])           << 60);
+  if( FD_LIKELY( csz==1UL ) ) return (fd_ulong_load_1( b ) >> 1);
+  if( FD_LIKELY( csz==2UL ) ) return (fd_ulong_load_2( b ) >> 3) &              1023UL;
+  if( FD_LIKELY( csz==3UL ) ) return (fd_ulong_load_2( b ) >> 3) | ((((ulong)b[2]) & 0x1fUL) << 13);
+  if( FD_LIKELY( csz==4UL ) ) return (fd_ulong_load_4( b ) >> 4) &          16777215UL;
+  if( FD_LIKELY( csz==5UL ) ) return (fd_ulong_load_4( b ) >> 4) | ((((ulong)b[4]) & 0x0fUL) << 28);
+  if( FD_LIKELY( csz==8UL ) ) return (fd_ulong_load_8( b ) >> 4) & 72057594037927935UL;
+  return       /*csz==9UL*/          (fd_ulong_load_8( b ) >> 4) | ( ((ulong)b[8])           << 60);
 }
 
 /* fd_ulong_svw_dec decodes a ulong encoded as a symmetric variable
@@ -541,12 +637,6 @@ fd_ulong_svw_dec_tail( uchar const * b,
   b -= csz; *_x = fd_ulong_svw_dec_fixed( b, csz );
   return b;
 }
-
-/* FD_ULONG_ALIGN_UP is the same as fd_ulong_align_up but can be used
-   at compile time.  The tradeoff is a must be safe against multiple
-   evaluation at compile time.  x and a should be ulong compatible. */
-
-#define FD_ULONG_ALIGN_UP( x, a ) (((x)+((a)-1UL)) & (~((a)-1UL)))
 
 /* FD_LAYOUT_{INIT,APPEND,FINI} are useful for compile time
    determination of the required footprint of shared memory regions with
