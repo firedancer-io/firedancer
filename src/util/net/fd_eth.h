@@ -174,15 +174,12 @@ FD_FN_PURE static inline int fd_eth_mac_is_local( uchar const * mac ) { return !
 
 FD_FN_PURE static inline int
 fd_eth_mac_is_bcast( uchar const * mac ) {
-  ulong u0 = (ulong)(*(uint   const *) mac   );
-  ulong u1 = (ulong)(*(ushort const *)(mac+4));
-  return (u0+u1)==(0xffffffffUL+0xffffUL);
+  return (fd_ulong_load_4_fast( mac ) + fd_ulong_load_2_fast( mac+4 ))==(0xffffffffUL + 0xffffUL);
 }
 
 FD_FN_PURE static inline int
 fd_eth_mac_is_ip4_mcast( uchar const * mac ) {
-  ulong u0 = (ulong)(*(uint const *)mac);
-  return (u0 & 0xffffffUL)==0x5e0001UL;
+  return fd_ulong_load_3_fast( mac )==0x5e0001UL;
 }
 
 /* fd_eth_fcs / fd_eth_fcs_append compute / incrementally update the fcs

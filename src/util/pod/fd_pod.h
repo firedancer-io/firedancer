@@ -833,6 +833,20 @@ fd_pod_query_##type( uchar const * FD_RESTRICT pod,                       \
 FD_POD_IMPL( char,   CHAR   )
 FD_POD_IMPL( schar,  SCHAR  )
 FD_POD_IMPL( uchar,  UCHAR  )
+
+#undef FD_POD_IMPL
+
+#define FD_POD_IMPL(type,TYPE)                                            \
+FD_FN_UNUSED FD_FN_PURE static type /* Work around -Winline */            \
+fd_pod_query_##type( uchar const * FD_RESTRICT pod,                       \
+                     char const  * FD_RESTRICT path,                      \
+                     type                      def ) {                    \
+  fd_pod_info_t info[1];                                                  \
+  if( FD_UNLIKELY( fd_pod_query( pod, path, info )        ) ||            \
+      FD_UNLIKELY( info->val_type!=FD_POD_VAL_TYPE_##TYPE ) ) return def; \
+  return fd_##type##_load( info->val );                                   \
+}
+
 FD_POD_IMPL( float,  FLOAT  )
 #if FD_HAS_DOUBLE
 FD_POD_IMPL( double, DOUBLE )
