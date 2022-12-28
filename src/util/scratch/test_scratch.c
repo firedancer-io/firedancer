@@ -121,10 +121,10 @@ main( int     argc,
 
     /* default is to do an alloc */
 
-    int lg_align = fd_rng_int_roll( rng, 10 )-1; /* lg_align is in [-1,8], 0 means use default */
+    int lg_align = fd_rng_int_roll( rng, 10 ); /* lg_align is in [0,9], 9 means use align==0 */
 
-    ulong align  = fd_ulong_if( lg_align<0, 0UL, 1UL<<lg_align );
-    ulong sz     = (ulong)fd_rng_uint( rng ) & 255U;
+    ulong align = ((ulong)(lg_align<9)) << lg_align;
+    ulong sz    = (ulong)fd_rng_uint( rng ) & 255U;
     if( !( (alloc_cnt<1024UL) & fd_scratch_alloc_is_safe( align, sz ) ) ) continue;
     
     mem = fd_scratch_alloc( align, sz );

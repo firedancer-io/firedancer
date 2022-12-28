@@ -37,18 +37,18 @@ fd_ed25519_sc_reduce( uchar *       out,
   s7  += s19*666643L; s8  += s19*470296L; s9  += s19*654183L; s10 -= s19*997805L; s11 += s19*136657L; s12 -= s19*683901L; s19 = 0L;
   s6  += s18*666643L; s7  += s18*470296L; s8  += s18*654183L; s9  -= s18*997805L; s10 += s18*136657L; s11 -= s18*683901L; s18 = 0L;
 
-  long carry6  = (s6  + (1L << 20)) >> 21; s7  += carry6;  s6  -= carry6  << 21;
-  long carry8  = (s8  + (1L << 20)) >> 21; s9  += carry8;  s8  -= carry8  << 21;
-  long carry10 = (s10 + (1L << 20)) >> 21; s11 += carry10; s10 -= carry10 << 21;
-  long carry12 = (s12 + (1L << 20)) >> 21; s13 += carry12; s12 -= carry12 << 21;
-  long carry14 = (s14 + (1L << 20)) >> 21; s15 += carry14; s14 -= carry14 << 21;
-  long carry16 = (s16 + (1L << 20)) >> 21; s17 += carry16; s16 -= carry16 << 21;
+  long carry6  = (s6  + (1L << 20)) >> 21; s7  += carry6;  s6  -= (long)((ulong)carry6  << 21);
+  long carry8  = (s8  + (1L << 20)) >> 21; s9  += carry8;  s8  -= (long)((ulong)carry8  << 21);
+  long carry10 = (s10 + (1L << 20)) >> 21; s11 += carry10; s10 -= (long)((ulong)carry10 << 21);
+  long carry12 = (s12 + (1L << 20)) >> 21; s13 += carry12; s12 -= (long)((ulong)carry12 << 21);
+  long carry14 = (s14 + (1L << 20)) >> 21; s15 += carry14; s14 -= (long)((ulong)carry14 << 21);
+  long carry16 = (s16 + (1L << 20)) >> 21; s17 += carry16; s16 -= (long)((ulong)carry16 << 21);
 
-  long carry7  = (s7  + (1L << 20)) >> 21; s8  += carry7;  s7  -= carry7  << 21;
-  long carry9  = (s9  + (1L << 20)) >> 21; s10 += carry9;  s9  -= carry9  << 21;
-  long carry11 = (s11 + (1L << 20)) >> 21; s12 += carry11; s11 -= carry11 << 21;
-  long carry13 = (s13 + (1L << 20)) >> 21; s14 += carry13; s13 -= carry13 << 21;
-  long carry15 = (s15 + (1L << 20)) >> 21; s16 += carry15; s15 -= carry15 << 21;
+  long carry7  = (s7  + (1L << 20)) >> 21; s8  += carry7;  s7  -= (long)((ulong)carry7  << 21);
+  long carry9  = (s9  + (1L << 20)) >> 21; s10 += carry9;  s9  -= (long)((ulong)carry9  << 21);
+  long carry11 = (s11 + (1L << 20)) >> 21; s12 += carry11; s11 -= (long)((ulong)carry11 << 21);
+  long carry13 = (s13 + (1L << 20)) >> 21; s14 += carry13; s13 -= (long)((ulong)carry13 << 21);
+  long carry15 = (s15 + (1L << 20)) >> 21; s16 += carry15; s15 -= (long)((ulong)carry15 << 21);
 
   s5  += s17*666643L; s6  += s17*470296L; s7  += s17*654183L; s8  -= s17*997805L; s9  += s17*136657L; s10 -= s17*683901L; s17 = 0L;
   s4  += s16*666643L; s5  += s16*470296L; s6  += s16*654183L; s7  -= s16*997805L; s8  += s16*136657L; s9  -= s16*683901L; s16 = 0L;
@@ -57,48 +57,48 @@ fd_ed25519_sc_reduce( uchar *       out,
   s1  += s13*666643L; s2  += s13*470296L; s3  += s13*654183L; s4  -= s13*997805L; s5  += s13*136657L; s6  -= s13*683901L; s13 = 0L;
   s0  += s12*666643L; s1  += s12*470296L; s2  += s12*654183L; s3  -= s12*997805L; s4  += s12*136657L; s5  -= s12*683901L; s12 = 0L;
 
-  long carry0  = (s0  + (1L << 20)) >> 21; s1  += carry0;  s0  -= carry0  << 21;
-  long carry2  = (s2  + (1L << 20)) >> 21; s3  += carry2;  s2  -= carry2  << 21;
-  long carry4  = (s4  + (1L << 20)) >> 21; s5  += carry4;  s4  -= carry4  << 21;
-  /**/ carry6  = (s6  + (1L << 20)) >> 21; s7  += carry6;  s6  -= carry6  << 21;
-  /**/ carry8  = (s8  + (1L << 20)) >> 21; s9  += carry8;  s8  -= carry8  << 21;
-  /**/ carry10 = (s10 + (1L << 20)) >> 21; s11 += carry10; s10 -= carry10 << 21;
+  long carry0  = (s0  + (1L << 20)) >> 21; s1  += carry0;  s0  -= (long)((ulong)carry0  << 21);
+  long carry2  = (s2  + (1L << 20)) >> 21; s3  += carry2;  s2  -= (long)((ulong)carry2  << 21);
+  long carry4  = (s4  + (1L << 20)) >> 21; s5  += carry4;  s4  -= (long)((ulong)carry4  << 21);
+  /**/ carry6  = (s6  + (1L << 20)) >> 21; s7  += carry6;  s6  -= (long)((ulong)carry6  << 21);
+  /**/ carry8  = (s8  + (1L << 20)) >> 21; s9  += carry8;  s8  -= (long)((ulong)carry8  << 21);
+  /**/ carry10 = (s10 + (1L << 20)) >> 21; s11 += carry10; s10 -= (long)((ulong)carry10 << 21);
 
-  long carry1  = (s1  + (1L << 20)) >> 21; s2  += carry1;  s1  -= carry1  << 21;
-  long carry3  = (s3  + (1L << 20)) >> 21; s4  += carry3;  s3  -= carry3  << 21;
-  long carry5  = (s5  + (1L << 20)) >> 21; s6  += carry5;  s5  -= carry5  << 21;
-  /**/ carry7  = (s7  + (1L << 20)) >> 21; s8  += carry7;  s7  -= carry7  << 21;
-  /**/ carry9  = (s9  + (1L << 20)) >> 21; s10 += carry9;  s9  -= carry9  << 21;
-  /**/ carry11 = (s11 + (1L << 20)) >> 21; s12 += carry11; s11 -= carry11 << 21;
-
-  s0  += s12*666643L; s1  += s12*470296L; s2  += s12*654183L; s3  -= s12*997805L; s4  += s12*136657L; s5  -= s12*683901L; s12 = 0L;
-
-  carry0  = s0  >> 21; s1  += carry0;  s0  -= carry0  << 21;
-  carry1  = s1  >> 21; s2  += carry1;  s1  -= carry1  << 21;
-  carry2  = s2  >> 21; s3  += carry2;  s2  -= carry2  << 21;
-  carry3  = s3  >> 21; s4  += carry3;  s3  -= carry3  << 21;
-  carry4  = s4  >> 21; s5  += carry4;  s4  -= carry4  << 21;
-  carry5  = s5  >> 21; s6  += carry5;  s5  -= carry5  << 21;
-  carry6  = s6  >> 21; s7  += carry6;  s6  -= carry6  << 21;
-  carry7  = s7  >> 21; s8  += carry7;  s7  -= carry7  << 21;
-  carry8  = s8  >> 21; s9  += carry8;  s8  -= carry8  << 21;
-  carry9  = s9  >> 21; s10 += carry9;  s9  -= carry9  << 21;
-  carry10 = s10 >> 21; s11 += carry10; s10 -= carry10 << 21;
-  carry11 = s11 >> 21; s12 += carry11; s11 -= carry11 << 21;
+  long carry1  = (s1  + (1L << 20)) >> 21; s2  += carry1;  s1  -= (long)((ulong)carry1  << 21);
+  long carry3  = (s3  + (1L << 20)) >> 21; s4  += carry3;  s3  -= (long)((ulong)carry3  << 21);
+  long carry5  = (s5  + (1L << 20)) >> 21; s6  += carry5;  s5  -= (long)((ulong)carry5  << 21);
+  /**/ carry7  = (s7  + (1L << 20)) >> 21; s8  += carry7;  s7  -= (long)((ulong)carry7  << 21);
+  /**/ carry9  = (s9  + (1L << 20)) >> 21; s10 += carry9;  s9  -= (long)((ulong)carry9  << 21);
+  /**/ carry11 = (s11 + (1L << 20)) >> 21; s12 += carry11; s11 -= (long)((ulong)carry11 << 21);
 
   s0  += s12*666643L; s1  += s12*470296L; s2  += s12*654183L; s3  -= s12*997805L; s4  += s12*136657L; s5  -= s12*683901L; s12 = 0L;
 
-  carry0  = s0  >> 21; s1  += carry0;  s0  -= carry0  << 21;
-  carry1  = s1  >> 21; s2  += carry1;  s1  -= carry1  << 21;
-  carry2  = s2  >> 21; s3  += carry2;  s2  -= carry2  << 21;
-  carry3  = s3  >> 21; s4  += carry3;  s3  -= carry3  << 21;
-  carry4  = s4  >> 21; s5  += carry4;  s4  -= carry4  << 21;
-  carry5  = s5  >> 21; s6  += carry5;  s5  -= carry5  << 21;
-  carry6  = s6  >> 21; s7  += carry6;  s6  -= carry6  << 21;
-  carry7  = s7  >> 21; s8  += carry7;  s7  -= carry7  << 21;
-  carry8  = s8  >> 21; s9  += carry8;  s8  -= carry8  << 21;
-  carry9  = s9  >> 21; s10 += carry9;  s9  -= carry9  << 21;
-  carry10 = s10 >> 21; s11 += carry10; s10 -= carry10 << 21;
+  carry0  = s0  >> 21; s1  += carry0;  s0  -= (long)((ulong)carry0  << 21);
+  carry1  = s1  >> 21; s2  += carry1;  s1  -= (long)((ulong)carry1  << 21);
+  carry2  = s2  >> 21; s3  += carry2;  s2  -= (long)((ulong)carry2  << 21);
+  carry3  = s3  >> 21; s4  += carry3;  s3  -= (long)((ulong)carry3  << 21);
+  carry4  = s4  >> 21; s5  += carry4;  s4  -= (long)((ulong)carry4  << 21);
+  carry5  = s5  >> 21; s6  += carry5;  s5  -= (long)((ulong)carry5  << 21);
+  carry6  = s6  >> 21; s7  += carry6;  s6  -= (long)((ulong)carry6  << 21);
+  carry7  = s7  >> 21; s8  += carry7;  s7  -= (long)((ulong)carry7  << 21);
+  carry8  = s8  >> 21; s9  += carry8;  s8  -= (long)((ulong)carry8  << 21);
+  carry9  = s9  >> 21; s10 += carry9;  s9  -= (long)((ulong)carry9  << 21);
+  carry10 = s10 >> 21; s11 += carry10; s10 -= (long)((ulong)carry10 << 21);
+  carry11 = s11 >> 21; s12 += carry11; s11 -= (long)((ulong)carry11 << 21);
+
+  s0  += s12*666643L; s1  += s12*470296L; s2  += s12*654183L; s3  -= s12*997805L; s4  += s12*136657L; s5  -= s12*683901L; s12 = 0L;
+
+  carry0  = s0  >> 21; s1  += carry0;  s0  -= (long)((ulong)carry0  << 21);
+  carry1  = s1  >> 21; s2  += carry1;  s1  -= (long)((ulong)carry1  << 21);
+  carry2  = s2  >> 21; s3  += carry2;  s2  -= (long)((ulong)carry2  << 21);
+  carry3  = s3  >> 21; s4  += carry3;  s3  -= (long)((ulong)carry3  << 21);
+  carry4  = s4  >> 21; s5  += carry4;  s4  -= (long)((ulong)carry4  << 21);
+  carry5  = s5  >> 21; s6  += carry5;  s5  -= (long)((ulong)carry5  << 21);
+  carry6  = s6  >> 21; s7  += carry6;  s6  -= (long)((ulong)carry6  << 21);
+  carry7  = s7  >> 21; s8  += carry7;  s7  -= (long)((ulong)carry7  << 21);
+  carry8  = s8  >> 21; s9  += carry8;  s8  -= (long)((ulong)carry8  << 21);
+  carry9  = s9  >> 21; s10 += carry9;  s9  -= (long)((ulong)carry9  << 21);
+  carry10 = s10 >> 21; s11 += carry10; s10 -= (long)((ulong)carry10 << 21);
 
   /* Pack the results into out */
 
@@ -170,30 +170,30 @@ fd_ed25519_sc_muladd( uchar *       s,
 
   /* Reduce the result */
 
-  long carry0  = (s0  + (1 << 20)) >> 21; s1  += carry0;  s0  -= carry0  << 21;
-  long carry2  = (s2  + (1 << 20)) >> 21; s3  += carry2;  s2  -= carry2  << 21;
-  long carry4  = (s4  + (1 << 20)) >> 21; s5  += carry4;  s4  -= carry4  << 21;
-  long carry6  = (s6  + (1 << 20)) >> 21; s7  += carry6;  s6  -= carry6  << 21;
-  long carry8  = (s8  + (1 << 20)) >> 21; s9  += carry8;  s8  -= carry8  << 21;
-  long carry10 = (s10 + (1 << 20)) >> 21; s11 += carry10; s10 -= carry10 << 21;
-  long carry12 = (s12 + (1 << 20)) >> 21; s13 += carry12; s12 -= carry12 << 21;
-  long carry14 = (s14 + (1 << 20)) >> 21; s15 += carry14; s14 -= carry14 << 21;
-  long carry16 = (s16 + (1 << 20)) >> 21; s17 += carry16; s16 -= carry16 << 21;
-  long carry18 = (s18 + (1 << 20)) >> 21; s19 += carry18; s18 -= carry18 << 21;
-  long carry20 = (s20 + (1 << 20)) >> 21; s21 += carry20; s20 -= carry20 << 21;
-  long carry22 = (s22 + (1 << 20)) >> 21; s23 += carry22; s22 -= carry22 << 21;
+  long carry0  = (s0  + (1L << 20)) >> 21; s1  += carry0;  s0  -= (long)((ulong)carry0  << 21);
+  long carry2  = (s2  + (1L << 20)) >> 21; s3  += carry2;  s2  -= (long)((ulong)carry2  << 21);
+  long carry4  = (s4  + (1L << 20)) >> 21; s5  += carry4;  s4  -= (long)((ulong)carry4  << 21);
+  long carry6  = (s6  + (1L << 20)) >> 21; s7  += carry6;  s6  -= (long)((ulong)carry6  << 21);
+  long carry8  = (s8  + (1L << 20)) >> 21; s9  += carry8;  s8  -= (long)((ulong)carry8  << 21);
+  long carry10 = (s10 + (1L << 20)) >> 21; s11 += carry10; s10 -= (long)((ulong)carry10 << 21);
+  long carry12 = (s12 + (1L << 20)) >> 21; s13 += carry12; s12 -= (long)((ulong)carry12 << 21);
+  long carry14 = (s14 + (1L << 20)) >> 21; s15 += carry14; s14 -= (long)((ulong)carry14 << 21);
+  long carry16 = (s16 + (1L << 20)) >> 21; s17 += carry16; s16 -= (long)((ulong)carry16 << 21);
+  long carry18 = (s18 + (1L << 20)) >> 21; s19 += carry18; s18 -= (long)((ulong)carry18 << 21);
+  long carry20 = (s20 + (1L << 20)) >> 21; s21 += carry20; s20 -= (long)((ulong)carry20 << 21);
+  long carry22 = (s22 + (1L << 20)) >> 21; s23 += carry22; s22 -= (long)((ulong)carry22 << 21);
 
-  long carry1  = (s1  + (1 << 20)) >> 21; s2  += carry1;  s1  -= carry1  << 21;
-  long carry3  = (s3  + (1 << 20)) >> 21; s4  += carry3;  s3  -= carry3  << 21;
-  long carry5  = (s5  + (1 << 20)) >> 21; s6  += carry5;  s5  -= carry5  << 21;
-  long carry7  = (s7  + (1 << 20)) >> 21; s8  += carry7;  s7  -= carry7  << 21;
-  long carry9  = (s9  + (1 << 20)) >> 21; s10 += carry9;  s9  -= carry9  << 21;
-  long carry11 = (s11 + (1 << 20)) >> 21; s12 += carry11; s11 -= carry11 << 21;
-  long carry13 = (s13 + (1 << 20)) >> 21; s14 += carry13; s13 -= carry13 << 21;
-  long carry15 = (s15 + (1 << 20)) >> 21; s16 += carry15; s15 -= carry15 << 21;
-  long carry17 = (s17 + (1 << 20)) >> 21; s18 += carry17; s17 -= carry17 << 21;
-  long carry19 = (s19 + (1 << 20)) >> 21; s20 += carry19; s19 -= carry19 << 21;
-  long carry21 = (s21 + (1 << 20)) >> 21; s22 += carry21; s21 -= carry21 << 21;
+  long carry1  = (s1  + (1L << 20)) >> 21; s2  += carry1;  s1  -= (long)((ulong)carry1  << 21);
+  long carry3  = (s3  + (1L << 20)) >> 21; s4  += carry3;  s3  -= (long)((ulong)carry3  << 21);
+  long carry5  = (s5  + (1L << 20)) >> 21; s6  += carry5;  s5  -= (long)((ulong)carry5  << 21);
+  long carry7  = (s7  + (1L << 20)) >> 21; s8  += carry7;  s7  -= (long)((ulong)carry7  << 21);
+  long carry9  = (s9  + (1L << 20)) >> 21; s10 += carry9;  s9  -= (long)((ulong)carry9  << 21);
+  long carry11 = (s11 + (1L << 20)) >> 21; s12 += carry11; s11 -= (long)((ulong)carry11 << 21);
+  long carry13 = (s13 + (1L << 20)) >> 21; s14 += carry13; s13 -= (long)((ulong)carry13 << 21);
+  long carry15 = (s15 + (1L << 20)) >> 21; s16 += carry15; s15 -= (long)((ulong)carry15 << 21);
+  long carry17 = (s17 + (1L << 20)) >> 21; s18 += carry17; s17 -= (long)((ulong)carry17 << 21);
+  long carry19 = (s19 + (1L << 20)) >> 21; s20 += carry19; s19 -= (long)((ulong)carry19 << 21);
+  long carry21 = (s21 + (1L << 20)) >> 21; s22 += carry21; s21 -= (long)((ulong)carry21 << 21);
 
   s11 += s23*666643L; s12 += s23*470296L; s13 += s23*654183L; s14 -= s23*997805L; s15 += s23*136657L; s16 -= s23*683901L; s23 = 0L;
   s10 += s22*666643L; s11 += s22*470296L; s12 += s22*654183L; s13 -= s22*997805L; s14 += s22*136657L; s15 -= s22*683901L; s22 = 0L;
@@ -202,18 +202,18 @@ fd_ed25519_sc_muladd( uchar *       s,
   s7  += s19*666643L; s8  += s19*470296L; s9  += s19*654183L; s10 -= s19*997805L; s11 += s19*136657L; s12 -= s19*683901L; s19 = 0L;
   s6  += s18*666643L; s7  += s18*470296L; s8  += s18*654183L; s9  -= s18*997805L; s10 += s18*136657L; s11 -= s18*683901L; s18 = 0L;
 
-  carry6  = (s6  + (1 << 20)) >> 21; s7  += carry6;  s6  -= carry6  << 21;
-  carry8  = (s8  + (1 << 20)) >> 21; s9  += carry8;  s8  -= carry8  << 21;
-  carry10 = (s10 + (1 << 20)) >> 21; s11 += carry10; s10 -= carry10 << 21;
-  carry12 = (s12 + (1 << 20)) >> 21; s13 += carry12; s12 -= carry12 << 21;
-  carry14 = (s14 + (1 << 20)) >> 21; s15 += carry14; s14 -= carry14 << 21;
-  carry16 = (s16 + (1 << 20)) >> 21; s17 += carry16; s16 -= carry16 << 21;
+  carry6  = (s6  + (1L << 20)) >> 21; s7  += carry6;  s6  -= (long)((ulong)carry6  << 21);
+  carry8  = (s8  + (1L << 20)) >> 21; s9  += carry8;  s8  -= (long)((ulong)carry8  << 21);
+  carry10 = (s10 + (1L << 20)) >> 21; s11 += carry10; s10 -= (long)((ulong)carry10 << 21);
+  carry12 = (s12 + (1L << 20)) >> 21; s13 += carry12; s12 -= (long)((ulong)carry12 << 21);
+  carry14 = (s14 + (1L << 20)) >> 21; s15 += carry14; s14 -= (long)((ulong)carry14 << 21);
+  carry16 = (s16 + (1L << 20)) >> 21; s17 += carry16; s16 -= (long)((ulong)carry16 << 21);
 
-  carry7  = (s7  + (1 << 20)) >> 21; s8  += carry7;  s7  -= carry7  << 21;
-  carry9  = (s9  + (1 << 20)) >> 21; s10 += carry9;  s9  -= carry9  << 21;
-  carry11 = (s11 + (1 << 20)) >> 21; s12 += carry11; s11 -= carry11 << 21;
-  carry13 = (s13 + (1 << 20)) >> 21; s14 += carry13; s13 -= carry13 << 21;
-  carry15 = (s15 + (1 << 20)) >> 21; s16 += carry15; s15 -= carry15 << 21;
+  carry7  = (s7  + (1L << 20)) >> 21; s8  += carry7;  s7  -= (long)((ulong)carry7  << 21);
+  carry9  = (s9  + (1L << 20)) >> 21; s10 += carry9;  s9  -= (long)((ulong)carry9  << 21);
+  carry11 = (s11 + (1L << 20)) >> 21; s12 += carry11; s11 -= (long)((ulong)carry11 << 21);
+  carry13 = (s13 + (1L << 20)) >> 21; s14 += carry13; s13 -= (long)((ulong)carry13 << 21);
+  carry15 = (s15 + (1L << 20)) >> 21; s16 += carry15; s15 -= (long)((ulong)carry15 << 21);
 
   s5  += s17*666643L; s6  += s17*470296L; s7  += s17*654183L; s8  -= s17*997805L; s9  += s17*136657L; s10 -= s17*683901L; s17 = 0L;
   s4  += s16*666643L; s5  += s16*470296L; s6  += s16*654183L; s7  -= s16*997805L; s8  += s16*136657L; s9  -= s16*683901L; s16 = 0L;
@@ -222,48 +222,48 @@ fd_ed25519_sc_muladd( uchar *       s,
   s1  += s13*666643L; s2  += s13*470296L; s3  += s13*654183L; s4  -= s13*997805L; s5  += s13*136657L; s6  -= s13*683901L; s13 = 0L;
   s0  += s12*666643L; s1  += s12*470296L; s2  += s12*654183L; s3  -= s12*997805L; s4  += s12*136657L; s5  -= s12*683901L; s12 = 0L;
 
-  carry0  = (s0  + (1 << 20)) >> 21; s1  += carry0;  s0  -= carry0  << 21;
-  carry2  = (s2  + (1 << 20)) >> 21; s3  += carry2;  s2  -= carry2  << 21;
-  carry4  = (s4  + (1 << 20)) >> 21; s5  += carry4;  s4  -= carry4  << 21;
-  carry6  = (s6  + (1 << 20)) >> 21; s7  += carry6;  s6  -= carry6  << 21;
-  carry8  = (s8  + (1 << 20)) >> 21; s9  += carry8;  s8  -= carry8  << 21;
-  carry10 = (s10 + (1 << 20)) >> 21; s11 += carry10; s10 -= carry10 << 21;
+  carry0  = (s0  + (1L << 20)) >> 21; s1  += carry0;  s0  -= (long)((ulong)carry0  << 21);
+  carry2  = (s2  + (1L << 20)) >> 21; s3  += carry2;  s2  -= (long)((ulong)carry2  << 21);
+  carry4  = (s4  + (1L << 20)) >> 21; s5  += carry4;  s4  -= (long)((ulong)carry4  << 21);
+  carry6  = (s6  + (1L << 20)) >> 21; s7  += carry6;  s6  -= (long)((ulong)carry6  << 21);
+  carry8  = (s8  + (1L << 20)) >> 21; s9  += carry8;  s8  -= (long)((ulong)carry8  << 21);
+  carry10 = (s10 + (1L << 20)) >> 21; s11 += carry10; s10 -= (long)((ulong)carry10 << 21);
 
-  carry1  = (s1  + (1 << 20)) >> 21; s2  += carry1;  s1  -= carry1  << 21;
-  carry3  = (s3  + (1 << 20)) >> 21; s4  += carry3;  s3  -= carry3  << 21;
-  carry5  = (s5  + (1 << 20)) >> 21; s6  += carry5;  s5  -= carry5  << 21;
-  carry7  = (s7  + (1 << 20)) >> 21; s8  += carry7;  s7  -= carry7  << 21;
-  carry9  = (s9  + (1 << 20)) >> 21; s10 += carry9;  s9  -= carry9  << 21;
-  carry11 = (s11 + (1 << 20)) >> 21; s12 += carry11; s11 -= carry11 << 21;
-
-  s0  += s12*666643L; s1  += s12*470296L; s2  += s12*654183L; s3  -= s12*997805L; s4  += s12*136657L; s5  -= s12*683901L; s12 = 0L;
-
-  carry0  = s0  >> 21; s1  += carry0;  s0  -= carry0  << 21;
-  carry1  = s1  >> 21; s2  += carry1;  s1  -= carry1  << 21;
-  carry2  = s2  >> 21; s3  += carry2;  s2  -= carry2  << 21;
-  carry3  = s3  >> 21; s4  += carry3;  s3  -= carry3  << 21;
-  carry4  = s4  >> 21; s5  += carry4;  s4  -= carry4  << 21;
-  carry5  = s5  >> 21; s6  += carry5;  s5  -= carry5  << 21;
-  carry6  = s6  >> 21; s7  += carry6;  s6  -= carry6  << 21;
-  carry7  = s7  >> 21; s8  += carry7;  s7  -= carry7  << 21;
-  carry8  = s8  >> 21; s9  += carry8;  s8  -= carry8  << 21;
-  carry9  = s9  >> 21; s10 += carry9;  s9  -= carry9  << 21;
-  carry10 = s10 >> 21; s11 += carry10; s10 -= carry10 << 21;
-  carry11 = s11 >> 21; s12 += carry11; s11 -= carry11 << 21;
+  carry1  = (s1  + (1L << 20)) >> 21; s2  += carry1;  s1  -= (long)((ulong)carry1  << 21);
+  carry3  = (s3  + (1L << 20)) >> 21; s4  += carry3;  s3  -= (long)((ulong)carry3  << 21);
+  carry5  = (s5  + (1L << 20)) >> 21; s6  += carry5;  s5  -= (long)((ulong)carry5  << 21);
+  carry7  = (s7  + (1L << 20)) >> 21; s8  += carry7;  s7  -= (long)((ulong)carry7  << 21);
+  carry9  = (s9  + (1L << 20)) >> 21; s10 += carry9;  s9  -= (long)((ulong)carry9  << 21);
+  carry11 = (s11 + (1L << 20)) >> 21; s12 += carry11; s11 -= (long)((ulong)carry11 << 21);
 
   s0  += s12*666643L; s1  += s12*470296L; s2  += s12*654183L; s3  -= s12*997805L; s4  += s12*136657L; s5  -= s12*683901L; s12 = 0L;
 
-  carry0  = s0  >> 21; s1  += carry0;  s0  -= carry0  << 21;
-  carry1  = s1  >> 21; s2  += carry1;  s1  -= carry1  << 21;
-  carry2  = s2  >> 21; s3  += carry2;  s2  -= carry2  << 21;
-  carry3  = s3  >> 21; s4  += carry3;  s3  -= carry3  << 21;
-  carry4  = s4  >> 21; s5  += carry4;  s4  -= carry4  << 21;
-  carry5  = s5  >> 21; s6  += carry5;  s5  -= carry5  << 21;
-  carry6  = s6  >> 21; s7  += carry6;  s6  -= carry6  << 21;
-  carry7  = s7  >> 21; s8  += carry7;  s7  -= carry7  << 21;
-  carry8  = s8  >> 21; s9  += carry8;  s8  -= carry8  << 21;
-  carry9  = s9  >> 21; s10 += carry9;  s9  -= carry9  << 21;
-  carry10 = s10 >> 21; s11 += carry10; s10 -= carry10 << 21;
+  carry0  = s0  >> 21; s1  += carry0;  s0  -= (long)((ulong)carry0  << 21);
+  carry1  = s1  >> 21; s2  += carry1;  s1  -= (long)((ulong)carry1  << 21);
+  carry2  = s2  >> 21; s3  += carry2;  s2  -= (long)((ulong)carry2  << 21);
+  carry3  = s3  >> 21; s4  += carry3;  s3  -= (long)((ulong)carry3  << 21);
+  carry4  = s4  >> 21; s5  += carry4;  s4  -= (long)((ulong)carry4  << 21);
+  carry5  = s5  >> 21; s6  += carry5;  s5  -= (long)((ulong)carry5  << 21);
+  carry6  = s6  >> 21; s7  += carry6;  s6  -= (long)((ulong)carry6  << 21);
+  carry7  = s7  >> 21; s8  += carry7;  s7  -= (long)((ulong)carry7  << 21);
+  carry8  = s8  >> 21; s9  += carry8;  s8  -= (long)((ulong)carry8  << 21);
+  carry9  = s9  >> 21; s10 += carry9;  s9  -= (long)((ulong)carry9  << 21);
+  carry10 = s10 >> 21; s11 += carry10; s10 -= (long)((ulong)carry10 << 21);
+  carry11 = s11 >> 21; s12 += carry11; s11 -= (long)((ulong)carry11 << 21);
+
+  s0  += s12*666643L; s1  += s12*470296L; s2  += s12*654183L; s3  -= s12*997805L; s4  += s12*136657L; s5  -= s12*683901L; s12 = 0L;
+
+  carry0  = s0  >> 21; s1  += carry0;  s0  -= (long)((ulong)carry0  << 21);
+  carry1  = s1  >> 21; s2  += carry1;  s1  -= (long)((ulong)carry1  << 21);
+  carry2  = s2  >> 21; s3  += carry2;  s2  -= (long)((ulong)carry2  << 21);
+  carry3  = s3  >> 21; s4  += carry3;  s3  -= (long)((ulong)carry3  << 21);
+  carry4  = s4  >> 21; s5  += carry4;  s4  -= (long)((ulong)carry4  << 21);
+  carry5  = s5  >> 21; s6  += carry5;  s5  -= (long)((ulong)carry5  << 21);
+  carry6  = s6  >> 21; s7  += carry6;  s6  -= (long)((ulong)carry6  << 21);
+  carry7  = s7  >> 21; s8  += carry7;  s7  -= (long)((ulong)carry7  << 21);
+  carry8  = s8  >> 21; s9  += carry8;  s8  -= (long)((ulong)carry8  << 21);
+  carry9  = s9  >> 21; s10 += carry9;  s9  -= (long)((ulong)carry9  << 21);
+  carry10 = s10 >> 21; s11 += carry10; s10 -= (long)((ulong)carry10 << 21);
 
   /* Pack the results into s */
 

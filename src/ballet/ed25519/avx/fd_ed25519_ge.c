@@ -76,7 +76,7 @@ fd_ed25519_ge_table_select( fd_ed25519_ge_precomp_t * t,
 # include "../table/fd_ed25519_ge_k25519_precomp.c"
 
   int bnegative = fd_ed25519_ge_precomp_negative( b );
-  int babs      = b - (((-bnegative) & b) << 1);     /* b = b - (2*b) = -b = |b| if b<0, b - 2*0 = b = |b| o.w. */
+  int babs      = b - (int)((uint)((-bnegative) & b) << 1); /* b = b - (2*b) = -b = |b| if b<0, b - 2*0 = b = |b| o.w. */
   fd_ed25519_ge_precomp_0( t );
   fd_ed25519_ge_precomp_if( t, fd_ed25519_ge_precomp_equal( babs, 1 ), k25519_precomp[ pos ][ 0 ], t );
   fd_ed25519_ge_precomp_if( t, fd_ed25519_ge_precomp_equal( babs, 2 ), k25519_precomp[ pos ][ 1 ], t );
