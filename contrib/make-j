@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 
 ISOLCPUS=`cat /sys/devices/system/cpu/isolated`
 

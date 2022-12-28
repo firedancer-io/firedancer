@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 # Install dependencies on a Jump development machine. Ignore if not a Jump employee.
 set -eu
 

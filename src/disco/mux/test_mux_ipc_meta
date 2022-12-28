@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 
 if [ $# -lt 2 ] || [ ! -f tmp/test_mux_ipc.conf ]; then
   echo ""

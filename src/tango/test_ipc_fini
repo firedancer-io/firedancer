@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 
 if [ ! -f tmp/test_ipc.conf ]; then
   echo "not initialized"

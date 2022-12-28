@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 # Run jump/install-bazel to install any required dependencies before activating.
 
 if ! command -v module >/dev/null 2>&1; then

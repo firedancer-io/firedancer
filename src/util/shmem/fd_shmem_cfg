@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 
 # Use FD_SHMEM_PATH from the environment if provided for hugetlbfs mount
 # path and fallback on "/mnt/.fd" if not
