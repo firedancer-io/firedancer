@@ -67,6 +67,15 @@ FD_PROTOTYPES_BEGIN
    is negative/non-negative, a large magnitude shift will shift to
    -1/0).
 
+   Support for zig-zag encoding is also provided.  E.g.
+
+   fd_long_zz_enc( x ) returns the zig-zag encodes  long x and returns it as a ulong.
+   fd_long_zz_dec( y ) returns the zig-zag decodes ulong y and returns it as a long.
+
+   zig-zag encoding losslessly maps a signed integer to an unsigned
+   integer such that, if the magnitude of the signed integer was small,
+   the magnitude of the unsigned integer will be small too.
+
    FIXME: mask_msb, clear_msb, set_msb, flip_msb, extract_msb,
    insert_msb, bitrev, sign, copysign, flipsign, rounding right shift,
    ... */
@@ -218,10 +227,10 @@ fd_uint128_pow2_up( uint128 x ) {
    macros because the uchar token is not related to the schar token
    by simply prepending u to schar. */
 
-/* Note: the implementations of abs and right_shift below do not exploit
-   the sign extending right shift behavior specified by the machine
-   model (and thus can be used safely in more general machine models)
-   but are slightly more expensive.
+/* Note: the implementations of abs, right_shift and zz_enc below do not
+   exploit the sign extending right shift behavior specified by the
+   machine model (and thus can be used safely in more general machine
+   models) but are slightly more expensive.
 
    FD_FN_CONST static inline UT fd_##T##_abs( T x ) { UT u = (UT)x; UT m = (UT)-(u>>(w-1)); return (UT)((u+m)^m); }
 
@@ -232,6 +241,8 @@ fd_uint128_pow2_up( uint128 x ) {
      UT m = (UT)-(u >> (w-1));
      return (T)(fd_##UT##_shift_right( u ^ m, n ) ^ m);
    }
+
+   FD_FN_CONST static inline UT fd_##T##_zz_enc( T x ) { UT u = (UT)x; return (UT)((-(u>>(w-1))) ^ (u<<1)); }
 */
 
 #define FD_SRC_UTIL_BITS_FD_BITS_IMPL(T,UT,w)                                                                                  \
@@ -242,7 +253,9 @@ FD_FN_CONST static inline T  fd_##T##_max         ( T x, T y        ) { return (
 FD_FN_CONST static inline T  fd_##T##_shift_left  ( T x, int n      ) { return (T)fd_##UT##_shift_left  ( (UT)x, n ); }        \
 FD_FN_CONST static inline T  fd_##T##_shift_right ( T x, int n      ) { return (T)(x >> ((n>(w-1)) ? (w-1) : n)); /* cmov */ } \
 FD_FN_CONST static inline T  fd_##T##_rotate_left ( T x, int n      ) { return (T)fd_##UT##_rotate_left ( (UT)x, n ); }        \
-FD_FN_CONST static inline T  fd_##T##_rotate_right( T x, int n      ) { return (T)fd_##UT##_rotate_right( (UT)x, n ); }
+FD_FN_CONST static inline T  fd_##T##_rotate_right( T x, int n      ) { return (T)fd_##UT##_rotate_right( (UT)x, n ); }        \
+FD_FN_CONST static inline UT fd_##T##_zz_enc      ( T x             ) { return (UT)(((UT)(x>>(w-1))) ^ (((UT)x)<<1)); }        \
+FD_FN_CONST static inline T  fd_##T##_zz_dec      ( UT x            ) { return (T)((x>>1) ^ (-(x & (UT)1))); }
 
 FD_SRC_UTIL_BITS_FD_BITS_IMPL(schar, uchar,    8)
 FD_SRC_UTIL_BITS_FD_BITS_IMPL(short, ushort,  16)
@@ -528,27 +541,6 @@ fd_ulong_svw_dec_tail( uchar const * b,
   b -= csz; *_x = fd_ulong_svw_dec_fixed( b, csz );
   return b;
 }
-
-/* Support for zig zag encoding.  Losslessly maps a signed integer to
-   an unsigned integer such that, if the magnitude of the signed integer
-   was small, the magnitude of the unsigned integer will be small too. */
-
-FD_FN_CONST static inline uchar   fd_schar_zz_enc ( schar   x ) { return   (uchar)(( ((int)x) >>   7) ^  (( (int)x) << 1  )); }
-FD_FN_CONST static inline schar   fd_schar_zz_dec ( uchar   x ) { return   (schar)((((uint)x) >>   1) ^ -(((uint)x) &  1U )); }
-
-FD_FN_CONST static inline ushort  fd_short_zz_enc (  short  x ) { return  (ushort)(( ((int)x) >>  15) ^  (( (int)x) << 1  )); }
-FD_FN_CONST static inline short   fd_short_zz_dec ( ushort  x ) { return   (short)((((uint)x) >>   1) ^ -(((uint)x) &  1U )); }
-
-FD_FN_CONST static inline uint    fd_int_zz_enc   (  int    x ) { return    (uint)((       x  >>  31) ^  (       x  << 1  )); }
-FD_FN_CONST static inline int     fd_int_zz_dec   ( uint    x ) { return     (int)((       x  >>   1) ^ -(       x  &  1U )); }
-
-FD_FN_CONST static inline ulong   fd_long_zz_enc  (  long   x ) { return   (ulong)((       x  >>  63) ^  (       x  << 1  )); }
-FD_FN_CONST static inline long    fd_long_zz_dec  ( ulong   x ) { return    (long)((       x  >>   1) ^ -(       x  &  1UL)); }
-
-#if FD_HAS_INT128
-FD_FN_CONST static inline uint128 fd_int128_zz_enc(  int128 x ) { return (uint128)((       x  >> 127) ^  (       x  << 1  )); }
-FD_FN_CONST static inline int128  fd_int128_zz_dec( uint128 x ) { return  (int128)((       x  >>   1) ^ -(       x  &  1UL)); }
-#endif
 
 /* FD_ULONG_ALIGN_UP is the same as fd_ulong_align_up but can be used
    at compile time.  The tradeoff is a must be safe against multiple
