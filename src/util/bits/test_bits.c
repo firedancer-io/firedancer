@@ -1047,7 +1047,9 @@ main( int     argc,
     for( ulong i=0UL; i<16777216UL; i++ ) {
       uchar * p = buf + (fd_rng_uint( rng ) & 1023U);
       float   f = fd_rng_float_c0 ( rng ); memcpy( p, &f, 4UL ); FD_TEST( fd_float_load ( p )==f );
+#     if FD_HAS_DOUBLE
       double  d = fd_rng_double_c0( rng ); memcpy( p, &d, 8UL ); FD_TEST( fd_double_load( p )==d );
+#     endif
     }
   }
 

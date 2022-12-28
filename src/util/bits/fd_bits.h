@@ -462,7 +462,10 @@ FD_FN_PURE static inline ulong  fd_ulong_load_7_fast( void const * p ) { ulong  
 FD_FN_PURE static inline ulong  fd_ulong_load_8_fast( void const * p ) { ulong  t; memcpy( &t, p, 8UL ); return         t; }
 
 FD_FN_PURE static inline float  fd_float_load       ( void const * p ) { float  t; memcpy( &t, p, 4UL ); return t; }
+
+#if FD_HAS_DOUBLE
 FD_FN_PURE static inline double fd_double_load      ( void const * p ) { double t; memcpy( &t, p, 8UL ); return t; }
+#endif
 
 #else
 
@@ -485,7 +488,10 @@ FD_FN_PURE static inline ulong  fd_ulong_load_6_fast( void const * p ) { return 
 FD_FN_PURE static inline ulong  fd_ulong_load_7_fast( void const * p ) { return (       *(ulong  const *)p) & FD_ULONG_MASK_LSB(56); } /*Tail read 1B*/
 
 FD_FN_PURE static inline float  fd_float_load       ( void const * p ) { return *(float  const *)p; }
+
+#if FD_HAS_DOUBLE
 FD_FN_PURE static inline double fd_double_load      ( void const * p ) { return *(double const *)p; }
+#endif
 
 #endif
 
