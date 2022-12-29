@@ -17,8 +17,9 @@ fd_cc_library(
 )
 
 fd_cc_test(
-    size = "small",
+    size = "medium",
     srcs = ["test_compact_u16.c"],
+    copts = ["-O3"],
     deps = ["//src/ballet"],
 )
 
