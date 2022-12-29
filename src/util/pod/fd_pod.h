@@ -844,7 +844,7 @@ fd_pod_query_##type( uchar const * FD_RESTRICT pod,                       \
   fd_pod_info_t info[1];                                                  \
   if( FD_UNLIKELY( fd_pod_query( pod, path, info )        ) ||            \
       FD_UNLIKELY( info->val_type!=FD_POD_VAL_TYPE_##TYPE ) ) return def; \
-  return fd_##type##_load( info->val );                                   \
+  return FD_LOAD( type, info->val );                                      \
 }
 
 FD_POD_IMPL( float,  FLOAT  )

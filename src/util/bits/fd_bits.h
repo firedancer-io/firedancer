@@ -403,11 +403,30 @@ fd_double_eq( double x,
 #define FD_ULONG_MASK_MSB( n )    (~FD_ULONG_MASK_LSB(64-(n)))
 #define FD_ULONG_ALIGN_UP( x, a ) (((x)+((a)-1UL)) & (~((a)-1UL)))
 
-/* Unaligned access annotations.  fd_ulong_load_n loads the n bytes
-   into the least significant n bytes of a ulong, zeros any remaining
-   bytes and returns the result.  fd_ulong_load_n_fast is the same but
-   assumes it is safe to tail read a couple of bytes past the end for
-   high performance. */
+/* Unaligned access annotations.
+
+   FD_LOAD( T, src ) is equivalent to:
+     (*(T const *)(src))
+   but src can have arbitrary alignment.
+
+   FD_STORE( T, dst, val ) is equivalent to:
+     do { (*(T *)(dst)) = (val); } while(0)
+   but dst can have arbitrary alignment.
+
+   Note: Ideally, we would infer the type T in FD_LOAD from src (e.g.
+   use typeof(*(src)).  But there are some nasty linguistic and
+   optimizer interactions when src is a constant pointer in a truly
+   generic implementation.  Similarly for FD_STORE.
+
+   fd_T_load_n( src ) where T is in [uchar,ushort,uint,ulong] loads n
+   bytes into the least significant n bytes of a T, zeros any remaining
+   bytes and returns the result.  fd_T_load_n_fast is the same but
+   assumes it is safe to tail read a couple of bytes past the end of src
+   if such is beneficial for higher performance.
+
+   Accesses that would normally be atomic (e.g. an aligned access to a
+   primtive type like a ulong) are no guaranteed to be atomic if done
+   through these annotations. */
 
 #if 0
 
@@ -443,55 +462,92 @@ fd_double_eq( double x,
    back into the developer's original intent and then generate good asm.
    Hmmm. */
 
-FD_FN_PURE static inline ulong  fd_ulong_load_1     ( void const * p ) { return (ulong)*(uchar const *)p; }
-FD_FN_PURE static inline ulong  fd_ulong_load_2     ( void const * p ) { ushort t;       memcpy( &t, p, 2UL ); return (ulong)t; }
-FD_FN_PURE static inline ulong  fd_ulong_load_3     ( void const * p ) { uint   t = 0UL; memcpy( &t, p, 3UL ); return (ulong)t; }
-FD_FN_PURE static inline ulong  fd_ulong_load_4     ( void const * p ) { uint   t;       memcpy( &t, p, 4UL ); return (ulong)t; }
-FD_FN_PURE static inline ulong  fd_ulong_load_5     ( void const * p ) { ulong  t = 0UL; memcpy( &t, p, 5UL ); return        t; }
-FD_FN_PURE static inline ulong  fd_ulong_load_6     ( void const * p ) { ulong  t = 0UL; memcpy( &t, p, 6UL ); return        t; }
-FD_FN_PURE static inline ulong  fd_ulong_load_7     ( void const * p ) { ulong  t = 0UL; memcpy( &t, p, 7UL ); return        t; }
-FD_FN_PURE static inline ulong  fd_ulong_load_8     ( void const * p ) { ulong  t;       memcpy( &t, p, 8UL ); return        t; }
+#define FD_LOAD( T, src ) \
+  (__extension__({ T _fd_load_tmp; memcpy( &_fd_load_tmp, (src), sizeof(T) ); _fd_load_tmp; }))
 
-FD_FN_PURE static inline ulong  fd_ulong_load_1_fast( void const * p ) { return (ulong)*(uchar const *)p; }
-FD_FN_PURE static inline ulong  fd_ulong_load_2_fast( void const * p ) { ushort t; memcpy( &t, p, 2UL ); return ((ulong)t); }
-FD_FN_PURE static inline ulong  fd_ulong_load_3_fast( void const * p ) { uint   t; memcpy( &t, p, 4UL ); return ((ulong)t) & FD_ULONG_MASK_LSB(24); }
-FD_FN_PURE static inline ulong  fd_ulong_load_4_fast( void const * p ) { uint   t; memcpy( &t, p, 4UL ); return ((ulong)t); }
-FD_FN_PURE static inline ulong  fd_ulong_load_5_fast( void const * p ) { ulong  t; memcpy( &t, p, 8UL ); return         t  & FD_ULONG_MASK_LSB(40); }
-FD_FN_PURE static inline ulong  fd_ulong_load_6_fast( void const * p ) { ulong  t; memcpy( &t, p, 8UL ); return         t  & FD_ULONG_MASK_LSB(48); }
-FD_FN_PURE static inline ulong  fd_ulong_load_7_fast( void const * p ) { ulong  t; memcpy( &t, p, 8UL ); return         t  & FD_ULONG_MASK_LSB(56); }
-FD_FN_PURE static inline ulong  fd_ulong_load_8_fast( void const * p ) { ulong  t; memcpy( &t, p, 8UL ); return         t; }
+#define FD_STORE( T, dst, val ) \
+  do { T const * _fd_store_src = &(val); memcpy( (dst), _fd_store_src, sizeof(T) ); } while(0)
 
-FD_FN_PURE static inline float  fd_float_load       ( void const * p ) { float  t; memcpy( &t, p, 4UL ); return t; }
+FD_FN_PURE static inline uchar  fd_uchar_load_1      ( void const * p ) { return         *(uchar const *)p; }
 
-#if FD_HAS_DOUBLE
-FD_FN_PURE static inline double fd_double_load      ( void const * p ) { double t; memcpy( &t, p, 8UL ); return t; }
-#endif
+FD_FN_PURE static inline ushort fd_ushort_load_1     ( void const * p ) { return (ushort)*(uchar const *)p; }
+FD_FN_PURE static inline ushort fd_ushort_load_2     ( void const * p ) { ushort t;       memcpy( &t, p, 2UL ); return        t; }
+
+FD_FN_PURE static inline uint   fd_uint_load_1       ( void const * p ) { return (uint  )*(uchar const *)p; }
+FD_FN_PURE static inline uint   fd_uint_load_2       ( void const * p ) { ushort t;       memcpy( &t, p, 2UL ); return (uint )t; }
+FD_FN_PURE static inline uint   fd_uint_load_3       ( void const * p ) { uint   t = 0UL; memcpy( &t, p, 3UL ); return (uint )t; }
+FD_FN_PURE static inline uint   fd_uint_load_4       ( void const * p ) { uint   t;       memcpy( &t, p, 4UL ); return        t; }
+
+FD_FN_PURE static inline ulong  fd_ulong_load_1      ( void const * p ) { return (ulong )*(uchar const *)p; }
+FD_FN_PURE static inline ulong  fd_ulong_load_2      ( void const * p ) { ushort t;       memcpy( &t, p, 2UL ); return (ulong)t; }
+FD_FN_PURE static inline ulong  fd_ulong_load_3      ( void const * p ) { uint   t = 0UL; memcpy( &t, p, 3UL ); return (ulong)t; }
+FD_FN_PURE static inline ulong  fd_ulong_load_4      ( void const * p ) { uint   t;       memcpy( &t, p, 4UL ); return (ulong)t; }
+FD_FN_PURE static inline ulong  fd_ulong_load_5      ( void const * p ) { ulong  t = 0UL; memcpy( &t, p, 5UL ); return        t; }
+FD_FN_PURE static inline ulong  fd_ulong_load_6      ( void const * p ) { ulong  t = 0UL; memcpy( &t, p, 6UL ); return        t; }
+FD_FN_PURE static inline ulong  fd_ulong_load_7      ( void const * p ) { ulong  t = 0UL; memcpy( &t, p, 7UL ); return        t; }
+FD_FN_PURE static inline ulong  fd_ulong_load_8      ( void const * p ) { ulong  t;       memcpy( &t, p, 8UL ); return        t; }
+
+#define                         fd_uchar_load_1_fast                    fd_uchar_load_1
+
+#define                         fd_ushort_load_1_fast                   fd_ushort_load_1
+#define                         fd_ushort_load_2_fast                   fd_ushort_load_2
+
+#define                         fd_uint_load_1_fast                     fd_uint_load_1
+#define                         fd_uint_load_2_fast                     fd_uint_load_2
+FD_FN_PURE static inline uint   fd_uint_load_3_fast  ( void const * p ) { uint   t; memcpy( &t, p, 4UL ); return ((uint )t) & 0x00ffffffU;          }
+#define                         fd_uint_load_4_fast                     fd_uint_load_4
+
+#define                         fd_ulong_load_1_fast                    fd_ulong_load_1
+#define                         fd_ulong_load_2_fast                    fd_ulong_load_2
+FD_FN_PURE static inline ulong  fd_ulong_load_3_fast ( void const * p ) { uint   t; memcpy( &t, p, 4UL ); return ((ulong)t) & 0x0000000000ffffffUL; }
+#define                         fd_ulong_load_4_fast                    fd_ulong_load_4
+FD_FN_PURE static inline ulong  fd_ulong_load_5_fast ( void const * p ) { ulong  t; memcpy( &t, p, 8UL ); return         t  & 0x000000ffffffffffUL; }
+FD_FN_PURE static inline ulong  fd_ulong_load_6_fast ( void const * p ) { ulong  t; memcpy( &t, p, 8UL ); return         t  & 0x0000ffffffffffffUL; }
+FD_FN_PURE static inline ulong  fd_ulong_load_7_fast ( void const * p ) { ulong  t; memcpy( &t, p, 8UL ); return         t  & 0x00ffffffffffffffUL; }
+#define                         fd_ulong_load_8_fast                    fd_ulong_load_8
 
 #else
 
-FD_FN_PURE static inline ulong  fd_ulong_load_1     ( void const * p ) { return ((ulong)*(uchar  const *)p); }
-FD_FN_PURE static inline ulong  fd_ulong_load_2     ( void const * p ) { return ((ulong)*(ushort const *)p); }
-FD_FN_PURE static inline ulong  fd_ulong_load_4     ( void const * p ) { return ((ulong)*(uint   const *)p); }
-FD_FN_PURE static inline ulong  fd_ulong_load_8     ( void const * p ) { return (       *(ulong  const *)p); }
-FD_FN_PURE static inline ulong  fd_ulong_load_3     ( void const * p ) { return fd_ulong_load_2(p) | (fd_ulong_load_1(((uchar const *)p)+2UL)<<16); }
-FD_FN_PURE static inline ulong  fd_ulong_load_5     ( void const * p ) { return fd_ulong_load_4(p) | (fd_ulong_load_1(((uchar const *)p)+4UL)<<32); }
-FD_FN_PURE static inline ulong  fd_ulong_load_6     ( void const * p ) { return fd_ulong_load_4(p) | (fd_ulong_load_2(((uchar const *)p)+4UL)<<32); }
-FD_FN_PURE static inline ulong  fd_ulong_load_7     ( void const * p ) { return fd_ulong_load_6(p) | (fd_ulong_load_1(((uchar const *)p)+6UL)<<48); }
+#define FD_LOAD( T, src )       (*(T const *)(src))
+#define FD_STORE( T, dst, val ) do { (*(T *)(dst)) = (val); } while(0)
 
-FD_FN_PURE static inline ulong  fd_ulong_load_1_fast( void const * p ) { return ((ulong)*(uchar  const *)p); }
-FD_FN_PURE static inline ulong  fd_ulong_load_2_fast( void const * p ) { return ((ulong)*(ushort const *)p); }
-FD_FN_PURE static inline ulong  fd_ulong_load_4_fast( void const * p ) { return ((ulong)*(uint   const *)p); }
-FD_FN_PURE static inline ulong  fd_ulong_load_8_fast( void const * p ) { return (       *(ulong  const *)p); }
-FD_FN_PURE static inline ulong  fd_ulong_load_3_fast( void const * p ) { return ((ulong)*(uint   const *)p) & FD_ULONG_MASK_LSB(24); } /*Tail read 1B*/
-FD_FN_PURE static inline ulong  fd_ulong_load_5_fast( void const * p ) { return (       *(ulong  const *)p) & FD_ULONG_MASK_LSB(40); } /*Tail read 3B*/
-FD_FN_PURE static inline ulong  fd_ulong_load_6_fast( void const * p ) { return (       *(ulong  const *)p) & FD_ULONG_MASK_LSB(48); } /*Tail read 2B*/
-FD_FN_PURE static inline ulong  fd_ulong_load_7_fast( void const * p ) { return (       *(ulong  const *)p) & FD_ULONG_MASK_LSB(56); } /*Tail read 1B*/
+FD_FN_PURE static inline uchar  fd_uchar_load_1      ( void const * p ) { return (        *(uchar  const *)p); }
 
-FD_FN_PURE static inline float  fd_float_load       ( void const * p ) { return *(float  const *)p; }
+FD_FN_PURE static inline ushort fd_ushort_load_1     ( void const * p ) { return ((ushort)*(uchar  const *)p); }
+FD_FN_PURE static inline ushort fd_ushort_load_2     ( void const * p ) { return (        *(ushort const *)p); }
 
-#if FD_HAS_DOUBLE
-FD_FN_PURE static inline double fd_double_load      ( void const * p ) { return *(double const *)p; }
-#endif
+FD_FN_PURE static inline uint   fd_uint_load_1       ( void const * p ) { return ((uint  )*(uchar  const *)p); }
+FD_FN_PURE static inline uint   fd_uint_load_2       ( void const * p ) { return ((uint  )*(ushort const *)p); }
+FD_FN_PURE static inline uint   fd_uint_load_3       ( void const * p ) { return fd_uint_load_2 (p) | (fd_uint_load_1 (((uchar const *)p)+2UL)<<16); }
+FD_FN_PURE static inline uint   fd_uint_load_4       ( void const * p ) { return (        *(uint   const *)p); }
+
+FD_FN_PURE static inline ulong  fd_ulong_load_1      ( void const * p ) { return ((ulong )*(uchar  const *)p); }
+FD_FN_PURE static inline ulong  fd_ulong_load_2      ( void const * p ) { return ((ulong )*(ushort const *)p); }
+FD_FN_PURE static inline ulong  fd_ulong_load_3      ( void const * p ) { return fd_ulong_load_2(p) | (fd_ulong_load_1(((uchar const *)p)+2UL)<<16); }
+FD_FN_PURE static inline ulong  fd_ulong_load_4      ( void const * p ) { return ((ulong )*(uint   const *)p); }
+FD_FN_PURE static inline ulong  fd_ulong_load_5      ( void const * p ) { return fd_ulong_load_4(p) | (fd_ulong_load_1(((uchar const *)p)+4UL)<<32); }
+FD_FN_PURE static inline ulong  fd_ulong_load_6      ( void const * p ) { return fd_ulong_load_4(p) | (fd_ulong_load_2(((uchar const *)p)+4UL)<<32); }
+FD_FN_PURE static inline ulong  fd_ulong_load_7      ( void const * p ) { return fd_ulong_load_6(p) | (fd_ulong_load_1(((uchar const *)p)+6UL)<<48); }
+FD_FN_PURE static inline ulong  fd_ulong_load_8      ( void const * p ) { return (        *(ulong  const *)p); }
+
+#define                         fd_uchar_load_1_fast                    fd_uchar_load_1
+
+#define                         fd_ushort_load_1_fast                   fd_ushort_load_1
+#define                         fd_ushort_load_2_fast                   fd_ushort_load_2
+
+#define                         fd_uint_load_1_fast                     fd_uint_load_1
+#define                         fd_uint_load_2_fast                     fd_uint_load_2
+FD_FN_PURE static inline uint   fd_uint_load_3_fast  ( void const * p ) { return (       *(uint   const *)p) & 0x00ffffffU;          } /* Tail read 1B */
+#define                         fd_uint_load_4_fast                     fd_uint_load_4
+
+#define                         fd_ulong_load_1_fast                    fd_ulong_load_1
+#define                         fd_ulong_load_2_fast                    fd_ulong_load_2
+FD_FN_PURE static inline ulong  fd_ulong_load_3_fast ( void const * p ) { return ((ulong)*(uint   const *)p) & 0x0000000000ffffffUL; } /* Tail read 1B */
+#define                         fd_ulong_load_4_fast                    fd_ulong_load_4
+FD_FN_PURE static inline ulong  fd_ulong_load_5_fast ( void const * p ) { return (       *(ulong  const *)p) & 0x000000ffffffffffUL; } /* Tail read 3B */
+FD_FN_PURE static inline ulong  fd_ulong_load_6_fast ( void const * p ) { return (       *(ulong  const *)p) & 0x0000ffffffffffffUL; } /* Tail read 2B */
+FD_FN_PURE static inline ulong  fd_ulong_load_7_fast ( void const * p ) { return (       *(ulong  const *)p) & 0x00ffffffffffffffUL; } /* Tail read 1B */
+#define                         fd_ulong_load_8_fast                    fd_ulong_load_8
 
 #endif
 

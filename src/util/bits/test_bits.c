@@ -1031,25 +1031,49 @@ main( int     argc,
 
     uchar buf[2048];
     for( ulong i=0UL; i<2048UL; i++ ) buf[i] = fd_rng_uchar( rng );
-    for( ulong i=0UL; i<(2048UL-8UL); i++ ) {
-      uchar const * p = buf + i;
-      ulong         ref; memcpy( &ref, p, 8UL );
-      FD_TEST( fd_ulong_load_8( p )==ref ); FD_TEST( fd_ulong_load_8_fast( p )==ref ); p++; ref >>= 8;
-      FD_TEST( fd_ulong_load_7( p )==ref ); FD_TEST( fd_ulong_load_7_fast( p )==ref ); p++; ref >>= 8;
-      FD_TEST( fd_ulong_load_6( p )==ref ); FD_TEST( fd_ulong_load_6_fast( p )==ref ); p++; ref >>= 8;
-      FD_TEST( fd_ulong_load_5( p )==ref ); FD_TEST( fd_ulong_load_5_fast( p )==ref ); p++; ref >>= 8;
-      FD_TEST( fd_ulong_load_4( p )==ref ); FD_TEST( fd_ulong_load_4_fast( p )==ref ); p++; ref >>= 8;
-      FD_TEST( fd_ulong_load_3( p )==ref ); FD_TEST( fd_ulong_load_3_fast( p )==ref ); p++; ref >>= 8;
-      FD_TEST( fd_ulong_load_2( p )==ref ); FD_TEST( fd_ulong_load_2_fast( p )==ref ); p++; ref >>= 8;
-      FD_TEST( fd_ulong_load_1( p )==ref ); FD_TEST( fd_ulong_load_1_fast( p )==ref ); //p++; ref >>= 8;
-    }
-
-    for( ulong i=0UL; i<16777216UL; i++ ) {
-      uchar * p = buf + (fd_rng_uint( rng ) & 1023U);
-      float   f = fd_rng_float_c0 ( rng ); memcpy( p, &f, 4UL ); FD_TEST( fd_float_load ( p )==f );
-#     if FD_HAS_DOUBLE
-      double  d = fd_rng_double_c0( rng ); memcpy( p, &d, 8UL ); FD_TEST( fd_double_load( p )==d );
-#     endif
+    for( ulong i=0UL; i<2048UL; i++ ) {
+      if( 1 ) {
+        uchar * d = buf + i; uchar const * s = d;
+        uchar ref; memcpy( &ref, s, 1UL ); uchar refb = (uchar)~ref;
+        FD_STORE( uchar, d, refb ); FD_TEST( FD_LOAD( uchar, s )==refb );
+        FD_STORE( uchar, d, ref  ); FD_TEST( FD_LOAD( uchar, s )==ref  );
+        FD_TEST( fd_uchar_load_1( s )==ref ); FD_TEST( fd_uchar_load_1_fast( s )==ref );
+      }
+      if( (i+2UL)<=2048UL ) {
+        uchar * d = buf + i; uchar const * s = d;
+        ushort ref; memcpy( &ref, s, 2UL ); ushort refb = (ushort)~ref;
+        FD_STORE( ushort, d, refb ); FD_TEST( FD_LOAD( ushort, s )==refb );
+        FD_STORE( ushort, d, ref  ); FD_TEST( FD_LOAD( ushort, s )==ref  );
+        ushort mask = (ushort)~(ushort)0;
+        FD_TEST( fd_ushort_load_2( s )==ref ); FD_TEST( fd_ushort_load_2_fast( s )==ref ); mask >>= 8; ref &= mask;
+        FD_TEST( fd_ushort_load_1( s )==ref ); FD_TEST( fd_ushort_load_1_fast( s )==ref );
+      }
+      if( (i+4UL)<=2048UL ) {
+        uchar * d = buf + i; uchar const * s = d;
+        uint ref; memcpy( &ref, s, 4UL ); uint refb = ~ref;
+        FD_STORE( uint, d, refb ); FD_TEST( FD_LOAD( uint, s )==refb );
+        FD_STORE( uint, d, ref  ); FD_TEST( FD_LOAD( uint, s )==ref  );
+        uint mask = ~0U;
+        FD_TEST( fd_uint_load_4( s )==ref ); FD_TEST( fd_uint_load_4_fast( s )==ref ); mask >>= 8; ref &= mask;
+        FD_TEST( fd_uint_load_3( s )==ref ); FD_TEST( fd_uint_load_3_fast( s )==ref ); mask >>= 8; ref &= mask;
+        FD_TEST( fd_uint_load_2( s )==ref ); FD_TEST( fd_uint_load_2_fast( s )==ref ); mask >>= 8; ref &= mask;
+        FD_TEST( fd_uint_load_1( s )==ref ); FD_TEST( fd_uint_load_1_fast( s )==ref );
+      }
+      if( (i+8UL)<=2048UL ) {
+        uchar * d = buf + i; uchar const * s = d;
+        ulong ref; memcpy( &ref, s, 8UL ); ulong refb = ~ref;
+        FD_STORE( ulong, d, refb ); FD_TEST( FD_LOAD( ulong, s )==refb );
+        FD_STORE( ulong, d, ref  ); FD_TEST( FD_LOAD( ulong, s )==ref  );
+        ulong mask = ~0UL;
+        FD_TEST( fd_ulong_load_8( s )==ref ); FD_TEST( fd_ulong_load_8_fast( s )==ref ); mask >>= 8; ref &= mask;
+        FD_TEST( fd_ulong_load_7( s )==ref ); FD_TEST( fd_ulong_load_7_fast( s )==ref ); mask >>= 8; ref &= mask;
+        FD_TEST( fd_ulong_load_6( s )==ref ); FD_TEST( fd_ulong_load_6_fast( s )==ref ); mask >>= 8; ref &= mask;
+        FD_TEST( fd_ulong_load_5( s )==ref ); FD_TEST( fd_ulong_load_5_fast( s )==ref ); mask >>= 8; ref &= mask;
+        FD_TEST( fd_ulong_load_4( s )==ref ); FD_TEST( fd_ulong_load_4_fast( s )==ref ); mask >>= 8; ref &= mask;
+        FD_TEST( fd_ulong_load_3( s )==ref ); FD_TEST( fd_ulong_load_3_fast( s )==ref ); mask >>= 8; ref &= mask;
+        FD_TEST( fd_ulong_load_2( s )==ref ); FD_TEST( fd_ulong_load_2_fast( s )==ref ); mask >>= 8; ref &= mask;
+        FD_TEST( fd_ulong_load_1( s )==ref ); FD_TEST( fd_ulong_load_1_fast( s )==ref );
+      }
     }
   }
 
