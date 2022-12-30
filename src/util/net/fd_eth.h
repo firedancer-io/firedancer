@@ -237,8 +237,8 @@ fd_eth_fcs( void const * buf,
 static inline uchar *
 fd_eth_mac_ip4_mcast( uchar * mac,
                       uint    ip4_addr_mcast ) {
-  *(uint   *) mac    = 0x5e0001U | (((ip4_addr_mcast >> 8) & 0x7fU) << 24);
-  *(ushort *)(mac+4) = (ushort)((ip4_addr_mcast >> 16) & 0xffffU);
+  FD_STORE( uint,   mac,   0x5e0001U | (((ip4_addr_mcast >> 8) & 0x7fU) << 24) );
+  FD_STORE( ushort, mac+4, (ushort)((ip4_addr_mcast >> 16) & 0xffffU)          );
   return mac;
 }
 
@@ -248,8 +248,8 @@ fd_eth_mac_ip4_mcast( uchar * mac,
 
 static inline uchar *
 fd_eth_mac_bcast( uchar * mac ) {
-  *(uint   *) mac    = 0xffffffffU;
-  *(ushort *)(mac+4) = (ushort)0xffff;
+  FD_STORE( uint,   mac,   0xffffffffU    );
+  FD_STORE( ushort, mac+4, (ushort)0xffff );
   return mac;
 }
 
@@ -261,8 +261,8 @@ fd_eth_mac_bcast( uchar * mac ) {
 static inline uchar *
 fd_eth_mac_cpy( uchar       * mac,
                 uchar const * _mac ) {
-  *(uint   *) mac    = *(uint   const *) _mac;
-  *(ushort *)(mac+4) = *(ushort const *)(_mac+4);
+  FD_STORE( uint,   mac,   FD_LOAD( uint,   _mac   ) );
+  FD_STORE( ushort, mac+4, FD_LOAD( ushort, _mac+4 ) );
   return mac;
 }
 
@@ -277,6 +277,7 @@ fd_vlan_tag( void * _tag,
              ushort vid,     /* Assumed in [0,4095], host order */
              ushort type ) { /* What follows this tag? */
   fd_vlan_tag_t * tag = (fd_vlan_tag_t *)_tag;
+  /* FIXME: USE FD_STORE? */
   tag->net_vid  = fd_ushort_bswap( vid  );
   tag->net_type = fd_ushort_bswap( type );
   return tag;
