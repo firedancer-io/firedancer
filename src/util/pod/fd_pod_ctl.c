@@ -403,12 +403,12 @@ main( int     argc,
         info = (fd_pod_info_t *)aligned_alloc( alignof(fd_pod_info_t), info_cnt*sizeof(fd_pod_info_t) );
         if( FD_UNLIKELY( !info ) ) {
           fd_wksp_unmap( fd_pod_leave( pod ) );
-          FD_LOG_ERR(( "%i: %s: fd_pod_join( \"%s\" ) failed\n\tDo %s help for help", cnt, cmd, cstr, bin ));
+          FD_LOG_ERR(( "%i: %s: aligned_alloc failed\n\tDo %s help for help", cnt, cmd, bin ));
         }
         if( FD_UNLIKELY( !fd_pod_list_recursive( pod, info ) ) ) {
           free( info );
           fd_wksp_unmap( fd_pod_leave( pod ) );
-          FD_LOG_ERR(( "%i: %s: fd_pod_join( \"%s\" ) failed\n\tDo %s help for help", cnt, cmd, cstr, bin ));
+          FD_LOG_ERR(( "%i: %s: fd_pod_list_recursive( \"%s\" ) failed\n\tDo %s help for help", cnt, cmd, cstr, bin ));
         }
       }
 
