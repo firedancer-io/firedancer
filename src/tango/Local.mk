@@ -7,5 +7,5 @@ $(call make-unit-test,test_meta_rx,test_meta_rx,fd_tango fd_util)
 $(call make-unit-test,test_frag_tx,test_frag_tx,fd_tango fd_util)
 $(call make-unit-test,test_frag_rx,test_frag_rx,fd_tango fd_util)
 $(call make-unit-test,bench_frag_tx,bench_frag_tx,fd_tango fd_util)
-$(call add-test-scripts,test_ipc_init test_ipc_meta test_ipc_full test_ipc_fini)
+$(call add-test-scripts,test_tango_ctl test_ipc_init test_ipc_meta test_ipc_full test_ipc_fini)
 
