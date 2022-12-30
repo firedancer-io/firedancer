@@ -1,0 +1,122 @@
+#!/bin/bash
+
+fail() {
+  echo FAIL: $1 unexpected exit code $2
+  echo Log N/A
+  exit 1
+}
+
+# Determine location of binaries
+
+UNIT_TEST=$(dirname -- "$BASH_SOURCE")
+BUILD=$(dirname -- "$UNIT_TEST")
+BIN=$BUILD/bin
+
+# Specify test details
+
+WKSP=test_fd_wksp_ctl.wksp
+PAGE_CNT=1
+PAGE_SZ=gigantic
+CPU_IDX=0
+MODE=0600
+
+# Disable the permanent log
+
+FD_LOG_PATH=""
+export FD_LOG_PATH
+
+# Try to clean up any leftovers from previous runs (including same name on multiple pages)
+
+$BIN/fd_wksp_ctl delete $WKSP delete $WKSP delete $WKSP > /dev/null 2>&1
+
+echo Testing no-op
+
+$BIN/fd_wksp_ctl || fail no-op $?
+
+echo Testing unknown
+
+$BIN/fd_wksp_ctl unknown && fail unknown $?
+
+echo Testing help
+
+$BIN/fd_wksp_ctl help || fail help $?
+
+echo Testing new
+
+$BIN/fd_wksp_ctl new                                            && fail new $?
+$BIN/fd_wksp_ctl new $WKSP                                      && fail new $?
+$BIN/fd_wksp_ctl new $WKSP    $PAGE_CNT                         && fail new $?
+$BIN/fd_wksp_ctl new $WKSP    $PAGE_CNT $PAGE_SZ                && fail new $?
+$BIN/fd_wksp_ctl new $WKSP    $PAGE_CNT $PAGE_SZ $CPU_IDX       && fail new $?
+$BIN/fd_wksp_ctl new bad/name $PAGE_CNT $PAGE_SZ $CPU_IDX $MODE && fail new $?
+$BIN/fd_wksp_ctl new $WKSP    0         $PAGE_SZ $CPU_IDX $MODE && fail new $?
+$BIN/fd_wksp_ctl new $WKSP    $PAGE_CNT bad_sz   $CPU_IDX $MODE && fail new $?
+$BIN/fd_wksp_ctl new $WKSP    $PAGE_CNT $PAGE_SZ -1       $MODE && fail new $?
+$BIN/fd_wksp_ctl new $WKSP    $PAGE_CNT $PAGE_SZ $CPU_IDX -1    && fail new $?
+$BIN/fd_wksp_ctl new $WKSP    $PAGE_CNT $PAGE_SZ $CPU_IDX $MODE || fail new $?
+$BIN/fd_wksp_ctl new $WKSP    $PAGE_CNT $PAGE_SZ $CPU_IDX $MODE && fail new $?
+
+echo Testing alloc
+
+$BIN/fd_wksp_ctl alloc                                          && fail alloc $?
+$BIN/fd_wksp_ctl alloc $WKSP                                    && fail alloc $?
+$BIN/fd_wksp_ctl alloc $WKSP    4096                            && fail alloc $?
+$BIN/fd_wksp_ctl alloc bad/name 4096 2097152                    && fail alloc $?
+$BIN/fd_wksp_ctl alloc $WKSP    -1   2097152                    && fail alloc $?
+$BIN/fd_wksp_ctl alloc $WKSP    4096 -1                         && fail alloc $?
+
+GADDR=$($BIN/fd_wksp_ctl alloc $WKSP 4096 2097152 || fail alloc $?)
+
+echo Testing memset
+
+$BIN/fd_wksp_ctl memset            && fail memset $?
+$BIN/fd_wksp_ctl memset $GADDR     && fail memset $?
+$BIN/fd_wksp_ctl memset bad/name 0 || fail memset $? # Yes ... a fail here is success from cmd exec POV (fail is logged)
+$BIN/fd_wksp_ctl memset $GADDR   0 || fail memset $?
+
+echo Testing check
+
+$BIN/fd_wksp_ctl check          && fail check $?
+$BIN/fd_wksp_ctl check bad/name && fail check $?
+$BIN/fd_wksp_ctl check $WKSP    || fail check $?
+
+echo Testing query
+
+$BIN/fd_wksp_ctl query          && fail query $?
+$BIN/fd_wksp_ctl query bad/name && fail query $?
+$BIN/fd_wksp_ctl query $WKSP    || fail query $?
+
+echo Testing free
+
+$BIN/fd_wksp_ctl free          && fail free $?
+$BIN/fd_wksp_ctl free bad/name || fail free $? # Yes ... a fail here is success from cmd exec POV (fail is logged)
+$BIN/fd_wksp_ctl free $GADDR   || fail free $?
+$BIN/fd_wksp_ctl free $GADDR   || fail free $? # Yes ... a fail here is success from cmd exec POV (fail is logged)
+
+echo Testing reset
+
+$BIN/fd_wksp_ctl reset          && fail reset $?
+$BIN/fd_wksp_ctl reset bad/name && fail reset $?
+$BIN/fd_wksp_ctl reset $WKSP    || fail reset $?
+
+echo Testing delete
+
+$BIN/fd_wksp_ctl delete          && fail delete $?
+$BIN/fd_wksp_ctl delete bad/name && fail delete $?
+$BIN/fd_wksp_ctl delete $WKSP    || fail delete $?
+
+echo Testing multi
+
+$BIN/fd_wksp_ctl new    $WKSP $PAGE_CNT $PAGE_SZ $CPU_IDX $MODE check $WKSP \
+                 query  $WKSP                                   check $WKSP \
+                 alloc  $WKSP 4096 2097152                      check $WKSP \
+                 query  $WKSP                                   check $WKSP \
+                 reset  $WKSP                                   check $WKSP \
+                 query  $WKSP                                   check $WKSP \
+                 delete $WKSP                                               \
+|| fail multi $?
+
+echo pass
+echo Log N/A
+exit 0
+
