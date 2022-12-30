@@ -44,8 +44,11 @@ main( int     argc,
         "\t  deleted (typically the one backed by the largest page_sz)\n\t"
         "\n\t"
         "\tquery name page_sz\n\t"
-        "\t- Pretty prints info to stdout and log (INFO) about a shared\n\t"
-        "\t  memory region named name.\n\t"
+        "\t- Pretty prints info to stdout about a shared memory region\n\t"
+        "\t  named name.  The format is:\n\t"
+        "\t    [err_code] [page_cnt] [page_sz]\n\t"
+        "\t  err code is zero, the query was successful.  If not, the query\n\t"
+        "\t  failed (details logged) and page_cnt and page_sz will be zero.\n\t"
         "\t- If page_sz is zero, this will attempt to detected the page_sz\n\t"
         "\t  If there are multiple with the same name, one will be\n\t"
         "\t  queried (typically the one backed by the largest page_sz)\n\t"
@@ -91,6 +94,8 @@ main( int     argc,
 
     } else if( !strcmp( cmd, "query" ) ) {
 
+      /* FIXME: MAKE THIS MORE LIKE POD QUERY WITH "WHAT" FIELDS */
+
       if( FD_UNLIKELY( argc<2 ) ) FD_LOG_ERR(( "%i: %s: too few arguments\n\tDo %s help for help", cnt, cmd, bin ));
 
       char const * name     =                           argv[0];
@@ -98,24 +103,8 @@ main( int     argc,
 
       fd_shmem_info_t info[1];
       int err = fd_shmem_info( name, page_sz, info );
-      if( FD_UNLIKELY( err ) ) {
-#       if FD_HAS_HOSTED
-        if( FD_UNLIKELY( err!=ENOENT ) ) FD_LOG_ERR(( "%i: %s %s %s: FAIL\n\tDo %s help for help", cnt, cmd, name, argv[1], bin ));
-        /* FIXME: ALLOW PERMISSIONS CASES TO NOT FAIL? */
-#       endif
-        FD_LOG_INFO(( "query %s: 0 %lu", name, page_sz ));
-#       if FD_HAS_HOSTED
-        fprintf( stdout, "query %s: 0 %lu\n", name, page_sz );
-#       endif
-
-      } else {
-
-        FD_LOG_INFO(( "query %s: %lu %lu", name, info->page_cnt, info->page_sz ));
-#       if FD_HAS_HOSTED
-        fprintf( stdout, "query %s: %lu %lu\n", name, info->page_cnt, info->page_sz );
-#       endif
-
-      }
+      if( FD_UNLIKELY( err ) ) printf( "%i 0 0\n",    err );
+      else                     printf( "0 %lu %lu\n", info->page_cnt, info->page_sz );
 
       FD_LOG_NOTICE(( "%i: %s %s %s: success", cnt, cmd, name, argv[1]));
       SHIFT(2);
