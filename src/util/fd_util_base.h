@@ -7,14 +7,14 @@
 
 #ifdef __cplusplus
 
-#if __cplusplus<201103L
+#if __cplusplus<201703L
 #error "Firedancer requires C++17 or later"
 #endif
 
 #else
 
-#if __STDC_VERSION__<201112L
-#error "Firedancer requires C Standard version C11 or later"
+#if __STDC_VERSION__<201710L
+#error "Firedancer requires C Standard version C17 or later"
 #endif
 
 #endif //__cplusplus
