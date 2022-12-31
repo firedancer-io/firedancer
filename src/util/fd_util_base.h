@@ -144,7 +144,12 @@
    (basically do the 256-bit wide parts of "x86intrin.h" work).
    Recommend using the simd/fd_avx.h APIs instead of raw Intel
    intrinsics for readability and to facilitate portability to non-x86
-   platforms.  Implies FD_HAS_SSE. */
+   platforms.  Implies FD_HAS_SSE.
+
+   Note that the introduction of AVX2 circa 2013 was also around the
+   time SHA extensions were added.  Currently FD_HAS_AVX thus also
+   implies the availability of SHA extensions but we might be more
+   precise in the future. */
 
 #ifndef FD_HAS_AVX
 #define FD_HAS_AVX 0
