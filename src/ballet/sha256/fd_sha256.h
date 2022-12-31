@@ -15,33 +15,38 @@
 #define FD_SHA256_ALIGN     (128UL)
 #define FD_SHA256_FOOTPRINT (128UL)
 
+/* FD_SHA256_{LG_HASH_SZ,HASH_SZ} describe the size of a SHA256 hash
+   in bytes.  HASH_SZ==2^LG_HASH_SZ==32. */
+
+#define FD_SHA256_LG_HASH_SZ (5)
+#define FD_SHA256_HASH_SZ    (32UL) /* == 2^FD_SHA256_LG_HASH_SZ, explicit to workaround compiler limitations */
+
 /* A fd_sha256_t should be treated as an opaque handle of a sha256
    calculation state.  (It technically isn't here facilitate compile
    time declarations of fd_sha256_t memory.) */
 
 #define FD_SHA256_MAGIC (0xF17EDA2CE54A2560) /* FIREDANCE SHA256 V0 */
 
-/* FD_SHA256_HASH_SZ is the size of a hash in bytes. */
+/* FD_SHA256_PRIVATE_{LG_BUF_MAX,BUF_MAX} describe the size of the
+   internal buffer used by the sha256 computation object.  This is for
+   internal use only.  BUF_MAX==2^LG_BUF_MAX==2*FD_SHA256_HASH_SZ==64. */
 
-#define FD_SHA256_HASH_SZ (32UL)
-
-/* FD_SHA256_BUF_MAX is the size of the internal hash buffer. */
-
-#define FD_SHA256_BUF_MAX (64UL)
+#define FD_SHA256_PRIVATE_LG_BUF_MAX (6)
+#define FD_SHA256_PRIVATE_BUF_MAX    (64UL) /* == 2^FD_SHA256_PRIVATE_LG_BUF_MAX, explicit to workaround compiler limitations */
 
 struct __attribute__((aligned(FD_SHA256_ALIGN))) fd_sha256_private {
 
   /* This point is 128-byte aligned */
 
-  uchar buf[FD_SHA256_BUF_MAX];
+  uchar buf[ FD_SHA256_PRIVATE_BUF_MAX ];
 
   /* This point is 64-byte aligned */
 
-  uint state[8];
+  uint  state[ FD_SHA256_HASH_SZ / sizeof(uint) ];
 
   /* This point is 32-byte aligned */
 
-  ulong magic;    /* ==FD_SH256_MAGIC */
+  ulong magic;    /* ==FD_SHA256_MAGIC */
   ulong buf_used; /* Number of buffered bytes, in [0,FD_SHA256_BUF_MAX) */
   ulong bit_cnt;  /* How many bits have been appended total */
 

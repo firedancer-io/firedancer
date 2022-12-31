@@ -204,16 +204,16 @@ fd_sha256_core_ref( uint *        state,
 
 fd_sha256_t *
 fd_sha256_init( fd_sha256_t * sha ) {
-  sha->state[0]   = 0x6a09e667UL;
-  sha->state[1]   = 0xbb67ae85UL;
-  sha->state[2]   = 0x3c6ef372UL;
-  sha->state[3]   = 0xa54ff53aUL;
-  sha->state[4]   = 0x510e527fUL;
-  sha->state[5]   = 0x9b05688cUL;
-  sha->state[6]   = 0x1f83d9abUL;
-  sha->state[7]   = 0x5be0cd19UL;
-  sha->buf_used   = 0U;
-  sha->bit_cnt    = 0UL;
+  sha->state[0] = 0x6a09e667UL;
+  sha->state[1] = 0xbb67ae85UL;
+  sha->state[2] = 0x3c6ef372UL;
+  sha->state[3] = 0xa54ff53aUL;
+  sha->state[4] = 0x510e527fUL;
+  sha->state[5] = 0x9b05688cUL;
+  sha->state[6] = 0x1f83d9abUL;
+  sha->state[7] = 0x5be0cd19UL;
+  sha->buf_used = 0U;
+  sha->bit_cnt  = 0UL;
   return sha;
 }
 
@@ -228,18 +228,18 @@ fd_sha256_append( fd_sha256_t * sha,
 
   /* Unpack inputs */
 
-  uint * state       = sha->state;
-  uchar * buf        = sha->buf;
-  ulong   buf_used   = sha->buf_used;
-  ulong   bit_cnt    = sha->bit_cnt;
+  uint *  state    = sha->state;
+  uchar * buf      = sha->buf;
+  ulong   buf_used = sha->buf_used;
+  ulong   bit_cnt  = sha->bit_cnt;
 
   uchar const * data = (uchar const *)_data;
 
   /* Update bit_cnt */
   /* FIXME: could accumulate bytes here and do bit conversion in append */
+  /* FIXME: Overflow handling if more than 2^64 bits (unlikely) */
 
-  ulong new_bit_cnt = bit_cnt + (sz<<3);
-  sha->bit_cnt = new_bit_cnt;
+  sha->bit_cnt = bit_cnt + (sz<<3);
 
   /* Handle buffered bytes from previous appends */
 
@@ -248,7 +248,7 @@ fd_sha256_append( fd_sha256_t * sha,
     /* If the append isn't large enough to complete the current block,
        buffer these bytes too and return */
 
-    ulong buf_rem = FD_SHA256_BUF_MAX - buf_used; /* In (0,64) */
+    ulong buf_rem = FD_SHA256_PRIVATE_BUF_MAX - buf_used; /* In (0,FD_SHA256_PRIVATE_BUF_MAX) */
     if( FD_UNLIKELY( sz < buf_rem ) ) { /* optimize for large append */
       fd_memcpy( buf + buf_used, data, sz );
       sha->buf_used = buf_used + sz;
@@ -269,15 +269,15 @@ fd_sha256_append( fd_sha256_t * sha,
 
   /* Append the bulk of the data */
 
-  ulong block_cnt = sz / FD_SHA256_BUF_MAX;
+  ulong block_cnt = sz >> FD_SHA256_PRIVATE_LG_BUF_MAX;
   if( FD_LIKELY( block_cnt ) ) fd_sha256_core( state, data, block_cnt ); /* optimized for large append */
 
   /* Buffer any leftover bytes */
 
-  buf_used = sz & (FD_SHA256_BUF_MAX-1); /* In [0,64) */
+  buf_used = sz & (FD_SHA256_PRIVATE_BUF_MAX-1UL); /* In [0,FD_SHA256_PRIVATE_BUF_MAX) */
   if( FD_UNLIKELY( buf_used ) ) { /* optimized for well aligned use of append */
-    fd_memcpy( buf, data + (block_cnt*FD_SHA256_BUF_MAX), buf_used );
-    sha->buf_used = buf_used; /* In (0,64) */
+    fd_memcpy( buf, data + (block_cnt << FD_SHA256_PRIVATE_LG_BUF_MAX), buf_used );
+    sha->buf_used = buf_used; /* In (0,FD_SHA256_PRIVATE_BUF_MAX) */
   }
 
   return sha;
@@ -289,10 +289,10 @@ fd_sha256_fini( fd_sha256_t * sha,
 
   /* Unpack inputs */
 
-  uint * state       = sha->state;
-  uchar * buf        = sha->buf;
-  ulong   buf_used   = sha->buf_used; /* In [0,64) */
-  ulong   bit_cnt    = sha->bit_cnt;
+  uint *  state    = sha->state;
+  uchar * buf      = sha->buf;
+  ulong   buf_used = sha->buf_used; /* In [0,FD_SHA256_PRIVATE_BUF_MAX) */
+  ulong   bit_cnt  = sha->bit_cnt;
 
   /* Append the terminating message byte */
 
@@ -303,8 +303,8 @@ fd_sha256_fini( fd_sha256_t * sha,
      the end of the in progress block, clear the rest of the in progress
      block, update the hash and start a new block. */
 
-  if( FD_UNLIKELY( buf_used > (FD_SHA256_BUF_MAX-8) ) ) { /* optimize for well aligned use of append */
-    fd_memset( buf + buf_used, 0, FD_SHA256_BUF_MAX-buf_used );
+  if( FD_UNLIKELY( buf_used > (FD_SHA256_PRIVATE_BUF_MAX-8UL) ) ) { /* optimize for well aligned use of append */
+    fd_memset( buf + buf_used, 0, FD_SHA256_PRIVATE_BUF_MAX-buf_used );
     fd_sha256_core( state, buf, 1UL );
     buf_used = 0UL;
   }
@@ -313,12 +313,8 @@ fd_sha256_fini( fd_sha256_t * sha,
      size in bytes in the last 64-bits of the in progress block and
      update the hash to finalize it. */
 
-  uint bit_cnt_lo = (uint)(bit_cnt);
-  uint bit_cnt_hi = (uint)(bit_cnt>>32);
-
-  fd_memset( buf + buf_used, 0, FD_SHA256_BUF_MAX-8-buf_used );
-  *((uint *)(buf+FD_SHA256_BUF_MAX-8)) = fd_uint_bswap( bit_cnt_hi );
-  *((uint *)(buf+FD_SHA256_BUF_MAX-4)) = fd_uint_bswap( bit_cnt_lo );
+  fd_memset( buf + buf_used, 0, FD_SHA256_PRIVATE_BUF_MAX-8UL-buf_used );
+  *((ulong *)(buf+FD_SHA256_PRIVATE_BUF_MAX-8UL)) = fd_ulong_bswap( bit_cnt );
   fd_sha256_core( state, buf, 1UL );
 
   /* Unpack the result into md (annoying bswaps here) */
