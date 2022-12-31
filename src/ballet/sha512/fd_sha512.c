@@ -296,7 +296,7 @@ fd_sha512_append( fd_sha512_t * sha,
     /* If the append isn't large enough to complete the current block,
        buffer these bytes too and return */
 
-    ulong buf_rem = FD_SHA512_BUF_MAX - buf_used; /* In (0,128) */
+    ulong buf_rem = FD_SHA512_PRIVATE_BUF_MAX - buf_used; /* In (0,FD_SHA512_PRIVATE_BUF_MAX) */
     if( FD_UNLIKELY( sz < buf_rem ) ) { /* optimize for large append */
       fd_memcpy( buf + buf_used, data, sz );
       sha->buf_used = buf_used + sz;
@@ -317,15 +317,15 @@ fd_sha512_append( fd_sha512_t * sha,
 
   /* Append the bulk of the data */
 
-  ulong block_cnt = sz / FD_SHA512_BUF_MAX;
+  ulong block_cnt = sz >> FD_SHA512_PRIVATE_LG_BUF_MAX;
   if( FD_LIKELY( block_cnt ) ) fd_sha512_core( state, data, block_cnt ); /* optimized for large append */
 
   /* Buffer any leftover bytes */
 
-  buf_used = sz & (FD_SHA512_BUF_MAX-1); /* In [0,128) */
+  buf_used = sz & (FD_SHA512_PRIVATE_BUF_MAX-1UL); /* In [0,FD_SHA512_PRIVATE_BUF_MAX) */
   if( FD_UNLIKELY( buf_used ) ) { /* optimized for well aligned use of append */
-    fd_memcpy( buf, data + (block_cnt*FD_SHA512_BUF_MAX), buf_used );
-    sha->buf_used = buf_used; /* In (0,128) */
+    fd_memcpy( buf, data + (block_cnt << FD_SHA512_PRIVATE_LG_BUF_MAX), buf_used );
+    sha->buf_used = buf_used; /* In (0,FD_SHA512_PRIVATE_BUF_MAX) */
   }
 
   return sha;
@@ -339,7 +339,7 @@ fd_sha512_fini( fd_sha512_t * sha,
 
   ulong * state      = sha->state;
   uchar * buf        = sha->buf;
-  ulong   buf_used   = sha->buf_used; /* In [0,128) */
+  ulong   buf_used   = sha->buf_used; /* In [0,FD_SHA512_PRIVATE_BUF_MAX) */
   ulong   bit_cnt_lo = sha->bit_cnt_lo;
   ulong   bit_cnt_hi = sha->bit_cnt_hi;
 
@@ -352,8 +352,8 @@ fd_sha512_fini( fd_sha512_t * sha,
      the end of the in progress block, clear the rest of the in progress
      block, update the hash and start a new block. */
 
-  if( FD_UNLIKELY( buf_used > FD_SHA512_BUF_MAX-16UL ) ) { /* optimize for well aligned use of append */
-    fd_memset( buf + buf_used, 0, FD_SHA512_BUF_MAX-buf_used );
+  if( FD_UNLIKELY( buf_used > FD_SHA512_PRIVATE_BUF_MAX-16UL ) ) { /* optimize for well aligned use of append */
+    fd_memset( buf + buf_used, 0, FD_SHA512_PRIVATE_BUF_MAX-buf_used );
     fd_sha512_core( state, buf, 1UL );
     buf_used = 0UL;
   }
@@ -362,9 +362,9 @@ fd_sha512_fini( fd_sha512_t * sha,
      size in bytes in the last 128-bits of the in progress block and
      update the hash to finalize it. */
 
-  fd_memset( buf + buf_used, 0, FD_SHA512_BUF_MAX-16UL-buf_used );
-  *((ulong *)(buf+FD_SHA512_BUF_MAX-16UL)) = fd_ulong_bswap( bit_cnt_hi );
-  *((ulong *)(buf+FD_SHA512_BUF_MAX- 8UL)) = fd_ulong_bswap( bit_cnt_lo );
+  fd_memset( buf + buf_used, 0, FD_SHA512_PRIVATE_BUF_MAX-16UL-buf_used );
+  *((ulong *)(buf+FD_SHA512_PRIVATE_BUF_MAX-16UL)) = fd_ulong_bswap( bit_cnt_hi );
+  *((ulong *)(buf+FD_SHA512_PRIVATE_BUF_MAX- 8UL)) = fd_ulong_bswap( bit_cnt_lo );
   fd_sha512_core( state, buf, 1UL );
 
   /* Unpack the result into md (annoying bswaps here) */

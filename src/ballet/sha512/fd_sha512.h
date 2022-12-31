@@ -15,34 +15,40 @@
 #define FD_SHA512_ALIGN     (128UL)
 #define FD_SHA512_FOOTPRINT (256UL)
 
+/* FD_SHA512_{LG_HASH_SZ,HASH_SZ} describe the size of a SHA512 hash
+   in bytes.  HASH_SZ==2^LG_HASH_SZ==64. */
+
+#define FD_SHA512_LG_HASH_SZ (6)
+#define FD_SHA512_HASH_SZ    (64UL) /* == 2^FD_SHA512_LG_HASH_SZ, explicit to workaround compiler limitations */
+
 /* A fd_sha512_t should be treated as an opaque handle of a sha512
    calculation state.  (It technically isn't here facilitate compile
    time declarations of fd_sha512_t memory.) */
 
 #define FD_SHA512_MAGIC (0xF17EDA2CE54A5120) /* FIREDANCE SHA512 V0 */
 
-/* FD_SHA512_HASH_SZ returns the size of a hash in bytes. */
+/* FD_SHA512_PRIVATE_{LG_BUF_MAX,BUF_MAX} describe the size of the
+   internal buffer used by the sha512 computation object.  This is for
+   internal use only.  BUF_MAX==2^LG_BUF_MAX==2*FD_SHA512_HASH_SZ==128. */
 
-#define FD_SHA512_HASH_SZ (64UL)
-
-/* FD_SHA512_BUF_MAX is the size of the internal hash buffer. */
-
-#define FD_SHA512_BUF_MAX (128UL)
+#define FD_SHA512_PRIVATE_LG_BUF_MAX (7)
+#define FD_SHA512_PRIVATE_BUF_MAX    (128UL) /* == 2^FD_SHA512_PRIVATE_LG_BUF_MAX, explicit to workaround compiler limitations */
 
 struct __attribute__((aligned(FD_SHA512_ALIGN))) fd_sha512_private {
 
   /* This point is 128-byte aligned */
 
-  uchar buf[FD_SHA512_BUF_MAX]; /* Buffered message bytes (these have not been added to the hash yet), indexed [0,buf_used) */
+  uchar buf[ FD_SHA512_PRIVATE_BUF_MAX ]; /* Buffered message bytes (these have not been added to the hash yet),
+                                             indexed [0,buf_used) */
 
   /* This point is 128-byte aligned */
 
-  ulong state[8]; /* Current state of the hash */
+  ulong state[ FD_SHA512_HASH_SZ / sizeof(ulong) ]; /* Current state of the hash */
 
   /* This point is 64-byte aligned */
 
   ulong magic;      /* ==FD_SHA512_MAGIC */
-  ulong buf_used;   /* Number of buffered bytes, in [0,FD_SHA512_BUF_MAX) */
+  ulong buf_used;   /* Number of buffered bytes, in [0,FD_SHA512_PRIVATE_BUF_MAX) */
   ulong bit_cnt_lo; /* How many bits have been appended total (lower 64-bit) */
   ulong bit_cnt_hi; /* "                                      (upper 64-bit) */
 
