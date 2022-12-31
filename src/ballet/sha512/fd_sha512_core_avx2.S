@@ -1386,7 +1386,7 @@ fd_sha512_core_avx2:
 .cfi_endproc	
 .size	fd_sha512_core_avx2,.-fd_sha512_core_avx2
 
-.align	64
+.align	128
 .type	fd_sha512_core_avx2_k,@object
 fd_sha512_core_avx2_k:
 .quad	0x428a2f98d728ae22,0x7137449123ef65cd
