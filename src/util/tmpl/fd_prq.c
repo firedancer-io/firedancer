@@ -344,9 +344,8 @@ static inline ulong PRQ_(align)( void ) { return alignof(PRQ_(private_t)); }
 
 static inline ulong
 PRQ_(footprint)( ulong max ) {
-  /* 2UL is for the dummy slots, -1UL is because PRQ_(private_t)
-     includes heap root. */
-  return sizeof(PRQ_(private_t)) + (max+2UL-1UL)*sizeof(PRQ_T);
+  /* 2UL is for the dummy slots */
+  return fd_ulong_align_up( fd_ulong_align_up( 16UL, alignof(PRQ_T) ) + sizeof(PRQ_T)*(max+2UL), alignof(PRQ_(private_t)) );
 }
 
 static inline void *

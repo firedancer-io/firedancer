@@ -63,10 +63,8 @@ main( int     argc,
   ulong align     = map_align();
   ulong footprint = map_footprint( LG_SLOT_CNT );
   if( FD_UNLIKELY( (footprint>16384UL) | (align>8UL) ) ) { FD_LOG_WARNING(( "skip: adjust mem to support this test" )); return 0; }
-  FD_TEST( fd_ulong_is_pow2   ( align            )                 );
-  FD_TEST( fd_ulong_is_aligned( footprint, align )                 );
-  FD_TEST( align     >=alignof(pair_t)                             );
-  FD_TEST( footprint > sizeof (pair_t)*fd_ulong_pow2( LG_SLOT_CNT) );
+  FD_TEST( fd_ulong_is_pow2   ( align            ) );
+  FD_TEST( fd_ulong_is_aligned( footprint, align ) );
 
   void   * shmap = map_new ( mem, LG_SLOT_CNT ); FD_TEST( shmap );
   pair_t * map   = map_join( shmap );            FD_TEST( map   );

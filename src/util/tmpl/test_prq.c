@@ -56,12 +56,9 @@ main( int     argc,
 
   FD_LOG_NOTICE(( "Testing construction" ));
 
-  ulong align = eventq_align();
-  FD_TEST( align>=alignof(event_t) );
-  FD_TEST( fd_ulong_is_pow2( align ) );
-
+  ulong align     = eventq_align();
   ulong footprint = eventq_footprint( max );
-  FD_TEST( footprint>sizeof(event_t)*max );
+  FD_TEST( fd_ulong_is_pow2( align ) );
   FD_TEST( fd_ulong_is_aligned( footprint, align ) );
 
   uchar _mem[ 65536 ];

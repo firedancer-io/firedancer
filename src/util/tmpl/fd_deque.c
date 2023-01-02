@@ -12,26 +12,26 @@
 
    This creates the following API for use in the local compilation unit:
 
-     ulong      my_deque_align      ( void               ); // required byte alignment of a deque
-     ulong      my_deque_footprint  ( void               ); // required byte footprint of a deque with the given DEQUE_MAX
-     void     * my_deque_new        ( void     * shmem   ); // format memory region into a my_deque, my_deque will be empty
-                                                            // (caller not joined on return, mem has required align/footprint, etc)
-     my_ele_t * my_deque_join       ( void     * shdeque ); // join a my_deque (unlimited joins, etc) (NOT A CAST OF SHDEQUE)
-                                                            // join can be indexed like a normal array with DEQUE_MAX elements
-     void     * my_deque_leave      ( my_ele_t * deque   ); // leave a my_deque (matched with join, etc) (NOT A CAST OF DEQUE)
-     void     * my_deque_delete     ( void     * shdeque ); // unformat memory (no active joins, etc)
+     ulong      my_deque_align    ( void               ); // required byte alignment of a deque
+     ulong      my_deque_footprint( void               ); // required byte footprint of a deque with the given DEQUE_MAX
+     void     * my_deque_new      ( void     * shmem   ); // format memory region into a my_deque, my_deque will be empty
+                                                          // (caller not joined on return, mem has required align/footprint, etc)
+     my_ele_t * my_deque_join     ( void     * shdeque ); // join a my_deque (unlimited joins, etc) (NOT A CAST OF SHDEQUE)
+                                                          // join can be indexed like a normal array with DEQUE_MAX elements
+     void     * my_deque_leave    ( my_ele_t * deque   ); // leave a my_deque (matched with join, etc) (NOT A CAST OF DEQUE)
+     void     * my_deque_delete   ( void     * shdeque ); // unformat memory (no active joins, etc)
 
      // Accessors
 
-     ulong      my_deque_max        ( my_ele_t * deque   ); // returns the max elements that could be in the queue (==DEQUE_MAX)
-     ulong      my_deque_cnt        ( my_ele_t * deque   ); // returns the number of elements in the queue, in [0,DEQUE_MAX]
+     ulong my_deque_max( my_ele_t const * deque ); // returns the max elements that could be in the queue (==DEQUE_MAX)
+     ulong my_deque_cnt( my_ele_t const * deque ); // returns the number of elements in the queue, in [0,DEQUE_MAX]
 
      // Simple API
 
-     my_ele_t * my_deque_push_head  ( my_ele_t * deque, my_ele_t ele ); // push ele at the deque head, returns deque
-     my_ele_t * my_deque_push_tail  ( my_ele_t * deque, my_ele_t ele ); // push ele at the deque tail, returns deque
-     my_ele_t   my_deque_pop_head   ( my_ele_t * deque   ); // pops ele from the head of the deque, returns ele
-     my_ele_t   my_deque_pop_tail   ( my_ele_t * deque   ); // pops ele from the tail of the deque, returns ele
+     my_ele_t * my_deque_push_head( my_ele_t * deque, my_ele_t ele ); // push ele at the deque head, returns deque
+     my_ele_t * my_deque_push_tail( my_ele_t * deque, my_ele_t ele ); // push ele at the deque tail, returns deque
+     my_ele_t   my_deque_pop_head ( my_ele_t * deque               ); // pops ele from the head of the deque, returns ele
+     my_ele_t   my_deque_pop_tail ( my_ele_t * deque               ); // pops ele from the tail of the deque, returns ele
 
      // Advanced API for zero-copy usage
 
@@ -101,6 +101,13 @@ DEQUE_(private_hdr_from_deque)( DEQUE_T * deque ) {
   return (DEQUE_(private_t) *)( (ulong)deque - (ulong)&(((DEQUE_(private_t) *)NULL)->deque) );
 }
 
+/* const-correct version of above */
+
+FD_FN_CONST static inline DEQUE_(private_t) const *
+DEQUE_(private_const_hdr_from_deque)( DEQUE_T const * deque ) {
+  return (DEQUE_(private_t) const *)( (ulong)deque - (ulong)&(((DEQUE_(private_t) *)NULL)->deque) );
+}
+
 /* private_slot maps an index to a slot cnt.  The compiler should
    optimize this to a bit-and when MAX is a power of 2 and, hopefully,
    to optimize this to a magic multiply otherwise. */
@@ -110,7 +117,7 @@ FD_FN_CONST static inline ulong DEQUE_(private_slot)( ulong i ) { return i % (ul
 FD_FN_CONST static inline ulong DEQUE_(align)    ( void ) { return alignof(DEQUE_(private_t)); }
 FD_FN_CONST static inline ulong DEQUE_(footprint)( void ) { return sizeof (DEQUE_(private_t)); }
 
-FD_FN_UNUSED static void * /* Work around -Winline */
+static inline void *
 DEQUE_(new)( void * shmem ) {
   DEQUE_(private_t) * hdr = (DEQUE_(private_t) *)shmem;
   /* These values are large enough that underflow / overflow will never
@@ -133,11 +140,11 @@ DEQUE_(join)( void * shdeque ) {
 static inline void * DEQUE_(leave) ( DEQUE_T * deque   ) { return (void *)DEQUE_(private_hdr_from_deque)( deque ); }
 static inline void * DEQUE_(delete)( void *    shdeque ) { return shdeque; }
 
-static inline ulong DEQUE_(max)( DEQUE_T * deque ) { (void)deque; return (ulong)(DEQUE_MAX); }
+static inline ulong DEQUE_(max)( DEQUE_T const * deque ) { (void)deque; return (ulong)(DEQUE_MAX); }
 
 static inline ulong
-DEQUE_(cnt)( DEQUE_T * deque ) {
-  DEQUE_(private_t) * hdr = DEQUE_(private_hdr_from_deque)( deque );
+DEQUE_(cnt)( DEQUE_T const * deque ) {
+  DEQUE_(private_t) const * hdr = DEQUE_(private_const_hdr_from_deque)( deque );
   return hdr->end - hdr->start;
 }
 
@@ -173,6 +180,8 @@ DEQUE_(pop_tail)( DEQUE_T * deque ) {
   hdr->end--;
   return hdr->deque[ DEQUE_(private_slot)( hdr->end ) ];
 }
+
+/* FIXME: CONST VERSION OF PEEKS? */
 
 static inline DEQUE_T *
 DEQUE_(peek_head)( DEQUE_T * deque ) {

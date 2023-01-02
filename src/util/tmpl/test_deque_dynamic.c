@@ -1,157 +1,166 @@
 #include "../fd_util.h"
-#define DEQUE_NAME deque
-#define DEQUE_T int
 
+#define TEST_DEQUE_MAX (8UL)
+
+static int   buf[ TEST_DEQUE_MAX ];
+static ulong buf_start = 0UL;
+static ulong buf_end   = 0UL;
+static ulong buf_cnt   = 0UL;
+
+static void
+buf_push_head( int i ) {
+  FD_TEST( buf_cnt<TEST_DEQUE_MAX );
+  buf_cnt++; buf_start--; if( buf_start>=TEST_DEQUE_MAX ) buf_start = TEST_DEQUE_MAX-1UL;
+  buf[ buf_start ] = i;
+}
+
+static void
+buf_push_tail( int i ) {
+  FD_TEST( buf_cnt<TEST_DEQUE_MAX );
+  buf[ buf_end ] = i;
+  buf_cnt++; buf_end++; if( buf_end>=TEST_DEQUE_MAX ) buf_end = 0UL;
+}
+
+static int
+buf_pop_head( void ) {
+  FD_TEST( buf_cnt );
+  int i = buf[ buf_start ];
+  buf_cnt--; buf_start++; if( buf_start>=TEST_DEQUE_MAX ) buf_start = 0UL;
+  return i;
+}
+
+static int
+buf_pop_tail( void ) {
+  FD_TEST( buf_cnt );
+  buf_cnt--; buf_end--; if( buf_end>=TEST_DEQUE_MAX ) buf_end = TEST_DEQUE_MAX-1UL;
+  return buf[ buf_end ];
+}
+
+#define DEQUE_NAME test_deque
+#define DEQUE_T    int
 #include "fd_deque_dynamic.c"
 
-#define DEQUE_NAME p2deque
-#define DEQUE_T int
-#define DEQUE_MAX_POW2 1
-
-#include "fd_deque_dynamic.c"
-
-#define FOOTPRINT_SZ 1024
-#define DEQUE_MAX   (6UL)
-#define P2DEQUE_MAX (8UL)
-
-uchar scratch[ FOOTPRINT_SZ ];
+#define SCRATCH_ALIGN     (128UL)
+#define SCRATCH_FOOTPRINT (1024UL)
+uchar scratch[ SCRATCH_FOOTPRINT ] __attribute__((aligned(SCRATCH_ALIGN)));
 
 int
 main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
 
-  if( FD_UNLIKELY( deque_footprint( DEQUE_MAX ) > FOOTPRINT_SZ ) ) { 
-    FD_LOG_WARNING(( "skip: adjust footprint or max" ));
+  fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
+
+  ulong max = fd_env_strip_cmdline_ulong( &argc, &argv, "--max", NULL, TEST_DEQUE_MAX );
+  if( FD_UNLIKELY( !max ) ) { FD_LOG_WARNING(( "skip: --max should be positive" )); return 0; }
+  if( FD_UNLIKELY( max>TEST_DEQUE_MAX ) )  {
+    FD_LOG_WARNING(( "skip: increase TEST_DEQUE_MAX to support this level of --max" ));
     return 0;
   }
-  if( FD_UNLIKELY( p2deque_footprint( P2DEQUE_MAX ) > FOOTPRINT_SZ ) ) { 
-    FD_LOG_WARNING(( "skip: adjust footprint or max" ));
+  if( FD_UNLIKELY( (test_deque_align()>SCRATCH_ALIGN) | (test_deque_footprint( max )>SCRATCH_FOOTPRINT) ) ) {
+    FD_LOG_WARNING(( "skip: adjust scratch region and footprint to support this level of --max" ));
     return 0;
   }
+  FD_LOG_NOTICE(( "--max %lu", max ));
 
-  FD_LOG_NOTICE(( "Testing non-power-of-two case" ));
-  void    * shdeque = deque_new ( scratch, DEQUE_MAX ); FD_TEST( shdeque );
-  deque_t * deque   = deque_join( shdeque            ); FD_TEST( deque   );
+  FD_LOG_NOTICE(( "Testing construction" ));
 
-  /* Make the deque have j elements with start==i */
-  for( ulong i=0UL; i<DEQUE_MAX; i++ ) {
-    memset( deque, 0, (DEQUE_MAX+1UL)*sizeof(deque_t) );
-    FD_TEST( deque_private_hdr_from_deque( deque )->start == i );
-    for( ulong j=0UL; j<=DEQUE_MAX; j++ ) {
-      /* Check correctness */
-      FD_TEST( deque_cnt( deque ) == j );
-      FD_TEST( deque_max( deque ) == DEQUE_MAX );
-      for( ulong k=0UL; k<=DEQUE_MAX; k++ ) {
-        /* If k>=i, then the (k-i) element of the deque should be in slot k.
-           If k<i, then the (k+1+max-i) element should be in slot k.  */
-        /* If l< j, then the lth element of the deque should have value l+1.
-           if l>=j, then the lth element of the deque should be 0. */
-        ulong linear_idx  = (k>=i) ? (k-i) : (k+1+DEQUE_MAX-i);
-        int   correct_val = (linear_idx<j) ? (int)(linear_idx+1) : 0;
-        FD_TEST( deque[k] == correct_val );
-      }
+  ulong align = test_deque_align();
+  FD_TEST( fd_ulong_is_pow2( align ) );
 
-      if( j<DEQUE_MAX ) deque_push( deque, (int)(j+1) );
+  ulong footprint = test_deque_footprint( max );
+  FD_TEST( fd_ulong_is_aligned( footprint, align ) );
+
+  void * shdeque = test_deque_new ( scratch, max ); FD_TEST( shdeque );
+  int *  deque   = test_deque_join( shdeque      ); FD_TEST( deque   );
+
+  FD_LOG_NOTICE(( "Testing accessors" ));
+
+  FD_TEST( test_deque_max( deque )==max );
+  FD_TEST( test_deque_cnt( deque )==0UL );
+
+  FD_LOG_NOTICE(( "Testing operations" ));
+
+  for( ulong iter=0UL; iter<100000000UL; iter++ ) {
+
+    /* Randomly pick an operation to do */
+
+    ulong r = fd_rng_ulong( rng );
+    int   op    = (int)(r & 7UL); r >>= 3;
+    int   val   = (int)(uint)r;   r >>= 32;
+    int   reset = !(r & 65535UL); r >>= 16;
+
+    if( FD_UNLIKELY( reset ) ) {
+      buf_start = 0UL;
+      buf_end   = 0UL;
+      buf_cnt   = 0UL;
+      FD_TEST( test_deque_remove_all( deque )==deque );
     }
-    FD_TEST( 1 == deque_pop( deque ) ); /* Advance start */
-    for( ulong j=1UL; j<DEQUE_MAX; j++ ) {
-      FD_TEST( (int)(DEQUE_MAX+1UL-j) == deque_pop_back( deque ) );
+
+    switch( op ) {
+
+    case 0: /* push head */
+      if( FD_UNLIKELY( buf_cnt>=max ) ) break; /* skip when full */
+      buf_push_head( val ); FD_TEST( test_deque_push_head( deque, val )==deque );
+      break;
+
+    case 1: /* push tail */
+      if( FD_UNLIKELY( buf_cnt>=max ) ) break; /* skip when full */
+      buf_push_tail( val ); FD_TEST( test_deque_push_tail( deque, val )==deque );
+      break;
+
+    case 2: /* pop head */
+      if( FD_UNLIKELY( !buf_cnt ) ) break; /* skip when empty */
+      val = buf_pop_head(); FD_TEST( test_deque_pop_head( deque )==val );
+      break;
+
+    case 3: /* pop tail */
+      if( FD_UNLIKELY( !buf_cnt ) ) break; /* skip when empty */
+      val = buf_pop_tail(); FD_TEST( test_deque_pop_tail( deque )==val );
+      break;
+
+    case 4: /* zero-copy push head */
+      if( FD_UNLIKELY( buf_cnt>=max ) ) break; /* skip when full */
+      buf_push_head( val );
+      FD_TEST( test_deque_insert_head( deque )==deque );
+      *test_deque_peek_head( deque ) = val;
+      break;
+
+    case 5: /* zero-copy push tail */
+      if( FD_UNLIKELY( buf_cnt>=max ) ) break; /* skip when full */
+      buf_push_tail( val );
+      FD_TEST( test_deque_insert_tail( deque )==deque );
+      *test_deque_peek_tail( deque ) = val;
+      break;
+
+    case 6: /* zero-copy pop head */
+      if( FD_UNLIKELY( !buf_cnt ) ) break; /* skip when empty */
+      val = buf_pop_head();
+      FD_TEST( (*test_deque_peek_head( deque ))==val );
+      FD_TEST( test_deque_remove_head( deque )==deque );
+      break;
+
+    case 7: /* zero-copy pop tail */
+      if( FD_UNLIKELY( !buf_cnt ) ) break; /* skip when empty */
+      val = buf_pop_tail();
+      FD_TEST( (*test_deque_peek_tail( deque ))==val );
+      FD_TEST( test_deque_remove_tail( deque )==deque );
+      break;
+
+    default: /* never get here */
+      break;
     }
-  }
-  FD_TEST( deque_leave ( deque   )==shdeque         );
-  FD_TEST( deque_delete( shdeque )==(void *)scratch );
-  shdeque = deque_new ( scratch, DEQUE_MAX ); FD_TEST( shdeque );
-  deque   = deque_join( shdeque            ); FD_TEST( deque   );
 
-  /* Similar, but with push_front, so end==i */
-  for( ulong i=0UL; i<DEQUE_MAX; i++ ) {
-    memset( deque, 0, (DEQUE_MAX+1UL)*sizeof(deque_t) );
-    FD_TEST( deque_private_hdr_from_deque( deque )->end == i );
-    for( ulong j=0UL; j<=DEQUE_MAX; j++ ) {
-      /* Check correctness */
-      FD_TEST( deque_cnt( deque ) == j );
-      FD_TEST( deque_max( deque ) == DEQUE_MAX );
-      for( ulong k=0UL; k<=DEQUE_MAX; k++ ) {
-        /* If k<i, then, the (i-k-1)th element from the end should be in slot k.
-           If k>=i, then the (max-k+i) element from the end should be in slot k.  */
-        /* If l< j, then the lth element from the end of the deque should have value max-l.
-           if l>=j, then the lth element from the end of the deque should be 0. */
-        ulong linear_idx  = (k<i) ? (i-k-1) : (i+DEQUE_MAX-k);
-        int   correct_val = (linear_idx<j) ? (int)(DEQUE_MAX-linear_idx) : 0;
-        FD_TEST( deque[k] == correct_val );
-      }
-      if( j<DEQUE_MAX ) deque_push_front( deque, (int)(DEQUE_MAX-j) );
-    }
-    for( ulong j=0UL; j<DEQUE_MAX; j++ ) {
-      FD_TEST( (int)(j+1UL) == deque_pop( deque ) );
-    }
-    deque_push( deque, 99 ); /* advance end */
-    FD_TEST( 99 == deque_pop( deque ) ); /* empty it */
-  }
-
-
-
-  FD_TEST( deque_leave ( deque   )==shdeque         );
-  FD_TEST( deque_delete( shdeque )==(void *)scratch );
-
-  FD_LOG_NOTICE(( "Testing power-of-two case" ));
-  shdeque = p2deque_new ( scratch, P2DEQUE_MAX ); FD_TEST( shdeque );
-  deque   = p2deque_join( shdeque              ); FD_TEST( deque   );
-
-  /* Make the deque have j elements with start==i */
-  for( ulong i=0UL; i<P2DEQUE_MAX; i++ ) {
-    memset( deque, 0, (P2DEQUE_MAX)*sizeof(deque_t) );
-    FD_TEST( (p2deque_private_hdr_from_deque( deque )->start&(P2DEQUE_MAX-1UL)) == i );
-    for( ulong j=0UL; j<=P2DEQUE_MAX; j++ ) {
-      /* Check correctness */
-      FD_TEST( p2deque_cnt( deque ) == j );
-      FD_TEST( p2deque_max( deque ) == P2DEQUE_MAX );
-      for( ulong k=0UL; k<P2DEQUE_MAX; k++ ) {
-        int   correct_val = (k<j) ? (int)(k+1) : 0;
-        FD_TEST( deque[(i+k)&(P2DEQUE_MAX-1UL)] == correct_val );
-      }
-
-      if( j<P2DEQUE_MAX ) p2deque_push( deque, (int)(j+1) );
-    }
-    FD_TEST( 1 == p2deque_pop( deque ) ); /* Advance start */
-    for( ulong j=1UL; j<P2DEQUE_MAX; j++ ) {
-      FD_TEST( (int)(P2DEQUE_MAX+1UL-j) == p2deque_pop_back( deque ) );
-    }
-  }
-  FD_TEST( p2deque_leave ( deque   )==shdeque         );
-  FD_TEST( p2deque_delete( shdeque )==(void *)scratch );
-  shdeque = p2deque_new ( scratch, P2DEQUE_MAX ); FD_TEST( shdeque );
-  deque   = p2deque_join( shdeque              ); FD_TEST( deque   );
-
-  /* Similar, but with push_front, so end==i */
-  for( ulong i=0UL; i<P2DEQUE_MAX; i++ ) {
-    memset( deque, 0, (P2DEQUE_MAX)*sizeof(deque_t) );
-    FD_TEST( p2deque_private_hdr_from_deque( deque )->end == i );
-    for( ulong j=0UL; j<=P2DEQUE_MAX; j++ ) {
-      /* Check correctness */
-      FD_TEST( p2deque_cnt( deque ) == j );
-      FD_TEST( p2deque_max( deque ) == P2DEQUE_MAX );
-      for( ulong k=0UL; k<P2DEQUE_MAX; k++ ) { /* Checking the kth from the end */
-        int   correct_val = (k<j) ? (int)(P2DEQUE_MAX-k) : 0;
-        FD_TEST( deque[(i+P2DEQUE_MAX-k-1UL)&(P2DEQUE_MAX-1UL)] == correct_val );
-      }
-      /* Using push_front here triggers the underflow case */
-      if( j<P2DEQUE_MAX ) p2deque_push_front( deque, (int)(P2DEQUE_MAX-j) );
-    }
-    for( ulong j=0UL; j<P2DEQUE_MAX; j++ ) {
-      FD_TEST( (int)(j+1UL) == p2deque_pop( deque ) );
-    }
-    p2deque_push( deque, 99 ); /* advance end */
-    FD_TEST( 99 == p2deque_pop( deque ) ); /* empty it */
+    FD_TEST( test_deque_cnt( deque )==buf_cnt );
   }
 
+  FD_TEST( test_deque_leave ( deque   )==shdeque         );
+  FD_TEST( test_deque_delete( shdeque )==(void *)scratch );
 
-
-  FD_TEST( p2deque_leave ( deque   )==shdeque         );
-  FD_TEST( p2deque_delete( shdeque )==(void *)scratch );
+  fd_rng_delete( fd_rng_leave( rng ) );
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
   return 0;
 }
+

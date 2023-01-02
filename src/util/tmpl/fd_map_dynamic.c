@@ -305,12 +305,12 @@ FD_FN_CONST static inline ulong MAP_(private_next) ( ulong      slot, ulong slot
 
 /* Public APIS ********************************************************/
 
-FD_FN_CONST static inline ulong MAP_(align)( void ) { return alignof(MAP_T); }
+FD_FN_CONST static inline ulong MAP_(align)( void ) { return alignof(MAP_(private_t)); }
 
 FD_FN_CONST static inline ulong
 MAP_(footprint)( int lg_slot_cnt ) {
   ulong slot_cnt = 1UL << lg_slot_cnt;
-  return sizeof(MAP_(private_t)) + sizeof(MAP_T)*(slot_cnt-1UL);
+  return fd_ulong_align_up( fd_ulong_align_up( 24UL, alignof(MAP_T) ) + sizeof(MAP_T)*slot_cnt, alignof(MAP_(private_t)) );
 }
 
 static inline void *
