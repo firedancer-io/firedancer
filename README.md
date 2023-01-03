@@ -83,7 +83,7 @@ the necessary `sudo` access.
   will make a directory in the current directory called firedancer and
   copy of the current head-of-tree code base into that directory.
 
-- Build Firedancer. E.g. From the directory where firedancer was 
+- Build Firedancer. E.g. From the directory where firedancer was
   checked out:
     ```
     make -j
@@ -106,8 +106,8 @@ the necessary `sudo` access.
       alloc 512 huge 1
     ```
   will reserve
-      8 2GiB pages on numa node 0,
-      8 2GiB pages on numa node 1,
+      8 1GiB pages on numa node 0,
+      8 1GiB pages on numa node 1,
     512 2MiB pages on numa node 0, and
     512 2MiB pages on numa node 1
   on the host for application use (assuming the host in fact has enough
