@@ -10,6 +10,7 @@ fd_cc_library(
     hdrs = [
         "fd_tile.h",
     ],
+    copts = ["-std=c++17"],
     textual_hdrs = select({
         "//src:has_threads": ["fd_tile_threads.cxx"],
         "//conditions:default": ["fd_tile_nothreads.cxx"],
