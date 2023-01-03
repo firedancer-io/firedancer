@@ -8,7 +8,7 @@ CPPFLAGS+=            \
   -Wdouble-promotion  \
   -Wformat-security
 
-ifdef FD_USING_CLANG # CLANG specific
+ifdef FD_USING_CLANG
 
 CPPFLAGS+=-Wimplicit-fallthrough
 
@@ -16,7 +16,9 @@ CPPFLAGS+=-Wimplicit-fallthrough
 #CPPFLAGS+=-Winline
 #CPPFLAGS+=-Wproperty-attribute-mismatch
 
-else # GCC specific
+endif
+
+ifdef FD_USING_GCC
 
 CPPFLAGS+=-Wimplicit-fallthrough=2
 

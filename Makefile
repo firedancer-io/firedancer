@@ -39,7 +39,7 @@
 
 ifndef MACHINE
 $(warning MACHINE not specified, using default, run make help for more info)
-MACHINE=rh8_x86_64
+MACHINE=linux_gcc_x86_64
 endif
 
 $(info Using MACHINE=$(MACHINE))

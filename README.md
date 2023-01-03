@@ -90,18 +90,19 @@ the necessary `sudo` access.
     ```
   This will do a parallel incremental build using all non-isolated cores
   and should be reasonably quick even when done from scratch (less than
-  a minute).  The default machine target will be `MACHINE=rh8_x86_64`
-  (details of this machine can be found in `config/rh8_x86_64.mk`).  The
-  build results will be in the relative directory `build/rh8/x86_64`.
-  `make` has many powers; run `make help` for more info.  If building on
-  a system with lots of isolated cores, see `contrib/make-j`.
+  a minute).  The default machine target will be
+  `MACHINE=linux_gcc_x86_64` (details of this machine can be found in
+  `config/linux_gcc_x86_64.mk`).  The build results will be in the
+  relative directory `build/linux/gcc/x86_64`.  `make` has many powers;
+  run `make help` for more info.  If building on a system with lots of
+  isolated cores, see `contrib/make-j`.
 
 - Reserve host resources for application usage.  E.g.:
     ```
-    $ sudo build/rh8/x86_64/bin/fd_shmem_cfg \
-      alloc 8 gigantic 0                     \
-      alloc 8 gigantic 1                     \
-      alloc 512 huge 0                       \
+    $ sudo build/linux/gcc/x86_64/bin/fd_shmem_cfg \
+      alloc 8 gigantic 0                           \
+      alloc 8 gigantic 1                           \
+      alloc 512 huge 0                             \
       alloc 512 huge 1
     ```
   will reserve
@@ -118,7 +119,7 @@ the necessary `sudo` access.
 - Create an appropriately permissioned sandbox for managing shared
   memory data structures.  E.g.:
     ```
-    $ sudo build/rh8/x86_64/bin/fd_shmem_cfg init 0700 [USER] ""
+    $ sudo build/linux/gcc/x86_64/bin/fd_shmem_cfg init 0700 [USER] ""
     ```
   where `[USER]` is the user that will run Firedancer applications.
   Multiple sandboxes with different permissions, users, groups can /
