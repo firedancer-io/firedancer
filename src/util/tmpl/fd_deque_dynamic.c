@@ -105,7 +105,7 @@ DEQUE_(footprint)( ulong max ) {
   return fd_ulong_align_up( fd_ulong_align_up( 32UL, alignof(DEQUE_T) ) + sizeof(DEQUE_T)*max, alignof(DEQUE_(private_t)) );
 }
 
-static void *
+FD_FN_UNUSED static void *
 DEQUE_(new)( void * shmem,
              ulong  max ) {
   DEQUE_(private_t) * hdr = (DEQUE_(private_t) *)shmem;
