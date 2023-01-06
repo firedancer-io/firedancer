@@ -130,22 +130,26 @@ main( int     argc,
     case 6: /* zero-copy pop head */
       if( FD_UNLIKELY( !buf_cnt ) ) break; /* skip when empty */
       val = buf_pop_head();
-      FD_TEST( (*test_deque_peek_head( deque ))==val );
-      FD_TEST( test_deque_remove_head( deque )==deque );
+      FD_TEST( (*test_deque_peek_head_const( deque ))==val );
+      FD_TEST( test_deque_remove_head( deque )==deque      );
       break;
 
     case 7: /* zero-copy pop tail */
       if( FD_UNLIKELY( !buf_cnt ) ) break; /* skip when empty */
       val = buf_pop_tail();
-      FD_TEST( (*test_deque_peek_tail( deque ))==val );
-      FD_TEST( test_deque_remove_tail( deque )==deque );
+      FD_TEST( (*test_deque_peek_tail_const( deque ))==val );
+      FD_TEST( test_deque_remove_tail( deque )==deque      );
       break;
 
     default: /* never get here */
       break;
     }
 
-    FD_TEST( test_deque_cnt( deque )==buf_cnt );
+    FD_TEST( test_deque_max  ( deque )==TEST_DEQUE_MAX            );
+    FD_TEST( test_deque_cnt  ( deque )==buf_cnt                   );
+    FD_TEST( test_deque_avail( deque )==(TEST_DEQUE_MAX-buf_cnt)  );
+    FD_TEST( test_deque_empty( deque )==(!buf_cnt)                );
+    FD_TEST( test_deque_full ( deque )==(buf_cnt==TEST_DEQUE_MAX) );
   }
 
   FD_TEST( test_deque_leave ( deque   )==shdeque         );

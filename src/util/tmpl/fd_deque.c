@@ -1,5 +1,5 @@
-/* Declares a family of functions implementing a single threaded
-   compile time fixed-capacity double ended queue (deque) designed for
+/* Declares a family of functions implementing a single-threaded
+   compile-time fixed-capacity double-ended queue (deque) designed for
    high performance contexts.  The deque is implemented with a circular
    buffer and can push and pop from both ends.  Setting DEQUE_MAX to a
    power of two is strongly recommended but not required.  Example
@@ -23,8 +23,11 @@
 
      // Accessors
 
-     ulong my_deque_max( my_ele_t const * deque ); // returns the max elements that could be in the queue (==DEQUE_MAX)
-     ulong my_deque_cnt( my_ele_t const * deque ); // returns the number of elements in the queue, in [0,DEQUE_MAX]
+     ulong my_deque_max  ( my_ele_t const * deque ); // returns the max elements that could be in the deque (==DEQUE_MAX)
+     ulong my_deque_cnt  ( my_ele_t const * deque ); // returns the number of elements in the deque, in [0,DEQUE_MAX]
+     ulong my_deque_avail( my_ele_t const * deque ); // returns max-cnt
+     int   my_deque_empty( my_ele_t const * deque ); // returns 1 if deque is empty and 0 otherwise
+     int   my_deque_full ( my_ele_t const * deque ); // returns 1 if deque is full and 0 otherwise
 
      // Simple API
 
@@ -35,18 +38,22 @@
 
      // Advanced API for zero-copy usage
 
-     my_ele_t * my_deque_peek_head  ( my_ele_t * deque   ); // peeks at head, returned ptr lifetime is until next op on deque
-     my_ele_t * my_deque_peek_tail  ( my_ele_t * deque   ); // peeks at tail, returned ptr lifetime is until next op on deque
-     my_ele_t * my_deque_insert_head( my_ele_t * deque   ); // inserts uninitialized element at head, returns deque
-     my_ele_t * my_deque_insert_tail( my_ele_t * deque   ); // inserts uninitiaiized element at tail, returns deque
-     my_ele_t * my_deque_remove_head( my_ele_t * deque   ); // removes head, returns deque
-     my_ele_t * my_deque_remove_tail( my_ele_t * deque   ); // removes tail, returns deque
-     my_ele_t * my_deque_remove_all ( my_ele_t * deque   ); // removes all, returns deque, fast O(1)
+     my_ele_t * my_deque_peek_head  ( my_ele_t * deque ); // peeks at head, returned ptr lifetime is until next op on deque
+     my_ele_t * my_deque_peek_tail  ( my_ele_t * deque ); // peeks at tail, returned ptr lifetime is until next op on deque
+     my_ele_t * my_deque_insert_head( my_ele_t * deque ); // inserts uninitialized element at head, returns deque
+     my_ele_t * my_deque_insert_tail( my_ele_t * deque ); // inserts uninitiaiized element at tail, returns deque
+     my_ele_t * my_deque_remove_head( my_ele_t * deque ); // removes head, returns deque
+     my_ele_t * my_deque_remove_tail( my_ele_t * deque ); // removes tail, returns deque
+     my_ele_t * my_deque_remove_all ( my_ele_t * deque ); // removes all, returns deque, fast O(1)
 
-   By default, none of the functions do any error checking.
-   Specifically, the caller promises that cnt<max for any push or insert
-   operation and cnt>0 for any pop, peek or remove operation (remove_all
-   is fine on an empty deque). */
+     my_ele_t const * my_deque_peek_head_const( my_ele_t const * deque ); // const version of peek_head
+     my_ele_t const * my_deque_peek_tail_const( my_ele_t const * deque ); // const version of peek_tail
+
+   For performance, none of the functions do any error checking.
+   Specifically, the caller promises that MAX is such that footprint
+   will not overflow 2^64 (e.g. MAX << (2^64)/sizeof(my_ele_t)), cnt<max
+   for any push or insert operation and cnt>0 for any pop, peek or
+   remove operation (remove_all is fine on an empty deque). */
 
 #include "../bits/fd_bits.h"
 
@@ -77,12 +84,19 @@ struct DEQUE_(private) {
      if full.
 
      For a non-empty deque, the deque head is at element deque[ start     % MAX ],
-     and                    the queue tail is at element deque[ (end-1UL) % MAX ]
+     and                    the deque tail is at element deque[ (end-1UL) % MAX ]
 
-     start and end are initialized such that overflow / underflow will
-     not happen for millenia practically.  More precisely, this
-     implementation requires user will not do more than 2^63 operations
-     on the deque. */
+     start and end overflow/underflow are fine if max is a power of two
+     and start and end are initialized such that overflow / underflow
+     will not happen for millenia practically anyway.  More precisely,
+     this implementation is guaranteed when max is a power of two and/or
+     when fewer than 2^63 operations have been done on the deque (which,
+     practically speaking, would take millenia).  If, in some distant
+     age, a user does want to support doing more than 2^63 operations
+     when max is not a power of two, this can be done by moving start
+     and end as close as possible toward 2^63 by the same integer
+     multiple of max toward 2^63 sporadically (every couple of hundred
+     years or so). */
 
   ulong   start;
   ulong   end;
@@ -120,12 +134,14 @@ FD_FN_CONST static inline ulong DEQUE_(footprint)( void ) { return sizeof (DEQUE
 static inline void *
 DEQUE_(new)( void * shmem ) {
   DEQUE_(private_t) * hdr = (DEQUE_(private_t) *)shmem;
-  /* These values are large enough that underflow / overflow will never
-     happen in practical usage (e.g. hundreds of years if all a core did
-     was continuously enqueue at 1GHz assuming first that you have a
-     planet sized 2^63 deep queue).  So we don't need to do any special
-     handling overflow handling in practice that might otherwise be
-     required if using a non-power-of-two MAX. */
+  /* These values are large enough that underflow/overflow will never
+     happen in practical usage.  For example, it would take hundreds of
+     years if all a core did was a worst case continuous
+     push_tail/pop_head pairs (or push_head/pop_tail) at 1 Gpair/sec.
+     So we don't need to do any special handling overflow handling in
+     practice that might otherwise be required if max is not a
+     power-of-two MAX).  Note also that overflow/underflow doesn't
+     matter if max is a power of two as per the note above. */
   hdr->start = 1UL << 63;
   hdr->end   = 1UL << 63;
   return hdr;
@@ -140,12 +156,30 @@ DEQUE_(join)( void * shdeque ) {
 static inline void * DEQUE_(leave) ( DEQUE_T * deque   ) { return (void *)DEQUE_(private_hdr_from_deque)( deque ); }
 static inline void * DEQUE_(delete)( void *    shdeque ) { return shdeque; }
 
-static inline ulong DEQUE_(max)( DEQUE_T const * deque ) { (void)deque; return (ulong)(DEQUE_MAX); }
+FD_FN_CONST static inline ulong DEQUE_(max)( DEQUE_T const * deque ) { (void)deque; return (ulong)(DEQUE_MAX); }
 
-static inline ulong
+FD_FN_PURE static inline ulong
 DEQUE_(cnt)( DEQUE_T const * deque ) {
   DEQUE_(private_t) const * hdr = DEQUE_(private_const_hdr_from_deque)( deque );
   return hdr->end - hdr->start;
+}
+
+FD_FN_PURE static inline ulong
+DEQUE_(avail)( DEQUE_T const * deque ) {
+  DEQUE_(private_t) const * hdr = DEQUE_(private_const_hdr_from_deque)( deque );
+  return ((ulong)(DEQUE_MAX)) - (hdr->end - hdr->start);
+}
+
+FD_FN_PURE static inline int
+DEQUE_(empty)( DEQUE_T const * deque ) {
+  DEQUE_(private_t) const * hdr = DEQUE_(private_const_hdr_from_deque)( deque );
+  return !(hdr->end - hdr->start);
+}
+
+FD_FN_PURE static inline int
+DEQUE_(full)( DEQUE_T const * deque ) {
+  DEQUE_(private_t) const * hdr = DEQUE_(private_const_hdr_from_deque)( deque );
+  return (hdr->end - hdr->start)==((ulong)DEQUE_MAX);
 }
 
 static inline DEQUE_T *
@@ -181,17 +215,27 @@ DEQUE_(pop_tail)( DEQUE_T * deque ) {
   return hdr->deque[ DEQUE_(private_slot)( hdr->end ) ];
 }
 
-/* FIXME: CONST VERSION OF PEEKS? */
-
-static inline DEQUE_T *
+FD_FN_PURE static inline DEQUE_T *
 DEQUE_(peek_head)( DEQUE_T * deque ) {
   DEQUE_(private_t) * hdr = DEQUE_(private_hdr_from_deque)( deque );
   return hdr->deque + DEQUE_(private_slot)( hdr->start );
 }
 
-static inline DEQUE_T *
+FD_FN_PURE static inline DEQUE_T *
 DEQUE_(peek_tail)( DEQUE_T * deque ) {
   DEQUE_(private_t) * hdr = DEQUE_(private_hdr_from_deque)( deque );
+  return hdr->deque + DEQUE_(private_slot)( hdr->end-1UL );
+}
+
+FD_FN_PURE static inline DEQUE_T const *
+DEQUE_(peek_head_const)( DEQUE_T const * deque ) {
+  DEQUE_(private_t) const * hdr = DEQUE_(private_const_hdr_from_deque)( deque );
+  return hdr->deque + DEQUE_(private_slot)( hdr->start );
+}
+
+FD_FN_PURE static inline DEQUE_T const *
+DEQUE_(peek_tail_const)( DEQUE_T * deque ) {
+  DEQUE_(private_t) const * hdr = DEQUE_(private_const_hdr_from_deque)( deque );
   return hdr->deque + DEQUE_(private_slot)( hdr->end-1UL );
 }
 
@@ -210,6 +254,8 @@ DEQUE_(remove_all)( DEQUE_T * deque ) {
 }
 
 FD_PROTOTYPES_END
+
+#undef DEQUE_
 
 #undef DEQUE_MAX
 #undef DEQUE_T

@@ -1,9 +1,6 @@
-/* Declares a family of functions implementing a single threaded
-   run time fixed-capacity double ended queue (deque) designed for high
-   performance contexts.  The deque is implemented with a circular
-   buffer and can push and pop from both ends.  Setting DEQUE_MAX to a
-   power of two is strongly recommended but not required.  Example
-   usage:
+/* Declares a family of functions implementing a single-threaded
+   run-time fixed-capacity double-ended queue (deque) designed for high
+   performance contexts.  Example usage:
 
      #define DEQUE_NAME my_deque
      #define DEQUE_T    my_ele_t
@@ -12,18 +9,21 @@
    This creates the following API for use in the local compilation unit:
 
      ulong      my_deque_align    ( void               ); // required byte alignment of a deque
-     ulong      my_deque_footprint( ulong      max     ); // required byte footprint of a deque with the given DEQUE_MAX
+     ulong      my_deque_footprint( ulong      max     ); // required byte footprint of a deque with max capacity
      void     * my_deque_new      ( void     * shmem,     // format memory region into a my_deque, my_deque will be empty
                                     ulong      max     ); // (caller not joined on return, mem has required align/footprint, etc)
      my_ele_t * my_deque_join     ( void     * shdeque ); // join a my_deque (unlimited joins, etc) (NOT A CAST OF SHDEQUE)
-                                                          // join can be indexed like a normal array with DEQUE_MAX elements
+                                                          // join can be indexed like a normal array with max elements
      void     * my_deque_leave    ( my_ele_t * deque   ); // leave a my_deque (matched with join, etc) (NOT A CAST OF DEQUE)
      void     * my_deque_delete   ( void     * shdeque ); // unformat memory (no active joins, etc)
 
      // Accessors
 
-     ulong my_deque_max( my_ele_t const * deque ); // returns the max elements that could be in the queue (==DEQUE_MAX)
-     ulong my_deque_cnt( my_ele_t const * deque ); // returns the number of elements in the queue, in [0,DEQUE_MAX]
+     ulong my_deque_max  ( my_ele_t const * deque ); // returns the max elements that could be in the deque
+     ulong my_deque_cnt  ( my_ele_t const * deque ); // returns the number of elements in the deque, in [0,max]
+     ulong my_deque_avail( my_ele_t const * deque ); // returns max-cnt
+     int   my_deque_empty( my_ele_t const * deque ); // returns 1 if deque is empty and 0 otherwise
+     int   my_deque_full ( my_ele_t const * deque ); // returns 1 if deque is full and 0 otherwise
 
      // Simple API
 
@@ -42,10 +42,14 @@
      my_ele_t * my_deque_remove_tail( my_ele_t * deque ); // removes tail, returns deque
      my_ele_t * my_deque_remove_all ( my_ele_t * deque ); // removes all, returns deque, fast O(1)
 
-   By default, none of the functions do any error checking.
-   Specifically, the caller promises that cnt<max for any push or insert
-   operation and cnt>0 for any pop, peek or remove operation (remove_all
-   is fine on an empty deque). */
+     my_ele_t const * my_deque_peek_head_const( my_ele_t const * deque ); // const version of peek_head
+     my_ele_t const * my_deque_peek_tail_const( my_ele_t const * deque ); // const version of peek_tail
+
+   For performance, none of the functions do any error checking.
+   Specifically, the caller promises that max is such that footprint
+   will not overflow 2^64 (e.g. max << (2^64)/sizeof(my_ele_t)), cnt<max
+   for any push or insert operation and cnt>0 for any pop, peek or
+   remove operation (remove_all is fine on an empty deque). */
 
 #include "../bits/fd_bits.h"
 
@@ -121,16 +125,33 @@ DEQUE_(join)( void * shdeque ) {
 static inline void * DEQUE_(leave) ( DEQUE_T * deque   ) { return (void *)DEQUE_(private_hdr_from_deque)( deque ); }
 static inline void * DEQUE_(delete)( void *    shdeque ) { return shdeque; }
 
-static inline ulong
+FD_FN_PURE static inline ulong
 DEQUE_(max)( DEQUE_T const * deque ) {
   DEQUE_(private_t) const * hdr = DEQUE_(private_const_hdr_from_deque)( deque );
   return hdr->max1 + 1UL;
 }
 
-static inline ulong
+FD_FN_PURE static inline ulong
 DEQUE_(cnt)( DEQUE_T const * deque ) {
   DEQUE_(private_t) const * hdr = DEQUE_(private_const_hdr_from_deque)( deque );
   return hdr->cnt;
+}
+
+FD_FN_PURE static inline ulong
+DEQUE_(avail)( DEQUE_T const * deque ) {
+  DEQUE_(private_t) const * hdr = DEQUE_(private_const_hdr_from_deque)( deque );
+  return hdr->max1 + 1UL - hdr->cnt;
+}
+
+FD_FN_PURE static inline int
+DEQUE_(empty)( DEQUE_T const * deque ) {
+  return !DEQUE_(private_const_hdr_from_deque)( deque )->cnt;
+}
+
+FD_FN_PURE static inline int
+DEQUE_(full)( DEQUE_T const * deque ) {
+  DEQUE_(private_t) const * hdr = DEQUE_(private_const_hdr_from_deque)( deque );
+  return (hdr->max1 + 1UL)==hdr->cnt;
 }
 
 static inline DEQUE_T *
@@ -187,17 +208,27 @@ DEQUE_(pop_tail)( DEQUE_T * deque ) {
   return ele;
 }
 
-/* FIXME: CONST VERSION OF PEEKS? */
-
-static inline DEQUE_T *
+FD_FN_PURE static inline DEQUE_T *
 DEQUE_(peek_head)( DEQUE_T * deque ) {
   DEQUE_(private_t) * hdr = DEQUE_(private_hdr_from_deque)( deque );
   return hdr->deque + hdr->start;
 }
 
-static inline DEQUE_T *
+FD_FN_PURE static inline DEQUE_T *
 DEQUE_(peek_tail)( DEQUE_T * deque ) {
   DEQUE_(private_t) * hdr = DEQUE_(private_hdr_from_deque)( deque );
+  return hdr->deque + DEQUE_(private_prev)( hdr->end, hdr->max1 );
+}
+
+FD_FN_PURE static inline DEQUE_T const *
+DEQUE_(peek_head_const)( DEQUE_T const * deque ) {
+  DEQUE_(private_t) const * hdr = DEQUE_(private_const_hdr_from_deque)( deque );
+  return hdr->deque + hdr->start;
+}
+
+FD_FN_PURE static inline DEQUE_T const *
+DEQUE_(peek_tail_const)( DEQUE_T const * deque ) {
+  DEQUE_(private_t) const * hdr = DEQUE_(private_const_hdr_from_deque)( deque );
   return hdr->deque + DEQUE_(private_prev)( hdr->end, hdr->max1 );
 }
 
@@ -256,7 +287,8 @@ DEQUE_(remove_all)( DEQUE_T * deque ) {
 
 FD_PROTOTYPES_END
 
-#undef DEQUE_MAX
+#undef DEQUE_
+
 #undef DEQUE_T
 #undef DEQUE_NAME
 
