@@ -70,6 +70,13 @@ ulong fd_log_app_id( void ) { return fd_log_private_app_id; }
 
 static char fd_log_private_app[ FD_LOG_NAME_MAX ]; /* "" outside boot/halt, init on boot */
 
+void
+fd_log_private_app_set( char const * app ) {
+  if( FD_UNLIKELY( !app ) ) app = "[app]";
+  if( FD_LIKELY( app!=fd_log_private_app ) )
+    fd_cstr_fini( fd_cstr_append_cstr_safe( fd_cstr_init( fd_log_private_app ), app, FD_LOG_NAME_MAX-1UL ) );
+}
+
 char const * fd_log_app( void ) { return fd_log_private_app; }
 
 /* Thread ID */
@@ -130,13 +137,6 @@ char const *
 fd_log_thread( void ) {
   if( FD_UNLIKELY( !fd_log_private_thread_init ) ) fd_log_thread_set( NULL );
   return fd_log_private_thread;
-}
-
-void
-fd_log_private_app_set( char const * app ) {
-  if( FD_UNLIKELY( !app ) ) app = "[app]";
-  if( FD_LIKELY( app!=fd_log_private_app ) )
-    fd_cstr_fini( fd_cstr_append_cstr_safe( fd_cstr_init( fd_log_private_app ), app, FD_LOG_NAME_MAX-1UL ) );
 }
 
 /* APPLICATION PHYSICAL ID APIS ***************************************/
