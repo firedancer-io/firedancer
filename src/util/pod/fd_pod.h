@@ -813,7 +813,7 @@ fd_pod_query_cstr( uchar const * FD_RESTRICT pod,
   fd_pod_info_t info[1];
   if( FD_UNLIKELY( fd_pod_query( pod, path, info )      ) ||
       FD_UNLIKELY( info->val_type!=FD_POD_VAL_TYPE_CSTR ) ) return def;
-  return info->val_sz ? info->val : NULL;
+  return info->val_sz ? (char const *)info->val : NULL;
 }
 
 /* fd_pod_query_[type] queries for the [type] in pod at path.  Returns
@@ -862,7 +862,7 @@ fd_pod_query_##type( uchar const * FD_RESTRICT pod,                       \
   fd_pod_info_t info[1];                                                  \
   if( FD_UNLIKELY( fd_pod_query( pod, path, info )        ) ||            \
       FD_UNLIKELY( info->val_type!=FD_POD_VAL_TYPE_##TYPE ) ) return def; \
-  ulong u; fd_ulong_svw_dec( info->val, &u );                             \
+  ulong u; fd_ulong_svw_dec( (uchar const *)info->val, &u );              \
   return (type)u;                                                         \
 }
 
@@ -880,7 +880,7 @@ fd_pod_query_##type( uchar const * FD_RESTRICT pod,                       \
   fd_pod_info_t info[1];                                                  \
   if( FD_UNLIKELY( fd_pod_query( pod, path, info )        ) ||            \
       FD_UNLIKELY( info->val_type!=FD_POD_VAL_TYPE_##TYPE ) ) return def; \
-  ulong u; fd_ulong_svw_dec( info->val, &u );                             \
+  ulong u; fd_ulong_svw_dec( (uchar const *)info->val, &u );              \
   return (type)fd_long_zz_dec( u );                                       \
 }
 

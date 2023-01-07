@@ -698,7 +698,7 @@ fd_pod_remove( uchar      * FD_RESTRICT pod,
       } else { /* Path had a suffix.  Recurse into the subpod */
 
         if( FD_UNLIKELY( val_type!=FD_POD_VAL_TYPE_SUBPOD ) ) return FD_POD_ERR_TYPE;
-        return fd_pod_remove( val, suffix );
+        return fd_pod_remove( (uchar *)val, suffix );
 
       }
     }
