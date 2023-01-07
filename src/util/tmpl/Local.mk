@@ -1,4 +1,4 @@
-$(call add-hdrs,fd_smallset.c fd_set.c fd_set_dynamic.c fd_sort.c fd_map.c fd_map_dynamic.c fd_prq.c fd_deque.c fd_deque_dynamic.c)
+$(call add-hdrs,fd_smallset.c fd_set.c fd_set_dynamic.c fd_sort.c fd_map.c fd_map_dynamic.c fd_prq.c fd_stack.c fd_queue.c fd_queue_dynamic.c fd_deque.c fd_deque_dynamic.c)
 $(call make-unit-test,test_smallset,test_smallset,fd_util)
 $(call make-unit-test,test_set,test_set,fd_util)
 $(call make-unit-test,test_set_dynamic,test_set_dynamic,fd_util)
