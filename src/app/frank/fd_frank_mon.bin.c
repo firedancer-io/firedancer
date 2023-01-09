@@ -10,6 +10,13 @@
 /* TEXT_* are quick-and-dirty color terminal hacks.  Probably should
    do something more robust longer term. */
 
+#define TEXT_ALTBUF_ENABLE  "\033[?1049h"
+#define TEXT_ALTBUF_DISABLE "\033[?1049l"
+#define TEXT_CUP_HOME       "\033[H"
+#define TEXT_ED             "\033[J"
+#define TEXT_EL             "\033[K"
+#define TEXT_NEWLINE         TEXT_EL "\n"
+
 #define TEXT_NORMAL "\033[0m"
 #define TEXT_BLUE   "\033[34m"
 #define TEXT_GREEN  "\033[32m"
@@ -460,6 +467,10 @@ main( int     argc,
 
   double ns_per_tic = 1./fd_tempo_tick_per_ns( NULL ); /* calibrate during first wait */
 
+  /* Setup TTY */
+
+  printf( TEXT_CUP_HOME );
+
   long stop = then + duration;
   for(;;) {
 
@@ -467,6 +478,7 @@ main( int     argc,
        snapshot */
 
     fd_log_wait_until( then + dt_min + (long)fd_rng_ulong_roll( rng, 1UL+(ulong)(dt_max-dt_min) ) );
+
 
     snap( tile_cnt, snap_cur, tile_cnc, tile_mcache, tile_fseq );
     long now; long toc; fd_tempo_observe_pair( &now, &toc );
@@ -479,9 +491,9 @@ main( int     argc,
     /* FIXME: CONSIDER ADDING INFO LIKE PID OF INSTANCE */
 
     char now_cstr[ FD_LOG_WALLCLOCK_CSTR_BUF_SZ ];
-    printf( "snapshot for %s\n", fd_log_wallclock_cstr( now, now_cstr ) );
-    printf( "  tile |      stale | heart |        sig | in backp |           backp cnt |         sv_filt cnt |                    tx seq |                    rx seq\n" );
-    printf( "-------+------------+-------+------------+----------+---------------------+---------------------+---------------------------+---------------------------\n" );
+    printf( "snapshot for %s" TEXT_NEWLINE, fd_log_wallclock_cstr( now, now_cstr ) );
+    printf( "  tile |      stale | heart |        sig | in backp |           backp cnt |         sv_filt cnt |                    tx seq |                    rx seq"  TEXT_NEWLINE );
+    printf( "-------+------------+-------+------------+----------+---------------------+---------------------+---------------------------+---------------------------" TEXT_NEWLINE );
     for( ulong tile_idx=0UL; tile_idx<tile_cnt; tile_idx++ ) {
       snap_t * prv = &snap_prv[ tile_idx ];
       snap_t * cur = &snap_cur[ tile_idx ];
@@ -506,11 +518,11 @@ main( int     argc,
       } else {
         printf( " |                         -" );
       }
-      printf( "\n" );
+      printf( TEXT_NEWLINE );
     }
-    printf( "\n" );
-    printf( "         link |  tot TPS |  tot bps | uniq TPS | uniq bps |   ha tr%% | uniq bw%% | filt tr%% | filt bw%% |           ovrnp cnt |           ovrnr cnt |            slow cnt\n" );
-    printf( "--------------+----------+----------+---------+----------+----------+----------+-----------+----------+---------------------+---------------------+---------------------\n" );
+    printf( TEXT_NEWLINE );
+    printf( "         link |  tot TPS |  tot bps | uniq TPS | uniq bps |   ha tr%% | uniq bw%% | filt tr%% | filt bw%% |           ovrnp cnt |           ovrnr cnt |            slow cnt" TEXT_NEWLINE );
+    printf( "--------------+----------+----------+---------+----------+----------+----------+-----------+----------+---------------------+---------------------+---------------------"    TEXT_NEWLINE );
     for( ulong tile_idx=2UL; tile_idx<tile_cnt; tile_idx++ ) {
       snap_t * prv = &snap_prv[ tile_idx ];
       snap_t * cur = &snap_cur[ tile_idx ];
@@ -539,9 +551,16 @@ main( int     argc,
       printf( " | " ); printf_err_cnt( cur->fseq_diag_ovrnp_cnt, prv->fseq_diag_ovrnp_cnt );
       printf( " | " ); printf_err_cnt( cur->fseq_diag_ovrnr_cnt, prv->fseq_diag_ovrnr_cnt );
       printf( " | " ); printf_err_cnt( cur->fseq_diag_slow_cnt,  prv->fseq_diag_slow_cnt  );
-      printf( "\n" );
+      printf( TEXT_NEWLINE );
     }
-    printf( "\n" );
+    printf( TEXT_NEWLINE );
+
+    /* Switch to alternate screen and erase junk below
+       TODO ideally we'd have the last iteration on the main buffer and only the rest on ALTBUF */
+
+    printf( TEXT_ALTBUF_ENABLE
+            TEXT_ED
+            TEXT_CUP_HOME );
 
     /* Stop once we've been monitoring for duration ns */
 
@@ -555,6 +574,8 @@ main( int     argc,
   }
 
   /* Monitoring done ... clean up */
+
+  printf( TEXT_ALTBUF_DISABLE );
 
   FD_LOG_NOTICE(( "cleaning up" ));
   fd_rng_delete( fd_rng_leave( rng ) );
