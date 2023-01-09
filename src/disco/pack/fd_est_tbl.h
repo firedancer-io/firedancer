@@ -11,7 +11,7 @@
    X" for a given value of X.  For best use, the tag should correspond to the
    distribution that the random variable comes from, although there's no
    specific need for this to be true, and no assumptions are made about
-   normality etc. 
+   normality etc.
    The answers this data structure gives are approximate because tags are
    mapped to an array of bins that is much smaller than the universe of tags
    and thus tags can alias.  This is actually desireable behavior because it
@@ -34,7 +34,7 @@ struct fd_private_est_tbl_bin {
      to this bin */
   double ema_x2;
   /* ema_d: The denominator for EMA(x) and EMA(x^2), paired with the numerators
-     from above. 
+     from above.
      FIXME: Talk to kbowers about if this should be stored as 1/denom. Slightly
      more complicated update but then converts the estimation from two
      divisions to two multiplications. */
@@ -81,7 +81,7 @@ FD_PROTOTYPES_BEGIN
    caller will not be joined to the region on return.
 
    fd_est_tbl_join joins the caller to a memory region holding the state of a
-   fd_est_tbl. 
+   fd_est_tbl.
 
    fd_est_tbl_leave leaves the current join.  Returns a pointer in the local
    address space to the memory region holding the table state.  The join should
@@ -93,13 +93,13 @@ FD_PROTOTYPES_BEGIN
    a pointer to the underlying memory region. */
 
 FD_FN_CONST static inline ulong fd_est_tbl_align    ( void ) { return FD_EST_TBL_ALIGN; }
-FD_FN_CONST static inline ulong fd_est_tbl_footprint( ulong bin_cnt ) { 
+FD_FN_CONST static inline ulong fd_est_tbl_footprint( ulong bin_cnt ) {
   if( FD_UNLIKELY( !bin_cnt || !fd_ulong_is_pow2( bin_cnt )                                 ) ) return 0UL;
   if( FD_UNLIKELY(  bin_cnt > ((ULONG_MAX - sizeof(fd_est_tbl_t))/sizeof(fd_est_tbl_bin_t)) ) ) return 0UL;
   return sizeof(fd_est_tbl_t) + (bin_cnt-1UL)*sizeof(fd_est_tbl_bin_t);
 }
 
-static inline void * 
+static inline void *
 fd_est_tbl_new( void * mem,
                 ulong  bin_cnt,
                 ulong  history,
@@ -124,13 +124,13 @@ fd_est_tbl_new( void * mem,
 }
 
 static inline fd_est_tbl_t * fd_est_tbl_join  ( void         * _tbl ) { return (fd_est_tbl_t *)_tbl; }
-static inline void         * fd_est_tbl_leave ( fd_est_tbl_t *  tbl ) { return (void         *) tbl; } 
-static inline void         * fd_est_tbl_delete( fd_est_tbl_t *  tbl ) { 
+static inline void         * fd_est_tbl_leave ( fd_est_tbl_t *  tbl ) { return (void         *) tbl; }
+static inline void         * fd_est_tbl_delete( fd_est_tbl_t *  tbl ) {
   FD_COMPILER_MFENCE();
   FD_VOLATILE( tbl->magic ) = 0UL;
   FD_COMPILER_MFENCE();
   return (void         *) tbl;
-} 
+}
 
 /* fd_est_tbl_estimate: estimate the mean and variance of the distribution from
    which data tagged with tag is drawn.  Since this function cannot return two
@@ -143,7 +143,7 @@ fd_est_tbl_estimate( fd_est_tbl_t const * tbl,
                      double *             variance_out ) {
   fd_est_tbl_bin_t const * bin = tbl->bins + (tag & tbl->bin_cnt_mask);
   double mean, var;
-  if( FD_UNLIKELY( !(bin->ema_d >= 0.0) ) ) {
+  if( FD_UNLIKELY( !(bin->ema_d > 0.0) ) ) {
     mean = tbl->default_val;
     var  = 0.0;
   } else {
@@ -151,6 +151,7 @@ fd_est_tbl_estimate( fd_est_tbl_t const * tbl,
     mean = bin->ema_x / bin->ema_d;
     var  = bin->ema_x2 / bin->ema_d - mean*mean;
   }
+  var  = fd_double_if( var>0.0, var, 0.0 );
   if( FD_LIKELY( variance_out ) ) *variance_out = var;
   return mean;
 }
