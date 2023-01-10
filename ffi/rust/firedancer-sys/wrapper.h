@@ -8,3 +8,7 @@
 #include "../../../src/tango/fd_tango.h"
 #include "../../../src/ballet/fd_ballet.h"
 #include "../../../src/disco/fd_disco.h"
+
+#if FD_MCACHE_LG_INTERLEAVE
+#error "FD_MCACHE_LG_INTERLEAVE unsupported"
+#endif

@@ -1,0 +1,9 @@
+pub use crate::generated::fd_tcache_t;
+pub use crate::generated::{
+    fd_tcache_align,
+    fd_tcache_delete,
+    fd_tcache_footprint,
+    fd_tcache_join,
+    fd_tcache_leave,
+    fd_tcache_new,
+};

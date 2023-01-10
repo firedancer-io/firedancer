@@ -35,6 +35,7 @@ rust_library(
         ":src/generated",  # required because of rules_rust bug
     ] + glob([
         "src/util/**/*.rs",
+        "src/tango/**/*.rs",
     ]),
     compile_data = [":src/generated"],
     edition = "2021",

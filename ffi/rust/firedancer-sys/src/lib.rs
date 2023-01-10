@@ -12,4 +12,5 @@ mod generated {
     include!("generated.rs");
 }
 
+pub mod tango;
 pub mod util;
