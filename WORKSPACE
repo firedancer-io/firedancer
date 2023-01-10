@@ -157,6 +157,12 @@ rules_rust_dependencies()
 
 rust_register_toolchains()
 
+load("@rules_rust//bindgen:repositories.bzl", "rust_bindgen_dependencies", "rust_bindgen_register_toolchains")
+
+rust_bindgen_dependencies()
+
+rust_bindgen_register_toolchains()
+
 ################################################################################
 # Wireshark plugin dependencies (optional)                                     #
 ################################################################################
