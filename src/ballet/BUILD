@@ -20,6 +20,7 @@ fd_cc_library(
     deps = [
         ":base_lib",
         "//src/ballet/ed25519",
+        "//src/ballet/poh",
         "//src/ballet/sha256",
         "//src/ballet/sha512",
         "//src/ballet/shred",
