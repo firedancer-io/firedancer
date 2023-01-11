@@ -103,7 +103,7 @@ QUEUE_(footprint)( ulong max ) {
   return fd_ulong_align_up( fd_ulong_align_up( 32UL, alignof(QUEUE_T) ) + sizeof(QUEUE_T)*max, alignof(QUEUE_(private_t)) );
 }
 
-static void *
+static inline void *
 QUEUE_(new)( void * shmem,
              ulong  max ) {
   QUEUE_(private_t) * hdr = (QUEUE_(private_t) *)shmem;
