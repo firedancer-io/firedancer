@@ -548,7 +548,7 @@ fd_fctl_tx_cr_update( fd_fctl_t * fctl,
       if( FD_LIKELY( rx_idx_slow!=ULONG_MAX ) ) {
         ulong * slow = fd_fctl_private_rx( fctl )[ rx_idx_slow ].slow_laddr;
         FD_COMPILER_MFENCE();
-        //slow[0] += 1UL;
+        slow[0] += 1UL;
         FD_COMPILER_MFENCE();
       }
       fctl->in_refill = 1;

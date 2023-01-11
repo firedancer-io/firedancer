@@ -6,8 +6,8 @@ fd_cc_library(
     name = "cshim",
     srcs = [
         "fd_cshim_chan.c",
-        "fd_cshim_pack_return.c",
-        "fd_cshim_verify_feeder.c",
+        "fd_cshim_tile_pack_return.c",
+        "fd_cshim_tile_verify_feeder.c",
     ],
     hdrs = [
         "fd_cshim.h",
@@ -16,6 +16,7 @@ fd_cc_library(
     ],
     deps = [
         "//src/ballet:base_lib",
+        "//src/disco",
         "//src/util",
     ],
 )
