@@ -109,6 +109,14 @@
 #error "Define PRQ_T"
 #endif
 
+/* Setting PRQ_EXPLITICT_TIMEOUT to 0 allows the user to use a comparison
+   function to compare elements in the PRQ without having a single explicit
+   timeout field. */
+#ifndef PRQ_EXPLICIT_TIMEOUT
+#define PRQ_EXPLICIT_TIMEOUT 1
+#endif
+
+#if PRQ_EXPLICIT_TIMEOUT
 /* PRQ_TIMEOUT allows the user to specify the name of the timeout
    field used for the PRQ.  Defaults to timeout. */
 
@@ -129,6 +137,14 @@
 
 #ifndef PRQ_TIMEOUT_AFTER
 #define PRQ_TIMEOUT_AFTER(x,y) ((x)>(y))
+#endif
+
+#else /* PRQ_EXPLICIT_TIMEOUT */
+
+#ifndef PRQ_AFTER
+#define PRQ_AFTER(x,y) ((x)>(y))
+#endif
+
 #endif
 
 /* The PRQ_TMP_* are meant to allow users of PRQ to do extreme low level
@@ -154,9 +170,11 @@
 
 /* PRQ_TMP_TIMEOUT returns the timeout associated with the PRQ_T in
    temporaries t. */
-  
+
 #ifndef PRQ_TMP_TIMEOUT
-#define PRQ_TMP_TIMEOUT(t) ((t).PRQ_TIMEOUT)
+#  if PRQ_EXPLICIT_TIMEOUT
+#    define PRQ_TMP_TIMEOUT(t) ((t).PRQ_TIMEOUT)
+#  endif
 #endif
 
 /* PRQ_TMP_AFTER returns 1UL if timeout associated with the PRQ_T in
@@ -164,7 +182,11 @@
    otherwise. */
 
 #ifndef PRQ_TMP_AFTER
-#define PRQ_TMP_AFTER(x,y) ((ulong)PRQ_TIMEOUT_AFTER( PRQ_TMP_TIMEOUT(x), PRQ_TMP_TIMEOUT(y) ))
+#  if PRQ_EXPLICIT_TIMEOUT
+#    define PRQ_TMP_AFTER(x,y) ((ulong)PRQ_TIMEOUT_AFTER( PRQ_TMP_TIMEOUT(x), PRQ_TMP_TIMEOUT(y) ))
+#  else
+#    define PRQ_TMP_AFTER(x,y) ((ulong)PRQ_AFTER( x, y ))
+#  endif
 #endif
 
 /* PRQ_TMP_CMOV does "if(c) x = y" where x and y are PRQ_T located in
@@ -220,12 +242,18 @@ PRQ_(private_fill_hole_up)( PRQ_T *       heap,     /* Heap, indexed 0:hole+1 */
                             PRQ_T const * event ) { /* Event to fill the hole with */
 
   PRQ_TMP_LD( tmp_event, event );                                 /* Load the event to fill the hole with */
+#if PRQ_EXPLICIT_TIMEOUT
   PRQ_TIMEOUT_T event_timeout = PRQ_TMP_TIMEOUT( tmp_event );
+#endif
   while( hole ) {                                                 /* If the hole to fill has a parent */
     ulong parent = (hole-1UL) >> 1;                               /*   Load the parent */
     PRQ_TMP_LD( tmp_parent, heap + parent );
+#if PRQ_EXPLICIT_TIMEOUT
     PRQ_TIMEOUT_T parent_timeout = PRQ_TMP_TIMEOUT( tmp_parent );
     if( FD_LIKELY( !PRQ_TIMEOUT_AFTER( parent_timeout, event_timeout ) ) )
+#else
+    if( FD_LIKELY( !PRQ_TMP_AFTER( tmp_parent, tmp_event ) ) )
+#endif
       break;                                                      /*   If the parent at least as old as the event, ... */
     PRQ_TMP_ST( heap + hole, tmp_parent );                        /*   Otherwise, fill the hole with the hole's parent */
     hole = parent;                                                /*   and recurse on the created hole at parent */
@@ -326,13 +354,16 @@ PRQ_(private_fill_hole)( PRQ_T * heap,
      last event on the heap.  Note that this is not strictly necessary. */
 
   if( FD_UNLIKELY( hole>=cnt ) ) return;
- 
+
   /* If the hole has a parent that is after the last event on the heap,
      we need bubble the hole up to find where to reinsert the last
      event.  Otherwise, we need to bubble down.  Branch prob here is not
      obvious and probably application dependent. */
-
+#if PRQ_EXPLICIT_TIMEOUT
   if( hole && PRQ_TIMEOUT_AFTER( heap[ (hole-1UL)>>1 ].PRQ_TIMEOUT, heap[ cnt ].PRQ_TIMEOUT ) )
+#else
+  if( hole && PRQ_AFTER        ( heap[ (hole-1UL)>>1 ]            , heap[ cnt ]             ) )
+#endif
     PRQ_(private_fill_hole_up)( heap, hole, &heap[cnt] );
   else
     PRQ_(private_fill_hole_dn)( heap, hole, cnt );
@@ -413,9 +444,11 @@ FD_PROTOTYPES_END
 #undef PRQ_TMP_ST
 #undef PRQ_TMP_LD
 
+#undef PRQ_AFTER
 #undef PRQ_TIMEOUT_AFTER
 #undef PRQ_TIMEOUT_T
 #undef PRQ_TIMEOUT
+#undef PRQ_EXPLICIT_TIMEOUT
 #undef PRQ_T
 #undef PRQ_NAME
 

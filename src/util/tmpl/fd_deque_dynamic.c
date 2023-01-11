@@ -105,7 +105,7 @@ DEQUE_(footprint)( ulong max ) {
   return fd_ulong_align_up( fd_ulong_align_up( 32UL, alignof(DEQUE_T) ) + sizeof(DEQUE_T)*max, alignof(DEQUE_(private_t)) );
 }
 
-static void *
+static inline void *
 DEQUE_(new)( void * shmem,
              ulong  max ) {
   DEQUE_(private_t) * hdr = (DEQUE_(private_t) *)shmem;
@@ -120,7 +120,7 @@ static inline DEQUE_T *
 DEQUE_(join)( void * shdeque ) {
   DEQUE_(private_t) * hdr = (DEQUE_(private_t) *)shdeque;
   return hdr->deque;
-} 
+}
 
 static inline void * DEQUE_(leave) ( DEQUE_T * deque   ) { return (void *)DEQUE_(private_hdr_from_deque)( deque ); }
 static inline void * DEQUE_(delete)( void *    shdeque ) { return shdeque; }
