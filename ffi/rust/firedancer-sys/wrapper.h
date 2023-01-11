@@ -7,6 +7,8 @@
 #include "../../../src/util/fd_util.h"
 #include "../../../src/tango/fd_tango.h"
 #include "../../../src/ballet/fd_ballet.h"
+#include "../../../src/ballet/shred/fd_shred.h"
+#include "../../../src/ballet/txn/fd_txn.h"
 #include "../../../src/disco/fd_disco.h"
 
 #if FD_MCACHE_LG_INTERLEAVE
