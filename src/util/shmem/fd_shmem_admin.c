@@ -95,6 +95,11 @@ fd_shmem_numa_validate( void const * mem,
         return errno;
       }
       for( ulong batch_idx=0UL; batch_idx<batch_cnt; batch_idx++ ) {
+        if( FD_UNLIKELY( batch_status[batch_idx]<0 ) ) {
+          int err = -batch_status[batch_idx];
+          FD_LOG_WARNING(( "page status failed (%i-%s)", err, strerror( err ) ));
+          return err;
+        }
         if( FD_UNLIKELY( batch_status[batch_idx]!=(int)numa_idx ) ) {
           FD_LOG_WARNING(( "page allocated to numa %i instead of numa %lu", batch_status[batch_idx], numa_idx ));
           return EFAULT;
@@ -215,7 +220,7 @@ fd_shmem_create( char const * name,
      for which there are no pages.  Unfortunately, mmap will only error
      if there are insufficient pages across all NUMA nodes (even if
      using mlockall( MCL_FUTURE ) or passing MAP_POPULATE), so we need
-     to check that the mapping can be backed without handling signals. 
+     to check that the mapping can be backed without handling signals.
 
      So we mlock the region to force the region to be backed by pages
      now.  The region should be backed by page_sz pages (thanks to the
