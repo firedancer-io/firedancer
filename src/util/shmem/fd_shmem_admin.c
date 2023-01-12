@@ -227,7 +227,7 @@ fd_shmem_create( char const * name,
      until the mapping is closed.  We can then proceed as usual without
      the risk of meeting SIGBUS or its friends. */
 
-  if( FD_UNLIKELY( mlock( shmem, sz ) ) ) {
+  if( FD_UNLIKELY( fd_mlock( shmem, sz ) ) ) {
     FD_LOG_WARNING(( "mlock(\"%s\",%lu KiB) failed (%i-%s)", path, sz>>10, errno, strerror( errno ) ));
     ERROR( unmap );
   }
@@ -421,7 +421,7 @@ fd_shmem_acquire( ulong page_sz,
     ERROR( unmap );
   }
 
-  if( FD_UNLIKELY( mlock( mem, sz ) ) ) {
+  if( FD_UNLIKELY( fd_mlock( mem, sz ) ) ) {
     FD_LOG_WARNING(( "mlock(anon,%lu KiB) failed (%i-%s)", sz>>10, errno, strerror( errno ) ));
     ERROR( unmap );
   }

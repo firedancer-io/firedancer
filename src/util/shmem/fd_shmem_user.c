@@ -181,8 +181,8 @@ fd_shmem_join( char const *               name,
      destroying the system with core files if a bunch of thread using
      this mapping seg fault concurrently. */
 
-  if( FD_UNLIKELY( mlock( shmem, sz ) ) )
-    FD_LOG_WARNING(( "mlock(\"%s\",%lu KiB) failed (%i-%s); attempting to continue", path, sz>>10, errno, strerror( errno ) ));
+  if( FD_UNLIKELY( fd_mlock( shmem, sz ) ) )
+    FD_LOG_WARNING(( "fd_mlock(\"%s\",%lu KiB) failed (%i-%s); attempting to continue", path, sz>>10, errno, strerror( errno ) ));
 
   if( FD_UNLIKELY( madvise( shmem, sz, MADV_DONTDUMP ) ) )
     FD_LOG_WARNING(( "madvise(\"%s\",%lu KiB) failed (%i-%s); attempting to continue", path, sz>>10, errno, strerror( errno ) ));
