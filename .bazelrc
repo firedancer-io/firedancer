@@ -8,6 +8,10 @@ build --incompatible_strict_action_env=true
 # To be removed in Bazel 7.0.0.
 build --incompatible_enable_cc_toolchain_resolution
 
+build:llvm --platforms=//:llvm
+
+build:gcc --platforms=//:gcc
+
 # asan: Build with AddressSanitizer
 # Detects various undefined memory accesses
 #

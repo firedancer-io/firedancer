@@ -7,6 +7,20 @@ package(default_visibility = ["//visibility:public"])
 # --------------------------------
 
 platform(
+    name = "gcc",
+    constraint_values = [
+        "//bazel/compiler:gcc",
+    ],
+)
+
+platform(
+    name = "llvm",
+    constraint_values = [
+        "//bazel/compiler:llvm",
+    ],
+)
+
+platform(
     name = "linux_x86_64_gcc",
     constraint_values = [
         "@platforms//os:linux",

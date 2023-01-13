@@ -11,13 +11,16 @@ copts_base = [
     "-Wconversion",
     "-Wdouble-promotion",
     "-Wformat-security",
-    "-Wstrict-aliasing=2",
-    "-Wimplicit-fallthrough=2",
+    "-Wstrict-aliasing",
+    "-Wimplicit-fallthrough",
 
     # Disable false positives
     "-Wno-misleading-indentation",
     "-Wno-ignored-attributes",
     "-Wno-overlength-strings",
+
+    # FD_ADDRESS_OF_PACKED_MEMBER hack does not get past Clang
+    "-Wno-address-of-packed-member",
 ]
 linkopts_base = []
 

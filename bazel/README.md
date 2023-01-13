@@ -157,7 +157,10 @@ bazel test //src/... --test_size_filters=small
 
 | Flag                       | Description                       |
 |----------------------------|-----------------------------------|
-| `--config=asan-libfuzzer`  | Set `.bazelrc` profile            |
+| `--config=gcc`             | With GCC                          |
+| `--config=llvm`            | With Clang/LLVM                   |
+| `--config=asan-clang`      | With ASan support                 |
+| `--config=asan-libfuzzer`  | With ASan and libFuzzer support   |
 | `-c dbg`                   | Debug build                       |
 | `-c opt`                   | Optimized build                   |
 | `-c opt --//:dbg`          | Optimized build with debug syms   |
