@@ -23,13 +23,11 @@ build:asan-gcc --platforms=//:linux_x86_64_gcc
 build:asan-gcc --features asan
 build:asan-gcc --strip never
 build:asan-gcc --action_env ASAN_OPTIONS=detect_leaks=0:color=always
-build:asan-gcc --copt -DADDRESS_SANITIZER
 build:asan-gcc --copt -fno-omit-frame-pointer
 
 build:asan-clang --platforms=//:linux_x86_64_llvm
 build:asan-clang --linkopt -fsanitize=address
 build:asan-clang --copt -fsanitize=address
-build:asan-clang --copt -DADDRESS_SANITIZER
 build:asan-clang --copt -fno-omit-frame-pointer
 build:asan-clang --action_env ASAN_OPTIONS=detect_leaks=0:color=always
 

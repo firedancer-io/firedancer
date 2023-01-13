@@ -33,6 +33,7 @@ fd_cc_library(
         "//src/util/net",
         "//src/util/pod",
         "//src/util/rng",
+        "//src/util/sanitize",
         "//src/util/scratch",
         "//src/util/shmem",
         "//src/util/tile",
