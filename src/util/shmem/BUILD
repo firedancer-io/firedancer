@@ -16,6 +16,7 @@ fd_cc_library(
         "//src/util/cstr",
         "//src/util/env",
         "//src/util/log",
+        "//src/util/sanitize",
         "//src/util/tmpl",
         "@numa//:libnuma_headers",
     ],

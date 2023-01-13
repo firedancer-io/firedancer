@@ -50,7 +50,7 @@
      diagnostic purposes, they are stored in a temporally and/or
      precision compressed representation to free up room for other
      metadata.
-     
+
   -  tsorig is measured on the origin's wallclock and the tspub is
      measured on the consumer facing publisher's wallclock (these are
      often the same wallclock).  As such, tsorig from the same origin
@@ -180,7 +180,7 @@ union __attribute__((aligned(FD_FRAG_META_ALIGN))) fd_frag_meta {
 
        (Note that these instructions require the linear addresses of
        their memory operands to be 16-byte aligned.)
-       
+
      That is accesses to "sse0" and "sse1" below are atomic when AVX
      support is available given the overall structure alignment,
      appropriate intrinsics and what not.  Accesses to avx are likely
@@ -212,7 +212,7 @@ FD_PROTOTYPES_BEGIN
    sequence number reuse is not an issue practically in a real world
    application but sequence number wrapping is if we want to support
    things like initial sequence number randomization for security.
-   
+
    fd_seq_{inc,dec} returns the result of incrementing/decrementing
    sequence number a delta times.
 
@@ -363,6 +363,23 @@ fd_frag_meta_ts_decomp( ulong tscomp,   /* In [0,UINT_MAX] */
   ulong msb = ((ulong)tsref) + fd_ulong_mask_lsb(31) - tscomp;
   return (long)((msb & ~fd_ulong_mask_lsb(32)) | tscomp);
 }
+
+/* fd_probe_magic: reads a ulong from a memory address,
+   ignoring any posioning when ASan is enabled. */
+#if FD_HAS_ASAN
+static inline ulong
+fd_probe_magic( ulong const * m ) {
+  void * poison = __asan_region_is_poisoned ( (void *)m, sizeof(ulong) );
+
+  if( poison ) __asan_unpoison_memory_region(         m, sizeof(ulong) );
+  ulong magic = *m;
+  if( poison ) __asan_poison_memory_region  (         m, sizeof(ulong) );
+
+  return magic;
+}
+#else
+#define fd_probe_magic(m) *(m)
+#endif
 
 FD_PROTOTYPES_END
 

@@ -42,6 +42,8 @@ fd_tcache_new( void * shmem,
     return NULL;
   }
 
+  ASAN_UNPOISON_MEMORY_REGION( shmem, footprint );
+
   fd_memset( shmem, 0, footprint );
 
   fd_tcache_t * tcache = (fd_tcache_t *)shmem;
@@ -55,6 +57,11 @@ fd_tcache_new( void * shmem,
   FD_COMPILER_MFENCE();
 
   return shmem;
+}
+
+static inline int
+fd_tcache_check_magic( fd_tcache_t * hdr ) {
+  return fd_probe_magic( &hdr->magic )==FD_TCACHE_MAGIC;
 }
 
 fd_tcache_t *
@@ -71,10 +78,14 @@ fd_tcache_join( void * _tcache ) {
   }
 
   fd_tcache_t * tcache = (fd_tcache_t *)_tcache;
-  if( FD_UNLIKELY( tcache->magic!=FD_TCACHE_MAGIC ) ) {
+  if( FD_UNLIKELY( !fd_tcache_check_magic( tcache ) ) ) {
     FD_LOG_WARNING(( "bad magic" ));
     return NULL;
   }
+
+  ASAN_UNPOISON_MEMORY_REGION( tcache, sizeof(fd_tcache_t) );
+  ASAN_UNPOISON_MEMORY_REGION( tcache,
+                               fd_tcache_footprint( tcache->depth, tcache->map_cnt ) );
 
   return tcache;
 }
@@ -104,14 +115,19 @@ fd_tcache_delete( void * _tcache ) {
   }
 
   fd_tcache_t * tcache = (fd_tcache_t *)_tcache;
-  if( FD_UNLIKELY( tcache->magic != FD_TCACHE_MAGIC ) ) {
+  if( FD_UNLIKELY( !fd_tcache_check_magic( tcache ) ) ) {
     FD_LOG_WARNING(( "bad magic" ));
     return NULL;
   }
 
+  ASAN_UNPOISON_MEMORY_REGION( tcache, sizeof(fd_tcache_t) );
+
   FD_COMPILER_MFENCE();
   FD_VOLATILE( tcache->magic ) = 0UL;
   FD_COMPILER_MFENCE();
+
+  ASAN_POISON_MEMORY_REGION( tcache,
+                             fd_tcache_footprint( tcache->depth, tcache->map_cnt ) );
 
   return _tcache;
 }

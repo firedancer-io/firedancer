@@ -26,6 +26,11 @@ fd_fseq_footprint( void ) {
   return FD_FSEQ_FOOTPRINT;
 }
 
+static inline int
+fd_fseq_check_magic( fd_fseq_shmem_t * fseq ) {
+  return fd_probe_magic( &fseq->magic )==FD_FSEQ_MAGIC;
+}
+
 void *
 fd_fseq_new( void * shmem,
              ulong  seq0 ) {
@@ -38,7 +43,9 @@ fd_fseq_new( void * shmem,
   if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)shmem, fd_fseq_align() ) ) ) {
     FD_LOG_WARNING(( "misaligned shmem" ));
     return NULL;
-  } 
+  }
+
+  ASAN_UNPOISON_MEMORY_REGION( shmem, FD_FSEQ_FOOTPRINT );
 
   fd_fseq_shmem_t * fseq = (fd_fseq_shmem_t *)shmem;
 
@@ -69,10 +76,12 @@ fd_fseq_join( void * shfseq ) {
 
   fd_fseq_shmem_t * fseq = (fd_fseq_shmem_t *)shfseq;
 
-  if( FD_UNLIKELY( fseq->magic!=FD_FSEQ_MAGIC ) ) {
+  if( FD_UNLIKELY( !fd_fseq_check_magic( fseq ) ) ) {
     FD_LOG_WARNING(( "bad magic" ));
     return NULL;
   }
+
+  ASAN_UNPOISON_MEMORY_REGION( shfseq, FD_FSEQ_FOOTPRINT );
 
   return &fseq->seq;
 }
@@ -103,14 +112,18 @@ fd_fseq_delete( void * shfseq ) {
 
   fd_fseq_shmem_t * fseq = (fd_fseq_shmem_t *)shfseq;
 
-  if( FD_UNLIKELY( fseq->magic!=FD_FSEQ_MAGIC ) ) {
+  if( FD_UNLIKELY( !fd_fseq_check_magic( fseq ) ) ) {
     FD_LOG_WARNING(( "bad magic" ));
     return NULL;
   }
 
+  ASAN_UNPOISON_MEMORY_REGION( fseq, sizeof(fd_fseq_shmem_t) );
+
   FD_COMPILER_MFENCE();
   FD_VOLATILE( fseq->magic ) = 0UL;
   FD_COMPILER_MFENCE();
+
+  ASAN_POISON_MEMORY_REGION( shfseq, FD_FSEQ_FOOTPRINT );
 
   return (void *)fseq;
 }

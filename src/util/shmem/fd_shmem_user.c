@@ -220,6 +220,10 @@ fd_shmem_join( char const *               name,
   join_info->ref_cnt = 1UL;
   join_info->join    = join;
 
+  /* Mark region as unallocated zone */
+
+  ASAN_POISON_MEMORY_REGION( shmem, sz );
+
   if( opt_info ) *opt_info = *join_info;
   FD_SHMEM_UNLOCK;
   return join;

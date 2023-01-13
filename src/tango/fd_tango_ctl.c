@@ -67,7 +67,7 @@ main( int     argc,
         "\tquery-dcache gaddr verbose\n\t"
         "\t- Queries the dcache at gaddr.  If verbose is 0, prints 0\n\t"
         "\t  to stdout (implicitly verifying gaddr is a dcache).\n\t"
-        "\t  Otherwise, prints a detailed query to stdout.\n\t" 
+        "\t  Otherwise, prints a detailed query to stdout.\n\t"
         "\n\t"
         "\tnew-fseq wksp seq0\n\t"
         "\t- Creates a flow control variable in wksp initialized to seq0.\n\t"

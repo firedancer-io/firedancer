@@ -126,14 +126,14 @@ fd_wksp_private_lock( fd_wksp_t * wksp ) {
 
           ulong                    part_cnt = wksp->part_cnt;
           fd_wksp_private_part_t * part     = wksp->part;
-          
+
           /* Merging any adjacent inactive partitions that might have
              been left when the owner was killed.  Leading adjacent
              inactive partionings will become holes.  (FIXME: MERGE
              TRAILING TO GET ACTIVE BIT PROPAGATION BETTER TO SPEED UP
              COMPACT HOLES?) */
 
-          for( ulong i=1UL; i<part_cnt; i++ ) 
+          for( ulong i=1UL; i<part_cnt; i++ )
             if( ((int)!fd_wksp_private_part_active( part[i-1UL] )) &
                 ((int)!fd_wksp_private_part_active( part[i    ] )) ) { /* clang makes babies cry */
               FD_COMPILER_MFENCE();
@@ -401,8 +401,14 @@ fd_wksp_private_join_func( void *                       context,
 
 fd_wksp_t *
 fd_wksp_attach( char const * name ) {
-  return (fd_wksp_t *)
+  fd_wksp_t * wksp = (fd_wksp_t *)
     fd_shmem_join( name, FD_SHMEM_JOIN_MODE_READ_WRITE, fd_wksp_private_join_func, NULL, NULL ); /* logs details */
+
+  if( FD_LIKELY( wksp ) ) {
+    ASAN_UNPOISON_MEMORY_REGION( wksp, sizeof(fd_wksp_t) );
+  }
+
+  return wksp;
 }
 
 static void *
@@ -467,6 +473,8 @@ fd_wksp_new( void *       shmem,
     return NULL;
   }
 
+  ASAN_UNPOISON_MEMORY_REGION( wksp, sizeof(fd_wksp_t) );
+
   /* If we maximally partition the data region (e.g. completely covered
      by FD_WKSP_ALLOC_ALIGN_MIN sized partitions), we would have:
 
@@ -475,7 +483,7 @@ fd_wksp_new( void *       shmem,
      partitions.  This in turn require partition array of size:
 
        sizeof(fd_wksp_private_part_t)*(part_max+1)
-       
+
      which in turn is carved out of the overall workspace.  The wksp
      header is also carved out of the workspace as is any padding
      necessary for alignment.  The general upshot is then, we'd like to
@@ -501,7 +509,7 @@ fd_wksp_new( void *       shmem,
      or:
 
        part_max ~ (footprint - hdr_sz + ALIGN_MIN - 1U) / (ALIGN_MIN+sizeof(fd_wksp_private_part_t))
-       
+
      For a 4KiB align min and 8 byte fd_wksp_private_part_t, this in
      turn implies there is an asymptotic 0.2% overhead for wksp metadata
      storage. */
@@ -569,6 +577,8 @@ fd_wksp_delete( void * shwksp ) {
     return NULL;
   }
 
+  ASAN_UNPOISON_MEMORY_REGION( wksp, sizeof(fd_wksp_t) );
+
   if( FD_UNLIKELY( wksp->magic!=FD_WKSP_MAGIC ) ) {
     FD_LOG_WARNING(( "bad magic (region probably not a wksp)" ));
     return NULL;
@@ -577,6 +587,9 @@ fd_wksp_delete( void * shwksp ) {
   FD_COMPILER_MFENCE();
   FD_VOLATILE( wksp->magic ) = 0UL;
   FD_COMPILER_MFENCE();
+
+  ASAN_POISON_MEMORY_REGION( wksp, sizeof(fd_wksp_t) );
+
   return wksp;
 }
 
@@ -660,7 +673,7 @@ fd_wksp_alloc( fd_wksp_t * wksp,
   fd_wksp_private_part_t * part     = wksp->part;
   ulong                    part_cnt = wksp->part_cnt;
 
-  for( ulong i=0UL; i<part_cnt; i++ ) {      
+  for( ulong i=0UL; i<part_cnt; i++ ) {
     fd_wksp_private_part_t part_i = part[i];
     if( fd_wksp_private_part_active( part_i ) ) continue;
 

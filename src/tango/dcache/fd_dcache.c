@@ -13,7 +13,7 @@ fd_dcache_req_data_sz( ulong mtu,
   ulong slot_footprint = FD_DCACHE_SLOT_FOOTPRINT( mtu );
   if( FD_UNLIKELY( !slot_footprint ) ) return 0UL; /* overflow */
 
-  ulong slot_cnt = depth + burst;  
+  ulong slot_cnt = depth + burst;
   if( FD_UNLIKELY( slot_cnt<depth ) ) return 0UL; /* overflow */
   slot_cnt += (ulong)!!compact;
   if( FD_UNLIKELY( !slot_cnt ) ) return 0UL; /* overflow (technically unnecessary) */
@@ -46,6 +46,11 @@ fd_dcache_footprint( ulong data_sz,
   return footprint;
 }
 
+static inline int
+fd_dcache_check_magic( fd_dcache_private_hdr_t * hdr ) {
+  return fd_probe_magic( &hdr->magic )==FD_DCACHE_MAGIC;
+}
+
 void *
 fd_dcache_new( void * shmem,
                ulong  data_sz,
@@ -66,6 +71,8 @@ fd_dcache_new( void * shmem,
     FD_LOG_WARNING(( "bad data_sz (%lu) or app_sz (%lu)", data_sz, app_sz ));
     return NULL;
   }
+
+  ASAN_UNPOISON_MEMORY_REGION( shmem, footprint );
 
   fd_memset( shmem, 0, footprint );
 
@@ -96,10 +103,14 @@ fd_dcache_join( void * shdcache ) {
   }
 
   fd_dcache_private_hdr_t * hdr = (fd_dcache_private_hdr_t *)shdcache;
-  if( FD_UNLIKELY( hdr->magic!=FD_DCACHE_MAGIC ) ) {
+  if( FD_UNLIKELY( !fd_dcache_check_magic( hdr ) ) ) {
     FD_LOG_WARNING(( "bad magic" ));
     return NULL;
   }
+
+  ASAN_UNPOISON_MEMORY_REGION( hdr, sizeof(fd_dcache_private_hdr_t) );
+  ASAN_UNPOISON_MEMORY_REGION( shdcache,
+                               fd_dcache_footprint( hdr->data_sz, hdr->app_sz ) );
 
   return fd_dcache_private_dcache( hdr );
 }
@@ -129,14 +140,19 @@ fd_dcache_delete( void * shdcache ) {
   }
 
   fd_dcache_private_hdr_t * hdr = (fd_dcache_private_hdr_t *)shdcache;
-  if( FD_UNLIKELY( hdr->magic != FD_DCACHE_MAGIC ) ) {
+  if( FD_UNLIKELY( !fd_dcache_check_magic( hdr ) ) ) {
     FD_LOG_WARNING(( "bad magic" ));
     return NULL;
   }
 
+  ASAN_UNPOISON_MEMORY_REGION( hdr, sizeof(fd_dcache_private_hdr_t) );
+
   FD_COMPILER_MFENCE();
   FD_VOLATILE( hdr->magic ) = 0UL;
   FD_COMPILER_MFENCE();
+
+  ASAN_POISON_MEMORY_REGION( shdcache,
+                             fd_dcache_footprint( hdr->data_sz, hdr->app_sz ) );
 
   return shdcache;
 }

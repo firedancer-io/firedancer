@@ -26,6 +26,11 @@ fd_mcache_footprint( ulong depth,
   return footprint;
 }
 
+static inline int
+fd_mcache_check_magic( fd_mcache_private_hdr_t * hdr ) {
+  return fd_probe_magic( &hdr->magic )==FD_MCACHE_MAGIC;
+}
+
 void *
 fd_mcache_new( void * shmem,
                ulong  depth,
@@ -47,6 +52,8 @@ fd_mcache_new( void * shmem,
     FD_LOG_WARNING(( "bad depth (%lu) or app_sz (%lu)", depth, app_sz ));
     return NULL;
   }
+
+  ASAN_UNPOISON_MEMORY_REGION( shmem, footprint );
 
   fd_memset( shmem, 0, footprint );
 
@@ -89,10 +96,14 @@ fd_mcache_join( void * shmcache ) {
   }
 
   fd_mcache_private_hdr_t * hdr = (fd_mcache_private_hdr_t *)shmcache;
-  if( FD_UNLIKELY( hdr->magic!=FD_MCACHE_MAGIC ) ) {
+  if( FD_UNLIKELY( !fd_mcache_check_magic( hdr ) ) ) {
     FD_LOG_WARNING(( "bad magic" ));
     return NULL;
   }
+
+  ASAN_UNPOISON_MEMORY_REGION( hdr, sizeof(fd_mcache_private_hdr_t) );
+  ASAN_UNPOISON_MEMORY_REGION( shmcache,
+                               fd_mcache_footprint( hdr->depth, hdr->app_sz ) );
 
   return fd_mcache_private_mcache( hdr );
 }
@@ -122,14 +133,19 @@ fd_mcache_delete( void * shmcache ) {
   }
 
   fd_mcache_private_hdr_t * hdr = (fd_mcache_private_hdr_t *)shmcache;
-  if( FD_UNLIKELY( hdr->magic != FD_MCACHE_MAGIC ) ) {
+  if( FD_UNLIKELY( !fd_mcache_check_magic( hdr ) ) ) {
     FD_LOG_WARNING(( "bad magic" ));
     return NULL;
   }
 
+  ASAN_UNPOISON_MEMORY_REGION( hdr, sizeof(fd_mcache_private_hdr_t) );
+
   FD_COMPILER_MFENCE();
   FD_VOLATILE( hdr->magic ) = 0UL;
   FD_COMPILER_MFENCE();
+
+  ASAN_POISON_MEMORY_REGION( shmcache,
+                             fd_mcache_footprint( hdr->depth, hdr->app_sz ) );
 
   return shmcache;
 }

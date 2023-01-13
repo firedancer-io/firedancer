@@ -8,6 +8,7 @@
    module. */
 
 #include "../log/fd_log.h"
+#include "../sanitize/fd_sanitize.h"
 
 #if FD_HAS_HOSTED && FD_HAS_X86
 

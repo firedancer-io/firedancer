@@ -2,6 +2,7 @@
 #define HEADER_fd_src_util_wksp_fd_wksp_h
 
 #include "../pod/fd_pod.h"
+#include "../sanitize/fd_sanitize.h"
 #include "../shmem/fd_shmem.h"
 
 #if FD_HAS_HOSTED && FD_HAS_X86
@@ -49,7 +50,7 @@
      fd_wksp_free( wksp, gaddr );
 
    Any join can free any allocation regardless of who made it.
-   
+
    When the application is done using a wksp, it should leave it.  The
    workspace will continue to exist (it just is no longer safe to access
    in the caller's address space).  E.g.
@@ -345,7 +346,7 @@ fd_wksp_name( fd_wksp_t const * wksp );
    FD_SHMEM_NORMAL_PAGE_SZ, footprint should be equal to sz.  This is to
    facilitate applications that prefer to specify workspace in terms of
    total number of pages to use. */
-   
+
 FD_FN_CONST ulong
 fd_wksp_align( void );
 
@@ -431,7 +432,7 @@ fd_wksp_gaddr( fd_wksp_t * wksp,
    up to FD_WKSP_ALLOC_ALIGN_MIN).  Returns the fd_wksp global address
    of the join on success and "NULL" (0UL) on failure (logs details).  A
    zero sz returns "NULL" (silent).
-   
+
    Note that fd_wksp_alloc / fd_wksp_free are neither algorithmically
    optimal nor HPC implementations.  Instead, they are designed to be
    akin to mmap / sbrk used as "last resort" allocators under the hood
@@ -458,7 +459,7 @@ fd_wksp_gaddr( fd_wksp_t * wksp,
    normally.  As the allocator has no way to tell the difference between
    such allocations and allocations that are intended to outlive the
    application, it is the callers responsibility to clean up such.
-   
+
    Priority inversion is not expected to be an issue practical as the
    expected use case is once at box startup, some non-latency critical
    processes will do a handful of operations to setup workspaces for
@@ -487,7 +488,7 @@ fd_wksp_gaddr( fd_wksp_t * wksp,
    normal pages but requiring much larger alignments), things like
    explicitly specifying the wksp virtual address location in the
    fd_shmem_join calls might be necessary to satisfy this constraint.
-   
+
    Theoretically, this implementation could accommodate
    FD_WKSP_ALLOC_ALIGN_MIN as low as 2 (it would be very silly though as
    the default metadata allocations would be insanely large).  For C/C++

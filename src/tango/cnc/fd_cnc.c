@@ -11,6 +11,11 @@ fd_cnc_footprint( ulong app_sz ) {
   return FD_CNC_FOOTPRINT( app_sz );
 }
 
+static inline int
+fd_cnc_check_magic( fd_cnc_t * cnc ) {
+  return fd_probe_magic( &cnc->magic )==FD_CNC_MAGIC;
+}
+
 void *
 fd_cnc_new( void * shmem,
             ulong  app_sz,
@@ -33,6 +38,8 @@ fd_cnc_new( void * shmem,
     FD_LOG_WARNING(( "bad app_sz (%lu)", app_sz ));
     return NULL;
   }
+
+  ASAN_UNPOISON_MEMORY_REGION( cnc, footprint );
 
   fd_memset( cnc, 0, footprint );
 
@@ -65,10 +72,13 @@ fd_cnc_join( void * shcnc ) {
 
   fd_cnc_t * cnc = (fd_cnc_t *)shcnc;
 
-  if( FD_UNLIKELY( cnc->magic!=FD_CNC_MAGIC ) ) {
+  if( FD_UNLIKELY( !fd_cnc_check_magic( cnc ) ) ) {
     FD_LOG_WARNING(( "bad magic" ));
     return NULL;
   }
+
+  ASAN_UNPOISON_MEMORY_REGION( cnc, sizeof(fd_cnc_t) );
+  ASAN_UNPOISON_MEMORY_REGION( cnc, fd_cnc_footprint( cnc->app_sz ) );
 
   return cnc;
 }
@@ -99,14 +109,18 @@ fd_cnc_delete( void * shcnc ) {
 
   fd_cnc_t * cnc = (fd_cnc_t *)shcnc;
 
-  if( FD_UNLIKELY( cnc->magic!=FD_CNC_MAGIC ) ) {
+  if( FD_UNLIKELY( !fd_cnc_check_magic( cnc ) ) ) {
     FD_LOG_WARNING(( "bad magic" ));
     return NULL;
   }
 
+  ASAN_UNPOISON_MEMORY_REGION( cnc, sizeof(fd_cnc_t) );
+
   FD_COMPILER_MFENCE();
   FD_VOLATILE( cnc->magic ) = 0UL;
   FD_COMPILER_MFENCE();
+
+  ASAN_POISON_MEMORY_REGION( cnc, fd_cnc_footprint( cnc->app_sz ) );
 
   return (void *)cnc;
 }
@@ -140,7 +154,7 @@ fd_cnc_open( fd_cnc_t * cnc ) {
   FD_COMPILER_MFENCE();
 
   if( FD_LIKELY( !cnc_pid ) ) {
-  
+
     /* Got the lock ... get the status of the app thread. */
 
     ulong signal = fd_cnc_signal_query( cnc );
@@ -177,7 +191,7 @@ fd_cnc_open( fd_cnc_t * cnc ) {
 
     int err = errno;
     if( FD_LIKELY( err==ESRCH ) ) {
-    
+
       /* A process died with an open command session.  Try to clean up
          after it and resume. */
 
