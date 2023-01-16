@@ -13,7 +13,7 @@ int
 main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
-  
+
   ulong rx_max    = fd_env_strip_cmdline_ulong( &argc, &argv, "--rx-max",    NULL,    16UL );
   ulong rx_cnt    = fd_env_strip_cmdline_ulong( &argc, &argv, "--rx-cnt",    NULL,     3UL );
   ulong rx_cr_max = fd_env_strip_cmdline_ulong( &argc, &argv, "--rx-cr-max", NULL, 12345UL );
@@ -39,9 +39,23 @@ main( int     argc,
   if( FD_UNLIKELY( !footprint ) ) FD_LOG_ERR(( "Bad --rx-max" ));
   FD_TEST( footprint==FD_FCTL_FOOTPRINT( rx_max ) );
   FD_TEST( footprint<=FD_FCTL_FOOTPRINT( RX_MAX ) );
-  
+
+  /* Test failure cases for fd_fctl_new */
+  FD_TEST( fd_fctl_new( NULL,      rx_max               )==NULL ); /* null shmem       */
+  FD_TEST( fd_fctl_new( shmem+1UL, rx_max               )==NULL ); /* misaligned shmem */
+  FD_TEST( fd_fctl_new( shmem,     FD_FCTL_RX_MAX_MAX+1 )==NULL ); /* oversz rx_max    */
+
   void *      shfctl = fd_fctl_new ( shmem, rx_max ); FD_TEST( shfctl );
   fd_fctl_t * fctl   = fd_fctl_join( shfctl );        FD_TEST( fctl   );
+
+  /* Test failure cases for fd_fctl_cfg_rx_add */
+  FD_TEST( fd_fctl_cfg_rx_add( NULL, rx_cr_max, &rx_seq[ 0UL ], &rx_slow[ 0UL ] )==NULL ); /* null fctl       */
+  FD_TEST( fd_fctl_cfg_rx_add( fctl, 0UL,       &rx_seq[ 0UL ], &rx_slow[ 0UL ] )==NULL ); /* zero cr_max     */
+  FD_TEST( fd_fctl_cfg_rx_add( fctl, ~0UL,      &rx_seq[ 0UL ], &rx_slow[ 0UL ] )==NULL ); /* oversz cr_max   */
+  FD_TEST( fd_fctl_cfg_rx_add( fctl, rx_cr_max, &rx_seq[ 0UL ], NULL            )==NULL ); /* null slow_laddr */
+
+  /* Test failure cases for fd_fctl_cfg_done */
+  FD_TEST( fd_fctl_cfg_done( NULL, cr_burst, cr_max, cr_resume, cr_refill )==NULL ); /* null fctl */
 
   for( ulong rx_idx=0UL; rx_idx<rx_cnt; rx_idx++ )
     FD_TEST( fd_fctl_cfg_rx_add( fctl, (rx_idx+1UL)*rx_cr_max, &rx_seq[ rx_idx ], &rx_slow[ rx_idx ] ) );
@@ -61,7 +75,7 @@ main( int     argc,
   FD_TEST( fd_fctl_cr_max   ( fctl )==cr_max    );
   FD_TEST( fd_fctl_cr_resume( fctl )==cr_resume );
   FD_TEST( fd_fctl_cr_refill( fctl )==cr_refill );
-  
+
   ulong cr_burst_max = (ulong)LONG_MAX;
   for( ulong rx_idx=0UL; rx_idx<rx_cnt; rx_idx++ ) cr_burst_max = fd_ulong_min( cr_burst_max, fd_fctl_rx_cr_max( fctl, rx_idx ) );
 

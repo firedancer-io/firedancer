@@ -101,7 +101,18 @@ main( int     argc,
   FD_TEST( footprint==FD_DCACHE_FOOTPRINT( data_sz,  app_sz  ) );
   FD_TEST( footprint<=FD_DCACHE_FOOTPRINT( DATA_MAX, APP_MAX ) );
 
+  /* Test failure cases for fd_dcache_new */
+  FD_TEST( fd_dcache_new( NULL,      data_sz, app_sz )==NULL ); /* null        */
+  FD_TEST( fd_dcache_new( shmem+1UL, data_sz, app_sz )==NULL ); /* misaligned  */
+  FD_TEST( fd_dcache_new( shmem,     ~0x0UL,  app_sz )==NULL ); /* bad data_sz */
+  FD_TEST( fd_dcache_new( shmem,     data_sz, ~0x0UL )==NULL ); /* bad app_sz  */
+
   void *  shdcache = fd_dcache_new( shmem, data_sz, app_sz ); FD_TEST( shdcache );
+
+  /* Test failure cases for fd_dcache_join */
+  FD_TEST( fd_dcache_join( NULL          )==NULL ); /* null */
+  FD_TEST( fd_dcache_join( (void *)0x1UL )==NULL ); /* misaligned */
+
   uchar * dcache   = fd_dcache_join( shdcache );              FD_TEST( dcache );
   FD_TEST( fd_ulong_is_aligned( (ulong)dcache, FD_DCACHE_ALIGN ) );
 
@@ -145,10 +156,18 @@ main( int     argc,
   ulong mtu   = 256UL;
   ulong depth =   2UL;
   if( FD_LIKELY( data_sz >= fd_dcache_req_data_sz( mtu, depth, 1UL /*burst*/, 1 /*compact*/ ) ) ) {
-
+    uchar const * ref = dcache;
     ulong chunk_mtu = fd_ulong_align_up( mtu, 2UL*FD_CHUNK_SZ ) >> FD_CHUNK_LG_SZ;
 
-    uchar const * ref = dcache;
+    /* Test failure cases for fd_dcache_compact_is_safe */
+    FD_TEST( fd_dcache_compact_is_safe( ref+1UL, dcache,     mtu,  depth )==0 ); /* misaligned base    */
+    FD_TEST( fd_dcache_compact_is_safe( NULL,    NULL,       mtu,  depth )==0 ); /* null               */
+    FD_TEST( fd_dcache_compact_is_safe( ref,     ref-128UL,  mtu,  depth )==0 ); /* dcache before base */
+    FD_TEST( fd_dcache_compact_is_safe( NULL,    dcache+1UL, mtu,  depth )==0 ); /* misaligned dcache  */
+    FD_TEST( fd_dcache_compact_is_safe( ref,     dcache,     0UL,  depth )==0 ); /* zero mtu           */
+    FD_TEST( fd_dcache_compact_is_safe( ref,     dcache,     ~0UL, depth )==0 ); /* oversz mtu         */
+    FD_TEST( fd_dcache_compact_is_safe( ref,     dcache,     mtu,  0UL   )==0 ); /* zero depth         */
+
     FD_TEST( fd_dcache_compact_is_safe( ref, dcache, mtu, depth ) );
     ulong chunk0 = fd_dcache_compact_chunk0( ref, dcache );      FD_TEST( chunk0==0UL );
     ulong chunk1 = fd_dcache_compact_chunk1( ref, dcache );      FD_TEST( chunk1==(data_sz>>FD_CHUNK_LG_SZ) );
@@ -184,8 +203,12 @@ main( int     argc,
 
   /* Test mcache destruction */
 
-  FD_TEST( fd_dcache_leave ( dcache   )==shdcache );
-  FD_TEST( fd_dcache_delete( shdcache )==shmem    );
+  FD_TEST( fd_dcache_leave( NULL   )==NULL     ); /* null dcache */
+  FD_TEST( fd_dcache_leave( dcache )==shdcache ); /* ok */
+
+  FD_TEST( fd_dcache_delete( NULL                    )==NULL  ); /* null dcache */
+  FD_TEST( fd_dcache_delete( ((uchar *)shdcache)+1UL )==NULL  ); /* misaligned  */
+  FD_TEST( fd_dcache_delete( shdcache                )==shmem ); /* ok */
 
   fd_rng_delete( fd_rng_leave( rng ) );
 
