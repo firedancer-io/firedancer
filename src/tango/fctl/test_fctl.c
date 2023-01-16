@@ -39,9 +39,36 @@ main( int     argc,
   if( FD_UNLIKELY( !footprint ) ) FD_LOG_ERR(( "Bad --rx-max" ));
   FD_TEST( footprint==FD_FCTL_FOOTPRINT( rx_max ) );
   FD_TEST( footprint<=FD_FCTL_FOOTPRINT( RX_MAX ) );
+ 
+  /* Test failure cases for fd_fctl_new */
+  // Null shmem
+  FD_TEST( fd_fctl_new( NULL, rx_max )==NULL );
   
+  // Misaligned shmem
+  FD_TEST( fd_fctl_new( shmem+1UL, rx_max )==NULL );
+
+  // Too large rx_max
+  FD_TEST( fd_fctl_new( shmem, FD_FCTL_RX_MAX_MAX+1 )==NULL );
+
   void *      shfctl = fd_fctl_new ( shmem, rx_max ); FD_TEST( shfctl );
   fd_fctl_t * fctl   = fd_fctl_join( shfctl );        FD_TEST( fctl   );
+
+  /* Test falure cases for fd_fctl_cfg_rx_add */
+  // Null fctl
+  FD_TEST( fd_fctl_cfg_rx_add( NULL, rx_cr_max, &rx_seq[ 0UL ], &rx_slow[ 0UL ] )==NULL );
+  
+  // Zero cr_max
+  FD_TEST( fd_fctl_cfg_rx_add( fctl, 0UL, &rx_seq[ 0UL ], &rx_slow[ 0UL ] )==NULL );
+  
+  // Too large cr_max
+  FD_TEST( fd_fctl_cfg_rx_add( fctl, ~0UL, &rx_seq[ 0UL ], &rx_slow[ 0UL ] )==NULL );
+  
+  // Null slow_laddr
+  FD_TEST( fd_fctl_cfg_rx_add( fctl, rx_cr_max, &rx_seq[ 0UL ], NULL )==NULL );
+  
+  /* Test falure cases for fd_fctl_cfg_done */
+  // Null fctl
+  FD_TEST( fd_fctl_cfg_done( NULL, cr_burst, cr_max, cr_resume, cr_refill )==NULL );
 
   for( ulong rx_idx=0UL; rx_idx<rx_cnt; rx_idx++ )
     FD_TEST( fd_fctl_cfg_rx_add( fctl, (rx_idx+1UL)*rx_cr_max, &rx_seq[ rx_idx ], &rx_slow[ rx_idx ] ) );
