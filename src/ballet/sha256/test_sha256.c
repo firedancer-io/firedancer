@@ -20,8 +20,16 @@ main( int     argc,
   FD_TEST( fd_sha256_align    ()==FD_SHA256_ALIGN     );
   FD_TEST( fd_sha256_footprint()==FD_SHA256_FOOTPRINT );
 
-  fd_sha256_t   mem[1];
-  void *        obj = fd_sha256_new ( mem ); FD_TEST( obj );
+  fd_sha256_t mem[1];
+
+  FD_TEST( fd_sha256_new( NULL          )==NULL ); /* null shmem       */
+  FD_TEST( fd_sha256_new( (void *)0x1UL )==NULL ); /* misaligned shmem */
+
+  void * obj = fd_sha256_new( mem ); FD_TEST( obj );
+
+  FD_TEST( fd_sha256_join( NULL           )==NULL ); /* null shsha       */
+  FD_TEST( fd_sha256_join( (void *) 0x1UL )==NULL ); /* misaligned shsha */
+
   fd_sha256_t * sha = fd_sha256_join( obj ); FD_TEST( sha );
 
   uchar hash[ 32 ] __attribute__((aligned(32)));
@@ -96,8 +104,13 @@ main( int     argc,
 
   /* clean up */
 
-  FD_TEST( fd_sha256_leave ( sha )==obj );
-  FD_TEST( fd_sha256_delete( obj )==mem );
+  FD_TEST( fd_sha256_leave( NULL )==NULL ); /* null sha */
+  FD_TEST( fd_sha256_leave( sha  )==obj  ); /* ok */
+
+  FD_TEST( fd_sha256_delete( NULL          )==NULL ); /* null shsha       */
+  FD_TEST( fd_sha256_delete( (void *)0x1UL )==NULL ); /* misaligned shsha */
+  FD_TEST( fd_sha256_delete( obj           )==mem  ); /* ok */
+
   fd_rng_delete( fd_rng_leave( rng ) );
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
