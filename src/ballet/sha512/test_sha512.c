@@ -87,7 +87,23 @@ main( int     argc,
   FD_TEST( fd_sha512_footprint()==FD_SHA512_FOOTPRINT );
 
   fd_sha512_t   mem[1];
+  
+  /* Test failure cases for fd_sha512_new */
+  // Null shmem
+  FD_TEST( fd_sha512_new( NULL )==NULL );
+  
+  // Misaligned shmem
+  FD_TEST( fd_sha512_new( (void *) 0x1 )==NULL );
+
   void *        obj = fd_sha512_new ( mem ); FD_TEST( obj );
+  
+  /* Test failure cases for fd_sha512_join */
+  // Null shsha
+  FD_TEST( fd_sha512_join( NULL )==NULL );
+  
+  // Misaligned shsha
+  FD_TEST( fd_sha512_join( (void *) 0x1 )==NULL );
+
   fd_sha512_t * sha = fd_sha512_join( obj ); FD_TEST( sha );
 
   /* Test random vectors */
