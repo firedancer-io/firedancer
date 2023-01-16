@@ -17,7 +17,23 @@ main( int     argc,
 
   fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
 
-  /* FIXME: ADD AVG TESTS */
+# define AVG2_INT_TEST(T) do {                          \
+    FD_TEST( fd_stat_avg2_##T( (T)  0, (T)0 )==(T) 0 );  \
+    FD_TEST( fd_stat_avg2_##T( (T)  1, (T)2 )==(T) 1 );  \
+    FD_TEST( fd_stat_avg2_##T( (T)  1, (T)0 )==(T) 0 );  \
+    FD_TEST( fd_stat_avg2_##T( (T)110, (T)0 )==(T)55 );  \
+  } while(0)
+
+  AVG2_INT_TEST( schar  );
+  AVG2_INT_TEST( uchar  );
+  AVG2_INT_TEST( short  );
+  AVG2_INT_TEST( ushort );
+  AVG2_INT_TEST( int    );
+  AVG2_INT_TEST( uint   );
+  AVG2_INT_TEST( long   );
+  AVG2_INT_TEST( ulong  );
+# undef AVG2_INT_TEST
+
 
 # define FILT_TEST(T,UT)                             \
   for( ulong iter=0UL; iter<1000000UL; iter++ ) {    \
