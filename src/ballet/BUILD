@@ -19,6 +19,7 @@ fd_cc_library(
     visibility = ["//visibility:public"],
     deps = [
         ":base_lib",
+        "//src/ballet/block",
         "//src/ballet/bmtree",
         "//src/ballet/ed25519",
         "//src/ballet/pack",

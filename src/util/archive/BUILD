@@ -16,6 +16,6 @@ fd_cc_library(
 fd_cc_test(
     size = "small",
     srcs = ["test_ar.c"],
-    compile_data = ["//src/ballet/shred:fixtures/localnet-shreds-0.ar"],
+    compile_data = ["//src/ballet/shred:fixtures/localnet-slot0-shreds.ar"],
     deps = ["//src/util"],
 )
