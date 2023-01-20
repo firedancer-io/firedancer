@@ -66,30 +66,37 @@
 
 /* FD_TXN_ACCT_ADDR_MAX: The (inclusive) maximum number of account addresses
    that a transaction can have.  The spec only guarauntees <= 256, but the
-   current MTU of 1232 B restricts this to 35 account addresses. */
-#define FD_TXN_ACCT_ADDR_MAX         (256UL)
+   current MTU of 1232 B restricts this to 35 account addresses.  An artificial
+   limit of 64 is currently in place, but this is being changed to 128 in the
+   near future (https://github.com/solana-labs/solana/issues/27241), so we'll
+   use 128. */
+#define FD_TXN_ACCT_ADDR_MAX         (128UL)
 
 /* FD_TXN_ADDR_TABLE_LOOKUP_MAX: The (inclusive) maximum number of address
    tables that this transaction references.  The spec is pretty sloppy about
-   the maximum number allowed.  Since there's a maximum of 255 total accounts
+   the maximum number allowed.  Since there's a maximum of 128 total accounts
    (including the fee payer) that the transaction can reference, if you have
-   more than 254 table lookups, then you must have some from which you are not
+   more than 127 table lookups, then you must have some from which you are not
    using any account.  Realistically, the current MTU of 1232 B resticts this
-   to 33. */
-#define FD_TXN_ADDR_TABLE_LOOKUP_MAX (254UL)
+   to 33. FIXME: We should petition to limit this to approx 8. */
+#define FD_TXN_ADDR_TABLE_LOOKUP_MAX (127UL)
 
 /* FD_TXN_INSTR_MAX: The (inclusive) maximum number of instructions a transaction
-   can have.  The only bound given by the spec is that it's encoded as a
-   uint16.  The current max transaction size of 1232 B restricts this to 355,
-   though they would be pretty useless instructions at that point. */
-#define FD_TXN_INSTR_MAX             (USHORT_MAX)
+   can have.  As of Solana 1.15.0, this is limited to 64. */
+#define FD_TXN_INSTR_MAX             (64UL)
 
 
 /* FD_TXN_MAX_SZ: The maximum amount of memory (in bytes) that a fd_txn can
    take up, including the instruction array and any address tables.  The
-   worst-case transaction is a legacy transaction with only two account addresses (a program and a fee
-   payer), and tons of empty instructions (no accounts, no data). */
-#define FD_TXN_MAX_SZ                (3570UL)
+   worst-case transaction is a V0 transaction with only two account
+   addresses (a program and a fee payer), and tons of empty instructions (no
+   accounts, no data) and as many address table lookups as possible. */
+#define FD_TXN_MAX_SZ                (860UL)
+
+
+/* FD_TXN_MTU: The maximum size (in bytes, inclusive) of a serialized
+   transaction. */
+#define FD_TXN_MTU                  (1232UL)
 
 
 /* A Solana transaction instruction, i.e. one command or step to execute in a
@@ -603,18 +610,28 @@ static inline ulong FD_FN_CONST fd_txn_acct_iter_end( void ) { return FD_TXN_ACC
 
 
 
-/* fd_txn_parse: Parses a transaction from the canonical encoding, i.e. the
-   format used on the wire.  Payload points to the first byte of encoded
-   transaction, e.g. the first byte of the UDP/Quic payload if the transaction
-   comes from the network.  out_buf is the memory where the parsed transaction
-   will be stored.  out_buf must have room for at least FD_TXN_MAX_SZ bytes.
-   Returns the total size of the resulting fd_txn struct on success and 0 on
-   failure.  On failure, the contents of out_buf are undefined, although
-   nothing will be written beyond FD_TXN_MAX_SZ bytes.  If counters_opt is
-   non-NULL, some some counters about the result of the parsing process will be
-   accumulated into the struct pointed to by counters_opt. Note: The returned
-   txn object is not self-contained since it refers to byte ranges inside the
-   payload. */
+/* fd_txn_parse: Parses a transaction from the canonical encoding, i.e.
+   the format used on the wire.
+
+   Payload points to the first byte of encoded transaction, e.g. the
+   first byte of the UDP/Quic payload if the transaction comes from the
+   network.  The encoded transaction must occupy exactly [payload,
+   payload+payload_sz), i.e. this method will read no more than
+   payload_sz bytes from payload, but it will reject the transaction if
+   it contains extra padding at the end or continues past
+   payload+payload_sz.  payload_sz <= FD_TXN_MTU.
+
+   out_buf is the memory where the parsed transaction will be stored.
+   out_buf must have room for at least FD_TXN_MAX_SZ bytes.
+
+   Returns the total size of the resulting fd_txn struct on success and
+   0 on failure.  On failure, the contents of out_buf are undefined,
+   although nothing will be written beyond FD_TXN_MAX_SZ bytes.
+
+   If counters_opt is non-NULL, some some counters about the result of
+   the parsing process will be accumulated into the struct pointed to by
+   counters_opt. Note: The returned txn object is not self-contained
+   since it refers to byte ranges inside the payload. */
 ulong fd_txn_parse( uchar const * payload, ulong payload_sz, void * out_buf, fd_txn_parse_counters_t * counters_opt );
 
 FD_PROTOTYPES_END
