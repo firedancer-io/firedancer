@@ -77,17 +77,16 @@
 #define FD_TXN_ADDR_TABLE_LOOKUP_MAX (254UL)
 
 /* FD_TXN_INSTR_MAX: The (inclusive) maximum number of instructions a transaction
-   can have.  The only bound given by the spec is that it's encoded as a
-   uint16.  The current max transaction size of 1232 B restricts this to 355,
-   though they would be pretty useless instructions at that point. */
-#define FD_TXN_INSTR_MAX             (USHORT_MAX)
+   can have.  As of Solana 1.15.0, this is limited to 64. */
+#define FD_TXN_INSTR_MAX             (64UL)
 
 
 /* FD_TXN_MAX_SZ: The maximum amount of memory (in bytes) that a fd_txn can
    take up, including the instruction array and any address tables.  The
-   worst-case transaction is a legacy transaction with only two account addresses (a program and a fee
-   payer), and tons of empty instructions (no accounts, no data). */
-#define FD_TXN_MAX_SZ                (3570UL)
+   worst-case transaction is a V0 transaction with only two account
+   addresses (a program and a fee payer), and tons of empty instructions (no
+   accounts, no data) and as many address table lookups as possible. */
+#define FD_TXN_MAX_SZ                (860UL)
 
 
 /* A Solana transaction instruction, i.e. one command or step to execute in a

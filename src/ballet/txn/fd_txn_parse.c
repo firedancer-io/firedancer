@@ -112,6 +112,7 @@ fd_txn_parse( uchar const             * payload,
   ushort instr_cnt = (ushort)0;
   READ_CHECKED_COMPACT_U16( bytes_consumed,                instr_cnt,                i );     i+=bytes_consumed;
 
+  CHECK( (ulong)instr_cnt<=FD_TXN_INSTR_MAX     );
   CHECK_LEFT( MIN_INSTR_SZ*instr_cnt            );
 
   fd_txn_t * parsed = (fd_txn_t *)out_buf;
@@ -193,7 +194,7 @@ fd_txn_parse( uchar const             * payload,
 
   /* Final validation that all the account address indices are in range */
   for( ulong j=0; j<instr_cnt; j++ ) {
-    /* Account 0 is the fee payer and the program can't be the fee payer. 
+    /* Account 0 is the fee payer and the program can't be the fee payer.
        The fee payer account must be owned by the system program, but the
        program must be an executable account and the system program is not
        permitted to own any executable account. */
