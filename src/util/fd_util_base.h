@@ -327,6 +327,28 @@ __extension__ typedef unsigned __int128 uint128;
 #define FD_PROTOTYPES_END
 #endif
 
+/* FD_INCBIN: include binary file as rodata */
+
+#define __FD_INCBIN(name, path, type, footer)  \
+  extern type const name [];                   \
+  extern uchar const name##_end;               \
+  ulong name##_sz( void ) {                    \
+    return ((ulong)&name##_end - (ulong)name); \
+  }                                            \
+  __asm__(                                     \
+  ".section \".rodata\", \"a\", @progbits\n"   \
+  #name ":\n"                                  \
+  ".incbin \"" path "\"\n"                     \
+  footer "\n"                                  \
+  #name "_end:\n"                              \
+  ".byte 0\n"                                  \
+  ".previous\n"                                \
+  )
+
+#define FD_INCBIN(name, path) __FD_INCBIN(name, path, uchar, "")
+
+#define FD_INCBIN_STR(name, path) __FD_INCBIN(name, path, char, ".byte 0")
+
 /* Optimizer tricks ***************************************************/
 
 /* FD_RESTRICT is a pointer modifier for to designate a pointer as

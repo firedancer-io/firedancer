@@ -44,7 +44,7 @@ FD_STATIC_ASSERT( sizeof(double)==8UL, devenv );
 
 /* Test twos complement representation (the -1 is to work around a
    language flaw with large negative integer constants). */
-   
+
 /* Unqualified char types should be avoided outside of cstr
    representations. */
 
@@ -107,6 +107,9 @@ FD_STATIC_ASSERT( !(((long )+1)/((long )+2)), devenv );
 FD_STATIC_ASSERT( !(((long )-1)/((long )+2)), devenv );
 FD_STATIC_ASSERT( !(((long )+1)/((long )-2)), devenv );
 FD_STATIC_ASSERT( !(((long )-1)/((long )-2)), devenv );
+
+/* Test binary includes by including this source file. (A quine!) */
+FD_INCBIN_STR( incbin_src, __FILE__ );
 
 int
 main( int     argc,
@@ -401,6 +404,11 @@ main( int     argc,
   }
 
 # endif
+
+  /* Test FD_INCBIN */
+
+  FD_TEST( !strncmp( incbin_src, "#include \"fd_util.h\"", 20 ) );
+  FD_TEST( strlen( incbin_src )+1UL == incbin_src_sz() );
 
   /* FIXME: ADD HASH QUALITY CHECKER HERE */
 
