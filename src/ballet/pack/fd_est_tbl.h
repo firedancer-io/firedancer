@@ -26,19 +26,21 @@
 
 /* Internal table bin structure used to accumulate statistics about tags that
    map to this bin index */
+/* FIXME: With doubles, this struct is 32B. With floats, it is 16B, which means
+   that reads and writes to it can be atomic if done carefully.  That will make
+   updating the table while it's in use much easier.  On some platforms, 32B
+   reads and writes will also be atomic. */
 struct fd_private_est_tbl_bin {
-  /* ema_x: The numerator of the EMA of the values that have mapped to this
+  /* x: The numerator of the EMA of the values that have mapped to this
      bin */
-  double ema_x;
-  /* ema_x2: The numerator of the EMA of the square of values that have mapped
+  double x;
+  /* x2: The numerator of the EMA of the square of values that have mapped
      to this bin */
-  double ema_x2;
-  /* ema_d: The denominator for EMA(x) and EMA(x^2), paired with the numerators
-     from above.
-     FIXME: Talk to kbowers about if this should be stored as 1/denom. Slightly
-     more complicated update but then converts the estimation from two
-     divisions to two multiplications. */
-  double ema_d;
+  double x2;
+  /* d: The denominator for EMA(x), paired with the numerator from above.
+     */
+  double d;
+  double d2;
 };
 typedef struct fd_private_est_tbl_bin fd_est_tbl_bin_t;
 
@@ -54,7 +56,7 @@ struct __attribute__((aligned(FD_EST_TBL_ALIGN))) fd_private_est_tbl {
   /* default_val: the value to return as mean when the query maps to a bin with
      very few values */
   double default_val;
-
+  /* 32 byte aligned at this point */
   /* bins: the array of (bin_cnt_mask+1) bins follows.  The array size of 1 is
      just convention. */
   fd_est_tbl_bin_t bins[1];
@@ -143,13 +145,12 @@ fd_est_tbl_estimate( fd_est_tbl_t const * tbl,
                      double *             variance_out ) {
   fd_est_tbl_bin_t const * bin = tbl->bins + (tag & tbl->bin_cnt_mask);
   double mean, var;
-  if( FD_UNLIKELY( !(bin->ema_d > 0.0) ) ) {
+  if( FD_UNLIKELY( !(bin->d > 0.0) ) ) {
     mean = tbl->default_val;
     var  = 0.0;
   } else {
-    /* FIXME: Appropriate correction factors */
-    mean = bin->ema_x / bin->ema_d;
-    var  = bin->ema_x2 / bin->ema_d - mean*mean;
+    mean = bin->x / bin->d;
+    var  = (bin->d * bin->x2 - (bin->x*bin->x)) / ( bin->d * bin->d - bin->d2 );
   }
   var  = fd_double_if( var>0.0, var, 0.0 );
   if( FD_LIKELY( variance_out ) ) *variance_out = var;
@@ -162,9 +163,19 @@ fd_est_tbl_update( fd_est_tbl_t * tbl,
                    ulong          tag,
                    uint           value ) {
   fd_est_tbl_bin_t * bin = tbl->bins + (tag & tbl->bin_cnt_mask);
-  bin->ema_x  = value       + fd_double_if( tbl->ema_coeff*bin->ema_x >DBL_MIN, tbl->ema_coeff*bin->ema_x , 0.0 );
-  bin->ema_x2 = value*value + fd_double_if( tbl->ema_coeff*bin->ema_x2>DBL_MIN, tbl->ema_coeff*bin->ema_x2, 0.0 );
-  bin->ema_d  = 1.0         + tbl->ema_coeff*bin->ema_d; /* Can't go denormal */
+#ifdef FD_EST_TBL_ADAPTIVE
+  double mean, variance;
+  mean = fd_est_tbl_estimate( tbl, tag, &variance );
+  double dev_sq = (value - mean)*(value - mean) / variance; /* Normalized squared deviation */
+  double alpha = 0.25;
+  double C = fd_double_if( dev_sq<log(DBL_MAX)/alpha, 1.0/(1.0 + exp(alpha*dev_sq)*tbl->ema_coeff), 0.0 );
+#else
+  double C = tbl->ema_coeff;
+#endif
+  bin->x  = value       + fd_double_if( C*bin->x >DBL_MIN, C*bin->x , 0.0 );
+  bin->x2 = value*value + fd_double_if( C*bin->x2>DBL_MIN, C*bin->x2, 0.0 );
+  bin->d  = 1.0         +   C*bin->d ; /* Can't go denormal */
+  bin->d2 = 1.0         + C*C*bin->d2; /* Can't go denormal */
 }
 
 #endif /* HEADER_fd_src_ballet_pack_fd_est_tbl_h */
