@@ -38,7 +38,6 @@ fd_cc_library(
         "//src/util/shmem",
         "//src/util/tile",
         "//src/util/wksp",
-        "@numa",
     ],
 )
 

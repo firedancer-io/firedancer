@@ -38,21 +38,6 @@ python_register_toolchains(
 )
 
 ################################################################################
-# Foreign C/C++ build systems                                                  #
-################################################################################
-
-http_archive(
-    name = "rules_foreign_cc",
-    sha256 = "2a4d07cd64b0719b39a7c12218a3e507672b82a97b98c6a89d38565894cf7c51",
-    strip_prefix = "rules_foreign_cc-0.9.0",
-    url = "https://github.com/bazelbuild/rules_foreign_cc/archive/refs/tags/0.9.0.tar.gz",
-)
-
-load("@rules_foreign_cc//foreign_cc:repositories.bzl", "rules_foreign_cc_dependencies")
-
-rules_foreign_cc_dependencies()
-
-################################################################################
 # Fuzzing                                                                      #
 ################################################################################
 
@@ -133,13 +118,7 @@ register_toolchains("//bazel/toolchains:x86_64_linux_llvm")
 # Core C dependencies                                                          #
 ################################################################################
 
-http_archive(
-    name = "numa",
-    build_file = "@//:third_party/numa.BUILD",
-    sha256 = "1508bb02f56f1b9376243980ba96291856ba083e7a3480fdcb0fbf11ff01d6fa",
-    strip_prefix = "numactl-2.0.15",
-    url = "https://github.com/numactl/numactl/archive/refs/tags/v2.0.15.tar.gz",
-)
+# Add C/C++ libraries here
 
 ################################################################################
 # Rust                                                                         #
