@@ -6,19 +6,23 @@
 
 #if FD_HAS_HOSTED && FD_HAS_X86
 
-/* Note: There is an error in system headers (on RHEL8 at least) such
-   that linux/mempolicy.h must be before numaif.h */
-
 #include <ctype.h>
 #include <errno.h>
 #include <unistd.h>
 #include <fcntl.h>
-#include <numa.h>
 #include <linux/mempolicy.h>
-#include <numaif.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <linux/mman.h>
+
+/* Include OS-specific NUMA backend */
+
+#define SOURCE_fd_src_util_shmem_fd_shmem_admin
+#if defined(__linux__)
+#include "fd_numa_linux.c"
+#else
+#include "fd_numa_stub.c"
+#endif
 
 #if FD_HAS_THREADS
 pthread_mutex_t fd_shmem_private_lock[1] = { PTHREAD_RECURSIVE_MUTEX_INITIALIZER_NP };
@@ -575,20 +579,20 @@ fd_shmem_private_boot( int *    pargc,
 
   /* Determine the numa topology this thread group's host */
 
-  if( FD_UNLIKELY( numa_available()==-1 ) ) FD_LOG_ERR(( "fd_shmem: numa available failed" ));
+  if( FD_UNLIKELY( !fd_numa_available() ) ) FD_LOG_ERR(( "fd_shmem: numa available failed" ));
 
-  int numa_cnt = numa_num_configured_nodes();
+  int numa_cnt = fd_shmem_numa_cnt_private();
   if( FD_UNLIKELY( !(1<=numa_cnt && numa_cnt<=(int)FD_SHMEM_NUMA_MAX) ) )
     FD_LOG_ERR(( "fd_shmem: unexpected numa_cnt %i (expected in [1,%lu])", numa_cnt, FD_SHMEM_NUMA_MAX ));
   fd_shmem_private_numa_cnt = (ulong)numa_cnt;
 
-  int cpu_cnt = numa_num_configured_cpus();
+  int cpu_cnt = fd_shmem_cpu_cnt_private();
   if( FD_UNLIKELY( !(1<=cpu_cnt && cpu_cnt<=(int)FD_SHMEM_CPU_MAX) ) )
     FD_LOG_ERR(( "fd_shmem: unexpected cpu_cnt %i (expected in [1,%lu])", cpu_cnt, FD_SHMEM_CPU_MAX ));
   fd_shmem_private_cpu_cnt = (ulong)cpu_cnt;
 
   for( int cpu_idx=cpu_cnt-1; cpu_idx>=0; cpu_idx-- ) {
-    int numa_idx = numa_node_of_cpu( cpu_idx );
+    int numa_idx = fd_numa_node_of_cpu( cpu_idx );
     if( FD_UNLIKELY( !((0<=numa_idx) & (numa_idx<(int)FD_SHMEM_NUMA_MAX)) ) )
       FD_LOG_ERR(( "fd_shmem: unexpected numa idx (%i) for cpu idx %i (%i-%s)", numa_idx, cpu_idx, errno, strerror( errno ) ));
     fd_shmem_private_numa_idx[ cpu_idx  ] = (ushort)numa_idx;
