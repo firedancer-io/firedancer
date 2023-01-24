@@ -18,7 +18,6 @@ stdenv.mkDerivation rec {
 
   buildInputs = [
     pkgs.libbpf
-    pkgs.numactl
     pkgs.pkg-config
     pkgs.quictls
   ];
