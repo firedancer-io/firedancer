@@ -4,7 +4,7 @@ include config/base.mk
 include config/with-gcc.mk
 include config/with-debug.mk
 include config/with-brutality.mk
-include config/with-optimization.mk
+# include config/with-optimization.mk
 include config/with-threads.mk
 
 CPPFLAGS+=-fomit-frame-pointer -falign-functions=32 -falign-jumps=32 -falign-labels=32 -falign-loops=32 \
