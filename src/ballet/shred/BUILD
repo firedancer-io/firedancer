@@ -2,6 +2,8 @@ load("//bazel:fd_build_system.bzl", "fd_cc_library", "fd_cc_test")
 
 package(default_visibility = ["//src/ballet:__subpackages__"])
 
+exports_files(glob(["fixtures/*"]))
+
 fd_cc_library(
     name = "shred",
     srcs = [
