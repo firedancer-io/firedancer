@@ -17,14 +17,6 @@ fd_cc_library(
     ],
 )
 
-# Required because textual_hdrs is not available in cc_test.
-fd_cc_library(
-    name = "test_sha512_static",
-    textual_hdrs = [
-        "fd_sha512_test_vector.c",
-    ],
-)
-
 cc_generate_cavp_test_vector(
     name = "cavp/sha512_short.inc",
     algorithm = "sha512",
@@ -41,11 +33,11 @@ cc_generate_cavp_test_vector(
 
 fd_cc_test(
     srcs = ["test_sha512.c"],
+    compile_data = ["fd_sha512_test_vector.c"],
     local_defines = ["HAS_CAVP_TEST_VECTORS"],
     deps = [
         ":cavp/sha512_long.inc",
         ":cavp/sha512_short.inc",
-        ":test_sha512_static",
         "//src/ballet",
     ],
 )
