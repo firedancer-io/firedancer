@@ -27,11 +27,18 @@ jobs:
           sudo apt-get install -y lcov
           genhtml --output coverage-report "$(bazel info output_path)/_coverage/_coverage_report.dat"
 
-      - name: Upload coverage report
+      - name: Upload coverage report as GitHub artifact
         uses: actions/upload-artifact@v3
         with:
           name: coverage-report
           path: coverage-report
+
+      - name: Upload coverage report to CodeCov
+        uses: codecov/codecov-action@v3
+        with:
+          files: "bazel-out/_coverage/_coverage_report.dat"
+          name: codecov-bazel
+          fail_ci_if_error: true
 
   publish-coverage:
     runs-on: ubuntu-22.04
