@@ -1,5 +1,6 @@
 name: Bazel Test
 on:
+  pull_request:
   push:
     branches:
       - main
@@ -35,6 +36,7 @@ jobs:
   publish-coverage:
     runs-on: ubuntu-22.04
     needs: [bazel-test-coverage]
+    if: github.ref == 'refs/heads/main'
 
     permissions:
       pages: write     # to deploy to Pages
@@ -59,4 +61,3 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v1
-        if: github.ref == 'refs/heads/main'
