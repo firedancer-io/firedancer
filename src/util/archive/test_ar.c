@@ -3,14 +3,14 @@
 
 #include <errno.h>
 
-FD_INCBIN(test_ar, "src/ballet/shred/fixtures/localnet-shreds-0.ar");
+FD_IMPORT_BINARY(test_ar, "src/ballet/shred/fixtures/localnet-shreds-0.ar");
 
 /* test_valid_ar: Read all files from archive. */
 void
 test_valid_ar( void ) {
   /* Open a valid AR file */
 
-  FILE * file = fmemopen( (void *)test_ar, test_ar_sz(), "rb" );
+  FILE * file = fmemopen( (void *)test_ar, test_ar_sz, "rb" );
   FD_TEST( file );
   FD_TEST( fd_ar_open( file ) );
 
