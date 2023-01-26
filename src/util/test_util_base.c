@@ -108,8 +108,10 @@ FD_STATIC_ASSERT( !(((long )-1)/((long )+2)), devenv );
 FD_STATIC_ASSERT( !(((long )+1)/((long )-2)), devenv );
 FD_STATIC_ASSERT( !(((long )-1)/((long )-2)), devenv );
 
-/* Test binary includes by including this source file. (A quine!) */
-FD_INCBIN_STR( incbin_src, __FILE__ );
+/* Test binary includes by including this source file. */
+
+FD_IMPORT_BINARY( quine_binary, __FILE__ );
+FD_IMPORT_CSTR  ( quine_cstr,   __FILE__ );
 
 int
 main( int     argc,
@@ -405,10 +407,14 @@ main( int     argc,
 
 # endif
 
-  /* Test FD_INCBIN */
+  /* Test FD_IMPORT */
 
-  FD_TEST( !strncmp( incbin_src, "#include \"fd_util.h\"", 20 ) );
-  FD_TEST( strlen( incbin_src )+1UL == incbin_src_sz() );
+  FD_TEST( (strlen( quine_cstr )+1UL)==quine_cstr_sz              );
+  FD_TEST( !strncmp( quine_cstr, "#include \"fd_util.h\"", 20UL ) );
+
+  FD_TEST( (quine_binary_sz+1UL     )==quine_cstr_sz            );
+  FD_TEST( fd_ulong_is_aligned( (ulong)quine_binary, 128UL )    );
+  FD_TEST( !memcmp( quine_binary, quine_cstr, quine_binary_sz ) );
 
   /* FIXME: ADD HASH QUALITY CHECKER HERE */
 

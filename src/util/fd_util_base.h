@@ -327,27 +327,76 @@ __extension__ typedef unsigned __int128 uint128;
 #define FD_PROTOTYPES_END
 #endif
 
-/* FD_INCBIN: include binary file as rodata */
+/* FD_IMPORT declares a variable name and initializes with the contents
+   of the file at path (with potentially some assembly directives for
+   additional footer info).  It is equivalent to:
 
-#define __FD_INCBIN(name, path, type, footer)  \
-  extern type const name [];                   \
-  extern uchar const name##_end;               \
-  ulong name##_sz( void ) {                    \
-    return ((ulong)&name##_end - (ulong)name); \
-  }                                            \
-  __asm__(                                     \
-  ".section \".rodata\", \"a\", @progbits\n"   \
-  #name ":\n"                                  \
-  ".incbin \"" path "\"\n"                     \
-  footer "\n"                                  \
-  #name "_end:\n"                              \
-  ".byte 0\n"                                  \
-  ".previous\n"                                \
-  )
+     type const name[] __attribute__((aligned(align))) = {
 
-#define FD_INCBIN(name, path) __FD_INCBIN(name, path, uchar, "")
+       ... code that would initialize the contents of name to the
+       ... raw binary data found in the file at path at compile time
+       ... (with any appended information as specified by footer)
 
-#define FD_INCBIN_STR(name, path) __FD_INCBIN(name, path, char, ".byte 0")
+     };
+
+     ulong const name_sz = ... number of bytes pointed to by name;
+
+   More precisely, this creates a symbol "name" in the object file that
+   points to a read-only copy of the raw data in the file at "path" as
+   it was at compile time.  "align" is an unsuffixed power-of-two that
+   specifies the minimum alignment required for the copy's first byte.
+   footer are assembly commands to permit additional data to be appended
+   to the copy (use "" for footer if no footer is necessary).
+
+   Then it exposes a pointer to this copy in the current compilation
+   unit as name and the byte size as name_sz.  name_sz covers the first
+   byte of the included data to the last byte of the footer inclusive.
+
+   (The dummy linker symbol _fd_import_name_sz will also be created in
+   the object file and exposed in the current compile unit as some under
+   the hood magic to make this work.)
+
+   This should only be used at global scope and should be done at most
+   once over all object files / libraries used to make a program.  If
+   other compilation units want to make use of an import in a different
+   compilation unit, they should declare:
+
+     extern type const name[] __attribute__((aligned(align)));
+
+   and/or:
+
+     extern ulong const name_sz;
+
+   as necessary (that is, do the usual to use name and name_sz as shown
+   for the pseudo code above). */
+
+#define FD_IMPORT( name, path, type, align, footer )        \
+  __asm__( ".section \".rodata\", \"a\", @progbits\n"       \
+           ".align " #align "\n"                            \
+           #name ":\n"                                      \
+           ".incbin \"" path "\"\n"                         \
+           footer "\n"                                      \
+           "_fd_import_" #name "_sz = . - " #name "\n"      \
+           ".previous\n" );                                 \
+  extern type const name[] __attribute__((aligned(align))); \
+  extern type const _fd_import_##name##_sz[];               \
+  ulong const name##_sz = (ulong)&_fd_import_##name##_sz
+
+/* FD_IMPORT_{BINARY,CSTR} are common cases for FD_IMPORT.
+
+   In BINARY, the file is imported into the object file and exposed to
+   the caller as a uchar binary data.  name_sz will be the number of
+   bytes in the file at time of import.  name will have 128 byte
+   alignment.
+
+   In CSTR, the file is imported into the object caller with a '\0'
+   termination appended and exposed to the caller as a cstr.  Assuming
+   the file is text (i.e. has no internal '\0's), strlen(name) will the
+   number of bytes in the file and name_sz will be strlen(name)+1.  name
+   can have arbitrary alignment. */
+
+#define FD_IMPORT_BINARY(name, path) FD_IMPORT( name, path, uchar, 128, ""        )
+#define FD_IMPORT_CSTR(  name, path) FD_IMPORT( name, path,  char,   1, ".byte 0" )
 
 /* Optimizer tricks ***************************************************/
 
