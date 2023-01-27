@@ -175,23 +175,3 @@ http_archive(
     strip_prefix = "wireshark-v4.0.2",
     url = "https://gitlab.com/wireshark/wireshark/-/archive/v4.0.2/wireshark-v4.0.2.tar.gz",
 )
-
-# Source GLib headers from local distribution.
-#
-# We generally try to avoid sourcing local files, as those break deterministic builds.
-# However, GLib uses the Meson/Ninja build system which we cannot easily import from Bazel.
-#
-# GLib is currently only used for Wireshark support, making this workaround acceptable.
-new_local_repository(
-    name = "glib_includes",
-    build_file = "//:third_party/glib_includes.BUILD",
-    path = "/usr/include/glib-2.0",
-)
-
-# Ancillary repo for the system-specific GLib header.
-# It simply exports the "/usr/lib64/glib-2.0/include/glibconfig.h" as a system include.
-new_local_repository(
-    name = "glib_lib64_config",
-    build_file = "//:third_party/glib_lib64_config.BUILD",
-    path = "/usr/lib64/glib-2.0/include",
-)
