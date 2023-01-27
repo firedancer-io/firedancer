@@ -29,6 +29,8 @@
 
 #include "../fd_ballet_base.h"
 
+#include "../ed25519/fd_ed25519.h"
+
 /* FD_TXN_VLEGACY: the initial, pre-V0 transaction format. */
 #define FD_TXN_VLEGACY ((uchar)0xFF)
 /* FD_TXN_V0: The second transaction format.  Includes a version number and
@@ -329,7 +331,7 @@ struct fd_txn_parse_counters {
   ulong failure_cnt;
   /* failure_ring: some information about the causes of recent transaction
      parsing failures.  Specifically, the line of code which detected that the
-     ith malformed transaction was malformed maps to 
+     ith malformed transaction was malformed maps to
      failure_ring[ i%FD_TXN_PARSE_COUNTERS_RING_SZ ] (where i starts at 0), and the
      last instance mapping to each element of the array is the one that is
      actually present.  If fewer than FD_TXN_PARSE_COUNTERS_RING_SZ failures have
@@ -349,6 +351,19 @@ FD_PROTOTYPES_BEGIN
 static inline fd_txn_acct_addr_lut_t *
 fd_txn_get_address_tables( fd_txn_t * txn ) {
   return (fd_txn_acct_addr_lut_t *)(txn->instr + txn->instr_cnt);
+}
+
+/* fd_txn_get_signatures: Returns the array of Ed25519 signatures in
+   `payload`, the serialization of the transaction described by `txn`.
+   The number of signatures is seen in `txn->signature_cnt`.
+   The lifetime of the returned signature is the lifetime of `payload`.
+   Expect the returned signature to be unaligned.
+   U.B. If `payload` and `txn` were not arguments to a valid
+   `fd_txn_parse` call or if either was modified after the parse call. */
+static inline fd_ed25519_sig_t const *
+fd_txn_get_signatures( fd_txn_t const * txn,
+                       void const *     payload ) {
+   return (fd_ed25519_sig_t const *)((ulong)payload + (ulong)txn->signature_off);
 }
 
 /* fd_txn_footprint: Returns the total size of txn, including the
