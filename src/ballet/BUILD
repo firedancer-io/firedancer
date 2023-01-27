@@ -27,5 +27,6 @@ fd_cc_library(
         "//src/ballet/sha512",
         "//src/ballet/shred",
         "//src/ballet/txn",
+        "//src/ballet/base58",
     ],
 )
