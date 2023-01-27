@@ -192,7 +192,7 @@ fd_cnc_new( void * shmem,
             long   now );
 
 /* fd_cnc_join joins the caller to the cnc.  shcnc points to the first
-   byte of the memory region backing the cnc in the caller's addresss
+   byte of the memory region backing the cnc in the caller's address
    space.  Returns a pointer in the local address space to the cnc on
    success (this should not be assumed to be just a cast of shcnc) or
    NULL on failure (logs details).  Reasons for failure include the

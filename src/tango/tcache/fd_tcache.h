@@ -179,7 +179,7 @@ fd_tcache_new( void * shmem,
 
 /* fd_tcache_join joins the caller to the tcache.  _tcache points to the
    first byte of the memory region backing the tcache in the caller's
-   addresss space.
+   address space.
 
    Returns a pointer in the local address space to the tcache's entries
    on success (this is not necessarily just a cast of _tcache) and NULL
@@ -265,7 +265,7 @@ FD_FN_CONST static inline ulong fd_tcache_map_next ( ulong idx, ulong map_cnt ) 
    next map remove or map destruction).
 
    For sparse fill ratios and properly randomized map_starts, this is a
-   fast O(1).  
+   fast O(1).
 
    This is implemented as a macro to support multiple return values
    (found and map_idx), especially as this is used in performance
@@ -273,7 +273,7 @@ FD_FN_CONST static inline ulong fd_tcache_map_next ( ulong idx, ulong map_cnt ) 
    uses the unpacked fields of a tcache.  Assumes map is non-NULL, map
    is indexed [0,map_cnt), map_cnt is a positive integer power-of-two
    and tag is not null.
-   
+
    This macro is robust (e.g. evaluates its arguments a minimal number
    of times) and pure (i.e. found / map_idx will not change between
    calls given the same map / map[*] / tag). */
@@ -314,7 +314,7 @@ fd_tcache_remove( ulong * map,
 
     /* Look up tag in the tcache.  If not found, nothing to do.  (This
        should always succeed at this point in typical tcache usage but we
-       keep the check for paranoia / minimize risk of silent corruption.) */ 
+       keep the check for paranoia / minimize risk of silent corruption.) */
 
     int   found;
     ulong slot;
