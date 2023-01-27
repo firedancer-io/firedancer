@@ -104,7 +104,7 @@ fd_dcache_new( void * shmem,
 
 /* fd_dcache_join joins the caller to the dcache.  shdcache points to
    the first byte of the memory region backing the dcache in the
-   caller's addresss space.
+   caller's address space.
 
    Returns a pointer in the local address space to the dcache's data
    region on success (IMPORTANT! THIS IS NOT JUST A CAST OF SHDCACHE)
@@ -116,7 +116,7 @@ fd_dcache_new( void * shmem,
 
    This region will have a guard region of FD_DCACHE_GUARD_FOOTPRINT
    just before it and data_sz bytes available after it. */
-   
+
 uchar *
 fd_dcache_join( void * shdcache );
 
