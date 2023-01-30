@@ -18,7 +18,7 @@
 
 #include "fd_xdp_private.h"
 
-#include "../fd_log.h"
+#include "../../util/fd_util.h"
 
 /* TODO move this into more appropriate header file
    and set based on architecture, etc. */
