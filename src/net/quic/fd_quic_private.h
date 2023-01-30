@@ -6,10 +6,10 @@
 FD_PROTOTYPES_BEGIN
 
 /* used by quic to receive data from network */
-size_t
+ulong
 fd_quic_aio_cb_receive( void *            context,
                         fd_aio_buffer_t * batch,
-                        size_t            batch_sz );
+                        ulong            batch_sz );
 
 FD_PROTOTYPES_END
 

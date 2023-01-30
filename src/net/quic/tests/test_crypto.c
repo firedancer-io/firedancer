@@ -9,8 +9,6 @@
 #include "../fd_quic.h"
 #include "../crypto/fd_quic_crypto_suites.h"
 
-typedef unsigned char uchar;
-
 /* example from rfc9001:
    this is an INITIAL frame from a client, unencrypted */
 uchar test_client_initial[1162] = {
@@ -67,7 +65,7 @@ uchar quic_hp[] =   { 0x00, 0x10, 0x0d, 0x74, 0x6c, 0x73, 0x31, 0x33,
 uchar initial_salt[] = { 0x38, 0x76, 0x2c, 0xf7, 0xf5, 0x59, 0x34, 0xb3,
                          0x4d, 0x17, 0x9a, 0xe6, 0xa4, 0xc8, 0x0c, 0xad,
                          0xcc, 0xbb, 0x7f, 0x0a };
-size_t initial_salt_sz = sizeof( initial_salt );
+ulong initial_salt_sz = sizeof( initial_salt );
 
 /* expected value from rfc9001:
    7db5df06e7a69e432496adedb0085192 3595221596ae2ae9fb8115c1e9ed0a44 */
@@ -83,7 +81,7 @@ uchar expected_initial_secret[32] = {
 uchar const expected_client_initial_secret[] = {
   0xc0, 0x0c, 0xf1, 0x51, 0xca, 0x5b, 0xe0, 0x75, 0xed, 0x0e, 0xbf, 0xb5, 0xc8, 0x03, 0x23, 0xc4,
   0x2d, 0x6b, 0x7d, 0xb6, 0x78, 0x81, 0x28, 0x9a, 0xf4, 0x00, 0x8f, 0x1f, 0x6c, 0x35, 0x7a, 0xea };
-size_t expected_client_initial_secret_sz = sizeof( expected_client_initial_secret );
+ulong expected_client_initial_secret_sz = sizeof( expected_client_initial_secret );
 
 /* server_initial_secret
       = HKDF-Expand-Label(initial_secret, "server in", "", 32)
@@ -91,7 +89,7 @@ size_t expected_client_initial_secret_sz = sizeof( expected_client_initial_secre
 uchar const expected_server_initial_secret[] = {
   0x3c, 0x19, 0x98, 0x28, 0xfd, 0x13, 0x9e, 0xfd, 0x21, 0x6c, 0x15, 0x5a, 0xd8, 0x44, 0xcc, 0x81,
   0xfb, 0x82, 0xfa, 0x8d, 0x74, 0x46, 0xfa, 0x7d, 0x78, 0xbe, 0x80, 0x3a, 0xcd, 0xda, 0x95, 0x1b };
-size_t expected_server_initial_secret_sz = sizeof( expected_server_initial_secret );
+ulong expected_server_initial_secret_sz = sizeof( expected_server_initial_secret );
 
 /* expected from rfc9001 section A1 */
 uchar const expected_client_quic_iv[] = { 0xfa, 0x04, 0x4b, 0x2f, 0x42, 0xa3, 0xfd, 0x3b, 0x46, 0xfb, 0x25, 0x5c };
@@ -115,23 +113,23 @@ uchar packet_header[] = { 0xc3, 0x00, 0x00, 0x00, 0x01, 0x08, 0x83, 0x94,
 
 /* packet number is 2 */
 uchar packet_number[12] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2 };
-uint64_t pkt_number = 2;
+ulong pkt_number = 2;
 
 
 void
-test_secret_gen( uchar const * expected_output, uchar const * secret, size_t secret_sz, char const * label, size_t output_sz ) {
+test_secret_gen( uchar const * expected_output, uchar const * secret, ulong secret_sz, char const * label, ulong output_sz ) {
   uchar new_secret[64] = {0};
-  size_t label_sz = strlen( label );
+  ulong label_sz = strlen( label );
 
   EVP_MD const *md = EVP_sha256(); /* or 384 or 512 */
 
   fd_quic_hkdf_expand_label( new_secret, output_sz,
                              md,
-                             secret, secret_sz, 
+                             secret, secret_sz,
                              (uchar*)label, label_sz );
 
   printf( "secret for %s: ", label );
-  for( size_t j = 0; j < output_sz; ++j ) {
+  for( ulong j = 0; j < output_sz; ++j ) {
     printf( "%2.2x ", new_secret[j] );
   }
 
@@ -144,11 +142,10 @@ test_secret_gen( uchar const * expected_output, uchar const * secret, size_t sec
 
 }
 
-
-int main(int argc, char **argv)
-{
-  (void)argc;
-  (void)argv;
+int
+main( int     argc,
+      char ** argv ) {
+  fd_boot( &argc, &argv );
 
   /*   initial_secret = HKDF-Extract(initial_salt, */
   /*                                 client_dst_connection_id) */
@@ -247,8 +244,8 @@ int main(int argc, char **argv)
   fd_quic_crypto_keys_t client_keys = {0};
   if( fd_quic_gen_keys(
         &client_keys,
-        (size_t)suite->key_sz,
-        (size_t)suite->iv_sz,
+        (ulong)suite->key_sz,
+        (ulong)suite->iv_sz,
         suite->hash,
         expected_client_initial_secret,
         expected_client_initial_secret_sz )
@@ -273,15 +270,15 @@ int main(int argc, char **argv)
   }
 
   /* TODO compare server keys to expectation */
-  
+
   uchar cipher_text[4096] = {0};
-  size_t cipher_text_sz = sizeof( cipher_text );
+  ulong cipher_text_sz = sizeof( cipher_text );
 
   uchar const * pkt    = test_client_initial;
-  size_t        pkt_sz = sizeof( test_client_initial );
+  ulong         pkt_sz = sizeof( test_client_initial );
 
   uchar const * hdr    = packet_header;
-  size_t        hdr_sz = sizeof( packet_header );
+  ulong         hdr_sz = sizeof( packet_header );
 
   if( fd_quic_crypto_encrypt( cipher_text, &cipher_text_sz, hdr, hdr_sz, pkt, pkt_sz, suite, &client_keys  ) != FD_QUIC_SUCCESS ) {
     fprintf( stderr, "fd_quic_crypto_encrypt failed\n" );
@@ -292,27 +289,27 @@ int main(int argc, char **argv)
 
 
   printf( "plain_text: " );
-  for( size_t j = 0; j < sizeof( test_client_initial ); ++j ) {
+  for( ulong j = 0; j < sizeof( test_client_initial ); ++j ) {
     printf( "%2.2x ", test_client_initial[j] );
   }
   printf( "\n" );
   printf( "\n" );
 
   printf( "cipher_text: " );
-  for( size_t j = 0; j < (size_t)cipher_text_sz; ++j ) {
+  for( ulong j = 0; j < (ulong)cipher_text_sz; ++j ) {
     printf( "%2.2x ", cipher_text[j] );
   }
   printf( "\n" );
 
 
   uchar revert[4096];
-  size_t revert_sz = sizeof( revert );
+  ulong revert_sz = sizeof( revert );
 
   printf( "revert cipher_text_sz: %ld\n", (long)cipher_text_sz );
   fflush( stdout );
 
 
-  size_t pn_offset = 18; /* from example in rfc */
+  ulong pn_offset = 18; /* from example in rfc */
 
   if( fd_quic_crypto_decrypt_hdr( revert, &revert_sz,
         cipher_text, cipher_text_sz,
@@ -333,7 +330,7 @@ int main(int argc, char **argv)
   }
 
   printf( "\nreverted: " );
-  for( size_t j = 0; j < revert_sz; ++j ) {
+  for( ulong j = 0; j < revert_sz; ++j ) {
     printf( "%2.2x ", revert[j] );
   }
   printf( "\n" );
@@ -357,7 +354,8 @@ int main(int argc, char **argv)
   }
 
   printf( "decrypted packet matches original packet\n" );
-  printf( "TEST PASSED\n" );
 
+  FD_LOG_NOTICE(( "pass" ));
+  fd_halt();
   return 0;
 }

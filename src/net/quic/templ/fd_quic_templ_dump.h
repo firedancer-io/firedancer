@@ -2,15 +2,15 @@
   void fd_quic_dump_struct_##NAME( fd_quic_##NAME##_t const * data ) { \
     (void)data;
 
-#define FD_QUIC_FMT_uint8 "u"
-#define FD_QUIC_FMT_uint16 "u"
-#define FD_QUIC_FMT_uint32 "u"
-#define FD_QUIC_FMT_uint64 "lu"
+#define FD_QUIC_FMT_uchar  "u"
+#define FD_QUIC_FMT_ushort "u"
+#define FD_QUIC_FMT_uint   "u"
+#define FD_QUIC_FMT_ulong  "lu"
 
-#define FD_QUIC_HEX_FMT_uint8 "x"
-#define FD_QUIC_HEX_FMT_uint16 "x"
-#define FD_QUIC_HEX_FMT_uint32 "x"
-#define FD_QUIC_HEX_FMT_uint64 "lx"
+#define FD_QUIC_HEX_FMT_uchar  "x"
+#define FD_QUIC_HEX_FMT_ushort "x"
+#define FD_QUIC_HEX_FMT_uint   "x"
+#define FD_QUIC_HEX_FMT_ulong  "lx"
 
 #define FD_TEMPL_MBR_FRAME_TYPE(TYPE,ID_LO,ID_HI) \
     if( ID_LO == ID_HI ) { \
@@ -37,9 +37,9 @@
 #define FD_TEMPL_MBR_ELEM_VAR(NAME,BITS_MIN,BITS_MAX,LEN_NAME) \
     do { \
       printf( "  " #NAME ": " ); \
-      size_t tmp_len = data->LEN_NAME; \
+      ulong tmp_len = data->LEN_NAME; \
       if( tmp_len * 8 > BITS_MAX ) tmp_len = ( BITS_MAX + 7 ) / 8; \
-      for( size_t j = 0; j < tmp_len; ++j ) { \
+      for( ulong j = 0; j < tmp_len; ++j ) { \
         printf( " %2.2x", data->NAME[j] ); \
       } \
       printf( "\n" ); \
@@ -48,31 +48,31 @@
 #define FD_TEMPL_MBR_ELEM_VAR_RAW(NAME,BITS_MIN,BITS_MAX,LEN_NAME) \
     do { \
       printf( "  " #NAME ": " ); \
-      size_t tmp_len = data->LEN_NAME; \
+      ulong tmp_len = data->LEN_NAME; \
       if( tmp_len * 8 > BITS_MAX ) tmp_len = ( BITS_MAX + 7 ) / 8; \
-      for( size_t j = 0; j < tmp_len; ++j ) { \
+      for( ulong j = 0; j < tmp_len; ++j ) { \
         printf( " %2.2x", data->NAME[j] ); \
       } \
       printf( "\n" ); \
     } while(0);
 
 #define FD_TEMPL_MBR_ELEM_ARRAY(NAME,TYPE,BYTES_MIN,BYTES_MAX) \
-    printf( "  " #NAME " count: %" FD_QUIC_FMT_uint32 "\n", data->NAME##_len ); \
+    printf( "  " #NAME " count: %u\n", data->NAME##_len ); \
     do { \
       printf( "  " #NAME ": " ); \
-      size_t tmp_len = data->NAME##_len; \
+      ulong tmp_len = data->NAME##_len; \
       if( tmp_len > BYTES_MAX ) tmp_len = BYTES_MAX; \
-      for( size_t j = 0; j < tmp_len; ++j ) { \
+      for( ulong j = 0; j < tmp_len; ++j ) { \
         printf( " %" FD_QUIC_HEX_FMT_##TYPE, data->NAME[j] ); \
       } \
       printf( "\n" ); \
     } while(0);
 
 #define FD_TEMPL_MBR_ELEM_FIXED(NAME,TYPE,BYTES) \
-    printf( "  " #NAME " count: %" FD_QUIC_FMT_uint32 "\n", (uint32_t)(BYTES) ); \
+    printf( "  " #NAME " count: %u\n", (uint)(BYTES) ); \
     do { \
       printf( "  " #NAME ": " ); \
-      for( size_t j = 0; j < BYTES; ++j ) { \
+      for( ulong j = 0; j < BYTES; ++j ) { \
         printf( " %" FD_QUIC_HEX_FMT_##TYPE, data->NAME[j] ); \
       } \
       printf( "\n" ); \

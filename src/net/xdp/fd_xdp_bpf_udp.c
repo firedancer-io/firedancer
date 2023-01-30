@@ -1,6 +1,5 @@
 #include <linux/bpf.h>
 #include <bpf/bpf_helpers.h>
-#include <stdint.h>
 
 #if !defined(FD_XDP_XSKS_MAP_SZ)
 #  define FD_XDP_XSKS_MAP_SZ 16
@@ -31,10 +30,8 @@ udp_map = {
 __attribute__(( section( "xdp_sock" ), used ))
 int xdp_sock_prog( struct xdp_md *ctx )
 {
-  typedef unsigned char uchar;
-
-  uchar const * data     = ( (const uchar*)(unsigned long)ctx->data );
-  uchar const * data_end = ( (const uchar*)(unsigned long)ctx->data_end );
+  uchar const * data     = ( (const uchar*)(ulong)ctx->data );
+  uchar const * data_end = ( (const uchar*)(ulong)ctx->data_end );
 
   if( data + 60ul > data_end ) return XDP_PASS;
 

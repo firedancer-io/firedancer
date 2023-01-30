@@ -19,7 +19,7 @@
 #define FD_TEMPL_MBR_ELEM_VARINT(NAME,TYPE)                    \
     fd_quic_##TYPE NAME;
 
-/* don't actually decode the packet number, because it's 
+/* don't actually decode the packet number, because it's
    encrypted at this point
    encoding still needs the member, and the length */
 #define FD_TEMPL_MBR_ELEM_PKTNUM(NAME,TYPE)                    \
@@ -34,17 +34,17 @@
     uchar const * NAME;
 
 #define FD_TEMPL_MBR_ELEM_ARRAY(NAME,TYPE,BYTES_MIN,BYTES_MAX) \
-    fd_quic_##uint32 NAME##_len;                               \
+    fd_quic_uint   NAME##_len;                                 \
     fd_quic_##TYPE NAME[BYTES_MAX];
 
 #define FD_TEMPL_MBR_ELEM_FIXED(NAME,TYPE,BYTES)               \
     fd_quic_##TYPE NAME[BYTES];
 
 #define FD_TEMPL_MBR_FRAME_TYPE(NAME,ID_LO,ID_HI)              \
-    uint8_t NAME;
+    uchar NAME;
 
 #define FD_TEMPL_MBR_OPT(STRUCT,NAME,COND,TEMPL)               \
-    uint8_t NAME##_opt;                                        \
+    uchar NAME##_opt;                                          \
     TEMPL
 
 #define FD_TEMPL_DEF_STRUCT_END(NAME)                          \

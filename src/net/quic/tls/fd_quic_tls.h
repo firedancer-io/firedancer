@@ -97,10 +97,10 @@ typedef void (*fd_quic_tls_cb_handshake_complete_t)( fd_quic_tls_hs_t * hs,
 
 struct fd_quic_tls_secret {
   OSSL_ENCRYPTION_LEVEL enc_level;
-  const uint8_t *       read_secret;
-  const uint8_t *       write_secret;
-  uint32_t              suite_id;
-  size_t                secret_len;
+  const uchar *       read_secret;
+  const uchar *       write_secret;
+  uint              suite_id;
+  ulong                secret_len;
 };
 
 struct fd_quic_tls_cfg {
@@ -119,18 +119,18 @@ struct fd_quic_tls_cfg {
 /* structure for organising handshake data */
 struct fd_quic_tls_hs_data {
   uchar const * data;
-  uint32_t      data_sz;
-  uint32_t      free_data_sz; /* internal use */
-  uint32_t      offset;
-  uint16_t      enc_level;
+  uint      data_sz;
+  uint      free_data_sz; /* internal use */
+  uint      offset;
+  OSSL_ENCRYPTION_LEVEL    enc_level;
 
   /* internal use */
-  uint16_t      next_idx; /* next in linked list, ~0 for end */
+  ushort      next_idx; /* next in linked list, ~0 for end */
 };
 
 struct fd_quic_tls {
   uchar const *                        transport_params;
-  size_t                               transport_params_sz;
+  ulong                               transport_params_sz;
 
   /* callbacks */
   fd_quic_tls_cb_client_hello_t        client_hello_cb;
@@ -153,7 +153,7 @@ struct fd_quic_tls {
   int                                  err_line;
 };
 
-#define FD_QUIC_TLS_HS_DATA_UNUSED ((uint16_t)~0u)
+#define FD_QUIC_TLS_HS_DATA_UNUSED ((ushort)~0u)
 
 struct fd_quic_tls_hs {
   fd_quic_tls_t *               quic_tls;
@@ -175,11 +175,11 @@ struct fd_quic_tls_hs {
   fd_quic_tls_hs_data_t                hs_data[FD_QUIC_TLS_HS_DATA_CNT];
 
   /* head of handshake data free list */
-  uint16_t                             hs_data_free_idx;
+  ushort                             hs_data_free_idx;
 
   /* head of handshake data pending (to be sent) */
-  uint16_t                             hs_data_pend_idx[4];
-  uint16_t                             hs_data_pend_end_idx[4];
+  ushort                             hs_data_pend_idx[4];
+  ushort                             hs_data_pend_end_idx[4];
 
   /* handshake data buffer
      allocated in arbitrary chunks in a circular queue manner */
@@ -194,12 +194,12 @@ struct fd_quic_tls_hs {
          head >= tail
          head <  tail + buf_sz
          head -  tail == unused size */
- 
-  /* buffer space is shared between encryption levels */
-  uint32_t                             hs_data_buf_head;
-  uint32_t                             hs_data_buf_tail;
 
-  uint32_t                             hs_data_offset[4]; /* one offset per encoding level */
+  /* buffer space is shared between encryption levels */
+  uint                             hs_data_buf_head;
+  uint                             hs_data_buf_tail;
+
+  uint                             hs_data_offset[4]; /* one offset per encoding level */
 
   /* TLS alert code */
   unsigned                             alert;
@@ -218,7 +218,7 @@ struct fd_quic_tls_hs {
 
    args
      cfg   the configuration to use
-     
+
    */
 fd_quic_tls_t *
 fd_quic_tls_new( fd_quic_tls_cfg_t * cfg );
@@ -235,7 +235,7 @@ fd_quic_tls_hs_new( fd_quic_tls_t * quic_tls,
                     int             is_server,
                     char const *    hostname,
                     uchar const *   transport_params_raw,
-                    size_t          transport_params_raw_sz );
+                    ulong          transport_params_raw_sz );
 
 /* delete a handshake object and free resources */
 void
@@ -252,16 +252,16 @@ fd_quic_tls_hs_delete( fd_quic_tls_hs_t * self );
      enc_level      the encryption level specified in the quic packet
      data           the data from the quic CRYPT frame
      data_sz        the length of the data from the quic CRYPT frame
-   
+
    returns
-     FD_QUIC_TLS_SUCCESS 
+     FD_QUIC_TLS_SUCCESS
      FD_QUIC_TLS_FAILED
    */
 int
 fd_quic_tls_provide_data( fd_quic_tls_hs_t *    self,
                           OSSL_ENCRYPTION_LEVEL enc_level,
                           uchar const *         data,
-                          size_t                data_sz );
+                          ulong                data_sz );
 
 
 /* fd_quic_tls_get_hs_data
@@ -325,7 +325,7 @@ fd_quic_tls_process( fd_quic_tls_hs_t * self );
 void
 fd_quic_tls_get_peer_transport_params( fd_quic_tls_hs_t * self,
                                        uchar const **     transport_params,
-                                       size_t *           transport_params_sz );
+                                       ulong *           transport_params_sz );
 
 #endif
 

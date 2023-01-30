@@ -5,7 +5,6 @@
    fd_bpf status [interface]
    */
 
-#include <stdint.h>
 #include <sys/mman.h>
 #include <unistd.h>
 #include <linux/if_xdp.h>

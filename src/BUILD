@@ -38,16 +38,6 @@ config_setting(
 )
 
 config_setting(
-    name = "has_hosted",
-    constraint_values = [
-        "@platforms//os:linux",
-    ],
-    flag_values = {
-        "//:hosted": "True",
-    },
-)
-
-config_setting(
     name = "has_threads",
     constraint_values = [
         "@platforms//os:linux",
