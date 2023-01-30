@@ -1,6 +1,5 @@
 #include "fd_quic_crypto_suites.h"
 #include "../fd_quic.h"
-#include "../../fd_log.h"
 #include <openssl/rand.h>
 #include <limits.h>
 
@@ -291,7 +290,7 @@ fd_quic_gen_keys(
      the current cipher */
   if( fd_quic_hkdf_expand_label( keys->pkt_key, key_sz,
                                  md,
-                                 secret, secret_sz, 
+                                 secret, secret_sz,
                                  (uchar*)FD_QUIC_CRYPTO_LABEL_QUIC_KEY,
                                  FD_QUIC_CRYPTO_LABEL_QUIC_KEY_SZ ) != FD_QUIC_SUCCESS ) {
     return FD_QUIC_FAILED;
@@ -304,7 +303,7 @@ fd_quic_gen_keys(
      the current cipher */
   if( fd_quic_hkdf_expand_label( keys->hp_key, key_sz,
                                  md,
-                                 secret, secret_sz, 
+                                 secret, secret_sz,
                                  (uchar*)FD_QUIC_CRYPTO_LABEL_QUIC_HP,
                                  FD_QUIC_CRYPTO_LABEL_QUIC_HP_SZ ) != FD_QUIC_SUCCESS ) {
     return FD_QUIC_FAILED;
@@ -314,7 +313,7 @@ fd_quic_gen_keys(
   /* quic iv */
   if( fd_quic_hkdf_expand_label( keys->iv, iv_sz,
                                  md,
-                                 secret, secret_sz, 
+                                 secret, secret_sz,
                                  (uchar*)FD_QUIC_CRYPTO_LABEL_QUIC_IV,
                                  FD_QUIC_CRYPTO_LABEL_QUIC_IV_SZ ) != FD_QUIC_SUCCESS ) {
     return FD_QUIC_FAILED;
@@ -887,7 +886,7 @@ fd_quic_crypto_lookup_suite( uint8_t major, uint8_t minor );
 /* get random bytes
 
    just forward to openssl
-   
+
    here to easily allow the source to change */
 void
 fd_quic_crypto_rand( uchar * buf, int buf_sz ) {
