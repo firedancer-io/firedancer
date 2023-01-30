@@ -2,7 +2,7 @@
    replace malloc with align/footprint/placement new */
 
 #include "fd_quic_tls.h"
-#include "../../fd_log.h"
+#include "../../../util/fd_util.h"
 
 #include <stdlib.h>
 #include <string.h>
