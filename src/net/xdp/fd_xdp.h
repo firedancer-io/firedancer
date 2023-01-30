@@ -27,7 +27,7 @@ struct fd_xdp_config {
   size_t       frame_count;          // total number of frames
 
   void *       frame_memory;         // pointer into tx, rx frame memory
-                                     // if null, new_fd_xdp will allocate properly
+                                     // if null, fd_xdp_new will allocate properly
                                      // aligned memory
   size_t       frame_memory_size;    // amount of memory available at frame_memory
                                      // if frame_memory is null, fd_xdp will use:
@@ -92,11 +92,11 @@ fd_xdp_config_init( fd_xdp_config_t * config ) {
    can access properly? */
 
 fd_xdp_t *
-new_fd_xdp( char const * intf, fd_xdp_config_t const * config );
+fd_xdp_new( char const * intf, fd_xdp_config_t const * config );
 
 /* destroy an xdp interface, releasing all resources */
 void
-delete_fd_xdp( fd_xdp_t * xdp );
+fd_xdp_delete( fd_xdp_t * xdp );
 
 /* add key to xdp flow steering map
    currently there is one map, and it holds udp port numbers

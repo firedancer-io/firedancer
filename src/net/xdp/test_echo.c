@@ -155,7 +155,7 @@ main( int argc, char **argv ) {
   //config.xdp_mode = XDP_FLAGS_HW_MODE;
   config.frame_size = FRAME_SIZE;
 
-  fd_xdp_t * xdp = new_fd_xdp( intf, &config );
+  fd_xdp_t * xdp = fd_xdp_new( intf, &config );
 
   if( !xdp ) {
     fprintf( stderr, "Failed to create fd_xdp. Aborting\n" );
@@ -274,10 +274,6 @@ main( int argc, char **argv ) {
 
           /* adjust frame pointer */
           frame_stack_idx++;
-        } else {
-          //if( fd_xdp_tx_need_wakeup( xdp ) ) {
-            sendto(xdp->xdp_sock,NULL,0,MSG_DONTWAIT,NULL,0); // can send a batch before calling sendto
-          //}
         }
       }
     }
@@ -318,7 +314,7 @@ main( int argc, char **argv ) {
   }
 
   // close down
-  delete_fd_xdp( xdp );
+  fd_xdp_delete( xdp );
 
   return 0;
 }
