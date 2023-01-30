@@ -18,7 +18,7 @@
 
 /* Additional fd_util APIs that are not included by default */
 
-//#include "archive/fd_ar.h"
+//#include "archive/fd_ar.h" /* includes fd_util_base.h */
 //#include "net/fd_eth.h"    /* includes bits/fd_bits.h */
 //#include "net/fd_ip4.h"    /* includes bits/fd_bits.h */
 //#include "net/fd_pcap.h"   /* includes net/fd_eth.h */
