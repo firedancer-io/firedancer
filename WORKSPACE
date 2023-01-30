@@ -188,3 +188,15 @@ git_repository(
     commit = "12d08b77180e02e4088a7f0215632995babb3664",
     remote = "https://github.com/firedancer-io/firedancer-testbins.git",
 )
+
+################################################################################
+# libbpf (Mirror of linux/tools/lib/bpf)                                       #
+################################################################################
+
+http_archive(
+    name = "libbpf",
+    build_file = "//:third_party/libbpf.BUILD",
+    sha256 = "5da826c968fdb8a2f714701cfef7a4b7078be030cf58b56143b245816301cbb8",
+    strip_prefix = "libbpf-1.1.0",
+    url = "https://github.com/libbpf/libbpf/archive/refs/tags/v1.1.0.tar.gz",
+)
