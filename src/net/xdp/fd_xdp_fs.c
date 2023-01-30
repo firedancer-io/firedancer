@@ -1,6 +1,6 @@
 #include "fd_xdp.h"
 #include "fd_xdp_private.h"
-#include "../fd_log.h"
+#include "../../util/fd_util.h"
 
 #include <linux/if_xdp.h>
 #include <linux/if_link.h>
@@ -22,7 +22,7 @@
    fd_bpf_install
    Used to install a bpf program on an interface and pin it via files
    in /sys/fs/bpf
-   This allows us to separate the bpf program installation from the 
+   This allows us to separate the bpf program installation from the
    firedancer runtime, meaning the minimum set of capabilities are
    needed for the runtime.
    The bpf program is responsible for flow steering.
@@ -70,7 +70,7 @@ fd_bpf_install( const char* bpf_file,
     .prog_type = BPF_PROG_TYPE_XDP,
     .log_level = log_level
   };
-  
+
   if( mode == XDP_FLAGS_HW_MODE ) {
     prog_load_attr.ifindex = ifindex;
   }
