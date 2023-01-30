@@ -132,7 +132,7 @@ main( int argc, char **argv ) {
   //config.xdp_mode = XDP_FLAGS_HW_MODE;
   config.frame_size = FRAME_SIZE;
 
-  fd_xdp_t * xdp = new_fd_xdp( intf, &config );
+  fd_xdp_t * xdp = fd_xdp_new( intf, &config );
 
   if( !xdp ) {
     fprintf( stderr, "Failed to create fd_xdp. Aborting\n" );
@@ -278,7 +278,7 @@ main( int argc, char **argv ) {
   }
 
   // close down
-  delete_fd_xdp( xdp );
+  fd_xdp_delete( xdp );
 
   return 0;
 }

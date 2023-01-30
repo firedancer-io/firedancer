@@ -32,11 +32,11 @@
      config         the xdp configuration */
 
 fd_xdp_t *
-new_fd_xdp( char const * intf, fd_xdp_config_t const * config ) {
+fd_xdp_new( char const * intf, fd_xdp_config_t const * config ) {
   /* some basic validation */
 #if 0
   if( config->bpf_pgm_file == NULL ) {
-    FD_LOG_WARNING(( "new_fd_xdp: Must specify bpf program file name (bpf_pgm_file)" ));
+    FD_LOG_WARNING(( "fd_xdp_new: Must specify bpf program file name (bpf_pgm_file)" ));
     return NULL;
   }
 #endif
@@ -68,23 +68,23 @@ new_fd_xdp( char const * intf, fd_xdp_config_t const * config ) {
   /* assume we need at least one entry in each ring */
   /* TODO verify this requirement */
   if( self.config.completion_ring_size == 0 ) {
-    FD_LOG_WARNING(( "new_fd_xdp: completion_ring_size is zero" ));
-    goto new_fd_xdp_err;
+    FD_LOG_WARNING(( "fd_xdp_new: completion_ring_size is zero" ));
+    goto fd_xdp_new_err;
   }
 
   if( self.config.fill_ring_size == 0 ) {
-    FD_LOG_WARNING(( "new_fd_xdp: fill_ring_size is zero" ));
-    goto new_fd_xdp_err;
+    FD_LOG_WARNING(( "fd_xdp_new: fill_ring_size is zero" ));
+    goto fd_xdp_new_err;
   }
 
   if( self.config.rx_ring_size == 0 ) {
-    FD_LOG_WARNING(( "new_fd_xdp: rx_ring_size is zero" ));
-    goto new_fd_xdp_err;
+    FD_LOG_WARNING(( "fd_xdp_new: rx_ring_size is zero" ));
+    goto fd_xdp_new_err;
   }
 
   if( self.config.tx_ring_size == 0 ) {
-    FD_LOG_WARNING(( "new_fd_xdp: tx_ring_size is zero" ));
-    goto new_fd_xdp_err;
+    FD_LOG_WARNING(( "fd_xdp_new: tx_ring_size is zero" ));
+    goto fd_xdp_new_err;
   }
 
   /* default for number of frames */
@@ -98,9 +98,9 @@ new_fd_xdp( char const * intf, fd_xdp_config_t const * config ) {
   if( self.config.frame_memory_size == 0 ) {
     /* if frame_memory_size not specified, frame_memory MUST be NULL */
     if( self.config.frame_memory != NULL ) {
-      FD_LOG_WARNING(( "new_fd_xdp: whenever frame_memory_size == 0, "
+      FD_LOG_WARNING(( "fd_xdp_new: whenever frame_memory_size == 0, "
             "frame_memory MUST be a valid pointer to appropriate memory" ));
-      goto new_fd_xdp_err;
+      goto fd_xdp_new_err;
     }
     self.config.frame_memory_size = self.config.frame_size * self.config.frame_count;
   }
@@ -110,7 +110,7 @@ new_fd_xdp( char const * intf, fd_xdp_config_t const * config ) {
     FD_LOG_WARNING(( "Not enough memory for frames. frame_count=%lu "
           "frame_size=%lu frame_memory_size=%lu", self.config.frame_count,
           self.config.frame_size, self.config.frame_memory_size ));
-    goto new_fd_xdp_err;
+    goto fd_xdp_new_err;
   }
 
   self.umem.headroom   = 0; // TODO make configurable
@@ -122,9 +122,9 @@ new_fd_xdp( char const * intf, fd_xdp_config_t const * config ) {
     /* allocate aligned memory */
     posix_memalign( &self.owned_mem, (size_t)sysconf( _SC_PAGESIZE ), self.umem.len );
     if( !self.owned_mem ) {
-      FD_LOG_WARNING(( "new_fd_xdp: Unable to allocate frame memory. Error: %d %s",
+      FD_LOG_WARNING(( "fd_xdp_new: Unable to allocate frame memory. Error: %d %s",
             errno, strerror( errno ) ));
-      goto new_fd_xdp_err;
+      goto fd_xdp_new_err;
     }
 
     self.config.frame_memory = self.owned_mem;
@@ -134,8 +134,8 @@ new_fd_xdp( char const * intf, fd_xdp_config_t const * config ) {
 
   /* register memory with XDP socket */
   if( setsockopt( self.xdp_sock, SOL_XDP, XDP_UMEM_REG, &self.umem, sizeof(self.umem) ) < 0 ) {
-    FD_LOG_WARNING(( "new_fd_xdp: Unable to set XDP_UMEM_REG. Error: %d %s", errno, strerror( errno ) ));
-    goto new_fd_xdp_err;
+    FD_LOG_WARNING(( "fd_xdp_new: Unable to set XDP_UMEM_REG. Error: %d %s", errno, strerror( errno ) ));
+    goto fd_xdp_new_err;
   }
 
   /* set ring sizes */
@@ -143,37 +143,37 @@ new_fd_xdp( char const * intf, fd_xdp_config_t const * config ) {
   if( setsockopt( self.xdp_sock, SOL_XDP, XDP_UMEM_FILL_RING, &self.config.fill_ring_size, sizeof(self.config.fill_ring_size) ) < 0 ) {
     FD_LOG_WARNING(( "Unable to set umem fill ring size. Error: %d %s",
         errno, strerror( errno ) ));
-    goto new_fd_xdp_err;
+    goto fd_xdp_new_err;
   }
 
   if( setsockopt( self.xdp_sock, SOL_XDP, XDP_UMEM_COMPLETION_RING, &self.config.completion_ring_size, sizeof(self.config.completion_ring_size) ) < 0 ) {
     FD_LOG_WARNING(( "Unable to set umem completion ring size. Error: %d %s",
         errno, strerror( errno ) ));
-    goto new_fd_xdp_err;
+    goto fd_xdp_new_err;
   }
 
   if( setsockopt( self.xdp_sock, SOL_XDP, XDP_RX_RING, &self.config.rx_ring_size, sizeof(self.config.rx_ring_size) ) < 0 ) {
     FD_LOG_WARNING(( "Unable to set umem rx ring size. Error: %d %s",
         errno, strerror( errno ) ));
-    goto new_fd_xdp_err;
+    goto fd_xdp_new_err;
   }
 
   if( setsockopt( self.xdp_sock, SOL_XDP, XDP_TX_RING, &self.config.tx_ring_size, sizeof(self.config.tx_ring_size) ) < 0 ) {
     FD_LOG_WARNING(( "Unable to set umem tx ring size. Error: %d %s",
         errno, strerror( errno ) ));
-    goto new_fd_xdp_err;
+    goto fd_xdp_new_err;
   }
 
   socklen_t opt_length = sizeof(self.offsets);
   if( getsockopt( self.xdp_sock, SOL_XDP, XDP_MMAP_OFFSETS, &self.offsets, &opt_length ) < 0) {
     FD_LOG_WARNING(( "Unable to retrieve ring offsets. Error: %d %s", errno, strerror( errno ) ));
-    goto new_fd_xdp_err;
+    goto fd_xdp_new_err;
   }
 
   /* action to take upon error in mmap */
 #define _ { \
-    FD_LOG_WARNING(( "new_fd_xdp: Error occurred in mmap. Error: %d %s", errno, strerror( errno ) )); \
-    goto new_fd_xdp_err; \
+    FD_LOG_WARNING(( "fd_xdp_new: Error occurred in mmap. Error: %d %s", errno, strerror( errno ) )); \
+    goto fd_xdp_new_err; \
   }
 
   /* instantiate mmaps for each ring */
@@ -189,51 +189,51 @@ new_fd_xdp( char const * intf, fd_xdp_config_t const * config ) {
 
   /* bind the socket to the specified interface */
   if( bind( self.xdp_sock, (void*)&sa, sizeof(sa) ) < 0 ) {
-    FD_LOG_WARNING(( "new_fd_xdp: Unable to bind to interface %s. Error: %d %s\n", intf,
+    FD_LOG_WARNING(( "fd_xdp_new: Unable to bind to interface %s. Error: %d %s\n", intf,
         errno, strerror( errno ) ));
-    goto new_fd_xdp_err;
+    goto fd_xdp_new_err;
   }
 
   //if( self.config.bpf_pin_name == NULL ) {
   //  /* TODO relax this condition? */
-  //  FD_LOG_ERR(( "new_fd_xdp: Must specify bpf_pin_name" ));
-  //  goto new_fd_xdp_err;
+  //  FD_LOG_ERR(( "fd_xdp_new: Must specify bpf_pin_name" ));
+  //  goto fd_xdp_new_err;
   //}
 
   if( self.config.bpf_pin_dir == NULL ) {
     /* TODO relax this condition? */
-    FD_LOG_ERR(( "new_fd_xdp: Must specify bpf_pin_dir" ));
-    goto new_fd_xdp_err;
+    FD_LOG_ERR(( "fd_xdp_new: Must specify bpf_pin_dir" ));
+    goto fd_xdp_new_err;
   }
 
   char buf[512];
   int rc = snprintf( buf, sizeof(buf), "%s/%s/maps/xsks_map", config->bpf_pin_dir, intf );
 
   if( rc < 0 || (size_t)rc > sizeof( buf ) ) {
-    FD_LOG_ERR(( "new_fd_xdp: bpf xsks map file name overflow\n" ));
-    goto new_fd_xdp_err;
+    FD_LOG_ERR(( "fd_xdp_new: bpf xsks map file name overflow\n" ));
+    goto fd_xdp_new_err;
   }
   //char const * bpf_pin_map = "/sys/fs/bpf/firedancer/firedancer_xsks_map";
   char const * bpf_pin_map = buf;
   self.xdp_map_fd = bpf_obj_get( bpf_pin_map );
   if( self.xdp_map_fd < 0 ) {
-    FD_LOG_WARNING(( "new_fd_xdp: bpf_obj_get failed on file %s. Error: %d %s\n",
+    FD_LOG_WARNING(( "fd_xdp_new: bpf_obj_get failed on file %s. Error: %d %s\n",
           bpf_pin_map, errno, strerror( errno ) ));
-    goto new_fd_xdp_err;
+    goto fd_xdp_new_err;
   }
 
   rc = snprintf( buf, sizeof(buf), "%s/%s/maps/udp_map", config->bpf_pin_dir, intf );
   if( rc < 0 || (size_t)rc > sizeof( buf ) ) {
-    FD_LOG_ERR(( "new_fd_xdp: bpf udp map file name overflow\n" ));
-    goto new_fd_xdp_err;
+    FD_LOG_ERR(( "fd_xdp_new: bpf udp map file name overflow\n" ));
+    goto fd_xdp_new_err;
   }
   //char const * bpf_pin_udp_map = "/sys/fs/bpf/firedancer/firedancer_udp_map";
   char const * bpf_pin_udp_map = buf;
   self.xdp_udp_map_fd = bpf_obj_get( bpf_pin_udp_map );
   if( self.xdp_udp_map_fd < 0 ) {
-    FD_LOG_WARNING(( "new_fd_xdp: bpf_obj_get failed on file %s. Error: %d %s\n",
+    FD_LOG_WARNING(( "fd_xdp_new: bpf_obj_get failed on file %s. Error: %d %s\n",
           bpf_pin_udp_map, errno, strerror( errno ) ));
-    goto new_fd_xdp_err;
+    goto fd_xdp_new_err;
   }
 
   /* 4. bpf_obj_get( "/sys/fs/bpf/xdp_bpf_prog" )                                                    */
@@ -263,9 +263,9 @@ new_fd_xdp( char const * intf, fd_xdp_config_t const * config ) {
   int      key   = 0;
   uint64_t flags = 0;
   if( bpf_map_update_elem( self.xdp_map_fd, &key, &self.xdp_sock, flags ) ) {
-    FD_LOG_WARNING(( "new_fd_xdp: Unable to update xsks map to set the socket fd. Error: %d %s\n",
+    FD_LOG_WARNING(( "fd_xdp_new: Unable to update xsks map to set the socket fd. Error: %d %s\n",
           errno, strerror( errno ) ));
-    goto new_fd_xdp_err;
+    goto fd_xdp_new_err;
   }
 
   /* xdp is all configured */
@@ -273,16 +273,16 @@ new_fd_xdp( char const * intf, fd_xdp_config_t const * config ) {
   /* construct fd_xdp */
   fd_xdp_t * rtn = (fd_xdp_t*)malloc( sizeof( fd_xdp_t ) );
   if( rtn == NULL ) {
-    FD_LOG_WARNING(( "new_fd_xdp: Unable to allocate enough space for fd_xdp_t. "
+    FD_LOG_WARNING(( "fd_xdp_new: Unable to allocate enough space for fd_xdp_t. "
           "Error: %d %s", errno, strerror( errno ) ));
-    goto new_fd_xdp_err;
+    goto fd_xdp_new_err;
   }
 
   memcpy( rtn, &self, sizeof( self ) );
 
   return rtn;
 
-new_fd_xdp_err:
+fd_xdp_new_err:
   /* error occurred, perform clean shutdown, releasing all resources */
 
   if( self.xdp_sock >= 0 ) close( self.xdp_sock );
@@ -292,17 +292,17 @@ new_fd_xdp_err:
 }
 
 void
-delete_fd_xdp( fd_xdp_t * xdp ) {
+fd_xdp_delete( fd_xdp_t * xdp ) {
   /* calling delete on NULL is allowed */
   if( FD_UNLIKELY( !xdp ) ) return;
 
   if( FD_UNLIKELY( xdp->ifindex > (1u<<30u) ) ) {
-    FD_LOG_WARNING(( "delete_fd_xdp: attempt to delete xdp object, but ifindex outside normal range" ));
+    FD_LOG_WARNING(( "fd_xdp_delete: attempt to delete xdp object, but ifindex outside normal range" ));
   }
 
   /* remove BPF program from interface */
   if( bpf_set_link_xdp_fd( (int)xdp->ifindex, -1, 0 ) ) {
-    FD_LOG_WARNING(( "delete_fd_xdp: Error occurred trying to remove bpf program from "
+    FD_LOG_WARNING(( "fd_xdp_delete: Error occurred trying to remove bpf program from "
           "interface %d. Error: %d %s", xdp->ifindex, errno, strerror( errno ) ));
     /* continue releasing resources here */
   }
