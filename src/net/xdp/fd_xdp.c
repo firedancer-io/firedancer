@@ -399,6 +399,63 @@ fd_xdp_rx_enqueue( fd_xdp_t * xdp, uint64_t * offset, size_t count ) {
 }
 
 
+/* enqueue a batch of frames for receive
+   For each k in [0,count-1] enqueues frame at offset meta[k]->offset
+
+   These frames are enqueued in order. Some frames may not be
+   enqueued, and these will be the frames referred to by meta->offset[N+]
+
+   returns:
+     The count of frames enqueued
+*/
+size_t
+fd_xdp_rx_enqueue2( fd_xdp_t * xdp, fd_xdp_frame_meta_t * meta, size_t count ) {
+  /* to make frames available for receive, we enqueue onto the fill ring */
+
+  /* fill ring */
+  fd_ring_fr_desc_t * fill = &xdp->ring_fr;
+
+  /* fetch cached consumer, producer */
+  uint64_t prod = fill->cached_prod;
+  uint64_t cons = fill->cached_cons;
+
+  /* assuming frame sizes are powers of 2 */
+  uint64_t frame_mask = xdp->config.frame_size - 1u;
+
+  /* ring capacity */
+  uint64_t cap  = fill->sz;
+
+  /* if not enough for batch, update cache */
+  if( cap - ( prod - cons ) < count ) {
+    cons = fill->cached_cons = *fill->cons;
+  }
+
+  /* sz is min( available, count ) */
+  size_t sz = cap - ( prod - cons );
+  if( sz > count ) sz = count;
+
+  /* set ring[j] to the specified indices */
+  uint64_t * ring = fill->ring;
+  uint64_t mask = fill->sz - 1;
+  for( uint64_t j = 0; j < sz; ++j ) {
+    uint64_t k = prod & mask;
+    ring[k] = meta[j].offset & frame_mask;
+
+    prod++;
+  }
+
+  /* ensure data is visible before producer index */
+  FD_RELEASE();
+
+  /* update producer */
+  fill->cached_prod = *fill->prod = prod;
+
+  /* TODO do we need to check for wakeup here? */
+
+  return sz;
+}
+
+
 /* enqueue a batch of frames for transmit
 
    For each k in [0,count-1] enqueues frame at offset meta[k].offset
@@ -502,8 +559,6 @@ fd_xdp_rx_complete( fd_xdp_t * xdp, fd_xdp_frame_meta_t * batch, size_t capacity
     avail = prod - cons;
   }
 
-  //__asm__ __volatile__( "mfence" : : : "memory" );
-
   uint64_t sz = avail;
   if( sz > capacity ) sz = capacity;
 
@@ -519,7 +574,6 @@ fd_xdp_rx_complete( fd_xdp_t * xdp, fd_xdp_frame_meta_t * batch, size_t capacity
   }
 
   FD_RELEASE();
-  //__asm__ __volatile__( "mfence" : : : "memory" );
 
   rx->cached_cons = *rx->cons = cons;
 
@@ -558,8 +612,6 @@ fd_xdp_tx_complete( fd_xdp_t * xdp, uint64_t * batch, size_t capacity ) {
     avail = prod - cons;
   }
 
-  //__asm__ __volatile__( "mfence" : : : "memory" );
-
   uint64_t sz = avail;
   if( sz > capacity ) sz = capacity;
 
@@ -573,11 +625,59 @@ fd_xdp_tx_complete( fd_xdp_t * xdp, uint64_t * batch, size_t capacity ) {
   }
 
   FD_RELEASE();
-  //__asm__ __volatile__( "mfence" : : : "memory" );
 
   cr->cached_cons = *cr->cons = cons;
 
-  //__asm__ __volatile__( "mfence" : : : "memory" );
+  return sz;
+}
+
+
+/* complete transmit batch
+
+   Retrieves batch of tx frames which have completed the tx operation
+   Frames referred to in the returned array may now be modified safely
+
+   xdp        The xdp to use
+   batch      An array of competions to fill with frame info
+   capacity   The number of elements in the batch array
+
+   Returns:
+     The count of completions written to batch */
+size_t
+fd_xdp_tx_complete2( fd_xdp_t * xdp, fd_xdp_frame_meta_t * batch, size_t capacity ) {
+  /* cr ring */
+  fd_ring_cr_desc_t * cr = &xdp->ring_cr;
+
+  uint64_t prod = cr->cached_prod;
+  uint64_t cons = cr->cached_cons;
+
+  /* how many frames are available? */
+  uint64_t avail = prod - cons;
+
+  /* should we update the cache */
+  if( avail < capacity ) {
+    /* we update cons (and keep cache up to date)
+       they update prod
+       so only need to fetch actual prod */
+    prod = cr->cached_prod = *cr->prod;
+    avail = prod - cons;
+  }
+
+  uint64_t sz = avail;
+  if( sz > capacity ) sz = capacity;
+
+  uint64_t mask = cr->sz - 1;
+  fd_ring_entry_cr_t * ring = cr->ring;
+  for( uint64_t j = 0; j < sz; ++j ) {
+    uint64_t k = cons & mask;
+    batch[j].offset = ring[k];
+
+    cons++;
+  }
+
+  FD_RELEASE();
+
+  cr->cached_cons = *cr->cons = cons;
 
   return sz;
 }
