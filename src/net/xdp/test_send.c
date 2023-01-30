@@ -89,11 +89,9 @@ calc_check( packet_t * pkt ) {
 #else
 void
 calc_check( packet_t * pkt ) {
-  pkt->ip_check = 0;
-
 #define STAGE(N) \
-  uint32_t x##N; \
-  memcpy( &x##N, (char*)pkt + (N<<2), 4 )
+  uint32_t x##N = 0u; \
+  memcpy( &x##N, (char*)&pkt->ip_hdrlen + (N<<2u), 4u )
 
   STAGE(0);
   STAGE(1);
@@ -101,11 +99,12 @@ calc_check( packet_t * pkt ) {
   STAGE(3);
   STAGE(4);
 
-  uint64_t check0 = x0 + x1 + x2 + x3 + x4;
-  uint32_t check1 = (uint32_t)check0 + ( (uint32_t)( check0 >> 32u ) );
-  uint16_t check2 = (uint16_t)( (uint16_t)check1 + ( (uint16_t)( check1 >> 16u ) ) );
+  uint64_t check0 = (uint64_t)x0 + (uint64_t)x1 + (uint64_t)x2 + (uint64_t)x3 + (uint64_t)x4;
+  uint64_t check1 = ( check0 & 0xffffffffu ) + ( check0 >> 32u );
+  uint64_t check2 = ( check1 & 0xffffu )     + ( check1 >> 16u );
+  uint64_t check3 = ( check2 & 0xffffu )     + ( check2 >> 16u );
 
-  pkt->ip_check = check2;
+  pkt->ip_check = (uint16_t)( check3 ^ 0xffffu );
 }
 #endif
 
@@ -169,9 +168,10 @@ main( int argc, char **argv ) {
   fd_xdp_config_t config;
   fd_xdp_config_init( &config );
 
-  config.bpf_pgm_file = "bpf.o";
-  //config.xdp_mode = XDP_FLAGS_SKB_MODE;
-  config.xdp_mode = XDP_FLAGS_DRV_MODE;
+  config.bpf_pin_dir = "/sys/fs/bpf";
+  config.bpf_pgm_file = "fd_xdp_bpf_udp.o";
+  config.xdp_mode = XDP_FLAGS_SKB_MODE;
+  //config.xdp_mode = XDP_FLAGS_DRV_MODE;
   //config.xdp_mode = XDP_FLAGS_HW_MODE;
   config.frame_size = 2048;
   config.tx_ring_size = 256;
@@ -192,7 +192,7 @@ main( int argc, char **argv ) {
   packet_t pkt = {
     //.eth_dst     = { 0x64, 0x3f, 0x5f, 0xa0, 0xba, 0x00 }, // 64:3f:5f:a0:ba:00
     //.eth_src     = { 0x64, 0x3f, 0x5f, 0xa1, 0x19, 0x60 }, // 64:3f:5f:a1:19:60
-    .eth_dst     = { 0x24, 0x8a, 0x07, 0xab, 0xa5, 0x85 },
+    .eth_dst     = { 0x24, 0x8a, 0x07, 0x87, 0x22, 0xff }, // 24:8a:07:87:22:ff
     .eth_src     = { 0x24, 0x8a, 0x07, 0x8f, 0xa2, 0x9d }, // 24:8a:07:8f:a2:9d
     .eth_proto   = htons( 0x0800 ),
 
@@ -205,10 +205,11 @@ main( int argc, char **argv ) {
     .ip_proto    = 17,
     .ip_check    = 0,
     .ip_src      = IP_ADDR( 10,10,10,10 ),
-    .ip_dst      = IP_ADDR( 10,10,10,11 ),
+    .ip_dst      = IP_ADDR( 7,199,14,113 ),
+// 7.199.14.197.42425
 
     .udp_src     = htons( 42424 ),
-    .udp_dst     = htons( 42424 ),
+    .udp_dst     = htons( 42425 ),
     .udp_len     = htons( (uint16_t)( pkt_sz - 14 - 20 ) ),
     .udp_check   = 0,
     
