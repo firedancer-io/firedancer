@@ -124,11 +124,18 @@ fd_xdp_rx_need_wakeup( fd_xdp_t * xdp );
    These frames are enqueued in order. Some frames may not be
    enqueued, and these will be the frames referred to by offset[N+]
 
+   fd_xdp_rx_enqueue and fd_xdp_rx_enqueue2 are the same, except
+   fd_xdp_rx_enqueue2 takes fd_xdp_frame_meta_t* instead of uint64_t*
+     and simply ignores the redundant info
+
    returns:
      The count of frames enqueued
 */
 size_t
 fd_xdp_rx_enqueue( fd_xdp_t * xdp, uint64_t * offset, size_t count );
+
+size_t
+fd_xdp_rx_enqueue2( fd_xdp_t * xdp, fd_xdp_frame_meta_t * meta, size_t count );
 
 
 /* enqueue a batch of frames for transmit
@@ -171,6 +178,10 @@ fd_xdp_rx_complete( fd_xdp_t * xdp, fd_xdp_frame_meta_t * batch, size_t capacity
 
    Retrieves batch of tx frames which have completed the tx operation
 
+   fd_xdp_tx_complete and fd_xdp_tx_complete2 are the same, except
+   fd_xdp_tx_complete2 takes fd_xdp_frame_meta_t* instead of uint64_t*
+     and simply ignores the redundant info
+
    xdp        The xdp to use
    batch      An array of competions to fill with receive info
    capacity   The number of elements in the batch array
@@ -179,6 +190,9 @@ fd_xdp_rx_complete( fd_xdp_t * xdp, fd_xdp_frame_meta_t * batch, size_t capacity
      The count of completions written to batch */
 size_t
 fd_xdp_tx_complete( fd_xdp_t * xdp, uint64_t * batch, size_t capacity );
+
+size_t
+fd_xdp_tx_complete2( fd_xdp_t * xdp, fd_xdp_frame_meta_t * batch, size_t capacity );
 
 /* get the base frame memory pointer */
 uint64_t
