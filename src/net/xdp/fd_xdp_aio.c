@@ -7,9 +7,9 @@
 #define FD_QUIC_POW2_ALIGN( x, a ) (((x)+((a)-1)) & (~((a)-1)))
 
 
-/* callback used by the aio interface to deliver data to the caller */
+/* callback used by the aio interface to forward data to the caller */
 size_t
-fd_xdp_aio_recv_cb( void * context, fd_aio_buffer_t * batch, size_t batch_sz );
+fd_xdp_aio_forward_cb( void * context, fd_aio_buffer_t * batch, size_t batch_sz );
 
 
 /* get alignment and footprint */
@@ -105,6 +105,10 @@ fd_xdp_aio_new( void * mem, fd_xdp_t * xdp, size_t batch_sz ) {
     frame_offset += frame_size;
   }
 
+  /* set up egress callback */
+  xdp_aio->egress.cb_receive = fd_xdp_aio_forward_cb;
+  xdp_aio->egress.context    = (void*)xdp_aio;
+
   return xdp_aio;
 }
 
@@ -164,5 +168,76 @@ fd_xdp_aio_service( fd_xdp_aio_t * xdp_aio ) {
   /* any tx to complete? */
   size_t tx_completed = fd_xdp_tx_complete( xdp, xdp_aio->tx_stack + xdp_aio->tx_top, xdp_aio->tx_stack_sz - xdp_aio->tx_top );
   xdp_aio->tx_top += tx_completed;
+}
+
+
+void
+fd_xdp_aio_tx_complete( fd_xdp_aio_t * xdp_aio ) {
+  fd_xdp_t *     xdp     = xdp_aio->xdp;
+  size_t tx_completed = fd_xdp_tx_complete( xdp, xdp_aio->tx_stack + xdp_aio->tx_top, xdp_aio->tx_stack_sz - xdp_aio->tx_top );
+  xdp_aio->tx_top += tx_completed;
+}
+
+
+size_t
+fd_xdp_aio_forward_cb( void *            context,
+                       fd_aio_buffer_t * batch,
+                       size_t            batch_sz ) {
+  fd_xdp_aio_t * xdp_aio = (fd_xdp_aio_t*)context;
+  fd_xdp_t *     xdp     = xdp_aio->xdp;
+
+  fd_xdp_aio_tx_complete( xdp_aio );
+
+  size_t                cap        = xdp_aio->batch_sz;  /* capacity of xdp_aio batch */
+  uchar *               frame_mem  = xdp_aio->frame_mem; /* frame memory */
+  size_t                frame_size = xdp->config.frame_size;
+  fd_xdp_frame_meta_t * meta       = xdp_aio->meta;      /* frame metadata */
+
+  size_t k = 0;
+  for( size_t j = 0; j < batch_sz; ++j ) {
+    /* find a buffer */
+    if( FD_UNLIKELY( !xdp_aio->tx_top ) ) {
+      /* none available */
+      return j;
+    }
+
+    --xdp_aio->tx_top;
+    size_t offset = xdp_aio->tx_stack[xdp_aio->tx_top];
+
+    uchar const * data    = batch[j].data;
+    size_t        data_sz = batch[j].data_sz;
+
+    /* copy frame into tx memory */
+    if( FD_UNLIKELY( batch[j].data_sz > frame_size ) ) {
+      FD_LOG_ERR(( "%s : frame too large for xdp ring, dropping", __func__ ));
+      /* fail */
+    } else {
+      memcpy( frame_mem + offset, data, data_sz );
+      if( k == cap ) {
+        size_t tx_tot = k;
+        size_t sent   = 0;
+        while(1) {
+          sent += fd_xdp_tx_enqueue( xdp, meta + sent, k - sent );
+          if( sent == tx_tot ) break;
+
+          /* we didn't send all
+             complete, then try again */
+
+          fd_xdp_aio_tx_complete( xdp_aio );
+        }
+
+        k = 0;
+      }
+
+      meta[k] = (fd_xdp_frame_meta_t){ offset, (unsigned)data_sz, 0 };
+    }
+  }
+
+  /* any left to send? */
+  if( k ) {
+    fd_xdp_tx_enqueue( xdp, meta, k );
+  }
+
+  return batch_sz;
 }
 
