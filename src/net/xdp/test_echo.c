@@ -155,7 +155,9 @@ main( int argc, char **argv ) {
   //config.xdp_mode = XDP_FLAGS_HW_MODE;
   config.frame_size = FRAME_SIZE;
 
-  fd_xdp_t * xdp = fd_xdp_new( intf, &config );
+  void * xdp_mem = aligned_alloc( fd_xdp_align(), fd_xdp_footprint( &config ) );
+
+  fd_xdp_t * xdp = fd_xdp_new( xdp_mem, intf, &config );
 
   if( !xdp ) {
     fprintf( stderr, "Failed to create fd_xdp. Aborting\n" );
@@ -315,6 +317,9 @@ main( int argc, char **argv ) {
 
   // close down
   fd_xdp_delete( xdp );
+
+  // free memory
+  free( xdp_mem );
 
   return 0;
 }

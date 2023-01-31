@@ -362,7 +362,9 @@ main( int argc, char ** argv ) {
   config.tx_ring_size = 256;
   config.completion_ring_size = 256;
 
-  fd_xdp_t * xdp = fd_xdp_new( intf, &config );
+  void * xdp_mem = aligned_alloc( fd_xdp_align(), fd_xdp_footprint( &config ) );
+
+  fd_xdp_t * xdp = fd_xdp_new( xdp_mem, intf, &config );
 
   if( !xdp ) {
     fprintf( stderr, "Failed to create fd_xdp. Aborting\n" );
