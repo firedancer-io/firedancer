@@ -25,6 +25,19 @@
 #define FD_ACQUIRE() __asm__ __volatile__( "" : : : "memory" )
 #define FD_RELEASE() __asm__ __volatile__( "" : : : "memory" )
 
+/* determine alignment and footprint of an xdp instance */
+size_t
+fd_xdp_align( void ) {
+  return alignof( fd_xdp_t );
+}
+
+size_t
+fd_xdp_footprint( fd_xdp_config_t * config ) {
+  (void)config;
+  return sizeof( fd_xdp_t );
+}
+
+
 /* create a new xdp endpoint
 
    Args
@@ -32,7 +45,7 @@
      config         the xdp configuration */
 
 fd_xdp_t *
-fd_xdp_new( char const * intf, fd_xdp_config_t const * config ) {
+fd_xdp_new( void * mem, char const * intf, fd_xdp_config_t const * config ) {
   /* some basic validation */
 #if 0
   if( config->bpf_pgm_file == NULL ) {
@@ -40,6 +53,11 @@ fd_xdp_new( char const * intf, fd_xdp_config_t const * config ) {
     return NULL;
   }
 #endif
+
+  if( !mem ) {
+    FD_LOG_ERR(( "%s : Must provide memory for fd_xdp_t instance", __func__ ));
+    exit(1);
+  }
 
   /* local copy of fd_xdp */
   fd_xdp_t self = {0};
@@ -271,16 +289,9 @@ fd_xdp_new( char const * intf, fd_xdp_config_t const * config ) {
   /* xdp is all configured */
 
   /* construct fd_xdp */
-  fd_xdp_t * rtn = (fd_xdp_t*)malloc( sizeof( fd_xdp_t ) );
-  if( rtn == NULL ) {
-    FD_LOG_WARNING(( "fd_xdp_new: Unable to allocate enough space for fd_xdp_t. "
-          "Error: %d %s", errno, strerror( errno ) ));
-    goto fd_xdp_new_err;
-  }
+  memcpy( mem, &self, sizeof( self ) );
 
-  memcpy( rtn, &self, sizeof( self ) );
-
-  return rtn;
+  return (fd_xdp_t*)mem;;
 
 fd_xdp_new_err:
   /* error occurred, perform clean shutdown, releasing all resources */

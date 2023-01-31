@@ -86,13 +86,20 @@ fd_xdp_config_init( fd_xdp_config_t * config ) {
   config->frame_memory_size    = 0;
 }
 
+/* determine alignment and footprint of an xdp instance */
+size_t
+fd_xdp_align( void );
+
+size_t
+fd_xdp_footprint( fd_xdp_config_t * config );
+
 /* Create a new xdp interface  */
 /* TODO
    how to set up ring, such that other Firedancer components
    can access properly? */
 
 fd_xdp_t *
-fd_xdp_new( char const * intf, fd_xdp_config_t const * config );
+fd_xdp_new( void * mem, char const * intf, fd_xdp_config_t const * config );
 
 /* destroy an xdp interface, releasing all resources */
 void
