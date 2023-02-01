@@ -133,13 +133,7 @@ test_secret_gen( uchar const * expected_output, uchar const * secret, ulong secr
     printf( "%2.2x ", new_secret[j] );
   }
 
-  if( memcmp( new_secret, expected_output, output_sz ) != 0 ) {
-    printf( "  FAILED\n" );
-    exit(1);
-  } else {
-    printf( "  PASSED\n" );
-  }
-
+  FD_TEST( 0==memcmp( new_secret, expected_output, output_sz ) );
 }
 
 int
@@ -205,41 +199,24 @@ main( int     argc,
                                   initial_salt,     initial_salt_sz,
                                   test_dst_conn_id, sizeof( test_dst_conn_id ),
                                   crypto_ctx.HASH_SHA256 ) != FD_QUIC_SUCCESS ) {
-    fprintf( stderr, "fd_quic_gen_secrets failed\n" );
-    exit(1);
+    FD_LOG_ERR(( "fd_quic_gen_initial_secret failed" ));
   }
 
   if( fd_quic_gen_secrets( &secrets,
                            fd_quic_enc_level_initial_id,
                            crypto_ctx.HASH_SHA256 ) != FD_QUIC_SUCCESS ) {
-    fprintf( stderr, "fd_quic_gen_secrets failed\n" );
-    exit(1);
+    FD_LOG_ERR(( "fd_quic_gen_secrets failed" ));
   }
 
   /* compare output of fd_quic_gen_secrets to expected */
-  if( memcmp( secrets.initial_secret, expected_initial_secret, sizeof( expected_initial_secret ) ) != 0 ) {
-    fprintf( stderr, "fd_quic_gen_secrets: initial_secret doesn't match expected_initial_secret\n" );
-    exit(1);
-  } else {
-    printf( "fd_quic_gen_secrets: initial_secret PASSED\n" );
-    fflush( stdout );
-  }
+  FD_TEST( 0==memcmp( secrets.initial_secret, expected_initial_secret, sizeof( expected_initial_secret ) ) );
+  FD_LOG_NOTICE(( "fd_quic_gen_secrets: initial_secret PASSED" ));
 
-  if( memcmp( secrets.secret[0][0], expected_client_initial_secret, sizeof( expected_client_initial_secret ) ) != 0 ) {
-    fprintf( stderr, "fd_quic_gen_secrets: client_initial_secret doesn't match expected_client_initial_secret\n" );
-    exit(1);
-  } else {
-    printf( "fd_quic_gen_secrets: client_initial_secret PASSED\n" );
-    fflush( stdout );
-  }
+  FD_TEST( 0==memcmp( secrets.secret[0][0], expected_client_initial_secret, sizeof( expected_client_initial_secret ) ) );
+  FD_LOG_NOTICE(( "fd_quic_gen_secrets: client_initial_secret PASSED" ));
 
-  if( memcmp( secrets.secret[0][1], expected_server_initial_secret, sizeof( expected_server_initial_secret ) ) != 0 ) {
-    fprintf( stderr, "fd_quic_gen_secrets: server_initial_secret doesn't match expected_server_initial_secret\n" );
-    exit(1);
-  } else {
-    printf( "fd_quic_gen_secrets: server_initial_secret PASSED\n" );
-    fflush( stdout );
-  }
+  FD_TEST( 0==memcmp( secrets.secret[0][1], expected_server_initial_secret, sizeof( expected_server_initial_secret ) ) );
+  FD_LOG_NOTICE(( "fd_quic_gen_secrets: server_initial_secret PASSED" ));
 
   fd_quic_crypto_keys_t client_keys = {0};
   if( fd_quic_gen_keys(
@@ -250,24 +227,12 @@ main( int     argc,
         expected_client_initial_secret,
         expected_client_initial_secret_sz )
           != FD_QUIC_SUCCESS ) {
-    fprintf( stderr, "fd_quic_gen_keys failed\n" );
-    exit(1);
+    FD_LOG_ERR(( "fd_quic_gen_keys failed" ));
   }
 
-  if( memcmp( client_keys.pkt_key, expected_client_key, sizeof( expected_client_key ) ) != 0 ) {
-    fprintf( stderr, "client packet key doesn't make expectation\n" );
-    exit(1);
-  }
-
-  if( memcmp( client_keys.iv, expected_client_quic_iv, sizeof( expected_client_quic_iv ) ) != 0 ) {
-    fprintf( stderr, "client iv key doesn't make expectation\n" );
-    exit(1);
-  }
-
-  if( memcmp( client_keys.hp_key, expected_client_quic_hp_key, sizeof( expected_client_quic_hp_key ) ) != 0 ) {
-    fprintf( stderr, "client hp key doesn't make expectation\n" );
-    exit(1);
-  }
+  FD_TEST( 0==memcmp( client_keys.pkt_key, expected_client_key,          sizeof( expected_client_key )         ) );
+  FD_TEST( 0==memcmp( client_keys.iv,      expected_client_quic_iv,      sizeof( expected_client_quic_iv )     ) );
+  FD_TEST( 0==memcmp( client_keys.hp_key,   expected_client_quic_hp_key, sizeof( expected_client_quic_hp_key ) ) );
 
   /* TODO compare server keys to expectation */
 
@@ -280,13 +245,9 @@ main( int     argc,
   uchar const * hdr    = packet_header;
   ulong         hdr_sz = sizeof( packet_header );
 
-  if( fd_quic_crypto_encrypt( cipher_text, &cipher_text_sz, hdr, hdr_sz, pkt, pkt_sz, suite, &client_keys  ) != FD_QUIC_SUCCESS ) {
-    fprintf( stderr, "fd_quic_crypto_encrypt failed\n" );
-    exit(1);
-  }
+  FD_TEST( fd_quic_crypto_encrypt( cipher_text, &cipher_text_sz, hdr, hdr_sz, pkt, pkt_sz, suite, &client_keys  )==FD_QUIC_SUCCESS );
 
-  printf( "fd_quic_crypto_encrypt output %ld bytes\n", (long int)cipher_text_sz );
-
+  FD_LOG_NOTICE(( "fd_quic_crypto_encrypt output %ld bytes", (long int)cipher_text_sz ));
 
   printf( "plain_text: " );
   for( ulong j = 0; j < sizeof( test_client_initial ); ++j ) {
@@ -305,9 +266,7 @@ main( int     argc,
   uchar revert[4096];
   ulong revert_sz = sizeof( revert );
 
-  printf( "revert cipher_text_sz: %ld\n", (long)cipher_text_sz );
-  fflush( stdout );
-
+  FD_LOG_NOTICE(( "revert cipher_text_sz: %lu", cipher_text_sz ));
 
   ulong pn_offset = 18; /* from example in rfc */
 
@@ -316,8 +275,7 @@ main( int     argc,
         pn_offset,
         suite,
         &client_keys ) != FD_QUIC_SUCCESS ) {
-    fprintf( stderr, "fd_quic_crypto_decrypt failed\n" );
-    exit(1);
+    FD_LOG_ERR(( "fd_quic_crypto_decrypt failed" ));
   }
 
   if( fd_quic_crypto_decrypt( revert, &revert_sz,
@@ -325,8 +283,7 @@ main( int     argc,
         pn_offset,   pkt_number,
         suite,
         &client_keys ) != FD_QUIC_SUCCESS ) {
-    fprintf( stderr, "fd_quic_crypto_decrypt failed\n" );
-    exit(1);
+    FD_LOG_ERR(( "fd_quic_crypto_decrypt failed" ));
   }
 
   printf( "\nreverted: " );
@@ -338,22 +295,14 @@ main( int     argc,
   fflush( stdout );
 
   if( revert_sz != hdr_sz + sizeof( test_client_initial ) ) {
-    fprintf( stderr, "decrypted plain text size doesn't match original plain text size: %u != %u\n",
-        (unsigned)revert_sz, (unsigned)(sizeof( test_client_initial ) ) );
-    exit(1);
+    FD_LOG_ERR(( "decrypted plain text size doesn't match original plain text size: %u != %u",
+        (unsigned)revert_sz, (unsigned)(sizeof( test_client_initial ) ) ));
   }
 
-  if( memcmp( revert, hdr, hdr_sz ) != 0 ) {
-    fprintf( stderr, "decrypted packet header doesn't match original packet header\n" );
-    exit(1);
-  }
+  FD_TEST( 0==memcmp( revert, hdr, hdr_sz ) );
+  FD_TEST( 0==memcmp( revert + hdr_sz, test_client_initial, sizeof( test_client_initial ) ) );
 
-  if( memcmp( revert + hdr_sz, test_client_initial, sizeof( test_client_initial ) ) != 0 ) {
-    fprintf( stderr, "decrypted plain text doesn't match original plain text\n" );
-    exit(1);
-  }
-
-  printf( "decrypted packet matches original packet\n" );
+  FD_LOG_NOTICE(( "decrypted packet matches original packet" ));
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

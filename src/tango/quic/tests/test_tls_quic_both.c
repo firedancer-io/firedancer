@@ -6,6 +6,8 @@
 #include <openssl/ssl.h>
 #include <openssl/err.h>
 
+#include "../../../util/fd_util.h"
+
 // test transport parameters
 uchar test_tp[] = "\x00\x39\x00\x39\x01\x04\x80\x00\xea\x60\x04\x04\x80\x10\x00\x00"
                    "\x05\x04\x80\x10\x00\x00\x06\x04\x80\x10\x00\x00\x07\x04\x80\x10"
@@ -60,10 +62,7 @@ fd_hs_data_delete( fd_hs_data_t * self ) {
 fd_quic_tls_t *
 fd_quic_tls_new( int is_server, SSL_CTX * ssl_ctx ) {
   fd_quic_tls_t * self = malloc( sizeof( fd_quic_tls_t ) );
-  if( !self ) {
-    fprintf( stderr, "fd_quic_tls_new: unable to create tls context\n" );
-    exit( EXIT_FAILURE );
-  }
+  FD_TEST( self );
 
   fd_memset( self, 0, sizeof( *self ) );
 
@@ -91,9 +90,9 @@ fd_quic_tls_new( int is_server, SSL_CTX * ssl_ctx ) {
 
     // TODO clean up error handling
     if( host_rc != 1 ) {
-      printf( "host_rc: %d\n", host_rc );
+      FD_LOG_NOTICE(( "host_rc: %d", host_rc ));
       int err = SSL_get_error( ssl, host_rc );
-      printf( "err: %d\n", err );
+      FD_LOG_NOTICE(( "err: %d", err ));
     }
   } else {
     SSL_set_accept_state( ssl );
@@ -102,23 +101,23 @@ fd_quic_tls_new( int is_server, SSL_CTX * ssl_ctx ) {
   // assuming this is not needed
   int alpn_rc = SSL_set_alpn_protos( ssl, 0, 0 );
   if( alpn_rc != 0 ) {
-    printf( "alpn_rc: %d\n", alpn_rc );
+    FD_LOG_NOTICE(( "alpn_rc: %d", alpn_rc ));
     int err = SSL_get_error( ssl, alpn_rc );
-    printf( "err: %d\n", err );
+    FD_LOG_NOTICE(( "err: %d", err ));
   }
 
   int tp_rc = SSL_set_quic_transport_params( ssl, NULL, 0 );
   if( tp_rc != 1 ) {
     int err = SSL_get_error( ssl, tp_rc );
-    printf( "SSL_set_quic_transport_params returned error: %d %d\n", tp_rc, err );
+    FD_LOG_NOTICE(( "SSL_set_quic_transport_params returned error: %d %d", tp_rc, err ));
 
     char err_buf[256];
     char const * file;
     int line;
     ERR_error_string_n(ERR_get_error_line(&file, &line), err_buf, sizeof(err_buf));
-    printf( "%s:%d %s\n", file, line, err_buf );
+    FD_LOG_NOTICE(( "%s:%d %s", file, line, err_buf ));
   } else {
-    printf( "tp_rc ok\n" );
+    FD_LOG_NOTICE(( "tp_rc ok" ));
   }
 
   return self;
@@ -163,16 +162,21 @@ int fd_quic_ssl_add_handshake_data( SSL *                 ssl,
   return 1;
 }
 
-int fd_quic_ssl_flush_flight(SSL *ssl) {
+int
+fd_quic_ssl_flush_flight( SSL *ssl ) {
   printf( "In %s\n", __func__ );
   struct fd_quic_tls * ctx = SSL_get_app_data( ssl );
   ctx->is_flush = 1;
   return 1;
 }
 
+int
+fd_quic_ssl_send_alert( SSL *ssl,
+                        enum ssl_encryption_level_t level,
+                        uchar alert ) {
 int fd_quic_ssl_send_alert(SSL *ssl, enum ssl_encryption_level_t level, uchar alert) {
   printf( "In %s\n", __func__ );
-  printf( "Alert: %d %s %s\n", (int)alert, SSL_alert_type_string_long( alert ), SSL_alert_desc_string_long( alert ) );
+  FD_LOG_NOTICE(( "Alert: %d %s %s", (int)alert, SSL_alert_type_string_long( alert ), SSL_alert_desc_string_long( alert ) ));
   return 0;
 }
 
@@ -189,304 +193,283 @@ SSL_QUIC_METHOD quic_method = {
 
 SSL_CTX * fd_quic_create_context( int is_server )
 {
-    const SSL_METHOD *method;
-    SSL_CTX *ctx;
+  const SSL_METHOD *method;
+  SSL_CTX *ctx;
 
-    method = TLS_method();
+  method = TLS_method();
 
-    ctx = SSL_CTX_new(method);
-    if (!ctx) {
-        perror("Unable to create SSL context");
-        ERR_print_errors_fp(stderr);
-        exit( EXIT_FAILURE );
-    }
+  ctx = SSL_CTX_new(method);
+  FD_TEST( ctx );
 
-    if (!SSL_CTX_set_min_proto_version( ctx, TLS1_3_VERSION ) ) {
-      printf( "Unable to set TLS min proto version to 1.3\n" );
-      exit( EXIT_FAILURE );
-    }
+  FD_TEST( 1==SSL_CTX_set_min_proto_version( ctx, TLS1_3_VERSION ) );
 
-    // TODO set max version
+  // TODO set max version
 
-    if (!SSL_CTX_set_quic_method( ctx, &quic_method ) ) {
-      printf( "Unable to set quic method\n" );
-      exit( EXIT_FAILURE );
-    }
+  FD_TEST( 1==SSL_CTX_set_quic_method( ctx, &quic_method ) );
 
-    /* Set the key and cert */
-    if (SSL_CTX_use_certificate_file(ctx, "cert.pem", SSL_FILETYPE_PEM) <= 0) {
-        ERR_print_errors_fp(stderr);
-        exit( EXIT_FAILURE );
-    }
+  /* Set the key and cert */
+  if( SSL_CTX_use_certificate_file(ctx, "cert.pem", SSL_FILETYPE_PEM) <= 0 ) {
+    ERR_print_errors_fp(stderr);
+    exit( EXIT_FAILURE );
+  }
 
-    if (SSL_CTX_use_PrivateKey_file(ctx, "key.pem", SSL_FILETYPE_PEM) <= 0 ) {
-        ERR_print_errors_fp(stderr);
-        exit( EXIT_FAILURE );
-    }
+  if( SSL_CTX_use_PrivateKey_file(ctx, "key.pem", SSL_FILETYPE_PEM) <= 0 ) {
+    ERR_print_errors_fp(stderr);
+    exit( EXIT_FAILURE );
+  }
 
-    // TODO set cipher suites?
-    // TODO set verify clients?
-    // TODO alpn?
+  // TODO set cipher suites?
+  // TODO set verify clients?
+  // TODO alpn?
 
-    if( is_server ) {
+  if( is_server ) {
 
-      // TODO useful max here?
-      SSL_CTX_set_max_early_data(ctx, 1024);
+    // TODO useful max here?
+    SSL_CTX_set_max_early_data(ctx, 1024);
 
-      // set callback for client hello
-      SSL_CTX_set_client_hello_cb(ctx, fd_quic_ssl_client_hello, NULL);
-    }
+    // set callback for client hello
+    SSL_CTX_set_client_hello_cb(ctx, fd_quic_ssl_client_hello, NULL);
+  }
 
-    return ctx;
+  return ctx;
 }
 
 
-int main(int argc, char **argv)
-{
-    SSL_CTX *ctx;
-    //SSL_CTX *ctx_server;
+int
+main( int     argc,
+      char ** argv ) {
+  fd_boot( &argc, &argv );
+  SSL_CTX *ctx;
+  //SSL_CTX *ctx_server;
 
-    /* Ignore broken pipe signals */
-    signal(SIGPIPE, SIG_IGN);
+  /* Ignore broken pipe signals */
+  signal(SIGPIPE, SIG_IGN);
 
-    //ctx_client =  fd_quic_create_context( 0 );
-    ctx =  fd_quic_create_context( 1 );
+  //ctx_client =  fd_quic_create_context( 0 );
+  ctx =  fd_quic_create_context( 1 );
 
-    fd_quic_tls_t * tls_client = fd_quic_tls_new( 0, ctx );
-    fd_quic_tls_t * tls_server = fd_quic_tls_new( 1, ctx );
+  fd_quic_tls_t * tls_client = fd_quic_tls_new( 0, ctx );
+  fd_quic_tls_t * tls_server = fd_quic_tls_new( 1, ctx );
 
-    SSL * ssl_client = tls_client->ssl;
-    SSL * ssl_server = tls_server->ssl;
+  SSL * ssl_client = tls_client->ssl;
+  SSL * ssl_server = tls_server->ssl;
 
-    int tp_rc = SSL_set_quic_transport_params( ssl_client, test_tp, sizeof( test_tp ) - 1 );
-    if( tp_rc != 1 ) {
-      int err = SSL_get_error( ssl_client, tp_rc );
-      printf( "SSL_set_quic_transport_params returned error: %d %d\n", tp_rc, err );
+  int tp_rc = SSL_set_quic_transport_params( ssl_client, test_tp, sizeof( test_tp ) - 1 );
+  if( tp_rc != 1 ) {
+    int err = SSL_get_error( ssl_client, tp_rc );
+    FD_LOG_NOTICE(( "SSL_set_quic_transport_params returned error: %d %d", tp_rc, err ));
 
-      char err_buf[256];
-      char const * file;
-      int line;
-      ERR_error_string_n(ERR_get_error_line(&file, &line), err_buf, sizeof(err_buf));
-      printf( "%s:%d %s\n", file, line, err_buf );
-    } else {
-      printf( "tp_rc ok\n" );
+    char err_buf[256];
+    char const * file;
+    int line;
+    ERR_error_string_n(ERR_get_error_line(&file, &line), err_buf, sizeof(err_buf));
+    FD_LOG_NOTICE(( "%s:%d %s", file, line, err_buf ));
+  } else {
+    FD_LOG_NOTICE(( "tp_rc ok" ));
+  }
+
+  tp_rc = SSL_set_quic_transport_params( ssl_server, test_tp, sizeof( test_tp ) - 1 );
+  if( tp_rc != 1 ) {
+    int err = SSL_get_error( ssl_server, tp_rc );
+    FD_LOG_NOTICE(( "SSL_set_quic_transport_params returned error: %d %d", tp_rc, err ));
+
+    char err_buf[256];
+    char const * file;
+    int line;
+    ERR_error_string_n(ERR_get_error_line(&file, &line), err_buf, sizeof(err_buf));
+    printf( "%s:%d %s\n", file, line, err_buf );
+  } else {
+    FD_LOG_NOTICE(( "tp_rc ok" ));
+  }
+
+  // start client handshake
+  //printf( "start client handshake\n" );
+  //int handshake_rc = SSL_do_handshake( ssl_client );
+
+  //// handle errors, but not WANT_READ/WANT_WRITE
+  //if( handshake_rc <= 0 ) {
+  //  int err = SSL_get_error( ssl_client, handshake_rc );
+  //  if( err != SSL_ERROR_WANT_READ && err != SSL_ERROR_WANT_WRITE ) {
+  //    printf( "SSL_do_handshake error: %d\n", err );
+  //    char err_buf[256];
+  //    char const * file = 0;
+  //    int line = 0;
+  //    ERR_error_string_n(ERR_get_error_line(&file, &line), err_buf, sizeof(err_buf));
+  //    printf( "%s:%d %s\n", file, line, err_buf );
+  //    exit( EXIT_FAILURE );
+  //  }
+  //}
+
+  FD_LOG_NOTICE(( "entering main handshake loop" ));
+
+  while(1) {
+    FD_LOG_NOTICE(( "start of handshake loop" ));
+
+    // do we have data to transfer from client to server
+    while( tls_client->hs_data ) {
+      fd_hs_data_t * hs_data = tls_client->hs_data;
+
+      FD_LOG_NOTICE(( "provide quic data client->server" ));
+
+      FD_LOG_NOTICE(( "server provide_data. encryption level: %d", (int)hs_data->enc_level ));
+      FD_TEST( 1==SSL_provide_quic_data( ssl_server, hs_data->enc_level, hs_data->raw, hs_data->sz ) );
+
+      // remove hs_data from head of list
+      tls_client->hs_data = hs_data->next;
+
+      // delete it
+      fd_hs_data_delete( hs_data );
     }
 
-    tp_rc = SSL_set_quic_transport_params( ssl_server, test_tp, sizeof( test_tp ) - 1 );
-    if( tp_rc != 1 ) {
-      int err = SSL_get_error( ssl_server, tp_rc );
-      printf( "SSL_set_quic_transport_params returned error: %d %d\n", tp_rc, err );
+    // do we have data to transfer from server to client
+    while( tls_server->hs_data ) {
+      fd_hs_data_t * hs_data = tls_server->hs_data;
 
-      char err_buf[256];
-      char const * file;
-      int line;
-      ERR_error_string_n(ERR_get_error_line(&file, &line), err_buf, sizeof(err_buf));
-      printf( "%s:%d %s\n", file, line, err_buf );
-    } else {
-      printf( "tp_rc ok\n" );
+      FD_LOG_NOTICE(( "provide quic data server->client" ));
+
+      FD_LOG_NOTICE(( "server provide_data. encryption level: %d", (int)hs_data->enc_level ));
+      FD_TEST( 1==SSL_provide_quic_data( ssl_client, hs_data->enc_level, hs_data->raw, hs_data->sz ) );
+
+      // remove hs_data from head of list
+      tls_server->hs_data = hs_data->next;
+
+      // delete it
+      fd_hs_data_delete( hs_data );
     }
 
-    // start client handshake
-    //printf( "start client handshake\n" );
-    //int handshake_rc = SSL_do_handshake( ssl_client );
+    if( !tls_client->is_hs_complete ) {
+      FD_LOG_NOTICE(( "calling do_handshake on client" ));
 
-    //// handle errors, but not WANT_READ/WANT_WRITE
-    //if( handshake_rc <= 0 ) {
-    //  int err = SSL_get_error( ssl_client, handshake_rc );
-    //  if( err != SSL_ERROR_WANT_READ && err != SSL_ERROR_WANT_WRITE ) {
-    //    printf( "SSL_do_handshake error: %d\n", err );
-    //    char err_buf[256];
-    //    char const * file = 0;
-    //    int line = 0;
-    //    ERR_error_string_n(ERR_get_error_line(&file, &line), err_buf, sizeof(err_buf));
-    //    printf( "%s:%d %s\n", file, line, err_buf );
-    //    exit( EXIT_FAILURE );
-    //  }
+      int handshake_rc = SSL_do_handshake( ssl_client );
+      switch( handshake_rc ) {
+        case 0: // failed
+          FD_LOG_ERR(( "client reported handshake failed" ));
+        case 1: // completed
+          tls_client->is_hs_complete = 1;
+          break;
+        default:
+          {
+            int err = SSL_get_error( ssl_client, handshake_rc );
+            if( err != SSL_ERROR_WANT_READ && err != SSL_ERROR_WANT_WRITE ) {
+              FD_LOG_NOTICE(( "client reported error during handshake" ));
+              char err_buf[256];
+              char const * file = 0;
+              int line = 0;
+              ERR_error_string_n(ERR_get_error_line(&file, &line), err_buf, sizeof(err_buf));
+              FD_LOG_ERR(( "%s:%d %s", file, line, err_buf ));
+            }
+          }
+      }
+    } else {
+      int post_rc = SSL_process_quic_post_handshake( ssl_client );
+      switch( post_rc ) {
+        case 0: // failed
+          FD_LOG_NOTICE(( "client SSL_process_quic_post_handshake reported error" ));
+          {
+            int err = SSL_get_error( ssl_client, post_rc );
+            if( err != SSL_ERROR_WANT_READ && err != SSL_ERROR_WANT_WRITE ) {
+              FD_LOG_NOTICE(( "client reported error during handshake" ));
+              char err_buf[256];
+              char const * file = 0;
+              int line = 0;
+              ERR_error_string_n(ERR_get_error_line(&file, &line), err_buf, sizeof(err_buf));
+              FD_LOG_ERR(( "%s:%d %s", file, line, err_buf ));
+            }
+          }
+          exit( EXIT_FAILURE );
+        case 1: // success
+          break;
+        default:
+          FD_LOG_ERR(( "client SSL_process_quic_post_handshake returned invalid rc %d", post_rc ));
+      }
+    }
+
+    if( !tls_server->is_hs_complete ) {
+      FD_LOG_NOTICE(( "calling do_handshake on server" ));
+
+      int handshake_rc = SSL_do_handshake( ssl_server );
+      switch( handshake_rc ) {
+        case 0: // failed
+          FD_LOG_ERR(( "client reported handshake failed" ));
+          break;
+        case 1: // completed
+          tls_server->is_hs_complete = 1;
+          break;
+        default:
+          {
+            int err = SSL_get_error( ssl_server, handshake_rc );
+            if( err != SSL_ERROR_WANT_READ && err != SSL_ERROR_WANT_WRITE ) {
+              FD_LOG_NOTICE(( "server reported error during handshake" ));
+              char err_buf[256];
+              char const * file = 0;
+              int line = 0;
+              ERR_error_string_n(ERR_get_error_line(&file, &line), err_buf, sizeof(err_buf));
+              FD_LOG_ERR(( "%s:%d %s", file, line, err_buf ));
+            }
+          }
+      }
+    } else {
+      int post_rc = SSL_process_quic_post_handshake( ssl_server );
+      switch( post_rc ) {
+        case 0: // failed
+          FD_LOG_NOTICE(( "server SSL_process_quic_post_handshake reported error" ));
+          {
+            int err = SSL_get_error( ssl_server, post_rc );
+            if( err != SSL_ERROR_WANT_READ && err != SSL_ERROR_WANT_WRITE ) {
+              FD_LOG_NOTICE(( "server reported error during handshake" ));
+              char err_buf[256];
+              char const * file = 0;
+              int line = 0;
+              ERR_error_string_n(ERR_get_error_line(&file, &line), err_buf, sizeof(err_buf));
+              FD_LOG_ERR(( "%s:%d %s", file, line, err_buf ));
+            }
+          }
+          exit( EXIT_FAILURE );
+        case 1: // success
+          break;
+        default:
+          FD_LOG_ERR(( "server SSL_process_quic_post_handshake returned invalid rc %d", post_rc ));
+      }
+    }
+
+    if( tls_server->is_hs_complete && tls_client->is_hs_complete ) {
+      FD_LOG_NOTICE(( "both handshakes complete" ));
+      if( tls_server->hs_data ) {
+        FD_LOG_NOTICE(( "tls_server still has hs_data" ));
+      }
+
+      if( tls_client->hs_data ) {
+        FD_LOG_NOTICE(( "tls_client still has hs_data" ));
+      }
+      if( tls_server->hs_data == NULL && tls_client->hs_data == NULL ) break;
+    }
+
+
+    //if( tls_server->hs_data == NULL && tls_client->hs_data == NULL ) {
+    //  FD_LOG_NOTICE(( "not complete, but no data in flight\n" );
+    //  exit( EXIT_FAILURE );
     //}
+  }
 
-    printf( "entering main handshake loop\n" );
+  FD_LOG_NOTICE(( "both client and server report handshake complete" ));
 
-    while(1) {
-      printf( "start of handshake loop\n");
+  if( tls_server->hs_data ) {
+    FD_LOG_NOTICE(( "tls_server still has hs_data" ));
+  }
 
-      // do we have data to transfer from client to server
-      while( tls_client->hs_data ) {
-        fd_hs_data_t * hs_data = tls_client->hs_data;
+  if( tls_client->hs_data ) {
+    FD_LOG_NOTICE(( "tls_client still has hs_data" ));
+  }
 
-        printf( "provide quic data client->server\n" );
+  // now how do we encode/decode actual data?
 
-        printf( "server provide_data. encryption level: %d\n", (int)hs_data->enc_level );
-        int provide_rc = SSL_provide_quic_data( ssl_server, hs_data->enc_level, hs_data->raw, hs_data->sz );
-        if( provide_rc != 1 ) {
-          fprintf( stderr, "SSL_provide_quic_data error line: %d\n", __LINE__ );
-          exit( EXIT_FAILURE );
-        }
+  // TODO free everything
+  SSL_free( ssl_client );
+  SSL_free( ssl_server );
+  //SSL_CTX_free(ctx_client);
+  SSL_CTX_free(ctx);
 
-        // remove hs_data from head of list
-        tls_client->hs_data = hs_data->next;
-
-        // delete it
-        fd_hs_data_delete( hs_data );
-      }
-
-      // do we have data to transfer from server to client
-      while( tls_server->hs_data ) {
-        fd_hs_data_t * hs_data = tls_server->hs_data;
-
-        printf( "provide quic data server->client\n" );
-
-        printf( "server provide_data. encryption level: %d\n", (int)hs_data->enc_level );
-        int provide_rc = SSL_provide_quic_data( ssl_client, hs_data->enc_level, hs_data->raw, hs_data->sz );
-        if( provide_rc != 1 ) {
-          fprintf( stderr, "SSL_provide_quic_data error line: %d\n", __LINE__ );
-          exit( EXIT_FAILURE );
-        }
-
-        // remove hs_data from head of list
-        tls_server->hs_data = hs_data->next;
-
-        // delete it
-        fd_hs_data_delete( hs_data );
-      }
-
-      if( !tls_client->is_hs_complete ) {
-        printf( "calling do_handshake on client\n" );
-
-        int handshake_rc = SSL_do_handshake( ssl_client );
-        switch( handshake_rc ) {
-          case 0: // failed
-            printf( "client reported handshake failed\n" );
-            exit( EXIT_FAILURE );
-          case 1: // completed
-            tls_client->is_hs_complete = 1;
-            break;
-          default:
-            {
-              int err = SSL_get_error( ssl_client, handshake_rc );
-              if( err != SSL_ERROR_WANT_READ && err != SSL_ERROR_WANT_WRITE ) {
-                printf( "client reported error during handshake\n" );
-                char err_buf[256];
-                char const * file = 0;
-                int line = 0;
-                ERR_error_string_n(ERR_get_error_line(&file, &line), err_buf, sizeof(err_buf));
-                printf( "%s:%d %s\n", file, line, err_buf );
-                exit( EXIT_FAILURE );
-              }
-            }
-        }
-      } else {
-        int post_rc = SSL_process_quic_post_handshake( ssl_client );
-        switch( post_rc ) {
-          case 0: // failed
-            printf( "client SSL_process_quic_post_handshake reported error\n" );
-            {
-              int err = SSL_get_error( ssl_client, post_rc );
-              if( err != SSL_ERROR_WANT_READ && err != SSL_ERROR_WANT_WRITE ) {
-                printf( "client reported error during handshake\n" );
-                char err_buf[256];
-                char const * file = 0;
-                int line = 0;
-                ERR_error_string_n(ERR_get_error_line(&file, &line), err_buf, sizeof(err_buf));
-                printf( "%s:%d %s\n", file, line, err_buf );
-                exit( EXIT_FAILURE );
-              }
-            }
-            exit( EXIT_FAILURE );
-          case 1: // success
-            break;
-          default:
-            printf( "client SSL_process_quic_post_handshake returned invalid rc %d\n", post_rc );
-            exit( EXIT_FAILURE );
-        }
-      }
-
-      if( !tls_server->is_hs_complete ) {
-        printf( "calling do_handshake on server\n" );
-
-        int handshake_rc = SSL_do_handshake( ssl_server );
-        switch( handshake_rc ) {
-          case 0: // failed
-            printf( "client reported handshake failed\n" );
-            exit( EXIT_FAILURE );
-          case 1: // completed
-            tls_server->is_hs_complete = 1;
-            break;
-          default:
-            {
-              int err = SSL_get_error( ssl_server, handshake_rc );
-              if( err != SSL_ERROR_WANT_READ && err != SSL_ERROR_WANT_WRITE ) {
-                printf( "server reported error during handshake\n" );
-                char err_buf[256];
-                char const * file = 0;
-                int line = 0;
-                ERR_error_string_n(ERR_get_error_line(&file, &line), err_buf, sizeof(err_buf));
-                printf( "%s:%d %s\n", file, line, err_buf );
-                exit( EXIT_FAILURE );
-              }
-            }
-        }
-      } else {
-        int post_rc = SSL_process_quic_post_handshake( ssl_server );
-        switch( post_rc ) {
-          case 0: // failed
-            printf( "server SSL_process_quic_post_handshake reported error\n" );
-            {
-              int err = SSL_get_error( ssl_server, post_rc );
-              if( err != SSL_ERROR_WANT_READ && err != SSL_ERROR_WANT_WRITE ) {
-                printf( "server reported error during handshake\n" );
-                char err_buf[256];
-                char const * file = 0;
-                int line = 0;
-                ERR_error_string_n(ERR_get_error_line(&file, &line), err_buf, sizeof(err_buf));
-                printf( "%s:%d %s\n", file, line, err_buf );
-                exit( EXIT_FAILURE );
-              }
-            }
-            exit( EXIT_FAILURE );
-          case 1: // success
-            break;
-          default:
-            printf( "server SSL_process_quic_post_handshake returned invalid rc %d\n", post_rc );
-            exit( EXIT_FAILURE );
-        }
-      }
-
-      if( tls_server->is_hs_complete && tls_client->is_hs_complete ) {
-        printf( "both handshakes complete\n" );
-        if( tls_server->hs_data ) {
-          printf( "tls_server still has hs_data\n" );
-        }
-
-        if( tls_client->hs_data ) {
-          printf( "tls_client still has hs_data\n" );
-        }
-        if( tls_server->hs_data == NULL && tls_client->hs_data == NULL ) break;
-      }
-
-
-      //if( tls_server->hs_data == NULL && tls_client->hs_data == NULL ) {
-      //  printf( "not complete, but no data in flight\n" );
-      //  exit( EXIT_FAILURE );
-      //}
-    }
-
-    printf( "both client and server report handshake complete\n" );
-
-    if( tls_server->hs_data ) {
-      printf( "tls_server still has hs_data\n" );
-    }
-
-    if( tls_client->hs_data ) {
-      printf( "tls_client still has hs_data\n" );
-    }
-
-    // now how do we encode/decode actual data?
-
-    // TODO free everything
-    SSL_free( ssl_client );
-    SSL_free( ssl_server );
-    //SSL_CTX_free(ctx_client);
-    SSL_CTX_free(ctx);
+  FD_LOG_NOTICE(( "pass" ));
+  fd_halt();
+  return 0;
 }
-
-

@@ -240,13 +240,7 @@ test_secret_gen( uchar const * expected_output, uchar const * secret, ulong secr
     printf( "%2.2x ", new_secret[j] );
   }
 
-  if( memcmp( new_secret, expected_output, output_sz ) != 0 ) {
-    printf( "  FAILED\n" );
-    exit(1);
-  } else {
-    printf( "  PASSED\n" );
-  }
-
+  FD_TEST( 0==memcmp( new_secret, expected_output, output_sz ) );
 }
 
 
@@ -285,7 +279,7 @@ main( int     argc,
   // Initial packets use AEAD_AES_128_GCM with keys derived from the Destination
   // Connection ID field of the first Initial packet sent by the client;
 
-  fd_quic_crypto_ctx_t crypto_ctx = {};
+  fd_quic_crypto_ctx_t crypto_ctx = {0};
 
   // initialize crypto context
   fd_quic_crypto_ctx_init( &crypto_ctx );
@@ -317,27 +311,15 @@ main( int     argc,
     exit(1);
   }
 
-  // compare output of fd_quic_gen_secrets to expected
-  if( memcmp( secrets.initial_secret, expected_initial_secret, sizeof( expected_initial_secret ) ) != 0 ) {
-    fprintf( stderr, "fd_quic_gen_secrets: initial_secret doesn't match expected_initial_secret\n" );
-    exit(1);
-  } else {
-    printf( "fd_quic_gen_secrets: initial_secret PASSED\n" );
-  }
+  /* compare output of fd_quic_gen_secrets to expected */
+  FD_TEST( 0==memcmp( secrets.initial_secret, expected_initial_secret, sizeof( expected_initial_secret ) ) );
+  FD_LOG_NOTICE(( "fd_quic_gen_secrets: initial_secret PASSED" ));
 
-  if( memcmp( secrets.client_initial_secret, expected_client_initial_secret, sizeof( expected_client_initial_secret ) ) != 0 ) {
-    fprintf( stderr, "fd_quic_gen_secrets: client_initial_secret doesn't match expected_client_initial_secret\n" );
-    exit(1);
-  } else {
-    printf( "fd_quic_gen_secrets: client_initial_secret PASSED\n" );
-  }
+  FD_TEST( 0==memcmp( secrets.secret[0][0], expected_client_initial_secret, sizeof( expected_client_initial_secret ) ) );
+  FD_LOG_NOTICE(( "fd_quic_gen_secrets: client_initial_secret PASSED" ));
 
-  if( memcmp( secrets.server_initial_secret, expected_server_initial_secret, sizeof( expected_server_initial_secret ) ) != 0 ) {
-    fprintf( stderr, "fd_quic_gen_secrets: server_initial_secret doesn't match expected_server_initial_secret\n" );
-    exit(1);
-  } else {
-    printf( "fd_quic_gen_secrets: server_initial_secret PASSED\n" );
-  }
+  FD_TEST( 0==memcmp( secrets.secret[0][1], expected_server_initial_secret, sizeof( expected_server_initial_secret ) ) );
+  FD_LOG_NOTICE(( "fd_quic_gen_secrets: server_initial_secret PASSED" ));
 
 #if 0
   fd_quic_hkdf_extract( initial_secret, initial_secret_sz,
@@ -379,24 +361,12 @@ main( int     argc,
         expected_client_initial_secret,
         expected_client_initial_secret_sz )
           != FD_QUIC_SUCCESS ) {
-    fprintf( stderr, "fd_quic_gen_keys failed\n" );
-    exit(1);
+    FD_LOG_ERR(( "fd_quic_gen_keys failed" ));
   }
 
-  if( memcmp( client_keys.pkt_key, expected_client_key, sizeof( expected_client_key ) ) != 0 ) {
-    fprintf( stderr, "client packet key doesn't make expectation\n" );
-    exit(1);
-  }
-
-  if( memcmp( client_keys.iv, expected_client_quic_iv, sizeof( expected_client_quic_iv ) ) != 0 ) {
-    fprintf( stderr, "client iv key doesn't make expectation\n" );
-    exit(1);
-  }
-
-  if( memcmp( client_keys.hp_key, expected_client_quic_hp_key, sizeof( expected_client_quic_hp_key ) ) != 0 ) {
-    fprintf( stderr, "client hp key doesn't make expectation\n" );
-    exit(1);
-  }
+  FD_TEST( 0==memcmp( client_keys.pkt_key, expected_client_key,         sizeof( expected_client_key )         ) );
+  FD_TEST( 0==memcmp( client_keys.iv,      expected_client_quic_iv,     sizeof( expected_client_quic_iv )     ) );
+  FD_TEST( 0==memcmp( client_keys.hp_key,  expected_client_quic_hp_key, sizeof( expected_client_quic_hp_key ) ) );
 
   // TODO compare server keys to expectation
 
@@ -404,25 +374,19 @@ main( int     argc,
   ulong new_buffer_sz = sizeof( new_buffer );
 
   uchar const * pkt    = test_client_initial;
-  ulong        pkt_sz = sizeof( test_client_initial );
+  ulong         pkt_sz = sizeof( test_client_initial );
 
   uchar const * hdr    = packet_header;
-  ulong        hdr_sz = sizeof( packet_header );
+  ulong         hdr_sz = sizeof( packet_header );
 
-  if( fd_quic_crypto_encrypt( new_buffer, &new_buffer_sz, hdr, hdr_sz, pkt, pkt_sz, suite, &client_keys  ) != FD_QUIC_SUCCESS ) {
-    fprintf( stderr, "fd_quic_crypto_encrypt failed\n" );
-    exit(1);
-  }
+  FD_TEST( fd_quic_crypto_encrypt( new_buffer, &new_buffer_sz, hdr, hdr_sz, pkt, pkt_sz, suite, &client_keys )==FD_QUIC_SUCCESS );
 
-  printf( "fd_quic_crypto_encrypt output %ld bytes\n", (long int)new_buffer_sz );
+  FD_LOG_NOTICE(( "fd_quic_crypto_encrypt output %lu bytes", new_buffer_sz ));
 
   // encryption/header protection
 
   EVP_CIPHER_CTX* cipher_ctx = EVP_CIPHER_CTX_new();
-  if( !cipher_ctx ) {
-    fprintf( stderr, "Error creating cipher ctx\n" );
-    exit(1);
-  }
+  FD_TEST( cipher_ctx );
 
   // nonce is quic-iv-key XORed with packet-number
   uchar nonce[12] = {0};
@@ -439,27 +403,15 @@ main( int     argc,
   // Initial packets cipher uses AEAD_AES_128_GCM with keys derived from the Destination Connection ID field of the
   // first Initial packet sent by the client; see Section 5.2.
 
-  if( EVP_CipherInit_ex( cipher_ctx, suite->pkt_cipher, NULL, NULL, NULL, 1 /* encryption */ ) != 1 ) {
-    fprintf( stderr, "EVP_CipherInit_ex failed\n" );
-    exit(1);
-  }
+  FD_TEST( 1==EVP_CipherInit_ex( cipher_ctx, suite->pkt_cipher, NULL, NULL, NULL, 1 /* encryption */ ) );
 
-  if( EVP_CIPHER_CTX_ctrl( cipher_ctx, EVP_CTRL_AEAD_SET_IVLEN, 12, NULL ) != 1 ) {
-    fprintf( stderr, "EVP_CIPHER_CTX_ctrl failed\n" );
-    exit(1);
-  }
+  FD_TEST( 1==EVP_CIPHER_CTX_ctrl( cipher_ctx, EVP_CTRL_AEAD_SET_IVLEN, 12, NULL ) );
 
-  if( EVP_EncryptInit_ex( cipher_ctx, suite->pkt_cipher, NULL, expected_client_key, nonce ) != 1 ) {
-    fprintf( stderr, "EVP_EncryptInit_ex failed\n" );
-    exit(1);
-  }
+  FD_TEST( 1==EVP_EncryptInit_ex( cipher_ctx, suite->pkt_cipher, NULL, expected_client_key, nonce ) );
 
   // auth data added with NULL output - still require out length
   int outl = 0;
-  if( EVP_EncryptUpdate( cipher_ctx, NULL, &outl, packet_header, sizeof( packet_header ) ) != 1 ) {
-    fprintf( stderr, "EVP_EncryptUpdate failed auth_data\n" );
-    exit(1);
-  }
+  FD_TEST( 1==EVP_EncryptUpdate( cipher_ctx, NULL, &outl, packet_header, sizeof( packet_header ) ) );
 
   /* EVP_EncryptUpdate requires "cipher_text" to point to a buffer large enough to contain
      the cipher text.
@@ -488,18 +440,12 @@ main( int     argc,
   ulong offset = 0;
   int cipher_text_sz = 0;
   int plain_text_sz = sizeof( test_client_initial );
-  if( EVP_EncryptUpdate( cipher_ctx, cipher_text, &cipher_text_sz, test_client_initial, plain_text_sz ) != 1 ) {
-    fprintf( stderr, "EVP_EncryptUpdate failed cipher\n" );
-    exit(1);
-  }
+  FD_TEST( 1==EVP_EncryptUpdate( cipher_ctx, cipher_text, &cipher_text_sz, test_client_initial, plain_text_sz ) );
 
-  printf( "Encrypted %ld bytes\n", (ulong)cipher_text_sz );
+  FD_LOG_NOTICE(( "Encrypted %d bytes", cipher_text_sz ));
 
   offset = cipher_text_sz;
-  if( EVP_EncryptFinal( cipher_ctx, cipher_text + offset, &cipher_text_sz ) != 1 ) {
-    fprintf( stderr, "EVP_EncryptFinal failed cipher\n" );
-    exit(1);
-  }
+  FD_TEST( 1==EVP_EncryptFinal( cipher_ctx, cipher_text + offset, &cipher_text_sz ) );
 
   offset += cipher_text_sz;
 
@@ -507,24 +453,21 @@ main( int     argc,
   //   see if (EVP_CIPHER_CTX_ctrl(CipherCtx, EVP_CTRL_AEAD_GET_TAG, 16, tag) != 1)
 
   // TODO determine whether TAG is always 16 bytes
-  if( EVP_CIPHER_CTX_ctrl( cipher_ctx, EVP_CTRL_AEAD_GET_TAG, 16, cipher_text + offset  ) != 1) {
-    fprintf( stderr, "EVP_CTRL_AEAD_GET_TAG failed\n" );
-    exit(1);
-  }
+  FD_TEST( 1==EVP_CIPHER_CTX_ctrl( cipher_ctx, EVP_CTRL_AEAD_GET_TAG, 16, cipher_text + offset  ) );
 
   offset += 16;
 
-  printf( "Encrypted %ld bytes\n", (ulong)cipher_text_sz );
+  FD_LOG_NOTICE(( "Encrypted %d bytes", cipher_text_sz ));
 
   printf( "plain_text: " );
-  for( ulong j = 0; j < sizeof( test_client_initial ); ++j ) {
+  for( ulong j=0; j < sizeof( test_client_initial ); ++j ) {
     printf( "%2.2x ", test_client_initial[j] );
   }
   printf( "\n" );
   printf( "\n" );
 
   printf( "cipher_text: " );
-  for( ulong j = 0; j < offset + cipher_text_sz; ++j ) {
+  for( ulong j = 0; j < offset + (ulong)cipher_text_sz; ++j ) {
     printf( "%2.2x ", cipher_text[j] );
   }
   printf( "\n" );
@@ -533,28 +476,16 @@ main( int     argc,
   // Header protection
 
   EVP_CIPHER_CTX* hp_cipher_ctx = EVP_CIPHER_CTX_new();
-  if( !hp_cipher_ctx ) {
-    fprintf( stderr, "Error creating cipher ctx\n" );
-    exit(1);
-  }
+  FD_TEST( hp_cipher_ctx );
 
-  if( EVP_CipherInit_ex( hp_cipher_ctx, crypto_ctx.CIPHER_AES_128_ECB, NULL, NULL, NULL, 1 /* encryption */ ) != 1 ) {
-    fprintf( stderr, "EVP_CipherInit_ex (hp) failed\n" );
-    exit(1);
-  }
+  FD_TEST( 1==EVP_CipherInit_ex( hp_cipher_ctx, crypto_ctx.CIPHER_AES_128_ECB, NULL, NULL, NULL, 1 /* encryption */ ) );
 
-  if( EVP_EncryptInit_ex( hp_cipher_ctx, NULL, NULL, expected_client_quic_hp_key, NULL ) != 1 ) {
-    fprintf( stderr, "EVP_EncryptInit_ex failed\n" );
-    exit(1);
-  }
+  FD_TEST( 1==EVP_EncryptInit_ex( hp_cipher_ctx, NULL, NULL, expected_client_quic_hp_key, NULL ) );
 
   uchar const * sample = cipher_text; // not necessarily true - the sample begins 4 bytes after the start of the packet number
   uchar hp_cipher[64];
   int hp_cipher_sz = 0;
-  if( EVP_EncryptUpdate( hp_cipher_ctx, hp_cipher, &hp_cipher_sz, sample, 16 ) != 1 ) {
-    fprintf( stderr, "EVP_EncryptUpdate failed cipher (hp)\n" );
-    exit(1);
-  }
+  FD_TEST( 1==EVP_EncryptUpdate( hp_cipher_ctx, hp_cipher, &hp_cipher_sz, sample, 16 ) );
 
   printf( "hp: " );
   for( ulong j = 0; j < 16; ++j ) {
@@ -571,7 +502,7 @@ main( int     argc,
 
   // long header
   ulong pn_length = ( packet_header[0] & 0x03u ) + 1;
-  enc_header[0] ^= mask[0] & 0x0fu; // short would be "& 0x1fu"
+  enc_header[0] = (uchar)(enc_header[0] ^ (mask[0] & 0x0fu)); // short would be "& 0x1fu"
 
   ulong pn_offset = 18;
 
@@ -613,13 +544,12 @@ main( int     argc,
   // // corrupt tag
   // new_buffer[new_buffer_sz-1] ^= 0x55;
 
-  if( fd_quic_crypto_decrypt( revert, &revert_sz,
-        new_buffer, new_buffer_sz,
-        pn_offset,
-        suite,
-        &client_keys ) != FD_QUIC_SUCCESS ) {
-    fprintf( stderr, "fd_quic_crypto_decrypt failed\n" );
-  }
+  FD_TEST( FD_QUIC_SUCCESS==fd_quic_crypto_decrypt(
+    revert,     &revert_sz,
+    new_buffer, new_buffer_sz,
+    pn_offset,
+    suite,
+    &client_keys ) );
 
   printf( "reverted: " );
   for( ulong j = 0; j < revert_sz; ++j ) {

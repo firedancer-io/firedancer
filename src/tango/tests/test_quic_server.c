@@ -113,11 +113,7 @@ new_quic( fd_quic_config_t * quic_config ) {
   void * aligned  = ((uchar*)mem) + ( memalign == 0 ? 0 : ( align - memalign ) );
 
   fd_quic_t * quic = fd_quic_new( aligned, quic_config );
-  if( quic == NULL ) {
-    printf( "fd_quic_new returned NULL\n" );
-    exit(1);
-  }
-
+  FD_TEST( quic );
   return quic;
 }
 
@@ -148,8 +144,7 @@ void my_handshake_complete( fd_quic_conn_t * conn, void * vp_context ) {
   (void)conn;
   (void)vp_context;
 
-  printf( "client handshake complete\n" );
-  fflush( stdout );
+  FD_LOG_NOTICE(( "client handshake complete" ));
 
   client_complete = 1;
 }
@@ -336,9 +331,9 @@ main( int argc, char ** argv ) {
     }
   }
 
-  int64_t pkt_sz   = (int64_t)roundf( f_pkt_sz );
-  int64_t delay_ns = (int64_t)roundf( f_delay_ms * 1e6f );
-  int64_t batch_sz = (int64_t)roundf( f_batch_sz );
+  long pkt_sz   = (long)roundf( f_pkt_sz );
+  long delay_ns = (long)roundf( f_delay_ms * 1e6f );
+  long batch_sz = (long)roundf( f_batch_sz );
 
   printf( "xdp test parms:\n" );
 
@@ -362,12 +357,10 @@ main( int argc, char ** argv ) {
   config.tx_ring_size = 256;
   config.completion_ring_size = 256;
 
-  fd_xdp_t * xdp = new_fd_xdp( intf, &config );
+  void * xdp_mem = aligned_alloc( fd_xdp_align(), fd_xdp_footprint( &config ) );
 
-  if( !xdp ) {
-    fprintf( stderr, "Failed to create fd_xdp. Aborting\n" );
-    exit(1);
-  }
+  fd_xdp_t * xdp = fd_xdp_new( xdp_mem, intf, &config );
+  FD_TEST( xdp );
 
   fd_xdp_add_key( xdp, 4433 );
 
