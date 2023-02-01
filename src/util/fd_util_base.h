@@ -299,6 +299,12 @@ __extension__ typedef unsigned __int128 uint128;
 #define FD_STATIC_ASSERT(c,err) _Static_assert(c, #err)
 #endif
 
+/* fd_offsetof(type,member):  Returns the byte offset of the given
+   member within the given type. Can be evaluated as a const expression.
+   May not be used on members that are not byte-aligned within type. */
+
+#define fd_offsetof __builtin_offsetof
+
 /* FD_ADDRESS_OF_PACKED_MEMBER(x):  Linguistically does &(x) but without
    recent compiler complaints that &x might be unaligned if x is a
    member of a packed datastructure.  (Often needed for interfacing with

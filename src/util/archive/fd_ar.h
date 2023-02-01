@@ -70,13 +70,13 @@ struct __attribute__((packed,aligned(2))) fd_ar {
 };
 typedef struct fd_ar fd_ar_t;
 
-FD_STATIC_ASSERT( __builtin_offsetof( fd_ar_t, ident      )== 0UL, alignment );
-FD_STATIC_ASSERT( __builtin_offsetof( fd_ar_t, mtime_dec  )==16UL, alignment );
-FD_STATIC_ASSERT( __builtin_offsetof( fd_ar_t, uid_dec    )==28UL, alignment );
-FD_STATIC_ASSERT( __builtin_offsetof( fd_ar_t, gid_dec    )==34UL, alignment );
-FD_STATIC_ASSERT( __builtin_offsetof( fd_ar_t, mode_oct   )==40UL, alignment );
-FD_STATIC_ASSERT( __builtin_offsetof( fd_ar_t, filesz_dec )==48UL, alignment );
-FD_STATIC_ASSERT( __builtin_offsetof( fd_ar_t, magic      )==58UL, alignment );
+FD_STATIC_ASSERT( fd_offsetof( fd_ar_t, ident      )== 0UL, alignment );
+FD_STATIC_ASSERT( fd_offsetof( fd_ar_t, mtime_dec  )==16UL, alignment );
+FD_STATIC_ASSERT( fd_offsetof( fd_ar_t, uid_dec    )==28UL, alignment );
+FD_STATIC_ASSERT( fd_offsetof( fd_ar_t, gid_dec    )==34UL, alignment );
+FD_STATIC_ASSERT( fd_offsetof( fd_ar_t, mode_oct   )==40UL, alignment );
+FD_STATIC_ASSERT( fd_offsetof( fd_ar_t, filesz_dec )==48UL, alignment );
+FD_STATIC_ASSERT( fd_offsetof( fd_ar_t, magic      )==58UL, alignment );
 
 FD_STATIC_ASSERT( sizeof(fd_ar_t)==60, alignment );
 
