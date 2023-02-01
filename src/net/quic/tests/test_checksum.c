@@ -21,7 +21,7 @@ uchar pkt3[] = "\x45\x00\x00\x6c\x85\xbd\x40\x00\x40\x11\xb6\xc1\x7f\x00\x00\x01
 uchar pkt4[] = "\xff\xff\xfe\xff\xff\xff\xff\xff\xff\xff\x01\x00\xff\xff\xff\xff"
                "\xff\xff\xff\xff";
 
-void
+int
 test( uchar const * pkt ) {
   uchar tmp[20];
   fd_memcpy( tmp, pkt, 20 );
@@ -35,7 +35,10 @@ test( uchar const * pkt ) {
   FD_LOG_NOTICE(( "After:" ));
   FD_LOG_NOTICE(( FD_LOG_HEX20_FMT, FD_LOG_HEX20_FMT_ARGS( tmp ) ));
 
-  FD_TEST( 0==memcmp( tmp, pkt, 20 ) );
+  int pass = memcmp( tmp, pkt, 20 ) == 0;
+  printf( "%s\n", pass ? "PASSED" : "FAILED" );
+
+  return pass;
 }
 
 int
