@@ -12,7 +12,7 @@
 inline void
 fd_quic_net_ipv4_checksum( uchar * pkt ) {
 #define IP_CHECK_OFFSET 10u
-  memset( pkt + IP_CHECK_OFFSET, 0, 2 ); /* set checksum to 0 at start */
+  memset( pkt + IP_CHECK_OFFSET, 0, 2u ); /* set checksum to 0 at start */
 
   uint32_t tmp[5];
   memcpy( tmp, pkt, 20 );
