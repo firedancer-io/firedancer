@@ -331,9 +331,9 @@ main( int argc, char ** argv ) {
     }
   }
 
-  int64_t pkt_sz   = (int64_t)roundf( f_pkt_sz );
-  int64_t delay_ns = (int64_t)roundf( f_delay_ms * 1e6f );
-  int64_t batch_sz = (int64_t)roundf( f_batch_sz );
+  long pkt_sz   = (long)roundf( f_pkt_sz );
+  long delay_ns = (long)roundf( f_delay_ms * 1e6f );
+  long batch_sz = (long)roundf( f_batch_sz );
 
   printf( "xdp test parms:\n" );
 
