@@ -123,6 +123,7 @@ main( int     argc,
   ulong        transport_params_sz   = sizeof( test_tp ) - 1; /* test_tp has terminating NUL */
   uchar const * tp_p  = transport_params;
   ulong        tp_sz = transport_params_sz;
+
   FD_TEST( fd_quic_decode_transport_params( tmp_tp, tp_p, tp_sz )>=0 );
 
   fd_quic_dump_transport_params( tmp_tp, stdout );

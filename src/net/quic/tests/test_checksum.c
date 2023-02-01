@@ -43,11 +43,15 @@ main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
 
-  test( pkt0 );
-  test( pkt1 );
-  test( pkt2 );
-  test( pkt3 );
-  test( pkt4 );
+  int pass_all = 1;
+
+  pass_all &= test( pkt0 );
+  pass_all &= test( pkt1 );
+  pass_all &= test( pkt2 );
+  pass_all &= test( pkt3 );
+  pass_all &= test( pkt4 );
+
+  if( FD_UNLIKELY( !pass_all ) ) FD_LOG_ERR(( "fail" ));
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

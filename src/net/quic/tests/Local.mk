@@ -19,4 +19,4 @@ $(call make-bin,test_crypto,test_crypto ../fd_quic ../fd_quic_conn ../fd_quic_co
 
 $(call make-bin,test_frames,test_frames ../templ/fd_quic_parse_util ../fd_quic_proto,fd_util)
 
-$(call make-bin,test_checksum,test_checksum ../../util/fd_net_util,)
+$(call make-bin,test_checksum,test_checksum ../../util/fd_net_util,fd_util)

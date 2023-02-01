@@ -502,7 +502,7 @@ main( int     argc,
 
   // long header
   ulong pn_length = ( packet_header[0] & 0x03u ) + 1;
-  enc_header[0] = (int)(enc_header[0] ^ (mask[0] & 0x0fu)); // short would be "& 0x1fu"
+  enc_header[0] = (uchar)(enc_header[0] ^ (mask[0] & 0x0fu)); // short would be "& 0x1fu"
 
   ulong pn_offset = 18;
 
