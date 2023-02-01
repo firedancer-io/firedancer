@@ -30,12 +30,12 @@
 #define FRAME_SIZE (1<<LG_FRAME_SIZE)
 #define NUM_FRAMES 2048
 
-int64_t
+long
 gettime() {
   struct timespec ts;
   clock_gettime( CLOCK_REALTIME, &ts );
 
-  return (int64_t)ts.tv_sec * (int64_t)1e9 + (int64_t)ts.tv_nsec;
+  return (long)ts.tv_sec * (long)1e9 + (long)ts.tv_nsec;
 }
 
 typedef struct
