@@ -1,4 +1,5 @@
 #include "../../util/fd_net_util.h"
+#include "../../../util/fd_util.h"
 
 #include <stdlib.h>
 #include <stdio.h>
@@ -22,7 +23,7 @@ uchar pkt4[] = "\xff\xff\xfe\xff\xff\xff\xff\xff\xff\xff\x01\x00\xff\xff\xff\xff
 
 void
 dump( uchar const * ptr ) {
-  for( size_t j = 0; j < 20; ++j ) {
+  for( ulong j = 0; j < 20; ++j ) {
     printf( "%2.2x ", (unsigned)ptr[j] );
   }
   printf( "\n" );
@@ -31,8 +32,8 @@ dump( uchar const * ptr ) {
 int
 test( uchar const * pkt ) {
   uchar tmp[20];
-  memcpy( tmp, pkt, 20 );
-  memset( tmp + 10, -1, 2 ); /* corrupt checksum field */
+  fd_memcpy( tmp, pkt, 20 );
+  fd_memset( tmp + 10, -1, 2 ); /* corrupt checksum field */
 
   fd_quic_net_ipv4_checksum( tmp );
 
@@ -50,7 +51,9 @@ test( uchar const * pkt ) {
 
 
 int
-main( ) {
+main( int     argc,
+      char ** argv ) {
+  fd_boot( &argc, &argv );
   int pass_all = 1;
 
   pass_all &= test( pkt0 );
@@ -59,6 +62,10 @@ main( ) {
   pass_all &= test( pkt3 );
   pass_all &= test( pkt4 );
 
-  return pass_all;
+  if( FD_UNLIKELY( !pass_all ) ) FD_LOG_ERR(( "fail" ));
+
+  FD_LOG_NOTICE(( "pass" ));
+  fd_halt();
+  return 0;
 }
 

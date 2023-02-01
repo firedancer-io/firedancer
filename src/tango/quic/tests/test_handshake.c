@@ -10,7 +10,7 @@
 
 
 // test transport parameters
-uchar test_tp[] = "\x01\x04\x80\x00\xea\x60\x04\x04\x80\x10\x00\x00" 
+uchar test_tp[] = "\x01\x04\x80\x00\xea\x60\x04\x04\x80\x10\x00\x00"
                    "\x05\x04\x80\x10\x00\x00\x06\x04\x80\x10\x00\x00\x07\x04\x80\x10"
                    "\x00\x00\x08\x02\x40\x80\x09\x02\x40\x80\x0a\x01\x03\x0b\x01\x19"
                    "\x0e\x01\x08\x0f\x08\xec\x73\x1b\x41\xa0\xd5\xc6\xfe";
@@ -98,10 +98,9 @@ my_client_hello( fd_quic_tls_hs_t * hs,
 }
 
 
-int main( int argc, char **argv )
-{
-  (void)argc;
-  (void)argv;
+int
+main( int     argc,
+      char ** argv ) {
   fd_boot( &argc, &argv );
 
   // config parameters
@@ -121,9 +120,9 @@ int main( int argc, char **argv )
   /* dump transport params */
   fd_quic_transport_params_t tmp_tp[1] = {0};
   uchar const * transport_params      = test_tp;
-  size_t        transport_params_sz   = sizeof( test_tp ) - 1; /* test_tp has terminating NUL */
+  ulong        transport_params_sz   = sizeof( test_tp ) - 1; /* test_tp has terminating NUL */
   uchar const * tp_p  = transport_params;
-  size_t        tp_sz = transport_params_sz;
+  ulong        tp_sz = transport_params_sz;
   int rc = fd_quic_decode_transport_params( tmp_tp, tp_p, tp_sz );
   if( rc < 0 ) {
     printf( "transport parameters failed to parse\n" );
@@ -139,30 +138,24 @@ int main( int argc, char **argv )
   my_quic_tls_t tls_server[1] = {0};
 
   //uchar   cli_dst_conn_id[1] = {0};
-  //size_t  cli_dst_conn_id_sz = 0;
+  //ulong  cli_dst_conn_id_sz = 0;
   fd_quic_tls_hs_t * hs_client = fd_quic_tls_hs_new( quic_tls,
                                                      tls_client,
                                                      0 /* is_server */,
                                                      "localhost",
                                                      transport_params,
                                                      transport_params_sz );
-  if( !hs_client ) {
-    fprintf( stderr, "fd_quic_tls_hs_new returned NULL\n" );
-    exit(1);
-  }
+  FD_TEST( hs_client );
 
   //uchar   svr_dst_conn_id[1] = {0};
-  //size_t  svr_dst_conn_id_sz = 0;
+  //ulong  svr_dst_conn_id_sz = 0;
   fd_quic_tls_hs_t * hs_server = fd_quic_tls_hs_new( quic_tls,
                                                      tls_server,
                                                      1 /* is_server */,
                                                      "localhost",
                                                      transport_params,
                                                      transport_params_sz );
-  if( !hs_server ) {
-    fprintf( stderr, "fd_quic_tls_hs_new returned NULL\n" );
-    exit(1);
-  }
+  FD_TEST( hs_server );
 
   // generate initial secrets for client
 
@@ -175,7 +168,7 @@ int main( int argc, char **argv )
   // start client handshake
   // client fd_quic_tls_hs_t is primed upon creation
 
-  printf( "entering main handshake loop\n" );
+  FD_LOG_NOTICE(( "entering main handshake loop" ));
 
   for( int l = 0; l < 30; ++l ) {
     printf( "start of handshake loop\n");
@@ -210,8 +203,8 @@ int main( int argc, char **argv )
       }
 #else
       /* test providing data 1 byte at a time */
-      size_t pdata_off = 0;
-      size_t pdata_sz  = hs_data->data_sz;
+      ulong pdata_off = 0;
+      ulong pdata_sz  = hs_data->data_sz;
       while( pdata_off < pdata_sz ) {
         int provide_rc = fd_quic_tls_provide_data( hs_server, hs_data->enc_level, hs_data->data + pdata_off, 1 );
         if( provide_rc == FD_QUIC_TLS_FAILED ) {
@@ -302,11 +295,11 @@ int main( int argc, char **argv )
   }
 
   uchar const * peer_tp    = NULL;
-  size_t        peer_tp_sz = 0;
+  ulong        peer_tp_sz = 0;
 
   fd_quic_tls_get_peer_transport_params( hs_server, &peer_tp, &peer_tp_sz );
   printf( "tls_server returned peer transport params of length %lu\n", peer_tp_sz );
-  for( size_t j = 0; j < peer_tp_sz; ++j ) {
+  for( ulong j = 0; j < peer_tp_sz; ++j ) {
     printf( "%2.2x ", peer_tp[j] );
   }
   printf( "\n" );
@@ -316,7 +309,7 @@ int main( int argc, char **argv )
 
   fd_quic_tls_get_peer_transport_params( hs_client, &peer_tp, &peer_tp_sz );
   printf( "tls_client returned peer transport params of length %lu\n", peer_tp_sz );
-  for( size_t j = 0; j < peer_tp_sz; ++j ) {
+  for( ulong j = 0; j < peer_tp_sz; ++j ) {
     printf( "%2.2x ", peer_tp[j] );
   }
   printf( "\n" );
@@ -325,4 +318,8 @@ int main( int argc, char **argv )
   fd_quic_tls_hs_delete( hs_client );
   fd_quic_tls_hs_delete( hs_server );
   fd_quic_tls_delete( quic_tls );
+
+  FD_LOG_NOTICE(( "pass" ));
+  fd_halt();
+  return 0;
 }

@@ -1,4 +1,4 @@
-// 
+//
 // IPv4 Header
 // ipv4 {
 //   version (4) = 4,
@@ -16,17 +16,17 @@
 // }
 
 FD_TEMPL_DEF_STRUCT_BEGIN(ipv4)
-  FD_TEMPL_MBR_ELEM_BITS(version,uint8,4)
-  FD_TEMPL_MBR_ELEM_BITS(ihl,uint8,4)
-  FD_TEMPL_MBR_ELEM_BITS(dscp,uint8,6)
-  FD_TEMPL_MBR_ELEM_BITS(ecn,uint8,2)
-  FD_TEMPL_MBR_ELEM(tot_len,uint16)
-  FD_TEMPL_MBR_ELEM(id,uint16)
-  FD_TEMPL_MBR_ELEM(frag_off,uint16)
-  FD_TEMPL_MBR_ELEM(ttl,uint8)
-  FD_TEMPL_MBR_ELEM(protocol,uint8)
-  FD_TEMPL_MBR_ELEM(check,uint16)
-  FD_TEMPL_MBR_ELEM(saddr,uint32)
-  FD_TEMPL_MBR_ELEM(daddr,uint32)
+  FD_TEMPL_MBR_ELEM_BITS( version,  uchar, 4 )
+  FD_TEMPL_MBR_ELEM_BITS( ihl,      uchar, 4 )
+  FD_TEMPL_MBR_ELEM_BITS( dscp,     uchar, 6 )
+  FD_TEMPL_MBR_ELEM_BITS( ecn,      uchar, 2 )
+  FD_TEMPL_MBR_ELEM     ( tot_len,  ushort   )
+  FD_TEMPL_MBR_ELEM     ( id,       ushort   )
+  FD_TEMPL_MBR_ELEM     ( frag_off, ushort   )
+  FD_TEMPL_MBR_ELEM     ( ttl,      uchar    )
+  FD_TEMPL_MBR_ELEM     ( protocol, uchar    )
+  FD_TEMPL_MBR_ELEM     ( check,    ushort   )
+  FD_TEMPL_MBR_ELEM     ( saddr,    uint     )
+  FD_TEMPL_MBR_ELEM     ( daddr,    uint     )
 FD_TEMPL_DEF_STRUCT_END(ipv4)
 

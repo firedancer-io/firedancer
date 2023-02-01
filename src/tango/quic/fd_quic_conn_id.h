@@ -3,11 +3,10 @@
 
 #include "../../util/fd_util_base.h"
 #include <string.h>
-#include <stdint.h>
 
 /* use a global seed initialized at runtime
    should help avoid collision attacks */
-extern uint64_t fd_quic_conn_id_hash_seed;
+extern ulong fd_quic_conn_id_hash_seed;
 
 
 /* TODO move this into more reasonable place */
@@ -25,7 +24,7 @@ extern uint64_t fd_quic_conn_id_hash_seed;
 // have to support variable length connection ids
 // in various parts of the protocol
 struct fd_quic_conn_id {
-  uint8_t sz;
+  uchar sz;
   uchar conn_id[FD_QUIC_MAX_CONN_ID_SZ];
 
   /* explicitly pad for alignment */
@@ -59,8 +58,8 @@ struct fd_quic_endpoint {
 
   /* current ip addr and port used by the peer
      stored host endian */
-  uint32_t cur_ip_addr;
-  uint16_t cur_udp_port;
+  uint cur_ip_addr;
+  ushort cur_udp_port;
 };
 
 #endif

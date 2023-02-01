@@ -8,7 +8,7 @@
 #include <openssl/ssl.h>
 #include <openssl/err.h>
 
-typedef unsigned char uchar;
+#include "../../../util/fd_util.h"
 
 // example from rfc9001:
 uchar test_client_initial[4+377+855] =
@@ -46,14 +46,14 @@ uchar test_dst_conn_id[8] = "\x2a\x68\x59\x18\x78\xc8\x91\x4c";
 uchar initial_salt[] = { 0x38, 0x76, 0x2c, 0xf7, 0xf5, 0x59, 0x34, 0xb3,
                          0x4d, 0x17, 0x9a, 0xe6, 0xa4, 0xc8, 0x0c, 0xad,
                          0xcc, 0xbb, 0x7f, 0x0a };
-size_t initial_salt_sz = sizeof( initial_salt );
+ulong initial_salt_sz = sizeof( initial_salt );
 
 void
-fd_quic_hkdf_extract( uchar *        output,  size_t output_sz,
+fd_quic_hkdf_extract( uchar *        output,  ulong output_sz,
                       EVP_MD const * md,
-                      uchar const *  salt,    size_t salt_sz,
-                      uchar const *  conn_id, size_t conn_id_sz ) {
-  size_t hash_sz = EVP_MD_size( md );
+                      uchar const *  salt,    ulong salt_sz,
+                      uchar const *  conn_id, ulong conn_id_sz ) {
+  ulong hash_sz = EVP_MD_size( md );
 
   if( output_sz < hash_sz ) {
     fprintf( stderr, "fd_quic_hkdf_extract: output size to small for result\n" );
@@ -82,7 +82,7 @@ fd_quic_hkdf_extract( uchar *        output,  size_t output_sz,
     exit(1);
   }
 
-  uint32_t final_output_sz = output_sz;
+  uint final_output_sz = output_sz;
   if( !HMAC_Final( hash_ctx, output, &final_output_sz ) ) {
     fprintf( stderr, "HMAC_Final failed\n" );
     exit(1);
@@ -92,11 +92,11 @@ fd_quic_hkdf_extract( uchar *        output,  size_t output_sz,
 }
 
 void
-fd_quic_hkdf_expand_label( uchar *        output,  size_t output_sz,
+fd_quic_hkdf_expand_label( uchar *        output,  ulong output_sz,
                            EVP_MD const * md,
-                           uchar const *  secret,  size_t secret_sz,
-                           uchar const *  label,   size_t label_sz,
-                           uchar const *  context, size_t context_sz ) {
+                           uchar const *  secret,  ulong secret_sz,
+                           uchar const *  label,   ulong label_sz,
+                           uchar const *  context, ulong context_sz ) {
   HMAC_CTX * hash_ctx = HMAC_CTX_new();
   if( !hash_ctx ) {
     fprintf( stderr, "HMAC_CTX_new returned NULL\n" );
@@ -110,18 +110,18 @@ fd_quic_hkdf_expand_label( uchar *        output,  size_t output_sz,
 
   // expand
   uchar   HKDF_PREFIX[6] = "tls13 ";
-  size_t  HKDF_PREFIX_SZ = sizeof( HKDF_PREFIX );
+  ulong  HKDF_PREFIX_SZ = sizeof( HKDF_PREFIX );
 
   // format label
   uchar label_data[64]; // MAX 64 - according to msquic
   label_data[0] = output_sz >> 8u;
   label_data[1] = output_sz & 0xffu;
   label_data[2] = HKDF_PREFIX_SZ + label_sz;
-  memcpy( label_data + 3, HKDF_PREFIX, HKDF_PREFIX_SZ );
-  memcpy( label_data + 3 + HKDF_PREFIX_SZ, label, label_sz );
+  fd_memcpy( label_data + 3, HKDF_PREFIX, HKDF_PREFIX_SZ );
+  fd_memcpy( label_data + 3 + HKDF_PREFIX_SZ, label, label_sz );
   label_data[3 + HKDF_PREFIX_SZ + label_sz] = 0;
 
-  size_t label_data_sz = 3 + HKDF_PREFIX_SZ + label_sz + 1;
+  ulong label_data_sz = 3 + HKDF_PREFIX_SZ + label_sz + 1;
 
   // This is the first stage of HKDF-expand from https://www.rfc-editor.org/rfc/rfc5869
   // only one stage is required to achive the desired length
@@ -143,44 +143,46 @@ fd_quic_hkdf_expand_label( uchar *        output,  size_t output_sz,
     exit(1);
   }
 
-  uchar temp[64] = {}; // TODO ensure this is big enough
-  uint32_t hmac_output_sz = 0;
+  uchar temp[64] = {0}; // TODO ensure this is big enough
+  uint hmac_output_sz = 0;
   if( !HMAC_Final( hash_ctx, temp, &hmac_output_sz ) ) {
     fprintf( stderr, "HMAC_Final failed\n" );
     exit(1);
   }
 
-  memcpy( output, temp, output_sz );
+  fd_memcpy( output, temp, output_sz );
 
   HMAC_CTX_free( hash_ctx );
 }
 
 void
-test_secret_gen( uchar * new_secret, uchar const * secret, size_t secret_sz, char const * label, size_t output_sz ) {
-  size_t label_sz = strlen( label );
+test_secret_gen( uchar * new_secret, uchar const * secret, ulong secret_sz, char const * label, ulong output_sz ) {
+  ulong label_sz = strlen( label );
 
   EVP_MD const *md = EVP_sha256(); // or 384 or 512
 
   fd_quic_hkdf_expand_label( new_secret, output_sz,
                              md,
-                             secret, secret_sz, 
+                             secret, secret_sz,
                              (uchar*)label, label_sz,
                              (uchar*)"", 0 );
 
   printf( "secret for %s: ", label );
-  for( size_t j = 0; j < output_sz; ++j ) {
+  for( ulong j = 0; j < output_sz; ++j ) {
     printf( "%2.2x ", new_secret[j] );
   }
   printf( "\n" );
 
 }
 
+int
+main( int     argc,
+      char ** argv ) {
+  fd_boot( &argc, &argv );
 
-int main(int argc, char **argv)
-{
   //   initial_secret = HKDF-Extract(initial_salt,
   //                                 client_dst_connection_id)
-  //   
+  //
   //   client_initial_secret = HKDF-Expand-Label(initial_secret,
   //                                             "client in", "",
   //                                             Hash.length)
@@ -192,13 +194,13 @@ int main(int argc, char **argv)
 
   // Initial packets apply the packet protection process, but use a secret derived
   // from the Destination Connection ID field from the client's first Initial packet.
-  // 
+  //
   // This secret is determined by using HKDF-Extract (see Section 2.2 of [HKDF]) with
   // a salt of 0x38762cf7f55934b34d179ae6a4c80cadccbb7f0a and the input keying
   // material (IKM) of the Destination Connection ID field. This produces an
   // intermediate pseudorandom key (PRK) that is used to derive two separate secrets
   // for sending and receiving.
-  // 
+  //
   // The secret used by clients to construct Initial packets uses the PRK and the
   // label "client in" as input to the HKDF-Expand-Label function from TLS [TLS13] to
   // produce a 32-byte secret. Packets constructed by the server use the same process
@@ -209,8 +211,8 @@ int main(int argc, char **argv)
   // Connection ID field of the first Initial packet sent by the client;
 
   // sha256 size in octets is 32
-  uchar  initial_secret[32] = {};
-  size_t initial_secret_sz  = 32;
+  uchar  initial_secret[32] = {0};
+  ulong initial_secret_sz  = 32;
 
   const EVP_MD *md = EVP_sha256(); // or 384 or 512
 
@@ -220,7 +222,7 @@ int main(int argc, char **argv)
                         test_dst_conn_id, 8 );
 
   printf( "initial secret: " );
-  for( size_t j = 0; j < initial_secret_sz; ++j ) {
+  for( ulong j = 0; j < initial_secret_sz; ++j ) {
     printf( "%2.2x ", initial_secret[j] );
   }
 
@@ -234,29 +236,29 @@ int main(int argc, char **argv)
   // client_initial_secret
   //      = HKDF-Expand-Label(initial_secret, "client in", "", 32)
   //      = c00cf151ca5be075ed0ebfb5c80323c4 2d6b7db67881289af4008f1f6c357aea
-  uchar client_initial_secret[32] = {};
-  size_t client_initial_secret_sz = 32;
+  uchar client_initial_secret[32] = {0};
+  ulong client_initial_secret_sz = 32;
 
   test_secret_gen( client_initial_secret, initial_secret, initial_secret_sz, "client in", 32 );
 
-  // uchar server_initial_secret[32] = {};
-  // size_t server_initial_secret_sz = 32;
+  // uchar server_initial_secret[32] = {0};
+  // ulong server_initial_secret_sz = 32;
 
   // test_secret_gen( server_initial_secret, initial_secret, initial_secret_sz, "server in", 32 );
 
   // expected from rfc9001 section A1
-  uchar quic_iv_secret[12] = {};
+  uchar quic_iv_secret[12] = {0};
   test_secret_gen( quic_iv_secret, client_initial_secret, client_initial_secret_sz, "quic iv", 12 );
 
   // key = HKDF-Expand-Label(client_initial_secret, "quic key", "", 16)
   //       = 1f369613dd76d5467730efcbe3b1a22d
 
-  uchar client_key[16] = {};
+  uchar client_key[16] = {0};
   test_secret_gen( client_key, client_initial_secret, client_initial_secret_sz, "quic key", 16 );
 
   // hp  = HKDF-Expand-Label(client_initial_secret, "quic hp", "", 16)
   //       = 9f50449e04a0e810283a1e9933adedd2
-  uchar client_hp_key[16] = {};
+  uchar client_hp_key[16] = {0};
   test_secret_gen( client_hp_key, client_initial_secret, client_initial_secret_sz, "quic hp", 16 );
 
   // encryption/header protection
@@ -292,8 +294,8 @@ int main(int argc, char **argv)
   // packet number is 0
   uchar packet_number[12] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
 
-  uchar nonce[12] = {};
-  for( size_t j = 0; j < 12; ++j ) {
+  uchar nonce[12] = {0};
+  for( ulong j = 0; j < 12; ++j ) {
     nonce[j] = quic_iv_secret[j] ^ packet_number[j] ;
   }
 
@@ -320,7 +322,7 @@ int main(int argc, char **argv)
 
   // auth data???
 
-  // uchar auth_data[64] = {};
+  // uchar auth_data[64] = {0};
 
   int outl = 0;
   if( EVP_EncryptUpdate( cipher_ctx, NULL, &outl, packet_header, sizeof( packet_header ) ) != 1 ) {
@@ -329,7 +331,7 @@ int main(int argc, char **argv)
   }
 
   uchar cipher_text[4096];
-  size_t offset = 0;
+  ulong offset = 0;
   int cipher_text_sz = 2048;
   int plain_text_sz = sizeof( test_client_initial );
   printf( "plain_text_sz: %ld\n", (long)plain_text_sz );
@@ -338,7 +340,7 @@ int main(int argc, char **argv)
     exit(1);
   }
 
-  printf( "Encrypted %ld bytes\n", (long unsigned)cipher_text_sz );
+  printf( "Encrypted %ld bytes\n", (ulong)cipher_text_sz );
 
   offset = cipher_text_sz;
   if( EVP_EncryptFinal( cipher_ctx, cipher_text + offset, &cipher_text_sz ) != 1 ) {
@@ -358,17 +360,17 @@ int main(int argc, char **argv)
 
   offset += 16;
 
-  printf( "Encrypted %ld bytes\n", (long unsigned)cipher_text_sz );
+  printf( "Encrypted %ld bytes\n", (ulong)cipher_text_sz );
 
   printf( "plain_text: " );
-  for( size_t j = 0; j < plain_text_sz; ++j ) {
+  for( ulong j = 0; j < plain_text_sz; ++j ) {
     printf( "%2.2x ", test_client_initial[j] );
   }
   printf( "\n" );
   printf( "\n" );
 
   printf( "cipher_text: " );
-  for( size_t j = 0; j < offset + cipher_text_sz; ++j ) {
+  for( ulong j = 0; j < offset + cipher_text_sz; ++j ) {
     printf( "%2.2x ", cipher_text[j] );
   }
   printf( "\n" );
@@ -401,7 +403,7 @@ int main(int argc, char **argv)
   }
 
   printf( "hp: " );
-  for( size_t j = 0; j < 16; ++j ) {
+  for( ulong j=0; j<16; ++j ) {
     printf( "%2.2x ", hp_cipher[j] );
   }
   printf( "\n" );
@@ -410,25 +412,25 @@ int main(int argc, char **argv)
   uchar const * mask = hp_cipher;
   uchar enc_header[64];
 
-  memcpy( enc_header, packet_header, sizeof( packet_header ) );
+  fd_memcpy( enc_header, packet_header, sizeof( packet_header ) );
 
   // long header
-  size_t pn_length = ( packet_header[0] & 0x03u ) + 1;
+  ulong pn_length = ( packet_header[0] & 0x03u ) + 1;
   enc_header[0] ^= mask[0] & 0x0fu; // short would be "& 0x1fu"
 
-  size_t pn_offset = 26;
+  ulong pn_offset = 26;
 
-  for( size_t j = 0; j < pn_length; ++j ) {
+  for( ulong j = 0; j < pn_length; ++j ) {
     enc_header[pn_offset + j] ^= mask[1+j];
   }
 
   printf( "header:  " );
-  for( size_t j = 0; j < sizeof( packet_header ); ++j ) {
+  for( ulong j = 0; j < sizeof( packet_header ); ++j ) {
     printf( "%2.2x ", packet_header[j] );
   }
   printf( "\n" );
   printf( "encoded: " );
-  for( size_t j = 0; j < sizeof( packet_header ); ++j ) {
+  for( ulong j = 0; j < sizeof( packet_header ); ++j ) {
     printf( "%2.2x ", enc_header[j] );
   }
   printf( "\n" );
@@ -453,5 +455,7 @@ int main(int argc, char **argv)
   // then we can start handling the frames
 
 
+  FD_LOG_NOTICE(( "pass" ));
+  fd_halt();
   return 0;
 }
