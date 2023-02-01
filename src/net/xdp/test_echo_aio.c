@@ -31,67 +31,67 @@
 #define FRAME_SIZE (1<<LG_FRAME_SIZE)
 #define NUM_FRAMES 2048
 
-int64_t
+long
 gettime() {
   struct timespec ts;
   clock_gettime( CLOCK_REALTIME, &ts );
 
-  return (int64_t)ts.tv_sec * (int64_t)1e9 + (int64_t)ts.tv_nsec;
+  return (long)ts.tv_sec * (long)1e9 + (long)ts.tv_nsec;
 }
 
 typedef struct
   __attribute__((__packed__))
 {
-  uint8_t  eth_dst[6];
-  uint8_t  eth_src[6];
-  uint16_t eth_proto;
+  uchar  eth_dst[6];
+  uchar  eth_src[6];
+  ushort eth_proto;
 
   // ip
-  uint8_t  ip_hdrlen;
-  uint8_t  ip_tos;
-  uint16_t ip_tot_len;
-  uint16_t ip_id;
-  uint16_t ip_frag_off;
-  uint8_t  ip_ttl;
-  uint8_t  ip_proto;
-  uint16_t ip_check;
-  uint32_t ip_src;
-  uint32_t ip_dst;
+  uchar  ip_hdrlen;
+  uchar  ip_tos;
+  ushort ip_tot_len;
+  ushort ip_id;
+  ushort ip_frag_off;
+  uchar  ip_ttl;
+  uchar  ip_proto;
+  ushort ip_check;
+  uint ip_src;
+  uint ip_dst;
 
   // udp
-  uint16_t udp_src;
-  uint16_t udp_dst;
-  uint16_t udp_len;
-  uint16_t udp_check;
+  ushort udp_src;
+  ushort udp_dst;
+  ushort udp_len;
+  ushort udp_check;
 
   // datagram
-  uint8_t  text[64];
-  uint8_t  pad[64];
-  uint8_t  pad1[1024];
+  uchar  text[64];
+  uchar  pad[64];
+  uchar  pad1[1024];
 } packet_t;
 
 
 void
 calc_check( packet_t * pkt ) {
-  uint64_t check = 0;
+  ulong check = 0;
 
   check += pkt->ip_hdrlen;
-  check += (uint32_t)pkt->ip_tos << (uint32_t)8;
+  check += (uint)pkt->ip_tos << (uint)8;
   check += pkt->ip_tot_len;
   check += pkt->ip_id;
   check += pkt->ip_frag_off;
   check += pkt->ip_ttl;
-  check += (uint32_t)pkt->ip_proto << (uint32_t)8;
+  check += (uint)pkt->ip_proto << (uint)8;
   check += pkt->ip_src;
   check += pkt->ip_dst;
 
-  pkt->ip_check = (uint16_t)( 0xffffu ^ ( check % 0xffffu ) );
+  pkt->ip_check = (ushort)( 0xffffu ^ ( check % 0xffffu ) );
 }
 
 void
 calc_check2( packet_t * pkt ) {
 #define STAGE(N) \
-  uint32_t x##N = 0u; \
+  uint x##N = 0u; \
   memcpy( &x##N, (char*)&pkt->ip_hdrlen + (N<<2u), 4u )
 
   STAGE(0);
@@ -100,10 +100,10 @@ calc_check2( packet_t * pkt ) {
   STAGE(3);
   STAGE(4);
 
-  uint64_t check0 = (uint64_t)x0 + (uint64_t)x1 + (uint64_t)x2 + (uint64_t)x3 + (uint64_t)x4;
-  uint64_t check1 = ( check0 & 0xffffffffu ) + ( check0 >> 32u );
-  uint64_t check2 = ( check1 & 0xffffu )     + ( check1 >> 16u );
-  uint64_t check3 = ( check2 & 0xffffu )     + ( check2 >> 16u );
+  ulong check0 = (ulong)x0 + (ulong)x1 + (ulong)x2 + (ulong)x3 + (ulong)x4;
+  ulong check1 = ( check0 & 0xffffffffu ) + ( check0 >> 32u );
+  ulong check2 = ( check1 & 0xffffu )     + ( check1 >> 16u );
+  ulong check3 = ( check2 & 0xffffu )     + ( check2 >> 16u );
 
   if( check3 != 0xffffu ) {
     printf( "ip checksums don't match\n" );
@@ -144,7 +144,7 @@ main( int argc, char **argv ) {
     }
   }
 
-  uint64_t batch_sz = (uint64_t)roundf( f_batch_sz );
+  ulong batch_sz = (ulong)roundf( f_batch_sz );
 
   printf( "xdp test parms:\n" );
 
@@ -228,11 +228,11 @@ echo( fd_xdp_aio_t * xdp_aio, uchar const * raw_pkt, size_t raw_pkt_sz ) {
   memcpy( &tx_pkt->ip_dst,  &rx_pkt->ip_src,  4 );
 
   /* make the ports the same */
-  uint16_t port = htons( 42425u );
+  ushort port = htons( 42425u );
   memcpy( &tx_pkt->udp_dst, &port, 2 );
   memcpy( &tx_pkt->udp_src, &port, 2 );
 
-  uint16_t udp_check = 0u; /* no udp checksum */
+  ushort udp_check = 0u; /* no udp checksum */
   memcpy( &tx_pkt->udp_check, &udp_check, 2 );
 
   /* calculate checksum */
