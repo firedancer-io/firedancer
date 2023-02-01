@@ -174,7 +174,6 @@ int
 fd_quic_ssl_send_alert( SSL *ssl,
                         enum ssl_encryption_level_t level,
                         uchar alert ) {
-int fd_quic_ssl_send_alert(SSL *ssl, enum ssl_encryption_level_t level, uchar alert) {
   printf( "In %s\n", __func__ );
   FD_LOG_NOTICE(( "Alert: %d %s %s", (int)alert, SSL_alert_type_string_long( alert ), SSL_alert_desc_string_long( alert ) ));
   return 0;

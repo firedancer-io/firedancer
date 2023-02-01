@@ -274,11 +274,11 @@ fd_quic_gen_secrets(
 int
 fd_quic_gen_keys(
     fd_quic_crypto_keys_t * keys,
-    ulong                  key_sz,
-    ulong                  iv_sz,
+    ulong                   key_sz,
+    ulong                   iv_sz,
     EVP_MD const *          md,
     uchar const *           secret,
-    ulong                  secret_sz ) {
+    ulong                   secret_sz ) {
 
   if( key_sz > sizeof( keys->pkt_key ) ||
       key_sz > sizeof( keys->hp_key ) ||

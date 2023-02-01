@@ -329,7 +329,7 @@ main( int     argc,
 
   offset += 16;
 
-  FD_LOG_NOTICE(( "Encrypted %ld bytes", (ulong)cipher_text_sz ));
+  FD_LOG_NOTICE(( "Encrypted %d bytes", cipher_text_sz ));
 
   printf( "plain_text: " );
   for( ulong j=0; j<offset; ++j ) {
