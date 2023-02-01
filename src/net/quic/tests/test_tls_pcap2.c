@@ -53,40 +53,23 @@ fd_quic_hkdf_extract( uchar *        output,  ulong output_sz,
                       EVP_MD const * md,
                       uchar const *  salt,    ulong salt_sz,
                       uchar const *  conn_id, ulong conn_id_sz ) {
-  ulong hash_sz = EVP_MD_size( md );
-
-  if( output_sz < hash_sz ) {
-    fprintf( stderr, "fd_quic_hkdf_extract: output size to small for result\n" );
-    exit(1);
-  }
+  int hash_sz_s = EVP_MD_size( md );
+  FD_TEST( hash_sz_s>=0 );
+  ulong hash_sz = (ulong)hash_sz_s;
+  FD_TEST( hash_sz<=output_sz );
 
   HMAC_CTX * hash_ctx = HMAC_CTX_new();
-  if( !hash_ctx ) {
-    fprintf( stderr, "HMAC_CTX_new returned NULL\n" );
-    exit(1);
-  }
+  FD_TEST( hash_ctx );
 
-  if( HMAC_Init_ex( hash_ctx, salt, salt_sz, md, NULL ) != 1 ) {
-    fprintf( stderr, "HMAC_Init_ex returned error\n" );
-    exit(1);
-  }
+  FD_TEST( 1==HMAC_Init_ex( hash_ctx, salt, (int)salt_sz, md, NULL ) );
 
   // this may be necessary for some hash functions
-  if( !HMAC_Init_ex( hash_ctx, NULL, 0, NULL, NULL ) ) {
-    fprintf( stderr, "HMAC_Init_ex( hash_ctx, NULL, 0, NULL, NULL ) failed\n" );
-    exit(1);
-  }
+  FD_TEST( 1==HMAC_Init_ex( hash_ctx, NULL, 0, NULL, NULL ) );
 
-  if( !HMAC_Update( hash_ctx, conn_id, conn_id_sz ) ) {
-    fprintf( stderr, "HMAC_Update failed\n" );
-    exit(1);
-  }
+  FD_TEST( 1==HMAC_Update( hash_ctx, conn_id, conn_id_sz ) );
 
   uint final_output_sz = output_sz;
-  if( !HMAC_Final( hash_ctx, output, &final_output_sz ) ) {
-    fprintf( stderr, "HMAC_Final failed\n" );
-    exit(1);
-  }
+  FD_TEST( 1==HMAC_Final( hash_ctx, output, &final_output_sz ) );
 
   HMAC_CTX_free( hash_ctx );
 }
@@ -95,18 +78,11 @@ void
 fd_quic_hkdf_expand_label( uchar *        output,  ulong output_sz,
                            EVP_MD const * md,
                            uchar const *  secret,  ulong secret_sz,
-                           uchar const *  label,   ulong label_sz,
-                           uchar const *  context, ulong context_sz ) {
+                           uchar const *  label,   ulong label_sz ) {
   HMAC_CTX * hash_ctx = HMAC_CTX_new();
-  if( !hash_ctx ) {
-    fprintf( stderr, "HMAC_CTX_new returned NULL\n" );
-    exit(1);
-  }
+  FD_TEST( hash_ctx );
 
-  if( HMAC_Init_ex( hash_ctx, secret, secret_sz, md, NULL ) != 1 ) {
-    fprintf( stderr, "HMAC_Init_ex returned error\n" );
-    exit(1);
-  }
+  FD_TEST( 1==HMAC_Init_ex( hash_ctx, secret, (int)secret_sz, md, NULL ) );
 
   // expand
   uchar   HKDF_PREFIX[6] = "tls13 ";
@@ -133,22 +109,13 @@ fd_quic_hkdf_expand_label( uchar *        output,  ulong output_sz,
 
   // is this necessary??
   //   - possibly it is for some hash functions
-  if( !HMAC_Init_ex( hash_ctx, NULL, 0, NULL, NULL ) ) {
-    fprintf( stderr, "HMAC_Init_ex( hash_ctx, NULL, 0, NULL, NULL ) failed\n" );
-    exit(1);
-  }
+  FD_TEST( 1==HMAC_Init_ex( hash_ctx, NULL, 0, NULL, NULL ) );
 
-  if( !HMAC_Update( hash_ctx, label_data, label_data_sz ) ) {
-    fprintf( stderr, "HMAC_Update failed\n" );
-    exit(1);
-  }
+  FD_TEST( 1==HMAC_Update( hash_ctx, label_data, label_data_sz ) );
 
   uchar temp[64] = {0}; // TODO ensure this is big enough
   uint hmac_output_sz = 0;
-  if( !HMAC_Final( hash_ctx, temp, &hmac_output_sz ) ) {
-    fprintf( stderr, "HMAC_Final failed\n" );
-    exit(1);
-  }
+  FD_TEST( 1==HMAC_Final( hash_ctx, temp, &hmac_output_sz ) );
 
   fd_memcpy( output, temp, output_sz );
 
@@ -164,8 +131,7 @@ test_secret_gen( uchar * new_secret, uchar const * secret, ulong secret_sz, char
   fd_quic_hkdf_expand_label( new_secret, output_sz,
                              md,
                              secret, secret_sz,
-                             (uchar*)label, label_sz,
-                             (uchar*)"", 0 );
+                             (uchar*)label, label_sz );
 
   printf( "secret for %s: ", label );
   for( ulong j = 0; j < output_sz; ++j ) {
@@ -285,11 +251,7 @@ main( int     argc,
   FD_AES_128_ECB_ALG_HANDLE = (EVP_CIPHER *)EVP_aes_128_ecb();
 
   EVP_CIPHER_CTX* cipher_ctx = EVP_CIPHER_CTX_new();
-  if( !cipher_ctx ) {
-    fprintf( stderr, "Error creating cipher ctx\n" );
-    exit(1);
-  }
-
+  FD_TEST( cipher_ctx );
 
   // packet number is 0
   uchar packet_number[12] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
@@ -305,65 +267,46 @@ main( int     argc,
   // first Initial packet sent by the client; see Section 5.2.
   aead = FD_AES_128_GCM_ALG_HANDLE;
 
-  if( EVP_CipherInit_ex( cipher_ctx, aead, NULL, NULL, NULL, 1 /* encryption */ ) != 1 ) {
-    fprintf( stderr, "EVP_CipherInit_ex failed\n" );
-    exit(1);
-  }
+  FD_TEST( 1==EVP_CipherInit_ex( cipher_ctx, aead, NULL, NULL, NULL, 1 /* encryption */ ) );
 
-  if( EVP_CIPHER_CTX_ctrl( cipher_ctx, EVP_CTRL_AEAD_SET_IVLEN, 12, NULL ) != 1 ) {
-    fprintf( stderr, "EVP_CIPHER_CTX_ctrl failed\n" );
-    exit(1);
-  }
+  FD_TEST( 1==EVP_CIPHER_CTX_ctrl( cipher_ctx, EVP_CTRL_AEAD_SET_IVLEN, 12, NULL ) );
 
-  if( EVP_EncryptInit_ex( cipher_ctx, aead, NULL, client_key, nonce ) != 1 ) {
-    fprintf( stderr, "EVP_EncryptInit_ex failed\n" );
-    exit(1);
-  }
+  FD_TEST( 1==EVP_EncryptInit_ex( cipher_ctx, aead, NULL, client_key, nonce ) );
 
   // auth data???
 
   // uchar auth_data[64] = {0};
 
   int outl = 0;
-  if( EVP_EncryptUpdate( cipher_ctx, NULL, &outl, packet_header, sizeof( packet_header ) ) != 1 ) {
-    fprintf( stderr, "EVP_EncryptUpdate failed auth_data\n" );
-    exit(1);
-  }
+  FD_TEST( 1==EVP_EncryptUpdate( cipher_ctx, NULL, &outl, packet_header, sizeof( packet_header ) ) );
 
   uchar cipher_text[4096];
   ulong offset = 0;
   int cipher_text_sz = 2048;
   int plain_text_sz = sizeof( test_client_initial );
-  printf( "plain_text_sz: %ld\n", (long)plain_text_sz );
-  if( EVP_EncryptUpdate( cipher_ctx, cipher_text, &cipher_text_sz, test_client_initial, plain_text_sz ) != 1 ) {
-    fprintf( stderr, "EVP_EncryptUpdate failed cipher\n" );
-    exit(1);
-  }
+  FD_LOG_NOTICE(( "plain_text_sz: %d", plain_text_sz ));
 
-  printf( "Encrypted %ld bytes\n", (ulong)cipher_text_sz );
+  FD_TEST( 1==EVP_EncryptUpdate( cipher_ctx, cipher_text, &cipher_text_sz, test_client_initial, plain_text_sz ) );
+  FD_TEST( cipher_text_sz>=0 );
+  offset = (ulong)cipher_text_sz;
 
-  offset = cipher_text_sz;
-  if( EVP_EncryptFinal( cipher_ctx, cipher_text + offset, &cipher_text_sz ) != 1 ) {
-    fprintf( stderr, "EVP_EncryptFinal failed cipher\n" );
-    exit(1);
-  }
+  FD_LOG_NOTICE(( "Encrypted %d bytes", cipher_text_sz ));
 
-  offset += cipher_text_sz;
+  FD_TEST( 1==EVP_EncryptFinal( cipher_ctx, cipher_text + offset, &cipher_text_sz ) );
+  FD_TEST( cipher_text_sz>=0 );
+  offset += (ulong)cipher_text_sz;
 
   // TODO put TAG on end
   //   see if (EVP_CIPHER_CTX_ctrl(CipherCtx, EVP_CTRL_AEAD_GET_TAG, 16, tag) != 1) {
 
-  if( EVP_CIPHER_CTX_ctrl( cipher_ctx, EVP_CTRL_AEAD_GET_TAG, 16, cipher_text + offset  ) != 1) {
-    fprintf( stderr, "EVP_CTRL_AEAD_GET_TAG failed\n" );
-    exit(1);
-  }
+  FD_TEST( 1==EVP_CIPHER_CTX_ctrl( cipher_ctx, EVP_CTRL_AEAD_GET_TAG, 16, cipher_text + offset  ) );
 
   offset += 16;
 
-  printf( "Encrypted %ld bytes\n", (ulong)cipher_text_sz );
+  FD_LOG_NOTICE(( "Encrypted %d bytes", cipher_text_sz ));
 
   printf( "plain_text: " );
-  for( ulong j = 0; j < plain_text_sz; ++j ) {
+  for( ulong j=0; j < plain_text_sz; ++j ) {
     printf( "%2.2x ", test_client_initial[j] );
   }
   printf( "\n" );
@@ -379,28 +322,16 @@ main( int     argc,
   // Header protection
 
   EVP_CIPHER_CTX* hp_cipher_ctx = EVP_CIPHER_CTX_new();
-  if( !hp_cipher_ctx ) {
-    fprintf( stderr, "Error creating cipher ctx\n" );
-    exit(1);
-  }
+  FD_TEST( hp_cipher_ctx );
 
-  if( EVP_CipherInit_ex( hp_cipher_ctx, FD_AES_128_ECB_ALG_HANDLE, NULL, NULL, NULL, 1 /* encryption */ ) != 1 ) {
-    fprintf( stderr, "EVP_CipherInit_ex (hp) failed\n" );
-    exit(1);
-  }
+  FD_TEST( 1==EVP_CipherInit_ex( hp_cipher_ctx, FD_AES_128_ECB_ALG_HANDLE, NULL, NULL, NULL, 1 /* encryption */ ) );
 
-  if( EVP_EncryptInit_ex( hp_cipher_ctx, NULL, NULL, client_hp_key, NULL ) != 1 ) {
-    fprintf( stderr, "EVP_EncryptInit_ex failed\n" );
-    exit(1);
-  }
+  FD_TEST( 1==EVP_EncryptInit_ex( hp_cipher_ctx, NULL, NULL, client_hp_key, NULL ) );
 
   uchar const * sample = cipher_text + 2; // not necessarily true - the sample begins 4 bytes after the start of the packet number
   uchar hp_cipher[64];
   int hp_cipher_sz = 0;
-  if( EVP_EncryptUpdate( hp_cipher_ctx, hp_cipher, &hp_cipher_sz, sample, 16 ) != 1 ) {
-    fprintf( stderr, "EVP_EncryptUpdate failed cipher (hp)\n" );
-    exit(1);
-  }
+  FD_TEST( 1==EVP_EncryptUpdate( hp_cipher_ctx, hp_cipher, &hp_cipher_sz, sample, 16 ) );
 
   printf( "hp: " );
   for( ulong j=0; j<16; ++j ) {
@@ -435,10 +366,7 @@ main( int     argc,
   }
   printf( "\n" );
 
-  // if( EVP_DecryptInit_ex( cipher_ctx, NULL, NULL, NULL, Iv ) != 1 ) {
-  //   fprintf( stderr, "EVP_DecryptInit_ex failed\n" );
-  //   exit(1);
-  // }
+  // FD_TEST( 1==EVP_DecryptInit_ex( cipher_ctx, NULL, NULL, NULL, Iv ) );
 
 
   // to decrypt...

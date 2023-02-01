@@ -225,12 +225,8 @@ main( int     argc,
 
   printf( "\n" );
 
-  if( memcmp( initial_secret, initial_secret_expect, initial_secret_sz ) != 0 ) {
-    fprintf( stderr, "initial_secret does not match expectation!\n" );
-    exit(1);
-  } else {
-    printf( "initial_secret PASSED\n" );
-  }
+  FD_TEST( 0==memcmp( initial_secret, initial_secret_expect, initial_secret_sz ) );
+  FD_LOG_NOTICE(( "initial_secret PASSED" ));
 
   // Derive key TEST from rfc9001
 
@@ -283,11 +279,7 @@ main( int     argc,
   FD_AES_128_ECB_ALG_HANDLE = (EVP_CIPHER *)EVP_aes_128_ecb();
 
   EVP_CIPHER_CTX* cipher_ctx = EVP_CIPHER_CTX_new();
-  if( !cipher_ctx ) {
-    fprintf( stderr, "Error creating cipher ctx\n" );
-    exit(1);
-  }
-
+  FD_TEST( cipher_ctx );
 
   // packet number is 2
   uchar packet_number[12] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2 };
@@ -303,20 +295,11 @@ main( int     argc,
   // first Initial packet sent by the client; see Section 5.2.
   aead = FD_AES_128_GCM_ALG_HANDLE;
 
-  if( EVP_CipherInit_ex( cipher_ctx, aead, NULL, NULL, NULL, 1 /* encryption */ ) != 1 ) {
-    fprintf( stderr, "EVP_CipherInit_ex failed\n" );
-    exit(1);
-  }
+  FD_TEST( 1==EVP_CipherInit_ex( cipher_ctx, aead, NULL, NULL, NULL, 1 /* encryption */ ) );
 
-  if( EVP_CIPHER_CTX_ctrl( cipher_ctx, EVP_CTRL_AEAD_SET_IVLEN, 12, NULL ) != 1 ) {
-    fprintf( stderr, "EVP_CIPHER_CTX_ctrl failed\n" );
-    exit(1);
-  }
+  FD_TEST( 1==EVP_CIPHER_CTX_ctrl( cipher_ctx, EVP_CTRL_AEAD_SET_IVLEN, 12, NULL ) );
 
-  if( EVP_EncryptInit_ex( cipher_ctx, aead, NULL, expected_client_key, nonce ) != 1 ) {
-    fprintf( stderr, "EVP_EncryptInit_ex failed\n" );
-    exit(1);
-  }
+  FD_TEST( 1==EVP_EncryptInit_ex( cipher_ctx, aead, NULL, expected_client_key, nonce ) );
 
   // auth data???
 
@@ -333,7 +316,7 @@ main( int     argc,
   FD_TEST( cipher_text_sz>=0 );
   offset = (ulong)cipher_text_sz;
 
-  printf( "Encrypted %ld bytes\n", (ulong)cipher_text_sz );
+  FD_LOG_NOTICE(( "Encrypted %d bytes", cipher_text_sz ));
 
   FD_TEST( 1==EVP_EncryptFinal( cipher_ctx, cipher_text + offset, &cipher_text_sz ) );
   FD_TEST( cipher_text_sz>=0 );
@@ -382,10 +365,7 @@ main( int     argc,
   }
   printf( "\n" );
 
-  // if( EVP_DecryptInit_ex( cipher_ctx, NULL, NULL, NULL, Iv ) != 1 ) {
-  //   fprintf( stderr, "EVP_DecryptInit_ex failed\n" );
-  //   exit(1);
-  // }
+  // FD_TEST( 1==EVP_DecryptInit_ex( cipher_ctx, NULL, NULL, NULL, Iv ) );
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
