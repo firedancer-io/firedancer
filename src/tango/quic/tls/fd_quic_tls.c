@@ -13,8 +13,8 @@
 int
 fd_quic_ssl_add_handshake_data( SSL *                 ssl,
                                 OSSL_ENCRYPTION_LEVEL enc_level,
-                                uint8_t const *       data,
-                                size_t                data_sz );
+                                uchar const *       data,
+                                ulong                data_sz );
 
 int
 fd_quic_ssl_flush_flight( SSL * ssl );
@@ -22,7 +22,7 @@ fd_quic_ssl_flush_flight( SSL * ssl );
 int
 fd_quic_ssl_send_alert( SSL *                       ssl,
                         enum ssl_encryption_level_t level,
-                        uint8_t                     alert );
+                        uchar                     alert );
 
 int
 fd_quic_ssl_client_hello( SSL *  ssl,
@@ -40,9 +40,9 @@ fd_quic_alpn_select_cb( SSL * ssl,
 int
 fd_quic_ssl_set_encryption_secrets( SSL *                 ssl,
                                     OSSL_ENCRYPTION_LEVEL enc_level,
-                                    const uint8_t *       read_secret,
-                                    const uint8_t *       write_secret,
-                                    size_t                secret_len );
+                                    const uchar *       read_secret,
+                                    const uchar *       write_secret,
+                                    ulong                secret_len );
 
 SSL_CTX *
 fd_quic_create_context( fd_quic_tls_t * quic_tls,
@@ -64,7 +64,7 @@ fd_quic_tls_new( fd_quic_tls_cfg_t * cfg ) {
   self->max_concur_handshakes = cfg->max_concur_handshakes;
 
   // preallocate all handshake structures
-  size_t bytes = (size_t)self->max_concur_handshakes * sizeof( fd_quic_tls_hs_t );
+  ulong bytes = (ulong)self->max_concur_handshakes * sizeof( fd_quic_tls_hs_t );
   fd_quic_tls_hs_t * handshakes = (fd_quic_tls_hs_t*)malloc( bytes );
   if( !handshakes ) {
     free( self );
@@ -73,7 +73,7 @@ fd_quic_tls_new( fd_quic_tls_cfg_t * cfg ) {
 
   self->handshakes = handshakes;
 
-  uchar * used_handshakes = (uchar*)malloc( (size_t)self->max_concur_handshakes );
+  uchar * used_handshakes = (uchar*)malloc( (ulong)self->max_concur_handshakes );
   if( !used_handshakes ) {
     free( handshakes );
     free( self );
@@ -83,7 +83,7 @@ fd_quic_tls_new( fd_quic_tls_cfg_t * cfg ) {
   self->used_handshakes = used_handshakes;
 
   // set all to free
-  memset( used_handshakes, 0, (size_t)self->max_concur_handshakes );
+  fd_memset( used_handshakes, 0, (ulong)self->max_concur_handshakes );
 
   // create ssl context
   self->ssl_ctx = fd_quic_create_context( self, cfg->cert_file, cfg->key_file );
@@ -96,10 +96,10 @@ fd_quic_tls_delete( fd_quic_tls_t * self ) {
   if( !self ) return;
 
   // free up all used handshakes
-  size_t             hs_sz   = (size_t)self->max_concur_handshakes;
+  ulong             hs_sz   = (ulong)self->max_concur_handshakes;
   fd_quic_tls_hs_t * hs      = self->handshakes;
   uchar *            hs_used = self->used_handshakes;
-  for( size_t j = 0; j < hs_sz; ++j ) {
+  for( ulong j = 0; j < hs_sz; ++j ) {
     if( hs_used[j] ) fd_quic_tls_hs_delete( hs + j );
   }
 
@@ -116,10 +116,10 @@ fd_quic_tls_hs_new( fd_quic_tls_t * quic_tls,
                     int             is_server,
                     char const *    hostname,
                     uchar const *   transport_params_raw,
-                    size_t          transport_params_raw_sz ) {
+                    ulong          transport_params_raw_sz ) {
   // find a free handshake
-  size_t hs_idx = 0;
-  size_t hs_sz  = (size_t)quic_tls->max_concur_handshakes;
+  ulong hs_idx = 0;
+  ulong hs_sz  = (ulong)quic_tls->max_concur_handshakes;
   uchar * hs_used = quic_tls->used_handshakes;
   while( hs_idx < hs_sz && hs_used[hs_idx] ) hs_idx++;
 
@@ -135,7 +135,7 @@ fd_quic_tls_hs_new( fd_quic_tls_t * quic_tls,
   fd_quic_tls_hs_t * self = quic_tls->handshakes + hs_idx;
 
   // clear the handshake bits
-  memset( self, 0, sizeof( *self ) );
+  fd_memset( self, 0, sizeof( *self ) );
 
   // set properties on self
   self->quic_tls  = quic_tls;
@@ -147,9 +147,9 @@ fd_quic_tls_hs_new( fd_quic_tls_t * quic_tls,
 
   /* init free list */
   self->hs_data_free_idx = 0u; /* head points at first */
-  for( uint16_t j = 0u; j < FD_QUIC_TLS_HS_DATA_CNT; ++j ) {
+  for( ushort j = 0u; j < FD_QUIC_TLS_HS_DATA_CNT; ++j ) {
     if( j < FD_QUIC_TLS_HS_DATA_CNT-1u ) {
-      self->hs_data[j].next_idx = (uint16_t)(j+1u); /* each point to next */
+      self->hs_data[j].next_idx = (ushort)(j+1u); /* each point to next */
     } else {
       self->hs_data[j].next_idx = FD_QUIC_TLS_HS_DATA_UNUSED ;
     }
@@ -166,7 +166,7 @@ fd_quic_tls_hs_new( fd_quic_tls_t * quic_tls,
   self->hs_data_buf_tail = 0;
 
   /* all handshake offsets start at zero */
-  memset( self->hs_data_offset, 0, sizeof( self->hs_data_offset ) );
+  fd_memset( self->hs_data_offset, 0, sizeof( self->hs_data_offset ) );
 
   // set up ssl
   SSL * ssl = SSL_new( quic_tls->ssl_ctx );
@@ -258,7 +258,7 @@ fd_quic_tls_hs_delete( fd_quic_tls_hs_t * self ) {
   fd_quic_tls_t * quic_tls = self->quic_tls;
 
   // find index into array
-  size_t hs_idx = (size_t)( self - quic_tls->handshakes );
+  ulong hs_idx = (ulong)( self - quic_tls->handshakes );
   if( quic_tls->used_handshakes[hs_idx] != 1 ) {
     __asm__ __volatile__( "int $3" );
     return;
@@ -274,7 +274,7 @@ int
 fd_quic_tls_provide_data( fd_quic_tls_hs_t *    self,
                           OSSL_ENCRYPTION_LEVEL enc_level,
                           uchar const *         data,
-                          size_t                data_sz ) {
+                          ulong                data_sz ) {
   int ssl_rc = SSL_provide_quic_data( self->ssl, enc_level, data, data_sz );
   if( ssl_rc != 1 ) {
     self->err_ssl_rc  = (int)ssl_rc;
@@ -365,9 +365,9 @@ fd_quic_tls_process( fd_quic_tls_hs_t * self ) {
 int
 fd_quic_ssl_add_handshake_data( SSL *                 ssl,
                                 OSSL_ENCRYPTION_LEVEL enc_level,
-                                uint8_t const *       data,
-                                size_t                data_sz ) {
-  uint32_t buf_sz = FD_QUIC_TLS_HS_DATA_SZ;
+                                uchar const *       data,
+                                ulong                data_sz ) {
+  uint buf_sz = FD_QUIC_TLS_HS_DATA_SZ;
   if( data_sz > buf_sz ) {
     return 0;
   }
@@ -377,20 +377,20 @@ fd_quic_ssl_add_handshake_data( SSL *                 ssl,
   /* add handshake data to handshake for retrieval by user */
 
   /* find free handshake data */
-  uint16_t hs_data_idx = hs->hs_data_free_idx;
+  ushort hs_data_idx = hs->hs_data_free_idx;
   if( hs_data_idx == FD_QUIC_TLS_HS_DATA_UNUSED ) {
     /* no free structures left. fail */
     return 0;
   }
 
   /* allocate enough space from hs data buffer */
-  uint32_t head       = hs->hs_data_buf_head;
-  uint32_t tail       = hs->hs_data_buf_tail;
-  uint32_t alloc_head = 0; /* to be determined */
+  uint head       = hs->hs_data_buf_head;
+  uint tail       = hs->hs_data_buf_tail;
+  uint alloc_head = 0; /* to be determined */
 
 #define POW2_ROUND_UP( x, a ) (((x)+((a)-1)) & (~((a)-1)))
-  uint32_t alloc_data_sz = POW2_ROUND_UP( data_sz, FD_QUIC_TLS_HS_DATA_ALIGN );
-  uint32_t free_data_sz  = alloc_data_sz; /* the number of bytes to free */
+  uint alloc_data_sz = POW2_ROUND_UP( data_sz, FD_QUIC_TLS_HS_DATA_ALIGN );
+  uint free_data_sz  = alloc_data_sz; /* the number of bytes to free */
 
   /* we need contiguous bytes
      head >= buf_sz implies wrap around */
@@ -422,7 +422,7 @@ fd_quic_ssl_add_handshake_data( SSL *                 ssl,
 
   /* success */
 
-  uint32_t                buf_mask = (uint32_t)( buf_sz - 1u );
+  uint                    buf_mask = (uint)( buf_sz - 1u );
   fd_quic_tls_hs_data_t * hs_data = &hs->hs_data[hs_data_idx];
   uchar *                 buf     = &hs->hs_data_buf[alloc_head & buf_mask];
 
@@ -433,19 +433,19 @@ fd_quic_ssl_add_handshake_data( SSL *                 ssl,
   hs->hs_data_buf_head = alloc_head + alloc_data_sz;
 
   /* copy data into buffer, and update metadata in hs_data */
-  memcpy( buf, data, data_sz );
+  fd_memcpy( buf, data, data_sz );
   hs_data->enc_level    = enc_level;
   hs_data->data         = buf;
-  hs_data->data_sz      = (uint32_t)data_sz;
+  hs_data->data_sz      = (uint)data_sz;
   hs_data->free_data_sz = free_data_sz;
   hs_data->offset       = hs->hs_data_offset[enc_level];
 
   /* offset adjusted ready for more data */
-  hs->hs_data_offset[enc_level] += (uint32_t)data_sz;
+  hs->hs_data_offset[enc_level] += (uint)data_sz;
 
   /* add to end of pending list */
   hs_data->next_idx = FD_QUIC_TLS_HS_DATA_UNUSED;
-  size_t pend_end_idx = hs->hs_data_pend_end_idx[enc_level];
+  ulong pend_end_idx = hs->hs_data_pend_end_idx[enc_level];
   if( pend_end_idx == FD_QUIC_TLS_HS_DATA_UNUSED  ) {
     /* pending list is empty */
     hs->hs_data_pend_end_idx[enc_level] = hs->hs_data_pend_idx[enc_level] = hs_data_idx;
@@ -468,7 +468,7 @@ fd_quic_ssl_flush_flight( SSL * ssl ) {
 int
 fd_quic_ssl_send_alert( SSL *                       ssl,
                         enum ssl_encryption_level_t level,
-                        uint8_t                     alert ) {
+                        uchar                     alert ) {
   (void)level;
   fd_quic_tls_hs_t * hs = SSL_get_app_data( ssl );
   hs->alert = alert;
@@ -534,12 +534,12 @@ fd_quic_ssl_keylog_cb( SSL const * ssl, char const * line ) {
 int
 fd_quic_ssl_set_encryption_secrets( SSL *                 ssl,
                                     OSSL_ENCRYPTION_LEVEL enc_level,
-                                    const uint8_t *       read_secret,
-                                    const uint8_t *       write_secret,
-                                    size_t                secret_len ) {
+                                    const uchar *       read_secret,
+                                    const uchar *       write_secret,
+                                    ulong                secret_len ) {
   fd_quic_tls_hs_t * hs = SSL_get_app_data( ssl );
 
-  uint32_t suite_id = SSL_CIPHER_get_id( SSL_get_current_cipher( ssl ) );
+  uint suite_id = SSL_CIPHER_get_id( SSL_get_current_cipher( ssl ) );
 
   fd_quic_tls_secret_t secret = {
     .enc_level    = enc_level,
@@ -670,7 +670,7 @@ fd_quic_create_context( fd_quic_tls_t * quic_tls, char const * cert_file, char c
 
 fd_quic_tls_hs_data_t *
 fd_quic_tls_get_hs_data( fd_quic_tls_hs_t * self, int enc_level ) {
-  uint32_t idx = self->hs_data_pend_idx[enc_level];
+  uint idx = self->hs_data_pend_idx[enc_level];
   if( idx == FD_QUIC_TLS_HS_DATA_UNUSED ) return NULL;
 
   return &self->hs_data[idx];
@@ -679,25 +679,25 @@ fd_quic_tls_get_hs_data( fd_quic_tls_hs_t * self, int enc_level ) {
 
 fd_quic_tls_hs_data_t *
 fd_quic_tls_get_next_hs_data( fd_quic_tls_hs_t * self, fd_quic_tls_hs_data_t * hs ) {
-  uint16_t idx = hs->next_idx;
-  if( idx == (uint16_t)(~0u) ) return NULL;
+  ushort idx = hs->next_idx;
+  if( idx == (ushort)(~0u) ) return NULL;
   return self->hs_data + idx;
 }
 
 
 void
 fd_quic_tls_pop_hs_data( fd_quic_tls_hs_t * self, int enc_level ) {
-  uint16_t idx = self->hs_data_pend_idx[enc_level];
+  ushort idx = self->hs_data_pend_idx[enc_level];
   if( idx == FD_QUIC_TLS_HS_DATA_UNUSED ) return;
 
   fd_quic_tls_hs_data_t * hs_data = &self->hs_data[idx];
 
-  uint32_t buf_sz       = FD_QUIC_TLS_HS_DATA_SZ;
-  uint32_t free_data_sz = hs_data->free_data_sz; /* amount of data to free */
+  uint buf_sz       = FD_QUIC_TLS_HS_DATA_SZ;
+  uint free_data_sz = hs_data->free_data_sz; /* amount of data to free */
 
   /* move tail pointer */
-  uint32_t head = self->hs_data_buf_head;
-  uint32_t tail = self->hs_data_buf_tail;
+  uint head = self->hs_data_buf_head;
+  uint tail = self->hs_data_buf_tail;
 
   tail += free_data_sz;
   if( tail > head ) {
@@ -730,7 +730,7 @@ fd_quic_tls_pop_hs_data( fd_quic_tls_hs_t * self, int enc_level ) {
 void
 fd_quic_tls_get_peer_transport_params( fd_quic_tls_hs_t * self,
                                        uchar const **     transport_params,
-                                       size_t *           transport_params_sz ) {
+                                       ulong *           transport_params_sz ) {
   SSL_get_peer_quic_transport_params( self->ssl, transport_params, transport_params_sz );
 }
 

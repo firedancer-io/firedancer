@@ -2,7 +2,6 @@
 #define HEADER_fd_quic_config_h
 
 #include <string.h>
-#include <stdint.h>
 
 #include "../../util/fd_util.h"
 
@@ -22,7 +21,7 @@ typedef struct fd_quic_stream           fd_quic_stream_t;
    args
      context - any context the clock needs - quic will supply the configured
                value */
-typedef uint64_t (*fd_quic_now_t)( void * context );
+typedef ulong (*fd_quic_now_t)( void * context );
 
 /* new connection callback
    a server received a new connection, and completed handshakes */
@@ -68,7 +67,7 @@ typedef void (*fd_quic_cb_stream_new_t) ( fd_quic_stream_t * stream,
                           the stream ptr referenced will be freed after return
      FD_QUIC_NOTIFY_RESET the peer reset the stream (will not send)
      FD_QUIC_NOTIFY_ABORT the peer aborted the stream (will not receive)
-   
+
    args
      stream         pointer to the new stream object
      context        the user supplied context
@@ -98,8 +97,8 @@ typedef void (*fd_quic_cb_stream_notify_t) ( fd_quic_stream_t * stream,
 typedef void (*fd_quic_cb_stream_receive_t)( fd_quic_stream_t * stream,
                                              void *             stream_context,
                                              uchar const *      data,
-                                             size_t             data_sz,
-                                             size_t             offset );
+                                             ulong             data_sz,
+                                             ulong             offset );
 
 
 /* parameters used by each host/endpoint */
@@ -107,8 +106,8 @@ typedef void (*fd_quic_cb_stream_receive_t)( fd_quic_stream_t * stream,
    is not good practice */
 struct fd_quic_host_cfg {
   char const * hostname;
-  uint32_t     ip_addr;
-  uint16_t     udp_port;
+  uint     ip_addr;
+  ushort     udp_port;
 };
 
 
@@ -120,31 +119,31 @@ struct fd_quic_config {
 
   fd_quic_transport_params_t * transport_params;       /* transport parameters for connections */
 
-  size_t                       max_concur_conns;       /* maximum number of concurrent connections */
+  ulong                        max_concur_conns;       /* maximum number of concurrent connections */
                                                        /* allowed */
 
-  size_t                       max_concur_conn_ids;    /* maximum number of concurrent connection ids */
+  ulong                        max_concur_conn_ids;    /* maximum number of concurrent connection ids */
                                                        /* allowed per connection */
 
-  unsigned                     max_concur_streams;     /* maximum number of concurrent streams */
+  uint                         max_concur_streams;     /* maximum number of concurrent streams */
                                                        /* allowed per connection per type (4 types) */
 
-  unsigned                     max_concur_handshakes;  /* maximum number of concurrent handshake */
+  uint                         max_concur_handshakes;  /* maximum number of concurrent handshake */
                                                        /* allowed per connection */
 
-  size_t                       conn_id_sparsity;       /* sparsity of connection id hash map */
+  ulong                        conn_id_sparsity;       /* sparsity of connection id hash map */
                                                        /* number of slots will be: */
                                                        /*   max_ids * conn_id_sparsity */
 
-  size_t                       max_in_flight_pkts;     /* max in-flight (tx) packets per connection */
+  ulong                        max_in_flight_pkts;     /* max in-flight (tx) packets per connection */
                                                        /* this limits the storage required for ack handling */
 
-  size_t                       max_in_flight_acks;     /* max in-flight (tx) acks per connection */
+  ulong                        max_in_flight_acks;     /* max in-flight (tx) acks per connection */
 
-  uint64_t                     mean_time_between_svc;  /* mean time between connection servicing */
+  ulong                        mean_time_between_svc;  /* mean time between connection servicing */
                                                        /* when idle */
 
-  uint8_t                      dscp;                   /* differentiated services code point */
+  uchar                        dscp;                   /* differentiated services code point */
                                                        /* set on all IPV4 tx packets */
 
   /* callbacks */
@@ -164,7 +163,7 @@ struct fd_quic_config {
 
   /* TODO do we need ALPN parameters here? */
   uchar const *                        alpn_buf;
-  size_t                               alpn_buf_sz;
+  ulong                               alpn_buf_sz;
 };
 typedef struct fd_quic_config fd_quic_config_t;
 

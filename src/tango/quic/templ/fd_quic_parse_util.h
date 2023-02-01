@@ -1,12 +1,10 @@
 #include <stddef.h>
-#include <stdint.h>
 
 #include "../fd_quic_common.h"
 
-
 /* fd_quic_test_negative "returns" (x<0), but in a way that doesn't produce
    warnings/errors when x is unsigned
-   
+
    this optimizes well in experiments */
 #if 1
 #define fd_quic_test_negative(x) ( (_Bool)( (double)(x) < 0 ) )
@@ -22,13 +20,13 @@
   (                                                  \
     fd_quic_test_negative(val) ? FD_QUIC_ENCODE_FAIL \
     :                                                \
-    ( val < ( (uint64_t)1 << ( 0x08 - 2 ) ) ) ? 1    \
+    ( (ulong)(val) < ( 1UL << ( 0x08 - 2 ) ) ) ? 1   \
     :                                                \
-    ( val < ( (uint64_t)1 << ( 0x10 - 2 ) ) ) ? 2    \
+    ( (ulong)(val) < ( 1UL << ( 0x10 - 2 ) ) ) ? 2   \
     :                                                \
-    ( val < ( (uint64_t)1 << ( 0x20 - 2 ) ) ) ? 4    \
+    ( (ulong)(val) < ( 1UL << ( 0x20 - 2 ) ) ) ? 4   \
     :                                                \
-    ( val < ( (uint64_t)1 << ( 0x40 - 2 ) ) ) ? 8    \
+    ( (ulong)(val) < ( 1UL << ( 0x40 - 2 ) ) ) ? 8   \
     :                                                \
     FD_QUIC_ENCODE_FAIL                              \
   )
@@ -42,19 +40,19 @@
    bounds are checked before writing into buf */
 #define FD_QUIC_ENCODE_VARINT(buf,buf_sz,val)                             \
   do {                                                                    \
-    uint64_t val64 = fd_quic_test_negative(val) ? 0 : (val);              \
-    if( val64 < ( (uint64_t)1 << ( 0x08 - 2 ) ) ) {                       \
+    ulong val64 = fd_quic_test_negative(val) ? 0 : (val);                 \
+    if( val64 < ( 1UL << ( 0x08 - 2 ) ) ) {                               \
       if( buf_sz < 1 ) return FD_QUIC_ENCODE_FAIL;                        \
       buf[0] = (uchar)val64;                                              \
       buf++; buf_sz--;                                                    \
     } else                                                                \
-    if( val64 < ( (uint64_t)1 << ( 0x10 - 2 ) ) ) {                       \
+    if( val64 < ( 1UL << ( 0x10 - 2 ) ) ) {                               \
       if( buf_sz < 2 ) return FD_QUIC_ENCODE_FAIL;                        \
       buf[0] = (uchar)( ( ( val64 >> 0x08 ) & 0xfful ) | 0x40u );         \
       buf[1] = ( val64 >> 0x00 ) & 0xffu;                                 \
       buf+=2; buf_sz-=2;                                                  \
     } else                                                                \
-    if( val64 < ( (uint64_t)1 << ( 0x20 - 2 ) ) ) {                       \
+    if( val64 < ( (ulong)1 << ( 0x20 - 2 ) ) ) {                          \
       if( buf_sz < 4 ) return FD_QUIC_ENCODE_FAIL;                        \
       buf[0] = (uchar)( ( ( val64 >> 0x18 ) & 0xffu ) | 0x80u );          \
       buf[1] = ( val64 >> 0x10 ) & 0xffu;                                 \
@@ -62,7 +60,7 @@
       buf[3] = ( val64 >> 0x00 ) & 0xffu;                                 \
       buf+=4; buf_sz-=4;                                                  \
     } else                                                                \
-    if( val64 < ( (uint64_t)1 << ( 0x40 - 2 ) ) ) {                       \
+    if( val64 < ( (ulong)1 << ( 0x40 - 2 ) ) ) {                          \
       if( buf_sz < 8 ) return FD_QUIC_ENCODE_FAIL;                        \
       buf[0] = (uchar)( ( ( val64 >> 0x38 ) & 0xffu ) | 0xc0u );          \
       buf[1] = ( val64 >> 0x30 ) & 0xffu;                                 \
@@ -80,13 +78,13 @@
 
 #if 0
 inline
-uint64_t
-fd_quic_parse_bits( uchar const * buf, size_t cur_bit, size_t bits ) {
+ulong
+fd_quic_parse_bits( uchar const * buf, ulong cur_bit, ulong bits ) {
   if( bits == 0 ) return 0;
   if( bits > 64 ) return 0;
 
   if( cur_bit == 0 && bits >= 8 ) {
-    return ( (uint64_t)buf[0] << (bits-8) ) + fd_quic_parse_bits( buf + 1, cur_bit, bits - 8 );
+    return ( (ulong)buf[0] << (bits-8) ) + fd_quic_parse_bits( buf + 1, cur_bit, bits - 8 );
   }
 
   if( cur_bit == 0 ) {
@@ -96,17 +94,17 @@ fd_quic_parse_bits( uchar const * buf, size_t cur_bit, size_t bits ) {
 
   // align remainder
   if( bits <= 8 - cur_bit ) {
-    return ( (uint64_t)buf[0] >> ( 8 - cur_bit - bits ) ) & ( ( 1 << bits ) - 1 );
+    return ( (ulong)buf[0] >> ( 8 - cur_bit - bits ) ) & ( ( 1 << bits ) - 1 );
   }
 
-  return ( ( (uint64_t)buf[0] & ( ( 1 << ( 8 - cur_bit ) ) - 1 ) ) << ( bits - ( 8 - cur_bit ) ) )
+  return ( ( (ulong)buf[0] & ( ( 1 << ( 8 - cur_bit ) ) - 1 ) ) << ( bits - ( 8 - cur_bit ) ) )
          + fd_quic_parse_bits( buf + 1, 0, ( bits - ( 8 - cur_bit ) ) );
 }
 #elif 1
 
 inline
-uint64_t
-fd_quic_parse_bits( uchar const * buf, size_t cur_bit, size_t bits ) {
+ulong
+fd_quic_parse_bits( uchar const * buf, ulong cur_bit, ulong bits ) {
   /* written to assist compiler in optimizing
      when written naively, the compiler emits branches and calls
        whereas this way almost all the code is elided
@@ -119,17 +117,17 @@ fd_quic_parse_bits( uchar const * buf, size_t cur_bit, size_t bits ) {
            ( bits > 64u ) ? 0u
            :
            ( cur_bit == 0u && bits >= 8u ) ?
-             ( ( (uint64_t)buf[0u] << (bits-8u) ) + fd_quic_parse_bits( buf + 1u, cur_bit, bits - 8u ) )
+             ( ( (ulong)buf[0u] << (bits-8u) ) + fd_quic_parse_bits( buf + 1u, cur_bit, bits - 8u ) )
            :
            ( cur_bit == 0u ) ?
-             ( ( (uint64_t)buf[0u] >> ( 8u - bits ) ) & ( ( 1u << bits ) - 1u ) )
-          
+             ( ( (ulong)buf[0u] >> ( 8u - bits ) ) & ( ( 1u << bits ) - 1u ) )
+
            :
            ( bits <= 8u - cur_bit ) ?
-             ( ( (uint64_t)buf[0u] >> ( 8u - cur_bit - bits ) ) & ( ( 1u << bits ) - 1u ) )
-          
+             ( ( (ulong)buf[0u] >> ( 8u - cur_bit - bits ) ) & ( ( 1u << bits ) - 1u ) )
+
            :
-           ( ( ( (uint64_t)buf[0u] & ( ( 1u << ( 8u - cur_bit ) ) - 1u ) ) << ( bits - ( 8u - cur_bit ) ) )
+           ( ( ( (ulong)buf[0u] & ( ( 1u << ( 8u - cur_bit ) ) - 1u ) ) << ( bits - ( 8u - cur_bit ) ) )
                   + fd_quic_parse_bits( buf + 1u, 0u, ( bits - ( 8u - cur_bit ) ) ) )
         );
 }
@@ -141,15 +139,15 @@ fd_quic_parse_bits( uchar const * buf, size_t cur_bit, size_t bits ) {
    returns 0 for success */
 inline
 int
-fd_quic_encode_bits( uchar * buf, size_t cur_bit, uint64_t val, size_t bits ) {
+fd_quic_encode_bits( uchar * buf, ulong cur_bit, ulong val, ulong bits ) {
   /* TODO optimize this */
 
   if( bits == 0u || bits > 64u ) return 1;
 
-  for( size_t j = 0; j < bits; ++j ) {
-    size_t k = cur_bit + j;
-    size_t bit_offs  = k & 7u;
-    size_t byte_offs = k >> 3u; 
+  for( ulong j = 0; j < bits; ++j ) {
+    ulong k = cur_bit + j;
+    ulong bit_offs  = k & 7u;
+    ulong byte_offs = k >> 3u;
 
     /* at each new byte, clear it */
     uchar cur_byte = bit_offs == 0 ? 0 : buf[byte_offs];

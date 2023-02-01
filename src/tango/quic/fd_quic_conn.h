@@ -50,8 +50,8 @@ typedef struct fd_quic_range      fd_quic_range_t;
 struct fd_quic_range {
   /* offset in [ offset_lo, offset_hi ) is considered inside the range */
   /* a zero-initialized range will be empty [0,0) */
-  uint64_t offset_lo;
-  uint64_t offset_hi;
+  ulong offset_lo;
+  ulong offset_hi;
 };
 
 
@@ -61,9 +61,9 @@ struct fd_quic_range {
    used when acks arrive to determine what is being acked specifically */
 struct fd_quic_pkt_meta {
   /* stores meta data about what was sent in the identified packet */
-  uint64_t        pkt_number;  /* the packet number */
-  uint8_t         enc_level;   /* every packet is sent at a specific enc_level */
-  uint8_t         pn_space;    /* packet number space (must be consistent with enc_level)  */
+  ulong        pkt_number;  /* the packet number */
+  uchar         enc_level;   /* every packet is sent at a specific enc_level */
+  uchar         pn_space;    /* packet number space (must be consistent with enc_level)  */
 
   /* does the referenced packet contain:
            FD_QUIC_PKT_META_FLAGS_HS_DATA           handshake data
@@ -73,7 +73,7 @@ struct fd_quic_pkt_meta {
            FD_QUIC_PKT_META_FLAGS_MAX_STREAM_DATA   max_stream_data frame
            FD_QUIC_PKT_META_FLAGS_MAX_STREAMS       max_streams frame
            FD_QUIC_PKT_META_FLAGS_CLOSE             close frame */
-  unsigned        flags;       /* flags */
+  uint        flags;       /* flags */
 # define          FD_QUIC_PKT_META_FLAGS_HS_DATA         (1u<<0u)
 # define          FD_QUIC_PKT_META_FLAGS_STREAM          (1u<<1u)
 # define          FD_QUIC_PKT_META_FLAGS_HS_DONE         (1u<<2u)
@@ -85,7 +85,7 @@ struct fd_quic_pkt_meta {
   fd_quic_range_t range;       /* range of bytes referred to by this meta */
                                /* stream data or crypto data */
                                /* we currently do not put both in the same packet */
-  uint64_t        stream_id;   /* if this contains stream data, the stream id, else zero */
+  ulong        stream_id;   /* if this contains stream data, the stream id, else zero */
 
   /* TODO add timeout */
 
@@ -105,14 +105,14 @@ struct fd_quic_pkt_meta {
 
 struct fd_quic_ack {
   /* stores data about what was ack'ed */
-  uint64_t        tx_pkt_number; /* the packet number this ack range was or will be transmitted in */
-  uint64_t        tx_time;       /* the time the ack was sent, or should be sent */
-  uint64_t        pkt_rcvd;      /* the time the original packet was received */
+  ulong        tx_pkt_number; /* the packet number this ack range was or will be transmitted in */
+  ulong        tx_time;       /* the time the ack was sent, or should be sent */
+  ulong        pkt_rcvd;      /* the time the original packet was received */
   fd_quic_range_t pkt_number;    /* range of packet numbers being acked */
   fd_quic_ack_t * next;          /* next ack in linked list - e.g. free list */
-  uint8_t         enc_level;
-  uint8_t         pn_space;
-  uint8_t         flags;
+  uchar         enc_level;
+  uchar         pn_space;
+  uchar         flags;
 # define FD_QUIC_ACK_FLAGS_SENT      (1u<<0u)
 # define FD_QUIC_ACK_FLAGS_MANDATORY (1u<<1u)
 };
@@ -125,9 +125,9 @@ struct fd_quic_conn {
   int                established;        /* used by clients to determine whether to
                                             switch the destination conn id used */
 
-  uint32_t           version;            /* QUIC version of the connection */
+  uint           version;            /* QUIC version of the connection */
 
-  uint64_t           next_service_time;  /* time service should be called next */
+  ulong           next_service_time;  /* time service should be called next */
 
   fd_quic_host_cfg_t host;               /* host configuration */
 
@@ -140,13 +140,13 @@ struct fd_quic_conn {
   /* the original connection id is specified by the client */
   fd_quic_conn_id_t  orig_conn_id;       /* unused by client connections */
 
-  uint16_t           our_conn_id_cnt;    /* number of connection ids */
-  uint16_t           peer_cnt;           /* number of peer endpoints */
+  ushort           our_conn_id_cnt;    /* number of connection ids */
+  ushort           peer_cnt;           /* number of peer endpoints */
 
-  uint16_t           cur_conn_id_idx;    /* currently used conn id */
-  uint16_t           cur_peer_idx;       /* currently used peer endpoint */
+  ushort           cur_conn_id_idx;    /* currently used conn id */
+  ushort           cur_peer_idx;       /* currently used peer endpoint */
 
-  unsigned           max_datagram_sz;    /* size of maximum datagram allowed */
+  uint           max_datagram_sz;    /* size of maximum datagram allowed */
 
   /* handshake members */
   int                handshake_complete; /* have we completed a successful handshake? */
@@ -158,33 +158,33 @@ struct fd_quic_conn {
        duplicate packets should already have been dropped
      data received higher than this would be a gap
        ignore at present, assuming will be resent in order */
-  uint64_t tx_crypto_offset[4]; /* next handshake data (crypto) offset
+  ulong tx_crypto_offset[4]; /* next handshake data (crypto) offset
                                    one per encryption level */
-  uint64_t rx_crypto_offset[4]; /* expected handshake data (crypto) offset
+  ulong rx_crypto_offset[4]; /* expected handshake data (crypto) offset
                                    one per encryption level */
 
   /* amount of handshade data already sent from head of queue */
-  size_t hs_sent_bytes[4];
+  ulong hs_sent_bytes[4];
 
   /* secret members */
   fd_quic_crypto_secrets_t secrets;
   fd_quic_crypto_keys_t    keys[4][2]; /* a set of keys for each of the encoding levels, and for client/server */
   fd_quic_crypto_suite_t * suites[4];
 
-  size_t             tot_num_streams;
+  ulong             tot_num_streams;
   fd_quic_stream_t * streams;
 
   /* packet number info
      each encryption level maps to a packet number space
      0-RTT and 1-RTT both map to APPLICATION
-     pkt_number[j] represents the minimum acceptable packet number 
+     pkt_number[j] represents the minimum acceptable packet number
        "expected packet number"
        packets with a number lower than this will be dropped */
-  uint64_t exp_pkt_number[3]; /* different packet number spaces:
+  ulong exp_pkt_number[3]; /* different packet number spaces:
                                  INITIAL, HANDSHAKE and APPLICATION */
-  uint64_t pkt_number[3];     /* tx packet number by pn space */
+  ulong pkt_number[3];     /* tx packet number by pn space */
 
-  uint16_t ipv4_id;           /* ipv4 id field */
+  ushort ipv4_id;           /* ipv4 id field */
 
   /* TODO these scratch areas may be moved to quic */
   /* some buffer space for encryption/decryption */
@@ -196,19 +196,19 @@ struct fd_quic_conn {
   /* buffer to send next */
   uchar   tx_buf[2048];
   uchar * tx_ptr; /* ptr to free space in tx_scratch */
-  size_t  tx_sz;  /* sz remaining at ptr */
+  ulong  tx_sz;  /* sz remaining at ptr */
 
   /* the peer transport parameters */
   fd_quic_transport_params_t peer_transport_params;
 
-  unsigned state;
-  unsigned reason;     /* quic reason for closing. see FD_QUIC_CONN_REASON_* */
-  unsigned app_reason; /* application reason for closing */
+  uint state;
+  uint reason;     /* quic reason for closing. see FD_QUIC_CONN_REASON_* */
+  uint app_reason; /* application reason for closing */
 
 
   /* sent packet metadata */
   /* TODO */
-  /* 3 linked lists of packet metadata for tracking what data was sent 
+  /* 3 linked lists of packet metadata for tracking what data was sent
      one for each packet space:
        initial
        handshake
@@ -227,10 +227,10 @@ struct fd_quic_conn {
      cleared once packet is acked */
   int handshake_done_send;
 
-  uint64_t next_stream_id[4];      /* next stream id by type - see rfc9000 2.1 */
+  ulong next_stream_id[4];      /* next stream id by type - see rfc9000 2.1 */
 
-  unsigned max_concur_streams;     /* configured max concurrent streams by connection and type */
-  unsigned max_streams[4];         /* maximum stream id by type */
+  uint max_concur_streams;     /* configured max concurrent streams by connection and type */
+  uint max_streams[4];         /* maximum stream id by type */
   /* rfc9000:
        19.11 Note that these frames (and the corresponding transport parameters)
                do not describe the number of streams that can be opened concurrently.
@@ -242,7 +242,7 @@ struct fd_quic_conn {
              0x02 Client-Initiated, Unidirectional
              0x03 Server-Initiated, Unidirectional */
 
-  unsigned num_streams[4];         /* current number of streams of each type */
+  uint num_streams[4];         /* current number of streams of each type */
 
   fd_quic_pkt_meta_t * pkt_meta;           /* pkt_meta contiguous storage */
   fd_quic_pkt_meta_t * pkt_meta_free;      /* pkt_meta free list */
@@ -256,40 +256,40 @@ struct fd_quic_conn {
   fd_quic_ack_t *      acks_tx[4];
   fd_quic_ack_t *      acks_tx_end[4];     /* the ends of each list in acks_tx */
 
-  uint64_t             peer_max_ack_delay; /* limit on the delay we intensionally impose on acks
+  ulong             peer_max_ack_delay; /* limit on the delay we intensionally impose on acks
                                               in nanoseconds */
 
   /* flow control */
-  size_t               tx_max_data;        /* the limit on the number of bytes we are allowed
+  ulong               tx_max_data;        /* the limit on the number of bytes we are allowed
                                               to send to the peer across all streams */
                                            /* even if a bytes on a stream are not received,
                                               higher offsets received imply the usage of those bytes,
                                               and they count against the max */
-  size_t               tx_tot_data;        /* total of all bytes received across all streams
+  ulong               tx_tot_data;        /* total of all bytes received across all streams
                                               and including implied bytes */
-  size_t               rx_max_data;        /* the limit on the number of bytes the peer is allowed to
+  ulong               rx_max_data;        /* the limit on the number of bytes the peer is allowed to
                                               send to us */
-  size_t               rx_tot_data;        /* total of all bytes received across all streams
+  ulong               rx_tot_data;        /* total of all bytes received across all streams
                                               and including implied bytes */
 
-  uint8_t              flags;
+  uchar              flags;
 # define FD_QUIC_CONN_FLAGS_MAX_DATA   (1u<<0u)
 # define FD_QUIC_CONN_FLAGS_CLOSE_SENT (1u<<1u)
 
   /* max stream data per stream type */
-  size_t               tx_initial_max_stream_data_uni;
-  size_t               tx_initial_max_stream_data_bidi_local;
-  size_t               tx_initial_max_stream_data_bidi_remote;
+  ulong               tx_initial_max_stream_data_uni;
+  ulong               tx_initial_max_stream_data_bidi_local;
+  ulong               tx_initial_max_stream_data_bidi_remote;
 
   /* last tx packet num with max_data frame refering to this stream
      set to next_pkt_number to indicate a new max_data frame should be sent
      if we time out this packet (or possibly a later packet) we resend the frame
        and update this value */
-  uint64_t             upd_pkt_number;
+  ulong             upd_pkt_number;
 
   /* for timing out data and resending
      should be at least the smoothed round-trip-time */
-  uint64_t             base_timeout;
+  ulong             base_timeout;
 
   fd_quic_conn_t *     next;               /* next connection in the free list, or in service list */
 };

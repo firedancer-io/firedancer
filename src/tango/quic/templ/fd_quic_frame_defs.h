@@ -4,7 +4,7 @@
   int fd_quic_frame_handle_##NAME( void *               frame_context, \
                                    fd_quic_##NAME##_t * frame_data,    \
                                    uchar const *        p,             \
-                                   size_t               p_sz );
+                                   ulong               p_sz );
 
 #include "fd_quic_dft.h"
 

@@ -2,7 +2,6 @@
 #define HEADER_fd_quic_transport_params_h
 
 #include <stdio.h>
-#include <stdint.h>
 
 // TODO set proper defaults, and delete DFT_UNKNOWN
 #define DFT_UNKNOWN 0
@@ -201,32 +200,32 @@ void
 fd_quic_dump_transport_param_desc( FILE * out );
 
 /* TODO remove these */
-//typedef uint64_t FD_QUIC_MBR_TYPE_VARINT;
-//typedef uint8_t FD_QUIC_MBR_TYPE_CONN_ID[20];
-//typedef uint8_t FD_QUIC_MBR_TYPE_ZERO_LENGTH;
-//typedef uint8_t FD_QUIC_MBR_TYPE_TOKEN[1024]; // TODO verify max length
-//typedef uint8_t FD_QUIC_MBR_TYPE_PREFERRED_ADDRESS[1024]; // TODO verify max length
+//typedef ulong FD_QUIC_MBR_TYPE_VARINT;
+//typedef uchar FD_QUIC_MBR_TYPE_CONN_ID[20];
+//typedef uchar FD_QUIC_MBR_TYPE_ZERO_LENGTH;
+//typedef uchar FD_QUIC_MBR_TYPE_TOKEN[1024]; // TODO verify max length
+//typedef uchar FD_QUIC_MBR_TYPE_PREFERRED_ADDRESS[1024]; // TODO verify max length
 
 // TODO verify max length on these - CONN_ID and TOKEN
 // PREFERRED_ADDRESS is incomplete
 #define FD_QUIC_MBR_TYPE_VARINT(NAME,TYPE)            \
-  uint64_t NAME;                                      \
-  uint8_t  NAME##_present;
+  ulong NAME;                                      \
+  uchar  NAME##_present;
 #define FD_QUIC_MBR_TYPE_CONN_ID(NAME,TYPE)           \
-  uint8_t  NAME##_len;                                \
-  uint8_t  NAME[20];                                  \
-  uint8_t  NAME##_present;
+  uchar  NAME##_len;                                \
+  uchar  NAME[20];                                  \
+  uchar  NAME##_present;
 #define FD_QUIC_MBR_TYPE_ZERO_LENGTH(NAME,TYPE)       \
-  uint8_t  NAME;                                      \
-  uint8_t  NAME##_present;
+  uchar  NAME;                                      \
+  uchar  NAME##_present;
 #define FD_QUIC_MBR_TYPE_TOKEN(NAME,TYPE)             \
-  uint32_t NAME##_len;                                \
-  uint8_t  NAME[1024];                                \
-  uint8_t  NAME##_present;
+  uint NAME##_len;                                \
+  uchar  NAME[1024];                                \
+  uchar  NAME##_present;
 #define FD_QUIC_MBR_TYPE_PREFERRED_ADDRESS(NAME,TYPE) \
-  uint32_t NAME##_len;                                \
-  uint8_t  NAME[1024];                                \
-  uint8_t  NAME##_present;
+  uint NAME##_len;                                \
+  uchar  NAME[1024];                                \
+  uchar  NAME##_present;
 
 struct fd_quic_transport_params {
 #define __( NAME, ID, TYPE, DFT, DESC, ... ) \
@@ -236,6 +235,28 @@ struct fd_quic_transport_params {
 };
 typedef struct fd_quic_transport_params fd_quic_transport_params_t;
 
+
+/* parses the varint at *buf (capacity *buf_sz)
+   advances the *buf and reduces *buf_sz by the number of bytes
+   consumed */
+static inline
+ulong
+fd_quic_tp_parse_varint( uchar const ** buf, ulong * buf_sz ) {
+  if( FD_UNLIKELY( *buf_sz == 0    ) ) return ~(ulong)0;
+
+  uint width = 1u << ( (uint)(*buf)[0] >> 6u );
+  if( FD_UNLIKELY( *buf_sz < width ) ) return ~(ulong)0;
+
+  ulong value = (ulong)( (*buf)[0] & 0x3f );
+  for( ulong j=1; j<width; ++j ) {
+    value = ( value<<8UL ) + (ulong)(*buf)[j];
+  }
+
+  *buf    += width;
+  *buf_sz -= width;
+
+  return value;
+}
 
 /* parse a particular transport parameter into the corresponding
    member(s) of params
@@ -249,9 +270,9 @@ typedef struct fd_quic_transport_params fd_quic_transport_params_t;
    returns the number of bytes consumed or -1 upon failure to parse */
 int
 fd_quic_decode_transport_param( fd_quic_transport_params_t * params,
-                                uint32_t                     id,
-                                uint8_t const *              buf,
-                                size_t                       sz );
+                                uint                     id,
+                                uchar const *              buf,
+                                ulong                       sz );
 
 /* parse the entire buffer into the supplied transport parameters
 
@@ -263,7 +284,7 @@ fd_quic_decode_transport_param( fd_quic_transport_params_t * params,
 int
 fd_quic_decode_transport_params( fd_quic_transport_params_t * params,
                                  uchar const *                buf,
-                                 size_t                       buf_sz );
+                                 ulong                       buf_sz );
 
 /* dump all transport parameters to stdout */
 void
@@ -277,9 +298,9 @@ fd_quic_dump_transport_params( fd_quic_transport_params_t const * params, FILE *
      params        the parameters to be encoded
 
    returns the number of bytes written */
-size_t
-fd_quic_encode_transport_params( uint8_t *                          buf,
-                                 size_t                             buf_sz,
+ulong
+fd_quic_encode_transport_params( uchar *                          buf,
+                                 ulong                             buf_sz,
                                  fd_quic_transport_params_t const * params );
 
 
@@ -288,7 +309,7 @@ fd_quic_encode_transport_params( uint8_t *                          buf,
      params        the parameters to be encoded
 
    returns the number of bytes required */
-size_t
+ulong
 fd_quic_transport_params_footprint( fd_quic_transport_params_t const * params );
 
 #endif
