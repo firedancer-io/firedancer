@@ -85,7 +85,7 @@ fd_bpf_install( const char* bpf_file,
   /* attach program to interface */
   if( mode == 0 ) mode = XDP_FLAGS_SKB_MODE;
 
-  rc = bpf_set_link_xdp_fd( ifindex, fd, (uint32_t)mode );
+  rc = bpf_set_link_xdp_fd( ifindex, fd, (uint)mode );
   if( rc < 0 ) {
     FD_LOG_WARNING(( "bpf_set_link_xdp_fd failed with rc: %d  errno: %d %s", rc, errno, strerror( errno ) ));
     goto fd_bpf_install_err;
@@ -119,7 +119,7 @@ fd_bpf_install_err:
 
   if( attached ) {
     /* detach */
-    rc = bpf_set_link_xdp_fd( ifindex, -1, (uint32_t)mode );
+    rc = bpf_set_link_xdp_fd( ifindex, -1, (uint)mode );
 
     if( rc < 0 ) {
       FD_LOG_WARNING(( "Failed to detach xdp prog from interface during error handling" ));
@@ -146,7 +146,7 @@ fd_bpf_install_err:
      -1         the operation failed. Possibly the interface wasn't found */
 int
 fd_bpf_detach( char const * intf ) {
-  uint32_t id  = 0;
+  uint id  = 0;
   int      err = 0;
 
   /* find interface */

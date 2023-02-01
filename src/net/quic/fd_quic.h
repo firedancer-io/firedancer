@@ -49,27 +49,27 @@ struct fd_quic {
 
   int                           listen;                 /* are we listening for inbound connections */
 
-  size_t                        max_concur_conns;       /* maximum number of concurrent connections */
+  ulong                         max_concur_conns;       /* maximum number of concurrent connections */
                                                         /* allowed */
 
-  unsigned                      max_concur_streams;     /* maximum number of concurrent streams */
+  uint                          max_concur_streams;     /* maximum number of concurrent streams */
                                                         /* allowed per connection */
 
-  unsigned                      max_concur_handshakes;  /* maximum number of concurrent handshake */
+  uint                          max_concur_handshakes;  /* maximum number of concurrent handshake */
                                                         /* allowed per connection */
 
-  size_t                        max_in_flight_pkts;     /* max in-flight (tx) packets per connection */
-  size_t                        max_in_flight_acks;     /* max in-flight (tx) acks per connection */
+  ulong                         max_in_flight_pkts;     /* max in-flight (tx) packets per connection */
+  ulong                         max_in_flight_acks;     /* max in-flight (tx) acks per connection */
 
   fd_quic_now_t                 now_fn;                 /* now function - returns the current time in ns */
   void *                        now_ctx;                /* context supplied as argument to now_fn */
 
-  uint64_t                      service_interval;       /* mean time between connection services */
+  ulong                         service_interval;       /* mean time between connection services */
 
-  uint8_t                       dscp;                   /* differentiated services code point */
+  uchar                         dscp;                   /* differentiated services code point */
 
   fd_quic_conn_t *              conns;                  /* free list of unused connections */
-  size_t                        cur_num_conns;          /* current number of connections */
+  ulong                         cur_num_conns;          /* current number of connections */
 
   fd_quic_conn_map_t *          conn_map;               /* map connection ids -> connection */
 
@@ -101,14 +101,14 @@ struct fd_quic {
 
 
   /* flow control - configured initial limits */
-  size_t                        initial_max_data;           /* directly from transport params */
-  size_t                        initial_max_stream_data[4]; /* from 4 transport params
+  ulong                         initial_max_data;           /* directly from transport params */
+  ulong                         initial_max_stream_data[4]; /* from 4 transport params
                                                                indexed by stream type */
 };
 
 /* events for time based processing */
 struct fd_quic_event {
-  uint64_t         timeout;
+  ulong            timeout;
 
   fd_quic_conn_t * conn; /* connection or NULL */
   /* possibly "type", etc., for other kinds of service */
@@ -160,14 +160,14 @@ fd_quic_delete( fd_quic_t * quic );
      dst_udp_port      destination port number */
 fd_quic_conn_t *
 fd_quic_connect( fd_quic_t * quic,
-                 uint32_t    dst_ip_addr,
-                 uint16_t    dst_udp_port );
+                 uint        dst_ip_addr,
+                 ushort      dst_udp_port );
 
 
 /* initiate the shutdown of a connection
    may select a reason code, or 0 if none */
 void
-fd_quic_conn_close( fd_quic_conn_t * conn, unsigned reason );
+fd_quic_conn_close( fd_quic_conn_t * conn, uint reason );
 
 
 /* initiate a reset of a connection */
@@ -192,7 +192,7 @@ fd_quic_handshake_complete( fd_quic_conn_t * conn ) {
 
 /* do general processing
    user should call regularly to service connections
-   
+
    args
      quic       the quic to run processing on
      now        the current time in ns
@@ -211,7 +211,7 @@ fd_quic_service( fd_quic_t * quic );
      conn        connection to service
      now         the current time in ns */
 void
-fd_quic_conn_service( fd_quic_t * quic, fd_quic_conn_t * conn, uint64_t now );
+fd_quic_conn_service( fd_quic_t * quic, fd_quic_conn_t * conn, ulong now );
 
 
 /* free a connection
@@ -262,7 +262,7 @@ fd_quic_listen( fd_quic_t * quic );
 
    the user does not own the returned pointer: its lifetime is managed
    by the connection
-   
+
    args
      conn           the connection from which to derive the stream
      type           one of the following:
@@ -291,7 +291,7 @@ fd_quic_conn_new_stream( fd_quic_conn_t * conn, int type );
 int
 fd_quic_stream_send( fd_quic_stream_t * stream,
                      fd_aio_buffer_t *  batch,
-                     size_t             batch_sz );
+                     ulong              batch_sz );
 
 
 /* closes tx or rx or both of a stream
@@ -389,7 +389,7 @@ fd_quic_set_cb_stream_notify( fd_quic_t * quic, fd_quic_cb_stream_notify_t cb ) 
   quic->cb_stream_notify = cb;
 }
 
-uint64_t
+ulong
 fd_quic_get_next_wakeup( fd_quic_t * quic );
 
 

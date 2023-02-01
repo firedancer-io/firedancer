@@ -21,8 +21,8 @@
    handlers are named as follows:
      fd_quic_frame_handle_{TYPE}
    they have the following signature:
-     size_t
-     handler( void * frame_context, fd_quic_{TYPE} * parsed_frame, uchar const * cur_ptr, size_t cur_sz );
+     ulong
+     handler( void * frame_context, fd_quic_{TYPE} * parsed_frame, uchar const * cur_ptr, ulong cur_sz );
    they should handle the frame "parsed_frame", consume cur_ptr as required, and return either:
      the number of extra bytes consumed
      FD_QUIC_PARSE_FAIL
@@ -42,18 +42,18 @@
 
 #define FD_TEMPL_DEF_STRUCT_END(NAME)                                               \
     if( id >= id_lo && id <= id_hi ) {                                              \
-      size_t rc = fd_quic_decode_##NAME( data, p, (size_t)(p_end-p) );              \
+      ulong rc = fd_quic_decode_##NAME( data, p, (ulong)(p_end-p) );                \
       if( rc == FD_QUIC_PARSE_FAIL ) {                                              \
         return FD_QUIC_PARSE_FAIL;                                                  \
       }                                                                             \
       p += rc;                                                                      \
       rc = fd_quic_frame_handle_##NAME( frame_context, data,                        \
-                                        p, (size_t)(p_end-p) );                     \
+                                        p, (ulong)(p_end-p) );                      \
       if( rc == FD_QUIC_PARSE_FAIL ) {                                              \
         return FD_QUIC_PARSE_FAIL;                                                  \
       }                                                                             \
       p += rc;                                                                      \
-      return (size_t)(p - buf);                                                     \
+      return (ulong)(p - buf);                                                      \
     }                                                                               \
   } while(0);
 

@@ -8,7 +8,7 @@
 uchar  FD_QUIC_CRYPTO_V1_INITIAL_SALT[]  = { 0x38, 0x76, 0x2c, 0xf7, 0xf5, 0x59, 0x34, 0xb3,
                                              0x4d, 0x17, 0x9a, 0xe6, 0xa4, 0xc8, 0x0c, 0xad,
                                              0xcc, 0xbb, 0x7f, 0x0a };
-size_t FD_QUIC_CRYPTO_V1_INITIAL_SALT_SZ = sizeof( FD_QUIC_CRYPTO_V1_INITIAL_SALT );
+ulong FD_QUIC_CRYPTO_V1_INITIAL_SALT_SZ = sizeof( FD_QUIC_CRYPTO_V1_INITIAL_SALT );
 
 
 /* initialize crypto context */
@@ -49,10 +49,10 @@ fd_quic_crypto_ctx_reset( fd_quic_crypto_ctx_t * ctx ) {
 }
 
 int
-fd_quic_hkdf_extract( uchar *        output,  size_t output_sz,
+fd_quic_hkdf_extract( uchar *        output,  ulong output_sz,
                       EVP_MD const * md,
-                      uchar const *  salt,    size_t salt_sz,
-                      uchar const *  conn_id, size_t conn_id_sz ) {
+                      uchar const *  salt,    ulong salt_sz,
+                      uchar const *  conn_id, ulong conn_id_sz ) {
   /* fetch hash size */
   int i_hash_sz = EVP_MD_size( md );
 
@@ -64,41 +64,41 @@ fd_quic_hkdf_extract( uchar *        output,  size_t output_sz,
     return FD_QUIC_FAILED;
   }
 
-  size_t hash_sz = (size_t)i_hash_sz;
+  ulong hash_sz = (ulong)i_hash_sz;
 
   /* ensure buffer space for call to HMAC_Final */
-  if( output_sz < hash_sz ) {
+  if( FD_UNLIKELY( output_sz < hash_sz ) ) {
     FD_LOG_ERR(( "fd_quic_hkdf_extract: output size to small for result" ));
     return FD_QUIC_FAILED;
   }
 
   HMAC_CTX * hash_ctx = HMAC_CTX_new();
-  if( !hash_ctx ) {
+  if( FD_UNLIKELY( !hash_ctx ) ) {
     FD_LOG_ERR(( "openssl error: HMAC_CTX_new returned NULL" ));
     return FD_QUIC_FAILED;
   }
 
-  if( HMAC_Init_ex( hash_ctx, salt, (int)salt_sz, md, NULL ) != 1 ) {
+  if( FD_UNLIKELY( HMAC_Init_ex( hash_ctx, salt, (int)salt_sz, md, NULL ) != 1 ) ) {
     FD_LOG_ERR(( "openssl error: HMAC_Init_ex failed" ));
     HMAC_CTX_free( hash_ctx );
     return FD_QUIC_FAILED;
   }
 
   /* this may be necessary for some hash functions */
-  if( !HMAC_Init_ex( hash_ctx, NULL, 0, NULL, NULL ) ) {
+  if( FD_UNLIKELY( !HMAC_Init_ex( hash_ctx, NULL, 0, NULL, NULL ) ) ) {
     FD_LOG_ERR(( "openssl error: HMAC_Init_ex failed" ));
     HMAC_CTX_free( hash_ctx );
     return FD_QUIC_FAILED;
   }
 
-  if( !HMAC_Update( hash_ctx, conn_id, conn_id_sz ) ) {
+  if( FD_UNLIKELY( !HMAC_Update( hash_ctx, conn_id, conn_id_sz ) ) ) {
     FD_LOG_ERR(( "openssl error: HMAC_Update failed" ));
     HMAC_CTX_free( hash_ctx );
     return FD_QUIC_FAILED;
   }
 
-  unsigned int final_output_sz = (unsigned int)output_sz;
-  if( !HMAC_Final( hash_ctx, output, &final_output_sz ) ) {
+  uint final_output_sz = (uint)output_sz;
+  if( FD_UNLIKELY( !HMAC_Final( hash_ctx, output, &final_output_sz ) ) ) {
     FD_LOG_ERR(( "openssl error: HMAC_Final failed" ));
     HMAC_CTX_free( hash_ctx );
     return FD_QUIC_FAILED;
@@ -111,10 +111,10 @@ fd_quic_hkdf_extract( uchar *        output,  size_t output_sz,
 
 
 int
-fd_quic_hkdf_expand_label( uchar *        output,  size_t output_sz,
+fd_quic_hkdf_expand_label( uchar *        output,  ulong output_sz,
                            EVP_MD const * md,
-                           uchar const *  secret,  size_t secret_sz,
-                           uchar const *  label,   size_t label_sz ) {
+                           uchar const *  secret,  ulong secret_sz,
+                           uchar const *  label,   ulong label_sz ) {
   uchar temp[FD_QUIC_CRYPTO_HASH_SZ_BOUND] = {0};
 
   /* fetch hash size */
@@ -128,25 +128,25 @@ fd_quic_hkdf_expand_label( uchar *        output,  size_t output_sz,
     return FD_QUIC_FAILED;
   }
 
-  size_t hash_sz = (size_t)i_hash_sz;
+  ulong hash_sz = (ulong)i_hash_sz;
 
-  if( output_sz > hash_sz ) {
+  if( FD_UNLIKELY( output_sz > hash_sz ) ) {
     FD_LOG_ERR(( "fd_quic_hkdf_expand_label: output_sz is larger than hash size"  ));
     return FD_QUIC_FAILED;
   }
 
-  if( output_sz > sizeof( temp ) ) {
+  if( FD_UNLIKELY( output_sz > sizeof( temp ) ) ) {
     FD_LOG_ERR(( "fd_quic_hkdf_expand_label: output_sz is larger than output buffer" ));
     return FD_QUIC_FAILED;
   }
 
   HMAC_CTX * hash_ctx = HMAC_CTX_new();
-  if( !hash_ctx ) {
+  if( FD_UNLIKELY( !hash_ctx ) ) {
     FD_LOG_ERR(( "HMAC_CTX_new returned NULL"  ));
     return FD_QUIC_FAILED;
   }
 
-  if( HMAC_Init_ex( hash_ctx, secret, (int)secret_sz, md, NULL ) != 1 ) {
+  if( FD_UNLIKELY( HMAC_Init_ex( hash_ctx, secret, (int)secret_sz, md, NULL ) != 1 ) ) {
     FD_LOG_ERR(( "HMAC_Init_ex returned error"  ));
     HMAC_CTX_free( hash_ctx );
     return FD_QUIC_FAILED;
@@ -154,7 +154,7 @@ fd_quic_hkdf_expand_label( uchar *        output,  size_t output_sz,
 
   /* expand */
   uchar   HKDF_PREFIX[6] = "tls13 ";
-  size_t  HKDF_PREFIX_SZ = sizeof( HKDF_PREFIX );
+  ulong  HKDF_PREFIX_SZ = sizeof( HKDF_PREFIX );
 
   /* format label */
   uchar label_data[FD_QUIC_CRYPTO_LABEL_BOUND];
@@ -163,8 +163,8 @@ fd_quic_hkdf_expand_label( uchar *        output,  size_t output_sz,
        size of prefix+label: 1 byte
        const 0x00:           1 byte
        const 0x01:           1 byte */
-  size_t label_data_sz = 3 + HKDF_PREFIX_SZ + label_sz + 1 + 1;
-  if( label_data_sz > sizeof( label_data ) ) {
+  ulong label_data_sz = 3 + HKDF_PREFIX_SZ + label_sz + 1 + 1;
+  if( FD_UNLIKELY( label_data_sz > sizeof( label_data ) ) ) {
     FD_LOG_ERR(( "fd_quic_hkdf_expand_label: label data size larger than allowed"  ));
     HMAC_CTX_free( hash_ctx );
     return FD_QUIC_FAILED;
@@ -173,8 +173,8 @@ fd_quic_hkdf_expand_label( uchar *        output,  size_t output_sz,
   label_data[0] = (uchar)( output_sz >> 8u );
   label_data[1] = (uchar)( output_sz & 0xffu );
   label_data[2] = (uchar)( HKDF_PREFIX_SZ + label_sz );
-  memcpy( label_data + 3, HKDF_PREFIX, HKDF_PREFIX_SZ );
-  memcpy( label_data + 3 + HKDF_PREFIX_SZ, label, label_sz );
+  fd_memcpy( label_data + 3, HKDF_PREFIX, HKDF_PREFIX_SZ );
+  fd_memcpy( label_data + 3 + HKDF_PREFIX_SZ, label, label_sz );
   label_data[3 + HKDF_PREFIX_SZ + label_sz] = 0x00u;
 
   // This is the first stage of HKDF-expand from https://www.rfc-editor.org/rfc/rfc5869
@@ -185,26 +185,26 @@ fd_quic_hkdf_expand_label( uchar *        output,  size_t output_sz,
   // hash compute
 
   // this seems to do nothing for sha256, but  possibly it is necessary for some hash functions
-  if( !HMAC_Init_ex( hash_ctx, NULL, 0, NULL, NULL ) ) {
+  if( FD_UNLIKELY( !HMAC_Init_ex( hash_ctx, NULL, 0, NULL, NULL ) ) ) {
     FD_LOG_ERR(( "HMAC_Init_ex( hash_ctx, NULL, 0, NULL, NULL ) failed"  ));
     HMAC_CTX_free( hash_ctx );
     return FD_QUIC_FAILED;
   }
 
-  if( !HMAC_Update( hash_ctx, label_data, label_data_sz ) ) {
+  if( FD_UNLIKELY( !HMAC_Update( hash_ctx, label_data, label_data_sz ) ) ) {
     FD_LOG_ERR(( "HMAC_Update failed"  ));
     HMAC_CTX_free( hash_ctx );
     return FD_QUIC_FAILED;
   }
 
-  uint32_t hmac_output_sz = 0;
-  if( !HMAC_Final( hash_ctx, temp, &hmac_output_sz ) ) {
+  uint hmac_output_sz = 0;
+  if( FD_UNLIKELY( !HMAC_Final( hash_ctx, temp, &hmac_output_sz ) ) ) {
     FD_LOG_ERR(( "HMAC_Final failed"  ));
     HMAC_CTX_free( hash_ctx );
     return FD_QUIC_FAILED;
   }
 
-  memcpy( output, temp, output_sz );
+  fd_memcpy( output, temp, output_sz );
 
   HMAC_CTX_free( hash_ctx );
 
@@ -216,14 +216,16 @@ int
 fd_quic_gen_initial_secret(
     fd_quic_crypto_secrets_t * secrets,
     uchar const *              initial_salt,
-    size_t                     initial_salt_sz,
+    ulong                      initial_salt_sz,
     uchar const *              conn_id,
-    size_t                     conn_id_sz,
+    ulong                      conn_id_sz,
     EVP_MD const *             md ) {
-  if( fd_quic_hkdf_extract( secrets->initial_secret, sizeof( secrets->initial_secret ),
-                        md,
-                        initial_salt, initial_salt_sz,
-                        conn_id, conn_id_sz ) != FD_QUIC_SUCCESS ) {
+  if( FD_UNLIKELY(
+      fd_quic_hkdf_extract( secrets->initial_secret, sizeof( secrets->initial_secret ),
+                            md,
+                            initial_salt, initial_salt_sz,
+                            conn_id, conn_id_sz )
+      != FD_QUIC_SUCCESS ) ) {
     FD_LOG_ERR(( "fd_quic_hkdf_extract failed" ));
     return FD_QUIC_FAILED;
   }
@@ -245,8 +247,8 @@ fd_quic_gen_secrets(
     secrets->secret_sz[enc_level][1] = FD_QUIC_INITIAL_SECRET_SZ;
   }
 
-  uint8_t client_secret_sz = secrets->secret_sz[enc_level][0];
-  uint8_t server_secret_sz = secrets->secret_sz[enc_level][1];
+  uchar client_secret_sz = secrets->secret_sz[enc_level][0];
+  uchar server_secret_sz = secrets->secret_sz[enc_level][1];
 
   char const client_in[] = FD_QUIC_CRYPTO_LABEL_CLIENT_IN;
   if( fd_quic_hkdf_expand_label( client_secret, client_secret_sz,
@@ -272,11 +274,11 @@ fd_quic_gen_secrets(
 int
 fd_quic_gen_keys(
     fd_quic_crypto_keys_t * keys,
-    size_t                  key_sz,
-    size_t                  iv_sz,
+    ulong                  key_sz,
+    ulong                  iv_sz,
     EVP_MD const *          md,
     uchar const *           secret,
-    size_t                  secret_sz ) {
+    ulong                  secret_sz ) {
 
   if( key_sz > sizeof( keys->pkt_key ) ||
       key_sz > sizeof( keys->hp_key ) ||
@@ -354,11 +356,11 @@ fd_quic_gen_keys(
 int
 fd_quic_crypto_encrypt(
     uchar *                  out,
-    size_t *                 out_sz,
+    ulong *                 out_sz,
     uchar const *            hdr,
-    size_t                   hdr_sz,
+    ulong                   hdr_sz,
     uchar const *            pkt,
-    size_t                   pkt_sz,
+    ulong                   pkt_sz,
     fd_quic_crypto_suite_t * suite,
     fd_quic_crypto_keys_t *  keys ) {
   /* ensure we have enough space in the output buffer
@@ -370,10 +372,10 @@ fd_quic_crypto_encrypt(
   int i_block_sz = EVP_CIPHER_block_size( suite->pkt_cipher );
   if( i_block_sz < 0 ) return FD_QUIC_FAILED;
 
-  size_t block_sz = (size_t)i_block_sz;
+  ulong block_sz = (ulong)i_block_sz;
 
   /* bound on the bytes needed for cipher output */
-  size_t cipher_out_bound = hdr_sz + pkt_sz + FD_QUIC_CRYPTO_TAG_SZ + block_sz;
+  ulong cipher_out_bound = hdr_sz + pkt_sz + FD_QUIC_CRYPTO_TAG_SZ + block_sz;
 
   if( FD_UNLIKELY( *out_sz < cipher_out_bound ) ) {
     FD_LOG_ERR(( "fd_quic_crypto_encrypt: output buffer not big enough" ));
@@ -389,17 +391,17 @@ fd_quic_crypto_encrypt(
   if( FD_UNLIKELY( pkt_sz > INT_MAX ) ) return FD_QUIC_FAILED;
 
   /* copy the header into the output */
-  memcpy( out, hdr, hdr_sz );
+  fd_memcpy( out, hdr, hdr_sz );
 
   /* first byte needed in a couple of places */
   uchar first = out[0];
-  size_t pkt_number_sz = ( first & 0x03u ) + 1;
+  ulong pkt_number_sz = ( first & 0x03u ) + 1;
   uchar const * pkt_number = out + hdr_sz - pkt_number_sz;
 
   /* TODO possibly cipher_ctx may be stored and reused, but the documentation implies
      some resources (memory) will be freed during reset(), and reallocated in init() anyway */
   EVP_CIPHER_CTX * cipher_ctx = EVP_CIPHER_CTX_new();
-  if( !cipher_ctx ) {
+  if( FD_UNLIKELY( !cipher_ctx ) ) {
     FD_LOG_ERR(( "fd_quic_crypto_encrypt: Error creating cipher ctx" ));
     return FD_QUIC_FAILED;
   }
@@ -407,32 +409,30 @@ fd_quic_crypto_encrypt(
   // nonce is quic-iv XORed with packet-number
   // packet number is 1-4 bytes, so only XOR last pkt_number_sz bytes
   uchar nonce[FD_QUIC_NONCE_SZ] = {0};
-  size_t nonce_tmp = FD_QUIC_NONCE_SZ - pkt_number_sz;
+  ulong nonce_tmp = FD_QUIC_NONCE_SZ - pkt_number_sz;
   uchar const * quic_iv = keys->iv;
-  for( size_t j = 0; j < nonce_tmp; ++j ) {
-    nonce[j] = quic_iv[j];
-  }
-  for( size_t k = 0; k < pkt_number_sz; ++k ) {
-    size_t j = nonce_tmp + k;
+  fd_memcpy( nonce, quic_iv, nonce_tmp );
+  for( ulong k = 0; k < pkt_number_sz; ++k ) {
+    ulong j = nonce_tmp + k;
     nonce[j] = quic_iv[j] ^ pkt_number[k];
   }
 
   // Initial packets cipher uses AEAD_AES_128_GCM with keys derived from the Destination Connection ID field of the
   // first Initial packet sent by the client; see rfc9001 Section 5.2.
 
-  if( EVP_CipherInit_ex( cipher_ctx, suite->pkt_cipher, NULL, NULL, NULL, 1 /* encryption */ ) != 1 ) {
+  if( FD_UNLIKELY( EVP_CipherInit_ex( cipher_ctx, suite->pkt_cipher, NULL, NULL, NULL, 1 /* encryption */ ) != 1 ) ) {
     FD_LOG_ERR(( "fd_quic_crypto_encrypt: EVP_CipherInit_ex failed" ));
     EVP_CIPHER_CTX_free( cipher_ctx );
     return FD_QUIC_FAILED;
   }
 
-  if( EVP_CIPHER_CTX_ctrl( cipher_ctx, EVP_CTRL_AEAD_SET_IVLEN, FD_QUIC_NONCE_SZ, NULL ) != 1 ) {
+  if( FD_UNLIKELY( EVP_CIPHER_CTX_ctrl( cipher_ctx, EVP_CTRL_AEAD_SET_IVLEN, FD_QUIC_NONCE_SZ, NULL ) != 1 ) ) {
     FD_LOG_ERR(( "fd_quic_crypto_encrypt: EVP_CIPHER_CTX_ctrl failed" ));
     EVP_CIPHER_CTX_free( cipher_ctx );
     return FD_QUIC_FAILED;
   }
 
-  if( EVP_EncryptInit_ex( cipher_ctx, suite->pkt_cipher, NULL, keys->pkt_key, nonce ) != 1 ) {
+  if( FD_UNLIKELY( EVP_EncryptInit_ex( cipher_ctx, suite->pkt_cipher, NULL, keys->pkt_key, nonce ) != 1 ) ) {
     FD_LOG_ERR(( "fd_quic_crypto_encrypt: EVP_EncryptInit_ex failed" ));
     EVP_CIPHER_CTX_free( cipher_ctx );
     return FD_QUIC_FAILED;
@@ -440,7 +440,7 @@ fd_quic_crypto_encrypt(
 
   /* auth data added with NULL output - still require out length */
   int tmp = 0;
-  if( EVP_EncryptUpdate( cipher_ctx, NULL, &tmp, hdr, (int)hdr_sz ) != 1 ) {
+  if( FD_UNLIKELY( EVP_EncryptUpdate( cipher_ctx, NULL, &tmp, hdr, (int)hdr_sz ) != 1 ) ) {
     FD_LOG_ERR(( "fd_quic_crypto_encrypt: EVP_EncryptUpdate failed auth_data" ));
     EVP_CIPHER_CTX_free( cipher_ctx );
     return FD_QUIC_FAILED;
@@ -472,24 +472,24 @@ fd_quic_crypto_encrypt(
 
   /* cipher_text is start of encrypted packet bytes, which starts after the header */
   uchar * cipher_text = out + hdr_sz;
-  size_t offset = 0;
+  ulong offset = 0;
   int cipher_text_sz = 0;
-  if( EVP_EncryptUpdate( cipher_ctx, cipher_text, &cipher_text_sz, pkt, (int)pkt_sz ) != 1 ) {
+  if( FD_UNLIKELY( EVP_EncryptUpdate( cipher_ctx, cipher_text, &cipher_text_sz, pkt, (int)pkt_sz ) != 1 ) ) {
     FD_LOG_ERR(( "fd_quic_crypto_encrypt: EVP_EncryptUpdate failed" ));
     EVP_CIPHER_CTX_free( cipher_ctx );
     return FD_QUIC_FAILED;
   }
 
-  offset = (size_t)cipher_text_sz;
-  if( EVP_EncryptFinal( cipher_ctx, cipher_text + offset, &cipher_text_sz ) != 1 ) {
+  offset = (ulong)cipher_text_sz;
+  if( FD_UNLIKELY( EVP_EncryptFinal( cipher_ctx, cipher_text + offset, &cipher_text_sz ) != 1 ) ) {
     FD_LOG_ERR(( "fd_quic_crypto_encrypt: EVP_EncryptFinal failed" ));
     EVP_CIPHER_CTX_free( cipher_ctx );
     return FD_QUIC_FAILED;
   }
 
-  offset += (size_t)cipher_text_sz;
+  offset += (ulong)cipher_text_sz;
 
-  if( EVP_CIPHER_CTX_ctrl( cipher_ctx, EVP_CTRL_AEAD_GET_TAG, FD_QUIC_CRYPTO_TAG_SZ, cipher_text + offset ) != 1) {
+  if( FD_UNLIKELY( EVP_CIPHER_CTX_ctrl( cipher_ctx, EVP_CTRL_AEAD_GET_TAG, FD_QUIC_CRYPTO_TAG_SZ, cipher_text + offset ) != 1 ) ) {
     FD_LOG_ERR(( "fd_quic_crypto_encrypt: EVP_CTRL_AEAD_GET_TAG failed" ));
     EVP_CIPHER_CTX_free( cipher_ctx );
     return FD_QUIC_FAILED;
@@ -497,27 +497,27 @@ fd_quic_crypto_encrypt(
 
   offset += FD_QUIC_CRYPTO_TAG_SZ;
 
-  size_t enc_pkt_sz = offset; /* encrypted packet size, including tag */
+  ulong enc_pkt_sz = offset; /* encrypted packet size, including tag */
 
   *out_sz = enc_pkt_sz + hdr_sz;
 
   /* Header protection */
 
   EVP_CIPHER_CTX * hp_cipher_ctx = EVP_CIPHER_CTX_new();
-  if( !hp_cipher_ctx ) {
+  if( FD_UNLIKELY( !hp_cipher_ctx ) ) {
     FD_LOG_ERR(( "fd_quic_crypto_encrypt: Error creating cipher ctx" ));
     EVP_CIPHER_CTX_free( cipher_ctx );
     return FD_QUIC_FAILED;
   }
 
-  if( EVP_CipherInit_ex( hp_cipher_ctx, suite->hp_cipher, NULL, NULL, NULL, 1 /* encryption */ ) != 1 ) {
+  if( FD_UNLIKELY( EVP_CipherInit_ex( hp_cipher_ctx, suite->hp_cipher, NULL, NULL, NULL, 1 /* encryption */ ) != 1 ) ) {
     FD_LOG_ERR(( "fd_quic_crypto_encrypt: EVP_CipherInit_ex (hp) failed" ));
     EVP_CIPHER_CTX_free( cipher_ctx );
     EVP_CIPHER_CTX_free( hp_cipher_ctx );
     return FD_QUIC_FAILED;
   }
 
-  if( EVP_EncryptInit_ex( hp_cipher_ctx, NULL, NULL, keys->hp_key, NULL ) != 1 ) {
+  if(FD_UNLIKELY(  EVP_EncryptInit_ex( hp_cipher_ctx, NULL, NULL, keys->hp_key, NULL ) != 1 ) ) {
     FD_LOG_ERR(( "fd_quic_crypto_encrypt: EVP_EncryptInit_ex failed" ));
     EVP_CIPHER_CTX_free( cipher_ctx );
     EVP_CIPHER_CTX_free( hp_cipher_ctx );
@@ -529,14 +529,14 @@ fd_quic_crypto_encrypt(
   uchar const * sample = pkt_number + 4;
 
   uchar hp_cipher[FD_QUIC_CRYPTO_BLOCK_BOUND] = {0};
-  if( EVP_CIPHER_block_size( suite->hp_cipher ) > FD_QUIC_CRYPTO_BLOCK_BOUND ) {
+  if( FD_UNLIKELY( EVP_CIPHER_block_size( suite->hp_cipher ) > FD_QUIC_CRYPTO_BLOCK_BOUND ) ) {
     FD_LOG_ERR(( "fd_quic_crypto_encrypt failed. HP cipher block size too big" ));
     EVP_CIPHER_CTX_free( cipher_ctx );
     EVP_CIPHER_CTX_free( hp_cipher_ctx );
     return FD_QUIC_FAILED;
   }
   int hp_cipher_sz = 0;
-  if( EVP_EncryptUpdate( hp_cipher_ctx, hp_cipher, &hp_cipher_sz, sample, FD_QUIC_HP_SAMPLE_SZ ) != 1 ) {
+  if( FD_UNLIKELY( EVP_EncryptUpdate( hp_cipher_ctx, hp_cipher, &hp_cipher_sz, sample, FD_QUIC_HP_SAMPLE_SZ ) != 1 ) ) {
     FD_LOG_ERR(( "fd_quic_crypto_encrypt: EVP_EncryptUpdate failed cipher (hp)" ));
     EVP_CIPHER_CTX_free( cipher_ctx );
     EVP_CIPHER_CTX_free( hp_cipher_ctx );
@@ -549,9 +549,9 @@ fd_quic_crypto_encrypt(
   uchar long_hdr = first & 0x80u; /* long header? */
   out[0] ^= (uchar)( mask[0] & ( long_hdr ? 0x0fu : 0x1fu ) );
 
-  size_t pkt_number_off = hdr_sz - pkt_number_sz;
+  ulong pkt_number_off = hdr_sz - pkt_number_sz;
 
-  for( size_t j = 0; j < pkt_number_sz; ++j ) {
+  for( ulong j = 0; j < pkt_number_sz; ++j ) {
     out[pkt_number_off + j] ^= mask[1+j];
   }
 
@@ -565,41 +565,41 @@ fd_quic_crypto_encrypt(
 int
 fd_quic_crypto_decrypt(
     uchar *                  plain_text,
-    size_t *                 plain_text_sz,
+    ulong *                  plain_text_sz,
     uchar const *            cipher_text,
-    size_t                   cipher_text_sz,
-    size_t                   pkt_number_off,
-    uint64_t                 pkt_number,
+    ulong                    cipher_text_sz,
+    ulong                    pkt_number_off,
+    ulong                    pkt_number,
     fd_quic_crypto_suite_t * suite,
     fd_quic_crypto_keys_t *  keys ) {
 
   /* must have at least a short header and a TAG */
-  if( cipher_text_sz < 32 ) {
+  if( FD_UNLIKELY( cipher_text_sz < 32 ) ) {
     FD_LOG_ERR(( "fd_quic_crypto_decrypt: cipher text too small" ));
     return FD_QUIC_FAILED;
   }
 
   /* must have space for cipher_text_sz - 16 */
-  if( *plain_text_sz + 16 < cipher_text_sz ) {
+  if( FD_UNLIKELY( *plain_text_sz + 16 < cipher_text_sz ) ) {
     FD_LOG_ERR(( "fd_quic_crypto_decrypt: plain text buffer too small" ));
     return FD_QUIC_FAILED;
   }
 
   EVP_CIPHER_CTX * hp_cipher_ctx = EVP_CIPHER_CTX_new();
-  if( !hp_cipher_ctx ) {
+  if( FD_UNLIKELY( !hp_cipher_ctx ) ) {
     FD_LOG_ERR(( "fd_quic_crypto_decrypt: Error creating cipher ctx" ));
     return FD_QUIC_FAILED;
   }
 
-  unsigned      first         = plain_text[0];
-  size_t        pkt_number_sz = ( first & 0x03u ) + 1u;
+  uint          first         = plain_text[0];
+  ulong         pkt_number_sz = ( first & 0x03u ) + 1u;
   uchar const * hdr           = plain_text;
-  size_t        hdr_sz        = pkt_number_off + pkt_number_sz;
+  ulong         hdr_sz        = pkt_number_off + pkt_number_sz;
 
 #if 0
-  unsigned      first      = cipher_text[0];
-  unsigned      long_hdr   = first & 0x80u; /* long header? (this bit is not encrypted) */
-  size_t        sample_off = pkt_number_off + 4;
+  uint      first      = cipher_text[0];
+  uint      long_hdr   = first & 0x80u; /* long header? (this bit is not encrypted) */
+  ulong        sample_off = pkt_number_off + 4;
   uchar const * sample     = cipher_text + sample_off;
 
   EVP_CIPHER_CTX * hp_cipher_ctx = EVP_CIPHER_CTX_new();
@@ -648,7 +648,7 @@ fd_quic_crypto_decrypt(
     EVP_CIPHER_CTX_free( hp_cipher_ctx );
     return FD_QUIC_FAILED;
   }
-  memcpy( plain_text, cipher_text, sample_off );
+  fd_memcpy( plain_text, cipher_text, sample_off );
 
   /* hp_cipher is mask */
   uchar const * mask = hp_cipher;
@@ -659,20 +659,20 @@ fd_quic_crypto_decrypt(
   /* this is unnecessarily obtuse */
   plain_text[0] = (uchar)( first ^= mask[0] & ( long_hdr ? 0x0fu : 0x1fu ) );
 #else
-  first        ^= (unsigned)mask[0] & ( long_hdr ? 0x0fu : 0x1fu );
+  first        ^= (uint)mask[0] & ( long_hdr ? 0x0fu : 0x1fu );
   plain_text[0] = (uchar)first;
 #endif
 
   /* now we can calculate the actual packet number size */
-  size_t pkt_number_sz = ( first & 0x03u ) + 1u;
+  ulong pkt_number_sz = ( first & 0x03u ) + 1u;
 
   /* undo packet number encryption */
-  for( size_t j = 0; j < pkt_number_sz; ++j ) {
+  for( ulong j = 0; j < pkt_number_sz; ++j ) {
     plain_text[pkt_number_off + j] ^= mask[1u+j];
   }
 
   uchar const * hdr = plain_text;
-  size_t hdr_sz = pkt_number_off + pkt_number_sz;
+  ulong hdr_sz = pkt_number_off + pkt_number_sz;
 
   uchar const * pkt_number = plain_text + pkt_number_off;
 #endif
@@ -681,38 +681,36 @@ fd_quic_crypto_decrypt(
   /* nonce is quic-iv XORed with *reconstructed* packet-number
      packet number is 1-4 bytes, so only XOR last pkt_number_sz bytes */
   uchar nonce[FD_QUIC_NONCE_SZ] = {0};
-  unsigned nonce_tmp = FD_QUIC_NONCE_SZ - 4;
+  uint nonce_tmp = FD_QUIC_NONCE_SZ - 4;
   uchar const * quic_iv = keys->iv;
-  for( unsigned j = 0; j < nonce_tmp; ++j ) {
-    nonce[j] = quic_iv[j];
-  }
-  for( unsigned k = 0; k < 4; ++k ) {
-    unsigned j = nonce_tmp + k;
+  fd_memcpy( nonce, quic_iv, nonce_tmp );
+  for( uint k = 0; k < 4; ++k ) {
+    uint j = nonce_tmp + k;
     nonce[j] = quic_iv[j] ^ (uchar)( pkt_number >> ( (3u - k) * 8u ) );
   }
 
   EVP_CIPHER_CTX * cipher_ctx = EVP_CIPHER_CTX_new();
-  if( !cipher_ctx ) {
+  if( FD_UNLIKELY( !cipher_ctx ) ) {
     FD_LOG_ERR(( "fd_quic_crypto_decrypt: Error creating cipher ctx" ));
     EVP_CIPHER_CTX_free( hp_cipher_ctx );
     return FD_QUIC_FAILED;
   }
 
-  if( EVP_CipherInit_ex( cipher_ctx, suite->pkt_cipher, NULL, NULL, NULL, 0 /* decryption */ ) != 1 ) {
+  if( FD_UNLIKELY( EVP_CipherInit_ex( cipher_ctx, suite->pkt_cipher, NULL, NULL, NULL, 0 /* decryption */ ) != 1 ) ) {
     FD_LOG_ERR(( "fd_quic_crypto_decrypt: EVP_CipherInit_ex failed" ));
     EVP_CIPHER_CTX_free( cipher_ctx );
     EVP_CIPHER_CTX_free( hp_cipher_ctx );
     return FD_QUIC_FAILED;
   }
 
-  if( EVP_CIPHER_CTX_ctrl( cipher_ctx, EVP_CTRL_AEAD_SET_IVLEN, FD_QUIC_NONCE_SZ, NULL ) != 1 ) {
+  if( FD_UNLIKELY( EVP_CIPHER_CTX_ctrl( cipher_ctx, EVP_CTRL_AEAD_SET_IVLEN, FD_QUIC_NONCE_SZ, NULL ) != 1 ) ) {
     FD_LOG_ERR(( "fd_quic_crypto_decrypt: EVP_CIPHER_CTX_ctrl failed" ));
     EVP_CIPHER_CTX_free( cipher_ctx );
     EVP_CIPHER_CTX_free( hp_cipher_ctx );
     return FD_QUIC_FAILED;
   }
 
-  if( EVP_DecryptInit_ex( cipher_ctx, suite->pkt_cipher, NULL, keys->pkt_key, nonce ) != 1 ) {
+  if( FD_UNLIKELY( EVP_DecryptInit_ex( cipher_ctx, suite->pkt_cipher, NULL, keys->pkt_key, nonce ) != 1 ) ) {
     FD_LOG_ERR(( "fd_quic_crypto_decrypt: EVP_DecryptInit_ex failed" ));
     EVP_CIPHER_CTX_free( cipher_ctx );
     EVP_CIPHER_CTX_free( hp_cipher_ctx );
@@ -721,7 +719,7 @@ fd_quic_crypto_decrypt(
 
   /* auth data added with NULL output - still require out length */
   int tmp = 0;
-  if( EVP_DecryptUpdate( cipher_ctx, NULL, &tmp, hdr, (int)hdr_sz ) != 1 ) {
+  if( FD_UNLIKELY( EVP_DecryptUpdate( cipher_ctx, NULL, &tmp, hdr, (int)hdr_sz ) != 1 ) ) {
     FD_LOG_ERR(( "fd_quic_crypto_decrypt: EVP_DecryptUpdate failed auth_data" ));
     EVP_CIPHER_CTX_free( cipher_ctx );
     EVP_CIPHER_CTX_free( hp_cipher_ctx );
@@ -729,17 +727,17 @@ fd_quic_crypto_decrypt(
   }
 
   int i_block_sz = EVP_CIPHER_block_size( suite->pkt_cipher );
-  if( FD_UNLIKELY( i_block_sz < 0 ) ) {
+  if( FD_UNLIKELY( FD_UNLIKELY( i_block_sz < 0 ) ) ) {
     FD_LOG_ERR(( "fd_quic_crypto_decrypt: EVP_CIPHER_block_size returned negative" ));
     EVP_CIPHER_CTX_free( cipher_ctx );
     EVP_CIPHER_CTX_free( hp_cipher_ctx );
     return FD_QUIC_FAILED;
   }
 
-  size_t block_sz = (size_t)i_block_sz;
-  size_t plain_out_bound = cipher_text_sz - hdr_sz - FD_QUIC_CRYPTO_TAG_SZ + block_sz;
+  ulong block_sz = (ulong)i_block_sz;
+  ulong plain_out_bound = cipher_text_sz - hdr_sz - FD_QUIC_CRYPTO_TAG_SZ + block_sz;
 
-  if( FD_UNLIKELY( plain_out_bound > *plain_text_sz ) ) {
+  if( FD_UNLIKELY( FD_UNLIKELY( plain_out_bound > *plain_text_sz ) ) ) {
     FD_LOG_ERR(( "fd_quic_crypto_decrypt: not enough room for plain text" ));
     EVP_CIPHER_CTX_free( cipher_ctx );
     EVP_CIPHER_CTX_free( hp_cipher_ctx );
@@ -747,17 +745,17 @@ fd_quic_crypto_decrypt(
   }
 
   uchar *       payload    = plain_text + hdr_sz;
-  size_t        payload_sz = cipher_text_sz - hdr_sz - FD_QUIC_CRYPTO_TAG_SZ;
+  ulong         payload_sz = cipher_text_sz - hdr_sz - FD_QUIC_CRYPTO_TAG_SZ;
   uchar const * tag        = cipher_text + cipher_text_sz - FD_QUIC_CRYPTO_TAG_SZ;
   int           out_sz     = 0;
-  if( EVP_DecryptUpdate( cipher_ctx, payload, &out_sz, cipher_text + hdr_sz, (int)payload_sz ) != 1 ) {
+  if( FD_UNLIKELY( EVP_DecryptUpdate( cipher_ctx, payload, &out_sz, cipher_text + hdr_sz, (int)payload_sz ) != 1 ) ) {
     FD_LOG_ERR(( "fd_quic_crypto_decrypt: EVP_DecryptUpdate failed" ));
     EVP_CIPHER_CTX_free( cipher_ctx );
     return FD_QUIC_FAILED;
   }
 
   /* set tag before final */
-  if( EVP_CIPHER_CTX_ctrl( cipher_ctx, EVP_CTRL_AEAD_SET_TAG, FD_QUIC_CRYPTO_TAG_SZ, (void*)tag ) != 1) {
+  if( FD_UNLIKELY( EVP_CIPHER_CTX_ctrl( cipher_ctx, EVP_CTRL_AEAD_SET_TAG, FD_QUIC_CRYPTO_TAG_SZ, (void*)tag ) != 1 ) ) {
     FD_LOG_ERR(( "fd_quic_crypto_decrypt: EVP_CTRL_AEAD_GET_TAG failed" ));
     EVP_CIPHER_CTX_free( cipher_ctx );
     return FD_QUIC_FAILED;
@@ -769,7 +767,7 @@ fd_quic_crypto_decrypt(
     return FD_QUIC_FAILED;
   }
 
-  size_t offset = (size_t)out_sz;
+  ulong offset = (ulong)out_sz;
   if( EVP_DecryptFinal( cipher_ctx, payload + offset, &out_sz ) != 1 ) {
     /* TODO this can happen, probably shouldn't warn here */
     FD_LOG_WARNING(( "fd_quic_crypto_decrypt: EVP_DecryptFinal failed" ));
@@ -778,7 +776,7 @@ fd_quic_crypto_decrypt(
     return FD_QUIC_FAILED;
   }
 
-  offset += (size_t)out_sz;
+  offset += (ulong)out_sz;
 
   *plain_text_sz = offset + hdr_sz;
 
@@ -789,52 +787,52 @@ fd_quic_crypto_decrypt(
 int
 fd_quic_crypto_decrypt_hdr(
     uchar *                  plain_text,
-    size_t *                 plain_text_sz,
+    ulong *                  plain_text_sz,
     uchar const *            cipher_text,
-    size_t                   cipher_text_sz,
-    size_t                   pkt_number_off,
+    ulong                    cipher_text_sz,
+    ulong                    pkt_number_off,
     fd_quic_crypto_suite_t * suite,
     fd_quic_crypto_keys_t *  keys ) {
 
   /* must have at least a short header */
-  if( cipher_text_sz < 16 ) {
+  if( FD_UNLIKELY( cipher_text_sz < 16 ) ) {
     FD_LOG_ERR(( "fd_quic_crypto_decrypt: cipher text too small" ));
     return FD_QUIC_FAILED;
   }
 
   /* must have capacity for header */
-  if( *plain_text_sz < pkt_number_off + 4 ) {
+  if( FD_UNLIKELY( *plain_text_sz < pkt_number_off + 4 ) ) {
     FD_LOG_ERR(( "fd_quic_crypto_decrypt: plain text buffer too small" ));
     return FD_QUIC_FAILED;
   }
 
-  unsigned      first      = cipher_text[0]; /* first byte */
-  unsigned      long_hdr   = first & 0x80u;  /* long header? (this bit is not encrypted) */
-  size_t        sample_off = pkt_number_off + 4;
+  uint      first      = cipher_text[0]; /* first byte */
+  uint      long_hdr   = first & 0x80u;  /* long header? (this bit is not encrypted) */
+  ulong         sample_off = pkt_number_off + 4;
   uchar const * sample     = cipher_text + sample_off;
 
   EVP_CIPHER_CTX * hp_cipher_ctx = EVP_CIPHER_CTX_new();
-  if( !hp_cipher_ctx ) {
+  if( FD_UNLIKELY( !hp_cipher_ctx ) ) {
     FD_LOG_ERR(( "fd_quic_crypto_decrypt: Error creating cipher ctx" ));
     return FD_QUIC_FAILED;
   }
 
   /* although this is a "decrypt" function, the mask must be calculated exactly the
      same as in the "encrypt" function */
-  if( EVP_CipherInit_ex( hp_cipher_ctx, suite->hp_cipher, NULL, NULL, NULL, 1 /* encryption */ ) != 1 ) {
+  if( FD_UNLIKELY( EVP_CipherInit_ex( hp_cipher_ctx, suite->hp_cipher, NULL, NULL, NULL, 1 /* encryption */ ) != 1 ) ) {
     FD_LOG_ERR(( "fd_quic_crypto_decrypt: EVP_CipherInit_ex (hp) failed" ));
     EVP_CIPHER_CTX_free( hp_cipher_ctx );
     return FD_QUIC_FAILED;
   }
 
-  if( EVP_EncryptInit_ex( hp_cipher_ctx, NULL, NULL, keys->hp_key, NULL ) != 1 ) {
+  if( FD_UNLIKELY( EVP_EncryptInit_ex( hp_cipher_ctx, NULL, NULL, keys->hp_key, NULL ) != 1 ) ) {
     FD_LOG_ERR(( "fd_quic_crypto_decrypt: EVP_EncryptInit_ex failed" ));
     EVP_CIPHER_CTX_free( hp_cipher_ctx );
     return FD_QUIC_FAILED;
   }
 
   uchar hp_cipher[FD_QUIC_CRYPTO_BLOCK_BOUND] = {0};
-  if( EVP_CIPHER_block_size( suite->hp_cipher ) > FD_QUIC_CRYPTO_BLOCK_BOUND ) {
+  if( FD_UNLIKELY( EVP_CIPHER_block_size( suite->hp_cipher ) > FD_QUIC_CRYPTO_BLOCK_BOUND ) ) {
     FD_LOG_ERR(( "fd_quic_crypto_decrypt failed. HP cipher block size too big" ));
     EVP_CIPHER_CTX_free( hp_cipher_ctx );
     return FD_QUIC_FAILED;
@@ -847,7 +845,7 @@ fd_quic_crypto_decrypt_hdr(
   }
 
   int hp_cipher_sz = 0;
-  if( EVP_EncryptUpdate( hp_cipher_ctx, hp_cipher, &hp_cipher_sz, sample, FD_QUIC_HP_SAMPLE_SZ ) != 1 ) {
+  if( FD_UNLIKELY( EVP_EncryptUpdate( hp_cipher_ctx, hp_cipher, &hp_cipher_sz, sample, FD_QUIC_HP_SAMPLE_SZ ) != 1 ) ) {
     FD_LOG_ERR(( "fd_quic_crypto_decrypt: EVP_EncryptUpdate failed cipher (hp)" ));
     EVP_CIPHER_CTX_free( hp_cipher_ctx );
     return FD_QUIC_FAILED;
@@ -859,20 +857,20 @@ fd_quic_crypto_decrypt_hdr(
     EVP_CIPHER_CTX_free( hp_cipher_ctx );
     return FD_QUIC_FAILED;
   }
-  memcpy( plain_text, cipher_text, sample_off );
+  fd_memcpy( plain_text, cipher_text, sample_off );
 
   /* hp_cipher is mask */
   uchar const * mask = hp_cipher;
 
   /* undo first byte mask */
-  first        ^= (unsigned)mask[0] & ( long_hdr ? 0x0fu : 0x1fu );
+  first        ^= (uint)mask[0] & ( long_hdr ? 0x0fu : 0x1fu );
   plain_text[0] = (uchar)first;
 
   /* now we can calculate the actual packet number size */
-  size_t pkt_number_sz = ( first & 0x03u ) + 1u;
+  ulong pkt_number_sz = ( first & 0x03u ) + 1u;
 
   /* undo packet number encryption */
-  for( size_t j = 0u; j < pkt_number_sz; ++j ) {
+  for( ulong j = 0u; j < pkt_number_sz; ++j ) {
     plain_text[pkt_number_off + j] ^= mask[1u+j];
   }
 
@@ -881,7 +879,7 @@ fd_quic_crypto_decrypt_hdr(
 
 extern
 int
-fd_quic_crypto_lookup_suite( uint8_t major, uint8_t minor );
+fd_quic_crypto_lookup_suite( uchar major, uchar minor );
 
 /* get random bytes
 
@@ -894,7 +892,7 @@ fd_quic_crypto_rand( uchar * buf, int buf_sz ) {
   if( FD_LIKELY( rc == 1 ) ) return;
 
   /* openssl error getting random bytes - bail */
-  unsigned long err = ERR_get_error();
+  ulong err = ERR_get_error();
   FD_LOG_ERR(( "openssl RAND_pseudo_bytes failed. Error: %lu", err ));
 }
 

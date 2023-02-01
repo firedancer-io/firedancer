@@ -17,19 +17,19 @@
 
 /* common to long and short header */
 FD_TEMPL_DEF_STRUCT_BEGIN(common_hdr)
-  FD_TEMPL_MBR_ELEM_BITS(hdr_form,uint8,1)
-  FD_TEMPL_MBR_ELEM_BITS(fixed_bit,uint8,1)
-  FD_TEMPL_MBR_ELEM_BITS(long_packet_type,uint8,2)
-  FD_TEMPL_MBR_ELEM_BITS(type_specific_bits,uint8,4)
+  FD_TEMPL_MBR_ELEM_BITS( hdr_form,           uchar, 1 )
+  FD_TEMPL_MBR_ELEM_BITS( fixed_bit,          uchar, 1 )
+  FD_TEMPL_MBR_ELEM_BITS( long_packet_type,   uchar, 2 )
+  FD_TEMPL_MBR_ELEM_BITS( type_specific_bits, uchar, 4 )
 FD_TEMPL_DEF_STRUCT_END(common_hdr)
 
 /* long header except first byte */
 FD_TEMPL_DEF_STRUCT_BEGIN(long_hdr)
-  FD_TEMPL_MBR_ELEM(version,uint32)
-  FD_TEMPL_MBR_ELEM(dst_conn_id_len,uint8)
-  FD_TEMPL_MBR_ELEM_VAR(dst_conn_id,0,160,dst_conn_id_len)
-  FD_TEMPL_MBR_ELEM(src_conn_id_len,uint8)
-  FD_TEMPL_MBR_ELEM_VAR(src_conn_id,0,160,src_conn_id_len)
+  FD_TEMPL_MBR_ELEM    ( version,         uint                   )
+  FD_TEMPL_MBR_ELEM    ( dst_conn_id_len, uchar                  )
+  FD_TEMPL_MBR_ELEM_VAR( dst_conn_id,     0,160, dst_conn_id_len )
+  FD_TEMPL_MBR_ELEM    ( src_conn_id_len, uchar                  )
+  FD_TEMPL_MBR_ELEM_VAR( src_conn_id,     0,160, src_conn_id_len )
 FD_TEMPL_DEF_STRUCT_END(long_hdr)
 
 
@@ -46,14 +46,16 @@ FD_TEMPL_DEF_STRUCT_END(long_hdr)
    Figure 14: Version Negotiation Packet */
 
 FD_TEMPL_DEF_STRUCT_BEGIN(version_neg)
-  FD_TEMPL_MBR_ELEM_BITS(hdr_form,uint8,1)
-  FD_TEMPL_MBR_ELEM_BITS(unused0,uint8,7) /* TODO add specification for unused to avoid extra work */
-  FD_TEMPL_MBR_ELEM(version,uint32)
-  FD_TEMPL_MBR_ELEM(dst_conn_id_len,uint8)
-  FD_TEMPL_MBR_ELEM_VAR(dst_conn_id,0,2040,dst_conn_id_len)
-  FD_TEMPL_MBR_ELEM(src_conn_id_len,uint8)
-  FD_TEMPL_MBR_ELEM_VAR(src_conn_id,0,2040,src_conn_id_len)
-  FD_TEMPL_MBR_ELEM_ARRAY(supported_versions,uint32,1,FD_QUIC_MAX_VERSIONS) /* TODO determine proper range here */
+  FD_TEMPL_MBR_ELEM_BITS ( hdr_form,           uchar,  1                      )
+  /* TODO add specification for unused to avoid extra work */
+  FD_TEMPL_MBR_ELEM_BITS ( unused0,            uchar,  7                      )
+  FD_TEMPL_MBR_ELEM      ( version,            uint                           )
+  FD_TEMPL_MBR_ELEM      ( dst_conn_id_len,    uchar                          )
+  FD_TEMPL_MBR_ELEM_VAR  ( dst_conn_id,        0,2040, dst_conn_id_len        )
+  FD_TEMPL_MBR_ELEM      ( src_conn_id_len,    uchar                          )
+  FD_TEMPL_MBR_ELEM_VAR  ( src_conn_id,        0,2040, src_conn_id_len        )
+  /* TODO determine proper range here */
+  FD_TEMPL_MBR_ELEM_ARRAY( supported_versions, uint,   1,FD_QUIC_MAX_VERSIONS )
 FD_TEMPL_DEF_STRUCT_END(version_neg)
 
 
@@ -80,21 +82,21 @@ FD_TEMPL_DEF_STRUCT_END(version_neg)
 // The first CRYPTO frame sent always begins at an offset of 0
 
 FD_TEMPL_DEF_STRUCT_BEGIN(initial)
-  FD_TEMPL_MBR_ELEM_BITS(hdr_form,uint8,1)
-  FD_TEMPL_MBR_ELEM_BITS(fixed_bit,uint8,1)
-  FD_TEMPL_MBR_ELEM_BITS_TYPE(long_packet_type,uint8,2,0x00)
-  FD_TEMPL_MBR_ELEM_BITS(reserved_bits,uint8,2)
-  FD_TEMPL_MBR_ELEM_BITS(pkt_number_len,uint8,2)
-  FD_TEMPL_MBR_ELEM(version,uint32)
-  FD_TEMPL_MBR_ELEM(dst_conn_id_len,uint8)
-  FD_TEMPL_MBR_ELEM_VAR(dst_conn_id,0,160,dst_conn_id_len)
-  FD_TEMPL_MBR_ELEM(src_conn_id_len,uint8)
-  FD_TEMPL_MBR_ELEM_VAR(src_conn_id,0,160,src_conn_id_len)
+  FD_TEMPL_MBR_ELEM_BITS     ( hdr_form,         uchar,  1               )
+  FD_TEMPL_MBR_ELEM_BITS     ( fixed_bit,        uchar,  1               )
+  FD_TEMPL_MBR_ELEM_BITS_TYPE( long_packet_type, uchar,  2, 0x00         )
+  FD_TEMPL_MBR_ELEM_BITS     ( reserved_bits,    uchar,  2               )
+  FD_TEMPL_MBR_ELEM_BITS     ( pkt_number_len,   uchar,  2               )
+  FD_TEMPL_MBR_ELEM          ( version,          uint                    )
+  FD_TEMPL_MBR_ELEM          ( dst_conn_id_len,  uchar                   )
+  FD_TEMPL_MBR_ELEM_VAR      ( dst_conn_id,      0,160,  dst_conn_id_len )
+  FD_TEMPL_MBR_ELEM          ( src_conn_id_len,  uchar                   )
+  FD_TEMPL_MBR_ELEM_VAR      ( src_conn_id,      0,160,  src_conn_id_len )
 
-  FD_TEMPL_MBR_ELEM(token_len,uint8)
-  FD_TEMPL_MBR_ELEM_VAR_RAW(token,0,8192,token_len)
-  FD_TEMPL_MBR_ELEM_VARINT(len,uint32)
-  FD_TEMPL_MBR_ELEM_PKTNUM(pkt_num,uint64)
+  FD_TEMPL_MBR_ELEM          ( token_len,        uchar                   )
+  FD_TEMPL_MBR_ELEM_VAR_RAW  ( token,            0,8192, token_len       )
+  FD_TEMPL_MBR_ELEM_VARINT   ( len,              uint                    )
+  FD_TEMPL_MBR_ELEM_PKTNUM   ( pkt_num,          ulong                   )
 
   // CRYPTO frames, etc, may start here
 FD_TEMPL_DEF_STRUCT_END(initial)
@@ -117,20 +119,20 @@ FD_TEMPL_DEF_STRUCT_END(initial)
 // }
 // Figure 16: 0-RTT Packet
 FD_TEMPL_DEF_STRUCT_BEGIN(zero_rtt)
-  FD_TEMPL_MBR_ELEM_BITS(hdr_form,uint8,1)
-  FD_TEMPL_MBR_ELEM_BITS(fixed_bit,uint8,1)
-  FD_TEMPL_MBR_ELEM_BITS_TYPE(long_packet_type,uint8,2,0x01)
-  FD_TEMPL_MBR_ELEM_BITS(reserved0,uint8,2)
-  FD_TEMPL_MBR_ELEM_BITS(pkt_number_len,uint8,2)
+  FD_TEMPL_MBR_ELEM_BITS     ( hdr_form,         uchar, 1               )
+  FD_TEMPL_MBR_ELEM_BITS     ( fixed_bit,        uchar, 1               )
+  FD_TEMPL_MBR_ELEM_BITS_TYPE( long_packet_type, uchar, 2, 0x01         )
+  FD_TEMPL_MBR_ELEM_BITS     ( reserved0,        uchar, 2               )
+  FD_TEMPL_MBR_ELEM_BITS     ( pkt_number_len,   uchar, 2               )
 
-  FD_TEMPL_MBR_ELEM(version,uint32)
-  FD_TEMPL_MBR_ELEM(dst_conn_id_len,uint8)
-  FD_TEMPL_MBR_ELEM_VAR(dst_conn_id,0,160,dst_conn_id_len)
-  FD_TEMPL_MBR_ELEM(src_conn_id_len,uint8)
-  FD_TEMPL_MBR_ELEM_VAR(src_conn_id,0,160,src_conn_id_len)
+  FD_TEMPL_MBR_ELEM          ( version,          uint                   )
+  FD_TEMPL_MBR_ELEM          ( dst_conn_id_len,  uchar                  )
+  FD_TEMPL_MBR_ELEM_VAR      ( dst_conn_id,      0,160, dst_conn_id_len )
+  FD_TEMPL_MBR_ELEM          ( src_conn_id_len,  uchar                  )
+  FD_TEMPL_MBR_ELEM_VAR      ( src_conn_id,      0,160, src_conn_id_len )
 
-  FD_TEMPL_MBR_ELEM_VARINT(len,uint32)
-  FD_TEMPL_MBR_ELEM_VARINT(pkt_num,uint64)
+  FD_TEMPL_MBR_ELEM_VARINT   ( len,              uint                   )
+  FD_TEMPL_MBR_ELEM_VARINT   ( pkt_num,          ulong                  )
 
   // payload starts here
 FD_TEMPL_DEF_STRUCT_END(zero_rtt)
@@ -154,20 +156,20 @@ FD_TEMPL_DEF_STRUCT_END(zero_rtt)
 // Figure 17: Handshake Protected Packet
 
 FD_TEMPL_DEF_STRUCT_BEGIN(handshake)
-  FD_TEMPL_MBR_ELEM_BITS(hdr_form,uint8,1)
-  FD_TEMPL_MBR_ELEM_BITS(fixed_bit,uint8,1)
-  FD_TEMPL_MBR_ELEM_BITS_TYPE(long_packet_type,uint8,2,0x02)
-  FD_TEMPL_MBR_ELEM_BITS(reserved_bits,uint8,2)
-  FD_TEMPL_MBR_ELEM_BITS(pkt_number_len,uint8,2)
+  FD_TEMPL_MBR_ELEM_BITS     ( hdr_form,         uchar, 1               )
+  FD_TEMPL_MBR_ELEM_BITS     ( fixed_bit,        uchar, 1               )
+  FD_TEMPL_MBR_ELEM_BITS_TYPE( long_packet_type, uchar, 2, 0x02         )
+  FD_TEMPL_MBR_ELEM_BITS     ( reserved_bits,    uchar, 2               )
+  FD_TEMPL_MBR_ELEM_BITS     ( pkt_number_len,   uchar, 2               )
 
-  FD_TEMPL_MBR_ELEM(version,uint32)
-  FD_TEMPL_MBR_ELEM(dst_conn_id_len,uint8)
-  FD_TEMPL_MBR_ELEM_VAR(dst_conn_id,0,160,dst_conn_id_len)
-  FD_TEMPL_MBR_ELEM(src_conn_id_len,uint8)
-  FD_TEMPL_MBR_ELEM_VAR(src_conn_id,0,160,src_conn_id_len)
+  FD_TEMPL_MBR_ELEM          ( version,          uint                   )
+  FD_TEMPL_MBR_ELEM          ( dst_conn_id_len,  uchar                  )
+  FD_TEMPL_MBR_ELEM_VAR      ( dst_conn_id,      0,160, dst_conn_id_len )
+  FD_TEMPL_MBR_ELEM          ( src_conn_id_len,  uchar                  )
+  FD_TEMPL_MBR_ELEM_VAR      ( src_conn_id,      0,160, src_conn_id_len )
 
-  FD_TEMPL_MBR_ELEM_VARINT(len,uint32)
-  FD_TEMPL_MBR_ELEM_PKTNUM(pkt_num,uint64)
+  FD_TEMPL_MBR_ELEM_VARINT   ( len,              uint                   )
+  FD_TEMPL_MBR_ELEM_PKTNUM   ( pkt_num,          ulong                  )
 
   // payload starts here
 FD_TEMPL_DEF_STRUCT_END(handshake)
@@ -188,16 +190,16 @@ FD_TEMPL_DEF_STRUCT_END(handshake)
 // }
 // Figure 18: Retry Packet
 FD_TEMPL_DEF_STRUCT_BEGIN(retry)
-  FD_TEMPL_MBR_ELEM_BITS(hdr_form,uint8,1)
-  FD_TEMPL_MBR_ELEM_BITS(fixed_bit,uint8,1)
-  FD_TEMPL_MBR_ELEM_BITS_TYPE(long_packet_type,uint8,2,0x03)
-  FD_TEMPL_MBR_ELEM_BITS(unused0,uint8,4)
+  FD_TEMPL_MBR_ELEM_BITS     ( hdr_form,         uchar, 1               )
+  FD_TEMPL_MBR_ELEM_BITS     ( fixed_bit,        uchar, 1               )
+  FD_TEMPL_MBR_ELEM_BITS_TYPE( long_packet_type, uchar, 2, 0x03         )
+  FD_TEMPL_MBR_ELEM_BITS     ( unused0,          uchar, 4               )
 
-  FD_TEMPL_MBR_ELEM(version,uint32)
-  FD_TEMPL_MBR_ELEM(dst_conn_id_len,uint8)
-  FD_TEMPL_MBR_ELEM_VAR(dst_conn_id,0,160,dst_conn_id_len)
-  FD_TEMPL_MBR_ELEM(src_conn_id_len,uint8)
-  FD_TEMPL_MBR_ELEM_VAR(src_conn_id,0,160,src_conn_id_len)
+  FD_TEMPL_MBR_ELEM          ( version,          uint                   )
+  FD_TEMPL_MBR_ELEM          ( dst_conn_id_len,  uchar                  )
+  FD_TEMPL_MBR_ELEM_VAR      ( dst_conn_id,      0,160, dst_conn_id_len )
+  FD_TEMPL_MBR_ELEM          ( src_conn_id_len,  uchar                  )
+  FD_TEMPL_MBR_ELEM_VAR      ( src_conn_id,      0,160, src_conn_id_len )
 
   // how do we know the length?
   // retry token (..)
@@ -205,7 +207,7 @@ FD_TEMPL_DEF_STRUCT_BEGIN(retry)
 
   // use remain minus 128bits
   // put these two fields in a single array
-  FD_TEMPL_MBR_ELEM_ARRAY(retry_data,uint8,16,1200) // TODO determine proper range here
+  FD_TEMPL_MBR_ELEM_ARRAY( retry_data, uchar, 16,1200 ) // TODO determine proper range here
 FD_TEMPL_DEF_STRUCT_END(retry)
 
 
@@ -225,19 +227,19 @@ FD_TEMPL_DEF_STRUCT_END(retry)
 // }
 // Figure 8: Retry Pseudo-Packet
 FD_TEMPL_DEF_STRUCT_BEGIN(retry_pseudo)
-  FD_TEMPL_MBR_ELEM(odcid_length,uint8)
-  FD_TEMPL_MBR_ELEM_VAR(odcid,0,160,odcid_length)
+  FD_TEMPL_MBR_ELEM          ( odcid_length,     uchar                  )
+  FD_TEMPL_MBR_ELEM_VAR      ( odcid,            0,160, odcid_length    )
 
-  FD_TEMPL_MBR_ELEM_BITS(hdr_form,uint8,1)
-  FD_TEMPL_MBR_ELEM_BITS(fixed_bit,uint8,1)
-  FD_TEMPL_MBR_ELEM_BITS_TYPE(long_packet_type,uint8,2,0x03)
-  FD_TEMPL_MBR_ELEM_BITS(unused0,uint8,4)
+  FD_TEMPL_MBR_ELEM_BITS     ( hdr_form,         uchar, 1               )
+  FD_TEMPL_MBR_ELEM_BITS     ( fixed_bit,        uchar, 1               )
+  FD_TEMPL_MBR_ELEM_BITS_TYPE( long_packet_type, uchar, 2, 0x03         )
+  FD_TEMPL_MBR_ELEM_BITS     ( unused0,          uchar, 4               )
 
-  FD_TEMPL_MBR_ELEM(version,uint32)
-  FD_TEMPL_MBR_ELEM(dst_conn_id_len,uint8)
-  FD_TEMPL_MBR_ELEM_VAR(dst_conn_id,0,160,dst_conn_id_len)
-  FD_TEMPL_MBR_ELEM(src_conn_id_len,uint8)
-  FD_TEMPL_MBR_ELEM_VAR(src_conn_id,0,160,src_conn_id_len)
+  FD_TEMPL_MBR_ELEM          ( version,          uint                   )
+  FD_TEMPL_MBR_ELEM          ( dst_conn_id_len,  uchar                  )
+  FD_TEMPL_MBR_ELEM_VAR      ( dst_conn_id,      0,160, dst_conn_id_len )
+  FD_TEMPL_MBR_ELEM          ( src_conn_id_len,  uchar                  )
+  FD_TEMPL_MBR_ELEM_VAR      ( src_conn_id,      0,160, src_conn_id_len )
 
   // remain is retry token
 FD_TEMPL_DEF_STRUCT_END(retry_pseudo)
@@ -258,17 +260,17 @@ FD_TEMPL_DEF_STRUCT_END(retry_pseudo)
 // }
 // Figure 19: 1-RTT Packet
 FD_TEMPL_DEF_STRUCT_BEGIN(one_rtt)
-  FD_TEMPL_MBR_ELEM_BITS(hdr_form,uint8,1)
-  FD_TEMPL_MBR_ELEM_BITS(fixed_bit,uint8,1)
-  FD_TEMPL_MBR_ELEM_BITS(spin_bit,uint8,1)
-  FD_TEMPL_MBR_ELEM_BITS(reserved0,uint8,2) // must be set to zero
-  FD_TEMPL_MBR_ELEM_BITS(key_phase,uint8,1)
-  FD_TEMPL_MBR_ELEM_BITS(pkt_number_len,uint8,2)
+  FD_TEMPL_MBR_ELEM_BITS  ( hdr_form,        uchar, 1               )
+  FD_TEMPL_MBR_ELEM_BITS  ( fixed_bit,       uchar, 1               )
+  FD_TEMPL_MBR_ELEM_BITS  ( spin_bit,        uchar, 1               )
+  FD_TEMPL_MBR_ELEM_BITS  ( reserved0,       uchar, 2               ) // must be set to zero
+  FD_TEMPL_MBR_ELEM_BITS  ( key_phase,       uchar, 1               )
+  FD_TEMPL_MBR_ELEM_BITS  ( pkt_number_len,  uchar, 2               )
 
-  FD_TEMPL_MBR_ELEM_HIDDEN(dst_conn_id_len,uint32)
-  FD_TEMPL_MBR_ELEM_VAR(dst_conn_id,0,160,dst_conn_id_len)
+  FD_TEMPL_MBR_ELEM_HIDDEN( dst_conn_id_len, uint                   )
+  FD_TEMPL_MBR_ELEM_VAR   ( dst_conn_id,     0,160, dst_conn_id_len )
 
-  FD_TEMPL_MBR_ELEM_PKTNUM(pkt_num,uint64)
+  FD_TEMPL_MBR_ELEM_PKTNUM( pkt_num,         ulong                  )
 
   // payload starts here
 FD_TEMPL_DEF_STRUCT_END(one_rtt)
@@ -280,7 +282,7 @@ FD_TEMPL_DEF_STRUCT_END(one_rtt)
 // }
 // Figure 20: Sequence of Transport Parameters
 // Each transport parameter is encoded as an (identifier, length, value) tuple, as shown in Figure 21:
-// 
+//
 // Transport Parameter {
 //   Transport Parameter ID (i),
 //   Transport Parameter Length (i),
@@ -290,8 +292,8 @@ FD_TEMPL_DEF_STRUCT_END(one_rtt)
 
 // one transport entry - repeats
 FD_TEMPL_DEF_STRUCT_BEGIN(transport_param_entry)
-  FD_TEMPL_MBR_ELEM_VARINT(param_id,uint64)
-  FD_TEMPL_MBR_ELEM_VARINT(param_len,uint64)
-  FD_TEMPL_MBR_ELEM_VAR_RAW(param_val,0,8192,param_len)
+  FD_TEMPL_MBR_ELEM_VARINT ( param_id,  ulong             )
+  FD_TEMPL_MBR_ELEM_VARINT ( param_len, ulong             )
+  FD_TEMPL_MBR_ELEM_VAR_RAW( param_val, 0,8192, param_len )
 FD_TEMPL_DEF_STRUCT_END(transport_param_entry)
 
