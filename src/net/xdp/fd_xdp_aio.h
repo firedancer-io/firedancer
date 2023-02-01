@@ -63,6 +63,12 @@ void
 fd_xdp_aio_ingress_set( fd_xdp_aio_t * xdp_aio, fd_aio_t * aio );
 
 
+/* service the xdp
+   handles ingress callbacks, and tx completions */
+void
+fd_xdp_aio_service( fd_xdp_aio_t * xdp_aio );
+
+
 FD_PROTOTYPES_END
 
 #endif // HEADER_fd_xdp_aio_h

@@ -230,6 +230,7 @@ fd_xdp_aio_forward_cb( void *            context,
       }
 
       meta[k] = (fd_xdp_frame_meta_t){ offset, (unsigned)data_sz, 0 };
+      k++;
     }
   }
 
