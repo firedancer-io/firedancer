@@ -1,4 +1,3 @@
-#include <stdint.h>
 #include <sys/mman.h>
 #include <unistd.h>
 #include <linux/if_xdp.h>
@@ -40,47 +39,47 @@ gettime() {
 typedef struct
   __attribute__((__packed__))
 {
-  uint8_t  eth_dst[6];
-  uint8_t  eth_src[6];
-  uint16_t eth_proto;
+  uchar  eth_dst[6];
+  uchar  eth_src[6];
+  ushort eth_proto;
 
   // ip
-  uint8_t  ip_hdrlen;
-  uint8_t  ip_tos;
-  uint16_t ip_tot_len;
-  uint16_t ip_id;
-  uint16_t ip_frag_off;
-  uint8_t  ip_ttl;
-  uint8_t  ip_proto;
-  uint16_t ip_check;
-  uint32_t ip_src;
-  uint32_t ip_dst;
+  uchar  ip_hdrlen;
+  uchar  ip_tos;
+  ushort ip_tot_len;
+  ushort ip_id;
+  ushort ip_frag_off;
+  uchar  ip_ttl;
+  uchar  ip_proto;
+  ushort ip_check;
+  uint   ip_src;
+  uint   ip_dst;
 
   // udp
-  uint16_t udp_src;
-  uint16_t udp_dst;
-  uint16_t udp_len;
-  uint16_t udp_check;
+  ushort udp_src;
+  ushort udp_dst;
+  ushort udp_len;
+  ushort udp_check;
 
   // datagram
-  uint32_t x;
-  uint8_t  text[1500];
-  uint8_t  pad[64];
+  uint x;
+  uchar  text[1500];
+  uchar  pad[64];
 } packet_t;
 
 
 #if 0
 void
 calc_check( packet_t * pkt ) {
-  uint64_t check = 0;
+  ulong check = 0;
 
   check += pkt->ip_hdrlen;
-  check += (uint32_t)pkt->ip_tos << (uint32_t)8;
+  check += (uint)pkt->ip_tos << (uint)8;
   check += pkt->ip_tot_len;
   check += pkt->ip_id;
   check += pkt->ip_frag_off;
   check += pkt->ip_ttl;
-  check += (uint32_t)pkt->ip_proto << (uint32_t)8;
+  check += (uint)pkt->ip_proto << (uint)8;
   check += pkt->ip_src;
   check += pkt->ip_dst;
 
@@ -90,8 +89,8 @@ calc_check( packet_t * pkt ) {
 void
 calc_check( packet_t * pkt ) {
 #define STAGE(N) \
-  uint32_t x##N = 0u; \
-  memcpy( &x##N, (char*)&pkt->ip_hdrlen + (N<<2u), 4u )
+  uint x##N = 0u; \
+  fd_memcpy( &x##N, (char*)&pkt->ip_hdrlen + (N<<2u), 4u )
 
   STAGE(0);
   STAGE(1);
@@ -99,12 +98,12 @@ calc_check( packet_t * pkt ) {
   STAGE(3);
   STAGE(4);
 
-  uint64_t check0 = (uint64_t)x0 + (uint64_t)x1 + (uint64_t)x2 + (uint64_t)x3 + (uint64_t)x4;
-  uint64_t check1 = ( check0 & 0xffffffffu ) + ( check0 >> 32u );
-  uint64_t check2 = ( check1 & 0xffffu )     + ( check1 >> 16u );
-  uint64_t check3 = ( check2 & 0xffffu )     + ( check2 >> 16u );
+  ulong check0 = (ulong)x0 + (ulong)x1 + (ulong)x2 + (ulong)x3 + (ulong)x4;
+  ulong check1 = ( check0 & 0xffffffffu ) + ( check0 >> 32u );
+  ulong check2 = ( check1 & 0xffffu )     + ( check1 >> 16u );
+  ulong check3 = ( check2 & 0xffffu )     + ( check2 >> 16u );
 
-  pkt->ip_check = (uint16_t)( check3 ^ 0xffffu );
+  pkt->ip_check = (ushort)( check3 ^ 0xffffu );
 }
 #endif
 
@@ -187,7 +186,7 @@ main( int argc, char **argv ) {
   }
 
 #define IP_ADDR_(a,b,c,d,_) ( _((a),0x00) + _((b),0x08) + _((c),0x10) + _((d),0x18) )
-#define IP_ADDR_SHIFT(u,v) ( (uint32_t)(u)<<(uint32_t)(v) )
+#define IP_ADDR_SHIFT(u,v) ( (uint)(u)<<(uint)(v) )
 #define IP_ADDR(a,b,c,d) IP_ADDR_(a,b,c,d,IP_ADDR_SHIFT)
 
   // construct udp
@@ -200,7 +199,7 @@ main( int argc, char **argv ) {
 
     .ip_hdrlen   = 0x45,
     .ip_tos      = 0,
-    .ip_tot_len  = htons( (uint16_t)( pkt_sz - 14 ) ),
+    .ip_tot_len  = htons( (ushort)( pkt_sz - 14 ) ),
     .ip_id       = 0,
     .ip_frag_off = 0,
     .ip_ttl      = 64,
@@ -212,28 +211,28 @@ main( int argc, char **argv ) {
 
     .udp_src     = htons( 42424 ),
     .udp_dst     = htons( 42425 ),
-    .udp_len     = htons( (uint16_t)( pkt_sz - 14 - 20 ) ),
+    .udp_len     = htons( (ushort)( pkt_sz - 14 - 20 ) ),
     .udp_check   = 0,
-    
+
     .x           = 0,
     .text        = "test"
   };
 
-  uint16_t ip_id = 160;
+  ushort ip_id = 160;
 
-  size_t     pool_sz         = config.fill_ring_size + config.tx_ring_size;
-  uint64_t * frame_stack     = (uint64_t*)malloc( pool_sz * sizeof(uint64_t) );
-  size_t     frame_stack_idx = 0;
-  uint64_t   frame_size      = config.frame_size;
+  ulong     pool_sz         = config.fill_ring_size + config.tx_ring_size;
+  ulong * frame_stack     = (ulong*)malloc( pool_sz * sizeof(ulong) );
+  ulong     frame_stack_idx = 0;
+  ulong   frame_size      = config.frame_size;
 
-  for( size_t j = 0; j < pool_sz; ++j ) {
+  for( ulong j = 0; j < pool_sz; ++j ) {
     frame_stack[frame_stack_idx] = j*frame_size; // push an index onto the frame stack
     frame_stack_idx++;
   }
 
-  fd_xdp_frame_meta_t *meta = (fd_xdp_frame_meta_t*)malloc( (size_t)batch_sz * sizeof(fd_xdp_frame_meta_t) );
-  size_t meta_idx = 0;
-  size_t completed = 0;
+  fd_xdp_frame_meta_t *meta = (fd_xdp_frame_meta_t*)malloc( (ulong)batch_sz * sizeof(fd_xdp_frame_meta_t) );
+  ulong meta_idx = 0;
+  ulong completed = 0;
   while(1) {
     // obtain an unused frame
     //int64_t t0 = gettime();
@@ -252,12 +251,12 @@ main( int argc, char **argv ) {
 
     /* pop a frame off the stack */
     frame_stack_idx--;
-    uint64_t frame_offset = frame_stack[frame_stack_idx];
+    ulong frame_offset = frame_stack[frame_stack_idx];
 
     void * buffer = (void*)( xdp->umem.addr + frame_offset );
 
     /* copy packet into buffer */
-    memcpy( buffer, &pkt, (size_t)pkt_sz );
+    fd_memcpy( buffer, &pkt, (ulong)pkt_sz );
 
     /* calculate checksum */
     calc_check( buffer );
@@ -274,13 +273,13 @@ main( int argc, char **argv ) {
 #else
     meta[meta_idx++] = (fd_xdp_frame_meta_t){ frame_offset, (unsigned)pkt_sz, 0 };
 
-    if( (size_t)meta_idx == (size_t)batch_sz ) {
+    if( (ulong)meta_idx == (ulong)batch_sz ) {
       fd_xdp_frame_meta_t *p = meta;
-      size_t remain = (size_t)batch_sz;
+      ulong remain = (ulong)batch_sz;
       __asm__ __volatile__( "" : : : "memory" );
-      size_t queued = fd_xdp_tx_enqueue( xdp, p, remain );
+      ulong queued = fd_xdp_tx_enqueue( xdp, p, remain );
       if( queued != remain ) {
-        //printf( "queued: %lu  remain: %lu\n", (unsigned long)queued, (unsigned long)remain ); fflush( stdout );
+        //printf( "queued: %lu  remain: %lu\n", (ulong)queued, (ulong)remain ); fflush( stdout );
         do {
           queued = fd_xdp_tx_enqueue( xdp, p, remain );
           p += queued;
@@ -307,10 +306,10 @@ main( int argc, char **argv ) {
 
   if( meta_idx ) {
     fd_xdp_frame_meta_t *p = meta;
-    size_t remain = meta_idx;
+    ulong remain = meta_idx;
     do {
-      size_t queued = fd_xdp_tx_enqueue( xdp, p, remain );
-      //printf( "queued: %lu  remain: %lu\n", (unsigned long)queued, (unsigned long)remain ); fflush( stdout );
+      ulong queued = fd_xdp_tx_enqueue( xdp, p, remain );
+      //printf( "queued: %lu  remain: %lu\n", (ulong)queued, (ulong)remain ); fflush( stdout );
       p += queued;
       remain -= queued;
     } while( remain );

@@ -1,4 +1,3 @@
-#include <stdint.h>
 #include <sys/mman.h>
 #include <unistd.h>
 #include <linux/if_xdp.h>
@@ -14,9 +13,11 @@
 #include <linux/if_link.h>
 #include <linux/types.h>
 
+#include "../../util/fd_util_base.h"
+
 void
 detach( int ifindex ) {
-  uint32_t id = 0;
+  uint id = 0;
   int err = 0;
   err = bpf_get_link_xdp_id( ifindex, &id, 0 /* xpd flags */ );
   if( err ) {

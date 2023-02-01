@@ -11,11 +11,14 @@ fd_cc_library(
 
 fd_cc_library(
     name = "quic",
+    srcs = glob(["*.c"]),
+    visibility = ["//visibility:public"],
     deps = [
         "//src/net:base_lib",
         "//src/net/quic/crypto",
         "//src/net/quic/templ",
         "//src/net/quic/tls",
+        "//src/net/util",
         "//src/util",
     ],
 )

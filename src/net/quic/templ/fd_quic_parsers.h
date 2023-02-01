@@ -2,24 +2,25 @@
 
 // TODO add platform optimized versions of these
 // e.g. 32 bit unaligned fetch w/ byte swap on intel
-#define FD_TEMPL_PARSE_IMPL_uint8(p) ( (uint8_t)((p)[0]) )
-#define FD_TEMPL_PARSE_IMPL_uint16(p) (        \
-    ( (uint16_t)((p)[0]) << (uint16_t)0x08 ) + \
-    ( (uint16_t)((p)[1]) << (uint16_t)0x00 )  )
-#define FD_TEMPL_PARSE_IMPL_uint32(p) (        \
-    ( (uint32_t)((p)[0]) << (uint32_t)0x18 ) + \
-    ( (uint32_t)((p)[1]) << (uint32_t)0x10 ) + \
-    ( (uint32_t)((p)[2]) << (uint32_t)0x08 ) + \
-    ( (uint32_t)((p)[3]) << (uint32_t)0x00 ) )
-#define FD_TEMPL_PARSE_IMPL_uint64(p) (        \
-    ( (uint64_t)((p)[0]) << (uint64_t)0x38 ) + \
-    ( (uint64_t)((p)[1]) << (uint64_t)0x30 ) + \
-    ( (uint64_t)((p)[2]) << (uint64_t)0x28 ) + \
-    ( (uint64_t)((p)[3]) << (uint64_t)0x20 ) + \
-    ( (uint64_t)((p)[4]) << (uint64_t)0x18 ) + \
-    ( (uint64_t)((p)[5]) << (uint64_t)0x10 ) + \
-    ( (uint64_t)((p)[6]) << (uint64_t)0x08 ) + \
-    ( (uint64_t)((p)[7]) << (uint64_t)0x00 ) )
+#define FD_TEMPL_PARSE_IMPL_uchar(p) (                                 \
+    ( (uchar)((p)[0]) ) )
+#define FD_TEMPL_PARSE_IMPL_ushort(p) (                                \
+    ( (ushort)((p)[0]) << (ushort)0x08 ) +                             \
+    ( (ushort)((p)[1]) << (ushort)0x00 ) )
+#define FD_TEMPL_PARSE_IMPL_uint(p) (                                  \
+    (   (uint)((p)[0]) <<   (uint)0x18 ) +                             \
+    (   (uint)((p)[1]) <<   (uint)0x10 ) +                             \
+    (   (uint)((p)[2]) <<   (uint)0x08 ) +                             \
+    (   (uint)((p)[3]) <<   (uint)0x00 ) )
+#define FD_TEMPL_PARSE_IMPL_ulong(p) (                                 \
+    (  (ulong)((p)[0]) <<  (ulong)0x38 ) +                             \
+    (  (ulong)((p)[1]) <<  (ulong)0x30 ) +                             \
+    (  (ulong)((p)[2]) <<  (ulong)0x28 ) +                             \
+    (  (ulong)((p)[3]) <<  (ulong)0x20 ) +                             \
+    (  (ulong)((p)[4]) <<  (ulong)0x18 ) +                             \
+    (  (ulong)((p)[5]) <<  (ulong)0x10 ) +                             \
+    (  (ulong)((p)[6]) <<  (ulong)0x08 ) +                             \
+    (  (ulong)((p)[7]) <<  (ulong)0x00 ) )
 
 /* assigns parsed value
    result is the size of the type */
@@ -28,29 +29,30 @@
 
 
 // returns bytes consumed
-#define FD_TEMPL_DEF_STRUCT_BEGIN(NAME)                                  \
-  size_t fd_quic_decode_##NAME( fd_quic_##NAME##_t * FD_RESTRICT out,    \
-                                uchar const * FD_RESTRICT        buf,    \
-                                size_t                           sz ) {  \
-    (void)out; (void)buf; (void)sz;                                      \
-    size_t cur_byte = 0;                                                 \
-    size_t cur_bit = 0; (void)cur_bit;                                   \
-    size_t tmp_len = 0; (void)tmp_len;                                   \
-    unsigned varint_sizes[4] = { 6, 14, 30, 62 }; (void)varint_sizes;    \
-    unsigned varint_bits; (void)varint_bits;
+#define FD_TEMPL_DEF_STRUCT_BEGIN(NAME)                                \
+  ulong fd_quic_decode_##NAME( fd_quic_##NAME##_t * FD_RESTRICT out,   \
+                               uchar const *        FD_RESTRICT buf,   \
+                               ulong                            sz ) { \
+    (void)out; (void)buf; (void)sz;                                    \
+    ulong cur_byte = 0;                                                \
+    ulong cur_bit = 0; (void)cur_bit;                                  \
+    ulong tmp_len = 0; (void)tmp_len;                                  \
+    uint varint_sizes[4] = { 6, 14, 30, 62 }; (void)varint_sizes;      \
+    uint varint_bits; (void)varint_bits;
     // TODO check min size here
 
 // consumes single aligned byte in input
-#define FD_TEMPL_MBR_FRAME_TYPE(NAME,ID_LO,ID_HI)                        \
-    out->NAME = buf[cur_byte];                                           \
+#define FD_TEMPL_MBR_FRAME_TYPE(NAME,ID_LO,ID_HI)                      \
+    out->NAME = buf[cur_byte];                                         \
     cur_byte++;
 
 
 // consumes aligned bytes in input, sets cur_bit to 0
-#define FD_TEMPL_MBR_ELEM(NAME,TYPE)                                         \
-    cur_byte += (cur_bit != 0);                                              \
-    cur_bit = 0;                                                             \
-    if( cur_byte + sizeof(fd_quic_##TYPE) > sz ) return FD_QUIC_PARSE_FAIL;  \
+#define FD_TEMPL_MBR_ELEM(NAME,TYPE)                                   \
+    cur_byte += (cur_bit != 0);                                        \
+    cur_bit = 0;                                                       \
+    if( FD_UNLIKELY( cur_byte + sizeof(fd_quic_##TYPE) > sz ) )        \
+      return FD_QUIC_PARSE_FAIL;                                       \
     cur_byte += FD_TEMPL_PARSE(TYPE,out->NAME,buf+cur_byte);
 
 
@@ -58,109 +60,113 @@
 // packet numbers have special parsing, due to being protected by
 // header protection
 // stores the offset for packet processing
-#define FD_TEMPL_MBR_ELEM_PKTNUM(NAME,TYPE)                              \
-    cur_byte += (cur_bit != 0);                                          \
-    cur_bit = 0;                                                         \
-    if( cur_byte >= sz ) return FD_QUIC_PARSE_FAIL;                      \
-    out->NAME##_pnoff = (unsigned)cur_byte;                              \
+#define FD_TEMPL_MBR_ELEM_PKTNUM(NAME,TYPE)                            \
+    cur_byte += (cur_bit != 0);                                        \
+    cur_bit = 0;                                                       \
+    if( FD_UNLIKELY( cur_byte >= sz ) ) return FD_QUIC_PARSE_FAIL;     \
+    out->NAME##_pnoff = (unsigned)cur_byte;
 
 
 // consumes varint
 // always aligned
 // most significant two bits represent the width of the int
 // remaining bits are all data bits
-#define FD_TEMPL_MBR_ELEM_VARINT(NAME,TYPE)                                             \
-    cur_byte += (cur_bit != 0);                                                         \
-    cur_bit = 0;                                                                        \
-    if( cur_byte >= sz ) return FD_QUIC_PARSE_FAIL;                                     \
-    varint_bits = varint_sizes[ buf[cur_byte] >> 6u ];                                  \
-    cur_bit += 2;                                                                       \
+#define FD_TEMPL_MBR_ELEM_VARINT(NAME,TYPE)                            \
+    cur_byte += (cur_bit != 0);                                        \
+    cur_bit = 0;                                                       \
+    if( FD_UNLIKELY( cur_byte >= sz ) ) return FD_QUIC_PARSE_FAIL;     \
+    varint_bits = varint_sizes[ buf[cur_byte] >> 6u ];                 \
+    cur_bit += 2;                                                      \
     FD_TEMPL_MBR_ELEM_BITS(NAME,TYPE,varint_bits);
 
 
 // consumes unaligned bits in input
 #define FD_TEMPL_MBR_ELEM_BITS(NAME,TYPE,BITS)                                          \
-    if( BITS + cur_bit > ( ( sz - cur_byte ) * 8 ) ) {                                  \
+    if( FD_UNLIKELY( BITS + cur_bit > ( ( sz - cur_byte ) * 8 ) ) ) {                   \
       return FD_QUIC_PARSE_FAIL;                                                        \
     }                                                                                   \
     out->NAME = (fd_quic_##TYPE)fd_quic_parse_bits( (buf + cur_byte), cur_bit, BITS );  \
-    cur_bit += BITS;                                                                    \
+    cur_bit  += BITS;                                                                   \
     cur_byte += cur_bit >> 3;                                                           \
-    cur_bit &= 7;
+    cur_bit  &= 7;
 
 #define FD_TEMPL_MBR_ELEM_BITS_TYPE(NAME,TYPE,BITS,CODE) \
           FD_TEMPL_MBR_ELEM_BITS(NAME,TYPE,BITS)
 
 
 // VAR currently assumed to be aligned bytes
-#define FD_TEMPL_MBR_ELEM_VAR(NAME,BITS_MIN,BITS_MAX,LEN_NAME)                       \
-    cur_byte += (cur_bit != 0);                                                      \
-    cur_bit = 0;                                                                     \
-    tmp_len = out->LEN_NAME;                                                         \
-    if( ( (signed)tmp_len * 8 < (signed)BITS_MIN ) || ( tmp_len * 8 > BITS_MAX ) ) { \
-      FD_DEBUG( "buffer overflow parsing variable length field."                     \
-            "  field: " #NAME                                                        \
-            "  BITS_MIN: %lu"                                                        \
-            "  BITS_MAX: %lu"                                                        \
-            "  " #LEN_NAME ": %lu"                                                   \
-            "  tmp_len*8: %lu\n",                                                    \
-            (unsigned long)BITS_MIN,                                                 \
-            (unsigned long)BITS_MAX,                                                 \
-            (unsigned long)out->LEN_NAME,                                            \
-            (unsigned long)( tmp_len * 8 ) );                                        \
-      return FD_QUIC_PARSE_FAIL;                                                     \
-    }                                                                                \
-    for( size_t j = 0; j < tmp_len; ++j ) {                                          \
-        out->NAME[j] = buf[cur_byte+j];                                              \
-    }                                                                                \
+#define FD_TEMPL_MBR_ELEM_VAR(NAME,BITS_MIN,BITS_MAX,LEN_NAME)         \
+    cur_byte += (cur_bit != 0);                                        \
+    cur_bit = 0;                                                       \
+    tmp_len = out->LEN_NAME;                                           \
+    if( FD_UNLIKELY( ( (signed)tmp_len * 8 < (signed)BITS_MIN ) ||     \
+                     ( tmp_len * 8 > BITS_MAX ) ) ) {                  \
+      FD_LOG_DEBUG(( "buffer overflow parsing variable length field."  \
+            "  field: " #NAME                                          \
+            "  BITS_MIN: %lu"                                          \
+            "  BITS_MAX: %lu"                                          \
+            "  " #LEN_NAME ": %lu"                                     \
+            "  tmp_len*8: %lu\n",                                      \
+            (ulong)BITS_MIN,                                           \
+            (ulong)BITS_MAX,                                           \
+            (ulong)out->LEN_NAME,                                      \
+            (ulong)( tmp_len * 8 ) ));                                 \
+      return FD_QUIC_PARSE_FAIL;                                       \
+    }                                                                  \
+    for( ulong j=0; j<tmp_len; ++j ) {                                 \
+      out->NAME[j] = buf[cur_byte+j];                                  \
+    }                                                                  \
     cur_byte += tmp_len;
 
 
 // VAR currently assumed to be aligned bytes
-#define FD_TEMPL_MBR_ELEM_VAR_RAW(NAME,BITS_MIN,BITS_MAX,LEN_NAME)                   \
-    cur_byte += (cur_bit != 0);                                                      \
-    cur_bit = 0;                                                                     \
-    tmp_len = out->LEN_NAME;                                                         \
-    if( ( (signed)tmp_len * 8 < (signed)BITS_MIN ) || ( tmp_len * 8 > BITS_MAX ) ) { \
-      FD_DEBUG( "buffer overflow parsing variable length field."                     \
-            "  field: " #NAME                                                        \
-            "  BITS_MIN: %lu"                                                        \
-            "  BITS_MAX: %lu"                                                        \
-            "  " #LEN_NAME ": %lu"                                                   \
-            "  tmp_len*8: %lu\n",                                                    \
-            (unsigned long)BITS_MIN,                                                 \
-            (unsigned long)BITS_MAX,                                                 \
-            (unsigned long)out->LEN_NAME,                                            \
-            (unsigned long)( tmp_len * 8 ) );                                        \
-      return FD_QUIC_PARSE_FAIL;                                                     \
-    }                                                                                \
-    out->NAME = &buf[cur_byte];                                                      \
+#define FD_TEMPL_MBR_ELEM_VAR_RAW(NAME,BITS_MIN,BITS_MAX,LEN_NAME)     \
+    cur_byte += (cur_bit != 0);                                        \
+    cur_bit = 0;                                                       \
+    tmp_len = out->LEN_NAME;                                           \
+    if( FD_UNLIKELY( ( (signed)tmp_len * 8 < (signed)BITS_MIN ) ||     \
+                     ( tmp_len * 8 > BITS_MAX ) ) ) {                  \
+      FD_LOG_DEBUG(( "buffer overflow parsing variable length field."  \
+            "  field: " #NAME                                          \
+            "  BITS_MIN: %lu"                                          \
+            "  BITS_MAX: %lu"                                          \
+            "  " #LEN_NAME ": %lu"                                     \
+            "  tmp_len*8: %lu\n",                                      \
+            (ulong)BITS_MIN,                                           \
+            (ulong)BITS_MAX,                                           \
+            (ulong)out->LEN_NAME,                                      \
+            (ulong)( tmp_len * 8 ) ));                                 \
+      return FD_QUIC_PARSE_FAIL;                                       \
+    }                                                                  \
+    out->NAME = &buf[cur_byte];                                        \
     cur_byte += tmp_len;
 
 
 /* ARRAY is an array of elements, each of the same size,
    with length implied by the packet size */
-#define FD_TEMPL_MBR_ELEM_ARRAY(NAME,TYPE,BYTES_MIN,BYTES_MAX)        \
-    cur_byte += (cur_bit != 0);                                       \
-    cur_bit = 0;                                                      \
-    tmp_len = sz - cur_byte;                                          \
-    if( tmp_len > BYTES_MAX ) tmp_len = BYTES_MAX;                    \
-    if( tmp_len % sizeof(fd_quic_##TYPE) ) return FD_QUIC_PARSE_FAIL; \
-    tmp_len /= sizeof(fd_quic_##TYPE);                                \
-    out->NAME##_len = (__typeof__(out->NAME##_len))tmp_len;           \
-    for( size_t j = 0; j < tmp_len; ++j ) {                           \
-      cur_byte += FD_TEMPL_PARSE(TYPE,out->NAME[j],buf+cur_byte);     \
+#define FD_TEMPL_MBR_ELEM_ARRAY(NAME,TYPE,BYTES_MIN,BYTES_MAX)         \
+    cur_byte += (cur_bit != 0);                                        \
+    cur_bit = 0;                                                       \
+    tmp_len = sz - cur_byte;                                           \
+    if( FD_UNLIKELY( tmp_len > BYTES_MAX ) )                           \
+      tmp_len = BYTES_MAX;                                             \
+    if( FD_UNLIKELY( tmp_len % sizeof(fd_quic_##TYPE) ) )              \
+      return FD_QUIC_PARSE_FAIL;                                       \
+    tmp_len /= sizeof(fd_quic_##TYPE);                                 \
+    out->NAME##_len = (__typeof__(out->NAME##_len))tmp_len;            \
+    for( ulong j=0; j<tmp_len; ++j ) {                                 \
+      cur_byte += FD_TEMPL_PARSE(TYPE,out->NAME[j],buf+cur_byte);      \
     }
 
 /* FIXED is an array of elements, each of the same size,
    with length constant */
-#define FD_TEMPL_MBR_ELEM_FIXED(NAME,TYPE,BYTES)                      \
-    cur_byte += (cur_bit != 0);                                       \
-    cur_bit = 0;                                                      \
-    if( BYTES > sz ) return FD_QUIC_PARSE_FAIL;                       \
-    tmp_len = BYTES / sizeof(fd_quic_##TYPE);                         \
-    for( size_t j = 0; j < tmp_len; ++j ) {                           \
-      cur_byte += FD_TEMPL_PARSE(TYPE,out->NAME[j],buf+cur_byte);     \
+#define FD_TEMPL_MBR_ELEM_FIXED(NAME,TYPE,BYTES)                       \
+    cur_byte += (cur_bit != 0);                                        \
+    cur_bit   = 0;                                                     \
+    if( FD_UNLIKELY( BYTES>sz ) ) return FD_QUIC_PARSE_FAIL;           \
+    tmp_len = BYTES / sizeof(fd_quic_##TYPE);                          \
+    for( ulong j=0; j<tmp_len; ++j ) {                                 \
+      cur_byte += FD_TEMPL_PARSE(TYPE,out->NAME[j],buf+cur_byte);      \
     }
 
 #if 0

@@ -59,7 +59,7 @@ fd_xdp_aio_new( void * mem, fd_xdp_t * xdp, size_t batch_sz ) {
   size_t  align = fd_xdp_aio_align();
   size_t  fp    = fd_xdp_aio_footprint( xdp, batch_sz );
 
-  memset( mem, 0, fp );
+  fd_memset( mem, 0, fp );
 
   fd_xdp_aio_t * xdp_aio = (fd_xdp_aio_t*)( base + offs );
 
@@ -116,7 +116,7 @@ fd_xdp_aio_new( void * mem, fd_xdp_t * xdp, size_t batch_sz ) {
 /* frees any resources associated withe the xdp_aio instance in question */
 void
 fd_xdp_aio_delete( fd_xdp_aio_t * xdp_aio ) {
-  memset( xdp_aio, 0, sizeof( * xdp_aio ) );
+  fd_memset( xdp_aio, 0, sizeof( * xdp_aio ) );
 }
 
 
@@ -212,7 +212,7 @@ fd_xdp_aio_forward_cb( void *            context,
       FD_LOG_ERR(( "%s : frame too large for xdp ring, dropping", __func__ ));
       /* fail */
     } else {
-      memcpy( frame_mem + offset, data, data_sz );
+      fd_memcpy( frame_mem + offset, data, data_sz );
       if( k == cap ) {
         size_t tx_tot = k;
         size_t sent   = 0;

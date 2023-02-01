@@ -8,11 +8,11 @@
 
 /* returns bytes to be encoded */
 #define FD_TEMPL_DEF_STRUCT_BEGIN(NAME)                                    \
-  size_t fd_quic_encode_footprint_##NAME( fd_quic_##NAME##_t * frame ) {   \
+  ulong fd_quic_encode_footprint_##NAME( fd_quic_##NAME##_t * frame ) {   \
     (void)frame;                                                           \
-    size_t   buf      = 0;                                                 \
-    size_t   cur_bit  = 0;          (void)cur_bit;                         \
-    size_t   tmp_len  = 0;          (void)tmp_len;                         \
+    ulong   buf      = 0;                                                 \
+    ulong   cur_bit  = 0;          (void)cur_bit;                         \
+    ulong   tmp_len  = 0;          (void)tmp_len;                         \
 
 /* 1 byte for TYPE */
 #define FD_TEMPL_MBR_FRAME_TYPE(NAME,ID_LO,ID_HI)                          \
@@ -32,7 +32,7 @@
 #define FD_TEMPL_MBR_ELEM_PKTNUM(NAME,TYPE)                              \
     buf += (cur_bit != 0);                                               \
     cur_bit = 0;                                                         \
-    buf += (size_t)frame->NAME##_bits >> (size_t)3u;
+    buf += (ulong)frame->NAME##_bits >> (ulong)3u;
 
 
 /* determines the encoding footpring of the VARINT */
