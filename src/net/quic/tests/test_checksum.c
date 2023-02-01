@@ -22,14 +22,6 @@ uchar pkt4[] = "\xff\xff\xfe\xff\xff\xff\xff\xff\xff\xff\x01\x00\xff\xff\xff\xff
                "\xff\xff\xff\xff";
 
 void
-dump( uchar const * ptr ) {
-  for( ulong j = 0; j < 20; ++j ) {
-    printf( "%2.2x ", (unsigned)ptr[j] );
-  }
-  printf( "\n" );
-}
-
-int
 test( uchar const * pkt ) {
   uchar tmp[20];
   fd_memcpy( tmp, pkt, 20 );
@@ -37,23 +29,20 @@ test( uchar const * pkt ) {
 
   fd_quic_net_ipv4_checksum( tmp );
 
-  printf( "\nBefore:\n" );
-  dump( pkt );
+  FD_LOG_NOTICE(( "Before:" ));
+  FD_LOG_NOTICE(( FD_LOG_HEX20_FMT, FD_LOG_HEX20_FMT_ARGS( pkt ) ));
 
-  printf( "After:\n" );
-  dump( tmp );
+  FD_LOG_NOTICE(( "After:" ));
+  FD_LOG_NOTICE(( FD_LOG_HEX20_FMT, FD_LOG_HEX20_FMT_ARGS( tmp ) ));
 
-  int pass = memcmp( tmp, pkt, 20 ) == 0;
-  printf( "%s\n", pass ? "PASSED" : "FAILED" );
-
-  return pass;
+  FD_TEST( 0==memcmp( tmp, pkt, 20 ) );
 }
-
 
 int
 main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
+
   int pass_all = 1;
 
   pass_all &= test( pkt0 );

@@ -113,11 +113,7 @@ new_quic( fd_quic_config_t * quic_config ) {
   void * aligned  = ((uchar*)mem) + ( memalign == 0 ? 0 : ( align - memalign ) );
 
   fd_quic_t * quic = fd_quic_new( aligned, quic_config );
-  if( quic == NULL ) {
-    printf( "fd_quic_new returned NULL\n" );
-    exit(1);
-  }
-
+  FD_TEST( quic );
   return quic;
 }
 
@@ -347,18 +343,10 @@ main( int argc, char ** argv ) {
 
   /* try sending */
   fd_quic_stream_t * client_stream = fd_quic_conn_new_stream( client_conn, FD_QUIC_TYPE_BIDIR );
-  if( !client_stream ) {
-    printf( "fd_quic_conn_new_stream failed\n" );
-    fflush( stdout );
-    exit(1);
-  }
+  FD_TEST( client_stream );
 
   fd_quic_stream_t * client_stream_0 = fd_quic_conn_new_stream( client_conn, FD_QUIC_TYPE_BIDIR );
-  if( !client_stream_0 ) {
-    printf( "fd_quic_conn_new_stream 0 failed\n" );
-    fflush( stdout );
-    exit(1);
-  }
+  FD_TEST( client_stream_0 );
 
   char buf[512] = "Hello world!\x00-   ";
   fd_aio_buffer_t batch[1] = {{ buf, sizeof( buf ) }};

@@ -252,11 +252,7 @@ main( int     argc,
   FD_AES_128_ECB_ALG_HANDLE = (EVP_CIPHER *)EVP_aes_128_ecb();
 
   EVP_CIPHER_CTX* cipher_ctx = EVP_CIPHER_CTX_new();
-  if( !cipher_ctx ) {
-    fprintf( stderr, "Error creating cipher ctx\n" );
-    exit(1);
-  }
-
+  FD_TEST( cipher_ctx );
 
   // packet number is 0
   uchar packet_number[12] = {0};
@@ -272,30 +268,18 @@ main( int     argc,
   // first Initial packet sent by the client; see Section 5.2.
   aead = FD_AES_128_GCM_ALG_HANDLE;
 
-  if( EVP_CipherInit_ex( cipher_ctx, aead, NULL, NULL, NULL, 1 /* encryption */ ) != 1 ) {
-    fprintf( stderr, "EVP_CipherInit_ex failed\n" );
-    exit(1);
-  }
+  FD_TEST( 1==EVP_CipherInit_ex( cipher_ctx, aead, NULL, NULL, NULL, 1 /* encryption */ ) );
 
-  if( EVP_CIPHER_CTX_ctrl( cipher_ctx, EVP_CTRL_AEAD_SET_IVLEN, 12, NULL ) != 1 ) {
-    fprintf( stderr, "EVP_CIPHER_CTX_ctrl failed\n" );
-    exit(1);
-  }
+  FD_TEST( 1==EVP_CIPHER_CTX_ctrl( cipher_ctx, EVP_CTRL_AEAD_SET_IVLEN, 12, NULL ) );
 
-  if( EVP_EncryptInit_ex( cipher_ctx, aead, NULL, client_key, nonce ) != 1 ) {
-    fprintf( stderr, "EVP_EncryptInit_ex failed\n" );
-    exit(1);
-  }
+  FD_TEST( 1==EVP_EncryptInit_ex( cipher_ctx, aead, NULL, client_key, nonce ) );
 
   // auth data???
 
   // uchar auth_data[64] = {};
 
   int outl = 0;
-  if( EVP_EncryptUpdate( cipher_ctx, NULL, &outl, packet_header, sizeof( packet_header ) ) != 1 ) {
-    fprintf( stderr, "EVP_EncryptUpdate failed auth_data\n" );
-    exit(1);
-  }
+  FD_TEST( 1==EVP_EncryptUpdate( cipher_ctx, NULL, &outl, packet_header, sizeof( packet_header ) ) );
 
   uchar cipher_text[4096];
   ulong offset = 0;
@@ -383,10 +367,7 @@ main( int     argc,
   }
   printf( "\n" );
 
-  // if( EVP_DecryptInit_ex( cipher_ctx, NULL, NULL, NULL, Iv ) != 1 ) {
-  //   fprintf( stderr, "EVP_DecryptInit_ex failed\n" );
-  //   exit(1);
-  // }
+  // FD_TEST( 1==EVP_DecryptInit_ex( cipher_ctx, NULL, NULL, NULL, Iv ) );
 
 
   // to decrypt...
