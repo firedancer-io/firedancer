@@ -123,11 +123,8 @@ main( int     argc,
   ulong        transport_params_sz   = sizeof( test_tp ) - 1; /* test_tp has terminating NUL */
   uchar const * tp_p  = transport_params;
   ulong        tp_sz = transport_params_sz;
-  int rc = fd_quic_decode_transport_params( tmp_tp, tp_p, tp_sz );
-  if( rc < 0 ) {
-    printf( "transport parameters failed to parse\n" );
-    exit(1);
-  }
+
+  FD_TEST( fd_quic_decode_transport_params( tmp_tp, tp_p, tp_sz )>=0 );
 
   fd_quic_dump_transport_params( tmp_tp, stdout );
   fflush( stdout );
@@ -187,9 +184,9 @@ main( int     argc,
       }
       if( !hs_data ) break;
 
-      printf( "client hs_data: %p\n", (void*)hs_data );
+      FD_LOG_NOTICE(( "client hs_data: %p", (void*)hs_data ));
 
-      printf( "provide quic data client->server\n" );
+      FD_LOG_NOTICE(( "provide quic data client->server" ));
 
       // here we need encrypt/decrypt
       // collect fragments at the same enc/sec level, then encrypt
@@ -206,12 +203,7 @@ main( int     argc,
       ulong pdata_off = 0;
       ulong pdata_sz  = hs_data->data_sz;
       while( pdata_off < pdata_sz ) {
-        int provide_rc = fd_quic_tls_provide_data( hs_server, hs_data->enc_level, hs_data->data + pdata_off, 1 );
-        if( provide_rc == FD_QUIC_TLS_FAILED ) {
-          fprintf( stderr, "fd_quic_tls_provide_data error line: %d\n", __LINE__ );
-          exit( EXIT_FAILURE );
-        }
-
+        FD_TEST( fd_quic_tls_provide_data( hs_server, hs_data->enc_level, hs_data->data + pdata_off, 1 )!=FD_QUIC_TLS_FAILED );
         pdata_off++;
       }
 #endif
@@ -238,41 +230,34 @@ main( int     argc,
       printf( "provide quic data server->client\n" );
 
       // here we need encrypt/decrypt
-
-      int provide_rc = fd_quic_tls_provide_data( hs_client, hs_data->enc_level, hs_data->data, hs_data->data_sz );
-      if( provide_rc == FD_QUIC_TLS_FAILED ) {
-        fprintf( stderr, "fd_quic_tls_provide_data error line: %d\n", __LINE__ );
-        exit( EXIT_FAILURE );
-      }
+      FD_TEST( fd_quic_tls_provide_data( hs_client, hs_data->enc_level, hs_data->data, hs_data->data_sz )!=FD_QUIC_TLS_FAILED );
 
       // remove hs_data from head of list
       fd_quic_tls_pop_hs_data( hs_server, hs_data->enc_level );
     }
 
-    printf( "fd_quic_tls_process( hs_client )...\n" );
+    FD_LOG_NOTICE(( "fd_quic_tls_process( hs_client )..." ));
     int process_rc = fd_quic_tls_process( hs_client );
-    printf( "returned: %d\n", (int)process_rc );
+    FD_LOG_NOTICE(( "returned: %d", (int)process_rc ));
     if( process_rc != FD_QUIC_TLS_SUCCESS ) {
-      printf( "process failed. ssl_rc: %d  ssl_err: %d  line: %d\n", hs_client->err_ssl_rc, hs_client->err_ssl_err, hs_client->err_line );
-      exit(1);
+      FD_LOG_ERR(( "process failed. ssl_rc: %d  ssl_err: %d  line: %d", hs_client->err_ssl_rc, hs_client->err_ssl_err, hs_client->err_line ));
     }
 
-    printf( "fd_quic_tls_process( hs_server )...\n" );
+    FD_LOG_NOTICE(( "fd_quic_tls_process( hs_server )..." ));
     process_rc = fd_quic_tls_process( hs_server );
-    printf( "returned: %d\n", (int)process_rc );
+    FD_LOG_NOTICE(( "returned: %d", (int)process_rc ));
     if( process_rc != FD_QUIC_TLS_SUCCESS ) {
-      printf( "process failed. ssl_rc: %d  ssl_err: %d  line: %d\n", hs_client->err_ssl_rc, hs_client->err_ssl_err, hs_client->err_line );
-      exit(1);
+      FD_LOG_ERR(( "process failed. ssl_rc: %d  ssl_err: %d  line: %d", hs_client->err_ssl_rc, hs_client->err_ssl_err, hs_client->err_line ));
     }
 
     /* check for hs data here */
     have_client_data = 1;
-    for( int i = 0; i < 4; ++i ) {
+    for( int i=0; i<4; ++i ) {
       have_client_data &= (_Bool)fd_quic_tls_get_hs_data( hs_client, i );
     }
 
     have_server_data = 1;
-    for( int i = 0; i < 4; ++i ) {
+    for( int i=0; i<4; ++i ) {
       have_server_data &= (_Bool)fd_quic_tls_get_hs_data( hs_server, i );
     }
 
