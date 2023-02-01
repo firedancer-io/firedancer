@@ -157,12 +157,12 @@ main( int argc, char **argv ) {
   int64_t delay_ns = (int64_t)roundf( f_delay_ms * 1e6f );
   int64_t batch_sz = (int64_t)roundf( f_batch_sz );
 
-  printf( "xdp test parms:\n" );
+  FD_LOG_NOTICE(( "xdp test parms:" ));
 
-  printf( "--intf %s\n", intf );
-  printf( "--pkt-sz %ld\n", pkt_sz );
-  printf( "--delay-ms %f\n", (double)delay_ns * 1e-6 );
-  printf( "--batch-sz %ld\n", batch_sz );
+  FD_LOG_NOTICE(( "--intf %s",      intf                    ));
+  FD_LOG_NOTICE(( "--pkt-sz %ld",   pkt_sz                  ));
+  FD_LOG_NOTICE(( "--delay-ms %f",  (double)delay_ns * 1e-6 ));
+  FD_LOG_NOTICE(( "--batch-sz %ld", batch_sz                ));
 
   fd_xdp_config_t config;
   fd_xdp_config_init( &config );
@@ -179,11 +179,7 @@ main( int argc, char **argv ) {
   void * xdp_mem = aligned_alloc( fd_xdp_align(), fd_xdp_footprint( &config ) );
 
   fd_xdp_t * xdp = fd_xdp_new( xdp_mem, intf, &config );
-
-  if( !xdp ) {
-    fprintf( stderr, "Failed to create fd_xdp. Aborting\n" );
-    exit(1);
-  }
+  FD_TEST( xdp );
 
 #define IP_ADDR_(a,b,c,d,_) ( _((a),0x00) + _((b),0x08) + _((c),0x10) + _((d),0x18) )
 #define IP_ADDR_SHIFT(u,v) ( (uint)(u)<<(uint)(v) )

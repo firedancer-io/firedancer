@@ -265,9 +265,9 @@ main( int argc, char **argv ) {
 
     if( t1 >= tn ) {
       float dt = (float)( t1 - t0 ) * 1e-9f;
-      printf( "byte rate:   %f\n", (double)( tot_bytes / dt ) );
-      printf( "packet rate: %f\n", (double)( tot_pkt   / dt ) );
-      printf( "batch rate:  %f\n", (double)( tot_batch / dt ) );
+      FD_LOG_NOTICE(( "byte rate:   %f", (double)( tot_bytes / dt ) ));
+      FD_LOG_NOTICE(( "packet rate: %f", (double)( tot_pkt   / dt ) ));
+      FD_LOG_NOTICE(( "batch rate:  %f", (double)( tot_batch / dt ) ));
 
       tot_bytes = tot_pkt = tot_batch = 0;
 

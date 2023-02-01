@@ -11,13 +11,13 @@
    great detail (the host, the user, the application, etc).  Messages to
    the "log file" are much more detailed and thus suitable long time
    archival purposes.
-   
+
    In producing these streams, writes to the log file are prioritized
    over writes to stderr.  Further, writes to these streams are done
    quasi-atomically at message granularity to reduce the risk that
    concurrent log messages from different threads will get mixed
    together.
-   
+
    Default behaviors are:
 
    - FD_LOG_DEBUG messages are not written to either stream (the
@@ -207,6 +207,12 @@
   (uint)(((uchar const *)(b))[10]), (uint)(((uchar const *)(b))[11]), \
   (uint)(((uchar const *)(b))[12]), (uint)(((uchar const *)(b))[13]), \
   (uint)(((uchar const *)(b))[14]), (uint)(((uchar const *)(b))[15])
+
+#define FD_LOG_HEX20_FMT "%02x%02x%02x%02x %02x%02x%02x%02x %02x%02x%02x%02x %02x%02x%02x%02x %02x%02x%02x%02x"
+#define FD_LOG_HEX20_FMT_ARGS(b)                                      \
+  FD_LOG_HEX16_FMT_ARGS(b),                                           \
+  (uint)(((uchar const *)(b))[16]), (uint)(((uchar const *)(b))[17]), \
+  (uint)(((uchar const *)(b))[18]), (uint)(((uchar const *)(b))[19])
 
 #define FD_LOG_NAME_MAX (40UL)
 
