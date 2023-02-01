@@ -1,6 +1,47 @@
 #include "fd_base58.h"
 #include "../txn/fd_txn.h"
 
+/* fd_base58_encode_slow interprets byte_cnt bytes from bytes as a large
+   big-endian integer, and converts it to a nul-terminated base58 string,
+   storing the output in out.
+
+   Requires byte_cnt <= 64 and out_cnt <= 128.
+
+   This writes at most out_cnt characters to out, including the nul terminator.
+   Returns NULL if the supplied output buffer is not big enough, and returns
+   out otherwise.  The length of a base58 string is data-dependent, but passing
+   1+1.5*byte_cnt is sufficient (the actual coefficient is log_58(256)).
+
+   This method is slow and the optimized fixed-size conversion methods should
+   be used where possible. */
+char * fd_base58_encode_slow( uchar const * bytes, ulong byte_cnt, char * out, ulong out_cnt );
+
+/* fd_base58_decode_slow converts the base58-encoded number stored in the
+   `encoded_len` length cstr `encoded` to a large integer which is written
+   big-endian to out.
+
+   Requires encoded_len <= 88 and out_cnt <= 64.
+
+   This writes exactly out_cnt bytes to out.  Returns out on success.  Returns
+   NULL if encoded was not a valid base58 integer or if it decoded to a byte
+   string with length not exactly out_cnt.
+
+   This method is slow and the optimized fixed-size conversion methods should
+   be used where possible. */
+uchar * fd_base58_decode_slow( char const * encoded, ulong encoded_len, uchar * out, ulong out_cnt );
+
+/* Drop-in replacements for the non-suffixed versions, but using the slow algorithm. */
+char * fd_base58_encode_32_slow( uchar const * bytes, char * out ) {
+  return fd_base58_encode_slow( bytes, 32UL, out, FD_BASE58_ENCODED_32_SZ ); }
+char * fd_base58_encode_64_slow( uchar const * bytes, char * out ) {
+  return fd_base58_encode_slow( bytes, 64UL, out, FD_BASE58_ENCODED_64_SZ ); }
+uchar * fd_base58_decode_32_slow( char const * encoded, uchar * out ) {
+  return fd_base58_decode_slow( encoded, strlen( encoded ), out, 32UL ); }
+uchar * fd_base58_decode_64_slow( char const * encoded, uchar * out ) {
+  return fd_base58_decode_slow( encoded, strlen( encoded ), out, 64UL ); }
+
+
+
 void basic_test32( void ) {
   char buf[ FD_BASE58_ENCODED_32_SZ ];
   uchar bytes[ 32UL ];
@@ -74,12 +115,11 @@ void test_matches_naive ## n ( fd_rng_t * rng ) {                               
     }                                                                                                               \
     char buffer1[ 2UL*(n) ];                                                                                        \
     char buffer2[ 2UL*(n) ];                                                                                        \
-    FD_TEST( !strcmp( fd_base58_encode_##n(  bytes,    buffer1          ),                                          \
-                      fd_base58_encode_slow( bytes, n, buffer2, 2UL*(n) ) ) );                                      \
-    if( !fd_base58_decode_##n( buffer1, bytes2 ) ) { __asm("int $3"); } \
+    FD_TEST( !strcmp( fd_base58_encode_##n(        bytes, buffer1 ),                                                \
+                      fd_base58_encode_##n##_slow( bytes, buffer2 ) ) );                                            \
                                                                                                                     \
-    FD_TEST( !memcmp( fd_base58_decode_##n(  buffer1,                  bytes2             ), bytes, (ulong)(n) ) ); \
-    FD_TEST( !memcmp( fd_base58_decode_slow( buffer1, strlen(buffer1), bytes2, (ulong)(n) ), bytes, (ulong)(n) ) ); \
+    FD_TEST( !memcmp( fd_base58_decode_##n(        buffer1, bytes2 ), bytes, (ulong)(n) ) );                        \
+    FD_TEST( !memcmp( fd_base58_decode_##n##_slow( buffer1, bytes2 ), bytes, (ulong)(n) ) );                        \
   }                                                                                                                 \
 }                                                                                                                   \
                                                                                                                     \
@@ -125,37 +165,37 @@ void test_performance ## n( fd_rng_t * rng ) {                                  
   __asm__ volatile("" :: "m" (xor)); /* Prevent compiler from eliminating everything */                             \
 }                                                                                                                   \
 
-void test_performance_slow( fd_rng_t * rng ) {                                                          
-  const ulong test_count = 3000000;                                                                     
-                                                                                                        
-  ulong xor = 0UL;                                                                                      
-  char buf[ 64UL ];                                                                                 
-  uchar bytes[ 32UL ];                                                                                  
-  /* Warmup loop, count non-conversion work */                                                          
-  long warmup_start = fd_log_wallclock( );                                                              
-  for( ulong i=0UL; i<test_count; i++ ) {                                                               
-    for( ulong j=0UL; j<(ulong)(32); j++ ) {                                                            
-      bytes[ j ] = fd_rng_uchar( rng );                                                                 
-    }                                                                                                   
-  }                                                                                                     
-  for( ulong j=0UL; j<(ulong)(32); j++ ) {                                                              
-    xor ^= (ulong)bytes[ j ];                                                                           
-  }                                                                                                     
-  long warmup_end = fd_log_wallclock( );                                                                
-                                                                                                        
-  long start = fd_log_wallclock( );                                                                     
-  for( ulong i=0UL; i<test_count; i++ ) {                                                               
-    for( ulong j=0UL; j<(ulong)(32); j++ ) bytes[ j ] = fd_rng_uchar( rng );                            
-    fd_base58_encode_slow( bytes, 32UL, buf, 45UL );                                                    
+void test_performance_slow( fd_rng_t * rng ) {
+  const ulong test_count = 3000000;
+
+  ulong xor = 0UL;
+  char buf[ 64UL ];
+  uchar bytes[ 32UL ];
+  /* Warmup loop, count non-conversion work */
+  long warmup_start = fd_log_wallclock( );
+  for( ulong i=0UL; i<test_count; i++ ) {
+    for( ulong j=0UL; j<(ulong)(32); j++ ) {
+      bytes[ j ] = fd_rng_uchar( rng );
+    }
+  }
+  for( ulong j=0UL; j<(ulong)(32); j++ ) {
+    xor ^= (ulong)bytes[ j ];
+  }
+  long warmup_end = fd_log_wallclock( );
+
+  long start = fd_log_wallclock( );
+  for( ulong i=0UL; i<test_count; i++ ) {
+    for( ulong j=0UL; j<(ulong)(32); j++ ) bytes[ j ] = fd_rng_uchar( rng );
+    fd_base58_encode_32_slow( bytes, buf );
     for( ulong j=0UL; j<45UL; j++ ) xor ^= (ulong)buf[ j ]; /* Prevent compiler from removing call */
-  }                                                                                                     
-  long end = fd_log_wallclock( );                                                                       
-  FD_LOG_NOTICE(( "slow: Average time per call: %f ns. Average time per empty loop: %f ns",             
-        (double)(end       -       start)/(double)test_count,                                           
-        (double)(warmup_end-warmup_start)/(double)test_count ));                                        
-                                                                                                        
-  __asm__ volatile("" :: "m" (xor)); /* Prevent compiler from eliminating everything */                 
-}                                                                                                       
+  }
+  long end = fd_log_wallclock( );
+  FD_LOG_NOTICE(( "slow: Average time per call: %f ns. Average time per empty loop: %f ns",
+        (double)(end       -       start)/(double)test_count,
+        (double)(warmup_end-warmup_start)/(double)test_count ));
+
+  __asm__ volatile("" :: "m" (xor)); /* Prevent compiler from eliminating everything */
+}
 
 MAKE_TESTS(32)
 MAKE_TESTS(64)
