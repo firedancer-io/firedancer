@@ -6,11 +6,8 @@
 #include <openssl/ssl.h>
 #include <openssl/err.h>
 
-typedef unsigned char uchar;
-
-
 // test transport parameters
-uchar test_tp[] = "\x00\x39\x00\x39\x01\x04\x80\x00\xea\x60\x04\x04\x80\x10\x00\x00" 
+uchar test_tp[] = "\x00\x39\x00\x39\x01\x04\x80\x00\xea\x60\x04\x04\x80\x10\x00\x00"
                    "\x05\x04\x80\x10\x00\x00\x06\x04\x80\x10\x00\x00\x07\x04\x80\x10"
                    "\x00\x00\x08\x02\x40\x80\x09\x02\x40\x80\x0a\x01\x03\x0b\x01\x19"
                    "\x0e\x01\x08\x0f\x08\xec\x73\x1b\x41\xa0\xd5\xc6\xfe";
@@ -41,7 +38,7 @@ struct fd_quic_tls {
 typedef struct fd_quic_tls fd_quic_tls_t;
 
 fd_hs_data_t *
-fd_hs_data_new( int enc_level, void const * data, size_t sz ) {
+fd_hs_data_new( int enc_level, void const * data, ulong sz ) {
   uchar *        block   = malloc( sizeof( fd_hs_data_t  ) + sz );
   fd_hs_data_t * self    = (fd_hs_data_t*)block;
   uchar *        payload = self->raw;
@@ -50,7 +47,7 @@ fd_hs_data_new( int enc_level, void const * data, size_t sz ) {
   self->sz        = sz;
   self->next      = NULL;
 
-  memcpy( payload, data, sz );
+  fd_memcpy( payload, data, sz );
 
   return self;
 }
@@ -68,7 +65,7 @@ fd_quic_tls_new( int is_server, SSL_CTX * ssl_ctx ) {
     exit( EXIT_FAILURE );
   }
 
-  memset( self, 0, sizeof( *self ) );
+  fd_memset( self, 0, sizeof( *self ) );
 
   self->hs_data = NULL;
 
@@ -133,8 +130,8 @@ fd_quic_tls_delete( fd_quic_tls_t * self ) {
 }
 
 int fd_quic_ssl_set_encryption_secrets(SSL *ssl, OSSL_ENCRYPTION_LEVEL level,
-                              const uint8_t *read_secret,
-                              const uint8_t *write_secret, size_t secret_len) {
+                              const uchar *read_secret,
+                              const uchar *write_secret, ulong secret_len) {
   printf( "In %s\n", __func__ );
 
   struct fd_quic_tls * ctx = SSL_get_app_data( ssl );
@@ -145,10 +142,10 @@ int fd_quic_ssl_set_encryption_secrets(SSL *ssl, OSSL_ENCRYPTION_LEVEL level,
 
 int fd_quic_ssl_add_handshake_data( SSL *                 ssl,
                                     OSSL_ENCRYPTION_LEVEL level,
-                                    uint8_t const *       data,
-                                    size_t                len ) {
+                                    uchar const *       data,
+                                    ulong                len ) {
   printf( "In %s\n", __func__ );
-  for( size_t j = 0; j < len; ++j ) {
+  for( ulong j = 0; j < len; ++j ) {
     printf( "%2.2x ", data[j] );
   }
   printf( "\n" );
@@ -173,7 +170,7 @@ int fd_quic_ssl_flush_flight(SSL *ssl) {
   return 1;
 }
 
-int fd_quic_ssl_send_alert(SSL *ssl, enum ssl_encryption_level_t level, uint8_t alert) {
+int fd_quic_ssl_send_alert(SSL *ssl, enum ssl_encryption_level_t level, uchar alert) {
   printf( "In %s\n", __func__ );
   printf( "Alert: %d %s %s\n", (int)alert, SSL_alert_type_string_long( alert ), SSL_alert_desc_string_long( alert ) );
   return 0;

@@ -89,15 +89,15 @@ struct fd_quic_crypto_suite {
 
 struct fd_quic_crypto_keys {
   /* packet protection: */
-  uchar              pkt_key[FD_QUIC_KEY_MAX_SZ];
-  size_t             pkt_key_sz;
+  uchar pkt_key[FD_QUIC_KEY_MAX_SZ];
+  ulong pkt_key_sz;
 
-  uchar              iv[FD_QUIC_KEY_MAX_SZ];
-  size_t             iv_sz;
+  uchar iv[FD_QUIC_KEY_MAX_SZ];
+  ulong iv_sz;
 
   /* header protection */
-  uchar              hp_key[FD_QUIC_KEY_MAX_SZ];
-  size_t             hp_key_sz;
+  uchar hp_key[FD_QUIC_KEY_MAX_SZ];
+  ulong hp_key_sz;
 };
 
 /* crypto context */
@@ -164,7 +164,7 @@ enum {
 
 /* initial salt */
 extern uchar  FD_QUIC_CRYPTO_V1_INITIAL_SALT[];
-extern size_t FD_QUIC_CRYPTO_V1_INITIAL_SALT_SZ;
+extern ulong FD_QUIC_CRYPTO_V1_INITIAL_SALT_SZ;
 
 /* each of these has "-1" to avoid counting the implied terminating NUL byte */
 #define FD_QUIC_CRYPTO_LABEL_CLIENT_IN_SZ ( sizeof( FD_QUIC_CRYPTO_LABEL_CLIENT_IN ) - 1 )
@@ -187,12 +187,12 @@ extern size_t FD_QUIC_CRYPTO_V1_INITIAL_SALT_SZ;
 #define FD_QUIC_CRYPTO_BLOCK_BOUND 64
 
 struct fd_quic_crypto_secrets {
-  uchar          initial_secret[FD_QUIC_INITIAL_SECRET_SZ];
+  uchar initial_secret[FD_QUIC_INITIAL_SECRET_SZ];
 
   /* a secret for each encryption level, and one for us (is_peer=0), and one for them */
   /* secret[enc_level][is_peer][0..FD_QUIC_MAX_SECRET_SZ] */
-  uchar          secret   [FD_QUIC_NUM_ENC_LEVELS][2][FD_QUIC_MAX_SECRET_SZ];
-  uint8_t        secret_sz[FD_QUIC_NUM_ENC_LEVELS][2];
+  uchar secret   [FD_QUIC_NUM_ENC_LEVELS][2][FD_QUIC_MAX_SECRET_SZ];
+  uchar secret_sz[FD_QUIC_NUM_ENC_LEVELS][2];
 };
 
 /* get random bytes
@@ -236,10 +236,10 @@ fd_quic_crypto_ctx_reset( fd_quic_crypto_ctx_t * ctx );
      conn_id       a pointer to the raw connection id used
      conn_id_sz    the size of the connection id */
 int
-fd_quic_hkdf_extract( uchar *        output,  size_t output_sz,
+fd_quic_hkdf_extract( uchar *        output,  ulong output_sz,
                       EVP_MD const * md,
-                      uchar const *  salt,    size_t salt_sz,
-                      uchar const *  conn_id, size_t conn_id_sz );
+                      uchar const *  salt,    ulong salt_sz,
+                      uchar const *  conn_id, ulong conn_id_sz );
 
 /* fd_quic_hkdf_expand_label
 
@@ -253,12 +253,12 @@ fd_quic_hkdf_extract( uchar *        output,  size_t output_sz,
      md            a pointer to an EVP_MD initialized for the purpose
      label         a pointer to the label used - see rfc
      label_sz      the size of the label used */
-     
+
 int
-fd_quic_hkdf_expand_label( uchar *        output,  size_t output_sz,
+fd_quic_hkdf_expand_label( uchar *        output,  ulong output_sz,
                            EVP_MD const * md,
-                           uchar const *  secret,  size_t secret_sz,
-                           uchar const *  label,   size_t label_sz );
+                           uchar const *  secret,  ulong secret_sz,
+                           uchar const *  label,   ulong label_sz );
 
 /* fd_quic_gen_initial_secret
 
@@ -279,9 +279,9 @@ int
 fd_quic_gen_initial_secret(
     fd_quic_crypto_secrets_t * secrets,
     uchar const *              initial_salt,
-    size_t                     initial_salt_sz,
+    ulong                      initial_salt_sz,
     uchar const *              conn_id,
-    size_t                     conn_id_sz,
+    ulong                      conn_id_sz,
     EVP_MD const *             md );
 
 /* fd_quic_gen_secrets
@@ -316,17 +316,17 @@ fd_quic_gen_secrets(
      keys               a pointer to the structure to receive the generated keys
      keys_sz            the key length in bytes - defined by the suite
      iv_sz              iv length in bytes - defined by the rfc
-     md                 a pointer to the EVP_MD initialized for the purpose 
+     md                 a pointer to the EVP_MD initialized for the purpose
      secret             a pointer to the secret used for generating the keys
      secret_sz          the size of the secret used */
 int
 fd_quic_gen_keys(
     fd_quic_crypto_keys_t * keys,
-    size_t                  key_sz,
-    size_t                  iv_sz,
+    ulong                   key_sz,
+    ulong                   iv_sz,
     EVP_MD const *          md,
     uchar const *           secret,
-    size_t                  secret_sz );
+    ulong                   secret_sz );
 
 /* encrypt a packet according to rfc9001 packet protection and header protection
 
@@ -351,16 +351,16 @@ fd_quic_gen_keys(
 int
 fd_quic_crypto_encrypt(
     uchar *                  out,
-    size_t *                 out_sz,
+    ulong *                  out_sz,
     uchar const *            hdr,
-    size_t                   hdr_sz,
+    ulong                    hdr_sz,
     uchar const *            pkt,
-    size_t                   pkt_sz,
+    ulong                    pkt_sz,
     fd_quic_crypto_suite_t * suite,
     fd_quic_crypto_keys_t *  keys );
 
 
-/* decrypt a quic protected packet 
+/* decrypt a quic protected packet
 
    may fail in the following scenarios:
      the receiving buffer is too small
@@ -386,18 +386,18 @@ fd_quic_crypto_encrypt(
 int
 fd_quic_crypto_decrypt(
     uchar *                  plain_text,
-    size_t *                 plain_text_sz,
+    ulong *                  plain_text_sz,
     uchar const *            cipher_text,
-    size_t                   cipher_text_sz,
-    size_t                   pkt_number_off,
-    uint64_t                 pkt_number,
+    ulong                    cipher_text_sz,
+    ulong                    pkt_number_off,
+    ulong                    pkt_number,
     fd_quic_crypto_suite_t * suite,
     fd_quic_crypto_keys_t *  keys );
 
 
 /* decrypt a quic protected packet header
 
-   this removes header protection (HP) 
+   this removes header protection (HP)
 
    may fail in the following scenarios:
      the receiving buffer is too small
@@ -423,10 +423,10 @@ fd_quic_crypto_decrypt(
 int
 fd_quic_crypto_decrypt_hdr(
     uchar *                  plain_text,
-    size_t *                 plain_text_sz,
+    ulong *                  plain_text_sz,
     uchar const *            cipher_text,
-    size_t                   cipher_text_sz,
-    size_t                   pkt_number_off,
+    ulong                    cipher_text_sz,
+    ulong                    pkt_number_off,
     fd_quic_crypto_suite_t * suite,
     fd_quic_crypto_keys_t *  keys );
 
@@ -445,7 +445,7 @@ fd_quic_crypto_decrypt_hdr(
   */
 inline
 int
-fd_quic_crypto_lookup_suite( uint8_t major, uint8_t minor ) {
+fd_quic_crypto_lookup_suite( uchar major, uchar minor ) {
   switch( ( (unsigned)major << 8 ) | (unsigned)minor ) {
 #define _( ID, SUITE, MAJOR, MINOR, ... ) \
     case ( (unsigned)MAJOR << 8u ) + (unsigned)MINOR: return ID;

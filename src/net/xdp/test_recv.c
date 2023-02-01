@@ -1,4 +1,3 @@
-#include <stdint.h>
 #include <sys/mman.h>
 #include <unistd.h>
 #include <linux/if_xdp.h>
@@ -41,50 +40,50 @@ gettime() {
 typedef struct
   __attribute__((__packed__))
 {
-  uint8_t  eth_dst[6];
-  uint8_t  eth_src[6];
-  uint16_t eth_proto;
+  uchar  eth_dst[6];
+  uchar  eth_src[6];
+  ushort eth_proto;
 
   // ip
-  uint8_t  ip_hdrlen;
-  uint8_t  ip_tos;
-  uint16_t ip_tot_len;
-  uint16_t ip_id;
-  uint16_t ip_frag_off;
-  uint8_t  ip_ttl;
-  uint8_t  ip_proto;
-  uint16_t ip_check;
-  uint32_t ip_src;
-  uint32_t ip_dst;
+  uchar  ip_hdrlen;
+  uchar  ip_tos;
+  ushort ip_tot_len;
+  ushort ip_id;
+  ushort ip_frag_off;
+  uchar  ip_ttl;
+  uchar  ip_proto;
+  ushort ip_check;
+  uint ip_src;
+  uint ip_dst;
 
   // udp
-  uint16_t udp_src;
-  uint16_t udp_dst;
-  uint16_t udp_len;
-  uint16_t udp_check;
+  ushort udp_src;
+  ushort udp_dst;
+  ushort udp_len;
+  ushort udp_check;
 
   // datagram
-  uint32_t x;
-  uint8_t  text[16];
-  uint8_t  pad[64];
+  uint x;
+  uchar  text[16];
+  uchar  pad[64];
 } packet_t;
 
 
 void
 calc_check( packet_t * pkt ) {
-  uint64_t check = 0;
+  ulong check = 0;
 
   check += pkt->ip_hdrlen;
-  check += (uint32_t)pkt->ip_tos << (uint32_t)8;
+  check += (uint)pkt->ip_tos << (uint)8;
   check += pkt->ip_tot_len;
   check += pkt->ip_id;
   check += pkt->ip_frag_off;
   check += pkt->ip_ttl;
-  check += (uint32_t)pkt->ip_proto << (uint32_t)8;
+  check += (uint)pkt->ip_proto << (uint)8;
   check += pkt->ip_src;
   check += pkt->ip_dst;
 
-  pkt->ip_check = (uint16_t)( 0xffffu - (unsigned)( check % 0xffffu ) );
+  pkt->ip_check = (ushort)( 0xffffu - (unsigned)( check % 0xffffu ) );
 }
 
 
@@ -115,7 +114,7 @@ main( int argc, char **argv ) {
     }
   }
 
-  uint64_t batch_sz = (uint64_t)roundf( f_batch_sz );
+  ulong batch_sz = (ulong)roundf( f_batch_sz );
 
   printf( "xdp test parms:\n" );
 
@@ -149,23 +148,23 @@ main( int argc, char **argv ) {
   float tot_pkt   = 0;
   float tot_batch = 0;
 
-  uint64_t out_duration = (uint64_t)1e9;
-  uint64_t t0 = (uint64_t)gettime();
-  uint64_t t1 = t0 + 1;
-  uint64_t tn = t0 + out_duration;
+  ulong out_duration = (ulong)1e9;
+  ulong t0 = (ulong)gettime();
+  ulong t1 = t0 + 1;
+  ulong tn = t0 + out_duration;
 
-  uint64_t frame_memory = fd_xdp_get_frame_memory( xdp );
+  ulong frame_memory = fd_xdp_get_frame_memory( xdp );
 
   fd_xdp_frame_meta_t * meta     = (fd_xdp_frame_meta_t*)malloc( batch_sz * sizeof( fd_xdp_frame_meta_t ) );
-  uint64_t *            complete = (uint64_t*)           malloc( batch_sz * sizeof( uint64_t ) );
+  ulong *            complete = (ulong*)           malloc( batch_sz * sizeof( ulong ) );
   unsigned              expected = 0; (void)expected;
 
   // fill up fill ring
-  for( size_t j = 0; j < ( config.fill_ring_size >> 1 ); ++j ) {
-    uint64_t frame_offset = j * FRAME_SIZE;
+  for( ulong j = 0; j < ( config.fill_ring_size >> 1 ); ++j ) {
+    ulong frame_offset = j * FRAME_SIZE;
 
-      //uint64_t offs = frame_offset;
-      //uint8_t * status = (uint8_t *)( frame_memory + offs + 2016 );
+      //ulong offs = frame_offset;
+      //uchar * status = (uchar *)( frame_memory + offs + 2016 );
       //*status = 0;
 
     fd_xdp_rx_enqueue( xdp, &frame_offset, 1 );
@@ -178,13 +177,13 @@ main( int argc, char **argv ) {
   printf( "    sudo ethtool -L enp59s0f1 combined 1\n" );
   fflush( stdout );
 
-  size_t avail = 0;
+  ulong avail = 0;
   do {
     avail = fd_xdp_rx_complete( xdp, &meta[0], 1 );
   } while( avail == 0 );
 
   // ignore them
-  for( size_t j = 0; j < avail; ++j ) {
+  for( ulong j = 0; j < avail; ++j ) {
     complete[j] = meta[j].offset;
   }
   fd_xdp_rx_enqueue( xdp, &complete[0], avail );
@@ -192,17 +191,17 @@ main( int argc, char **argv ) {
   printf( "First packet received\n" );
   fflush( stdout );
 
-  uint64_t frame_mask = FRAME_SIZE - 1;
+  ulong frame_mask = FRAME_SIZE - 1;
   while(1) {
     // wait for RX
-    size_t avail = 0;
+    ulong avail = 0;
     do {
       avail = fd_xdp_rx_complete( xdp, &meta[0], batch_sz );
     } while( avail == 0 );
 
-    //for( size_t j = 0; j < avail; ++j ) {
-    //  uint64_t offs = meta[j].offset & ~frame_mask;
-    //  uint8_t * status = (uint8_t *)( frame_memory + offs + 2016 );
+    //for( ulong j = 0; j < avail; ++j ) {
+    //  ulong offs = meta[j].offset & ~frame_mask;
+    //  uchar * status = (uchar *)( frame_memory + offs + 2016 );
     //  if( *status != 0 ) {
     //    printf( "%u incorrect buffer status: %2.2x\n", __LINE__,  *status ); fflush( stdout );
     //  }
@@ -213,9 +212,9 @@ main( int argc, char **argv ) {
     //}
     //fflush( stdout );
 
-    t1 = (uint64_t)gettime();
+    t1 = (ulong)gettime();
 
-    for( size_t j = 0; j < avail; ++j ) {
+    for( ulong j = 0; j < avail; ++j ) {
       tot_bytes += (float)meta[j].sz;
 
       // decode packet
@@ -224,14 +223,14 @@ main( int argc, char **argv ) {
       (void)pkt;
 #else
       packet_t pkt[1];
-      static uint64_t last_offset = 42;
+      static ulong last_offset = 42;
       if( last_offset == meta[j].offset ) {
         printf( "same frame!\n" ); fflush( stdout );
         //exit(1);
       }
       last_offset = meta[j].offset;
 
-      memcpy( &pkt[0], (void*)( frame_memory + meta[j].offset ), sizeof( packet_t ) );
+      fd_memcpy( &pkt[0], (void*)( frame_memory + meta[j].offset ), sizeof( packet_t ) );
 #endif
 
 #if 0
@@ -247,8 +246,8 @@ main( int argc, char **argv ) {
 
       // return packet
 
-      //uint64_t offs = meta[j].offset & ~frame_mask;
-      //uint8_t * status = (uint8_t *)( frame_memory + offs + 2016 );
+      //ulong offs = meta[j].offset & ~frame_mask;
+      //uchar * status = (uchar *)( frame_memory + offs + 2016 );
       //if( *status != 1 ) {
       //  printf( "%u incorrect buffer status: %2.2x\n", __LINE__,  *status ); fflush( stdout );
       //}
@@ -273,7 +272,7 @@ main( int argc, char **argv ) {
       tot_bytes = tot_pkt = tot_batch = 0;
 
       t0 = t1;
-      tn = (uint64_t)gettime() + out_duration;
+      tn = (ulong)gettime() + out_duration;
     }
 
     //usleep(100);

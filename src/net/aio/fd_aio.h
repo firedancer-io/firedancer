@@ -2,6 +2,7 @@
 #define HEADER_fd_aio_h
 
 #include <string.h>
+#include "../../util/fd_util_base.h"
 
 /* defines an abstraction for input/output
 
@@ -37,7 +38,7 @@
      fd_aio_buffer_t batch[10] = {{ .data = data, .data_sz = data_sz }};
 
      fd_aio_buffer_t cur_batch    = batch;
-     size_t          cur_batch_sz = 10;
+     ulong          cur_batch_sz = 10;
      while( cur_batch_sz ) {
        int send_rc = fd_aio_send( aio, cur_batch, cur_batch_sz ); // send a batch of buffers to the peer
        if( send_rc < 0 ) {
@@ -71,13 +72,13 @@ typedef struct fd_aio_buffer fd_aio_buffer_t;
    returns
      the number of buffers processed, including zero
      or ~0 if an error occurred */
-typedef size_t (*fd_aio_cb_receive)( void *            context,
+typedef ulong (*fd_aio_cb_receive)( void *            context,
                                      fd_aio_buffer_t * batch,
-                                     size_t            batch_sz );
+                                     ulong            batch_sz );
 
 struct fd_aio_buffer {
   void * data;
-  size_t data_sz;
+  ulong data_sz;
 };
 
 struct fd_aio {
@@ -98,10 +99,10 @@ struct fd_aio {
      N >  0       N buffers were processed
      N == ~0      a fatal error occurred */
 inline
-size_t
-fd_aio_send( fd_aio_t *        aio, 
+ulong
+fd_aio_send( fd_aio_t *        aio,
              fd_aio_buffer_t * batch,
-             size_t            batch_sz ) {
+             ulong            batch_sz ) {
   return aio->cb_receive( aio->context, batch, batch_sz );
 }
 

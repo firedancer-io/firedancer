@@ -1,4 +1,3 @@
-#include <stdint.h>
 #include <sys/mman.h>
 #include <unistd.h>
 #include <linux/if_xdp.h>
@@ -41,57 +40,57 @@ gettime() {
 typedef struct
   __attribute__((__packed__))
 {
-  uint8_t  eth_dst[6];
-  uint8_t  eth_src[6];
-  uint16_t eth_proto;
+  uchar  eth_dst[6];
+  uchar  eth_src[6];
+  ushort eth_proto;
 
   // ip
-  uint8_t  ip_hdrlen;
-  uint8_t  ip_tos;
-  uint16_t ip_tot_len;
-  uint16_t ip_id;
-  uint16_t ip_frag_off;
-  uint8_t  ip_ttl;
-  uint8_t  ip_proto;
-  uint16_t ip_check;
-  uint32_t ip_src;
-  uint32_t ip_dst;
+  uchar  ip_hdrlen;
+  uchar  ip_tos;
+  ushort ip_tot_len;
+  ushort ip_id;
+  ushort ip_frag_off;
+  uchar  ip_ttl;
+  uchar  ip_proto;
+  ushort ip_check;
+  uint ip_src;
+  uint ip_dst;
 
   // udp
-  uint16_t udp_src;
-  uint16_t udp_dst;
-  uint16_t udp_len;
-  uint16_t udp_check;
+  ushort udp_src;
+  ushort udp_dst;
+  ushort udp_len;
+  ushort udp_check;
 
   // datagram
-  uint8_t  text[64];
-  uint8_t  pad[64];
-  uint8_t  pad1[1024];
+  uchar  text[64];
+  uchar  pad[64];
+  uchar  pad1[1024];
 } packet_t;
 
 
 void
 calc_check( packet_t * pkt ) {
-  uint64_t check = 0;
+  ulong check = 0;
 
   check += pkt->ip_hdrlen;
-  check += (uint32_t)pkt->ip_tos << (uint32_t)8;
+  check += (uint)pkt->ip_tos << (uint)8;
   check += pkt->ip_tot_len;
   check += pkt->ip_id;
   check += pkt->ip_frag_off;
   check += pkt->ip_ttl;
-  check += (uint32_t)pkt->ip_proto << (uint32_t)8;
+  check += (uint)pkt->ip_proto << (uint)8;
   check += pkt->ip_src;
   check += pkt->ip_dst;
 
-  pkt->ip_check = (uint16_t)( 0xffffu ^ ( check % 0xffffu ) );
+  pkt->ip_check = (ushort)( 0xffffu ^ ( check % 0xffffu ) );
 }
 
 void
 calc_check2( packet_t * pkt ) {
 #define STAGE(N) \
-  uint32_t x##N = 0u; \
-  memcpy( &x##N, (char*)&pkt->ip_hdrlen + (N<<2u), 4u )
+  uint x##N = 0u; \
+  fd_memcpy( &x##N, (char*)&pkt->ip_hdrlen + (N<<2u), 4u )
 
   STAGE(0);
   STAGE(1);
@@ -99,10 +98,10 @@ calc_check2( packet_t * pkt ) {
   STAGE(3);
   STAGE(4);
 
-  uint64_t check0 = (uint64_t)x0 + (uint64_t)x1 + (uint64_t)x2 + (uint64_t)x3 + (uint64_t)x4;
-  uint64_t check1 = ( check0 & 0xffffffffu ) + ( check0 >> 32u );
-  uint64_t check2 = ( check1 & 0xffffu )     + ( check1 >> 16u );
-  uint64_t check3 = ( check2 & 0xffffu )     + ( check2 >> 16u );
+  ulong check0 = (ulong)x0 + (ulong)x1 + (ulong)x2 + (ulong)x3 + (ulong)x4;
+  ulong check1 = ( check0 & 0xffffffffu ) + ( check0 >> 32u );
+  ulong check2 = ( check1 & 0xffffu )     + ( check1 >> 16u );
+  ulong check3 = ( check2 & 0xffffu )     + ( check2 >> 16u );
 
   if( check3 != 0xffffu ) {
     printf( "ip checksums don't match\n" );
@@ -138,7 +137,7 @@ main( int argc, char **argv ) {
     }
   }
 
-  uint64_t batch_sz = (uint64_t)roundf( f_batch_sz );
+  ulong batch_sz = (ulong)roundf( f_batch_sz );
 
   printf( "xdp test parms:\n" );
 
@@ -172,31 +171,31 @@ main( int argc, char **argv ) {
   float tot_pkt   = 0;
   float tot_batch = 0;
 
-  uint64_t out_duration = (uint64_t)1e9;
-  uint64_t t0 = (uint64_t)gettime();
-  uint64_t t1 = t0 + 1;
-  uint64_t tn = t0 + out_duration;
+  ulong out_duration = (ulong)1e9;
+  ulong t0 = (ulong)gettime();
+  ulong t1 = t0 + 1;
+  ulong tn = t0 + out_duration;
 
-  uint64_t rx_cnt       = config.rx_ring_size;
-  uint64_t tx_cnt       = config.tx_ring_size;
+  ulong rx_cnt       = config.rx_ring_size;
+  ulong tx_cnt       = config.tx_ring_size;
 
   fd_xdp_frame_meta_t * meta     = (fd_xdp_frame_meta_t*)malloc( batch_sz * sizeof( fd_xdp_frame_meta_t ) );
   unsigned              expected = 0; (void)expected;
 
   // enqueue rx frames for receive
-  for( size_t j = 0; j < rx_cnt; ++j ) {
-    uint64_t frame_offset = j * FRAME_SIZE;
+  for( ulong j = 0; j < rx_cnt; ++j ) {
+    ulong frame_offset = j * FRAME_SIZE;
 
     fd_xdp_rx_enqueue( xdp, &frame_offset, 1 );
   }
 
   // set up a stack of tx frames
-  uint64_t * frame_stack     = (uint64_t*)malloc( tx_cnt * sizeof(uint64_t) );
-  size_t     frame_stack_idx = 0;
-  uint64_t   frame_size      = config.frame_size;
+  ulong * frame_stack     = (ulong*)malloc( tx_cnt * sizeof(ulong) );
+  ulong     frame_stack_idx = 0;
+  ulong   frame_size      = config.frame_size;
 
-  for( size_t j = 0; j < tx_cnt; ++j ) {
-    size_t k = rx_cnt + j;
+  for( ulong j = 0; j < tx_cnt; ++j ) {
+    ulong k = rx_cnt + j;
     frame_stack[frame_stack_idx] = k*frame_size; // push an index onto the frame stack
     frame_stack_idx++;
   }
@@ -209,14 +208,14 @@ main( int argc, char **argv ) {
 
   while(1) {
     // wait for RX
-    size_t avail = 0;
+    ulong avail = 0;
     do {
       avail = fd_xdp_rx_complete( xdp, &meta[0], batch_sz );
     } while( avail == 0 );
 
-    t1 = (uint64_t)gettime();
+    t1 = (ulong)gettime();
 
-    for( size_t j = 0; j < avail; ++j ) {
+    for( ulong j = 0; j < avail; ++j ) {
       tot_bytes += (float)meta[j].sz;
 
       /* echo back here */
@@ -225,34 +224,34 @@ main( int argc, char **argv ) {
           (unsigned)rx_pkt->ip_src, (unsigned)rx_pkt->udp_src,
           (unsigned)rx_pkt->ip_dst, (unsigned)rx_pkt->udp_dst );
 
-      uint64_t pkt_sz = meta[j].sz;
+      ulong pkt_sz = meta[j].sz;
 
       /* obtain a tx frame */
       if( frame_stack_idx > 0 ) {
         frame_stack_idx--;
 
-        uint64_t frame_offset = frame_stack[frame_stack_idx];
+        ulong frame_offset = frame_stack[frame_stack_idx];
 
         //packet_t tx_pkt[1];
         void * buf = (void*)( xdp->umem.addr + frame_offset );
         packet_t * tx_pkt = buf;
 
         /* copy packet into buffer */
-        memcpy( tx_pkt, rx_pkt, (size_t)meta[j].sz );
+        fd_memcpy( tx_pkt, rx_pkt, (ulong)meta[j].sz );
 
         /* switch eth, ip and udp, src and dst */
-        memcpy(  tx_pkt->eth_src,  rx_pkt->eth_dst, 6 );
-        memcpy(  tx_pkt->eth_dst,  rx_pkt->eth_src, 6 );
-        memcpy( &tx_pkt->ip_src,  &rx_pkt->ip_dst,  4 );
-        memcpy( &tx_pkt->ip_dst,  &rx_pkt->ip_src,  4 );
+        fd_memcpy(  tx_pkt->eth_src,  rx_pkt->eth_dst, 6 );
+        fd_memcpy(  tx_pkt->eth_dst,  rx_pkt->eth_src, 6 );
+        fd_memcpy( &tx_pkt->ip_src,  &rx_pkt->ip_dst,  4 );
+        fd_memcpy( &tx_pkt->ip_dst,  &rx_pkt->ip_src,  4 );
 
         /* make the ports the same */
-        uint16_t port = htons( 42425u );
-        memcpy( &tx_pkt->udp_dst, &port, 2 );
-        memcpy( &tx_pkt->udp_src, &port, 2 );
+        ushort port = htons( 42425u );
+        fd_memcpy( &tx_pkt->udp_dst, &port, 2 );
+        fd_memcpy( &tx_pkt->udp_src, &port, 2 );
 
-        uint16_t udp_check = 0u; /* no udp checksum */
-        memcpy( &tx_pkt->udp_check, &udp_check, 2 );
+        ushort udp_check = 0u; /* no udp checksum */
+        fd_memcpy( &tx_pkt->udp_check, &udp_check, 2 );
 
         /* calculate checksum */
         tx_pkt->ip_check = 0u;
@@ -266,7 +265,7 @@ main( int argc, char **argv ) {
         /* enqueue */
         fd_xdp_frame_meta_t tx_meta = { frame_offset, (unsigned)pkt_sz, 0 };
 
-        size_t queued = fd_xdp_tx_enqueue( xdp, &tx_meta, 1 );
+        ulong queued = fd_xdp_tx_enqueue( xdp, &tx_meta, 1 );
         if( queued == 0 ) {
           /* we didn't queue anything, put frame back on stack */
           printf( "send failed\n" );
@@ -284,7 +283,7 @@ main( int argc, char **argv ) {
     tot_batch += 1;
 
     // replenish rx
-    size_t enq_rc = fd_xdp_rx_enqueue2( xdp, meta, avail );
+    ulong enq_rc = fd_xdp_rx_enqueue2( xdp, meta, avail );
 
     if( enq_rc < avail ) {
       printf( "fd_xdp_rx_enqueue2 did not enqueue all frames\n" );
@@ -292,7 +291,7 @@ main( int argc, char **argv ) {
     }
 
     // replenish tx
-    uint64_t tx_completed = fd_xdp_tx_complete( xdp, frame_stack + frame_stack_idx, tx_cnt - frame_stack_idx );
+    ulong tx_completed = fd_xdp_tx_complete( xdp, frame_stack + frame_stack_idx, tx_cnt - frame_stack_idx );
     frame_stack_idx += tx_completed;
 
     if( tx_completed ) {
@@ -309,7 +308,7 @@ main( int argc, char **argv ) {
       tot_bytes = tot_pkt = tot_batch = 0;
 
       t0 = t1;
-      tn = (uint64_t)gettime() + out_duration;
+      tn = (ulong)gettime() + out_duration;
     }
 
     //usleep(100);

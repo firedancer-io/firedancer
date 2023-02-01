@@ -8,8 +8,8 @@
 
 void
 write_shb( FILE * file ) {
-  pcap_shb_t shb[1] = {{ 0x0A0D0D0A, sizeof( pcap_shb_t ), 0x1A2B3C4D, 1, 0, (uint64_t)-1, sizeof( pcap_shb_t ) }};
-  size_t rc = fwrite( shb, sizeof(shb), 1, file );
+  pcap_shb_t shb[1] = {{ 0x0A0D0D0A, sizeof( pcap_shb_t ), 0x1A2B3C4D, 1, 0, (ulong)-1, sizeof( pcap_shb_t ) }};
+  ulong rc = fwrite( shb, sizeof(shb), 1, file );
   if( rc != 1 ) {
     abort();
   }
@@ -18,21 +18,21 @@ write_shb( FILE * file ) {
 void
 write_idb( FILE * file ) {
   pcap_idb_t idb[1] = {{ 0x00000001, sizeof( pcap_idb_t ), 1, 0, 0, sizeof( pcap_idb_t ) }};
-  size_t rc = fwrite( idb, sizeof(idb), 1, file );
+  ulong rc = fwrite( idb, sizeof(idb), 1, file );
   if( rc != 1 ) {
     abort();
   }
 }
 
 void
-write_epb( FILE * file, uchar * buf, unsigned buf_sz, uint64_t ts ) {
+write_epb( FILE * file, uchar * buf, uint buf_sz, ulong ts ) {
   if( buf_sz == 0 ) return;
 
-  uint32_t ts_lo = (uint32_t)ts;
-  uint32_t ts_hi = (uint32_t)( ts >> 32u );
+  uint ts_lo = (uint)ts;
+  uint ts_hi = (uint)( ts >> 32u );
 
-  unsigned align_sz = ( ( buf_sz - 1u ) | 0x03u ) + 1u;
-  unsigned tot_len  = align_sz + (unsigned)sizeof( pcap_epb_t ) + 4;
+  uint align_sz = ( ( buf_sz - 1u ) | 0x03u ) + 1u;
+  uint tot_len  = align_sz + (uint)sizeof( pcap_epb_t ) + 4;
   pcap_epb_t epb[1] = {{
     0x00000006,
     tot_len,
@@ -42,7 +42,7 @@ write_epb( FILE * file, uchar * buf, unsigned buf_sz, uint64_t ts ) {
     buf_sz,
     buf_sz }};
 
-  size_t rc = fwrite( epb, sizeof( epb ), 1, file );
+  ulong rc = fwrite( epb, sizeof( epb ), 1, file );
   if( rc != 1 ) {
     abort();
   }
@@ -67,18 +67,18 @@ write_epb( FILE * file, uchar * buf, unsigned buf_sz, uint64_t ts ) {
 
 
 extern uchar  pkt_full[];
-extern size_t pkt_full_sz;
+extern ulong pkt_full_sz;
 
-size_t
-aio_cb( void * context, fd_aio_buffer_t * batch, size_t batch_sz ) {
+ulong
+aio_cb( void * context, fd_aio_buffer_t * batch, ulong batch_sz ) {
   (void)context;
 
   printf( "aio_cb callback\n" );
-  for( size_t j = 0; j < batch_sz; ++j ) {
+  for( ulong j = 0; j < batch_sz; ++j ) {
     printf( "batch %d\n", (int)j );
     uchar const * data = (uchar const *)batch[j].data;
-    for( size_t k = 0; k < batch[j].data_sz; ++k ) {
-      printf( "%2.2x ", (unsigned)data[k] );
+    for( ulong k = 0; k < batch[j].data_sz; ++k ) {
+      printf( "%2.2x ", (uint)data[k] );
     }
     printf( "\n\n" );
   }
@@ -92,13 +92,13 @@ void
 my_stream_receive_cb( fd_quic_stream_t * stream,
                       void *             ctx,
                       uchar const *      data,
-                      size_t             data_sz,
-                      uint64_t           offset ) {
+                      ulong             data_sz,
+                      ulong           offset ) {
   (void)ctx;
   (void)stream;
 
   printf( "my_stream_receive_cb : received data from peer. size: %lu  offset: %lu\n",
-      (long unsigned)data_sz, (long unsigned)offset );
+      (ulong)data_sz, (ulong)offset );
   printf( "%s\n", data );
 }
 
@@ -108,8 +108,8 @@ new_quic( fd_quic_config_t * quic_config ) {
   ulong  align    = fd_quic_align();
   ulong  fp       = fd_quic_footprint( quic_config );
   void * mem      = malloc( fp + align );
-  size_t smem     = (size_t)mem;
-  size_t memalign = smem % align;
+  ulong smem     = (ulong)mem;
+  ulong memalign = smem % align;
   void * aligned  = ((uchar*)mem) + ( memalign == 0 ? 0 : ( align - memalign ) );
 
   fd_quic_t * quic = fd_quic_new( aligned, quic_config );
@@ -163,9 +163,9 @@ struct aio_pipe {
 typedef struct aio_pipe aio_pipe_t;
 
 
-size_t
-pipe_aio_receive( void * vp_ctx, fd_aio_buffer_t * batch, size_t batch_sz ) {
-  static uint64_t ts = 0;
+ulong
+pipe_aio_receive( void * vp_ctx, fd_aio_buffer_t * batch, ulong batch_sz ) {
+  static ulong ts = 0;
   ts += 100000ul;
 
   aio_pipe_t * pipe = (aio_pipe_t*)vp_ctx;
@@ -183,9 +183,9 @@ pipe_aio_receive( void * vp_ctx, fd_aio_buffer_t * batch, size_t batch_sz ) {
 
 
 /* global "clock" */
-uint64_t now = 123;
+ulong now = 123;
 
-uint64_t test_clock( void * ctx ) {
+ulong test_clock( void * ctx ) {
   (void)ctx;
   return now;
 }
@@ -201,9 +201,9 @@ main( int argc, char ** argv ) {
   (void)argc;
   (void)argv;
   // Transport params:
-  //   original_destination_connection_id (0x00)         :   len(0) 
+  //   original_destination_connection_id (0x00)         :   len(0)
   //   max_idle_timeout (0x01)                           : * 60000
-  //   stateless_reset_token (0x02)                      :   len(0) 
+  //   stateless_reset_token (0x02)                      :   len(0)
   //   max_udp_payload_size (0x03)                       :   0
   //   initial_max_data (0x04)                           : * 1048576
   //   initial_max_stream_data_bidi_local (0x05)         : * 1048576
@@ -214,10 +214,10 @@ main( int argc, char ** argv ) {
   //   ack_delay_exponent (0x0a)                         : * 3
   //   max_ack_delay (0x0b)                              : * 25
   //   disable_active_migration (0x0c)                   :   0
-  //   preferred_address (0x0d)                          :   len(0) 
+  //   preferred_address (0x0d)                          :   len(0)
   //   active_connection_id_limit (0x0e)                 : * 8
-  //   initial_source_connection_id (0x0f)               : * len(8) ec 73 1b 41 a0 d5 c6 fe 
-  //   retry_source_connection_id (0x10)                 :   len(0) 
+  //   initial_source_connection_id (0x0f)               : * len(8) ec 73 1b 41 a0 d5 c6 fe
+  //   retry_source_connection_id (0x10)                 :   len(0)
 
   /* all zeros transport params is a reasonable default */
   fd_quic_transport_params_t tp[1] = {0};
@@ -303,19 +303,19 @@ main( int argc, char ** argv ) {
   (void)client_conn;
 
   /* do general processing */
-  for( size_t j = 0; j < 20; j++ ) {
-    uint64_t ct = fd_quic_get_next_wakeup( client_quic );
-    uint64_t st = fd_quic_get_next_wakeup( server_quic );
-    uint64_t next_wakeup = fd_ulong_min( ct, st );
+  for( ulong j = 0; j < 20; j++ ) {
+    ulong ct = fd_quic_get_next_wakeup( client_quic );
+    ulong st = fd_quic_get_next_wakeup( server_quic );
+    ulong next_wakeup = fd_ulong_min( ct, st );
 
-    if( next_wakeup == ~(uint64_t)0 ) {
+    if( next_wakeup == ~(ulong)0 ) {
       printf( "client and server have no schedule\n" );
       break;
     }
 
     if( next_wakeup > now ) now = next_wakeup;
 
-    printf( "running services at %lu\n", (long unsigned)next_wakeup );
+    printf( "running services at %lu\n", (ulong)next_wakeup );
     fd_quic_service( client_quic );
     fd_quic_service( server_quic );
 
@@ -326,12 +326,12 @@ main( int argc, char ** argv ) {
     }
   }
 
-  for( size_t j = 0; j < 20; j++ ) {
-    uint64_t ct = fd_quic_get_next_wakeup( client_quic );
-    uint64_t st = fd_quic_get_next_wakeup( server_quic );
-    uint64_t next_wakeup = fd_ulong_min( ct, st );
+  for( ulong j = 0; j < 20; j++ ) {
+    ulong ct = fd_quic_get_next_wakeup( client_quic );
+    ulong st = fd_quic_get_next_wakeup( server_quic );
+    ulong next_wakeup = fd_ulong_min( ct, st );
 
-    if( next_wakeup == ~(uint64_t)0 ) {
+    if( next_wakeup == ~(ulong)0 ) {
       printf( "client and server have no schedule\n" );
       break;
     }
@@ -367,18 +367,18 @@ main( int argc, char ** argv ) {
   printf( "fd_quic_stream_send returned %d\n", rc );
 
   for( unsigned j = 0; j < 50; ++j ) {
-    uint64_t ct = fd_quic_get_next_wakeup( client_quic );
-    uint64_t st = fd_quic_get_next_wakeup( server_quic );
-    uint64_t next_wakeup = fd_ulong_min( ct, st );
+    ulong ct = fd_quic_get_next_wakeup( client_quic );
+    ulong st = fd_quic_get_next_wakeup( server_quic );
+    ulong next_wakeup = fd_ulong_min( ct, st );
 
-    if( next_wakeup == ~(uint64_t)0 ) {
+    if( next_wakeup == ~(ulong)0 ) {
       printf( "client and server have no schedule\n" );
       break;
     }
 
     if( next_wakeup > now ) now = next_wakeup;
 
-    printf( "running services at %lu\n", (long unsigned)next_wakeup );
+    printf( "running services at %lu\n", (ulong)next_wakeup );
     fflush( stdout );
 
     fd_quic_service( client_quic );
@@ -403,18 +403,18 @@ main( int argc, char ** argv ) {
 
   /* allow acks to go */
   for( unsigned j = 0; j < 10; ++j ) {
-    uint64_t ct = fd_quic_get_next_wakeup( client_quic );
-    uint64_t st = fd_quic_get_next_wakeup( server_quic );
-    uint64_t next_wakeup = fd_ulong_min( ct, st );
+    ulong ct = fd_quic_get_next_wakeup( client_quic );
+    ulong st = fd_quic_get_next_wakeup( server_quic );
+    ulong next_wakeup = fd_ulong_min( ct, st );
 
-    if( next_wakeup == ~(uint64_t)0 ) {
+    if( next_wakeup == ~(ulong)0 ) {
       printf( "client and server have no schedule\n" );
       break;
     }
 
     if( next_wakeup > now ) now = next_wakeup;
 
-    printf( "running services at %lu\n", (long unsigned)next_wakeup );
+    printf( "running services at %lu\n", (ulong)next_wakeup );
     fd_quic_service( client_quic );
     fd_quic_service( server_quic );
 

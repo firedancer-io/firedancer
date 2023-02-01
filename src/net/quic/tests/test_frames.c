@@ -14,7 +14,7 @@ typedef struct fd_quic fd_quic_t;
 
 #include "../fd_quic_proto.h"
 
-uchar raw_crypto_frame[] = 
+uchar raw_crypto_frame[] =
 "\x06\x00\x41\x79\x01\x00\x01\x75\x03\x03\x6f\x2d\xa1\x28\xdd\x7e"
 "\xff\xa9\x8c\x1c\xe4\x84\x55\x04\xa2\xcc\xc6\x35\x46\xfa\xfa\xfa"
 "\x47\xa3\xf7\xff\x2a\xaa\x7f\xa4\x28\x0b\x00\x00\x06\x13\x02\x13"
@@ -47,34 +47,30 @@ test_crypto_frame( ) {
   fd_quic_crypto_frame_t crypto_frame[1];
 
   uchar * cur_ptr = raw_crypto_frame;
-  size_t  cur_sz  = sizeof( raw_crypto_frame ) - 1; /* account for NUL byte */
+  ulong  cur_sz  = sizeof( raw_crypto_frame ) - 1; /* account for NUL byte */
 
-  size_t rc = fd_quic_decode_common_frag( common_frag, cur_ptr, cur_sz );
-  if( rc == FD_QUIC_PARSE_FAIL ) {
-    printf( "%s : failed to parse common_frag\n", __func__ );
-    return;
-  }
+  ulong rc = fd_quic_decode_common_frag( common_frag, cur_ptr, cur_sz );
+  FD_TEST( rc!=FD_QUIC_PARSE_FAIL );
 
   cur_ptr += rc;
   cur_sz  -= rc;
 
   rc = fd_quic_decode_crypto_frame( crypto_frame, cur_ptr, cur_sz );
-  if( rc == FD_QUIC_PARSE_FAIL ) {
-    printf( "%s : failed to parse crypto_frame\n", __func__ );
-    return;
-  }
+  FD_TEST( rc!=FD_QUIC_PARSE_FAIL );
 
-  printf( "%s : parsed crypto_frame:\n", __func__ );
+  FD_LOG_NOTICE(( "parsed crypto_frame" ));
   fd_quic_dump_struct_common_frag( common_frag );
   fd_quic_dump_struct_crypto_frame( crypto_frame );
 
   /* check footprints */
-  printf( "crypto_frame footprint: %lu\n", (unsigned long)fd_quic_encode_footprint_crypto_frame( crypto_frame ) );
+  FD_LOG_NOTICE(( "crypto_frame footprint: %lu",
+                  (ulong)fd_quic_encode_footprint_crypto_frame( crypto_frame ) ));
 
   /* adjust and try again */
   crypto_frame->length -= 100;
-  printf( "crypto_frame after subtracting 100 in length:\n" );
-  printf( "crypto_frame footprint: %lu\n", (unsigned long)fd_quic_encode_footprint_crypto_frame( crypto_frame ) );
+  FD_LOG_NOTICE(( "crypto_frame after subtracting 100 in length:" ));
+  FD_LOG_NOTICE(( "crypto_frame footprint: %lu",
+                  (ulong)fd_quic_encode_footprint_crypto_frame( crypto_frame ) ));
 
   crypto_frame->length += 100;
 
@@ -82,24 +78,24 @@ test_crypto_frame( ) {
   uchar buf[4096];
 
   rc = fd_quic_encode_crypto_frame( buf, sizeof( buf ), crypto_frame );
-  if( rc == FD_QUIC_PARSE_FAIL ) {
-    printf( "%s : failed to encode crypto_frame\n", __func__ );
-    return;
-  }
+  FD_TEST( rc!=FD_QUIC_PARSE_FAIL );
 
-  printf( "%s : encoded:\n", __func__ );
-  for( size_t j = 0; j < rc; ++j ) {
-    printf( "%2.2x ", (unsigned)buf[j] );
+  FD_LOG_NOTICE(( "encoded:" ));
+  for( ulong j = 0; j < rc; ++j ) {
+    // TODO print to log
+    fprintf( stderr, "%2.2x ", (unsigned)buf[j] );
   }
 }
 
 int
-main( int argc, char **argv ) {
-  (void)argc;
-  (void)argv;
+main( int     argc,
+      char ** argv ) {
+  fd_boot( &argc, &argv );
 
   test_crypto_frame();
 
+  FD_LOG_NOTICE(( "pass" ));
+  fd_halt();
   return 0;
 }
 

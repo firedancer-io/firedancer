@@ -5,26 +5,6 @@
 
 #include <stdio.h>
 
-
-/* parses the varint at *buf (capacity *buf_sz)
-   advances the *buf and reduces *buf_sz by the number of bytes
-   consumed */
-static inline
-uint64_t
-fd_quic_tp_parse_varint( uchar const ** buf, size_t * buf_sz ) {
-  if( *buf_sz == 0 ) return ~(uint64_t)0;
-  unsigned width = 1u << ( (unsigned)(*buf)[0] >> 6u ); 
-  if( *buf_sz < width ) return ~(uint64_t)0;
-  uint64_t value = (uint64_t)( (*buf)[0] & 0x3f ); 
-  for( size_t j = 1; j < width; ++j ) { 
-    value  = ( value << 8u ) + (uint64_t)(*buf)[j]; 
-  } 
-  *buf    += width;
-  *buf_sz -= width;
-  return value;
-}
-
-
 void
 fd_quic_dump_transport_param_desc( FILE * out ) {
   fprintf( out, "Transport parameter descriptions:\n" );
@@ -38,49 +18,52 @@ fd_quic_dump_transport_param_desc( FILE * out ) {
 
 
 #define FD_QUIC_PARSE_TP_VARINT(NAME) \
-  do { \
-    if( sz == 0 ) return -2; \
-    unsigned width = 1u << ( (unsigned)buf[0] >> 6u ); \
-    if( sz < width ) return -3; \
-    uint64_t value = (uint64_t)( buf[0] & 0x3f ); \
-    for( size_t j = 1; j < width; ++j ) { \
-      value  = ( value << 8u ) + (uint64_t)buf[j]; \
-    } \
-    params->NAME = value; \
-    params->NAME##_present = 1; \
+  do {                                                 \
+    if( FD_UNLIKELY( sz==0    ) ) return -2;           \
+    uint width = 1u << ( (unsigned)buf[0] >> 6u );     \
+    if( FD_UNLIKELY( sz<width ) ) return -3;           \
+    ulong value = (ulong)( buf[0] & 0x3f );            \
+    for( ulong j=1; j<width; ++j ) {                   \
+      value= ( value<<8u ) + (ulong)buf[j];            \
+    }                                                  \
+    params->NAME = value;                              \
+    params->NAME##_present = 1;                        \
   } while(0)
 
-#define FD_QUIC_PARSE_TP_CONN_ID(NAME) \
-  for( size_t j = 0; j < sz; ++j ) { \
-    params->NAME[j] = buf[j]; \
-  } \
-  params->NAME##_len = (uint8_t)sz; \
-  params->NAME##_present = 1;
+#define FD_QUIC_PARSE_TP_CONN_ID(NAME)                      \
+  do {                                                      \
+    if( FD_UNLIKELY( sz>sizeof(params->NAME) ) ) return -1; \
+    fd_memcpy( params->NAME, buf, sz );                     \
+    params->NAME##_len = (uchar)sz;                         \
+    params->NAME##_present = 1;                             \
+  } while(0)
 
 #define FD_QUIC_PARSE_TP_ZERO_LENGTH(NAME) \
-  params->NAME = 1u; \
+  params->NAME = 1u;                       \
   params->NAME##_present = 1;
 
-#define FD_QUIC_PARSE_TP_TOKEN(NAME) \
-  for( size_t j = 0; j < sz; ++j ) { \
-    params->NAME[j] = buf[j]; \
-  } \
-  params->NAME##_len = (uint8_t)sz; \
-  params->NAME##_present = 1;
+#define FD_QUIC_PARSE_TP_TOKEN(NAME)                        \
+  do {                                                      \
+    if( FD_UNLIKELY( sz>sizeof(params->NAME) ) ) return -1; \
+    fd_memcpy( params->NAME, buf, sz );                     \
+    params->NAME##_len = (uchar)sz;                         \
+    params->NAME##_present = 1;                             \
+  } while(0)
 
-#define FD_QUIC_PARSE_TP_PREFERRED_ADDRESS(NAME) \
-  for( size_t j = 0; j < sz; ++j ) { \
-    params->NAME[j] = buf[j]; \
-  } \
-  params->NAME##_len = (uint8_t)sz; \
-  params->NAME##_present = 1;
+#define FD_QUIC_PARSE_TP_PREFERRED_ADDRESS(NAME)            \
+  do {                                                      \
+    if( FD_UNLIKELY( sz>sizeof(params->NAME) ) ) return -1; \
+    fd_memcpy( params->NAME, buf, sz );                     \
+    params->NAME##_len = (uchar)sz;                         \
+    params->NAME##_present = 1;                             \
+  } while(0)
 
 
 int
 fd_quic_decode_transport_param( fd_quic_transport_params_t * params,
-                                uint32_t                     id,
+                                uint                         id,
                                 uchar const *                buf,
-                                size_t                       sz ) {
+                                ulong                        sz ) {
   // This compiles into a jump table, which is reasonably fast
   switch( id ) {
 #define __( NAME, ID, TYPE, DFT, DESC, ... ) \
@@ -100,17 +83,20 @@ fd_quic_decode_transport_param( fd_quic_transport_params_t * params,
 int
 fd_quic_decode_transport_params( fd_quic_transport_params_t * params,
                                  uchar const *                buf,
-                                 size_t                       buf_sz ) {
+                                 ulong                        buf_sz ) {
   while( buf_sz > 0 ) {
     /* upon success, this function adjusts buf and sz by bytes consumed */
-    uint64_t param_id = fd_quic_tp_parse_varint( &buf, &buf_sz );
+    ulong param_id = fd_quic_tp_parse_varint( &buf, &buf_sz );
     /* TODO use a named constant/macro for return value */
-    if( param_id > ~(uint32_t)0 ) return -1; /* parse failure */
-    uint64_t param_sz = fd_quic_tp_parse_varint( &buf, &buf_sz );
-    if( param_sz == ~(uint64_t)0 ) return -1; /* parse failure */
-    int consumed = fd_quic_decode_transport_param( params, (uint32_t)param_id, buf, buf_sz );
+    if( FD_UNLIKELY( param_id > ~(uint)0   ) ) return -1; /* parse failure */
+
+    ulong param_sz = fd_quic_tp_parse_varint( &buf, &buf_sz );
+    if( FD_UNLIKELY( param_sz == ~(ulong)0 ) ) return -1; /* parse failure */
+    if( FD_UNLIKELY( param_sz >  buf_sz    ) ) return -1; /* length OOB */
+
+    int consumed = fd_quic_decode_transport_param( params, (uint)param_id, buf, param_sz );
     /* -1 is parameter not understood, which is simply ignored by spec */
-    if( consumed < -1 ) return -1; /* parse failure */
+    if( FD_UNLIKELY( consumed < -1 ) ) return -1; /* parse failure */
 
     /* update buf and buf_sz */
     buf    += param_sz;
@@ -121,12 +107,12 @@ fd_quic_decode_transport_params( fd_quic_transport_params_t * params,
 }
 
 #define FD_QUIC_DUMP_TP_VARINT(NAME) \
-  fprintf( out, "%lu", (unsigned long)params->NAME )
+  fprintf( out, "%lu", (ulong)params->NAME )
 #define FD_QUIC_DUMP_TP_CONN_ID(NAME) \
   do { \
-    size_t sz = params->NAME##_len; \
+    ulong sz = params->NAME##_len; \
     fprintf( out, "len(%d) ", (int)sz ); \
-    for( size_t j = 0; j < sz; ++j ) { \
+    for( ulong j = 0; j < sz; ++j ) { \
       fprintf( out, "%2.2x ", (unsigned)params->NAME[j] ); \
     } \
   } while(0)
@@ -149,7 +135,7 @@ fd_quic_dump_transport_params( fd_quic_transport_params_t const * params, FILE *
 
 #define FD_QUIC_ENCODE_TP_VARINT(NAME,ID) \
   do { \
-    size_t val_len = FD_QUIC_ENCODE_VARINT_LEN( params->NAME ); \
+    ulong val_len = FD_QUIC_ENCODE_VARINT_LEN( params->NAME ); \
     FD_QUIC_ENCODE_VARINT( buf, buf_sz, ID ); \
     FD_QUIC_ENCODE_VARINT( buf, buf_sz, val_len ); \
     FD_QUIC_ENCODE_VARINT(buf,buf_sz,params->NAME); \
@@ -157,11 +143,11 @@ fd_quic_dump_transport_params( fd_quic_transport_params_t const * params, FILE *
 
 #define FD_QUIC_ENCODE_TP_CONN_ID(NAME,ID) \
   do { \
-    size_t val_len = params->NAME##_len; \
+    ulong val_len = params->NAME##_len; \
     FD_QUIC_ENCODE_VARINT( buf, buf_sz, ID ); \
     FD_QUIC_ENCODE_VARINT( buf, buf_sz, val_len ); \
     if( val_len + 1 > buf_sz ) return FD_QUIC_ENCODE_FAIL; \
-    for( size_t j = 0; j < val_len; ++j ) { \
+    for( ulong j = 0; j < val_len; ++j ) { \
       buf[j] = params->NAME[j]; \
     } \
     buf += val_len; buf_sz -= val_len; \
@@ -184,7 +170,7 @@ fd_quic_dump_transport_params( fd_quic_transport_params_t const * params, FILE *
 
 /* determine footprint of each type */
 
-#define FD_QUIC_FOOTPRINT_FAIL ((uint64_t)1 << (uint64_t)62)
+#define FD_QUIC_FOOTPRINT_FAIL ((ulong)1 << (ulong)62)
 
 /* we need the length of the ID + the length of the length of the parameter value
    plus the length of the parameter value */
@@ -218,11 +204,11 @@ fd_quic_dump_transport_params( fd_quic_transport_params_t const * params, FILE *
 
 // encode transport parameters into a buffer
 // returns the number of bytes written
-size_t
+ulong
 fd_quic_encode_transport_params( uchar *                            buf,
-                                 size_t                             buf_sz,
+                                 ulong                             buf_sz,
                                  fd_quic_transport_params_t const * params ) {
-  size_t orig_buf_sz = buf_sz;
+  ulong orig_buf_sz = buf_sz;
 #define __( NAME, ID, TYPE, DFT, DESC, ... ) \
   if( params->NAME##_present ) { \
     FD_QUIC_ENCODE_TP_##TYPE(NAME,ID); \
@@ -234,7 +220,7 @@ fd_quic_encode_transport_params( uchar *                            buf,
 }
 
 
-size_t
+ulong
 fd_quic_transport_params_footprint( fd_quic_transport_params_t const * params ) {
 #define __( NAME, ID, TYPE, DFT, DESC, ... ) \
   + ( ( params->NAME##_present ) ?  FD_QUIC_FOOTPRINT_TP_##TYPE(NAME,ID) : 0 )
