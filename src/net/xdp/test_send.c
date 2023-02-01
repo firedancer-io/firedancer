@@ -28,12 +28,12 @@
 
 #define NUM_FRAMES 2048
 
-int64_t
+long
 gettime() {
   struct timespec ts;
   clock_gettime( CLOCK_REALTIME, &ts );
 
-  return (int64_t)ts.tv_sec * (int64_t)1e9 + (int64_t)ts.tv_nsec;
+  return (long)ts.tv_sec * (long)1e9 + (long)ts.tv_nsec;
 }
 
 
@@ -154,9 +154,9 @@ main( int argc, char **argv ) {
     }
   }
 
-  int64_t pkt_sz   = (int64_t)roundf( f_pkt_sz );
-  int64_t delay_ns = (int64_t)roundf( f_delay_ms * 1e6f );
-  int64_t batch_sz = (int64_t)roundf( f_batch_sz );
+  long pkt_sz   = (long)roundf( f_pkt_sz );
+  long delay_ns = (long)roundf( f_delay_ms * 1e6f );
+  long batch_sz = (long)roundf( f_batch_sz );
 
   FD_LOG_NOTICE(( "xdp test parms:" ));
 
@@ -232,16 +232,16 @@ main( int argc, char **argv ) {
   ulong completed = 0;
   while(1) {
     // obtain an unused frame
-    //int64_t t0 = gettime();
+    //long t0 = gettime();
     while( frame_stack_idx == 0 ) {
       /* poll for completed frames
          loads directly onto the stack */
       completed = fd_xdp_tx_complete( xdp, frame_stack + frame_stack_idx, pool_sz - frame_stack_idx );
       frame_stack_idx += completed;
     }
-    //int64_t t1 = gettime();
+    //long t1 = gettime();
 
-    //int64_t dt = t1 - t0;
+    //long dt = t1 - t0;
     //if( dt > 1000 ) {
       //printf( "spent %ld waiting for completed frames\n", dt ); fflush( stdout );
     //}
