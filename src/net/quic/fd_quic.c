@@ -253,9 +253,8 @@ fd_quic_handle_v1_frame( fd_quic_t *      quic,
 #include "templ/fd_quic_frames_templ.h"
 #include "templ/fd_quic_undefs.h"
 
-  DEBUG(
-      printf( "%s : unexpected frame type: %d  at offset: %ld\n", __func__, (int)*p, (long)( p - buf ) );
-    )
+  FD_LOG_DEBUG(( "unexpected frame type: %d  at offset: %ld", (int)*p, (long)( p - buf ) ));
+
   // if we get here we didn't understand "frame type"
   return FD_QUIC_PARSE_FAIL;
 }
@@ -772,8 +771,6 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
                            uchar const *             cur_ptr,
                            ulong                    cur_sz ) {
   uint enc_level = fd_quic_enc_level_initial_id;
-
-  DEBUG( printf( "%s START\n", __func__ ); )
 
   /* according to spec, INITIAL packets less than the specified
      minimum must be discarded, and the connection may be closed

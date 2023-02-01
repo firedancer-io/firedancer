@@ -103,10 +103,7 @@ calc_check2( packet_t * pkt ) {
   ulong check2 = ( check1 & 0xffffu )     + ( check1 >> 16u );
   ulong check3 = ( check2 & 0xffffu )     + ( check2 >> 16u );
 
-  if( check3 != 0xffffu ) {
-    printf( "ip checksums don't match\n" );
-    exit(1);
-  }
+  FD_TEST( check3==0xFFFFU );
 }
 
 
@@ -139,10 +136,10 @@ main( int argc, char **argv ) {
 
   ulong batch_sz = (ulong)roundf( f_batch_sz );
 
-  printf( "xdp test parms:\n" );
+  FD_LOG_NOTICE(( "xdp test parms:" ));
 
-  printf( "--intf %s\n", intf );
-  printf( "--batch-sz %ld\n", batch_sz );
+  FD_LOG_NOTICE(( "--intf %s",      intf     ));
+  FD_LOG_NOTICE(( "--batch-sz %ld", batch_sz ));
 
   fd_xdp_config_t config;
   fd_xdp_config_init( &config );
@@ -295,15 +292,14 @@ main( int argc, char **argv ) {
     frame_stack_idx += tx_completed;
 
     if( tx_completed ) {
-      printf( "tx completed: %u\n", (unsigned)tx_completed );
-      fflush( stdout );
+      FD_LOG_NOTICE(( "tx completed: %lu", tx_completed ));
     }
 
     if( t1 >= tn ) {
       float dt = (float)( t1 - t0 ) * 1e-9f;
-      printf( "byte rate:   %f\n", (double)( tot_bytes / dt ) );
-      printf( "packet rate: %f\n", (double)( tot_pkt   / dt ) );
-      printf( "batch rate:  %f\n", (double)( tot_batch / dt ) );
+      FD_LOG_NOTICE(( "byte rate:   %f", (double)( tot_bytes / dt ) ));
+      FD_LOG_NOTICE(( "packet rate: %f", (double)( tot_pkt   / dt ) ));
+      FD_LOG_NOTICE(( "batch rate:  %f", (double)( tot_batch / dt ) ));
 
       tot_bytes = tot_pkt = tot_batch = 0;
 
