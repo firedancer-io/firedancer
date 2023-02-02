@@ -88,6 +88,10 @@ fd_quic_tls_new( fd_quic_tls_cfg_t * cfg ) {
   // create ssl context
   self->ssl_ctx = fd_quic_create_context( self, cfg->cert_file, cfg->key_file );
 
+  /* keep pointer to ALPNs */
+  self->alpns    = cfg->alpns;
+  self->alpns_sz = cfg->alpns_sz;
+
   return self;
 }
 
@@ -96,7 +100,7 @@ fd_quic_tls_delete( fd_quic_tls_t * self ) {
   if( !self ) return;
 
   // free up all used handshakes
-  ulong             hs_sz   = (ulong)self->max_concur_handshakes;
+  ulong              hs_sz   = (ulong)self->max_concur_handshakes;
   fd_quic_tls_hs_t * hs      = self->handshakes;
   uchar *            hs_used = self->used_handshakes;
   for( ulong j = 0; j < hs_sz; ++j ) {
@@ -116,7 +120,7 @@ fd_quic_tls_hs_new( fd_quic_tls_t * quic_tls,
                     int             is_server,
                     char const *    hostname,
                     uchar const *   transport_params_raw,
-                    ulong          transport_params_raw_sz ) {
+                    ulong           transport_params_raw_sz ) {
   // find a free handshake
   ulong hs_idx = 0;
   ulong hs_sz  = (ulong)quic_tls->max_concur_handshakes;
@@ -178,18 +182,14 @@ fd_quic_tls_hs_new( fd_quic_tls_t * quic_tls,
     goto fd_quic_tls_hs_new_error;
   }
 
-  // TEST TODO: remove - maybe - test first
-  //SSL_set_quic_transport_version( ssl, 0 );
-
   // add the user context to the ssl
   SSL_set_app_data( ssl, self );
 
   // set ssl on self to this new object
   self->ssl = ssl;
 
-#if 0
-  // assuming this is not needed
-  ssl_rc = SSL_set_alpn_protos( ssl, 0, 0 );
+  /* solana actual: "solana-tpu" */
+  ssl_rc = SSL_set_alpn_protos( ssl, quic_tls->alpns, quic_tls->alpns_sz );
   if( ssl_rc != 0 ) {
     quic_tls->err_ssl_rc  = (int)ssl_rc;
     quic_tls->err_ssl_err = SSL_get_error( ssl, (int)ssl_rc );
@@ -197,22 +197,8 @@ fd_quic_tls_hs_new( fd_quic_tls_t * quic_tls,
 
     goto fd_quic_tls_hs_new_error;
   }
-#else
-  // TEST
-  // TODO remove the TEST
-  /* TODO add to config */
-  /* actual: "solana-tpu" */
-  uchar alpns[] = { 2, 'h', '3', 10, 's', 'o', 'l', 'a', 'n', 'a', '-', 't', 'p', 'u' };
-  ssl_rc = SSL_set_alpn_protos( ssl, alpns, sizeof( alpns ) );
-  if( ssl_rc != 0 ) {
-    quic_tls->err_ssl_rc  = (int)ssl_rc;
-    quic_tls->err_ssl_err = SSL_get_error( ssl, (int)ssl_rc );
-    quic_tls->err_line    = __LINE__;
 
-    goto fd_quic_tls_hs_new_error;
-  }
-#endif
-
+  /* set transport params on ssl */
   ssl_rc = SSL_set_quic_transport_params( ssl, transport_params_raw, transport_params_raw_sz );
   if( ssl_rc != 1 ) {
     quic_tls->err_ssl_rc  = (int)ssl_rc;

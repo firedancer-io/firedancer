@@ -104,6 +104,15 @@ struct fd_quic {
   ulong                         initial_max_data;           /* directly from transport params */
   ulong                         initial_max_stream_data[4]; /* from 4 transport params
                                                                indexed by stream type */
+
+  /* networking parameters */
+  struct {
+    /* forward traffic to this MAC address */
+    uchar                              default_route_mac[6];
+
+    /* source interface MAC address */
+    uchar                              src_mac[6];
+  } net;
 };
 
 /* events for time based processing */

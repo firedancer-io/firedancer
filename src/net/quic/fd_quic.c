@@ -450,7 +450,14 @@ fd_quic_new( void * mem, fd_quic_config_t const * config ) {
   tls_cfg.secret_cb             = fd_quic_tls_cb_secret;
   tls_cfg.handshake_complete_cb = fd_quic_tls_cb_handshake_complete;
 
+  /* set up alpn */
+  tls_cfg.alpns                 = config->alpns;
+  tls_cfg.alpns_sz              = config->alpns_sz;
+
   quic->quic_tls = fd_quic_tls_new( &tls_cfg );
+
+  /* set up networking parameters */
+  fd_memcpy( &quic->net, &config->net, sizeof( quic->net ) );
 
   /* initialize crypto */
   fd_quic_crypto_ctx_init( quic->crypto_ctx );
@@ -924,6 +931,9 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
     /* TODO we may not need to keep this indefinitely */
     conn->orig_conn_id = orig_conn_id;
 
+    /* initial source connection id */
+    conn->initial_source_conn_id = new_conn_id;
+
     conn->max_datagram_sz = 1200; /* start with minimum supported max datagram */
                                   /* clients may allow more */
 
@@ -949,10 +959,10 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
 
     /* the initial source connection id */
     fd_memcpy( quic->transport_params.initial_source_connection_id,
-            pkt->long_hdr->src_conn_id,
-            pkt->long_hdr->src_conn_id_len );
+        conn->initial_source_conn_id.conn_id,
+        conn->initial_source_conn_id.sz );
     quic->transport_params.initial_source_connection_id_present = 1;
-    quic->transport_params.initial_source_connection_id_len     = pkt->long_hdr->src_conn_id_len;
+    quic->transport_params.initial_source_connection_id_len     = conn->initial_source_conn_id.sz;
 
     DEBUG(
     fd_quic_dump_transport_params( &quic->transport_params, stdout );
@@ -2356,7 +2366,7 @@ fd_quic_tx_buffered( fd_quic_t * quic, fd_quic_conn_t * conn ) {
       }
     )
 
-  ulong                 peer_idx   = conn->cur_peer_idx;
+  ulong                  peer_idx   = conn->cur_peer_idx;
   fd_quic_endpoint_t *   peer       = &conn->peer[peer_idx];
   fd_quic_host_cfg_t *   host_cfg   = &quic->host_cfg; /* TODO put on conn
                                                           outgoing connections will need to choose a udp src port */
@@ -2367,8 +2377,8 @@ fd_quic_tx_buffered( fd_quic_t * quic, fd_quic_conn_t * conn ) {
   /* TODO much of this may be prepared ahead of time */
   fd_quic_pkt_t pkt;
 
-  fd_memset( pkt.eth->dst_addr, 0, 6 ); /* TODO populate this */
-  fd_memset( pkt.eth->src_addr, 0, 6 ); /* TODO populate this */
+  fd_memcpy( pkt.eth->dst_addr, quic->net.default_route_mac, sizeof( pkt.eth->dst_addr ) );
+  fd_memcpy( pkt.eth->src_addr, quic->net.src_mac,           sizeof( pkt.eth->src_addr ) );
   pkt.eth->eth_type = 0x0800;
 
   pkt.ipv4->version  = 4;
@@ -3391,8 +3401,8 @@ fd_quic_connect( fd_quic_t * quic,
 
   /* the initial source connection id */
   fd_memcpy( quic->transport_params.initial_source_connection_id,
-          &our_conn_id.conn_id,
-          our_conn_id.sz );
+          conn->initial_source_conn_id.conn_id,
+          conn->initial_source_conn_id.sz );
   quic->transport_params.initial_source_connection_id_present = 1;
   quic->transport_params.initial_source_connection_id_len     = our_conn_id.sz;
 
@@ -3704,6 +3714,10 @@ fd_quic_create_connection( fd_quic_t *               quic,
   conn->max_datagram_sz = 1200; /* start with minimum supported max datagram */
                                 /* clients may allow more */
 
+  /* initial source connection id */
+  conn->initial_source_conn_id = *our_conn_id;
+
+  /* peer connection id */
   ulong peer_idx = 0;
   conn->peer[peer_idx].conn_id      = *peer_conn_id;
   conn->peer[peer_idx].cur_ip_addr  = dst_ip_addr;

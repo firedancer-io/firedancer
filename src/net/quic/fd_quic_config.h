@@ -161,9 +161,23 @@ struct fd_quic_config {
   fd_quic_host_cfg_t                   host_cfg;
 
 
-  /* TODO do we need ALPN parameters here? */
-  uchar const *                        alpn_buf;
-  ulong                               alpn_buf_sz;
+  /* ALPN string - see ALPN spec */
+  uchar const *                        alpns;
+  uint                                 alpns_sz;
+
+  /* in lieu of maintaining a full ARP protocol, forward traffic
+     to this MAC address
+     TODO determine actual requirements here */
+  struct {
+    /* forward traffic to this MAC address */
+    uchar                              default_route_mac[6];
+
+    /* source interface MAC address */
+    uchar                              src_mac[6];
+
+    /* source ip address */
+    uint                               src_ip;
+  } net;
 };
 typedef struct fd_quic_config fd_quic_config_t;
 
