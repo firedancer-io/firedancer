@@ -1,9 +1,48 @@
-#include "../fd_quic.h"
-
 #include <stdio.h>
 #include <stdlib.h>
 
-#include "fd_pcap.h"
+#include <math.h>
+
+#include <linux/if_xdp.h>
+
+#include "../../util/fd_util_base.h"
+
+#include "../quic/tests/fd_pcap.h"
+
+#include "../xdp/fd_xdp.h"
+#include "../xdp/fd_xdp_aio.h"
+
+#include "../quic/fd_quic.h"
+
+
+#define LG_FRAME_SIZE 11
+#define FRAME_SIZE (1<<LG_FRAME_SIZE)
+
+/* parse a mac address */
+void
+parse_mac( uchar * dst, char const * src ) {
+  uint a[6] = {0};
+  int r = sscanf( src, "%x:%x:%x:%x:%x:%x", a, a+1, a+2, a+3, a+4, a+5 );
+  if( r != 6 ) {
+    FD_LOG_ERR(( "Invalid MAC address: %s", src ));
+  }
+
+  for( size_t j = 0; j < 6; ++j ) {
+    dst[j] = (uchar)a[j];
+  }
+}
+
+/* parse a mac address */
+void
+parse_ipv4_addr( uint * dst, char const * src ) {
+  uint a[4] = {0};
+  int r = sscanf( src, "%u.%u.%u.%u", a, a+1, a+2, a+3 );
+  if( r != 4 ) {
+    FD_LOG_ERR(( "Invalid ipv4 address: %s", src ));
+  }
+
+  *dst = ( a[0] << 030 ) | ( a[1] << 020 ) | ( a[2] << 010 ) | a[3];
+}
 
 
 void
@@ -179,106 +218,18 @@ pipe_aio_receive( void * vp_ctx, fd_aio_buffer_t * batch, ulong batch_sz ) {
 
 /* global "clock" */
 ulong test_clock( void * ctx ) {
-  return clock_gettime;
-}
+  (void)ctx;
 
-struct fd_xdp_tx {
-  ulong     pool_sz;
-  ulong * frame_stack;
-  ulong     frame_stack_idx;
-  ulong   frame_size;
-};
-typedef struct fd_xdp_tx fd_xdp_tx_t;
+  struct timespec ts;
+  clock_gettime( CLOCK_REALTIME, &ts );
 
-void
-fd_xdp_tx_init( fd_xdp_tx_t * pool, fd_xdp_config_t * config ) {
-  pool->pool_sz         = config->fill_ring_size + config->tx_ring_size;
-  pool->frame_stack     = (ulong*)malloc( pool_sz * sizeof(ulong) );
-  pool->frame_stack_idx = 0;
-  pool->frame_size      = config->frame_size;
-
-  for( ulong j = 0; j < pool_sz; ++j ) {
-    pool->frame_stack[pool->frame_stack_idx] = j*pool->frame_size; // push an index onto the frame stack
-    pool->frame_stack_idx++;
-  }
-}
-
-
-uchar *
-fd_xdp_tx_get_tx_buffer( fd_xdp_tx_t * pool, fd_xdp_t * xdp ) {
-  ulong completed = 0;
-
-  /* if we have no available buffers, wait for a completion */
-  while( pool->frame_stack_idx == 0 ) {
-    /* poll for completed frames
-       loads directly onto the stack */
-    completed = fd_xdp_tx_complete( xdp, pool->frame_stack + pool->frame_stack_idx, pool->pool_sz - pool->frame_stack_idx );
-    pool->frame_stack_idx += completed;
-  }
-
-  /* pop a frame off the stack */
-  pool->frame_stack_idx--;
-  ulong frame_offset = pool->frame_stack[pool->frame_stack_idx];
-
-  return (uchar*)( xdp->umem.addr + frame_offset );
-}
-
-
-void
-fd_xdp_tx_reclaim( fd_xdp_tx_t * pool, fd_xdp_t * xdp ) {
-  /* poll for completed frames
-     loads directly onto the stack */
-  pool->frame_stack_idx += fd_xdp_tx_complete( xdp,
-                                               pool->frame_stack + pool->frame_stack_idx,
-                                               pool->pool_sz - pool->frame_stack_idx );
-}
-
-
-/* transmit a buffer
-
-   returns the number of buffers queued */
-ulong
-fd_xdp_tx_buffer( fd_xdp_t * xdp, uchar * buffer, unsigned pkt_sz ) {
-  ulong frame_offset = (ulong)buffer - (ulong)xdp->umem.addr;
-  fd_xdp_frame_meta_t meta[1] = {{ frame_offset, pkt_sz, 0 }};
-  return fd_xdp_tx_enqueue( xdp, meta, 1u );
-}
-
-
-/* receive */
-struct fd_xdp_rx {
-};
-typedef struct fd_xdp_rx fd_xdp_rx_t;
-
-
-ulong
-fd_xdp_rx( fd_xdp_t * xdp, fd_xdp_rx_t * xdp_rx ) {
-  ulong cnt = fd_xdp_rx_complete( xdp, &xdp_rx->meta[0], xdp_rx->meta_cap );
-  xdp_rx->meta_sz = cnt;
-  return cnt;
-}
-
-
-uchar *
-fd_xdp_rx_get_buffer( fd_xdp_t * xdp, fd_xdp_rx_t * xdp_rx, ulong idx ) {
-  return xdp_rx->frame_memory + xdp_rx->meta[j].offset;
-}
-
-
-void
-fd_xdp_rx_return( fd_xdp_t * xdp, fd_xdp_rx_t * xdp_rx ) {
-  ulong     meta_sz = xdp_rx->meta_sz;
-  ulong * rtn_idx = xdp_rx->rtn_idx;
-  for( ulong j = 0; j < meta_sz; ++j ) {
-    rtn_idx[j] = xdp_rx->meta[j].offset;
-  }
-  fd_xdp_rx_enqueue( xdp, rtn_idx, meta_sz );
+  return (ulong)ts.tv_sec * (ulong)1e9 + (ulong)ts.tv_nsec;
 }
 
 
 int
 main( int argc, char ** argv ) {
-  FILE * pcap = fopen( "test_quic_hs.pcapng", "wb" );
+  FILE * pcap = fopen( "test_quic_service.pcapng", "wb" );
   if( !pcap ) abort();
 
   write_shb( pcap );
@@ -288,13 +239,14 @@ main( int argc, char ** argv ) {
   (void)argv;
 
   /* confiugre xdp */
-  char const * intf = "";
-  float f_pkt_sz    = 64;
-  float f_delay_ms  = 0.0f;
-  float f_batch_sz  = 128;
+  char const * intf        = "";
+  float        f_batch_sz  = 128;
+  uint         src_ip;
+  uchar        src_mac[6];
+  uchar        dft_route_mac[6];
 
   for( int i = 1; i < argc; ++i ) {
-    // --intf
+    /* --intf */
     if( strcmp( argv[i], "--intf" ) == 0 ) {
       if( i+1 < argc ) {
         intf = argv[i+1];
@@ -302,22 +254,6 @@ main( int argc, char ** argv ) {
         continue;
       } else {
         fprintf( stderr, "--intf requires a value\n" );
-        exit(1);
-      }
-    }
-    if( strcmp( argv[i], "--pkt-sz" ) == 0 ) {
-      if( i+1 < argc ) {
-        f_pkt_sz = strtof( argv[i+1], NULL );
-      } else {
-        fprintf( stderr, "--pkt-sz requires a value\n" );
-        exit(1);
-      }
-    }
-    if( strcmp( argv[i], "--delay-ms" ) == 0 ) {
-      if( i+1 < argc ) {
-        f_batch_sz = strtof( argv[i+1], NULL );
-      } else {
-        fprintf( stderr, "--delay-ms requires a value\n" );
         exit(1);
       }
     }
@@ -329,69 +265,60 @@ main( int argc, char ** argv ) {
         exit(1);
       }
     }
+    if( strcmp( argv[i], "--src-ip" ) == 0 ) {
+      if( i+1 < argc ) {
+        parse_ipv4_addr( &src_ip, argv[i+1] );
+      } else {
+        fprintf( stderr, "--src-ip requires a value\n" );
+        exit(1);
+      }
+    }
+    if( strcmp( argv[i], "--src-mac" ) == 0 ) {
+      if( i+1 < argc ) {
+        parse_mac( src_mac, argv[i+1] );
+      } else {
+        fprintf( stderr, "--src-mac requires a value\n" );
+        exit(1);
+      }
+    }
+    if( strcmp( argv[i], "--dft-route-mac" ) == 0 ) {
+      if( i+1 < argc ) {
+        parse_mac( dft_route_mac, argv[i+1] );
+      } else {
+        fprintf( stderr, "--dft-route-mac requires a value\n" );
+        exit(1);
+      }
+    }
   }
 
-  long pkt_sz   = (long)roundf( f_pkt_sz );
-  long delay_ns = (long)roundf( f_delay_ms * 1e6f );
   long batch_sz = (long)roundf( f_batch_sz );
 
   printf( "xdp test parms:\n" );
 
   printf( "--intf %s\n", intf );
-  printf( "--pkt-sz %ld\n", pkt_sz );
-  printf( "--delay-ms %f\n", (double)delay_ns * 1e-6 );
   printf( "--batch-sz %ld\n", batch_sz );
-
-  fd_xdp_config_t config;
-  fd_xdp_config_init( &config );
-
-#define LG_FRAME_SIZE 11
-#define FRAME_SIZE (1<<LG_FRAME_SIZE)
-
-  config.bpf_pin_dir = "/sys/fs/bpf";
-  config.bpf_pgm_file = "fd_xdp_bpf_udp.o";
-  //config.xdp_mode = XDP_FLAGS_SKB_MODE;
-  config.xdp_mode = XDP_FLAGS_DRV_MODE;
-  //config.xdp_mode = XDP_FLAGS_HW_MODE;
-  config.frame_size = 2048;
-  config.tx_ring_size = 256;
-  config.completion_ring_size = 256;
-
-  void * xdp_mem = aligned_alloc( fd_xdp_align(), fd_xdp_footprint( &config ) );
-
-  fd_xdp_t * xdp = fd_xdp_new( xdp_mem, intf, &config );
-  FD_TEST( xdp );
-
-  fd_xdp_add_key( xdp, 4433 );
-
-  fd_xdp_tx_t pool;
-
-  fd_xdp_tx_init( &pool, &config );
-
-
-  fd_xdp_frame_meta_t *meta = (fd_xdp_frame_meta_t*)malloc( (ulong)batch_sz * sizeof(fd_xdp_frame_meta_t) );
 
 
   /* configure quic */
 
-  // Transport params:
-  //   original_destination_connection_id (0x00)         :   len(0)
-  //   max_idle_timeout (0x01)                           : * 60000
-  //   stateless_reset_token (0x02)                      :   len(0)
-  //   max_udp_payload_size (0x03)                       :   0
-  //   initial_max_data (0x04)                           : * 1048576
-  //   initial_max_stream_data_bidi_local (0x05)         : * 1048576
-  //   initial_max_stream_data_bidi_remote (0x06)        : * 1048576
-  //   initial_max_stream_data_uni (0x07)                : * 1048576
-  //   initial_max_streams_bidi (0x08)                   : * 128
-  //   initial_max_streams_uni (0x09)                    : * 128
-  //   ack_delay_exponent (0x0a)                         : * 3
-  //   max_ack_delay (0x0b)                              : * 25
-  //   disable_active_migration (0x0c)                   :   0
-  //   preferred_address (0x0d)                          :   len(0)
-  //   active_connection_id_limit (0x0e)                 : * 8
-  //   initial_source_connection_id (0x0f)               : * len(8) ec 73 1b 41 a0 d5 c6 fe
-  //   retry_source_connection_id (0x10)                 :   len(0)
+  /* Transport params:
+       original_destination_connection_id (0x00)         :   len(0)
+       max_idle_timeout (0x01)                           : * 60000
+       stateless_reset_token (0x02)                      :   len(0)
+       max_udp_payload_size (0x03)                       :   0
+       initial_max_data (0x04)                           : * 1048576
+       initial_max_stream_data_bidi_local (0x05)         : * 1048576
+       initial_max_stream_data_bidi_remote (0x06)        : * 1048576
+       initial_max_stream_data_uni (0x07)                : * 1048576
+       initial_max_streams_bidi (0x08)                   : * 128
+       initial_max_streams_uni (0x09)                    : * 128
+       ack_delay_exponent (0x0a)                         : * 3
+       max_ack_delay (0x0b)                              : * 25
+       disable_active_migration (0x0c)                   :   0
+       preferred_address (0x0d)                          :   len(0)
+       active_connection_id_limit (0x0e)                 : * 8
+       initial_source_connection_id (0x0f)               : * len(8) ec 73 1b 41 a0 d5 c6 fe
+       retry_source_connection_id (0x10)                 :   len(0) */
 
   /* all zeros transport params is a reasonable default */
   fd_quic_transport_params_t tp[1] = {0};
@@ -437,20 +364,60 @@ main( int argc, char ** argv ) {
   quic_config.now_fn  = test_clock;
   quic_config.now_ctx = NULL;
 
-  fd_quic_host_cfg_t server_cfg = { "server_host", 0x0a000001u, 4434 };
+  fd_memcpy( quic_config.net.default_route_mac, dft_route_mac, 6 );
+  fd_memcpy( quic_config.net.src_mac, src_mac, 6 );
+
+  fd_quic_host_cfg_t server_cfg = { "server_host", src_ip, 4433 };
 
   quic_config.host_cfg = server_cfg;
   fd_quic_t * server_quic = new_quic( &quic_config );
 
-  /* make use aio to point quic directly at quic */
-  fd_aio_t * aio_n2q = fd_quic_get_aio_net_in( server_quic );
+  /* set up xdp */
+  fd_xdp_config_t config;
+  fd_xdp_config_init( &config );
 
-#if 0
-  fd_quic_set_aio_net_out( server_quic, aio_q2n );
-  fd_quic_set_aio_net_out( client_quic, aio_n2q );
+  config.bpf_pin_dir = "/sys/fs/bpf";
+  config.bpf_pgm_file = "fd_xdp_bpf_udp.o";
+  /* xdp_mode alternatives:
+       XDP_FLAGS_SKB_MODE
+       XDP_FLAGS_DRV_MODE
+       XDP_FLAGS_HW_MODE */
+  config.xdp_mode = XDP_FLAGS_SKB_MODE;
+  config.frame_size = FRAME_SIZE;
+
+  /* new xdp */
+  void * xdp_mem = aligned_alloc( fd_xdp_align(), fd_xdp_footprint( &config ) );
+  fd_xdp_t * xdp = fd_xdp_new( xdp_mem, intf, &config );
+  if( !xdp ) {
+    fprintf( stderr, "Failed to create fd_xdp. Aborting\n" );
+    exit(1);
+  }
+
+  size_t aio_batch_sz = 32;
+
+  /* new xdp_aio */
+  void * xdp_aio_mem = aligned_alloc( fd_xdp_aio_align(), fd_xdp_aio_footprint( xdp, aio_batch_sz ) );
+  fd_xdp_aio_t * xdp_aio = fd_xdp_aio_new( xdp_aio_mem, xdp, aio_batch_sz );
+  if( !xdp_aio ) {
+    fprintf( stderr, "Failed to create xdp_aio_mem\n" );
+    exit(1);
+  }
+
+  /* add udp port to xdp map */
+  fd_xdp_add_key( xdp, 4433 );
+
+  /* set up aio ingress */
+  fd_aio_t ingress = *fd_quic_get_aio_net_in( server_quic );
+  fd_xdp_aio_ingress_set( xdp_aio, &ingress );
+
+  fd_aio_t egress = *fd_xdp_aio_egress_get( xdp_aio );
+
+#if 1
+  /* set up egress */
+  fd_quic_set_aio_net_out( server_quic, &egress );
 #else
   /* create a pipe for catching data as it passes thru */
-  aio_pipe_t pipe[2] = { { aio_n2q, pcap }, { aio_q2n, pcap } };
+  aio_pipe_t pipe[2] = { { ingress, pcap }, { egress, pcap } };
 
   fd_aio_t aio[2] = { { pipe_aio_receive, (void*)&pipe[0] }, { pipe_aio_receive, (void*)&pipe[1] } };
 
@@ -465,7 +432,11 @@ main( int argc, char ** argv ) {
 
   /* do general processing */
   while(1) {
+    /* service quic */
     fd_quic_service( server_quic );
+
+    /* service xdp */
+    fd_xdp_aio_service( xdp_aio );
   }
 
 
