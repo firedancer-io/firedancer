@@ -31,6 +31,9 @@
 
        .max_concur_handshakes = 1234,                // number of handshakes this object can
                                                      // manage concurrently
+
+       .alpns                 = "\x02solana-tpu",    // ALPN
+       .alpns_sz              = 11                   // number of bytes of ALPN - see spec
        };
 
      // create a quic-tls object to manage handshakes:
@@ -51,8 +54,6 @@
      // delete a handshake object
      //   NULL is allowed here
      fd_quic_tls_hs_delete( hs );
-
-     // TODO alpn?
 
      // call fd_quic_tls_process whenever the state changes
      //   clients should call immediately to get a blob to frame
@@ -114,6 +115,9 @@ struct fd_quic_tls_cfg {
 
   char const *                           cert_file;             /* certificate file */
   char const *                           key_file;              /* private key file */
+
+  uchar const *                          alpns;                 /* ALPNs */
+  uint                                   alpns_sz;              /* number of bytes... see ALPN spec */
 };
 
 /* structure for organising handshake data */
@@ -130,7 +134,7 @@ struct fd_quic_tls_hs_data {
 
 struct fd_quic_tls {
   uchar const *                        transport_params;
-  ulong                               transport_params_sz;
+  ulong                                transport_params_sz;
 
   /* callbacks */
   fd_quic_tls_cb_client_hello_t        client_hello_cb;
@@ -146,6 +150,10 @@ struct fd_quic_tls {
 
   /* ssl related */
   SSL_CTX *                            ssl_ctx;
+
+  /* ALPNs */
+  uchar const *                        alpns;
+  uint                                 alpns_sz;
 
   /* error condition */
   int                                  err_ssl_rc;

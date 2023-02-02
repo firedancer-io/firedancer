@@ -46,7 +46,7 @@ typedef struct
   uchar  eth_src[6];
   ushort eth_proto;
 
-  // ip
+  /* ip */
   uchar  ip_hdrlen;
   uchar  ip_tos;
   ushort ip_tot_len;
@@ -58,13 +58,13 @@ typedef struct
   uint ip_src;
   uint ip_dst;
 
-  // udp
+  /* udp */
   ushort udp_src;
   ushort udp_dst;
   ushort udp_len;
   ushort udp_check;
 
-  // datagram
+  /* datagram */
   uchar  text[64];
   uchar  pad[64];
   uchar  pad1[1024];
@@ -123,7 +123,7 @@ main( int argc, char **argv ) {
   float f_batch_sz  = 128;
 
   for( int i = 1; i < argc; ++i ) {
-    // --intf
+    /* --intf */
     if( strcmp( argv[i], "--intf" ) == 0 ) {
       if( i+1 < argc ) {
         intf = argv[i+1];
@@ -157,8 +157,8 @@ main( int argc, char **argv ) {
   config.bpf_pin_dir = "/sys/fs/bpf";
   config.bpf_pgm_file = "fd_xdp_bpf_udp.o";
   config.xdp_mode = XDP_FLAGS_SKB_MODE;
-  //config.xdp_mode = XDP_FLAGS_DRV_MODE;
-  //config.xdp_mode = XDP_FLAGS_HW_MODE;
+  /*config.xdp_mode = XDP_FLAGS_DRV_MODE; */
+  /*config.xdp_mode = XDP_FLAGS_HW_MODE; */
   config.frame_size = FRAME_SIZE;
 
   void * xdp_mem = aligned_alloc( fd_xdp_align(), fd_xdp_footprint( &config ) );
@@ -179,9 +179,9 @@ main( int argc, char **argv ) {
     exit(1);
   }
 
-  // set up aio ingress and egress:
-  //   fd_xdp_aio_egress_get
-  //   fd_xdp_aio_ingress_set
+  /* set up aio ingress and egress: */
+  /*   fd_xdp_aio_egress_get */
+  /*   fd_xdp_aio_ingress_set */
 
   fd_aio_t ingress = { my_aio_cb_receive, (void*)xdp_aio };
   fd_xdp_aio_ingress_set( xdp_aio, &ingress );
@@ -190,21 +190,22 @@ main( int argc, char **argv ) {
   fd_xdp_add_key( xdp, 42423 );
   fd_xdp_add_key( xdp, 42425 );
 
-  // wait for first RX
+  /* wait for first RX */
   printf( "Waiting for first packet\n" );
   printf( "  Don't forget ethtool\n" );
   printf( "    sudo ethtool -L enp59s0f1 combined 1\n" );
   fflush( stdout );
 
   while(1) {
-    // service xdp
+    /* service xdp */
     fd_xdp_aio_service( xdp_aio );
   }
 
-  // close down
+  /* close down */
+  fd_xdp_aio_delete( xdp_aio );
   fd_xdp_delete( xdp );
 
-  // free memory
+  /* free memory */
   free( xdp_mem );
 
   return 0;

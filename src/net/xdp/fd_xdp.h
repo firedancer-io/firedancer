@@ -1,7 +1,7 @@
 #ifndef HEADER_fd_xdp_h
 #define HEADER_fd_xdp_h
 
-#include <string.h>
+#include <linux/if_link.h>
 
 #include "../../util/fd_util_base.h"
 

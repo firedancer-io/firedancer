@@ -140,13 +140,16 @@ struct fd_quic_conn {
   /* the original connection id is specified by the client */
   fd_quic_conn_id_t  orig_conn_id;       /* unused by client connections */
 
-  ushort           our_conn_id_cnt;    /* number of connection ids */
-  ushort           peer_cnt;           /* number of peer endpoints */
+  ushort             our_conn_id_cnt;    /* number of connection ids */
+  ushort             peer_cnt;           /* number of peer endpoints */
 
-  ushort           cur_conn_id_idx;    /* currently used conn id */
-  ushort           cur_peer_idx;       /* currently used peer endpoint */
+  ushort             cur_conn_id_idx;    /* currently used conn id */
+  ushort             cur_peer_idx;       /* currently used peer endpoint */
 
-  uint           max_datagram_sz;    /* size of maximum datagram allowed */
+  /* initial source connection id */
+  fd_quic_conn_id_t  initial_source_conn_id;
+
+  uint               max_datagram_sz;    /* size of maximum datagram allowed */
 
   /* handshake members */
   int                handshake_complete; /* have we completed a successful handshake? */
