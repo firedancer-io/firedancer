@@ -1,4 +1,3 @@
-$(call make-bin,test_quic,test_quic,fd_aio fd_quic fd_util)
 $(call make-bin,test_quic_hs,test_quic_hs,fd_aio fd_quic fd_util)
 $(call make-bin,test_handshake,test_handshake,fd_aio fd_quic fd_util)
 $(call make-bin,test_crypto,test_crypto,fd_quic fd_util)
