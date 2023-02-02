@@ -19,7 +19,7 @@ main( int     argc,
   FD_LOG_INFO((    "Test INFO         (log file only)"                         ));
   FD_LOG_NOTICE((  "Test NOTICE       (info+shortend to stderr)"               ));
   FD_LOG_WARNING(( "Test WARNING      (notice+flush log and stderr)"           ));
-  
+
   /* Info about the calling thread */
   FD_LOG_NOTICE(( "fd_log_level_logfile %i",  fd_log_level_logfile() ));
   FD_LOG_NOTICE(( "fd_log_level_stderr  %i",  fd_log_level_stderr()  ));
@@ -78,6 +78,10 @@ main( int     argc,
 
   FD_LOG_NOTICE((  "Test fd_log_flush" ));
   fd_log_flush();
+
+  /* Ensure FD_TEST doesn't interpret line as a format string */
+  FD_TEST( "%n %n %n %n %n %n %n %n %n %n %n %n %n" );
+  FD_TEST( "\"\\\"" );
 
   /* Cancelling log messages */
   if( !volatile_yes ) FD_LOG_ERR((     "Test ERR          (warning+exit program with error 1)"     ));
