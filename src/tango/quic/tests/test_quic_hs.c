@@ -88,6 +88,8 @@ aio_cb( void * context, fd_aio_buffer_t * batch, ulong batch_sz ) {
   return batch_sz; /* consumed all */
 }
 
+uchar fail = 0;
+
 void
 my_stream_receive_cb( fd_quic_stream_t * stream,
                       void *             ctx,
@@ -97,9 +99,22 @@ my_stream_receive_cb( fd_quic_stream_t * stream,
   (void)ctx;
   (void)stream;
 
+  ulong expected_data_sz = 512ul;
+
   printf( "my_stream_receive_cb : received data from peer. size: %lu  offset: %lu\n",
       (ulong)data_sz, (ulong)offset );
   printf( "%s\n", data );
+
+  if( data_sz != 512 ) {
+    fprintf( stderr, "my_stream_receive_cb : data wrong size. Is: %lu, expected: %lu\n",
+        data_sz, expected_data_sz );
+    fail = 1;
+  } else {
+    if( memcmp( data, "Hello world", 11u ) != 0 ) {
+      fprintf( stderr, "my_stream_receive_cb : value received incorrect" );
+      fail = 1;
+    }
+  }
 }
 
 fd_quic_t *
@@ -392,7 +407,9 @@ main( int argc, char ** argv ) {
     ulong next_wakeup = fd_ulong_min( ct, st );
 
     if( next_wakeup == ~(ulong)0 ) {
-      printf( "client and server have no schedule\n" );
+      /* indicates no schedule, which is correct after connection
+         instances have been reclaimed */
+      printf( "Finished cleaning up connections\n" );
       break;
     }
 
@@ -406,6 +423,13 @@ main( int argc, char ** argv ) {
 
   fd_quic_delete( server_quic );
   fd_quic_delete( client_quic );
+
+  if( fail ) {
+    fprintf( stderr, "FAIL\n" );
+    exit(1);
+  }
+
+  printf( "PASS\n" );
 
   return 0;
 }
