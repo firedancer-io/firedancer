@@ -17,9 +17,9 @@
 #include <math.h>
 #include <time.h>
 
-#include "fd_xdp.h"
-#include "fd_xdp_private.h"
-#include "../../util/fd_util.h"
+#include "../fd_xdp.h"
+#include "../fd_xdp_private.h"
+#include "../../../util/fd_util.h"
 
 #define DEFAULT_COMP_RING_SIZE 32
 #define DEFAULT_FILL_RING_SIZE 1024
