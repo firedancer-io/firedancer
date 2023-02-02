@@ -1,5 +1,6 @@
 *ATTIC*
 /build
+/build_dir
 bin
 unit-test
 tmp
@@ -11,3 +12,5 @@ bazel-testlogs
 
 genhtml/
 target/
+
+settings.json

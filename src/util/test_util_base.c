@@ -109,7 +109,9 @@ FD_STATIC_ASSERT( !(((long )+1)/((long )-2)), devenv );
 FD_STATIC_ASSERT( !(((long )-1)/((long )-2)), devenv );
 
 /* Test binary includes by including this source file. (A quine!) */
+#ifndef __APPLE__
 FD_INCBIN_STR( incbin_src, __FILE__ );
+#endif
 
 int
 main( int     argc,
@@ -406,9 +408,10 @@ main( int     argc,
 # endif
 
   /* Test FD_INCBIN */
-
+#ifndef __APPLE__
   FD_TEST( !strncmp( incbin_src, "#include \"fd_util.h\"", 20 ) );
   FD_TEST( strlen( incbin_src )+1UL == incbin_src_sz() );
+#endif
 
   /* FIXME: ADD HASH QUALITY CHECKER HERE */
 

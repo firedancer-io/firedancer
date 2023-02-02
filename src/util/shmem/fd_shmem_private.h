@@ -49,7 +49,11 @@
 
    This macro implements option 2. */
 
+#ifdef __APPLE__
 #include <sys/syscall.h>
+#else
+#include <sys/syscall.h>
+#endif
 #define fd_mlock(...)   syscall( __NR_mlock,   __VA_ARGS__ )
 #define fd_munlock(...) syscall( __NR_munlock, __VA_ARGS__ )
 

@@ -7,7 +7,16 @@
 #include <pthread.h>
 #include <unistd.h>
 #include <sched.h>
+
+#ifdef __APPLE__
+#define SOURCE_fd_src_util_tile_fd_tile_threads
+#include <sys/syscall.h>
+#include "fd_tile_thread_utils_mac.h"
+#define _DARWIN_C_SOURCE /* we need this for mmap() flags to be brought in via sys/mman.h */
+#else
 #include <syscall.h>
+#endif
+
 #include <sys/resource.h>
 
 #if FD_HAS_X86
@@ -15,6 +24,8 @@
 #endif
 
 #include "fd_tile.h"
+
+int using_normal_pages;
 
 /* Operating system shims ********************************************/
 
@@ -85,11 +96,19 @@ fd_tile_private_cpu_restore( fd_tile_private_cpu_config_t * save ) {
 #define FD_TILE_PRIVATE_STACK_PAGE_SZ  FD_SHMEM_HUGE_PAGE_SZ
 #define FD_TILE_PRIVATE_STACK_PAGE_CNT (4UL)
 #define FD_TILE_PRIVATE_STACK_SZ       (FD_TILE_PRIVATE_STACK_PAGE_SZ*FD_TILE_PRIVATE_STACK_PAGE_CNT)
+#define FD_TILE_HUGE_PAGE_TO_NORMAL_PAGE_FACTOR (FD_TILE_PRIVATE_STACK_PAGE_SZ / FD_SHMEM_NORMAL_PAGE_SZ)
+#define FD_TILE_PRIVATE_STACK_PAGE_CNT_NORMAL_PAGES ((FD_TILE_PRIVATE_STACK_PAGE_CNT + 2UL) * FD_TILE_HUGE_PAGE_TO_NORMAL_PAGE_FACTOR)
 
 static void *
 fd_tile_private_stack_new( ulong cpu_idx ) {
 
-  void * base = fd_shmem_acquire( FD_TILE_PRIVATE_STACK_PAGE_SZ, FD_TILE_PRIVATE_STACK_PAGE_CNT+2UL, cpu_idx ); /* logs details */
+  void *base;
+  if ( !using_normal_pages )
+    base = fd_shmem_acquire( FD_TILE_PRIVATE_STACK_PAGE_SZ, FD_TILE_PRIVATE_STACK_PAGE_CNT + 2UL, cpu_idx );
+  else
+    /* allocate the same amount of memory as above but with regular 4k sized pages */
+    base = fd_shmem_acquire( FD_SHMEM_NORMAL_PAGE_SZ, FD_TILE_PRIVATE_STACK_PAGE_CNT_NORMAL_PAGES, cpu_idx );
+
   if( FD_UNLIKELY( !base ) ) {
     ulong numa_idx = fd_shmem_numa_idx( cpu_idx );
     static ulong warn = 0UL;
@@ -114,7 +133,11 @@ fd_tile_private_stack_new( ulong cpu_idx ) {
   /* Create the guard regions in the extra space */
 
   void * guard_lo = (void *)(stack - FD_SHMEM_NORMAL_PAGE_SZ);
-  fd_shmem_release( base, FD_TILE_PRIVATE_STACK_PAGE_SZ, 1UL );
+  if ( using_normal_pages )
+    fd_shmem_release( base, FD_SHMEM_NORMAL_PAGE_SZ, FD_TILE_PRIVATE_STACK_PAGE_SZ / FD_SHMEM_NORMAL_PAGE_SZ );
+  else
+    fd_shmem_release( base, FD_TILE_PRIVATE_STACK_PAGE_SZ, 1UL );
+    
   if( FD_UNLIKELY( mmap( guard_lo, FD_SHMEM_NORMAL_PAGE_SZ, PROT_NONE,
                          MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, -1, (off_t)0 )!=guard_lo ) )
     FD_LOG_WARNING(( "fd_tile: mmap failed (%i-%s)\n\t"
@@ -122,7 +145,11 @@ fd_tile_private_stack_new( ulong cpu_idx ) {
                      errno, strerror( errno ), cpu_idx ));
 
   void * guard_hi = (void *)(stack + FD_TILE_PRIVATE_STACK_SZ);
-  fd_shmem_release( guard_hi, FD_TILE_PRIVATE_STACK_PAGE_SZ, 1UL );
+  if ( using_normal_pages )
+    fd_shmem_release( guard_hi, FD_SHMEM_NORMAL_PAGE_SZ, FD_TILE_PRIVATE_STACK_PAGE_SZ / FD_SHMEM_NORMAL_PAGE_SZ );
+  else
+    fd_shmem_release( guard_hi, FD_TILE_PRIVATE_STACK_PAGE_SZ, 1UL );
+  
   if( FD_UNLIKELY( mmap( guard_hi, FD_SHMEM_NORMAL_PAGE_SZ, PROT_NONE,
                          MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, -1, (off_t)0 )!=guard_hi ) )
     FD_LOG_WARNING(( "fd_tile: mmap failed (%i-%s)\n\t"
@@ -146,7 +173,10 @@ fd_tile_private_stack_delete( void * _stack ) {
   if( FD_UNLIKELY( munmap( guard_lo, FD_SHMEM_NORMAL_PAGE_SZ ) ) )
     FD_LOG_WARNING(( "fd_tile: munmap failed (%i-%s); attempting to continue", errno, strerror( errno ) ));
 
-  fd_shmem_release( stack, FD_TILE_PRIVATE_STACK_PAGE_SZ, FD_TILE_PRIVATE_STACK_PAGE_CNT );
+  if ( using_normal_pages )
+    fd_shmem_release( stack, FD_SHMEM_NORMAL_PAGE_SZ, FD_TILE_PRIVATE_STACK_PAGE_SZ / FD_SHMEM_NORMAL_PAGE_SZ );
+  else
+    fd_shmem_release( stack, FD_TILE_PRIVATE_STACK_PAGE_SZ, FD_TILE_PRIVATE_STACK_PAGE_CNT );
 }
 
 #else
@@ -223,6 +253,10 @@ fd_tile_private_manager( void * _args ) {
   ulong  id    = args->id;
   ulong  idx   = args->idx;
   void * stack = args->stack;
+
+#ifdef __APPLE__
+  pthread_setaffinity_mac(args->cpu_idx);
+#endif
 
   if( FD_UNLIKELY( !( (id ==fd_log_thread_id()                                       ) &
                       (idx==(id-fd_tile_private_id0)                                 ) &
@@ -466,7 +500,7 @@ fd_tile_private_cpus_parse( char const * cstr,
       if( FD_UNLIKELY( CPU_ISSET( cpu, assigned_set ) ) ) FD_LOG_ERR(( "fd_tile: malformed --tile-cpus (repeated cpu)" ));
       if( FD_UNLIKELY( cnt>=FD_TILE_MAX               ) ) FD_LOG_ERR(( "fd_tile: too many --tile-cpus" ));
       tile_to_cpu[ cnt++ ] = (ushort)cpu;
-      CPU_SET( cpu, assigned_set );
+      CPU_SET( (int)cpu, assigned_set );
     }
   }
 
@@ -532,7 +566,9 @@ fd_tile_private_boot( int *    pargc,
 
         cpu_set_t cpu_set[1];
         CPU_ZERO( cpu_set );
-        CPU_SET( cpu_idx, cpu_set );
+        CPU_SET( (int)cpu_idx, cpu_set );
+
+        #ifndef __APPLE__
         err = pthread_attr_setaffinity_np( attr, sizeof(cpu_set_t), cpu_set );
         if( FD_UNLIKELY( err ) ) FD_LOG_WARNING(( "fd_tile: pthread_attr_setaffinity_failed (%i-%s)\n\t"
                                                   "Unable to set the thread affinity for tile %lu on cpu %lu.  Attempting to\n\t"
@@ -542,6 +578,7 @@ fd_tile_private_boot( int *    pargc,
                                                   "allowed cpus that have been reserved for this thread group on this host\n\t"
                                                   "to eliminate this warning.",
                                                   err, strerror( err ), tile_idx, cpu_idx ));
+        #endif
 
         stack = fd_tile_private_stack_new( cpu_idx );
         if( FD_LIKELY( stack ) ) {

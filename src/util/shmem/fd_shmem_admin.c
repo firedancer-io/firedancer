@@ -2,6 +2,10 @@
 #define _GNU_SOURCE
 #endif
 
+#ifdef __APPLE__
+#define _DARWIN_C_SOURCE /* we need this for mmap() flags to be brought in via sys/mman.h */
+#endif
+
 #include "fd_shmem_private.h"
 
 #if FD_HAS_HOSTED && FD_HAS_X86
@@ -10,10 +14,17 @@
 #include <errno.h>
 #include <unistd.h>
 #include <fcntl.h>
-#include <linux/mempolicy.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
+
+#ifdef __linux__
+#include <linux/mempolicy.h>
 #include <linux/mman.h>
+#endif
+
+#ifdef __APPLE__
+#include <mach/vm_statistics.h>
+#endif
 
 /* Include OS-specific NUMA backend */
 
@@ -27,7 +38,11 @@
 #endif
 
 #if FD_HAS_THREADS
+#ifdef __APPLE__
+pthread_mutex_t fd_shmem_private_lock[1] = { PTHREAD_RECURSIVE_MUTEX_INITIALIZER };
+#else
 pthread_mutex_t fd_shmem_private_lock[1] = { PTHREAD_RECURSIVE_MUTEX_INITIALIZER_NP };
+#endif
 #endif
 
 char  fd_shmem_private_base[ FD_SHMEM_PRIVATE_BASE_MAX ]; /* ""  at thread group start, initialized at boot */
@@ -85,6 +100,7 @@ fd_shmem_numa_validate( void const * mem,
     return EINVAL;
   }
 
+#ifndef __APPLE__
   ulong numa_idx = fd_shmem_numa_idx( cpu_idx );
 
   ulong   page = (ulong)mem;
@@ -114,6 +130,7 @@ fd_shmem_numa_validate( void const * mem,
       batch_cnt = 0UL;
     }
   }
+#endif
 
   return 0;
 }
@@ -143,8 +160,7 @@ fd_shmem_create( char const * name,
   if( FD_UNLIKELY( mode!=(ulong)(mode_t)mode ) ) { FD_LOG_WARNING(( "bad mode (0%03lo)", mode )); return EINVAL; }
 
   ulong sz       = page_cnt*page_sz;
-  ulong numa_idx = fd_shmem_numa_idx( cpu_idx );
-
+  
   /* We use the FD_SHMEM_LOCK in create just to be safe given some
      thread safety ambiguities in the documentation for some of the
      below APIs. */
@@ -154,12 +170,15 @@ fd_shmem_create( char const * name,
   int err;
 # define ERROR( cleanup ) do { err = errno; goto cleanup; } while(0)
 
-  int    orig_mempolicy;
-  ulong  orig_nodemask[ (FD_SHMEM_NUMA_MAX+63UL)/64UL ];
-  ulong  nodemask[ (FD_SHMEM_NUMA_MAX+63UL)/64UL ];
   char   path[ FD_SHMEM_PRIVATE_PATH_BUF_MAX ];
   int    fd;
   void * shmem;
+
+#ifndef __APPLE__
+  ulong numa_idx = fd_shmem_numa_idx( cpu_idx );
+  int    orig_mempolicy;
+  ulong  orig_nodemask[ (FD_SHMEM_NUMA_MAX+63UL)/64UL ];
+  ulong  nodemask[ (FD_SHMEM_NUMA_MAX+63UL)/64UL ];
 
   /* Save this thread's numa node mempolicy and then set it to bind
      newly created memory to the numa idx corresponding to logical cpu
@@ -182,6 +201,7 @@ fd_shmem_create( char const * name,
     FD_LOG_WARNING(( "set_mempolicy failed (%i-%s)", errno, strerror( errno ) ));
     ERROR( done );
   }
+#endif
 
   /* Create the region */
 
@@ -207,8 +227,10 @@ fd_shmem_create( char const * name,
     ERROR( close );
   }
 
-  /* Validate the mapping */
-
+  /* Validate the mapping 
+     There doesn't seem to be a way to get superpages when mapping a file into memory
+     in macOS at this time, so skip this alignment check for this platform. */
+#ifndef __APPLE__
   if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)shmem, page_sz ) ) ) {
     FD_LOG_WARNING(( "misaligned memory mapping for \"%s\"\n\t"
                      "This thread group's hugetlbfs mount path (--shmem-path / FD_SHMEM_PATH):\n\t"
@@ -219,6 +241,7 @@ fd_shmem_create( char const * name,
     errno = EFAULT; /* ENOMEM is arguable */
     ERROR( unmap );
   }
+#endif
 
   /* If a mempolicy has been set and the numa_idx node does not have
      sufficient pages to back the mapping, touching the memory will
@@ -255,6 +278,7 @@ fd_shmem_create( char const * name,
      after we unmap it. */
 
   /* Just in case set_mempolicy clobbered it */
+#ifndef __APPLE__  
   fd_memset( nodemask, 0, 8UL*((FD_SHMEM_NUMA_MAX+63UL)/64UL) );
   nodemask[ numa_idx >> 6 ] = 1UL << (numa_idx & 63UL);
   if( FD_UNLIKELY( mbind( shmem, sz, MPOL_BIND, nodemask, FD_SHMEM_NUMA_MAX, MPOL_MF_MOVE | MPOL_MF_STRICT ) ) ) {
@@ -262,14 +286,20 @@ fd_shmem_create( char const * name,
                      path, sz>>10, numa_idx, errno, strerror( errno ) ));
     ERROR( unmap );
   }
+#endif
 
   /* And since the mbind still often will ignore requests, we double
-     check that the pages are in the right place. */
-
+     check that the pages are in the right place. This uses Linux APIs that 
+     do not have (documented/good) equivalents on macOS, so skip this check on
+     macOS for now. */
+#ifndef __APPLE__
   err = fd_shmem_numa_validate( shmem, page_sz, page_cnt, cpu_idx ); /* logs details */
   if( FD_UNLIKELY( err ) )
     FD_LOG_WARNING(( "mmap(NULL,%lu KiB,PROT_READ|PROT_WRITE,MAP_SHARED,\"%s\",0) numa binding failed (%i-%s)",
                      sz>>10, path, err, strerror( err ) ));
+#else
+  err = 0;
+#endif  
 
 # undef ERROR
 
@@ -284,10 +314,14 @@ close:
     FD_LOG_WARNING(( "close(\"%s\") failed (%i-%s); attempting to continue", path, errno, strerror( errno ) ));
 
 restore:
+#ifndef __APPLE__
   if( FD_UNLIKELY( set_mempolicy( orig_mempolicy, orig_nodemask, FD_SHMEM_NUMA_MAX ) ) )
     FD_LOG_WARNING(( "set_mempolicy failed (%i-%s); attempting to continue", errno, strerror( errno ) ));
+#endif
 
+#ifndef __APPLE__
 done:
+#endif
   FD_SHMEM_UNLOCK;
   return err;
 }
@@ -389,11 +423,21 @@ fd_shmem_acquire( ulong page_sz,
   }
 
   ulong sz       = page_cnt*page_sz;
-  ulong numa_idx = fd_shmem_numa_idx( cpu_idx );
 
   int flags = MAP_PRIVATE | MAP_ANONYMOUS;
+#ifndef __APPLE__
+  ulong numa_idx = fd_shmem_numa_idx( cpu_idx );
   if( page_sz==FD_SHMEM_HUGE_PAGE_SZ     ) flags |= MAP_HUGETLB | MAP_HUGE_2MB;
   if( page_sz==FD_SHMEM_GIGANTIC_PAGE_SZ ) flags |= MAP_HUGETLB | MAP_HUGE_1GB;
+#endif
+
+  int fd = -1;
+
+  /* Superpage allocation (2MB) on macOS is done by passing VM_FLAGS_SUPERPAGE_SIZE_2MB as
+     the 'fd' argument to the mmap() interface. */
+#ifdef __APPLE__
+  if ( FD_LIKELY( page_sz==FD_SHMEM_HUGE_PAGE_SZ ) ) fd = VM_FLAGS_SUPERPAGE_SIZE_2MB;
+#endif
 
   /* See fd_shmem_create for details on the locking, mempolicy
      and what not tricks */
@@ -403,10 +447,12 @@ fd_shmem_acquire( ulong page_sz,
   int err;
 # define ERROR( cleanup ) do { err = errno; goto cleanup; } while(0)
 
+  void * mem = NULL;
+
+#ifndef __APPLE__
   int    orig_mempolicy;
   ulong  orig_nodemask[ (FD_SHMEM_NUMA_MAX+63UL)/64UL ];
   ulong  nodemask[ (FD_SHMEM_NUMA_MAX+63UL)/64UL ];
-  void * mem = NULL;
 
   if( FD_UNLIKELY( get_mempolicy( &orig_mempolicy, orig_nodemask, FD_SHMEM_NUMA_MAX, NULL, 0UL ) ) ) {
     FD_LOG_WARNING(( "get_mempolicy failed (%i-%s)", errno, strerror( errno ) ));
@@ -419,8 +465,9 @@ fd_shmem_acquire( ulong page_sz,
     FD_LOG_WARNING(( "set_mempolicy failed (%i-%s)", errno, strerror( errno ) ));
     ERROR( done );
   }
+#endif
 
-  mem = mmap( NULL, sz, PROT_READ | PROT_WRITE, flags, -1, (off_t)0);
+  mem = mmap( NULL, sz, PROT_READ | PROT_WRITE, flags, fd, (off_t)0);
   if( FD_UNLIKELY( mem==MAP_FAILED ) ) {
     FD_LOG_WARNING(( "mmap(NULL,%lu KiB,PROT_READ|PROT_WRITE,%x,-1,0) failed (%i-%s)", sz>>10, flags, errno, strerror( errno ) ));
     ERROR( restore );
@@ -441,6 +488,7 @@ fd_shmem_acquire( ulong page_sz,
      MEMPOLICY DONE ABOVE?) */
 
   /* Just in case set_mempolicy clobbered it */
+#ifndef __APPLE__
   fd_memset( nodemask, 0, 8UL*((FD_SHMEM_NUMA_MAX+63UL)/64UL) );
   nodemask[ numa_idx >> 6 ] = 1UL << (numa_idx & 63UL);
   if( FD_UNLIKELY( mbind( mem, sz, MPOL_BIND, nodemask, FD_SHMEM_NUMA_MAX, MPOL_MF_MOVE | MPOL_MF_STRICT ) ) ) {
@@ -453,6 +501,9 @@ fd_shmem_acquire( ulong page_sz,
   if( FD_UNLIKELY( err ) )
     FD_LOG_WARNING(( "mmap(NULL,%lu KiB,PROT_READ|PROT_WRITE,%x,-1,0) numa binding failed (%i-%s)",
                      sz>>10, flags, err, strerror( err ) ));
+#else
+  err = 0;
+#endif
 
 # undef ERROR
 
@@ -461,10 +512,14 @@ unmap:
     FD_LOG_WARNING(( "munmap(anon,%lu KiB) failed (%i-%s); attempting to continue", sz>>10, errno, strerror( errno ) ));
 
 restore:
+#ifndef __APPLE__
   if( FD_UNLIKELY( set_mempolicy( orig_mempolicy, orig_nodemask, FD_SHMEM_NUMA_MAX ) ) )
     FD_LOG_WARNING(( "set_mempolicy failed (%i-%s); attempting to continue", errno, strerror( errno ) ));
+#endif
 
+#ifndef __APPLE__
 done:
+#endif
   FD_SHMEM_UNLOCK;
   return err ? NULL : mem;
 }

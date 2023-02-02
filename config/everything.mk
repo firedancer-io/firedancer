@@ -6,7 +6,7 @@ MAKEFLAGS += --no-builtin-variables
 .SECONDARY:
 .SECONDEXPANSION:
 
-BASEDIR:=build
+BASEDIR:=build_dir
 OBJDIR:=$(BASEDIR)/$(BUILDDIR)
 
 all: bin include lib unit-test
@@ -174,7 +174,7 @@ $(OBJDIR)/obj/%.d : src/%.c
 	# Generating dependencies for C source $< to $@
 	#######################################################################
 	$(MKDIR) $(dir $@) && \
-$(CC) $(CPPFLAGS) $(CFLAGS) -M -MP $< -o $@.tmp && \
+$(CC) $(CPPFLAGS) $(CFLAGS) -M $< -o $@.tmp && \
 $(SED) 's,\($(notdir $*)\)\.o[ :]*,$(OBJDIR)/obj/$*.o $(OBJDIR)/obj/$*.S $(OBJDIR)/obj/$*.i $@ : ,g' < $@.tmp > $@ && \
 $(RM) $@.tmp
 
@@ -183,7 +183,7 @@ $(OBJDIR)/obj/%.d : src/%.cxx
 	# Generating dependencies for C++ source $< to $@
 	#######################################################################
 	$(MKDIR) $(dir $@) && \
-$(CXX) $(CPPFLAGS) $(CXXFLAGS) -M -MP $< -o $@.tmp && \
+$(CXX) $(CPPFLAGS) $(CXXFLAGS) -M $< -o $@.tmp && \
 $(SED) 's,\($(notdir $*)\)\.o[ :]*,$(OBJDIR)/obj/$*.o $(OBJDIR)/obj/$*.S $(OBJDIR)/obj/$*.i $@ : ,g' < $@.tmp > $@ && \
 $(RM) $@.tmp
 
@@ -300,4 +300,3 @@ ppp: $(DEPFILES:.d=.i)
 endif
 endif
 endif
-

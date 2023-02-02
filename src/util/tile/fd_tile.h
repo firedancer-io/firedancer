@@ -22,6 +22,11 @@ typedef int (*fd_tile_task_t)( int argc, char ** argv );
 struct fd_tile_exec_private;
 typedef struct fd_tile_exec_private fd_tile_exec_t;
 
+/* Store config option for using normal pages for all memory allocations
+   instead of huge and gigantic page sizes. */
+   
+extern int using_normal_pages;
+
 FD_PROTOTYPES_BEGIN
 
 /* fd_tile_{id0,id1,id,idx,cnt} return various information about the

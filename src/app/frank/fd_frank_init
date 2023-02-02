@@ -18,8 +18,6 @@ shift 4
 CONF=tmp/$APP.cfg
 
 WKSP=$APP.wksp
-WKSP_PAGE_CNT=2
-WKSP_PAGE_SZ=gigantic
 WKSP_PERM=0600
 
 POD_SZ=16384
@@ -32,6 +30,38 @@ VERIFY_MTU=1542   # FIXME: recalibrate (probably smaller for today, larger for l
 DEDUP_TCACHE_DEPTH=4194302
 DEDUP_TCACHE_MAP_CNT=0
 DEDUP_DEPTH=$VERIFY_DEPTH
+
+# Set a sensible default for page size depending on OS and architecture platform in use;
+# Linux x64: gigantic
+# macOS x64 Intel: huge (superpages)
+# macOS ARM (M1/M2): normal
+UNAME_OUTPUT=`uname -a`
+if [[ "$UNAME_OUTPUT" == "Linux"* ]] && [[ "$UNAME_OUTPUT" == *"x86_64"* ]]; then
+  PLATFORM_DEFAULT_WKSP_PAGE_SZ=gigantic
+elif [[ "$UNAME_OUTPUT" == *"Darwin"* ]] && [[ "$UNAME_OUTPUT" == *"x86_64"* ]]; then
+  PLATFORM_DEFAULT_WKSP_PAGE_SZ=huge
+elif [[ "$UNAME_OUTPUT" == *"Darwin"* ]] && [[ "$UNAME_OUTPUT" == *"arm64"* ]]; then
+  PLATFORM_DEFAULT_WKSP_PAGE_SZ=normal
+else
+  echo "Firedancer is not supported on this platform"
+  exit 1
+fi
+
+# Allow override of platform's default page size via the FD_WKSP_PAGE_SIZE environment variable.
+WKSP_PAGE_SZ=${FD_WKSP_PAGE_SIZE:-$PLATFORM_DEFAULT_WKSP_PAGE_SZ}
+
+if [ "$WKSP_PAGE_SZ" != "huge" ] && [ "$WKSP_PAGE_SZ" == "gigantic" ] && [ "$WKSP_PAGE_SZ" == "normal" ]; then
+  echo "fd_frank_init $1 $2 $3 $4: fail, invalid page size for FD_WKSP_PAGE_SIZE"
+  exit 1
+fi
+
+if [[ "$WKSP_PAGE_SZ" == "gigantic" ]]; then
+  WKSP_PAGE_CNT=2
+elif [[ "$WKSP_PAGE_SZ" == "huge" ]]; then
+  WKSP_PAGE_CNT=500
+elif [[ "$WKSP_PAGE_SZ" == "normal" ]]; then
+  WKSP_PAGE_CNT=250000
+fi    
 
 #######################################################################
 
@@ -110,4 +140,3 @@ echo ""
 
 echo success
 exit 0
-

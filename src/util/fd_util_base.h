@@ -328,7 +328,7 @@ __extension__ typedef unsigned __int128 uint128;
 #endif
 
 /* FD_INCBIN: include binary file as rodata */
-
+#ifndef __APPLE__
 #define __FD_INCBIN(name, path, type, footer)  \
   extern type const name [];                   \
   extern uchar const name##_end;               \
@@ -348,6 +348,7 @@ __extension__ typedef unsigned __int128 uint128;
 #define FD_INCBIN(name, path) __FD_INCBIN(name, path, uchar, "")
 
 #define FD_INCBIN_STR(name, path) __FD_INCBIN(name, path, char, ".byte 0")
+#endif
 
 /* Optimizer tricks ***************************************************/
 

@@ -32,6 +32,8 @@ main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
 
+  char const *use_normal_pages = fd_env_strip_cmdline_cstr( &argc, &argv, "--use-normal-pages", "FD_USE_NORMAL_PAGES", NULL );
+
   fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
   
   ulong numa_cnt = fd_shmem_numa_cnt(); FD_TEST( (1UL<=numa_cnt) & (numa_cnt<=FD_SHMEM_NUMA_MAX) );
@@ -316,8 +318,21 @@ main( int     argc,
 
   /* FIXME: DO MORE EXTENSIVE TESTS OF ACQUIRE / RELEASE */
 
-  ulong test_cnt = 3UL;
+  ulong test_cnt;
+  #ifdef __APPLE__
+  static ulong test_psz [3];
+  if( use_normal_pages ) {
+    test_psz[0] = FD_SHMEM_NORMAL_PAGE_SZ;
+    test_cnt = 1UL;
+  } else {
+    test_psz[0] = FD_SHMEM_NORMAL_PAGE_SZ;
+    test_psz[1] = FD_SHMEM_HUGE_PAGE_SZ;
+    test_cnt = 2UL;
+  }
+  #else
   static ulong const test_psz [3] = { FD_SHMEM_NORMAL_PAGE_SZ, FD_SHMEM_HUGE_PAGE_SZ, FD_SHMEM_GIGANTIC_PAGE_SZ };
+  test_cnt = 3UL;
+  #endif
   static ulong const test_pcnt[3] = { 3UL,                     2UL,                   1UL                       };
   static ulong const test_cpu [3] = { 0UL,                     0UL,                   0UL                       };
   for( ulong test_idx=0UL; test_idx<test_cnt; test_idx++ ) {

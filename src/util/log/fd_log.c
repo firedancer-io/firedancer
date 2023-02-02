@@ -53,8 +53,16 @@
 #include <signal.h>
 #include <sched.h>
 #include <time.h>
-#include <syscall.h>
 #include <execinfo.h>
+
+#ifdef __APPLE__
+#define _DARWIN_C_SOURCE /* we need this */
+#include <sys/syscall.h>
+#include <pthread.h>
+#include "../tile/fd_tile_thread_utils_mac.h"
+#else
+#include <syscall.h>
+#endif
 
 /* APPLICATION LOGICAL ID APIS ****************************************/
 
@@ -253,11 +261,21 @@ fd_log_private_group_set( char const * group ) {
 
 /* System TID or ULONG_MAX on failure */
 
+#ifdef __APPLE__
+static ulong
+fd_log_private_tid_default( void )
+{
+  uint64_t tid64;
+  pthread_threadid_np( NULL, &tid64 );
+  return (ulong)tid64;
+}
+#else
 static ulong
 fd_log_private_tid_default( void ) {
   long tid = syscall( SYS_gettid );
   return fd_ulong_if( tid>0L, (ulong)tid, ULONG_MAX );
 }
+#endif
 
 static FD_TLS ulong fd_log_private_tid;      /* 0 at thread start */
 static FD_TLS int   fd_log_private_tid_init; /* 0 at thread start */
@@ -873,7 +891,9 @@ fd_log_private_boot( int  *   pargc,
   fd_log_private_group_id_set( fd_ulong_if( pid>(pid_t)0, (ulong)pid, ULONG_MAX ) );
 
   char const * group = fd_env_strip_cmdline_cstr( pargc, pargv, "--log-group", "FD_LOG_GROUP", NULL );
+#ifndef __APPLE__
   if( !group ) group = program_invocation_short_name;
+#endif
   if( !group ) group = (pargc && pargv && (*pargc)>0) ? (*pargv)[0] : NULL;
   fd_log_private_group_set( group );
 
