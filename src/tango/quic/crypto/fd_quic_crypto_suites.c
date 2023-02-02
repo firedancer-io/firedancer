@@ -274,11 +274,11 @@ fd_quic_gen_secrets(
 int
 fd_quic_gen_keys(
     fd_quic_crypto_keys_t * keys,
-    ulong                  key_sz,
-    ulong                  iv_sz,
+    ulong                   key_sz,
+    ulong                   iv_sz,
     EVP_MD const *          md,
     uchar const *           secret,
-    ulong                  secret_sz ) {
+    ulong                   secret_sz ) {
 
   if( key_sz > sizeof( keys->pkt_key ) ||
       key_sz > sizeof( keys->hp_key ) ||
@@ -574,13 +574,13 @@ fd_quic_crypto_decrypt(
     fd_quic_crypto_keys_t *  keys ) {
 
   /* must have at least a short header and a TAG */
-  if( FD_UNLIKELY( cipher_text_sz < 32 ) ) {
+  if( FD_UNLIKELY( cipher_text_sz < 16ul ) ) {
     FD_LOG_ERR(( "fd_quic_crypto_decrypt: cipher text too small" ));
     return FD_QUIC_FAILED;
   }
 
   /* must have space for cipher_text_sz - 16 */
-  if( FD_UNLIKELY( *plain_text_sz + 16 < cipher_text_sz ) ) {
+  if( FD_UNLIKELY( *plain_text_sz + 16ul < cipher_text_sz ) ) {
     FD_LOG_ERR(( "fd_quic_crypto_decrypt: plain text buffer too small" ));
     return FD_QUIC_FAILED;
   }
