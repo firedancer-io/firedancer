@@ -11,13 +11,13 @@
    great detail (the host, the user, the application, etc).  Messages to
    the "log file" are much more detailed and thus suitable long time
    archival purposes.
-   
+
    In producing these streams, writes to the log file are prioritized
    over writes to stderr.  Further, writes to these streams are done
    quasi-atomically at message granularity to reduce the risk that
    concurrent log messages from different threads will get mixed
    together.
-   
+
    Default behaviors are:
 
    - FD_LOG_DEBUG messages are not written to either stream (the
@@ -159,8 +159,7 @@
    evaluates to false, will FD_LOG_ERR that the condition failed.  It is
    optimized for the case where c will is non-zero.  This is mostly
    meant for use in things like unit tests.  Due to linguistic
-   limitations, c cannot contain things like double quotes, '%'
-   characters, etc.  E.g.
+   limitations, c cannot contain things like double quotes, etc.  E.g.
 
      FD_TEST( broken_func_that_should_return_zero( arg1, arg2 )!=0 );
 
@@ -171,7 +170,7 @@
 
    This macro is robust. */
 
-#define FD_TEST(c) do { if( FD_UNLIKELY( !(c) ) ) FD_LOG_ERR(( "FAIL: " #c )); } while(0)
+#define FD_TEST(c) do { if( FD_UNLIKELY( !(c) ) ) FD_LOG_ERR(( "FAIL: %s", #c )); } while(0)
 
 /* Macros for doing hexedit / tcpdump-like logging of memory regions.
    E.g.
