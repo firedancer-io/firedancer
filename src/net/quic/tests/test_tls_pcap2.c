@@ -313,7 +313,7 @@ main( int     argc,
   printf( "\n" );
 
   printf( "cipher_text: " );
-  for( ulong j = 0; j < offset + cipher_text_sz; ++j ) {
+  for( ulong j=0; j < offset + cipher_text_sz; ++j ) {
     printf( "%2.2x ", cipher_text[j] );
   }
   printf( "\n" );
