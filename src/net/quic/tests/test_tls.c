@@ -307,8 +307,7 @@ main( int     argc,
                            initial_salt,     initial_salt_sz,
                            test_dst_conn_id, sizeof( test_dst_conn_id ),
                            crypto_ctx.HASH_SHA256 ) != FD_QUIC_SUCCESS ) {
-    fprintf( stderr, "fd_quic_gen_secrets failed\n" );
-    exit(1);
+    FD_LOG_ERR(( "fd_quic_gen_secrets failed" ));
   }
 
   /* compare output of fd_quic_gen_secrets to expected */
