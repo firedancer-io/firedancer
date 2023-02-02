@@ -21,7 +21,7 @@ uchar pkt3[] = "\x45\x00\x00\x6c\x85\xbd\x40\x00\x40\x11\xb6\xc1\x7f\x00\x00\x01
 uchar pkt4[] = "\xff\xff\xfe\xff\xff\xff\xff\xff\xff\xff\x01\x00\xff\xff\xff\xff"
                "\xff\xff\xff\xff";
 
-int
+void
 test( uchar const * pkt ) {
   uchar tmp[20];
   fd_memcpy( tmp, pkt, 20 );
@@ -35,10 +35,7 @@ test( uchar const * pkt ) {
   FD_LOG_NOTICE(( "After:" ));
   FD_LOG_NOTICE(( FD_LOG_HEX20_FMT, FD_LOG_HEX20_FMT_ARGS( tmp ) ));
 
-  int pass = memcmp( tmp, pkt, 20 ) == 0;
-  printf( "%s\n", pass ? "PASSED" : "FAILED" );
-
-  return pass;
+  FD_TEST( 0==memcmp( tmp, pkt, 20 ) );
 }
 
 int
@@ -46,15 +43,11 @@ main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
 
-  int pass_all = 1;
-
-  pass_all &= test( pkt0 );
-  pass_all &= test( pkt1 );
-  pass_all &= test( pkt2 );
-  pass_all &= test( pkt3 );
-  pass_all &= test( pkt4 );
-
-  if( FD_UNLIKELY( !pass_all ) ) FD_LOG_ERR(( "fail" ));
+  test( pkt0 );
+  test( pkt1 );
+  test( pkt2 );
+  test( pkt3 );
+  test( pkt4 );
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

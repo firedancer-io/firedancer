@@ -79,8 +79,8 @@ struct fd_quic_crypto_suite {
   int id;
   int major;
   int minor;
-  int key_sz;
-  int iv_sz;
+  ulong key_sz;
+  ulong iv_sz;
 
   EVP_CIPHER const * pkt_cipher;  /* not owned */
   EVP_CIPHER const * hp_cipher;   /* not owned */
