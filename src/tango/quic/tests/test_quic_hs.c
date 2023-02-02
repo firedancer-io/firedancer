@@ -25,14 +25,14 @@ write_idb( FILE * file ) {
 }
 
 void
-write_epb( FILE * file, uchar * buf, uint buf_sz, ulong ts ) {
+write_epb( FILE * file, uchar * buf, unsigned buf_sz, ulong ts ) {
   if( buf_sz == 0 ) return;
 
   uint ts_lo = (uint)ts;
   uint ts_hi = (uint)( ts >> 32u );
 
-  uint align_sz = ( ( buf_sz - 1u ) | 0x03u ) + 1u;
-  uint tot_len  = align_sz + (uint)sizeof( pcap_epb_t ) + 4;
+  unsigned align_sz = ( ( buf_sz - 1u ) | 0x03u ) + 1u;
+  unsigned tot_len  = align_sz + (unsigned)sizeof( pcap_epb_t ) + 4;
   pcap_epb_t epb[1] = {{
     0x00000006,
     tot_len,
@@ -78,7 +78,7 @@ aio_cb( void * context, fd_aio_buffer_t * batch, ulong batch_sz ) {
     printf( "batch %d\n", (int)j );
     uchar const * data = (uchar const *)batch[j].data;
     for( ulong k = 0; k < batch[j].data_sz; ++k ) {
-      printf( "%2.2x ", (uint)data[k] );
+      printf( "%2.2x ", (unsigned)data[k] );
     }
     printf( "\n\n" );
   }
@@ -384,10 +384,6 @@ main( int argc, char ** argv ) {
 
     printf( "fd_quic_stream_send returned %d\n", rc );
   }
-
-  /* close the connections */
-  fd_quic_conn_close( client_conn, 0 );
-  fd_quic_conn_close( server_conn, 0 );
 
   /* allow acks to go */
   for( unsigned j = 0; j < 10; ++j ) {
