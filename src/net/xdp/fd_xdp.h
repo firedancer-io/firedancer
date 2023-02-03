@@ -13,29 +13,29 @@ typedef struct fd_xdp fd_xdp_t;
    can initialize to reasonable defaults via:
      fd_xdp_config_init( &xdp_config ) */
 struct fd_xdp_config {
-  ulong       completion_ring_size; // number of frames in completion ring
+  ulong        completion_ring_size; // number of frames in completion ring
                                      // completion ring returns sent frames back
                                      // from kernel to firedancer for reuse
-  ulong       fill_ring_size;       // number of frames in fill ring
+  ulong        fill_ring_size;       // number of frames in fill ring
                                      // fill ring returns full RX frames to firedancer
                                      // for processing
-  ulong       rx_ring_size;         // number of frames in rx ring
-  ulong       tx_ring_size;         // number of frames in tx ring
+  ulong        rx_ring_size;         // number of frames in rx ring
+  ulong        tx_ring_size;         // number of frames in tx ring
 
-  ulong       frame_size;           // max size of a frame
-  ulong       frame_count;          // total number of frames
+  ulong        frame_size;           // max size of a frame
+  ulong        frame_count;          // total number of frames
 
   void *       frame_memory;         // pointer into tx, rx frame memory
                                      // if null, fd_xdp_new will allocate properly
                                      // aligned memory
-  ulong       frame_memory_size;    // amount of memory available at frame_memory
+  ulong        frame_memory_size;    // amount of memory available at frame_memory
                                      // if frame_memory is null, fd_xdp will use:
                                      // ( completion_ring_size + fill_ring_size +
                                      //   rx_ring_size + tx_ring_size ) * frame_size
                                      // this is enough memory for all in-flight
                                      // frames
 
-  ulong     xdp_mode;             // XDP mode
+  ulong        xdp_mode;             // XDP mode
                                      // if set to zero, will default to XDP_FLAGS_SKB_MODE
                                      // allowed values are zero and the following:
                                      //   XDP_FLAGS_SKB_MODE      Most generic mode
@@ -61,9 +61,9 @@ typedef struct fd_xdp_config fd_xdp_config_t;
 
 /* structure for providing metadata for rx and tx frames */
 struct fd_xdp_frame_meta {
-  ulong offset;       // The offset of the start of packet
-  uint sz;           // Size of the data
-  uint flags;        // Some flags - None defined yet
+  ulong offset;        // The offset of the start of packet
+  uint sz;             // Size of the data
+  uint flags;          // Some flags - None defined yet
 };
 typedef struct fd_xdp_frame_meta fd_xdp_frame_meta_t;
 
@@ -98,7 +98,9 @@ fd_xdp_footprint( fd_xdp_config_t * config );
    can access properly? */
 
 fd_xdp_t *
-fd_xdp_new( void * mem, char const * intf, fd_xdp_config_t const * config );
+fd_xdp_new( void *                  mem,
+            char const *            intf,
+            fd_xdp_config_t const * config );
 
 /* destroy an xdp interface, releasing all resources */
 void
@@ -113,7 +115,8 @@ fd_xdp_delete( fd_xdp_t * xdp );
    1. assume 8-byte conn_id, lookup, forward
    2. hash source ip:port, forward */
 void
-fd_xdp_add_key( fd_xdp_t * xdp, unsigned key );
+fd_xdp_add_key( fd_xdp_t * xdp,
+                uint       key );
 
 /* returns whether a wakeup is required to complete a tx operation */
 int
@@ -135,13 +138,16 @@ fd_xdp_rx_need_wakeup( fd_xdp_t * xdp );
      and simply ignores the redundant info
 
    returns:
-     The count of frames enqueued
-*/
+     The count of frames enqueued */
 ulong
-fd_xdp_rx_enqueue( fd_xdp_t * xdp, ulong * offset, ulong count );
+fd_xdp_rx_enqueue( fd_xdp_t * xdp,
+                   ulong *    offset,
+                   ulong      count );
 
 ulong
-fd_xdp_rx_enqueue2( fd_xdp_t * xdp, fd_xdp_frame_meta_t * meta, ulong count );
+fd_xdp_rx_enqueue2( fd_xdp_t *            xdp,
+                    fd_xdp_frame_meta_t * meta,
+                    ulong                 count );
 
 
 /* enqueue a batch of frames for transmit
@@ -160,10 +166,11 @@ fd_xdp_rx_enqueue2( fd_xdp_t * xdp, fd_xdp_frame_meta_t * meta, ulong count );
    Unqueued frames may be retried
 
    returns:
-     The count of frames enqueued
-*/
+     The count of frames enqueued */
 ulong
-fd_xdp_tx_enqueue( fd_xdp_t * xdp, fd_xdp_frame_meta_t * meta, ulong count );
+fd_xdp_tx_enqueue( fd_xdp_t *            xdp,
+                   fd_xdp_frame_meta_t * meta,
+                   ulong                 count );
 
 
 /* complete receive batch
@@ -177,7 +184,9 @@ fd_xdp_tx_enqueue( fd_xdp_t * xdp, fd_xdp_frame_meta_t * meta, ulong count );
    Returns:
      The count of completions written to batch */
 ulong
-fd_xdp_rx_complete( fd_xdp_t * xdp, fd_xdp_frame_meta_t * batch, ulong capacity );
+fd_xdp_rx_complete( fd_xdp_t *            xdp,
+                    fd_xdp_frame_meta_t * batch,
+                    ulong                 capacity );
 
 
 /* complete transmit batch
@@ -195,17 +204,21 @@ fd_xdp_rx_complete( fd_xdp_t * xdp, fd_xdp_frame_meta_t * batch, ulong capacity 
    Returns:
      The count of completions written to batch */
 ulong
-fd_xdp_tx_complete( fd_xdp_t * xdp, ulong * batch, ulong capacity );
+fd_xdp_tx_complete( fd_xdp_t * xdp,
+                    ulong *    batch,
+                    ulong      capacity );
 
 ulong
-fd_xdp_tx_complete2( fd_xdp_t * xdp, fd_xdp_frame_meta_t * batch, ulong capacity );
+fd_xdp_tx_complete2( fd_xdp_t *            xdp,
+                     fd_xdp_frame_meta_t * batch,
+                     ulong                 capacity );
 
 /* get the base frame memory pointer */
 ulong
 fd_xdp_get_frame_memory( fd_xdp_t * xdp );
 
-/*
-   fd_bpf_install
+/* fd_bpf_install
+
    Used to install a bpf program on an interface and pin it via files
    in /sys/fs/bpf
    This allows us to separate the bpf program installation from the
@@ -221,16 +234,14 @@ fd_xdp_get_frame_memory( fd_xdp_t * xdp );
 
    Returns
      0          success
-     rc         return code from libbpf
-*/
-
+     rc         return code from libbpf */
 int
-fd_bpf_install( const char* bpf_file,
-                const char* intf,
-                const char* bpf_pin_dir,
-                const char* bpf_pin_name,
-                int         mode,
-                int         log_level );
+fd_bpf_install( char const * bpf_file,
+                char const * intf,
+                char const * bpf_pin_dir,
+                char const * bpf_pin_name,
+                int          mode,
+                int          log_level );
 
 FD_PROTOTYPES_END
 
