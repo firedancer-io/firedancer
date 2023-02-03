@@ -46,13 +46,11 @@ size_t fd_xdp_aio_footprint( fd_xdp_t * xdp, size_t batch_sz ) {
      the newly created fd_xdp_aio_t instance */
 fd_xdp_aio_t *
 fd_xdp_aio_new( void * mem, fd_xdp_t * xdp, size_t batch_sz ) {
-  if( FD_UNLIKELY( !mem ) ) {
+  if( FD_UNLIKELY( !mem ) )
     FD_LOG_ERR(( "fd_xdp_aio_new called without memory to use" ));
-  }
 
-  if( FD_UNLIKELY( !xdp ) ) {
+  if( FD_UNLIKELY( !xdp ) )
     FD_LOG_ERR(( "fd_xdp_aio_new called without an xdp instance to use" ));
-  }
 
   size_t  offs  = 0;
   uchar * base  = (uchar*)mem;
