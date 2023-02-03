@@ -22,8 +22,8 @@
 
 /* TODO move this into more appropriate header file
    and set based on architecture, etc. */
-#define FD_ACQUIRE() __asm__ __volatile__( "" : : : "memory" )
-#define FD_RELEASE() __asm__ __volatile__( "" : : : "memory" )
+#define FD_ACQUIRE FD_COMPILER_MFENCE
+#define FD_RELEASE FD_COMPILER_MFENCE
 
 /* determine alignment and footprint of an xdp instance */
 size_t
@@ -54,9 +54,8 @@ fd_xdp_new( void * mem, char const * intf, fd_xdp_config_t const * config ) {
   }
 #endif
 
-  if( !mem ) {
-    FD_LOG_ERR(( "%s : Must provide memory for fd_xdp_t instance", __func__ ));
-    exit(1);
+  if( FD_UNLIKELY( !mem ) ) {
+    FD_LOG_ERR(( "fd_xdp_new: Must provide memory for fd_xdp_t instance" ));
   }
 
   /* local copy of fd_xdp */
