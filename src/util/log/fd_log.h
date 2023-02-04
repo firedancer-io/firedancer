@@ -146,14 +146,25 @@
    linguistically strict point when it is called that is before logging
    activities commence. */
 
-#define FD_LOG_DEBUG(a)   do { long _fd_log_msg_now = fd_log_wallclock(); fd_log_private_1( 0, _fd_log_msg_now, __FILE__, __LINE__, __func__, fd_log_private_0 a ); } while(0)
-#define FD_LOG_INFO(a)    do { long _fd_log_msg_now = fd_log_wallclock(); fd_log_private_1( 1, _fd_log_msg_now, __FILE__, __LINE__, __func__, fd_log_private_0 a ); } while(0)
-#define FD_LOG_NOTICE(a)  do { long _fd_log_msg_now = fd_log_wallclock(); fd_log_private_1( 2, _fd_log_msg_now, __FILE__, __LINE__, __func__, fd_log_private_0 a ); } while(0)
-#define FD_LOG_WARNING(a) do { long _fd_log_msg_now = fd_log_wallclock(); fd_log_private_1( 3, _fd_log_msg_now, __FILE__, __LINE__, __func__, fd_log_private_0 a ); } while(0)
-#define FD_LOG_ERR(a)     do { long _fd_log_msg_now = fd_log_wallclock(); fd_log_private_2( 4, _fd_log_msg_now, __FILE__, __LINE__, __func__, fd_log_private_0 a ); } while(0)
-#define FD_LOG_CRIT(a)    do { long _fd_log_msg_now = fd_log_wallclock(); fd_log_private_2( 5, _fd_log_msg_now, __FILE__, __LINE__, __func__, fd_log_private_0 a ); } while(0)
-#define FD_LOG_ALERT(a)   do { long _fd_log_msg_now = fd_log_wallclock(); fd_log_private_2( 6, _fd_log_msg_now, __FILE__, __LINE__, __func__, fd_log_private_0 a ); } while(0)
-#define FD_LOG_EMERG(a)   do { long _fd_log_msg_now = fd_log_wallclock(); fd_log_private_2( 7, _fd_log_msg_now, __FILE__, __LINE__, __func__, fd_log_private_0 a ); } while(0)
+#define FD_LOG_DEBUG(a)             do { long _fd_log_msg_now = fd_log_wallclock(); fd_log_private_1( 0, _fd_log_msg_now, __FILE__, __LINE__, __func__, fd_log_private_0 a ); } while(0)
+#define FD_LOG_INFO(a)              do { long _fd_log_msg_now = fd_log_wallclock(); fd_log_private_1( 1, _fd_log_msg_now, __FILE__, __LINE__, __func__, fd_log_private_0 a ); } while(0)
+#define FD_LOG_NOTICE(a)            do { long _fd_log_msg_now = fd_log_wallclock(); fd_log_private_1( 2, _fd_log_msg_now, __FILE__, __LINE__, __func__, fd_log_private_0 a ); } while(0)
+#define FD_LOG_WARNING(a)           do { long _fd_log_msg_now = fd_log_wallclock(); fd_log_private_1( 3, _fd_log_msg_now, __FILE__, __LINE__, __func__, fd_log_private_0 a ); } while(0)
+#define FD_LOG_ERR(a)               do { long _fd_log_msg_now = fd_log_wallclock(); fd_log_private_2( 4, _fd_log_msg_now, __FILE__, __LINE__, __func__, fd_log_private_0 a ); } while(0)
+#define FD_LOG_CRIT(a)              do { long _fd_log_msg_now = fd_log_wallclock(); fd_log_private_2( 5, _fd_log_msg_now, __FILE__, __LINE__, __func__, fd_log_private_0 a ); } while(0)
+#define FD_LOG_ALERT(a)             do { long _fd_log_msg_now = fd_log_wallclock(); fd_log_private_2( 6, _fd_log_msg_now, __FILE__, __LINE__, __func__, fd_log_private_0 a ); } while(0)
+#define FD_LOG_EMERG(a)             do { long _fd_log_msg_now = fd_log_wallclock(); fd_log_private_2( 7, _fd_log_msg_now, __FILE__, __LINE__, __func__, fd_log_private_0 a ); } while(0)
+#define FD_LOG_PRIVATE_HEXDUMP(a)   do { long _fd_log_msg_now = fd_log_wallclock(); fd_log_private_1( 8, _fd_log_msg_now, __FILE__, __LINE__, __func__, fd_log_private_0 a ); } while(0)
+
+#define FD_LOG_HEXDUMP_BYTES_PER_LINE 16
+#define FD_LOG_MAX_HEXDUMP_BLOB_SIZE  8192
+
+#define FD_LOG_HEXDUMP(...)   do { fd_log_hexdump( __VA_ARGS__ ); } while(0)
+
+#define FD_LOG_HEXDUMP_ADD_TO_LOG_BUF(...) do {                   \
+    len_written = sprintf ( log_buf_ptr, __VA_ARGS__);            \
+    if( FD_LIKELY( len_written>=0 )) log_buf_ptr += len_written;  \
+ } while(0)                                                       \
 
 /* FD_TEST is a single statement that evaluates condition c and, if c
    evaluates to false, will FD_LOG_ERR that the condition failed.  It is

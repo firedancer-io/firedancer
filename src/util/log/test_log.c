@@ -38,6 +38,32 @@ main( int     argc,
   FD_LOG_NOTICE(( "fd_log_group         %s",  fd_log_group()         ));
   FD_LOG_NOTICE(( "fd_log_user          %s",  fd_log_user()          ));
 
+  FD_LOG_NOTICE( ( "Testing hexdump logging API: " ) );
+  FD_LOG_HEXDUMP( "very_small_blob", "a", strlen( "a" ) );
+  FD_LOG_HEXDUMP( "test_blob", "aaaa", strlen( "aaaa" ) );
+  FD_LOG_HEXDUMP( "alphabet_blob", "abcdefghijklmnopqrstuvwxyz", strlen( "abcdefghijklmnopqrstuvwxyz" ) );
+  FD_LOG_HEXDUMP( "empty_blob", "abcdefghijklmnopqrstuvwxyz", 0 );
+
+  char unprintable_blob[] = "\xff\x00\xff\x82\x90\x02\x05\x09\xff\x00\xff\x82\x90\x02\x05\x09"
+                            "\xff\x00\xff\x82\x90\x02\x05\x09\xff\x00\xff\x82\x90\x02\x05\x09"
+                            "\xff\x00\xff\x82\x90\x02\x05\x09\xff\x00\xff\x82\x90\x02\x05\x09"
+                            "\xff\x00\xff\x82\x90\x02\x05\x09\xff\x00\xff\x82\x90\x02\x05\x09";
+  FD_LOG_HEXDUMP( "hex_unprintable_blob", unprintable_blob, 64 );
+
+  char test_blob[] = "\xff\x00\xff\x82\x90\x02\x05\x09\xff\x00\xff\x82\x90\x02\x05\x09"
+                     "\xff\x00\xff\x82\x90\x02\x61\x09\xff\x00\xff\x82\x90\x02\x05\x09"
+                     "\x66\x90\x69\x05\x72\xff\x65\xff\x64\x90\x61\x05\x6e\x00\x63\x08"
+                     "\x65\x00\x72\x82\x90\x02\x05\x09\xff\x78\xff\x72\x90\x02\x05\x09"
+                     "\xff\x00\x41\x82\x45\x02\x05\x09\xff\x78\xff\x72\x90\x02\x05\x09"
+                     "\xff\x00\xff\x82\x90\x02\x05\x09\xff\x78\xff\x72\x90\x02\x05\x09"
+                     "\xff\x00\xff\x82\x90\x55\x05\x09\xff\x78\xff\x72\x90\x02\x05\x09"
+                     "\x50\x00\x44\x82\x90\x02\x05\x09\xff\x78\xff\x72\x90\x02\x05\x09";
+  FD_LOG_HEXDUMP( "mixed_printable_and_unprintable_blob", test_blob, 128 );
+
+  char *large_blob = fd_alloca( alignof(char), 8000 );
+  memset( large_blob, 0x62, 8000 );
+  FD_LOG_HEXDUMP( "large_blob", large_blob, 8000 );
+
   FD_LOG_NOTICE(( "Testing log levels" ));
   int i;
   i = fd_log_level_logfile(); fd_log_level_logfile_set(i-1); FD_TEST( fd_log_level_logfile()==i-1 ); fd_log_level_logfile_set(i);
