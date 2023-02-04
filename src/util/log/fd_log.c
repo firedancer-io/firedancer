@@ -493,7 +493,8 @@ fd_log_private_1( int          level,
     /* 4 */ "ERR    ",
     /* 5 */ "CRIT   ",
     /* 6 */ "ALERT  ",
-    /* 7 */ "EMERG  "
+    /* 7 */ "EMERG  ",
+    /* 8 */ "HEXDUMP"
   };
 
   if( level<fd_log_level_logfile() ) return;
@@ -626,6 +627,68 @@ fd_log_private_2( int          level,
   if( level<fd_log_level_core() ) exit(1); /* atexit will call fd_log_private_cleanup implicitly */
 
   abort();
+}
+
+void 
+fd_log_hexdump ( const char * descr,
+                 const void * blob,
+                 const size_t len ) {
+    
+  size_t count, blob_len;
+  int is_truncated = 0, len_written;
+  char line_buf[ FD_LOG_HEXDUMP_BYTES_PER_LINE+1 ];
+  const char * blob_ptr = (const char *)blob;
+  
+  blob_len = len;
+
+  /* Limit input blob length to a fairly small size (8K) to prevent stack overflow in 
+     the alloca below. */
+  if( FD_UNLIKELY ( len>FD_LOG_MAX_HEXDUMP_BLOB_SIZE ) ) {
+    blob_len = FD_LOG_MAX_HEXDUMP_BLOB_SIZE;
+    is_truncated = 1;
+  }
+
+  /* Enough space plus a bit extra for hexdump-alising the blob. */
+  char * log_buf = fd_alloca( alignof(char), ((blob_len*8)+strlen(descr)+32)*sizeof(char) );
+  char * log_buf_ptr = log_buf;
+
+  /* Blob description for easier log grepping.
+     Just print 'msg: empty' for a zero length buffer and return,
+     and make it clear when truncation happened if that is the case. */
+  if( FD_LIKELY( blob_len && !is_truncated ) ) {
+    FD_LOG_HEXDUMP_ADD_TO_LOG_BUF( "%s:\n", descr );
+  } else if( FD_UNLIKELY ( is_truncated ) ) {
+    FD_LOG_HEXDUMP_ADD_TO_LOG_BUF( "%s (truncated):\n", descr );
+  } else {
+    FD_LOG_HEXDUMP_ADD_TO_LOG_BUF( "%s: empty\n", descr );
+    FD_LOG_PRIVATE_HEXDUMP( ( "%s", log_buf ) );
+    return;
+  }
+
+  for( count=0; count<blob_len; count++ ) {
+    /* New line. Print previous line's ascii representation and then print the offset. */
+    if( !( count%FD_LOG_HEXDUMP_BYTES_PER_LINE) ) {
+      if( count!=0 ) FD_LOG_HEXDUMP_ADD_TO_LOG_BUF( "  %s\n", line_buf);
+      FD_LOG_HEXDUMP_ADD_TO_LOG_BUF( "  %04x ", (unsigned int)count );
+    }
+
+    FD_LOG_HEXDUMP_ADD_TO_LOG_BUF( " %02x", blob_ptr[count]&0xff);
+
+    /* If not a printable ASCII character, output a dot. */
+    if( isprint( blob_ptr[ count ] ) )
+      line_buf[ count%FD_LOG_HEXDUMP_BYTES_PER_LINE ] = blob_ptr[ count ];
+    else
+      line_buf[ count%FD_LOG_HEXDUMP_BYTES_PER_LINE ] = '.';
+    line_buf[ ( count%FD_LOG_HEXDUMP_BYTES_PER_LINE )+1 ] = '\0';
+  }
+
+  while( ( count%FD_LOG_HEXDUMP_BYTES_PER_LINE )!=0 ) {
+    FD_LOG_HEXDUMP_ADD_TO_LOG_BUF( "   " );
+    count++;
+  }
+
+  FD_LOG_HEXDUMP_ADD_TO_LOG_BUF( "  %s\n", line_buf );
+  FD_LOG_PRIVATE_HEXDUMP( ( "%s", log_buf ) );
 }
 
 /* BOOT/HALT APIS *****************************************************/
