@@ -162,7 +162,7 @@
 #define FD_LOG_HEXDUMP(...)   do { fd_log_hexdump( __VA_ARGS__ ); } while(0)
 
 #define FD_LOG_HEXDUMP_ADD_TO_LOG_BUF(...) do {                   \
-    len_written = sprintf ( log_buf_ptr, __VA_ARGS__);            \
+    len_written = sprintf ( log_buf_ptr, __VA_ARGS__ );           \
     if( FD_LIKELY( len_written>=0 )) log_buf_ptr += len_written;  \
  } while(0)                                                       \
 
