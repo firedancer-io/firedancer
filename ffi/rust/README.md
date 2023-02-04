@@ -25,11 +25,8 @@ Then, generate code.
 ```shell
 cd firedancer-sys
 
-# Run bindgen (Bazel does this automatically)
-./generate.sh
-
 # Build package
-cargo build
+MACHINE=linux_clang_x86_64 cargo build
 ```
 
 Note that you may see `bindgen` generate some warnings while generating code.
@@ -46,11 +43,16 @@ cargo +nightly fmt
 
 ## Publishing
 
+Before publishing, ensure that:
+- Your current checkout is clean.
+- A git tag `firedancer-sys-{VERSION}` corresponding to the version of the `firedancer-sys` package points to your current checkout. For example, if the
+`firedancer-sys` package has version `0.5.2`, git tag `firedancer-sys-0.5.2` should
+point to your current checkout.
+
+The publish script will verify both of these.
+
 ```shell
 cd firedancer-sys
 
-./generate.sh
-
-# Bug in Cargo refuses publishing because src/generate.rs is gitignored
-cargo publish --allow-dirty
+./publish
 ```
