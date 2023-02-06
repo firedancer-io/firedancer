@@ -44,7 +44,7 @@ struct SnapshotParser {
 
 void SnapshotParser_init(struct SnapshotParser* self) {
   TarReadStream_init(&self->tarreader_);
-  size_t tmpsize = 1<<20;
+  size_t tmpsize = 1<<30;
   self->tmpstart_ = self->tmpcur_ = (char*)malloc(tmpsize);
   self->tmpend_ = self->tmpstart_ + tmpsize;
 }
