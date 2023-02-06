@@ -585,14 +585,14 @@ fd_quic_conn_new_stream( fd_quic_conn_t * conn, int dirtype ) {
   stream->stream_id = next_stream_id;
 
   /* set the max stream data to the appropriate initial value */
-  /* TODO unify these names */
   stream->tx_max_stream_data = ( type == FD_QUIC_TYPE_BIDIR )
                                    ? conn->tx_initial_max_stream_data_bidi_local
                                    : conn->tx_initial_max_stream_data_uni;
 
-  /* TODO what value to set this to?
-     probably we should add rx_buf */
-  stream->rx_max_stream_data = 0;
+  /* probably we should add rx_buf */
+  stream->rx_max_stream_data = ( type == FD_QUIC_TYPE_BIDIR )
+                                   ? conn->rx_initial_max_stream_data_bidi_local
+                                   : 0ul;
 
   return stream;
 }
@@ -2178,24 +2178,17 @@ fd_quic_tls_cb_handshake_complete( fd_quic_tls_hs_t * hs,
         }
 
         /* flow control parameters */
-        fd_quic_transport_params_t * tp = &conn->peer_transport_params;
+        fd_quic_transport_params_t * peer_tp = &conn->peer_transport_params;
+        conn->tx_max_data                            = peer_tp->initial_max_data;
+        conn->tx_initial_max_stream_data_uni         = peer_tp->initial_max_stream_data_uni;
+        conn->tx_initial_max_stream_data_bidi_local  = peer_tp->initial_max_stream_data_bidi_local;
+        conn->tx_initial_max_stream_data_bidi_remote = peer_tp->initial_max_stream_data_bidi_remote;
 
-        conn->tx_max_data                            = tp->initial_max_data;
-        conn->tx_initial_max_stream_data_uni         = tp->initial_max_stream_data_uni;
-        conn->tx_initial_max_stream_data_bidi_local  = tp->initial_max_stream_data_bidi_local;
-        conn->tx_initial_max_stream_data_bidi_remote = tp->initial_max_stream_data_bidi_remote;
-
-        /* user callback */
-        /* TODO move this into transition into active state */
-        if( !conn->server ) {
-          if( conn->quic->cb_handshake_complete ) {
-            conn->quic->cb_handshake_complete( conn, conn->quic->context );
-          }
-        } else {
-          if( conn->quic->cb_conn_new ) {
-            conn->quic->cb_conn_new( conn, conn->quic->context );
-          }
-        }
+        fd_quic_transport_params_t * our_tp = &conn->peer_transport_params;
+        conn->rx_max_data                            = our_tp->initial_max_data;
+        conn->rx_initial_max_stream_data_uni         = our_tp->initial_max_stream_data_uni;
+        conn->rx_initial_max_stream_data_bidi_local  = our_tp->initial_max_stream_data_bidi_local;
+        conn->rx_initial_max_stream_data_bidi_remote = our_tp->initial_max_stream_data_bidi_remote;
 
         return;
       }
@@ -3287,6 +3280,11 @@ fd_quic_conn_service( fd_quic_t * quic, fd_quic_conn_t * conn, ulong now ) {
 
             /* move straight to ACTIVE */
             conn->state = FD_QUIC_CONN_STATE_ACTIVE;
+
+            /* user callback */
+            if( conn->quic->cb_conn_new ) {
+              conn->quic->cb_conn_new( conn, conn->quic->context );
+            }
           }
         }
 
@@ -4580,16 +4578,33 @@ fd_quic_frame_handle_handshake_done_frame(
     void *                           vp_context,
     fd_quic_handshake_done_frame_t * data,
     uchar const *                    p,
-    ulong                           p_sz) {
+    ulong                            p_sz) {
   (void)data;
   (void)p;
   (void)p_sz;
 
   fd_quic_frame_context_t context = *(fd_quic_frame_context_t*)vp_context;
-  if( context.conn->state == FD_QUIC_CONN_STATE_HANDSHAKE_COMPLETE ) {
-    context.conn->state = FD_QUIC_CONN_STATE_ACTIVE;
-  } else {
+  fd_quic_conn_t *        conn    = context.conn;
+
+  /* servers must treat receipt of HANDSHAKE_DONE as a protocol violation */
+  if( FD_UNLIKELY( conn->server ) ) {
+    fd_quic_conn_error( conn, FD_QUIC_CONN_REASON_PROTOCOL_VIOLATION );
+    return FD_QUIC_PARSE_FAIL;
+  }
+
+  /* either we treat this as a fatal error, or just warn
+     if we don't tear down the connection we must move to ACTIVE */
+  if( FD_UNLIKELY( conn->state != FD_QUIC_CONN_STATE_HANDSHAKE_COMPLETE ) ) {
     FD_LOG_WARNING(( "%s : handshake done frame received, but not in handshake complete state", __func__ ));
+  }
+
+
+  /* we shouldn't be receiving this unless handshake is complete */
+  conn->state = FD_QUIC_CONN_STATE_ACTIVE;
+
+  /* user callback */
+  if( FD_LIKELY( conn->quic->cb_conn_new ) ) {
+    conn->quic->cb_conn_new( conn, conn->quic->context );
   }
 
   return 0;
