@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <stdlib.h>
 #include <stddef.h>
 #include <alloca.h>
 #include <unistd.h>
@@ -36,14 +37,21 @@ struct Account_Hash {
 
 struct SnapshotParser {
   struct TarReadStream tarreader_;
+  char* tmpstart_;
+  char* tmpcur_;
+  char* tmpend_;
 };
 
 void SnapshotParser_init(struct SnapshotParser* self) {
   TarReadStream_init(&self->tarreader_);
+  size_t tmpsize = 1<<20;
+  self->tmpstart_ = self->tmpcur_ = (char*)malloc(tmpsize);
+  self->tmpend_ = self->tmpstart_ + tmpsize;
 }
 
 void SnapshotParser_destroy(struct SnapshotParser* self) {
   TarReadStream_destroy(&self->tarreader_);
+  free(self->tmpstart_);
 }
 
 void SnapshotParser_parseAccounts(struct SnapshotParser* self, const void* data, size_t datalen) {
@@ -77,10 +85,15 @@ void SnapshotParser_parseAccounts(struct SnapshotParser* self, const void* data,
 }
 
 char* SnapshotParser_allocTemp(unsigned long len, unsigned long align, void* arg) {
-  (void)len;
-  (void)align;
-  (void)arg;
-  return NULL;
+  struct SnapshotParser* self = (struct SnapshotParser*)arg;
+  char* p = self->tmpcur_;
+  p = (char*)FD_ULONG_ALIGN_UP(((unsigned long)p), align);
+  if (p + len > self->tmpend_) {
+    FD_LOG_ERR(("out of temp memory"));
+    return NULL;
+  }
+  self->tmpcur_ = p + len;
+  return p;
 }
 
 void SnapshotParser_parseSnapshots(struct SnapshotParser* self, const void* data, size_t datalen) {
