@@ -90,8 +90,9 @@ calc_check( packet_t * pkt ) {
 
 int
 main( int argc, char **argv ) {
-  char const * intf = "";
-  float f_batch_sz  = 128;
+  char const * intf       = "";
+  float        f_batch_sz = 128;
+  uint         intf_queue = 0;
 
   for( int i = 1; i < argc; ++i ) {
     // --intf
@@ -113,14 +114,23 @@ main( int argc, char **argv ) {
         exit(1);
       }
     }
+    if( strcmp( argv[i], "--intf-queue" ) == 0 ) {
+      if( i+1 < argc ) {
+        intf_queue = (uint)strtoul( argv[i+1], NULL, 0 );
+      } else {
+        fprintf( stderr, "--intf-queue requires a value\n" );
+        exit(1);
+      }
+    }
   }
 
   ulong batch_sz = (ulong)roundf( f_batch_sz );
 
   printf( "xdp test parms:\n" );
 
-  printf( "--intf %s\n", intf );
-  printf( "--batch-sz %ld\n", batch_sz );
+  printf( "--intf %s\n",       intf );
+  printf( "--batch-sz %ld\n",  batch_sz );
+  printf( "--intf-queue %u\n", intf_queue );
 
   fd_xdp_config_t config;
   fd_xdp_config_init( &config );
@@ -131,6 +141,7 @@ main( int argc, char **argv ) {
   //config.xdp_mode = XDP_FLAGS_DRV_MODE;
   //config.xdp_mode = XDP_FLAGS_HW_MODE;
   config.frame_size = FRAME_SIZE;
+  config.intf_queue = intf_queue;
 
   void * xdp_mem = aligned_alloc( fd_xdp_align(), fd_xdp_footprint( &config ) );
 
@@ -254,6 +265,22 @@ main( int argc, char **argv ) {
       //}
       //*status = 0;
       //printf( "complete: %lu\n", meta[j].offset >> LG_FRAME_SIZE );
+
+      uchar src_ip[4];
+      uchar dst_ip[4];
+      fd_memcpy( src_ip, &pkt->ip_src, 4 );
+      fd_memcpy( dst_ip, &pkt->ip_dst, 4 );
+      printf( "packet received: %2.2x.%2.2x.%2.2x.%2.2x:%u -> %2.2x.%2.2x.%2.2x.%2.2x:%u \n",
+          (uint)src_ip[0],
+          (uint)src_ip[1],
+          (uint)src_ip[2],
+          (uint)src_ip[3],
+          (uint)pkt->udp_src,
+          (uint)dst_ip[0],
+          (uint)dst_ip[1],
+          (uint)dst_ip[2],
+          (uint)dst_ip[3],
+          (uint)pkt->udp_dst );
 
       complete[j] = meta[j].offset & ~frame_mask;
     }

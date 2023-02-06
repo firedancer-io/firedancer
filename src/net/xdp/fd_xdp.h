@@ -55,6 +55,10 @@ struct fd_xdp_config {
   char const * bpf_pin_name;         // name used to pin the loaded bpf program in /sys/fs/bpf
 
   char const * bpf_pin_dir;          // directory name used to bin the maps used by the bpf program
+
+  uint         intf_queue;           // which interface queue to bind to
+                                     // useful for load balancing in combination with:
+                                     //   sudo ethtool -L <nic> combined <cnt>
 };
 typedef struct fd_xdp_config fd_xdp_config_t;
 

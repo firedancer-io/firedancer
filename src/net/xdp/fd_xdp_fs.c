@@ -78,7 +78,8 @@ fd_bpf_install( const char* bpf_file,
   struct bpf_object *bpf_obj;
   rc = bpf_prog_load_xattr( &prog_load_attr, &bpf_obj, &fd );
   if( rc < 0 ) {
-    FD_LOG_WARNING(( "bpf_prog_load_xattr failed with rc: %d  errno: %d %s", rc, errno, strerror( errno ) ));
+    FD_LOG_WARNING(( "bpf_prog_load_xattr failed with rc: %d  errno: %d %s  On file: %s",
+          rc, errno, strerror( errno ), bpf_file ));
     goto fd_bpf_install_err;
   }
 
