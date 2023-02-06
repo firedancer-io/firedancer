@@ -270,7 +270,7 @@ main( int argc, char **argv ) {
       uchar dst_ip[4];
       fd_memcpy( src_ip, &pkt->ip_src, 4 );
       fd_memcpy( dst_ip, &pkt->ip_dst, 4 );
-      printf( "packet received: %2.2x.%2.2x.%2.2x.%2.2x:%u -> %2.2x.%2.2x.%2.2x.%2.2x:%u \n",
+      printf( "packet received: %2.2u.%2.2u.%2.2u.%2.2u:%u -> %2.2u.%2.2u.%2.2u.%2.2u:%u \n",
           (uint)src_ip[0],
           (uint)src_ip[1],
           (uint)src_ip[2],
