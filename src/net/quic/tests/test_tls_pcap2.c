@@ -68,7 +68,7 @@ fd_quic_hkdf_extract( uchar *        output,  ulong output_sz,
 
   FD_TEST( 1==HMAC_Update( hash_ctx, conn_id, conn_id_sz ) );
 
-  uint final_output_sz = output_sz;
+  uint final_output_sz = (uint)output_sz;
   FD_TEST( 1==HMAC_Final( hash_ctx, output, &final_output_sz ) );
 
   HMAC_CTX_free( hash_ctx );
@@ -90,9 +90,9 @@ fd_quic_hkdf_expand_label( uchar *        output,  ulong output_sz,
 
   // format label
   uchar label_data[64]; // MAX 64 - according to msquic
-  label_data[0] = output_sz >> 8u;
-  label_data[1] = output_sz & 0xffu;
-  label_data[2] = HKDF_PREFIX_SZ + label_sz;
+  label_data[0] = (uchar)(output_sz >> 8u           );
+  label_data[1] = (uchar)(output_sz & 0xffu         );
+  label_data[2] = (uchar)(HKDF_PREFIX_SZ + label_sz );
   fd_memcpy( label_data + 3, HKDF_PREFIX, HKDF_PREFIX_SZ );
   fd_memcpy( label_data + 3 + HKDF_PREFIX_SZ, label, label_sz );
   label_data[3 + HKDF_PREFIX_SZ + label_sz] = 0;
@@ -306,14 +306,14 @@ main( int     argc,
   FD_LOG_NOTICE(( "Encrypted %d bytes", cipher_text_sz ));
 
   printf( "plain_text: " );
-  for( ulong j=0; j < plain_text_sz; ++j ) {
+  for( ulong j=0; j < (ulong)plain_text_sz; ++j ) {
     printf( "%2.2x ", test_client_initial[j] );
   }
   printf( "\n" );
   printf( "\n" );
 
   printf( "cipher_text: " );
-  for( ulong j=0; j < offset + cipher_text_sz; ++j ) {
+  for( ulong j=0; j < offset+(ulong)cipher_text_sz; ++j ) {
     printf( "%2.2x ", cipher_text[j] );
   }
   printf( "\n" );
@@ -347,7 +347,7 @@ main( int     argc,
 
   // long header
   ulong pn_length = ( packet_header[0] & 0x03u ) + 1;
-  enc_header[0] ^= mask[0] & 0x0fu; // short would be "& 0x1fu"
+  enc_header[0] = (uchar)(enc_header[0] ^ (mask[0] & 0x0fu)); // short would be "& 0x1fu"
 
   ulong pn_offset = 26;
 
