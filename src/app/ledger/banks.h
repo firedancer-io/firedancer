@@ -689,3 +689,32 @@ void DeserializableVersionedBank_decode(FD_FN_UNUSED struct DeserializableVersio
     self->epoch_stakes = NULL;
   fd_bincode_uint8_decode((unsigned char *) &self->is_delta, data, dataend);
 }
+
+//  pub struct SerializableAccountStorageEntry {
+//    unsigned long id;
+//    unsigned long accounts_current_len;
+//  };
+//  
+//  pub struct BankHashStats {
+//    unsigned long num_updated_accounts;
+//    unsigned long num_removed_accounts;
+//    unsigned long num_lamports_stored;
+//    unsigned long total_data_len;
+//    unsigned long pub num_executable_accounts;
+//  };
+//  
+//  pub struct BankHashInfo {
+//    Hash hash;
+//    Hash snapshot_hash;
+//    BankHashStats stats;
+//  }
+//  
+//  pub struct AccountsDbFields {
+//    HashMap<Slot, Vec<SerializableAccountStorageEntry>> accounts;
+//    unsigned long version;
+//    unsigned long slot;
+//    BankHashInfo info;
+//    Vec<unsigned long> slots;
+//    Vec<(unsigned long, Hash)> slotmap;
+//  );
+
