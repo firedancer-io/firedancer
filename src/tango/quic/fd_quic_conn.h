@@ -283,6 +283,9 @@ struct fd_quic_conn {
   ulong               tx_initial_max_stream_data_uni;
   ulong               tx_initial_max_stream_data_bidi_local;
   ulong               tx_initial_max_stream_data_bidi_remote;
+  ulong               rx_initial_max_stream_data_uni;
+  ulong               rx_initial_max_stream_data_bidi_local;
+  ulong               rx_initial_max_stream_data_bidi_remote;
 
   /* last tx packet num with max_data frame refering to this stream
      set to next_pkt_number to indicate a new max_data frame should be sent
