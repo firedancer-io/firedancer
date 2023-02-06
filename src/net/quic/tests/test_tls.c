@@ -224,7 +224,11 @@ fd_quic_hkdf_expand_label( uchar *        output,  ulong output_sz,
 #endif
 
 void
-test_secret_gen( uchar const * expected_output, uchar const * secret, ulong secret_sz, char const * label, ulong output_sz ) {
+test_secret_gen( uchar const * expected_output,
+                 uchar const * secret,
+                 ulong         secret_sz,
+                 char const *  label,
+                 ulong         output_sz ) {
   uchar new_secret[64] = {0};
   ulong label_sz = strlen( label );
 
@@ -303,10 +307,11 @@ main( int     argc,
   // initial secrets always use sha256
   //   other encryption levels (in later packets) will use hash function from cipher suite
   //   selected thru TLS
-  if( fd_quic_gen_secrets( &secrets,
-                           initial_salt,     initial_salt_sz,
-                           test_dst_conn_id, sizeof( test_dst_conn_id ),
-                           crypto_ctx.HASH_SHA256 ) != FD_QUIC_SUCCESS ) {
+  if( FD_QUIC_SUCCESS!=fd_quic_gen_initial_secret(
+        &secrets,
+        initial_salt,     initial_salt_sz,
+        test_dst_conn_id, sizeof( test_dst_conn_id ),
+        crypto_ctx.HASH_SHA256 ) ) {
     FD_LOG_ERR(( "fd_quic_gen_secrets failed" ));
   }
 
@@ -440,13 +445,14 @@ main( int     argc,
   int cipher_text_sz = 0;
   int plain_text_sz = sizeof( test_client_initial );
   FD_TEST( 1==EVP_EncryptUpdate( cipher_ctx, cipher_text, &cipher_text_sz, test_client_initial, plain_text_sz ) );
+  FD_TEST( cipher_text_sz>=0 );
+  offset = (ulong)cipher_text_sz;
 
   FD_LOG_NOTICE(( "Encrypted %d bytes", cipher_text_sz ));
 
-  offset = cipher_text_sz;
   FD_TEST( 1==EVP_EncryptFinal( cipher_ctx, cipher_text + offset, &cipher_text_sz ) );
-
-  offset += cipher_text_sz;
+  FD_TEST( cipher_text_sz>=0 );
+  offset += (ulong)cipher_text_sz;
 
   // TODO put TAG on end
   //   see if (EVP_CIPHER_CTX_ctrl(CipherCtx, EVP_CTRL_AEAD_GET_TAG, 16, tag) != 1)
@@ -547,6 +553,7 @@ main( int     argc,
     revert,     &revert_sz,
     new_buffer, new_buffer_sz,
     pn_offset,
+    2UL, /* pkt_number */
     suite,
     &client_keys ) );
 

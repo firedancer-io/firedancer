@@ -10,9 +10,9 @@
 
 // test transport parameters
 uchar test_tp[] = "\x00\x39\x00\x39\x01\x04\x80\x00\xea\x60\x04\x04\x80\x10\x00\x00"
-                   "\x05\x04\x80\x10\x00\x00\x06\x04\x80\x10\x00\x00\x07\x04\x80\x10"
-                   "\x00\x00\x08\x02\x40\x80\x09\x02\x40\x80\x0a\x01\x03\x0b\x01\x19"
-                   "\x0e\x01\x08\x0f\x08\xec\x73\x1b\x41\xa0\xd5\xc6\xfe";
+                  "\x05\x04\x80\x10\x00\x00\x06\x04\x80\x10\x00\x00\x07\x04\x80\x10"
+                  "\x00\x00\x08\x02\x40\x80\x09\x02\x40\x80\x0a\x01\x03\x0b\x01\x19"
+                  "\x0e\x01\x08\x0f\x08\xec\x73\x1b\x41\xa0\xd5\xc6\xfe";
 
 struct fd_hs_data {
   int                 enc_level;
@@ -46,7 +46,7 @@ fd_hs_data_new( int enc_level, void const * data, ulong sz ) {
   uchar *        payload = self->raw;
 
   self->enc_level = enc_level;
-  self->sz        = sz;
+  self->sz        = (int)sz;
   self->next      = NULL;
 
   fd_memcpy( payload, data, sz );
@@ -86,7 +86,7 @@ fd_quic_tls_new( int is_server, SSL_CTX * ssl_ctx ) {
   // returns void
   if( !is_server ) {
     SSL_set_connect_state( ssl );
-    int host_rc = SSL_set_tlsext_host_name( ssl, "localhost" );
+    int host_rc = (int)SSL_set_tlsext_host_name( ssl, "localhost" );
 
     // TODO clean up error handling
     if( host_rc != 1 ) {
@@ -128,10 +128,17 @@ fd_quic_tls_delete( fd_quic_tls_t * self ) {
   free( self );
 }
 
-int fd_quic_ssl_set_encryption_secrets(SSL *ssl, OSSL_ENCRYPTION_LEVEL level,
-                              const uchar *read_secret,
-                              const uchar *write_secret, ulong secret_len) {
-  printf( "In %s\n", __func__ );
+int fd_quic_ssl_set_encryption_secrets(
+      SSL *                 ssl,
+      OSSL_ENCRYPTION_LEVEL level,
+      uchar const *         read_secret,
+      uchar const *         write_secret,
+      ulong                 secret_len ) {
+  FD_LOG_NOTICE(( "In %s", __func__ ));
+
+  (void)read_secret;
+  (void)write_secret;
+  (void)secret_len;
 
   struct fd_quic_tls * ctx = SSL_get_app_data( ssl );
   ctx->sec_level = level;
@@ -164,23 +171,36 @@ int fd_quic_ssl_add_handshake_data( SSL *                 ssl,
 
 int
 fd_quic_ssl_flush_flight( SSL *ssl ) {
-  printf( "In %s\n", __func__ );
+  FD_LOG_NOTICE(( "In %s", __func__ ));
   struct fd_quic_tls * ctx = SSL_get_app_data( ssl );
   ctx->is_flush = 1;
   return 1;
 }
 
 int
-fd_quic_ssl_send_alert( SSL *ssl,
-                        enum ssl_encryption_level_t level,
-                        uchar alert ) {
-  printf( "In %s\n", __func__ );
+fd_quic_ssl_send_alert(
+    SSL * ssl,
+    enum ssl_encryption_level_t level,
+    uchar alert ) {
+  FD_LOG_NOTICE(( "In %s", __func__ ));
+
+  (void)ssl;
+  (void)level;
+
   FD_LOG_NOTICE(( "Alert: %d %s %s", (int)alert, SSL_alert_type_string_long( alert ), SSL_alert_desc_string_long( alert ) ));
   return 0;
 }
 
-int fd_quic_ssl_client_hello(SSL *ssl, int * alert, void * arg ) {
-  printf( "In %s\n", __func__ );
+int fd_quic_ssl_client_hello(
+    SSL *  ssl,
+    int *  alert,
+    void * arg ) {
+  FD_LOG_NOTICE(( "In %s", __func__ ));
+
+  (void)ssl;
+  (void)alert;
+  (void)arg;
+
   return 1;
 }
 
@@ -311,7 +331,7 @@ main( int     argc,
       FD_LOG_NOTICE(( "provide quic data client->server" ));
 
       FD_LOG_NOTICE(( "server provide_data. encryption level: %d", (int)hs_data->enc_level ));
-      FD_TEST( 1==SSL_provide_quic_data( ssl_server, hs_data->enc_level, hs_data->raw, hs_data->sz ) );
+      FD_TEST( 1==SSL_provide_quic_data( ssl_server, hs_data->enc_level, hs_data->raw, (ulong)hs_data->sz ) );
 
       // remove hs_data from head of list
       tls_client->hs_data = hs_data->next;
@@ -327,7 +347,7 @@ main( int     argc,
       FD_LOG_NOTICE(( "provide quic data server->client" ));
 
       FD_LOG_NOTICE(( "server provide_data. encryption level: %d", (int)hs_data->enc_level ));
-      FD_TEST( 1==SSL_provide_quic_data( ssl_client, hs_data->enc_level, hs_data->raw, hs_data->sz ) );
+      FD_TEST( 1==SSL_provide_quic_data( ssl_client, hs_data->enc_level, hs_data->raw, (ulong)hs_data->sz ) );
 
       // remove hs_data from head of list
       tls_server->hs_data = hs_data->next;
