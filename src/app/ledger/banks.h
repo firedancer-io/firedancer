@@ -353,6 +353,7 @@ void Account_decode(struct Account* self, const void** data, const void* dataend
 
 struct VoteAccountsPair {
   struct Pubkey key;
+  unsigned long stake;
   struct Account value;
 };
 #define VoteAccountsPair_footprint sizeof(struct VoteAccountsPair)
@@ -360,6 +361,7 @@ struct VoteAccountsPair {
 
 void VoteAccountsPair_decode(struct VoteAccountsPair* self, const void** data, const void* dataend, alloc_fun allocf, FD_FN_UNUSED void* allocf_arg) {
   Pubkey_decode(&self->key, data, dataend, allocf, allocf_arg);
+  fd_bincode_uint64_decode(&self->stake, data, dataend);
   Account_decode(&self->value, data, dataend, allocf, allocf_arg);
 }
 

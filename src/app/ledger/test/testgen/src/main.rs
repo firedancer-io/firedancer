@@ -29,6 +29,10 @@ fn main() {
     println!("{}", versioned_bank.stakes.vote_accounts.vote_accounts.keys().len());
     println!("{}", versioned_bank.tick_height);
 
+    let d2: Vec<u8> = bincode::serialize(&versioned_bank.stakes).unwrap();
+    println!("hex: {}",  hex::encode(d2));
+
+
 //    let d = Delegation {
 //        voter_pubkey: Pubkey::try_from("5mpjDRgoRYRmSnAXZTfB2bBkbpwvRjobXUjb4WYjF225").unwrap(),
 //        stake: 1,
