@@ -13,6 +13,12 @@
 #define FD_ED25519_ERR_PUBKEY (-2) /* Operation failed because the public key was obviously invalid */
 #define FD_ED25519_ERR_MSG    (-3) /* Operation failed because the message didn't match the signature for the given key */
 
+/* FD_ED25519_SIG_SZ: the size of an Ed25519 signature in bytes. */
+#define FD_ED25519_SIG_SZ (64UL)
+
+/* An Ed25519 signature. */
+typedef uchar fd_ed25519_sig_t[ FD_ED25519_SIG_SZ ];
+
 FD_PROTOTYPES_BEGIN
 
 /* fd_ed25519_public_from_private computes the public_key corresponding
@@ -50,7 +56,7 @@ fd_ed25519_public_from_private( void *        public_key,
 
    private_key is assumed to point to first byte of a 32-byte memory
    region that holds the private key to use to sign this message.
-   
+
    sha is a handle of a local join to a sha512 calculator.
 
    Does no input argument checking.  Sanitizes the sha and stack to
@@ -77,7 +83,7 @@ fd_ed25519_sign( void *        sig,
 
    public_key is assumed to point to first byte of a 32-byte memory
    region that holds the public key to use to verify this message.
-   
+
    sha is a handle of a local join to a sha512 calculator.
 
    Does no input argument checking.  This function takes a write
