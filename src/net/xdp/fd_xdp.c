@@ -199,9 +199,9 @@ fd_xdp_new( void * mem, char const * intf, fd_xdp_config_t const * config ) {
 #undef _
 
   struct sockaddr_xdp sa = {
-    .sxdp_family = PF_XDP,
-    .sxdp_ifindex = self.ifindex,
-    .sxdp_queue_id = 0
+    .sxdp_family   = PF_XDP,
+    .sxdp_ifindex  = self.ifindex,
+    .sxdp_queue_id = self.config.intf_queue
   };
 
   /* bind the socket to the specified interface */
@@ -276,8 +276,9 @@ fd_xdp_new( void * mem, char const * intf, fd_xdp_config_t const * config ) {
   /*     - syscall command:  BPF_MAP_UPDATE_ELEM                                                     */
   /*     - Side effects:     Associate packets with <key> to this AF_XDP socket                      */
 
-  /* set key zero to the socket */
-  int      key   = 0;
+  /* key set to the interface queue
+     bpf program uses this key to look up the socket to forward to */
+  int   key   = (int)self.config.intf_queue;
   ulong flags = 0;
   if( bpf_map_update_elem( self.xdp_map_fd, &key, &self.xdp_sock, flags ) ) {
     FD_LOG_WARNING(( "fd_xdp_new: Unable to update xsks map to set the socket fd. Error: %d %s\n",
@@ -290,7 +291,7 @@ fd_xdp_new( void * mem, char const * intf, fd_xdp_config_t const * config ) {
   /* construct fd_xdp */
   fd_memcpy( mem, &self, sizeof( self ) );
 
-  return (fd_xdp_t*)mem;;
+  return (fd_xdp_t*)mem;
 
 fd_xdp_new_err:
   /* error occurred, perform clean shutdown, releasing all resources */
@@ -338,8 +339,7 @@ fd_xdp_delete( fd_xdp_t * xdp ) {
 void
 fd_xdp_add_key( fd_xdp_t * xdp, unsigned key ) {
   ulong flags = BPF_ANY;
-  int      value = 0; // TODO this is the key in the xsks table
-                      // at present there is only ever one
+  uint  value = xdp->config.intf_queue;
   if( bpf_map_update_elem( xdp->xdp_udp_map_fd, &key, &value, flags ) ) {
     FD_LOG_WARNING(( "fd_xdp_add_key: Unable to update xdp map to set the socket fd. Error: %d %s\n",
           errno, strerror( errno ) ));
