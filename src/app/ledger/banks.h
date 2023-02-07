@@ -690,31 +690,75 @@ void DeserializableVersionedBank_decode(FD_FN_UNUSED struct DeserializableVersio
   fd_bincode_uint8_decode((unsigned char *) &self->is_delta, data, dataend);
 }
 
-//  pub struct SerializableAccountStorageEntry {
-//    unsigned long id;
-//    unsigned long accounts_current_len;
-//  };
-//  
-//  pub struct BankHashStats {
-//    unsigned long num_updated_accounts;
-//    unsigned long num_removed_accounts;
-//    unsigned long num_lamports_stored;
-//    unsigned long total_data_len;
-//    unsigned long pub num_executable_accounts;
-//  };
-//  
-//  pub struct BankHashInfo {
-//    Hash hash;
-//    Hash snapshot_hash;
-//    BankHashStats stats;
-//  }
-//  
-//  pub struct AccountsDbFields {
-//    HashMap<Slot, Vec<SerializableAccountStorageEntry>> accounts;
-//    unsigned long version;
-//    unsigned long slot;
-//    BankHashInfo info;
-//    Vec<unsigned long> slots;
-//    Vec<(unsigned long, Hash)> slotmap;
-//  );
+struct SerializableAccountStorageEntry {
+  unsigned long id;
+  unsigned long accounts_current_len;
+};
+#define SerializableAccountStorageEntry_footprint sizeof(struct SerializableAccountStorageEntry)
+#define SerializableAccountStorageEntry_align 8
+
+void SerializableAccountStorageEntry_decode(FD_FN_UNUSED struct SerializableAccountStorageEntry* self, FD_FN_UNUSED const void** data, FD_FN_UNUSED const void* dataend, FD_FN_UNUSED alloc_fun allocf, FD_FN_UNUSED void* allocf_arg) {
+}
+  
+struct BankHashStats {
+  unsigned long num_updated_accounts;
+  unsigned long num_removed_accounts;
+  unsigned long num_lamports_stored;
+  unsigned long total_data_len;
+  unsigned long num_executable_accounts;
+};
+#define BankHashStats_footprint sizeof(struct BankHashStats)
+#define BankHashStats_align 8
+
+void BankHashStats_decode(FD_FN_UNUSED struct BankHashStats* self, FD_FN_UNUSED const void** data, FD_FN_UNUSED const void* dataend, FD_FN_UNUSED alloc_fun allocf, FD_FN_UNUSED void* allocf_arg) {
+}
+  
+struct BankHashInfo {
+  struct Hash hash;
+  struct Hash snapshot_hash;
+  struct BankHashStats stats;
+};
+#define BankHashInfo_footprint sizeof(struct BankHashInfo)
+#define BankHashInfo_align 8
+
+void BankHashInfo_decode(FD_FN_UNUSED struct BankHashInfo* self, FD_FN_UNUSED const void** data, FD_FN_UNUSED const void* dataend, FD_FN_UNUSED alloc_fun allocf, FD_FN_UNUSED void* allocf_arg) {
+}
+
+struct SlotAccountPair {
+  unsigned long slot;
+  unsigned long accounts_len;
+  struct SerializableAccountStorageEntry *accounts;
+};
+#define SlotAccountPair_footprint sizeof(struct SlotAccountPair)
+#define SlotAccountPair_align 8
+
+void SlotAccountPair_decode(FD_FN_UNUSED struct SlotAccountPair* self, FD_FN_UNUSED const void** data, FD_FN_UNUSED const void* dataend, FD_FN_UNUSED alloc_fun allocf, FD_FN_UNUSED void* allocf_arg) {
+}
+
+struct SlotMapPair {
+  unsigned long slot;
+  struct Hash hash;
+};
+#define SlotMapPair_footprint sizeof(struct SlotMapPair)
+#define SlotMapPair_align 8
+
+void SlotMapPair_decode(FD_FN_UNUSED struct SlotMapPair* self, FD_FN_UNUSED const void** data, FD_FN_UNUSED const void* dataend, FD_FN_UNUSED alloc_fun allocf, FD_FN_UNUSED void* allocf_arg) {
+}
+  
+struct AccountsDbFields {
+  unsigned long accounts_len;
+  struct SlotAccountPair *accounts;
+  unsigned long version;
+  unsigned long slot;
+  struct BankHashInfo info;
+  unsigned long slots_len;
+  unsigned long *slots;
+  unsigned long slotmap_len;
+  struct SlotMapPair *slotmap;
+};
+#define AccountsDbFields_footprint sizeof(struct AccountsDbFields)
+#define AccountsDbFields_align 8
+
+void AccountsDbFields_decode(FD_FN_UNUSED struct AccountsDbFields* self, FD_FN_UNUSED const void** data, FD_FN_UNUSED const void* dataend, FD_FN_UNUSED alloc_fun allocf, FD_FN_UNUSED void* allocf_arg) {
+}
 
