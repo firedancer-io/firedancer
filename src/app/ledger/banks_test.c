@@ -183,6 +183,10 @@ int main(FD_FN_UNUSED int argc, FD_FN_UNUSED char** argv) {
     memset(&a, 0, sizeof(a));
     DeserializableVersionedBank_decode(&a, &o, outend, allocf, NULL);
 
+    struct AccountsDbFields db;
+    memset(&db, 0, sizeof(b));
+    AccountsDbFields_decode(&db, &o, outend, allocf, NULL);
+
     FD_TEST(a.is_delta != 0);
   }
 //(gdb) print versioned_bank.transaction_count
