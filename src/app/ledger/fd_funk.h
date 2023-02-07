@@ -3,31 +3,34 @@
 // thread/CPU/tile. Presumably, a separate message layer allows access
 // from other CPUs.
 
-// Construct a storage instance. The record name argument is the backing
-// record for permanent or finalized data as well as write-ahead
-// logs. This record is created if it doesn't exist. Storage uses only
-// one "real" record.
+// Construct a storage instance. The file argument is the backing
+// file for permanent or finalized data as well as write-ahead
+// logs. This file is created if it doesn't exist. Storage uses only
+// one "real" file.
 // Any footprint can be provided as long as it is bigger than the
-// minimum. Extra space is used for the cache.
-struct fd_funk;
+// minimum. Extra memory is used for the cache.
+// The result of new must still be joined.
 void* fd_funk_new(void* mem,
                   ulong footprint,
-                  char const* backingrecord);
+                  char const* backingfile);
 
 FD_FN_CONST ulong fd_funk_footprint_min(void); // Minimum footprint
 FD_FN_CONST ulong fd_funk_align(void);
 
 // Join an existing store. fd_funk_new is typically called
-// first. Assumes single threaded.
+// first. Assumes single threaded access.
+struct fd_funk;
 struct fd_funk* fd_funk_join(void* mem);
 
+// Stop using a store, but don't clean up transactions.
 void* fd_funk_leave(struct fd_funk* store);
 
-// Delete a storage instance. Flushes updates and closes the backing
-// record.
+// Delete a storage instance. Flushes updates, cancels transactions,
+// and closes the backing file. Finalized transactions remain in the
+// backing file.
 void* fd_funk_delete(void* mem);
 
-// Identifies a "record" or record in the storage layer. ASCII text
+// Identifies a "record" in the storage layer. ASCII text
 // isn't necessary. Compact binary identifiers are encouraged.
 #define FD_FUNK_RECORDID_FOOTPRINT (64UL)
 #define FD_FUNK_RECORDID_ALIGN (64UL)
@@ -50,14 +53,15 @@ struct fd_funk_xactionid {
 
 // Root or null transaction id. Used to initiate the transaction
 // chain. Corresponds to all finalized data. Writes to the root
-// transaction are immediately finalized and cannot be undone.
+// transaction are immediately finalized and cannot be undone. Reads
+// only return finalized data.
 // The lifetime of this pointer is the same as the store.
 struct fd_funk_xactionid const* fd_funk_root(struct fd_funk* store);
 
 // Initiate a new transaction by forking the state of an existing
-// transaction (can use root). Updates to the parent are forbidden
+// transaction (or the root). Updates to the parent are forbidden
 // after this call. The child id must not conflict with an existing
-// transaction id. The parent must already exist.
+// transaction id. The parent id must already exist.
 void fd_funk_fork(struct fd_funk* store,
                   struct fd_funk_xactionid const* parent,
                   struct fd_funk_xactionid const* child);
@@ -70,7 +74,7 @@ void fd_funk_fork(struct fd_funk* store,
 void fd_funk_commit(struct fd_funk* store,
                     struct fd_funk_xactionid const* id);
 
-// Discard all updates in the given transaction and all its children.
+// Discard all updates in the given transaction and its children.
 void fd_funk_cancel(struct fd_funk* store,
                     struct fd_funk_xactionid const* id);
 
@@ -118,9 +122,9 @@ void fd_funk_delete_record(struct fd_funk* store,
                            struct fd_funk_recordid const* recordid);
 
 // Returns true if the record is in the hot cache.
-char fd_funk_cache_query(struct fd_funk* store,
-                         struct fd_funk_xactionid const* xid,
-                         struct fd_funk_recordid const* recordid);
+int fd_funk_cache_query(struct fd_funk* store,
+                        struct fd_funk_xactionid const* xid,
+                        struct fd_funk_recordid const* recordid);
 
 // Loads the record into the hot cache.
 void fd_funk_cache_hint(struct fd_funk* store,
