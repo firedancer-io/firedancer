@@ -148,14 +148,14 @@
    linguistically strict point when it is called that is before logging
    activities commence. */
 
-#define FD_LOG_DEBUG(a)             do { long _fd_log_msg_now = fd_log_wallclock(); fd_log_private_1( 0, _fd_log_msg_now, __FILE__, __LINE__, __func__, fd_log_private_0 a ); } while(0)
-#define FD_LOG_INFO(a)              do { long _fd_log_msg_now = fd_log_wallclock(); fd_log_private_1( 1, _fd_log_msg_now, __FILE__, __LINE__, __func__, fd_log_private_0 a ); } while(0)
-#define FD_LOG_NOTICE(a)            do { long _fd_log_msg_now = fd_log_wallclock(); fd_log_private_1( 2, _fd_log_msg_now, __FILE__, __LINE__, __func__, fd_log_private_0 a ); } while(0)
-#define FD_LOG_WARNING(a)           do { long _fd_log_msg_now = fd_log_wallclock(); fd_log_private_1( 3, _fd_log_msg_now, __FILE__, __LINE__, __func__, fd_log_private_0 a ); } while(0)
-#define FD_LOG_ERR(a)               do { long _fd_log_msg_now = fd_log_wallclock(); fd_log_private_2( 4, _fd_log_msg_now, __FILE__, __LINE__, __func__, fd_log_private_0 a ); } while(0)
-#define FD_LOG_CRIT(a)              do { long _fd_log_msg_now = fd_log_wallclock(); fd_log_private_2( 5, _fd_log_msg_now, __FILE__, __LINE__, __func__, fd_log_private_0 a ); } while(0)
-#define FD_LOG_ALERT(a)             do { long _fd_log_msg_now = fd_log_wallclock(); fd_log_private_2( 6, _fd_log_msg_now, __FILE__, __LINE__, __func__, fd_log_private_0 a ); } while(0)
-#define FD_LOG_EMERG(a)             do { long _fd_log_msg_now = fd_log_wallclock(); fd_log_private_2( 7, _fd_log_msg_now, __FILE__, __LINE__, __func__, fd_log_private_0 a ); } while(0)
+#define FD_LOG_DEBUG(a)   do { long _fd_log_msg_now = fd_log_wallclock(); fd_log_private_1( 0, _fd_log_msg_now, __FILE__, __LINE__, __func__, fd_log_private_0 a ); } while(0)
+#define FD_LOG_INFO(a)    do { long _fd_log_msg_now = fd_log_wallclock(); fd_log_private_1( 1, _fd_log_msg_now, __FILE__, __LINE__, __func__, fd_log_private_0 a ); } while(0)
+#define FD_LOG_NOTICE(a)  do { long _fd_log_msg_now = fd_log_wallclock(); fd_log_private_1( 2, _fd_log_msg_now, __FILE__, __LINE__, __func__, fd_log_private_0 a ); } while(0)
+#define FD_LOG_WARNING(a) do { long _fd_log_msg_now = fd_log_wallclock(); fd_log_private_1( 3, _fd_log_msg_now, __FILE__, __LINE__, __func__, fd_log_private_0 a ); } while(0)
+#define FD_LOG_ERR(a)     do { long _fd_log_msg_now = fd_log_wallclock(); fd_log_private_2( 4, _fd_log_msg_now, __FILE__, __LINE__, __func__, fd_log_private_0 a ); } while(0)
+#define FD_LOG_CRIT(a)    do { long _fd_log_msg_now = fd_log_wallclock(); fd_log_private_2( 5, _fd_log_msg_now, __FILE__, __LINE__, __func__, fd_log_private_0 a ); } while(0)
+#define FD_LOG_ALERT(a)   do { long _fd_log_msg_now = fd_log_wallclock(); fd_log_private_2( 6, _fd_log_msg_now, __FILE__, __LINE__, __func__, fd_log_private_0 a ); } while(0)
+#define FD_LOG_EMERG(a)   do { long _fd_log_msg_now = fd_log_wallclock(); fd_log_private_2( 7, _fd_log_msg_now, __FILE__, __LINE__, __func__, fd_log_private_0 a ); } while(0)
 
 #define FD_LOG_HEXDUMP_BYTES_PER_LINE             16
 #define FD_LOG_HEXDUMP_BLOB_DESCRIPTION_MAX_LEN   32
@@ -166,42 +166,42 @@
     if( FD_LIKELY( num_bytes_written>=0 )) log_buf_ptr += num_bytes_written;  \
  } while(0)
                                              
-#define FD_LOG_HEXDUMP_DEBUG(a)             do { long _fd_log_msg_now = fd_log_wallclock(); \
+#define FD_LOG_HEXDUMP_DEBUG(a)   do { long _fd_log_msg_now = fd_log_wallclock();           \
     char const * msg = fd_log_private_hexdump_msg a;                                        \
     if( msg ) fd_log_private_1( 0, _fd_log_msg_now, __FILE__, __LINE__, __func__, msg );    \
     } while(0)                                                                              
 
-#define FD_LOG_HEXDUMP_INFO(a)              do { long _fd_log_msg_now = fd_log_wallclock(); \
+#define FD_LOG_HEXDUMP_INFO(a)    do { long _fd_log_msg_now = fd_log_wallclock();           \
     char const * msg = fd_log_private_hexdump_msg a;                                        \
     if( msg ) fd_log_private_1( 1, _fd_log_msg_now, __FILE__, __LINE__, __func__, msg );    \
     } while(0)                                                                              
 
-#define FD_LOG_HEXDUMP_NOTICE(a)            do { long _fd_log_msg_now = fd_log_wallclock(); \
+#define FD_LOG_HEXDUMP_NOTICE(a)  do { long _fd_log_msg_now = fd_log_wallclock();           \
     char const * msg = fd_log_private_hexdump_msg a;                                        \
     if( msg ) fd_log_private_1( 2, _fd_log_msg_now, __FILE__, __LINE__, __func__, msg );    \
     } while(0)                                                                              
 
-#define FD_LOG_HEXDUMP_WARNING(a)           do { long _fd_log_msg_now = fd_log_wallclock(); \
+#define FD_LOG_HEXDUMP_WARNING(a) do { long _fd_log_msg_now = fd_log_wallclock();           \
     char const * msg = fd_log_private_hexdump_msg a;                                        \
     if( msg ) fd_log_private_1( 3, _fd_log_msg_now, __FILE__, __LINE__, __func__, msg );    \
     } while(0)                                                                              
 
-#define FD_LOG_HEXDUMP_ERR(a)               do { long _fd_log_msg_now = fd_log_wallclock(); \
+#define FD_LOG_HEXDUMP_ERR(a)     do { long _fd_log_msg_now = fd_log_wallclock();           \
     char const * msg = fd_log_private_hexdump_msg a;                                        \
     if( msg ) fd_log_private_2( 4, _fd_log_msg_now, __FILE__, __LINE__, __func__, msg );    \
     } while(0)
 
-#define FD_LOG_HEXDUMP_CRIT(a)              do { long _fd_log_msg_now = fd_log_wallclock(); \
+#define FD_LOG_HEXDUMP_CRIT(a)    do { long _fd_log_msg_now = fd_log_wallclock();           \
     char const * msg = fd_log_private_hexdump_msg a;                                        \
     if( msg ) fd_log_private_2( 5, _fd_log_msg_now, __FILE__, __LINE__, __func__, msg );    \
     } while(0)
 
-#define FD_LOG_HEXDUMP_ALERT(a)             do { long _fd_log_msg_now = fd_log_wallclock(); \
+#define FD_LOG_HEXDUMP_ALERT(a)   do { long _fd_log_msg_now = fd_log_wallclock();           \
     char const * msg = fd_log_private_hexdump_msg a;                                        \
     if( msg ) fd_log_private_2( 6, _fd_log_msg_now, __FILE__, __LINE__, __func__, msg );    \
     } while(0)
 
-#define FD_LOG_HEXDUMP_EMERG(a)             do { long _fd_log_msg_now = fd_log_wallclock(); \
+#define FD_LOG_HEXDUMP_EMERG(a)   do { long _fd_log_msg_now = fd_log_wallclock();           \
     char const * msg = fd_log_private_hexdump_msg a;                                        \
     if( msg ) fd_log_private_2( 7, _fd_log_msg_now, __FILE__, __LINE__, __func__, msg );    \
     } while(0)
