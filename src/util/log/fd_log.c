@@ -646,12 +646,12 @@ fd_log_private_hexdump_msg ( char const * descr,
   }
 
   if( FD_UNLIKELY( strlen( descr )==0 ) ) {
-    FD_LOG_WARNING(( "Hexdump empty blob description"));
+    FD_LOG_WARNING(( "Hexdump empty blob description" ));
     return NULL;
   }
 
   if( FD_UNLIKELY( strlen( descr )>FD_LOG_HEXDUMP_BLOB_DESCRIPTION_MAX_LEN ) ) {
-    FD_LOG_WARNING(( "Hexdump blob description too long"));
+    FD_LOG_WARNING(( "Hexdump blob description too long" ));
     return NULL;
   }
 
@@ -684,11 +684,11 @@ fd_log_private_hexdump_msg ( char const * descr,
   for( ; count<blob_sz; count++ ) {
     /* New line. Print previous line's ASCII representation and then print the offset. */
     if( !( count%FD_LOG_HEXDUMP_BYTES_PER_LINE) ) {
-      if( count!=0 ) FD_LOG_HEXDUMP_ADD_TO_LOG_BUF( "  %s\n", line_buf);
+      if( count!=0 ) FD_LOG_HEXDUMP_ADD_TO_LOG_BUF( "  %s\n", line_buf );
       FD_LOG_HEXDUMP_ADD_TO_LOG_BUF( "  %04x ", (unsigned int)count );
     }
 
-    FD_LOG_HEXDUMP_ADD_TO_LOG_BUF( " %02x", blob_ptr[count]&0xff);
+    FD_LOG_HEXDUMP_ADD_TO_LOG_BUF( " %02x", blob_ptr[count]&0xff );
 
     /* If not a printable ASCII character, output a dot. */
     if( isalnum( blob_ptr[ count ] ) || ispunct( blob_ptr[ count ] || blob_ptr[ count ]==' ' ) )
