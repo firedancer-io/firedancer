@@ -38,18 +38,43 @@ main( int     argc,
   FD_LOG_NOTICE(( "fd_log_group         %s",  fd_log_group()         ));
   FD_LOG_NOTICE(( "fd_log_user          %s",  fd_log_user()          ));
 
-  FD_LOG_NOTICE( ( "Testing hexdump logging API: " ) );
-  FD_LOG_HEXDUMP( "very_small_blob", "a", strlen( "a" ) );
-  FD_LOG_HEXDUMP( "test_blob", "aaaa", strlen( "aaaa" ) );
-  FD_LOG_HEXDUMP( "alphabet_blob", "abcdefghijklmnopqrstuvwxyz", strlen( "abcdefghijklmnopqrstuvwxyz" ) );
-  FD_LOG_HEXDUMP( "empty_blob", "abcdefghijklmnopqrstuvwxyz", 0 );
 
+  FD_LOG_NOTICE( ( "Testing hexdump logging API: " ) );
+
+  /* very short blob */
+  FD_LOG_HEXDUMP_WARNING(( "very_small_blob", "a", strlen( "a" ) ));
+
+  /* another short blob */
+  FD_LOG_HEXDUMP_WARNING(( "test_blob", "aaaa", strlen( "aaaa" ) ));
+
+  /* alphabet characters */
+  FD_LOG_HEXDUMP_WARNING(( "alphabet_blob", "abcdefghijklmnopqrstuvwxyz", strlen( "abcdefghijklmnopqrstuvwxyz" ) ));
+
+  /* empty blob */
+  FD_LOG_HEXDUMP_NOTICE(( "empty_blob", "abcdefghijklmnopqrstuvwxyz", 0 ));
+
+  /* empty blob description */
+  FD_LOG_HEXDUMP_WARNING(( "", "abcdefghijklmnopqrstuvwxyz", strlen( "abcdefghijklmnopqrstuvwxyz" ) ));
+
+  /* NULL blob ptr */
+  FD_LOG_HEXDUMP_WARNING(( "blob_name", NULL, strlen( "abcdefghijklmnopqrstuvwxyz" ) ));
+
+  /* NULL blob description */
+  FD_LOG_HEXDUMP_WARNING(( NULL, "abcdefghijklmnopqrstuvwxyz", strlen( "abcdefghijklmnopqrstuvwxyz" ) ));
+
+  /* blob length larger than max - will be truncated down to 1500 */
+  char *large_blob = fd_alloca( alignof(char), 50000 );
+  memset( large_blob, 0x62, 50000 );
+  FD_LOG_HEXDUMP_NOTICE(( "very_large_blob", large_blob, 50000 ));
+
+  /* unprintable blob */
   char unprintable_blob[] = "\xff\x00\xff\x82\x90\x02\x05\x09\xff\x00\xff\x82\x90\x02\x05\x09"
                             "\xff\x00\xff\x82\x90\x02\x05\x09\xff\x00\xff\x82\x90\x02\x05\x09"
                             "\xff\x00\xff\x82\x90\x02\x05\x09\xff\x00\xff\x82\x90\x02\x05\x09"
                             "\xff\x00\xff\x82\x90\x02\x05\x09\xff\x00\xff\x82\x90\x02\x05\x09";
-  FD_LOG_HEXDUMP( "hex_unprintable_blob", unprintable_blob, 64 );
+  FD_LOG_HEXDUMP_WARNING(( "hex_unprintable_blob", unprintable_blob, 64 ));
 
+  /* blob consisting of printable and unprintable characters */
   char test_blob[] = "\xff\x00\xff\x82\x90\x02\x05\x09\xff\x00\xff\x82\x90\x02\x05\x09"
                      "\xff\x00\xff\x82\x90\x02\x61\x09\xff\x00\xff\x82\x90\x02\x05\x09"
                      "\x66\x90\x69\x05\x72\xff\x65\xff\x64\x90\x61\x05\x6e\x00\x63\x08"
@@ -58,11 +83,7 @@ main( int     argc,
                      "\xff\x00\xff\x82\x90\x02\x05\x09\xff\x78\xff\x72\x90\x02\x05\x09"
                      "\xff\x00\xff\x82\x90\x55\x05\x09\xff\x78\xff\x72\x90\x02\x05\x09"
                      "\x50\x00\x44\x82\x90\x02\x05\x09\xff\x78\xff\x72\x90\x02\x05\x09";
-  FD_LOG_HEXDUMP( "mixed_printable_and_unprintable_blob", test_blob, 128 );
-
-  char *large_blob = fd_alloca( alignof(char), 8000 );
-  memset( large_blob, 0x62, 8000 );
-  FD_LOG_HEXDUMP( "large_blob", large_blob, 8000 );
+  FD_LOG_HEXDUMP_NOTICE(( "mixed_blob", test_blob, 128 ));
 
   FD_LOG_NOTICE(( "Testing log levels" ));
   int i;
