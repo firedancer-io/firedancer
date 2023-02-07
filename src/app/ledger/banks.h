@@ -746,19 +746,18 @@ void SlotMapPair_decode(FD_FN_UNUSED struct SlotMapPair* self, FD_FN_UNUSED cons
 }
   
 struct AccountsDbFields {
-  unsigned long accounts_len;
-  struct SlotAccountPair *accounts;
-  unsigned long version;
-  unsigned long slot;
-  struct BankHashInfo info;
-  unsigned long slots_len;
-  unsigned long *slots;
-  unsigned long slotmap_len;
-  struct SlotMapPair *slotmap;
+  unsigned long            storages_len;
+  struct SlotAccountPair * storages;
+  unsigned long            version;
+  unsigned long            slot;
+  struct BankHashInfo      bank_hash_info;
+  unsigned long            historical_roots_len;
+  unsigned long *          historical_roots;
+  unsigned long            historical_roots_with_hash_len;
+  struct SlotMapPair *     historical_roots_with_hash;
 };
 #define AccountsDbFields_footprint sizeof(struct AccountsDbFields)
 #define AccountsDbFields_align 8
 
 void AccountsDbFields_decode(FD_FN_UNUSED struct AccountsDbFields* self, FD_FN_UNUSED const void** data, FD_FN_UNUSED const void* dataend, FD_FN_UNUSED alloc_fun allocf, FD_FN_UNUSED void* allocf_arg) {
 }
-
