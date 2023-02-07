@@ -472,9 +472,9 @@ char const *
 fd_log_private_0( char const * fmt, ... ) {
   va_list ap;
   va_start( ap, fmt );
-  int len = vsnprintf( log_msg, 4096, fmt, ap );
+  int len = vsnprintf( log_msg, FD_LOG_BUF_SZ, fmt, ap );
   if( len<0    ) len = 0;    /* cmov */
-  if( len>4095 ) len = 4095; /* cmov */
+  if( len>FD_LOG_BUF_SZ-1 ) len = FD_LOG_BUF_SZ-1; /* cmov */
   log_msg[ len ] = '\0';
   va_end( ap );
   return log_msg;

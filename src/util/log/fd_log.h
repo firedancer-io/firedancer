@@ -204,7 +204,7 @@
 #define FD_LOG_HEXDUMP_EMERG(a)             do { long _fd_log_msg_now = fd_log_wallclock(); \
     char const * msg = fd_log_private_hexdump_msg a;                                        \
     if( msg ) fd_log_private_2( 7, _fd_log_msg_now, __FILE__, __LINE__, __func__, msg );    \
-    } while(0)                                                 \
+    } while(0)
 
 /* FD_TEST is a single statement that evaluates condition c and, if c
    evaluates to false, will FD_LOG_ERR that the condition failed.  It is
