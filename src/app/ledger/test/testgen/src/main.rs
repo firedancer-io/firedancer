@@ -1,20 +1,21 @@
 
-//use solana_sdk::stake_history::{StakeHistoryEntry, StakeHistory};
-
-//use solana_runtime::epoch_stakes::EpochStakes;
-//use solana_runtime::stakes::*;
 use solana_runtime::serde_snapshot::newer::DeserializableVersionedBank;
-//use solana_sdk::stake::state::Delegation;
-//use std::sync::Arc;
-//use solana_sdk::pubkey::Pubkey;
+use solana_runtime::serde_snapshot::storage::*;
+use solana_runtime::serde_snapshot::*;
+use serde::Deserialize;
 
 extern crate hex;
 extern crate serde_json;
 
-//use std::io;
 use std::io::Read;
 use std::io::BufReader;
 use std::fs::File;
+
+#[derive(Deserialize)]
+pub struct Foo {
+    pub versioned_bank: DeserializableVersionedBank,
+    pub accounts_db: AccountsDbFields<SerializableAccountStorageEntry>
+}
 
 fn main() {
     let f = File::open("/home/jsiegel/manifest").unwrap();
@@ -24,7 +25,8 @@ fn main() {
     // Read file into vector.
     reader.read_to_end(&mut buffer).unwrap();
 
-    let versioned_bank: DeserializableVersionedBank = bincode::deserialize(buffer.as_slice()).unwrap();
+    let foo: Foo = bincode::deserialize(buffer.as_slice()).unwrap();
+    let versioned_bank = &foo.versioned_bank;
     println!("{}", versioned_bank.epoch_stakes.keys().len());
     println!("{}", versioned_bank.stakes.vote_accounts.vote_accounts.keys().len());
     println!("{}", versioned_bank.tick_height);
