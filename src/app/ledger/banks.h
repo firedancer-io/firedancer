@@ -67,87 +67,87 @@ unsigned char fd_bincode_option_decode(void const** data, void const* dataend) {
 }
 
 // sdk/program/src/fee_calculator.rs:11
-struct FeeCalculator {
+struct fd_fee_calculator {
   ulong lamports_per_signature;
 };
-typedef struct FeeCalculator FeeCalculator_t;
-#define FEECALCULATOR_FOOTPRINT sizeof(struct FeeCalculator)
-#define FEECALCULATOR_ALIGN (8UL)
+typedef struct fd_fee_calculator fd_fee_calculator_t;
+#define fd_fee_calculator_FOOTPRINT sizeof(struct fd_fee_calculator)
+#define fd_fee_calculator_ALIGN (8UL)
 
-void FeeCalculator_decode(struct FeeCalculator* self, void const** data, void const* dataend, FD_FN_UNUSED alloc_fun allocf, FD_FN_UNUSED void* allocf_arg) {
+void fd_fee_calculator_decode(struct fd_fee_calculator* self, void const** data, void const* dataend, FD_FN_UNUSED alloc_fun allocf, FD_FN_UNUSED void* allocf_arg) {
   fd_bincode_uint64_decode(&self->lamports_per_signature, data, dataend);
 }
 
 // runtime/src/blockhash_queue.rs:12
-struct HashAge {
-  struct FeeCalculator fee_calculator;
+struct fd_hash_age {
+  struct fd_fee_calculator fee_calculator;
   ulong hash_index;
   ulong timestamp;
 };
-typedef struct HashAge HashAge_t;
-#define HASHAGE_FOOTPRINT sizeof(struct HashAge)
-#define HASHAGE_ALIGN (8UL)
+typedef struct fd_hash_age fd_hash_age_t;
+#define fd_hash_age_FOOTPRINT sizeof(struct fd_hash_age)
+#define fd_hash_age_ALIGN (8UL)
 
-void HashAge_decode(struct HashAge* self, void const** data, void const* dataend, alloc_fun allocf, FD_FN_UNUSED void* allocf_arg) {
-  FeeCalculator_decode(&self->fee_calculator, data, dataend, allocf, allocf_arg);
+void fd_hash_age_decode(struct fd_hash_age* self, void const** data, void const* dataend, alloc_fun allocf, FD_FN_UNUSED void* allocf_arg) {
+  fd_fee_calculator_decode(&self->fee_calculator, data, dataend, allocf, allocf_arg);
   fd_bincode_uint64_decode(&self->hash_index, data, dataend);
   fd_bincode_uint64_decode(&self->timestamp, data, dataend);
 }
 
 // sdk/program/src/hash.rs:47
-struct Hash {
+struct fd_hash {
   unsigned char hash[32];
 };
-typedef struct Hash Hash_t;
-#define HASH_FOOTPRINT sizeof(struct Hash)
-#define HASH_ALIGN (8UL)
+typedef struct fd_hash fd_hash_t;
+#define fd_hash_footprint sizeof(struct fd_hash)
+#define fd_hash_align (8UL)
 
-void Hash_decode(struct Hash* self, void const** data, void const* dataend, FD_FN_UNUSED alloc_fun allocf, FD_FN_UNUSED void* allocf_arg) {
+void fd_hash_decode(struct fd_hash* self, void const** data, void const* dataend, FD_FN_UNUSED alloc_fun allocf, FD_FN_UNUSED void* allocf_arg) {
   fd_bincode_bytes_decode(&self->hash[0], sizeof(self->hash), data, dataend);
 }
 
-struct Hash_HashAge_Pair {
-  struct Hash key;
-  struct HashAge val;
+struct fd_hash_hash_age_Pair {
+  struct fd_hash key;
+  struct fd_hash_age val;
 };
-typedef struct Hash_HashAge_Pair Hash_HashAge_Pair_t;
-#define HASH_HASHAGE_PAIR_FOOTPRINT sizeof(struct Hash_HashAge_Pair)
-#define HASH_HASHAGE_PAIR_ALIGN (8UL)
+typedef struct fd_hash_hash_age_Pair fd_hash_hash_age_Pair_t;
+#define fd_hash_hash_age_pair_FOOTPRINT sizeof(struct fd_hash_hash_age_Pair)
+#define fd_hash_hash_age_pair_ALIGN (8UL)
 
-void Hash_HashAge_Pair_decode(struct Hash_HashAge_Pair* self, void const** data, void const* dataend, alloc_fun allocf, FD_FN_UNUSED void* allocf_arg) {
+void fd_hash_hash_age_Pair_decode(struct fd_hash_hash_age_Pair* self, void const** data, void const* dataend, alloc_fun allocf, FD_FN_UNUSED void* allocf_arg) {
   fd_bincode_bytes_decode(self->key.hash, sizeof(self->key.hash), data, dataend);
-  HashAge_decode(&self->val, data, dataend, allocf, allocf_arg);
+  fd_hash_age_decode(&self->val, data, dataend, allocf, allocf_arg);
 }
 
 // runtime/src/blockhash_queue.rs:21
-struct BlockhashQueue {
+struct fd_block_hash_queue {
   ulong last_hash_index;
-  struct Hash* last_hash;
+  struct fd_hash* last_hash;
 
   ulong ages_len;
-  struct Hash_HashAge_Pair* ages;
+  struct fd_hash_hash_age_Pair* ages;
 
   ulong max_age;
 };
-typedef struct BlockhashQueue BlockhashQueue_t;
-#define BLOCKHASHQUEUE_FOOTPRINT sizeof(struct BlockhashQueue)
-#define BLOCKHASHQUEUE_ALIGN (8UL)
+typedef struct fd_block_hash_queue fd_block_hash_queue_t;
+#define fd_block_hash_queue_FOOTPRINT sizeof(struct fd_block_hash_queue)
+#define fd_block_hash_queue_ALIGN (8UL)
 
-void BlockhashQueue_decode(struct BlockhashQueue* self, void const** data, void const* dataend, alloc_fun allocf, FD_FN_UNUSED void* allocf_arg) {
+void fd_block_hash_queue_decode(struct fd_block_hash_queue* self, void const** data, void const* dataend, alloc_fun allocf, FD_FN_UNUSED void* allocf_arg) {
   fd_bincode_uint64_decode(&self->last_hash_index, data, dataend);
 
   if (fd_bincode_option_decode(data, dataend)) {
-    self->last_hash = (struct Hash*)(*allocf)(HASH_FOOTPRINT, HASH_ALIGN, allocf_arg);
-    Hash_decode(self->last_hash, data, dataend, allocf, allocf_arg);
+    self->last_hash = (struct fd_hash*)(*allocf)(fd_hash_footprint, fd_hash_align, allocf_arg);
+    fd_hash_decode(self->last_hash, data, dataend, allocf, allocf_arg);
   } else {
     self->last_hash = NULL;
   }
 
   fd_bincode_uint64_decode(&self->ages_len, data, dataend);
   if (self->ages_len > 0) {
-    self->ages = (struct Hash_HashAge_Pair*)(*allocf)(HASH_HASHAGE_PAIR_FOOTPRINT*self->ages_len, HASH_HASHAGE_PAIR_ALIGN, allocf_arg);
+    self->ages = (struct fd_hash_hash_age_Pair*)(*allocf)(fd_hash_hash_age_pair_FOOTPRINT*self->ages_len, fd_hash_hash_age_pair_ALIGN, allocf_arg);
     for (ulong i = 0; i < self->ages_len; ++i)
-      Hash_HashAge_Pair_decode(self->ages + i, data, dataend, allocf, allocf_arg);
+      fd_hash_hash_age_Pair_decode(self->ages + i, data, dataend, allocf, allocf_arg);
   } else
     self->ages = NULL;
 
@@ -155,30 +155,30 @@ void BlockhashQueue_decode(struct BlockhashQueue* self, void const** data, void 
 }
 
 // sdk/program/src/pubkey.rs:87
-struct Pubkey {
+struct fd_pubkey {
   unsigned char key[32];
 };
-typedef struct Pubkey Pubkey_t;
-#define PUBKEY_FOOTPRINT sizeof(struct Pubkey)
-#define PUBKEY_ALIGN (8UL)
+typedef struct fd_pubkey fd_pubkey_t;
+#define fd_pubkey_FOOTPRINT sizeof(struct fd_pubkey)
+#define fd_pubkey_ALIGN (8UL)
 
-void Pubkey_decode(struct Pubkey* self, void const** data, void const* dataend, FD_FN_UNUSED alloc_fun allocf, FD_FN_UNUSED void* allocf_arg) {
+void fd_pubkey_decode(struct fd_pubkey* self, void const** data, void const* dataend, FD_FN_UNUSED alloc_fun allocf, FD_FN_UNUSED void* allocf_arg) {
   fd_bincode_bytes_decode(&self->key[0], sizeof(self->key), data, dataend);
 }
 
 // sdk/program/src/epoch_schedule.rs:34
-struct EpochSchedule {
+struct fd_epoch_schedule {
   ulong slots_per_epoch;
   ulong leader_schedule_slot_offset;
   unsigned char warmup;
   ulong first_normal_epoch;
   ulong first_normal_slot;
 };
-typedef struct EpochSchedule EpochSchedule_t;
-#define EPOCHSCHEDULE_FOOTPRINT sizeof(struct EpochSchedule)
-#define EPOCHSCHEDULE_ALIGN (8UL)
+typedef struct fd_epoch_schedule fd_epoch_schedule_t;
+#define fd_epoch_schedule_FOOTPRINT sizeof(struct fd_epoch_schedule)
+#define fd_epoch_schedule_ALIGN (8UL)
 
-void EpochSchedule_decode(struct EpochSchedule* self,  void const** data,  void const* dataend, FD_FN_UNUSED alloc_fun allocf, FD_FN_UNUSED void* allocf_arg) {
+void fd_epoch_schedule_decode(struct fd_epoch_schedule* self,  void const** data,  void const* dataend, FD_FN_UNUSED alloc_fun allocf, FD_FN_UNUSED void* allocf_arg) {
   fd_bincode_uint64_decode(&self->slots_per_epoch, data, dataend);
   fd_bincode_uint64_decode(&self->leader_schedule_slot_offset, data, dataend);
   fd_bincode_uint8_decode(&self->warmup, data, dataend);
@@ -187,18 +187,18 @@ void EpochSchedule_decode(struct EpochSchedule* self,  void const** data,  void 
 }
 
 // sdk/program/src/fee_calculator.rs:52
-struct FeeRateGovernor {
+struct fd_fee_rate_governor {
   ulong target_lamports_per_signature;
   ulong target_signatures_per_slot;
   ulong min_lamports_per_signature;
   ulong max_lamports_per_signature;
   unsigned char burn_percent;
 };
-typedef struct FeeRateGovernor FeeRateGovernor_t;
-#define FEERATEGOVERNOR_FOOTPRINT sizeof(struct FeeRateGovernor)
-#define FEERATEGOVERNOR_ALIGN (8UL)
+typedef struct fd_fee_rate_governor fd_fee_rate_governor_t;
+#define fd_fee_rate_governor_FOOTPRINT sizeof(struct fd_fee_rate_governor)
+#define fd_fee_rate_governor_ALIGN (8UL)
 
-void FeeRateGovernor_decode(struct FeeRateGovernor* self, void const** data, void const* dataend, FD_FN_UNUSED alloc_fun allocf, FD_FN_UNUSED void* allocf_arg) {
+void fd_fee_rate_governor_decode(struct fd_fee_rate_governor* self, void const** data, void const* dataend, FD_FN_UNUSED alloc_fun allocf, FD_FN_UNUSED void* allocf_arg) {
   fd_bincode_uint64_decode(&self->target_lamports_per_signature, data, dataend);
   fd_bincode_uint64_decode(&self->target_signatures_per_slot, data, dataend);
   fd_bincode_uint64_decode(&self->min_lamports_per_signature, data, dataend);
@@ -206,40 +206,40 @@ void FeeRateGovernor_decode(struct FeeRateGovernor* self, void const** data, voi
   fd_bincode_uint8_decode(&self->burn_percent, data, dataend);
 }
 
-struct SlotPair {
+struct fd_slot_pair {
   ulong slot;
   ulong val;
 };
-typedef struct SlotPair SlotPair_t;
-#define SLOTPAIR_FOOTPRINT sizeof(struct SlotPair)
-#define SLOTPAIR_ALIGN (8UL)
+typedef struct fd_slot_pair fd_slot_pair_t;
+#define fd_slot_pair_FOOTPRINT sizeof(struct fd_slot_pair)
+#define fd_slot_pair_ALIGN (8UL)
 
-void SlotPair_decode(struct SlotPair* self, void const** data, void const* dataend, FD_FN_UNUSED alloc_fun allocf, FD_FN_UNUSED void* allocf_arg) {
+void fd_slot_pair_decode(struct fd_slot_pair* self, void const** data, void const* dataend, FD_FN_UNUSED alloc_fun allocf, FD_FN_UNUSED void* allocf_arg) {
   fd_bincode_uint64_decode(&self->slot, data, dataend);
   fd_bincode_uint64_decode(&self->val, data, dataend);
 }
 
 // sdk/src/hard_forks.rs:12
-struct HardForks {
+struct fd_hard_forks {
   ulong len;
-  struct SlotPair* hard_forks;
+  struct fd_slot_pair* hard_forks;
 };
-typedef struct HardForks HardForks_t;
-#define HARDFORKS_FOOTPRINT sizeof(struct HardForks)
-#define HARDFORKS_ALIGN (8UL)
+typedef struct fd_hard_forks fd_hard_forks_t;
+#define fd_hard_forks_FOOTPRINT sizeof(struct fd_hard_forks)
+#define fd_hard_forks_ALIGN (8UL)
 
-void HardForks_decode(struct HardForks* self, void const** data, void const* dataend, alloc_fun allocf, FD_FN_UNUSED void* allocf_arg) {
+void fd_hard_forks_decode(struct fd_hard_forks* self, void const** data, void const* dataend, alloc_fun allocf, FD_FN_UNUSED void* allocf_arg) {
   fd_bincode_uint64_decode(&self->len, data, dataend);
   if (self->len > 0) {
-    self->hard_forks = (struct SlotPair*)(*allocf)(SLOTPAIR_FOOTPRINT*self->len, SLOTPAIR_ALIGN, allocf_arg);
+    self->hard_forks = (struct fd_slot_pair*)(*allocf)(fd_slot_pair_FOOTPRINT*self->len, fd_slot_pair_ALIGN, allocf_arg);
     for (ulong i = 0; i < self->len; ++i)
-      SlotPair_decode(self->hard_forks + i, data, dataend, allocf, allocf_arg);
+      fd_slot_pair_decode(self->hard_forks + i, data, dataend, allocf, allocf_arg);
   } else
     self->hard_forks = NULL;
 }
 
-// sdk/src/inflation.rs:5
-struct Inflation {
+// sdk/src/fd_inflation.rs:5
+struct fd_inflation {
   double initial;
   double terminal;
   double taper;
@@ -247,11 +247,11 @@ struct Inflation {
   double foundation_term;
   double __unused;
 };
-typedef struct Inflation Inflation_t;
-#define INFLATION_FOOTPRINT sizeof(struct Inflation)
-#define INFLATION_ALIGN (8UL)
+typedef struct fd_inflation fd_inflation_t;
+#define fd_inflation_FOOTPRINT sizeof(struct fd_inflation)
+#define fd_inflation_ALIGN (8UL)
 
-void Inflation_decode(struct Inflation* self, void const** data, void const* dataend, FD_FN_UNUSED alloc_fun allocf, FD_FN_UNUSED void* allocf_arg) {
+void fd_inflation_decode(struct fd_inflation* self, void const** data, void const* dataend, FD_FN_UNUSED alloc_fun allocf, FD_FN_UNUSED void* allocf_arg) {
   fd_bincode_double_decode(&self->initial, data, dataend);
   fd_bincode_double_decode(&self->terminal, data, dataend);
   fd_bincode_double_decode(&self->taper, data, dataend);
@@ -261,103 +261,103 @@ void Inflation_decode(struct Inflation* self, void const** data, void const* dat
 }
 
 // sdk/program/src/rent.rs:12
-struct Rent {
+struct fd_rent {
   ulong lamports_per_uint8_year;
   double exemption_threshold;
   unsigned char burn_percent;
 };
-typedef struct Rent Rent_t;
-#define RENT_FOOTPRINT sizeof(struct Rent)
+typedef struct fd_rent fd_rent_t;
+#define RENT_FOOTPRINT sizeof(struct fd_rent)
 #define RENT_ALIGN (8UL)
 
-void Rent_decode(FD_FN_UNUSED struct Rent* self, FD_FN_UNUSED void const** data, FD_FN_UNUSED void const* dataend, FD_FN_UNUSED alloc_fun allocf, FD_FN_UNUSED void* allocf_arg) {
+void fd_rent_decode(FD_FN_UNUSED struct fd_rent* self, FD_FN_UNUSED void const** data, FD_FN_UNUSED void const* dataend, FD_FN_UNUSED alloc_fun allocf, FD_FN_UNUSED void* allocf_arg) {
   fd_bincode_uint64_decode(&self->lamports_per_uint8_year, data, dataend);
   fd_bincode_double_decode(&self->exemption_threshold, data, dataend);
   fd_bincode_uint8_decode(&self->burn_percent, data, dataend);
 }
 
 // runtime/src/rent_collector.rs:13
-struct RentCollector {
+struct fd_rent_collector {
   ulong epoch;
-  struct EpochSchedule epoch_schedule;
+  struct fd_epoch_schedule epoch_schedule;
   double slots_per_year;
-  struct Rent rent;
+  struct fd_rent rent;
 };
-typedef struct RentCollector RentCollector_t;
-#define RENTCOLLECTOR_FOOTPRINT sizeof(struct RentCollector)
-#define RENTCOLLECTOR_ALIGN (8UL)
+typedef struct fd_rent_collector fd_rent_collector_t;
+#define fd_rent_collector_FOOTPRINT sizeof(struct fd_rent_collector)
+#define fd_rent_collector_ALIGN (8UL)
 
-void RentCollector_decode(struct RentCollector* self, void const** data, void const* dataend, alloc_fun allocf, FD_FN_UNUSED void* allocf_arg) {
+void fd_rent_collector_decode(struct fd_rent_collector* self, void const** data, void const* dataend, alloc_fun allocf, FD_FN_UNUSED void* allocf_arg) {
   fd_bincode_uint64_decode(&self->epoch, data, dataend);
-  EpochSchedule_decode(&self->epoch_schedule, data, dataend, allocf, allocf_arg);
+  fd_epoch_schedule_decode(&self->epoch_schedule, data, dataend, allocf, allocf_arg);
   fd_bincode_double_decode(&self->slots_per_year, data, dataend);
-  Rent_decode(&self->rent, data, dataend, allocf, allocf_arg);
+  fd_rent_decode(&self->rent, data, dataend, allocf, allocf_arg);
 }
 
 // sdk/program/src/stake_history.rs:15
-struct StakeHistoryEntry {
+struct fd_stake_history_entry {
   ulong effective;
   ulong activating;
   ulong deactivating;
 };
-typedef struct StakeHistoryEntry StakeHistoryEntry_t;
-#define STAKEHISTORYENTRY_FOOTPRINT sizeof(struct StakeHistoryEntry)
-#define STAKEHISTORYENTRY_ALIGN (8UL)
+typedef struct fd_stake_history_entry fd_stake_history_entry_t;
+#define fd_stake_history_entry_FOOTPRINT sizeof(struct fd_stake_history_entry)
+#define fd_stake_history_entry_ALIGN (8UL)
 
-void StakeHistoryEntry_decode(FD_FN_UNUSED struct StakeHistoryEntry* self, FD_FN_UNUSED void const** data, FD_FN_UNUSED void const* dataend, FD_FN_UNUSED alloc_fun allocf, FD_FN_UNUSED void* allocf_arg) {
+void fd_stake_history_entry_decode(FD_FN_UNUSED struct fd_stake_history_entry* self, FD_FN_UNUSED void const** data, FD_FN_UNUSED void const* dataend, FD_FN_UNUSED alloc_fun allocf, FD_FN_UNUSED void* allocf_arg) {
   fd_bincode_uint64_decode(&self->effective, data, dataend);
   fd_bincode_uint64_decode(&self->activating, data, dataend);
   fd_bincode_uint64_decode(&self->deactivating, data, dataend);
 }
 
-struct StakeHistoryEpochEntryPair {
+struct fd_stake_history_epochentry_pair {
   ulong epoch;
-  struct StakeHistoryEntry entry;
+  struct fd_stake_history_entry entry;
 };
-typedef struct StakeHistoryEpochEntryPair StakeHistoryEpochEntryPair_t;
-#define STAKEHISTORYEPOCHENTRYPAIR_FOOTPRINT sizeof(struct StakeHistoryEpochEntryPair)
-#define STAKEHISTORYEPOCHENTRYPAIR_ALIGN (8UL)
+typedef struct fd_stake_history_epochentry_pair fd_stake_history_epochentry_pair_t;
+#define fd_stake_history_epochentry_pair_FOOTPRINT sizeof(struct fd_stake_history_epochentry_pair)
+#define fd_stake_history_epochentry_pair_ALIGN (8UL)
 
-void StakeHistoryEpochEntryPair_decode(FD_FN_UNUSED struct StakeHistoryEpochEntryPair* self, FD_FN_UNUSED void const** data, FD_FN_UNUSED void const* dataend, FD_FN_UNUSED alloc_fun allocf, FD_FN_UNUSED void* allocf_arg) {
+void fd_stake_history_epochentry_pair_decode(FD_FN_UNUSED struct fd_stake_history_epochentry_pair* self, FD_FN_UNUSED void const** data, FD_FN_UNUSED void const* dataend, FD_FN_UNUSED alloc_fun allocf, FD_FN_UNUSED void* allocf_arg) {
   fd_bincode_uint64_decode(&self->epoch, data, dataend);
-  StakeHistoryEntry_decode(&self->entry, data, dataend, allocf, allocf_arg);
+  fd_stake_history_entry_decode(&self->entry, data, dataend, allocf, allocf_arg);
 }
 
 // sdk/program/src/stake_history.rs
-struct StakeHistory {
+struct fd_stake_history {
   ulong len;
-  struct StakeHistoryEpochEntryPair* entries;
+  struct fd_stake_history_epochentry_pair* entries;
 };
-typedef struct StakeHistory StakeHistory_t;
-#define STAKEHISTORY_FOOTPRINT sizeof(struct StakeHistory)
-#define STAKEHISTORY_ALIGN (8UL)
+typedef struct fd_stake_history fd_stake_history_t;
+#define fd_stake_history_FOOTPRINT sizeof(struct fd_stake_history)
+#define fd_stake_history_ALIGN (8UL)
 
-void StakeHistory_decode(struct StakeHistory* self, void const** data, void const* dataend, alloc_fun allocf, FD_FN_UNUSED void* allocf_arg) {
+void fd_stake_history_decode(struct fd_stake_history* self, void const** data, void const* dataend, alloc_fun allocf, FD_FN_UNUSED void* allocf_arg) {
   fd_bincode_uint64_decode(&self->len, data, dataend);
   if (self->len > 0) {
-    self->entries = (struct StakeHistoryEpochEntryPair*)(*allocf)(STAKEHISTORYEPOCHENTRYPAIR_FOOTPRINT*self->len, STAKEHISTORYEPOCHENTRYPAIR_ALIGN, allocf_arg);
+    self->entries = (struct fd_stake_history_epochentry_pair*)(*allocf)(fd_stake_history_epochentry_pair_FOOTPRINT*self->len, fd_stake_history_epochentry_pair_ALIGN, allocf_arg);
     for (ulong i = 0; i < self->len; ++i)
-      StakeHistoryEpochEntryPair_decode(self->entries + i, data, dataend, allocf, allocf_arg);
+      fd_stake_history_epochentry_pair_decode(self->entries + i, data, dataend, allocf, allocf_arg);
   } else
     self->entries = NULL;
 }
 
 // sdk/src/account.rs:27
-struct Account {
+struct fd_account {
   ulong lamports;
 
   ulong data_len;
   unsigned char* data;
 
-  struct Pubkey owner;
+  struct fd_pubkey owner;
   unsigned char executable;
   ulong rent_epoch;
 };
-typedef struct Account Account_t;
-#define ACCOUNT_FOOTPRINT sizeof(struct Account)
+typedef struct fd_account fd_account_t;
+#define ACCOUNT_FOOTPRINT sizeof(struct fd_account)
 #define ACCOUNT_ALIGN (8UL)
 
-void Account_decode(struct Account* self, void const** data, void const* dataend, alloc_fun allocf, FD_FN_UNUSED void* allocf_arg) {
+void fd_account_decode(struct fd_account* self, void const** data, void const* dataend, alloc_fun allocf, FD_FN_UNUSED void* allocf_arg) {
   fd_bincode_uint64_decode(&self->lamports, data, dataend);
   fd_bincode_uint64_decode(&self->data_len, data, dataend);
   if (self->data_len > 0) {
@@ -365,278 +365,278 @@ void Account_decode(struct Account* self, void const** data, void const* dataend
     fd_bincode_bytes_decode(self->data, self->data_len, data, dataend);
   } else
     self->data = NULL;
-  Pubkey_decode(&self->owner, data, dataend, allocf, allocf_arg);
+  fd_pubkey_decode(&self->owner, data, dataend, allocf, allocf_arg);
   fd_bincode_uint8_decode(&self->executable, data, dataend);
   fd_bincode_uint64_decode(&self->rent_epoch, data, dataend);
 }
 
-struct VoteAccountsPair {
-  struct Pubkey key;
+struct fd_vote_accounts_pair {
+  struct fd_pubkey key;
   ulong stake;
-  struct Account value;
+  struct fd_account value;
 };
-typedef struct VoteAccountsPair VoteAccountsPair_t;
-#define VOTEACCOUNTSPAIR_FOOTPRINT sizeof(struct VoteAccountsPair)
-#define VOTEACCOUNTSPAIR_ALIGN (8UL)
+typedef struct fd_vote_accounts_pair fd_vote_accounts_pair_t;
+#define fd_vote_accounts_pair_FOOTPRINT sizeof(struct fd_vote_accounts_pair)
+#define fd_vote_accounts_pair_ALIGN (8UL)
 
-void VoteAccountsPair_decode(struct VoteAccountsPair* self, void const** data, void const* dataend, alloc_fun allocf, FD_FN_UNUSED void* allocf_arg) {
-  Pubkey_decode(&self->key, data, dataend, allocf, allocf_arg);
+void fd_vote_accounts_pair_decode(struct fd_vote_accounts_pair* self, void const** data, void const* dataend, alloc_fun allocf, FD_FN_UNUSED void* allocf_arg) {
+  fd_pubkey_decode(&self->key, data, dataend, allocf, allocf_arg);
   fd_bincode_uint64_decode(&self->stake, data, dataend);
-  Account_decode(&self->value, data, dataend, allocf, allocf_arg);
+  fd_account_decode(&self->value, data, dataend, allocf, allocf_arg);
 }
 
 // runtime/src/vote_account.rs:42
-struct VoteAccounts { // tested and confirmed
+struct fd_vote_accounts { // tested and confirmed
   ulong vote_accounts_len;
-  struct VoteAccountsPair *vote_accounts;
+  struct fd_vote_accounts_pair *vote_accounts;
 };
-typedef struct VoteAccounts VoteAccounts_t;
-#define VOTEACCOUNTS_FOOTPRINT sizeof(struct VoteAccounts)
-#define VOTEACCOUNTS_ALIGN (8UL)
+typedef struct fd_vote_accounts fd_vote_accounts_t;
+#define fd_vote_accounts_FOOTPRINT sizeof(struct fd_vote_accounts)
+#define fd_vote_accounts_ALIGN (8UL)
 
-void VoteAccounts_decode(FD_FN_UNUSED struct VoteAccounts* self, FD_FN_UNUSED void const** data, FD_FN_UNUSED void const* dataend, FD_FN_UNUSED alloc_fun allocf, FD_FN_UNUSED void* allocf_arg) {
+void fd_vote_accounts_decode(FD_FN_UNUSED struct fd_vote_accounts* self, FD_FN_UNUSED void const** data, FD_FN_UNUSED void const* dataend, FD_FN_UNUSED alloc_fun allocf, FD_FN_UNUSED void* allocf_arg) {
   fd_bincode_uint64_decode(&self->vote_accounts_len, data, dataend);
   if (self->vote_accounts_len != 0) {
-    self->vote_accounts = (struct VoteAccountsPair*)(*allocf)(VOTEACCOUNTSPAIR_FOOTPRINT*self->vote_accounts_len, VOTEACCOUNTSPAIR_ALIGN, allocf_arg);
+    self->vote_accounts = (struct fd_vote_accounts_pair*)(*allocf)(fd_vote_accounts_pair_FOOTPRINT*self->vote_accounts_len, fd_vote_accounts_pair_ALIGN, allocf_arg);
     for (ulong i = 0; i < self->vote_accounts_len; ++i)
-      VoteAccountsPair_decode(self->vote_accounts + i, data, dataend, allocf, allocf_arg);
+      fd_vote_accounts_pair_decode(self->vote_accounts + i, data, dataend, allocf, allocf_arg);
   } else 
     self->vote_accounts = NULL;
 }
 
 // sdk/program/src/stake/state.rs:301
-struct Delegation {
-  struct Pubkey voter_pubkey;
+struct fd_delegation {
+  struct fd_pubkey voter_pubkey;
   ulong stake;
   ulong activation_epoch;
   ulong deactivation_epoch;
   double warmup_cooldown_rate;
 };
-typedef struct Delegation Delegation_t;
-#define DELEGATION_FOOTPRINT sizeof(struct Delegation)
+typedef struct fd_delegation fd_delegation_t;
+#define DELEGATION_FOOTPRINT sizeof(struct fd_delegation)
 #define DELEGATION_ALIGN (8UL)
 
-void Delegation_decode(struct Delegation* self, void const** data, void const* dataend, alloc_fun allocf, FD_FN_UNUSED void* allocf_arg) {
-  Pubkey_decode(&self->voter_pubkey, data, dataend, allocf, allocf_arg);
+void fd_delegation_decode(struct fd_delegation* self, void const** data, void const* dataend, alloc_fun allocf, FD_FN_UNUSED void* allocf_arg) {
+  fd_pubkey_decode(&self->voter_pubkey, data, dataend, allocf, allocf_arg);
   fd_bincode_uint64_decode(&self->stake, data, dataend);
   fd_bincode_uint64_decode(&self->activation_epoch, data, dataend);
   fd_bincode_uint64_decode(&self->deactivation_epoch, data, dataend);
   fd_bincode_double_decode(&self->warmup_cooldown_rate, data, dataend);
 }
 
-struct DelegationPair {
-  struct Pubkey key;
-  struct Delegation value;
+struct fd_delegation_pair {
+  struct fd_pubkey key;
+  struct fd_delegation value;
 };
-typedef struct DelegationPair DelegationPair_t;
-#define DELEGATIONPAIR_FOOTPRINT sizeof(struct DelegationPair)
-#define DELEGATIONPAIR_ALIGN (8UL)
+typedef struct fd_delegation_pair fd_delegation_pair_t;
+#define fd_delegation_pair_FOOTPRINT sizeof(struct fd_delegation_pair)
+#define fd_delegation_pair_ALIGN (8UL)
 
-void DelegationPair_decode(struct DelegationPair* self, void const** data, void const* dataend, alloc_fun allocf, FD_FN_UNUSED void* allocf_arg) {
-  Pubkey_decode(&self->key, data, dataend, allocf, allocf_arg);
-  Delegation_decode(&self->value, data, dataend, allocf, allocf_arg);
+void fd_delegation_pair_decode(struct fd_delegation_pair* self, void const** data, void const* dataend, alloc_fun allocf, FD_FN_UNUSED void* allocf_arg) {
+  fd_pubkey_decode(&self->key, data, dataend, allocf, allocf_arg);
+  fd_delegation_decode(&self->value, data, dataend, allocf, allocf_arg);
 }
 
 // runtime/src/stakes.rs:169
 // runtime/src/bank.rs:747
-struct StakesDeligation {
-  struct VoteAccounts vote_accounts;
-  // stake_delegations: ImHashMap<Pubkey, Delegation>,
+struct fd_stakes_deligation {
+  struct fd_vote_accounts vote_accounts;
+  // stake_delegations: Imfd_hashMap<fd_pubkey, fd_delegation>,
   ulong stake_delegations_len;
-  struct DelegationPair* stake_delegations;
+  struct fd_delegation_pair* stake_delegations;
   ulong unused;
   ulong epoch;
-  struct StakeHistory stake_history;
+  struct fd_stake_history stake_history;
 };
-typedef struct StakesDeligation StakesDeligation_t;
-#define STAKESDELIGATION_FOOTPRINT sizeof(struct StakesDeligation)
-#define STAKESDELIGATION_ALIGN (8UL)
+typedef struct fd_stakes_deligation fd_stakes_deligation_t;
+#define fd_stakes_deligation_FOOTPRINT sizeof(struct fd_stakes_deligation)
+#define fd_stakes_deligation_ALIGN (8UL)
 
-void StakesDeligation_decode(struct StakesDeligation* self, void const** data, void const* dataend, alloc_fun allocf, FD_FN_UNUSED void* allocf_arg) {
-  VoteAccounts_decode(&self->vote_accounts, data, dataend, allocf, allocf_arg);
+void fd_stakes_deligation_decode(struct fd_stakes_deligation* self, void const** data, void const* dataend, alloc_fun allocf, FD_FN_UNUSED void* allocf_arg) {
+  fd_vote_accounts_decode(&self->vote_accounts, data, dataend, allocf, allocf_arg);
   fd_bincode_uint64_decode(&self->stake_delegations_len, data, dataend);
   if (self->stake_delegations_len) {
-    self->stake_delegations = (struct DelegationPair*)(*allocf)(DELEGATIONPAIR_FOOTPRINT*self->stake_delegations_len, DELEGATIONPAIR_ALIGN, allocf_arg);
+    self->stake_delegations = (struct fd_delegation_pair*)(*allocf)(fd_delegation_pair_FOOTPRINT*self->stake_delegations_len, fd_delegation_pair_ALIGN, allocf_arg);
     for (ulong i = 0; i < self->stake_delegations_len; ++i)
-      DelegationPair_decode(self->stake_delegations + i, data, dataend, allocf, allocf_arg);
+      fd_delegation_pair_decode(self->stake_delegations + i, data, dataend, allocf, allocf_arg);
   } else 
     self->stake_delegations = NULL;
   fd_bincode_uint64_decode(&self->unused, data, dataend);
   fd_bincode_uint64_decode(&self->epoch, data, dataend);
-  StakeHistory_decode(&self->stake_history, data, dataend, allocf, allocf_arg);
+  fd_stake_history_decode(&self->stake_history, data, dataend, allocf, allocf_arg);
 }
 
 // runtime/src/bank.rs:238
-struct BankIncrementalSnapshotPersistence {
+struct fd_bank_incremental_snapshot_persistence {
   ulong full_slot;
-  struct Hash full_hash;
+  struct fd_hash full_hash;
   ulong full_capitalization;
-  struct Hash incremental_hash;
+  struct fd_hash incremental_hash;
   ulong incremental_capitalization;
 };
-#define BANKINCREMENTALSNAPSHOTPERSISTENCE_FOOTPRINT sizeof(struct BankIncrementalSnapshotPersistence)
-#define BANKINCREMENTALSNAPSHOTPERSISTENCE_ALIGN (8UL)
+#define fd_bank_incremental_snapshot_persistence_FOOTPRINT sizeof(struct fd_bank_incremental_snapshot_persistence)
+#define fd_bank_incremental_snapshot_persistence_ALIGN (8UL)
 
-struct NodeVoteAccounts {
+struct Nodefd_vote_accounts {
   ulong vote_accounts_len;
-  struct Pubkey *vote_accounts;
+  struct fd_pubkey *vote_accounts;
   ulong total_stake;
 };
-typedef struct NodeVoteAccounts NodeVoteAccounts_t;
-#define NodeVOTEACCOUNTS_FOOTPRINT sizeof(struct NodeVoteAccounts)
-#define NodeVOTEACCOUNTS_ALIGN (8UL)
+typedef struct Nodefd_vote_accounts Nodefd_vote_accounts_t;
+#define Nodefd_vote_accounts_FOOTPRINT sizeof(struct Nodefd_vote_accounts)
+#define Nodefd_vote_accounts_ALIGN (8UL)
 
-void NodeVoteAccounts_decode(FD_FN_UNUSED struct NodeVoteAccounts* self, FD_FN_UNUSED void const** data, FD_FN_UNUSED void const* dataend, FD_FN_UNUSED alloc_fun allocf, FD_FN_UNUSED void* allocf_arg) {
+void Nodefd_vote_accounts_decode(FD_FN_UNUSED struct Nodefd_vote_accounts* self, FD_FN_UNUSED void const** data, FD_FN_UNUSED void const* dataend, FD_FN_UNUSED alloc_fun allocf, FD_FN_UNUSED void* allocf_arg) {
   fd_bincode_uint64_decode(&self->vote_accounts_len, data, dataend);
   if (self->vote_accounts_len) {
-    self->vote_accounts = (struct Pubkey*)(*allocf)(PUBKEY_FOOTPRINT*self->vote_accounts_len, PUBKEY_ALIGN, allocf_arg);
+    self->vote_accounts = (struct fd_pubkey*)(*allocf)(fd_pubkey_FOOTPRINT*self->vote_accounts_len, fd_pubkey_ALIGN, allocf_arg);
     for (ulong i = 0; i < self->vote_accounts_len; ++i)
-      Pubkey_decode(self->vote_accounts + i, data, dataend, allocf, allocf_arg);
+      fd_pubkey_decode(self->vote_accounts + i, data, dataend, allocf, allocf_arg);
   } else 
     self->vote_accounts = NULL;
   fd_bincode_uint64_decode(&self->total_stake, data, dataend);
 }
 
-struct PubkeyNodeVoteAccountsPair {
-  struct Pubkey key;
-  struct NodeVoteAccounts value;
+struct fd_pubkeyNodefd_vote_accounts_pair {
+  struct fd_pubkey key;
+  struct Nodefd_vote_accounts value;
 };
-typedef struct PubkeyNodeVoteAccountsPair PubkeyNodeVoteAccountsPair_t;
-#define PubkeyNodeVOTEACCOUNTSPAIR_FOOTPRINT sizeof(struct PubkeyNodeVoteAccountsPair)
-#define PubkeyNodeVOTEACCOUNTSPAIR_ALIGN (8UL)
+typedef struct fd_pubkeyNodefd_vote_accounts_pair fd_pubkeyNodefd_vote_accounts_pair_t;
+#define fd_pubkeyNodefd_vote_accounts_pair_FOOTPRINT sizeof(struct fd_pubkeyNodefd_vote_accounts_pair)
+#define fd_pubkeyNodefd_vote_accounts_pair_ALIGN (8UL)
 
-void PubkeyNodeVoteAccountsPair_decode(FD_FN_UNUSED struct PubkeyNodeVoteAccountsPair* self, FD_FN_UNUSED void const** data, FD_FN_UNUSED void const* dataend, FD_FN_UNUSED alloc_fun allocf, FD_FN_UNUSED void* allocf_arg) {
-  Pubkey_decode(&self->key, data, dataend, allocf, allocf_arg);
-  NodeVoteAccounts_decode(&self->value, data, dataend, allocf, allocf_arg);
+void fd_pubkeyNodefd_vote_accounts_pair_decode(FD_FN_UNUSED struct fd_pubkeyNodefd_vote_accounts_pair* self, FD_FN_UNUSED void const** data, FD_FN_UNUSED void const* dataend, FD_FN_UNUSED alloc_fun allocf, FD_FN_UNUSED void* allocf_arg) {
+  fd_pubkey_decode(&self->key, data, dataend, allocf, allocf_arg);
+  Nodefd_vote_accounts_decode(&self->value, data, dataend, allocf, allocf_arg);
 }
 
-struct PubkeyPubkeyPair {
-  struct Pubkey key;
-  struct Pubkey value;
+struct fd_pubkey_pubkey_pair {
+  struct fd_pubkey key;
+  struct fd_pubkey value;
 };
-typedef struct PubkeyPubkeyPair PubkeyPubkeyPair_t;
-#define PUBKEYPUBKEYPAIR_FOOTPRINT sizeof(struct PubkeyPubkeyPair)
-#define PUBKEYPUBKEYPAIR_ALIGN (8UL)
+typedef struct fd_pubkey_pubkey_pair fd_pubkey_pubkey_pair_t;
+#define fd_pubkey_pubkey_pair_FOOTPRINT sizeof(struct fd_pubkey_pubkey_pair)
+#define fd_pubkey_pubkey_pair_ALIGN (8UL)
 
-void PubkeyPubkeyPair_decode(FD_FN_UNUSED struct PubkeyPubkeyPair* self, FD_FN_UNUSED void const** data, FD_FN_UNUSED void const* dataend, FD_FN_UNUSED alloc_fun allocf, FD_FN_UNUSED void* allocf_arg) {
-  Pubkey_decode(&self->key, data, dataend, allocf, allocf_arg);
-  Pubkey_decode(&self->value, data, dataend, allocf, allocf_arg);
+void fd_pubkey_pubkey_pair_decode(FD_FN_UNUSED struct fd_pubkey_pubkey_pair* self, FD_FN_UNUSED void const** data, FD_FN_UNUSED void const* dataend, FD_FN_UNUSED alloc_fun allocf, FD_FN_UNUSED void* allocf_arg) {
+  fd_pubkey_decode(&self->key, data, dataend, allocf, allocf_arg);
+  fd_pubkey_decode(&self->value, data, dataend, allocf, allocf_arg);
 }
 
 // runtime/src/epoch_stakes.rs:18
-struct EpochStakes {
-  struct StakesDeligation stakes;
+struct fd_epoch_stakes {
+  struct fd_stakes_deligation stakes;
   ulong total_stake;
   ulong node_id_to_vote_accounts_len;
-  struct PubkeyNodeVoteAccountsPair *node_id_to_vote_accounts;
+  struct fd_pubkeyNodefd_vote_accounts_pair *node_id_to_vote_accounts;
   ulong epoch_authorized_voters_len;
-  struct PubkeyPubkeyPair *epoch_authorized_voters;
+  struct fd_pubkey_pubkey_pair *epoch_authorized_voters;
 };
-typedef struct EpochStakes EpochStakes_t;
-#define EPOCHSTAKES_FOOTPRINT sizeof(struct EpochStakes)
-#define EPOCHSTAKES_ALIGN (8UL)
+typedef struct fd_epoch_stakes fd_epoch_stakes_t;
+#define fd_epoch_stakes_FOOTPRINT sizeof(struct fd_epoch_stakes)
+#define fd_epoch_stakes_ALIGN (8UL)
 
-void EpochStakes_decode(FD_FN_UNUSED struct EpochStakes* self, FD_FN_UNUSED void const** data, FD_FN_UNUSED void const* dataend, FD_FN_UNUSED alloc_fun allocf, FD_FN_UNUSED void* allocf_arg) {
-  StakesDeligation_decode(&self->stakes, data, dataend, allocf, allocf_arg);
+void fd_epoch_stakes_decode(FD_FN_UNUSED struct fd_epoch_stakes* self, FD_FN_UNUSED void const** data, FD_FN_UNUSED void const* dataend, FD_FN_UNUSED alloc_fun allocf, FD_FN_UNUSED void* allocf_arg) {
+  fd_stakes_deligation_decode(&self->stakes, data, dataend, allocf, allocf_arg);
   fd_bincode_uint64_decode(&self->total_stake, data, dataend);
   fd_bincode_uint64_decode(&self->node_id_to_vote_accounts_len, data, dataend);
   if (self->node_id_to_vote_accounts_len > 0) {
-    self->node_id_to_vote_accounts = (struct PubkeyNodeVoteAccountsPair*)(*allocf)(PubkeyNodeVOTEACCOUNTSPAIR_FOOTPRINT*self->node_id_to_vote_accounts_len, PubkeyNodeVOTEACCOUNTSPAIR_ALIGN, allocf_arg);
+    self->node_id_to_vote_accounts = (struct fd_pubkeyNodefd_vote_accounts_pair*)(*allocf)(fd_pubkeyNodefd_vote_accounts_pair_FOOTPRINT*self->node_id_to_vote_accounts_len, fd_pubkeyNodefd_vote_accounts_pair_ALIGN, allocf_arg);
     for (ulong i = 0; i < self->node_id_to_vote_accounts_len; ++i)
-      PubkeyNodeVoteAccountsPair_decode(self->node_id_to_vote_accounts + i, data, dataend, allocf, allocf_arg);
+      fd_pubkeyNodefd_vote_accounts_pair_decode(self->node_id_to_vote_accounts + i, data, dataend, allocf, allocf_arg);
   } else 
     self->node_id_to_vote_accounts = NULL;
   fd_bincode_uint64_decode(&self->epoch_authorized_voters_len, data, dataend);
   if (self->epoch_authorized_voters_len > 0) {
-    self->epoch_authorized_voters = (struct PubkeyPubkeyPair*)(*allocf)(PUBKEYPUBKEYPAIR_FOOTPRINT*self->epoch_authorized_voters_len, PUBKEYPUBKEYPAIR_ALIGN, allocf_arg);
+    self->epoch_authorized_voters = (struct fd_pubkey_pubkey_pair*)(*allocf)(fd_pubkey_pubkey_pair_FOOTPRINT*self->epoch_authorized_voters_len, fd_pubkey_pubkey_pair_ALIGN, allocf_arg);
     for (ulong i = 0; i < self->epoch_authorized_voters_len; ++i)
-      PubkeyPubkeyPair_decode(self->epoch_authorized_voters + i, data, dataend, allocf, allocf_arg);
+      fd_pubkey_pubkey_pair_decode(self->epoch_authorized_voters + i, data, dataend, allocf, allocf_arg);
   } else 
     self->epoch_authorized_voters = NULL;
 }
 
-struct Epoch_EpochStakes_Pair {
+struct Epoch_fd_epoch_stakes_Pair {
   ulong key;
-  struct EpochStakes value;
+  struct fd_epoch_stakes value;
 };
-typedef struct Epoch_EpochStakes_Pair Epoch_EpochStakes_Pair_t;
-#define EPOCH_EPOCHSTAKES_PAIR_FOOTPRINT sizeof(struct Epoch_EpochStakes_Pair)
-#define EPOCH_EPOCHSTAKES_PAIR_ALIGN (8UL)
+typedef struct Epoch_fd_epoch_stakes_Pair Epoch_fd_epoch_stakes_Pair_t;
+#define EPOCH_fd_epoch_stakes_PAIR_FOOTPRINT sizeof(struct Epoch_fd_epoch_stakes_Pair)
+#define EPOCH_fd_epoch_stakes_PAIR_ALIGN (8UL)
 
-void Epoch_EpochStakes_Pair_decode(struct Epoch_EpochStakes_Pair* self, void const** data, void const* dataend, alloc_fun allocf, FD_FN_UNUSED void* allocf_arg) {
+void Epoch_fd_epoch_stakes_Pair_decode(struct Epoch_fd_epoch_stakes_Pair* self, void const** data, void const* dataend, alloc_fun allocf, FD_FN_UNUSED void* allocf_arg) {
   fd_bincode_uint64_decode(&self->key, data, dataend);
-  EpochStakes_decode(&self->value, data, dataend, allocf, allocf_arg);
+  fd_epoch_stakes_decode(&self->value, data, dataend, allocf, allocf_arg);
 }
 
-struct Pubkey_u64_Pair {
-  struct Pubkey _0;
+struct fd_pubkey_u64_pair {
+  struct fd_pubkey _0;
   ulong _1;
 };
-typedef struct Pubkey_u64_Pair Pubkey_u64_Pair_t;
-#define PUBKEY_U64_PAIR_FOOTPRINT sizeof(struct Pubkey_u64_Pair)
-#define PUBKEY_U64_PAIR_ALIGN (8UL)
+typedef struct fd_pubkey_u64_pair fd_pubkey_u64_pair_t;
+#define fd_pubkey_u64_pair_FOOTPRINT sizeof(struct fd_pubkey_u64_pair)
+#define fd_pubkey_u64_pair_ALIGN (8UL)
 
-void Pubkey_u64_Pair_decode(struct Pubkey_u64_Pair* self, void const** data, void const* dataend, alloc_fun allocf, FD_FN_UNUSED void* allocf_arg) {
-  Pubkey_decode(&self->_0, data, dataend, allocf, allocf_arg);
+void fd_pubkey_u64_pair_decode(struct fd_pubkey_u64_pair* self, void const** data, void const* dataend, alloc_fun allocf, FD_FN_UNUSED void* allocf_arg) {
+  fd_pubkey_decode(&self->_0, data, dataend, allocf, allocf_arg);
   fd_bincode_uint64_decode(&self->_1, data, dataend);
 }
 
 // runtime/src/serde_snapshot/newer.rs:20
-struct UnusedAccounts {
-  // HashSet<Pubkey>
+struct fd_unused_accounts {
+  // fd_hashSet<fd_pubkey>
   ulong unused1_len;
-  struct Pubkey* unused1;
+  struct fd_pubkey* unused1;
 
-  // HashSet<Pubkey>
+  // fd_hashSet<fd_pubkey>
   ulong unused2_len;
-  struct Pubkey* unused2;
+  struct fd_pubkey* unused2;
 
-  // HashMap<Pubkey, u64>
+  // fd_hashMap<fd_pubkey, u64>
   ulong unused3_len;
-  struct Pubkey_u64_Pair* unused3;
+  struct fd_pubkey_u64_pair* unused3;
 };
-typedef struct UnusedAccounts UnusedAccounts_t;
-#define UNUSEDACCOUNTS_FOOTPRINT sizeof(struct UnusedAccounts)
-#define UNUSEDACCOUNTS_ALIGN (8UL)
+typedef struct fd_unused_accounts fd_unused_accounts_t;
+#define fd_unused_accounts_FOOTPRINT sizeof(struct fd_unused_accounts)
+#define fd_unused_accounts_ALIGN (8UL)
 
-void UnusedAccounts_decode(struct UnusedAccounts* self, void const** data, void const* dataend, alloc_fun allocf, FD_FN_UNUSED void* allocf_arg) {
+void fd_unused_accounts_decode(struct fd_unused_accounts* self, void const** data, void const* dataend, alloc_fun allocf, FD_FN_UNUSED void* allocf_arg) {
   fd_bincode_uint64_decode(&self->unused1_len, data, dataend);
   if (self->unused1_len > 0) {
-    self->unused1 = (struct Pubkey*)(*allocf)(PUBKEY_FOOTPRINT*self->unused1_len, PUBKEY_ALIGN, allocf_arg);
+    self->unused1 = (struct fd_pubkey*)(*allocf)(fd_pubkey_FOOTPRINT*self->unused1_len, fd_pubkey_ALIGN, allocf_arg);
     for (ulong i = 0; i < self->unused1_len; ++i)
-      Pubkey_decode(self->unused1 + i, data, dataend, allocf, allocf_arg);
+      fd_pubkey_decode(self->unused1 + i, data, dataend, allocf, allocf_arg);
   } else
     self->unused1 = NULL;
 
   fd_bincode_uint64_decode(&self->unused2_len, data, dataend);
   if (self->unused2_len > 0) {
-    self->unused2 = (struct Pubkey*)(*allocf)(PUBKEY_FOOTPRINT*self->unused2_len, PUBKEY_ALIGN, allocf_arg);
+    self->unused2 = (struct fd_pubkey*)(*allocf)(fd_pubkey_FOOTPRINT*self->unused2_len, fd_pubkey_ALIGN, allocf_arg);
     for (ulong i = 0; i < self->unused2_len; ++i)
-      Pubkey_decode(self->unused2 + i, data, dataend, allocf, allocf_arg);
+      fd_pubkey_decode(self->unused2 + i, data, dataend, allocf, allocf_arg);
   } else
     self->unused2 = NULL;
 
   fd_bincode_uint64_decode(&self->unused3_len, data, dataend);
   if (self->unused3_len > 0) {
-    self->unused3 = (struct Pubkey_u64_Pair*)(*allocf)(PUBKEY_U64_PAIR_FOOTPRINT*self->unused3_len, PUBKEY_U64_PAIR_ALIGN, allocf_arg);
+    self->unused3 = (struct fd_pubkey_u64_pair*)(*allocf)(fd_pubkey_u64_pair_FOOTPRINT*self->unused3_len, fd_pubkey_u64_pair_ALIGN, allocf_arg);
     for (ulong i = 0; i < self->unused3_len; ++i)
-      Pubkey_u64_Pair_decode(self->unused3 + i, data, dataend, allocf, allocf_arg);
+      fd_pubkey_u64_pair_decode(self->unused3 + i, data, dataend, allocf, allocf_arg);
   } else
     self->unused3 = NULL;
 }
 
 // runtime/src/serde_snapshot/newer.rs:30
-struct DeserializableVersionedBank {
-  struct BlockhashQueue blockhash_queue;
+struct fd_deserializable_versioned_bank {
+  struct fd_block_hash_queue blockhash_queue;
 
-  // runtime/src/ancestors.rs:pub type AncestorsForSerialization = HashMap<Slot, usize>;
+  // runtime/src/ancestors.rs:pub type AncestorsForSerialization = fd_hashMap<Slot, usize>;
   ulong ancestors_len;
-  struct SlotPair *ancestors;
+  struct fd_slot_pair *ancestors;
 
-  struct Hash hash;
-  struct Hash parent_hash;
+  struct fd_hash hash;
+  struct fd_hash parent_hash;
   ulong parent_slot;
-  struct HardForks hard_forks;
+  struct fd_hard_forks hard_forks;
   ulong transaction_count;
   ulong tick_height;
   ulong signature_count;
@@ -651,36 +651,36 @@ struct DeserializableVersionedBank {
   ulong slot;
   ulong epoch;
   ulong block_height;
-  struct Pubkey collector_id;
+  struct fd_pubkey collector_id;
   ulong collector_fees;
-  struct FeeCalculator fee_calculator;
-  struct FeeRateGovernor fee_rate_governor;
+  struct fd_fee_calculator fee_calculator;
+  struct fd_fee_rate_governor fee_rate_governor;
   ulong collected_rent;
-  struct RentCollector rent_collector;
-  struct EpochSchedule epoch_schedule;
-  struct Inflation inflation;
-  struct StakesDeligation stakes;
-  struct UnusedAccounts unused_accounts;
+  struct fd_rent_collector rent_collector;
+  struct fd_epoch_schedule epoch_schedule;
+  struct fd_inflation fd_inflation;
+  struct fd_stakes_deligation stakes;
+  struct fd_unused_accounts unused_accounts;
     
   ulong epoch_stakes_len;
-  struct Epoch_EpochStakes_Pair *epoch_stakes;
+  struct Epoch_fd_epoch_stakes_Pair *epoch_stakes;
 
   char is_delta;
 };
-typedef struct DeserializableVersionedBank DeserializableVersionedBank_t;
-#define DESERIALIZABLEVERSIONEDBANK_FOOTPRINT sizeof(struct DeserializableVersionedBank)
-#define DESERIALIZABLEVERSIONEDBANK_ALIGN (8UL)
+typedef struct fd_deserializable_versioned_bank fd_deserializable_versioned_bank_t;
+#define fd_deserializable_versioned_bank_FOOTPRINT sizeof(struct fd_deserializable_versioned_bank)
+#define fd_deserializable_versioned_bank_ALIGN (8UL)
 
-void DeserializableVersionedBank_decode(struct DeserializableVersionedBank* self, void const** data, void const* dataend, alloc_fun allocf, void* allocf_arg) {
-  BlockhashQueue_decode(&self->blockhash_queue, data, dataend, allocf, allocf_arg);
+void fd_deserializable_versioned_bank_decode(struct fd_deserializable_versioned_bank* self, void const** data, void const* dataend, alloc_fun allocf, void* allocf_arg) {
+  fd_block_hash_queue_decode(&self->blockhash_queue, data, dataend, allocf, allocf_arg);
   fd_bincode_uint64_decode(&self->ancestors_len, data, dataend);
-  self->ancestors = (struct SlotPair*)(*allocf)(SLOTPAIR_FOOTPRINT*self->ancestors_len, SLOTPAIR_ALIGN, allocf_arg);
+  self->ancestors = (struct fd_slot_pair*)(*allocf)(fd_slot_pair_FOOTPRINT*self->ancestors_len, fd_slot_pair_ALIGN, allocf_arg);
   for (ulong i = 0; i < self->ancestors_len; ++i)
-    SlotPair_decode(self->ancestors + i, data, dataend, allocf, allocf_arg);
-  Hash_decode(&self->hash, data, dataend, allocf, allocf_arg);
-  Hash_decode(&self->parent_hash, data, dataend, allocf, allocf_arg);
+    fd_slot_pair_decode(self->ancestors + i, data, dataend, allocf, allocf_arg);
+  fd_hash_decode(&self->hash, data, dataend, allocf, allocf_arg);
+  fd_hash_decode(&self->parent_hash, data, dataend, allocf, allocf_arg);
   fd_bincode_uint64_decode(&self->parent_slot, data, dataend);
-  HardForks_decode(&self->hard_forks, data, dataend, allocf, allocf_arg);
+  fd_hard_forks_decode(&self->hard_forks, data, dataend, allocf, allocf_arg);
   fd_bincode_uint64_decode(&self->transaction_count, data, dataend);
   fd_bincode_uint64_decode(&self->tick_height, data, dataend);
   fd_bincode_uint64_decode(&self->signature_count, data, dataend);
@@ -699,51 +699,51 @@ void DeserializableVersionedBank_decode(struct DeserializableVersionedBank* self
   fd_bincode_uint64_decode(&self->slot, data, dataend);
   fd_bincode_uint64_decode(&self->epoch, data, dataend);
   fd_bincode_uint64_decode(&self->block_height, data, dataend);
-  Pubkey_decode(&self->collector_id, data, dataend, allocf, allocf_arg);
+  fd_pubkey_decode(&self->collector_id, data, dataend, allocf, allocf_arg);
   fd_bincode_uint64_decode(&self->collector_fees, data, dataend);
-  FeeCalculator_decode(&self->fee_calculator, data, dataend, allocf, allocf_arg);
-  FeeRateGovernor_decode(&self->fee_rate_governor, data, dataend, allocf, allocf_arg);
+  fd_fee_calculator_decode(&self->fee_calculator, data, dataend, allocf, allocf_arg);
+  fd_fee_rate_governor_decode(&self->fee_rate_governor, data, dataend, allocf, allocf_arg);
   fd_bincode_uint64_decode(&self->collected_rent, data, dataend);
-  RentCollector_decode(&self->rent_collector, data, dataend, allocf, allocf_arg);
-  EpochSchedule_decode(&self->epoch_schedule, data, dataend, allocf, allocf_arg);
-  Inflation_decode(&self->inflation, data, dataend, allocf, allocf_arg);
-  StakesDeligation_decode(&self->stakes, data, dataend, allocf, allocf_arg);
-  UnusedAccounts_decode(&self->unused_accounts, data, dataend, allocf, allocf_arg);
+  fd_rent_collector_decode(&self->rent_collector, data, dataend, allocf, allocf_arg);
+  fd_epoch_schedule_decode(&self->epoch_schedule, data, dataend, allocf, allocf_arg);
+  fd_inflation_decode(&self->fd_inflation, data, dataend, allocf, allocf_arg);
+  fd_stakes_deligation_decode(&self->stakes, data, dataend, allocf, allocf_arg);
+  fd_unused_accounts_decode(&self->unused_accounts, data, dataend, allocf, allocf_arg);
   fd_bincode_uint64_decode(&self->epoch_stakes_len, data, dataend);
   if (self->epoch_stakes_len > 0) {
-    self->epoch_stakes = (struct Epoch_EpochStakes_Pair*)(*allocf)(EPOCH_EPOCHSTAKES_PAIR_FOOTPRINT*self->epoch_stakes_len, EPOCH_EPOCHSTAKES_PAIR_ALIGN, allocf_arg);
+    self->epoch_stakes = (struct Epoch_fd_epoch_stakes_Pair*)(*allocf)(EPOCH_fd_epoch_stakes_PAIR_FOOTPRINT*self->epoch_stakes_len, EPOCH_fd_epoch_stakes_PAIR_ALIGN, allocf_arg);
     for (ulong i = 0; i < self->epoch_stakes_len; ++i)
-      Epoch_EpochStakes_Pair_decode(self->epoch_stakes + i, data, dataend, allocf, allocf_arg);
+      Epoch_fd_epoch_stakes_Pair_decode(self->epoch_stakes + i, data, dataend, allocf, allocf_arg);
   } else
     self->epoch_stakes = NULL;
   fd_bincode_uint8_decode((unsigned char *) &self->is_delta, data, dataend);
 }
 
-struct SerializableAccountStorageEntry {
+struct fd_serializable_account_storage_entry {
   ulong id;
   ulong accounts_current_len;
 };
-typedef struct SerializableAccountStorageEntry SerializableAccountStorageEntry_t;
-#define SERIALIZABLEACCOUNTSTORAGEENTRY_FOOTPRINT sizeof(struct SerializableAccountStorageEntry)
-#define SERIALIZABLEACCOUNTSTORAGEENTRY_ALIGN (8UL)
+typedef struct fd_serializable_account_storage_entry fd_serializable_account_storage_entry_t;
+#define fd_serializable_account_storage_entry_FOOTPRINT sizeof(struct fd_serializable_account_storage_entry)
+#define fd_serializable_account_storage_entry_ALIGN (8UL)
 
-void SerializableAccountStorageEntry_decode(struct SerializableAccountStorageEntry* self, void const** data, void const* dataend, FD_FN_UNUSED alloc_fun allocf, FD_FN_UNUSED void* allocf_arg) {
+void fd_serializable_account_storage_entry_decode(struct fd_serializable_account_storage_entry* self, void const** data, void const* dataend, FD_FN_UNUSED alloc_fun allocf, FD_FN_UNUSED void* allocf_arg) {
   fd_bincode_uint64_decode(&self->id, data, dataend);
   fd_bincode_uint64_decode(&self->accounts_current_len, data, dataend);
 }
   
-struct BankHashStats {
+struct fd_bank_hash_stats {
   ulong num_updated_accounts;
   ulong num_removed_accounts;
   ulong num_lamports_stored;
   ulong total_data_len;
   ulong num_executable_accounts;
 };
-typedef struct BankHashStats BankHashStats_t;
-#define BANKHASHSTATS_FOOTPRINT sizeof(struct BankHashStats)
-#define BANKHASHSTATS_ALIGN (8UL)
+typedef struct fd_bank_hash_stats fd_bank_hash_stats_t;
+#define fd_bank_hash_stats_FOOTPRINT sizeof(struct fd_bank_hash_stats)
+#define fd_bank_hash_stats_ALIGN (8UL)
 
-void BankHashStats_decode(struct BankHashStats* self, void const** data, void const* dataend, FD_FN_UNUSED alloc_fun allocf, FD_FN_UNUSED void* allocf_arg) {
+void fd_bank_hash_stats_decode(struct fd_bank_hash_stats* self, void const** data, void const* dataend, FD_FN_UNUSED alloc_fun allocf, FD_FN_UNUSED void* allocf_arg) {
   fd_bincode_uint64_decode(&self->num_updated_accounts, data, dataend);
   fd_bincode_uint64_decode(&self->num_removed_accounts, data, dataend);
   fd_bincode_uint64_decode(&self->num_lamports_stored, data, dataend);
@@ -751,81 +751,81 @@ void BankHashStats_decode(struct BankHashStats* self, void const** data, void co
   fd_bincode_uint64_decode(&self->num_executable_accounts, data, dataend);
 }
   
-struct BankHashInfo {
-  struct Hash hash;
-  struct Hash snapshot_hash;
-  struct BankHashStats stats;
+struct fd_bank_hash_info {
+  struct fd_hash hash;
+  struct fd_hash snapshot_hash;
+  struct fd_bank_hash_stats stats;
 };
-typedef struct BankHashInfo BankHashInfo_t;
-#define BANKHASHINFO_FOOTPRINT sizeof(struct BankHashInfo)
-#define BANKHASHINFO_ALIGN (8UL)
+typedef struct fd_bank_hash_info fd_bank_hash_info_t;
+#define fd_bank_hash_info_FOOTPRINT sizeof(struct fd_bank_hash_info)
+#define fd_bank_hash_info_ALIGN (8UL)
 
-void BankHashInfo_decode(struct BankHashInfo* self, void const** data, void const* dataend, alloc_fun allocf, void* allocf_arg) {
-  Hash_decode(&self->hash, data, dataend, allocf, allocf_arg);
-  Hash_decode(&self->snapshot_hash, data, dataend, allocf, allocf_arg);
-  BankHashStats_decode(&self->stats, data, dataend, allocf, allocf_arg);
+void fd_bank_hash_info_decode(struct fd_bank_hash_info* self, void const** data, void const* dataend, alloc_fun allocf, void* allocf_arg) {
+  fd_hash_decode(&self->hash, data, dataend, allocf, allocf_arg);
+  fd_hash_decode(&self->snapshot_hash, data, dataend, allocf, allocf_arg);
+  fd_bank_hash_stats_decode(&self->stats, data, dataend, allocf, allocf_arg);
 }
 
-struct SlotAccountPair {
+struct fd_slot_account_pair {
   ulong slot;
   ulong accounts_len;
-  struct SerializableAccountStorageEntry *accounts;
+  struct fd_serializable_account_storage_entry *accounts;
 };
-typedef struct SlotAccountPair SlotAccountPair_t;
-#define SLOTACCOUNTPAIR_FOOTPRINT sizeof(struct SlotAccountPair)
-#define SLOTACCOUNTPAIR_ALIGN (8UL)
+typedef struct fd_slot_account_pair fd_slot_account_pair_t;
+#define fd_slot_account_pair_FOOTPRINT sizeof(struct fd_slot_account_pair)
+#define fd_slot_account_pair_ALIGN (8UL)
 
-void SlotAccountPair_decode(struct SlotAccountPair* self, void const** data, void const* dataend, alloc_fun allocf, void* allocf_arg) {
+void fd_slot_account_pair_decode(struct fd_slot_account_pair* self, void const** data, void const* dataend, alloc_fun allocf, void* allocf_arg) {
   fd_bincode_uint64_decode(&self->slot, data, dataend);
   fd_bincode_uint64_decode(&self->accounts_len, data, dataend);
   if (self->accounts_len > 0) {
-    self->accounts = (struct SerializableAccountStorageEntry*)(*allocf)(SERIALIZABLEACCOUNTSTORAGEENTRY_FOOTPRINT*self->accounts_len, SERIALIZABLEACCOUNTSTORAGEENTRY_ALIGN, allocf_arg);
+    self->accounts = (struct fd_serializable_account_storage_entry*)(*allocf)(fd_serializable_account_storage_entry_FOOTPRINT*self->accounts_len, fd_serializable_account_storage_entry_ALIGN, allocf_arg);
     for (ulong i = 0; i < self->accounts_len; ++i)
-      SerializableAccountStorageEntry_decode(self->accounts + i, data, dataend, allocf, allocf_arg);
+      fd_serializable_account_storage_entry_decode(self->accounts + i, data, dataend, allocf, allocf_arg);
   } else
     self->accounts = NULL;
 }
 
-struct SlotMapPair {
+struct fd_slot_map_pair {
   ulong slot;
-  struct Hash hash;
+  struct fd_hash hash;
 };
-typedef struct SlotMapPair SlotMapPair_t;
-#define SLOTMAPPAIR_FOOTPRINT sizeof(struct SlotMapPair)
-#define SLOTMAPPAIR_ALIGN (8UL)
+typedef struct fd_slot_map_pair fd_slot_map_pair_t;
+#define fd_slot_map_pair_FOOTPRINT sizeof(struct fd_slot_map_pair)
+#define fd_slot_map_pair_ALIGN (8UL)
 
-void SlotMapPair_decode(struct SlotMapPair* self, void const** data, void const* dataend, alloc_fun allocf, void* allocf_arg) {
+void fd_slot_map_pair_decode(struct fd_slot_map_pair* self, void const** data, void const* dataend, alloc_fun allocf, void* allocf_arg) {
   fd_bincode_uint64_decode(&self->slot, data, dataend);
-  Hash_decode(&self->hash, data, dataend, allocf, allocf_arg);
+  fd_hash_decode(&self->hash, data, dataend, allocf, allocf_arg);
 }
   
-struct AccountsDbFields {
+struct fd_accounts_db_fields {
   ulong            storages_len;
-  struct SlotAccountPair * storages;
+  struct fd_slot_account_pair * storages;
   ulong            version;
   ulong            slot;
-  struct BankHashInfo      bank_hash_info;
+  struct fd_bank_hash_info      bank_hash_info;
   ulong            historical_roots_len;
   ulong *          historical_roots;
   ulong            historical_roots_with_hash_len;
-  struct SlotMapPair *     historical_roots_with_hash;
+  struct fd_slot_map_pair *     historical_roots_with_hash;
 };
-typedef struct AccountsDbFields AccountsDbFields_t;
-#define ACCOUNTSDBFIELDS_FOOTPRINT sizeof(struct AccountsDbFields)
-#define ACCOUNTSDBFIELDS_ALIGN (8UL)
+typedef struct fd_accounts_db_fields fd_accounts_db_fields_t;
+#define fd_accounts_db_fields_FOOTPRINT sizeof(struct fd_accounts_db_fields)
+#define fd_accounts_db_fields_ALIGN (8UL)
 
-void AccountsDbFields_decode(struct AccountsDbFields* self, void const** data, void const* dataend, alloc_fun allocf, void* allocf_arg) {
+void fd_accounts_db_fields_decode(struct fd_accounts_db_fields* self, void const** data, void const* dataend, alloc_fun allocf, void* allocf_arg) {
   fd_bincode_uint64_decode(&self->storages_len, data, dataend);
   if (self->storages_len > 0) {
-    self->storages = (struct SlotAccountPair*)(*allocf)(SLOTACCOUNTPAIR_FOOTPRINT*self->storages_len, SLOTACCOUNTPAIR_ALIGN, allocf_arg);
+    self->storages = (struct fd_slot_account_pair*)(*allocf)(fd_slot_account_pair_FOOTPRINT*self->storages_len, fd_slot_account_pair_ALIGN, allocf_arg);
     for (ulong i = 0; i < self->storages_len; ++i)
-      SlotAccountPair_decode(self->storages + i, data, dataend, allocf, allocf_arg);
+      fd_slot_account_pair_decode(self->storages + i, data, dataend, allocf, allocf_arg);
   } else
     self->storages = NULL;
 
   fd_bincode_uint64_decode(&self->version, data, dataend);
   fd_bincode_uint64_decode(&self->slot, data, dataend);
-  BankHashInfo_decode(&self->bank_hash_info, data, dataend, allocf, allocf_arg);
+  fd_bank_hash_info_decode(&self->bank_hash_info, data, dataend, allocf, allocf_arg);
   fd_bincode_uint64_decode(&self->historical_roots_len, data, dataend);
   if (self->historical_roots_len > 0) {
     self->historical_roots = (ulong*)(*allocf)(sizeof(ulong)*self->historical_roots_len, 8, allocf_arg);
@@ -835,9 +835,9 @@ void AccountsDbFields_decode(struct AccountsDbFields* self, void const** data, v
     self->historical_roots = NULL;
   fd_bincode_uint64_decode(&self->historical_roots_with_hash_len, data, dataend);
   if (self->historical_roots_with_hash_len > 0) {
-    self->historical_roots_with_hash = (struct SlotMapPair*)(*allocf)(SLOTMAPPAIR_FOOTPRINT*self->historical_roots_with_hash_len, SLOTMAPPAIR_ALIGN, allocf_arg);
+    self->historical_roots_with_hash = (struct fd_slot_map_pair*)(*allocf)(fd_slot_map_pair_FOOTPRINT*self->historical_roots_with_hash_len, fd_slot_map_pair_ALIGN, allocf_arg);
     for (ulong i = 0; i < self->historical_roots_with_hash_len; ++i)
-      SlotMapPair_decode(self->historical_roots_with_hash + i, data, dataend, allocf, allocf_arg);
+      fd_slot_map_pair_decode(self->historical_roots_with_hash + i, data, dataend, allocf, allocf_arg);
   } else
     self->historical_roots_with_hash = NULL;
 }

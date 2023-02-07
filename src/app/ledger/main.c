@@ -18,13 +18,13 @@ static void usage(const char* progname) {
   fprintf(stderr, "  --snapshotfile <file>        Input snapshot file\n");
 }
 
-struct Account_StoredMeta {
+struct fd_account_StoredMeta {
     unsigned long write_version_obsolete;
     unsigned long data_len;
     char pubkey[32];
 };
 
-struct Account_AccountMeta {
+struct fd_account_fd_accountMeta {
     unsigned long lamports;
     unsigned long rent_epoch;
     char owner[32];
@@ -32,7 +32,7 @@ struct Account_AccountMeta {
     char padding[7];
 };
 
-struct Account_Hash {
+struct fd_account_fd_hash {
     char value[32];
 };
 
@@ -55,7 +55,7 @@ void SnapshotParser_destroy(struct SnapshotParser* self) {
   free(self->tmpstart_);
 }
 
-void SnapshotParser_parseAccounts(struct SnapshotParser* self, const void* data, size_t datalen) {
+void SnapshotParser_parsefd_accounts(struct SnapshotParser* self, const void* data, size_t datalen) {
   (void)self;
   
   while (datalen) {
@@ -68,11 +68,11 @@ void SnapshotParser_parseAccounts(struct SnapshotParser* self, const void* data,
     data = (const char*)data + roundedlen; \
     datalen -= roundedlen;
 
-    struct Account_StoredMeta meta;
+    struct fd_account_StoredMeta meta;
     EAT_SLICE(&meta, sizeof(meta));
-    struct Account_AccountMeta account_meta;
+    struct fd_account_fd_accountMeta account_meta;
     EAT_SLICE(&account_meta, sizeof(account_meta));
-    struct Account_Hash hash;
+    struct fd_account_fd_hash hash;
     EAT_SLICE(&hash, sizeof(hash));
 
     // Skip data for now
@@ -98,20 +98,20 @@ char* SnapshotParser_allocTemp(unsigned long len, unsigned long align, void* arg
 }
 
 void SnapshotParser_parseSnapshots(struct SnapshotParser* self, const void* data, size_t datalen) {
-  struct DeserializableVersionedBank* bank = (struct DeserializableVersionedBank*)
-    SnapshotParser_allocTemp(DESERIALIZABLEVERSIONEDBANK_FOOTPRINT, DESERIALIZABLEVERSIONEDBANK_ALIGN, self);
-  DeserializableVersionedBank_decode(bank, &data, &datalen, SnapshotParser_allocTemp, self);
+  struct fd_deserializable_versioned_bank* bank = (struct fd_deserializable_versioned_bank*)
+    SnapshotParser_allocTemp(fd_deserializable_versioned_bank_FOOTPRINT, fd_deserializable_versioned_bank_ALIGN, self);
+  fd_deserializable_versioned_bank_decode(bank, &data, &datalen, SnapshotParser_allocTemp, self);
 
-  struct AccountsDbFields* accounts = (struct AccountsDbFields*)
-    SnapshotParser_allocTemp(ACCOUNTSDBFIELDS_FOOTPRINT, ACCOUNTSDBFIELDS_ALIGN, self);
-  AccountsDbFields_decode(accounts, &data, &datalen, SnapshotParser_allocTemp, self);
+  struct fd_accounts_db_fields* accounts = (struct fd_accounts_db_fields*)
+    SnapshotParser_allocTemp(fd_accounts_db_fields_FOOTPRINT, fd_accounts_db_fields_ALIGN, self);
+  fd_accounts_db_fields_decode(accounts, &data, &datalen, SnapshotParser_allocTemp, self);
 }
 
 void SnapshotParser_tarEntry(void* arg, const char* name, const void* data, size_t datalen) {
   if (datalen == 0)
     return;
   if (strncmp(name, "accounts/", sizeof("accounts/")-1) == 0)
-    SnapshotParser_parseAccounts((struct SnapshotParser*)arg, data, datalen);
+    SnapshotParser_parsefd_accounts((struct SnapshotParser*)arg, data, datalen);
   if (strncmp(name, "snapshots/", sizeof("snapshots/")-1) == 0 &&
       strcmp(name, "snapshots/status_cache") != 0)
     SnapshotParser_parseSnapshots((struct SnapshotParser*)arg, data, datalen);

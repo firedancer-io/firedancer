@@ -70,9 +70,9 @@ int main(FD_FN_UNUSED int argc, FD_FN_UNUSED char** argv) {
     unsigned char *outend = &out[len];
     const void * o = out;
 
-    struct Account a;
+    struct fd_account a;
 //    memset(&a, 0, sizeof(a));
-    Account_decode(&a, &o, outend, allocf, NULL);
+    fd_account_decode(&a, &o, outend, allocf, NULL);
 
     FD_TEST(a.lamports == 1);
     FD_TEST(a.data_len == 3);
@@ -90,9 +90,9 @@ int main(FD_FN_UNUSED int argc, FD_FN_UNUSED char** argv) {
     unsigned char *outend = &out[len];
     const void * o = out;
 
-    struct BlockhashQueue a;
+    struct fd_block_hash_queue a;
 //    memset(&a, 0, sizeof(a));
-    BlockhashQueue_decode(&a, &o, outend, allocf, NULL);
+    fd_block_hash_queue_decode(&a, &o, outend, allocf, NULL);
 
     FD_TEST(memcmp(a.ages[0].key.hash, a.last_hash->hash, sizeof(a.ages[0].key.hash)) == 0);
     FD_TEST(a.max_age == 5);
@@ -107,16 +107,16 @@ int main(FD_FN_UNUSED int argc, FD_FN_UNUSED char** argv) {
     unsigned char *outend = &out[len];
     const void * o = out;
 
-    struct StakeHistory a;
+    struct fd_stake_history a;
 //    memset(&a, 0, sizeof(a));
-    StakeHistory_decode(&a, &o, outend, allocf, NULL);
+    fd_stake_history_decode(&a, &o, outend, allocf, NULL);
 
     FD_TEST(a.len == 1);
     FD_TEST(a.entries[0].entry.effective == 1);
     FD_TEST(a.entries[0].entry.activating == 2);
     FD_TEST(a.entries[0].entry.deactivating == 3);
 
-// StakeHistory: [[5,{"effective":1,"activating":2,"deactivating":3}]] 01000000000000000500000000000000010000000000000002000000000000000300000000000000
+// fd_stake_history: [[5,{"effective":1,"activating":2,"deactivating":3}]] 01000000000000000500000000000000010000000000000002000000000000000300000000000000
   }
     
 
@@ -126,13 +126,13 @@ int main(FD_FN_UNUSED int argc, FD_FN_UNUSED char** argv) {
     unsigned char *outend = &out[len];
     const void * o = out;
 
-    struct Delegation a;
+    struct fd_delegation a;
     memset(&a, 0, sizeof(a));
-    Delegation_decode(&a, &o, outend, allocf, NULL);
+    fd_delegation_decode(&a, &o, outend, allocf, NULL);
 
     FD_TEST(a.warmup_cooldown_rate == 4.0);
 
-    //Delegation: {"voter_pubkey":[70,234,68,243,52,16,42,119,155,127,91,66,248,223,42,239,150,98,108,180,182,191,95,25,44,226,180,181,167,226,181,82],"stake":1,"activation_epoch":2,"deactivation_epoch":3,"warmup_cooldown_rate":4.0} 
+    //fd_delegation: {"voter_pubkey":[70,234,68,243,52,16,42,119,155,127,91,66,248,223,42,239,150,98,108,180,182,191,95,25,44,226,180,181,167,226,181,82],"stake":1,"activation_epoch":2,"deactivation_epoch":3,"warmup_cooldown_rate":4.0} 
   }
 
   {
@@ -142,9 +142,9 @@ int main(FD_FN_UNUSED int argc, FD_FN_UNUSED char** argv) {
     const void * o = out;
 
 
-    struct StakesDeligation a;
+    struct fd_stakes_deligation a;
     memset(&a, 0, sizeof(a));
-    StakesDeligation_decode(&a, &o, outend, allocf, NULL);
+    fd_stakes_deligation_decode(&a, &o, outend, allocf, NULL);
 
     FD_TEST(a.epoch == 41);
     FD_TEST(a.unused == 98);
@@ -156,14 +156,14 @@ int main(FD_FN_UNUSED int argc, FD_FN_UNUSED char** argv) {
     unsigned char *outend = &out[len];
     const void * o = out;
 
-    struct EpochStakes a;
+    struct fd_epoch_stakes a;
     memset(&a, 0, sizeof(a));
-    EpochStakes_decode(&a, &o, outend, allocf, NULL);
+    fd_epoch_stakes_decode(&a, &o, outend, allocf, NULL);
 
     FD_TEST(a.stakes.epoch == 41);
     FD_TEST(a.stakes.unused == 98);
 
-//EpochStakes: 0000000000000000010000000000000046ea44f334102a779b7f5b42f8df2aef96626cb4b6bf5f192ce2b4b5a7e2b55246ea44f334102a779b7f5b42f8df2aef96626cb4b6bf5f192ce2b4b5a7e2b5520100000000000000020000000000000003000000000000000000000000001040620000000000000029000000000000000000000000000000000000000000000000000000000000000000000000000000
+//fd_epoch_stakes: 0000000000000000010000000000000046ea44f334102a779b7f5b42f8df2aef96626cb4b6bf5f192ce2b4b5a7e2b55246ea44f334102a779b7f5b42f8df2aef96626cb4b6bf5f192ce2b4b5a7e2b5520100000000000000020000000000000003000000000000000000000000001040620000000000000029000000000000000000000000000000000000000000000000000000000000000000000000000000
   }
 
 
@@ -179,13 +179,13 @@ int main(FD_FN_UNUSED int argc, FD_FN_UNUSED char** argv) {
     unsigned char *outend = &b[n];
     const void * o = b;
 
-    struct DeserializableVersionedBank a;
+    struct fd_deserializable_versioned_bank a;
     memset(&a, 0, sizeof(a));
-    DeserializableVersionedBank_decode(&a, &o, outend, allocf, NULL);
+    fd_deserializable_versioned_bank_decode(&a, &o, outend, allocf, NULL);
 
-    struct AccountsDbFields db;
+    struct fd_accounts_db_fields db;
     memset(&db, 0, sizeof(b));
-    AccountsDbFields_decode(&db, &o, outend, allocf, NULL);
+    fd_accounts_db_fields_decode(&db, &o, outend, allocf, NULL);
 
     FD_TEST(a.is_delta != 0);
   }
