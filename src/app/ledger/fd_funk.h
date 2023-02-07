@@ -40,7 +40,7 @@ struct fd_funk_xactionid {
 // Root or null transaction id. Used to initiate the transaction
 // chain. Corresponds to all finalized data. Writes to the root
 // transaction are immediately finalized and cannot be undone.
-extern struct fd_funk_xactionid* fd_funk_xactionid_root;
+extern struct fd_funk_xactionid* fd_funk_root(struct fd_funk* store);
 
 // Initiate a new transaction by forking the state of an existing
 // transaction (can use root). Updates to the parent are forbidden
