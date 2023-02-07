@@ -7,11 +7,14 @@
 // file for permanent or finalized data as well as write-ahead
 // logs. This file is created if it doesn't exist. Storage uses only
 // one "real" file.
+// Any footprint can be provided as long as it is bigger than the
+// minimum. Extra space is used for the cache.
 struct fd_funk;
 void fd_funk_attach(struct fd_funk* store,
+                    unsigned long footprint,
                     const char* backingfile);
 
-extern unsigned long fd_funk_footprint(); 
+extern unsigned long fd_funk_min_footprint(); // Minimum footprint
 extern unsigned long fd_funk_align(); 
 
 // Detach a storage instance. Flushes updates and closes the backing
@@ -20,9 +23,10 @@ void fd_funk_detach(struct fd_funk* store);
 
 // Identifies a "file" or record in the storage layer. ASCII text
 // isn't necessary. Compact binary identifiers are encouraged.
-#define fd_funk_fileid_len 64
+#define fd_funk_fileid_footprint 64
+#define fd_funk_fileid_align 64
 struct fd_funk_fileid {
-    char id[fd_funk_fileid_len];
+    char id[fd_funk_fileid_footprint];
 };
 
 // Identifies an ongoing transaction. A transaction represents a
@@ -32,9 +36,10 @@ struct fd_funk_fileid {
 // eventually finalize the transaction, at which point the root
 // transaction is updated. Transactions can also be discarded, erasing
 // all pending updates. Competing/parallel transactions are allowed.
-#define fd_funk_xactionid_len 32
+#define fd_funk_xactionid_footprint 32
+#define fd_funk_xactionid_align 32
 struct fd_funk_xactionid {
-    char id[fd_funk_xactionid_len];
+    char id[fd_funk_xactionid_footprint];
 };
 
 // Root or null transaction id. Used to initiate the transaction
