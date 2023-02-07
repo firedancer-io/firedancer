@@ -56,6 +56,10 @@
 #include <syscall.h>
 #include <execinfo.h>
 
+/* Log buffer, used by both fd_log_private_0 and fd_log_private_hexdump_msg */
+
+static FD_TLS char log_msg[ FD_LOG_BUF_SZ ];
+
 /* APPLICATION LOGICAL ID APIS ****************************************/
 
 /* App id */
@@ -466,15 +470,14 @@ void fd_log_level_core_set   ( int level ) { FD_VOLATILE( fd_log_private_level_c
 
 char const *
 fd_log_private_0( char const * fmt, ... ) {
-  static FD_TLS char msg[ 4096 ];
   va_list ap;
   va_start( ap, fmt );
-  int len = vsnprintf( msg, 4096, fmt, ap );
+  int len = vsnprintf( log_msg, 4096, fmt, ap );
   if( len<0    ) len = 0;    /* cmov */
   if( len>4095 ) len = 4095; /* cmov */
-  msg[ len ] = '\0';
+  log_msg[ len ] = '\0';
   va_end( ap );
-  return msg;
+  return log_msg;
 }
 
 void
@@ -494,7 +497,6 @@ fd_log_private_1( int          level,
     /* 5 */ "CRIT   ",
     /* 6 */ "ALERT  ",
     /* 7 */ "EMERG  ",
-    /* 8 */ "HEXDUMP"
   };
 
   if( level<fd_log_level_logfile() ) return;
@@ -629,44 +631,58 @@ fd_log_private_2( int          level,
   abort();
 }
 
-void 
-fd_log_hexdump ( const char * descr,
-                 const void * blob,
-                 const size_t len ) {
-    
-  size_t count, blob_len;
-  int is_truncated = 0, len_written;
-  char line_buf[ FD_LOG_HEXDUMP_BYTES_PER_LINE+1 ];
-  const char * blob_ptr = (const char *)blob;
-  
-  blob_len = len;
-
-  /* Limit input blob length to a fairly small size (8K) to prevent stack overflow in 
-     the alloca below. */
-  if( FD_UNLIKELY ( len>FD_LOG_MAX_HEXDUMP_BLOB_SIZE ) ) {
-    blob_len = FD_LOG_MAX_HEXDUMP_BLOB_SIZE;
-    is_truncated = 1;
+char const * 
+fd_log_private_hexdump_msg ( char const * descr,
+                             void const * blob,
+                             ulong        sz ) {
+  if( FD_UNLIKELY( !blob ) ) {
+    FD_LOG_WARNING(( "Hexdump NULL blob ptr" ));
+    return NULL;
   }
 
-  /* Enough space plus a bit extra for hexdump-alising the blob. */
-  char * log_buf = fd_alloca( alignof(char), ((blob_len*8)+strlen(descr)+32)*sizeof(char) );
-  char * log_buf_ptr = log_buf;
+  if( FD_UNLIKELY( !descr ) ) {
+    FD_LOG_WARNING(( "Hexdump NULL blob description" ));
+    return NULL;
+  }
+
+  if( FD_UNLIKELY( strlen( descr )==0 ) ) {
+    FD_LOG_WARNING(( "Hexdump empty blob description"));
+    return NULL;
+  }
+
+  if( FD_UNLIKELY( strlen( descr )>FD_LOG_HEXDUMP_BLOB_DESCRIPTION_MAX_LEN ) ) {
+    FD_LOG_WARNING(( "Hexdump blob description too long"));
+    return NULL;
+  }
+
+  ulong blob_sz = sz;
+  int is_truncated = 0;
+  if( FD_UNLIKELY ( blob_sz>FD_LOG_HEXDUMP_MAX_INPUT_BLOB_SZ ) ) {
+    blob_sz = FD_LOG_HEXDUMP_MAX_INPUT_BLOB_SZ;
+    is_truncated = 1;
+  }
+  
+  char * log_buf_ptr = log_msg;   /* used by FD_LOG_HEXDUMP_ADD_TO_LOG_BUF macro */
+  int num_bytes_written = 0;      /* used by the FD_LOG_HEXDUMP_ADD_TO_LOG_BUF macro. signed because *printf() return 'int'. */
 
   /* Blob description for easier log grepping.
      Just print 'msg: empty' for a zero length buffer and return,
      and make it clear when truncation happened if that is the case. */
-  if( FD_LIKELY( blob_len && !is_truncated ) ) {
-    FD_LOG_HEXDUMP_ADD_TO_LOG_BUF( "%s:\n", descr );
-  } else if( FD_UNLIKELY ( is_truncated ) ) {
-    FD_LOG_HEXDUMP_ADD_TO_LOG_BUF( "%s (truncated):\n", descr );
+  if( FD_LIKELY( blob_sz ) && !is_truncated ) {
+    FD_LOG_HEXDUMP_ADD_TO_LOG_BUF( "HEXDUMP %s:\n", descr );
+  } else if( FD_UNLIKELY( is_truncated ) ) {
+    FD_LOG_HEXDUMP_ADD_TO_LOG_BUF( "HEXDUMP %s (truncated):\n", descr );
   } else {
-    FD_LOG_HEXDUMP_ADD_TO_LOG_BUF( "%s: empty\n", descr );
-    FD_LOG_PRIVATE_HEXDUMP( ( "%s", log_buf ) );
-    return;
+    FD_LOG_HEXDUMP_ADD_TO_LOG_BUF( "HEXDUMP %s: empty\n", descr );
+    return log_msg;
   }
 
-  for( count=0; count<blob_len; count++ ) {
-    /* New line. Print previous line's ascii representation and then print the offset. */
+  char line_buf[ FD_LOG_HEXDUMP_BYTES_PER_LINE+1 ];
+  const char * blob_ptr = blob;
+  ulong count = 0;
+
+  for( ; count<blob_sz; count++ ) {
+    /* New line. Print previous line's ASCII representation and then print the offset. */
     if( !( count%FD_LOG_HEXDUMP_BYTES_PER_LINE) ) {
       if( count!=0 ) FD_LOG_HEXDUMP_ADD_TO_LOG_BUF( "  %s\n", line_buf);
       FD_LOG_HEXDUMP_ADD_TO_LOG_BUF( "  %04x ", (unsigned int)count );
@@ -675,7 +691,7 @@ fd_log_hexdump ( const char * descr,
     FD_LOG_HEXDUMP_ADD_TO_LOG_BUF( " %02x", blob_ptr[count]&0xff);
 
     /* If not a printable ASCII character, output a dot. */
-    if( isprint( blob_ptr[ count ] ) )
+    if( isalnum( blob_ptr[ count ] ) || ispunct( blob_ptr[ count ] || blob_ptr[ count ]==' ' ) )
       line_buf[ count%FD_LOG_HEXDUMP_BYTES_PER_LINE ] = blob_ptr[ count ];
     else
       line_buf[ count%FD_LOG_HEXDUMP_BYTES_PER_LINE ] = '.';
@@ -688,7 +704,7 @@ fd_log_hexdump ( const char * descr,
   }
 
   FD_LOG_HEXDUMP_ADD_TO_LOG_BUF( "  %s\n", line_buf );
-  FD_LOG_PRIVATE_HEXDUMP( ( "%s", log_buf ) );
+  return log_msg;
 }
 
 /* BOOT/HALT APIS *****************************************************/

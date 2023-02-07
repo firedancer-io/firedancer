@@ -142,6 +142,8 @@
 
 #include "../env/fd_env.h"
 
+#define FD_LOG_BUF_SZ               4*4096
+
 /* Note: fd_log_wallclock called outside the arg list to give it a
    linguistically strict point when it is called that is before logging
    activities commence. */
@@ -154,17 +156,24 @@
 #define FD_LOG_CRIT(a)              do { long _fd_log_msg_now = fd_log_wallclock(); fd_log_private_2( 5, _fd_log_msg_now, __FILE__, __LINE__, __func__, fd_log_private_0 a ); } while(0)
 #define FD_LOG_ALERT(a)             do { long _fd_log_msg_now = fd_log_wallclock(); fd_log_private_2( 6, _fd_log_msg_now, __FILE__, __LINE__, __func__, fd_log_private_0 a ); } while(0)
 #define FD_LOG_EMERG(a)             do { long _fd_log_msg_now = fd_log_wallclock(); fd_log_private_2( 7, _fd_log_msg_now, __FILE__, __LINE__, __func__, fd_log_private_0 a ); } while(0)
-#define FD_LOG_PRIVATE_HEXDUMP(a)   do { long _fd_log_msg_now = fd_log_wallclock(); fd_log_private_1( 8, _fd_log_msg_now, __FILE__, __LINE__, __func__, fd_log_private_0 a ); } while(0)
 
-#define FD_LOG_HEXDUMP_BYTES_PER_LINE 16
-#define FD_LOG_MAX_HEXDUMP_BLOB_SIZE  8192
+#define FD_LOG_HEXDUMP_BYTES_PER_LINE             16
+#define FD_LOG_HEXDUMP_BLOB_DESCRIPTION_MAX_LEN   32
+#define FD_LOG_HEXDUMP_MAX_INPUT_BLOB_SZ          1500
 
-#define FD_LOG_HEXDUMP(...)   do { fd_log_hexdump( __VA_ARGS__ ); } while(0)
-
-#define FD_LOG_HEXDUMP_ADD_TO_LOG_BUF(...) do {                   \
-    len_written = sprintf ( log_buf_ptr, __VA_ARGS__ );           \
-    if( FD_LIKELY( len_written>=0 )) log_buf_ptr += len_written;  \
- } while(0)                                                       \
+#define FD_LOG_HEXDUMP_ADD_TO_LOG_BUF(...) do {                               \
+    num_bytes_written = sprintf ( log_buf_ptr, __VA_ARGS__ );                 \
+    if( FD_LIKELY( num_bytes_written>=0 )) log_buf_ptr += num_bytes_written;  \
+ } while(0)                                                                   \
+                                             
+#define FD_LOG_HEXDUMP_DEBUG(a)             do { long _fd_log_msg_now = fd_log_wallclock(); char const * msg = fd_log_private_hexdump_msg a; if( msg ) fd_log_private_1( 0, _fd_log_msg_now, __FILE__, __LINE__, __func__, msg ); } while(0)
+#define FD_LOG_HEXDUMP_INFO(a)              do { long _fd_log_msg_now = fd_log_wallclock(); char const * msg = fd_log_private_hexdump_msg a; if( msg ) fd_log_private_1( 1, _fd_log_msg_now, __FILE__, __LINE__, __func__, msg ); } while(0)
+#define FD_LOG_HEXDUMP_NOTICE(a)            do { long _fd_log_msg_now = fd_log_wallclock(); char const * msg = fd_log_private_hexdump_msg a; if( msg ) fd_log_private_1( 2, _fd_log_msg_now, __FILE__, __LINE__, __func__, msg ); } while(0)
+#define FD_LOG_HEXDUMP_WARNING(a)           do { long _fd_log_msg_now = fd_log_wallclock(); char const * msg = fd_log_private_hexdump_msg a; if( msg ) fd_log_private_1( 3, _fd_log_msg_now, __FILE__, __LINE__, __func__, msg ); } while(0)
+#define FD_LOG_HEXDUMP_ERR(a)               do { long _fd_log_msg_now = fd_log_wallclock(); char const * msg = fd_log_private_hexdump_msg a; if( msg ) fd_log_private_2( 4, _fd_log_msg_now, __FILE__, __LINE__, __func__, msg ); } while(0)
+#define FD_LOG_HEXDUMP_CRIT(a)              do { long _fd_log_msg_now = fd_log_wallclock(); char const * msg = fd_log_private_hexdump_msg a; if( msg ) fd_log_private_2( 5, _fd_log_msg_now, __FILE__, __LINE__, __func__, msg ); } while(0)
+#define FD_LOG_HEXDUMP_ALERT(a)             do { long _fd_log_msg_now = fd_log_wallclock(); char const * msg = fd_log_private_hexdump_msg a; if( msg ) fd_log_private_2( 6, _fd_log_msg_now, __FILE__, __LINE__, __func__, msg ); } while(0)
+#define FD_LOG_HEXDUMP_EMERG(a)             do { long _fd_log_msg_now = fd_log_wallclock(); char const * msg = fd_log_private_hexdump_msg a; if( msg ) fd_log_private_2( 7, _fd_log_msg_now, __FILE__, __LINE__, __func__, msg ); } while(0)                                                    \
 
 /* FD_TEST is a single statement that evaluates condition c and, if c
    evaluates to false, will FD_LOG_ERR that the condition failed.  It is
@@ -462,6 +471,11 @@ fd_log_private_2( int          level,
                   int          line,
                   char const * func,
                   char const * msg ) __attribute__((noreturn)); /* Let compiler know this will not be returning */
+
+char const * 
+fd_log_private_hexdump_msg ( char const * descr,
+                             void const * blob,
+                             ulong sz );
 
 void
 fd_log_private_boot( int *    pargc,
