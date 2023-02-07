@@ -11,6 +11,7 @@
 #include "../../util/fd_util.h"
 #include "tar.h"
 #include "banks.h"
+#include "fd_funk.h"
 
 static void usage(const char* progname) {
   fprintf(stderr, "USAGE: %s\n", progname);
