@@ -318,7 +318,7 @@ typedef struct fd_stake_history_epochentry_pair fd_stake_history_epochentry_pair
 #define FD_STAKE_HISTORY_EPOCHENTRY_PAIR_FOOTPRINT sizeof(struct fd_stake_history_epochentry_pair)
 #define FD_STAKE_HISTORY_EPOCHENTRY_PAIR_ALIGN (8UL)
 
-void fd_stake_history_epochentry_pair_decode(FD_FN_UNUSED struct fd_stake_history_epochentry_pair* self, FD_FN_UNUSED void const** data, FD_FN_UNUSED void const* dataend, FD_FN_UNUSED alloc_fun allocf, FD_FN_UNUSED void* allocf_arg) {
+void fd_stake_history_epochentry_pair_decode(struct fd_stake_history_epochentry_pair* self, void const** data, void const* dataend, alloc_fun allocf, void* allocf_arg) {
   fd_bincode_uint64_decode(&self->epoch, data, dataend);
   fd_stake_history_entry_decode(&self->entry, data, dataend, allocf, allocf_arg);
 }
@@ -332,7 +332,7 @@ typedef struct fd_stake_history fd_stake_history_t;
 #define FD_STAKE_HISTORY_FOOTPRINT sizeof(struct fd_stake_history)
 #define FD_STAKE_HISTORY_ALIGN (8UL)
 
-void fd_stake_history_decode(struct fd_stake_history* self, void const** data, void const* dataend, alloc_fun allocf, FD_FN_UNUSED void* allocf_arg) {
+void fd_stake_history_decode(struct fd_stake_history* self, void const** data, void const* dataend, alloc_fun allocf, void* allocf_arg) {
   fd_bincode_uint64_decode(&self->len, data, dataend);
   if (self->len > 0) {
     self->entries = (struct fd_stake_history_epochentry_pair*)(*allocf)(FD_STAKE_HISTORY_EPOCHENTRY_PAIR_FOOTPRINT*self->len, FD_STAKE_HISTORY_EPOCHENTRY_PAIR_ALIGN, allocf_arg);
@@ -357,7 +357,7 @@ typedef struct fd_account fd_account_t;
 #define ACCOUNT_FOOTPRINT sizeof(struct fd_account)
 #define ACCOUNT_ALIGN (8UL)
 
-void fd_account_decode(struct fd_account* self, void const** data, void const* dataend, alloc_fun allocf, FD_FN_UNUSED void* allocf_arg) {
+void fd_account_decode(struct fd_account* self, void const** data, void const* dataend, alloc_fun allocf, void* allocf_arg) {
   fd_bincode_uint64_decode(&self->lamports, data, dataend);
   fd_bincode_uint64_decode(&self->data_len, data, dataend);
   if (self->data_len > 0) {
@@ -379,7 +379,7 @@ typedef struct fd_vote_accounts_pair fd_vote_accounts_pair_t;
 #define FD_VOTE_ACCOUNTS_PAIR_FOOTPRINT sizeof(struct fd_vote_accounts_pair)
 #define FD_VOTE_ACCOUNTS_PAIR_ALIGN (8UL)
 
-void fd_vote_accounts_pair_decode(struct fd_vote_accounts_pair* self, void const** data, void const* dataend, alloc_fun allocf, FD_FN_UNUSED void* allocf_arg) {
+void fd_vote_accounts_pair_decode(struct fd_vote_accounts_pair* self, void const** data, void const* dataend, alloc_fun allocf, void* allocf_arg) {
   fd_pubkey_decode(&self->key, data, dataend, allocf, allocf_arg);
   fd_bincode_uint64_decode(&self->stake, data, dataend);
   fd_account_decode(&self->value, data, dataend, allocf, allocf_arg);
@@ -394,7 +394,7 @@ typedef struct fd_vote_accounts fd_vote_accounts_t;
 #define FD_VOTE_ACCOUNTS_FOOTPRINT sizeof(struct fd_vote_accounts)
 #define FD_VOTE_ACCOUNTS_ALIGN (8UL)
 
-void fd_vote_accounts_decode(FD_FN_UNUSED struct fd_vote_accounts* self, FD_FN_UNUSED void const** data, FD_FN_UNUSED void const* dataend, FD_FN_UNUSED alloc_fun allocf, FD_FN_UNUSED void* allocf_arg) {
+void fd_vote_accounts_decode(struct fd_vote_accounts* self, void const** data, void const* dataend, alloc_fun allocf, void* allocf_arg) {
   fd_bincode_uint64_decode(&self->vote_accounts_len, data, dataend);
   if (self->vote_accounts_len != 0) {
     self->vote_accounts = (struct fd_vote_accounts_pair*)(*allocf)(FD_VOTE_ACCOUNTS_PAIR_FOOTPRINT*self->vote_accounts_len, FD_VOTE_ACCOUNTS_PAIR_ALIGN, allocf_arg);
@@ -416,7 +416,7 @@ typedef struct fd_delegation fd_delegation_t;
 #define DELEGATION_FOOTPRINT sizeof(struct fd_delegation)
 #define DELEGATION_ALIGN (8UL)
 
-void fd_delegation_decode(struct fd_delegation* self, void const** data, void const* dataend, alloc_fun allocf, FD_FN_UNUSED void* allocf_arg) {
+void fd_delegation_decode(struct fd_delegation* self, void const** data, void const* dataend, alloc_fun allocf, void* allocf_arg) {
   fd_pubkey_decode(&self->voter_pubkey, data, dataend, allocf, allocf_arg);
   fd_bincode_uint64_decode(&self->stake, data, dataend);
   fd_bincode_uint64_decode(&self->activation_epoch, data, dataend);
@@ -432,7 +432,7 @@ typedef struct fd_delegation_pair fd_delegation_pair_t;
 #define FD_DELEGATION_PAIR_FOOTPRINT sizeof(struct fd_delegation_pair)
 #define FD_DELEGATION_PAIR_ALIGN (8UL)
 
-void fd_delegation_pair_decode(struct fd_delegation_pair* self, void const** data, void const* dataend, alloc_fun allocf, FD_FN_UNUSED void* allocf_arg) {
+void fd_delegation_pair_decode(struct fd_delegation_pair* self, void const** data, void const* dataend, alloc_fun allocf, void* allocf_arg) {
   fd_pubkey_decode(&self->key, data, dataend, allocf, allocf_arg);
   fd_delegation_decode(&self->value, data, dataend, allocf, allocf_arg);
 }
@@ -452,7 +452,7 @@ typedef struct fd_stakes_deligation fd_stakes_deligation_t;
 #define FD_STAKES_DELIGATION_FOOTPRINT sizeof(struct fd_stakes_deligation)
 #define FD_STAKES_DELIGATION_ALIGN (8UL)
 
-void fd_stakes_deligation_decode(struct fd_stakes_deligation* self, void const** data, void const* dataend, alloc_fun allocf, FD_FN_UNUSED void* allocf_arg) {
+void fd_stakes_deligation_decode(struct fd_stakes_deligation* self, void const** data, void const* dataend, alloc_fun allocf, void* allocf_arg) {
   fd_vote_accounts_decode(&self->vote_accounts, data, dataend, allocf, allocf_arg);
   fd_bincode_uint64_decode(&self->stake_delegations_len, data, dataend);
   if (self->stake_delegations_len) {
@@ -486,7 +486,7 @@ typedef struct Nodefd_vote_accounts Nodefd_vote_accounts_t;
 #define NodeFD_VOTE_ACCOUNTS_FOOTPRINT sizeof(struct Nodefd_vote_accounts)
 #define NodeFD_VOTE_ACCOUNTS_ALIGN (8UL)
 
-void Nodefd_vote_accounts_decode(FD_FN_UNUSED struct Nodefd_vote_accounts* self, FD_FN_UNUSED void const** data, FD_FN_UNUSED void const* dataend, FD_FN_UNUSED alloc_fun allocf, FD_FN_UNUSED void* allocf_arg) {
+void Nodefd_vote_accounts_decode(struct Nodefd_vote_accounts* self, void const** data, void const* dataend, alloc_fun allocf, void* allocf_arg) {
   fd_bincode_uint64_decode(&self->vote_accounts_len, data, dataend);
   if (self->vote_accounts_len) {
     self->vote_accounts = (struct fd_pubkey*)(*allocf)(FD_PUBKEY_FOOTPRINT*self->vote_accounts_len, FD_PUBKEY_ALIGN, allocf_arg);
@@ -505,7 +505,7 @@ typedef struct fd_pubkeyNodefd_vote_accounts_pair fd_pubkeyNodefd_vote_accounts_
 #define fd_pubkeyNodeFD_VOTE_ACCOUNTS_PAIR_FOOTPRINT sizeof(struct fd_pubkeyNodefd_vote_accounts_pair)
 #define fd_pubkeyNodeFD_VOTE_ACCOUNTS_PAIR_ALIGN (8UL)
 
-void fd_pubkeyNodefd_vote_accounts_pair_decode(FD_FN_UNUSED struct fd_pubkeyNodefd_vote_accounts_pair* self, FD_FN_UNUSED void const** data, FD_FN_UNUSED void const* dataend, FD_FN_UNUSED alloc_fun allocf, FD_FN_UNUSED void* allocf_arg) {
+void fd_pubkeyNodefd_vote_accounts_pair_decode(struct fd_pubkeyNodefd_vote_accounts_pair* self, void const** data, void const* dataend, alloc_fun allocf, void* allocf_arg) {
   fd_pubkey_decode(&self->key, data, dataend, allocf, allocf_arg);
   Nodefd_vote_accounts_decode(&self->value, data, dataend, allocf, allocf_arg);
 }
@@ -518,7 +518,7 @@ typedef struct fd_pubkey_pubkey_pair fd_pubkey_pubkey_pair_t;
 #define FD_PUBKEY_PUBKEY_PAIR_FOOTPRINT sizeof(struct fd_pubkey_pubkey_pair)
 #define FD_PUBKEY_PUBKEY_PAIR_ALIGN (8UL)
 
-void fd_pubkey_pubkey_pair_decode(FD_FN_UNUSED struct fd_pubkey_pubkey_pair* self, FD_FN_UNUSED void const** data, FD_FN_UNUSED void const* dataend, FD_FN_UNUSED alloc_fun allocf, FD_FN_UNUSED void* allocf_arg) {
+void fd_pubkey_pubkey_pair_decode(struct fd_pubkey_pubkey_pair* self, void const** data, void const* dataend, alloc_fun allocf, void* allocf_arg) {
   fd_pubkey_decode(&self->key, data, dataend, allocf, allocf_arg);
   fd_pubkey_decode(&self->value, data, dataend, allocf, allocf_arg);
 }
@@ -536,7 +536,7 @@ typedef struct fd_epoch_stakes fd_epoch_stakes_t;
 #define FD_EPOCH_STAKES_FOOTPRINT sizeof(struct fd_epoch_stakes)
 #define FD_EPOCH_STAKES_ALIGN (8UL)
 
-void fd_epoch_stakes_decode(FD_FN_UNUSED struct fd_epoch_stakes* self, FD_FN_UNUSED void const** data, FD_FN_UNUSED void const* dataend, FD_FN_UNUSED alloc_fun allocf, FD_FN_UNUSED void* allocf_arg) {
+void fd_epoch_stakes_decode(struct fd_epoch_stakes* self, void const** data, void const* dataend, alloc_fun allocf, void* allocf_arg) {
   fd_stakes_deligation_decode(&self->stakes, data, dataend, allocf, allocf_arg);
   fd_bincode_uint64_decode(&self->total_stake, data, dataend);
   fd_bincode_uint64_decode(&self->node_id_to_vote_accounts_len, data, dataend);
@@ -563,7 +563,7 @@ typedef struct Epoch_fd_epoch_stakes_Pair Epoch_fd_epoch_stakes_Pair_t;
 #define EPOCH_FD_EPOCH_STAKES_PAIR_FOOTPRINT sizeof(struct Epoch_fd_epoch_stakes_Pair)
 #define EPOCH_FD_EPOCH_STAKES_PAIR_ALIGN (8UL)
 
-void Epoch_fd_epoch_stakes_Pair_decode(struct Epoch_fd_epoch_stakes_Pair* self, void const** data, void const* dataend, alloc_fun allocf, FD_FN_UNUSED void* allocf_arg) {
+void Epoch_fd_epoch_stakes_Pair_decode(struct Epoch_fd_epoch_stakes_Pair* self, void const** data, void const* dataend, alloc_fun allocf, void* allocf_arg) {
   fd_bincode_uint64_decode(&self->key, data, dataend);
   fd_epoch_stakes_decode(&self->value, data, dataend, allocf, allocf_arg);
 }
@@ -576,7 +576,7 @@ typedef struct fd_pubkey_u64_pair fd_pubkey_u64_pair_t;
 #define FD_PUBKEY_U64_PAIR_FOOTPRINT sizeof(struct fd_pubkey_u64_pair)
 #define FD_PUBKEY_U64_PAIR_ALIGN (8UL)
 
-void fd_pubkey_u64_pair_decode(struct fd_pubkey_u64_pair* self, void const** data, void const* dataend, alloc_fun allocf, FD_FN_UNUSED void* allocf_arg) {
+void fd_pubkey_u64_pair_decode(struct fd_pubkey_u64_pair* self, void const** data, void const* dataend, alloc_fun allocf, void* allocf_arg) {
   fd_pubkey_decode(&self->_0, data, dataend, allocf, allocf_arg);
   fd_bincode_uint64_decode(&self->_1, data, dataend);
 }
@@ -599,7 +599,7 @@ typedef struct fd_unused_accounts fd_unused_accounts_t;
 #define FD_UNUSED_ACCOUNTS_FOOTPRINT sizeof(struct fd_unused_accounts)
 #define FD_UNUSED_ACCOUNTS_ALIGN (8UL)
 
-void fd_unused_accounts_decode(struct fd_unused_accounts* self, void const** data, void const* dataend, alloc_fun allocf, FD_FN_UNUSED void* allocf_arg) {
+void fd_unused_accounts_decode(struct fd_unused_accounts* self, void const** data, void const* dataend, alloc_fun allocf, void* allocf_arg) {
   fd_bincode_uint64_decode(&self->unused1_len, data, dataend);
   if (self->unused1_len > 0) {
     self->unused1 = (struct fd_pubkey*)(*allocf)(FD_PUBKEY_FOOTPRINT*self->unused1_len, FD_PUBKEY_ALIGN, allocf_arg);
