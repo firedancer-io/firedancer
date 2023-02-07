@@ -639,7 +639,7 @@ struct DeserializableVersionedBank {
 #define DeserializableVersionedBank_footprint sizeof(struct DeserializableVersionedBank)
 #define DeserializableVersionedBank_align 8
 
-void DeserializableVersionedBank_decode(FD_FN_UNUSED struct DeserializableVersionedBank* self, FD_FN_UNUSED const void** data, FD_FN_UNUSED const void* dataend, FD_FN_UNUSED alloc_fun allocf, FD_FN_UNUSED void* allocf_arg) {
+void DeserializableVersionedBank_decode(struct DeserializableVersionedBank* self, const void** data, const void* dataend, alloc_fun allocf, void* allocf_arg) {
   BlockhashQueue_decode(&self->blockhash_queue, data, dataend, allocf, allocf_arg);
   fd_bincode_uint64_decode(&self->ancestors_len, data, dataend);
   self->ancestors = (struct SlotPair*)(*allocf)(SlotPair_footprint*self->ancestors_len, SlotPair_align, allocf_arg);
@@ -694,7 +694,7 @@ struct SerializableAccountStorageEntry {
 #define SerializableAccountStorageEntry_footprint sizeof(struct SerializableAccountStorageEntry)
 #define SerializableAccountStorageEntry_align 8
 
-void SerializableAccountStorageEntry_decode(FD_FN_UNUSED struct SerializableAccountStorageEntry* self, FD_FN_UNUSED const void** data, FD_FN_UNUSED const void* dataend, FD_FN_UNUSED alloc_fun allocf, FD_FN_UNUSED void* allocf_arg) {
+void SerializableAccountStorageEntry_decode(struct SerializableAccountStorageEntry* self, const void** data, const void* dataend, FD_FN_UNUSED alloc_fun allocf, FD_FN_UNUSED void* allocf_arg) {
   fd_bincode_uint64_decode(&self->id, data, dataend);
   fd_bincode_uint64_decode(&self->accounts_current_len, data, dataend);
 }
@@ -709,7 +709,7 @@ struct BankHashStats {
 #define BankHashStats_footprint sizeof(struct BankHashStats)
 #define BankHashStats_align 8
 
-void BankHashStats_decode(FD_FN_UNUSED struct BankHashStats* self, FD_FN_UNUSED const void** data, FD_FN_UNUSED const void* dataend, FD_FN_UNUSED alloc_fun allocf, FD_FN_UNUSED void* allocf_arg) {
+void BankHashStats_decode(struct BankHashStats* self, const void** data, const void* dataend, FD_FN_UNUSED alloc_fun allocf, FD_FN_UNUSED void* allocf_arg) {
   fd_bincode_uint64_decode(&self->num_updated_accounts, data, dataend);
   fd_bincode_uint64_decode(&self->num_removed_accounts, data, dataend);
   fd_bincode_uint64_decode(&self->num_lamports_stored, data, dataend);
@@ -725,7 +725,7 @@ struct BankHashInfo {
 #define BankHashInfo_footprint sizeof(struct BankHashInfo)
 #define BankHashInfo_align 8
 
-void BankHashInfo_decode(FD_FN_UNUSED struct BankHashInfo* self, FD_FN_UNUSED const void** data, FD_FN_UNUSED const void* dataend, FD_FN_UNUSED alloc_fun allocf, FD_FN_UNUSED void* allocf_arg) {
+void BankHashInfo_decode(struct BankHashInfo* self, const void** data, const void* dataend, alloc_fun allocf, void* allocf_arg) {
   Hash_decode(&self->hash, data, dataend, allocf, allocf_arg);
   Hash_decode(&self->snapshot_hash, data, dataend, allocf, allocf_arg);
   BankHashStats_decode(&self->stats, data, dataend, allocf, allocf_arg);
@@ -739,7 +739,7 @@ struct SlotAccountPair {
 #define SlotAccountPair_footprint sizeof(struct SlotAccountPair)
 #define SlotAccountPair_align 8
 
-void SlotAccountPair_decode(FD_FN_UNUSED struct SlotAccountPair* self, FD_FN_UNUSED const void** data, FD_FN_UNUSED const void* dataend, FD_FN_UNUSED alloc_fun allocf, FD_FN_UNUSED void* allocf_arg) {
+void SlotAccountPair_decode(struct SlotAccountPair* self, const void** data, const void* dataend, alloc_fun allocf, void* allocf_arg) {
   fd_bincode_uint64_decode(&self->slot, data, dataend);
   fd_bincode_uint64_decode(&self->accounts_len, data, dataend);
   if (self->accounts_len > 0) {
@@ -757,7 +757,7 @@ struct SlotMapPair {
 #define SlotMapPair_footprint sizeof(struct SlotMapPair)
 #define SlotMapPair_align 8
 
-void SlotMapPair_decode(FD_FN_UNUSED struct SlotMapPair* self, FD_FN_UNUSED const void** data, FD_FN_UNUSED const void* dataend, FD_FN_UNUSED alloc_fun allocf, FD_FN_UNUSED void* allocf_arg) {
+void SlotMapPair_decode(struct SlotMapPair* self, const void** data, const void* dataend, alloc_fun allocf, void* allocf_arg) {
   fd_bincode_uint64_decode(&self->slot, data, dataend);
   Hash_decode(&self->hash, data, dataend, allocf, allocf_arg);
 }
@@ -776,7 +776,7 @@ struct AccountsDbFields {
 #define AccountsDbFields_footprint sizeof(struct AccountsDbFields)
 #define AccountsDbFields_align 8
 
-void AccountsDbFields_decode(FD_FN_UNUSED struct AccountsDbFields* self, FD_FN_UNUSED const void** data, FD_FN_UNUSED const void* dataend, FD_FN_UNUSED alloc_fun allocf, FD_FN_UNUSED void* allocf_arg) {
+void AccountsDbFields_decode(struct AccountsDbFields* self, const void** data, const void* dataend, alloc_fun allocf, void* allocf_arg) {
   fd_bincode_uint64_decode(&self->storages_len, data, dataend);
   if (self->storages_len > 0) {
     self->storages = (struct SlotAccountPair*)(*allocf)(SlotAccountPair_footprint*self->storages_len, SlotAccountPair_align, allocf_arg);

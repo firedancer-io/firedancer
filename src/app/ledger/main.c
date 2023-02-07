@@ -101,6 +101,10 @@ void SnapshotParser_parseSnapshots(struct SnapshotParser* self, const void* data
   struct DeserializableVersionedBank* bank = (struct DeserializableVersionedBank*)
     SnapshotParser_allocTemp(DeserializableVersionedBank_footprint, DeserializableVersionedBank_align, self);
   DeserializableVersionedBank_decode(bank, &data, &datalen, SnapshotParser_allocTemp, self);
+
+  struct AccountsDbFields* accounts = (struct AccountsDbFields*)
+    SnapshotParser_allocTemp(AccountsDbFields_footprint, AccountsDbFields_align, self);
+  AccountsDbFields_decode(accounts, &data, &datalen, SnapshotParser_allocTemp, self);
 }
 
 void SnapshotParser_tarEntry(void* arg, const char* name, const void* data, size_t datalen) {
