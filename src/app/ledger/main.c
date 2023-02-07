@@ -99,11 +99,11 @@ char* SnapshotParser_allocTemp(unsigned long len, unsigned long align, void* arg
 
 void SnapshotParser_parseSnapshots(struct SnapshotParser* self, const void* data, size_t datalen) {
   struct fd_deserializable_versioned_bank* bank = (struct fd_deserializable_versioned_bank*)
-    SnapshotParser_allocTemp(fd_deserializable_versioned_bank_FOOTPRINT, fd_deserializable_versioned_bank_ALIGN, self);
+    SnapshotParser_allocTemp(FD_DESERIALIZABLE_VERSIONED_BANK_FOOTPRINT, FD_DESERIALIZABLE_VERSIONED_BANK_ALIGN, self);
   fd_deserializable_versioned_bank_decode(bank, &data, &datalen, SnapshotParser_allocTemp, self);
 
   struct fd_accounts_db_fields* accounts = (struct fd_accounts_db_fields*)
-    SnapshotParser_allocTemp(fd_accounts_db_fields_FOOTPRINT, fd_accounts_db_fields_ALIGN, self);
+    SnapshotParser_allocTemp(FD_ACCOUNTS_DB_FIELDS_FOOTPRINT, FD_ACCOUNTS_DB_FIELDS_ALIGN, self);
   fd_accounts_db_fields_decode(accounts, &data, &datalen, SnapshotParser_allocTemp, self);
 }
 
