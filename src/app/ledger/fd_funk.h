@@ -46,59 +46,59 @@ extern struct fd_funk_xactionid* fd_funk_root(struct fd_funk* store);
 // transaction (can use root). Updates to the parent are forbidden
 // after this call. The child id must not conflict with an existing
 // transaction id.
-extern void fd_funk_fork_xaction(struct fd_funk* store,
-                                 struct fd_funk_xactionid* parent,
-                                 struct fd_funk_xactionid* child);
+extern void fd_funk_fork(struct fd_funk* store,
+                         struct fd_funk_xactionid* parent,
+                         struct fd_funk_xactionid* child);
 
 // Commit all updates in the given transaction to final storage (the
 // root transaction). All parent transactions in the chain are also
 // finalized (but not children of the given transaction). Competing
 // forked transactions are discarded.
-extern void fd_funk_finalize_xaction(struct fd_funk* store,
-                                     struct fd_funk_xactionid* id);
+extern void fd_funk_finalize(struct fd_funk* store,
+                             struct fd_funk_xactionid* id);
 
 // Discard all updates in the given transaction and all its children.
-extern void fd_funk_discard_xaction(struct fd_funk* store,
-                                    struct fd_funk_xactionid* id);
+extern void fd_funk_discard(struct fd_funk* store,
+                            struct fd_funk_xactionid* id);
 
 // Combine a list of transactions with the same parent into a single
 // transaction. Updates are applied in the specified order if there is
 // a conflict.
-extern void fd_funk_merge_xaction(struct fd_funk* store,
-                                  struct fd_funk_xactionid* destid,
-                                  unsigned int numsources,
-                                  struct fd_funk_xactionid** sourceids);
+extern void fd_funk_merge(struct fd_funk* store,
+                          struct fd_funk_xactionid* destid,
+                          unsigned int numsources,
+                          struct fd_funk_xactionid** sourceids);
 
 // Update a file in the storage. Files are implicitly created/extended
 // as necessary. Gaps are zero filled.
-extern void fd_funk_write_file(struct fd_funk* store,
-                               struct fd_funk_xactionid* xid,
-                               struct fd_funk_fileid* fileid,
-                               const void* data,
-                               unsigned long offset,
-                               unsigned long datalen);
+extern void fd_funk_write(struct fd_funk* store,
+                          struct fd_funk_xactionid* xid,
+                          struct fd_funk_fileid* fileid,
+                          const void* data,
+                          unsigned long offset,
+                          unsigned long datalen);
 
 // Read a file. The amount of data actually read is returned, which
 // may be less then datalen if the file is shorter than expected. A -1
 // is returned if an identifier is invalid.
-extern long fd_funk_read_file(struct fd_funk* store,
-                              struct fd_funk_xactionid* xid,
-                              struct fd_funk_fileid* fileid,
-                              void* data,
-                              unsigned long offset,
-                              unsigned long datalen);
+extern long fd_funk_read(struct fd_funk* store,
+                         struct fd_funk_xactionid* xid,
+                         struct fd_funk_fileid* fileid,
+                         void* data,
+                         unsigned long offset,
+                         unsigned long datalen);
 
 // Truncate a file to the given length
-extern void fd_funk_truncate_file(struct fd_funk* store,
-                                  struct fd_funk_xactionid* xid,
-                                  struct fd_funk_fileid* fileid,
-                                  unsigned long filelen);
+extern void fd_funk_truncate(struct fd_funk* store,
+                             struct fd_funk_xactionid* xid,
+                             struct fd_funk_fileid* fileid,
+                             unsigned long filelen);
 
 // Delete a file. Note that deletion isn't permanent until the
 // transaction is committed.
-extern void fd_funk_delete_file(struct fd_funk* store,
-                                struct fd_funk_xactionid* xid,
-                                struct fd_funk_fileid* fileid);
+extern void fd_funk_delete(struct fd_funk* store,
+                           struct fd_funk_xactionid* xid,
+                           struct fd_funk_fileid* fileid);
 
 // Returns true if the file is in the hot cache.
 extern char fd_funk_cache_query(struct fd_funk* store,
