@@ -1,4 +1,3 @@
-//typedef all the structs with _t .. with the typedef's on their own lines
 //use the _t typedefs... 
 
 typedef char* (*alloc_fun)(ulong len, ulong align, void* arg);
