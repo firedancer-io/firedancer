@@ -496,9 +496,6 @@ void PubkeyPubkeyPair_decode(FD_FN_UNUSED struct PubkeyPubkeyPair* self, FD_FN_U
   Pubkey_decode(&self->value, data, dataend, allocf, allocf_arg);
 }
 
-//pub type NodeIdToVoteAccounts = HashMap<Pubkey, NodeVoteAccounts>;
-//pub type EpochAuthorizedVoters = HashMap<Pubkey, Pubkey>;
-
 // runtime/src/epoch_stakes.rs:18
 struct EpochStakes {
   struct StakesDeligation stakes;
@@ -698,6 +695,8 @@ struct SerializableAccountStorageEntry {
 #define SerializableAccountStorageEntry_align 8
 
 void SerializableAccountStorageEntry_decode(FD_FN_UNUSED struct SerializableAccountStorageEntry* self, FD_FN_UNUSED const void** data, FD_FN_UNUSED const void* dataend, FD_FN_UNUSED alloc_fun allocf, FD_FN_UNUSED void* allocf_arg) {
+  fd_bincode_uint64_decode(&self->id, data, dataend);
+  fd_bincode_uint64_decode(&self->accounts_current_len, data, dataend);
 }
   
 struct BankHashStats {
@@ -711,6 +710,11 @@ struct BankHashStats {
 #define BankHashStats_align 8
 
 void BankHashStats_decode(FD_FN_UNUSED struct BankHashStats* self, FD_FN_UNUSED const void** data, FD_FN_UNUSED const void* dataend, FD_FN_UNUSED alloc_fun allocf, FD_FN_UNUSED void* allocf_arg) {
+  fd_bincode_uint64_decode(&self->num_updated_accounts, data, dataend);
+  fd_bincode_uint64_decode(&self->num_removed_accounts, data, dataend);
+  fd_bincode_uint64_decode(&self->num_lamports_stored, data, dataend);
+  fd_bincode_uint64_decode(&self->total_data_len, data, dataend);
+  fd_bincode_uint64_decode(&self->num_executable_accounts, data, dataend);
 }
   
 struct BankHashInfo {
@@ -722,6 +726,9 @@ struct BankHashInfo {
 #define BankHashInfo_align 8
 
 void BankHashInfo_decode(FD_FN_UNUSED struct BankHashInfo* self, FD_FN_UNUSED const void** data, FD_FN_UNUSED const void* dataend, FD_FN_UNUSED alloc_fun allocf, FD_FN_UNUSED void* allocf_arg) {
+  Hash_decode(&self->hash, data, dataend, allocf, allocf_arg);
+  Hash_decode(&self->snapshot_hash, data, dataend, allocf, allocf_arg);
+  BankHashStats_decode(&self->stats, data, dataend, allocf, allocf_arg);
 }
 
 struct SlotAccountPair {
@@ -733,6 +740,14 @@ struct SlotAccountPair {
 #define SlotAccountPair_align 8
 
 void SlotAccountPair_decode(FD_FN_UNUSED struct SlotAccountPair* self, FD_FN_UNUSED const void** data, FD_FN_UNUSED const void* dataend, FD_FN_UNUSED alloc_fun allocf, FD_FN_UNUSED void* allocf_arg) {
+  fd_bincode_uint64_decode(&self->slot, data, dataend);
+  fd_bincode_uint64_decode(&self->accounts_len, data, dataend);
+  if (self->accounts_len > 0) {
+    self->accounts = (struct SerializableAccountStorageEntry*)(*allocf)(SerializableAccountStorageEntry_footprint*self->accounts_len, SerializableAccountStorageEntry_align, allocf_arg);
+    for (unsigned long i = 0; i < self->accounts_len; ++i)
+      SerializableAccountStorageEntry_decode(self->accounts + i, data, dataend, allocf, allocf_arg);
+  } else
+    self->accounts = NULL;
 }
 
 struct SlotMapPair {
@@ -743,6 +758,8 @@ struct SlotMapPair {
 #define SlotMapPair_align 8
 
 void SlotMapPair_decode(FD_FN_UNUSED struct SlotMapPair* self, FD_FN_UNUSED const void** data, FD_FN_UNUSED const void* dataend, FD_FN_UNUSED alloc_fun allocf, FD_FN_UNUSED void* allocf_arg) {
+  fd_bincode_uint64_decode(&self->slot, data, dataend);
+  Hash_decode(&self->hash, data, dataend, allocf, allocf_arg);
 }
   
 struct AccountsDbFields {
@@ -760,4 +777,29 @@ struct AccountsDbFields {
 #define AccountsDbFields_align 8
 
 void AccountsDbFields_decode(FD_FN_UNUSED struct AccountsDbFields* self, FD_FN_UNUSED const void** data, FD_FN_UNUSED const void* dataend, FD_FN_UNUSED alloc_fun allocf, FD_FN_UNUSED void* allocf_arg) {
+  fd_bincode_uint64_decode(&self->storages_len, data, dataend);
+  if (self->storages_len > 0) {
+    self->storages = (struct SlotAccountPair*)(*allocf)(SlotAccountPair_footprint*self->storages_len, SlotAccountPair_align, allocf_arg);
+    for (unsigned long i = 0; i < self->storages_len; ++i)
+      SlotAccountPair_decode(self->storages + i, data, dataend, allocf, allocf_arg);
+  } else
+    self->storages = NULL;
+
+  fd_bincode_uint64_decode(&self->version, data, dataend);
+  fd_bincode_uint64_decode(&self->slot, data, dataend);
+  BankHashInfo_decode(&self->bank_hash_info, data, dataend, allocf, allocf_arg);
+  fd_bincode_uint64_decode(&self->historical_roots_len, data, dataend);
+  if (self->historical_roots_len > 0) {
+    self->historical_roots = (unsigned long*)(*allocf)(sizeof(unsigned long)*self->historical_roots_len, 8, allocf_arg);
+    for (unsigned long i = 0; i < self->historical_roots_len; ++i)
+      fd_bincode_uint64_decode(self->historical_roots + i, data, dataend);
+  } else
+    self->historical_roots = NULL;
+  fd_bincode_uint64_decode(&self->historical_roots_with_hash_len, data, dataend);
+  if (self->historical_roots_with_hash_len > 0) {
+    self->historical_roots_with_hash = (struct SlotMapPair*)(*allocf)(SlotMapPair_footprint*self->historical_roots_with_hash_len, SlotMapPair_align, allocf_arg);
+    for (unsigned long i = 0; i < self->historical_roots_with_hash_len; ++i)
+      SlotMapPair_decode(self->historical_roots_with_hash + i, data, dataend, allocf, allocf_arg);
+  } else
+    self->historical_roots_with_hash = NULL;
 }
