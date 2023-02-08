@@ -13,6 +13,7 @@ fd_cc_library(
     ],
     deps = [
         "//src/ballet:base_lib",
+        "//src/ballet/ed25519",
     ],
 )
 

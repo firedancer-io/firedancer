@@ -213,8 +213,11 @@ void txn1_correctness( void ) {
   FD_TEST( counters.failure_cnt==0UL );
   FD_TEST( parsed->transaction_version == FD_TXN_VLEGACY );
   FD_TEST( parsed->signature_cnt == 4UL );
-  for( ulong j=0UL; j<parsed->signature_cnt; j++ )
+  fd_ed25519_sig_t const * sigs = fd_txn_get_signatures( parsed, transaction1 );
+  for( ulong j=0UL; j<parsed->signature_cnt; j++ ) {
     FD_TEST( transaction1[ parsed->signature_off + j*FD_TXN_SIGNATURE_SZ ]==first_sig_byte[ j ] );
+    FD_TEST( sigs[ j ][ 0 ]                                               ==first_sig_byte[ j ] );
+  }
   FD_TEST( parsed->message_off == parsed->signature_off + parsed->signature_cnt*FD_TXN_SIGNATURE_SZ );
   FD_TEST( parsed->readonly_signed_cnt   ==  1UL );
   FD_TEST( parsed->readonly_unsigned_cnt == 11UL );
@@ -256,8 +259,11 @@ void txn2_correctness( void ) {
   FD_TEST( counters.failure_cnt==0UL );
   FD_TEST( parsed->transaction_version == FD_TXN_V0 );
   FD_TEST( parsed->signature_cnt == 1UL );
-  for( ulong j=0UL; j<parsed->signature_cnt; j++ )
+  fd_ed25519_sig_t const * sigs = fd_txn_get_signatures( parsed, transaction2 );
+  for( ulong j=0UL; j<parsed->signature_cnt; j++ ) {
     FD_TEST( transaction2[ parsed->signature_off + j*FD_TXN_SIGNATURE_SZ ]==first_sig_byte[ j ] );
+    FD_TEST( sigs[ j ][ 0 ]                                               ==first_sig_byte[ j ] );
+  }
   FD_TEST( parsed->message_off == parsed->signature_off + parsed->signature_cnt*FD_TXN_SIGNATURE_SZ );
   FD_TEST( parsed->readonly_signed_cnt   == 0UL );
   FD_TEST( parsed->readonly_unsigned_cnt == 2UL );

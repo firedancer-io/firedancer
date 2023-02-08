@@ -87,7 +87,7 @@ fd_fseq_new( void * shmem,
              ulong  seq0 );
 
 /* fd_fseq_join joins the caller to the fseq.  shfseq points to the first
-   byte of the memory region backing the fseq in the caller's addresss
+   byte of the memory region backing the fseq in the caller's address
    space.  Returns a pointer in the local address space to the fseq on
    success (IMPORTANT! THIS SHOULD NOT BE ASSUMED TO BE JUST A CAST OF
    SHFSEQ) or NULL on failure (logs details).  Reasons for failure

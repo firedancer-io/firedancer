@@ -94,7 +94,7 @@ fd_mcache_new( void * shmem,
 
 /* fd_mcache_join joins the caller to the mcache.  shmcache points to
    the first byte of the memory region backing the mcache in the
-   caller's addresss space.
+   caller's address space.
 
    Returns a pointer in the local address space to the mcache's entries
    on success (IMPORTANT! THIS IS NOT JUST A CAST OF SHMCACHE) and NULL
@@ -119,7 +119,7 @@ fd_mcache_join( void * shmcache );
 
 void *
 fd_mcache_leave( fd_frag_meta_t const * mcache );
- 
+
 /* fd_mcache_delete unformats a memory region used as a mcache.  Assumes
    nobody is joined to the region.  Returns a pointer to the underlying
    shared memory region or NULL if used obviously in error (e.g.
