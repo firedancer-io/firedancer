@@ -3860,6 +3860,7 @@ fd_quic_frame_handle_ping_frame(
 
   return 0;
 }
+
 void
 fd_quic_reclaim_pkt_meta( fd_quic_conn_t *     conn,
                           fd_quic_pkt_meta_t * pkt_meta,
@@ -3882,7 +3883,6 @@ fd_quic_reclaim_pkt_meta( fd_quic_conn_t *     conn,
     if( FD_LIKELY( stream ) ) {
       fd_quic_range_t range = pkt_meta->range;
 
-      ulong tx_head = stream->tx_buf.head;
       ulong tx_tail = stream->tx_buf.tail;
       ulong tx_sent = stream->tx_sent;
 
@@ -3894,39 +3894,45 @@ fd_quic_reclaim_pkt_meta( fd_quic_conn_t *     conn,
       if( range.offset_hi < tx_sent ) {
         fd_quic_conn_error( conn, FD_QUIC_CONN_REASON_PROTOCOL_VIOLATION );
       } else {
-        /* set appropriate bits in tx_ack */
-        /* TODO optimize this */
-        ulong   tx_mask  = stream->tx_buf.cap - 1ul;
-        ulong   cnt      = range.offset_hi - range.offset_lo;
-        uchar * tx_ack   = stream->tx_ack;
-        for( ulong j = 0; j < cnt; ) {
-          ulong k = ( j + range.offset_lo ) & tx_mask;
-          if( ( k & 7 ) == 0 && j + 8 <= cnt ) {
-            /* set whole byte */
-            tx_ack[k>>3u] = 0xffu;
+        /* did they ack the first byte in the range? */
+        if( FD_LIKELY( range.offset_lo == tx_tail ) ) {
+          /* then simply move the tail up */
+          tx_tail = range.offset_hi;
+        } else {
+          /* set appropriate bits in tx_ack */
+          /* TODO optimize this */
+          ulong   tx_mask  = stream->tx_buf.cap - 1ul;
+          ulong   cnt      = range.offset_hi - range.offset_lo;
+          uchar * tx_ack   = stream->tx_ack;
+          for( ulong j = 0ul; j < cnt; ) {
+            ulong k = ( j + range.offset_lo ) & tx_mask;
+            if( ( k & 7ul ) == 0ul && j + 8ul <= cnt ) {
+              /* set whole byte */
+              tx_ack[k>>3ul] = 0xffu;
 
-            j += 8u;
-          } else {
-            /* compiler is not smart enough to know ( 1u << ( k & 7u ) ) fits in a uchar */
-            tx_ack[k>>3u] |= (uchar)( 1u << ( k & 7u ) );
-            j++;
+              j += 8ul;
+            } else {
+              /* compiler is not smart enough to know ( 1u << ( k & 7u ) ) fits in a uchar */
+              tx_ack[k>>3ul] |= (uchar)( 1ul << ( k & 7ul ) );
+              j++;
+            }
           }
-        }
 
-        /* determine whether tx_tail may be moved up */
-        for( ulong j = tx_tail; j < tx_sent; ) {
-          ulong k = j & tx_mask;
+          /* determine whether tx_tail may be moved up */
+          for( ulong j = tx_tail; j < tx_sent; ) {
+            ulong k = j & tx_mask;
 
-          /* can we skip a whole byte? */
-          if( ( k & 7 ) == 0 && j + 8 <= tx_sent && tx_ack[k>>3u] == 0xffu ) {
-            tx_ack[k>>3u] = 0ul;
-            tx_tail      += 8ul;
+            /* can we skip a whole byte? */
+            if( ( k & 7ul ) == 0ul && j + 8ul <= tx_sent && tx_ack[k>>3ul] == 0xffu ) {
+              tx_ack[k>>3ul] = 0u;
+              tx_tail       += 8ul;
 
-            j += 8u;
-          } else {
-            tx_ack[k>>3u] = (uchar)( tx_ack[k>>3u] & ~( 1u << ( k & 7 ) ) );
-            tx_tail++;
-            j++;
+              j += 8ul;
+            } else {
+              tx_ack[k>>3ul] = (uchar)( tx_ack[k>>3ul] & ~( 1u << ( k & 7u ) ) );
+              tx_tail++;
+              j++;
+            }
           }
         }
 
@@ -3934,8 +3940,6 @@ fd_quic_reclaim_pkt_meta( fd_quic_conn_t *     conn,
            max_data and max_stream_data, if necessary */
         if( tx_tail > stream->tx_buf.tail ) {
           stream->tx_buf.tail = tx_tail;
-          stream->tx_buf.head = tx_head;
-          stream->tx_sent     = tx_sent;
         }
 
         /* we could retransmit (timeout) the bytes which have not been acked (by implication) */
@@ -4001,9 +4005,9 @@ fd_quic_reclaim_pkt_meta( fd_quic_conn_t *     conn,
    applies to pkt_number in [largest_ack - first_ack_range, largest_ack] */
 void
 fd_quic_process_ack_range( fd_quic_conn_t * conn,
-                           uint         enc_level,
-                           ulong         largest_ack,
-                           ulong         first_ack_range ) {
+                           uint             enc_level,
+                           ulong            largest_ack,
+                           ulong            first_ack_range ) {
   /* loop thru all packet metadata, and process individual metadata */
 
   /* inclusive range */
