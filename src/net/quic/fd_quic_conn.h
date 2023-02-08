@@ -125,9 +125,9 @@ struct fd_quic_conn {
   int                established;        /* used by clients to determine whether to
                                             switch the destination conn id used */
 
-  uint           version;            /* QUIC version of the connection */
+  uint               version;            /* QUIC version of the connection */
 
-  ulong           next_service_time;  /* time service should be called next */
+  ulong              next_service_time;  /* time service should be called next */
 
   fd_quic_host_cfg_t host;               /* host configuration */
 
@@ -174,8 +174,8 @@ struct fd_quic_conn {
   fd_quic_crypto_keys_t    keys[4][2]; /* a set of keys for each of the encoding levels, and for client/server */
   fd_quic_crypto_suite_t * suites[4];
 
-  ulong             tot_num_streams;
-  fd_quic_stream_t * streams;
+  ulong                    tot_num_streams;
+  fd_quic_stream_t **      streams;         /* array of stream pointers */
 
   /* packet number info
      each encryption level maps to a packet number space
@@ -197,9 +197,13 @@ struct fd_quic_conn {
   uchar frame_scratch[2048];
 
   /* buffer to send next */
+  /* rename tx_buf, since it's easy to confuse with stream->tx_buf */
   uchar   tx_buf[2048];
   uchar * tx_ptr; /* ptr to free space in tx_scratch */
-  ulong  tx_sz;  /* sz remaining at ptr */
+  ulong   tx_sz;  /* sz remaining at ptr */
+
+  ulong   stream_tx_buf_sz; /* size of per-stream tx buffer */
+  ulong   stream_rx_buf_sz; /* size of per-stream rx buffer */
 
   /* the peer transport parameters */
   fd_quic_transport_params_t peer_transport_params;
