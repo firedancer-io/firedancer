@@ -79,9 +79,16 @@ main( int     argc,
   FD_LOG_NOTICE((  "Test fd_log_flush" ));
   fd_log_flush();
 
-  /* Ensure FD_TEST doesn't interpret line as a format string */
+  /* Ensure FD_TEST doesn't interpret line as a format string.  Note
+     strict clang compiles don't permit implicit conversion of a cstr to
+     a logical so we avoid those tests if FD_USING_CLANG.  Arguably, we
+     could do !!"foo" here instead but that in some sense defeats the
+     point of these tests. */
+
+# if !FD_USING_CLANG
   FD_TEST( "%n %n %n %n %n %n %n %n %n %n %n %n %n" );
   FD_TEST( "\"\\\"" );
+# endif
 
   /* Cancelling log messages */
   if( !volatile_yes ) FD_LOG_ERR((     "Test ERR          (warning+exit program with error 1)"     ));
