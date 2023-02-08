@@ -11,6 +11,9 @@
 // Smallest unit of disk allocation
 #define FD_FUNK_MINIBLOCK_SIZE 512
 
+// Control block size
+#define FD_FUNK_CONTROL_SIZE (64UL<<10)
+
 // Starting size of master index
 #define FD_FUNK_INDEX_START_SIZE (1UL<<13)
 
@@ -227,6 +230,21 @@ struct fd_funk_control_entry {
 #define FD_FUNK_CONTROL_NORMAL 1 // Control entry for a normal record
 };
 
+struct fd_funk_control_mini {
+    struct fd_funk_control_entry entries[FD_FUNK_MINIBLOCK_SIZE/sizeof(struct fd_funk_control_entry)];
+    // Pointer to next control block. Only used in last mini in a
+    // control block. Zero terminated.
+    ulong next_control;
+};
+
+struct fd_funk_control {
+    // Make sure control entries don't cross block boundaries
+    struct {
+        struct fd_funk_control_mini mini;
+        char pad[FD_FUNK_MINIBLOCK_SIZE - sizeof(struct fd_funk_control_mini)];
+    } minis[FD_FUNK_CONTROL_SIZE/FD_FUNK_MINIBLOCK_SIZE];
+};
+
 struct fd_funk {
     // Backing file descriptor
     int backingfd;
@@ -234,6 +252,8 @@ struct fd_funk {
     long backinglen;
     // Master index of finalized data
     struct fd_funk_index* index;
+    // Root transaction id
+    struct fd_funk_xactionid root;
 };
 
 void* fd_funk_new(void* mem,
@@ -254,6 +274,9 @@ void* fd_funk_new(void* mem,
   store->backinglen = statbuf.st_size;
 
   store->index = fd_funk_index_new(FD_FUNK_INDEX_START_SIZE);
+
+  // Root is all zeros
+  fd_memset(&store->root, 0, sizeof(store->root));
   
   return store;
 }
@@ -283,7 +306,9 @@ void* fd_funk_delete(void* mem) {
   return mem;
 }
 
-struct fd_funk_xactionid const* fd_funk_root(struct fd_funk* store);
+struct fd_funk_xactionid const* fd_funk_root(struct fd_funk* store) {
+  return &store->root;
+}
 
 void fd_funk_fork(struct fd_funk* store,
                   struct fd_funk_xactionid const* parent,
