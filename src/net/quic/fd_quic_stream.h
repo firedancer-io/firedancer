@@ -22,8 +22,26 @@ struct fd_quic_buffer {
 };
 typedef struct fd_quic_buffer fd_quic_buffer_t;
 
+
+/* buffer helper functions
+   fd_quic_buffer_used  returns bytes used in buffer
+   fd_quic_buffer_avail returns bytes available in buffer */
 #define fd_quic_buffer_used(  buf ) ( (buf)->head - (buf)->tail )
 #define fd_quic_buffer_avail( buf ) ( (buf)->cap - fd_quic_buffer_used(buf) )
+
+/* fd_quic_buffer_store
+   store data into cirular buffer */
+void
+fd_quic_buffer_store( fd_quic_buffer_t * buf,
+                      uchar const *      data,
+                      ulong              data_sz );
+
+/* fd_quic_buffer_load
+   load data from cirular buffer */
+void
+fd_quic_buffer_load( fd_quic_buffer_t * buf,
+                     uchar *            data,
+                     ulong              data_sz );
 
 /* forward */
 typedef struct fd_quic_conn fd_quic_conn_t;
