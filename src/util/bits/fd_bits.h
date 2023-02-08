@@ -42,6 +42,7 @@ FD_PROTOTYPES_BEGIN
 
    fd_ulong_blend      ( m, t, f    ) returns forms a ulong by selecting bits from t where m is 1 and from f where m is 0.
    fd_ulong_if         ( c, t, f    ) returns t if c is 1 and f if c is 0.  U.B. if c is not in {0,1}
+   fd_ulong_store_if   ( c, p, v    ) if c is non-zero, stores v to *p.  Otherwise does nothing.
    fd_ulong_abs        ( x          ) returns |x| as a ulong
    fd_ulong_min        ( x, y       ) returns min(x,y)
    fd_ulong_max        ( x, y       ) returns max(x,y)
@@ -80,41 +81,42 @@ FD_PROTOTYPES_BEGIN
    insert_msb, bitrev, sign, copysign, flipsign, rounding right shift,
    ... */
 
-#define FD_SRC_UTIL_BITS_FD_BITS_IMPL(T,w)                                                                                        \
-FD_FN_CONST static inline int fd_##T##_is_pow2     ( T x               ) { return (!!x) & (!(x & (x-(T)1)));                    } \
-FD_FN_CONST static inline T   fd_##T##_pow2        ( int n             ) { return (T)(((T)(n<w))<<(n&(w-1)));                   } \
-FD_FN_CONST static inline T   fd_##T##_mask_bit    ( int b             ) { return (T)(((T)1)<<b);                               } \
-FD_FN_CONST static inline T   fd_##T##_clear_bit   ( T x, int b        ) { return (T)(x & ~fd_##T##_mask_bit(b));               } \
-FD_FN_CONST static inline T   fd_##T##_set_bit     ( T x, int b        ) { return (T)(x |  fd_##T##_mask_bit(b));               } \
-FD_FN_CONST static inline T   fd_##T##_flip_bit    ( T x, int b        ) { return (T)(x ^  fd_##T##_mask_bit(b));               } \
-FD_FN_CONST static inline int fd_##T##_extract_bit ( T x, int b        ) { return (int)((x>>b) & (T)1);                         } \
-FD_FN_CONST static inline T   fd_##T##_insert_bit  ( T x, int b, int y ) { return (T)((x & ~fd_##T##_mask_bit(b))|(((T)y)<<b)); } \
-FD_FN_CONST static inline T   fd_##T##_mask_lsb    ( int n             ) { return (T)((((T)(n<w))<<(n&(w-1)))-((T)1));          } \
-FD_FN_CONST static inline T   fd_##T##_clear_lsb   ( T x, int n        ) { return (T)(x & ~fd_##T##_mask_lsb(n));               } \
-FD_FN_CONST static inline T   fd_##T##_set_lsb     ( T x, int n        ) { return (T)(x |  fd_##T##_mask_lsb(n));               } \
-FD_FN_CONST static inline T   fd_##T##_flip_lsb    ( T x, int n        ) { return (T)(x ^  fd_##T##_mask_lsb(n));               } \
-FD_FN_CONST static inline T   fd_##T##_extract_lsb ( T x, int n        ) { return (T)(x &  fd_##T##_mask_lsb(n));               } \
-FD_FN_CONST static inline T   fd_##T##_insert_lsb  ( T x, int n, T y   ) { return (T)(fd_##T##_clear_lsb(x,n) | y);             } \
-FD_FN_CONST static inline T   fd_##T##_mask        ( int l, int h      ) { return (T)( fd_##T##_mask_lsb(h-l+1) << l );         } \
-FD_FN_CONST static inline T   fd_##T##_clear       ( T x, int l, int h ) { return (T)(x & ~fd_##T##_mask(l,h));                 } \
-FD_FN_CONST static inline T   fd_##T##_set         ( T x, int l, int h ) { return (T)(x |  fd_##T##_mask(l,h));                 } \
-FD_FN_CONST static inline T   fd_##T##_flip        ( T x, int l, int h ) { return (T)(x ^  fd_##T##_mask(l,h));                 } \
-FD_FN_CONST static inline T   fd_##T##_extract     ( T x, int l, int h ) { return (T)( (x>>l) & fd_##T##_mask_lsb(h-l+1) );     } \
-FD_FN_CONST static inline T   fd_##T##_insert      ( T x, int l, int h, T y ) { return (T)(fd_##T##_clear(x,l,h) | (y<<l));     } \
-FD_FN_CONST static inline T   fd_##T##_pop_lsb     ( T x               ) { return (T)(x & (x-(T)1));                            } \
-FD_FN_CONST static inline int fd_##T##_is_aligned  ( T x, T a          ) { a--; return !(x & a);                                } \
-FD_FN_CONST static inline T   fd_##T##_alignment   ( T x, T a          ) { a--; return (T)( x    &  a);                         } \
-FD_FN_CONST static inline T   fd_##T##_align_dn    ( T x, T a          ) { a--; return (T)( x    & ~a);                         } \
-FD_FN_CONST static inline T   fd_##T##_align_up    ( T x, T a          ) { a--; return (T)((x+a) & ~a);                         } \
-FD_FN_CONST static inline T   fd_##T##_blend       ( T m, T t, T f     ) { return (T)((t & m) | (f & ~m));                      } \
-FD_FN_CONST static inline T   fd_##T##_if          ( int c, T t, T f   ) { return c ? t : f;     /* cmov */                     } \
-FD_FN_CONST static inline T   fd_##T##_abs         ( T x               ) { return x;                                            } \
-FD_FN_CONST static inline T   fd_##T##_min         ( T x, T y          ) { return (x<y) ? x : y; /* cmov */                     } \
-FD_FN_CONST static inline T   fd_##T##_max         ( T x, T y          ) { return (x>y) ? x : y; /* cmov */                     } \
-FD_FN_CONST static inline T   fd_##T##_shift_left  ( T x, int n        ) { return (T)(((n>(w-1)) ? ((T)0) : x) << (n&(w-1)));   } \
-FD_FN_CONST static inline T   fd_##T##_shift_right ( T x, int n        ) { return (T)(((n>(w-1)) ? ((T)0) : x) >> (n&(w-1)));   } \
-FD_FN_CONST static inline T   fd_##T##_rotate_left ( T x, int n        ) { return (T)((x << (n&(w-1))) | (x >> ((-n)&(w-1))));  } \
-FD_FN_CONST static inline T   fd_##T##_rotate_right( T x, int n        ) { return (T)((x >> (n&(w-1))) | (x << ((-n)&(w-1))));  }
+#define FD_SRC_UTIL_BITS_FD_BITS_IMPL(T,w)                                                                                         \
+FD_FN_CONST static inline int  fd_##T##_is_pow2     ( T x               ) { return (!!x) & (!(x & (x-(T)1)));                    } \
+FD_FN_CONST static inline T    fd_##T##_pow2        ( int n             ) { return (T)(((T)(n<w))<<(n&(w-1)));                   } \
+FD_FN_CONST static inline T    fd_##T##_mask_bit    ( int b             ) { return (T)(((T)1)<<b);                               } \
+FD_FN_CONST static inline T    fd_##T##_clear_bit   ( T x, int b        ) { return (T)(x & ~fd_##T##_mask_bit(b));               } \
+FD_FN_CONST static inline T    fd_##T##_set_bit     ( T x, int b        ) { return (T)(x |  fd_##T##_mask_bit(b));               } \
+FD_FN_CONST static inline T    fd_##T##_flip_bit    ( T x, int b        ) { return (T)(x ^  fd_##T##_mask_bit(b));               } \
+FD_FN_CONST static inline int  fd_##T##_extract_bit ( T x, int b        ) { return (int)((x>>b) & (T)1);                         } \
+FD_FN_CONST static inline T    fd_##T##_insert_bit  ( T x, int b, int y ) { return (T)((x & ~fd_##T##_mask_bit(b))|(((T)y)<<b)); } \
+FD_FN_CONST static inline T    fd_##T##_mask_lsb    ( int n             ) { return (T)((((T)(n<w))<<(n&(w-1)))-((T)1));          } \
+FD_FN_CONST static inline T    fd_##T##_clear_lsb   ( T x, int n        ) { return (T)(x & ~fd_##T##_mask_lsb(n));               } \
+FD_FN_CONST static inline T    fd_##T##_set_lsb     ( T x, int n        ) { return (T)(x |  fd_##T##_mask_lsb(n));               } \
+FD_FN_CONST static inline T    fd_##T##_flip_lsb    ( T x, int n        ) { return (T)(x ^  fd_##T##_mask_lsb(n));               } \
+FD_FN_CONST static inline T    fd_##T##_extract_lsb ( T x, int n        ) { return (T)(x &  fd_##T##_mask_lsb(n));               } \
+FD_FN_CONST static inline T    fd_##T##_insert_lsb  ( T x, int n, T y   ) { return (T)(fd_##T##_clear_lsb(x,n) | y);             } \
+FD_FN_CONST static inline T    fd_##T##_mask        ( int l, int h      ) { return (T)( fd_##T##_mask_lsb(h-l+1) << l );         } \
+FD_FN_CONST static inline T    fd_##T##_clear       ( T x, int l, int h ) { return (T)(x & ~fd_##T##_mask(l,h));                 } \
+FD_FN_CONST static inline T    fd_##T##_set         ( T x, int l, int h ) { return (T)(x |  fd_##T##_mask(l,h));                 } \
+FD_FN_CONST static inline T    fd_##T##_flip        ( T x, int l, int h ) { return (T)(x ^  fd_##T##_mask(l,h));                 } \
+FD_FN_CONST static inline T    fd_##T##_extract     ( T x, int l, int h ) { return (T)( (x>>l) & fd_##T##_mask_lsb(h-l+1) );     } \
+FD_FN_CONST static inline T    fd_##T##_insert      ( T x, int l, int h, T y ) { return (T)(fd_##T##_clear(x,l,h) | (y<<l));     } \
+FD_FN_CONST static inline T    fd_##T##_pop_lsb     ( T x               ) { return (T)(x & (x-(T)1));                            } \
+FD_FN_CONST static inline int  fd_##T##_is_aligned  ( T x, T a          ) { a--; return !(x & a);                                } \
+FD_FN_CONST static inline T    fd_##T##_alignment   ( T x, T a          ) { a--; return (T)( x    &  a);                         } \
+FD_FN_CONST static inline T    fd_##T##_align_dn    ( T x, T a          ) { a--; return (T)( x    & ~a);                         } \
+FD_FN_CONST static inline T    fd_##T##_align_up    ( T x, T a          ) { a--; return (T)((x+a) & ~a);                         } \
+FD_FN_CONST static inline T    fd_##T##_blend       ( T m, T t, T f     ) { return (T)((t & m) | (f & ~m));                      } \
+FD_FN_CONST static inline T    fd_##T##_if          ( int c, T t, T f   ) { return c ? t : f;     /* cmov */                     } \
+/*       */ static inline void fd_##T##_store_if    ( int c, T * p, T v ) { T _[ 1 ]; *( c ? p : _ ) = v; /* cmov */             } \
+FD_FN_CONST static inline T    fd_##T##_abs         ( T x               ) { return x;                                            } \
+FD_FN_CONST static inline T    fd_##T##_min         ( T x, T y          ) { return (x<y) ? x : y; /* cmov */                     } \
+FD_FN_CONST static inline T    fd_##T##_max         ( T x, T y          ) { return (x>y) ? x : y; /* cmov */                     } \
+FD_FN_CONST static inline T    fd_##T##_shift_left  ( T x, int n        ) { return (T)(((n>(w-1)) ? ((T)0) : x) << (n&(w-1)));   } \
+FD_FN_CONST static inline T    fd_##T##_shift_right ( T x, int n        ) { return (T)(((n>(w-1)) ? ((T)0) : x) >> (n&(w-1)));   } \
+FD_FN_CONST static inline T    fd_##T##_rotate_left ( T x, int n        ) { return (T)((x << (n&(w-1))) | (x >> ((-n)&(w-1))));  } \
+FD_FN_CONST static inline T    fd_##T##_rotate_right( T x, int n        ) { return (T)((x >> (n&(w-1))) | (x << ((-n)&(w-1))));  }
 
 FD_SRC_UTIL_BITS_FD_BITS_IMPL(uchar,  8)
 FD_SRC_UTIL_BITS_FD_BITS_IMPL(ushort,16)
@@ -245,17 +247,18 @@ fd_uint128_pow2_up( uint128 x ) {
    FD_FN_CONST static inline UT fd_##T##_zz_enc( T x ) { UT u = (UT)x; return (UT)((-(u>>(w-1))) ^ (u<<1)); }
 */
 
-#define FD_SRC_UTIL_BITS_FD_BITS_IMPL(T,UT,w)                                                                                  \
-FD_FN_CONST static inline T  fd_##T##_if          ( int c, T t, T f ) { return c ? t : f;      /* cmov */ }                    \
-FD_FN_CONST static inline UT fd_##T##_abs         ( T x             ) { UT m = (UT)(x >> (w-1)); return (UT)((((UT)x)+m)^m); } \
-FD_FN_CONST static inline T  fd_##T##_min         ( T x, T y        ) { return (x<=y) ? x : y; /* cmov */ }                    \
-FD_FN_CONST static inline T  fd_##T##_max         ( T x, T y        ) { return (x>=y) ? x : y; /* cmov */ }                    \
-FD_FN_CONST static inline T  fd_##T##_shift_left  ( T x, int n      ) { return (T)fd_##UT##_shift_left  ( (UT)x, n ); }        \
-FD_FN_CONST static inline T  fd_##T##_shift_right ( T x, int n      ) { return (T)(x >> ((n>(w-1)) ? (w-1) : n)); /* cmov */ } \
-FD_FN_CONST static inline T  fd_##T##_rotate_left ( T x, int n      ) { return (T)fd_##UT##_rotate_left ( (UT)x, n ); }        \
-FD_FN_CONST static inline T  fd_##T##_rotate_right( T x, int n      ) { return (T)fd_##UT##_rotate_right( (UT)x, n ); }        \
-FD_FN_CONST static inline UT fd_##T##_zz_enc      ( T x             ) { return (UT)(((UT)(x>>(w-1))) ^ (((UT)x)<<1)); }        \
-FD_FN_CONST static inline T  fd_##T##_zz_dec      ( UT x            ) { return (T)((x>>1) ^ (-(x & (UT)1))); }
+#define FD_SRC_UTIL_BITS_FD_BITS_IMPL(T,UT,w)                                                                                    \
+FD_FN_CONST static inline T    fd_##T##_if          ( int c, T t, T f ) { return c ? t : f;      /* cmov */ }                    \
+/*       */ static inline void fd_##T##_store_if    ( int c, T * p, T v ) { T _[ 1 ]; *( c ? p : _ ) = v; /* cmov */           } \
+FD_FN_CONST static inline UT   fd_##T##_abs         ( T x             ) { UT m = (UT)(x >> (w-1)); return (UT)((((UT)x)+m)^m); } \
+FD_FN_CONST static inline T    fd_##T##_min         ( T x, T y        ) { return (x<=y) ? x : y; /* cmov */ }                    \
+FD_FN_CONST static inline T    fd_##T##_max         ( T x, T y        ) { return (x>=y) ? x : y; /* cmov */ }                    \
+FD_FN_CONST static inline T    fd_##T##_shift_left  ( T x, int n      ) { return (T)fd_##UT##_shift_left  ( (UT)x, n ); }        \
+FD_FN_CONST static inline T    fd_##T##_shift_right ( T x, int n      ) { return (T)(x >> ((n>(w-1)) ? (w-1) : n)); /* cmov */ } \
+FD_FN_CONST static inline T    fd_##T##_rotate_left ( T x, int n      ) { return (T)fd_##UT##_rotate_left ( (UT)x, n ); }        \
+FD_FN_CONST static inline T    fd_##T##_rotate_right( T x, int n      ) { return (T)fd_##UT##_rotate_right( (UT)x, n ); }        \
+FD_FN_CONST static inline UT   fd_##T##_zz_enc      ( T x             ) { return (UT)(((UT)(x>>(w-1))) ^ (((UT)x)<<1)); }        \
+FD_FN_CONST static inline T    fd_##T##_zz_dec      ( UT x            ) { return (T)((x>>1) ^ (-(x & (UT)1))); }
 
 FD_SRC_UTIL_BITS_FD_BITS_IMPL(schar, uchar,    8)
 FD_SRC_UTIL_BITS_FD_BITS_IMPL(short, ushort,  16)
@@ -359,15 +362,16 @@ FD_SRC_UTIL_BITS_FD_BITS_IMPL(ulong, 20UL) /* 18446744073709551615 -> 20 dig */
 
 #undef FD_SRC_UTIL_BITS_FD_BITS_IMPL
 
-/* fd_float_if, fd_float_abs are described above.  Ideally, the system
-   will implement fd_float_abs by just clearing the sign bit.
-   fd_float_eq tests to floating point values for whether or not their
-   bit representations are identical.  Useful when IEEE handling of
-   equality with +/-0 or nan are not desired (e.g. can test if nans have
-   different signs or syndromes). */
+/* fd_float_if, fd_float_store_if, fd_float_abs are described above.
+   Ideally, the system will implement fd_float_abs by just clearing the
+   sign bit.  fd_float_eq tests to floating point values for whether or
+   not their bit representations are identical.  Useful when IEEE
+   handling of equality with +/-0 or nan are not desired (e.g. can test
+   if nans have different signs or syndromes). */
 
-FD_FN_CONST static inline float fd_float_if ( int c, float t, float f ) { return c ? t : f; }
-FD_FN_CONST static inline float fd_float_abs( float x ) { return __builtin_fabsf( x ); }
+FD_FN_CONST static inline float fd_float_if      ( int c, float   t, float f ) { return c ? t : f; }
+/*       */ static inline void  fd_float_store_if( int c, float * p, float v ) { float _[ 1 ]; *( c ? p : _ ) = v; }
+FD_FN_CONST static inline float fd_float_abs     ( float x ) { return __builtin_fabsf( x ); }
 FD_FN_CONST static inline int
 fd_float_eq( float x,
              float y ) {
@@ -377,12 +381,13 @@ fd_float_eq( float x,
   return tx.u==ty.u;
 }
 
-/* fd_double_if, fd_double_abs and fd_double_eq are double precision
-   versions of the above. */
+/* fd_double_if, fd_double_store_if, fd_double_abs and fd_double_eq are
+   double precision versions of the above. */
 
 #if FD_HAS_DOUBLE
-FD_FN_CONST static inline double fd_double_if ( int c, double t, double f ) { return c ? t : f; }
-FD_FN_CONST static inline double fd_double_abs( double x ) { return __builtin_fabs( x ); }
+FD_FN_CONST static inline double fd_double_if      ( int c, double   t, double f ) { return c ? t : f; }
+/*       */ static inline void   fd_double_store_if( int c, double * p, double v ) { double _[ 1 ]; *( c ? p : _ ) = v; }
+FD_FN_CONST static inline double fd_double_abs     ( double x ) { return __builtin_fabs( x ); }
 FD_FN_CONST static inline int
 fd_double_eq( double x,
               double y ) {
