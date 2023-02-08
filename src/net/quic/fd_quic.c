@@ -652,60 +652,28 @@ fd_quic_stream_send( fd_quic_stream_t * stream,
     return -2;
   }
 
-  /* do we have space to buffer data? */
-  /* see fd_quic_stream.h for invariants */
-  uchar * buf   = tx_buf->buf;
-  ulong   cap   = tx_buf->cap;
-  ulong   mask  = cap - 1ul;
-  ulong   head  = tx_buf->head;
-  ulong   tail  = tx_buf->tail;
-  ulong   used  = head - tail;
-  ulong   free  = cap - used;
-  ulong   mtail = tail & mask;
-
   int buffers_queued = 0;
 
+  /* visit each buffer in batch and store in tx_buf if there is sufficient
+     space */
   for( ulong j = 0; j < batch_sz; ++j ) {
     ulong         data_sz = batch[j].data_sz;
     uchar const * data    = batch[j].data;
 
-    if( data_sz > free ) {
+    if( data_sz > fd_quic_buffer_avail( tx_buf ) ) {
       break;
     }
 
-    ulong mhead = head & mask;
-
-    /* two cases:
-         1. data fits within  free contiguous space at m_head
-         2. data must be split
-
-       used is in [tail,head) */
-
-    if( mhead >= mtail ) {
-      /* free space split */
-      ulong end_sz = cap - mhead;
-      if( data_sz <= end_sz ) {
-        /* fits entirely into space at end of buffer */
-        fd_memcpy( buf + mhead, data, data_sz );
-      } else {
-        /* must split between front and end of buffer */
-        fd_memcpy( buf + mhead, data,          end_sz );
-        fd_memcpy( buf,         data + end_sz, data_sz - end_sz );
-      }
-    } else {
-      /* contiguous space */
-      fd_memcpy( buf + mhead, data, data_sz );
-    }
+    /* store data from data into tx_buf
+       this stores, but does not move the head offset */
+    fd_quic_buffer_store( tx_buf, data, data_sz );
 
     /* advance head */
-    head += data_sz;
+    tx_buf->head += data_sz;
 
     /* account for buffers sent/queued */
     buffers_queued++;
   }
-
-  /* update struct with local value */
-  tx_buf->head = head;
 
   /* attempt to send */
   fd_quic_conn_tx( stream->conn->quic, stream->conn );
@@ -3066,36 +3034,12 @@ fd_quic_conn_tx( fd_quic_t * quic, fd_quic_conn_t * conn ) {
               /* copy buffered data (tx_buf) into tx data (payload_ptr) */
               fd_quic_buffer_t * tx_buf = &stream->tx_buf;
 
-              uchar * buf   = tx_buf->buf;
-              ulong   cap   = tx_buf->cap;
-              ulong   mask  = cap - 1ul;
-              ulong   head  = tx_buf->head;
-              ulong   tail  = tx_buf->tail;
-              ulong   mtail = tail & mask;
-              ulong   mhead = head & mask;
+              /* load data from tx_buf into payload_ptr
+                 data_sz was already adjusted to fit
+                 this loads but does not adjust tail pointer (consume) */
+              fd_quic_buffer_load( tx_buf, payload_ptr, data_sz );
 
-              /* two cases:
-                   1. data fits within free contiguous space at m_tail
-                   2. data is split
-
-                 used is in [tail,head) */
-
-              if( mtail >= mhead ) {
-                /* free space split */
-                ulong end_sz = cap - mhead;
-                if( data_sz <= end_sz ) {
-                  /* consists entirely of space at end of buffer */
-                  fd_memcpy( payload_ptr, buf + mtail, data_sz );
-                } else {
-                  /* split between front and end of buffer */
-                  fd_memcpy( payload_ptr,          buf + mtail, end_sz );
-                  fd_memcpy( payload_ptr + end_sz, buf,         data_sz - end_sz );
-                }
-              } else {
-                /* contiguous data */
-                fd_memcpy( payload_ptr, buf + mtail, data_sz );
-              }
-
+              /* adjust ptr and size */
               payload_ptr  += data_sz;
               tot_frame_sz += data_sz;
 
@@ -3993,7 +3937,7 @@ fd_quic_reclaim_pkt_meta( fd_quic_conn_t *     conn,
         conn->acks_tx[enc_level] = cur_ack->next;
 
         /* add to free list */
-        cur_ack->next  = conn->acks_free;
+        cur_ack->next   = conn->acks_free;
         conn->acks_free = cur_ack;
       }
     }
@@ -4205,25 +4149,17 @@ fd_quic_frame_handle_stream_frame(
   (void)p;
   (void)p_sz;
 
-  DEBUG(
-      printf( "%s : fd_quic_frame_handle_stream_frame\n  **** ", __func__ );
-      for( ulong j = 0; j < p_sz; ++j ) {
-        printf( "%2.2x ", (uint)p[j] );
-      }
-      printf( "\n" );
-    )
-
   fd_quic_frame_context_t context = *(fd_quic_frame_context_t*)vp_context;
 
   /* ack-eliciting */
   context.pkt->ack_flag |= ACK_FLAG_RQD;
 
   /* offset field is optional, implied 0 */
-  ulong   offset    = data->offset_opt ? data->offset : 0;
+  ulong offset    = data->offset_opt ? data->offset : 0;
   ulong stream_id = data->stream_id;
-  uint type      = stream_id & 0x03u;
+  uint  type      = stream_id & 0x03u;
 
-  ulong   data_sz   = data->length_opt ? data->length : p_sz;
+  ulong data_sz   = data->length_opt ? data->length : p_sz;
 
   /* find stream */
   fd_quic_stream_t *  stream = NULL;

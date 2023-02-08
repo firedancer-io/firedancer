@@ -1,5 +1,91 @@
 #include "fd_quic_stream.h"
 
+/* buffer helper functions */
+/* fd_quic_buffer_store
+   store data into cirular buffer */
+void
+fd_quic_buffer_store( fd_quic_buffer_t * buf,
+                      uchar const *      data,
+                      ulong              data_sz ) {
+  /* do we have space to buffer data? */
+  /* see fd_quic_stream.h for invariants */
+  uchar * raw   = buf->buf;
+  ulong   cap   = buf->cap;
+  ulong   mask  = cap - 1ul;
+  ulong   head  = buf->head;
+  ulong   tail  = buf->tail;
+  ulong   used  = head - tail;
+  ulong   free  = cap - used;
+  ulong   mtail = tail & mask;
+  ulong   mhead = head & mask;
+
+  /* not enough room */
+  if( data_sz > free ) {
+    return;
+  }
+
+  /* two cases:
+       1. data fits within  free contiguous space at m_head
+       2. data must be split
+
+     used is in [tail,head) */
+
+  if( mhead >= mtail ) {
+    /* free space split */
+    ulong end_sz = cap - mhead;
+    if( data_sz <= end_sz ) {
+      /* fits entirely into space at end of buffer */
+      fd_memcpy( raw + mhead, data, data_sz );
+    } else {
+      /* must split between front and end of buffer */
+      fd_memcpy( raw + mhead, data,          end_sz );
+      fd_memcpy( raw,         data + end_sz, data_sz - end_sz );
+    }
+  } else {
+    /* contiguous space */
+    fd_memcpy( raw + mhead, data, data_sz );
+  }
+
+}
+
+/* fd_quic_buffer_load
+   load data from cirular buffer */
+void
+fd_quic_buffer_load( fd_quic_buffer_t * buf,
+                     uchar *            data,
+                     ulong              data_sz ) {
+  uchar * raw   = buf->buf;
+  ulong   cap   = buf->cap;
+  ulong   mask  = cap - 1ul;
+  ulong   head  = buf->head;
+  ulong   tail  = buf->tail;
+  ulong   mtail = tail & mask;
+  ulong   mhead = head & mask;
+
+  /* two cases:
+     1. data fits within free contiguous space at m_tail
+     2. data is split
+
+     used is in [tail,head) */
+
+  if( mtail >= mhead ) {
+    /* free space split */
+    ulong end_sz = cap - mhead;
+    if( data_sz <= end_sz ) {
+      /* consists entirely of space at end of buffer */
+      fd_memcpy( data, raw + mtail, data_sz );
+    } else {
+      /* split between front and end of buffer */
+      fd_memcpy( data,          raw + mtail, end_sz );
+      fd_memcpy( data + end_sz, raw,         data_sz - end_sz );
+    }
+  } else {
+    /* contiguous data */
+    fd_memcpy( data, raw + mtail, data_sz );
+  }
+}
+
+
 extern
 ulong
 fd_quic_stream_align();
