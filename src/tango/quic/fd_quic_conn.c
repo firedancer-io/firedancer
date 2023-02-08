@@ -1,6 +1,6 @@
 #include "fd_quic_conn.h"
-
 #include "fd_quic_common.h"
+#include "../../util/fd_util.h"
 
 ulong
 fd_quic_conn_align() {
@@ -12,13 +12,27 @@ fd_quic_conn_align() {
 
 ulong
 fd_quic_conn_footprint( fd_quic_config_t const * config ) {
+  /* use same stream data for each kind of stream
+     TODO update this to use minimal required space
+     TODO or possibly a per-connection limit rather than a per-stream */
+  ulong stream_data = config->transport_params->initial_max_stream_data_uni;
+  stream_data = fd_ulong_max( stream_data, config->transport_params->initial_max_stream_data_bidi_remote );
+  stream_data = fd_ulong_max( stream_data, config->transport_params->initial_max_stream_data_bidi_local );
+  ulong tx_buf_sz = config->tx_buf_sz;
+  ulong rx_buf_sz = stream_data;
+
   ulong imem  = 0;
   ulong align = fd_quic_conn_align();
 
   imem += FD_QUIC_POW2_ALIGN( sizeof( fd_quic_conn_t ), align );
 
   ulong tot_num_streams = 4 * config->max_concur_streams;
-  imem += FD_QUIC_POW2_ALIGN( tot_num_streams * fd_quic_stream_footprint(), align );
+
+  /* space for the array of stream pointers */
+  imem += FD_QUIC_POW2_ALIGN( tot_num_streams * sizeof(void*), align );
+
+  /* space for stream instances */
+  imem += FD_QUIC_POW2_ALIGN( tot_num_streams * fd_quic_stream_footprint( tx_buf_sz, rx_buf_sz ), align );
 
   ulong num_pkt_meta = config->max_in_flight_pkts;
   imem += FD_QUIC_POW2_ALIGN( num_pkt_meta * sizeof( fd_quic_pkt_meta_t ), align );
@@ -31,32 +45,44 @@ fd_quic_conn_footprint( fd_quic_config_t const * config ) {
 
 fd_quic_conn_t *
 fd_quic_conn_new( void * mem, fd_quic_t * quic, fd_quic_config_t const * config ) {
+  /* use same stream data for each kind of stream
+     TODO update this to use minimal required space
+     TODO or possibly a per-connection limit rather than a per-stream */
+  ulong stream_data = config->transport_params->initial_max_stream_data_uni;
+  stream_data     = fd_ulong_max( stream_data, config->transport_params->initial_max_stream_data_bidi_remote );
+  stream_data     = fd_ulong_max( stream_data, config->transport_params->initial_max_stream_data_bidi_local );
+  ulong tx_buf_sz = config->tx_buf_sz;
+  ulong rx_buf_sz = stream_data;
+
   ulong imem      = (ulong)mem;
   ulong align     = fd_quic_conn_align();
 
   fd_quic_conn_t * conn = (fd_quic_conn_t*)imem;
 
   fd_memset( conn, 0, sizeof( fd_quic_conn_t ) );
-  conn->quic = quic;
+  conn->quic             = quic;
+  conn->stream_tx_buf_sz = tx_buf_sz;
+  conn->stream_rx_buf_sz = rx_buf_sz;
 
   imem += FD_QUIC_POW2_ALIGN( sizeof( fd_quic_conn_t ), align );
 
   /* allocate streams */
-  conn->streams = (fd_quic_stream_t*)imem;
 
-  /* initialize streams here
-     max_concur_streams is per-type, and there are 4 types */
-  conn->tot_num_streams = 4 * config->max_concur_streams;
-  fd_memset( conn->streams, 0, conn->tot_num_streams * fd_quic_stream_footprint() );
+  /* max_concur_streams is per-type, and there are 4 types */
+  ulong tot_num_streams = 4 * config->max_concur_streams;
+  conn->tot_num_streams = tot_num_streams;
 
-  /* NOTE: fd_quic_stream_footprint() == sizeof( fd_quic_stream_t )
-     conn->stream is simply an array of fd_quic_stream_t */
+  /* space for the array of stream pointers */
+  conn->streams = (fd_quic_stream_t**)imem;
+  imem += FD_QUIC_POW2_ALIGN( tot_num_streams * sizeof(void*), align );
+
+  /* initialize each stream */
+  ulong stream_footprint = fd_quic_stream_footprint( tx_buf_sz, rx_buf_sz );
   for( ulong j = 0; j < conn->tot_num_streams; ++j ) {
-    conn->streams[j].stream_id = ~conn->streams[j].stream_id;
-    conn->streams[j].conn      = conn;
-  }
+    conn->streams[j] = fd_quic_stream_new( (void*)imem, conn, tx_buf_sz, rx_buf_sz );
 
-  imem += FD_QUIC_POW2_ALIGN( conn->tot_num_streams * fd_quic_stream_footprint(), align );
+    imem += stream_footprint;
+  }
 
   /* allocate pkt_meta_t */
   fd_quic_pkt_meta_t * pkt_meta = (fd_quic_pkt_meta_t*)imem;

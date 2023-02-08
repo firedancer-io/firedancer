@@ -146,6 +146,8 @@ struct fd_quic_config {
   uchar                        dscp;                   /* differentiated services code point */
                                                        /* set on all IPV4 tx packets */
 
+  ulong                        tx_buf_sz;              /* the size of the per-stream transmit buffer */
+
   /* callbacks */
   fd_quic_cb_conn_new_t                cb_conn_new;
   fd_quic_cb_conn_handshake_complete_t cb_handshake_complete;

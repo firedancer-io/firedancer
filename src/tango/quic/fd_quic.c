@@ -185,9 +185,9 @@ fd_quic_tx_enc_level( fd_quic_conn_t * conn ) {
   if( FD_UNLIKELY( conn->handshake_done ) ) return fd_quic_enc_level_appdata_id;
 
   /* find stream data to send */
-  fd_quic_stream_t * streams = conn->streams;
+  fd_quic_stream_t ** streams = conn->streams;
   for( ulong j = 0; j < conn->tot_num_streams; ++j ) {
-    if( streams[j].tx_head > streams[j].tx_sent ) {
+    if( streams[j]->tx_buf.head > streams[j]->tx_sent ) {
       return fd_quic_enc_level_appdata_id;
     }
   }
@@ -311,7 +311,7 @@ ulong fd_quic_footprint( fd_quic_config_t * config ) {
 
   /* make enough space for the hash map slots */
   ulong slot_cnt_bound = config->conn_id_sparsity * config->max_concur_conns * config->max_concur_conn_ids;
-  int    lg_slot_cnt    = fd_ulong_find_msb( slot_cnt_bound - 1 ) + 1;
+  int   lg_slot_cnt    = fd_ulong_find_msb( slot_cnt_bound - 1 ) + 1;
   offs += FD_QUIC_POW2_ALIGN( fd_quic_conn_map_footprint( lg_slot_cnt ), align );
 
   /* make enough space for the events priority queue */
@@ -559,12 +559,12 @@ fd_quic_conn_new_stream( fd_quic_conn_t * conn, int dirtype ) {
   /* linear search since number of allowed concurrent streams expected to
      be low */
   /* could limit this to only locally initiated streams */
-  fd_quic_stream_t * stream          = NULL;
-  fd_quic_stream_t * streams         = conn->streams;
+  fd_quic_stream_t *  stream          = NULL;
+  fd_quic_stream_t ** streams         = conn->streams;
   ulong             tot_num_streams = conn->tot_num_streams;
   for( ulong j = 0; j < tot_num_streams; ++j ) {
-    if( streams[j].stream_id == ~(ulong)0 ) {
-      stream = &streams[j];
+    if( streams[j]->stream_id == FD_QUIC_STREAM_ID_UNUSED ) {
+      stream = streams[j];
       break;
     }
   }
@@ -580,7 +580,7 @@ fd_quic_conn_new_stream( fd_quic_conn_t * conn, int dirtype ) {
   ulong next_stream_id = conn->next_stream_id[stream_mask];
   conn->next_stream_id[stream_mask] = next_stream_id + 4;
 
-  fd_memset( stream, 0, sizeof( *stream ) );
+  /* stream tx_buf and rx_buf are already set */
   stream->conn      = conn;
   stream->stream_id = next_stream_id;
 
@@ -588,6 +588,10 @@ fd_quic_conn_new_stream( fd_quic_conn_t * conn, int dirtype ) {
   stream->tx_max_stream_data = ( type == FD_QUIC_TYPE_BIDIR )
                                    ? conn->tx_initial_max_stream_data_bidi_local
                                    : conn->tx_initial_max_stream_data_uni;
+
+  if( stream->tx_max_stream_data > conn->stream_tx_buf_sz ) {
+    stream->tx_max_stream_data = conn->stream_tx_buf_sz;
+  }
 
   /* probably we should add rx_buf */
   stream->rx_max_stream_data = ( type == FD_QUIC_TYPE_BIDIR )
@@ -622,13 +626,12 @@ fd_quic_conn_new_stream( fd_quic_conn_t * conn, int dirtype ) {
 int
 fd_quic_stream_send( fd_quic_stream_t * stream,
                      fd_aio_buffer_t *  batch,
-                     ulong             batch_sz ) {
+                     ulong              batch_sz ) {
   (void)stream;
   (void)batch;
   (void)batch_sz;
 
-  uchar * tx_buf    = stream->tx_buf;
-  ulong  tx_buf_sz = sizeof( stream->tx_buf );
+  fd_quic_buffer_t * tx_buf = &stream->tx_buf;
 
   /* are we allowed to send? */
   ulong stream_id = stream->stream_id;
@@ -651,52 +654,58 @@ fd_quic_stream_send( fd_quic_stream_t * stream,
 
   /* do we have space to buffer data? */
   /* see fd_quic_stream.h for invariants */
-  ulong   head = stream->tx_head;
-  ulong   tail = stream->tx_tail;
-  ulong   used = head - tail;
-  ulong   free = tx_buf_sz - used;
-  ulong offs = stream->tx_offs;
+  uchar * buf   = tx_buf->buf;
+  ulong   cap   = tx_buf->cap;
+  ulong   mask  = cap - 1ul;
+  ulong   head  = tx_buf->head;
+  ulong   tail  = tx_buf->tail;
+  ulong   used  = head - tail;
+  ulong   free  = cap - used;
+  ulong   mtail = tail & mask;
 
   int buffers_queued = 0;
 
   for( ulong j = 0; j < batch_sz; ++j ) {
-    ulong        data_sz = batch[j].data_sz;
+    ulong         data_sz = batch[j].data_sz;
     uchar const * data    = batch[j].data;
 
     if( data_sz > free ) {
       break;
     }
 
-    if( head < tx_buf_sz ) {
+    ulong mhead = head & mask;
+
+    /* two cases:
+         1. data fits within  free contiguous space at m_head
+         2. data must be split
+
+       used is in [tail,head) */
+
+    if( mhead >= mtail ) {
       /* free space split */
-      ulong end_sz = tx_buf_sz - head;
+      ulong end_sz = cap - mhead;
       if( data_sz <= end_sz ) {
         /* fits entirely into space at end of buffer */
-        fd_memcpy( tx_buf + head, data, data_sz );
+        fd_memcpy( buf + mhead, data, data_sz );
       } else {
         /* must split between front and end of buffer */
-        fd_memcpy( tx_buf + head, data,          end_sz );
-        fd_memcpy( tx_buf,        data + end_sz, data_sz - end_sz );
+        fd_memcpy( buf + mhead, data,          end_sz );
+        fd_memcpy( buf,         data + end_sz, data_sz - end_sz );
       }
     } else {
-      /* only contiguous space */
-      fd_memcpy( tx_buf + ( head - tx_buf_sz ), data, data_sz );
+      /* contiguous space */
+      fd_memcpy( buf + mhead, data, data_sz );
     }
 
     /* advance head */
     head += data_sz;
 
-    /* advance offset representing the head bytes */
-    offs += data_sz;
-
     /* account for buffers sent/queued */
     buffers_queued++;
   }
 
-  /* casting safe, as tx_buf_sz < 32K */
-  stream->tx_head = (ushort)head;
-  stream->tx_tail = (ushort)tail; /* TODO tail hasn't changed */
-  stream->tx_offs = offs;
+  /* update struct with local value */
+  tx_buf->head = head;
 
   /* attempt to send */
   fd_quic_conn_tx( stream->conn->quic, stream->conn );
@@ -1687,7 +1696,7 @@ fd_quic_ack_pkt( fd_quic_t * quic, fd_quic_conn_t * conn, fd_quic_pkt_t * pkt ) 
   *acks_free = ack->next;
 
   /* we have an ack, populate and insert at head of appropriate list */
-  ack->tx_pkt_number        = ~(ulong)0u; /* unset */
+  ack->tx_pkt_number        = FD_QUIC_PKT_NUM_UNUSED; /* unset */
   ack->pkt_number.offset_lo = pkt_number;
   ack->pkt_number.offset_hi = pkt_number + 1u;    /* offset_hi is the next one */
   ack->next                 = *acks_tx;           /* points to head of list for current enc_level */
@@ -1748,7 +1757,7 @@ fd_quic_process_quic_packet_v1( fd_quic_t * quic, fd_quic_pkt_t * pkt, uchar con
     pkt->enc_level = common_hdr->long_packet_type; /* V2 uses an indirect mapping */
 
     /* initialize packet number to unused value */
-    pkt->pkt_number = ~(ulong)0u;
+    pkt->pkt_number = FD_QUIC_PKT_NUM_UNUSED;
 
     /* long_packet_type is 2 bits, so only four possibilities */
     switch( common_hdr->long_packet_type ) {
@@ -1783,7 +1792,7 @@ fd_quic_process_quic_packet_v1( fd_quic_t * quic, fd_quic_pkt_t * pkt, uchar con
     pkt->enc_level = fd_quic_enc_level_appdata_id;
 
     /* initialize packet number to unused value */
-    pkt->pkt_number = ~(ulong)0u;
+    pkt->pkt_number = FD_QUIC_PKT_NUM_UNUSED;
 
     /* find connection id */
     entry = fd_quic_conn_map_query( quic->conn_map, &dst_conn_id );
@@ -1799,7 +1808,7 @@ fd_quic_process_quic_packet_v1( fd_quic_t * quic, fd_quic_pkt_t * pkt, uchar con
   }
 
   /* if we get here we parsed all the frames, so ack the packet */
-  if( pkt->pkt_number != ~(ulong)0 ) {
+  if( pkt->pkt_number != FD_QUIC_PKT_NUM_UNUSED ) {
     fd_quic_ack_pkt( quic, conn, pkt );
   }
 
@@ -2870,7 +2879,7 @@ fd_quic_conn_tx( fd_quic_t * quic, fd_quic_conn_t * conn ) {
     } else {
       /* if handshake data, add it */
       fd_quic_tls_hs_data_t * hs_data   = fd_quic_tls_get_hs_data( conn->tls_hs, (int)enc_level );
-      ulong                  hs_offset = 0; /* offset within the current hs_data */
+      ulong                   hs_offset = 0; /* offset within the current hs_data */
 
       /* either include handshake data or stream data, but not both */
       if( hs_data ) {
@@ -2962,18 +2971,21 @@ fd_quic_conn_tx( fd_quic_t * quic, fd_quic_conn_t * conn ) {
         }
 
         if( !hs_data && conn->handshake_complete ) {
-          fd_quic_stream_t * streams         = conn->streams;
-          ulong             tot_num_streams = conn->tot_num_streams;
+          fd_quic_stream_t ** streams         = conn->streams;
+          ulong               tot_num_streams = conn->tot_num_streams;
           for( ulong j = 0; j < tot_num_streams; ++j ) {
-            if( streams[j].tx_head > streams[j].tx_sent ) {
-              stream = streams + j;
+            fd_quic_stream_t * cur_stream = streams[j];
+
+            /* any unsent data? */
+            if( cur_stream->tx_buf.head > cur_stream->tx_sent ) {
+              stream = cur_stream;
             }
 
-            if( streams[j].flags & FD_QUIC_STREAM_FLAGS_MAX_STREAM_DATA &&
-                streams[j].upd_pkt_number >= pkt_number ) {
+            if( cur_stream->flags & FD_QUIC_STREAM_FLAGS_MAX_STREAM_DATA &&
+                cur_stream->upd_pkt_number >= pkt_number ) {
               /* send max_stream_data frame */
-              frame.max_stream_data.stream_id       = streams[j].stream_id;
-              frame.max_stream_data.max_stream_data = streams[j].rx_max_stream_data;
+              frame.max_stream_data.stream_id       = cur_stream->stream_id;
+              frame.max_stream_data.max_stream_data = cur_stream->rx_max_stream_data;
 
               /* attempt to write into buffer */
               frame_sz = fd_quic_encode_max_stream_data( payload_ptr,
@@ -2985,10 +2997,10 @@ fd_quic_conn_tx( fd_quic_t * quic, fd_quic_conn_t * conn ) {
                 tot_frame_sz += frame_sz;
 
                 /* and set actual pkt_number on the stream */
-                streams[j].upd_pkt_number = pkt_number;
+                cur_stream->upd_pkt_number = pkt_number;
               } else {
                 /* failed to encode - push to next packet */
-                streams[j].upd_pkt_number++;
+                cur_stream->upd_pkt_number++;
               }
             }
           }
@@ -3001,7 +3013,10 @@ fd_quic_conn_tx( fd_quic_t * quic, fd_quic_conn_t * conn ) {
             ulong allowed        = allowed_conn < allowed_stream ? allowed_conn : allowed_stream;
 
             /* how much data to send */
-            data_sz = (ulong)( stream->tx_head - stream->tx_sent );
+            data_sz = stream->tx_buf.head - stream->tx_sent;
+
+            /* offset of the first byte we're sending */
+            ulong stream_off = stream->tx_sent;
 
             /* abide by peer flow control */
             if( data_sz > allowed ) data_sz = allowed;
@@ -3010,9 +3025,6 @@ fd_quic_conn_tx( fd_quic_t * quic, fd_quic_conn_t * conn ) {
             if( data_sz > 0u ) {
               /* populate frame.stream */
               frame.stream.stream_id = stream->stream_id;
-
-              /* tx_offs is the byte at "head", so back up the number of bytes to send */
-              ulong stream_off = stream->tx_offs - data_sz;
 
               /* optional fields */
               frame.stream.offset_opt = ( stream_off != 0 );
@@ -3051,27 +3063,37 @@ fd_quic_conn_tx( fd_quic_t * quic, fd_quic_conn_t * conn ) {
               payload_ptr  += frame_sz;
               tot_frame_sz += frame_sz;
 
-              /* copy buffered data into tx data */
-              uchar * tx_buf    = stream->tx_buf;
-              ulong  tx_buf_sz = sizeof( stream->tx_buf );
-              ulong  head      = stream->tx_head;
-              ulong  sent      = stream->tx_sent;
+              /* copy buffered data (tx_buf) into tx data (payload_ptr) */
+              fd_quic_buffer_t * tx_buf = &stream->tx_buf;
 
-              /* split buffers? */
-              if( sent < tx_buf_sz && head > tx_buf_sz ) {
-                fd_memcpy( payload_ptr,        tx_buf + sent, tx_buf_sz - sent );
-                fd_memcpy( payload_ptr + sent, tx_buf,        data_sz - ( tx_buf_sz - sent ) );
-              } else {
-                /* sanity check */
-                if( FD_UNLIKELY( sent >= head ) ) {
-                  FD_LOG_ERR(( "%s : broken invariant", __func__ ));
+              uchar * buf   = tx_buf->buf;
+              ulong   cap   = tx_buf->cap;
+              ulong   mask  = cap - 1ul;
+              ulong   head  = tx_buf->head;
+              ulong   tail  = tx_buf->tail;
+              ulong   mtail = tail & mask;
+              ulong   mhead = head & mask;
+
+              /* two cases:
+                   1. data fits within free contiguous space at m_tail
+                   2. data is split
+
+                 used is in [tail,head) */
+
+              if( mtail >= mhead ) {
+                /* free space split */
+                ulong end_sz = cap - mhead;
+                if( data_sz <= end_sz ) {
+                  /* consists entirely of space at end of buffer */
+                  fd_memcpy( payload_ptr, buf + mtail, data_sz );
+                } else {
+                  /* split between front and end of buffer */
+                  fd_memcpy( payload_ptr,          buf + mtail, end_sz );
+                  fd_memcpy( payload_ptr + end_sz, buf,         data_sz - end_sz );
                 }
-
-                /* TODO if we guarantee tx_buf_sz is a power of 2, we can use & here */
-                head -= head >= tx_buf_sz ? tx_buf_sz : 0;
-                sent -= sent >= tx_buf_sz ? tx_buf_sz : 0;
-
-                fd_memcpy( payload_ptr, tx_buf + sent, data_sz );
+              } else {
+                /* contiguous data */
+                fd_memcpy( payload_ptr, buf + mtail, data_sz );
               }
 
               payload_ptr  += data_sz;
@@ -3233,7 +3255,7 @@ fd_quic_conn_tx( fd_quic_t * quic, fd_quic_conn_t * conn ) {
     /* did we send stream data? */
     if( pkt_meta.flags & FD_QUIC_PKT_META_FLAGS_STREAM ) {
       /* move sent pointer up */
-      stream->tx_sent = (ushort)( stream->tx_sent + data_sz );
+      stream->tx_sent += data_sz;
     }
 
     /* did we send handshake-done? */
@@ -3847,12 +3869,12 @@ fd_quic_reclaim_pkt_meta( fd_quic_conn_t *     conn,
 
   if( flags & FD_QUIC_PKT_META_FLAGS_STREAM ) {
     /* find stream */
-    fd_quic_stream_t * stream          = NULL;
-    fd_quic_stream_t * streams         = conn->streams;
+    fd_quic_stream_t *  stream          = NULL;
+    fd_quic_stream_t ** streams         = conn->streams;
     ulong             tot_num_streams = conn->tot_num_streams;
     for( ulong j = 0; j < tot_num_streams; ++j ) {
-      if( streams[j].stream_id == pkt_meta->stream_id ) {
-        stream = streams + j;
+      if( streams[j]->stream_id == pkt_meta->stream_id ) {
+        stream = streams[j];
         break;
       }
     }
@@ -3860,89 +3882,73 @@ fd_quic_reclaim_pkt_meta( fd_quic_conn_t *     conn,
     if( FD_LIKELY( stream ) ) {
       fd_quic_range_t range = pkt_meta->range;
 
-      ulong tx_head = stream->tx_head;
-      ulong tx_tail = stream->tx_tail;
+      ulong tx_head = stream->tx_buf.head;
+      ulong tx_tail = stream->tx_buf.tail;
       ulong tx_sent = stream->tx_sent;
-      ulong tx_offs = stream->tx_offs;
-
-      /* convert to offsets from beginning of stream */
-      ulong tx_tail_offs = tx_offs - ( tx_head - tx_tail );
-      ulong tx_sent_offs = tx_offs - ( tx_head - tx_sent );
 
       /* ignore bytes which were already acked */
-      if( range.offset_lo < tx_tail_offs ) range.offset_lo = tx_tail_offs;
+      if( range.offset_lo < tx_tail ) range.offset_lo = tx_tail;
 
       /* if they ack bytes we didn't send, that's a protocol error */
       /* TODO ensure this is the correct reason */
-      if( range.offset_hi < tx_sent_offs ) {
+      if( range.offset_hi < tx_sent ) {
         fd_quic_conn_error( conn, FD_QUIC_CONN_REASON_PROTOCOL_VIOLATION );
-      }
+      } else {
+        /* set appropriate bits in tx_ack */
+        /* TODO optimize this */
+        ulong   tx_mask  = stream->tx_buf.cap - 1ul;
+        ulong   cnt      = range.offset_hi - range.offset_lo;
+        uchar * tx_ack   = stream->tx_ack;
+        for( ulong j = 0; j < cnt; ) {
+          ulong k = ( j + range.offset_lo ) & tx_mask;
+          if( ( k & 7 ) == 0 && j + 8 <= cnt ) {
+            /* set whole byte */
+            tx_ack[k>>3u] = 0xffu;
 
-      /* calculate adjustment for converting between buffer offsets and global offsets */
-      ulong adj = tx_offs - tx_head;
-
-      /* set appropriate bits in tx_ack */
-      /* TODO optimize this */
-      ulong cnt = range.offset_hi - range.offset_lo;
-      uchar * tx_ack = stream->tx_ack;
-      for( ulong j = 0; j < cnt; ) {
-        ulong k = j + range.offset_lo - adj;
-        k -= ( k >= FD_QUIC_MAX_TX_BUF ) ? FD_QUIC_MAX_TX_BUF : 0u;
-        if( ( k & 7 ) == 0 && j + 8 <= cnt ) {
-          /* set whole byte */
-          tx_ack[k>>3u] = 0xffu;
-
-          j += 8u;
-        } else {
-          /* compiler is not smart enough to know ( 1u << ( k & 7u ) ) fits in a uchar */
-          tx_ack[k>>3u] |= (uchar)( 1u << ( k & 7u ) );
-          j++;
-        }
-      }
-
-      /* determine whether tx_tail may be moved up */
-      for( ulong j = tx_tail_offs; j < tx_sent_offs; ) {
-        ulong k = j - adj;
-        k -= ( k >= FD_QUIC_MAX_TX_BUF ) ? FD_QUIC_MAX_TX_BUF : 0u;
-
-        /* can we skip a whole byte? */
-        if( ( k & 7 ) == 0 && j + 8 <= tx_sent_offs && tx_ack[k>>3u] == 0xffu ) {
-          tx_ack[k>>3u] = 0u;
-          tx_tail  += 8u;
-
-          j += 8u;
-        } else {
-          tx_ack[k>>3u] = (uchar)( tx_ack[k>>3u] & ~( 1u << ( k & 7 ) ) );
-          tx_tail++;
-          j++;
-        }
-      }
-
-      /* move up tail, and adjust to maintain circular queue invariants, and send
-         max_data and max_stream_data, if necessary */
-      if( tx_tail > stream->tx_tail ) {
-        if( tx_tail >= FD_QUIC_MAX_TX_BUF ) {
-          /* fix invariants */
-          tx_tail -= FD_QUIC_MAX_TX_BUF;
-          tx_sent -= FD_QUIC_MAX_TX_BUF;
-          tx_head -= FD_QUIC_MAX_TX_BUF;
+            j += 8u;
+          } else {
+            /* compiler is not smart enough to know ( 1u << ( k & 7u ) ) fits in a uchar */
+            tx_ack[k>>3u] |= (uchar)( 1u << ( k & 7u ) );
+            j++;
+          }
         }
 
-        stream->tx_tail = (ushort)tx_tail;
-        stream->tx_sent = (ushort)tx_sent;
-        stream->tx_head = (ushort)tx_head;
-      }
+        /* determine whether tx_tail may be moved up */
+        for( ulong j = tx_tail; j < tx_sent; ) {
+          ulong k = j & tx_mask;
 
-      /* we could retransmit (timeout) the bytes which have not been acked (by implication) */
+          /* can we skip a whole byte? */
+          if( ( k & 7 ) == 0 && j + 8 <= tx_sent && tx_ack[k>>3u] == 0xffu ) {
+            tx_ack[k>>3u] = 0ul;
+            tx_tail      += 8ul;
+
+            j += 8u;
+          } else {
+            tx_ack[k>>3u] = (uchar)( tx_ack[k>>3u] & ~( 1u << ( k & 7 ) ) );
+            tx_tail++;
+            j++;
+          }
+        }
+
+        /* move up tail, and adjust to maintain circular queue invariants, and send
+           max_data and max_stream_data, if necessary */
+        if( tx_tail > stream->tx_buf.tail ) {
+          stream->tx_buf.tail = tx_tail;
+          stream->tx_buf.head = tx_head;
+          stream->tx_sent     = tx_sent;
+        }
+
+        /* we could retransmit (timeout) the bytes which have not been acked (by implication) */
+      }
     }
   }
 
   /* max_stream_data */
   if( flags & FD_QUIC_PKT_META_FLAGS_MAX_STREAM_DATA ) {
-    ulong             tot_num_streams = conn->tot_num_streams;
-    fd_quic_stream_t * streams         = conn->streams;
+    ulong               tot_num_streams = conn->tot_num_streams;
+    fd_quic_stream_t ** streams         = conn->streams;
     for( ulong j = 0; j < tot_num_streams; ++j ) {
-      fd_quic_stream_t * stream = &streams[j];
+      fd_quic_stream_t * stream = streams[j];
       if( stream->upd_pkt_number == pkt_number ) {
         stream->flags &= ~FD_QUIC_STREAM_FLAGS_MAX_STREAM_DATA;
       }
@@ -3950,7 +3956,7 @@ fd_quic_reclaim_pkt_meta( fd_quic_conn_t *     conn,
   }
 
   /* acks */
-  if( 1 || flags & FD_QUIC_PKT_META_FLAGS_ACK ) {
+  if( flags & FD_QUIC_PKT_META_FLAGS_ACK ) {
     fd_quic_ack_t * cur_ack = conn->acks_tx[enc_level];
     while( cur_ack ) {
       fd_quic_ack_t * next_ack = cur_ack->next;
@@ -4216,19 +4222,19 @@ fd_quic_frame_handle_stream_frame(
   ulong   data_sz   = data->length_opt ? data->length : p_sz;
 
   /* find stream */
-  fd_quic_stream_t * stream = NULL;
-  fd_quic_stream_t * streams = context.conn->streams;
+  fd_quic_stream_t *  stream = NULL;
+  fd_quic_stream_t ** streams = context.conn->streams;
   for( ulong j = 0; j < context.conn->tot_num_streams; ++j ) {
-    if( stream_id == streams[j].stream_id ) {
-      stream = &streams[j];
+    if( stream_id == streams[j]->stream_id ) {
+      stream = streams[j];
       break;
     }
-    if( streams[j].stream_id == ~(ulong)0 ) {
-      stream = &streams[j];
+    if( streams[j]->stream_id == FD_QUIC_STREAM_ID_UNUSED ) {
+      stream = streams[j];
     }
   }
 
-  if( !stream || stream->stream_id == ~(ulong)0 ) {
+  if( !stream || stream->stream_id == FD_QUIC_STREAM_ID_UNUSED ) {
     /* No free streams - fail */
     ulong max_stream_id = context.conn->max_streams[type];
     if( FD_UNLIKELY( stream_id > max_stream_id ) ) {
@@ -4250,7 +4256,7 @@ fd_quic_frame_handle_stream_frame(
   }
 
   /* new stream - peer initiated */
-  if( stream->stream_id == ~(ulong)0 ) {
+  if( stream->stream_id == FD_QUIC_STREAM_ID_UNUSED ) {
     /* initialize stream members */
 
     /* we need to know if client-initiated or server-initiated
@@ -4275,24 +4281,22 @@ fd_quic_frame_handle_stream_frame(
     ulong tx_max_stream_data = bidir ?
                 context.conn->tx_initial_max_stream_data_bidi_local : 0;
 
-    stream->conn = context.conn;
-    stream->stream_id = stream_id;
+    stream->conn        = context.conn;
+    stream->stream_id   = stream_id;
 
-    stream->context = NULL; /* TODO where do we get this from? */
+    stream->context     = NULL; /* TODO where do we get this from? */
 
-    stream->tx_head = 0; /* first unused byte of tx_buf */
-    stream->tx_tail = 0; /* first unacked (used) byte of tx_buf */
-    stream->tx_sent = 0; /* first unsent byte of tx_buf */
-    stream->tx_offs = 0; /* the offset of the (future) byte at tx_head */
+    stream->tx_buf.head = 0; /* first unused byte of tx_buf */
+    stream->tx_buf.tail = 0; /* first unacked (used) byte of tx_buf */
+    stream->tx_sent     = 0; /* first unsent byte of tx_buf */
 
-    stream->flags   = 0;
+    stream->flags       = 0;
 
     /* flow control */
     stream->tx_max_stream_data = tx_max_stream_data;
     stream->tx_tot_data        = 0;
 
-    /* rx_max_stream_data currently hard coded */
-    stream->rx_max_stream_data = FD_QUIC_MAX_TX_BUF;
+    stream->rx_max_stream_data = context.conn->stream_rx_buf_sz;
     stream->rx_tot_data        = 0;
 
   }
@@ -4361,7 +4365,7 @@ fd_quic_frame_handle_stream_frame(
         context.quic->cb_stream_notify( stream, stream->context, FD_QUIC_NOTIFY_END );
 
         /* free the stream */
-        stream->stream_id = ~(ulong)0;
+        stream->stream_id = FD_QUIC_STREAM_ID_UNUSED;
       }
     }
   } else {
@@ -4414,11 +4418,11 @@ fd_quic_frame_handle_max_stream_data(
   ulong stream_id  = data->stream_id;
 
   /* find stream */
-  fd_quic_stream_t * stream = NULL;
-  fd_quic_stream_t * streams = context.conn->streams;
+  fd_quic_stream_t *  stream  = NULL;
+  fd_quic_stream_t ** streams = context.conn->streams;
   for( ulong j = 0; j < context.conn->tot_num_streams; ++j ) {
-    if( stream_id == streams[j].stream_id ) {
-      stream = &streams[j];
+    if( stream_id == streams[j]->stream_id ) {
+      stream = streams[j];
       break;
     }
   }

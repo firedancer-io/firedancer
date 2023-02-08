@@ -27,6 +27,8 @@ enum {
   FD_QUIC_TRANSPORT_PARAMS_RAW_SZ = 1200,
 };
 
+#define FD_QUIC_PKT_NUM_UNUSED (~0ul)
+
 
 /* forward declares */
 typedef struct fd_quic                fd_quic_t;
