@@ -1,0 +1,72 @@
+
+https://docs.solana.com/developing/test-validator
+
+https://github.com/solana-labs/solana/issues/28191
+
+1) go to .../solana
+2) ./cargo build
+   all these
+3) put ../solana/target/debug into your path
+    export PATH=/home/jsiegel/repos/solana/target/debug:$PATH
+4) run validator
+  ./target/debug/solana-test-validator  --reset
+5) configure to use local validator
+   solana config set --url http://127.0.0.1:8899
+6) confirm the cluster is reachable
+  solana transaction-count
+7) create a wallet
+   solana-keygen new -o /home/jsiegel/.config/solana/id.json
+8) check your balance
+  solana balance
+9) give yourself some money
+   solana airdrop 10
+10) do a simple transfer
+   % solana transaction-count; solana transfer EPhgPANa5Rh2wa4V2jxt7YbtWa3Uyw4sTeZ13cQjDDB8 1 --allow-unfunded-recipient; solana transaction-count
+
+  28
+  Signature: 5n8vGanaw8XRLPYUkqahBXYGNi4DmJnkGU78L8PnvHQNZQRtTpjWxJQvhb3NWiLpNgQMVUdYzawsEg74Biga8Sy
+  31
+
+11) Look in the test-ledger directory for a snapshot to be created
+
+  [~/.../solana/test-ledger](master) ls -ld snapshot*
+  drwxr-xr-x 3 jsiegel jsiegel     25 Feb  8 07:14 snapshot
+  -rw-r--r-- 1 jsiegel jsiegel 183632 Feb  8 07:14 snapshot-100-3u3LfCeBrJ6M8QeN48KRf2dJMvvG4EkA9JSuzda1G71p.tar.bz2
+
+12) validate the ledger
+
+   % solana-ledger-tool -l test-ledger verify
+
+
+~/repos/solana/ledger/src/blockstore.rs
+    fn do_open(ledger_path: &Path, options: BlockstoreOptions) -> Result<Blockstore> {
+
+~/repos/solana/ledger/src/blockstore.rs
+    pub fn get_complete_block(
+
+~/repos/solana/ledger-tool/src/main.rs
+fn open_blockstore(
+    ledger_path: &Path,
+    access_type: AccessType,
+    wal_recovery_mode: Option<BlockstoreRecoveryMode>,
+    shred_storage_type: &ShredStorageType,
+) -> Blockstore {
+    match Blockstore::open_with_options(
+        ledger_path,
+        BlockstoreOptions {
+            access_type,
+            recovery_mode: wal_recovery_mode,
+            enforce_ulimit_nofile: true,
+            column_options: LedgerColumnOptions {
+                shred_storage_type: shred_storage_type.clone(),
+                ..LedgerColumnOptions::default()
+            },
+        },
+    ) {
+        Ok(blockstore) => blockstore,
+        Err(err) => {
+            eprintln!("Failed to open ledger at {:?}: {:?}", ledger_path, err);
+            exit(1);
+        }
+    }
+}
