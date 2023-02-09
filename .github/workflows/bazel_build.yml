@@ -6,7 +6,7 @@ on:
       - main
   workflow_dispatch:
 jobs:
-  bazel-build:
+  bazel-build-test:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v3
@@ -21,3 +21,6 @@ jobs:
 
       - name: Build everything
         run: bazel build //...
+
+      - name: Test everything
+        run: bazel test //...
