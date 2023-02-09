@@ -258,12 +258,44 @@ struct fd_funk {
     struct fd_funk_index* index;
     // Root transaction id
     struct fd_funk_xactionid root;
+    // Vector of free control entries
+    ulong* free_ctrl_offsets;
+    ulong free_ctrl_cnt;
+    ulong free_ctrl_max;
 };
+
+void fd_funk_add_free_control(struct fd_funk* store, ulong offset) {
+  if (store->free_ctrl_cnt == store->free_ctrl_max) {
+    // !!! replace with zone allocation
+    store->free_ctrl_max <<= 1;
+    store->free_ctrl_offsets = (ulong*)realloc(store->free_ctrl_offsets,
+                                               store->free_ctrl_max * sizeof(ulong));
+  }
+  store->free_ctrl_offsets[store->free_ctrl_cnt ++] = offset;
+}
 
 void fd_funk_replay_control(struct fd_funk* store) {
   FD_STATIC_ASSERT(sizeof(struct fd_funk_control_mini) <= FD_FUNK_MINIBLOCK_SIZE,fd_funk);
   FD_STATIC_ASSERT(sizeof(struct fd_funk_control) == FD_FUNK_CONTROL_SIZE,fd_funk);
+
   struct fd_funk_control ctrl;
+  if (store->backinglen < (long)sizeof(ctrl)) {
+    // Initialize with an empty control block
+    fd_memset(&ctrl, 0, sizeof(ctrl));
+    if (pwrite(store->backingfd, &ctrl, sizeof(ctrl), 0) < (long)sizeof(ctrl)) {
+      FD_LOG_ERR(("failed to initialize store: %s", strerror(errno)));
+    }
+    store->backinglen = sizeof(ctrl);
+  }
+
+  // Initialize the free control list
+  store->free_ctrl_max = 1024;
+  store->free_ctrl_cnt = 0;
+  // !!! replace with zone allocation
+  store->free_ctrl_offsets = (ulong*)malloc(store->free_ctrl_max * sizeof(ulong));
+
+  // First control block is always at zero
+  store->lastcontrol = 0;
   for (;;) {
     if (pread(store->backingfd, &ctrl, sizeof(ctrl), (long)store->lastcontrol) < (long)sizeof(ctrl)) {
       FD_LOG_WARNING(("failed to read backing file: %s", strerror(errno)));
@@ -273,6 +305,9 @@ void fd_funk_replay_control(struct fd_funk* store) {
     for (ulong i = 0; i < FD_FUNK_CONTROL_SIZE/FD_FUNK_MINIBLOCK_SIZE; ++i)
       for (ulong j = 0; j < FD_FUNK_CONTROL_ENTRIES_PER_MINI; ++j) {
         struct fd_funk_control_entry* ent = &ctrl.minis[i].mini.entries[j];
+        // Compute file position of control entry
+        ulong entpos = store->lastcontrol + (ulong)((char*)ent - (char*)&ctrl);
+        
         if (ent->type == FD_FUNK_CONTROL_NORMAL) {
           struct fd_funk_index_entry* ent2 = fd_funk_index_insert(&store->index, &ent->u.normal.id);
           if (fd_funk_index_entry_valid(ent2)) {
@@ -281,8 +316,10 @@ void fd_funk_replay_control(struct fd_funk* store) {
           }
           ent2->start = ent->u.normal.start;
           ent2->len = ent->u.normal.len;
-          // Compute file position of control entry
-          ent2->control = store->lastcontrol + (ulong)((char*)ent - (char*)&ctrl);
+          ent2->control = entpos;
+
+        } else if (ent->type == FD_FUNK_CONTROL_EMPTY) {
+          fd_funk_add_free_control(store, entpos);
         }
       }
 
@@ -312,18 +349,6 @@ void* fd_funk_new(void* mem,
 
   store->index = fd_funk_index_new(FD_FUNK_INDEX_START_SIZE);
 
-  if (store->backinglen < (long)FD_FUNK_CONTROL_SIZE) {
-    // Initialize with an empty control block
-    char zeros[FD_FUNK_CONTROL_SIZE];
-    fd_memset(zeros, 0, FD_FUNK_CONTROL_SIZE);
-    if (write(store->backingfd, zeros, FD_FUNK_CONTROL_SIZE) < (long)FD_FUNK_CONTROL_SIZE) {
-      FD_LOG_ERR(("failed to initialize %s: %s", backingfile, strerror(errno)));
-    }
-    store->backinglen = FD_FUNK_CONTROL_SIZE;
-  }
-
-  // First control block is always at zero
-  store->lastcontrol = 0;
   fd_funk_replay_control(store);
 
   // Root is all zeros
