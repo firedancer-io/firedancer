@@ -19,6 +19,11 @@ jobs:
           path: "~/.cache/bazel"
           key: bazel-coverage-ubuntu-2204
 
+      - name: Fix ulimits
+        run: sudo .github/scripts/fix-limits.sh
+
+      - run: ulimit -Ha && ulimit -Sa
+
       - name: Test with coverage
         run: bazel coverage --test_output=errors //...
 
