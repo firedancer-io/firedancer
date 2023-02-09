@@ -11,7 +11,14 @@ fd_cc_library(
 
 fd_cc_test(
     name = "test_tcache",
+    size = "large",
+    timeout = "short",
     srcs = ["test_tcache.c"],
-    tags = ["manual"],  # requires superuser
+    args = [
+        "--page-sz",
+        "normal",
+        "--page-cnt",
+        "65536",  # 256 MiB
+    ],
     deps = ["//src/tango"],
 )
