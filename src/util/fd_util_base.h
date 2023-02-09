@@ -352,9 +352,12 @@ __extension__ typedef unsigned __int128 uint128;
    unit as name and the byte size as name_sz.  name_sz covers the first
    byte of the included data to the last byte of the footer inclusive.
 
-   (The dummy linker symbol _fd_import_name_sz will also be created in
-   the object file and exposed in the current compile unit as some under
-   the hood magic to make this work.)
+   The dummy linker symbol _fd_import_name_sz will also be created in
+   the object file as some under the hood magic to make this work.  This
+   should not be used in any compile unit as some compilers (I'm looking
+   at you clang-15, but apparently not clang-10) will sometimes mangle
+   its value from what it was set to in the object file even marked as
+   absolute in the object file.
 
    This should only be used at global scope and should be done at most
    once over all object files / libraries used to make a program.  If
@@ -370,17 +373,25 @@ __extension__ typedef unsigned __int128 uint128;
    as necessary (that is, do the usual to use name and name_sz as shown
    for the pseudo code above). */
 
-#define FD_IMPORT( name, path, type, align, footer )        \
-  __asm__( ".section \".rodata\", \"a\", @progbits\n"       \
-           ".align " #align "\n"                            \
-           #name ":\n"                                      \
-           ".incbin \"" path "\"\n"                         \
-           footer "\n"                                      \
-           "_fd_import_" #name "_sz = . - " #name "\n"      \
-           ".previous\n" );                                 \
-  extern type const name[] __attribute__((aligned(align))); \
-  extern type const _fd_import_##name##_sz[];               \
-  ulong const name##_sz = (ulong)&_fd_import_##name##_sz
+#define FD_IMPORT( name, path, type, align, footer )         \
+  __asm__( ".section .rodata,\"a\",@progbits\n"              \
+           ".type " #name ",@object\n"                       \
+           ".globl " #name "\n"                              \
+           ".align " #align "\n"                             \
+           #name ":\n"                                       \
+           ".incbin \"" path "\"\n"                          \
+           footer "\n"                                       \
+           ".size " #name ",. - " #name "\n"                 \
+           "_fd_import_" #name "_sz = . - " #name "\n"       \
+           ".type " #name "_sz,@object\n"                    \
+           ".globl " #name "_sz\n"                           \
+           ".align 8\n"                                      \
+           #name "_sz:\n"                                    \
+           ".quad _fd_import_" #name "_sz\n"                 \
+           ".size " #name "_sz,8\n"                          \
+           ".previous\n" );                                  \
+  extern type  const name[] __attribute__((aligned(align))); \
+  extern ulong const name##_sz
 
 /* FD_IMPORT_{BINARY,CSTR} are common cases for FD_IMPORT.
 

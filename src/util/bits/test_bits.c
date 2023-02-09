@@ -115,10 +115,10 @@ main( int     argc,
         FD_TEST( fd_uchar_pow2_up ( z )==(uchar)(x<<1) );
       }
     }
-    for( int n=0; n<=w; n++ ) { 
-      uchar x = (uchar)((n==w)? 0U : (1U<<n )); int sl = n+(w-8)-((n>>3)<<4); 
+    for( int n=0; n<=w; n++ ) {
+      uchar x = (uchar)((n==w)? 0U : (1U<<n )); int sl = n+(w-8)-((n>>3)<<4);
       uchar y = (uchar)((n==w)? 0U : (1U<<sl)); FD_TEST( fd_uchar_bswap( x )==y );
-    } 
+    }
     for( int i=0; i<w; i++ ) {
       uchar align = (uchar) (1UL<<i);
       uchar lo    = (uchar)((1UL<<i)-1UL);
@@ -149,6 +149,8 @@ main( int     argc,
       FD_TEST( fd_uchar_abs  ( x       )==x                             );
       FD_TEST( fd_uchar_min  ( x, y    )==((x<y) ? x : y)               );
       FD_TEST( fd_uchar_max  ( x, y    )==((x>y) ? x : y)               );
+
+      uchar z = x; fd_uchar_store_if( c, &z, y ); FD_TEST( z==(c ? y : x) );
 
       int n = (int)fd_rng_uint( rng );
       int s = n & 15;
@@ -416,11 +418,13 @@ main( int     argc,
       uint x = (uint)fd_rng_ulong( rng );
       uint y = (uint)fd_rng_ulong( rng );
       int  c = fd_uint_extract_bit( m, 0 );
-      FD_TEST( fd_uint_blend( m, x, y )==(uint)( (x & m) | (y & ~m) ) );
+      FD_TEST( fd_uint_blend( m, x, y )==(uint)( (x & m) | (y & ~m) )  );
       FD_TEST( fd_uint_if   ( c, x, y )==(c ? x : y)                   );
       FD_TEST( fd_uint_abs  ( x       )==x                             );
       FD_TEST( fd_uint_min  ( x, y    )==((x<y) ? x : y)               );
       FD_TEST( fd_uint_max  ( x, y    )==((x>y) ? x : y)               );
+
+      uint z = x; fd_uint_store_if( c, &z, y ); FD_TEST( z==(c ? y : x) );
 
       int n = (int)y;
       int s = n & 63;
@@ -561,6 +565,8 @@ main( int     argc,
       FD_TEST( fd_ulong_abs  ( x       )==x                             );
       FD_TEST( fd_ulong_min  ( x, y    )==((x<y) ? x : y)               );
       FD_TEST( fd_ulong_max  ( x, y    )==((x>y) ? x : y)               );
+
+      ulong z = x; fd_ulong_store_if( c, &z, y ); FD_TEST( z==(c ? y : x) );
 
       int n = (int)(uint)y;
       int s = n & 127;
@@ -715,11 +721,13 @@ main( int     argc,
       uint128 x = fd_rng_uint128( rng );
       uint128 y = fd_rng_uint128( rng );
       int     c = fd_uint128_extract_bit( m, 0 );
-      FD_TEST( fd_uint128_blend( m, x, y )==((x & m) | (y & ~m)) );
-      FD_TEST( fd_uint128_if   ( c, x, y )==(c ? x : y)          );
-      FD_TEST( fd_uint128_abs  ( x       )==x                    );
-      FD_TEST( fd_uint128_min  ( x, y    )==((x<y) ? x : y)      );
-      FD_TEST( fd_uint128_max  ( x, y    )==((x>y) ? x : y)      );
+      FD_TEST( fd_uint128_blend( m, x, y )==((x & m) | (y & ~m))            );
+      FD_TEST( fd_uint128_if   ( c, x, y )==(c ? x : y)                     );
+      FD_TEST( fd_uint128_abs  ( x       )==x                               );
+      FD_TEST( fd_uint128_min  ( x, y    )==((x<y) ? x : y)                 );
+      FD_TEST( fd_uint128_max  ( x, y    )==((x>y) ? x : y)                 );
+
+      uint128 z = x; fd_uint128_store_if( c, &z, y ); FD_TEST( z==(c ? y : x) );
 
       int n = (int)(uint)y;
       int s = n & 255;
@@ -757,6 +765,8 @@ main( int     argc,
       FD_TEST( fd_schar_abs( x       )==(uchar)((x<(schar)0) ? ((schar)-x) : x) );
       FD_TEST( fd_schar_min( x, y    )==((x<y) ? x : y)                         );
       FD_TEST( fd_schar_max( x, y    )==((x>y) ? x : y)                         );
+
+      schar z = x; fd_schar_store_if( c, &z, y ); FD_TEST( z==(c ? y : x) );
 
       int   n = (int)fd_rng_uint( rng );
       int   s = n & 15;
@@ -797,6 +807,8 @@ main( int     argc,
       FD_TEST( fd_short_min( x, y    )==((x<y) ? x : y)                          );
       FD_TEST( fd_short_max( x, y    )==((x>y) ? x : y)                          );
 
+      short z = x; fd_short_store_if( c, &z, y ); FD_TEST( z==(c ? y : x) );
+
       int    n = (int)fd_rng_uint( rng );
       int    s = n & 31;
       ushort m = (ushort)-(((ushort)x) >> 15);
@@ -835,6 +847,8 @@ main( int     argc,
       FD_TEST( fd_int_abs( x       )==(uint)((x<(int)0) ? ((int)-x) : x) );
       FD_TEST( fd_int_min( x, y    )==((x<y) ? x : y)                    );
       FD_TEST( fd_int_max( x, y    )==((x>y) ? x : y)                    );
+
+      int z = x; fd_int_store_if( c, &z, y ); FD_TEST( z==(c ? y : x) );
 
       int  n = (int)fd_rng_uint( rng );
       int  s = n & 63;
@@ -875,6 +889,8 @@ main( int     argc,
       FD_TEST( fd_long_min( x, y    )==((x<y) ? x : y)                       );
       FD_TEST( fd_long_max( x, y    )==((x>y) ? x : y)                       );
 
+      long z = x; fd_long_store_if( c, &z, y ); FD_TEST( z==(c ? y : x) );
+
       int   n = (int)fd_rng_uint( rng );
       int   s = n & 127;
       ulong m = (ulong)-(((ulong)x) >> 63);
@@ -914,6 +930,8 @@ main( int     argc,
       FD_TEST( fd_int128_abs( x       )==(uint128)((x<(int128)0) ? -x : x) );
       FD_TEST( fd_int128_min( x, y    )==((x<y) ? x : y)                   );
       FD_TEST( fd_int128_max( x, y    )==((x>y) ? x : y)                   );
+
+      int128 z = x; fd_int128_store_if( c, &z, y ); FD_TEST( z==(c ? y : x) );
 
       int     n = (int)fd_rng_uint( rng );
       int     s = n & 255;
@@ -978,6 +996,8 @@ main( int     argc,
       float y = uint_as_float( fd_rng_uint( rng ) );
       FD_TEST( fd_float_eq( fd_float_if( c, x, y ), (c ? x : y) ) );
       FD_TEST( float_as_uint( fd_float_abs( x ) )==(((float_as_uint( x ))<<1)>>1) );
+
+      float z = x; fd_float_store_if( c, &z, y ); FD_TEST( z==(c ? y : x) );
     }
   }
 
@@ -1022,6 +1042,8 @@ main( int     argc,
       double y = ulong_as_double( fd_rng_ulong( rng ) );
       FD_TEST( fd_double_eq( fd_double_if( c, x, y ), (c ? x : y) ) );
       FD_TEST( double_as_ulong( fd_double_abs( x ) )==(((double_as_ulong( x ))<<1)>>1) );
+
+      double z = x; fd_double_store_if( c, &z, y ); FD_TEST( z==(c ? y : x) );
     }
   }
 # endif
