@@ -56,10 +56,6 @@
 #include <syscall.h>
 #include <execinfo.h>
 
-/* Log buffer, used by both fd_log_private_0 and fd_log_private_hexdump_msg */
-
-static FD_TLS char log_msg[ FD_LOG_BUF_SZ ];
-
 /* APPLICATION LOGICAL ID APIS ****************************************/
 
 /* App id */
@@ -468,16 +464,109 @@ void fd_log_level_stderr_set ( int level ) { FD_VOLATILE( fd_log_private_level_s
 void fd_log_level_flush_set  ( int level ) { FD_VOLATILE( fd_log_private_level_flush   ) = level; }
 void fd_log_level_core_set   ( int level ) { FD_VOLATILE( fd_log_private_level_core    ) = level; }
 
+/* Total size of the log buffer (fd_log_private_log_msg) */
+
+#define FD_LOG_BUF_SZ (4UL*4096UL)
+
+/* Log buffer, used by fd_log_private_0 and fd_log_private_hexdump_msg */
+
+static FD_TLS char fd_log_private_log_msg[ FD_LOG_BUF_SZ ];
+
+/* Add into the log buffer (with *printf() formatting) at the current offset and then increment 
+   the pointer accordingly */
+
+#define FD_LOG_HEXDUMP_ADD_TO_LOG_BUF(...)  do {                              \
+    num_bytes_written = sprintf ( log_buf_ptr, __VA_ARGS__ );                 \
+    if( FD_LIKELY( num_bytes_written>=0 )) log_buf_ptr += num_bytes_written;  \
+ } while(0)
+
 char const *
 fd_log_private_0( char const * fmt, ... ) {
   va_list ap;
   va_start( ap, fmt );
-  int len = vsnprintf( log_msg, FD_LOG_BUF_SZ, fmt, ap );
+  int len = vsnprintf( fd_log_private_log_msg, FD_LOG_BUF_SZ, fmt, ap );
   if( len<0    ) len = 0;    /* cmov */
   if( len>FD_LOG_BUF_SZ-1 ) len = FD_LOG_BUF_SZ-1; /* cmov */
-  log_msg[ len ] = '\0';
+  fd_log_private_log_msg[ len ] = '\0';
   va_end( ap );
-  return log_msg;
+  return fd_log_private_log_msg;
+}
+
+char const * 
+fd_log_private_hexdump_msg ( char const * descr,
+                             void const * blob,
+                             ulong        sz ) {
+  
+  char * log_buf_ptr = fd_log_private_log_msg;   /* used by FD_LOG_HEXDUMP_ADD_TO_LOG_BUF macro */
+  int num_bytes_written = 0;                     /* used by the FD_LOG_HEXDUMP_ADD_TO_LOG_BUF macro. signed because *printf() return 'int'. */
+
+  if( FD_UNLIKELY( !blob && sz ) ) {
+    FD_LOG_HEXDUMP_ADD_TO_LOG_BUF( "Hexdump NULL blob ptr" );
+    return fd_log_private_log_msg;
+  }
+
+  if( FD_UNLIKELY( !descr ) ) {
+    FD_LOG_HEXDUMP_ADD_TO_LOG_BUF( "Hexdump NULL blob description" );
+    return fd_log_private_log_msg;
+  }
+
+  if( FD_UNLIKELY( strlen( descr )==0 ) ) {
+    FD_LOG_HEXDUMP_ADD_TO_LOG_BUF( "Hexdump empty blob description" );
+    return fd_log_private_log_msg;
+  }
+
+  if( FD_UNLIKELY( strlen( descr )>FD_LOG_HEXDUMP_BLOB_DESCRIPTION_MAX_LEN ) ) {
+    FD_LOG_HEXDUMP_ADD_TO_LOG_BUF( "Hexdump blob description too long" );
+    return fd_log_private_log_msg;
+  }
+
+  ulong blob_sz = sz;
+  int is_truncated = 0;
+  if( FD_UNLIKELY ( blob_sz>FD_LOG_HEXDUMP_MAX_INPUT_BLOB_SZ ) ) {
+    blob_sz = FD_LOG_HEXDUMP_MAX_INPUT_BLOB_SZ;
+    is_truncated = 1;
+  }
+  
+  /* Blob description for easier log grepping.
+     Just print 'msg: empty' for a zero length buffer and return,
+     and make it clear when truncation happened if that is the case. */
+  if( FD_LIKELY( blob_sz ) && !is_truncated ) {
+    FD_LOG_HEXDUMP_ADD_TO_LOG_BUF( "HEXDUMP %s (%lu bytes):\n", descr, sz );
+  } else if( FD_UNLIKELY( is_truncated ) ) {
+    FD_LOG_HEXDUMP_ADD_TO_LOG_BUF( "HEXDUMP %s (truncated %lu bytes -> %lu bytes):\n", descr, sz, FD_LOG_HEXDUMP_MAX_INPUT_BLOB_SZ );
+  } else {
+    FD_LOG_HEXDUMP_ADD_TO_LOG_BUF( "HEXDUMP %s: empty (0 bytes)\n", descr );
+    return fd_log_private_log_msg;
+  }
+
+  char line_buf[ FD_LOG_HEXDUMP_BYTES_PER_LINE+1 ];
+  const char * blob_ptr = blob;
+  ulong count = 0;
+
+  for( ; count<blob_sz; count++ ) {
+    /* New line. Print previous line's ASCII representation and then print the offset. */
+    if( !( count%FD_LOG_HEXDUMP_BYTES_PER_LINE) ) {
+      if( count!=0 ) FD_LOG_HEXDUMP_ADD_TO_LOG_BUF( "  %s\n", line_buf );
+      FD_LOG_HEXDUMP_ADD_TO_LOG_BUF( "  %04x ", (unsigned int)count );
+    }
+
+    FD_LOG_HEXDUMP_ADD_TO_LOG_BUF( " %02x", blob_ptr[count]&0xff );
+
+    /* If not a printable ASCII character, output a dot. */
+    if( isalnum( blob_ptr[ count ] ) || ispunct( blob_ptr[ count ] || blob_ptr[ count ]==' ' ) )
+      line_buf[ count%FD_LOG_HEXDUMP_BYTES_PER_LINE ] = blob_ptr[ count ];
+    else
+      line_buf[ count%FD_LOG_HEXDUMP_BYTES_PER_LINE ] = '.';
+    line_buf[ ( count%FD_LOG_HEXDUMP_BYTES_PER_LINE )+1 ] = '\0';
+  }
+
+  while( ( count%FD_LOG_HEXDUMP_BYTES_PER_LINE )!=0 ) {
+    FD_LOG_HEXDUMP_ADD_TO_LOG_BUF( "   " );
+    count++;
+  }
+
+  FD_LOG_HEXDUMP_ADD_TO_LOG_BUF( "  %s\n", line_buf );
+  return fd_log_private_log_msg;
 }
 
 void
@@ -635,24 +724,28 @@ char const *
 fd_log_private_hexdump_msg ( char const * descr,
                              void const * blob,
                              ulong        sz ) {
-  if( FD_UNLIKELY( !blob ) ) {
-    FD_LOG_WARNING(( "Hexdump NULL blob ptr" ));
-    return NULL;
+  
+  char * log_buf_ptr = fd_log_private_log_msg;   /* used by FD_LOG_HEXDUMP_ADD_TO_LOG_BUF macro */
+  int num_bytes_written = 0;                     /* used by the FD_LOG_HEXDUMP_ADD_TO_LOG_BUF macro. signed because *printf() return 'int'. */
+
+  if( FD_UNLIKELY( !blob && sz ) ) {
+    FD_LOG_HEXDUMP_ADD_TO_LOG_BUF( "Hexdump NULL blob ptr" );
+    return fd_log_private_log_msg;
   }
 
   if( FD_UNLIKELY( !descr ) ) {
-    FD_LOG_WARNING(( "Hexdump NULL blob description" ));
-    return NULL;
+    FD_LOG_HEXDUMP_ADD_TO_LOG_BUF( "Hexdump NULL blob description" );
+    return fd_log_private_log_msg;
   }
 
   if( FD_UNLIKELY( strlen( descr )==0 ) ) {
-    FD_LOG_WARNING(( "Hexdump empty blob description" ));
-    return NULL;
+    FD_LOG_HEXDUMP_ADD_TO_LOG_BUF( "Hexdump empty blob description" );
+    return fd_log_private_log_msg;
   }
 
   if( FD_UNLIKELY( strlen( descr )>FD_LOG_HEXDUMP_BLOB_DESCRIPTION_MAX_LEN ) ) {
-    FD_LOG_WARNING(( "Hexdump blob description too long" ));
-    return NULL;
+    FD_LOG_HEXDUMP_ADD_TO_LOG_BUF( "Hexdump blob description too long" );
+    return fd_log_private_log_msg;
   }
 
   ulong blob_sz = sz;
@@ -662,19 +755,16 @@ fd_log_private_hexdump_msg ( char const * descr,
     is_truncated = 1;
   }
   
-  char * log_buf_ptr = log_msg;   /* used by FD_LOG_HEXDUMP_ADD_TO_LOG_BUF macro */
-  int num_bytes_written = 0;      /* used by the FD_LOG_HEXDUMP_ADD_TO_LOG_BUF macro. signed because *printf() return 'int'. */
-
   /* Blob description for easier log grepping.
      Just print 'msg: empty' for a zero length buffer and return,
      and make it clear when truncation happened if that is the case. */
   if( FD_LIKELY( blob_sz ) && !is_truncated ) {
-    FD_LOG_HEXDUMP_ADD_TO_LOG_BUF( "HEXDUMP %s:\n", descr );
+    FD_LOG_HEXDUMP_ADD_TO_LOG_BUF( "HEXDUMP %s (%lu bytes):\n", descr, sz );
   } else if( FD_UNLIKELY( is_truncated ) ) {
-    FD_LOG_HEXDUMP_ADD_TO_LOG_BUF( "HEXDUMP %s (truncated):\n", descr );
+    FD_LOG_HEXDUMP_ADD_TO_LOG_BUF( "HEXDUMP %s (truncated %lu bytes -> %lu bytes):\n", descr, sz, FD_LOG_HEXDUMP_MAX_INPUT_BLOB_SZ );
   } else {
-    FD_LOG_HEXDUMP_ADD_TO_LOG_BUF( "HEXDUMP %s: empty\n", descr );
-    return log_msg;
+    FD_LOG_HEXDUMP_ADD_TO_LOG_BUF( "HEXDUMP %s: empty (0 bytes)\n", descr );
+    return fd_log_private_log_msg;
   }
 
   char line_buf[ FD_LOG_HEXDUMP_BYTES_PER_LINE+1 ];
@@ -704,7 +794,7 @@ fd_log_private_hexdump_msg ( char const * descr,
   }
 
   FD_LOG_HEXDUMP_ADD_TO_LOG_BUF( "  %s\n", line_buf );
-  return log_msg;
+  return fd_log_private_log_msg;
 }
 
 /* BOOT/HALT APIS *****************************************************/
