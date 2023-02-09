@@ -997,7 +997,7 @@ main( int     argc,
       FD_TEST( fd_float_eq( fd_float_if( c, x, y ), (c ? x : y) ) );
       FD_TEST( float_as_uint( fd_float_abs( x ) )==(((float_as_uint( x ))<<1)>>1) );
 
-      float z = x; fd_float_store_if( c, &z, y ); FD_TEST( z==(c ? y : x) );
+      float z = x; fd_float_store_if( c, &z, y ); FD_TEST( fd_float_eq( z, (c ? y : x) ) );
     }
   }
 
@@ -1043,7 +1043,7 @@ main( int     argc,
       FD_TEST( fd_double_eq( fd_double_if( c, x, y ), (c ? x : y) ) );
       FD_TEST( double_as_ulong( fd_double_abs( x ) )==(((double_as_ulong( x ))<<1)>>1) );
 
-      double z = x; fd_double_store_if( c, &z, y ); FD_TEST( z==(c ? y : x) );
+      double z = x; fd_double_store_if( c, &z, y ); FD_TEST( fd_double_eq( z, (c ? y : x) ) );
     }
   }
 # endif
