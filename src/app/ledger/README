@@ -154,22 +154,16 @@ Signature: EBx7ukSFjerkzdrZqe4oSnehaubUiQpQ6NEhzR5SpuXoQsGxpaWg2r16MQ2XrVFQcaPfC
               ],
               "recentBlockhash": "4jrJsCTBQdPuPnaPdU3b8rTQ4cqus1nus1fa3ggNfjqM",
               "instructions": [
-                [
-                  1
-                ],
+                [1],
                 {
                   "programIdIndex": 2,
                   "accounts": [
-                    [
-                      2
-                    ],
+                    [2],
                     0,
                     1
                   ],
                   "data": [
-                    [
-                      12
-                    ],
+                    [12],
                     2, 0, 0, 0, 0, 202, 154, 59, 0, 0, 0, 0
                   ]
                 }
