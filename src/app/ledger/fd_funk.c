@@ -230,9 +230,10 @@ struct fd_funk_control_entry {
 #define FD_FUNK_CONTROL_NORMAL 1 // Control entry for a normal record
 };
 
+#define FD_FUNK_CONTROL_ENTRIES_PER_MINI FD_FUNK_MINIBLOCK_SIZE/sizeof(struct fd_funk_control_entry)
 struct fd_funk_control_mini {
-    struct fd_funk_control_entry entries[FD_FUNK_MINIBLOCK_SIZE/sizeof(struct fd_funk_control_entry)];
-    // Pointer to next control block. Only used in last mini in a
+    struct fd_funk_control_entry entries[FD_FUNK_CONTROL_ENTRIES_PER_MINI];
+    // Pointer to next control block. Only used in first mini in a
     // control block. Zero terminated.
     ulong next_control;
 };
@@ -244,17 +245,53 @@ struct fd_funk_control {
         char pad[FD_FUNK_MINIBLOCK_SIZE - sizeof(struct fd_funk_control_mini)];
     } minis[FD_FUNK_CONTROL_SIZE/FD_FUNK_MINIBLOCK_SIZE];
 };
+#define FD_FUNK_CONTROL_NEXT(_ctrl_) (_ctrl_.minis[0].mini.next_control)
 
 struct fd_funk {
     // Backing file descriptor
     int backingfd;
     // Length of backing file
     long backinglen;
+    // File offset of last control block in chain
+    ulong lastcontrol; 
     // Master index of finalized data
     struct fd_funk_index* index;
     // Root transaction id
     struct fd_funk_xactionid root;
 };
+
+void fd_funk_replay_control(struct fd_funk* store) {
+  FD_STATIC_ASSERT(sizeof(struct fd_funk_control_mini) <= FD_FUNK_MINIBLOCK_SIZE,fd_funk);
+  FD_STATIC_ASSERT(sizeof(struct fd_funk_control) == FD_FUNK_CONTROL_SIZE,fd_funk);
+  struct fd_funk_control ctrl;
+  for (;;) {
+    if (pread(store->backingfd, &ctrl, sizeof(ctrl), (long)store->lastcontrol) < (long)sizeof(ctrl)) {
+      FD_LOG_WARNING(("failed to read backing file: %s", strerror(errno)));
+      break;
+    }
+
+    for (ulong i = 0; i < FD_FUNK_CONTROL_SIZE/FD_FUNK_MINIBLOCK_SIZE; ++i)
+      for (ulong j = 0; j < FD_FUNK_CONTROL_ENTRIES_PER_MINI; ++j) {
+        struct fd_funk_control_entry* ent = &ctrl.minis[i].mini.entries[j];
+        if (ent->type == FD_FUNK_CONTROL_NORMAL) {
+          struct fd_funk_index_entry* ent2 = fd_funk_index_insert(&store->index, &ent->u.normal.id);
+          if (fd_funk_index_entry_valid(ent2)) {
+            FD_LOG_WARNING(("duplicate record id in store"));
+            continue;
+          }
+          ent2->start = ent->u.normal.start;
+          ent2->len = ent->u.normal.len;
+          // Compute file position of control entry
+          ent2->control = store->lastcontrol + (ulong)((char*)ent - (char*)&ctrl);
+        }
+      }
+
+    ulong next = FD_FUNK_CONTROL_NEXT(ctrl);
+    if (!next)
+      break;
+    store->lastcontrol = next;
+  }
+}
 
 void* fd_funk_new(void* mem,
                   ulong footprint,
@@ -274,6 +311,20 @@ void* fd_funk_new(void* mem,
   store->backinglen = statbuf.st_size;
 
   store->index = fd_funk_index_new(FD_FUNK_INDEX_START_SIZE);
+
+  if (store->backinglen < (long)FD_FUNK_CONTROL_SIZE) {
+    // Initialize with an empty control block
+    char zeros[FD_FUNK_CONTROL_SIZE];
+    fd_memset(zeros, 0, FD_FUNK_CONTROL_SIZE);
+    if (write(store->backingfd, zeros, FD_FUNK_CONTROL_SIZE) < (long)FD_FUNK_CONTROL_SIZE) {
+      FD_LOG_ERR(("failed to initialize %s: %s", backingfile, strerror(errno)));
+    }
+    store->backinglen = FD_FUNK_CONTROL_SIZE;
+  }
+
+  // First control block is always at zero
+  store->lastcontrol = 0;
+  fd_funk_replay_control(store);
 
   // Root is all zeros
   fd_memset(&store->root, 0, sizeof(store->root));
