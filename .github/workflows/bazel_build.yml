@@ -1,4 +1,4 @@
-name: Bazel Build
+name: Bazel Test
 on:
   pull_request:
   push:
@@ -23,4 +23,4 @@ jobs:
         run: bazel build //...
 
       - name: Test everything
-        run: bazel test //...
+        run: .github/scripts/run-ulimit.sh bazel test --test_output=errors //...

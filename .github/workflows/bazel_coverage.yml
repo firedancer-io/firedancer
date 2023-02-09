@@ -1,4 +1,4 @@
-name: Bazel Test
+name: Bazel Coverage
 on:
   pull_request:
   push:
@@ -20,7 +20,7 @@ jobs:
           key: bazel-coverage-ubuntu-2204
 
       - name: Test with coverage
-        run: bazel coverage --test_output=errors //...
+        run: .github/scripts/run-ulimit.sh bazel coverage --test_output=errors //...
 
       - name: Create coverage report
         run: |
