@@ -38,35 +38,186 @@ https://github.com/solana-labs/solana/issues/28191
    % solana-ledger-tool -l test-ledger verify
 
 
-~/repos/solana/ledger/src/blockstore.rs
-    fn do_open(ledger_path: &Path, options: BlockstoreOptions) -> Result<Blockstore> {
+[jsiegel@rd-sparel3 ~/repos/solana]{(v1.14.13)} solana airdrop 10
+Requesting airdrop of 10 SOL
 
-~/repos/solana/ledger/src/blockstore.rs
-    pub fn get_complete_block(
+Signature: 54LRF4XcL18SiffyHrzFHLtv6e5sfDTbLA54BGSE4G53Z2DDYNXmUYHCYMVVFDKsTQ4JRQ1KGP38Bema4mTR1iPE
 
-~/repos/solana/ledger-tool/src/main.rs
-fn open_blockstore(
-    ledger_path: &Path,
-    access_type: AccessType,
-    wal_recovery_mode: Option<BlockstoreRecoveryMode>,
-    shred_storage_type: &ShredStorageType,
-) -> Blockstore {
-    match Blockstore::open_with_options(
-        ledger_path,
-        BlockstoreOptions {
-            access_type,
-            recovery_mode: wal_recovery_mode,
-            enforce_ulimit_nofile: true,
-            column_options: LedgerColumnOptions {
-                shred_storage_type: shred_storage_type.clone(),
-                ..LedgerColumnOptions::default()
-            },
+500000010 SOL
+[jsiegel@rd-sparel3 ~/repos/solana]{(v1.14.13)} solana transaction-count; solana transfer EPhgPANa5Rh2wa4V2jxt7YbtWa3Uyw4sTeZ13cQjDDB8 1 --allow-unfunded-recipient; solana transaction-count  
+72
+
+Signature: EBx7ukSFjerkzdrZqe4oSnehaubUiQpQ6NEhzR5SpuXoQsGxpaWg2r16MQ2XrVFQcaPfCGUVvFRNQsr23PD7Mu7
+
+75
+
+
+  {
+    "previous_blockhash": "4jrJsCTBQdPuPnaPdU3b8rTQ4cqus1nus1fa3ggNfjqM",
+    "blockhash": "312YMuTaMmML3ojmHS9nEGXdVif4U6LwGxuvB7s8i4om",
+    "parent_slot": 72,
+    "transactions": [
+      {
+        "transaction": {
+          "signatures": [
+            [
+              2
+            ],
+            "286FTtRvobdYw9fT4n9VHC5pAqsSzFt3uFuEuNTPLawy9jmfNbnzKTqawTpjeKutep3Nv5e8nAJMpRigPmfQkRk3",
+            "3wscL9GJuj7ho8wVXDAD3Vf8Uu9ZNpvKCCnsCpxSjDPVcEY91CVUZiGzyCpE2miijRFm3oZTpDGH3B215TBrqJs6"
+          ],
+          "message": [
+            {
+              "header": {
+                "numRequiredSignatures": 2,
+                "numReadonlySignedAccounts": 0,
+                "numReadonlyUnsignedAccounts": 1
+              },
+              "accountKeys": [
+                [3],
+                "ACDnfhx8sLLNC4ks19xtNJgAQZ8FTrvFekDbnjwkqHsh",
+                "4Lfjc1XhakiYPfTsyMJgtuHbmKMrru8An9i6EZF5Jbs8",
+                "Vote111111111111111111111111111111111111111"
+              ],
+              "recentBlockhash": "4jrJsCTBQdPuPnaPdU3b8rTQ4cqus1nus1fa3ggNfjqM",
+              "instructions": [
+                [1],
+                {
+                  "programIdIndex": 2,
+                  "accounts": [
+                    [2],
+                    1,
+                    1
+                  ],
+                  "data": [
+                    [116],
+                    12, 0, 0, 0, 41, 0, 0, 0, 0, 0, 0, 0, 31, 1, 31, 1, 30, 1, 29, 1, 28, 1, 27, 1, 26, 1,
+                    25, 1, 24, 1, 23, 1, 22, 1, 21, 1, 20, 1, 19, 1, 18, 1, 17, 1, 16, 1, 15, 1, 14, 1, 13,
+                    1, 12, 1, 11, 1, 10, 1, 9, 1, 8, 1, 7, 1, 6, 1, 5, 1, 4, 1, 3, 1, 2, 1, 1, 208, 83, 219,
+                    128, 34, 253, 138, 80, 118, 172, 110, 98, 161, 33, 249, 147, 85, 245, 52, 124, 244, 231, 41,
+                    114, 206, 194, 88, 221, 130, 94, 96, 168, 1, 20, 16, 229, 99, 0, 0, 0, 0
+                  ]
+                }
+              ]
+            }
+          ]
         },
-    ) {
-        Ok(blockstore) => blockstore,
-        Err(err) => {
-            eprintln!("Failed to open ledger at {:?}: {:?}", ledger_path, err);
-            exit(1);
+        "meta": {
+          "status": {
+            "Ok": null
+          },
+          "fee": 10000,
+          "pre_balances": [
+            499999647500,
+            1000000000000000,
+            1
+          ],
+          "post_balances": [
+            499999637500,
+            1000000000000000,
+            1
+          ],
+          "inner_instructions": [],
+          "log_messages": [
+            "Program Vote111111111111111111111111111111111111111 invoke [1]",
+            "Program Vote111111111111111111111111111111111111111 success"
+          ],
+          "pre_token_balances": [],
+          "post_token_balances": [],
+          "rewards": [],
+          "loaded_addresses": {
+            "writable": [],
+            "readonly": []
+          },
+          "return_data": null,
+          "compute_units_consumed": 0
         }
-    }
-}
+      },
+      {
+        "transaction": {
+          "signatures": [
+            [1],
+            "EBx7ukSFjerkzdrZqe4oSnehaubUiQpQ6NEhzR5SpuXoQsGxpaWg2r16MQ2XrVFQcaPfCGUVvFRNQsr23PD7Mu7"
+          ],
+          "message": [
+            {
+              "header": {
+                "numRequiredSignatures": 1,
+                "numReadonlySignedAccounts": 0,
+                "numReadonlyUnsignedAccounts": 1
+              },
+              "accountKeys": [
+                [3],
+                "3WGyQuYjs6T2PpY1pBLjJJFrWMx9XzexDkftLXkpTTwB",
+                "EPhgPANa5Rh2wa4V2jxt7YbtWa3Uyw4sTeZ13cQjDDB8",
+                "11111111111111111111111111111111"
+              ],
+              "recentBlockhash": "4jrJsCTBQdPuPnaPdU3b8rTQ4cqus1nus1fa3ggNfjqM",
+              "instructions": [
+                [
+                  1
+                ],
+                {
+                  "programIdIndex": 2,
+                  "accounts": [
+                    [
+                      2
+                    ],
+                    0,
+                    1
+                  ],
+                  "data": [
+                    [
+                      12
+                    ],
+                    2, 0, 0, 0, 0, 202, 154, 59, 0, 0, 0, 0
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        "meta": {
+          "status": {
+            "Ok": null
+          },
+          "fee": 5000,
+          "pre_balances": [
+            500000010000000000,
+            0,
+            1
+          ],
+          "post_balances": [
+            500000008999995000,
+            1000000000,
+            1
+          ],
+          "inner_instructions": [],
+          "log_messages": [
+            "Program 11111111111111111111111111111111 invoke [1]",
+            "Program 11111111111111111111111111111111 success"
+          ],
+          "pre_token_balances": [],
+          "post_token_balances": [],
+          "rewards": [],
+          "loaded_addresses": {
+            "writable": [],
+            "readonly": []
+          },
+          "return_data": null,
+          "compute_units_consumed": 0
+        }
+      }
+    ],
+    "rewards": [
+      {
+        "pubkey": "ACDnfhx8sLLNC4ks19xtNJgAQZ8FTrvFekDbnjwkqHsh",
+        "lamports": 7500,
+        "postBalance": 499999645000,
+        "rewardType": "Fee",
+        "commission": null
+      }
+    ],
+    "block_time": 1675956244,
+    "block_height": 73
+  },

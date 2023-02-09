@@ -42,6 +42,11 @@ fn main() {
             },
         }).unwrap();
 
-    let ret = db.get_complete_block(args[2].parse().unwrap(), true).unwrap();
-    println!("{}", serde_json::to_string(&ret).unwrap());
+    let mut start = args[2].parse().unwrap();
+    let end = args[3].parse().unwrap();
+    while start <= end {
+        let ret = db.get_complete_block(start, true).unwrap();
+        println!("{},", serde_json::to_string(&ret).unwrap());
+        start = start + 1;
+    }
 }
