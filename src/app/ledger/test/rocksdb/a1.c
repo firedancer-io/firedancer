@@ -9,7 +9,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include <endian.h>
+#include <util/bits/fd_bits.h>
 
 #include <rocksdb/c.h>
 
@@ -55,7 +55,7 @@ int main()
 
     size_t klen = 0;
     const char *key = rocksdb_iter_key(iter, &klen); // There is no need to free kee
-    unsigned long slot = be64toh(*((unsigned long *) key));
+    unsigned long slot = fd_ulong_bswap(*((unsigned long *) key));
     printf("Last slot in the db: %ld\n", slot);
     rocksdb_iter_destroy(iter);
 

@@ -10,7 +10,7 @@
 #include <zstd.h>      // presumes zstd library is installed
 #include "../../util/fd_util.h"
 #include "tar.h"
-#include "banks.h"
+#include "../../ballet/bank/fd_banks.h"
 #include "fd_funk.h"
 
 static void usage(const char* progname) {
