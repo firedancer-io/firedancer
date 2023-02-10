@@ -1,3 +1,8 @@
+// TODO:
+//    Move all the implementations into a fd_banks.c file
+//    do pure prototypes for all the implementations
+//    look for: FD_PROTOTYPES_BEGIN
+
 #ifndef HEADER_fd_src_ballet_bank_fd_banks_h
 #define HEADER_fd_src_ballet_bank_fd_banks_h
 
