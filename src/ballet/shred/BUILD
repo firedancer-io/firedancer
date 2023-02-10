@@ -14,12 +14,20 @@ fd_cc_library(
     ],
     deps = [
         "//src/ballet:base_lib",
+        "//src/ballet/block",
     ],
 )
 
 fd_cc_test(
     srcs = ["test_shred.c"],
-    deps = [
-        "//src/ballet",
+    deps = ["//src/ballet"],
+)
+
+fd_cc_test(
+    srcs = ["test_deshredder.c"],
+    compile_data = [
+        "fixtures/localnet-slot0-shreds.ar",
+        "fixtures/localnet-slot0-batch0.bin",
     ],
+    deps = ["//src/ballet"],
 )
