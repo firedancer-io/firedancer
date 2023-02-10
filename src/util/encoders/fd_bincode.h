@@ -1,3 +1,5 @@
+#ifndef HEADER_fd_src_util_encoders_fd_bincode_h
+#define HEADER_fd_src_util_encoders_fd_bincode_h
 
 void fd_bincode_uint128_decode(uint128* self, void const** data, void const* dataend) {
   const uint128 *ptr = (const uint128 *) *data;
@@ -62,3 +64,5 @@ unsigned char fd_bincode_option_decode(void const** data, void const* dataend) {
   *data = ptr + 1;
   return ret;
 }
+
+#endif /* HEADER_fd_src_util_encoders_fd_bincode_h */

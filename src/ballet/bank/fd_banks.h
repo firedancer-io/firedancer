@@ -1,3 +1,5 @@
+#ifndef HEADER_fd_src_ballet_bank_fd_banks_h
+#define HEADER_fd_src_ballet_bank_fd_banks_h
 
 #include "../../util/encoders/fd_bincode.h"
 
@@ -769,3 +771,5 @@ void fd_accounts_db_fields_decode(fd_accounts_db_fields_t* self, void const** da
   } else
     self->historical_roots_with_hash = NULL;
 }
+
+#endif /* HEADER_fd_src_ballet_bank_fd_banks_h */
