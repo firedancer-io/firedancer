@@ -1,6 +1,10 @@
 #ifndef HEADER_fd_src_util_encoders_fd_bincode_h
 #define HEADER_fd_src_util_encoders_fd_bincode_h
 
+// TODO:
+//    add _unchecked versions
+//    return the underflow status verses errors?!
+
 void fd_bincode_uint128_decode(uint128* self, void const** data, void const* dataend) {
   const uint128 *ptr = (const uint128 *) *data;
   if (FD_UNLIKELY((void const *) (ptr + 1) > dataend )) {
