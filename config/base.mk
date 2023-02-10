@@ -16,7 +16,3 @@ RMDIR:=rm -rfv
 SED:=sed
 FIND:=find
 SCRUB:=$(FIND) . -type f -name "*~" -o -name "\#*" | xargs $(RM)
-
-
-CFLAGS += -I/home/asiegel/zstd/lib
-LDFLAGS += -L/home/asiegel/zstd/lib -lzstd
