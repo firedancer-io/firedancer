@@ -110,19 +110,19 @@ fd_microblock_delete( void * shblock ) {
   return shblock;
 }
 
-void *
+int
 fd_microblock_deserialize( fd_microblock_t * block,
-                           void *            buf,
-                           ulong             buf_sz,
+                           void **           buf,
+                           ulong *           buf_sz,
                            fd_txn_parse_counters_t * counters_opt ) {
-# define ADVANCE(n) do {                         \
-  if( FD_UNLIKELY( buf_sz < (n) ) ) return NULL; \
-  buf     = (void *)((char *)buf + (n));         \
-  buf_sz -= (n);                                 \
+# define ADVANCE(n) do {                       \
+  if( FD_UNLIKELY( *buf_sz < (n) ) ) return 0; \
+  *buf     = (void *)((char *)*buf + (n));     \
+  *buf_sz -= (n);                              \
 } while(0)
 
   /* Copy microblock header */
-  fd_microblock_hdr_t * hdr = (fd_microblock_hdr_t *)buf;
+  fd_microblock_hdr_t * hdr = (fd_microblock_hdr_t *)*buf;
   ADVANCE( sizeof(fd_microblock_hdr_t) );
   fd_memcpy( &block->hdr, hdr, sizeof(fd_microblock_hdr_t) );
 
@@ -132,21 +132,21 @@ fd_microblock_deserialize( fd_microblock_t * block,
   for( ulong txn_idx=0; txn_idx < block->hdr.txn_cnt; txn_idx++ ) {
     /* Remember ptr of raw txn */
     fd_rawtxn_b_t * raw_txn = &raw_tbl[ txn_idx ];
-    void * raw_ptr = buf;
+    void * raw_ptr = *buf;
 
     /* Parse txn into descriptor table */
     fd_txn_t * out_txn = (fd_txn_t *)&txn_tbl[ txn_idx ];
-    ulong txn_sz = fd_txn_parse( buf, buf_sz, out_txn, counters_opt );
+    ulong txn_sz = fd_txn_parse( *buf, *buf_sz, out_txn, counters_opt );
     FD_LOG_NOTICE(( "fd_txn_parse: %lu", txn_sz ));
 
-    if( FD_UNLIKELY( txn_sz==0UL ) ) return NULL;
+    if( FD_UNLIKELY( txn_sz==0UL ) ) return 0;
     ADVANCE( txn_sz );
 
     raw_txn->raw    = raw_ptr;
     raw_txn->txn_sz = (ushort)txn_sz;
   }
 
-  return buf;
+  return 1;
 
 # undef ADVANCE
 }

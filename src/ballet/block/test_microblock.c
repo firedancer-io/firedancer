@@ -2,21 +2,22 @@
 
 #include "../../util/sanitize/fd_sanitize.h"
 
+#include <stddef.h>
+
 /* Data layout checks */
+
+FD_STATIC_ASSERT( offsetof( fd_microblock_hdr_t, hash_cnt )==0x00UL, alignment );
+FD_STATIC_ASSERT( offsetof( fd_microblock_hdr_t, hash     )==0x08UL, alignment );
+FD_STATIC_ASSERT( offsetof( fd_microblock_hdr_t, txn_cnt  )==0x28UL, alignment );
+FD_STATIC_ASSERT( sizeof  ( fd_microblock_hdr_t           )==0x30UL, alignment );
+FD_STATIC_ASSERT( alignof ( fd_microblock_hdr_t           )==0x01UL, alignment );
+
 FD_STATIC_ASSERT( alignof(fd_microblock_t)== 64UL, alignment );
 FD_STATIC_ASSERT( sizeof (fd_microblock_t)==128UL, alignment );
 
 void
 test_microblock() {
   /* Ensure footprint is multiple of align */
-
-  /*  for( ulong i=0UL; i<64UL; i++ ) {
-    do { if( __builtin_expect( !!(!(( fd_microblock_footprint( i ) %
-# 14 "src/ballet/block/test_block.c" 3 4
-   _Alignof
-# 14 "src/ballet/block/test_block.c"
-   (fd_microblock_t) )==0UL)), 0L ) ) do { long _fd_log_msg_now = fd_log_wallclock(); fd_log_private_2( 4, _fd_log_msg_now, "src/ballet/block/test_block.c", 14, __func__, fd_log_private_0 ( "FAIL: " "( fd_microblock_footprint( i ) % alignof(fd_microblock_t) )==0UL" ) ); } while(0); } while(0);
-  }*/
 
   for( ulong i=0UL; i<64UL; i++ ) {
     FD_TEST( ( fd_microblock_footprint( i ) % alignof(fd_microblock_t) )==0UL );
@@ -122,13 +123,10 @@ test_parse_localnet_batch_0( void ) {
 
   /* Deserialize all entries. */
   fd_txn_parse_counters_t counters_opt = {0};
-  void * next_buf;
   for( ulong i=0; i<microblock_cnt; i++ ) {
     FD_TEST( batch_buf );
 
-    next_buf = fd_microblock_deserialize( block, batch_buf, batch_bufsz, &counters_opt );
-    batch_bufsz -= ((ulong)next_buf - (ulong)batch_buf);
-    batch_buf    = next_buf;
+    FD_TEST( fd_microblock_deserialize( block, &batch_buf, &batch_bufsz, &counters_opt ) );
 
     /* Each microblock in the genesis block has 0 txns, 0 hashes, and the same prev hash */
     FD_TEST( block->hdr.txn_cnt ==0UL );
