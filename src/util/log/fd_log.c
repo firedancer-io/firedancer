@@ -486,12 +486,12 @@ fd_log_private_0( char const * fmt, ... ) {
 
 char const * 
 fd_log_private_hexdump_msg ( char const * descr,
-                             void const * blob,
+                             void const * mem,
                              ulong        sz ) {
 
 # define FD_LOG_HEXDUMP_BYTES_PER_LINE             (16UL)
 # define FD_LOG_HEXDUMP_BLOB_DESCRIPTION_MAX_LEN   (32UL)
-# define FD_LOG_HEXDUMP_MAX_INPUT_BLOB_SZ          (1500UL)
+# define FD_LOG_HEXDUMP_MAX_INPUT_BLOB_SZ          (1664UL) /* multiple of 128 >= 1542 */
 
 # define FD_LOG_HEXDUMP_ADD_TO_LOG_BUF(...)  do {                              \
     num_bytes_written = sprintf ( log_buf_ptr, __VA_ARGS__ );                  \
@@ -501,26 +501,24 @@ fd_log_private_hexdump_msg ( char const * descr,
   char * log_buf_ptr = fd_log_private_log_msg;   /* used by FD_LOG_HEXDUMP_ADD_TO_LOG_BUF macro */
   int num_bytes_written = 0;                     /* used by the FD_LOG_HEXDUMP_ADD_TO_LOG_BUF macro. signed because *printf() return 'int'. */
 
-  ulong blob_sz = fd_ulong_min( sz, FD_LOG_HEXDUMP_MAX_INPUT_BLOB_SZ );
-
-  /* Print the blob header */
+  /* Print the hexdump header */
   /* FIXME: consider additional sanitization of descr or using compiler
      tricks to prevent user from passing a non-const-char string (i.e.
      data they got from somewhere else that might not be sanitized). */
 
   if( FD_UNLIKELY( !descr ) ) {
 
-    FD_LOG_HEXDUMP_ADD_TO_LOG_BUF( "HEXDUMP - (%lu bytes at 0x%lx)", sz, (ulong)blob );
+    FD_LOG_HEXDUMP_ADD_TO_LOG_BUF( "HEXDUMP - (%lu bytes at 0x%lx)", sz, (ulong)mem );
 
   } else if( FD_UNLIKELY( strlen( descr )>FD_LOG_HEXDUMP_BLOB_DESCRIPTION_MAX_LEN ) ) {
 
     char tmp[ FD_LOG_HEXDUMP_BLOB_DESCRIPTION_MAX_LEN + 1UL ];
     fd_cstr_fini( fd_cstr_append_text( fd_cstr_init( tmp ), descr, FD_LOG_HEXDUMP_BLOB_DESCRIPTION_MAX_LEN ) );
-    FD_LOG_HEXDUMP_ADD_TO_LOG_BUF( "HEXDUMP \"%s\"... (%lu bytes at 0x%lx)", tmp, sz, (ulong)blob );
+    FD_LOG_HEXDUMP_ADD_TO_LOG_BUF( "HEXDUMP \"%s\"... (%lu bytes at 0x%lx)", tmp, sz, (ulong)mem );
 
   } else {
 
-    FD_LOG_HEXDUMP_ADD_TO_LOG_BUF( "HEXDUMP \"%s\" (%lu bytes at 0x%lx)", descr, sz, (ulong)blob );
+    FD_LOG_HEXDUMP_ADD_TO_LOG_BUF( "HEXDUMP \"%s\" (%lu bytes at 0x%lx)", descr, sz, (ulong)mem );
 
   }
 
@@ -528,40 +526,42 @@ fd_log_private_hexdump_msg ( char const * descr,
 
   FD_LOG_HEXDUMP_ADD_TO_LOG_BUF( "\n" );
 
-  if( FD_UNLIKELY( !blob ) ) {
+  if( FD_UNLIKELY( !mem ) ) {
     FD_LOG_HEXDUMP_ADD_TO_LOG_BUF( "\t... snip (unreadable memory) ..." );
     return fd_log_private_log_msg;
   }
 
-  char line_buf[ FD_LOG_HEXDUMP_BYTES_PER_LINE+1 ];
-  const char * blob_ptr = blob;
-  ulong count = 0;
+  char         line_buf[ FD_LOG_HEXDUMP_BYTES_PER_LINE+1 ];
+  char const * blob     = (char const *)mem;
+  ulong        blob_off = 0UL;
+  ulong        blob_sz  = fd_ulong_min( sz, FD_LOG_HEXDUMP_MAX_INPUT_BLOB_SZ );
 
-  for( ; count<blob_sz; count++ ) {
+  for( ; blob_off<blob_sz; blob_off++ ) {
+    ulong col_idx = blob_off % FD_LOG_HEXDUMP_BYTES_PER_LINE;
+
     /* New line. Print previous line's ASCII representation and then print the offset. */
-    if( !( count%FD_LOG_HEXDUMP_BYTES_PER_LINE) ) {
-      if( count!=0 ) FD_LOG_HEXDUMP_ADD_TO_LOG_BUF( "  %s\n", line_buf );
-      FD_LOG_HEXDUMP_ADD_TO_LOG_BUF( "\t%04x: ", (unsigned int)count );
+    if( FD_UNLIKELY( !col_idx ) ) {
+      if( FD_LIKELY( blob_off ) ) FD_LOG_HEXDUMP_ADD_TO_LOG_BUF( "  %s\n", line_buf );
+      FD_LOG_HEXDUMP_ADD_TO_LOG_BUF( "\t%04lx: ", blob_off );
     }
     /* FIXME: consider extra space between col 7 and 8 to make easier
        for visual inspection */
 
-    FD_LOG_HEXDUMP_ADD_TO_LOG_BUF( " %02x", blob_ptr[count]&0xff );
+    char c = blob[blob_off];
+    FD_LOG_HEXDUMP_ADD_TO_LOG_BUF( " %02x", (uint)(uchar)c );
 
     /* If not a printable ASCII character, output a dot. */
-    if( isalnum( blob_ptr[ count ] ) || ispunct( blob_ptr[ count ] || blob_ptr[ count ]==' ' ) )
-      line_buf[ count%FD_LOG_HEXDUMP_BYTES_PER_LINE ] = blob_ptr[ count ];
-    else
-      line_buf[ count%FD_LOG_HEXDUMP_BYTES_PER_LINE ] = '.';
-    line_buf[ ( count%FD_LOG_HEXDUMP_BYTES_PER_LINE )+1 ] = '\0';
+    line_buf[ col_idx     ] = fd_char_if( isalnum( (int)c ) | ispunct( (int)c ) | (c==' '), c, '.' );
+    line_buf[ col_idx+1UL ] = '\0';
   }
 
-  while( ( count%FD_LOG_HEXDUMP_BYTES_PER_LINE )!=0 ) {
+  /* Print the 2nd column of last blob line */
+  while( blob_off % FD_LOG_HEXDUMP_BYTES_PER_LINE ) {
     FD_LOG_HEXDUMP_ADD_TO_LOG_BUF( "   " );
-    count++;
+    blob_off++;
   }
-
   FD_LOG_HEXDUMP_ADD_TO_LOG_BUF( "  %s", line_buf );
+
   if( FD_UNLIKELY( blob_sz < sz ) )
     FD_LOG_HEXDUMP_ADD_TO_LOG_BUF( "\n\t... snip (printed %lu bytes, omitted %lu bytes) ...", blob_sz, sz-blob_sz );
 
