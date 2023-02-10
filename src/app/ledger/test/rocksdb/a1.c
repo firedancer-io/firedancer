@@ -40,8 +40,24 @@ void fd_slot_meta_decode(fd_slot_meta_t* self, void const** data, void const* da
   fd_bincode_uint64_decode(&self->last_index, data, dataend);
   fd_bincode_uint64_decode(&self->parent_slot, data, dataend);
   fd_bincode_uint64_decode(&self->num_next_slots, data, dataend);
+  if (self->num_next_slots > 0) {
+    self->next_slots = (ulong*)(*allocf)(sizeof(ulong)*self->num_next_slots, (8UL), allocf_arg);
+    for (ulong i = 0; i < self->num_next_slots; ++i)
+      fd_bincode_uint64_decode(self->next_slots + i, data, dataend);
+  } else
+    self->next_slots = NULL;
   fd_bincode_uint8_decode(&self->is_connected, data, dataend);
   fd_bincode_uint64_decode(&self->num_entry_end_indexes, data, dataend);
+  if (self->num_entry_end_indexes > 0) {
+    self->entry_end_indexes = (uint*)(*allocf)(sizeof(uint)*self->num_entry_end_indexes, (8UL), allocf_arg);
+    for (ulong i = 0; i < self->num_entry_end_indexes; ++i)
+      fd_bincode_uint32_decode(self->entry_end_indexes + i, data, dataend);
+  } else
+    self->entry_end_indexes = NULL;
+}
+
+char* allocf(unsigned long len, FD_FN_UNUSED unsigned long align, FD_FN_UNUSED void* arg) {
+  return malloc(len);
 }
 
 int main()
@@ -90,9 +106,20 @@ int main()
     printf("Last slot in the db: %ld\n", slot);
     rocksdb_iter_destroy(iter);
 
+
+    ulong ks = fd_ulong_bswap(1);
+    size_t vallen = 0;
+
+    char *meta = rocksdb_get_cf(
+      db, ro, column_family_handles[1], (const char *) &ks, sizeof(ks), &vallen, &err);
+
+    unsigned char *outend = (unsigned char *) &meta[vallen];
+    const void * o = meta;
+
+    fd_slot_meta_t m;
+    fd_slot_meta_decode(&m, &o, outend, allocf, NULL);
+
     rocksdb_readoptions_destroy(ro);
-
-
 
 //    rocksdb_writeoptions_t *wo = rocksdb_writeoptions_create();
 //    char *key = "name";
