@@ -9,8 +9,5 @@ bazel-firedancer
 bazel-out
 bazel-testlogs
 
-# macOS specific
-.DS_Store
-
 genhtml/
 target/
