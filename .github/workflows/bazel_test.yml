@@ -35,10 +35,12 @@ jobs:
 
       - name: Upload coverage report to CodeCov
         uses: codecov/codecov-action@v3
+        timeout-minutes: 5
         with:
           files: "bazel-out/_coverage/_coverage_report.dat"
           name: codecov-bazel
-          fail_ci_if_error: true
+          fail_ci_if_error: false
+          functionalities: search
 
   publish-coverage:
     runs-on: ubuntu-22.04
