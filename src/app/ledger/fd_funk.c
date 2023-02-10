@@ -8,9 +8,6 @@
 #include <unistd.h>
 #include <stdlib.h>
 
-// Smallest unit of disk allocation
-#define FD_FUNK_MINIBLOCK_SIZE 512
-
 // Control block size
 #define FD_FUNK_CONTROL_SIZE (64UL<<10)
 
@@ -264,22 +261,18 @@ struct fd_funk_control_entry {
 #define FD_FUNK_CONTROL_DEAD 2 // Control entry for a dead record
 };
 
-#define FD_FUNK_CONTROL_ENTRIES_PER_MINI FD_FUNK_MINIBLOCK_SIZE/sizeof(struct fd_funk_control_entry)
-struct fd_funk_control_mini {
-    struct fd_funk_control_entry entries[FD_FUNK_CONTROL_ENTRIES_PER_MINI];
-    // Pointer to next control block. Only used in first mini in a
-    // control block. Zero terminated.
-    ulong next_control;
-};
-
+#define FD_FUNK_ENTRIES_IN_CONTROL (FD_FUNK_CONTROL_SIZE/128)
 struct fd_funk_control {
     // Make sure control entries don't cross block boundaries
     struct {
-        struct fd_funk_control_mini mini;
-        char pad[FD_FUNK_MINIBLOCK_SIZE - sizeof(struct fd_funk_control_mini)];
-    } minis[FD_FUNK_CONTROL_SIZE/FD_FUNK_MINIBLOCK_SIZE];
+        struct fd_funk_control_entry entry;
+        union {
+            char pad[128 - sizeof(struct fd_funk_control_entry)];
+            ulong next_control;
+        } u;
+    } entries[FD_FUNK_ENTRIES_IN_CONTROL];
 };
-#define FD_FUNK_CONTROL_NEXT(_ctrl_) (_ctrl_.minis[0].mini.next_control)
+#define FD_FUNK_CONTROL_NEXT(_ctrl_) (_ctrl_.entries[0].u.next_control)
 
 #define VECT_NAME fd_vec_ulong
 #define VECT_ELEMENT ulong
@@ -340,7 +333,7 @@ void fd_funk_make_dead(struct fd_funk* store, ulong control, ulong start, uint a
 }
 
 void fd_funk_replay_control(struct fd_funk* store) {
-  FD_STATIC_ASSERT(sizeof(struct fd_funk_control_mini) <= FD_FUNK_MINIBLOCK_SIZE,fd_funk);
+  FD_STATIC_ASSERT(sizeof(struct fd_funk_control_entry) <= 120,fd_funk);
   FD_STATIC_ASSERT(sizeof(struct fd_funk_control) == FD_FUNK_CONTROL_SIZE,fd_funk);
 
   struct fd_funk_control ctrl;
@@ -361,50 +354,49 @@ void fd_funk_replay_control(struct fd_funk* store) {
       break;
     }
 
-    for (ulong i = 0; i < FD_FUNK_CONTROL_SIZE/FD_FUNK_MINIBLOCK_SIZE; ++i)
-      for (ulong j = 0; j < FD_FUNK_CONTROL_ENTRIES_PER_MINI; ++j) {
-        struct fd_funk_control_entry* ent = &ctrl.minis[i].mini.entries[j];
-        // Compute file position of control entry
-        ulong entpos = store->lastcontrol + (ulong)((char*)ent - (char*)&ctrl);
+    for (ulong i = 0; i < FD_FUNK_ENTRIES_IN_CONTROL; ++i) {
+      struct fd_funk_control_entry* ent = &ctrl.entries[i].entry;
+      // Compute file position of control entry
+      ulong entpos = store->lastcontrol + (ulong)((char*)ent - (char*)&ctrl);
         
-        if (ent->type == FD_FUNK_CONTROL_NORMAL) {
-          struct fd_funk_index_entry* ent2 = fd_funk_index_insert(&store->index, &ent->u.normal.id);
+      if (ent->type == FD_FUNK_CONTROL_NORMAL) {
+        struct fd_funk_index_entry* ent2 = fd_funk_index_insert(&store->index, &ent->u.normal.id);
           
-          if (fd_funk_index_entry_valid(ent2)) {
-            FD_LOG_WARNING(("duplicate record id in store"));
-            // Keep the later version. Delete the older one.
-            if (ent2->version > ent->u.normal.version) {
-              fd_funk_make_dead(store, entpos, ent->u.normal.start, ent->u.normal.alloc);
-              // Leave ent2 alone
-              continue;
-            } else {
-              fd_funk_make_dead(store, ent2->control, ent2->start, ent2->alloc);
-              // Update ent2 below
-            }
-          }
-          
-          ent2->start = ent->u.normal.start;
-          ent2->len = ent->u.normal.len;
-          ent2->alloc = ent->u.normal.alloc;
-          ent2->version = ent->u.normal.version;
-          ent2->control = entpos;
-
-        } else if (ent->type == FD_FUNK_CONTROL_DEAD) {
-          uint k;
-          ulong rsize = fd_funk_disk_size(ent->u.dead.alloc, &k);
-          if (rsize != ent->u.dead.alloc) {
-            FD_LOG_WARNING(("invalid record allocation in store"));
+        if (fd_funk_index_entry_valid(ent2)) {
+          FD_LOG_WARNING(("duplicate record id in store"));
+          // Keep the later version. Delete the older one.
+          if (ent2->version > ent->u.normal.version) {
+            fd_funk_make_dead(store, entpos, ent->u.normal.start, ent->u.normal.alloc);
+            // Leave ent2 alone
             continue;
+          } else {
+            fd_funk_make_dead(store, ent2->control, ent2->start, ent2->alloc);
+            // Update ent2 below
           }
-          struct fd_funk_dead_entry de;
-          de.control = entpos;
-          de.start = ent->u.dead.start;
-          fd_funk_vec_dead_entry_push(&store->deads[k], de);
-
-        } else if (ent->type == FD_FUNK_CONTROL_EMPTY) {
-          fd_vec_ulong_push(&store->free_ctrl, entpos);
         }
+          
+        ent2->start = ent->u.normal.start;
+        ent2->len = ent->u.normal.len;
+        ent2->alloc = ent->u.normal.alloc;
+        ent2->version = ent->u.normal.version;
+        ent2->control = entpos;
+
+      } else if (ent->type == FD_FUNK_CONTROL_DEAD) {
+        uint k;
+        ulong rsize = fd_funk_disk_size(ent->u.dead.alloc, &k);
+        if (rsize != ent->u.dead.alloc) {
+          FD_LOG_WARNING(("invalid record allocation in store"));
+          continue;
+        }
+        struct fd_funk_dead_entry de;
+        de.control = entpos;
+        de.start = ent->u.dead.start;
+        fd_funk_vec_dead_entry_push(&store->deads[k], de);
+
+      } else if (ent->type == FD_FUNK_CONTROL_EMPTY) {
+        fd_vec_ulong_push(&store->free_ctrl, entpos);
       }
+    }
 
     ulong next = FD_FUNK_CONTROL_NEXT(ctrl);
     if (!next)

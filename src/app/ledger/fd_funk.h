@@ -33,7 +33,7 @@ void* fd_funk_delete(void* mem);
 // Identifies a "record" in the storage layer. ASCII text
 // isn't necessary. Compact binary identifiers are encouraged.
 #define FD_FUNK_RECORDID_FOOTPRINT (64UL)
-#define FD_FUNK_RECORDID_ALIGN (64UL)
+#define FD_FUNK_RECORDID_ALIGN (8UL)
 struct fd_funk_recordid {
     uchar id[FD_FUNK_RECORDID_FOOTPRINT];
 } __attribute__ ((aligned(FD_FUNK_RECORDID_ALIGN)));
@@ -46,7 +46,7 @@ struct fd_funk_recordid {
 // transaction is updated. Transactions can also be discarded, erasing
 // all pending updates. Competing/parallel transactions are allowed.
 #define FD_FUNK_XACTIONID_FOOTPRINT (32UL)
-#define FD_FUNK_XACTIONID_ALIGN (32UL)
+#define FD_FUNK_XACTIONID_ALIGN (8UL)
 struct fd_funk_xactionid {
     uchar id[FD_FUNK_XACTIONID_FOOTPRINT];
 } __attribute__ ((aligned(FD_FUNK_XACTIONID_ALIGN)));
