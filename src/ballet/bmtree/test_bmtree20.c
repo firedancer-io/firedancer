@@ -1,5 +1,7 @@
 #include "../fd_ballet.h"
 
+FD_STATIC_ASSERT( alignof(fd_bmtree20_node_t)==1UL, alignment );
+
 /* Convience macros for pretty-printing hex strings of 20 chars. */
 #define FD_LOG_HEX20_FMT "%02x%02x%02x%02x %02x%02x%02x%02x %02x%02x%02x%02x %02x%02x%02x%02x %02x%02x%02x%02x"
 #define FD_LOG_HEX20_FMT_ARGS(b)                                      \

@@ -235,6 +235,39 @@ fd_bmtree_depth( ulong leaf_cnt ) {
   return (ulong)fd_ulong_find_msb( leaf_cnt-1UL ) + 2UL;
 }
 
+/* fd_bmtree{20,32}_hash_leaf: Creates a leaf node from an arbitrary-
+   sized byte array input.  This is the first step in the creation of
+   a Merkle tree.  U.B. if `node` and `data` overlap. */
+
+static inline void
+fd_bmtree20_hash_leaf( fd_bmtree20_node_t * node,
+                       void * data,
+                       ulong  data_sz ) {
+  fd_sha256_t sha;
+  fd_sha256_init( &sha );
+
+  uchar const prefix[1] = { FD_BMTREE_PREFIX_LEAF };
+  fd_sha256_append( &sha, prefix, 1UL     );
+  fd_sha256_append( &sha, data,   data_sz );
+
+  uchar out[ FD_SHA256_HASH_SZ ];
+  fd_sha256_fini( &sha, out );
+  fd_memcpy( node, out, sizeof(fd_bmtree20_node_t) );
+}
+
+static inline void
+fd_bmtree32_hash_leaf( fd_bmtree32_node_t node,
+                       void const * data,
+                       ulong        data_sz ) {
+  fd_sha256_t sha;
+  fd_sha256_init( &sha );
+
+  uchar const prefix[1] = { FD_BMTREE_PREFIX_LEAF };
+  fd_sha256_append( &sha, prefix, 1UL     );
+  fd_sha256_append( &sha, data,   data_sz );
+  fd_sha256_fini( &sha, node );
+}
+
 /* fd_bmtree_commit_buf_cnt returns the number of nodes that
    a buffer minimally has to fit to compute the root. */
 

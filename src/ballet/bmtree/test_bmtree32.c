@@ -1,18 +1,13 @@
 #include "../fd_ballet.h"
 
-static void
-hash_leaf( fd_bmtree32_node_t * out,
-           char const * str ) {
-  fd_sha256_t sha;
-  fd_sha256_init( &sha );
+FD_STATIC_ASSERT( FD_BMTREE32_NODE_SZ==FD_SHA256_HASH_SZ, alignment );
 
-  /* Prepend static one-byte prefix identifying a branch node. */
-  uchar const prefix[1] = { FD_BMTREE_PREFIX_LEAF };
-  fd_sha256_append( &sha, &prefix, 1UL );
-  /* Write leaf data. */
-  fd_sha256_append( &sha, str, strlen( str ) );
+FD_STATIC_ASSERT( alignof(fd_bmtree32_node_t)==1UL, alignment );
 
-  fd_sha256_fini( &sha, out );
+static inline void
+hash_leaf( fd_bmtree32_node_t leaf,
+           char *             leaf_cstr ) {
+  fd_bmtree32_hash_leaf( leaf, leaf_cstr, strlen( leaf_cstr ) );
 }
 
 int
@@ -24,17 +19,17 @@ main( int     argc,
 
   ulong leaf_cnt = 11UL;
   fd_bmtree32_node_t leaves[leaf_cnt];
-  hash_leaf( &leaves[ 0], "my"     );
-  hash_leaf( &leaves[ 1], "very"   );
-  hash_leaf( &leaves[ 2], "eager"  );
-  hash_leaf( &leaves[ 3], "mother" );
-  hash_leaf( &leaves[ 4], "just"   );
-  hash_leaf( &leaves[ 5], "served" );
-  hash_leaf( &leaves[ 6], "us"     );
-  hash_leaf( &leaves[ 7], "nine"   );
-  hash_leaf( &leaves[ 8], "pizzas" );
-  hash_leaf( &leaves[ 9], "make"   );
-  hash_leaf( &leaves[10], "prime"  );
+  hash_leaf( leaves[ 0], "my"     );
+  hash_leaf( leaves[ 1], "very"   );
+  hash_leaf( leaves[ 2], "eager"  );
+  hash_leaf( leaves[ 3], "mother" );
+  hash_leaf( leaves[ 4], "just"   );
+  hash_leaf( leaves[ 5], "served" );
+  hash_leaf( leaves[ 6], "us"     );
+  hash_leaf( leaves[ 7], "nine"   );
+  hash_leaf( leaves[ 8], "pizzas" );
+  hash_leaf( leaves[ 9], "make"   );
+  hash_leaf( leaves[10], "prime"  );
 
   fd_bmtree32_commit_t * commit = fd_alloca( 32, fd_bmtree32_commit_footprint( leaf_cnt ) );
 
