@@ -20,5 +20,6 @@ fd_cc_test(
         "--page-cnt",
         "65536",  # 256 MiB
     ],
+    tags = ["manual"],  # requires 256MiB memlock rlimit
     deps = ["//src/tango"],
 )
