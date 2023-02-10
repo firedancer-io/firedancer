@@ -9,9 +9,41 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include <util/bits/fd_bits.h>
+#include "../../../../util/bits/fd_bits.h"
+#include "../../../../util/fd_util.h"
+#include "../../../../ballet/bank/fd_banks.h"
 
 #include <rocksdb/c.h>
+
+struct fd_slot_meta {
+  ulong slot;
+  ulong consumed;
+  ulong received;
+  ulong first_shred_timestamp;
+  ulong last_index;
+  ulong parent_slot;
+  ulong num_next_slots;
+  ulong *next_slots;
+  uchar is_connected;
+  ulong num_entry_end_indexes;
+  uint *entry_end_indexes;
+};
+typedef struct fd_slot_meta fd_slot_meta_t;
+#define FD_SLOT_META_FOOTPRINT sizeof(fd_slot_meta_t)
+#define FD_SLOT_META_ALIGN (8UL)
+
+
+void fd_slot_meta_decode(fd_slot_meta_t* self, void const** data, void const* dataend, FD_FN_UNUSED alloc_fun allocf, FD_FN_UNUSED void* allocf_arg) {
+  fd_bincode_uint64_decode(&self->slot, data, dataend);
+  fd_bincode_uint64_decode(&self->consumed, data, dataend);
+  fd_bincode_uint64_decode(&self->received, data, dataend);
+  fd_bincode_uint64_decode(&self->first_shred_timestamp, data, dataend);
+  fd_bincode_uint64_decode(&self->last_index, data, dataend);
+  fd_bincode_uint64_decode(&self->parent_slot, data, dataend);
+  fd_bincode_uint64_decode(&self->num_next_slots, data, dataend);
+  fd_bincode_uint8_decode(&self->is_connected, data, dataend);
+  fd_bincode_uint64_decode(&self->num_entry_end_indexes, data, dataend);
+}
 
 int main()
 {
@@ -60,6 +92,8 @@ int main()
     rocksdb_iter_destroy(iter);
 
     rocksdb_readoptions_destroy(ro);
+
+
 
 //    rocksdb_writeoptions_t *wo = rocksdb_writeoptions_create();
 //    char *key = "name";
