@@ -47,7 +47,7 @@ main( int     argc,
      mem x {0,non-zero} sz.  The mem itself in cases should be entirely
      printable characters and thus should exercise printable characters. */
 
-  char const * test_cstr    = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvxyz ~!@#$%^&*()_+`=[]\\;',./{}|:\"<>?";
+  char const * test_cstr    = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz ~!@#$%^&*()_+`-=[]\\;',./{}|:\"<>?";
   ulong        test_cstr_sz = strlen( test_cstr ) + 1UL;
 
   FD_LOG_HEXDUMP_NOTICE (( NULL,                                                  NULL,      0UL          ));

@@ -194,17 +194,17 @@
 
    would log something like:
 
-     NOTICE  01-23 04:56:07.890123 75779 f0 0 src/file.c(901): HEXDUMP "bad_pkt" (94 bytes at 0x555555561a4e)
+     WARNING 01-23 04:56:07.890123 75779 f0 0 src/file.c(901): HEXDUMP "bad_pkt" (96 bytes at 0x555555561a4e)
              0000:  30 31 32 33 34 35 36 37 38 39 41 42 43 44 45 46  0123456789ABCDEF
              0010:  47 48 49 4a 4b 4c 4d 4e 4f 50 51 52 53 54 55 56  GHIJKLMNOPQRSTUV
              0020:  57 58 59 5a 61 62 63 64 65 66 67 68 69 6a 6b 6c  WXYZabcdefghijkl
-             0030:  6d 6e 6f 70 71 72 73 74 75 76 78 79 7a 20 7e 21  mnopqrstuvxyz ~!
-             0040:  40 23 24 25 5e 26 2a 28 29 5f 2b 60 3d 5b 5d 5c  @#$%^&*()_+`=[]\
-             0050:  3b 27 2c 2e 2f 7b 7d 7c 3a 22 3c 3e 3f 00        ;',./{}|:"<>?.
+             0030:  6d 6e 6f 70 71 72 73 74 75 76 77 78 79 7a 20 7e  mnopqrstuvwxyz ~
+             0040:  21 40 23 24 25 5e 26 2a 28 29 5f 2b 60 2d 3d 5b  !@#$%^&*()_+`-=[
+             0050:  5d 5c 3b 27 2c 2e 2f 7b 7d 7c 3a 22 3c 3e 3f 00  ]\;',./{}|:"<>?.
 
    to the ephemeral log (stderr) and similarly to the permanent log.
 
-   Similarly for the HEXDUMPING at other log levels.
+   Similarly for hexdumping to other log levels.
 
    Note: fd_log_wallclock called outside the arg list to give it a
    linguistically strict point when it is called that is before logging
