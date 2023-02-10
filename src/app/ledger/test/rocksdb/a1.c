@@ -118,6 +118,13 @@ int main()
     rocksdb_readoptions_destroy(ro);
 
 // ~/repos/radiance/pkg/blockstore/
+
+// func MakeShredKey(slot, index uint64) (key [16]byte) {
+// 	binary.BigEndian.PutUint64(key[0:8], slot)
+// 	binary.BigEndian.PutUint64(key[8:16], index)
+// 	return
+// }
+
 // func (d *DB) GetEntries(meta *SlotMeta, shredRevision int) ([]Entries, error) {
 // 	shreds, err := d.GetDataShreds(meta.Slot, 0, uint32(meta.Received), shredRevision)
 // 	if err != nil {
@@ -125,6 +132,50 @@ int main()
 // 	}
 // 	return DataShredsToEntries(meta, shreds)
 // }
+
+// func (d *DB) GetDataShreds(slot uint64, startIdx, endIdx uint32, revision int) ([]shred.Shred, error) {
+// 	iter := d.DB.NewIteratorCF(grocksdb.NewDefaultReadOptions(), d.CfDataShred)
+// 	defer iter.Close()
+// 	key := MakeShredKey(slot, uint64(startIdx))
+// 	iter.Seek(key[:])
+// 	return GetDataShredsFromIter(iter, slot, startIdx, endIdx, revision)
+// }
+
+// func GetDataShredsFromIter(
+// 	iter *grocksdb.Iterator,
+// 	slot uint64,
+// 	startIdx, endIdx uint32,
+// 	revision int,
+// ) ([]shred.Shred, error) {
+// 	var shreds []shred.Shred
+// 	for i := startIdx; i < endIdx; i++ {
+// 		var curSlot, index uint64
+// 		valid := iter.Valid()
+// 		if valid {
+// 			key := iter.Key().Data()
+// 			if len(key) != 16 {
+// 				continue
+// 			}
+// 			curSlot = binary.BigEndian.Uint64(key)
+// 			index = binary.BigEndian.Uint64(key[8:])
+// 		}
+// 		if !valid || curSlot != slot {
+// 			return nil, fmt.Errorf("missing shreds for slot %d", slot)
+// 		}
+// 		if index != uint64(i) {
+// 			return nil, fmt.Errorf("missing shred %d for slot %d", i, index)
+// 		}
+// 		s := shred.NewShredFromSerialized(iter.Value().Data(), revision)
+// 		if !s.Ok() {
+// 			return nil, fmt.Errorf("failed to deserialize shred %d/%d", slot, i)
+// 		}
+// 		shreds = append(shreds, s)
+// 		iter.Next()
+// 	}
+// 	return shreds, nil
+// }
+
+// func NewShredFromSerialized(shred []byte, revision int) (s Shred) 
 
     rocksdb_close(db);
     rocksdb_options_destroy(opts);
