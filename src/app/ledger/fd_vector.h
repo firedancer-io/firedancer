@@ -28,7 +28,7 @@ int VECT_(empty)(struct VECT_NAME* self) {
   return self->cnt == 0;
 }
 
-VECT_ELEMENT VECT_(pop)(struct VECT_NAME* self) {
+VECT_ELEMENT VECT_(pop_unsafe)(struct VECT_NAME* self) {
   // Not safe on purpose
   return self->elems[--(self->cnt)];
 }

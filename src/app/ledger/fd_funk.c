@@ -287,6 +287,18 @@ struct fd_funk_control {
 #undef VECT_NAME
 #undef VECT_ELEMENT
 
+struct fd_funk_dead_entry {
+    // Position of control entry
+    ulong control;
+    // Offset into file for allocation
+    ulong start;
+};
+#define VECT_NAME fd_funk_vec_dead_entry
+#define VECT_ELEMENT struct fd_funk_dead_entry
+#include "fd_vector.h"
+#undef VECT_NAME
+#undef VECT_ELEMENT
+
 struct fd_funk {
     // Backing file descriptor
     int backingfd;
@@ -300,6 +312,8 @@ struct fd_funk {
     struct fd_funk_xactionid root;
     // Vector of free control entry locations
     struct fd_vec_ulong free_ctrl;
+    // Dead entries indexed by allocation size
+    struct fd_funk_vec_dead_entry deads[FD_FUNK_NUM_DISK_SIZES];
 };
 
 void fd_funk_replay_control(struct fd_funk* store) {
@@ -332,15 +346,74 @@ void fd_funk_replay_control(struct fd_funk* store) {
         
         if (ent->type == FD_FUNK_CONTROL_NORMAL) {
           struct fd_funk_index_entry* ent2 = fd_funk_index_insert(&store->index, &ent->u.normal.id);
+          
           if (fd_funk_index_entry_valid(ent2)) {
             FD_LOG_WARNING(("duplicate record id in store"));
-            continue;
+            // Keep the later version. Delete the older one.
+            if (ent2->version > ent->u.normal.version) {
+              uint k;
+              ulong rsize = fd_funk_disk_size(ent->u.normal.alloc, &k);
+              if (rsize != ent->u.normal.alloc) {
+                FD_LOG_WARNING(("invalid record allocation in store"));
+                continue;
+              }
+              // Update deads lists
+              struct fd_funk_dead_entry de;
+              de.control = entpos;
+              de.start = ent->u.normal.start;
+              fd_funk_vec_dead_entry_push(&store->deads[k], de);
+              // Update control on disk
+              struct fd_funk_control_entry de2;
+              fd_memset(&de2, 0, sizeof(de2));
+              de2.type = FD_FUNK_CONTROL_DEAD;
+              de2.u.dead.alloc = ent->u.normal.alloc;
+              de2.u.dead.start = ent->u.normal.start;
+              if (pwrite(store->backingfd, &de2, sizeof(de2), (long)entpos) < (long)sizeof(de2)) {
+                FD_LOG_WARNING(("failed to write backing file: %s", strerror(errno)));
+              }
+              continue;
+              
+            } else {
+              uint k;
+              ulong rsize = fd_funk_disk_size(ent2->alloc, &k);
+              if (rsize != ent2->alloc) {
+                FD_LOG_WARNING(("invalid record allocation in store"));
+                continue;
+              }
+              // Update deads lists
+              struct fd_funk_dead_entry de;
+              de.control = ent2->control;
+              de.start = ent2->start;
+              fd_funk_vec_dead_entry_push(&store->deads[k], de);
+              // Update control on disk
+              struct fd_funk_control_entry de2;
+              fd_memset(&de2, 0, sizeof(de2));
+              de2.type = FD_FUNK_CONTROL_DEAD;
+              de2.u.dead.alloc = ent2->alloc;
+              de2.u.dead.start = ent2->start;
+              if (pwrite(store->backingfd, &de2, sizeof(de2), (long)ent2->control) < (long)sizeof(de2)) {
+                FD_LOG_WARNING(("failed to write backing file: %s", strerror(errno)));
+              }
+            }
           }
+          
           ent2->start = ent->u.normal.start;
           ent2->len = ent->u.normal.len;
           ent2->alloc = ent->u.normal.alloc;
           ent2->version = ent->u.normal.version;
           ent2->control = entpos;
+
+        } else if (ent->type == FD_FUNK_CONTROL_DEAD) {
+          uint k;
+          ulong rsize = fd_funk_disk_size(ent->u.dead.alloc, &k);
+          if (rsize != ent->u.dead.alloc) {
+            FD_LOG_WARNING(("invalid record allocation in store"));
+            continue;
+          }
+          struct fd_funk_dead_entry de;
+          de.control = entpos;
+          de.start = ent->u.dead.start;
+          fd_funk_vec_dead_entry_push(&store->deads[k], de);
 
         } else if (ent->type == FD_FUNK_CONTROL_EMPTY) {
           fd_vec_ulong_push(&store->free_ctrl, entpos);
@@ -374,6 +447,8 @@ void* fd_funk_new(void* mem,
   store->index = fd_funk_index_new(FD_FUNK_INDEX_START_SIZE);
 
   fd_vec_ulong_new(&store->free_ctrl);
+  for (uint i = 0; i < FD_FUNK_NUM_DISK_SIZES; ++i)
+    fd_funk_vec_dead_entry_new(&store->deads[i]);
 
   fd_funk_replay_control(store);
 
