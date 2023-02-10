@@ -26,7 +26,7 @@ struct fd_slot_meta {
   ulong *next_slots;
   uchar is_connected;
   ulong num_entry_end_indexes;
-  uint *entry_end_indexes;
+  uint entry_end_indexes[64];
 };
 typedef struct fd_slot_meta fd_slot_meta_t;
 #define FD_SLOT_META_FOOTPRINT sizeof(fd_slot_meta_t)
@@ -48,12 +48,8 @@ void fd_slot_meta_decode(fd_slot_meta_t* self, void const** data, void const* da
     self->next_slots = NULL;
   fd_bincode_uint8_decode(&self->is_connected, data, dataend);
   fd_bincode_uint64_decode(&self->num_entry_end_indexes, data, dataend);
-  if (self->num_entry_end_indexes > 0) {
-    self->entry_end_indexes = (uint*)(*allocf)(sizeof(uint)*self->num_entry_end_indexes, (8UL), allocf_arg);
-    for (ulong i = 0; i < self->num_entry_end_indexes; ++i)
-      fd_bincode_uint32_decode(self->entry_end_indexes + i, data, dataend);
-  } else
-    self->entry_end_indexes = NULL;
+  for (ulong i = 0; i < self->num_entry_end_indexes; ++i)
+    fd_bincode_uint32_decode(self->entry_end_indexes + i, data, dataend);
 }
 
 char* allocf(unsigned long len, FD_FN_UNUSED unsigned long align, FD_FN_UNUSED void* arg) {
@@ -121,30 +117,14 @@ int main()
 
     rocksdb_readoptions_destroy(ro);
 
-//    rocksdb_writeoptions_t *wo = rocksdb_writeoptions_create();
-//    char *key = "name";
-//    char *value = "foo";
-//    rocksdb_put(db, wo, key, strlen(key), value, strlen(value), &err);
-//    if (err != NULL) {
-//        fprintf(stderr, "put key %s\n", err);
-//        free(err);
-//        rocksdb_close(db);
-//        return -1;
-//    }
-//    free(err);
-//    err = NULL;
-//
-//    size_t rlen;
-//    value = rocksdb_get(db, ro, key, strlen(key), &rlen, &err);
-//    if (err != NULL) {
-//        fprintf(stderr, "get key %s\n", err);
-//        free(err);
-//        rocksdb_close(db);
-//        return -1;
-//    }
-//    free(err);
-//    err = NULL;
-//    printf("get key len: %lu, value: %s\n", rlen, value);
+// ~/repos/radiance/pkg/blockstore/
+// func (d *DB) GetEntries(meta *SlotMeta, shredRevision int) ([]Entries, error) {
+// 	shreds, err := d.GetDataShreds(meta.Slot, 0, uint32(meta.Received), shredRevision)
+// 	if err != nil {
+// 		return nil, err
+// 	}
+// 	return DataShredsToEntries(meta, shreds)
+// }
 
     rocksdb_close(db);
     rocksdb_options_destroy(opts);
