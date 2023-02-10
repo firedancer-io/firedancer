@@ -68,14 +68,18 @@ struct fd_funk_index_entry {
     struct fd_funk_recordid id __attribute__ ((aligned(FD_FUNK_RECORDID_ALIGN)));
     // Hash of identifier
     ulong idhash;
-    // Offset into file for content. Must be a multiple of
-    // FD_FUNK_MINIBLOCK_SIZE. Zero means the entry is unused.
-    ulong start; 
-    // Length of content
-    ulong len;
     // Position of control entry
     ulong control;
-    ulong unused[4];
+    // Offset into file for content. Zero means the entry is unused.
+    ulong start;
+    // Length of content
+    uint len;
+    // Length of disk allocation
+    uint alloc;
+    // Version of this record
+    uint version;
+    uint unused1;
+    ulong unused2[3];
 };
 
 int fd_funk_index_entry_valid(struct fd_funk_index_entry* entry) {
@@ -211,6 +215,25 @@ void fd_funk_index_delete(struct fd_funk_index* index,
   }
 }
 
+// Round up a size to a valid disk allocation size
+#define FD_FUNK_NUM_DISK_SIZES 44U
+#define FD_FUNK_MAX_ENTRY_SIZE (10U<<20) /* 10 MB */
+ulong fd_funk_disk_size(ulong rawsize, uint* index) {
+  static const ulong ALLSIZES[FD_FUNK_NUM_DISK_SIZES] = {
+    128, 256, 384, 512, 640, 768, 896, 1024, 1152, 1280, 1664, 2176, 2944, 3840,
+    4992, 6528, 8576, 11264, 14720, 19200, 24960, 32512, 42368, 55168, 71808, 93440,
+    121472, 157952, 205440, 267136, 347392, 451712, 587264, 763520, 992640, 1290496,
+    1677696, 2181120, 2835456, 3686144, 4792064, 6229760, 8098688, FD_FUNK_MAX_ENTRY_SIZE
+  };
+  uint i = 0;
+  while (i+4 < FD_FUNK_NUM_DISK_SIZES && rawsize >= ALLSIZES[i+4])
+    i += 4;
+  while (i+1 < FD_FUNK_NUM_DISK_SIZES && rawsize > ALLSIZES[i])
+    i += 1;
+  *index = i;
+  return ALLSIZES[i];
+}
+
 struct fd_funk_control_entry {
     union {
         struct {
@@ -219,15 +242,26 @@ struct fd_funk_control_entry {
         struct {
             // Record identifier
             struct fd_funk_recordid id;
-            // Offset into file. Must be a multiple of FD_FUNK_MINIBLOCK_SIZE.
-            ulong start; 
+            // Offset into file for content.
+            ulong start;
             // Length of content
-            ulong len;
+            uint len;
+            // Length of disk allocation
+            uint alloc;
+            // Version of this record
+            uint version;
         } normal;
+        struct {
+            // Offset into file for content.
+            ulong start;
+            // Length of disk allocation
+            uint alloc;
+        } dead;
     } u;
-    uchar type;
+    uint type;
 #define FD_FUNK_CONTROL_EMPTY 0 // Unused control entry
 #define FD_FUNK_CONTROL_NORMAL 1 // Control entry for a normal record
+#define FD_FUNK_CONTROL_DEAD 2 // Control entry for a dead record
 };
 
 #define FD_FUNK_CONTROL_ENTRIES_PER_MINI FD_FUNK_MINIBLOCK_SIZE/sizeof(struct fd_funk_control_entry)
@@ -247,6 +281,12 @@ struct fd_funk_control {
 };
 #define FD_FUNK_CONTROL_NEXT(_ctrl_) (_ctrl_.minis[0].mini.next_control)
 
+#define VECT_NAME fd_vec_ulong
+#define VECT_ELEMENT ulong
+#include "fd_vector.h"
+#undef VECT_NAME
+#undef VECT_ELEMENT
+
 struct fd_funk {
     // Backing file descriptor
     int backingfd;
@@ -258,21 +298,9 @@ struct fd_funk {
     struct fd_funk_index* index;
     // Root transaction id
     struct fd_funk_xactionid root;
-    // Vector of free control entries
-    ulong* free_ctrl_offsets;
-    ulong free_ctrl_cnt;
-    ulong free_ctrl_max;
+    // Vector of free control entry locations
+    struct fd_vec_ulong free_ctrl;
 };
-
-void fd_funk_add_free_control(struct fd_funk* store, ulong offset) {
-  if (store->free_ctrl_cnt == store->free_ctrl_max) {
-    // !!! replace with zone allocation
-    store->free_ctrl_max <<= 1;
-    store->free_ctrl_offsets = (ulong*)realloc(store->free_ctrl_offsets,
-                                               store->free_ctrl_max * sizeof(ulong));
-  }
-  store->free_ctrl_offsets[store->free_ctrl_cnt ++] = offset;
-}
 
 void fd_funk_replay_control(struct fd_funk* store) {
   FD_STATIC_ASSERT(sizeof(struct fd_funk_control_mini) <= FD_FUNK_MINIBLOCK_SIZE,fd_funk);
@@ -287,12 +315,6 @@ void fd_funk_replay_control(struct fd_funk* store) {
     }
     store->backinglen = sizeof(ctrl);
   }
-
-  // Initialize the free control list
-  store->free_ctrl_max = 1024;
-  store->free_ctrl_cnt = 0;
-  // !!! replace with zone allocation
-  store->free_ctrl_offsets = (ulong*)malloc(store->free_ctrl_max * sizeof(ulong));
 
   // First control block is always at zero
   store->lastcontrol = 0;
@@ -316,10 +338,12 @@ void fd_funk_replay_control(struct fd_funk* store) {
           }
           ent2->start = ent->u.normal.start;
           ent2->len = ent->u.normal.len;
+          ent2->alloc = ent->u.normal.alloc;
+          ent2->version = ent->u.normal.version;
           ent2->control = entpos;
 
         } else if (ent->type == FD_FUNK_CONTROL_EMPTY) {
-          fd_funk_add_free_control(store, entpos);
+          fd_vec_ulong_push(&store->free_ctrl, entpos);
         }
       }
 
@@ -349,6 +373,8 @@ void* fd_funk_new(void* mem,
 
   store->index = fd_funk_index_new(FD_FUNK_INDEX_START_SIZE);
 
+  fd_vec_ulong_new(&store->free_ctrl);
+
   fd_funk_replay_control(store);
 
   // Root is all zeros
@@ -377,8 +403,6 @@ void* fd_funk_leave(struct fd_funk* store) {
 void* fd_funk_delete(void* mem) {
   struct fd_funk* store = (struct fd_funk*)mem;
   close(store->backingfd);
-  // !!! Replace free with zone allocator
-  free(store->index);
   return mem;
 }
 
