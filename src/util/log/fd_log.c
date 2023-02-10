@@ -472,14 +472,6 @@ void fd_log_level_core_set   ( int level ) { FD_VOLATILE( fd_log_private_level_c
 
 static FD_TLS char fd_log_private_log_msg[ FD_LOG_BUF_SZ ];
 
-/* Add into the log buffer (with *printf() formatting) at the current offset and then increment 
-   the pointer accordingly */
-
-#define FD_LOG_HEXDUMP_ADD_TO_LOG_BUF(...)  do {                              \
-    num_bytes_written = sprintf ( log_buf_ptr, __VA_ARGS__ );                 \
-    if( FD_LIKELY( num_bytes_written>=0 )) log_buf_ptr += num_bytes_written;  \
- } while(0)
-
 char const *
 fd_log_private_0( char const * fmt, ... ) {
   va_list ap;
@@ -496,7 +488,16 @@ char const *
 fd_log_private_hexdump_msg ( char const * descr,
                              void const * blob,
                              ulong        sz ) {
-  
+
+# define FD_LOG_HEXDUMP_BYTES_PER_LINE             (16UL)
+# define FD_LOG_HEXDUMP_BLOB_DESCRIPTION_MAX_LEN   (32UL)
+# define FD_LOG_HEXDUMP_MAX_INPUT_BLOB_SZ          (1500UL)
+
+# define FD_LOG_HEXDUMP_ADD_TO_LOG_BUF(...)  do {                              \
+    num_bytes_written = sprintf ( log_buf_ptr, __VA_ARGS__ );                  \
+    if( FD_LIKELY( num_bytes_written>=0 )) log_buf_ptr += num_bytes_written;   \
+    } while(0)
+
   char * log_buf_ptr = fd_log_private_log_msg;   /* used by FD_LOG_HEXDUMP_ADD_TO_LOG_BUF macro */
   int num_bytes_written = 0;                     /* used by the FD_LOG_HEXDUMP_ADD_TO_LOG_BUF macro. signed because *printf() return 'int'. */
 
@@ -567,6 +568,11 @@ fd_log_private_hexdump_msg ( char const * descr,
 
   FD_LOG_HEXDUMP_ADD_TO_LOG_BUF( "  %s\n", line_buf );
   return fd_log_private_log_msg;
+
+# undef FD_LOG_HEXDUMP_BYTES_PER_LINE
+# undef FD_LOG_HEXDUMP_BLOB_DESCRIPTION_MAX_LEN
+# undef FD_LOG_HEXDUMP_MAX_INPUT_BLOB_SZ
+# undef FD_LOG_HEXDUMP_ADD_TO_LOG_BUF
 }
 
 void
@@ -585,7 +591,7 @@ fd_log_private_1( int          level,
     /* 4 */ "ERR    ",
     /* 5 */ "CRIT   ",
     /* 6 */ "ALERT  ",
-    /* 7 */ "EMERG  ",
+    /* 7 */ "EMERG  "
   };
 
   if( level<fd_log_level_logfile() ) return;
