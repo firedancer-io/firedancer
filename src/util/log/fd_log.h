@@ -142,50 +142,91 @@
 
 #include "../env/fd_env.h"
 
-/* Note: fd_log_wallclock called outside the arg list to give it a
+/* FD_LOG_NOTICE(( ... printf style arguments ... )) will send a message
+   at the NOTICE level to the logger.  E.g. for a typical fd_log
+   configuration:
+
+     FD_LOG_NOTICE(( "%lu is the loneliest number", 1UL ));
+
+   would log something like:
+
+     NOTICE  01-23 04:56:07.890123 45678 f0 0 src/file.c(901): 1 is the loneliest number
+
+   to the ephemeral log (stderr) and log something like:
+
+     NOTICE  2023-01-23 04:56:07.890123456 GMT-06 45678:45678 user:host:f0 app:thread:0 src/file.c(901)[func]: 1 is the loneliest number
+
+   to the permanent log (log file).  Similarly for the other log levels.
+   Additional logger details are described at the top of this file.
+
+   FD_LOG_NOTICE has a hexdump counterpart that essentially behaves
+   like:
+
+     void
+     FD_LOG_HEXDUMP_NOTICE(( char const * tag,
+                             void const * mem,
+                             ulong        sz ));
+
+   This logs pretty printed details about memory region to the log
+   streams at the NOTICE log severity level.
+
+   tag points to a cstr that is intended to be a human-readable /
+   greppable tag describing the memory region.  As such, it is strongly
+   recommended that tag points to a cstr containing only printable
+   characters with no internal double quotes (but this is not enforced
+   currently).  There are no length restrictions on the cstr but the
+   logger under the hood might detectably truncate excessively long tags
+   (e.g. strlen(tag) >> 32) due to internal implementation limitations.
+   NULL and/or empty tags ("") are fine and will be detectably logged.
+
+   mem points to the first byte of the memory region to hexdump and sz
+   is the number of bytes in the region.  There are no limits on sz but
+   the number of bytes logged might be limited due to internal
+   implementation details (e.g. sz >> 1500 bytes).  NULL mem and/or 0 sz
+   are fine and will be detectably logged.
+
+   The lifetime the cstr and the memory region must be at least from the
+   call entry to call return.
+
+   E.g. for a typical fd_log configuration:
+
+     FD_LOG_HEXDUMP_WARNING(( "bad_pkt", pkt, pkt_sz ));
+
+   would log something like:
+
+     NOTICE  01-23 04:56:07.890123 75779 f0 0 src/file.c(901): HEXDUMP "bad_pkt" (94 bytes at 0x555555561a4e)
+             0000:  30 31 32 33 34 35 36 37 38 39 41 42 43 44 45 46  0123456789ABCDEF
+             0010:  47 48 49 4a 4b 4c 4d 4e 4f 50 51 52 53 54 55 56  GHIJKLMNOPQRSTUV
+             0020:  57 58 59 5a 61 62 63 64 65 66 67 68 69 6a 6b 6c  WXYZabcdefghijkl
+             0030:  6d 6e 6f 70 71 72 73 74 75 76 78 79 7a 20 7e 21  mnopqrstuvxyz ~!
+             0040:  40 23 24 25 5e 26 2a 28 29 5f 2b 60 3d 5b 5d 5c  @#$%^&*()_+`=[]\
+             0050:  3b 27 2c 2e 2f 7b 7d 7c 3a 22 3c 3e 3f 00        ;',./{}|:"<>?.
+
+   to the ephemeral log (stderr) and similarly to the permanent log.
+
+   Similarly for the HEXDUMPING at other log levels.
+
+   Note: fd_log_wallclock called outside the arg list to give it a
    linguistically strict point when it is called that is before logging
    activities commence. */
 
-#define FD_LOG_DEBUG(a)   do { long _fd_log_msg_now = fd_log_wallclock(); fd_log_private_1( 0, _fd_log_msg_now, __FILE__, __LINE__, __func__, fd_log_private_0 a ); } while(0)
-#define FD_LOG_INFO(a)    do { long _fd_log_msg_now = fd_log_wallclock(); fd_log_private_1( 1, _fd_log_msg_now, __FILE__, __LINE__, __func__, fd_log_private_0 a ); } while(0)
-#define FD_LOG_NOTICE(a)  do { long _fd_log_msg_now = fd_log_wallclock(); fd_log_private_1( 2, _fd_log_msg_now, __FILE__, __LINE__, __func__, fd_log_private_0 a ); } while(0)
-#define FD_LOG_WARNING(a) do { long _fd_log_msg_now = fd_log_wallclock(); fd_log_private_1( 3, _fd_log_msg_now, __FILE__, __LINE__, __func__, fd_log_private_0 a ); } while(0)
-#define FD_LOG_ERR(a)     do { long _fd_log_msg_now = fd_log_wallclock(); fd_log_private_2( 4, _fd_log_msg_now, __FILE__, __LINE__, __func__, fd_log_private_0 a ); } while(0)
-#define FD_LOG_CRIT(a)    do { long _fd_log_msg_now = fd_log_wallclock(); fd_log_private_2( 5, _fd_log_msg_now, __FILE__, __LINE__, __func__, fd_log_private_0 a ); } while(0)
-#define FD_LOG_ALERT(a)   do { long _fd_log_msg_now = fd_log_wallclock(); fd_log_private_2( 6, _fd_log_msg_now, __FILE__, __LINE__, __func__, fd_log_private_0 a ); } while(0)
-#define FD_LOG_EMERG(a)   do { long _fd_log_msg_now = fd_log_wallclock(); fd_log_private_2( 7, _fd_log_msg_now, __FILE__, __LINE__, __func__, fd_log_private_0 a ); } while(0)
-                                             
-#define FD_LOG_HEXDUMP_DEBUG(a)   do { long _fd_log_msg_now = fd_log_wallclock();                          \
-    fd_log_private_1( 0, _fd_log_msg_now, __FILE__, __LINE__, __func__, fd_log_private_hexdump_msg a );    \
-    } while(0)                                                                              
+#define FD_LOG_DEBUG(a)           do { long _fd_log_msg_now = fd_log_wallclock(); fd_log_private_1( 0, _fd_log_msg_now, __FILE__, __LINE__, __func__, fd_log_private_0           a ); } while(0)
+#define FD_LOG_INFO(a)            do { long _fd_log_msg_now = fd_log_wallclock(); fd_log_private_1( 1, _fd_log_msg_now, __FILE__, __LINE__, __func__, fd_log_private_0           a ); } while(0)
+#define FD_LOG_NOTICE(a)          do { long _fd_log_msg_now = fd_log_wallclock(); fd_log_private_1( 2, _fd_log_msg_now, __FILE__, __LINE__, __func__, fd_log_private_0           a ); } while(0)
+#define FD_LOG_WARNING(a)         do { long _fd_log_msg_now = fd_log_wallclock(); fd_log_private_1( 3, _fd_log_msg_now, __FILE__, __LINE__, __func__, fd_log_private_0           a ); } while(0)
+#define FD_LOG_ERR(a)             do { long _fd_log_msg_now = fd_log_wallclock(); fd_log_private_2( 4, _fd_log_msg_now, __FILE__, __LINE__, __func__, fd_log_private_0           a ); } while(0)
+#define FD_LOG_CRIT(a)            do { long _fd_log_msg_now = fd_log_wallclock(); fd_log_private_2( 5, _fd_log_msg_now, __FILE__, __LINE__, __func__, fd_log_private_0           a ); } while(0)
+#define FD_LOG_ALERT(a)           do { long _fd_log_msg_now = fd_log_wallclock(); fd_log_private_2( 6, _fd_log_msg_now, __FILE__, __LINE__, __func__, fd_log_private_0           a ); } while(0)
+#define FD_LOG_EMERG(a)           do { long _fd_log_msg_now = fd_log_wallclock(); fd_log_private_2( 7, _fd_log_msg_now, __FILE__, __LINE__, __func__, fd_log_private_0           a ); } while(0)
 
-#define FD_LOG_HEXDUMP_INFO(a)    do { long _fd_log_msg_now = fd_log_wallclock();                          \
-    fd_log_private_1( 1, _fd_log_msg_now, __FILE__, __LINE__, __func__, fd_log_private_hexdump_msg a );    \
-    } while(0)                                                                              
-
-#define FD_LOG_HEXDUMP_NOTICE(a)  do { long _fd_log_msg_now = fd_log_wallclock();                          \
-    fd_log_private_1( 2, _fd_log_msg_now, __FILE__, __LINE__, __func__, fd_log_private_hexdump_msg a );    \
-    } while(0)                                                                              
-
-#define FD_LOG_HEXDUMP_WARNING(a) do { long _fd_log_msg_now = fd_log_wallclock();                          \
-    fd_log_private_1( 3, _fd_log_msg_now, __FILE__, __LINE__, __func__, fd_log_private_hexdump_msg a );    \
-    } while(0)                                                                              
-
-#define FD_LOG_HEXDUMP_ERR(a)     do { long _fd_log_msg_now = fd_log_wallclock();                          \
-    fd_log_private_2( 4, _fd_log_msg_now, __FILE__, __LINE__, __func__, fd_log_private_hexdump_msg a );    \
-    } while(0)
-
-#define FD_LOG_HEXDUMP_CRIT(a)    do { long _fd_log_msg_now = fd_log_wallclock();                          \
-    fd_log_private_2( 5, _fd_log_msg_now, __FILE__, __LINE__, __func__, fd_log_private_hexdump_msg a );    \
-    } while(0)
-
-#define FD_LOG_HEXDUMP_ALERT(a)   do { long _fd_log_msg_now = fd_log_wallclock();                          \
-    fd_log_private_2( 6, _fd_log_msg_now, __FILE__, __LINE__, __func__, fd_log_private_hexdump_msg a );    \
-    } while(0)
-
-#define FD_LOG_HEXDUMP_EMERG(a)   do { long _fd_log_msg_now = fd_log_wallclock();                          \
-    fd_log_private_2( 7, _fd_log_msg_now, __FILE__, __LINE__, __func__, fd_log_private_hexdump_msg a );    \
-    } while(0)
+#define FD_LOG_HEXDUMP_DEBUG(a)   do { long _fd_log_msg_now = fd_log_wallclock(); fd_log_private_1( 0, _fd_log_msg_now, __FILE__, __LINE__, __func__, fd_log_private_hexdump_msg a ); } while(0)
+#define FD_LOG_HEXDUMP_INFO(a)    do { long _fd_log_msg_now = fd_log_wallclock(); fd_log_private_1( 1, _fd_log_msg_now, __FILE__, __LINE__, __func__, fd_log_private_hexdump_msg a ); } while(0)
+#define FD_LOG_HEXDUMP_NOTICE(a)  do { long _fd_log_msg_now = fd_log_wallclock(); fd_log_private_1( 2, _fd_log_msg_now, __FILE__, __LINE__, __func__, fd_log_private_hexdump_msg a ); } while(0)
+#define FD_LOG_HEXDUMP_WARNING(a) do { long _fd_log_msg_now = fd_log_wallclock(); fd_log_private_1( 3, _fd_log_msg_now, __FILE__, __LINE__, __func__, fd_log_private_hexdump_msg a ); } while(0)
+#define FD_LOG_HEXDUMP_ERR(a)     do { long _fd_log_msg_now = fd_log_wallclock(); fd_log_private_2( 4, _fd_log_msg_now, __FILE__, __LINE__, __func__, fd_log_private_hexdump_msg a ); } while(0)
+#define FD_LOG_HEXDUMP_CRIT(a)    do { long _fd_log_msg_now = fd_log_wallclock(); fd_log_private_2( 5, _fd_log_msg_now, __FILE__, __LINE__, __func__, fd_log_private_hexdump_msg a ); } while(0)
+#define FD_LOG_HEXDUMP_ALERT(a)   do { long _fd_log_msg_now = fd_log_wallclock(); fd_log_private_2( 6, _fd_log_msg_now, __FILE__, __LINE__, __func__, fd_log_private_hexdump_msg a ); } while(0)
+#define FD_LOG_HEXDUMP_EMERG(a)   do { long _fd_log_msg_now = fd_log_wallclock(); fd_log_private_2( 7, _fd_log_msg_now, __FILE__, __LINE__, __func__, fd_log_private_hexdump_msg a ); } while(0)
 
 /* FD_TEST is a single statement that evaluates condition c and, if c
    evaluates to false, will FD_LOG_ERR that the condition failed.  It is
@@ -198,7 +239,13 @@
    would typically cause the program to exit with error code 1, logging
    something like:
 
-     ERR     01-23 04:56:07.890123 [45678] src/foo.c(901): FAIL: broken_func_that_should_return_zero( arg1, arg2 )!=0
+     ERR     01-23 04:56:07.890123 45678 f0 0 src/foo.c(901): FAIL: broken_func_that_should_return_zero( arg1, arg2 )!=0
+
+   to the ephemeral log (stderr) and something like:
+
+     ERR     2023-01-23 04:56:07.890123456 GMT-06 45678:45678 user:host:f0 app:thread:0 src/foo.c(901)[func]: FAIL: broken_func_that_should_return_zero( arg1, arg2 )!=0
+
+   to the permanent log.  And similarly for other log levels.
 
    This macro is robust. */
 
@@ -207,26 +254,28 @@
 /* Macros for doing hexedit / tcpdump-like logging of memory regions.
    E.g.
 
-     FD_LOG_DEBUG(( "cache line %016lx\n\t"
-                    "%02x: " FD_LOG_HEX16_FMT "\n\t"
-                    "%02x: " FD_LOG_HEX16_FMT "\n\t"
-                    "%02x: " FD_LOG_HEX16_FMT "\n\t"
-                    "%02x: " FD_LOG_HEX16_FMT,
-                    (ulong)mem,
-                     0U, FD_LOG_HEX16_FMT_ARGS( mem    ),
-                    16U, FD_LOG_HEX16_FMT_ARGS( mem+16 ),
-                    32U, FD_LOG_HEX16_FMT_ARGS( mem+32 ),
-                    48U, FD_LOG_HEX16_FMT_ARGS( mem+48 ) ));
+     FD_LOG_NOTICE(( "cache line %016lx\n\t"
+                     "%02x: " FD_LOG_HEX16_FMT "\n\t"
+                     "%02x: " FD_LOG_HEX16_FMT "\n\t"
+                     "%02x: " FD_LOG_HEX16_FMT "\n\t"
+                     "%02x: " FD_LOG_HEX16_FMT,
+                     (ulong)mem,
+                      0U, FD_LOG_HEX16_FMT_ARGS( mem    ),
+                     16U, FD_LOG_HEX16_FMT_ARGS( mem+16 ),
+                     32U, FD_LOG_HEX16_FMT_ARGS( mem+32 ),
+                     48U, FD_LOG_HEX16_FMT_ARGS( mem+48 ) ));
 
    would log something like:
 
-     DEBUG   01-23 04:56:07.890123 [45678] src/foo.c(901): cache line 0123456789abcd00
+     NOTICE  01-23 04:56:07.890123 45678 f0 0 src/foo.c(901): cache line 0123456789abcd00
              00: 00 01 02 03 04 05 06 07  08 09 0a 0b 0c 0d 0e 0f
              10: 10 11 12 13 14 15 16 17  18 19 1a 1b 1c 1d 1e 1f
              20: 20 21 22 23 24 25 26 27  28 29 2a 2b 2c 2d 2e 2f
              30: 30 31 32 33 34 35 36 37  38 39 3a 3b 3c 3d 3e 3f
 
-   b should be safe against multiple evaluation. */
+   to the ephermal log typically (and a more detailed message to the
+   permanent log).  And similarly for the other log levels.  b should be
+   safe against multiple evaluation. */
 
 #define FD_LOG_HEX16_FMT "%02x %02x %02x %02x %02x %02x %02x %02x  %02x %02x %02x %02x %02x %02x %02x %02x"
 #define FD_LOG_HEX16_FMT_ARGS(b)                                      \
@@ -485,9 +534,9 @@ fd_log_private_2( int          level,
                   char const * msg ) __attribute__((noreturn)); /* Let compiler know this will not be returning */
 
 char const * 
-fd_log_private_hexdump_msg ( char const * descr,
-                             void const * blob,
-                             ulong sz );
+fd_log_private_hexdump_msg( char const * tag,
+                            void const * mem,
+                            ulong        sz );
 
 void
 fd_log_private_boot( int *    pargc,
