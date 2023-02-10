@@ -26,7 +26,15 @@
 
 #if defined(__unix__) && FD_HAS_ASAN
 
-/* LLVM AddressSanitizer (ASan) intercepts all mlock calls.
+/* fd_{mlock,munlock}: lock and unlock virtual memory into DRAM.
+
+   See mlock(2) and mlock(2) documentation:
+   https://man7.org/linux/man-pages/man2/mlock.2.html
+
+   ### Rationale
+
+   LLVM AddressSanitizer (ASan) intercepts all calls to libc mlock
+   functions.  We therefore wrap these syscalls ourselves.
 
    This has an interesting history.
    These interceptors were first added in 2012 and are still present in
@@ -47,7 +55,10 @@
      1) Remove the `mlock` interceptor upstream, or
      2) Circumvent the interceptor with a raw syscall
 
-   This macro implements option 2. */
+   This macro implements option 2.
+
+   A patch to LLVM has been submitted to resolve this upstream:
+   https://reviews.llvm.org/D141610 */
 
 #include <sys/syscall.h>
 #define fd_mlock(...)   syscall( __NR_mlock,   __VA_ARGS__ )

@@ -16,8 +16,10 @@
 #include <numa.h>
 #include <linux/mempolicy.h>
 #include <numaif.h>
+#include <sys/resource.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
+#include <sys/sysinfo.h>
 #include <linux/mman.h>
 
 #if FD_HAS_THREADS
@@ -566,12 +568,81 @@ fd_shmem_page_sz_to_cstr( ulong page_sz ) {
   return "unknown";
 }
 
+/* fd_shmem_check_rlimits: Checks whether process rlimits are configured
+   appropriately. Logs warnings to the user if any issues are found. */
+static void
+fd_shmem_check_rlimits( void ) {
+  /* Get current rlimits */
+
+  struct rlimit memlock;
+  struct rlimit nice;
+  struct rlimit rtprio;
+
+# define GET_RLIMIT( limit, var )                                      \
+  do {                                                                 \
+    if( FD_UNLIKELY( 0!=getrlimit( limit, var ) ) ) {                  \
+      FD_LOG_WARNING(( "getrlimit(" #limit ") failed: %s",             \
+                       strerror( errno ) ));                           \
+      return;                                                          \
+    }                                                                  \
+  } while(0)
+
+  GET_RLIMIT( RLIMIT_MEMLOCK, &memlock );
+  GET_RLIMIT( RLIMIT_NICE,    &nice    );
+  GET_RLIMIT( RLIMIT_RTPRIO,  &rtprio  );
+
+# undef GET_RLIMIT
+
+  char rlim_cur_str[25] = {0};
+  char rlim_max_str[25] = {0};
+
+  FD_LOG_INFO(( "fd_shmem: RLIMIT_MEMLOCK: soft=%s hard=%s",
+                memlock.rlim_cur==RLIM_INFINITY ? "unlimited" : fd_cstr_printf( rlim_cur_str, sizeof(rlim_cur_str), NULL, "%lu KiB", memlock.rlim_cur>>10 ),
+                memlock.rlim_max==RLIM_INFINITY ? "unlimited" : fd_cstr_printf( rlim_max_str, sizeof(rlim_max_str), NULL, "%lu KiB", memlock.rlim_max>>10 ) ));
+  FD_LOG_INFO(( "fd_shmem: RLIMIT_NICE:    soft=%ld hard=%ld",
+                20L - (long)nice.rlim_cur,
+                20L - (long)nice.rlim_max ));
+  FD_LOG_INFO(( "fd_shmem: RLIMIT_RTPRIO:  soft=%s hard=%s",
+                rtprio.rlim_cur==RLIM_INFINITY ? "unlimited" : fd_cstr_printf( rlim_cur_str, sizeof(rlim_cur_str), NULL, "%lu", rtprio.rlim_cur ),
+                rtprio.rlim_max==RLIM_INFINITY ? "unlimited" : fd_cstr_printf( rlim_max_str, sizeof(rlim_max_str), NULL, "%lu", rtprio.rlim_max ) ));
+
+  /* Get sysinfo */
+
+  struct sysinfo info;
+  if( FD_UNLIKELY( 0!=sysinfo( &info ) ) ) {
+    FD_LOG_WARNING(( "fd_shmem: sysinfo() failed: %s", strerror( errno ) ));
+    return;
+  }
+  FD_LOG_INFO(( "fd_shmem: sysinfo().totalram = %lu", info.totalram ));
+
+  /* Find the recommended memlock setting.
+     For systems with <=2GiB mem: 1GiB.
+                       >2GiB mem: total amount of memory minus 1GiB. */
+
+  long mlock_tolerance   = (1L<<20); /* 1GiB */
+  long mlock_recommended =
+    fd_long_max( mlock_tolerance, (long)info.totalram - mlock_tolerance );
+
+  /* Warn about rlimits */
+
+  if( FD_UNLIKELY( memlock.rlim_cur!=RLIM_INFINITY && memlock.rlim_cur < (ulong)mlock_recommended ) )
+    FD_LOG_WARNING(( "fd_shmem: RLIMIT_MEMLOCK is too low (%li KiB)", memlock.rlim_cur>>10 ));
+  if( FD_UNLIKELY( nice.rlim_cur!=40UL ) )
+    FD_LOG_WARNING(( "fd_shmem: RLIMIT_NICE is too low (%li)", 20L - (long)nice.rlim_cur ));
+  if( FD_UNLIKELY( rtprio.rlim_cur!=RLIM_INFINITY ) )
+    FD_LOG_WARNING(( "fd_shmem: RLIMIT_RTPRIO is not unlimited" ));
+}
+
 /* BOOT/HALT APIs *****************************************************/
 
 void
 fd_shmem_private_boot( int *    pargc,
                        char *** pargv ) {
   FD_LOG_INFO(( "fd_shmem: booting" ));
+
+  /* Warn user if rlimits are misconfigured */
+
+  fd_shmem_check_rlimits();
 
   /* Determine the numa topology this thread group's host */
 
