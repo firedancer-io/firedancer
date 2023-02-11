@@ -7,7 +7,8 @@ ulong
 fd_txn_parse( uchar const             * payload,
               ulong                     payload_sz,
               void                    * out_buf,
-              fd_txn_parse_counters_t * counters_opt ) {
+              fd_txn_parse_counters_t * counters_opt,
+              ulong *                   payload_sz_opt ) {
   ulong i = 0UL;
   /* This code does non-trivial parsing of untrusted user input, which is a potentially dangerous thing.
      The main invariants we need to ensure are
@@ -185,15 +186,15 @@ fd_txn_parse( uchar const             * payload,
     }
   }
   #undef MIN_ADDR_LUT_SIZE
-  /* Check for leftover bytes */
-  CHECK( i==payload_sz );
+  /* Check for leftover bytes if out_sz_opt not specified. */
+  CHECK( payload_sz_opt!=NULL || i==payload_sz );
 
   CHECK( acct_addr_cnt+addr_table_adtl_cnt<=FD_TXN_ACCT_ADDR_MAX ); /* implies addr_table_adtl_cnt<256 */
 
 
   /* Final validation that all the account address indices are in range */
   for( ulong j=0; j<instr_cnt; j++ ) {
-    /* Account 0 is the fee payer and the program can't be the fee payer. 
+    /* Account 0 is the fee payer and the program can't be the fee payer.
        The fee payer account must be owned by the system program, but the
        program must be an executable account and the system program is not
        permitted to own any executable account. */
@@ -208,7 +209,8 @@ fd_txn_parse( uchar const             * payload,
   parsed->addr_table_adtl_cnt           = (uchar)addr_table_adtl_cnt;
   parsed->_padding_reserved_1           = (uchar)0;
 
-  if( FD_LIKELY( counters_opt ) ) counters_opt->success_cnt++;
+  if( FD_LIKELY( counters_opt   ) ) counters_opt->success_cnt++;
+  if( FD_LIKELY( payload_sz_opt ) ) *payload_sz_opt = i;
   return fd_txn_footprint( instr_cnt, addr_table_cnt );
 
   #undef CHECK

@@ -385,8 +385,16 @@ fd_txn_footprint( ulong instr_cnt,
    non-NULL, some some counters about the result of the parsing process will be
    accumulated into the struct pointed to by counters_opt. Note: The returned
    txn object is not self-contained since it refers to byte ranges inside the
-   payload. */
-ulong fd_txn_parse( uchar const * payload, ulong payload_sz, void * out_buf, fd_txn_parse_counters_t * counters_opt );
+   payload.  If payload_sz_opt is non-NULL and parsing was successful, the
+   number of bytes read from payload is written to payload_sz_opt. If
+   payload_sz_opt is NULL and the payload_sz is larger than the amount of bytes
+   read, returns 0 (failure). */
+ulong
+fd_txn_parse( uchar const             * payload,
+              ulong                     payload_sz,
+              void                    * out_buf,
+              fd_txn_parse_counters_t * counters_opt,
+              ulong *                   payload_sz_opt );
 
 FD_PROTOTYPES_END
 
