@@ -1,5 +1,7 @@
 #include "fd_txn.h"
 
+#include "../../util/sanitize/fd_sanitize.h"
+
 /* This transaction is from the flood pcap. It never landed on chain. */
 uchar transaction1[] = {
 0x04,0x61,0x66,0xae,0x2a,0x63,0xf3,0x99,0x2f,0xfc,0x38,0x1d,0x67,0x4a,0x3b,0xd4,
@@ -207,10 +209,12 @@ void txn1_correctness( void ) {
   const uchar first_sig_byte[4] = { 97, 189, 11, 108 };
   const uchar first_acct_byte[23] = {220, 255, 85, 89, 201, 170, 194, 48, 228, 123, 151, 133, 6, 6, 203, 6, 11, 6, 0, 140, 3, 5, 168};
   fd_txn_t * parsed = (fd_txn_t *)out_buf;
-  ulong out_sz = fd_txn_parse( transaction1, sizeof(transaction1), out_buf, &counters );
+  ulong      parsed_sz;
+  ulong out_sz = fd_txn_parse( transaction1, sizeof(transaction1), out_buf, &counters, &parsed_sz );
   FD_TEST( out_sz );
   FD_TEST( counters.success_cnt==1UL );
   FD_TEST( counters.failure_cnt==0UL );
+  FD_TEST( parsed_sz==sizeof(transaction1) );
   FD_TEST( parsed->transaction_version == FD_TXN_VLEGACY );
   FD_TEST( parsed->signature_cnt == 4UL );
   fd_ed25519_sig_t const * sigs = fd_txn_get_signatures( parsed, transaction1 );
@@ -253,10 +257,12 @@ void txn2_correctness( void ) {
   const uchar first_acct_byte[6] = { 216, 176, 9, 213, 3, 4 };
   const uchar first_lut_writable[4] = {142, 141, 143, 144};
   fd_txn_t * parsed = (fd_txn_t *)out_buf;
-  ulong out_sz = fd_txn_parse( transaction2, sizeof(transaction2), out_buf, &counters );
+  ulong      parsed_sz;
+  ulong out_sz = fd_txn_parse( transaction2, sizeof(transaction2), out_buf, &counters, &parsed_sz );
   FD_TEST( out_sz );
   FD_TEST( counters.success_cnt==1UL );
   FD_TEST( counters.failure_cnt==0UL );
+  FD_TEST( parsed_sz==sizeof(transaction2) );
   FD_TEST( parsed->transaction_version == FD_TXN_V0 );
   FD_TEST( parsed->signature_cnt == 1UL );
   fd_ed25519_sig_t const * sigs = fd_txn_get_signatures( parsed, transaction2 );
@@ -307,11 +313,12 @@ void txn2_correctness( void ) {
 
 }
 
-void test_mutate( uchar * payload,
-    ulong len ) {
+void
+test_mutate( uchar * payload,
+             ulong   len ) {
   fd_txn_parse_counters_t counters = {0};
   fd_txn_t * parsed = (fd_txn_t *)out_buf;
-  ulong out_sz = fd_txn_parse( payload, len, out_buf, NULL );
+  ulong out_sz = fd_txn_parse( payload, len, out_buf, NULL, NULL );
   FD_TEST( out_sz );
   ulong footprint = fd_txn_footprint( parsed->instr_cnt, parsed->addr_table_lookup_cnt );
   FD_TEST( out_sz==footprint );
@@ -356,17 +363,17 @@ void test_mutate( uchar * payload,
     MUT_OKAY( tables[ j ].writable_off, tables[ j ].writable_cnt );
     MUT_OKAY( tables[ j ].readonly_off, tables[ j ].readonly_cnt );
   }
-  FD_TEST( fd_txn_parse( payload, len, test_buf, NULL ) );
+  FD_TEST( fd_txn_parse( payload, len, test_buf, NULL, NULL ) );
   FD_TEST( !memcmp( out_buf, test_buf, footprint ) );
 
 #undef MUT_OKAY
   for( ulong i=0; i<len; i++ ) {
     /* Test truncated version */
-    FD_TEST( !fd_txn_parse( payload, i, test_buf, &counters ) );
+    FD_TEST( !fd_txn_parse( payload, i, test_buf, &counters, NULL ) );
     uchar orig = payload[ i ];
     for( ulong off=1; off<256; off++ ) {
       payload[ i ] = (uchar)(orig+off);
-      ulong mut_parsed_footprint = fd_txn_parse( payload, len, test_buf, &counters );
+      ulong mut_parsed_footprint = fd_txn_parse( payload, len, test_buf, &counters, NULL );
       fd_txn_t * mut_parsed = (fd_txn_t *)test_buf;
       if( min_okay[ i ]==0 && max_okay[ i ]==255 ) {
         FD_TEST( footprint == mut_parsed_footprint );
@@ -386,15 +393,35 @@ void test_mutate( uchar * payload,
 }
 
 
-void test_performance( uchar const * payload,
-                       ulong sz ) {
+void
+test_performance( uchar const * payload,
+                  ulong         sz ) {
   const ulong test_count = 1000000;
   long start = fd_log_wallclock( );
   for( ulong i = 0; i < test_count; i++ ) {
-    FD_TEST( fd_txn_parse( payload, sz, out_buf, NULL ) );
+    FD_TEST( fd_txn_parse( payload, sz, out_buf, NULL, NULL ) );
   }
   long end = fd_log_wallclock( );
   FD_LOG_NOTICE(( "Average time per parse: %f ns", (double)(end-start)/(double)test_count ));
+}
+
+void
+test_trailing( uchar const * payload,
+               ulong         sz ) {
+  /* Ensure correct handling if txn buffer is too large */
+
+  static uchar buf[ 0x2000 ];
+  fd_memcpy       ( buf, payload, sz          );
+  fd_asan_poison  ( buf,          sizeof(buf) );
+  fd_asan_unpoison( buf,          sz          );
+
+  /* Trailing bytes and payload_sz_opt was not specified => fail    */
+  FD_TEST( 0UL==fd_txn_parse( buf, sizeof(buf), out_buf, NULL, NULL    ) );
+
+  /* Trailing bytes and payload_sz_opt was specified     => success */
+  ulong sz_opt;
+  FD_TEST( 0UL!=fd_txn_parse( buf, sizeof(buf), out_buf, NULL, &sz_opt ) );
+  FD_TEST( sz_opt==sz );
 }
 
 int
@@ -413,7 +440,10 @@ main( int     argc,
   test_mutate( transaction1, sizeof(transaction1) );
   test_mutate( transaction2, sizeof(transaction2) );
 
-  FD_TEST( FD_TXN_MAX_SZ == fd_txn_parse( transaction3, sizeof(transaction3), out_buf, NULL ) );
+  test_trailing( transaction1, sizeof(transaction1) );
+  test_trailing( transaction2, sizeof(transaction2) );
+
+  FD_TEST( FD_TXN_MAX_SZ == fd_txn_parse( transaction3, sizeof(transaction3), out_buf, NULL, NULL ) );
   fd_rng_delete( fd_rng_leave( rng ) );
 
   FD_LOG_NOTICE(( "pass" ));
