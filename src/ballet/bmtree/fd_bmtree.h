@@ -159,14 +159,16 @@ typedef uchar fd_bmtree32_node_t[FD_BMTREE32_NODE_SZ];
    required for trees with leaf counts that are not powers of two.
    Those contain at least one branch node with only one child node. */
 
-struct __attribute__((aligned(32))) fd_bmtree20_commit {
+#define FD_BMTREE_COMMIT_ALIGN (32UL)
+
+struct __attribute__((aligned(FD_BMTREE_COMMIT_ALIGN))) fd_bmtree20_commit {
   ulong leaf_idx;
   ulong leaf_cnt;
   fd_bmtree20_node_t node_buf[];
 };
 typedef struct fd_bmtree20_commit fd_bmtree20_commit_t;
 
-struct __attribute__((aligned(32))) fd_bmtree32_commit {
+struct __attribute__((aligned(FD_BMTREE_COMMIT_ALIGN))) fd_bmtree32_commit {
   ulong leaf_idx;
   ulong leaf_cnt;
   fd_bmtree32_node_t node_buf[];
