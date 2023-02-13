@@ -337,6 +337,7 @@ void fd_funk_replay_control(struct fd_funk* store) {
   FD_STATIC_ASSERT(sizeof(struct fd_funk_control) == FD_FUNK_CONTROL_SIZE,fd_funk);
 
   struct fd_funk_control ctrl;
+  FD_STATIC_ASSERT(sizeof(ctrl.entries[0]) == 128,fd_funk);
   if (store->backinglen < (long)sizeof(ctrl)) {
     // Initialize with an empty control block
     fd_memset(&ctrl, 0, sizeof(ctrl));
