@@ -37,6 +37,7 @@ void* fd_funk_delete(void* mem);
 struct fd_funk_recordid {
     uchar id[FD_FUNK_RECORDID_FOOTPRINT];
 } __attribute__ ((aligned(FD_FUNK_RECORDID_ALIGN)));
+typedef struct fd_funk_recordid fd_funk_recordid_t;
 
 // Identifies an ongoing transaction. A transaction represents a
 // virtual state of all the records in the storage. Reads and writes

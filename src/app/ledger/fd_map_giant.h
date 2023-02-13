@@ -35,8 +35,8 @@ struct MAP_NAME {
 } __attribute__ ((aligned(64)));
 
 // Construct a map, using as much of the footprint as possible. The
-// resulting capacity is returned.
-uint MAP_(new)(struct MAP_NAME* self, ulong footprint) {
+// actual footprint used is returned.
+ulong MAP_(new)(struct MAP_NAME* self, ulong footprint) {
   // Compute a number of headers that fills the footprint with the
   // average chain length between 1 and 2 at max capacity.
   uint cnt = 1;
@@ -63,7 +63,7 @@ uint MAP_(new)(struct MAP_NAME* self, ulong footprint) {
   *last = MAP_LIST_TERM;
   self->capacity = i;
   self->used = 0;
-  return i;
+  return sizeof(struct MAP_NAME) + cnt*sizeof(uint) + i*sizeof(MAP_ELEMENT);
 }
 
 void MAP_(destroy)(struct MAP_NAME* self) {

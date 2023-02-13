@@ -11,11 +11,8 @@
 // Control block size
 #define FD_FUNK_CONTROL_SIZE (64UL<<10)
 
-// Starting size of master index
-#define FD_FUNK_INDEX_START_SIZE (1UL<<13)
-
 // Hash a record id
-ulong fd_funk_recordid_hash(struct fd_funk_recordid* id) {
+ulong fd_funk_recordid_t_hash(struct fd_funk_recordid* id) {
   // A recordid is 8 ulongs long
   FD_STATIC_ASSERT(sizeof(struct fd_funk_recordid)/sizeof(ulong) == 8,fd_funk);
 
@@ -33,7 +30,7 @@ ulong fd_funk_recordid_hash(struct fd_funk_recordid* id) {
 }
 
 // Test record id equality
-int fd_funk_recordid_equal(struct fd_funk_recordid* id1, struct fd_funk_recordid* id2) {
+int fd_funk_recordid_t_equal(struct fd_funk_recordid* id1, struct fd_funk_recordid* id2) {
   const ulong* const id1hack = (const ulong* const)id1;
   const ulong* const id2hack = (const ulong* const)id2;
   return ((id1hack[0] ^ id2hack[0]) |
@@ -47,7 +44,7 @@ int fd_funk_recordid_equal(struct fd_funk_recordid* id1, struct fd_funk_recordid
 }
 
 // Copy a record id
-void fd_funk_recordid_copy(struct fd_funk_recordid* dest, struct fd_funk_recordid const* src) {
+void fd_funk_recordid_t_copy(struct fd_funk_recordid* dest, struct fd_funk_recordid const* src) {
   ulong* const id1hack = (ulong* const)dest;
   const ulong* const id2hack = (const ulong* const)src;
   id1hack[0] = id2hack[0];
@@ -62,12 +59,10 @@ void fd_funk_recordid_copy(struct fd_funk_recordid* dest, struct fd_funk_recordi
 
 struct fd_funk_index_entry {
     // Record identifier
-    struct fd_funk_recordid id __attribute__ ((aligned(FD_FUNK_RECORDID_ALIGN)));
-    // Hash of identifier
-    ulong idhash;
+    struct fd_funk_recordid key;
     // Position of control entry
     ulong control;
-    // Offset into file for content. Zero means the entry is unused.
+    // Offset into file for content.
     ulong start;
     // Length of content
     uint len;
@@ -75,142 +70,18 @@ struct fd_funk_index_entry {
     uint alloc;
     // Version of this record
     uint version;
-    uint unused1;
-    ulong unused2[3];
+    // Next entry in hash chain
+    uint next;
+    ulong unused[4];
 };
 
-int fd_funk_index_entry_valid(struct fd_funk_index_entry* entry) {
-  return entry->start != 0;
-}
-
-// Gigantic flat hash table which serves as the master record index for finalized data.
-struct fd_funk_index {
-    // Number of entries allocated. Must be a power of 2.
-    ulong allocsize;
-    // Number of entries in use.
-    ulong numinuse;
-    ulong unused[6];
-};
-
-// Allocate an empty index with the given number of slots
-struct fd_funk_index* fd_funk_index_new(const ulong allocsize) {
-  FD_STATIC_ASSERT(sizeof(struct fd_funk_index)==64,fd_funk);
-  FD_STATIC_ASSERT(sizeof(struct fd_funk_index_entry)==128,fd_funk);
-  if ((allocsize&(allocsize-1)) != 0) // Power of 2
-    FD_LOG_ERR(("fd_funk_index size must be a power of 2"));
-  
-  // !!! Replace malloc with zone allocator
-  struct fd_funk_index* index = (struct fd_funk_index*)
-    malloc(sizeof(struct fd_funk_index) + sizeof(struct fd_funk_index_entry)*allocsize);
-  index->allocsize = allocsize;
-  index->numinuse = 0;
-  struct fd_funk_index_entry* entries = (struct fd_funk_index_entry*)(index + 1);
-  for (struct fd_funk_index_entry* i = entries; i < entries + allocsize; ++i) {
-    i->start = 0; // Mark as invalid
-  }
-  
-  return index;
-}
-
-// Move an entry to the right location
-struct fd_funk_index_entry* fd_funk_index_relocate(struct fd_funk_index* index,
-                                                   struct fd_funk_index_entry* ent) {
-  const ulong size = index->allocsize;
-  struct fd_funk_index_entry* const entries = (struct fd_funk_index_entry*)(index + 1);
-  struct fd_funk_index_entry* i = entries + (ent->idhash & (size-1));
-  while (fd_funk_index_entry_valid(i)) {
-    if (ent->idhash == i->idhash && fd_funk_recordid_equal(&(ent->id), &(i->id))) {
-      if (ent != i) {
-        fd_memcpy(i, ent, sizeof(struct fd_funk_index_entry));
-        ent->start = 0; // Invalidate old location
-      }
-      return i;
-    }
-    if (++i == entries + size)
-      i = entries;
-  }
-  fd_memcpy(i, ent, sizeof(struct fd_funk_index_entry));
-  ent->start = 0; // Invalidate old location
-  return i;
-}
-
-// Insert/lookup an entry in the index. The index pointer might get
-// updated if the index is grown. The returned entry will already be
-// valid if the key already exists.
-struct fd_funk_index_entry* fd_funk_index_insert(struct fd_funk_index** indexp,
-                                                 struct fd_funk_recordid* id) {
-  struct fd_funk_index* index = *indexp;
-  if (index->numinuse * 3 > index->allocsize) {
-    // !!! Replace malloc with zone allocator
-    struct fd_funk_index* newindex = fd_funk_index_new(index->allocsize << 1);
-
-    // Copy over entries
-    struct fd_funk_index_entry* const oldentries = (struct fd_funk_index_entry*)(index + 1);
-    const ulong oldsize = index->allocsize;
-    for (struct fd_funk_index_entry* i = oldentries; i < oldentries + oldsize; ++i) {
-      if (fd_funk_index_entry_valid(i))
-        fd_funk_index_relocate(newindex, i);
-    }
-    newindex->numinuse = index->numinuse;
-
-    // !!! Replace free with zone allocator
-    free(index);
-    index = *indexp = newindex;
-  }
-
-  // We have space. Do a fast insert.
-  const ulong size = index->allocsize;
-  const ulong idhash = fd_funk_recordid_hash(id);
-  struct fd_funk_index_entry* const entries = (struct fd_funk_index_entry*)(index + 1);
-  struct fd_funk_index_entry* i = entries + (idhash & (size-1));
-  while (fd_funk_index_entry_valid(i)) {
-    if (idhash == i->idhash && fd_funk_recordid_equal(id, &(i->id)))
-      // Return existing valid entry
-      return i;
-    if (++i == entries + size)
-      i = entries;
-  }
-  // Make new entry
-  fd_funk_recordid_copy(&(i->id), id);
-  i->idhash = idhash;
-  index->numinuse ++;
-  return i;
-}
-
-// Query an entry in the index. NULL is returned on a miss;
-struct fd_funk_index_entry* fd_funk_index_query(struct fd_funk_index* index,
-                                                struct fd_funk_recordid* id) {
-  const ulong idhash = fd_funk_recordid_hash(id);
-  const ulong size = index->allocsize;
-  struct fd_funk_index_entry* const entries = (struct fd_funk_index_entry*)(index + 1);
-  struct fd_funk_index_entry* i = entries + (idhash & (size-1));
-  while (fd_funk_index_entry_valid(i)) {
-    if (idhash == i->idhash && fd_funk_recordid_equal(id, &(i->id)))
-      return i;
-    if (++i == entries + size)
-      i = entries;
-  }
-  return NULL;
-}
-
-// Delete an entry
-void fd_funk_index_delete(struct fd_funk_index* index,
-                          struct fd_funk_index_entry* ent) {
-  if (fd_funk_index_entry_valid(ent)) {
-    ent->start = 0; // Mark invalid
-    index->numinuse --;
-  }
-  // Readjust entries that may have been nudged out of position
-  const ulong size = index->allocsize;
-  struct fd_funk_index_entry* const entries = (struct fd_funk_index_entry*)(index + 1);
-  for (;;) {
-    if (++ent == entries + size)
-      ent = entries;
-    if (!fd_funk_index_entry_valid(ent))
-      break;
-    fd_funk_index_relocate(index, ent);
-  }
-}
+#define MAP_NAME fd_funk_index
+#define MAP_ELEMENT struct fd_funk_index_entry
+#define MAP_KEY fd_funk_recordid_t
+#include "fd_map_giant.h"
+#undef MAP_NAME
+#undef MAP_ELEMENT
+#undef MAP_KEY
 
 // Round up a size to a valid disk allocation size
 #define FD_FUNK_NUM_DISK_SIZES 44U
@@ -361,9 +232,9 @@ void fd_funk_replay_control(struct fd_funk* store) {
       ulong entpos = store->lastcontrol + (ulong)((char*)ent - (char*)&ctrl);
         
       if (ent->type == FD_FUNK_CONTROL_NORMAL) {
-        struct fd_funk_index_entry* ent2 = fd_funk_index_insert(&store->index, &ent->u.normal.id);
-          
-        if (fd_funk_index_entry_valid(ent2)) {
+        int exists;
+        struct fd_funk_index_entry* ent2 = fd_funk_index_insert(store->index, &ent->u.normal.id, &exists);
+        if (exists) {
           FD_LOG_WARNING(("duplicate record id in store"));
           // Keep the later version. Delete the older one.
           if (ent2->version > ent->u.normal.version) {
@@ -423,7 +294,11 @@ void* fd_funk_new(void* mem,
   }
   store->backinglen = statbuf.st_size;
 
-  store->index = fd_funk_index_new(FD_FUNK_INDEX_START_SIZE);
+  // Reserve 1/3 of the footprint for the master index
+  FD_STATIC_ASSERT(sizeof(struct fd_funk_index_entry) == 128,fd_funk);
+  void* mem2 = store+1;
+  store->index = (struct fd_funk_index*)mem2;
+  fd_funk_index_new(store->index, footprint/3);
 
   fd_vec_ulong_new(&store->free_ctrl);
   for (uint i = 0; i < FD_FUNK_NUM_DISK_SIZES; ++i)

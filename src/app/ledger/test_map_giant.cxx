@@ -22,7 +22,9 @@ void ulong_copy(ulong* key1, const ulong* key2) { *key1 = *key2; }
 int main() {
   ulong footprint = 5000000;
   auto* m = (test_map*)malloc(footprint);
-  auto capac = test_map_new(m, footprint);
+  ulong footprint2 = test_map_new(m, footprint);
+  assert(footprint2 <= footprint);
+  auto capac = m->capacity;
   auto maxkey = (capac*4)/3;
   
   std::unordered_map<ulong,ulong> golden;
