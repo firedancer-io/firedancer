@@ -16,17 +16,17 @@
 #include <rocksdb/c.h>
 
 struct fd_slot_meta {
-  ulong slot;
-  ulong consumed;
-  ulong received;
-  ulong first_shred_timestamp;
-  ulong last_index;
-  ulong parent_slot;
-  ulong num_next_slots;
+  ulong  slot;
+  ulong  consumed;
+  ulong  received;
+  ulong  first_shred_timestamp;
+  ulong  last_index;
+  ulong  parent_slot;
+  ulong  num_next_slots;
   ulong *next_slots;
-  uchar is_connected;
-  ulong num_entry_end_indexes;
-  uint entry_end_indexes[64];
+  uchar  is_connected;
+  ulong  num_entry_end_indexes;
+  uint   entry_end_indexes[64];
 };
 typedef struct fd_slot_meta fd_slot_meta_t;
 #define FD_SLOT_META_FOOTPRINT sizeof(fd_slot_meta_t)
@@ -56,66 +56,115 @@ char* allocf(unsigned long len, FD_FN_UNUSED unsigned long align, FD_FN_UNUSED v
   return malloc(len);
 }
 
-int main()
-{
-    const char *db_name = "/home/jsiegel/repos/solana/test-ledger/rocksdb";
-    rocksdb_options_t *opts = rocksdb_options_create();
-    char *err = NULL;
+struct fd_rocksdb {
+  rocksdb_t *                     db;
+  const char *                    db_name;
+  const char *                    cfgs[4];
+  const rocksdb_options_t *       cf_options[4];
+  rocksdb_column_family_handle_t* column_family_handles[4];
+  rocksdb_options_t *             opts;
+  rocksdb_readoptions_t *         ro;
+};
+typedef struct fd_rocksdb fd_rocksdb_t;
 
-//    size_t lencf = 0;
-//    char **cf = rocksdb_list_column_families(opts, db_name, &lencf, &err);
-//    for (int i = 0; i < lencf; i++) {
-//      printf("%s\n", cf[i]);
-//    }
+char * fd_rocksdb_init(fd_rocksdb_t *db, const char *db_name) {
+  fd_memset(db, 0, sizeof(fd_rocksdb_t));
 
-    const char *cfs[] = {"default", "meta", "root", "data_shred", "code_shred"};
-    const rocksdb_options_t *cf_options[] = {opts, opts, opts, opts, opts}; // One per cfs
+  db->opts = rocksdb_options_create();
+  db->cfgs[0] = "default";
+  db->cfgs[1] = "meta";
+  db->cfgs[2] = "root";
+  db->cfgs[3] = "data_shred";
+  db->cf_options[0] = db->cf_options[1] = db->cf_options[2] = db->cf_options[3] = db->opts;
 
-    rocksdb_column_family_handle_t* column_family_handles[5] = {NULL, NULL, NULL, NULL, NULL};
+  char *err = NULL;
 
-    rocksdb_t *db = rocksdb_open_for_read_only_column_families(
-      opts, db_name, 5,
-        (const char * const *) &cfs, 
-        (const rocksdb_options_t * const*) cf_options,
-        column_family_handles, 
-        false, &err);
+  db->db = rocksdb_open_for_read_only_column_families(
+    db->opts, db_name, sizeof(db->cfgs) / sizeof(db->cfgs[0]),
+      (const char * const *) db->cfgs, 
+      (const rocksdb_options_t * const*) db->cf_options,
+      db->column_family_handles, 
+      false, &err);
 
-    if (err != NULL) {
-        fprintf(stderr, "database open %s\n", err);
-        free(err);
-        return -1;
-    }
+  if (err != NULL) {
+    return err;
+  }
 
-    rocksdb_readoptions_t *ro = rocksdb_readoptions_create();
+  db->ro = rocksdb_readoptions_create();
 
-    rocksdb_iterator_t* iter = rocksdb_create_iterator_cf(db, ro, column_family_handles[2]);
-    rocksdb_iter_seek_to_last(iter);    
-    if (!rocksdb_iter_valid(iter)) {
-      fprintf(stderr, "Odd, no slots?");
-      rocksdb_close(db);
-      return -1;
-    }
+  return NULL;
+}
 
-    size_t klen = 0;
-    const char *key = rocksdb_iter_key(iter, &klen); // There is no need to free kee
-    unsigned long slot = fd_ulong_bswap(*((unsigned long *) key));
-    printf("Last slot in the db: %ld\n", slot);
-    rocksdb_iter_destroy(iter);
+void fd_rocksdb_destroy(fd_rocksdb_t *db) {
+  if (db->db != NULL) {
+    rocksdb_close(db->db);
+    db->db = NULL;
+  }
 
+  if (db->ro != NULL) {
+    rocksdb_readoptions_destroy(db->ro);
+    db->ro = NULL;
+  }
+  
+  if (db->opts != NULL) {
+    rocksdb_options_destroy(db->opts);
+    db->opts = NULL;
+  }
+}
 
-    ulong ks = fd_ulong_bswap(1);
+ulong fd_rocksdb_last_slot(fd_rocksdb_t *db, char **err) {
+  rocksdb_iterator_t* iter = rocksdb_create_iterator_cf(db->db, db->ro, db->column_family_handles[2]);
+  rocksdb_iter_seek_to_last(iter);    
+  if (!rocksdb_iter_valid(iter)) {
+    *err = "db column for root is empty";
+    return 0;
+  }
+
+  size_t klen = 0;
+  const char *key = rocksdb_iter_key(iter, &klen); // There is no need to free kee
+  unsigned long slot = fd_ulong_bswap(*((unsigned long *) key));
+  rocksdb_iter_destroy(iter);
+  return slot;
+}
+
+void fd_rocksdb_get_meta(fd_rocksdb_t *db, ulong slot, fd_slot_meta_t *m, char **err) {
+    ulong ks = fd_ulong_bswap(slot);
     size_t vallen = 0;
 
     char *meta = rocksdb_get_cf(
-      db, ro, column_family_handles[1], (const char *) &ks, sizeof(ks), &vallen, &err);
+      db->db, db->ro, db->column_family_handles[1], (const char *) &ks, sizeof(ks), &vallen, err);
 
     unsigned char *outend = (unsigned char *) &meta[vallen];
     const void * o = meta;
 
-    fd_slot_meta_t m;
-    fd_slot_meta_decode(&m, &o, outend, allocf, NULL);
+    fd_slot_meta_decode(m, &o, outend, allocf, NULL);
+}
 
-    rocksdb_readoptions_destroy(ro);
+int main()
+{
+    const char *db_name = "/home/jsiegel/repos/solana/test-ledger/rocksdb";
+
+    fd_rocksdb_t db;
+    char *err = fd_rocksdb_init(&db, db_name);
+
+    if (err != NULL) {
+      FD_LOG_ERR(("fd_rocksdb_init returned %s", err));
+    }
+
+    ulong slot = fd_rocksdb_last_slot(&db, &err);
+    if (err != NULL) {
+      FD_LOG_ERR(("fd_rocksdb_last_slot returned %s", err));
+    }
+
+    fd_slot_meta_t m;
+    fd_memset(&m, 0, sizeof(m));
+    fd_rocksdb_get_meta(&db, slot, &m, &err);
+    if (err != NULL) {
+      FD_LOG_ERR(("fd_rocksdb_last_slot returned %s", err));
+    }
+
+    // shreds, err := d.GetDataShreds(meta.Slot, 0, uint32(meta.Received), shredRevision)
+
 
 // ~/repos/radiance/pkg/blockstore/
 
@@ -177,8 +226,7 @@ int main()
 
 // func NewShredFromSerialized(shred []byte, revision int) (s Shred) 
 
-    rocksdb_close(db);
-    rocksdb_options_destroy(opts);
+    fd_rocksdb_destroy(&db);
 
     return 0;
 }
