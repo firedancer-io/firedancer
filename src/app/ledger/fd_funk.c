@@ -12,7 +12,7 @@
 #define FD_FUNK_CONTROL_SIZE (64UL<<10)
 
 // Hash a record id
-ulong fd_funk_recordid_t_hash(struct fd_funk_recordid* id) {
+ulong fd_funk_recordid_t_hash(struct fd_funk_recordid const* id) {
   // A recordid is 8 ulongs long
   FD_STATIC_ASSERT(sizeof(struct fd_funk_recordid)/sizeof(ulong) == 8,fd_funk);
 
@@ -30,7 +30,7 @@ ulong fd_funk_recordid_t_hash(struct fd_funk_recordid* id) {
 }
 
 // Test record id equality
-int fd_funk_recordid_t_equal(struct fd_funk_recordid* id1, struct fd_funk_recordid* id2) {
+int fd_funk_recordid_t_equal(struct fd_funk_recordid const* id1, struct fd_funk_recordid const* id2) {
   const ulong* const id1hack = (const ulong* const)id1;
   const ulong* const id2hack = (const ulong* const)id2;
   return ((id1hack[0] ^ id2hack[0]) |
@@ -339,6 +339,14 @@ struct fd_funk_xactionid const* fd_funk_root(struct fd_funk* store) {
   return &store->root;
 }
 
+int fd_funk_is_root(struct fd_funk_xactionid const* xid) {
+  // A xactionid is 4 ulongs long
+  FD_STATIC_ASSERT(sizeof(struct fd_funk_xactionid)/sizeof(ulong) == 4,fd_funk);
+
+  const ulong* const idhack = (const ulong* const)xid;
+  return (idhack[0] | idhack[1] | idhack[2] | idhack[3]) == 0;
+}
+
 void fd_funk_fork(struct fd_funk* store,
                   struct fd_funk_xactionid const* parent,
                   struct fd_funk_xactionid const* child);
@@ -357,12 +365,57 @@ void fd_funk_merge(struct fd_funk* store,
 int fd_funk_isopen(struct fd_funk* store,
                    struct fd_funk_xactionid const* id);
 
+void fd_funk_update_control(struct fd_funk* store,
+                            struct fd_funk_index_entry* ent) {
+  struct fd_funk_control_entry ctrl;
+  fd_memset(&ctrl, 0, sizeof(ctrl));
+  ctrl.type = FD_FUNK_CONTROL_NORMAL;
+  fd_funk_recordid_t_copy(&ctrl.u.normal.id, &ent->key);
+  ctrl.u.normal.start = ent->start;
+  ctrl.u.normal.len = ent->len;
+  ctrl.u.normal.alloc = ent->alloc;
+  ctrl.u.normal.version = ent->version;
+  if (pwrite(store->backingfd, &ctrl, sizeof(ctrl), (long)ent->control) < (long)sizeof(ctrl)) {
+    FD_LOG_WARNING(("failed to write backing file: %s", strerror(errno)));
+  }
+}
+
+void fd_funk_write_root(struct fd_funk* store,
+                        struct fd_funk_recordid const* recordid,
+                        const void* data,
+                        ulong offset,
+                        ulong datalen) {
+  const ulong newlen = offset + datalen;
+  // See if this is a new record
+  struct fd_funk_index_entry* ent = fd_funk_index_query(store->index, recordid);
+  if (ent) {
+    if (newlen <= ent->alloc) {
+      // Can update in place
+      if (pwrite(store->backingfd, data, datalen, (long)(ent->start + offset)) < (long)datalen) {
+        FD_LOG_WARNING(("failed to write backing file: %s", strerror(errno)));
+        return;
+      }
+      if (ent->len < newlen) {
+        ent->len = (uint)newlen;
+        // Update the control with the new length
+        fd_funk_update_control(store, ent);
+      }
+      return;
+    }
+    
+  }
+}
+
 void fd_funk_write(struct fd_funk* store,
                    struct fd_funk_xactionid const* xid,
                    struct fd_funk_recordid const* recordid,
                    const void* data,
                    ulong offset,
-                   ulong datalen);
+                   ulong datalen) {
+  if (fd_funk_is_root(xid))
+    fd_funk_write_root(store, recordid, data, offset, datalen);
+  FD_LOG_ERR(("transactions not supported yet"));
+}
 
 long fd_funk_read(struct fd_funk* store,
                   struct fd_funk_xactionid const* xid,

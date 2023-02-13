@@ -74,7 +74,7 @@ void MAP_(destroy)(struct MAP_NAME* self) {
 // element. *exists is set to true if the element already existed in
 // the map. Otherwise, the element is returned uninitialized (only key
 // and next are set). If out of space, a NULL is returned.
-MAP_ELEMENT* MAP_(insert)(struct MAP_NAME* self, MAP_KEY* key, int* exists) {
+MAP_ELEMENT* MAP_(insert)(struct MAP_NAME* self, MAP_KEY const* key, int* exists) {
   const uint cnt = self->header_cnt;
   uint* const headers = (uint*)(self+1);
   MAP_ELEMENT* const elembase = (MAP_ELEMENT*)(headers + cnt);
@@ -119,7 +119,7 @@ MAP_ELEMENT* MAP_(insert)(struct MAP_NAME* self, MAP_KEY* key, int* exists) {
   
 // Lookup a key in the map and return the resulting element. A NULL is
 // returned if not found.
-MAP_ELEMENT* MAP_(query)(struct MAP_NAME* self, MAP_KEY* key) {
+MAP_ELEMENT* MAP_(query)(struct MAP_NAME* self, MAP_KEY const* key) {
   const uint cnt = self->header_cnt;
   uint* const headers = (uint*)(self+1);
   MAP_ELEMENT* const elembase = (MAP_ELEMENT*)(headers + cnt);
@@ -148,7 +148,7 @@ MAP_ELEMENT* MAP_(query)(struct MAP_NAME* self, MAP_KEY* key) {
 }
   
 // Remove a key from the map.
-int MAP_(remove)(struct MAP_NAME* self, MAP_KEY* key) {
+int MAP_(remove)(struct MAP_NAME* self, MAP_KEY const* key) {
   const uint cnt = self->header_cnt;
   uint* const headers = (uint*)(self+1);
   MAP_ELEMENT* const elembase = (MAP_ELEMENT*)(headers + cnt);
