@@ -1,3 +1,6 @@
+#ifndef HEADER_fd_src_ledger_funk_h
+#define HEADER_fd_src_ledger_funk_h 1
+
 // Interface for transactional record storage. This is the raw version
 // which is not thread safe. It is intended to reside on a single
 // thread/CPU/tile. Presumably, a separate message layer allows access
@@ -132,3 +135,5 @@ int fd_funk_cache_query(struct fd_funk* store,
 void fd_funk_cache_hint(struct fd_funk* store,
                         struct fd_funk_xactionid const* xid,
                         struct fd_funk_recordid const* recordid);
+
+#endif /* HEADER_fd_src_ledger_funk_h */
