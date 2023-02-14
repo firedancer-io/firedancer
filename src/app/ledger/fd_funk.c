@@ -315,7 +315,7 @@ int fd_funk_allocate_disk(struct fd_funk* store, ulong datalen, ulong* control, 
       FD_LOG_WARNING(("failed to write store: %s", strerror(errno)));
       return 0;
     }
-    store->lastcontrol = (ulong)ctrlpos;
+    store->lastcontrol = ctrlpos;
   }
 
   // Grow the file
@@ -352,6 +352,7 @@ void* fd_funk_new(void* mem,
   for (uint i = 0; i < FD_FUNK_NUM_DISK_SIZES; ++i)
     fd_funk_vec_dead_entry_new(&store->deads[i]);
 
+  // Recover all state from control blocks
   fd_funk_replay_control(store);
 
   // Root is all zeros
@@ -435,22 +436,105 @@ void fd_funk_write_root(struct fd_funk* store,
                         ulong datalen) {
   const ulong newlen = offset + datalen;
   // See if this is a new record
-  struct fd_funk_index_entry* ent = fd_funk_index_query(store->index, recordid);
-  if (ent) {
+  int exists;
+  struct fd_funk_index_entry* ent = fd_funk_index_insert(store->index, recordid, &exists);
+  if (ent == NULL) {
+    FD_LOG_WARNING(("index is full, cannot create a new record"));
+    return;
+  }
+  
+  if (exists) {
     if (newlen <= ent->alloc) {
-      // Can update in place
+      // Can update in place. Just patch the disk storage
       if (pwrite(store->backingfd, data, datalen, (long)(ent->start + offset)) < (long)datalen) {
         FD_LOG_WARNING(("failed to write backing file: %s", strerror(errno)));
         return;
       }
       if (ent->len < newlen) {
-        ent->len = (uint)newlen;
+        // Grow the cache
+        if (ent->cache) {
+          ent->cache = realloc(ent->cache, newlen);
+          // Make sure all memory is initialized
+          fd_memset(ent->cache + ent->len, 0, newlen - ent->len);
+        }
         // Update the control with the new length
+        ent->len = (uint)newlen;
         fd_funk_update_control_from_index(store, ent);
       }
+      // Patch the cache
+      if (ent->cache)
+        fd_memcpy(ent->cache + offset, data, datalen);
+      return;
+      
+    } else {
+      // Hard case where we must move and grow the entry at the same
+      // time. Get a correct cache first so we can do this with a
+      // single write.
+      if (ent->cache) {
+        // Patch the cache
+        ent->cache = realloc(ent->cache, newlen);
+        fd_memset(ent->cache + ent->len, 0, newlen - ent->len);
+        fd_memcpy(ent->cache + offset, data, datalen);
+      } else {
+        // Load the cache
+        ent->cache = malloc(newlen);
+        if (offset == 0)
+          fd_memcpy(ent->cache, data, datalen);
+        else {
+          // Need to mix old and new data
+          fd_memset(ent->cache, 0, newlen);
+          if (pread(store->backingfd, ent->cache, (long)ent->len, (long)ent->start) < (long)ent->len) {
+            FD_LOG_WARNING(("failed to read backing file: %s", strerror(errno)));
+            return;
+          }
+          fd_memcpy(ent->cache + offset, data, datalen);
+        }
+      }
+      ent->len = (uint)newlen;
+
+      // Create a new record with a new version number
+      ulong oldcontrol = ent->control;
+      ulong oldstart = ent->start;
+      uint oldalloc = ent->alloc;
+      if (!fd_funk_allocate_disk(store, newlen, &ent->control, &ent->start, &ent->alloc))
+        return;
+      // Write out the new version first in case we crash in the
+      // middle. If duplicate keys are found during recovery, the newer
+      // version wins.
+      ent->version ++;
+      if (pwrite(store->backingfd, ent->cache, newlen, (long)ent->start) < (long)newlen) {
+        FD_LOG_WARNING(("failed to write backing file: %s", strerror(errno)));
+        return;
+      }
+      fd_funk_update_control_from_index(store, ent);
+      // Collect old control and disk space
+      fd_funk_make_dead(store, oldcontrol, oldstart, oldalloc);
       return;
     }
     
+  } else {
+    // Create a new record
+    if (!fd_funk_allocate_disk(store, newlen, &ent->control, &ent->start, &ent->alloc))
+      return;
+    ent->len = (uint)newlen;
+    ent->version = 1;
+    ent->cache = NULL;
+    if (offset == 0) {
+      if (pwrite(store->backingfd, data, newlen, (long)ent->start) < (long)newlen) {
+        FD_LOG_WARNING(("failed to write backing file: %s", strerror(errno)));
+        return;
+      }
+    } else {
+      // Use the cache for zero-filling
+      ent->cache = malloc(newlen);
+      fd_memset(ent->cache, 0, offset);
+      fd_memcpy(ent->cache + offset, data, datalen);
+      if (pwrite(store->backingfd, ent->cache, newlen, (long)ent->start) < (long)newlen) {
+        FD_LOG_WARNING(("failed to write backing file: %s", strerror(errno)));
+        return;
+      }
+    }
+    fd_funk_update_control_from_index(store, ent);
   }
 }
 
