@@ -72,7 +72,9 @@ struct fd_funk_index_entry {
     uint version;
     // Next entry in hash chain
     uint next;
-    ulong unused[4];
+    // Cached data
+    char* cache;
+    ulong unused[3];
 };
 
 #define MAP_NAME fd_funk_index
@@ -86,8 +88,8 @@ struct fd_funk_index_entry {
 // Round up a size to a valid disk allocation size
 #define FD_FUNK_NUM_DISK_SIZES 44U
 #define FD_FUNK_MAX_ENTRY_SIZE (10U<<20) /* 10 MB */
-ulong fd_funk_disk_size(ulong rawsize, uint* index) {
-  static const ulong ALLSIZES[FD_FUNK_NUM_DISK_SIZES] = {
+uint fd_funk_disk_size(ulong rawsize, uint* index) {
+  static const uint ALLSIZES[FD_FUNK_NUM_DISK_SIZES] = {
     128, 256, 384, 512, 640, 768, 896, 1024, 1152, 1280, 1664, 2176, 2944, 3840,
     4992, 6528, 8576, 11264, 14720, 19200, 24960, 32512, 42368, 55168, 71808, 93440,
     121472, 157952, 205440, 267136, 347392, 451712, 587264, 763520, 992640, 1290496,
@@ -167,7 +169,7 @@ struct fd_funk {
     // Backing file descriptor
     int backingfd;
     // Length of backing file
-    long backinglen;
+    ulong backinglen;
     // File offset of last control block in chain
     ulong lastcontrol; 
     // Master index of finalized data
@@ -209,7 +211,7 @@ void fd_funk_replay_control(struct fd_funk* store) {
 
   struct fd_funk_control ctrl;
   FD_STATIC_ASSERT(sizeof(ctrl.entries[0]) == 128,fd_funk);
-  if (store->backinglen < (long)sizeof(ctrl)) {
+  if (store->backinglen < sizeof(ctrl)) {
     // Initialize with an empty control block
     fd_memset(&ctrl, 0, sizeof(ctrl));
     if (pwrite(store->backingfd, &ctrl, sizeof(ctrl), 0) < (long)sizeof(ctrl)) {
@@ -252,6 +254,7 @@ void fd_funk_replay_control(struct fd_funk* store) {
         ent2->alloc = ent->u.normal.alloc;
         ent2->version = ent->u.normal.version;
         ent2->control = entpos;
+        ent2->cache = NULL;
 
       } else if (ent->type == FD_FUNK_CONTROL_DEAD) {
         uint k;
@@ -277,6 +280,51 @@ void fd_funk_replay_control(struct fd_funk* store) {
   }
 }
 
+int fd_funk_allocate_disk(struct fd_funk* store, ulong datalen, ulong* control, ulong* start, uint* alloc) {
+  uint k;
+  *alloc = fd_funk_disk_size(datalen, &k);
+  
+  // Look for a dead control which owns a chunk of disk of the right size
+  struct fd_funk_vec_dead_entry* vec = &store->deads[k];
+  if (!fd_funk_vec_dead_entry_empty(vec)) {
+    struct fd_funk_dead_entry de = fd_funk_vec_dead_entry_pop_unsafe(vec);
+    *control = de.control;
+    *start = de.start;
+    return 1;
+  }
+  
+  if (fd_vec_ulong_empty(&store->free_ctrl)) {
+    // Make a batch of empty controls
+    const ulong ctrlpos = store->backinglen;
+    struct fd_funk_control ctrl;
+    fd_memset(&ctrl, 0, sizeof(ctrl));
+    if (pwrite(store->backingfd, &ctrl, sizeof(ctrl), (long)ctrlpos) < (long)sizeof(ctrl)) {
+      FD_LOG_WARNING(("failed to write store: %s", strerror(errno)));
+      return 0;
+    }
+    store->backinglen = ctrlpos + sizeof(ctrl);
+    for (ulong i = 0; i < FD_FUNK_ENTRIES_IN_CONTROL; ++i) {
+      struct fd_funk_control_entry* ent = &ctrl.entries[i].entry;
+      // Compute file position of control entry
+      ulong entpos = ctrlpos + (ulong)((char*)ent - (char*)&ctrl);
+      fd_vec_ulong_push(&store->free_ctrl, entpos);
+    }
+    // Chain together control blocks
+    long offset = (char*)(&FD_FUNK_CONTROL_NEXT(ctrl)) - (char*)&ctrl;
+    if (pwrite(store->backingfd, &ctrlpos, sizeof(ctrlpos), (long)store->lastcontrol + offset) < (long)sizeof(ctrlpos)) {
+      FD_LOG_WARNING(("failed to write store: %s", strerror(errno)));
+      return 0;
+    }
+    store->lastcontrol = (ulong)ctrlpos;
+  }
+
+  // Grow the file
+  *control = fd_vec_ulong_pop_unsafe(&store->free_ctrl);
+  *start = store->backinglen;
+  store->backinglen += *alloc;
+  return 1;
+}
+
 void* fd_funk_new(void* mem,
                   ulong footprint,
                   char const* backingfile) {
@@ -292,7 +340,7 @@ void* fd_funk_new(void* mem,
   if (fstat(store->backingfd, &statbuf) == -1) {
     FD_LOG_ERR(("failed to open %s: %s", backingfile, strerror(errno)));
   }
-  store->backinglen = statbuf.st_size;
+  store->backinglen = (ulong)statbuf.st_size;
 
   // Reserve 1/3 of the footprint for the master index
   FD_STATIC_ASSERT(sizeof(struct fd_funk_index_entry) == 128,fd_funk);
@@ -365,8 +413,8 @@ void fd_funk_merge(struct fd_funk* store,
 int fd_funk_isopen(struct fd_funk* store,
                    struct fd_funk_xactionid const* id);
 
-void fd_funk_update_control(struct fd_funk* store,
-                            struct fd_funk_index_entry* ent) {
+void fd_funk_update_control_from_index(struct fd_funk* store,
+                                       struct fd_funk_index_entry* ent) {
   struct fd_funk_control_entry ctrl;
   fd_memset(&ctrl, 0, sizeof(ctrl));
   ctrl.type = FD_FUNK_CONTROL_NORMAL;
@@ -398,7 +446,7 @@ void fd_funk_write_root(struct fd_funk* store,
       if (ent->len < newlen) {
         ent->len = (uint)newlen;
         // Update the control with the new length
-        fd_funk_update_control(store, ent);
+        fd_funk_update_control_from_index(store, ent);
       }
       return;
     }
