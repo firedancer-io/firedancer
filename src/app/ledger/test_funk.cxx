@@ -12,9 +12,12 @@ int main() {
   void* mem = fd_funk_new(malloc(footprint), footprint, "testback");
   auto* funk = fd_funk_join(mem);
 
+  fd_funk_validate(funk);
+
   mem = fd_funk_leave(funk);
   fd_funk_delete(mem);
   free(mem);
+  unlink("testback");
   
   return 0;
 }

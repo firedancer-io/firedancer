@@ -136,4 +136,8 @@ void fd_funk_cache_hint(struct fd_funk* store,
                         struct fd_funk_xactionid const* xid,
                         struct fd_funk_recordid const* recordid);
 
+// Validate the entire data structure. Log an error and abort if
+// corruption is detected.
+void fd_funk_validate(struct fd_funk* store);
+
 #endif /* HEADER_fd_src_ledger_funk_h */
