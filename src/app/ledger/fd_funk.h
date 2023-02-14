@@ -102,11 +102,12 @@ void fd_funk_write(struct fd_funk* store,
 
 // Read a record. The amount of data actually read is returned, which
 // may be less then datalen if the record is shorter than expected. A -1
-// is returned if an identifier is invalid.
+// is returned if an identifier is invalid. *data is updated to point
+// to an internal cache which may become invalid after the next operation.
 long fd_funk_read(struct fd_funk* store,
                   struct fd_funk_xactionid const* xid,
                   struct fd_funk_recordid const* recordid,
-                  void* data,
+                  const void** data,
                   ulong offset,
                   ulong datalen);
 

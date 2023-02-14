@@ -68,7 +68,7 @@ int main() {
 
     case 2: { // Random remove
       auto key = ((ulong)lrand48())%maxkey;
-      auto found = test_map_remove(m, &key);
+      auto* found = test_map_remove(m, &key);
       auto it = golden.find(key);
       if (it == golden.end()) {
         assert(!found);
@@ -107,12 +107,12 @@ int main() {
     if ((i+1)%5000000 == 25000000) {
       // Delete all keys
       for (ulong key = 0; key < maxkey; ++key) {
-        int exist = test_map_remove(m, &key);
+        auto* found = test_map_remove(m, &key);
         auto it = golden.find(key);
         if (it == golden.end()) {
-          assert(!exist);
+          assert(!found);
         } else {
-          assert(exist);
+          assert(found);
         }
       }
       golden.clear();

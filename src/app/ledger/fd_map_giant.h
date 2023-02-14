@@ -147,8 +147,9 @@ MAP_ELEMENT* MAP_(query)(struct MAP_NAME* self, MAP_KEY const* key) {
   return NULL;
 }
   
-// Remove a key from the map.
-int MAP_(remove)(struct MAP_NAME* self, MAP_KEY const* key) {
+// Remove a key from the map. A pointer to the former entry is
+// returned to allow additional cleanup.
+MAP_ELEMENT* MAP_(remove)(struct MAP_NAME* self, MAP_KEY const* key) {
   const uint cnt = self->header_cnt;
   uint* const headers = (uint*)(self+1);
   MAP_ELEMENT* const elembase = (MAP_ELEMENT*)(headers + cnt);
@@ -167,13 +168,13 @@ int MAP_(remove)(struct MAP_NAME* self, MAP_KEY const* key) {
       elem->next = self->free_list;
       self->free_list = i;
       self->used --; 
-      return 1;
+      return elem;
     }
     // Retain the pointer to next so we can rewrite it later.
     cur = &elem->next;
   }
   // Key not found
-  return 0;
+  return NULL;
 }
 
 // Return true if the data structure is internally consistent

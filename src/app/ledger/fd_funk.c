@@ -544,26 +544,79 @@ void fd_funk_write(struct fd_funk* store,
                    const void* data,
                    ulong offset,
                    ulong datalen) {
-  if (fd_funk_is_root(xid))
+  if (fd_funk_is_root(xid)) {
     fd_funk_write_root(store, recordid, data, offset, datalen);
+    return;
+  }
   FD_LOG_ERR(("transactions not supported yet"));
+}
+
+long fd_funk_read_root(struct fd_funk* store,
+                       struct fd_funk_recordid const* recordid,
+                       const void** data,
+                       ulong offset,
+                       ulong datalen) {
+  *data = NULL; // defensive
+  struct fd_funk_index_entry* ent = fd_funk_index_query(store->index, recordid);
+  if (ent == NULL) {
+    // Doesn't exist
+    return -1;
+  }
+  if (ent->cache == NULL) {
+    // Load the cache
+    ent->cache = malloc(ent->len);
+    if (pread(store->backingfd, ent->cache, (long)ent->len, (long)ent->start) < (long)ent->len) {
+      FD_LOG_WARNING(("failed to read backing file: %s", strerror(errno)));
+      return -1;
+    }
+  }
+  if (offset >= ent->len)
+    return 0;
+  *data = ent->cache + offset;
+  if (offset + datalen > ent->len)
+    datalen = ent->len - offset;
+  return (long)datalen;
 }
 
 long fd_funk_read(struct fd_funk* store,
                   struct fd_funk_xactionid const* xid,
                   struct fd_funk_recordid const* recordid,
-                  void* data,
+                  const void** data,
                   ulong offset,
-                  ulong datalen);
+                  ulong datalen) {
+  if (fd_funk_is_root(xid))
+    return fd_funk_read_root(store, recordid, data, offset, datalen);
+  FD_LOG_ERR(("transactions not supported yet"));
+  return -1;
+}
 
 void fd_funk_truncate(struct fd_funk* store,
                       struct fd_funk_xactionid const* xid,
                       struct fd_funk_recordid const* recordid,
                       ulong recordlen);
 
+void fd_funk_delete_record_root(struct fd_funk* store,
+                                struct fd_funk_recordid const* recordid) {
+  
+  struct fd_funk_index_entry* ent = fd_funk_index_remove(store->index, recordid);
+  if (ent == NULL) {
+    // Doesn't exist
+    return;
+  }
+  if (ent->cache != NULL)
+    free(ent->cache);
+  fd_funk_make_dead(store, ent->control, ent->start, ent->alloc);
+}
+
 void fd_funk_delete_record(struct fd_funk* store,
                            struct fd_funk_xactionid const* xid,
-                           struct fd_funk_recordid const* recordid);
+                           struct fd_funk_recordid const* recordid) {
+  if (fd_funk_is_root(xid)) {
+    fd_funk_delete_record_root(store, recordid);
+    return;
+  }
+  FD_LOG_ERR(("transactions not supported yet"));
+}
 
 int fd_funk_cache_query(struct fd_funk* store,
                         struct fd_funk_xactionid const* xid,
