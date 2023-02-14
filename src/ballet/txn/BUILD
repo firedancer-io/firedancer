@@ -1,4 +1,4 @@
-load("//bazel:fd_build_system.bzl", "fd_cc_library", "fd_cc_test")
+load("//bazel:fd_build_system.bzl", "fd_cc_fuzz_test", "fd_cc_library", "fd_cc_test")
 
 package(default_visibility = ["//src/ballet:__subpackages__"])
 
@@ -27,6 +27,11 @@ fd_cc_test(
 fd_cc_test(
     size = "small",
     srcs = ["test_txn_parse.c"],
+    compile_data = [
+        "fixtures/transaction1.bin",
+        "fixtures/transaction2.bin",
+        "fixtures/transaction3.bin",
+    ],
     deps = ["//src/ballet"],
 )
 
@@ -34,4 +39,10 @@ fd_cc_test(
     size = "small",
     srcs = ["test_txn.c"],
     deps = ["//src/ballet"],
+)
+
+fd_cc_fuzz_test(
+    name = "fuzz_txn_parse",
+    srcs = ["fuzz_txn_parse.c"],
+    deps = [":txn"],
 )
