@@ -374,8 +374,9 @@ fd_quic_new( void * mem, fd_quic_config_t const * config ) {
   for( ulong j = 0; j < config->max_concur_conns; ++j ) {
     fd_quic_conn_t * conn = fd_quic_conn_new( (void*)( imem + offs + j * conn_foot ), quic, config );
     conn->next = NULL;
-    conn->max_datagram_sz = 1200; /* start with minimum supported max datagram */
-                                  /* clients may allow more */
+    /* start with minimum supported max datagram */
+    /* peers may allow more */
+    conn->tx_max_datagram_sz = FD_QUIC_INITIAL_MAX_UDP_PAYLOAD_SZ;
 
     if( last == NULL ) {
       quic->conns = conn;
@@ -549,7 +550,7 @@ fd_quic_conn_new_stream( fd_quic_conn_t * conn, int dirtype ) {
   uint type   = server + ( (uint)dirtype << 1u );
 
   /* have we maxed out our max concurrent streams? */
-  ulong max_concur_streams = conn->max_concur_streams;
+  ulong max_concur_streams = conn->max_streams[type];
   if( FD_UNLIKELY( ( conn->num_streams[type] == max_concur_streams ) |
                    ( conn->state             != FD_QUIC_CONN_STATE_ACTIVE ) ) ) {
     return NULL;
@@ -736,11 +737,11 @@ struct fd_quic_pkt {
   /* the following are the "current" values only. There may be more QUIC packets
      in a UDP datagram */
   fd_quic_long_hdr_t long_hdr[1];
-  ulong           pkt_number;  /* quic packet number currently being decoded/parsed */
-  ulong           rcv_time;    /* time packet was received */
-  uint           enc_level;   /* encryption level */
-  uint           datagram_sz; /* length of the original datagram */
-  uint           ack_flag;    /* ORed together: 0-don't ack  1-ack  2-cancel ack */
+  ulong              pkt_number;  /* quic packet number currently being decoded/parsed */
+  ulong              rcv_time;    /* time packet was received */
+  uint               enc_level;   /* encryption level */
+  uint               datagram_sz; /* length of the original datagram */
+  uint               ack_flag;    /* ORed together: 0-don't ack  1-ack  2-cancel ack */
 # define ACK_FLAG_NOT_RQD 0
 # define ACK_FLAG_RQD     1
 # define ACK_FLAG_CANCEL  2
@@ -753,7 +754,7 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
                            fd_quic_pkt_t *           pkt,
                            fd_quic_conn_id_t const * conn_id,
                            uchar const *             cur_ptr,
-                           ulong                    cur_sz ) {
+                           ulong                     cur_sz ) {
   uint enc_level = fd_quic_enc_level_initial_id;
 
   /* according to spec, INITIAL packets less than the specified
@@ -844,8 +845,8 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
     conn->peer_cnt             = 0;
     conn->cur_conn_id_idx      = 0;
     conn->cur_peer_idx         = 0;
-    conn->max_datagram_sz      = 1200; /* TODO start with highest value we allow, then allow peer to reduce
-                                     1200 is the minimum */
+    /* start with lowest value we allow, then allow peer to increase */
+    conn->tx_max_datagram_sz   = FD_QUIC_INITIAL_MAX_UDP_PAYLOAD_SZ;
     conn->handshake_complete   = 0;
     conn->tls_hs               = NULL; /* created later */
 
@@ -911,8 +912,9 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
     /* initial source connection id */
     conn->initial_source_conn_id = new_conn_id;
 
-    conn->max_datagram_sz = 1200; /* start with minimum supported max datagram */
-                                  /* clients may allow more */
+    /* start with minimum supported max datagram */
+    /* peers may allow more */
+    conn->tx_max_datagram_sz = FD_QUIC_INITIAL_MAX_UDP_PAYLOAD_SZ;
 
     ulong peer_idx = conn->peer_cnt;
     fd_memcpy( conn->peer[peer_idx].conn_id.conn_id, initial->src_conn_id, initial->src_conn_id_len );
@@ -941,6 +943,9 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
     quic->transport_params.initial_source_connection_id_present = 1;
     quic->transport_params.initial_source_connection_id_len     = conn->initial_source_conn_id.sz;
 
+    /* set the max udp payload size we will accept */
+    quic->transport_params.max_udp_payload_size = FD_QUIC_MAX_UDP_PAYLOAD_SZ;
+
     DEBUG(
     fd_quic_dump_transport_params( &quic->transport_params, stdout );
     fflush( stdout );
@@ -961,8 +966,8 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
     /* encode our transport params to sent to the peer */
     uchar transport_params_raw[FD_QUIC_TRANSPORT_PARAMS_RAW_SZ];
     ulong tp_rc = fd_quic_encode_transport_params( transport_params_raw,
-                                                    FD_QUIC_TRANSPORT_PARAMS_RAW_SZ,
-                                                    &quic->transport_params );
+                                                   FD_QUIC_TRANSPORT_PARAMS_RAW_SZ,
+                                                   &quic->transport_params );
     /* probably means we don't have enough space for all the transport parameters */
     if( tp_rc == FD_QUIC_ENCODE_FAIL ) {
       if( insert_entry ) {
@@ -996,7 +1001,7 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
        from rfc:
        initial_salt = 0x38762cf7f55934b34d179ae6a4c80cadccbb7f0a */
     uchar const * initial_salt    = FD_QUIC_CRYPTO_V1_INITIAL_SALT;
-    ulong        initial_salt_sz = FD_QUIC_CRYPTO_V1_INITIAL_SALT_SZ;
+    ulong         initial_salt_sz = FD_QUIC_CRYPTO_V1_INITIAL_SALT_SZ;
 
     if( fd_quic_gen_initial_secret( &conn->secrets,
                                     initial_salt,         initial_salt_sz,
@@ -1066,15 +1071,15 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
   /* header protection needs the offset to the packet number */
   ulong   pn_offset        = initial->pkt_num_pnoff;
 
-  uchar *  crypt_scratch    = conn->crypt_scratch;
+  uchar * crypt_scratch    = conn->crypt_scratch;
   ulong   crypt_scratch_sz = sizeof( conn->crypt_scratch );
 
   ulong   body_sz          = initial->len;  /* not a protected field */
                                              /* length of payload + num packet bytes */
-  uchar *  dec_hdr          = conn->crypt_scratch;
+  uchar * dec_hdr          = conn->crypt_scratch;
   ulong   dec_hdr_sz       = sizeof( conn->crypt_scratch );
 
-  ulong pkt_number       = (ulong)-1;
+  ulong   pkt_number       = (ulong)-1;
   ulong   pkt_number_sz    = (ulong)-1;
   ulong   tot_sz           = (ulong)-1;
 
@@ -1116,7 +1121,6 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
     tot_sz        = pn_offset + body_sz; /* total including header and payload */
 
     /* now we have decrypted packet number */
-    /* TODO packet number processing */
     pkt_number = fd_quic_parse_bits( dec_hdr + pn_offset, 0, 8u * pkt_number_sz );
     DEBUG(
       printf( "pkt_number: %lu\n", (uint long)pkt_number );
@@ -1141,7 +1145,7 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
     pkt->pkt_number = pkt_number;
 
     /* NOTE from rfc9002 s3
-      It is permitted for some packet numbers to never be used, leaving intentional gaps. */
+       It is permitted for some packet numbers to never be used, leaving intentional gaps. */
     /* this decrypts the header and payload */
     if( fd_quic_crypto_decrypt( crypt_scratch, &crypt_scratch_sz,
                                 cur_ptr, tot_sz,
@@ -1177,7 +1181,7 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
 
   /* handle frames */
   ulong        payload_off = pn_offset + pkt_number_sz;
-  uchar const * frame_ptr   = crypt_scratch + payload_off;
+  uchar const * frame_ptr  = crypt_scratch + payload_off;
   ulong        frame_sz    = body_sz - pkt_number_sz - FD_QUIC_CRYPTO_TAG_SZ; /* total size of all frames in packet */
   while( frame_sz > 0 ) {
     rc = fd_quic_handle_v1_frame( quic, conn, pkt, frame_ptr, frame_sz, conn->frame_scratch );
@@ -2138,7 +2142,7 @@ fd_quic_tls_cb_handshake_complete( fd_quic_tls_hs_t * hs,
 
         /* handle transport params */
         uchar const * peer_transport_params_raw    = NULL;
-        ulong        peer_transport_params_raw_sz = 0;
+        ulong         peer_transport_params_raw_sz = 0;
 
         fd_quic_tls_get_peer_transport_params( hs,
                                                &peer_transport_params_raw,
@@ -2166,6 +2170,30 @@ fd_quic_tls_cb_handshake_complete( fd_quic_tls_hs_t * hs,
         conn->rx_initial_max_stream_data_uni         = our_tp->initial_max_stream_data_uni;
         conn->rx_initial_max_stream_data_bidi_local  = our_tp->initial_max_stream_data_bidi_local;
         conn->rx_initial_max_stream_data_bidi_remote = our_tp->initial_max_stream_data_bidi_remote;
+
+        /* max datagram size */
+        ulong tx_max_datagram_sz = peer_tp->max_udp_payload_size;
+        if( tx_max_datagram_sz < FD_QUIC_INITIAL_MAX_UDP_PAYLOAD_SZ ) {
+          tx_max_datagram_sz = FD_QUIC_INITIAL_MAX_UDP_PAYLOAD_SZ;
+        }
+        if( tx_max_datagram_sz > FD_QUIC_MAX_UDP_PAYLOAD_SZ ) {
+          tx_max_datagram_sz = FD_QUIC_MAX_UDP_PAYLOAD_SZ;
+        }
+        conn->tx_max_datagram_sz = (uint)tx_max_datagram_sz;
+
+        /* max streams
+           set the initial max allowed by the peer */
+        if( conn->server ) {
+          /* 0x01 server-initiated, bidirectional */
+          conn->max_streams[0x01] = (uint)peer_tp->initial_max_streams_bidi;
+          /* 0x03 server-initiated, unidirectional */
+          conn->max_streams[0x03] = (uint)peer_tp->initial_max_streams_uni;
+        } else {
+          /* 0x00 client-initiated, bidirectional */
+          conn->max_streams[0x00] = (uint)peer_tp->initial_max_streams_bidi;
+          /* 0x02 client-initiated, unidirectional */
+          conn->max_streams[0x02] = (uint)peer_tp->initial_max_streams_uni;
+        }
 
         return;
       }
@@ -2627,7 +2655,11 @@ void
 fd_quic_conn_tx( fd_quic_t * quic, fd_quic_conn_t * conn ) {
   /* used for encoding frames into before encrypting */
   uchar *  crypt_scratch    = conn->crypt_scratch;
-  ulong   crypt_scratch_sz = sizeof( conn->crypt_scratch );
+  ulong    crypt_scratch_sz = sizeof( conn->crypt_scratch );
+
+  /* max packet size */
+  /* TODO probably should be called tx_max_udp_payload_sz */
+  ulong tx_max_datagram_sz = conn->tx_max_datagram_sz;
 
   /* record the metadata for items stored in the packet */
   fd_quic_pkt_meta_t pkt_meta = {0};
@@ -2646,12 +2678,12 @@ fd_quic_conn_tx( fd_quic_t * quic, fd_quic_conn_t * conn ) {
   } frame;
 
   while(1) {
-    ulong             frame_sz     = 0;
-    ulong             tot_frame_sz = 0;
-    ulong             data_sz      = 0;
+    ulong              frame_sz     = 0;
+    ulong              tot_frame_sz = 0;
+    ulong              data_sz      = 0;
     uchar const *      data         = NULL;
     fd_quic_stream_t * stream       = NULL;
-    uint           initial_pkt  = 0;    /* is this the first initial packet? */
+    uint               initial_pkt  = 0;    /* is this the first initial packet? */
 
     /* do we have space for pkt_meta? */
     fd_quic_pkt_meta_t * pm_new = conn->pkt_meta_free;
@@ -2688,10 +2720,10 @@ fd_quic_conn_tx( fd_quic_t * quic, fd_quic_conn_t * conn ) {
 
     /* encode into here */
     uchar * cur_ptr = crypt_scratch;
-    ulong  cur_sz  = crypt_scratch_sz;
+    ulong   cur_sz  = crypt_scratch_sz;
 
     /* TODO determine actual datagrams size to use */
-    if( cur_sz > FD_QUIC_MIN_INITIAL_PKT_SZ ) cur_sz = FD_QUIC_MIN_INITIAL_PKT_SZ;
+    if( cur_sz > tx_max_datagram_sz ) cur_sz = tx_max_datagram_sz;
 
     /* determine pn_space */
     uint pn_space = fd_quic_enc_level_to_pn_space( enc_level );
@@ -2715,7 +2747,7 @@ fd_quic_conn_tx( fd_quic_t * quic, fd_quic_conn_t * conn ) {
     /* if we don't have space for an initial header plus
        16 for sample, 16 for tag and 3 bytes for expansion,
        try tx to free space */
-    if( initial_hdr_sz + 35 > conn->tx_sz ) {
+    if( initial_hdr_sz + 35 > cur_sz ) {
       uint rc = fd_quic_tx_buffered( quic, conn );
       if( rc != 0u ) {
         /* unable to free space, or should reschedule for another reason */
@@ -2729,7 +2761,7 @@ fd_quic_conn_tx( fd_quic_t * quic, fd_quic_conn_t * conn ) {
        due to varint coding, if the header ends up small, we can pad
        1-3 bytes */
     uchar * payload_ptr = cur_ptr + initial_hdr_sz + 3u;
-    ulong  payload_sz  = cur_sz;
+    ulong   payload_sz  = cur_sz  - initial_hdr_sz - 3u;
 
     /* write padding bytes here
        conveniently, padding is 0x00 */
@@ -3054,7 +3086,7 @@ fd_quic_conn_tx( fd_quic_t * quic, fd_quic_conn_t * conn ) {
       }
     }
 
-    /* first initial frame is padded to 1200
+    /* first initial frame is padded to FD_QUIC_MIN_INITIAL_PKT_SZ
        all short quic packets are padded so 16 bytes of sample are available */
     uint base_pkt_len = (uint)tot_frame_sz + fd_quic_pkt_hdr_pkt_number_len( &pkt_hdr, enc_level ) +
                             FD_QUIC_CRYPTO_TAG_SZ;
@@ -3236,21 +3268,21 @@ fd_quic_conn_service( fd_quic_t * quic, fd_quic_conn_t * conn, ulong now ) {
           /* mark as DEAD, and allow it to be cleaned up */
           conn->state             = FD_QUIC_CONN_STATE_DEAD;
           fd_quic_reschedule_conn( conn, now + 1u );
+          printf( "%s : line %d\n", __func__, (int)__LINE__ );
+          fflush( stdout );
           return;
         }
 
-        if( conn->state == FD_QUIC_CONN_STATE_HANDSHAKE_COMPLETE ) {
-          /* if we're the server, we send "handshake-done" frame */
-          if( conn->server ) {
-            conn->handshake_done = 1;
+        /* if we're the server, we send "handshake-done" frame */
+        if( conn->server ) {
+          conn->handshake_done = 1;
 
-            /* move straight to ACTIVE */
-            conn->state = FD_QUIC_CONN_STATE_ACTIVE;
+          /* move straight to ACTIVE */
+          conn->state = FD_QUIC_CONN_STATE_ACTIVE;
 
-            /* user callback */
-            if( conn->quic->cb_conn_new ) {
-              conn->quic->cb_conn_new( conn, conn->quic->context );
-            }
+          /* user callback */
+          if( conn->quic->cb_conn_new ) {
+            conn->quic->cb_conn_new( conn, conn->quic->context );
           }
         }
 
@@ -3619,10 +3651,18 @@ fd_quic_create_connection( fd_quic_t *               quic,
   conn->peer_cnt           = 0;
   conn->cur_conn_id_idx    = 0;
   conn->cur_peer_idx       = 0;
-  conn->max_datagram_sz    = 1200; /* TODO start with highest value we allow, then allow peer to reduce
-                                   1200 is the minimum */
+  /* start with smallest value we allow, then allow peer to increase */
+  conn->tx_max_datagram_sz = FD_QUIC_INITIAL_MAX_UDP_PAYLOAD_SZ;
   conn->handshake_complete = 0;
   conn->tls_hs             = NULL; /* created later */
+
+  /* initial max_streams
+     we are the client, so start server-initiated at our max-concurrent, and client-initiated at 0
+     peer will advertise its configured maximum */
+    conn->max_streams[0x00]    = 0;                          /* 0x00 Client-Initiated, Bidirectional */
+    conn->max_streams[0x01]    = quic->max_concur_streams;   /* 0x01 Server-Initiated, Bidirectional */
+    conn->max_streams[0x02]    = 0;                          /* 0x02 Client-Initiated, Unidirectional */
+    conn->max_streams[0x03]    = quic->max_concur_streams;   /* 0x03 Server-Initiated, Unidirectional */
 
   /* conn->streams initialized inside fd_quic_conn_new */
 
@@ -3675,8 +3715,9 @@ fd_quic_create_connection( fd_quic_t *               quic,
   ulong our_conn_id_idx = 0;
   conn->our_conn_id[our_conn_id_idx] = *our_conn_id;
   conn->our_conn_id_cnt++;
-  conn->max_datagram_sz = 1200; /* start with minimum supported max datagram */
-                                /* clients may allow more */
+  /* start with minimum supported max datagram */
+  /* peers may allow more */
+  conn->tx_max_datagram_sz = FD_QUIC_INITIAL_MAX_UDP_PAYLOAD_SZ;
 
   /* initial source connection id */
   conn->initial_source_conn_id = *our_conn_id;
@@ -3809,14 +3850,14 @@ void
 fd_quic_reclaim_pkt_meta( fd_quic_conn_t *     conn,
                           fd_quic_pkt_meta_t * pkt_meta,
                           uint             enc_level ) {
-  uint flags      = pkt_meta->flags;
+  uint  flags      = pkt_meta->flags;
   ulong pkt_number = pkt_meta->pkt_number;
 
   if( flags & FD_QUIC_PKT_META_FLAGS_STREAM ) {
     /* find stream */
     fd_quic_stream_t *  stream          = NULL;
     fd_quic_stream_t ** streams         = conn->streams;
-    ulong             tot_num_streams = conn->tot_num_streams;
+    ulong               tot_num_streams = conn->tot_num_streams;
     for( ulong j = 0; j < tot_num_streams; ++j ) {
       if( streams[j]->stream_id == pkt_meta->stream_id ) {
         stream = streams[j];
@@ -3884,6 +3925,11 @@ fd_quic_reclaim_pkt_meta( fd_quic_conn_t *     conn,
            max_data and max_stream_data, if necessary */
         if( tx_tail > stream->tx_buf.tail ) {
           stream->tx_buf.tail = tx_tail;
+
+          /* if we have data to send, reschedule */
+          if( fd_quic_buffer_avail( &stream->tx_buf ) ) {
+            fd_quic_reschedule_conn( conn, conn->quic->now_fn( conn->quic->now_ctx ) + 1ul );
+          }
         }
 
         /* we could retransmit (timeout) the bytes which have not been acked (by implication) */
