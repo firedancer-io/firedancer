@@ -118,6 +118,7 @@ int main() {
   unlink("testback");
   ulong footprint = fd_funk_footprint_min();
   void* mem = malloc(footprint);
+  memset(mem, 0xa5, footprint);
   auto* funk = fd_funk_join(fd_funk_new(mem, footprint, "testback"));
 
   fd_funk_validate(funk);
@@ -155,6 +156,7 @@ int main() {
     fd_funk_delete(fd_funk_leave(funk));
     free(mem);
     mem = malloc(footprint);
+    memset(mem, 0xa5, footprint);
     funk = fd_funk_join(fd_funk_new(mem, footprint, "testback"));
   };
   reload();
@@ -190,6 +192,23 @@ int main() {
     it = golden.erase(it);
   }
   
+  validateall();
+  reload();
+  validateall();
+
+  for (unsigned i = 1; i < 100; ++i) {
+    recordkey key;
+    rg.genbytes((char*)&key, sizeof(key));
+    auto len = random_size(rg);    
+    ulong offset = i*10;
+    if (offset + len > MAXRECORDSIZE)
+      len = (uint)(MAXRECORDSIZE - offset);
+    rg.genbytes(scratch, len);
+    fd_funk_write(funk, fd_funk_root(funk), &key._id, scratch, offset, len);
+    databuf& db = golden[key];
+    db.write(scratch, offset, len);
+  }
+
   validateall();
   reload();
   validateall();
