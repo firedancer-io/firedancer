@@ -654,13 +654,19 @@ void fd_funk_validate(struct fd_funk* store) {
   
   struct fd_funk_control ctrl;
   ulong ctrlpos = 0;
+  ulong allocpos = 0;
   for (;;) {
     if (pread(store->backingfd, &ctrl, sizeof(ctrl), (long)ctrlpos) < (long)sizeof(ctrl))
       FD_LOG_ERR(("failed to read backing file: %s", strerror(errno)));
     if (ctrlpos + sizeof(ctrl) > store->backinglen)
       FD_LOG_ERR(("backinglen is wrong"));
+    if (ctrlpos < allocpos)
+      FD_LOG_ERR(("overlapping allocations"));
+    allocpos = ctrlpos + sizeof(ctrl);
 
-    for (ulong i = 0; i < FD_FUNK_ENTRIES_IN_CONTROL; ++i) {
+    // It is an artifact of the way disk is allocated that reversed
+    // control order gets all allocations in ascending positional order
+    for (int i=FD_FUNK_ENTRIES_IN_CONTROL-1; i >= 0; --i) {
       struct fd_funk_control_entry* ent = &ctrl.entries[i].entry;
       // Compute file position of control entry
       ulong entpos = ctrlpos + (ulong)((char*)ent - (char*)&ctrl);
@@ -690,6 +696,9 @@ void fd_funk_validate(struct fd_funk* store) {
           if (memcmp(scratch, ent2->cache, ent->u.normal.len) != 0)
             FD_LOG_ERR(("cache is wrong"));
         }
+        if (ent->u.normal.start < allocpos)
+          FD_LOG_ERR(("overlapping allocations"));
+        allocpos = ent->u.normal.start + ent->u.normal.alloc;
         normalcnt++;
 
       } else if (ent->type == FD_FUNK_CONTROL_DEAD) {
@@ -699,6 +708,9 @@ void fd_funk_validate(struct fd_funk* store) {
         ulong rsize = fd_funk_disk_size(ent->u.dead.alloc, &k);
         if (rsize != ent->u.dead.alloc || k >= FD_FUNK_NUM_DISK_SIZES)
           FD_LOG_ERR(("invalid record allocation in store"));
+        if (ent->u.dead.start < allocpos)
+          FD_LOG_ERR(("overlapping allocations"));
+        allocpos = ent->u.dead.start + ent->u.dead.alloc;
         deadcnt[k]++;
 
       } else if (ent->type == FD_FUNK_CONTROL_EMPTY) {
