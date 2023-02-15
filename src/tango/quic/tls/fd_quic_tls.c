@@ -283,14 +283,28 @@ fd_quic_tls_process( fd_quic_tls_hs_t * self ) {
       case 0: // failed
         // according to the API rc==0 means failure
         // but can this occur without any error?
-        self->err_ssl_rc  = 0;
-        self->err_ssl_err = 0;
-        self->err_line    = __LINE__;
+        {
+          int err = SSL_get_error( ssl, (int)ssl_rc );
+          if( err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE ) {
+            // WANT_READ and WANT_WRITE are expected conditions
+            return FD_QUIC_TLS_SUCCESS;
+          } else {
+            self->err_ssl_rc  = (int)ssl_rc;
+            self->err_ssl_err = err;
+            self->err_line    = __LINE__;
 
-        return FD_QUIC_TLS_FAILED;
+            printf( "ssl rc: %d\n", (int)ssl_rc );
+            printf( "ssl err: %d\n", (int)err );
+            fflush( stdout );
+
+            return FD_QUIC_TLS_FAILED;
+          }
+        }
       case 1: // completed
         self->is_hs_complete = 1;
         self->quic_tls->handshake_complete_cb( self, self->context );
+        printf( "fd_quic_tls_process success\n" );
+        fflush( stdout );
         return FD_QUIC_TLS_SUCCESS;
       default:
         {
@@ -302,6 +316,10 @@ fd_quic_tls_process( fd_quic_tls_hs_t * self ) {
             self->err_ssl_rc  = (int)ssl_rc;
             self->err_ssl_err = err;
             self->err_line    = __LINE__;
+
+            printf( "ssl rc: %d\n", (int)ssl_rc );
+            printf( "ssl err: %d\n", (int)err );
+            fflush( stdout );
 
             return FD_QUIC_TLS_FAILED;
           }
