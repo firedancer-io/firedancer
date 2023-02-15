@@ -11,7 +11,7 @@
 
 #include "../../../../util/bits/fd_bits.h"
 #include "../../../../util/fd_util.h"
-#include "../../../../ballet/bank/fd_banks.h"
+#include "../../../../ballet/runtime/fd_banks_solana.h"
 
 #include <rocksdb/c.h>
 
