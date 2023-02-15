@@ -14,7 +14,15 @@
 
 /* TODO find a better place */
 /* INITIAL packets must be padded by spec - see rfc9000 14.1 */
+/* This is also, currently, used as the initial max size for datagrams */
 #define FD_QUIC_MIN_INITIAL_PKT_SZ 1200
+
+#define FD_QUIC_INITIAL_MAX_UDP_PAYLOAD_SZ 1200
+
+/* basing this off of an MTU of 1500
+   -20 for IP header (with no options)
+   -8  for udp header */
+#define FD_QUIC_MAX_UDP_PAYLOAD_SZ         ( 1500 - 20 - 8 )
 
 #include <stddef.h>
 
