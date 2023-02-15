@@ -1,0 +1,2 @@
+CPPFLAGS+=--coverage
+LDFLAGS+=--coverage
