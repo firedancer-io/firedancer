@@ -149,7 +149,7 @@ struct fd_quic_conn {
   /* initial source connection id */
   fd_quic_conn_id_t  initial_source_conn_id;
 
-  uint               max_datagram_sz;    /* size of maximum datagram allowed */
+  uint               tx_max_datagram_sz; /* size of maximum datagram allowed by peer */
 
   /* handshake members */
   int                handshake_complete; /* have we completed a successful handshake? */
@@ -198,6 +198,7 @@ struct fd_quic_conn {
 
   /* buffer to send next */
   /* rename tx_buf, since it's easy to confuse with stream->tx_buf */
+  /* must be at least FD_QUIC_MAX_UDP_PAYLOAD_SZ */
   uchar   tx_buf[2048];
   uchar * tx_ptr; /* ptr to free space in tx_scratch */
   ulong   tx_sz;  /* sz remaining at ptr */
