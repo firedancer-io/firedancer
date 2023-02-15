@@ -633,6 +633,10 @@ void fd_funk_delete_record(struct fd_funk* store,
   FD_LOG_ERR(("transactions not supported yet"));
 }
 
+uint fd_funk_num_records(struct fd_funk* store) {
+  return store->index->used;
+}
+
 int fd_funk_cache_query(struct fd_funk* store,
                         struct fd_funk_xactionid const* xid,
                         struct fd_funk_recordid const* recordid);
