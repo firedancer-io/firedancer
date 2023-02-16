@@ -458,6 +458,16 @@ void fd_funk_write_root(struct fd_funk* store,
   if (exists) {
     if (newlen <= ent->alloc) {
       // Can update in place. Just patch the disk storage
+      if (offset > ent->len) {
+        // Zero fill gap in disk space
+        ulong zeroslen = offset - ent->len;
+        char* zeros = fd_alloca(1, zeroslen);
+        fd_memset(zeros, 0, zeroslen);
+        if (pwrite(store->backingfd, zeros, zeroslen, (long)(ent->start + ent->len)) < (long)zeroslen) {
+          FD_LOG_WARNING(("failed to write backing file: %s", strerror(errno)));
+          return;
+        }
+      }
       if (pwrite(store->backingfd, data, datalen, (long)(ent->start + offset)) < (long)datalen) {
         FD_LOG_WARNING(("failed to write backing file: %s", strerror(errno)));
         return;

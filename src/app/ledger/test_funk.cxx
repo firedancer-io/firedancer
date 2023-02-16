@@ -213,6 +213,54 @@ int main() {
   reload();
   validateall();
 
+  for (auto it = golden.begin(); it != golden.end(); ) {
+    auto& [key,_] = *it;
+    fd_funk_delete_record(funk, fd_funk_root(funk), &key._id);
+    it = golden.erase(it);
+  }
+  
+  validateall();
+  reload();
+  validateall();
+
+  {
+    recordkey key;
+    rg.genbytes((char*)&key, sizeof(key));
+    uint len = 1;
+    while (len < MAXRECORDSIZE) {
+      ulong offset = 0;
+      if (offset + len > MAXRECORDSIZE)
+        len = (uint)(MAXRECORDSIZE - offset);
+      rg.genbytes(scratch, len);
+      fd_funk_write(funk, fd_funk_root(funk), &key._id, scratch, offset, len);
+      databuf& db = golden[key];
+      db.write(scratch, offset, len);
+
+      validateall();
+      reload();
+
+      len *= 3;
+    }
+  }
+
+  {
+    recordkey key;
+    rg.genbytes((char*)&key, sizeof(key));
+    uint len = 1;
+    while (len < MAXRECORDSIZE) {
+      uint offset = len/2;
+      rg.genbytes(scratch, len - offset);
+      fd_funk_write(funk, fd_funk_root(funk), &key._id, scratch, offset, len - offset);
+      databuf& db = golden[key];
+      db.write(scratch, offset, len - offset);
+
+      validateall();
+      reload();
+
+      len *= 3;
+    }
+  }
+
   free(scratch);
   
   fd_funk_delete(fd_funk_leave(funk));
