@@ -1,6 +1,265 @@
 # Frankendancer Frank
 
-## Architecture
+We present milestone 1.2 (transaction ingest) with a demo running a Firedancer-enabled block producer.
+
+## Changes
+
+The changes made to the TPU (transaction processing unit) enable a Solana Labs validator to use Firedancer’s high-performance implementation of the SigVerify stage.
+
+This stage is part of a node’s block production duties and serves to filter incoming traffic down to a manageable rate, and authenticate packets. Firedancer adds a pre-packing stage which sorts transactions by estimated validator reward and filters throughput per state hotspot.
+It also applies heuristics to predict execution cost to schedule transactions in a way that banking stage throughput is optimized.
+
+The message passing frameworks used in Firedancer and the Labs validator (tango and crossbeam) are incompatible and require a language-agnostic compatibility layer. A simple shared-memory based ring buffer with C and Rust bindings was created for this purpose, called “shim”. “cshim” and “rshim” are the C and Rust libraries respectively.
+
+The **feeder** shim inputs ingested packets into the Firedancer sigverify/dedup/pack pipeline, and the *return* shim returns the output back to the Labs validator.
+
+While Frankendancer’s SigVerify stage was demonstrated at line rate in isolation, the performance in a real validator is expected to be lower due to the high overhead of the shim module.
+
+Once milestone 1.1 is completed, the **feeder** shim can be removed to achieve ingestion at line rate.
+The **return** shim can be removed by adding Rust bindings for Firedancer’s “tango” message passing library.
+
+## High-level Architecture
+
+### Component Diagram
+
+Light grey boxes represent process boundaries.
+Dark grey boxes represent logical components.
+
+```mermaid
+graph TD
+  subgraph "Solana Labs"
+  FetchStage   --crossbeam--> feeder-rshim
+  return-rshim --crossbeam--> BankingStage
+  feeder-cshim
+  return-cshim
+  end
+
+  subgraph "Firedancer"
+  feeder-rshim --shim-->  feeder-cshim
+  feeder-cshim --tango--> verify0
+  feeder-cshim --tango--> verify1
+  feeder-cshim --tango--> verifyN
+  verify0      --tango--> dedup
+  verify1      --tango--> dedup
+  verifyN      --tango--> dedup
+  dedup        --tango--> pack
+  pack         --tango--> return-cshim
+  return-cshim --shim --> return-rshim
+  end
+```
+
+### Shim
+
+The `shim` library provides streaming IPC between Firedancer (Tango messaging) and the Solana Labs validator (Crossbeam messaging).
+
+Currently, it consists of a simple channel interface for reliably transferring messages with single-producer single-consumer semantics.
+
+`shim` was designed to simplify integration between the two clients.
+It is less performant than Firedancer Tango but tests have shown it can operate at line rate.
+
+In the long term, `shim` will be replaced as other milestones get completed (e.g. Milestone 1.1 TPU/QUIC).
+
+## Usage
+
+### Prerequisites
+
+- Recent Linux machine
+- C/C++ build toolchain
+    - LLVM 14 or newer
+    - Make
+    - libnuma
+    - Sane environment (linker, libc)
+- Rust toolchain (rustup)
+- A new empty project folder (all code snippets assume you start out in this folder)
+
+### **Build Firedancer and Solana**
+
+```bash
+# Build Firedancer
+git clone https://github.com/firedancer-io/firedancer
+cd firedancer
+git checkout milestone-1.2-demo
+MACHINE=linux_clang_x86_64 make -j CC=clang CXX=clang++
+
+# Build Solana
+cd ..
+git clone https://github.com/firedancer-io/solana
+cd solana
+git checkout milestone-1.2-demo
+cargo build --release \
+  --package solana-validator \
+  --package solana-bench-tps \
+  --package solana-dos \
+  --package solana-cli \
+  --package solana-frank-test
+```
+
+### Configure system
+
+Follow Firedancer’s README to increase the `memlock` ulimit. This is required to allocate hugepages.
+
+Then, setup your workspace.
+
+**Machine Type:** 16 threads, 64GiB memory
+
+```bash
+cd firedancer/build/linux/clang/x86_64
+
+# Sets up permissions for shared memory setup
+sudo ./bin/fd_shmem_cfg init 0700 "$(whoami)" ""
+
+# Allocate 2x 1GiB pages, 512x 2MiB pages on NUMA node 0
+sudo ./bin/fd_shmem_cfg alloc 2 gigantic 0 alloc 512 huge 0
+
+# Setup Firedancer to run on threads 0-8 with 4 sigverify tiles
+./bin/fd_frank_init frank 0-8 4 .
+```
+
+**Machine Type:** 48 threads, 256GiB memory
+
+```bash
+cd firedancer/build/linux/clang/x86_64
+
+# Allocate 8x 1GiB pages on NUMA node 0
+./bin/fd_shmem_cfg alloc 8 gigantic 0
+
+./bin/fd_frank_init frank 0 4 .
+```
+
+**Set pack QoS goal**
+
+The pack tile has a configurable per-block CU limit. This can be updated as follows:
+
+```bash
+./bin/fd_pod_ctl update "$POD" uint  "$APP".pack.cu-limit 12000001
+```
+
+### Run fd_frank
+
+`fd_frank` packages the tile system running the signature verification pipeline.
+
+Run it to start listening on shm for incoming packets.
+
+```bash
+cd firedancer/build/linux/clang/x86_64
+
+# Run Firedancer binary
+./bin/fd_frank_run frank 0-7
+```
+
+### Run solana-test-validator
+
+`solana-test-validator` spins up a local network consisting of one node with a new genesis.
+
+The `--frank` flags instruct the node to connect to the Firedancer components.
+
+```bash
+cd solana
+
+source ../firedancer/build/linux/clang/x86_64/tmp/frank.cfg
+./target/release/solana-test-validator \
+  --frank                            \
+  --frank-app-name "$APP"            \
+  --frank-wksp "$POD"                \
+  --frank-sigverify-tiles 0-4        \
+  --bind-address       127.0.0.1     \
+  --dynamic-port-range 8000-8200     \
+  --rpc-port           8899          \
+  --faucet-port        9900          \
+  --faucet-sol         1000000000    \
+  --reset
+```
+
+### Run solana-frank-test
+
+To test at more aggressive scale, `solana-frank-test` can be used in place of a real validator (like `solana-test-validator`).
+
+`solana-frank-test` will run packet generation and present a mock banking stage that Firedancer outputs to.
+
+```bash
+cd solana
+
+source ../firedancer/build/linux/clang/x86_64/tmp/frank.cfg
+./target/release/solana-frank-test \
+  --app-name "$APP"     \
+  --wksp "$POD"         \
+  --sigverify-tiles 0-4 \
+  --packet-cnt      4000000
+```
+
+### Run Firedancer monitor
+
+The `fd_frank_mon` tool displays sequence numbers, rates (tps, bandwidth), backpressure, overruns.
+
+```bash
+cd firedancer/build/linux/clang/x86_64
+
+./bin/fd_frank_mon --duration 1e12
+```
+
+### Create Solana CLI config
+
+We create a Solana CLI config pointing to our local validator instance so we can start sending transactions.
+
+```bash
+cat <<EOF > ./solana_cli.yml
+json_rpc_url: http://127.0.0.1:8899
+websocket_url: ws://127.0.0.1:8900
+keypair_path: "$(pwd)/solana/test-ledger/faucet-keypair.json"
+EOF
+```
+
+### Send a single tx
+
+Demo sending individual transactions via RPC.
+
+```bash
+./solana/target/release/solana -C ./solana_cli.yml \
+  transfer FuctHhYipYEeQqo81yDR21Lt4jC1fTA81jH3up7NFxqR 1 --allow-unfunded-recipient
+```
+
+### Deploy a program
+
+Download Pyth from main-net and deploy it to the local network
+
+```jsx
+# Download Pyth from mainnet
+./solana/target/release/solana  \
+     program dump -um FsJ3A3u2vn5cTVofAjvy6y5kwABJAqYWpe4975bi2epH ./pyth.so
+
+# Redeploy Pyth locally
+./solana/target/release/solana -C ./solana_cli.yml \
+ 		 program deploy ./pyth.so
+```
+
+### Run valid transaction spammer
+
+The `solana-bench-tps` tool spams valid transactions from multiple fee payers.
+
+```bash
+./solana/target/release/solana-bench-tps \
+    --config           ./solana_cli.yml \
+    --entrypoint       "127.0.0.1:8000" \
+    --num-nodes         1               \
+    --threads           4               \
+    --tx_count          5000            \
+    --duration          20000           \
+    --use-tpu-client                    \
+    --tpu-disable-quic
+```
+
+### Debug shim channels
+
+To see the contents of the Rust-C shims, run the following
+
+```bash
+ls -la /proc/$(pidof solana-test-validator)/fd | grep shm
+```
+
+- The `fctl` object contains the latest message sequence number that has been acknowledged by the reader
+- The `fmsg` object contains the message (24B header, 8B footer)
+
+## Tango Architecture
 
 ```
                     from external facing NICs
@@ -77,7 +336,7 @@
 - Use of named wksp allows dynamic inspection, monitoring, debugging of
   live operations / non-invasive capture of components inputs / etc
   (standard UNIX permissions model).
-  
+
 - Similarly, support for hotswapping individual components live (e.g.
   adding / removing ingress tiles on the fly to deal with load changes,
   failed hardware, etc) is possible long term under this model.
@@ -114,9 +373,7 @@
   multiple cores if useful in addition to the horizontal support already
   implemented for additional compute bandwidth.
 
-## Configuration
-
-### Pod layout for low level configuration
+## Pod layout for low level configuration
 
 ```
 [path to this frank instance's config] {
@@ -164,7 +421,7 @@
   }
 
   dedup {
-  
+
     # Runs on logical tile 2 and largely spins (ideally on a dedicated
     # core near NUMA node for IPC structures used by this tile)
 
@@ -191,7 +448,7 @@
     # verify_cnt pods in this pod
 
     [verify_idx name] {
-    
+
       # Runs on logical tile 3+verify_idx and largely spins (ideally on
       # a dedicated core near NUMA node for NIC and IPC structures).
       #

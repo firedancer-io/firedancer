@@ -11,6 +11,9 @@ jobs:
     steps:
       - uses: actions/checkout@v3
 
+      - name: Install deps
+        run: ./contrib/ci-deps.sh
+
       - uses: bazelbuild/setup-bazelisk@v2
 
       - name: Mount bazel cache
@@ -24,7 +27,6 @@ jobs:
 
       - name: Create coverage report
         run: |
-          sudo apt-get install -y lcov
           genhtml --output coverage-report "$(bazel info output_path)/_coverage/_coverage_report.dat"
 
       - name: Upload coverage report as GitHub artifact
