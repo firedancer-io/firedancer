@@ -259,6 +259,18 @@ int main() {
 
       len *= 3;
     }
+
+    fd_funk_delete_record(funk, fd_funk_root(funk), &key._id);
+    fd_funk_delete_record(funk, fd_funk_root(funk), &key._id);
+    fd_funk_delete_record(funk, fd_funk_root(funk), &key._id);
+    const void* data;
+    if (fd_funk_read(funk, fd_funk_root(funk), &key._id, &data, 0, len) != -1)
+      FD_LOG_ERR(("read did not fail as expected"));
+    if (fd_funk_read(funk, fd_funk_root(funk), &key._id, &data, 0, len) != -1)
+      FD_LOG_ERR(("read did not fail as expected"));
+    if (fd_funk_read(funk, fd_funk_root(funk), &key._id, &data, 0, len) != -1)
+      FD_LOG_ERR(("read did not fail as expected"));
+    golden.erase(key);
   }
 
   for (unsigned i = 0; i < 100; ++i) {
