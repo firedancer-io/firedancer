@@ -75,7 +75,11 @@ struct fd_funk_index_entry {
     uint next;
     // Cached data
     char* cache;
-    ulong unused[3];
+    // Length of cached data. May be less than len if we are just caching a prefix
+    uint cachelen;
+    // sizeof(fd_funk_index_entry) must be 128
+    uint unused1;
+    ulong unused2[2];
 };
 
 #define MAP_NAME fd_funk_index
@@ -260,6 +264,7 @@ void fd_funk_replay_control(struct fd_funk* store) {
         ent2->version = ent->u.normal.version;
         ent2->control = entpos;
         ent2->cache = NULL;
+        ent2->cachelen = 0;
 
       } else if (ent->type == FD_FUNK_CONTROL_DEAD) {
         // Account for gaps at the end
@@ -456,6 +461,11 @@ void fd_funk_write_root(struct fd_funk* store,
   }
   
   if (exists) {
+    // Patch the cache
+    if (ent->cache && offset < ent->cachelen)
+      fd_memcpy(ent->cache + offset, data,
+                (datalen <= ent->cachelen - offset ? datalen : ent->cachelen - offset));
+    
     if (newlen <= ent->alloc) {
       // Can update in place. Just patch the disk storage
       if (offset > ent->len) {
@@ -473,64 +483,81 @@ void fd_funk_write_root(struct fd_funk* store,
         return;
       }
       if (ent->len < newlen) {
-        // Grow the cache
-        if (ent->cache) {
-          ent->cache = realloc(ent->cache, newlen);
-          // Make sure all memory is initialized
-          fd_memset(ent->cache + ent->len, 0, newlen - ent->len);
-        }
         // Update the control with the new length
         ent->len = (uint)newlen;
         fd_funk_update_control_from_index(store, ent);
       }
-      // Patch the cache
-      if (ent->cache)
-        fd_memcpy(ent->cache + offset, data, datalen);
       return;
       
     } else {
       // Hard case where we must move and grow the entry at the same
-      // time. Get a correct cache first so we can do this with a
-      // single write.
-      if (ent->cache) {
-        // Patch the cache
-        ent->cache = realloc(ent->cache, newlen);
-        fd_memset(ent->cache + ent->len, 0, newlen - ent->len);
-        fd_memcpy(ent->cache + offset, data, datalen);
-      } else {
-        // Load the cache
-        ent->cache = malloc(newlen);
-        if (offset == 0)
-          fd_memcpy(ent->cache, data, datalen);
-        else {
-          // Need to mix old and new data
-          fd_memset(ent->cache, 0, newlen);
-          if (pread(store->backingfd, ent->cache, (long)ent->len, (long)ent->start) < (long)ent->len) {
-            FD_LOG_WARNING(("failed to read backing file: %s", strerror(errno)));
-            return;
-          }
-          fd_memcpy(ent->cache + offset, data, datalen);
-        }
-      }
-      ent->len = (uint)newlen;
-
-      // Create a new record with a new version number
+      // time. Create a new record with a new version number first
+      uint oldlen = ent->len;
       ulong oldcontrol = ent->control;
       ulong oldstart = ent->start;
       uint oldalloc = ent->alloc;
-      if (!fd_funk_allocate_disk(store, newlen, &ent->control, &ent->start, &ent->alloc)) {
-        free(ent->cache);
-        ent->cache = NULL;
+      if (!fd_funk_allocate_disk(store, newlen, &ent->control, &ent->start, &ent->alloc))
+        // Allocation failure
         return;
+      ulong newstart = ent->start;
+      ent->len = (uint)newlen;
+      ent->version ++;
+      // Track how much we have written so far
+      uint done = 0;
+      if (ent->cache) {
+        // Start by writing out what we cached because this is easy
+        if (pwrite(store->backingfd, ent->cache, ent->cachelen, (long)newstart) < (long)ent->cachelen) {
+          FD_LOG_WARNING(("failed to write backing file: %s", strerror(errno)));
+          return;
+        }
+        done = ent->cachelen;
       }
+      char* tmpbuf = NULL;
+      int tmpbuflen = 0;
+      // Copy old data that came before the update
+      int beforelen = (int)((offset < oldlen ? offset : oldlen) - done);
+      if (beforelen > 0) {
+        if (tmpbuf == NULL || beforelen > tmpbuflen) {
+          tmpbuf = fd_alloca(1, (uint)beforelen);
+          tmpbuflen = beforelen;
+        }
+        if (pread(store->backingfd, tmpbuf, (ulong)beforelen, (long)(oldstart + done)) < (long)beforelen) {
+          FD_LOG_WARNING(("failed to read backing file: %s", strerror(errno)));
+          return;
+        }
+        if (pwrite(store->backingfd, tmpbuf, (ulong)beforelen, (long)(newstart + done)) < (long)beforelen) {
+          FD_LOG_WARNING(("failed to write backing file: %s", strerror(errno)));
+          return;
+        }
+        done += (uint)beforelen;
+      }
+      // Fill gap with zeros
+      int zeroslen = (int)(offset - done);
+      if (zeroslen > 0) {
+        if (tmpbuf == NULL || zeroslen > tmpbuflen) {
+          tmpbuf = fd_alloca(1, (uint)zeroslen);
+          tmpbuflen = zeroslen;
+        }
+        fd_memset(tmpbuf, 0, (ulong)zeroslen);
+        if (pwrite(store->backingfd, tmpbuf, (ulong)zeroslen, (long)(newstart + done)) < (long)zeroslen) {
+          FD_LOG_WARNING(("failed to write backing file: %s", strerror(errno)));
+          return;
+        }
+        done += (uint)zeroslen;
+      }
+      // Write out whatever is left of the original update
+      int updatelen = (int)(newlen - done);
+      if (updatelen > 0) {
+        if (pwrite(store->backingfd, (const char*)data + (datalen - (uint)updatelen),
+                   (ulong)updatelen, (long)(newstart + done)) < (long)updatelen) {
+          FD_LOG_WARNING(("failed to write backing file: %s", strerror(errno)));
+          return;
+        }
+      }
+      // Data is ready. Finally update the control.
       // Write out the new version first in case we crash in the
       // middle. If duplicate keys are found during recovery, the newer
       // version wins.
-      ent->version ++;
-      if (pwrite(store->backingfd, ent->cache, newlen, (long)ent->start) < (long)newlen) {
-        FD_LOG_WARNING(("failed to write backing file: %s", strerror(errno)));
-        return;
-      }
       fd_funk_update_control_from_index(store, ent);
       // Collect old control and disk space
       fd_funk_make_dead(store, oldcontrol, oldstart, oldalloc);
@@ -540,25 +567,26 @@ void fd_funk_write_root(struct fd_funk* store,
   } else {
     // Create a new record
     if (!fd_funk_allocate_disk(store, newlen, &ent->control, &ent->start, &ent->alloc))
+      // Allocation failure
       return;
     ent->len = (uint)newlen;
     ent->version = 1;
     ent->cache = NULL;
-    if (offset == 0) {
-      if (pwrite(store->backingfd, data, newlen, (long)ent->start) < (long)newlen) {
-        FD_LOG_WARNING(("failed to write backing file: %s", strerror(errno)));
-        return;
-      }
-    } else {
-      // Use the cache for zero-filling
-      ent->cache = malloc(newlen);
-      fd_memset(ent->cache, 0, offset);
-      fd_memcpy(ent->cache + offset, data, datalen);
-      if (pwrite(store->backingfd, ent->cache, newlen, (long)ent->start) < (long)newlen) {
+    ent->cachelen = 0;
+    if (offset > 0) {
+      // Zero fill gap in disk space
+      char* zeros = fd_alloca(1, offset);
+      fd_memset(zeros, 0, offset);
+      if (pwrite(store->backingfd, zeros, offset, (long)ent->start) < (long)offset) {
         FD_LOG_WARNING(("failed to write backing file: %s", strerror(errno)));
         return;
       }
     }
+    if (pwrite(store->backingfd, data, datalen, (long)(ent->start + offset)) < (long)datalen) {
+      FD_LOG_WARNING(("failed to write backing file: %s", strerror(errno)));
+      return;
+    }
+    // Data is in place. Update the control.
     fd_funk_update_control_from_index(store, ent);
   }
 }
@@ -583,23 +611,30 @@ long fd_funk_read_root(struct fd_funk* store,
                        ulong datalen) {
   *data = NULL; // defensive
   struct fd_funk_index_entry* ent = fd_funk_index_query(store->index, recordid);
-  if (ent == NULL) {
-    // Doesn't exist
+  // See if we got a hit
+  if (ent == NULL)
     return -1;
-  }
-  if (ent->cache == NULL) {
-    // Load the cache
-    ent->cache = malloc(ent->len);
-    if (pread(store->backingfd, ent->cache, (long)ent->len, (long)ent->start) < (long)ent->len) {
+  // See if we are reading past the end of the record
+  if (offset >= ent->len)
+    return 0;
+  if (offset + datalen > ent->len)
+    datalen = ent->len - offset;
+  ulong neededlen = offset + datalen;
+  if (ent->cache == NULL || neededlen > ent->cachelen) {
+    // Load the cache. We can cache a prefix rather than the entire
+    // record. This is useful if metadata is in front of the real data.
+    ent->cachelen = (uint)neededlen;
+    if (ent->cache)
+      free(ent->cache);
+    ent->cache = malloc(neededlen);
+    if (pread(store->backingfd, ent->cache, neededlen, (long)ent->start) < (long)neededlen) {
       FD_LOG_WARNING(("failed to read backing file: %s", strerror(errno)));
+      free(ent->cache);
+      ent->cache = NULL;
       return -1;
     }
   }
-  if (offset >= ent->len)
-    return 0;
   *data = ent->cache + offset;
-  if (offset + datalen > ent->len)
-    datalen = ent->len - offset;
   return (long)datalen;
 }
 
@@ -705,9 +740,11 @@ void fd_funk_validate(struct fd_funk* store) {
         if (rsize != ent->u.normal.alloc || k >= FD_FUNK_NUM_DISK_SIZES)
           FD_LOG_ERR(("invalid record allocation in store"));
         if (ent2->cache != NULL) {
-          if (pread(store->backingfd, scratch, ent->u.normal.len, (long)ent->u.normal.start) < (long)ent->u.normal.len)
+          if (ent2->cachelen > ent->u.normal.len)
+            FD_LOG_ERR(("cache too large"));
+          if (pread(store->backingfd, scratch, ent2->cachelen, (long)ent->u.normal.start) < (long)ent2->cachelen)
             FD_LOG_ERR(("failed to read backing file: %s", strerror(errno)));
-          if (memcmp(scratch, ent2->cache, ent->u.normal.len) != 0)
+          if (memcmp(scratch, ent2->cache, ent2->cachelen) != 0)
             FD_LOG_ERR(("cache is wrong"));
         }
         if (ent->u.normal.start < allocpos)
