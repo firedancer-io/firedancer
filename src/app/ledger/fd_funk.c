@@ -684,11 +684,19 @@ uint fd_funk_num_records(struct fd_funk* store) {
 
 int fd_funk_cache_query(struct fd_funk* store,
                         struct fd_funk_xactionid const* xid,
-                        struct fd_funk_recordid const* recordid);
+                        struct fd_funk_recordid const* recordid,
+                        ulong offset,
+                        ulong datalen);
 
 void fd_funk_cache_hint(struct fd_funk* store,
                         struct fd_funk_xactionid const* xid,
-                        struct fd_funk_recordid const* recordid);
+                        struct fd_funk_recordid const* recordid,
+                        ulong offset,
+                        ulong datalen) {
+  // Try to read but ignore failures
+  const void* data;
+  (void)fd_funk_read(store, xid, recordid, &data, offset, datalen);
+}
 
 void fd_funk_validate(struct fd_funk* store) {
   if (!fd_funk_index_validate(store->index))

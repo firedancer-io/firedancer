@@ -132,12 +132,16 @@ uint fd_funk_num_records(struct fd_funk* store);
 // Returns true if the record is in the hot cache.
 int fd_funk_cache_query(struct fd_funk* store,
                         struct fd_funk_xactionid const* xid,
-                        struct fd_funk_recordid const* recordid);
+                        struct fd_funk_recordid const* recordid,
+                        ulong offset,
+                        ulong datalen);
 
 // Loads the record into the hot cache.
 void fd_funk_cache_hint(struct fd_funk* store,
                         struct fd_funk_xactionid const* xid,
-                        struct fd_funk_recordid const* recordid);
+                        struct fd_funk_recordid const* recordid,
+                        ulong offset,
+                        ulong datalen);
 
 // Validate the entire data structure. Log an error and abort if
 // corruption is detected.
