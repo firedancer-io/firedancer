@@ -20,6 +20,7 @@ fd_cc_library(
         ":base_lib",
         "//src/disco/dedup",
         "//src/disco/mux",
+        "//src/disco/pack",
         "//src/disco/replay",
     ],
 )
