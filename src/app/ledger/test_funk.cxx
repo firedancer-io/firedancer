@@ -261,6 +261,29 @@ int main() {
     }
   }
 
+  for (unsigned i = 0; i < 100; ++i) {
+    recordkey key;
+    rg.genbytes((char*)&key, sizeof(key));
+    uint len = 10;
+    rg.genbytes(scratch, len);
+    fd_funk_write(funk, fd_funk_root(funk), &key._id, scratch, 0, len);
+    databuf& db = golden[key];
+    db.write(scratch, 0, len);
+  }
+
+  for (unsigned j = 1; j < 200; ++j) {
+    reload();
+    for (auto& [key,db] : golden) {
+      fd_funk_cache_hint(funk, fd_funk_root(funk), &key._id, 0, 25);
+      uint len = 10;
+      uint offset = 20*j;
+      rg.genbytes(scratch, len);
+      fd_funk_write(funk, fd_funk_root(funk), &key._id, scratch, offset, len);
+      db.write(scratch, offset, len);
+    }
+    validateall();
+  }
+
   free(scratch);
   
   fd_funk_delete(fd_funk_leave(funk));
