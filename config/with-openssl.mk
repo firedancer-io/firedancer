@@ -7,3 +7,4 @@ libs_libssl=$(shell pkg-config libssl --libs)
 CPPFLAGS+=$(inc_libcrypto) $(inc_libssl)
 LDFLAGS+=$(libs_libcrypto) $(libs_libssl) -lbpf
 
+FD_HAS_OPENSSL:=1

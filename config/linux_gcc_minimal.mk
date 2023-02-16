@@ -6,5 +6,4 @@ include config/with-debug.mk
 include config/with-brutality.mk
 include config/with-optimization.mk
 include config/with-hosted.mk
-include config/with-openssl.mk
 
