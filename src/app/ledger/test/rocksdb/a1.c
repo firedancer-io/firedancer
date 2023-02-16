@@ -5,6 +5,7 @@
 // back to this directory
 // make
 
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -84,9 +85,9 @@ char * fd_rocksdb_init(fd_rocksdb_t *db, const char *db_name) {
 
   db->db = rocksdb_open_for_read_only_column_families(
     db->opts, db_name, sizeof(db->cfgs) / sizeof(db->cfgs[0]),
-      (const char * const *) db->cfgs, 
+      (const char * const *) db->cfgs,
       (const rocksdb_options_t * const*) db->cf_options,
-      db->column_family_handles, 
+      db->column_family_handles,
       false, &err);
 
   if (err != NULL) {
@@ -108,7 +109,7 @@ void fd_rocksdb_destroy(fd_rocksdb_t *db) {
     rocksdb_readoptions_destroy(db->ro);
     db->ro = NULL;
   }
-  
+
   if (db->opts != NULL) {
     rocksdb_options_destroy(db->opts);
     db->opts = NULL;
@@ -117,7 +118,7 @@ void fd_rocksdb_destroy(fd_rocksdb_t *db) {
 
 ulong fd_rocksdb_last_slot(fd_rocksdb_t *db, char **err) {
   rocksdb_iterator_t* iter = rocksdb_create_iterator_cf(db->db, db->ro, db->column_family_handles[2]);
-  rocksdb_iter_seek_to_last(iter);    
+  rocksdb_iter_seek_to_last(iter);
   if (!rocksdb_iter_valid(iter)) {
     *err = "db column for root is empty";
     return 0;
@@ -227,7 +228,7 @@ int main()
 // 	return shreds, nil
 // }
 
-// func NewShredFromSerialized(shred []byte, revision int) (s Shred) 
+// func NewShredFromSerialized(shred []byte, revision int) (s Shred)
 
     fd_rocksdb_destroy(&db);
 

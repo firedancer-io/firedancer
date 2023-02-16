@@ -2,6 +2,7 @@
 
 #include "fd_rocksdb.h"
 #include <malloc.h>
+#include <stdbool.h>
 #include <stdlib.h>
 
 void fd_slot_meta_decode(fd_slot_meta_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, FD_FN_UNUSED void* allocf_arg) {
@@ -38,9 +39,9 @@ char * fd_rocksdb_init(fd_rocksdb_t *db, const char *db_name) {
 
   db->db = rocksdb_open_for_read_only_column_families(
     db->opts, db_name, sizeof(db->cfgs) / sizeof(db->cfgs[0]),
-      (const char * const *) db->cfgs, 
+      (const char * const *) db->cfgs,
       (const rocksdb_options_t * const*) db->cf_options,
-      db->column_family_handles, 
+      db->column_family_handles,
       false, &err);
 
   if (err != NULL) {
@@ -62,7 +63,7 @@ void fd_rocksdb_destroy(fd_rocksdb_t *db) {
     rocksdb_readoptions_destroy(db->ro);
     db->ro = NULL;
   }
-  
+
   if (db->opts != NULL) {
     rocksdb_options_destroy(db->opts);
     db->opts = NULL;
@@ -71,7 +72,7 @@ void fd_rocksdb_destroy(fd_rocksdb_t *db) {
 
 ulong fd_rocksdb_last_slot(fd_rocksdb_t *db, char **err) {
   rocksdb_iterator_t* iter = rocksdb_create_iterator_cf(db->db, db->ro, db->column_family_handles[2]);
-  rocksdb_iter_seek_to_last(iter);    
+  rocksdb_iter_seek_to_last(iter);
   if (!rocksdb_iter_valid(iter)) {
     *err = "db column for root is empty";
     return 0;
@@ -157,10 +158,10 @@ fd_slot_blocks_t * fd_rocksdb_get_microblocks(fd_rocksdb_t *db, fd_slot_meta_t *
     }
 
     // This just correctly selects from inside the data pointer to the
-    // actual data without a memory copy 
+    // actual data without a memory copy
     fd_shred_t const * shred = fd_shred_parse( data, (ulong) dlen );
 
-    FD_LOG_INFO(("shred info: raw_flag: %x, ref: %d, slot_complete: %d, data_complete: %d", 
+    FD_LOG_INFO(("shred info: raw_flag: %x, ref: %d, slot_complete: %d, data_complete: %d",
         shred->data.flags,
         shred->data.flags & FD_SHRED_DATA_REF_TICK_MASK,
         (shred->data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE) != 0,
@@ -207,7 +208,7 @@ fd_slot_blocks_t * fd_rocksdb_get_microblocks(fd_rocksdb_t *db, fd_slot_meta_t *
         // pass these microblocks to executors on different tiles
         // potentally?
         uchar * raw = aligned_alloc(FD_MICROBLOCK_ALIGN, footprint);
-      
+
         void * shblock = fd_microblock_new( raw, txn_max_cnt );
         fd_microblock_t * block = fd_microblock_join( shblock );
 
