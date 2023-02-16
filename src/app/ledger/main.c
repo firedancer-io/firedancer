@@ -15,16 +15,17 @@
 
 static void usage(const char* progname) {
   fprintf(stderr, "USAGE: %s\n", progname);
-  fprintf(stderr, "  --snapshotfile <file>        Input snapshot file\n");
+  fprintf(stderr, " --cmd unpack --snapshotfile <file>               unpack snapshot file\n");
+  fprintf(stderr, " --cmd upload --ledger <dir> --funk_db <db>       \n");
 }
 
-struct fd_account_StoredMeta {
+struct __attribute__((packed)) fd_account_stored_meta {
     unsigned long write_version_obsolete;
     unsigned long data_len;
     char pubkey[32];
 };
 
-struct fd_account_fd_accountMeta {
+struct __attribute__((packed)) fd_account_fd_account_meta {
     unsigned long lamports;
     unsigned long rent_epoch;
     char owner[32];
@@ -32,7 +33,7 @@ struct fd_account_fd_accountMeta {
     char padding[7];
 };
 
-struct fd_account_fd_hash {
+struct __attribute__((packed)) fd_account_fd_hash {
     char value[32];
 };
 
@@ -68,9 +69,9 @@ void SnapshotParser_parsefd_accounts(struct SnapshotParser* self, const void* da
     data = (const char*)data + roundedlen; \
     datalen -= roundedlen;
 
-    struct fd_account_StoredMeta meta;
+    struct fd_account_stored_meta meta;
     EAT_SLICE(&meta, sizeof(meta));
-    struct fd_account_fd_accountMeta account_meta;
+    struct fd_account_fd_account_meta account_meta;
     EAT_SLICE(&account_meta, sizeof(account_meta));
     struct fd_account_fd_hash hash;
     EAT_SLICE(&hash, sizeof(hash));
@@ -188,17 +189,32 @@ static void decompressFile(const char* fname, decompressCallback cb, void* arg) 
   close(fin);
 }
 
+void uploadLedger(FD_FN_UNUSED const char *ledger, FD_FN_UNUSED const char *db) {
+  
+}
+
 int main(int argc, char** argv) {
-  const char* snapshotfile = fd_env_strip_cmdline_cstr(&argc, &argv, "--snapshotfile", NULL, NULL);
-  if (snapshotfile == NULL) {
-    usage(argv[0]);
-    return 1;
+  const char* cmd = fd_env_strip_cmdline_cstr(&argc, &argv, "--cmd", NULL, NULL);
+
+  if (strcmp(cmd, "unpack") == 0) {
+    const char* snapshotfile = fd_env_strip_cmdline_cstr(&argc, &argv, "--snapshotfile", NULL, NULL);
+    if (snapshotfile == NULL) {
+      usage(argv[0]);
+      return 1;
+    }
+
+    struct SnapshotParser parser;
+    SnapshotParser_init(&parser);
+    decompressFile(snapshotfile, SnapshotParser_moreData, &parser);
+    SnapshotParser_destroy(&parser);
   }
 
-  struct SnapshotParser parser;
-  SnapshotParser_init(&parser);
-  decompressFile(snapshotfile, SnapshotParser_moreData, &parser);
-  SnapshotParser_destroy(&parser);
+  if (strcmp(cmd, "upload") == 0) {
+      const char* ledger = fd_env_strip_cmdline_cstr(&argc, &argv, "--ledger", NULL, NULL);
+      const char* db = fd_env_strip_cmdline_cstr(&argc, &argv, "--funk-db", NULL, NULL);
+
+      uploadLedger(ledger, db);
+  }
   
   return 0;
 }

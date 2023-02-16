@@ -3,8 +3,8 @@
 ifneq (,/home/jsiegel/repos/solana/test-ledger/rocksdb)
 ifeq ($(FD_HAS_ROCKSDB),1)
 
-$(call add-hdrs,fd_banks_solana.h)
-$(call add-objs,fd_banks_solana,fd_ballet)
+$(call add-hdrs,fd_banks_solana.h fd_global_state.h fd_rocksdb.h)
+$(call add-objs,fd_banks_solana fd_rocksdb,fd_ballet)
 
 $(call make-unit-test,test_rocksdb,test_rocksdb fd_rocksdb,fd_ballet fd_util)
 endif

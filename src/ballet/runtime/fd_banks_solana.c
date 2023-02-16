@@ -174,7 +174,7 @@ void fd_stakes_deligation_decode(fd_stakes_deligation_t* self, void const** data
   fd_stake_history_decode(&self->stake_history, data, dataend, allocf, allocf_arg);
 }
 
-void node_vote_accounts_decode(node_vote_accounts_t* self, void const** data, void const* dataend, alloc_fun allocf, void* allocf_arg) {
+void fd_node_vote_accounts_decode(node_vote_accounts_t* self, void const** data, void const* dataend, alloc_fun allocf, void* allocf_arg) {
   fd_bincode_uint64_decode(&self->vote_accounts_len, data, dataend);
   if (self->vote_accounts_len) {
     self->vote_accounts = (fd_pubkey_t*)(*allocf)(FD_PUBKEY_FOOTPRINT*self->vote_accounts_len, FD_PUBKEY_ALIGN, allocf_arg);
@@ -187,7 +187,7 @@ void node_vote_accounts_decode(node_vote_accounts_t* self, void const** data, vo
 
 void fd_pubkey_node_vote_accounts_pair_decode(fd_pubkey_node_vote_accounts_pair_t* self, void const** data, void const* dataend, alloc_fun allocf, void* allocf_arg) {
   fd_pubkey_decode(&self->key, data, dataend, allocf, allocf_arg);
-  node_vote_accounts_decode(&self->value, data, dataend, allocf, allocf_arg);
+  fd_node_vote_accounts_decode(&self->value, data, dataend, allocf, allocf_arg);
 }
 
 void fd_pubkey_pubkey_pair_decode(fd_pubkey_pubkey_pair_t* self, void const** data, void const* dataend, alloc_fun allocf, void* allocf_arg) {
