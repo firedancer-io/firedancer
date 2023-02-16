@@ -16,6 +16,7 @@ fd_cc_library(
     ],
     deps = [
         "//src/ballet:base_lib",
+        "//src/ballet/pack",
         "//src/disco",
         "//src/util",
     ],
