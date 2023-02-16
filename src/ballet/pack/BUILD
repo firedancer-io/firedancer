@@ -26,7 +26,10 @@ fd_cc_binary(
     name = "fd_pack_ctl",
     srcs = ["fd_pack_ctl.c"],
     visibility = ["//visibility:public"],
-    deps = [":pack"],
+    deps = [
+        ":pack",
+        "//src/ballet",
+    ],
 )
 
 fd_cc_test(
