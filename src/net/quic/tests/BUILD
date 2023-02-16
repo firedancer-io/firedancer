@@ -36,12 +36,6 @@ fd_cc_test(
 
 fd_cc_test(
     size = "small",
-    srcs = ["test_quic.c"],
-    deps = ["//src/net/quic"],
-)
-
-fd_cc_test(
-    size = "small",
     srcs = ["test_tls_decrypt.c"],
     deps = ["//src/net/quic"],
 )

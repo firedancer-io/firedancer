@@ -1,6 +1,6 @@
 load("//bazel:fd_build_system.bzl", "fd_cc_fuzz_test", "fd_cc_library", "fd_cc_test")
 
-package(default_visibility = ["//src/ballet:__subpackages__"])
+package(default_visibility = ["//visibility:public"])
 
 fd_cc_library(
     name = "txn",

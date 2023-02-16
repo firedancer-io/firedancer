@@ -2,7 +2,7 @@
 #define HEADER_fd_src_ballet_cshim_fd_cshim_tile_h
 
 #include "../../disco/fd_disco.h"
-#include "../../disco/pack/fd_pack.h"
+#include "../../ballet/pack/fd_pack.h"
 #include "../../ballet/fd_ballet.h"
 
 #if FD_HAS_HOSTED && FD_HAS_ALLOCA && FD_HAS_X86

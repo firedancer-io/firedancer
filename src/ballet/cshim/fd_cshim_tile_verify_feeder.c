@@ -279,7 +279,7 @@ fd_cshim_verify_feeder( int     argc,
 
       uchar * dest_ptr = dcache_chunk_laddr + txn_size;
       dest_ptr = (uchar *) fd_ulong_align_up( (ulong) dest_ptr, 2UL );
-      ulong parsed_sz = fd_txn_parse( dcache_chunk_laddr, txn_size, dest_ptr, NULL );
+      ulong parsed_sz = fd_txn_parse( dcache_chunk_laddr, txn_size, dest_ptr, NULL, NULL );
       if( FD_UNLIKELY( !parsed_sz ) ) {
         FD_LOG_WARNING(( "Parsing the transaction (size=%lu) failed. First bytes of payload are %02hhx %02hhx %02hhx %02hhx", txn_size,
               txn_payload[ 0 ],

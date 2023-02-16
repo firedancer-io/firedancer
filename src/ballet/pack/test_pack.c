@@ -1,7 +1,7 @@
-#include "../fd_disco.h"
+#include "../fd_ballet.h"
 #include "fd_pack.h"
 #include "fd_compute_budget_program.h"
-#include "../../ballet/txn/fd_txn.h"
+#include "../txn/fd_txn.h"
 #include <math.h>
 
 #define MAX_TEST_TXNS (1024UL)
@@ -21,22 +21,14 @@ fd_rng_t _rng[1];
 fd_rng_t * rng;
 
 typedef struct {
-    fd_pack_bank_status_t *   bank_status;
-    fd_pack_orderable_txn_t * last_scheduled;
-    fd_pack_orderable_txn_t * txnq;
-    fd_frag_meta_t *          outq;
-    fd_pack_addr_use_t *      r_accts_in_use;
-    fd_pack_addr_use_t *      w_accts_in_use;
-    fd_est_tbl_t *            cu_est_tbl;
-    ulong *                   freelist;
-    uchar *                   dcache;
-    fd_frag_meta_t *          mcache;
-    fd_rng_t *                rng;
-    uint                      cu_limit;
-    ulong                     bank_cnt;
-    uchar *                   dcache_base;
-    ulong                     seq;
-    ulong                     mcache_depth;
+    fd_pack_t *        pack;
+    uchar *            dcache;
+    fd_frag_meta_t *   mcache;
+    uint               cu_limit;
+    ulong              bank_cnt;
+    uchar *            dcache_base;
+    ulong              seq;
+    ulong              mcache_depth;
 } pack_state;
 
 #define SCRATCH_ALLOC( a, s ) (__extension__({                    \
@@ -44,50 +36,23 @@ typedef struct {
     scratch_top = _scratch_alloc + (s);                           \
     (void *)_scratch_alloc;                                       \
   }))
-void init_all( ulong bank_cnt, ulong txnq_sz, ulong cu_est_tbl_sz, uint cu_limit, pack_state * out ) {
+void init_all( ulong bank_cnt, ulong txnq_sz, ulong cu_est_tbl_sz, uint cu_limit, ulong lamports_per_signature, pack_state * out ) {
   /* packing state */
-  fd_pack_bank_status_t *   bank_status;
-  fd_pack_orderable_txn_t * last_scheduled;
-  fd_pack_orderable_txn_t * txnq;
-  fd_frag_meta_t *          outq;
-  fd_pack_addr_use_t *      r_accts_in_use;
-  fd_pack_addr_use_t *      w_accts_in_use;
-  fd_est_tbl_t *            cu_est_tbl;
-  ulong *                   freelist;
-  uchar *                   dcache;
-  fd_frag_meta_t *          mcache;
+  fd_pack_t *       pack;
+  fd_est_tbl_t *    cu_est_tbl;
+  uchar *           dcache;
+  fd_frag_meta_t *  mcache;
 
 
   memset( pack_scratch, 0, PACK_SCRATCH_SZ );
-  /* Allocate the structures packing needs */
-
-  int lg_tbl_sz  = fd_ulong_find_msb( fd_ulong_pow2_up( 2UL*FD_TXN_ACCT_ADDR_MAX*bank_cnt ) );
-  /* We need for the freelist always to have at least txnq_sz free elements.
-     Since each chunk is in exactly one of:
-   * freelist
-   * txnq (at most txnq_sz)
-   * outq (at most 1 per bank thread)
-   Then we should initialize freelist with 2*txnq_sz+bank_cnt elements. */
-  ulong freelist_sz = 2UL*txnq_sz+bank_cnt;
-
   ulong scratch_top = (ulong)pack_scratch;
   ulong dcache_data_sz = fd_dcache_req_data_sz( sizeof(fd_txn_p_t), txnq_sz, 1UL, 1 );
-  void * outq_shmem;
-  void * txnq_shmem;
-  void * r_accts_iu_shmem;
-  void * w_accts_iu_shmem;
+  void * pack_shmem;
   void * cu_est_tbl_shmem;
-  void * freelist_shmem;
   void * dcache_shmem;
   void * mcache_shmem;
-  bank_status      = SCRATCH_ALLOC( alignof(fd_pack_bank_status_t),    bank_cnt*sizeof(fd_pack_bank_status_t)     );
-  last_scheduled   = SCRATCH_ALLOC( alignof(fd_pack_orderable_txn_t),  bank_cnt*sizeof(fd_pack_orderable_txn_t)   );
-  outq_shmem       = SCRATCH_ALLOC( outq_align(),                      outq_footprint( bank_cnt )                 );
-  txnq_shmem       = SCRATCH_ALLOC( txnq_align( ),                     txnq_footprint( txnq_sz )                  );
-  r_accts_iu_shmem = SCRATCH_ALLOC( acct_uses_align( ),                acct_uses_footprint( lg_tbl_sz )           );
-  w_accts_iu_shmem = SCRATCH_ALLOC( acct_uses_align( ),                acct_uses_footprint( lg_tbl_sz )           );
+  pack_shmem       = SCRATCH_ALLOC( fd_pack_align(),                   fd_pack_footprint( bank_cnt, txnq_sz )     );
   cu_est_tbl_shmem = SCRATCH_ALLOC( fd_est_tbl_align( ),               fd_est_tbl_footprint( cu_est_tbl_sz )      );
-  freelist_shmem   = SCRATCH_ALLOC( freelist_align( ),                 freelist_footprint( freelist_sz)           );
   dcache_shmem     = SCRATCH_ALLOC( fd_dcache_align( ),                fd_dcache_footprint( dcache_data_sz, 0UL ) );
   mcache_shmem     = SCRATCH_ALLOC( fd_mcache_align( ),                fd_mcache_footprint( txnq_sz, 0UL )        );
 
@@ -97,25 +62,13 @@ void init_all( ulong bank_cnt, ulong txnq_sz, ulong cu_est_tbl_sz, uint cu_limit
   else                        FD_LOG_NOTICE(( "Test required %lu bytes of %lu available bytes",    consumed, PACK_SCRATCH_SZ ));
 #endif
 
-  outq             = outq_join(             outq_new( outq_shmem,       bank_cnt            ) );
-  txnq             = txnq_join(             txnq_new( txnq_shmem,       txnq_sz             ) );
-  r_accts_in_use   = acct_uses_join(   acct_uses_new( r_accts_iu_shmem, lg_tbl_sz           ) );
-  w_accts_in_use   = acct_uses_join(   acct_uses_new( w_accts_iu_shmem, lg_tbl_sz           ) );
-  cu_est_tbl       = fd_est_tbl_join( fd_est_tbl_new( cu_est_tbl_shmem, cu_est_tbl_sz, 1000UL,
-        FD_COMPUTE_BUDGET_DEFAULT_INSTR_CU_LIMIT ) );
-  freelist         = freelist_join(     freelist_new( freelist_shmem,   freelist_sz         ) );
-  dcache           = fd_dcache_join(   fd_dcache_new( dcache_shmem,     dcache_data_sz, 0UL ) );
-  mcache           = fd_mcache_join(   fd_mcache_new( mcache_shmem,     txnq_sz, 0UL, 1UL   ) );
+  cu_est_tbl = fd_est_tbl_join( fd_est_tbl_new( cu_est_tbl_shmem, cu_est_tbl_sz, 1000UL,
+                                                    FD_COMPUTE_BUDGET_DEFAULT_INSTR_CU_LIMIT ) );
+  dcache     = fd_dcache_join(   fd_dcache_new( dcache_shmem,     dcache_data_sz, 0UL ) );
+  mcache     = fd_mcache_join(   fd_mcache_new( mcache_shmem,     txnq_sz, 0UL, 1UL   ) );
+  pack       = fd_pack_join(       fd_pack_new( pack_shmem, bank_cnt, txnq_sz, cu_limit, lamports_per_signature,
+                                                    rng, cu_est_tbl, dcache, dcache_shmem, mcache ) );
 
-  /* Init free list */
-  uchar * dcache_base = dcache_shmem;
-  ulong   chunk0      = fd_dcache_compact_chunk0( dcache_base, dcache );
-  ulong   wmark       = fd_dcache_compact_wmark ( dcache_base, dcache, sizeof(fd_txn_p_t) );
-  ulong   chunk       = chunk0;
-  for( ulong i=0UL; i<2UL*txnq_sz+bank_cnt; i++ ) {
-    freelist_push_tail( freelist, chunk );
-    chunk = fd_dcache_compact_next( chunk, sizeof(fd_txn_p_t), chunk0, wmark );
-  }
 
   /* Train cu_est_tbl in accordance with the way make_transaction will use it,
      i.e. calling WORK_PROGRAM_ID with 1 byte of instruction data, k, where
@@ -150,19 +103,12 @@ void init_all( ulong bank_cnt, ulong txnq_sz, ulong cu_est_tbl_sz, uint cu_limit
     FD_TEST( var<1.0 );
   }
 
-  out->bank_status      = bank_status;
-  out->last_scheduled   = last_scheduled;
-  out->txnq             = txnq;
-  out->outq             = outq;
-  out->r_accts_in_use   = r_accts_in_use;
-  out->w_accts_in_use   = w_accts_in_use;
-  out->cu_est_tbl       = cu_est_tbl;
-  out->freelist         = freelist;
+  out->pack             = pack;
   out->dcache           = dcache;
   out->mcache           = mcache;
   out->cu_limit         = cu_limit;
   out->bank_cnt         = bank_cnt;
-  out->dcache_base      = dcache_base;
+  out->dcache_base      = dcache_shmem;
   out->seq              = fd_mcache_seq_query( fd_mcache_seq_laddr_const( mcache ) );
   out->mcache_depth     = txnq_sz;
 }
@@ -252,19 +198,16 @@ void make_transaction( ulong i, uint compute, double priority, const char * writ
 }
 
 void insert_and_schedule( ulong i, pack_state * state ) {
-  ulong        slot_chunk = freelist_pop_head( state->freelist );
-  fd_txn_p_t * slot       = fd_chunk_to_laddr( state->dcache_base, slot_chunk );
+  fd_txn_p_t * slot       = fd_pack_prepare_insert( state->pack );
   fd_txn_t *   txn        = (fd_txn_t*) txn_scratch[ i ];
   fd_memcpy( slot->payload, payload_scratch[ i ], payload_sz[ i ] );
   fd_memcpy( TXN(slot),     txn,     fd_txn_footprint( txn->instr_cnt, txn->addr_table_lookup_cnt ) );
 
-  fd_pack_insert_transaction( slot_chunk, state->dcache_base, 0UL, state->cu_limit, rng, state->cu_est_tbl, state->txnq, state->freelist );
+  fd_pack_insert_transaction( state->pack, slot );
 
   fd_pack_schedule_return_t result;
   do {
-    result = fd_pack_schedule_transaction( state->bank_cnt, state->cu_limit, state->bank_status,
-        state->last_scheduled, state->txnq, state->outq, state->r_accts_in_use, state->w_accts_in_use,
-        state->freelist, state->dcache_base, state->mcache, &state->seq, txnq_max( state->txnq) );
+    result = fd_pack_schedule_transaction( state->pack );
 #if DETAILED_STATUS_MESSAGES
     if     ( result.status==FD_PACK_SCHEDULE_RETVAL_BANKDONE )
       FD_LOG_NOTICE(( "Banking thread %hhu done", result.banking_thread ));
@@ -275,6 +218,8 @@ void insert_and_schedule( ulong i, pack_state * state ) {
 #endif
   } while( result.status==FD_PACK_SCHEDULE_RETVAL_STALLING );
 }
+
+
 #define SET_NAME aset
 #include "../../util/tmpl/fd_smallset.c"
 
@@ -282,11 +227,21 @@ void insert_and_schedule( ulong i, pack_state * state ) {
 ulong in_use_until[ MAX_BANKING_THREADS ];
 aset_t  r_accts_in_use[ MAX_BANKING_THREADS ];
 aset_t  w_accts_in_use[ MAX_BANKING_THREADS ];
+
+/* Looks at all transactions emitted in the mcache from start_sequence to the
+   end and validates that:
+    * they all finish before max_end
+    * the total rewards is at least min_rewards
+    * there are at least min_txns transactions scheduled
+    * the transactions are ordered by start time
+    * transactions scheduled to the same banking thread don't overlap in time
+    * if txn1 and txn2 overlap in time, then at most one reads any given account
+    * if txn1 and txn2 overlap in time, and txn1 writes an account A, then txn2
+      does not read A
+   If end_block is non-zero, then it calls fd_pack_next_block to flush any
+   pending unscheduled transactions prior to performing any validation. */
 void validate_all( ulong max_end, ulong min_rewards, ulong min_txns, ulong start_sequence, int end_block, pack_state * state ) {
-  if( end_block )
-    fd_pack_next_block( state->bank_cnt, state->bank_status, state->last_scheduled,
-        state->r_accts_in_use, state->w_accts_in_use, state->outq, state->mcache,
-        &(state->seq), txnq_max( state->txnq ), state->freelist );
+  if( end_block ) fd_pack_next_block( state->pack );
   for( ulong i=0UL; i<state->bank_cnt; i++ ) {
     in_use_until[ i ] = 0UL;
     r_accts_in_use[ i ] = aset_null( );
@@ -323,13 +278,13 @@ void validate_all( ulong max_end, ulong min_rewards, ulong min_txns, ulong start
     aset_t write_accts = aset_null( );
 
     for( ulong j=(ulong)(txn->signature_cnt); j<((ulong)(txn->acct_addr_cnt)-(ulong)(txn->readonly_unsigned_cnt)); j++ ) {
-      uchar * acct_addr = txnp->payload + txn->acct_addr_off + j*FD_TXN_ACCT_ADDR_SZ; 
-      if( (0x30UL<=*acct_addr) & (*acct_addr<0x70UL) & ((*acct_addr)==*(acct_addr+1UL)) ) 
+      uchar * acct_addr = txnp->payload + txn->acct_addr_off + j*FD_TXN_ACCT_ADDR_SZ;
+      if( (0x30UL<=*acct_addr) & (*acct_addr<0x70UL) & ((*acct_addr)==*(acct_addr+1UL)) )
         write_accts = aset_insert( write_accts, (ulong)*acct_addr-0x30UL );
     }
     for( ulong j=((ulong)(txn->acct_addr_cnt)-(ulong)(txn->readonly_unsigned_cnt)); j<((ulong)(txn->acct_addr_cnt)); j++ ) {
-      uchar * acct_addr = txnp->payload + txn->acct_addr_off + j*FD_TXN_ACCT_ADDR_SZ; 
-      if( (0x30UL<=*acct_addr) & (*acct_addr<0x70UL) & ((*acct_addr)==*(acct_addr+1UL)) ) 
+      uchar * acct_addr = txnp->payload + txn->acct_addr_off + j*FD_TXN_ACCT_ADDR_SZ;
+      if( (0x30UL<=*acct_addr) & (*acct_addr<0x70UL) & ((*acct_addr)==*(acct_addr+1UL)) )
         read_accts = aset_insert( read_accts, (ulong)*acct_addr-0x30UL );
     }
 
@@ -356,7 +311,7 @@ void validate_all( ulong max_end, ulong min_rewards, ulong min_txns, ulong start
 void test0( void ) {
   pack_state state;
   FD_LOG_NOTICE(( "TEST 0" ));
-  init_all( 4UL, 128UL, 512UL, 10000UL, &state );
+  init_all( 4UL, 128UL, 512UL, 10000UL, 0UL, &state );
   ulong read_seq = state.seq;
   ulong i = 0;
   make_transaction( i,  500U, 11.0, "A", "B" );    insert_and_schedule( i++, &state );
@@ -374,7 +329,7 @@ void test0( void ) {
 void test1( void ) {
   pack_state state;
   FD_LOG_NOTICE(( "TEST 1" ));
-  init_all( 2UL, 128UL, 512UL, 10000UL, &state );
+  init_all( 2UL, 128UL, 512UL, 10000UL, 0UL, &state );
   ulong i = 0;
   ulong read_seq = state.seq;
   make_transaction( i,  500U, 11.0, "A", "B" ); insert_and_schedule( i++, &state );
@@ -385,7 +340,7 @@ void test1( void ) {
 void test2( void ) {
   pack_state state;
   FD_LOG_NOTICE(( "TEST 2" ));
-  init_all( 4UL, 128UL, 512UL, 10000UL, &state );
+  init_all( 4UL, 128UL, 512UL, 10000UL, 0UL, &state );
   ulong i = 0;
   ulong read_seq = state.seq;
   double j = 13.0;
@@ -403,28 +358,24 @@ void performance_test( void ) {
   pack_state state;
   ulong i = 0UL;
   FD_LOG_NOTICE(( "TEST PERFORMANCE" ));
-  init_all( 4UL, 1024UL, 512UL, 1000000UL, &state );
+  init_all( 4UL, 1024UL, 512UL, 1000000UL, 5000UL, &state );
   make_transaction( i,   800U, 12.0, "ABC", "DEF" );
   make_transaction( i+1, 500U, 12.0, "GHJ", "KLMNOP" );
 
   long start = fd_log_wallclock( );
   for( ulong j=0UL; j<1024UL; j++ ) {
-    ulong        slot_chunk = freelist_pop_head( state.freelist );
-    fd_txn_p_t * slot       = fd_chunk_to_laddr( state.dcache_base, slot_chunk );
+    fd_txn_p_t * slot       = fd_pack_prepare_insert( state.pack );
     fd_txn_t *   txn        = (fd_txn_t*) txn_scratch[ j&1 ];
     fd_memcpy( slot->payload, payload_scratch[ j&1 ], payload_sz[ j&1 ]                                              );
     fd_memcpy( TXN(slot),     txn,                    fd_txn_footprint( txn->instr_cnt, txn->addr_table_lookup_cnt ) );
 
-    fd_pack_insert_transaction( slot_chunk, state.dcache_base, 0UL, state.cu_limit, rng, state.cu_est_tbl, state.txnq, state.freelist );
+    fd_pack_insert_transaction( state.pack, slot );
   }
   long end = fd_log_wallclock( );
   FD_LOG_NOTICE(( "Inserting: %f ns", ((double)(end-start))/1024.0 ));
   start = fd_log_wallclock( );
-  ulong seq = 0UL;
   for( ulong j=0UL; j<1024UL; j++ ) {
-    fd_pack_schedule_transaction( state.bank_cnt, state.cu_limit, state.bank_status,
-        state.last_scheduled, state.txnq, state.outq, state.r_accts_in_use, state.w_accts_in_use,
-        state.freelist, state.dcache_base, state.mcache, &seq, txnq_max( state.txnq ) );
+    fd_pack_schedule_transaction( state.pack );
   }
   end = fd_log_wallclock( );
   FD_LOG_NOTICE(( "Scheduling: %f ns", ((double)(end-start))/1024.0 ));
@@ -433,7 +384,7 @@ void performance_test( void ) {
 void twogroup_test( void ) {
   pack_state state;
   FD_LOG_NOTICE(( "TEST TWO TRANSACTIONS" ));
-  init_all( 2UL, 1024UL, 512UL, 1000000UL, &state );
+  init_all( 2UL, 1024UL, 512UL, 1000000UL, 0UL, &state );
   ulong read_seq = state.seq;
   /* Weight the transactions so they are approximately equal.  Ideally it will
      schedule 5 copies of transaction 0 on one thread and 8 copies of
@@ -446,20 +397,17 @@ void twogroup_test( void ) {
   const ulong reps = 1UL;
 
   for( ulong j=0UL; j<13UL*reps; j++ ) {
-    ulong        slot_chunk = freelist_pop_head( state.freelist );
-    fd_txn_p_t * slot       = fd_chunk_to_laddr( state.dcache_base, slot_chunk );
+    fd_txn_p_t * slot       = fd_pack_prepare_insert( state.pack );
     int idx = (j%13)>=5; /* [0, 4] -> 0, [5, 12] -> 1 */
     fd_txn_t * txn = (fd_txn_t*) txn_scratch[ idx ];
     fd_memcpy( slot->payload, payload_scratch[ idx ], payload_sz[ idx ]                                              );
     fd_memcpy( TXN(slot),     txn,                    fd_txn_footprint( txn->instr_cnt, txn->addr_table_lookup_cnt ) );
 
-    fd_pack_insert_transaction( slot_chunk, state.dcache_base, 0UL, state.cu_limit, rng, state.cu_est_tbl, state.txnq, state.freelist );
+    fd_pack_insert_transaction( state.pack, slot );
   }
   uint last_start = 0U;
   for( ulong j=0UL; j<13UL*reps; j++ ) {
-    fd_pack_schedule_return_t result = fd_pack_schedule_transaction( state.bank_cnt, state.cu_limit, state.bank_status,
-        state.last_scheduled, state.txnq, state.outq, state.r_accts_in_use, state.w_accts_in_use,
-        state.freelist, state.dcache_base, state.mcache, &(state.seq), txnq_max( state.txnq ) );
+    fd_pack_schedule_return_t result = fd_pack_schedule_transaction( state.pack );
     FD_TEST( result.status==FD_PACK_SCHEDULE_RETVAL_SCHEDULED );
     last_start = fd_uint_max( last_start, result.start_time );
   }
@@ -470,19 +418,18 @@ void twogroup_test( void ) {
 void heap_overflow_test( void ) {
   pack_state state;
   FD_LOG_NOTICE(( "TEST HEAP OVERFLOW" ));
-  init_all( 1UL, 1024UL, 512UL, 1000000UL, &state );
+  init_all( 1UL, 1024UL, 512UL, 1000000UL, 0UL, &state );
   /* Insert a bunch of low-paying transactions */
   make_transaction( 0UL, 800U, 4.0, "ABC", "DEF" );
   for( ulong j=0UL; j<1024UL; j++ ) {
-    ulong        slot_chunk = freelist_pop_head( state.freelist );
-    fd_txn_p_t * slot       = fd_chunk_to_laddr( state.dcache_base, slot_chunk );
+    fd_txn_p_t * slot       = fd_pack_prepare_insert( state.pack );
     fd_txn_t *   txn        = (fd_txn_t*) txn_scratch[ 0UL ];
     fd_memcpy( slot->payload, payload_scratch[ 0UL ], payload_sz[ 0UL ]                                              );
     fd_memcpy( TXN(slot),     txn,                    fd_txn_footprint( txn->instr_cnt, txn->addr_table_lookup_cnt ) );
 
-    fd_pack_insert_transaction( slot_chunk, state.dcache_base, 0UL, state.cu_limit, rng, state.cu_est_tbl, state.txnq, state.freelist );
+    fd_pack_insert_transaction( state.pack, slot );
   }
-  FD_TEST( freelist_cnt( state.freelist ) >= 1024UL );
+  /* FD_TEST( freelist_cnt( state.freelist ) >= 1024UL ); */
 
   /* Now insert higher-paying transactions. They should mostly take the place
      of the low-paying transactions, with only a small amount of stochasticity
@@ -490,21 +437,18 @@ void heap_overflow_test( void ) {
      one of the last few low-paying transactions). */
   make_transaction( 1UL, 500U, 10.0, "GHJ", "KLMNOP" );
   for( ulong j=0UL; j<1024UL; j++ ) {
-    ulong        slot_chunk = freelist_pop_head( state.freelist );
-    fd_txn_p_t * slot       = fd_chunk_to_laddr( state.dcache_base, slot_chunk );
+    fd_txn_p_t * slot       = fd_pack_prepare_insert( state.pack );
     fd_txn_t *   txn        = (fd_txn_t*) txn_scratch[ 1UL ];
     fd_memcpy( slot->payload, payload_scratch[ 1UL ], payload_sz[ 1UL ]                                              );
     fd_memcpy( TXN(slot),     txn,                    fd_txn_footprint( txn->instr_cnt, txn->addr_table_lookup_cnt ) );
 
-    fd_pack_insert_transaction( slot_chunk, state.dcache_base, 0UL, state.cu_limit, rng, state.cu_est_tbl, state.txnq, state.freelist );
+    fd_pack_insert_transaction( state.pack, slot );
   }
-  FD_TEST( freelist_cnt( state.freelist ) >= 1024UL );
+  /* FD_TEST( freelist_cnt( state.freelist ) >= 1024UL ); */
 
   ulong read_seq = state.seq;
   for( ulong j=0UL; j<1024UL; j++ ) {
-    fd_pack_schedule_return_t result = fd_pack_schedule_transaction( state.bank_cnt, state.cu_limit, state.bank_status,
-        state.last_scheduled, state.txnq, state.outq, state.r_accts_in_use, state.w_accts_in_use,
-        state.freelist, state.dcache_base, state.mcache, &state.seq, txnq_max( state.txnq ) );
+    fd_pack_schedule_return_t result = fd_pack_schedule_transaction( state.pack );
     FD_TEST( result.status==FD_PACK_SCHEDULE_RETVAL_SCHEDULED );
   }
   /* Examine what was scheduled */
@@ -538,43 +482,61 @@ void heap_overflow_test( void ) {
 void test_read_shadow( void ) {
   pack_state state;
   FD_LOG_NOTICE(( "TEST RS" ));
-  init_all( 6UL, 128UL, 512UL, 10000UL, &state );
+  init_all( 6UL, 128UL, 512UL, 10000UL, 5000UL, &state );
   ulong read_seq = state.seq;
   ulong i = 0;
   double j = 13.0;
-  /* 0       5      10    15    ( x100, not to scale)
+  /* Notation: [ writes / reads ]
+
+     0       5      10    15    ( x100, not to scale)
      [ B / A ]
              [ BA / ]
      [C/A]
      [ D / A ]   (fits in the read shadow)
                     [  E / A  ]  (doesn't fit in the read shadow) */
-  make_transaction( i,  500U, j--, "B", "A" ); insert_and_schedule( i++, &state ); 
-  make_transaction( i,  500U, j--, "BA", "" ); insert_and_schedule( i++, &state ); 
+  make_transaction( i,  500U, j--, "B", "A" ); insert_and_schedule( i++, &state );
+  make_transaction( i,  500U, j--, "BA", "" ); insert_and_schedule( i++, &state );
   make_transaction( i,  300U, j--, "C", "A" ); insert_and_schedule( i++, &state );
   make_transaction( i,  500U, j--, "D", "A" ); insert_and_schedule( i++, &state );
   validate_all(  500UL, 0UL, 3UL, read_seq, 0, &state ); /* i==1 is in outq */
   make_transaction( i,  800U, j--, "E", "A" ); insert_and_schedule( i++, &state );
   validate_all( 1800UL, 0UL, 5UL, read_seq, 1, &state );
 }
+ulong count_published( pack_state* state, ulong start_seq ) {
+  ulong read_seq = start_seq;
+  fd_frag_meta_t const * mline = state->mcache + fd_mcache_line_idx( read_seq, state->mcache_depth );
+  for( ulong j=0UL; ; j++ ) {
+    ulong seq_found = fd_frag_meta_seq_query( mline );
+    long  diff      = fd_seq_diff( seq_found, read_seq );
+    if( diff ) return j;
+
+    read_seq = fd_seq_inc( read_seq, 1UL );
+    mline = state->mcache + fd_mcache_line_idx( read_seq, state->mcache_depth );
+  }
+}
 
 void test_delayed_output( void ) {
   pack_state state;
   FD_LOG_NOTICE(( "TEST DELAYED OUTPUT" ));
-  init_all( 4UL, 128UL, 512UL, 10000UL, &state );
+  init_all( 4UL, 128UL, 512UL, 10000UL, 5000UL, &state );
   ulong read_seq = state.seq;
   ulong i = 0;
   double j = 13.0;
+  FD_TEST( 0UL == count_published( &state, read_seq ) );
   make_transaction( i,  500U, j--, "B", "A" ); insert_and_schedule( i++, &state ); /* sched at 0 */
-  FD_TEST( 0UL == outq_cnt( state.outq ) );
+  FD_TEST( 1UL == count_published( &state, read_seq ) );
+
   make_transaction( i,  500U, j--, "BA", "" ); insert_and_schedule( i++, &state ); /* sched at 5 */
-  FD_TEST( 1UL == outq_cnt( state.outq ) );
+  FD_TEST( 1UL == count_published( &state, read_seq ) );
+
   make_transaction( i,  200U, j--, "D",  "" ); insert_and_schedule( i++, &state ); /* sched at 0 */
-  FD_TEST( 1UL == outq_cnt( state.outq ) );
+  FD_TEST( 2UL == count_published( &state, read_seq ) );
+
   make_transaction( i,  200U, j--, "D",  "" ); insert_and_schedule( i++, &state ); /* sched at 2 */
-  FD_TEST( 2UL == outq_cnt( state.outq ) );
+  FD_TEST( 2UL == count_published( &state, read_seq ) );
 
   validate_all( 1000UL, 0UL, 4UL, read_seq, 1, &state );
-  FD_TEST( 0UL == outq_cnt( state.outq ) );
+  FD_TEST( 4UL == count_published( &state, read_seq ) );
 
   const ulong correct_order[4] = { 0UL, 2UL, 3UL, 1UL };
   fd_frag_meta_t const * mline = state.mcache + fd_mcache_line_idx( read_seq, state.mcache_depth );
