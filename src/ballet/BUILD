@@ -19,8 +19,10 @@ fd_cc_library(
     visibility = ["//visibility:public"],
     deps = [
         ":base_lib",
+        "//src/ballet/base58",
         "//src/ballet/block",
         "//src/ballet/bmtree",
+        "//src/ballet/cshim",  # TODO remove
         "//src/ballet/ed25519",
         "//src/ballet/pack",
         "//src/ballet/poh",
@@ -28,6 +30,5 @@ fd_cc_library(
         "//src/ballet/sha512",
         "//src/ballet/shred",
         "//src/ballet/txn",
-        "//src/ballet/base58",
     ],
 )

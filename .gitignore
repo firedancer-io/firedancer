@@ -11,3 +11,4 @@ bazel-testlogs
 
 genhtml/
 target/
+fd_ffi.rs

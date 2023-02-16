@@ -1,4 +1,5 @@
 #include "fd_frank.h"
+#include "../../disco/pack/fd_pack.h"
 
 #if FD_HAS_FRANK
 
@@ -63,6 +64,68 @@ fd_frank_pack_task( int     argc,
   ulong accum_ovrnp_cnt = 0UL;
   ulong accum_ovrnr_cnt = 0UL;
 
+  ulong bank_cnt = fd_pod_query_ulong( cfg_pod, "pack.bank-cnt", 0UL );
+  if( FD_UNLIKELY( !bank_cnt ) ) FD_LOG_ERR(( "pack.bank-cnt unset or set to zero" ));
+
+  ulong txnq_sz = fd_pod_query_ulong( cfg_pod, "pack.txnq-sz", 0UL );
+  if( FD_UNLIKELY( !txnq_sz ) ) FD_LOG_ERR(( "pack.txnq-sz unset or set to zero" ));
+
+  ulong cu_est_tbl_sz = fd_pod_query_ulong( cfg_pod, "pack.cu-est-tbl-sz", 0UL );
+  if( FD_UNLIKELY( !cu_est_tbl_sz ) ) FD_LOG_ERR(( "pack.cu-est-tbl-sz unset or set to zero" ));
+
+  FD_LOG_INFO(( "joining %s.pack.out-mcache", cfg_path ));
+  fd_frag_meta_t * out_mcache = fd_mcache_join( fd_wksp_pod_map( cfg_pod, "pack.out-mcache" ) );
+  if( FD_UNLIKELY( !out_mcache ) ) FD_LOG_ERR(( "fd_mcache_join failed" ));
+
+  FD_LOG_INFO(( "joining %s.pack.out-dcache", cfg_path ));
+  uchar * out_dcache = fd_dcache_join( fd_wksp_pod_map( cfg_pod, "pack.out-dcache" ) );
+  if( FD_UNLIKELY( !out_dcache ) ) FD_LOG_ERR(( "fd_dcache_join failed" ));
+
+  FD_LOG_INFO(( "joining %s.pack.data", cfg_path ));
+  void * _scratch = fd_wksp_pod_map( cfg_pod, "pack.data" );
+
+  fd_pack_bank_status_t *   bank_status;
+  fd_pack_orderable_txn_t * last_scheduled;
+  fd_pack_orderable_txn_t * txnq;
+  fd_frag_meta_t *          outq;
+  fd_pack_addr_use_t *      r_accts_in_use;
+  fd_pack_addr_use_t *      w_accts_in_use;
+  fd_est_tbl_t *            cu_est_tbl;
+  ulong *                   freelist;
+
+#define SCRATCH_ALLOC( a, s ) (__extension__({                    \
+    ulong _scratch_alloc = fd_ulong_align_up( scratch_top, (a) ); \
+    scratch_top = _scratch_alloc + (s);                           \
+    (void *)_scratch_alloc;                                       \
+  }))
+
+  ulong dcache_data_sz = fd_dcache_req_data_sz( sizeof(fd_txn_p_t), txnq_sz, 1UL, 1 );
+  int   lg_tbl_sz      = fd_ulong_find_msb( fd_ulong_pow2_up( 2UL*FD_TXN_ACCT_ADDR_MAX*bank_cnt ) );
+  ulong freelist_sz    = 2UL*txnq_sz+bank_cnt;
+  if( FD_UNLIKELY( fd_dcache_data_sz( out_dcache ) < dcache_data_sz ) )
+    FD_LOG_ERR(( "dcache too small. Data region must be at least %lu bytes.", dcache_data_sz ));
+
+  ulong scratch_top = (ulong)_scratch;
+  /*   */bank_status      = SCRATCH_ALLOC( alignof(fd_pack_bank_status_t),    bank_cnt*sizeof(fd_pack_bank_status_t)     );
+  /*   */last_scheduled   = SCRATCH_ALLOC( alignof(fd_pack_orderable_txn_t),  bank_cnt*sizeof(fd_pack_orderable_txn_t)   );
+  void * outq_shmem       = SCRATCH_ALLOC( outq_align(),                      outq_footprint( bank_cnt )                 );
+  void * txnq_shmem       = SCRATCH_ALLOC( txnq_align( ),                     txnq_footprint( txnq_sz )                  );
+  void * r_accts_iu_shmem = SCRATCH_ALLOC( acct_uses_align( ),                acct_uses_footprint( lg_tbl_sz )           );
+  void * w_accts_iu_shmem = SCRATCH_ALLOC( acct_uses_align( ),                acct_uses_footprint( lg_tbl_sz )           );
+  void * cu_est_tbl_shmem = SCRATCH_ALLOC( fd_est_tbl_align( ),               fd_est_tbl_footprint( cu_est_tbl_sz )      );
+  void * freelist_shmem   = SCRATCH_ALLOC( freelist_align( ),                 freelist_footprint( freelist_sz)           );
+  if( FD_UNLIKELY( !out_dcache ) ) FD_LOG_ERR(( "fd_dcache_join failed" ));
+#undef SCRATCH_ALLOC
+
+  outq             = outq_join(       outq_shmem       );
+  txnq             = txnq_join(       txnq_shmem       );
+  r_accts_in_use   = acct_uses_join(  r_accts_iu_shmem );
+  w_accts_in_use   = acct_uses_join(  w_accts_iu_shmem );
+  cu_est_tbl       = fd_est_tbl_join( cu_est_tbl_shmem );
+  freelist         = freelist_join(   freelist_shmem   );
+
+  ulong out_depth = txnq_max( txnq );
+
   /* Setup local objects used by this tile */
 
   long lazy = fd_pod_query_long( cfg_pod, "pack.lazy", 0L );
@@ -78,18 +141,36 @@ fd_frank_pack_task( int     argc,
   fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, seed, 0UL ) );
   if( FD_UNLIKELY( !rng ) ) FD_LOG_ERR(( "fd_rng_join failed" ));
 
+
+  ulong * out_sync = fd_mcache_seq_laddr( out_mcache );
+  ulong   out_seq  = fd_mcache_seq_query( out_sync );
+
+  uint cu_limit  = fd_pod_query_uint( cfg_pod, "pack.cu-limit", 12000000U ); 
+  FD_LOG_INFO(( "packing blocks of %u CUs with a max parallelism of %lu", cu_limit, bank_cnt ));
+
+  const ulong lamports_per_signature = 5000UL;
+  const ulong block_duration_ns      = 400UL*1000UL*1000UL; /* 400ms */
+
+  long block_duration_ticks = (long)(fd_tempo_tick_per_ns( NULL ) * (double)block_duration_ns);
   /* Start packing */
 
-  FD_LOG_INFO(( "pack run" ));
+  fd_pack_reset( bank_cnt, bank_status, last_scheduled, r_accts_in_use, w_accts_in_use, outq, freelist, txnq, wksp );
 
-  long now  = fd_tickcount();
-  long then = now;            /* Do housekeeping on first iteration of run loop */
+  FD_LOG_INFO(( "pack run" ));
   fd_cnc_signal( cnc, FD_CNC_SIGNAL_RUN );
+
+  long now            = fd_tickcount();
+  long then           = now;            /* Do housekeeping on first iteration of run loop */
+  long block_end      = now + block_duration_ticks;
+  long schedule_ready = now;
   for(;;) {
 
     /* Do housekeeping at a low rate in the background */
 
     if( FD_UNLIKELY( (now-then)>=0L ) ) {
+
+      /* Send synchronization info */
+      fd_mcache_seq_update( out_sync, out_seq );
 
       /* Send flow control credits */
       fd_fctl_rx_cr_return( fseq, seq );
@@ -118,6 +199,44 @@ fd_frank_pack_task( int     argc,
       then = now + (long)fd_tempo_async_reload( rng, async_min );
     }
 
+    /* Are we ready to end the block? */
+    if( FD_UNLIKELY( (now-block_end)>=0L ) ) {
+      fd_pack_next_block( bank_cnt, bank_status, last_scheduled,
+          r_accts_in_use, w_accts_in_use, outq, out_mcache, &out_seq, out_depth, freelist );
+      block_end += block_duration_ticks;
+      schedule_ready = now;
+    }
+
+    /* Is it time to schedule the next transaction? */
+    /* FIXME: What case do we want to optimize for? */
+    if( FD_LIKELY( txnq_cnt( txnq ) ) && FD_LIKELY( (now-schedule_ready)>=0L ) ) {
+      fd_pack_schedule_return_t result;
+      result = fd_pack_schedule_transaction( bank_cnt, cu_limit, bank_status,
+          last_scheduled, txnq, outq, r_accts_in_use, w_accts_in_use,
+          freelist, wksp, out_mcache, &out_seq, out_depth );
+
+#if DETAILED_LOGGING
+      ulong const * seq = (ulong const *)fd_mcache_seq_laddr_const( out_mcache );
+      FD_LOG_INFO(( "Out mcache seq: %lu. Emitted cnt: %hhu", fd_mcache_seq_query( seq ), result.mcache_emitted_cnt ));
+      if     ( result.status==FD_PACK_SCHEDULE_RETVAL_BANKDONE )
+        FD_LOG_INFO(( "Banking thread %hhu done", result.banking_thread ));
+      else if( result.status==FD_PACK_SCHEDULE_RETVAL_STALLING )
+        FD_LOG_INFO(( "Banking thread %hhu stalling %u.", result.banking_thread, result.stall_duration ));
+      else if( result.status==FD_PACK_SCHEDULE_RETVAL_ALLDONE )
+        FD_LOG_INFO(( "Transaction not scheduled because all banking threads are done." ));
+      else
+        FD_LOG_INFO(( "Transaction scheduled to banking thread %hhu at time %u", result.banking_thread, result.start_time ));
+#else
+      (void) result;
+#endif
+      uint min_in_use_until = cu_limit;
+      for( ulong j=0UL; j<bank_cnt; j++ ) min_in_use_until = fd_uint_min( min_in_use_until, bank_status[ j ].in_use_until );
+      if( FD_UNLIKELY( result.status==FD_PACK_SCHEDULE_RETVAL_ALLDONE ) )
+        schedule_ready = block_end;
+      else
+        schedule_ready = block_end - block_duration_ticks + block_duration_ticks * min_in_use_until / cu_limit;
+    }
+
     /* See if there are any transactions waiting to be packed */
     ulong seq_found = fd_frag_meta_seq_query( mline );
     long  diff      = fd_seq_diff( seq_found, seq );
@@ -138,20 +257,47 @@ fd_frank_pack_task( int     argc,
     /* At this point, we have started receiving frag seq with details in
        mline at time now.  Speculatively processs it here. */
 
-    /* Placeholder for speculative pack operations */
-    ulong sz = (ulong)mline->sz;
+    /* Speculative pack operations */
+    ulong        slot_chunk = freelist_pop_head( freelist );
+    fd_txn_p_t * slot       = fd_chunk_to_laddr( wksp, slot_chunk );
+
+    ulong         sz           = (ulong)mline->sz;
+    uchar const * dcache_entry = fd_chunk_to_laddr_const( wksp, mline->chunk );
+    ulong         mline_sig    = mline->sig;
+    /* Assume that the dcache entry is:
+         Payload ....... (payload_sz bytes)
+         0 or 1 byte of padding (since alignof(fd_txn) is 2)
+         fd_txn ....... (size computed by fd_txn_footprint)
+         payload_sz  (2B)
+      mline->sz includes all three fields and the padding */
+    ulong payload_sz = *(ushort*)(dcache_entry + sz - sizeof(ushort));
+    uchar    const * payload = dcache_entry;
+    fd_txn_t const * txn     = (fd_txn_t const *)( dcache_entry + fd_ulong_align_up( payload_sz, 2UL ) );
+    fd_memcpy( slot->payload, payload, payload_sz                                                     );
+    fd_memcpy( TXN(slot),     txn,     fd_txn_footprint( txn->instr_cnt, txn->addr_table_lookup_cnt ) );
+    slot->payload_sz = payload_sz;
+    slot->mline_sig  = mline_sig;
+
+#if DETAILED_LOGGING
+    FD_LOG_NOTICE(( "Pack got a packet. Payload size: %lu, txn footprint: %lu", payload_sz,
+          fd_txn_footprint( txn->instr_cnt, txn->addr_table_lookup_cnt )
+        ));
+#endif
 
     /* Check that we weren't overrun while processing */
     seq_found = fd_frag_meta_seq_query( mline );
     if( FD_UNLIKELY( fd_seq_ne( seq_found, seq ) ) ) {
+      freelist_push_head( freelist, slot_chunk );
       accum_ovrnr_cnt++;
       seq = seq_found;
       continue;
     }
 
-    /* Placeholder for non-speculative pack operations */
+    /* Non-speculative pack operations */
     accum_pub_cnt++;
     accum_pub_sz += sz;
+
+    fd_pack_insert_transaction( slot_chunk, wksp, lamports_per_signature, cu_limit, rng, cu_est_tbl, txnq, freelist );
 
     /* Wind up for the next iteration */
     seq   = fd_seq_inc( seq, 1UL );
@@ -159,7 +305,7 @@ fd_frank_pack_task( int     argc,
   }
 
   /* Clean up */
-  
+
   fd_cnc_signal( cnc, FD_CNC_SIGNAL_BOOT );
   FD_LOG_INFO(( "pack fini" ));
   fd_rng_delete    ( fd_rng_leave   ( rng    ) );
