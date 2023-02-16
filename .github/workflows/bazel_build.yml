@@ -11,6 +11,9 @@ jobs:
     steps:
       - uses: actions/checkout@v3
 
+      - name: Install deps
+        run: ./contrib/ci-deps.sh
+
       - uses: bazelbuild/setup-bazelisk@v2
 
       - name: Mount bazel cache

@@ -188,3 +188,28 @@ git_repository(
     commit = "12d08b77180e02e4088a7f0215632995babb3664",
     remote = "https://github.com/firedancer-io/firedancer-testbins.git",
 )
+
+################################################################################
+# libbpf (Mirror of linux/tools/lib/bpf)                                       #
+################################################################################
+
+http_archive(
+    name = "libbpf",
+    build_file = "//:third_party/libbpf.BUILD",
+    sha256 = "1e86845dbe7bd75a979fa3b2ae23374fc9a515b8ab19a573a7636f66dc2123f5",
+    strip_prefix = "libbpf-0.7.0",
+    url = "https://github.com/libbpf/libbpf/archive/refs/tags/v0.7.0.tar.gz",
+)
+
+################################################################################
+# OpenSSL with QUIC support                                                    #
+################################################################################
+
+# Fetch OpenSSL
+http_archive(
+    name = "openssl",
+    build_file = "//:third_party/openssl.BUILD",
+    sha256 = "5635874b984983bcb658a9f79f167f1a10d84106c3ff6a4151fc19d984c735a8",
+    strip_prefix = "openssl-OpenSSL_1_1_1s-quic1",
+    url = "https://github.com/quictls/openssl/archive/refs/tags/OpenSSL_1_1_1s+quic1.tar.gz",
+)
