@@ -293,18 +293,12 @@ fd_quic_tls_process( fd_quic_tls_hs_t * self ) {
             self->err_ssl_err = err;
             self->err_line    = __LINE__;
 
-            printf( "ssl rc: %d\n", (int)ssl_rc );
-            printf( "ssl err: %d\n", (int)err );
-            fflush( stdout );
-
             return FD_QUIC_TLS_FAILED;
           }
         }
       case 1: // completed
         self->is_hs_complete = 1;
         self->quic_tls->handshake_complete_cb( self, self->context );
-        printf( "fd_quic_tls_process success\n" );
-        fflush( stdout );
         return FD_QUIC_TLS_SUCCESS;
       default:
         {
@@ -316,10 +310,6 @@ fd_quic_tls_process( fd_quic_tls_hs_t * self ) {
             self->err_ssl_rc  = (int)ssl_rc;
             self->err_ssl_err = err;
             self->err_line    = __LINE__;
-
-            printf( "ssl rc: %d\n", (int)ssl_rc );
-            printf( "ssl err: %d\n", (int)err );
-            fflush( stdout );
 
             return FD_QUIC_TLS_FAILED;
           }
