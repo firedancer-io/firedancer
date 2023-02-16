@@ -2203,7 +2203,7 @@ fd_quic_tls_cb_handshake_complete( fd_quic_tls_hs_t * hs,
   }
 }
 
-ulong
+static ulong
 fd_quic_frame_handle_crypto_frame( void *                   vp_context,
                                    fd_quic_crypto_frame_t * crypto,
                                    uchar const *            p,
@@ -3268,8 +3268,6 @@ fd_quic_conn_service( fd_quic_t * quic, fd_quic_conn_t * conn, ulong now ) {
           /* mark as DEAD, and allow it to be cleaned up */
           conn->state             = FD_QUIC_CONN_STATE_DEAD;
           fd_quic_reschedule_conn( conn, now + 1u );
-          printf( "%s : line %d\n", __func__, (int)__LINE__ );
-          fflush( stdout );
           return;
         }
 
@@ -3814,7 +3812,7 @@ fd_quic_get_next_wakeup( fd_quic_t * quic ) {
 }
 
 /* frame handling function default definitions */
-ulong
+static ulong
 fd_quic_frame_handle_padding_frame(
     void * context,
     fd_quic_padding_frame_t * data,
@@ -3827,7 +3825,7 @@ fd_quic_frame_handle_padding_frame(
   return 0;
 }
 
-ulong
+static ulong
 fd_quic_frame_handle_ping_frame(
     void *                 vp_context,
     fd_quic_ping_frame_t * data,
@@ -4057,7 +4055,7 @@ fd_quic_process_ack_range( fd_quic_conn_t * conn,
 }
 
 
-ulong
+static ulong
 fd_quic_frame_handle_ack_frame(
     void * vp_context,
     fd_quic_ack_frame_t * data,
@@ -4120,7 +4118,7 @@ fd_quic_frame_handle_ack_frame(
   return (ulong)( p - p_str );
 }
 
-ulong
+static ulong
 fd_quic_frame_handle_ack_range_frag(
     void * context,
     fd_quic_ack_range_frag_t * data,
@@ -4133,7 +4131,7 @@ fd_quic_frame_handle_ack_range_frag(
   return FD_QUIC_PARSE_FAIL;
 }
 
-ulong
+static ulong
 fd_quic_frame_handle_ecn_counts_frag(
     void * context,
     fd_quic_ecn_counts_frag_t * data,
@@ -4146,7 +4144,7 @@ fd_quic_frame_handle_ecn_counts_frag(
   return FD_QUIC_PARSE_FAIL;
 }
 
-ulong
+static ulong
 fd_quic_frame_handle_reset_stream_frame(
     void * context,
     fd_quic_reset_stream_frame_t * data,
@@ -4159,7 +4157,7 @@ fd_quic_frame_handle_reset_stream_frame(
   return FD_QUIC_PARSE_FAIL;
 }
 
-ulong
+static ulong
 fd_quic_frame_handle_stop_sending_frame(
     void * context,
     fd_quic_stop_sending_frame_t * data,
@@ -4172,7 +4170,7 @@ fd_quic_frame_handle_stop_sending_frame(
   return FD_QUIC_PARSE_FAIL;
 }
 
-ulong
+static ulong
 fd_quic_frame_handle_new_token_frame(
     void * context,
     fd_quic_new_token_frame_t * data,
@@ -4185,7 +4183,7 @@ fd_quic_frame_handle_new_token_frame(
   return FD_QUIC_PARSE_FAIL;
 }
 
-ulong
+static ulong
 fd_quic_frame_handle_stream_frame(
     void *                       vp_context,
     fd_quic_stream_frame_t *     data,
@@ -4368,7 +4366,7 @@ fd_quic_frame_handle_stream_frame(
   return data_sz;
 }
 
-ulong
+static ulong
 fd_quic_frame_handle_max_data_frame(
     void *                     vp_context,
     fd_quic_max_data_frame_t * data,
@@ -4390,7 +4388,7 @@ fd_quic_frame_handle_max_data_frame(
   return 0; /* no additional bytes consumed from buffer */
 }
 
-ulong
+static ulong
 fd_quic_frame_handle_max_stream_data(
     void *                      vp_context,
     fd_quic_max_stream_data_t * data,
@@ -4425,7 +4423,7 @@ fd_quic_frame_handle_max_stream_data(
   return 0;
 }
 
-ulong
+static ulong
 fd_quic_frame_handle_max_streams_frame(
     void * context,
     fd_quic_max_streams_frame_t * data,
@@ -4438,7 +4436,7 @@ fd_quic_frame_handle_max_streams_frame(
   return FD_QUIC_PARSE_FAIL;
 }
 
-ulong
+static ulong
 fd_quic_frame_handle_data_blocked_frame(
     void * context,
     fd_quic_data_blocked_frame_t * data,
@@ -4451,7 +4449,7 @@ fd_quic_frame_handle_data_blocked_frame(
   return FD_QUIC_PARSE_FAIL;
 }
 
-ulong
+static ulong
 fd_quic_frame_handle_stream_data_blocked_frame(
     void * context,
     fd_quic_stream_data_blocked_frame_t * data,
@@ -4464,7 +4462,7 @@ fd_quic_frame_handle_stream_data_blocked_frame(
   return FD_QUIC_PARSE_FAIL;
 }
 
-ulong
+static ulong
 fd_quic_frame_handle_streams_blocked_frame(
     void * context,
     fd_quic_streams_blocked_frame_t * data,
@@ -4477,7 +4475,7 @@ fd_quic_frame_handle_streams_blocked_frame(
   return FD_QUIC_PARSE_FAIL;
 }
 
-ulong
+static ulong
 fd_quic_frame_handle_new_conn_id_frame(
     void * context,
     fd_quic_new_conn_id_frame_t * data,
@@ -4490,7 +4488,7 @@ fd_quic_frame_handle_new_conn_id_frame(
   return FD_QUIC_PARSE_FAIL;
 }
 
-ulong
+static ulong
 fd_quic_frame_handle_retire_conn_id_frame(
     void * context,
     fd_quic_retire_conn_id_frame_t * data,
@@ -4503,7 +4501,7 @@ fd_quic_frame_handle_retire_conn_id_frame(
   return FD_QUIC_PARSE_FAIL;
 }
 
-ulong
+static ulong
 fd_quic_frame_handle_path_challenge_frame(
     void * context,
     fd_quic_path_challenge_frame_t * data,
@@ -4516,7 +4514,7 @@ fd_quic_frame_handle_path_challenge_frame(
   return FD_QUIC_PARSE_FAIL;
 }
 
-ulong
+static ulong
 fd_quic_frame_handle_path_response_frame(
     void * context,
     fd_quic_path_response_frame_t * data,
@@ -4529,7 +4527,7 @@ fd_quic_frame_handle_path_response_frame(
   return FD_QUIC_PARSE_FAIL;
 }
 
-ulong
+static ulong
 fd_quic_frame_handle_conn_close_frame(
     void *                       vp_context,
     fd_quic_conn_close_frame_t * data,
@@ -4563,7 +4561,7 @@ fd_quic_frame_handle_conn_close_frame(
   return 0u;
 }
 
-ulong
+static ulong
 fd_quic_frame_handle_handshake_done_frame(
     void *                           vp_context,
     fd_quic_handshake_done_frame_t * data,
@@ -4600,7 +4598,7 @@ fd_quic_frame_handle_handshake_done_frame(
   return 0;
 }
 
-ulong
+static ulong
 fd_quic_frame_handle_common_frag(
     void * context,
     fd_quic_common_frag_t * data,
