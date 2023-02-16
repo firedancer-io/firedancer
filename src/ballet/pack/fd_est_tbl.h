@@ -1,7 +1,7 @@
 #ifndef HEADER_fd_src_ballet_pack_fd_est_tbl_h
 #define HEADER_fd_src_ballet_pack_fd_est_tbl_h
 
-#include "../fd_disco_base.h"
+#include "../fd_ballet_base.h"
 
 
 /* This header defines a data structure for estimating the sliding-window mean

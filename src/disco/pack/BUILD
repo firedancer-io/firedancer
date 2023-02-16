@@ -5,8 +5,6 @@ package(default_visibility = ["//visibility:public"])
 fd_cc_library(
     name = "pack",
     srcs = [
-        "fd_compute_budget_program.h",
-        "fd_est_tbl.h",
         "fd_pack.c",
     ],
     hdrs = [
@@ -23,16 +21,6 @@ fd_cc_binary(
     srcs = [
         "fd_pack_ctl.c",
     ],
-    deps = [":pack"],
-)
-
-fd_cc_test(
-    srcs = ["test_compute_budget_program.c"],
-    deps = [":pack"],
-)
-
-fd_cc_test(
-    srcs = ["test_est_tbl.c"],
     deps = [":pack"],
 )
 

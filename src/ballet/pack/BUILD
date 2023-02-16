@@ -4,6 +4,7 @@ fd_cc_library(
     name = "pack",
     hdrs = [
         "fd_compute_budget_program.h",
+        "fd_est_tbl.h",
     ],
     visibility = ["//visibility:public"],
     deps = [
@@ -14,5 +15,11 @@ fd_cc_library(
 fd_cc_test(
     size = "small",
     srcs = ["test_compute_budget_program.c"],
+    deps = ["//src/ballet"],
+)
+
+fd_cc_test(
+    size = "small",
+    srcs = ["test_est_tbl.c"],
     deps = ["//src/ballet"],
 )
