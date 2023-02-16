@@ -1,6 +1,7 @@
 workspace(name = "firedancer")
 
 load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
+load("@bazel_tools//tools/build_defs/repo:git.bzl", "git_repository")
 
 ################################################################################
 # Bazel Skylib                                                                 #
@@ -174,4 +175,16 @@ http_archive(
     sha256 = "425c0454734dfb74ac3b384689a3c9c99077fbce2b52b9794165b9cc965d8301",
     strip_prefix = "wireshark-v4.0.2",
     url = "https://gitlab.com/wireshark/wireshark/-/archive/v4.0.2/wireshark-v4.0.2.tar.gz",
+)
+
+################################################################################
+# Firedancer Test Bins                                                         #
+################################################################################
+
+# Fetch firedancer-testbins repo
+git_repository(
+    name = "firedancer-testbins",
+    build_file = "//:third_party/firedancer_testbins.BUILD",
+    commit = "12d08b77180e02e4088a7f0215632995babb3664",
+    remote = "https://github.com/firedancer-io/firedancer-testbins.git",
 )
