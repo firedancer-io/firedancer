@@ -4,10 +4,7 @@ package(default_visibility = ["//visibility:public"])
 
 fd_cc_library(
     name = "sbpf",
-    hdrs = [
-        "fd_opcode.h",
-        "fd_sbpf.h",
-    ],
+    hdrs = ["fd_sbpf_opcode.h"],
 )
 
 fd_cc_test(
