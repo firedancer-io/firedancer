@@ -1,37 +1,29 @@
 
-use solana_runtime::serde_snapshot::newer::DeserializableVersionedBank;
-use solana_runtime::serde_snapshot::storage::*;
-use solana_runtime::serde_snapshot::*;
-use serde::Deserialize;
-
 extern crate hex;
 extern crate serde_json;
 
-use std::io::Read;
-use std::io::BufReader;
-use std::fs::File;
+use serde::Serialize;
 
-#[derive(Deserialize)]
+//use std::collections::BTreeMap;
+use clock::UnixTimestamp;
+
+#[derive(Serialize)]
 pub struct Foo {
-    pub versioned_bank: DeserializableVersionedBank,
-    pub accounts_db: AccountsDbFields<SerializableAccountStorageEntry>
-}
+    /// when the network (bootstrap validator) was started relative to the UNIX Epoch
+    pub creation_time: UnixTimestamp,
+    /// initial accounts
+//    pub accounts: BTreeMap<Pubkey, Account>,
+    /// built-in programs
+    pub b : u64
+};
 
 fn main() {
-    let f = File::open("/home/jsiegel/manifest").unwrap();
-    let mut reader = BufReader::new(f);
-    let mut buffer = Vec::new();
-    
-    // Read file into vector.
-    reader.read_to_end(&mut buffer).unwrap();
+    let s = Foo {
+        creation_time:  2,
+        b: 5
+    };
 
-    let foo: Foo = bincode::deserialize(buffer.as_slice()).unwrap();
-    let versioned_bank = &foo.versioned_bank;
-    println!("{}", versioned_bank.epoch_stakes.keys().len());
-    println!("{}", versioned_bank.stakes.vote_accounts.vote_accounts.keys().len());
-    println!("{}", versioned_bank.tick_height);
-
-    let d2: Vec<u8> = bincode::serialize(&versioned_bank.stakes).unwrap();
+    let d2: Vec<u8> = bincode::serialize(&s).unwrap();
     println!("hex: {}",  hex::encode(d2));
 
 

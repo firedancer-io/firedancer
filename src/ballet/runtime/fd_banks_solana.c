@@ -361,3 +361,76 @@ void fd_accounts_db_fields_decode(fd_accounts_db_fields_t* self, void const** da
   } else
     self->historical_roots_with_hash = NULL;
 }
+
+void fd_rust_duration_decode(fd_rust_duration_t* self, void const** data, void const* dataend, FD_FN_UNUSED alloc_fun allocf, FD_FN_UNUSED void* allocf_arg) {
+  fd_bincode_uint64_decode(&self->seconds, data, dataend);
+  fd_bincode_uint32_decode(&self->nanoseconds, data, dataend);
+}
+
+void fd_poh_config_decode(fd_poh_config_t* self, void const** data, void const* dataend, alloc_fun allocf, void* allocf_arg) {
+  fd_rust_duration_decode(&self->target_tick_duration, data, dataend, allocf, allocf_arg);
+  if (fd_bincode_option_decode(data, dataend)) {
+    self->target_tick_count = (ulong*)(*allocf)(sizeof(ulong), 8, allocf_arg);
+    fd_bincode_uint64_decode(self->target_tick_count, data, dataend);
+  } else
+    self->target_tick_count = NULL;
+  if (fd_bincode_option_decode(data, dataend)) {
+    self->hashes_per_tick = (ulong*)(*allocf)(sizeof(ulong), 8, allocf_arg);
+    fd_bincode_uint64_decode(self->hashes_per_tick, data, dataend);
+  } else
+    self->hashes_per_tick = NULL;
+}
+
+void fd_string_pubkey_pair_decode(fd_string_pubkey_pair_t* self, void const** data, void const* dataend, alloc_fun allocf, void* allocf_arg) {
+  ulong slen;
+  fd_bincode_uint64_decode(&slen, data, dataend);
+  self->string = (char*)(*allocf)(slen + 1, 1, allocf_arg);
+  fd_bincode_bytes_decode((uchar *) self->string, slen, data, dataend);
+  self->string[slen] = '\0';
+  fd_pubkey_decode(&self->pubkey, data, dataend, allocf, allocf_arg);
+}
+
+void fd_pubkey_account_pair_decode(fd_pubkey_account_pair_t* self, void const** data, void const* dataend, alloc_fun allocf, void* allocf_arg) {
+  fd_pubkey_decode(&self->key, data, dataend, allocf, allocf_arg);
+  fd_account_decode(&self->account, data, dataend, allocf, allocf_arg);
+}
+
+void fd_genesis_solana_decode(fd_genesis_solana_t* self, void const** data, void const* dataend, alloc_fun allocf, void* allocf_arg) {
+  fd_bincode_uint64_decode(&self->creation_time, data, dataend);
+
+  fd_bincode_uint64_decode(&self->accounts_len, data, dataend);
+  if (self->accounts_len != 0) {
+    self->accounts = (fd_pubkey_account_pair_t*)(*allocf)(FD_PUBKEY_ACCOUNT_PAIR_FOOTPRINT*self->accounts_len, FD_PUBKEY_ACCOUNT_PAIR_ALIGN, allocf_arg);
+    for (ulong i = 0; i < self->accounts_len; ++i)
+      fd_pubkey_account_pair_decode(self->accounts + i, data, dataend, allocf, allocf_arg);
+  } else 
+    self->accounts = NULL;
+
+  fd_bincode_uint64_decode(&self->native_instruction_processors_len, data, dataend);
+  if (self->native_instruction_processors_len != 0) {
+    self->native_instruction_processors = (fd_string_pubkey_pair_t*)(*allocf)(FD_STRING_PUBKEY_PAIR_FOOTPRINT*self->native_instruction_processors_len, FD_STRING_PUBKEY_PAIR_ALIGN, allocf_arg);
+    for (ulong i = 0; i < self->native_instruction_processors_len; ++i)
+      fd_string_pubkey_pair_decode(self->native_instruction_processors + i, data, dataend, allocf, allocf_arg);
+  } else 
+    self->native_instruction_processors = NULL;
+
+  fd_bincode_uint64_decode(&self->rewards_pools_len, data, dataend);
+  if (self->rewards_pools_len != 0) {
+    self->rewards_pools = (fd_pubkey_account_pair_t*)(*allocf)(FD_PUBKEY_ACCOUNT_PAIR_FOOTPRINT*self->rewards_pools_len, FD_PUBKEY_ACCOUNT_PAIR_ALIGN, allocf_arg);
+    for (ulong i = 0; i < self->rewards_pools_len; ++i)
+      fd_pubkey_account_pair_decode(self->rewards_pools + i, data, dataend, allocf, allocf_arg);
+  } else 
+    self->rewards_pools = NULL;
+
+  fd_bincode_uint64_decode(&self->ticks_per_slot, data, dataend);
+  fd_bincode_uint64_decode(&self->unused, data, dataend);
+
+  fd_poh_config_decode(&self->poh_config, data, dataend, allocf, allocf_arg);
+
+  fd_bincode_uint64_decode(&self->__backwards_compat_with_v0_23, data, dataend);
+  fd_fee_rate_governor_decode(&self->fee_rate_governor, data, dataend, allocf, allocf_arg);
+  fd_rent_decode(&self->rent, data, dataend, allocf, allocf_arg);
+  fd_inflation_decode(&self->inflation, data, dataend, allocf, allocf_arg);
+  fd_epoch_schedule_decode(&self->epoch_schedule, data, dataend, allocf, allocf_arg);
+  fd_bincode_uint32_decode(&self->cluster_type, data, dataend);
+}

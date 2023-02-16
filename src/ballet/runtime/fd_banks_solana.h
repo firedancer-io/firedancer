@@ -414,44 +414,124 @@ typedef struct fd_accounts_db_fields fd_accounts_db_fields_t;
 #define FD_ACCOUNTS_DB_FIELDS_FOOTPRINT sizeof(fd_accounts_db_fields_t)
 #define FD_ACCOUNTS_DB_FIELDS_ALIGN (8UL)
 
+// 12 bytes...  both fields are in bigint format
+// std::time::Duration::new(12, 10) == 0c000000000000000a000000
+struct fd_rust_duration {
+  ulong seconds;
+  uint nanoseconds;
+};
+typedef struct fd_rust_duration fd_rust_duration_t;
+
+struct fd_poh_config {
+  /// The target tick rate of the cluster.
+  fd_rust_duration_t target_tick_duration;
+
+  /// The target total tick count to be produced; used for testing only
+  ulong * target_tick_count;
+
+  /// How many hashes to roll before emitting the next tick entry.
+  /// None enables "Low power mode", which implies:
+  /// * sleep for `target_tick_duration` instead of hashing
+  /// * the number of hashes per tick will be variable
+  ulong * hashes_per_tick;
+};
+typedef struct fd_poh_config fd_poh_config_t;
+
+struct fd_string_pubkey_pair {
+  char *string;
+  fd_pubkey_t pubkey;
+};
+typedef struct fd_string_pubkey_pair fd_string_pubkey_pair_t;
+#define FD_STRING_PUBKEY_PAIR_FOOTPRINT sizeof(fd_string_pubkey_pair_t)
+#define FD_STRING_PUBKEY_PAIR_ALIGN (8UL)
+
+struct fd_pubkey_account_pair {
+  fd_pubkey_t  key;
+  fd_account_t account;
+};
+typedef struct fd_pubkey_account_pair fd_pubkey_account_pair_t;
+#define FD_PUBKEY_ACCOUNT_PAIR_FOOTPRINT sizeof(fd_pubkey_account_pair_t)
+#define FD_PUBKEY_ACCOUNT_PAIR_ALIGN (8UL)
+
+struct fd_genesis_solana {
+  /// when the network (bootstrap validator) was started relative to the UNIX Epoch
+  ulong creation_time;
+  /// initial accounts  (this is really a hash map in the solana version)
+  ulong accounts_len;
+  fd_pubkey_account_pair_t *accounts;
+  /// built-in programs
+  ulong native_instruction_processors_len;
+  fd_string_pubkey_pair_t *native_instruction_processors;
+  /// accounts for network rewards, these do not count towards capitalization
+  //    hashmap
+  ulong rewards_pools_len;
+  fd_pubkey_account_pair_t *rewards_pools;
+  //pub rewards_pools: BTreeMap<Pubkey, Account>,
+  ulong ticks_per_slot;
+  ulong unused;
+  /// network speed configuration
+  fd_poh_config_t poh_config;
+  /// this field exists only to ensure that the binary layout of GenesisConfig remains compatible
+  /// with the Solana v0.23 release line
+  ulong  __backwards_compat_with_v0_23;
+  /// transaction fee config
+  fd_fee_rate_governor_t fee_rate_governor;
+  /// rent config
+  fd_rent_t rent;
+  /// inflation config
+  fd_inflation_t inflation;
+  /// how slots map to epochs
+  fd_epoch_schedule_t epoch_schedule;
+  /// network runlevel
+  uint cluster_type; // 0 - testnet, 1 - mainnetBeta,  2-devnet, 3 - dev
+};
+typedef struct fd_genesis_solana fd_genesis_solana_t;
+#define FD_GENESIS_SOLANA_FOOTPRINT sizeof(fd_genesis_solana_t)
+#define FD_GENESIS_SOLANA_ALIGN (8UL)
+
 FD_PROTOTYPES_BEGIN
 
+void fd_account_decode(fd_account_t* self, void const** data, void const* dataend, alloc_fun allocf, void* allocf_arg);
+void fd_accounts_db_fields_decode(fd_accounts_db_fields_t* self, void const** data, void const* dataend, alloc_fun allocf, void* allocf_arg);
+void fd_bank_hash_info_decode(fd_bank_hash_info_t* self, void const** data, void const* dataend, alloc_fun allocf, void* allocf_arg);
+void fd_bank_hash_stats_decode(fd_bank_hash_stats_t* self, void const** data, void const* dataend, alloc_fun allocf, void* allocf_arg);
+void fd_block_hash_queue_decode(fd_block_hash_queue_t* self, void const** data, void const* dataend, alloc_fun allocf, void* allocf_arg);
+void fd_delegation_decode(fd_delegation_t* self, void const** data, void const* dataend, alloc_fun allocf, void* allocf_arg);
+void fd_delegation_pair_decode(fd_delegation_pair_t* self, void const** data, void const* dataend, alloc_fun allocf, void* allocf_arg);
+void fd_deserializable_versioned_bank_decode(fd_deserializable_versioned_bank_t* self, void const** data, void const* dataend, alloc_fun allocf, void* allocf_arg);
+void fd_epoch_epoch_stakes_pair_decode(fd_epoch_epoch_stakes_pair_t* self, void const** data, void const* dataend, alloc_fun allocf, void* allocf_arg);
+void fd_epoch_schedule_decode(fd_epoch_schedule_t* self,  void const** data,  void const* dataend, alloc_fun allocf, void* allocf_arg);
+void fd_epoch_stakes_decode(fd_epoch_stakes_t* self, void const** data, void const* dataend, alloc_fun allocf, void* allocf_arg);
 void fd_fee_calculator_decode(fd_fee_calculator_t* self, void const** data, void const* dataend, alloc_fun allocf, void* allocf_arg);
+void fd_fee_rate_governor_decode(fd_fee_rate_governor_t* self, void const** data, void const* dataend, alloc_fun allocf, void* allocf_arg);
+void fd_genesis_solana_decode(fd_genesis_solana_t* self, void const** data, void const* dataend, alloc_fun allocf, void* allocf_arg);
+void fd_hard_forks_decode(fd_hard_forks_t* self, void const** data, void const* dataend, alloc_fun allocf, void* allocf_arg);
 void fd_hash_age_decode(fd_hash_age_t* self, void const** data, void const* dataend, alloc_fun allocf, void* allocf_arg);
 void fd_hash_decode(fd_hash_t* self, void const** data, void const* dataend, alloc_fun allocf, void* allocf_arg);
 void fd_hash_hash_age_pair_decode(fd_hash_hash_age_pair_t* self, void const** data, void const* dataend, alloc_fun allocf, void* allocf_arg);
-void fd_block_hash_queue_decode(fd_block_hash_queue_t* self, void const** data, void const* dataend, alloc_fun allocf, void* allocf_arg);
-void fd_pubkey_decode(fd_pubkey_t* self, void const** data, void const* dataend, alloc_fun allocf, void* allocf_arg);
-void fd_epoch_schedule_decode(fd_epoch_schedule_t* self,  void const** data,  void const* dataend, alloc_fun allocf, void* allocf_arg);
-void fd_fee_rate_governor_decode(fd_fee_rate_governor_t* self, void const** data, void const* dataend, alloc_fun allocf, void* allocf_arg);
-void fd_slot_pair_decode(fd_slot_pair_t* self, void const** data, void const* dataend, alloc_fun allocf, void* allocf_arg);
-void fd_hard_forks_decode(fd_hard_forks_t* self, void const** data, void const* dataend, alloc_fun allocf, void* allocf_arg);
 void fd_inflation_decode(fd_inflation_t* self, void const** data, void const* dataend, alloc_fun allocf, void* allocf_arg);
-void fd_rent_decode(fd_rent_t* self, void const** data, void const* dataend, alloc_fun allocf, void* allocf_arg);
-void fd_rent_collector_decode(fd_rent_collector_t* self, void const** data, void const* dataend, alloc_fun allocf, void* allocf_arg);
-void fd_stake_history_entry_decode(fd_stake_history_entry_t* self, void const** data, void const* dataend, alloc_fun allocf, void* allocf_arg);
-void fd_stake_history_epochentry_pair_decode(fd_stake_history_epochentry_pair_t* self, void const** data, void const* dataend, alloc_fun allocf, void* allocf_arg);
-void fd_stake_history_decode(fd_stake_history_t* self, void const** data, void const* dataend, alloc_fun allocf, void* allocf_arg);
-void fd_account_decode(fd_account_t* self, void const** data, void const* dataend, alloc_fun allocf, void* allocf_arg);
-void fd_vote_accounts_pair_decode(fd_vote_accounts_pair_t* self, void const** data, void const* dataend, alloc_fun allocf, void* allocf_arg);
-void fd_vote_accounts_decode(fd_vote_accounts_t* self, void const** data, void const* dataend, alloc_fun allocf, void* allocf_arg);
-void fd_delegation_decode(fd_delegation_t* self, void const** data, void const* dataend, alloc_fun allocf, void* allocf_arg);
-void fd_delegation_pair_decode(fd_delegation_pair_t* self, void const** data, void const* dataend, alloc_fun allocf, void* allocf_arg);
-void fd_stakes_deligation_decode(fd_stakes_deligation_t* self, void const** data, void const* dataend, alloc_fun allocf, void* allocf_arg);
 void fd_node_vote_accounts_decode(node_vote_accounts_t* self, void const** data, void const* dataend, alloc_fun allocf, void* allocf_arg);
+void fd_poh_config_decode(fd_poh_config_t* self, void const** data, void const* dataend, alloc_fun allocf, void* allocf_arg);
+void fd_pubkey_account_pair_decode(fd_pubkey_account_pair_t* self, void const** data, void const* dataend, alloc_fun allocf, void* allocf_arg);
+void fd_pubkey_decode(fd_pubkey_t* self, void const** data, void const* dataend, alloc_fun allocf, void* allocf_arg);
 void fd_pubkey_node_vote_accounts_pair_decode(fd_pubkey_node_vote_accounts_pair_t* self, void const** data, void const* dataend, alloc_fun allocf, void* allocf_arg);
 void fd_pubkey_pubkey_pair_decode(fd_pubkey_pubkey_pair_t* self, void const** data, void const* dataend, alloc_fun allocf, void* allocf_arg);
-void fd_epoch_stakes_decode(fd_epoch_stakes_t* self, void const** data, void const* dataend, alloc_fun allocf, void* allocf_arg);
-void fd_epoch_epoch_stakes_pair_decode(fd_epoch_epoch_stakes_pair_t* self, void const** data, void const* dataend, alloc_fun allocf, void* allocf_arg);
 void fd_pubkey_u64_pair_decode(fd_pubkey_u64_pair_t* self, void const** data, void const* dataend, alloc_fun allocf, void* allocf_arg);
-void fd_unused_accounts_decode(fd_unused_accounts_t* self, void const** data, void const* dataend, alloc_fun allocf, void* allocf_arg);
-void fd_deserializable_versioned_bank_decode(fd_deserializable_versioned_bank_t* self, void const** data, void const* dataend, alloc_fun allocf, void* allocf_arg);
+void fd_rent_collector_decode(fd_rent_collector_t* self, void const** data, void const* dataend, alloc_fun allocf, void* allocf_arg);
+void fd_rent_decode(fd_rent_t* self, void const** data, void const* dataend, alloc_fun allocf, void* allocf_arg);
+void fd_rust_duration_decode(fd_rust_duration_t* self, void const** data, void const* dataend, alloc_fun allocf, void* allocf_arg);
 void fd_serializable_account_storage_entry_decode(fd_serializable_account_storage_entry_t* self, void const** data, void const* dataend, alloc_fun allocf, void* allocf_arg);
-void fd_bank_hash_stats_decode(fd_bank_hash_stats_t* self, void const** data, void const* dataend, alloc_fun allocf, void* allocf_arg);
-void fd_bank_hash_info_decode(fd_bank_hash_info_t* self, void const** data, void const* dataend, alloc_fun allocf, void* allocf_arg);
 void fd_slot_account_pair_decode(fd_slot_account_pair_t* self, void const** data, void const* dataend, alloc_fun allocf, void* allocf_arg);
 void fd_slot_map_pair_decode(fd_slot_map_pair_t* self, void const** data, void const* dataend, alloc_fun allocf, void* allocf_arg);
-void fd_accounts_db_fields_decode(fd_accounts_db_fields_t* self, void const** data, void const* dataend, alloc_fun allocf, void* allocf_arg);
+void fd_slot_pair_decode(fd_slot_pair_t* self, void const** data, void const* dataend, alloc_fun allocf, void* allocf_arg);
+void fd_stake_history_decode(fd_stake_history_t* self, void const** data, void const* dataend, alloc_fun allocf, void* allocf_arg);
+void fd_stake_history_entry_decode(fd_stake_history_entry_t* self, void const** data, void const* dataend, alloc_fun allocf, void* allocf_arg);
+void fd_stake_history_epochentry_pair_decode(fd_stake_history_epochentry_pair_t* self, void const** data, void const* dataend, alloc_fun allocf, void* allocf_arg);
+void fd_stakes_deligation_decode(fd_stakes_deligation_t* self, void const** data, void const* dataend, alloc_fun allocf, void* allocf_arg);
+void fd_string_pubkey_pair_decode(fd_string_pubkey_pair_t* self, void const** data, void const* dataend, alloc_fun allocf, void* allocf_arg);
+void fd_unused_accounts_decode(fd_unused_accounts_t* self, void const** data, void const* dataend, alloc_fun allocf, void* allocf_arg);
+void fd_vote_accounts_decode(fd_vote_accounts_t* self, void const** data, void const* dataend, alloc_fun allocf, void* allocf_arg);
+void fd_vote_accounts_pair_decode(fd_vote_accounts_pair_t* self, void const** data, void const* dataend, alloc_fun allocf, void* allocf_arg);
 
 FD_PROTOTYPES_END
 

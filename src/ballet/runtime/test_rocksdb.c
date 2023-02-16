@@ -5,14 +5,33 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <unistd.h>
+#include <fcntl.h>
 #include "fd_rocksdb.h"
+#include "fd_banks_solana.h"
 
 char* allocf(unsigned long len, FD_FN_UNUSED unsigned long align, FD_FN_UNUSED void* arg) {
   return malloc(len);
 }
 
 int main() {
+
+    const char *genesis = "/home/jsiegel/repos/solana/test-ledger/genesis.bin";
+    struct stat sbuf;
+    stat(genesis, &sbuf);
+    int fd = open(genesis, O_RDONLY);
+    uchar *buf = malloc((ulong) sbuf.st_size);
+    ssize_t n = read(fd, buf, (ulong) sbuf.st_size);
+    close(fd);
+    
+    void *data = buf;
+    void *dataend = &buf[n];
+    fd_genesis_solana_t gen;
+    fd_memset(&gen, 0, sizeof(gen));
+    fd_genesis_solana_decode(&gen, ( void const** )&data, dataend, allocf, NULL);
+
     const char *db_name = "/home/jsiegel/repos/solana/test-ledger/rocksdb";
 
     fd_rocksdb_t db;
