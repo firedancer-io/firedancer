@@ -95,8 +95,8 @@ int fd_funk_isopen(struct fd_funk* store,
                    struct fd_funk_xactionid const* id);
 
 // Update a record in the storage. Records are implicitly created/extended
-// as necessary. Gaps are zero filled.
-void fd_funk_write(struct fd_funk* store,
+// as necessary. Gaps are zero filled. Returns datalen on success, -1 on failure.
+long fd_funk_write(struct fd_funk* store,
                    struct fd_funk_xactionid const* xid,
                    struct fd_funk_recordid const* recordid,
                    const void* data,
