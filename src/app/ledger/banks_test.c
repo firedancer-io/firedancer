@@ -70,9 +70,9 @@ int main(FD_FN_UNUSED int argc, FD_FN_UNUSED char** argv) {
     unsigned char *outend = &out[len];
     const void * o = out;
 
-    struct fd_account a;
+    struct fd_solana_account a;
 //    memset(&a, 0, sizeof(a));
-    fd_account_decode(&a, &o, outend, allocf, NULL);
+    fd_solana_account_decode(&a, &o, outend, allocf, NULL);
 
     FD_TEST(a.lamports == 1);
     FD_TEST(a.data_len == 3);
@@ -183,9 +183,9 @@ int main(FD_FN_UNUSED int argc, FD_FN_UNUSED char** argv) {
     memset(&a, 0, sizeof(a));
     fd_deserializable_versioned_bank_decode(&a, &o, outend, allocf, NULL);
 
-    struct fd_accounts_db_fields db;
+    struct fd_solana_accounts_db_fields db;
     memset(&db, 0, sizeof(b));
-    fd_accounts_db_fields_decode(&db, &o, outend, allocf, NULL);
+    fd_solana_accounts_db_fields_decode(&db, &o, outend, allocf, NULL);
 
     FD_TEST(a.is_delta != 0);
   }

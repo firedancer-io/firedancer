@@ -118,7 +118,7 @@ void fd_stake_history_decode(fd_stake_history_t* self, void const** data, void c
     self->entries = NULL;
 }
 
-void fd_account_decode(fd_account_t* self, void const** data, void const* dataend, alloc_fun allocf, void* allocf_arg) {
+void fd_solana_account_decode(fd_solana_account_t* self, void const** data, void const* dataend, alloc_fun allocf, void* allocf_arg) {
   fd_bincode_uint64_decode(&self->lamports, data, dataend);
   fd_bincode_uint64_decode(&self->data_len, data, dataend);
   if (self->data_len > 0) {
@@ -134,7 +134,7 @@ void fd_account_decode(fd_account_t* self, void const** data, void const* dataen
 void fd_vote_accounts_pair_decode(fd_vote_accounts_pair_t* self, void const** data, void const* dataend, alloc_fun allocf, void* allocf_arg) {
   fd_pubkey_decode(&self->key, data, dataend, allocf, allocf_arg);
   fd_bincode_uint64_decode(&self->stake, data, dataend);
-  fd_account_decode(&self->value, data, dataend, allocf, allocf_arg);
+  fd_solana_account_decode(&self->value, data, dataend, allocf, allocf_arg);
 }
 
 void fd_vote_accounts_decode(fd_vote_accounts_t* self, void const** data, void const* dataend, alloc_fun allocf, void* allocf_arg) {
@@ -334,7 +334,7 @@ void fd_slot_map_pair_decode(fd_slot_map_pair_t* self, void const** data, void c
   fd_hash_decode(&self->hash, data, dataend, allocf, allocf_arg);
 }
   
-void fd_accounts_db_fields_decode(fd_accounts_db_fields_t* self, void const** data, void const* dataend, alloc_fun allocf, void* allocf_arg) {
+void fd_solana_accounts_db_fields_decode(fd_solana_accounts_db_fields_t* self, void const** data, void const* dataend, alloc_fun allocf, void* allocf_arg) {
   fd_bincode_uint64_decode(&self->storages_len, data, dataend);
   if (self->storages_len > 0) {
     self->storages = (fd_slot_account_pair_t*)(*allocf)(FD_SLOT_ACCOUNT_PAIR_FOOTPRINT*self->storages_len, FD_SLOT_ACCOUNT_PAIR_ALIGN, allocf_arg);
@@ -392,7 +392,7 @@ void fd_string_pubkey_pair_decode(fd_string_pubkey_pair_t* self, void const** da
 
 void fd_pubkey_account_pair_decode(fd_pubkey_account_pair_t* self, void const** data, void const* dataend, alloc_fun allocf, void* allocf_arg) {
   fd_pubkey_decode(&self->key, data, dataend, allocf, allocf_arg);
-  fd_account_decode(&self->account, data, dataend, allocf, allocf_arg);
+  fd_solana_account_decode(&self->account, data, dataend, allocf, allocf_arg);
 }
 
 void fd_genesis_solana_decode(fd_genesis_solana_t* self, void const** data, void const* dataend, alloc_fun allocf, void* allocf_arg) {
