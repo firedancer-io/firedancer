@@ -70,6 +70,9 @@ int main(int argc, char **argv) {
 
   FD_LOG_INFO(("loading genesis account into funk db"));
 
+  uchar *dbuf = NULL;
+  ulong datalen = 0;
+
   for (ulong i = 0; i < gen.accounts_len; i++) {
     fd_pubkey_account_pair_t *a = &gen.accounts[i];
 
@@ -83,12 +86,17 @@ int main(int argc, char **argv) {
     fd_memcpy(_id.id, a->key.key, sizeof(a->key));
 
     // Lets have another 2 hour debate over fd_account_meta_t... 
-    ulong datalen =  sizeof(fd_account_meta_t) + a->account.data_len;
-    uchar *data = malloc(datalen);
+    ulong dlen =  sizeof(fd_account_meta_t) + a->account.data_len;
+    if (dlen > datalen) {
+      if (NULL != data) 
+        free(dbuf);
+      datalen = dlen;
+      dbuf = malloc(datalen);
+    }
 
     // Lets set some values...
     //  (Obviously this will get factored out)
-    fd_account_meta_t *m = (fd_account_meta_t *) data;
+    fd_account_meta_t *m = (fd_account_meta_t *) dbuf;
     m->info.lamports = a->account.lamports;
     m->info.rent_epoch = a->account.rent_epoch;
     memcpy(m->info.owner, a->account.owner.key, sizeof(a->account.owner.key));
@@ -98,12 +106,15 @@ int main(int argc, char **argv) {
     // What is the correct hash function we should be using?
     fd_memset(m->hash.value, 0, sizeof(m->hash.value));
 
-    fd_memcpy(&data[sizeof(fd_account_meta_t)], a->account.data, a->account.data_len);
+    fd_memcpy(&dbuf[sizeof(fd_account_meta_t)], a->account.data, a->account.data_len);
 
-    if (fd_funk_write(funk, xroot, &_id, data, 0, datalen) != (long)datalen) {
+    if (fd_funk_write(funk, xroot, &_id, data, 0, dlen) != (long)dlen) {
       FD_LOG_ERR(("write failed"));
     }
   }
+
+  if (NULL != dbuf) 
+    free(dbuf);
 
   //  we good?
   FD_LOG_INFO(("validating funk db"));
