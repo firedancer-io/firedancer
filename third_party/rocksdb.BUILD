@@ -14,6 +14,7 @@ cmake(
         "WITH_SNAPPY": "ON",
         "WITH_ZLIB": "ON",
         "WITH_ZSTD": "ON",
+        "WITH_GFLAGS": "OFF",
         "WITH_ALL_TESTS": "OFF",
         "WITH_BENCHMARK_TOOLS": "OFF",
         "WITH_CORE_TOOLS": "OFF",
