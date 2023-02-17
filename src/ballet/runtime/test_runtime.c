@@ -11,6 +11,7 @@
 #include <fcntl.h>
 #include "fd_rocksdb.h"
 #include "fd_banks_solana.h"
+#include "../../funk/fd_funk.h"
 
 char* allocf(unsigned long len, FD_FN_UNUSED unsigned long align, FD_FN_UNUSED void* arg) {
   return malloc(len);
@@ -32,6 +33,11 @@ int main(int argc, char **argv) {
     usage(argv[0]);
     exit(1);
   }
+
+  ulong footprint = fd_funk_footprint_min();
+  void * fd_funk_raw = malloc(footprint);
+  fd_funk_t* funk = fd_funk_join(fd_funk_new(fd_funk_raw, footprint, db));
+  fd_funk_validate(funk);
 
   const char* end_slot_opt = fd_env_strip_cmdline_cstr(&argc, &argv, "--end-slot", NULL, NULL);
   if (NULL != end_slot_opt) {
@@ -60,8 +66,49 @@ int main(int argc, char **argv) {
 
   // Jam all the accounts into the database....  (gen.accounts)
 
-  FD_LOG_INFO(("size: %ld", sizeof(fd_account_meta_t)));
+  struct fd_funk_xactionid const* xroot = fd_funk_root(funk);
 
+  FD_LOG_INFO(("loading genesis account into funk db"));
+
+  for (ulong i = 0; i < gen.accounts_len; i++) {
+    fd_pubkey_account_pair_t *a = &gen.accounts[i];
+
+    // Here be dragons and the subject of debate
+
+    // My key is the pubkey of the account.. today.. we need a
+    // convenience function to create account keys from pubkeys so
+    // that we can debate this later... 
+    struct fd_funk_recordid _id;
+    fd_memset(&_id, 0, sizeof(_id));
+    fd_memcpy(_id.id, a->key.key, sizeof(a->key));
+
+    // Lets have another 2 hour debate over fd_account_meta_t... 
+    ulong datalen =  sizeof(fd_account_meta_t) + a->account.data_len;
+    uchar *data = malloc(datalen);
+
+    // Lets set some values...
+    fd_account_meta_t *m = (fd_account_meta_t *) data;
+    m->info.lamports = a->account.lamports;
+    m->info.rent_epoch = a->account.rent_epoch;
+    memcpy(m->info.owner, a->account.owner.key, sizeof(a->account.owner.key));
+    m->info.executable = (char) a->account.executable;
+    fd_memset(m->info.padding, 0, sizeof(m->info.padding));
+
+    // What is the correct hash function?
+    fd_memset(m->hash.value, 0, sizeof(m->hash.value));
+
+    fd_memcpy(&data[sizeof(fd_account_meta_t)], a->account.data, a->account.data_len);
+
+    if (fd_funk_write(funk, xroot, &_id, data, 0, datalen) != (long)datalen) {
+      FD_LOG_ERR(("write failed"));
+    }
+  }
+
+  //  we good?
+  FD_LOG_INFO(("validating funk db"));
+  fd_funk_validate(funk);
+
+  // Initialize the rocksdb 
   fd_rocksdb_t rocks_db;
   char *err = fd_rocksdb_init(&rocks_db, db_name);
 
@@ -77,6 +124,7 @@ int main(int argc, char **argv) {
   if (end_slot > last_slot) 
     end_slot = last_slot;
 
+  // Lets start executing!
   for (ulong slot = 0; slot < end_slot; slot++) {
     fd_slot_meta_t m;
     fd_memset(&m, 0, sizeof(m));
