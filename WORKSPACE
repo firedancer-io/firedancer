@@ -178,6 +178,19 @@ http_archive(
 )
 
 ################################################################################
+# RocksDB for interoperability with Solana Labs (optional)                     #
+################################################################################
+
+# Fetch RocksDB
+http_archive(
+    name = "rocksdb",
+    build_file = "//:third_party/rocksdb.BUILD",
+    sha256 = "b8ac9784a342b2e314c821f6d701148912215666ac5e9bdbccd93cf3767cb611",
+    strip_prefix = "rocksdb-7.7.3",
+    urls = ["https://github.com/facebook/rocksdb/archive/v7.7.3.tar.gz"],
+)
+
+################################################################################
 # Firedancer Test Bins                                                         #
 ################################################################################
 
