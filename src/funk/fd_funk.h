@@ -23,6 +23,7 @@ FD_FN_CONST ulong fd_funk_align(void);
 // Join an existing store. fd_funk_new is typically called
 // first. Assumes single threaded access.
 struct fd_funk;
+typedef struct fd_funk fd_funk_t;
 struct fd_funk* fd_funk_join(void* mem);
 
 // Stop using a store, but don't clean up transactions.
