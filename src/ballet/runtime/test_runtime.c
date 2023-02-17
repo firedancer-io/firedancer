@@ -58,6 +58,8 @@ int main(int argc, char **argv) {
   fd_memset(&gen, 0, sizeof(gen));
   fd_genesis_solana_decode(&gen, ( void const** )&data, dataend, allocf, NULL);
 
+  // Jam all the accounts into the database....  (gen.accounts)
+
   FD_LOG_INFO(("size: %ld", sizeof(fd_account_meta_t)));
 
   fd_rocksdb_t rocks_db;
