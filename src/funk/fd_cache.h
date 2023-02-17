@@ -59,6 +59,9 @@ void fd_cache_delete(struct fd_cache* self) {
     struct fd_cache_entry* ent = entries + i;
     if (ent->datalen >= 0) {
       FD_CACHE_FREE(self->allocarg, ent->data, ent->datalen);
+      ent->data = NULL;
+      ent->datalen = -1;
+      ent->gen ++; // Invalidate existing handles
     }
   }
 }
