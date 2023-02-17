@@ -11,7 +11,7 @@ cmake(
     cache_entries = {
         "ROCKSDB_BUILD_SHARED": "OFF",
         "WITH_BZ2": "ON",
-        "WITH_SNAPPY": "ON",
+        "WITH_SNAPPY": "OFF",
         "WITH_ZLIB": "ON",
         "WITH_ZSTD": "ON",
         "WITH_GFLAGS": "OFF",
@@ -28,7 +28,6 @@ cmake(
     linkopts = [
         "-lz",
         "-lbz2",
-        "-lsnappy",
         "-lzstd",
     ],
     out_lib_dir = "lib64",
