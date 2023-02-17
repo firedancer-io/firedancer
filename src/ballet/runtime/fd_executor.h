@@ -24,11 +24,12 @@ struct fd_native_program_lookup_pair {
     instruction_invocation_func_t instruction_invocation_func;
 };
 typedef struct fd_native_program_lookup_pair fd_native_program_lookup_pair_t;
-#define FD_NATIVE_PROGRAM_LOOKUP_PAIR_FOOTPRINT sizeof(fd_slot_meta_t)
+#define FD_NATIVE_PROGRAM_LOOKUP_PAIR_FOOTPRINT sizeof(fd_slot_meta_t);
 
 FD_FN_CONST static inline ulong
 fd_executor_footprint( ) {
-    return FD_NATIVE_PROGRAM_LOOKUP_PAIR_FOOTPRINT * FD_EXECUTOR_LOOKUP_TABLE_CAPACITY;
+    // TODO
+    return 0;
 }
 
 /* Lookup a native program by it's public key */

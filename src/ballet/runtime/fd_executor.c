@@ -1,13 +1,5 @@
 #include "fd_executor.h"
 
-instruction_invocation_func_t
-fd_executor_lookup_native_program(
-    fd_txn_acct_addr_t key
-) {
-    // TODO: support for multiple programs
-
-}
-
 void
 fd_execute_txn( fd_txn_t * txn ) {
     for (ushort i = 0; i < txn->instr_cnt; ++i) {
