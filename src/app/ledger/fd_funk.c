@@ -446,7 +446,7 @@ void fd_funk_update_control_from_index(struct fd_funk* store,
   }
 }
 
-void fd_funk_write_root(struct fd_funk* store,
+long fd_funk_write_root(struct fd_funk* store,
                         struct fd_funk_recordid const* recordid,
                         const void* data,
                         ulong offset,
@@ -457,7 +457,7 @@ void fd_funk_write_root(struct fd_funk* store,
   struct fd_funk_index_entry* ent = fd_funk_index_insert(store->index, recordid, &exists);
   if (ent == NULL) {
     FD_LOG_WARNING(("index is full, cannot create a new record"));
-    return;
+    return -1;
   }
   
   if (exists) {
@@ -475,19 +475,19 @@ void fd_funk_write_root(struct fd_funk* store,
         fd_memset(zeros, 0, zeroslen);
         if (pwrite(store->backingfd, zeros, zeroslen, (long)(ent->start + ent->len)) < (long)zeroslen) {
           FD_LOG_WARNING(("failed to write backing file: %s", strerror(errno)));
-          return;
+          return -1;
         }
       }
       if (pwrite(store->backingfd, data, datalen, (long)(ent->start + offset)) < (long)datalen) {
         FD_LOG_WARNING(("failed to write backing file: %s", strerror(errno)));
-        return;
+        return -1;
       }
       if (ent->len < newlen) {
         // Update the control with the new length
         ent->len = (uint)newlen;
         fd_funk_update_control_from_index(store, ent);
       }
-      return;
+      return (long)datalen;
       
     } else {
       // Hard case where we must move and grow the entry at the same
@@ -498,7 +498,7 @@ void fd_funk_write_root(struct fd_funk* store,
       uint oldalloc = ent->alloc;
       if (!fd_funk_allocate_disk(store, newlen, &ent->control, &ent->start, &ent->alloc))
         // Allocation failure
-        return;
+        return -1;
       ulong newstart = ent->start;
       ent->len = (uint)newlen;
       ent->version ++;
@@ -508,7 +508,7 @@ void fd_funk_write_root(struct fd_funk* store,
         // Start by writing out what we cached because this is easy
         if (pwrite(store->backingfd, ent->cache, ent->cachelen, (long)newstart) < (long)ent->cachelen) {
           FD_LOG_WARNING(("failed to write backing file: %s", strerror(errno)));
-          return;
+          return -1;
         }
         done = ent->cachelen;
       }
@@ -523,11 +523,11 @@ void fd_funk_write_root(struct fd_funk* store,
         }
         if (pread(store->backingfd, tmpbuf, (ulong)beforelen, (long)(oldstart + done)) < (long)beforelen) {
           FD_LOG_WARNING(("failed to read backing file: %s", strerror(errno)));
-          return;
+          return -1;
         }
         if (pwrite(store->backingfd, tmpbuf, (ulong)beforelen, (long)(newstart + done)) < (long)beforelen) {
           FD_LOG_WARNING(("failed to write backing file: %s", strerror(errno)));
-          return;
+          return -1;
         }
         done += (uint)beforelen;
       }
@@ -541,7 +541,7 @@ void fd_funk_write_root(struct fd_funk* store,
         fd_memset(tmpbuf, 0, (ulong)zeroslen);
         if (pwrite(store->backingfd, tmpbuf, (ulong)zeroslen, (long)(newstart + done)) < (long)zeroslen) {
           FD_LOG_WARNING(("failed to write backing file: %s", strerror(errno)));
-          return;
+          return -1;
         }
         done += (uint)zeroslen;
       }
@@ -551,7 +551,7 @@ void fd_funk_write_root(struct fd_funk* store,
         if (pwrite(store->backingfd, (const char*)data + (datalen - (uint)updatelen),
                    (ulong)updatelen, (long)(newstart + done)) < (long)updatelen) {
           FD_LOG_WARNING(("failed to write backing file: %s", strerror(errno)));
-          return;
+          return -1;
         }
       }
       // Data is ready. Finally update the control.
@@ -561,14 +561,14 @@ void fd_funk_write_root(struct fd_funk* store,
       fd_funk_update_control_from_index(store, ent);
       // Collect old control and disk space
       fd_funk_make_dead(store, oldcontrol, oldstart, oldalloc);
-      return;
+      return (long)datalen;
     }
     
   } else {
     // Create a new record
     if (!fd_funk_allocate_disk(store, newlen, &ent->control, &ent->start, &ent->alloc))
       // Allocation failure
-      return;
+      return -1;
     ent->len = (uint)newlen;
     ent->version = 1;
     ent->cache = NULL;
@@ -579,29 +579,29 @@ void fd_funk_write_root(struct fd_funk* store,
       fd_memset(zeros, 0, offset);
       if (pwrite(store->backingfd, zeros, offset, (long)ent->start) < (long)offset) {
         FD_LOG_WARNING(("failed to write backing file: %s", strerror(errno)));
-        return;
+        return -1;
       }
     }
     if (pwrite(store->backingfd, data, datalen, (long)(ent->start + offset)) < (long)datalen) {
       FD_LOG_WARNING(("failed to write backing file: %s", strerror(errno)));
-      return;
+      return -1;
     }
     // Data is in place. Update the control.
     fd_funk_update_control_from_index(store, ent);
+    return (long)datalen;
   }
 }
 
-void fd_funk_write(struct fd_funk* store,
+long fd_funk_write(struct fd_funk* store,
                    struct fd_funk_xactionid const* xid,
                    struct fd_funk_recordid const* recordid,
                    const void* data,
                    ulong offset,
                    ulong datalen) {
-  if (fd_funk_is_root(xid)) {
-    fd_funk_write_root(store, recordid, data, offset, datalen);
-    return;
-  }
+  if (fd_funk_is_root(xid))
+    return fd_funk_write_root(store, recordid, data, offset, datalen);
   FD_LOG_ERR(("transactions not supported yet"));
+  return -1;
 }
 
 long fd_funk_read_root(struct fd_funk* store,

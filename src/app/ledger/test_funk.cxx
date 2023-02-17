@@ -134,7 +134,8 @@ int main() {
     rg.genbytes((char*)&key, sizeof(key));
     auto len = random_size(rg);
     rg.genbytes(scratch, len);
-    fd_funk_write(funk, fd_funk_root(funk), &key._id, scratch, 0, len);
+    if (fd_funk_write(funk, fd_funk_root(funk), &key._id, scratch, 0, len) != (long)len)
+      FD_LOG_ERR(("write failed"));
     databuf& db = golden[key];
     db.write(scratch, 0, len);
   }
@@ -176,7 +177,8 @@ int main() {
         offset = 0;
     }
     rg.genbytes(scratch, (uint)(len - offset));
-    fd_funk_write(funk, fd_funk_root(funk), &key._id, scratch, offset, len - offset);
+    if (fd_funk_write(funk, fd_funk_root(funk), &key._id, scratch, offset, len - offset) != (long)(len - offset))
+      FD_LOG_ERR(("write failed"));
     db.write(scratch, offset, len - offset);
   }
 
@@ -204,7 +206,8 @@ int main() {
     if (offset + len > MAXRECORDSIZE)
       len = (uint)(MAXRECORDSIZE - offset);
     rg.genbytes(scratch, len);
-    fd_funk_write(funk, fd_funk_root(funk), &key._id, scratch, offset, len);
+    if (fd_funk_write(funk, fd_funk_root(funk), &key._id, scratch, offset, len) != (long)len)
+      FD_LOG_ERR(("write failed"));
     databuf& db = golden[key];
     db.write(scratch, offset, len);
   }
@@ -232,7 +235,8 @@ int main() {
       if (offset + len > MAXRECORDSIZE)
         len = (uint)(MAXRECORDSIZE - offset);
       rg.genbytes(scratch, len);
-      fd_funk_write(funk, fd_funk_root(funk), &key._id, scratch, offset, len);
+      if (fd_funk_write(funk, fd_funk_root(funk), &key._id, scratch, offset, len) != (long)len)
+        FD_LOG_ERR(("write failed"));
       databuf& db = golden[key];
       db.write(scratch, offset, len);
 
@@ -250,7 +254,8 @@ int main() {
     while (len < MAXRECORDSIZE) {
       uint offset = len/2;
       rg.genbytes(scratch, len - offset);
-      fd_funk_write(funk, fd_funk_root(funk), &key._id, scratch, offset, len - offset);
+      if (fd_funk_write(funk, fd_funk_root(funk), &key._id, scratch, offset, len - offset) != (long)len - offset)
+        FD_LOG_ERR(("write failed"));
       databuf& db = golden[key];
       db.write(scratch, offset, len - offset);
 
@@ -278,7 +283,8 @@ int main() {
     rg.genbytes((char*)&key, sizeof(key));
     uint len = 10;
     rg.genbytes(scratch, len);
-    fd_funk_write(funk, fd_funk_root(funk), &key._id, scratch, 0, len);
+    if (fd_funk_write(funk, fd_funk_root(funk), &key._id, scratch, 0, len) != (long)len)
+      FD_LOG_ERR(("write failed"));
     databuf& db = golden[key];
     db.write(scratch, 0, len);
   }
@@ -290,11 +296,27 @@ int main() {
       uint len = 10;
       uint offset = 20*j;
       rg.genbytes(scratch, len);
-      fd_funk_write(funk, fd_funk_root(funk), &key._id, scratch, offset, len);
+      if (fd_funk_write(funk, fd_funk_root(funk), &key._id, scratch, offset, len) != (long)len)
+        FD_LOG_ERR(("write failed"));
       db.write(scratch, offset, len);
     }
     validateall();
   }
+
+  FD_LOG_INFO(("final grind... expect a warning"));
+  for (;;) {
+    recordkey key;
+    rg.genbytes((char*)&key, sizeof(key));
+    uint len = 16;
+    rg.genbytes(scratch, len);
+    if (fd_funk_write(funk, fd_funk_root(funk), &key._id, scratch, 0, len) != (long)len)
+      break;
+    databuf& db = golden[key];
+    db.write(scratch, 0, len);
+  }
+
+  FD_LOG_INFO(("%u records", fd_funk_num_records(funk)));
+  validateall();
 
   free(scratch);
   
