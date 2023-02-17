@@ -87,6 +87,7 @@ int main(int argc, char **argv) {
     uchar *data = malloc(datalen);
 
     // Lets set some values...
+    //  (Obviously this will get factored out)
     fd_account_meta_t *m = (fd_account_meta_t *) data;
     m->info.lamports = a->account.lamports;
     m->info.rent_epoch = a->account.rent_epoch;
@@ -94,7 +95,7 @@ int main(int argc, char **argv) {
     m->info.executable = (char) a->account.executable;
     fd_memset(m->info.padding, 0, sizeof(m->info.padding));
 
-    // What is the correct hash function?
+    // What is the correct hash function we should be using?
     fd_memset(m->hash.value, 0, sizeof(m->hash.value));
 
     fd_memcpy(&data[sizeof(fd_account_meta_t)], a->account.data, a->account.data_len);
@@ -137,7 +138,7 @@ int main(int argc, char **argv) {
     FD_LOG_INFO(("fd_rocksdb_get_microblocks got %d microblocks", slot_data->block_cnt));
 
     // execute slot_block...
-    FD_LOG_INFO(("executing micro blocks"));
+    FD_LOG_INFO(("executing micro blocks... profit"));
 
     // free the slot data...
     free(slot_data);
@@ -145,6 +146,9 @@ int main(int argc, char **argv) {
 
   // The memory management model is odd...  how do I know how to destroy this
   fd_rocksdb_destroy(&rocks_db);
+
+  fd_funk_delete(fd_funk_leave(funk));
+  free(fd_funk_raw);
 
   return 0;
 }
