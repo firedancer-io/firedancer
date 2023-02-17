@@ -13,21 +13,8 @@
 #define FD_FUNK_CONTROL_SIZE (64UL<<10)
 
 // Hash a record id
-ulong fd_funk_recordid_t_hash(struct fd_funk_recordid const* id) {
-  // A recordid is 8 ulongs long
-  FD_STATIC_ASSERT(sizeof(struct fd_funk_recordid)/sizeof(ulong) == 8,fd_funk);
-
-  // Multiply parts by random primes
-  const ulong* const idhack = (const ulong* const)id;
-#define ROTATE_LEFT(x,r) (((x)<<(r)) | ((x)>>(64-(r))))
-  return ((idhack[0]*544625467UL + ROTATE_LEFT(idhack[1],31)*921290941UL) ^
-          (idhack[1]*499335469UL + ROTATE_LEFT(idhack[2],31)*406155949UL) ^
-          (idhack[2]*550225019UL + ROTATE_LEFT(idhack[3],31)*920227961UL) ^
-          (idhack[3]*872766749UL + ROTATE_LEFT(idhack[4],31)*711342493UL) ^
-          (idhack[4]*324462059UL + ROTATE_LEFT(idhack[5],31)*165217477UL) ^
-          (idhack[5]*573508609UL + ROTATE_LEFT(idhack[6],31)*817180781UL) ^
-          (idhack[6]*896075273UL + ROTATE_LEFT(idhack[7],31)*507836809UL) ^
-          (idhack[7]*800558767UL + ROTATE_LEFT(idhack[0],31)*927185099UL));
+ulong fd_funk_recordid_t_hash(struct fd_funk_recordid const* id, ulong hashseed) {
+  return fd_hash(hashseed, id, sizeof(struct fd_funk_recordid));
 }
 
 // Test record id equality
@@ -363,7 +350,10 @@ void* fd_funk_new(void* mem,
   FD_STATIC_ASSERT(sizeof(struct fd_funk_index_entry) == 128,fd_funk);
   void* mem2 = store+1;
   store->index = (struct fd_funk_index*)mem2;
-  fd_funk_index_new(store->index, footprint/3);
+  char hostname[64];
+  gethostname(hostname, sizeof(hostname));
+  ulong hashseed = fd_hash(0, hostname, strnlen(hostname, sizeof(hostname)));
+  fd_funk_index_new(store->index, footprint/3, hashseed);
 
   fd_vec_ulong_new(&store->free_ctrl);
   for (uint i = 0; i < FD_FUNK_NUM_DISK_SIZES; ++i)

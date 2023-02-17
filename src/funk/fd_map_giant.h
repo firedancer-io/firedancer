@@ -32,11 +32,14 @@ struct MAP_NAME {
     uint free_list;
     uint capacity;
     uint used;
+    ulong hashseed;
 } __attribute__ ((aligned(64)));
 
 // Construct a map, using as much of the footprint as possible. The
 // actual footprint used is returned.
-ulong MAP_(new)(struct MAP_NAME* self, ulong footprint) {
+ulong MAP_(new)(struct MAP_NAME* self, ulong footprint, ulong hashseed) {
+  self->hashseed = hashseed;
+  
   // Compute a number of headers that fills the footprint with the
   // average chain length between 1 and 2 at max capacity.
   uint cnt = 1;
@@ -80,7 +83,7 @@ MAP_ELEMENT* MAP_(insert)(struct MAP_NAME* self, MAP_KEY const* key, int* exists
   MAP_ELEMENT* const elembase = (MAP_ELEMENT*)(headers + cnt);
 
   // See if the key exists
-  uint* first = headers + (MAP_KEY_(hash)(key) & (cnt-1));
+  uint* first = headers + (MAP_KEY_(hash)(key, self->hashseed) & (cnt-1));
   uint* cur = first;
   for (;;) {
     const uint i = *cur;
@@ -125,7 +128,7 @@ MAP_ELEMENT* MAP_(query)(struct MAP_NAME* self, MAP_KEY const* key) {
   MAP_ELEMENT* const elembase = (MAP_ELEMENT*)(headers + cnt);
 
   // See if the key exists
-  uint* first = headers + (MAP_KEY_(hash)(key) & (cnt-1));
+  uint* first = headers + (MAP_KEY_(hash)(key, self->hashseed) & (cnt-1));
   uint* cur = first;
   for (;;) {
     const uint i = *cur;
@@ -155,7 +158,7 @@ MAP_ELEMENT* MAP_(remove)(struct MAP_NAME* self, MAP_KEY const* key) {
   MAP_ELEMENT* const elembase = (MAP_ELEMENT*)(headers + cnt);
 
   // See if the key exists
-  uint* first = headers + (MAP_KEY_(hash)(key) & (cnt-1));
+  uint* first = headers + (MAP_KEY_(hash)(key, self->hashseed) & (cnt-1));
   uint* cur = first;
   for (;;) {
     const uint i = *cur;
@@ -188,7 +191,7 @@ int MAP_(validate)(struct MAP_NAME* self) {
     uint j = headers[i];
     while (j != MAP_LIST_TERM) {
       MAP_ELEMENT* elem = elembase + j;
-      if ((MAP_KEY_(hash)(&elem->key) & (cnt-1)) != i)
+      if ((MAP_KEY_(hash)(&elem->key, self->hashseed) & (cnt-1)) != i)
         return 0;
       used++;
       j = elem->next;

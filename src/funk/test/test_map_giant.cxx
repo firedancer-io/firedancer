@@ -11,7 +11,7 @@ struct test_element {
 };
 #define MAP_ELEMENT struct test_element
 #define MAP_KEY ulong
-ulong ulong_hash(const ulong* key) { return (*key)*544625467UL; }
+ulong ulong_hash(const ulong* key, ulong hashseed) { return (*key)*544625467UL + hashseed; }
 int ulong_equal(const ulong* key1, const ulong* key2) { return *key1 == *key2; }
 void ulong_copy(ulong* key1, const ulong* key2) { *key1 = *key2; }
 #include "../fd_map_giant.h"
@@ -22,7 +22,7 @@ void ulong_copy(ulong* key1, const ulong* key2) { *key1 = *key2; }
 int main() {
   ulong footprint = 5000000;
   auto* m = (test_map*)malloc(footprint);
-  ulong footprint2 = test_map_new(m, footprint);
+  ulong footprint2 = test_map_new(m, footprint, 123);
   assert(footprint2 <= footprint);
   auto capac = m->capacity;
   auto maxkey = (capac*4)/3;
