@@ -9,6 +9,10 @@
 #include <stdlib.h>
 #include <stdio.h>
 
+#define FD_CACHE_MALLOC(_arg_, _datalen_) malloc(_datalen_)
+#define FD_CACHE_FREE(_arg_, _data_, _datalen_) free(_data_)
+#include "fd_cache.h"
+
 // Control block size
 #define FD_FUNK_CONTROL_SIZE (64UL<<10)
 
