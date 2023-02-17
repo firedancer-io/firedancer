@@ -18,24 +18,6 @@ static void usage(const char* progname) {
   fprintf(stderr, " --cmd upload --ledger <dir> --funk_db <db>       \n");
 }
 
-struct __attribute__((packed)) fd_account_stored_meta {
-    unsigned long write_version_obsolete;
-    unsigned long data_len;
-    char pubkey[32];
-};
-
-struct __attribute__((packed)) fd_account_fd_account_meta {
-    unsigned long lamports;
-    unsigned long rent_epoch;
-    char owner[32];
-    char executable;
-    char padding[7];
-};
-
-struct __attribute__((packed)) fd_account_fd_hash {
-    char value[32];
-};
-
 struct SnapshotParser {
   struct TarReadStream tarreader_;
   char* tmpstart_;
@@ -55,7 +37,7 @@ void SnapshotParser_destroy(struct SnapshotParser* self) {
   free(self->tmpstart_);
 }
 
-void SnapshotParser_parsefd_accounts(struct SnapshotParser* self, const void* data, size_t datalen) {
+void SnapshotParser_parsefd_solana_accounts(struct SnapshotParser* self, const void* data, size_t datalen) {
   (void)self;
   
   while (datalen) {
@@ -68,11 +50,11 @@ void SnapshotParser_parsefd_accounts(struct SnapshotParser* self, const void* da
     data = (const char*)data + roundedlen; \
     datalen -= roundedlen;
 
-    struct fd_account_stored_meta meta;
+    struct fd_solana_account_stored_meta meta;
     EAT_SLICE(&meta, sizeof(meta));
-    struct fd_account_fd_account_meta account_meta;
+    struct fd_solana_account_meta account_meta;
     EAT_SLICE(&account_meta, sizeof(account_meta));
-    struct fd_account_fd_hash hash;
+    struct fd_solana_account_fd_hash hash;
     EAT_SLICE(&hash, sizeof(hash));
 
     // Skip data for now
@@ -102,16 +84,16 @@ void SnapshotParser_parseSnapshots(struct SnapshotParser* self, const void* data
     SnapshotParser_allocTemp(FD_DESERIALIZABLE_VERSIONED_BANK_FOOTPRINT, FD_DESERIALIZABLE_VERSIONED_BANK_ALIGN, self);
   fd_deserializable_versioned_bank_decode(bank, &data, &datalen, SnapshotParser_allocTemp, self);
 
-  struct fd_accounts_db_fields* accounts = (struct fd_accounts_db_fields*)
+  struct fd_solana_accounts_db_fields* accounts = (struct fd_solana_accounts_db_fields*)
     SnapshotParser_allocTemp(FD_ACCOUNTS_DB_FIELDS_FOOTPRINT, FD_ACCOUNTS_DB_FIELDS_ALIGN, self);
-  fd_accounts_db_fields_decode(accounts, &data, &datalen, SnapshotParser_allocTemp, self);
+  fd_solana_accounts_db_fields_decode(accounts, &data, &datalen, SnapshotParser_allocTemp, self);
 }
 
 void SnapshotParser_tarEntry(void* arg, const char* name, const void* data, size_t datalen) {
   if (datalen == 0)
     return;
   if (strncmp(name, "accounts/", sizeof("accounts/")-1) == 0)
-    SnapshotParser_parsefd_accounts((struct SnapshotParser*)arg, data, datalen);
+    SnapshotParser_parsefd_solana_accounts((struct SnapshotParser*)arg, data, datalen);
   if (strncmp(name, "snapshots/", sizeof("snapshots/")-1) == 0 &&
       strcmp(name, "snapshots/status_cache") != 0)
     SnapshotParser_parseSnapshots((struct SnapshotParser*)arg, data, datalen);

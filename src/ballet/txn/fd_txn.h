@@ -396,6 +396,12 @@ fd_txn_parse( uchar const             * payload,
               fd_txn_parse_counters_t * counters_opt,
               ulong *                   payload_sz_opt );
 
+/* TODO: correct type */
+struct fd_txn_acct_addr {
+    uchar b[64];
+};
+typedef struct fd_txn_acct_addr fd_txn_acct_addr_t;
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_ballet_txn_fd_txn_h */

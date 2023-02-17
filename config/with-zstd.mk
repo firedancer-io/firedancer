@@ -1,4 +1,6 @@
+ifeq ($(ZSTD),)
 ZSTD = /usr/local
+endif
 
 ifneq (,$wildcard $(ZSTD)/include/zstd.h)
 CFLAGS += -I$(ZSTD)/include  -DFD_HAS_ZSTD=1

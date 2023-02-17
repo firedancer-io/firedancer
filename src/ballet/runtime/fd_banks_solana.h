@@ -167,7 +167,7 @@ typedef struct fd_stake_history fd_stake_history_t;
 #define FD_STAKE_HISTORY_ALIGN (8UL)
 
 // sdk/src/account.rs:27
-struct fd_account {
+struct fd_solana_account {
   ulong          lamports;
 
   ulong          data_len;
@@ -177,14 +177,44 @@ struct fd_account {
   unsigned char  executable;
   ulong          rent_epoch;
 };
-typedef struct fd_account fd_account_t;
-#define ACCOUNT_FOOTPRINT sizeof(fd_account_t)
+typedef struct fd_solana_account fd_solana_account_t;
+#define ACCOUNT_FOOTPRINT sizeof(fd_solana_account_t)
 #define ACCOUNT_ALIGN (8UL)
+
+// As persisted to disk in the solana snapshots
+struct __attribute__((packed)) fd_solana_account_stored_meta {
+    unsigned long write_version_obsolete;
+    unsigned long data_len;
+    char pubkey[32];
+};
+typedef struct fd_solana_account_stored_meta fd_solana_account_stored_meta_t;
+
+struct __attribute__((packed)) fd_solana_account_meta {
+    unsigned long lamports;
+    unsigned long rent_epoch;
+    char owner[32];
+    char executable;
+    char padding[7];
+};
+typedef struct fd_solana_account_meta fd_solana_account_meta_t;
+
+struct __attribute__((packed)) fd_solana_account_fd_hash {
+    char value[32];
+};
+typedef struct fd_solana_account_fd_hash fd_solana_account_fd_hash_t;
+
+// Assuming the db brings in a cache line, this means you get the meta
+// data and the first 40 bytes of the account... 
+struct __attribute__((packed)) fd_account_meta {   // 88 bytes...
+  fd_solana_account_meta_t        info;
+  fd_solana_account_fd_hash_t     hash;
+};
+typedef struct fd_account_meta fd_account_meta_t;
 
 struct fd_vote_accounts_pair {
   fd_pubkey_t  key;
   ulong        stake;
-  fd_account_t value;
+  fd_solana_account_t value;
 };
 typedef struct fd_vote_accounts_pair fd_vote_accounts_pair_t;
 #define FD_VOTE_ACCOUNTS_PAIR_FOOTPRINT sizeof(fd_vote_accounts_pair_t)
@@ -399,7 +429,7 @@ typedef struct fd_slot_map_pair fd_slot_map_pair_t;
 #define FD_SLOT_MAP_PAIR_FOOTPRINT sizeof(fd_slot_map_pair_t)
 #define FD_SLOT_MAP_PAIR_ALIGN (8UL)
 
-struct fd_accounts_db_fields {
+struct fd_solana_accounts_db_fields {
   ulong                    storages_len;
   fd_slot_account_pair_t * storages;
   ulong                    version;
@@ -410,8 +440,8 @@ struct fd_accounts_db_fields {
   ulong                    historical_roots_with_hash_len;
   fd_slot_map_pair_t *     historical_roots_with_hash;
 };
-typedef struct fd_accounts_db_fields fd_accounts_db_fields_t;
-#define FD_ACCOUNTS_DB_FIELDS_FOOTPRINT sizeof(fd_accounts_db_fields_t)
+typedef struct fd_solana_accounts_db_fields fd_solana_accounts_db_fields_t;
+#define FD_ACCOUNTS_DB_FIELDS_FOOTPRINT sizeof(fd_solana_accounts_db_fields_t)
 #define FD_ACCOUNTS_DB_FIELDS_ALIGN (8UL)
 
 // 12 bytes...  both fields are in bigint format
@@ -447,7 +477,7 @@ typedef struct fd_string_pubkey_pair fd_string_pubkey_pair_t;
 
 struct fd_pubkey_account_pair {
   fd_pubkey_t  key;
-  fd_account_t account;
+  fd_solana_account_t account;
 };
 typedef struct fd_pubkey_account_pair fd_pubkey_account_pair_t;
 #define FD_PUBKEY_ACCOUNT_PAIR_FOOTPRINT sizeof(fd_pubkey_account_pair_t)
@@ -491,8 +521,8 @@ typedef struct fd_genesis_solana fd_genesis_solana_t;
 
 FD_PROTOTYPES_BEGIN
 
-void fd_account_decode(fd_account_t* self, void const** data, void const* dataend, alloc_fun allocf, void* allocf_arg);
-void fd_accounts_db_fields_decode(fd_accounts_db_fields_t* self, void const** data, void const* dataend, alloc_fun allocf, void* allocf_arg);
+void fd_solana_account_decode(fd_solana_account_t* self, void const** data, void const* dataend, alloc_fun allocf, void* allocf_arg);
+void fd_solana_accounts_db_fields_decode(fd_solana_accounts_db_fields_t* self, void const** data, void const* dataend, alloc_fun allocf, void* allocf_arg);
 void fd_bank_hash_info_decode(fd_bank_hash_info_t* self, void const** data, void const* dataend, alloc_fun allocf, void* allocf_arg);
 void fd_bank_hash_stats_decode(fd_bank_hash_stats_t* self, void const** data, void const* dataend, alloc_fun allocf, void* allocf_arg);
 void fd_block_hash_queue_decode(fd_block_hash_queue_t* self, void const** data, void const* dataend, alloc_fun allocf, void* allocf_arg);

@@ -178,6 +178,19 @@ http_archive(
 )
 
 ################################################################################
+# RocksDB for interoperability with Solana Labs (optional)                     #
+################################################################################
+
+# Fetch RocksDB
+http_archive(
+    name = "rocksdb",
+    build_file = "//:third_party/rocksdb.BUILD",
+    sha256 = "b8ac9784a342b2e314c821f6d701148912215666ac5e9bdbccd93cf3767cb611",
+    strip_prefix = "rocksdb-7.7.3",
+    urls = ["https://github.com/facebook/rocksdb/archive/v7.7.3.tar.gz"],
+)
+
+################################################################################
 # Firedancer Test Bins                                                         #
 ################################################################################
 
@@ -196,7 +209,7 @@ git_repository(
 http_archive(
     name = "libbpf",
     build_file = "//:third_party/libbpf.BUILD",
-    sha256 = "1e86845dbe7bd75a979fa3b2ae23374fc9a515b8ab19a573a7636f66dc2123f5",
+    sha256 = "5083588ce5a3a620e395ee1e596af77b4ec5771ffc71cff2af49dfee38c06361",
     strip_prefix = "libbpf-0.7.0",
     url = "https://github.com/libbpf/libbpf/archive/refs/tags/v0.7.0.tar.gz",
 )
@@ -209,7 +222,7 @@ http_archive(
 http_archive(
     name = "openssl",
     build_file = "//:third_party/openssl.BUILD",
-    sha256 = "5635874b984983bcb658a9f79f167f1a10d84106c3ff6a4151fc19d984c735a8",
+    sha256 = "f978051da323deab6e982f6bf07d40c063ff3a1f18760c731536accb7d980015",
     strip_prefix = "openssl-OpenSSL_1_1_1s-quic1",
     url = "https://github.com/quictls/openssl/archive/refs/tags/OpenSSL_1_1_1s+quic1.tar.gz",
 )
