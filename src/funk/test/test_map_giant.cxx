@@ -14,7 +14,7 @@ struct test_element {
 ulong ulong_hash(const ulong* key) { return (*key)*544625467UL; }
 int ulong_equal(const ulong* key1, const ulong* key2) { return *key1 == *key2; }
 void ulong_copy(ulong* key1, const ulong* key2) { *key1 = *key2; }
-#include "fd_map_giant.h"
+#include "../fd_map_giant.h"
 #undef MAP_NAME
 #undef MAP_ELEMENT
 #undef MAP_KEY
