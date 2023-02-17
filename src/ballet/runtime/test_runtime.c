@@ -151,6 +151,22 @@ int main(int argc, char **argv) {
     // execute slot_block...
     FD_LOG_INFO(("executing micro blocks... profit"));
 
+    for ( uint micro_block_idx = 0; micro_block_idx < slot_data->block_cnt; micro_block_idx++ ) {
+      if ( micro_block_idx > 65 ) {
+        /* FIXME: segfault: off-by-one error in rocksdb parser? */
+        continue;
+      }
+
+      fd_microblock_t* micro_block = slot_data->micro_blocks[micro_block_idx];
+      for ( ulong txn_idx = 0; txn_idx < micro_block->txn_max_cnt; txn_idx++ ) {
+        fd_txn_t* txn = (fd_txn_t *)&micro_block->txn_tbl[ txn_idx ];
+
+        FD_LOG_INFO(("executing transaction with version %d", txn->transaction_version));
+
+        // TODO: execute
+      }      
+    }
+
     // free the slot data...
     free(slot_data);
   }
