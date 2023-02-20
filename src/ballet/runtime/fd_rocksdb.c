@@ -229,7 +229,9 @@ fd_slot_blocks_t * fd_rocksdb_get_microblocks(fd_rocksdb_t *db, fd_slot_meta_t *
           // Should we return what we have found or should we just fall over?
           FD_LOG_ERR(("deserialization error"));
         }
+        FD_LOG_INFO(( "deserialzied microblock of size %lu", microblock_sz ));
 
+        /* TODO: is this safe to do? */
         fd_microblock_leave(shblock);
 
         if (0 != txn_max_cnt) {

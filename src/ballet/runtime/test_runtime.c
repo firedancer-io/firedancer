@@ -11,6 +11,7 @@
 #include <fcntl.h>
 #include "fd_rocksdb.h"
 #include "fd_banks_solana.h"
+#include "fd_executor.h"
 #include "../../funk/fd_funk.h"
 
 char* allocf(unsigned long len, FD_FN_UNUSED unsigned long align, FD_FN_UNUSED void* arg) {
@@ -71,7 +72,11 @@ int main(int argc, char **argv) {
 
   // Jam all the accounts into the database....  (gen.accounts)
 
+  /* Initialize the account manager */
   struct fd_funk_xactionid const* xroot = fd_funk_root(funk);
+
+  void *fd_acc_mgr_raw = malloc(FD_ACC_MGR_FOOTPRINT);
+  fd_acc_mgr_t* acc_mgr = fd_acc_mgr_join(fd_acc_mgr_new(fd_acc_mgr_raw, funk, xroot, FD_ACC_MGR_FOOTPRINT));
 
   FD_LOG_INFO(("loading genesis account into funk db"));
 
@@ -82,13 +87,6 @@ int main(int argc, char **argv) {
     fd_pubkey_account_pair_t *a = &gen.accounts[i];
 
     // Here be dragons and the subject of debate
-
-    // My key is the pubkey of the account.. today.. we need a
-    // convenience function to create account keys from pubkeys so
-    // that we can debate this later... 
-    struct fd_funk_recordid _id;
-    fd_memset(&_id, 0, sizeof(_id));
-    fd_memcpy(_id.id, a->key.key, sizeof(a->key));
 
     // Lets have another 2 hour debate over fd_account_meta_t... 
     ulong dlen =  sizeof(fd_account_meta_t) + a->account.data_len;
@@ -113,8 +111,8 @@ int main(int argc, char **argv) {
 
     fd_memcpy(&dbuf[sizeof(fd_account_meta_t)], a->account.data, a->account.data_len);
 
-    if (fd_funk_write(funk, xroot, &_id, data, 0, dlen) != (long)dlen) {
-      FD_LOG_ERR(("write failed"));
+    if (write_account(acc_mgr, &a->key, dbuf, dlen) != FD_ACC_MGR_SUCCESS) {
+      FD_LOG_ERR(("write account failed"));
     }
   }
 
@@ -142,6 +140,9 @@ int main(int argc, char **argv) {
     end_slot = last_slot;
 
   // Lets start executing!
+  void *fd_executor_raw = malloc(FD_EXECUTOR_FOOTPRINT);
+  fd_executor_t* executor = fd_executor_join(fd_executor_new(fd_executor_raw, acc_mgr, FD_EXECUTOR_FOOTPRINT));
+
   for (ulong slot = start_slot; slot < end_slot; slot++) {
     fd_slot_meta_t m;
     fd_memset(&m, 0, sizeof(m));
@@ -161,11 +162,9 @@ int main(int argc, char **argv) {
     for ( uint micro_block_idx = 0; micro_block_idx < slot_data->block_cnt; micro_block_idx++ ) {
       fd_microblock_t* micro_block = slot_data->micro_blocks[micro_block_idx];
       for ( ulong txn_idx = 0; txn_idx < micro_block->txn_max_cnt; txn_idx++ ) {
-        fd_txn_t* txn = (fd_txn_t *)&micro_block->txn_tbl[ txn_idx ];
-
-        FD_LOG_INFO(("executing transaction with version %d", txn->transaction_version));
-
-        // TODO: execute
+        fd_txn_t* txn_descriptor = (fd_txn_t *)&micro_block->txn_tbl[ txn_idx ];
+        fd_rawtxn_b_t* txn_raw   = (fd_rawtxn_b_t *)&micro_block->raw_tbl[ txn_idx ];
+        fd_execute_txn( executor, txn_descriptor, txn_raw );
       }      
     }
 
@@ -173,6 +172,12 @@ int main(int argc, char **argv) {
     fd_slot_blocks_destroy(slot_data);
     free(slot_data);
   }
+
+  fd_executor_delete(fd_executor_leave(executor));
+  free(fd_executor_raw);
+
+  fd_acc_mgr_delete(fd_acc_mgr_leave(acc_mgr));
+  free(fd_acc_mgr_raw);
 
   // The memory management model is odd...  how do I know how to destroy this
   fd_rocksdb_destroy(&rocks_db);

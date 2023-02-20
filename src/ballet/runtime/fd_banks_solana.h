@@ -1,7 +1,7 @@
 // TODO:
 //    look for: FD_PROTOTYPES_BEGIN
 
-#ifndef HEADER_fd_src_ballet_runime_fd_banks_solana_h
+#ifndef HEADER_fd_src_ballet_runtime_fd_banks_solana_h
 #define HEADER_fd_src_ballet_runtime_fd_banks_solana_h
 
 #include "../../util/encoders/fd_bincode.h"

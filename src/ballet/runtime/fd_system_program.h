@@ -3,11 +3,11 @@
 
 #include "../fd_ballet_base.h"
 #include "fd_executor.h"
-#include "../../util/encoders/fd_bincode.h"
 
 FD_PROTOTYPES_BEGIN
 
-void invoke_instruction(
+/* Entry-point for the Solana System Program */
+void fd_system_program_invoke_instruction(
     instruction_ctx_t ctx
 ) ;
 
