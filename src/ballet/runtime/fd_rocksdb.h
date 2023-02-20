@@ -30,7 +30,7 @@ typedef struct fd_slot_meta fd_slot_meta_t;
 
 /* all the micro blocks found in a slot */
 struct fd_slot_blocks {
-  void *micro_blocks[65];
+  void *micro_blocks[64];
   uint block_cnt;
   uchar buffer[];
 };

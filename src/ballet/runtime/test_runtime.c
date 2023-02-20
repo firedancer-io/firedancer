@@ -26,6 +26,7 @@ static void usage(const char* progname) {
 
 int main(int argc, char **argv) {
   ulong end_slot = 73;
+  ulong start_slot = 0;
 
   const char* ledger = fd_env_strip_cmdline_cstr(&argc, &argv, "--ledger", NULL, NULL);
   const char* db = fd_env_strip_cmdline_cstr(&argc, &argv, "--db", NULL, NULL);
@@ -42,6 +43,10 @@ int main(int argc, char **argv) {
   const char* end_slot_opt = fd_env_strip_cmdline_cstr(&argc, &argv, "--end-slot", NULL, NULL);
   if (NULL != end_slot_opt) {
     end_slot = (ulong) atoi(end_slot_opt);
+  }
+  const char* start_slot_opt = fd_env_strip_cmdline_cstr(&argc, &argv, "--start-slot", NULL, NULL);
+  if (NULL != start_slot_opt) {
+    start_slot = (ulong) atoi(start_slot_opt);
   }
 
   // Eventually we will have to add support for reading compressed genesis blocks...
@@ -137,7 +142,7 @@ int main(int argc, char **argv) {
     end_slot = last_slot;
 
   // Lets start executing!
-  for (ulong slot = 0; slot < end_slot; slot++) {
+  for (ulong slot = start_slot; slot < end_slot; slot++) {
     fd_slot_meta_t m;
     fd_memset(&m, 0, sizeof(m));
     fd_rocksdb_get_meta(&rocks_db, slot, &m, allocf, &err);
@@ -154,11 +159,6 @@ int main(int argc, char **argv) {
     FD_LOG_INFO(("executing micro blocks... profit"));
 
     for ( uint micro_block_idx = 0; micro_block_idx < slot_data->block_cnt; micro_block_idx++ ) {
-      if ( micro_block_idx > 65 ) {
-        /* FIXME: segfault: off-by-one error in rocksdb parser? */
-        continue;
-      }
-
       fd_microblock_t* micro_block = slot_data->micro_blocks[micro_block_idx];
       for ( ulong txn_idx = 0; txn_idx < micro_block->txn_max_cnt; txn_idx++ ) {
         fd_txn_t* txn = (fd_txn_t *)&micro_block->txn_tbl[ txn_idx ];
