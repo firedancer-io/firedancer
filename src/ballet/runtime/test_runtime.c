@@ -145,6 +145,8 @@ int main(int argc, char **argv) {
       FD_LOG_ERR(("fd_rocksdb_last_slot returned %s", err));
     }
 
+    // Some(self.consumed) == self.last_index.map(|ix| ix + 1)
+
     fd_slot_blocks_t *slot_data = fd_rocksdb_get_microblocks(&rocks_db, &m);
     FD_LOG_INFO(("fd_rocksdb_get_microblocks got %d microblocks", slot_data->block_cnt));
 
