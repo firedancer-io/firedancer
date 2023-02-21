@@ -10,6 +10,7 @@
 #include <stdio.h>
 #include "fd_cache.h"
 #include "fd_funk_root.h"
+#include "fd_funk_xaction.h"
 
 #define FD_FUNK_NUM_DISK_SIZES 44U
 #define FD_FUNK_MAX_ENTRY_SIZE (10U<<20) /* 10 MB */
@@ -23,6 +24,8 @@ struct fd_funk {
     ulong lastcontrol; 
     // Master index of finalized data
     struct fd_funk_index* index;
+    // Table of live transactions
+    struct fd_funk_xactions* xactions;
     // Entry cache manager
     struct fd_cache* cache;
     // Root transaction id
@@ -61,7 +64,16 @@ void* fd_funk_new(void* mem,
 
   // Allocate 1/2 of the footprint for the cache
   void* mem3 = (char*)mem2 + fp2;
-  store->cache = fd_cache_new(store->index->capacity/16, footprint/2, mem3);
+  ulong fp3 = footprint/2;
+  store->cache = fd_cache_new(store->index->capacity/16, fp3, mem3);
+
+  // Allocate a chunk for the transaction table
+  void* mem4 = (char*)mem3 + fp3;
+  store->xactions = (struct fd_funk_xactions*)mem4;
+  ulong fp4 = fd_funk_xactions_new(store->xactions, footprint/32, hashseed);
+
+  if ((char*)mem4 + fp4 > (char*)mem + footprint)
+    FD_LOG_ERR(("confused allocation math"));
 
   fd_vec_ulong_new(&store->free_ctrl);
   for (uint i = 0; i < FD_FUNK_NUM_DISK_SIZES; ++i)
@@ -96,6 +108,7 @@ void* fd_funk_leave(struct fd_funk* store) {
 void* fd_funk_delete(void* mem) {
   struct fd_funk* store = (struct fd_funk*)mem;
   fd_funk_index_destroy(store->index);
+  fd_funk_xactions_destroy(store->xactions);
   fd_cache_destroy(store->cache);
   fd_vec_ulong_destroy(&store->free_ctrl);
   for (uint i = 0; i < FD_FUNK_NUM_DISK_SIZES; ++i)
@@ -106,44 +119,6 @@ void* fd_funk_delete(void* mem) {
 
 struct fd_funk_xactionid const* fd_funk_root(struct fd_funk* store) {
   return &store->root;
-}
-
-int fd_funk_is_root(struct fd_funk_xactionid const* xid) {
-  // A xactionid is 4 ulongs long
-  FD_STATIC_ASSERT(sizeof(struct fd_funk_xactionid)/sizeof(ulong) == 4,fd_funk);
-
-  const ulong* const idhack = (const ulong* const)xid;
-  return (idhack[0] | idhack[1] | idhack[2] | idhack[3]) == 0;
-}
-
-void fd_funk_fork(struct fd_funk* store,
-                  struct fd_funk_xactionid const* parent,
-                  struct fd_funk_xactionid const* child);
-
-void fd_funk_commit(struct fd_funk* store,
-                    struct fd_funk_xactionid const* id);
-
-void fd_funk_cancel(struct fd_funk* store,
-                    struct fd_funk_xactionid const* id);
-
-void fd_funk_merge(struct fd_funk* store,
-                   struct fd_funk_xactionid const* destid,
-                   ulong source_cnt,
-                   struct fd_funk_xactionid const* const* source_ids);
-
-int fd_funk_isopen(struct fd_funk* store,
-                   struct fd_funk_xactionid const* id);
-
-long fd_funk_write(struct fd_funk* store,
-                   struct fd_funk_xactionid const* xid,
-                   struct fd_funk_recordid const* recordid,
-                   const void* data,
-                   ulong offset,
-                   ulong datalen) {
-  if (fd_funk_is_root(xid))
-    return fd_funk_write_root(store, recordid, data, offset, datalen);
-  FD_LOG_ERR(("transactions not supported yet"));
-  return -1;
 }
 
 long fd_funk_read(struct fd_funk* store,
@@ -194,3 +169,4 @@ void fd_funk_validate(struct fd_funk* store) {
 }
 
 #include "fd_funk_root.c"
+#include "fd_funk_xaction.c"

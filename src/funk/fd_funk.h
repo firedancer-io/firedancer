@@ -55,6 +55,7 @@ typedef struct fd_funk_recordid fd_funk_recordid_t;
 struct fd_funk_xactionid {
     uchar id[FD_FUNK_XACTIONID_FOOTPRINT];
 } __attribute__ ((aligned(FD_FUNK_XACTIONID_ALIGN)));
+typedef struct fd_funk_xactionid fd_funk_xactionid_t;
 
 // Root or null transaction id. Used to initiate the transaction
 // chain. Corresponds to all finalized data. Writes to the root
