@@ -3,7 +3,7 @@
 
 #if FD_HAS_ROCKSDB
 
-#include "../../util/encoders/fd_bincode.h"
+#include "fd_banks_solana.h"
 #include "../shred/fd_shred.h"
 #include "../block/fd_microblock.h"
 #include <rocksdb/c.h>
@@ -95,6 +95,17 @@ ulong fd_rocksdb_last_slot(
     char **err
 );
 
+/* fd_rocksdb_first_slot:  Returns the first slot in the db
+
+   This uses the root column to discover the slot of the first root in
+   the db.  If there is an error, this sets *err to a constant string
+   describing the error.  There is no need to free that string.
+*/
+ulong fd_rocksdb_first_slot(
+    fd_rocksdb_t *db, 
+    char **err
+);
+
 /* fd_rocksdb_get_meta
 
    Retrieves the meta structure associated with the supplied slot.  If
@@ -120,6 +131,12 @@ void fd_slot_meta_decode(
     void const* dataend,
     fd_alloc_fun_t allocf, 
     void* allocf_arg
+);
+
+void fd_slot_meta_destroy(
+    fd_slot_meta_t* self,
+    fd_free_fun_t freef, 
+    void* freef_arg
 );
 
 /* fd_rocksdb_get_microblocks

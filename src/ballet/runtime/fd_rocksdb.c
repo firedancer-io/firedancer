@@ -25,6 +25,17 @@ void fd_slot_meta_decode(fd_slot_meta_t* self, void const** data, void const* da
     fd_bincode_uint32_decode(self->entry_end_indexes + i, data, dataend);
 }
 
+void fd_slot_meta_destroy(
+    fd_slot_meta_t* self,
+    fd_free_fun_t freef, 
+    void* freef_arg
+) {
+  if (NULL != self->next_slots) {
+    freef(self->next_slots, freef_arg);
+    self->next_slots = NULL;
+  }
+}
+
 char * fd_rocksdb_init(fd_rocksdb_t *db, const char *db_name) {
   fd_memset(db, 0, sizeof(fd_rocksdb_t));
 
@@ -68,11 +79,35 @@ void fd_rocksdb_destroy(fd_rocksdb_t *db) {
     rocksdb_options_destroy(db->opts);
     db->opts = NULL;
   }
+
+  // This C wrapper is destroying too deeply..   We will accept the leak for now
+
+  //  for (int i = 0; i < 4; i++) {
+  //    if (NULL != db->column_family_handles[i]) {
+  //      rocksdb_column_family_handle_destroy(db->column_family_handles[i]);
+  //      db->column_family_handles[i] = NULL;
+  //    }
+  //  }
 }
 
 ulong fd_rocksdb_last_slot(fd_rocksdb_t *db, char **err) {
   rocksdb_iterator_t* iter = rocksdb_create_iterator_cf(db->db, db->ro, db->column_family_handles[2]);
   rocksdb_iter_seek_to_last(iter);
+  if (!rocksdb_iter_valid(iter)) {
+    *err = "db column for root is empty";
+    return 0;
+  }
+
+  size_t klen = 0;
+  const char *key = rocksdb_iter_key(iter, &klen); // There is no need to free key
+  unsigned long slot = fd_ulong_bswap(*((unsigned long *) key));
+  rocksdb_iter_destroy(iter);
+  return slot;
+}
+
+ulong fd_rocksdb_first_slot(fd_rocksdb_t *db, char **err) {
+  rocksdb_iterator_t* iter = rocksdb_create_iterator_cf(db->db, db->ro, db->column_family_handles[2]);
+  rocksdb_iter_seek_to_first(iter);
   if (!rocksdb_iter_valid(iter)) {
     *err = "db column for root is empty";
     return 0;

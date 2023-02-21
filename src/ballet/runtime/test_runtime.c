@@ -18,11 +18,16 @@ char* allocf(unsigned long len, FD_FN_UNUSED unsigned long align, FD_FN_UNUSED v
   return malloc(len);
 }
 
+void freef(void *ptr, FD_FN_UNUSED void* arg) {
+  free(ptr);
+}
+
 static void usage(const char* progname) {
   fprintf(stderr, "USAGE: %s\n", progname);
-  fprintf(stderr, " --ledger   <dir>        ledger directory\n");
-  fprintf(stderr, " --db       <file>       firedancer db file\n");
-  fprintf(stderr, " --end-slot <num>        stop iterating at block...\n");
+  fprintf(stderr, " --ledger     <dir>        ledger directory\n");
+  fprintf(stderr, " --db         <file>       firedancer db file\n");
+  fprintf(stderr, " --end-slot   <num>        stop iterating at block...\n");
+  fprintf(stderr, " --start-slot <num>        start iterating at block...\n");
 }
 
 int main(int argc, char **argv) {
@@ -116,8 +121,13 @@ int main(int argc, char **argv) {
     }
   }
 
-  if (NULL != dbuf) 
+  // Clean up a little...
+  if (NULL != dbuf)  {
     free(dbuf);
+    dbuf = NULL;
+  }
+
+  fd_genesis_solana_destroy(&gen, freef, NULL);
 
   //  we good?
   FD_LOG_INFO(("validating funk db"));
@@ -136,8 +146,20 @@ int main(int argc, char **argv) {
     FD_LOG_ERR(("fd_rocksdb_last_slot returned %s", err));
   }
 
-  if (end_slot > last_slot) 
+  if (end_slot > last_slot) {
     end_slot = last_slot;
+    FD_LOG_INFO(("setting the end_slot to %ld since that is the last slot we see in the rocksdb", end_slot));
+  }
+
+  ulong first_slot = fd_rocksdb_first_slot(&rocks_db, &err);
+  if (err != NULL) {
+    FD_LOG_ERR(("fd_rocksdb_first_slot returned %s", err));
+  }
+
+  if (start_slot < first_slot) {
+    start_slot = first_slot;
+    FD_LOG_INFO(("setting the start_slot to %ld since that is the first slot we see in the rocksdb", start_slot));
+  }
 
   // Lets start executing!
   void *fd_executor_raw = malloc(FD_EXECUTOR_FOOTPRINT);
@@ -155,6 +177,9 @@ int main(int argc, char **argv) {
 
     fd_slot_blocks_t *slot_data = fd_rocksdb_get_microblocks(&rocks_db, &m);
     FD_LOG_INFO(("fd_rocksdb_get_microblocks got %d microblocks", slot_data->block_cnt));
+
+    // free 
+    fd_slot_meta_destroy(&m, freef, NULL);
 
     // execute slot_block...
     FD_LOG_INFO(("executing micro blocks... profit"));
@@ -184,6 +209,8 @@ int main(int argc, char **argv) {
 
   fd_funk_delete(fd_funk_leave(funk));
   free(fd_funk_raw);
+
+  free(buf);
 
   return 0;
 }
