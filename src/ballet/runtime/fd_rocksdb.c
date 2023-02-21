@@ -1,9 +1,9 @@
-#if FD_HAS_ROCKSDB
-
 #include "fd_rocksdb.h"
 #include <malloc.h>
 #include <stdbool.h>
 #include <stdlib.h>
+
+#ifdef FD_HAS_ROCKSDB
 
 void fd_slot_meta_decode(fd_slot_meta_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, FD_FN_UNUSED void* allocf_arg) {
   fd_bincode_uint64_decode(&self->slot, data, dataend);

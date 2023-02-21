@@ -1,8 +1,8 @@
-ifdef FD_HAS_ZSTD
+ifneq ($(FD_HAS_ZSTD),)
 
 ifneq ($(ROCKSDB),)
 
-ifneq (,$wildcard $(ROCKSDB)/librocksdb.a)
+ifneq (,$(wildcard $(ROCKSDB)/librocksdb.a))
 CFLAGS += -I$(ROCKSDB)/include -DFD_HAS_ROCKSDB=1
 LDFLAGS += -lstdc++ $(ROCKSDB)/librocksdb.a -lpthread -lbz2 -lz -ldl -lm
 FD_HAS_ROCKSDB:=1
