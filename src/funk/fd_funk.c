@@ -8,9 +8,6 @@
 #include <unistd.h>
 #include <stdlib.h>
 #include <stdio.h>
-
-#define FD_CACHE_MALLOC(_arg_, _datalen_) malloc(_datalen_)
-#define FD_CACHE_FREE(_arg_, _data_, _datalen_) free(_data_)
 #include "fd_cache.h"
 
 // Control block size
@@ -65,12 +62,9 @@ struct fd_funk_index_entry {
     // Next entry in hash chain
     uint next;
     // Cached data
-    char* cache;
-    // Length of cached data. May be less than len if we are just caching a prefix
-    uint cachelen;
+    fd_cache_handle cachehandle;
     // sizeof(fd_funk_index_entry) must be 128
-    uint unused1;
-    ulong unused2[2];
+    ulong unused[3];
 };
 
 #define MAP_NAME fd_funk_index
@@ -170,6 +164,8 @@ struct fd_funk {
     ulong lastcontrol; 
     // Master index of finalized data
     struct fd_funk_index* index;
+    // Entry cache manager
+    struct fd_cache* cache;
     // Root transaction id
     struct fd_funk_xactionid root;
     // Vector of free control entry locations
@@ -254,8 +250,7 @@ void fd_funk_replay_control(struct fd_funk* store) {
         ent2->alloc = ent->u.normal.alloc;
         ent2->version = ent->u.normal.version;
         ent2->control = entpos;
-        ent2->cache = NULL;
-        ent2->cachelen = 0;
+        ent2->cachehandle = FD_CACHE_INVALID_HANDLE;
 
       } else if (ent->type == FD_FUNK_CONTROL_DEAD) {
         // Account for gaps at the end
@@ -357,7 +352,11 @@ void* fd_funk_new(void* mem,
   char hostname[64];
   gethostname(hostname, sizeof(hostname));
   ulong hashseed = fd_hash(0, hostname, strnlen(hostname, sizeof(hostname)));
-  fd_funk_index_new(store->index, footprint/3, hashseed);
+  ulong fp2 = fd_funk_index_new(store->index, footprint/3, hashseed);
+
+  // Allocate 1/2 of the footprint for the cache
+  void* mem3 = (char*)mem2 + fp2;
+  store->cache = fd_cache_new(store->index->capacity/16, footprint/2, mem3);
 
   fd_vec_ulong_new(&store->free_ctrl);
   for (uint i = 0; i < FD_FUNK_NUM_DISK_SIZES; ++i)
@@ -391,6 +390,11 @@ void* fd_funk_leave(struct fd_funk* store) {
 
 void* fd_funk_delete(void* mem) {
   struct fd_funk* store = (struct fd_funk*)mem;
+  fd_funk_index_destroy(store->index);
+  fd_cache_destroy(store->cache);
+  fd_vec_ulong_destroy(&store->free_ctrl);
+  for (uint i = 0; i < FD_FUNK_NUM_DISK_SIZES; ++i)
+    fd_funk_vec_dead_entry_destroy(&store->deads[i]);
   close(store->backingfd);
   return mem;
 }
@@ -456,9 +460,11 @@ long fd_funk_write_root(struct fd_funk* store,
   
   if (exists) {
     // Patch the cache
-    if (ent->cache && offset < ent->cachelen)
-      fd_memcpy(ent->cache + offset, data,
-                (datalen <= ent->cachelen - offset ? datalen : ent->cachelen - offset));
+    uint cachelen;
+    void* cache = fd_cache_lookup(store->cache, ent->cachehandle, &cachelen);
+    if (cache && offset < cachelen)
+      fd_memcpy((char*)cache + offset, data,
+                (datalen <= cachelen - offset ? datalen : cachelen - offset));
     
     if (newlen <= ent->alloc) {
       // Can update in place. Just patch the disk storage
@@ -498,13 +504,13 @@ long fd_funk_write_root(struct fd_funk* store,
       ent->version ++;
       // Track how much we have written so far
       uint done = 0;
-      if (ent->cache) {
+      if (cache) {
         // Start by writing out what we cached because this is easy
-        if (pwrite(store->backingfd, ent->cache, ent->cachelen, (long)newstart) < (long)ent->cachelen) {
+        if (pwrite(store->backingfd, cache, cachelen, (long)newstart) < (long)cachelen) {
           FD_LOG_WARNING(("failed to write backing file: %s", strerror(errno)));
           return -1;
         }
-        done = ent->cachelen;
+        done = cachelen;
       }
       char* tmpbuf = NULL;
       int tmpbuflen = 0;
@@ -565,8 +571,7 @@ long fd_funk_write_root(struct fd_funk* store,
       return -1;
     ent->len = (uint)newlen;
     ent->version = 1;
-    ent->cache = NULL;
-    ent->cachelen = 0;
+    ent->cachehandle = FD_CACHE_INVALID_HANDLE;
     if (offset > 0) {
       // Zero fill gap in disk space
       char* zeros = fd_alloca(1, offset);
@@ -614,21 +619,22 @@ long fd_funk_read_root(struct fd_funk* store,
   if (offset + datalen > ent->len)
     datalen = ent->len - offset;
   ulong neededlen = offset + datalen;
-  if (ent->cache == NULL || neededlen > ent->cachelen) {
+  uint cachelen;
+  void* cache = fd_cache_lookup(store->cache, ent->cachehandle, &cachelen);
+  if (cache == NULL || neededlen > cachelen) {
     // Load the cache. We can cache a prefix rather than the entire
     // record. This is useful if metadata is in front of the real data.
-    ent->cachelen = (uint)neededlen;
-    if (ent->cache)
-      free(ent->cache);
-    ent->cache = malloc(neededlen);
-    if (pread(store->backingfd, ent->cache, neededlen, (long)ent->start) < (long)neededlen) {
+    if (cache)
+      fd_cache_release(store->cache, ent->cachehandle);
+    ent->cachehandle = fd_cache_allocate(store->cache, &cache, (uint)neededlen);
+    if (pread(store->backingfd, cache, neededlen, (long)ent->start) < (long)neededlen) {
       FD_LOG_WARNING(("failed to read backing file: %s", strerror(errno)));
-      free(ent->cache);
-      ent->cache = NULL;
+      fd_cache_release(store->cache, ent->cachehandle);
+      ent->cachehandle = FD_CACHE_INVALID_HANDLE;
       return -1;
     }
   }
-  *data = ent->cache + offset;
+  *data = (char*)cache + offset;
   return (long)datalen;
 }
 
@@ -657,8 +663,7 @@ void fd_funk_delete_record_root(struct fd_funk* store,
     // Doesn't exist
     return;
   }
-  if (ent->cache != NULL)
-    free(ent->cache);
+  fd_cache_release(store->cache, ent->cachehandle);
   fd_funk_make_dead(store, ent->control, ent->start, ent->alloc);
 }
 
@@ -741,12 +746,14 @@ void fd_funk_validate(struct fd_funk* store) {
         ulong rsize = fd_funk_disk_size(ent->u.normal.alloc, &k);
         if (rsize != ent->u.normal.alloc || k >= FD_FUNK_NUM_DISK_SIZES)
           FD_LOG_ERR(("invalid record allocation in store"));
-        if (ent2->cache != NULL) {
-          if (ent2->cachelen > ent->u.normal.len)
+        uint cachelen;
+        void* cache = fd_cache_lookup(store->cache, ent2->cachehandle, &cachelen);
+        if (cache != NULL) {
+          if (cachelen > ent->u.normal.len)
             FD_LOG_ERR(("cache too large"));
-          if (pread(store->backingfd, scratch, ent2->cachelen, (long)ent->u.normal.start) < (long)ent2->cachelen)
+          if (pread(store->backingfd, scratch, cachelen, (long)ent->u.normal.start) < (long)cachelen)
             FD_LOG_ERR(("failed to read backing file: %s", strerror(errno)));
-          if (memcmp(scratch, ent2->cache, ent2->cachelen) != 0)
+          if (memcmp(scratch, cache, cachelen) != 0)
             FD_LOG_ERR(("cache is wrong"));
         }
         if (ent->u.normal.start < allocpos)

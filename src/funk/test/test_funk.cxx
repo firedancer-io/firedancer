@@ -74,6 +74,10 @@ class databuf {
       _buflen = x._buflen;
       x._buflen = 0;
     }
+    ~databuf() {
+      if (_buf != nullptr)
+        free(_buf);
+    }
     databuf& operator= (const databuf& x) = delete;
     databuf& operator= (databuf&& x) = delete;
 
