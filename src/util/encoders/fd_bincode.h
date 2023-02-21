@@ -8,8 +8,6 @@
 //    add _unchecked versions
 //    return the underflow status verses errors?!
 
-typedef char* (*fd_alloc_fun_t)(ulong len, ulong align, void* arg);
-
 static inline
 void fd_bincode_uint128_decode(uint128* self, void const** data, void const* dataend) {
   const uint128 *ptr = (const uint128 *) *data;

@@ -107,6 +107,8 @@ fd_txn_parse( uchar const             * payload,
   CHECK( (signature_cnt<=acct_addr_cnt) & (acct_addr_cnt<=FD_TXN_ACCT_ADDR_MAX) );
   CHECK( (ulong)signature_cnt+(ulong)ro_unsigned_cnt<=(ulong)acct_addr_cnt );
 
+  
+
   CHECK_LEFT( FD_TXN_ACCT_ADDR_SZ*acct_addr_cnt );   ulong acct_addr_off  =          i  ;     i+=FD_TXN_ACCT_ADDR_SZ*acct_addr_cnt;
   CHECK_LEFT( FD_TXN_BLOCKHASH_SZ               );   ulong recent_blockhash_off =    i  ;     i+=FD_TXN_BLOCKHASH_SZ;
 
@@ -132,6 +134,9 @@ fd_txn_parse( uchar const             * payload,
 
 
   for( ulong j=0UL; j<instr_cnt; j++ ) {
+
+    /* parsing instruction */
+
     ushort acct_cnt = (ushort)0;
     ushort data_sz  = (ushort)0;
     CHECK_LEFT( MIN_INSTR_SZ                    );   uchar program_id     = payload[ i ];     i++;

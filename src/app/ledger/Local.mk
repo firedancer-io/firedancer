@@ -1,4 +1,4 @@
-ifneq ($(ROCKSDB),)
+ifneq ($(FD_HAS_ROCKSDB),)
 
 ifeq ($(FD_HAS_ZSTD),1)
 $(call make-bin,fd_frank_ledger,main tar,fd_util fd_ballet)

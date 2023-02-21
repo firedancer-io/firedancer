@@ -3,44 +3,47 @@
 
 #include "../fd_ballet_base.h"
 #include "../txn/fd_txn.h"
+#include "../block/fd_microblock.h"
+#include "fd_banks_solana.h"
+#include "fd_acc_mgr.h"
+#include "../../funk/fd_funk.h"
 
 FD_PROTOTYPES_BEGIN
 
-#define FD_EXECUTOR_LOOKUP_TABLE_CAPACITY 5
-
-/* Context needed to execute a single instruction */
-struct instruction_ctx {
-    fd_txn_instr_t* instr; /* The instruction */
-    fd_txn_t*       txn;   /* Transaction this instruction was part of */
+struct fd_executor {
+    fd_acc_mgr_t* acc_mgr;
 };
-typedef struct instruction_ctx instruction_ctx_t;
+typedef struct fd_executor fd_executor_t;
 
-/* Function definition for native programs */
-typedef void(*instruction_invocation_func_t)(instruction_ctx_t ctx);
+#define FD_EXECUTOR_FOOTPRINT (sizeof(fd_executor_t))
 
-/* Key pair used in the native program lookup table */
-struct fd_native_program_lookup_pair {
-    fd_txn_acct_addr_t            key;
-    instruction_invocation_func_t instruction_invocation_func;
-};
-typedef struct fd_native_program_lookup_pair fd_native_program_lookup_pair_t;
-#define FD_NATIVE_PROGRAM_LOOKUP_PAIR_FOOTPRINT sizeof(fd_slot_meta_t);
+void* fd_executor_new(void* mem,
+                      fd_acc_mgr_t* acc_mgr,
+                      ulong footprint);
 
-FD_FN_CONST static inline ulong
-fd_executor_footprint( ) {
-    // TODO
-    return 0;
-}
+fd_executor_t *fd_executor_join(void* mem);
 
-/* Lookup a native program by it's public key */
-instruction_invocation_func_t
-fd_executor_lookup_native_program(
-    fd_txn_acct_addr_t key
-) ;
+void *fd_executor_leave(fd_executor_t* executor);
+
+void* fd_executor_delete(void* mem);
 
 /* Execute the given transaction */
 void
-fd_execute_txn( fd_txn_t * txn ) ;
+fd_execute_txn( fd_executor_t* executor, fd_txn_t * txn_descriptor, fd_rawtxn_b_t* txn_raw ) ;
+
+/* Context needed to execute a single instruction. TODO: split into a hierarchy of layered contexts.  */
+struct instruction_ctx {
+    fd_txn_instr_t* instr;                      /* The instruction */
+    fd_txn_t*       txn_descriptor;             /* Descriptor of the transaction this instruction was part of */
+    fd_rawtxn_b_t*  txn_raw;                    /* Raw bytes of the transaction this instruction was part of */
+    fd_acc_mgr_t*   acc_mgr;                    /* Account manager */
+};
+typedef struct instruction_ctx instruction_ctx_t;
+
+/* Type definition for native programs, akin to an interface for native programs.
+   The executor will execute instructions designated for a given native program by invoking a function of this type. */
+/* TODO: execution return codes */
+typedef void(*execute_instruction_func_t)(instruction_ctx_t ctx);
 
 FD_PROTOTYPES_END
 
