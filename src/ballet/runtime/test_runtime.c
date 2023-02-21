@@ -1,7 +1,3 @@
-// git clone https://github.com/facebook/rocksdb.git
-// cd rocksdb
-// make static_lib -j10
-//
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
