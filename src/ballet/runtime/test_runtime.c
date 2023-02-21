@@ -170,6 +170,7 @@ int main(int argc, char **argv) {
     }
 
     // free the slot data...
+    fd_slot_blocks_destroy(slot_data);
     free(slot_data);
   }
 

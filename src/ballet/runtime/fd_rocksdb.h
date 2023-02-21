@@ -60,6 +60,12 @@ FD_PROTOTYPES_BEGIN
 */
 void fd_slot_blocks_init(fd_slot_blocks_t *);
 
+/* fd_slot_blocks_init
+
+   Initialize the block
+*/
+void fd_slot_blocks_destroy(fd_slot_blocks_t *);
+
 /* fd_rocksdb_init: Returns a pointer to a description of the error on failure
 
   The provided db_name needs to point at the actual rocksdb directory

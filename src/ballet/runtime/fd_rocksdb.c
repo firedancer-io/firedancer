@@ -259,4 +259,12 @@ void fd_slot_blocks_init(fd_slot_blocks_t *b) {
   b->block_cnt = 0;
 }
 
+void fd_slot_blocks_destroy(fd_slot_blocks_t *b) {
+  for (uint i = 0; i < b->block_cnt; i++) {
+    free(b->micro_blocks[i]);
+    b->micro_blocks[i] = 0;
+  }
+  b->block_cnt = 0;
+}
+
 #endif
