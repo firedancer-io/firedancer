@@ -28,7 +28,6 @@ fd_cc_test(
     deps = [
         ":runtime",
         "//src/ballet",
-        "//src/funk:fd_funk",
         "@rocksdb",
     ],
 )
