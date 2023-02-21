@@ -10,8 +10,8 @@ FD_PROTOTYPES_BEGIN
 
 #define FD_ACC_MGR_SUCCESS             (0)
 #define FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT (-1)
-#define FD_ACC_MGR_ERR_WRITE_FAILED        (-2)
-#define FD_ACC_MGR_ERR_READ_FAILED         (-3)
+#define FD_ACC_MGR_ERR_WRITE_FAILED    (-2)
+#define FD_ACC_MGR_ERR_READ_FAILED     (-3)
 
 struct fd_acc_mgr {
     fd_funk_t* funk;
@@ -34,13 +34,11 @@ void* fd_acc_mgr_delete(void* mem);
 
 typedef ulong fd_acc_lamports_t;
 
-int write_account(fd_acc_mgr_t* acc_mgr, fd_pubkey_t* pubkey, uchar* data, ulong data_len);
+int fd_acc_mgr_write_account(fd_acc_mgr_t* acc_mgr, fd_pubkey_t* pubkey, uchar* data, ulong data_len);
 
-int write_account_metadata(fd_acc_mgr_t* acc_mgr, fd_pubkey_t* pubkey, fd_account_meta_t* metadata);
+int fd_acc_mgr_get_lamports(fd_acc_mgr_t* acc_mgr, fd_pubkey_t* pubkey, fd_acc_lamports_t* result);
 
-int get_lamports(fd_acc_mgr_t* acc_mgr, fd_pubkey_t* pubkey, fd_acc_lamports_t* result);
-
-int set_lamports(fd_acc_mgr_t* acc_mgr, fd_pubkey_t* pubkey, fd_acc_lamports_t lamports);
+int fd_acc_mgr_set_lamports(fd_acc_mgr_t* acc_mgr, fd_pubkey_t* pubkey, fd_acc_lamports_t lamports);
 
 FD_PROTOTYPES_END
 

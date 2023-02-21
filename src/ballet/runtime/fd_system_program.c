@@ -27,7 +27,7 @@ void transfer(
 
     /* Check sender account has enough balance to execute this transaction */
     fd_acc_lamports_t sender_lamports = 0;
-    int read_result = get_lamports(ctx.acc_mgr, sender, &sender_lamports);
+    int read_result = fd_acc_mgr_get_lamports(ctx.acc_mgr, sender, &sender_lamports);
     if (read_result != FD_ACC_MGR_SUCCESS) {
       FD_LOG_WARNING(("failed to get lamports"));
       return;
@@ -39,14 +39,14 @@ void transfer(
 
     /* Determine the receiver's current balance, creating the account if it does not exist */
     fd_acc_lamports_t receiver_lamports = 0;
-    read_result = get_lamports(ctx.acc_mgr, receiver, &receiver_lamports);
+    read_result = fd_acc_mgr_get_lamports(ctx.acc_mgr, receiver, &receiver_lamports);
     if (read_result == FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT) {
 
       /* Create new account if it doesn't exist */
       FD_LOG_DEBUG(("transfer to unknown account: creating new account"));
       fd_account_meta_t metadata;
       fd_memset(&metadata, 0, sizeof(metadata));
-      int write_result = write_account(ctx.acc_mgr, receiver, (uchar *)&metadata, sizeof(metadata));
+      int write_result = fd_acc_mgr_write_account(ctx.acc_mgr, receiver, (uchar *)&metadata, sizeof(metadata));
       if (write_result != FD_ACC_MGR_SUCCESS) {
         FD_LOG_WARNING(("failed to create new account"));
         return;
@@ -61,12 +61,12 @@ void transfer(
     FD_LOG_DEBUG(("transfer: receiver balance before transfer: %lu", receiver_lamports));
 
     /* Execute the transfer */
-    int write_result = set_lamports(ctx.acc_mgr, sender, sender_lamports - requested_lamports);
+    int write_result = fd_acc_mgr_set_lamports(ctx.acc_mgr, sender, sender_lamports - requested_lamports);
     if (write_result != FD_ACC_MGR_SUCCESS) {
       FD_LOG_WARNING(("failed to set sender lamports"));
       return;
     }
-    write_result = set_lamports(ctx.acc_mgr, receiver, receiver_lamports + requested_lamports );
+    write_result = fd_acc_mgr_set_lamports(ctx.acc_mgr, receiver, receiver_lamports + requested_lamports );
     if (write_result != FD_ACC_MGR_SUCCESS) {
       FD_LOG_WARNING(("failed to set receiver lamports"));
       /* TODO: recover sender amount, to make this instruction atomic */

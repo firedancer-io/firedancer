@@ -1,7 +1,5 @@
 #include "fd_acc_mgr.h"
 
-#define UNUSED(x) (void)(x)
-
 void* fd_acc_mgr_new(void* mem,
                      fd_funk_t* funk,
                      const fd_funk_xactionid_t* funk_xroot,
@@ -56,7 +54,7 @@ int read_metadata(fd_acc_mgr_t* acc_mgr, fd_pubkey_t* pubkey, fd_account_meta_t 
   return FD_ACC_MGR_SUCCESS;
 } 
 
-int write_account(fd_acc_mgr_t* acc_mgr, fd_pubkey_t* pubkey, uchar* data, ulong data_len) {
+int fd_acc_mgr_write_account(fd_acc_mgr_t* acc_mgr, fd_pubkey_t* pubkey, uchar* data, ulong data_len) {
   fd_funk_recordid_t id = funk_id(pubkey);
   if (fd_funk_write(acc_mgr->funk, acc_mgr->funk_xroot, &id, data, 0, data_len) != (long)data_len) {
     FD_LOG_WARNING(("failed to write account data"));
@@ -66,7 +64,7 @@ int write_account(fd_acc_mgr_t* acc_mgr, fd_pubkey_t* pubkey, uchar* data, ulong
   return FD_ACC_MGR_SUCCESS;
 }
 
-int get_lamports(fd_acc_mgr_t* acc_mgr, fd_pubkey_t * pubkey, fd_acc_lamports_t* result) {
+int fd_acc_mgr_get_lamports(fd_acc_mgr_t* acc_mgr, fd_pubkey_t * pubkey, fd_acc_lamports_t* result) {
   fd_account_meta_t metadata;
   int read_result = read_metadata(acc_mgr, pubkey, &metadata);
   if (read_result != FD_ACC_MGR_SUCCESS) {
@@ -78,7 +76,7 @@ int get_lamports(fd_acc_mgr_t* acc_mgr, fd_pubkey_t * pubkey, fd_acc_lamports_t*
   return FD_ACC_MGR_SUCCESS;
 }
 
-int set_lamports(fd_acc_mgr_t* acc_mgr, fd_pubkey_t * pubkey, fd_acc_lamports_t lamports) {
+int fd_acc_mgr_set_lamports(fd_acc_mgr_t* acc_mgr, fd_pubkey_t * pubkey, fd_acc_lamports_t lamports) {
   /* Read the current metadata from Funk */
   fd_account_meta_t metadata;
   int read_result = read_metadata(acc_mgr, pubkey, &metadata);
@@ -89,7 +87,7 @@ int set_lamports(fd_acc_mgr_t* acc_mgr, fd_pubkey_t * pubkey, fd_acc_lamports_t 
 
   /* Overwrite the lamports value and write back */
   metadata.info.lamports = lamports;
-  int write_result = write_account(acc_mgr, pubkey, (uchar*)&metadata, sizeof(metadata));
+  int write_result = fd_acc_mgr_write_account(acc_mgr, pubkey, (uchar*)&metadata, sizeof(metadata));
   if (write_result != FD_ACC_MGR_SUCCESS) {
     FD_LOG_WARNING(("failed to write account metadata"));
     return write_result;

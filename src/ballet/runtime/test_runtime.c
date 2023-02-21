@@ -111,7 +111,7 @@ int main(int argc, char **argv) {
 
     fd_memcpy(&dbuf[sizeof(fd_account_meta_t)], a->account.data, a->account.data_len);
 
-    if (write_account(acc_mgr, &a->key, dbuf, dlen) != FD_ACC_MGR_SUCCESS) {
+    if (fd_acc_mgr_write_account(acc_mgr, &a->key, dbuf, dlen) != FD_ACC_MGR_SUCCESS) {
       FD_LOG_ERR(("write account failed"));
     }
   }
