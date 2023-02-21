@@ -10,10 +10,6 @@ fd_cc_library(
     hdrs = [
         "fd_log.h",
     ],
-    target_compatible_with = select({
-        "//src:has_hosted": [],
-        "//conditions:default": ["@platforms//:incompatible"],
-    }),
     deps = [
         "//src/util/bits",
         "//src/util/env",
