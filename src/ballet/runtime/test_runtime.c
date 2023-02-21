@@ -20,6 +20,7 @@ void freef(void *ptr, FD_FN_UNUSED void* arg) {
 
 static void usage(const char* progname) {
   fprintf(stderr, "USAGE: %s\n", progname);
+  fprintf(stderr, " --wksp       <name>       workspace name\n");
   fprintf(stderr, " --ledger     <dir>        ledger directory\n");
   fprintf(stderr, " --db         <file>       firedancer db file\n");
   fprintf(stderr, " --end-slot   <num>        stop iterating at block...\n");
@@ -27,26 +28,42 @@ static void usage(const char* progname) {
 }
 
 int main(int argc, char **argv) {
+  fd_boot( &argc, &argv );
+
   ulong end_slot = 73;
   ulong start_slot = 0;
 
-  const char* ledger = fd_env_strip_cmdline_cstr(&argc, &argv, "--ledger", NULL, NULL);
-  const char* db = fd_env_strip_cmdline_cstr(&argc, &argv, "--db", NULL, NULL);
+  char const * name           = fd_env_strip_cmdline_cstr ( &argc, &argv, "--wksp",       NULL, NULL );
+  char const * ledger         = fd_env_strip_cmdline_cstr ( &argc, &argv, "--ledger",     NULL, NULL);
+  char const * db             = fd_env_strip_cmdline_cstr ( &argc, &argv, "--db",         NULL, NULL);
+  char const * end_slot_opt   = fd_env_strip_cmdline_cstr ( &argc, &argv, "--end-slot",   NULL, NULL);
+  char const * start_slot_opt = fd_env_strip_cmdline_cstr ( &argc, &argv, "--start-slot", NULL, NULL);
+
   if ((NULL == ledger) || (NULL == db)) {
     usage(argv[0]);
     exit(1);
   }
+
+  fd_wksp_t * wksp;
+  if( name ) {
+    FD_LOG_NOTICE(( "Attaching to --wksp %s", name ));
+    wksp = fd_wksp_attach( name );
+  } else {
+    FD_LOG_NOTICE(( "--wksp not specified, using an anonymous local workspace" ));
+    /* FIXME: ALLOW PAGE SIZE PARAMETERS TO BE SPECIFIED */
+    wksp = fd_wksp_new_anonymous( FD_SHMEM_GIGANTIC_PAGE_SZ, 1UL, fd_log_cpu_id(), "wksp", 0UL );
+  } 
+
+  if( FD_UNLIKELY( !wksp ) ) FD_LOG_ERR(( "Unable to attach to wksp" ));
 
   ulong footprint = fd_funk_footprint_min();
   void * fd_funk_raw = malloc(footprint);
   fd_funk_t* funk = fd_funk_join(fd_funk_new(fd_funk_raw, footprint, db));
   fd_funk_validate(funk);
 
-  const char* end_slot_opt = fd_env_strip_cmdline_cstr(&argc, &argv, "--end-slot", NULL, NULL);
   if (NULL != end_slot_opt) {
     end_slot = (ulong) atoi(end_slot_opt);
   }
-  const char* start_slot_opt = fd_env_strip_cmdline_cstr(&argc, &argv, "--start-slot", NULL, NULL);
   if (NULL != start_slot_opt) {
     start_slot = (ulong) atoi(start_slot_opt);
   }
@@ -208,5 +225,12 @@ int main(int argc, char **argv) {
 
   free(buf);
 
+//  fd_wksp_free_laddr( shmem );
+  if( name ) 
+    fd_wksp_detach( wksp );
+  else  
+    fd_wksp_delete_anonymous( wksp );
+
+  fd_halt();
   return 0;
 }
