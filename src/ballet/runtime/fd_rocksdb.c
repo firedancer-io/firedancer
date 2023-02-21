@@ -1,9 +1,9 @@
-#if FD_HAS_ROCKSDB
-
 #include "fd_rocksdb.h"
 #include <malloc.h>
 #include <stdbool.h>
 #include <stdlib.h>
+
+#ifdef FD_HAS_ROCKSDB
 
 void fd_slot_meta_decode(fd_slot_meta_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, FD_FN_UNUSED void* allocf_arg) {
   fd_bincode_uint64_decode(&self->slot, data, dataend);
@@ -114,14 +114,20 @@ fd_slot_blocks_t * fd_rocksdb_get_microblocks(fd_rocksdb_t *db, fd_slot_meta_t *
 
   rocksdb_iter_seek(iter, (const char *) k, sizeof(k));
   // Put valid check for iter up here... to short circut unused memory alloc
-  ulong bufsize = (m->last_index + 1) * 1500;
+  ulong bufsize = m->consumed * 1500;
   fd_slot_blocks_t *batch = aligned_alloc(FD_SLOT_BLOCKS_ALIGN, FD_SLOT_BLOCKS_FOOTPRINT(bufsize));
+
+  // Should we make this "debug only"??
+  memset(batch, 0, FD_SLOT_BLOCKS_FOOTPRINT(bufsize));
+
   fd_slot_blocks_init(batch);
 
   fd_deshredder_t deshred;
   fd_deshredder_init(&deshred, batch->buffer, bufsize, NULL, 0);
 
   uchar *next_batch = deshred.buf;
+
+  uchar * empty = NULL;
 
   for (ulong i = start_idx; i < end_idx; i++) {
     ulong cur_slot, index;
@@ -200,14 +206,19 @@ fd_slot_blocks_t * fd_rocksdb_get_microblocks(fd_rocksdb_t *db, fd_slot_meta_t *
         fd_microblock_hdr_t * hdr = (fd_microblock_hdr_t *)next_batch;
 
         ulong txn_max_cnt = hdr->txn_cnt;
-        // Is there any value in ignoring empty txns?
 
         ulong footprint = fd_microblock_footprint( txn_max_cnt );
 
         // What allocator should we do here considering we are going to
         // pass these microblocks to executors on different tiles
         // potentally?
-        uchar * raw = aligned_alloc(FD_MICROBLOCK_ALIGN, footprint);
+        uchar * raw;
+        if (0 == txn_max_cnt) {
+          if (NULL == empty)
+            empty = aligned_alloc(FD_MICROBLOCK_ALIGN, footprint);
+          raw = empty;
+        } else
+          raw = aligned_alloc(FD_MICROBLOCK_ALIGN, footprint);
 
         void * shblock = fd_microblock_new( raw, txn_max_cnt );
         fd_microblock_t * block = fd_microblock_join( shblock );
@@ -221,7 +232,12 @@ fd_slot_blocks_t * fd_rocksdb_get_microblocks(fd_rocksdb_t *db, fd_slot_meta_t *
 
         fd_microblock_leave(shblock);
 
-        batch->micro_blocks[batch->block_cnt++] = shblock;
+        if (0 != txn_max_cnt) {
+          if (batch->block_cnt >= 64) {
+            FD_LOG_ERR(("microblock overflow"));
+          }
+          batch->micro_blocks[batch->block_cnt++] = shblock;
+        }
         next_batch += microblock_sz;
       }
       FD_LOG_INFO(("total blocks found so far: %d", batch->block_cnt));
@@ -231,12 +247,23 @@ fd_slot_blocks_t * fd_rocksdb_get_microblocks(fd_rocksdb_t *db, fd_slot_meta_t *
 
     rocksdb_iter_next(iter);
   }
+
+  if (NULL != empty)
+    free(empty);
   rocksdb_iter_destroy(iter);
 
   return batch;
 }
 
 void fd_slot_blocks_init(fd_slot_blocks_t *b) {
+  b->block_cnt = 0;
+}
+
+void fd_slot_blocks_destroy(fd_slot_blocks_t *b) {
+  for (uint i = 0; i < b->block_cnt; i++) {
+    free(b->micro_blocks[i]);
+    b->micro_blocks[i] = 0;
+  }
   b->block_cnt = 0;
 }
 

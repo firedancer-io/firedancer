@@ -30,7 +30,7 @@ typedef struct fd_slot_meta fd_slot_meta_t;
 
 /* all the micro blocks found in a slot */
 struct fd_slot_blocks {
-  void *micro_blocks[65];
+  void *micro_blocks[64];
   uint block_cnt;
   uchar buffer[];
 };
@@ -59,6 +59,12 @@ FD_PROTOTYPES_BEGIN
    Initialize the block
 */
 void fd_slot_blocks_init(fd_slot_blocks_t *);
+
+/* fd_slot_blocks_init
+
+   Initialize the block
+*/
+void fd_slot_blocks_destroy(fd_slot_blocks_t *);
 
 /* fd_rocksdb_init: Returns a pointer to a description of the error on failure
 
