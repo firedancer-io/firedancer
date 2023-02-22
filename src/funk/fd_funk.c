@@ -121,18 +121,6 @@ struct fd_funk_xactionid const* fd_funk_root(struct fd_funk* store) {
   return &store->root;
 }
 
-long fd_funk_read(struct fd_funk* store,
-                  struct fd_funk_xactionid const* xid,
-                  struct fd_funk_recordid const* recordid,
-                  const void** data,
-                  ulong offset,
-                  ulong datalen) {
-  if (fd_funk_is_root(xid))
-    return fd_funk_read_root(store, recordid, data, offset, datalen);
-  FD_LOG_ERR(("transactions not supported yet"));
-  return -1;
-}
-
 void fd_funk_truncate(struct fd_funk* store,
                       struct fd_funk_xactionid const* xid,
                       struct fd_funk_recordid const* recordid,

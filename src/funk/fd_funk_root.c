@@ -377,39 +377,35 @@ long fd_funk_write_root(struct fd_funk* store,
   }
 }
 
-long fd_funk_read_root(struct fd_funk* store,
-                       struct fd_funk_recordid const* recordid,
-                       const void** data,
-                       ulong offset,
-                       ulong datalen) {
-  *data = NULL; // defensive
+// Get/construct the cache entry for a record
+fd_cache_handle fd_funk_get_cache_root(struct fd_funk* store,
+                                       struct fd_funk_recordid const* recordid,
+                                       uint neededlen,
+                                       void** cachedata,
+                                       uint* cachelen,
+                                       uint* recordlen) {
   struct fd_funk_index_entry* ent = fd_funk_index_query(store->index, recordid);
   // See if we got a hit
   if (ent == NULL)
-    return -1;
-  // See if we are reading past the end of the record
-  if (offset >= ent->len)
-    return 0;
-  if (offset + datalen > ent->len)
-    datalen = ent->len - offset;
-  ulong neededlen = offset + datalen;
-  uint cachelen;
-  void* cache = fd_cache_lookup(store->cache, ent->cachehandle, &cachelen);
-  if (cache == NULL || neededlen > cachelen) {
+    return FD_CACHE_INVALID_HANDLE;
+  *recordlen = ent->len;
+  if (neededlen > ent->len)
+    neededlen = ent->len;
+  *cachedata = fd_cache_lookup(store->cache, ent->cachehandle, cachelen);
+  if (*cachedata == NULL || neededlen > *cachelen) {
     // Load the cache. We can cache a prefix rather than the entire
     // record. This is useful if metadata is in front of the real data.
-    if (cache)
+    if (*cachedata != NULL)
       fd_cache_release(store->cache, ent->cachehandle);
-    ent->cachehandle = fd_cache_allocate(store->cache, &cache, (uint)neededlen);
-    if (pread(store->backingfd, cache, neededlen, (long)ent->start) < (long)neededlen) {
+    ent->cachehandle = fd_cache_allocate(store->cache, cachedata, neededlen);
+    *cachelen = neededlen;
+    if (pread(store->backingfd, *cachedata, neededlen, (long)ent->start) < (long)neededlen) {
       FD_LOG_WARNING(("failed to read backing file: %s", strerror(errno)));
       fd_cache_release(store->cache, ent->cachehandle);
-      ent->cachehandle = FD_CACHE_INVALID_HANDLE;
-      return -1;
+      return FD_CACHE_INVALID_HANDLE;
     }
   }
-  *data = (char*)cache + offset;
-  return (long)datalen;
+  return ent->cachehandle;
 }
 
 void fd_funk_delete_record_root(struct fd_funk* store,
