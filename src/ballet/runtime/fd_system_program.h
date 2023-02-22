@@ -7,7 +7,7 @@
 FD_PROTOTYPES_BEGIN
 
 /* Entry-point for the Solana System Program */
-void fd_system_program_execute_instruction( instruction_ctx_t ctx ) ;
+void fd_executor_system_program_execute_instruction( instruction_ctx_t ctx ) ;
 
 FD_PROTOTYPES_BEGIN
 
