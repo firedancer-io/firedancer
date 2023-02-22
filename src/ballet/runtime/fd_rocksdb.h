@@ -64,7 +64,7 @@ void fd_slot_blocks_init(fd_slot_blocks_t *);
 
    Initialize the block
 */
-void fd_slot_blocks_destroy(fd_slot_blocks_t *);
+void fd_slot_blocks_destroy(fd_slot_blocks_t *, fd_free_fun_t freef,  void* freef_arg);
 
 /* fd_rocksdb_init: Returns a pointer to a description of the error on failure
 
@@ -117,6 +117,7 @@ void fd_rocksdb_get_meta(
     ulong slot,
     fd_slot_meta_t *m,
     fd_alloc_fun_t allocf, 
+    void* allocf_arg,
     char **err
 );
 
@@ -141,7 +142,11 @@ void fd_slot_meta_destroy(
 
 /* fd_rocksdb_get_microblocks
 */
-fd_slot_blocks_t * fd_rocksdb_get_microblocks(fd_rocksdb_t *db, fd_slot_meta_t *m);
+fd_slot_blocks_t * fd_rocksdb_get_microblocks(fd_rocksdb_t *db, 
+  fd_slot_meta_t *m,
+  fd_alloc_fun_t allocf, 
+  void* allocf_arg
+);
 
 FD_PROTOTYPES_END
 

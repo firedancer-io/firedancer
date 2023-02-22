@@ -181,14 +181,14 @@ int main(int argc, char **argv) {
   for (ulong slot = start_slot; slot < end_slot; slot++) {
     fd_slot_meta_t m;
     fd_memset(&m, 0, sizeof(m));
-    fd_rocksdb_get_meta(&rocks_db, slot, &m, allocf, &err);
+    fd_rocksdb_get_meta(&rocks_db, slot, &m, allocf, NULL, &err);
     if (err != NULL) {
       FD_LOG_ERR(("fd_rocksdb_last_slot returned %s", err));
     }
 
     // Some(self.consumed) == self.last_index.map(|ix| ix + 1)
 
-    fd_slot_blocks_t *slot_data = fd_rocksdb_get_microblocks(&rocks_db, &m);
+    fd_slot_blocks_t *slot_data = fd_rocksdb_get_microblocks(&rocks_db, &m, allocf, NULL);
     FD_LOG_INFO(("fd_rocksdb_get_microblocks got %d microblocks", slot_data->block_cnt));
 
     // free 
@@ -207,7 +207,7 @@ int main(int argc, char **argv) {
     }
 
     // free the slot data...
-    fd_slot_blocks_destroy(slot_data);
+    fd_slot_blocks_destroy(slot_data, freef, NULL);
     free(slot_data);
   }
 
