@@ -11,6 +11,8 @@
 #include "../../funk/fd_funk.h"
 #include "../../util/alloc/fd_alloc.h"
 
+#define _VALGRIND
+
 #ifdef _VALGRIND
 char* allocf(unsigned long len, FD_FN_UNUSED unsigned long align, FD_FN_UNUSED void* arg) {
   return malloc(len);
@@ -20,12 +22,13 @@ void freef(void *ptr, FD_FN_UNUSED void* arg) {
   free(ptr);
 }
 #else
-char* allocf(unsigned long len, FD_FN_UNUSED unsigned long align, FD_FN_UNUSED void* arg) {
-  return malloc(len);
+
+char* allocf(unsigned long len, unsigned long align, void* arg) {
+  return fd_alloc_malloc(arg, align, len);
 }
 
-void freef(void *ptr, FD_FN_UNUSED void* arg) {
-  free(ptr);
+void freef(void *ptr, void* arg) {
+  fd_alloc_free(arg, ptr);
 }
 #endif
 
@@ -61,15 +64,21 @@ int main(int argc, char **argv) {
     wksp = fd_wksp_attach( name );
   } else {
     FD_LOG_NOTICE(( "--wksp not specified, using an anonymous local workspace" ));
-    /* FIXME: ALLOW PAGE SIZE PARAMETERS TO BE SPECIFIED */
     wksp = fd_wksp_new_anonymous( FD_SHMEM_GIGANTIC_PAGE_SZ, 1UL, fd_log_cpu_id(), "wksp", 0UL );
   } 
 
   if( FD_UNLIKELY( !wksp ) ) FD_LOG_ERR(( "Unable to attach to wksp" ));
 
-  ulong footprint = fd_funk_footprint_min();
-  void * fd_funk_raw = malloc(footprint);
-  fd_funk_t* funk = fd_funk_join(fd_funk_new(fd_funk_raw, footprint, db));
+  void * shmem = fd_wksp_alloc_laddr( wksp, fd_alloc_align(), fd_alloc_footprint() );
+
+  if( FD_UNLIKELY( !shmem ) ) FD_LOG_ERR(( "Unable to allocate wksp memory for fd_alloc" ));
+
+  void * shalloc = fd_alloc_new ( shmem ); 
+
+  fd_alloc_t * alloc = fd_alloc_join( shalloc, 0UL );
+
+  void * fd_funk_raw = fd_alloc_malloc(alloc, fd_funk_align(), fd_funk_footprint_min());
+  fd_funk_t* funk = fd_funk_join(fd_funk_new(fd_funk_raw, fd_funk_footprint_min(), db));
   fd_funk_validate(funk);
 
   if (NULL != end_slot_opt) {
@@ -97,7 +106,7 @@ int main(int argc, char **argv) {
   void *dataend = &buf[n];
   fd_genesis_solana_t gen;
   fd_memset(&gen, 0, sizeof(gen));
-  fd_genesis_solana_decode(&gen, ( void const** )&data, dataend, allocf, NULL);
+  fd_genesis_solana_decode(&gen, ( void const** )&data, dataend, allocf, alloc);
 
   // Jam all the accounts into the database....  (gen.accounts)
 
@@ -151,7 +160,7 @@ int main(int argc, char **argv) {
     dbuf = NULL;
   }
 
-  fd_genesis_solana_destroy(&gen, freef, NULL);
+  fd_genesis_solana_destroy(&gen, freef, alloc);
 
   //  we good?
   FD_LOG_INFO(("validating funk db"));
@@ -232,7 +241,8 @@ int main(int argc, char **argv) {
   fd_rocksdb_destroy(&rocks_db);
 
   fd_funk_delete(fd_funk_leave(funk));
-  free(fd_funk_raw);
+
+  fd_alloc_free(alloc, fd_funk_raw);
 
   free(buf);
 
@@ -242,6 +252,9 @@ int main(int argc, char **argv) {
   else  
     fd_wksp_delete_anonymous( wksp );
 
+  FD_LOG_NOTICE(( "pass" ));
+
   fd_halt();
+
   return 0;
 }
