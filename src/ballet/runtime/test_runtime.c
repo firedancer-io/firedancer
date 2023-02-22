@@ -25,19 +25,19 @@ void freef(void *ptr, FD_FN_UNUSED void* arg) {
 
 char* allocf(unsigned long len, unsigned long align, void* arg) {
   if (NULL == arg) {
-    FD_LOG_NOTICE(( "yo dawg.. you passed a NULL as a fd_alloc pool"));
+    FD_LOG_ERR(( "yo dawg.. you passed a NULL as a fd_alloc pool"));
   }
 
   char *ret = fd_alloc_malloc(arg, align, len);
-  FD_LOG_NOTICE(( "0x%lx  0x%lx  allocf(len:%ld, align:%ld)", (ulong) ret, (ulong) arg,  len, align));
+//  FD_LOG_NOTICE(( "0x%lx  0x%lx  allocf(len:%ld, align:%ld)", (ulong) ret, (ulong) arg,  len, align));
   return ret;
 }
 
 void freef(void *ptr, void* arg) {
-  FD_LOG_NOTICE(( "0x%lx  0x%lx  free()", (ulong) ptr, (ulong) arg));
+//  FD_LOG_NOTICE(( "0x%lx  0x%lx  free()", (ulong) ptr, (ulong) arg));
 
   if (NULL == arg) {
-    FD_LOG_NOTICE(( "yo dawg.. you passed a NULL as a fd_alloc pool"));
+    FD_LOG_ERR(( "yo dawg.. you passed a NULL as a fd_alloc pool"));
   }
 
   fd_alloc_free(arg, ptr);
