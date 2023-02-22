@@ -1,7 +1,3 @@
-// git clone https://github.com/facebook/rocksdb.git
-// cd rocksdb
-// make static_lib -j10
-//
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -13,7 +9,11 @@
 #include "fd_banks_solana.h"
 #include "fd_executor.h"
 #include "../../funk/fd_funk.h"
+#include "../../util/alloc/fd_alloc.h"
 
+//#define _VALGRIND
+
+#ifdef _VALGRIND
 char* allocf(unsigned long len, FD_FN_UNUSED unsigned long align, FD_FN_UNUSED void* arg) {
   return malloc(len);
 }
@@ -21,9 +21,32 @@ char* allocf(unsigned long len, FD_FN_UNUSED unsigned long align, FD_FN_UNUSED v
 void freef(void *ptr, FD_FN_UNUSED void* arg) {
   free(ptr);
 }
+#else
+
+char* allocf(unsigned long len, unsigned long align, void* arg) {
+  if (NULL == arg) {
+    FD_LOG_ERR(( "yo dawg.. you passed a NULL as a fd_alloc pool"));
+  }
+
+  char *ret = fd_alloc_malloc(arg, align, len);
+//  FD_LOG_NOTICE(( "0x%lx  0x%lx  allocf(len:%ld, align:%ld)", (ulong) ret, (ulong) arg,  len, align));
+  return ret;
+}
+
+void freef(void *ptr, void* arg) {
+//  FD_LOG_NOTICE(( "0x%lx  0x%lx  free()", (ulong) ptr, (ulong) arg));
+
+  if (NULL == arg) {
+    FD_LOG_ERR(( "yo dawg.. you passed a NULL as a fd_alloc pool"));
+  }
+
+  fd_alloc_free(arg, ptr);
+}
+#endif
 
 static void usage(const char* progname) {
   fprintf(stderr, "USAGE: %s\n", progname);
+  fprintf(stderr, " --wksp       <name>       workspace name\n");
   fprintf(stderr, " --ledger     <dir>        ledger directory\n");
   fprintf(stderr, " --db         <file>       firedancer db file\n");
   fprintf(stderr, " --end-slot   <num>        stop iterating at block...\n");
@@ -31,26 +54,48 @@ static void usage(const char* progname) {
 }
 
 int main(int argc, char **argv) {
+  fd_boot( &argc, &argv );
+
   ulong end_slot = 73;
   ulong start_slot = 0;
 
-  const char* ledger = fd_env_strip_cmdline_cstr(&argc, &argv, "--ledger", NULL, NULL);
-  const char* db = fd_env_strip_cmdline_cstr(&argc, &argv, "--db", NULL, NULL);
+  char const * name           = fd_env_strip_cmdline_cstr ( &argc, &argv, "--wksp",       NULL, NULL );
+  char const * ledger         = fd_env_strip_cmdline_cstr ( &argc, &argv, "--ledger",     NULL, NULL);
+  char const * db             = fd_env_strip_cmdline_cstr ( &argc, &argv, "--db",         NULL, NULL);
+  char const * end_slot_opt   = fd_env_strip_cmdline_cstr ( &argc, &argv, "--end-slot",   NULL, NULL);
+  char const * start_slot_opt = fd_env_strip_cmdline_cstr ( &argc, &argv, "--start-slot", NULL, NULL);
+
   if ((NULL == ledger) || (NULL == db)) {
     usage(argv[0]);
     exit(1);
   }
 
-  ulong footprint = fd_funk_footprint_min();
-  void * fd_funk_raw = malloc(footprint);
-  fd_funk_t* funk = fd_funk_join(fd_funk_new(fd_funk_raw, footprint, db));
+  fd_wksp_t * wksp;
+  if( name ) {
+    FD_LOG_NOTICE(( "Attaching to --wksp %s", name ));
+    wksp = fd_wksp_attach( name );
+  } else {
+    FD_LOG_NOTICE(( "--wksp not specified, using an anonymous local workspace" ));
+    wksp = fd_wksp_new_anonymous( FD_SHMEM_GIGANTIC_PAGE_SZ, 1UL, fd_log_cpu_id(), "wksp", 0UL );
+  } 
+
+  if( FD_UNLIKELY( !wksp ) ) FD_LOG_ERR(( "Unable to attach to wksp" ));
+
+  void * shmem = fd_wksp_alloc_laddr( wksp, fd_alloc_align(), fd_alloc_footprint() );
+
+  if( FD_UNLIKELY( !shmem ) ) FD_LOG_ERR(( "Unable to allocate wksp memory for fd_alloc" ));
+
+  void * shalloc = fd_alloc_new ( shmem ); 
+
+  fd_alloc_t * alloc = fd_alloc_join( shalloc, 0UL );
+
+  void * fd_funk_raw = fd_alloc_malloc(alloc, fd_funk_align(), fd_funk_footprint_min());
+  fd_funk_t* funk = fd_funk_join(fd_funk_new(fd_funk_raw, fd_funk_footprint_min(), db));
   fd_funk_validate(funk);
 
-  const char* end_slot_opt = fd_env_strip_cmdline_cstr(&argc, &argv, "--end-slot", NULL, NULL);
   if (NULL != end_slot_opt) {
     end_slot = (ulong) atoi(end_slot_opt);
   }
-  const char* start_slot_opt = fd_env_strip_cmdline_cstr(&argc, &argv, "--start-slot", NULL, NULL);
   if (NULL != start_slot_opt) {
     start_slot = (ulong) atoi(start_slot_opt);
   }
@@ -73,7 +118,7 @@ int main(int argc, char **argv) {
   void *dataend = &buf[n];
   fd_genesis_solana_t gen;
   fd_memset(&gen, 0, sizeof(gen));
-  fd_genesis_solana_decode(&gen, ( void const** )&data, dataend, allocf, NULL);
+  fd_genesis_solana_decode(&gen, ( void const** )&data, dataend, allocf, alloc);
 
   // Jam all the accounts into the database....  (gen.accounts)
 
@@ -127,7 +172,7 @@ int main(int argc, char **argv) {
     dbuf = NULL;
   }
 
-  fd_genesis_solana_destroy(&gen, freef, NULL);
+  fd_genesis_solana_destroy(&gen, freef, alloc);
 
   //  we good?
   FD_LOG_INFO(("validating funk db"));
@@ -168,18 +213,18 @@ int main(int argc, char **argv) {
   for (ulong slot = start_slot; slot < end_slot; slot++) {
     fd_slot_meta_t m;
     fd_memset(&m, 0, sizeof(m));
-    fd_rocksdb_get_meta(&rocks_db, slot, &m, allocf, &err);
+    fd_rocksdb_get_meta(&rocks_db, slot, &m, allocf, alloc, &err);
     if (err != NULL) {
       FD_LOG_ERR(("fd_rocksdb_last_slot returned %s", err));
     }
 
     // Some(self.consumed) == self.last_index.map(|ix| ix + 1)
 
-    fd_slot_blocks_t *slot_data = fd_rocksdb_get_microblocks(&rocks_db, &m);
+    fd_slot_blocks_t *slot_data = fd_rocksdb_get_microblocks(&rocks_db, &m, allocf, alloc);
     FD_LOG_INFO(("fd_rocksdb_get_microblocks got %d microblocks", slot_data->block_cnt));
 
     // free 
-    fd_slot_meta_destroy(&m, freef, NULL);
+    fd_slot_meta_destroy(&m, freef, alloc);
 
     // execute slot_block...
     FD_LOG_INFO(("executing micro blocks... profit"));
@@ -194,8 +239,8 @@ int main(int argc, char **argv) {
     }
 
     // free the slot data...
-    fd_slot_blocks_destroy(slot_data);
-    free(slot_data);
+    fd_slot_blocks_destroy(slot_data, freef, alloc);
+    freef(slot_data, alloc);
   }
 
   fd_executor_delete(fd_executor_leave(executor));
@@ -208,9 +253,20 @@ int main(int argc, char **argv) {
   fd_rocksdb_destroy(&rocks_db);
 
   fd_funk_delete(fd_funk_leave(funk));
-  free(fd_funk_raw);
+
+  fd_alloc_free(alloc, fd_funk_raw);
 
   free(buf);
+
+//  fd_wksp_free_laddr( shmem );
+  if( name ) 
+    fd_wksp_detach( wksp );
+  else  
+    fd_wksp_delete_anonymous( wksp );
+
+  FD_LOG_NOTICE(( "pass" ));
+
+  fd_halt();
 
   return 0;
 }
