@@ -147,7 +147,7 @@ fd_slot_blocks_t * fd_rocksdb_get_microblocks(fd_rocksdb_t *db, fd_slot_meta_t *
   rocksdb_iter_seek(iter, (const char *) k, sizeof(k));
   // Put valid check for iter up here... to short circut unused memory alloc
   ulong bufsize = m->consumed * 1500;
-  fd_slot_blocks_t *batch = (fd_slot_blocks_t *) allocf(FD_SLOT_BLOCKS_ALIGN, FD_SLOT_BLOCKS_FOOTPRINT(bufsize), allocf_arg);
+  fd_slot_blocks_t *batch = (fd_slot_blocks_t *) allocf(FD_SLOT_BLOCKS_FOOTPRINT(bufsize), FD_SLOT_BLOCKS_ALIGN, allocf_arg);
 
   // Should we make this "debug only"??
   memset(batch, 0, sizeof(batch->micro_blocks));
@@ -158,8 +158,6 @@ fd_slot_blocks_t * fd_rocksdb_get_microblocks(fd_rocksdb_t *db, fd_slot_meta_t *
   fd_deshredder_init(&deshred, batch->buffer, bufsize, NULL, 0);
 
   uchar *next_batch = deshred.buf;
-
-  uchar * empty = NULL;
 
   for (ulong i = start_idx; i < end_idx; i++) {
     ulong cur_slot, index;
@@ -220,10 +218,11 @@ fd_slot_blocks_t * fd_rocksdb_get_microblocks(fd_rocksdb_t *db, fd_slot_meta_t *
       */
     fd_deshredder_next( &deshred );
 
+    // Give us an aligned empty buffer to play with
+    uchar e[fd_microblock_footprint( 0 )]  __attribute__((aligned(FD_MICROBLOCK_ALIGN)));
+
     if ((deshred.result == FD_SHRED_ESLOT) | (deshred.result == FD_SHRED_EBATCH)) {
       ulong mblocks = *((ulong *) next_batch);
-
-      FD_LOG_INFO(("found %ld microblocks", mblocks));
 
       next_batch += sizeof(ulong);
 
@@ -234,16 +233,11 @@ fd_slot_blocks_t * fd_rocksdb_get_microblocks(fd_rocksdb_t *db, fd_slot_meta_t *
 
         ulong footprint = fd_microblock_footprint( txn_max_cnt );
 
-        // What allocator should we do here considering we are going to
-        // pass these microblocks to executors on different tiles
-        // potentally?
         uchar * raw;
         if (0 == txn_max_cnt) {
-          if (NULL == empty)
-            empty = aligned_alloc(FD_MICROBLOCK_ALIGN, footprint);
-          raw = empty;
+          raw = e;
         } else
-          raw = (uchar *) allocf(FD_MICROBLOCK_ALIGN, footprint, allocf_arg);
+          raw = (uchar *) allocf(footprint, FD_MICROBLOCK_ALIGN ,allocf_arg);
 
         void * shblock = fd_microblock_new( raw, txn_max_cnt );
         fd_microblock_t * block = fd_microblock_join( shblock );
@@ -272,8 +266,6 @@ fd_slot_blocks_t * fd_rocksdb_get_microblocks(fd_rocksdb_t *db, fd_slot_meta_t *
     rocksdb_iter_next(iter);
   }
 
-  if (NULL != empty)
-    free(empty);
   rocksdb_iter_destroy(iter);
 
   return batch;
