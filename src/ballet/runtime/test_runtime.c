@@ -218,8 +218,6 @@ int main(int argc, char **argv) {
       FD_LOG_ERR(("fd_rocksdb_last_slot returned %s", err));
     }
 
-    // Some(self.consumed) == self.last_index.map(|ix| ix + 1)
-
     fd_slot_blocks_t *slot_data = fd_rocksdb_get_microblocks(&rocks_db, &m, allocf, alloc);
     FD_LOG_INFO(("fd_rocksdb_get_microblocks got %d microblocks", slot_data->block_cnt));
 
@@ -229,15 +227,26 @@ int main(int argc, char **argv) {
     // execute slot_block...
     FD_LOG_INFO(("executing micro blocks... profit"));
 
-    for ( uint micro_block_idx = 0; micro_block_idx < slot_data->block_cnt; micro_block_idx++ ) {
-      fd_microblock_t* micro_block = slot_data->micro_blocks[micro_block_idx];
-      for ( ulong txn_idx = 0; txn_idx < micro_block->txn_max_cnt; txn_idx++ ) {
-        fd_txn_t* txn_descriptor = (fd_txn_t *)&micro_block->txn_tbl[ txn_idx ];
-        fd_rawtxn_b_t* txn_raw   = (fd_rawtxn_b_t *)&micro_block->raw_tbl[ txn_idx ];
-        fd_execute_txn( executor, txn_descriptor, txn_raw );
-      }      
-    }
+    uchar *blob = slot_data->first_blob;
+    while (NULL != blob) {
+      uchar *blob_ptr = blob + FD_BLOB_DATA_START;
+      uint cnt = *((uint *) (blob + 8));
+      while (cnt > 0) {
+        fd_microblock_t * micro_block = fd_microblock_join( blob_ptr );
 
+        for ( ulong txn_idx = 0; txn_idx < micro_block->txn_max_cnt; txn_idx++ ) {
+          fd_txn_t* txn_descriptor = (fd_txn_t *)&micro_block->txn_tbl[ txn_idx ];
+          fd_rawtxn_b_t* txn_raw   = (fd_rawtxn_b_t *)&micro_block->raw_tbl[ txn_idx ];
+          fd_execute_txn( executor, txn_descriptor, txn_raw );
+        }      
+        fd_microblock_leave(micro_block);
+
+        blob_ptr = (uchar *) fd_ulong_align_up((ulong)blob_ptr + fd_microblock_footprint( micro_block->hdr.txn_cnt ), FD_MICROBLOCK_ALIGN);
+        
+        cnt--;
+      }
+      blob = *((uchar **) blob);
+    }
     // free the slot data...
     fd_slot_blocks_destroy(slot_data, freef, alloc);
     freef(slot_data, alloc);
