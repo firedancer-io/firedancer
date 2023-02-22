@@ -411,11 +411,13 @@ fd_double_eq( double x,
 /* Unaligned access annotations.
 
    FD_LOAD( T, src ) is equivalent to:
-     (*(T const *)(src))
+     return (*(T const *)(src))
    but src can have arbitrary alignment.
 
    FD_STORE( T, dst, val ) is equivalent to:
-     do { (*(T *)(dst)) = (val); } while(0)
+     T * ptr = (T *)(dst);
+     *ptr = (val);
+     return ptr
    but dst can have arbitrary alignment.
 
    Note: Ideally, we would infer the type T in FD_LOAD from src (e.g.
@@ -433,7 +435,15 @@ fd_double_eq( double x,
    primtive type like a ulong) are no guaranteed to be atomic if done
    through these annotations. */
 
-#if 0
+#ifndef FD_UNALIGNED_ACCESS_STYLE
+#if FD_HAS_X86
+#define FD_UNALIGNED_ACCESS_STYLE 1
+#else
+#define FD_UNALIGNED_ACCESS_STYLE 0
+#endif
+#endif
+
+#if FD_UNALIGNED_ACCESS_STYLE==0 /* memcpy eliason based */
 
 /* This implementation does not assume it is safe to access unaligned
    memory directly (and thus can be used on platforms outside the
@@ -468,10 +478,10 @@ fd_double_eq( double x,
    Hmmm. */
 
 #define FD_LOAD( T, src ) \
-  (__extension__({ T _fd_load_tmp; memcpy( &_fd_load_tmp, (src), sizeof(T) ); _fd_load_tmp; }))
+  (__extension__({ T _fd_load_tmp; memcpy( &_fd_load_tmp, (T const *)(src), sizeof(T) ); _fd_load_tmp; }))
 
 #define FD_STORE( T, dst, val ) \
-  do { T _fd_store_tmp = (val); memcpy( (dst), &_fd_store_tmp, sizeof(T) ); } while(0)
+  (__extension__({ T _fd_store_tmp = (val); (T *)memcpy( (T *)(dst), &_fd_store_tmp, sizeof(T) ); }))
 
 FD_FN_PURE static inline uchar  fd_uchar_load_1      ( void const * p ) { return         *(uchar const *)p; }
 
@@ -511,10 +521,10 @@ FD_FN_PURE static inline ulong  fd_ulong_load_6_fast ( void const * p ) { ulong 
 FD_FN_PURE static inline ulong  fd_ulong_load_7_fast ( void const * p ) { ulong  t; memcpy( &t, p, 8UL ); return         t  & 0x00ffffffffffffffUL; }
 #define                         fd_ulong_load_8_fast                    fd_ulong_load_8
 
-#else
+#elif FD_UNALIGNED_ACCESS_STYLE==1 /* direct access */
 
 #define FD_LOAD( T, src )       (*(T const *)(src))
-#define FD_STORE( T, dst, val ) do { (*(T *)(dst)) = (val); } while(0)
+#define FD_STORE( T, dst, val ) (__extension__({ T * _fd_store_tmp = (T *)(dst); *_fd_store_tmp = (val); _fd_store_tmp; }))
 
 FD_FN_PURE static inline uchar  fd_uchar_load_1      ( void const * p ) { return (        *(uchar  const *)p); }
 
@@ -554,6 +564,8 @@ FD_FN_PURE static inline ulong  fd_ulong_load_6_fast ( void const * p ) { return
 FD_FN_PURE static inline ulong  fd_ulong_load_7_fast ( void const * p ) { return (       *(ulong  const *)p) & 0x00ffffffffffffffUL; } /* Tail read 1B */
 #define                         fd_ulong_load_8_fast                    fd_ulong_load_8
 
+#else
+#error "Unsupported FD_UNALIGNED_ACCESS_STYLE"
 #endif
 
 /* fd_ulong_svw_enc_sz returns the number of bytes needed to encode
