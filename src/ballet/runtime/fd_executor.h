@@ -15,17 +15,15 @@ struct fd_executor {
 };
 typedef struct fd_executor fd_executor_t;
 
-#define FD_EXECUTOR_FOOTPRINT (sizeof(fd_executor_t))
+#define FD_EXECUTOR_FOOTPRINT ( sizeof(fd_executor_t) )
 
-void* fd_executor_new(void* mem,
-                      fd_acc_mgr_t* acc_mgr,
-                      ulong footprint);
+void* fd_executor_new( void* mem, fd_acc_mgr_t* acc_mgr, ulong footprint );
 
-fd_executor_t *fd_executor_join(void* mem);
+fd_executor_t *fd_executor_join( void* mem );
 
-void *fd_executor_leave(fd_executor_t* executor);
+void *fd_executor_leave( fd_executor_t* executor );
 
-void* fd_executor_delete(void* mem);
+void* fd_executor_delete( void* mem );
 
 /* Execute the given transaction */
 void
@@ -43,7 +41,7 @@ typedef struct instruction_ctx instruction_ctx_t;
 /* Type definition for native programs, akin to an interface for native programs.
    The executor will execute instructions designated for a given native program by invoking a function of this type. */
 /* TODO: execution return codes */
-typedef void(*execute_instruction_func_t)(instruction_ctx_t ctx);
+typedef void(*execute_instruction_func_t) ( instruction_ctx_t ctx );
 
 FD_PROTOTYPES_END
 
