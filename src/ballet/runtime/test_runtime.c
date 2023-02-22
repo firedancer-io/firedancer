@@ -10,6 +10,7 @@
 #include "fd_executor.h"
 #include "../../funk/fd_funk.h"
 
+#ifdef _VALGRIND
 char* allocf(unsigned long len, FD_FN_UNUSED unsigned long align, FD_FN_UNUSED void* arg) {
   return malloc(len);
 }
@@ -17,6 +18,8 @@ char* allocf(unsigned long len, FD_FN_UNUSED unsigned long align, FD_FN_UNUSED v
 void freef(void *ptr, FD_FN_UNUSED void* arg) {
   free(ptr);
 }
+#else
+#endif
 
 static void usage(const char* progname) {
   fprintf(stderr, "USAGE: %s\n", progname);
