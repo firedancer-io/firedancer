@@ -118,7 +118,7 @@ ulong fd_rocksdb_first_slot(fd_rocksdb_t *db, char **err) {
   return slot;
 }
 
-void fd_rocksdb_get_meta(fd_rocksdb_t *db, ulong slot, fd_slot_meta_t *m, fd_alloc_fun_t allocf, FD_FN_UNUSED void* allocf_arg, char **err) {
+void fd_rocksdb_get_meta(fd_rocksdb_t *db, ulong slot, fd_slot_meta_t *m, fd_alloc_fun_t allocf, void* allocf_arg, char **err) {
   ulong ks = fd_ulong_bswap(slot);
   size_t vallen = 0;
 

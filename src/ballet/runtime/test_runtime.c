@@ -11,7 +11,7 @@
 #include "../../funk/fd_funk.h"
 #include "../../util/alloc/fd_alloc.h"
 
-#define _VALGRIND
+//#define _VALGRIND
 
 #ifdef _VALGRIND
 char* allocf(unsigned long len, FD_FN_UNUSED unsigned long align, FD_FN_UNUSED void* arg) {
@@ -24,10 +24,22 @@ void freef(void *ptr, FD_FN_UNUSED void* arg) {
 #else
 
 char* allocf(unsigned long len, unsigned long align, void* arg) {
-  return fd_alloc_malloc(arg, align, len);
+  if (NULL == arg) {
+    FD_LOG_NOTICE(( "yo dawg.. you passed a NULL as a fd_alloc pool"));
+  }
+
+  char *ret = fd_alloc_malloc(arg, align, len);
+  FD_LOG_NOTICE(( "0x%lx  0x%lx  allocf(len:%ld, align:%ld)", (ulong) ret, (ulong) arg,  len, align));
+  return ret;
 }
 
 void freef(void *ptr, void* arg) {
+  FD_LOG_NOTICE(( "0x%lx  0x%lx  free()", (ulong) ptr, (ulong) arg));
+
+  if (NULL == arg) {
+    FD_LOG_NOTICE(( "yo dawg.. you passed a NULL as a fd_alloc pool"));
+  }
+
   fd_alloc_free(arg, ptr);
 }
 #endif
@@ -201,18 +213,18 @@ int main(int argc, char **argv) {
   for (ulong slot = start_slot; slot < end_slot; slot++) {
     fd_slot_meta_t m;
     fd_memset(&m, 0, sizeof(m));
-    fd_rocksdb_get_meta(&rocks_db, slot, &m, allocf, NULL, &err);
+    fd_rocksdb_get_meta(&rocks_db, slot, &m, allocf, alloc, &err);
     if (err != NULL) {
       FD_LOG_ERR(("fd_rocksdb_last_slot returned %s", err));
     }
 
     // Some(self.consumed) == self.last_index.map(|ix| ix + 1)
 
-    fd_slot_blocks_t *slot_data = fd_rocksdb_get_microblocks(&rocks_db, &m, allocf, NULL);
+    fd_slot_blocks_t *slot_data = fd_rocksdb_get_microblocks(&rocks_db, &m, allocf, alloc);
     FD_LOG_INFO(("fd_rocksdb_get_microblocks got %d microblocks", slot_data->block_cnt));
 
     // free 
-    fd_slot_meta_destroy(&m, freef, NULL);
+    fd_slot_meta_destroy(&m, freef, alloc);
 
     // execute slot_block...
     FD_LOG_INFO(("executing micro blocks... profit"));
@@ -227,8 +239,8 @@ int main(int argc, char **argv) {
     }
 
     // free the slot data...
-    fd_slot_blocks_destroy(slot_data, freef, NULL);
-    free(slot_data);
+    fd_slot_blocks_destroy(slot_data, freef, alloc);
+    freef(slot_data, alloc);
   }
 
   fd_executor_delete(fd_executor_leave(executor));
