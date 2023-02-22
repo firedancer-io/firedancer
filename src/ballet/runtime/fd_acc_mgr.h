@@ -32,12 +32,18 @@ void* fd_acc_mgr_leave(fd_acc_mgr_t* acc_mgr);
 
 void* fd_acc_mgr_delete(void* mem);
 
+/* Represents the lamport balance associated with an account. */
 typedef ulong fd_acc_lamports_t;
 
+/* Writes an account to the database with the given data and public key.
+
+   The account will be created if it doesn't already exist. */
 int fd_acc_mgr_write_account(fd_acc_mgr_t* acc_mgr, fd_pubkey_t* pubkey, uchar* data, ulong data_len);
 
+/* Fetches the lamport balance for the account with the given public key. */
 int fd_acc_mgr_get_lamports(fd_acc_mgr_t* acc_mgr, fd_pubkey_t* pubkey, fd_acc_lamports_t* result);
 
+/* Sets the lamport balance for the account with the given public key. */
 int fd_acc_mgr_set_lamports(fd_acc_mgr_t* acc_mgr, fd_pubkey_t* pubkey, fd_acc_lamports_t lamports);
 
 FD_PROTOTYPES_END
