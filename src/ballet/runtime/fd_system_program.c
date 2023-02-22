@@ -1,7 +1,8 @@
+#include "fd_executor.h"
 #include "fd_system_program.h"
 #include "fd_acc_mgr.h"
 
-void transfer(
+int transfer(
     ulong requested_lamports,
     instruction_ctx_t ctx
 ) {
@@ -20,61 +21,63 @@ void transfer(
             break;
         }
     }
-    if ( !sender_is_signer ) {
+    if ( FD_UNLIKELY( !sender_is_signer ) ) {
         FD_LOG_ERR( ( " sender has not authorized transfer " ) );
-        return;
+        return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
     }
 
     /* Check sender account has enough balance to execute this transaction */
     fd_acc_lamports_t sender_lamports = 0;
-    int read_result = fd_acc_mgr_get_lamports(ctx.acc_mgr, sender, &sender_lamports);
-    if (read_result != FD_ACC_MGR_SUCCESS) {
-      FD_LOG_WARNING(("failed to get lamports"));
-      return;
+    int read_result = fd_acc_mgr_get_lamports( ctx.acc_mgr, sender, &sender_lamports );
+    if ( FD_UNLIKELY( read_result != FD_ACC_MGR_SUCCESS ) ) {
+      FD_LOG_WARNING(( "failed to get lamports" ));
+      /* TODO: correct error messages */
+      return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
     }
-    if ( sender_lamports < requested_lamports ) {
-      FD_LOG_WARNING(("sender only has %lu lamports, needs %lu", sender_lamports, requested_lamports));
-      return;
+    if ( FD_UNLIKELY( sender_lamports < requested_lamports ) ) {
+      FD_LOG_WARNING(( "sender only has %lu lamports, needs %lu", sender_lamports, requested_lamports ));
+      return FD_EXECUTOR_INSTR_ERR_INSUFFICIENT_FUNDS;
     }
 
     /* Determine the receiver's current balance, creating the account if it does not exist */
     fd_acc_lamports_t receiver_lamports = 0;
-    read_result = fd_acc_mgr_get_lamports(ctx.acc_mgr, receiver, &receiver_lamports);
-    if (read_result == FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT) {
+    read_result = fd_acc_mgr_get_lamports( ctx.acc_mgr, receiver, &receiver_lamports );
+    if ( FD_UNLIKELY( read_result == FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) ) {
 
       /* Create new account if it doesn't exist */
-      FD_LOG_DEBUG(("transfer to unknown account: creating new account"));
+      FD_LOG_DEBUG(( "transfer to unknown account: creating new account" ));
       fd_account_meta_t metadata;
       fd_memset(&metadata, 0, sizeof(metadata));
-      int write_result = fd_acc_mgr_write_account(ctx.acc_mgr, receiver, (uchar *)&metadata, sizeof(metadata));
-      if (write_result != FD_ACC_MGR_SUCCESS) {
-        FD_LOG_WARNING(("failed to create new account"));
-        return;
+      int write_result = fd_acc_mgr_write_account( ctx.acc_mgr, receiver, (uchar *)&metadata, sizeof(metadata) );
+      if ( FD_UNLIKELY( write_result != FD_ACC_MGR_SUCCESS ) ) {
+        FD_LOG_WARNING(( "failed to create new account" ));
+        return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
       }
 
     }
-    else if (read_result != FD_ACC_MGR_SUCCESS) {
-      FD_LOG_WARNING(("failed to get lamports"));
-      return;
+    else if ( FD_UNLIKELY( read_result != FD_ACC_MGR_SUCCESS ) ) {
+      FD_LOG_WARNING(( "failed to get lamports" ));
+      return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
     }
     FD_LOG_DEBUG(("transfer: sender balance before transfer: %lu", sender_lamports));
     FD_LOG_DEBUG(("transfer: receiver balance before transfer: %lu", receiver_lamports));
 
     /* Execute the transfer */
-    int write_result = fd_acc_mgr_set_lamports(ctx.acc_mgr, sender, sender_lamports - requested_lamports);
-    if (write_result != FD_ACC_MGR_SUCCESS) {
-      FD_LOG_WARNING(("failed to set sender lamports"));
-      return;
+    int write_result = fd_acc_mgr_set_lamports( ctx.acc_mgr, sender, sender_lamports - requested_lamports );
+    if ( FD_UNLIKELY( write_result != FD_ACC_MGR_SUCCESS ) ) {
+      FD_LOG_WARNING(( "failed to set sender lamports" ));
+      return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
     }
-    write_result = fd_acc_mgr_set_lamports(ctx.acc_mgr, receiver, receiver_lamports + requested_lamports );
-    if (write_result != FD_ACC_MGR_SUCCESS) {
-      FD_LOG_WARNING(("failed to set receiver lamports"));
-      /* TODO: recover sender amount, to make this instruction atomic */
-      return;
+    write_result = fd_acc_mgr_set_lamports( ctx.acc_mgr, receiver, receiver_lamports + requested_lamports );
+    if ( FD_UNLIKELY( write_result != FD_ACC_MGR_SUCCESS ) ) {
+      FD_LOG_WARNING(( "failed to set receiver lamports" ));
+      return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
     }
+
+    return FD_EXECUTOR_INSTR_SUCCESS;
 }
 
-void fd_system_program_invoke_instruction(
+int fd_executor_system_program_execute_instruction(
     instruction_ctx_t ctx
 ) {
     /* Deserialize the SystemInstruction enum */
@@ -87,12 +90,14 @@ void fd_system_program_invoke_instruction(
     fd_bincode_uint32_decode( &discrimant, input_ptr, dataend );
     if ( discrimant != 2 ) {
         /* TODO: support other instruction types */
-        FD_LOG_ERR(("unsupported system program instruction: discrimant: %d", discrimant));
-        return;
+        FD_LOG_ERR(( "unsupported system program instruction: discrimant: %d", discrimant ));
+        return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
     }
 
     ulong requested_lamports = 0;
     fd_bincode_uint64_decode( &requested_lamports, input_ptr, dataend );
 
-    transfer( requested_lamports, ctx );
+    return transfer( requested_lamports, ctx );
 }
+
+
