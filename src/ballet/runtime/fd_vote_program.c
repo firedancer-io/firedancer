@@ -1,6 +1,6 @@
 #include "fd_vote_program.h"
 
-void fd_executor_vote_program_execute_instruction(
+int fd_executor_vote_program_execute_instruction(
     instruction_ctx_t ctx
 ) {
     /* TODO: template out bincode decoding of enums */
@@ -18,4 +18,5 @@ void fd_executor_vote_program_execute_instruction(
     FD_LOG_INFO(( "decoded vote program discriminant: %d", discrimant ));
 
     /* TODO */
+    return FD_EXECUTOR_INSTR_SUCCESS;
 }

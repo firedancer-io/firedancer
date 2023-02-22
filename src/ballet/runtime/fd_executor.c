@@ -39,16 +39,15 @@ static uchar vote_program_pubkey[]   = { 0x07, 0x61, 0x48, 0x1d, 0x35, 0x74, 0x7
 /* Look up a native program given it's pubkey key */
 execute_instruction_func_t
 fd_executor_lookup_native_program( fd_pubkey_t *pubkey ) {
-    /* TODO: replace with proper lookup table */
-    if ( !memcmp( pubkey, &vote_program_pubkey, sizeof( fd_pubkey_t ) ) ) {
-        return fd_executor_vote_program_execute_instruction;
-    }
-    else if ( !memcmp( pubkey, &system_program_pubkey, sizeof( fd_pubkey_t ) ) ) {
-        return fd_executor_system_program_execute_instruction;
-    } else {
-        FD_LOG_ERR(( "unknown program" ));
-        return NULL; /* FIXME */
-    }
+  /* TODO: replace with proper lookup table */
+  if ( !memcmp( pubkey, &vote_program_pubkey, sizeof( fd_pubkey_t ) ) ) {
+    return fd_executor_vote_program_execute_instruction;
+  } else if ( !memcmp( pubkey, &system_program_pubkey, sizeof( fd_pubkey_t ) ) ) {
+    return fd_executor_system_program_execute_instruction;
+  } else {
+    FD_LOG_ERR(( "unknown program" ));
+    return NULL; /* FIXME */
+  }
 }
 
 void
@@ -70,8 +69,12 @@ fd_execute_txn( fd_executor_t* executor, fd_txn_t * txn_descriptor, fd_rawtxn_b_
         };
 
         /* TODO: allow instructions to be failed, and the transaction to be reverted */
-        execute_instruction_func_t exec_func = fd_executor_lookup_native_program( &tx_accs[instr->program_id] );
-        exec_func( ctx );
+        execute_instruction_func_t exec_instr_func = fd_executor_lookup_native_program( &tx_accs[instr->program_id] );
+        int exec_result = exec_instr_func( ctx );
+        if ( FD_UNLIKELY( exec_result != FD_EXECUTOR_INSTR_SUCCESS ) ) {
+          FD_LOG_ERR(( "instruction executed unsuccessfully: error code %d", exec_result ));
+          /* TODO: revert transaction context */
+        }
 
         /* TODO: sanity before/after checks: total lamports unchanged etc */
     }
