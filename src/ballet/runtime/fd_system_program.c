@@ -74,7 +74,7 @@ void transfer(
     }
 }
 
-void fd_system_program_invoke_instruction(
+void fd_system_program_execute_instruction(
     instruction_ctx_t ctx
 ) {
     /* Deserialize the SystemInstruction enum */

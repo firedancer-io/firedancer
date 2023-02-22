@@ -37,7 +37,7 @@ static uchar system_program_pubkey[] = { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0
 static uchar vote_program_pubkey[]   = { 0x07, 0x61, 0x48, 0x1d, 0x35, 0x74, 0x74, 0xbb, 0x7c, 0x4d, 0x76, 0x24, 0xeb, 0xd3, 0xbd, 0xb3,
                                          0xd8, 0x35, 0x5e, 0x73, 0xd1, 0x10, 0x43, 0xfc, 0x0d, 0xa3, 0x53, 0x80, 0x00, 0x00, 0x00, 0x00 };
 
-void fd_vote_program_invoke_instruction( instruction_ctx_t ctx ) {
+void fd_vote_program_execute_instruction( instruction_ctx_t ctx ) {
     UNUSED(ctx);
     /* TODO */
     FD_LOG_INFO(("vote program instruction: skipping...")); 
@@ -48,10 +48,10 @@ execute_instruction_func_t
 fd_executor_lookup_native_program( fd_pubkey_t *pubkey ) {
     /* TODO: replace with proper lookup table */
     if ( !memcmp( pubkey, &vote_program_pubkey, sizeof( fd_pubkey_t ) ) ) {
-        return fd_vote_program_invoke_instruction;
+        return fd_vote_program_execute_instruction;
     }
     else if ( !memcmp( pubkey, &system_program_pubkey, sizeof( fd_pubkey_t ) ) ) {
-        return fd_system_program_invoke_instruction;
+        return fd_system_program_execute_instruction;
     } else {
         FD_LOG_ERR(( "unknown program" ));
         return NULL; /* FIXME */
