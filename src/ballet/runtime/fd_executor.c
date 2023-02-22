@@ -61,6 +61,12 @@ fd_executor_lookup_native_program( fd_pubkey_t *pubkey ) {
 void
 fd_execute_txn( fd_executor_t* executor, fd_txn_t * txn_descriptor, fd_rawtxn_b_t* txn_raw ) {
     fd_pubkey_t *tx_accs   = (fd_pubkey_t *)((uchar *)txn_raw->raw + txn_descriptor->acct_addr_off);
+
+    /* TODO: track compute budget used within execution */
+    /* TODO: store stack of instructions to detect reentrancy */
+
+    /* TODO: execute within a transaction context, which can be reverted */
+
     for ( ushort i = 0; i < txn_descriptor->instr_cnt; ++i ) {
         fd_txn_instr_t * instr = &txn_descriptor->instr[i];
         instruction_ctx_t ctx = {
@@ -69,7 +75,11 @@ fd_execute_txn( fd_executor_t* executor, fd_txn_t * txn_descriptor, fd_rawtxn_b_
             .txn_raw        = txn_raw,
             .acc_mgr        = executor->acc_mgr,
         };
+
+        /* TODO: allow instructions to be failed, and the transaction to be reverted */
         execute_instruction_func_t exec_func = fd_executor_lookup_native_program( &tx_accs[instr->program_id] );
         exec_func( ctx );
+
+        /* TODO: sanity before/after checks: total lamports unchanged etc */
     }
 }

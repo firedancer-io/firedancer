@@ -73,7 +73,10 @@ void* fd_executor_delete( void* mem );
 #define FD_EXECUTOR_INSTR_ERR_ACC_IMMUTABLE                      = ( -44 ) /* Account is immutable */
 #define FD_EXECUTOR_INSTR_ERR_INCORRECT_AUTHORITY                = ( -45 ) /* Incorrect authority provided */
 
-/* Execute the given transaction */
+/* 
+  Execute the given transaction.
+  
+  Makes changes to the Funk accounts DB. */
 void
 fd_execute_txn( fd_executor_t* executor, fd_txn_t * txn_descriptor, fd_rawtxn_b_t* txn_raw ) ;
 
