@@ -82,6 +82,11 @@ void fd_funk_xaction_entry_cleanup(struct fd_funk* store,
   }
 }
 
+void fd_funk_cancel_orphans(struct fd_funk* store) {
+  // TBD!!!
+  (void)store;
+}
+
 void fd_funk_execute_script(struct fd_funk* store,
                             const char* script,
                             uint scriptlen) {
@@ -110,17 +115,18 @@ void fd_funk_execute_script(struct fd_funk* store,
 
 void fd_funk_commit(struct fd_funk* store,
                     struct fd_funk_xactionid const* id) {
-  // !!! TBD recursively commit parents, recursively cancel competing children
-
   struct fd_funk_xaction_entry* entry = fd_funk_xactions_query(store->xactions, id);
   if (entry == NULL || FD_FUNK_XACTION_PREFIX(entry)->state == FD_FUNK_XACTION_COMMITTED) {
     // Fail silently in case the transaction was already committed and cleaned up
     return;
   }
+
+  // Commit the parent transaction first
+  fd_funk_commit(store, &entry->parent);
+  
   // Set the state to committed
   FD_FUNK_XACTION_PREFIX(entry)->state = FD_FUNK_XACTION_COMMITTED;
   // Write a write-ahead log entry
-    // Locates the write-ahead log entry in the backing file
   ulong wa_control;
   ulong wa_start;
   uint wa_alloc;
@@ -142,18 +148,22 @@ void fd_funk_commit(struct fd_funk* store,
   struct fd_funk_xaction_entry* parentry = fd_funk_xactions_remove(store->xactions, &entry->parent);
   if (parentry != NULL)
     fd_funk_xaction_entry_cleanup(store, parentry);
+
+  // Cancel all uncommitted transactions who are now orphans
+  fd_funk_cancel_orphans(store);
 }
 
 void fd_funk_cancel(struct fd_funk* store,
                     struct fd_funk_xactionid const* id) {
-  // !!! TBD recursively cancel children
-
   struct fd_funk_xaction_entry* entry = fd_funk_xactions_remove(store->xactions, id);
   if (entry == NULL) {
     FD_LOG_WARNING(("transaction does not exist"));
     return;
   }
   fd_funk_xaction_entry_cleanup(store, entry);
+
+  // Cancel all uncommitted transactions who are now orphans
+  fd_funk_cancel_orphans(store);
 }
 
 void fd_funk_merge(struct fd_funk* store,
