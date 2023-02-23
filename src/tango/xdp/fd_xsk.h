@@ -1,9 +1,105 @@
 #ifndef HEADER_fd_src_tango_xdp_fd_xsk_h
 #define HEADER_fd_src_tango_xdp_fd_xsk_h
 
-/* fd_xsk manages an XSK file descriptor and provides RX/TX buffers. */
-
 #if defined(__linux__) && FD_HAS_LIBBPF
+
+/* fd_xsk manages an XSK file descriptor and provides RX/TX buffers.
+
+   ### Background
+
+   AF_XDP is a Linux API providing kernel-bypass networking in the form
+   of shared memory ring buffers accessible from userspace.  The kernel
+   redirects packets from/to these buffers with the appropriate XDP
+   configuration (XDP_REDIRECT).  AF_XDP is hardware-agnostic and allows
+   sharing a NIC with the Linux networking stack (unlike e.g. DPDK).
+   This allows for deployment in existing, heterogeneous networks. An
+   AF_XDP socket is called "XSK".  The shared memory region storing the
+   packet data flowing through an XSK is called "UMEM".
+
+   XDP (eXpress Data Path) is a framework for installing hooks in the
+   form of eBPF programs at an early stage of packet processing (i.e.
+   before tc and netfilter).  eBPF is user-deployable JIT-compiled
+   bytecode that usually runs inside the kernel. Some hardware/driver
+   combinations optionally allow offloading eBPF processing to NICs.
+   This is not to be confused with other BPF-erived ISAs such as sBPF
+   (Solana BPF).
+
+     +--- Figure 1: AF_XDP RX Block Diagram -----------------+
+     |                                                       |
+     |   ┌─────┐  ┌────────┐  ┌─────┐ XDP_PASS ┌─────────┐   |
+     |   │ NIC ├──> Driver ├──> XDP ├──────────> sk_buff │   |
+     |   └─────┘  └────────┘  └─┬───┘          └─────────┘   |
+     |                          │                            |
+     |                          │ XDP_REDIRECT               |
+     |                          │                            |
+     |                       ┌──▼───────┐      ┌─────────┐   |
+     |                       │ XSK/UMEM ├──────> fd_aio  │   |
+     |                       └──────────┘      └─────────┘   |
+     |                                                       |
+     +-------------------------------------------------------+
+
+   Figure 1 shows a simplified block diagram of RX packet flow within
+   the kernel in `XDP_FLAGS_DRV_MODE` mode.  Notably, the chain of eBPF
+   programs installed in the XDP facility get invoked for every incoming
+   packet.  If all programs return the `XDP_PASS` action, the packet
+   continues its usual path to the Linux networking stack, where it will
+   be allocated in sk_buff, and eventually flow through ip_rcv(), tc,
+   and netfilter before reaching downstream sockets.
+   If the `XDP_REDIRECT` action is taken however, the packet is copied
+   to the UMEM of an XSK, and a RX queue entry is allocated.  An fd_aio
+   backend is provided by fd_xdp_aio.
+   The more generic `XDP_FLAGS_SKB_MODE` XDP mode falls back to sk_buff-
+   based memory mgmt (still skipping the rest of the generic path), but
+   is more widely available.
+
+     +--- Figure 2: AF_XDP TX Block Diagram -------------+
+     |                                                   |
+     |   ┌────────┐  ┌──────────┐  ┌────────┐  ┌─────┐   |
+     |   │ fd_aio ├──> XSK/UMEM ├──> Driver ├──> NIC │   |
+     |   └────────┘  └──────────┘  └────────┘  └─────┘   |
+     |                                                   |
+     +---------------------------------------------------+
+
+   Figure 2 shows a simplified block diagram of the TX packet flow.
+   Userspace applications deliver packets to the XSK/UMEM buffers.  The
+   kernel then forwards these packets to the NIC.  This also means that
+   the application is responsible for maintaining a routing table to
+   resolve layer-3 dest addrs to NICs and layer-2 addrs.  As in the RX
+   flow, netfilter (iptables, nftables) is not available.
+
+   ### Memory Management
+
+   The UMEM area is allocated from userspace.  It is recommended to use
+   the fd_util shmem/wksp APIs to obtain large page-backed memory.  UMEM
+   is divided into equally sized frames. At any point in time, each
+   frame is either owned by userspace or the kernel.  On initialization,
+   all frames are owned by userspace.
+
+   Changes in UMEM frame ownership and packet RX/TX events are
+   transmitted via four rings allocated by the kernel (mmap()ed in by
+   the user). This allows for out-of-order processing of packets.
+
+      Data flow:
+      (U->K) is userspace-to-kernel communication, and
+      (K->U) is kernel-to-userspace.
+
+      FILL         Free frames are provided to the kernel using the FILL
+      (U->K)       ring. The kernel may populate these frames with RX
+                   packet data.
+
+      RX           Once the kernel has populated a FILL frame with RX
+      (K->U)       packet data, it passes back the frame to userspace
+                   via the RX queue.
+
+      TX           TX frames sent by userspace are provided to the
+      (U->K)       kernel using the TX ring.
+
+      COMPLETION   Once the kernel has processed a TX frame, it passes
+      (K->U)       back the frame to the userspace via the COMPLETION
+                   queue.
+
+   Combined, the FILL-RX and TX-COMPLETION rings form two pairs.  The
+   kernel will not move frames between the pairs. */
 
 #include <linux/if_link.h>
 #include <net/if.h>
