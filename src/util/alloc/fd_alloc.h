@@ -172,10 +172,14 @@ fd_alloc_footprint( void );
    dynamically share the underlying workspace along with any other
    non-fd_alloc usage but will otherwise act as completely separate
    non-conflicting arenas (useful for logical grouping and improved
-   concurrency). */
+   concurrency).  To help with various diagnostics, garbage collection
+   and what not, all allocations to the underlying wksp are tagged with
+   the given tag (in [1,FD_WKSP_ALLOC_TAG_MAX]).  Ideally, the tag used
+   here should be distinct from all other tags used by this workspace. */
 
 void *
-fd_alloc_new( void * shmem );
+fd_alloc_new( void * shmem,
+              ulong  tag );
 
 /* fd_alloc_join joins the caller to a fd_alloc.  shalloc points to the
    first byte of the memory region backing the alloc in the caller's
@@ -232,6 +236,12 @@ void *
 fd_alloc_delete( void * shalloc );
 
 /* FIXME: CONSIDER API FOR GETTING WKSP BACKING FD_ALLOC? */
+
+/* fd_alloc_tag returns the tag that will be used for allocations from
+   this workspace.  Will be in [0,FD_WKSP_ALLOC_TAG_MAX].  0 indicates
+   join was NULL. */
+
+FD_FN_PURE ulong fd_alloc_tag( fd_alloc_t * join );
 
 /* fd_alloc_malloc allocates sz bytes with alignment align from the wksp
    backing the fd_alloc.  join is a current local join to the fd_alloc.

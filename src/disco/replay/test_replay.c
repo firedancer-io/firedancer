@@ -212,7 +212,7 @@ main( int     argc,
   FD_TEST( cfg->wksp );
 
   FD_LOG_NOTICE(( "Creating tx cnc (app_sz 64, type 0, heartbeat0 %li)", hb0 ));
-  cfg->tx_cnc = fd_cnc_join( fd_cnc_new( fd_wksp_alloc_laddr( cfg->wksp, fd_cnc_align(), fd_cnc_footprint( 64UL ) ),
+  cfg->tx_cnc = fd_cnc_join( fd_cnc_new( fd_wksp_alloc_laddr( cfg->wksp, fd_cnc_align(), fd_cnc_footprint( 64UL ), 1UL ),
                              64UL, 0UL, hb0 ) );
   FD_TEST( cfg->tx_cnc );
 
@@ -222,14 +222,16 @@ main( int     argc,
 
   FD_LOG_NOTICE(( "Creating tx mcache (--tx-depth %lu, app_sz 0, seq0 %lu)", tx_depth, seq0 ));
   cfg->tx_mcache = fd_mcache_join( fd_mcache_new( fd_wksp_alloc_laddr( cfg->wksp,
-                                                                       fd_mcache_align(), fd_mcache_footprint( tx_depth, 0UL ) ),
+                                                                       fd_mcache_align(), fd_mcache_footprint( tx_depth, 0UL ),
+                                                                       1UL ),
                                                   tx_depth, 0UL, seq0 ) );
   FD_TEST( cfg->tx_mcache );
 
   FD_LOG_NOTICE(( "Creating tx dcache (--tx-mtu %lu, burst 1, compact 1, app_sz 0)", tx_mtu ));
   ulong tx_data_sz = fd_dcache_req_data_sz( tx_mtu, tx_depth, 1UL, 1 ); FD_TEST( tx_data_sz );
   cfg->tx_dcache = fd_dcache_join( fd_dcache_new( fd_wksp_alloc_laddr( cfg->wksp,
-                                                                       fd_dcache_align(), fd_dcache_footprint( tx_data_sz, 0UL ) ),
+                                                                       fd_dcache_align(), fd_dcache_footprint( tx_data_sz, 0UL ),
+                                                                       1UL ),
                                                   tx_data_sz, 0UL ) );
   FD_TEST( cfg->tx_dcache );
 
@@ -238,12 +240,12 @@ main( int     argc,
   cfg->tx_seed   = rng_seq++;
 
   FD_LOG_NOTICE(( "Creating rx cnc (app_sz 64, type 1, heartbeat0 %li)", hb0 ));
-  cfg->rx_cnc = fd_cnc_join( fd_cnc_new( fd_wksp_alloc_laddr( cfg->wksp, fd_cnc_align(), fd_cnc_footprint( 64UL ) ),
+  cfg->rx_cnc = fd_cnc_join( fd_cnc_new( fd_wksp_alloc_laddr( cfg->wksp, fd_cnc_align(), fd_cnc_footprint( 64UL ), 1UL ),
                                          64UL, 1UL, hb0 ) );
   FD_TEST( cfg->rx_cnc );
 
   FD_LOG_NOTICE(( "Creating rx fseq (seq0 %lu)", seq0 ));
-  cfg->rx_fseq = fd_fseq_join( fd_fseq_new( fd_wksp_alloc_laddr( cfg->wksp, fd_fseq_align(), fd_fseq_footprint() ), seq0 ) );
+  cfg->rx_fseq = fd_fseq_join( fd_fseq_new( fd_wksp_alloc_laddr( cfg->wksp, fd_fseq_align(), fd_fseq_footprint(), 1UL ), seq0 ) );
   FD_TEST( cfg->rx_fseq );
 
   cfg->rx_seed = rng_seq++;

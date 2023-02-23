@@ -15,7 +15,7 @@ FD_STATIC_ASSERT( FD_WKSP_ALLOC_ALIGN_MIN==4096UL, update_fd_wksp_magic );
 /* FD_WKSP_PRIVATE_HDR_SZ specifies the number of bytes in the fd_wksp_t
    header region. */
 
-#define FD_WKSP_PRIVATE_HDR_SZ 128UL
+#define FD_WKSP_PRIVATE_HDR_SZ (128UL)
 
 /* fd_wksp_private_part_t indicates where a partition of the wksp data
    region starts and whether that partition is active (allocated) or
@@ -42,39 +42,48 @@ struct __attribute__((aligned(FD_WKSP_ALLOC_ALIGN_MIN))) fd_wksp_private {
 
   char  name[ FD_SHMEM_NAME_MAX ]; /* (Convenience) backing fd_shmem region cstr name */
 
-  uchar reserved[ FD_WKSP_PRIVATE_HDR_SZ - 6UL*sizeof(ulong) - FD_SHMEM_NAME_MAX ]; /* header padding */
+  /* Padding to FD_WKSP_PRIVATE_HDR_SZ alignment */
 
-  fd_wksp_private_part_t part[2]; /* Actually part_max+1 entries.  When the wksp is unlocked (does not have an owner), the
-                                     partitions satisfies the following invariants:
-                                     - Partition offsets are at least aligned to FD_WKSP_ALLOC_ALIGN_MIN
-                                     - Partition offsets are strictly monotonically increasing (e.g. part[i+1].off > part[i].off)
-                                       such that there are no empty partitions and partitions are indexed in address order).
-                                     - There are no consecutive inactive partitions (e.g. !(!part[i].active && !part[i+1].active))
-                                     - part[part_cnt].active==1 (i.e. "Partition part_cnt" is active to indicate there no memory
-                                       available beyond the end of the workspace)
-                                     When a thread is operating on the data structure, the structure might temporarily have one or
-                                     more consecutive inactive partitions and one or more "holes" (partitions for which
-                                     part[i].off>=part[j].off for j>i). */
-  /* Remaining part_max-1 entries */
+  fd_wksp_private_part_t part[] __attribute__((aligned(FD_WKSP_PRIVATE_HDR_SZ)));
+
+  /* part has part_max+1 entries.  When the wksp is unlocked (does not
+     have an owner), the partitions satisfies the following invariants:
+     - Partition offsets are at least aligned to FD_WKSP_ALLOC_ALIGN_MIN
+     - Partition offsets are strictly monotonically increasing (e.g.
+       part[i+1].gaddr > part[i].gaddr) such that there are no empty
+       partitions and partitions are indexed in address order).
+     - There are no consecutive inactive partitions (e.g.
+       !(!part[i].tag && !part[i+1].tag))
+     - part[part_cnt].tag==1 (i.e. "Partition part_cnt" is active to
+       indicate there no memory available beyond the end of the
+       workspace)
+     When a thread is operating on the data structure, the structure
+     might temporarily have one or more consecutive inactive partitions
+     and one or more "holes" (partitions for which
+     part[i].gaddr>=part[j].gaddr for j>i). */
+
   /* Padding to FD_WKSP_ALLOC_ALIGN_MIN here */
+
   /* Data region here */
 };
 
 FD_PROTOTYPES_BEGIN
 
 /* fd_wksp_private_part forms a fd_wksp_private_part_t from the tuple
-   (active,gaddr) */
+   (tag,gaddr).  Note that since
+   FD_WKSP_ALLOC_TAG_MAX<FD_WKSP_ALLOC_ALIGN_MIN, we have room in the
+   least significant bits to store the tag and since
+   FD_WKSP_ALLOC_TAG_MAX is an integer power of two minus 1, we can use
+   it as a bit mask. */
 
 static inline fd_wksp_private_part_t
-fd_wksp_private_part( int   active,   /* active assumed in [0,1] */
+fd_wksp_private_part( ulong tag,      /* tag assumed in [0,FD_WKSP_ALLOC_TAG_MAX].  0 indicates inactive partition. */
                       ulong gaddr ) { /* gaddr assumed aligned at least FD_WKSP_ALLOC_ALIGN_MIN */
-  /* Since FD_WKSP_ALLOC_ALIGN_MIN is an integral power of 2 >= 2, we
-     have room in bit 0 of gaddr to store the active bit. */
-  return gaddr | (ulong)active;
+  return gaddr | tag;
 }
 
-static inline int   fd_wksp_private_part_active( fd_wksp_private_part_t part ) { return (int)(part & 1UL); }
-static inline ulong fd_wksp_private_part_gaddr ( fd_wksp_private_part_t part ) { return part & ~1UL; }
+static inline ulong fd_wksp_private_part_tag  ( fd_wksp_private_part_t part ) { return part &  FD_WKSP_ALLOC_TAG_MAX; }
+static inline ulong fd_wksp_private_part_gaddr( fd_wksp_private_part_t part ) { return part & ~FD_WKSP_ALLOC_TAG_MAX; }
 
 /* fd_wksp_private_lock locks the wksp for use by the caller.  Will
    recover from other processes that locked the workspace and died while

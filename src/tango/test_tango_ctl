@@ -42,6 +42,11 @@ echo Testing help
 
 $BIN/fd_tango_ctl help || fail help $?
 
+echo Testing tag
+
+$BIN/fd_tango_ctl tag   && fail tag $?
+$BIN/fd_tango_ctl tag 1 || fail tag $?
+
 echo Testing new-mcache
 
 $BIN/fd_tango_ctl new-mcache                        && fail new-mcache $?
