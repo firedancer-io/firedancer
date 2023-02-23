@@ -74,6 +74,8 @@ int transfer(
       return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
     }
 
+    FD_LOG_INFO(( "successfully executed transfer of %lu lamports", requested_lamports ));
+
     return FD_EXECUTOR_INSTR_SUCCESS;
 }
 
