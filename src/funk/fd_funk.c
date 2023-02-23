@@ -126,16 +126,6 @@ void fd_funk_truncate(struct fd_funk* store,
                       struct fd_funk_recordid const* recordid,
                       ulong recordlen);
 
-void fd_funk_delete_record(struct fd_funk* store,
-                           struct fd_funk_xactionid const* xid,
-                           struct fd_funk_recordid const* recordid) {
-  if (fd_funk_is_root(xid)) {
-    fd_funk_delete_record_root(store, recordid);
-    return;
-  }
-  FD_LOG_ERR(("transactions not supported yet"));
-}
-
 int fd_funk_cache_query(struct fd_funk* store,
                         struct fd_funk_xactionid const* xid,
                         struct fd_funk_recordid const* recordid,

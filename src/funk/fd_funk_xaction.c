@@ -24,6 +24,15 @@ struct __attribute__((packed)) fd_funk_xaction_write_header {
 };
 #define FD_FUNK_XACTION_WRITE_TYPE 'w'
 
+// Transcript header indicating a "delete" update
+struct __attribute__((packed)) fd_funk_xaction_delete_header {
+  // Header type. This type must be the first byte in the header
+  char type;
+  uchar recordid[FD_FUNK_RECORDID_FOOTPRINT];
+  // Offset and length of delete
+};
+#define FD_FUNK_XACTION_DELETE_TYPE 'd'
+
 // Tests whether a transaction id is for the "root"
 int fd_funk_is_root(struct fd_funk_xactionid const* xid) {
   // A xactionid is 4 ulongs long
@@ -106,6 +115,17 @@ void fd_funk_execute_script(struct fd_funk* store,
         FD_LOG_ERR(("corrupt transaction transcript"));
       break;
     }
+    case FD_FUNK_XACTION_DELETE_TYPE: {
+      struct fd_funk_xaction_delete_header const* head = (struct fd_funk_xaction_delete_header const*)p;
+      // Copy record id to fix alignment
+      struct fd_funk_recordid recordid;
+      fd_memcpy(&recordid, &head->recordid, sizeof(recordid));
+      fd_funk_delete_record_root(store, &recordid);
+      p += sizeof(*head);
+      if (p > pend)
+        FD_LOG_ERR(("corrupt transaction transcript"));
+      break;
+    }
     default:
       FD_LOG_ERR(("corrupt transaction transcript"));
       break;
@@ -143,13 +163,15 @@ void fd_funk_commit(struct fd_funk* store,
   fd_funk_execute_script(store, entry->script, entry->scriptlen);
   // We can delete the write-ahead log now
   fd_funk_writeahead_delete(store, wa_control, wa_start, wa_alloc);
-  // We can't cleanup the transaction because we may still fork of it,
-  // but we can cleanup the parent.
+  // We can't cleanup the transaction because we may still fork of it
+  // or have live children, but we can cleanup the parent.
   struct fd_funk_xaction_entry* parentry = fd_funk_xactions_remove(store->xactions, &entry->parent);
   if (parentry != NULL)
     fd_funk_xaction_entry_cleanup(store, parentry);
 
-  // Cancel all uncommitted transactions who are now orphans
+  // Cancel all uncommitted transactions who are now orphans. These
+  // are typically competitors to the transaction that was just
+  // committed.
   fd_funk_cancel_orphans(store);
 }
 
@@ -248,6 +270,55 @@ long fd_funk_write(struct fd_funk* store,
   return (long)datalen;
 }
 
+void fd_funk_delete_record(struct fd_funk* store,
+                           struct fd_funk_xactionid const* xid,
+                           struct fd_funk_recordid const* recordid) {
+  // Check for special root case
+  if (fd_funk_is_root(xid)) {
+    // See if the root is currently forked
+    if (store->xactions->used > 0) {
+      FD_LOG_WARNING(("cannot update root while transactions are in flight"));
+      return;
+    }
+    fd_funk_delete_record_root(store, recordid);
+    return;
+  }
+
+  // Find the entry for the transaction
+  struct fd_funk_xaction_entry* entry = fd_funk_xactions_query(store->xactions, xid);
+  if (entry == NULL) {
+    FD_LOG_WARNING(("invalid transaction id"));
+    return;
+  }
+  if (FD_FUNK_XACTION_PREFIX(entry)->state != FD_FUNK_XACTION_LIVE) {
+    FD_LOG_WARNING(("transaction frozen due to being forked or committed"));
+    return;
+  }
+  
+  // Add the delete update to the transcript.
+  ulong newlen = entry->scriptlen + sizeof(struct fd_funk_xaction_delete_header);
+  if (newlen > entry->scriptmax) {
+    entry->scriptmax = (uint)(newlen + (64U<<10)); // 64KB of slop
+    entry->script = (char*)realloc(entry->script, entry->scriptmax);
+  }
+  struct fd_funk_xaction_delete_header* head = (struct fd_funk_xaction_delete_header*)(entry->script + entry->scriptlen);
+  head->type = FD_FUNK_XACTION_DELETE_TYPE;
+  // Need to use memcpy because of alignment issues
+  fd_memcpy(head->recordid, recordid, FD_FUNK_RECORDID_FOOTPRINT);
+  entry->scriptlen = (uint)newlen;
+
+  // Update the cache for this transaction.
+  struct fd_funk_xaction_cache* cache = &entry->cache;
+  for (unsigned i = 0; i < cache->cnt; ++i) {
+    struct fd_funk_xaction_cache_entry* j = cache->elems + i;
+    if (fd_funk_recordid_t_equal(&j->record, recordid)) {
+      fd_cache_release(store->cache, j->cachehandle);
+      fd_funk_xaction_cache_remove_at(cache, i);
+      break;
+    }
+  }
+}
+
 // Get/construct the cache entry for a record
 fd_cache_handle fd_funk_get_cache(struct fd_funk* store,
                                   struct fd_funk_xactionid const* xid,
@@ -295,8 +366,9 @@ fd_cache_handle fd_funk_get_cache(struct fd_funk* store,
                                            cachedata, cachelen, recordlen);
 
   // See if this transaction includes an update to this record. We walk
-  // through the transcript.
-  uint maxlen = 0;
+  // through the transcript and compute the updated record length.
+  int newrecordlen = (hand == FD_CACHE_INVALID_HANDLE ? -1 : (int)(*recordlen));
+  int updated = 0;
   const char* p = (const char*)entry->script + sizeof(struct fd_funk_xaction_prefix);
   const char* const pend = (const char*)entry->script + entry->scriptlen;
   while (p < pend) {
@@ -306,12 +378,24 @@ fd_cache_handle fd_funk_get_cache(struct fd_funk* store,
       struct fd_funk_xaction_write_header const* head = (struct fd_funk_xaction_write_header const*)p;
       // Use memcmp due to alignment issues
       if (memcmp(head->recordid, recordid, FD_FUNK_RECORDID_FOOTPRINT) == 0) {
-        // maxlen is the extent of the updates
-        uint len = head->offset + head->length;
-        if (len > maxlen)
-          maxlen = len;
+        int len = (int)(head->offset + head->length);
+        if (len > newrecordlen)
+          newrecordlen = len;
+        updated = 1;
       }
       p += sizeof(*head) + head->length;
+      if (p > pend)
+        FD_LOG_ERR(("corrupt transaction transcript"));
+      break;
+    }
+    case FD_FUNK_XACTION_DELETE_TYPE: {
+      struct fd_funk_xaction_delete_header const* head = (struct fd_funk_xaction_delete_header const*)p;
+      // Use memcmp due to alignment issues
+      if (memcmp(head->recordid, recordid, FD_FUNK_RECORDID_FOOTPRINT) == 0) {
+        newrecordlen = -1; // Indicate a delete
+        updated = 1;
+      }
+      p += sizeof(*head);
       if (p > pend)
         FD_LOG_ERR(("corrupt transaction transcript"));
       break;
@@ -321,17 +405,22 @@ fd_cache_handle fd_funk_get_cache(struct fd_funk* store,
       break;
     }
   }
-  if (maxlen == 0) {
+  if (!updated) {
     // No update found. Just use the result from the parent.
     return hand;
   }
 
-  // Compute the new record size
-  if (hand == FD_CACHE_INVALID_HANDLE || *recordlen < maxlen)
-    *recordlen = maxlen;
-  if (neededlen > *recordlen)
-    neededlen = *recordlen; // Trim to the actual record size
+  if (newrecordlen < 0) {
+    // Record we deleted in this transaction
+    *cachedata = NULL;
+    *cachelen = 0;
+    *recordlen = 0;
+    return FD_CACHE_INVALID_HANDLE;
+  }
+
   // Create a new cache entry for this transaction
+  if (neededlen > (uint)newrecordlen)
+    neededlen = (uint)newrecordlen; // Trim to the actual record size
   void* newdata;
   fd_cache_handle newhandle = fd_cache_allocate(store->cache, &newdata, neededlen);
   
@@ -363,6 +452,18 @@ fd_cache_handle fd_funk_get_cache(struct fd_funk* store,
         FD_LOG_ERR(("corrupt transaction transcript"));
       break;
     }
+    case FD_FUNK_XACTION_DELETE_TYPE: {
+      struct fd_funk_xaction_delete_header const* head = (struct fd_funk_xaction_delete_header const*)p;
+      // Use memcmp due to alignment issues
+      if (memcmp(head->recordid, recordid, FD_FUNK_RECORDID_FOOTPRINT) == 0) {
+        // Zero fill for future updates
+        fd_memset(newdata, 0, neededlen);
+      }
+      p += sizeof(*head);
+      if (p > pend)
+        FD_LOG_ERR(("corrupt transaction transcript"));
+      break;
+    }
     default:
       FD_LOG_ERR(("corrupt transaction transcript"));
       break;
@@ -372,12 +473,13 @@ fd_cache_handle fd_funk_get_cache(struct fd_funk* store,
   // Remember the new cache entry
   struct fd_funk_xaction_cache_entry newent;
   fd_funk_recordid_t_copy(&newent.record, recordid);
-  newent.recordlen = *recordlen;
+  newent.recordlen = (uint)newrecordlen;
   newent.cachehandle = newhandle;
   fd_funk_xaction_cache_push(cache, newent);
 
   *cachedata = newdata;
   *cachelen = neededlen;
+  *recordlen = (uint)newrecordlen;
   return newhandle;
 }
 
