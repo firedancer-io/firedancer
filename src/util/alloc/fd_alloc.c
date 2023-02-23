@@ -2,17 +2,6 @@
 
 #if FD_HAS_HOSTED && FD_HAS_X86 /* This limitation is inherited from wksp */
 
-/* FIXME: THESE PROBABLY BELONG IN FD_WKSP.H.  ALSO PROBABLY WORTHWHILE
-   TO ADD SOME ACCESSORS TO QUERY WORKSPACE SIZE AND WHAT NOT
-   PROGRAMMATICALLY. */
-
-/* fd_wksp_gaddr_fast conversions a laddr into a gaddr under the
-   assumption wksp is valid and laddr is non-NULL local address in the
-   wksp.  Similarly for fd_wksp_laddr_fast. */
-
-static inline ulong  fd_wksp_gaddr_fast( fd_wksp_t * wksp, void * laddr ) { return (ulong)laddr - (ulong)wksp; }
-static inline void * fd_wksp_laddr_fast( fd_wksp_t * wksp, ulong  gaddr ) { return (void *)((ulong)wksp + gaddr); }
-
 #include "fd_alloc_cfg.h"
 
 /* Note: this will still compile on platforms without FD_HAS_ATOMIC.  It
@@ -163,6 +152,7 @@ typedef struct fd_alloc_superblock fd_alloc_superblock_t;
 struct __attribute__((aligned(FD_ALLOC_ALIGN))) fd_alloc {
   ulong magic;    /* ==FD_ALLOC_MAGIC */
   ulong wksp_off; /* Offset of the first byte of this structure from the start of the wksp */
+  ulong tag;      /* tag that will be used by this allocator.  In [1,FD_WKSP_ALLOC_TAG_MAX]. */
 
   /* Padding to 128 byte alignment here */
 
@@ -434,7 +424,8 @@ fd_alloc_footprint( void ) {
 }
 
 void *
-fd_alloc_new( void * shmem ) {
+fd_alloc_new( void * shmem,
+              ulong  tag ) {
 
   /* Check input arguments */
 
@@ -454,10 +445,16 @@ fd_alloc_new( void * shmem ) {
     return NULL;
   }
 
+  if( FD_UNLIKELY( !(1UL<=tag && tag<=FD_WKSP_ALLOC_TAG_MAX) ) ) {
+    FD_LOG_WARNING(( "bad tag" ));
+    return NULL;
+  }
+
   fd_alloc_t * alloc = (fd_alloc_t *)shmem;
   fd_memset( alloc, 0, sizeof(fd_alloc_t) );
 
   alloc->wksp_off = (ulong)alloc - (ulong)wksp;
+  alloc->tag      = tag;
 
   FD_COMPILER_MFENCE();
   FD_VOLATILE( alloc->magic ) = FD_ALLOC_MAGIC;
@@ -526,7 +523,7 @@ fd_alloc_delete( void * shalloc ) {
   }
 
   FD_COMPILER_MFENCE();
-  FD_VOLATILE( alloc->magic ) = ~FD_ALLOC_MAGIC;
+  FD_VOLATILE( alloc->magic ) = 0UL;
   FD_COMPILER_MFENCE();
 
   /* Clean up as much as we can.  For each sizeclass, delete all active
@@ -561,6 +558,8 @@ fd_alloc_delete( void * shalloc ) {
   return shalloc;
 }
 
+ulong fd_alloc_tag( fd_alloc_t * join ) { return FD_LIKELY( join ) ? fd_alloc_private_join_alloc( join )->tag : 0UL; }
+
 void *
 fd_alloc_malloc( fd_alloc_t * join,
                  ulong        align,
@@ -590,7 +589,7 @@ fd_alloc_malloc( fd_alloc_t * join,
      appropriate header and return. */
 
   if( FD_UNLIKELY( footprint > FD_ALLOC_FOOTPRINT_SMALL_THRESH ) ) {
-    void * laddr = fd_wksp_alloc_laddr( wksp, 1UL, footprint );
+    void * laddr = fd_wksp_alloc_laddr( wksp, 1UL, footprint, alloc->tag );
     if( FD_UNLIKELY( !laddr ) ) return NULL;
     return fd_alloc_hdr_store_large( (void *)fd_ulong_align_up( (ulong)laddr + sizeof(fd_alloc_hdr_t), align ) );
   }

@@ -50,12 +50,13 @@ fprintf_wksp( FILE *      file,
 
   int last_active = 1;
   for( ulong i=0UL; i<part_cnt; i++ ) {
-    int   active = fd_wksp_private_part_active( part[i    ] );
+    ulong tag    = fd_wksp_private_part_tag  (  part[i    ] );
     ulong lo     = fd_wksp_private_part_gaddr(  part[i    ] );
     ulong hi     = fd_wksp_private_part_gaddr(  part[i+1UL] );
 
     ulong sz = hi-lo;
 
+    int active = !!tag;
     if( active ) {
       active_cnt++;
       active_sz += sz;
@@ -66,14 +67,14 @@ fprintf_wksp( FILE *      file,
       if( sz>inactive_max ) inactive_max = sz;
     }
 
-    TRAP( fprintf( file, "\tpartition %20li: [0x%016lx,0x%016lx) %s sz %20lu", i, lo, hi, active ? "alloc" : " free", sz ) );
+    TRAP( fprintf( file, "\tpartition %20li: [0x%016lx,0x%016lx) sz %20lu tag %4lu", i, lo, hi, sz, tag ) );
 
-    if( lo>=hi                                                           ) { cnt++; TRAP( fprintf( file, " part_err"      ) ); }
-    if( ((i==0UL)            & (lo!=gaddr_lo))                           ) { cnt++; TRAP( fprintf( file, " lo_err"        ) ); }
-    if( ((i==(part_cnt-1UL)) & (hi!=gaddr_hi))                           ) { cnt++; TRAP( fprintf( file, " hi_err"        ) ); }
-    if( i==(part_cnt-1UL) && !fd_wksp_private_part_active( part[i+1UL] ) ) { cnt++; TRAP( fprintf( file, " hi_active_err" ) ); }
-    if( !fd_ulong_is_aligned( lo, FD_WKSP_ALLOC_ALIGN_MIN )              ) { cnt++; TRAP( fprintf( file, " align_err"     ) ); }
-    if( ((!last_active) & (!active))                                     ) { cnt++; TRAP( fprintf( file, " merge_err"     ) ); }
+    if( lo>=hi                                                            ) { cnt++; TRAP( fprintf( file, " part_err"      ) ); }
+    if( ((i==0UL)            & (lo!=gaddr_lo))                            ) { cnt++; TRAP( fprintf( file, " lo_err"        ) ); }
+    if( ((i==(part_cnt-1UL)) & (hi!=gaddr_hi))                            ) { cnt++; TRAP( fprintf( file, " hi_err"        ) ); }
+    if( i==(part_cnt-1UL) && fd_wksp_private_part_tag( part[i+1UL] )!=1UL ) { cnt++; TRAP( fprintf( file, " hi_active_err" ) ); }
+    if( !fd_ulong_is_aligned( lo, FD_WKSP_ALLOC_ALIGN_MIN )               ) { cnt++; TRAP( fprintf( file, " align_err"     ) ); }
+    if( ((!last_active) & (!active))                                      ) { cnt++; TRAP( fprintf( file, " merge_err"     ) ); }
     TRAP( fprintf( file, "\n" ) );
 
     last_active = active;
@@ -101,6 +102,8 @@ main( int     argc,
 
   umask( (mode_t)0 ); /* So mode setting gets respected */
 
+  ulong tag = 1UL;
+
   int cnt = 0;
   while( argc ) {
     char const * cmd = argv[0];
@@ -108,12 +111,17 @@ main( int     argc,
 
     if( !strcmp( cmd, "help" ) ) {
 
+      /* FIXME: USE FD_IMPORT_CSTR FOR THIS */
       FD_LOG_NOTICE(( "\n\t"
         "Usage: %s [cmd] [cmd args] [cmd] [cmd args] ...\n\t"
         "Commands are:\n\t"
         "\n\t"
         "\thelp\n\t"
         "\t- Prints this message\n\t"
+        "\n\t"
+        "\ttag val\n\t"
+        "\t- Sets the tag for subsequent wksp allocations to val.\n\t"
+        "\t  Default is 1.\n\t"
         "\n\t"
         "\tnew wksp page_cnt page_sz cpu_idx mode\n\t"
         "\t- Create a workspace named wksp from page_cnt page_sz pages near\n\t"
@@ -152,8 +160,17 @@ main( int     argc,
         "\n\t"
         "\tquery wksp\n\t"
         "\t- Print the detailed workspace usage to stdout.\n\t"
-        "\n\t", bin ));
+        "", bin ));
       FD_LOG_NOTICE(( "%i: %s: success", cnt, cmd ));
+
+    } else if( !strcmp( cmd, "tag" ) ) {
+
+      if( FD_UNLIKELY( argc<1 ) ) FD_LOG_ERR(( "%i: %s: too few arguments\n\tDo %s help for help", cnt, cmd, bin ));
+
+      tag = fd_cstr_to_ulong( argv[0] );
+
+      FD_LOG_NOTICE(( "%i: %s %lu: success", cnt, cmd, tag ));
+      SHIFT(1);
 
     } else if( !strcmp( cmd, "new" ) ) {
 
@@ -252,8 +269,8 @@ main( int     argc,
       ulong        sz    = fd_cstr_to_ulong( argv[2] );
 
       char name_gaddr[ FD_WKSP_CSTR_MAX ];
-      if( !fd_wksp_cstr_alloc( name, align, sz, name_gaddr ) ) /* logs details */
-        FD_LOG_ERR(( "%i: %s %s %lu %lu: fd_wksp_cstr_alloc failed", cnt, cmd, name, align, sz ));
+      if( !fd_wksp_cstr_alloc( name, align, sz, tag, name_gaddr ) ) /* logs details */
+        FD_LOG_ERR(( "%i: %s %s %lu %lu %lu: fd_wksp_cstr_alloc failed", cnt, cmd, name, align, sz, tag ));
       printf( "%s\n", name_gaddr );
 
       FD_LOG_NOTICE(( "%i: %s %s %lu %lu: success", cnt, cmd, name, align, sz ));
