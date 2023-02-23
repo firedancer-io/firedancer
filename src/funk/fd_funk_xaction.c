@@ -89,6 +89,15 @@ void fd_funk_xaction_entry_cleanup(struct fd_funk* store,
     struct fd_funk_xaction_cache_entry* const elem = elems + i;
     fd_cache_release(store->cache, elem->cachehandle);
   }
+  fd_funk_xaction_cache_destroy(&entry->cache);
+}
+
+void fd_funk_xactions_cleanup(struct fd_funk* store) {
+  struct fd_funk_xactions_iter iter;
+  fd_funk_xactions_iter_init(store->xactions, &iter);
+  struct fd_funk_xaction_entry* entry;
+  while ((entry = fd_funk_xactions_iter_next(store->xactions, &iter)) != NULL)
+    fd_funk_xaction_entry_cleanup(store, entry);
 }
 
 void fd_funk_cancel_orphans(struct fd_funk* store) {
@@ -251,7 +260,8 @@ void fd_funk_merge(struct fd_funk* store,
 int fd_funk_isopen(struct fd_funk* store,
                    struct fd_funk_xactionid const* id) {
   // See if the transaction id is in the table
-  return fd_funk_xactions_query(store->xactions, id) != NULL;
+  struct fd_funk_xaction_entry* entry = fd_funk_xactions_query(store->xactions, id);
+  return (entry != NULL && FD_FUNK_XACTION_PREFIX(entry)->state != FD_FUNK_XACTION_COMMITTED);
 }
 
 long fd_funk_write(struct fd_funk* store,
