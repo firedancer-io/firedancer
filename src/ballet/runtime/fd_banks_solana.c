@@ -4,19 +4,34 @@ void fd_fee_calculator_decode(fd_fee_calculator_t* self, void const** data, void
   fd_bincode_uint64_decode(&self->lamports_per_signature, data, dataend);
 }
 
+void fd_fee_calculator_destroy(FD_FN_UNUSED fd_fee_calculator_t* self, FD_FN_UNUSED fd_free_fun_t freef, FD_FN_UNUSED void* freef_arg) {
+}
+
 void fd_hash_age_decode(fd_hash_age_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, FD_FN_UNUSED void* allocf_arg) {
   fd_fee_calculator_decode(&self->fee_calculator, data, dataend, allocf, allocf_arg);
   fd_bincode_uint64_decode(&self->hash_index, data, dataend);
   fd_bincode_uint64_decode(&self->timestamp, data, dataend);
 }
 
+void fd_hash_age_destroy(fd_hash_age_t* self, fd_free_fun_t freef, void* freef_arg) {
+  fd_fee_calculator_destroy(&self->fee_calculator, freef, freef_arg);
+}
+
 void fd_hash_decode(fd_hash_t* self, void const** data, void const* dataend, FD_FN_UNUSED fd_alloc_fun_t allocf, FD_FN_UNUSED void* allocf_arg) {
   fd_bincode_bytes_decode(&self->hash[0], sizeof(self->hash), data, dataend);
+}
+
+void fd_hash_destroy(FD_FN_UNUSED fd_hash_t* self, FD_FN_UNUSED fd_free_fun_t freef, FD_FN_UNUSED void* freef_arg) {
 }
 
 void fd_hash_hash_age_pair_decode(fd_hash_hash_age_pair_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, FD_FN_UNUSED void* allocf_arg) {
   fd_bincode_bytes_decode(self->key.hash, sizeof(self->key.hash), data, dataend);
   fd_hash_age_decode(&self->val, data, dataend, allocf, allocf_arg);
+}
+
+void fd_hash_hash_age_pair_destroy(fd_hash_hash_age_pair_t* self, fd_free_fun_t freef, void* freef_arg) {
+  fd_hash_destroy(&self->key, freef, freef_arg);
+  fd_hash_age_destroy(&self->val, freef, freef_arg);
 }
 
 void fd_block_hash_queue_decode(fd_block_hash_queue_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, FD_FN_UNUSED void* allocf_arg) {
@@ -40,8 +55,24 @@ void fd_block_hash_queue_decode(fd_block_hash_queue_t* self, void const** data, 
   fd_bincode_uint64_decode(&self->max_age, data, dataend);
 }
 
+void fd_block_hash_queue_destroy(fd_block_hash_queue_t* self, fd_free_fun_t freef, void* freef_arg) {
+  if (NULL != self->last_hash) {
+    fd_hash_destroy(self->last_hash, freef, freef_arg);
+    self->last_hash = NULL;
+  }
+
+  if (NULL != self->ages) {
+    for (ulong i = 0; i < self->ages_len; ++i) {
+      fd_hash_hash_age_pair_destroy(self->ages + i, freef, freef_arg);
+    }
+  }
+}
+
 void fd_pubkey_decode(fd_pubkey_t* self, void const** data, void const* dataend, FD_FN_UNUSED fd_alloc_fun_t allocf, FD_FN_UNUSED void* allocf_arg) {
   fd_bincode_bytes_decode(&self->key[0], sizeof(self->key), data, dataend);
+}
+
+void fd_pubkey_destroy(FD_FN_UNUSED fd_pubkey_t* self, FD_FN_UNUSED fd_free_fun_t freef, FD_FN_UNUSED void* freef_arg) {
 }
 
 void fd_epoch_schedule_decode(fd_epoch_schedule_t* self,  void const** data,  void const* dataend, FD_FN_UNUSED fd_alloc_fun_t allocf, FD_FN_UNUSED void* allocf_arg) {
@@ -162,9 +193,18 @@ void fd_delegation_decode(fd_delegation_t* self, void const** data, void const* 
   fd_bincode_double_decode(&self->warmup_cooldown_rate, data, dataend);
 }
 
+void fd_delegation_destroy(fd_delegation_t* self, fd_free_fun_t freef, void* freef_arg) {
+  fd_pubkey_destroy(&self->voter_pubkey, freef, freef_arg);
+}
+
 void fd_delegation_pair_decode(fd_delegation_pair_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
   fd_pubkey_decode(&self->key, data, dataend, allocf, allocf_arg);
   fd_delegation_decode(&self->value, data, dataend, allocf, allocf_arg);
+}
+
+void fd_delegation_pair_destroy(fd_delegation_pair_t* self, fd_free_fun_t freef, void* freef_arg) {
+  fd_pubkey_destroy(&self->key, freef, freef_arg);
+  fd_delegation_destroy(&self->value, freef, freef_arg);
 }
 
 void fd_stakes_deligation_decode(fd_stakes_deligation_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
@@ -306,9 +346,16 @@ void fd_deserializable_versioned_bank_decode(fd_deserializable_versioned_bank_t*
   fd_bincode_uint8_decode((unsigned char *) &self->is_delta, data, dataend);
 }
 
+void fd_deserializable_versioned_bank_destroy(fd_deserializable_versioned_bank_t* self, fd_free_fun_t freef, void* freef_arg) {
+  
+}
+
 void fd_serializable_account_storage_entry_decode(fd_serializable_account_storage_entry_t* self, void const** data, void const* dataend, FD_FN_UNUSED fd_alloc_fun_t allocf, FD_FN_UNUSED void* allocf_arg) {
   fd_bincode_uint64_decode(&self->id, data, dataend);
   fd_bincode_uint64_decode(&self->accounts_current_len, data, dataend);
+}
+
+void fd_serializable_account_storage_entry_destroy(FD_FN_UNUSED fd_serializable_account_storage_entry_t* self, FD_FN_UNUSED fd_free_fun_t freef, FD_FN_UNUSED void* freef_arg) {
 }
   
 void fd_bank_hash_stats_decode(fd_bank_hash_stats_t* self, void const** data, void const* dataend, FD_FN_UNUSED fd_alloc_fun_t allocf, FD_FN_UNUSED void* allocf_arg) {
@@ -318,11 +365,20 @@ void fd_bank_hash_stats_decode(fd_bank_hash_stats_t* self, void const** data, vo
   fd_bincode_uint64_decode(&self->total_data_len, data, dataend);
   fd_bincode_uint64_decode(&self->num_executable_accounts, data, dataend);
 }
+
+void fd_bank_hash_stats_destroy(FD_FN_UNUSED fd_bank_hash_stats_t* self, FD_FN_UNUSED fd_free_fun_t freef, FD_FN_UNUSED void* freef_arg) {
+}
   
 void fd_bank_hash_info_decode(fd_bank_hash_info_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
   fd_hash_decode(&self->hash, data, dataend, allocf, allocf_arg);
   fd_hash_decode(&self->snapshot_hash, data, dataend, allocf, allocf_arg);
   fd_bank_hash_stats_decode(&self->stats, data, dataend, allocf, allocf_arg);
+}
+
+void fd_bank_hash_info_destroy(fd_bank_hash_info_t* self, fd_free_fun_t freef, void* freef_arg) {
+  fd_hash_destroy(&self->hash, freef, freef_arg);
+  fd_hash_destroy(&self->snapshot_hash, freef, freef_arg);
+  fd_bank_hash_stats_destroy(&self->stats, freef, freef_arg);
 }
 
 void fd_slot_account_pair_decode(fd_slot_account_pair_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
@@ -336,9 +392,21 @@ void fd_slot_account_pair_decode(fd_slot_account_pair_t* self, void const** data
     self->accounts = NULL;
 }
 
+void fd_slot_account_pair_destroy(fd_slot_account_pair_t* self, fd_free_fun_t freef, void* freef_arg) {
+  if (NULL != self->accounts) { 
+    for (ulong i = 0; i < self->accounts_len; ++i) {
+      fd_serializable_account_storage_entry_destroy(self->accounts + i, freef, freef_arg);
+    }
+  }
+}
+
 void fd_slot_map_pair_decode(fd_slot_map_pair_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
   fd_bincode_uint64_decode(&self->slot, data, dataend);
   fd_hash_decode(&self->hash, data, dataend, allocf, allocf_arg);
+}
+
+void fd_slot_map_pair_destroy(fd_slot_map_pair_t* self, fd_free_fun_t freef, void* freef_arg) {
+  fd_hash_destroy(&self->hash, freef, freef_arg);
 }
   
 void fd_solana_accounts_db_fields_decode(fd_solana_accounts_db_fields_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
@@ -367,6 +435,28 @@ void fd_solana_accounts_db_fields_decode(fd_solana_accounts_db_fields_t* self, v
       fd_slot_map_pair_decode(self->historical_roots_with_hash + i, data, dataend, allocf, allocf_arg);
   } else
     self->historical_roots_with_hash = NULL;
+}
+
+void fd_solana_accounts_db_fields_destroy(fd_solana_accounts_db_fields_t* self, fd_free_fun_t freef, void* freef_arg) {
+  if (NULL != self->storages) {
+    for (ulong i = 0; i < self->storages_len; ++i) {
+      fd_slot_account_pair_destroy(self->storages + i, freef, freef_arg);
+    }
+    freef(self->storages, freef_arg);
+    self->storages = NULL;
+  }
+  if (NULL != self->historical_roots) {
+    freef(self->historical_roots, freef_arg);
+    self->historical_roots = NULL;
+  }
+  if (NULL != self->historical_roots_with_hash) {
+    for (ulong i = 0; i < self->historical_roots_with_hash_len; ++i) {
+      fd_slot_map_pair_destroy(self->historical_roots_with_hash + i, freef, freef_arg);
+    }
+    freef(self->historical_roots_with_hash, freef_arg);
+    self->historical_roots_with_hash = NULL;
+  }
+  fd_bank_hash_info_destroy(&self->bank_hash_info, freef, freef_arg);
 }
 
 void fd_rust_duration_decode(fd_rust_duration_t* self, void const** data, void const* dataend, FD_FN_UNUSED fd_alloc_fun_t allocf, FD_FN_UNUSED void* allocf_arg) {
