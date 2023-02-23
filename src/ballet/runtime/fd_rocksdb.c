@@ -295,6 +295,7 @@ fd_slot_blocks_t * fd_rocksdb_get_microblocks(fd_rocksdb_t *db, fd_slot_meta_t *
         } // for (ulong idx = 0; idx < mblocks; idx++)
       } // if (mcnt > 0)
       else {
+        // Just update this to the next spot that will be decoded into
         next_batch = deshred.buf;
       }
     } // if ((deshred.result == FD_SHRED_ESLOT) | (deshred.result == FD_SHRED_EBATCH)) 
