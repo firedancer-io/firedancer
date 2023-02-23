@@ -191,7 +191,62 @@ void fd_funk_cancel(struct fd_funk* store,
 void fd_funk_merge(struct fd_funk* store,
                    struct fd_funk_xactionid const* destid,
                    ulong source_cnt,
-                   struct fd_funk_xactionid const* const* source_ids);
+                   struct fd_funk_xactionid const* const* source_ids) {
+  // Lookup the source entries
+  struct fd_funk_xaction_entry** source_ents = (struct fd_funk_xaction_entry**)
+    fd_alloca(8U, source_cnt*sizeof(struct fd_funk_xaction_entry*));
+  ulong newscriptlen = sizeof(struct fd_funk_xaction_prefix);
+  for (uint i = 0; i < source_cnt; ++i) {
+    // Find the entry for the transaction
+    struct fd_funk_xaction_entry* entry = fd_funk_xactions_query(store->xactions, source_ids[i]);
+    if (entry == NULL) {
+      FD_LOG_WARNING(("invalid transaction id"));
+      return;
+    }
+    if (FD_FUNK_XACTION_PREFIX(entry)->state != FD_FUNK_XACTION_LIVE) {
+      FD_LOG_WARNING(("transaction frozen due to being forked or committed"));
+      return;
+    }
+    if (i > 0 && !fd_funk_xactionid_t_equal(&entry->parent, &source_ents[0]->parent)) {
+      FD_LOG_WARNING(("all merged transactions must share a common parent"));
+      return;
+    }
+    source_ents[i] = entry;
+    newscriptlen += entry->scriptlen - sizeof(struct fd_funk_xaction_prefix);
+  }
+
+  // Create the child transaction
+  int exists;
+  struct fd_funk_xaction_entry* entry = fd_funk_xactions_insert(store->xactions, destid, &exists);
+  if (entry == NULL) {
+    FD_LOG_WARNING(("too many inflight transactions"));
+    return;
+  }
+  if (exists) {
+    FD_LOG_WARNING(("transaction id already used"));
+    return;
+  }
+  // Initialize the entry
+  fd_funk_xactionid_t_copy(&entry->parent, &source_ents[0]->parent);
+  entry->scriptmax = (uint)newscriptlen;
+  entry->script = (char*)malloc(newscriptlen);
+  entry->scriptlen = (uint)newscriptlen;
+  FD_FUNK_XACTION_PREFIX(entry)->state = FD_FUNK_XACTION_LIVE;
+  fd_funk_xaction_cache_new(&entry->cache);
+  // Concatenate all the transcripts
+  char* p = entry->script + sizeof(struct fd_funk_xaction_prefix);
+  for (uint i = 0; i < source_cnt; ++i) {
+    ulong copylen = source_ents[i]->scriptlen - sizeof(struct fd_funk_xaction_prefix);
+    fd_memcpy(p, source_ents[i]->script + sizeof(struct fd_funk_xaction_prefix), copylen);
+    p += copylen;
+  }
+
+  // Cleanup the original transactions
+  for (uint i = 0; i < source_cnt; ++i) {
+    struct fd_funk_xaction_entry* entry = fd_funk_xactions_remove(store->xactions, source_ids[i]);
+    fd_funk_xaction_entry_cleanup(store, entry);
+  }  
+}
 
 int fd_funk_isopen(struct fd_funk* store,
                    struct fd_funk_xactionid const* id) {
@@ -411,7 +466,7 @@ fd_cache_handle fd_funk_get_cache(struct fd_funk* store,
   }
 
   if (newrecordlen < 0) {
-    // Record we deleted in this transaction
+    // Record was deleted in this transaction
     *cachedata = NULL;
     *cachelen = 0;
     *recordlen = 0;
