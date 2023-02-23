@@ -267,7 +267,7 @@ int main(int argc, char **argv) {
 
   free(buf);
 
-//  fd_wksp_free_laddr( shmem );
+  fd_wksp_free_laddr( shmem );
   if( name ) 
     fd_wksp_detach( wksp );
   else  
