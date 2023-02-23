@@ -108,6 +108,7 @@ void* fd_funk_leave(struct fd_funk* store) {
 void* fd_funk_delete(void* mem) {
   struct fd_funk* store = (struct fd_funk*)mem;
   fd_funk_index_destroy(store->index);
+  fd_funk_xactions_cleanup(store);
   fd_funk_xactions_destroy(store->xactions);
   fd_cache_destroy(store->cache);
   fd_vec_ulong_destroy(&store->free_ctrl);

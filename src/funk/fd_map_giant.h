@@ -180,6 +180,42 @@ MAP_ELEMENT* MAP_(remove)(struct MAP_NAME* self, MAP_KEY const* key) {
   return NULL;
 }
 
+struct MAP_(iter) {
+  int header;
+  uint cur;
+};
+
+// Initialize a map iterator
+void MAP_(iter_init)(struct MAP_NAME* self, struct MAP_(iter)* iter) {
+  (void)self;
+  iter->header = -1;
+  iter->cur = MAP_LIST_TERM;
+}
+
+// Get the next element, or NULL if done
+MAP_ELEMENT* MAP_(iter_next)(struct MAP_NAME* self, struct MAP_(iter)* iter) {
+  const uint cnt = self->header_cnt;
+  uint* const headers = (uint*)(self+1);
+  MAP_ELEMENT* const elembase = (MAP_ELEMENT*)(headers + cnt);
+
+  if (iter->cur != MAP_LIST_TERM) {
+    MAP_ELEMENT* elem = elembase + iter->cur;
+    iter->cur = elem->next;
+    return elem;
+  }
+  if (iter->header == (int)cnt)
+    return NULL;
+  while (++(iter->header) < (int)cnt) {
+    iter->cur = headers[iter->header];
+    if (iter->cur != MAP_LIST_TERM) {
+      MAP_ELEMENT* elem = elembase + iter->cur;
+      iter->cur = elem->next;
+      return elem;
+    }
+  }
+  return NULL;
+}
+
 // Return true if the data structure is internally consistent
 int MAP_(validate)(struct MAP_NAME* self) {
   const uint cnt = self->header_cnt;

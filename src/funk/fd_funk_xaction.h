@@ -62,3 +62,4 @@ struct fd_funk_xaction_entry {
 #undef MAP_KEY
 
 int fd_funk_is_root(struct fd_funk_xactionid const* xid);
+void fd_funk_xactions_cleanup(struct fd_funk* store);
