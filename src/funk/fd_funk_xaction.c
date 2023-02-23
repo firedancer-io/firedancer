@@ -58,8 +58,6 @@ void fd_funk_fork(struct fd_funk* store,
   }
   // Initialize the entry
   fd_funk_xactionid_t_copy(&entry->parent, parent);
-  // Remember the grandparent for cleanup in the commit
-  fd_funk_xactionid_t_copy(&entry->grandparent, (parentry != NULL ? &parentry->parent : fd_funk_root(store)));
   entry->scriptmax = 1<<12; // 4KB
   entry->script = (char*)malloc(entry->scriptmax);
   // The prefix always comes first in the transcript
@@ -73,11 +71,90 @@ void fd_funk_fork(struct fd_funk* store,
   fd_funk_xaction_cache_new(&entry->cache);
 }
 
+void fd_funk_xaction_entry_cleanup(struct fd_funk* store,
+                                   struct fd_funk_xaction_entry* entry) {
+  free(entry->script);
+  const uint cnt = entry->cache.cnt;
+  struct fd_funk_xaction_cache_entry* const elems = entry->cache.elems;
+  for (uint i = 0; i < cnt; ++i) {
+    struct fd_funk_xaction_cache_entry* const elem = elems + i;
+    fd_cache_release(store->cache, elem->cachehandle);
+  }
+}
+
+void fd_funk_execute_script(struct fd_funk* store,
+                            const char* script,
+                            uint scriptlen) {
+  const char* p = script + sizeof(struct fd_funk_xaction_prefix);
+  const char* const pend = script + scriptlen;
+  while (p < pend) {
+    // The type is the first byte in the header
+    switch (*p) {
+    case FD_FUNK_XACTION_WRITE_TYPE: {
+      struct fd_funk_xaction_write_header const* head = (struct fd_funk_xaction_write_header const*)p;
+      // Copy record id to fix alignment
+      struct fd_funk_recordid recordid;
+      fd_memcpy(&recordid, &head->recordid, sizeof(recordid));
+      fd_funk_write_root(store, &recordid, p + sizeof(*head), head->offset, head->length);
+      p += sizeof(*head) + head->length;
+      if (p > pend)
+        FD_LOG_ERR(("corrupt transaction transcript"));
+      break;
+    }
+    default:
+      FD_LOG_ERR(("corrupt transaction transcript"));
+      break;
+    }
+  }
+}
+
 void fd_funk_commit(struct fd_funk* store,
-                    struct fd_funk_xactionid const* id);
+                    struct fd_funk_xactionid const* id) {
+  // !!! TBD recursively commit parents, recursively cancel competing children
+
+  struct fd_funk_xaction_entry* entry = fd_funk_xactions_query(store->xactions, id);
+  if (entry == NULL || FD_FUNK_XACTION_PREFIX(entry)->state == FD_FUNK_XACTION_COMMITTED) {
+    // Fail silently in case the transaction was already committed and cleaned up
+    return;
+  }
+  // Set the state to committed
+  FD_FUNK_XACTION_PREFIX(entry)->state = FD_FUNK_XACTION_COMMITTED;
+  // Write a write-ahead log entry
+    // Locates the write-ahead log entry in the backing file
+  ulong wa_control;
+  ulong wa_start;
+  uint wa_alloc;
+  if (!fd_funk_writeahead(store, id, &entry->parent, entry->script, entry->scriptlen,
+                          &wa_control, &wa_start, &wa_alloc)) {
+    FD_LOG_WARNING(("failed to write write-ahead log, commit failed"));
+    FD_FUNK_XACTION_PREFIX(entry)->state = FD_FUNK_XACTION_FROZEN;
+    fd_funk_cancel(store, id);
+    return;
+  }
+  // We are now in a happy place regarding this transaction. Even if
+  // we crash, we can re-execute the transaction out of the
+  // write-ahead log
+  fd_funk_execute_script(store, entry->script, entry->scriptlen);
+  // We can delete the write-ahead log now
+  fd_funk_writeahead_delete(store, wa_control, wa_start, wa_alloc);
+  // We can't cleanup the transaction because we may still fork of it,
+  // but we can cleanup the parent.
+  struct fd_funk_xaction_entry* parentry = fd_funk_xactions_remove(store->xactions, &entry->parent);
+  if (parentry != NULL)
+    fd_funk_xaction_entry_cleanup(store, parentry);
+}
 
 void fd_funk_cancel(struct fd_funk* store,
-                    struct fd_funk_xactionid const* id);
+                    struct fd_funk_xactionid const* id) {
+  // !!! TBD recursively cancel children
+
+  struct fd_funk_xaction_entry* entry = fd_funk_xactions_remove(store->xactions, id);
+  if (entry == NULL) {
+    FD_LOG_WARNING(("transaction does not exist"));
+    return;
+  }
+  fd_funk_xaction_entry_cleanup(store, entry);
+}
 
 void fd_funk_merge(struct fd_funk* store,
                    struct fd_funk_xactionid const* destid,

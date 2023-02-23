@@ -42,8 +42,6 @@ struct fd_funk_xaction_entry {
     struct fd_funk_xactionid key;
     // Parent transaction identifier
     struct fd_funk_xactionid parent;
-    // Grandparent transaction identifier
-    struct fd_funk_xactionid grandparent;
     // Transaction update transcript. This is exactly the same as the
     // on-disk representation.
     char* script;

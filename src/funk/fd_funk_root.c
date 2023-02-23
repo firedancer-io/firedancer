@@ -32,10 +32,14 @@ struct fd_funk_control_entry {
         } dead;
         // A write-ahead log for a transaction
         struct {
-            // Record identifier
+            // Transaction identifier
             struct fd_funk_xactionid id;
+            // Parent transaction identifier
+            struct fd_funk_xactionid parent;
             // Offset into file for content.
             ulong start;
+            // Length of content
+            uint len;
             // Length of disk allocation
             uint alloc;
         } xaction;
@@ -485,6 +489,47 @@ void fd_funk_delete_record_root(struct fd_funk* store,
 // Get the current number of records
 uint fd_funk_num_records(struct fd_funk* store) {
   return store->index->used;
+}
+
+// Write a write-ahead log entry to disk
+int fd_funk_writeahead(struct fd_funk* store,
+                       struct fd_funk_xactionid const* id,
+                       struct fd_funk_xactionid const* parent,
+                       char const* script,
+                       uint scriptlen,
+                       ulong* control,
+                       ulong* start,
+                       uint* alloc) {
+  // Find space for the log
+  if (!fd_funk_allocate_disk(store, scriptlen, control, start, alloc))
+    return 0;
+  // Write the data
+  if (pwrite(store->backingfd, script, scriptlen, (long)(*start)) < (long)scriptlen) {
+    FD_LOG_WARNING(("failed to write backing file: %s", strerror(errno)));
+    return 0;
+  }
+  // Update the control. This has to be atomic.
+  struct fd_funk_control_entry ctrl;
+  fd_memset(&ctrl, 0, sizeof(ctrl));
+  ctrl.type = FD_FUNK_CONTROL_XACTION;
+  fd_funk_xactionid_t_copy(&ctrl.u.xaction.id, id);
+  fd_funk_xactionid_t_copy(&ctrl.u.xaction.parent, parent);
+  ctrl.u.xaction.start = *start;
+  ctrl.u.xaction.len = scriptlen;
+  ctrl.u.xaction.alloc = *alloc;
+  if (pwrite(store->backingfd, &ctrl, sizeof(ctrl), (long)(*control)) < (long)sizeof(ctrl)) {
+    FD_LOG_WARNING(("failed to write backing file: %s", strerror(errno)));
+    return 0;
+  }
+  return 1;
+}
+
+// Delete a write-ahead log record
+void fd_funk_writeahead_delete(struct fd_funk* store,
+                               ulong control,
+                               ulong start,
+                               uint alloc) {
+  fd_funk_make_dead(store, control, start, alloc);
 }
 
 // Verify the integrity of the on-disk data structure as well as the
