@@ -3,6 +3,7 @@
 
 #include "../bits/fd_bits.h"
 #include "../fd_util.h"
+#include <immintrin.h>
 
 // TODO:
 //    add _unchecked versions
@@ -14,7 +15,8 @@ void fd_bincode_uint128_decode(uint128* self, void const** data, void const* dat
   if (FD_UNLIKELY((void const *) (ptr + 1) > dataend )) {
     FD_LOG_ERR(( "buffer underflow"));
   }
-  *self = *ptr;
+
+  *self = (uint128) _mm_loadu_si128((void const *) ptr);
   *data = ptr + 1;
 }
 
