@@ -27,7 +27,7 @@ struct fd_funk_xaction_cache_entry {
     // Record identifier
     struct fd_funk_recordid record;
     // Actual length of record. The cache might just be a prefix
-    uint recordlen;
+    uint record_sz;
     // Cached data
     fd_cache_handle cachehandle;
 };

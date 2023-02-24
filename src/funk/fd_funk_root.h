@@ -39,8 +39,8 @@ struct fd_funk_index_entry {
     ulong control;
     // Offset into file for content.
     ulong start;
-    // Length of content
-    uint len;
+    // Length of content. Must be < 10MB.
+    uint size;
     // Length of disk allocation
     uint alloc;
     // Version of this record
@@ -85,7 +85,7 @@ long fd_funk_write_root(struct fd_funk* store,
                         struct fd_funk_recordid const* recordid,
                         const void* data,
                         ulong offset,
-                        ulong datalen);
+                        ulong data_sz);
 
 void fd_funk_delete_record_root(struct fd_funk* store,
                                 struct fd_funk_recordid const* recordid);
@@ -96,10 +96,10 @@ void fd_funk_validate_root(struct fd_funk* store);
 
 fd_cache_handle fd_funk_get_cache_root(struct fd_funk* store,
                                        struct fd_funk_recordid const* recordid,
-                                       uint neededlen,
-                                       void** cachedata,
-                                       uint* cachelen,
-                                       uint* recordlen);
+                                       uint needed_sz,
+                                       void** cache_data,
+                                       uint* cache_sz,
+                                       uint* record_sz);
 
 int fd_funk_writeahead(struct fd_funk* store,
                        struct fd_funk_xactionid const* id,

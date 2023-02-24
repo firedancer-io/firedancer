@@ -17,11 +17,11 @@
 
 struct fd_funk {
     // Backing file descriptor
-    int backingfd;
+    int backing_fd;
     // Length of backing file
-    ulong backinglen;
+    ulong backing_sz;
     // File offset of last control block in chain
-    ulong lastcontrol; 
+    ulong lastcontrol;
     // Master index of finalized data
     struct fd_funk_index* index;
     // Table of live transactions
@@ -43,15 +43,15 @@ void* fd_funk_new(void* mem,
     FD_LOG_ERR(("footprint too small for fd_funk"));
   struct fd_funk* store = (struct fd_funk*)mem;
   
-  store->backingfd = open(backingfile, O_CREAT | O_RDWR, 0600);
-  if (store->backingfd == -1) {
+  store->backing_fd = open(backingfile, O_CREAT | O_RDWR, 0600);
+  if (store->backing_fd == -1) {
     FD_LOG_ERR(("failed to open %s: %s", backingfile, strerror(errno)));
   }
   struct stat statbuf;
-  if (fstat(store->backingfd, &statbuf) == -1) {
+  if (fstat(store->backing_fd, &statbuf) == -1) {
     FD_LOG_ERR(("failed to open %s: %s", backingfile, strerror(errno)));
   }
-  store->backinglen = (ulong)statbuf.st_size;
+  store->backing_sz = (ulong)statbuf.st_size;
 
   // Reserve 1/3 of the footprint for the master index
   FD_STATIC_ASSERT(sizeof(struct fd_funk_index_entry) == 128,fd_funk);
@@ -114,7 +114,7 @@ void* fd_funk_delete(void* mem) {
   fd_vec_ulong_destroy(&store->free_ctrl);
   for (uint i = 0; i < FD_FUNK_NUM_DISK_SIZES; ++i)
     fd_funk_vec_dead_entry_destroy(&store->deads[i]);
-  close(store->backingfd);
+  close(store->backing_fd);
   return mem;
 }
 
@@ -125,22 +125,22 @@ struct fd_funk_xactionid const* fd_funk_root(struct fd_funk* store) {
 void fd_funk_truncate(struct fd_funk* store,
                       struct fd_funk_xactionid const* xid,
                       struct fd_funk_recordid const* recordid,
-                      ulong recordlen);
+                      ulong record_sz);
 
 int fd_funk_cache_query(struct fd_funk* store,
                         struct fd_funk_xactionid const* xid,
                         struct fd_funk_recordid const* recordid,
                         ulong offset,
-                        ulong datalen);
+                        ulong data_sz);
 
 void fd_funk_cache_hint(struct fd_funk* store,
                         struct fd_funk_xactionid const* xid,
                         struct fd_funk_recordid const* recordid,
                         ulong offset,
-                        ulong datalen) {
+                        ulong data_sz) {
   // Try to read but ignore failures
   const void* data;
-  (void)fd_funk_read(store, xid, recordid, &data, offset, datalen);
+  (void)fd_funk_read(store, xid, recordid, &data, offset, data_sz);
 }
 
 void fd_funk_validate(struct fd_funk* store) {
