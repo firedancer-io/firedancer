@@ -39,9 +39,9 @@ struct fd_funk_index_entry {
     ulong control;
     // Offset into file for content.
     ulong start;
-    // Length of content. Must be < 10MB.
+    // Length of content. Must be <= FD_FUNK_MAX_ENTRY_SIZE.
     uint size;
-    // Length of disk allocation
+    // Length of disk allocation. Must be <= FD_FUNK_MAX_ENTRY_SIZE.
     uint alloc;
     // Version of this record
     uint version;

@@ -270,6 +270,11 @@ long fd_funk_write(struct fd_funk* store,
                    const void* data,
                    ulong offset,
                    ulong data_sz) {
+  if (offset + data_sz > FD_FUNK_MAX_ENTRY_SIZE) {
+    FD_LOG_WARNING(("record too large"));
+    return -1;
+  }
+  
   // Check for special root case
   if (fd_funk_is_root(xid)) {
     // See if the root is currently forked

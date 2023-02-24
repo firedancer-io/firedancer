@@ -14,9 +14,9 @@ struct fd_funk_control_entry {
             struct fd_funk_recordid id;
             // Offset into file for content.
             ulong start;
-            // Length of content
+            // Length of content. Must be <= FD_FUNK_MAX_ENTRY_SIZE.
             uint size;
-            // Length of disk allocation
+            // Length of disk allocation. Must be <= FD_FUNK_MAX_ENTRY_SIZE.
             uint alloc;
             // Version of this record. Used to disambiguate multiple
             // versions of the same record caused by an ill-timed
@@ -67,7 +67,7 @@ struct fd_funk_control {
 #define FD_FUNK_CONTROL_NEXT(_ctrl_) (_ctrl_.entries[0].u.next_control)
 
 // Round up a size to a valid disk allocation size
-uint fd_funk_disk_size(ulong rawsize, uint* index) {
+uint fd_funk_disk_size(ulong rawsize, ulong* index) {
   // These are all the allowed disk allocation sizes
   static const uint ALLSIZES[FD_FUNK_NUM_DISK_SIZES] = {
     128, 256, 384, 512, 640, 768, 896, 1024, 1152, 1280, 1664, 2176, 2944, 3840,
@@ -75,8 +75,8 @@ uint fd_funk_disk_size(ulong rawsize, uint* index) {
     121472, 157952, 205440, 267136, 347392, 451712, 587264, 763520, 992640, 1290496,
     1677696, 2181120, 2835456, 3686144, 4792064, 6229760, 8098688, FD_FUNK_MAX_ENTRY_SIZE
   };
-  uint i = 0;
-  // Quickly skip ahead. !!! maybe binary search
+  ulong i = 0;
+  // Quickly skip ahead.
   while (i+4 < FD_FUNK_NUM_DISK_SIZES && rawsize >= ALLSIZES[i+4])
     i += 4;
   while (i+1 < FD_FUNK_NUM_DISK_SIZES && rawsize > ALLSIZES[i])
@@ -88,7 +88,7 @@ uint fd_funk_disk_size(ulong rawsize, uint* index) {
 // Force a control entry to be dead and add the allocation to the free list
 void fd_funk_make_dead(struct fd_funk* store, ulong control, ulong start, uint alloc) {
   // Get the index for the allocation size
-  uint k; // !!! ulong
+  ulong k;
   ulong rsize = fd_funk_disk_size(alloc, &k);
   if (rsize != alloc) {
     FD_LOG_WARNING(("invalid record allocation in store"));
@@ -179,7 +179,7 @@ void fd_funk_replay_root(struct fd_funk* store) {
         if (ent->u.dead.start + ent->u.dead.alloc > store->backing_sz)
           store->backing_sz = ent->u.dead.start + ent->u.dead.alloc;
         // Get the index for the allocation size
-        uint k;
+        ulong k;
         ulong rsize = fd_funk_disk_size(ent->u.dead.alloc, &k);
         if (rsize != ent->u.dead.alloc) {
           FD_LOG_WARNING(("invalid record allocation in store"));
@@ -208,7 +208,7 @@ void fd_funk_replay_root(struct fd_funk* store) {
 // Allocate disk space for a new entry
 int fd_funk_allocate_disk(struct fd_funk* store, ulong data_sz, ulong* control, ulong* start, uint* alloc) {
   // Round up to the nearest allocation size
-  uint k;
+  ulong k;
   *alloc = fd_funk_disk_size(data_sz, &k);
   if (data_sz > *alloc) {
     FD_LOG_WARNING(("entry too large"));
@@ -501,6 +501,8 @@ int fd_funk_writeahead(struct fd_funk* store,
                        ulong* start,
                        uint* alloc) {
   // Find space for the log
+  // !!! A write-ahead log can be much larger than MAX_SIZE. Need to
+  // deal with this as a special case.
   if (!fd_funk_allocate_disk(store, scriptlen, control, start, alloc))
     return 0;
   // Write the data
@@ -579,7 +581,7 @@ void fd_funk_validate_root(struct fd_funk* store) {
         if (ent->u.normal.size > FD_FUNK_MAX_ENTRY_SIZE ||
             ent->u.normal.size > ent->u.normal.alloc)
           FD_LOG_ERR(("lengths make no sense"));
-        uint k;
+        ulong k;
         ulong rsize = fd_funk_disk_size(ent->u.normal.alloc, &k);
         if (rsize != ent->u.normal.alloc || k >= FD_FUNK_NUM_DISK_SIZES)
           FD_LOG_ERR(("invalid record allocation in store"));
@@ -601,7 +603,7 @@ void fd_funk_validate_root(struct fd_funk* store) {
       } else if (ent->type == FD_FUNK_CONTROL_DEAD) {
         if (ent->u.dead.start + ent->u.dead.alloc > store->backing_sz)
           FD_LOG_ERR(("backing_sz is wrong"));
-        uint k;
+        ulong k;
         ulong rsize = fd_funk_disk_size(ent->u.dead.alloc, &k);
         if (rsize != ent->u.dead.alloc || k >= FD_FUNK_NUM_DISK_SIZES)
           FD_LOG_ERR(("invalid record allocation in store"));
@@ -613,7 +615,7 @@ void fd_funk_validate_root(struct fd_funk* store) {
       } else if (ent->type == FD_FUNK_CONTROL_XACTION) {
         if (ent->u.xaction.start + ent->u.xaction.alloc > store->backing_sz)
           FD_LOG_ERR(("backing_sz is wrong"));
-        uint k;
+        ulong k;
         ulong rsize = fd_funk_disk_size(ent->u.xaction.alloc, &k);
         if (rsize != ent->u.xaction.alloc || k >= FD_FUNK_NUM_DISK_SIZES)
           FD_LOG_ERR(("invalid record allocation in store"));
