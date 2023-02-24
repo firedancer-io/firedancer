@@ -87,15 +87,30 @@ long fd_funk_write_root(struct fd_funk* store,
                         ulong offset,
                         ulong datalen);
 
-long fd_funk_read_root(struct fd_funk* store,
-                       struct fd_funk_recordid const* recordid,
-                       const void** data,
-                       ulong offset,
-                       ulong datalen);
-
 void fd_funk_delete_record_root(struct fd_funk* store,
                                 struct fd_funk_recordid const* recordid);
 
 uint fd_funk_num_records(struct fd_funk* store);
 
 void fd_funk_validate_root(struct fd_funk* store);
+
+fd_cache_handle fd_funk_get_cache_root(struct fd_funk* store,
+                                       struct fd_funk_recordid const* recordid,
+                                       uint neededlen,
+                                       void** cachedata,
+                                       uint* cachelen,
+                                       uint* recordlen);
+
+int fd_funk_writeahead(struct fd_funk* store,
+                       struct fd_funk_xactionid const* id,
+                       struct fd_funk_xactionid const* parent,
+                       char const* script,
+                       uint scriptlen,
+                       ulong* control,
+                       ulong* start,
+                       uint* alloc);
+
+void fd_funk_writeahead_delete(struct fd_funk* store,
+                               ulong control,
+                               ulong start,
+                               uint alloc);

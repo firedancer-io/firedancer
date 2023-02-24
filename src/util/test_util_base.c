@@ -327,7 +327,10 @@ main( int     argc,
     FD_VOLATILE( ctr[0] ) = 1;
     FD_TEST( FD_ATOMIC_CAS( ctr, 0, 2 )==1 && FD_VOLATILE_CONST( ctr[0] )==1 );
     FD_TEST( FD_ATOMIC_CAS( ctr, 1, 3 )==1 && FD_VOLATILE_CONST( ctr[0] )==3 );
+
+    FD_TEST( FD_ATOMIC_XCHG( ctr, 4 )==3 && FD_VOLATILE_CONST( ctr[0] )==4 );
 #   endif
+
     FD_VOLATILE( ctr[0] ) = 0; FD_TEST( FD_VOLATILE_CONST( ctr[0] )==0 );
 
     for( int i=0; i<10; i++ ) {

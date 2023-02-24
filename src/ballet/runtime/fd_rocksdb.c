@@ -2,10 +2,9 @@
 #include <malloc.h>
 #include <stdbool.h>
 #include <stdlib.h>
+#include "../../util/bits/fd_bits.h"
 
-#ifdef FD_HAS_ROCKSDB
-
-void fd_slot_meta_decode(fd_slot_meta_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, FD_FN_UNUSED void* allocf_arg) {
+void fd_slot_meta_decode(fd_slot_meta_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
   fd_bincode_uint64_decode(&self->slot, data, dataend);
   fd_bincode_uint64_decode(&self->consumed, data, dataend);
   fd_bincode_uint64_decode(&self->received, data, dataend);
@@ -120,7 +119,7 @@ ulong fd_rocksdb_first_slot(fd_rocksdb_t *db, char **err) {
   return slot;
 }
 
-void fd_rocksdb_get_meta(fd_rocksdb_t *db, ulong slot, fd_slot_meta_t *m, fd_alloc_fun_t allocf, char **err) {
+void fd_rocksdb_get_meta(fd_rocksdb_t *db, ulong slot, fd_slot_meta_t *m, fd_alloc_fun_t allocf, void* allocf_arg, char **err) {
   ulong ks = fd_ulong_bswap(slot);
   size_t vallen = 0;
 
@@ -130,13 +129,12 @@ void fd_rocksdb_get_meta(fd_rocksdb_t *db, ulong slot, fd_slot_meta_t *m, fd_all
   unsigned char *outend = (unsigned char *) &meta[vallen];
   const void * o = meta;
 
-  fd_slot_meta_decode(m, &o, outend, allocf, NULL);
+  fd_slot_meta_decode(m, &o, outend, allocf, allocf_arg);
 
   free(meta);
 }
 
-
-fd_slot_blocks_t * fd_rocksdb_get_microblocks(fd_rocksdb_t *db, fd_slot_meta_t *m) {
+fd_slot_blocks_t * fd_rocksdb_get_microblocks(fd_rocksdb_t *db, fd_slot_meta_t *m, fd_alloc_fun_t allocf,  void* allocf_arg) {
   ulong slot = m->slot;
   ulong start_idx = 0;
   ulong end_idx = m->received;
@@ -150,19 +148,14 @@ fd_slot_blocks_t * fd_rocksdb_get_microblocks(fd_rocksdb_t *db, fd_slot_meta_t *
   rocksdb_iter_seek(iter, (const char *) k, sizeof(k));
   // Put valid check for iter up here... to short circut unused memory alloc
   ulong bufsize = m->consumed * 1500;
-  fd_slot_blocks_t *batch = aligned_alloc(FD_SLOT_BLOCKS_ALIGN, FD_SLOT_BLOCKS_FOOTPRINT(bufsize));
+  fd_slot_blocks_t *batch = (fd_slot_blocks_t *) allocf(FD_SLOT_BLOCKS_FOOTPRINT(bufsize), FD_SLOT_BLOCKS_ALIGN, allocf_arg);
 
-  // Should we make this "debug only"??
-  memset(batch, 0, FD_SLOT_BLOCKS_FOOTPRINT(bufsize));
-
-  fd_slot_blocks_init(batch);
+  fd_slot_blocks_new(batch);
 
   fd_deshredder_t deshred;
   fd_deshredder_init(&deshred, batch->buffer, bufsize, NULL, 0);
 
   uchar *next_batch = deshred.buf;
-
-  uchar * empty = NULL;
 
   for (ulong i = start_idx; i < end_idx; i++) {
     ulong cur_slot, index;
@@ -202,13 +195,6 @@ fd_slot_blocks_t * fd_rocksdb_get_microblocks(fd_rocksdb_t *db, fd_slot_meta_t *
     // actual data without a memory copy
     fd_shred_t const * shred = fd_shred_parse( data, (ulong) dlen );
 
-    FD_LOG_INFO(("shred info: raw_flag: %x, ref: %d, slot_complete: %d, data_complete: %d",
-        shred->data.flags,
-        shred->data.flags & FD_SHRED_DATA_REF_TICK_MASK,
-        (shred->data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE) != 0,
-        (shred->data.flags & FD_SHRED_DATA_FLAG_DATA_COMPLETE) != 0
-        ));
-
     /* Refill deshredder with shred.
 
        We could have created a single shred list with all the shreds
@@ -233,75 +219,106 @@ fd_slot_blocks_t * fd_rocksdb_get_microblocks(fd_rocksdb_t *db, fd_slot_meta_t *
     if ((deshred.result == FD_SHRED_ESLOT) | (deshred.result == FD_SHRED_EBATCH)) {
       ulong mblocks = *((ulong *) next_batch);
 
-      FD_LOG_INFO(("found %ld microblocks", mblocks));
-
       next_batch += sizeof(ulong);
 
+      // We quickly walk through the data structure and figure out how
+      // many and how big all the microblocks were.  Then, we can use
+      // this to allocate a single giant buffer which holds every
+      // microblock in this batch.  Finally, we will link all the
+      // batches together as a linked list.  
+
+      // This results in a single call on the allocator per batch
+      // instead of a call per microblock.
+
+      // The first 8 bytes of the buffer is either 0 (end of the list)
+      // or a pointer to the next entry in the linked list.  The next
+      // 4 bytes is the count of microblocks that can be found in this
+      // batch blob
+      ulong blob_start = FD_BLOB_DATA_START;
+      ulong bsz = blob_start;
+
+      // This should be fast since everything should be in the
+      // cache.. we DID just read it
+      uint mcnt = 0;
+      uchar *tptr = next_batch;
       for (ulong idx = 0; idx < mblocks; idx++) {
-        fd_microblock_hdr_t * hdr = (fd_microblock_hdr_t *)next_batch;
-
-        ulong txn_max_cnt = hdr->txn_cnt;
-
-        ulong footprint = fd_microblock_footprint( txn_max_cnt );
-
-        // What allocator should we do here considering we are going to
-        // pass these microblocks to executors on different tiles
-        // potentally?
-        uchar * raw;
-        if (0 == txn_max_cnt) {
-          if (NULL == empty)
-            empty = aligned_alloc(FD_MICROBLOCK_ALIGN, footprint);
-          raw = empty;
-        } else
-          raw = aligned_alloc(FD_MICROBLOCK_ALIGN, footprint);
-
-        void * shblock = fd_microblock_new( raw, txn_max_cnt );
-        fd_microblock_t * block = fd_microblock_join( shblock );
-
-        // Does memory copy of header, not of data
-        ulong microblock_sz = fd_microblock_deserialize( block, next_batch, (ulong) (deshred.buf - next_batch), NULL );
-        if (microblock_sz == 0) {
-          // Should we return what we have found or should we just fall over?
-          FD_LOG_ERR(("deserialization error"));
+        fd_microblock_hdr_t * hdr = (fd_microblock_hdr_t *)tptr;
+        if (hdr->txn_cnt > 0) {
+          bsz = fd_ulong_align_up( bsz + fd_microblock_footprint( hdr->txn_cnt ), FD_MICROBLOCK_ALIGN );
+          mcnt ++;
         }
-        FD_LOG_INFO(( "deserialzied microblock of size %lu", microblock_sz ));
-
-        /* TODO: is this safe to do? */
-        fd_microblock_leave(shblock);
-
-        if (0 != txn_max_cnt) {
-          if (batch->block_cnt >= 64) {
-            FD_LOG_ERR(("microblock overflow"));
-          }
-          batch->micro_blocks[batch->block_cnt++] = shblock;
-        }
-        next_batch += microblock_sz;
+        tptr += fd_microblock_skip( tptr, (ulong) (deshred.buf - tptr));
       }
-      FD_LOG_INFO(("total blocks found so far: %d", batch->block_cnt));
-      // We want to assert this?
-      // next_batch == deshred.buf;
-    }
+
+      if (mcnt > 0) {
+        uchar * blob = (uchar *) allocf(bsz, FD_MICROBLOCK_ALIGN, allocf_arg);
+        // Yes, a simple linked list...
+        if (NULL != batch->last_blob) 
+          *((uchar **) batch->last_blob) = blob;
+        *((ulong *) blob) = 0;
+        batch->last_blob = blob;
+        if (NULL == batch->first_blob) 
+          batch->first_blob = blob;
+
+        *((uint *) (blob + 8)) = mcnt;
+        uchar * blob_ptr = blob + blob_start;
+
+        // Now, we can walk through and lay out all the microblocks and transactions...
+        for (ulong idx = 0; idx < mblocks; idx++) {
+          fd_microblock_hdr_t * hdr = (fd_microblock_hdr_t *)next_batch;
+
+          if (hdr->txn_cnt > 0) {
+            void * shblock = fd_microblock_new( blob_ptr, hdr->txn_cnt );
+            fd_microblock_t * block = fd_microblock_join( shblock );
+
+            // Does memory copy of header, not of data
+            ulong microblock_sz = fd_microblock_deserialize( block, next_batch, (ulong) (deshred.buf - next_batch), NULL );
+            if (microblock_sz == 0) {
+              // Should we return what we have found or should we just fall over?
+              FD_LOG_ERR(("deserialization error"));
+            }
+
+            // All done
+            fd_microblock_leave(shblock);
+
+            // TODO: did we use this field?
+            batch->block_cnt++;
+
+            blob_ptr = (uchar *) fd_ulong_align_up((ulong)blob_ptr + fd_microblock_footprint( hdr->txn_cnt ), FD_MICROBLOCK_ALIGN);
+
+            next_batch += microblock_sz;
+          } // if (hdr->txn_cnt > 0)
+          else {
+            // zero txns... lets skip it
+            next_batch += fd_microblock_skip( next_batch, (ulong) (deshred.buf - next_batch));
+          }
+        } // for (ulong idx = 0; idx < mblocks; idx++)
+      } // if (mcnt > 0)
+      else {
+        // Just update this to the next spot that will be decoded into
+        next_batch = deshred.buf;
+      }
+    } // if ((deshred.result == FD_SHRED_ESLOT) | (deshred.result == FD_SHRED_EBATCH)) 
 
     rocksdb_iter_next(iter);
   }
 
-  if (NULL != empty)
-    free(empty);
   rocksdb_iter_destroy(iter);
 
   return batch;
 }
 
-void fd_slot_blocks_init(fd_slot_blocks_t *b) {
-  b->block_cnt = 0;
+void fd_slot_blocks_new(fd_slot_blocks_t *b) {
+  fd_memset(b, 0, sizeof(*b));
 }
 
-void fd_slot_blocks_destroy(fd_slot_blocks_t *b) {
-  for (uint i = 0; i < b->block_cnt; i++) {
-    free(b->micro_blocks[i]);
-    b->micro_blocks[i] = 0;
+void fd_slot_blocks_destroy(fd_slot_blocks_t *b, fd_free_fun_t freef,  void* freef_arg) {
+  uchar *blob = b->first_blob;
+  while (NULL != blob) {
+    uchar *n = *((uchar **) blob);
+    freef(blob, freef_arg);
+    blob = n;
   }
-  b->block_cnt = 0;
+  fd_memset(b, 0, sizeof(*b));
 }
 
-#endif

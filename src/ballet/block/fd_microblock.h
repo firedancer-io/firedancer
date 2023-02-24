@@ -165,6 +165,17 @@ fd_microblock_deserialize( fd_microblock_t * block,
                            ulong             buf_sz,
                            fd_txn_parse_counters_t * counters_opt );
 
+/* fd_microblock_skip: Scans a microblock from `buf`.
+   Only accesses up to `buf_sz` bytes beyond `buf`.
+
+   Returns the number of bytes consumed from `buf` on success, which is
+   guaranteed to be less or equal than `buf_sz`.  Returns 0 on failure.
+   Reasons for failure include invalid data or unexpected EOF.` */
+
+ulong
+fd_microblock_skip(uchar const *     buf,
+                   ulong             buf_sz);
+
 /* fd_microblock_mixin: Calculates the PoH mixin hash.
 
    Computes the root of a 32-byte binary Merkle tree of a vector with

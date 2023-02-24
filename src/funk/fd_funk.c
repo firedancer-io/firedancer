@@ -108,6 +108,7 @@ void* fd_funk_leave(struct fd_funk* store) {
 void* fd_funk_delete(void* mem) {
   struct fd_funk* store = (struct fd_funk*)mem;
   fd_funk_index_destroy(store->index);
+  fd_funk_xactions_cleanup(store);
   fd_funk_xactions_destroy(store->xactions);
   fd_cache_destroy(store->cache);
   fd_vec_ulong_destroy(&store->free_ctrl);
@@ -121,32 +122,10 @@ struct fd_funk_xactionid const* fd_funk_root(struct fd_funk* store) {
   return &store->root;
 }
 
-long fd_funk_read(struct fd_funk* store,
-                  struct fd_funk_xactionid const* xid,
-                  struct fd_funk_recordid const* recordid,
-                  const void** data,
-                  ulong offset,
-                  ulong datalen) {
-  if (fd_funk_is_root(xid))
-    return fd_funk_read_root(store, recordid, data, offset, datalen);
-  FD_LOG_ERR(("transactions not supported yet"));
-  return -1;
-}
-
 void fd_funk_truncate(struct fd_funk* store,
                       struct fd_funk_xactionid const* xid,
                       struct fd_funk_recordid const* recordid,
                       ulong recordlen);
-
-void fd_funk_delete_record(struct fd_funk* store,
-                           struct fd_funk_xactionid const* xid,
-                           struct fd_funk_recordid const* recordid) {
-  if (fd_funk_is_root(xid)) {
-    fd_funk_delete_record_root(store, recordid);
-    return;
-  }
-  FD_LOG_ERR(("transactions not supported yet"));
-}
 
 int fd_funk_cache_query(struct fd_funk* store,
                         struct fd_funk_xactionid const* xid,

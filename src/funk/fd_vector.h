@@ -33,4 +33,11 @@ VECT_ELEMENT VECT_(pop_unsafe)(struct VECT_NAME* self) {
   return self->elems[--(self->cnt)];
 }
 
+void VECT_(remove_at)(struct VECT_NAME* self, uint i) {
+  VECT_ELEMENT* const elems = self->elems;
+  uint cnt = --(self->cnt);
+  while (i != cnt)
+    elems[i] = elems[i+1];
+}
+
 #undef VECT_
