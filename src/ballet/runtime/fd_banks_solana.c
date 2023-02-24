@@ -65,8 +65,8 @@ void fd_block_hash_queue_destroy(fd_block_hash_queue_t* self, fd_free_fun_t free
   if (NULL != self->ages) {
     for (ulong i = 0; i < self->ages_len; ++i) {
       fd_hash_hash_age_pair_destroy(self->ages + i, freef, freef_arg);
-      freef(self->last_hash, freef_arg);
     }
+    freef(self->ages, freef_arg);
     self->ages = NULL;
   }
 }
@@ -167,9 +167,16 @@ void fd_stake_history_entry_decode(FD_FN_UNUSED fd_stake_history_entry_t* self, 
   fd_bincode_uint64_decode(&self->deactivating, data, dataend);
 }
 
+void fd_stake_history_entry_destroy(FD_FN_UNUSED fd_stake_history_entry_t* self, FD_FN_UNUSED fd_free_fun_t freef, FD_FN_UNUSED void* freef_arg) {
+}
+
 void fd_stake_history_epochentry_pair_decode(fd_stake_history_epochentry_pair_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
   fd_bincode_uint64_decode(&self->epoch, data, dataend);
   fd_stake_history_entry_decode(&self->entry, data, dataend, allocf, allocf_arg);
+}
+
+void fd_stake_history_epochentry_pair_destroy(fd_stake_history_epochentry_pair_t* self, fd_free_fun_t freef, void* freef_arg) {
+  fd_stake_history_entry_destroy(&self->entry, freef, freef_arg);
 }
 
 void fd_stake_history_decode(fd_stake_history_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
@@ -180,6 +187,16 @@ void fd_stake_history_decode(fd_stake_history_t* self, void const** data, void c
       fd_stake_history_epochentry_pair_decode(self->entries + i, data, dataend, allocf, allocf_arg);
   } else
     self->entries = NULL;
+}
+
+void fd_stake_history_destroy(fd_stake_history_t* self, fd_free_fun_t freef, void* freef_arg) {
+  if (NULL != self->entries) {
+    for (ulong i = 0; i < self->len; ++i) {
+      fd_stake_history_epochentry_pair_destroy(self->entries + i, freef, freef_arg);
+    }
+    freef(self->entries, freef_arg);
+    self->entries = NULL;
+  }
 }
 
 void fd_solana_account_decode(fd_solana_account_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
@@ -279,6 +296,8 @@ void fd_stakes_delegation_destroy(fd_stakes_delegation_t* self, fd_free_fun_t fr
     freef(self->stake_delegations, freef_arg);
     self->stake_delegations = NULL;
   }
+
+  fd_stake_history_destroy(&self->stake_history, freef, freef_arg);
 }
 
 void fd_node_vote_accounts_decode(fd_node_vote_accounts_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
