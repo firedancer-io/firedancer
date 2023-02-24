@@ -202,12 +202,138 @@ int main() {
   auto reload = [&](){
     fd_funk_delete(fd_funk_leave(funk));
     free(mem);
+    for (auto it = golden.begin(); it != golden.end(); ) {
+      if (it->first == rootxid)
+        ++it;
+      else
+        it = golden.erase(it);
+    }
     mem = malloc(footprint);
     memset(mem, 0xa5, footprint);
     funk = fd_funk_join(fd_funk_new(mem, footprint, "testback"));
   };
   reload();
 
+  validateall();
+
+  rg.genbytes((char*)&xid, sizeof(xid));
+  fd_funk_fork(funk, rootxid, xid);
+  golden[xid] = golden[rootxid];
+  for (unsigned i = 0; i < 100; ++i) {
+    recordkey key;
+    rg.genbytes((char*)&key, sizeof(key));
+    auto len = random_size(rg);
+    rg.genbytes(scratch, len);
+    if (fd_funk_write(funk, xid, key, scratch, 0, len) != (long)len)
+      FD_LOG_ERR(("write failed"));
+    databuf& db = golden[xid][key];
+    db.write(scratch, 0, len);
+  }
+
+  validateall();
+  // Implicitly cancels all uncommitted transaction
+  reload();
+  validateall();
+
+  xactionkey* prevxid = &rootxid;
+  xactionkey xidchain[10];
+  for (unsigned j = 0; j < 10; ++j) {
+    rg.genbytes((char*)&xidchain[j], sizeof(xidchain[j]));
+    fd_funk_fork(funk, *prevxid, xidchain[j]);
+    golden[xidchain[j]] = golden[*prevxid];
+    for (unsigned i = 0; i < 100; ++i) {
+      recordkey key;
+      rg.genbytes((char*)&key, sizeof(key));
+      auto len = random_size(rg);
+      rg.genbytes(scratch, len);
+      if (fd_funk_write(funk, xidchain[j], key, scratch, 0, len) != (long)len)
+        FD_LOG_ERR(("write failed"));
+      databuf& db = golden[xidchain[j]][key];
+      db.write(scratch, 0, len);
+    }
+    prevxid = &xidchain[j];
+  }
+
+  validateall();
+
+  fd_funk_commit(funk, xidchain[9]);
+  golden[rootxid] = golden[xidchain[9]];
+  for (unsigned j = 0; j < 10; ++j)
+    golden.erase(xidchain[j]);
+  
+  validateall();
+
+  prevxid = &rootxid;
+  for (unsigned j = 0; j < 10; ++j) {
+    rg.genbytes((char*)&xidchain[j], sizeof(xidchain[j]));
+    fd_funk_fork(funk, *prevxid, xidchain[j]);
+    golden[xidchain[j]] = golden[*prevxid];
+    for (auto& [key,_] : golden[rootxid]) {
+      auto len = random_size(rg);
+      rg.genbytes(scratch, len);
+      if (fd_funk_write(funk, xidchain[j], key, scratch, 0, len) != (long)len)
+        FD_LOG_ERR(("write failed"));
+      databuf& db = golden[xidchain[j]][key];
+      db.write(scratch, 0, len);
+    }
+    prevxid = &xidchain[j];
+  }
+
+  validateall();
+
+  fd_funk_commit(funk, xidchain[9]);
+  golden[rootxid] = golden[xidchain[9]];
+  for (unsigned j = 0; j < 10; ++j)
+    golden.erase(xidchain[j]);
+  
+  validateall();
+  reload();
+  validateall();
+
+  for (auto& [key,_] : golden[rootxid])
+    fd_funk_delete_record(funk, rootxid, key);
+  golden.clear();
+
+  validateall();
+
+  for (unsigned i = 0; i < 100; ++i) {
+    recordkey key;
+    rg.genbytes((char*)&key, sizeof(key));
+    auto len = 0;
+    if (fd_funk_write(funk, rootxid, key, scratch, 0, len) != (long)len)
+      FD_LOG_ERR(("write failed"));
+    databuf& db = golden[rootxid][key];
+    db.write(scratch, 0, len);
+  }
+
+  validateall();
+
+  prevxid = &rootxid;
+  for (unsigned j = 0; j < 10; ++j) {
+    rg.genbytes((char*)&xidchain[j], sizeof(xidchain[j]));
+    fd_funk_fork(funk, *prevxid, xidchain[j]);
+    golden[xidchain[j]] = golden[*prevxid];
+    for (auto& [key,_] : golden[rootxid]) {
+      auto len = 50;
+      auto offset = 100*(j+1);
+      rg.genbytes(scratch, len);
+      if (fd_funk_write(funk, xidchain[j], key, scratch, offset, len) != (long)len)
+        FD_LOG_ERR(("write failed"));
+      databuf& db = golden[xidchain[j]][key];
+      db.write(scratch, offset, len);
+    }
+    prevxid = &xidchain[j];
+  }
+
+  validateall();
+
+  fd_funk_commit(funk, xidchain[9]);
+  golden[rootxid] = golden[xidchain[9]];
+  for (unsigned j = 0; j < 10; ++j)
+    golden.erase(xidchain[j]);
+  
+  validateall();
+  reload();
   validateall();
 
   free(scratch);
