@@ -134,6 +134,7 @@ main( int     argc,
   ulong        alloc_cnt = fd_env_strip_cmdline_ulong( &argc, &argv, "--alloc-cnt", NULL, 1048576UL );
   ulong        align_max = fd_env_strip_cmdline_ulong( &argc, &argv, "--align-max", NULL,     256UL );
   ulong        sz_max    = fd_env_strip_cmdline_ulong( &argc, &argv, "--sz-max",    NULL,   73728UL );
+  ulong        tag       = fd_env_strip_cmdline_ulong( &argc, &argv, "--tag",       NULL,    1234UL );
   ulong        tile_cnt  = fd_tile_cnt();
 
   fd_wksp_t * wksp;
@@ -151,14 +152,17 @@ main( int     argc,
   ulong  align     = fd_alloc_align();     FD_TEST( align    ==FD_ALLOC_ALIGN     );
   ulong  footprint = fd_alloc_footprint(); FD_TEST( footprint==FD_ALLOC_FOOTPRINT );
 
-  void * shmem = fd_wksp_alloc_laddr( wksp, align, footprint );
+  void * shmem = fd_wksp_alloc_laddr( wksp, align, footprint, 1UL ); /* FIXME: allow this tag to be configured too? */
 
   if( FD_UNLIKELY( !shmem ) ) FD_LOG_ERR(( "Unable to allocate wksp memory for fd_alloc" ));
 
-  void * shalloc = fd_alloc_new ( shmem ); FD_TEST( shalloc==shmem );
+  void * shalloc = fd_alloc_new( shmem, tag ); FD_TEST( shalloc==shmem );
 
   fd_alloc_t * alloc = fd_alloc_join( shalloc, 0UL ); FD_TEST( alloc );
   FD_TEST( fd_alloc_leave( alloc )==shalloc );
+
+  FD_TEST( fd_alloc_tag( NULL  )==0UL );
+  FD_TEST( fd_alloc_tag( alloc )==tag );
 
   FD_LOG_NOTICE(( "Running torture test with --alloc-cnt %lu, --align-max %lu, --sz-max %lu on %lu tile(s)",
                   alloc_cnt, align_max, sz_max, tile_cnt ));
