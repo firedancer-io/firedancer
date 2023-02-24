@@ -71,6 +71,7 @@ copts_x86_64 = [
     "-DFD_HAS_DOUBLE=1",
     "-DFD_HAS_ALLOCA=1",
     "-DFD_HAS_X86=1",
+    "-DFD_HAS_INT128=1",
 ]
 
 # icelake: x86_64 Intel Ice Lake (10th gen)
