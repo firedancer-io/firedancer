@@ -81,16 +81,15 @@ fd_wksp_private_compact_holes( fd_wksp_t * wksp,
        end / new partition j+1 should begin. */
     if( fd_wksp_private_part_gaddr( part[i+1UL] )<=fd_wksp_private_part_gaddr( part[j] ) ) continue; /* Partition i is a hole */
     FD_COMPILER_MFENCE();
-    FD_VOLATILE( part[j] ) = part[i]; /* Doesn't change partition j start, just sets the active bit correctly (probably
-                                         theoretically unnecessary provided holes are introduced into the partition array very
-                                         carefully) */
+    FD_VOLATILE( part[j] ) = part[i]; /* Doesn't change partition j start, just sets the tag correctly (probably theoretically
+                                         unnecessary provided holes are introduced into the partition array very carefully) */
     FD_COMPILER_MFENCE();
-    FD_VOLATILE( part[j+1UL] ) = part[i+1UL]; /* End partition j (active bit might not be right for partition j+1 though) */
+    FD_VOLATILE( part[j+1UL] ) = part[i+1UL]; /* End partition j (tag might not be right for partition j+1 though) */
     FD_COMPILER_MFENCE();
     j++;
   }
   FD_COMPILER_MFENCE();
-  FD_VOLATILE( part[j] ) = part[i]; /* See notes above about setting active bit */
+  FD_VOLATILE( part[j] ) = part[i]; /* See notes above about setting the tag */
   FD_COMPILER_MFENCE();
   FD_VOLATILE( wksp->part_cnt ) = j; /* Discard trailing holes */
   FD_COMPILER_MFENCE();
@@ -134,8 +133,8 @@ fd_wksp_private_lock( fd_wksp_t * wksp ) {
              COMPACT HOLES?) */
 
           for( ulong i=1UL; i<part_cnt; i++ ) 
-            if( ((int)!fd_wksp_private_part_active( part[i-1UL] )) &
-                ((int)!fd_wksp_private_part_active( part[i    ] )) ) { /* clang makes babies cry */
+            if( ((int)!fd_wksp_private_part_tag( part[i-1UL] )) &
+                ((int)!fd_wksp_private_part_tag( part[i    ] )) ) { /* clang makes babies cry */
               FD_COMPILER_MFENCE();
               FD_VOLATILE( part[i] ) = part[i-1UL];
               FD_COMPILER_MFENCE();
@@ -270,7 +269,7 @@ fd_wksp_cstr_laddr( void const * laddr,
     return NULL;
   }
 
-  ulong gaddr = ((ulong)laddr) - ((ulong)wksp);
+  ulong gaddr = fd_wksp_gaddr_fast( wksp, laddr );
   if( FD_UNLIKELY( !((wksp->gaddr_lo<=gaddr) & (gaddr<wksp->gaddr_hi)) ) ) { /* should not happen given wksp_containing success */
     FD_LOG_WARNING(( "laddr does not appear to be from a workspace" ));
     return 0UL;
@@ -288,6 +287,7 @@ char *
 fd_wksp_cstr_alloc( char const * name,
                     ulong        align,
                     ulong        sz,
+                    ulong        tag,
                     char *       cstr ) {
   if( FD_UNLIKELY( !cstr ) ) {
     FD_LOG_WARNING(( "NULL cstr" ));
@@ -298,7 +298,7 @@ fd_wksp_cstr_alloc( char const * name,
   if( FD_UNLIKELY( !wksp ) ) return NULL; /* logs details */
   /* name must be valid at this point */
 
-  ulong gaddr = fd_wksp_alloc( wksp, align, sz );
+  ulong gaddr = fd_wksp_alloc( wksp, align, sz, tag );
   if( FD_UNLIKELY( (!!sz) & (!gaddr) ) ) {
     fd_wksp_detach( wksp ); /* logs details */
     return NULL;
@@ -523,9 +523,9 @@ fd_wksp_new( void *       shmem,
   wksp->gaddr_lo = gaddr_lo;
   wksp->gaddr_hi = gaddr_hi;
   fd_memcpy( wksp->name, name, name_len+1UL );
-  wksp->part[0]  = fd_wksp_private_part( 0, gaddr_lo );
-  wksp->part[1]  = fd_wksp_private_part( 1, gaddr_hi ); /* active is used to indicate there is nothing allocatable beyond the wksp
-                                                           end (free makes use of this for merging logic) */
+  wksp->part[0]  = fd_wksp_private_part( 0UL, gaddr_lo );
+  wksp->part[1]  = fd_wksp_private_part( 1UL, gaddr_hi ); /* A non-zero tag is used to indicate there is nothing allocatable beyond
+                                                             the wksp end (free makes use of this for merging logic) */
 
   FD_COMPILER_MFENCE();
   FD_VOLATILE( wksp->magic ) = FD_WKSP_MAGIC;
@@ -600,7 +600,7 @@ fd_wksp_laddr( fd_wksp_t * wksp,
     return NULL;
   }
 
-  return (void *)(((ulong)wksp) + gaddr);
+  return fd_wksp_laddr_fast( wksp, gaddr );
 }
 
 fd_wksp_t *
@@ -628,7 +628,7 @@ fd_wksp_gaddr( fd_wksp_t * wksp,
 
   if( !laddr ) return 0UL; /* NULL maps to "NULL" */
 
-  ulong gaddr = ((ulong)laddr) - ((ulong)wksp);
+  ulong gaddr = fd_wksp_gaddr_fast( wksp, laddr );
   if( FD_UNLIKELY( !((wksp->gaddr_lo<=gaddr) & (gaddr<=wksp->gaddr_hi)) ) ) { /* See note above about why <= for gaddr_hi */
     FD_LOG_WARNING(( "out of range laddr" ));
     return 0UL;
@@ -640,7 +640,9 @@ fd_wksp_gaddr( fd_wksp_t * wksp,
 ulong
 fd_wksp_alloc( fd_wksp_t * wksp,
                ulong       align,
-               ulong       sz ) {
+               ulong       sz,
+               ulong       tag ) {
+
   if( FD_UNLIKELY( !wksp ) ) {
     FD_LOG_WARNING(( "NULL wksp" ));
     return 0UL;
@@ -653,6 +655,11 @@ fd_wksp_alloc( fd_wksp_t * wksp,
   }
   align = fd_ulong_max( align, FD_WKSP_ALLOC_ALIGN_MIN );
 
+  if( FD_UNLIKELY( !((1UL<=tag) & (tag<=FD_WKSP_ALLOC_TAG_MAX)) ) ) {
+    FD_LOG_WARNING(( "bad tag" ));
+    return 0UL;
+  }
+
   if( FD_UNLIKELY( !sz ) ) return 0UL;
 
   fd_wksp_private_lock( wksp );
@@ -662,7 +669,7 @@ fd_wksp_alloc( fd_wksp_t * wksp,
 
   for( ulong i=0UL; i<part_cnt; i++ ) {      
     fd_wksp_private_part_t part_i = part[i];
-    if( fd_wksp_private_part_active( part_i ) ) continue;
+    if( fd_wksp_private_part_tag( part_i ) ) continue;
 
     ulong lo = fd_wksp_private_part_gaddr( part_i );                /* At least FD_WKSP_ALLOC_ALIGN_MIN aligned */
     ulong r0 = fd_ulong_align_up( lo,    align );                   /* " */
@@ -687,7 +694,7 @@ fd_wksp_alloc( fd_wksp_t * wksp,
 
         if( fd_wksp_private_make_hole( wksp, i+1UL ) ) {
           FD_COMPILER_MFENCE();
-          FD_VOLATILE( part[i] ) = fd_wksp_private_part( 1, lo );
+          FD_VOLATILE( part[i] ) = fd_wksp_private_part( tag, lo );
           FD_COMPILER_MFENCE();
           fd_wksp_private_unlock( wksp ); /* Inside the partition but free can handle that */
           return r0;
@@ -698,7 +705,7 @@ fd_wksp_alloc( fd_wksp_t * wksp,
            contract/expand partition i/i+1 into the appropriate split. */
 
         FD_COMPILER_MFENCE();
-        FD_VOLATILE( part[i+1UL] ) = fd_wksp_private_part( 0, r0 );
+        FD_VOLATILE( part[i+1UL] ) = fd_wksp_private_part( 0UL, r0 );
         FD_COMPILER_MFENCE();
 
         /* At this point, partition i holds the blocks trimmed off to
@@ -720,14 +727,14 @@ fd_wksp_alloc( fd_wksp_t * wksp,
 
         if( fd_wksp_private_make_hole( wksp, i+1UL ) ) {
           FD_COMPILER_MFENCE();
-          FD_VOLATILE( part[i] ) = fd_wksp_private_part( 1, lo );
+          FD_VOLATILE( part[i] ) = fd_wksp_private_part( tag, lo );
           FD_COMPILER_MFENCE();
           fd_wksp_private_unlock( wksp );
           return lo;
         }
 
         FD_COMPILER_MFENCE();
-        FD_VOLATILE( part[i+1UL] ) = fd_wksp_private_part( 0, r1 );
+        FD_VOLATILE( part[i+1UL] ) = fd_wksp_private_part( 0UL, r1 );
         FD_COMPILER_MFENCE();
 
         /* At this point, partition i+1 holds the blocks trimmed off to
@@ -738,7 +745,7 @@ fd_wksp_alloc( fd_wksp_t * wksp,
       /* Partition i is as tight as possible for the request. */
 
       FD_COMPILER_MFENCE();
-      FD_VOLATILE( part[i] ) = fd_wksp_private_part( 1, lo );
+      FD_VOLATILE( part[i] ) = fd_wksp_private_part( tag, lo );
       FD_COMPILER_MFENCE();
       fd_wksp_private_unlock( wksp );
       return lo;
@@ -763,79 +770,190 @@ fd_wksp_free( fd_wksp_t * wksp,
 
   if( FD_UNLIKELY( !gaddr ) ) return;
 
+  if( FD_UNLIKELY( !((wksp->gaddr_lo<=gaddr) & (gaddr<wksp->gaddr_hi)) ) ) {
+    FD_LOG_WARNING(( "out of range gaddr" ));
+    return;
+  }
+
   fd_wksp_private_lock( wksp );
 
-  /* For all active partitions */
+  /* At this point we know gaddr points into a partition and we know
+     that the partition it points to is stable because we have the lock.
+     Since partitions are monotonically increasing, we can use a binary
+     search to find the containing partition. */
 
   fd_wksp_private_part_t * part     = wksp->part;
   ulong                    part_cnt = wksp->part_cnt;
-  for( ulong i=0UL; i<part_cnt; i++ ) {
-    fd_wksp_private_part_t part_i = part[i];
-    if( !fd_wksp_private_part_active( part[i] ) ) continue;
 
-    ulong lo = fd_wksp_private_part_gaddr( part_i      ); /* At least FD_WKSP_ALLOC_ALIGN_MIN aligned */
-    ulong hi = fd_wksp_private_part_gaddr( part[i+1UL] ); /* " */
-
-    /* If addr is in this active partition, ... */
-
-    if( ((lo<=gaddr) & (gaddr<hi)) ) { /* Yes, strict < for hi */
-
-      /* Mark the partition as free */
-
-      FD_COMPILER_MFENCE();
-      FD_VOLATILE( part[i] ) = fd_wksp_private_part( 0, lo );
-      FD_COMPILER_MFENCE();
-
-      /* At this point, there are at most three contiguous inactive
-         partitions and zero holes.  If partition i+1 is also inactive,
-         atomically expand/contract partition i/i+1 to make partition i
-         the merged partition and partition i+1 a hole.  Since
-         part[part_cnt] is marked as active, no bounds checking is
-         necessary (but wouldn't otherwise hurt). */
-
-      if( /*(i+1UL)<part_cnt &&*/ !fd_wksp_private_part_active( part[i+1UL] ) ) {
-        FD_COMPILER_MFENCE();
-        FD_VOLATILE( part[i+1UL] ) = part[i+2UL];
-        FD_COMPILER_MFENCE();
-      }
-
-      /* At this point, there are at most two contiguous inactive
-         partitions and one hole.  If partition i-1 is also inactive,
-         atomically expand/contract partition i-1/i to make partition
-         i-1 the merged partition and partition i a hole. */
-
-      if( i>0UL && !fd_wksp_private_part_active( part[i-1UL] ) ) {
-        FD_COMPILER_MFENCE();
-        FD_VOLATILE( part[i] ) = part[i+1UL];
-        FD_COMPILER_MFENCE();
-      }
-
-      /* At this point, there are no adjacent contiguous inactive
-         partitions but either zero, one (at i) or two holes (at i and
-         i+1).  Compact them out. */
-
-      fd_wksp_private_compact_holes( wksp, i );
-
-      fd_wksp_private_unlock( wksp );
-      return;
-    }
-
-    /* This partition cannot handle the request. */
+  ulong l = 0UL;
+  ulong h = wksp->part_cnt;
+  for(;;) {
+    ulong cnt = h - l;
+    if( cnt<=1UL ) break;
+    ulong m = l + (cnt>>1);
+    int   c = gaddr < fd_wksp_private_part_gaddr( part[m] );
+    /**/  l = fd_ulong_if( c, l, m ); /* cmov */
+    /**/  h = fd_ulong_if( c, m, h ); /* cmov */
   }
 
-  /* addr not found in a active partition */
+  if( FD_UNLIKELY( h==l ) ) {
+
+    FD_LOG_WARNING(( "corruption detected" ));
+
+  } else if( FD_UNLIKELY( !fd_wksp_private_part_tag( part[l] ) ) ) {
+
+    FD_LOG_WARNING(( "gaddr does not seem to point to a current wksp allocation" ));
+
+  } else {
+
+    ulong gaddr_lo = fd_wksp_private_part_gaddr( part[l] );
+    ulong hole_idx = part_cnt;
+
+    /* Mark the partition as free */
+
+    FD_COMPILER_MFENCE();
+    FD_VOLATILE( part[l] ) = fd_wksp_private_part( 0UL, gaddr_lo );
+    FD_COMPILER_MFENCE();
+
+    /* At this point, there are at most three contiguous inactive
+       partitions and zero holes.  If partition l+1 is also inactive,
+       atomically expand/contract partition l/l+1 to make partition l
+       the merged partition and partition l+1 a hole.  Since
+       part[part_cnt] is marked as active, no bounds checking is
+       necessary (but wouldn't otherwise hurt). */
+
+    if( /*(l+1UL)<part_cnt &&*/ !fd_wksp_private_part_tag( part[l+1UL] ) ) {
+      FD_COMPILER_MFENCE();
+      FD_VOLATILE( part[l+1UL] ) = part[l+2UL];
+      FD_COMPILER_MFENCE();
+      hole_idx = l+1UL;
+    }
+
+    /* At this point, there are at most two contiguous inactive
+       partitions and one hole.  If partition l-1 is also inactive,
+       atomically expand/contract partition l-1/l to make partition l-1
+       the merged partition and partition l a hole. */
+
+    if( l>0UL && !fd_wksp_private_part_tag( part[l-1UL] ) ) {
+      FD_COMPILER_MFENCE();
+      FD_VOLATILE( part[l] ) = part[l+1UL];
+      FD_COMPILER_MFENCE();
+      hole_idx = l;
+    }
+
+    /* At this point, there are no adjacent contiguous inactive
+       partitions but either zero, one or two holes starting at
+       hole_idx.  Compact them out. */
+
+    fd_wksp_private_compact_holes( wksp, hole_idx );
+  }
 
   fd_wksp_private_unlock( wksp );
-  FD_LOG_WARNING(( "gaddr does not seem to point to a current wksp allocation" ));
 }
+
+ulong
+fd_wksp_tag( fd_wksp_t * wksp,
+             ulong       gaddr ) {
+
+  if( FD_UNLIKELY( !wksp ) ) return 0UL;
+  if( FD_UNLIKELY( !((wksp->gaddr_lo<=gaddr) & (gaddr<wksp->gaddr_hi)) ) ) return 0UL; /* Yes, strict < for hi */
+
+  ulong tag;
+
+  fd_wksp_private_lock( wksp );
+
+  /* At this point we know gaddr points into a partition and we know
+     that the partition it points to is stable because we have the lock.
+     Since partitions are monotonically increasing, we can use a binary
+     search to find the containing partition. */
+
+  fd_wksp_private_part_t * part = wksp->part;
+  ulong                    l    = 0UL;
+  ulong                    h    = wksp->part_cnt;
+  for(;;) {
+    ulong cnt = h - l;
+    if( cnt<=1UL ) break;
+    ulong m = l + (cnt>>1);
+    int   c = gaddr < fd_wksp_private_part_gaddr( part[m] ); /* Yes, strict < */
+    /**/  l = fd_ulong_if( c, l, m ); /* cmov */
+    /**/  h = fd_ulong_if( c, m, h ); /* cmov */
+  }
+
+  if( FD_UNLIKELY( l==h ) ) tag = 0UL; /* Corruption detected */
+  else                      tag = fd_wksp_private_part_tag( part[l] );
+
+  fd_wksp_private_unlock( wksp );
+
+  return tag;
+}
+
+void
+fd_wksp_tag_free( fd_wksp_t * wksp,
+                  ulong       tag ) {
+
+  if( FD_UNLIKELY( !wksp ) ) {
+    FD_LOG_WARNING(( "NULL wksp" ));
+    return;
+  }
+
+  if( FD_UNLIKELY( !((1UL<=tag) & (tag<=FD_WKSP_ALLOC_TAG_MAX)) ) ) {
+    FD_LOG_WARNING(( "bad tag" ));
+    return;
+  }
+
+  fd_wksp_private_lock( wksp );
+
+  /* We scan the partitions backwards and whenever we find a partition
+     that matches tag, we mark it inactive and merge it with adjacent
+     inactive partitions via the exact same process as free.  This has
+     the nice property that any holes that get introduced will be at or
+     after the current partition and that any holes that get introduced
+     will have a non-zero tag (be "active").  That means, at the start
+     of each loop body that matches a tag, the partition immediately
+     above not an inactive hole. */
+
+  fd_wksp_private_part_t * part     = wksp->part;
+  ulong                    part_cnt = wksp->part_cnt;
+  ulong                    hole_idx = part_cnt;
+  for( ulong rem=part_cnt; rem; rem-- ) {
+    ulong l = rem - 1UL;
+    if( fd_wksp_private_part_tag( part[l] )!=tag ) continue;
+    ulong gaddr_lo = fd_wksp_private_part_gaddr( part[l] );
+
+    FD_COMPILER_MFENCE();
+    FD_VOLATILE( part[l] ) = fd_wksp_private_part( 0UL, gaddr_lo );
+    FD_COMPILER_MFENCE();
+
+    if( /*(l+1UL)<part_cnt &&*/ !fd_wksp_private_part_tag( part[l+1UL] ) ) {
+      FD_COMPILER_MFENCE();
+      FD_VOLATILE( part[l+1UL] ) = part[l+2UL];
+      FD_COMPILER_MFENCE();
+      hole_idx = l+1;
+    }
+
+    if( l>0UL && !fd_wksp_private_part_tag( part[l-1UL] ) ) {
+      FD_COMPILER_MFENCE();
+      FD_VOLATILE( part[l] ) = part[l+1UL];
+      FD_COMPILER_MFENCE();
+      hole_idx = l;
+    }
+  }
+
+  /* Compact out any holes that got introduced. */
+
+  fd_wksp_private_compact_holes( wksp, hole_idx );
+
+  fd_wksp_private_unlock( wksp );
+} 
 
 void *
 fd_wksp_alloc_laddr( fd_wksp_t * wksp,
                      ulong       align,
-                     ulong       sz ) {
-  ulong gaddr = fd_wksp_alloc( wksp, align, sz );
+                     ulong       sz,
+                     ulong       tag ) {
+  ulong gaddr = fd_wksp_alloc( wksp, align, sz, tag );
   if( FD_UNLIKELY( !gaddr ) ) return NULL;
-  return (void *)(((ulong)wksp) + gaddr);
+  return fd_wksp_laddr_fast( wksp, gaddr );
 }
 
 void
@@ -848,7 +966,7 @@ fd_wksp_free_laddr( void * laddr ) {
     return;
   }
 
-  ulong gaddr = ((ulong)laddr) - ((ulong)wksp);
+  ulong gaddr = fd_wksp_gaddr_fast( wksp, laddr );
   if( FD_UNLIKELY( !((wksp->gaddr_lo<=gaddr) & (gaddr<wksp->gaddr_hi)) ) ) { /* should not happen given wksp_containing success */
     FD_LOG_WARNING(( "laddr does not appear to be from a workspace" ));
     return;
@@ -876,7 +994,7 @@ fd_wksp_memset( fd_wksp_t * wksp,
   ulong                    part_cnt = wksp->part_cnt;
   for( ulong i=0UL; i<part_cnt; i++ ) {
     fd_wksp_private_part_t part_i = part[i];
-    if( !fd_wksp_private_part_active( part[i] ) ) continue;
+    if( !fd_wksp_private_part_tag( part[i] ) ) continue;
 
     ulong lo = fd_wksp_private_part_gaddr( part_i      ); /* At least FD_WKSP_ALLOC_ALIGN_MIN aligned */
     ulong hi = fd_wksp_private_part_gaddr( part[i+1UL] ); /* " */
@@ -929,9 +1047,9 @@ fd_wksp_reset( fd_wksp_t * wksp ) {
      separate writes ala:
 
        FD_COMPILER_MFENCE();
-       FD_VOLATILE( wksp->part[0] ) = fd_wksp_private_part( 0, wksp->gaddr_lo );
+       FD_VOLATILE( wksp->part[0] ) = fd_wksp_private_part( 0UL, wksp->gaddr_lo );
        FD_COMPILER_MFENCE();
-       FD_VOLATILE( wksp->part[1] ) = fd_wksp_private_part( 1, wksp->gaddr_hi );
+       FD_VOLATILE( wksp->part[1] ) = fd_wksp_private_part( 1UL, wksp->gaddr_hi );
        FD_COMPILER_MFENCE();
 
      but it becomes theoretically possible for the caller to be killed
@@ -941,8 +1059,8 @@ fd_wksp_reset( fd_wksp_t * wksp ) {
      part[1] is marked as active. */
 
   FD_COMPILER_MFENCE();
-  _mm_store_si128( (__m128i *)wksp->part, _mm_set_epi64x( (long)fd_wksp_private_part( 1, wksp->gaddr_hi ),
-                                                          (long)fd_wksp_private_part( 0, wksp->gaddr_lo ) ) );
+  _mm_store_si128( (__m128i *)wksp->part, _mm_set_epi64x( (long)fd_wksp_private_part( 1UL, wksp->gaddr_hi ),
+                                                          (long)fd_wksp_private_part( 0UL, wksp->gaddr_lo ) ) );
   FD_COMPILER_MFENCE();
   FD_VOLATILE( wksp->part_cnt ) = 1UL; /* Trim off all holes */
   FD_COMPILER_MFENCE();

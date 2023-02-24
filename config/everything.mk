@@ -37,6 +37,7 @@ help:
 	# Explicit goals are: all bin include lib unit-test help clean distclean asm ppp
 	# "make all" is equivalent to "make bin include lib unit-test"
 	# "make bin" makes all binaries for the current platform
+	# "make ebpf-bin" makes all eBPF binaries
 	# "make include" makes all include files for the current platform
 	# "make lib" makes all libraries for the current platform
 	# "make unit-test" makes all unit-tests for the current platform
@@ -165,6 +166,28 @@ endef
 
 make-bin       = $(eval $(call _make-exe,$(1),$(2),$(3),bin))
 make-unit-test = $(eval $(call _make-exe,$(1),$(2),$(3),unit-test))
+
+##############################
+# Usage: $(call make-ebpf-bin,obj)
+
+# TODO support depfiles
+
+EBPF_BINDIR:=$(BASEDIR)/ebpf/clang/bin
+
+define _make-ebpf-bin
+
+$(EBPF_BINDIR)/$(1).o: $(MKPATH)$(1).c
+	#######################################################################
+	# Creating ebpf-bin $$@ from $$^
+	#######################################################################
+	$(MKDIR) $$(dir $$@) && \
+$(EBPF_CC) $(EBPF_CPPFLAGS) $(EBPF_CFLAGS) -c $$< -o $$@
+
+ebpf-bin: $(EBPF_BINDIR)/$(1).o
+
+endef
+
+make-ebpf-bin = $(eval $(call _make-ebpf-bin,$(1)))
 
 ##############################
 ## GENERIC RULES

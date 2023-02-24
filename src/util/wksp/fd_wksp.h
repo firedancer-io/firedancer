@@ -108,12 +108,18 @@
 #define FD_WKSP_CSTR_MAX (FD_SHMEM_NAME_MAX + 21UL)
 
 /* FD_WKSP_ALLOC_ALIGN_{MIN,DEFAULT} give the minimal and default
-   alignments of a wksp allocation.  MIN and DEFAULT must a positive
-   power of two.  DEFAULT must be >= MIN.  Additional details described
-   in FD_WKSP_ALLOC. */
+   alignments of a wksp allocation.  MIN and DEFAULT must an integer
+   -power-of-two>=2.  DEFAULT must be >= MIN.  Additional details
+   described in FD_WKSP_ALLOC. */
 
 #define FD_WKSP_ALLOC_ALIGN_MIN     FD_SHMEM_NORMAL_PAGE_SZ
 #define FD_WKSP_ALLOC_ALIGN_DEFAULT FD_SHMEM_NORMAL_PAGE_SZ
+
+/* wksp allocations are tagged with an integer in
+   [1,FD_WKSP_ALLOC_TAG_MAX].  FD_WKSP_ALLOC_TAG_MAX will be an
+   integer-power-of-two minus 1 of at least 1. */
+
+#define FD_WKSP_ALLOC_TAG_MAX (FD_WKSP_ALLOC_ALIGN_MIN-1UL)
 
 /* A fd_wksp_t * is an opaque handle of a workspace */
 
@@ -179,6 +185,7 @@ char *
 fd_wksp_cstr_alloc( char const * name,
                     ulong        align,
                     ulong        sz,
+                    ulong        tag,
                     char *       cstr );
 
 /* fd_wksp_cstr_free a wksp allocation specified by a cstr containing
@@ -424,14 +431,22 @@ ulong
 fd_wksp_gaddr( fd_wksp_t * wksp,
                void *      laddr );
 
+/* fd_wksp_gaddr_fast converts a laddr into a gaddr under the assumption
+   wksp is valid and laddr is non-NULL local address in the wksp.
+   Similarly for fd_wksp_laddr_fast. */
+
+static inline ulong  fd_wksp_gaddr_fast( fd_wksp_t const * wksp, void const * laddr ) { return (ulong)laddr - (ulong)wksp; }
+static inline void * fd_wksp_laddr_fast( fd_wksp_t const * wksp, ulong        gaddr ) { return (void *)((ulong)wksp + gaddr); }
+
 /* fd_wksp_alloc allocates sz bytes from wksp with alignment of at least
    align (align must be a non-negative integer power-of-two or 0, which
    indicates to use the default alignment FD_WKSP_ALLOC_ALIGN_DEFAULT
    ... allocations smaller than FD_WKSP_ALLOC_ALIGN_MIN will be rounded
-   up to FD_WKSP_ALLOC_ALIGN_MIN).  Returns the fd_wksp global address
-   of the join on success and "NULL" (0UL) on failure (logs details).  A
-   zero sz returns "NULL" (silent).
-   
+   up to FD_WKSP_ALLOC_ALIGN_MIN).  The allocation will be tagged with a
+   value in [1,FD_WKSP_ALLOC_TAG_MAX].  Returns the fd_wksp global
+   address of the join on success and "NULL" (0UL) on failure (logs
+   details).  A zero sz returns "NULL" (silent).
+
    Note that fd_wksp_alloc / fd_wksp_free are neither algorithmically
    optimal nor HPC implementations.  Instead, they are designed to be
    akin to mmap / sbrk used as "last resort" allocators under the hood
@@ -445,7 +460,8 @@ fd_wksp_gaddr( fd_wksp_t * wksp,
    the data in other allocations but will not corrupt the heap structure
    ... as the goal of this data structure is to encourage minimization
    of TLB usage, there is very little that can be done to proactively
-   prevent intraworkspace interallocation data corruption).
+   prevent intraworkspace interallocation data corruption).  (Overall,
+   both operations are a fast O(wksp_alloc_cnt).)
 
    These operations are "quasi-lock-free".  Specifically, while they can
    suffer priority inversion due to a slow thread stalling other threads
@@ -457,7 +473,8 @@ fd_wksp_gaddr( fd_wksp_t * wksp,
    the wksp that would have been freed had the application terminated
    normally.  As the allocator has no way to tell the difference between
    such allocations and allocations that are intended to outlive the
-   application, it is the callers responsibility to clean up such.
+   application, it is the caller's responsibility to clean up such
+   (tagging can help greatly simplify this for users).
    
    Priority inversion is not expected to be an issue practical as the
    expected use case is once at box startup, some non-latency critical
@@ -475,6 +492,13 @@ fd_wksp_gaddr( fd_wksp_t * wksp,
    strictly lock free unless they needed to invoke the last resort, as
    is typically in other lock free allocators).
 
+   Tags are application specific.  They can allow manual and automated
+   processes to do various debugging, diagnostics, analytics and garbage
+   collection on a workspace (e.g. superblocks from a fd_alloc can be
+   tagged specifically for that fd alloc to allow memory leaks in
+   general to be detected at program termination with no additional
+   overheads and allow such leaks cleaned up via tagged frees).
+
    IMPORTANT!  align technically refers to the alignment in the wksp's
    global address space.  As such, wksp must be mmaped into each local
    address space with an alignment of at least the largest alignment the
@@ -490,21 +514,23 @@ fd_wksp_gaddr( fd_wksp_t * wksp,
    
    Theoretically, this implementation could accommodate
    FD_WKSP_ALLOC_ALIGN_MIN as low as 2 (it would be very silly though as
-   the default metadata allocations would be insanely large).  For C/C++
-   allocator conformance, FD_WKSP_ALLOC_ALIGN_MIN should be at least 8
-   (still quite a lot of space burned for default metadata usage).  For
-   modern architectures though, 16 (SSE), 32 (AVX), 64 (cache line /
-   AVX-512), 128 (double cache line / adjacent cache line prefetch), 256
-   (DRAM/NVME channel granularity) are more sensible bare minimums.
-   Given the "mmap"-like allocator of last resort use case, we use a
-   normal page size (4KiB) here.  In any case, fd_wksp_footprint and
-   other parts of the implementation might need tweaked if adjusting if
+   the default metadata allocations would be insanely large and the tags
+   would be worthless).  For C/C++ allocator conformance,
+   FD_WKSP_ALLOC_ALIGN_MIN should be at least 8 (still quite a lot of
+   space burned for default metadata usage).  For modern architectures
+   though, 16 (SSE), 32 (AVX), 64 (cache line / AVX-512), 128 (double
+   cache line / adjacent cache line prefetch), 256 (DRAM/NVME channel
+   granularity) are more sensible bare minimums.  Given the "mmap"-like
+   allocator of last resort use case, we use a normal page size (4KiB)
+   here.  In any case, fd_wksp_footprint and other parts of the
+   implementation might need tweaked if adjusting if
    FD_WKSP_ALLOC_ALIGN_MIN. */
 
 ulong
 fd_wksp_alloc( fd_wksp_t * wksp,
                ulong       align,
-               ulong       sz );
+               ulong       sz,
+               ulong       tag );
 
 /* fd_wksp_free frees a wksp allocation.  gaddr is a global address that
    points to any byte in the allocation to free (i.e. can point to
@@ -518,16 +544,39 @@ void
 fd_wksp_free( fd_wksp_t * wksp,
               ulong       gaddr );
 
+/* fd_wksp_tag returns the tag associated with an allocation.  gaddr
+   is a wksp global address that points to any byte in the allocation.
+   Return value will be in [0,FD_WKSP_ALLOC_TAG_MAX].  This is a fast
+   O(lg wksp_alloc_cnt).  The value 0 indicates that gaddr did not point
+   into an allocation at some point in time between when this function
+   was called until when it returned (this includes the cases when wksp
+   is NULL and/or gaddr is 0).  This function is silent to facilitate
+   integration with various analysis tools. */
+
+ulong
+fd_wksp_tag( fd_wksp_t * wksp,
+             ulong       gaddr );
+
+/* fd_wksp_tag_free frees all allocations in wksp that have the given
+   tag.  Logs details if any wonkiness encountered (e.g. wksp is NULL,
+   tag is not in [1,FD_WKSP_ALLOC_TAG_MAX].  This is a fast
+   O(wksp_alloc_cnt). */
+
+void
+fd_wksp_tag_free( fd_wksp_t * wksp,
+                  ulong       tag );
+
 /* fd_wksp_alloc_laddr is the same as fd_wksp_alloc but returns a
    pointer in the caller's local address space if the allocation was
    successful (and NULL if not).  It is an efficient implementation of:
 
-     fd_wksp_laddr( wksp, fd_wksp_alloc( wksp, align, sz ) ) */
+     fd_wksp_laddr( wksp, fd_wksp_alloc( wksp, align, sz, tag ) ) */
 
 void *
 fd_wksp_alloc_laddr( fd_wksp_t * wksp,
                      ulong       align,
-                     ulong       sz );
+                     ulong       sz,
+                     ulong       tag );
 
 /* fd_wksp_free_laddr is the same as fd_wksp_free but takes a pointer
    in the caller's local address space into a workspace allocation.

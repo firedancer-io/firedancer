@@ -1,3 +1,5 @@
+$(call make-ebpf-bin,ebpf_xdp_flow)
+
 ifdef FD_HAS_LIBBPF
 
 $(call make-lib,fd_xdp)

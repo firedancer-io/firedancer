@@ -81,11 +81,11 @@ int main(int argc, char **argv) {
 
   if( FD_UNLIKELY( !wksp ) ) FD_LOG_ERR(( "Unable to attach to wksp" ));
 
-  void * shmem = fd_wksp_alloc_laddr( wksp, fd_alloc_align(), fd_alloc_footprint() );
+  void * shmem = fd_wksp_alloc_laddr( wksp, fd_alloc_align(), fd_alloc_footprint(), 0 );
 
   if( FD_UNLIKELY( !shmem ) ) FD_LOG_ERR(( "Unable to allocate wksp memory for fd_alloc" ));
 
-  void * shalloc = fd_alloc_new ( shmem ); 
+  void * shalloc = fd_alloc_new ( shmem, 0 ); 
 
   fd_alloc_t * alloc = fd_alloc_join( shalloc, 0UL );
 
@@ -267,7 +267,7 @@ int main(int argc, char **argv) {
 
   free(buf);
 
-//  fd_wksp_free_laddr( shmem );
+  fd_wksp_free_laddr( shmem );
   if( name ) 
     fd_wksp_detach( wksp );
   else  

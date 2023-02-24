@@ -41,6 +41,11 @@ echo Testing help
 
 $BIN/fd_wksp_ctl help || fail help $?
 
+echo Testing tag
+
+$BIN/fd_wksp_ctl tag   && fail tag $?
+$BIN/fd_wksp_ctl tag 1 || fail tag $?
+
 echo Testing new
 
 $BIN/fd_wksp_ctl new                                            && fail new $?
