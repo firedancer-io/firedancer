@@ -18,6 +18,8 @@ main( int     argc,
 
   /* FIXME: CACHE ATTACHEMENTS? */
 
+  ulong tag = 1UL;
+
   int cnt = 0;
   while( argc ) {
     char const * cmd = argv[0];
@@ -25,12 +27,17 @@ main( int     argc,
 
     if( !strcmp( cmd, "help" ) ) {
 
+      /* FIXME: USE FD_IMPORT_CSTR FOR THIS */
       FD_LOG_NOTICE(( "\n\t"
         "Usage: %s [cmd] [cmd args] [cmd] [cmd args] ...\n\t"
         "Commands are:\n\t"
         "\n\t"
         "\thelp\n\t"
         "\t- Prints this message\n\t"
+        "\n\t"
+        "\ttag val\n\t"
+        "\t- Sets the tag for subsequent wksp allocations to val.\n\t"
+        "\t  Default is 1.\n\t"
         "\n\t"
         "\tnew-mcache wksp depth app-sz seq0\n\t"
         "\t- Creates a frag meta cache in wksp with the given depth,\n\t"
@@ -123,6 +130,15 @@ main( int     argc,
         "", bin ));
       FD_LOG_NOTICE(( "%i: %s: success", cnt, cmd ));
 
+    } else if( !strcmp( cmd, "tag" ) ) {
+
+      if( FD_UNLIKELY( argc<1 ) ) FD_LOG_ERR(( "%i: %s: too few arguments\n\tDo %s help for help", cnt, cmd, bin ));
+
+      tag = fd_cstr_to_ulong( argv[0] );
+
+      FD_LOG_NOTICE(( "%i: %s %lu: success", cnt, cmd, tag ));
+      SHIFT(1);
+
     } else if( !strcmp( cmd, "new-mcache" ) ) {
 
       if( FD_UNLIKELY( argc<4 ) ) FD_LOG_ERR(( "%i: %s: too few arguments\n\tDo %s help for help", cnt, cmd, bin ));
@@ -143,11 +159,11 @@ main( int     argc,
         FD_LOG_ERR(( "%i: %s: fd_wksp_attach( \"%s\" ) failed\n\tDo %s help for help", cnt, cmd, _wksp, bin ));
       }
 
-      ulong gaddr = fd_wksp_alloc( wksp, align, footprint );
+      ulong gaddr = fd_wksp_alloc( wksp, align, footprint, tag );
       if( FD_UNLIKELY( !gaddr ) ) {
         fd_wksp_detach( wksp );
-        FD_LOG_ERR(( "%i: %s: fd_wksp_alloc( \"%s\", %lu, %lu ) failed\n\tDo %s help for help",
-                     cnt, cmd, _wksp, align, footprint, bin ));
+        FD_LOG_ERR(( "%i: %s: fd_wksp_alloc( \"%s\", %lu, %lu, %lu ) failed\n\tDo %s help for help",
+                     cnt, cmd, _wksp, align, footprint, tag, bin ));
       }
 
       void * shmem = fd_wksp_laddr( wksp, gaddr );
@@ -271,11 +287,11 @@ main( int     argc,
         FD_LOG_ERR(( "%i: %s: fd_wksp_attach( \"%s\" ) failed\n\tDo %s help for help", cnt, cmd, _wksp, bin ));
       }
 
-      ulong gaddr = fd_wksp_alloc( wksp, align, footprint );
+      ulong gaddr = fd_wksp_alloc( wksp, align, footprint, tag );
       if( FD_UNLIKELY( !gaddr ) ) {
         fd_wksp_detach( wksp );
-        FD_LOG_ERR(( "%i: %s: fd_wksp_alloc( \"%s\", %lu, %lu ) failed\n\tDo %s help for help",
-                     cnt, cmd, _wksp, align, footprint, bin ));
+        FD_LOG_ERR(( "%i: %s: fd_wksp_alloc( \"%s\", %lu, %lu, %lu ) failed\n\tDo %s help for help",
+                     cnt, cmd, _wksp, align, footprint, tag, bin ));
       }
 
       void * shmem = fd_wksp_laddr( wksp, gaddr );
@@ -321,11 +337,11 @@ main( int     argc,
         FD_LOG_ERR(( "%i: %s: fd_wksp_attach( \"%s\" ) failed\n\tDo %s help for help", cnt, cmd, _wksp, bin ));
       }
 
-      ulong gaddr = fd_wksp_alloc( wksp, align, footprint );
+      ulong gaddr = fd_wksp_alloc( wksp, align, footprint, tag );
       if( FD_UNLIKELY( !gaddr ) ) {
         fd_wksp_detach( wksp );
-        FD_LOG_ERR(( "%i: %s: fd_wksp_alloc( \"%s\", %lu, %lu ) failed\n\tDo %s help for help",
-                     cnt, cmd, _wksp, align, footprint, bin ));
+        FD_LOG_ERR(( "%i: %s: fd_wksp_alloc( \"%s\", %lu, %lu, %lu ) failed\n\tDo %s help for help",
+                     cnt, cmd, _wksp, align, footprint, tag, bin ));
       }
 
       void * shmem = fd_wksp_laddr( wksp, gaddr );
@@ -427,11 +443,11 @@ main( int     argc,
         FD_LOG_ERR(( "%i: %s: fd_wksp_attach( \"%s\" ) failed\n\tDo %s help for help", cnt, cmd, _wksp, bin ));
       }
 
-      ulong gaddr = fd_wksp_alloc( wksp, align, footprint );
+      ulong gaddr = fd_wksp_alloc( wksp, align, footprint, tag );
       if( FD_UNLIKELY( !gaddr ) ) {
         fd_wksp_detach( wksp );
-        FD_LOG_ERR(( "%i: %s: fd_wksp_alloc( \"%s\", %lu, %lu ) failed\n\tDo %s help for help",
-                     cnt, cmd, _wksp, align, footprint, bin ));
+        FD_LOG_ERR(( "%i: %s: fd_wksp_alloc( \"%s\", %lu, %lu, %lu ) failed\n\tDo %s help for help",
+                     cnt, cmd, _wksp, align, footprint, tag, bin ));
       }
 
       void * shmem = fd_wksp_laddr( wksp, gaddr );
@@ -557,11 +573,11 @@ main( int     argc,
         FD_LOG_ERR(( "%i: %s: fd_wksp_attach( \"%s\" ) failed\n\tDo %s help for help", cnt, cmd, _wksp, bin ));
       }
 
-      ulong gaddr = fd_wksp_alloc( wksp, align, footprint );
+      ulong gaddr = fd_wksp_alloc( wksp, align, footprint, tag );
       if( FD_UNLIKELY( !gaddr ) ) {
         fd_wksp_detach( wksp );
-        FD_LOG_ERR(( "%i: %s: fd_wksp_alloc( \"%s\", %lu, %lu ) failed\n\tDo %s help for help",
-                     cnt, cmd, _wksp, align, footprint, bin ));
+        FD_LOG_ERR(( "%i: %s: fd_wksp_alloc( \"%s\", %lu, %lu, %lu ) failed\n\tDo %s help for help",
+                     cnt, cmd, _wksp, align, footprint, tag, bin ));
       }
 
       void * shmem = fd_wksp_laddr( wksp, gaddr );
@@ -708,11 +724,11 @@ main( int     argc,
         FD_LOG_ERR(( "%i: %s: fd_wksp_attach( \"%s\" ) failed\n\tDo %s help for help", cnt, cmd, _wksp, bin ));
       }
 
-      ulong gaddr = fd_wksp_alloc( wksp, align, footprint );
+      ulong gaddr = fd_wksp_alloc( wksp, align, footprint, tag );
       if( FD_UNLIKELY( !gaddr ) ) {
         fd_wksp_detach( wksp );
-        FD_LOG_ERR(( "%i: %s: fd_wksp_alloc( \"%s\", %lu, %lu ) failed\n\tDo %s help for help",
-                     cnt, cmd, _wksp, align, footprint, bin ));
+        FD_LOG_ERR(( "%i: %s: fd_wksp_alloc( \"%s\", %lu, %lu, %lu ) failed\n\tDo %s help for help",
+                     cnt, cmd, _wksp, align, footprint, tag, bin ));
       }
 
       void * shmem = fd_wksp_laddr( wksp, gaddr );

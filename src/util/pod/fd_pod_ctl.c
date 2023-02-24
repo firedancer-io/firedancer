@@ -175,6 +175,8 @@ main( int     argc,
   char const * bin = argv[0];
   SHIFT(1); 
 
+  ulong tag = 1UL;
+
   int cnt = 0;
   while( argc ) {
     char const * cmd = argv[0];
@@ -182,12 +184,17 @@ main( int     argc,
 
     if( !strcmp( cmd, "help" ) ) {
 
+      /* FIXME: USE FD_IMPORT_CSTR FOR THIS */
       FD_LOG_NOTICE(( "\n\t"
         "Usage: %s [cmd] [cmd args] [cmd] [cmd args] ...\n\t"
         "Commands are:\n\t"
         "\n\t"
         "\thelp\n\t"
         "\t- Prints this message\n\t"
+        "\n\t"
+        "\ttag val\n\t"
+        "\t- Sets the tag for subsequent wksp allocations to val.\n\t"
+        "\t  Default is 1.\n\t"
         "\n\t"
         "\tnew wksp max\n\t"
         "\t- Create a pod in wksp with a maximum size of max.  Prints the\n\t"
@@ -242,7 +249,8 @@ main( int     argc,
         "\t- Compacts the pod.  If full is non-zero, a full compaction is\n\t"
         "\t  done (pod_max=pod_used and the pod header is compacted).\n\t"
         "\t  Might change the locations of existing values in the pod.\n\t"
-        "\n\t"
+        "", bin ));
+    FD_LOG_NOTICE(( "\n\t"
         "\tquery-root what pod\n\t"
         "\t- Query pod.  what determines what will be printed to\n\t"
         "\t  stdout as a result of the query.\n\t"
@@ -281,9 +289,18 @@ main( int     argc,
         "\t                pod:path exists, null if not\n\t"
         "\t    full:       pretty printed verbose query\n\t"
         "\n\t"
-        "\tThe current implementation assumes no concurrent pod users."
-        "\n\t", bin ));
+        "\tThe current implementation assumes no concurrent pod users.\n\t"
+        "" ));
       FD_LOG_NOTICE(( "%i: %s: success", cnt, cmd ));
+
+    } else if( !strcmp( cmd, "tag" ) ) {
+
+      if( FD_UNLIKELY( argc<1 ) ) FD_LOG_ERR(( "%i: %s: too few arguments\n\tDo %s help for help", cnt, cmd, bin ));
+
+      tag = fd_cstr_to_ulong( argv[0] );
+
+      FD_LOG_NOTICE(( "%i: %s %lu: success", cnt, cmd, tag ));
+      SHIFT(1);
 
     } else if( !strcmp( cmd, "new" ) ) {
 
@@ -302,11 +319,11 @@ main( int     argc,
       if( FD_UNLIKELY( !wksp ) )
         FD_LOG_ERR(( "%i: %s: fd_wksp_attach( \"%s\" ) failed\n\tDo %s help for help", cnt, cmd, name, bin ));
 
-      ulong gaddr = fd_wksp_alloc( wksp, align, footprint );
+      ulong gaddr = fd_wksp_alloc( wksp, align, footprint, tag );
       if( FD_UNLIKELY( !gaddr ) ) {
         fd_wksp_detach( wksp );
-        FD_LOG_ERR(( "%i: %s: fd_wksp_alloc( \"%s\", FD_WKSP_ALLOC_ALIGN_MIN, %lu ) failed\n\tDo %s help for help",
-                     cnt, cmd, name, max, bin ));
+        FD_LOG_ERR(( "%i: %s: fd_wksp_alloc( \"%s\", %lu, %lu, %lu ) failed\n\tDo %s help for help",
+                     cnt, cmd, name, align, footprint, tag, bin ));
       }
 
       void * shmem = fd_wksp_laddr( wksp, gaddr );
