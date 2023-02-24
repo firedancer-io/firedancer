@@ -252,7 +252,7 @@ typedef struct fd_delegation_pair fd_delegation_pair_t;
 
 // runtime/src/stakes.rs:169
 // runtime/src/bank.rs:747
-struct fd_stakes_deligation {
+struct fd_stakes_delegation {
   fd_vote_accounts_t     vote_accounts;
   ulong                  stake_delegations_len;
   fd_delegation_pair_t*  stake_delegations;
@@ -260,8 +260,8 @@ struct fd_stakes_deligation {
   ulong                  epoch;
   fd_stake_history_t     stake_history;
 };
-typedef struct fd_stakes_deligation fd_stakes_deligation_t;
-#define FD_STAKES_DELIGATION_FOOTPRINT sizeof(fd_stakes_deligation_t)
+typedef struct fd_stakes_delegation fd_stakes_delegation_t;
+#define FD_STAKES_DELIGATION_FOOTPRINT sizeof(fd_stakes_delegation_t)
 #define FD_STAKES_DELIGATION_ALIGN (8UL)
 
 // runtime/src/bank.rs:238
@@ -275,18 +275,18 @@ struct fd_bank_incremental_snapshot_persistence {
 #define FD_BANK_INCREMENTAL_SNAPSHOT_PERSISTENCE_FOOTPRINT sizeof(fd_bank_incremental_snapshot_persistence_t)
 #define FD_BANK_INCREMENTAL_SNAPSHOT_PERSISTENCE_ALIGN (8UL)
 
-struct node_vote_accounts {
+struct fd_node_vote_accounts {
   ulong        vote_accounts_len;
   fd_pubkey_t *vote_accounts;
   ulong        total_stake;
 };
-typedef struct node_vote_accounts node_vote_accounts_t;
-#define NODE_VOTE_ACCOUNTS_FOOTPRINT sizeof(node_vote_accounts_t)
-#define NODE_VOTE_ACCOUNTS_ALIGN (8UL)
+typedef struct fd_node_vote_accounts fd_node_vote_accounts_t;
+#define FD_NODE_VOTE_ACCOUNTS_FOOTPRINT sizeof(fd_node_vote_accounts_t)
+#define FD_NODE_VOTE_ACCOUNTS_ALIGN (8UL)
 
 struct fd_pubkey_node_vote_accounts_pair {
   fd_pubkey_t          key;
-  node_vote_accounts_t value;
+  fd_node_vote_accounts_t value;
 };
 typedef struct fd_pubkey_node_vote_accounts_pair fd_pubkey_node_vote_accounts_pair_t;
 #define FD_PUBKEY_NODE_VOTE_ACCOUNTS_PAIR_FOOTPRINT sizeof(fd_pubkey_node_vote_accounts_pair_t)
@@ -302,7 +302,7 @@ typedef struct fd_pubkey_pubkey_pair fd_pubkey_pubkey_pair_t;
 
 // runtime/src/epoch_stakes.rs:18
 struct fd_epoch_stakes {
-  fd_stakes_deligation_t                stakes;
+  fd_stakes_delegation_t                stakes;
   ulong                                 total_stake;
   ulong                                 node_id_to_vote_accounts_len;
   fd_pubkey_node_vote_accounts_pair_t * node_id_to_vote_accounts;
@@ -374,8 +374,8 @@ struct fd_deserializable_versioned_bank {
   ulong                          collected_rent;
   fd_rent_collector_t            rent_collector;
   fd_epoch_schedule_t            epoch_schedule;
-  fd_inflation_t                 fd_inflation;
-  fd_stakes_deligation_t         stakes;
+  fd_inflation_t                 inflation;
+  fd_stakes_delegation_t         stakes;
   fd_unused_accounts_t           unused_accounts;
   ulong                          epoch_stakes_len;
   fd_epoch_epoch_stakes_pair_t * epoch_stakes;
@@ -547,20 +547,25 @@ void fd_deserializable_versioned_bank_decode(fd_deserializable_versioned_bank_t*
 void fd_deserializable_versioned_bank_destroy(fd_deserializable_versioned_bank_t* self, fd_free_fun_t freef, void* freef_arg);
 
 void fd_epoch_epoch_stakes_pair_decode(fd_epoch_epoch_stakes_pair_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
+void fd_epoch_epoch_stakes_pair_destroy(fd_epoch_epoch_stakes_pair_t* self, fd_free_fun_t freef, void* freef_arg);
 
 void fd_epoch_schedule_decode(fd_epoch_schedule_t* self,  void const** data,  void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
+void fd_epoch_schedule_destroy(fd_epoch_schedule_t* self, fd_free_fun_t freef, void* freef_arg);
 
 void fd_epoch_stakes_decode(fd_epoch_stakes_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
+void fd_epoch_stakes_destroy(fd_epoch_stakes_t* self, fd_free_fun_t freef, void* freef_arg);
 
 void fd_fee_calculator_decode(fd_fee_calculator_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
 void fd_fee_calculator_destroy(fd_fee_calculator_t* self, fd_free_fun_t freef, void* freef_arg);
 
 void fd_fee_rate_governor_decode(fd_fee_rate_governor_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
+void fd_fee_rate_governor_destroy(fd_fee_rate_governor_t* self, fd_free_fun_t freef, void* freef_arg);
 
 void fd_genesis_solana_decode(fd_genesis_solana_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
 void fd_genesis_solana_destroy(fd_genesis_solana_t* self, fd_free_fun_t freef, void* freef_arg);
 
 void fd_hard_forks_decode(fd_hard_forks_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
+void fd_hard_forks_destroy(fd_hard_forks_t* self, fd_free_fun_t freef, void* freef_arg);
 
 void fd_hash_age_decode(fd_hash_age_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
 void fd_hash_age_destroy(fd_hash_age_t* self, fd_free_fun_t freef, void* freef_arg);
@@ -572,10 +577,13 @@ void fd_hash_hash_age_pair_decode(fd_hash_hash_age_pair_t* self, void const** da
 void fd_hash_hash_age_pair_destroy(fd_hash_hash_age_pair_t* self, fd_free_fun_t freef, void* freef_arg);
 
 void fd_inflation_decode(fd_inflation_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
+void fd_inflation_destroy(fd_inflation_t* self, fd_free_fun_t freef, void* freef_arg);
 
-void fd_node_vote_accounts_decode(node_vote_accounts_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
+void fd_node_vote_accounts_decode(fd_node_vote_accounts_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
+void fd_node_vote_accounts_destroy(fd_node_vote_accounts_t* self, fd_free_fun_t freef, void* freef_arg);
 
 void fd_poh_config_decode(fd_poh_config_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
+void fd_poh_config_destroy(fd_poh_config_t* self, fd_free_fun_t freef, void* freef_arg);
 
 void fd_pubkey_account_pair_decode(fd_pubkey_account_pair_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
 void fd_pubkey_account_pair_destroy(fd_pubkey_account_pair_t* self, fd_free_fun_t freef, void* freef_arg);
@@ -584,16 +592,22 @@ void fd_pubkey_decode(fd_pubkey_t* self, void const** data, void const* dataend,
 void fd_pubkey_destroy(fd_pubkey_t* self, fd_free_fun_t freef, void* freef_arg);
 
 void fd_pubkey_node_vote_accounts_pair_decode(fd_pubkey_node_vote_accounts_pair_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
+void fd_pubkey_node_vote_accounts_pair_destroy(fd_pubkey_node_vote_accounts_pair_t* self, fd_free_fun_t freef, void* freef_arg);
 
 void fd_pubkey_pubkey_pair_decode(fd_pubkey_pubkey_pair_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
+void fd_pubkey_pubkey_pair_destroy(fd_pubkey_pubkey_pair_t* self, fd_free_fun_t freef, void* freef_arg);
 
 void fd_pubkey_u64_pair_decode(fd_pubkey_u64_pair_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
+void fd_pubkey_u64_pair_destroy(fd_pubkey_u64_pair_t* self, fd_free_fun_t freef, void* freef_arg);
 
 void fd_rent_collector_decode(fd_rent_collector_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
+void fd_rent_collector_destroy(fd_rent_collector_t* self, fd_free_fun_t freef, void* freef_arg);
 
 void fd_rent_decode(fd_rent_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
+void fd_rent_destroy(fd_rent_t* self, fd_free_fun_t freef, void* freef_arg);
 
 void fd_rust_duration_decode(fd_rust_duration_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
+void fd_rust_duration_destroy(fd_rust_duration_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
 
 void fd_serializable_account_storage_entry_decode(fd_serializable_account_storage_entry_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
 void fd_serializable_account_storage_entry_destroy(fd_serializable_account_storage_entry_t* self, fd_free_fun_t freef, void* freef_arg);
@@ -605,22 +619,31 @@ void fd_slot_map_pair_decode(fd_slot_map_pair_t* self, void const** data, void c
 void fd_slot_map_pair_destroy(fd_slot_map_pair_t* self, fd_free_fun_t freef, void* freef_arg);
 
 void fd_slot_pair_decode(fd_slot_pair_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
+void fd_slot_pair_destroy(fd_slot_pair_t* self, fd_free_fun_t freef, void* freef_arg);
 
 void fd_stake_history_decode(fd_stake_history_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
+void fd_stake_history_destroy(fd_stake_history_t* self, fd_free_fun_t freef, void* freef_arg);
 
 void fd_stake_history_entry_decode(fd_stake_history_entry_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
+void fd_stake_history_entry_destroy(fd_stake_history_entry_t* self, fd_free_fun_t freef, void* freef_arg);
 
 void fd_stake_history_epochentry_pair_decode(fd_stake_history_epochentry_pair_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
+void fd_stake_history_epochentry_pair_destroy(fd_stake_history_epochentry_pair_t* self, fd_free_fun_t freef, void* freef_arg);
 
-void fd_stakes_deligation_decode(fd_stakes_deligation_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
+void fd_stakes_delegation_decode(fd_stakes_delegation_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
+void fd_stakes_delegation_destroy(fd_stakes_delegation_t* self, fd_free_fun_t freef, void* freef_arg);
 
 void fd_string_pubkey_pair_decode(fd_string_pubkey_pair_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
+void fd_string_pubkey_pair_destroy(fd_string_pubkey_pair_t* self, fd_free_fun_t freef, void* freef_arg);
 
 void fd_unused_accounts_decode(fd_unused_accounts_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
+void fd_unused_accounts_destroy(fd_unused_accounts_t* self, fd_free_fun_t freef, void* freef_arg);
 
 void fd_vote_accounts_decode(fd_vote_accounts_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
+void fd_vote_accounts_destroy(fd_vote_accounts_t* self, fd_free_fun_t freef, void* freef_arg);
 
 void fd_vote_accounts_pair_decode(fd_vote_accounts_pair_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
+void fd_vote_accounts_pair_destroy(fd_vote_accounts_pair_t* self, fd_free_fun_t freef, void* freef_arg);
 
 FD_PROTOTYPES_END
 

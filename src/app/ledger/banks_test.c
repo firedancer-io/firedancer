@@ -142,9 +142,9 @@ int main(FD_FN_UNUSED int argc, FD_FN_UNUSED char** argv) {
     const void * o = out;
 
 
-    struct fd_stakes_deligation a;
+    struct fd_stakes_delegation a;
     memset(&a, 0, sizeof(a));
-    fd_stakes_deligation_decode(&a, &o, outend, allocf, NULL);
+    fd_stakes_delegation_decode(&a, &o, outend, allocf, NULL);
 
     FD_TEST(a.epoch == 41);
     FD_TEST(a.unused == 98);

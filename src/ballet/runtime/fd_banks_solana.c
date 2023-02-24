@@ -58,13 +58,16 @@ void fd_block_hash_queue_decode(fd_block_hash_queue_t* self, void const** data, 
 void fd_block_hash_queue_destroy(fd_block_hash_queue_t* self, fd_free_fun_t freef, void* freef_arg) {
   if (NULL != self->last_hash) {
     fd_hash_destroy(self->last_hash, freef, freef_arg);
+    freef(self->last_hash, freef_arg);
     self->last_hash = NULL;
   }
 
   if (NULL != self->ages) {
     for (ulong i = 0; i < self->ages_len; ++i) {
       fd_hash_hash_age_pair_destroy(self->ages + i, freef, freef_arg);
+      freef(self->last_hash, freef_arg);
     }
+    self->ages = NULL;
   }
 }
 
@@ -83,6 +86,9 @@ void fd_epoch_schedule_decode(fd_epoch_schedule_t* self,  void const** data,  vo
   fd_bincode_uint64_decode(&self->first_normal_slot, data, dataend);
 }
 
+void fd_epoch_schedule_destroy(FD_FN_UNUSED fd_epoch_schedule_t* self, FD_FN_UNUSED fd_free_fun_t freef, FD_FN_UNUSED void* freef_arg) {
+}
+
 void fd_fee_rate_governor_decode(fd_fee_rate_governor_t* self, void const** data, void const* dataend, FD_FN_UNUSED fd_alloc_fun_t allocf, FD_FN_UNUSED void* allocf_arg) {
   fd_bincode_uint64_decode(&self->target_lamports_per_signature, data, dataend);
   fd_bincode_uint64_decode(&self->target_signatures_per_slot, data, dataend);
@@ -91,9 +97,15 @@ void fd_fee_rate_governor_decode(fd_fee_rate_governor_t* self, void const** data
   fd_bincode_uint8_decode(&self->burn_percent, data, dataend);
 }
 
+void fd_fee_rate_governor_destroy(FD_FN_UNUSED fd_fee_rate_governor_t* self, FD_FN_UNUSED fd_free_fun_t freef, FD_FN_UNUSED void* freef_arg) {
+}
+
 void fd_slot_pair_decode(fd_slot_pair_t* self, void const** data, void const* dataend, FD_FN_UNUSED fd_alloc_fun_t allocf, FD_FN_UNUSED void* allocf_arg) {
   fd_bincode_uint64_decode(&self->slot, data, dataend);
   fd_bincode_uint64_decode(&self->val, data, dataend);
+}
+
+void fd_slot_pair_destroy(FD_FN_UNUSED fd_slot_pair_t* self, FD_FN_UNUSED fd_free_fun_t freef, FD_FN_UNUSED void* freef_arg) {
 }
 
 void fd_hard_forks_decode(fd_hard_forks_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, FD_FN_UNUSED void* allocf_arg) {
@@ -106,6 +118,16 @@ void fd_hard_forks_decode(fd_hard_forks_t* self, void const** data, void const* 
     self->hard_forks = NULL;
 }
 
+void fd_hard_forks_destroy(fd_hard_forks_t* self, fd_free_fun_t freef, void* freef_arg) {
+  if (NULL != self->hard_forks) {
+    for (ulong i = 0; i < self->len; ++i) {
+      fd_slot_pair_destroy(self->hard_forks, freef, freef_arg);
+    }
+    freef(self->hard_forks, freef_arg);
+    self->hard_forks = NULL;
+  }
+}
+
 void fd_inflation_decode(fd_inflation_t* self, void const** data, void const* dataend, FD_FN_UNUSED fd_alloc_fun_t allocf, FD_FN_UNUSED void* allocf_arg) {
   fd_bincode_double_decode(&self->initial, data, dataend);
   fd_bincode_double_decode(&self->terminal, data, dataend);
@@ -115,10 +137,16 @@ void fd_inflation_decode(fd_inflation_t* self, void const** data, void const* da
   fd_bincode_double_decode(&self->__unused, data, dataend);
 }
 
+void fd_inflation_destroy(FD_FN_UNUSED fd_inflation_t* self, FD_FN_UNUSED fd_free_fun_t freef, FD_FN_UNUSED void* freef_arg) {
+}
+
 void fd_rent_decode(FD_FN_UNUSED fd_rent_t* self, FD_FN_UNUSED void const** data, FD_FN_UNUSED void const* dataend, FD_FN_UNUSED fd_alloc_fun_t allocf, FD_FN_UNUSED void* allocf_arg) {
   fd_bincode_uint64_decode(&self->lamports_per_uint8_year, data, dataend);
   fd_bincode_double_decode(&self->exemption_threshold, data, dataend);
   fd_bincode_uint8_decode(&self->burn_percent, data, dataend);
+}
+
+void fd_rent_destroy(FD_FN_UNUSED fd_rent_t* self, FD_FN_UNUSED fd_free_fun_t freef, FD_FN_UNUSED void* freef_arg) {
 }
 
 void fd_rent_collector_decode(fd_rent_collector_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, FD_FN_UNUSED void* allocf_arg) {
@@ -126,6 +154,11 @@ void fd_rent_collector_decode(fd_rent_collector_t* self, void const** data, void
   fd_epoch_schedule_decode(&self->epoch_schedule, data, dataend, allocf, allocf_arg);
   fd_bincode_double_decode(&self->slots_per_year, data, dataend);
   fd_rent_decode(&self->rent, data, dataend, allocf, allocf_arg);
+}
+
+void fd_rent_collector_destroy(fd_rent_collector_t* self, fd_free_fun_t freef, void* freef_arg) {
+  fd_epoch_schedule_destroy(&self->epoch_schedule, freef, freef_arg);
+  fd_rent_destroy(&self->rent, freef, freef_arg);
 }
 
 void fd_stake_history_entry_decode(FD_FN_UNUSED fd_stake_history_entry_t* self, FD_FN_UNUSED void const** data, FD_FN_UNUSED void const* dataend, FD_FN_UNUSED fd_alloc_fun_t allocf, FD_FN_UNUSED void* allocf_arg) {
@@ -175,6 +208,11 @@ void fd_vote_accounts_pair_decode(fd_vote_accounts_pair_t* self, void const** da
   fd_solana_account_decode(&self->value, data, dataend, allocf, allocf_arg);
 }
 
+void fd_vote_accounts_pair_destroy(fd_vote_accounts_pair_t* self, fd_free_fun_t freef, void* freef_arg) {
+  fd_pubkey_destroy(&self->key, freef, freef_arg);
+  fd_solana_account_destroy(&self->value, freef, freef_arg);
+}
+
 void fd_vote_accounts_decode(fd_vote_accounts_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
   fd_bincode_uint64_decode(&self->vote_accounts_len, data, dataend);
   if (self->vote_accounts_len != 0) {
@@ -183,6 +221,16 @@ void fd_vote_accounts_decode(fd_vote_accounts_t* self, void const** data, void c
       fd_vote_accounts_pair_decode(self->vote_accounts + i, data, dataend, allocf, allocf_arg);
   } else 
     self->vote_accounts = NULL;
+}
+
+void fd_vote_accounts_destroy(fd_vote_accounts_t* self, fd_free_fun_t freef, void* freef_arg) {
+  if (NULL != self->vote_accounts) {
+    for (ulong i = 0; i < self->vote_accounts_len; ++i) {
+      fd_vote_accounts_pair_destroy(self->vote_accounts + i, freef, freef_arg);
+    }
+    freef(self->vote_accounts, freef_arg);
+    self->vote_accounts = NULL;
+  }
 }
 
 void fd_delegation_decode(fd_delegation_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
@@ -207,7 +255,7 @@ void fd_delegation_pair_destroy(fd_delegation_pair_t* self, fd_free_fun_t freef,
   fd_delegation_destroy(&self->value, freef, freef_arg);
 }
 
-void fd_stakes_deligation_decode(fd_stakes_deligation_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
+void fd_stakes_delegation_decode(fd_stakes_delegation_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
   fd_vote_accounts_decode(&self->vote_accounts, data, dataend, allocf, allocf_arg);
   fd_bincode_uint64_decode(&self->stake_delegations_len, data, dataend);
   if (self->stake_delegations_len) {
@@ -221,7 +269,19 @@ void fd_stakes_deligation_decode(fd_stakes_deligation_t* self, void const** data
   fd_stake_history_decode(&self->stake_history, data, dataend, allocf, allocf_arg);
 }
 
-void fd_node_vote_accounts_decode(node_vote_accounts_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
+void fd_stakes_delegation_destroy(fd_stakes_delegation_t* self, fd_free_fun_t freef, void* freef_arg) {
+  fd_vote_accounts_destroy(&self->vote_accounts, freef, freef_arg);
+  
+  if (NULL != self->stake_delegations) {
+    for (ulong i = 0; i < self->stake_delegations_len; ++i) {
+      fd_delegation_pair_destroy(self->stake_delegations + i, freef, freef_arg);
+    }
+    freef(self->stake_delegations, freef_arg);
+    self->stake_delegations = NULL;
+  }
+}
+
+void fd_node_vote_accounts_decode(fd_node_vote_accounts_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
   fd_bincode_uint64_decode(&self->vote_accounts_len, data, dataend);
   if (self->vote_accounts_len) {
     self->vote_accounts = (fd_pubkey_t*)(*allocf)(FD_PUBKEY_FOOTPRINT*self->vote_accounts_len, FD_PUBKEY_ALIGN, allocf_arg);
@@ -232,9 +292,24 @@ void fd_node_vote_accounts_decode(node_vote_accounts_t* self, void const** data,
   fd_bincode_uint64_decode(&self->total_stake, data, dataend);
 }
 
+void fd_node_vote_accounts_destroy(fd_node_vote_accounts_t* self, fd_free_fun_t freef, void* freef_arg) {
+  if (NULL != self->vote_accounts) {
+    for (ulong i = 0; i < self->vote_accounts_len; ++i) {
+      fd_pubkey_destroy(self->vote_accounts + i, freef, freef_arg);
+    }
+    freef(self->vote_accounts, freef_arg);
+    self->vote_accounts = NULL;
+  }
+}
+
 void fd_pubkey_node_vote_accounts_pair_decode(fd_pubkey_node_vote_accounts_pair_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
   fd_pubkey_decode(&self->key, data, dataend, allocf, allocf_arg);
   fd_node_vote_accounts_decode(&self->value, data, dataend, allocf, allocf_arg);
+}
+
+void fd_pubkey_node_vote_accounts_pair_destroy(fd_pubkey_node_vote_accounts_pair_t* self, fd_free_fun_t freef, void* freef_arg) {
+  fd_pubkey_destroy(&self->key, freef, freef_arg);
+  fd_node_vote_accounts_destroy(&self->value, freef, freef_arg);
 }
 
 void fd_pubkey_pubkey_pair_decode(fd_pubkey_pubkey_pair_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
@@ -242,8 +317,13 @@ void fd_pubkey_pubkey_pair_decode(fd_pubkey_pubkey_pair_t* self, void const** da
   fd_pubkey_decode(&self->value, data, dataend, allocf, allocf_arg);
 }
 
+void fd_pubkey_pubkey_pair_destroy(fd_pubkey_pubkey_pair_t* self, fd_free_fun_t freef, void* freef_arg) {
+  fd_pubkey_destroy(&self->key, freef, freef_arg);
+  fd_pubkey_destroy(&self->value, freef, freef_arg);
+}
+
 void fd_epoch_stakes_decode(fd_epoch_stakes_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
-  fd_stakes_deligation_decode(&self->stakes, data, dataend, allocf, allocf_arg);
+  fd_stakes_delegation_decode(&self->stakes, data, dataend, allocf, allocf_arg);
   fd_bincode_uint64_decode(&self->total_stake, data, dataend);
   fd_bincode_uint64_decode(&self->node_id_to_vote_accounts_len, data, dataend);
   if (self->node_id_to_vote_accounts_len > 0) {
@@ -261,14 +341,42 @@ void fd_epoch_stakes_decode(fd_epoch_stakes_t* self, void const** data, void con
     self->epoch_authorized_voters = NULL;
 }
 
+void fd_epoch_stakes_destroy(fd_epoch_stakes_t* self, fd_free_fun_t freef, void* freef_arg) {
+  fd_stakes_delegation_destroy(&self->stakes, freef, freef_arg);
+  
+  if (NULL != self->node_id_to_vote_accounts) {
+    for (ulong i = 0; i < self->node_id_to_vote_accounts_len; ++i) {
+      fd_pubkey_node_vote_accounts_pair_destroy(self->node_id_to_vote_accounts + i, freef, freef_arg);
+    }
+    freef(self->node_id_to_vote_accounts, freef_arg);
+    self->node_id_to_vote_accounts = NULL;
+  }
+
+  if (NULL != self->epoch_authorized_voters) {
+    for (ulong i = 0; i < self->epoch_authorized_voters_len; ++i) {
+      fd_pubkey_pubkey_pair_destroy(self->epoch_authorized_voters + i, freef, freef_arg);
+    }
+    freef(self->epoch_authorized_voters, freef_arg);
+    self->epoch_authorized_voters = NULL;
+  }
+}
+
 void fd_epoch_epoch_stakes_pair_decode(fd_epoch_epoch_stakes_pair_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
   fd_bincode_uint64_decode(&self->key, data, dataend);
   fd_epoch_stakes_decode(&self->value, data, dataend, allocf, allocf_arg);
 }
 
+void fd_epoch_epoch_stakes_pair_destroy(fd_epoch_epoch_stakes_pair_t* self, fd_free_fun_t freef, void* freef_arg) {
+  fd_epoch_stakes_destroy(&self->value, freef, freef_arg);
+}
+
 void fd_pubkey_u64_pair_decode(fd_pubkey_u64_pair_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
   fd_pubkey_decode(&self->_0, data, dataend, allocf, allocf_arg);
   fd_bincode_uint64_decode(&self->_1, data, dataend);
+}
+
+void fd_pubkey_u64_pair_destroy(fd_pubkey_u64_pair_t* self, fd_free_fun_t freef, void* freef_arg) {
+  fd_pubkey_destroy(&self->_0, freef, freef_arg);
 }
 
 // runtime/src/serde_snapshot/newer.rs:20
@@ -296,6 +404,32 @@ void fd_unused_accounts_decode(fd_unused_accounts_t* self, void const** data, vo
       fd_pubkey_u64_pair_decode(self->unused3 + i, data, dataend, allocf, allocf_arg);
   } else
     self->unused3 = NULL;
+}
+
+void fd_unused_accounts_destroy(fd_unused_accounts_t* self, fd_free_fun_t freef, void* freef_arg) {
+  if (NULL != self->unused1) {
+    for (ulong i = 0; i < self->unused1_len; ++i) {
+      fd_pubkey_destroy(self->unused1 + i, freef, freef_arg);
+    }
+    freef(self->unused1, freef_arg);
+    self->unused1 = NULL;
+  }
+  
+  if (NULL != self->unused2) {
+    for (ulong i = 0; i < self->unused2_len; ++i) {
+      fd_pubkey_destroy(self->unused2 + i, freef, freef_arg);
+    }
+    freef(self->unused2, freef_arg);
+    self->unused2 = NULL;
+  }
+  
+  if (NULL != self->unused3) {
+    for (ulong i = 0; i < self->unused3_len; ++i) {
+      fd_pubkey_u64_pair_destroy(self->unused3 + i, freef, freef_arg);
+    }
+    freef(self->unused3, freef_arg);
+    self->unused3 = NULL;
+  }
 }
 
 void fd_deserializable_versioned_bank_decode(fd_deserializable_versioned_bank_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
@@ -333,8 +467,8 @@ void fd_deserializable_versioned_bank_decode(fd_deserializable_versioned_bank_t*
   fd_bincode_uint64_decode(&self->collected_rent, data, dataend);
   fd_rent_collector_decode(&self->rent_collector, data, dataend, allocf, allocf_arg);
   fd_epoch_schedule_decode(&self->epoch_schedule, data, dataend, allocf, allocf_arg);
-  fd_inflation_decode(&self->fd_inflation, data, dataend, allocf, allocf_arg);
-  fd_stakes_deligation_decode(&self->stakes, data, dataend, allocf, allocf_arg);
+  fd_inflation_decode(&self->inflation, data, dataend, allocf, allocf_arg);
+  fd_stakes_delegation_decode(&self->stakes, data, dataend, allocf, allocf_arg);
   fd_unused_accounts_decode(&self->unused_accounts, data, dataend, allocf, allocf_arg);
   fd_bincode_uint64_decode(&self->epoch_stakes_len, data, dataend);
   if (self->epoch_stakes_len > 0) {
@@ -347,7 +481,41 @@ void fd_deserializable_versioned_bank_decode(fd_deserializable_versioned_bank_t*
 }
 
 void fd_deserializable_versioned_bank_destroy(fd_deserializable_versioned_bank_t* self, fd_free_fun_t freef, void* freef_arg) {
+  fd_block_hash_queue_destroy(&self->blockhash_queue, freef, freef_arg);
   
+  if (NULL != self->ancestors) {
+    for (ulong i = 0; i < self->ancestors_len; ++i) {
+      fd_slot_pair_destroy(self->ancestors + i, freef, freef_arg);
+    }
+    freef(self->ancestors, freef_arg);
+    self->ancestors = NULL;
+  }
+
+  fd_hash_destroy(&self->hash, freef, freef_arg);
+  fd_hash_destroy(&self->parent_hash, freef, freef_arg);
+  fd_hard_forks_destroy(&self->hard_forks, freef, freef_arg);
+
+  if (NULL != self->hashes_per_tick) {
+    freef(self->hashes_per_tick, freef_arg);
+    self->hashes_per_tick = NULL;
+  }
+
+  fd_pubkey_destroy(&self->collector_id, freef, freef_arg);
+  fd_fee_calculator_destroy(&self->fee_calculator, freef, freef_arg);
+  fd_fee_rate_governor_destroy(&self->fee_rate_governor, freef, freef_arg);
+  fd_rent_collector_destroy(&self->rent_collector, freef, freef_arg);
+  fd_epoch_schedule_destroy(&self->epoch_schedule, freef, freef_arg);
+  fd_inflation_destroy(&self->inflation, freef, freef_arg);
+  fd_stakes_delegation_destroy(&self->stakes, freef, freef_arg);
+  fd_unused_accounts_destroy(&self->unused_accounts, freef, freef_arg);
+
+  if (NULL != self->epoch_stakes) {
+    for (ulong i = 0; i < self->epoch_stakes_len; ++i) {
+      fd_epoch_epoch_stakes_pair_destroy(self->epoch_stakes + i, freef, freef_arg);
+    }
+    freef(self->epoch_stakes, freef_arg);
+    self->epoch_stakes = NULL;
+  }
 }
 
 void fd_serializable_account_storage_entry_decode(fd_serializable_account_storage_entry_t* self, void const** data, void const* dataend, FD_FN_UNUSED fd_alloc_fun_t allocf, FD_FN_UNUSED void* allocf_arg) {
@@ -397,6 +565,8 @@ void fd_slot_account_pair_destroy(fd_slot_account_pair_t* self, fd_free_fun_t fr
     for (ulong i = 0; i < self->accounts_len; ++i) {
       fd_serializable_account_storage_entry_destroy(self->accounts + i, freef, freef_arg);
     }
+    freef(self->accounts, freef_arg);
+    self->accounts = NULL;
   }
 }
 
