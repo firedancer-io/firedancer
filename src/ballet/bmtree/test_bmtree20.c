@@ -1,3 +1,7 @@
+#if !FD_HAS_ALLOCA
+#error "This test requires FD_HAS_ALLOCA"
+#endif
+
 #include "../fd_ballet.h"
 
 FD_STATIC_ASSERT( alignof(fd_bmtree20_node_t)==1UL, alignment );
