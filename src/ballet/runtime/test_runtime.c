@@ -22,7 +22,7 @@ char* allocf(unsigned long len, FD_FN_UNUSED unsigned long align, FD_FN_UNUSED v
   }
 
   if (do_valgrind) {
-    char * ptr = malloc(sizeof(char *) + len + align);
+    char * ptr = malloc(fd_ulong_align_up(sizeof(char *) + len, align));
     char * ret = (char *) fd_ulong_align_up( (ulong) (ptr + sizeof(char *)), align );
     *((char **)(ret - sizeof(char *))) = ptr;
     return ret;
