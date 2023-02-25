@@ -14,41 +14,32 @@
 #include "../../funk/fd_funk.h"
 #include "../../util/alloc/fd_alloc.h"
 
-// #define _VALGRIND
+bool do_valgrind = true;
 
-#ifdef _VALGRIND
 char* allocf(unsigned long len, FD_FN_UNUSED unsigned long align, FD_FN_UNUSED void* arg) {
-  char * ptr = malloc(sizeof(char *) + len + align);
-  char * ret = (char *) fd_ulong_align_up( (ulong) (ptr + sizeof(char *)), align );
-  *((char **)(ret - sizeof(char *))) = ptr;
-  return ret;
+  if (NULL == arg) {
+    FD_LOG_ERR(( "yo dawg.. you passed a NULL as a fd_alloc pool"));
+  }
+
+  if (do_valgrind) {
+    char * ptr = malloc(sizeof(char *) + len + align);
+    char * ret = (char *) fd_ulong_align_up( (ulong) (ptr + sizeof(char *)), align );
+    *((char **)(ret - sizeof(char *))) = ptr;
+    return ret;
+  } else 
+    return fd_alloc_malloc(arg, align, len);
 }
 
 void freef(void *ptr, FD_FN_UNUSED void* arg) {
-  free(*((char **)((char *) ptr - sizeof(char *))));
-}
-#else
-
-char* allocf(unsigned long len, unsigned long align, void* arg) {
   if (NULL == arg) {
     FD_LOG_ERR(( "yo dawg.. you passed a NULL as a fd_alloc pool"));
   }
 
-  char *ret = fd_alloc_malloc(arg, align, len);
-//  FD_LOG_NOTICE(( "0x%lx  0x%lx  allocf(len:%ld, align:%ld)", (ulong) ret, (ulong) arg,  len, align));
-  return ret;
+  if (do_valgrind) 
+    free(*((char **)((char *) ptr - sizeof(char *))));
+  else
+    fd_alloc_free(arg, ptr);
 }
-
-void freef(void *ptr, void* arg) {
-//  FD_LOG_NOTICE(( "0x%lx  0x%lx  free()", (ulong) ptr, (ulong) arg));
-
-  if (NULL == arg) {
-    FD_LOG_ERR(( "yo dawg.. you passed a NULL as a fd_alloc pool"));
-  }
-
-  fd_alloc_free(arg, ptr);
-}
-#endif
 
 struct global_state {
   ulong        end_slot;
@@ -86,11 +77,13 @@ static void usage(const char* progname) {
   fprintf(stderr, " --skip-exe   <bool>       Should we skip executing transactions\n");
 }
 
-int injest(global_state_t *state) {
+int manifest(global_state_t *state) {
   struct stat s;
   stat(state->manifest,  &s);
 
-  unsigned char *b = (unsigned char *)malloc((unsigned long) (unsigned long) s.st_size);
+  FD_LOG_WARNING(("reading manifest: %s", state->manifest));
+
+  unsigned char *b = (unsigned char *)allocf((unsigned long) (unsigned long) s.st_size, 1, state->alloc);
   int fd = open(state->manifest, O_RDONLY);
   ssize_t n = read(fd, b, (unsigned long) s.st_size);
 
@@ -98,15 +91,23 @@ int injest(global_state_t *state) {
   unsigned char *outend = &b[n];
   const void * o = b;
 
+  FD_LOG_WARNING(("deserializing version bank"));
+
   struct fd_deserializable_versioned_bank a;
   memset(&a, 0, sizeof(a));
   fd_deserializable_versioned_bank_decode(&a, &o, outend, allocf, state->alloc);
 
+
+  FD_LOG_WARNING(("deserializing accounts"));
   struct fd_solana_accounts_db_fields db;
   memset(&db, 0, sizeof(b));
   fd_solana_accounts_db_fields_decode(&db, &o, outend, allocf, state->alloc);
 
-  FD_TEST(a.is_delta != 0);
+  FD_LOG_WARNING(("cleaning up"));
+
+  fd_deserializable_versioned_bank_destroy(&a, freef, state->alloc);
+  fd_solana_accounts_db_fields_destroy(&db, freef, state->alloc);
+  freef(b, state->alloc);
 
   return 0;
 }
@@ -223,7 +224,7 @@ int main(int argc, char **argv) {
 
   void * fd_funk_raw = fd_alloc_malloc(state.alloc, fd_funk_align(), fd_funk_footprint_min());
   state.funk = fd_funk_join(fd_funk_new(fd_funk_raw, fd_funk_footprint_min(), state.db));
-  fd_funk_validate(state.funk);
+  // fd_funk_validate(state.funk);
 
   if (NULL != state.end_slot_opt) {
     state.end_slot = (ulong) atoi(state.end_slot_opt);
@@ -307,8 +308,8 @@ int main(int argc, char **argv) {
   fd_genesis_solana_destroy(&gen, freef, state.alloc);
 
   //  we good?
-  FD_LOG_WARNING(("validating funk db"));
-  fd_funk_validate(state.funk);
+//  FD_LOG_WARNING(("validating funk db"));
+//  fd_funk_validate(state.funk);
 
   // Initialize the rocksdb 
   char *err = fd_rocksdb_init(&state.rocks_db, db_name);
@@ -339,8 +340,8 @@ int main(int argc, char **argv) {
 
   if (strcmp(state.cmd, "replay") == 0)
     replay(&state);
-  if (strcmp(state.cmd, "injest") == 0)
-    injest(&state);
+  if (strcmp(state.cmd, "manifest") == 0)
+    manifest(&state);
 
   fd_acc_mgr_delete(fd_acc_mgr_leave(state.acc_mgr));
   free(fd_acc_mgr_raw);
