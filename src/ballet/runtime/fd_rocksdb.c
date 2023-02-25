@@ -20,8 +20,12 @@ void fd_slot_meta_decode(fd_slot_meta_t* self, void const** data, void const* da
     self->next_slots = NULL;
   fd_bincode_uint8_decode(&self->is_connected, data, dataend);
   fd_bincode_uint64_decode(&self->num_entry_end_indexes, data, dataend);
-  for (ulong i = 0; i < self->num_entry_end_indexes; ++i)
-    fd_bincode_uint32_decode(self->entry_end_indexes + i, data, dataend);
+  if (self->num_entry_end_indexes > 0) {
+    self->entry_end_indexes = (uint*)(*allocf)(sizeof(uint)*self->num_entry_end_indexes, (4UL), allocf_arg);
+    for (ulong i = 0; i < self->num_entry_end_indexes; ++i) 
+      fd_bincode_uint32_decode(self->entry_end_indexes + i, data, dataend);
+  } else 
+    self->entry_end_indexes = NULL;
 }
 
 void fd_slot_meta_destroy(
@@ -32,6 +36,10 @@ void fd_slot_meta_destroy(
   if (NULL != self->next_slots) {
     freef(self->next_slots, freef_arg);
     self->next_slots = NULL;
+  }
+  if (NULL != self->entry_end_indexes) {
+    freef(self->entry_end_indexes, freef_arg);
+    self->entry_end_indexes = NULL;
   }
 }
 
@@ -119,12 +127,18 @@ ulong fd_rocksdb_first_slot(fd_rocksdb_t *db, char **err) {
   return slot;
 }
 
-void fd_rocksdb_get_meta(fd_rocksdb_t *db, ulong slot, fd_slot_meta_t *m, fd_alloc_fun_t allocf, void* allocf_arg, char **err) {
+int fd_rocksdb_get_meta(fd_rocksdb_t *db, ulong slot, fd_slot_meta_t *m, fd_alloc_fun_t allocf, void* allocf_arg, char **err) {
   ulong ks = fd_ulong_bswap(slot);
   size_t vallen = 0;
 
   char *meta = rocksdb_get_cf(
     db->db, db->ro, db->column_family_handles[1], (const char *) &ks, sizeof(ks), &vallen, err);
+
+  if (0 == vallen) 
+    *err = strdup("empty record");
+
+  if (*err != NULL)
+    return -1;
 
   unsigned char *outend = (unsigned char *) &meta[vallen];
   const void * o = meta;
@@ -132,6 +146,8 @@ void fd_rocksdb_get_meta(fd_rocksdb_t *db, ulong slot, fd_slot_meta_t *m, fd_all
   fd_slot_meta_decode(m, &o, outend, allocf, allocf_arg);
 
   free(meta);
+
+  return 0;
 }
 
 fd_slot_blocks_t * fd_rocksdb_get_microblocks(fd_rocksdb_t *db, fd_slot_meta_t *m, fd_alloc_fun_t allocf,  void* allocf_arg) {
@@ -214,9 +230,13 @@ fd_slot_blocks_t * fd_rocksdb_get_microblocks(fd_rocksdb_t *db, fd_slot_meta_t *
       This performs another memory copy, copying the data into the
       batch->buffer
       */
-    fd_deshredder_next( &deshred );
+    long written = fd_deshredder_next( &deshred );
 
-    if ((deshred.result == FD_SHRED_ESLOT) | (deshred.result == FD_SHRED_EBATCH)) {
+    if ( FD_UNLIKELY ( (written < 0) & (written != -FD_SHRED_EPIPE ) )  ) {
+      FD_LOG_ERR(("fd_deshredder_next returned %ld", written));
+    }
+
+    if ((written > 0) & ((deshred.result == FD_SHRED_ESLOT) | (deshred.result == FD_SHRED_EBATCH))) {
       ulong mblocks = *((ulong *) next_batch);
 
       next_batch += sizeof(ulong);
@@ -244,10 +264,16 @@ fd_slot_blocks_t * fd_rocksdb_get_microblocks(fd_rocksdb_t *db, fd_slot_meta_t *
       for (ulong idx = 0; idx < mblocks; idx++) {
         fd_microblock_hdr_t * hdr = (fd_microblock_hdr_t *)tptr;
         if (hdr->txn_cnt > 0) {
-          bsz = fd_ulong_align_up( bsz + fd_microblock_footprint( hdr->txn_cnt ), FD_MICROBLOCK_ALIGN );
+          ulong fp = fd_microblock_footprint( hdr->txn_cnt );
+          bsz = fd_ulong_align_up( bsz + blob_start + fp, FD_MICROBLOCK_ALIGN );
           mcnt ++;
         }
-        tptr += fd_microblock_skip( tptr, (ulong) (deshred.buf - tptr));
+        ulong psize = (ulong) (deshred.buf - next_batch);
+        ulong sz = fd_microblock_skip( tptr, (ulong) psize);
+        if (0UL == sz) {
+          FD_LOG_ERR(("deserialization error"));
+        }
+        tptr += sz;
       }
 
       if (mcnt > 0) {
@@ -271,8 +297,10 @@ fd_slot_blocks_t * fd_rocksdb_get_microblocks(fd_rocksdb_t *db, fd_slot_meta_t *
             void * shblock = fd_microblock_new( blob_ptr, hdr->txn_cnt );
             fd_microblock_t * block = fd_microblock_join( shblock );
 
+
+            ulong psize = (ulong) (deshred.buf - next_batch);
             // Does memory copy of header, not of data
-            ulong microblock_sz = fd_microblock_deserialize( block, next_batch, (ulong) (deshred.buf - next_batch), NULL );
+            ulong microblock_sz = fd_microblock_deserialize( block, next_batch, psize, NULL );
             if (microblock_sz == 0) {
               // Should we return what we have found or should we just fall over?
               FD_LOG_ERR(("deserialization error"));
