@@ -155,37 +155,19 @@ bazel test //src/... --test_size_filters=small
 
 ### Useful flags
 
-| Flag                       | Description                       |
-|----------------------------|-----------------------------------|
-| `--config=gcc`             | With GCC                          |
-| `--config=llvm`            | With Clang/LLVM                   |
-| `--config=asan-clang`      | With ASan support                 |
-| `--config=asan-libfuzzer`  | With ASan and libFuzzer support   |
-| `-c dbg`                   | Debug build                       |
-| `-c opt`                   | Optimized build                   |
-| `-c opt --//:dbg`          | Optimized build with debug syms   |
-| `--platform=//:rh8_x86_64` | Set target platform               |
-| `--//:brutality=1`         | Enable extra compiler checks      |
-| `--//:brutality=2`         | Enable a lot more compiler checks |
-| `--//:threads=false`       | Disable multi-threading support   |
-| `--//:hosted=false`        | Disable hosted build environment  |
-
-### Platforms
-
-#### `rh8_x86_64`
-
-Targets an Icelake-era CPU with NUMA support on RHEL 8.
-
-Requires SSE2 and AVX.
-
-#### `rh8_noarch64`
-
-Targets any CPU with 64-bit addressing and floating math support.
-
-#### `rh8_noarch128`
-
-Like `rh8_noarch64`, with support for 128-bit integers
-(most commonly found in SIMD unit).
+| Flag                              | Description                       |
+|-----------------------------------|-----------------------------------|
+| `--platform=//:linux_x86_64_gcc`  | GCC target platform               |
+| `--platform=//:linux_x86_64_llvm` | LLVM target platform              |
+| `--config=asan-clang`             | With ASan support                 |
+| `--config=asan-libfuzzer`         | With ASan and libFuzzer support   |
+| `-c dbg`                          | Debug build                       |
+| `-c opt`                          | Optimized build                   |
+| `-c opt --//:dbg`                 | Optimized build with debug syms   |
+| `--//:brutality=1`                | Enable extra compiler checks      |
+| `--//:brutality=2`                | Enable a lot more compiler checks |
+| `--//:threads=false`              | Disable multi-threading support   |
+| `--//:hosted=false`               | Disable hosted build environment  |
 
 ## Developing
 
