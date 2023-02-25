@@ -65,7 +65,7 @@ test_main( int     argc,
       ulong align    = fd_ulong_if( lg_align==lg_align_max+1, 0UL, 1UL<<lg_align );
 
       sz[j] = fd_rng_ulong_roll( rng, sz_max+1UL );
-      
+
       /* Allocate it */
 
       mem[j] = (uchar *)fd_alloc_malloc( alloc, align, sz[j] );
@@ -130,12 +130,17 @@ main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
 
-  char const * name      = fd_env_strip_cmdline_cstr ( &argc, &argv, "--wksp",      NULL,      NULL );
-  ulong        alloc_cnt = fd_env_strip_cmdline_ulong( &argc, &argv, "--alloc-cnt", NULL, 1048576UL );
-  ulong        align_max = fd_env_strip_cmdline_ulong( &argc, &argv, "--align-max", NULL,     256UL );
-  ulong        sz_max    = fd_env_strip_cmdline_ulong( &argc, &argv, "--sz-max",    NULL,   73728UL );
-  ulong        tag       = fd_env_strip_cmdline_ulong( &argc, &argv, "--tag",       NULL,    1234UL );
+  char const * name      = fd_env_strip_cmdline_cstr ( &argc, &argv, "--wksp",      NULL,       NULL );
+  char const * _page_sz  = fd_env_strip_cmdline_cstr ( &argc, &argv, "--page-sz",   NULL, "gigantic" );
+  ulong        page_cnt  = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt",  NULL,        1UL );
+  ulong        alloc_cnt = fd_env_strip_cmdline_ulong( &argc, &argv, "--alloc-cnt", NULL,  1048576UL );
+  ulong        align_max = fd_env_strip_cmdline_ulong( &argc, &argv, "--align-max", NULL,      256UL );
+  ulong        sz_max    = fd_env_strip_cmdline_ulong( &argc, &argv, "--sz-max",    NULL,    73728UL );
+  ulong        tag       = fd_env_strip_cmdline_ulong( &argc, &argv, "--tag",       NULL,     1234UL );
   ulong        tile_cnt  = fd_tile_cnt();
+
+  ulong page_sz = fd_cstr_to_shmem_page_sz( _page_sz );
+  if( FD_UNLIKELY( page_sz==FD_SHMEM_UNKNOWN_PAGE_SZ ) ) FD_LOG_ERR(( "unsupported --page-sz" ));
 
   fd_wksp_t * wksp;
   if( name ) {
@@ -143,9 +148,8 @@ main( int     argc,
     wksp = fd_wksp_attach( name );
   } else {
     FD_LOG_NOTICE(( "--wksp not specified, using an anonymous local workspace" ));
-    /* FIXME: ALLOW PAGE SIZE PARAMETERS TO BE SPECIFIED */
-    wksp = fd_wksp_new_anonymous( FD_SHMEM_GIGANTIC_PAGE_SZ, 1UL, fd_log_cpu_id(), "wksp", 0UL );
-  } 
+    wksp = fd_wksp_new_anonymous( page_sz, page_cnt, fd_log_cpu_id(), "wksp", 0UL );
+  }
 
   if( FD_UNLIKELY( !wksp ) ) FD_LOG_ERR(( "Unable to attach to wksp" ));
 
