@@ -20,7 +20,7 @@ jobs:
           key: bazel-coverage-ubuntu-2204
 
       - name: Test with coverage
-        run: bazel coverage --test_output=errors //...
+        run: bazel coverage --platforms //:linux_x86_64_gcc --test_output=errors //src/...
 
       - name: Create coverage report
         run: |
