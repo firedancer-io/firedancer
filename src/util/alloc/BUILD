@@ -20,5 +20,11 @@ fd_cc_library(
 fd_cc_test(
     size = "small",
     srcs = ["test_alloc.c"],
+    args = [
+        "--page-sz",
+        "normal",
+        "--page-cnt",
+        "262144",
+    ],
     deps = ["//src/util"],
 )
