@@ -6,6 +6,8 @@
 #include <stdlib.h>
 #include <ctype.h>
 
+FD_IMPORT_CSTR( fd_pod_ctl_help, "src/util/pod/fd_pod_ctl_help" );
+
 static int
 supported_val_type( int val_type ) {
   return (val_type==FD_POD_VAL_TYPE_CSTR  ) | (val_type==FD_POD_VAL_TYPE_CHAR  )
@@ -184,113 +186,8 @@ main( int     argc,
 
     if( !strcmp( cmd, "help" ) ) {
 
-      /* FIXME: USE FD_IMPORT_CSTR FOR THIS */
-      FD_LOG_NOTICE(( "\n\t"
-        "Usage: %s [cmd] [cmd args] [cmd] [cmd args] ...\n\t"
-        "Commands are:\n\t"
-        "\n\t"
-        "\thelp\n\t"
-        "\t- Prints this message\n\t"
-        "\n\t"
-        "\ttag val\n\t"
-        "\t- Sets the tag for subsequent wksp allocations to val.\n\t"
-        "\t  Default is 1.\n\t"
-        "\n\t"
-        "\tnew wksp max\n\t"
-        "\t- Create a pod in wksp with a maximum size of max.  Prints the\n\t"
-        "\t  wksp cstr address of the (empty) pod to stdout on success.\n\t"
-        "\t  0 indicates to use a default of 4KiB.\n\t"
-        "\n\t"
-        "\tdelete pod\n\t"
-        "\t- Delete the pod at wksp cstr address pod.\n\t"
-        "\n\t"
-        "\treset pod\n\t"
-        "\t- Reset the pod at wksp cstr address pod.\n\t"
-        "\n\t"
-        "\tlist pod\n\t"
-        "\t- Lists (recursively) the contents of the pod at wksp cstr\n\t"
-        "\t  address pod to stdout.\n\t"
-        "\n\t"
-        "\tinsert pod type path val\n\t"
-        "\t- Inserts type into the pod at path with value val\n\t"
-        "\t- Fails if path already exists in the pod.\n\t"
-        "\t- Might change the locations of existing values in the pod\n\t"
-        "\n\t"
-        "\tremove pod path\n\t"
-        "\t- Remove the path (and any path.*) from the pod\n\t"
-        "\t- Fails if path does not already exist in the pod.\n\t"
-        "\t- Might change the locations of existing values in the pod\n\t"
-        "\n\t"
-        "\tupdate pod type path val\n\t"
-        "\t- Update path to val (failing if path to type does not already\n\t"
-        "\t  exist).  Specifically, in pseudocode:\n\t"
-        "\t    t = query type pod path  # check if path to type exists\n\t"
-        "\t    if t!=type, fail         # no\n\t"
-        "\t    remove pod path          # remove old val\n\t"
-        "\t    insert pod type path val # insert new val\n\t"
-        "\t- In the implementation currently, if the insert fails, the\n\t"
-        "\t  original value will be lost.\n\t"
-        "\t- Might change the locations of existing values in the pod\n\t"
-        "\n\t"
-        "\tset pod type path val\n\t"
-        "\t- Set path to val (inserting path if path does not already\n\t"
-        "\t  exist).  Will not change the type at end of an existing\n\t"
-        "\t  path.  Specifically, in pseudocode:\n\t"
-        "\t    t = query type pod path       # check if path exists\n\t"
-        "\t    if   t==type, remove pod path # yes and to right type \n\t"
-        "\t    elif t!=void, fail            # yes but to wrong type\n\t"
-        "\t    fi                            # no\n\t"
-        "\t    insert pod type val           # insert new val\n\t"
-        "\t- In the implementation currently, if the insert fails, the\n\t"
-        "\t  original value at path (if any) will be lost.\n\t"
-        "\t- Might change the locations of existing values in the pod\n\t"
-        "\n\t"
-        "\tcompact pod full\n\t"
-        "\t- Compacts the pod.  If full is non-zero, a full compaction is\n\t"
-        "\t  done (pod_max=pod_used and the pod header is compacted).\n\t"
-        "\t  Might change the locations of existing values in the pod.\n\t"
-        "", bin ));
-    FD_LOG_NOTICE(( "\n\t"
-        "\tquery-root what pod\n\t"
-        "\t- Query pod.  what determines what will be printed to\n\t"
-        "\t  stdout as a result of the query.\n\t"
-        "\t    test:       0 if pod exists, a negative error code if not\n\t"
-        "\t    max:        max bytes in pod if pod exists, 0 if not\n\t"
-        "\t    used:       used bytes in pod if pod exists, 0 if not\n\t"
-        "\t    avail:      free bytes in pod if pod exists, 0 if not\n\t"
-        "\t    cnt:        number of keys in pod if pod exists, 0 if not\n\t"
-        "\t    recursive:  number of keys (recursively) in pod if pod\n\t"
-        "\t                exists, 0 if not\n\t"
-        "\t    subpod-cnt: number of subpods in pod if pod exists, 0 if\n\t"
-        "\t                not\n\t"
-        "\n\t"
-        "\tquery what pod path\n\t"
-        "\t- Query pod for path.  what determines what will be printed to\n\t"
-        "\t  stdout as a result of the query.\n\t"
-        "\t    test:       0 if pod:path exists\n\t"
-        "\t                a negative error code if not\n\t"
-        "\t    type:       type of value at pod:path if it exists,\n\t"
-        "\t                void if not\n\t"
-        "\t    val:        pretty printed value at pod:path if it\n\t"
-        "\t                exists, void if not\n\t"
-        "\t    max:        max bytes in pod:path if pod:path exists and\n\t"
-        "\t                is a subpod, 0 if not\n\t"
-        "\t    used:       used bytes in pod:path if pod:path exists and\n\t"
-        "\t                is a subpod, 0 if not\n\t"
-        "\t    avail:      free bytes in pod:path if pod:path exists and\n\t"
-        "\t                is a subpod, 0 if not\n\t"
-        "\t    cnt:        number of keys in pod:path if pod:path exists\n\t"
-        "\t                and is a subpod, 0 if not\n\t"
-        "\t    recursive:  number of keys (recursively) in pod:path if\n\t"
-        "\t                pod:path exists and is a subpod, 0 if not\n\t"
-        "\t    subpod-cnt: number of subpods in pod:path if pod:path\n\t"
-        "\t                exists and is a subpod, 0 if not\n\t"
-        "\t    gaddr:      current location of the pod encoded value if\n\t"
-        "\t                pod:path exists, null if not\n\t"
-        "\t    full:       pretty printed verbose query\n\t"
-        "\n\t"
-        "\tThe current implementation assumes no concurrent pod users.\n\t"
-        "" ));
+      fputs( fd_pod_ctl_help, stdout );
+
       FD_LOG_NOTICE(( "%i: %s: success", cnt, cmd ));
 
     } else if( !strcmp( cmd, "tag" ) ) {
@@ -760,10 +657,10 @@ main( int     argc,
     cnt++;
   }
 
-  FD_LOG_NOTICE(( "processed %i commands", cnt ));
+  if( FD_UNLIKELY( cnt<1 ) ) FD_LOG_NOTICE(( "processed %i commands\n\tDo %s help for help", cnt, bin ));
+  else                       FD_LOG_NOTICE(( "processed %i commands", cnt ));
 
 # undef SHIFT
-
   fd_halt();
   return 0;
 }
