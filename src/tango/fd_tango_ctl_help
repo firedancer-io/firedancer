@@ -1,0 +1,98 @@
+
+Usage: fd_tango_ctl [cmd] [cmd args] [cmd] [cmd args] ...
+
+Commands are:
+
+help
+- Prints this message.
+
+tag val
+- Sets the tag for subsequent wksp allocations to val.  Default is 1.
+
+new-mcache wksp depth app-sz seq0
+- Creates a frag meta cache in wksp with the given depth, application
+  region size app-sz and initial sequence number seq0.  Prints the wksp
+  gaddr of the mcache to stdout.
+
+delete-mcache gaddr
+- Destroys the mcache at gaddr.
+
+query-mcache gaddr verbose
+- Queries the mcache at gaddr.  If verbose is 0, prints seq to stdout.
+  Otherwise, prints a detailed query to stdout.
+
+new-dcache wksp mtu depth burst compact app-sz
+- Creates a frag data cache in wksp optimized for frag payloads up to
+  mtu bytes in size where up to depth frags can be available to
+  consumers while the producer can be concurrently preparing up to burst
+  frags.  A non-zero compact indicates the producer will write frag
+  payloads linearly and compactly outside wrap around and will not split
+  frags to wrap around.  A zero compact indicates the producer will
+  partition the data region into depth+burst mtu friendly slots and
+  store frag payloads into them (potentially in a non-linear order).
+  Prints the wksp gaddr of the dcache to stdout.
+
+new-dcache-raw wksp data-sz app-sz
+- Creates a frag data cache in wksp with a data region size of data-sz
+  and an application region size of app-sz.  Prints the wksp gaddr of
+  the dcache to stdout.
+
+delete-dcache gaddr
+- Destroys the dcache at gaddr.
+
+query-dcache gaddr verbose
+- Queries the dcache at gaddr.  If verbose is 0, prints 0 to stdout
+  (implicitly verifying gaddr is a dcache).  Otherwise, prints a
+  detailed query to stdout.
+
+new-fseq wksp seq0
+- Creates a flow control variable in wksp initialized to seq0.  Prints
+  the wksp gaddr of the created fseq to stdout.
+
+delete-fseq gaddr
+- Destroys the fseq at gaddr.
+
+query-fseq gaddr verbose
+- Queries the fseq at gaddr.  If verbose is 0, prints seq to stdout.
+  Otherwise, prints a detailed query to stdout.
+
+update-fseq gaddr seq
+- Updates the flow control variable at gaddr to seq.
+
+new-cnc wksp type now app-sz
+- Creates a command and control variable with the given type, initial
+  heartbeat of now and an application region size of app-sz.  Prints the
+  wksp gaddr of the cnc to stdout.  If now is '-', the wallclock will be
+  used for the initial heartbeat value.  If now is 'tic', the
+  tickcounter will be used for the initial heartbeat value.
+
+delete-cnc gaddr
+- Destroys the cnc at gaddr.
+
+query-cnc gaddr verbose
+- Queries the cnc at gaddr.  If verbose is 0, prints signal to stdout.
+  Otherwise, prints a detailed query to stdout.
+
+signal-cnc gaddr sig
+- Sends signal sig to cnc at gaddr and waits for the response.  Assumes
+  sig is a valid signal to send, e.g. halt (3).  Blocking waits for sig
+  to be processed and prints the response to stdout.  Typical responses
+  are:
+    run  (0): thread resumed running
+    boot (1): thread halted and can be safely restarted.
+    fail (2): thread halted and cannot be safely restated.
+
+new-tcache wksp depth map-cnt
+- Creates a tag cache with the given depth and map-cnt.  A map-cnt of
+  zero indicates to use a reasonable default.  Prints the wksp gaddr of
+  the tcache to stdout.
+
+delete-tcache gaddr
+- Destroys the tcache at gaddr.
+
+query-tcache gaddr verbose
+- Queries the tcache at gaddr.  verbose is currently ignored.
+
+reset-tcache gaddr
+- Resets the tcache at gaddr.
+
