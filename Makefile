@@ -4,7 +4,7 @@
 #
 # will do a parallel make all targets for the default machine.
 #
-# The environment variable MACHINE allows building for dfferent
+# The environment variable MACHINE allows building for different
 # machines.  As such, the above is equivalent to running:
 #
 #  MACHINE=[default_machine] make -j
@@ -17,6 +17,13 @@
 # of the build for this machine would be specified in the file:
 #
 #  config/my_machine.mk
+#
+# The environment variable EXTRAS allows enabling optional build
+# features in config/with-*.mk.  For example:
+#
+#  make -j EXTRAS="libbpf debug"
+#
+# would enable the "with-libbpf.mk" and "with-debug.mk" configs.
 #
 # Build binaries, unit tests, libraries, headers, other build artifacts
 # will be in the directory specified by that file.  As such, builds for
@@ -43,7 +50,9 @@ MACHINE=linux_gcc_x86_64
 endif
 
 $(info Using MACHINE=$(MACHINE))
+$(info Using EXTRAS=$(EXTRAS))
 
 include config/$(MACHINE).mk
+include $(addprefix config/with-,$(addsuffix .mk,$(EXTRAS)))
 include config/everything.mk
 
