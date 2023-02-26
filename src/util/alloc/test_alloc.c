@@ -165,8 +165,8 @@ main( int     argc,
   fd_alloc_t * alloc = fd_alloc_join( shalloc, 0UL ); FD_TEST( alloc );
   FD_TEST( fd_alloc_leave( alloc )==shalloc );
 
-  FD_TEST( fd_alloc_tag( NULL  )==0UL );
-  FD_TEST( fd_alloc_tag( alloc )==tag );
+  FD_TEST( fd_alloc_wksp( NULL  )==NULL ); FD_TEST( fd_alloc_tag( NULL  )==0UL );
+  FD_TEST( fd_alloc_wksp( alloc )==wksp ); FD_TEST( fd_alloc_tag( alloc )==tag );
 
   FD_LOG_NOTICE(( "Running torture test with --alloc-cnt %lu, --align-max %lu, --sz-max %lu on %lu tile(s)",
                   alloc_cnt, align_max, sz_max, tile_cnt ));
