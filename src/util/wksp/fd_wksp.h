@@ -203,6 +203,23 @@ fd_wksp_cstr_alloc( char const * name,
 void
 fd_wksp_cstr_free( char const * cstr );
 
+/* fd_wksp_cstr_tag queries the tag of a wksp allocation specified by a
+   cstr containing [name]:[gaddr].  Ignoring parsing and error trapping,
+   equivalent to:
+
+      fd_wksp_t * wksp = fd_wksp_attach( name );
+      ulong tag = fd_wksp_tag( wksp, gaddr );
+      fd_wksp_detach( wksp );
+      return tag;
+
+   As such, if doing many queries from the same wksp, it is faster to do
+   fd_wksp_attach upfront, followed by the deallocations and then a
+   fd_wksp_detach (and faster still to use the advanced APIs to further
+   amortize the fd_wksp_attach / fd_wksp_detach calls.) */
+
+ulong
+fd_wksp_cstr_tag( char const * cstr );
+
 /* fd_wksp_cstr_memset memsets a wksp allocation specified by a cstr
    containing [name]:[gaddr] to c.  Ignoring parsing and error trapping,
    equivalent to:

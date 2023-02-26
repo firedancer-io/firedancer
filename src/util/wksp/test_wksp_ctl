@@ -72,6 +72,10 @@ $BIN/fd_wksp_ctl alloc $WKSP    4096 -1                         && fail alloc $?
 
 GADDR=$($BIN/fd_wksp_ctl alloc $WKSP 4096 2097152 || fail alloc $?)
 
+GADDR1=$($BIN/fd_wksp_ctl tag 1234 alloc $WKSP 4096 4096 || fail alloc $?)
+GADDR2=$($BIN/fd_wksp_ctl tag 1234 alloc $WKSP 4096 4096 || fail alloc $?)
+GADDR3=$($BIN/fd_wksp_ctl tag 2345 alloc $WKSP 4096 4096 || fail alloc $?)
+
 echo Testing memset
 
 $BIN/fd_wksp_ctl memset            && fail memset $?
@@ -90,6 +94,29 @@ echo Testing query
 $BIN/fd_wksp_ctl query          && fail query $?
 $BIN/fd_wksp_ctl query bad/name && fail query $?
 $BIN/fd_wksp_ctl query $WKSP    || fail query $?
+
+echo Testing tag-query
+
+$BIN/fd_wksp_ctl tag-query          && fail tag-query $?
+$BIN/fd_wksp_ctl tag-query bad/name \
+                 tag-query $GADDR   \
+                 tag-query $GADDR1  \
+                 tag-query $GADDR2  \
+                 tag-query $GADDR3  \
+|| fail tag-query $? # Yes ... a fail here is success from cmd exec POV (fail is logged)
+
+echo Testing tag-free
+
+$BIN/fd_wksp_ctl tag-free       && fail tag-free $?
+$BIN/fd_wksp_ctl tag-free $WKSP && fail tag-free $?
+$BIN/fd_wksp_ctl tag-free bad   1234 \
+                 tag-free $WKSP    0 \
+                 tag-free $WKSP 4096 \
+                 tag-free $WKSP    2 \
+                 tag-free $WKSP 1234 \
+                 tag-free $WKSP 2345 \
+                 tag-free $WKSP 1234 \
+|| fail tag-free $? # Yes ... a fail here is success from cmd exec POV (fail is logged)
 
 echo Testing free
 
