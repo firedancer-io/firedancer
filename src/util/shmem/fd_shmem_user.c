@@ -188,9 +188,9 @@ fd_shmem_join( char const *               name,
   if( FD_UNLIKELY( fd_mlock( shmem, sz ) ) )
     FD_LOG_WARNING(( "fd_mlock(\"%s\",%lu KiB) failed (%i-%s); attempting to continue", path, sz>>10, errno, strerror( errno ) ));
 
-  /* TODO: MADV_DONTDUMP not supported by macOS at this time.
+  /* TODO: MADV_DONTDUMP not supported by macOS at this time, so only do this for Linux at the moment.
      Change this if future releases support this flag. */
-#ifndef __APPLE__
+#ifdef __linux__
   if( FD_UNLIKELY( madvise( shmem, sz, MADV_DONTDUMP ) ) )
     FD_LOG_WARNING(( "madvise(\"%s\",%lu KiB) failed (%i-%s); attempting to continue", path, sz>>10, errno, strerror( errno ) ));
 #endif

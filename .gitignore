@@ -12,5 +12,3 @@ bazel-testlogs
 
 genhtml/
 target/
-
-settings.json

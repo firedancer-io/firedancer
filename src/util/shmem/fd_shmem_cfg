@@ -97,7 +97,7 @@ init() {
         echo "init $1 $2 $3: fail, internal error, mount $MNT_PATH already exists"
         exit 1
       fi
-    elif [ "$IS_MAC_ARM64" == "1" ] || [ "$IS_MAC_X64" == "1" ]; then
+    elif [ "$IS_MAC_M1_M2" == "1" ] || [ "$IS_MAC_X64" == "1" ]; then
       mount > ./mount_points
       if grep -q $MNT_PATH ./mount_points; then
         echo "init $1 $2 $3: fail, internal error, mount $MNT_PATH already exists"
@@ -116,7 +116,7 @@ init() {
     if [ "$t" = "normal" ]; then
       if [ "$IS_LINUX_X64" == "1" ]; then
         mount -v -t tmpfs tmpfs $MNT_PATH
-      elif [ "$IS_MAC_X64" == "1" ] || [ "$IS_MAC_ARM64" == "1" ]; then
+      elif [ "$IS_MAC_X64" == "1" ] || [ "$IS_MAC_M1_M2" == "1" ]; then
         mount_tmpfs $MNT_PATH
       fi
       if [ "$?" != "0" ]; then
@@ -127,14 +127,14 @@ init() {
     else
       # macOS on the M1 and M2 architectures currently doesn't support superpages, so exit here
       # if we're running on either of these platforms.
-      if [ "$IS_MAC_ARM64" ]; then
-        echo "init $1 $2 $3: fail, macOS on ARM64 (M1/M2) does not support large pages (superpages)"
+      if [ "$IS_MAC_M1_M2" ]; then
+        echo "init $1 $2 $3: fail, macOS on M1/M2 does not support large pages (superpages)"
         exit 1
       fi
 
       if [ "$IS_LINUX_X64" == "1" ]; then
         msz=`free -b | grep Mem | awk '{ print $2 }'` # FIXME: Ugly
-      elif [ "$IS_MAC_X64" == "1" ] || [ "$IS_MAC_ARM64" == "1" ]; then
+      elif [ "$IS_MAC_X64" == "1" ] || [ "$IS_MAC_M1_M2" == "1" ]; then
         msz=`sysctl hw.memsize | awk '{ print $2 }'`
       fi
       psz=`get_page_size $t`
@@ -245,7 +245,7 @@ alloc() {
   fi
 
   # Check for options that are unsupported on the target platform.
-  if [ "$IS_MAC_ARM64" == "1" ] && ([ "$TYPE" == "huge" ] || [ "$TYPE" == "gigantic" ]); then
+  if [ "$IS_MAC_M1_M2" == "1" ] && ([ "$TYPE" == "huge" ] || [ "$TYPE" == "gigantic" ]); then
     echo "alloc $1 $2 $3: fail, macOS on ARM64 (M1/M2) does not support neither superpages (hugepages) nor gigantic pages"
     echo "Do $0 help for help"
     exit 1
@@ -314,13 +314,20 @@ if [ $# -lt 1 ]; then
   exit 1
 fi
 
-UNAME_OUTPUT=`uname -a`
-if [[ "$UNAME_OUTPUT" == "Linux"* ]] && [[ "$UNAME_OUTPUT" == *"x86_64"* ]]; then
+OS_STR=`uname -s`
+ARCH_STR=`uname -m`
+if [[ "$OS_STR" == "Linux" ]] && [[ "$ARCH_STR" == "x86_64" ]]; then
   export IS_LINUX_X64=1
-elif [[ "$UNAME_OUTPUT" == *"Darwin"* ]] && [[ "$UNAME_OUTPUT" == *"x86_64"* ]]; then
-  export IS_MAC_X64=1
-elif [[ "$UNAME_OUTPUT" == *"Darwin"* ]] && [[ "$UNAME_OUTPUT" == *"arm64"* ]]; then
-  export IS_MAC_ARM64=1
+elif [[ "$OS_STR" == "Darwin" ]] && [[ "$ARCH_STR" == "x86_64" ]]; then
+  VERSION_LEVEL_STR=`uname -v`
+  if [[ "$VERSION_LEVEL_STR" == *"ARM64"* ]]; then
+    export IS_MAC_M1_M2=1
+  else
+    export IS_MAC_X64=1
+  fi
+elif [[ "$OS_STR" == "Darwin" ]] && [[ "$ARCH_STR" == "arm64" ]]; then
+  echo "Run firedancer under Rosetta on macOS M1 and M2 systems"
+  exit 1
 else
   echo "Firedancer is not supported on this platform"
   exit 1

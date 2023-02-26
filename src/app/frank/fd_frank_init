@@ -1,8 +1,8 @@
 #!/bin/bash
 
-if [ $# -ne 4 ]; then
+if [ $# -lt 4 ]; then
   echo ""
-  echo "        Usage: $0 [APP_NAME] [APP_CORE_TARGET] [VERIFY_CNT] [BUILD]"
+  echo "        Usage: $0 [APP_NAME] [APP_CORE_TARGET] [VERIFY_CNT] [BUILD] [PAGE_SIZE]"
   echo ""
   exit 1
 fi
@@ -11,8 +11,14 @@ APP=$1
 AFFINITY=$2
 VERIFY_CNT=$3
 BUILD=$4
-shift 4
-
+if [ -z "$5" ]; then
+  WKSP_PAGE_SZ=""
+  shift 4
+else
+  WKSP_PAGE_SZ=$5
+  shift 5
+fi
+  
 #######################################################################
 
 CONF=tmp/$APP.cfg
@@ -35,32 +41,43 @@ DEDUP_DEPTH=$VERIFY_DEPTH
 # Linux x64: gigantic
 # macOS x64 Intel: huge (superpages)
 # macOS ARM (M1/M2): normal
-UNAME_OUTPUT=`uname -a`
-if [[ "$UNAME_OUTPUT" == "Linux"* ]] && [[ "$UNAME_OUTPUT" == *"x86_64"* ]]; then
+OS_STR=`uname -s`
+ARCH_STR=`uname -m`
+if [[ "$OS_STR" == "Linux" ]] && [[ "$ARCH_STR" == "x86_64" ]]; then
   PLATFORM_DEFAULT_WKSP_PAGE_SZ=gigantic
-elif [[ "$UNAME_OUTPUT" == *"Darwin"* ]] && [[ "$UNAME_OUTPUT" == *"x86_64"* ]]; then
-  PLATFORM_DEFAULT_WKSP_PAGE_SZ=huge
-elif [[ "$UNAME_OUTPUT" == *"Darwin"* ]] && [[ "$UNAME_OUTPUT" == *"arm64"* ]]; then
-  PLATFORM_DEFAULT_WKSP_PAGE_SZ=normal
+elif [[ "$OS_STR" == "Darwin" ]] && [[ "$ARCH_STR" == "x86_64" ]]; then
+  VERSION_LEVEL_STR=`uname -v`
+  if [[ "$VERSION_LEVEL_STR" == *"ARM64"* ]]; then
+    PLATFORM_DEFAULT_WKSP_PAGE_SZ=normal
+  else
+    PLATFORM_DEFAULT_WKSP_PAGE_SZ=huge
+  fi
+elif [[ "$OS_STR" == "Darwin" ]] && [[ "$ARCH_STR" == "arm64" ]]; then
+  echo "Run firedancer under Rosetta on macOS M1 and M2 systems"
+  exit 1
 else
   echo "Firedancer is not supported on this platform"
   exit 1
 fi
 
-# Allow override of platform's default page size via the FD_WKSP_PAGE_SIZE environment variable.
-WKSP_PAGE_SZ=${FD_WKSP_PAGE_SIZE:-$PLATFORM_DEFAULT_WKSP_PAGE_SZ}
+# Allow override of platform's default page size via a command line argument
+# If PAGE_SIZE argument was not provided at the command line, use the platform's default,
+# as determined above.
+if [[ -z "$WKSP_PAGE_SZ" ]]; then
+  WKSP_PAGE_SZ=$PLATFORM_DEFAULT_WKSP_PAGE_SZ
+fi
 
-if [ "$WKSP_PAGE_SZ" != "huge" ] && [ "$WKSP_PAGE_SZ" == "gigantic" ] && [ "$WKSP_PAGE_SZ" == "normal" ]; then
-  echo "fd_frank_init $1 $2 $3 $4: fail, invalid page size for FD_WKSP_PAGE_SIZE"
+if [ "$WKSP_PAGE_SZ" != "huge" ] && [ "$WKSP_PAGE_SZ" != "gigantic" ] && [ "$WKSP_PAGE_SZ" != "normal" ]; then
+  echo "fd_frank_init fail, invalid page size '$WKSP_PAGE_SZ' specified"
   exit 1
 fi
 
 if [[ "$WKSP_PAGE_SZ" == "gigantic" ]]; then
   WKSP_PAGE_CNT=2
 elif [[ "$WKSP_PAGE_SZ" == "huge" ]]; then
-  WKSP_PAGE_CNT=500
+  WKSP_PAGE_CNT=1024
 elif [[ "$WKSP_PAGE_SZ" == "normal" ]]; then
-  WKSP_PAGE_CNT=250000
+  WKSP_PAGE_CNT=524288
 fi    
 
 #######################################################################
