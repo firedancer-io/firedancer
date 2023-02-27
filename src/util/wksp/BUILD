@@ -20,9 +20,8 @@ fd_cc_library(
 
 fd_cc_binary(
     name = "fd_wksp_ctl",
-    srcs = [
-        "fd_wksp_ctl.c",
-    ],
+    srcs = ["fd_wksp_ctl.c"],
+    compile_data = ["fd_wksp_ctl_help"],
     deps = ["//src/util"],
 )
 
