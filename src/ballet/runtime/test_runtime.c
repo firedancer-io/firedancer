@@ -131,6 +131,7 @@ int ingest(global_state_t *state) {
           FD_LOG_ERR(( "??" ));
         }
 
+        printf("%s\n", buf);
         while (b < eptr) {
           fd_solana_account_hdr_t *hdr = (fd_solana_account_hdr_t *)b;
           // how do I validate this?!
