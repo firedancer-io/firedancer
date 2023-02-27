@@ -125,13 +125,6 @@ init() {
         exit 1
       fi
     else
-      # macOS on the M1 and M2 architectures currently doesn't support superpages, so exit here
-      # if we're running on either of these platforms.
-      if [ "$IS_MAC_M1_M2" ]; then
-        echo "init $1 $2 $3: fail, macOS on M1/M2 does not support large pages (superpages)"
-        exit 1
-      fi
-
       if [ "$IS_LINUX_X64" == "1" ]; then
         msz=`free -b | grep Mem | awk '{ print $2 }'` # FIXME: Ugly
       elif [ "$IS_MAC_X64" == "1" ] || [ "$IS_MAC_M1_M2" == "1" ]; then
