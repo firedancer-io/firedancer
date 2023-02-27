@@ -6,6 +6,8 @@
 #include <stdio.h>
 #include <sys/stat.h>
 
+FD_IMPORT_CSTR( fd_wksp_ctl_help, "src/util/wksp/fd_wksp_ctl_help" );
+
 /* fd_printf_wksp pretty prints the detailed workspace state to file.
    Includes detailed metadata integrity checking.  Return value
    semantics are the same as for fprintf. */
@@ -111,56 +113,8 @@ main( int     argc,
 
     if( !strcmp( cmd, "help" ) ) {
 
-      /* FIXME: USE FD_IMPORT_CSTR FOR THIS */
-      FD_LOG_NOTICE(( "\n\t"
-        "Usage: %s [cmd] [cmd args] [cmd] [cmd args] ...\n\t"
-        "Commands are:\n\t"
-        "\n\t"
-        "\thelp\n\t"
-        "\t- Prints this message\n\t"
-        "\n\t"
-        "\ttag val\n\t"
-        "\t- Sets the tag for subsequent wksp allocations to val.\n\t"
-        "\t  Default is 1.\n\t"
-        "\n\t"
-        "\tnew wksp page_cnt page_sz cpu_idx mode\n\t"
-        "\t- Create a workspace named wksp from page_cnt page_sz pages near\n\t"
-        "\t  logical cpu_idx.  The region will have the unix\n\t"
-        "\t  permissions specified by mode (assumed octal).\n\t"
-        "\n\t"
-        "\tdelete wksp\n\t"
-        "\t- Delete a workspace named wksp.  If multiple shmem regions\n\t"
-        "\t  exist with same name, try to use the shmem region backed by\n\t"
-        "\t  the largest page size\n\t"
-        "\n\t"
-        "\talloc wksp align sz\n\t"
-        "\t- Allocates sz bytes with global address alignment align from\n\t"
-        "\t  the wksp.  align 0 means use the default alignment.  Prints\n\t"
-        "\t  the wksp cstr address of the allocation to stdout on success.\n\t"
-        "\n\t"
-        "\tfree wksp_gaddr\n\t"
-        "\t- Free allocation pointed to by wksp cstr address wksp_gaddr.\n\t"
-        "\t  wksp_gaddr can point at any byte in the allocation.\n\t"
-        "\t  Technically speaking, this always succeeds but any weirdness\n\t"
-        "\t  detected is logged.\n\t"
-        "\n\t"
-        "\tmemset wksp_gaddr c\n\t"
-        "\t- Memset allocation pointed to by wksp cstr address wksp_gaddr\n\t"
-        "\t  to byte c.  wksp_gaddr can point at any byte in the\n\t"
-        "\t  allocation.  Technically speaking, this always succeeds but\n\t"
-        "\t  any weirdness detected is logged.\n\t"
-        "\n\t"
-        "\tcheck wksp\n\t"
-        "\t- Check if any processes that died in middle of workspace\n\t"
-        "\t  operations (clean up if so) or are stalling other processes\n\t"
-        "\t  from doing workspace operations (log if so).\n\t"
-        "\n\t"
-        "\treset wksp\n\t"
-        "\t- Free all allocations in a workspace.\n\t"
-        "\n\t"
-        "\tquery wksp\n\t"
-        "\t- Print the detailed workspace usage to stdout.\n\t"
-        "", bin ));
+      fputs( fd_wksp_ctl_help, stdout );
+
       FD_LOG_NOTICE(( "%i: %s: success", cnt, cmd ));
 
     } else if( !strcmp( cmd, "tag" ) ) {
@@ -287,6 +241,33 @@ main( int     argc,
       FD_LOG_NOTICE(( "%i: %s %s: success", cnt, cmd, name_gaddr )); /* FIXME: HMMM (print success on bad free?) */
       SHIFT(1);
 
+    } else if( !strcmp( cmd, "tag-query" ) ) {
+
+      if( FD_UNLIKELY( argc<1 ) ) FD_LOG_ERR(( "%i: %s: too few arguments\n\tDo %s help for help", cnt, cmd, bin ));
+
+      char const * name_gaddr = argv[0];
+
+      printf( "%lu\n", fd_wksp_cstr_tag( name_gaddr ) ); /* logs details */
+
+      FD_LOG_NOTICE(( "%i: %s %s: success", cnt, cmd, name_gaddr ));
+      SHIFT(1);
+
+    } else if( !strcmp( cmd, "tag-free" ) ) {
+
+      if( FD_UNLIKELY( argc<2 ) ) FD_LOG_ERR(( "%i: %s: too few arguments\n\tDo %s help for help", cnt, cmd, bin ));
+
+      char const * name =                   argv[0];
+      ulong        tag  = fd_cstr_to_ulong( argv[1] );
+
+      fd_wksp_t * wksp = fd_wksp_attach( name ); /* logs details */
+      if( FD_LIKELY( wksp ) ) {
+        fd_wksp_tag_free( wksp, tag ); /* logs details */
+        fd_wksp_detach( wksp );        /* logs details */
+      }
+
+      FD_LOG_NOTICE(( "%i: %s %s %lu: success", cnt, cmd, name, tag ));
+      SHIFT(2);
+
     } else if( !strcmp( cmd, "memset" ) ) {
 
       if( FD_UNLIKELY( argc<2 ) ) FD_LOG_ERR(( "%i: %s: too few arguments\n\tDo %s help for help", cnt, cmd, bin ));
@@ -350,7 +331,8 @@ main( int     argc,
     cnt++;
   }
 
-  FD_LOG_NOTICE(( "processed %i commands", cnt ));
+  if( FD_UNLIKELY( cnt<1 ) ) FD_LOG_NOTICE(( "processed %i commands\n\tDo %s help for help", cnt, bin ));
+  else                       FD_LOG_NOTICE(( "processed %i commands", cnt ));
 
 # undef SHIFT
   fd_halt();

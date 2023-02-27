@@ -24,7 +24,8 @@ fd_cc_library(
     linkstatic = True,
     visibility = ["//visibility:public"],
     deps = [
-        ":base_lib",
+        "base_lib",
+        "//src/util/alloc",
         "//src/util/archive",
         "//src/util/bits",
         "//src/util/cstr",

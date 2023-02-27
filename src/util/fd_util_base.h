@@ -371,7 +371,31 @@ __extension__ typedef unsigned __int128 uint128;
      extern ulong const name_sz;
 
    as necessary (that is, do the usual to use name and name_sz as shown
-   for the pseudo code above). */
+   for the pseudo code above).
+
+   Important safety tip!  gcc -M will generally not detect the
+   dependency this creates between the importing file and the imported
+   file.  This can cause incremental builds to miss changes to the
+   imported file.  Ideally, we would have FD_IMPORT automatically do
+   something like:
+
+     _Pragma( "GCC dependency \"" path "\" )
+
+   This doesn't work as is because _Pragma needs some macro expansion
+   hacks to accept this (this is doable).  After that workaround, this
+   still doesn't work because, due to tooling limitations, the pragma
+   path is relative to the source file directory and the FD_IMPORT path
+   is relative to the the make directory (working around this would
+   require a __FILE__-like directive for the source code directory base
+   path).  Even if that did exist, it might still not work because
+   out-of-tree builds often require some substitions to the gcc -M
+   generated dependencies that this might not pick up (at least not
+   without some build system surgery).  And then it still wouldn't work
+   because gcc -M seems to ignore all of this anyways (which is the
+   actual show stopper as this pragma does something subtly different
+   than what the name suggests and there isn't any obvious support for a
+   "pseudo-include".)  Another reminder that make clean and fast builds
+   are our friend. */
 
 #define FD_IMPORT( name, path, type, align, footer )         \
   __asm__( ".section .rodata,\"a\",@progbits\n"              \
