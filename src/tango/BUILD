@@ -32,6 +32,7 @@ fd_cc_library(
 fd_cc_binary(
     name = "fd_tango_ctl",
     srcs = ["fd_tango_ctl.c"],
+    compile_data = ["fd_tango_ctl_help"],
     visibility = ["//visibility:public"],
     deps = [":tango"],
 )

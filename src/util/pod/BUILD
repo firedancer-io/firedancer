@@ -19,6 +19,7 @@ fd_cc_library(
 fd_cc_binary(
     name = "fd_pod_ctl",
     srcs = ["fd_pod_ctl.c"],
+    compile_data = ["fd_pod_ctl_help"],
     deps = ["//src/util"],
 )
 
