@@ -16,6 +16,10 @@
 
 bool do_valgrind = false;
 
+int
+fd_alloc_fprintf( fd_alloc_t * join,
+                  FILE *       stream );
+
 char* allocf(unsigned long len, FD_FN_UNUSED unsigned long align, FD_FN_UNUSED void* arg) {
   if (NULL == arg) {
     FD_LOG_ERR(( "yo dawg.. you passed a NULL as a fd_alloc pool"));
@@ -359,7 +363,7 @@ int main(int argc, char **argv) {
 
   fd_funk_delete(fd_funk_leave(state.funk));
 
-  // dump alloc state
+//  fd_alloc_fprintf( state.alloc, stdout );
 
   fd_alloc_free(state.alloc, fd_funk_raw);
 
