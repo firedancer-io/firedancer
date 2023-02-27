@@ -1,5 +1,7 @@
+// test_xdp.init
+
 //  --ledger /dev/shm/mainnet-ledger --db /dev/shm/funk --cmd replay --start-slot 179138205 --end-slot 279138205  --skip-exe true
-//  --ledger /dev/shm/mainnet-ledger --db /dev/shm/funk --cmd injest --start-slot 179138205 --end-slot 279138205 --manifest /dev/shm/mainnet-ledger/snapshot/tmp-snapshot-archive-JfVTLu/snapshots/179248368/179248368
+//  --ledger /dev/shm/mainnet-ledger --db /dev/shm/funk --cmd ingest --start-slot 179138205 --end-slot 279138205 --manifest /dev/shm/mainnet-ledger/snapshot/tmp-snapshot-archive-JfVTLu/snapshots/179248368/179248368
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -7,12 +9,14 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <regex.h>
 #include <fcntl.h>
 #include "fd_rocksdb.h"
 #include "fd_banks_solana.h"
 #include "fd_executor.h"
 #include "../../funk/fd_funk.h"
 #include "../../util/alloc/fd_alloc.h"
+#include <dirent.h>
 
 bool do_valgrind = false;
 
@@ -51,6 +55,10 @@ struct global_state {
   ulong        pages;
   bool         skip_exe;
 
+
+  int          argc;
+  char       **argv;
+
   char const * name;
   char const * ledger;
   char const * db;
@@ -83,6 +91,56 @@ static void usage(const char* progname) {
   fprintf(stderr, " --skip-exe   <bool>       Should we skip executing transactions\n");
 }
 
+// pub const FULL_SNAPSHOT_ARCHIVE_FILENAME_REGEX: &str = r"^snapshot-(?P<slot>[[:digit:]]+)-(?P<hash>[[:alnum:]]+)\.(?P<ext>tar|tar\.bz2|tar\.zst|tar\.gz|tar\.lz4)$";
+// pub const INCREMENTAL_SNAPSHOT_ARCHIVE_FILENAME_REGEX: &str = r"^incremental-snapshot-(?P<base>[[:digit:]]+)-(?P<slot>[[:digit:]]+)-(?P<hash>[[:alnum:]]+)\.(?P<ext>tar|tar\.bz2|tar\.zst|tar\.gz|tar\.lz4)$";
+
+int ingest(global_state_t *state) {
+  if (NULL == state->accounts)  {
+    usage(state->argv[0]);
+    exit(1);
+  }
+
+  regex_t reg;
+  // Where were those regular expressions for snapshots?
+  if (regcomp(&reg, "[0-9]+\\.[0-9]+", REG_EXTENDED) != 0) {
+    FD_LOG_ERR(( "compile failed" ));
+  }
+
+  DIR *dir = opendir(state->accounts);
+
+  struct dirent * ent;
+  while ( NULL != (ent = readdir(dir)) ) {
+    if ( regexec(&reg, ent->d_name, 0, NULL, 0) == 0 )  {
+        struct stat s;
+        char buf[1000];
+        sprintf(buf, "%s/%s", state->accounts, ent->d_name);
+        stat(buf,  &s);
+        unsigned char *b = (unsigned char *)allocf((unsigned long) (unsigned long) s.st_size, 8UL, state->alloc);
+        int fd = open(buf, O_RDONLY);
+        ssize_t n = read(fd, b, (unsigned long) s.st_size);
+        unsigned char *eptr = &b[n - sizeof(fd_solana_account_hdr_t)];
+        if (n != s.st_size) {
+          FD_LOG_ERR(( "??" ));
+        }
+
+        while (b < eptr) {
+          fd_solana_account_hdr_t *hdr = (fd_solana_account_hdr_t *)b;
+          // how do I validate this?!
+          printf("%ld\n", hdr->meta.data_len);
+          b += fd_ulong_align_up(hdr->meta.data_len + sizeof(*hdr), 8);
+        }
+
+        close(fd);
+        freef(b, state->alloc);
+    }
+  }
+
+  closedir(dir);
+  regfree(&reg);
+
+  return 0;
+}
+
 int manifest(global_state_t *state) {
   struct stat s;
   stat(state->manifest,  &s);
@@ -92,6 +150,7 @@ int manifest(global_state_t *state) {
   unsigned char *b = (unsigned char *)allocf((unsigned long) (unsigned long) s.st_size, 1, state->alloc);
   int fd = open(state->manifest, O_RDONLY);
   ssize_t n = read(fd, b, (unsigned long) s.st_size);
+  close(fd);
 
   FD_TEST(n == s.st_size);
   unsigned char *outend = &b[n];
@@ -188,6 +247,9 @@ int main(int argc, char **argv) {
   global_state_t state;
   fd_memset(&state, 0, sizeof(state));
 
+  state.argc = argc;
+  state.argv = argv;
+
   state.end_slot = 73;
   state.start_slot = 0;
 
@@ -197,7 +259,7 @@ int main(int argc, char **argv) {
   state.end_slot_opt   = fd_env_strip_cmdline_cstr ( &argc, &argv, "--end-slot",     NULL, NULL);
   state.start_slot_opt = fd_env_strip_cmdline_cstr ( &argc, &argv, "--start-slot",   NULL, NULL);
   state.manifest       = fd_env_strip_cmdline_cstr ( &argc, &argv, "--manifest",     NULL, NULL);
-  state.accounts       = fd_env_strip_cmdline_cstr ( &argc, &argv, "--account",      NULL, NULL);
+  state.accounts       = fd_env_strip_cmdline_cstr ( &argc, &argv, "--accounts",     NULL, NULL);
   state.cmd            = fd_env_strip_cmdline_cstr ( &argc, &argv, "--cmd",          NULL, NULL);
   state.skip_exe_opt   = fd_env_strip_cmdline_cstr ( &argc, &argv, "--skip-exe",     NULL, NULL);
   state.pages_opt      = fd_env_strip_cmdline_cstr ( &argc, &argv, "--pages",        NULL, NULL);
@@ -354,6 +416,8 @@ int main(int argc, char **argv) {
     replay(&state);
   if (strcmp(state.cmd, "manifest") == 0)
     manifest(&state);
+  if (strcmp(state.cmd, "ingest") == 0)
+    ingest(&state);
 
   fd_acc_mgr_delete(fd_acc_mgr_leave(state.acc_mgr));
   free(fd_acc_mgr_raw);
