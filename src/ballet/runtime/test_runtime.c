@@ -75,6 +75,7 @@ struct global_state {
   fd_funk_t*   funk;
   fd_acc_mgr_t* acc_mgr;
   fd_rocksdb_t rocks_db;
+  fd_genesis_solana_t gen;
 };
 typedef struct global_state global_state_t;
 
@@ -108,6 +109,10 @@ int ingest(global_state_t *state) {
 
   DIR *dir = opendir(state->accounts);
 
+// Rent per byte-year: 0.00000348 SOL
+// Rent per epoch: 0.000002458 SOL
+// Rent-exempt minimum: 0.00089784 SOL
+
   struct dirent * ent;
   while ( NULL != (ent = readdir(dir)) ) {
     if ( regexec(&reg, ent->d_name, 0, NULL, 0) == 0 )  {
@@ -118,7 +123,10 @@ int ingest(global_state_t *state) {
         unsigned char *b = (unsigned char *)allocf((unsigned long) (unsigned long) s.st_size, 8UL, state->alloc);
         int fd = open(buf, O_RDONLY);
         ssize_t n = read(fd, b, (unsigned long) s.st_size);
-        unsigned char *eptr = &b[n - sizeof(fd_solana_account_hdr_t)];
+        if (n < 0) {
+          FD_LOG_ERR(( "??" ));
+        }
+        unsigned char *eptr = &b[(ulong) ((ulong)n - (ulong)sizeof(fd_solana_account_hdr_t))];
         if (n != s.st_size) {
           FD_LOG_ERR(( "??" ));
         }
@@ -126,7 +134,11 @@ int ingest(global_state_t *state) {
         while (b < eptr) {
           fd_solana_account_hdr_t *hdr = (fd_solana_account_hdr_t *)b;
           // how do I validate this?!
-          printf("%ld\n", hdr->meta.data_len);
+          ulong exempt = (hdr->meta.data_len + 128) * ((ulong) ((double)state->gen.rent.lamports_per_uint8_year * state->gen.rent.exemption_threshold));
+          if ((hdr->meta.data_len == 0) && (hdr->info.lamports == 0))
+            break;
+          if (hdr->info.lamports < exempt)
+            printf("%ld\n", hdr->meta.data_len);
           b += fd_ulong_align_up(hdr->meta.data_len + sizeof(*hdr), 8);
         }
 
@@ -323,9 +335,8 @@ int main(int argc, char **argv) {
     
   void *data = buf;
   void *dataend = &buf[n];
-  fd_genesis_solana_t gen;
-  fd_memset(&gen, 0, sizeof(gen));
-  fd_genesis_solana_decode(&gen, ( void const** )&data, dataend, allocf, state.alloc);
+  fd_memset(&state.gen, 0, sizeof(state.gen));
+  fd_genesis_solana_decode(&state.gen, ( void const** )&data, dataend, allocf, state.alloc);
 
   // Jam all the accounts into the database....  (gen.accounts)
 
@@ -340,8 +351,8 @@ int main(int argc, char **argv) {
   uchar *dbuf = NULL;
   ulong datalen = 0;
 
-  for (ulong i = 0; i < gen.accounts_len; i++) {
-    fd_pubkey_account_pair_t *a = &gen.accounts[i];
+  for (ulong i = 0; i < state.gen.accounts_len; i++) {
+    fd_pubkey_account_pair_t *a = &state.gen.accounts[i];
 
     // Here be dragons and the subject of debate
 
@@ -378,8 +389,6 @@ int main(int argc, char **argv) {
     free(dbuf);
     dbuf = NULL;
   }
-
-  fd_genesis_solana_destroy(&gen, freef, state.alloc);
 
   //  we good?
 //  FD_LOG_WARNING(("validating funk db"));
@@ -421,6 +430,8 @@ int main(int argc, char **argv) {
 
   fd_acc_mgr_delete(fd_acc_mgr_leave(state.acc_mgr));
   free(fd_acc_mgr_raw);
+
+  fd_genesis_solana_destroy(&state.gen, freef, state.alloc);
 
   // The memory management model is odd...  how do I know how to destroy this
   fd_rocksdb_destroy(&state.rocks_db);
