@@ -134,10 +134,10 @@ int ingest(global_state_t *state) {
         printf("%s\n", buf);
         while (b < eptr) {
           fd_solana_account_hdr_t *hdr = (fd_solana_account_hdr_t *)b;
+          if ((hdr->info.lamports == 0) | ((hdr->info.executable & 1) != 0))
+            break;
           // how do I validate this?!
           ulong exempt = (hdr->meta.data_len + 128) * ((ulong) ((double)state->gen.rent.lamports_per_uint8_year * state->gen.rent.exemption_threshold));
-          if ((hdr->meta.data_len == 0) && (hdr->info.lamports == 0))
-            break;
           if (hdr->info.lamports < exempt)
             printf("%ld\n", hdr->meta.data_len);
           b += fd_ulong_align_up(hdr->meta.data_len + sizeof(*hdr), 8);
