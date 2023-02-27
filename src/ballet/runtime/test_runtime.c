@@ -14,7 +14,7 @@
 #include "../../funk/fd_funk.h"
 #include "../../util/alloc/fd_alloc.h"
 
-bool do_valgrind = true;
+bool do_valgrind = false;
 
 char* allocf(unsigned long len, FD_FN_UNUSED unsigned long align, FD_FN_UNUSED void* arg) {
   if (NULL == arg) {
@@ -44,6 +44,7 @@ void freef(void *ptr, FD_FN_UNUSED void* arg) {
 struct global_state {
   ulong        end_slot;
   ulong        start_slot;
+  ulong        pages;
   bool         skip_exe;
 
   char const * name;
@@ -55,6 +56,7 @@ struct global_state {
   char const * accounts;
   char const * cmd;
   char const * skip_exe_opt;
+  char const * pages_opt;
 
   fd_wksp_t *  wksp;
   fd_alloc_t * alloc;
@@ -194,6 +196,7 @@ int main(int argc, char **argv) {
   state.accounts       = fd_env_strip_cmdline_cstr ( &argc, &argv, "--account",      NULL, NULL);
   state.cmd            = fd_env_strip_cmdline_cstr ( &argc, &argv, "--cmd",          NULL, NULL);
   state.skip_exe_opt   = fd_env_strip_cmdline_cstr ( &argc, &argv, "--skip-exe",     NULL, NULL);
+  state.pages_opt      = fd_env_strip_cmdline_cstr ( &argc, &argv, "--pages",        NULL, NULL);
 
   if ((NULL == state.ledger) || (NULL == state.db)) {
     usage(argv[0]);
@@ -204,12 +207,17 @@ int main(int argc, char **argv) {
     state.skip_exe = !strcmp(state.skip_exe_opt, "true");
   }
 
+  if (state.pages_opt) 
+    state.pages = (ulong) atoi(state.pages_opt);
+  else
+    state.pages = 2;
+
   if( state.name ) {
     FD_LOG_NOTICE(( "Attaching to --wksp %s", state.name ));
     state.wksp = fd_wksp_attach( state.name );
   } else {
     FD_LOG_NOTICE(( "--wksp not specified, using an anonymous local workspace" ));
-    state.wksp = fd_wksp_new_anonymous( FD_SHMEM_GIGANTIC_PAGE_SZ, 1UL, fd_log_cpu_id(), "wksp", 0UL );
+    state.wksp = fd_wksp_new_anonymous( FD_SHMEM_GIGANTIC_PAGE_SZ, state.pages, fd_log_cpu_id(), "wksp", 0UL );
   } 
 
   if( FD_UNLIKELY( !state.wksp ) ) FD_LOG_ERR(( "Unable to attach to wksp" ));
@@ -351,11 +359,16 @@ int main(int argc, char **argv) {
 
   fd_funk_delete(fd_funk_leave(state.funk));
 
+  // dump alloc state
+
   fd_alloc_free(state.alloc, fd_funk_raw);
 
   free(buf);
 
   fd_wksp_free_laddr( shmem );
+
+  // dump wksp state
+
   if( state.name ) 
     fd_wksp_detach( state.wksp );
   else  
