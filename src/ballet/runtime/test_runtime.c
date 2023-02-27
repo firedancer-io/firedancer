@@ -1,4 +1,4 @@
-//  --ledger /dev/shm/mainnet-ledger --db /dev/shm/funk --cmd replay --start-slot 179138205 --end-slot 279138205
+//  --ledger /dev/shm/mainnet-ledger --db /dev/shm/funk --cmd replay --start-slot 179138205 --end-slot 279138205  --skip-exe true
 //  --ledger /dev/shm/mainnet-ledger --db /dev/shm/funk --cmd injest --start-slot 179138205 --end-slot 279138205 --manifest /dev/shm/mainnet-ledger/snapshot/tmp-snapshot-archive-JfVTLu/snapshots/179248368/179248368
 
 #include <stdio.h>
@@ -14,15 +14,18 @@
 #include "../../funk/fd_funk.h"
 #include "../../util/alloc/fd_alloc.h"
 
-//#define _VALGRIND
+// #define _VALGRIND
 
 #ifdef _VALGRIND
 char* allocf(unsigned long len, FD_FN_UNUSED unsigned long align, FD_FN_UNUSED void* arg) {
-  return malloc(len);
+  char * ptr = malloc(sizeof(char *) + len + align);
+  char * ret = (char *) fd_ulong_align_up( (ulong) (ptr + sizeof(char *)), align );
+  *((char **)(ret - sizeof(char *))) = ptr;
+  return ret;
 }
 
 void freef(void *ptr, FD_FN_UNUSED void* arg) {
-  free(ptr);
+  free(*((char **)((char *) ptr - sizeof(char *))));
 }
 #else
 
@@ -50,6 +53,8 @@ void freef(void *ptr, void* arg) {
 struct global_state {
   ulong        end_slot;
   ulong        start_slot;
+  bool         skip_exe;
+
   char const * name;
   char const * ledger;
   char const * db;
@@ -58,6 +63,7 @@ struct global_state {
   char const * manifest;
   char const * accounts;
   char const * cmd;
+  char const * skip_exe_opt;
 
   fd_wksp_t *  wksp;
   fd_alloc_t * alloc;
@@ -77,6 +83,7 @@ static void usage(const char* progname) {
   fprintf(stderr, " --manifest   <file>       What manifest file should I pay attention to\n");
   fprintf(stderr, " --accounts   <dir>        What accounts should I slurp in\n");
   fprintf(stderr, " --cmd        <operation>  What operation should we test\n");
+  fprintf(stderr, " --skip-exe   <bool>       Should we skip executing transactions\n");
 }
 
 int injest(global_state_t *state) {
@@ -111,41 +118,51 @@ int replay(global_state_t *state) {
   char *err = NULL;
 
   for (ulong slot = state->start_slot; slot < state->end_slot; slot++) {
+    FD_LOG_WARNING(("reading slot %ld", slot));
+//    fd_log_flush();
+
     fd_slot_meta_t m;
     fd_memset(&m, 0, sizeof(m));
+    err = NULL;
     fd_rocksdb_get_meta(&state->rocks_db, slot, &m, allocf, state->alloc, &err);
     if (err != NULL) {
-      FD_LOG_ERR(("fd_rocksdb_last_slot returned %s", err));
+      FD_LOG_WARNING(("fd_rocksdb_last_slot returned %s", err));
+      free (err);
+      continue;
     }
 
     fd_slot_blocks_t *slot_data = fd_rocksdb_get_microblocks(&state->rocks_db, &m, allocf, state->alloc);
-    FD_LOG_INFO(("fd_rocksdb_get_microblocks got %d microblocks", slot_data->block_cnt));
 
     // free 
     fd_slot_meta_destroy(&m, freef, state->alloc);
 
-    // execute slot_block...
-    FD_LOG_INFO(("executing micro blocks... profit"));
+    if (NULL == slot_data) {
+      FD_LOG_WARNING(("fd_rocksdb_get_microblocks returned NULL for slot %ld", slot));
+      continue;
+    }
 
-    uchar *blob = slot_data->first_blob;
-    while (NULL != blob) {
-      uchar *blob_ptr = blob + FD_BLOB_DATA_START;
-      uint cnt = *((uint *) (blob + 8));
-      while (cnt > 0) {
-        fd_microblock_t * micro_block = fd_microblock_join( blob_ptr );
+    if (!state->skip_exe) {
+      // execute slot_block...
+      uchar *blob = slot_data->first_blob;
+      while (NULL != blob) {
+        uchar *blob_ptr = blob + FD_BLOB_DATA_START;
+        uint cnt = *((uint *) (blob + 8));
+        while (cnt > 0) {
+          fd_microblock_t * micro_block = fd_microblock_join( blob_ptr );
 
-        for ( ulong txn_idx = 0; txn_idx < micro_block->txn_max_cnt; txn_idx++ ) {
-          fd_txn_t* txn_descriptor = (fd_txn_t *)&micro_block->txn_tbl[ txn_idx ];
-          fd_rawtxn_b_t* txn_raw   = (fd_rawtxn_b_t *)&micro_block->raw_tbl[ txn_idx ];
-          fd_execute_txn( executor, txn_descriptor, txn_raw );
-        }      
-        fd_microblock_leave(micro_block);
+          for ( ulong txn_idx = 0; txn_idx < micro_block->txn_max_cnt; txn_idx++ ) {
+            fd_txn_t* txn_descriptor = (fd_txn_t *)&micro_block->txn_tbl[ txn_idx ];
+            fd_rawtxn_b_t* txn_raw   = (fd_rawtxn_b_t *)&micro_block->raw_tbl[ txn_idx ];
+            fd_execute_txn( executor, txn_descriptor, txn_raw );
+          }      
+          fd_microblock_leave(micro_block);
 
-        blob_ptr = (uchar *) fd_ulong_align_up((ulong)blob_ptr + fd_microblock_footprint( micro_block->hdr.txn_cnt ), FD_MICROBLOCK_ALIGN);
+          blob_ptr = (uchar *) fd_ulong_align_up((ulong)blob_ptr + fd_microblock_footprint( micro_block->hdr.txn_cnt ), FD_MICROBLOCK_ALIGN);
         
-        cnt--;
+          cnt--;
+        }
+        blob = *((uchar **) blob);
       }
-      blob = *((uchar **) blob);
     }
     // free the slot data...
     fd_slot_blocks_destroy(slot_data, freef, state->alloc);
@@ -167,18 +184,23 @@ int main(int argc, char **argv) {
   state.end_slot = 73;
   state.start_slot = 0;
 
-  state.name           = fd_env_strip_cmdline_cstr ( &argc, &argv, "--wksp",       NULL, NULL );
-  state.ledger         = fd_env_strip_cmdline_cstr ( &argc, &argv, "--ledger",     NULL, NULL);
-  state.db             = fd_env_strip_cmdline_cstr ( &argc, &argv, "--db",         NULL, NULL);
-  state.end_slot_opt   = fd_env_strip_cmdline_cstr ( &argc, &argv, "--end-slot",   NULL, NULL);
-  state.start_slot_opt = fd_env_strip_cmdline_cstr ( &argc, &argv, "--start-slot", NULL, NULL);
-  state.manifest       = fd_env_strip_cmdline_cstr ( &argc, &argv, "--manifest",   NULL, NULL);
-  state.accounts       = fd_env_strip_cmdline_cstr ( &argc, &argv, "--account",    NULL, NULL);
-  state.cmd            = fd_env_strip_cmdline_cstr ( &argc, &argv, "--cmd",        NULL, NULL);
+  state.name           = fd_env_strip_cmdline_cstr ( &argc, &argv, "--wksp",         NULL, NULL );
+  state.ledger         = fd_env_strip_cmdline_cstr ( &argc, &argv, "--ledger",       NULL, NULL);
+  state.db             = fd_env_strip_cmdline_cstr ( &argc, &argv, "--db",           NULL, NULL);
+  state.end_slot_opt   = fd_env_strip_cmdline_cstr ( &argc, &argv, "--end-slot",     NULL, NULL);
+  state.start_slot_opt = fd_env_strip_cmdline_cstr ( &argc, &argv, "--start-slot",   NULL, NULL);
+  state.manifest       = fd_env_strip_cmdline_cstr ( &argc, &argv, "--manifest",     NULL, NULL);
+  state.accounts       = fd_env_strip_cmdline_cstr ( &argc, &argv, "--account",      NULL, NULL);
+  state.cmd            = fd_env_strip_cmdline_cstr ( &argc, &argv, "--cmd",          NULL, NULL);
+  state.skip_exe_opt   = fd_env_strip_cmdline_cstr ( &argc, &argv, "--skip-exe",     NULL, NULL);
 
   if ((NULL == state.ledger) || (NULL == state.db)) {
     usage(argv[0]);
     exit(1);
+  }
+
+  if (state.skip_exe_opt) {
+    state.skip_exe = !strcmp(state.skip_exe_opt, "true");
   }
 
   if( state.name ) {
@@ -238,7 +260,7 @@ int main(int argc, char **argv) {
   void *fd_acc_mgr_raw = malloc(FD_ACC_MGR_FOOTPRINT);
   state.acc_mgr = fd_acc_mgr_join(fd_acc_mgr_new(fd_acc_mgr_raw, state.funk, xroot, FD_ACC_MGR_FOOTPRINT));
 
-  FD_LOG_INFO(("loading genesis account into funk db"));
+  FD_LOG_WARNING(("loading genesis account into funk db"));
 
   uchar *dbuf = NULL;
   ulong datalen = 0;
@@ -285,7 +307,7 @@ int main(int argc, char **argv) {
   fd_genesis_solana_destroy(&gen, freef, state.alloc);
 
   //  we good?
-  FD_LOG_INFO(("validating funk db"));
+  FD_LOG_WARNING(("validating funk db"));
   fd_funk_validate(state.funk);
 
   // Initialize the rocksdb 
@@ -302,7 +324,7 @@ int main(int argc, char **argv) {
 
   if (state.end_slot > last_slot) {
     state.end_slot = last_slot;
-    FD_LOG_INFO(("setting the end_slot to %ld since that is the last slot we see in the rocksdb", state.end_slot));
+    FD_LOG_WARNING(("setting the end_slot to %ld since that is the last slot we see in the rocksdb", state.end_slot));
   }
 
   ulong first_slot = fd_rocksdb_first_slot(&state.rocks_db, &err);
@@ -312,7 +334,7 @@ int main(int argc, char **argv) {
 
   if (state.start_slot < first_slot) {
     state.start_slot = first_slot;
-    FD_LOG_INFO(("setting the start_slot to %ld since that is the first slot we see in the rocksdb", state.start_slot));
+    FD_LOG_WARNING(("setting the start_slot to %ld since that is the first slot we see in the rocksdb", state.start_slot));
   }
 
   if (strcmp(state.cmd, "replay") == 0)

@@ -1,3 +1,7 @@
+#if !FD_HAS_ALLOCA
+#error "This test requires FD_HAS_ALLOCA"
+#endif
+
 #include "../fd_ballet.h"
 
 FD_STATIC_ASSERT( FD_BMTREE32_NODE_SZ==FD_SHA256_HASH_SZ, alignment );

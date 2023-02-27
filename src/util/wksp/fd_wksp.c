@@ -322,6 +322,22 @@ fd_wksp_cstr_free( char const * cstr ) {
   fd_wksp_detach( wksp ); /* logs details */
 }
 
+ulong
+fd_wksp_cstr_tag( char const * cstr ) {
+  char  name[ FD_SHMEM_NAME_MAX ];
+  ulong gaddr;
+  if( FD_UNLIKELY( !fd_wksp_cstr_parse( cstr, name, &gaddr ) ) ) return 0UL; /* logs details */
+
+  fd_wksp_t * wksp = fd_wksp_attach( name ); /* logs details */
+  if( FD_UNLIKELY( !wksp ) ) return 0UL;
+
+  ulong tag = fd_wksp_tag( wksp, gaddr ); /* logs details */
+
+  fd_wksp_detach( wksp ); /* logs details */
+
+  return tag;
+}
+
 void
 fd_wksp_cstr_memset( char const * cstr,
                      int          c ) {

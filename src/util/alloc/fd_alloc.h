@@ -235,13 +235,17 @@ fd_alloc_leave( fd_alloc_t * join );
 void *
 fd_alloc_delete( void * shalloc );
 
-/* FIXME: CONSIDER API FOR GETTING WKSP BACKING FD_ALLOC? */
+/* fd_alloc_wksp returns a pointer to a local wksp join of the wksp
+   backing the fd_alloc with the current local join.  Caller should not
+   call fd_alloc_leave on the returned value.  Lifetime of the returned
+   wksp handle is as long as the shalloc used on the fd_alloc_join is
+   still mapped into the caller's address space.
 
-/* fd_alloc_tag returns the tag that will be used for allocations from
-   this workspace.  Will be in [0,FD_WKSP_ALLOC_TAG_MAX].  0 indicates
-   join was NULL. */
+   fd_alloc_tag returns the tag that will be used for allocations from
+   this workspace. */
 
-FD_FN_PURE ulong fd_alloc_tag( fd_alloc_t * join );
+FD_FN_PURE fd_wksp_t * fd_alloc_wksp( fd_alloc_t * join ); // NULL indicates NULL join
+FD_FN_PURE ulong       fd_alloc_tag ( fd_alloc_t * join ); // In [0,FD_WKSP_ALLOC_TAG_MAX].  0 indicates NULL join
 
 /* fd_alloc_malloc allocates sz bytes with alignment align from the wksp
    backing the fd_alloc.  join is a current local join to the fd_alloc.

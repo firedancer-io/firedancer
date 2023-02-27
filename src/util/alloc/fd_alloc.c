@@ -381,9 +381,13 @@ fd_alloc_hdr_store( void *                  laddr,
   return laddr;
 }
 
+/* FD_ALLOC_HDR_LARGE is the allocation used on large allocations */
+
+#define FD_ALLOC_HDR_LARGE ((fd_alloc_hdr_t)(0xFDA11CUL | FD_ALLOC_SIZECLASS_LARGE))
+
 static inline void *
 fd_alloc_hdr_store_large( void * laddr ) {
-  FD_STORE( fd_alloc_hdr_t, ((ulong)laddr) - sizeof(fd_alloc_hdr_t), (fd_alloc_hdr_t)FD_ALLOC_SIZECLASS_LARGE );
+  FD_STORE( fd_alloc_hdr_t, ((ulong)laddr) - sizeof(fd_alloc_hdr_t), FD_ALLOC_HDR_LARGE );
   return laddr;
 }
 
@@ -558,7 +562,15 @@ fd_alloc_delete( void * shalloc ) {
   return shalloc;
 }
 
-ulong fd_alloc_tag( fd_alloc_t * join ) { return FD_LIKELY( join ) ? fd_alloc_private_join_alloc( join )->tag : 0UL; }
+fd_wksp_t *
+fd_alloc_wksp( fd_alloc_t * join ) {
+  return FD_LIKELY( join ) ? fd_alloc_private_wksp( fd_alloc_private_join_alloc( join ) ) : NULL;
+}
+
+ulong
+fd_alloc_tag( fd_alloc_t * join ) {
+  return FD_LIKELY( join ) ? fd_alloc_private_join_alloc( join )->tag : 0UL;
+}
 
 void *
 fd_alloc_malloc( fd_alloc_t * join,
@@ -591,6 +603,8 @@ fd_alloc_malloc( fd_alloc_t * join,
   if( FD_UNLIKELY( footprint > FD_ALLOC_FOOTPRINT_SMALL_THRESH ) ) {
     void * laddr = fd_wksp_alloc_laddr( wksp, 1UL, footprint, alloc->tag );
     if( FD_UNLIKELY( !laddr ) ) return NULL;
+    /* FIXME: clear align zero padding for better alloc parameter
+       recovery in diagnostcs here? */
     return fd_alloc_hdr_store_large( (void *)fd_ulong_align_up( (ulong)laddr + sizeof(fd_alloc_hdr_t), align ) );
   }
 
@@ -741,6 +755,8 @@ fd_alloc_malloc( fd_alloc_t * join,
   /* Carve the requested allocation out of the newly allocated block,
      prepend the allocation header for use by free and return. */
 
+  /* FIXME: clear align zero padding for better alloc parameter recovery
+     in diagnostcs here? */
   return fd_alloc_hdr_store( (void *)fd_ulong_align_up( (ulong)superblock
                                                       + sizeof(fd_alloc_superblock_t)
                                                       + block_idx*(ulong)fd_alloc_sizeclass_cfg[ sizeclass ].block_footprint
@@ -937,5 +953,289 @@ fd_alloc_free( fd_alloc_t * join,
   }
 }
 
-#endif
+/**********************************************************************/
 
+#include <stdio.h>
+#include "../wksp/fd_wksp_private.h"
+
+#define TRAP(x) do { int _cnt = (x); if( _cnt<0 ) { return _cnt; } cnt += _cnt; } while(0)
+
+/* fd_alloc_superblock_fprintf pretty prints to the given stream
+   exhaustive details about the current state of the given superblock in
+   wksp at superblock_gaddr.  The superblock's parameters are given by
+   sizeclass, block_cnt, block_footprint.  Diagnosts will be accumulated
+   ctr.  Returns behavior matches fprintf return behavior (i.e. the
+   number of characters output to stream or a negative error code).
+   This is meant to be called exclusively from fd_alloc_fprintf and does
+   no error trapping of its inputs. */
+
+static int
+fd_alloc_superblock_fprintf( fd_wksp_t * wksp,             /* non-NULL */
+                             ulong       superblock_gaddr, /* valid gaddr for wksp */
+                             ulong       sizeclass,        /* valid sizeclass */
+                             ulong       block_cnt,        /* matches sizeclass cfg */
+                             ulong       block_footprint,  /* matches sizeclass cfg */
+                             FILE *      stream,           /* non-NULL */
+                             ulong *     ctr ) {           /* non-NULL, room for 2 */
+  int cnt = 0;
+
+  /* Print the block header */
+
+  fd_alloc_superblock_t * superblock = fd_wksp_laddr_fast( wksp, superblock_gaddr );
+
+  fd_alloc_block_set_t free_blocks = superblock->free_blocks;
+
+  ulong msb = fd_ulong_shift_right( free_blocks, (int)block_cnt ); /* Note: block_cnt==64 possible */
+  if( FD_UNLIKELY( msb ) ) ctr[0]++;
+  TRAP( fprintf( stream, "free_blocks 0x%lx (%s)\n", free_blocks, msb==0UL ? "good" : "bad" ) );
+
+  /* For each block */
+
+  for( ulong block_idx=0UL; block_idx<block_cnt; block_idx++ ) {
+    ulong gaddr_lo = superblock_gaddr + sizeof(fd_alloc_superblock_t) + block_idx*block_footprint;
+    ulong gaddr_hi = gaddr_lo + block_footprint;
+
+    if( fd_alloc_block_set_test( free_blocks, block_idx ) ) { /* Free block */
+
+    //TRAP( fprintf( stream, "\t\t\tblock %2lu: gaddr %s:%lu-%s:%lu, malloc_est -, align_est -, sz_est - (free)\n",
+    //               block_idx, wksp->name, gaddr_lo, wksp->name, gaddr_hi-1UL ) );
+
+    } else { /* Used block */
+
+      /* Search the partition for a plausible fd_alloc_hdr_t.  This
+         process nearly identical to the one described for large
+         allocations below. */
+
+      for( ulong align_est = 1UL << fd_ulong_find_msb( block_footprint - sizeof(fd_alloc_hdr_t) );;) {
+        ulong   gaddr_est = fd_ulong_align_up( gaddr_lo + sizeof(fd_alloc_hdr_t), align_est );
+        uchar * laddr_est = (uchar *)fd_wksp_laddr_fast( wksp, gaddr_est );
+        fd_alloc_hdr_t hdr = FD_LOAD( fd_alloc_hdr_t, laddr_est - sizeof(fd_alloc_hdr_t) );
+
+        if( fd_alloc_hdr_sizeclass ( hdr )           ==sizeclass &&
+            fd_alloc_hdr_block_idx ( hdr )           ==block_idx &&
+            fd_alloc_hdr_superblock( hdr, laddr_est )==superblock ) {
+          ulong sz_est = block_footprint - sizeof(fd_alloc_hdr_t) - align_est + 1UL;
+          TRAP( fprintf( stream, "\t\t\tblock %2lu: gaddr %s:%lu-%s:%lu, malloc_est %s:%lu, align_est %lu, sz_est %lu\n",
+                         block_idx, wksp->name, gaddr_lo, wksp->name, gaddr_hi-1UL, wksp->name, gaddr_est, align_est, sz_est ) );
+          ctr[1]++;
+          break;
+        }
+
+        align_est >>= 1;
+        if( FD_UNLIKELY( !align_est ) ) {
+          TRAP( fprintf( stream, "\t\t\tblock %2lu: gaddr %s:%lu-%s:%lu, malloc_est -, align est -, sz_est - (bad)\n",
+                         block_idx, wksp->name, gaddr_lo, wksp->name, gaddr_hi-1UL ) );
+          ctr[0]++;
+          break;
+        }
+      }
+    }
+  }
+
+  return cnt;
+}
+
+/* fd_alloc_fprintf pretty prints to the given stream exhaustive details
+   about the current state of the fd_alloc corresponding to the current
+   local join.  As this function is typically for debugging,
+   end-of-program diagnostics, etc, this function assumes there are no
+   concurrent operations on the fd_alloc while running.  Note also it
+   might not be able to find all small allocations and determine precise
+   details about allocations in general.  It will however be able to
+   find all large allocations assuming the user tagged the structure
+   properly (and that includes finding all the huge superblocks in which
+   all individual small allocations are contained).  Return behavior
+   matches fprintf return behavior (i.e. the number of characters
+   printed to stream or a negative error code). */
+
+int
+fd_alloc_fprintf( fd_alloc_t * join,
+                  FILE *       stream ) {
+  if( FD_UNLIKELY( !stream ) ) return 0; /* NULL stream, can't print anything */
+
+  int cnt = 0;
+
+  ulong ctr[4];
+  ctr[0] = 0UL; /* errors detected */
+  ctr[1] = 0UL; /* small alloc found */
+  ctr[2] = 0UL; /* wksp partitions used */
+  ctr[3] = 0UL; /* wksp bytes used */
+
+  fd_alloc_t * alloc      = fd_alloc_private_join_alloc     ( join );
+  ulong        cgroup_idx = fd_alloc_private_join_cgroup_idx( join );
+
+  if( FD_UNLIKELY( !alloc ) ) { /* NULL join passed */
+
+    TRAP( fprintf( stream, "alloc: gaddr -, join_cgroup idx %lu, magic 0x0 (bad)\n", cgroup_idx ) );
+    ctr[0]++;
+
+  } else { /* Normal join */
+
+    /* Count the space used by alloc metadata. */
+
+    ctr[2] += 1UL;
+    ctr[3] += FD_ALLOC_FOOTPRINT;
+
+    fd_wksp_t * wksp = fd_alloc_private_wksp( alloc );
+
+    /* Print the summary header */
+
+    TRAP( fprintf( stream, "alloc: gaddr %s:%lu, join_cgroup_idx %lu, magic 0x%lx (%s)\n",
+                   wksp->name, fd_wksp_gaddr_fast( wksp, alloc ), cgroup_idx,
+                   alloc->magic, alloc->magic==FD_ALLOC_MAGIC ? "good" : "bad" ) );
+    if( FD_UNLIKELY( alloc->magic!=FD_ALLOC_MAGIC ) ) ctr[0]++;
+
+    /* Print known details about each sizeclass */
+
+    ulong block_footprint = 0UL;
+    for( ulong sizeclass=0UL; sizeclass<FD_ALLOC_SIZECLASS_CNT; sizeclass++ ) {
+      ulong block_footprint_prev = block_footprint;
+      /**/  block_footprint      = (ulong)fd_alloc_sizeclass_cfg[ sizeclass ].block_footprint;
+
+      ulong superblock_footprint = (ulong)fd_alloc_sizeclass_cfg[ sizeclass ].superblock_footprint;
+      ulong block_cnt            = (ulong)fd_alloc_sizeclass_cfg[ sizeclass ].block_cnt;
+      ulong cgroup_cnt           = (ulong)fd_alloc_sizeclass_cfg[ sizeclass ].cgroup_mask + 1UL;
+
+      fd_alloc_vgaddr_t inactive_stack = alloc->inactive_stack[ sizeclass ];
+
+      ulong inactive_stack_ver   = (ulong)fd_alloc_vgaddr_ver( inactive_stack );
+      ulong inactive_stack_gaddr = (ulong)fd_alloc_vgaddr_off( inactive_stack );
+
+      /* Omit sizeclasses that have no superblocks in circulation */
+
+      int do_print = !!inactive_stack_gaddr;
+      if( !do_print ) {
+        for( ulong cgroup_idx=0UL; cgroup_idx<cgroup_cnt; cgroup_idx++ ) {
+          if( alloc->active_slot[ sizeclass + FD_ALLOC_SIZECLASS_CNT*cgroup_idx ] ) {
+            do_print = 1;
+            break;
+          }
+        }
+        if( !do_print ) continue;
+      }
+
+      /* Print size class header */
+
+      TRAP( fprintf( stream,
+                     "\tsizeclass %lu: superblock_footprint %lu, block_footprint %lu-%lu, block_cnt %lu, cgroup_cnt %lu\n",
+                     sizeclass, superblock_footprint, block_footprint_prev+1UL, block_footprint, block_cnt, cgroup_cnt ) );
+
+      /* Print inactive stack top */
+
+      TRAP( fprintf( stream, "\t\tinactive_stack: gaddr %s:%lu, version %lu\n",
+                     wksp->name, inactive_stack_gaddr, inactive_stack_ver ) );
+
+      /* Print active superblock details */
+
+      ulong superblock_gaddr;
+
+      for( ulong cgroup_idx=0UL; cgroup_idx<cgroup_cnt; cgroup_idx++ ) {
+        superblock_gaddr = alloc->active_slot[ sizeclass + FD_ALLOC_SIZECLASS_CNT*cgroup_idx ];
+        if( !superblock_gaddr ) {
+        //TRAP( fprintf( stream, "\t\tcgroup 2lu active superblock -, next -\n", cgroup_idx ) );
+          continue;
+        }
+        ulong next_gaddr = ((fd_alloc_superblock_t *)fd_wksp_laddr_fast( wksp, superblock_gaddr))->next_gaddr;
+        TRAP( fprintf( stream, "\t\tsuperblock: cgroup_idx %lu, gaddr %s:%lu, next %s:%lu (ignored), ",
+                       cgroup_idx, wksp->name, superblock_gaddr, wksp->name, next_gaddr ) );
+        TRAP( fd_alloc_superblock_fprintf( wksp, superblock_gaddr, sizeclass, block_cnt, block_footprint, stream, ctr ) );
+      }
+
+      /* Print inactive superblock details */
+
+      superblock_gaddr = inactive_stack_gaddr;
+      while( superblock_gaddr ) {
+        ulong next_gaddr = ((fd_alloc_superblock_t *)fd_wksp_laddr_fast( wksp, superblock_gaddr))->next_gaddr;
+        TRAP( fprintf( stream, "\t\tsuperblock: cgroup_idx -, gaddr %s:%lu, next %s:%lu, ",
+                       wksp->name, superblock_gaddr, wksp->name, next_gaddr ) );
+        TRAP( fd_alloc_superblock_fprintf( wksp, superblock_gaddr, sizeclass, block_cnt, block_footprint, stream, ctr ) );
+        superblock_gaddr = next_gaddr;
+      }
+    }
+
+    /* Scan the wksp partition table for partitions that match this
+       allocation tag */
+
+    ulong tag = alloc->tag;
+
+    fd_wksp_private_part_t * part     = wksp->part;
+    ulong                    part_cnt = wksp->part_cnt;
+    for( ulong part_idx=0UL; part_idx<part_cnt; part_idx++ ) {
+      ulong p = part[ part_idx ];
+      if( fd_wksp_private_part_tag( p )!=tag ) continue;
+      ulong gaddr_lo = fd_wksp_private_part_gaddr( p );
+
+      /* If the user used the same tag for both the alloc metadata and the
+         alloc allocations, skip the metadata partition */
+
+      if( gaddr_lo==fd_wksp_gaddr_fast( wksp, alloc ) ) continue;
+
+      ulong gaddr_hi       = fd_wksp_private_part_gaddr( part[ part_idx+1UL ] );
+      ulong part_footprint = gaddr_hi - gaddr_lo;
+
+      if( FD_UNLIKELY( part_footprint<=sizeof(fd_alloc_hdr_t) ) ) continue; /* Skip over holes (FIXME: log?) */
+
+      /* Search the partition for a plausible fd_alloc_hdr_t.  There
+         will be at least one if the partition isn't bad.  We scan
+         potential alignments in reverse order such that noise in the
+         alignment padding from older and less aligned large allocs will
+         not trigger the detection logic.  It is still possible for this
+         logic to spuriously fire if the user just happened to have some
+         data that looked like a suitable header (hence these are
+         estimates).  The estimates could be improved if we clear zero
+         padding before the headers as noted above at a greater time
+         overhead in fd_alloc and scanned alignments forward.  Once we
+         have a plausible location and alignment, we can compute bounds
+         to how large a size was used.  We use the upper bound the size
+         estimate for simplicity (it would take a lot more space and
+         time overhead in normal operation to track this explicitly). */
+
+      for( ulong align_est = 1UL << fd_ulong_find_msb( part_footprint-sizeof(fd_alloc_hdr_t) );;) {
+
+        /* Look at a potential header location */
+
+        ulong   gaddr_est = fd_ulong_align_up( gaddr_lo + sizeof(fd_alloc_hdr_t), align_est );
+        uchar * laddr_est = (uchar *)fd_wksp_laddr_fast( wksp, gaddr_est );
+        fd_alloc_hdr_t hdr = FD_LOAD( fd_alloc_hdr_t, laddr_est - sizeof(fd_alloc_hdr_t) );
+
+        /* If it matches what a header at this location should be,
+           print out the estimated allocation details. */
+
+        if( hdr==FD_ALLOC_HDR_LARGE ) {
+          ulong sz_est = part_footprint - sizeof(fd_alloc_hdr_t) - align_est + 1UL;
+          TRAP( fprintf( stream, "\tlarge: gaddr %s:%lu-%s:%lu, malloc_est %s:%lu, align_est %lu, sz_est %lu\n",
+                         wksp->name, gaddr_lo, wksp->name, gaddr_hi-1UL, wksp->name, gaddr_est, align_est, sz_est ) );
+          ctr[2]++;
+          ctr[3] += part_footprint;
+          break;
+        }
+
+        /* Nope ... try the next.  If no more potential locations, the
+           partition is corrupt. */
+
+        align_est >>= 1;
+        if( FD_UNLIKELY( !align_est ) ) {
+          TRAP( fprintf( stream, "\tlarge: gaddr %s:%lu-%s:%lu, malloc_est -, align_est -, sz_est - (bad)\n",
+                         wksp->name, gaddr_lo, wksp->name, gaddr_hi-1UL ) );
+          ctr[0]++;
+          break;
+        }
+      }
+    }
+  }
+
+  /* Print summary statistics */
+
+  TRAP( fprintf( stream,
+                  "\terrors detected    %21lu\n"
+                  "\tsmall allocs found %21lu\n"
+                  "\twksp allocs        %21lu\n"
+                  "\twksp used          %21lu\n",
+                  ctr[0], ctr[1], ctr[2], ctr[3] ) );
+
+  return cnt;
+}
+
+#undef TRAP
+
+#endif /* FD_HAS_HOSTED && FD_HAS_X86 */

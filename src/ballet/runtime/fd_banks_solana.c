@@ -667,6 +667,17 @@ void fd_poh_config_decode(fd_poh_config_t* self, void const** data, void const* 
     self->hashes_per_tick = NULL;
 }
 
+void fd_poh_config_destroy(fd_poh_config_t* self, fd_free_fun_t freef, void* freef_arg) {
+  if ( NULL != self->target_tick_count ) {
+    freef(self->target_tick_count, freef_arg);
+    self->target_tick_count = NULL;
+  }
+  if ( NULL != self->hashes_per_tick ) {
+    freef(self->hashes_per_tick, freef_arg);
+    self->hashes_per_tick = NULL;
+  }
+}
+
 void fd_string_pubkey_pair_decode(fd_string_pubkey_pair_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
   ulong slen;
   fd_bincode_uint64_decode(&slen, data, dataend);
@@ -674,6 +685,14 @@ void fd_string_pubkey_pair_decode(fd_string_pubkey_pair_t* self, void const** da
   fd_bincode_bytes_decode((uchar *) self->string, slen, data, dataend);
   self->string[slen] = '\0';
   fd_pubkey_decode(&self->pubkey, data, dataend, allocf, allocf_arg);
+}
+
+void fd_string_pubkey_pair_destroy(fd_string_pubkey_pair_t* self, fd_free_fun_t freef, void* freef_arg) {
+  if (NULL != self->string) {
+    freef(self->string, freef_arg);
+    self->string = NULL;
+  }
+  fd_pubkey_destroy(&self->pubkey, freef, freef_arg);
 }
 
 void fd_pubkey_account_pair_decode(fd_pubkey_account_pair_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
@@ -726,6 +745,8 @@ void fd_genesis_solana_decode(fd_genesis_solana_t* self, void const** data, void
 }
 
 void fd_genesis_solana_destroy(fd_genesis_solana_t* self, fd_free_fun_t freef, void* freef_arg) {
+  fd_poh_config_destroy(&self->poh_config, freef, freef_arg);
+
   if (NULL != self->accounts) {
     for (ulong i = 0; i < self->accounts_len; ++i) 
       fd_pubkey_account_pair_destroy(self->accounts + i,  freef, freef_arg);
@@ -733,6 +754,8 @@ void fd_genesis_solana_destroy(fd_genesis_solana_t* self, fd_free_fun_t freef, v
     self->accounts = NULL;
   }
   if (NULL != self->native_instruction_processors) {
+    for (ulong i = 0; i < self->native_instruction_processors_len; ++i) 
+      fd_string_pubkey_pair_destroy(self->native_instruction_processors + i,  freef, freef_arg);
     freef(self->native_instruction_processors, freef_arg);
     self->native_instruction_processors = NULL;
   }

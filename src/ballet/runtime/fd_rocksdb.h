@@ -22,7 +22,7 @@ struct fd_slot_meta {
   ulong *next_slots;
   uchar  is_connected;
   ulong  num_entry_end_indexes;
-  uint   entry_end_indexes[64];
+  uint  *entry_end_indexes;
 };
 typedef struct fd_slot_meta fd_slot_meta_t;
 #define FD_SLOT_META_FOOTPRINT sizeof(fd_slot_meta_t)
@@ -114,8 +114,10 @@ ulong fd_rocksdb_first_slot(
    Retrieves the meta structure associated with the supplied slot.  If
    there is an error, *err is set to a string describing the error.
    It is expected that you should free() the error once done with it
+
+   returns a 0 if there is no obvious error
 */
-void fd_rocksdb_get_meta(
+int fd_rocksdb_get_meta(
     fd_rocksdb_t *db, 
     ulong slot,
     fd_slot_meta_t *m,
