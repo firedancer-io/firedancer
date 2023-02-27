@@ -120,10 +120,12 @@ uint random_size(randgen& rg) {
 
 int main() {
   unlink("testback");
-  ulong footprint = fd_funk_footprint_min();
-  void* mem = malloc(footprint);
-  memset(mem, 0xa5, footprint);
-  auto* funk = fd_funk_join(fd_funk_new(mem, footprint, "testback"));
+
+  fd_wksp_t* wksp = fd_wksp_new_anonymous( FD_SHMEM_GIGANTIC_PAGE_SZ, 1UL, 0, "wksp", 0UL );
+  ulong index_max = 1000000;    // Maximum size (count) of master index
+  ulong xactions_max = 100;     // Maximum size (count) of transaction index
+  ulong cache_max = 10000;      // Maximum number of cache entries
+  auto* funk = fd_funk_new("testback", wksp, 1, index_max, xactions_max, cache_max);
 
   fd_funk_validate(funk);
 
@@ -158,11 +160,9 @@ int main() {
   validateall();
 
   auto reload = [&](){
-    fd_funk_delete(fd_funk_leave(funk));
-    free(mem);
-    mem = malloc(footprint);
-    memset(mem, 0xa5, footprint);
-    funk = fd_funk_join(fd_funk_new(mem, footprint, "testback"));
+    fd_funk_delete(funk);
+    fd_wksp_tag_free(wksp, 1);
+    funk = fd_funk_new("testback", wksp, 1, 100000, 100, 10000);
   };
   reload();
 
@@ -319,13 +319,13 @@ int main() {
     db.write(scratch, 0, len);
   }
 
-  FD_LOG_INFO(("%u records", fd_funk_num_records(funk)));
+  FD_LOG_INFO(("%lu records", fd_funk_num_records(funk)));
   validateall();
 
   free(scratch);
   
-  fd_funk_delete(fd_funk_leave(funk));
-  free(mem);
+  fd_funk_delete(funk);
+  fd_wksp_detach(wksp);
   unlink("testback");
 
   FD_LOG_INFO(("test passed!"));

@@ -221,8 +221,10 @@ int main(int argc, char **argv) {
 
   state.alloc = fd_alloc_join( shalloc, 0UL );
 
-  void * fd_funk_raw = fd_alloc_malloc(state.alloc, fd_funk_align(), fd_funk_footprint_min());
-  state.funk = fd_funk_join(fd_funk_new(fd_funk_raw, fd_funk_footprint_min(), state.db));
+  ulong index_max = 1000000;    // Maximum size (count) of master index
+  ulong xactions_max = 100;     // Maximum size (count) of transaction index
+  ulong cache_max = 10000;      // Maximum number of cache entries
+  state.funk = fd_funk_new(state.db, state.wksp, 2, index_max, xactions_max, cache_max);
   fd_funk_validate(state.funk);
 
   if (NULL != state.end_slot_opt) {
@@ -348,9 +350,8 @@ int main(int argc, char **argv) {
   // The memory management model is odd...  how do I know how to destroy this
   fd_rocksdb_destroy(&state.rocks_db);
 
-  fd_funk_delete(fd_funk_leave(state.funk));
-
-  fd_alloc_free(state.alloc, fd_funk_raw);
+  fd_funk_delete(state.funk);
+  fd_wksp_tag_free(state.wksp, 2);
 
   free(buf);
 

@@ -26,7 +26,7 @@ void fd_funk_xactionid_t_copy(struct fd_funk_xactionid* dest, struct fd_funk_xac
 struct fd_funk_xaction_cache_entry {
     // Record identifier
     struct fd_funk_recordid record;
-    // Actual length of record. The cache might just be a prefix
+    // Actual length of record. The cache might just be a prefix. !!! consider ulong
     uint record_sz;
     // Cached data
     fd_cache_handle cachehandle;

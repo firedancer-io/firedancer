@@ -15,7 +15,7 @@ struct fd_cache_entry {
         
 struct fd_cache {
     // Number of entries
-    uint entry_cnt;
+    ulong entry_cnt;
     // Used to determine most recently used.
     ulong clock;
     ulong lastgc;
@@ -29,10 +29,11 @@ struct fd_cache {
 
 ulong fd_cache_align() { return 8U; }
 
-struct fd_cache* fd_cache_new(uint entry_cnt, ulong footprint, void* mem) {
-  if (footprint < sizeof(struct fd_cache) + sizeof(struct fd_cache_entry)*entry_cnt + (16U<<20) /* 16MB */)
-    FD_LOG_ERR(("cache footprint too small"));
-  
+ulong fd_cache_footprint(ulong entry_cnt) {
+  return sizeof(struct fd_cache) + sizeof(struct fd_cache_entry)*entry_cnt;
+}
+
+struct fd_cache* fd_cache_new(void* mem, ulong entry_cnt) {
   struct fd_cache* self = (struct fd_cache*)mem;
   self->entry_cnt = entry_cnt;
   self->clock = self->lastgc = 0;
@@ -41,7 +42,7 @@ struct fd_cache* fd_cache_new(uint entry_cnt, ulong footprint, void* mem) {
   struct fd_cache_entry* entries = (struct fd_cache_entry*)(self + 1);
   self->oldest_free = entries;
   struct fd_cache_entry* ent = NULL;
-  for (uint i = 0; i < entry_cnt; ++i) {
+  for (ulong i = 0; i < entry_cnt; ++i) {
     ent = entries + i;
     // Create a free entry
     ent->data = ent+1;
@@ -58,8 +59,8 @@ struct fd_cache* fd_cache_new(uint entry_cnt, ulong footprint, void* mem) {
 
 void fd_cache_destroy(struct fd_cache* self) {
   struct fd_cache_entry* const entries = (struct fd_cache_entry*)(self + 1);
-  const uint cnt = self->entry_cnt;
-  for (uint i = 0; i < cnt; ++i) {
+  const ulong cnt = self->entry_cnt;
+  for (ulong i = 0; i < cnt; ++i) {
     struct fd_cache_entry* ent = entries + i;
     if (ent->data_sz >= 0) {
       free(ent->data);
@@ -87,8 +88,8 @@ void fd_cache_garbage_collect(struct fd_cache* self) {
   // Release about 1/4 of the entries
   ulong mark = self->lastgc + (self->clock - self->lastgc)/4;
   struct fd_cache_entry* const entries = (struct fd_cache_entry*)(self + 1);
-  const uint cnt = self->entry_cnt;
-  for (uint i = 0; i < cnt; ++i) {
+  const ulong cnt = self->entry_cnt;
+  for (ulong i = 0; i < cnt; ++i) {
     struct fd_cache_entry* ent = entries + i;
     if (ent->data_sz >= 0 && ent->clock < mark)
       fd_cache_release_entry(self, ent);

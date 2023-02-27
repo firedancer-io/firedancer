@@ -148,10 +148,9 @@ uint random_size(randgen& rg) {
 
 int main() {
   unlink("testback");
-  ulong footprint = fd_funk_footprint_min();
-  void* mem = malloc(footprint);
-  memset(mem, 0xa5, footprint);
-  auto* funk = fd_funk_join(fd_funk_new(mem, footprint, "testback"));
+
+  fd_wksp_t* wksp = fd_wksp_new_anonymous( FD_SHMEM_GIGANTIC_PAGE_SZ, 1UL, fd_log_cpu_id(), "wksp", 0UL );
+  auto* funk = fd_funk_new("testback", wksp, 1, 100000, 100, 10000);
 
   fd_funk_validate(funk);
 
@@ -200,17 +199,15 @@ int main() {
   validateall();
 
   auto reload = [&](){
-    fd_funk_delete(fd_funk_leave(funk));
-    free(mem);
+    fd_funk_delete(funk);
+    fd_wksp_tag_free(wksp, 1);
     for (auto it = golden.begin(); it != golden.end(); ) {
       if (it->first == rootxid)
         ++it;
       else
         it = golden.erase(it);
     }
-    mem = malloc(footprint);
-    memset(mem, 0xa5, footprint);
-    funk = fd_funk_join(fd_funk_new(mem, footprint, "testback"));
+    funk = fd_funk_new("testback", wksp, 1, 100000, 100, 10000);
   };
   reload();
 
@@ -369,8 +366,8 @@ int main() {
 
   free(scratch);
   
-  fd_funk_delete(fd_funk_leave(funk));
-  free(mem);
+  fd_funk_delete(funk);
+  fd_wksp_detach(wksp);
   unlink("testback");
 
   FD_LOG_INFO(("test passed!"));
