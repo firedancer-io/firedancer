@@ -20,9 +20,8 @@
 
 bool do_valgrind = false;
 
-int
-fd_alloc_fprintf( fd_alloc_t * join,
-                  FILE *       stream );
+char * fd_base58_encode_slow( uchar const * bytes, ulong byte_cnt, char * out, ulong out_cnt );
+int fd_alloc_fprintf( fd_alloc_t * join, FILE *       stream );
 
 char* allocf(unsigned long len, FD_FN_UNUSED unsigned long align, FD_FN_UNUSED void* arg) {
   if (NULL == arg) {
@@ -138,8 +137,10 @@ int ingest(global_state_t *state) {
             break;
           // how do I validate this?!
           ulong exempt = (hdr->meta.data_len + 128) * ((ulong) ((double)state->gen.rent.lamports_per_uint8_year * state->gen.rent.exemption_threshold));
-          if (hdr->info.lamports < exempt)
+          if (hdr->info.lamports < exempt) {
+            fd_base58_encode_slow((uchar *) hdr->meta.pubkey, sizeof(hdr->meta.pubkey), buf, sizeof(buf));
             printf("%ld\n", hdr->meta.data_len);
+          }
           b += fd_ulong_align_up(hdr->meta.data_len + sizeof(*hdr), 8);
         }
 
