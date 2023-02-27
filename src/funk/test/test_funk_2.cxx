@@ -336,6 +336,37 @@ int main() {
   reload();
   validateall();
 
+  prevxid = &rootxid;
+  for (unsigned j = 0; j < 10; ++j) {
+    rg.genbytes((char*)&xidchain[j], sizeof(xidchain[j]));
+    fd_funk_fork(funk, *prevxid, xidchain[j]);
+    golden[xidchain[j]] = golden[*prevxid];
+    for (auto& [key,_] : golden[rootxid]) {
+      if ((j&1) == 1) {
+        fd_funk_delete_record(funk, xidchain[j], key);
+        golden[xidchain[j]].erase(key);
+        continue;
+      }
+      auto len = 50;
+      auto offset = 100*(j+1);
+      rg.genbytes(scratch, len);
+      if (fd_funk_write(funk, xidchain[j], key, scratch, offset, len) != (long)len)
+        FD_LOG_ERR(("write failed"));
+      databuf& db = golden[xidchain[j]][key];
+      db.write(scratch, offset, len);
+    }
+    prevxid = &xidchain[j];
+  }
+
+  validateall();
+
+  fd_funk_commit(funk, xidchain[9]);
+  golden[rootxid] = golden[xidchain[9]];
+  for (unsigned j = 0; j < 10; ++j)
+    golden.erase(xidchain[j]);
+  
+  validateall();
+
   free(scratch);
   
   fd_funk_delete(fd_funk_leave(funk));
