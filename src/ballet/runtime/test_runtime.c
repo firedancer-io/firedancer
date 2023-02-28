@@ -53,7 +53,7 @@ void freef(void *ptr, void* arg) {
 struct global_state {
   ulong        end_slot;
   ulong        start_slot;
-  bool         skip_exe;
+  uchar        skip_exe;
 
   char const * name;
   char const * ledger;
