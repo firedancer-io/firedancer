@@ -74,6 +74,8 @@ int transfer(
       return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
     }
 
+    FD_LOG_INFO(( "successfully executed transfer of %lu lamports", requested_lamports ));
+
     return FD_EXECUTOR_INSTR_SUCCESS;
 }
 
@@ -88,7 +90,7 @@ int fd_executor_system_program_execute_instruction(
 
     uint discrimant  = 0;
     fd_bincode_uint32_decode( &discrimant, input_ptr, dataend );
-    if ( discrimant != 2 ) {
+    if ( discrimant != 2 ) { /* transfer instruction */
         /* TODO: support other instruction types */
         FD_LOG_ERR(( "unsupported system program instruction: discrimant: %d", discrimant ));
         return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;

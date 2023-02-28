@@ -146,12 +146,13 @@ uint random_size(randgen& rg) {
   return s;
 }
 
-int main() {
+int main(int argc, char **argv) {
+  fd_boot( &argc, &argv );
+
   unlink("testback");
-  ulong footprint = fd_funk_footprint_min();
-  void* mem = malloc(footprint);
-  memset(mem, 0xa5, footprint);
-  auto* funk = fd_funk_join(fd_funk_new(mem, footprint, "testback"));
+
+  fd_wksp_t* wksp = fd_wksp_new_anonymous( FD_SHMEM_GIGANTIC_PAGE_SZ, 1UL, fd_log_cpu_id(), "wksp", 0UL );
+  auto* funk = fd_funk_new("testback", wksp, 1, 100000, 100, 10000);
 
   fd_funk_validate(funk);
 
@@ -200,17 +201,15 @@ int main() {
   validateall();
 
   auto reload = [&](){
-    fd_funk_delete(fd_funk_leave(funk));
-    free(mem);
+    fd_funk_delete(funk);
+    fd_wksp_tag_free(wksp, 1);
     for (auto it = golden.begin(); it != golden.end(); ) {
       if (it->first == rootxid)
         ++it;
       else
         it = golden.erase(it);
     }
-    mem = malloc(footprint);
-    memset(mem, 0xa5, footprint);
-    funk = fd_funk_join(fd_funk_new(mem, footprint, "testback"));
+    funk = fd_funk_new("testback", wksp, 1, 100000, 100, 10000);
   };
   reload();
 
@@ -336,10 +335,41 @@ int main() {
   reload();
   validateall();
 
+  prevxid = &rootxid;
+  for (unsigned j = 0; j < 10; ++j) {
+    rg.genbytes((char*)&xidchain[j], sizeof(xidchain[j]));
+    fd_funk_fork(funk, *prevxid, xidchain[j]);
+    golden[xidchain[j]] = golden[*prevxid];
+    for (auto& [key,_] : golden[rootxid]) {
+      if ((j&1) == 1) {
+        fd_funk_delete_record(funk, xidchain[j], key);
+        golden[xidchain[j]].erase(key);
+        continue;
+      }
+      auto len = 50;
+      auto offset = 100*(j+1);
+      rg.genbytes(scratch, len);
+      if (fd_funk_write(funk, xidchain[j], key, scratch, offset, len) != (long)len)
+        FD_LOG_ERR(("write failed"));
+      databuf& db = golden[xidchain[j]][key];
+      db.write(scratch, offset, len);
+    }
+    prevxid = &xidchain[j];
+  }
+
+  validateall();
+
+  fd_funk_commit(funk, xidchain[9]);
+  golden[rootxid] = golden[xidchain[9]];
+  for (unsigned j = 0; j < 10; ++j)
+    golden.erase(xidchain[j]);
+  
+  validateall();
+
   free(scratch);
   
-  fd_funk_delete(fd_funk_leave(funk));
-  free(mem);
+  fd_funk_delete(funk);
+  fd_wksp_detach(wksp);
   unlink("testback");
 
   FD_LOG_INFO(("test passed!"));

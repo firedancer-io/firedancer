@@ -17,7 +17,8 @@ struct __attribute__((packed)) fd_funk_xaction_write_header {
   // Header type. This type must be the first byte in the header
   char type;
   uchar recordid[FD_FUNK_RECORDID_FOOTPRINT];
-  // Offset and length of write
+  // Offset and length of write. Both must be <=
+  // FD_FUNK_MAX_ENTRY_SIZE. The sum also.
   uint offset;
   uint size;
   // Data being written follows the header
@@ -83,7 +84,7 @@ void fd_funk_fork(struct fd_funk* store,
 void fd_funk_xaction_entry_cleanup(struct fd_funk* store,
                                    struct fd_funk_xaction_entry* entry) {
   free(entry->script);
-  const uint cnt = entry->cache.cnt;
+  const ulong cnt = entry->cache.cnt;
   struct fd_funk_xaction_cache_entry* const elems = entry->cache.elems;
   for (uint i = 0; i < cnt; ++i) {
     struct fd_funk_xaction_cache_entry* const elem = elems + i;
@@ -205,7 +206,7 @@ void fd_funk_merge(struct fd_funk* store,
   struct fd_funk_xaction_entry** source_ents = (struct fd_funk_xaction_entry**)
     fd_alloca(8U, source_cnt*sizeof(struct fd_funk_xaction_entry*));
   ulong newscriptlen = sizeof(struct fd_funk_xaction_prefix);
-  for (uint i = 0; i < source_cnt; ++i) {
+  for (ulong i = 0; i < source_cnt; ++i) {
     // Find the entry for the transaction
     struct fd_funk_xaction_entry* entry = fd_funk_xactions_query(store->xactions, source_ids[i]);
     if (entry == NULL) {
@@ -244,14 +245,14 @@ void fd_funk_merge(struct fd_funk* store,
   fd_funk_xaction_cache_new(&entry->cache);
   // Concatenate all the transcripts
   char* p = entry->script + sizeof(struct fd_funk_xaction_prefix);
-  for (uint i = 0; i < source_cnt; ++i) {
+  for (ulong i = 0; i < source_cnt; ++i) {
     ulong copylen = source_ents[i]->scriptlen - sizeof(struct fd_funk_xaction_prefix);
     fd_memcpy(p, source_ents[i]->script + sizeof(struct fd_funk_xaction_prefix), copylen);
     p += copylen;
   }
 
   // Cleanup the original transactions
-  for (uint i = 0; i < source_cnt; ++i) {
+  for (ulong i = 0; i < source_cnt; ++i) {
     struct fd_funk_xaction_entry* entry = fd_funk_xactions_remove(store->xactions, source_ids[i]);
     fd_funk_xaction_entry_cleanup(store, entry);
   }  
@@ -315,7 +316,7 @@ long fd_funk_write(struct fd_funk* store,
   // Update the cache for this transaction. Keep in mind that the
   // cache might just be a prefix of the record.
   struct fd_funk_xaction_cache* cache = &entry->cache;
-  for (unsigned i = 0; i < cache->cnt; ++i) {
+  for (ulong i = 0; i < cache->cnt; ++i) {
     struct fd_funk_xaction_cache_entry* j = cache->elems + i;
     if (fd_funk_recordid_t_equal(&j->record, recordid)) {
       uint cache_sz;
@@ -409,7 +410,7 @@ fd_cache_handle fd_funk_get_cache(struct fd_funk* store,
   }
   // See if we already have cached data
   struct fd_funk_xaction_cache* cache = &entry->cache;
-  for (unsigned i = 0; i < cache->cnt; ++i) {
+  for (ulong i = 0; i < cache->cnt; ++i) {
     struct fd_funk_xaction_cache_entry* j = cache->elems + i;
     if (fd_funk_recordid_t_equal(&j->record, recordid)) {
       *record_sz = j->record_sz;
@@ -421,7 +422,7 @@ fd_cache_handle fd_funk_get_cache(struct fd_funk* store,
         break;
       }
       // See if we have enough data
-      if (*cache_sz >= (needed_sz <= *record_sz ? needed_sz : *record_sz))
+      if (*cache_sz >= fd_uint_min(needed_sz, *record_sz))
         return j->cachehandle;
       // Existing cache is too small (a short prefix). Throw away the
       // old one and rebuild it from scratch.
@@ -515,7 +516,7 @@ fd_cache_handle fd_funk_get_cache(struct fd_funk* store,
         if (head->offset < needed_sz)
           fd_memcpy((char*)newdata + head->offset,
                     p + sizeof(*head), // Data follows header
-                    (head->size <= needed_sz - head->offset ? head->size : needed_sz - head->offset));
+                    fd_uint_min(head->size, needed_sz - head->offset));
       }
       p += sizeof(*head) + head->size;
       if (p > pend)
@@ -571,6 +572,6 @@ long fd_funk_read(struct fd_funk* store,
   if (offset >= cache_sz)
     return 0;
   *data = (char*)cache_data + offset;
-  return (long)(offset + data_sz <= cache_sz ? data_sz : cache_sz - offset);
+  return (long)fd_ulong_min(data_sz, cache_sz - offset);
 }
 

@@ -487,7 +487,7 @@ void fd_funk_delete_record_root(struct fd_funk* store,
 }
 
 // Get the current number of records
-uint fd_funk_num_records(struct fd_funk* store) {
+ulong fd_funk_num_records(struct fd_funk* store) {
   return store->index->used;
 }
 

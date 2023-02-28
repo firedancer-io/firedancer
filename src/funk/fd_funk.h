@@ -6,33 +6,27 @@
 // thread/CPU/tile. Presumably, a separate message layer allows access
 // from other CPUs.
 
+struct fd_funk;
+typedef struct fd_funk fd_funk_t;
+
+FD_FN_CONST ulong fd_funk_align(void);
+
 // Construct a storage instance. The file argument is the backing
 // file for permanent or finalized data as well as write-ahead
 // logs. This file is created if it doesn't exist. Storage uses only
 // one "real" file.
-// Any footprint can be provided as long as it is bigger than the
-// minimum. Extra memory is used for the cache.
-// The result of new must still be joined.
-void* fd_funk_new(void* mem,
-                  ulong footprint,
-                  char const* backingfile);
-
-FD_FN_CONST ulong fd_funk_footprint_min(void); // Minimum footprint
-FD_FN_CONST ulong fd_funk_align(void);
-
-// Join an existing store. fd_funk_new is typically called
-// first. Assumes single threaded access.
-struct fd_funk;
-typedef struct fd_funk fd_funk_t;
-struct fd_funk* fd_funk_join(void* mem);
-
-// Stop using a store, but don't clean up transactions.
-void* fd_funk_leave(struct fd_funk* store);
+// All memory needed is allocated out of the given workspace.
+struct fd_funk* fd_funk_new(char const* backingfile,
+                            fd_wksp_t* wksp,    // Workspace to allocate out of
+                            ulong alloc_tag,    // Tag for workspace allocations
+                            ulong index_max,    // Maximum size (count) of master index
+                            ulong xactions_max, // Maximum size (count) of transaction index
+                            ulong cache_max);   // Maximum number of cache entries
 
 // Delete a storage instance. Flushes updates, cancels transactions,
 // and closes the backing file. Finalized transactions remain in the
 // backing file.
-void* fd_funk_delete(void* mem);
+void* fd_funk_delete(struct fd_funk* store);
 
 // Identifies a "record" in the storage layer. ASCII text
 // isn't necessary. Compact binary identifiers are encouraged.
@@ -129,7 +123,7 @@ void fd_funk_delete_record(struct fd_funk* store,
                            struct fd_funk_recordid const* recordid);
 
 // Returns the number of active records
-uint fd_funk_num_records(struct fd_funk* store);
+ulong fd_funk_num_records(struct fd_funk* store);
 
 // Returns true if the record is in the hot cache.
 int fd_funk_cache_query(struct fd_funk* store,
