@@ -138,16 +138,23 @@ int ingest(global_state_t *state) {
           FD_LOG_ERR(( "??" ));
         }
 
-        if (strcmp(buf, "/home/jsiegel/taccounts/accounts/179128026.285016") == 0) {
-          printf( "shitshow" );
-        }
-
         while (b < eptr) {
           fd_solana_account_hdr_t *hdr = (fd_solana_account_hdr_t *)b;
+          // Look for corruption...
+          if ((b + hdr->meta.data_len) > (r + n)) {
+            // some kind of corruption in the file?
+            break;
+          }
           // Sanitize accounts...
           if ((hdr->info.lamports == 0) | ((hdr->info.executable & ~1) != 0))
             break;
+
           accounts++;
+
+          if (fd_acc_mgr_write_append_vec_account( state->acc_mgr,  hdr) != FD_ACC_MGR_SUCCESS) {
+            FD_LOG_ERR(("writing failed: accounts %ld", accounts));
+          }
+
           if (memcmp(hdr->info.owner, sprog, sizeof(sprog)) != 0) {
             // system progs are exempt no matter their lamports...
 
@@ -339,6 +346,7 @@ int main(int argc, char **argv) {
 
   state.alloc = fd_alloc_join( shalloc, 0UL );
 
+//  ulong index_max = 120000000;    // Maximum size (count) of master index
   ulong index_max = 1000000;    // Maximum size (count) of master index
   ulong xactions_max = 100;     // Maximum size (count) of transaction index
   ulong cache_max = 10000;      // Maximum number of cache entries
