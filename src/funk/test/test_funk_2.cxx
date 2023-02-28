@@ -146,7 +146,9 @@ uint random_size(randgen& rg) {
   return s;
 }
 
-int main() {
+int main(int argc, char **argv) {
+  fd_boot( &argc, &argv );
+
   unlink("testback");
 
   fd_wksp_t* wksp = fd_wksp_new_anonymous( FD_SHMEM_GIGANTIC_PAGE_SZ, 1UL, fd_log_cpu_id(), "wksp", 0UL );
