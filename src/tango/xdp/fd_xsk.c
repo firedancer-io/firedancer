@@ -1,0 +1,862 @@
+#if !defined(__linux__) || !FD_HAS_LIBBPF
+#error "fd_xsk requires Linux operating system with XDP support"
+#endif
+
+#include <linux/if_xdp.h>
+#include <linux/limits.h>
+#include <bpf/bpf.h>
+#include <bpf/libbpf.h>
+
+#include <net/if.h>
+#include <sys/socket.h>
+#include <sys/types.h>
+
+#include <unistd.h>
+
+#include <errno.h>
+#include <string.h>
+#include <stdlib.h>
+#include <sys/mman.h>
+
+#include "fd_xsk_private.h"
+#include "fd_xdp_redirect_user.h"
+
+/* TODO move this into more appropriate header file
+   and set based on architecture, etc. */
+#define FD_ACQUIRE FD_COMPILER_MFENCE
+#define FD_RELEASE FD_COMPILER_MFENCE
+
+ulong
+fd_xsk_align( void ) {
+  return alignof( fd_xsk_t );
+}
+
+static ulong
+fd_xsk_umem_footprint( ulong frame_sz,
+                       ulong fr_depth,
+                       ulong rx_depth,
+                       ulong tx_depth,
+                       ulong cr_depth ) {
+  /* TODO overflow checks */
+  ulong sz = 0UL;
+  sz+=fd_ulong_align_up( fr_depth*frame_sz, FD_XSK_ALIGN );
+  sz+=fd_ulong_align_up( rx_depth*frame_sz, FD_XSK_ALIGN );
+  sz+=fd_ulong_align_up( tx_depth*frame_sz, FD_XSK_ALIGN );
+  sz+=fd_ulong_align_up( cr_depth*frame_sz, FD_XSK_ALIGN );
+  return sz;
+}
+
+ulong
+fd_xsk_footprint( ulong frame_sz,
+                  ulong fr_depth,
+                  ulong rx_depth,
+                  ulong tx_depth,
+                  ulong cr_depth ) {
+
+  if( FD_UNLIKELY( frame_sz==0UL ) ) return 0UL;
+  if( FD_UNLIKELY( fr_depth==0UL ) ) return 0UL;
+  if( FD_UNLIKELY( rx_depth==0UL ) ) return 0UL;
+  if( FD_UNLIKELY( tx_depth==0UL ) ) return 0UL;
+  if( FD_UNLIKELY( cr_depth==0UL ) ) return 0UL;
+
+  /* TODO overflow checks */
+  return fd_ulong_align_up( sizeof(fd_xsk_t), FD_XSK_UMEM_ALIGN )
+       + fd_xsk_umem_footprint( frame_sz, fr_depth, rx_depth, tx_depth, cr_depth );
+}
+
+/* Bind/unbind ********************************************************/
+
+void *
+fd_xsk_bind( void *       shxsk,
+             char const * app_name,
+             char const * ifname,
+             uint         ifqueue ) {
+
+  /* Argument checks */
+
+  if( FD_UNLIKELY( !shxsk ) ) {
+    FD_LOG_WARNING(( "NULL shxsk" ));
+    return NULL;
+  }
+
+  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)shxsk, fd_xsk_align() ) ) ) {
+    FD_LOG_WARNING(( "misaligned shxsk" ));
+    return NULL;
+  }
+
+  fd_xsk_t * xsk = (fd_xsk_t *)shxsk;
+  if( FD_UNLIKELY( xsk->magic!=FD_XSK_MAGIC ) ) {
+    FD_LOG_WARNING(( "bad magic (not an fd_xsk_t?)" ));
+    return NULL;
+  }
+
+  /* Check if app_name is a valid cstr */
+
+  ulong app_name_len = strnlen( app_name, NAME_MAX );
+  if( FD_UNLIKELY( app_name_len==0UL ) ) {
+    FD_LOG_WARNING(( "missing app_name" ));
+    return NULL;
+  }
+  if( FD_UNLIKELY( app_name_len==NAME_MAX ) ) {
+    FD_LOG_WARNING(( "app_name not a cstr or exceeds NAME_MAX" ));
+    return NULL;
+  }
+
+  /* Check if ifname is a valid cstr */
+
+  ulong if_name_len = strnlen( ifname, IF_NAMESIZE );
+  if( FD_UNLIKELY( if_name_len==0UL ) ) {
+    FD_LOG_WARNING(( "missing ifname" ));
+    return NULL;
+  }
+  if( FD_UNLIKELY( if_name_len==IF_NAMESIZE ) ) {
+    FD_LOG_WARNING(( "ifname not a cstr or exceeds IF_NAMESIZE" ));
+    return NULL;
+  }
+
+  /* Check if interface exists */
+
+  if( FD_UNLIKELY( 0==if_nametoindex( ifname ) ) ) {
+    FD_LOG_WARNING(( "Network interface %s does not exist", ifname ));
+    return NULL;
+  }
+
+  /* Assign */
+
+  fd_memcpy( xsk->app_name_cstr, app_name, app_name_len+1UL );
+  fd_memcpy( xsk->if_name_cstr,  ifname,   if_name_len +1UL );
+  xsk->if_queue_id = ifqueue;
+
+  return shxsk;
+}
+
+void *
+fd_xsk_unbind( void * shxsk ) {
+  /* Argument checks */
+
+  if( FD_UNLIKELY( !shxsk ) ) {
+    FD_LOG_WARNING(( "NULL shxsk" ));
+    return NULL;
+  }
+
+  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)shxsk, fd_xsk_align() ) ) ) {
+    FD_LOG_WARNING(( "misaligned shxsk" ));
+    return NULL;
+  }
+
+  fd_xsk_t * xsk = (fd_xsk_t *)shxsk;
+  if( FD_UNLIKELY( xsk->magic!=FD_XSK_MAGIC ) ) {
+    FD_LOG_WARNING(( "bad magic (not an fd_xsk_t?)" ));
+    return NULL;
+  }
+
+  /* Reset */
+
+  fd_memset( xsk->if_name_cstr, 0, IF_NAMESIZE );
+  xsk->if_queue_id = 0U; /* TODO should reset to -1? */
+
+  return shxsk;
+}
+
+/* New/delete *********************************************************/
+
+void *
+fd_xsk_new( void *       shmem,
+            ulong        frame_sz,
+            ulong        fr_depth,
+            ulong        rx_depth,
+            ulong        tx_depth,
+            ulong        cr_depth ) {
+  /* Validate arguments */
+
+  if( FD_UNLIKELY( !shmem ) ) {
+    FD_LOG_WARNING(( "NULL shmem" ));
+    return NULL;
+  }
+
+  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)shmem, fd_xsk_align() ) ) ) {
+    FD_LOG_WARNING(( "misaligned shmem" ));
+    return NULL;
+  }
+
+  fd_xsk_t * xsk = (fd_xsk_t *)shmem;
+
+  ulong footprint = fd_xsk_footprint( frame_sz, fr_depth, rx_depth, tx_depth, cr_depth );
+  if( FD_UNLIKELY( !footprint ) ) {
+    FD_LOG_WARNING(( "invalid footprint for config" ));
+    return NULL;
+  }
+
+  /* Reset fd_xsk_t state.  No need to clear UMEM area */
+
+  fd_memset( xsk, 0, footprint );
+
+  xsk->xsk_fd         = -1;
+  xsk->xdp_map_fd     = -1;
+  xsk->xdp_udp_map_fd = -1;
+
+  /* Copy config */
+
+  xsk->frame_sz = frame_sz;
+  xsk->fr_depth = fr_depth;
+  xsk->rx_depth = rx_depth;
+  xsk->tx_depth = tx_depth;
+  xsk->cr_depth = cr_depth;
+
+  /* Derive offsets (TODO overflow check) */
+
+  ulong xsk_off = 0UL;
+  xsk_off+=fr_depth*frame_sz;
+  xsk_off+=rx_depth*frame_sz;
+  xsk_off+=tx_depth*frame_sz;
+  xsk_off+=cr_depth*frame_sz;
+  xsk->umem_sz = xsk_off;
+
+  /* Mark object as valid */
+
+  FD_COMPILER_MFENCE();
+  FD_VOLATILE( xsk->magic ) = FD_XSK_MAGIC;
+  FD_COMPILER_MFENCE();
+
+  return (void *)xsk;
+}
+
+void *
+fd_xsk_delete( fd_xsk_t * shxsk ) {
+
+  if( FD_UNLIKELY( !shxsk ) ) {
+    FD_LOG_WARNING(( "NULL shxsk" ));
+    return NULL;
+  }
+
+  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)shxsk, fd_xsk_align() ) ) ) {
+    FD_LOG_WARNING(( "misaligned shxsk" ));
+    return NULL;
+  }
+
+  fd_xsk_t * xsk = (fd_xsk_t *)shxsk;
+
+  if( FD_UNLIKELY( xsk->magic!=FD_XSK_MAGIC ) ) {
+    FD_LOG_WARNING(( "bad magic" ));
+    return NULL;
+  }
+
+  FD_COMPILER_MFENCE();
+  FD_VOLATILE( xsk->magic ) = 0UL;
+  FD_COMPILER_MFENCE();
+
+  return (void *)xsk;
+}
+
+/* Join/leave *********************************************************/
+
+/* fd_xsk_mmap_offset_cstr: Returns a cstr describing the given offset
+   param (6th argument of mmap(2)) assuming fd (5th param of mmap(2)) is
+   an XSK file descriptor.  Returned cstr is valid until next call. */
+static char const *
+fd_xsk_mmap_offset_cstr( long mmap_off ) {
+  switch( mmap_off ) {
+  case XDP_PGOFF_RX_RING:              return "XDP_PGOFF_RX_RING";
+  case XDP_PGOFF_TX_RING:              return "XDP_PGOFF_TX_RING";
+  case XDP_UMEM_PGOFF_FILL_RING:       return "XDP_UMEM_PGOFF_FILL_RING";
+  case XDP_UMEM_PGOFF_COMPLETION_RING: return "XDP_UMEM_PGOFF_COMPLETION_RING";
+  default: {
+    static char buf[ 19UL ];
+    snprintf( buf, 19UL, "0x%lx", (ulong)mmap_off );
+    return buf;
+  }
+  }
+}
+
+/* fd_xsk_mmap_ring maps the given XSK ring into the local address space
+   and populates fd_ring_desc_t.  Every successful call to this function
+   should eventually be paired with a call to fd_xsk_munmap_ring(). */
+static int
+fd_xsk_mmap_ring( fd_ring_desc_t * ring,
+                  int              xsk_fd,
+                  long             map_off,
+                  ulong            elem_sz,
+                  ulong            depth,
+                  struct xdp_ring_offset const * ring_offset ) {
+  /* TODO what is ring_offset->desc ? */
+  /* TODO: mmap was originally called with MAP_POPULATE,
+           but this symbol isn't available with this build */
+
+  ulong map_sz = ring_offset->desc + depth*elem_sz;
+
+  void * res = mmap( NULL, map_sz, PROT_READ|PROT_WRITE, MAP_SHARED, xsk_fd, map_off );
+  if( FD_UNLIKELY( !res ) ) {
+    FD_LOG_WARNING(( "mmap(NULL, %lu, PROT_READ|PROT_WRITE, MAP_SHARED, xsk_fd, %s) failed (%i-%s)",
+                     map_sz, fd_xsk_mmap_offset_cstr( map_off ), errno, strerror( errno ) ));
+    return -1;
+  }
+
+  ring->mem   = res;
+  ring->depth = depth;
+  ring->ptr   = (void  *)( (ulong)res + ring_offset->desc     );
+  ring->flags = (ulong *)( (ulong)res + ring_offset->flags    );
+  ring->prod  = (ulong *)( (ulong)res + ring_offset->producer );
+  ring->cons  = (ulong *)( (ulong)res + ring_offset->consumer );
+
+  return 0;
+}
+
+/* fd_xsk_munmap_ring unmaps the given XSK ring from the local address
+   space and zeroes fd_ring_desc_t. */
+static void
+fd_xsk_munmap_ring( fd_ring_desc_t * ring,
+                    long             map_off ) {
+  if( FD_UNLIKELY( !ring->mem ) ) return;
+
+  void * mem = ring->mem;
+  ulong  sz  = ring->map_sz;
+
+  fd_memset( ring, 0, sizeof(fd_ring_desc_t) );
+
+  if( FD_UNLIKELY( 0!=munmap( mem, sz ) ) ) {
+    FD_LOG_WARNING(( "munmap(%p, %lu) on %s ring failed (%i-%s)",
+                     mem, sz, fd_xsk_mmap_offset_cstr( map_off ),
+                     errno, strerror( errno ) ));
+  }
+}
+
+/* fd_xsk_cleanup undoes a (partial) join by releasing all active kernel
+   objects, such as mapped memory regions and file descriptors.  Assumes
+   that no join to `xsk` is currently being used. */
+static void
+fd_xsk_cleanup( fd_xsk_t * xsk ) {
+  /* Undo memory mappings */
+
+  fd_xsk_munmap_ring( &xsk->ring_rx, XDP_PGOFF_RX_RING              );
+  fd_xsk_munmap_ring( &xsk->ring_tx, XDP_PGOFF_TX_RING              );
+  fd_xsk_munmap_ring( &xsk->ring_fr, XDP_UMEM_PGOFF_FILL_RING       );
+  fd_xsk_munmap_ring( &xsk->ring_cr, XDP_UMEM_PGOFF_COMPLETION_RING );
+
+  /* Release eBPF map FDs */
+
+  if( FD_LIKELY( xsk->xdp_map_fd>=0 ) ) {
+    close( xsk->xdp_map_fd );
+    xsk->xdp_map_fd = -1;
+  }
+  if( FD_LIKELY( xsk->xdp_udp_map_fd>=0 ) ) {
+    close( xsk->xdp_udp_map_fd );
+    xsk->xdp_udp_map_fd = -1;
+  }
+
+  /* Release XSK */
+
+  if( FD_LIKELY( xsk->xsk_fd>=0 ) ) {
+    /* Clear XSK descriptors */
+    fd_memset( &xsk->offsets, 0, sizeof(struct xdp_mmap_offsets) );
+    fd_memset( &xsk->umem,    0, sizeof(struct xdp_umem_reg)     );
+    /* Close XSK */
+    close( xsk->xsk_fd );
+    xsk->xsk_fd = -1;
+  }
+}
+
+/* fd_xsk_setup_umem: Initializes xdp_umem_reg and hooks up XSK with
+   UMEM rings via setsockopt(). Retrieves xdp_mmap_offsets via
+   getsockopt().  Returns 1 on success, 0 on failure. */
+static int
+fd_xsk_setup_umem( fd_xsk_t * xsk ) {
+  /* Initialize xdp_umem_reg */
+  xsk->umem.headroom   = 0; /* TODO no need for headroom for now */
+  xsk->umem.addr       = (ulong)fd_xsk_umem_area( xsk );
+  xsk->umem.chunk_size = (uint)xsk->frame_sz;
+  xsk->umem.len        = xsk->umem_sz;
+
+  /* Register UMEM region */
+  int res;
+  res = setsockopt( xsk->xsk_fd, SOL_XDP, XDP_UMEM_REG,
+                    &xsk->umem, sizeof(struct xdp_umem_reg) );
+  if( FD_UNLIKELY( res!=0 ) ) {
+    FD_LOG_WARNING(( "setsockopt(SOL_XDP, XDP_UMEM_REG) failed (%d-%s)", errno, strerror( errno ) ));
+    return -1;
+  }
+
+  /* Set ring frame counts */
+# define FD_SET_XSK_RING_DEPTH(name, var)                              \
+    do {                                                               \
+      res = setsockopt( xsk->xsk_fd, SOL_XDP, name, &(var), 8UL );     \
+      if( FD_UNLIKELY( res!=0 ) ) {                                    \
+        FD_LOG_WARNING(( "setsockopt(SOL_XDP, " #name ") failed: %s",  \
+                         strerror( errno ) ));                         \
+        return -1;                                                     \
+      }                                                                \
+    } while(0)
+  FD_SET_XSK_RING_DEPTH( XDP_UMEM_FILL_RING,       xsk->fr_depth );
+  FD_SET_XSK_RING_DEPTH( XDP_RX_RING,              xsk->rx_depth );
+  FD_SET_XSK_RING_DEPTH( XDP_TX_RING,              xsk->tx_depth );
+  FD_SET_XSK_RING_DEPTH( XDP_UMEM_COMPLETION_RING, xsk->cr_depth );
+# undef FD_SET_XSK_RING_DEPTH
+
+  /* Request ring offsets */
+  socklen_t offsets_sz = sizeof(struct xdp_mmap_offsets);
+  res = getsockopt( xsk->xsk_fd, SOL_XDP, XDP_MMAP_OFFSETS,
+                    &xsk->offsets, &offsets_sz );
+  if( FD_UNLIKELY( res!=0 ) ) {
+    FD_LOG_WARNING(( "getsockopt(SOL_XDP, XDP_MMAP_OFFSETS): %s",
+                     strerror( errno ) ));
+    return -1;
+  }
+
+  /* OK */
+  return 0;
+}
+
+/* fd_xsk_init: Creates and configures an XSK socket object, and
+   attaches to a preinstalled XDP program.  The various steps are
+   implemented in fd_xsk_setup_{...}. */
+static int
+fd_xsk_init( fd_xsk_t * xsk ) {
+  /* Find interface index */
+
+  uint if_idx = if_nametoindex( xsk->if_name_cstr );
+  if( FD_UNLIKELY( if_idx )==0 ) {
+    FD_LOG_WARNING(( "if_nametoindex(%s) failed (%d-%s) (is XSK bound to interface?)",
+                     xsk->if_name_cstr, errno, strerror( errno ) ));
+    return 0;
+  }
+  xsk->if_idx = if_idx;
+
+  /* Create XDP socket (XSK) */
+
+  xsk->xsk_fd = socket( AF_XDP, SOCK_RAW, 0 );
+  if( FD_UNLIKELY( xsk->xsk_fd<0 ) ) {
+    FD_LOG_WARNING(( "Failed to create XSK: %s", strerror( errno ) ));
+    return 0;
+  }
+
+  /* Associate UMEM region of fd_xsk_t with XSK via setsockopt() */
+
+  if( FD_UNLIKELY( 0!=fd_xsk_setup_umem( xsk ) ) ) return 0;
+
+  /* Map XSK rings into local address space */
+
+  if( FD_UNLIKELY( 0!=fd_xsk_mmap_ring( &xsk->ring_rx, xsk->xsk_fd, XDP_PGOFF_RX_RING,              sizeof(struct xdp_desc), xsk->rx_depth, &xsk->offsets.rx ) ) ) return 0;
+  if( FD_UNLIKELY( 0!=fd_xsk_mmap_ring( &xsk->ring_tx, xsk->xsk_fd, XDP_PGOFF_TX_RING,              sizeof(struct xdp_desc), xsk->tx_depth, &xsk->offsets.tx ) ) ) return 0;
+  if( FD_UNLIKELY( 0!=fd_xsk_mmap_ring( &xsk->ring_fr, xsk->xsk_fd, XDP_UMEM_PGOFF_FILL_RING,       sizeof(ulong),           xsk->fr_depth, &xsk->offsets.fr ) ) ) return 0;
+  if( FD_UNLIKELY( 0!=fd_xsk_mmap_ring( &xsk->ring_cr, xsk->xsk_fd, XDP_UMEM_PGOFF_COMPLETION_RING, sizeof(ulong),           xsk->cr_depth, &xsk->offsets.cr ) ) ) return 0;
+
+  /* Bind XSK to queue on network interface */
+
+  struct sockaddr_xdp sa = {
+    .sxdp_family   = PF_XDP,
+    .sxdp_ifindex  = xsk->if_idx,
+    .sxdp_queue_id = xsk->if_queue_id
+  };
+
+  if( FD_UNLIKELY( 0!=bind( xsk->xsk_fd, (void *)&sa, sizeof(struct sockaddr_xdp) ) ) ) {
+    FD_LOG_WARNING(( "Unable to bind to interface %s queue %u: %s",
+                     xsk->if_name_cstr, xsk->if_queue_id, strerror( errno ) ));
+    return -1;
+  }
+
+  /* XSK successfully configured.  Traffic will arrive in XSK after
+     configuring an XDP program to forward packets via XDP_REDIRECT.
+     This requires providing the XSK file descriptor to the program via
+     XSKMAP and is done in a separate step. */
+
+  return 0;
+}
+
+fd_xsk_t *
+fd_xsk_join( void * shxsk ) {
+  /* TODO: Joining the same fd_xsk_t from two threads is invalid.
+           Document that and add a lock. */
+
+  /* Argument checks */
+
+  if( FD_UNLIKELY( !shxsk ) ) {
+    FD_LOG_WARNING(( "NULL shxsk" ));
+    return NULL;
+  }
+
+  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)shxsk, fd_xsk_align() ) ) ) {
+    FD_LOG_WARNING(( "misaligned shxsk" ));
+    return NULL;
+  }
+
+  /* fd_xsk_t state coherence check.  A successful call to fd_xsk_new()
+     should not allow for any of these fail conditions. */
+
+  fd_xsk_t * xsk = (fd_xsk_t *)shxsk;
+
+  if( FD_UNLIKELY( xsk->magic!=FD_XSK_MAGIC ) ) {
+    FD_LOG_WARNING(( "bad magic (not an fd_xsk_t?)" ));
+    return NULL;
+  }
+
+  /* Setup XSK */
+
+  if( FD_UNLIKELY( 0!=fd_xsk_init( xsk ) ) ) {
+    FD_LOG_WARNING(( "XSK setup failed" ));
+    if( xsk->xsk_fd >= 0 )
+      close( xsk->xsk_fd );
+    return NULL;
+  }
+
+  /* Attach XSK to eBPF program */
+
+  if( FD_UNLIKELY( 0!=fd_xsk_activate( xsk ) ) ) {
+    FD_LOG_WARNING(( "fd_xsk_activate(%p) failed", (void *)xsk ));
+    if( xsk->xsk_fd >= 0 )
+      close( xsk->xsk_fd );
+    return NULL;
+  }
+
+  /* XSK is ready for use */
+
+  return xsk;
+}
+
+void *
+fd_xsk_leave( fd_xsk_t * xsk ) {
+
+  if( FD_UNLIKELY( !xsk ) ) {
+    FD_LOG_WARNING(( "NULL xsk" ));
+    return NULL;
+  }
+
+  fd_xsk_cleanup( xsk );
+
+  return (void *)xsk;
+}
+
+/* Public helper methods **********************************************/
+
+FD_FN_CONST void *
+fd_xsk_umem_laddr( fd_xsk_t * xsk ) {
+  return (void *)xsk->umem.addr;
+}
+
+
+FD_FN_PURE char const *
+fd_xsk_app_name( fd_xsk_t * const xsk ) {
+  return xsk->app_name_cstr;
+}
+
+FD_FN_PURE int
+fd_xsk_fd( fd_xsk_t * const xsk ) {
+  return xsk->xsk_fd;
+}
+
+FD_FN_PURE uint
+fd_xsk_ifidx( fd_xsk_t * const xsk ) {
+  return xsk->if_idx;
+}
+
+FD_FN_PURE char const *
+fd_xsk_ifname( fd_xsk_t * const xsk ) {
+  /* cstr coherence check */
+  ulong len = strnlen( xsk->if_name_cstr, IF_NAMESIZE );
+  if( FD_UNLIKELY( len==0UL || len==IF_NAMESIZE ) ) return NULL;
+
+  return xsk->if_name_cstr;
+}
+
+FD_FN_PURE uint
+fd_xsk_ifqueue( fd_xsk_t * const xsk ) {
+  return xsk->if_queue_id;
+}
+
+/* RX/TX implementation ***********************************************/
+
+/* fd_xsk_tx_need_wakeup: returns whether a wakeup is required to
+   complete a tx operation */
+
+int
+fd_xsk_tx_need_wakeup( fd_xsk_t * xsk );
+
+/* fd_xsk_rx_need_wakeup: returns whether a wakeup is required to
+   complete a rx operation */
+
+int
+fd_xsk_rx_need_wakeup( fd_xsk_t * xsk );
+
+ulong
+fd_xsk_rx_enqueue( fd_xsk_t * xsk,
+                   ulong *    offset,
+                   ulong      count ) {
+  /* to make frames available for receive, we enqueue onto the fill ring */
+
+  /* fill ring */
+  fd_ring_desc_t * fill = &xsk->ring_fr;
+
+  /* fetch cached consumer, producer */
+  ulong prod = fill->cached_prod;
+  ulong cons = fill->cached_cons;
+
+  /* ring capacity */
+  ulong cap  = fill->depth;
+
+  /* if not enough for batch, update cache */
+  if( cap - ( prod - cons ) < count ) {
+    cons = fill->cached_cons = *fill->cons;
+  }
+
+  /* sz is min( available, count ) */
+  ulong sz = cap - ( prod - cons );
+  if( sz > count ) sz = count;
+
+  /* set ring[j] to the specified indices */
+  ulong * ring = fill->frame_ring;
+  ulong mask = fill->depth - 1;
+  for( ulong j = 0; j < sz; ++j ) {
+    ulong k = prod & mask;
+    ring[k] = offset[j];
+
+    prod++;
+  }
+
+  /* ensure data is visible before producer index */
+  FD_RELEASE();
+
+  /* update producer */
+  fill->cached_prod = *fill->prod = prod;
+
+  /* TODO do we need to check for wakeup here? */
+
+  return sz;
+}
+
+ulong
+fd_xsk_rx_enqueue2( fd_xsk_t *            xsk,
+                    fd_xsk_frame_meta_t * meta,
+                    ulong                 count ) {
+  /* to make frames available for receive, we enqueue onto the fill ring */
+
+  /* fill ring */
+  fd_ring_desc_t * fill = &xsk->ring_fr;
+
+  /* fetch cached consumer, producer */
+  ulong prod = fill->cached_prod;
+  ulong cons = fill->cached_cons;
+
+  /* assuming frame sizes are powers of 2 */
+  ulong frame_mask = xsk->frame_sz - 1UL;
+
+  /* ring capacity */
+  ulong cap  = fill->depth;
+
+  /* if not enough for batch, update cache */
+  if( cap - ( prod - cons ) < count ) {
+    cons = fill->cached_cons = *fill->cons;
+  }
+
+  /* sz is min( available, count ) */
+  ulong sz = cap - ( prod - cons );
+  if( sz > count ) sz = count;
+
+  /* set ring[j] to the specified indices */
+  ulong * ring = fill->frame_ring;
+  ulong mask = fill->depth - 1;
+  for( ulong j = 0; j < sz; ++j ) {
+    ulong k = prod & mask;
+    ring[k] = meta[j].off & frame_mask;
+
+    prod++;
+  }
+
+  /* ensure data is visible before producer index */
+  FD_RELEASE();
+
+  /* update producer */
+  fill->cached_prod = *fill->prod = prod;
+
+  /* TODO do we need to check for wakeup here? */
+
+  return sz;
+}
+
+ulong
+fd_xsk_tx_enqueue( fd_xsk_t *            xsk,
+                   fd_xsk_frame_meta_t * meta,
+                   ulong                 count ) {
+  /* to submit frames for tx, we enqueue onto the tx ring */
+
+  /* tx ring */
+  fd_ring_desc_t * tx = &xsk->ring_tx;
+
+  /* fetch cached consumer, producer */
+  ulong prod = tx->cached_prod;
+  ulong cons = tx->cached_cons;
+
+  /* ring capacity */
+  ulong cap  = tx->depth;
+
+  /* if not enough for batch, update cache */
+  if( cap - ( prod - cons ) < count ) {
+    cons = tx->cached_cons = *tx->cons;
+  }
+
+  /* sz is min( available, count ) */
+  ulong sz = cap - ( prod - cons );
+  /* TODO this doesn't work as expected
+     if we early exit here, no wakeup occurs, sendto doesn't get called again
+     and the ring doesn't get serviced
+     This implies we need to call sendto AGAIN even if the ring hasn't changed
+  if( sz == 0 )    return 0;
+  */
+  if( sz > count ) sz = count;
+
+  /* set ring[j] to the specified indices */
+  struct xdp_desc * ring = tx->packet_ring;
+  ulong mask = tx->depth - 1;
+  for( ulong j = 0; j < sz; ++j ) {
+    ulong k = prod & mask;
+    ring[k].addr    = meta[j].off;
+    ring[k].len     = meta[j].sz;
+    ring[k].options = 0;
+
+    prod++;
+  }
+
+  /* ensure data is visible before producer index */
+  FD_RELEASE();
+
+  /* update producer */
+  tx->cached_prod = *tx->prod = prod;
+
+  /* XDP tells us whether we need to specifically wake up the driver/hw */
+  if( fd_xsk_tx_need_wakeup( xsk ) ) {
+    sendto( xsk->xsk_fd, NULL, 0, MSG_DONTWAIT, NULL, 0 );
+  }
+
+  return sz;
+}
+
+ulong
+fd_xsk_rx_complete( fd_xsk_t *            xsk,
+                    fd_xsk_frame_meta_t * batch,
+                    ulong                 capacity ) {
+  /* rx ring */
+  fd_ring_desc_t * rx = &xsk->ring_rx;
+
+  ulong prod = rx->cached_prod;
+  ulong cons = rx->cached_cons;
+
+  /* how many frames are available? */
+  ulong avail = prod - cons;
+
+  /* should we update the cache */
+  if( avail < capacity ) {
+    /* we update cons (and keep cache up to date)
+       they update prod
+       so only need to fetch actual prod */
+    prod = rx->cached_prod = *rx->prod;
+    avail = prod - cons;
+  }
+
+  ulong sz = avail;
+  if( sz > capacity ) sz = capacity;
+
+  ulong mask = rx->depth - 1;
+  struct xdp_desc * ring = rx->packet_ring;
+  for( ulong j = 0; j < sz; ++j ) {
+    ulong k = cons & mask;
+    batch[j].off   = ring[k].addr;
+    batch[j].sz    = ring[k].len;
+    batch[j].flags = 0;
+
+    cons++;
+  }
+
+  FD_RELEASE();
+
+  rx->cached_cons = *rx->cons = cons;
+
+  return sz;
+}
+
+ulong
+fd_xsk_tx_complete( fd_xsk_t * xsk, ulong * batch, ulong capacity ) {
+  /* cr ring */
+  fd_ring_desc_t * cr = &xsk->ring_cr;
+
+  ulong prod = cr->cached_prod;
+  ulong cons = cr->cached_cons;
+
+  /* how many frames are available? */
+  ulong avail = prod - cons;
+
+  /* should we update the cache */
+  if( avail < capacity ) {
+    /* we update cons (and keep cache up to date)
+       they update prod
+       so only need to fetch actual prod */
+    prod = cr->cached_prod = *cr->prod;
+    avail = prod - cons;
+  }
+
+  ulong sz = avail;
+  if( sz > capacity ) sz = capacity;
+
+  ulong mask = cr->depth - 1;
+  ulong * ring = cr->frame_ring;
+  for( ulong j = 0; j < sz; ++j ) {
+    ulong k = cons & mask;
+    batch[j] = ring[k];
+
+    cons++;
+  }
+
+  FD_RELEASE();
+
+  cr->cached_cons = *cr->cons = cons;
+
+  return sz;
+}
+
+ulong
+fd_xsk_tx_complete2( fd_xsk_t *            xsk,
+                     fd_xsk_frame_meta_t * batch,
+                     ulong                 capacity ) {
+  /* cr ring */
+  fd_ring_desc_t * cr = &xsk->ring_cr;
+
+  ulong prod = cr->cached_prod;
+  ulong cons = cr->cached_cons;
+
+  /* how many frames are available? */
+  ulong avail = prod - cons;
+
+  /* should we update the cache */
+  if( avail < capacity ) {
+    /* we update cons (and keep cache up to date)
+       they update prod
+       so only need to fetch actual prod */
+    prod = cr->cached_prod = *cr->prod;
+    avail = prod - cons;
+  }
+
+  ulong sz = avail;
+  if( sz > capacity ) sz = capacity;
+
+  ulong mask = cr->depth - 1;
+  ulong * ring = cr->frame_ring;
+  for( ulong j = 0; j < sz; ++j ) {
+    ulong k = cons & mask;
+    batch[j].off = ring[k];
+
+    cons++;
+  }
+
+  FD_RELEASE();
+
+  cr->cached_cons = *cr->cons = cons;
+
+  return sz;
+}
+
+int
+fd_xsk_tx_need_wakeup( fd_xsk_t * xsk ) {
+  return !!( *xsk->ring_tx.flags & XDP_RING_NEED_WAKEUP );
+}
+
+int
+fd_xsk_rx_need_wakeup( fd_xsk_t * xsk ) {
+  return !!( *xsk->ring_fr.flags & XDP_RING_NEED_WAKEUP );
+}
+
