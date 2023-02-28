@@ -69,7 +69,7 @@ void fd_funk_fork(struct fd_funk* store,
   // Initialize the entry
   fd_funk_xactionid_t_copy(&entry->parent, parent);
   entry->scriptmax = 1<<12; // 4KB
-  entry->script = (char*)malloc(entry->scriptmax);
+  entry->script = (char*)fd_cache_safe_malloc(store->cache, store->alloc, 1, entry->scriptmax);
   // The prefix always comes first in the transcript
   entry->scriptlen = sizeof(struct fd_funk_xaction_prefix);
   FD_FUNK_XACTION_PREFIX(entry)->state = FD_FUNK_XACTION_LIVE;
@@ -83,12 +83,12 @@ void fd_funk_fork(struct fd_funk* store,
 
 void fd_funk_xaction_entry_cleanup(struct fd_funk* store,
                                    struct fd_funk_xaction_entry* entry) {
-  free(entry->script);
+  fd_alloc_free(store->alloc, entry->script);
   const ulong cnt = entry->cache.cnt;
   struct fd_funk_xaction_cache_entry* const elems = entry->cache.elems;
-  for (uint i = 0; i < cnt; ++i) {
+  for (ulong i = 0; i < cnt; ++i) {
     struct fd_funk_xaction_cache_entry* const elem = elems + i;
-    fd_cache_release(store->cache, elem->cachehandle);
+    fd_cache_release(store->cache, elem->cachehandle, store->alloc);
   }
   fd_funk_xaction_cache_destroy(&entry->cache);
 }
@@ -239,7 +239,7 @@ void fd_funk_merge(struct fd_funk* store,
   // Initialize the entry
   fd_funk_xactionid_t_copy(&entry->parent, &source_ents[0]->parent);
   entry->scriptmax = (uint)newscriptlen;
-  entry->script = (char*)malloc(newscriptlen);
+  entry->script = (char*)fd_cache_safe_malloc(store->cache, store->alloc, 1, entry->scriptmax);
   entry->scriptlen = (uint)newscriptlen;
   FD_FUNK_XACTION_PREFIX(entry)->state = FD_FUNK_XACTION_LIVE;
   fd_funk_xaction_cache_new(&entry->cache);
@@ -301,8 +301,13 @@ long fd_funk_write(struct fd_funk* store,
   // followed by the data.
   ulong newlen = entry->scriptlen + sizeof(struct fd_funk_xaction_write_header) + data_sz;
   if (newlen > entry->scriptmax) {
+    // Grow the unused space in the transcript to accommodate the new update
     entry->scriptmax = (uint)(newlen + (64U<<10)); // 64KB of slop
-    entry->script = (char*)realloc(entry->script, entry->scriptmax);
+    char* newscript = (char*)fd_cache_safe_malloc(store->cache, store->alloc, 1, entry->scriptmax);
+    // Copy old data into new space
+    fd_memcpy(newscript, entry->script, entry->scriptlen);
+    fd_alloc_free(store->alloc, entry->script);
+    entry->script = newscript;
   }
   struct fd_funk_xaction_write_header* head = (struct fd_funk_xaction_write_header*)(entry->script + entry->scriptlen);
   head->type = FD_FUNK_XACTION_WRITE_TYPE;
@@ -369,8 +374,13 @@ void fd_funk_delete_record(struct fd_funk* store,
   // Add the delete update to the transcript.
   ulong newlen = entry->scriptlen + sizeof(struct fd_funk_xaction_delete_header);
   if (newlen > entry->scriptmax) {
+    // Grow the unused space in the transcript to accommodate the new update
     entry->scriptmax = (uint)(newlen + (64U<<10)); // 64KB of slop
-    entry->script = (char*)realloc(entry->script, entry->scriptmax);
+    char* newscript = (char*)fd_cache_safe_malloc(store->cache, store->alloc, 1, entry->scriptmax);
+    // Copy old data into new space
+    fd_memcpy(newscript, entry->script, entry->scriptlen);
+    fd_alloc_free(store->alloc, entry->script);
+    entry->script = newscript;
   }
   struct fd_funk_xaction_delete_header* head = (struct fd_funk_xaction_delete_header*)(entry->script + entry->scriptlen);
   head->type = FD_FUNK_XACTION_DELETE_TYPE;
@@ -380,10 +390,10 @@ void fd_funk_delete_record(struct fd_funk* store,
 
   // Update the cache for this transaction.
   struct fd_funk_xaction_cache* cache = &entry->cache;
-  for (unsigned i = 0; i < cache->cnt; ++i) {
+  for (uint i = 0; i < cache->cnt; ++i) {
     struct fd_funk_xaction_cache_entry* j = cache->elems + i;
     if (fd_funk_recordid_t_equal(&j->record, recordid)) {
-      fd_cache_release(store->cache, j->cachehandle);
+      fd_cache_release(store->cache, j->cachehandle, store->alloc);
       fd_funk_xaction_cache_remove_at(cache, i);
       break;
     }
@@ -426,7 +436,7 @@ fd_cache_handle fd_funk_get_cache(struct fd_funk* store,
         return j->cachehandle;
       // Existing cache is too small (a short prefix). Throw away the
       // old one and rebuild it from scratch.
-      fd_cache_release(store->cache, j->cachehandle);
+      fd_cache_release(store->cache, j->cachehandle, store->alloc);
       fd_funk_xaction_cache_remove_at(cache, i);
       break;
     }
@@ -493,7 +503,7 @@ fd_cache_handle fd_funk_get_cache(struct fd_funk* store,
   if (needed_sz > (uint)newrecord_sz)
     needed_sz = (uint)newrecord_sz; // Trim to the actual record size
   void* newdata;
-  fd_cache_handle newhandle = fd_cache_allocate(store->cache, &newdata, needed_sz);
+  fd_cache_handle newhandle = fd_cache_allocate(store->cache, &newdata, needed_sz, store->alloc);
   
   // Copy existing cache data from parent transaction
   if (hand == FD_CACHE_INVALID_HANDLE)

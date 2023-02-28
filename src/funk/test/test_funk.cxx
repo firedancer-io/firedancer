@@ -310,7 +310,7 @@ int main(int argc, char **argv) {
     validateall();
   }
 
-  FD_LOG_INFO(("final grind... expect a warning"));
+  FD_LOG_WARNING(("final grind... expect a warning"));
   for (;;) {
     recordkey key;
     rg.genbytes((char*)&key, sizeof(key));
@@ -331,6 +331,7 @@ int main(int argc, char **argv) {
   fd_wksp_detach(wksp);
   unlink("testback");
 
-  FD_LOG_INFO(("test passed!"));
+  FD_LOG_WARNING(("test passed!"));
+  fd_log_flush();
   return 0;
 }

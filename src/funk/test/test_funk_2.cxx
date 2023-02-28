@@ -152,7 +152,11 @@ int main(int argc, char **argv) {
   unlink("testback");
 
   fd_wksp_t* wksp = fd_wksp_new_anonymous( FD_SHMEM_GIGANTIC_PAGE_SZ, 1UL, fd_log_cpu_id(), "wksp", 0UL );
-  auto* funk = fd_funk_new("testback", wksp, 1, 100000, 100, 10000);
+
+  ulong index_max = 1000000;    // Maximum size (count) of master index
+  ulong xactions_max = 100;     // Maximum size (count) of transaction index
+  ulong cache_max = 10000;      // Maximum number of cache entries
+  auto* funk = fd_funk_new("testback", wksp, 1, index_max, xactions_max, cache_max);
 
   fd_funk_validate(funk);
 
@@ -372,6 +376,7 @@ int main(int argc, char **argv) {
   fd_wksp_detach(wksp);
   unlink("testback");
 
-  FD_LOG_INFO(("test passed!"));
+  FD_LOG_WARNING(("test passed!"));
+  fd_log_flush();
   return 0;
 }
