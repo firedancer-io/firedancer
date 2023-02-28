@@ -168,6 +168,31 @@ main( int     argc,
   FD_TEST( fd_alloc_wksp( NULL  )==NULL ); FD_TEST( fd_alloc_tag( NULL  )==0UL );
   FD_TEST( fd_alloc_wksp( alloc )==wksp ); FD_TEST( fd_alloc_tag( alloc )==tag );
 
+  FD_LOG_NOTICE(( "Testing is_empty" ));
+
+  do {
+    FD_TEST( fd_alloc_is_empty( alloc ) );
+    void * mem[64];
+    for( ulong idx=0UL; idx<64UL; idx++ ) mem[idx] = fd_alloc_malloc( alloc, 1UL, 1UL );
+    for( ulong idx=0UL; idx<64UL; idx++ ) {
+      FD_TEST( !fd_alloc_is_empty( alloc ) );
+      fd_alloc_free( alloc, mem[idx] );
+    }
+    FD_TEST( fd_alloc_is_empty( alloc ) );
+  } while(0);
+
+  FD_LOG_NOTICE(( "Testing compact" ));
+
+  do {
+    void * mem[64];
+    for( ulong idx=0UL; idx<64UL; idx++ ) mem[idx] = fd_alloc_malloc( alloc, 1UL, 1UL );
+    for( ulong idx=0UL; idx<64UL; idx++ ) {
+      fd_alloc_free( alloc, mem[idx] );
+      fd_alloc_compact( alloc );
+    }
+    FD_TEST( fd_alloc_is_empty( alloc ) );
+  } while(0);
+
   FD_LOG_NOTICE(( "Running torture test with --alloc-cnt %lu, --align-max %lu, --sz-max %lu on %lu tile(s)",
                   alloc_cnt, align_max, sz_max, tile_cnt ));
 

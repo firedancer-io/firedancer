@@ -37,6 +37,12 @@ free alloc_gaddr cgroup_idx malloc_gaddr
   concurrency group cgroup_idx.  Technically speaking, this always
   succeeds (logs any weirdness detected).
 
+compact alloc_gaddr
+- Frees up any wksp allocations that are not required for any
+  outstanding mallocs done by the alloc at alloc_gaddr (note that free
+  lazily returns unused memory from the underlying wksp to accelerate
+  potential future allocations).
+
 query what alloc_gaddr
 - Query alloc at alloc_gaddr.  The "what" determines what will be
   printed to stdout:
@@ -45,6 +51,18 @@ query what alloc_gaddr
     -------------+---------------------+----------------------
     test         | 0                   | error code (negative)
     tag          | wksp_tag (positive) | 0
+    leak         | 0 if empty          | error code (negative)
+                 | 1 if outstanding    |
+    full         |       pretty printed verbose details
+
+  "leak" should only be done when there are expected to be no
+  outstanding mallocs on the alloc and there are no concurrent users.
+  Concurrent use will not corrupt the alloc but the result might be
+  inaccurate.  Note also that leak might invoke compact on the alloc.
+
+  "full" should only be done when there are no concurrent users.
+  Concurrent use will not corrupt the alloc but the result might be
+  inaccurate.
 
   Technically speaking, this always succeeds (logs any weirdness
   detected).
