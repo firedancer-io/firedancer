@@ -456,14 +456,14 @@ fd_cache_handle fd_funk_get_cache_root(struct fd_funk* store,
     // Load the cache. We can cache a prefix rather than the entire
     // record. This is useful if metadata is in front of the real data.
     if (*cache_data != NULL)
-      fd_cache_release(store->cache, ent->cachehandle);
+      fd_cache_release(store->cache, ent->cachehandle, store->alloc);
     // Allocate fresh cache space
-    ent->cachehandle = fd_cache_allocate(store->cache, cache_data, needed_sz);
+    ent->cachehandle = fd_cache_allocate(store->cache, cache_data, needed_sz, store->alloc);
     *cache_sz = needed_sz;
     // Read from the file
     if (pread(store->backing_fd, *cache_data, needed_sz, (long)ent->start) < (long)needed_sz) {
       FD_LOG_WARNING(("failed to read backing file: %s", strerror(errno)));
-      fd_cache_release(store->cache, ent->cachehandle);
+      fd_cache_release(store->cache, ent->cachehandle, store->alloc);
       return FD_CACHE_INVALID_HANDLE;
     }
   }
@@ -481,7 +481,7 @@ void fd_funk_delete_record_root(struct fd_funk* store,
     return;
   }
   // Release the cached data
-  fd_cache_release(store->cache, ent->cachehandle);
+  fd_cache_release(store->cache, ent->cachehandle, store->alloc);
   // Force the control to be dead. Allow the disk space to be reused.
   fd_funk_make_dead(store, ent->control, ent->start, ent->alloc);
 }

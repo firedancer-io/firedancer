@@ -44,6 +44,7 @@ ulong MAP_(footprint)(ulong max) {
   ulong header_cnt = 1;
   while (header_cnt*2 < max)
     header_cnt <<= 1;
+  // Elements must start on a cache line
   return fd_ulong_align_up(sizeof(struct MAP_NAME) + header_cnt*sizeof(uint), 64) + max*sizeof(MAP_ELEMENT);
 }
 
@@ -64,8 +65,9 @@ struct MAP_NAME* MAP_(new)(void* mem, ulong max, ulong hashseed) {
   uint* headers = (uint*)(self+1);
   fd_memset(headers, -1, sizeof(uint)*header_cnt);
 
-  // Build the free list up to the footprint size
+  // Build the free list
   uint* last = &self->free_list;
+  // Elements must start on a cache line
   self->elembase = fd_ulong_align_up(sizeof(struct MAP_NAME) + header_cnt*sizeof(uint), 64);
   MAP_ELEMENT* const elembase = (MAP_ELEMENT*)((char*)self + self->elembase);
   for (uint i = 0; i < max; ++i) {

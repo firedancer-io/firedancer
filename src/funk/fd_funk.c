@@ -123,10 +123,11 @@ void* fd_funk_delete(struct fd_funk* store) {
   fd_funk_index_destroy(store->index);
   fd_funk_xactions_cleanup(store);
   fd_funk_xactions_destroy(store->xactions);
-  fd_cache_destroy(store->cache);
+  fd_cache_destroy(store->cache, store->alloc);
   fd_vec_ulong_destroy(&store->free_ctrl);
   for (uint i = 0; i < FD_FUNK_NUM_DISK_SIZES; ++i)
     fd_funk_vec_dead_entry_destroy(&store->deads[i]);
+  fd_alloc_delete(fd_alloc_leave(store->alloc));
   close(store->backing_fd);
   fd_wksp_free_laddr(store);
   return store;

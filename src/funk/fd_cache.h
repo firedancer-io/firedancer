@@ -57,13 +57,13 @@ struct fd_cache* fd_cache_new(void* mem, ulong entry_cnt) {
   return self;
 }
 
-void fd_cache_destroy(struct fd_cache* self) {
+void fd_cache_destroy(struct fd_cache* self, fd_alloc_t* alloc) {
   struct fd_cache_entry* const entries = (struct fd_cache_entry*)(self + 1);
   const ulong cnt = self->entry_cnt;
   for (ulong i = 0; i < cnt; ++i) {
     struct fd_cache_entry* ent = entries + i;
     if (ent->data_sz >= 0) {
-      free(ent->data);
+      fd_alloc_free(alloc, ent->data);
       ent->data = NULL;
       ent->data_sz = -1;
       ent->gen ++; // Invalidate existing handles
@@ -71,8 +71,8 @@ void fd_cache_destroy(struct fd_cache* self) {
   }
 }
 
-void fd_cache_release_entry(struct fd_cache* self, struct fd_cache_entry* ent) {
-  free(ent->data);
+void fd_cache_release_entry(struct fd_cache* self, struct fd_cache_entry* ent, fd_alloc_t* alloc) {
+  fd_alloc_free(alloc, ent->data);
   if (FD_UNLIKELY(self->newest_free == NULL))
     self->oldest_free = ent;
   else
@@ -84,33 +84,51 @@ void fd_cache_release_entry(struct fd_cache* self, struct fd_cache_entry* ent) {
 }
 
 // Release a bunch of old entries
-void fd_cache_garbage_collect(struct fd_cache* self) {
+int fd_cache_garbage_collect(struct fd_cache* self, fd_alloc_t* alloc) {
+  int did_something = 0;
   // Release about 1/4 of the entries
   ulong mark = self->lastgc + (self->clock - self->lastgc)/4;
   struct fd_cache_entry* const entries = (struct fd_cache_entry*)(self + 1);
   const ulong cnt = self->entry_cnt;
   for (ulong i = 0; i < cnt; ++i) {
     struct fd_cache_entry* ent = entries + i;
-    if (ent->data_sz >= 0 && ent->clock < mark)
-      fd_cache_release_entry(self, ent);
+    if (ent->data_sz >= 0 && ent->clock < mark) {
+      fd_cache_release_entry(self, ent, alloc);
+      did_something = 1;
+    }
   }
   self->lastgc = mark;
+  return did_something || (self->clock - self->lastgc > 4);
 }
 
 // Allocate cache space of size data_sz. The handle is returned. *data
 // is updated to refer to the resulting data pointer. The
-// FD_CACHE_MALLOC macro performs the raw allocation.
-fd_cache_handle fd_cache_allocate(struct fd_cache* self, void** data, uint data_sz) {
+fd_cache_handle fd_cache_allocate(struct fd_cache* self, void** data, uint data_sz, fd_alloc_t* alloc) {
+  // Make sure we have enough space for the allocation. Keep garbage collecting until we do.
+  while (FD_UNLIKELY(self->oldest_free == NULL)) {
+    if (!fd_cache_garbage_collect(self, alloc)) {
+      FD_LOG_ERR(("failed cache allocation, make the workspace much bigger"));
+      return FD_CACHE_INVALID_HANDLE;
+    }
+  }
+  if (FD_UNLIKELY(data_sz == 0))
+    *data = NULL;
+  else {
+    while ((*data = fd_alloc_malloc(alloc, 1, data_sz)) == NULL) {
+      if (!fd_cache_garbage_collect(self, alloc)) {
+        FD_LOG_ERR(("failed cache allocation, make the workspace much bigger"));
+        return FD_CACHE_INVALID_HANDLE;
+      }
+    }
+  }
   // Reuse the oldest free entry. This minimizes the rate at which gen
   // is incremented.
-  while (FD_UNLIKELY(self->oldest_free == NULL))
-    fd_cache_garbage_collect(self);
   struct fd_cache_entry* ent = self->oldest_free;
   struct fd_cache_entry* next = (struct fd_cache_entry*)ent->data;
   self->oldest_free = next;
   if (FD_UNLIKELY(next == NULL))
     self->newest_free = NULL;
-  ent->data = *data = malloc(data_sz);
+  ent->data = *data;
   ent->data_sz = (int)data_sz;
   ent->clock = ++(self->clock);
   struct fd_cache_entry* entries = (struct fd_cache_entry*)(self + 1);
@@ -141,7 +159,7 @@ void* fd_cache_lookup(struct fd_cache* self, fd_cache_handle handle, uint* data_
 }
 
 // Free the storage for the cache entry
-void fd_cache_release(struct fd_cache* self, fd_cache_handle handle) {
+void fd_cache_release(struct fd_cache* self, fd_cache_handle handle, fd_alloc_t* alloc) {
   uint pos = (uint)handle; // Get the low 32 bits
   if (FD_UNLIKELY(pos >= self->entry_cnt)) {
     return;
@@ -153,5 +171,5 @@ void fd_cache_release(struct fd_cache* self, fd_cache_handle handle) {
     return;
   }
   self->hits ++;
-  fd_cache_release_entry(self, ent);
+  fd_cache_release_entry(self, ent, alloc);
 }

@@ -86,9 +86,9 @@ void fd_funk_xaction_entry_cleanup(struct fd_funk* store,
   free(entry->script);
   const ulong cnt = entry->cache.cnt;
   struct fd_funk_xaction_cache_entry* const elems = entry->cache.elems;
-  for (uint i = 0; i < cnt; ++i) {
+  for (ulong i = 0; i < cnt; ++i) {
     struct fd_funk_xaction_cache_entry* const elem = elems + i;
-    fd_cache_release(store->cache, elem->cachehandle);
+    fd_cache_release(store->cache, elem->cachehandle, store->alloc);
   }
   fd_funk_xaction_cache_destroy(&entry->cache);
 }
@@ -380,10 +380,10 @@ void fd_funk_delete_record(struct fd_funk* store,
 
   // Update the cache for this transaction.
   struct fd_funk_xaction_cache* cache = &entry->cache;
-  for (unsigned i = 0; i < cache->cnt; ++i) {
+  for (uint i = 0; i < cache->cnt; ++i) {
     struct fd_funk_xaction_cache_entry* j = cache->elems + i;
     if (fd_funk_recordid_t_equal(&j->record, recordid)) {
-      fd_cache_release(store->cache, j->cachehandle);
+      fd_cache_release(store->cache, j->cachehandle, store->alloc);
       fd_funk_xaction_cache_remove_at(cache, i);
       break;
     }
@@ -426,7 +426,7 @@ fd_cache_handle fd_funk_get_cache(struct fd_funk* store,
         return j->cachehandle;
       // Existing cache is too small (a short prefix). Throw away the
       // old one and rebuild it from scratch.
-      fd_cache_release(store->cache, j->cachehandle);
+      fd_cache_release(store->cache, j->cachehandle, store->alloc);
       fd_funk_xaction_cache_remove_at(cache, i);
       break;
     }
@@ -493,7 +493,7 @@ fd_cache_handle fd_funk_get_cache(struct fd_funk* store,
   if (needed_sz > (uint)newrecord_sz)
     needed_sz = (uint)newrecord_sz; // Trim to the actual record size
   void* newdata;
-  fd_cache_handle newhandle = fd_cache_allocate(store->cache, &newdata, needed_sz);
+  fd_cache_handle newhandle = fd_cache_allocate(store->cache, &newdata, needed_sz, store->alloc);
   
   // Copy existing cache data from parent transaction
   if (hand == FD_CACHE_INVALID_HANDLE)
