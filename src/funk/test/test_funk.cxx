@@ -171,6 +171,29 @@ int main(int argc, char **argv) {
 
   validateall();
 
+  // Use writev
+  for (unsigned i = 0; i < 200; ++i) {
+    recordkey key;
+    rg.genbytes((char*)&key, sizeof(key));
+    auto len = random_size(rg);
+    rg.genbytes(scratch, len);
+    struct iovec iov[3];
+    iov[0].iov_base = scratch;
+    iov[0].iov_len = len/3;
+    iov[1].iov_base = scratch + iov[0].iov_len;
+    iov[1].iov_len = len/3;
+    iov[2].iov_base = scratch + (iov[0].iov_len + iov[1].iov_len);
+    iov[2].iov_len = len - (iov[0].iov_len + iov[1].iov_len);
+    if (fd_funk_writev(funk, fd_funk_root(funk), &key._id, iov, 3, 0) != (long)len)
+      FD_LOG_ERR(("write failed"));
+    databuf& db = golden[key];
+    db.write(scratch, 0, len);
+  }
+
+  validateall();
+  reload();
+  validateall();
+
   // Update/grow all entries
   for (auto& [key,db] : golden) {
     auto len = random_size(rg);
@@ -185,6 +208,36 @@ int main(int argc, char **argv) {
     }
     rg.genbytes(scratch, (uint)(len - offset));
     if (fd_funk_write(funk, fd_funk_root(funk), &key._id, scratch, offset, len - offset) != (long)(len - offset))
+      FD_LOG_ERR(("write failed"));
+    db.write(scratch, offset, len - offset);
+  }
+
+  validateall();
+  reload();
+  validateall();
+
+  // Update/grow all entries
+  for (auto& [key,db] : golden) {
+    auto len = random_size(rg);
+    ulong offset;
+    if (len == 0)
+      offset = 0;
+    else {
+      rg.genbytes((char*)&offset, sizeof(offset));
+      offset %= len*2;
+      if (offset >= len)
+        offset = 0;
+    }
+    ulong len2 = len - offset;
+    rg.genbytes(scratch, (uint)len2);
+    struct iovec iov[3];
+    iov[0].iov_base = scratch;
+    iov[0].iov_len = len2/3;
+    iov[1].iov_base = scratch + iov[0].iov_len;
+    iov[1].iov_len = len2/3;
+    iov[2].iov_base = scratch + (iov[0].iov_len + iov[1].iov_len);
+    iov[2].iov_len = len2 - (iov[0].iov_len + iov[1].iov_len);
+    if (fd_funk_writev(funk, fd_funk_root(funk), &key._id, iov, 3, offset) != (long)len2)
       FD_LOG_ERR(("write failed"));
     db.write(scratch, offset, len - offset);
   }
