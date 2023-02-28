@@ -1,5 +1,7 @@
+// test_xdp.init
+
 //  --ledger /dev/shm/mainnet-ledger --db /dev/shm/funk --cmd replay --start-slot 179138205 --end-slot 279138205  --skip-exe true
-//  --ledger /dev/shm/mainnet-ledger --db /dev/shm/funk --cmd injest --start-slot 179138205 --end-slot 279138205 --manifest /dev/shm/mainnet-ledger/snapshot/tmp-snapshot-archive-JfVTLu/snapshots/179248368/179248368
+//  --ledger /dev/shm/mainnet-ledger --db /dev/shm/funk --cmd ingest --start-slot 179138205 --end-slot 279138205 --manifest /dev/shm/mainnet-ledger/snapshot/tmp-snapshot-archive-JfVTLu/snapshots/179248368/179248368
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -7,53 +9,53 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <regex.h>
 #include <fcntl.h>
 #include "fd_rocksdb.h"
 #include "fd_banks_solana.h"
 #include "fd_executor.h"
 #include "../../funk/fd_funk.h"
 #include "../../util/alloc/fd_alloc.h"
+#include <dirent.h>
 
-// #define _VALGRIND
+bool do_valgrind = false;
 
-#ifdef _VALGRIND
+char * fd_base58_encode_slow( uchar const * bytes, ulong byte_cnt, char * out, ulong out_cnt );
+int fd_alloc_fprintf( fd_alloc_t * join, FILE *       stream );
+
 char* allocf(unsigned long len, FD_FN_UNUSED unsigned long align, FD_FN_UNUSED void* arg) {
-  char * ptr = malloc(sizeof(char *) + len + align);
-  char * ret = (char *) fd_ulong_align_up( (ulong) (ptr + sizeof(char *)), align );
-  *((char **)(ret - sizeof(char *))) = ptr;
-  return ret;
+  if (NULL == arg) {
+    FD_LOG_ERR(( "yo dawg.. you passed a NULL as a fd_alloc pool"));
+  }
+
+  if (do_valgrind) {
+    char * ptr = malloc(fd_ulong_align_up(sizeof(char *) + len, align));
+    char * ret = (char *) fd_ulong_align_up( (ulong) (ptr + sizeof(char *)), align );
+    *((char **)(ret - sizeof(char *))) = ptr;
+    return ret;
+  } else 
+    return fd_alloc_malloc(arg, align, len);
 }
 
 void freef(void *ptr, FD_FN_UNUSED void* arg) {
-  free(*((char **)((char *) ptr - sizeof(char *))));
-}
-#else
-
-char* allocf(unsigned long len, unsigned long align, void* arg) {
   if (NULL == arg) {
     FD_LOG_ERR(( "yo dawg.. you passed a NULL as a fd_alloc pool"));
   }
 
-  char *ret = fd_alloc_malloc(arg, align, len);
-//  FD_LOG_NOTICE(( "0x%lx  0x%lx  allocf(len:%ld, align:%ld)", (ulong) ret, (ulong) arg,  len, align));
-  return ret;
+  if (do_valgrind) 
+    free(*((char **)((char *) ptr - sizeof(char *))));
+  else
+    fd_alloc_free(arg, ptr);
 }
-
-void freef(void *ptr, void* arg) {
-//  FD_LOG_NOTICE(( "0x%lx  0x%lx  free()", (ulong) ptr, (ulong) arg));
-
-  if (NULL == arg) {
-    FD_LOG_ERR(( "yo dawg.. you passed a NULL as a fd_alloc pool"));
-  }
-
-  fd_alloc_free(arg, ptr);
-}
-#endif
 
 struct global_state {
   ulong        end_slot;
   ulong        start_slot;
-  uchar        skip_exe;
+  ulong        pages;
+  bool         skip_exe;
+
+  int          argc;
+  char       **argv;
 
   char const * name;
   char const * ledger;
@@ -64,12 +66,14 @@ struct global_state {
   char const * accounts;
   char const * cmd;
   char const * skip_exe_opt;
+  char const * pages_opt;
 
   fd_wksp_t *  wksp;
   fd_alloc_t * alloc;
   fd_funk_t*   funk;
   fd_acc_mgr_t* acc_mgr;
   fd_rocksdb_t rocks_db;
+  fd_genesis_solana_t gen;
 };
 typedef struct global_state global_state_t;
 
@@ -86,27 +90,102 @@ static void usage(const char* progname) {
   fprintf(stderr, " --skip-exe   <bool>       Should we skip executing transactions\n");
 }
 
-int injest(global_state_t *state) {
+// pub const FULL_SNAPSHOT_ARCHIVE_FILENAME_REGEX: &str = r"^snapshot-(?P<slot>[[:digit:]]+)-(?P<hash>[[:alnum:]]+)\.(?P<ext>tar|tar\.bz2|tar\.zst|tar\.gz|tar\.lz4)$";
+// pub const INCREMENTAL_SNAPSHOT_ARCHIVE_FILENAME_REGEX: &str = r"^incremental-snapshot-(?P<base>[[:digit:]]+)-(?P<slot>[[:digit:]]+)-(?P<hash>[[:alnum:]]+)\.(?P<ext>tar|tar\.bz2|tar\.zst|tar\.gz|tar\.lz4)$";
+
+int ingest(global_state_t *state) {
+  if (NULL == state->accounts)  {
+    usage(state->argv[0]);
+    exit(1);
+  }
+
+  regex_t reg;
+  // Where were those regular expressions for snapshots?
+  if (regcomp(&reg, "[0-9]+\\.[0-9]+", REG_EXTENDED) != 0) {
+    FD_LOG_ERR(( "compile failed" ));
+  }
+
+  DIR *dir = opendir(state->accounts);
+
+// Rent per byte-year: 0.00000348 SOL
+// Rent per epoch: 0.000002458 SOL
+// Rent-exempt minimum: 0.00089784 SOL
+
+  struct dirent * ent;
+  while ( NULL != (ent = readdir(dir)) ) {
+    if ( regexec(&reg, ent->d_name, 0, NULL, 0) == 0 )  {
+        struct stat s;
+        char buf[1000];
+        sprintf(buf, "%s/%s", state->accounts, ent->d_name);
+        stat(buf,  &s);
+        unsigned char *b = (unsigned char *)allocf((unsigned long) (unsigned long) s.st_size, 8UL, state->alloc);
+        int fd = open(buf, O_RDONLY);
+        ssize_t n = read(fd, b, (unsigned long) s.st_size);
+        if (n < 0) {
+          FD_LOG_ERR(( "??" ));
+        }
+        unsigned char *eptr = &b[(ulong) ((ulong)n - (ulong)sizeof(fd_solana_account_hdr_t))];
+        if (n != s.st_size) {
+          FD_LOG_ERR(( "??" ));
+        }
+
+        printf("%s\n", buf);
+        while (b < eptr) {
+          fd_solana_account_hdr_t *hdr = (fd_solana_account_hdr_t *)b;
+          if ((hdr->info.lamports == 0) | ((hdr->info.executable & 1) != 0))
+            break;
+          // how do I validate this?!
+          ulong exempt = (hdr->meta.data_len + 128) * ((ulong) ((double)state->gen.rent.lamports_per_uint8_year * state->gen.rent.exemption_threshold));
+          if (hdr->info.lamports < exempt) {
+            fd_base58_encode_slow((uchar *) hdr->meta.pubkey, sizeof(hdr->meta.pubkey), buf, sizeof(buf));
+            printf("%ld\n", hdr->meta.data_len);
+          }
+          b += fd_ulong_align_up(hdr->meta.data_len + sizeof(*hdr), 8);
+        }
+
+        close(fd);
+        freef(b, state->alloc);
+    }
+  }
+
+  closedir(dir);
+  regfree(&reg);
+
+  return 0;
+}
+
+int manifest(global_state_t *state) {
   struct stat s;
   stat(state->manifest,  &s);
 
-  unsigned char *b = (unsigned char *)malloc((unsigned long) (unsigned long) s.st_size);
+  FD_LOG_WARNING(("reading manifest: %s", state->manifest));
+
+  unsigned char *b = (unsigned char *)allocf((unsigned long) (unsigned long) s.st_size, 1, state->alloc);
   int fd = open(state->manifest, O_RDONLY);
   ssize_t n = read(fd, b, (unsigned long) s.st_size);
+  close(fd);
 
   FD_TEST(n == s.st_size);
   unsigned char *outend = &b[n];
   const void * o = b;
 
+  FD_LOG_WARNING(("deserializing version bank"));
+
   struct fd_deserializable_versioned_bank a;
   memset(&a, 0, sizeof(a));
   fd_deserializable_versioned_bank_decode(&a, &o, outend, allocf, state->alloc);
 
+
+  FD_LOG_WARNING(("deserializing accounts"));
   struct fd_solana_accounts_db_fields db;
   memset(&db, 0, sizeof(b));
   fd_solana_accounts_db_fields_decode(&db, &o, outend, allocf, state->alloc);
 
-  FD_TEST(a.is_delta != 0);
+  FD_LOG_WARNING(("cleaning up"));
+
+  fd_deserializable_versioned_bank_destroy(&a, freef, state->alloc);
+  fd_solana_accounts_db_fields_destroy(&db, freef, state->alloc);
+  freef(b, state->alloc);
 
   return 0;
 }
@@ -181,6 +260,9 @@ int main(int argc, char **argv) {
   global_state_t state;
   fd_memset(&state, 0, sizeof(state));
 
+  state.argc = argc;
+  state.argv = argv;
+
   state.end_slot = 73;
   state.start_slot = 0;
 
@@ -190,9 +272,10 @@ int main(int argc, char **argv) {
   state.end_slot_opt   = fd_env_strip_cmdline_cstr ( &argc, &argv, "--end-slot",     NULL, NULL);
   state.start_slot_opt = fd_env_strip_cmdline_cstr ( &argc, &argv, "--start-slot",   NULL, NULL);
   state.manifest       = fd_env_strip_cmdline_cstr ( &argc, &argv, "--manifest",     NULL, NULL);
-  state.accounts       = fd_env_strip_cmdline_cstr ( &argc, &argv, "--account",      NULL, NULL);
+  state.accounts       = fd_env_strip_cmdline_cstr ( &argc, &argv, "--accounts",     NULL, NULL);
   state.cmd            = fd_env_strip_cmdline_cstr ( &argc, &argv, "--cmd",          NULL, NULL);
   state.skip_exe_opt   = fd_env_strip_cmdline_cstr ( &argc, &argv, "--skip-exe",     NULL, NULL);
+  state.pages_opt      = fd_env_strip_cmdline_cstr ( &argc, &argv, "--pages",        NULL, NULL);
 
   if ((NULL == state.ledger) || (NULL == state.db)) {
     usage(argv[0]);
@@ -203,12 +286,17 @@ int main(int argc, char **argv) {
     state.skip_exe = !strcmp(state.skip_exe_opt, "true");
   }
 
+  if (state.pages_opt) 
+    state.pages = (ulong) atoi(state.pages_opt);
+  else
+    state.pages = 2;
+
   if( state.name ) {
     FD_LOG_NOTICE(( "Attaching to --wksp %s", state.name ));
     state.wksp = fd_wksp_attach( state.name );
   } else {
     FD_LOG_NOTICE(( "--wksp not specified, using an anonymous local workspace" ));
-    state.wksp = fd_wksp_new_anonymous( FD_SHMEM_GIGANTIC_PAGE_SZ, 1UL, fd_log_cpu_id(), "wksp", 0UL );
+    state.wksp = fd_wksp_new_anonymous( FD_SHMEM_GIGANTIC_PAGE_SZ, state.pages, fd_log_cpu_id(), "wksp", 0UL );
   } 
 
   if( FD_UNLIKELY( !state.wksp ) ) FD_LOG_ERR(( "Unable to attach to wksp" ));
@@ -227,12 +315,10 @@ int main(int argc, char **argv) {
   state.funk = fd_funk_new(state.db, state.wksp, 2, index_max, xactions_max, cache_max);
   fd_funk_validate(state.funk);
 
-  if (NULL != state.end_slot_opt) {
+  if (NULL != state.end_slot_opt)
     state.end_slot = (ulong) atoi(state.end_slot_opt);
-  }
-  if (NULL != state.start_slot_opt) {
+  if (NULL != state.start_slot_opt) 
     state.start_slot = (ulong) atoi(state.start_slot_opt);
-  }
 
   // Eventually we will have to add support for reading compressed genesis blocks...
   char genesis[128];
@@ -241,25 +327,28 @@ int main(int argc, char **argv) {
   char db_name[128];
   sprintf(db_name, "%s/rocksdb", state.ledger);
 
-  struct stat sbuf;
-  stat(genesis, &sbuf);
-  int fd = open(genesis, O_RDONLY);
-  uchar *buf = malloc((ulong) sbuf.st_size);
-  ssize_t n = read(fd, buf, (ulong) sbuf.st_size);
-  close(fd);
+  {
+    struct stat sbuf;
+    stat(genesis, &sbuf);
+    int fd = open(genesis, O_RDONLY);
+    uchar *buf = malloc((ulong) sbuf.st_size);
+    ssize_t n = read(fd, buf, (ulong) sbuf.st_size);
+    close(fd);
     
-  void *data = buf;
-  void *dataend = &buf[n];
-  fd_genesis_solana_t gen;
-  fd_memset(&gen, 0, sizeof(gen));
-  fd_genesis_solana_decode(&gen, ( void const** )&data, dataend, allocf, state.alloc);
+    void *data = buf;
+    void *dataend = &buf[n];
+    fd_memset(&state.gen, 0, sizeof(state.gen));
+    fd_genesis_solana_decode(&state.gen, ( void const** )&data, dataend, allocf, state.alloc);
+
+    free(buf);
+  }
 
   // Jam all the accounts into the database....  (gen.accounts)
 
   /* Initialize the account manager */
   struct fd_funk_xactionid const* xroot = fd_funk_root(state.funk);
 
-  void *fd_acc_mgr_raw = malloc(FD_ACC_MGR_FOOTPRINT);
+  void *fd_acc_mgr_raw = allocf(FD_ACC_MGR_FOOTPRINT, FD_ACC_MGR_ALIGN, state.alloc);
   state.acc_mgr = fd_acc_mgr_join(fd_acc_mgr_new(fd_acc_mgr_raw, state.funk, xroot, FD_ACC_MGR_FOOTPRINT));
 
   FD_LOG_WARNING(("loading genesis account into funk db"));
@@ -267,15 +356,15 @@ int main(int argc, char **argv) {
   uchar *dbuf = NULL;
   ulong datalen = 0;
 
-  for (ulong i = 0; i < gen.accounts_len; i++) {
-    fd_pubkey_account_pair_t *a = &gen.accounts[i];
+  for (ulong i = 0; i < state.gen.accounts_len; i++) {
+    fd_pubkey_account_pair_t *a = &state.gen.accounts[i];
 
     // Here be dragons and the subject of debate
 
     // Lets have another 2 hour debate over fd_account_meta_t... 
     ulong dlen =  sizeof(fd_account_meta_t) + a->account.data_len;
     if (dlen > datalen) {
-      if (NULL != data) 
+      if (NULL != dbuf) 
         free(dbuf);
       datalen = dlen;
       dbuf = malloc(datalen);
@@ -306,11 +395,9 @@ int main(int argc, char **argv) {
     dbuf = NULL;
   }
 
-  fd_genesis_solana_destroy(&gen, freef, state.alloc);
-
   //  we good?
-  FD_LOG_WARNING(("validating funk db"));
-  fd_funk_validate(state.funk);
+//  FD_LOG_WARNING(("validating funk db"));
+//  fd_funk_validate(state.funk);
 
   // Initialize the rocksdb 
   char *err = fd_rocksdb_init(&state.rocks_db, db_name);
@@ -341,21 +428,32 @@ int main(int argc, char **argv) {
 
   if (strcmp(state.cmd, "replay") == 0)
     replay(&state);
-  if (strcmp(state.cmd, "injest") == 0)
-    injest(&state);
+  if (strcmp(state.cmd, "manifest") == 0)
+    manifest(&state);
+  if (strcmp(state.cmd, "ingest") == 0)
+    ingest(&state);
 
   fd_acc_mgr_delete(fd_acc_mgr_leave(state.acc_mgr));
-  free(fd_acc_mgr_raw);
+  freef(fd_acc_mgr_raw, state.alloc);
+
+  fd_genesis_solana_destroy(&state.gen, freef, state.alloc);
 
   // The memory management model is odd...  how do I know how to destroy this
   fd_rocksdb_destroy(&state.rocks_db);
 
-  fd_funk_delete(state.funk);
-  fd_wksp_tag_free(state.wksp, 2);
+//  fd_alloc_fprintf( state.alloc, stdout );
 
-  free(buf);
+//  fd_alloc_free(state.alloc, fd_funk_raw);
+
+  fd_funk_delete(state.funk);
+
+  // ??
+  //fd_wksp_tag_free(state.wksp, 2);
 
   fd_wksp_free_laddr( shmem );
+
+  // dump wksp state
+
   if( state.name ) 
     fd_wksp_detach( state.wksp );
   else  
