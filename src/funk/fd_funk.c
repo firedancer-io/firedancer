@@ -69,6 +69,9 @@ struct fd_funk* fd_funk_new(char const* backingfile,
 
   // Allocate space for the funk
   void* shmem = fd_wksp_alloc_laddr(wksp, fd_funk_align(), footprint, alloc_tag);
+  if (NULL == shmem) {
+    FD_LOG_ERR(("fd_wksp_alloc_laddr unable to allocate %ld bytes in the supplied workspace", footprint));
+  }
   struct fd_funk* store = (struct fd_funk*)shmem;
 
   store->wksp = wksp;

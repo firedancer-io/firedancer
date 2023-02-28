@@ -87,6 +87,7 @@ int fd_acc_mgr_set_lamports( fd_acc_mgr_t* acc_mgr, fd_pubkey_t * pubkey, fd_acc
 
   /* Overwrite the lamports value and write back */
   metadata.info.lamports = lamports;
+  /* Bet we have to update the hash of the account.. and track the dirty pubkeys.. */
   int write_result = fd_acc_mgr_write_account( acc_mgr, pubkey, (uchar*)&metadata, sizeof(metadata) );
   if ( FD_UNLIKELY( write_result != FD_ACC_MGR_SUCCESS ) ) {
     FD_LOG_WARNING(( "failed to write account metadata" ));
@@ -94,4 +95,43 @@ int fd_acc_mgr_set_lamports( fd_acc_mgr_t* acc_mgr, fd_pubkey_t * pubkey, fd_acc
   }
 
   return FD_ACC_MGR_SUCCESS;
+}
+
+int fd_acc_mgr_write_structured_account( fd_acc_mgr_t* acc_mgr, fd_pubkey_t* pubkey, fd_solana_account_t * account) {
+  ulong dlen =  sizeof(fd_account_meta_t) + account->data_len;
+  uchar *data = fd_alloca(8UL, dlen);
+  fd_account_meta_t *m = (fd_account_meta_t *) data;
+
+  m->magic = FD_ACCOUNT_META_MAGIC;
+  m->hlen = sizeof(fd_account_meta_t);
+
+  m->info.lamports = account->lamports;
+  m->info.rent_epoch = account->rent_epoch;
+  memcpy(m->info.owner, account->owner.key, sizeof(account->owner.key));
+  m->info.executable = (char) account->executable;
+  fd_memset(m->info.padding, 0, sizeof(m->info.padding));
+
+  // What is the correct hash function we should be using?
+  fd_memset(m->hash.value, 0, sizeof(m->hash.value));
+
+  fd_memcpy(&data[sizeof(fd_account_meta_t)], account->data, account->data_len);
+
+  return fd_acc_mgr_write_account(acc_mgr, pubkey, (uchar *) data, dlen);
+}
+
+int fd_acc_mgr_write_append_vec_account( fd_acc_mgr_t* acc_mgr, fd_solana_account_hdr_t * hdr) {
+  ulong dlen =  sizeof(fd_account_meta_t) + hdr->meta.data_len;
+  uchar *data = fd_alloca(8UL, dlen);
+  fd_account_meta_t *m = (fd_account_meta_t *) data;
+
+  m->magic = FD_ACCOUNT_META_MAGIC;
+  m->hlen = sizeof(fd_account_meta_t);
+
+  fd_memcpy(&m->info, &hdr->info, sizeof(m->info));
+
+  fd_memset(m->hash.value, 0, sizeof(m->hash.value));
+
+  fd_memcpy(&data[sizeof(fd_account_meta_t)], &hdr[1], hdr->meta.data_len);
+
+  return fd_acc_mgr_write_account(acc_mgr, (fd_pubkey_t *) &hdr->meta.pubkey, (uchar *) data, dlen);
 }
