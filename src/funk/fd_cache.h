@@ -101,6 +101,24 @@ int fd_cache_garbage_collect(struct fd_cache* self, fd_alloc_t* alloc) {
   return did_something || (self->clock - self->lastgc > 4);
 }
 
+// Allocate space by calling fd_alloc_malloc. If we have run out of
+// space, garbage collect the cache and try again.
+void* fd_cache_safe_malloc(struct fd_cache* self,
+                           fd_alloc_t*      alloc,
+                           ulong            align,
+                           ulong            sz) {
+  if (FD_UNLIKELY(sz == 0))
+    return NULL;
+  void* data;
+  while ((data = fd_alloc_malloc(alloc, align, sz)) == NULL) {
+    if (!fd_cache_garbage_collect(self, alloc)) {
+      FD_LOG_ERR(("failed heap allocation, make the workspace much bigger"));
+      return NULL;
+    }
+  }
+  return data;
+}
+
 // Allocate cache space of size data_sz. The handle is returned. *data
 // is updated to refer to the resulting data pointer. The
 fd_cache_handle fd_cache_allocate(struct fd_cache* self, void** data, uint data_sz, fd_alloc_t* alloc) {
@@ -111,16 +129,7 @@ fd_cache_handle fd_cache_allocate(struct fd_cache* self, void** data, uint data_
       return FD_CACHE_INVALID_HANDLE;
     }
   }
-  if (FD_UNLIKELY(data_sz == 0))
-    *data = NULL;
-  else {
-    while ((*data = fd_alloc_malloc(alloc, 1, data_sz)) == NULL) {
-      if (!fd_cache_garbage_collect(self, alloc)) {
-        FD_LOG_ERR(("failed cache allocation, make the workspace much bigger"));
-        return FD_CACHE_INVALID_HANDLE;
-      }
-    }
-  }
+  *data = fd_cache_safe_malloc(self, alloc, 1, data_sz);
   // Reuse the oldest free entry. This minimizes the rate at which gen
   // is incremented.
   struct fd_cache_entry* ent = self->oldest_free;

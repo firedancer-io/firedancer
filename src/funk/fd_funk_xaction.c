@@ -69,12 +69,7 @@ void fd_funk_fork(struct fd_funk* store,
   // Initialize the entry
   fd_funk_xactionid_t_copy(&entry->parent, parent);
   entry->scriptmax = 1<<12; // 4KB
-  while ((entry->script = (char*)fd_alloc_malloc(store->alloc, 1, entry->scriptmax)) == NULL) {
-    if (!fd_cache_garbage_collect(store->cache, store->alloc)) {
-      FD_LOG_ERR(("failed transcript allocation, make the workspace much bigger"));
-      return;
-    }
-  }
+  entry->script = (char*)fd_cache_safe_malloc(store->cache, store->alloc, 1, entry->scriptmax);
   // The prefix always comes first in the transcript
   entry->scriptlen = sizeof(struct fd_funk_xaction_prefix);
   FD_FUNK_XACTION_PREFIX(entry)->state = FD_FUNK_XACTION_LIVE;
@@ -244,12 +239,7 @@ void fd_funk_merge(struct fd_funk* store,
   // Initialize the entry
   fd_funk_xactionid_t_copy(&entry->parent, &source_ents[0]->parent);
   entry->scriptmax = (uint)newscriptlen;
-  while ((entry->script = (char*)fd_alloc_malloc(store->alloc, 1, entry->scriptmax)) == NULL) {
-    if (!fd_cache_garbage_collect(store->cache, store->alloc)) {
-      FD_LOG_ERR(("failed transcript allocation, make the workspace much bigger"));
-      return;
-    }
-  }
+  entry->script = (char*)fd_cache_safe_malloc(store->cache, store->alloc, 1, entry->scriptmax);
   entry->scriptlen = (uint)newscriptlen;
   FD_FUNK_XACTION_PREFIX(entry)->state = FD_FUNK_XACTION_LIVE;
   fd_funk_xaction_cache_new(&entry->cache);
@@ -313,13 +303,7 @@ long fd_funk_write(struct fd_funk* store,
   if (newlen > entry->scriptmax) {
     // Grow the unused space in the transcript to accommodate the new update
     entry->scriptmax = (uint)(newlen + (64U<<10)); // 64KB of slop
-    char* newscript;
-    while ((newscript = (char*)fd_alloc_malloc(store->alloc, 1, entry->scriptmax)) == NULL) {
-      if (!fd_cache_garbage_collect(store->cache, store->alloc)) {
-        FD_LOG_ERR(("failed transcript allocation, make the workspace much bigger"));
-        return -1;
-      }
-    }
+    char* newscript = (char*)fd_cache_safe_malloc(store->cache, store->alloc, 1, entry->scriptmax);
     // Copy old data into new space
     fd_memcpy(newscript, entry->script, entry->scriptlen);
     fd_alloc_free(store->alloc, entry->script);
@@ -392,13 +376,7 @@ void fd_funk_delete_record(struct fd_funk* store,
   if (newlen > entry->scriptmax) {
     // Grow the unused space in the transcript to accommodate the new update
     entry->scriptmax = (uint)(newlen + (64U<<10)); // 64KB of slop
-    char* newscript;
-    while ((newscript = (char*)fd_alloc_malloc(store->alloc, 1, entry->scriptmax)) == NULL) {
-      if (!fd_cache_garbage_collect(store->cache, store->alloc)) {
-        FD_LOG_ERR(("failed transcript allocation, make the workspace much bigger"));
-        return;
-      }
-    }
+    char* newscript = (char*)fd_cache_safe_malloc(store->cache, store->alloc, 1, entry->scriptmax);
     // Copy old data into new space
     fd_memcpy(newscript, entry->script, entry->scriptlen);
     fd_alloc_free(store->alloc, entry->script);
