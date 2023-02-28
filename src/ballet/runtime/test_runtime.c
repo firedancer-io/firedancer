@@ -315,12 +315,10 @@ int main(int argc, char **argv) {
   state.funk = fd_funk_new(state.db, state.wksp, 2, index_max, xactions_max, cache_max);
   fd_funk_validate(state.funk);
 
-  if (NULL != state.end_slot_opt) {
+  if (NULL != state.end_slot_opt)
     state.end_slot = (ulong) atoi(state.end_slot_opt);
-  }
-  if (NULL != state.start_slot_opt) {
+  if (NULL != state.start_slot_opt) 
     state.start_slot = (ulong) atoi(state.start_slot_opt);
-  }
 
   // Eventually we will have to add support for reading compressed genesis blocks...
   char genesis[128];
@@ -329,24 +327,28 @@ int main(int argc, char **argv) {
   char db_name[128];
   sprintf(db_name, "%s/rocksdb", state.ledger);
 
-  struct stat sbuf;
-  stat(genesis, &sbuf);
-  int fd = open(genesis, O_RDONLY);
-  uchar *buf = malloc((ulong) sbuf.st_size);
-  ssize_t n = read(fd, buf, (ulong) sbuf.st_size);
-  close(fd);
+  {
+    struct stat sbuf;
+    stat(genesis, &sbuf);
+    int fd = open(genesis, O_RDONLY);
+    uchar *buf = malloc((ulong) sbuf.st_size);
+    ssize_t n = read(fd, buf, (ulong) sbuf.st_size);
+    close(fd);
     
-  void *data = buf;
-  void *dataend = &buf[n];
-  fd_memset(&state.gen, 0, sizeof(state.gen));
-  fd_genesis_solana_decode(&state.gen, ( void const** )&data, dataend, allocf, state.alloc);
+    void *data = buf;
+    void *dataend = &buf[n];
+    fd_memset(&state.gen, 0, sizeof(state.gen));
+    fd_genesis_solana_decode(&state.gen, ( void const** )&data, dataend, allocf, state.alloc);
+
+    free(buf);
+  }
 
   // Jam all the accounts into the database....  (gen.accounts)
 
   /* Initialize the account manager */
   struct fd_funk_xactionid const* xroot = fd_funk_root(state.funk);
 
-  void *fd_acc_mgr_raw = malloc(FD_ACC_MGR_FOOTPRINT);
+  void *fd_acc_mgr_raw = allocf(FD_ACC_MGR_FOOTPRINT, FD_ACC_MGR_ALIGN, state.alloc);
   state.acc_mgr = fd_acc_mgr_join(fd_acc_mgr_new(fd_acc_mgr_raw, state.funk, xroot, FD_ACC_MGR_FOOTPRINT));
 
   FD_LOG_WARNING(("loading genesis account into funk db"));
@@ -362,7 +364,7 @@ int main(int argc, char **argv) {
     // Lets have another 2 hour debate over fd_account_meta_t... 
     ulong dlen =  sizeof(fd_account_meta_t) + a->account.data_len;
     if (dlen > datalen) {
-      if (NULL != data) 
+      if (NULL != dbuf) 
         free(dbuf);
       datalen = dlen;
       dbuf = malloc(datalen);
@@ -432,7 +434,7 @@ int main(int argc, char **argv) {
     ingest(&state);
 
   fd_acc_mgr_delete(fd_acc_mgr_leave(state.acc_mgr));
-  free(fd_acc_mgr_raw);
+  freef(fd_acc_mgr_raw, state.alloc);
 
   fd_genesis_solana_destroy(&state.gen, freef, state.alloc);
 
@@ -444,9 +446,9 @@ int main(int argc, char **argv) {
 //  fd_alloc_free(state.alloc, fd_funk_raw);
 
   fd_funk_delete(state.funk);
-  fd_wksp_tag_free(state.wksp, 2);
 
-  free(buf);
+  // ??
+  //fd_wksp_tag_free(state.wksp, 2);
 
   fd_wksp_free_laddr( shmem );
 

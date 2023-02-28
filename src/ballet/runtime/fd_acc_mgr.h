@@ -20,6 +20,7 @@ struct fd_acc_mgr {
 typedef struct fd_acc_mgr fd_acc_mgr_t;
 
 #define FD_ACC_MGR_FOOTPRINT (sizeof( fd_acc_mgr_t ))
+#define FD_ACC_MGR_ALIGN (8UL)
 
 void* fd_acc_mgr_new( void* mem,
                       fd_funk_t* funk,
