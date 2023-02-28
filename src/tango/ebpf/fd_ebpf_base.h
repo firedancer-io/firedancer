@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_src_net_ebpf_fd_ebpf_base_h
-#define HEADER_fd_src_net_ebpf_fd_ebpf_base_h
+#ifndef HEADER_fd_src_tango_ebpf_fd_ebpf_base_h
+#define HEADER_fd_src_tango_ebpf_fd_ebpf_base_h
 #if defined(__bpf__)
 
 /* eBPF base development environment
@@ -35,9 +35,7 @@
    using the familiar C build system, it requires a cross-compiler that
    is capable of generating eBPF bytecode that abides the the afore-
    mentioned kernel verifier rules, such as upstream Clang/LLVM 14 or
-   later.  Firedancer's Bazel build system provides a target platform
-   definition for eBPF and will fetch the appropriate Clang toolchain
-   automatically.
+   later.
 
    For a mostly up-to-date blog post on the topic, see:
    https://qmonnet.github.io/whirl-offload/2020/04/12/llvm-ebpf-asm/
@@ -55,11 +53,6 @@
                https://docs.kernel.org/bpf/map_xskmap.html */
 
 /* Minimal libc-like environment **************************************/
-
-/* Not even the pre-processor definition is NULL is available on eBPF.
-   We define the bare minimum to resemble libc. */
-
-#define NULL (void *)0
 
 #define asm    __asm__
 #define typeof __typeof__
@@ -83,4 +76,4 @@ typedef unsigned long  ulong;
 #define FD_UNLIKELY(c) __builtin_expect( !!(c), 0L )
 
 #endif /* defined(__bpf__) */
-#endif /* HEADER_fd_src_net_ebpf_fd_ebpf_base_h */
+#endif /* HEADER_fd_src_tango_ebpf_fd_ebpf_base_h */
