@@ -9,45 +9,54 @@ struct fd_vote_lockout {
 };
 typedef struct fd_vote_lockout fd_vote_lockout_t;
 
+/* Wrapper around fd_cu16_dec, to make the function signature more consistent with the
+   other fd_bincode_decode functions.  */
 ulong fd_decode_short_u16( ushort* self, void const** data, FD_FN_UNUSED void const* dataend ) {
+  const uchar *ptr = (const uchar*) *data;
 
   ulong size = fd_cu16_dec( (uchar const *)*data, 3, self );
-  for ( ulong i = 0; i < size; i++ ) {
-    data += 1;
+  if ( size == 0 ) {
+    FD_LOG_ERR(( "failed to decode short u16" ));
   }
+  *data = ptr + size;
 
   return size;
 
 }
 
-void fd_decode_varint( ulong* self, void const** data, void const* dataend ) {
+/* Decodes an integer encoded using the serde_varint algorithm:
+   https://github.com/solana-labs/solana/blob/master/sdk/program/src/serde_varint.rs 
+   
+   A variable number of bytes could have been used to encode the integer.
+   The most significant bit of each byte indicates if more bytes have been used, so we keep consuming until
+   we reach a byte where the most significant bit is 0.
+*/
+void fd_decode_varint( ulong* self, void const** data, FD_FN_UNUSED void const* dataend ) {
   const uchar *ptr = (const uchar *) *data;
 
   /* Determine how many bytes were used to encode the varint.
      The MSB of each byte indicates if more bytes have been used to encode the varint, so we consume
      until the MSB is 0 or we reach the maximum allowed number of bytes (to avoid an infinite loop).   
    */
-  ulong bytes = 0;
+  ulong bytes = 1;
   const ulong max_bytes = 8;
-  while ( ( ptr[bytes] & 0x80 ) && bytes < max_bytes ) {
-    bytes += 1;
+  while ( ( ( ptr[bytes - 1] & 0x80 ) != 0 ) && bytes < max_bytes ) {
+    bytes = bytes + 1;
   }
 
   /* Use the lowest 7 bits of each byte */
   *self = 0;
   ulong shift = 0;
   for ( ulong i = 0; i < bytes; i++ ) {
-    *self |= ( ptr[i] & 0x7FUL ) << shift;
-    shift += 8;
-  }
-  ptr += bytes;
+    if (FD_UNLIKELY((void const *) (ptr + i) > dataend )) {
+      FD_LOG_ERR(( "buffer underflow"));
+    }
 
-  if (FD_UNLIKELY((void const *) (ptr + 1) > dataend )) {
-    FD_LOG_ERR(( "buffer underflow"));
+    *self |= (ulong)(( ptr[i] & 0x7F ) << shift);
+    shift += 7;
   }
-  *self = *ptr;
-  *data = ptr + 1;
 
+  *data = ptr + bytes;
 }
 
 int fd_executor_vote_program_execute_instruction(
@@ -74,48 +83,38 @@ int fd_executor_vote_program_execute_instruction(
     }
     FD_LOG_INFO(( "executing compact update vote state" ));
 
-    /* Deserialize VoteInstruction::CompactVoteStateUpdate from the encoding described in
-       solana/sdk/program/src/vote/state/mod.rs::serde_compact_vote_state_update */
-
-    /*
-    short_vec decoding:
-    - length as ShortU16
-      - Uses between 1 and 3 bytes
-      - Remaining value stored in the next bytes
-      - For each portion: if the value is above 0x7f, the top bit is set and the remaining value
-        is stored in the next bytes.
-      - The third byte, if needed, uses all 8 bits to store the last byte of the original value.
-    - Remaining elements are serialized as usual
-    - How to deserialize 
-
-    LockoutOffset {
-      Offset: Slot, // u64 serialized with varint 
-      confirmation_count: u8,
-    }
-
-    CompactVoteStateUpdate {
-      root: u64,
-      lockout_offsets: vec<LockoutOffset> // vector serialized with short_vec,
-      hash: 32-byte array,
-      timestamp: Option<long> // first byte says if option is present or not
-    }
-    */
+    /* Decode the VoteInstruction::CompactVoteStateUpdate instruction from the encoding detailed in
+       solana/sdk/program/src/vote/state/mod.rs::serde_compact_vote_state_update.
+       See solana/sdk/program/src/vote/instruction.rs::VoteInstruction
+       
+       The encoding is as follows:
+       - The proposed root, encoded as a u64.
+       - The lockout, encoded as a vector in the "Short Vec" format:
+         see https://github.com/solana-labs/solana/blob/master/sdk/program/src/short_vec.rs
+         
+         This is a normal bincode vector, but the length is encoded as a variable-length "Short U16".
+         - The elements of the lockout vector are tuples of slot offsets and confirmation counts.
+           - The slot offsets are cumulative offsets, starting at the proposed root. These are encoded
+             in the variable-length serde_varint format.
+          - Confirmation counts are uchars.
+      - The vote's bank hash, encoded as a 32-byte array.
+      - The processing timestamp of the last slot, encoded as a ulong. */
 
     /* Decode the vote tower */
     ulong proposed_root = 0;
     fd_bincode_uint64_decode( &proposed_root, input_ptr, dataend );
-    FD_LOG_INFO(( "proposed_root: %lu", proposed_root )); /* Correct */
-
-    FD_LOG_HEXDUMP_INFO(( "lockouts bytes", input_ptr, 20 ));
 
     /* Decode the proposed tower of votes (for slot/lockout pairs) */
     ushort lockouts_len = 0;
     fd_decode_short_u16( &lockouts_len, input_ptr, dataend );
 
-    FD_LOG_INFO(( "lockouts len: %d", lockouts_len ));
     fd_vote_lockout_t lockouts[lockouts_len];
+    ulong current_lockout_slot = proposed_root;
     for ( ushort i = 0; i < lockouts_len; i++ ) {
-      fd_decode_varint( &lockouts[i].slot, input_ptr, dataend );
+      ulong offset = 0;
+      fd_decode_varint( &offset, input_ptr, dataend );
+      current_lockout_slot += offset;
+      lockouts[i].slot = current_lockout_slot;
       FD_LOG_INFO(( "slot: %lu", lockouts[i].slot ));
       fd_bincode_uint8_decode( &lockouts[i].confirmation_count, input_ptr, dataend );
       FD_LOG_INFO(( "confirmation_count: %d", lockouts[i].confirmation_count ));
@@ -131,20 +130,11 @@ int fd_executor_vote_program_execute_instruction(
     uchar timestamp_present = 0;
     fd_bincode_uint8_decode( &timestamp_present, input_ptr, dataend );
     if ( timestamp_present ) {
-      /* TODO: decoding of signed integers */
-      fd_bincode_uint64_decode( (ulong *) &timestamp, input_ptr, dataend );
+      fd_bincode_uint64_decode( &timestamp, input_ptr, dataend );
       FD_LOG_INFO(( "timestamp: %lu", timestamp ));
     }
 
     /* Skip reading in sysvars, as we are skipping safety checks for minimal slice */
-
-    /* Deserialize account metadata */
-    // fd_account_meta_t vote_account_meta;
-    // int read_result = fd_acc_mgr_get_metadata( ctx.acc_mgr, &vote_program_pubkey, &vote_account_meta );
-    // if ( FD_UNLIKELY( read_result != FD_ACC_MGR_SUCCESS ) ) {
-    //   FD_LOG_ERR(( "failed to read vote program account metadata" ));
-    //   return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
-    // }
     
     return FD_EXECUTOR_INSTR_SUCCESS;
 }
