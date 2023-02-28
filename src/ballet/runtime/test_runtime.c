@@ -2,6 +2,7 @@
 
 //  --ledger /dev/shm/mainnet-ledger --db /dev/shm/funk --cmd replay --start-slot 179138205 --end-slot 279138205  --skip-exe true
 //  --ledger /dev/shm/mainnet-ledger --db /dev/shm/funk --cmd ingest --start-slot 179138205 --end-slot 279138205 --manifest /dev/shm/mainnet-ledger/snapshot/tmp-snapshot-archive-JfVTLu/snapshots/179248368/179248368
+// run --ledger /dev/shm/mainnet-ledger --db /dev/shm/funk --cmd ingest --accounts /dev/shm/mainnet-ledger/accounts
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -16,11 +17,12 @@
 #include "fd_executor.h"
 #include "../../funk/fd_funk.h"
 #include "../../util/alloc/fd_alloc.h"
+#include "../base58/fd_base58.h"
+
 #include <dirent.h>
 
 uchar do_valgrind = 0;
 
-char * fd_base58_encode_slow( uchar const * bytes, ulong byte_cnt, char * out, ulong out_cnt );
 int fd_alloc_fprintf( fd_alloc_t * join, FILE *       stream );
 
 char* allocf(unsigned long len, FD_FN_UNUSED unsigned long align, FD_FN_UNUSED void* arg) {
@@ -105,20 +107,27 @@ int ingest(global_state_t *state) {
     FD_LOG_ERR(( "compile failed" ));
   }
 
+  FD_LOG_WARNING(("starting read of %s", state->accounts));
+
   DIR *dir = opendir(state->accounts);
 
-// Rent per byte-year: 0.00000348 SOL
-// Rent per epoch: 0.000002458 SOL
-// Rent-exempt minimum: 0.00089784 SOL
-
   struct dirent * ent;
+  uchar sprog[32];
+  fd_memset(sprog, 0, sizeof(sprog));
+
+  ulong files = 0;
+  ulong accounts = 0;
+  ulong odd = 0;
+
   while ( NULL != (ent = readdir(dir)) ) {
     if ( regexec(&reg, ent->d_name, 0, NULL, 0) == 0 )  {
         struct stat s;
         char buf[1000];
         sprintf(buf, "%s/%s", state->accounts, ent->d_name);
         stat(buf,  &s);
-        unsigned char *b = (unsigned char *)allocf((unsigned long) (unsigned long) s.st_size, 8UL, state->alloc);
+        unsigned char *r = (unsigned char *)allocf((unsigned long) (unsigned long) s.st_size, 8UL, state->alloc);
+        unsigned char *b = r;
+        files++;
         int fd = open(buf, O_RDONLY);
         ssize_t n = read(fd, b, (unsigned long) s.st_size);
         if (n < 0) {
@@ -129,28 +138,48 @@ int ingest(global_state_t *state) {
           FD_LOG_ERR(( "??" ));
         }
 
-        printf("%s\n", buf);
+        if (strcmp(buf, "/home/jsiegel/taccounts/accounts/179128026.285016") == 0) {
+          printf( "shitshow" );
+        }
+
         while (b < eptr) {
           fd_solana_account_hdr_t *hdr = (fd_solana_account_hdr_t *)b;
           // Sanitize accounts...
-          if ((hdr->info.lamports == 0) | ((hdr->info.executable & ~1) == 0))
+          if ((hdr->info.lamports == 0) | ((hdr->info.executable & ~1) != 0))
             break;
-          // how do I validate this?!
-          ulong exempt = (hdr->meta.data_len + 128) * ((ulong) ((double)state->gen.rent.lamports_per_uint8_year * state->gen.rent.exemption_threshold));
-          if (hdr->info.lamports < exempt) {
-            fd_base58_encode_slow((uchar *) hdr->meta.pubkey, sizeof(hdr->meta.pubkey), buf, sizeof(buf));
-            printf("%ld\n", hdr->meta.data_len);
+          accounts++;
+          if (memcmp(hdr->info.owner, sprog, sizeof(sprog)) != 0) {
+            // system progs are exempt no matter their lamports...
+
+#if 0
+            // how do I validate this?!
+            ulong exempt = (hdr->meta.data_len + 128) * ((ulong) ((double)state->gen.rent.lamports_per_uint8_year * state->gen.rent.exemption_threshold));
+            if (hdr->info.lamports < exempt) {
+              odd++;
+              char pubkey[50];
+              fd_memset(pubkey, 0, sizeof(pubkey));
+              fd_base58_encode_32((uchar *) hdr->meta.pubkey, pubkey);
+              char owner[50];
+              fd_memset(owner, 0, sizeof(owner));
+              fd_base58_encode_32((uchar *) hdr->info.owner, owner);
+              printf("file: %s owner: %s pubkey: %s datalen: %ld lamports: %ld  rent_epoch: %ld\n", buf, owner, pubkey, hdr->meta.data_len, hdr->info.lamports, hdr->info.rent_epoch);
+            }
+#endif
+
+            
           }
           b += fd_ulong_align_up(hdr->meta.data_len + sizeof(*hdr), 8);
         }
 
         close(fd);
-        freef(b, state->alloc);
+        freef(r, state->alloc);
     }
   }
 
   closedir(dir);
   regfree(&reg);
+
+  FD_LOG_WARNING(("files %ld  accounts %ld  odd %ld", files, accounts, odd));
 
   return 0;
 }
@@ -354,46 +383,10 @@ int main(int argc, char **argv) {
 
   FD_LOG_WARNING(("loading genesis account into funk db"));
 
-  uchar *dbuf = NULL;
-  ulong datalen = 0;
-
   for (ulong i = 0; i < state.gen.accounts_len; i++) {
     fd_pubkey_account_pair_t *a = &state.gen.accounts[i];
 
-    // Here be dragons and the subject of debate
-
-    // Lets have another 2 hour debate over fd_account_meta_t... 
-    ulong dlen =  sizeof(fd_account_meta_t) + a->account.data_len;
-    if (dlen > datalen) {
-      if (NULL != dbuf) 
-        free(dbuf);
-      datalen = dlen;
-      dbuf = malloc(datalen);
-    }
-
-    // Lets set some values...
-    //  (Obviously this will get factored out)
-    fd_account_meta_t *m = (fd_account_meta_t *) dbuf;
-    m->info.lamports = a->account.lamports;
-    m->info.rent_epoch = a->account.rent_epoch;
-    memcpy(m->info.owner, a->account.owner.key, sizeof(a->account.owner.key));
-    m->info.executable = (char) a->account.executable;
-    fd_memset(m->info.padding, 0, sizeof(m->info.padding));
-
-    // What is the correct hash function we should be using?
-    fd_memset(m->hash.value, 0, sizeof(m->hash.value));
-
-    fd_memcpy(&dbuf[sizeof(fd_account_meta_t)], a->account.data, a->account.data_len);
-
-    if (fd_acc_mgr_write_account(state.acc_mgr, &a->key, dbuf, dlen) != FD_ACC_MGR_SUCCESS) {
-      FD_LOG_ERR(("write account failed"));
-    }
-  }
-
-  // Clean up a little...
-  if (NULL != dbuf)  {
-    free(dbuf);
-    dbuf = NULL;
+    fd_acc_mgr_write_structured_account(state.acc_mgr, &a->key, &a->account);
   }
 
   //  we good?
