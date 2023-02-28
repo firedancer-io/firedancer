@@ -1,6 +1,8 @@
 #ifndef HEADER_fd_src_ledger_funk_h
 #define HEADER_fd_src_ledger_funk_h 1
 
+#include <sys/uio.h>
+
 // Interface for transactional record storage. This is the raw version
 // which is not thread safe. It is intended to reside on a single
 // thread/CPU/tile. Presumably, a separate message layer allows access
@@ -91,7 +93,16 @@ int fd_funk_isopen(struct fd_funk* store,
                    struct fd_funk_xactionid const* id);
 
 // Update a record in the storage. Records are implicitly created/extended
-// as necessary. Gaps are zero filled. Returns data_sz on success, -1 on failure.
+// as necessary. Gaps are zero filled. Returns amount of data written
+// on success, -1 on failure.
+long fd_funk_writev(struct fd_funk* store,
+                    struct fd_funk_xactionid const* xid,
+                    struct fd_funk_recordid const* recordid,
+                    struct iovec const * const iov,
+                    ulong iovcnt,
+                    ulong offset);
+
+// Simplified version of fd_funk_writev
 long fd_funk_write(struct fd_funk* store,
                    struct fd_funk_xactionid const* xid,
                    struct fd_funk_recordid const* recordid,

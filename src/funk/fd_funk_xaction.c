@@ -119,7 +119,10 @@ void fd_funk_execute_script(struct fd_funk* store,
       // Copy record id to fix alignment
       struct fd_funk_recordid recordid;
       fd_memcpy(&recordid, &head->recordid, sizeof(recordid));
-      fd_funk_write_root(store, &recordid, p + sizeof(*head), head->offset, head->size);
+      struct iovec iov;
+      iov.iov_base = (void*)(p + sizeof(*head));
+      iov.iov_len = head->size;
+      fd_funk_writev_root(store, &recordid, &iov, 1, head->offset);
       p += sizeof(*head) + head->size;
       if (p > pend)
         FD_LOG_ERR(("corrupt transaction transcript"));
@@ -265,12 +268,16 @@ int fd_funk_isopen(struct fd_funk* store,
   return (entry != NULL && FD_FUNK_XACTION_PREFIX(entry)->state != FD_FUNK_XACTION_COMMITTED);
 }
 
-long fd_funk_write(struct fd_funk* store,
-                   struct fd_funk_xactionid const* xid,
-                   struct fd_funk_recordid const* recordid,
-                   const void* data,
-                   ulong offset,
-                   ulong data_sz) {
+long fd_funk_writev(struct fd_funk* store,
+                    struct fd_funk_xactionid const* xid,
+                    struct fd_funk_recordid const* recordid,
+                    struct iovec const * const iov,
+                    ulong iovcnt,
+                    ulong offset) {
+  // Compute sizes
+  ulong data_sz = 0;
+  for (ulong i = 0; i < iovcnt; ++i)
+    data_sz += iov[i].iov_len;
   if (offset + data_sz > FD_FUNK_MAX_ENTRY_SIZE) {
     FD_LOG_WARNING(("record too large"));
     return -1;
@@ -283,7 +290,7 @@ long fd_funk_write(struct fd_funk* store,
       FD_LOG_WARNING(("cannot update root while transactions are in flight"));
       return -1;
     }
-    return fd_funk_write_root(store, recordid, data, offset, data_sz);
+    return fd_funk_writev_root(store, recordid, iov, iovcnt, offset);
   }
 
   // Find the entry for the transaction
@@ -315,7 +322,11 @@ long fd_funk_write(struct fd_funk* store,
   fd_memcpy(head->recordid, recordid, FD_FUNK_RECORDID_FOOTPRINT);
   head->offset = (uint)offset;
   head->size = (uint)data_sz;
-  fd_memcpy(entry->script + entry->scriptlen + sizeof(*head), data, data_sz);
+  char* p = (char*)(head + 1);
+  for (ulong i = 0; i < iovcnt; ++i) {
+    fd_memcpy(p, iov[i].iov_base, iov[i].iov_len);
+    p += iov[i].iov_len;
+  }
   entry->scriptlen = (uint)newlen;
 
   // Update the cache for this transaction. Keep in mind that the
@@ -324,6 +335,7 @@ long fd_funk_write(struct fd_funk* store,
   for (ulong i = 0; i < cache->cnt; ++i) {
     struct fd_funk_xaction_cache_entry* j = cache->elems + i;
     if (fd_funk_recordid_t_equal(&j->record, recordid)) {
+      // Update the cache
       uint cache_sz;
       void* cachemem = fd_cache_lookup(store->cache, j->cachehandle, &cache_sz);
       if (cachemem == NULL) {
@@ -331,10 +343,14 @@ long fd_funk_write(struct fd_funk* store,
         fd_funk_xaction_cache_remove_at(cache, i);
         break;
       }
-      if (offset < cache_sz) {
-        // Update the cache
-        fd_memcpy((char*)cachemem + offset, data,
-                  (data_sz <= cache_sz - offset ? data_sz : cache_sz - offset));
+      // Copy one piece at a time
+      ulong toffset = offset;
+      for (ulong i = 0; i < iovcnt; ++i) {
+        if (toffset >= cache_sz)
+          break;
+        ulong sz = fd_ulong_min(iov[i].iov_len, cache_sz - toffset);
+        fd_memcpy((char*)cachemem + toffset, iov[i].iov_base, sz);
+        toffset += sz;
       }
       if (offset + data_sz > j->record_sz) {
         // Update the total record length

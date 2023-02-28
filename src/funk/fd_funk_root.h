@@ -81,11 +81,11 @@ struct fd_funk_dead_entry {
 
 void fd_funk_replay_root(struct fd_funk* store);
 
-long fd_funk_write_root(struct fd_funk* store,
-                        struct fd_funk_recordid const* recordid,
-                        const void* data,
-                        ulong offset,
-                        ulong data_sz);
+long fd_funk_writev_root(struct fd_funk* store,
+                         struct fd_funk_recordid const* recordid,
+                         struct iovec const * const iov,
+                         ulong iovcnt,
+                         ulong offset);
 
 void fd_funk_delete_record_root(struct fd_funk* store,
                                 struct fd_funk_recordid const* recordid);

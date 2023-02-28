@@ -137,6 +137,18 @@ struct fd_funk_xactionid const* fd_funk_root(struct fd_funk* store) {
   return &store->root;
 }
 
+long fd_funk_write(struct fd_funk* store,
+                   struct fd_funk_xactionid const* xid,
+                   struct fd_funk_recordid const* recordid,
+                   const void* data,
+                   ulong offset,
+                   ulong data_sz) {
+  struct iovec iov;
+  iov.iov_base = (void*)data;
+  iov.iov_len = data_sz;
+  return fd_funk_writev(store, xid, recordid, &iov, 1, offset);
+}
+
 void fd_funk_truncate(struct fd_funk* store,
                       struct fd_funk_xactionid const* xid,
                       struct fd_funk_recordid const* recordid,

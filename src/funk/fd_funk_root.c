@@ -1,3 +1,16 @@
+// For some reason pwritev isn't available. Do it the gangster way for now.
+ssize_t pwritev(int fd, struct iovec const* iov, int iovcnt, off_t offset) {
+  ssize_t sum = 0;
+  for (int i = 0; i < iovcnt; ++i) {
+    ssize_t r = pwrite(fd, iov[i].iov_base, iov[i].iov_len, offset);
+    if (r < 0)
+      return r;
+    sum += r;
+    offset += r;
+  }
+  return sum;
+}
+
 // Control block size
 #define FD_FUNK_CONTROL_SIZE (64UL<<10)
 
@@ -276,12 +289,17 @@ void fd_funk_update_control_from_index(struct fd_funk* store,
 }
 
 // write operation for the root transaction
-long fd_funk_write_root(struct fd_funk* store,
-                        struct fd_funk_recordid const* recordid,
-                        const void* data,
-                        ulong offset,
-                        ulong data_sz) {
-  const ulong newlen = offset + data_sz;
+long fd_funk_writev_root(struct fd_funk* store,
+                         struct fd_funk_recordid const* recordid,
+                         struct iovec const * const iov,
+                         ulong iovcnt,
+                         ulong offset) {
+  // Compute sizes
+  ulong data_sz = 0;
+  for (ulong i = 0; i < iovcnt; ++i)
+    data_sz += iov[i].iov_len;
+  const ulong new_record_sz = offset + data_sz;
+  
   // See if this is a new record. We insert/create the index entry.
   int exists;
   struct fd_funk_index_entry* ent = fd_funk_index_insert(store->index, recordid, &exists);
@@ -295,11 +313,19 @@ long fd_funk_write_root(struct fd_funk* store,
     // Patch the cached data
     uint cache_sz;
     void* cache = fd_cache_lookup(store->cache, ent->cachehandle, &cache_sz);
-    if (cache && offset < cache_sz)
-      fd_memcpy((char*)cache + offset, data,
-                (data_sz <= cache_sz - offset ? data_sz : cache_sz - offset));
+    if (cache) {
+      // Copy one piece at a time
+      ulong toffset = offset;
+      for (ulong i = 0; i < iovcnt; ++i) {
+        if (toffset >= cache_sz)
+          break;
+        ulong sz = fd_ulong_min(iov[i].iov_len, cache_sz - toffset);
+        fd_memcpy((char*)cache + toffset, iov[i].iov_base, sz);
+        toffset += sz;
+      }
+    }
     
-    if (newlen <= ent->alloc) {
+    if (new_record_sz <= ent->alloc) {
       // Can update in place without reallocating. Just patch the disk storage
       if (offset > ent->size) {
         // Zero fill gap in disk space
@@ -311,13 +337,13 @@ long fd_funk_write_root(struct fd_funk* store,
           return -1;
         }
       }
-      if (pwrite(store->backing_fd, data, data_sz, (long)(ent->start + offset)) < (long)data_sz) {
+      if (pwritev(store->backing_fd, iov, (int)iovcnt, (long)(ent->start + offset)) < (long)data_sz) {
         FD_LOG_WARNING(("failed to write backing file: %s", strerror(errno)));
         return -1;
       }
-      if (ent->size < newlen) {
+      if (ent->size < new_record_sz) {
         // Update the control with the new length as a final, atomic operations.
-        ent->size = (uint)newlen;
+        ent->size = (uint)new_record_sz;
         fd_funk_update_control_from_index(store, ent);
       }
       return (long)data_sz;
@@ -332,12 +358,12 @@ long fd_funk_write_root(struct fd_funk* store,
       ulong oldcontrol = ent->control;
       ulong oldstart = ent->start;
       uint oldalloc = ent->alloc;
-      if (!fd_funk_allocate_disk(store, newlen, &ent->control, &ent->start, &ent->alloc))
+      if (!fd_funk_allocate_disk(store, new_record_sz, &ent->control, &ent->start, &ent->alloc))
         // Allocation failure
         return -1;
       // Fix the index
       ulong newstart = ent->start;
-      ent->size = (uint)newlen;
+      ent->size = (uint)new_record_sz;
       ent->version ++;
       // Track how much we have written so far as we cobble together
       // the new record.
@@ -386,10 +412,9 @@ long fd_funk_write_root(struct fd_funk* store,
         done += (uint)zeroslen;
       }
       // Write out whatever is left of the original update
-      int updatelen = (int)(newlen - done);
+      int updatelen = (int)(new_record_sz - done);
       if (updatelen > 0) {
-        if (pwrite(store->backing_fd, (const char*)data + (data_sz - (uint)updatelen),
-                   (ulong)updatelen, (long)(newstart + done)) < (long)updatelen) {
+        if (pwritev(store->backing_fd, iov, (int)iovcnt, (long)(newstart + offset)) < (long)data_sz) {
           FD_LOG_WARNING(("failed to write backing file: %s", strerror(errno)));
           return -1;
         }
@@ -406,11 +431,11 @@ long fd_funk_write_root(struct fd_funk* store,
     
   } else {
     // Create a new record from scratch.
-    if (!fd_funk_allocate_disk(store, newlen, &ent->control, &ent->start, &ent->alloc))
+    if (!fd_funk_allocate_disk(store, new_record_sz, &ent->control, &ent->start, &ent->alloc))
       // Allocation failure
       return -1;
     // Finish initializing the index entry
-    ent->size = (uint)newlen;
+    ent->size = (uint)new_record_sz;
     ent->version = 1;
     ent->cachehandle = FD_CACHE_INVALID_HANDLE;
     if (offset > 0) {
@@ -422,7 +447,7 @@ long fd_funk_write_root(struct fd_funk* store,
         return -1;
       }
     }
-    if (pwrite(store->backing_fd, data, data_sz, (long)(ent->start + offset)) < (long)data_sz) {
+    if (pwritev(store->backing_fd, iov, (int)iovcnt, (long)(ent->start + offset)) < (long)data_sz) {
       FD_LOG_WARNING(("failed to write backing file: %s", strerror(errno)));
       return -1;
     }
