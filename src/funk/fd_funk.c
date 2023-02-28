@@ -18,6 +18,9 @@
 struct fd_funk {
     // Workspace for allocation
     fd_wksp_t* wksp;
+    // Generic allocator
+    ulong alloc_offset;
+    struct fd_alloc* alloc;
     // Backing file descriptor
     int backing_fd;
     char backing_name[128];
@@ -34,9 +37,6 @@ struct fd_funk {
     // Entry cache manager
     ulong cache_offset;
     struct fd_cache* cache;
-    // Generic allocator
-    ulong alloc_offset;
-    struct fd_alloc* alloc;
     // Root transaction id
     struct fd_funk_xactionid root;
     // Vector of free control entry locations
@@ -53,7 +53,10 @@ struct fd_funk* fd_funk_new(char const* backingfile,
                             ulong cache_max) {  // Maximum number of cache entries
 
   // Compute offsets and sizes of internal data structures
-  ulong index_offset = fd_ulong_align_up(sizeof(struct fd_funk), fd_funk_index_align());
+  ulong alloc_offset = fd_ulong_align_up(sizeof(struct fd_funk), fd_alloc_align());
+  ulong alloc_footprint = fd_alloc_footprint();
+
+  ulong index_offset = fd_ulong_align_up(alloc_offset + alloc_footprint, fd_funk_index_align());
   ulong index_footprint = fd_funk_index_footprint(index_max);
   
   ulong xactions_offset = fd_ulong_align_up(index_offset + index_footprint, fd_funk_xactions_align());
@@ -62,10 +65,7 @@ struct fd_funk* fd_funk_new(char const* backingfile,
   ulong cache_offset = fd_ulong_align_up(xactions_offset + xactions_footprint, fd_cache_align());
   ulong cache_footprint = fd_cache_footprint(cache_max);
   
-  ulong alloc_offset = fd_ulong_align_up(cache_offset + cache_footprint, fd_alloc_align());
-  ulong alloc_footprint = fd_alloc_footprint();
-
-  ulong footprint = alloc_offset + alloc_footprint;
+  ulong footprint = cache_offset + cache_footprint;
 
   // Allocate space for the funk
   void* shmem = fd_wksp_alloc_laddr(wksp, fd_funk_align(), footprint, alloc_tag);
@@ -75,6 +75,9 @@ struct fd_funk* fd_funk_new(char const* backingfile,
   store->lastcontrol = 0;
   
   // Initialize the internal data structures
+  store->alloc_offset = alloc_offset;
+  store->alloc = fd_alloc_join(fd_alloc_new((char*)shmem + alloc_offset, alloc_tag), 0UL);
+
   char hostname[64];
   gethostname(hostname, sizeof(hostname));
   ulong hashseed = fd_hash(0, hostname, strnlen(hostname, sizeof(hostname)));
@@ -86,9 +89,6 @@ struct fd_funk* fd_funk_new(char const* backingfile,
   
   store->cache_offset = cache_offset;
   store->cache = fd_cache_new((char*)shmem + cache_offset, cache_max);
-
-  store->alloc_offset = alloc_offset;
-  store->alloc = fd_alloc_join(fd_alloc_new((char*)shmem + alloc_offset, alloc_tag), 0UL);
 
   fd_vec_ulong_new(&store->free_ctrl);
   for (uint i = 0; i < FD_FUNK_NUM_DISK_SIZES; ++i)

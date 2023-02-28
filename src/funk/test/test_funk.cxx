@@ -331,6 +331,7 @@ int main(int argc, char **argv) {
   fd_wksp_detach(wksp);
   unlink("testback");
 
-  FD_LOG_INFO(("test passed!"));
+  FD_LOG_WARNING(("test passed!"));
+  fd_log_flush();
   return 0;
 }
