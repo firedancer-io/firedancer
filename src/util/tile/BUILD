@@ -4,17 +4,14 @@ package(default_visibility = ["//src/util:__subpackages__"])
 
 fd_cc_library(
     name = "tile",
-    srcs = [
-        "fd_tile.cxx",
-    ],
+    srcs = select({
+        "//src:has_threads": ["fd_tile_threads.cxx"],
+        "//conditions:default": ["fd_tile_nothreads.cxx"],
+    }),
     hdrs = [
         "fd_tile.h",
     ],
     copts = ["-std=c++17"],
-    textual_hdrs = select({
-        "//src:has_threads": ["fd_tile_threads.cxx"],
-        "//conditions:default": ["fd_tile_nothreads.cxx"],
-    }),
     deps = [
         "//src/util/shmem",
     ],
