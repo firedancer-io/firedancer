@@ -72,7 +72,7 @@ int fd_executor_vote_program_execute_instruction(
         FD_LOG_ERR(( "unsupported vote program instruction: discrimant: %d", discrimant ));
         return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
     }
-    FD_LOG_NOTICE(( "executing compact update vote state" ));
+    FD_LOG_INFO(( "executing compact update vote state" ));
 
     /* Deserialize VoteInstruction::CompactVoteStateUpdate from the encoding described in
        solana/sdk/program/src/vote/state/mod.rs::serde_compact_vote_state_update */
@@ -133,7 +133,7 @@ int fd_executor_vote_program_execute_instruction(
     if ( timestamp_present ) {
       /* TODO: decoding of signed integers */
       fd_bincode_uint64_decode( (ulong *) &timestamp, input_ptr, dataend );
-      FD_LOG_NOTICE(( "timestamp: %lu", timestamp ));
+      FD_LOG_INFO(( "timestamp: %lu", timestamp ));
     }
 
     /* Skip reading in sysvars, as we are skipping safety checks for minimal slice */
