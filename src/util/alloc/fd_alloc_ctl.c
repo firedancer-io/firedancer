@@ -152,6 +152,25 @@ main( int     argc,
       FD_LOG_NOTICE(( "%i: %s %s %lu %s: success", cnt, cmd, cstr, cgroup_idx, name_gaddr ));
       SHIFT(3);
 
+    } else if( !strcmp( cmd, "compact" ) ) {
+
+      if( FD_UNLIKELY( argc<1 ) ) FD_LOG_ERR(( "%i: %s: too few arguments\n\tDo %s help for help", cnt, cmd, bin ));
+
+      char const * cstr = argv[0];
+
+      void * shalloc = fd_wksp_map( cstr );
+      if( FD_UNLIKELY( !shalloc ) ) FD_LOG_ERR(( "%i: %s: fd_wksp_map(\"%s\") failed", cnt, cmd, cstr ));
+
+      fd_alloc_t * alloc = fd_alloc_join( shalloc, 0 /*d/c*/ );
+      if( FD_UNLIKELY( !alloc ) ) FD_LOG_ERR(( "%i: %s: fd_alloc_join(\"%s\",0) failed", cnt, cmd, cstr ));
+
+      fd_alloc_compact( alloc ); /* logs details */
+
+      fd_wksp_unmap( fd_alloc_leave( alloc ) ); /* logs details */
+
+      FD_LOG_NOTICE(( "%i: %s %s: success", cnt, cmd, cstr ));
+      SHIFT(1);
+
     } else if( !strcmp( cmd, "query" ) ) {
 
       if( FD_UNLIKELY( argc<2 ) ) FD_LOG_ERR(( "%i: %s: too few arguments\n\tDo %s help for help", cnt, cmd, bin ));
@@ -171,6 +190,7 @@ main( int     argc,
 
       if(      !strcmp( what, "test" ) ) printf( "%i\n", err );
       else if( !strcmp( what, "tag"  ) ) printf( "%lu\n", FD_UNLIKELY( err ) ? 0UL : fd_alloc_tag( alloc ) );
+      else if( !strcmp( what, "leak" ) ) printf( "%i\n",  FD_UNLIKELY( err ) ? -1  : !fd_alloc_is_empty( alloc ) );
       else if( !strcmp( what, "full" ) ) fd_alloc_fprintf( alloc, stdout );
       else                               FD_LOG_ERR(( "unknown query %s", what ));
 

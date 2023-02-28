@@ -68,6 +68,7 @@ $BIN/fd_alloc_ctl query test            && fail query $?
 $BIN/fd_alloc_ctl query bad/what $ALLOC && fail query $?
 $BIN/fd_alloc_ctl query test $ALLOC query test bad/name \
                   query tag  $ALLOC query tag  bad/name \
+                  query leak $ALLOC query leak bad/name \
 || fail query $?
 
 echo Testing alloc
@@ -97,6 +98,12 @@ $BIN/fd_alloc_ctl free bad/name  3 $GADDR0  \
                   free $ALLOC    6 $GADDR2  \
                   free $ALLOC    7 $GADDR3  \
 || fail alloc $?
+
+echo Testing compact
+
+$BIN/fd_alloc_ctl compact          && fail free $?
+$BIN/fd_alloc_ctl compact bad/name && fail free $?
+$BIN/fd_alloc_ctl compact $ALLOC   || fail free $?
 
 echo Testing delete
 

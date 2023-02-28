@@ -8,14 +8,12 @@
    multi-modal distributed allocation sizes.  It is further optimized
    for single-threaded use cases and/or when malloc-free pairs have have
    good thread affinity (i.e. frees done by the same thread that did the
-   corresponding malloc).  It behaves well with irregular sizes and
-   exploits ultra fine grained alignment for good packing (e.g.
-   reasonable low memory overhead packing of byte strings with irregular
-   small-ish sizes).
-
-   It is less optimized for pipelined (e.g. malloc in one thread, free
-   in another) and more aggressive threading use cases but it could be
-   tuned to be so.
+   corresponding malloc).  It can also be used optimally in more complex
+   threading use cases (e.g. malloc in one or more producer threads,
+   free in one or more consumer threads).  It behaves well with
+   irregular sizes and exploits ultra fine grained alignment for good
+   packing (e.g. reasonable low memory overhead packing of byte strings
+   with irregular small-ish sizes).
 
    A fd_alloc stores its state in a wksp in a persistent way and backs
    its allocations by that same wksp.  This avoids many of the severe
@@ -310,15 +308,70 @@ fd_alloc_malloc( fd_alloc_t * join,
 
    (It would be possible to implement this less efficiently in space and
    time such that join didn't need to be passed.  The current design has
-   picked efficiency and consistency with other APIs though.) */
+   picked efficiency and consistency with other APIs though.)
+
+   Note that this will implicitly optimize the freed memory to be
+   preferentially reused by the join's concurrency group.  Thus the
+   caller should have at least one join for each concurrency group to
+   which it might want to return memory for reuse and then call free
+   with the appropriate join. */
 
 void
 fd_alloc_free( fd_alloc_t * join,
                void *       laddr );
 
-/* FIXME: Consider an advanced free api with a concurrency hint to allow
-   users to optimize usages with malloc in one thread and free in a
-   different thread. */
+/* fd_alloc_compact frees all wksp allocations that are not required
+   for any outstanding user mallocs (note that fd_alloc_free lazily
+   returns unused memory from the underlying wksp to accelerate
+   potential future allocations).  join is a current local join to the
+   alloc.  This cannot fail from a user's POV but logs any wonkiness
+   detected.
+
+   fd_alloc_compact has the property that it minimizes the amount of
+   wksp utilization for the set of outstanding user mallocs when there
+   is no other concurrent alloc usage.  As such, if there is no
+   concurrent alloc usage _and_ there are no outstanding mallocs, on
+   return, all wksp allocations (except the user provided memory region
+   that holds the state of the allocator) will be returned to the wksp.
+   This can be then be used to reset the alloc and/or implement robust
+   leak detection at program teardown.
+
+   This function is safe to use even when there is other concurrent
+   alloc usage.  It t is best effort in that case; it is not guaranteed
+   that there was some point in time between call and return when the
+   wksp utilization was minimized for the contemporaneous set of
+   outstanding user mallocs.
+
+   Also note that this function is not O(1) and the fd_alloc_free lazy
+   return mechanism does not permit unbounded growth of unreturned free
+   memory.  So this should be used sparingly at best (e.g. in teardown
+   leak detection or rare non-critical path housekeeping). */
+
+void
+fd_alloc_compact( fd_alloc_t * join );
+
+/* fd_alloc_is_empty returns 1 if the alloc has no outstanding mallocs
+   and 0 otherwise.  join is a current local join to the alloc.  NULL
+   join silently returns 0.
+
+   Important safety tip!  This should only be run when there is no
+   concurrent alloc usage.  It is not algorithmically fast.  This might
+   temporarily lock the underlying wksp while running and might call
+   fd_alloc_compact under the hood.  It assumes the user provided memory
+   region holding the alloc state is contained within a region returned
+   by a single fd_wksp_alloc call (it would be hard to create an alloc
+   where that isn't the case).  It assumes alloc is the only user of the
+   alloc's tag in the wksp.  As such this should be used carefully and
+   sparingly (e.g. at program teardown for leak detection).
+
+   It will "work" with concurrent alloc usage in that the return value
+   will be in 0 or 1 and it will not corrupt the alloc or underlying
+   wksp.  But the return value will not be well-defined (e.g. it is not
+   guaranteed to correspond the state of the alloc at some point in time
+   between when this was called and it when it returned). */
+
+int
+fd_alloc_is_empty( fd_alloc_t * join );
 
 FD_PROTOTYPES_END
 
