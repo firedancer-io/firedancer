@@ -6,6 +6,8 @@
 
 #include <stdio.h>
 
+FD_IMPORT_CSTR( fd_tango_ctl_help, "src/tango/fd_tango_ctl_help" );
+
 int
 main( int     argc,
       char ** argv ) {
@@ -18,6 +20,8 @@ main( int     argc,
 
   /* FIXME: CACHE ATTACHEMENTS? */
 
+  ulong tag = 1UL;
+
   int cnt = 0;
   while( argc ) {
     char const * cmd = argv[0];
@@ -25,103 +29,18 @@ main( int     argc,
 
     if( !strcmp( cmd, "help" ) ) {
 
-      FD_LOG_NOTICE(( "\n\t"
-        "Usage: %s [cmd] [cmd args] [cmd] [cmd args] ...\n\t"
-        "Commands are:\n\t"
-        "\n\t"
-        "\thelp\n\t"
-        "\t- Prints this message\n\t"
-        "\n\t"
-        "\tnew-mcache wksp depth app-sz seq0\n\t"
-        "\t- Creates a frag meta cache in wksp with the given depth,\n\t"
-        "\t  application region size app-sz and initial sequence number\n\t"
-        "\t  seq0.  Prints the wksp gaddr of the mcache to stdout.\n\t"
-        "\n\t"
-        "\tdelete-mcache gaddr\n\t"
-        "\t- Destroys the mcache at gaddr.\n\t"
-        "\n\t"
-        "\tquery-mcache gaddr verbose\n\t"
-        "\t- Queries the mcache at gaddr.  If verbose is 0, prints seq to\n\t"
-        "\t  stdout.  Otherwise, prints a detailed query to stdout.\n\t"
-        "\n\t"
-        "\tnew-dcache wksp mtu depth burst compact app-sz\n\t"
-        "\t- Creates a frag data cache in wksp optimized for frag payloads\n\t"
-        "\t  up to mtu bytes in size where up to depth frags can be\n\t"
-        "\t  available to consumers while the producer can be concurrently\n\t"
-        "\t  preparing up to burst frags.  A non-zero compact indicates\n\t"
-        "\t  the producer will write frag payloads linearly and compactly\n\t"
-        "\t  outside wrap around and will not split frags to wrap around.\n\t"
-        "\t  A zero compact indicates the producer will partition the data\n\t"
-        "\t  region into depth+burst mtu friendly slots and store frag\n\t"
-        "\t  payloads into them (potentially in a non-linear order).\n\t"
-        "\t  Prints the wksp gaddr of the dcache to stdout.\n\t"
-        "\n\t"
-        "\tnew-dcache-raw wksp data-sz app-sz\n\t"
-        "\t- Creates a frag data cache in wksp with a data region size of\n\t"
-        "\t  data-sz and an application region size of app-sz.  Prints\n\t"
-        "\t  the wksp gaddr of the dcache to stdout.\n\t"
-        "\n\t"
-        "\tdelete-dcache gaddr\n\t"
-        "\t- Destroys the dcache at gaddr.\n\t"
-        "\n\t"
-        "\tquery-dcache gaddr verbose\n\t"
-        "\t- Queries the dcache at gaddr.  If verbose is 0, prints 0\n\t"
-        "\t  to stdout (implicitly verifying gaddr is a dcache).\n\t"
-        "\t  Otherwise, prints a detailed query to stdout.\n\t" 
-        "\n\t"
-        "\tnew-fseq wksp seq0\n\t"
-        "\t- Creates a flow control variable in wksp initialized to seq0.\n\t"
-        "\t  Prints the wksp gaddr of the created fseq to stdout.\n\t"
-        "\n\t"
-        "\tdelete-fseq gaddr\n\t"
-        "\t- Destroys the fseq at gaddr.\n\t"
-        "\n\t"
-        "\tquery-fseq gaddr verbose\n\t"
-        "\t- Queries the fseq at gaddr.  If verbose is 0, prints seq to\n\t"
-        "\t  stdout.  Otherwise, prints a detailed query to stdout.\n\t"
-        "\n\t"
-        "\tupdate-fseq gaddr seq\n\t"
-        "\t- Updates the flow control variable at gaddr to seq.\n\t"
-        "\n\t"
-        "\tnew-cnc wksp type now app-sz\n\t"
-        "\t- Creates a command and control variable with the given type,\n\t"
-        "\t  initial heartbeat of now and an application region size of\n\t"
-        "\t  app-sz.  Prints the wksp gaddr of the cnc to stdout.\n\t"
-        "\t- If now is '-', the wallclock will be used for the initial\n\t"
-        "\t  heartbeat value.  If now is 'tic', the tickcounter will be\n\t"
-        "\t  used for the initial heartbeat value.\n\t"
-        "\n\t"
-        "\tdelete-cnc gaddr\n\t"
-        "\t- Destroys the cnc at gaddr.\n\t"
-        "\n\t"
-        "\tquery-cnc gaddr verbose\n\t"
-        "\t- Queries the cnc at gaddr.  If verbose is 0, prints signal to\n\t"
-        "\t  stdout.  Otherwise, prints a detailed query to stdout.\n\t"
-        "\n\t"
-        "\tsignal-cnc gaddr sig\n\t"
-        "\t- Sends signal sig to cnc at gaddr and waits for the response.\n\t"
-        "\t- Assumes sig is a valid signal to send.  E.g. halt (3).\n\t"
-        "\t- Blocking waits for sig to be processed and prints the\n\t"
-        "\t  response to stdout.  Typical responses are:\n\t"
-        "\t    run  (0): thread resumed running\n\t"
-        "\t    boot (1): thread halted and can be safely restarted.\n\t"
-        "\t    fail (2): thread halted and cannot be safely restated.\n\t"
-        "\n\t"
-        "\tnew-tcache wksp depth map-cnt\n\t"
-        "\t- Creates a tag cache with the given depth and map-cnt.\n\t"
-        "\t  A map-cnt of zero indicates to use a reasonable default.\n\t"
-        "\t  Prints the wksp gaddr of the tcache to stdout.\n\t"
-        "\n\t"
-        "\tdelete-tcache gaddr\n\t"
-        "\t- Destroys the tcache at gaddr.\n\t"
-        "\n\t"
-        "\tquery-tcache gaddr verbose\n\t"
-        "\t- Queries the tcache at gaddr.  verbose is currently ignored.\n\t"
-        "\n\t"
-        "\treset-tcache gaddr\n\t"
-        "\t- Resets the tcache at gaddr.\n\t"
-        "", bin ));
+      fputs( fd_tango_ctl_help, stdout );
+
       FD_LOG_NOTICE(( "%i: %s: success", cnt, cmd ));
+
+    } else if( !strcmp( cmd, "tag" ) ) {
+
+      if( FD_UNLIKELY( argc<1 ) ) FD_LOG_ERR(( "%i: %s: too few arguments\n\tDo %s help for help", cnt, cmd, bin ));
+
+      tag = fd_cstr_to_ulong( argv[0] );
+
+      FD_LOG_NOTICE(( "%i: %s %lu: success", cnt, cmd, tag ));
+      SHIFT(1);
 
     } else if( !strcmp( cmd, "new-mcache" ) ) {
 
@@ -143,11 +62,11 @@ main( int     argc,
         FD_LOG_ERR(( "%i: %s: fd_wksp_attach( \"%s\" ) failed\n\tDo %s help for help", cnt, cmd, _wksp, bin ));
       }
 
-      ulong gaddr = fd_wksp_alloc( wksp, align, footprint );
+      ulong gaddr = fd_wksp_alloc( wksp, align, footprint, tag );
       if( FD_UNLIKELY( !gaddr ) ) {
         fd_wksp_detach( wksp );
-        FD_LOG_ERR(( "%i: %s: fd_wksp_alloc( \"%s\", %lu, %lu ) failed\n\tDo %s help for help",
-                     cnt, cmd, _wksp, align, footprint, bin ));
+        FD_LOG_ERR(( "%i: %s: fd_wksp_alloc( \"%s\", %lu, %lu, %lu ) failed\n\tDo %s help for help",
+                     cnt, cmd, _wksp, align, footprint, tag, bin ));
       }
 
       void * shmem = fd_wksp_laddr( wksp, gaddr );
@@ -271,11 +190,11 @@ main( int     argc,
         FD_LOG_ERR(( "%i: %s: fd_wksp_attach( \"%s\" ) failed\n\tDo %s help for help", cnt, cmd, _wksp, bin ));
       }
 
-      ulong gaddr = fd_wksp_alloc( wksp, align, footprint );
+      ulong gaddr = fd_wksp_alloc( wksp, align, footprint, tag );
       if( FD_UNLIKELY( !gaddr ) ) {
         fd_wksp_detach( wksp );
-        FD_LOG_ERR(( "%i: %s: fd_wksp_alloc( \"%s\", %lu, %lu ) failed\n\tDo %s help for help",
-                     cnt, cmd, _wksp, align, footprint, bin ));
+        FD_LOG_ERR(( "%i: %s: fd_wksp_alloc( \"%s\", %lu, %lu, %lu ) failed\n\tDo %s help for help",
+                     cnt, cmd, _wksp, align, footprint, tag, bin ));
       }
 
       void * shmem = fd_wksp_laddr( wksp, gaddr );
@@ -321,11 +240,11 @@ main( int     argc,
         FD_LOG_ERR(( "%i: %s: fd_wksp_attach( \"%s\" ) failed\n\tDo %s help for help", cnt, cmd, _wksp, bin ));
       }
 
-      ulong gaddr = fd_wksp_alloc( wksp, align, footprint );
+      ulong gaddr = fd_wksp_alloc( wksp, align, footprint, tag );
       if( FD_UNLIKELY( !gaddr ) ) {
         fd_wksp_detach( wksp );
-        FD_LOG_ERR(( "%i: %s: fd_wksp_alloc( \"%s\", %lu, %lu ) failed\n\tDo %s help for help",
-                     cnt, cmd, _wksp, align, footprint, bin ));
+        FD_LOG_ERR(( "%i: %s: fd_wksp_alloc( \"%s\", %lu, %lu, %lu ) failed\n\tDo %s help for help",
+                     cnt, cmd, _wksp, align, footprint, tag, bin ));
       }
 
       void * shmem = fd_wksp_laddr( wksp, gaddr );
@@ -427,11 +346,11 @@ main( int     argc,
         FD_LOG_ERR(( "%i: %s: fd_wksp_attach( \"%s\" ) failed\n\tDo %s help for help", cnt, cmd, _wksp, bin ));
       }
 
-      ulong gaddr = fd_wksp_alloc( wksp, align, footprint );
+      ulong gaddr = fd_wksp_alloc( wksp, align, footprint, tag );
       if( FD_UNLIKELY( !gaddr ) ) {
         fd_wksp_detach( wksp );
-        FD_LOG_ERR(( "%i: %s: fd_wksp_alloc( \"%s\", %lu, %lu ) failed\n\tDo %s help for help",
-                     cnt, cmd, _wksp, align, footprint, bin ));
+        FD_LOG_ERR(( "%i: %s: fd_wksp_alloc( \"%s\", %lu, %lu, %lu ) failed\n\tDo %s help for help",
+                     cnt, cmd, _wksp, align, footprint, tag, bin ));
       }
 
       void * shmem = fd_wksp_laddr( wksp, gaddr );
@@ -557,11 +476,11 @@ main( int     argc,
         FD_LOG_ERR(( "%i: %s: fd_wksp_attach( \"%s\" ) failed\n\tDo %s help for help", cnt, cmd, _wksp, bin ));
       }
 
-      ulong gaddr = fd_wksp_alloc( wksp, align, footprint );
+      ulong gaddr = fd_wksp_alloc( wksp, align, footprint, tag );
       if( FD_UNLIKELY( !gaddr ) ) {
         fd_wksp_detach( wksp );
-        FD_LOG_ERR(( "%i: %s: fd_wksp_alloc( \"%s\", %lu, %lu ) failed\n\tDo %s help for help",
-                     cnt, cmd, _wksp, align, footprint, bin ));
+        FD_LOG_ERR(( "%i: %s: fd_wksp_alloc( \"%s\", %lu, %lu, %lu ) failed\n\tDo %s help for help",
+                     cnt, cmd, _wksp, align, footprint, tag, bin ));
       }
 
       void * shmem = fd_wksp_laddr( wksp, gaddr );
@@ -708,11 +627,11 @@ main( int     argc,
         FD_LOG_ERR(( "%i: %s: fd_wksp_attach( \"%s\" ) failed\n\tDo %s help for help", cnt, cmd, _wksp, bin ));
       }
 
-      ulong gaddr = fd_wksp_alloc( wksp, align, footprint );
+      ulong gaddr = fd_wksp_alloc( wksp, align, footprint, tag );
       if( FD_UNLIKELY( !gaddr ) ) {
         fd_wksp_detach( wksp );
-        FD_LOG_ERR(( "%i: %s: fd_wksp_alloc( \"%s\", %lu, %lu ) failed\n\tDo %s help for help",
-                     cnt, cmd, _wksp, align, footprint, bin ));
+        FD_LOG_ERR(( "%i: %s: fd_wksp_alloc( \"%s\", %lu, %lu, %lu ) failed\n\tDo %s help for help",
+                     cnt, cmd, _wksp, align, footprint, tag, bin ));
       }
 
       void * shmem = fd_wksp_laddr( wksp, gaddr );
@@ -811,7 +730,8 @@ main( int     argc,
     cnt++;
   }
 
-  FD_LOG_NOTICE(( "processed %i commands", cnt ));
+  if( FD_UNLIKELY( cnt<1 ) ) FD_LOG_NOTICE(( "processed %i commands\n\tDo %s help for help", cnt, bin ));
+  else                       FD_LOG_NOTICE(( "processed %i commands", cnt ));
 
 # undef SHIFT
   fd_halt();

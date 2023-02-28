@@ -30,43 +30,51 @@
 struct MAP_NAME {
     uint header_cnt;
     uint free_list;
-    uint capacity;
-    uint used;
+    ulong capacity;
+    ulong used;
     ulong hashseed;
 } __attribute__ ((aligned(64)));
 
-// Construct a map, using as much of the footprint as possible. The
-// actual footprint used is returned.
-ulong MAP_(new)(struct MAP_NAME* self, ulong footprint, ulong hashseed) {
+ulong MAP_(align)(void) { return 64U; }
+
+ulong MAP_(footprint)(ulong max) {
+  // Round up the header count to powers of 2 such that the average
+  // chain length is between 1 and 2
+  ulong header_cnt = 1;
+  while (header_cnt*2 < max)
+    header_cnt <<= 1;
+  return sizeof(struct MAP_NAME) + header_cnt*sizeof(uint) + max*sizeof(MAP_ELEMENT);
+}
+
+// Construct a map
+struct MAP_NAME* MAP_(new)(void* mem, ulong max, ulong hashseed) {
+  struct MAP_NAME* self = (struct MAP_NAME*)mem;
   self->hashseed = hashseed;
   
-  // Compute a number of headers that fills the footprint with the
-  // average chain length between 1 and 2 at max capacity.
-  uint cnt = 1;
-  while (sizeof(struct MAP_NAME) + ((ulong)cnt)*(sizeof(uint) + sizeof(MAP_ELEMENT)) < footprint)
-    cnt <<= 1;
-  self->header_cnt = cnt;
+  // Round up the header count to powers of 2 such that the average
+  // chain length is between 1 and 2
+  ulong header_cnt = 1;
+  while (header_cnt*2 < max)
+    header_cnt <<= 1;
+  self->header_cnt = (uint)header_cnt;
 
   // Set all the chain headers to null. We use -1 because zero is a
   // valid entry number.
   uint* headers = (uint*)(self+1);
-  fd_memset(headers, -1, sizeof(uint)*cnt);
+  fd_memset(headers, -1, sizeof(uint)*header_cnt);
 
   // Build the free list up to the footprint size
   uint* last = &self->free_list;
-  MAP_ELEMENT* elembase = (MAP_ELEMENT*)(headers + cnt);
-  uint i;
-  for (i = 0; ; ++i) {
+  MAP_ELEMENT* elembase = (MAP_ELEMENT*)(headers + header_cnt);
+  for (uint i = 0; i < max; ++i) {
     MAP_ELEMENT* elem = elembase + i;
-    if ((char*)(elem + 1) > (char*)self + footprint)
-      break;
     *last = i;
     last = &elem->next;
   }
   *last = MAP_LIST_TERM;
-  self->capacity = i;
+  self->capacity = max;
   self->used = 0;
-  return sizeof(struct MAP_NAME) + cnt*sizeof(uint) + i*sizeof(MAP_ELEMENT);
+  return self;
 }
 
 void MAP_(destroy)(struct MAP_NAME* self) {
@@ -78,7 +86,7 @@ void MAP_(destroy)(struct MAP_NAME* self) {
 // the map. Otherwise, the element is returned uninitialized (only key
 // and next are set). If out of space, a NULL is returned.
 MAP_ELEMENT* MAP_(insert)(struct MAP_NAME* self, MAP_KEY const* key, int* exists) {
-  const uint cnt = self->header_cnt;
+  const ulong cnt = self->header_cnt;
   uint* const headers = (uint*)(self+1);
   MAP_ELEMENT* const elembase = (MAP_ELEMENT*)(headers + cnt);
 
@@ -123,7 +131,7 @@ MAP_ELEMENT* MAP_(insert)(struct MAP_NAME* self, MAP_KEY const* key, int* exists
 // Lookup a key in the map and return the resulting element. A NULL is
 // returned if not found.
 MAP_ELEMENT* MAP_(query)(struct MAP_NAME* self, MAP_KEY const* key) {
-  const uint cnt = self->header_cnt;
+  const ulong cnt = self->header_cnt;
   uint* const headers = (uint*)(self+1);
   MAP_ELEMENT* const elembase = (MAP_ELEMENT*)(headers + cnt);
 
@@ -153,7 +161,7 @@ MAP_ELEMENT* MAP_(query)(struct MAP_NAME* self, MAP_KEY const* key) {
 // Remove a key from the map. A pointer to the former entry is
 // returned to allow additional cleanup.
 MAP_ELEMENT* MAP_(remove)(struct MAP_NAME* self, MAP_KEY const* key) {
-  const uint cnt = self->header_cnt;
+  const ulong cnt = self->header_cnt;
   uint* const headers = (uint*)(self+1);
   MAP_ELEMENT* const elembase = (MAP_ELEMENT*)(headers + cnt);
 
@@ -180,14 +188,50 @@ MAP_ELEMENT* MAP_(remove)(struct MAP_NAME* self, MAP_KEY const* key) {
   return NULL;
 }
 
-// Return true if the data structure is internally consistent
-int MAP_(validate)(struct MAP_NAME* self) {
-  const uint cnt = self->header_cnt;
+struct MAP_(iter) {
+  int header;
+  uint cur;
+};
+
+// Initialize a map iterator
+void MAP_(iter_init)(struct MAP_NAME* self, struct MAP_(iter)* iter) {
+  (void)self;
+  iter->header = -1;
+  iter->cur = MAP_LIST_TERM;
+}
+
+// Get the next element, or NULL if done
+MAP_ELEMENT* MAP_(iter_next)(struct MAP_NAME* self, struct MAP_(iter)* iter) {
+  const ulong cnt = self->header_cnt;
   uint* const headers = (uint*)(self+1);
   MAP_ELEMENT* const elembase = (MAP_ELEMENT*)(headers + cnt);
 
-  uint used = 0;
-  for (uint i = 0; i < cnt; ++i) {
+  if (iter->cur != MAP_LIST_TERM) {
+    MAP_ELEMENT* elem = elembase + iter->cur;
+    iter->cur = elem->next;
+    return elem;
+  }
+  if (iter->header == (int)cnt)
+    return NULL;
+  while (++(iter->header) < (int)cnt) {
+    iter->cur = headers[iter->header];
+    if (iter->cur != MAP_LIST_TERM) {
+      MAP_ELEMENT* elem = elembase + iter->cur;
+      iter->cur = elem->next;
+      return elem;
+    }
+  }
+  return NULL;
+}
+
+// Return true if the data structure is internally consistent
+int MAP_(validate)(struct MAP_NAME* self) {
+  const ulong cnt = self->header_cnt;
+  uint* const headers = (uint*)(self+1);
+  MAP_ELEMENT* const elembase = (MAP_ELEMENT*)(headers + cnt);
+
+  ulong used = 0;
+  for (ulong i = 0; i < cnt; ++i) {
     uint j = headers[i];
     while (j != MAP_LIST_TERM) {
       MAP_ELEMENT* elem = elembase + j;

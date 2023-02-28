@@ -1,6 +1,7 @@
 #include "fd_microblock.h"
 
 #include "../bmtree/fd_bmtree.h"
+#include "../pack/fd_pack.h"
 
 #if !FD_HAS_ALLOCA
 #error "This file requires FD_HAS_ALLOCA"
@@ -164,9 +165,10 @@ fd_microblock_deserialize( fd_microblock_t * block,
     fd_txn_t * out_txn = (fd_txn_t *)&txn_tbl[ txn_idx ];
 
     ulong raw_txn_sz;
-    ulong txn_sz = fd_txn_parse( buf, buf_sz, out_txn, counters_opt, &raw_txn_sz );
+    ulong txn_sz = fd_txn_parse( buf, fd_ulong_min(buf_sz, FD_MTU), out_txn, counters_opt, &raw_txn_sz );
 
-    if( FD_UNLIKELY( txn_sz==0UL ) ) return 0;
+    if( FD_UNLIKELY( txn_sz==0UL ) ) 
+      return 0;
     ADVANCE( raw_txn_sz );
 
     raw_txn->raw    = raw_ptr;
@@ -175,8 +177,30 @@ fd_microblock_deserialize( fd_microblock_t * block,
 
   return orig_buf_sz - buf_sz;
 
+}
+
+ulong
+fd_microblock_skip(        uchar const *     buf,
+                           ulong             buf_sz ) {
+  ulong orig_buf_sz = buf_sz;
+
+  fd_microblock_hdr_t * hdr = (fd_microblock_hdr_t *)buf;
+  ADVANCE( sizeof(fd_microblock_hdr_t) );
+
+  for( ulong txn_idx=0; txn_idx < hdr->txn_cnt; txn_idx++ ) {
+    ulong raw_txn_sz;
+    ulong txn_sz = fd_txn_parse( buf, fd_ulong_min(buf_sz, FD_MTU), NULL, NULL, &raw_txn_sz );
+
+    if( FD_UNLIKELY( txn_sz==0UL ) ) 
+      return 0;
+    ADVANCE( raw_txn_sz );
+  }
+
+  return orig_buf_sz - buf_sz;
+
 # undef ADVANCE
 }
+
 
 void
 fd_microblock_mixin( fd_microblock_t const * block,

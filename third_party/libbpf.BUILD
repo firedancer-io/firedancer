@@ -13,7 +13,7 @@ includes = [
     "src/libbpf_legacy.h",
     "src/libbpf_version.h",
     "src/skel_internal.h",
-    #"src/usdt.bpf.h",
+    "src/usdt.bpf.h",
 ]
 
 cc_library(
@@ -42,7 +42,7 @@ cc_library(
         "src/str_error.h",
         "src/strset.c",
         "src/strset.h",
-        #"src/usdt.c",
+        "src/usdt.c",
     ],
     hdrs = includes + glob([
         "include/**/*.h",
@@ -57,6 +57,9 @@ cc_library(
         "external/libbpf/include",
         "-isystem",
         "external/libbpf/include/uapi",
+    ],
+    defines = [
+        "FD_HAS_LIBBPF=1",
     ],
     linkopts = [
         "-lelf",

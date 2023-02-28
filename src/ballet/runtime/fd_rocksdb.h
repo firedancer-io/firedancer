@@ -22,7 +22,7 @@ struct fd_slot_meta {
   ulong *next_slots;
   uchar  is_connected;
   ulong  num_entry_end_indexes;
-  uint   entry_end_indexes[64];
+  uint  *entry_end_indexes;
 };
 typedef struct fd_slot_meta fd_slot_meta_t;
 #define FD_SLOT_META_FOOTPRINT sizeof(fd_slot_meta_t)
@@ -30,13 +30,16 @@ typedef struct fd_slot_meta fd_slot_meta_t;
 
 /* all the micro blocks found in a slot */
 struct fd_slot_blocks {
-  void *micro_blocks[64];
   uint block_cnt;
+  uchar *first_blob;
+  uchar *last_blob;
   uchar buffer[];
 };
 typedef struct fd_slot_blocks fd_slot_blocks_t;
 #define FD_SLOT_BLOCKS_FOOTPRINT(x) (sizeof(fd_slot_blocks_t) + (x))
 #define FD_SLOT_BLOCKS_ALIGN (8UL)
+
+#define FD_BLOB_DATA_START (fd_ulong_align_up( 12UL, FD_MICROBLOCK_ALIGN ))
 
 /* rocksdb client */
 struct fd_rocksdb {
@@ -54,15 +57,15 @@ typedef struct fd_rocksdb fd_rocksdb_t;
 
 FD_PROTOTYPES_BEGIN
 
-/* fd_slot_blocks_init
+/* fd_slot_blocks_new
 
    Initialize the block
 */
-void fd_slot_blocks_init(fd_slot_blocks_t *);
+void fd_slot_blocks_new(fd_slot_blocks_t *);
 
-/* fd_slot_blocks_init
+/* fd_slot_blocks_destroy
 
-   Initialize the block
+   free the internal data structures
 */
 void fd_slot_blocks_destroy(fd_slot_blocks_t *, fd_free_fun_t freef,  void* freef_arg);
 
@@ -111,8 +114,10 @@ ulong fd_rocksdb_first_slot(
    Retrieves the meta structure associated with the supplied slot.  If
    there is an error, *err is set to a string describing the error.
    It is expected that you should free() the error once done with it
+
+   returns a 0 if there is no obvious error
 */
-void fd_rocksdb_get_meta(
+int fd_rocksdb_get_meta(
     fd_rocksdb_t *db, 
     ulong slot,
     fd_slot_meta_t *m,

@@ -484,45 +484,45 @@ main( int     argc,
 
   FD_LOG_NOTICE(( "Creating cncs (--tx-cnt %lu, mux-cnt 1, --rx-cnt %lu, app-sz 64)", tx_cnt, rx_cnt ));
   ulong   cnc_footprint = fd_cnc_footprint( 64UL ); /* Room for 8 64-bit diagnostic counters */
-  uchar * cnc_mem       = (uchar *)fd_wksp_alloc_laddr( wksp, fd_cnc_align(), cnc_footprint*(tx_cnt+1UL+rx_cnt) );
+  uchar * cnc_mem       = (uchar *)fd_wksp_alloc_laddr( wksp, fd_cnc_align(), cnc_footprint*(tx_cnt+1UL+rx_cnt), 1UL );
   FD_TEST( cnc_mem );
 
   FD_LOG_NOTICE(( "Creating fseqs" ));
   ulong   fseq_footprint = fd_fseq_footprint();
-  uchar * fseq_mem       = (uchar *)fd_wksp_alloc_laddr( wksp, fd_fseq_align(), fseq_footprint*(tx_cnt+rx_cnt) );
+  uchar * fseq_mem       = (uchar *)fd_wksp_alloc_laddr( wksp, fd_fseq_align(), fseq_footprint*(tx_cnt+rx_cnt), 1UL );
   FD_TEST( fseq_mem );
 
   FD_LOG_NOTICE(( "Creating rngs" ));
   ulong   rng_align     = fd_ulong_max( fd_rng_align(), 128UL ); /* overalign to avoid false sharing */
   ulong   rng_footprint = fd_ulong_align_up( fd_rng_footprint(), rng_align );
-  uchar * rng_mem       = (uchar *)fd_wksp_alloc_laddr( wksp, rng_align, rng_footprint*(tx_cnt+rx_cnt) );
+  uchar * rng_mem       = (uchar *)fd_wksp_alloc_laddr( wksp, rng_align, rng_footprint*(tx_cnt+rx_cnt), 1UL );
   FD_TEST( rng_mem );
 
   FD_LOG_NOTICE(( "Creating tx mcaches (--tx-depth %lu, app-sz 0)", tx_depth ));
   ulong   tx_mcache_footprint = fd_mcache_footprint( tx_depth, 0UL ); /* No app region for the mcache */
-  uchar * tx_mcache_mem       = (uchar *)fd_wksp_alloc_laddr( wksp, fd_mcache_align(), tx_mcache_footprint*tx_cnt );
+  uchar * tx_mcache_mem       = (uchar *)fd_wksp_alloc_laddr( wksp, fd_mcache_align(), tx_mcache_footprint*tx_cnt, 1UL );
   FD_TEST( tx_mcache_mem );
 
   FD_LOG_NOTICE(( "Creating tx dcaches (--tx-mtu %lu, tx-burst 1, tx-compact 1, app-sz 0)", tx_mtu ));
   ulong   tx_data_sz          = fd_dcache_req_data_sz( tx_mtu, tx_depth, 1UL, 1  ); FD_TEST( tx_data_sz );
   ulong   tx_dcache_footprint = fd_dcache_footprint( tx_data_sz, 0UL ); /* No app region for the dcache */
-  uchar * tx_dcache_mem       = (uchar *)fd_wksp_alloc_laddr( wksp, fd_dcache_align(), tx_dcache_footprint*tx_cnt );
+  uchar * tx_dcache_mem       = (uchar *)fd_wksp_alloc_laddr( wksp, fd_dcache_align(), tx_dcache_footprint*tx_cnt, 1UL );
   FD_TEST( tx_dcache_mem );
 
   FD_LOG_NOTICE(( "Creating tx fctls (--tx-depth %lu, app-sz 0)", tx_depth ));
   ulong   tx_fctl_align     = fd_ulong_max( fd_fctl_align(), 128UL ); /* overalign to avoid false sharing */
   ulong   tx_fctl_footprint = fd_ulong_align_up( fd_fctl_footprint( 1UL ), tx_fctl_align );
-  uchar * tx_fctl_mem       = (uchar *)fd_wksp_alloc_laddr( wksp, tx_fctl_align, tx_fctl_footprint*tx_cnt );
+  uchar * tx_fctl_mem       = (uchar *)fd_wksp_alloc_laddr( wksp, tx_fctl_align, tx_fctl_footprint*tx_cnt, 1UL );
   FD_TEST( tx_fctl_mem );
 
   FD_LOG_NOTICE(( "Creating mux mcache (--mux-depth %lu, app-sz 0)", mux_depth ));
   ulong   mux_mcache_footprint = fd_mcache_footprint( mux_depth, 0UL ); /* No app region for the mcache */
-  uchar * mux_mcache_mem       = (uchar *)fd_wksp_alloc_laddr( wksp, fd_mcache_align(), mux_mcache_footprint );
+  uchar * mux_mcache_mem       = (uchar *)fd_wksp_alloc_laddr( wksp, fd_mcache_align(), mux_mcache_footprint, 1UL );
   FD_TEST( mux_mcache_mem );
 
   FD_LOG_NOTICE(( "Creating mux scratch" ));
   ulong   mux_scratch_footprint = fd_mux_tile_scratch_footprint( tx_cnt, rx_cnt );
-  uchar * mux_scratch_mem       = (uchar *)fd_wksp_alloc_laddr( wksp, fd_mux_tile_scratch_align(), mux_scratch_footprint );
+  uchar * mux_scratch_mem       = (uchar *)fd_wksp_alloc_laddr( wksp, fd_mux_tile_scratch_align(), mux_scratch_footprint, 1UL );
   FD_TEST( mux_scratch_mem );
 
   long now = fd_tickcount();

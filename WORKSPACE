@@ -210,9 +210,9 @@ git_repository(
 http_archive(
     name = "libbpf",
     build_file = "//:third_party/libbpf.BUILD",
-    sha256 = "5083588ce5a3a620e395ee1e596af77b4ec5771ffc71cff2af49dfee38c06361",
-    strip_prefix = "libbpf-0.7.0",
-    url = "https://github.com/libbpf/libbpf/archive/refs/tags/v0.7.0.tar.gz",
+    sha256 = "5da826c968fdb8a2f714701cfef7a4b7078be030cf58b56143b245816301cbb8",
+    strip_prefix = "libbpf-1.1.0",
+    url = "https://github.com/libbpf/libbpf/archive/refs/tags/v1.1.0.tar.gz",
 )
 
 ################################################################################

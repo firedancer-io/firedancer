@@ -1,8 +1,8 @@
 #define VECT_(n)       FD_EXPAND_THEN_CONCAT3(VECT_NAME,_,n)
 
 struct VECT_NAME {
-    uint cnt;
-    uint max;
+    ulong cnt;
+    ulong max;
     VECT_ELEMENT* elems; 
 };
 
@@ -33,11 +33,13 @@ VECT_ELEMENT VECT_(pop_unsafe)(struct VECT_NAME* self) {
   return self->elems[--(self->cnt)];
 }
 
-void VECT_(remove_at)(struct VECT_NAME* self, uint i) {
+void VECT_(remove_at)(struct VECT_NAME* self, ulong i) {
   VECT_ELEMENT* const elems = self->elems;
-  uint cnt = --(self->cnt);
-  while (i != cnt)
+  ulong cnt = --(self->cnt);
+  while (i != cnt) {
     elems[i] = elems[i+1];
+    i++;
+  }
 }
 
 #undef VECT_

@@ -6,33 +6,27 @@
 // thread/CPU/tile. Presumably, a separate message layer allows access
 // from other CPUs.
 
+struct fd_funk;
+typedef struct fd_funk fd_funk_t;
+
+FD_FN_CONST ulong fd_funk_align(void);
+
 // Construct a storage instance. The file argument is the backing
 // file for permanent or finalized data as well as write-ahead
 // logs. This file is created if it doesn't exist. Storage uses only
 // one "real" file.
-// Any footprint can be provided as long as it is bigger than the
-// minimum. Extra memory is used for the cache.
-// The result of new must still be joined.
-void* fd_funk_new(void* mem,
-                  ulong footprint,
-                  char const* backingfile);
-
-FD_FN_CONST ulong fd_funk_footprint_min(void); // Minimum footprint
-FD_FN_CONST ulong fd_funk_align(void);
-
-// Join an existing store. fd_funk_new is typically called
-// first. Assumes single threaded access.
-struct fd_funk;
-typedef struct fd_funk fd_funk_t;
-struct fd_funk* fd_funk_join(void* mem);
-
-// Stop using a store, but don't clean up transactions.
-void* fd_funk_leave(struct fd_funk* store);
+// All memory needed is allocated out of the given workspace.
+struct fd_funk* fd_funk_new(char const* backingfile,
+                            fd_wksp_t* wksp,    // Workspace to allocate out of
+                            ulong alloc_tag,    // Tag for workspace allocations
+                            ulong index_max,    // Maximum size (count) of master index
+                            ulong xactions_max, // Maximum size (count) of transaction index
+                            ulong cache_max);   // Maximum number of cache entries
 
 // Delete a storage instance. Flushes updates, cancels transactions,
 // and closes the backing file. Finalized transactions remain in the
 // backing file.
-void* fd_funk_delete(void* mem);
+void* fd_funk_delete(struct fd_funk* store);
 
 // Identifies a "record" in the storage layer. ASCII text
 // isn't necessary. Compact binary identifiers are encouraged.
@@ -97,16 +91,16 @@ int fd_funk_isopen(struct fd_funk* store,
                    struct fd_funk_xactionid const* id);
 
 // Update a record in the storage. Records are implicitly created/extended
-// as necessary. Gaps are zero filled. Returns datalen on success, -1 on failure.
+// as necessary. Gaps are zero filled. Returns data_sz on success, -1 on failure.
 long fd_funk_write(struct fd_funk* store,
                    struct fd_funk_xactionid const* xid,
                    struct fd_funk_recordid const* recordid,
                    const void* data,
                    ulong offset,
-                   ulong datalen);
+                   ulong data_sz);
 
 // Read a record. The amount of data actually read is returned, which
-// may be less then datalen if the record is shorter than expected. A -1
+// may be less then data_sz if the record is shorter than expected. A -1
 // is returned if an identifier is invalid. *data is updated to point
 // to an internal cache which may become invalid after the next operation.
 long fd_funk_read(struct fd_funk* store,
@@ -114,13 +108,13 @@ long fd_funk_read(struct fd_funk* store,
                   struct fd_funk_recordid const* recordid,
                   const void** data,
                   ulong offset,
-                  ulong datalen);
+                  ulong data_sz);
 
 // Truncate a record to the given length
 void fd_funk_truncate(struct fd_funk* store,
                       struct fd_funk_xactionid const* xid,
                       struct fd_funk_recordid const* recordid,
-                      ulong recordlen);
+                      ulong record_sz);
 
 // Delete a record. Note that deletion isn't permanent until the
 // transaction is committed.
@@ -129,21 +123,21 @@ void fd_funk_delete_record(struct fd_funk* store,
                            struct fd_funk_recordid const* recordid);
 
 // Returns the number of active records
-uint fd_funk_num_records(struct fd_funk* store);
+ulong fd_funk_num_records(struct fd_funk* store);
 
 // Returns true if the record is in the hot cache.
 int fd_funk_cache_query(struct fd_funk* store,
                         struct fd_funk_xactionid const* xid,
                         struct fd_funk_recordid const* recordid,
                         ulong offset,
-                        ulong datalen);
+                        ulong data_sz);
 
 // Loads the record into the hot cache.
 void fd_funk_cache_hint(struct fd_funk* store,
                         struct fd_funk_xactionid const* xid,
                         struct fd_funk_recordid const* recordid,
                         ulong offset,
-                        ulong datalen);
+                        ulong data_sz);
 
 // Validate the entire data structure. Log an error and abort if
 // corruption is detected.

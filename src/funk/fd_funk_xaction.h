@@ -26,8 +26,8 @@ void fd_funk_xactionid_t_copy(struct fd_funk_xactionid* dest, struct fd_funk_xac
 struct fd_funk_xaction_cache_entry {
     // Record identifier
     struct fd_funk_recordid record;
-    // Actual length of record. The cache might just be a prefix
-    uint recordlen;
+    // Actual length of record. The cache might just be a prefix. !!! consider ulong
+    uint record_sz;
     // Cached data
     fd_cache_handle cachehandle;
 };
@@ -42,8 +42,6 @@ struct fd_funk_xaction_entry {
     struct fd_funk_xactionid key;
     // Parent transaction identifier
     struct fd_funk_xactionid parent;
-    // Grandparent transaction identifier
-    struct fd_funk_xactionid grandparent;
     // Transaction update transcript. This is exactly the same as the
     // on-disk representation.
     char* script;
@@ -64,3 +62,4 @@ struct fd_funk_xaction_entry {
 #undef MAP_KEY
 
 int fd_funk_is_root(struct fd_funk_xactionid const* xid);
+void fd_funk_xactions_cleanup(struct fd_funk* store);
