@@ -27,6 +27,6 @@ LLVM_PROFDATA?=llvm-profdata
 GENHTML=genhtml
 
 EBPF_CC:=clang
-EBPF_CPPFLAGS:=-target bpf -O2 -g
+EBPF_CPPFLAGS:=-target bpf -O2 -fno-stack-protector
 EBPF_CFLAGS:=-std=c17
 
