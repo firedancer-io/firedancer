@@ -139,14 +139,12 @@ int fd_executor_vote_program_execute_instruction(
     /* Skip reading in sysvars, as we are skipping safety checks for minimal slice */
 
     /* Deserialize account metadata */
-    fd_account_meta_t vote_account_meta;
-    int read_result = fd_acc_mgr_get_metadata( ctx.acc_mgr, &vote_program_pubkey, &vote_account_meta );
-    if ( FD_UNLIKELY( read_result != FD_ACC_MGR_SUCCESS ) ) {
-      FD_LOG_ERR(( "failed to read vote program account metadata" ));
-      return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
-    }
+    // fd_account_meta_t vote_account_meta;
+    // int read_result = fd_acc_mgr_get_metadata( ctx.acc_mgr, &vote_program_pubkey, &vote_account_meta );
+    // if ( FD_UNLIKELY( read_result != FD_ACC_MGR_SUCCESS ) ) {
+    //   FD_LOG_ERR(( "failed to read vote program account metadata" ));
+    //   return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
+    // }
     
-
-
     return FD_EXECUTOR_INSTR_SUCCESS;
 }
