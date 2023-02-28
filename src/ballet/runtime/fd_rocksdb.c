@@ -175,7 +175,7 @@ fd_slot_blocks_t * fd_rocksdb_get_microblocks(fd_rocksdb_t *db, fd_slot_meta_t *
 
   for (ulong i = start_idx; i < end_idx; i++) {
     ulong cur_slot, index;
-    bool valid = rocksdb_iter_valid(iter);
+    uchar valid = rocksdb_iter_valid(iter);
 
     if (valid) {
       size_t klen = 0;

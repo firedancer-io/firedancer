@@ -18,7 +18,7 @@
 #include "../../util/alloc/fd_alloc.h"
 #include <dirent.h>
 
-bool do_valgrind = false;
+uchar do_valgrind = 0;
 
 char * fd_base58_encode_slow( uchar const * bytes, ulong byte_cnt, char * out, ulong out_cnt );
 int fd_alloc_fprintf( fd_alloc_t * join, FILE *       stream );
@@ -52,7 +52,7 @@ struct global_state {
   ulong        end_slot;
   ulong        start_slot;
   ulong        pages;
-  bool         skip_exe;
+  uchar        skip_exe;
 
   int          argc;
   char       **argv;
@@ -132,7 +132,8 @@ int ingest(global_state_t *state) {
         printf("%s\n", buf);
         while (b < eptr) {
           fd_solana_account_hdr_t *hdr = (fd_solana_account_hdr_t *)b;
-          if ((hdr->info.lamports == 0) | ((hdr->info.executable & 1) != 0))
+          // Sanitize accounts...
+          if ((hdr->info.lamports == 0) | ((hdr->info.executable & ~1) == 0))
             break;
           // how do I validate this?!
           ulong exempt = (hdr->meta.data_len + 128) * ((ulong) ((double)state->gen.rent.lamports_per_uint8_year * state->gen.rent.exemption_threshold));
