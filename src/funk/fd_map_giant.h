@@ -30,6 +30,7 @@
 struct MAP_NAME {
     uint header_cnt;
     uint free_list;
+    ulong elembase;
     ulong capacity;
     ulong used;
     ulong hashseed;
@@ -43,7 +44,7 @@ ulong MAP_(footprint)(ulong max) {
   ulong header_cnt = 1;
   while (header_cnt*2 < max)
     header_cnt <<= 1;
-  return sizeof(struct MAP_NAME) + header_cnt*sizeof(uint) + max*sizeof(MAP_ELEMENT);
+  return fd_ulong_align_up(sizeof(struct MAP_NAME) + header_cnt*sizeof(uint), 64) + max*sizeof(MAP_ELEMENT);
 }
 
 // Construct a map
@@ -65,7 +66,8 @@ struct MAP_NAME* MAP_(new)(void* mem, ulong max, ulong hashseed) {
 
   // Build the free list up to the footprint size
   uint* last = &self->free_list;
-  MAP_ELEMENT* elembase = (MAP_ELEMENT*)(headers + header_cnt);
+  self->elembase = fd_ulong_align_up(sizeof(struct MAP_NAME) + header_cnt*sizeof(uint), 64);
+  MAP_ELEMENT* const elembase = (MAP_ELEMENT*)((char*)self + self->elembase);
   for (uint i = 0; i < max; ++i) {
     MAP_ELEMENT* elem = elembase + i;
     *last = i;
@@ -88,7 +90,7 @@ void MAP_(destroy)(struct MAP_NAME* self) {
 MAP_ELEMENT* MAP_(insert)(struct MAP_NAME* self, MAP_KEY const* key, int* exists) {
   const ulong cnt = self->header_cnt;
   uint* const headers = (uint*)(self+1);
-  MAP_ELEMENT* const elembase = (MAP_ELEMENT*)(headers + cnt);
+  MAP_ELEMENT* const elembase = (MAP_ELEMENT*)((char*)self + self->elembase);
 
   // See if the key exists
   uint* first = headers + (MAP_KEY_(hash)(key, self->hashseed) & (cnt-1));
@@ -133,7 +135,7 @@ MAP_ELEMENT* MAP_(insert)(struct MAP_NAME* self, MAP_KEY const* key, int* exists
 MAP_ELEMENT* MAP_(query)(struct MAP_NAME* self, MAP_KEY const* key) {
   const ulong cnt = self->header_cnt;
   uint* const headers = (uint*)(self+1);
-  MAP_ELEMENT* const elembase = (MAP_ELEMENT*)(headers + cnt);
+  MAP_ELEMENT* const elembase = (MAP_ELEMENT*)((char*)self + self->elembase);
 
   // See if the key exists
   uint* first = headers + (MAP_KEY_(hash)(key, self->hashseed) & (cnt-1));
@@ -163,7 +165,7 @@ MAP_ELEMENT* MAP_(query)(struct MAP_NAME* self, MAP_KEY const* key) {
 MAP_ELEMENT* MAP_(remove)(struct MAP_NAME* self, MAP_KEY const* key) {
   const ulong cnt = self->header_cnt;
   uint* const headers = (uint*)(self+1);
-  MAP_ELEMENT* const elembase = (MAP_ELEMENT*)(headers + cnt);
+  MAP_ELEMENT* const elembase = (MAP_ELEMENT*)((char*)self + self->elembase);
 
   // See if the key exists
   uint* first = headers + (MAP_KEY_(hash)(key, self->hashseed) & (cnt-1));
@@ -204,7 +206,7 @@ void MAP_(iter_init)(struct MAP_NAME* self, struct MAP_(iter)* iter) {
 MAP_ELEMENT* MAP_(iter_next)(struct MAP_NAME* self, struct MAP_(iter)* iter) {
   const ulong cnt = self->header_cnt;
   uint* const headers = (uint*)(self+1);
-  MAP_ELEMENT* const elembase = (MAP_ELEMENT*)(headers + cnt);
+  MAP_ELEMENT* const elembase = (MAP_ELEMENT*)((char*)self + self->elembase);
 
   if (iter->cur != MAP_LIST_TERM) {
     MAP_ELEMENT* elem = elembase + iter->cur;
@@ -228,7 +230,7 @@ MAP_ELEMENT* MAP_(iter_next)(struct MAP_NAME* self, struct MAP_(iter)* iter) {
 int MAP_(validate)(struct MAP_NAME* self) {
   const ulong cnt = self->header_cnt;
   uint* const headers = (uint*)(self+1);
-  MAP_ELEMENT* const elembase = (MAP_ELEMENT*)(headers + cnt);
+  MAP_ELEMENT* const elembase = (MAP_ELEMENT*)((char*)self + self->elembase);
 
   ulong used = 0;
   for (ulong i = 0; i < cnt; ++i) {
