@@ -40,10 +40,10 @@ fd_funk_recordid_t funk_id( fd_pubkey_t* pubkey ) {
 
 int fd_acc_mgr_get_metadata( fd_acc_mgr_t* acc_mgr, fd_pubkey_t* pubkey, fd_account_meta_t *result ) {
   fd_funk_recordid_t id = funk_id(pubkey);
-  void* buffer = (void*)result;
+  void* buffer = NULL;
   long read = fd_funk_read( acc_mgr->funk, acc_mgr->funk_xroot, &id, (const void**)&buffer, 0, sizeof(fd_account_meta_t) );
   if ( FD_UNLIKELY( read == -1 )) {
-    FD_LOG_WARNING(( "attempt to read account metadata for unknown account" ));
+//    FD_LOG_WARNING(( "attempt to read account metadata for unknown account" ));
     return FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
   }
   else if ( FD_UNLIKELY( read != sizeof(fd_account_meta_t) ) ) {
@@ -51,6 +51,8 @@ int fd_acc_mgr_get_metadata( fd_acc_mgr_t* acc_mgr, fd_pubkey_t* pubkey, fd_acco
     return FD_ACC_MGR_ERR_READ_FAILED;
   }
   
+  fd_memcpy(result, buffer, (ulong) read);
+
   return FD_ACC_MGR_SUCCESS;
 } 
 
@@ -97,7 +99,7 @@ int fd_acc_mgr_set_lamports( fd_acc_mgr_t* acc_mgr, fd_pubkey_t * pubkey, fd_acc
   return FD_ACC_MGR_SUCCESS;
 }
 
-int fd_acc_mgr_write_structured_account( fd_acc_mgr_t* acc_mgr, fd_pubkey_t* pubkey, fd_solana_account_t * account) {
+int fd_acc_mgr_write_structured_account( fd_acc_mgr_t* acc_mgr, ulong slot, fd_pubkey_t* pubkey, fd_solana_account_t * account) {
   ulong dlen =  sizeof(fd_account_meta_t) + account->data_len;
   uchar *data = fd_alloca(8UL, dlen);
   fd_account_meta_t *m = (fd_account_meta_t *) data;
@@ -112,17 +114,19 @@ int fd_acc_mgr_write_structured_account( fd_acc_mgr_t* acc_mgr, fd_pubkey_t* pub
   m->info.executable = (char) account->executable;
   fd_memset(m->info.padding, 0, sizeof(m->info.padding));
 
+  m->slot = slot; 
+
   // What is the correct hash function we should be using?
-  fd_memset(m->hash.value, 0, sizeof(m->hash.value));
+  fd_memset(m->hash, 0, sizeof(m->hash));
 
   fd_memcpy(&data[sizeof(fd_account_meta_t)], account->data, account->data_len);
 
   return fd_acc_mgr_write_account(acc_mgr, pubkey, (uchar *) data, dlen);
 }
 
-int fd_acc_mgr_write_append_vec_account( fd_acc_mgr_t* acc_mgr, fd_solana_account_hdr_t * hdr) {
+int fd_acc_mgr_write_append_vec_account( fd_acc_mgr_t* acc_mgr, ulong slot, fd_solana_account_hdr_t * hdr) {
   ulong dlen =  sizeof(fd_account_meta_t) + hdr->meta.data_len;
-  uchar *data = fd_alloca(8UL, dlen);
+  uchar *data = aligned_alloc(8UL, dlen);
   fd_account_meta_t *m = (fd_account_meta_t *) data;
 
   m->magic = FD_ACCOUNT_META_MAGIC;
@@ -131,9 +135,12 @@ int fd_acc_mgr_write_append_vec_account( fd_acc_mgr_t* acc_mgr, fd_solana_accoun
 
   fd_memcpy(&m->info, &hdr->info, sizeof(m->info));
 
-  fd_memset(m->hash.value, 0, sizeof(m->hash.value));
+  m->slot = slot; 
+  fd_memset(m->hash, 0, sizeof(m->hash));
 
   fd_memcpy(&data[sizeof(fd_account_meta_t)], &hdr[1], hdr->meta.data_len);
 
-  return fd_acc_mgr_write_account(acc_mgr, (fd_pubkey_t *) &hdr->meta.pubkey, (uchar *) data, dlen);
+  int ret = fd_acc_mgr_write_account(acc_mgr, (fd_pubkey_t *) &hdr->meta.pubkey, (uchar *) data, dlen);
+  free(data);
+  return ret;
 }

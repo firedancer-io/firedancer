@@ -2,7 +2,8 @@
 
 //  --ledger /dev/shm/mainnet-ledger --db /dev/shm/funk --cmd replay --start-slot 179138205 --end-slot 279138205  --skip-exe true
 //  --ledger /dev/shm/mainnet-ledger --db /dev/shm/funk --cmd ingest --start-slot 179138205 --end-slot 279138205 --manifest /dev/shm/mainnet-ledger/snapshot/tmp-snapshot-archive-JfVTLu/snapshots/179248368/179248368
-// run --ledger /dev/shm/mainnet-ledger --db /dev/shm/funk --cmd ingest --accounts /dev/shm/mainnet-ledger/accounts
+// run --ledger /home/jsiegel/mainnet-ledger --db /home/jsiegel/funk --cmd ingest --accounts /home/jsiegel/mainnet-ledger/accounts --pages 50 --index-max 120000000
+// run --ledger /dev/shm/mainnet-ledger --db /dev/shm/funk --cmd ingest --accounts /dev/shm/mainnet-ledger/accounts --pages 50 --index-max 120000000
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -21,7 +22,7 @@
 
 #include <dirent.h>
 
-uchar do_valgrind = 0;
+uchar do_valgrind = 1;
 
 int fd_alloc_fprintf( fd_alloc_t * join, FILE *       stream );
 
@@ -123,6 +124,14 @@ int ingest(global_state_t *state) {
     if ( regexec(&reg, ent->d_name, 0, NULL, 0) == 0 )  {
         struct stat s;
         char buf[1000];
+
+        strcpy(buf, ent->d_name);
+        char *p = buf;
+        while (*p != '.') p++; // It sure as heck better have a . or the regexec would fail
+        *p = '\0';
+
+        ulong slot = (ulong) atol(buf);
+
         sprintf(buf, "%s/%s", state->accounts, ent->d_name);
         stat(buf,  &s);
         unsigned char *r = (unsigned char *)allocf((unsigned long) (unsigned long) s.st_size, 8UL, state->alloc);
@@ -151,15 +160,31 @@ int ingest(global_state_t *state) {
 
           accounts++;
 
-          if (fd_acc_mgr_write_append_vec_account( state->acc_mgr,  hdr) != FD_ACC_MGR_SUCCESS) {
-            FD_LOG_ERR(("writing failed: accounts %ld", accounts));
+          if ((accounts % 1000000) == 0) {
+            FD_LOG_WARNING(("accounts %ld", accounts));
           }
 
-          if (memcmp(hdr->info.owner, sprog, sizeof(sprog)) != 0) {
-            // system progs are exempt no matter their lamports...
+          do {
+            fd_account_meta_t metadata;
+            int read_result = fd_acc_mgr_get_metadata( state->acc_mgr, (fd_pubkey_t *) &hdr->meta.pubkey, &metadata );
+            if ( FD_UNLIKELY( read_result == FD_ACC_MGR_SUCCESS ) ) {
+              if (metadata.slot > slot)
+                break;
+            }
+
+            if (fd_acc_mgr_write_append_vec_account( state->acc_mgr,  slot, hdr) != FD_ACC_MGR_SUCCESS) {
+              FD_LOG_ERR(("writing failed: accounts %ld", accounts));
+            }
+            read_result = fd_acc_mgr_get_metadata( state->acc_mgr, (fd_pubkey_t *) &hdr->meta.pubkey, &metadata );
+            if ( FD_UNLIKELY( read_result != FD_ACC_MGR_SUCCESS ) ) 
+              FD_LOG_ERR(("wtf"));
+            if ((metadata.magic != FD_ACCOUNT_META_MAGIC) || (metadata.hlen != sizeof(metadata))) 
+              FD_LOG_ERR(("wtf2"));
+          } while (false);
 
 #if 0
-            // how do I validate this?!
+          if (memcmp(hdr->info.owner, sprog, sizeof(sprog)) != 0) {
+            // system progs are exempt no matter their lamports...
             ulong exempt = (hdr->meta.data_len + 128) * ((ulong) ((double)state->gen.rent.lamports_per_uint8_year * state->gen.rent.exemption_threshold));
             if (hdr->info.lamports < exempt) {
               odd++;
@@ -171,10 +196,8 @@ int ingest(global_state_t *state) {
               fd_base58_encode_32((uchar *) hdr->info.owner, owner);
               printf("file: %s owner: %s pubkey: %s datalen: %ld lamports: %ld  rent_epoch: %ld\n", buf, owner, pubkey, hdr->meta.data_len, hdr->info.lamports, hdr->info.rent_epoch);
             }
-#endif
-
-            
           }
+#endif
           b += fd_ulong_align_up(hdr->meta.data_len + sizeof(*hdr), 8);
         }
 
@@ -313,15 +336,15 @@ int main(int argc, char **argv) {
   state.cmd            = fd_env_strip_cmdline_cstr ( &argc, &argv, "--cmd",          NULL, NULL);
   state.skip_exe_opt   = fd_env_strip_cmdline_cstr ( &argc, &argv, "--skip-exe",     NULL, NULL);
   state.pages_opt      = fd_env_strip_cmdline_cstr ( &argc, &argv, "--pages",        NULL, NULL);
+  const char *index_max_opt = fd_env_strip_cmdline_cstr ( &argc, &argv, "--index-max",        NULL, NULL);
 
   if ((NULL == state.ledger) || (NULL == state.db)) {
     usage(argv[0]);
     exit(1);
   }
 
-  if (state.skip_exe_opt) {
+  if (state.skip_exe_opt)
     state.skip_exe = !strcmp(state.skip_exe_opt, "true");
-  }
 
   if (state.pages_opt) 
     state.pages = (ulong) atoi(state.pages_opt);
@@ -333,7 +356,7 @@ int main(int argc, char **argv) {
     state.wksp = fd_wksp_attach( state.name );
   } else {
     FD_LOG_NOTICE(( "--wksp not specified, using an anonymous local workspace" ));
-    state.wksp = fd_wksp_new_anonymous( FD_SHMEM_GIGANTIC_PAGE_SZ, state.pages, fd_log_cpu_id(), "wksp", 0UL );
+    state.wksp = fd_wksp_new_anonymous( FD_SHMEM_GIGANTIC_PAGE_SZ, state.pages, 0, "wksp", 0UL );
   } 
 
   if( FD_UNLIKELY( !state.wksp ) ) FD_LOG_ERR(( "Unable to attach to wksp" ));
@@ -346,8 +369,11 @@ int main(int argc, char **argv) {
 
   state.alloc = fd_alloc_join( shalloc, 0UL );
 
-//  ulong index_max = 120000000;    // Maximum size (count) of master index
   ulong index_max = 1000000;    // Maximum size (count) of master index
+
+  if (index_max_opt) 
+    index_max = (ulong) atoi((char *) index_max_opt);
+
   ulong xactions_max = 100;     // Maximum size (count) of transaction index
   ulong cache_max = 10000;      // Maximum number of cache entries
   state.funk = fd_funk_new(state.db, state.wksp, 2, index_max, xactions_max, cache_max);
@@ -369,6 +395,9 @@ int main(int argc, char **argv) {
     struct stat sbuf;
     stat(genesis, &sbuf);
     int fd = open(genesis, O_RDONLY);
+    if (fd < 0) {
+      FD_LOG_ERR(("Cannot open %s", genesis));
+    }
     uchar *buf = malloc((ulong) sbuf.st_size);
     ssize_t n = read(fd, buf, (ulong) sbuf.st_size);
     close(fd);
@@ -394,7 +423,7 @@ int main(int argc, char **argv) {
   for (ulong i = 0; i < state.gen.accounts_len; i++) {
     fd_pubkey_account_pair_t *a = &state.gen.accounts[i];
 
-    fd_acc_mgr_write_structured_account(state.acc_mgr, &a->key, &a->account);
+    fd_acc_mgr_write_structured_account(state.acc_mgr, 0, &a->key, &a->account);
   }
 
   //  we good?

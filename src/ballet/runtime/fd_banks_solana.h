@@ -215,16 +215,19 @@ struct __attribute__((packed)) fd_solana_account_hdr {
 };
 typedef struct fd_solana_account_hdr fd_solana_account_hdr_t;
 
-// You can change this structure (add additional things to it)
+// You can change this structure (add additional things to it.. 
 struct __attribute__((packed)) fd_account_meta {
   ushort                          magic;
   // Length of header
   ushort                          hlen;
   // Length of data excluding header
   ulong                           dlen;
+
+  unsigned char                   hash[32];
+  ulong                           slot;
+
   // These structures directly come from solana.. is that good?
   fd_solana_account_meta_t        info; 
-  fd_solana_account_fd_hash_t     hash;
 };
 typedef struct fd_account_meta fd_account_meta_t;
 #define FD_ACCOUNT_META_MAGIC 9823
