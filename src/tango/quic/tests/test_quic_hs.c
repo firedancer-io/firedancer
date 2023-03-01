@@ -274,7 +274,7 @@ main( int argc, char ** argv ) {
   quic_config.now_fn  = test_clock;
   quic_config.now_ctx = NULL;
 
-  quic_config.tx_buf_sz = 1ul << 10ul;
+  quic_config.tx_buf_sz = 1ul << 20ul;
 
   fd_quic_host_cfg_t server_cfg = { "server_host", 0x0a000001u, 4434 };
   fd_quic_host_cfg_t client_cfg = { "client_host", 0xc01a1a1au, 2001 };
@@ -371,7 +371,7 @@ main( int argc, char ** argv ) {
 
   printf( "fd_quic_stream_send returned %d\n", rc );
 
-  for( unsigned j = 0; j < 50; ++j ) {
+  for( unsigned j = 0; j < 5000; ++j ) {
     ulong ct = fd_quic_get_next_wakeup( client_quic );
     ulong st = fd_quic_get_next_wakeup( server_quic );
     ulong next_wakeup = fd_ulong_min( ct, st );

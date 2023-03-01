@@ -596,86 +596,6 @@ fd_quic_crypto_decrypt(
   uchar const * hdr           = plain_text;
   ulong         hdr_sz        = pkt_number_off + pkt_number_sz;
 
-#if 0
-  uint      first      = cipher_text[0];
-  uint      long_hdr   = first & 0x80u; /* long header? (this bit is not encrypted) */
-  ulong        sample_off = pkt_number_off + 4;
-  uchar const * sample     = cipher_text + sample_off;
-
-  EVP_CIPHER_CTX * hp_cipher_ctx = EVP_CIPHER_CTX_new();
-  if( !hp_cipher_ctx ) {
-    FD_LOG_ERR(( "fd_quic_crypto_decrypt: Error creating cipher ctx" ));
-    return FD_QUIC_FAILED;
-  }
-
-  /* although this is a "decrypt" function, the mask must be calculated exactly the
-     same as in the "encrypt" function */
-  if( EVP_CipherInit_ex( hp_cipher_ctx, suite->hp_cipher, NULL, NULL, NULL, 1 /* encryption */ ) != 1 ) {
-    FD_LOG_ERR(( "fd_quic_crypto_decrypt: EVP_CipherInit_ex (hp) failed" ));
-    EVP_CIPHER_CTX_free( hp_cipher_ctx );
-    return FD_QUIC_FAILED;
-  }
-
-  if( EVP_EncryptInit_ex( hp_cipher_ctx, NULL, NULL, keys->hp_key, NULL ) != 1 ) {
-    FD_LOG_ERR(( "fd_quic_crypto_decrypt: EVP_EncryptInit_ex failed" ));
-    EVP_CIPHER_CTX_free( hp_cipher_ctx );
-    return FD_QUIC_FAILED;
-  }
-
-  uchar hp_cipher[FD_QUIC_CRYPTO_BLOCK_BOUND] = {0};
-  if( EVP_CIPHER_block_size( suite->hp_cipher ) > FD_QUIC_CRYPTO_BLOCK_BOUND ) {
-    FD_LOG_ERR(( "fd_quic_crypto_decrypt failed. HP cipher block size too big" ));
-    EVP_CIPHER_CTX_free( hp_cipher_ctx );
-    return FD_QUIC_FAILED;
-  }
-
-  if( FD_UNLIKELY( sample + FD_QUIC_HP_SAMPLE_SZ > cipher_text + cipher_text_sz ) ) {
-    FD_LOG_ERR(( "fd_quic_crypto_decrypt failed. Not enough bytes for a sample" ));
-    EVP_CIPHER_CTX_free( hp_cipher_ctx );
-    return FD_QUIC_FAILED;
-  }
-
-  int hp_cipher_sz = 0;
-  if( EVP_EncryptUpdate( hp_cipher_ctx, hp_cipher, &hp_cipher_sz, sample, FD_QUIC_HP_SAMPLE_SZ ) != 1 ) {
-    FD_LOG_ERR(( "fd_quic_crypto_decrypt: EVP_EncryptUpdate failed cipher (hp)" ));
-    EVP_CIPHER_CTX_free( hp_cipher_ctx );
-    return FD_QUIC_FAILED;
-  }
-
-  /* copy header, up to packet number, into output */
-  if( sample_off > *plain_text_sz ) {
-    FD_LOG_ERR(( "fd_quic_crypto_decrypt: plain text buffer too short for header" ));
-    EVP_CIPHER_CTX_free( hp_cipher_ctx );
-    return FD_QUIC_FAILED;
-  }
-  fd_memcpy( plain_text, cipher_text, sample_off );
-
-  /* hp_cipher is mask */
-  uchar const * mask = hp_cipher;
-
-  /* undo first byte mask */
-  /* TODO clean up once fully tested */
-#if 1
-  /* this is unnecessarily obtuse */
-  plain_text[0] = (uchar)( first ^= mask[0] & ( long_hdr ? 0x0fu : 0x1fu ) );
-#else
-  first        ^= (uint)mask[0] & ( long_hdr ? 0x0fu : 0x1fu );
-  plain_text[0] = (uchar)first;
-#endif
-
-  /* now we can calculate the actual packet number size */
-  ulong pkt_number_sz = ( first & 0x03u ) + 1u;
-
-  /* undo packet number encryption */
-  for( ulong j = 0; j < pkt_number_sz; ++j ) {
-    plain_text[pkt_number_off + j] ^= mask[1u+j];
-  }
-
-  uchar const * hdr = plain_text;
-  ulong hdr_sz = pkt_number_off + pkt_number_sz;
-
-  uchar const * pkt_number = plain_text + pkt_number_off;
-#endif
   /* calculate nonce for decryption */
 
   /* nonce is quic-iv XORed with *reconstructed* packet-number
@@ -806,8 +726,8 @@ fd_quic_crypto_decrypt_hdr(
     return FD_QUIC_FAILED;
   }
 
-  uint      first      = cipher_text[0]; /* first byte */
-  uint      long_hdr   = first & 0x80u;  /* long header? (this bit is not encrypted) */
+  uint          first      = cipher_text[0]; /* first byte */
+  uint          long_hdr   = first & 0x80u;  /* long header? (this bit is not encrypted) */
   ulong         sample_off = pkt_number_off + 4;
   uchar const * sample     = cipher_text + sample_off;
 
@@ -893,6 +813,6 @@ fd_quic_crypto_rand( uchar * buf, int buf_sz ) {
 
   /* openssl error getting random bytes - bail */
   ulong err = ERR_get_error();
-  FD_LOG_ERR(( "openssl RAND_pseudo_bytes failed. Error: %lu", err ));
+  FD_LOG_ERR(( "openssl RAND_bytes failed. Error: %lu", err ));
 }
 
