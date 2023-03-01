@@ -38,20 +38,35 @@ fd_funk_recordid_t funk_id( fd_pubkey_t* pubkey ) {
   return id;
 }
 
-int fd_acc_mgr_get_metadata( fd_acc_mgr_t* acc_mgr, fd_pubkey_t* pubkey, fd_account_meta_t *result ) {
+int fd_acc_mgr_get_account_data( fd_acc_mgr_t* acc_mgr, fd_pubkey_t* pubkey, uchar* result, ulong offset, ulong bytes ) {
   fd_funk_recordid_t id = funk_id(pubkey);
   void* buffer = NULL;
-  long read = fd_funk_read( acc_mgr->funk, acc_mgr->funk_xroot, &id, (const void**)&buffer, 0, sizeof(fd_account_meta_t) );
+  long read = fd_funk_read( acc_mgr->funk, acc_mgr->funk_xroot, &id, (const void**)&buffer, offset, bytes );
   if ( FD_UNLIKELY( read == -1 )) {
-//    FD_LOG_WARNING(( "attempt to read account metadata for unknown account" ));
+    FD_LOG_WARNING(( "attempt to read data for unknown account" ));
     return FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
-  }
-  else if ( FD_UNLIKELY( read != sizeof(fd_account_meta_t) ) ) {
-    FD_LOG_WARNING(( "read account metadata failed" ));
+  } else if ( FD_UNLIKELY( (ulong)read != bytes ) ) {
+    FD_LOG_WARNING(( "read account data failed" ));
     return FD_ACC_MGR_ERR_READ_FAILED;
   }
-  
+
   fd_memcpy(result, buffer, (ulong) read);
+
+  return FD_ACC_MGR_SUCCESS;
+}
+
+int fd_acc_mgr_get_metadata( fd_acc_mgr_t* acc_mgr, fd_pubkey_t* pubkey, fd_account_meta_t *result ) {
+  
+  int read_result = fd_acc_mgr_get_account_data( acc_mgr, pubkey, (uchar*)result, 0, sizeof(fd_account_meta_t) );
+  if ( read_result != FD_ACC_MGR_SUCCESS ) {
+    FD_LOG_WARNING(( "failed to read account data" ));
+    return read_result;
+  }
+
+  if ( FD_UNLIKELY( result->magic != FD_ACCOUNT_META_MAGIC ) ) {
+    FD_LOG_WARNING(( "read account metadata: wrong metadata magic: %d", result->magic ));
+    return FD_ACC_MGR_ERR_WRONG_MAGIC;
+  }
 
   return FD_ACC_MGR_SUCCESS;
 } 

@@ -12,6 +12,7 @@ FD_PROTOTYPES_BEGIN
 #define FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT (-1)
 #define FD_ACC_MGR_ERR_WRITE_FAILED    (-2)
 #define FD_ACC_MGR_ERR_READ_FAILED     (-3)
+#define FD_ACC_MGR_ERR_WRONG_MAGIC     (-4)
 
 struct fd_acc_mgr {
     fd_funk_t* funk;
@@ -40,6 +41,13 @@ typedef ulong fd_acc_lamports_t;
 
    The account will be created if it doesn't already exist. */
 int fd_acc_mgr_write_account( fd_acc_mgr_t* acc_mgr, fd_pubkey_t* pubkey, uchar* data, ulong data_len );
+
+/* Fetches the account data for the account with the given public key.
+   
+   TODO: nicer API so users of this method don't have to make two db calls, one to determine the
+         size of the buffer and the other to actually read the data.
+    */
+int fd_acc_mgr_get_account_data( fd_acc_mgr_t* acc_mgr, fd_pubkey_t* pubkey, uchar* result, ulong offset, ulong bytes );
 
 /* Fetches the account metadata for the account with the given public key. */
 int fd_acc_mgr_get_metadata( fd_acc_mgr_t* acc_mgr, fd_pubkey_t* pubkey, fd_account_meta_t *result );
