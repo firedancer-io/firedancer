@@ -9,6 +9,28 @@ struct fd_vote_lockout {
 };
 typedef struct fd_vote_lockout fd_vote_lockout_t;
 
+struct fd_vote_authorized_voter {
+  fd_epoch_t  epoch;
+  fd_pubkey_t pubkey;
+};
+typedef struct fd_vote_authorized_voter fd_vote_authorized_voter_t;
+
+/* A prior authorized voter and the epochs for which they were authorized */
+struct fd_vote_prior_voter {
+  fd_pubkey_t pubkey;
+  fd_epoch_t  epoch_start; /* Inclusive */
+  fd_epoch_t  epoch_end; /* Exclusive */
+};
+typedef struct fd_vote_prior_voter fd_vote_prior_voter_t;
+
+/* How many credits earned by the end of an epoch */
+struct fd_vote_epoch_credits {
+  fd_epoch_t  epoch;
+  ulong       credits;
+  ulong       prev_credits;
+};
+typedef struct fd_vote_epoch_credits fd_vote_epoch_credits_t;
+
 /* Wrapper around fd_cu16_dec, to make the function signature more consistent with the
    other fd_bincode_decode functions.  */
 ulong fd_decode_short_u16( ushort* self, void const** data, FD_FN_UNUSED void const* dataend ) {
@@ -135,6 +157,128 @@ int fd_executor_vote_program_execute_instruction(
     }
 
     /* Skip reading in sysvars, as we are skipping safety checks for minimal slice */
+
+    /* Read vote account data */
+    uchar * instr_acc_idxs = ((uchar *)ctx.txn_raw->raw + ctx.instr->acct_off);
+    fd_pubkey_t * txn_accs = (fd_pubkey_t *)((uchar *)ctx.txn_raw->raw + ctx.txn_descriptor->acct_addr_off);
+    fd_pubkey_t * vote_acc = &txn_accs[instr_acc_idxs[0]];
+
+    fd_account_meta_t metadata;
+    int read_result = fd_acc_mgr_get_metadata( ctx.acc_mgr, vote_acc, &metadata );
+    if ( FD_UNLIKELY( read_result != FD_ACC_MGR_SUCCESS ) ) {
+      FD_LOG_WARNING(( "failed to read account metadata" ));
+      return read_result;
+    }
+    uchar *vota_acc_data = fd_alloca(8UL, metadata.dlen);
+    read_result = fd_acc_mgr_get_account_data( ctx.acc_mgr, vote_acc, (uchar*)vota_acc_data, sizeof(fd_account_meta_t), metadata.dlen );
+    if ( read_result != FD_ACC_MGR_SUCCESS ) {
+      FD_LOG_WARNING(( "failed to read account data" ));
+      return read_result;
+    }
     
+    /* Decoding the VoteStateVersions enum: solana/programs/vote/src/vote_processor.rs::VoteStateVersions */
+    input     = (void *)vota_acc_data;
+    input_ptr = (const void **)&input;
+    dataend   = (void*)&vota_acc_data[metadata.dlen];
+
+    /* Decode the disciminant */
+    discrimant  = 0;
+    fd_bincode_uint32_decode( &discrimant, input_ptr, dataend );
+    if ( discrimant != 1 ) {
+        /* TODO: support legacy V0_23_5 vote state layout */
+        FD_LOG_ERR(( "unsupported vote state version: discrimant: %d", discrimant ));
+        return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+    }
+
+    /* Decode the VoteState data structure: solana/sdk/program/src/vote/state/mod.rs::VoteState */
+
+    /* The node that votes in this account */
+    fd_pubkey_t voting_node;
+    fd_bincode_bytes_decode( (uchar *)&voting_node, sizeof(fd_pubkey_t), input_ptr, dataend );
+    FD_LOG_HEXDUMP_INFO(( "voting_node", &voting_node, sizeof(fd_pubkey_t) ));
+
+    /* The signer for withdrawals */
+    fd_pubkey_t authorized_withdrawer;
+    fd_bincode_bytes_decode( (uchar *)&authorized_withdrawer, sizeof(fd_pubkey_t), input_ptr, dataend );
+    FD_LOG_HEXDUMP_INFO(( "authorized_withdrawer", &authorized_withdrawer, sizeof(fd_pubkey_t) ));
+
+    /* Percentage which represents what part of a rewards payout should be given to this VoteAccount */
+    uchar commission = 0;
+    fd_bincode_uint8_decode( &commission, input_ptr, dataend );
+    FD_LOG_INFO(( "commission: %d", commission ));
+
+    /* Decoding the actual votes */
+    ulong votes_len = 0;
+    fd_bincode_uint64_decode( &votes_len, input_ptr, dataend );
+    FD_LOG_INFO(( "votes_len: %lu", votes_len ));
+    fd_vote_lockout_t votes[votes_len];
+    for ( ulong i = 0; i < votes_len; i++ ) {
+      fd_bincode_uint64_decode( &votes[i].slot, input_ptr, dataend );
+      FD_LOG_INFO(( "slot: %lu", votes[i].slot ));
+      fd_bincode_uint8_decode( &votes[i].confirmation_count, input_ptr, dataend );
+      FD_LOG_INFO(( "confirmation_count: %d", votes[i].confirmation_count ));
+    }
+
+    /* Saved root slot */
+    uchar has_saved_root_slot = fd_bincode_option_decode( input_ptr, dataend );
+    ulong saved_root_slot = 0;
+    if ( has_saved_root_slot ) {
+      fd_bincode_uint64_decode( &saved_root_slot, input_ptr, dataend );
+      FD_LOG_INFO(( "saved_root_slot: %lu", saved_root_slot ));
+    }
+
+    /* Authorized voters */
+    ulong authorized_voters_len = 0;
+    fd_bincode_uint64_decode( &authorized_voters_len, input_ptr, dataend );
+    FD_LOG_INFO(( "authorized_voters_len: %lu", authorized_voters_len ));
+    fd_vote_authorized_voter_t authorized_voters[authorized_voters_len];
+    for ( ulong i = 0; i < authorized_voters_len; i++ ) {
+      fd_bincode_uint64_decode( &authorized_voters[i].epoch, input_ptr, dataend );
+      FD_LOG_INFO(( "authorized_voter epoch: %lu", authorized_voters[i].epoch ));
+      fd_bincode_bytes_decode( (uchar *)&authorized_voters[i].pubkey, sizeof(fd_pubkey_t), input_ptr, dataend );
+      FD_LOG_HEXDUMP_INFO(( "authorized_voter pubkey", &authorized_voters[i].pubkey, sizeof(fd_pubkey_t) ));
+    }
+
+    /* Prior voters */
+    const ulong prior_voters_len = 32;
+    fd_vote_prior_voter_t prior_voters[prior_voters_len];
+    FD_LOG_INFO(( "prior_voters_len: %lu", prior_voters_len ));
+    for ( ulong i = 0; i < prior_voters_len; i++ ) {
+      fd_bincode_bytes_decode( (uchar *)&prior_voters[i].pubkey, sizeof(fd_pubkey_t), input_ptr, dataend );
+      FD_LOG_HEXDUMP_INFO(( "prior voter pubkey", &prior_voters[i].pubkey, sizeof(fd_pubkey_t) ));
+      fd_bincode_uint64_decode( &prior_voters[i].epoch_start, input_ptr, dataend );
+      FD_LOG_INFO(( "prior voter epoch_start: %lu", prior_voters[i].epoch_start ));
+      fd_bincode_uint64_decode( &prior_voters[i].epoch_end, input_ptr, dataend );
+      FD_LOG_INFO(( "prior voter epoch_end: %lu", prior_voters[i].epoch_end ));
+    }
+    ulong prior_voters_idx = 0;
+    fd_bincode_uint64_decode( &prior_voters_idx, input_ptr, dataend );
+    FD_LOG_INFO(( "prior_voters_idx: %lu", prior_voters_idx ));
+    uchar prior_voters_empty = 0;
+    fd_bincode_uint8_decode( &prior_voters_empty, input_ptr, dataend );
+    FD_LOG_INFO(( "prior_voters_empty: %d", prior_voters_empty ));
+
+    /* Epoch credits */
+    ulong epoch_credits_len = 0;
+    fd_bincode_uint64_decode( &epoch_credits_len, input_ptr, dataend );
+    FD_LOG_INFO(( "epoch_credits_len: %lu", epoch_credits_len ));
+    fd_vote_epoch_credits_t epoch_credits[epoch_credits_len];
+    for ( ulong i = 0; i < epoch_credits_len; i++ ) {
+      fd_bincode_uint64_decode( &epoch_credits[i].epoch, input_ptr, dataend );
+      FD_LOG_INFO(( "epoch credit epoch: %lu", epoch_credits[i].epoch ));
+      fd_bincode_uint64_decode( &epoch_credits[i].credits, input_ptr, dataend );
+      FD_LOG_INFO(( "epoch credit credits: %lu", epoch_credits[i].credits ));
+      fd_bincode_uint64_decode( &epoch_credits[i].prev_credits, input_ptr, dataend );
+      FD_LOG_INFO(( "epoch credit prev_credits: %lu", epoch_credits[i].prev_credits ));
+    }
+
+    /* Most recent timestamp submitted with a vote */
+    fd_slot_t block_timestamp_slot = 0;
+    fd_bincode_uint64_decode( &block_timestamp_slot, input_ptr, dataend );
+    FD_LOG_INFO(( "block_timestamp_slot: %lu", block_timestamp_slot ));
+    fd_slot_t block_timestamp_timestamp = 0;
+    fd_bincode_uint64_decode( &block_timestamp_timestamp, input_ptr, dataend );
+    FD_LOG_INFO(( "block_timestamp_timestamp: %lu", block_timestamp_timestamp ));
+
     return FD_EXECUTOR_INSTR_SUCCESS;
 }
