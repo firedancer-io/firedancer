@@ -58,6 +58,11 @@ void fd_funk_fork(struct fd_funk* store,
       FD_LOG_WARNING(("parent transaction does not exist"));
       return;
     }
+    if (FD_FUNK_XACTION_PREFIX(parentry)->state == FD_FUNK_XACTION_COMMITTED) {
+      // Parent is committed. Fork off of root instead.
+      parent = &store->root;
+      parentry = NULL;
+    }
   }
   // Create the child transaction
   int exists;
