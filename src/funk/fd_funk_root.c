@@ -1,16 +1,3 @@
-// For some reason pwritev isn't available. Do it the gangster way for now.
-ssize_t pwritev(int fd, struct iovec const* iov, int iovcnt, off_t offset) {
-  ssize_t sum = 0;
-  for (int i = 0; i < iovcnt; ++i) {
-    ssize_t r = pwrite(fd, iov[i].iov_base, iov[i].iov_len, offset);
-    if (r < 0)
-      return r;
-    sum += r;
-    offset += r;
-  }
-  return sum;
-}
-
 // Control block size
 #define FD_FUNK_CONTROL_SIZE (64UL<<10)
 

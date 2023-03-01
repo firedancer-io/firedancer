@@ -1,7 +1,9 @@
 #ifndef HEADER_fd_src_ledger_funk_h
 #define HEADER_fd_src_ledger_funk_h 1
 
+#define __USE_MISC 1 /* Needed for pwritev */
 #include <sys/uio.h>
+#undef __USE_MISC
 
 // Interface for transactional record storage. This is the raw version
 // which is not thread safe. It is intended to reside on a single
