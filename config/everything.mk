@@ -14,6 +14,7 @@ all: bin include lib unit-test
 help:
 	# Configuration
 	# MACHINE  = $(MACHINE)
+	# EXTRAS   = $(EXTRAS)
 	# SHELL    = $(SHELL)
 	# BASEDIR  = $(BASEDIR)
 	# OBJDIR   = $(OBJDIR)

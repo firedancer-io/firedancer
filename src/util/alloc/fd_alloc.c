@@ -316,6 +316,17 @@ fd_alloc_private_inactive_stack_pop( fd_alloc_vgaddr_t * inactive_stack,
 
 typedef uint fd_alloc_hdr_t;
 
+/* FD_ALLOC_HDR_LARGE_* give the fd_alloc_hdr_t used for mallocs done by
+   the allocator of last resort (i.e. fd_wksp_alloc).  The least
+   significant 7 bits must be FD_ALLOC_SIZECLASS_LARGE so that free can
+   detect an allocation is done by that allocator.  The most significant
+   24 bits are a magic number to help with analytics.  Bit 7 indicates
+   whether this allocation is direct user allocation or holds a
+   superblock that aggregrates many small allocations together. */
+
+#define FD_ALLOC_HDR_LARGE_DIRECT     ((fd_alloc_hdr_t)(0xFDA11C00U | (fd_alloc_hdr_t)FD_ALLOC_SIZECLASS_LARGE))
+#define FD_ALLOC_HDR_LARGE_SUPERBLOCK ((fd_alloc_hdr_t)(0xFDA11C80U | (fd_alloc_hdr_t)FD_ALLOC_SIZECLASS_LARGE))
+
 /* fd_alloc_hdr_load loads the header for the allocation whose first
    byte is at laddr in the caller's address space.  The header will be
    observed at some point of time between when this call was made and
@@ -326,7 +337,7 @@ FD_FN_PURE static inline fd_alloc_hdr_t
 fd_alloc_hdr_load( void const * laddr ) {
   return FD_LOAD( fd_alloc_hdr_t, ((ulong)laddr) - sizeof(fd_alloc_hdr_t) );
 }
-   
+
 /* fd_alloc_hdr_sizeclass returns the sizeclass of an allocation
    described by hdr.  This will be in [0,FD_ALLOC_SIZECLASS_CNT) or
    FD_ALLOC_SIZECLASS_LARGE.  sizeclass==FD_ALLOC_SIZECLASS_LARGE
@@ -360,6 +371,25 @@ fd_alloc_hdr_superblock( fd_alloc_hdr_t hdr,
 
 FD_FN_CONST static inline ulong fd_alloc_hdr_block_idx( fd_alloc_hdr_t hdr ) { return (ulong)((hdr >> 7) & 63U); }
 
+/* fd_alloc_hdr_is_large returns 1 if hdr is for a large allocation and
+   0 if not.  fd_alloc_hdr_sizeclass( hdr )==FD_ALLOC_SIZECLASS_LARGE
+   also works but does not test the magic number in the most significant
+   bits. */
+
+FD_FN_CONST static inline int
+fd_alloc_hdr_is_large( fd_alloc_hdr_t hdr ) {
+  return fd_uint_clear_bit( hdr, 7 )==FD_ALLOC_HDR_LARGE_DIRECT;
+}
+
+/* fd_alloc_hdr_large_is_superblock returns 1 if hdr (which is assumed
+   to be for a large allocation) is for a large allocation that holds a
+   superblock. */
+
+FD_FN_CONST static inline int
+fd_alloc_hdr_large_is_superblock( fd_alloc_hdr_t hdr ) {
+  return fd_uint_extract_bit( hdr, 7 );
+}
+
 /* fd_alloc_hdr_store stores a fd_alloc_hdr_t describing a small
    sizeclass allocation contained within block of superblock in the
    sizeof(fd_alloc_hdr_t) bytes immediately preceeding the byte pointed
@@ -381,13 +411,11 @@ fd_alloc_hdr_store( void *                  laddr,
   return laddr;
 }
 
-/* FD_ALLOC_HDR_LARGE is the allocation used on large allocations */
-
-#define FD_ALLOC_HDR_LARGE ((fd_alloc_hdr_t)(0xFDA11CUL | FD_ALLOC_SIZECLASS_LARGE))
-
 static inline void *
-fd_alloc_hdr_store_large( void * laddr ) {
-  FD_STORE( fd_alloc_hdr_t, ((ulong)laddr) - sizeof(fd_alloc_hdr_t), FD_ALLOC_HDR_LARGE );
+fd_alloc_hdr_store_large( void * laddr,
+                          int    is_superblock ) { /* in [0,1] */
+  FD_STORE( fd_alloc_hdr_t, ((ulong)laddr) - sizeof(fd_alloc_hdr_t),
+            FD_ALLOC_HDR_LARGE_DIRECT | (((fd_alloc_hdr_t)is_superblock) << 7) );
   return laddr;
 }
 
@@ -547,14 +575,14 @@ fd_alloc_delete( void * shalloc ) {
       ulong superblock_gaddr =
         fd_alloc_private_active_slot_replace( alloc->active_slot + sizeclass + FD_ALLOC_SIZECLASS_CNT*cgroup_idx, 0UL );
       if( FD_UNLIKELY( superblock_gaddr ) )
-        fd_alloc_free( alloc, (fd_alloc_superblock_t *)fd_wksp_laddr( wksp, superblock_gaddr ) );
+        fd_alloc_free( alloc, (fd_alloc_superblock_t *)fd_wksp_laddr_fast( wksp, superblock_gaddr ) );
     }
     
     fd_alloc_vgaddr_t * inactive_stack = alloc->inactive_stack + sizeclass;
     for(;;) {
       ulong superblock_gaddr = fd_alloc_private_inactive_stack_pop( inactive_stack, wksp );
       if( FD_LIKELY( !superblock_gaddr ) ) break;
-      fd_alloc_free( alloc, (fd_alloc_superblock_t *)fd_wksp_laddr( wksp, superblock_gaddr ) );
+      fd_alloc_free( alloc, (fd_alloc_superblock_t *)fd_wksp_laddr_fast( wksp, superblock_gaddr ) );
     }
 
   }
@@ -605,7 +633,7 @@ fd_alloc_malloc( fd_alloc_t * join,
     if( FD_UNLIKELY( !laddr ) ) return NULL;
     /* FIXME: clear align zero padding for better alloc parameter
        recovery in diagnostcs here? */
-    return fd_alloc_hdr_store_large( (void *)fd_ulong_align_up( (ulong)laddr + sizeof(fd_alloc_hdr_t), align ) );
+    return fd_alloc_hdr_store_large( (void *)fd_ulong_align_up( (ulong)laddr + sizeof(fd_alloc_hdr_t), align ), 0 /* !sb */ );
   }
 
   /* At this point, the footprint is small.  Determine the preferred
@@ -641,8 +669,11 @@ fd_alloc_malloc( fd_alloc_t * join,
      If that fails, we try to allocate a new superblock to hold this
      allocation.  If we are able to do so, obviously the new superblock
      would have at least one free block for this allocation.  (Yes,
-     malloc calls itself recursively.  The base case is a large
-     allocation above.)
+     malloc calls itself recursively.  The base case is the large
+     allocation above.  Note that we expand out the base case explictly
+     here so we can distinguish user large allocations from gigantic
+     superblock allocations in analytics without having to change the
+     APIs or use the public API as a wrapper.)
 
      If that fails, we are in trouble and fail (we are either out of
      memory or have too much wksp fragmentation). */
@@ -653,12 +684,28 @@ fd_alloc_malloc( fd_alloc_t * join,
 
     if( FD_UNLIKELY( !superblock_gaddr ) ) {
 
-      fd_alloc_superblock_t * superblock = (fd_alloc_superblock_t *)
-        fd_alloc_malloc( alloc, FD_ALLOC_SUPERBLOCK_ALIGN, (ulong)fd_alloc_sizeclass_cfg[ sizeclass ].superblock_footprint );
+      fd_alloc_superblock_t * superblock;
 
-      if( FD_UNLIKELY( !superblock ) ) return NULL;
+      ulong superblock_footprint = (ulong)fd_alloc_sizeclass_cfg[ sizeclass ].superblock_footprint;
+      if( FD_UNLIKELY( superblock_footprint > FD_ALLOC_FOOTPRINT_SMALL_THRESH ) ) {
 
-      superblock_gaddr = fd_wksp_gaddr_fast( wksp, superblock );
+        ulong wksp_footprint = superblock_footprint + sizeof(fd_alloc_hdr_t) + FD_ALLOC_SUPERBLOCK_ALIGN - 1UL;
+        ulong wksp_gaddr     = fd_wksp_alloc( wksp, 1UL, wksp_footprint, alloc->tag );
+        if( FD_UNLIKELY( !wksp_gaddr ) ) return NULL;
+        superblock_gaddr = fd_ulong_align_up( wksp_gaddr + sizeof(fd_alloc_hdr_t), FD_ALLOC_SUPERBLOCK_ALIGN );
+        superblock       = (fd_alloc_superblock_t *)
+          fd_alloc_hdr_store_large( fd_wksp_laddr_fast( wksp, superblock_gaddr ), 1 /* sb */ );
+
+      } else {
+
+        /* FIXME: Consider having user facing API wrap an internal API
+           so that recursive calls don't have to do redundant error
+           trapping? */
+        superblock = fd_alloc_malloc( join, FD_ALLOC_SUPERBLOCK_ALIGN, superblock_footprint );
+        if( FD_UNLIKELY( !superblock ) ) return NULL;
+        superblock_gaddr = fd_wksp_gaddr_fast( wksp, superblock );
+
+      }
 
       FD_COMPILER_MFENCE();
       FD_VOLATILE( superblock->free_blocks ) = fd_ulong_mask_lsb( (int)(uint)fd_alloc_sizeclass_cfg[ sizeclass ].block_cnt );
@@ -945,7 +992,7 @@ fd_alloc_free( fd_alloc_t * join,
     FD_COMPILER_MFENCE();
 
     if( FD_UNLIKELY( fd_alloc_block_set_cnt( deletion_candidate_free_blocks )==block_cnt ) ) /* Candidate empty -> delete it */
-      fd_alloc_free( alloc, deletion_candidate );
+      fd_alloc_free( join, deletion_candidate );
     else /* Candidate not empty -> return it to circulation */
       fd_alloc_private_inactive_stack_push( alloc->inactive_stack + sizeclass, wksp, deletion_candidate_gaddr );
 
@@ -953,10 +1000,144 @@ fd_alloc_free( fd_alloc_t * join,
   }
 }
 
+void
+fd_alloc_compact( fd_alloc_t * join ) {
+  fd_alloc_t * alloc = fd_alloc_private_join_alloc( join );
+  if( FD_UNLIKELY( !alloc ) ) {
+    FD_LOG_WARNING(( "bad join" ));
+    return;
+  }
+
+  fd_wksp_t * wksp = fd_alloc_private_wksp( alloc );
+
+  /* We scan each sizeclass (in monotonically increasing order) for
+     completely empty superblocks that thus can be freed.  This has the
+     pleasant side effect that, as smaller empty superblocks get freed,
+     it can potentially allow for any larger superblocks in which they
+     are nested to be subsequently freed.  If no other operations are
+     running concurrently, any remaining gigantic superblocks should
+     contain at least one application allocation somewhere in them. */
+
+  for( ulong sizeclass=0UL; sizeclass<FD_ALLOC_SIZECLASS_CNT; sizeclass++ ) {
+    ulong               block_cnt      = (ulong)fd_alloc_sizeclass_cfg[ sizeclass ].block_cnt;
+    ulong               cgroup_cnt     = (ulong)fd_alloc_sizeclass_cfg[ sizeclass ].cgroup_mask + 1UL;
+    fd_alloc_vgaddr_t * inactive_stack = alloc->inactive_stack + sizeclass;
+
+    /* For each active superblock in this sizeclass */
+
+    for( ulong cgroup_idx=0UL; cgroup_idx<cgroup_cnt; cgroup_idx++ ) {
+      ulong * active_slot      = alloc->active_slot + sizeclass + FD_ALLOC_SIZECLASS_CNT*cgroup_idx;
+      ulong   superblock_gaddr = fd_alloc_private_active_slot_replace( active_slot, 0UL );
+      if( !superblock_gaddr ) continue; /* application dependent branch prob */
+
+      fd_alloc_superblock_t * superblock = (fd_alloc_superblock_t *)fd_wksp_laddr_fast( wksp, superblock_gaddr );
+
+      /* At this point, we have atomically acquired the cgroup_idx's
+         active superblock, there is no active superblock for
+         cgroup_idx, and it has at least one free block.  Since the
+         superblock is out of circulation for malloc, nobody will malloc
+         anything from this superblock behind our back.  And if this
+         superblock is completely empty, nobody will call free on any
+         blocks in this superblock behind our back.  Thus we can free
+         this superblock safely.
+
+         If there are some blocks still allocated, we put the superblock
+         back into circulation (we know from the above it still has at
+         least one free block, preserving the invariant).  This might
+         displace a superblock that another thread made active behind
+         our back.  We push any such superblock block onto the inactive
+         stack (it also will have at least one free block for the same
+         reasons). */
+
+      if( fd_alloc_block_set_cnt( superblock->free_blocks )==block_cnt ) fd_alloc_free( join, superblock );
+      else {
+        ulong displaced_superblock_gaddr = fd_alloc_private_active_slot_replace( active_slot, superblock_gaddr );
+        if( FD_UNLIKELY( displaced_superblock_gaddr ) )
+          fd_alloc_private_inactive_stack_push( inactive_stack, wksp, displaced_superblock_gaddr );
+      }
+    }
+
+    /* Drain the inactive stack for this sizeclass.  All empty
+       superblocks found will be freed (safe for the same reasons as
+       above).  All remaining superblocks will be pushed onto a local
+       stack (and every one will have at least one free block it while
+       there for the same reasons).  After the inactive stack drain, we
+       drain the local stack back into the inactive stack to get all
+       these remaining superblocks back into circulation (also safe for
+       the same reasons) and with same relative ordering (not required).
+       We technically don't need to use a lockfree push / pop for the
+       local stack but no sense in implementing a second version for
+       this mostly diagnostic / teardown oriented use case. */
+
+    fd_alloc_vgaddr_t local_stack[1];
+
+    local_stack[0] = fd_alloc_vgaddr( 0UL, 0UL );
+
+    for(;;) {
+      ulong superblock_gaddr = fd_alloc_private_inactive_stack_pop( inactive_stack, wksp );
+      if( !superblock_gaddr ) break; /* application dependent branch prob */
+      fd_alloc_superblock_t * superblock = (fd_alloc_superblock_t *)fd_wksp_laddr_fast( wksp, superblock_gaddr );
+
+      if( fd_alloc_block_set_cnt( superblock->free_blocks )==block_cnt ) fd_alloc_free( join, superblock );
+      else fd_alloc_private_inactive_stack_push( local_stack, wksp, superblock_gaddr );
+    }
+
+    for(;;) {
+      ulong superblock_gaddr = fd_alloc_private_inactive_stack_pop( local_stack, wksp );
+      if( !superblock_gaddr ) break; /* application dependent branch prob */
+
+      fd_alloc_private_inactive_stack_push( inactive_stack, wksp, superblock_gaddr );
+    }
+  }
+}
+
+#include "../wksp/fd_wksp_private.h"
+
+int
+fd_alloc_is_empty( fd_alloc_t * join ) {
+  fd_alloc_t * alloc = fd_alloc_private_join_alloc( join );
+  if( !alloc ) return 0;
+
+  fd_alloc_compact( join );
+
+  /* At this point (assuming no concurrent operations on this alloc),
+     all remaining large allocations contain at least exactly one user
+     allocation.  Thus if there are any large allocs remaining for this
+     alloc, we know the alloc is not empty.  Since the wksp alloc that
+     holds the alloc itself might use the tag the used for large
+     allocations, we handle that as well.  We lock the wksp while
+     scanning them so that concurrent operations on the wksp do not
+     shuffle partitions behind our back and corrupt this calculation. */
+
+  fd_wksp_t * wksp = fd_alloc_private_wksp( alloc );
+  ulong       tag  = alloc->tag;
+  ulong       lo   = fd_wksp_gaddr_fast( wksp, alloc );
+  ulong       hi   = lo + FD_ALLOC_FOOTPRINT;
+
+  ulong part_idx;
+  ulong part_cnt;
+
+  fd_wksp_private_lock( wksp );
+
+  fd_wksp_private_part_t * part     = wksp->part;
+  /**/                     part_cnt = wksp->part_cnt;
+  for( part_idx=0UL; part_idx<part_cnt; part_idx++ ) {
+    ulong p = part[ part_idx ];
+    if( FD_UNLIKELY( fd_wksp_private_part_tag( p )==tag ) ) { /* optimize for leak detection case */
+      ulong plo = fd_wksp_private_part_gaddr( p );
+      ulong phi = fd_wksp_private_part_gaddr( part[ part_idx+1UL ] );
+      if( FD_UNLIKELY( !((plo<=lo) & (hi<=phi)) ) ) break; /* optimize for leak detection case, note lo<hi guaranteed */
+    }
+  }
+
+  fd_wksp_private_unlock( wksp );
+
+  return part_idx==part_cnt;
+}
+
 /**********************************************************************/
 
 #include <stdio.h>
-#include "../wksp/fd_wksp_private.h"
 
 #define TRAP(x) do { int _cnt = (x); if( _cnt<0 ) { return _cnt; } cnt += _cnt; } while(0)
 
@@ -1043,10 +1224,10 @@ fd_alloc_superblock_fprintf( fd_wksp_t * wksp,             /* non-NULL */
    might not be able to find all small allocations and determine precise
    details about allocations in general.  It will however be able to
    find all large allocations assuming the user tagged the structure
-   properly (and that includes finding all the huge superblocks in which
-   all individual small allocations are contained).  Return behavior
-   matches fprintf return behavior (i.e. the number of characters
-   printed to stream or a negative error code). */
+   properly (and that includes finding all the gigantic superblocks in
+   which all individual small allocations are contained).  Return
+   behavior matches fprintf return behavior (i.e. the number of
+   characters printed to stream or a negative error code). */
 
 int
 fd_alloc_fprintf( fd_alloc_t * join,
@@ -1055,18 +1236,20 @@ fd_alloc_fprintf( fd_alloc_t * join,
 
   int cnt = 0;
 
-  ulong ctr[4];
+  ulong ctr[6];
   ctr[0] = 0UL; /* errors detected */
   ctr[1] = 0UL; /* small alloc found */
   ctr[2] = 0UL; /* wksp partitions used */
   ctr[3] = 0UL; /* wksp bytes used */
+  ctr[4] = 0UL; /* wksp partitions used for large alloc */
+  ctr[5] = 0UL; /* wksp bytes used for large alloc */
 
   fd_alloc_t * alloc      = fd_alloc_private_join_alloc     ( join );
   ulong        cgroup_idx = fd_alloc_private_join_cgroup_idx( join );
 
   if( FD_UNLIKELY( !alloc ) ) { /* NULL join passed */
 
-    TRAP( fprintf( stream, "alloc: gaddr -, join_cgroup idx %lu, magic 0x0 (bad)\n", cgroup_idx ) );
+    TRAP( fprintf( stream, "alloc: gaddr -, join_cgroup_idx %lu, magic 0x0 (bad)\n", cgroup_idx ) );
     ctr[0]++;
 
   } else { /* Normal join */
@@ -1201,12 +1384,18 @@ fd_alloc_fprintf( fd_alloc_t * join,
         /* If it matches what a header at this location should be,
            print out the estimated allocation details. */
 
-        if( hdr==FD_ALLOC_HDR_LARGE ) {
+        if( fd_alloc_hdr_is_large( hdr ) ) {
+          int is_superblock = fd_alloc_hdr_large_is_superblock( hdr );
+
           ulong sz_est = part_footprint - sizeof(fd_alloc_hdr_t) - align_est + 1UL;
-          TRAP( fprintf( stream, "\tlarge: gaddr %s:%lu-%s:%lu, malloc_est %s:%lu, align_est %lu, sz_est %lu\n",
-                         wksp->name, gaddr_lo, wksp->name, gaddr_hi-1UL, wksp->name, gaddr_est, align_est, sz_est ) );
+          TRAP( fprintf( stream, "\tlarge: gaddr %s:%lu-%s:%lu, malloc_est %s:%lu, align_est %lu, sz_est %lu %s\n",
+                         wksp->name, gaddr_lo, wksp->name, gaddr_hi-1UL, wksp->name, gaddr_est, align_est, sz_est,
+                         is_superblock ? "(superblock)" : "(large)" ) );
           ctr[2]++;
           ctr[3] += part_footprint;
+          ctr[4] += fd_ulong_if( is_superblock, 0UL, 1UL            );
+          ctr[5] += fd_ulong_if( is_superblock, 0UL, part_footprint );
+
           break;
         }
 
@@ -1227,11 +1416,13 @@ fd_alloc_fprintf( fd_alloc_t * join,
   /* Print summary statistics */
 
   TRAP( fprintf( stream,
-                  "\terrors detected    %21lu\n"
-                  "\tsmall allocs found %21lu\n"
-                  "\twksp allocs        %21lu\n"
-                  "\twksp used          %21lu\n",
-                  ctr[0], ctr[1], ctr[2], ctr[3] ) );
+                 "\terrors detected       %21lu\n"
+                 "\tsmall alloc found     %21lu\n"
+                 "\twksp part cnt         %21lu\n"
+                 "\twksp used             %21lu\n"
+                 "\tlarge alloc cnt       %21lu\n"
+                 "\tlarge alloc wksp used %21lu\n",
+                 ctr[0], ctr[1], ctr[2], ctr[3], ctr[4], ctr[5] ) );
 
   return cnt;
 }
