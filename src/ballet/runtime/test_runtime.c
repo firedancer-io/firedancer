@@ -1,9 +1,9 @@
 // test_xdp.init
 
-//  --ledger /dev/shm/mainnet-ledger --db /dev/shm/funk --cmd replay --start-slot 179138205 --end-slot 279138205  --skip-exe true
+//  --ledger /dev/shm/mainnet-ledger --db /dev/shm/funk --cmd replay --start-slot 179138205 --end-slot 279138205  --skip-exe true  --index-max 120000000 --pages 15
 //  --ledger /dev/shm/mainnet-ledger --db /dev/shm/funk --cmd ingest --start-slot 179138205 --end-slot 279138205 --manifest /dev/shm/mainnet-ledger/snapshot/tmp-snapshot-archive-JfVTLu/snapshots/179248368/179248368
-// run --ledger /home/jsiegel/mainnet-ledger --db /home/jsiegel/funk --cmd ingest --accounts /home/jsiegel/mainnet-ledger/accounts --pages 50 --index-max 120000000
-// run --ledger /dev/shm/mainnet-ledger --db /dev/shm/funk --cmd ingest --accounts /dev/shm/mainnet-ledger/accounts --pages 50 --index-max 120000000
+// run --ledger /home/jsiegel/mainnet-ledger --db /home/jsiegel/funk --cmd ingest --accounts /home/jsiegel/mainnet-ledger/accounts --pages 15 --index-max 120000000
+// run --ledger /dev/shm/mainnet-ledger --db /dev/shm/funk --cmd ingest --accounts /dev/shm/mainnet-ledger/accounts --pages 15 --index-max 120000000
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -82,15 +82,17 @@ typedef struct global_state global_state_t;
 
 static void usage(const char* progname) {
   fprintf(stderr, "USAGE: %s\n", progname);
-  fprintf(stderr, " --wksp       <name>       workspace name\n");
-  fprintf(stderr, " --ledger     <dir>        ledger directory\n");
-  fprintf(stderr, " --db         <file>       firedancer db file\n");
-  fprintf(stderr, " --end-slot   <num>        stop iterating at block...\n");
-  fprintf(stderr, " --start-slot <num>        start iterating at block...\n");
-  fprintf(stderr, " --manifest   <file>       What manifest file should I pay attention to\n");
-  fprintf(stderr, " --accounts   <dir>        What accounts should I slurp in\n");
-  fprintf(stderr, " --cmd        <operation>  What operation should we test\n");
-  fprintf(stderr, " --skip-exe   <bool>       Should we skip executing transactions\n");
+  fprintf(stderr, " --wksp        <name>       workspace name\n");
+  fprintf(stderr, " --ledger      <dir>        ledger directory\n");
+  fprintf(stderr, " --db          <file>       firedancer db file\n");
+  fprintf(stderr, " --end-slot    <num>        stop iterating at block...\n");
+  fprintf(stderr, " --start-slot  <num>        start iterating at block...\n");
+  fprintf(stderr, " --manifest    <file>       What manifest file should I pay attention to\n");
+  fprintf(stderr, " --accounts    <dir>        What accounts should I slurp in\n");
+  fprintf(stderr, " --cmd         <operation>  What operation should we test\n");
+  fprintf(stderr, " --skip-exe    <bool>       Should we skip executing transactions\n");
+  fprintf(stderr, " --index-max   <bool>       Should we skip executing transactions\n");
+  fprintf(stderr, " --validate    <bool>       Validate the funk db\n");
 }
 
 // pub const FULL_SNAPSHOT_ARCHIVE_FILENAME_REGEX: &str = r"^snapshot-(?P<slot>[[:digit:]]+)-(?P<hash>[[:alnum:]]+)\.(?P<ext>tar|tar\.bz2|tar\.zst|tar\.gz|tar\.lz4)$";
@@ -326,17 +328,18 @@ int main(int argc, char **argv) {
   state.end_slot = 73;
   state.start_slot = 0;
 
-  state.name           = fd_env_strip_cmdline_cstr ( &argc, &argv, "--wksp",         NULL, NULL );
-  state.ledger         = fd_env_strip_cmdline_cstr ( &argc, &argv, "--ledger",       NULL, NULL);
-  state.db             = fd_env_strip_cmdline_cstr ( &argc, &argv, "--db",           NULL, NULL);
-  state.end_slot_opt   = fd_env_strip_cmdline_cstr ( &argc, &argv, "--end-slot",     NULL, NULL);
-  state.start_slot_opt = fd_env_strip_cmdline_cstr ( &argc, &argv, "--start-slot",   NULL, NULL);
-  state.manifest       = fd_env_strip_cmdline_cstr ( &argc, &argv, "--manifest",     NULL, NULL);
-  state.accounts       = fd_env_strip_cmdline_cstr ( &argc, &argv, "--accounts",     NULL, NULL);
-  state.cmd            = fd_env_strip_cmdline_cstr ( &argc, &argv, "--cmd",          NULL, NULL);
-  state.skip_exe_opt   = fd_env_strip_cmdline_cstr ( &argc, &argv, "--skip-exe",     NULL, NULL);
-  state.pages_opt      = fd_env_strip_cmdline_cstr ( &argc, &argv, "--pages",        NULL, NULL);
-  const char *index_max_opt = fd_env_strip_cmdline_cstr ( &argc, &argv, "--index-max",        NULL, NULL);
+  state.name                = fd_env_strip_cmdline_cstr ( &argc, &argv, "--wksp",         NULL, NULL );
+  state.ledger              = fd_env_strip_cmdline_cstr ( &argc, &argv, "--ledger",       NULL, NULL);
+  state.db                  = fd_env_strip_cmdline_cstr ( &argc, &argv, "--db",           NULL, NULL);
+  state.end_slot_opt        = fd_env_strip_cmdline_cstr ( &argc, &argv, "--end-slot",     NULL, NULL);
+  state.start_slot_opt      = fd_env_strip_cmdline_cstr ( &argc, &argv, "--start-slot",   NULL, NULL);
+  state.manifest            = fd_env_strip_cmdline_cstr ( &argc, &argv, "--manifest",     NULL, NULL);
+  state.accounts            = fd_env_strip_cmdline_cstr ( &argc, &argv, "--accounts",     NULL, NULL);
+  state.cmd                 = fd_env_strip_cmdline_cstr ( &argc, &argv, "--cmd",          NULL, NULL);
+  state.skip_exe_opt        = fd_env_strip_cmdline_cstr ( &argc, &argv, "--skip-exe",     NULL, NULL);
+  state.pages_opt           = fd_env_strip_cmdline_cstr ( &argc, &argv, "--pages",        NULL, NULL);
+  const char *index_max_opt = fd_env_strip_cmdline_cstr ( &argc, &argv, "--index-max",    NULL, NULL);
+  const char *validate_db   = fd_env_strip_cmdline_cstr ( &argc, &argv, "--validate",     NULL, NULL);
 
   if ((NULL == state.ledger) || (NULL == state.db)) {
     usage(argv[0]);
@@ -377,7 +380,13 @@ int main(int argc, char **argv) {
   ulong xactions_max = 100;     // Maximum size (count) of transaction index
   ulong cache_max = 10000;      // Maximum number of cache entries
   state.funk = fd_funk_new(state.db, state.wksp, 2, index_max, xactions_max, cache_max);
-  fd_funk_validate(state.funk);
+
+  if ((validate_db != NULL) && (strcmp(validate_db, "true") == 0)) {
+    FD_LOG_WARNING(("starting validating %ld records", fd_funk_num_records(state.funk)));
+    fd_funk_validate(state.funk);
+    FD_LOG_WARNING(("finishing validate"));
+  } else
+    FD_LOG_WARNING(("found %ld records", fd_funk_num_records(state.funk)));
 
   if (NULL != state.end_slot_opt)
     state.end_slot = (ulong) atoi(state.end_slot_opt);

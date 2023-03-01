@@ -141,6 +141,11 @@ int fd_acc_mgr_write_structured_account( fd_acc_mgr_t* acc_mgr, ulong slot, fd_p
 
 int fd_acc_mgr_write_append_vec_account( fd_acc_mgr_t* acc_mgr, ulong slot, fd_solana_account_hdr_t * hdr) {
   ulong dlen =  sizeof(fd_account_meta_t) + hdr->meta.data_len;
+
+  // TODO: Switch this all over to using alexs new writev interface and get rid of malloc
+  // 
+  // fd_alloca was failing in odd way
+
   uchar *data = aligned_alloc(8UL, dlen);
   fd_account_meta_t *m = (fd_account_meta_t *) data;
 
