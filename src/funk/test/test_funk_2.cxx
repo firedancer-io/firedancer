@@ -7,6 +7,7 @@ extern "C" {
 #include <unistd.h>
 #include <string_view>
 #include <unordered_map>
+#include <vector>
 
 // A simple, fast, but not super great random number generator
 class randgen {
@@ -79,55 +80,23 @@ struct xactionkeyhash {
 
 class databuf {
   private:
-    char* _buf;
-    ulong _buflen;
+    std::vector<char> _buf;
 
   public:
-    databuf() {
-      _buf = nullptr;
-      _buflen = 0;
-    }
-    databuf(const databuf& x) {
-      if (x._buf == nullptr) {
-        _buf = nullptr;
-        _buflen = 0;
-      } else {
-        _buf = (char*)malloc(_buflen = x._buflen);
-        memcpy(_buf, x._buf, _buflen);
-      }
-    }
-    databuf(databuf&& x) {
-      _buf = x._buf;
-      x._buf = nullptr;
-      _buflen = x._buflen;
-      x._buflen = 0;
-    }
-    ~databuf() {
-      if (_buf != nullptr)
-        free(_buf);
-    }
-    databuf& operator= (const databuf& x) = delete;
-    databuf& operator= (databuf&& x) = delete;
-
     void write(const void* data, ulong offset, ulong datalen) {
       if (datalen == 0)
         return;
-      if (_buf == nullptr) {
-        _buf = (char*)malloc(offset + datalen);
-        if (offset > 0)
-          memset(_buf, 0, offset);
-        _buflen = offset + datalen;
-      } else if (offset + datalen > _buflen) {
-        _buf = (char*)realloc(_buf, offset + datalen);
-        if (offset > _buflen)
-          memset(_buf + _buflen, 0, offset - _buflen);
-        _buflen = offset + datalen;
+      auto oldsize = _buf.size();
+      if (offset + datalen > oldsize) {
+        _buf.resize(offset + datalen);
+        if (offset > oldsize)
+          memset(_buf.data() + oldsize, 0, offset - oldsize);
       }
-      memcpy(_buf + offset, data, datalen);
+      memcpy(_buf.data() + offset, data, datalen);
     }
 
     bool equals(const void* data, ulong datalen) const {
-      return datalen == _buflen && memcmp(_buf, data, datalen) == 0;
+      return datalen == _buf.size() && memcmp(_buf.data(), data, datalen) == 0;
     }
 };
 

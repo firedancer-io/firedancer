@@ -7,6 +7,7 @@ extern "C" {
 #include <unistd.h>
 #include <string_view>
 #include <unordered_map>
+#include <vector>
 
 // A simple, fast, but not super great random number generator
 class randgen {
@@ -59,47 +60,23 @@ struct recordkeyhash {
 
 class databuf {
   private:
-    char* _buf;
-    ulong _buflen;
+    std::vector<char> _buf;
 
   public:
-    databuf() {
-      _buf = nullptr;
-      _buflen = 0;
-    }
-    databuf(const databuf& x) = delete;
-    databuf(databuf&& x) {
-      _buf = x._buf;
-      x._buf = nullptr;
-      _buflen = x._buflen;
-      x._buflen = 0;
-    }
-    ~databuf() {
-      if (_buf != nullptr)
-        free(_buf);
-    }
-    databuf& operator= (const databuf& x) = delete;
-    databuf& operator= (databuf&& x) = delete;
-
     void write(const void* data, ulong offset, ulong datalen) {
       if (datalen == 0)
         return;
-      if (_buf == nullptr) {
-        _buf = (char*)malloc(offset + datalen);
-        if (offset > 0)
-          memset(_buf, 0, offset);
-        _buflen = offset + datalen;
-      } else if (offset + datalen > _buflen) {
-        _buf = (char*)realloc(_buf, offset + datalen);
-        if (offset > _buflen)
-          memset(_buf + _buflen, 0, offset - _buflen);
-        _buflen = offset + datalen;
+      auto oldsize = _buf.size();
+      if (offset + datalen > oldsize) {
+        _buf.resize(offset + datalen);
+        if (offset > oldsize)
+          memset(_buf.data() + oldsize, 0, offset - oldsize);
       }
-      memcpy(_buf + offset, data, datalen);
+      memcpy(_buf.data() + offset, data, datalen);
     }
 
     bool equals(const void* data, ulong datalen) const {
-      return datalen == _buflen && memcmp(_buf, data, datalen) == 0;
+      return datalen == _buf.size() && memcmp(_buf.data(), data, datalen) == 0;
     }
 };
 
@@ -349,7 +326,7 @@ int main(int argc, char **argv) {
     db.write(scratch, 0, len);
   }
 
-  for (unsigned j = 1; j < 200; ++j) {
+  for (unsigned j = 1; j < 100; ++j) {
     reload();
     for (auto& [key,db] : golden) {
       fd_funk_cache_hint(funk, fd_funk_root(funk), &key._id, 0, 25);
@@ -357,6 +334,27 @@ int main(int argc, char **argv) {
       uint offset = 20*j;
       rg.genbytes(scratch, len);
       if (fd_funk_write(funk, fd_funk_root(funk), &key._id, scratch, offset, len) != (long)len)
+        FD_LOG_ERR(("write failed"));
+      db.write(scratch, offset, len);
+    }
+    validateall();
+  }
+
+  for (unsigned j = 1; j < 100; ++j) {
+    reload();
+    for (auto& [key,db] : golden) {
+      fd_funk_cache_hint(funk, fd_funk_root(funk), &key._id, 0, 25);
+      uint len = 10;
+      uint offset = 20*j;
+      rg.genbytes(scratch, len);
+      struct iovec iov[3];
+      iov[0].iov_base = scratch;
+      iov[0].iov_len = len/3;
+      iov[1].iov_base = scratch + iov[0].iov_len;
+      iov[1].iov_len = len/3;
+      iov[2].iov_base = scratch + (iov[0].iov_len + iov[1].iov_len);
+      iov[2].iov_len = len - (iov[0].iov_len + iov[1].iov_len);
+      if (fd_funk_writev(funk, fd_funk_root(funk), &key._id, iov, 3, offset) != (long)len)
         FD_LOG_ERR(("write failed"));
       db.write(scratch, offset, len);
     }
