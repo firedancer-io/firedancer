@@ -138,6 +138,9 @@ void fd_funk_delete_record(struct fd_funk* store,
 // Returns the number of active records
 ulong fd_funk_num_records(struct fd_funk* store);
 
+// Returns the number of active transactions
+ulong fd_funk_num_xactions(struct fd_funk* store);
+
 // Returns true if the record is in the hot cache.
 int fd_funk_cache_query(struct fd_funk* store,
                         struct fd_funk_xactionid const* xid,

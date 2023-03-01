@@ -43,6 +43,10 @@ int fd_funk_is_root(struct fd_funk_xactionid const* xid) {
   return (idhack[0] | idhack[1] | idhack[2] | idhack[3]) == 0;
 }
 
+ulong fd_funk_num_xactions(struct fd_funk* store) {
+  return store->xactions_live;
+}
+
 void fd_funk_fork(struct fd_funk* store,
                   struct fd_funk_xactionid const* parent,
                   struct fd_funk_xactionid const* child) {
@@ -79,6 +83,7 @@ void fd_funk_fork(struct fd_funk* store,
     FD_FUNK_XACTION_PREFIX(parentry)->state = FD_FUNK_XACTION_FROZEN;
   }
   fd_funk_xaction_cache_new(&entry->cache);
+  store->xactions_live ++;
 }
 
 void fd_funk_xaction_entry_cleanup(struct fd_funk* store,
@@ -170,6 +175,7 @@ void fd_funk_commit(struct fd_funk* store,
     fd_funk_cancel(store, id);
     return;
   }
+  store->xactions_live --;
   // We are now in a happy place regarding this transaction. Even if
   // we crash, we can re-execute the transaction out of the
   // write-ahead log
@@ -191,11 +197,12 @@ void fd_funk_commit(struct fd_funk* store,
 void fd_funk_cancel(struct fd_funk* store,
                     struct fd_funk_xactionid const* id) {
   struct fd_funk_xaction_entry* entry = fd_funk_xactions_remove(store->xactions, id);
-  if (entry == NULL) {
-    FD_LOG_WARNING(("transaction does not exist"));
+  if (entry == NULL || FD_FUNK_XACTION_PREFIX(entry)->state == FD_FUNK_XACTION_COMMITTED) {
+    FD_LOG_WARNING(("transaction is not alive"));
     return;
   }
   fd_funk_xaction_entry_cleanup(store, entry);
+  store->xactions_live --;
 
   // Cancel all uncommitted transactions who are now orphans
   fd_funk_cancel_orphans(store);
@@ -253,11 +260,13 @@ void fd_funk_merge(struct fd_funk* store,
     fd_memcpy(p, source_ents[i]->script + sizeof(struct fd_funk_xaction_prefix), copylen);
     p += copylen;
   }
+  store->xactions_live ++;
 
   // Cleanup the original transactions
   for (ulong i = 0; i < source_cnt; ++i) {
     struct fd_funk_xaction_entry* entry = fd_funk_xactions_remove(store->xactions, source_ids[i]);
     fd_funk_xaction_entry_cleanup(store, entry);
+    store->xactions_live --;
   }  
 }
 
@@ -286,7 +295,7 @@ long fd_funk_writev(struct fd_funk* store,
   // Check for special root case
   if (fd_funk_is_root(xid)) {
     // See if the root is currently forked
-    if (store->xactions->used > 0) {
+    if (store->xactions_live > 0) {
       FD_LOG_WARNING(("cannot update root while transactions are in flight"));
       return -1;
     }

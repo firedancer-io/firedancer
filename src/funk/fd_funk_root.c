@@ -153,7 +153,7 @@ void fd_funk_replay_root(struct fd_funk* store) {
         int exists;
         struct fd_funk_index_entry* ent2 = fd_funk_index_insert(store->index, &ent->u.normal.id, &exists);
         if (NULL == ent2) 
-          FD_LOG_ERR(("index insert failed... is the index set big enough?"));
+          FD_LOG_ERR(("index insert failed during recovery. make the index larger and try again."));
         if (exists) {
           // Resolve duplicate records caused by a crash at the wrong time
           FD_LOG_WARNING(("duplicate record id in store"));
