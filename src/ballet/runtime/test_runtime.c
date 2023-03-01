@@ -274,19 +274,27 @@ fd_sim_txn(global_state_t *state, FD_FN_UNUSED fd_executor_t* executor, fd_txn_t
   for (ushort i = 0; i < txn->acct_addr_cnt; i++) {
     fd_pubkey_t *addr = &tx_accs[i];
 
+      long what = -1;
+      if (i < (txn->signature_cnt - txn->readonly_signed_cnt))
+        what = 0;
+      else if ((i >= (txn->signature_cnt - txn->readonly_signed_cnt)))
+        what = 1;
+      else if ((i >= txn->signature_cnt) && (i < (txn->acct_addr_cnt - txn->readonly_unsigned_cnt)))
+        what = 2;
+      else
+        what = 3;
+
     fd_account_meta_t metadata;
     if ( fd_acc_mgr_get_metadata( state->acc_mgr, addr, &metadata ) != FD_ACC_MGR_SUCCESS) {
-#if 0
-      char pubkey[33];
-      fd_base58_encode_32((uchar *) addr, pubkey);
-      FD_LOG_WARNING(("missing account: %s", pubkey));
-#endif
+      if (what > 1) {
+        char pubkey[33];
+        fd_base58_encode_32((uchar *) addr, pubkey);
+        FD_LOG_WARNING(("missing account: %ld %s", what, pubkey));
+      }
       continue;
     }
-    if ((i < (txn->signature_cnt - txn->readonly_signed_cnt)) || 
-      ((i >= txn->signature_cnt) && (i < (txn->acct_addr_cnt - txn->readonly_unsigned_cnt)))) {
+    if ((what == 0) | (what == 2)) {
       metadata.info.lamports++;
-
       int write_result = fd_acc_mgr_write_account( state->acc_mgr, addr, (uchar*)&metadata, sizeof(metadata) );
       if ( FD_UNLIKELY( write_result != FD_ACC_MGR_SUCCESS ) ) {
         FD_LOG_ERR(("wtf"));
@@ -410,14 +418,18 @@ int main(int argc, char **argv) {
   if( state.name ) {
     FD_LOG_NOTICE(( "Attaching to --wksp %s", state.name ));
     state.wksp = fd_wksp_attach( state.name );
+    FD_LOG_NOTICE(("attach complete"));
   } else {
     FD_LOG_NOTICE(( "--wksp not specified, using an anonymous local workspace" ));
     state.wksp = fd_wksp_new_anonymous( FD_SHMEM_GIGANTIC_PAGE_SZ, state.pages, 0, "wksp", 0UL );
+    FD_LOG_NOTICE(("attach complete"));
   } 
 
   if( FD_UNLIKELY( !state.wksp ) ) FD_LOG_ERR(( "Unable to attach to wksp" ));
 
   void * shmem = fd_wksp_alloc_laddr( state.wksp, fd_alloc_align(), fd_alloc_footprint(), 1 );
+
+  FD_LOG_NOTICE(("fd_wksp_alloc_laddr complete"));
 
   if( FD_UNLIKELY( !shmem ) ) FD_LOG_ERR(( "Unable to allocate wksp memory for fd_alloc" ));
 
@@ -432,6 +444,9 @@ int main(int argc, char **argv) {
 
   ulong xactions_max = 100;     // Maximum size (count) of transaction index
   ulong cache_max = 10000;      // Maximum number of cache entries
+
+  FD_LOG_NOTICE(("opening fd_funk db"));
+
   state.funk = fd_funk_new(state.db, state.wksp, 2, index_max, xactions_max, cache_max);
 
   if ((validate_db != NULL) && (strcmp(validate_db, "true") == 0)) {
