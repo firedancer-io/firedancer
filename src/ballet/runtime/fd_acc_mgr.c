@@ -43,7 +43,7 @@ int fd_acc_mgr_get_account_data( fd_acc_mgr_t* acc_mgr, fd_pubkey_t* pubkey, uch
   void* buffer = NULL;
   long read = fd_funk_read( acc_mgr->funk, acc_mgr->funk_xroot, &id, (const void**)&buffer, offset, bytes );
   if ( FD_UNLIKELY( read == -1 )) {
-    FD_LOG_WARNING(( "attempt to read data for unknown account" ));
+//    FD_LOG_WARNING(( "attempt to read data for unknown account" ));
     return FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
   } else if ( FD_UNLIKELY( (ulong)read != bytes ) ) {
     FD_LOG_WARNING(( "read account data failed" ));
@@ -59,7 +59,7 @@ int fd_acc_mgr_get_metadata( fd_acc_mgr_t* acc_mgr, fd_pubkey_t* pubkey, fd_acco
   
   int read_result = fd_acc_mgr_get_account_data( acc_mgr, pubkey, (uchar*)result, 0, sizeof(fd_account_meta_t) );
   if ( read_result != FD_ACC_MGR_SUCCESS ) {
-    FD_LOG_WARNING(( "failed to read account data" ));
+    //FD_LOG_WARNING(( "failed to read account data" ));
     return read_result;
   }
 

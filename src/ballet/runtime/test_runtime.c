@@ -276,9 +276,11 @@ fd_sim_txn(global_state_t *state, FD_FN_UNUSED fd_executor_t* executor, fd_txn_t
 
     fd_account_meta_t metadata;
     if ( fd_acc_mgr_get_metadata( state->acc_mgr, addr, &metadata ) != FD_ACC_MGR_SUCCESS) {
+#if 0
       char pubkey[33];
       fd_base58_encode_32((uchar *) addr, pubkey);
       FD_LOG_WARNING(("missing account: %s", pubkey));
+#endif
       continue;
     }
     if ((i < (txn->signature_cnt - txn->readonly_signed_cnt)) || 
