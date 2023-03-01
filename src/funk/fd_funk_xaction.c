@@ -194,7 +194,7 @@ void fd_funk_commit(struct fd_funk* store,
   if (parentry != NULL)
     fd_funk_xaction_entry_cleanup(store, parentry);
   if (!preserve_id) {
-    fd_funk_xactions_remove(store->xactions, id);
+    entry = fd_funk_xactions_remove(store->xactions, id);
     fd_funk_xaction_entry_cleanup(store, entry);
   }
 
