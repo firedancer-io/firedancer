@@ -122,10 +122,10 @@ struct fd_quic_tls_cfg {
 
 /* structure for organising handshake data */
 struct fd_quic_tls_hs_data {
-  uchar const * data;
-  uint      data_sz;
-  uint      free_data_sz; /* internal use */
-  uint      offset;
+  uchar const *            data;
+  uint                     data_sz;
+  uint                     free_data_sz; /* internal use */
+  uint                     offset;
   OSSL_ENCRYPTION_LEVEL    enc_level;
 
   /* internal use */
