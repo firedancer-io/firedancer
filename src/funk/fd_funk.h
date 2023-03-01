@@ -74,9 +74,12 @@ void fd_funk_fork(struct fd_funk* store,
 // root transaction). All parent transactions in the chain are also
 // finalized (but not children of the given transaction). Competing
 // forked transactions are discarded. This call is safe in the
-// presence of crashes, whatever that means.
+// presence of crashes, whatever that means. If preserve_id is true
+// (non-zero), the transaction id is kept in the table to allow future
+// forking from it.
 void fd_funk_commit(struct fd_funk* store,
-                    struct fd_funk_xactionid const* id);
+                    struct fd_funk_xactionid const* id,
+                    int preserve_id);
 
 // Discard all updates in the given transaction and its children.
 void fd_funk_cancel(struct fd_funk* store,

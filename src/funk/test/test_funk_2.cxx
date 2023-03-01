@@ -169,7 +169,7 @@ int main(int argc, char **argv) {
   };
   validateall();
 
-  fd_funk_commit(funk, xid);
+  fd_funk_commit(funk, xid, 1);
   golden[rootxid] = golden[xid];
   golden.erase(xid);
 
@@ -230,7 +230,7 @@ int main(int argc, char **argv) {
 
   validateall();
 
-  fd_funk_commit(funk, xidchain[9]);
+  fd_funk_commit(funk, xidchain[9], 1);
   golden[rootxid] = golden[xidchain[9]];
   for (unsigned j = 0; j < 10; ++j)
     golden.erase(xidchain[j]);
@@ -255,7 +255,7 @@ int main(int argc, char **argv) {
 
   validateall();
 
-  fd_funk_commit(funk, xidchain[9]);
+  fd_funk_commit(funk, xidchain[9], 1);
   golden[rootxid] = golden[xidchain[9]];
   for (unsigned j = 0; j < 10; ++j)
     golden.erase(xidchain[j]);
@@ -302,7 +302,7 @@ int main(int argc, char **argv) {
 
   validateall();
 
-  fd_funk_commit(funk, xidchain[9]);
+  fd_funk_commit(funk, xidchain[9], 1);
   golden[rootxid] = golden[xidchain[9]];
   for (unsigned j = 0; j < 10; ++j)
     golden.erase(xidchain[j]);
@@ -342,7 +342,7 @@ int main(int argc, char **argv) {
 
   validateall();
 
-  fd_funk_commit(funk, xidchain[9]);
+  fd_funk_commit(funk, xidchain[9], 1);
   golden[rootxid] = golden[xidchain[9]];
   for (unsigned j = 0; j < 10; ++j)
     golden.erase(xidchain[j]);
@@ -398,7 +398,7 @@ int main(int argc, char **argv) {
   fd_funk_cancel(funk, xidchain[7]);
   fd_funk_cancel(funk, xidchain[7]);
   fd_funk_cancel(funk, xidchain[7]);
-  fd_funk_commit(funk, xidchain[6]);
+  fd_funk_commit(funk, xidchain[6], 1);
 
   for (unsigned j = 0; j < 10; ++j)
     if (fd_funk_isopen(funk, xidchain[j]))
@@ -430,7 +430,7 @@ int main(int argc, char **argv) {
 
   validateall();
 
-  fd_funk_commit(funk, xid);
+  fd_funk_commit(funk, xid, 1);
   golden[rootxid] = golden[xid];
   golden.erase(xid);
 
@@ -481,7 +481,7 @@ int main(int argc, char **argv) {
 
   validateall();
 
-  fd_funk_commit(funk, xid);
+  fd_funk_commit(funk, xid, 1);
   golden[rootxid] = golden[xid];
   golden.erase(xid);
 
@@ -546,7 +546,7 @@ int main(int argc, char **argv) {
 
   validateall();
 
-  fd_funk_commit(funk, xid);
+  fd_funk_commit(funk, xid, 1);
   golden[rootxid] = golden[xid];
   golden.erase(xid);
 
@@ -627,7 +627,7 @@ int main(int argc, char **argv) {
   
   validateall();
 
-  fd_funk_commit(funk, xid);
+  fd_funk_commit(funk, xid, 1);
   golden[rootxid] = golden[xid];
   golden.erase(xid);
 

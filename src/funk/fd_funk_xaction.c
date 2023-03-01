@@ -152,7 +152,8 @@ void fd_funk_execute_script(struct fd_funk* store,
 }
 
 void fd_funk_commit(struct fd_funk* store,
-                    struct fd_funk_xactionid const* id) {
+                    struct fd_funk_xactionid const* id,
+                    int preserve_id) {
   struct fd_funk_xaction_entry* entry = fd_funk_xactions_query(store->xactions, id);
   if (entry == NULL || FD_FUNK_XACTION_PREFIX(entry)->state == FD_FUNK_XACTION_COMMITTED) {
     // Fail silently in case the transaction was already committed and cleaned up
@@ -160,7 +161,7 @@ void fd_funk_commit(struct fd_funk* store,
   }
 
   // Commit the parent transaction first
-  fd_funk_commit(store, &entry->parent);
+  fd_funk_commit(store, &entry->parent, 0);
   
   // Set the state to committed
   FD_FUNK_XACTION_PREFIX(entry)->state = FD_FUNK_XACTION_COMMITTED;
@@ -187,6 +188,8 @@ void fd_funk_commit(struct fd_funk* store,
   struct fd_funk_xaction_entry* parentry = fd_funk_xactions_remove(store->xactions, &entry->parent);
   if (parentry != NULL)
     fd_funk_xaction_entry_cleanup(store, parentry);
+  if (!preserve_id)
+    fd_funk_xaction_entry_cleanup(store, entry);
 
   // Cancel all uncommitted transactions who are now orphans. These
   // are typically competitors to the transaction that was just
