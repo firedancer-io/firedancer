@@ -127,6 +127,7 @@ int fd_acc_mgr_write_append_vec_account( fd_acc_mgr_t* acc_mgr, fd_solana_accoun
 
   m->magic = FD_ACCOUNT_META_MAGIC;
   m->hlen = sizeof(fd_account_meta_t);
+  m->dlen = hdr->meta.data_len;
 
   fd_memcpy(&m->info, &hdr->info, sizeof(m->info));
 
