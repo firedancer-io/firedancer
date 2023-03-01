@@ -124,7 +124,7 @@ int main(int argc, char **argv) {
 
   ulong index_max = 1000000;    // Maximum size (count) of master index
   ulong xactions_max = 100;     // Maximum size (count) of transaction index
-  ulong cache_max = 10000;      // Maximum number of cache entries
+  ulong cache_max = 1000;       // Maximum number of cache entries
   auto* funk = fd_funk_new("testback", wksp, 1, index_max, xactions_max, cache_max);
 
   fd_funk_validate(funk);
@@ -389,16 +389,248 @@ int main(int argc, char **argv) {
 
   validateall();
 
+  for (unsigned j = 0; j < 10; ++j)
+    if (!fd_funk_isopen(funk, xidchain[j]))
+      FD_LOG_ERR(("isopen returned wrong result"));
+
   fd_funk_cancel(funk, xidchain[9]);
   fd_funk_cancel(funk, xidchain[8]);
   fd_funk_cancel(funk, xidchain[7]);
   fd_funk_cancel(funk, xidchain[7]);
   fd_funk_cancel(funk, xidchain[7]);
   fd_funk_commit(funk, xidchain[6]);
+
+  for (unsigned j = 0; j < 10; ++j)
+    if (fd_funk_isopen(funk, xidchain[j]))
+      FD_LOG_ERR(("isopen returned wrong result"));
+
   golden[rootxid] = golden[xidchain[6]];
   for (unsigned j = 0; j < 10; ++j)
     golden.erase(xidchain[j]);
   
+  validateall();
+
+  rg.genbytes((char*)&xid, sizeof(xid));
+  golden[xid] = golden[rootxid];
+  struct fd_funk_xactionid const* source_ids[10];
+  for (unsigned j = 0; j < 10; ++j) {
+    rg.genbytes((char*)&xidchain[j], sizeof(xidchain[j]));
+    source_ids[j] = xidchain[j];
+    fd_funk_fork(funk, rootxid, xidchain[j]);
+    recordkey key;
+    rg.genbytes((char*)&key, sizeof(key));
+    auto len = random_size(rg);
+    rg.genbytes(scratch, len);
+    if (fd_funk_write(funk, xidchain[j], key, scratch, 0, len) != (long)len)
+      FD_LOG_ERR(("write failed"));
+    databuf& db = golden[xid][key];
+    db.write(scratch, 0, len);
+  };
+  fd_funk_merge(funk, xid, 10, source_ids);
+
+  validateall();
+
+  fd_funk_commit(funk, xid);
+  golden[rootxid] = golden[xid];
+  golden.erase(xid);
+
+  validateall();
+
+  rg.genbytes((char*)&xid, sizeof(xid));
+  fd_funk_fork(funk, rootxid, xid);
+  golden[xid] = golden[rootxid];
+  for (unsigned i = 0; i < 100; ++i) {
+    recordkey key;
+    rg.genbytes((char*)&key, sizeof(key));
+    
+    auto len = random_size(rg);
+    rg.genbytes(scratch, len);
+    struct iovec iov[3];
+    iov[0].iov_base = scratch;
+    iov[0].iov_len = len/3;
+    iov[1].iov_base = scratch + iov[0].iov_len;
+    iov[1].iov_len = len/3;
+    iov[2].iov_base = scratch + (iov[0].iov_len + iov[1].iov_len);
+    iov[2].iov_len = len - (iov[0].iov_len + iov[1].iov_len);
+    if (fd_funk_writev(funk, xid, key, iov, 3, 0) != (long)len)
+      FD_LOG_ERR(("write failed"));
+    databuf& db = golden[xid][key];
+    db.write(scratch, 0, len);
+
+    const void* res;
+    auto reslen = fd_funk_read(funk, xid, key, &res, 0, MAXRECORDSIZE);
+    if (!db.equals(res, reslen))
+      FD_LOG_ERR(("read returned wrong result"));
+    
+    len = random_size(rg);
+    rg.genbytes(scratch, len);
+    iov[0].iov_base = scratch;
+    iov[0].iov_len = len/3;
+    iov[1].iov_base = scratch + iov[0].iov_len;
+    iov[1].iov_len = len/3;
+    iov[2].iov_base = scratch + (iov[0].iov_len + iov[1].iov_len);
+    iov[2].iov_len = len - (iov[0].iov_len + iov[1].iov_len);
+    if (fd_funk_writev(funk, xid, key, iov, 3, 20) != (long)len)
+      FD_LOG_ERR(("write failed"));
+    db.write(scratch, 20, len);
+
+    reslen = fd_funk_read(funk, xid, key, &res, 0, MAXRECORDSIZE);
+    if (!db.equals(res, reslen))
+      FD_LOG_ERR(("read returned wrong result"));
+  }
+
+  validateall();
+
+  fd_funk_commit(funk, xid);
+  golden[rootxid] = golden[xid];
+  golden.erase(xid);
+
+  validateall();
+  
+  rg.genbytes((char*)&xid, sizeof(xid));
+  fd_funk_fork(funk, rootxid, xid);
+  golden[xid] = golden[rootxid];
+  std::vector<recordkey> delkeys;
+  for (unsigned i = 0; i < 100; ++i) {
+    recordkey key;
+    rg.genbytes((char*)&key, sizeof(key));
+    
+    auto len = random_size(rg);
+    rg.genbytes(scratch, len);
+    struct iovec iov[3];
+    iov[0].iov_base = scratch;
+    iov[0].iov_len = len/3;
+    iov[1].iov_base = scratch + iov[0].iov_len;
+    iov[1].iov_len = len/3;
+    iov[2].iov_base = scratch + (iov[0].iov_len + iov[1].iov_len);
+    iov[2].iov_len = len - (iov[0].iov_len + iov[1].iov_len);
+    if (fd_funk_writev(funk, xid, key, iov, 3, 0) != (long)len)
+      FD_LOG_ERR(("write failed"));
+    databuf& db = golden[xid][key];
+    db.write(scratch, 0, len);
+
+    const void* res;
+    auto reslen = fd_funk_read(funk, xid, key, &res, 0, MAXRECORDSIZE);
+    if (!db.equals(res, reslen))
+      FD_LOG_ERR(("read returned wrong result"));
+    
+    len = random_size(rg);
+    rg.genbytes(scratch, len);
+    iov[0].iov_base = scratch;
+    iov[0].iov_len = len/3;
+    iov[1].iov_base = scratch + iov[0].iov_len;
+    iov[1].iov_len = len/3;
+    iov[2].iov_base = scratch + (iov[0].iov_len + iov[1].iov_len);
+    iov[2].iov_len = len - (iov[0].iov_len + iov[1].iov_len);
+    if (fd_funk_writev(funk, xid, key, iov, 3, 20) != (long)len)
+      FD_LOG_ERR(("write failed"));
+    db.write(scratch, 20, len);
+
+    reslen = fd_funk_read(funk, xid, key, &res, 0, MAXRECORDSIZE);
+    if (!db.equals(res, reslen))
+      FD_LOG_ERR(("read returned wrong result"));
+
+    if ((i&1)) delkeys.push_back(key);
+  }
+
+  validateall();
+
+  for (auto& delkey : delkeys) {
+    fd_funk_delete_record(funk, xid, delkey);
+    const void* res;
+    auto reslen = fd_funk_read(funk, xid, delkey, &res, 0, MAXRECORDSIZE);
+    if (reslen != -1)
+      FD_LOG_ERR(("read should have failed"));
+    golden[xid].erase(delkey);
+  }
+
+  validateall();
+
+  fd_funk_commit(funk, xid);
+  golden[rootxid] = golden[xid];
+  golden.erase(xid);
+
+  validateall();
+  
+  rg.genbytes((char*)&xid, sizeof(xid));
+  fd_funk_fork(funk, rootxid, xid);
+  golden[xid] = golden[rootxid];
+  for (unsigned i = 0; i < 10000; ++i) {
+    recordkey key;
+    rg.genbytes((char*)&key, sizeof(key));
+    auto len = 51;
+    rg.genbytes(scratch, len);
+    if (fd_funk_write(funk, xid, key, scratch, 0, len) != (long)len)
+      FD_LOG_ERR(("write failed"));
+    databuf& db = golden[xid][key];
+    db.write(scratch, 0, len);
+  }
+
+  for (auto& [key,_] : golden[xid]) {
+    const void* res;
+    auto reslen = fd_funk_read(funk, xid, key, &res, 0, MAXRECORDSIZE);
+    databuf& db = golden[xid][key];
+    if (!db.equals(res, reslen))
+      FD_LOG_ERR(("read returned wrong result"));
+  }
+  
+  validateall();
+
+  for (auto& [key,_] : golden[xid]) {
+    auto len = 52;
+    rg.genbytes(scratch, len);
+    if (fd_funk_write(funk, xid, key, scratch, 10, len) != (long)len)
+      FD_LOG_ERR(("write failed"));
+    databuf& db = golden[xid][key];
+    db.write(scratch, 10, len);
+  }
+
+  for (auto& [key,_] : golden[xid]) {
+    const void* res;
+    auto reslen = fd_funk_read(funk, xid, key, &res, 0, MAXRECORDSIZE);
+    databuf& db = golden[xid][key];
+    if (!db.equals(res, reslen))
+      FD_LOG_ERR(("read returned wrong result"));
+  }
+  
+  validateall();
+
+  for (auto& [key,_] : golden[xid]) {
+    fd_funk_delete_record(funk, xid, key);
+  }
+  golden[xid].clear();
+
+  for (auto& [key,_] : golden[rootxid]) {
+    const void* res;
+    auto reslen = fd_funk_read(funk, xid, key, &res, 0, MAXRECORDSIZE);
+    if (reslen != -1)
+      FD_LOG_ERR(("read returned wrong result"));
+    
+    auto len = 53;
+    rg.genbytes(scratch, len);
+    if (fd_funk_write(funk, xid, key, scratch, 20, len) != (long)len)
+      FD_LOG_ERR(("write failed"));
+    databuf& db = golden[xid][key];
+    db.write(scratch, 20, len);
+  }
+
+  for (auto& [key,_] : golden[xid]) {
+    const void* res;
+    auto reslen = fd_funk_read(funk, xid, key, &res, 0, MAXRECORDSIZE);
+    databuf& db = golden[xid][key];
+    if (!db.equals(res, reslen))
+      FD_LOG_ERR(("read returned wrong result"));
+    reslen = fd_funk_read(funk, xid, key, &res, 0, MAXRECORDSIZE);
+    if (!db.equals(res, reslen))
+      FD_LOG_ERR(("read returned wrong result"));
+  }
+  
+  validateall();
+
+  fd_funk_commit(funk, xid);
+  golden[rootxid] = golden[xid];
+  golden.erase(xid);
+
   validateall();
 
   free(scratch);
