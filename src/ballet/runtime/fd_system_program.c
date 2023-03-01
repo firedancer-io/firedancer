@@ -48,7 +48,7 @@ int transfer(
       FD_LOG_DEBUG(( "transfer to unknown account: creating new account" ));
       fd_account_meta_t metadata;
       fd_memset(&metadata, 0, sizeof(metadata));
-      int write_result = fd_acc_mgr_write_account( ctx.acc_mgr, receiver, (uchar *)&metadata, sizeof(metadata) );
+      int write_result = fd_acc_mgr_write_account( ctx.acc_mgr, fd_funk_root(ctx.acc_mgr->funk), receiver, (uchar *)&metadata, sizeof(metadata) );
       if ( FD_UNLIKELY( write_result != FD_ACC_MGR_SUCCESS ) ) {
         FD_LOG_WARNING(( "failed to create new account" ));
         return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
@@ -63,12 +63,12 @@ int transfer(
     FD_LOG_DEBUG(("transfer: receiver balance before transfer: %lu", receiver_lamports));
 
     /* Execute the transfer */
-    int write_result = fd_acc_mgr_set_lamports( ctx.acc_mgr, sender, sender_lamports - requested_lamports );
+    int write_result = fd_acc_mgr_set_lamports( ctx.acc_mgr, fd_funk_root(ctx.acc_mgr->funk), sender, sender_lamports - requested_lamports );
     if ( FD_UNLIKELY( write_result != FD_ACC_MGR_SUCCESS ) ) {
       FD_LOG_WARNING(( "failed to set sender lamports" ));
       return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
     }
-    write_result = fd_acc_mgr_set_lamports( ctx.acc_mgr, receiver, receiver_lamports + requested_lamports );
+    write_result = fd_acc_mgr_set_lamports( ctx.acc_mgr, fd_funk_root(ctx.acc_mgr->funk), receiver, receiver_lamports + requested_lamports );
     if ( FD_UNLIKELY( write_result != FD_ACC_MGR_SUCCESS ) ) {
       FD_LOG_WARNING(( "failed to set receiver lamports" ));
       return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;

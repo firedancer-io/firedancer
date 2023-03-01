@@ -193,7 +193,7 @@ fd_slot_blocks_t * fd_rocksdb_get_microblocks(fd_rocksdb_t *db, fd_slot_meta_t *
     }
 
     if (index != i) {
-      FD_LOG_WARNING(("missing shred %ld for slot %ld", i, index));
+      FD_LOG_WARNING(("missing shred %ld at index %ld for slot %ld", i, index, slot));
       rocksdb_iter_destroy(iter);
       return NULL;
     }

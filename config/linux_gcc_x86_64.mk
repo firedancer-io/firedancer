@@ -5,7 +5,9 @@ include config/with-hosted.mk
 include config/with-gcc.mk
 include config/with-debug.mk
 include config/with-brutality.mk
+ifeq ($(DISABLE_OPTIMIZATION),)
 include config/with-optimization.mk
+endif
 include config/with-threads.mk
 include config/with-zstd.mk
 include config/with-rocksdb.mk

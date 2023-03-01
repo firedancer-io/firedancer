@@ -252,12 +252,8 @@ int manifest(global_state_t *state) {
   return 0;
 }
 
-//$26 = {transaction_version = 255 '\377', signature_cnt = 1 '\001', signature_off = 1, message_off = 65, readonly_signed_cnt = 0 '\000', readonly_unsigned_cnt = 2 '\002', acct_addr_cnt = 6, 
-//  acct_addr_off = 69, recent_blockhash_off = 261, addr_table_lookup_cnt = 0 '\000', addr_table_adtl_writable_cnt = 0 '\000', addr_table_adtl_cnt = 0 '\000', _padding_reserved_1 = 0 '\000', instr_cnt = 3, 
-//  instr = 0x37d8f14}
-
 void
-fd_sim_txn(global_state_t *state, FD_FN_UNUSED fd_executor_t* executor, fd_txn_t * txn, FD_FN_UNUSED fd_rawtxn_b_t* txn_raw ) {
+fd_sim_txn(global_state_t *state, FD_FN_UNUSED fd_executor_t* executor, fd_txn_t * txn, fd_rawtxn_b_t* txn_raw, struct fd_funk_xactionid const* funk_txn ) {
 
 /*      The order of these addresses is important, because it determines the
      "permission flags" for the account in this transaction.
@@ -295,7 +291,7 @@ fd_sim_txn(global_state_t *state, FD_FN_UNUSED fd_executor_t* executor, fd_txn_t
     }
     if ((what == 0) | (what == 2)) {
       metadata.info.lamports++;
-      int write_result = fd_acc_mgr_write_account( state->acc_mgr, addr, (uchar*)&metadata, sizeof(metadata) );
+      int write_result = fd_acc_mgr_write_account( state->acc_mgr, funk_txn, addr, (uchar*)&metadata, sizeof(metadata) );
       if ( FD_UNLIKELY( write_result != FD_ACC_MGR_SUCCESS ) ) {
         FD_LOG_ERR(("wtf"));
       }
@@ -309,68 +305,92 @@ int replay(global_state_t *state) {
   fd_executor_t* executor = fd_executor_join(fd_executor_new(fd_executor_raw, state->acc_mgr, FD_EXECUTOR_FOOTPRINT));
   char *err = NULL;
 
+  fd_rng_t rnd_mem;
+  void *shrng = fd_rng_new(&rnd_mem, 0, 0);
+  fd_rng_t * rng  = fd_rng_join( shrng );
+
+  struct fd_funk_xactionid funk_txn;
+
   for (ulong slot = state->start_slot; slot < state->end_slot; slot++) {
-    FD_LOG_WARNING(("reading slot %ld", slot));
-//    fd_log_flush();
+    if ((slot % 1000) == 0)
+      FD_LOG_WARNING(("reading slot %ld", slot));
 
-    fd_slot_meta_t m;
-    fd_memset(&m, 0, sizeof(m));
-    err = NULL;
-    fd_rocksdb_get_meta(&state->rocks_db, slot, &m, allocf, state->alloc, &err);
-    if (err != NULL) {
-      FD_LOG_WARNING(("fd_rocksdb_last_slot returned %s", err));
-      free (err);
-      continue;
+    if (state->txn_exe == 2) {
+      ulong *p = (ulong *) &funk_txn.id[0];
+      p[0] = fd_rng_ulong(rng);
+      p[1] = fd_rng_ulong(rng);
+      p[2] = fd_rng_ulong(rng);
+      p[3] = fd_rng_ulong(rng);
+
+      fd_funk_fork(state->funk, fd_funk_root(state->acc_mgr->funk), &funk_txn);
     }
 
-    fd_slot_blocks_t *slot_data = fd_rocksdb_get_microblocks(&state->rocks_db, &m, allocf, state->alloc);
+    do {
+      fd_slot_meta_t m;
+      fd_memset(&m, 0, sizeof(m));
+      err = NULL;
+      fd_rocksdb_get_meta(&state->rocks_db, slot, &m, allocf, state->alloc, &err);
 
-    // free 
-    fd_slot_meta_destroy(&m, freef, state->alloc);
+      if (err != NULL) {
+//        FD_LOG_WARNING(("fd_rocksdb_last_slot returned %s", err));
+        free (err);
+        break;
+      }
 
-    if (NULL == slot_data) {
-      FD_LOG_WARNING(("fd_rocksdb_get_microblocks returned NULL for slot %ld", slot));
-      continue;
-    }
+      fd_slot_blocks_t *slot_data = fd_rocksdb_get_microblocks(&state->rocks_db, &m, allocf, state->alloc);
 
-    // execute slot_block...
-    uchar *blob = slot_data->first_blob;
-    while (NULL != blob) {
-      uchar *blob_ptr = blob + FD_BLOB_DATA_START;
-      uint cnt = *((uint *) (blob + 8));
-      while (cnt > 0) {
-        fd_microblock_t * micro_block = fd_microblock_join( blob_ptr );
+      // free 
+      fd_slot_meta_destroy(&m, freef, state->alloc);
 
-        for ( ulong txn_idx = 0; txn_idx < micro_block->txn_max_cnt; txn_idx++ ) {
-          fd_txn_t* txn_descriptor = (fd_txn_t *)&micro_block->txn_tbl[ txn_idx ];
-          fd_rawtxn_b_t* txn_raw   = (fd_rawtxn_b_t *)&micro_block->raw_tbl[ txn_idx ];
-          switch (state->txn_exe) {
-          case 0:
-            fd_execute_txn( executor, txn_descriptor, txn_raw );
-            break;
-          case 2:
-            fd_sim_txn( state, executor, txn_descriptor, txn_raw );
-            break;
-          default: // skip
-            break;
-          } // switch (state->txn_exe)
-        } // for ( ulong txn_idx = 0; txn_idx < micro_block->txn_max_cnt; txn_idx++ )
-        fd_microblock_leave(micro_block);
+      if (NULL == slot_data) {
+        FD_LOG_WARNING(("fd_rocksdb_get_microblocks returned NULL for slot %ld", slot));
+        break;
+      }
 
-        blob_ptr = (uchar *) fd_ulong_align_up((ulong)blob_ptr + fd_microblock_footprint( micro_block->hdr.txn_cnt ), FD_MICROBLOCK_ALIGN);
+      // execute slot_block...
+      uchar *blob = slot_data->first_blob;
+      while (NULL != blob) {
+        uchar *blob_ptr = blob + FD_BLOB_DATA_START;
+        uint cnt = *((uint *) (blob + 8));
+        while (cnt > 0) {
+          fd_microblock_t * micro_block = fd_microblock_join( blob_ptr );
+
+          for ( ulong txn_idx = 0; txn_idx < micro_block->txn_max_cnt; txn_idx++ ) {
+            fd_txn_t* txn_descriptor = (fd_txn_t *)&micro_block->txn_tbl[ txn_idx ];
+            fd_rawtxn_b_t* txn_raw   = (fd_rawtxn_b_t *)&micro_block->raw_tbl[ txn_idx ];
+            switch (state->txn_exe) {
+            case 0:
+              fd_execute_txn( executor, txn_descriptor, txn_raw );
+              break;
+            case 2:
+              fd_sim_txn( state, executor, txn_descriptor, txn_raw, &funk_txn );
+              break;
+            default: // skip
+              break;
+            } // switch (state->txn_exe)
+          } // for ( ulong txn_idx = 0; txn_idx < micro_block->txn_max_cnt; txn_idx++ )
+          fd_microblock_leave(micro_block);
+
+          blob_ptr = (uchar *) fd_ulong_align_up((ulong)blob_ptr + fd_microblock_footprint( micro_block->hdr.txn_cnt ), FD_MICROBLOCK_ALIGN);
         
-        cnt--;
-      } // while (cnt > 0) 
-      blob = *((uchar **) blob);
-    } // while (NULL != blob) 
+          cnt--;
+        } // while (cnt > 0) 
+        blob = *((uchar **) blob);
+      } // while (NULL != blob) 
 
-    // free the slot data...
-    fd_slot_blocks_destroy(slot_data, freef, state->alloc);
-    freef(slot_data, state->alloc);
+      // free the slot data...
+      fd_slot_blocks_destroy(slot_data, freef, state->alloc);
+      freef(slot_data, state->alloc);
+    } while (false);
+
+    if (state->txn_exe == 2) 
+      fd_funk_commit(state->funk, &funk_txn, 0);
   } // for (ulong slot = state->start_slot; slot < state->end_slot; slot++) 
 
   fd_executor_delete(fd_executor_leave(executor));
   free(fd_executor_raw);
+
+  FD_TEST( fd_rng_leave( rng )==shrng );
 
   return 0;
 }
