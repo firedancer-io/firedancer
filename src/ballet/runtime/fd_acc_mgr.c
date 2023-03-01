@@ -104,6 +104,7 @@ int fd_acc_mgr_write_structured_account( fd_acc_mgr_t* acc_mgr, fd_pubkey_t* pub
 
   m->magic = FD_ACCOUNT_META_MAGIC;
   m->hlen = sizeof(fd_account_meta_t);
+  m->dlen = account->data_len;
 
   m->info.lamports = account->lamports;
   m->info.rent_epoch = account->rent_epoch;

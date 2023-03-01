@@ -219,6 +219,7 @@ typedef struct fd_solana_account_hdr fd_solana_account_hdr_t;
 struct __attribute__((packed)) fd_account_meta {
   ushort                          magic;
   ushort                          hlen;
+  ulong                           dlen;
   // These structures directly come from solana.. is that good?
   fd_solana_account_meta_t        info; 
   fd_solana_account_fd_hash_t     hash;
