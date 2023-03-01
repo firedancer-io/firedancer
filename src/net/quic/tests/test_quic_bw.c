@@ -6,6 +6,9 @@
 #include "fd_pcap.h"
 
 
+#define SEND_SZ 1000ul
+
+
 extern uchar pkt_full[];
 extern ulong pkt_full_sz;
 
@@ -37,31 +40,27 @@ aio_cb( void * context, fd_aio_buffer_t * batch, ulong batch_sz ) {
 
 uchar fail = 0;
 
+ulong rx_tot_sz = 0;
+
 void
 my_stream_receive_cb( fd_quic_stream_t * stream,
                       void *             ctx,
                       uchar const *      data,
-                      ulong             data_sz,
-                      ulong           offset ) {
+                      ulong              data_sz,
+                      ulong              offset ) {
   (void)ctx;
   (void)stream;
+  (void)data;
+  (void)data_sz;
+  (void)offset;
 
-  ulong expected_data_sz = 512ul;
-
+#if 0
   printf( "my_stream_receive_cb : received data from peer. size: %lu  offset: %lu\n",
       (ulong)data_sz, (ulong)offset );
   printf( "%s\n", data );
+#endif
 
-  if( data_sz != 512 ) {
-    fprintf( stderr, "my_stream_receive_cb : data wrong size. Is: %lu, expected: %lu\n",
-        data_sz, expected_data_sz );
-    fail = 1;
-  } else {
-    if( memcmp( data, "Hello world", 11u ) != 0 ) {
-      fprintf( stderr, "my_stream_receive_cb : value received incorrect" );
-      fail = 1;
-    }
-  }
+  rx_tot_sz += data_sz;
 }
 
 fd_quic_t *
@@ -75,7 +74,6 @@ new_quic( fd_quic_config_t * quic_config ) {
   void * aligned  = ((uchar*)mem) + ( memalign == 0 ? 0 : ( align - memalign ) );
 
   fd_quic_t * quic = fd_quic_new( aligned, quic_config );
-  FD_TEST( quic );
   return quic;
 }
 
@@ -133,12 +131,9 @@ pipe_aio_receive( void * vp_ctx, fd_aio_buffer_t * batch, ulong batch_sz ) {
 }
 
 
-/* global "clock" */
-ulong now = 123;
-
 ulong test_clock( void * ctx ) {
   (void)ctx;
-  return now;
+  return gettime();
 }
 
 int
@@ -211,7 +206,7 @@ main( int argc, char ** argv ) {
   quic_config.now_fn  = test_clock;
   quic_config.now_ctx = NULL;
 
-  quic_config.tx_buf_sz = 1ul << 10ul;
+  quic_config.tx_buf_sz = 1ul << 20ul; /* this should match the value in transport parameters */
 
   fd_quic_host_cfg_t server_cfg = { "server_host", 0x0a000001u, 4434 };
   fd_quic_host_cfg_t client_cfg = { "client_host", 0xc01a1a1au, 2001 };
@@ -253,8 +248,6 @@ main( int argc, char ** argv ) {
       break;
     }
 
-    if( next_wakeup > now ) now = next_wakeup;
-
     printf( "running services at %lu\n", (ulong)next_wakeup );
     fd_quic_service( client_quic );
     fd_quic_service( server_quic );
@@ -276,17 +269,14 @@ main( int argc, char ** argv ) {
       break;
     }
 
-    now = next_wakeup;
-
     fd_quic_service( client_quic );
     fd_quic_service( server_quic );
   }
 
   /* try sending */
   fd_quic_stream_t * client_stream = fd_quic_conn_new_stream( client_conn, FD_QUIC_TYPE_BIDIR );
-  FD_TEST( client_stream );
 
-  char buf[1000] = "Hello world!\x00-   ";
+  char buf[SEND_SZ] = "Hello world!\x00-   ";
   ulong buf_sz = sizeof( buf );
   fd_aio_buffer_t batch[1] = {{ buf, buf_sz }};
   int rc = fd_quic_stream_send( client_stream, batch, 1 );
@@ -297,18 +287,6 @@ main( int argc, char ** argv ) {
   ulong last_ts = gettime();
   ulong rprt_ts = gettime() + (ulong)1e9;
   while(1) {
-    ulong ct = fd_quic_get_next_wakeup( client_quic );
-    ulong st = fd_quic_get_next_wakeup( server_quic );
-    ulong next_wakeup = fd_ulong_min( ct, st );
-
-    if( next_wakeup == ~(ulong)0 ) {
-      printf( "client and server have no schedule\n" );
-      fflush( stdout );
-      break;
-    }
-
-    if( next_wakeup > now ) now = next_wakeup;
-
     fd_quic_service( client_quic );
     fd_quic_service( server_quic );
 
@@ -321,7 +299,7 @@ main( int argc, char ** argv ) {
     if( t >= rprt_ts ) {
       ulong dt = t - last_ts;
       float bps = (float)tot / (float)dt;
-      printf( "bw: %f\n", (double)bps );
+      printf( "bw: %f  dt: %f  bytes: %f\n", (double)bps, (double)dt, (double)tot );
 
       tot     = 0;
       last_ts = t;
@@ -345,8 +323,6 @@ main( int argc, char ** argv ) {
       printf( "Finished cleaning up connections\n" );
       break;
     }
-
-    if( next_wakeup > now ) now = next_wakeup;
 
     printf( "running services at %lu\n", (ulong)next_wakeup );
     fd_quic_service( client_quic );

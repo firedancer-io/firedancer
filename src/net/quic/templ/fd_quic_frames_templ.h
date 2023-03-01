@@ -235,6 +235,7 @@ FD_TEMPL_DEF_STRUCT_END(max_data_frame)
    }
    Figure 34: MAX_STREAM_DATA Frame Format */
 
+  /* TODO rename to max_stream_data_frame for consistency */
 FD_TEMPL_DEF_STRUCT_BEGIN(max_stream_data)
   FD_TEMPL_MBR_FRAME_TYPE( type,0x11,0x11 )
   FD_TEMPL_MBR_ELEM_VARINT( stream_id,       ulong )
