@@ -154,6 +154,8 @@ int main(int argc, char **argv) {
 
   auto validateall = [&](){
     fd_funk_validate(funk);
+    if (fd_funk_num_xactions(funk) != golden.size()-1)
+      FD_LOG_ERR(("wrong transaction count"));
     if (fd_funk_num_records(funk) != golden[rootxid].size())
       FD_LOG_ERR(("wrong record count"));
     for (auto& [xid,xstate] : golden) {
@@ -265,6 +267,7 @@ int main(int argc, char **argv) {
   for (auto& [key,_] : golden[rootxid])
     fd_funk_delete_record(funk, rootxid, key);
   golden.clear();
+  golden[rootxid];
 
   validateall();
 
@@ -322,7 +325,14 @@ int main(int argc, char **argv) {
       auto len = 50;
       auto offset = 100*(j+1);
       rg.genbytes(scratch, len);
-      if (fd_funk_write(funk, xidchain[j], key, scratch, offset, len) != (long)len)
+      struct iovec iov[3];
+      iov[0].iov_base = scratch;
+      iov[0].iov_len = len/3;
+      iov[1].iov_base = scratch + iov[0].iov_len;
+      iov[1].iov_len = len/3;
+      iov[2].iov_base = scratch + (iov[0].iov_len + iov[1].iov_len);
+      iov[2].iov_len = len - (iov[0].iov_len + iov[1].iov_len);
+      if (fd_funk_writev(funk, xidchain[j], key, iov, 3, offset) != (long)len)
         FD_LOG_ERR(("write failed"));
       databuf& db = golden[xidchain[j]][key];
       db.write(scratch, offset, len);
@@ -334,6 +344,58 @@ int main(int argc, char **argv) {
 
   fd_funk_commit(funk, xidchain[9]);
   golden[rootxid] = golden[xidchain[9]];
+  for (unsigned j = 0; j < 10; ++j)
+    golden.erase(xidchain[j]);
+  
+  validateall();
+
+  for (unsigned i = 0; i < 100; ++i) {
+    recordkey key;
+    rg.genbytes((char*)&key, sizeof(key));
+    auto len = 0;
+    if (fd_funk_write(funk, rootxid, key, scratch, 0, len) != (long)len)
+      FD_LOG_ERR(("write failed"));
+    databuf& db = golden[rootxid][key];
+    db.write(scratch, 0, len);
+  }
+
+  validateall();
+  reload();
+  validateall();
+
+  prevxid = &rootxid;
+  for (unsigned j = 0; j < 10; ++j) {
+    rg.genbytes((char*)&xidchain[j], sizeof(xidchain[j]));
+    fd_funk_fork(funk, *prevxid, xidchain[j]);
+    golden[xidchain[j]] = golden[*prevxid];
+    for (auto& [key,_] : golden[rootxid]) {
+      auto len = 50;
+      auto offset = 100*(j+1);
+      rg.genbytes(scratch, len);
+      struct iovec iov[3];
+      iov[0].iov_base = scratch;
+      iov[0].iov_len = len/3;
+      iov[1].iov_base = scratch + iov[0].iov_len;
+      iov[1].iov_len = len/3;
+      iov[2].iov_base = scratch + (iov[0].iov_len + iov[1].iov_len);
+      iov[2].iov_len = len - (iov[0].iov_len + iov[1].iov_len);
+      if (fd_funk_writev(funk, xidchain[j], key, iov, 3, offset) != (long)len)
+        FD_LOG_ERR(("write failed"));
+      databuf& db = golden[xidchain[j]][key];
+      db.write(scratch, offset, len);
+    }
+    prevxid = &xidchain[j];
+  }
+
+  validateall();
+
+  fd_funk_cancel(funk, xidchain[9]);
+  fd_funk_cancel(funk, xidchain[8]);
+  fd_funk_cancel(funk, xidchain[7]);
+  fd_funk_cancel(funk, xidchain[7]);
+  fd_funk_cancel(funk, xidchain[7]);
+  fd_funk_commit(funk, xidchain[6]);
+  golden[rootxid] = golden[xidchain[6]];
   for (unsigned j = 0; j < 10; ++j)
     golden.erase(xidchain[j]);
   

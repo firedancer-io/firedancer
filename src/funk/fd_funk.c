@@ -31,9 +31,11 @@ struct fd_funk {
     // Master index of finalized data
     ulong index_offset;
     struct fd_funk_index* index;
-    // Table of live transactions
+    // Table of transactions
     ulong xactions_offset;
     struct fd_funk_xactions* xactions;
+    // Number of transactions still alive
+    ulong xactions_live;
     // Entry cache manager
     ulong cache_offset;
     struct fd_cache* cache;
@@ -89,6 +91,7 @@ struct fd_funk* fd_funk_new(char const* backingfile,
   
   store->xactions_offset = xactions_offset;
   store->xactions = fd_funk_xactions_new((char*)shmem + xactions_offset, xactions_max, hashseed);
+  store->xactions_live = 0;
   
   store->cache_offset = cache_offset;
   store->cache = fd_cache_new((char*)shmem + cache_offset, cache_max);
