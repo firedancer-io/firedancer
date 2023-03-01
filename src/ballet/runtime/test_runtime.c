@@ -1,6 +1,6 @@
 // test_xdp.init
 
-//  --ledger /dev/shm/mainnet-ledger --db /dev/shm/funk --cmd replay --start-slot 179138205 --end-slot 279138205  --skip-exe true  --index-max 120000000 --pages 15
+//  --ledger /dev/shm/mainnet-ledger --db /dev/shm/funk --cmd replay --start-slot 179138205 --end-slot 279138205  --txn-exe sim  --index-max 120000000 --pages 15
 //  --ledger /dev/shm/mainnet-ledger --db /dev/shm/funk --cmd ingest --start-slot 179138205 --end-slot 279138205 --manifest /dev/shm/mainnet-ledger/snapshot/tmp-snapshot-archive-JfVTLu/snapshots/179248368/179248368
 // run --ledger /home/jsiegel/mainnet-ledger --db /home/jsiegel/funk --cmd ingest --accounts /home/jsiegel/mainnet-ledger/accounts --pages 15 --index-max 120000000
 // run --ledger /dev/shm/mainnet-ledger --db /dev/shm/funk --cmd ingest --accounts /dev/shm/mainnet-ledger/accounts --pages 15 --index-max 120000000
@@ -26,7 +26,7 @@ uchar do_valgrind = 1;
 
 int fd_alloc_fprintf( fd_alloc_t * join, FILE *       stream );
 
-char* allocf(unsigned long len, FD_FN_UNUSED unsigned long align, FD_FN_UNUSED void* arg) {
+char* allocf(unsigned long len, unsigned long align, void* arg) {
   if (NULL == arg) {
     FD_LOG_ERR(( "yo dawg.. you passed a NULL as a fd_alloc pool"));
   }
@@ -40,7 +40,7 @@ char* allocf(unsigned long len, FD_FN_UNUSED unsigned long align, FD_FN_UNUSED v
     return fd_alloc_malloc(arg, align, len);
 }
 
-void freef(void *ptr, FD_FN_UNUSED void* arg) {
+void freef(void *ptr, void* arg) {
   if (NULL == arg) {
     FD_LOG_ERR(( "yo dawg.. you passed a NULL as a fd_alloc pool"));
   }
@@ -55,7 +55,7 @@ struct global_state {
   ulong        end_slot;
   ulong        start_slot;
   ulong        pages;
-  uchar        skip_exe;
+  uchar        txn_exe;
 
   int          argc;
   char       **argv;
@@ -68,7 +68,7 @@ struct global_state {
   char const * manifest;
   char const * accounts;
   char const * cmd;
-  char const * skip_exe_opt;
+  char const * txn_exe_opt;
   char const * pages_opt;
 
   fd_wksp_t *  wksp;
@@ -90,8 +90,8 @@ static void usage(const char* progname) {
   fprintf(stderr, " --manifest    <file>       What manifest file should I pay attention to\n");
   fprintf(stderr, " --accounts    <dir>        What accounts should I slurp in\n");
   fprintf(stderr, " --cmd         <operation>  What operation should we test\n");
-  fprintf(stderr, " --skip-exe    <bool>       Should we skip executing transactions\n");
-  fprintf(stderr, " --index-max   <bool>       Should we skip executing transactions\n");
+  fprintf(stderr, " --skip-exe    [skip,sim]   Should we skip executing transactions\n");
+  fprintf(stderr, " --index-max   <bool>       How big should the index table be?\n");
   fprintf(stderr, " --validate    <bool>       Validate the funk db\n");
 }
 
@@ -252,6 +252,47 @@ int manifest(global_state_t *state) {
   return 0;
 }
 
+//$26 = {transaction_version = 255 '\377', signature_cnt = 1 '\001', signature_off = 1, message_off = 65, readonly_signed_cnt = 0 '\000', readonly_unsigned_cnt = 2 '\002', acct_addr_cnt = 6, 
+//  acct_addr_off = 69, recent_blockhash_off = 261, addr_table_lookup_cnt = 0 '\000', addr_table_adtl_writable_cnt = 0 '\000', addr_table_adtl_cnt = 0 '\000', _padding_reserved_1 = 0 '\000', instr_cnt = 3, 
+//  instr = 0x37d8f14}
+
+void
+fd_sim_txn(global_state_t *state, FD_FN_UNUSED fd_executor_t* executor, fd_txn_t * txn, FD_FN_UNUSED fd_rawtxn_b_t* txn_raw ) {
+
+/*      The order of these addresses is important, because it determines the
+     "permission flags" for the account in this transaction.
+     Accounts ordered:
+                                          Index Range                                 |   Signer?    |  Writeable?
+     ---------------------------------------------------------------------------------|--------------|-------------
+      [0,                                     signature_cnt - readonly_signed_cnt)    |  signer      |   writable
+      [signature_cnt - readonly_signed_cnt,   signature_cnt)                          |  signer      |   readonly
+      [signature_cnt,                         acct_addr_cnt - readonly_unsigned_cnt)  |  not signer  |   writable
+      [acct_addr_cnt - readonly_unsigned_cnt, acct_addr_cnt)                          |  not signer  |   readonly
+*/
+
+  fd_pubkey_t *tx_accs   = (fd_pubkey_t *)((uchar *)txn_raw->raw + txn->acct_addr_off);
+  for (ushort i = 0; i < txn->acct_addr_cnt; i++) {
+    fd_pubkey_t *addr = &tx_accs[i];
+
+    fd_account_meta_t metadata;
+    if ( fd_acc_mgr_get_metadata( state->acc_mgr, addr, &metadata ) != FD_ACC_MGR_SUCCESS) {
+      char pubkey[33];
+      fd_base58_encode_32((uchar *) addr, pubkey);
+      FD_LOG_WARNING(("missing account: %s", pubkey));
+      continue;
+    }
+    if ((i < (txn->signature_cnt - txn->readonly_signed_cnt)) || 
+      ((i >= txn->signature_cnt) && (i < (txn->acct_addr_cnt - txn->readonly_unsigned_cnt)))) {
+      metadata.info.lamports++;
+
+      int write_result = fd_acc_mgr_write_account( state->acc_mgr, addr, (uchar*)&metadata, sizeof(metadata) );
+      if ( FD_UNLIKELY( write_result != FD_ACC_MGR_SUCCESS ) ) {
+        FD_LOG_ERR(("wtf"));
+      }
+    }
+  }
+}
+
 int replay(global_state_t *state) {
   // Lets start executing!
   void *fd_executor_raw = malloc(FD_EXECUTOR_FOOTPRINT);
@@ -282,33 +323,41 @@ int replay(global_state_t *state) {
       continue;
     }
 
-    if (!state->skip_exe) {
-      // execute slot_block...
-      uchar *blob = slot_data->first_blob;
-      while (NULL != blob) {
-        uchar *blob_ptr = blob + FD_BLOB_DATA_START;
-        uint cnt = *((uint *) (blob + 8));
-        while (cnt > 0) {
-          fd_microblock_t * micro_block = fd_microblock_join( blob_ptr );
+    // execute slot_block...
+    uchar *blob = slot_data->first_blob;
+    while (NULL != blob) {
+      uchar *blob_ptr = blob + FD_BLOB_DATA_START;
+      uint cnt = *((uint *) (blob + 8));
+      while (cnt > 0) {
+        fd_microblock_t * micro_block = fd_microblock_join( blob_ptr );
 
-          for ( ulong txn_idx = 0; txn_idx < micro_block->txn_max_cnt; txn_idx++ ) {
-            fd_txn_t* txn_descriptor = (fd_txn_t *)&micro_block->txn_tbl[ txn_idx ];
-            fd_rawtxn_b_t* txn_raw   = (fd_rawtxn_b_t *)&micro_block->raw_tbl[ txn_idx ];
+        for ( ulong txn_idx = 0; txn_idx < micro_block->txn_max_cnt; txn_idx++ ) {
+          fd_txn_t* txn_descriptor = (fd_txn_t *)&micro_block->txn_tbl[ txn_idx ];
+          fd_rawtxn_b_t* txn_raw   = (fd_rawtxn_b_t *)&micro_block->raw_tbl[ txn_idx ];
+          switch (state->txn_exe) {
+          case 0:
             fd_execute_txn( executor, txn_descriptor, txn_raw );
-          }      
-          fd_microblock_leave(micro_block);
+            break;
+          case 2:
+            fd_sim_txn( state, executor, txn_descriptor, txn_raw );
+            break;
+          default: // skip
+            break;
+          } // switch (state->txn_exe)
+        } // for ( ulong txn_idx = 0; txn_idx < micro_block->txn_max_cnt; txn_idx++ )
+        fd_microblock_leave(micro_block);
 
-          blob_ptr = (uchar *) fd_ulong_align_up((ulong)blob_ptr + fd_microblock_footprint( micro_block->hdr.txn_cnt ), FD_MICROBLOCK_ALIGN);
+        blob_ptr = (uchar *) fd_ulong_align_up((ulong)blob_ptr + fd_microblock_footprint( micro_block->hdr.txn_cnt ), FD_MICROBLOCK_ALIGN);
         
-          cnt--;
-        }
-        blob = *((uchar **) blob);
-      }
-    }
+        cnt--;
+      } // while (cnt > 0) 
+      blob = *((uchar **) blob);
+    } // while (NULL != blob) 
+
     // free the slot data...
     fd_slot_blocks_destroy(slot_data, freef, state->alloc);
     freef(slot_data, state->alloc);
-  }
+  } // for (ulong slot = state->start_slot; slot < state->end_slot; slot++) 
 
   fd_executor_delete(fd_executor_leave(executor));
   free(fd_executor_raw);
@@ -336,7 +385,7 @@ int main(int argc, char **argv) {
   state.manifest            = fd_env_strip_cmdline_cstr ( &argc, &argv, "--manifest",     NULL, NULL);
   state.accounts            = fd_env_strip_cmdline_cstr ( &argc, &argv, "--accounts",     NULL, NULL);
   state.cmd                 = fd_env_strip_cmdline_cstr ( &argc, &argv, "--cmd",          NULL, NULL);
-  state.skip_exe_opt        = fd_env_strip_cmdline_cstr ( &argc, &argv, "--skip-exe",     NULL, NULL);
+  state.txn_exe_opt         = fd_env_strip_cmdline_cstr ( &argc, &argv, "--txn-exe",     NULL, NULL);
   state.pages_opt           = fd_env_strip_cmdline_cstr ( &argc, &argv, "--pages",        NULL, NULL);
   const char *index_max_opt = fd_env_strip_cmdline_cstr ( &argc, &argv, "--index-max",    NULL, NULL);
   const char *validate_db   = fd_env_strip_cmdline_cstr ( &argc, &argv, "--validate",     NULL, NULL);
@@ -346,8 +395,10 @@ int main(int argc, char **argv) {
     exit(1);
   }
 
-  if (state.skip_exe_opt)
-    state.skip_exe = !strcmp(state.skip_exe_opt, "true");
+  if (state.txn_exe_opt) {
+    state.txn_exe = (strcmp(state.txn_exe_opt, "skip") == 0) ? 1 : 0;
+    state.txn_exe = (strcmp(state.txn_exe_opt, "sim") == 0) ? 2 : 0;
+  }
 
   if (state.pages_opt) 
     state.pages = (ulong) atoi(state.pages_opt);
