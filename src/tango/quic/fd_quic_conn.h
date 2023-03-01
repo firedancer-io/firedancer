@@ -61,7 +61,7 @@ struct fd_quic_range {
    used when acks arrive to determine what is being acked specifically */
 struct fd_quic_pkt_meta {
   /* stores meta data about what was sent in the identified packet */
-  ulong        pkt_number;  /* the packet number */
+  ulong         pkt_number;  /* the packet number */
   uchar         enc_level;   /* every packet is sent at a specific enc_level */
   uchar         pn_space;    /* packet number space (must be consistent with enc_level)  */
 
@@ -105,14 +105,14 @@ struct fd_quic_pkt_meta {
 
 struct fd_quic_ack {
   /* stores data about what was ack'ed */
-  ulong        tx_pkt_number; /* the packet number this ack range was or will be transmitted in */
-  ulong        tx_time;       /* the time the ack was sent, or should be sent */
-  ulong        pkt_rcvd;      /* the time the original packet was received */
+  ulong           tx_pkt_number; /* the packet number this ack range was or will be transmitted in */
+  ulong           tx_time;       /* the time the ack was sent, or should be sent */
+  ulong           pkt_rcvd;      /* the time the original packet was received */
   fd_quic_range_t pkt_number;    /* range of packet numbers being acked */
   fd_quic_ack_t * next;          /* next ack in linked list - e.g. free list */
-  uchar         enc_level;
-  uchar         pn_space;
-  uchar         flags;
+  uchar           enc_level;
+  uchar           pn_space;
+  uchar           flags;
 # define FD_QUIC_ACK_FLAGS_SENT      (1u<<0u)
 # define FD_QUIC_ACK_FLAGS_MANDATORY (1u<<1u)
 };
@@ -264,43 +264,45 @@ struct fd_quic_conn {
   fd_quic_ack_t *      acks_tx[4];
   fd_quic_ack_t *      acks_tx_end[4];     /* the ends of each list in acks_tx */
 
-  ulong             peer_max_ack_delay; /* limit on the delay we intensionally impose on acks
+  ulong                peer_max_ack_delay; /* limit on the delay we intentionally impose on acks
                                               in nanoseconds */
 
   /* flow control */
-  ulong               tx_max_data;        /* the limit on the number of bytes we are allowed
+  ulong                tx_max_data;        /* the limit on the number of bytes we are allowed
                                               to send to the peer across all streams */
                                            /* even if a bytes on a stream are not received,
                                               higher offsets received imply the usage of those bytes,
                                               and they count against the max */
-  ulong               tx_tot_data;        /* total of all bytes received across all streams
+  ulong                tx_tot_data;        /* total of all bytes received across all streams
                                               and including implied bytes */
-  ulong               rx_max_data;        /* the limit on the number of bytes the peer is allowed to
+  ulong                rx_max_data;        /* the limit on the number of bytes the peer is allowed to
                                               send to us */
-  ulong               rx_tot_data;        /* total of all bytes received across all streams
+  ulong                rx_tot_data;        /* total of all bytes received across all streams
                                               and including implied bytes */
 
-  uchar              flags;
+  uint                 flags;
 # define FD_QUIC_CONN_FLAGS_MAX_DATA   (1u<<0u)
 # define FD_QUIC_CONN_FLAGS_CLOSE_SENT (1u<<1u)
 
+  uchar                spin_bit;                   /* spin bit used for latency measurements */
+
   /* max stream data per stream type */
-  ulong               tx_initial_max_stream_data_uni;
-  ulong               tx_initial_max_stream_data_bidi_local;
-  ulong               tx_initial_max_stream_data_bidi_remote;
-  ulong               rx_initial_max_stream_data_uni;
-  ulong               rx_initial_max_stream_data_bidi_local;
-  ulong               rx_initial_max_stream_data_bidi_remote;
+  ulong                tx_initial_max_stream_data_uni;
+  ulong                tx_initial_max_stream_data_bidi_local;
+  ulong                tx_initial_max_stream_data_bidi_remote;
+  ulong                rx_initial_max_stream_data_uni;
+  ulong                rx_initial_max_stream_data_bidi_local;
+  ulong                rx_initial_max_stream_data_bidi_remote;
 
   /* last tx packet num with max_data frame refering to this stream
      set to next_pkt_number to indicate a new max_data frame should be sent
      if we time out this packet (or possibly a later packet) we resend the frame
        and update this value */
-  ulong             upd_pkt_number;
+  ulong                upd_pkt_number;
 
   /* for timing out data and resending
      should be at least the smoothed round-trip-time */
-  ulong             base_timeout;
+  ulong                base_timeout;
 
   fd_quic_conn_t *     next;               /* next connection in the free list, or in service list */
 };
