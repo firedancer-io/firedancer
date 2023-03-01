@@ -4,11 +4,6 @@ bin
 unit-test
 tmp
 
-bazel-bin
-bazel-firedancer
-bazel-out
-bazel-testlogs
-
 genhtml/
 target/
 
