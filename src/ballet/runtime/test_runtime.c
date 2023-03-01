@@ -180,7 +180,7 @@ int ingest(global_state_t *state) {
               FD_LOG_ERR(("wtf"));
             if ((metadata.magic != FD_ACCOUNT_META_MAGIC) || (metadata.hlen != sizeof(metadata))) 
               FD_LOG_ERR(("wtf2"));
-          } while (false);
+          } while (0);
 
 #if 0
           if (memcmp(hdr->info.owner, sprog, sizeof(sprog)) != 0) {
