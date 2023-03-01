@@ -1,5 +1,0 @@
-doc
-bazel-*
-genhtml
-.vscode
-ffi/rust/firedancer-sys/firedancer
