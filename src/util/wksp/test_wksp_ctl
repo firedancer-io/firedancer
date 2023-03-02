@@ -89,6 +89,16 @@ $BIN/fd_wksp_ctl check          && fail check $?
 $BIN/fd_wksp_ctl check bad/name && fail check $?
 $BIN/fd_wksp_ctl check $WKSP    || fail check $?
 
+echo Testing usage
+
+$BIN/fd_wksp_ctl usage               && fail usage $?
+$BIN/fd_wksp_ctl usage bad/name      && fail usage $?
+$BIN/fd_wksp_ctl usage bad/name    1 \
+                 usage $WKSP       1 \
+                 usage $WKSP    1234 \
+                 usage $WKSP    2345 \
+|| fail usage $?
+
 echo Testing query
 
 $BIN/fd_wksp_ctl query          && fail query $?

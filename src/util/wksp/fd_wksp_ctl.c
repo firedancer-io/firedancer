@@ -261,8 +261,8 @@ main( int     argc,
 
       fd_wksp_t * wksp = fd_wksp_attach( name ); /* logs details */
       if( FD_LIKELY( wksp ) ) {
-        fd_wksp_tag_free( wksp, tag ); /* logs details */
-        fd_wksp_detach( wksp );        /* logs details */
+        fd_wksp_tag_free( wksp, &tag, 1UL ); /* logs details */
+        fd_wksp_detach( wksp );              /* logs details */
       }
 
       FD_LOG_NOTICE(( "%i: %s %s %lu: success", cnt, cmd, name, tag ));
@@ -307,6 +307,35 @@ main( int     argc,
 
       FD_LOG_NOTICE(( "%i: %s %s: success", cnt, cmd, name ));
       SHIFT(1);
+
+    } else if( !strcmp( cmd, "usage" ) ) {
+
+      if( FD_UNLIKELY( argc<2 ) ) FD_LOG_ERR(( "%i: %s: too few arguments\n\tDo %s help for help", cnt, cmd, bin ));
+
+      char const * name =                   argv[0];
+      ulong        tag  = fd_cstr_to_ulong( argv[1] );
+
+      fd_wksp_t * wksp = fd_wksp_attach( name ); /* logs details */
+      if( FD_UNLIKELY( !wksp ) ) fprintf( stdout, "-\n" );
+      else {
+        fd_wksp_usage_t usage[1];
+        fd_wksp_usage( wksp, &tag, 1UL, usage );
+        fprintf( stdout,
+                 "wksp %s\n"
+                 "\t%20lu bytes max        (%lu blocks, %lu blocks max)\n"
+                 "\t%20lu bytes used       (%lu blocks)\n"
+                 "\t%20lu bytes avail      (%lu blocks)\n"
+                 "\t%20lu bytes w/tag %4lu (%lu blocks)\n",
+                 wksp->name,
+                 usage->total_sz,                  usage->total_cnt,                   usage->total_max,
+                 usage->total_sz - usage->free_sz, usage->total_cnt - usage->free_cnt,
+                 usage->free_sz,                   usage->free_cnt,
+                 usage->used_sz, tag,              usage->used_cnt );
+        fd_wksp_detach( wksp ); /* logs details */
+      }
+
+      FD_LOG_NOTICE(( "%i: %s %s %lu: success", cnt, cmd, name, tag ));
+      SHIFT(2);
 
     } else if( !strcmp( cmd, "query" ) ) {
 

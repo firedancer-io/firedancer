@@ -574,14 +574,18 @@ ulong
 fd_wksp_tag( fd_wksp_t * wksp,
              ulong       gaddr );
 
-/* fd_wksp_tag_free frees all allocations in wksp that have the given
-   tag.  Logs details if any wonkiness encountered (e.g. wksp is NULL,
-   tag is not in [1,FD_WKSP_ALLOC_TAG_MAX].  This is a fast
-   O(wksp_alloc_cnt). */
+/* fd_wksp_tag_free frees all allocations in wksp that have matches
+   one of the given tags.  The tag array is indexed [0,tag_cnt).  The
+   tag can be provided in any order, multiple occurences of the same tag
+   are fine and as are tags not in [1,FD_WKPS_ALLOC_TAG_MAX] (these will
+   be ignoredas they defintely do not match any allocations).  Logs
+   details if any wonkiness encountered (e.g. wksp is NULL, tag is not
+   in [1,FD_WKSP_ALLOC_TAG_MAX].  This is a fast O(wksp_alloc_cnt). */
 
 void
-fd_wksp_tag_free( fd_wksp_t * wksp,
-                  ulong       tag );
+fd_wksp_tag_free( fd_wksp_t *   wksp,
+                  ulong const * tag,
+                  ulong         tag_cnt );
 
 /* fd_wksp_alloc_laddr is the same as fd_wksp_alloc but returns a
    pointer in the caller's local address space if the allocation was
@@ -669,6 +673,58 @@ fd_wksp_new_anonymous( ulong        page_sz,
 
 void
 fd_wksp_delete_anonymous( fd_wksp_t * wksp );
+
+/* fd_wksp_usage computes the wksp usage at some point in time between
+   when the call was made and the call returned, populating the user
+   provided usage structure with the result.  Always returns usage.
+
+   wksp is a current local join to the workspace to compute usage.
+
+   tag[tag_idx] for tag_idx in [0,tag_cnt) is an array of tags to
+   compute the usage.  The order doesn't matter and, if a tag appears
+   multiple times in the array, it will only be counted once in the used
+   stats.  A zero tag_cnt (potentially with a NULL tag) is fine
+   (used_cnt,used_set for such will be 0,0).  A tag of 0 indicates to
+   include free partitions in the used stats.
+
+   total_max is the maximum partitions the wksp can have.  This will be
+   positive.
+
+   total_sz is the number of bytes the wksp has available for
+   partitioning.  As the partitioning always covers the entire wksp,
+   total_sz is constant for the lifetime of the wksp.
+
+   total_cnt is the number of partitions the wksp currently has.  This
+   will be in [1,total_max].
+
+   free_cnt/sz is the number of free partitions / free bytes the wksp
+   currently has.  A free partition has a tag of 0 is currently
+   available for splitting to satisfy the next fd_wksp_alloc request.
+
+   used_cnt/sz is the number of partitions / bytes used by wksp
+   partitions whose tags are in the provided tag set.
+
+   This is O(wksp_alloc_cnt) and will lock the wksp while running (and
+   potentially block the caller if others are holding onto the lock).
+   So use in testing, etc.  Likewise, the precise meaning of the
+   statistics computed by this API are dependent on the implementation
+   details under the hood (that is do not be surprised if this API gets
+   changed in the future). */
+
+struct fd_wksp_usage {
+  ulong total_max;
+  ulong total_cnt; ulong total_sz;
+  ulong free_cnt;  ulong free_sz;
+  ulong used_cnt;  ulong used_sz;
+};
+
+typedef struct fd_wksp_usage fd_wksp_usage_t;
+
+fd_wksp_usage_t *
+fd_wksp_usage( fd_wksp_t *       wksp,
+               ulong const *     tag,
+               ulong             tag_cnt,
+               fd_wksp_usage_t * usage );
 
 FD_PROTOTYPES_END
 

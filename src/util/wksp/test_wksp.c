@@ -41,9 +41,40 @@ test_main( int     argc,
 
   int lg_align_max = fd_ulong_find_msb( align_max );
 
+  fd_wksp_usage_t usage    [1];
+  ulong           usage_tag[2];
+
+  FD_TEST( fd_wksp_usage( _wksp, NULL, 0UL, usage )==usage );
+  FD_TEST( usage->total_max>=usage->total_cnt );
+  FD_TEST( usage->total_cnt>=(usage->free_cnt+usage->used_cnt) ); FD_TEST( usage->total_sz>=(usage->free_sz+usage->used_sz) );
+  FD_TEST( !usage->used_cnt );                                    FD_TEST( !usage->used_sz );
+  ulong total_max = usage->total_max;
+  ulong total_sz  = usage->total_sz;
+
+  FD_TEST( fd_wksp_usage( _wksp, usage_tag, 0UL, usage )==usage );
+  FD_TEST( usage->total_max>=usage->total_cnt );
+  FD_TEST( usage->total_max==total_max );                         FD_TEST( usage->total_sz==total_sz );
+  FD_TEST( usage->total_cnt>=(usage->free_cnt+usage->used_cnt) ); FD_TEST( usage->total_sz>=(usage->free_sz+usage->used_sz) );
+  FD_TEST( !usage->used_cnt );                                    FD_TEST( !usage->used_sz );
+
+  usage_tag[0] = 0UL;
+  FD_TEST( fd_wksp_usage( _wksp, usage_tag, 1UL, usage )==usage );
+  FD_TEST( usage->total_max>=usage->total_cnt );
+  FD_TEST( usage->total_max==total_max );      FD_TEST( usage->total_sz==total_sz );
+  FD_TEST( usage->free_cnt==usage->used_cnt ); FD_TEST( usage->free_sz==usage->used_sz );
+
+  tag[0] = 1234UL; tag[1] = 2345UL;
+
   while( !FD_VOLATILE( go ) ) FD_SPIN_PAUSE();
 
   for( ulong i=0UL; i<2UL*alloc_cnt; i++ ) {
+
+    if( FD_UNLIKELY( !(fd_rng_uint( rng ) & 1023U) ) ) {
+      FD_TEST( fd_wksp_usage( _wksp, tag, 2UL, usage )==usage );
+      FD_TEST( usage->total_max>=usage->total_cnt );
+      FD_TEST( usage->total_max==total_max );                         FD_TEST( usage->total_sz==total_sz );
+      FD_TEST( usage->total_cnt>=(usage->free_cnt+usage->used_cnt) ); FD_TEST( usage->total_sz>=(usage->free_sz+usage->used_sz) );
+    }
 
     /* Determine if we should alloc or free this iteration.  If j==0,
        there are no outstanding allocs to free so we must alloc.  If
@@ -134,12 +165,14 @@ main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
 
-  char const * name       = fd_env_strip_cmdline_cstr ( &argc, &argv, "--wksp",      NULL, NULL      );
-  /**/         _alloc_cnt = fd_env_strip_cmdline_ulong( &argc, &argv, "--alloc-cnt", NULL, 65536UL   );
-  /**/         _align_max = fd_env_strip_cmdline_ulong( &argc, &argv, "--align-max", NULL, 2097152UL );
-  /**/         _sz_max    = fd_env_strip_cmdline_ulong( &argc, &argv, "--sz-max",    NULL, 2097152UL );
+  char const * name       = fd_env_strip_cmdline_cstr ( &argc, &argv, "--wksp",      NULL,            NULL );
+  char const * _page_sz   = fd_env_strip_cmdline_cstr ( &argc, &argv, "--page-sz",   NULL,      "gigantic" );
+  ulong        page_cnt   = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt",  NULL,             1UL );
+  ulong        near_cpu   = fd_env_strip_cmdline_ulong( &argc, &argv, "--near-cpu",  NULL, fd_log_cpu_id() );
+  /**/         _alloc_cnt = fd_env_strip_cmdline_ulong( &argc, &argv, "--alloc-cnt", NULL,         65536UL );
+  /**/         _align_max = fd_env_strip_cmdline_ulong( &argc, &argv, "--align-max", NULL,       2097152UL );
+  /**/         _sz_max    = fd_env_strip_cmdline_ulong( &argc, &argv, "--sz-max",    NULL,       2097152UL );
 
-  if( FD_UNLIKELY( !name                           ) ) FD_LOG_ERR(( "--wksp not specified" ));
   if( FD_UNLIKELY( !_alloc_cnt                     ) ) FD_LOG_ERR(( "--alloc-cnt should be positive"     ));
   if( FD_UNLIKELY( !fd_ulong_is_pow2( _align_max ) ) ) FD_LOG_ERR(( "--align-max should be a power of 2" ));
   if( FD_UNLIKELY( !_sz_max                        ) ) FD_LOG_ERR(( "--sz-max should be positive"        ));
@@ -147,13 +180,17 @@ main( int     argc,
 
   ulong tile_cnt = fd_tile_cnt();
 
-  FD_LOG_NOTICE(( "Testing with --wksp %s, --alloc-cnt %lu, --align-max %lu, --sz-max %lu on %lu tile(s)",
-                  name, _alloc_cnt, _align_max, _sz_max, tile_cnt ));
+  if( name ) {
+    FD_LOG_NOTICE(( "Attaching to --wksp %s", name ));
+    _wksp = fd_wksp_attach( name );
+  } else {
+    FD_LOG_NOTICE(( "--wksp not specified, using an anonymous local workspace, --page-sz %s, --page-cnt %lu, --near-cpu %lu",
+                    _page_sz, page_cnt, near_cpu ));
+    _wksp = fd_wksp_new_anonymous( fd_cstr_to_shmem_page_sz( _page_sz ), page_cnt, near_cpu, "wksp", 0UL );
+  }
 
-  FD_LOG_NOTICE(( "Attaching to wksp %s", name ));
-
-  _wksp = fd_wksp_attach( name );
-  if( FD_UNLIKELY( !_wksp ) ) FD_LOG_ERR(( "fd_wksp_attach failed" ));
+  FD_LOG_NOTICE(( "Testing with --alloc-cnt %lu, --align-max %lu, --sz-max %lu on %lu tile(s)",
+                  _alloc_cnt, _align_max, _sz_max, tile_cnt ));
 
   if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)_wksp, _align_max ) ) )
     FD_LOG_ERR(( "--align-max %lu too large for the page size backing wksp %s", _align_max, name ));
@@ -200,16 +237,17 @@ main( int     argc,
 
     /* Free unused tag and make sure it didn't change anything. */
 
-    fd_wksp_tag_free( _wksp, tag_0-1UL );
+    ulong tag_f = tag_0 - 1UL;
+    fd_wksp_tag_free( _wksp, &tag_f, 1UL );
 
     for( ulong idx=0UL; idx<OUTSTANDING_MAX; idx++ )
       FD_TEST( fd_wksp_tag( _wksp, gaddr[idx] + fd_rng_ulong_roll( rng, sz[idx] ) )==tag[idx] );
 
     /* Free used tags one by one and make sure things are
-       as expected. */
+       as expected.  FIXME: ADD SOME MULTITAG FREE TOO. */
 
-    for( ulong tag_f=tag_0; tag_f<=tag_1; tag_f++ ) {
-      fd_wksp_tag_free( _wksp, tag_f );
+    for( tag_f=tag_0; tag_f<=tag_1; tag_f++ ) {
+      fd_wksp_tag_free( _wksp, &tag_f, 1UL );
       for( ulong idx=0UL; idx<OUTSTANDING_MAX; idx++ ) {
         ulong tag_e = fd_ulong_if( tag[idx]>tag_f, tag[idx], 0UL );
         FD_TEST( fd_wksp_tag( _wksp, gaddr[idx] + fd_rng_ulong_roll( rng, sz[idx] ) )==tag_e );
@@ -223,9 +261,8 @@ main( int     argc,
   /* FIXME: ADD COVERAGE FOR WKSP_POD APIS */
   /* FIXME: TEST CSTR/MAP/UNMAP STUFF */
 
-  FD_LOG_NOTICE(( "Detaching from wksp" ));
-
-  fd_wksp_detach( _wksp );
+  if( name ) fd_wksp_detach( _wksp );
+  else       fd_wksp_delete_anonymous( _wksp );
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
