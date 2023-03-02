@@ -386,8 +386,8 @@ fd_shmem_acquire( ulong page_sz,
   ulong numa_idx = fd_shmem_numa_idx( cpu_idx );
 
   int flags = MAP_PRIVATE | MAP_ANONYMOUS;
-  if( page_sz==FD_SHMEM_HUGE_PAGE_SZ     ) flags |= MAP_HUGETLB | MAP_HUGE_2MB;
-  if( page_sz==FD_SHMEM_GIGANTIC_PAGE_SZ ) flags |= MAP_HUGETLB | MAP_HUGE_1GB;
+  if( page_sz==FD_SHMEM_HUGE_PAGE_SZ     ) flags |= (int)MAP_HUGETLB | (int)MAP_HUGE_2MB;
+  if( page_sz==FD_SHMEM_GIGANTIC_PAGE_SZ ) flags |= (int)MAP_HUGETLB | (int)MAP_HUGE_1GB;
 
   /* See fd_shmem_create for details on the locking, mempolicy
      and what not tricks */
