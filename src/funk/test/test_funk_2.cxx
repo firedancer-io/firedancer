@@ -69,6 +69,7 @@ struct xactionkey {
       return memcmp(&_id, &x._id, sizeof(_id)) == 0;
     }
     operator const fd_funk_xactionid* () const { return &_id; }
+    xactionkey& operator= (const xactionkey& x) { memcpy(&_id, &x._id, sizeof(_id)); return *this; }
 };
 
 struct xactionkeyhash {
@@ -169,7 +170,7 @@ int main(int argc, char **argv) {
   };
   validateall();
 
-  fd_funk_commit(funk, xid, 1);
+  fd_funk_commit(funk, xid);
   golden[rootxid] = golden[xid];
   golden.erase(xid);
 
@@ -230,7 +231,7 @@ int main(int argc, char **argv) {
 
   validateall();
 
-  fd_funk_commit(funk, xidchain[9], 1);
+  fd_funk_commit(funk, xidchain[9]);
   golden[rootxid] = golden[xidchain[9]];
   for (unsigned j = 0; j < 10; ++j)
     golden.erase(xidchain[j]);
@@ -255,7 +256,7 @@ int main(int argc, char **argv) {
 
   validateall();
 
-  fd_funk_commit(funk, xidchain[9], 1);
+  fd_funk_commit(funk, xidchain[9]);
   golden[rootxid] = golden[xidchain[9]];
   for (unsigned j = 0; j < 10; ++j)
     golden.erase(xidchain[j]);
@@ -302,7 +303,7 @@ int main(int argc, char **argv) {
 
   validateall();
 
-  fd_funk_commit(funk, xidchain[9], 1);
+  fd_funk_commit(funk, xidchain[9]);
   golden[rootxid] = golden[xidchain[9]];
   for (unsigned j = 0; j < 10; ++j)
     golden.erase(xidchain[j]);
@@ -342,7 +343,7 @@ int main(int argc, char **argv) {
 
   validateall();
 
-  fd_funk_commit(funk, xidchain[9], 1);
+  fd_funk_commit(funk, xidchain[9]);
   golden[rootxid] = golden[xidchain[9]];
   for (unsigned j = 0; j < 10; ++j)
     golden.erase(xidchain[j]);
@@ -398,7 +399,7 @@ int main(int argc, char **argv) {
   fd_funk_cancel(funk, xidchain[7]);
   fd_funk_cancel(funk, xidchain[7]);
   fd_funk_cancel(funk, xidchain[7]);
-  fd_funk_commit(funk, xidchain[6], 1);
+  fd_funk_commit(funk, xidchain[6]);
 
   for (unsigned j = 0; j < 10; ++j)
     if (fd_funk_isopen(funk, xidchain[j]))
@@ -430,7 +431,7 @@ int main(int argc, char **argv) {
 
   validateall();
 
-  fd_funk_commit(funk, xid, 1);
+  fd_funk_commit(funk, xid);
   golden[rootxid] = golden[xid];
   golden.erase(xid);
 
@@ -481,7 +482,7 @@ int main(int argc, char **argv) {
 
   validateall();
 
-  fd_funk_commit(funk, xid, 1);
+  fd_funk_commit(funk, xid);
   golden[rootxid] = golden[xid];
   golden.erase(xid);
 
@@ -546,7 +547,7 @@ int main(int argc, char **argv) {
 
   validateall();
 
-  fd_funk_commit(funk, xid, 1);
+  fd_funk_commit(funk, xid);
   golden[rootxid] = golden[xid];
   golden.erase(xid);
 
@@ -627,12 +628,85 @@ int main(int argc, char **argv) {
   
   validateall();
 
-  fd_funk_commit(funk, xid, 1);
+  fd_funk_commit(funk, xid);
   golden[rootxid] = golden[xid];
   golden.erase(xid);
 
   validateall();
 
+  rg.genbytes((char*)&xid, sizeof(xid));
+  fd_funk_fork(funk, rootxid, xid);
+  for (auto& [key,_] : golden[rootxid])
+    fd_funk_delete_record(funk, xid, key);
+  golden[xid].clear();
+
+  validateall();
+
+  fd_funk_commit(funk, xid);
+  golden[rootxid] = golden[xid];
+  golden.erase(xid);
+
+  validateall();
+
+  {
+    recordkey key;
+    rg.genbytes((char*)&key, sizeof(key));
+    for (ulong i = 0; i < 1000; ++i) {
+      rg.genbytes((char*)&xid, sizeof(xid));
+      fd_funk_fork(funk, rootxid, xid);
+      golden[xid] = golden[rootxid];
+      void* data = &i;
+      ulong len = sizeof(i);
+      ulong offset = i*sizeof(i);
+      if (fd_funk_write(funk, xid, key, data, offset, len) != (long)len)
+        FD_LOG_ERR(("write failed"));
+      databuf& db = golden[xid][key];
+      db.write(data, offset, len);
+      const void* res;
+      auto reslen = fd_funk_read(funk, xid, key, &res, 0, MAXRECORDSIZE);
+      if (!db.equals(res, reslen))
+        FD_LOG_ERR(("read returned wrong result"));
+      reslen = fd_funk_read(funk, xid, key, &res, 0, MAXRECORDSIZE);
+      if (!db.equals(res, reslen))
+        FD_LOG_ERR(("read returned wrong result"));
+      fd_funk_commit(funk, xid);
+      golden[rootxid] = golden[xid];
+      golden.erase(xid);
+    }
+    validateall();
+    reload();
+    validateall();
+  }
+  
+  {
+    recordkey key;
+    rg.genbytes((char*)&key, sizeof(key));
+    xactionkey parent = rootxid;
+    for (ulong i = 0; i < 1000; ++i) {
+      rg.genbytes((char*)&xid, sizeof(xid));
+      fd_funk_fork(funk, parent, xid);
+      golden[xid] = golden[rootxid];
+      void* data = &i;
+      ulong len = sizeof(i);
+      ulong offset = (i+1)*sizeof(i)*2;
+      if (fd_funk_write(funk, xid, key, data, offset, len) != (long)len)
+        FD_LOG_ERR(("write failed"));
+      databuf& db = golden[xid][key];
+      db.write(data, offset, len);
+      const void* res;
+      auto reslen = fd_funk_read(funk, xid, key, &res, 0, MAXRECORDSIZE);
+      if (!db.equals(res, reslen))
+        FD_LOG_ERR(("read returned wrong result"));
+      fd_funk_commit(funk, xid);
+      golden[rootxid] = golden[xid];
+      golden.erase(xid);
+      parent = xid;
+    }
+    validateall();
+    reload();
+    validateall();
+  }
+  
   free(scratch);
   
   fd_funk_delete(funk);

@@ -384,7 +384,7 @@ int replay(global_state_t *state) {
     } while (0);
 
     if (state->txn_exe == 2) 
-      fd_funk_commit(state->funk, &funk_txn, 0);
+      fd_funk_commit(state->funk, &funk_txn);
   } // for (ulong slot = state->start_slot; slot < state->end_slot; slot++) 
 
   fd_executor_delete(fd_executor_leave(executor));

@@ -34,13 +34,13 @@ struct fd_funk {
     // Table of transactions
     ulong xactions_offset;
     struct fd_funk_xactions* xactions;
-    // Number of transactions still alive
-    ulong xactions_live;
     // Entry cache manager
     ulong cache_offset;
     struct fd_cache* cache;
     // Root transaction id
     struct fd_funk_xactionid root;
+    // Transaction id of last successful commit
+    struct fd_funk_xactionid last_commit;
     // Vector of free control entry locations
     struct fd_vec_ulong free_ctrl;
     // Dead entries indexed by allocation size
@@ -91,7 +91,6 @@ struct fd_funk* fd_funk_new(char const* backingfile,
   
   store->xactions_offset = xactions_offset;
   store->xactions = fd_funk_xactions_new((char*)shmem + xactions_offset, xactions_max, hashseed);
-  store->xactions_live = 0;
   
   store->cache_offset = cache_offset;
   store->cache = fd_cache_new((char*)shmem + cache_offset, cache_max);
@@ -102,6 +101,7 @@ struct fd_funk* fd_funk_new(char const* backingfile,
 
   // Root transaction id is all zeros
   fd_memset(&store->root, 0, sizeof(store->root));
+  fd_funk_xactionid_t_copy(&store->last_commit, &store->root);
 
   // Open the backing file
   strncpy(store->backing_name, backingfile, sizeof(store->backing_name)-1);

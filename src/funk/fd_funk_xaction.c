@@ -44,36 +44,33 @@ int fd_funk_is_root(struct fd_funk_xactionid const* xid) {
 }
 
 ulong fd_funk_num_xactions(struct fd_funk* store) {
-  return store->xactions_live;
+  return store->xactions->used;
 }
 
-void fd_funk_fork(struct fd_funk* store,
-                  struct fd_funk_xactionid const* parent,
-                  struct fd_funk_xactionid const* child) {
-  // Find the entry for the parent transaction
-  struct fd_funk_xaction_entry* parentry = NULL;
-  if (!fd_funk_is_root(parent)) {
-    parentry = fd_funk_xactions_query(store->xactions, parent);
-    if (parentry == NULL) {
-      FD_LOG_WARNING(("parent transaction does not exist"));
-      return;
-    }
-    if (FD_FUNK_XACTION_PREFIX(parentry)->state == FD_FUNK_XACTION_COMMITTED) {
-      // Parent is committed. Fork off of root instead.
-      parent = &store->root;
-      parentry = NULL;
-    }
+int fd_funk_fork(struct fd_funk* store,
+                 struct fd_funk_xactionid const* parent,
+                 struct fd_funk_xactionid const* child) {
+  // Root is really a synonym for the last committed transaction, and
+  // the latter is less ambiguous, safer.
+  if (fd_funk_is_root(parent))
+    parent = &store->last_commit;
+  // Find the entry for the parent transaction. We are allowed to fork
+  // off the last committed transaction as well as any uncomitted transaction
+  struct fd_funk_xaction_entry* parentry = fd_funk_xactions_query(store->xactions, parent);
+  if (parentry == NULL && !fd_funk_xactionid_t_equal(parent, &store->last_commit)) {
+    FD_LOG_WARNING(("parent transaction does not exist"));
+    return 0;
   }
   // Create the child transaction
   int exists;
   struct fd_funk_xaction_entry* entry = fd_funk_xactions_insert(store->xactions, child, &exists);
   if (entry == NULL) {
     FD_LOG_WARNING(("too many inflight transactions"));
-    return;
+    return 0;
   }
   if (exists) {
     FD_LOG_WARNING(("transaction id already used"));
-    return;
+    return 0;
   }
   // Initialize the entry
   fd_funk_xactionid_t_copy(&entry->parent, parent);
@@ -88,7 +85,7 @@ void fd_funk_fork(struct fd_funk* store,
     FD_FUNK_XACTION_PREFIX(parentry)->state = FD_FUNK_XACTION_FROZEN;
   }
   fd_funk_xaction_cache_new(&entry->cache);
-  store->xactions_live ++;
+  return 1;
 }
 
 void fd_funk_xaction_entry_cleanup(struct fd_funk* store,
@@ -109,11 +106,6 @@ void fd_funk_xactions_cleanup(struct fd_funk* store) {
   struct fd_funk_xaction_entry* entry;
   while ((entry = fd_funk_xactions_iter_next(store->xactions, &iter)) != NULL)
     fd_funk_xaction_entry_cleanup(store, entry);
-}
-
-void fd_funk_cancel_orphans(struct fd_funk* store) {
-  // TBD!!!
-  (void)store;
 }
 
 void fd_funk_execute_script(struct fd_funk* store,
@@ -156,17 +148,26 @@ void fd_funk_execute_script(struct fd_funk* store,
   }
 }
 
-void fd_funk_commit(struct fd_funk* store,
-                    struct fd_funk_xactionid const* id,
-                    int preserve_id) {
+int fd_funk_commit(struct fd_funk* store,
+                   struct fd_funk_xactionid const* id) {
+  // Recommitting the last committed transaction is always
+  // allowed. This also stops the recursive walk up the chain.
+  if (fd_funk_xactionid_t_equal(id, &store->last_commit))
+    return 1;
+  // Find the transaction entry
   struct fd_funk_xaction_entry* entry = fd_funk_xactions_query(store->xactions, id);
-  if (entry == NULL || FD_FUNK_XACTION_PREFIX(entry)->state == FD_FUNK_XACTION_COMMITTED) {
-    // Fail silently in case the transaction was already committed and cleaned up
-    return;
+  if (entry == NULL) {
+    // Not a live transaction
+    return 0;
   }
 
   // Commit the parent transaction first
-  fd_funk_commit(store, &entry->parent, 0);
+  if (!fd_funk_commit(store, &entry->parent)) {
+    FD_LOG_WARNING(("attempt to commit a detached transaction, cancelling instead"));
+    entry = fd_funk_xactions_remove(store->xactions, id);
+    fd_funk_xaction_entry_cleanup(store, entry);
+    return 0;
+  }
   
   // Set the state to committed
   FD_FUNK_XACTION_PREFIX(entry)->state = FD_FUNK_XACTION_COMMITTED;
@@ -179,29 +180,22 @@ void fd_funk_commit(struct fd_funk* store,
     FD_LOG_WARNING(("failed to write write-ahead log, commit failed"));
     FD_FUNK_XACTION_PREFIX(entry)->state = FD_FUNK_XACTION_FROZEN;
     fd_funk_cancel(store, id);
-    return;
+    return 0;
   }
-  store->xactions_live --;
   // We are now in a happy place regarding this transaction. Even if
   // we crash, we can re-execute the transaction out of the
   // write-ahead log
   fd_funk_execute_script(store, entry->script, entry->scriptlen);
   // We can delete the write-ahead log now
   fd_funk_writeahead_delete(store, wa_control, wa_start, wa_alloc);
-  // We can't cleanup the transaction because we may still fork of it
-  // or have live children, but we can cleanup the parent.
-  struct fd_funk_xaction_entry* parentry = fd_funk_xactions_remove(store->xactions, &entry->parent);
-  if (parentry != NULL)
-    fd_funk_xaction_entry_cleanup(store, parentry);
-  if (!preserve_id) {
-    entry = fd_funk_xactions_remove(store->xactions, id);
-    fd_funk_xaction_entry_cleanup(store, entry);
-  }
+  // Final cleanup
+  entry = fd_funk_xactions_remove(store->xactions, id);
+  fd_funk_xaction_entry_cleanup(store, entry);
 
-  // Cancel all uncommitted transactions who are now orphans. These
-  // are typically competitors to the transaction that was just
-  // committed.
-  fd_funk_cancel_orphans(store);
+  // Remember the last committed transaction
+  fd_funk_xactionid_t_copy(&store->last_commit, id);
+
+  return 1;
 }
 
 void fd_funk_cancel(struct fd_funk* store,
@@ -212,10 +206,6 @@ void fd_funk_cancel(struct fd_funk* store,
     return;
   }
   fd_funk_xaction_entry_cleanup(store, entry);
-  store->xactions_live --;
-
-  // Cancel all uncommitted transactions who are now orphans
-  fd_funk_cancel_orphans(store);
 }
 
 void fd_funk_merge(struct fd_funk* store,
@@ -270,13 +260,11 @@ void fd_funk_merge(struct fd_funk* store,
     fd_memcpy(p, source_ents[i]->script + sizeof(struct fd_funk_xaction_prefix), copylen);
     p += copylen;
   }
-  store->xactions_live ++;
 
   // Cleanup the original transactions
   for (ulong i = 0; i < source_cnt; ++i) {
     struct fd_funk_xaction_entry* entry = fd_funk_xactions_remove(store->xactions, source_ids[i]);
     fd_funk_xaction_entry_cleanup(store, entry);
-    store->xactions_live --;
   }  
 }
 
@@ -305,7 +293,7 @@ long fd_funk_writev(struct fd_funk* store,
   // Check for special root case
   if (fd_funk_is_root(xid)) {
     // See if the root is currently forked
-    if (store->xactions_live > 0) {
+    if (store->xactions->used > 0) {
       FD_LOG_WARNING(("cannot update root while transactions are in flight"));
       return -1;
     }
@@ -444,7 +432,7 @@ fd_cache_handle fd_funk_get_cache(struct fd_funk* store,
                                   uint* cache_sz,
                                   uint* record_sz) {
   // Root is a special case
-  if (fd_funk_is_root(xid))
+  if (fd_funk_is_root(xid) || fd_funk_xactionid_t_equal(xid, &store->last_commit))
     return fd_funk_get_cache_root(store, recordid, needed_sz, cache_data, cache_sz, record_sz);
 
   // Find the transaction entry

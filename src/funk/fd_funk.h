@@ -65,21 +65,21 @@ struct fd_funk_xactionid const* fd_funk_root(struct fd_funk* store);
 // Initiate a new transaction by forking the state of an existing
 // transaction (or the root). Updates to the parent are forbidden
 // after this call. The child id must not conflict with an existing
-// transaction id. The parent id must already exist.
-void fd_funk_fork(struct fd_funk* store,
-                  struct fd_funk_xactionid const* parent,
-                  struct fd_funk_xactionid const* child);
+// transaction id. The parent id must refer to root, the last
+// committed transaction, or an uncommitted transaction. A non-zero
+// result indicates success.
+int fd_funk_fork(struct fd_funk* store,
+                 struct fd_funk_xactionid const* parent,
+                 struct fd_funk_xactionid const* child);
 
 // Commit all updates in the given transaction to final storage (the
 // root transaction). All parent transactions in the chain are also
 // finalized (but not children of the given transaction). Competing
 // forked transactions are discarded. This call is safe in the
-// presence of crashes, whatever that means. If preserve_id is true
-// (non-zero), the transaction id is kept in the table to allow future
-// forking from it.
-void fd_funk_commit(struct fd_funk* store,
-                    struct fd_funk_xactionid const* id,
-                    int preserve_id);
+// presence of crashes, whatever that means. A non-zero result
+// indicates success.
+int fd_funk_commit(struct fd_funk* store,
+                   struct fd_funk_xactionid const* id);
 
 // Discard all updates in the given transaction and its children.
 void fd_funk_cancel(struct fd_funk* store,
