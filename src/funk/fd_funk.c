@@ -134,7 +134,7 @@ void* fd_funk_delete(struct fd_funk* store) {
   for (uint i = 0; i < FD_FUNK_NUM_DISK_SIZES; ++i)
     fd_funk_vec_dead_entry_destroy(&store->deads[i]);
   if (!fd_alloc_is_empty(store->alloc))
-    FD_LOG_WARNING(("alloc leak detected!"));
+    FD_LOG_ERR(("alloc leak detected!"));
   fd_alloc_delete(fd_alloc_leave(store->alloc));
   close(store->backing_fd);
   fd_wksp_free_laddr(store);
