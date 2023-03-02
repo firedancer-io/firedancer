@@ -87,8 +87,8 @@ long fd_funk_writev_root(struct fd_funk* store,
                          ulong iovcnt,
                          ulong offset);
 
-void fd_funk_delete_record_root(struct fd_funk* store,
-                                struct fd_funk_recordid const* recordid);
+int fd_funk_delete_record_root(struct fd_funk* store,
+                               struct fd_funk_recordid const* recordid);
 
 void fd_funk_validate_root(struct fd_funk* store);
 

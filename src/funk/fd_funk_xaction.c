@@ -108,9 +108,10 @@ void fd_funk_xactions_cleanup(struct fd_funk* store) {
     fd_funk_xaction_entry_cleanup(store, entry);
 }
 
-void fd_funk_execute_script(struct fd_funk* store,
-                            const char* script,
-                            uint scriptlen) {
+int fd_funk_execute_script(struct fd_funk* store,
+                           const char* script,
+                           uint scriptlen) {
+  int result = 1;
   const char* p = script + sizeof(struct fd_funk_xaction_prefix);
   const char* const pend = script + scriptlen;
   while (p < pend) {
@@ -124,7 +125,10 @@ void fd_funk_execute_script(struct fd_funk* store,
       struct iovec iov;
       iov.iov_base = (void*)(p + sizeof(*head));
       iov.iov_len = head->size;
-      fd_funk_writev_root(store, &recordid, &iov, 1, head->offset);
+      if (fd_funk_writev_root(store, &recordid, &iov, 1, head->offset) != (long)head->size) {
+        FD_LOG_WARNING(("write failed during commit"));
+        result = 0;
+      }
       p += sizeof(*head) + head->size;
       if (p > pend)
         FD_LOG_ERR(("corrupt transaction transcript"));
@@ -135,7 +139,10 @@ void fd_funk_execute_script(struct fd_funk* store,
       // Copy record id to fix alignment
       struct fd_funk_recordid recordid;
       fd_memcpy(&recordid, &head->recordid, sizeof(recordid));
-      fd_funk_delete_record_root(store, &recordid);
+      if (!fd_funk_delete_record_root(store, &recordid)) {
+        FD_LOG_WARNING(("delete failed during commit"));
+        result = 0;
+      }
       p += sizeof(*head);
       if (p > pend)
         FD_LOG_ERR(("corrupt transaction transcript"));
@@ -146,6 +153,7 @@ void fd_funk_execute_script(struct fd_funk* store,
       break;
     }
   }
+  return result;
 }
 
 int fd_funk_commit(struct fd_funk* store,
@@ -177,15 +185,19 @@ int fd_funk_commit(struct fd_funk* store,
   uint wa_alloc;
   if (!fd_funk_writeahead(store, id, &entry->parent, entry->script, entry->scriptlen,
                           &wa_control, &wa_start, &wa_alloc)) {
-    FD_LOG_WARNING(("failed to write write-ahead log, commit failed"));
+    FD_LOG_WARNING(("failed to write write-ahead log, commit failed, try again later"));
     FD_FUNK_XACTION_PREFIX(entry)->state = FD_FUNK_XACTION_FROZEN;
-    fd_funk_cancel(store, id);
     return 0;
   }
   // We are now in a happy place regarding this transaction. Even if
   // we crash, we can re-execute the transaction out of the
   // write-ahead log
-  fd_funk_execute_script(store, entry->script, entry->scriptlen);
+  if (!fd_funk_execute_script(store, entry->script, entry->scriptlen)) {
+    FD_LOG_WARNING(("failed to execute transaction, try again later"));
+    FD_FUNK_XACTION_PREFIX(entry)->state = FD_FUNK_XACTION_FROZEN;
+    fd_funk_writeahead_delete(store, wa_control, wa_start, wa_alloc);
+    return 0;
+  }
   // We can delete the write-ahead log now
   fd_funk_writeahead_delete(store, wa_control, wa_start, wa_alloc);
   // Final cleanup

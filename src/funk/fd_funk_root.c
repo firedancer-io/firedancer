@@ -485,19 +485,20 @@ fd_cache_handle fd_funk_get_cache_root(struct fd_funk* store,
   return ent->cachehandle;
 }
 
-void fd_funk_delete_record_root(struct fd_funk* store,
-                                struct fd_funk_recordid const* recordid) {
+int fd_funk_delete_record_root(struct fd_funk* store,
+                               struct fd_funk_recordid const* recordid) {
 
   // Remove the entry from the index
   struct fd_funk_index_entry* ent = fd_funk_index_remove(store->index, recordid);
   if (ent == NULL) {
     // Doesn't exist
-    return;
+    return 0;
   }
   // Release the cached data
   fd_cache_release(store->cache, ent->cachehandle, store->alloc);
   // Force the control to be dead. Allow the disk space to be reused.
   fd_funk_make_dead(store, ent->control, ent->start, ent->alloc);
+  return 1;
 }
 
 // Get the current number of records
