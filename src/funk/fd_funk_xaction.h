@@ -68,3 +68,4 @@ struct fd_funk_xaction_entry {
 
 int fd_funk_is_root(struct fd_funk_xactionid const* xid);
 void fd_funk_xactions_cleanup(struct fd_funk* store);
+void fd_funk_validate_xaction(struct fd_funk* store);

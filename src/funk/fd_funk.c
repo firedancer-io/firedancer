@@ -178,6 +178,7 @@ void fd_funk_cache_hint(struct fd_funk* store,
 
 void fd_funk_validate(struct fd_funk* store) {
   fd_funk_validate_root(store);
+  fd_funk_validate_xaction(store);
 }
 
 #include "fd_funk_root.c"

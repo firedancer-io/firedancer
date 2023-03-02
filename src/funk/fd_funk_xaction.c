@@ -680,3 +680,7 @@ long fd_funk_read(struct fd_funk* store,
   return (long)fd_ulong_min(data_sz, cache_sz - offset);
 }
 
+void fd_funk_validate_xaction(struct fd_funk* store) {
+  if (!fd_funk_xactions_validate(store->xactions))
+    FD_LOG_ERR(("transaction table is corrupt"));
+}
