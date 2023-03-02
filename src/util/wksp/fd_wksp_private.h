@@ -67,6 +67,12 @@ struct __attribute__((aligned(FD_WKSP_ALLOC_ALIGN_MIN))) fd_wksp_private {
   /* Data region here */
 };
 
+/* A fd_alloc_wksp_tag_set_t holds a set of wksp tags */
+
+#define SET_NAME fd_wksp_alloc_tag_set
+#define SET_MAX  (FD_WKSP_ALLOC_TAG_MAX+1UL) /* Yes, +1 */
+#include "../tmpl/fd_set.c"
+
 FD_PROTOTYPES_BEGIN
 
 /* fd_wksp_private_part forms a fd_wksp_private_part_t from the tuple
@@ -84,6 +90,28 @@ fd_wksp_private_part( ulong tag,      /* tag assumed in [0,FD_WKSP_ALLOC_TAG_MAX
 
 static inline ulong fd_wksp_private_part_tag  ( fd_wksp_private_part_t part ) { return part &  FD_WKSP_ALLOC_TAG_MAX; }
 static inline ulong fd_wksp_private_part_gaddr( fd_wksp_private_part_t part ) { return part & ~FD_WKSP_ALLOC_TAG_MAX; }
+
+/* fd_wksp_alloc_tag_set_unpack inserts all tags in [tag_lo,tag_hi] in
+   the tag array into the given tag set.  Assumes set is valid,
+   tag_lo<=tag_hi<=FD_WKSP_ALLOC_TAG_MAX and tag / tag_cnt are valid.
+   Returns the number of actual tags inserted into set. */
+
+static inline ulong
+fd_wksp_alloc_tag_set_unpack( fd_wksp_alloc_tag_set_t * set,
+                              ulong                     tag_lo,
+                              ulong                     tag_hi,
+                              ulong const *             tag,        /* Indexed [0,tag_cnt) */
+                              ulong                     tag_cnt ) {
+  ulong cnt = 0UL;
+  for( ulong tag_idx=0UL; tag_idx<tag_cnt; tag_idx++ ) {
+    ulong t = tag[ tag_idx ];
+    if( FD_LIKELY( (tag_lo<=t) & (t<=tag_hi) ) ) {
+      fd_wksp_alloc_tag_set_insert( set, t );
+      cnt++;
+    }
+  }
+  return cnt;
+}
 
 /* fd_wksp_private_lock locks the wksp for use by the caller.  Will
    recover from other processes that locked the workspace and died while

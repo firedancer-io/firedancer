@@ -52,6 +52,13 @@ check wksp
 reset wksp
 - Free all allocations in a workspace.
 
+usage wksp tag
+- Prints a summary of workspace usage to stdout with total, used by
+  all allocs, free, and used by allocs with the given tag.  Technically
+  speaking, this always succeeds but logs any weirdness detected (if
+  wksp does not appear to be a wksp, prints a single line "-" to
+  stdout).
+
 query wksp
 - Print the detailed workspace usage to stdout.
 
