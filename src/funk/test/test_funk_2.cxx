@@ -9,6 +9,11 @@ extern "C" {
 #include <unordered_map>
 #include <vector>
 
+// Use a private API
+extern "C" {
+extern ulong fd_funk_xactions_kill_orphans(struct fd_funk* store);
+}
+
 // A simple, fast, but not super great random number generator
 class randgen {
   private:
@@ -130,6 +135,9 @@ int main(int argc, char **argv) {
 
   fd_funk_validate(funk);
 
+  if (fd_funk_xactions_kill_orphans(funk) != 0)
+    FD_LOG_ERR(("orphan count is wrong"));
+  
   char* scratch = (char*)malloc(MAXRECORDSIZE);
 
   typedef std::unordered_map<recordkey,databuf,recordkeyhash> xactionstate_t;
@@ -231,6 +239,9 @@ int main(int argc, char **argv) {
 
   validateall();
 
+  if (fd_funk_xactions_kill_orphans(funk) != 0)
+    FD_LOG_ERR(("orphan count is wrong"));
+  
   fd_funk_commit(funk, xidchain[9]);
   golden[rootxid] = golden[xidchain[9]];
   for (unsigned j = 0; j < 10; ++j)
@@ -404,7 +415,9 @@ int main(int argc, char **argv) {
   for (unsigned j = 0; j < 10; ++j)
     if (fd_funk_isopen(funk, xidchain[j]))
       FD_LOG_ERR(("isopen returned wrong result"));
-
+  if (fd_funk_xactions_kill_orphans(funk) != 0)
+    FD_LOG_ERR(("orphan count is wrong"));
+  
   golden[rootxid] = golden[xidchain[6]];
   for (unsigned j = 0; j < 10; ++j)
     golden.erase(xidchain[j]);
@@ -705,6 +718,148 @@ int main(int argc, char **argv) {
     validateall();
     reload();
     validateall();
+  }
+  
+  if (fd_funk_xactions_kill_orphans(funk) != 0)
+    FD_LOG_ERR(("orphan count is wrong"));
+  
+  prevxid = &rootxid;
+  for (unsigned j = 0; j < 10; ++j) {
+    rg.genbytes((char*)&xidchain[j], sizeof(xidchain[j]));
+    fd_funk_fork(funk, *prevxid, xidchain[j]);
+    prevxid = &xidchain[j];
+  }
+  fd_funk_cancel(funk, xidchain[0]);
+  if (fd_funk_xactions_kill_orphans(funk) != 9)
+    FD_LOG_ERR(("orphan count is wrong"));
+  
+  for (unsigned j = 0; j < 10; ++j) {
+    rg.genbytes((char*)&xidchain[j], sizeof(xidchain[j]));
+    fd_funk_fork(funk, rootxid, xidchain[j]);
+  }
+  fd_funk_commit(funk, xidchain[0]);
+  if (fd_funk_xactions_kill_orphans(funk) != 9)
+    FD_LOG_ERR(("orphan count is wrong"));
+  
+  for (unsigned j = 0; j < 10; ++j)
+    rg.genbytes((char*)&xidchain[j], sizeof(xidchain[j]));
+  fd_funk_fork(funk, rootxid, xidchain[0]);
+  fd_funk_fork(funk, xidchain[0], xidchain[1]);
+  fd_funk_fork(funk, xidchain[1], xidchain[2]);
+  fd_funk_fork(funk, rootxid, xidchain[3]);
+  fd_funk_fork(funk, xidchain[3], xidchain[4]);
+  fd_funk_fork(funk, xidchain[4], xidchain[5]);
+  fd_funk_fork(funk, xidchain[1], xidchain[6]);
+  fd_funk_fork(funk, xidchain[6], xidchain[7]);
+  fd_funk_fork(funk, xidchain[2], xidchain[8]);
+  fd_funk_fork(funk, xidchain[2], xidchain[9]);
+  if (fd_funk_num_xactions(funk) != 10)
+    FD_LOG_ERR(("transaction count is wrong"));
+  if (fd_funk_xactions_kill_orphans(funk) != 0)
+    FD_LOG_ERR(("orphan count is wrong"));
+  fd_funk_commit(funk, xidchain[2]);
+  if (fd_funk_num_xactions(funk) != 7)
+    FD_LOG_ERR(("transaction count is wrong"));
+  if (fd_funk_xactions_kill_orphans(funk) != 5)
+    FD_LOG_ERR(("orphan count is wrong"));
+  if (fd_funk_num_xactions(funk) != 2)
+    FD_LOG_ERR(("transaction count is wrong"));
+  fd_funk_commit(funk, xidchain[8]);
+  fd_funk_cancel(funk, xidchain[9]);
+  if (fd_funk_num_xactions(funk) != 0)
+    FD_LOG_ERR(("transaction count is wrong"));
+  
+  for (unsigned j = 0; j < 10; ++j)
+    rg.genbytes((char*)&xidchain[j], sizeof(xidchain[j]));
+  fd_funk_fork(funk, rootxid, xidchain[0]);
+  fd_funk_fork(funk, xidchain[0], xidchain[1]);
+  fd_funk_fork(funk, xidchain[1], xidchain[2]);
+  fd_funk_fork(funk, xidchain[2], xidchain[3]);
+  fd_funk_fork(funk, xidchain[3], xidchain[4]);
+  fd_funk_fork(funk, xidchain[0], xidchain[5]);
+  fd_funk_fork(funk, xidchain[1], xidchain[6]);
+  fd_funk_fork(funk, xidchain[2], xidchain[7]);
+  fd_funk_fork(funk, xidchain[3], xidchain[8]);
+  fd_funk_fork(funk, xidchain[4], xidchain[9]);
+  if (fd_funk_num_xactions(funk) != 10)
+    FD_LOG_ERR(("transaction count is wrong"));
+  if (fd_funk_xactions_kill_orphans(funk) != 0)
+    FD_LOG_ERR(("orphan count is wrong"));
+  fd_funk_commit(funk, xidchain[2]);
+  if (fd_funk_num_xactions(funk) != 7)
+    FD_LOG_ERR(("transaction count is wrong"));
+  if (fd_funk_xactions_kill_orphans(funk) != 2)
+    FD_LOG_ERR(("orphan count is wrong"));
+  if (fd_funk_num_xactions(funk) != 5)
+    FD_LOG_ERR(("transaction count is wrong"));
+  fd_funk_commit(funk, xidchain[4]);
+  if (fd_funk_num_xactions(funk) != 3)
+    FD_LOG_ERR(("transaction count is wrong"));
+  if (fd_funk_xactions_kill_orphans(funk) != 2)
+    FD_LOG_ERR(("orphan count is wrong"));
+  if (fd_funk_num_xactions(funk) != 1)
+    FD_LOG_ERR(("transaction count is wrong"));
+  fd_funk_commit(funk, xidchain[9]);
+  if (fd_funk_num_xactions(funk) != 0)
+    FD_LOG_ERR(("transaction count is wrong"));
+  
+  for (unsigned j = 0; j < 10; ++j)
+    rg.genbytes((char*)&xidchain[j], sizeof(xidchain[j]));
+  fd_funk_fork(funk, rootxid, xidchain[0]);
+  fd_funk_fork(funk, xidchain[0], xidchain[1]);
+  fd_funk_fork(funk, xidchain[1], xidchain[2]);
+  fd_funk_fork(funk, xidchain[2], xidchain[3]);
+  fd_funk_fork(funk, xidchain[3], xidchain[4]);
+  fd_funk_fork(funk, xidchain[0], xidchain[5]);
+  fd_funk_fork(funk, xidchain[1], xidchain[6]);
+  fd_funk_fork(funk, xidchain[2], xidchain[7]);
+  fd_funk_fork(funk, xidchain[3], xidchain[8]);
+  fd_funk_fork(funk, xidchain[4], xidchain[9]);
+  if (fd_funk_num_xactions(funk) != 10)
+    FD_LOG_ERR(("transaction count is wrong"));
+  if (fd_funk_xactions_kill_orphans(funk) != 0)
+    FD_LOG_ERR(("orphan count is wrong"));
+  fd_funk_cancel(funk, xidchain[2]);
+  if (fd_funk_num_xactions(funk) != 9)
+    FD_LOG_ERR(("transaction count is wrong"));
+  fd_funk_commit(funk, xidchain[4]);
+  if (fd_funk_num_xactions(funk) != 7)
+    FD_LOG_ERR(("transaction count is wrong"));
+  if (fd_funk_xactions_kill_orphans(funk) != 3)
+    FD_LOG_ERR(("orphan count is wrong"));
+  if (fd_funk_num_xactions(funk) != 4)
+    FD_LOG_ERR(("transaction count is wrong"));
+  fd_funk_cancel(funk, xidchain[0]);
+  fd_funk_cancel(funk, xidchain[1]);
+  fd_funk_cancel(funk, xidchain[5]);
+  fd_funk_cancel(funk, xidchain[6]);
+  if (fd_funk_num_xactions(funk) != 0)
+    FD_LOG_ERR(("transaction count is wrong"));
+
+  std::vector<xactionkey> lotsofkeys;
+  for (unsigned i = 0; i < 5000; ++i) {
+    unsigned j;
+    rg.genbytes((char*)&j, sizeof(j));
+    if (lotsofkeys.size() < 10 || (j%5 == 0 && lotsofkeys.size() < 100)) {
+      rg.genbytes((char*)&xid, sizeof(xid));
+      fd_funk_fork(funk, rootxid, xid);
+      lotsofkeys.push_back(xid);
+    } else if (j%5 == 1 && lotsofkeys.size() < 100) {
+      rg.genbytes((char*)&xid, sizeof(xid));
+      fd_funk_fork(funk, lotsofkeys[j%lotsofkeys.size()], xid);
+      lotsofkeys.push_back(xid);
+    } else if (j%5 == 2) {
+      auto it = lotsofkeys.begin() + (j%lotsofkeys.size());
+      fd_funk_commit(funk, *it);
+      lotsofkeys.erase(it);
+    } else if (j%5 == 3) {
+      auto it = lotsofkeys.begin() + (j%lotsofkeys.size());
+      fd_funk_cancel(funk, *it);
+      lotsofkeys.erase(it);
+    } else if (j%5 == 4) {
+      auto it = lotsofkeys.begin() + (j%lotsofkeys.size());
+      lotsofkeys.erase(it);
+    }
   }
   
   free(scratch);
