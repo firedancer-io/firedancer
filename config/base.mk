@@ -1,4 +1,4 @@
-SHELL:=/bin/bash
+SHELL:=bash
 CPPFLAGS:=
 CC:=gcc
 CFLAGS:=-std=c17
