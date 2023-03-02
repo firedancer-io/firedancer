@@ -51,6 +51,11 @@ struct fd_funk_xaction_entry {
     struct fd_funk_xaction_cache cache;
     // Next entry in hash chain
     uint next;
+    // State of entry used for garbage collection
+    int gc_state;
+#define FD_FUNK_GC_UNKNOWN -1
+#define FD_FUNK_GC_GOOD 0
+#define FD_FUNK_GC_ORPHAN 1
 };
 
 #define MAP_NAME fd_funk_xactions

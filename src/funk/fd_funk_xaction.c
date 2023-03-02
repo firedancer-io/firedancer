@@ -47,6 +47,74 @@ ulong fd_funk_num_xactions(struct fd_funk* store) {
   return store->xactions->used;
 }
 
+void fd_funk_xaction_entry_cleanup(struct fd_funk* store,
+                                   struct fd_funk_xaction_entry* entry) {
+  fd_alloc_free(store->alloc, entry->script);
+  const ulong cnt = entry->cache.cnt;
+  struct fd_funk_xaction_cache_entry* const elems = entry->cache.elems;
+  for (ulong i = 0; i < cnt; ++i) {
+    struct fd_funk_xaction_cache_entry* const elem = elems + i;
+    fd_cache_release(store->cache, elem->cachehandle, store->alloc);
+  }
+  fd_funk_xaction_cache_destroy(&entry->cache);
+}
+
+int fd_funk_xactions_gc_state(struct fd_funk* store,
+                              struct fd_funk_xaction_entry* entry) {
+  // See if we already computed the state
+  if (entry->gc_state != FD_FUNK_GC_UNKNOWN)
+    return entry->gc_state;
+  // Direct children of the root are good
+  if (fd_funk_xactionid_t_equal(&entry->parent, &store->last_commit))
+    return (entry->gc_state = FD_FUNK_GC_GOOD);
+  // Lookup the parent transaction
+  struct fd_funk_xaction_entry* parentry = fd_funk_xactions_query(store->xactions, &entry->parent);
+  if (parentry == NULL) {
+    // Parent is gone. This transaction should be deleted
+    return (entry->gc_state = FD_FUNK_GC_ORPHAN);
+  }
+  // Inherit the state from the parent
+  return (entry->gc_state = fd_funk_xactions_gc_state(store, parentry));
+}
+
+// Garbage collect any orphan transactions (those that are detached
+// from the root). The complexity of this operation is O(n) where n is
+// the size of the transaction table. It should be used sparingly.
+ulong fd_funk_xactions_kill_orphans(struct fd_funk* store) {
+  // Initialize all the entries in the transaction table to unknown
+  // garbage collection state
+  struct fd_funk_xactions_iter iter;
+  fd_funk_xactions_iter_init(store->xactions, &iter);
+  struct fd_funk_xaction_entry* entry;
+  while ((entry = fd_funk_xactions_iter_next(store->xactions, &iter)) != NULL)
+    entry->gc_state = FD_FUNK_GC_UNKNOWN;
+  // Compute the state of all transactions. Count the orphans.
+  ulong numkill = 0;
+  fd_funk_xactions_iter_init(store->xactions, &iter);
+  while ((entry = fd_funk_xactions_iter_next(store->xactions, &iter)) != NULL) {
+    if (fd_funk_xactions_gc_state(store, entry) == FD_FUNK_GC_ORPHAN)
+      numkill++;
+  }
+  if (numkill == 0)
+    return 0;
+  // Create a list of orphan entries. The iterator doesn't support deletes.
+  struct fd_funk_xactionid** deadpool = (struct fd_funk_xactionid**)
+    fd_alloca(8U, numkill*sizeof(struct fd_funk_xactionid*));
+  numkill = 0;
+  fd_funk_xactions_iter_init(store->xactions, &iter);
+  while ((entry = fd_funk_xactions_iter_next(store->xactions, &iter)) != NULL) {
+    if (entry->gc_state == FD_FUNK_GC_ORPHAN)
+      deadpool[numkill++] = &entry->key;
+  }
+  // Murder the orphans
+  for (ulong i = 0; i < numkill; ++i) {
+    entry = fd_funk_xactions_remove(store->xactions, deadpool[i]);
+    fd_funk_xaction_entry_cleanup(store, entry);
+  }
+  FD_LOG_WARNING(("canceled %lu orphan transactions due to garbage collection", numkill));
+  return numkill;
+}
+
 int fd_funk_fork(struct fd_funk* store,
                  struct fd_funk_xactionid const* parent,
                  struct fd_funk_xactionid const* child) {
@@ -65,8 +133,14 @@ int fd_funk_fork(struct fd_funk* store,
   int exists;
   struct fd_funk_xaction_entry* entry = fd_funk_xactions_insert(store->xactions, child, &exists);
   if (entry == NULL) {
-    FD_LOG_WARNING(("too many inflight transactions"));
-    return 0;
+    // Garbage collect orphans are try again
+    fd_funk_xactions_kill_orphans(store);
+    entry = fd_funk_xactions_insert(store->xactions, child, &exists);
+    if (entry == NULL) {
+      // The transaction table is full
+      FD_LOG_WARNING(("too many inflight transactions"));
+      return 0;
+    }
   }
   if (exists) {
     FD_LOG_WARNING(("transaction id already used"));
@@ -86,18 +160,6 @@ int fd_funk_fork(struct fd_funk* store,
   }
   fd_funk_xaction_cache_new(&entry->cache);
   return 1;
-}
-
-void fd_funk_xaction_entry_cleanup(struct fd_funk* store,
-                                   struct fd_funk_xaction_entry* entry) {
-  fd_alloc_free(store->alloc, entry->script);
-  const ulong cnt = entry->cache.cnt;
-  struct fd_funk_xaction_cache_entry* const elems = entry->cache.elems;
-  for (ulong i = 0; i < cnt; ++i) {
-    struct fd_funk_xaction_cache_entry* const elem = elems + i;
-    fd_cache_release(store->cache, elem->cachehandle, store->alloc);
-  }
-  fd_funk_xaction_cache_destroy(&entry->cache);
 }
 
 void fd_funk_xactions_cleanup(struct fd_funk* store) {
@@ -171,7 +233,7 @@ int fd_funk_commit(struct fd_funk* store,
 
   // Commit the parent transaction first
   if (!fd_funk_commit(store, &entry->parent)) {
-    FD_LOG_WARNING(("attempt to commit a detached transaction, cancelling instead"));
+    FD_LOG_WARNING(("attempt to commit a detached transaction, canceling instead"));
     entry = fd_funk_xactions_remove(store->xactions, id);
     fd_funk_xaction_entry_cleanup(store, entry);
     return 0;
