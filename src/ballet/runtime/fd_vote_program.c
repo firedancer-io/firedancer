@@ -31,6 +31,34 @@ struct fd_vote_epoch_credits {
 };
 typedef struct fd_vote_epoch_credits fd_vote_epoch_credits_t;
 
+/* State of a Vote Account */
+struct fd_vote_state {
+  /* The node that votes in this account */
+  fd_pubkey_t voting_node;
+  /* The signer for withdrawals */
+  fd_pubkey_t authorized_withdrawer;
+  /* Percentage which represents what part of a rewards payout should be given to this vote account */
+  uchar commission;
+  /* The vote lockouts */
+  fd_vote_lockout_t* votes;
+  ulong votes_len;
+  /* Saved root slot.
+     This usually the last lockout which was popped from the votes, but it can be an arbitrary slot
+     when being used inside the tower.
+   */
+  ulong *saved_root_slot;
+  /* History of prior authorized voters and the epochs for which they were authorized. */
+  fd_vote_prior_voter_t* prior_voters;
+  ulong prior_voters_len;
+  /* History of how many credits were earned by the end of each epoch. */
+  fd_vote_epoch_credits_t* epoch_credits;
+  ulong epoch_credits_len;
+  /* Most recent timestamp submitted with a vote */
+  fd_slot_t latest_slot;
+  ulong latest_timestamp;
+};
+typedef struct fd_vote_state fd_vote_state_t;
+
 /* Wrapper around fd_cu16_dec, to make the function signature more consistent with the
    other fd_bincode_decode functions.  */
 ulong fd_decode_short_u16( ushort* self, void const** data, FD_FN_UNUSED void const* dataend ) {
@@ -53,7 +81,7 @@ ulong fd_decode_short_u16( ushort* self, void const** data, FD_FN_UNUSED void co
    The most significant bit of each byte indicates if more bytes have been used, so we keep consuming until
    we reach a byte where the most significant bit is 0.
 */
-void fd_decode_varint( ulong* self, void const** data, FD_FN_UNUSED void const* dataend ) {
+void fd_decode_varint( ulong* self, void const** data, void const* dataend ) {
   const uchar *ptr = (const uchar *) *data;
 
   /* Determine how many bytes were used to encode the varint.
