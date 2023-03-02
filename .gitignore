@@ -11,6 +11,7 @@ bazel-testlogs
 
 genhtml/
 target/
+*.lcov
 
 # Nix
 /result

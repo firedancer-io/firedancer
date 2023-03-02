@@ -1,0 +1,102 @@
+name: Make Coverage
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+jobs:
+  make-test-coverage:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Install deps
+        run: |
+          sudo apt-get install -y \
+            clang                 \
+            llvm-14               \
+            lcov                  \
+            libnuma-dev           \
+            parallel
+
+      - name: Build everything
+        run: make -j MACHINE=linux_clang_x86_64 EXTRAS=llvm-cov
+
+      - name: Run unit tests
+        run: |
+          export FD_LOG_PATH=""
+          export LLVM_PROFILE_FILE="tmp/coverage/%p.profraw"
+          parallel                             \
+            --workdir build/linux/clang/x86_64 \
+            -j $(nproc)                        \
+            -k                                 \
+            < ./contrib/unit_tests.txt
+
+      - name: Index raw coverage profiles
+        run: |
+          (
+            cd build/linux/clang/x86_64/tmp/coverage
+            llvm-profdata-14 merge \
+              -o coverage.profdata \
+              *.profraw
+          )
+
+      - name: Export lcov profile
+        run: |
+          BUILDDIR=build/linux/clang/x86_64
+          llvm-cov-14 export \
+            -format=lcov     \
+            -instr-profile=$BUILDDIR/tmp/coverage/coverage.profdata             \
+            $(find $BUILDDIR/obj -name '*.o' -exec printf "-object=%q\n" {} \;) \
+            > coverage.lcov
+
+      - name: Create coverage HTML report
+        run: |
+          genhtml                    \
+            --output coverage-report \
+            coverage.lcov
+
+      - name: Upload coverage HTML report as GitHub artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: coverage-report
+          path: coverage-report
+
+      - name: Upload coverage report to CodeCov
+        uses: codecov/codecov-action@v3
+        timeout-minutes: 5
+        with:
+          files: coverage.lcov
+          name: codecov-make-linux_clang-14_x86_64
+          fail_ci_if_error: false
+          functionalities: search
+
+  publish-coverage:
+    runs-on: ubuntu-22.04
+    needs: [make-test-coverage]
+    if: github.ref == 'refs/heads/main'
+
+    permissions:
+      pages: write     # to deploy to Pages
+      id-token: write  # to verify the deployment originates from an appropriate source
+
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Download coverage report
+        uses: actions/download-artifact@v3
+        with:
+          name: coverage-report
+          path: _site/coverage-report
+
+      - name: Re-package coverage report
+        uses: actions/upload-pages-artifact@v1
+        with:
+          path: _site
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v1
