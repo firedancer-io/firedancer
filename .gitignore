@@ -11,3 +11,6 @@ bazel-testlogs
 
 genhtml/
 target/
+
+# Nix
+/result
