@@ -381,7 +381,7 @@ int replay(global_state_t *state) {
       // free the slot data...
       fd_slot_blocks_destroy(slot_data, freef, state->alloc);
       freef(slot_data, state->alloc);
-    } while (false);
+    } while (0);
 
     if (state->txn_exe == 2) 
       fd_funk_commit(state->funk, &funk_txn, 0);
