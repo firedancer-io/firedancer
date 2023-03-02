@@ -1,4 +1,4 @@
-name: Make Build
+name: Make Test
 on:
   pull_request:
   push:
@@ -21,9 +21,4 @@ jobs:
         run: make -j
 
       - name: Run unit tests
-        run: |
-          export FD_LOG_PATH=""
-          parallel                           \
-            --workdir build/linux/gcc/x86_64 \
-            -j $(nproc)                      \
-            < ./contrib/unit_tests.txt
+        run: make -kj --output-sync=target run-unit-test

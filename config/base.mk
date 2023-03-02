@@ -16,6 +16,8 @@ RMDIR:=rm -rfv
 SED:=sed
 FIND:=find
 SCRUB:=$(FIND) . -type f -name "*~" -o -name "\#*" | xargs $(RM)
+DATE:=date
+CAT:=cat
 
 EBPF_CC:=clang
 EBPF_CPPFLAGS:=-target bpf -O2 -g

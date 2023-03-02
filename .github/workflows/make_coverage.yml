@@ -21,17 +21,17 @@ jobs:
             parallel
 
       - name: Build everything
-        run: make -j MACHINE=linux_clang_x86_64 EXTRAS=llvm-cov
+        run: |
+          export MACHINE="linux_clang_x86_64"
+          export EXTRAS="llvm-cov"
+          make -j 
 
       - name: Run unit tests
         run: |
-          export FD_LOG_PATH=""
-          export LLVM_PROFILE_FILE="tmp/coverage/%p.profraw"
-          parallel                             \
-            --workdir build/linux/clang/x86_64 \
-            -j $(nproc)                        \
-            -k                                 \
-            < ./contrib/unit_tests.txt
+          export LLVM_PROFILE_FILE="build/linux/clang/x86_64/tmp/coverage/%p.profraw"
+          export MACHINE="linux_clang_x86_64"
+          export EXTRAS="llvm-cov"
+          make -kj --output-sync=target run-unit-test
 
       - name: Index raw coverage profiles
         run: |
