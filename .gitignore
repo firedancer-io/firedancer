@@ -10,3 +10,10 @@ target/
 
 # Nix
 /result
+
+# Vimdiff
+*.orig
+
+# Vim
+*.swp
+*.swo
