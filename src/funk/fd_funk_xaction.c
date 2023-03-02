@@ -193,9 +193,7 @@ int fd_funk_commit(struct fd_funk* store,
   // we crash, we can re-execute the transaction out of the
   // write-ahead log
   if (!fd_funk_execute_script(store, entry->script, entry->scriptlen)) {
-    FD_LOG_WARNING(("failed to execute transaction, try again later"));
-    FD_FUNK_XACTION_PREFIX(entry)->state = FD_FUNK_XACTION_FROZEN;
-    fd_funk_writeahead_delete(store, wa_control, wa_start, wa_alloc);
+    FD_LOG_ERR(("failed to execute transaction, exiting to allow normal recovery"));
     return 0;
   }
   // We can delete the write-ahead log now
