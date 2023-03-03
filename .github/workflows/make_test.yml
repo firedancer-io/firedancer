@@ -12,6 +12,7 @@ jobs:
       run:
         shell: bash --noprofile --norc -eo pipefail -c "set -ex; source /home/runner/firedancer-opts/activate-opt && chmod +x {0} && {0}"
     env:
+      MACHINE: linux_gcc_native
       EXTRAS: libbpf
     steps:
       - uses: actions/checkout@v3
