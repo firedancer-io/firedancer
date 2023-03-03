@@ -1,5 +1,4 @@
 #!/bin/bash
-# Run jump/install-bazel to install any required dependencies before activating.
 
 if ! command -v module >/dev/null 2>&1; then
   echo "ERROR: module command not found. This script only works inside Jump's environment."
@@ -8,8 +7,6 @@ fi
 
 module purge
 module load gcc-9.3.0
-module load bazelisk-1.14.0
-module load buildifier-4.2.0
 module load Python-3.9
 module load openssl-1.1.1s+quic1
 module list

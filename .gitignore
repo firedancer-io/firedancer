@@ -4,11 +4,18 @@ bin
 unit-test
 tmp
 
-bazel-bin
-bazel-firedancer
-bazel-out
-bazel-testlogs
-
 genhtml/
 target/
 fd_ffi.rs
+*.lcov
+
+# Nix
+/result
+
+# Vimdiff
+*.orig
+
+# Vim
+*.swp
+*.swo
+

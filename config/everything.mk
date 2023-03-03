@@ -42,6 +42,7 @@ help:
 	# "make include" makes all include files for the current platform
 	# "make lib" makes all libraries for the current platform
 	# "make unit-test" makes all unit-tests for the current platform
+	# "make run-unit-test" runs all unit-tests for the current platform. NOTE: this will not (re)build the test executables
 	# "make help" prints this message
 	# "make clean" removes editor temp files and the current platform build
 	# "make distclean" removes editor temp files and all platform builds
@@ -147,6 +148,7 @@ add-test-scripts = $(foreach script,$(1),$(eval $(call _add-script,unit-test,$(s
 ##############################
 # Usage: $(call make-bin,name,objs,libs)
 # Usage: $(call make-unit-test,name,objs,libs)
+# Usage: $(call run-unit-test,name,args)
 
 # Note: The library arguments require customization of each target
 
@@ -165,8 +167,26 @@ $(4): $(OBJDIR)/$(4)/$(1)
 
 endef
 
+UNIT_TEST_DATETIME := $(shell date -u +%Y%m%d-%H%M%S)
+
+define _run-unit-test
+
+run-$(1):
+	#######################################################################
+	# Running $(3) from $(1)
+	#######################################################################
+	$(MKDIR) $(OBJDIR)/log/$(3)/$(1)
+	$(OBJDIR)/$(3)/$(1) --log-path $(OBJDIR)/log/$(3)/$(1)/$(UNIT_TEST_DATETIME).log $(2) > /dev/null 2>&1 || \
+($(CAT) $(OBJDIR)/log/$(3)/$(1)/$(UNIT_TEST_DATETIME).log && \
+exit 1)
+
+run-$(3): run-$(1)
+
+endef
+
 make-bin       = $(eval $(call _make-exe,$(1),$(2),$(3),bin))
 make-unit-test = $(eval $(call _make-exe,$(1),$(2),$(3),unit-test))
+run-unit-test = $(eval $(call _run-unit-test,$(1),$(2),unit-test))
 
 ##############################
 # Usage: $(call make-ebpf-bin,obj)

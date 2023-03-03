@@ -1,4 +1,4 @@
-name: Make Build
+name: Make Test
 on:
   pull_request:
   push:
@@ -6,10 +6,7 @@ on:
       - main
   workflow_dispatch:
 jobs:
-  make-build:
-    strategy:
-      matrix:
-        compiler: [gcc, clang]
+  make-test:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v3
@@ -18,7 +15,10 @@ jobs:
         run: |
           sudo apt-get install -y \
             libnuma-dev           \
-            clang-15
+            parallel
 
       - name: Build everything
-        run: make -j MACHINE=linux_${{ matrix.compiler }}_x86_64
+        run: make -j
+
+      - name: Run unit tests
+        run: make -kj --output-sync=target run-unit-test

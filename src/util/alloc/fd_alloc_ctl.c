@@ -90,7 +90,7 @@ main( int     argc,
 
       fd_alloc_delete( fd_alloc_leave( alloc ) ); /* logs details */
 
-      if( garbage_collect ) fd_wksp_tag_free( wksp, wksp_tag ); /* logs details */
+      if( garbage_collect ) fd_wksp_tag_free( wksp, &wksp_tag, 1UL ); /* logs details */
 
       fd_wksp_unmap( shalloc ); /* logs details */
 

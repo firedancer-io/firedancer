@@ -11,7 +11,7 @@ FD_PROTOTYPES_BEGIN
 
 /* fd_cstr_to_T converts the cstr pointed at by s into a T and returns
    its value.  Caller promises s is non-NULL and points at a cstr.
-   
+
    Note fd_cstr_to_cstr just returns s.  As such the lifetime of the
    returned pointer is the lifetime s and ownership model of the
    underlying s is defined by the application.
@@ -52,6 +52,14 @@ FD_FN_PURE  double       fd_cstr_to_double( char const * s );
    file permissions. */
 
 FD_FN_PURE ulong fd_cstr_to_ulong_octal( char const * s );
+
+/* fd_cstr_to_ip4_addr parses an IPv4 address matching format
+   %u.%u.%u.%u  On success returns the numerical representation of the
+   address in [0;UINT_MAX). On fail returns ULONG_MAX. */
+
+#if FD_HAS_HOSTED
+FD_FN_PURE ulong fd_cstr_to_ip4_addr( char const * s );
+#endif
 
 /* fd_cstr_hash hashes the cstr pointed to by key to a ulong.
    fd_cstr_hash_append updates the hash value (it will be as though the

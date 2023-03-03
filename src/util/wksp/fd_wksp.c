@@ -904,21 +904,37 @@ fd_wksp_tag( fd_wksp_t * wksp,
 }
 
 void
-fd_wksp_tag_free( fd_wksp_t * wksp,
-                  ulong       tag ) {
+fd_wksp_tag_free( fd_wksp_t *   wksp,
+                  ulong const * tag,
+                  ulong         tag_cnt ) {
+
+  /* Check input args */
 
   if( FD_UNLIKELY( !wksp ) ) {
     FD_LOG_WARNING(( "NULL wksp" ));
     return;
   }
 
-  if( FD_UNLIKELY( !((1UL<=tag) & (tag<=FD_WKSP_ALLOC_TAG_MAX)) ) ) {
+  if( FD_UNLIKELY( !tag_cnt ) ) return; /* No tags to free */
+
+  if( FD_UNLIKELY( !tag ) ) {
     FD_LOG_WARNING(( "bad tag" ));
     return;
   }
 
-  fd_wksp_private_lock( wksp );
+  /* Make a set of all provided tags in [1,FD_WKSP_ALLOC_TAG_MAX].  If
+     there are none, we are done and can save a lock. */
 
+  fd_wksp_alloc_tag_set_t set_mem[ fd_wksp_alloc_tag_set_word_cnt ];
+  fd_wksp_alloc_tag_set_t * set = fd_wksp_alloc_tag_set_join( fd_wksp_alloc_tag_set_new( set_mem ) );
+
+  if( FD_UNLIKELY( !fd_wksp_alloc_tag_set_unpack( set, 1UL, FD_WKSP_ALLOC_TAG_MAX, tag, tag_cnt ) ) ) {
+    fd_wksp_alloc_tag_set_delete( fd_wksp_alloc_tag_set_leave( set ) );
+    return;
+  }
+
+  fd_wksp_private_lock( wksp );
+  
   /* We scan the partitions backwards and whenever we find a partition
      that matches tag, we mark it inactive and merge it with adjacent
      inactive partitions via the exact same process as free.  This has
@@ -933,20 +949,21 @@ fd_wksp_tag_free( fd_wksp_t * wksp,
   ulong                    hole_idx = part_cnt;
   for( ulong rem=part_cnt; rem; rem-- ) {
     ulong l = rem - 1UL;
-    if( fd_wksp_private_part_tag( part[l] )!=tag ) continue;
-    ulong gaddr_lo = fd_wksp_private_part_gaddr( part[l] );
+    if( !fd_wksp_alloc_tag_set_test( set, fd_wksp_private_part_tag( part[l] ) ) ) continue; /* app dependent probabilty */
 
+    ulong gaddr_lo = fd_wksp_private_part_gaddr( part[l] );
+  
     FD_COMPILER_MFENCE();
     FD_VOLATILE( part[l] ) = fd_wksp_private_part( 0UL, gaddr_lo );
     FD_COMPILER_MFENCE();
-
+  
     if( /*(l+1UL)<part_cnt &&*/ !fd_wksp_private_part_tag( part[l+1UL] ) ) {
       FD_COMPILER_MFENCE();
       FD_VOLATILE( part[l+1UL] ) = part[l+2UL];
       FD_COMPILER_MFENCE();
-      hole_idx = l+1;
+      hole_idx = l+1UL;
     }
-
+  
     if( l>0UL && !fd_wksp_private_part_tag( part[l-1UL] ) ) {
       FD_COMPILER_MFENCE();
       FD_VOLATILE( part[l] ) = part[l+1UL];
@@ -954,13 +971,15 @@ fd_wksp_tag_free( fd_wksp_t * wksp,
       hole_idx = l;
     }
   }
-
+  
   /* Compact out any holes that got introduced. */
-
+  
   fd_wksp_private_compact_holes( wksp, hole_idx );
-
+  
   fd_wksp_private_unlock( wksp );
-} 
+
+  fd_wksp_alloc_tag_set_delete( fd_wksp_alloc_tag_set_leave( set ) );
+}
 
 void *
 fd_wksp_alloc_laddr( fd_wksp_t * wksp,
@@ -1120,6 +1139,73 @@ fd_wksp_delete_anonymous( fd_wksp_t * wksp ) {
   fd_shmem_join_info_t info[1];
   if( FD_UNLIKELY( fd_shmem_leave_anonymous( wksp, info ) ) ) return; /* logs details */
   fd_shmem_release( fd_wksp_delete( fd_wksp_leave( wksp ) ), info->page_sz, info->page_cnt ); /* logs details */
+}
+
+fd_wksp_usage_t *
+fd_wksp_usage( fd_wksp_t *       wksp,
+               ulong const *     tag,
+               ulong             tag_cnt,
+               fd_wksp_usage_t * usage ) {
+
+  /* Check input args */
+
+  if( FD_UNLIKELY( !usage ) ) {
+    FD_LOG_WARNING(( "bad usage" ));
+    return usage;
+  }
+
+  fd_memset( usage, 0, sizeof(fd_wksp_usage_t) );
+
+  if( FD_UNLIKELY( !wksp ) ) {
+    FD_LOG_WARNING(( "bad wksp" ));
+    return usage;
+  }
+
+  if( FD_UNLIKELY( (!tag) & (!!tag_cnt) ) ) {
+    FD_LOG_WARNING(( "bad tag" ));
+    return usage;
+  }
+
+  /* Create a tag set for rapid in set testing and then scan the wksp
+     while locked to accumulate the desired statistics at a well defined
+     point in time. */
+
+  fd_wksp_alloc_tag_set_t   set_mem[ fd_wksp_alloc_tag_set_word_cnt ];
+
+  fd_wksp_alloc_tag_set_t * set = fd_wksp_alloc_tag_set_join( fd_wksp_alloc_tag_set_new( set_mem ) );
+  fd_wksp_alloc_tag_set_unpack( set, 0UL, FD_WKSP_ALLOC_TAG_MAX, tag, tag_cnt );
+
+  fd_wksp_private_lock( wksp );
+
+  usage->total_max = wksp->part_max;
+
+  fd_wksp_private_part_t const * part     = wksp->part;
+  ulong                          part_cnt = wksp->part_cnt;
+
+  fd_wksp_private_part_t part_hi  = part[0];
+  ulong                  gaddr_hi = fd_wksp_private_part_gaddr( part_hi );
+  for( ulong part_idx=0UL; part_idx<part_cnt; part_idx++ ) {
+    fd_wksp_private_part_t part_lo  = part_hi;
+    /**/                   part_hi  = part[part_idx+1UL];
+    ulong                  gaddr_lo = gaddr_hi;
+    /**/                   gaddr_hi = fd_wksp_private_part_gaddr( part_hi );
+
+    ulong part_tag = fd_wksp_private_part_tag( part_lo );
+    ulong part_sz  = gaddr_hi - gaddr_lo;
+
+    int is_free = !part_tag;
+    int is_used = fd_wksp_alloc_tag_set_test( set, part_tag );
+
+    usage->total_cnt += 1UL;            usage->total_sz +=                       part_sz;
+    usage->free_cnt  += (ulong)is_free; usage->free_sz  += fd_ulong_if( is_free, part_sz, 0UL );
+    usage->used_cnt  += (ulong)is_used; usage->used_sz  += fd_ulong_if( is_used, part_sz, 0UL );
+  }
+
+  fd_wksp_private_unlock( wksp );
+
+  fd_wksp_alloc_tag_set_delete( fd_wksp_alloc_tag_set_leave( set ) );
+
+  return usage;
 }
 
 #endif

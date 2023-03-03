@@ -2,15 +2,6 @@
 
 ## Build
 
-### With Bazel
-
-The simplest option to build bindings is Bazel.
-Bazel will manage the Rust toolchain, compile bindgen, and generate C bindings for you.
-
-```shell
-bazel build --platforms //:linux_x86_64_llvm //ffi/rust/firedancer-sys
-```
-
 ### With Cargo
 
 When using Cargo, install `bindgen-cli` first.
