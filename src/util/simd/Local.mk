@@ -6,3 +6,5 @@ $(call make-unit-test,test_sse,test_sse,fd_util)
 $(call make-unit-test,test_avx,test_avx,fd_util)
 endif
 
+$(call run-unit-test,test_sse,)
+$(call run-unit-test,test_avx,)
