@@ -1,5 +1,9 @@
 #include "fd_util.h"
 
+#if FD_HAS_LIBBPF
+#include "fd_util_libbpf.c"
+#endif
+
 void
 fd_boot( int *    pargc,
          char *** pargv ) {
@@ -8,6 +12,9 @@ fd_boot( int *    pargc,
   fd_log_private_boot  ( pargc, pargv );
   fd_shmem_private_boot( pargc, pargv );
   fd_tile_private_boot ( pargc, pargv ); /* The caller is now tile 0 */
+# if FD_HAS_LIBBPF
+  fd_libbpf_boot();
+# endif
 }
 
 void
