@@ -49,6 +49,7 @@ help:
 	# "make asm" makes all source files into assembly language files
 	# "make ppp" run all source files through the preprocessor
 	# "make show-deps" shows all the dependencies
+	# "make cov-report" creates an LCOV coverage report from LLVM profdata. Requires make run-unit-test EXTRAS="llvm-cov"
 
 clean:
 	#######################################################################
@@ -168,6 +169,7 @@ $(4): $(OBJDIR)/$(4)/$(1)
 endef
 
 UNIT_TEST_DATETIME := $(shell date -u +%Y%m%d-%H%M%S)
+export LLVM_PROFILE_FILE = $(OBJDIR)/cov/raw/%p.profraw
 
 define _run-unit-test
 
@@ -175,7 +177,7 @@ run-$(1):
 	#######################################################################
 	# Running $(3) from $(1)
 	#######################################################################
-	$(MKDIR) $(OBJDIR)/log/$(3)/$(1)
+	@$(MKDIR) $(OBJDIR)/log/$(3)/$(1)
 	$(OBJDIR)/$(3)/$(1) --log-path $(OBJDIR)/log/$(3)/$(1)/$(UNIT_TEST_DATETIME).log $(2) > /dev/null 2>&1 || \
 ($(CAT) $(OBJDIR)/log/$(3)/$(1)/$(UNIT_TEST_DATETIME).log && \
 exit 1)
