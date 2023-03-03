@@ -76,17 +76,20 @@ endef
 make-lib = $(eval $(call _make-lib,$(1)))
 
 ##############################
-# Usage: $(call add-objs,objs,lib)
+# Usage: $(call add-objs,objs,lib,prerequisites)
 
 define _add-objs
 
 DEPFILES+=$(foreach obj,$(1),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/obj/%,$(OBJDIR)/$(MKPATH)$(obj).d))
 
+# Build prerequisites before objs
+$(foreach obj,$(1),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/obj/%,$(OBJDIR)/$(MKPATH)$(obj).o)): $(3)
+
 $(OBJDIR)/lib/lib$(2).a: $(foreach obj,$(1),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/obj/%,$(OBJDIR)/$(MKPATH)$(obj).o))
 
 endef
 
-add-objs = $(eval $(call _add-objs,$(1),$(2)))
+add-objs = $(eval $(call _add-objs,$(1),$(2),$(3)))
 
 ##############################
 # Usage: $(call add-asms,asms,lib)
@@ -146,8 +149,8 @@ add-scripts = $(foreach script,$(1),$(eval $(call _add-script,bin,$(script))))
 add-test-scripts = $(foreach script,$(1),$(eval $(call _add-script,unit-test,$(script))))
 
 ##############################
-# Usage: $(call make-bin,name,objs,libs)
-# Usage: $(call make-unit-test,name,objs,libs)
+# Usage: $(call make-bin,name,objs,libs,prerequisites)
+# Usage: $(call make-unit-test,name,objs,libs,prerequisites)
 # Usage: $(call run-unit-test,name,args)
 
 # Note: The library arguments require customization of each target
@@ -155,6 +158,9 @@ add-test-scripts = $(foreach script,$(1),$(eval $(call _add-script,unit-test,$(s
 define _make-exe
 
 DEPFILES+=$(foreach obj,$(2),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/obj/%,$(OBJDIR)/$(MKPATH)$(obj).d))
+
+# Build prerequisites before objs
+$(foreach obj,$(2),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/obj/%,$(OBJDIR)/$(MKPATH)$(obj).o)): $(5)
 
 $(OBJDIR)/$(4)/$(1): $(foreach obj,$(2),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/obj/%,$(OBJDIR)/$(MKPATH)$(obj).o)) $(foreach lib,$(3),$(OBJDIR)/lib/lib$(lib).a)
 	#######################################################################
@@ -184,8 +190,8 @@ run-$(3): run-$(1)
 
 endef
 
-make-bin       = $(eval $(call _make-exe,$(1),$(2),$(3),bin))
-make-unit-test = $(eval $(call _make-exe,$(1),$(2),$(3),unit-test))
+make-bin       = $(eval $(call _make-exe,$(1),$(2),$(3),bin,$(4)))
+make-unit-test = $(eval $(call _make-exe,$(1),$(2),$(3),unit-test,$(4)))
 run-unit-test = $(eval $(call _run-unit-test,$(1),$(2),unit-test))
 
 ##############################
