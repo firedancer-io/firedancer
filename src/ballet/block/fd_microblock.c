@@ -213,10 +213,17 @@ fd_microblock_mixin( fd_microblock_t const * block,
   if( FD_UNLIKELY( !commit ) )
     FD_LOG_ERR(( "fd_microblock_mixin: fd_alloca for microblock with %lu txns failed", txn_cnt ));
 
-  fd_bmtree32_commit_init( commit, txn_cnt );
+  ulong scnt = 0;
 
   fd_rawtxn_b_t const * raw_tbl = block->raw_tbl;
   fd_txn_o_t    const * txn_tbl = block->txn_tbl;
+
+  for( ulong i=0; i<txn_cnt; i++ ) {
+    fd_txn_t const * txn = (fd_txn_t const *)&txn_tbl[ i ];
+    scnt += txn->signature_cnt;
+  }
+
+  fd_bmtree32_commit_init( commit, scnt );
 
   for( ulong i=0; i<txn_cnt; i++ ) {
     void     const * raw =                    raw_tbl[ i ].raw;
@@ -224,9 +231,11 @@ fd_microblock_mixin( fd_microblock_t const * block,
 
     fd_ed25519_sig_t const * sigs = fd_txn_get_signatures( txn, raw );
 
-    fd_bmtree32_node_t leaf;
-    fd_bmtree32_hash_leaf( leaf, &sigs[0], sizeof(fd_ed25519_sig_t) );
-    fd_bmtree32_commit_append( commit, (fd_bmtree32_node_t const *)&leaf, 1 );
+    for ( ulong j = 0; j < txn->signature_cnt; j++ ) {
+      fd_bmtree32_node_t leaf;
+      fd_bmtree32_hash_leaf( leaf, &sigs[j], sizeof(fd_ed25519_sig_t) );
+      fd_bmtree32_commit_append( commit, (fd_bmtree32_node_t const *)&leaf, 1 );
+    }
   }
 
   fd_bmtree32_node_t * root = fd_bmtree32_commit_fini( commit );

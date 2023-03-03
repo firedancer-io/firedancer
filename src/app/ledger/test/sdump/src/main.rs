@@ -7,7 +7,11 @@ use {
             AccessType, BlockstoreOptions, LedgerColumnOptions,
             ShredStorageType,
         }
-    }
+    },
+    solana_sdk::{
+        genesis_config::{GenesisConfig, DEFAULT_GENESIS_ARCHIVE},
+        hash::Hash,
+    },
 };
 
 extern crate serde_json;

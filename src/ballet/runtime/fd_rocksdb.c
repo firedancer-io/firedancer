@@ -29,10 +29,10 @@ void fd_slot_meta_decode(fd_slot_meta_t* self, void const** data, void const* da
 }
 
 void fd_slot_meta_destroy(
-    fd_slot_meta_t* self,
+  fd_slot_meta_t* self,
     fd_free_fun_t freef, 
     void* freef_arg
-) {
+  ) {
   if (NULL != self->next_slots) {
     freef(self->next_slots, freef_arg);
     self->next_slots = NULL;
@@ -221,7 +221,7 @@ fd_slot_blocks_t * fd_rocksdb_get_microblocks(fd_rocksdb_t *db, fd_slot_meta_t *
        calling fd_deshredder_next adds a few lines of code to be
        executed (which should be in the code cache) in exchange for
        not copying the data an extra time
-     */
+    */
     fd_shred_t const * const shred_list[1] = { shred };
     deshred.shreds    = shred_list;
     deshred.shred_cnt = 1U;
@@ -229,7 +229,7 @@ fd_slot_blocks_t * fd_rocksdb_get_microblocks(fd_rocksdb_t *db, fd_slot_meta_t *
     /*
       This performs another memory copy, copying the data into the
       batch->buffer
-      */
+    */
     long written = fd_deshredder_next( &deshred );
 
     if ( FD_UNLIKELY ( (written < 0) & (written != -FD_SHRED_EPIPE ) )  ) {
@@ -263,11 +263,9 @@ fd_slot_blocks_t * fd_rocksdb_get_microblocks(fd_rocksdb_t *db, fd_slot_meta_t *
       uchar *tptr = next_batch;
       for (ulong idx = 0; idx < mblocks; idx++) {
         fd_microblock_hdr_t * hdr = (fd_microblock_hdr_t *)tptr;
-        if (hdr->txn_cnt > 0) {
-          ulong fp = fd_microblock_footprint( hdr->txn_cnt );
-          bsz = fd_ulong_align_up( bsz + blob_start + fp, FD_MICROBLOCK_ALIGN );
-          mcnt ++;
-        }
+        ulong fp = fd_microblock_footprint( hdr->txn_cnt );
+        bsz = fd_ulong_align_up( bsz + blob_start + fp, FD_MICROBLOCK_ALIGN );
+        mcnt ++;
         ulong psize = (ulong) (deshred.buf - next_batch);
         ulong sz = fd_microblock_skip( tptr, (ulong) psize);
         if (0UL == sz) {
@@ -293,33 +291,26 @@ fd_slot_blocks_t * fd_rocksdb_get_microblocks(fd_rocksdb_t *db, fd_slot_meta_t *
         for (ulong idx = 0; idx < mblocks; idx++) {
           fd_microblock_hdr_t * hdr = (fd_microblock_hdr_t *)next_batch;
 
-          if (hdr->txn_cnt > 0) {
-            void * shblock = fd_microblock_new( blob_ptr, hdr->txn_cnt );
-            fd_microblock_t * block = fd_microblock_join( shblock );
+          void * shblock = fd_microblock_new( blob_ptr, hdr->txn_cnt );
+          fd_microblock_t * block = fd_microblock_join( shblock );
 
-
-            ulong psize = (ulong) (deshred.buf - next_batch);
-            // Does memory copy of header, not of data
-            ulong microblock_sz = fd_microblock_deserialize( block, next_batch, psize, NULL );
-            if (microblock_sz == 0) {
-              // Should we return what we have found or should we just fall over?
-              FD_LOG_ERR(("deserialization error"));
-            }
-
-            // All done
-            fd_microblock_leave(shblock);
-
-            // TODO: did we use this field?
-            batch->block_cnt++;
-
-            blob_ptr = (uchar *) fd_ulong_align_up((ulong)blob_ptr + fd_microblock_footprint( hdr->txn_cnt ), FD_MICROBLOCK_ALIGN);
-
-            next_batch += microblock_sz;
-          } // if (hdr->txn_cnt > 0)
-          else {
-            // zero txns... lets skip it
-            next_batch += fd_microblock_skip( next_batch, (ulong) (deshred.buf - next_batch));
+          ulong psize = (ulong) (deshred.buf - next_batch);
+          // Does memory copy of header, not of data
+          ulong microblock_sz = fd_microblock_deserialize( block, next_batch, psize, NULL );
+          if (microblock_sz == 0) {
+            // Should we return what we have found or should we just fall over?
+            FD_LOG_ERR(("deserialization error"));
           }
+
+          // All done
+          fd_microblock_leave(shblock);
+
+          // TODO: did we use this field?
+          batch->block_cnt++;
+
+          blob_ptr = (uchar *) fd_ulong_align_up((ulong)blob_ptr + fd_microblock_footprint( hdr->txn_cnt ), FD_MICROBLOCK_ALIGN);
+
+          next_batch += microblock_sz;
         } // for (ulong idx = 0; idx < mblocks; idx++)
       } // if (mcnt > 0)
       else {

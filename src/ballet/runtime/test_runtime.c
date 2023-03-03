@@ -5,6 +5,8 @@
 // run --ledger /home/jsiegel/mainnet-ledger --db /home/jsiegel/funk --cmd ingest --accounts /home/jsiegel/mainnet-ledger/accounts --pages 15 --index-max 120000000
 // run --ledger /dev/shm/mainnet-ledger --db /dev/shm/funk --cmd ingest --accounts /dev/shm/mainnet-ledger/accounts --pages 15 --index-max 120000000
 
+// --ledger /home/jsiegel/repos/solana/test-ledger --db /home/jsiegel/repos/solana//test-ledger/funk --cmd replay --start-slot 0 --end-slot 100  --txn-exe sim  --index-max 120000000 --pages 15
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -19,6 +21,9 @@
 #include "../../funk/fd_funk.h"
 #include "../../util/alloc/fd_alloc.h"
 #include "../base58/fd_base58.h"
+#include "../poh/fd_poh.h"
+#include "../bmtree/fd_bmtree.h"
+#include "../sha256/fd_sha256.h"
 
 #include <dirent.h>
 
@@ -71,12 +76,15 @@ struct global_state {
   char const * txn_exe_opt;
   char const * pages_opt;
 
-  fd_wksp_t *  wksp;
-  fd_alloc_t * alloc;
-  fd_funk_t*   funk;
-  fd_acc_mgr_t* acc_mgr;
-  fd_rocksdb_t rocks_db;
+  fd_wksp_t *         wksp;
+  fd_alloc_t *        alloc;
+  fd_funk_t*          funk;
+  fd_acc_mgr_t*       acc_mgr;
+  fd_rocksdb_t        rocks_db;
   fd_genesis_solana_t gen;
+  uchar               genesis_hash[FD_SHA256_HASH_SZ];
+
+  fd_poh_state_t      poh;
 };
 typedef struct global_state global_state_t;
 
@@ -311,6 +319,9 @@ int replay(global_state_t *state) {
 
   struct fd_funk_xactionid funk_txn;
 
+  if (0 == state->start_slot)
+    fd_memcpy(state->poh.state, state->genesis_hash, sizeof(state->genesis_hash));
+
   for (ulong slot = state->start_slot; slot < state->end_slot; slot++) {
     if ((slot % 1000) == 0)
       FD_LOG_WARNING(("reading slot %ld", slot));
@@ -355,20 +366,37 @@ int replay(global_state_t *state) {
         while (cnt > 0) {
           fd_microblock_t * micro_block = fd_microblock_join( blob_ptr );
 
-          for ( ulong txn_idx = 0; txn_idx < micro_block->txn_max_cnt; txn_idx++ ) {
-            fd_txn_t* txn_descriptor = (fd_txn_t *)&micro_block->txn_tbl[ txn_idx ];
-            fd_rawtxn_b_t* txn_raw   = (fd_rawtxn_b_t *)&micro_block->raw_tbl[ txn_idx ];
-            switch (state->txn_exe) {
-            case 0:
-              fd_execute_txn( executor, txn_descriptor, txn_raw );
-              break;
-            case 2:
-              fd_sim_txn( state, executor, txn_descriptor, txn_raw, &funk_txn );
-              break;
-            default: // skip
-              break;
-            } // switch (state->txn_exe)
-          } // for ( ulong txn_idx = 0; txn_idx < micro_block->txn_max_cnt; txn_idx++ )
+          if (micro_block->txn_max_cnt > 0) {
+            if (micro_block->hdr.hash_cnt > 0)
+              fd_poh_append(&state->poh, micro_block->hdr.hash_cnt - 1);
+
+            for ( ulong txn_idx = 0; txn_idx < micro_block->txn_max_cnt; txn_idx++ ) {
+              fd_txn_t* txn_descriptor = (fd_txn_t *)&micro_block->txn_tbl[ txn_idx ];
+              fd_rawtxn_b_t* txn_raw   = (fd_rawtxn_b_t *)&micro_block->raw_tbl[ txn_idx ];
+
+              switch (state->txn_exe) {
+              case 0:
+                fd_execute_txn( executor, txn_descriptor, txn_raw );
+                break;
+              case 2:
+                fd_sim_txn( state, executor, txn_descriptor, txn_raw, &funk_txn );
+                break;
+              default: // skip
+                break;
+              } // switch (state->txn_exe)
+            } // for ( ulong txn_idx = 0; txn_idx < micro_block->txn_max_cnt; txn_idx++ )
+
+            uchar outhash[32];
+            fd_microblock_mixin(micro_block, outhash);
+
+            fd_poh_mixin(&state->poh, outhash);
+          } else
+            fd_poh_append(&state->poh, micro_block->hdr.hash_cnt);
+
+          if (memcmp(micro_block->hdr.hash, state->poh.state, sizeof(state->poh.state))) {
+            FD_LOG_ERR(( "poh missmatch"));
+          }
+
           fd_microblock_leave(micro_block);
 
           blob_ptr = (uchar *) fd_ulong_align_up((ulong)blob_ptr + fd_microblock_footprint( micro_block->hdr.txn_cnt ), FD_MICROBLOCK_ALIGN);
@@ -498,6 +526,16 @@ int main(int argc, char **argv) {
     uchar *buf = malloc((ulong) sbuf.st_size);
     ssize_t n = read(fd, buf, (ulong) sbuf.st_size);
     close(fd);
+
+    // TODO: Richie? . review?
+    fd_sha256_t sha;
+    fd_sha256_init( &sha );
+    fd_sha256_append( &sha, buf, (ulong) n );
+    fd_sha256_fini( &sha, state.genesis_hash );
+
+    //DDaHhm7PCCf6a2s2YxvD5mBcp2NfDkiWr61sBW4nuN7
+    char hash[100];
+    fd_base58_encode_32((uchar *) state.genesis_hash, hash);
     
     void *data = buf;
     void *dataend = &buf[n];
