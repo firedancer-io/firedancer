@@ -11,6 +11,8 @@ $(call make-bin,fd_xdp_ctl,fd_xdp_ctl,fd_xdp fd_util,$(EBPF_BINDIR)/fd_xdp_redir
 
 $(call make-unit-test,test_xsk,test_xsk,fd_xdp fd_util)
 $(call run-unit-test,test_xsk)
+
+$(call make-unit-test,test_xdp_ebpf,test_xdp_ebpf,fd_xdp fd_util,$(EBPF_BINDIR)/fd_xdp_redirect_prog.o $(wildcard src/tango/xdp/fixtures/*.bin))
 endif
 endif
 
