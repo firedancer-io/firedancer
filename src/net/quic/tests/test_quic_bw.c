@@ -6,7 +6,7 @@
 #include "fd_pcap.h"
 
 
-#define SEND_SZ 1000ul
+#define SEND_SZ 8000ul
 
 
 extern uchar pkt_full[];
@@ -176,9 +176,9 @@ main( int argc, char ** argv ) {
   tp->initial_max_stream_data_bidi_remote_present    = 1;
   tp->initial_max_stream_data_uni                    = 1048576;
   tp->initial_max_stream_data_uni_present            = 1;
-  tp->initial_max_streams_bidi                       = 128;
+  tp->initial_max_streams_bidi                       = 4;
   tp->initial_max_streams_bidi_present               = 1;
-  tp->initial_max_streams_uni                        = 128;
+  tp->initial_max_streams_uni                        = 4;
   tp->initial_max_streams_uni_present                = 1;
   tp->ack_delay_exponent                             = 3;
   tp->ack_delay_exponent_present                     = 1;
@@ -192,7 +192,7 @@ main( int argc, char ** argv ) {
   quic_config.transport_params      = tp;
   quic_config.max_concur_conns      = 10;
   quic_config.max_concur_conn_ids   = 10;
-  quic_config.max_concur_streams    = 10;
+  quic_config.max_concur_streams    = 4;
   quic_config.max_concur_handshakes = 10;
   quic_config.max_in_flight_pkts    = 100;
   quic_config.max_in_flight_acks    = 100;
@@ -286,6 +286,9 @@ main( int argc, char ** argv ) {
   ulong tot     = 0;
   ulong last_ts = gettime();
   ulong rprt_ts = gettime() + (ulong)1e9;
+
+  ulong start_ts = gettime();
+  ulong end_ts   = start_ts + (ulong)10e9; /* ten seconds */
   while(1) {
     fd_quic_service( client_quic );
     fd_quic_service( server_quic );
@@ -304,6 +307,8 @@ main( int argc, char ** argv ) {
       tot     = 0;
       last_ts = t;
       rprt_ts = t + (ulong)1e9;
+
+      if( t > end_ts ) break;
     }
   }
 

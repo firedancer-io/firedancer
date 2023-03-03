@@ -58,10 +58,11 @@ struct fd_quic_stream {
 
   fd_quic_buffer_t rx_buf;                       /* receive reorder buffer */
 
-  uint flags;   /* some flags */
+  uint flags;   /* flags representing elements that require sending */
 # define FD_QUIC_STREAM_FLAGS_TX_FIN          (1u<<0u)
 # define FD_QUIC_STREAM_FLAGS_RX_FIN          (1u<<1u)
 # define FD_QUIC_STREAM_FLAGS_MAX_STREAM_DATA (1u<<2u)
+# define FD_QUIC_STREAM_FLAGS_UNSENT          (1u<<3u)
 
 
   /* flow control */
@@ -80,6 +81,8 @@ struct fd_quic_stream {
      if we time out this packet (or possibly a later packet) we resend the frame
        and update this value */
   ulong upd_pkt_number;
+
+  struct fd_quic_stream * next;
 
   /* TODO need a timeout on this data */
 };

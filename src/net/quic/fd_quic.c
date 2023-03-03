@@ -140,6 +140,17 @@ fd_quic_tx_enc_level( fd_quic_conn_t * conn ) {
           return fd_quic_enc_level_handshake_id;
         }
       }
+      break;
+
+    case FD_QUIC_CONN_STATE_ACTIVE:
+      {
+        /* optimization for case where we have stream data to send */
+
+        /* find stream data to send */
+        if( conn->send_streams ) {
+          return fd_quic_enc_level_appdata_id;
+        }
+      }
   }
 
   /* Check for acks to send */
@@ -182,14 +193,11 @@ fd_quic_tx_enc_level( fd_quic_conn_t * conn ) {
   if( enc_level != ~0u ) return enc_level;
 
   /* handshake done? */
-  if( FD_UNLIKELY( conn->handshake_done ) ) return fd_quic_enc_level_appdata_id;
+  if( FD_UNLIKELY( conn->send_handshake_done ) ) return fd_quic_enc_level_appdata_id;
 
   /* find stream data to send */
-  fd_quic_stream_t ** streams = conn->streams;
-  for( ulong j = 0; j < conn->tot_num_streams; ++j ) {
-    if( streams[j]->tx_buf.head > streams[j]->tx_sent ) {
-      return fd_quic_enc_level_appdata_id;
-    }
+  if( conn->send_streams ) {
+    return fd_quic_enc_level_appdata_id;
   }
 
   uint pn_space = fd_quic_enc_level_to_pn_space( fd_quic_enc_level_appdata_id );
@@ -634,6 +642,8 @@ fd_quic_stream_send( fd_quic_stream_t * stream,
   (void)batch;
   (void)batch_sz;
 
+  uint pn_space = fd_quic_enc_level_to_pn_space( fd_quic_enc_level_appdata_id );
+
   fd_quic_buffer_t * tx_buf = &stream->tx_buf;
 
   /* are we allowed to send? */
@@ -678,8 +688,16 @@ fd_quic_stream_send( fd_quic_stream_t * stream,
     buffers_queued++;
   }
 
+  /* insert into send list */
+  if( stream->flags == 0 ) {
+    stream->next = conn->send_streams;
+    conn->send_streams = stream;
+  }
+  stream->flags |= FD_QUIC_STREAM_FLAGS_UNSENT; /* we have unsent data */
+  stream->upd_pkt_number = conn->pkt_number[pn_space];
+
   /* attempt to send */
-  fd_quic_conn_tx( stream->conn->quic, stream->conn );
+  fd_quic_conn_tx( conn->quic, conn );
 
   return buffers_queued;
 }
@@ -1758,12 +1776,12 @@ fd_quic_ack_pkt( fd_quic_t * quic, fd_quic_conn_t * conn, fd_quic_pkt_t * pkt ) 
   *acks_free = ack->next;
 
   /* we have an ack, populate and insert at head of appropriate list */
-  ack->tx_pkt_number        = FD_QUIC_PKT_NUM_UNUSED; /* unset */
+  ack->tx_pkt_number        = FD_QUIC_PKT_NUM_UNUSED; /* unset - indicates we haven't sent the ack yet */
   ack->pkt_number.offset_lo = pkt_number;
   ack->pkt_number.offset_hi = pkt_number + 1u;    /* offset_hi is the next one */
   ack->next                 = *acks_tx;           /* points to head of list for current enc_level */
-  ack->enc_level            = (uchar)enc_level; /* don't really need - it's implied */
-  ack->pn_space             = (uchar)pn_space;  /* don't really need - it's implied */
+  ack->enc_level            = (uchar)enc_level;   /* don't really need - it's implied */
+  ack->pn_space             = (uchar)pn_space;    /* don't really need - it's implied */
   ack->flags                = ack_mandatory ? FD_QUIC_ACK_FLAGS_MANDATORY : 0u;
   ack->tx_time              = ack_time;
   ack->pkt_rcvd             = pkt->rcv_time;      /* the time the packet was received */
@@ -2487,9 +2505,6 @@ fd_quic_tx_buffered( fd_quic_t * quic, fd_quic_conn_t * conn ) {
   pkt.udp->length    = (ushort)( 8 + payload_sz );
   pkt.udp->check     = 0x0000;
 
-  /* TODO improve on this */
-  fd_memset( cur_ptr, -1, 14 + 20 + 8 );
-
   ulong rc = fd_quic_encode_eth( cur_ptr, cur_sz, pkt.eth );
   if( FD_UNLIKELY( rc == FD_QUIC_PARSE_FAIL ) ) {
     FD_LOG_ERR(( "%s : fd_quic_encode_eth failed with buffer overrun", __func__ ));
@@ -2747,9 +2762,6 @@ fd_quic_conn_tx( fd_quic_t * quic, fd_quic_conn_t * conn ) {
   /* TODO probably should be called tx_max_udp_payload_sz */
   ulong tx_max_datagram_sz = conn->tx_max_datagram_sz;
 
-  /* record the metadata for items stored in the packet */
-  fd_quic_pkt_meta_t pkt_meta = {0};
-
   fd_quic_pkt_hdr_t pkt_hdr;
 
   /* temporary usage
@@ -2771,6 +2783,9 @@ fd_quic_conn_tx( fd_quic_t * quic, fd_quic_conn_t * conn ) {
     uchar const *      data         = NULL;
     fd_quic_stream_t * stream       = NULL;
     uint               initial_pkt  = 0;    /* is this the first initial packet? */
+
+    /* record the metadata for items stored in the packet */
+    fd_quic_pkt_meta_t pkt_meta = {0};
 
     /* do we have space for pkt_meta? */
     fd_quic_pkt_meta_t * pm_new = conn->pkt_meta_free;
@@ -2819,6 +2834,8 @@ fd_quic_conn_tx( fd_quic_t * quic, fd_quic_conn_t * conn ) {
        we burn this number immediately - quic allows gaps, so this isn't harmful
        even if we end up not sending */
     ulong pkt_number = conn->pkt_number[pn_space]++;
+
+    pkt_meta.pkt_number = pkt_number;
 
     /* this is the start of a new quic packet
        cur_ptr points at the next byte to fill with a quic pkt */
@@ -3049,7 +3066,7 @@ fd_quic_conn_tx( fd_quic_t * quic, fd_quic_conn_t * conn ) {
 
       /* are we at application level of encryption? */
       if( enc_level == fd_quic_enc_level_appdata_id ) {
-        if( conn->handshake_done ) {
+        if( conn->send_handshake_done ) {
           /* send handshake done frame */
           frame_sz = 1;
           pkt_meta.flags |= FD_QUIC_PKT_META_FLAGS_HS_DONE;
@@ -3082,6 +3099,7 @@ fd_quic_conn_tx( fd_quic_t * quic, fd_quic_conn_t * conn ) {
         }
 
         if( !hs_data && conn->handshake_complete ) {
+#if 0
           fd_quic_stream_t ** streams         = conn->streams;
           ulong               tot_num_streams = conn->tot_num_streams;
           for( ulong j = 0; j < tot_num_streams; ++j ) {
@@ -3118,6 +3136,60 @@ fd_quic_conn_tx( fd_quic_t * quic, fd_quic_conn_t * conn ) {
               }
             }
           }
+#else
+          fd_quic_stream_t * cur_stream = conn->send_streams;
+          fd_quic_stream_t * pri_stream = NULL;
+          while( cur_stream ) {
+            fd_quic_stream_t * nxt_stream = cur_stream->next;
+
+            if( cur_stream->upd_pkt_number >= pkt_number ) {
+              if( cur_stream->flags & FD_QUIC_STREAM_FLAGS_UNSENT  ) {
+                stream = cur_stream;
+              }
+
+              if( cur_stream->flags & FD_QUIC_STREAM_FLAGS_MAX_STREAM_DATA ) {
+                /* send max_stream_data frame */
+                frame.max_stream_data.stream_id       = cur_stream->stream_id;
+                frame.max_stream_data.max_stream_data = cur_stream->rx_max_stream_data;
+
+                /* attempt to write into buffer */
+                frame_sz = fd_quic_encode_max_stream_data( payload_ptr,
+                                                           (ulong)( payload_end - payload_ptr ),
+                                                           &frame.max_stream_data );
+                if( FD_LIKELY( frame_sz != FD_QUIC_PARSE_FAIL ) ) {
+                  /* successful? then update payload_ptr and tot_frame_sz */
+                  payload_ptr  += frame_sz;
+                  tot_frame_sz += frame_sz;
+
+                  /* and set actual pkt_number on the stream */
+                  cur_stream->upd_pkt_number = pkt_number;
+
+                  /* set flag on pkt meta */
+                  pkt_meta.flags          |= FD_QUIC_PKT_META_FLAGS_MAX_STREAM_DATA;
+
+                  /* remove flag from cur_stream */
+                  cur_stream->flags &= ~FD_QUIC_STREAM_FLAGS_MAX_STREAM_DATA;
+                  if( cur_stream->flags == 0 ) {
+                    /* remove from action list */
+                    if( pri_stream ) {
+                      pri_stream->next = cur_stream->next;
+                    } else {
+                      /* remove from head */
+                      conn->send_streams = cur_stream->next;
+                    }
+                    cur_stream->next = NULL;
+                  }
+                } else {
+                  /* failed to encode - push to next packet */
+                  cur_stream->upd_pkt_number++;
+                }
+              }
+            }
+
+            pri_stream = cur_stream;
+            cur_stream = nxt_stream;
+          }
+#endif
 
           if( stream ) {
 
@@ -3230,7 +3302,7 @@ fd_quic_conn_tx( fd_quic_t * quic, fd_quic_conn_t * conn ) {
     ulong rc = fd_quic_pkt_hdr_encode( cur_ptr, act_hdr_sz, &pkt_hdr, enc_level );
 
     if( FD_UNLIKELY( rc == FD_QUIC_PARSE_FAIL ) ) {
-      FD_LOG_WARNING(( "%s - fd_quic_pkt_hdr_encode failed, even thought there should "
+      FD_LOG_WARNING(( "%s - fd_quic_pkt_hdr_encode failed, even though there should "
             "have been enough space", __func__ ));
       return;
     }
@@ -3350,11 +3422,36 @@ fd_quic_conn_tx( fd_quic_t * quic, fd_quic_conn_t * conn ) {
       /* update flow control */
       stream->tx_tot_data += data_sz;
       conn->tx_tot_data   += data_sz;
+
+      /* sent every thing, may need to remove from action list */
+      if( stream->tx_buf.head == stream->tx_sent ) {
+        /* remove from sent */
+        stream->flags &= ~FD_QUIC_STREAM_FLAGS_UNSENT;
+        if( stream->flags == 0 ) {
+          fd_quic_stream_t * cur_stream = conn->send_streams;
+          if( cur_stream ) {
+            if( cur_stream == stream ) {
+              conn->send_streams = stream->next;
+              stream->next = NULL;
+            } else {
+              /* find stream in list, and remove */
+              while( cur_stream ) {
+                if( cur_stream->next == stream ) {
+                  cur_stream->next = stream->next;
+                  stream->next = NULL;
+                  break;
+                }
+                cur_stream = cur_stream->next;
+              }
+            }
+          }
+        }
+      }
     }
 
     /* did we send handshake-done? */
     if( pkt_meta.flags & FD_QUIC_PKT_META_FLAGS_HS_DONE ) {
-      conn->handshake_done = 0;
+      conn->send_handshake_done = 0;
     }
 
     /* try to send? */
@@ -3391,7 +3488,7 @@ fd_quic_conn_service( fd_quic_t * quic, fd_quic_conn_t * conn, ulong now ) {
 
         /* if we're the server, we send "handshake-done" frame */
         if( conn->state == FD_QUIC_CONN_STATE_HANDSHAKE_COMPLETE && conn->server ) {
-          conn->handshake_done = 1;
+          conn->send_handshake_done = 1;
 
           /* move straight to ACTIVE */
           conn->state = FD_QUIC_CONN_STATE_ACTIVE;
@@ -3971,7 +4068,8 @@ fd_quic_reclaim_pkt_meta( fd_quic_conn_t *     conn,
 
   if( flags & FD_QUIC_PKT_META_FLAGS_HS_DATA ) {
     /* hs_data is being acked
-       TODO we should free data here */
+       TODO we should free data here
+       it eventually gets "freed", so this isn't critical */
   }
 
   if( flags & FD_QUIC_PKT_META_FLAGS_HS_DONE ) {
@@ -4002,6 +4100,25 @@ fd_quic_reclaim_pkt_meta( fd_quic_conn_t *     conn,
 
     if( stream ) {
       stream->flags &= ~FD_QUIC_STREAM_FLAGS_MAX_STREAM_DATA;
+      if( stream->flags == 0 ) {
+        fd_quic_stream_t * cur_stream = conn->send_streams;
+        if( cur_stream ) {
+          if( cur_stream == stream ) {
+            conn->send_streams = stream->next;
+            stream->next = NULL;
+          } else {
+            /* find stream in list, and remove */
+            while( cur_stream ) {
+              if( cur_stream->next == stream ) {
+                cur_stream->next = stream->next;
+                stream->next = NULL;
+                break;
+              }
+              cur_stream = cur_stream->next;
+            }
+          }
+        }
+      }
     }
   }
 
@@ -4012,6 +4129,7 @@ fd_quic_reclaim_pkt_meta( fd_quic_conn_t *     conn,
     fd_quic_stream_t *  stream          = NULL;
     fd_quic_stream_t ** streams         = conn->streams;
     ulong               tot_num_streams = conn->tot_num_streams;
+    /* TODO add a hashmap for stream ids */
     for( ulong j = 0; j < tot_num_streams; ++j ) {
       if( streams[j]->stream_id == pkt_meta->stream_id ) {
         stream = streams[j];
@@ -4098,6 +4216,25 @@ fd_quic_reclaim_pkt_meta( fd_quic_conn_t *     conn,
       fd_quic_stream_t * stream = streams[j];
       if( stream->upd_pkt_number == pkt_number ) {
         stream->flags &= ~FD_QUIC_STREAM_FLAGS_MAX_STREAM_DATA;
+        if( stream->flags == 0 ) {
+          fd_quic_stream_t * cur_stream = conn->send_streams;
+          if( cur_stream ) {
+            if( cur_stream == stream ) {
+              conn->send_streams = stream->next;
+              stream->next = NULL;
+            } else {
+              /* find stream in list, and remove */
+              while( cur_stream ) {
+                if( cur_stream->next == stream ) {
+                  cur_stream->next = stream->next;
+                  stream->next = NULL;
+                  break;
+                }
+                cur_stream = cur_stream->next;
+              }
+            }
+          }
+        }
       }
     }
   }
@@ -4488,6 +4625,12 @@ fd_quic_frame_handle_stream_frame(
     uint pn_space = fd_quic_enc_level_to_pn_space( fd_quic_enc_level_appdata_id );
     stream->upd_pkt_number = conn->upd_pkt_number = conn->pkt_number[pn_space];
 
+    if( stream->flags == 0 ) {
+      /* going from 0 to nonzero, so insert into action list */
+      stream->next = conn->send_streams;
+      conn->send_streams = stream;
+    }
+
     stream->flags |= FD_QUIC_STREAM_FLAGS_MAX_STREAM_DATA;
     conn->flags   |= FD_QUIC_CONN_FLAGS_MAX_DATA;
 
@@ -4740,6 +4883,17 @@ fd_quic_frame_handle_handshake_done_frame(
     FD_LOG_WARNING(( "%s : handshake done frame received, but not in handshake complete state", __func__ ));
   }
 
+  /* eliminate any remaining hs_data at application level */
+  fd_quic_tls_hs_data_t * hs_data = NULL;
+
+  int hs_enc_level = fd_quic_enc_level_appdata_id;
+  hs_data = fd_quic_tls_get_hs_data( conn->tls_hs, hs_enc_level );
+  /* skip packets we've sent */
+  while( hs_data ) {
+    fd_quic_tls_pop_hs_data( conn->tls_hs, hs_enc_level );
+
+    hs_data = fd_quic_tls_get_hs_data( conn->tls_hs, hs_enc_level );
+  }
 
   /* we shouldn't be receiving this unless handshake is complete */
   conn->state = FD_QUIC_CONN_STATE_ACTIVE;
