@@ -198,6 +198,9 @@ void fd_funk_replay_root(struct fd_funk* store) {
         fd_vec_ulong_push(&store->free_ctrl, entpos);
 
       } else if (ent->type == FD_FUNK_CONTROL_XACTION) {
+        // Account for gaps at the end
+        if (ent->u.xaction.start + ent->u.xaction.alloc > store->backing_sz)
+          store->backing_sz = ent->u.xaction.start + ent->u.xaction.alloc;
         // Write-ahead log entry
         char* script = fd_alloc_malloc(store->alloc, 1, ent->u.xaction.size);
         if (pread(store->backing_fd, script, ent->u.xaction.size, (long)ent->u.xaction.start) < (long)ent->u.xaction.size) {

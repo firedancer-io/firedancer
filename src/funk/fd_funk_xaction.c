@@ -206,9 +206,11 @@ int fd_funk_execute_script(struct fd_funk* store,
       struct fd_funk_recordid recordid;
       fd_memcpy(&recordid, &head->recordid, sizeof(recordid));
       if (!fd_funk_delete_record_root(store, &recordid)) {
-        FD_LOG_WARNING(("delete failed during commit"));
-        if (!recovery) // Redundant deletes are OK on recovery
+        // Redundant deletes are OK on recovery
+        if (!recovery) {
+          FD_LOG_WARNING(("delete failed during commit"));
           result = 0;
+        }
       }
       p += sizeof(*head);
       if (p > pend)
