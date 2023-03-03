@@ -56,6 +56,10 @@ struct fd_funk_xaction_entry {
 #define FD_FUNK_GC_UNKNOWN -1
 #define FD_FUNK_GC_GOOD 0
 #define FD_FUNK_GC_ORPHAN 1
+    // Write-ahead log control and file position info
+    ulong wa_control;
+    ulong wa_start;
+    uint wa_alloc;
 };
 
 #define MAP_NAME fd_funk_xactions
@@ -69,3 +73,12 @@ struct fd_funk_xaction_entry {
 int fd_funk_is_root(struct fd_funk_xactionid const* xid);
 void fd_funk_xactions_cleanup(struct fd_funk* store);
 void fd_funk_validate_xaction(struct fd_funk* store);
+void fd_funk_writeahead_load(struct fd_funk* store,
+                             struct fd_funk_xactionid* id,
+                             struct fd_funk_xactionid* parent,
+                             ulong start,
+                             uint size,
+                             uint alloc,
+                             ulong ctrlpos,
+                             char* script);
+void fd_funk_writeahead_recommits(struct fd_funk* store);

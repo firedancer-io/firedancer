@@ -132,7 +132,7 @@ void fd_funk_replay_root(struct fd_funk* store) {
   for (;;) {
     // Read the control block
     if (pread(store->backing_fd, &ctrl, sizeof(ctrl), (long)store->lastcontrol) < (long)sizeof(ctrl)) {
-      FD_LOG_WARNING(("failed to read backing file: %s", strerror(errno)));
+      FD_LOG_ERR(("failed to read backing file: %s", strerror(errno)));
       break;
     }
     // Make sure backing_sz is correct
@@ -196,6 +196,23 @@ void fd_funk_replay_root(struct fd_funk* store) {
       } else if (ent->type == FD_FUNK_CONTROL_EMPTY) {
         // Unused control entry
         fd_vec_ulong_push(&store->free_ctrl, entpos);
+
+      } else if (ent->type == FD_FUNK_CONTROL_XACTION) {
+        // Write-ahead log entry
+        char* script = fd_alloc_malloc(store->alloc, 1, ent->u.xaction.size);
+        if (pread(store->backing_fd, script, ent->u.xaction.size, (long)ent->u.xaction.start) < (long)ent->u.xaction.size) {
+          FD_LOG_ERR(("failed to read backing file: %s", strerror(errno)));
+          break;
+        }
+        // Store the entry in the transaction table
+        fd_funk_writeahead_load(store,
+                                &ent->u.xaction.id,
+                                &ent->u.xaction.parent,
+                                ent->u.xaction.start,
+                                ent->u.xaction.size,
+                                ent->u.xaction.alloc,
+                                entpos,
+                                script);
       }
     }
 
@@ -205,6 +222,9 @@ void fd_funk_replay_root(struct fd_funk* store) {
       break;
     store->lastcontrol = next;
   }
+
+  // Commit all transactions that had a write-ahead log entry
+  fd_funk_writeahead_recommits(store);
 }
 
 // Allocate disk space for a new entry

@@ -159,6 +159,9 @@ int fd_funk_fork(struct fd_funk* store,
     FD_FUNK_XACTION_PREFIX(parentry)->state = FD_FUNK_XACTION_FROZEN;
   }
   fd_funk_xaction_cache_new(&entry->cache);
+  entry->wa_control = 0;
+  entry->wa_start = 0;
+  entry->wa_alloc = 0;
   return 1;
 }
 
@@ -172,7 +175,8 @@ void fd_funk_xactions_cleanup(struct fd_funk* store) {
 
 int fd_funk_execute_script(struct fd_funk* store,
                            const char* script,
-                           uint scriptlen) {
+                           uint scriptlen,
+                           int recovery) {
   int result = 1;
   const char* p = script + sizeof(struct fd_funk_xaction_prefix);
   const char* const pend = script + scriptlen;
@@ -203,7 +207,8 @@ int fd_funk_execute_script(struct fd_funk* store,
       fd_memcpy(&recordid, &head->recordid, sizeof(recordid));
       if (!fd_funk_delete_record_root(store, &recordid)) {
         FD_LOG_WARNING(("delete failed during commit"));
-        result = 0;
+        if (!recovery) // Redundant deletes are OK on recovery
+          result = 0;
       }
       p += sizeof(*head);
       if (p > pend)
@@ -242,11 +247,8 @@ int fd_funk_commit(struct fd_funk* store,
   // Set the state to committed
   FD_FUNK_XACTION_PREFIX(entry)->state = FD_FUNK_XACTION_COMMITTED;
   // Write a write-ahead log entry
-  ulong wa_control;
-  ulong wa_start;
-  uint wa_alloc;
   if (!fd_funk_writeahead(store, id, &entry->parent, entry->script, entry->scriptlen,
-                          &wa_control, &wa_start, &wa_alloc)) {
+                          &entry->wa_control, &entry->wa_start, &entry->wa_alloc)) {
     FD_LOG_WARNING(("failed to write write-ahead log, commit failed, try again later"));
     FD_FUNK_XACTION_PREFIX(entry)->state = FD_FUNK_XACTION_FROZEN;
     return 0;
@@ -254,12 +256,12 @@ int fd_funk_commit(struct fd_funk* store,
   // We are now in a happy place regarding this transaction. Even if
   // we crash, we can re-execute the transaction out of the
   // write-ahead log
-  if (!fd_funk_execute_script(store, entry->script, entry->scriptlen)) {
+  if (!fd_funk_execute_script(store, entry->script, entry->scriptlen, 0)) {
     FD_LOG_ERR(("failed to execute transaction, exiting to allow normal recovery"));
     return 0;
   }
   // We can delete the write-ahead log now
-  fd_funk_writeahead_delete(store, wa_control, wa_start, wa_alloc);
+  fd_funk_writeahead_delete(store, entry->wa_control, entry->wa_start, entry->wa_alloc);
   // Final cleanup
   entry = fd_funk_xactions_remove(store->xactions, id);
   fd_funk_xaction_entry_cleanup(store, entry);
@@ -268,6 +270,66 @@ int fd_funk_commit(struct fd_funk* store,
   fd_funk_xactionid_t_copy(&store->last_commit, id);
 
   return 1;
+}
+
+void fd_funk_writeahead_load(struct fd_funk* store,
+                             struct fd_funk_xactionid* id,
+                             struct fd_funk_xactionid* parent,
+                             ulong start,
+                             uint size,
+                             uint alloc,
+                             ulong ctrlpos,
+                             char* script) {
+  // Create a table entry with all the arguments
+  int exists;
+  struct fd_funk_xaction_entry* entry = fd_funk_xactions_insert(store->xactions, id, &exists);
+    // Initialize the entry
+  fd_funk_xactionid_t_copy(&entry->parent, parent);
+  entry->script = script; // Assumes caller allocated with fd_alloc_malloc
+  entry->scriptlen = size;
+  entry->scriptmax = size;
+  fd_funk_xaction_cache_new(&entry->cache);
+  entry->wa_control = ctrlpos;
+  entry->wa_start = start;
+  entry->wa_alloc = alloc;
+}
+
+void fd_funk_writeahead_recommit_entry(struct fd_funk* store,
+                                       struct fd_funk_xaction_entry* entry) {
+  // Do the parent first in case a chain of transactions as written
+  // ahead all at once.
+  struct fd_funk_xaction_entry* parentry = fd_funk_xactions_query(store->xactions, &entry->parent);
+  if (parentry != NULL)
+    fd_funk_writeahead_recommit_entry(store, parentry);
+
+  // Try the transaction again
+  FD_LOG_WARNING(("recovering transaction which was partially executed in prior incarnation"));
+  if (!fd_funk_execute_script(store, entry->script, entry->scriptlen, 1)) {
+    FD_LOG_ERR(("failed to execute recovered transaction, exiting"));
+    return;
+  }
+  // Remember the last committed transaction id
+  fd_funk_xactionid_t_copy(&store->last_commit, &entry->key);
+  // We can delete the write-ahead log now
+  fd_funk_writeahead_delete(store, entry->wa_control, entry->wa_start, entry->wa_alloc);
+  // Final cleanup
+  entry = fd_funk_xactions_remove(store->xactions, &entry->key);
+  fd_funk_xaction_entry_cleanup(store, entry);
+}
+
+// Recommit transactions that were partially committed in a previous incarnation
+void fd_funk_writeahead_recommits(struct fd_funk* store) {
+  // Search for committed transactions
+  struct fd_funk_xactions_iter iter;
+  fd_funk_xactions_iter_init(store->xactions, &iter);
+  struct fd_funk_xaction_entry* entry;
+  while ((entry = fd_funk_xactions_iter_next(store->xactions, &iter)) != NULL) {
+    if (FD_FUNK_XACTION_PREFIX(entry)->state == FD_FUNK_XACTION_COMMITTED) {
+      fd_funk_writeahead_recommit_entry(store, entry);
+      // The iterator doesn't work right with deletes so start over
+      fd_funk_xactions_iter_init(store->xactions, &iter);
+    }
+  }
 }
 
 void fd_funk_cancel(struct fd_funk* store,
@@ -332,6 +394,9 @@ void fd_funk_merge(struct fd_funk* store,
     fd_memcpy(p, source_ents[i]->script + sizeof(struct fd_funk_xaction_prefix), copylen);
     p += copylen;
   }
+  entry->wa_control = 0;
+  entry->wa_start = 0;
+  entry->wa_alloc = 0;
 
   // Cleanup the original transactions
   for (ulong i = 0; i < source_cnt; ++i) {

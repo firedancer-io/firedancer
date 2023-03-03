@@ -43,16 +43,24 @@ void grinder(int argc, char** argv, bool firsttime) {
   ulong recorddata[RECORDSIZE/sizeof(ulong)];
 
   if (!firsttime) {
+    // Confirm all the records are transactionally consistent
     for (ulong group = 0; group < 16; group += 4) {
       const void* data;
       if (fd_funk_read(funk, fd_funk_root(funk), recordkeys + group, &data, 0, RECORDSIZE) != (long)RECORDSIZE)
         FD_LOG_ERR(("failed read"));
+      ulong counter = *(const ulong*)data;
       for (ulong i = 1; i < 4; ++i) {
-        const void* data2;
-        if (fd_funk_read(funk, fd_funk_root(funk), recordkeys + group, &data2, 0, RECORDSIZE) != (long)RECORDSIZE)
-          FD_LOG_ERR(("failed read"));
-        if (memcmp(data, data2, RECORDSIZE) != 0)
-          FD_LOG_ERR(("inconsistant data within a transaction"));
+        if (i > 0 && counter > 10 && (counter+i)%3 == 1) {
+          const void* data2;
+          if (fd_funk_read(funk, fd_funk_root(funk), recordkeys + group + i, &data2, 0, RECORDSIZE) != -1)
+            FD_LOG_ERR(("failed delete"));
+        } else {
+          const void* data2;
+          if (fd_funk_read(funk, fd_funk_root(funk), recordkeys + group + i, &data2, 0, RECORDSIZE) != (long)RECORDSIZE)
+            FD_LOG_ERR(("failed read"));
+          if (memcmp(data, data2, RECORDSIZE) != 0)
+            FD_LOG_ERR(("inconsistant data within a transaction"));
+        }
       }
     }
   }
@@ -67,8 +75,12 @@ void grinder(int argc, char** argv, bool firsttime) {
       recorddata[i] = counter;
     fd_funk_fork(funk, fd_funk_root(funk), &xid.xid);
     for (ulong i = 0; i < 4; ++i) {
-      fd_funk_write(funk, &xid.xid, recordkeys + (group+i), recorddata, 0, RECORDSIZE);
-      written += RECORDSIZE;
+      if (i > 0 && counter > 10 && (counter+i)%3 == 1) {
+        fd_funk_delete_record(funk, &xid.xid, recordkeys + (group+i));
+      } else {
+        fd_funk_write(funk, &xid.xid, recordkeys + (group+i), recorddata, 0, RECORDSIZE);
+        written += RECORDSIZE;
+      }
     }
     fd_funk_commit(funk, &xid.xid);
 
@@ -95,7 +107,7 @@ int main(int argc, char** argv) {
     // Parent process
     unlink(BACKFILE);
     bool firsttime = true;
-    for (;;) {
+    for (unsigned cnt = 0;;) {
       pid_t p;
       if ((p = fork()) == 0) {
         static const char* EXE = "build/test/bin/test_funk_3";
@@ -108,6 +120,7 @@ int main(int argc, char** argv) {
 
       sleep(3);
 
+      printf("%u kills\n", ++cnt);
       kill(p, SIGKILL);
       int wstatus;
       waitpid(p, &wstatus, 0);
