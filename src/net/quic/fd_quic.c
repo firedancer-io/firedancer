@@ -27,6 +27,17 @@
 #define QUIC_DISABLE_CRYPTO 0
 
 
+/* define a map for stream_id -> stream* */
+#define MAP_NAME              fd_quic_stream_map
+#define MAP_KEY               stream_id
+#define MAP_T                 fd_quic_stream_map_t
+#define MAP_KEY_NULL          FD_QUIC_STREAM_ID_UNUSED 
+#define MAP_KEY_INVAL(key)    ((key)==MAP_KEY_NULL)
+#define MAP_QUERY_OPT         1
+
+#include "../../util/tmpl/fd_map_dynamic.c"
+
+
 /* TODO improve this map */
 /* map of encryption levels to packet number space */
 static uchar el2pn_map[] = { 0, 2, 1, 2 };
@@ -571,24 +582,17 @@ fd_quic_conn_new_stream( fd_quic_conn_t * conn, int dirtype ) {
   }
 
   /* find unused stream */
-  /* linear search since number of allowed concurrent streams expected to
-     be low */
-  /* could limit this to only locally initiated streams */
-  fd_quic_stream_t *  stream          = NULL;
-  fd_quic_stream_t ** streams         = conn->streams;
-  ulong             tot_num_streams = conn->tot_num_streams;
-  for( ulong j = 0; j < tot_num_streams; ++j ) {
-    if( streams[j]->stream_id == FD_QUIC_STREAM_ID_UNUSED ) {
-      stream = streams[j];
-      break;
-    }
-  }
+  fd_quic_stream_t * stream = conn->unused_streams;
 
   /* should not occur
      implies logic error */
   if( FD_UNLIKELY( !stream ) ) {
     FD_LOG_ERR(( "%s : max_concur_streams not reached, yet no free streams found", __func__ ));
   }
+
+  /* remove from unused list */
+  conn->unused_streams = stream->next;
+  stream->next         = NULL;
 
   /* generate a new stream id */
   ulong stream_mask    = (ulong)conn->server + ( (ulong)type << (ulong)1 );
@@ -608,6 +612,14 @@ fd_quic_conn_new_stream( fd_quic_conn_t * conn, int dirtype ) {
   stream->rx_max_stream_data = ( type == FD_QUIC_TYPE_BIDIR )
                                    ? conn->rx_initial_max_stream_data_bidi_local
                                    : 0ul;
+
+  /* add to map of stream ids */
+  fd_quic_stream_map_t * entry = fd_quic_stream_map_insert( conn->stream_map, next_stream_id );
+  if( FD_UNLIKELY( !entry ) ) {
+    FD_LOG_ERR(( "Stream map full" ));
+  }
+
+  entry->stream = stream;
 
   return stream;
 }
@@ -690,11 +702,11 @@ fd_quic_stream_send( fd_quic_stream_t * stream,
 
   /* insert into send list */
   if( stream->flags == 0 ) {
-    stream->next = conn->send_streams;
+    stream->next       = conn->send_streams;
     conn->send_streams = stream;
   }
-  stream->flags |= FD_QUIC_STREAM_FLAGS_UNSENT; /* we have unsent data */
-  stream->upd_pkt_number = conn->pkt_number[pn_space];
+  stream->flags          |= FD_QUIC_STREAM_FLAGS_UNSENT; /* we have unsent data */
+  stream->upd_pkt_number  = conn->pkt_number[pn_space];
 
   /* attempt to send */
   fd_quic_conn_tx( conn->quic, conn );
@@ -703,10 +715,12 @@ fd_quic_stream_send( fd_quic_stream_t * stream,
 }
 
 
+/* user requested close */
 void
 fd_quic_stream_close( fd_quic_stream_t * stream, int direction_flags ) {
   (void)stream;
   (void)direction_flags;
+  /* TODO close logic */
 }
 
 
@@ -1052,8 +1066,7 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
 
     /* gen initial keys */
     if( fd_quic_gen_keys( &conn->keys[enc_level][0],
-                          (ulong)suite->key_sz,
-                          (ulong)suite->iv_sz,
+                          suite,
                           suite->hash,
                           conn->secrets.secret[enc_level][0],
                           conn->secrets.secret_sz[enc_level][0] )
@@ -1069,8 +1082,7 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
     }
 
     if( fd_quic_gen_keys( &conn->keys[enc_level][1],
-                          (ulong)suite->key_sz,
-                          (ulong)suite->iv_sz,
+                          suite,
                           suite->hash,
                           conn->secrets.secret[enc_level][1],
                           conn->secrets.secret_sz[enc_level][1] )
@@ -1721,6 +1733,7 @@ fd_quic_ack_pkt( fd_quic_t * quic, fd_quic_conn_t * conn, fd_quic_pkt_t * pkt ) 
   fd_quic_ack_t ** acks_tx     = conn->acks_tx     + enc_level;
   fd_quic_ack_t ** acks_tx_end = conn->acks_tx_end + enc_level;
 
+#if 0
   /* if there exists a last unsent ack, and it refers to the prior packet,
      extend it
      range.offset_hi refers the the last offset + 1 */
@@ -1734,7 +1747,10 @@ fd_quic_ack_pkt( fd_quic_t * quic, fd_quic_conn_t * conn, fd_quic_pkt_t * pkt ) 
       (*acks_tx)->tx_time = ack_time;
       fd_quic_reschedule_conn( conn, ack_time );
     }
+
+    return;
   }
+#endif
 
   /* we need to allocate an ack */
   fd_quic_ack_t * ack = *acks_free;
@@ -2204,8 +2220,7 @@ fd_quic_tls_cb_secret( fd_quic_tls_hs_t *           hs,
 
     /* gen keys */
     if( fd_quic_gen_keys( &conn->keys[enc_level][0],
-                          (ulong)suite->key_sz,
-                          (ulong)suite->iv_sz,
+                          suite,
                           suite->hash,
                           conn->secrets.secret[enc_level][0],
                           conn->secrets.secret_sz[enc_level][0] )
@@ -2216,8 +2231,7 @@ fd_quic_tls_cb_secret( fd_quic_tls_hs_t *           hs,
 
     /* gen initial keys */
     if( fd_quic_gen_keys( &conn->keys[enc_level][1],
-                          (ulong)suite->key_sz,
-                          (ulong)suite->iv_sz,
+                          suite,
                           suite->hash,
                           conn->secrets.secret[enc_level][1],
                           conn->secrets.secret_sz[enc_level][1] )
@@ -3137,6 +3151,9 @@ fd_quic_conn_tx( fd_quic_t * quic, fd_quic_conn_t * conn ) {
             }
           }
 #else
+          /* loop serves two purposes:
+               1. finds a stream with data to send
+               2. appends max_stream_data frames as necessary */
           fd_quic_stream_t * cur_stream = conn->send_streams;
           fd_quic_stream_t * pri_stream = NULL;
           while( cur_stream ) {
@@ -3761,8 +3778,7 @@ fd_quic_connect( fd_quic_t * quic,
 
   /* gen initial keys */
   if( fd_quic_gen_keys( &conn->keys[fd_quic_enc_level_initial_id][0],
-                        (ulong)suite->key_sz,
-                        (ulong)suite->iv_sz,
+                        suite,
                         suite->hash,
                         conn->secrets.secret[fd_quic_enc_level_initial_id][0],
                         conn->secrets.secret_sz[fd_quic_enc_level_initial_id][0] )
@@ -3788,8 +3804,7 @@ fd_quic_connect( fd_quic_t * quic,
 
   /* gen initial keys */
   if( fd_quic_gen_keys( &conn->keys[fd_quic_enc_level_initial_id][1],
-                        (ulong)suite->key_sz,
-                        (ulong)suite->iv_sz,
+                        suite,
                         suite->hash,
                         conn->secrets.secret[fd_quic_enc_level_initial_id][1],
                         conn->secrets.secret_sz[fd_quic_enc_level_initial_id][1] )
@@ -4088,17 +4103,12 @@ fd_quic_reclaim_pkt_meta( fd_quic_conn_t *     conn,
 
   if( flags & FD_QUIC_PKT_META_FLAGS_MAX_STREAM_DATA ) {
     /* find stream */
-    fd_quic_stream_t *  stream          = NULL;
-    fd_quic_stream_t ** streams         = conn->streams;
-    ulong               tot_num_streams = conn->tot_num_streams;
-    for( ulong j = 0; j < tot_num_streams; ++j ) {
-      if( streams[j]->stream_id == pkt_meta->stream_id ) {
-        stream = streams[j];
-        break;
-      }
-    }
+    ulong                  stream_id    = pkt_meta->stream_id;
+    fd_quic_stream_t *     stream       = NULL;
+    fd_quic_stream_map_t * stream_entry = fd_quic_stream_map_query( conn->stream_map, stream_id, NULL );
 
-    if( stream ) {
+    if( FD_LIKELY( stream_entry ) ) {
+      stream = stream_entry->stream;
       stream->flags &= ~FD_QUIC_STREAM_FLAGS_MAX_STREAM_DATA;
       if( stream->flags == 0 ) {
         fd_quic_stream_t * cur_stream = conn->send_streams;
@@ -4126,18 +4136,12 @@ fd_quic_reclaim_pkt_meta( fd_quic_conn_t *     conn,
     fd_quic_range_t range = pkt_meta->range;
 
     /* find stream */
-    fd_quic_stream_t *  stream          = NULL;
-    fd_quic_stream_t ** streams         = conn->streams;
-    ulong               tot_num_streams = conn->tot_num_streams;
-    /* TODO add a hashmap for stream ids */
-    for( ulong j = 0; j < tot_num_streams; ++j ) {
-      if( streams[j]->stream_id == pkt_meta->stream_id ) {
-        stream = streams[j];
-        break;
-      }
-    }
+    ulong                  stream_id    = pkt_meta->stream_id;
+    fd_quic_stream_t *     stream       = NULL;
+    fd_quic_stream_map_t * stream_entry = fd_quic_stream_map_query( conn->stream_map, stream_id, NULL );
 
-    if( FD_LIKELY( stream ) ) {
+    if( FD_LIKELY( stream_entry ) ) {
+      stream = stream_entry->stream;
 
       ulong tx_tail = stream->tx_buf.tail;
       ulong tx_sent = stream->tx_sent;
@@ -4212,6 +4216,7 @@ fd_quic_reclaim_pkt_meta( fd_quic_conn_t *     conn,
   if( flags & FD_QUIC_PKT_META_FLAGS_MAX_STREAM_DATA ) {
     ulong               tot_num_streams = conn->tot_num_streams;
     fd_quic_stream_t ** streams         = conn->streams;
+    /* TODO avoid linear search here */
     for( ulong j = 0; j < tot_num_streams; ++j ) {
       fd_quic_stream_t * stream = streams[j];
       if( stream->upd_pkt_number == pkt_number ) {
@@ -4498,88 +4503,97 @@ fd_quic_frame_handle_stream_frame(
   ulong data_sz   = data->length_opt ? data->length : p_sz;
 
   /* find stream */
-  fd_quic_stream_t *  stream = NULL;
-  fd_quic_stream_t ** streams = context.conn->streams;
-  for( ulong j = 0; j < context.conn->tot_num_streams; ++j ) {
-    if( stream_id == streams[j]->stream_id ) {
-      stream = streams[j];
-      break;
-    }
-    if( streams[j]->stream_id == FD_QUIC_STREAM_ID_UNUSED ) {
-      stream = streams[j];
-    }
-  }
+  fd_quic_stream_t *     stream       = NULL;
+  fd_quic_stream_map_t * stream_entry = fd_quic_stream_map_query( context.conn->stream_map, stream_id, NULL );
 
-  if( !stream || stream->stream_id == FD_QUIC_STREAM_ID_UNUSED ) {
-    /* No free streams - fail */
-    ulong max_stream_id = context.conn->max_streams[type];
-    if( FD_UNLIKELY( stream_id > max_stream_id ) ) {
-      fd_quic_conn_error( context.conn, FD_QUIC_CONN_REASON_STREAM_LIMIT_ERROR );
+  if( stream_entry ) {
+    stream = stream_entry->stream;
+  } else {
+    /* not found, get unused stream */
+    stream = context.conn->unused_streams;
+
+    if( FD_LIKELY( stream ) ) {
+      ulong max_stream_id = context.conn->max_streams[type];
+      if( FD_UNLIKELY( stream_id > max_stream_id ) ) {
+        fd_quic_conn_error( context.conn, FD_QUIC_CONN_REASON_STREAM_LIMIT_ERROR );
+
+        /* since we're terminating the connection, don't parse more */
+        return FD_QUIC_PARSE_FAIL;
+      }
+
+      /* new stream - peer initiated */
+
+      /* initialize stream members */
+
+      /* we need to know if client-initiated or server-initiated
+         we know peer initiated, so: */
+      uint initiator = !context.conn->server;
+
+      /* client chosen stream id must match type */
+      uint stream_id_initiator = ( stream_id >> 1u ) & 1u;
+      if( FD_UNLIKELY( stream_id_initiator != initiator ) ) {
+        FD_LOG_WARNING(( "Peer requested invalid stream id" ));
+        fd_quic_conn_error( context.conn, FD_QUIC_CONN_REASON_PROTOCOL_VIOLATION );
+
+        /* since we're terminating the connection, don't parse more */
+        return FD_QUIC_PARSE_FAIL;
+      }
+
+      /* bidirectional? */
+      uint bidir = ( stream_id >> 1u ) & 1u;
+
+      /* if unidir, we can't send - since peer initiated */
+      /* if bidir we can only send up to the peer's advertized limit */
+      ulong tx_max_stream_data = bidir ?
+                  context.conn->tx_initial_max_stream_data_bidi_local : 0;
+
+      stream->conn        = context.conn;
+      stream->stream_id   = stream_id;
+
+      stream->context     = NULL; /* TODO where do we get this from? */
+
+      stream->tx_buf.head = 0; /* first unused byte of tx_buf */
+      stream->tx_buf.tail = 0; /* first unacked (used) byte of tx_buf */
+      stream->tx_sent     = 0; /* first unsent byte of tx_buf */
+
+      stream->flags       = 0;
+
+      /* flow control */
+      stream->tx_max_stream_data = tx_max_stream_data;
+      stream->tx_tot_data        = 0;
+
+      stream->rx_max_stream_data = context.conn->stream_rx_buf_sz;
+      stream->rx_tot_data        = 0;
+
+      /* insert into stream map */
+      fd_quic_stream_map_t * entry = fd_quic_stream_map_insert( context.conn->stream_map, stream_id );
+      if( FD_UNLIKELY( !entry ) ) {
+        /* stream map is sized to allow all concurrent streams with extra space for efficiency
+           so this should never happen */
+        FD_LOG_ERR(( "no space in stream map" ));
+      }
+
+      entry->stream = stream;
+
+      /* remove from head of unused streams list */
+      context.conn->unused_streams = stream->next;
+      stream->next                 = NULL;
+    } else {
+      /* no free streams - concurrent max should handle this */
+      FD_LOG_WARNING(( "insufficient space for incoming stream, yet concurrent max not exceeded" ));
+
+      fd_quic_conn_error( context.conn, FD_QUIC_CONN_REASON_INTERNAL_ERROR );
 
       /* since we're terminating the connection, don't parse more */
       return FD_QUIC_PARSE_FAIL;
     }
-  }
-
-  if( FD_UNLIKELY( !stream ) ) {
-    /* no free streams - concurrent max should handle this */
-    FD_LOG_WARNING(( "insufficient space for incoming stream, yet concurrent max not exceeded" ));
-
-    fd_quic_conn_error( context.conn, FD_QUIC_CONN_REASON_INTERNAL_ERROR );
-
-    /* since we're terminating the connection, don't parse more */
-    return FD_QUIC_PARSE_FAIL;
-  }
-
-  /* new stream - peer initiated */
-  if( stream->stream_id == FD_QUIC_STREAM_ID_UNUSED ) {
-    /* initialize stream members */
-
-    /* we need to know if client-initiated or server-initiated
-       we know peer initiated, so: */
-    uint initiator = !context.conn->server;
-
-    /* client chosen stream id must match type */
-    uint stream_id_initiator = ( stream_id >> 1u ) & 1u;
-    if( FD_UNLIKELY( stream_id_initiator != initiator ) ) {
-      FD_LOG_WARNING(( "Peer requested invalid stream id" ));
-      fd_quic_conn_error( context.conn, FD_QUIC_CONN_REASON_PROTOCOL_VIOLATION );
-
-      /* since we're terminating the connection, don't parse more */
-      return FD_QUIC_PARSE_FAIL;
-    }
-
-    /* bidirectional? */
-    uint bidir = ( stream_id >> 1u ) & 1u;
-
-    /* if unidir, we can't send - since peer initiated */
-    /* if bidir we can only send up to the peer's advertized limit */
-    ulong tx_max_stream_data = bidir ?
-                context.conn->tx_initial_max_stream_data_bidi_local : 0;
-
-    stream->conn        = context.conn;
-    stream->stream_id   = stream_id;
-
-    stream->context     = NULL; /* TODO where do we get this from? */
-
-    stream->tx_buf.head = 0; /* first unused byte of tx_buf */
-    stream->tx_buf.tail = 0; /* first unacked (used) byte of tx_buf */
-    stream->tx_sent     = 0; /* first unsent byte of tx_buf */
-
-    stream->flags       = 0;
-
-    /* flow control */
-    stream->tx_max_stream_data = tx_max_stream_data;
-    stream->tx_tot_data        = 0;
-
-    stream->rx_max_stream_data = context.conn->stream_rx_buf_sz;
-    stream->rx_tot_data        = 0;
   }
 
   /* TODO pass the fin bit to the user here? */
   /* or provide in API */
 
   /* TODO if fin bit set, store the final size */
+  /* TODO fin bit logic - must allow max_stream_id to be increased for type */
 
   /* TODO could allow user to cancel ack for this packet */
 
@@ -4647,6 +4661,16 @@ fd_quic_frame_handle_stream_frame(
 
         /* free the stream */
         stream->stream_id = FD_QUIC_STREAM_ID_UNUSED;
+
+        /* remove from stream map */
+        fd_quic_stream_map_t * stream_entry = fd_quic_stream_map_query( conn->stream_map, stream_id, NULL );
+        if( FD_LIKELY( stream_entry ) ) {
+          fd_quic_stream_map_remove( conn->stream_map, stream_entry );
+        }
+
+        /* insert into unused list */
+        stream->next         = conn->unused_streams;
+        conn->unused_streams = stream;
       }
     }
   } else {
@@ -4699,16 +4723,10 @@ fd_quic_frame_handle_max_stream_data(
   ulong stream_id  = data->stream_id;
 
   /* find stream */
-  fd_quic_stream_t *  stream  = NULL;
-  fd_quic_stream_t ** streams = context.conn->streams;
-  for( ulong j = 0; j < context.conn->tot_num_streams; ++j ) {
-    if( stream_id == streams[j]->stream_id ) {
-      stream = streams[j];
-      break;
-    }
-  }
+  fd_quic_stream_map_t * stream_entry = fd_quic_stream_map_query( context.conn->stream_map, stream_id, NULL );
+  if( FD_UNLIKELY( !stream_entry ) ) return 0;
 
-  if( FD_UNLIKELY( !stream ) ) return 0;
+  fd_quic_stream_t * stream = stream_entry->stream;
 
   ulong tx_max_stream_data  = stream->tx_max_stream_data;
   ulong new_max_stream_data = data->max_stream_data;

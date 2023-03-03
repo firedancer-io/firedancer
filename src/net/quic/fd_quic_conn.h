@@ -177,6 +177,8 @@ struct fd_quic_conn {
   ulong                    tot_num_streams;
   fd_quic_stream_t **      streams;         /* array of stream pointers */
   fd_quic_stream_t *       send_streams;    /* list of streams needing action */
+  fd_quic_stream_t *       unused_streams;  /* list of unused streams */
+  fd_quic_stream_map_t *   stream_map;      /* map stream_id -> stream */
 
   /* packet number info
      each encryption level maps to a packet number space
