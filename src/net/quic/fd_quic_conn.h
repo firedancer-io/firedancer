@@ -121,15 +121,15 @@ struct fd_quic_ack {
 struct fd_quic_conn {
   fd_quic_t *        quic;
 
-  int                server;             /* 0=client, 1=server */
-  int                established;        /* used by clients to determine whether to
-                                            switch the destination conn id used */
+  int                server;              /* 0=client, 1=server */
+  int                established;         /* used by clients to determine whether to
+                                             switch the destination conn id used */
 
-  uint               version;            /* QUIC version of the connection */
+  uint               version;             /* QUIC version of the connection */
 
-  ulong              next_service_time;  /* time service should be called next */
+  ulong              next_service_time;   /* time service should be called next */
 
-  fd_quic_host_cfg_t host;               /* host configuration */
+  fd_quic_host_cfg_t host;                /* host configuration */
 
   /* we can have multiple connection ids */
   fd_quic_conn_id_t  our_conn_id[FD_QUIC_MAX_CONN_ID_PER_CONN];
@@ -138,22 +138,22 @@ struct fd_quic_conn {
   fd_quic_endpoint_t peer[FD_QUIC_MAX_CONN_ID_PER_CONN];
 
   /* the original connection id is specified by the client */
-  fd_quic_conn_id_t  orig_conn_id;       /* unused by client connections */
+  fd_quic_conn_id_t  orig_conn_id;        /* unused by client connections */
 
-  ushort             our_conn_id_cnt;    /* number of connection ids */
-  ushort             peer_cnt;           /* number of peer endpoints */
+  ushort             our_conn_id_cnt;     /* number of connection ids */
+  ushort             peer_cnt;            /* number of peer endpoints */
 
-  ushort             cur_conn_id_idx;    /* currently used conn id */
-  ushort             cur_peer_idx;       /* currently used peer endpoint */
+  ushort             cur_conn_id_idx;     /* currently used conn id */
+  ushort             cur_peer_idx;        /* currently used peer endpoint */
 
   /* initial source connection id */
   fd_quic_conn_id_t  initial_source_conn_id;
 
-  uint               tx_max_datagram_sz; /* size of maximum datagram allowed by peer */
+  uint               tx_max_datagram_sz;  /* size of maximum datagram allowed by peer */
 
   /* handshake members */
-  int                handshake_complete; /* have we completed a successful handshake? */
-  int                handshake_done;     /* do we need to send handshake-done to peer? */
+  int                handshake_complete;  /* have we completed a successful handshake? */
+  int                send_handshake_done; /* do we need to send handshake-done to peer? */
   fd_quic_tls_hs_t * tls_hs;
 
   /* expected handshake data offset - one per encryption level
@@ -176,6 +176,7 @@ struct fd_quic_conn {
 
   ulong                    tot_num_streams;
   fd_quic_stream_t **      streams;         /* array of stream pointers */
+  fd_quic_stream_t *       send_streams;    /* list of streams needing action */
 
   /* packet number info
      each encryption level maps to a packet number space
