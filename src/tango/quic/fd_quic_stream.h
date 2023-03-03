@@ -6,6 +6,11 @@
 
 #define FD_QUIC_STREAM_ID_UNUSED (~0ul)
 
+typedef struct fd_quic_conn       fd_quic_conn_t;
+typedef struct fd_quic_stream     fd_quic_stream_t;
+typedef struct fd_quic_buffer     fd_quic_buffer_t;
+typedef struct fd_quic_stream_map fd_quic_stream_map_t;
+
 /* define a circular buffer
 
    cap is a power of 2
@@ -20,7 +25,6 @@ struct fd_quic_buffer {
   ulong   head;
   ulong   tail;
 };
-typedef struct fd_quic_buffer fd_quic_buffer_t;
 
 
 /* buffer helper functions
@@ -43,9 +47,6 @@ fd_quic_buffer_load( fd_quic_buffer_t * buf,
                      uchar *            data,
                      ulong              data_sz );
 
-/* forward */
-typedef struct fd_quic_conn fd_quic_conn_t;
-
 struct fd_quic_stream {
   fd_quic_conn_t * conn;
 
@@ -58,10 +59,11 @@ struct fd_quic_stream {
 
   fd_quic_buffer_t rx_buf;                       /* receive reorder buffer */
 
-  uint flags;   /* some flags */
+  uint flags;   /* flags representing elements that require sending */
 # define FD_QUIC_STREAM_FLAGS_TX_FIN          (1u<<0u)
 # define FD_QUIC_STREAM_FLAGS_RX_FIN          (1u<<1u)
 # define FD_QUIC_STREAM_FLAGS_MAX_STREAM_DATA (1u<<2u)
+# define FD_QUIC_STREAM_FLAGS_UNSENT          (1u<<3u)
 
 
   /* flow control */
@@ -81,9 +83,18 @@ struct fd_quic_stream {
        and update this value */
   ulong upd_pkt_number;
 
+  struct fd_quic_stream * next;
+
   /* TODO need a timeout on this data */
 };
-typedef struct fd_quic_stream fd_quic_stream_t;
+
+
+/* stream map for use in fd_map_dynamic map */
+struct fd_quic_stream_map {
+  ulong              stream_id; /* key */
+  uint               hash;      /* hash */
+  fd_quic_stream_t * stream;    /* value */
+};
 
 /* returns the alignment of the fd_quic_stream_t */
 FD_FN_CONST inline

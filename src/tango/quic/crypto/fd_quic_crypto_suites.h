@@ -98,6 +98,9 @@ struct fd_quic_crypto_keys {
   /* header protection */
   uchar hp_key[FD_QUIC_KEY_MAX_SZ];
   ulong hp_key_sz;
+
+  EVP_CIPHER_CTX * pkt_cipher_ctx;
+  EVP_CIPHER_CTX * hp_cipher_ctx;
 };
 
 /* crypto context */
@@ -314,19 +317,17 @@ fd_quic_gen_secrets(
 
    args
      keys               a pointer to the structure to receive the generated keys
-     keys_sz            the key length in bytes - defined by the suite
-     iv_sz              iv length in bytes - defined by the rfc
+     suite              the crypto suite in use for these keys
      md                 a pointer to the EVP_MD initialized for the purpose
      secret             a pointer to the secret used for generating the keys
      secret_sz          the size of the secret used */
 int
 fd_quic_gen_keys(
-    fd_quic_crypto_keys_t * keys,
-    ulong                   key_sz,
-    ulong                   iv_sz,
-    EVP_MD const *          md,
-    uchar const *           secret,
-    ulong                   secret_sz );
+    fd_quic_crypto_keys_t *  keys,
+    fd_quic_crypto_suite_t * suite,
+    EVP_MD const *           md,
+    uchar const *            secret,
+    ulong                    secret_sz );
 
 /* encrypt a packet according to rfc9001 packet protection and header protection
 
