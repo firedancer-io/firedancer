@@ -186,7 +186,8 @@ int main(int argc, char **argv) {
 
   auto reload = [&](){
     fd_funk_delete(funk);
-    fd_wksp_tag_free(wksp, 1);
+    ulong wksp_tag = 1UL;
+    fd_wksp_tag_free(wksp, &wksp_tag, 1UL);
     for (auto it = golden.begin(); it != golden.end(); ) {
       if (it->first == rootxid)
         ++it;

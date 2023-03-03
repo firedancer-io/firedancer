@@ -141,7 +141,8 @@ int main(int argc, char **argv) {
 
   auto reload = [&](){
     fd_funk_delete(funk);
-    fd_wksp_tag_free(wksp, 1);
+    ulong       wksp_tag = 1UL;
+    fd_wksp_tag_free(wksp, &wksp_tag, 1UL);
     funk = fd_funk_new("testback", wksp, 1, 100000, 100, 10000);
   };
   reload();

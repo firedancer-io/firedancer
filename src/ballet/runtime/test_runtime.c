@@ -576,7 +576,8 @@ int main(int argc, char **argv) {
   fd_funk_delete(state.funk);
 
   // ??
-  //fd_wksp_tag_free(state.wksp, 2);
+  // ulong       wksp_tag = 1UL;
+  //fd_wksp_tag_free(state.wksp, &wksp_tag, 1UL);
 
   fd_wksp_free_laddr( shmem );
 
