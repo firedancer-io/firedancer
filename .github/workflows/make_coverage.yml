@@ -8,6 +8,9 @@ on:
 jobs:
   make-test-coverage:
     runs-on: ubuntu-22.04
+    env:
+      MACHINE: linux_clang_x86_64
+      EXTRAS: llvm-cov
     steps:
       - uses: actions/checkout@v3
 
@@ -15,47 +18,20 @@ jobs:
         run: |
           sudo apt-get install -y \
             clang                 \
-            llvm-14               \
+            llvm                  \
             lcov                  \
-            libnuma-dev           \
-            parallel
+            libnuma-dev
 
       - name: Build everything
-        run: |
-          export MACHINE="linux_clang_x86_64"
-          export EXTRAS="llvm-cov"
-          make -j 
+        run: make -j
 
       - name: Run unit tests
-        run: |
-          export LLVM_PROFILE_FILE="build/linux/clang/x86_64/tmp/coverage/%p.profraw"
-          export MACHINE="linux_clang_x86_64"
-          export EXTRAS="llvm-cov"
-          make -kj --output-sync=target run-unit-test
+        run: make -kj --output-sync=target run-unit-test
 
-      - name: Index raw coverage profiles
+      - name: Make coverage report
         run: |
-          (
-            cd build/linux/clang/x86_64/tmp/coverage
-            llvm-profdata-14 merge \
-              -o coverage.profdata \
-              *.profraw
-          )
-
-      - name: Export lcov profile
-        run: |
-          BUILDDIR=build/linux/clang/x86_64
-          llvm-cov-14 export \
-            -format=lcov     \
-            -instr-profile=$BUILDDIR/tmp/coverage/coverage.profdata             \
-            $(find $BUILDDIR/obj -name '*.o' -exec printf "-object=%q\n" {} \;) \
-            > coverage.lcov
-
-      - name: Create coverage HTML report
-        run: |
-          genhtml                    \
-            --output coverage-report \
-            coverage.lcov
+          make cov-report
+          mv build/linux/clang/x86_64/cov/html coverage-report
 
       - name: Upload coverage HTML report as GitHub artifact
         uses: actions/upload-artifact@v3
@@ -67,7 +43,7 @@ jobs:
         uses: codecov/codecov-action@v3
         timeout-minutes: 5
         with:
-          files: coverage.lcov
+          files: build/linux/clang/x86_64/cov/cov.lcov
           name: codecov-make-linux_clang-14_x86_64
           fail_ci_if_error: false
           functionalities: search

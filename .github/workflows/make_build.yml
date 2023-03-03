@@ -18,7 +18,7 @@ jobs:
         run: |
           sudo apt-get install -y \
             libnuma-dev           \
-            clang-15
+            ${{ matrix.compiler }}
 
       - name: Build everything
         run: make -j MACHINE=linux_${{ matrix.compiler }}_x86_64
