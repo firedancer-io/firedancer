@@ -2,11 +2,23 @@
 #include "fd_quic_common.h"
 #include "../../util/fd_util.h"
 
+/* define a map for stream_id -> stream* */
+#define MAP_NAME              fd_quic_stream_map
+#define MAP_KEY               stream_id
+#define MAP_T                 fd_quic_stream_map_t
+#define MAP_KEY_NULL          FD_QUIC_STREAM_ID_UNUSED 
+#define MAP_KEY_INVAL(key)    ((key)==MAP_KEY_NULL)
+#define MAP_QUERY_OPT         1
+
+#include "../../util/tmpl/fd_map_dynamic.c"
+
+
 ulong
 fd_quic_conn_align() {
   ulong align = fd_ulong_max( alignof( fd_quic_conn_t ), alignof( fd_quic_stream_t ) );
   align = fd_ulong_max( align, alignof( fd_quic_ack_t ) );
   align = fd_ulong_max( align, alignof( fd_quic_pkt_meta_t ) );
+  align = fd_ulong_max( align, fd_quic_stream_map_align() );
   return align;
 }
 
@@ -33,6 +45,13 @@ fd_quic_conn_footprint( fd_quic_config_t const * config ) {
 
   /* space for stream instances */
   imem += FD_QUIC_POW2_ALIGN( tot_num_streams * fd_quic_stream_footprint( tx_buf_sz, rx_buf_sz ), align );
+
+  /* space for stream hash map */
+  ulong lg = 0;
+  while( lg < 64 && (1ul<<lg) < (ulong)((double)tot_num_streams*2.5) ) {
+    lg++;
+  }
+  imem += FD_QUIC_POW2_ALIGN( fd_quic_stream_map_footprint( (int)lg ), align );
 
   ulong num_pkt_meta = config->max_in_flight_pkts;
   imem += FD_QUIC_POW2_ALIGN( num_pkt_meta * sizeof( fd_quic_pkt_meta_t ), align );
@@ -81,8 +100,26 @@ fd_quic_conn_new( void * mem, fd_quic_t * quic, fd_quic_config_t const * config 
   for( ulong j = 0; j < conn->tot_num_streams; ++j ) {
     conn->streams[j] = fd_quic_stream_new( (void*)imem, conn, tx_buf_sz, rx_buf_sz );
 
+    conn->streams[j]->next = NULL;
+
+    /* insert into unused list */
+    if( j == 0 ) {
+      conn->unused_streams = conn->streams[j];
+    } else {
+      conn->streams[j-1]->next = conn->streams[j];
+    }
+
     imem += stream_footprint;
   }
+
+  /* space for stream hash map */
+  ulong lg = 0;
+  while( lg < 64 && (1ul<<lg) < (ulong)((double)tot_num_streams*2.5) ) {
+    lg++;
+  }
+  /* TODO move join into fd_quic_conn_join */
+  conn->stream_map = fd_quic_stream_map_join( fd_quic_stream_map_new( (void*)imem, (int)lg ) );
+  imem += FD_QUIC_POW2_ALIGN( fd_quic_stream_map_footprint( (int)lg ), align );
 
   /* allocate pkt_meta_t */
   fd_quic_pkt_meta_t * pkt_meta = (fd_quic_pkt_meta_t*)imem;

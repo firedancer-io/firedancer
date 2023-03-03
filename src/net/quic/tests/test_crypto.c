@@ -221,8 +221,7 @@ main( int     argc,
   fd_quic_crypto_keys_t client_keys = {0};
   if( fd_quic_gen_keys(
         &client_keys,
-        (ulong)suite->key_sz,
-        (ulong)suite->iv_sz,
+        suite,
         suite->hash,
         expected_client_initial_secret,
         expected_client_initial_secret_sz )
