@@ -5,7 +5,8 @@
 // run --ledger /home/jsiegel/mainnet-ledger --db /home/jsiegel/funk --cmd ingest --accounts /home/jsiegel/mainnet-ledger/accounts --pages 15 --index-max 120000000
 // run --ledger /dev/shm/mainnet-ledger --db /dev/shm/funk --cmd ingest --accounts /dev/shm/mainnet-ledger/accounts --pages 15 --index-max 120000000
 
-// --ledger /home/jsiegel/repos/solana/test-ledger --db /home/jsiegel/repos/solana//test-ledger/funk --cmd replay --start-slot 0 --end-slot 100  --txn-exe sim  --index-max 120000000 --pages 15
+// --ledger /home/jsiegel/repos/solana/test-ledger --db /home/jsiegel/repos/solana//test-ledger/funk --cmd replay --start-slot 0 --end-slot 200  --txn-exe sim  --index-max 120000000 --pages 15
+
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -311,7 +312,6 @@ int replay(global_state_t *state) {
   // Lets start executing!
   void *fd_executor_raw = malloc(FD_EXECUTOR_FOOTPRINT);
   fd_executor_t* executor = fd_executor_join(fd_executor_new(fd_executor_raw, state->acc_mgr, FD_EXECUTOR_FOOTPRINT));
-  char *err = NULL;
 
   fd_rng_t rnd_mem;
   void *shrng = fd_rng_new(&rnd_mem, 0, 0);
@@ -319,10 +319,33 @@ int replay(global_state_t *state) {
 
   struct fd_funk_xactionid funk_txn;
 
-  if (0 == state->start_slot)
+  uchar boot_boh = 1;
+  if (0 == state->start_slot) {
     fd_memcpy(state->poh.state, state->genesis_hash, sizeof(state->genesis_hash));
+    boot_boh = 0;
+  }
 
-  for (ulong slot = state->start_slot; slot < state->end_slot; slot++) {
+  fd_rocksdb_root_iter_t iter;
+  fd_rocksdb_root_iter_new ( & iter );
+
+  fd_slot_meta_t m;
+  fd_memset(&m, 0, sizeof(m));
+
+  int ret = fd_rocksdb_root_iter_seek ( &iter, &state->rocks_db, state->start_slot, &m, allocf, state->alloc);
+  if (ret < 0) {
+    FD_LOG_ERR(("fd_rocksdb_root_iter_seek returned %d", ret));
+  }
+
+  do {
+    ulong slot;
+    ret = fd_rocksdb_root_iter_slot ( & iter, &slot );
+    if (ret < 0) {
+      FD_LOG_ERR(("fd_rocksdb_root_iter_slot returned %d", ret));
+    }
+
+    if (slot >= state->end_slot)
+      break;
+
     if ((slot % 1000) == 0)
       FD_LOG_WARNING(("reading slot %ld", slot));
 
@@ -337,17 +360,6 @@ int replay(global_state_t *state) {
     }
 
     do {
-      fd_slot_meta_t m;
-      fd_memset(&m, 0, sizeof(m));
-      err = NULL;
-      fd_rocksdb_get_meta(&state->rocks_db, slot, &m, allocf, state->alloc, &err);
-
-      if (err != NULL) {
-//        FD_LOG_WARNING(("fd_rocksdb_last_slot returned %s", err));
-        free (err);
-        break;
-      }
-
       fd_slot_blocks_t *slot_data = fd_rocksdb_get_microblocks(&state->rocks_db, &m, allocf, state->alloc);
 
       // free 
@@ -358,13 +370,18 @@ int replay(global_state_t *state) {
         break;
       }
 
+      ulong blob_idx = 0;
+      ulong entry_idx = 0;
       // execute slot_block...
       uchar *blob = slot_data->first_blob;
       while (NULL != blob) {
+        blob_idx++;
         uchar *blob_ptr = blob + FD_BLOB_DATA_START;
         uint cnt = *((uint *) (blob + 8));
         while (cnt > 0) {
           fd_microblock_t * micro_block = fd_microblock_join( blob_ptr );
+
+          entry_idx++;
 
           if (micro_block->txn_max_cnt > 0) {
             if (micro_block->hdr.hash_cnt > 0)
@@ -394,7 +411,11 @@ int replay(global_state_t *state) {
             fd_poh_append(&state->poh, micro_block->hdr.hash_cnt);
 
           if (memcmp(micro_block->hdr.hash, state->poh.state, sizeof(state->poh.state))) {
-            FD_LOG_ERR(( "poh missmatch"));
+            if (boot_boh) {
+              fd_memcpy(state->poh.state, micro_block->hdr.hash, sizeof(state->poh.state));
+              boot_boh = 0;
+            } else
+              FD_LOG_ERR(( "poh missmatch at slot: %ld,  batch: %ld,  entry: %ld", slot, blob_idx, entry_idx));
           }
 
           fd_microblock_leave(micro_block);
@@ -413,7 +434,12 @@ int replay(global_state_t *state) {
 
     if (state->txn_exe == 2) 
       fd_funk_commit(state->funk, &funk_txn);
-  } // for (ulong slot = state->start_slot; slot < state->end_slot; slot++) 
+
+    ret = fd_rocksdb_root_iter_next ( &iter, &m, allocf, state->alloc);
+    if (ret < 0) {
+      FD_LOG_ERR(("fd_rocksdb_root_iter_seek returned %d", ret));
+    }
+  } while (true);
 
   fd_executor_delete(fd_executor_leave(executor));
   free(fd_executor_raw);

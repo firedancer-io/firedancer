@@ -127,17 +127,21 @@ ulong fd_rocksdb_first_slot(fd_rocksdb_t *db, char **err) {
   return slot;
 }
 
-int fd_rocksdb_get_meta(fd_rocksdb_t *db, ulong slot, fd_slot_meta_t *m, fd_alloc_fun_t allocf, void* allocf_arg, char **err) {
+int fd_rocksdb_get_meta(fd_rocksdb_t *db, ulong slot, fd_slot_meta_t *m, fd_alloc_fun_t allocf, void* allocf_arg) {
   ulong ks = fd_ulong_bswap(slot);
   size_t vallen = 0;
 
+  char *err = NULL;
   char *meta = rocksdb_get_cf(
-    db->db, db->ro, db->column_family_handles[1], (const char *) &ks, sizeof(ks), &vallen, err);
+    db->db, db->ro, db->column_family_handles[1], (const char *) &ks, sizeof(ks), &vallen, &err);
+
+  if (NULL != err) {
+    FD_LOG_WARNING(( "%s", err ));
+    free (err);
+    return -2;
+  }
 
   if (0 == vallen) 
-    *err = strdup("empty record");
-
-  if (*err != NULL)
     return -1;
 
   unsigned char *outend = (unsigned char *) &meta[vallen];
@@ -341,3 +345,83 @@ void fd_slot_blocks_destroy(fd_slot_blocks_t *b, fd_free_fun_t freef,  void* fre
   fd_memset(b, 0, sizeof(*b));
 }
 
+void * 
+fd_rocksdb_root_iter_new     ( void * ptr ) {
+  fd_memset(ptr, 0, sizeof(fd_rocksdb_root_iter_t));
+  return ptr;
+}
+
+fd_rocksdb_root_iter_t * 
+fd_rocksdb_root_iter_join    ( void * ptr ) {
+  return (fd_rocksdb_root_iter_t *) ptr;
+}
+
+void * 
+fd_rocksdb_root_iter_leave   ( fd_rocksdb_root_iter_t * ptr ) {
+  return ptr;
+}
+
+int
+fd_rocksdb_root_iter_seek    ( fd_rocksdb_root_iter_t * self, fd_rocksdb_t * db, ulong slot, fd_slot_meta_t *m, fd_alloc_fun_t allocf, void* allocf_arg ) {
+  self->db = db;
+
+  if (NULL == self->iter) 
+    self->iter = rocksdb_create_iterator_cf(self->db->db, self->db->ro, self->db->column_family_handles[1]);
+
+  ulong ks = fd_ulong_bswap(slot);
+
+  rocksdb_iter_seek(self->iter, (char *) &ks, sizeof(ks));
+  if (!rocksdb_iter_valid(self->iter)) 
+    return -1;
+
+  size_t klen = 0;
+  const char *key = rocksdb_iter_key(self->iter, &klen); // There is no need to free key
+  unsigned long kslot = fd_ulong_bswap(*((unsigned long *) key));
+
+  if (kslot != slot) 
+    return -2;
+
+  return fd_rocksdb_get_meta(self->db, slot, m, allocf, allocf_arg);
+}
+
+int
+fd_rocksdb_root_iter_slot  ( fd_rocksdb_root_iter_t * self, ulong *slot ) {
+  if ((NULL == self->db) || (NULL == self->iter))
+    return -1;
+
+  if (!rocksdb_iter_valid(self->iter)) 
+    return -2;
+
+  size_t klen = 0;
+  const char *key = rocksdb_iter_key(self->iter, &klen); // There is no need to free key
+  *slot = fd_ulong_bswap(*((unsigned long *) key));
+  return 0;
+}
+
+int
+fd_rocksdb_root_iter_next    ( fd_rocksdb_root_iter_t * self, fd_slot_meta_t *m, fd_alloc_fun_t allocf, void* allocf_arg ) {
+  if ((NULL == self->db) || (NULL == self->iter))
+    return -1;
+
+  if (!rocksdb_iter_valid(self->iter)) 
+    return -2;
+
+  rocksdb_iter_next(self->iter);
+
+  if (!rocksdb_iter_valid(self->iter)) 
+    return -3;
+
+  size_t klen = 0;
+  const char *key = rocksdb_iter_key(self->iter, &klen); // There is no need to free key
+
+  return fd_rocksdb_get_meta(self->db, fd_ulong_bswap(*((unsigned long *) key)), m, allocf, allocf_arg);
+}
+
+void 
+fd_rocksdb_root_iter_destroy ( fd_rocksdb_root_iter_t * self ) {
+  if (NULL != self->iter) {
+    rocksdb_iter_destroy(self->iter);
+    self->iter = 0;
+  }
+  self->db = NULL;
+}

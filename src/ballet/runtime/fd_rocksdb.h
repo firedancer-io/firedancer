@@ -55,7 +55,53 @@ typedef struct fd_rocksdb fd_rocksdb_t;
 #define FD_ROCKSDB_FOOTPRINT sizeof(fd_rocksdb_t)
 #define FD_ROCKSDB_ALIGN (8UL)
 
+/* root column iterator */
+struct fd_rocksdb_root_iter {
+  fd_rocksdb_t *                  db;
+  rocksdb_iterator_t*             iter;
+};
+typedef struct fd_rocksdb_root_iter fd_rocksdb_root_iter_t;
+#define FD_ROCKSDB_ROOT_ITER_FOOTPRINT sizeof(fd_rocksdb_root_iter_t)
+#define FD_ROCKSDB_ROOT_ITER_ALIGN (8UL)
+
 FD_PROTOTYPES_BEGIN
+
+void * 
+fd_rocksdb_root_iter_new     ( void * );
+
+fd_rocksdb_root_iter_t * 
+fd_rocksdb_root_iter_join    ( void * );
+
+void * 
+fd_rocksdb_root_iter_leave   ( fd_rocksdb_root_iter_t * );
+
+/* fd_rocksdb_root_iter_seek
+
+    0 = success
+   -1 = seek for supplied slot failed
+   -2 = seek succeeded but slot did not match what we seeked for
+   -3 = seek succeeded but points at an empty slot
+*/
+int
+fd_rocksdb_root_iter_seek    ( fd_rocksdb_root_iter_t *, fd_rocksdb_t * db, ulong slot, fd_slot_meta_t *m, fd_alloc_fun_t allocf, void* allocf_arg );
+
+/*  fd_rocksdb_root_iter_next
+
+    0 = success
+   -1 = not properly initialized with a seek
+   -2 = invalid starting iterator
+   -3 = next returned an invalid iterator state
+   -4 = seek succeeded but points at an empty slot
+ */
+
+int
+fd_rocksdb_root_iter_next    ( fd_rocksdb_root_iter_t *, fd_slot_meta_t *m, fd_alloc_fun_t allocf, void* allocf_arg );
+
+int
+fd_rocksdb_root_iter_slot  ( fd_rocksdb_root_iter_t * self , ulong *slot);
+
+void 
+fd_rocksdb_root_iter_destroy ( fd_rocksdb_root_iter_t * );
 
 /* fd_slot_blocks_new
 
@@ -122,8 +168,7 @@ int fd_rocksdb_get_meta(
     ulong slot,
     fd_slot_meta_t *m,
     fd_alloc_fun_t allocf, 
-    void* allocf_arg,
-    char **err
+    void* allocf_arg
 );
 
 /* fd_slot_meta_decode
