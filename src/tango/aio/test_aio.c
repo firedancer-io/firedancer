@@ -1,25 +1,32 @@
 #include "fd_aio.h"
 #include "../../util/fd_util.h"
 
-FD_STATIC_ASSERT( alignof( fd_aio_buf_t )==FD_AIO_BUF_ALIGN,     alignment     );
-FD_STATIC_ASSERT( sizeof ( fd_aio_buf_t )==FD_AIO_BUF_FOOTPRINT, alignment );
+FD_STATIC_ASSERT( FD_AIO_SUCCESS           == 0,                           unit_test );
+FD_STATIC_ASSERT( FD_AIO_ERR_INVAL         ==-1,                           unit_test );
+FD_STATIC_ASSERT( FD_AIO_ERR_AGAIN         ==-2,                           unit_test );
+FD_STATIC_ASSERT( FD_AIO_PKT_INFO_ALIGN    ==alignof( fd_aio_pkt_info_t ), unit_test );
+FD_STATIC_ASSERT( FD_AIO_PKT_INFO_FOOTPRINT==sizeof ( fd_aio_pkt_info_t ), unit_test );
+FD_STATIC_ASSERT( FD_AIO_PKT_INFO_BUF_MAX  ==4096UL,                       unit_test );
 
 static struct {
-  void *         ctx;
-  fd_aio_buf_t * batch;
-  ulong          batch_cnt;
-} recv_expected;
+  void *                    ctx;
+  fd_aio_pkt_info_t const * batch;
+  ulong                     batch_cnt;
+  ulong *                   opt_batch_idx;
+} send_expected;
 
-static ulong recv_retval;
+static int   send_retval;
 
-static ulong
-test_aio_recv( void *         ctx,
-               fd_aio_buf_t * batch,
-               ulong          batch_cnt ) {
-  FD_TEST( ctx      ==recv_expected.ctx       );
-  FD_TEST( batch    ==recv_expected.batch     );
-  FD_TEST( batch_cnt==recv_expected.batch_cnt );
-  return recv_retval;
+static int
+test_aio_send_func( void *                    ctx,
+                    fd_aio_pkt_info_t const * batch,
+                    ulong                     batch_cnt,
+                    ulong *                   opt_batch_idx ) {
+  FD_TEST( ctx          ==send_expected.ctx           );
+  FD_TEST( batch        ==send_expected.batch         );
+  FD_TEST( batch_cnt    ==send_expected.batch_cnt     );
+  FD_TEST( opt_batch_idx==send_expected.opt_batch_idx );
+  return send_retval;
 }
 
 int
@@ -29,37 +36,47 @@ main( int     argc,
 
   fd_aio_t _aio[1];
 
-  /* Test failure cases for fd_aio_new */
+  /* Test various error handling */
 
-  FD_TEST( fd_aio_new( NULL, NULL, test_aio_recv )==NULL ); /* NULL mem  */
-  FD_TEST( fd_aio_new( _aio, NULL, NULL          )==NULL ); /* NULL recv */
+  FD_TEST( fd_aio_new      ( NULL, NULL, test_aio_send_func )==NULL ); /* NULL shmem     */
+  FD_TEST( fd_aio_new      ( _aio, NULL, NULL               )==NULL ); /* NULL send_func */
+  FD_TEST( fd_aio_join     ( NULL )                          ==NULL );
+  FD_TEST( fd_aio_leave    ( NULL )                          ==NULL );
+  FD_TEST( fd_aio_delete   ( NULL )                          ==NULL );
+  FD_TEST( fd_aio_ctx      ( NULL )                          ==NULL );
+  FD_TEST( fd_aio_send_func( NULL )                          ==NULL );
 
-  /* Test fd_aio */
+  int err;
+  err = FD_AIO_SUCCESS;   FD_LOG_NOTICE(( "FD_AIO_SUCCESS   (%i-%s)", err, fd_aio_strerror( err ) ));
+  err = FD_AIO_ERR_INVAL; FD_LOG_NOTICE(( "FD_AIO_ERR_INVAL (%i-%s)", err, fd_aio_strerror( err ) ));
+  err = FD_AIO_ERR_AGAIN; FD_LOG_NOTICE(( "FD_AIO_ERR_AGAIN (%i-%s)", err, fd_aio_strerror( err ) ));
+  err = 1;                FD_LOG_NOTICE(( "unknown          (%i-%s)", err, fd_aio_strerror( err ) ));
 
-  fd_aio_t * aio = fd_aio_join( fd_aio_new( _aio, (void *)0x1234UL, test_aio_recv ) );
-  FD_TEST( aio );
+  /* Simple test */
 
-  FD_TEST( (ulong)aio      ==(ulong)_aio   );
-  FD_TEST( (ulong)aio->ctx ==0x1234UL      );
-  FD_TEST(        aio->recv==test_aio_recv );
+  void *     ctx   = (void *)0x1234UL;
+  void *     shaio = fd_aio_new( _aio, ctx, test_aio_send_func ); FD_TEST( shaio );
+  fd_aio_t * aio   = fd_aio_join( shaio );                        FD_TEST( aio );
+  
+  FD_TEST( fd_aio_ctx      ( aio )==ctx                );
+  FD_TEST( fd_aio_send_func( aio )==test_aio_send_func );
 
-  FD_TEST( fd_aio_delete( fd_aio_leave( aio ) ) );
+  fd_aio_pkt_info_t batch[1];
+  ulong             batch_idx;
 
-  /* Test fd_aio callback */
+  send_expected.ctx           = ctx;
+  send_expected.batch         = batch;
+  send_expected.batch_cnt     = 1UL;
+  send_expected.opt_batch_idx = &batch_idx;
+  send_retval                 = FD_AIO_ERR_INVAL;
 
-  fd_aio_buf_t batch[ 2UL ] = {0};
+  FD_TEST( fd_aio_send( aio, batch, 1UL, &batch_idx )==FD_AIO_ERR_INVAL );
 
-  recv_expected.ctx       = (void *)0x2345UL;
-  recv_expected.batch     = batch;
-  recv_expected.batch_cnt = 2UL;
-  recv_retval             = 1UL;
-
-  aio = fd_aio_join( fd_aio_new( _aio, (void *)0x2345UL, test_aio_recv ) );
-  FD_TEST( aio );
-  FD_TEST( fd_aio_send( aio, batch, 2UL )==1UL );
-  FD_TEST( fd_aio_delete( fd_aio_leave( aio ) ) );
+  FD_TEST( fd_aio_leave ( aio   )==shaio        );
+  FD_TEST( fd_aio_delete( shaio )==(void *)_aio );
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
   return 0;
 }
+
