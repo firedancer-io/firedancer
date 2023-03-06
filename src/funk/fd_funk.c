@@ -12,7 +12,6 @@
 #include "fd_funk_root.h"
 #include "fd_funk_xaction.h"
 
-#define FD_FUNK_NUM_DISK_SIZES 44U
 #define FD_FUNK_MAX_ENTRY_SIZE (10U<<20) /* 10 MB */
 
 struct fd_funk {

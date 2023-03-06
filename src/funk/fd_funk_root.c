@@ -1,5 +1,5 @@
 // Control block size
-#define FD_FUNK_CONTROL_SIZE (64UL<<10)
+#define FD_FUNK_CONTROL_SIZE (2UL<<20) /* 2 MB */
 
 // An entry in an on-disk control block, describing the state of a disk allocation
 struct fd_funk_control_entry {
@@ -66,23 +66,44 @@ struct fd_funk_control {
 // Disk offset of next control block in chain
 #define FD_FUNK_CONTROL_NEXT(_ctrl_) (_ctrl_.entries[0].u.next_control)
 
-// Round up a size to a valid disk allocation size
+// Round up a size to a valid disk allocation size. Returns zero on
+// failure.
 uint fd_funk_disk_size(ulong rawsize, ulong* index) {
-  // These are all the allowed disk allocation sizes
+  // These are all the allowed disk allocation sizes. These include
+  // sizes much larger than the max record size because write-ahead
+  // logs can include several giant records at once and exceed the
+  // max size of a single record. Also, disk allocations are aligned
+  // at 128 bytes to make sure that control records never cross
+  // physical disk block boundaries.
+  // This list was generated with this python code:
+  //   l = []
+  //   for i in range(1,10):
+  //     l.append(i*128)
+  //   while l[-1] < 100000000:
+  //     l.append((int(l[-1]*1.3)+127)&~127)
+
   static const uint ALLSIZES[FD_FUNK_NUM_DISK_SIZES] = {
-    128, 256, 384, 512, 640, 768, 896, 1024, 1152, 1280, 1664, 2176, 2944, 3840,
-    4992, 6528, 8576, 11264, 14720, 19200, 24960, 32512, 42368, 55168, 71808, 93440,
-    121472, 157952, 205440, 267136, 347392, 451712, 587264, 763520, 992640, 1290496,
-    1677696, 2181120, 2835456, 3686144, 4792064, 6229760, 8098688, FD_FUNK_MAX_ENTRY_SIZE
+    128, 256, 384, 512, 640, 768, 896, 1024, 1152, 1536, 2048,
+    2688, 3584, 4736, 6272, 8192, 10752, 14080, 18304, 23808, 30976,
+    40320, 52480, 68224, 88704, 115328, 150016, 195072, 253696, 329856,
+    428928, 557696, 725120, 942720, 1225600, 1593344, 2071424, 2692864,
+    3500800, 4551040, 5916416, 7691392, 9998848, 12998528, 16898176,
+    21967744, 28558080, 37125504, 48263168, 62742144, 81564800, 106034304
   };
   ulong i = 0;
-  // Quickly skip ahead.
+  // Quickly skip ahead to speed up the search, but the vast majority
+  // of allocations are small in practice.
   while (i+4 < FD_FUNK_NUM_DISK_SIZES && rawsize >= ALLSIZES[i+4])
     i += 4;
-  while (i+1 < FD_FUNK_NUM_DISK_SIZES && rawsize > ALLSIZES[i])
-    i += 1;
-  *index = i;
-  return ALLSIZES[i];
+  // More meticulous search
+  for (;;) {
+    if (rawsize <= ALLSIZES[i]) {
+      *index = i;
+      return ALLSIZES[i];
+    }
+    if (++i == FD_FUNK_NUM_DISK_SIZES)
+      return 0U;
+  }
 }
 
 // Force a control entry to be dead and add the allocation to the free list
@@ -235,7 +256,7 @@ int fd_funk_allocate_disk(struct fd_funk* store, ulong data_sz, ulong* control, 
   // Round up to the nearest allocation size
   ulong k;
   *alloc = fd_funk_disk_size(data_sz, &k);
-  if (data_sz > *alloc) {
+  if (*alloc == 0U) {
     FD_LOG_WARNING(("entry too large"));
     return 0;
   }

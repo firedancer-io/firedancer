@@ -1,3 +1,4 @@
+#define FD_FUNK_NUM_DISK_SIZES 52U
 
 // Hash a record id
 ulong fd_funk_recordid_t_hash(struct fd_funk_recordid const* id, ulong hashseed) {
