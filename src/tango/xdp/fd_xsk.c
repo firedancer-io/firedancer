@@ -301,6 +301,10 @@ fd_xsk_mmap_ring( fd_ring_desc_t * ring,
     return -1;
   }
 
+  /* TODO add unit test asserting that cached prod/cons seq gets
+          cleared on join */
+  fd_memset( ring, 0, sizeof(fd_ring_desc_t) );
+
   ring->mem   = res;
   ring->depth = depth;
   ring->ptr   = (void  *)( (ulong)res + ring_offset->desc     );

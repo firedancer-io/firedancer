@@ -13,6 +13,10 @@ $(call make-unit-test,test_xsk,test_xsk,fd_xdp fd_util)
 $(call run-unit-test,test_xsk)
 
 $(call make-unit-test,test_xdp_ebpf,test_xdp_ebpf,fd_xdp fd_util,$(EBPF_BINDIR)/fd_xdp_redirect_prog.o $(wildcard src/tango/xdp/fixtures/*.bin))
+$(call run-unit-test,test_xdp_ebpf)
+
+$(call make-unit-test,test_xdp_echo_aio,test_xdp_echo_aio,fd_tango fd_xdp fd_util)
+$(call add-test-scripts,test_xdp_ctl test_xdp_init test_xdp_full test_xdp_fini)
 endif
 endif
 
