@@ -41,7 +41,7 @@ fd_cstr_to_ip4_addr( char const * s ) {
                 || x[3]>UCHAR_MAX ) )
     return ULONG_MAX;
 
-  return ( x[0] | (x[1]<<8) | (x[2]<<16) | (x[3]<<24) );
+  return ( x[3] | (x[2]<<8) | (x[1]<<16) | (x[0]<<24) );
 }
 #endif /* FD_HAS_HOSTED */
 
