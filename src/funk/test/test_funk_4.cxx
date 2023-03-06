@@ -6,6 +6,7 @@ extern "C" {
 uint fd_funk_disk_size(ulong rawsize, ulong* index);
 }
 #include <stdio.h>
+#include <stdint.h>
 #include <unistd.h>
 #include <string_view>
 #include <unordered_map>
@@ -108,7 +109,7 @@ int main(int argc, char **argv) {
 
   unlink("testback");
 
-  fd_wksp_t* wksp = fd_wksp_new_anonymous( FD_SHMEM_GIGANTIC_PAGE_SZ, 1UL, fd_log_cpu_id(), "wksp", 0UL );
+  fd_wksp_t* wksp = fd_wksp_new_anonymous( FD_SHMEM_GIGANTIC_PAGE_SZ, 2UL, fd_log_cpu_id(), "wksp", 0UL );
 
   ulong index_max = 1000000;    // Maximum size (count) of master index
   ulong xactions_max = 100;     // Maximum size (count) of transaction index
@@ -116,12 +117,6 @@ int main(int argc, char **argv) {
   auto* funk = fd_funk_new("testback", wksp, 1, index_max, xactions_max, cache_max);
 
   fd_funk_validate(funk);
-  char* scratch = (char*)malloc(FD_FUNK_MAX_ENTRY_SIZE);
-
-  typedef std::unordered_map<recordkey,databuf,recordkeyhash> xactionstate_t;
-  std::unordered_map<xactionkey,xactionstate_t,xactionkeyhash> golden;
-
-  xactionkey rootxid(fd_funk_root(funk));
 
   // Copied from fd_funk_disk_size
   static const uint ALLSIZES[FD_FUNK_NUM_DISK_SIZES] = {
@@ -140,11 +135,129 @@ int main(int argc, char **argv) {
         FD_LOG_ERR(("fd_funk_disk_size is bugged"));
       break;
     }
-    if (alloc < rawsize || alloc != ALLSIZES[k] || (k > 0 && rawsize <= ALLSIZES[k-1])) {
+    if (alloc < rawsize || alloc != ALLSIZES[k] || (k > 0 && rawsize <= ALLSIZES[k-1]) || (alloc&127)) {
       FD_LOG_ERR(("fd_funk_disk_size is bugged"));
       break;
     }
   }
+
+  char* scratch = (char*)malloc(FD_FUNK_MAX_ENTRY_SIZE);
+
+  typedef std::unordered_map<recordkey,databuf,recordkeyhash> xactionstate_t;
+  std::unordered_map<xactionkey,xactionstate_t,xactionkeyhash> golden;
+
+  xactionkey rootxid(fd_funk_root(funk));
+  randgen rg;
+  rg.genbytes(scratch, FD_FUNK_MAX_ENTRY_SIZE);
+  recordkey key;
+  rg.genbytes((char*)&key, sizeof(key));
+  if (fd_funk_write(funk, rootxid, key, scratch, 0, FD_FUNK_MAX_ENTRY_SIZE) != (long)FD_FUNK_MAX_ENTRY_SIZE)
+    FD_LOG_ERR(("write failed"));
+  golden[rootxid][key].write(scratch, 0, FD_FUNK_MAX_ENTRY_SIZE);
+
+  auto validateall = [&](){
+    fd_funk_validate(funk);
+    if (fd_funk_num_xactions(funk) != golden.size()-1)
+      FD_LOG_ERR(("wrong transaction count"));
+    if (fd_funk_num_records(funk) != golden[rootxid].size())
+      FD_LOG_ERR(("wrong record count"));
+    for (auto& [xid,xstate] : golden) {
+      for (auto& [key,db] : xstate) {
+        const void* res;
+        auto reslen = fd_funk_read(funk, xid, key, &res, 0, INT32_MAX);
+        if (!db.equals(res, reslen))
+          FD_LOG_ERR(("read returned wrong result"));
+      }
+    }
+  };
+  validateall();
+
+  if (fd_funk_write(funk, rootxid, key, scratch, 0, FD_FUNK_MAX_ENTRY_SIZE+1) != -1)
+    FD_LOG_ERR(("write not failed"));
+
+  auto reload = [&](){
+    fd_funk_delete(funk);
+    ulong wksp_tag = 1UL;
+    fd_wksp_tag_free(wksp, &wksp_tag, 1UL);
+    for (auto it = golden.begin(); it != golden.end(); ) {
+      if (it->first == rootxid)
+        ++it;
+      else
+        it = golden.erase(it);
+    }
+    funk = fd_funk_new("testback", wksp, 1, 100000, 100, 10000);
+  };
+  reload();
+  validateall();
+
+  xactionkey xid;
+  rg.genbytes((char*)&xid, sizeof(xid));
+  fd_funk_fork(funk, rootxid, xid);
+  golden[xid] = golden[rootxid];
+
+  rg.genbytes(scratch, FD_FUNK_MAX_ENTRY_SIZE);
+  rg.genbytes((char*)&key, sizeof(key));
+  if (fd_funk_write(funk, xid, key, scratch, 0, FD_FUNK_MAX_ENTRY_SIZE) != (long)FD_FUNK_MAX_ENTRY_SIZE)
+    FD_LOG_ERR(("write failed"));
+  golden[xid][key].write(scratch, 0, FD_FUNK_MAX_ENTRY_SIZE);
+
+  validateall();
+
+  if (fd_funk_write(funk, xid, key, scratch, 0, FD_FUNK_MAX_ENTRY_SIZE+1) != -1)
+    FD_LOG_ERR(("write not failed"));
+
+  fd_funk_commit(funk, xid);
+  golden[rootxid] = golden[xid];
+  golden.erase(xid);
+
+  validateall();
+  reload();
+  validateall();
+
+  rg.genbytes((char*)&xid, sizeof(xid));
+  fd_funk_fork(funk, rootxid, xid);
+  golden[xid] = golden[rootxid];
+
+  for (unsigned i = 0; i < 5; ++i) {
+    rg.genbytes(scratch, FD_FUNK_MAX_ENTRY_SIZE);
+    rg.genbytes((char*)&key, sizeof(key));
+    if (fd_funk_write(funk, xid, key, scratch, 0, FD_FUNK_MAX_ENTRY_SIZE) != (long)FD_FUNK_MAX_ENTRY_SIZE)
+      FD_LOG_ERR(("write failed"));
+    golden[xid][key].write(scratch, 0, FD_FUNK_MAX_ENTRY_SIZE);
+  }
+
+  validateall();
+
+  fd_funk_commit(funk, xid);
+  golden[rootxid] = golden[xid];
+  golden.erase(xid);
+
+  validateall();
+  reload();
+  validateall();
+
+  rg.genbytes((char*)&xid, sizeof(xid));
+  fd_funk_fork(funk, rootxid, xid);
+  golden[xid] = golden[rootxid];
+
+  for (unsigned i = 0; i < 50; ++i) {
+    rg.genbytes(scratch, FD_FUNK_MAX_ENTRY_SIZE);
+    rg.genbytes((char*)&key, sizeof(key));
+    if (fd_funk_write(funk, xid, key, scratch, 0, FD_FUNK_MAX_ENTRY_SIZE) != (long)FD_FUNK_MAX_ENTRY_SIZE)
+      FD_LOG_ERR(("write failed"));
+    golden[xid][key].write(scratch, 0, FD_FUNK_MAX_ENTRY_SIZE);
+  }
+
+  validateall();
+
+  if (fd_funk_commit(funk, xid))
+    FD_LOG_ERR(("commit should've failed due to being too big"));
+  fd_funk_cancel(funk, xid);
+  golden.erase(xid);
+
+  validateall();
+  reload();
+  validateall();
 
   free(scratch);
   

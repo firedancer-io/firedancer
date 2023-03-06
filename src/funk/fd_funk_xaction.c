@@ -251,7 +251,7 @@ int fd_funk_commit(struct fd_funk* store,
   // Write a write-ahead log entry
   if (!fd_funk_writeahead(store, id, &entry->parent, entry->script, entry->scriptlen,
                           &entry->wa_control, &entry->wa_start, &entry->wa_alloc)) {
-    FD_LOG_WARNING(("failed to write write-ahead log, commit failed, try again later"));
+    FD_LOG_WARNING(("failed to write write-ahead log, transaction left in uncommitted state"));
     FD_FUNK_XACTION_PREFIX(entry)->state = FD_FUNK_XACTION_FROZEN;
     return 0;
   }

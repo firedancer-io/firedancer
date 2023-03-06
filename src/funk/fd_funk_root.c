@@ -257,7 +257,7 @@ int fd_funk_allocate_disk(struct fd_funk* store, ulong data_sz, ulong* control, 
   ulong k;
   *alloc = fd_funk_disk_size(data_sz, &k);
   if (*alloc == 0U) {
-    FD_LOG_WARNING(("entry too large"));
+    FD_LOG_WARNING(("attempted to allocate too large a disk entry, requested %lu bytes", data_sz));
     return 0;
   }
   
