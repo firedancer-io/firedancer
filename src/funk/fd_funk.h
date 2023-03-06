@@ -5,6 +5,9 @@
 #include <sys/uio.h>
 #undef __USE_MISC
 
+// Maximum size of a record
+#define FD_FUNK_MAX_ENTRY_SIZE (10U<<20) /* 10 MB */
+
 // Interface for transactional record storage. This is the raw version
 // which is not thread safe. It is intended to reside on a single
 // thread/CPU/tile. Presumably, a separate message layer allows access

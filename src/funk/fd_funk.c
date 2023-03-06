@@ -12,8 +12,6 @@
 #include "fd_funk_root.h"
 #include "fd_funk_xaction.h"
 
-#define FD_FUNK_MAX_ENTRY_SIZE (10U<<20) /* 10 MB */
-
 struct fd_funk {
     // Workspace for allocation
     fd_wksp_t* wksp;

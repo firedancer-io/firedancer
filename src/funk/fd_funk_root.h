@@ -7,8 +7,8 @@ ulong fd_funk_recordid_t_hash(struct fd_funk_recordid const* id, ulong hashseed)
 
 // Test record id equality
 int fd_funk_recordid_t_equal(struct fd_funk_recordid const* id1, struct fd_funk_recordid const* id2) {
-  const ulong* const id1hack = (const ulong* const)id1;
-  const ulong* const id2hack = (const ulong* const)id2;
+  const ulong* id1hack = (const ulong*)id1;
+  const ulong* id2hack = (const ulong*)id2;
   return ((id1hack[0] ^ id2hack[0]) |
           (id1hack[1] ^ id2hack[1]) |
           (id1hack[2] ^ id2hack[2]) |
@@ -21,8 +21,8 @@ int fd_funk_recordid_t_equal(struct fd_funk_recordid const* id1, struct fd_funk_
 
 // Copy a record id
 void fd_funk_recordid_t_copy(struct fd_funk_recordid* dest, struct fd_funk_recordid const* src) {
-  ulong* const id1hack = (ulong* const)dest;
-  const ulong* const id2hack = (const ulong* const)src;
+  ulong* id1hack = (ulong*)dest;
+  const ulong* id2hack = (const ulong*)src;
   id1hack[0] = id2hack[0];
   id1hack[1] = id2hack[1];
   id1hack[2] = id2hack[2];
@@ -79,6 +79,8 @@ struct fd_funk_dead_entry {
 #include "fd_vector.h"
 #undef VECT_NAME
 #undef VECT_ELEMENT
+
+uint fd_funk_disk_size(ulong rawsize, ulong* index);
 
 void fd_funk_replay_root(struct fd_funk* store);
 
