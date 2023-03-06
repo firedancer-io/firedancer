@@ -24,7 +24,7 @@ test_cstr_to_ip4_addr( void ) {
   FD_TEST( fd_cstr_to_ip4_addr( "0.0.0"                      )==ULONG_MAX  );
   FD_TEST( fd_cstr_to_ip4_addr( "0.0.0.0"                    )==0x00000000 );
   FD_TEST( fd_cstr_to_ip4_addr( "0.0.0.0."                   )==ULONG_MAX  );
-  FD_TEST( fd_cstr_to_ip4_addr( "127.0.0.1"                  )==0x0100007f );
+  FD_TEST( fd_cstr_to_ip4_addr( "127.0.0.1"                  )==0x7f000001 );
   FD_TEST( fd_cstr_to_ip4_addr( "255.255.255.255"            )==0xffffffff );
   FD_TEST( fd_cstr_to_ip4_addr( "256.255.255.255"            )==ULONG_MAX  );
   FD_TEST( fd_cstr_to_ip4_addr( "255.256.255.255"            )==ULONG_MAX  );
