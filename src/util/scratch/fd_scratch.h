@@ -18,18 +18,19 @@
 #define FD_SCRATCH_USE_HANDHOLDING 0
 #endif
 
-/* FD_SCRATCH_ALLOC_ALIGN_{MIN,DEFAULT} are the minimum/default
-   alignment to use for allocations.
+/* FD_SCRATCH_ALLOC_ALIGN_DEFAULT is the default alignment to use for
+   allocations.
 
-   16 for min is for consistent cross platform behavior that is language
-   conformant across a wide range of targets (i.e. the largest primitive
-   type across all possible build ... practically sizeof(int128)).  This
-   also naturally covers SSE natural alignment on x86.  8 could be used
-   if features like int128 and so forth and still be linguistically
-   conformant (sizeof(ulong) here is the limit).  Likewise, 32, 64, 128
-   could be used to guarantee all allocations will have natural
-   AVX/AVX2, natural AVX-512, adjacent-cache-line-prefetch false sharing
-   avoidance / natural GPU alignment properties.
+   Default should be at least 16 for consistent cross platform behavior
+   that is language conformant across a wide range of targets (i.e. the
+   largest primitive type across all possible build ... practically
+   sizeof(int128)).  This also naturally covers SSE natural alignment on
+   x86.  8 could be used if features like int128 and so forth and still
+   be linguistically conformant (sizeof(ulong) here is the limit).
+   Likewise, 32, 64, 128 could be used to guarantee all allocations will
+   have natural AVX/AVX2, natural AVX-512 / cache-line,
+   adjacent-cache-line-prefetch false sharing avoidance / natural GPU
+   alignment properties.
 
    128 for default was picked as double x86 cache line for ACLPF false
    sharing avoidance and for consistency with GPU warp sizes ... i.e.
@@ -37,8 +38,7 @@
    communication false sharing resistant and GPU friendly.  This also
    naturally covers cases like SSE, AVX, AVX2 and AVX-512. */
 
-#define FD_SCRATCH_ALIGN_MIN      (16UL) /* integer power-of-2 of at least the largest primitive type */
-#define FD_SCRATCH_ALIGN_DEFAULT (128UL) /* integer power-of-2 >=min */
+#define FD_SCRATCH_ALIGN_DEFAULT (128UL) /* integer power-of-2 >=16 */
 
 /* FD_SCRATCH_{SMEM,FMEM}_ALIGN give the alignment requirements for
    the memory regions used to a scratch pad memory.  There are not many
@@ -55,6 +55,10 @@ FD_PROTOTYPES_BEGIN
 
 /* Private APIs *******************************************************/
 
+#if FD_SCRATCH_USE_HANDHOLDING
+extern FD_TLS int     fd_scratch_in_prepare;
+#endif
+
 extern FD_TLS ulong   fd_scratch_private_start;
 extern FD_TLS ulong   fd_scratch_private_free;
 extern FD_TLS ulong   fd_scratch_private_stop;
@@ -62,6 +66,16 @@ extern FD_TLS ulong   fd_scratch_private_stop;
 extern FD_TLS ulong * fd_scratch_private_frame;
 extern FD_TLS ulong   fd_scratch_private_frame_cnt;
 extern FD_TLS ulong   fd_scratch_private_frame_max;
+
+FD_FN_CONST static inline int
+fd_scratch_private_align_is_valid( ulong align ) {
+  return !(align & (align-1UL)); /* returns true if power or 2 or zero, compile time typically */
+}
+
+FD_FN_CONST static inline ulong
+fd_scratch_private_true_align( ulong align ) {
+  return fd_ulong_if( !align, FD_SCRATCH_ALIGN_DEFAULT, align ); /* compile time typically */
+}
 
 /* Public APIs ********************************************************/
 
@@ -147,11 +161,11 @@ fd_scratch_attach( void * smem,
 
 # if FD_SCRATCH_USE_HANDHOLDING
   if( FD_UNLIKELY( fd_scratch_private_frame_max ) ) FD_LOG_ERR(( "already attached" ));
-
-  if( FD_UNLIKELY( !smem  ) ) FD_LOG_ERR(( "bad smem"  ));
-  if( FD_UNLIKELY( !fmem  ) ) FD_LOG_ERR(( "bad fmem"  ));
-  if( FD_UNLIKELY( !smax  ) ) FD_LOG_ERR(( "bad smax"  ));
-  if( FD_UNLIKELY( !depth ) ) FD_LOG_ERR(( "bad depth" ));
+  if( FD_UNLIKELY( !smem                        ) ) FD_LOG_ERR(( "bad smem"  ));
+  if( FD_UNLIKELY( !fmem                        ) ) FD_LOG_ERR(( "bad fmem"  ));
+  if( FD_UNLIKELY( !smax                        ) ) FD_LOG_ERR(( "bad smax"  ));
+  if( FD_UNLIKELY( !depth                       ) ) FD_LOG_ERR(( "bad depth" ));
+  fd_scratch_in_prepare = 0;
 # endif
 
   fd_scratch_private_start     = (ulong)smem;
@@ -168,8 +182,9 @@ fd_scratch_attach( void * smem,
    non-NULL, opt_fmem[0] will contain the fmem used on attach on return.
 
    This reliquishes the calling threads read/write interest on these
-   memory regions.  All the caller's scratch frames are popped and all
-   the caller's scratch allocations are freed implicitly by this.
+   memory regions.  All the caller's scratch frames are popped, any
+   prepare in progress is canceled and all the caller's scratch
+   allocations are freed implicitly by this.
 
    This cannot fail from the caller's point of view (if handholding is
    enabled, it will abort the caller with a descriptive error message if
@@ -180,6 +195,7 @@ fd_scratch_detach( void ** _opt_fmem ) {
 
 # if FD_SCRATCH_USE_HANDHOLDING
   if( FD_UNLIKELY( !fd_scratch_private_frame_max ) ) FD_LOG_ERR(( "not attached" ));
+  fd_scratch_in_prepare = 0;
 # endif
 
   void * smem = (void *)fd_scratch_private_start;
@@ -233,6 +249,7 @@ static inline void
 fd_scratch_reset( void ) {
 # if FD_SCRATCH_USE_HANDHOLDING
   if( FD_UNLIKELY( !fd_scratch_private_frame_max ) ) FD_LOG_ERR(( "not attached" ));
+  fd_scratch_in_prepare = 0;
 # endif
   fd_scratch_private_free      = fd_scratch_private_start;
   fd_scratch_private_frame_cnt = 0UL;
@@ -248,8 +265,9 @@ fd_scratch_reset( void ) {
 FD_FN_UNUSED static void /* Work around -Winline */
 fd_scratch_push( void ) {
 # if FD_SCRATCH_USE_HANDHOLDING
-  if( FD_UNLIKELY( !fd_scratch_private_frame_max ) ) FD_LOG_ERR(( "not attached" ));
+  if( FD_UNLIKELY( !fd_scratch_private_frame_max                              ) ) FD_LOG_ERR(( "not attached" ));
   if( FD_UNLIKELY( fd_scratch_private_frame_cnt>=fd_scratch_private_frame_max ) ) FD_LOG_ERR(( "too many frames" ));
+  fd_scratch_in_prepare = 0;
 # endif
   fd_scratch_private_frame[ fd_scratch_private_frame_cnt++ ] = fd_scratch_private_free;
 }
@@ -269,28 +287,123 @@ fd_scratch_pop( void ) {
 # if FD_SCRATCH_USE_HANDHOLDING
   if( FD_UNLIKELY( !fd_scratch_private_frame_max ) ) FD_LOG_ERR(( "not attached" ));
   if( FD_UNLIKELY( !fd_scratch_private_frame_cnt ) ) FD_LOG_ERR(( "unmatched pop" ));
+  fd_scratch_in_prepare = 0;
 # endif
   fd_scratch_private_free = fd_scratch_private_frame[ --fd_scratch_private_frame_cnt ];
 }
 
+/* fd_scratch_prepare starts an allocation of unknown size and known
+   alignment align (0 means use default alignment) in the caller's
+   current scratch frame.  Returns a pointer in the caller's address
+   space with alignment align to the first byte of a region with
+   fd_scratch_free() (as observed after this function returns) bytes
+   available.  The caller is free to clobber any bytes in this region.
+
+   fd_scratch_publish finishes an in-progress allocation.  end points at
+   the first byte after the final allicaton.  Assumes there is a
+   matching prepare.  A published allocation can be subsequently
+   trimmed.
+
+   fd_scratch_cancel cancels an in-progress allocation.  This is a no-op
+   if there is no matching prepare.  If the prepare had alignment other
+   than 1, it is possible that some alignment padding needed for the
+   allocation will still be used in the caller's current scratch frame.
+   If this is not acceptable, the prepare should use an alignment of 1
+   and manually align the return.
+
+   This allows idioms like:
+
+     uchar * p = (uchar *)fd_scratch_prepare( align );
+
+     if( FD_UNLIKELY( fd_scratch_free() < app_max_sz ) ) {
+
+       fd_scratch_cancel();
+
+       ... handle too little scratch space to handle application
+       ... worst case needs here
+
+     } else {
+
+       ... populate sz bytes to p where sz is in [0,app_max_sz]
+       p += sz;
+
+       fd_scratch_publish( p );
+
+       ... at this point, scratch is as though
+       ... fd_scratch_alloc( align, sz ) was called above
+
+     }
+
+   Ideally every prepare should be matched with a publish or a cancel,
+   only one prepare can be in-progress at a time on a thread and prepares
+   cannot be nested.  As such virtually all other scratch operations
+   will implicitly cancel any in-progress prepare, including attach /
+   detach / push / pop / prepare / alloc / trim. */
+
+FD_FN_UNUSED static void * /* Work around -Winline */
+fd_scratch_prepare( ulong align ) {
+
+# if FD_SCRATCH_USE_HANDHOLDING
+  if( FD_UNLIKELY( !fd_scratch_private_frame_cnt               ) ) FD_LOG_ERR(( "unmatched push" ));
+  if( FD_UNLIKELY( !fd_scratch_private_align_is_valid( align ) ) ) FD_LOG_ERR(( "bad align (%lu)", align ));
+# endif
+
+  ulong true_align = fd_scratch_private_true_align( align );
+  ulong smem       = fd_ulong_align_up( fd_scratch_private_free, true_align );
+
+# if FD_SCRATCH_USE_HANDHOLDING
+  if( FD_UNLIKELY( smem < fd_scratch_private_free ) ) FD_LOG_ERR(( "prepare align (%lu) overflow", true_align ));
+  if( FD_UNLIKELY( smem > fd_scratch_private_stop ) ) FD_LOG_ERR(( "prepare align (%lu) needs %lu additional scratch",
+                                                                   align, smem - fd_scratch_private_stop ));
+  fd_scratch_in_prepare = 1;
+# endif
+
+  fd_scratch_private_free = smem;
+  return (void *)smem;
+}
+
+static inline void
+fd_scratch_publish( void * _end ) {
+  ulong end = (ulong)_end;
+
+# if FD_SCRATCH_USE_HANDHOLDING
+  if( FD_UNLIKELY( !fd_scratch_in_prepare        ) ) FD_LOG_ERR(( "unmatched prepare" ));
+  if( FD_UNLIKELY( end < fd_scratch_private_free ) ) FD_LOG_ERR(( "publish underflow" ));
+  if( FD_UNLIKELY( end > fd_scratch_private_stop ) )
+    FD_LOG_ERR(( "publish needs %lu additional scratch", end-fd_scratch_private_stop ));
+  fd_scratch_in_prepare   = 0;
+# endif
+
+  fd_scratch_private_free = end;
+}
+
+static inline void
+fd_scratch_cancel( void ) {
+
+# if FD_SCRATCH_USE_HANDHOLDING
+  if( FD_UNLIKELY( !fd_scratch_in_prepare ) ) FD_LOG_ERR(( "unmatched prepare" ));
+  fd_scratch_in_prepare = 0;
+# endif
+
+}
+
 /* fd_scratch_alloc allocates sz bytes with alignment align in the
-   caller's current scratch frame.  Note that this has same function
-   signature as aligned_alloc (and not by accident).  It does has some
-   less restrictive behaviors though.
-   
-   align must be an 0 or a non-negative integer power of 2.  0 will be
-   treated as align_default.  align smaller than align_min will be
-   bumped up to align_min.
-   
+   caller's current scratch frame.  There should be no prepare in
+   progress.  Note that this has same function signature as
+   aligned_alloc (and not by accident).  It does have some less
+   restrictive behaviors though.
+
+   align must be 0 or an integer power of 2.  0 will be treated as
+   FD_SCRATCH_ALIGN_DEFAULT.
+
    sz need not be a multiple of align.  Further, the underlying
    allocator does not implicitly round up sz to an align multiple (as
-   such, it is free to allocate additional stuff in any tail padding
-   that might have been implicitly reserved had it rounded up).  That
-   is, if you really want to round up allocations to a multiple of
-   align, then manually align up sz ... e.g. pass
-   fd_ulong_align_up(sz,align) when align is non-zero to this call (this
-   could be implemented as a compile time mode with some small extra
-   overhead if desirable).
+   such, scratch can allocate additional items in any tail padding that
+   might have been implicitly reserved had it rounded up).  That is, if
+   you really want to round up allocations to a multiple of align, then
+   manually align up sz ... e.g. pass fd_ulong_align_up(sz,align) when
+   align is non-zero to this call (this could be implemented as a
+   compile time mode with some small extra overhead if desirable).
    
    sz 0 is fine.  This will currently return a properly aligned non-NULL
    pointer (the allocator might do some allocation under the hood to get
@@ -298,53 +411,85 @@ fd_scratch_pop( void ) {
    a case for returning NULL or an arbitrary but appropriately aligned
    non-NULL and this could be implemented as a compile time mode with
    some small extra overhead if desirable).
-   
+
    This cannot fail from the caller's point of view (if handholding is
    enabled, it will abort the caller with a descriptive error message if
    used obviously in error).
 
    This is freaky fast (O(5) fast asm operations under the hood). */
 
-FD_FN_CONST static inline int
-fd_scratch_private_align_is_valid( ulong align ) {
-  return !(align & (align-1UL)); /* returns true if power or 2 or zero, compile time typically */
-}
-
-FD_FN_CONST static inline ulong
-fd_scratch_private_true_align( ulong align ) {
-  return fd_ulong_max( fd_ulong_if( !align, FD_SCRATCH_ALIGN_DEFAULT, align ), FD_SCRATCH_ALIGN_MIN ); /* compile time typically */
-}
-
-__attribute__((malloc,alloc_align(1),alloc_size(2))) static inline void *
-fd_scratch_private_alloc( ulong true_align,
-                          ulong sz ) {
-  ulong smem = fd_ulong_align_up( fd_scratch_private_free, true_align );
-  ulong free = smem + sz;
-# if FD_SCRATCH_USE_HANDHOLDING
-  if( FD_UNLIKELY( smem < fd_scratch_private_free ) ) FD_LOG_ERR(( "alloc(align=%lu,sz=%lu) align overflow", true_align, sz ));
-  if( FD_UNLIKELY( free < smem                    ) ) FD_LOG_ERR(( "alloc(align=%lu,sz=%lu) size overflow",  true_align, sz ));
-  if( FD_UNLIKELY( free > fd_scratch_private_stop ) ) FD_LOG_ERR(( "alloc(align=%lu,sz=%lu) needs %lu additional scratch",
-                                                                   true_align, sz, free-fd_scratch_private_stop ));
-# endif
-  fd_scratch_private_free = free;
-  return (void *)smem;
-}
-
 FD_FN_UNUSED static void * /* Work around -Winline */
 fd_scratch_alloc( ulong align,
                   ulong sz ) {
+  ulong smem = (ulong)fd_scratch_prepare( align );
+  ulong end  = smem + sz;
+
 # if FD_SCRATCH_USE_HANDHOLDING
-  if( FD_UNLIKELY( !fd_scratch_private_frame_max               ) ) FD_LOG_ERR(( "not attached" ));
-  if( FD_UNLIKELY( !fd_scratch_private_frame_cnt               ) ) FD_LOG_ERR(( "unmatched push" ));
-  if( FD_UNLIKELY( !fd_scratch_private_align_is_valid( align ) ) ) /* compile time typically */
-    FD_LOG_ERR(( "bad align (%lu)", align ));
+  if( FD_UNLIKELY( end < smem ) ) FD_LOG_ERR(( "sz (%lu) overflow", sz ));
 # endif
-  return fd_scratch_private_alloc( fd_scratch_private_true_align( align ), sz );
+
+  fd_scratch_publish( (void *)end );
+  return (void *)smem;
 }
 
-/* fd_scratch_{push,pop,alloc}_is_safe returns true (1) if the operation
-   is safe to to at the present time and false (0) otherwise.
+/* fd_scratch_trim trims the size of the most recent scratch allocation
+   in the current scratch frame (technically it can be used to trim the
+   size of the entire current scratch frame but doing more than the most
+   recent scratch allocation is strongly discouraged).  Assumes there is
+   a current scratch frame and the caller is not in a prepare.  end
+   points at the first byte to free in the most recent scratch
+   allocation (or the first byte after the most recent scratch
+   allocation).  This allows idioms like:
+
+     uchar * p = (uchar *)fd_scratch_alloc( align, max_sz );
+
+     ... populate sz bytes of p where sz is in [0,max_sz]
+     p += sz;
+
+     fd_scratch_trim( p );
+
+     ... now the thread's scratch is as though original call was
+     ... p = fd_scratch_alloc( align, sz );
+
+   This cannot fail from the caller's point of view (if handholding is
+   enabled, this will abort the caller with a descriptive error message
+   if used obviously in error).
+
+   Note that an allocation be repeatedly trimmed.
+
+   Note also that trim can nest.  E.g. a thread can call a function that
+   uses scratch with its own properly matched scratch pushes and pops.
+   On function return, trim will still work on the most recent scratch
+   alloc in that frame by the caller.
+
+   This is freaky fast (O(1) fast asm operations under the hood). */
+
+static inline void
+fd_scratch_trim( void * _end ) {
+  ulong end = (ulong)_end;
+
+# if FD_SCRATCH_USE_HANDHOLDING
+  if( FD_UNLIKELY( !fd_scratch_private_frame_cnt                                      ) ) FD_LOG_ERR(( "unmatched push" ));
+  if( FD_UNLIKELY( end < fd_scratch_private_frame[ fd_scratch_private_frame_cnt-1UL ] ) ) FD_LOG_ERR(( "trim underflow" ));
+  if( FD_UNLIKELY( end > fd_scratch_private_free                                      ) ) FD_LOG_ERR(( "trim overflow" ));
+  fd_scratch_in_prepare = 0;
+# endif
+
+  fd_scratch_private_free = end;
+}
+
+/* fd_scratch_*_is_safe returns false (0) if the operation is obviously
+   unsafe to do at the time of the call or true otherwise.
    Specifically:
+
+   fd_scratch_attach_is_safe() returns 1 if the calling thread is not
+   already attached to scratch.
+
+   fd_scratch_detach_is_safe() returns 1 if the calling thread is
+   already attached to scratch.
+
+   fd_scratch_reset_is_safe() returns 1 if the calling thread is already
+   attached to scratch.
 
    fd_scratch_push_is_safe() returns 1 if there is at least one frame
    available and 0 otherwise.
@@ -352,27 +497,81 @@ fd_scratch_alloc( ulong align,
    fd_scratch_pop_is_safe() returns 1 if there is at least one frame
    in use and 0 otherwise.
 
+   fd_scratch_prepare_is_safe( align ) returns 1 if there is a current
+   frame for the allocation and enough scratch pad memory to start
+   preparing an allocation with alignment align.
+
+   fd_scratch_publish_is_safe( end ) returns 1 if end is a valid
+   location to complete an allocation in preparation.  If handholding is
+   enabled, will additionally check that there is a prepare already in
+   progress.
+
+   fd_scratch_cancel_is_safe() returns 1.
+
    fd_scratch_alloc_is_safe( align, sz ) returns 1 if there is a current
    frame for the allocation and enough scratch pad memory for an
-   allocation with alignment align and size sz and .
+   allocation with alignment align and size sz.
+
+   fd_scratch_trim_is_safe( end ) returns 1 if there is a current frame
+   and that current frame can be trimmed to end safely.
 
    These are safe to call at any time and also freak fast handful of
    assembly operations. */
 
-FD_FN_PURE static inline int fd_scratch_push_is_safe( void ) { return fd_scratch_private_frame_cnt<fd_scratch_private_frame_max; }
-FD_FN_PURE static inline int fd_scratch_pop_is_safe ( void ) { return !!fd_scratch_private_frame_cnt; }
+FD_FN_PURE static inline int fd_scratch_attach_is_safe( void ) { return  !fd_scratch_private_frame_max; }
+FD_FN_PURE static inline int fd_scratch_detach_is_safe( void ) { return !!fd_scratch_private_frame_max; }
+FD_FN_PURE static inline int fd_scratch_reset_is_safe ( void ) { return !!fd_scratch_private_frame_max; }
+FD_FN_PURE static inline int fd_scratch_push_is_safe  ( void ) { return fd_scratch_private_frame_cnt<fd_scratch_private_frame_max; }
+FD_FN_PURE static inline int fd_scratch_pop_is_safe   ( void ) { return !!fd_scratch_private_frame_cnt; }
+
+FD_FN_PURE static inline int
+fd_scratch_prepare_is_safe( ulong align ) {
+  if( FD_UNLIKELY( !fd_scratch_private_frame_cnt               ) ) return 0; /* No current frame */
+  if( FD_UNLIKELY( !fd_scratch_private_align_is_valid( align ) ) ) return 0; /* Bad alignment, compile time typically */
+  ulong true_align = fd_scratch_private_true_align( align ); /* compile time typically */
+  ulong smem       = fd_ulong_align_up( fd_scratch_private_free, true_align );
+  if( FD_UNLIKELY( smem < fd_scratch_private_free              ) ) return 0; /* alignment overflow */
+  if( FD_UNLIKELY( smem > fd_scratch_private_stop              ) ) return 0; /* insufficient scratch */
+  return 1;
+}
+
+FD_FN_PURE static inline int
+fd_scratch_publish_is_safe( void * _end ) {
+  ulong end = (ulong)_end;
+# if FD_SCRATCH_USE_HANDHOLDING
+  if( FD_UNLIKELY( !fd_scratch_in_prepare        ) ) return 0; /* Not in prepare */
+# endif
+  if( FD_UNLIKELY( end < fd_scratch_private_free ) ) return 0; /* Backward */
+  if( FD_UNLIKELY( end > fd_scratch_private_stop ) ) return 0; /* Out of bounds */
+  return 1;
+}
+
+FD_FN_CONST static inline int
+fd_scratch_cancel_is_safe( void ) {
+  return 1;
+}
 
 FD_FN_PURE static inline int
 fd_scratch_alloc_is_safe( ulong align,
                           ulong sz ) {
   if( FD_UNLIKELY( !fd_scratch_private_frame_cnt               ) ) return 0; /* No current frame */
-  if( FD_UNLIKELY( !fd_scratch_private_align_is_valid( align ) ) ) return 0; /* Bad alignment, compile time typically */
+  if( FD_UNLIKELY( !fd_scratch_private_align_is_valid( align ) ) ) return 0; /* Bad align, compile time typically */
   ulong true_align = fd_scratch_private_true_align( align ); /* compile time typically */
-  ulong smem = fd_ulong_align_up( fd_scratch_private_free, true_align );
-  if( FD_UNLIKELY( smem < fd_scratch_private_free ) ) return 0; /* alignment overflow */
-  ulong free = smem + sz;
-  if( FD_UNLIKELY( free < smem ) ) return 0; /* sz overflow */
-  return free <= fd_scratch_private_stop;
+  ulong smem       = fd_ulong_align_up( fd_scratch_private_free, true_align );
+  if( FD_UNLIKELY( smem < fd_scratch_private_free              ) ) return 0; /* align overflow */
+  ulong free       = smem + sz;
+  if( FD_UNLIKELY( free < smem                                 ) ) return 0; /* sz overflow */
+  if( FD_UNLIKELY( free > fd_scratch_private_stop              ) ) return 0; /* too little space */
+  return 1;
+}
+
+FD_FN_PURE static inline int
+fd_scratch_trim_is_safe( void * _end ) {
+  ulong end = (ulong)_end;
+  if( FD_UNLIKELY( !fd_scratch_private_frame_cnt                                      ) ) return 0; /* No current frame */
+  if( FD_UNLIKELY( end < fd_scratch_private_frame[ fd_scratch_private_frame_cnt-1UL ] ) ) return 0; /* Trim underflow */
+  if( FD_UNLIKELY( end > fd_scratch_private_free                                      ) ) return 0; /* Trim overflow */
+  return 1;
 }
 
 /* fd_alloca is variant of alloca that works like aligned_alloc.  That
@@ -401,9 +600,7 @@ fd_scratch_alloc_is_safe( ulong align,
 #if FD_HAS_ALLOCA
 
 /* Work around compiler limitations */
-#define FD_SCRATCH_PRIVATE_TRUE_ALIGN( align )                                \
-  ( (((align) ? (align) : FD_SCRATCH_ALIGN_DEFAULT) > FD_SCRATCH_ALIGN_MIN) ? \
-     ((align) ? (align) : FD_SCRATCH_ALIGN_DEFAULT) : FD_SCRATCH_ALIGN_MIN  )
+#define FD_SCRATCH_PRIVATE_TRUE_ALIGN( align ) ((align) ? (align) : FD_SCRATCH_ALIGN_DEFAULT)
 
 #define fd_alloca(align,sz) __builtin_alloca_with_align( fd_ulong_max( (sz), 1UL ), \
                                                          8UL*FD_SCRATCH_PRIVATE_TRUE_ALIGN( (align) ) /*bits*/ )
