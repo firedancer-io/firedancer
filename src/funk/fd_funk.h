@@ -161,6 +161,16 @@ void fd_funk_cache_hint(struct fd_funk* store,
                         ulong offset,
                         ulong data_sz);
 
+// Methods for iterating across all records in the root
+// transaction. next returns the next id or NULL if there are none left.
+struct fd_funk_index_iter;
+static const ulong fd_funk_iter_align = 8;
+static const ulong fd_funk_iter_footprint = 8;
+void fd_funk_iter_init(struct fd_funk* store,
+                       struct fd_funk_index_iter* iter);
+struct fd_funk_recordid const* fd_funk_iter_next(struct fd_funk* store,
+                                                 struct fd_funk_index_iter* iter);
+
 // Validate the entire data structure. Log an error and abort if
 // corruption is detected.
 void fd_funk_validate(struct fd_funk* store);

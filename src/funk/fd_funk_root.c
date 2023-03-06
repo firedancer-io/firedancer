@@ -593,6 +593,17 @@ void fd_funk_writeahead_delete(struct fd_funk* store,
   fd_funk_make_dead(store, control, start, alloc);
 }
 
+void fd_funk_iter_init(struct fd_funk* store,
+                       struct fd_funk_index_iter* iter) {
+  fd_funk_index_iter_init(store->index, iter);
+}
+
+struct fd_funk_recordid const* fd_funk_iter_next(struct fd_funk* store,
+                                                 struct fd_funk_index_iter* iter) {
+  struct fd_funk_index_entry* entry = fd_funk_index_iter_next(store->index, iter);
+  return (entry != NULL ? &entry->key : NULL);
+}
+
 // Verify the integrity of the on-disk data structure as well as the
 // master index.
 void fd_funk_validate_root(struct fd_funk* store) {
