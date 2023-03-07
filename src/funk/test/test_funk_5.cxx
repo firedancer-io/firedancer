@@ -327,7 +327,6 @@ void grinder(int argc, char** argv, bool firsttime) {
   
   fd_funk_delete(funk);
   fd_wksp_detach(wksp);
-  unlink("testback");
 
   fd_log_flush();
 }
