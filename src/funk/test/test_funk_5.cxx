@@ -88,7 +88,7 @@ static void dumpdata(const char* label, const void* data, ulong datalen) {
   datalen /= sizeof(ulong);
   const auto* data2 = (const ulong*)data;
   for (ulong i = 0; i < datalen; ++i)
-    printf(" %08lx", data2[i]);
+    printf(" %016lx", data2[i]);
   printf("\n");
 }
 
@@ -175,8 +175,13 @@ class databuf {
 
 static const char* BACKFILE = "/tmp/funktest";
 
+volatile int stopflag = 0;
+void stop(int) { stopflag = 1; }
+
 void grinder(int argc, char** argv, bool firsttime) {
   fd_boot( &argc, &argv );
+
+  signal(SIGINT, stop);
 
   if (firsttime)
     unlink(BACKFILE);
@@ -239,7 +244,7 @@ void grinder(int argc, char** argv, bool firsttime) {
       auto reslen = fd_funk_read(funk, rootxid, key, &res, 0, INT32_MAX);
       if (!db.equals(res, reslen))
         FD_LOG_ERR(("read returned wrong result"));
-      checksum2.checksum(db);
+      db.checksum(checksum2);
     }
     {
       const void* res;
@@ -256,7 +261,7 @@ void grinder(int argc, char** argv, bool firsttime) {
 
   randgen rg;
   ulong xcnt = 0;
-  for (;;) {
+  while (!stopflag) {
     xactionkey xid;
     rg.genbytes((char*)&xid, sizeof(xid));
     fd_funk_fork(funk, rootxid, xid);
@@ -278,7 +283,7 @@ void grinder(int argc, char** argv, bool firsttime) {
       // Delete a random key
       auto it = golden.begin() + (action%golden.size());
       fd_funk_delete_record(funk, xid, it->first);
-      checksum.checksum(it->second);
+      it->second.checksum(checksum);
       golden.erase(it);
     };
 
@@ -310,8 +315,13 @@ void grinder(int argc, char** argv, bool firsttime) {
     fd_funk_commit(funk, xid);
 
     ++xcnt;
-    if (!(xcnt%2000)) FD_LOG_WARNING(("%lu transactions", xcnt));
+    if (!(xcnt%2000)) {
+      FD_LOG_WARNING(("%lu transactions", xcnt));
+      validateall();
+    }
   }
+
+  validateall();
 
   free(scratch);
   
@@ -347,7 +357,7 @@ int main(int argc, char** argv) {
       }
       firsttime = false;
 
-      sleep(3);
+      sleep(2);
 
       printf("%u kills\n", ++cnt);
       kill(p, SIGKILL);
