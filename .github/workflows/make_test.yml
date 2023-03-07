@@ -7,14 +7,12 @@ on:
   workflow_dispatch:
 jobs:
   make-test:
-    runs-on: ubuntu-22.04
+    runs-on: [self-hosted, bare-metal, Linux, X64]
+    defaults:
+      run:
+        shell: nix-shell --command "bash --noprofile --norc -eo pipefail {0}"
     steps:
       - uses: actions/checkout@v3
-
-      - name: Install deps
-        run: |
-          sudo apt-get install -y \
-            libnuma-dev
 
       - name: Build everything
         run: make -j

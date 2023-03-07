@@ -7,11 +7,18 @@
 
 pkgs.mkShell {
   packages = with pkgs;[
+    # Compiler (GCC)
     gcc9
     gcc9Stdenv
 
+    # Compiler (Clang)
     clang_15
 
+    # Coverage tools
+    lcov
+    llvm_15
+
+    # C dependencies
     libbpf
     numactl
     pkg-config
