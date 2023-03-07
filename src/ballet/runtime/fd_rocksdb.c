@@ -366,7 +366,7 @@ fd_rocksdb_root_iter_seek    ( fd_rocksdb_root_iter_t * self, fd_rocksdb_t * db,
   self->db = db;
 
   if (NULL == self->iter) 
-    self->iter = rocksdb_create_iterator_cf(self->db->db, self->db->ro, self->db->column_family_handles[1]);
+    self->iter = rocksdb_create_iterator_cf(self->db->db, self->db->ro, self->db->column_family_handles[2]);
 
   ulong ks = fd_ulong_bswap(slot);
 
