@@ -148,6 +148,11 @@ class databuf {
     const char* data() const { return (const char*)_buf.data(); }
     size_t size() const { return _buf.size()*sizeof(ulong); }
 
+    bool equals(const void* data, ulong datalen) const {
+      return (datalen == _buf.size()*sizeof(ulong) &&
+              memcmp(_buf.data(), data, datalen) == 0);
+    }
+
     bool operator== (const databuf& x) const {
       return (_buf.size() == x._buf.size() &&
               memcmp(_buf.data(), x._buf.data(), _buf.size()*sizeof(ulong)) == 0);
@@ -159,6 +164,9 @@ static const char* BACKFILE = "/tmp/funktest";
 void grinder(int argc, char** argv, bool firsttime) {
   fd_boot( &argc, &argv );
 
+  if (firsttime)
+    unlink(BACKFILE);
+  
   fd_wksp_t* wksp = fd_wksp_new_anonymous( FD_SHMEM_GIGANTIC_PAGE_SZ, 1UL, fd_log_cpu_id(), "wksp", 0UL );
 
   ulong index_max = 1000;    // Maximum size (count) of master index
@@ -168,17 +176,20 @@ void grinder(int argc, char** argv, bool firsttime) {
 
   fd_funk_validate(funk);
 
+  xactionkey rootxid(fd_funk_root(funk));
+
   databuf checksum;
   static const ulong MAXLEN = 8000;
   checksum.writezeros(MAXLEN);
   recordkey checksumkey;
   memset(&checksumkey._id, 'x', sizeof(checksumkey));
+  if (firsttime)
+    fd_funk_write(funk, rootxid, checksumkey, checksum.data(), 0, checksum.size());
 
   std::vector<std::pair<recordkey,databuf>> golden;
-  xactionkey rootxid(fd_funk_root(funk));
 
-  if (!firsttime) {
-    databuf checksum2;
+  // Load existing data
+  {
     struct fd_funk_index_iter* iter = (struct fd_funk_index_iter*)
       fd_alloca(fd_funk_iter_align, fd_funk_iter_footprint);
     fd_funk_iter_init(funk, iter);
@@ -190,7 +201,7 @@ void grinder(int argc, char** argv, bool firsttime) {
         FD_LOG_ERR(("read failed"));
       recordkey key(id);
       if (key == checksumkey)
-        checksum2.write(data, len);
+        checksum.write(data, len);
       else {
         golden.push_back({});
         auto& p = golden.back();
@@ -199,9 +210,33 @@ void grinder(int argc, char** argv, bool firsttime) {
       }
     }
     FD_LOG_WARNING(("recovered %lu records", golden.size()));
-    if (!(checksum == checksum2))
-      FD_LOG_ERR(("incorrect checksum"));
   }
+
+  auto validateall = [&](){
+    fd_funk_validate(funk);
+    if (fd_funk_num_xactions(funk) != 0)
+      FD_LOG_ERR(("wrong transaction count"));
+    if (fd_funk_num_records(funk) != golden.size()+1)
+      FD_LOG_ERR(("wrong record count"));
+    databuf checksum2;
+    checksum2.writezeros(MAXLEN);
+    for (auto& [key,db] : golden) {
+      const void* res;
+      auto reslen = fd_funk_read(funk, rootxid, key, &res, 0, INT32_MAX);
+      if (!db.equals(res, reslen))
+        FD_LOG_ERR(("read returned wrong result"));
+      checksum2.checksum(db);
+    }
+    {
+      const void* res;
+      auto reslen = fd_funk_read(funk, rootxid, checksumkey, &res, 0, INT32_MAX);
+      if (!checksum.equals(res, reslen))
+        FD_LOG_ERR(("read returned wrong result"));
+    }
+    if (!(checksum == checksum2))
+      FD_LOG_ERR(("checksum is wrong"));
+  };
+  validateall();
 
   char* scratch = (char*)malloc(FD_FUNK_MAX_ENTRY_SIZE);
 
