@@ -82,6 +82,16 @@ struct xactionkey {
     xactionkey& operator= (const xactionkey& x) { memcpy(&_id, &x._id, sizeof(_id)); return *this; }
 };
 
+static void dumpdata(const char* label, const void* data, ulong datalen) {
+  printf("%s: ", label);
+  assert((datalen&(sizeof(ulong)-1)) == 0);
+  datalen /= sizeof(ulong);
+  const auto* data2 = (const ulong*)data;
+  for (ulong i = 0; i < datalen; ++i)
+    printf(" %08lx", data2[i]);
+  printf("\n");
+}
+
 class databuf {
   private:
     std::vector<ulong> _buf;
@@ -157,6 +167,10 @@ class databuf {
       return (_buf.size() == x._buf.size() &&
               memcmp(_buf.data(), x._buf.data(), _buf.size()*sizeof(ulong)) == 0);
     }
+
+    void dump(const char* label) {
+      dumpdata(label, _buf.data(), _buf.size()*sizeof(ulong));
+    }
 };
 
 static const char* BACKFILE = "/tmp/funktest";
@@ -179,7 +193,7 @@ void grinder(int argc, char** argv, bool firsttime) {
   xactionkey rootxid(fd_funk_root(funk));
 
   databuf checksum;
-  static const ulong MAXLEN = 8000;
+  static const ulong MAXLEN = 128;
   checksum.writezeros(MAXLEN);
   recordkey checksumkey;
   memset(&checksumkey._id, 'x', sizeof(checksumkey));
@@ -200,13 +214,13 @@ void grinder(int argc, char** argv, bool firsttime) {
       if (len == -1)
         FD_LOG_ERR(("read failed"));
       recordkey key(id);
-      if (key == checksumkey)
+      if (key == checksumkey) {
         checksum.write(data, len);
-      else {
+      } else {
         golden.push_back({});
         auto& p = golden.back();
         p.first = key;
-        p.second.write(data, len, checksum);
+        p.second.write(data, len);
       }
     }
     FD_LOG_WARNING(("recovered %lu records", golden.size()));
