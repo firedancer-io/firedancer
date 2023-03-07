@@ -53,86 +53,13 @@ fd_bpf_install( const char* bpf_file,
                 const char* bpf_pin_name,
                 int         mode,
                 int         log_level ) {
-  int rc       = 0;
-  int fd       = -1;
-  int attached = 0;
-
-  /* find interface */
-  int ifindex = (int)if_nametoindex( intf );
-  if( ifindex == 0 ) {
-    FD_LOG_WARNING(( "Unable to find interface %s: %d %s", intf, errno, strerror( errno ) ));
-    return -1;
-  }
-
-  /* load pbf program */
-  struct bpf_prog_load_attr prog_load_attr = {
-    .file      = bpf_file,
-    .prog_type = BPF_PROG_TYPE_XDP,
-    .log_level = log_level
-  };
-
-  if( mode == XDP_FLAGS_HW_MODE ) {
-    prog_load_attr.ifindex = ifindex;
-  }
-
-  struct bpf_object *bpf_obj;
-  rc = bpf_prog_load_xattr( &prog_load_attr, &bpf_obj, &fd );
-  if( rc < 0 ) {
-    FD_LOG_WARNING(( "bpf_prog_load_xattr failed with rc: %d  errno: %d %s  On file: %s",
-          rc, errno, strerror( errno ), bpf_file ));
-    goto fd_bpf_install_err;
-  }
-
-  /* attach program to interface */
-  if( mode == 0 ) mode = XDP_FLAGS_SKB_MODE;
-
-  rc = bpf_set_link_xdp_fd( ifindex, fd, (uint)mode );
-  if( rc < 0 ) {
-    FD_LOG_WARNING(( "bpf_set_link_xdp_fd failed with rc: %d  errno: %d %s", rc, errno, strerror( errno ) ));
-    goto fd_bpf_install_err;
-  }
-
-  attached = 1;
-
-  /* pin the program in /sys/fs/bpf for later programs to access */
-  // TODO pin at "%s/%s/%s" % ( bpf_pin_name )
-  rc = bpf_obj_pin( fd, bpf_pin_name );
-  if( rc < 0 ) {
-    FD_LOG_WARNING(( "bpf_obj_pin failed on %s with rc: %d  errno: %d %s", bpf_pin_name, rc, errno, strerror( errno ) ));
-    goto fd_bpf_install_err;
-  }
-
-  /* pin the maps in the bpf program in /sys/fs/bpf for later use */
-  // TODO pin maps in "%s/%s/maps" % ( bpf_pin_dir, intf )
-  rc = bpf_object__pin_maps( bpf_obj, bpf_pin_dir );
-  if( rc < 0 ) {
-    FD_LOG_WARNING(( "bpf_object__pin_maps failed with rc: %d  errno: %d %s", rc, errno, strerror( errno ) ));
-    goto fd_bpf_install_err;
-  }
-
-  /* close */
-  close( fd );
-
-  return 0;
-
-fd_bpf_install_err:
-  if( fd != -1 ) close( fd );
-
-  if( attached ) {
-    /* detach */
-    rc = bpf_set_link_xdp_fd( ifindex, -1, (uint)mode );
-
-    if( rc < 0 ) {
-      FD_LOG_WARNING(( "Failed to detach xdp prog from interface during error handling" ));
-    }
-  }
-
-  /* no handling for the pinning
-     as part of pinning, a directory and files are created in /sys/fs/bpf
-     it seems unsafe to delete these files, and users already
-     have tools to do such */
-
-  return rc;
+  (void)bpf_file;
+  (void)intf;
+  (void)bpf_pin_dir;
+  (void)bpf_pin_name;
+  (void)mode;
+  (void)log_level;
+  return -1;
 }
 
 
@@ -147,39 +74,7 @@ fd_bpf_install_err:
      -1         the operation failed. Possibly the interface wasn't found */
 int
 fd_bpf_detach( char const * intf ) {
-  uint id  = 0;
-  int      err = 0;
-
-  /* find interface */
-  int ifindex = (int)if_nametoindex( intf );
-  if( ifindex == 0 ) {
-    FD_LOG_WARNING(( "Unable to find interface %s: %d %s", intf, errno, strerror( errno ) ));
-    return -1;
-  }
-
-  err = bpf_get_link_xdp_id( ifindex, &id, 0 /* xpd flags */ );
-  if( err ) {
-    FD_LOG_WARNING(( "Error in bpf_get_link_xdp_id: %d\n", err ));
-    return -1;
-  }
-
-  /* no bpf program to detach */
-  if( !id ) {
-    return 0;
-  }
-
-  err = bpf_set_link_xdp_fd( ifindex, -1, XDP_FLAGS_SKB_MODE );
-  if( err ) {
-    FD_LOG_WARNING(( "Error in bpf_set_link_xdp_fd. Error: %d %s\n", errno, strerror( errno ) ));
-    return -1;
-  }
-
-  err = bpf_set_link_xdp_fd( ifindex, -1, 0 );
-  if( err ) {
-    FD_LOG_WARNING(( "Error in bpf_set_link_xdp_fd. Error: %d %s\n", errno, strerror( errno ) ));
-    return -1;
-  }
-
-  return 0;
+  (void)intf;
+  return -1;
 }
 

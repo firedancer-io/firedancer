@@ -311,13 +311,6 @@ fd_xdp_delete( fd_xdp_t * xdp ) {
     FD_LOG_WARNING(( "fd_xdp_delete: attempt to delete xdp object, but ifindex outside normal range" ));
   }
 
-  /* remove BPF program from interface */
-  if( bpf_set_link_xdp_fd( (int)xdp->ifindex, -1, 0 ) ) {
-    FD_LOG_WARNING(( "fd_xdp_delete: Error occurred trying to remove bpf program from "
-          "interface %d. Error: %d %s", xdp->ifindex, errno, strerror( errno ) ));
-    /* continue releasing resources here */
-  }
-
   /* close xdp socket */
   if( close( xdp->xdp_sock ) ) {
     fprintf( stderr, "error closing fd fd: %d %s\n", errno, strerror( errno ) );
