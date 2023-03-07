@@ -791,20 +791,6 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
                            ulong                     cur_sz ) {
   uint enc_level = fd_quic_enc_level_initial_id;
 
-  /* according to spec, INITIAL packets less than the specified
-     minimum must be discarded, and the connection may be closed
-     see rfc9000 14.1 */
-  /* TODO reinstate */
-  //if( pkt->datagram_sz < FD_QUIC_MIN_INITIAL_PKT_SZ ) {
-  //  if( conn ) {
-  //    conn->state  = FD_QUIC_CONN_STATE_ABORT;
-  //    conn->reason = FD_QUIC_CONN_REASON_PROTOCOL_VIOLATION;
-
-  //    /* TODO reschedule */
-  //    return FD_QUIC_PARSE_FAIL;
-  //  }
-  //}
-
   /* rfc specifies TLS_AES_128_GCM_SHA256_ID for the suite for initial
      secrets and keys */
   fd_quic_crypto_suite_t * suite = &quic->crypto_ctx->suites[TLS_AES_128_GCM_SHA256_ID];
@@ -828,6 +814,18 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
 
   /* do we have an existing connection? */
   if( !conn ) {
+    /* according to spec, INITIAL packets less than the specified
+       minimum must be discarded, and the connection may be closed
+       see rfc9000 14.1 */
+    if( pkt->datagram_sz < FD_QUIC_MIN_INITIAL_PKT_SZ ) {
+      if( conn ) {
+        conn->state  = FD_QUIC_CONN_STATE_ABORT;
+        conn->reason = FD_QUIC_CONN_REASON_PROTOCOL_VIOLATION;
+
+        /* TODO reschedule */
+        return FD_QUIC_PARSE_FAIL;
+      }
+    }
 
     /* check current number of connections */
     if( quic->cur_num_conns == quic->max_concur_conns ) {
