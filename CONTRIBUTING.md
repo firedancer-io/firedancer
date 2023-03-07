@@ -10,11 +10,37 @@ level the publishing industry has used for hundreds of years for making
 print easily readable with minimal eye strain and also makes default
 behaviors of various common development environments like emacs.
 
+### Organization
+
+- Please avoid cluttering the repository root
+- `.github`: CI- and repo-related config
+- `config`: GNU Make build system config
+- `contrib`: Miscellaneous code
+- `ffi/rust`: Rust FFI bindings
+- `src`: Main source tree
+  - `app`: Main programs
+  - `ballet`: Protocol-related code (parsers, serializers, cryptography)
+  - `disco`: Tiles
+  - `tango`: Concurrency-related code (message queues, I/O)
+  - `util`: Firedancer standard library
+
+### File Extensions
+
+| Extension | File Type                                        |
+|-----------|--------------------------------------------------|
+| `.c`      | Standalone C translation unit                    |
+| `.h`      | Reusable C include file, no symbol defs (header) |
+| `.c`      | Include-once C file, with symbol defs            |
+| `.s`      | Assembly files                                   |
+| (none)    | Shell scripts                                    |
+
 ### Integer Types
 
 Use `fd_util_base.h` types instead of `stdint.h` integer types.
 
-For more information, see [`fd_util_base.h`](./src/util/fd_util_base.h).
+FAQ: Why not `stdint.h`? For more information, see
+- [`fd_util_base.h`](./src/util/fd_util_base.h)
+- [Kevin's rant](./doc/rant/integer-types.txt)
 
 **Mapping**
 
@@ -39,7 +65,6 @@ For more information, see [`fd_util_base.h`](./src/util/fd_util_base.h).
 ```c
 fd_wksp_pod_map( verify_pod, "fseq" )
 ```
-
 
 ### Function Documentation
 
@@ -67,7 +92,6 @@ fd_wksp_pod_map( verify_pod, "fseq" )
 - Modifiers and return types on separate lines
 - One function argument per line
 - Vertically align function argument types and names
-
 
 ```c
 static inline uint

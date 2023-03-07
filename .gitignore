@@ -9,6 +9,7 @@ genhtml/
 target/
 fd_ffi.rs
 *.lcov
+*.profraw
 
 # Core Dumps
 core.*.*

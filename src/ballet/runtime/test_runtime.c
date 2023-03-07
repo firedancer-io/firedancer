@@ -297,7 +297,7 @@ fd_sim_txn(global_state_t *state, FD_FN_UNUSED fd_executor_t* executor, fd_txn_t
     if ( fd_acc_mgr_get_metadata( state->acc_mgr, addr, &metadata ) != FD_ACC_MGR_SUCCESS) {
       if (what > 1) {
         char pubkey[33];
-        fd_base58_encode_32((uchar *) addr, pubkey);
+        fd_base58_encode_32((uchar *) addr, NULL, pubkey);
         FD_LOG_WARNING(("missing account: %ld %s", what, pubkey));
       }
       continue;
@@ -584,7 +584,7 @@ int main(int argc, char **argv) {
 
     //DDaHhm7PCCf6a2s2YxvD5mBcp2NfDkiWr61sBW4nuN7
     char hash[100];
-    fd_base58_encode_32((uchar *) state.genesis_hash, hash);
+    fd_base58_encode_32((uchar *) state.genesis_hash, NULL, hash);
     
     void *data = buf;
     void *dataend = &buf[n];

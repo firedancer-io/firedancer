@@ -1,38 +1,52 @@
 #include "fd_base58.h"
 
-/* base58_chars maps [0, 58) to the base58 character */
-static const char base58_chars[] = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+#if FD_HAS_AVX
+#include "fd_base58_avx.h"
+#endif
+
+/* base58_chars maps [0, 58) to the base58 character.  In the AVX case,
+   this lookup table is contained implicitly in raw_to_base58 */
+
+#if !FD_HAS_AVX
+static char const base58_chars[] = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+#endif
+
 #define BASE58_INVALID_CHAR           ((uchar)255)
 #define BASE58_INVERSE_TABLE_OFFSET   ((uchar)'1')
 #define BASE58_INVERSE_TABLE_SENTINEL ((uchar)(1UL + (uchar)('z')-BASE58_INVERSE_TABLE_OFFSET))
-/* base58_inverse maps (character value - '1') to [0, 58).  Invalid base58
-   characters map to BASE58_INVALID_CHAR.  The character after what 'z' would map */
+
+/* base58_inverse maps (character value - '1') to [0, 58).  Invalid
+   base58 characters map to BASE58_INVALID_CHAR.  The character after
+   what 'z' would map to also maps to BASE58_INVALID_CHAR to facilitate
+   branchless lookups.  Don't make it static so that it can be used from
+   tests. */
+
 #define BAD BASE58_INVALID_CHAR
-static const uchar base58_inverse[] = {
-  (uchar)  0, (uchar)  1, (uchar)2  , (uchar)  3, (uchar)  4, (uchar)  5, (uchar)  6, (uchar)  7, (uchar)  8, (uchar)BAD,
+
+uchar const base58_inverse[] = {
+  (uchar)  0, (uchar)  1, (uchar)  2, (uchar)  3, (uchar)  4, (uchar)  5, (uchar)  6, (uchar)  7, (uchar)  8, (uchar)BAD,
   (uchar)BAD, (uchar)BAD, (uchar)BAD, (uchar)BAD, (uchar)BAD, (uchar)BAD, (uchar)  9, (uchar) 10, (uchar) 11, (uchar) 12,
   (uchar) 13, (uchar) 14, (uchar) 15, (uchar) 16, (uchar)BAD, (uchar) 17, (uchar) 18, (uchar) 19, (uchar) 20, (uchar) 21,
   (uchar)BAD, (uchar) 22, (uchar) 23, (uchar) 24, (uchar) 25, (uchar )26, (uchar) 27, (uchar) 28, (uchar) 29, (uchar) 30,
   (uchar) 31, (uchar) 32, (uchar)BAD, (uchar)BAD, (uchar)BAD, (uchar)BAD, (uchar)BAD, (uchar)BAD, (uchar) 33, (uchar) 34,
   (uchar) 35, (uchar) 36, (uchar) 37, (uchar) 38, (uchar) 39, (uchar) 40, (uchar) 41, (uchar) 42, (uchar) 43, (uchar)BAD,
   (uchar) 44, (uchar) 45, (uchar) 46, (uchar) 47, (uchar) 48, (uchar) 49, (uchar) 50, (uchar) 51, (uchar) 52, (uchar) 53,
-  (uchar) 54, (uchar) 55, (uchar) 56, (uchar) 57, (uchar)BAD };
+  (uchar) 54, (uchar) 55, (uchar) 56, (uchar) 57, (uchar)BAD
+};
+
 #undef BAD
 
-
-
-
 #define N                32
-#define BYTE_CNT        (32UL)
 #define INTERMEDIATE_SZ (9UL) /* Computed by ceil(log_(58^5) (256^32-1)) */
-#define BINARY_SZ       (BYTE_CNT/4UL)
+#define BINARY_SZ       ((ulong)N/4UL)
 
-/* Contains the unique values less than 58^5 such that
-   2^(32*(7-j)) = sum_k table[j][k]*58^(5*(7-k)) */
-/* The second dimension of this table is actually 
-   ceil(log_(58^5) (2^(32*(BINARY_SZ-1))), but that's almost always
-   INTERMEDIATE_SZ-1 */
-static const uint enc_table32[BINARY_SZ][INTERMEDIATE_SZ-1UL] = {
+/* Contains the unique values less than 58^5 such that:
+     2^(32*(7-j)) = sum_k table[j][k]*58^(5*(7-k))
+
+   The second dimension of this table is actually ceil(log_(58^5)
+   (2^(32*(BINARY_SZ-1))), but that's almost always INTERMEDIATE_SZ-1 */
+
+static uint const enc_table_32[BINARY_SZ][INTERMEDIATE_SZ-1UL] = {
   {   513735U,  77223048U, 437087610U, 300156666U, 605448490U, 214625350U, 141436834U, 379377856U},
   {        0U,     78508U, 646269101U, 118408823U,  91512303U, 209184527U, 413102373U, 153715680U},
   {        0U,         0U,     11997U, 486083817U,   3737691U, 294005210U, 247894721U, 289024608U},
@@ -43,9 +57,10 @@ static const uint enc_table32[BINARY_SZ][INTERMEDIATE_SZ-1UL] = {
   {        0U,         0U,         0U,         0U,         0U,         0U,         0U,         1U}
 };
 
-/* Contains the unique values less than 2^32 such that
-   58^(5*(8-j)) = sum_k table[j][k]*2^(32*(7-k)) */
-static const uint dec_table32[INTERMEDIATE_SZ][BINARY_SZ] = {
+/* Contains the unique values less than 2^32 such that:
+     58^(5*(8-j)) = sum_k table[j][k]*2^(32*(7-k)) */
+
+static uint const dec_table_32[INTERMEDIATE_SZ][BINARY_SZ] = {
   {      1277U, 2650397687U, 3801011509U, 2074386530U, 3248244966U,  687255411U, 2959155456U,          0U},
   {         0U,       8360U, 1184754854U, 3047609191U, 3418394749U,  132556120U, 1199103528U,          0U},
   {         0U,          0U,      54706U, 2996985344U, 1834629191U, 3964963911U,  485140318U, 1073741824U},
@@ -57,20 +72,16 @@ static const uint dec_table32[INTERMEDIATE_SZ][BINARY_SZ] = {
   {         0U,          0U,          0U,          0U,          0U,          0U,          0U,          1U}
 };
 
-#include "fd_base58.inc"
-
-
-
-
+#include "fd_base58_tmpl.c"
 
 #define N                64
-#define BYTE_CNT        (64UL)
 #define INTERMEDIATE_SZ (18UL) /* Computed by ceil(log_(58^5) (256^64-1)) */
-#define BINARY_SZ       (BYTE_CNT/4UL)
+#define BINARY_SZ       ((ulong)N/4UL)
 
-  /* Contains the unique values less than 58^5 such that
-     2^(32*(15-j)) = sum_k table[j][k]*58^(5*(16-k)) */
-static const uint enc_table64[BINARY_SZ][INTERMEDIATE_SZ-1UL] = {
+/* Contains the unique values less than 58^5 such that
+   2^(32*(15-j)) = sum_k table[j][k]*58^(5*(16-k)) */
+
+static uint const enc_table_64[BINARY_SZ][INTERMEDIATE_SZ-1UL] = {
   {     2631U, 149457141U, 577092685U, 632289089U,  81912456U, 221591423U, 502967496U, 403284731U, 377738089U, 492128779U,    746799U, 366351977U, 190199623U,  38066284U, 526403762U, 650603058U, 454901440U},
   {        0U,       402U,  68350375U,  30641941U, 266024478U, 208884256U, 571208415U, 337765723U, 215140626U, 129419325U, 480359048U, 398051646U, 635841659U, 214020719U, 136986618U, 626219915U,  49699360U},
   {        0U,         0U,        61U, 295059608U, 141201404U, 517024870U, 239296485U, 527697587U, 212906911U, 453637228U, 467589845U, 144614682U,  45134568U, 184514320U, 644355351U, 104784612U, 308625792U},
@@ -89,7 +100,7 @@ static const uint enc_table64[BINARY_SZ][INTERMEDIATE_SZ-1UL] = {
   {        0U,         0U,         0U,         0U,         0U,         0U,         0U,         0U,         0U,         0U,         0U,         0U,         0U,         0U,         0U,         0U,         1U}
 };
 
-static const uint dec_table64[INTERMEDIATE_SZ][BINARY_SZ] = {
+static uint const dec_table_64[INTERMEDIATE_SZ][BINARY_SZ] = {
   {    249448U, 3719864065U,  173911550U, 4021557284U, 3115810883U, 2498525019U, 1035889824U,  627529458U, 3840888383U, 3728167192U, 2901437456U, 3863405776U, 1540739182U, 1570766848U,          0U,          0U},
   {         0U,    1632305U, 1882780341U, 4128706713U, 1023671068U, 2618421812U, 2005415586U, 1062993857U, 3577221846U, 3960476767U, 1695615427U, 2597060712U,  669472826U,  104923136U,          0U,          0U},
   {         0U,          0U,   10681231U, 1422956801U, 2406345166U, 4058671871U, 2143913881U, 4169135587U, 2414104418U, 2549553452U,  997594232U,  713340517U, 2290070198U, 1103833088U,          0U,          0U},
@@ -110,91 +121,5 @@ static const uint dec_table64[INTERMEDIATE_SZ][BINARY_SZ] = {
   {         0U,          0U,          0U,          0U,          0U,          0U,          0U,          0U,          0U,          0U,          0U,          0U,          0U,          0U,          0U,          1U}
 };
 
-#include "fd_base58.inc"
+#include "fd_base58_tmpl.c"
 
-
-
-char *
-fd_base58_encode_slow( uchar const * bytes,
-                       ulong byte_cnt,
-                       char * out,
-                       ulong out_cnt ) {
-  /* Copy bytes to something we can clobber */
-  ulong * quotient = fd_alloca( 16UL, byte_cnt * sizeof(ulong) );
-  for( ulong j=0UL; j<byte_cnt; j++ ) quotient[j] = bytes[j];
-  out_cnt--; /* Save room for nul */
-  ulong * raw_base58 = fd_alloca( 16UL, out_cnt * sizeof(ulong) );
-
-  ulong zero_cnt = 0UL;
-  while( zero_cnt<byte_cnt && !bytes[ zero_cnt ] ) zero_cnt++;
-
-  ulong last_nonzero = 0UL;
-  /* Grade-school long division */
-  ulong start_j = 0UL;
-  for( ulong i=0UL; i<out_cnt; i++ ) {
-    ulong remainder = 0UL;
-    if( !quotient[ start_j ] ) start_j++;
-    for( ulong j=start_j; j<byte_cnt; j++ ) {
-      remainder = remainder*256UL + quotient[j];
-      quotient[j] = remainder / 58UL;
-      remainder %= 58UL;
-    }
-    raw_base58[ i ] = remainder;
-    if( remainder ) last_nonzero = 1UL+i;
-  }
-
-  if( FD_UNLIKELY( last_nonzero + zero_cnt > out_cnt ) ) return NULL;
-  for( ulong j=0UL; j<byte_cnt; j++ ) if( FD_UNLIKELY( quotient[ j ] ) ) return NULL; /* Output too small */
-
-  /* Convert to base58 characters */
-  ulong out_i = 0UL;
-  ulong raw_j = 0UL;
-  for( ; out_i<zero_cnt;     out_i++ ) out[ out_i   ] = '1';
-  for( ; raw_j<last_nonzero; raw_j++ ) out[ out_i++ ] = base58_chars[ raw_base58[ last_nonzero-1UL-raw_j ] ];
-  out[ out_i ] = '\0';
-
-  return out;
-}
-
-
-uchar * fd_base58_decode_slow(
-    const char * encoded,
-    ulong encoded_len, /* excluding nul-terminator */
-    uchar * out,
-    ulong out_cnt ) {
-
-  ulong zero_cnt = 0UL;
-  while( zero_cnt<encoded_len && encoded[ zero_cnt ]=='1' ) out[ zero_cnt++ ] = (uchar)0;
-  out += zero_cnt;
-  encoded += zero_cnt;
-  encoded_len -= zero_cnt;
-  out_cnt -= zero_cnt;
-
-  ulong * raw_base58 = fd_alloca( 16UL, encoded_len * sizeof(ulong) );
-
-  for( ulong i=0UL; i<encoded_len; i++ ) {
-    char c = encoded[ i ];
-    if( FD_UNLIKELY( (c<'1') | (c>'z') ) ) return NULL;
-    uchar raw = base58_inverse[ (ulong)(c-'1') ];
-    if( FD_UNLIKELY( raw==255          ) ) return NULL;
-    raw_base58[ i ] = raw;
-  }
-
-  /* Grade-school long division */
-  ulong start_j = 0UL;
-  for( ulong i=0UL; i<out_cnt; i++ ) {
-    ulong remainder = 0UL;
-    while( FD_LIKELY( start_j<encoded_len ) && !raw_base58[ start_j ] ) start_j++;
-    for( ulong j=start_j; j<encoded_len; j++ ) {
-      remainder = remainder*58UL + raw_base58[j];
-      raw_base58[ j ] = remainder >> 8;
-      remainder &= 0xFF;
-    }
-    out[ out_cnt-1UL-i ] = (uchar)remainder;
-  }
-  if( FD_UNLIKELY( !out[ 0UL ] ) ) return NULL; /* Wrong number of leading 1s */
-
-  for( ulong j=start_j; j<encoded_len; j++ ) if( FD_UNLIKELY( raw_base58[ j ] ) ) return NULL; /* Output too small */
-
-  return out-zero_cnt;
-}
