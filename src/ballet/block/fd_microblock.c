@@ -205,23 +205,22 @@ fd_microblock_skip(        uchar const *     buf,
 void
 fd_microblock_mixin( fd_microblock_t const * block,
                      uchar *                 out_hash ) {
-  ulong txn_cnt = block->hdr.txn_cnt;
-
-  fd_bmtree32_commit_t * commit =
-  fd_alloca( FD_BMTREE_COMMIT_ALIGN, fd_bmtree32_commit_footprint( txn_cnt ) );
-
-  if( FD_UNLIKELY( !commit ) )
-    FD_LOG_ERR(( "fd_microblock_mixin: fd_alloca for microblock with %lu txns failed", txn_cnt ));
-
   ulong scnt = 0;
 
   fd_rawtxn_b_t const * raw_tbl = block->raw_tbl;
   fd_txn_o_t    const * txn_tbl = block->txn_tbl;
 
+  ulong txn_cnt = block->hdr.txn_cnt;
   for( ulong i=0; i<txn_cnt; i++ ) {
     fd_txn_t const * txn = (fd_txn_t const *)&txn_tbl[ i ];
     scnt += txn->signature_cnt;
   }
+
+  fd_bmtree32_commit_t * commit =
+    fd_alloca( FD_BMTREE_COMMIT_ALIGN, fd_bmtree32_commit_footprint( scnt ) );
+
+  if( FD_UNLIKELY( !commit ) )
+    FD_LOG_ERR(( "fd_microblock_mixin: fd_alloca for microblock with %lu txns failed", scnt ));
 
   fd_bmtree32_commit_init( commit, scnt );
 

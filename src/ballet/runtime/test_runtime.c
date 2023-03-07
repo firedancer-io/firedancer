@@ -1,5 +1,9 @@
 // test_xdp.init
 
+// -DFD_SHA256_CORE_IMPL=0
+
+//  --ledger /dev/shm/mainnet-ledger --db /dev/shm/funk --cmd replay --start-slot 179138256 --end-slot 179138258  --txn-exe sim  --index-max 120000000 --pages 15
+
 //  --ledger /dev/shm/mainnet-ledger --db /dev/shm/funk --cmd replay --start-slot 179138205 --end-slot 279138205  --txn-exe sim  --index-max 120000000 --pages 15
 //  --ledger /dev/shm/mainnet-ledger --db /dev/shm/funk --cmd ingest --start-slot 179138205 --end-slot 279138205 --manifest /dev/shm/mainnet-ledger/snapshot/tmp-snapshot-archive-JfVTLu/snapshots/179248368/179248368
 // run --ledger /home/jsiegel/mainnet-ledger --db /home/jsiegel/funk --cmd ingest --accounts /home/jsiegel/mainnet-ledger/accounts --pages 15 --index-max 120000000
@@ -383,6 +387,11 @@ int replay(global_state_t *state) {
 
           entry_idx++;
 
+#ifdef _VHASH
+          char outhash_base58[50];
+          fd_memset(outhash_base58, 0, sizeof(outhash_base58));
+#endif
+
           if (micro_block->txn_max_cnt > 0) {
             if (micro_block->hdr.hash_cnt > 0)
               fd_poh_append(&state->poh, micro_block->hdr.hash_cnt - 1);
@@ -406,9 +415,23 @@ int replay(global_state_t *state) {
             uchar outhash[32];
             fd_microblock_mixin(micro_block, outhash);
 
+#ifdef _VHASH
+            fd_base58_encode_32((uchar *) outhash, outhash_base58);
+#endif
+
             fd_poh_mixin(&state->poh, outhash);
           } else
             fd_poh_append(&state->poh, micro_block->hdr.hash_cnt);
+
+#ifdef _VHASH
+          char block_hash[50];
+          fd_base58_encode_32((uchar *) micro_block->hdr.hash, block_hash);
+
+          char poh_state[50];
+          fd_base58_encode_32((uchar *) state->poh.state, poh_state);
+
+          FD_LOG_WARNING(( "poh at slot: %ld,  batch: %03ld,  entry: %03ld  hash_cnt: %03ld  block_hash: %s  poh_state: %s  mixin: %s", slot, blob_idx, entry_idx, micro_block->hdr.hash_cnt, block_hash, poh_state, outhash_base58));
+#endif
 
           if (memcmp(micro_block->hdr.hash, state->poh.state, sizeof(state->poh.state))) {
             if (boot_boh) {
