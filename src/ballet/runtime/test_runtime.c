@@ -350,7 +350,7 @@ int replay(global_state_t *state) {
     if (slot >= state->end_slot)
       break;
 
-    if ((slot % 1000) == 0)
+    if ((slot % 10) == 0)
       FD_LOG_WARNING(("reading slot %ld", slot));
 
     if (state->txn_exe == 2) {
