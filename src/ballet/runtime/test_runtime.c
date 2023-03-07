@@ -1,5 +1,7 @@
 // test_xdp.init
 
+// -DFD_SHA256_CORE_IMPL=0
+
 //  --ledger /dev/shm/mainnet-ledger --db /dev/shm/funk --cmd replay --start-slot 179138256 --end-slot 179138258  --txn-exe sim  --index-max 120000000 --pages 15
 
 //  --ledger /dev/shm/mainnet-ledger --db /dev/shm/funk --cmd replay --start-slot 179138205 --end-slot 279138205  --txn-exe sim  --index-max 120000000 --pages 15
