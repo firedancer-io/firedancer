@@ -193,7 +193,7 @@ void grinder(int argc, char** argv, bool firsttime) {
   xactionkey rootxid(fd_funk_root(funk));
 
   databuf checksum;
-  static const ulong MAXLEN = 128;
+  static const ulong MAXLEN = 8000;
   checksum.writezeros(MAXLEN);
   recordkey checksumkey;
   memset(&checksumkey._id, 'x', sizeof(checksumkey));
