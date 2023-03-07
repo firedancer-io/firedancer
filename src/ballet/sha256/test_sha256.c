@@ -202,6 +202,29 @@ main( int     argc,
     }
   }
 
+  /* Test large hash input
+
+     $ head --bytes 4294967311 /dev/zero | openssl dgst -sha256
+     326346c80cdb84ec6e143e15f4c419bd266a852b6ed55aa8ad69eebefb56eead */
+
+# define INPUT_SZ (4294967311UL) /* prime larger than 2^32 */
+# define CHUNK_SZ (4096UL)
+  uchar chunk[ CHUNK_SZ ] __attribute__((aligned(32)));
+  fd_memset( chunk, 0, CHUNK_SZ );
+
+  fd_sha256_init( sha );
+  ulong left_sz;
+  for( left_sz=INPUT_SZ; left_sz>=CHUNK_SZ; left_sz-=CHUNK_SZ )
+    fd_sha256_append( sha, chunk, CHUNK_SZ );
+  fd_sha256_append( sha, chunk, left_sz );
+  fd_sha256_fini( sha, hash );
+  FD_TEST( 0==memcmp( hash,
+                      "\x32\x63\x46\xc8\x0c\xdb\x84\xec\x6e\x14\x3e\x15\xf4\xc4\x19\xbd"
+                      "\x26\x6a\x85\x2b\x6e\xd5\x5a\xa8\xad\x69\xee\xbe\xfb\x56\xee\xad",
+                      32UL ) );
+# undef CHUNK_SZ
+# undef INPUT_SZ
+
   /* clean up */
 
   FD_TEST( fd_sha256_leave( NULL )==NULL ); /* null sha */
