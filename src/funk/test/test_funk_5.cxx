@@ -223,12 +223,12 @@ void grinder(int argc, char** argv, bool firsttime) {
         FD_LOG_ERR(("read failed"));
       recordkey key(id);
       if (key == checksumkey) {
-        checksum.write(data, len);
+        checksum.write(data, (ulong)len);
       } else {
         golden.push_back({});
         auto& p = golden.back();
         p.first = key;
-        p.second.write(data, len);
+        p.second.write(data, (ulong)len);
       }
     }
     FD_LOG_WARNING(("recovered %lu records", golden.size()));
@@ -245,14 +245,14 @@ void grinder(int argc, char** argv, bool firsttime) {
     for (auto& [key,db] : golden) {
       const void* res;
       auto reslen = fd_funk_read(funk, rootxid, key, &res, 0, INT32_MAX);
-      if (!db.equals(res, reslen))
+      if (!db.equals(res, (ulong)reslen))
         FD_LOG_ERR(("read returned wrong result"));
       db.checksum(checksum2);
     }
     {
       const void* res;
       auto reslen = fd_funk_read(funk, rootxid, checksumkey, &res, 0, INT32_MAX);
-      if (!checksum.equals(res, reslen))
+      if (!checksum.equals(res, (ulong)reslen))
         FD_LOG_ERR(("read returned wrong result"));
     }
     if (!(checksum == checksum2))
@@ -284,7 +284,7 @@ void grinder(int argc, char** argv, bool firsttime) {
 
     auto delete_random = [&](ulong action) {
       // Delete a random key
-      auto it = golden.begin() + (action%golden.size());
+      auto it = golden.begin() + (long)(action%golden.size());
       fd_funk_delete_record(funk, xid, it->first);
       it->second.checksum(checksum);
       golden.erase(it);
@@ -292,7 +292,7 @@ void grinder(int argc, char** argv, bool firsttime) {
 
     auto update_random = [&](ulong action) {
       // Update an existing record
-      auto it = golden.begin() + (action%golden.size());
+      auto it = golden.begin() + (long)(action%golden.size());
       auto len = (uint)((action<<3)%MAXLEN);
       rg.genbytes(scratch, len);
       fd_funk_write(funk, xid, it->first, scratch, 0, len);

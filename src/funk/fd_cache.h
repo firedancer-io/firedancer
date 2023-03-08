@@ -27,7 +27,7 @@ struct fd_cache {
     ulong misses;
 };
 
-ulong fd_cache_align() { return 8U; }
+ulong fd_cache_align(void) { return 8U; }
 
 ulong fd_cache_footprint(ulong entry_cnt) {
   return sizeof(struct fd_cache) + sizeof(struct fd_cache_entry)*entry_cnt;

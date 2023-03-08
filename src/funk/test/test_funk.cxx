@@ -133,7 +133,7 @@ int main(int argc, char **argv) {
     for (auto& [key,db] : golden) {
       const void* res;
       auto reslen = fd_funk_read(funk, fd_funk_root(funk), &key._id, &res, 0, MAXRECORDSIZE);
-      if (!db.equals(res, reslen))
+      if (!db.equals(res, (ulong)reslen))
         FD_LOG_ERR(("read returned wrong result"));
     }
   };
