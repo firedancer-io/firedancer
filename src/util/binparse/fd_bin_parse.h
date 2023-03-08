@@ -11,6 +11,7 @@ struct fd_bin_parse_ctx {
     ulong      input_blob_sz;
     uchar    * pre_parse_src_cur;
     uchar    * pre_parse_dst_cur;
+    int        invalid_state;
 };
 
 typedef struct fd_bin_parse_ctx fd_bin_parse_ctx_t;
@@ -40,6 +41,9 @@ fd_bin_parse_src_size_remaining( fd_bin_parse_ctx_t * ctx );
 int
 fd_bin_parse_dst_has_enough_size_remaining( fd_bin_parse_ctx_t * ctx,
                                             ulong                sz   );
+
+int
+fd_bin_parse_is_state_ok_to_begin_parse( fd_bin_parse_ctx_t * ctx );
 
 void *
 fd_bin_parse_get_cur_dst( fd_bin_parse_ctx_t * ctx );

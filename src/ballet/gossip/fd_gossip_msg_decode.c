@@ -13,9 +13,23 @@
 fd_gossip_msg_t *
 fd_gossip_parse_msg( fd_bin_parse_ctx_t * ctx ) {
 
-  /* Ensure the input payload is not larger than MTU (1232), because this shouldn't be possible. */
+  /* Defensive sanity checks to ensure that the parse context buffer is in a consistent 
+     state. Failing these checks indicate a programming error such as a) forgetting
+     to call fd_bin_parse_set_input_blob_size() to setup the next blob size to parse,
+     b) calling fd_bin_parse_set_input_blob_size() with a parse blob size larger than
+     the actual total slice itself.
+     Because these are errors that should never occur without major programming errors, 
+     we log the condition with the ERR loglevel, which also aborts the validator program. */
+  if( FD_UNLIKELY( !fd_bin_parse_is_state_ok_to_begin_parse( ctx ) ) ) {
+    FD_LOG_ERR(( "inconsistent parse context buffer state; likely a programming error (such as misuse of fd_bin_parse_set_input_blob_size() )" ));
+  }
+
+  /* Ensure the input payload is not larger than MTU (1232), because this shouldn't be 
+     possible. Because this is a condition that should never occur without major
+     programming errors, we log the error with the ERR loglevel,
+     which aborts the validator program. */
   if( FD_UNLIKELY( fd_bin_parse_input_blob_size( ctx )>FD_GOSSIP_MTU ) ) {
-    FD_LOG_WARNING(( "message longer than MTU; programming error, since networking code should not allow this." ));
+    FD_LOG_ERR(( "message longer than MTU; programming error, since networking code should not allow this." ));
     return 0;
   }
 
