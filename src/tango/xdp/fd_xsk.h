@@ -122,7 +122,7 @@ typedef struct fd_xsk_private fd_xsk_t;
 #define FD_XDP_FRAME_META_ALIGN (16UL)
 
 struct __attribute__((aligned(FD_XDP_FRAME_META_ALIGN))) fd_xsk_frame_meta {
-  ulong off;   /* Offset to start of packet */
+  ulong off;   /* Byte offset from UMEM start to start of packet */
   uint  sz;    /* Size of packet data starting at `off` */
   uint  flags; /* Undefined for now */
 };
