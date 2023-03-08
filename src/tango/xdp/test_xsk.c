@@ -4,7 +4,13 @@
    or heap. */
 
 #include "fd_xsk_private.h"
+#include "fd_xsk_aio_private.h"
 #include "../../util/fd_util.h"
+
+/* Static assertions **************************************************/
+
+FD_STATIC_ASSERT( alignof(fd_xsk_frame_meta_t)==alignof(fd_aio_pkt_info_t), alignment );
+FD_STATIC_ASSERT( alignof(fd_xsk_frame_meta_t)>=8UL,                        alignment );
 
 /* fd_xsk_t testing ***************************************************/
 
@@ -27,10 +33,65 @@ struct test_xsk_ring_desc {
 };
 typedef struct test_xsk_ring_desc test_xsk_ring_desc_t;
 
-static test_xsk_ring_desc_t test_xsk_ring_rx = {0};
-static test_xsk_ring_desc_t test_xsk_ring_tx = {0};
-static test_xsk_ring_desc_t test_xsk_ring_fr = {0};
-static test_xsk_ring_desc_t test_xsk_ring_cr = {0};
+static test_xsk_ring_desc_t test_xsk_ring_rx;
+static test_xsk_ring_desc_t test_xsk_ring_tx;
+static test_xsk_ring_desc_t test_xsk_ring_fr;
+static test_xsk_ring_desc_t test_xsk_ring_cr;
+
+
+static void
+setup_xsk_rings( fd_xsk_t * xsk ) {
+  memset( &test_xsk_ring_rx, 0, sizeof(test_xsk_ring_desc_t) );
+  memset( &test_xsk_ring_tx, 0, sizeof(test_xsk_ring_desc_t) );
+  memset( &test_xsk_ring_fr, 0, sizeof(test_xsk_ring_desc_t) );
+  memset( &test_xsk_ring_cr, 0, sizeof(test_xsk_ring_desc_t) );
+
+  ulong umem_off = fd_ulong_align_up( sizeof(fd_xsk_t), FD_XSK_UMEM_ALIGN );
+
+  xsk->umem.headroom   = 0U; /* TODO no need for headroom for now */
+  xsk->umem.addr       = (ulong)xsk + umem_off;
+  xsk->umem.chunk_size = (uint)xsk->params.frame_sz;
+  xsk->umem.len        =       xsk->params.umem_sz;
+
+  /* Ignore xsk->{mem,mem_sz} as those are only accessed during
+     join/leave. */
+
+  xsk->ring_rx.packet_ring = test_xsk_ring_rx.packets;
+  xsk->ring_tx.packet_ring = test_xsk_ring_tx.packets;
+  xsk->ring_fr.frame_ring  = test_xsk_ring_fr.frame_idxs;
+  xsk->ring_cr.frame_ring  = test_xsk_ring_cr.frame_idxs;
+
+  xsk->ring_rx.flags       = &test_xsk_ring_rx.flags;
+  xsk->ring_tx.flags       = &test_xsk_ring_tx.flags;
+  xsk->ring_fr.flags       = &test_xsk_ring_fr.flags;
+  xsk->ring_cr.flags       = &test_xsk_ring_cr.flags;
+
+  xsk->ring_rx.prod        = &test_xsk_ring_rx.prod;
+  xsk->ring_tx.prod        = &test_xsk_ring_tx.prod;
+  xsk->ring_fr.prod        = &test_xsk_ring_fr.prod;
+  xsk->ring_cr.prod        = &test_xsk_ring_cr.prod;
+
+  xsk->ring_rx.cons        = &test_xsk_ring_rx.cons;
+  xsk->ring_tx.cons        = &test_xsk_ring_tx.cons;
+  xsk->ring_fr.cons        = &test_xsk_ring_fr.cons;
+  xsk->ring_cr.cons        = &test_xsk_ring_cr.cons;
+
+  xsk->ring_rx.depth       = TEST_XSK_RING_DEPTH;
+  xsk->ring_tx.depth       = TEST_XSK_RING_DEPTH;
+  xsk->ring_fr.depth       = TEST_XSK_RING_DEPTH;
+  xsk->ring_cr.depth       = TEST_XSK_RING_DEPTH;
+
+  xsk->ring_rx.cached_prod = 0UL;
+  xsk->ring_tx.cached_prod = 0UL;
+  xsk->ring_fr.cached_prod = 0UL;
+  xsk->ring_cr.cached_prod = 0UL;
+
+  xsk->ring_rx.cached_cons = 0UL;
+  xsk->ring_tx.cached_cons = 0UL;
+  xsk->ring_fr.cached_cons = 0UL;
+  xsk->ring_cr.cached_cons = 0UL;
+}
+
 
 void
 test_xsk( void ) {
@@ -63,7 +124,9 @@ test_xsk( void ) {
 
   /* Create new XSK */
 
-  void * shxsk = fd_xsk_new( _xsk, 2048UL, 1UL, 1UL, 1UL, 1UL );
+  FD_TEST( fd_xsk_footprint( 2048UL, 8UL, 8UL, 8UL, 8UL )==69632UL );
+
+  void * shxsk = fd_xsk_new( _xsk, 2048UL, 8UL, 8UL, 8UL, 8UL );
   FD_TEST( shxsk );
 
   /* Invalid magic */
@@ -110,44 +173,16 @@ test_xsk( void ) {
   /* Get parameters */
 
   FD_TEST( fd_xsk_get_params( xsk )==&xsk->params );
+  FD_TEST( xsk->params.fr_depth==    8UL );
+  FD_TEST( xsk->params.rx_depth==    8UL );
+  FD_TEST( xsk->params.tx_depth==    8UL );
+  FD_TEST( xsk->params.cr_depth==    8UL );
+  FD_TEST( xsk->params.frame_sz== 2048UL );
+  FD_TEST( xsk->params.umem_sz ==65536UL );
 
-  /* Ignore xsk->{mem,mem_sz} as those are only accessed during
-     join/leave. */
+  /* Mock kernel side (XSK descriptor rings) */
 
-  xsk->ring_rx.packet_ring = test_xsk_ring_rx.packets;
-  xsk->ring_tx.packet_ring = test_xsk_ring_tx.packets;
-  xsk->ring_fr.frame_ring  = test_xsk_ring_fr.frame_idxs;
-  xsk->ring_cr.frame_ring  = test_xsk_ring_cr.frame_idxs;
-
-  xsk->ring_rx.flags       = &test_xsk_ring_rx.flags;
-  xsk->ring_tx.flags       = &test_xsk_ring_tx.flags;
-  xsk->ring_fr.flags       = &test_xsk_ring_fr.flags;
-  xsk->ring_cr.flags       = &test_xsk_ring_cr.flags;
-
-  xsk->ring_rx.prod        = &test_xsk_ring_rx.prod;
-  xsk->ring_tx.prod        = &test_xsk_ring_tx.prod;
-  xsk->ring_fr.prod        = &test_xsk_ring_fr.prod;
-  xsk->ring_cr.prod        = &test_xsk_ring_cr.prod;
-
-  xsk->ring_rx.cons        = &test_xsk_ring_rx.cons;
-  xsk->ring_tx.cons        = &test_xsk_ring_tx.cons;
-  xsk->ring_fr.cons        = &test_xsk_ring_fr.cons;
-  xsk->ring_cr.cons        = &test_xsk_ring_cr.cons;
-
-  xsk->ring_rx.depth       = TEST_XSK_RING_DEPTH;
-  xsk->ring_tx.depth       = TEST_XSK_RING_DEPTH;
-  xsk->ring_fr.depth       = TEST_XSK_RING_DEPTH;
-  xsk->ring_cr.depth       = TEST_XSK_RING_DEPTH;
-
-  xsk->ring_rx.cached_prod = 0UL;
-  xsk->ring_tx.cached_prod = 0UL;
-  xsk->ring_fr.cached_prod = 0UL;
-  xsk->ring_cr.cached_prod = 0UL;
-
-  xsk->ring_rx.cached_cons = 0UL;
-  xsk->ring_tx.cached_cons = 0UL;
-  xsk->ring_fr.cached_cons = 0UL;
-  xsk->ring_cr.cached_cons = 0UL;
+  setup_xsk_rings( xsk );
 
   /* Check fd_xsk_{rx,tx}_need_wakeup */
 
@@ -392,12 +427,227 @@ test_xsk( void ) {
   FD_TEST( fd_xsk_delete( shxsk ) );
 }
 
+/* fd_xsk_aio_t testing ***********************************************/
+
+/* fd_xsk_t memory region */
+
+static uchar _xsk_aio[ 16384UL ] __attribute__((aligned(FD_XSK_AIO_ALIGN)));
+
+/* fd_xsk_aio_t mock fd_aio_t receiver */
+
+static fd_aio_pkt_info_t const * _rx_batch;
+static ulong                     _rx_batch_cnt;
+static ulong                     _rx_call_cnt;
+
+static fd_aio_t _rx;
+
+static int
+test_xsk_aio_rx( void *                    ctx,
+                 fd_aio_pkt_info_t const * batch,
+                 ulong                     batch_cnt,
+                 ulong *                   opt_batch_idx ) {
+  (void)ctx;
+  (void)opt_batch_idx;
+
+  _rx_call_cnt++;
+  FD_LOG_INFO(( "serving fd_xsk_aio callback" ));
+
+  /* Per fd_aio spec, the lifetime of the buffer at batch ends after
+     this function returns.  So technically, this is unsound code.
+     For unit testing, this is fine though. */
+
+  _rx_batch     = batch;
+  _rx_batch_cnt = batch_cnt;
+
+  return FD_AIO_SUCCESS;
+}
+
+void
+test_xsk_aio( void ) {
+  /* Alignment checks */
+
+  FD_TEST( fd_xsk_aio_align()==32UL                         );
+  FD_TEST( fd_xsk_aio_align()==alignof(fd_xsk_aio_t       ) );
+  FD_TEST( fd_xsk_aio_align()>=alignof(fd_xsk_frame_meta_t) );
+  FD_TEST( fd_xsk_aio_align()>=alignof(fd_aio_pkt_info_t  ) );
+
+  /* Invalid new params */
+
+  FD_TEST( NULL==fd_xsk_aio_new( NULL,                   1UL, 1UL ) ); /* NULL mem       */
+  FD_TEST( NULL==fd_xsk_aio_new( (void *)(_xsk_aio+1UL), 1UL, 1UL ) ); /* unalign mem    */
+  FD_TEST( NULL==fd_xsk_aio_new( _xsk_aio,               0UL, 1UL ) ); /* zero tx_depth  */
+  FD_TEST( NULL==fd_xsk_aio_new( _xsk_aio,               1UL, 0UL ) ); /* zero batch_cnt */
+
+  /* Invalid footprint params */
+
+  FD_TEST( 0UL==fd_xsk_aio_footprint( 0UL, 1UL ) ); /* zero tx_depth  */
+  FD_TEST( 0UL==fd_xsk_aio_footprint( 1UL, 0UL ) ); /* zero batch_cnt */
+
+  /* Create new XSK aio */
+
+  FD_TEST( fd_xsk_aio_footprint( 8UL, 8UL )==480UL );
+
+  void * shxsk_aio = fd_xsk_aio_new( _xsk_aio, 8UL, 8UL );
+  FD_TEST( shxsk_aio );
+
+  /* Mock XSK */
+
+  void * shxsk = fd_xsk_new( _xsk, 2048UL, 8UL, 8UL, 8UL, 8UL );
+  FD_TEST( shxsk );
+
+  fd_xsk_t * xsk = (fd_xsk_t *)shxsk;
+  setup_xsk_rings( xsk );
+
+  ulong umem_off = xsk->umem.addr;
+
+  /* Invalid magic */
+
+  fd_xsk_aio_t * xsk_aio = (fd_xsk_aio_t *)shxsk_aio;
+  xsk_aio->magic++;
+  FD_TEST( NULL==fd_xsk_aio_join  ( shxsk_aio, xsk ) );
+  FD_TEST( NULL==fd_xsk_aio_delete( shxsk_aio      ) );
+  xsk_aio->magic--;
+
+  /* Invalid join params */
+
+  FD_TEST( NULL==fd_xsk_aio_join( shxsk_aio, NULL ) ); /* NULL xsk */
+
+  /* Join xsk_aio */
+
+  xsk_aio = fd_xsk_aio_join( shxsk_aio, xsk );
+  fd_aio_t const * aio_tx = fd_xsk_aio_get_tx( xsk_aio );
+
+  /* Fill ring should be populated on join */
+
+  FD_TEST( test_xsk_ring_fr.prod==8UL );
+  for( uint i=0U; i<8U; i++ )
+    FD_TEST( test_xsk_ring_fr.frame_idxs[i]==i*2048U );
+
+  /* Check alignment */
+
+  FD_TEST( ( (ulong)fd_xsk_aio_meta    ( xsk_aio ) % alignof( fd_xsk_frame_meta_t ) )==0UL );
+  FD_TEST( ( (ulong)fd_xsk_aio_pkts    ( xsk_aio ) % alignof( fd_aio_pkt_info_t   ) )==0UL );
+  FD_TEST( ( (ulong)fd_xsk_aio_tx_stack( xsk_aio ) % alignof( ulong               ) )==0UL );
+
+  /* Send packets */
+
+  FD_TEST( fd_aio_send( aio_tx, NULL, 0UL, NULL )==FD_AIO_SUCCESS );
+  FD_TEST( xsk_aio->tx_top==8UL );
+
+  {
+    fd_aio_pkt_info_t pkts[ 3UL ] = {
+      { .buf="a",   .buf_sz=1UL },
+      { .buf="bb",  .buf_sz=2UL },
+      { .buf="ccc", .buf_sz=3UL }
+    };
+    FD_TEST( fd_aio_send( aio_tx, pkts, 3UL, NULL )==FD_AIO_SUCCESS );
+    FD_TEST( xsk_aio->tx_top==5UL );
+
+    FD_TEST( test_xsk_ring_tx.prod          ==3UL );
+    FD_TEST( test_xsk_ring_tx.packets[0].len==1UL );
+    FD_TEST( test_xsk_ring_tx.packets[1].len==2UL );
+    FD_TEST( test_xsk_ring_tx.packets[2].len==3UL );
+
+    FD_TEST( 0==memcmp( (void *)(umem_off+test_xsk_ring_tx.packets[0].addr), pkts[0].buf, pkts[0].buf_sz ) );
+    FD_TEST( 0==memcmp( (void *)(umem_off+test_xsk_ring_tx.packets[1].addr), pkts[1].buf, pkts[1].buf_sz ) );
+    FD_TEST( 0==memcmp( (void *)(umem_off+test_xsk_ring_tx.packets[2].addr), pkts[2].buf, pkts[2].buf_sz ) );
+  }
+
+  {
+    fd_aio_pkt_info_t pkts[ 6UL ] = {
+      { .buf="dd", .buf_sz=2UL },
+      { .buf="ee", .buf_sz=2UL },
+      { .buf="ff", .buf_sz=2UL },
+      { .buf="gg", .buf_sz=2UL },
+      { .buf="hh", .buf_sz=2UL },
+      { .buf="ii", .buf_sz=2UL }
+    };
+    ulong batch_idx;
+    FD_TEST( fd_aio_send( aio_tx, pkts, 6UL, &batch_idx )==FD_AIO_ERR_AGAIN );
+    FD_TEST( batch_idx==5UL );
+    FD_TEST( xsk_aio->tx_top==0UL );
+
+    FD_TEST( test_xsk_ring_tx.prod==8UL );
+    for( ulong i=3UL; i<8UL; i++ ) {
+      FD_TEST( test_xsk_ring_tx.packets[i].len==2UL );
+      FD_TEST( 0==memcmp( (void *)(umem_off+test_xsk_ring_tx.packets[i].addr), pkts[i-3UL].buf, 2UL ) );
+    }
+  }
+
+  /* Receive tx completion */
+
+  for( uint i=0U; i<8U; i++ )
+    test_xsk_ring_cr.frame_idxs[ i ]=i*2048U;
+  test_xsk_ring_cr.prod = 8U;
+
+  fd_xsk_aio_service( xsk_aio );
+
+  FD_TEST( xsk_aio->tx_top==8UL );
+  for( uint i=0U; i<8U; i++ )
+    FD_TEST( xsk_aio->tx_stack[i]==i*2048U );
+
+  /* Receive packets without fd_aio_t rx connected */
+
+  FD_TEST( _rx_call_cnt==0UL );
+
+  test_xsk_ring_fr.cons = 4U;
+  for( uint i=0U; i<4U; i++ )
+    test_xsk_ring_rx.packets[i] =
+      (struct xdp_desc) { .addr=i*2048U, .len=3U };
+  test_xsk_ring_rx.prod = 4U;
+
+  fd_xsk_aio_service( xsk_aio );
+
+  FD_TEST( _rx_call_cnt==0UL );
+  FD_TEST( test_xsk_ring_rx.cons== 4U );
+  FD_TEST( test_xsk_ring_fr.prod==12U );
+
+  /* Connect fd_aio_t rx */
+
+  fd_aio_t * rx = fd_aio_new( &_rx, NULL, test_xsk_aio_rx );
+  FD_TEST( rx );
+
+  fd_xsk_aio_set_rx( xsk_aio, rx );
+
+  /* Receive packets */
+
+  FD_TEST( _rx_call_cnt==0UL );
+
+  test_xsk_ring_fr.cons = 10U;
+  for( uint i=4U; i<10U; i++ )
+    test_xsk_ring_rx.packets[i%8UL] =
+      (struct xdp_desc) { .addr=(i%8)*2048U, .len=3U };
+  test_xsk_ring_rx.prod = 10U;
+
+  fd_xsk_aio_service( xsk_aio );
+
+  FD_TEST( _rx_call_cnt==1UL );
+  FD_TEST( test_xsk_ring_rx.cons==10U );
+  FD_TEST( test_xsk_ring_fr.prod==18U );
+
+  FD_TEST( _rx_batch    ==fd_xsk_aio_pkts( xsk_aio ) );
+  FD_TEST( _rx_batch_cnt==6UL );
+
+  ulong umem_laddr = (ulong)fd_xsk_umem_laddr( xsk );
+  for( uint i=0U; i<6U; i++ ) {
+    FD_TEST( _rx_batch[i].buf   ==(void *)( umem_laddr + ((i+4U)%8)*2048U ) );
+    FD_TEST( _rx_batch[i].buf_sz==3U );
+  }
+
+  /* Clean up */
+
+  FD_TEST( fd_xsk_aio_leave ( xsk_aio   ) );
+  FD_TEST( fd_xsk_delete    ( shxsk     ) );
+  FD_TEST( fd_xsk_aio_delete( shxsk_aio ) );
+}
+
 
 int main( int     argc,
           char ** argv ) {
   fd_boot( &argc, &argv );
 
   test_xsk();
+  test_xsk_aio();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
