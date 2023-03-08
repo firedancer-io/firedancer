@@ -5,4 +5,8 @@ $(call make-unit-test,test_ip4,test_ip4,fd_util)
 $(call make-unit-test,test_igmp,test_igmp,fd_util)
 $(call make-unit-test,test_udp,test_udp,fd_util)
 $(call make-unit-test,test_pcap,test_pcap,fd_util)
+$(call run-unit-test,test_eth,)
+$(call run-unit-test,test_ip4,)
+$(call run-unit-test,test_igmp,)
+$(call run-unit-test,test_udp,)
 

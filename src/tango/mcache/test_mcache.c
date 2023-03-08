@@ -53,6 +53,12 @@ main( int     argc,
                                                                   FD_MCACHE_FOOTPRINT( _depth, _app_sz ), 0UL ) );
   }
 
+  /* Test failure cases for fd_mcache_new */
+
+  FD_TEST( fd_mcache_new( NULL,      depth, app_sz, seq0 )==NULL ); /* null shmem */
+  FD_TEST( fd_mcache_new( shmem+1UL, depth, app_sz, seq0 )==NULL ); /* misaligned shmem */
+  FD_TEST( fd_mcache_new( shmem,     0,     app_sz, seq0 )==NULL ); /* zero depth */
+
   /* Test mcache creation */
 
   ulong footprint = fd_mcache_footprint( depth, app_sz );
@@ -60,8 +66,21 @@ main( int     argc,
   FD_TEST( footprint==FD_MCACHE_FOOTPRINT( depth,     app_sz  ) );
   FD_TEST( footprint<=FD_MCACHE_FOOTPRINT( DEPTH_MAX, APP_MAX ) );
 
-  void *           shmcache = fd_mcache_new ( shmem, depth, app_sz, seq0 ); FD_TEST( shmcache );
-  fd_frag_meta_t * mcache   = fd_mcache_join( shmcache );                   FD_TEST( mcache );
+  void * shmcache = fd_mcache_new( shmem, depth, app_sz, seq0 ); FD_TEST( shmcache );
+
+  /* Test failure cases for fd_mcache_join */
+
+  FD_TEST( fd_mcache_join( NULL          )==NULL ); /* null shmcache */
+  FD_TEST( fd_mcache_join( (void *)0x1UL )==NULL ); /* misaligned shmcache */
+
+  /* Test bad magic value */
+  ulong * shfseq_magic = (ulong *)shmcache;
+  (*shfseq_magic)++;
+  FD_TEST( fd_mcache_join( shmcache )==NULL );
+  (*shfseq_magic)--;
+
+  fd_frag_meta_t * mcache = fd_mcache_join( shmcache );
+  FD_TEST( mcache );
   FD_TEST( fd_ulong_is_aligned( (ulong)mcache, FD_MCACHE_ALIGN ) );
 
   /* Test mcache accessors */
@@ -199,8 +218,19 @@ main( int     argc,
 
   /* Test mcache destruction */
 
-  FD_TEST( fd_mcache_leave ( mcache   )==shmcache );
-  FD_TEST( fd_mcache_delete( shmcache )==shmem    );
+  FD_TEST( fd_mcache_leave( NULL   )==NULL     ); /* null mcache */
+  FD_TEST( fd_mcache_leave( mcache )==shmcache ); /* ok */
+
+  /* Test failure cases of fd_mcache_delete */
+  FD_TEST( fd_mcache_delete( NULL          )==NULL ); /* null shmcache       */
+  FD_TEST( fd_mcache_delete( (void *)0x1UL )==NULL ); /* misaligned shmcache */
+
+  /* Test bad magic value */
+  (*shfseq_magic)++;
+  FD_TEST( fd_mcache_delete( shmcache )==NULL );
+  (*shfseq_magic)--;
+
+  FD_TEST( fd_mcache_delete( shmcache )==shmem );
 
   fd_rng_delete( fd_rng_leave( rng ) );
 

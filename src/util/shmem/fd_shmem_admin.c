@@ -95,6 +95,11 @@ fd_shmem_numa_validate( void const * mem,
         return errno;
       }
       for( ulong batch_idx=0UL; batch_idx<batch_cnt; batch_idx++ ) {
+        if( FD_UNLIKELY( batch_status[batch_idx]<0 ) ) {
+          int err = -batch_status[batch_idx];
+          FD_LOG_WARNING(( "page status failed (%i-%s)", err, strerror( err ) ));
+          return err;
+        }
         if( FD_UNLIKELY( batch_status[batch_idx]!=(int)numa_idx ) ) {
           FD_LOG_WARNING(( "page allocated to numa %i instead of numa %lu", batch_status[batch_idx], numa_idx ));
           return EFAULT;
@@ -215,7 +220,7 @@ fd_shmem_create( char const * name,
      for which there are no pages.  Unfortunately, mmap will only error
      if there are insufficient pages across all NUMA nodes (even if
      using mlockall( MCL_FUTURE ) or passing MAP_POPULATE), so we need
-     to check that the mapping can be backed without handling signals. 
+     to check that the mapping can be backed without handling signals.
 
      So we mlock the region to force the region to be backed by pages
      now.  The region should be backed by page_sz pages (thanks to the
@@ -227,7 +232,7 @@ fd_shmem_create( char const * name,
      until the mapping is closed.  We can then proceed as usual without
      the risk of meeting SIGBUS or its friends. */
 
-  if( FD_UNLIKELY( mlock( shmem, sz ) ) ) {
+  if( FD_UNLIKELY( fd_mlock( shmem, sz ) ) ) {
     FD_LOG_WARNING(( "mlock(\"%s\",%lu KiB) failed (%i-%s)", path, sz>>10, errno, strerror( errno ) ));
     ERROR( unmap );
   }
@@ -381,8 +386,8 @@ fd_shmem_acquire( ulong page_sz,
   ulong numa_idx = fd_shmem_numa_idx( cpu_idx );
 
   int flags = MAP_PRIVATE | MAP_ANONYMOUS;
-  if( page_sz==FD_SHMEM_HUGE_PAGE_SZ     ) flags |= MAP_HUGETLB | MAP_HUGE_2MB;
-  if( page_sz==FD_SHMEM_GIGANTIC_PAGE_SZ ) flags |= MAP_HUGETLB | MAP_HUGE_1GB;
+  if( page_sz==FD_SHMEM_HUGE_PAGE_SZ     ) flags |= (int)MAP_HUGETLB | (int)MAP_HUGE_2MB;
+  if( page_sz==FD_SHMEM_GIGANTIC_PAGE_SZ ) flags |= (int)MAP_HUGETLB | (int)MAP_HUGE_1GB;
 
   /* See fd_shmem_create for details on the locking, mempolicy
      and what not tricks */
@@ -421,7 +426,7 @@ fd_shmem_acquire( ulong page_sz,
     ERROR( unmap );
   }
 
-  if( FD_UNLIKELY( mlock( mem, sz ) ) ) {
+  if( FD_UNLIKELY( fd_mlock( mem, sz ) ) ) {
     FD_LOG_WARNING(( "mlock(anon,%lu KiB) failed (%i-%s)", sz>>10, errno, strerror( errno ) ));
     ERROR( unmap );
   }

@@ -327,6 +327,112 @@ __extension__ typedef unsigned __int128 uint128;
 #define FD_PROTOTYPES_END
 #endif
 
+/* FD_IMPORT declares a variable name and initializes with the contents
+   of the file at path (with potentially some assembly directives for
+   additional footer info).  It is equivalent to:
+
+     type const name[] __attribute__((aligned(align))) = {
+
+       ... code that would initialize the contents of name to the
+       ... raw binary data found in the file at path at compile time
+       ... (with any appended information as specified by footer)
+
+     };
+
+     ulong const name_sz = ... number of bytes pointed to by name;
+
+   More precisely, this creates a symbol "name" in the object file that
+   points to a read-only copy of the raw data in the file at "path" as
+   it was at compile time.  "align" is an unsuffixed power-of-two that
+   specifies the minimum alignment required for the copy's first byte.
+   footer are assembly commands to permit additional data to be appended
+   to the copy (use "" for footer if no footer is necessary).
+
+   Then it exposes a pointer to this copy in the current compilation
+   unit as name and the byte size as name_sz.  name_sz covers the first
+   byte of the included data to the last byte of the footer inclusive.
+
+   The dummy linker symbol _fd_import_name_sz will also be created in
+   the object file as some under the hood magic to make this work.  This
+   should not be used in any compile unit as some compilers (I'm looking
+   at you clang-15, but apparently not clang-10) will sometimes mangle
+   its value from what it was set to in the object file even marked as
+   absolute in the object file.
+
+   This should only be used at global scope and should be done at most
+   once over all object files / libraries used to make a program.  If
+   other compilation units want to make use of an import in a different
+   compilation unit, they should declare:
+
+     extern type const name[] __attribute__((aligned(align)));
+
+   and/or:
+
+     extern ulong const name_sz;
+
+   as necessary (that is, do the usual to use name and name_sz as shown
+   for the pseudo code above).
+
+   Important safety tip!  gcc -M will generally not detect the
+   dependency this creates between the importing file and the imported
+   file.  This can cause incremental builds to miss changes to the
+   imported file.  Ideally, we would have FD_IMPORT automatically do
+   something like:
+
+     _Pragma( "GCC dependency \"" path "\" )
+
+   This doesn't work as is because _Pragma needs some macro expansion
+   hacks to accept this (this is doable).  After that workaround, this
+   still doesn't work because, due to tooling limitations, the pragma
+   path is relative to the source file directory and the FD_IMPORT path
+   is relative to the the make directory (working around this would
+   require a __FILE__-like directive for the source code directory base
+   path).  Even if that did exist, it might still not work because
+   out-of-tree builds often require some substitions to the gcc -M
+   generated dependencies that this might not pick up (at least not
+   without some build system surgery).  And then it still wouldn't work
+   because gcc -M seems to ignore all of this anyways (which is the
+   actual show stopper as this pragma does something subtly different
+   than what the name suggests and there isn't any obvious support for a
+   "pseudo-include".)  Another reminder that make clean and fast builds
+   are our friend. */
+
+#define FD_IMPORT( name, path, type, align, footer )         \
+  __asm__( ".section .rodata,\"a\",@progbits\n"              \
+           ".type " #name ",@object\n"                       \
+           ".globl " #name "\n"                              \
+           ".align " #align "\n"                             \
+           #name ":\n"                                       \
+           ".incbin \"" path "\"\n"                          \
+           footer "\n"                                       \
+           ".size " #name ",. - " #name "\n"                 \
+           "_fd_import_" #name "_sz = . - " #name "\n"       \
+           ".type " #name "_sz,@object\n"                    \
+           ".globl " #name "_sz\n"                           \
+           ".align 8\n"                                      \
+           #name "_sz:\n"                                    \
+           ".quad _fd_import_" #name "_sz\n"                 \
+           ".size " #name "_sz,8\n"                          \
+           ".previous\n" );                                  \
+  extern type  const name[] __attribute__((aligned(align))); \
+  extern ulong const name##_sz
+
+/* FD_IMPORT_{BINARY,CSTR} are common cases for FD_IMPORT.
+
+   In BINARY, the file is imported into the object file and exposed to
+   the caller as a uchar binary data.  name_sz will be the number of
+   bytes in the file at time of import.  name will have 128 byte
+   alignment.
+
+   In CSTR, the file is imported into the object caller with a '\0'
+   termination appended and exposed to the caller as a cstr.  Assuming
+   the file is text (i.e. has no internal '\0's), strlen(name) will the
+   number of bytes in the file and name_sz will be strlen(name)+1.  name
+   can have arbitrary alignment. */
+
+#define FD_IMPORT_BINARY(name, path) FD_IMPORT( name, path, uchar, 128, ""        )
+#define FD_IMPORT_CSTR(  name, path) FD_IMPORT( name, path,  char,   1, ".byte 0" )
+
 /* Optimizer tricks ***************************************************/
 
 /* FD_RESTRICT is a pointer modifier for to designate a pointer as
@@ -509,7 +615,50 @@ fd_type_pun_const( void const * p ) {
 
 #define FD_ATOMIC_CAS(p,c,s) __sync_val_compare_and_swap( (p), (c), (s) )
 
+/* FD_ATOMIC_XCHG(p,v):
+
+   o = FD_ATOMIC_XCHG( p, v ) conceptually does:
+     o = *p
+     *p = v
+     return o
+   as a single atomic operation.
+
+   Intel's __sync compiler extensions from the days of yore mysteriously
+   implemented atomic exchange via the very misleadingly named
+   __sync_lock_test_and_set.  And some implementations (and C++)
+   debatably then implemented this API according to what the misleading
+   name implied as opposed to what it actually did.  But those
+   implementations didn't bother to provide an replacment for atomic
+   exchange functionality (forcing us to emulate atomic exchange more
+   slowly via CAS there).  Sigh ... we do what we can to fix this up. */
+
+#ifndef FD_ATOMIC_XCHG_STYLE
+#if FD_HAS_X86 && !__cplusplus
+#define FD_ATOMIC_XCHG_STYLE 1
+#else
+#define FD_ATOMIC_XCHG_STYLE 0
 #endif
+#endif
+
+#if FD_ATOMIC_XCHG_STYLE==0
+#define FD_ATOMIC_XCHG(p,v) (__extension__({                                                                            \
+    __typeof__(*(p)) * _fd_atomic_xchg_p = (p);                                                                         \
+    __typeof__(*(p))   _fd_atomic_xchg_v = (v);                                                                         \
+    __typeof__(*(p))   _fd_atomic_xchg_t;                                                                               \
+    for(;;) {                                                                                                           \
+      _fd_atomic_xchg_t = FD_VOLATILE_CONST( *_fd_atomic_xchg_p );                                                      \
+      if( FD_LIKELY( __sync_bool_compare_and_swap( _fd_atomic_xchg_p, _fd_atomic_xchg_t, _fd_atomic_xchg_v ) ) ) break; \
+      FD_SPIN_PAUSE();                                                                                                  \
+    }                                                                                                                   \
+    _fd_atomic_xchg_t;                                                                                                  \
+  }))
+#elif FD_ATOMIC_XCHG_STYLE==1
+#define FD_ATOMIC_XCHG(p,v) __sync_lock_test_and_set( (p), (v) )
+#else
+#error "Unknown FD_ATOMIC_XCHG_STYLE"
+#endif
+
+#endif /* FD_HAS_ATOMIC */
 
 /* FD_TLS:  This indicates that the variable should be thread local.
 

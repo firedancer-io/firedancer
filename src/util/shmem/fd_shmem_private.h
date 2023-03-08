@@ -24,6 +24,42 @@
 #define FD_SHMEM_UNLOCK ((void)0)
 #endif
 
+#if defined(__unix__) && FD_HAS_ASAN
+
+/* LLVM AddressSanitizer (ASan) intercepts all mlock calls.
+
+   This has an interesting history.
+   These interceptors were first added in 2012 and are still present in
+   LLVM 14.0.6: https://github.com/llvm/llvm-project/commit/71d759d392f03025bcc8b20f060bc5c22e580ea1
+   They stub `mlock`, `munlock`, `mlockall`, `munlockall` to no-ops.
+
+   ASan is known to map large amounts (~16TiB) of unbacked pages.
+   This rules out the use of `mlockall`.
+
+   `mlock` only locks selected pages, therefore should be fine.
+   The comments in various revisions of these interceptors suggest
+   that older Linux kernels had a bug that prevented the use of `mlock`.
+
+   However, current Firedancer will use the `move_pages` syscall
+   to verify whether "allocated" pages are actually backed by DRAM.
+
+   This makes Firedancer and ASan incompatible unless we either
+     1) Remove the `mlock` interceptor upstream, or
+     2) Circumvent the interceptor with a raw syscall
+
+   This macro implements option 2. */
+
+#include <sys/syscall.h>
+#define fd_mlock(...)   syscall( __NR_mlock,   __VA_ARGS__ )
+#define fd_munlock(...) syscall( __NR_munlock, __VA_ARGS__ )
+
+#else
+
+#define fd_mlock   mlock
+#define fd_munlock munlock
+
+#endif /* defined(__unix__) && FD_HAS_ASAN */
+
 FD_PROTOTYPES_BEGIN
 
 #if FD_HAS_THREADS

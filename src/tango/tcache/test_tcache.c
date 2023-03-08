@@ -60,9 +60,9 @@ main( int     argc,
   ulong  footprint = fd_tcache_footprint( depth, map_cnt );
   if( FD_UNLIKELY( !footprint ) ) FD_LOG_ERR(( "bad depth / map_cnt" ));
   FD_LOG_NOTICE(( "Creating tcache (--depth %lu, --map-cnt %lu, align %lu, footprint %lu)", depth, map_cnt, align, footprint ));
-  void *        mem     = fd_wksp_alloc_laddr( wksp, align, footprint ); FD_TEST( mem );
-  void *        _tcache = fd_tcache_new( mem, depth, map_cnt );          FD_TEST( _tcache );
-  fd_tcache_t * tcache  = fd_tcache_join( _tcache );                     FD_TEST( tcache );
+  void *        mem     = fd_wksp_alloc_laddr( wksp, align, footprint, 1UL ); FD_TEST( mem );
+  void *        _tcache = fd_tcache_new( mem, depth, map_cnt );               FD_TEST( _tcache );
+  fd_tcache_t * tcache  = fd_tcache_join( _tcache );                          FD_TEST( tcache );
 
   if( !map_cnt ) {
     map_cnt = fd_tcache_map_cnt_default( depth );
@@ -202,7 +202,7 @@ main( int     argc,
   FD_LOG_NOTICE(( "Benchmarking" ));
 
   ulong   bench_cnt = 1UL<<20;
-  ulong * bench_tag = (ulong *)fd_wksp_alloc_laddr( wksp, 0UL, bench_cnt*sizeof(ulong) ); FD_TEST( bench_tag );
+  ulong * bench_tag = (ulong *)fd_wksp_alloc_laddr( wksp, 0UL, bench_cnt*sizeof(ulong), 1UL ); FD_TEST( bench_tag );
 
   for( ulong iter=0UL; iter<10UL; iter++ ) {
 

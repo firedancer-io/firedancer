@@ -14,6 +14,7 @@ all: bin include lib unit-test
 help:
 	# Configuration
 	# MACHINE  = $(MACHINE)
+	# EXTRAS   = $(EXTRAS)
 	# SHELL    = $(SHELL)
 	# BASEDIR  = $(BASEDIR)
 	# OBJDIR   = $(OBJDIR)
@@ -37,15 +38,18 @@ help:
 	# Explicit goals are: all bin include lib unit-test help clean distclean asm ppp
 	# "make all" is equivalent to "make bin include lib unit-test"
 	# "make bin" makes all binaries for the current platform
+	# "make ebpf-bin" makes all eBPF binaries
 	# "make include" makes all include files for the current platform
 	# "make lib" makes all libraries for the current platform
 	# "make unit-test" makes all unit-tests for the current platform
+	# "make run-unit-test" runs all unit-tests for the current platform. NOTE: this will not (re)build the test executables
 	# "make help" prints this message
 	# "make clean" removes editor temp files and the current platform build
 	# "make distclean" removes editor temp files and all platform builds
 	# "make asm" makes all source files into assembly language files
 	# "make ppp" run all source files through the preprocessor
 	# "make show-deps" shows all the dependencies
+	# "make cov-report" creates an LCOV coverage report from LLVM profdata. Requires make run-unit-test EXTRAS="llvm-cov"
 
 clean:
 	#######################################################################
@@ -145,6 +149,7 @@ add-test-scripts = $(foreach script,$(1),$(eval $(call _add-script,unit-test,$(s
 ##############################
 # Usage: $(call make-bin,name,objs,libs)
 # Usage: $(call make-unit-test,name,objs,libs)
+# Usage: $(call run-unit-test,name,args)
 
 # Note: The library arguments require customization of each target
 
@@ -163,8 +168,49 @@ $(4): $(OBJDIR)/$(4)/$(1)
 
 endef
 
+UNIT_TEST_DATETIME := $(shell date -u +%Y%m%d-%H%M%S)
+export LLVM_PROFILE_FILE = $(OBJDIR)/cov/raw/%p.profraw
+
+define _run-unit-test
+
+run-$(1):
+	#######################################################################
+	# Running $(3) from $(1)
+	#######################################################################
+	@$(MKDIR) $(OBJDIR)/log/$(3)/$(1)
+	$(OBJDIR)/$(3)/$(1) --log-path $(OBJDIR)/log/$(3)/$(1)/$(UNIT_TEST_DATETIME).log $(2) > /dev/null 2>&1 || \
+($(CAT) $(OBJDIR)/log/$(3)/$(1)/$(UNIT_TEST_DATETIME).log && \
+exit 1)
+
+run-$(3): run-$(1)
+
+endef
+
 make-bin       = $(eval $(call _make-exe,$(1),$(2),$(3),bin))
 make-unit-test = $(eval $(call _make-exe,$(1),$(2),$(3),unit-test))
+run-unit-test = $(eval $(call _run-unit-test,$(1),$(2),unit-test))
+
+##############################
+# Usage: $(call make-ebpf-bin,obj)
+
+# TODO support depfiles
+
+EBPF_BINDIR:=$(BASEDIR)/ebpf/clang/bin
+
+define _make-ebpf-bin
+
+$(EBPF_BINDIR)/$(1).o: $(MKPATH)$(1).c
+	#######################################################################
+	# Creating ebpf-bin $$@ from $$^
+	#######################################################################
+	$(MKDIR) $$(dir $$@) && \
+$(EBPF_CC) $(EBPF_CPPFLAGS) $(EBPF_CFLAGS) -c $$< -o $$@
+
+ebpf-bin: $(EBPF_BINDIR)/$(1).o
+
+endef
+
+make-ebpf-bin = $(eval $(call _make-ebpf-bin,$(1)))
 
 ##############################
 ## GENERIC RULES
@@ -174,7 +220,7 @@ $(OBJDIR)/obj/%.d : src/%.c
 	# Generating dependencies for C source $< to $@
 	#######################################################################
 	$(MKDIR) $(dir $@) && \
-$(CC) $(CPPFLAGS) $(CFLAGS) -M $< -o $@.tmp && \
+$(CC) $(CPPFLAGS) $(CFLAGS) -M -MP $< -o $@.tmp && \
 $(SED) 's,\($(notdir $*)\)\.o[ :]*,$(OBJDIR)/obj/$*.o $(OBJDIR)/obj/$*.S $(OBJDIR)/obj/$*.i $@ : ,g' < $@.tmp > $@ && \
 $(RM) $@.tmp
 
@@ -183,7 +229,7 @@ $(OBJDIR)/obj/%.d : src/%.cxx
 	# Generating dependencies for C++ source $< to $@
 	#######################################################################
 	$(MKDIR) $(dir $@) && \
-$(CXX) $(CPPFLAGS) $(CXXFLAGS) -M $< -o $@.tmp && \
+$(CXX) $(CPPFLAGS) $(CXXFLAGS) -M -MP $< -o $@.tmp && \
 $(SED) 's,\($(notdir $*)\)\.o[ :]*,$(OBJDIR)/obj/$*.o $(OBJDIR)/obj/$*.S $(OBJDIR)/obj/$*.i $@ : ,g' < $@.tmp > $@ && \
 $(RM) $@.tmp
 

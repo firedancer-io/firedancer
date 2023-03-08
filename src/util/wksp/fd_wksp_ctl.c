@@ -6,6 +6,8 @@
 #include <stdio.h>
 #include <sys/stat.h>
 
+FD_IMPORT_CSTR( fd_wksp_ctl_help, "src/util/wksp/fd_wksp_ctl_help" );
+
 /* fd_printf_wksp pretty prints the detailed workspace state to file.
    Includes detailed metadata integrity checking.  Return value
    semantics are the same as for fprintf. */
@@ -50,12 +52,13 @@ fprintf_wksp( FILE *      file,
 
   int last_active = 1;
   for( ulong i=0UL; i<part_cnt; i++ ) {
-    int   active = fd_wksp_private_part_active( part[i    ] );
+    ulong tag    = fd_wksp_private_part_tag  (  part[i    ] );
     ulong lo     = fd_wksp_private_part_gaddr(  part[i    ] );
     ulong hi     = fd_wksp_private_part_gaddr(  part[i+1UL] );
 
     ulong sz = hi-lo;
 
+    int active = !!tag;
     if( active ) {
       active_cnt++;
       active_sz += sz;
@@ -66,14 +69,14 @@ fprintf_wksp( FILE *      file,
       if( sz>inactive_max ) inactive_max = sz;
     }
 
-    TRAP( fprintf( file, "\tpartition %20li: [0x%016lx,0x%016lx) %s sz %20lu", i, lo, hi, active ? "alloc" : " free", sz ) );
+    TRAP( fprintf( file, "\tpartition %20li: [0x%016lx,0x%016lx) sz %20lu tag %4lu", i, lo, hi, sz, tag ) );
 
-    if( lo>=hi                                                           ) { cnt++; TRAP( fprintf( file, " part_err"      ) ); }
-    if( ((i==0UL)            & (lo!=gaddr_lo))                           ) { cnt++; TRAP( fprintf( file, " lo_err"        ) ); }
-    if( ((i==(part_cnt-1UL)) & (hi!=gaddr_hi))                           ) { cnt++; TRAP( fprintf( file, " hi_err"        ) ); }
-    if( i==(part_cnt-1UL) && !fd_wksp_private_part_active( part[i+1UL] ) ) { cnt++; TRAP( fprintf( file, " hi_active_err" ) ); }
-    if( !fd_ulong_is_aligned( lo, FD_WKSP_ALLOC_ALIGN_MIN )              ) { cnt++; TRAP( fprintf( file, " align_err"     ) ); }
-    if( ((!last_active) & (!active))                                     ) { cnt++; TRAP( fprintf( file, " merge_err"     ) ); }
+    if( lo>=hi                                                            ) { cnt++; TRAP( fprintf( file, " part_err"      ) ); }
+    if( ((i==0UL)            & (lo!=gaddr_lo))                            ) { cnt++; TRAP( fprintf( file, " lo_err"        ) ); }
+    if( ((i==(part_cnt-1UL)) & (hi!=gaddr_hi))                            ) { cnt++; TRAP( fprintf( file, " hi_err"        ) ); }
+    if( i==(part_cnt-1UL) && fd_wksp_private_part_tag( part[i+1UL] )!=1UL ) { cnt++; TRAP( fprintf( file, " hi_active_err" ) ); }
+    if( !fd_ulong_is_aligned( lo, FD_WKSP_ALLOC_ALIGN_MIN )               ) { cnt++; TRAP( fprintf( file, " align_err"     ) ); }
+    if( ((!last_active) & (!active))                                      ) { cnt++; TRAP( fprintf( file, " merge_err"     ) ); }
     TRAP( fprintf( file, "\n" ) );
 
     last_active = active;
@@ -101,6 +104,8 @@ main( int     argc,
 
   umask( (mode_t)0 ); /* So mode setting gets respected */
 
+  ulong tag = 1UL;
+
   int cnt = 0;
   while( argc ) {
     char const * cmd = argv[0];
@@ -108,52 +113,18 @@ main( int     argc,
 
     if( !strcmp( cmd, "help" ) ) {
 
-      FD_LOG_NOTICE(( "\n\t"
-        "Usage: %s [cmd] [cmd args] [cmd] [cmd args] ...\n\t"
-        "Commands are:\n\t"
-        "\n\t"
-        "\thelp\n\t"
-        "\t- Prints this message\n\t"
-        "\n\t"
-        "\tnew wksp page_cnt page_sz cpu_idx mode\n\t"
-        "\t- Create a workspace named wksp from page_cnt page_sz pages near\n\t"
-        "\t  logical cpu_idx.  The region will have the unix\n\t"
-        "\t  permissions specified by mode (assumed octal).\n\t"
-        "\n\t"
-        "\tdelete wksp\n\t"
-        "\t- Delete a workspace named wksp.  If multiple shmem regions\n\t"
-        "\t  exist with same name, try to use the shmem region backed by\n\t"
-        "\t  the largest page size\n\t"
-        "\n\t"
-        "\talloc wksp align sz\n\t"
-        "\t- Allocates sz bytes with global address alignment align from\n\t"
-        "\t  the wksp.  align 0 means use the default alignment.  Prints\n\t"
-        "\t  the wksp cstr address of the allocation to stdout on success.\n\t"
-        "\n\t"
-        "\tfree wksp_gaddr\n\t"
-        "\t- Free allocation pointed to by wksp cstr address wksp_gaddr.\n\t"
-        "\t  wksp_gaddr can point at any byte in the allocation.\n\t"
-        "\t  Technically speaking, this always succeeds but any weirdness\n\t"
-        "\t  detected is logged.\n\t"
-        "\n\t"
-        "\tmemset wksp_gaddr c\n\t"
-        "\t- Memset allocation pointed to by wksp cstr address wksp_gaddr\n\t"
-        "\t  to byte c.  wksp_gaddr can point at any byte in the\n\t"
-        "\t  allocation.  Technically speaking, this always succeeds but\n\t"
-        "\t  any weirdness detected is logged.\n\t"
-        "\n\t"
-        "\tcheck wksp\n\t"
-        "\t- Check if any processes that died in middle of workspace\n\t"
-        "\t  operations (clean up if so) or are stalling other processes\n\t"
-        "\t  from doing workspace operations (log if so).\n\t"
-        "\n\t"
-        "\treset wksp\n\t"
-        "\t- Free all allocations in a workspace.\n\t"
-        "\n\t"
-        "\tquery wksp\n\t"
-        "\t- Print the detailed workspace usage to stdout.\n\t"
-        "\n\t", bin ));
+      fputs( fd_wksp_ctl_help, stdout );
+
       FD_LOG_NOTICE(( "%i: %s: success", cnt, cmd ));
+
+    } else if( !strcmp( cmd, "tag" ) ) {
+
+      if( FD_UNLIKELY( argc<1 ) ) FD_LOG_ERR(( "%i: %s: too few arguments\n\tDo %s help for help", cnt, cmd, bin ));
+
+      tag = fd_cstr_to_ulong( argv[0] );
+
+      FD_LOG_NOTICE(( "%i: %s %lu: success", cnt, cmd, tag ));
+      SHIFT(1);
 
     } else if( !strcmp( cmd, "new" ) ) {
 
@@ -252,8 +223,8 @@ main( int     argc,
       ulong        sz    = fd_cstr_to_ulong( argv[2] );
 
       char name_gaddr[ FD_WKSP_CSTR_MAX ];
-      if( !fd_wksp_cstr_alloc( name, align, sz, name_gaddr ) ) /* logs details */
-        FD_LOG_ERR(( "%i: %s %s %lu %lu: fd_wksp_cstr_alloc failed", cnt, cmd, name, align, sz ));
+      if( !fd_wksp_cstr_alloc( name, align, sz, tag, name_gaddr ) ) /* logs details */
+        FD_LOG_ERR(( "%i: %s %s %lu %lu %lu: fd_wksp_cstr_alloc failed", cnt, cmd, name, align, sz, tag ));
       printf( "%s\n", name_gaddr );
 
       FD_LOG_NOTICE(( "%i: %s %s %lu %lu: success", cnt, cmd, name, align, sz ));
@@ -269,6 +240,33 @@ main( int     argc,
 
       FD_LOG_NOTICE(( "%i: %s %s: success", cnt, cmd, name_gaddr )); /* FIXME: HMMM (print success on bad free?) */
       SHIFT(1);
+
+    } else if( !strcmp( cmd, "tag-query" ) ) {
+
+      if( FD_UNLIKELY( argc<1 ) ) FD_LOG_ERR(( "%i: %s: too few arguments\n\tDo %s help for help", cnt, cmd, bin ));
+
+      char const * name_gaddr = argv[0];
+
+      printf( "%lu\n", fd_wksp_cstr_tag( name_gaddr ) ); /* logs details */
+
+      FD_LOG_NOTICE(( "%i: %s %s: success", cnt, cmd, name_gaddr ));
+      SHIFT(1);
+
+    } else if( !strcmp( cmd, "tag-free" ) ) {
+
+      if( FD_UNLIKELY( argc<2 ) ) FD_LOG_ERR(( "%i: %s: too few arguments\n\tDo %s help for help", cnt, cmd, bin ));
+
+      char const * name =                   argv[0];
+      ulong        tag  = fd_cstr_to_ulong( argv[1] );
+
+      fd_wksp_t * wksp = fd_wksp_attach( name ); /* logs details */
+      if( FD_LIKELY( wksp ) ) {
+        fd_wksp_tag_free( wksp, &tag, 1UL ); /* logs details */
+        fd_wksp_detach( wksp );              /* logs details */
+      }
+
+      FD_LOG_NOTICE(( "%i: %s %s %lu: success", cnt, cmd, name, tag ));
+      SHIFT(2);
 
     } else if( !strcmp( cmd, "memset" ) ) {
 
@@ -310,6 +308,35 @@ main( int     argc,
       FD_LOG_NOTICE(( "%i: %s %s: success", cnt, cmd, name ));
       SHIFT(1);
 
+    } else if( !strcmp( cmd, "usage" ) ) {
+
+      if( FD_UNLIKELY( argc<2 ) ) FD_LOG_ERR(( "%i: %s: too few arguments\n\tDo %s help for help", cnt, cmd, bin ));
+
+      char const * name =                   argv[0];
+      ulong        tag  = fd_cstr_to_ulong( argv[1] );
+
+      fd_wksp_t * wksp = fd_wksp_attach( name ); /* logs details */
+      if( FD_UNLIKELY( !wksp ) ) fprintf( stdout, "-\n" );
+      else {
+        fd_wksp_usage_t usage[1];
+        fd_wksp_usage( wksp, &tag, 1UL, usage );
+        fprintf( stdout,
+                 "wksp %s\n"
+                 "\t%20lu bytes max        (%lu blocks, %lu blocks max)\n"
+                 "\t%20lu bytes used       (%lu blocks)\n"
+                 "\t%20lu bytes avail      (%lu blocks)\n"
+                 "\t%20lu bytes w/tag %4lu (%lu blocks)\n",
+                 wksp->name,
+                 usage->total_sz,                  usage->total_cnt,                   usage->total_max,
+                 usage->total_sz - usage->free_sz, usage->total_cnt - usage->free_cnt,
+                 usage->free_sz,                   usage->free_cnt,
+                 usage->used_sz, tag,              usage->used_cnt );
+        fd_wksp_detach( wksp ); /* logs details */
+      }
+
+      FD_LOG_NOTICE(( "%i: %s %s %lu: success", cnt, cmd, name, tag ));
+      SHIFT(2);
+
     } else if( !strcmp( cmd, "query" ) ) {
 
       if( FD_UNLIKELY( argc<1 ) ) FD_LOG_ERR(( "%i: %s: too few arguments\n\tDo %s help for help", cnt, cmd, bin ));
@@ -333,7 +360,8 @@ main( int     argc,
     cnt++;
   }
 
-  FD_LOG_NOTICE(( "processed %i commands", cnt ));
+  if( FD_UNLIKELY( cnt<1 ) ) FD_LOG_NOTICE(( "processed %i commands\n\tDo %s help for help", cnt, bin ));
+  else                       FD_LOG_NOTICE(( "processed %i commands", cnt ));
 
 # undef SHIFT
   fd_halt();

@@ -1,4 +1,4 @@
-SHELL:=/bin/bash
+SHELL:=bash
 CPPFLAGS:=
 CC:=gcc
 CFLAGS:=-std=c17
@@ -16,3 +16,17 @@ RMDIR:=rm -rfv
 SED:=sed
 FIND:=find
 SCRUB:=$(FIND) . -type f -name "*~" -o -name "\#*" | xargs $(RM)
+DATE:=date
+CAT:=cat
+
+# LLVM toolchain
+LLVM_COV?=llvm-cov
+LLVM_PROFDATA?=llvm-profdata
+
+# lcov
+GENHTML=genhtml
+
+EBPF_CC:=clang
+EBPF_CPPFLAGS:=-target bpf -O2 -g
+EBPF_CFLAGS:=-std=c17
+

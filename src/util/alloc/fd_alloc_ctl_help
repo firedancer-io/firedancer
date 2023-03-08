@@ -1,0 +1,69 @@
+
+Usage: fd_alloc_ctl [cmd] [cmd args] [cmd] [cmd args] ...
+
+Commands are:
+
+help
+- Prints this message.
+
+tag val
+- Sets the tag for subsequent wksp allocations to val.  Default is 1.
+
+new wksp wksp_tag
+- Create an alloc backed by wksp.  All wksp allocation done by this
+  alloc will be tagged with wksp_tag and all alloc backed by this wksp
+  should use a unique wksp_tag.  The wksp allocation for alloc itself
+  will be tagged with the tag set above, not wksp_tag, but  wksp_tag and
+  the above tag can be the same if desired.  Prints the new alloc's wksp
+  gaddr to stdout on success.
+
+delete alloc_gaddr garbage_collect
+- Delete the alloc at alloc_gaddr.  If garbage_collect is a non-zero
+  integer, this will also free any allocations done through this alloc
+  that have not yet been freed.  Otherwise, it will keep those
+  allocations around in the workspace (the user can still later clean
+  them doing a tag-free with the allocator's wksp_tag).  Technically
+  speaking, this always succeeds (logs any weirdness detected).
+
+malloc alloc_gaddr cgroup_idx align sz
+- Uses the alloc at alloc_gaddr to allocate sz bytes with alignment
+  align.  The alignment will be hinted to optimize for concurrency group
+  cgroup_idx.  Prints the malloc's wksp gaddr to stdout on success.
+
+free alloc_gaddr cgroup_idx malloc_gaddr
+- Frees the malloc whose first byte is pointed to by malloc_gaddr.
+  The malloc should have been done by the alloc at alloc_gaddr.  The
+  free will be hinted to optimize this memory for future reuse by
+  concurrency group cgroup_idx.  Technically speaking, this always
+  succeeds (logs any weirdness detected).
+
+compact alloc_gaddr
+- Frees up any wksp allocations that are not required for any
+  outstanding mallocs done by the alloc at alloc_gaddr (note that free
+  lazily returns unused memory from the underlying wksp to accelerate
+  potential future allocations).
+
+query what alloc_gaddr
+- Query alloc at alloc_gaddr.  The "what" determines what will be
+  printed to stdout:
+
+    what \ alloc | exists              | does not exist
+    -------------+---------------------+----------------------
+    test         | 0                   | error code (negative)
+    tag          | wksp_tag (positive) | 0
+    leak         | 0 if empty          | error code (negative)
+                 | 1 if outstanding    |
+    full         |       pretty printed verbose details
+
+  "leak" should only be done when there are expected to be no
+  outstanding mallocs on the alloc and there are no concurrent users.
+  Concurrent use will not corrupt the alloc but the result might be
+  inaccurate.  Note also that leak might invoke compact on the alloc.
+
+  "full" should only be done when there are no concurrent users.
+  Concurrent use will not corrupt the alloc but the result might be
+  inaccurate.
+
+  Technically speaking, this always succeeds (logs any weirdness
+  detected).
+

@@ -9,6 +9,8 @@ backtrace_test( void ) {
   if( volatile_yes ) FD_LOG_EMERG((   "Test EMERG        (warning + backtrace and abort program)" ));
 }
 
+static char large_blob[ 50000 ];
+
 int
 main( int     argc,
       char ** argv ) {
@@ -19,7 +21,7 @@ main( int     argc,
   FD_LOG_INFO((    "Test INFO         (log file only)"                         ));
   FD_LOG_NOTICE((  "Test NOTICE       (info+shortend to stderr)"               ));
   FD_LOG_WARNING(( "Test WARNING      (notice+flush log and stderr)"           ));
-  
+
   /* Info about the calling thread */
   FD_LOG_NOTICE(( "fd_log_level_logfile %i",  fd_log_level_logfile() ));
   FD_LOG_NOTICE(( "fd_log_level_stderr  %i",  fd_log_level_stderr()  ));
@@ -37,6 +39,74 @@ main( int     argc,
   FD_LOG_NOTICE(( "fd_log_cpu           %s",  fd_log_cpu()           ));
   FD_LOG_NOTICE(( "fd_log_group         %s",  fd_log_group()         ));
   FD_LOG_NOTICE(( "fd_log_user          %s",  fd_log_user()          ));
+
+  FD_LOG_NOTICE( ( "Testing hexdump logging API: " ) );
+
+  /* Exercise edge cases.  Covers permutations of {NOTICE,WARNING}
+     levels x {NULL,empty,normal,long} descriptions x {NULL,non-NULL}
+     mem x {0,non-zero} sz.  The mem itself in cases should be entirely
+     printable characters and thus should exercise printable characters. */
+
+  char const * test_cstr    = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz ~!@#$%^&*()_+`-=[]\\;',./{}|:\"<>?";
+  ulong        test_cstr_sz = strlen( test_cstr ) + 1UL;
+
+  FD_LOG_HEXDUMP_NOTICE (( NULL,                                                  NULL,      0UL          ));
+  FD_LOG_HEXDUMP_NOTICE (( NULL,                                                  NULL,      test_cstr_sz ));
+  FD_LOG_HEXDUMP_NOTICE (( NULL,                                                  test_cstr, 0UL          ));
+  FD_LOG_HEXDUMP_NOTICE (( NULL,                                                  test_cstr, test_cstr_sz ));
+  FD_LOG_HEXDUMP_NOTICE (( "",                                                    NULL,      0UL          ));
+  FD_LOG_HEXDUMP_NOTICE (( "",                                                    NULL,      test_cstr_sz ));
+  FD_LOG_HEXDUMP_NOTICE (( "",                                                    test_cstr, 0UL          ));
+  FD_LOG_HEXDUMP_NOTICE (( "",                                                    test_cstr, test_cstr_sz ));
+  FD_LOG_HEXDUMP_NOTICE (( "notice_mem_null_sz_zero",                             NULL,      0UL          ));
+  FD_LOG_HEXDUMP_NOTICE (( "notice_mem_null_sz_nonzero",                          NULL,      test_cstr_sz ));
+  FD_LOG_HEXDUMP_NOTICE (( "notice_mem_nonnull_sz_zero",                          test_cstr, 0UL          ));
+  FD_LOG_HEXDUMP_NOTICE (( "notice_mem_nonnull_sz_nonzero",                       test_cstr, test_cstr_sz ));
+  FD_LOG_HEXDUMP_NOTICE (( "notice_long_description_that_needs_to_be_truncated",  NULL,      0UL          ));
+  FD_LOG_HEXDUMP_NOTICE (( "notice_long_description_that_needs_to_be_truncated",  NULL,      test_cstr_sz ));
+  FD_LOG_HEXDUMP_NOTICE (( "notice_long_description_that_needs_to_be_truncated",  test_cstr, 0UL          ));
+  FD_LOG_HEXDUMP_NOTICE (( "notice_long_description_that_needs_to_be_truncated",  test_cstr, test_cstr_sz ));
+  FD_LOG_HEXDUMP_WARNING(( NULL,                                                  NULL,      0UL          ));
+  FD_LOG_HEXDUMP_WARNING(( NULL,                                                  NULL,      test_cstr_sz ));
+  FD_LOG_HEXDUMP_WARNING(( NULL,                                                  test_cstr, 0UL          ));
+  FD_LOG_HEXDUMP_WARNING(( NULL,                                                  test_cstr, test_cstr_sz ));
+  FD_LOG_HEXDUMP_WARNING(( "",                                                    NULL,      0UL          ));
+  FD_LOG_HEXDUMP_WARNING(( "",                                                    NULL,      test_cstr_sz ));
+  FD_LOG_HEXDUMP_WARNING(( "",                                                    test_cstr, 0UL          ));
+  FD_LOG_HEXDUMP_WARNING(( "",                                                    test_cstr, test_cstr_sz ));
+  FD_LOG_HEXDUMP_WARNING(( "warning_mem_null_sz_zero",                            NULL,      0UL          ));
+  FD_LOG_HEXDUMP_WARNING(( "warning_mem_null_sz_nonzero",                         NULL,      test_cstr_sz ));
+  FD_LOG_HEXDUMP_WARNING(( "warning_mem_nonnull_sz_zero",                         test_cstr, 0UL          ));
+  FD_LOG_HEXDUMP_WARNING(( "warning_mem_nonnull_sz_nonzero",                      test_cstr, test_cstr_sz ));
+  FD_LOG_HEXDUMP_WARNING(( "warning_long_description_that_needs_to_be_truncated", NULL,      0UL          ));
+  FD_LOG_HEXDUMP_WARNING(( "warning_long_description_that_needs_to_be_truncated", NULL,      test_cstr_sz ));
+  FD_LOG_HEXDUMP_WARNING(( "warning_long_description_that_needs_to_be_truncated", test_cstr, 0UL          ));
+  FD_LOG_HEXDUMP_WARNING(( "warning_long_description_that_needs_to_be_truncated", test_cstr, test_cstr_sz ));
+
+  /* Exercise line wrapping and different length straggler lines */
+  for( ulong sz=0UL; sz<32UL; sz++ ) FD_LOG_HEXDUMP_NOTICE(( "small_sz", test_cstr, sz ));
+
+  /* Exercise too large blobs */
+  memset( large_blob, 0x62, 50000UL );
+  FD_LOG_HEXDUMP_NOTICE(( "very_large_blob", large_blob, 50000UL ));
+
+  /* Exercise unprintable characters */
+  char unprintable_blob[] = "\xff\x00\xff\x82\x90\x02\x05\x09\xff\x00\xff\x82\x90\x02\x05\x09"
+                            "\xff\x00\xff\x82\x90\x02\x05\x09\xff\x00\xff\x82\x90\x02\x05\x09"
+                            "\xff\x00\xff\x82\x90\x02\x05\x09\xff\x00\xff\x82\x90\x02\x05\x09"
+                            "\xff\x00\xff\x82\x90\x02\x05\x09\xff\x00\xff\x82\x90\x02\x05\x09";
+  FD_LOG_HEXDUMP_NOTICE(( "hex_unprintable_blob", unprintable_blob, 64UL ));
+
+  /* Exercise mixtures of printable and unprintable characters */
+  char mixed_blob[] = "\xff\x00\xff\x82\x90\x02\x05\x09\xff\x00\xff\x82\x90\x02\x05\x09"
+                      "\xff\x00\xff\x82\x90\x02\x61\x09\xff\x00\xff\x82\x90\x02\x05\x09"
+                      "\x66\x90\x69\x05\x72\xff\x65\xff\x64\x90\x61\x05\x6e\x00\x63\x08"
+                      "\x65\x00\x72\x82\x90\x02\x05\x09\xff\x78\xff\x72\x90\x02\x05\x09"
+                      "\xff\x00\x41\x82\x45\x02\x05\x09\xff\x78\xff\x72\x90\x02\x05\x09"
+                      "\xff\x00\xff\x82\x90\x02\x05\x09\xff\x78\xff\x72\x90\x02\x05\x09"
+                      "\xff\x00\xff\x82\x90\x55\x05\x09\xff\x78\xff\x72\x90\x02\x05\x09"
+                      "\x50\x00\x44\x82\x90\x02\x05\x09\xff\x78\xff\x72\x90\x02\x05\x09";
+  FD_LOG_HEXDUMP_NOTICE(( "mixed_blob", mixed_blob, 128UL ));
 
   FD_LOG_NOTICE(( "Testing log levels" ));
   int i;
@@ -78,6 +148,17 @@ main( int     argc,
 
   FD_LOG_NOTICE((  "Test fd_log_flush" ));
   fd_log_flush();
+
+  /* Ensure FD_TEST doesn't interpret line as a format string.  Note
+     strict clang compiles don't permit implicit conversion of a cstr to
+     a logical so we avoid those tests if FD_USING_CLANG.  Arguably, we
+     could do !!"foo" here instead but that in some sense defeats the
+     point of these tests. */
+
+# if !FD_USING_CLANG
+  FD_TEST( "%n %n %n %n %n %n %n %n %n %n %n %n %n" );
+  FD_TEST( "\"\\\"" );
+# endif
 
   /* Cancelling log messages */
   if( !volatile_yes ) FD_LOG_ERR((     "Test ERR          (warning+exit program with error 1)"     ));

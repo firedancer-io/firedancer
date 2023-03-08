@@ -2,7 +2,7 @@
 
 /* Ensure that calling fd_poh_append with zero iterations is nop. */
 static void
-test_poh_append_nop() {
+test_poh_append_nop( void ) {
   fd_poh_state_t poh = {0};
 
   /* Make up a pattern */
@@ -19,7 +19,7 @@ test_poh_append_nop() {
 
 /* Ensure that one round of fd_poh_append matches the simple hashing API. */
 static void
-test_poh_append_one() {
+test_poh_append_one( void ) {
   /* Make up a pattern */
   uchar pre[FD_SHA256_HASH_SZ];
   for( ulong i=0UL; i<FD_SHA256_HASH_SZ; i++ ) pre[i] = (uchar)(0x40UL+i);
@@ -49,7 +49,7 @@ test_poh_append_one() {
 
 /* Ensure that fd_poh_mixin matches the simple hashing API. */
 static void
-test_poh_mixin() {
+test_poh_mixin( void ) {
   /* Make up a pattern */
   uchar pre[FD_SHA256_HASH_SZ];
   for( ulong i=0UL; i<FD_SHA256_HASH_SZ; i++ ) pre[i]  =(uchar)(0x40UL+i);
@@ -166,7 +166,7 @@ static fd_poh_test_vector_t const poh_test_vectors[] = {
 #undef _
 
 static void
-bench_poh_sequential() {
+bench_poh_sequential( void ) {
   fd_poh_state_t poh;
   fd_memset( poh.state, 0, FD_SHA256_HASH_SZ );
 

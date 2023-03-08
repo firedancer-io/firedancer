@@ -44,7 +44,7 @@ FD_STATIC_ASSERT( sizeof(double)==8UL, devenv );
 
 /* Test twos complement representation (the -1 is to work around a
    language flaw with large negative integer constants). */
-   
+
 /* Unqualified char types should be avoided outside of cstr
    representations. */
 
@@ -107,6 +107,11 @@ FD_STATIC_ASSERT( !(((long )+1)/((long )+2)), devenv );
 FD_STATIC_ASSERT( !(((long )-1)/((long )+2)), devenv );
 FD_STATIC_ASSERT( !(((long )+1)/((long )-2)), devenv );
 FD_STATIC_ASSERT( !(((long )-1)/((long )-2)), devenv );
+
+/* Test binary includes by including this source file. */
+
+FD_IMPORT_BINARY( quine_binary, __FILE__ );
+FD_IMPORT_CSTR  ( quine_cstr,   __FILE__ );
 
 int
 main( int     argc,
@@ -322,7 +327,10 @@ main( int     argc,
     FD_VOLATILE( ctr[0] ) = 1;
     FD_TEST( FD_ATOMIC_CAS( ctr, 0, 2 )==1 && FD_VOLATILE_CONST( ctr[0] )==1 );
     FD_TEST( FD_ATOMIC_CAS( ctr, 1, 3 )==1 && FD_VOLATILE_CONST( ctr[0] )==3 );
+
+    FD_TEST( FD_ATOMIC_XCHG( ctr, 4 )==3 && FD_VOLATILE_CONST( ctr[0] )==4 );
 #   endif
+
     FD_VOLATILE( ctr[0] ) = 0; FD_TEST( FD_VOLATILE_CONST( ctr[0] )==0 );
 
     for( int i=0; i<10; i++ ) {
@@ -401,6 +409,15 @@ main( int     argc,
   }
 
 # endif
+
+  /* Test FD_IMPORT */
+
+  FD_TEST( (strlen( quine_cstr )+1UL)==quine_cstr_sz              );
+  FD_TEST( !strncmp( quine_cstr, "#include \"fd_util.h\"", 20UL ) );
+
+  FD_TEST( (quine_binary_sz+1UL     )==quine_cstr_sz            );
+  FD_TEST( fd_ulong_is_aligned( (ulong)quine_binary, 128UL )    );
+  FD_TEST( !memcmp( quine_binary, quine_cstr, quine_binary_sz ) );
 
   /* FIXME: ADD HASH QUALITY CHECKER HERE */
 

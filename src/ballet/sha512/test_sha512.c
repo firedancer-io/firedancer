@@ -87,7 +87,15 @@ main( int     argc,
   FD_TEST( fd_sha512_footprint()==FD_SHA512_FOOTPRINT );
 
   fd_sha512_t   mem[1];
-  void *        obj = fd_sha512_new ( mem ); FD_TEST( obj );
+
+  FD_TEST( fd_sha512_new( NULL          )==NULL ); /* null shmem       */
+  FD_TEST( fd_sha512_new( (void *)0x1UL )==NULL ); /* misaligned shmem */
+
+  void * obj = fd_sha512_new( mem ); FD_TEST( obj );
+
+  FD_TEST( fd_sha512_join( NULL           )==NULL ); /* null shsha       */
+  FD_TEST( fd_sha512_join( (void *) 0x1UL )==NULL ); /* misaligned shsha */
+
   fd_sha512_t * sha = fd_sha512_join( obj ); FD_TEST( sha );
 
   /* Test random vectors */
@@ -128,8 +136,13 @@ main( int     argc,
 
   /* clean up */
 
-  FD_TEST( fd_sha512_leave ( sha )==obj );
-  FD_TEST( fd_sha512_delete( obj )==mem );
+  FD_TEST( fd_sha512_leave( NULL )==NULL ); /* null sha */
+  FD_TEST( fd_sha512_leave( sha  )==obj  ); /* ok */
+
+  FD_TEST( fd_sha512_delete( NULL          )==NULL ); /* null shsha       */
+  FD_TEST( fd_sha512_delete( (void *)0x1UL )==NULL ); /* misaligned shsha */
+  FD_TEST( fd_sha512_delete( obj           )==mem  ); /* ok */
+
   fd_rng_delete( fd_rng_leave( rng ) );
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

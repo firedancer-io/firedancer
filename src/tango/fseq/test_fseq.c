@@ -33,6 +33,20 @@ main( int     argc,
   void *  shfseq = fd_fseq_new( shmem, seq0 ); FD_TEST( shfseq );
   ulong * fseq   = fd_fseq_join( shfseq );     FD_TEST( fseq );
 
+  /* Test failure cases of fd_fseq_new */
+  FD_TEST( fd_fseq_new( NULL,    seq0 )==NULL ); /* null shmem       */
+  FD_TEST( fd_fseq_new( shmem+1, seq0 )==NULL ); /* misaligned shmem */
+
+  /* Test failure cases of fd_fseq_join */
+  FD_TEST( fd_fseq_join( NULL          )==NULL ); /* null shfseq       */
+  FD_TEST( fd_fseq_join( (void *)0x1UL )==NULL ); /* misaligned shfseq */
+
+  /* Test bad magic value */
+  ulong * shfseq_magic = (ulong *)shfseq;
+  (*shfseq_magic)++;
+  FD_TEST( fd_fseq_join( shfseq )==NULL );
+  (*shfseq_magic)--;
+
   uchar *       app       = fd_fseq_app_laddr      ( fseq );
   uchar const * app_const = fd_fseq_app_laddr_const( fseq );
   FD_TEST( (ulong)app==(ulong)app_const );
@@ -49,9 +63,19 @@ main( int     argc,
     FD_TEST( fd_fseq_query( fseq )==seq  );
   }
 
-  FD_TEST( fd_fseq_leave ( fseq   )==shfseq );
+  FD_TEST( fd_fseq_leave( NULL )==NULL   ); /* null fseq */
+  FD_TEST( fd_fseq_leave( fseq )==shfseq ); /* ok */
+
+  FD_TEST( fd_fseq_delete( NULL               )==NULL ); /* null shfseq       */
+  FD_TEST( fd_fseq_delete( (char *)shfseq+1UL )==NULL ); /* misaligned shfseq */
+
+  /* Test bad magic value */
+  (*shfseq_magic)++;
+  FD_TEST( fd_fseq_delete( shfseq )==NULL );
+  (*shfseq_magic)--;
+
   FD_TEST( fd_fseq_delete( shfseq )==shmem  );
-  
+
   fd_rng_delete( fd_rng_leave( rng ) );
 
   FD_LOG_NOTICE(( "pass" ));
