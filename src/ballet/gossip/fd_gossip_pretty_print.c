@@ -9,12 +9,10 @@
 
 /* TODO(smcio): this is a WIP */
 
-void
-fd_gossip_pretty_print_crds_object( fd_gossip_crds_header_t ** crds_hdr ) {
+ulong
+fd_gossip_pretty_print_crds_object( void * data ) {
 
-  ulong sz_to_advance_ptr = 0;
-  fd_gossip_crds_header_t * hdr = *crds_hdr;
-
+  fd_gossip_crds_header_t * hdr = (fd_gossip_crds_header_t *)data;
   uint crds_id = hdr->crds_id;
 
   switch( crds_id ) {
@@ -36,11 +34,8 @@ fd_gossip_pretty_print_crds_object( fd_gossip_crds_header_t ** crds_hdr ) {
     FD_LOG_WARNING(( "  - rpc: addr = %s, port = %d",  inet_ntoa(contact_info->data.rpc.addr.ipv4_sin_addr), contact_info->data.rpc.port ));
     FD_LOG_WARNING(( "  - rpc_pub_sub: addr = %s, port = %d",  inet_ntoa(contact_info->data.rpc_pub_sub.addr.ipv4_sin_addr), contact_info->data.rpc_pub_sub.port ));
     FD_LOG_WARNING(( "  - serve_repair: addr = %s, port = %d",  inet_ntoa(contact_info->data.serve_repair.addr.ipv4_sin_addr), contact_info->data.serve_repair.port ));
-    FD_LOG_WARNING(( "  - wallclock: addr = %lu", contact_info->data.wallclock ));
-    FD_LOG_WARNING(( "  - shred_version: addr = 0x%hx", contact_info->data.shred_version ));
-
-    sz_to_advance_ptr = sizeof ( fd_gossip_crds_value_legacy_contact_info_t );
-    
+    FD_LOG_WARNING(( "  - wallclock: addr = 0x%lx", contact_info->data.wallclock ));
+    FD_LOG_WARNING(( "  - shred_version: addr = 0x%hx", contact_info->data.shred_version ));    
     break;
   }
 
@@ -49,6 +44,7 @@ fd_gossip_pretty_print_crds_object( fd_gossip_crds_header_t ** crds_hdr ) {
     
     FD_LOG_WARNING(( "  => Vote" ));
     FD_LOG_WARNING(( "     ------------" ));
+    FD_LOG_WARNING(( "  - obj_sz: 0x%lx", vote->hdr.obj_sz ));
     FD_LOG_WARNING(( "  - crds_id: 0x%x", crds_id & 0xff ));
     fd_gossip_pretty_print_signature( "  - signature", &(vote->hdr.signature) );
     fd_gossip_pretty_print_pubkey( "  - from", &(vote->data.from) );
@@ -57,8 +53,6 @@ fd_gossip_pretty_print_crds_object( fd_gossip_crds_header_t ** crds_hdr ) {
     FD_LOG_WARNING(( "  - wallclock: 0x%lx", vote->data.wallclock ));
 
     /* TODO(smcio): printing out raw txn data */
-
-    sz_to_advance_ptr = sizeof ( fd_gossip_crds_value_vote_t );
     break;
   }
 
@@ -76,10 +70,7 @@ fd_gossip_pretty_print_crds_object( fd_gossip_crds_header_t ** crds_hdr ) {
       FD_LOG_WARNING(( "       - 0x%lx ", value ));
     }
     FD_LOG_WARNING(( "  - stash: obsolete" ));
-    FD_LOG_WARNING(( "  - wallclock: addr = %lu", lowest_slot->data.wallclock ));
-
-    sz_to_advance_ptr = sizeof ( fd_gossip_crds_value_lowest_slot_t );
-
+    FD_LOG_WARNING(( "  - wallclock: 0x%lx", lowest_slot->data.wallclock ));
     break;
   }
 
@@ -87,47 +78,51 @@ fd_gossip_pretty_print_crds_object( fd_gossip_crds_header_t ** crds_hdr ) {
   case FD_GOSSIP_CRDS_ID_ACCOUNT_HASHES:
     if( crds_id==FD_GOSSIP_CRDS_ID_SNAPSHOT_HASHES ) {
       FD_LOG_WARNING(( "  => SnapshotHashes" ));
-      sz_to_advance_ptr = sizeof ( fd_gossip_crds_value_snapshot_hashes_t );
     }
     else {
       FD_LOG_WARNING(( "  => AccountHashes" ));
-      sz_to_advance_ptr = sizeof ( fd_gossip_crds_value_account_hashes_t );
     }
     break;
 
   case FD_GOSSIP_CRDS_ID_EPOCH_SLOTS: 
     FD_LOG_WARNING(( "pretty-printing for EpochSlots not yet implemented" ));
-    sz_to_advance_ptr = sizeof ( fd_gossip_crds_value_epoch_slots_t );
     break;
 
   case FD_GOSSIP_CRDS_ID_LEGACY_VERSION:
     FD_LOG_WARNING(( "pretty-printing for EpochSlots not yet implemented" ));
-    sz_to_advance_ptr = sizeof ( fd_gossip_crds_value_legacy_version_t );
     break;
 
-  case FD_GOSSIP_CRDS_ID_VERSION:
-    FD_LOG_WARNING(( "pretty-printing for Version not yet implemented" ));
-    sz_to_advance_ptr = sizeof ( fd_gossip_crds_value_version_t );
+  case FD_GOSSIP_CRDS_ID_VERSION: {
+    fd_gossip_crds_value_version_t * version = (fd_gossip_crds_value_version_t *)hdr;
+    FD_LOG_WARNING(( "   => Version" ));
+    FD_LOG_WARNING(( "     ----------" ));
+    FD_LOG_WARNING(( "  - crds_id: 0x%x", crds_id & 0xff ));
+    fd_gossip_pretty_print_signature( "  - signature", &(version->hdr.signature) );
+    fd_gossip_pretty_print_pubkey( "  - from", &(version->data.from) );
+    FD_LOG_WARNING(( "  - wallclock: 0x%lx", version->data.wallclock ));
+    FD_LOG_WARNING(( "  - major: 0x%hx", version->data.major ));
+    FD_LOG_WARNING(( "  - minor: 0x%hx", version->data.minor ));
+    FD_LOG_WARNING(( "  - patch: 0x%hx", version->data.patch ));
+    if( version->data.commit == -1 ) FD_LOG_WARNING(( "  - commit: None (optional)" ));
+    else FD_LOG_WARNING(( "  - commit: %x", (uint)version->data.commit ));
+    FD_LOG_WARNING(( "  - features: 0x%x", version->data.features ));
     break;
+  }
 
   case FD_GOSSIP_CRDS_ID_NODE_INSTANCE:
     FD_LOG_WARNING(( "pretty-printing for NodeInstance not yet implemented" ));
-    sz_to_advance_ptr = sizeof ( fd_gossip_crds_value_node_instance_t );
     break;
 
   case FD_GOSSIP_CRDS_ID_DUPLICATE_SHRED:
     FD_LOG_WARNING(( "pretty-printing for DuplicateShred not yet implemented" ));
-    sz_to_advance_ptr = sizeof ( fd_gossip_crds_value_duplicate_shred_t );
     break;
 
   case FD_GOSSIP_CRDS_ID_INCREMENTAL_SNAPSHOT_HASHES:
     FD_LOG_WARNING(( "pretty-printing for IncrementalSnapshotHashes not yet implemented" ));
-    sz_to_advance_ptr = sizeof ( fd_gossip_crds_value_incremental_snapshot_hashes_t );
     break;
 
   case FD_GOSSIP_CRDS_ID_CONTACT_INFO:
     FD_LOG_WARNING(( "pretty-printing for ContactInfo not yet implemented" ));
-    sz_to_advance_ptr = sizeof ( fd_gossip_crds_value_contact_info_t);
     break;
 
   default:
@@ -135,8 +130,7 @@ fd_gossip_pretty_print_crds_object( fd_gossip_crds_header_t ** crds_hdr ) {
     break;
   }
 
-  uchar *ptr = (uchar *)(*crds_hdr);
-  ptr += sz_to_advance_ptr;
+  return hdr->obj_sz;
 }
 
 void
@@ -202,7 +196,7 @@ fd_gossip_pretty_print_pull_req( fd_gossip_pull_req_t * msg ) {
 
   FD_LOG_WARNING(( "- CRDS value" ));
   fd_gossip_crds_header_t * hdr = (fd_gossip_crds_header_t *)((uchar *)msg + msg->value.offset);
-  fd_gossip_pretty_print_crds_object(&hdr);
+  fd_gossip_pretty_print_crds_object(hdr);
 }
 
 void
@@ -215,9 +209,8 @@ fd_gossip_pretty_print_pull_resp( fd_gossip_pull_response_t * msg ) {
 
   FD_LOG_WARNING(( "- CRDS ( %lu objects(s) )", msg->values.num_objs ));
 
-  fd_gossip_crds_header_t * hdr = (fd_gossip_crds_header_t *)((uchar *)msg + msg->values.offset);
-  for( ulong count = 0; count<msg->values.num_objs; count++ ) {
-    fd_gossip_pretty_print_crds_object(&hdr);
+  FOR_EACH_CRDS_IN_VECTOR( msg, values, crds_obj, crds_obj_sz) {
+    fd_gossip_pretty_print_crds_object( crds_obj );
   }
 }
 
@@ -231,9 +224,8 @@ fd_gossip_pretty_print_push( fd_gossip_push_msg_t * msg ) {
 
   FD_LOG_WARNING(( "- CRDS ( %lu objects(s) )", msg->values.num_objs ));
 
-  fd_gossip_crds_header_t * hdr = (fd_gossip_crds_header_t *)((uchar *)msg + msg->values.offset);
-  for( ulong count = 0; count<msg->values.num_objs; count++ ) {
-    fd_gossip_pretty_print_crds_object( &hdr );
+  FOR_EACH_CRDS_IN_VECTOR( msg, values, crds_obj, crds_obj_sz) {
+    fd_gossip_pretty_print_crds_object( crds_obj );
   }
 }
 

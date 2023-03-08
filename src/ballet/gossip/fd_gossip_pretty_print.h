@@ -5,8 +5,8 @@
 
 FD_PROTOTYPES_BEGIN
 
-void
-fd_gossip_pretty_print_crds_object( fd_gossip_crds_header_t ** crds_hdr );
+ulong
+fd_gossip_pretty_print_crds_object( void * data );
 
 void
 fd_gossip_pretty_print_pubkey( char * member_name,

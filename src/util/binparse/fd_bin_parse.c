@@ -57,7 +57,8 @@ fd_bin_parse_set_input_blob_size( fd_bin_parse_ctx_t * ctx,
 
 int
 fd_bin_parse_is_state_ok_to_begin_parse( fd_bin_parse_ctx_t * ctx ) {
-  return ( FD_LIKELY( !ctx->invalid_state && ctx->pre_parse_src_cur==ctx->src.cur && ctx->pre_parse_dst_cur==ctx->dst.cur ) );
+  CHECK_CTX_STATE_IS_VALID( ctx );
+  return ( ctx->pre_parse_src_cur==ctx->src.cur && ctx->pre_parse_dst_cur==ctx->dst.cur );
 }
 
 int
@@ -105,7 +106,7 @@ fd_bin_parse_update_state_failed( fd_bin_parse_ctx_t * ctx ) {
 int
 fd_bin_parse_is_enough_space_in_src( fd_bin_parse_ctx_t * ctx,
                                      ulong                sz   ) {
-  return ( FD_LIKELY( ctx->input_blob_sz>=sz && fd_slice_is_enough_space( &(ctx->src), sz ) ) );
+  return ( ctx->input_blob_sz>=sz && fd_slice_is_enough_space( &(ctx->src), sz ) );
 }
 
 void *
@@ -229,7 +230,7 @@ fd_bin_parse_decode_vector( fd_bin_parse_ctx_t * ctx,
                             ulong                dst_sz,  
                             ulong              * nelems   ) {
   CHECK_CTX_STATE_IS_VALID( ctx );
-  
+
   ulong vector_sz = 0;
   if( !fd_bin_parse_read_u64( ctx, &vector_sz ) ) {
     FD_LOG_WARNING(( "failed to read u64 as vector size" ));

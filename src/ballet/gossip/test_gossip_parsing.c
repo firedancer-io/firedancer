@@ -61,8 +61,10 @@ int main() {
   FD_TEST( msg );
   fd_gossip_pretty_print( msg );
 
-  fd_bin_parse_set_input_blob_size( &ctx, 16 );  /* parse an obviously invalid msg */
+  fd_bin_parse_set_input_blob_size( &ctx, 16 );
   msg = fd_gossip_parse_msg( &ctx );
+  FD_TEST( !msg );
+  FD_LOG_WARNING(( "bad msg failed to parse as expected "));
 
   fd_bin_parse_set_input_blob_size( &ctx, pull_response_snapshot_hashes_sz );
   msg = fd_gossip_parse_msg( &ctx );
