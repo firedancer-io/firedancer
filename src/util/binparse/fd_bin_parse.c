@@ -27,7 +27,7 @@ void fd_bin_parse_init( fd_bin_parse_ctx_t * ctx,
 }
 
 void
-fd_bin_parse_start_for_input_blob( fd_bin_parse_ctx_t * ctx,
+fd_bin_parse_set_input_blob_size( fd_bin_parse_ctx_t * ctx,
                                    ulong                input_blob_sz ) {
   ctx->input_blob_sz = input_blob_sz;
   ctx->pre_parse_src_cur = ctx->src.cur;
@@ -88,6 +88,11 @@ int
 fd_bin_parse_dst_has_enough_size_remaining( fd_bin_parse_ctx_t * ctx, 
                                             ulong                sz   ) {
   return (ulong)(ctx->dst.end - ctx->dst.cur) >= sz;
+}
+
+ulong
+fd_bin_parse_input_blob_size( fd_bin_parse_ctx_t * ctx ) {
+  return ctx->input_blob_sz;
 }
 
 int

@@ -25,7 +25,7 @@ fd_bin_parse_init( fd_bin_parse_ctx_t * ctx,
                        ulong            dst_sz  );
 
 void
-fd_bin_parse_start_for_input_blob( fd_bin_parse_ctx_t * ctx,
+fd_bin_parse_set_input_blob_size( fd_bin_parse_ctx_t * ctx,
                                    ulong                input_blob_sz );
 
 int
@@ -57,6 +57,9 @@ fd_bin_parse_update_state_succeeded( fd_bin_parse_ctx_t * ctx,
 int
 fd_bin_parse_is_enough_space_in_src( fd_bin_parse_ctx_t * ctx,
                                      ulong                sz   );
+
+ulong
+fd_bin_parse_input_blob_size( fd_bin_parse_ctx_t * ctx );
 
 int
 fd_bin_parse_read_u8( fd_bin_parse_ctx_t * ctx,

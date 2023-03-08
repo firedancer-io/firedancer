@@ -14,7 +14,7 @@ fd_gossip_msg_t *
 fd_gossip_parse_msg( fd_bin_parse_ctx_t * ctx ) {
 
   /* Ensure the input payload is not larger than MTU (1232), because this shouldn't be possible. */
-  if( FD_UNLIKELY( ctx->input_blob_sz>FD_GOSSIP_MTU ) ) {
+  if( FD_UNLIKELY( fd_bin_parse_input_blob_size( ctx )>FD_GOSSIP_MTU ) ) {
     FD_LOG_WARNING(( "message longer than MTU; programming error, since networking code should not allow this." ));
     return 0;
   }
