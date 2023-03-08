@@ -4,6 +4,8 @@
 
 int main() {
 
+  fd_log_level_stderr_set( 3 );
+
   FD_IMPORT_BINARY( pull_request, "src/ballet/gossip/fixtures/pull_request.bin" );
   FD_IMPORT_BINARY( pull_response_contact_info, "src/ballet/gossip/fixtures/pull_response_contact_info.bin" );
   FD_IMPORT_BINARY( pull_response_node_instance, "src/ballet/gossip/fixtures/pull_response_node_instance.bin" );

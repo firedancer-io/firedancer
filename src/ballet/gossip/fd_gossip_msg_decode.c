@@ -82,7 +82,7 @@ fd_gossip_parse_pull_request_msg( fd_bin_parse_ctx_t * ctx,
                                   void               * out_buf,
                                   ulong                out_buf_sz,
                                   ulong              * obj_sz      ) {
-  FD_LOG_INFO(( "parsing pull req msg" ));
+  FD_LOG_DEBUG(( "parsing pull req msg" ));
 
   if( FD_UNLIKELY( out_buf_sz<sizeof( fd_gossip_pull_req_t ) ) ) {
     return 0;
@@ -167,7 +167,7 @@ fd_gossip_parse_pull_response_msg( fd_bin_parse_ctx_t * ctx,
                                    ulong                out_buf_sz,
                                    ulong              * obj_sz      ) {
 
-  FD_LOG_INFO(( "parsing pull resp msg " ));
+  FD_LOG_DEBUG(( "parsing pull resp msg " ));
 
   if( FD_UNLIKELY( out_buf_sz<sizeof( fd_gossip_pull_response_t ) ) ) {
     return 0;
@@ -188,10 +188,10 @@ fd_gossip_parse_pull_response_msg( fd_bin_parse_ctx_t * ctx,
     return 0;
   }
 
-  if( FD_UNLIKELY( num_values>FD_GOSSIP_MAX_CRDS_VALUES ) ) {
-    FD_LOG_WARNING(( "max number of CRDS values exceeded (%lu vs. %lu)", num_values, FD_GOSSIP_MAX_CRDS_VALUES ));
-    return 0;
-  }
+  /* TODO(smcio): although the boundedness of the logic below will ultimately kicks out 
+     overly large `num_values` u64 vector sizes, it might still be worth logging such
+     anomalies case in the interests of completeness/debugging purposes/audit.
+     If so, determine an upper limit upon which to trigger a log event. */
 
   uchar * ptr = (uchar *)out_buf + sizeof( fd_gossip_pull_response_t );
   ulong crds_obj_sz = 0;
@@ -225,7 +225,7 @@ fd_gossip_parse_prune_msg( fd_bin_parse_ctx_t * ctx,
                            ulong                out_buf_sz,
                            ulong              * obj_sz      ) {
 
-  FD_LOG_INFO(( "parsing prune msg " ));
+  FD_LOG_DEBUG(( "parsing prune msg " ));
 
   if( FD_UNLIKELY( out_buf_sz<sizeof( fd_gossip_prune_msg_t ) ) ) {
     return 0;
@@ -291,7 +291,7 @@ fd_gossip_parse_push_msg( fd_bin_parse_ctx_t * ctx,
                           ulong                out_buf_sz,
                           ulong              * obj_sz      ) {
   
-  FD_LOG_INFO(( "parsing push msg " ));
+  FD_LOG_DEBUG(( "parsing push msg " ));
 
   if( FD_UNLIKELY( out_buf_sz<sizeof( fd_gossip_push_msg_t ) ) ) {
     return 0;
@@ -312,10 +312,10 @@ fd_gossip_parse_push_msg( fd_bin_parse_ctx_t * ctx,
     return 0;
   }
 
-  if( FD_UNLIKELY( num_values>FD_GOSSIP_MAX_CRDS_VALUES ) ) {
-    FD_LOG_WARNING(( "max number of CRDS values exceeded (%lu vs. %lu)", num_values, FD_GOSSIP_MAX_CRDS_VALUES ));
-    return 0;
-  }
+  /* TODO(smcio): although the boundedness of the logic below will ultimately kicks out 
+     overly large `num_values` u64 vector sizes, it might still be worth logging such
+     anomalies case in the interests of completeness/debugging purposes/audit.
+     If so, determine an upper limit upon which to trigger a log event. */
   
   uchar * ptr = (uchar *)out_buf + sizeof( fd_gossip_push_msg_t );
   ulong crds_obj_sz = 0;
@@ -347,7 +347,7 @@ fd_gossip_parse_ping_msg( fd_bin_parse_ctx_t * ctx,
                           ulong                out_buf_sz,
                           ulong              * obj_sz      ) {
 
-  FD_LOG_INFO(( "parsing ping resp msg " ));
+  FD_LOG_DEBUG(( "parsing ping resp msg " ));
 
   if( FD_UNLIKELY( out_buf_sz<sizeof( fd_gossip_ping_msg_t) ) ) {
     return 0;
@@ -380,7 +380,7 @@ fd_gossip_parse_pong_msg( fd_bin_parse_ctx_t * ctx,
                           ulong                out_buf_sz,
                           ulong              * obj_sz      ) {
 
-  FD_LOG_INFO(( "parsing pull pong msg " ));
+  FD_LOG_DEBUG(( "parsing pull pong msg " ));
 
   if( FD_UNLIKELY( out_buf_sz<sizeof( fd_gossip_pong_msg_t ) ) ) {
     return 0;

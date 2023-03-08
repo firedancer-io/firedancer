@@ -987,9 +987,10 @@ fd_gossip_parse_crds_epoch_slots( fd_bin_parse_ctx_t * ctx,
     return 0;
   }
 
-  /* TODO(smcio): The boundedness of the logic below kicks out an overly large `nelems` u64
-     vector size, but it'd be good idea to log such an anomalous case in the interests 
-     of completeness and for debugging purposes. */
+  /* TODO(smcio): although the boundedness of the logic below ultimately kicks out
+     overly large `nelems` u64 vector sizes, it might still be worth logging such an 
+     anomalous case explicitly in the interests of completeness/debugging purposes/audit. 
+     If so, determine an upper limit upon which to trigger a log event. */
 
   uchar * ptr = (uchar *)out_buf + sizeof( fd_gossip_crds_value_epoch_slots_t );
   ulong compressed_slots_obj_sz = 0;

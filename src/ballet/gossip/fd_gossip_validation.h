@@ -4,7 +4,6 @@
 /* Macros for sanity checking fields in gossip messages and CRDS objects */
 
 #define FD_GOSSIP_MTU                                  (1232UL)
-#define FD_GOSSIP_MAX_CRDS_VALUES                      (200UL)
 #define FD_GOSSIP_CRDS_MAX_WALLCLOCK                   (1000000000000000UL)
 #define FD_GOSSIP_CRDS_MAX_VOTES                       (32UL)
 #define FD_GOSSIP_CRDS_MAX_EPOCH_SLOTS                 (255UL)
