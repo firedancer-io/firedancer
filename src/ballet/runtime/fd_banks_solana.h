@@ -665,6 +665,8 @@ void fd_vote_accounts_destroy(fd_vote_accounts_t* self, fd_free_fun_t freef, voi
 void fd_vote_accounts_pair_decode(fd_vote_accounts_pair_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
 void fd_vote_accounts_pair_destroy(fd_vote_accounts_pair_t* self, fd_free_fun_t freef, void* freef_arg);
 
+void fd_account_meta_init(fd_account_meta_t *);
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_ballet_runtime_fd_banks_solana_h */

@@ -47,7 +47,7 @@ int transfer(
       /* Create new account if it doesn't exist */
       FD_LOG_DEBUG(( "transfer to unknown account: creating new account" ));
       fd_account_meta_t metadata;
-      fd_memset(&metadata, 0, sizeof(metadata));
+      fd_account_meta_init(&metadata);
       int write_result = fd_acc_mgr_write_account( ctx.acc_mgr, fd_funk_root(ctx.acc_mgr->funk), receiver, (uchar *)&metadata, sizeof(metadata) );
       if ( FD_UNLIKELY( write_result != FD_ACC_MGR_SUCCESS ) ) {
         FD_LOG_WARNING(( "failed to create new account" ));

@@ -11,6 +11,8 @@
 
 // --ledger /home/jsiegel/repos/solana/test-ledger --db /home/jsiegel/repos/solana//test-ledger/funk --cmd replay --start-slot 0 --end-slot 200  --txn-exe sim  --index-max 120000000 --pages 15
 
+// run --ledger /home/jsiegel/test-ledger --db /home/jsiegel/test-ledger/funk --cmd replay --start-slot 0 --end-slot 200 --index-max 120000000 --pages 15
+
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -608,6 +610,16 @@ int main(int argc, char **argv) {
     fd_pubkey_account_pair_t *a = &state.gen.accounts[i];
 
     fd_acc_mgr_write_structured_account(state.acc_mgr, 0, &a->key, &a->account);
+  }
+
+  for (ulong i = 0; i < state.gen.native_instruction_processors_len; i++) {
+    fd_string_pubkey_pair_t * ins = &state.gen.native_instruction_processors[i];
+
+    char pubkey[50];
+
+    fd_base58_encode_32((uchar *) ins->pubkey.key, NULL, pubkey);
+
+    FD_LOG_WARNING(("native program:  %s <= %s", ins->string, pubkey));
   }
 
   //  we good?

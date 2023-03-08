@@ -764,3 +764,9 @@ void fd_genesis_solana_destroy(fd_genesis_solana_t* self, fd_free_fun_t freef, v
     self->rewards_pools = NULL;
   }
 }
+
+void fd_account_meta_init(fd_account_meta_t *m) {
+  fd_memset(m, 0, sizeof(*m));
+  m->magic = FD_ACCOUNT_META_MAGIC;
+  m->hlen = sizeof(fd_account_meta_t);
+}

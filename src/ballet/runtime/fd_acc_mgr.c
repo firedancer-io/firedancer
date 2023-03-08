@@ -1,4 +1,5 @@
 #include "fd_acc_mgr.h"
+#include "../base58/fd_base58.h"
 
 void* fd_acc_mgr_new( void* mem,
                       fd_funk_t* funk,
@@ -56,7 +57,6 @@ int fd_acc_mgr_get_account_data( fd_acc_mgr_t* acc_mgr, fd_pubkey_t* pubkey, uch
 }
 
 int fd_acc_mgr_get_metadata( fd_acc_mgr_t* acc_mgr, fd_pubkey_t* pubkey, fd_account_meta_t *result ) {
-  
   int read_result = fd_acc_mgr_get_account_data( acc_mgr, pubkey, (uchar*)result, 0, sizeof(fd_account_meta_t) );
   if ( read_result != FD_ACC_MGR_SUCCESS ) {
     //FD_LOG_WARNING(( "failed to read account data" ));
@@ -64,7 +64,10 @@ int fd_acc_mgr_get_metadata( fd_acc_mgr_t* acc_mgr, fd_pubkey_t* pubkey, fd_acco
   }
 
   if ( FD_UNLIKELY( result->magic != FD_ACCOUNT_META_MAGIC ) ) {
-    FD_LOG_WARNING(( "read account metadata: wrong metadata magic: %d", result->magic ));
+    char buf[50];
+    fd_base58_encode_32((uchar *) pubkey, NULL, buf);
+
+    FD_LOG_WARNING(( "read account metadata: wrong metadata magic in %s: %d", buf, result->magic ));
     return FD_ACC_MGR_ERR_WRONG_MAGIC;
   }
 
@@ -72,6 +75,12 @@ int fd_acc_mgr_get_metadata( fd_acc_mgr_t* acc_mgr, fd_pubkey_t* pubkey, fd_acco
 } 
 
 int fd_acc_mgr_write_account( fd_acc_mgr_t* acc_mgr, struct fd_funk_xactionid const* txn, fd_pubkey_t* pubkey, uchar* data, ulong data_len ) {
+#ifdef _VWRITE
+  char buf[50];
+  fd_base58_encode_32((uchar *) pubkey, NULL, buf);
+  FD_LOG_WARNING(( "fd_acc_mgr_write_account to %s", buf ));
+#endif
+
   fd_funk_recordid_t id = funk_id( pubkey );
   if ( FD_UNLIKELY( fd_funk_write( acc_mgr->funk, txn, &id, data, 0, data_len ) != (long)data_len ) ) {
     FD_LOG_WARNING(( "failed to write account data" ));
@@ -85,7 +94,10 @@ int fd_acc_mgr_get_lamports( fd_acc_mgr_t* acc_mgr, fd_pubkey_t * pubkey, fd_acc
   fd_account_meta_t metadata;
   int read_result = fd_acc_mgr_get_metadata( acc_mgr, pubkey, &metadata );
   if ( FD_UNLIKELY( read_result != FD_ACC_MGR_SUCCESS ) ) {
-    FD_LOG_WARNING(( "failed to read account metadata" ));
+    char buf[50];
+    fd_base58_encode_32((uchar *) pubkey, NULL, buf);
+
+    FD_LOG_WARNING(( "failed to read account metadata: %s", buf ));
     return read_result;
   }
 
@@ -119,8 +131,7 @@ int fd_acc_mgr_write_structured_account( fd_acc_mgr_t* acc_mgr, ulong slot, fd_p
   uchar *data = fd_alloca(8UL, dlen);
   fd_account_meta_t *m = (fd_account_meta_t *) data;
 
-  m->magic = FD_ACCOUNT_META_MAGIC;
-  m->hlen = sizeof(fd_account_meta_t);
+  fd_account_meta_init(m);
   m->dlen = account->data_len;
 
   m->info.lamports = account->lamports;
@@ -149,8 +160,7 @@ int fd_acc_mgr_write_append_vec_account( fd_acc_mgr_t* acc_mgr, ulong slot, fd_s
   uchar *data = aligned_alloc(8UL, dlen);
   fd_account_meta_t *m = (fd_account_meta_t *) data;
 
-  m->magic = FD_ACCOUNT_META_MAGIC;
-  m->hlen = sizeof(fd_account_meta_t);
+  fd_account_meta_init(m);
   m->dlen = hdr->meta.data_len;
 
   fd_memcpy(&m->info, &hdr->info, sizeof(m->info));
