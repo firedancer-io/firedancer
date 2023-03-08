@@ -2,7 +2,12 @@
 #include "fd_gossip_crds.h"
 #include <stdlib.h>
 
-int main() {
+/* TODO(smcio): WIP. need to add many more testcases here. */
+
+int
+main( int     argc,
+      char ** argv ) {
+  fd_boot( &argc, &argv );
 
   fd_log_level_stderr_set( 3 );
 
