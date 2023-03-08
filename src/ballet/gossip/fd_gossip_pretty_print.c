@@ -66,7 +66,7 @@ fd_gossip_pretty_print_crds_object( void * data ) {
     fd_gossip_pretty_print_pubkey( "  - from", &(lowest_slot->data.from) );
     FD_LOG_WARNING(( "  - root: addr = %lu", lowest_slot->data.root ));
     FD_LOG_WARNING(( "  - lowest: addr = %lu", lowest_slot->data.root ));
-    FOR_EACH_U64_IN_VECTOR( lowest_slot, lowest_slot->data.slots, value ) {
+    FOR_EACH_U64_IN_VECTOR( lowest_slot, data.slots, value ) {
       FD_LOG_WARNING(( "       - 0x%lx ", value ));
     }
     FD_LOG_WARNING(( "  - stash: obsolete" ));
@@ -190,7 +190,7 @@ fd_gossip_pretty_print_pull_req( fd_gossip_pull_req_t * msg ) {
   fd_gossip_pretty_print_arbitrary_hex( "      - bits", bloom_data, sz );
   FD_LOG_WARNING(( "     - num_bits_set: %lx", msg->crds_filter.bloom.num_bits_set ));
   FD_LOG_WARNING(( "     - keys: " ));
-  FOR_EACH_U64_IN_VECTOR( msg, msg->crds_filter.bloom.keys, value ) {
+  FOR_EACH_U64_IN_VECTOR( msg, crds_filter.bloom.keys, value ) {
     FD_LOG_WARNING(( "       - 0x%lx ", value ));
   }
 
@@ -209,7 +209,7 @@ fd_gossip_pretty_print_pull_resp( fd_gossip_pull_response_t * msg ) {
 
   FD_LOG_WARNING(( "- CRDS ( %lu objects(s) )", msg->values.num_objs ));
 
-  FOR_EACH_CRDS_IN_VECTOR( msg, values, crds_obj, crds_obj_sz) {
+  FOR_EACH_CRDS_IN_VECTOR( msg, values, crds_obj ) {
     fd_gossip_pretty_print_crds_object( crds_obj );
   }
 }
@@ -224,7 +224,7 @@ fd_gossip_pretty_print_push( fd_gossip_push_msg_t * msg ) {
 
   FD_LOG_WARNING(( "- CRDS ( %lu objects(s) )", msg->values.num_objs ));
 
-  FOR_EACH_CRDS_IN_VECTOR( msg, values, crds_obj, crds_obj_sz) {
+  FOR_EACH_CRDS_IN_VECTOR( msg, values, crds_obj ) {
     fd_gossip_pretty_print_crds_object( crds_obj );
   }
 }

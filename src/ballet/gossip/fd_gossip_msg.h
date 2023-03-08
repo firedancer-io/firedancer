@@ -23,15 +23,14 @@
     ulong bloom_data_sz = msg->crds_filter.bloom.bits.bits.num_objs;                                 \
 
 #define FOR_EACH_U64_IN_VECTOR( msg, vec_descriptor, value )                                         \
-    ulong * value_ptr = (ulong *)((uchar *)msg + vec_descriptor.offset);                             \
+    ulong * value_ptr = (ulong *)((uchar *)msg + msg->vec_descriptor.offset);                        \
     ulong value = *value_ptr;                                                                        \
-    for( ulong i = 0 ; i < vec_descriptor.num_objs; i++, value_ptr += 1, value = *value_ptr )
+    for( ulong i = 0 ; i < msg->vec_descriptor.num_objs; i++, value_ptr += 1, value = *value_ptr )
 
-#define FOR_EACH_CRDS_IN_VECTOR( msg, vec_descr_name, value, crds_sz )                               \
+#define FOR_EACH_CRDS_IN_VECTOR( msg, vec_descr_name, value )                                        \
     uchar * ptr = (uchar *)msg + msg->vec_descr_name.offset;                                         \
-    ulong crds_sz = 0;                                                                               \
     fd_gossip_crds_header_t * value = (fd_gossip_crds_header_t *)ptr;                                \
-    for( ulong i = 0 ; i < msg->vec_descr_name.num_objs; i++, value = (fd_gossip_crds_header_t *)((uchar *)value + value->obj_sz), crds_sz = value->obj_sz) 
+    for( ulong i = 0 ; i < msg->vec_descr_name.num_objs; i++, value = (fd_gossip_crds_header_t *)((uchar *)value + value->obj_sz) ) 
 
 /* data structures for gossip messages */
 
