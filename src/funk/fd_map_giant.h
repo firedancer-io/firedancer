@@ -36,6 +36,8 @@ struct MAP_NAME {
     ulong hashseed;
 } __attribute__ ((aligned(64)));
 
+typedef struct MAP_NAME MAP_(t);
+
 ulong MAP_(align)(void) { return 64U; }
 
 ulong MAP_(footprint)(ulong max) {

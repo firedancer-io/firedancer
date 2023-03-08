@@ -110,8 +110,8 @@ int main(int argc, char** argv) {
     for (unsigned cnt = 0;;) {
       pid_t p;
       if ((p = fork()) == 0) {
-        static const char* EXE = "build/test/bin/test_funk_3";
-        int r = execlp(EXE, EXE, (firsttime ? "-1" : "-2"), NULL);
+        static const char* EXE = "test_funk_3";
+        int r = execlp(argv[0], EXE, (firsttime ? "-1" : "-2"), NULL);
         if (r == -1)
           fprintf(stderr, "failed to exec %s: %s\n", EXE, strerror(errno));
         return 1;

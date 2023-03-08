@@ -17,7 +17,7 @@ struct fd_funk {
     fd_wksp_t* wksp;
     // Generic allocator
     ulong alloc_offset;
-    struct fd_alloc* alloc;
+    fd_alloc_t* alloc;
     // Backing file descriptor
     int backing_fd;
     char backing_name[128];
@@ -27,24 +27,24 @@ struct fd_funk {
     ulong lastcontrol;
     // Master index of finalized data
     ulong index_offset;
-    struct fd_funk_index* index;
+    fd_funk_index_t* index;
     // Table of transactions
     ulong xactions_offset;
-    struct fd_funk_xactions* xactions;
+    fd_funk_xactions_t* xactions;
     // Entry cache manager
     ulong cache_offset;
-    struct fd_cache* cache;
+    fd_cache_t* cache;
     // Root transaction id
-    struct fd_funk_xactionid root;
+    fd_funk_xactionid_t root;
     // Transaction id of last successful commit
-    struct fd_funk_xactionid last_commit;
+    fd_funk_xactionid_t last_commit;
     // Vector of free control entry locations
-    struct fd_vec_ulong free_ctrl;
+    fd_vec_ulong_t free_ctrl;
     // Dead entries indexed by allocation size
-    struct fd_funk_vec_dead_entry deads[FD_FUNK_NUM_DISK_SIZES];
+    fd_funk_vec_dead_entry_t deads[FD_FUNK_NUM_DISK_SIZES];
 };
 
-struct fd_funk* fd_funk_new(char const* backingfile,
+fd_funk_t* fd_funk_new(char const* backingfile,
                             fd_wksp_t* wksp,    // Workspace to allocate out of
                             ulong alloc_tag,    // Tag for workspace allocations
                             ulong index_max,    // Maximum size (count) of master index
@@ -71,7 +71,7 @@ struct fd_funk* fd_funk_new(char const* backingfile,
   if (NULL == shmem) {
     FD_LOG_ERR(("fd_wksp_alloc_laddr unable to allocate %ld bytes in the supplied workspace", footprint));
   }
-  struct fd_funk* store = (struct fd_funk*)shmem;
+  fd_funk_t* store = (fd_funk_t*)shmem;
 
   store->wksp = wksp;
   store->lastcontrol = 0;
@@ -122,7 +122,7 @@ FD_FN_CONST ulong fd_funk_align(void) {
   return 64; // Cache aligned
 }
 
-void* fd_funk_delete(struct fd_funk* store) {
+void* fd_funk_delete(fd_funk_t* store) {
   fd_funk_index_destroy(store->index);
   fd_funk_xactions_cleanup(store);
   fd_funk_xactions_destroy(store->xactions);
@@ -138,13 +138,13 @@ void* fd_funk_delete(struct fd_funk* store) {
   return store;
 }
 
-struct fd_funk_xactionid const* fd_funk_root(struct fd_funk* store) {
+fd_funk_xactionid_t const* fd_funk_root(fd_funk_t* store) {
   return &store->root;
 }
 
-long fd_funk_write(struct fd_funk* store,
-                   struct fd_funk_xactionid const* xid,
-                   struct fd_funk_recordid const* recordid,
+long fd_funk_write(fd_funk_t* store,
+                   fd_funk_xactionid_t const* xid,
+                   fd_funk_recordid_t const* recordid,
                    const void* data,
                    ulong offset,
                    ulong data_sz) {
@@ -154,20 +154,20 @@ long fd_funk_write(struct fd_funk* store,
   return fd_funk_writev(store, xid, recordid, &iov, 1, offset);
 }
 
-void fd_funk_truncate(struct fd_funk* store,
-                      struct fd_funk_xactionid const* xid,
-                      struct fd_funk_recordid const* recordid,
+void fd_funk_truncate(fd_funk_t* store,
+                      fd_funk_xactionid_t const* xid,
+                      fd_funk_recordid_t const* recordid,
                       ulong record_sz);
 
-int fd_funk_cache_query(struct fd_funk* store,
-                        struct fd_funk_xactionid const* xid,
-                        struct fd_funk_recordid const* recordid,
+int fd_funk_cache_query(fd_funk_t* store,
+                        fd_funk_xactionid_t const* xid,
+                        fd_funk_recordid_t const* recordid,
                         ulong offset,
                         ulong data_sz);
 
-void fd_funk_cache_hint(struct fd_funk* store,
-                        struct fd_funk_xactionid const* xid,
-                        struct fd_funk_recordid const* recordid,
+void fd_funk_cache_hint(fd_funk_t* store,
+                        fd_funk_xactionid_t const* xid,
+                        fd_funk_recordid_t const* recordid,
                         ulong offset,
                         ulong data_sz) {
   // Try to read but ignore failures
@@ -175,7 +175,7 @@ void fd_funk_cache_hint(struct fd_funk* store,
   (void)fd_funk_read(store, xid, recordid, &data, offset, data_sz);
 }
 
-void fd_funk_validate(struct fd_funk* store) {
+void fd_funk_validate(fd_funk_t* store) {
   fd_funk_validate_root(store);
   fd_funk_validate_xaction(store);
 }

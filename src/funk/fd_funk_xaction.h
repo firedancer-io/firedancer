@@ -1,10 +1,10 @@
 // Hash a xaction id
-ulong fd_funk_xactionid_t_hash(struct fd_funk_xactionid const* id, ulong hashseed) {
-  return fd_hash(hashseed, id, sizeof(struct fd_funk_xactionid));
+ulong fd_funk_xactionid_t_hash(fd_funk_xactionid_t const* id, ulong hashseed) {
+  return fd_hash(hashseed, id, sizeof(fd_funk_xactionid_t));
 }
 
 // Test xaction id equality
-int fd_funk_xactionid_t_equal(struct fd_funk_xactionid const* id1, struct fd_funk_xactionid const* id2) {
+int fd_funk_xactionid_t_equal(fd_funk_xactionid_t const* id1, fd_funk_xactionid_t const* id2) {
   const ulong* const id1hack = (const ulong* const)id1;
   const ulong* const id2hack = (const ulong* const)id2;
   return ((id1hack[0] ^ id2hack[0]) |
@@ -14,7 +14,7 @@ int fd_funk_xactionid_t_equal(struct fd_funk_xactionid const* id1, struct fd_fun
 }
 
 // Copy a xaction id
-void fd_funk_xactionid_t_copy(struct fd_funk_xactionid* dest, struct fd_funk_xactionid const* src) {
+void fd_funk_xactionid_t_copy(fd_funk_xactionid_t* dest, fd_funk_xactionid_t const* src) {
   ulong* const id1hack = (ulong* const)dest;
   const ulong* const id2hack = (const ulong* const)src;
   id1hack[0] = id2hack[0];
@@ -25,7 +25,7 @@ void fd_funk_xactionid_t_copy(struct fd_funk_xactionid* dest, struct fd_funk_xac
 
 struct fd_funk_xaction_cache_entry {
     // Record identifier
-    struct fd_funk_recordid record;
+    fd_funk_recordid_t record;
     // Actual length of record. The cache might just be a prefix. !!! consider ulong
     uint record_sz;
     // Cached data
@@ -39,9 +39,9 @@ struct fd_funk_xaction_cache_entry {
 
 struct fd_funk_xaction_entry {
     // Transaction identifier
-    struct fd_funk_xactionid key;
+    fd_funk_xactionid_t key;
     // Parent transaction identifier
-    struct fd_funk_xactionid parent;
+    fd_funk_xactionid_t parent;
     // Transaction update transcript. This is exactly the same as the
     // on-disk representation.
     char* script;
@@ -70,15 +70,15 @@ struct fd_funk_xaction_entry {
 #undef MAP_ELEMENT
 #undef MAP_KEY
 
-int fd_funk_is_root(struct fd_funk_xactionid const* xid);
-void fd_funk_xactions_cleanup(struct fd_funk* store);
-void fd_funk_validate_xaction(struct fd_funk* store);
-void fd_funk_writeahead_load(struct fd_funk* store,
-                             struct fd_funk_xactionid* id,
-                             struct fd_funk_xactionid* parent,
+int fd_funk_is_root(fd_funk_xactionid_t const* xid);
+void fd_funk_xactions_cleanup(fd_funk_t* store);
+void fd_funk_validate_xaction(fd_funk_t* store);
+void fd_funk_writeahead_load(fd_funk_t* store,
+                             fd_funk_xactionid_t* id,
+                             fd_funk_xactionid_t* parent,
                              ulong start,
                              uint size,
                              uint alloc,
                              ulong ctrlpos,
                              char* script);
-void fd_funk_writeahead_recommits(struct fd_funk* store);
+void fd_funk_writeahead_recommits(fd_funk_t* store);
