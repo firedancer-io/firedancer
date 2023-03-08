@@ -183,7 +183,7 @@ FD_FN_PURE uchar *       fd_mcache_app_laddr      ( fd_frag_meta_t *       mcach
    this as much as possible to limit cache line ping-ponging with the
    producer. */
 
-static inline ulong
+FD_STATIC_INLINE ulong
 fd_mcache_seq_query( ulong const * _seq ) {
   FD_COMPILER_MFENCE();
   ulong seq = FD_VOLATILE_CONST( *_seq );
@@ -264,7 +264,7 @@ fd_mcache_seq_update( ulong * _seq,
 
 #if FD_MCACHE_LG_INTERLEAVE==0
 
-FD_FN_CONST static inline ulong /* Will be in [0,depth) */
+FD_FN_CONST FD_STATIC_INLINE ulong /* Will be in [0,depth) */
 fd_mcache_line_idx( ulong seq,
                     ulong depth ) { /* Assumed power of 2 >= BLOCK */
   return seq & (depth-1UL);

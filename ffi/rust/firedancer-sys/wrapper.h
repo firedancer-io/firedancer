@@ -1,8 +1,9 @@
 // Define all C feature flags, as we'll manage features via Rust.
-#define FD_HAS_HOSTED  1
-#define FD_HAS_X86     1
-#define FD_HAS_ATOMIC  1
-#define FD_HAS_THREADS 1
+#define FD_HAS_HOSTED    1
+#define FD_HAS_X86       1
+#define FD_HAS_ATOMIC    1
+#define FD_HAS_THREADS   1
+#define FD_USE_ATTR_WEAK 1
 
 #include "firedancer/src/util/fd_util.h"
 #include "firedancer/src/tango/fd_tango.h"

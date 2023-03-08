@@ -250,7 +250,7 @@ fd_chunk_to_laddr( void * chunk0,   /* Assumed aligned FD_CHUNK_ALIGN */
   return (void *)(((ulong)chunk0) + (chunk << FD_CHUNK_LG_SZ));
 }
 
-FD_FN_CONST static inline void const *
+FD_FN_CONST FD_STATIC_INLINE void const *
 fd_chunk_to_laddr_const( void const * chunk0,
                          ulong        chunk ) {
   return (void const *)(((ulong)chunk0) + (chunk << FD_CHUNK_LG_SZ));
@@ -267,7 +267,7 @@ fd_laddr_to_chunk( void const * chunk0,   /* Assumed aligned FD_CHUNK_ALIGN */
    was made and the call returns.  Assumes meta is valid.  This acts as
    a compiler memory fence. */
 
-static inline ulong
+FD_STATIC_INLINE ulong
 fd_frag_meta_seq_query( fd_frag_meta_t const * meta ) { /* Assumed non-NULL */
   FD_COMPILER_MFENCE();
   ulong seq = FD_VOLATILE_CONST( meta->seq );

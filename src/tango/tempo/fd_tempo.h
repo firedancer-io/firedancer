@@ -146,7 +146,7 @@ fd_tempo_observe_pair( long * opt_now,
    millseconds.  We also saturate cr_max to keep the returned value in
    [1,2^31] ns for all cr_max. */
 
-FD_FN_CONST static inline long
+FD_FN_CONST FD_STATIC_INLINE long
 fd_tempo_lazy_default( ulong cr_max ) {
   return fd_long_if( cr_max>954437176UL, (long)INT_MAX, (long)(1UL+((9UL*cr_max)>>2)) );
 }

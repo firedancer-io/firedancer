@@ -1,0 +1,16 @@
+[package]
+name = "ballet"
+version = "0.1.0"
+edition = "2021"
+authors = ["Firedancer Contributors <firedancer-devs@jumptrading.com>"]
+description = "Safe user-facing wrappers for interacting with Firedancer components"
+license = "Apache-2.0"
+
+[dependencies]
+anyhow = "1.0.69"
+chrono = "0.4.23"
+crossbeam-channel = "0.5.6"
+firedancer-sys = { path = "../firedancer-sys", version = "=0.1.0" }
+libc = "0.2.139"
+rand = "0.8.5"
+tokio = { version = "~1.14.1", features = ["full"] }

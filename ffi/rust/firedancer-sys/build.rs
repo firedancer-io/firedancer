@@ -10,8 +10,8 @@ fn main() {
     let dir_env = env::var("CARGO_MANIFEST_DIR").unwrap();
     let dir = Path::new(&dir_env);
     let firedancer_dir = dir.join("firedancer");
-    let machine = env::var("MACHINE").unwrap_or("linux_clang_x86_64".to_string());
-    let objdir = firedancer_dir.join("build").join(get_builddir(&machine));
+    let machine = "linux_clang_x86_64_ffi_rust".to_string();
+    let objdir = firedancer_dir.join("build").join("linux/clang/x86_64");
 
     // Build the Firedancer sources
     Command::new("make")
@@ -49,12 +49,4 @@ fn main() {
         .expect("Unable to generate bindings")
         .write_to_file(Path::new("./src/generated.rs"))
         .expect("Failed to write bindings to file");
-}
-
-fn get_builddir(machine: &str) -> String {
-    machine
-        .splitn(3, "_")
-        .into_iter()
-        .collect::<Vec<&str>>()
-        .join("/")
 }

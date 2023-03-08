@@ -18,16 +18,13 @@ pub use crate::generated::{
     fd_fseq_join,
     fd_fseq_leave,
     fd_fseq_new,
+    fd_fseq_app_laddr
 };
 use std::ffi::c_void;
 use std::sync::atomic::{
     compiler_fence,
     Ordering,
 };
-
-pub unsafe fn fd_fseq_app_laddr(fseq: *mut u64) -> *mut c_void {
-    fseq.add(2) as *mut c_void
-}
 
 pub unsafe fn fd_fseq_app_laddr_const(fseq: *const u64) -> *const c_void {
     fseq.add(2) as *const c_void

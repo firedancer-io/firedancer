@@ -155,6 +155,10 @@
 #define FD_HAS_AVX 0
 #endif
 
+#ifndef FD_USE_ATTR_WEAK
+#define FD_USE_ATTR_WEAK 0
+#endif
+
 /* Base development environment ***************************************/
 
 /* The functionality provided by these vanilla headers are always
@@ -499,6 +503,18 @@ fd_type_pun_const( void const * p ) {
    own portability issues.) */
 
 #define FD_FN_UNUSED __attribute__((unused))
+
+#if FD_USE_ATTR_WEAK
+#define FD_STATIC_INLINE __attribute__((weak))
+#else
+#define FD_STATIC_INLINE static inline
+#endif
+
+#if FD_USE_ATTR_WEAK
+#define FD_STATIC_INLINE_COMPLEX __attribute__((weak))
+#else
+#define FD_STATIC_INLINE_COMPLEX FD_FN_UNUSED static
+#endif
 
 /* FD_COMPILER_FORGET(var):  Tells the compiler that it shouldn't use
    any knowledge it has about the provided register-compatible variable
