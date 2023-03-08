@@ -386,8 +386,12 @@ fd_txn_footprint( ulong instr_cnt,
    accumulated into the struct pointed to by counters_opt. Note: The returned
    txn object is not self-contained since it refers to byte ranges inside the
    payload. */
-ulong fd_txn_parse( uchar const * payload, ulong payload_sz, void * out_buf, fd_txn_parse_counters_t * counters_opt );
-
+ulong fd_txn_parse( uchar const             * payload, 
+                    ulong                     payload_sz, 
+                    void *                    out_buf, 
+                    fd_txn_parse_counters_t * counters_opt,
+                    ulong                   * bytes_parsed_sz_opt );
+              
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_ballet_txn_fd_txn_h */

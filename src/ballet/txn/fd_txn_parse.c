@@ -7,7 +7,8 @@ ulong
 fd_txn_parse( uchar const             * payload,
               ulong                     payload_sz,
               void                    * out_buf,
-              fd_txn_parse_counters_t * counters_opt ) {
+              fd_txn_parse_counters_t * counters_opt,
+              ulong                   * bytes_parsed_sz_opt ) {
   ulong i = 0UL;
   /* This code does non-trivial parsing of untrusted user input, which is a potentially dangerous thing.
      The main invariants we need to ensure are
@@ -186,7 +187,7 @@ fd_txn_parse( uchar const             * payload,
   }
   #undef MIN_ADDR_LUT_SIZE
   /* Check for leftover bytes */
-  CHECK( i==payload_sz );
+  CHECK( i==payload_sz || bytes_parsed_sz_opt!=NULL );
 
   CHECK( acct_addr_cnt+addr_table_adtl_cnt<=FD_TXN_ACCT_ADDR_MAX ); /* implies addr_table_adtl_cnt<256 */
 
@@ -209,9 +210,14 @@ fd_txn_parse( uchar const             * payload,
   parsed->_padding_reserved_1           = (uchar)0;
 
   if( FD_LIKELY( counters_opt ) ) counters_opt->success_cnt++;
+  if( FD_LIKELY( bytes_parsed_sz_opt ) ) *bytes_parsed_sz_opt = i;
   return fd_txn_footprint( instr_cnt, addr_table_cnt );
 
   #undef CHECK
   #undef CHECK_LEFT
   #undef READ_CHECKED_COMPACT_U16
 }
+
+
+
+
