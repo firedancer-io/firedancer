@@ -15,7 +15,7 @@ struct fd_xdp_aio {
   uchar *               frame_mem;   /* frame memory */
   size_t                batch_sz;    /* the max size of any batch */
   fd_xdp_frame_meta_t * meta;        /* xdp metadata for handling batches */
-  fd_aio_buffer_t *     aio_batch;   /* aio metadata for handling batches */
+  fd_aio_pkt_info_t *   aio_batch;   /* aio metadata for handling batches */
 
   ulong *               tx_stack;    /* stack of unused tx frames */
   size_t                tx_stack_sz; /* stack of unused tx frames */

@@ -19,7 +19,6 @@
 #include <time.h>
 
 #include "../fd_xdp.h"
-#include "../fd_xdp_private.h"
 #include "../fd_xdp_aio.h"
 
 #define DEFAULT_COMP_RING_SIZE 32
@@ -112,9 +111,9 @@ calc_check2( packet_t * pkt ) {
 }
 
 
-size_t my_aio_cb_receive( void *            context,
-                          fd_aio_buffer_t * batch,
-                          size_t            batch_sz );
+size_t my_aio_cb_receive( void *              context,
+                          fd_aio_pkt_info_t * batch,
+                          size_t              batch_sz );
 
 
 int
@@ -242,10 +241,10 @@ echo( fd_xdp_aio_t * xdp_aio, uchar const * raw_pkt, size_t raw_pkt_sz ) {
   calc_check2( tx_pkt );
 
   /* send */
-  fd_aio_buffer_t tx_buf[1] = {{ (void*)&tx_pkt, raw_pkt_sz }};
+  fd_aio_pkt_info_t tx_buf[1] = {{ (void*)&tx_pkt, raw_pkt_sz }};
   
-  size_t send_cnt = fd_aio_send( &egress, tx_buf, 1u );
-  if( send_cnt ) {
+  int rc = fd_aio_send( &egress, tx_buf, 1u, NULL );
+  if( rc == FD_AIO_SUCCESS ) {
     printf( "echo: send successful\n" );
   } else {
     printf( "echo: send failed\n" );
@@ -256,9 +255,9 @@ echo( fd_xdp_aio_t * xdp_aio, uchar const * raw_pkt, size_t raw_pkt_sz ) {
 /* callback for ingress
    echos back to sender */
 size_t
-my_aio_cb_receive( void *            context,
-                   fd_aio_buffer_t * batch,
-                   size_t            batch_sz ) {
+my_aio_cb_receive( void *              context,
+                   fd_aio_pkt_info_t * batch,
+                   size_t              batch_sz ) {
   fd_xdp_aio_t * xdp_aio = (fd_xdp_aio_t*)context;
 
   for( size_t j = 0; j < batch_sz; ++j ) {

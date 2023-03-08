@@ -15,7 +15,7 @@ struct __attribute__((aligned(FD_XSK_AIO_ALIGN))) fd_xsk_aio_private {
   ulong batch_cnt;      /* the max size of any batch                  */
   ulong tx_depth;       /* depth of the fd_xsk_t tx_depth/cr_depth    */
   ulong meta_off;       /* offset of fd_xsk_frame_meta_t[ batch_cnt ] */
-  ulong batch_off;      /* offset of fd_aio_buf_t       [ batch_cnt ] */
+  ulong batch_off;      /* offset of fd_aio_pkt_info_t  [ batch_cnt ] */
   ulong tx_stack_off;   /* offset of ulong              [ tx_depth  ] */
 
   /* Join Config ******************************************************/
@@ -38,7 +38,7 @@ struct __attribute__((aligned(FD_XSK_AIO_ALIGN))) fd_xsk_aio_private {
   /* Variable-length data *********************************************/
 
   /* ... fd_xsk_frame_meta_t[ batch_cnt ] follows ... */
-  /* ... fd_aio_buf_t       [ batch_cnt ] follows ... */
+  /* ... fd_aio_pkt_info_t  [ batch_cnt ] follows ... */
   /* ... ulong              [ tx_depth  ] follows ... */
 };
 
@@ -47,9 +47,9 @@ fd_xsk_aio_meta( fd_xsk_aio_t * xsk_aio ) {
   return (fd_xsk_frame_meta_t *)( (ulong)xsk_aio + xsk_aio->meta_off );
 }
 
-FD_FN_PURE static inline fd_aio_buf_t *
+FD_FN_PURE static inline fd_aio_pkt_info_t *
 fd_xsk_aio_batch( fd_xsk_aio_t * xsk_aio ) {
-  return (fd_aio_buf_t *)( (ulong)xsk_aio + xsk_aio->batch_off );
+  return (fd_aio_pkt_info_t *)( (ulong)xsk_aio + xsk_aio->batch_off );
 }
 
 FD_FN_PURE static inline ulong *

@@ -19,17 +19,18 @@
 #include "../../util/fd_util.h"
 
 static void
-echo_packet( fd_xsk_aio_t * xsk_aio,
-             fd_aio_buf_t * pkt ) {
+echo_packet( fd_xsk_aio_t *            xsk_aio,
+             fd_aio_pkt_info_t const * pkt ) {
   (void)xsk_aio;
   (void)pkt;
   FD_LOG_NOTICE(( "got packet" ));
 }
 
-ulong
-echo_aio_recv( void *         ctx,
-               fd_aio_buf_t * batch,
-               ulong          batch_cnt ) {
+int
+echo_aio_recv( void *                    ctx,
+               fd_aio_pkt_info_t const * batch,
+               ulong                     batch_cnt,
+               ulong *                   opt_batch_idx ) {
   fd_xsk_aio_t * xsk_aio = (fd_xsk_aio_t *)ctx;
 
   FD_LOG_NOTICE(( "recv callback: ctx=%p batch=%p batch_cnt=%lu",
@@ -38,7 +39,11 @@ echo_aio_recv( void *         ctx,
   for( ulong i=0; i<batch_cnt; i++ )
     echo_packet( xsk_aio, &batch[ i ] );
 
-  return batch_cnt;
+  if( opt_batch_idx ) {
+    *opt_batch_idx = batch_cnt;
+  }
+
+  return FD_AIO_SUCCESS;
 }
 
 int main( int     argc,

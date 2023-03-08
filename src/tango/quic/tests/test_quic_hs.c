@@ -70,14 +70,14 @@ extern uchar  pkt_full[];
 extern ulong pkt_full_sz;
 
 ulong
-aio_cb( void * context, fd_aio_buffer_t * batch, ulong batch_sz ) {
+aio_cb( void * context, fd_aio_pkt_info_t * batch, ulong batch_sz ) {
   (void)context;
 
   printf( "aio_cb callback\n" );
   for( ulong j = 0; j < batch_sz; ++j ) {
     printf( "batch %d\n", (int)j );
-    uchar const * data = (uchar const *)batch[j].data;
-    for( ulong k = 0; k < batch[j].data_sz; ++k ) {
+    uchar const * data = (uchar const *)batch[j].buf;
+    for( ulong k = 0; k < batch[j].buf_sz; ++k ) {
       printf( "%2.2x ", (uint)data[k] );
     }
     printf( "\n\n" );
@@ -94,8 +94,8 @@ void
 my_stream_receive_cb( fd_quic_stream_t * stream,
                       void *             ctx,
                       uchar const *      data,
-                      ulong             data_sz,
-                      ulong           offset ) {
+                      ulong              data_sz,
+                      ulong              offset ) {
   (void)ctx;
   (void)stream;
 
@@ -174,8 +174,8 @@ struct aio_pipe {
 typedef struct aio_pipe aio_pipe_t;
 
 
-ulong
-pipe_aio_receive( void * vp_ctx, fd_aio_buffer_t * batch, ulong batch_sz ) {
+int
+pipe_aio_receive( void * vp_ctx, fd_aio_pkt_info_t const * batch, ulong batch_sz, ulong * opt_batch_idx ) {
   static ulong ts = 0;
   ts += 100000ul;
 
@@ -183,13 +183,13 @@ pipe_aio_receive( void * vp_ctx, fd_aio_buffer_t * batch, ulong batch_sz ) {
 
 #if 1
   for( unsigned j = 0; j < batch_sz; ++j ) {
-    write_epb( pipe->file, batch[j].data, (unsigned)batch[j].data_sz, ts );
+    write_epb( pipe->file, batch[j].buf, (unsigned)batch[j].buf_sz, ts );
   }
   fflush( pipe->file );
 #endif
 
   /* forward */
-  return fd_aio_send( pipe->aio, batch, batch_sz );
+  return fd_aio_send( pipe->aio, batch, batch_sz, opt_batch_idx );
 }
 
 
@@ -296,10 +296,16 @@ main( int argc, char ** argv ) {
   /* create a pipe for catching data as it passes thru */
   aio_pipe_t pipe[2] = { { aio_n2q, pcap }, { aio_q2n, pcap } };
 
-  fd_aio_t aio[2] = { { pipe_aio_receive, (void*)&pipe[0] }, { pipe_aio_receive, (void*)&pipe[1] } };
+  fd_aio_t aio[2] = {0};
 
-  fd_quic_set_aio_net_out( server_quic, &aio[1] );
-  fd_quic_set_aio_net_out( client_quic, &aio[0] );
+  void *     shaio0 = fd_aio_new( aio+0, (void*)&pipe[0], pipe_aio_receive );
+  fd_aio_t * aio0   = fd_aio_join( shaio0 );
+
+  void *     shaio1 = fd_aio_new( aio+1, (void*)&pipe[1], pipe_aio_receive );
+  fd_aio_t * aio1   = fd_aio_join( shaio1 );
+
+  fd_quic_set_aio_net_out( server_quic, aio1 );
+  fd_quic_set_aio_net_out( client_quic, aio0 );
 #endif
 
   /* set up server_quic as server */
@@ -366,7 +372,7 @@ main( int argc, char ** argv ) {
   FD_TEST( client_stream_0 );
 
   char buf[512] = "Hello world!\x00-   ";
-  fd_aio_buffer_t batch[1] = {{ buf, sizeof( buf ) }};
+  fd_aio_pkt_info_t batch[1] = {{ buf, sizeof( buf ) }};
   int rc = fd_quic_stream_send( client_stream, batch, 1 );
 
   printf( "fd_quic_stream_send returned %d\n", rc );
@@ -429,6 +435,12 @@ main( int argc, char ** argv ) {
 
   fd_quic_delete( server_quic );
   fd_quic_delete( client_quic );
+
+  fd_aio_leave ( aio0 );
+  fd_aio_delete( shaio0 );
+
+  fd_aio_leave ( aio1 );
+  fd_aio_delete( shaio1 );
 
   if( fail ) {
     fprintf( stderr, "FAIL\n" );

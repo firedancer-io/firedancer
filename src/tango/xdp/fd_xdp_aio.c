@@ -9,14 +9,14 @@
 
 /* callback used by the aio interface to forward data to the caller */
 size_t
-fd_xdp_aio_forward_cb( void * context, fd_aio_buffer_t * batch, size_t batch_sz );
+fd_xdp_aio_forward_cb( void * context, fd_aio_pkt_info_t * batch, size_t batch_sz );
 
 
 /* get alignment and footprint */
 size_t fd_xdp_aio_align( void ) {
   size_t align = alignof( fd_xdp_aio_t );
   align = fd_ulong_max( align, alignof( fd_xdp_frame_meta_t ) );
-  align = fd_ulong_max( align, alignof( fd_aio_buffer_t ) );
+  align = fd_ulong_max( align, alignof( fd_aio_pkt_info_t ) );
   align = fd_ulong_max( align, alignof( ulong ) );
   return align;
 }
@@ -26,7 +26,7 @@ size_t fd_xdp_aio_footprint( fd_xdp_t * xdp, size_t batch_sz ) {
   size_t align = fd_xdp_aio_align();
   size_t offs  = FD_QUIC_POW2_ALIGN( sizeof( fd_xdp_aio_t ), align );
   offs += FD_QUIC_POW2_ALIGN( batch_sz * sizeof( fd_xdp_frame_meta_t ), align );
-  offs += FD_QUIC_POW2_ALIGN( batch_sz * sizeof( fd_aio_buffer_t ), align );
+  offs += FD_QUIC_POW2_ALIGN( batch_sz * sizeof( fd_aio_pkt_info_t ), align );
   offs += FD_QUIC_POW2_ALIGN( xdp->config.tx_ring_size * sizeof( ulong ), align );
 
   return offs;
@@ -65,9 +65,9 @@ fd_xdp_aio_new( void * mem, fd_xdp_t * xdp, size_t batch_sz ) {
   fd_xdp_frame_meta_t * meta = (fd_xdp_frame_meta_t*)( base + offs );
 
   offs += FD_QUIC_POW2_ALIGN( batch_sz * sizeof( fd_xdp_frame_meta_t ), align );
-  fd_aio_buffer_t * aio_batch = (fd_aio_buffer_t*)( base + offs );
+  fd_aio_pkt_info_t * aio_batch = (fd_aio_pkt_info_t*)( base + offs );
 
-  offs += FD_QUIC_POW2_ALIGN( batch_sz * sizeof( fd_aio_buffer_t ), align );
+  offs += FD_QUIC_POW2_ALIGN( batch_sz * sizeof( fd_aio_pkt_info_t ), align );
   ulong * tx_stack = (ulong*)( base + offs );
 
   /* initialize the members */
@@ -138,7 +138,7 @@ fd_xdp_aio_service( fd_xdp_aio_t * xdp_aio ) {
   fd_xdp_t *            xdp        = xdp_aio->xdp;
   fd_aio_t *            ingress    = &xdp_aio->ingress;
   fd_xdp_frame_meta_t * meta       = xdp_aio->meta;
-  fd_aio_buffer_t *     aio_batch  = xdp_aio->aio_batch;
+  fd_aio_pkt_info_t *   aio_batch  = xdp_aio->aio_batch;
   size_t                batch_sz   = xdp_aio->batch_sz;
   uchar *               frame_mem  = xdp_aio->frame_mem;
 
@@ -148,10 +148,10 @@ fd_xdp_aio_service( fd_xdp_aio_t * xdp_aio ) {
   /* forward to aio */
   if( rx_avail ) {
     for( size_t j = 0; j < rx_avail; ++j ) {
-      aio_batch[j] = (fd_aio_buffer_t){ frame_mem + meta[j].offset, meta[j].sz };
+      aio_batch[j] = (fd_aio_pkt_info_t){ frame_mem + meta[j].offset, meta[j].sz };
     }
 
-    fd_aio_send( ingress, aio_batch, rx_avail );
+    fd_aio_send( ingress, aio_batch, rx_avail, NULL );
     /* TODO frames may not all be processed at this point
        we should count them, and possibly buffer them */
 
@@ -178,9 +178,9 @@ fd_xdp_aio_tx_complete( fd_xdp_aio_t * xdp_aio ) {
 
 
 size_t
-fd_xdp_aio_forward_cb( void *            context,
-                       fd_aio_buffer_t * batch,
-                       size_t            batch_sz ) {
+fd_xdp_aio_forward_cb( void *              context,
+                       fd_aio_pkt_info_t * batch,
+                       size_t              batch_sz ) {
   fd_xdp_aio_t * xdp_aio = (fd_xdp_aio_t*)context;
   fd_xdp_t *     xdp     = xdp_aio->xdp;
 

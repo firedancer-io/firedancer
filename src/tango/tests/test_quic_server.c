@@ -109,7 +109,7 @@ extern uchar  pkt_full[];
 extern ulong pkt_full_sz;
 
 ulong
-aio_cb( void * context, fd_aio_buffer_t * batch, ulong batch_sz ) {
+aio_cb( void * context, fd_aio_pkt_info_t * batch, ulong batch_sz ) {
   (void)context;
 
   printf( "aio_cb callback\n" );
@@ -198,7 +198,7 @@ typedef struct aio_pipe aio_pipe_t;
 
 
 ulong
-pipe_aio_receive( void * vp_ctx, fd_aio_buffer_t * batch, ulong batch_sz ) {
+pipe_aio_receive( void * vp_ctx, fd_aio_pkt_info_t * batch, ulong batch_sz ) {
   static ulong ts = 0;
   ts += 100000ul;
 
@@ -212,7 +212,8 @@ pipe_aio_receive( void * vp_ctx, fd_aio_buffer_t * batch, ulong batch_sz ) {
 #endif
 
   /* forward */
-  return fd_aio_send( pipe->aio, batch, batch_sz );
+  /* TODO ignores tx errors */
+  return fd_aio_send( pipe->aio, batch, batch_sz, NULL );
 }
 
 

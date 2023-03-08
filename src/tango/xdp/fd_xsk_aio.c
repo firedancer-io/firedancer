@@ -7,10 +7,11 @@
 #include "fd_xsk_aio_private.h"
 
 /* Forward declaration */
-static ulong
-fd_xsk_aio_send( void *            ctx,
-                 fd_aio_buf_t *    batch,
-                 ulong             batch_cnt );
+static int
+fd_xsk_aio_send( void *                    ctx,
+                 fd_aio_pkt_info_t const * batch,
+                 ulong                     batch_cnt,
+                 ulong *                   opt_batch_idx );
 
 ulong
 fd_xsk_aio_align( void ) {
@@ -22,7 +23,7 @@ fd_xsk_aio_footprint( ulong tx_depth,
                       ulong batch_cnt ) {
   ulong sz =       1UL*sizeof( fd_xsk_aio_t        )
            + batch_cnt*sizeof( fd_xsk_frame_meta_t )
-           + batch_cnt*sizeof( fd_aio_buf_t        )
+           + batch_cnt*sizeof( fd_aio_pkt_info_t   )
            + tx_depth *sizeof( ulong               );
 
   sz = fd_ulong_align_up( sz, FD_XSK_AIO_ALIGN );
@@ -69,11 +70,11 @@ fd_xsk_aio_new( void * mem,
   fd_xsk_aio_t * xsk_aio = (fd_xsk_aio_t *)mem;
 
   /* Assumes alignment of `fd_xsk_aio_t` matches alignment of
-     `fd_xsk_frame_meta_t` and `fd_aio_buf_t`. */
+     `fd_xsk_frame_meta_t` and `fd_aio_pkt_info_t`. */
 
-  ulong meta_off     =                       sizeof(fd_xsk_aio_t       );
-  ulong batch_off    = meta_off  + batch_cnt*sizeof(fd_xsk_frame_meta_t);
-  ulong tx_stack_off = batch_off + batch_cnt*sizeof(fd_aio_buf_t       );
+  ulong meta_off     =                       sizeof( fd_xsk_aio_t        );
+  ulong batch_off    = meta_off  + batch_cnt*sizeof( fd_xsk_frame_meta_t );
+  ulong tx_stack_off = batch_off + batch_cnt*sizeof( fd_aio_pkt_info_t   );
 
   xsk_aio->batch_cnt    = batch_cnt;
   xsk_aio->tx_depth     = tx_depth;
@@ -235,7 +236,7 @@ fd_xsk_aio_housekeep( fd_xsk_aio_t * xsk_aio ) {
   fd_xsk_t *            xsk         = xsk_aio->xsk;
   fd_aio_t *            ingress     = &xsk_aio->rx;
   fd_xsk_frame_meta_t * meta        = fd_xsk_aio_meta ( xsk_aio );
-  fd_aio_buf_t *        aio_batch   = fd_xsk_aio_batch( xsk_aio );
+  fd_aio_pkt_info_t *   aio_batch   = fd_xsk_aio_batch( xsk_aio );
   ulong                 batch_sz    = xsk_aio->batch_cnt;
   ulong                 frame_laddr = (ulong)fd_xsk_umem_laddr( xsk_aio->xsk );
 
@@ -245,13 +246,13 @@ fd_xsk_aio_housekeep( fd_xsk_aio_t * xsk_aio ) {
   /* forward to aio */
   if( rx_avail ) {
     for( ulong j=0; j<rx_avail; j++ ) {
-      aio_batch[j] = (fd_aio_buf_t) {
-        .data    = (void *)(frame_laddr + meta[j].off),
-        .data_sz = meta[j].sz
+      aio_batch[j] = (fd_aio_pkt_info_t) {
+        .buf    = (void *)(frame_laddr + meta[j].off),
+        .buf_sz = (ushort)meta[j].sz
       };
     }
 
-    fd_aio_send( ingress, aio_batch, rx_avail );
+    fd_aio_send( ingress, aio_batch, rx_avail, NULL );
     /* TODO frames may not all be processed at this point
        we should count them, and possibly buffer them */
 
@@ -282,10 +283,11 @@ fd_xsk_aio_tx_complete( fd_xsk_aio_t * xsk_aio ) {
 
 /* fd_xsk_aio_send is an aio callback that transmits the given batch of
    packets through the XSK. */
-static ulong
-fd_xsk_aio_send( void *         ctx,
-                 fd_aio_buf_t * batch,
-                 ulong          batch_cnt ) {
+static int
+fd_xsk_aio_send( void *                    ctx,
+                 fd_aio_pkt_info_t const * batch,
+                 ulong                     batch_cnt,
+                 ulong *                   opt_batch_idx ) {
   fd_xsk_aio_t * xsk_aio = (fd_xsk_aio_t*)ctx;
   fd_xsk_t *     xsk     = xsk_aio->xsk;
 
@@ -303,17 +305,20 @@ fd_xsk_aio_send( void *         ctx,
     /* find a buffer */
     if( FD_UNLIKELY( !xsk_aio->tx_top ) ) {
       /* none available */
-      return j;
+      if( FD_LIKELY( opt_batch_idx ) ) {
+        *opt_batch_idx = j;
+      }
+      return FD_AIO_ERR_AGAIN;
     }
 
     --xsk_aio->tx_top;
     ulong offset = xsk_aio->tx_stack[xsk_aio->tx_top];
 
-    uchar const * data    = batch[j].data;
-    ulong         data_sz = batch[j].data_sz;
+    uchar const * data    = batch[j].buf;
+    ulong         data_sz = (ulong)batch[j].buf_sz;
 
     /* copy frame into tx memory */
-    if( FD_UNLIKELY( batch[j].data_sz > frame_size ) ) {
+    if( FD_UNLIKELY( batch[j].buf_sz > frame_size ) ) {
       FD_LOG_ERR(( "%s : frame too large for xsk ring, dropping", __func__ ));
       /* fail */
     } else {
@@ -344,5 +349,9 @@ fd_xsk_aio_send( void *         ctx,
     fd_xsk_tx_enqueue( xsk, meta, k );
   }
 
-  return batch_cnt;
+  if( FD_LIKELY( opt_batch_idx ) ) {
+    *opt_batch_idx = batch_cnt;
+  }
+
+  return FD_AIO_SUCCESS;
 }

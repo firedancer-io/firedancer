@@ -300,9 +300,9 @@ fd_quic_conn_new_stream( fd_quic_conn_t * conn, int type );
 
    */
 int
-fd_quic_stream_send( fd_quic_stream_t * stream,
-                     fd_aio_buffer_t *  batch,
-                     ulong              batch_sz );
+fd_quic_stream_send( fd_quic_stream_t *  stream,
+                     fd_aio_pkt_info_t * batch,
+                     ulong               batch_sz );
 
 
 /* closes tx or rx or both of a stream
