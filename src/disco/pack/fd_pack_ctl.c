@@ -116,7 +116,7 @@ main( int     argc,
       SCRATCH_ALLOC( freelist_align( ),                 freelist_footprint( freelist_sz)           );
 
       /* Allocate the chunk of memory */
-      ulong gaddr = fd_wksp_alloc( wksp, 128UL, scratch_top );
+      ulong gaddr = fd_wksp_alloc( wksp, 128UL, scratch_top, 1UL );
       if( FD_UNLIKELY( !gaddr ) ) {
         fd_wksp_detach( wksp );
         FD_LOG_ERR(( "%i: %s: fd_wksp_alloc( \"%s\", %lu, %lu ) failed\n\tDo %s help for help",
