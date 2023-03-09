@@ -9,7 +9,8 @@
 	  2. Runtime
 	  3. Consensus
 
- ![[Pasted image 20230309213240.png]] 
+ ![image](https://user-images.githubusercontent.com/88841339/224098753-4a62136a-aad7-4343-89b0-f8c0fd45a990.png)
+
 - # Why C?
 	- When Building something like Firedancer which could potentially be run on thousands of machines, the code has to be efficient. C allows were tight integration with the hardware and make it allow developers a lot of flexibility in the ability to manage compute resources. [Here Josh Siegel](https://www.youtube.com/watch?v=9efhIs37hVI) one of the core builders of Firedancer explain in depth and practical demo on "why C"?
 - # Block propagation in Firedancer
