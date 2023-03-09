@@ -24,6 +24,9 @@ pkgs.mkShell {
     pkg-config
     quictls
     xdp-tools
+
+    # Utils
+    hwloc
   ];
 }
 
