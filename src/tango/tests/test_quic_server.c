@@ -109,14 +109,14 @@ extern uchar  pkt_full[];
 extern ulong pkt_full_sz;
 
 ulong
-aio_cb( void * context, fd_aio_buffer_t * batch, ulong batch_sz ) {
+aio_cb( void * context, fd_aio_pkt_info_t * batch, ulong batch_sz ) {
   (void)context;
 
   printf( "aio_cb callback\n" );
   for( ulong j = 0; j < batch_sz; ++j ) {
     printf( "batch %d\n", (int)j );
-    uchar const * data = (uchar const *)batch[j].data;
-    for( ulong k = 0; k < batch[j].data_sz; ++k ) {
+    uchar const * data = (uchar const *)batch[j].buf;
+    for( ulong k = 0; k < batch[j].buf_sz; ++k ) {
       printf( "%2.2x ", (unsigned)data[k] );
     }
     printf( "\n\n" );
@@ -197,8 +197,8 @@ struct aio_pipe {
 typedef struct aio_pipe aio_pipe_t;
 
 
-ulong
-pipe_aio_receive( void * vp_ctx, fd_aio_buffer_t * batch, ulong batch_sz ) {
+int
+pipe_aio_receive( void * vp_ctx, fd_aio_pkt_info_t * batch, ulong batch_sz, ulong * opt_batch_idx ) {
   static ulong ts = 0;
   ts += 100000ul;
 
@@ -206,13 +206,13 @@ pipe_aio_receive( void * vp_ctx, fd_aio_buffer_t * batch, ulong batch_sz ) {
 
 #if 1
   for( unsigned j = 0; j < batch_sz; ++j ) {
-    write_epb( pipe->file, batch[j].data, (unsigned)batch[j].data_sz, ts );
+    write_epb( pipe->file, batch[j].buf, (unsigned)batch[j].buf_sz, ts );
   }
   fflush( pipe->file );
 #endif
 
   /* forward */
-  return fd_aio_send( pipe->aio, batch, batch_sz );
+  return fd_aio_send( pipe->aio, batch, batch_sz, opt_batch_idx );
 }
 
 
