@@ -16,7 +16,7 @@ FD_STATIC_ASSERT( alignof(fd_xsk_frame_meta_t)>=8UL,                        alig
 
 /* fd_xsk_t memory region */
 
-static uchar _xsk[ 16384UL ] __attribute__((aligned(FD_XSK_ALIGN)));
+static uchar _xsk[ 262144UL ] __attribute__((aligned(FD_XSK_ALIGN)));
 
 /* Mock mmap'ed rings provided by kernel */
 
@@ -485,13 +485,14 @@ test_xsk_aio( void ) {
 
   /* Create new XSK aio */
 
-  FD_TEST( fd_xsk_aio_footprint( 8UL, 8UL )==480UL );
-
+  FD_TEST( fd_xsk_aio_footprint( 8UL, 8UL )==480UL            );
+  FD_TEST( fd_xsk_aio_footprint( 8UL, 8UL )<=sizeof(_xsk_aio) );
   void * shxsk_aio = fd_xsk_aio_new( _xsk_aio, 8UL, 8UL );
   FD_TEST( shxsk_aio );
 
   /* Mock XSK */
 
+  FD_TEST( fd_xsk_footprint( 2048UL, 8UL, 8UL, 8UL, 8UL )<=sizeof(_xsk) );
   void * shxsk = fd_xsk_new( _xsk, 2048UL, 8UL, 8UL, 8UL, 8UL );
   FD_TEST( shxsk );
 
@@ -515,7 +516,10 @@ test_xsk_aio( void ) {
   /* Join xsk_aio */
 
   xsk_aio = fd_xsk_aio_join( shxsk_aio, xsk );
+  FD_TEST( xsk_aio );
+
   fd_aio_t const * aio_tx = fd_xsk_aio_get_tx( xsk_aio );
+  FD_TEST( aio_tx );
 
   /* Fill ring should be populated on join */
 
