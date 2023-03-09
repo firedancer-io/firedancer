@@ -4,10 +4,10 @@
 #include <string.h>
 
 #include "../../util/fd_util.h"
+#include "../aio/fd_aio.h"
 
 
 /* forwards */
-typedef struct fd_aio                   fd_aio_t;
 typedef struct fd_quic_transport_params fd_quic_transport_params_t;
 typedef struct fd_quic_host_cfg         fd_quic_host_cfg_t;
 typedef struct fd_quic_conn             fd_quic_conn_t;
