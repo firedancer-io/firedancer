@@ -158,6 +158,13 @@
 
 #include "../sha256/fd_sha256.h"
 
+#if FD_HAS_AVX
+/* FIXME: Ideally we wouldn't let this bleed into the invoking compile
+   unit.  (This is somewhat a symptom of this being unnecessarily
+   templatized at this point and can probably be cleaned up then.) */
+#include <x86intrin.h>
+#endif
+
 #ifndef BMTREE_NAME
 #error "Define BMTREE_NAME"
 #endif
@@ -271,6 +278,15 @@ FD_FN_UNUSED static BMTREE_(node_t) * /* Work around -Winline */
 BMTREE_(hash_leaf)( BMTREE_(node_t) * node,
                     void const *      data,
                     ulong             data_sz ) {
+
+  /* FIXME: Ideally we'd use the streamlined SHA-256 variant here but it
+     is pretty wonky from a usability perspective to require users to
+     allow us this API prepend a zero to their data region.  See note
+     below for other nasty performance drags here in the implementation
+     details (the algorithm conceptually is very clever and sound but
+     the implementation requirements did not take into any consideration
+     how real world computers and hardware actually work). */
+
   static uchar const leaf[1] = { (uchar)0 };
   fd_sha256_t sha[1];
   fd_sha256_fini( fd_sha256_append( fd_sha256_append( fd_sha256_init( sha ), leaf, 1UL ), data, data_sz ), node->hash );
@@ -285,10 +301,68 @@ static inline BMTREE_(node_t) *
 BMTREE_(private_merge)( BMTREE_(node_t)       * node,
                         BMTREE_(node_t) const * a,
                         BMTREE_(node_t) const * b ) {
+
+  /* FIXME: As can be seen from the below, if we actually wanted to be
+     fast, we'd not bother with 20 byte variant as we actually have to
+     do more work for this given the SHA algorithm and the hardware work
+     at a much coarser granularity (and it doesn't save any space in
+     packets because you could just compute the 32 byte variant and then
+     truncate the result to 20 bytes ... it'd be both faster and more
+     secure).
+
+     Further, we'd use a sane prefix (or maybe a suffix) length instead
+     of a single byte (fine grained memory accesses are the death knell
+     of real world performance ... it's actually more work for the CPU
+     and hardware).
+
+     And then, if we really cared, we'd probably replace the stock
+     SHA256 implementation with a block level parallel SHA256 variant
+     here and above.  This would have equivalent strength but be
+     dramatically higher performance on real world software and
+     hardware.
+
+     And then, we could bake into the leaf / branch prefixes into the
+     parallel block calcs to further reduce comp load and alignment
+     swizzling.  This would make the calculation faster still in
+     software and less area in hardware while preserving security.
+
+     The net result would be a dramatically faster and significant more
+     secure and less code in software and a lot easier to accelerate in
+     hardware.
+
+     In the meantime, we write abominations like the below to get some
+     extra mileage out of commodity CPUs.  Practically helps speed this
+     up tree construction low tens of percent in the large number of
+     small leaves limit). */
+
+# if FD_HAS_AVX
+
+  __m256i avx_a = _mm256_load_si256( (__m256i const *)a );
+  __m256i avx_b = _mm256_load_si256( (__m256i const *)b );
+
+  uchar mem[96] __attribute__((aligned(32)));
+
+  mem[31] = (uchar)1;
+  _mm256_store_si256( (__m256i *)(mem+32UL), avx_a );
+# if BMTREE_HASH_SZ==32
+  _mm256_store_si256( (__m256i *)(mem+64UL), avx_b );
+# else
+  _mm256_storeu_si256( (__m256i *)(mem+32UL+BMTREE_HASH_SZ), avx_b );
+# endif
+
+  fd_sha256_hash( mem+31UL, 1UL+2UL*BMTREE_HASH_SZ, node );
+
+  /* Consider FD_HAS_SSE only variant? */
+
+# else
+
   static uchar const branch[1] = { (uchar)1 };
   fd_sha256_t sha[1];
   fd_sha256_fini( fd_sha256_append( fd_sha256_append( fd_sha256_append( fd_sha256_init( sha ),
                   branch, 1UL ), a->hash, BMTREE_HASH_SZ ), b->hash, BMTREE_HASH_SZ ), node->hash );
+
+# endif
+
   return node;
 }
 
@@ -319,7 +393,9 @@ BMTREE_(commit_init)( void * mem ) { /* Assumed unused with required alignment a
 
 FD_FN_PURE static inline ulong BMTREE_(commit_leaf_cnt)( BMTREE_(commit_t) const * state ) { return state->leaf_cnt; }
 
-/* bmtree_commit_append accumulates a range of leaf nodes. */
+/* bmtree_commit_append appends a range of leaf nodes.  Assumes that
+   leaf_cnt + new_leaf_cnt << 2^63 (which, unless planning on running
+   for millenia, is always true). */
 
 static inline BMTREE_(commit_t) *                                            /* Returns state */
 BMTREE_(commit_append)( BMTREE_(commit_t) *                 state,           /* Assumed valid and in a calc */
