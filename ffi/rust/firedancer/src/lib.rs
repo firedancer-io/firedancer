@@ -243,6 +243,7 @@ impl PackRx {
         argv.shrink_to_fit();
 
         unsafe {
+            /* TODO: call fd_shmem_private_boot instead */
             fd_boot(&mut argc, &mut argv.as_mut_ptr());
         }
     }
