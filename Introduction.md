@@ -1,4 +1,4 @@
-- # What is Firedancer?
+ # What is Firedancer?
 - **Firedancer is a node implementation written in C for the solana blockchain**. It will be the second full node implementation of Solana with the comping up Light Client Tinydancer. Firedancer will diversify the client stack and make the network more resilient as if there is an bug in the original rust node that halts the validators from producing blocks and coming to a consensus, validators running FD will keep the network secure and stable.
 - ---
 - # Why C?
