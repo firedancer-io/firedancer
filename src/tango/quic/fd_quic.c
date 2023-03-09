@@ -433,8 +433,10 @@ fd_quic_new( void * mem, fd_quic_config_t const * config ) {
   offs += FD_QUIC_POW2_ALIGN( event_queue_sz, align );
 
   /* configure AIO */
-  quic->aio_net_in.cb_receive = fd_quic_aio_cb_receive;
-  quic->aio_net_in.context    = (void*)quic;
+  quic->aio_net_in = fd_aio_join(
+                       fd_aio_new( quic->aio_net_in_mem,
+                                   quic,
+                                   fd_quic_aio_cb_receive ) );
 
   quic->aio_net_out           = NULL; // set later
 
@@ -647,9 +649,9 @@ fd_quic_conn_new_stream( fd_quic_conn_t * conn, int dirtype ) {
       -2   connection not in valid state for sending
       -3   blocked from sending - try later */
 int
-fd_quic_stream_send( fd_quic_stream_t * stream,
-                     fd_aio_buffer_t *  batch,
-                     ulong              batch_sz ) {
+fd_quic_stream_send( fd_quic_stream_t *  stream,
+                     fd_aio_pkt_info_t * batch,
+                     ulong               batch_sz ) {
   (void)stream;
   (void)batch;
   (void)batch_sz;
@@ -682,8 +684,8 @@ fd_quic_stream_send( fd_quic_stream_t * stream,
   /* visit each buffer in batch and store in tx_buf if there is sufficient
      space */
   for( ulong j = 0; j < batch_sz; ++j ) {
-    ulong         data_sz = batch[j].data_sz;
-    uchar const * data    = batch[j].data;
+    ulong         data_sz = batch[j].buf_sz;
+    uchar const * data    = batch[j].buf;
 
     if( data_sz > fd_quic_buffer_avail( tx_buf ) ) {
       break;
@@ -2101,24 +2103,28 @@ fd_quic_process_packet( fd_quic_t * quic, uchar const * data, ulong data_sz ) {
 }
 
 /* main receive-side entry point */
-ulong
-fd_quic_aio_cb_receive( void *            context,
-                        fd_aio_buffer_t * batch,
-                        ulong            batch_sz ) {
+int
+fd_quic_aio_cb_receive( void *                    context,
+                        fd_aio_pkt_info_t const * batch,
+                        ulong                     batch_sz,
+                        ulong *                   opt_batch_idx ) {
   fd_quic_t * quic = (fd_quic_t*)context;
 
-  /* preliminary parse */
   /* this aio interface is configured as one-packet per buffer
      so batch[0] refers to one buffer
      as such, we simply forward each individual packet to a handling function */
   for( ulong j = 0; j < batch_sz; ++j ) {
-    fd_quic_process_packet( quic, batch[j].data, batch[j].data_sz );
+    fd_quic_process_packet( quic, batch[j].buf, batch[j].buf_sz );
   }
 
   /* the assumption here at present is that any packet that could not be processed
      is simply dropped
      hence, all packets were consumed */
-  return batch_sz;
+  if( FD_LIKELY( opt_batch_idx ) ) {
+    *opt_batch_idx = batch_sz;
+  }
+
+  return FD_AIO_SUCCESS;
 }
 
 /* define callbacks from quic-tls into quic */
@@ -2559,14 +2565,14 @@ fd_quic_tx_buffered( fd_quic_t * quic, fd_quic_conn_t * conn ) {
   cur_ptr += (ulong)payload_sz;
   cur_sz  -= (ulong)payload_sz;
 
-  fd_aio_buffer_t aio_buf = { conn->crypt_scratch, .data_sz = (ulong)( cur_ptr - conn->crypt_scratch ) };
-  ulong aio_rc = fd_aio_send( quic->aio_net_out, &aio_buf, 1 );
-  if( ~aio_rc == 0u ) {
-    FD_LOG_WARNING(( "Fatal error reported by aio peer" ));
-    /* drop thru to reset buffer */
-  } else if( aio_rc == 0 ) {
+  fd_aio_pkt_info_t aio_buf = { .buf = conn->crypt_scratch, .buf_sz = (ushort)( cur_ptr - conn->crypt_scratch ) };
+  int aio_rc = fd_aio_send( quic->aio_net_out, &aio_buf, 1, NULL );
+  if( aio_rc == FD_AIO_ERR_AGAIN ) {
     /* transient condition - try later */
     return 1;
+  } else if( aio_rc != FD_AIO_SUCCESS ) {
+    FD_LOG_WARNING(( "Fatal error reported by aio peer" ));
+    /* drop thru to reset buffer */
   }
 
   /* after send, reset tx_ptr and tx_sz */

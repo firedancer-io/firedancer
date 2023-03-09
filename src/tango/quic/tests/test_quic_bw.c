@@ -20,14 +20,14 @@ gettime() {
 }
 
 ulong
-aio_cb( void * context, fd_aio_buffer_t * batch, ulong batch_sz ) {
+aio_cb( void * context, fd_aio_pkt_info_t * batch, ulong batch_sz ) {
   (void)context;
 
   printf( "aio_cb callback\n" );
   for( ulong j = 0; j < batch_sz; ++j ) {
     printf( "batch %d\n", (int)j );
-    uchar const * data = (uchar const *)batch[j].data;
-    for( ulong k = 0; k < batch[j].data_sz; ++k ) {
+    uchar const * data = (uchar const *)batch[j].buf;
+    for( ulong k = 0; k < batch[j].buf_sz; ++k ) {
       printf( "%2.2x ", (uint)data[k] );
     }
     printf( "\n\n" );
@@ -119,15 +119,15 @@ struct aio_pipe {
 typedef struct aio_pipe aio_pipe_t;
 
 
-ulong
-pipe_aio_receive( void * vp_ctx, fd_aio_buffer_t * batch, ulong batch_sz ) {
+int
+pipe_aio_receive( void * vp_ctx, fd_aio_pkt_info_t * batch, ulong batch_sz, ulong * opt_batch_idx ) {
   static ulong ts = 0;
   ts += 100000ul;
 
   aio_pipe_t * pipe = (aio_pipe_t*)vp_ctx;
 
   /* forward */
-  return fd_aio_send( pipe->aio, batch, batch_sz );
+  return fd_aio_send( pipe->aio, batch, batch_sz, opt_batch_idx );
 }
 
 
@@ -278,7 +278,7 @@ main( int argc, char ** argv ) {
 
   char buf[SEND_SZ] = "Hello world!\x00-   ";
   ulong buf_sz = sizeof( buf );
-  fd_aio_buffer_t batch[1] = {{ buf, buf_sz }};
+  fd_aio_pkt_info_t batch[1] = {{ buf, (ushort)buf_sz }};
   int rc = fd_quic_stream_send( client_stream, batch, 1 );
 
   printf( "fd_quic_stream_send returned %d\n", rc );
