@@ -13,7 +13,7 @@ jobs:
         shell: nix-shell --command "bash --noprofile --norc -eo pipefail {0}"
     env:
       MACHINE: linux_clang_x86_64
-      EXTRAS: llvm-cov
+      EXTRAS: libbpf llvm-cov
     steps:
       - uses: actions/checkout@v3
 
