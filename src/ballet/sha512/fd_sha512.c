@@ -381,5 +381,59 @@ fd_sha512_fini( fd_sha512_t * sha,
   return _hash;
 }
 
+void *
+fd_sha512_hash( void const * _data,
+                ulong        sz,
+                void *       _hash ) {
+  uchar const * data = (uchar const *)_data;
+
+  /* This is just the above streamlined to eliminate all the overheads
+     to support incremental hashing. */
+
+  uchar buf[ FD_SHA512_PRIVATE_BUF_MAX ] __attribute__((aligned(128)));
+  ulong state[8] __attribute__((aligned(64)));
+
+  state[0] = 0x6a09e667f3bcc908UL;
+  state[1] = 0xbb67ae8584caa73bUL;
+  state[2] = 0x3c6ef372fe94f82bUL;
+  state[3] = 0xa54ff53a5f1d36f1UL;
+  state[4] = 0x510e527fade682d1UL;
+  state[5] = 0x9b05688c2b3e6c1fUL;
+  state[6] = 0x1f83d9abfb41bd6bUL;
+  state[7] = 0x5be0cd19137e2179UL;
+
+  ulong block_cnt = sz >> FD_SHA512_PRIVATE_LG_BUF_MAX;
+  if( FD_LIKELY( block_cnt ) ) fd_sha512_core( state, data, block_cnt );
+
+  ulong buf_used = sz & (FD_SHA512_PRIVATE_BUF_MAX-1UL);
+  if( FD_UNLIKELY( buf_used ) ) fd_memcpy( buf, data + (block_cnt << FD_SHA512_PRIVATE_LG_BUF_MAX), buf_used );
+  buf[ buf_used ] = (uchar)0x80;
+  buf_used++;
+
+  if( FD_UNLIKELY( buf_used > (FD_SHA512_PRIVATE_BUF_MAX-16UL) ) ) {
+    fd_memset( buf + buf_used, 0, FD_SHA512_PRIVATE_BUF_MAX-buf_used );
+    fd_sha512_core( state, buf, 1UL );
+    buf_used = 0UL;
+  }
+
+  ulong bit_cnt_lo = sz<< 3;
+  ulong bit_cnt_hi = sz>>61;
+  fd_memset( buf + buf_used, 0, FD_SHA512_PRIVATE_BUF_MAX-16UL-buf_used );
+  *((ulong *)(buf+FD_SHA512_PRIVATE_BUF_MAX-16UL)) = fd_ulong_bswap( bit_cnt_hi );
+  *((ulong *)(buf+FD_SHA512_PRIVATE_BUF_MAX- 8UL)) = fd_ulong_bswap( bit_cnt_lo );
+  fd_sha512_core( state, buf, 1UL );
+
+  ulong * hash = (ulong *)_hash;
+  hash[0] = fd_ulong_bswap( state[0] );
+  hash[1] = fd_ulong_bswap( state[1] );
+  hash[2] = fd_ulong_bswap( state[2] );
+  hash[3] = fd_ulong_bswap( state[3] );
+  hash[4] = fd_ulong_bswap( state[4] );
+  hash[5] = fd_ulong_bswap( state[5] );
+  hash[6] = fd_ulong_bswap( state[6] );
+  hash[7] = fd_ulong_bswap( state[7] );
+  return _hash;
+}
+
 #undef fd_sha512_core
 
