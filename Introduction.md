@@ -3,7 +3,7 @@
   FD(short for Firedancer) is being b
 - ---
 - # How?
-	- Firedancer has 3 hugh level Components which are modular and can be replaced with the components of Old Solana validator making it like different components being stitched together while also writing a better documentation of the original validator client
+	- Firedancer has 3 high level Components which are modular and can be replaced with the components of Old Solana validator making it like different components being stitched together while also writing a better documentation of the original validator client
 	- Components->
 	  1. Packet Ingress
 	  2. Runtime
