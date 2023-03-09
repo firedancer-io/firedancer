@@ -1,9 +1,10 @@
  # What is Firedancer?
 - **[Firedancer](https://jumpcrypto.com/firedancer/) is a node implementation written in C for the solana blockchain**. It will be the second full node implementation of Solana with the comping up Light Client Tinydancer. Firedancer will diversify the client stack and make the network more resilient as if there is an bug in the original rust node that halts the validators from producing blocks and coming to a consensus, validators running FD will keep the network secure and stable.
-  FD(short for Firedancer) is being b
 - ---
-- # How?
-	- Firedancer has 3 high level Components which are modular and can be replaced with the components of Old Solana validator making it like different components being stitched together while also writing a better documentation of the original validator client
+# Why Another Validator?
+Firedancer will be solving some of the problems which solana is trying to 
+ # How?
+ Firedancer has 3 high level Components which are modular and can be replaced with the components of Old Solana validator making it like different  components being stitched together while also writing a better documentation of the original validator client
 	- Components->
 	  1. Packet Ingress
 	  2. Runtime
