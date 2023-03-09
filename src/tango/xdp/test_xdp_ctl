@@ -1,0 +1,123 @@
+#!/bin/bash
+
+fail() {
+  echo FAIL: $1 unexpected exit code $2
+  echo Log N/A
+  exit 1
+}
+
+# Determine location of binaries
+
+UNIT_TEST=$(dirname -- "$BASH_SOURCE")
+BUILD=$(dirname -- "$UNIT_TEST")
+BIN=$BUILD/bin
+
+# Specify test details
+
+WKSP=test_fd_xdp_ctl.wksp
+PAGE_CNT=8192
+PAGE_SZ=normal
+CPU_IDX=0
+MODE=0600
+
+# Disable the permanent log
+
+FD_LOG_PATH=""
+export FD_LOG_PATH
+
+echo Init
+
+$BIN/fd_wksp_ctl delete $WKSP delete $WKSP delete $WKSP > /dev/null 2>&1 # Try to clean up any leftover wksp from previous tests
+$BIN/fd_wksp_ctl new $WKSP $PAGE_CNT $PAGE_SZ $CPU_IDX $MODE || fail init $?
+
+echo Testing no-op
+
+$BIN/fd_xdp_ctl || fail no-op $?
+
+echo Testing unknown
+
+$BIN/fd_xdp_ctl unknown && fail unknown $?
+
+echo Testing help
+
+$BIN/fd_xdp_ctl help || fail help $?
+
+echo Testing init
+
+$BIN/fd_xdp_ctl init && fail init $?
+
+echo Testing fini
+
+$BIN/fd_xdp_ctl fini && fail fini $?
+
+echo Testing hook-iface
+
+$BIN/fd_xdp_ctl hook-iface                       && fail hook-iface $?
+$BIN/fd_xdp_ctl hook-iface $WKSP                 && fail hook-iface $?
+$BIN/fd_xdp_ctl hook-iface $WKSP dummy           && fail hook-iface $?
+$BIN/fd_xdp_ctl hook-iface $WKSP dummy skb       && fail hook-iface $?
+$BIN/fd_xdp_ctl hook-iface $WKSP dummy skb     0 && fail hook-iface $?
+$BIN/fd_xdp_ctl hook-iface $WKSP dummy invalid 0 && fail hook-iface $?
+
+echo Testing unhook-iface
+
+$BIN/fd_xdp_ctl unhook-iface $WKSP && fail unhook-iface $?
+
+echo Testing listen-udp-port
+
+$BIN/fd_xdp_ctl listen-udp-port                                  && fail listen-udp-port $?
+$BIN/fd_xdp_ctl listen-udp-port $WKSP                            && fail listen-udp-port $?
+$BIN/fd_xdp_ctl listen-udp-port $WKSP 127.0.0.1                  && fail listen-udp-port $?
+$BIN/fd_xdp_ctl listen-udp-port $WKSP 127.0.0.1 8001             && fail listen-udp-port $?
+$BIN/fd_xdp_ctl listen-udp-port $WKSP invalid   8001  sol-gossip && fail listen-udp-port $?
+$BIN/fd_xdp_ctl listen-udp-port $WKSP 127.0.0.1 inval sol-gossip && fail listen-udp-port $?
+$BIN/fd_xdp_ctl listen-udp-port $WKSP 127.0.0.1 65537 sol-gossip && fail listen-udp-port $?
+
+echo Testing release-udp-port
+
+$BIN/fd_xdp_ctl release-udp-port                       && fail release-udp-port $?
+$BIN/fd_xdp_ctl release-udp-port $WKSP                 && fail release-udp-port $?
+$BIN/fd_xdp_ctl release-udp-port $WKSP 127.0.0.1       && fail release-udp-port $?
+$BIN/fd_xdp_ctl release-udp-port $WKSP invalid   8001  && fail release-udp-port $?
+$BIN/fd_xdp_ctl release-udp-port $WKSP 127.0.0.1 inval && fail release-udp-port $?
+$BIN/fd_xdp_ctl release-udp-port $WKSP 127.0.0.1 65537 && fail release-udp-port $?
+
+echo Testing new-xsk
+
+$BIN/fd_xdp_ctl new-xsk             && fail new-xsk $?
+$BIN/fd_xdp_ctl new-xsk $WKSP       && fail new-xsk $?
+$BIN/fd_xdp_ctl new-xsk $WKSP 0     && fail new-xsk $?
+$BIN/fd_xdp_ctl new-xsk $WKSP 0 0   && fail new-xsk $?
+$BIN/fd_xdp_ctl new-xsk $WKSP 0 0 0 && fail new-xsk $?
+
+echo Testing bind-xsk
+
+$BIN/fd_xdp_ctl bind-xsk                    && fail bind-xsk $?
+$BIN/fd_xdp_ctl bind-xsk nonexist:0         && fail bind-xsk $?
+$BIN/fd_xdp_ctl bind-xsk nonexist:0 dummy   && fail bind-xsk $?
+$BIN/fd_xdp_ctl bind-xsk nonexist:0 dummy 0 && fail bind-xsk $?
+
+echo Testing unbind-xsk
+
+$BIN/fd_xdp_ctl unbind-xsk            && fail unbind-xsk $?
+$BIN/fd_xdp_ctl unbind-xsk nonexist:0 && fail unbind-xsk $?
+
+echo Testing delete-xsk
+
+$BIN/fd_xdp_ctl delete-xsk            && fail delete-xsk $?
+$BIN/fd_xdp_ctl delete-xsk nonexist:0 && fail delete-xsk $?
+
+echo Testing new-xsk-aio
+
+$BIN/fd_xdp_ctl new-xsk-aio           && fail new-xsk-aio $?
+$BIN/fd_xdp_ctl new-xsk-aio $WKSP     && fail new-xsk-aio $?
+$BIN/fd_xdp_ctl new-xsk-aio $WKSP 1   && fail new-xsk-aio $?
+$BIN/fd_xdp_ctl new-xsk-aio $WKSP 1 0 && fail new-xsk-aio $?
+$BIN/fd_xdp_ctl new-xsk-aio $WKSP 0 1 && fail new-xsk-aio $?
+
+echo Testing delete-xsk-aio
+
+$BIN/fd_xdp_ctl delete-xsk-aio            && fail delete-xsk-aio $?
+$BIN/fd_xdp_ctl delete-xsk-aio nonexist:0 && fail delete-xsk-aio $?
+
+exit 0

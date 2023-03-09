@@ -55,7 +55,9 @@ FD_FN_PURE ulong fd_cstr_to_ulong_octal( char const * s );
 
 /* fd_cstr_to_ip4_addr parses an IPv4 address matching format
    %u.%u.%u.%u  On success returns the numerical representation of the
-   address in [0;UINT_MAX). On fail returns ULONG_MAX. */
+   address in [0;UINT_MAX). On fail returns ULONG_MAX.  The given
+   address is interpreted in network byte order and returned in host
+   byte order such that "1.0.0.0" => 0x01000000. */
 
 #if FD_HAS_HOSTED
 FD_FN_PURE ulong fd_cstr_to_ip4_addr( char const * s );
