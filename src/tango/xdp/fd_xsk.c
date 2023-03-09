@@ -594,7 +594,7 @@ fd_xsk_rx_enqueue( fd_xsk_t * xsk,
 
   /* if not enough for batch, update cache */
   if( cap - ( prod - cons ) < count ) {
-    cons = fill->cached_cons = *fill->cons;
+    cons = fill->cached_cons = FD_VOLATILE_CONST( *fill->cons );
   }
 
   /* sz is min( available, count ) */
@@ -615,7 +615,8 @@ fd_xsk_rx_enqueue( fd_xsk_t * xsk,
   FD_RELEASE();
 
   /* update producer */
-  fill->cached_prod = *fill->prod = prod;
+                fill->cached_prod   = prod;
+  FD_VOLATILE( *fill->prod        ) = prod;
 
   /* TODO do we need to check for wakeup here? */
 
@@ -643,7 +644,7 @@ fd_xsk_rx_enqueue2( fd_xsk_t *            xsk,
 
   /* if not enough for batch, update cache */
   if( cap - ( prod - cons ) < count ) {
-    cons = fill->cached_cons = *fill->cons;
+    cons = fill->cached_cons = FD_VOLATILE_CONST( *fill->cons );
   }
 
   /* sz is min( available, count ) */
@@ -664,7 +665,8 @@ fd_xsk_rx_enqueue2( fd_xsk_t *            xsk,
   FD_RELEASE();
 
   /* update producer */
-  fill->cached_prod = *fill->prod = prod;
+                fill->cached_prod   = prod;
+  FD_VOLATILE( *fill->prod        ) = prod;
 
   /* TODO do we need to check for wakeup here? */
 
@@ -689,7 +691,7 @@ fd_xsk_tx_enqueue( fd_xsk_t *            xsk,
 
   /* if not enough for batch, update cache */
   if( cap - ( prod - cons ) < count ) {
-    cons = tx->cached_cons = *tx->cons;
+    cons = tx->cached_cons = FD_VOLATILE_CONST( *tx->cons );
   }
 
   /* sz is min( available, count ) */
@@ -718,7 +720,8 @@ fd_xsk_tx_enqueue( fd_xsk_t *            xsk,
   FD_RELEASE();
 
   /* update producer */
-  tx->cached_prod = *tx->prod = prod;
+                tx->cached_prod   = prod;
+  FD_VOLATILE( *tx->prod        ) = prod;
 
   /* XDP tells us whether we need to specifically wake up the driver/hw */
   if( fd_xsk_tx_need_wakeup( xsk ) ) {
@@ -746,7 +749,7 @@ fd_xsk_rx_complete( fd_xsk_t *            xsk,
     /* we update cons (and keep cache up to date)
        they update prod
        so only need to fetch actual prod */
-    prod = rx->cached_prod = *rx->prod;
+    prod = rx->cached_prod = FD_VOLATILE_CONST( *rx->prod );
     avail = prod - cons;
   }
 
@@ -766,7 +769,8 @@ fd_xsk_rx_complete( fd_xsk_t *            xsk,
 
   FD_RELEASE();
 
-  rx->cached_cons = *rx->cons = cons;
+                rx->cached_cons   = cons;
+  FD_VOLATILE( *rx->cons        ) = cons;
 
   return sz;
 }
@@ -787,7 +791,7 @@ fd_xsk_tx_complete( fd_xsk_t * xsk, ulong * batch, ulong capacity ) {
     /* we update cons (and keep cache up to date)
        they update prod
        so only need to fetch actual prod */
-    prod = cr->cached_prod = *cr->prod;
+    prod = cr->cached_prod = FD_VOLATILE_CONST( *cr->prod );
     avail = prod - cons;
   }
 
@@ -805,7 +809,8 @@ fd_xsk_tx_complete( fd_xsk_t * xsk, ulong * batch, ulong capacity ) {
 
   FD_RELEASE();
 
-  cr->cached_cons = *cr->cons = cons;
+                cr->cached_cons   = cons;
+  FD_VOLATILE( *cr->cons        ) = cons;
 
   return sz;
 }
@@ -828,7 +833,7 @@ fd_xsk_tx_complete2( fd_xsk_t *            xsk,
     /* we update cons (and keep cache up to date)
        they update prod
        so only need to fetch actual prod */
-    prod = cr->cached_prod = *cr->prod;
+    prod = cr->cached_prod = FD_VOLATILE_CONST( *cr->prod );
     avail = prod - cons;
   }
 
@@ -846,7 +851,8 @@ fd_xsk_tx_complete2( fd_xsk_t *            xsk,
 
   FD_RELEASE();
 
-  cr->cached_cons = *cr->cons = cons;
+                cr->cached_cons   = cons;
+  FD_VOLATILE( *cr->cons        ) = cons;
 
   return sz;
 }
