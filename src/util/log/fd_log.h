@@ -288,6 +288,12 @@
   (uint)(((uchar const *)(b))[12]), (uint)(((uchar const *)(b))[13]), \
   (uint)(((uchar const *)(b))[14]), (uint)(((uchar const *)(b))[15])
 
+#define FD_LOG_HEX20_FMT "%02x%02x%02x%02x %02x%02x%02x%02x %02x%02x%02x%02x %02x%02x%02x%02x %02x%02x%02x%02x"
+#define FD_LOG_HEX20_FMT_ARGS(b)                                      \
+  FD_LOG_HEX16_FMT_ARGS(b),                                           \
+  (uint)(((uchar const *)(b))[16]), (uint)(((uchar const *)(b))[17]), \
+  (uint)(((uchar const *)(b))[18]), (uint)(((uchar const *)(b))[19])
+
 #define FD_LOG_NAME_MAX (40UL)
 
 FD_PROTOTYPES_BEGIN
