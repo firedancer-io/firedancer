@@ -36,11 +36,10 @@ test_bmtree20_commit( ulong        leaf_cnt,
   fd_bmtree20_commit_t _tree[1];
   fd_bmtree20_commit_t * tree = fd_bmtree20_commit_init( _tree ); FD_TEST( tree==_tree );
 
+  fd_bmtree20_node_t leaf[1];
+  fd_memset( leaf->hash, 0, 20UL );
   for( ulong i=0UL; i<leaf_cnt; i++ ) {
     FD_TEST( fd_bmtree20_commit_leaf_cnt( tree )==i );
-
-    fd_bmtree20_node_t leaf[1];
-    fd_memset( leaf->hash, 0, 20UL );
     FD_STORE( ulong, leaf->hash, i );
     FD_TEST( fd_bmtree20_commit_append( tree, leaf, 1UL )==tree );
   }
@@ -95,6 +94,13 @@ main( int     argc,
   test_bmtree20_commit(       3UL, "\x22\x50\xc2\x9d\x86\x90\xfa\x5c\x03\x94\x75\x17\x6d\x99\x06\xde\x2c\xc6\x0e\x79" );
   test_bmtree20_commit(      10UL, "\x42\x69\x92\xf5\x19\xee\x7e\x7b\xc2\xb6\x77\x6d\xc7\x82\x2d\x42\x68\x6a\xde\x25" );
   test_bmtree20_commit( 1000000UL, "\x20\x61\x9a\x7a\xe4\x65\x27\x5a\x70\x9c\xa5\xc2\x8a\x21\x91\x6c\xdf\xf9\x0e\x26" ); /* TODO verify */
+
+  /* FIXME: WRITE BETTER BENCHMARK */
+  ulong bench_cnt = 1000000UL;
+  long dt = -fd_log_wallclock();
+  test_bmtree20_commit( bench_cnt, "\x20\x61\x9a\x7a\xe4\x65\x27\x5a\x70\x9c\xa5\xc2\x8a\x21\x91\x6c\xdf\xf9\x0e\x26" );
+  dt += fd_log_wallclock();
+  FD_LOG_NOTICE(( "%.3f ns/leaf @ %lu leaves", (double)((float)dt / (float)bench_cnt), bench_cnt ));
 
   /* Test 32-byte tree */
 
