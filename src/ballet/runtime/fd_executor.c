@@ -1,4 +1,5 @@
 #include "fd_executor.h"
+
 #include "fd_system_program.h"
 #include "fd_vote_program.h"
 
@@ -8,6 +9,9 @@ fd_pubkey_t solana_config_program;
 fd_pubkey_t solana_stake_program;
 fd_pubkey_t solana_system_program;
 fd_pubkey_t solana_vote_program;
+fd_pubkey_t solana_bpf_loader_program;
+fd_pubkey_t solana_ed25519_sig_verify_program;
+fd_pubkey_t solana_keccak_secp_256k_program;
 
 void* fd_executor_new(void* mem,
                       fd_acc_mgr_t* acc_mgr,
@@ -22,11 +26,16 @@ void* fd_executor_new(void* mem,
   fd_executor_t *executor = (fd_executor_t*)mem;
   executor->acc_mgr = acc_mgr;
 
+ // https://docs.solana.com/developing/runtime-facilities/programs
+
   // We could make these local to the executor... but, they are also unchanging for all time...
   fd_base58_decode_32( "Config1111111111111111111111111111111111111",  solana_config_program.key );
   fd_base58_decode_32( "Stake11111111111111111111111111111111111111",  solana_stake_program.key);
   fd_base58_decode_32( "11111111111111111111111111111111",             solana_system_program.key);
   fd_base58_decode_32( "Vote111111111111111111111111111111111111111",  solana_vote_program.key);
+  fd_base58_decode_32( "BPFLoaderUpgradeab1e11111111111111111111111",  solana_bpf_loader_program.key);
+  fd_base58_decode_32( "Ed25519SigVerify111111111111111111111111111",  solana_ed25519_sig_verify_program.key);
+  fd_base58_decode_32( "KeccakSecp256k11111111111111111111111111111",  solana_keccak_secp_256k_program.key);
 
   return mem;
 }
@@ -48,9 +57,13 @@ execute_instruction_func_t
 fd_executor_lookup_native_program( fd_pubkey_t *pubkey ) {
   /* TODO: replace with proper lookup table */
   if ( !memcmp( pubkey, &solana_vote_program, sizeof( fd_pubkey_t ) ) ) {
-    return fd_executor_vote_program_execute_instruction;
+    return          fd_executor_vote_program_execute_instruction;
   } else if ( !memcmp( pubkey, &solana_system_program, sizeof( fd_pubkey_t ) ) ) {
-    return fd_executor_system_program_execute_instruction;
+    return                 fd_executor_system_program_execute_instruction;
+  } else if ( !memcmp( pubkey, &solana_config_program, sizeof( fd_pubkey_t ) ) ) {
+    FD_LOG_ERR(( "config program not implemented yet" ));
+  } else if ( !memcmp( pubkey, &solana_stake_program, sizeof( fd_pubkey_t ) ) ) {
+    FD_LOG_ERR(( "stake program not implemented yet" ));
   } else {
     FD_LOG_ERR(( "unknown program" ));
     return NULL; /* FIXME */
