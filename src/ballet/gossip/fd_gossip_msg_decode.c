@@ -39,35 +39,34 @@ fd_gossip_parse_msg( fd_bin_parse_ctx_t * ctx ) {
     return NULL;
   }
 
-  void * msg_out = fd_bin_parse_get_cur_dst( ctx );
   ulong dst_sz_remaining = fd_bin_parse_dst_size_remaining( ctx );
-
+  void * msg_out = fd_bin_parse_get_cur_dst( ctx );
+  ulong msg_out_sz = 0;
   int parse_status = 0;
-  ulong data_out_sz = 0;
 
   switch( msg_id ) {
   case FD_GOSSIP_MSG_ID_PULL_REQ:
-    parse_status = fd_gossip_parse_pull_request_msg( ctx, msg_out, dst_sz_remaining, &data_out_sz );
+    parse_status = fd_gossip_parse_pull_request_msg( ctx, msg_out, dst_sz_remaining, &msg_out_sz );
     break;
 
   case FD_GOSSIP_MSG_ID_PULL_RESP:
-    parse_status = fd_gossip_parse_pull_response_msg( ctx, msg_out, dst_sz_remaining, &data_out_sz );
+    parse_status = fd_gossip_parse_pull_response_msg( ctx, msg_out, dst_sz_remaining, &msg_out_sz );
     break;
 
   case FD_GOSSIP_MSG_ID_PUSH:
-    parse_status = fd_gossip_parse_push_msg( ctx, msg_out, dst_sz_remaining, &data_out_sz );
+    parse_status = fd_gossip_parse_push_msg( ctx, msg_out, dst_sz_remaining, &msg_out_sz );
     break;
 
   case FD_GOSSIP_MSG_ID_PRUNE:
-    parse_status = fd_gossip_parse_prune_msg( ctx, msg_out, dst_sz_remaining, &data_out_sz );
+    parse_status = fd_gossip_parse_prune_msg( ctx, msg_out, dst_sz_remaining, &msg_out_sz );
     break;
 
   case FD_GOSSIP_MSG_ID_PING:
-    parse_status = fd_gossip_parse_ping_msg( ctx, msg_out, dst_sz_remaining, &data_out_sz );
+    parse_status = fd_gossip_parse_ping_msg( ctx, msg_out, dst_sz_remaining, &msg_out_sz );
     break;
 
   case FD_GOSSIP_MSG_ID_PONG:
-    parse_status = fd_gossip_parse_pong_msg( ctx, msg_out, dst_sz_remaining, &data_out_sz );
+    parse_status = fd_gossip_parse_pong_msg( ctx, msg_out, dst_sz_remaining, &msg_out_sz );
     break;
 
   default:
@@ -75,7 +74,7 @@ fd_gossip_parse_msg( fd_bin_parse_ctx_t * ctx ) {
     break;
   }
 
-  if( !parse_status ) {
+  if( FD_UNLIKELY( !parse_status ) ) {
     FD_LOG_WARNING(( "error parsing gossip msg" ));
     fd_bin_parse_update_state_failed( ctx );
     return NULL;
@@ -87,7 +86,7 @@ fd_gossip_parse_msg( fd_bin_parse_ctx_t * ctx ) {
     return NULL;
   }
 
-  fd_bin_parse_update_state_succeeded( ctx, data_out_sz );
+  fd_bin_parse_update_state_succeeded( ctx, msg_out_sz );
   return (fd_gossip_msg_t *)msg_out;
 }
 
@@ -384,7 +383,7 @@ fd_gossip_parse_ping_msg( fd_bin_parse_ctx_t * ctx,
     return 0;
   }
 
-  *obj_sz = sizeof( fd_gossip_msg_t );
+  *obj_sz = sizeof( fd_gossip_ping_msg_t );
   return 1;
 }
 
@@ -417,7 +416,7 @@ fd_gossip_parse_pong_msg( fd_bin_parse_ctx_t * ctx,
     return 0;
   }
 
-  *obj_sz = sizeof( fd_gossip_msg_t );
+  *obj_sz = sizeof( fd_gossip_pong_msg_t );
   return 1;
 }
 
