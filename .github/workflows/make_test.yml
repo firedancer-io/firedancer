@@ -10,7 +10,7 @@ jobs:
     runs-on: [self-hosted, Linux, X64]
     defaults:
       run:
-        shell: nix-shell --pure --command "bash --noprofile --norc -eo pipefail {0}"
+        shell: nix-shell --pure --keep MACHINE --keep EXTRAS --run "bash --noprofile --norc -eo pipefail {0}"
     env:
       EXTRAS: libbpf
     steps:
