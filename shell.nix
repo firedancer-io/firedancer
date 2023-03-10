@@ -29,6 +29,9 @@ pkgs.mkShell {
 
     # Utils
     hwloc
+
+    # Dev Utils
+    git
   ];
 }
 
