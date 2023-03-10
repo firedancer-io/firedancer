@@ -23,7 +23,9 @@ pkgs.mkShell {
     numactl
     pkg-config
     quictls
+    rocksdb
     xdp-tools
+    zstd
 
     # Utils
     hwloc
