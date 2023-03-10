@@ -74,9 +74,9 @@ wi_exch_adj_quad( wi_t x ) { /* [ i4 i5 i6 i7 i0 i1 i2 i3 ] */
 /* wi_ld return the 8 ints at the 32-byte aligned / 32-byte sized
    location p as a vector int.  wi_ldu is the same but p does not have
    to be aligned.  wi_st writes the vector int to the 32-byte aligned /
-   32-byte sized ocation p as 8 ints.  wi_stu is the same but p does not
-   have to be aligned.  In all these lane l will be at p[l].  FIXME: USE
-   ATTRIBUTES ON P PASSED TO THESE?
+   32-byte sized location p as 8 ints.  wi_stu is the same but p does
+   not have to be aligned.  In all these lane l will be at p[l].  FIXME:
+   USE ATTRIBUTES ON P PASSED TO THESE?
    
    Note: gcc knows a __m256i may alias. */
 
@@ -189,6 +189,8 @@ wi_insert_variable( wi_t a, int n, int v ) {
 
    wi_to_wc(a)   returns [ !!a0 !!a1 ... !!a7 ]
 
+   wi_to_wu(a)   returns [ (uint)a0 (uint)a1 ... (uint)a7 ]
+
    wi_to_wf(a)   returns [ (float)a0 (float)a1 ... (float)a7 ]
 
    wi_to_wd(a,0) returns [ (double)a0 (double)a1 (double)a2 (double)a3 ]
@@ -212,11 +214,13 @@ wi_insert_variable( wi_t a, int n, int v ) {
 
 #define wi_to_wc(a)        _mm256_xor_si256( _mm256_set1_epi32( -1 ), _mm256_cmpeq_epi32( (a), _mm256_setzero_si256() ) )
 #define wi_to_wf(a)        _mm256_cvtepi32_ps( (a) )
+#define wi_to_wu(a)        (a)
 #define wi_to_wd(a,imm_hi) _mm256_cvtepi32_pd(    _mm256_extractf128_si256( (a), !!(imm_hi) ) )
 #define wi_to_wl(a,imm_hi) _mm256_cvtepi32_epi64( _mm256_extractf128_si256( (a), !!(imm_hi) ) )
 
 #define wi_to_wc_raw(a) (a)
 #define wi_to_wf_raw(a) _mm256_castsi256_ps( (a) )
+#define wi_to_wu_raw(a) (a)
 #define wi_to_wd_raw(a) _mm256_castsi256_pd( (a) )
 #define wi_to_wl_raw(a) (a)
 

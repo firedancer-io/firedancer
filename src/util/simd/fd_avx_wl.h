@@ -211,6 +211,9 @@ static inline wl_t wl_shr_vector( wl_t a, wl_t n ) {
    wl_to_wi(l,i,0) returns [ (int)l0 (int)l1 (int)l2 (int)l3 i4 i5 i6 i7 ]
    wl_to_wi(l,i,1) returns [ i0 i1 i2 i3 (int)l0 (int)l1 (int)l2 (int)l3 ]
 
+   wl_to_wu(l,u,0) returns [ (uint)l0 (uint)l1 (uint)l2 (uint)l3 u4 u5 u6 u7 ]
+   wl_to_wu(l,u,1) returns [ u0 u1 u2 u3 (uint)l0 (uint)l1 (uint)l2 (uint)l3 ]
+
    wl_to_wd(l)     returns [ (double)l0 (double)l1 (double)l2 (double)l3 ]
 
    The raw variants just treat the raw bits as the corresponding vector
@@ -238,6 +241,13 @@ static inline wl_t wl_to_wi( wl_t l, wi_t i, int imm_hi ) {
   __m128  v23 = _mm_castsi128_ps( _mm256_extractf128_si256( l, 1 ) ); /* [ l2l l2h l3l l3h ] */
   __m128i v   = _mm_castps_si128( _mm_shuffle_ps( v01, v23, _MM_SHUFFLE(2,0,2,0) ) );
   return imm_hi ? _mm256_insertf128_si256( i, v, 1 ) : _mm256_insertf128_si256( i, v, 0 ); /* compile time */
+}
+
+static inline wu_t wl_to_wu( wl_t l, wu_t u, int imm_hi ) {
+  __m128  v01 = _mm_castsi128_ps( _mm256_extractf128_si256( l, 0 ) ); /* [ l0l l0h l1l l1h ] */
+  __m128  v23 = _mm_castsi128_ps( _mm256_extractf128_si256( l, 1 ) ); /* [ l2l l2h l3l l3h ] */
+  __m128i v   = _mm_castps_si128( _mm_shuffle_ps( v01, v23, _MM_SHUFFLE(2,0,2,0) ) );
+  return imm_hi ? _mm256_insertf128_si256( u, v, 1 ) : _mm256_insertf128_si256( u, v, 0 ); /* compile time */
 }
 
 /* FIXME: IS IT FASTER TO USE INSERT / EXTRACT HERE? */

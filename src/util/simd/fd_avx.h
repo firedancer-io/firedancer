@@ -4,13 +4,14 @@
 #if FD_HAS_AVX
 
 /* An API for writing vectorized C/C++ code using 8-wide 32-bit ints,
-   8-wide 32-bit floats, 4-wide 64-bit doubles, 4-wide 64-bit longs and
-   8- or 4-wide logicals assuming a platform with AVX support.
+   8-wide 32-bit uints, 8-wide 32-bit floats, 4-wide 64-bit doubles,
+   4-wide 64-bit longs and 8- or 4-wide logicals assuming a platform
+   with AVX support.
 
    Essentially, all the usual C/C++ operations you can do on an int,
-   float, double, long or logical has a fast O(1) vectorized equivalent
-   here.  Most operations boil down to a single assembly instruction in
-   most cases) and the macros are robust.
+   uint, float, double, long or logical has a fast O(1) vectorized
+   equivalent here.  Most operations boil down to a single assembly
+   instruction in most cases and the macros are robust.
 
    Further operations commonly used to transition from scalar/vector to
    vector/scalar code, to do cross lane data motion, etc are also
@@ -19,13 +20,13 @@
 
    That is, this is a thin wrapper around Intel's AVX intrinsics to give
    it a sane type system and robust semantics for writing mixed type and
-   mixed wiidth vectorized code (including branching).  This includes a
+   mixed width vectorized code (including branching).  This includes a
    lot of non-obvious tricks, fixes for ultra high density of
    irregularities in their intrinsics, implementations of missing
    intrinsics and lots of workarounds to get Intel AVX to behave sanely.
 
    A side effect is that this API also makes it easy to port code
-   vectorized for SSE to non-Intel architectures.  Just make
+   vectorized for AVX to non-Intel architectures.  Just make
    implementations of these wrappers for the target platform and then,
    magically, code written in terms of this API has been ported.  (This
    is similar to how CUDA works under the hood.  Developers don't write
@@ -57,6 +58,7 @@
 #include "fd_avx_wc.h" /* Vector conditional support */
 #include "fd_avx_wf.h" /* Vector float support */
 #include "fd_avx_wi.h" /* Vector int support */
+#include "fd_avx_wu.h" /* Vector uint support */
 #include "fd_avx_wd.h" /* Vector double support */
 #include "fd_avx_wl.h" /* Vector long support */
 

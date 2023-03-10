@@ -133,10 +133,10 @@ static inline void wc_stu( int * p, wc_t c ) { _mm256_storeu_si256( (__m256i *)p
 /* wc_ldif is an optimized equivalent to wc_and(c,wc_ldu(p)).  Similarly
    for wc_ldif_fast (either may have different behavior if c is not a
    proper vector conditional).  wc_ldif_fast assumes p already holds a
-   proper vector conditional.  These are provided for symmetry with with
-   the wc_stif operation.  wc_stif stores x(n) to p[n] if c(n) is true
-   and leaves p[n] unchanged otherwise.  Undefined behavior if c is not
-   a proper vector conditional. */
+   proper vector conditional.  These are provided for symmetry with the
+   wc_stif operation.  wc_stif stores x(n) to p[n] if c(n) is true and
+   leaves p[n] unchanged otherwise.  Undefined behavior if c is not a
+   proper vector conditional. */
 
 #define wc_ldif(c,p)      _mm256_xor_si128( _mm256_set1_epi32(-1), _mm256_cmpeq_epi32( _mm256_maskload_epi32( (p), (c) ), \
                                                                                        _mm256_setzero_si128()) )
@@ -211,23 +211,25 @@ static inline void wc_stu( int * p, wc_t c ) { _mm256_storeu_si256( (__m256i *)p
 
 /* Conversion operations */
 
-/* wc_to_{wf,wi,wd,wl} convert a proper vector conditional into a vector
-   float/int/double/long with f mapping to 0 and t mapping to 1 in each
-   lane.
+/* wc_to_{wf,wi,wu,wd,wl} convert a proper vector conditional into a
+   vector float/int/double/long with f mapping to 0 and t mapping to 1
+   in each lane.
 
-   wc_to_{wf,wi,wd,wl}_raw just treat the raw bits in the vector
-   conditional as the corresponding vector type.  For wc_to_{wi,wl}_raw,
-   map false(true) to 0(-1).  wc_to_{wf,wd}_raw probably are not useful
-   in practice but are provided for completeness; they map false(true)
-   to 0(-nan). */
+   wc_to_{wf,wi,wu,wd,wl}_raw just treat the raw bits in the vector
+   conditional as the corresponding vector type.  For
+   wc_to_{wi,wu,wl}_raw, map false(true) to 0(-1).  wc_to_{wf,wd}_raw
+   probably are not useful in practice but are provided for
+   completeness; they map false(true) to 0(-nan). */
 
 #define wc_to_wf(a) _mm256_and_ps( _mm256_castsi256_ps( (a) ), _mm256_set1_ps( 1.f ) )
 #define wc_to_wi(a) _mm256_and_si256( (a), _mm256_set1_epi32( 1 ) )
+#define wc_to_wu(a) _mm256_and_si256( (a), _mm256_set1_epi32( 1 ) )
 #define wc_to_wd(a) _mm256_and_pd( _mm256_castsi256_pd( (a) ), _mm256_set1_pd( 1. ) ) /* wc should have paired lanes */
 #define wc_to_wl(a) _mm256_and_si256( (a), _mm256_set1_epi64x( 1L ) )                 /* wc should have paired lanes */
 
 #define wc_to_wf_raw(a) _mm256_castsi256_ps( (a) )
 #define wc_to_wi_raw(a) (a)
+#define wc_to_wu_raw(a) (a)
 #define wc_to_wd_raw(a) _mm256_castsi256_pd( (a) )
 #define wc_to_wl_raw(a) (a)
 
