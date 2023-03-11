@@ -10,8 +10,8 @@
    the condition is false for that lane.  This allows fast bit
    operations to mask other types of vectors.  If this API is used on
    vectors that aren't proper vector conditionals, results are
-   undefined.  When vector conditional are applied to vector doubles and
-   vector longs, adjacent lanes (0-1 / 2-3) should have identical
+   undefined.  When vector conditional are applied to vector doubles,
+   longs and ulongs, adjacent lanes (0-1 / 2-3) should have identical
    values, otherwise results will be undefined.
 
    These mirror the other APIs as much as possible.  Macros are
@@ -58,11 +58,11 @@ vc_bcast_wide( int c0, int c1 ) {
   return _mm_setr_epi32( c0, c0, c1, c1 );
 }
 
-/* vc_permute(c,imm_l0,imm_l1,imm_l2,imm_l3) returns
-   [ c(imm_l0) c(imm_l1) c(imm_l2) c(imm_l3) ].  imm_l* should be
+/* vc_permute(c,imm_i0,imm_i1,imm_i2,imm_i3) returns
+   [ c(imm_i0) c(imm_i1) c(imm_i2) c(imm_i3) ].  imm_i* should be
    compile time constants in 0:3. */
 
-#define vc_permute(c,imm_l0,imm_l1,imm_l2,imm_l3) _mm_shuffle_epi32( (c), _MM_SHUFFLE( (imm_l3), (imm_l2), (imm_l1), (imm_l0) ) )
+#define vc_permute(c,imm_i0,imm_i1,imm_i2,imm_i3) _mm_shuffle_epi32( (c), _MM_SHUFFLE( (imm_i3), (imm_i2), (imm_i1), (imm_i0) ) )
 
 /* Predefined constants. */
 
@@ -174,27 +174,30 @@ static inline void vc_stu( int * p, vc_t c ) { _mm_storeu_si128( (__m128i *)p, c
 
 /* Conversion operations */
 
-/* vc_to_{vf,vi,vu,vd,vl} convert a proper vector conditional into a
-   vector float/int/double/long with f mapping to 0 and t mapping to 1
-   in each lane.
+/* vc_to_{vf,vi,vu,vd,vl,vv} convert a proper vector conditional into a
+   vector float/int/double/long/ulong with f mapping to 0 and t mapping
+   to 1 in each lane.
 
-   vc_to_{vf,vi,vu,vd,vl}_raw just treat the raw bits in the vector
-   conditional as the corresponding vector type.  For
-   vc_to_{vi,vu,vl}_raw, map false(true) to 0(-1).  vc_to_{vf,vd}_raw
-   probably are not useful in practice but are provided for
-   completeness; they map false(true) to 0(-nan). */
+   vc_to_{vf,vi,vu,vd,vl,vv}_raw just treat the raw bits in the vector
+   conditional as the corresponding vector type.  vc_to_{vi,vu}_raw map
+   false(true) to 0(-1) and similarly for vc_to_{vl,vv}_raw when c has
+   paired lanes.  vc_to_{vf,vd}_raw probably are not useful in practice
+   but are provided for completeness; vc_to_vf_raw maps false(true) to
+   0(-nan) and similarly for vc_to_vd_raw when c has paired lanes. */
 
 #define vc_to_vf(a) _mm_and_ps( _mm_castsi128_ps( (a) ), _mm_set1_ps( 1.f ) )
 #define vc_to_vi(a) _mm_and_si128( (a), _mm_set1_epi32( 1 ) )
 #define vc_to_vu(a) _mm_and_si128( (a), _mm_set1_epi32( 1 ) )
 #define vc_to_vd(a) _mm_and_pd( _mm_castsi128_pd( (a) ), _mm_set1_pd( 1. ) ) /* vc should have paired lanes */
 #define vc_to_vl(a) _mm_and_si128( (a), _mm_set1_epi64x( 1L ) )              /* vc should have paired lanes */
+#define vc_to_vv(a) _mm_and_si128( (a), _mm_set1_epi64x( 1L ) )              /* vc should have paired lanes */
 
 #define vc_to_vf_raw(a) _mm_castsi128_ps( (a) )
 #define vc_to_vi_raw(a) (a)
 #define vc_to_vu_raw(a) (a)
 #define vc_to_vd_raw(a) _mm_castsi128_pd( (a) )
 #define vc_to_vl_raw(a) (a)
+#define vc_to_vv_raw(a) (a)
 
 /* Reduction operations */
 

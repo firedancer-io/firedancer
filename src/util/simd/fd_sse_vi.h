@@ -32,10 +32,10 @@ vi_bcast_wide( int i0, int i1 ) {
   return _mm_setr_epi32( i0, i0, i1, i1 );
 }
 
-/* vi_permute returns [ i(imm_l0) i(imm_l1) i(imm_l2) i(imm_l3) ].
-   imm_l* should be compile time constants in 0:3. */
+/* vi_permute returns [ i(imm_i0) i(imm_i1) i(imm_i2) i(imm_i3) ].
+   imm_i* should be compile time constants in 0:3. */
 
-#define vi_permute(x,imm_l0,imm_l1,imm_l2,imm_l3) _mm_shuffle_epi32( (x), _MM_SHUFFLE( (imm_l3), (imm_l2), (imm_l1), (imm_l0) ) )
+#define vi_permute(x,imm_i0,imm_i1,imm_i2,imm_i3) _mm_shuffle_epi32( (x), _MM_SHUFFLE( (imm_i3), (imm_i2), (imm_i1), (imm_i0) ) )
 
 /* Predefined constants */
 
@@ -165,11 +165,13 @@ vi_insert_variable( vi_t a, int n, int v ) {
 
    vi_to_vf(a)               returns [ (float)a0 (float)a1 ... (float)a3 ]
 
-   vi_to_vd(a,imm_l0,imm_l1) returns [ (double)a(imm_l0) (double)a(imm_l1) ]
+   vi_to_vd(a,imm_i0,imm_i1) returns [ (double)a(imm_i0) (double)a(imm_i1) ]
 
-   vi_to_vl(a,imm_l0,imm_l1) returns [ (long)a(imm_l0) (long)a(imm_l1) ]
+   vi_to_vl(a,imm_i0,imm_i1) returns [ (long)a(imm_i0) (long)a(imm_i1) ]
 
-   where imm_l* should be a compile time constant in 0:3.
+   vi_to_vv(a,imm_i0,imm_i1) returns [ (ulong)a(imm_i0) (ulong)a(imm_i1) ]
+
+   where imm_i* should be a compile time constant in 0:3.
 
    The raw variants just treat the raw bits as the corresponding vector
    type.  For vi_to_vc_raw, the user promises vi contains a proper
@@ -180,14 +182,16 @@ vi_insert_variable( vi_t a, int n, int v ) {
 #define vi_to_vc(a)               _mm_xor_si128( _mm_set1_epi32( -1 ), _mm_cmpeq_epi32( (a), _mm_setzero_si128() ) )
 #define vi_to_vf(a)               _mm_cvtepi32_ps( (a) )
 #define vi_to_vu(a)               (a)
-#define vi_to_vd(a,imm_l0,imm_l1) _mm_cvtepi32_pd   ( _mm_shuffle_epi32( (a), _MM_SHUFFLE(3,2,(imm_l1),(imm_l0)) ) )
-#define vi_to_vl(a,imm_l0,imm_l1) _mm_cvtepi32_epi64( _mm_shuffle_epi32( (a), _MM_SHUFFLE(3,2,(imm_l1),(imm_l0)) ) )
+#define vi_to_vd(a,imm_i0,imm_i1) _mm_cvtepi32_pd   ( _mm_shuffle_epi32( (a), _MM_SHUFFLE(3,2,(imm_i1),(imm_i0)) ) )
+#define vi_to_vl(a,imm_i0,imm_i1) _mm_cvtepi32_epi64( _mm_shuffle_epi32( (a), _MM_SHUFFLE(3,2,(imm_i1),(imm_i0)) ) )
+#define vi_to_vv(a,imm_i0,imm_i1) _mm_cvtepi32_epi64( _mm_shuffle_epi32( (a), _MM_SHUFFLE(3,2,(imm_i1),(imm_i0)) ) )
 
 #define vi_to_vc_raw(a) (a)
 #define vi_to_vf_raw(a) _mm_castsi128_ps( (a) )
 #define vi_to_vu_raw(a) (a)
 #define vi_to_vd_raw(a) _mm_castsi128_pd( (a) )
 #define vi_to_vl_raw(a) (a)
+#define vi_to_vv_raw(a) (a)
 
 /* Reduction operations */
 
