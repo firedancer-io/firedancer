@@ -49,10 +49,10 @@ wd_bcast_wide( double d0, double d1 ) {
   return _mm256_setr_pd( d0, d0, d1, d1 );
 }
 
-/* wd_permute returns [ d(imm_l0) d(imm_l1) d(imm_l2) d(imm_l3) ].
-   imm_l* should be compile time constants in 0:3. */
+/* wd_permute returns [ d(imm_i0) d(imm_i1) d(imm_i2) d(imm_i3) ].
+   imm_i* should be compile time constants in 0:3. */
 
-#define wd_permute(x,imm_l0,imm_l1,imm_l2,imm_l3) _mm256_permute4x64_pd( (x), (imm_l0)+4*(imm_l1)+16*(imm_l2)+64*(imm_l3) )
+#define wd_permute(x,imm_i0,imm_i1,imm_i2,imm_i3) _mm256_permute4x64_pd( (x), (imm_i0)+4*(imm_i1)+16*(imm_i2)+64*(imm_i3) )
 
 /* Predefined constants */
 
@@ -262,9 +262,13 @@ wd_insert_variable( wd_t a, int n, double v ) {
 
    wd_to_wl(d)          returns [ (long)d0 (long)d1 (long)d2 (long)d3 ]
 
+   wd_to_wv(d)          returns [ (ulong)d0 (ulong)d1 (ulong)d2 (ulong)d3 ]
+
    where rint is configured for round-to-nearest-even rounding (Intel
    architecture defaults to round-nearest-even here ... sigh, they still
    don't fully get it) and imm_hi should be a compile time constant.
+   That is, the fast variants assume that float point inputs are already
+   integral value in the appropriate range for the output type.
 
    Note that wd_to_{wf,wi,wi_fast} insert the converted values into
    lanes 0:3 (imm_hi==0) or 4:7 (imm_hi!=0) of the provided vector.
@@ -281,7 +285,8 @@ wd_insert_variable( wd_t a, int n, double v ) {
 #define wd_to_wi(d,i,imm_hi) wd_to_wi_fast( _mm256_round_pd( (d), _MM_FROUND_TO_ZERO | _MM_FROUND_NO_EXC ), (i), (imm_hi) )
 #define wd_to_wu(d,u,imm_hi) wd_to_wu_fast( _mm256_round_pd( (d), _MM_FROUND_TO_ZERO | _MM_FROUND_NO_EXC ), (u), (imm_hi) )
 
-/* FIXME: IS IT FASTER TO USE INSERT / EXTRACT HERE? */
+/* FIXME: IS IT FASTER TO USE INSERT / EXTRACT FOR THESE? */
+
 static inline __m256i wd_to_wl( wd_t d ) { /* FIXME: workaround wl_t isn't declared at this point */
   union { double d[4]; __m256d v[1]; } t[1];
   union { long   l[4]; __m256i v[1]; } u[1];
@@ -290,6 +295,17 @@ static inline __m256i wd_to_wl( wd_t d ) { /* FIXME: workaround wl_t isn't decla
   u->l[1] = (long)t->d[1];
   u->l[2] = (long)t->d[2];
   u->l[3] = (long)t->d[3];
+  return _mm256_load_si256( u->v );
+}
+
+static inline __m256i wd_to_wv( wd_t d ) { /* FIXME: workaround wv_t isn't declared at this point */
+  union { double d[4]; __m256d v[1]; } t[1];
+  union { ulong  u[4]; __m256i v[1]; } u[1];
+  _mm256_store_pd( t->d, d );
+  u->u[0] = (ulong)t->d[0];
+  u->u[1] = (ulong)t->d[1];
+  u->u[2] = (ulong)t->d[2];
+  u->u[3] = (ulong)t->d[3];
   return _mm256_load_si256( u->v );
 }
 
@@ -325,6 +341,7 @@ static inline wu_t wd_to_wu_fast( wd_t d, wu_t u, int imm_hi ) {
 #define wd_to_wi_raw(a) _mm256_castpd_si256( (a) )
 #define wd_to_wu_raw(a) _mm256_castpd_si256( (a) )
 #define wd_to_wl_raw(a) _mm256_castpd_si256( (a) )
+#define wd_to_wv_raw(a) _mm256_castpd_si256( (a) )
 
 /* Reduction operations */
 

@@ -199,6 +199,9 @@ wi_insert_variable( wi_t a, int n, int v ) {
    wi_to_wl(a,0) returns [ (long)a0   (long)a1   (long)a2   (long)a3   ]
    wi_to_wl(a,1) returns [ (long)a4   (long)a5   (long)a6   (long)a7   ]
 
+   wi_to_wv(a,0) returns [ (ulong)a0  (ulong)a1  (ulong)a2  (ulong)a3  ]
+   wi_to_wv(a,1) returns [ (ulong)a4  (ulong)a5  (ulong)a6  (ulong)a7  ]
+
    where imm_hi should be a compile time constant.
 
    For wi_to_{wd,wl}, the permutation used for the conversion is less
@@ -217,12 +220,14 @@ wi_insert_variable( wi_t a, int n, int v ) {
 #define wi_to_wu(a)        (a)
 #define wi_to_wd(a,imm_hi) _mm256_cvtepi32_pd(    _mm256_extractf128_si256( (a), !!(imm_hi) ) )
 #define wi_to_wl(a,imm_hi) _mm256_cvtepi32_epi64( _mm256_extractf128_si256( (a), !!(imm_hi) ) )
+#define wi_to_wv(a,imm_hi) _mm256_cvtepi32_epi64( _mm256_extractf128_si256( (a), !!(imm_hi) ) )
 
 #define wi_to_wc_raw(a) (a)
 #define wi_to_wf_raw(a) _mm256_castsi256_ps( (a) )
 #define wi_to_wu_raw(a) (a)
 #define wi_to_wd_raw(a) _mm256_castsi256_pd( (a) )
 #define wi_to_wl_raw(a) (a)
+#define wi_to_wv_raw(a) (a)
 
 /* Reduction operations */
 

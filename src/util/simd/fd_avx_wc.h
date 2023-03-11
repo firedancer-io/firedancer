@@ -10,8 +10,8 @@
    the condition is false for that lane.  This allows fast bit
    operations to mask other types of vectors.  If this API is used on
    vectors that aren't proper vector conditionals, results are
-   undefined.  When vector conditional are applied to vector doubles and
-   vector longs, adjacent lanes (0-1 / 2-3 / 4-5 / 6-7) should have
+   undefined.  When vector conditional are applied to vector doubles,
+   longs and ulongs, adjacent lanes (0-1 / 2-3 / 4-5 / 6-7) should have
    identical values, otherwise results will be undefined.
 
    These mirror the other APIs as much as possible.  Macros are
@@ -211,27 +211,30 @@ static inline void wc_stu( int * p, wc_t c ) { _mm256_storeu_si256( (__m256i *)p
 
 /* Conversion operations */
 
-/* wc_to_{wf,wi,wu,wd,wl} convert a proper vector conditional into a
-   vector float/int/double/long with f mapping to 0 and t mapping to 1
-   in each lane.
+/* wc_to_{wf,wi,wu,wd,wl,wv} convert a proper vector conditional into a
+   vector float/int/double/long/ulong with f mapping to 0 and t mapping
+   to 1 in each lane.
 
-   wc_to_{wf,wi,wu,wd,wl}_raw just treat the raw bits in the vector
-   conditional as the corresponding vector type.  For
-   wc_to_{wi,wu,wl}_raw, map false(true) to 0(-1).  wc_to_{wf,wd}_raw
-   probably are not useful in practice but are provided for
-   completeness; they map false(true) to 0(-nan). */
+   wc_to_{wf,wi,wu,wd,wl,wv}_raw just treat the raw bits in the vector
+   conditional as the corresponding vector type.  wc_to_{wi,wu}_raw map
+   false(true) to 0(-1) and similarly for wc_to_{wl,wv}_raw when c has
+   paired lanes.  wc_to_{wf,wd}_raw probably are not useful in practice
+   but are provided for completeness; wc_to_wf_raw maps false(true) to
+   0(-nan) and similarly for wc_to_wd_raw when c has paired lanes. */
 
 #define wc_to_wf(a) _mm256_and_ps( _mm256_castsi256_ps( (a) ), _mm256_set1_ps( 1.f ) )
 #define wc_to_wi(a) _mm256_and_si256( (a), _mm256_set1_epi32( 1 ) )
 #define wc_to_wu(a) _mm256_and_si256( (a), _mm256_set1_epi32( 1 ) )
 #define wc_to_wd(a) _mm256_and_pd( _mm256_castsi256_pd( (a) ), _mm256_set1_pd( 1. ) ) /* wc should have paired lanes */
 #define wc_to_wl(a) _mm256_and_si256( (a), _mm256_set1_epi64x( 1L ) )                 /* wc should have paired lanes */
+#define wc_to_wv(a) _mm256_and_si256( (a), _mm256_set1_epi64x( 1L ) )                 /* wc should have paired lanes */
 
 #define wc_to_wf_raw(a) _mm256_castsi256_ps( (a) )
 #define wc_to_wi_raw(a) (a)
 #define wc_to_wu_raw(a) (a)
 #define wc_to_wd_raw(a) _mm256_castsi256_pd( (a) )
 #define wc_to_wl_raw(a) (a)
+#define wc_to_wv_raw(a) (a)
 
 /* Reduction operations */
 

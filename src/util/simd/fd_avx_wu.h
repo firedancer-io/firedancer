@@ -186,10 +186,10 @@ wu_insert_variable( wu_t a, int n, uint v ) {
 
 /* Conditional operations */
 
-#define wu_czero(c,f)    _mm256_andnot_si256( (c), (f) ) /* [ c0? 0:f0 c1? 0:f1 ... c7? 0:f7 ] */
-#define wu_notczero(c,f) _mm256_and_si256(    (c), (f) ) /* [ c0?f0: 0 c1?f1: 0 ... c7?f7: 0 ] */
+#define wu_czero(c,f)    _mm256_andnot_si256( (c), (f) ) /* [ c0?0U:f0 c1?0U:f1 ... c7?0U:f7 ] */
+#define wu_notczero(c,f) _mm256_and_si256(    (c), (f) ) /* [ c0?f0:0U c1?f1:0U ... c7?f7:0U ] */
 
-#define wu_if(c,t,f) _mm256_blendv_epi8(  (f), (t), (c) ) /* [ c0?t0:f0 c1?t1:f1 ... c7?t7:f7 ] */
+#define wu_if(c,t,f) _mm256_blendv_epi8( (f), (t), (c) ) /* [ c0?t0:f0 c1?t1:f1 ... c7?t7:f7 ] */
 
 /* Conversion operations */
 
@@ -206,6 +206,9 @@ wu_insert_variable( wu_t a, int n, uint v ) {
 
    wu_to_wl(a,0) returns [ (long)a0   (long)a1   (long)a2   (long)a3   ]
    wu_to_wl(a,1) returns [ (long)a4   (long)a5   (long)a6   (long)a7   ]
+
+   wu_to_wv(a,0) returns [ (ulong)a0  (ulong)a1  (ulong)a2  (ulong)a3  ]
+   wu_to_wv(a,1) returns [ (ulong)a4  (ulong)a5  (ulong)a6  (ulong)a7  ]
 
    where imm_hi should be a compile time constant.
 
@@ -257,12 +260,14 @@ static inline wf_t wu_to_wf( wu_t a ) {
 }
 
 #define wu_to_wl(a,imm_hi) _mm256_cvtepu32_epi64( _mm256_extractf128_si256( (a), !!(imm_hi) ) )
+#define wu_to_wv(a,imm_hi) _mm256_cvtepu32_epi64( _mm256_extractf128_si256( (a), !!(imm_hi) ) )
 
 #define wu_to_wc_raw(a) (a)
 #define wu_to_wf_raw(a) _mm256_castsi256_ps( (a) )
 #define wu_to_wi_raw(a) (a)
 #define wu_to_wd_raw(a) _mm256_castsi256_pd( (a) )
 #define wu_to_wl_raw(a) (a)
+#define wu_to_wv_raw(a) (a)
 
 /* Reduction operations */
 

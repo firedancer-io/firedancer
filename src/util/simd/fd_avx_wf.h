@@ -273,9 +273,14 @@ wf_insert_variable( wf_t a, int n, float v ) {
    wf_to_wl(a,0)    returns [ (long)a0 (long)a1 (long)a2 (long)a3 ]
    wf_to_wl(a,1)    returns [ (long)a4 (long)a5 (long)a6 (long)a7 ]
 
+   wf_to_wv(a,0)    returns [ (ulong)a0 (ulong)a1 (ulong)a2 (ulong)a3 ]
+   wf_to_wv(a,1)    returns [ (ulong)a4 (ulong)a5 (ulong)a6 (ulong)a7 ]
+
    where rintf is configured for round-to-nearest-even rounding (Intel
    architecture defaults to round-nearest-even here ... sigh, they still
    don't fully get it) and imm_hi should be a compile time constant.
+   That is, the fast variants assume that float point inputs are already
+   integral value in the appropriate range for the output type.
 
    For wf_to_{wd,wl}, the permutation used for the conversion is less
    flexible due to cross 128-bit lane limitations in AVX.  If imm_hi==0,
@@ -292,27 +297,12 @@ wf_insert_variable( wf_t a, int n, float v ) {
 #define wf_to_wu(a)        wf_to_wu_fast( _mm256_round_ps( (a), _MM_FROUND_TO_ZERO | _MM_FROUND_NO_EXC ) )
 #define wf_to_wd(a,imm_hi) _mm256_cvtps_pd( _mm256_extractf128_ps( (a), !!(imm_hi) ) )
 
-/* FIXME: IS IT FASTER TO USE INSERT / EXTRACT HERE? */
-
-#if FD_USING_CLANG /* Sigh ... clang is sad and can't handle passing compile time const expressions through a static inline */
-
-#define wf_to_wl( f, imm_hi ) (__extension__({                                \
-    union { float f[4]; __m128  v[1]; } _wf_to_wl_t[1];                       \
-    union { long  l[4]; __m256i v[1]; } _wf_to_wl_u[1];                       \
-    _mm_store_ps( _wf_to_wl_t->f, _mm256_extractf128_ps( (f), !!(imm_hi) ) ); \
-    _wf_to_wl_u->l[0] = (long)_wf_to_wl_t->f[0];                              \
-    _wf_to_wl_u->l[1] = (long)_wf_to_wl_t->f[1];                              \
-    _wf_to_wl_u->l[2] = (long)_wf_to_wl_t->f[2];                              \
-    _wf_to_wl_u->l[3] = (long)_wf_to_wl_t->f[3];                              \
-    _mm256_load_si256( _wf_to_wl_u->v );                                      \
-  }))
-
-#else
+/* FIXME: IS IT FASTER TO USE INSERT / EXTRACT FOR THESE? */
 
 static inline __m256i wf_to_wl( wf_t f, int imm_hi ) { /* FIXME: workaround wl_t isn't declared at this point */
   union { float f[4]; __m128  v[1]; } t[1];
   union { long  l[4]; __m256i v[1]; } u[1];
-  _mm_store_ps( t->f, _mm256_extractf128_ps( f, !!imm_hi ) );
+  _mm_store_ps( t->f, imm_hi ? _mm256_extractf128_ps( f, 1 ) : _mm256_extractf128_ps( f, 0 ) /* compile time */ );
   u->l[0] = (long)t->f[0];
   u->l[1] = (long)t->f[1];
   u->l[2] = (long)t->f[2];
@@ -320,9 +310,18 @@ static inline __m256i wf_to_wl( wf_t f, int imm_hi ) { /* FIXME: workaround wl_t
   return _mm256_load_si256( u->v );
 }
 
-#endif
+static inline __m256i wf_to_wv( wf_t f, int imm_hi ) { /* FIXME: workaround wv_t isn't declared at this point */
+  union { float f[4]; __m128  v[1]; } t[1];
+  union { ulong u[4]; __m256i v[1]; } u[1];
+  _mm_store_ps( t->f, imm_hi ? _mm256_extractf128_ps( f, 1 ) : _mm256_extractf128_ps( f, 0 ) /* compile time */ );
+  u->u[0] = (ulong)t->f[0];
+  u->u[1] = (ulong)t->f[1];
+  u->u[2] = (ulong)t->f[2];
+  u->u[3] = (ulong)t->f[3];
+  return _mm256_load_si256( u->v );
+}
 
-#define wf_to_wi_fast(a) _mm256_cvtps_epi32(  (a) )
+#define wf_to_wi_fast(a) _mm256_cvtps_epi32( (a) )
 
 static inline __m256i wf_to_wu_fast( wf_t a ) { /* FIXME: workaround wu_t isn't declared at this point */
 
@@ -348,6 +347,7 @@ static inline __m256i wf_to_wu_fast( wf_t a ) { /* FIXME: workaround wu_t isn't 
 #define wf_to_wu_raw(a) _mm256_castps_si256( (a) )
 #define wf_to_wd_raw(a) _mm256_castps_pd(    (a) )
 #define wf_to_wl_raw(a) _mm256_castps_si256( (a) )
+#define wf_to_wv_raw(a) _mm256_castps_si256( (a) )
 
 /* Reduction operations */
 
