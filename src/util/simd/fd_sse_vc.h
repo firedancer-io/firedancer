@@ -102,10 +102,10 @@ static inline void vc_stu( int * p, vc_t c ) { _mm_storeu_si128( (__m128i *)p, c
 /* vc_ldif is an optimized equivalent to vc_and(c,vc_ldu(p)).  Similarly
    for vc_ldif_fast (either may have different behavior if c is not a
    proper vector conditional).  vc_ldif_fast assumes p already holds a
-   proper vector conditional.  These are provided for symmetry with with
-   the vc_stif operation.  vc_stif stores x(n) to p[n] if c(n) is true
-   and leaves p[n] unchanged otherwise.  Undefined behavior if c is not
-   a proper vector conditional. */
+   proper vector conditional.  These are provided for symmetry with the
+   vc_stif operation.  vc_stif stores x(n) to p[n] if c(n) is true and
+   leaves p[n] unchanged otherwise.  Undefined behavior if c is not a
+   proper vector conditional. */
 
 #define vc_ldif(c,p)      _mm_xor_si128(_mm_set1_epi32(-1),_mm_cmpeq_epi32( _mm_maskload_epi32((p),(c)),_mm_setzero_si128()))
 #define vc_ldif_fast(c,p) _mm_maskload_epi32((p),(c))
@@ -174,23 +174,25 @@ static inline void vc_stu( int * p, vc_t c ) { _mm_storeu_si128( (__m128i *)p, c
 
 /* Conversion operations */
 
-/* vc_to_{vf,vi,vd,vl} convert a proper vector conditional into a vector
-   float/int/double/long with f mapping to 0 and t mapping to 1 in each
-   lane.
+/* vc_to_{vf,vi,vu,vd,vl} convert a proper vector conditional into a
+   vector float/int/double/long with f mapping to 0 and t mapping to 1
+   in each lane.
 
-   vc_to_{vf,vi,vd,vl}_raw just treat the raw bits in the vector
-   conditional as the corresponding vector type.  For vc_to_{vi,vl}_raw,
-   map false(true) to 0(-1).  vc_to_{vf,vd}_raw probably are not useful
-   in practice but are provided for completeness; they map false(true)
-   to 0(-nan). */
+   vc_to_{vf,vi,vu,vd,vl}_raw just treat the raw bits in the vector
+   conditional as the corresponding vector type.  For
+   vc_to_{vi,vu,vl}_raw, map false(true) to 0(-1).  vc_to_{vf,vd}_raw
+   probably are not useful in practice but are provided for
+   completeness; they map false(true) to 0(-nan). */
 
 #define vc_to_vf(a) _mm_and_ps( _mm_castsi128_ps( (a) ), _mm_set1_ps( 1.f ) )
 #define vc_to_vi(a) _mm_and_si128( (a), _mm_set1_epi32( 1 ) )
+#define vc_to_vu(a) _mm_and_si128( (a), _mm_set1_epi32( 1 ) )
 #define vc_to_vd(a) _mm_and_pd( _mm_castsi128_pd( (a) ), _mm_set1_pd( 1. ) ) /* vc should have paired lanes */
 #define vc_to_vl(a) _mm_and_si128( (a), _mm_set1_epi64x( 1L ) )              /* vc should have paired lanes */
 
 #define vc_to_vf_raw(a) _mm_castsi128_ps( (a) )
 #define vc_to_vi_raw(a) (a)
+#define vc_to_vu_raw(a) (a)
 #define vc_to_vd_raw(a) _mm_castsi128_pd( (a) )
 #define vc_to_vl_raw(a) (a)
 

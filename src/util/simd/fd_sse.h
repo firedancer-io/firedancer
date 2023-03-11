@@ -4,20 +4,21 @@
 #if FD_HAS_SSE
 
 /* An API for writing vectorized C/C++ code using 4-wide 32-bit ints,
-   4-wide 32-bit floats, 2-wide 64-bit doubles, 2-wide 64-bit longs and
-   4- or 2-wide logicals assuming a platform with SSE support.
+   4-wide 32-bit uints, 4-wide 32-bit floats, 2-wide 64-bit doubles,
+   2-wide 64-bit longs and 4- or 2-wide logicals assuming a platform
+   with SSE support.
 
    Essentially, all the usual C/C++ operations you can do on an int,
-   float, double, long or logical has a fast O(1) vectorized equivalent
-   here.  Most operations boil down to a single assembly instruction in
-   most cases) and the macros are robust.
+   uint, float, double, long or logical has a fast O(1) vectorized
+   equivalent here.  Most operations boil down to a single assembly
+   instruction in most cases and the macros are robust.
 
    Further operations commonly used to transition from scalar/vector to
    vector/scalar code, to do cross lane data motion, etc are also
    provided to make it much easier to convert scalar implementations
    into highly optimized vectorized implementations.
 
-   That is, this is a thin wrapper around Intel's AVX intrinsics to give
+   That is, this is a thin wrapper around Intel's SSE intrinsics to give
    it a sane type system and robust semantics for writing mixed type and
    mixed wiidth vectorized code (including branching).  This includes a
    lot of non-obvious tricks, fixes for ultra high density of
@@ -57,6 +58,7 @@
 #include "fd_sse_vc.h" /* Vector conditional support */
 #include "fd_sse_vf.h" /* Vector float support */
 #include "fd_sse_vi.h" /* Vector int support */
+#include "fd_sse_vu.h" /* Vector uint support */
 #include "fd_sse_vd.h" /* Vector double support */
 #include "fd_sse_vl.h" /* Vector long support */
 

@@ -183,6 +183,9 @@ static inline vl_t vl_shr_vector( vl_t a, vl_t n ) {
    vl_to_vi(l,i,0) returns [ (int)l0 (int)l1 i2 i3 ]
    vl_to_vi(l,i,1) returns [ i0 i1 (int)l0 (int)l1 ]
 
+   vl_to_vu(l,u,0) returns [ (uint)l0 (uint)l1 u2 u3 ]
+   vl_to_vu(l,u,1) returns [ u0 u1 (uint)l2 (uint)l3 ]
+
    vl_to_vd(l)     returns [ (double)l0 (double)l1 ]
 
    The raw variants just treat the raw bits as the corresponding vector
@@ -204,6 +207,14 @@ static inline vl_t vl_to_vi( vl_t l, vi_t i, int imm_hi ) {
   vf_t _i = _mm_castsi128_ps( i );
   if( imm_hi ) _l = _mm_shuffle_ps( _i, _l, _MM_SHUFFLE(2,0,1,0) ); /* Compile time */
   else         _l = _mm_shuffle_ps( _l, _i, _MM_SHUFFLE(3,2,2,0) );
+  return _mm_castps_si128( _l );
+}
+
+static inline vl_t vl_to_vu( vl_t l, vu_t u, int imm_hi ) {
+  vf_t _l = _mm_castsi128_ps( l ); /* [ x0l x0h x1l x1h ] */
+  vf_t _u = _mm_castsi128_ps( u );
+  if( imm_hi ) _l = _mm_shuffle_ps( _u, _l, _MM_SHUFFLE(2,0,1,0) ); /* Compile time */
+  else         _l = _mm_shuffle_ps( _l, _u, _MM_SHUFFLE(3,2,2,0) );
   return _mm_castps_si128( _l );
 }
 

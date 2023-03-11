@@ -47,9 +47,9 @@ vi_bcast_wide( int i0, int i1 ) {
 /* vi_ld return the 4 ints at the 16-byte aligned / 16-byte sized
    location p as a vector int.  vi_ldu is the same but p does not have
    to be aligned.  vi_st writes the vector int to the 16-byte aligned /
-   16-byte sized ocation p as 4 ints.  vi_stu is the same but p does not
-   have to be aligned.  In all these lane l will be at p[l].  FIXME: USE
-   ATTRIBUTES ON P PASSED TO THESE?
+   16-byte sized location p as 4 ints.  vi_stu is the same but p does
+   not have to be aligned.  In all these lane l will be at p[l].  FIXME:
+   USE ATTRIBUTES ON P PASSED TO THESE?
    
    Note: gcc knows a __m128i may alias. */
 
@@ -60,10 +60,9 @@ static inline void vi_stu( int * p, vi_t i ) { _mm_storeu_si128( (__m128i *)p, i
 
 /* vi_ldif is an optimized equivalent to vi_notczero(c,vi_ldu(p)) (may
    have different behavior if c is not a proper vector conditional).  It
-   is provided for symmetry with with the vi_stif operation.  vi_stif
-   stores x(n) to p[n] if c(n) is true and leaves p[n] unchanged
-   otherwise.  Undefined behavior if c is not a proper vector
-   conditional. */
+   is provided for symmetry with the vi_stif operation.  vi_stif stores
+   x(n) to p[n] if c(n) is true and leaves p[n] unchanged otherwise.
+   Undefined behavior if c is not a proper vector conditional. */
 
 #define vi_ldif(c,p)   _mm_maskload_epi32( (p),(c))
 #define vi_stif(c,p,x) _mm_maskstore_epi32((p),(c),(x))
@@ -160,7 +159,9 @@ vi_insert_variable( vi_t a, int n, int v ) {
 
 /* Summarizing:
 
-   vi_to_vc(a)               returns [ !!a0 !!a1 ... a3 ]
+   vi_to_vc(a)               returns [ !!a0 !!a1 ... !!a3 ]
+
+   vi_to_vu(a)               returns [ (uint)a0 (uint)a1 ... (uint)a3 ]
 
    vi_to_vf(a)               returns [ (float)a0 (float)a1 ... (float)a3 ]
 
@@ -178,11 +179,13 @@ vi_insert_variable( vi_t a, int n, int v ) {
 
 #define vi_to_vc(a)               _mm_xor_si128( _mm_set1_epi32( -1 ), _mm_cmpeq_epi32( (a), _mm_setzero_si128() ) )
 #define vi_to_vf(a)               _mm_cvtepi32_ps( (a) )
+#define vi_to_vu(a)               (a)
 #define vi_to_vd(a,imm_l0,imm_l1) _mm_cvtepi32_pd   ( _mm_shuffle_epi32( (a), _MM_SHUFFLE(3,2,(imm_l1),(imm_l0)) ) )
 #define vi_to_vl(a,imm_l0,imm_l1) _mm_cvtepi32_epi64( _mm_shuffle_epi32( (a), _MM_SHUFFLE(3,2,(imm_l1),(imm_l0)) ) )
 
 #define vi_to_vc_raw(a) (a)
 #define vi_to_vf_raw(a) _mm_castsi128_ps( (a) )
+#define vi_to_vu_raw(a) (a)
 #define vi_to_vd_raw(a) _mm_castsi128_pd( (a) )
 #define vi_to_vl_raw(a) (a)
 
