@@ -70,10 +70,9 @@ vf_bcast_wide( float f0, float f1 ) {
 
 /* vf_ldif is an optimized equivalent to vf_notczero(c,vf_ldu(p)) (may
    have different behavior if c is not a proper vector conditional).  It
-   is provided for symmetry with with the vf_stif operation.  vf_stif
-   stores x(n) to p[n] if c(n) is true and leaves p[n] unchanged
-   otherwise.  Undefined behavior if c is not a proper vector
-   conditional. */
+   is provided for symmetry with the vf_stif operation.  vf_stif stores
+   x(n) to p[n] if c(n) is true and leaves p[n] unchanged otherwise.
+   Undefined behavior if c is not a proper vector conditional. */
 
 #define vf_ldif(c,p)   _mm_maskload_ps( (p),(c))
 #define vf_stif(c,p,x) _mm_maskstore_ps((p),(c),(x))
@@ -216,8 +215,11 @@ vf_insert_variable( vf_t a, int n, float v ) {
 
    vf_to_vc(a)               returns [ !!a0 !!a1 ... !!a3 ]
 
-   vf_to_vi(a)               returns [ (int)a0        (int)a1        ... (int)a3        ]
-   vf_to_vi_fast(a)          returns [ (int)rintf(a0) (int)rintf(a1) ... (int)rintf(a3) ] 
+   vf_to_vi(a)               returns [ (int)a0        (int)a1          ... (int)a3         ]
+   vf_to_vi_fast(a)          returns [ (int)rintf(a0) (int)rintf(a1)   ... (int)rintf(a3)  ]
+
+   vf_to_vu(a)               returns [ (uint)a0        (uint)a1        ... (uint)a3        ]
+   vf_to_vu_fast(a)          returns [ (uint)rintf(a0) (uint)rintf(a1) ... (uint)rintf(a3) ]
 
    vf_to_vd(a,imm_l0,imm_l1) returns [ (double)a(imm_l0) (double)a(imm_l1) ]
 
@@ -234,10 +236,8 @@ vf_insert_variable( vf_t a, int n, float v ) {
    completeness. */
 
 #define vf_to_vc(a)               _mm_castps_si128( _mm_cmp_ps( (a), _mm_setzero_ps(), _CMP_NEQ_OQ ) )
-
-#define vf_to_vi(a)               _mm_cvtps_epi32(  _mm_round_ps( (a), _MM_FROUND_TO_ZERO | _MM_FROUND_NO_EXC ) )
-#define vf_to_vi_fast(a)          _mm_cvtps_epi32(  (a) )
-
+#define vf_to_vi(a)               vf_to_vi_fast(  _mm_round_ps( (a), _MM_FROUND_TO_ZERO | _MM_FROUND_NO_EXC ) )
+#define vf_to_vu(a)               vf_to_vu_fast(  _mm_round_ps( (a), _MM_FROUND_TO_ZERO | _MM_FROUND_NO_EXC ) )
 #define vf_to_vd(a,imm_l0,imm_l1) _mm_cvtps_pd( _mm_permute_ps( (a), _MM_SHUFFLE(3,2,(imm_l1),(imm_l0)) ) )
 
 #if FD_USING_CLANG /* Sigh ... clang is sad and can't handle passing compile time const expressions through a static inline */
@@ -256,8 +256,31 @@ static inline __m128i vf_to_vl( vf_t f, int imm_l0, int imm_l1 ) { /* FIXME: wor
 
 #endif
 
+#define vf_to_vi_fast(a)          _mm_cvtps_epi32(  (a) )
+
+static inline __m128i vf_to_vu_fast( vf_t a ) { /* FIXME: workaround vu_t isn't declared at this point */
+
+  /* Note: Given that _mm_cvtps_epi32 exists, Intel clearly has the
+     hardware under the hood to support a _mm_cvtps_epu32 but didn't
+     bother to expose it pre-AVX512 ... sigh (all too typical
+     unfortunately).  We note that floats in [2^31,2^32) are already
+     integers and we can exactly subtract 2^31 from them.  This allows
+     us to use _mm_cvtps_epi32 to exactly convert to an integer.  We
+     then add back in any shift we had to apply. */
+
+  /**/                                                              /* Assumes a is integer in [0,2^32) */
+  vf_t    s  = vf_bcast( (float)(1U<<31) );                         /* 2^31 */
+  vc_t    c  = vf_lt ( a, s );                                      /* -1 if a<2^31, 0 o.w. */
+  vf_t    as = vf_sub( a, s );                                      /* a-2^31 */
+  __m128i u  = _mm_cvtps_epi32( vf_if( c, a, as ) );                /* (uint)(a      if a<2^31, a-2^31 o.w.) */
+  __m128i us = _mm_add_epi32( u, _mm_set1_epi32( (int)(1U<<31) ) ); /* (uint)(a+2^31 if a<2^31, a      o.w.) */
+  return _mm_castps_si128( _mm_blendv_ps( _mm_castsi128_ps( us ), _mm_castsi128_ps( u ), _mm_castsi128_ps( c ) ) );
+
+}
+
 #define vf_to_vc_raw(a) _mm_castps_si128( (a) )
 #define vf_to_vi_raw(a) _mm_castps_si128( (a) )
+#define vf_to_vu_raw(a) _mm_castps_si128( (a) )
 #define vf_to_vd_raw(a) _mm_castps_pd(    (a) )
 #define vf_to_vl_raw(a) _mm_castps_si128( (a) )
 

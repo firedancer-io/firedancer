@@ -148,6 +148,48 @@ static int vi_test( vi_t i, int i0, int i1, int i2, int i3 ) {
   return 1;
 }
 
+static int vu_test( vu_t u, uint u0, uint u1, uint u2, uint u3 ) {
+  int volatile _[1];
+  uint         m[23] V_ATTR;
+  vu_t         v;
+
+  if( vu_extract( u, 0 )!=u0 ) return 0;
+  if( vu_extract( u, 1 )!=u1 ) return 0;
+  if( vu_extract( u, 2 )!=u2 ) return 0;
+  if( vu_extract( u, 3 )!=u3 ) return 0;
+
+  _[0] = 0; if( vu_extract_variable( u, _[0] )!=u0 ) return 0;
+  _[0] = 1; if( vu_extract_variable( u, _[0] )!=u1 ) return 0;
+  _[0] = 2; if( vu_extract_variable( u, _[0] )!=u2 ) return 0;
+  _[0] = 3; if( vu_extract_variable( u, _[0] )!=u3 ) return 0;
+
+  vu_st(  m,    u ); /*   Aligned store to aligned   */
+  vu_stu( m+ 4, u ); /* Unaligned store to aligned   */
+  vu_stu( m+ 9, u ); /* Unaligned store to aligned+1 */
+  vu_stu( m+14, u ); /* Unaligned store to aligned+2 */
+  vu_stu( m+19, u ); /* Unaligned store to aligned+3 */
+
+  v = vu_ld(  m    ); if( vc_pack( vu_eq( u, v ) )!=15 ) return 0;
+  v = vu_ldu( m+ 4 ); if( vc_pack( vu_eq( u, v ) )!=15 ) return 0;
+  v = vu_ldu( m+ 9 ); if( vc_pack( vu_eq( u, v ) )!=15 ) return 0;
+  v = vu_ldu( m+14 ); if( vc_pack( vu_eq( u, v ) )!=15 ) return 0;
+  v = vu_ldu( m+19 ); if( vc_pack( vu_eq( u, v ) )!=15 ) return 0;
+
+  v = vu_gather( m, vu(9,5,21,17) ); if( !vc_all( vu_eq( u, v ) ) ) return 0;
+
+  v = vu_insert( vu_zero(),0, u0 );
+  v = vu_insert( v,        1, u1 );
+  v = vu_insert( v,        2, u2 );
+  v = vu_insert( v,        3, u3 ); if( vc_any( vu_ne( u, v ) ) ) return 0;
+
+  _[0] = 0; v = vu_insert_variable( vu_one(),_[0], u0 );
+  _[0] = 1; v = vu_insert_variable( v,       _[0], u1 );
+  _[0] = 2; v = vu_insert_variable( v,       _[0], u2 );
+  _[0] = 3; v = vu_insert_variable( v,       _[0], u3 ); if( vc_any( vu_ne( u, v ) ) ) return 0;
+
+  return 1;
+}
+
 static int vd_test( vd_t d, double d0, double d1 ) {
   int volatile _[1];
   double       m[7] V_ATTR;
@@ -222,6 +264,7 @@ main( int     argc,
 # define crand() (!(fd_rng_uint( rng ) & 1U))
 # define frand() (0.5f*(float)(fd_rng_uint( rng ) % 15U)-3.5f) /* [-3.5,-3,...+3,+3.5] */
 # define irand() ((int)(fd_rng_uint( rng ) % 7U)-3)            /* [-3,-2,-1,0,1,2,3] */
+# define urand() ((fd_rng_uint( rng ) % 7U)-3U)                /* [2^32-3,2^32-2,2^32-1,0,1,2,3] */
 # define drand() (0.5*(double)(fd_rng_uint( rng ) % 15U)-3.5)  /* [-3.5,-3,...+3,+3.5] */
 # define lrand() ((long)(fd_rng_uint( rng ) % 7U)-3L)          /* [-3,-2,-1,0,1,2,3] */
 
@@ -260,6 +303,8 @@ main( int     argc,
     FD_TEST( vc_test( vc_lnotnot( c ), !!c0, !!c1, !!c2, !!c3 ) );
 
     FD_TEST( vi_test( vc_to_vi( c ), c0, c1, c2, c3 ) );
+
+    FD_TEST( vu_test( vc_to_vu( c ), (uint)c0, (uint)c1, (uint)c2, (uint)c3 ) );
 
     FD_TEST( vf_test( vc_to_vf( c ), (float)c0, (float)c1, (float)c2, (float)c3 ) );
 
@@ -386,8 +431,10 @@ main( int     argc,
     FD_TEST( vc_test( vf_to_vc( x ), !(x0==0.f), !(x1==0.f), !(x2==0.f), !(x3==0.f) ) ); /* see vf_lnotnot */
 
     FD_TEST( vi_test( vf_to_vi( x ), (int)x0, (int)x1, (int)x2, (int)x3 ) );
-
     FD_TEST( vi_test( vf_to_vi_fast( x ), (int)rintf(x0), (int)rintf(x1), (int)rintf(x2), (int)rintf(x3) ) );
+
+    FD_TEST( vu_test( vf_to_vu( x ), (uint)x0, (uint)x1, (uint)x2, (uint)x3 ) );
+    FD_TEST( vu_test( vf_to_vu_fast( x ), (uint)rintf(x0), (uint)rintf(x1), (uint)rintf(x2), (uint)rintf(x3) ) );
 
     FD_TEST( vd_test( vf_to_vd( x, 0, 0 ), (double)x0, (double)x0 ) );
     FD_TEST( vd_test( vf_to_vd( x, 0, 1 ), (double)x0, (double)x1 ) );
@@ -518,6 +565,8 @@ main( int     argc,
 
     FD_TEST( vf_test( vi_to_vf( x ), (float)x0, (float)x1, (float)x2, (float)x3 ) );
 
+    FD_TEST( vu_test( vi_to_vu( x ), (uint)x0, (uint)x1, (uint)x2, (uint)x3 ) );
+
     FD_TEST( vd_test( vi_to_vd( x, 0, 0 ), (double)x0, (double)x0 ) );
     FD_TEST( vd_test( vi_to_vd( x, 0, 1 ), (double)x0, (double)x1 ) );
     FD_TEST( vd_test( vi_to_vd( x, 0, 2 ), (double)x0, (double)x2 ) );
@@ -557,6 +606,134 @@ main( int     argc,
     FD_TEST( !vc_any( vi_ne( vi_sum_all( x ), vi_bcast( x0 + x1 + x2 + x3 ) ) ) );
     FD_TEST( !vc_any( vi_ne( vi_min_all( x ), vi_bcast( fd_int_min( fd_int_min( x0, x1 ), fd_int_min( x2, x3 ) ) ) ) ) );
     FD_TEST( !vc_any( vi_ne( vi_max_all( x ), vi_bcast( fd_int_max( fd_int_max( x0, x1 ), fd_int_max( x2, x3 ) ) ) ) ) );
+  }
+
+  /* VU tests */
+
+  FD_TEST( vu_test( vu_zero(), 0, 0, 0, 0 ) );
+  FD_TEST( vu_test( vu_one(),  1, 1, 1, 1 ) );
+
+  for( int i=0; i<65536; i++ ) {
+    uint x0 = urand(); uint x1 = urand(); uint x2 = urand(); uint x3 = urand(); vu_t x = vu( x0, x1, x2, x3 );
+    uint y0 = urand(); uint y1 = urand(); uint y2 = urand(); uint y3 = urand(); vu_t y = vu( y0, y1, y2, y3 );
+    int  c0 = crand(); int  c1 = crand(); int  c2 = crand(); int  c3 = crand(); vc_t c = vc( c0, c1, c2, c3 );
+
+    /* Constructors */
+
+    FD_TEST( vu_test( x, x0, x1, x2, x3 ) );
+
+    FD_TEST( vu_test( vu_bcast( x0 ), x0, x0, x0, x0 ) );
+
+    FD_TEST( vu_test( vu_bcast_pair( x0, x1 ), x0, x1, x0, x1 ) );
+    FD_TEST( vu_test( vu_bcast_wide( x0, x1 ), x0, x0, x1, x1 ) );
+
+    FD_TEST( vu_test( vu_permute( x, 0, 0, 0, 0 ), x0, x0, x0, x0 ) );
+    FD_TEST( vu_test( vu_permute( x, 1, 1, 1, 1 ), x1, x1, x1, x1 ) );
+    FD_TEST( vu_test( vu_permute( x, 2, 2, 2, 2 ), x2, x2, x2, x2 ) );
+    FD_TEST( vu_test( vu_permute( x, 3, 3, 3, 3 ), x3, x3, x3, x3 ) );
+    FD_TEST( vu_test( vu_permute( x, 0, 1, 2, 3 ), x0, x1, x2, x3 ) );
+    FD_TEST( vu_test( vu_permute( x, 0, 0, 2, 2 ), x0, x0, x2, x2 ) );
+    FD_TEST( vu_test( vu_permute( x, 1, 1, 3, 3 ), x1, x1, x3, x3 ) );
+    FD_TEST( vu_test( vu_permute( x, 1, 0, 3, 2 ), x1, x0, x3, x2 ) );
+    FD_TEST( vu_test( vu_permute( x, 2, 3, 0, 1 ), x2, x3, x0, x1 ) );
+    FD_TEST( vu_test( vu_permute( x, 0, 2, 1, 3 ), x0, x2, x1, x3 ) );
+    FD_TEST( vu_test( vu_permute( x, 3, 2, 1, 0 ), x3, x2, x1, x0 ) );
+
+    /* Bit operations */
+
+    FD_TEST( vu_test( vu_not( x ), ~x0, ~x1, ~x2, ~x3 ) );
+
+#   define _(n) \
+    FD_TEST( vu_test( vu_shl( x, n ), x0<<n, x1<<n, x2<<n, x3<<n ) ); \
+    FD_TEST( vu_test( vu_shr( x, n ), x0>>n, x1>>n, x2>>n, x3>>n ) )
+    _( 0); _( 1); _( 2); _( 3); _( 4); _( 5); _( 6); _( 7); _( 8); _( 9); _(10); _(11); _(12); _(13); _(14); _(15);
+    _(16); _(17); _(18); _(19); _(20); _(21); _(22); _(23); _(24); _(25); _(26); _(27); _(28); _(29); _(30); _(31);
+#   undef _
+    for( int n=0; n<32; n++ ) {
+      int volatile m[1]; m[0] = n;
+      FD_TEST( vu_test( vu_shl_variable( x, m[0] ), x0<<n, x1<<n, x2<<n, x3<<n ) );
+      FD_TEST( vu_test( vu_shr_variable( x, m[0] ), x0>>n, x1>>n, x2>>n, x3>>n ) );
+    }
+
+    FD_TEST( vu_test( vu_and(    x, y ),   x0 &y0,   x1 &y1,   x2 &y2,   x3 &y3 ) );
+    FD_TEST( vu_test( vu_andnot( x, y ), (~x0)&y0, (~x1)&y1, (~x2)&y2, (~x3)&y3 ) );
+    FD_TEST( vu_test( vu_or(     x, y ),   x0| y0,   x1| y1,   x2| y2,   x3| y3 ) );
+    FD_TEST( vu_test( vu_xor(    x, y ),   x0^ y0,   x1^ y1,   x2^ y2,   x3^ y3 ) );
+
+    /* Arithmetic operations */
+
+    FD_TEST( vu_test( vu_neg( x ), -x0, -x1, -x2, -x3 ) );
+    FD_TEST( vu_test( vu_abs( x ), fd_uint_abs(x0), fd_uint_abs(x1), fd_uint_abs(x2), fd_uint_abs(x3) ) );
+
+    FD_TEST( vu_test( vu_min( x, y ), fd_uint_min(x0,y0), fd_uint_min(x1,y1), fd_uint_min(x2,y2), fd_uint_min(x3,y3) ) );
+    FD_TEST( vu_test( vu_max( x, y ), fd_uint_max(x0,y0), fd_uint_max(x1,y1), fd_uint_max(x2,y2), fd_uint_max(x3,y3) ) );
+    FD_TEST( vu_test( vu_add( x, y ), x0+y0, x1+y1, x2+y2, x3+y3 ) );
+    FD_TEST( vu_test( vu_sub( x, y ), x0-y0, x1-y1, x2-y2, x3-y3 ) );
+    FD_TEST( vu_test( vu_mul( x, y ), x0*y0, x1*y1, x2*y2, x3*y3 ) );
+
+    /* Logical operations */
+
+    FD_TEST( vc_test( vu_lnot(    x ),  !x0,  !x1,  !x2,  !x3 ) );
+    FD_TEST( vc_test( vu_lnotnot( x ), !!x0, !!x1, !!x2, !!x3 ) );
+
+    FD_TEST( vc_test( vu_eq( x, y ), x0==y0, x1==y1, x2==y2, x3==y3 ) );
+    FD_TEST( vc_test( vu_gt( x, y ), x0> y0, x1> y1, x2> y2, x3> y3 ) );
+    FD_TEST( vc_test( vu_lt( x, y ), x0< y0, x1< y1, x2< y2, x3< y3 ) );
+    FD_TEST( vc_test( vu_ne( x, y ), x0!=y0, x1!=y1, x2!=y2, x3!=y3 ) );
+    FD_TEST( vc_test( vu_ge( x, y ), x0>=y0, x1>=y1, x2>=y2, x3>=y3 ) );
+    FD_TEST( vc_test( vu_le( x, y ), x0<=y0, x1<=y1, x2<=y2, x3<=y3 ) );
+
+    FD_TEST( vu_test( vu_czero(    c, x ), c0?0U:x0, c1?0U:x1, c2?0U:x2, c3?0U:x3 ) );
+    FD_TEST( vu_test( vu_notczero( c, x ), c0?x0:0U, c1?x1:0U, c2?x2:0U, c3?x3:0U ) );
+    FD_TEST( vu_test( vu_if( c, x, y ),    c0?x0:y0, c1?x1:y1, c2?x2:y2, c3?x3:y3 ) );
+
+    /* Conversion operations */
+
+    FD_TEST( vc_test( vu_to_vc( x ), !!x0, !!x1, !!x2, !!x3 ) );
+
+    FD_TEST( vf_test( vu_to_vf( x ), (float)x0, (float)x1, (float)x2, (float)x3 ) );
+
+    FD_TEST( vi_test( vu_to_vi( x ), (int)x0, (int)x1, (int)x2, (int)x3 ) );
+
+    FD_TEST( vd_test( vu_to_vd( x, 0, 0 ), (double)x0, (double)x0 ) );
+    FD_TEST( vd_test( vu_to_vd( x, 0, 1 ), (double)x0, (double)x1 ) );
+    FD_TEST( vd_test( vu_to_vd( x, 0, 2 ), (double)x0, (double)x2 ) );
+    FD_TEST( vd_test( vu_to_vd( x, 0, 3 ), (double)x0, (double)x3 ) );
+    FD_TEST( vd_test( vu_to_vd( x, 1, 0 ), (double)x1, (double)x0 ) );
+    FD_TEST( vd_test( vu_to_vd( x, 1, 1 ), (double)x1, (double)x1 ) );
+    FD_TEST( vd_test( vu_to_vd( x, 1, 2 ), (double)x1, (double)x2 ) );
+    FD_TEST( vd_test( vu_to_vd( x, 1, 3 ), (double)x1, (double)x3 ) );
+    FD_TEST( vd_test( vu_to_vd( x, 2, 0 ), (double)x2, (double)x0 ) );
+    FD_TEST( vd_test( vu_to_vd( x, 2, 1 ), (double)x2, (double)x1 ) );
+    FD_TEST( vd_test( vu_to_vd( x, 2, 2 ), (double)x2, (double)x2 ) );
+    FD_TEST( vd_test( vu_to_vd( x, 2, 3 ), (double)x2, (double)x3 ) );
+    FD_TEST( vd_test( vu_to_vd( x, 3, 0 ), (double)x3, (double)x0 ) );
+    FD_TEST( vd_test( vu_to_vd( x, 3, 1 ), (double)x3, (double)x1 ) );
+    FD_TEST( vd_test( vu_to_vd( x, 3, 2 ), (double)x3, (double)x2 ) );
+    FD_TEST( vd_test( vu_to_vd( x, 3, 3 ), (double)x3, (double)x3 ) );
+
+    FD_TEST( vl_test( vu_to_vl( x, 0, 0 ), (long)x0, (long)x0 ) );
+    FD_TEST( vl_test( vu_to_vl( x, 0, 1 ), (long)x0, (long)x1 ) );
+    FD_TEST( vl_test( vu_to_vl( x, 0, 2 ), (long)x0, (long)x2 ) );
+    FD_TEST( vl_test( vu_to_vl( x, 0, 3 ), (long)x0, (long)x3 ) );
+    FD_TEST( vl_test( vu_to_vl( x, 1, 0 ), (long)x1, (long)x0 ) );
+    FD_TEST( vl_test( vu_to_vl( x, 1, 1 ), (long)x1, (long)x1 ) );
+    FD_TEST( vl_test( vu_to_vl( x, 1, 2 ), (long)x1, (long)x2 ) );
+    FD_TEST( vl_test( vu_to_vl( x, 1, 3 ), (long)x1, (long)x3 ) );
+    FD_TEST( vl_test( vu_to_vl( x, 2, 0 ), (long)x2, (long)x0 ) );
+    FD_TEST( vl_test( vu_to_vl( x, 2, 1 ), (long)x2, (long)x1 ) );
+    FD_TEST( vl_test( vu_to_vl( x, 2, 2 ), (long)x2, (long)x2 ) );
+    FD_TEST( vl_test( vu_to_vl( x, 2, 3 ), (long)x2, (long)x3 ) );
+    FD_TEST( vl_test( vu_to_vl( x, 3, 0 ), (long)x3, (long)x0 ) );
+    FD_TEST( vl_test( vu_to_vl( x, 3, 1 ), (long)x3, (long)x1 ) );
+    FD_TEST( vl_test( vu_to_vl( x, 3, 2 ), (long)x3, (long)x2 ) );
+    FD_TEST( vl_test( vu_to_vl( x, 3, 3 ), (long)x3, (long)x3 ) );
+
+    /* Reduction operations */
+
+    FD_TEST( !vc_any( vu_ne( vu_sum_all( x ), vu_bcast( x0 + x1 + x2 + x3 ) ) ) );
+    FD_TEST( !vc_any( vu_ne( vu_min_all( x ), vu_bcast( fd_uint_min( fd_uint_min( x0, x1 ), fd_uint_min( x2, x3 ) ) ) ) ) );
+    FD_TEST( !vc_any( vu_ne( vu_max_all( x ), vu_bcast( fd_uint_max( fd_uint_max( x0, x1 ), fd_uint_max( x2, x3 ) ) ) ) ) );
   }
 
   /* VD tests */
@@ -647,6 +824,12 @@ main( int     argc,
 
     FD_TEST( vi_test( vd_to_vi_fast( x, vi( 0, 1, 2, 3), 0 ), (int)rint(x0), (int)rint(x1), 2, 3 ) );
     FD_TEST( vi_test( vd_to_vi_fast( x, vi( 0, 1, 2, 3), 1 ), 0, 1, (int)rint(x0), (int)rint(x1) ) );
+
+    FD_TEST( vu_test( vd_to_vu( x, vu(0U,1U,2U,3U), 0 ), (uint)x0,(uint)x1, 2U,3U ) );
+    FD_TEST( vu_test( vd_to_vu( x, vu(0U,1U,2U,3U), 1 ), 0U,1U, (uint)x0,(uint)x1 ) );
+
+    FD_TEST( vu_test( vd_to_vu_fast( x, vu(0U,1U,2U,3U), 0 ), (uint)rint(x0),(uint)rint(x1), 2U,3U ) );
+    FD_TEST( vu_test( vd_to_vu_fast( x, vu(0U,1U,2U,3U), 1 ), 0U,1U, (uint)rint(x0),(uint)rint(x1) ) );
 
     FD_TEST( vl_test( vd_to_vl( x ), (long)x0, (long)x1 ) );
 
@@ -745,6 +928,9 @@ main( int     argc,
     FD_TEST( vi_test( vl_to_vi( x, vi( 0, 1, 2, 3 ), 0 ), (int)x0, (int)x1, 2, 3 ) );
     FD_TEST( vi_test( vl_to_vi( x, vi( 0, 1, 2, 3 ), 1 ), 0, 1, (int)x0, (int)x1 ) );
 
+    FD_TEST( vu_test( vl_to_vu( x, vu(0U,1U,2U,3U), 0 ), (uint)x0,(uint)x1, 2U,3U ) );
+    FD_TEST( vu_test( vl_to_vu( x, vu(0U,1U,2U,3U), 1 ), 0U,1U, (uint)x0,(uint)x1 ) );
+
     FD_TEST( vd_test( vl_to_vd( x ), (double)x0, (double)x1 ) );
 
     /* Reduction operations */
@@ -759,7 +945,9 @@ main( int     argc,
 
   fd_rng_delete( fd_rng_leave( rng ) );
 
+# undef lrand
 # undef drand
+# undef urand
 # undef irand
 # undef frand
 # undef crand
