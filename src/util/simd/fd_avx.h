@@ -5,13 +5,13 @@
 
 /* An API for writing vectorized C/C++ code using 8-wide 32-bit ints,
    8-wide 32-bit uints, 8-wide 32-bit floats, 4-wide 64-bit doubles,
-   4-wide 64-bit longs and 8- or 4-wide logicals assuming a platform
-   with AVX support.
+   4-wide 64-bit longs, 8-wide 64-bit ulongs and 8- or 4-wide logicals
+   assuming a platform with AVX support.
 
    Essentially, all the usual C/C++ operations you can do on an int,
-   uint, float, double, long or logical has a fast O(1) vectorized
-   equivalent here.  Most operations boil down to a single assembly
-   instruction in most cases and the macros are robust.
+   uint, float, double, long, ulong or logical has a fast O(1)
+   vectorized equivalent here.  Most operations boil down to a single
+   assembly instruction in most cases and the macros are robust.
 
    Further operations commonly used to transition from scalar/vector to
    vector/scalar code, to do cross lane data motion, etc are also
@@ -61,6 +61,7 @@
 #include "fd_avx_wu.h" /* Vector uint support */
 #include "fd_avx_wd.h" /* Vector double support */
 #include "fd_avx_wl.h" /* Vector long support */
+#include "fd_avx_wv.h" /* Vector ulong support */
 
 #else
 #error "Build target does not support AVX wrappers"

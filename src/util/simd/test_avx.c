@@ -334,9 +334,9 @@ static int wd_test( wd_t d, double d0, double d1, double d2, double d3 ) {
 }
 
 static int wl_test( wl_t l, long l0, long l1, long l2, long l3 ) {
-  long volatile _[1];
-  long          m[23] W_ATTR;
-  wl_t          k;
+  int volatile _[1];
+  long         m[23] W_ATTR;
+  wl_t         k;
 
   if( wl_extract( l, 0 )!=l0 ) return 0;
   if( wl_extract( l, 1 )!=l1 ) return 0;
@@ -376,6 +376,49 @@ static int wl_test( wl_t l, long l0, long l1, long l2, long l3 ) {
   return 1;
 }
 
+static int wv_test( wv_t v, ulong v0, ulong v1, ulong v2, ulong v3 ) {
+  int volatile _[1];
+  ulong        m[23] W_ATTR;
+  wv_t         w;
+
+  if( wv_extract( v, 0 )!=v0 ) return 0;
+  if( wv_extract( v, 1 )!=v1 ) return 0;
+  if( wv_extract( v, 2 )!=v2 ) return 0;
+  if( wv_extract( v, 3 )!=v3 ) return 0;
+
+  _[0] = 0; if( wv_extract_variable( v, _[0] )!=v0 ) return 0;
+  _[0] = 1; if( wv_extract_variable( v, _[0] )!=v1 ) return 0;
+  _[0] = 2; if( wv_extract_variable( v, _[0] )!=v2 ) return 0;
+  _[0] = 3; if( wv_extract_variable( v, _[0] )!=v3 ) return 0;
+
+  wv_st(  m,    v ); /*   Aligned store to aligned   */
+  wv_stu( m+4,  v ); /* Unaligned store to aligned   */
+  wv_stu( m+9,  v ); /* Unaligned store to aligned+1 */
+  wv_stu( m+14, v ); /* Unaligned store to aligned+2 */
+  wv_stu( m+19, v ); /* Unaligned store to aligned+3 */
+
+  w = wv_ld(  m    ); if( wc_pack( wv_eq( v, w ) )!=255 ) return 0;
+  w = wv_ldu( m+4  ); if( wc_pack( wv_eq( v, w ) )!=255 ) return 0;
+  w = wv_ldu( m+9  ); if( wc_pack( wv_eq( v, w ) )!=255 ) return 0;
+  w = wv_ldu( m+14 ); if( wc_pack( wv_eq( v, w ) )!=255 ) return 0;
+  w = wv_ldu( m+19 ); if( wc_pack( wv_eq( v, w ) )!=255 ) return 0;
+
+  w = wv_gather( m, wi( 9,20,21,17, 3, 2, 1, 0), 0 ); if( !wc_all( wv_eq( v, w ) ) ) return 0;
+  w = wv_gather( m, wi( 3, 2, 1, 0, 4,10, 6,12), 1 ); if( !wc_all( wv_eq( v, w ) ) ) return 0;
+
+  w = wv_insert( wv_zero(),0, v0 );
+  w = wv_insert( w,        1, v1 );
+  w = wv_insert( w,        2, v2 );
+  w = wv_insert( w,        3, v3 ); if( wc_any( wv_ne( v, w ) ) ) return 0;
+
+  _[0] = 0; w = wv_insert_variable( wv_one(),_[0], v0 );
+  _[0] = 1; w = wv_insert_variable( w,       _[0], v1 );
+  _[0] = 2; w = wv_insert_variable( w,       _[0], v2 );
+  _[0] = 3; w = wv_insert_variable( w,       _[0], v3 ); if( wc_any( wv_ne( v, w ) ) ) return 0;
+
+  return 1;
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -387,6 +430,7 @@ main( int     argc,
 # define urand() ((fd_rng_uint( rng ) % 7U)-3U)                /* [2^32-3,2^32-2,2^32-1,0,1,2,3] */
 # define drand() (0.5*(double)(fd_rng_uint( rng ) % 15U)-3.5)  /* [-3.5,-3,...+3,+3.5] */
 # define lrand() ((long)(fd_rng_uint( rng ) % 7U)-3L)          /* [-3,-2,-1,0,1,2,3] */
+# define vrand() ((ulong)(fd_rng_uint( rng ) % 7U)-3UL)        /* [2^64-3,2^64-2,2^64-1,0,1,2,3] */
 
   fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
 
@@ -430,6 +474,8 @@ main( int     argc,
     FD_TEST( wd_test( wc_to_wd( wc_bcast_wide( c0,c1,c2,c3 ) ), (double)c0, (double)c1, (double)c2,( double)c3 ) );
 
     FD_TEST( wl_test( wc_to_wl( wc_bcast_wide( c0,c1,c2,c3 ) ), (long)c0, (long)c1, (long)c2, (long)c3 ) );
+
+    FD_TEST( wv_test( wc_to_wv( wc_bcast_wide( c0,c1,c2,c3 ) ), (ulong)c0, (ulong)c1, (ulong)c2, (ulong)c3 ) );
 
     FD_TEST( wc_any(c) == (c0 | c1 | c2 | c3 | c4 | c5 | c6 | c7) );
     FD_TEST( wc_all(c) == (c0 & c1 & c2 & c3 & c4 & c5 & c6 & c7) );
@@ -586,6 +632,9 @@ main( int     argc,
     FD_TEST( wl_test( wf_to_wl( x, 0 ), (long)x0, (long)x1, (long)x2, (long)x3 ) );
     FD_TEST( wl_test( wf_to_wl( x, 1 ), (long)x4, (long)x5, (long)x6, (long)x7 ) );
 
+    FD_TEST( wv_test( wf_to_wv( x, 0 ), (ulong)x0, (ulong)x1, (ulong)x2, (ulong)x3 ) );
+    FD_TEST( wv_test( wf_to_wv( x, 1 ), (ulong)x4, (ulong)x5, (ulong)x6, (ulong)x7 ) );
+
     /* Reduction operations */
 
     FD_TEST( !wc_any( wf_ne( wf_sum_all( x ), wf_bcast( x0+x1+x2+x3+x4+x5+x6+x7 ) ) ) );
@@ -698,6 +747,9 @@ main( int     argc,
     FD_TEST( wl_test( wi_to_wl( x, 0 ), (long)x0, (long)x1, (long)x2, (long)x3 ) );
     FD_TEST( wl_test( wi_to_wl( x, 1 ), (long)x4, (long)x5, (long)x6, (long)x7 ) );
 
+    FD_TEST( wv_test( wi_to_wv( x, 0 ), (ulong)x0, (ulong)x1, (ulong)x2, (ulong)x3 ) );
+    FD_TEST( wv_test( wi_to_wv( x, 1 ), (ulong)x4, (ulong)x5, (ulong)x6, (ulong)x7 ) );
+
     /* Reduction operations */
 
     FD_TEST( !wc_any( wi_ne( wi_sum_all( x ), wi_bcast( x0 + x1 + x2 + x3 + x4 + x5 + x6 + x7 ) ) ) );
@@ -752,8 +804,8 @@ main( int     argc,
 #   undef _
     for( int n=0; n<32; n++ ) {
       int volatile m[1]; m[0] = n;
-      FD_TEST( wu_test( wu_shl_variable(  x, m[0] ), x0<<n, x1<<n, x2<<n, x3<<n, x4<<n, x5<<n, x6<<n, x7<<n ) );
-      FD_TEST( wu_test( wu_shr_variable(  x, m[0] ), x0>>n, x1>>n, x2>>n, x3>>n, x4>>n, x5>>n, x6>>n, x7>>n ) );
+      FD_TEST( wu_test( wu_shl_variable( x, m[0] ), x0<<n, x1<<n, x2<<n, x3<<n, x4<<n, x5<<n, x6<<n, x7<<n ) );
+      FD_TEST( wu_test( wu_shr_variable( x, m[0] ), x0>>n, x1>>n, x2>>n, x3>>n, x4>>n, x5>>n, x6>>n, x7>>n ) );
     }
 
     FD_TEST( wu_test( wu_and(    x, y ),   x0 &y0,   x1 &y1,   x2 &y2,   x3 &y3,   x4 &y4,   x5 &y5,   x6 &y6,   x7 &y7 ) );
@@ -804,6 +856,9 @@ main( int     argc,
 
     FD_TEST( wl_test( wu_to_wl( x, 0 ), (long)x0, (long)x1, (long)x2, (long)x3 ) );
     FD_TEST( wl_test( wu_to_wl( x, 1 ), (long)x4, (long)x5, (long)x6, (long)x7 ) );
+
+    FD_TEST( wv_test( wu_to_wv( x, 0 ), (ulong)x0, (ulong)x1, (ulong)x2, (ulong)x3 ) );
+    FD_TEST( wv_test( wu_to_wv( x, 1 ), (ulong)x4, (ulong)x5, (ulong)x6, (ulong)x7 ) );
 
     /* Reduction operations */
 
@@ -928,6 +983,8 @@ main( int     argc,
 
     FD_TEST( wl_test( wd_to_wl( x ), (long)x0, (long)x1, (long)x2, (long)x3 ) );
 
+    FD_TEST( wv_test( wd_to_wv( x ), (ulong)x0, (ulong)x1, (ulong)x2, (ulong)x3 ) );
+
     /* Reduction operations */
 
     FD_TEST( !wc_any( wd_ne( wd_sum_all( x ), wd_bcast( x0 + x1 + x2 + x3 ) ) ) );
@@ -1034,13 +1091,15 @@ main( int     argc,
     FD_TEST( wf_test( wl_to_wf( x, wf( 0.f, 1.f, 2.f, 3.f, 4.f, 5.f, 6.f, 7.f ), 1 ),
                       0.f, 1.f, 2.f, 3.f, (float)x0, (float)x1, (float)x2, (float)x3 ) );
 
-    FD_TEST( wi_test( wl_to_wi( x, wi( 0, 1, 2, 3, 4, 5, 6, 7 ), 0 ), (int)x0, (int)x1, (int)x2, (int)x3, 4, 5, 6, 7 ) );
-    FD_TEST( wi_test( wl_to_wi( x, wi( 0, 1, 2, 3, 4, 5, 6, 7 ), 1 ), 0, 1, 2, 3, (int)x0, (int)x1, (int)x2, (int)x3 ) );
+    FD_TEST( wi_test( wl_to_wi( x, wi(0,1,2,3,4,5,6,7), 0 ), (int)x0,(int)x1,(int)x2,(int)x3, 4,5,6,7 ) );
+    FD_TEST( wi_test( wl_to_wi( x, wi(0,1,2,3,4,5,6,7), 1 ), 0,1,2,3, (int)x0,(int)x1,(int)x2,(int)x3 ) );
 
     FD_TEST( wu_test( wl_to_wu( x, wu(0U,1U,2U,3U,4U,5U,6U,7U), 0 ), (uint)x0,(uint)x1,(uint)x2,(uint)x3, 4U,5U,6U,7U ) );
     FD_TEST( wu_test( wl_to_wu( x, wu(0U,1U,2U,3U,4U,5U,6U,7U), 1 ), 0U,1U,2U,3U, (uint)x0,(uint)x1,(uint)x2,(uint)x3 ) );
 
     FD_TEST( wd_test( wl_to_wd( x ), (double)x0, (double)x1, (double)x2, (double)x3 ) );
+
+    FD_TEST( wv_test( wl_to_wv( x ), (ulong)x0, (ulong)x1, (ulong)x2, (ulong)x3 ) );
 
     /* Reduction operations */
 
@@ -1049,11 +1108,124 @@ main( int     argc,
     FD_TEST( !wc_any( wl_ne( wl_max_all( x ), wl_bcast( fd_long_max( fd_long_max( x0, x1 ), fd_long_max( x2, x3 ) ) ) ) ) );
   }
 
+  /* WV tests */
+
+  FD_TEST( wv_test( wv_zero(), 0UL, 0UL, 0UL, 0UL ) );
+  FD_TEST( wv_test( wv_one(),  1UL, 1UL, 1UL, 1UL ) );
+
+  for( int i=0; i<65536; i++ ) {
+    ulong x0 = vrand(); ulong x1 = vrand(); ulong x2 = vrand(); ulong x3 = vrand(); wv_t x = wv( x0, x1, x2, x3 );
+    ulong y0 = vrand(); ulong y1 = vrand(); ulong y2 = vrand(); ulong y3 = vrand(); wv_t y = wv( y0, y1, y2, y3 );
+    int   c0 = crand(); int   c1 = crand(); int   c2 = crand(); int   c3 = crand(); wc_t c = wc_bcast_wide( c0, c1, c2, c3 );
+
+    /* Constructors */
+
+    FD_TEST( wv_test( x, x0, x1, x2, x3 ) );
+
+    FD_TEST( wv_test( wv_bcast( x0 ), x0, x0, x0, x0 ) );
+
+    FD_TEST( wv_test( wv_bcast_pair( x0, x1 ), x0, x1, x0, x1 ) );
+    FD_TEST( wv_test( wv_bcast_wide( x0, x1 ), x0, x0, x1, x1 ) );
+
+    FD_TEST( wv_test( wv_permute( x, 0, 0, 0, 0 ), x0, x0, x0, x0 ) );
+    FD_TEST( wv_test( wv_permute( x, 1, 1, 1, 1 ), x1, x1, x1, x1 ) );
+    FD_TEST( wv_test( wv_permute( x, 2, 2, 2, 2 ), x2, x2, x2, x2 ) );
+    FD_TEST( wv_test( wv_permute( x, 3, 3, 3, 3 ), x3, x3, x3, x3 ) );
+    FD_TEST( wv_test( wv_permute( x, 0, 1, 2, 3 ), x0, x1, x2, x3 ) );
+    FD_TEST( wv_test( wv_permute( x, 0, 0, 2, 2 ), x0, x0, x2, x2 ) );
+    FD_TEST( wv_test( wv_permute( x, 1, 1, 3, 3 ), x1, x1, x3, x3 ) );
+    FD_TEST( wv_test( wv_permute( x, 1, 0, 3, 2 ), x1, x0, x3, x2 ) );
+    FD_TEST( wv_test( wv_permute( x, 2, 3, 0, 1 ), x2, x3, x0, x1 ) );
+    FD_TEST( wv_test( wv_permute( x, 0, 2, 1, 3 ), x0, x2, x1, x3 ) );
+    FD_TEST( wv_test( wv_permute( x, 3, 2, 1, 0 ), x3, x2, x1, x0 ) );
+
+    /* Bit operations */
+
+    FD_TEST( wv_test( wv_not( x ), ~x0, ~x1, ~x2, ~x3 ) );
+
+#   define _(n) \
+    FD_TEST( wv_test( wv_shl( x, n ), x0<<n, x1<<n, x2<<n, x3<<n ) ); \
+    FD_TEST( wv_test( wv_shr( x, n ), x0>>n, x1>>n, x2>>n, x3>>n ) );
+    _( 0); _( 1); _( 2); _( 3); _( 4); _( 5); _( 6); _( 7); _( 8); _( 9); _(10); _(11); _(12); _(13); _(14); _(15);
+    _(16); _(17); _(18); _(19); _(20); _(21); _(22); _(23); _(24); _(25); _(26); _(27); _(28); _(29); _(30); _(31);
+    _(32); _(33); _(34); _(35); _(36); _(37); _(38); _(39); _(40); _(41); _(42); _(43); _(44); _(45); _(46); _(47);
+    _(48); _(49); _(50); _(51); _(52); _(53); _(54); _(55); _(56); _(57); _(58); _(59); _(60); _(61); _(62); _(63);
+#   undef _
+    for( int n=0; n<64; n++ ) {
+      int volatile m[1]; m[0] = n;
+      FD_TEST( wv_test( wv_shl_variable( x, m[0] ), x0<<n, x1<<n, x2<<n, x3<<n ) );
+      FD_TEST( wv_test( wv_shr_variable( x, m[0] ), x0>>n, x1>>n, x2>>n, x3>>n ) );
+    }
+
+    FD_TEST( wv_test( wv_and(    x, y ),   x0 &y0,   x1 &y1,   x2 &y2,   x3 &y3 ) );
+    FD_TEST( wv_test( wv_andnot( x, y ), (~x0)&y0, (~x1)&y1, (~x2)&y2, (~x3)&y3 ) );
+    FD_TEST( wv_test( wv_or(     x, y ),   x0| y0,   x1| y1,   x2| y2,   x3| y3 ) );
+    FD_TEST( wv_test( wv_xor(    x, y ),   x0^ y0,   x1^ y1,   x2^ y2,   x3^ y3 ) );
+
+    /* Arithmetic operations */
+
+    FD_TEST( wv_test( wv_neg( x ), -x0, -x1, -x2, -x3 ) );
+    FD_TEST( wv_test( wv_abs( x ), fd_ulong_abs(x0), fd_ulong_abs(x1), fd_ulong_abs(x2), fd_ulong_abs(x3) ) );
+
+    FD_TEST( wv_test( wv_min( x, y ), fd_ulong_min(x0,y0), fd_ulong_min(x1,y1), fd_ulong_min(x2,y2), fd_ulong_min(x3,y3) ) );
+    FD_TEST( wv_test( wv_max( x, y ), fd_ulong_max(x0,y0), fd_ulong_max(x1,y1), fd_ulong_max(x2,y2), fd_ulong_max(x3,y3) ) );
+    FD_TEST( wv_test( wv_add( x, y ), x0+y0, x1+y1, x2+y2, x3+y3 ) );
+    FD_TEST( wv_test( wv_sub( x, y ), x0-y0, x1-y1, x2-y2, x3-y3 ) );
+  //FD_TEST( wv_test( wv_mul( x, y ), x0*y0, x1*y1, x2*y2, x3*y3 ) );
+
+#   define SE_LO(x) ((ulong)(uint)(x))
+    FD_TEST( wv_test( wv_mul_ll( x, y ), SE_LO(x0)*SE_LO(y0), SE_LO(x1)*SE_LO(y1), SE_LO(x2)*SE_LO(y2), SE_LO(x3)*SE_LO(y3) ) );
+#   undef SE_LO
+
+    /* Logical operations */
+
+    FD_TEST( wc_test( wv_lnot(    x ),  !x0,  !x0,  !x1,  !x1,  !x2,  !x2,  !x3,  !x3 ) );
+    FD_TEST( wc_test( wv_lnotnot( x ), !!x0, !!x0, !!x1, !!x1, !!x2, !!x2, !!x3, !!x3 ) );
+
+    FD_TEST( wc_test( wv_eq( x, y ), x0==y0, x0==y0, x1==y1, x1==y1, x2==y2, x2==y2, x3==y3, x3==y3 ) );
+    FD_TEST( wc_test( wv_gt( x, y ), x0> y0, x0> y0, x1> y1, x1> y1, x2> y2, x2> y2, x3> y3, x3> y3 ) );
+    FD_TEST( wc_test( wv_lt( x, y ), x0< y0, x0< y0, x1< y1, x1< y1, x2< y2, x2< y2, x3< y3, x3< y3 ) );
+    FD_TEST( wc_test( wv_ne( x, y ), x0!=y0, x0!=y0, x1!=y1, x1!=y1, x2!=y2, x2!=y2, x3!=y3, x3!=y3 ) );
+    FD_TEST( wc_test( wv_ge( x, y ), x0>=y0, x0>=y0, x1>=y1, x1>=y1, x2>=y2, x2>=y2, x3>=y3, x3>=y3 ) );
+    FD_TEST( wc_test( wv_le( x, y ), x0<=y0, x0<=y0, x1<=y1, x1<=y1, x2<=y2, x2<=y2, x3<=y3, x3<=y3 ) );
+
+    FD_TEST( wv_test( wv_czero(    c, x ), c0?0UL:x0, c1?0UL:x1, c2?0UL:x2, c3?0UL:x3 ) );
+    FD_TEST( wv_test( wv_notczero( c, x ), c0?x0:0UL, c1?x1:0UL, c2?x2:0UL, c3?x3:0UL ) );
+
+    FD_TEST( wv_test( wv_if( c, x, y ), c0?x0:y0, c1?x1:y1, c2?x2:y2, c3?x3:y3 ) );
+
+    /* Conversion operations */
+
+    FD_TEST( wc_test( wv_to_wc( x ), !!x0, !!x0, !!x1, !!x1, !!x2, !!x2, !!x3, !!x3 ) );
+
+    FD_TEST( wf_test( wv_to_wf( x, wf( 0.f, 1.f, 2.f, 3.f, 4.f, 5.f, 6.f, 7.f ), 0 ),
+                      (float)x0, (float)x1, (float)x2, (float)x3, 4.f, 5.f, 6.f, 7.f ) );
+    FD_TEST( wf_test( wv_to_wf( x, wf( 0.f, 1.f, 2.f, 3.f, 4.f, 5.f, 6.f, 7.f ), 1 ),
+                      0.f, 1.f, 2.f, 3.f, (float)x0, (float)x1, (float)x2, (float)x3 ) );
+
+    FD_TEST( wi_test( wv_to_wi( x, wi(0,1,2,3,4,5,6,7), 0 ), (int)x0,(int)x1,(int)x2,(int)x3, 4,5,6,7 ) );
+    FD_TEST( wi_test( wv_to_wi( x, wi(0,1,2,3,4,5,6,7), 1 ), 0,1,2,3, (int)x0,(int)x1,(int)x2,(int)x3 ) );
+
+    FD_TEST( wu_test( wv_to_wu( x, wu(0U,1U,2U,3U,4U,5U,6U,7U), 0 ), (uint)x0,(uint)x1,(uint)x2,(uint)x3, 4U,5U,6U,7U ) );
+    FD_TEST( wu_test( wv_to_wu( x, wu(0U,1U,2U,3U,4U,5U,6U,7U), 1 ), 0U,1U,2U,3U, (uint)x0,(uint)x1,(uint)x2,(uint)x3 ) );
+
+    FD_TEST( wd_test( wv_to_wd( x ), (double)x0, (double)x1, (double)x2, (double)x3 ) );
+
+    FD_TEST( wl_test( wv_to_wl( x ), (long)x0, (long)x1, (long)x2, (long)x3 ) );
+
+    /* Reduction operations */
+
+    FD_TEST( !wc_any( wv_ne( wv_sum_all( x ), wv_bcast( x0 + x1 + x2 + x3 ) ) ) );
+    FD_TEST( !wc_any( wv_ne( wv_min_all( x ), wv_bcast( fd_ulong_min( fd_ulong_min( x0, x1 ), fd_ulong_min( x2, x3 ) ) ) ) ) );
+    FD_TEST( !wc_any( wv_ne( wv_max_all( x ), wv_bcast( fd_ulong_max( fd_ulong_max( x0, x1 ), fd_ulong_max( x2, x3 ) ) ) ) ) );
+  }
+
   /* FIXME: TEST LDIF/STIF VARIANTS */
   /* FIXME: TEST VECTOR SHIFT VARIANTS */
 
   fd_rng_delete( fd_rng_leave( rng ) );
 
+# undef vrand
 # undef lrand
 # undef drand
 # undef urand
