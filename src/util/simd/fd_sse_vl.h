@@ -22,10 +22,10 @@
 
 #define vl_bcast(l0) _mm_set1_epi64x( (l0) ) /* [ l0 l0 ] */
 
-/* vl_permute returns [ l(imm_l0) l(imm_l1) ].  imm_l* should be compile
+/* vl_permute returns [ l(imm_i0) l(imm_i1) ].  imm_i* should be compile
    time constants in 0:1. */
 
-#define vl_permute( d, imm_l0, imm_l1 ) _mm_castpd_si128( _mm_permute_pd( _mm_castsi128_pd( (d) ), (imm_l0) + 2*(imm_l1) ) )
+#define vl_permute( v, imm_i0, imm_i1 ) _mm_castpd_si128( _mm_permute_pd( _mm_castsi128_pd( (v) ), (imm_i0) + 2*(imm_i1) ) )
 
 /* Predefined constants */
 
@@ -73,14 +73,14 @@ static inline void vl_stu( long * p, vl_t i ) { _mm_storeu_si128( (__m128i *)p, 
 #define vl_insert(a,imm,v) _mm_insert_epi64( (a), (v), (imm) )
 
 static inline long
-vl_extract_variable( vl_t a, long n ) {
+vl_extract_variable( vl_t a, int n ) {
   union { __m128i m[1]; long l[2]; } t[1];
   _mm_store_si128( t->m, a );
   return t->l[n];
 }
 
 static inline vl_t
-vl_insert_variable( vl_t a, long n, long v ) {
+vl_insert_variable( vl_t a, int n, long v ) {
   union { __m128i m[1]; long l[2]; } t[1];
   _mm_store_si128( t->m, a );
   t->l[n] = v;
@@ -177,16 +177,18 @@ static inline vl_t vl_shr_vector( vl_t a, vl_t n ) {
 
    vl_to_vc(d)     returns [ !!l0 !!l0 !!l1 !!l1 ] 
 
-   vl_to_vf(l,i,0) returns [ (float)l0 (float)l1 l2 l3 ]
+   vl_to_vf(l,i,0) returns [ (float)l0 (float)l1 f2 f3 ]
    vl_to_vf(l,i,1) returns [ f0 f1 (float)l0 (float)l1 ]
 
    vl_to_vi(l,i,0) returns [ (int)l0 (int)l1 i2 i3 ]
    vl_to_vi(l,i,1) returns [ i0 i1 (int)l0 (int)l1 ]
 
    vl_to_vu(l,u,0) returns [ (uint)l0 (uint)l1 u2 u3 ]
-   vl_to_vu(l,u,1) returns [ u0 u1 (uint)l2 (uint)l3 ]
+   vl_to_vu(l,u,1) returns [ u0 u1 (uint)l0 (uint)l1 ]
 
    vl_to_vd(l)     returns [ (double)l0 (double)l1 ]
+
+   vl_to_vv(l)     returns [ (ulong)l0 (ulong)l1 ]
 
    The raw variants just treat the raw bits as the corresponding vector
    type.  For vl_to_vc_raw, the user promises vl contains a proper
@@ -222,10 +224,14 @@ static inline vd_t vl_to_vd( vl_t l ) {
   return _mm_setr_pd( (double)_mm_extract_epi64( l, 0 ), (double)_mm_extract_epi64( l, 1 ) );
 }
 
+#define vl_to_vv(a) (a)
+
 #define vl_to_vc_raw(a) (a)
 #define vl_to_vf_raw(a) _mm_castsi128_ps( (a) )
 #define vl_to_vi_raw(a) (a)
+#define vl_to_vu_raw(a) (a)
 #define vl_to_vd_raw(a) _mm_castsi128_pd( (a) )
+#define vl_to_vv_raw(a) (a)
 
 /* Reduction operations */
 
@@ -246,15 +252,17 @@ vl_max_all( vl_t x ) { /* Returns vl_bcast( max( x ) ) */
 
 /* Misc operations */
 
-/* vl_gather(b,i,imm_l0,imm_l1) returns [ b[i(imm_l0)] b[i(imm_l1)] ]
-   where b is a  "long const *" and i is a vi_t and imm_l0,imm_l1 are
-   compile time constants in 0:3.  The fd_type_pun is to workaround
-   various intrinsic and linguistic dubiousness (API takes a long long
-   const * but incoming type is a long const * and, though these are
-   nominally the same thing, from a linguistic POV, they are
-   incompatible ...  more Intel intrinsic hell ... and this also
-   degrades the optimizer near wherever this gets used as a result). */
+/* vl_gather(b,i,imm_i0,imm_i1) returns [ b[i(imm_i0)] b[i(imm_i1)] ]
+   where b is a  "long const *" and i is a vi_t and imm_i0,imm_i1 are
+   compile time constants in 0:3.  We use a static inline here instead
+   of a define to keep strict type checking while working around yet
+   another Intel intrinsic type mismatch issue.  And we use a define to
+   workaround clang sadness with passing a compile time constant into a
+   static inline. */
 
-#define vl_gather(b,i,imm_l0,imm_l1) \
-  _mm_i32gather_epi64( (long long const *)fd_type_pun( (b) ), _mm_shuffle_epi32( (i), _MM_SHUFFLE(3,2,(imm_l1),(imm_l0))), 8 )
+static inline vl_t _vl_gather( long const * b, vi_t i ) {
+  return _mm_i32gather_epi64( (long long const *)b, i, 8 );
+}
+
+#define vl_gather(b,i,imm_i0,imm_i1) _vl_gather( (b), _mm_shuffle_epi32( (i), _MM_SHUFFLE(3,2,(imm_i1),(imm_i0)) ) )
 

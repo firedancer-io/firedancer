@@ -44,10 +44,10 @@ vf_bcast_wide( float f0, float f1 ) {
   return _mm_setr_ps( f0, f0, f1, f1 );
 }
 
-/* vf_permute returns [ f(imm_l0) f(imm_l1) f(imm_l2) f(imm_l3) ].
-   imm_l* should be compile time constants in 0:3. */
+/* vf_permute returns [ f(imm_i0) f(imm_i1) f(imm_i2) f(imm_i3) ].
+   imm_i* should be compile time constants in 0:3. */
 
-#define vf_permute(f,imm_l0,imm_l1,imm_l2,imm_l3) _mm_permute_ps( (f), _MM_SHUFFLE( (imm_l3), (imm_l2), (imm_l1), (imm_l0) ) )
+#define vf_permute(f,imm_i0,imm_i1,imm_i2,imm_i3) _mm_permute_ps( (f), _MM_SHUFFLE( (imm_i3), (imm_i2), (imm_i1), (imm_i0) ) )
 
 /* Predefined constants */
 
@@ -221,14 +221,17 @@ vf_insert_variable( vf_t a, int n, float v ) {
    vf_to_vu(a)               returns [ (uint)a0        (uint)a1        ... (uint)a3        ]
    vf_to_vu_fast(a)          returns [ (uint)rintf(a0) (uint)rintf(a1) ... (uint)rintf(a3) ]
 
-   vf_to_vd(a,imm_l0,imm_l1) returns [ (double)a(imm_l0) (double)a(imm_l1) ]
+   vf_to_vd(a,imm_i0,imm_i1) returns [ (double)a(imm_i0) (double)a(imm_i1) ]
 
-   vf_to_vl(a,imm_l0,imm_l1) returns [ (long)a(imm_l0) (long)a(imm_l1) ]
+   vf_to_vl(a,imm_i0,imm_i1) returns [ (long)a(imm_i0) (long)a(imm_i1) ]
+
+   vf_to_vv(a,imm_i0,imm_i1) returns [ (ulong)a(imm_i0) (ulong)a(imm_i1) ]
 
    where rintf is configured for round-to-nearest-even rounding (Intel
    architecture defaults to round-nearest-even here ... sigh, they still
-   don't fully get it) and imm_l* should be a compile time constant in
-   0:3.
+   don't fully get it) and imm_i* should be a compile time constant in
+   0:3.  That is, the fast variants assume that float point inputs are
+   already integral value in the appropriate range for the output type.
 
    The raw variants return just raw bits as the corresponding vector
    type.  vf_to_vi_raw in particular allows doing advanced bit tricks on
@@ -238,23 +241,18 @@ vf_insert_variable( vf_t a, int n, float v ) {
 #define vf_to_vc(a)               _mm_castps_si128( _mm_cmp_ps( (a), _mm_setzero_ps(), _CMP_NEQ_OQ ) )
 #define vf_to_vi(a)               vf_to_vi_fast(  _mm_round_ps( (a), _MM_FROUND_TO_ZERO | _MM_FROUND_NO_EXC ) )
 #define vf_to_vu(a)               vf_to_vu_fast(  _mm_round_ps( (a), _MM_FROUND_TO_ZERO | _MM_FROUND_NO_EXC ) )
-#define vf_to_vd(a,imm_l0,imm_l1) _mm_cvtps_pd( _mm_permute_ps( (a), _MM_SHUFFLE(3,2,(imm_l1),(imm_l0)) ) )
+#define vf_to_vd(a,imm_i0,imm_i1) _mm_cvtps_pd( _mm_permute_ps( (a), _MM_SHUFFLE(3,2,(imm_i1),(imm_i0)) ) )
 
-#if FD_USING_CLANG /* Sigh ... clang is sad and can't handle passing compile time const expressions through a static inline */
-
-#define vf_to_vl(f,imm_l0,imm_l1) (__extension__({                                                \
-    vf_t _vf_to_vl_tmp = _mm_permute_ps( (f), _MM_SHUFFLE(3,2,(imm_l1),(imm_l0)) );               \
-    _mm_set_epi64x( (long)vf_extract( _vf_to_vl_tmp, 1 ), (long)vf_extract( _vf_to_vl_tmp, 0 ) ); \
+#define vf_to_vl(f,imm_i0,imm_i1) (__extension__({                                                                         \
+    vf_t _vf_to_vl_tmp = (f);                                                                                              \
+    _mm_set_epi64x( (long)vf_extract( _vf_to_vl_tmp, (imm_i1) ), (long)vf_extract( _vf_to_vl_tmp, (imm_i0) ) ); /* sigh */ \
   }))
 
-#else
-
-static inline __m128i vf_to_vl( vf_t f, int imm_l0, int imm_l1 ) { /* FIXME: workaround vl_t isn't declared at this point */
-  vf_t t = _mm_permute_ps( f, _MM_SHUFFLE(3,2,imm_l1,imm_l0) );
-  return _mm_set_epi64x( (long)vf_extract( t, 1 ), (long)vf_extract( t, 0 ) ); /* Sigh ... backwards Intel */
-}
-
-#endif
+#define vf_to_vv(f,imm_i0,imm_i1) (__extension__({                                   \
+    vf_t _vf_to_vv_tmp = (f);                                                        \
+    _mm_set_epi64x( (long)(ulong)vf_extract( _vf_to_vv_tmp, (imm_i1) ),              \
+                    (long)(ulong)vf_extract( _vf_to_vv_tmp, (imm_i0) ) ); /* sigh */ \
+  }))
 
 #define vf_to_vi_fast(a)          _mm_cvtps_epi32(  (a) )
 
@@ -283,6 +281,7 @@ static inline __m128i vf_to_vu_fast( vf_t a ) { /* FIXME: workaround vu_t isn't 
 #define vf_to_vu_raw(a) _mm_castps_si128( (a) )
 #define vf_to_vd_raw(a) _mm_castps_pd(    (a) )
 #define vf_to_vl_raw(a) _mm_castps_si128( (a) )
+#define vf_to_vv_raw(a) _mm_castps_si128( (a) )
 
 /* Reduction operations */
 

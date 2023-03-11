@@ -39,10 +39,10 @@
 
 #define vd_bcast(d0) _mm_set1_pd( (d0) ) /* [ d0 d0 ] */
 
-/* vd_permute returns [ d(imm_l0) d(imm_l1) ].  imm_l* should be compile
+/* vd_permute returns [ d(imm_i0) d(imm_i1) ].  imm_i* should be compile
    time constants in 0:1. */
 
-#define vd_permute( d, imm_l0, imm_l1 ) _mm_permute_pd( (d), (imm_l0) + 2*(imm_l1) )
+#define vd_permute( d, imm_i0, imm_i1 ) _mm_permute_pd( (d), (imm_i0) + 2*(imm_i1) )
 
 /* Predefined constants */
 
@@ -239,9 +239,13 @@ vd_insert_variable( vd_t a, int n, double v ) {
 
    vd_to_vl(d)          returns [ (long)d0 (long)d1 ]
 
+   vd_to_vv(v)          returns [ (ulong)d0 (ulong)d1 ]
+
    where rint is configured for round-to-nearest-even rounding (Intel
    architecture defaults to round-nearest-even here ... sigh, they still
    don't fully get it) and imm_hi should be a compile time constant.
+   That is, the fast variants assume that float point inputs are already
+   integral value in the appropriate range for the output type.
 
    Note that vd_to_{vf,vi,vi_fast} insert the converted values into
    lanes 0:1 (imm_hi==0) or 2:3 (imm_hi!=0) of the provided vector.
@@ -294,7 +298,8 @@ static inline vu_t vd_to_vu_fast( vd_t d, vu_t u, int imm_hi ) {
   return v;
 }
 
-/* FIXME: IS IT FASTER TO USE INSERT / EXTRACT HERE? */
+/* FIXME: IS IT FASTER TO USE INSERT / EXTRACT FOR THESE? */
+
 static inline __m128i vd_to_vl( vd_t d ) { /* FIXME: workaround vl_t isn't declared at this point */
   union { double d[2]; __m128d v[1]; } t[1];
   union { long   l[2]; __m128i v[1]; } u[1];
@@ -304,11 +309,21 @@ static inline __m128i vd_to_vl( vd_t d ) { /* FIXME: workaround vl_t isn't decla
   return _mm_load_si128( u->v );
 }
 
+static inline __m128i vd_to_vv( vd_t d ) { /* FIXME: workaround vv_t isn't declared at this point */
+  union { double d[2]; __m128d v[1]; } t[1];
+  union { ulong  u[2]; __m128i v[1]; } u[1];
+  _mm_store_pd( t->d, d );
+  u->u[0] = (ulong)t->d[0];
+  u->u[1] = (ulong)t->d[1];
+  return _mm_load_si128( u->v );
+}
+
 #define vd_to_vc_raw(a) _mm_castpd_si128( (a) )
 #define vd_to_vf_raw(a) _mm_castpd_ps(    (a) )
 #define vd_to_vi_raw(a) _mm_castpd_si128( (a) )
 #define vd_to_vu_raw(a) _mm_castpd_si128( (a) )
 #define vd_to_vl_raw(a) _mm_castpd_si128( (a) )
+#define vd_to_vv_raw(a) _mm_castpd_si128( (a) )
 
 /* Reduction operations */
 
@@ -329,9 +344,9 @@ vd_max_all( vd_t a ) { /* Returns vd_bcast( max( x ) ) */
 
 /* Misc operations */
 
-/* vd_gather(b,i,imm_l0,imm_l1) returns [ b[i(imm_l0)] b[i(imm_l1)] ]
-   where b is a  "double const *" and i is a vi_t and imm_l0,imm_l1 are
+/* vd_gather(b,i,imm_i0,imm_i1) returns [ b[i(imm_i0)] b[i(imm_i1)] ]
+   where b is a  "double const *" and i is a vi_t and imm_i0,imm_i1 are
    compile time constants in 0:3. */
 
-#define vd_gather(b,i,imm_l0,imm_l1) _mm_i32gather_pd( (b), _mm_shuffle_epi32( (i), _MM_SHUFFLE(3,2,(imm_l1),(imm_l0))), 8 )
+#define vd_gather(b,i,imm_i0,imm_i1) _mm_i32gather_pd( (b), _mm_shuffle_epi32( (i), _MM_SHUFFLE(3,2,(imm_i1),(imm_i0))), 8 )
 

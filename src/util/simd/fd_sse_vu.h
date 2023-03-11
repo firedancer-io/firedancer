@@ -34,10 +34,10 @@ vu_bcast_wide( uint u0, uint u1 ) {
   return _mm_setr_epi32( i0, i0, i1, i1 );
 }
 
-/* vu_permute returns [ i(imm_l0) i(imm_l1) i(imm_l2) i(imm_l3) ].
-   imm_l* should be compile time constants in 0:3. */
+/* vu_permute returns [ i(imm_i0) i(imm_i1) i(imm_i2) i(imm_i3) ].
+   imm_i* should be compile time constants in 0:3. */
 
-#define vu_permute(x,imm_l0,imm_l1,imm_l2,imm_l3) _mm_shuffle_epi32( (x), _MM_SHUFFLE( (imm_l3), (imm_l2), (imm_l1), (imm_l0) ) )
+#define vu_permute(x,imm_i0,imm_i1,imm_i2,imm_i3) _mm_shuffle_epi32( (x), _MM_SHUFFLE( (imm_i3), (imm_i2), (imm_i1), (imm_i0) ) )
 
 /* Predefined constants */
 
@@ -156,8 +156,8 @@ vu_insert_variable( vu_t a, int n, uint v ) {
 
 /* Conditional operations */
 
-#define vu_czero(c,f)    _mm_andnot_si128( (c), (f) ) /* [ c0? 0:f0 c1? 0:f1 ... c3? 0:f3 ] */
-#define vu_notczero(c,f) _mm_and_si128(    (c), (f) ) /* [ c0?f0: 0 c1?f1: 0 ... c3?f3: 0 ] */
+#define vu_czero(c,f)    _mm_andnot_si128( (c), (f) ) /* [ c0?0U:f0 c1?0U:f1 ... c3?0U:f3 ] */
+#define vu_notczero(c,f) _mm_and_si128(    (c), (f) ) /* [ c0?f0:0U c1?f1:0U ... c3?f3:0U ] */
 
 #define vu_if(c,t,f) _mm_blendv_epi8(  (f), (t), (c) ) /* [ c0?t0:f0 c1?t1:f1 ... c3?t3:f3 ] */
 
@@ -171,11 +171,13 @@ vu_insert_variable( vu_t a, int n, uint v ) {
 
    vu_to_vi(a)               returns [ (int)a0 (int)a1 ... (int)a3 ]
 
-   vu_to_vd(a,imm_l0,imm_l1) returns [ (double)a(imm_l0) (double)a(imm_l1) ]
+   vu_to_vd(a,imm_i0,imm_i1) returns [ (double)a(imm_i0) (double)a(imm_i1) ]
 
-   vu_to_vl(a,imm_l0,imm_l1) returns [ (long)a(imm_l0) (long)a(imm_l1) ]
+   vu_to_vl(a,imm_i0,imm_i1) returns [ (long)a(imm_i0) (long)a(imm_i1) ]
 
-   where imm_l* should be a compile time constant in 0:3.
+   vu_to_vv(a,imm_i0,imm_i1) returns [ (ulong)a(imm_i0) (ulong)a(imm_i1) ]
+
+   where imm_i* should be a compile time constant in 0:3.
 
    The raw variants just treat the raw bits as the corresponding vector
    type.  For vu_to_vc_raw, the user promises vu contains a proper
@@ -202,7 +204,7 @@ static inline __m128d vu_to_vd_core( vu_t u ) { /* FIXME: workaround vd_t isn't 
 
 }
 
-#define vu_to_vd(a,imm_l0,imm_l1) vu_to_vd_core( _mm_shuffle_epi32( (a), _MM_SHUFFLE(3,2,(imm_l1),(imm_l0)) ) )
+#define vu_to_vd(a,imm_i0,imm_i1) vu_to_vd_core( _mm_shuffle_epi32( (a), _MM_SHUFFLE(3,2,(imm_i1),(imm_i0)) ) )
 
 static inline vf_t vu_to_vf( vu_t u ) {
 
@@ -219,13 +221,15 @@ static inline vf_t vu_to_vf( vu_t u ) {
   return _mm_shuffle_ps( _mm_cvtpd_ps( vu_to_vd_core(u) ), _mm_cvtpd_ps( vu_to_vd(u,2,3) ), _MM_SHUFFLE(1,0,1,0) );
 }
 
-#define vu_to_vl(a,imm_l0,imm_l1) _mm_cvtepu32_epi64( _mm_shuffle_epi32( (a), _MM_SHUFFLE(3,2,(imm_l1),(imm_l0)) ) )
+#define vu_to_vl(a,imm_i0,imm_i1) _mm_cvtepu32_epi64( _mm_shuffle_epi32( (a), _MM_SHUFFLE(3,2,(imm_i1),(imm_i0)) ) )
+#define vu_to_vv(a,imm_i0,imm_i1) _mm_cvtepu32_epi64( _mm_shuffle_epi32( (a), _MM_SHUFFLE(3,2,(imm_i1),(imm_i0)) ) )
 
 #define vu_to_vc_raw(a) (a)
 #define vu_to_vf_raw(a) _mm_castsi128_ps( (a) )
 #define vu_to_vi_raw(a) (a)
 #define vu_to_vd_raw(a) _mm_castsi128_pd( (a) )
 #define vu_to_vl_raw(a) (a)
+#define vu_to_vv_raw(a) (a)
 
 /* Reduction operations */
 
