@@ -16,4 +16,19 @@ Firedancer will be solving some of the problems which solana is trying to
 	- When Building something like Firedancer which could potentially be run on thousands of machines, the code has to be efficient. C allows were tight integration with the hardware and make it allow developers a lot of flexibility in the ability to manage compute resources. [Here Josh Siegel](https://www.youtube.com/watch?v=9efhIs37hVI) one of the core builders of Firedancer explain in depth and practical demo on "why C"?
 - # Block propagation in Firedancer
 	- ![Image](https://pbs.twimg.com/media/FmSWXByXwAAD1oH?format=jpg&name=4096x4096)
-	-
+	
+	### Wanna Learn more about firedancer? make sure to check out the [announcement](https://jumpcrypto.com/jump-vs-the-speed-of-light/) and the breakpoint talks.
+	Breakpoint Talks by the legend KFB -> [General overview](https://www.youtube.com/watch?v=Dh6Yn2Odyr4)
+		[Deep Dive and first demo ](https://www.youtube.com/watch?v=YF-7duYCK54)
+		[Second Demo during the solana community call ](https://www.youtube.com/watch?v=zFS7MY4spBE)
+	Link to the resentations ->
+		[Deep Dive](https://jump-assets.storage.googleapis.com/2022-11-06-bowers-et-al-deep-dive-final-embed-public.pdf)
+		 [Intros](https://jump-assets.storage.googleapis.com/2022-11-06-bowers-et-al-deep-dive-final-embed-public.pdf)
+		 
+	
+	
+
+
+
+
+
