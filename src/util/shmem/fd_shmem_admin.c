@@ -15,15 +15,6 @@
 #include <sys/stat.h>
 #include <linux/mman.h>
 
-/* Include OS-specific NUMA backend */
-
-#define SOURCE_fd_src_util_shmem_fd_shmem_admin
-#if defined(__linux__)
-#include "fd_numa_linux.c"
-#else
-#include "fd_numa_stub.c"
-#endif
-
 #if FD_HAS_THREADS
 pthread_mutex_t fd_shmem_private_lock[1] = { PTHREAD_RECURSIVE_MUTEX_INITIALIZER_NP };
 #endif
@@ -94,8 +85,8 @@ fd_shmem_numa_validate( void const * mem,
     page += page_sz;
     page_cnt--;
     if( FD_UNLIKELY( ((batch_cnt==512UL) | (!page_cnt) ) ) ) {
-      if( FD_UNLIKELY( move_pages( 0, batch_cnt, batch_page, NULL, batch_status, 0 ) ) ) {
-        FD_LOG_WARNING(( "move_pages query failed (%i-%s)", errno, strerror( errno ) ));
+      if( FD_UNLIKELY( fd_numa_move_pages( 0, batch_cnt, batch_page, NULL, batch_status, 0 ) ) ) {
+        FD_LOG_WARNING(( "fd_numa_move_pages query failed (%i-%s)", errno, strerror( errno ) ));
         return errno;
       }
       for( ulong batch_idx=0UL; batch_idx<batch_cnt; batch_idx++ ) {
@@ -164,20 +155,20 @@ fd_shmem_create( char const * name,
      cpu_idx.  This should force page allocation to be on the desired
      numa node even if triggered preemptively in the ftruncate / mmap
      because the user thread group has configured things like
-     mlockall(MCL_FUTURE).  Theoretically, the mbind below should do it
-     without this but the Linux kernel tends to view requests to move
-     pages between numa nodes after allocation as for entertainment
-     purposes only. */
+     mlockall(MCL_FUTURE).  Theoretically, the fd_numa_mbind below
+     should do it without this but the Linux kernel tends to view
+     requests to move pages between numa nodes after allocation as for
+     entertainment purposes only. */
 
-  if( FD_UNLIKELY( get_mempolicy( &orig_mempolicy, orig_nodemask, FD_SHMEM_NUMA_MAX, NULL, 0UL ) ) ) {
-    FD_LOG_WARNING(( "get_mempolicy failed (%i-%s)", errno, strerror( errno ) ));
+  if( FD_UNLIKELY( fd_numa_get_mempolicy( &orig_mempolicy, orig_nodemask, FD_SHMEM_NUMA_MAX, NULL, 0UL ) ) ) {
+    FD_LOG_WARNING(( "fd_numa_get_mempolicy failed (%i-%s)", errno, strerror( errno ) ));
     ERROR( done );
   }
 
   fd_memset( nodemask, 0, 8UL*((FD_SHMEM_NUMA_MAX+63UL)/64UL) );
   nodemask[ numa_idx >> 6 ] = 1UL << (numa_idx & 63UL);
-  if( FD_UNLIKELY( set_mempolicy( MPOL_BIND | MPOL_F_STATIC_NODES, nodemask, FD_SHMEM_NUMA_MAX ) ) ) {
-    FD_LOG_WARNING(( "set_mempolicy failed (%i-%s)", errno, strerror( errno ) ));
+  if( FD_UNLIKELY( fd_numa_set_mempolicy( MPOL_BIND | MPOL_F_STATIC_NODES, nodemask, FD_SHMEM_NUMA_MAX ) ) ) {
+    FD_LOG_WARNING(( "fd_numa_set_mempolicy failed (%i-%s)", errno, strerror( errno ) ));
     ERROR( done );
   }
 
@@ -236,8 +227,8 @@ fd_shmem_create( char const * name,
      until the mapping is closed.  We can then proceed as usual without
      the risk of meeting SIGBUS or its friends. */
 
-  if( FD_UNLIKELY( fd_mlock( shmem, sz ) ) ) {
-    FD_LOG_WARNING(( "mlock(\"%s\",%lu KiB) failed (%i-%s)", path, sz>>10, errno, strerror( errno ) ));
+  if( FD_UNLIKELY( fd_numa_mlock( shmem, sz ) ) ) {
+    FD_LOG_WARNING(( "fd_numa_mlock(\"%s\",%lu KiB) failed (%i-%s)", path, sz>>10, errno, strerror( errno ) ));
     ERROR( unmap );
   }
 
@@ -249,20 +240,20 @@ fd_shmem_create( char const * name,
   /* FIXME: NUMA TOUCH HERE (ALSO WOULD A LOCAL TOUCH WORK GIVEN THE
      MEMPOLICY DONE ABOVE?) */
 
-  /* mbind the memory region to this numa node to nominally stay put
-     after we unmap it. */
+  /* fd_numa_mbind the memory region to this numa node to nominally stay
+     put after we unmap it. */
 
   /* Just in case set_mempolicy clobbered it */
   fd_memset( nodemask, 0, 8UL*((FD_SHMEM_NUMA_MAX+63UL)/64UL) );
   nodemask[ numa_idx >> 6 ] = 1UL << (numa_idx & 63UL);
-  if( FD_UNLIKELY( mbind( shmem, sz, MPOL_BIND, nodemask, FD_SHMEM_NUMA_MAX, MPOL_MF_MOVE | MPOL_MF_STRICT ) ) ) {
-    FD_LOG_WARNING(( "mbind(\"%s\",%lu KiB,MPOL_BIND,1UL<<%lu,MPOL_MF_MOVE|MPOL_MF_STRICT) failed (%i-%s)",
+  if( FD_UNLIKELY( fd_numa_mbind( shmem, sz, MPOL_BIND, nodemask, FD_SHMEM_NUMA_MAX, MPOL_MF_MOVE | MPOL_MF_STRICT ) ) ) {
+    FD_LOG_WARNING(( "fd_numa_mbind(\"%s\",%lu KiB,MPOL_BIND,1UL<<%lu,MPOL_MF_MOVE|MPOL_MF_STRICT) failed (%i-%s)",
                      path, sz>>10, numa_idx, errno, strerror( errno ) ));
     ERROR( unmap );
   }
 
-  /* And since the mbind still often will ignore requests, we double
-     check that the pages are in the right place. */
+  /* And since the fd_numa_mbind still often will ignore requests, we
+     double check that the pages are in the right place. */
 
   err = fd_shmem_numa_validate( shmem, page_sz, page_cnt, cpu_idx ); /* logs details */
   if( FD_UNLIKELY( err ) )
@@ -282,8 +273,8 @@ close:
     FD_LOG_WARNING(( "close(\"%s\") failed (%i-%s); attempting to continue", path, errno, strerror( errno ) ));
 
 restore:
-  if( FD_UNLIKELY( set_mempolicy( orig_mempolicy, orig_nodemask, FD_SHMEM_NUMA_MAX ) ) )
-    FD_LOG_WARNING(( "set_mempolicy failed (%i-%s); attempting to continue", errno, strerror( errno ) ));
+  if( FD_UNLIKELY( fd_numa_set_mempolicy( orig_mempolicy, orig_nodemask, FD_SHMEM_NUMA_MAX ) ) )
+    FD_LOG_WARNING(( "fd_numa_set_mempolicy failed (%i-%s); attempting to continue", errno, strerror( errno ) ));
 
 done:
   FD_SHMEM_UNLOCK;
@@ -406,15 +397,15 @@ fd_shmem_acquire( ulong page_sz,
   ulong  nodemask[ (FD_SHMEM_NUMA_MAX+63UL)/64UL ];
   void * mem = NULL;
 
-  if( FD_UNLIKELY( get_mempolicy( &orig_mempolicy, orig_nodemask, FD_SHMEM_NUMA_MAX, NULL, 0UL ) ) ) {
-    FD_LOG_WARNING(( "get_mempolicy failed (%i-%s)", errno, strerror( errno ) ));
+  if( FD_UNLIKELY( fd_numa_get_mempolicy( &orig_mempolicy, orig_nodemask, FD_SHMEM_NUMA_MAX, NULL, 0UL ) ) ) {
+    FD_LOG_WARNING(( "fd_numa_get_mempolicy failed (%i-%s)", errno, strerror( errno ) ));
     ERROR( done );
   }
 
   fd_memset( nodemask, 0, 8UL*((FD_SHMEM_NUMA_MAX+63UL)/64UL) );
   nodemask[ numa_idx >> 6 ] = 1UL << (numa_idx & 63UL);
-  if( FD_UNLIKELY( set_mempolicy( MPOL_BIND | MPOL_F_STATIC_NODES, nodemask, FD_SHMEM_NUMA_MAX ) ) ) {
-    FD_LOG_WARNING(( "set_mempolicy failed (%i-%s)", errno, strerror( errno ) ));
+  if( FD_UNLIKELY( fd_numa_set_mempolicy( MPOL_BIND | MPOL_F_STATIC_NODES, nodemask, FD_SHMEM_NUMA_MAX ) ) ) {
+    FD_LOG_WARNING(( "fd_numa_set_mempolicy failed (%i-%s)", errno, strerror( errno ) ));
     ERROR( done );
   }
 
@@ -430,19 +421,19 @@ fd_shmem_acquire( ulong page_sz,
     ERROR( unmap );
   }
 
-  if( FD_UNLIKELY( fd_mlock( mem, sz ) ) ) {
-    FD_LOG_WARNING(( "mlock(anon,%lu KiB) failed (%i-%s)", sz>>10, errno, strerror( errno ) ));
+  if( FD_UNLIKELY( fd_numa_mlock( mem, sz ) ) ) {
+    FD_LOG_WARNING(( "fd_numa_mlock(anon,%lu KiB) failed (%i-%s)", sz>>10, errno, strerror( errno ) ));
     ERROR( unmap );
   }
 
   /* FIXME: NUMA TOUCH HERE (ALSO WOULD A LOCAL TOUCH WORK GIVEN THE
      MEMPOLICY DONE ABOVE?) */
 
-  /* Just in case set_mempolicy clobbered it */
+  /* Just in case fd_numa_set_mempolicy clobbered it */
   fd_memset( nodemask, 0, 8UL*((FD_SHMEM_NUMA_MAX+63UL)/64UL) );
   nodemask[ numa_idx >> 6 ] = 1UL << (numa_idx & 63UL);
-  if( FD_UNLIKELY( mbind( mem, sz, MPOL_BIND, nodemask, FD_SHMEM_NUMA_MAX, MPOL_MF_MOVE | MPOL_MF_STRICT ) ) ) {
-    FD_LOG_WARNING(( "mbind(anon,%lu KiB,MPOL_BIND,1UL<<%lu,MPOL_MF_MOVE|MPOL_MF_STRICT) failed (%i-%s)",
+  if( FD_UNLIKELY( fd_numa_mbind( mem, sz, MPOL_BIND, nodemask, FD_SHMEM_NUMA_MAX, MPOL_MF_MOVE | MPOL_MF_STRICT ) ) ) {
+    FD_LOG_WARNING(( "fd_numa_mbind(anon,%lu KiB,MPOL_BIND,1UL<<%lu,MPOL_MF_MOVE|MPOL_MF_STRICT) failed (%i-%s)",
                      sz>>10, numa_idx, errno, strerror( errno ) ));
     ERROR( unmap );
   }
@@ -459,8 +450,8 @@ unmap:
     FD_LOG_WARNING(( "munmap(anon,%lu KiB) failed (%i-%s); attempting to continue", sz>>10, errno, strerror( errno ) ));
 
 restore:
-  if( FD_UNLIKELY( set_mempolicy( orig_mempolicy, orig_nodemask, FD_SHMEM_NUMA_MAX ) ) )
-    FD_LOG_WARNING(( "set_mempolicy failed (%i-%s); attempting to continue", errno, strerror( errno ) ));
+  if( FD_UNLIKELY( fd_numa_set_mempolicy( orig_mempolicy, orig_nodemask, FD_SHMEM_NUMA_MAX ) ) )
+    FD_LOG_WARNING(( "fd_numa_set_mempolicy failed (%i-%s); attempting to continue", errno, strerror( errno ) ));
 
 done:
   FD_SHMEM_UNLOCK;
@@ -577,24 +568,24 @@ fd_shmem_private_boot( int *    pargc,
                        char *** pargv ) {
   FD_LOG_INFO(( "fd_shmem: booting" ));
 
-  /* Determine the numa topology this thread group's host */
+  /* Cache the numa topology for this thread group's host for
+     subsequent fast use by the application. */
 
-  if( FD_UNLIKELY( !fd_numa_available() ) ) FD_LOG_ERR(( "fd_shmem: numa available failed" ));
+  ulong numa_cnt = fd_numa_node_cnt();
+  if( FD_UNLIKELY( !((1UL<=numa_cnt) & (numa_cnt<=FD_SHMEM_NUMA_MAX)) ) )
+    FD_LOG_ERR(( "fd_shmem: unexpected numa_cnt %lu (expected in [1,%lu])", numa_cnt, FD_SHMEM_NUMA_MAX ));
+  fd_shmem_private_numa_cnt = numa_cnt;
 
-  int numa_cnt = fd_shmem_numa_cnt_private();
-  if( FD_UNLIKELY( !(1<=numa_cnt && numa_cnt<=(int)FD_SHMEM_NUMA_MAX) ) )
-    FD_LOG_ERR(( "fd_shmem: unexpected numa_cnt %i (expected in [1,%lu])", numa_cnt, FD_SHMEM_NUMA_MAX ));
-  fd_shmem_private_numa_cnt = (ulong)numa_cnt;
+  ulong cpu_cnt = fd_numa_cpu_cnt();
+  if( FD_UNLIKELY( !((1UL<=cpu_cnt) & (cpu_cnt<=FD_SHMEM_CPU_MAX)) ) )
+    FD_LOG_ERR(( "fd_shmem: unexpected cpu_cnt %lu (expected in [1,%lu])", cpu_cnt, FD_SHMEM_CPU_MAX ));
+  fd_shmem_private_cpu_cnt = cpu_cnt;
 
-  int cpu_cnt = fd_shmem_cpu_cnt_private();
-  if( FD_UNLIKELY( !(1<=cpu_cnt && cpu_cnt<=(int)FD_SHMEM_CPU_MAX) ) )
-    FD_LOG_ERR(( "fd_shmem: unexpected cpu_cnt %i (expected in [1,%lu])", cpu_cnt, FD_SHMEM_CPU_MAX ));
-  fd_shmem_private_cpu_cnt = (ulong)cpu_cnt;
-
-  for( int cpu_idx=cpu_cnt-1; cpu_idx>=0; cpu_idx-- ) {
-    int numa_idx = fd_numa_node_of_cpu( cpu_idx );
-    if( FD_UNLIKELY( !((0<=numa_idx) & (numa_idx<(int)FD_SHMEM_NUMA_MAX)) ) )
-      FD_LOG_ERR(( "fd_shmem: unexpected numa idx (%i) for cpu idx %i (%i-%s)", numa_idx, cpu_idx, errno, strerror( errno ) ));
+  for( ulong cpu_rem=cpu_cnt; cpu_rem; cpu_rem-- ) {
+    ulong cpu_idx  = cpu_rem-1UL;
+    ulong numa_idx = fd_numa_node_idx( cpu_idx );
+    if( FD_UNLIKELY( numa_idx>=FD_SHMEM_NUMA_MAX) )
+      FD_LOG_ERR(( "fd_shmem: unexpected numa idx (%lu) for cpu idx %lu", numa_idx, cpu_idx ));
     fd_shmem_private_numa_idx[ cpu_idx  ] = (ushort)numa_idx;
     fd_shmem_private_cpu_idx [ numa_idx ] = (ushort)cpu_idx;
   }

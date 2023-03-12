@@ -1,0 +1,45 @@
+Usage: fd_shmem_ctl [cmd] [cmd args] [cmd] [cmd args] ...
+Commands are:
+
+help
+- Prints this message
+
+cpu-cnt
+- Prints number of cpus on a single line
+
+numa-cnt
+- Prints number of numa nodes on a single line
+
+cpu-idx numa-idx
+- If numa-idx gives the index of a valid NUMA node (e.g. in [0,numa-cnt)
+  and has at least one CPU close to it), prints on a single line the
+  lowest indexed cpu in base-10; the result will be in [0,cpu-cnt).
+- Otherwise, prints '-' on a single line to stdout.
+
+numa-idx cpu-idx
+- If cpu-idx gives the index of a valid cpu (e.g. in [0,cpu-cnt) and
+  usable), prints on a single line the index of the NUMA node the cpu is
+  closest in base-10; the result will be in [0,numa-cnt).
+- Otherwise, prints '-' on a single line to stdout.
+
+create name page_cnt page_sz cpu_idx mode
+- Create a shared memory region named name from page_cnt page_sz pages
+  near logical cpu_idx.  The region will have the unix permissions
+  specified by mode (assumed octal).
+
+unlink name page_sz
+- Unlinks a page_sz page backed shared memory region named name.
+- If page_sz is zero, this will attempt to detected the page_sz.  If
+  there are multiple with the same name, one will be deleted (typically
+  the one backed by the largest page_sz).
+
+query name page_sz
+- Pretty prints info to stdout about a shared memory region named name.
+  The format is:
+    [err_code] [page_cnt] [page_sz]
+  err code is zero, the query was successful.  If not, the query
+  failed (details logged) and page_cnt and page_sz will be zero.
+- If page_sz is zero, this will attempt to detected the page_sz.
+  If there are multiple with the same name, one will be queried
+  (typically the one backed by the largest page_sz).
+
