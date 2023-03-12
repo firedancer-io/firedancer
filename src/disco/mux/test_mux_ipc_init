@@ -48,18 +48,15 @@ fi
 BIN=$1/bin
 UNIT_TEST=$1/unit-test
 
-# Diagnose the numa topology
-# FIXME: DIAGNOSE IF BLOCKED OR STRIPED CORE ASSIGNMENT
-
-NUMA_CNT=`hwloc-calc -N numa machine:0 2> /dev/null`
-if [ "$NUMA_CNT" = "" ]; then # Handle boxes with no NUMA
-  NUMA_CNT=1
-fi
-
 # Disable permanant log for all the controls we are going to run in here
 
 FD_LOG_PATH=""
 export FD_LOG_PATH
+
+# Diagnose the numa topology
+# FIXME: DIAGNOSE IF BLOCKED OR STRIPED CORE ASSIGNMENT
+
+NUMA_CNT=`$BIN/fd_shmem_ctl numa-cnt "" 2> /dev/null`
 
 # Do basic box config (if not done already)
 

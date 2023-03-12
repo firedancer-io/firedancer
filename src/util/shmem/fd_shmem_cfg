@@ -7,15 +7,8 @@ SHMEM_PATH="${FD_SHMEM_PATH:-/mnt/.fd}"
 
 ALL_TYPES="gigantic huge normal"
 
-if ! [ -x "$(command -v hwloc-calc)" ]; then
-  echo "fd_shmem_cfg: command hwloc-calc not installed, please consult README for install instructions"
-  exit 1
-fi
-
-NUMA_CNT=`hwloc-calc -N numa machine:0 2> /dev/null`
-if [ "$NUMA_CNT" = "" ]; then # Handle boxes with no NUMA
-  NUMA_CNT=1
-fi
+BIN=$(dirname -- "$BASH_SOURCE")
+NUMA_CNT=`$BIN/fd_shmem_ctl numa-cnt --log-path "" 2> /dev/null`
 
 get_page_size() {
   if [ "$1" = "normal" ]; then

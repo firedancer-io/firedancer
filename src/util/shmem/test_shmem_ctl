@@ -41,6 +41,24 @@ echo Testing help
 
 $BIN/fd_shmem_ctl help || fail help $?
 
+echo Testing cpu-cnt
+
+$BIN/fd_shmem_ctl cpu-cnt || fail cpu-cnt $?
+
+echo Testing numa-cnt
+
+$BIN/fd_shmem_ctl numa-cnt || fail numa-cnt $?
+
+echo Testing cpu-idx
+
+$BIN/fd_shmem_ctl cpu-idx   && fail cpu-idx $?
+$BIN/fd_shmem_ctl cpu-idx 0 || fail cpu-idx $?
+
+echo Testing numa-idx
+
+$BIN/fd_shmem_ctl numa-idx   && fail numa-idx $?
+$BIN/fd_shmem_ctl numa-idx 0 || fail numa-idx $?
+
 echo Testing create
 
 $BIN/fd_shmem_ctl create                                            && fail create $?
