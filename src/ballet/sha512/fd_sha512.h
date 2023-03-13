@@ -158,6 +158,21 @@ void *
 fd_sha512_fini( fd_sha512_t * sha,
                 void *        hash );
 
+/* fd_sha512_hash is a streamlined implementation of:
+
+     fd_sha512_t sha[1];
+     return fd_sha512_fini( fd_sha512_append( fd_sha512_init( sha ), data, sz ), hash )
+
+   This can be faster for small messages because it can eliminate
+   function call overheads, branches, copies and data marshalling under
+   the hood (things like binary Merkle tree construction were designed
+   do lots of such operations). */
+
+void *
+fd_sha512_hash( void const * data,
+                ulong        sz,
+                void *       hash );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_ballet_sha512_fd_sha512_h */

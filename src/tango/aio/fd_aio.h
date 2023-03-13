@@ -240,10 +240,10 @@ FD_FN_PURE static inline fd_aio_send_func_t fd_aio_send_func( fd_aio_t * aio ) {
    the build system. */
 
 static inline int
-fd_aio_send( fd_aio_t *          aio,
-             fd_aio_pkt_info_t * batch,
-             ulong               batch_cnt,
-             ulong *             opt_batch_idx ) {
+fd_aio_send( fd_aio_t const *          aio,
+             fd_aio_pkt_info_t const * batch,
+             ulong                     batch_cnt,
+             ulong *                   opt_batch_idx ) {
   return aio->send_func( aio->ctx, batch, batch_cnt, opt_batch_idx );
 }
 
