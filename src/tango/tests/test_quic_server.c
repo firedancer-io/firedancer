@@ -7,12 +7,12 @@
 
 #include "../../util/fd_util_base.h"
 
+#include "../quic/fd_quic.h"
 #include "../quic/tests/fd_pcap.h"
 
 #include "../xdp/fd_xsk.h"
 #include "../xdp/fd_xsk_aio.h"
-
-#include "../quic/fd_quic.h"
+#include "../xdp/fd_xdp_redirect_user.h"
 
 
 #define LG_FRAME_SIZE 11
@@ -248,6 +248,8 @@ main( int argc, char ** argv ) {
   char const * app_name    = "test_quic_srver";
   uint         ifqueue     = 0;
   ulong        xsk_pkt_cnt = 16;
+  uint         udp_port    = 4433;
+  uint         proto       = 0;
 
   for( int i = 1; i < argc; ++i ) {
     /* --intf */
@@ -320,6 +322,15 @@ main( int argc, char ** argv ) {
         i++;
       } else {
         fprintf( stderr, "--xsk-pkt-cnt requires a value\n" );
+        exit(1);
+      }
+    }
+    if( strcmp( argv[i], "--udp-port" ) == 0 ) {
+      if( i+1 < argc ) {
+        udp_port = (uint)strtoul( argv[i+1], NULL, 10 );
+        i++;
+      } else {
+        fprintf( stderr, "--udp-port requires a value\n" );
         exit(1);
       }
     }
@@ -442,7 +453,10 @@ main( int argc, char ** argv ) {
 
   /* add udp port to xdp map */
   /* TODO how do we specify the port? */
-  // fd_xdp_add_key( xdp, 4433 );
+  if( fd_xdp_listen_udp_port( app_name, src_ip, udp_port, proto ) < 0 ) {
+    fprintf( stderr, "unable to listen on given udp port\n" );
+    exit(1);
+  }
 
   /* set up aio ingress */
   fd_aio_t ingress = *fd_quic_get_aio_net_in( server_quic );
