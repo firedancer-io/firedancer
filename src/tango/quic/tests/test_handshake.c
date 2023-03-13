@@ -210,7 +210,7 @@ main( int     argc,
 
       // remove hs_data from head of list
       //tls_client->hs_data = hs_data->next;
-      fd_quic_tls_pop_hs_data( hs_client, hs_data->enc_level );
+      fd_quic_tls_pop_hs_data( hs_client, (int)hs_data->enc_level );
 
       // delete it
       //fd_hs_data_delete( hs_data );
@@ -233,7 +233,7 @@ main( int     argc,
       FD_TEST( fd_quic_tls_provide_data( hs_client, hs_data->enc_level, hs_data->data, hs_data->data_sz )!=FD_QUIC_TLS_FAILED );
 
       // remove hs_data from head of list
-      fd_quic_tls_pop_hs_data( hs_server, hs_data->enc_level );
+      fd_quic_tls_pop_hs_data( hs_server, (int)hs_data->enc_level );
     }
 
     FD_LOG_NOTICE(( "fd_quic_tls_process( hs_client )..." ));
