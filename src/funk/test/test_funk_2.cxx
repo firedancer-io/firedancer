@@ -171,7 +171,7 @@ int main(int argc, char **argv) {
       for (auto& [key,db] : xstate) {
         const void* res;
         auto reslen = fd_funk_read(funk, xid, key, &res, 0, MAXRECORDSIZE);
-        if (!db.equals(res, reslen))
+        if (!db.equals(res, (ulong)reslen))
           FD_LOG_ERR(("read returned wrong result"));
       }
     }
@@ -287,7 +287,7 @@ int main(int argc, char **argv) {
   for (unsigned i = 0; i < 100; ++i) {
     recordkey key;
     rg.genbytes((char*)&key, sizeof(key));
-    auto len = 0;
+    ulong len = 0;
     if (fd_funk_write(funk, rootxid, key, scratch, 0, len) != (long)len)
       FD_LOG_ERR(("write failed"));
     databuf& db = golden[rootxid][key];
@@ -302,7 +302,7 @@ int main(int argc, char **argv) {
     fd_funk_fork(funk, *prevxid, xidchain[j]);
     golden[xidchain[j]] = golden[*prevxid];
     for (auto& [key,_] : golden[rootxid]) {
-      auto len = 50;
+      uint len = 50;
       auto offset = 100*(j+1);
       rg.genbytes(scratch, len);
       if (fd_funk_write(funk, xidchain[j], key, scratch, offset, len) != (long)len)
@@ -335,7 +335,7 @@ int main(int argc, char **argv) {
         golden[xidchain[j]].erase(key);
         continue;
       }
-      auto len = 50;
+      uint len = 50;
       auto offset = 100*(j+1);
       rg.genbytes(scratch, len);
       struct iovec iov[3];
@@ -365,7 +365,7 @@ int main(int argc, char **argv) {
   for (unsigned i = 0; i < 100; ++i) {
     recordkey key;
     rg.genbytes((char*)&key, sizeof(key));
-    auto len = 0;
+    ulong len = 0;
     if (fd_funk_write(funk, rootxid, key, scratch, 0, len) != (long)len)
       FD_LOG_ERR(("write failed"));
     databuf& db = golden[rootxid][key];
@@ -382,7 +382,7 @@ int main(int argc, char **argv) {
     fd_funk_fork(funk, *prevxid, xidchain[j]);
     golden[xidchain[j]] = golden[*prevxid];
     for (auto& [key,_] : golden[rootxid]) {
-      auto len = 50;
+      uint len = 50;
       auto offset = 100*(j+1);
       rg.genbytes(scratch, len);
       struct iovec iov[3];
@@ -434,7 +434,7 @@ int main(int argc, char **argv) {
     fd_funk_fork(funk, rootxid, xidchain[j]);
     recordkey key;
     rg.genbytes((char*)&key, sizeof(key));
-    auto len = random_size(rg);
+    uint len = random_size(rg);
     rg.genbytes(scratch, len);
     if (fd_funk_write(funk, xidchain[j], key, scratch, 0, len) != (long)len)
       FD_LOG_ERR(("write failed"));
@@ -458,7 +458,7 @@ int main(int argc, char **argv) {
     recordkey key;
     rg.genbytes((char*)&key, sizeof(key));
     
-    auto len = random_size(rg);
+    uint len = random_size(rg);
     rg.genbytes(scratch, len);
     struct iovec iov[3];
     iov[0].iov_base = scratch;
@@ -474,7 +474,7 @@ int main(int argc, char **argv) {
 
     const void* res;
     auto reslen = fd_funk_read(funk, xid, key, &res, 0, MAXRECORDSIZE);
-    if (!db.equals(res, reslen))
+    if (!db.equals(res, (ulong)reslen))
       FD_LOG_ERR(("read returned wrong result"));
     
     len = random_size(rg);
@@ -490,7 +490,7 @@ int main(int argc, char **argv) {
     db.write(scratch, 20, len);
 
     reslen = fd_funk_read(funk, xid, key, &res, 0, MAXRECORDSIZE);
-    if (!db.equals(res, reslen))
+    if (!db.equals(res, (ulong)reslen))
       FD_LOG_ERR(("read returned wrong result"));
   }
 
@@ -510,7 +510,7 @@ int main(int argc, char **argv) {
     recordkey key;
     rg.genbytes((char*)&key, sizeof(key));
     
-    auto len = random_size(rg);
+    uint len = random_size(rg);
     rg.genbytes(scratch, len);
     struct iovec iov[3];
     iov[0].iov_base = scratch;
@@ -526,7 +526,7 @@ int main(int argc, char **argv) {
 
     const void* res;
     auto reslen = fd_funk_read(funk, xid, key, &res, 0, MAXRECORDSIZE);
-    if (!db.equals(res, reslen))
+    if (!db.equals(res, (ulong)reslen))
       FD_LOG_ERR(("read returned wrong result"));
     
     len = random_size(rg);
@@ -542,7 +542,7 @@ int main(int argc, char **argv) {
     db.write(scratch, 20, len);
 
     reslen = fd_funk_read(funk, xid, key, &res, 0, MAXRECORDSIZE);
-    if (!db.equals(res, reslen))
+    if (!db.equals(res, (ulong)reslen))
       FD_LOG_ERR(("read returned wrong result"));
 
     if ((i&1)) delkeys.push_back(key);
@@ -573,7 +573,7 @@ int main(int argc, char **argv) {
   for (unsigned i = 0; i < 10000; ++i) {
     recordkey key;
     rg.genbytes((char*)&key, sizeof(key));
-    auto len = 51;
+    uint len = 51;
     rg.genbytes(scratch, len);
     if (fd_funk_write(funk, xid, key, scratch, 0, len) != (long)len)
       FD_LOG_ERR(("write failed"));
@@ -585,14 +585,14 @@ int main(int argc, char **argv) {
     const void* res;
     auto reslen = fd_funk_read(funk, xid, key, &res, 0, MAXRECORDSIZE);
     databuf& db = golden[xid][key];
-    if (!db.equals(res, reslen))
+    if (!db.equals(res, (ulong)reslen))
       FD_LOG_ERR(("read returned wrong result"));
   }
   
   validateall();
 
   for (auto& [key,_] : golden[xid]) {
-    auto len = 52;
+    uint len = 52;
     rg.genbytes(scratch, len);
     if (fd_funk_write(funk, xid, key, scratch, 10, len) != (long)len)
       FD_LOG_ERR(("write failed"));
@@ -604,7 +604,7 @@ int main(int argc, char **argv) {
     const void* res;
     auto reslen = fd_funk_read(funk, xid, key, &res, 0, MAXRECORDSIZE);
     databuf& db = golden[xid][key];
-    if (!db.equals(res, reslen))
+    if (!db.equals(res, (ulong)reslen))
       FD_LOG_ERR(("read returned wrong result"));
   }
   
@@ -621,7 +621,7 @@ int main(int argc, char **argv) {
     if (reslen != -1)
       FD_LOG_ERR(("read returned wrong result"));
     
-    auto len = 53;
+    uint len = 53;
     rg.genbytes(scratch, len);
     if (fd_funk_write(funk, xid, key, scratch, 20, len) != (long)len)
       FD_LOG_ERR(("write failed"));
@@ -633,10 +633,10 @@ int main(int argc, char **argv) {
     const void* res;
     auto reslen = fd_funk_read(funk, xid, key, &res, 0, MAXRECORDSIZE);
     databuf& db = golden[xid][key];
-    if (!db.equals(res, reslen))
+    if (!db.equals(res, (ulong)reslen))
       FD_LOG_ERR(("read returned wrong result"));
     reslen = fd_funk_read(funk, xid, key, &res, 0, MAXRECORDSIZE);
-    if (!db.equals(res, reslen))
+    if (!db.equals(res, (ulong)reslen))
       FD_LOG_ERR(("read returned wrong result"));
   }
   
@@ -670,7 +670,7 @@ int main(int argc, char **argv) {
       fd_funk_fork(funk, rootxid, xid);
       golden[xid] = golden[rootxid];
       void* data = &i;
-      ulong len = sizeof(i);
+      uint len = sizeof(i);
       ulong offset = i*sizeof(i);
       if (fd_funk_write(funk, xid, key, data, offset, len) != (long)len)
         FD_LOG_ERR(("write failed"));
@@ -678,10 +678,10 @@ int main(int argc, char **argv) {
       db.write(data, offset, len);
       const void* res;
       auto reslen = fd_funk_read(funk, xid, key, &res, 0, MAXRECORDSIZE);
-      if (!db.equals(res, reslen))
+      if (!db.equals(res, (ulong)reslen))
         FD_LOG_ERR(("read returned wrong result"));
       reslen = fd_funk_read(funk, xid, key, &res, 0, MAXRECORDSIZE);
-      if (!db.equals(res, reslen))
+      if (!db.equals(res, (ulong)reslen))
         FD_LOG_ERR(("read returned wrong result"));
       fd_funk_commit(funk, xid);
       golden[rootxid] = golden[xid];
@@ -701,7 +701,7 @@ int main(int argc, char **argv) {
       fd_funk_fork(funk, parent, xid);
       golden[xid] = golden[rootxid];
       void* data = &i;
-      ulong len = sizeof(i);
+      uint len = sizeof(i);
       ulong offset = (i+1)*sizeof(i)*2;
       if (fd_funk_write(funk, xid, key, data, offset, len) != (long)len)
         FD_LOG_ERR(("write failed"));
@@ -709,7 +709,7 @@ int main(int argc, char **argv) {
       db.write(data, offset, len);
       const void* res;
       auto reslen = fd_funk_read(funk, xid, key, &res, 0, MAXRECORDSIZE);
-      if (!db.equals(res, reslen))
+      if (!db.equals(res, (ulong)reslen))
         FD_LOG_ERR(("read returned wrong result"));
       fd_funk_commit(funk, xid);
       golden[rootxid] = golden[xid];

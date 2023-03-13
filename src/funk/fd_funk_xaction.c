@@ -35,19 +35,19 @@ struct __attribute__((packed)) fd_funk_xaction_delete_header {
 #define FD_FUNK_XACTION_DELETE_TYPE 'd'
 
 // Tests whether a transaction id is for the "root"
-int fd_funk_is_root(struct fd_funk_xactionid const* xid) {
+int fd_funk_is_root(fd_funk_xactionid_t const* xid) {
   // A xactionid is 4 ulongs long
-  FD_STATIC_ASSERT(sizeof(struct fd_funk_xactionid)/sizeof(ulong) == 4,fd_funk);
+  FD_STATIC_ASSERT(sizeof(fd_funk_xactionid_t)/sizeof(ulong) == 4,fd_funk);
 
   const ulong* const idhack = (const ulong* const)xid;
   return (idhack[0] | idhack[1] | idhack[2] | idhack[3]) == 0;
 }
 
-ulong fd_funk_num_xactions(struct fd_funk* store) {
+ulong fd_funk_num_xactions(fd_funk_t* store) {
   return store->xactions->used;
 }
 
-void fd_funk_xaction_entry_cleanup(struct fd_funk* store,
+void fd_funk_xaction_entry_cleanup(fd_funk_t* store,
                                    struct fd_funk_xaction_entry* entry) {
   fd_alloc_free(store->alloc, entry->script);
   const ulong cnt = entry->cache.cnt;
@@ -59,7 +59,7 @@ void fd_funk_xaction_entry_cleanup(struct fd_funk* store,
   fd_funk_xaction_cache_destroy(&entry->cache);
 }
 
-int fd_funk_xactions_gc_state(struct fd_funk* store,
+int fd_funk_xactions_gc_state(fd_funk_t* store,
                               struct fd_funk_xaction_entry* entry) {
   // See if we already computed the state
   if (entry->gc_state != FD_FUNK_GC_UNKNOWN)
@@ -80,7 +80,7 @@ int fd_funk_xactions_gc_state(struct fd_funk* store,
 // Garbage collect any orphan transactions (those that are detached
 // from the root). The complexity of this operation is O(n) where n is
 // the size of the transaction table. It should be used sparingly.
-ulong fd_funk_xactions_kill_orphans(struct fd_funk* store) {
+ulong fd_funk_xactions_kill_orphans(fd_funk_t* store) {
   // Initialize all the entries in the transaction table to unknown
   // garbage collection state
   struct fd_funk_xactions_iter iter;
@@ -98,8 +98,8 @@ ulong fd_funk_xactions_kill_orphans(struct fd_funk* store) {
   if (numkill == 0)
     return 0;
   // Create a list of orphan entries. The iterator doesn't support deletes.
-  struct fd_funk_xactionid** deadpool = (struct fd_funk_xactionid**)
-    fd_alloca(8U, numkill*sizeof(struct fd_funk_xactionid*));
+  fd_funk_xactionid_t** deadpool = (fd_funk_xactionid_t**)
+    fd_alloca(8U, numkill*sizeof(fd_funk_xactionid_t*));
   numkill = 0;
   fd_funk_xactions_iter_init(store->xactions, &iter);
   while ((entry = fd_funk_xactions_iter_next(store->xactions, &iter)) != NULL) {
@@ -115,9 +115,9 @@ ulong fd_funk_xactions_kill_orphans(struct fd_funk* store) {
   return numkill;
 }
 
-int fd_funk_fork(struct fd_funk* store,
-                 struct fd_funk_xactionid const* parent,
-                 struct fd_funk_xactionid const* child) {
+int fd_funk_fork(fd_funk_t* store,
+                 fd_funk_xactionid_t const* parent,
+                 fd_funk_xactionid_t const* child) {
   // Root is really a synonym for the last committed transaction, and
   // the latter is less ambiguous, safer.
   if (fd_funk_is_root(parent))
@@ -165,7 +165,7 @@ int fd_funk_fork(struct fd_funk* store,
   return 1;
 }
 
-void fd_funk_xactions_cleanup(struct fd_funk* store) {
+void fd_funk_xactions_cleanup(fd_funk_t* store) {
   struct fd_funk_xactions_iter iter;
   fd_funk_xactions_iter_init(store->xactions, &iter);
   struct fd_funk_xaction_entry* entry;
@@ -173,7 +173,7 @@ void fd_funk_xactions_cleanup(struct fd_funk* store) {
     fd_funk_xaction_entry_cleanup(store, entry);
 }
 
-int fd_funk_execute_script(struct fd_funk* store,
+int fd_funk_execute_script(fd_funk_t* store,
                            const char* script,
                            uint scriptlen,
                            int recovery) {
@@ -186,7 +186,7 @@ int fd_funk_execute_script(struct fd_funk* store,
     case FD_FUNK_XACTION_WRITE_TYPE: {
       struct fd_funk_xaction_write_header const* head = (struct fd_funk_xaction_write_header const*)p;
       // Copy record id to fix alignment
-      struct fd_funk_recordid recordid;
+      fd_funk_recordid_t recordid;
       fd_memcpy(&recordid, &head->recordid, sizeof(recordid));
       struct iovec iov;
       iov.iov_base = (void*)(p + sizeof(*head));
@@ -203,7 +203,7 @@ int fd_funk_execute_script(struct fd_funk* store,
     case FD_FUNK_XACTION_DELETE_TYPE: {
       struct fd_funk_xaction_delete_header const* head = (struct fd_funk_xaction_delete_header const*)p;
       // Copy record id to fix alignment
-      struct fd_funk_recordid recordid;
+      fd_funk_recordid_t recordid;
       fd_memcpy(&recordid, &head->recordid, sizeof(recordid));
       if (!fd_funk_delete_record_root(store, &recordid)) {
         // Redundant deletes are OK on recovery
@@ -225,8 +225,8 @@ int fd_funk_execute_script(struct fd_funk* store,
   return result;
 }
 
-int fd_funk_commit(struct fd_funk* store,
-                   struct fd_funk_xactionid const* id) {
+int fd_funk_commit(fd_funk_t* store,
+                   fd_funk_xactionid_t const* id) {
   // Recommitting the last committed transaction is always
   // allowed. This also stops the recursive walk up the chain.
   if (fd_funk_xactionid_t_equal(id, &store->last_commit))
@@ -274,9 +274,9 @@ int fd_funk_commit(struct fd_funk* store,
   return 1;
 }
 
-void fd_funk_writeahead_load(struct fd_funk* store,
-                             struct fd_funk_xactionid* id,
-                             struct fd_funk_xactionid* parent,
+void fd_funk_writeahead_load(fd_funk_t* store,
+                             fd_funk_xactionid_t* id,
+                             fd_funk_xactionid_t* parent,
                              ulong start,
                              uint size,
                              uint alloc,
@@ -296,7 +296,7 @@ void fd_funk_writeahead_load(struct fd_funk* store,
   entry->wa_alloc = alloc;
 }
 
-void fd_funk_writeahead_recommit_entry(struct fd_funk* store,
+void fd_funk_writeahead_recommit_entry(fd_funk_t* store,
                                        struct fd_funk_xaction_entry* entry) {
   // Do the parent first in case a chain of transactions as written
   // ahead all at once.
@@ -320,7 +320,7 @@ void fd_funk_writeahead_recommit_entry(struct fd_funk* store,
 }
 
 // Recommit transactions that were partially committed in a previous incarnation
-void fd_funk_writeahead_recommits(struct fd_funk* store) {
+void fd_funk_writeahead_recommits(fd_funk_t* store) {
   // Search for committed transactions
   struct fd_funk_xactions_iter iter;
   fd_funk_xactions_iter_init(store->xactions, &iter);
@@ -334,8 +334,8 @@ void fd_funk_writeahead_recommits(struct fd_funk* store) {
   }
 }
 
-void fd_funk_cancel(struct fd_funk* store,
-                    struct fd_funk_xactionid const* id) {
+void fd_funk_cancel(fd_funk_t* store,
+                    fd_funk_xactionid_t const* id) {
   struct fd_funk_xaction_entry* entry = fd_funk_xactions_remove(store->xactions, id);
   if (entry == NULL || FD_FUNK_XACTION_PREFIX(entry)->state == FD_FUNK_XACTION_COMMITTED) {
     FD_LOG_WARNING(("transaction is not alive"));
@@ -344,10 +344,10 @@ void fd_funk_cancel(struct fd_funk* store,
   fd_funk_xaction_entry_cleanup(store, entry);
 }
 
-void fd_funk_merge(struct fd_funk* store,
-                   struct fd_funk_xactionid const* destid,
+void fd_funk_merge(fd_funk_t* store,
+                   fd_funk_xactionid_t const* destid,
                    ulong source_cnt,
-                   struct fd_funk_xactionid const* const* source_ids) {
+                   fd_funk_xactionid_t const* const* source_ids) {
   // Lookup the source entries
   struct fd_funk_xaction_entry** source_ents = (struct fd_funk_xaction_entry**)
     fd_alloca(8U, source_cnt*sizeof(struct fd_funk_xaction_entry*));
@@ -407,16 +407,16 @@ void fd_funk_merge(struct fd_funk* store,
   }  
 }
 
-int fd_funk_isopen(struct fd_funk* store,
-                   struct fd_funk_xactionid const* id) {
+int fd_funk_isopen(fd_funk_t* store,
+                   fd_funk_xactionid_t const* id) {
   // See if the transaction id is in the table
   struct fd_funk_xaction_entry* entry = fd_funk_xactions_query(store->xactions, id);
   return (entry != NULL && FD_FUNK_XACTION_PREFIX(entry)->state != FD_FUNK_XACTION_COMMITTED);
 }
 
-long fd_funk_writev(struct fd_funk* store,
-                    struct fd_funk_xactionid const* xid,
-                    struct fd_funk_recordid const* recordid,
+long fd_funk_writev(fd_funk_t* store,
+                    fd_funk_xactionid_t const* xid,
+                    fd_funk_recordid_t const* recordid,
                     struct iovec const * const iov,
                     ulong iovcnt,
                     ulong offset) {
@@ -508,9 +508,9 @@ long fd_funk_writev(struct fd_funk* store,
   return (long)data_sz;
 }
 
-void fd_funk_delete_record(struct fd_funk* store,
-                           struct fd_funk_xactionid const* xid,
-                           struct fd_funk_recordid const* recordid) {
+void fd_funk_delete_record(fd_funk_t* store,
+                           fd_funk_xactionid_t const* xid,
+                           fd_funk_recordid_t const* recordid) {
   // Check for special root case
   if (fd_funk_is_root(xid)) {
     // See if the root is currently forked
@@ -563,9 +563,9 @@ void fd_funk_delete_record(struct fd_funk* store,
 }
 
 // Get/construct the cache entry for a record
-fd_cache_handle fd_funk_get_cache(struct fd_funk* store,
-                                  struct fd_funk_xactionid const* xid,
-                                  struct fd_funk_recordid const* recordid,
+fd_cache_handle fd_funk_get_cache(fd_funk_t* store,
+                                  fd_funk_xactionid_t const* xid,
+                                  fd_funk_recordid_t const* recordid,
                                   uint needed_sz,
                                   void** cache_data,
                                   uint* cache_sz,
@@ -726,9 +726,9 @@ fd_cache_handle fd_funk_get_cache(struct fd_funk* store,
   return newhandle;
 }
 
-long fd_funk_read(struct fd_funk* store,
-                  struct fd_funk_xactionid const* xid,
-                  struct fd_funk_recordid const* recordid,
+long fd_funk_read(fd_funk_t* store,
+                  fd_funk_xactionid_t const* xid,
+                  fd_funk_recordid_t const* recordid,
                   const void** data,
                   ulong offset,
                   ulong data_sz) {
@@ -747,7 +747,7 @@ long fd_funk_read(struct fd_funk* store,
   return (long)fd_ulong_min(data_sz, cache_sz - offset);
 }
 
-void fd_funk_validate_xaction(struct fd_funk* store) {
+void fd_funk_validate_xaction(fd_funk_t* store) {
   if (!fd_funk_xactions_validate(store->xactions))
     FD_LOG_ERR(("transaction table is corrupt"));
 }

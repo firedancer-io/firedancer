@@ -27,14 +27,16 @@ struct fd_cache {
     ulong misses;
 };
 
-ulong fd_cache_align() { return 8U; }
+typedef struct fd_cache fd_cache_t;
+
+ulong fd_cache_align(void) { return 8U; }
 
 ulong fd_cache_footprint(ulong entry_cnt) {
   return sizeof(struct fd_cache) + sizeof(struct fd_cache_entry)*entry_cnt;
 }
 
-struct fd_cache* fd_cache_new(void* mem, ulong entry_cnt) {
-  struct fd_cache* self = (struct fd_cache*)mem;
+fd_cache_t* fd_cache_new(void* mem, ulong entry_cnt) {
+  fd_cache_t* self = (fd_cache_t*)mem;
   self->entry_cnt = entry_cnt;
   self->clock = self->lastgc = 0;
   self->hits = self->misses = 0;
@@ -57,7 +59,7 @@ struct fd_cache* fd_cache_new(void* mem, ulong entry_cnt) {
   return self;
 }
 
-void fd_cache_destroy(struct fd_cache* self, fd_alloc_t* alloc) {
+void fd_cache_destroy(fd_cache_t* self, fd_alloc_t* alloc) {
   struct fd_cache_entry* const entries = (struct fd_cache_entry*)(self + 1);
   const ulong cnt = self->entry_cnt;
   for (ulong i = 0; i < cnt; ++i) {
@@ -71,7 +73,7 @@ void fd_cache_destroy(struct fd_cache* self, fd_alloc_t* alloc) {
   }
 }
 
-void fd_cache_release_entry(struct fd_cache* self, struct fd_cache_entry* ent, fd_alloc_t* alloc) {
+void fd_cache_release_entry(fd_cache_t* self, struct fd_cache_entry* ent, fd_alloc_t* alloc) {
   fd_alloc_free(alloc, ent->data);
   if (FD_UNLIKELY(self->newest_free == NULL))
     self->oldest_free = ent;
@@ -84,7 +86,7 @@ void fd_cache_release_entry(struct fd_cache* self, struct fd_cache_entry* ent, f
 }
 
 // Release a bunch of old entries
-int fd_cache_garbage_collect(struct fd_cache* self, fd_alloc_t* alloc) {
+int fd_cache_garbage_collect(fd_cache_t* self, fd_alloc_t* alloc) {
   int did_something = 0;
   // Release about 1/4 of the entries
   ulong mark = self->lastgc + (self->clock - self->lastgc)/4;
@@ -103,7 +105,7 @@ int fd_cache_garbage_collect(struct fd_cache* self, fd_alloc_t* alloc) {
 
 // Allocate space by calling fd_alloc_malloc. If we have run out of
 // space, garbage collect the cache and try again.
-void* fd_cache_safe_malloc(struct fd_cache* self,
+void* fd_cache_safe_malloc(fd_cache_t* self,
                            fd_alloc_t*      alloc,
                            ulong            align,
                            ulong            sz) {
@@ -121,7 +123,7 @@ void* fd_cache_safe_malloc(struct fd_cache* self,
 
 // Allocate cache space of size data_sz. The handle is returned. *data
 // is updated to refer to the resulting data pointer. The
-fd_cache_handle fd_cache_allocate(struct fd_cache* self, void** data, uint data_sz, fd_alloc_t* alloc) {
+fd_cache_handle fd_cache_allocate(fd_cache_t* self, void** data, uint data_sz, fd_alloc_t* alloc) {
   // Make sure we have enough space for the allocation. Keep garbage collecting until we do.
   while (FD_UNLIKELY(self->oldest_free == NULL)) {
     if (!fd_cache_garbage_collect(self, alloc)) {
@@ -148,7 +150,7 @@ fd_cache_handle fd_cache_allocate(struct fd_cache* self, void** data, uint data_
 
 // Lookup an entry by its handle. NULL is returned if the handle is
 // invalid.
-void* fd_cache_lookup(struct fd_cache* self, fd_cache_handle handle, uint* data_sz) {
+void* fd_cache_lookup(fd_cache_t* self, fd_cache_handle handle, uint* data_sz) {
   uint pos = (uint)handle; // Get the low 32 bits
   if (FD_UNLIKELY(pos >= self->entry_cnt)) {
     *data_sz = 0;
@@ -168,7 +170,7 @@ void* fd_cache_lookup(struct fd_cache* self, fd_cache_handle handle, uint* data_
 }
 
 // Free the storage for the cache entry
-void fd_cache_release(struct fd_cache* self, fd_cache_handle handle, fd_alloc_t* alloc) {
+void fd_cache_release(fd_cache_t* self, fd_cache_handle handle, fd_alloc_t* alloc) {
   uint pos = (uint)handle; // Get the low 32 bits
   if (FD_UNLIKELY(pos >= self->entry_cnt)) {
     return;

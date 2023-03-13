@@ -16,6 +16,9 @@ extern "C" {
 #include <unordered_map>
 #include <vector>
 
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wstrict-aliasing"
+
 // A simple, fast, but not super great random number generator
 class randgen {
   private:
@@ -220,12 +223,12 @@ void grinder(int argc, char** argv, bool firsttime) {
         FD_LOG_ERR(("read failed"));
       recordkey key(id);
       if (key == checksumkey) {
-        checksum.write(data, len);
+        checksum.write(data, (ulong)len);
       } else {
         golden.push_back({});
         auto& p = golden.back();
         p.first = key;
-        p.second.write(data, len);
+        p.second.write(data, (ulong)len);
       }
     }
     FD_LOG_WARNING(("recovered %lu records", golden.size()));
@@ -242,14 +245,14 @@ void grinder(int argc, char** argv, bool firsttime) {
     for (auto& [key,db] : golden) {
       const void* res;
       auto reslen = fd_funk_read(funk, rootxid, key, &res, 0, INT32_MAX);
-      if (!db.equals(res, reslen))
+      if (!db.equals(res, (ulong)reslen))
         FD_LOG_ERR(("read returned wrong result"));
       db.checksum(checksum2);
     }
     {
       const void* res;
       auto reslen = fd_funk_read(funk, rootxid, checksumkey, &res, 0, INT32_MAX);
-      if (!checksum.equals(res, reslen))
+      if (!checksum.equals(res, (ulong)reslen))
         FD_LOG_ERR(("read returned wrong result"));
     }
     if (!(checksum == checksum2))
@@ -281,7 +284,7 @@ void grinder(int argc, char** argv, bool firsttime) {
 
     auto delete_random = [&](ulong action) {
       // Delete a random key
-      auto it = golden.begin() + (action%golden.size());
+      auto it = golden.begin() + (long)(action%golden.size());
       fd_funk_delete_record(funk, xid, it->first);
       it->second.checksum(checksum);
       golden.erase(it);
@@ -289,7 +292,7 @@ void grinder(int argc, char** argv, bool firsttime) {
 
     auto update_random = [&](ulong action) {
       // Update an existing record
-      auto it = golden.begin() + (action%golden.size());
+      auto it = golden.begin() + (long)(action%golden.size());
       auto len = (uint)((action<<3)%MAXLEN);
       rg.genbytes(scratch, len);
       fd_funk_write(funk, xid, it->first, scratch, 0, len);
@@ -348,8 +351,8 @@ int main(int argc, char** argv) {
     for (unsigned cnt = 0;;) {
       pid_t p;
       if ((p = fork()) == 0) {
-        static const char* EXE = "build/test/bin/test_funk_5";
-        int r = execlp(EXE, EXE, (firsttime ? "-1" : "-2"), NULL);
+        static const char* EXE = "test_funk_5";
+        int r = execlp(argv[0], EXE, (firsttime ? "-1" : "-2"), NULL);
         if (r == -1)
           fprintf(stderr, "failed to exec %s: %s\n", EXE, strerror(errno));
         return 1;

@@ -58,6 +58,13 @@ fail. Cancelling a transaction in the middle of a chain will also
 create orphans. Funky eventually garbage collects them if the
 application does not cancel them.
 
+You can read and write the root transaction directly, but in this
+case, the guarantees are weaker. You do not get transactional
+consistency because there is no explicit commit. Updates are made
+permanent immediately. Funky only guarantees that if there is a crash,
+the database will recover to a non-corrupted state as far as the
+internal data structures are concerned. 
+
 Behind the scenes, funky stores all data in a single backing file,
 which grows as needed. This is effectively a file system within a file
 system. There is no need for huge directories or many file
@@ -89,17 +96,17 @@ FD_FN_CONST ulong fd_funk_align(void);
 // logs. This file is created if it doesn't exist. Storage uses only
 // one "real" file. All memory needed is allocated out of the given
 // workspace.
-struct fd_funk* fd_funk_new(char const* backingfile,
-                            fd_wksp_t* wksp,    // Workspace to allocate out of
-                            ulong alloc_tag,    // Tag for workspace allocations
-                            ulong index_max,    // Maximum size (count) of master index
-                            ulong xactions_max, // Maximum size (count) of transaction index
-                            ulong cache_max);   // Maximum number of cache entries
+fd_funk_t* fd_funk_new(char const* backingfile,
+                       fd_wksp_t* wksp,    // Workspace to allocate out of
+                       ulong alloc_tag,    // Tag for workspace allocations
+                       ulong index_max,    // Maximum size (count) of master index
+                       ulong xactions_max, // Maximum size (count) of transaction index
+                       ulong cache_max);   // Maximum number of cache entries
 
 // Delete a storage instance. Flushes updates, cancels transactions,
 // and closes the backing file. Committed transactions remain in the
 // backing file.
-void* fd_funk_delete(struct fd_funk* store);
+void* fd_funk_delete(fd_funk_t* store);
 
 // Identifies a "record" in the storage layer. ASCII text
 // isn't necessary. Compact binary identifiers are encouraged.
@@ -129,7 +136,7 @@ typedef struct fd_funk_xactionid fd_funk_xactionid_t;
 // transaction are immediately finalized and cannot be undone. Reads
 // only return finalized data.
 // The lifetime of this pointer is the same as the store.
-struct fd_funk_xactionid const* fd_funk_root(struct fd_funk* store);
+fd_funk_xactionid_t const* fd_funk_root(fd_funk_t* store);
 
 // Initiate a new transaction by forking the state of an existing
 // transaction (or the root). Updates to the parent are forbidden
@@ -137,49 +144,49 @@ struct fd_funk_xactionid const* fd_funk_root(struct fd_funk* store);
 // transaction id. The parent id must refer to root, the last
 // committed transaction, or an uncommitted transaction. A non-zero
 // result indicates success.
-int fd_funk_fork(struct fd_funk* store,
-                 struct fd_funk_xactionid const* parent,
-                 struct fd_funk_xactionid const* child);
+int fd_funk_fork(fd_funk_t* store,
+                 fd_funk_xactionid_t const* parent,
+                 fd_funk_xactionid_t const* child);
 
 // Commit all updates in the given transaction to final storage (the
 // root transaction). All parent transactions in the chain are also
 // finalized (but not children of the given transaction). Competing
 // forked transactions are discarded. This call is safe in the
 // presence of crashes. A non-zero result indicates success.
-int fd_funk_commit(struct fd_funk* store,
-                   struct fd_funk_xactionid const* id);
+int fd_funk_commit(fd_funk_t* store,
+                   fd_funk_xactionid_t const* id);
 
 // Discard all updates in the given transaction and its children.
-void fd_funk_cancel(struct fd_funk* store,
-                    struct fd_funk_xactionid const* id);
+void fd_funk_cancel(fd_funk_t* store,
+                    fd_funk_xactionid_t const* id);
 
 // Combine a list of transactions with the same parent into a single
 // transaction. Updates are applied in the specified order if there is
 // a conflict. This API is meant to support parallel transaction
 // construction.
-void fd_funk_merge(struct fd_funk* store,
-                   struct fd_funk_xactionid const* destid,
+void fd_funk_merge(fd_funk_t* store,
+                   fd_funk_xactionid_t const* destid,
                    ulong source_cnt,
-                   struct fd_funk_xactionid const* const* source_ids);
+                   fd_funk_xactionid_t const* const* source_ids);
 
 // Return true if the transaction is still open.
-int fd_funk_isopen(struct fd_funk* store,
-                   struct fd_funk_xactionid const* id);
+int fd_funk_isopen(fd_funk_t* store,
+                   fd_funk_xactionid_t const* id);
 
 // Update a record in the storage. Records are implicitly created/extended
 // as necessary. Gaps are zero filled. Returns amount of data written
 // on success, -1 on failure.
-long fd_funk_writev(struct fd_funk* store,
-                    struct fd_funk_xactionid const* xid,
-                    struct fd_funk_recordid const* recordid,
+long fd_funk_writev(fd_funk_t* store,
+                    fd_funk_xactionid_t const* xid,
+                    fd_funk_recordid_t const* recordid,
                     struct iovec const * const iov,
                     ulong iovcnt,
                     ulong offset);
 
 // Simplified version of fd_funk_writev
-long fd_funk_write(struct fd_funk* store,
-                   struct fd_funk_xactionid const* xid,
-                   struct fd_funk_recordid const* recordid,
+long fd_funk_write(fd_funk_t* store,
+                   fd_funk_xactionid_t const* xid,
+                   fd_funk_recordid_t const* recordid,
                    const void* data,
                    ulong offset,
                    ulong data_sz);
@@ -188,42 +195,42 @@ long fd_funk_write(struct fd_funk* store,
 // may be less then data_sz if the record is shorter than expected. A -1
 // is returned if an identifier is invalid. *data is updated to point
 // to an internal cache which may become invalid after the next operation.
-long fd_funk_read(struct fd_funk* store,
-                  struct fd_funk_xactionid const* xid,
-                  struct fd_funk_recordid const* recordid,
+long fd_funk_read(fd_funk_t* store,
+                  fd_funk_xactionid_t const* xid,
+                  fd_funk_recordid_t const* recordid,
                   const void** data,
                   ulong offset,
                   ulong data_sz);
 
 // Truncate a record to the given length
-void fd_funk_truncate(struct fd_funk* store,
-                      struct fd_funk_xactionid const* xid,
-                      struct fd_funk_recordid const* recordid,
+void fd_funk_truncate(fd_funk_t* store,
+                      fd_funk_xactionid_t const* xid,
+                      fd_funk_recordid_t const* recordid,
                       ulong record_sz);
 
 // Delete a record. Note that deletion isn't permanent until the
 // transaction is committed.
-void fd_funk_delete_record(struct fd_funk* store,
-                           struct fd_funk_xactionid const* xid,
-                           struct fd_funk_recordid const* recordid);
+void fd_funk_delete_record(fd_funk_t* store,
+                           fd_funk_xactionid_t const* xid,
+                           fd_funk_recordid_t const* recordid);
 
 // Returns the number of active records in the root transaction
-ulong fd_funk_num_records(struct fd_funk* store);
+ulong fd_funk_num_records(fd_funk_t* store);
 
 // Returns the number of active transactions
-ulong fd_funk_num_xactions(struct fd_funk* store);
+ulong fd_funk_num_xactions(fd_funk_t* store);
 
 // Returns true if the record is in the hot cache.
-int fd_funk_cache_query(struct fd_funk* store,
-                        struct fd_funk_xactionid const* xid,
-                        struct fd_funk_recordid const* recordid,
+int fd_funk_cache_query(fd_funk_t* store,
+                        fd_funk_xactionid_t const* xid,
+                        fd_funk_recordid_t const* recordid,
                         ulong offset,
                         ulong data_sz);
 
 // Loads the record into the hot cache.
-void fd_funk_cache_hint(struct fd_funk* store,
-                        struct fd_funk_xactionid const* xid,
-                        struct fd_funk_recordid const* recordid,
+void fd_funk_cache_hint(fd_funk_t* store,
+                        fd_funk_xactionid_t const* xid,
+                        fd_funk_recordid_t const* recordid,
                         ulong offset,
                         ulong data_sz);
 
@@ -231,15 +238,16 @@ void fd_funk_cache_hint(struct fd_funk* store,
 // transaction. Start by calling fd_funk_iter_init to initialize an
 // iterator. fd_funk_iter_next returns the next id or NULL if there are none left.
 struct fd_funk_index_iter;
+typedef struct fd_funk_index_iter fd_funk_index_iter_t;
 static const ulong fd_funk_iter_align = 8;
 static const ulong fd_funk_iter_footprint = 8;
-void fd_funk_iter_init(struct fd_funk* store,
-                       struct fd_funk_index_iter* iter);
-struct fd_funk_recordid const* fd_funk_iter_next(struct fd_funk* store,
-                                                 struct fd_funk_index_iter* iter);
+void fd_funk_iter_init(fd_funk_t* store,
+                       fd_funk_index_iter_t* iter);
+fd_funk_recordid_t const* fd_funk_iter_next(fd_funk_t* store,
+                                            fd_funk_index_iter_t* iter);
 
 // Validate the entire data structure. Log an error and aborts if
 // corruption is detected. Intended for testing, not production.
-void fd_funk_validate(struct fd_funk* store);
+void fd_funk_validate(fd_funk_t* store);
 
 #endif /* HEADER_fd_src_ledger_funk_h */

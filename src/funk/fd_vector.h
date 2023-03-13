@@ -5,6 +5,7 @@ struct VECT_NAME {
     ulong max;
     VECT_ELEMENT* elems; 
 };
+typedef struct VECT_NAME VECT_(t);
 
 void VECT_(new)(struct VECT_NAME* self) {
   self->cnt = 0;

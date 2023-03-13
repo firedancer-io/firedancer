@@ -165,7 +165,7 @@ int main(int argc, char **argv) {
       for (auto& [key,db] : xstate) {
         const void* res;
         auto reslen = fd_funk_read(funk, xid, key, &res, 0, INT32_MAX);
-        if (!db.equals(res, reslen))
+        if (!db.equals(res, (ulong)reslen))
           FD_LOG_ERR(("read returned wrong result"));
       }
     }
