@@ -9,8 +9,8 @@
 
 #include "../quic/tests/fd_pcap.h"
 
-#include "../xdp/fd_xdp.h"
-#include "../xdp/fd_xdp_aio.h"
+#include "../xdp/fd_xsk.h"
+#include "../xdp/fd_xsk_aio.h"
 
 #include "../quic/fd_quic.h"
 
@@ -245,6 +245,10 @@ main( int argc, char ** argv ) {
   uchar        src_mac[6];
   uchar        dft_route_mac[6];
 
+  char const * app_name    = "test_quic_srver";
+  uint         ifqueue     = 0;
+  ulong        xsk_pkt_cnt = 16;
+
   for( int i = 1; i < argc; ++i ) {
     /* --intf */
     if( strcmp( argv[i], "--intf" ) == 0 ) {
@@ -260,6 +264,7 @@ main( int argc, char ** argv ) {
     if( strcmp( argv[i], "--batch-sz" ) == 0 ) {
       if( i+1 < argc ) {
         f_batch_sz = strtof( argv[i+1], NULL );
+        i++;
       } else {
         fprintf( stderr, "--batch-sz requires a value\n" );
         exit(1);
@@ -268,6 +273,7 @@ main( int argc, char ** argv ) {
     if( strcmp( argv[i], "--src-ip" ) == 0 ) {
       if( i+1 < argc ) {
         parse_ipv4_addr( &src_ip, argv[i+1] );
+        i++;
       } else {
         fprintf( stderr, "--src-ip requires a value\n" );
         exit(1);
@@ -276,6 +282,7 @@ main( int argc, char ** argv ) {
     if( strcmp( argv[i], "--src-mac" ) == 0 ) {
       if( i+1 < argc ) {
         parse_mac( src_mac, argv[i+1] );
+        i++;
       } else {
         fprintf( stderr, "--src-mac requires a value\n" );
         exit(1);
@@ -284,8 +291,35 @@ main( int argc, char ** argv ) {
     if( strcmp( argv[i], "--dft-route-mac" ) == 0 ) {
       if( i+1 < argc ) {
         parse_mac( dft_route_mac, argv[i+1] );
+        i++;
       } else {
         fprintf( stderr, "--dft-route-mac requires a value\n" );
+        exit(1);
+      }
+    }
+    if( strcmp( argv[i], "--ifqueue" ) == 0 ) {
+      if( i+1 < argc ) {
+        ifqueue = (uint)strtoul( argv[i+1], NULL, 10 );
+        i++;
+      } else {
+        fprintf( stderr, "--ifqueue requires a value\n" );
+        exit(1);
+      }
+    }
+    if( strcmp( argv[i], "--app-name" ) == 0 ) {
+      if( i+1 < argc ) {
+        app_name = argv[i+1];
+      } else {
+        fprintf( stderr, "--app-name requires a value\n" );
+        exit(1);
+      }
+    }
+    if( strcmp( argv[i], "--xsk-pkt-cnt" ) == 0 ) {
+      if( i+1 < argc ) {
+        xsk_pkt_cnt = (uint)strtoul( argv[i+1], NULL, 10 );
+        i++;
+      } else {
+        fprintf( stderr, "--xsk-pkt-cnt requires a value\n" );
         exit(1);
       }
     }
@@ -372,45 +406,49 @@ main( int argc, char ** argv ) {
   quic_config.host_cfg = server_cfg;
   fd_quic_t * server_quic = new_quic( &quic_config );
 
-  /* set up xdp */
-  fd_xdp_config_t config;
-  fd_xdp_config_init( &config );
+  ulong frame_sz = FRAME_SIZE;
+  ulong depth    = 1ul << 20ul;
+  ulong xsk_sz   = fd_xsk_footprint( frame_sz, depth, depth, depth, depth );
 
-  config.bpf_pin_dir = "/sys/fs/bpf";
-  config.bpf_pgm_file = "fd_xdp_bpf_udp.o";
-  /* xdp_mode alternatives:
-       XDP_FLAGS_SKB_MODE
-       XDP_FLAGS_DRV_MODE
-       XDP_FLAGS_HW_MODE */
-  config.xdp_mode = XDP_FLAGS_SKB_MODE;
-  config.frame_size = FRAME_SIZE;
-
-  /* new xdp */
-  void * xdp_mem = aligned_alloc( fd_xdp_align(), fd_xdp_footprint( &config ) );
-  fd_xdp_t * xdp = fd_xdp_new( xdp_mem, intf, &config );
-  if( !xdp ) {
-    fprintf( stderr, "Failed to create fd_xdp. Aborting\n" );
+  /* new xsk */
+  void * xsk_mem = aligned_alloc( fd_xsk_align(), xsk_sz );
+  if( !fd_xsk_new( xsk_mem, frame_sz, depth, depth, depth, depth ) ) {
+    fprintf( stderr, "Failed to create fd_xsk. Aborting\n" );
     exit(1);
   }
 
-  size_t aio_batch_sz = 32;
+  /* bind */
+  if( !fd_xsk_bind( xsk_mem, app_name, intf, ifqueue ) ) {
+    fprintf( stderr, "Failed to bind %s to interface %s, with queue %u\n",
+        app_name, intf, ifqueue );
+    exit(1);
+  }
 
-  /* new xdp_aio */
-  void * xdp_aio_mem = aligned_alloc( fd_xdp_aio_align(), fd_xdp_aio_footprint( xdp, aio_batch_sz ) );
-  fd_xdp_aio_t * xdp_aio = fd_xdp_aio_new( xdp_aio_mem, xdp, aio_batch_sz );
-  if( !xdp_aio ) {
-    fprintf( stderr, "Failed to create xdp_aio_mem\n" );
+  /* join */
+  fd_xsk_t * xsk = fd_xsk_join( xsk_mem );
+
+  /* new xsk_aio */
+  void * xsk_aio_mem = aligned_alloc( fd_xsk_aio_align(), fd_xsk_aio_footprint( depth, xsk_pkt_cnt ) );
+  if( !fd_xsk_aio_new( xsk_aio_mem, depth, xsk_pkt_cnt ) ) {
+    fprintf( stderr, "Failed to create xsk_aio_mem\n" );
+    exit(1);
+  }
+
+  fd_xsk_aio_t * xsk_aio = fd_xsk_aio_join( xsk_aio_mem, xsk );
+  if( !xsk_aio ) {
+    fprintf( stderr, "Failed to join xsk_aio_mem\n" );
     exit(1);
   }
 
   /* add udp port to xdp map */
-  fd_xdp_add_key( xdp, 4433 );
+  /* TODO how do we specify the port? */
+  // fd_xdp_add_key( xdp, 4433 );
 
   /* set up aio ingress */
   fd_aio_t ingress = *fd_quic_get_aio_net_in( server_quic );
-  fd_xdp_aio_ingress_set( xdp_aio, &ingress );
+  fd_xsk_aio_set_rx( xsk_aio, &ingress );
 
-  fd_aio_t egress = *fd_xdp_aio_egress_get( xdp_aio );
+  fd_aio_t egress = *fd_xsk_aio_get_tx( xsk_aio );
 
 #if 1
   /* set up egress */
@@ -436,7 +474,7 @@ main( int argc, char ** argv ) {
     fd_quic_service( server_quic );
 
     /* service xdp */
-    fd_xdp_aio_service( xdp_aio );
+    fd_xsk_aio_service( xsk_aio );
   }
 
 
