@@ -13,12 +13,12 @@ pub use crate::generated::{
 };
 pub use crate::generated::{
     fd_fseq_align,
+    fd_fseq_app_laddr,
     fd_fseq_delete,
     fd_fseq_footprint,
     fd_fseq_join,
     fd_fseq_leave,
     fd_fseq_new,
-    fd_fseq_app_laddr
 };
 use std::ffi::c_void;
 use std::sync::atomic::{

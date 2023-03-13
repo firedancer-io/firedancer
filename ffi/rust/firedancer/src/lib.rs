@@ -1,10 +1,7 @@
 use std::{
     ffi::CString,
     hint::spin_loop,
-    mem::{
-        self,
-        transmute,
-    },
+    mem::transmute,
     ops::Not,
     os::raw::c_int,
     ptr,
@@ -12,7 +9,6 @@ use std::{
         compiler_fence,
         Ordering,
     },
-    thread,
 };
 use anyhow::{
     anyhow,
@@ -43,11 +39,8 @@ use firedancer_sys::{
     util::{
         fd_boot,
         fd_halt,
-        fd_pod_query_subpod,
         fd_wksp_containing,
         fd_wksp_map,
-        fd_wksp_pod_attach,
-        fd_wksp_pod_map,
     },
 };
 use rand::prelude::*;

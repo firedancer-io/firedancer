@@ -13,8 +13,7 @@ pub use fseq::*;
 pub use mcache::*;
 pub use tcache::*;
 pub use tempo::*;
-
 pub use crate::generated::{
+    fd_chunk_to_laddr_const,
     fd_frag_meta_seq_query,
-    fd_chunk_to_laddr_const
 };
