@@ -43,7 +43,7 @@
      aio.recv = my_cb_receive;
      aio.ctx   quic;
 
-     fd_aio_pkt_info_t batch[10] = {{ .data = data, .data_sz = data_sz }};
+     fd_aio_pkt_info_t batch[10] = {{ .buf = data, .buf_sz = data_sz }};
 
      fd_aio_pkt_info_t cur_batch    = batch;
      ulong         cur_batch_sz = 10;
