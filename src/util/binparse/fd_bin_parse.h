@@ -86,6 +86,18 @@ fd_bin_parse_read_u64( fd_bin_parse_ctx_t * ctx,
                        ulong              * dest );
 
 int
+fd_bin_parse_read_varint_u64( fd_bin_parse_ctx_t * ctx,
+                              ulong              * dest );
+
+int
+fd_bin_parse_read_varint_u32( fd_bin_parse_ctx_t * ctx,
+                              uint               * dest );
+
+int
+fd_bin_parse_read_varint_u16( fd_bin_parse_ctx_t * ctx,
+                              ushort             * dest );
+
+int
 fd_bin_parse_read_option_u64( fd_bin_parse_ctx_t * ctx,
                               ulong              * dest );
 

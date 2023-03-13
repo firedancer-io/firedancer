@@ -178,6 +178,7 @@ struct fd_gossip_crds_data_duplicate_shred {
 typedef struct fd_gossip_crds_data_duplicate_shred fd_gossip_crds_data_duplicate_shred_t;
 
 struct fd_gossip_crds_compressed_slots {
+  ulong obj_sz;
   uchar type;       /* 0 = flate2, 1 = uncompressed */
   ulong first_slot;
   ulong num;
@@ -276,14 +277,25 @@ struct fd_gossip_crds_value_epoch_slots {
 
 typedef struct fd_gossip_crds_value_epoch_slots fd_gossip_crds_value_epoch_slots_t;
 
+struct fd_gossip_version {
+  ushort major;    /* varint encoded */
+  ushort minor;    /* varint encoded */
+  ushort patch;    /* varint encoded */
+  uint   commit;
+  uint   feature_set;
+  ushort client;   /* varint encoded */
+};
+
+typedef struct fd_gossip_version fd_gossip_version_t;
+
 struct fd_gossip_crds_data_contact_info {
-  fd_pubkey_t     pubkey;
-  ulong           wallclock;
-  ulong           outset;
-  ushort          shred_version;
-  ushort          version;
-  fd_gossip_vector_descriptor_t addrs;
-  fd_gossip_vector_descriptor_t sockets;
+  fd_pubkey_t                   pubkey;
+  ulong                         wallclock;   /* varint encoded */
+  ulong                         outset;
+  ushort                        shred_version;
+  fd_gossip_version_t           version;
+  fd_gossip_vector_descriptor_t addrs;       /* shortvec encoded */
+  fd_gossip_vector_descriptor_t sockets;     /* shortvec encoded */
 };
 
 typedef struct fd_gossip_crds_data_contact_info fd_gossip_crds_data_contact_info_t;
@@ -298,7 +310,7 @@ typedef struct fd_gossip_crds_value_contact_info fd_gossip_crds_value_contact_in
 struct fd_gossip_socketentry {
   uchar key;
   uchar index;
-  ushort offset;
+  ushort offset;     /* varint encoded */
 };
 
 typedef struct fd_gossip_socketentry fd_gossip_socketentry_t;

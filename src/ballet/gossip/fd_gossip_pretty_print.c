@@ -7,6 +7,23 @@
 
 /* a pretty-printer for gossip messages, for testing and debugging purposes */
 
+
+char *
+get_ip_addr( fd_socketaddr_t * addr,
+             char            * dst   ) {
+  
+  switch( addr->fam ) {
+  case FD_SOCKETADDR_IPV4:
+    inet_ntop(AF_INET, &(addr->addr), dst, INET_ADDRSTRLEN );
+    break;
+
+  case FD_SOCKETADDR_IPV6:
+    inet_ntop(AF_INET6, &(addr->addr), dst, INET6_ADDRSTRLEN );
+    break;
+  }
+  return dst;
+}
+
 /* TODO(smcio): this is a WIP */
 
 ulong
@@ -14,6 +31,8 @@ fd_gossip_pretty_print_crds_object( void * data ) {
 
   fd_gossip_crds_header_t * hdr = (fd_gossip_crds_header_t *)data;
   uint crds_id = hdr->crds_id;
+
+  char ip_addr_str[INET6_ADDRSTRLEN];
 
   switch( crds_id ) {
   case FD_GOSSIP_CRDS_ID_LEGACY_CONTACT_INFO: {
@@ -24,16 +43,16 @@ fd_gossip_pretty_print_crds_object( void * data ) {
     FD_LOG_WARNING(( "  - crds_id: 0x%x", crds_id & 0xff ));
     fd_gossip_pretty_print_signature( "  - signature", &(contact_info->hdr.signature) );
     fd_gossip_pretty_print_pubkey( "  - id", &(contact_info->data.id) );
-    FD_LOG_WARNING(( "  - gossip: addr = %s, port = %d",  inet_ntoa(contact_info->data.gossip.addr.ipv4_sin_addr), contact_info->data.gossip.port ));
-    FD_LOG_WARNING(( "  - tvu: addr = %s, port = %d",  inet_ntoa(contact_info->data.tvu.addr.ipv4_sin_addr), contact_info->data.tvu.port ));
-    FD_LOG_WARNING(( "  - tvu_fwd: addr = %s, port = %d",  inet_ntoa(contact_info->data.tvu_fwd.addr.ipv4_sin_addr), contact_info->data.tvu_fwd.port ));
-    FD_LOG_WARNING(( "  - repair: addr = %s, port = %d",  inet_ntoa(contact_info->data.repair.addr.ipv4_sin_addr), contact_info->data.repair.port ));
-    FD_LOG_WARNING(( "  - tpu: addr = %s, port = %d",  inet_ntoa(contact_info->data.tpu.addr.ipv4_sin_addr), contact_info->data.tpu.port ));
-    FD_LOG_WARNING(( "  - tpu_fwd: addr = %s, port = %d",  inet_ntoa(contact_info->data.tpu_fwd.addr.ipv4_sin_addr), contact_info->data.tpu_fwd.port ));
-    FD_LOG_WARNING(( "  - tpu_vote: addr = %s, port = %d",  inet_ntoa(contact_info->data.tpu_vote.addr.ipv4_sin_addr), contact_info->data.tpu_vote.port ));
-    FD_LOG_WARNING(( "  - rpc: addr = %s, port = %d",  inet_ntoa(contact_info->data.rpc.addr.ipv4_sin_addr), contact_info->data.rpc.port ));
-    FD_LOG_WARNING(( "  - rpc_pub_sub: addr = %s, port = %d",  inet_ntoa(contact_info->data.rpc_pub_sub.addr.ipv4_sin_addr), contact_info->data.rpc_pub_sub.port ));
-    FD_LOG_WARNING(( "  - serve_repair: addr = %s, port = %d",  inet_ntoa(contact_info->data.serve_repair.addr.ipv4_sin_addr), contact_info->data.serve_repair.port ));
+    FD_LOG_WARNING(( "  - gossip: addr = %s, port = %d", get_ip_addr( &(contact_info->data.gossip), ip_addr_str ), contact_info->data.gossip.port ));
+    FD_LOG_WARNING(( "  - tvu: addr = %s, port = %d", get_ip_addr( &(contact_info->data.tvu), ip_addr_str ), contact_info->data.tvu.port ));
+    FD_LOG_WARNING(( "  - tvu_fwd: addr = %s, port = %d", get_ip_addr( &(contact_info->data.tvu_fwd), ip_addr_str ), contact_info->data.tvu_fwd.port ));
+    FD_LOG_WARNING(( "  - repair: addr = %s, port = %d",  get_ip_addr( &(contact_info->data.repair), ip_addr_str ), contact_info->data.repair.port ));
+    FD_LOG_WARNING(( "  - tpu: addr = %s, port = %d",  get_ip_addr( &(contact_info->data.tpu), ip_addr_str ), contact_info->data.tpu.port ));
+    FD_LOG_WARNING(( "  - tpu_fwd: addr = %s, port = %d",  get_ip_addr( &(contact_info->data.tpu_fwd), ip_addr_str ), contact_info->data.tpu_fwd.port ));
+    FD_LOG_WARNING(( "  - tpu_vote: addr = %s, port = %d",  get_ip_addr( &(contact_info->data.tpu_vote), ip_addr_str ), contact_info->data.tpu_vote.port ));
+    FD_LOG_WARNING(( "  - rpc: addr = %s, port = %d",  get_ip_addr( &(contact_info->data.rpc), ip_addr_str ), contact_info->data.rpc.port ));
+    FD_LOG_WARNING(( "  - rpc_pub_sub: addr = %s, port = %d",  get_ip_addr( &(contact_info->data.rpc_pub_sub), ip_addr_str ), contact_info->data.rpc_pub_sub.port ));
+    FD_LOG_WARNING(( "  - serve_repair: addr = %s, port = %d",  get_ip_addr( &(contact_info->data.serve_repair), ip_addr_str ), contact_info->data.serve_repair.port ));
     FD_LOG_WARNING(( "  - wallclock: addr = 0x%lx", contact_info->data.wallclock ));
     FD_LOG_WARNING(( "  - shred_version: addr = 0x%hx", contact_info->data.shred_version ));    
     break;
@@ -49,8 +68,8 @@ fd_gossip_pretty_print_crds_object( void * data ) {
     fd_gossip_pretty_print_signature( "  - signature", &(vote->hdr.signature) );
     fd_gossip_pretty_print_pubkey( "  - from", &(vote->data.from) );
     FD_LOG_WARNING(( "  - index: 0x%x", vote->data.index ));
-    //FD_LOG_WARNING(( "  - slot: 0x%lx", vote->data.slot ));
     FD_LOG_WARNING(( "  - wallclock: 0x%lx", vote->data.wallclock ));
+    //FD_LOG_WARNING(( "  - slot: 0x%lx", vote->data.slot ));
 
     /* TODO(smcio): printing out raw txn data */
     break;
@@ -66,31 +85,80 @@ fd_gossip_pretty_print_crds_object( void * data ) {
     fd_gossip_pretty_print_pubkey( "  - from", &(lowest_slot->data.from) );
     FD_LOG_WARNING(( "  - root: addr = %lu", lowest_slot->data.root ));
     FD_LOG_WARNING(( "  - lowest: addr = %lu", lowest_slot->data.root ));
-    FOR_EACH_U64_IN_VECTOR( lowest_slot, data.slots, value ) {
-      FD_LOG_WARNING(( "       - 0x%lx ", value ));
-    }
+    FD_LOG_WARNING(( "  - slots: obsolete" ));
     FD_LOG_WARNING(( "  - stash: obsolete" ));
     FD_LOG_WARNING(( "  - wallclock: 0x%lx", lowest_slot->data.wallclock ));
     break;
   }
 
   case FD_GOSSIP_CRDS_ID_SNAPSHOT_HASHES:
-  case FD_GOSSIP_CRDS_ID_ACCOUNT_HASHES:
+  case FD_GOSSIP_CRDS_ID_ACCOUNT_HASHES: {
     if( crds_id==FD_GOSSIP_CRDS_ID_SNAPSHOT_HASHES ) {
       FD_LOG_WARNING(( "  => SnapshotHashes" ));
+      FD_LOG_WARNING(( "     ---------------" ));
     }
     else {
       FD_LOG_WARNING(( "  => AccountHashes" ));
+      FD_LOG_WARNING(( "     ---------------" ));
     }
-    break;
 
-  case FD_GOSSIP_CRDS_ID_EPOCH_SLOTS: 
-    FD_LOG_WARNING(( "pretty-printing for EpochSlots not yet implemented" ));
-    break;
+    /* fd_gossip_crds_value_snapshot_hashes_t and fd_gossip_crds_value_account_hashes_t are essentially
+       the same struct, so one set of logic works to pretty-print both SnapshotHashes & AccountHashes */
+    fd_gossip_crds_value_snapshot_hashes_t * snapshot_hashes = (fd_gossip_crds_value_snapshot_hashes_t *)hdr;
+    FD_LOG_WARNING(( "  - crds_id: 0x%x", crds_id & 0xff ));
+    fd_gossip_pretty_print_signature( "  - signature", &(snapshot_hashes->hdr.signature) );
+    fd_gossip_pretty_print_pubkey( "  - from", &(snapshot_hashes->data.from) );
+    FD_LOG_WARNING(( "  - wallclock: 0x%lx", snapshot_hashes->data.wallclock ));
+    FD_LOG_WARNING(( "  - hashes:" ));
+    FOR_EACH_SLOT_HASH_IN_VECTOR( snapshot_hashes, data.hashes, slot_hash ) {
+      FD_LOG_WARNING(( "    - base.slot: 0x%lx", slot_hash->slot ));
+      fd_gossip_pretty_print_blob_as_hex( "    - base.hash", &(slot_hash->hash), 32 );
+    }
 
-  case FD_GOSSIP_CRDS_ID_LEGACY_VERSION:
-    FD_LOG_WARNING(( "pretty-printing for EpochSlots not yet implemented" ));
     break;
+  }
+
+  case FD_GOSSIP_CRDS_ID_EPOCH_SLOTS: {
+    fd_gossip_crds_value_epoch_slots_t * epoch_slots = (fd_gossip_crds_value_epoch_slots_t *)hdr;
+    FD_LOG_WARNING(( "   => EpochSlots" ));
+    FD_LOG_WARNING(( "     ---------------" ));
+    FD_LOG_WARNING(( "  - crds_id: 0x%x", crds_id & 0xff ));
+    fd_gossip_pretty_print_signature( "  - signature", &(epoch_slots->hdr.signature) );
+    fd_gossip_pretty_print_pubkey( "  - from", &(epoch_slots->data.from) );
+    FD_LOG_WARNING(( "  - wallclock: 0x%lx", epoch_slots->data.wallclock ));
+    FD_LOG_WARNING(( "  - index: 0x%x", epoch_slots->data.index & 0xff ));
+    FD_LOG_WARNING(( "  - compressed_slots: " ));
+    FOR_EACH_COMPRESSED_SLOTS_IN_VECTOR( epoch_slots, data.compressed_slots, compressed_slots ) {
+      FD_LOG_WARNING(( "    - type: %s, first_slot: 0x%lx, num: 0x%lx", ( compressed_slots->type == FD_GOSSIP_COMPRESSION_TYPE_FLATE2 ? "flate2" : "uncompressed" ), compressed_slots->first_slot, compressed_slots->num ));
+      if( compressed_slots->type == FD_GOSSIP_COMPRESSION_TYPE_FLATE2 ) {
+        GET_DATA_AND_NUM_ELEMENTS_FOR_VECTOR( compressed_slots, compressed, compressed_data, compressed_data_sz );
+        fd_gossip_pretty_print_blob_as_hex( "    - compressed slots data", compressed_data, compressed_data_sz );
+      } else if( FD_GOSSIP_COMPRESSION_TYPE_UNCOMPRESSED) {   /* uncompressed */
+        GET_DATA_AND_NUM_ELEMENTS_FOR_VECTOR( compressed_slots, slots.bits, uncompressed_slots_data, uncompressed_slots_data_sz );
+        fd_gossip_pretty_print_blob_as_hex( "    - uncompressed slots data", uncompressed_slots_data, uncompressed_slots_data_sz );
+      } else {
+        FD_LOG_ERR(( "unknown compression type "));
+      }
+    }
+
+    break;
+  }
+
+  case FD_GOSSIP_CRDS_ID_LEGACY_VERSION: {
+    fd_gossip_crds_value_legacy_version_t * legacy_version = (fd_gossip_crds_value_legacy_version_t *)hdr;
+    FD_LOG_WARNING(( "   => LegacyVersion" ));
+    FD_LOG_WARNING(( "     ---------------" ));
+    FD_LOG_WARNING(( "  - crds_id: 0x%x", crds_id & 0xff ));
+    fd_gossip_pretty_print_signature( "  - signature", &(legacy_version->hdr.signature) );
+    fd_gossip_pretty_print_pubkey( "  - from", &(legacy_version->data.from) );
+    FD_LOG_WARNING(( "  - wallclock: 0x%lx", legacy_version->data.wallclock ));
+    FD_LOG_WARNING(( "  - major: 0x%hx", legacy_version->data.major ));
+    FD_LOG_WARNING(( "  - minor: 0x%hx", legacy_version->data.minor ));
+    FD_LOG_WARNING(( "  - patch: 0x%hx", legacy_version->data.patch ));
+    if( legacy_version->data.commit == -1 ) FD_LOG_WARNING(( "  - commit: None (optional)" ));
+    else FD_LOG_WARNING(( "  - commit: %x", (uint)legacy_version->data.commit ));
+    break;
+  }
 
   case FD_GOSSIP_CRDS_ID_VERSION: {
     fd_gossip_crds_value_version_t * version = (fd_gossip_crds_value_version_t *)hdr;
@@ -109,21 +177,78 @@ fd_gossip_pretty_print_crds_object( void * data ) {
     break;
   }
 
-  case FD_GOSSIP_CRDS_ID_NODE_INSTANCE:
-    FD_LOG_WARNING(( "pretty-printing for NodeInstance not yet implemented" ));
+  case FD_GOSSIP_CRDS_ID_NODE_INSTANCE: {
+    fd_gossip_crds_value_node_instance_t * node_instance = (fd_gossip_crds_value_node_instance_t *)hdr;
+    FD_LOG_WARNING(( "   => NodeInstance" ));
+    FD_LOG_WARNING(( "     --------------" ));
+    FD_LOG_WARNING(( "  - crds_id: 0x%x", crds_id & 0xff ));
+    fd_gossip_pretty_print_signature( "  - signature", &(node_instance->hdr.signature) );
+    fd_gossip_pretty_print_pubkey( "  - from", &(node_instance->data.from) );
+    FD_LOG_WARNING(( "  - wallclock: 0x%lx", node_instance->data.wallclock ));
+    FD_LOG_WARNING(( "  - timestamp: 0x%lx", node_instance->data.timestamp ));
+    FD_LOG_WARNING(( "  - token: 0x%lx", node_instance->data.token ));
     break;
+  }
 
-  case FD_GOSSIP_CRDS_ID_DUPLICATE_SHRED:
-    FD_LOG_WARNING(( "pretty-printing for DuplicateShred not yet implemented" ));
+  case FD_GOSSIP_CRDS_ID_DUPLICATE_SHRED: {
+    fd_gossip_crds_value_duplicate_shred_t * duplicate_shred = (fd_gossip_crds_value_duplicate_shred_t *)hdr;
+    FD_LOG_WARNING(( "   => DuplicateShred" ));
+    FD_LOG_WARNING(( "     --------------" ));
+    FD_LOG_WARNING(( "  - crds_id: 0x%x", crds_id & 0xff ));
+    fd_gossip_pretty_print_signature( "  - signature", &(duplicate_shred->hdr.signature) );
+    fd_gossip_pretty_print_pubkey( "  - from", &(duplicate_shred->data.from) );
+    FD_LOG_WARNING(( "  - index: 0x%hx", duplicate_shred->data.index ));
+    FD_LOG_WARNING(( "  - wallclock: 0x%lx", duplicate_shred->data.wallclock ));
+    FD_LOG_WARNING(( "  - shred_index: 0x%x", duplicate_shred->data.shred_index ));
+    FD_LOG_WARNING(( "  - shred_type: 0x%x", duplicate_shred->data.shred_type & 0xff ));
+    FD_LOG_WARNING(( "  - slot: 0x%lx", duplicate_shred->data.slot ));
+    FD_LOG_WARNING(( "  - chunk_index: 0x%x", duplicate_shred->data.chunk_index & 0xff ));
+    FD_LOG_WARNING(( "  - num_chunks: 0x%x", duplicate_shred->data.num_chunks & 0xff ));
+    GET_DATA_AND_NUM_ELEMENTS_FOR_VECTOR( duplicate_shred, data.chunk, chunk_data, chunk_data_sz );
+    fd_gossip_pretty_print_blob_as_hex( "  - chunk:", chunk_data, chunk_data_sz );
     break;
+  }
 
-  case FD_GOSSIP_CRDS_ID_INCREMENTAL_SNAPSHOT_HASHES:
-    FD_LOG_WARNING(( "pretty-printing for IncrementalSnapshotHashes not yet implemented" ));
-    break;
+  case FD_GOSSIP_CRDS_ID_INCREMENTAL_SNAPSHOT_HASHES: {
+    fd_gossip_crds_value_incremental_snapshot_hashes_t * incr_snapshot_hashes = (fd_gossip_crds_value_incremental_snapshot_hashes_t *)hdr;
+    FD_LOG_WARNING(( "   => IncrementalSnapshotHashes" ));
+    FD_LOG_WARNING(( "     ---------------------------" ));
+    FD_LOG_WARNING(( "  - crds_id: 0x%x", crds_id & 0xff ));
+    fd_gossip_pretty_print_signature( "  - signature", &(incr_snapshot_hashes->hdr.signature) );
+    fd_gossip_pretty_print_pubkey( "  - from", &(incr_snapshot_hashes->data.from) );
+    FD_LOG_WARNING(( "  - wallclock: 0x%lx", incr_snapshot_hashes->data.wallclock ));
+    FD_LOG_WARNING(( "  - base.slot: 0x%lx", incr_snapshot_hashes->data.base.slot ));
+    fd_gossip_pretty_print_blob_as_hex( "  - base.hash", &(incr_snapshot_hashes->data.base.hash), 32 );
 
-  case FD_GOSSIP_CRDS_ID_CONTACT_INFO:
-    FD_LOG_WARNING(( "pretty-printing for ContactInfo not yet implemented" ));
+    FD_LOG_WARNING(( "  - hashes:" ));
+    FOR_EACH_SLOT_HASH_IN_VECTOR( incr_snapshot_hashes, data.hashes, slot_hash ) {
+      FD_LOG_WARNING(( "    - base.slot: 0x%lx", slot_hash->slot ));
+      fd_gossip_pretty_print_blob_as_hex( "    - base.hash", &(slot_hash->slot), 32 );
+    }
     break;
+  }
+
+  case FD_GOSSIP_CRDS_ID_CONTACT_INFO: {
+    fd_gossip_crds_value_contact_info_t * contact_info = (fd_gossip_crds_value_contact_info_t *)hdr;
+    FD_LOG_WARNING(( "   => ContactInfo" ));
+    FD_LOG_WARNING(( "     --------------" ));
+    FD_LOG_WARNING(( "  - crds_id: 0x%x", crds_id & 0xff ));
+    fd_gossip_pretty_print_signature( "  - signature", &(contact_info->hdr.signature) );
+    fd_gossip_pretty_print_pubkey( "  - from", &(contact_info->data.pubkey ) );
+    //FD_LOG_WARNING(( "  - version: 0x%hx", contact_info->data.version ));
+    FD_LOG_WARNING(( "  - shred_version: 0x%hx", contact_info->data.shred_version ));
+    FD_LOG_WARNING(( "  - outset: 0x%lx", contact_info->data.outset ));
+    FD_LOG_WARNING(( "  - wallclock: 0x%lx", contact_info->data.wallclock ));
+    FD_LOG_WARNING(( "  - addrs: "));
+    FOR_EACH_ADDR_IN_VECTOR( contact_info, data.addrs, addr ) {
+      FD_LOG_WARNING(( "%s", get_ip_addr( addr, ip_addr_str ) ));
+    }
+    FD_LOG_WARNING(( "  - socket_entry: "));
+    FOR_EACH_SOCKET_ENTRY_IN_VECTOR( contact_info, data.sockets, socket_entry ) {
+      FD_LOG_WARNING(( "key: 0x%x, index: 0x%x, offset: 0x%hx", socket_entry->key & 0xff, socket_entry->index & 0xff, socket_entry->offset ));
+    }
+    break;
+  }
 
   default:
     FD_LOG_WARNING(( "unknown CRDS value, %u", crds_id ));
@@ -134,11 +259,11 @@ fd_gossip_pretty_print_crds_object( void * data ) {
 }
 
 void
-fd_gossip_pretty_print_arbitrary_hex( char * member_name,
+fd_gossip_pretty_print_blob_as_hex( char * member_name,
                                       void * data,
-                                      ulong data_sz ) {
-  char buf[1024];
-  char *ptr = buf;
+                                      ulong  data_sz ) {
+  char * buf = (char *)fd_alloca( alignof(char), data_sz*8 );
+  char * ptr = buf;
   uchar *pk = (uchar *)data;
   for( ulong count = 0; count < data_sz; count++ ) {
     ptr += sprintf( ptr, "0x%x ", pk[count] & 0xff );
@@ -187,7 +312,7 @@ fd_gossip_pretty_print_pull_req( fd_gossip_pull_req_t * msg ) {
   FD_LOG_WARNING(( "   --------- " ));
 
   GET_BLOOM_FILTER_DATA_AND_SIZE( msg, bloom_data, sz );
-  fd_gossip_pretty_print_arbitrary_hex( "      - bits", bloom_data, sz );
+  fd_gossip_pretty_print_blob_as_hex( "      - bits", bloom_data, sz );
   FD_LOG_WARNING(( "     - num_bits_set: %lx", msg->crds_filter.bloom.num_bits_set ));
   FD_LOG_WARNING(( "     - keys: " ));
   FOR_EACH_U64_IN_VECTOR( msg, crds_filter.bloom.keys, value ) {
@@ -230,6 +355,28 @@ fd_gossip_pretty_print_push( fd_gossip_push_msg_t * msg ) {
 }
 
 void
+fd_gossip_pretty_print_ping( fd_gossip_ping_msg_t * msg ) {
+  FD_LOG_WARNING(( "Ping" ));
+  FD_LOG_WARNING(( "=====" ));
+
+  FD_LOG_WARNING(( "- msg_id: 0x%x", msg->msg_id ));
+  fd_gossip_pretty_print_pubkey( "- from", &(msg->from) );
+  fd_gossip_pretty_print_blob_as_hex( "- token", &(msg->token), 32 );
+  fd_gossip_pretty_print_signature( "- signature", &(msg->signature) );
+}
+
+void
+fd_gossip_pretty_print_pong( fd_gossip_pong_msg_t * msg ) {
+  FD_LOG_WARNING(( "Pong" ));
+  FD_LOG_WARNING(( "=====" ));
+
+  FD_LOG_WARNING(( "- msg_id: 0x%x", msg->msg_id ));
+  fd_gossip_pretty_print_pubkey( "- from", &(msg->from) );
+  fd_gossip_pretty_print_blob_as_hex( "- hash", &(msg->hash), 32 );
+  fd_gossip_pretty_print_signature( "- signature", &(msg->signature) );
+}
+
+void
 fd_gossip_pretty_print( void * data ) {
 
   fd_gossip_msg_t * msg = (fd_gossip_msg_t *)data;
@@ -248,6 +395,14 @@ fd_gossip_pretty_print( void * data ) {
 
   case FD_GOSSIP_MSG_ID_PUSH:
     fd_gossip_pretty_print_push( (fd_gossip_push_msg_t *)msg );
+    break;
+
+  case FD_GOSSIP_MSG_ID_PING:
+    fd_gossip_pretty_print_ping( (fd_gossip_ping_msg_t *)msg );
+    break;
+  
+  case FD_GOSSIP_MSG_ID_PONG:
+    fd_gossip_pretty_print_pong( (fd_gossip_pong_msg_t *)msg );
     break;
 
   default:

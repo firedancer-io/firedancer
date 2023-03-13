@@ -12,6 +12,9 @@
   }                                                                           \
 } while(0)
 
+/* This macro is used to assert that the parser context state is not invalid.
+   A parser context should only become invalid in cases of serious programming
+   errors. */
 #define CHECK_CTX_STATE_IS_VALID( ctx ) do {                                  \
   if( FD_UNLIKELY( ctx->invalid_state ) ) {                                   \
     FD_LOG_ERR(( "parse context state is invalid" ));                         \
@@ -19,9 +22,6 @@
   }                                                                           \
 } while(0)
 
-/* This macro is used to assert that the parser context state is not invalid.
-   A parser context should only become invalid in cases of serious programming
-   errors. */
 void fd_bin_parse_init( fd_bin_parse_ctx_t * ctx,
                             void           * src,
                             ulong            src_sz,
@@ -212,6 +212,78 @@ fd_bin_parse_read_option_u64( fd_bin_parse_ctx_t * ctx,
 
   CHECK_INPUT_BLOB_SZ_REMAINING( 8 );
   return fd_slice_read_u64( &(ctx->src), dest );
+}
+
+int fd_bin_parse_read_varint_u( fd_bin_parse_ctx_t * ctx,
+                                ulong              * x    ) {
+  int success = 0;
+  ulong b = 0;
+
+#define READ_UCHAR  do {                                 \
+    CHECK_INPUT_BLOB_SZ_REMAINING( 1 );                  \
+    success = fd_bin_parse_read_u8( ctx, (uchar *)&b );  \
+    if( !success ) {                                     \
+      return 0;                                          \
+    }                                                    \
+} while(0)                      
+  
+  *x = 0;
+  READ_UCHAR; *x|=(b&0x7f)<<(7*0); if (b<0x80) return 0+1;
+  READ_UCHAR; *x|=(b&0x7f)<<(7*1); if (b<0x80) return 1+1;
+  READ_UCHAR; *x|=(b&0x7f)<<(7*2); if (b<0x80) return 2+1;
+  READ_UCHAR; *x|=(b&0x7f)<<(7*3); if (b<0x80) return 3+1;
+  READ_UCHAR; *x|=(b&0x7f)<<(7*4); if (b<0x80) return 4+1;
+  READ_UCHAR; *x|=(b&0x7f)<<(7*5); if (b<0x80) return 5+1;
+  READ_UCHAR; *x|=(b&0x7f)<<(7*6); if (b<0x80) return 6+1;
+  READ_UCHAR; *x|=(b&0x7f)<<(7*7); if (b<0x80) return 7+1;
+  READ_UCHAR; *x|=(b&0x7f)<<(7*8); if (b<0x80) return 8+1;
+  READ_UCHAR; *x|=(b&0x7f)<<(7*9); if (b<0x80) return 9+1;
+  return 0;
+
+#undef READ_UCHAR
+}
+
+int
+fd_bin_parse_read_varint_u64( fd_bin_parse_ctx_t * ctx,
+                              ulong              * dest ) {
+  CHECK_CTX_STATE_IS_VALID( ctx );
+  return fd_bin_parse_read_varint_u( ctx, dest );
+}
+
+int
+fd_bin_parse_read_varint_u32( fd_bin_parse_ctx_t * ctx,
+                              uint               * dest ) {
+  CHECK_CTX_STATE_IS_VALID( ctx );
+
+  ulong tmp = 0;
+  if( !fd_bin_parse_read_varint_u( ctx, &tmp ) ) {
+    return 0;
+  }
+
+  if( tmp > UINT_MAX ) {
+    return 0;
+  }
+
+  *dest = (uint)tmp;
+  return 1;
+}
+
+int
+fd_bin_parse_read_varint_u16( fd_bin_parse_ctx_t * ctx,
+                              ushort             * dest ) {
+  CHECK_CTX_STATE_IS_VALID( ctx );
+
+  ulong tmp = 0;
+  if( !fd_bin_parse_read_varint_u( ctx, &tmp ) ) {
+    return 0;
+  }
+
+  if( tmp > USHORT_MAX ) {
+    return 0;
+  }
+
+  *dest = (ushort)tmp;
+  return 1;
 }
 
 int

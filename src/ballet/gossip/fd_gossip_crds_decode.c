@@ -132,11 +132,16 @@ fd_bin_parse_decode_socket_entry_vector( fd_bin_parse_ctx_t * ctx,
                                          void       * out_buf,
                                          ulong        out_buf_sz,
                                          ulong      * nelems        ) {
-  ulong vector_sz = 0;
-  if( !fd_bin_parse_read_u64( ctx, &vector_sz ) ) {
+  ushort vector_sz_short_tmp = 0;
+
+  /* vec<SocketEntry> in ContactInfo is encoded as a short_vec, hence this length value is
+     encoded as a varint with max value USHORT_MAX. */
+  if( !fd_bin_parse_read_varint_u16( ctx, &vector_sz_short_tmp ) ) {
     FD_LOG_WARNING(( "failed to read u64 as vector size" ));
     return 0;
   }
+
+  ulong vector_sz = (ulong)vector_sz_short_tmp;
 
   /* check for enough space in the destination for the number of `fd_gossip_socketentry_t` to be decoded */
   if( FD_UNLIKELY( (vector_sz*sizeof( fd_gossip_socketentry_t ) )>out_buf_sz ) ) {
@@ -167,8 +172,8 @@ fd_bin_parse_decode_socket_entry_vector( fd_bin_parse_ctx_t * ctx,
       return 0;
     }
 
-    if( !fd_bin_parse_read_u16( ctx, &(socket_entry->offset) ) ) {
-      FD_LOG_WARNING(( "failed to read u8 as socket_entry `offset`" ));
+    if( !fd_bin_parse_read_varint_u16( ctx, &(socket_entry->offset) ) ) {
+      FD_LOG_WARNING(( "failed to read varint as socket_entry `offset`" ));
       return 0;
     }
     ADVANCE_DST_PTR( sizeof( fd_gossip_socketentry_t ) );
@@ -183,15 +188,20 @@ fd_bin_parse_decode_ipaddr_entry_vector( fd_bin_parse_ctx_t * ctx,
                                          void       * out_buf,
                                          ulong        out_buf_sz,
                                          ulong      * nelems       ) {
-  ulong vector_sz = 0;
-  if( !fd_bin_parse_read_u64( ctx, &vector_sz ) ) {
+  ushort vector_sz_short_tmp = 0;
+
+  /* vec<IpAddr> in ContactInfo is encoded as a short_vec, hence the vector length is
+   * a varint, max USHORT_MAX. */
+  if( !fd_bin_parse_read_varint_u16( ctx, &vector_sz_short_tmp ) ) {
     FD_LOG_WARNING(( "failed to read u64 as vector size" ));
     return 0;
   }
 
+  ulong vector_sz = (ulong)vector_sz_short_tmp;
+
   /* check for enough space in the destination for the number of `fd_gossip_socketentry_t` to be decoded */
   if( FD_UNLIKELY( (vector_sz*sizeof( fd_ipaddr_t ) )>out_buf_sz ) ) {
-    FD_LOG_WARNING(( "dst size exceeded" ));
+    FD_LOG_WARNING(( "dst size exceeded: %lu", vector_sz ));
     return 0;
   }
 
@@ -297,7 +307,7 @@ fd_gossip_parse_crds_legacy_contact_info( fd_bin_parse_ctx_t * ctx,
                                           ulong                out_buf_sz,
                                           ulong              * obj_sz      ) {
 
-  FD_LOG_DEBUG(( "parsing LegacyContactInfo" ));
+  FD_LOG_NOTICE(( "parsing LegacyContactInfo" ));
 
   if( FD_UNLIKELY( out_buf_sz<sizeof( fd_gossip_crds_value_legacy_contact_info_t ) ) ) {
     return 0;
@@ -383,7 +393,7 @@ fd_gossip_parse_crds_legacy_version( fd_bin_parse_ctx_t * ctx,
                                      ulong                out_buf_sz,
                                      ulong              * obj_sz      ) {
 
-  FD_LOG_DEBUG(( "parsing LegacyVersion" ));
+  FD_LOG_NOTICE(( "parsing LegacyVersion" ));
 
   if( FD_UNLIKELY( out_buf_sz<sizeof( fd_gossip_crds_value_legacy_version_t ) ) ) {
     return 0;
@@ -434,7 +444,7 @@ fd_gossip_parse_crds_version( fd_bin_parse_ctx_t * ctx,
                               ulong                out_buf_sz,
                               ulong              * obj_sz      ) {
 
-  FD_LOG_DEBUG(( "parsing Version" ));
+  FD_LOG_NOTICE(( "parsing Version" ));
 
   if( FD_UNLIKELY( out_buf_sz<sizeof( fd_gossip_crds_value_version_t ) ) ) {
     return 0;
@@ -490,7 +500,7 @@ fd_gossip_parse_crds_node_instance( fd_bin_parse_ctx_t * ctx,
                                     ulong                out_buf_sz,
                                     ulong              * obj_sz      ) {
 
-  FD_LOG_DEBUG(( "parsing NodeInstance" ));
+  FD_LOG_NOTICE(( "parsing NodeInstance" ));
 
   if( FD_UNLIKELY( out_buf_sz<sizeof( fd_gossip_crds_value_node_instance_t ) ) ) {
     return 0;
@@ -531,7 +541,7 @@ fd_gossip_parse_crds_incremental_snapshot_hashes( fd_bin_parse_ctx_t * ctx,
                                                   ulong                out_buf_sz,
                                                   ulong              * obj_sz      ) {
 
-  FD_LOG_DEBUG(( "parsing IncrementalSnapshotHashes" ));
+  FD_LOG_NOTICE(( "parsing IncrementalSnapshotHashes" ));
 
   if( FD_UNLIKELY( out_buf_sz<sizeof( fd_gossip_crds_value_incremental_snapshot_hashes_t ) ) ) {
     return 0;
@@ -586,7 +596,7 @@ fd_gossip_parse_crds_duplicate_shred( fd_bin_parse_ctx_t * ctx,
                                       void               * out_buf,
                                       ulong                out_buf_sz,
                                       ulong              * obj_sz      ) {
-  FD_LOG_DEBUG(( "parsing DuplicateShred" ));
+  FD_LOG_NOTICE(( "parsing DuplicateShred" ));
 
   if( FD_UNLIKELY( out_buf_sz<sizeof( fd_gossip_crds_value_duplicate_shred_t ) ) ) {
     return 0;
@@ -667,7 +677,7 @@ fd_gossip_parse_crds_lowest_slot( fd_bin_parse_ctx_t * ctx,
                                   ulong                out_buf_sz,
                                   ulong              * obj_sz      ) {
 
-  FD_LOG_DEBUG(( "parsing LowestSlot" ));
+  FD_LOG_NOTICE(( "parsing LowestSlot" ));
 
   if( FD_UNLIKELY( out_buf_sz<sizeof( fd_gossip_crds_value_lowest_slot_t ) ) ) {
     return 0;
@@ -746,7 +756,7 @@ fd_gossip_parse_crds_snapshot_hashes( fd_bin_parse_ctx_t * ctx,
                                       void               * out_buf,
                                       ulong                out_buf_sz,
                                       ulong              * obj_sz      ) {
-  FD_LOG_DEBUG(( "parsing SnapshotHashes" ));
+  FD_LOG_NOTICE(( "parsing SnapshotHashes" ));
 
   if( FD_UNLIKELY( out_buf_sz<sizeof( fd_gossip_crds_value_snapshot_hashes_t ) ) ) {
     return 0;
@@ -802,7 +812,7 @@ fd_gossip_parse_crds_vote( fd_bin_parse_ctx_t * ctx,
                            ulong                out_buf_sz,
                            ulong              * obj_sz      ) {
 
-  FD_LOG_DEBUG(( "parsing Vote" ));
+  FD_LOG_NOTICE(( "parsing Vote" ));
 
   if( FD_UNLIKELY( out_buf_sz<sizeof( fd_gossip_crds_value_vote_t ) ) ) {
     return 0;
@@ -949,7 +959,7 @@ fd_gossip_parse_crds_compressed_slots( fd_bin_parse_ctx_t * ctx,
     return 0;
   }
   
-  *obj_sz = TOTAL_DATA_OUT_SZ;
+  *obj_sz = compressed_slots->obj_sz = TOTAL_DATA_OUT_SZ;
   return 1;
 }
 
@@ -958,7 +968,7 @@ fd_gossip_parse_crds_epoch_slots( fd_bin_parse_ctx_t * ctx,
                                   void               * out_buf,
                                   ulong                out_buf_sz,
                                   ulong              * obj_sz      ) {
-  FD_LOG_DEBUG(( "parsing EpochSlots" ));
+  FD_LOG_NOTICE(( "parsing EpochSlots" ));
 
   if( FD_UNLIKELY( out_buf_sz<sizeof( fd_gossip_crds_value_epoch_slots_t ) ) ) {
     return 0;
@@ -993,6 +1003,7 @@ fd_gossip_parse_crds_epoch_slots( fd_bin_parse_ctx_t * ctx,
      If so, determine an upper limit upon which to trigger a log event. */
 
   uchar * ptr = (uchar *)out_buf + sizeof( fd_gossip_crds_value_epoch_slots_t );
+  epoch_slots->data.compressed_slots.num_objs = 0;
   ulong compressed_slots_obj_sz = 0;
 
   for( ulong count=0; count<nelems; count++ ) {
@@ -1009,6 +1020,13 @@ fd_gossip_parse_crds_epoch_slots( fd_bin_parse_ctx_t * ctx,
     ADVANCE_DST_PTR( compressed_slots_obj_sz );
   }
 
+  if( !fd_bin_parse_read_u64( ctx, &(epoch_slots->data.wallclock) ) ) {
+    FD_LOG_WARNING(( "unable to parse `wallclock`" ));
+    return 0;
+  }
+
+  CHECK_WALLCLOCK( epoch_slots->data.wallclock );
+
   *obj_sz = epoch_slots->hdr.obj_sz = TOTAL_DATA_OUT_SZ;
   return 1;
 }
@@ -1019,7 +1037,7 @@ fd_gossip_parse_crds_contact_info( fd_bin_parse_ctx_t * ctx,
                                    ulong                out_buf_sz,
                                    ulong              * obj_sz      ) {
 
-  FD_LOG_DEBUG(( "parsing ContactInfo" ));
+  FD_LOG_NOTICE(( "parsing ContactInfo" ));
 
   if( FD_UNLIKELY( out_buf_sz<sizeof( fd_gossip_crds_value_contact_info_t ) ) ) {
     return 0;
@@ -1033,8 +1051,8 @@ fd_gossip_parse_crds_contact_info( fd_bin_parse_ctx_t * ctx,
     return 0;
   }
 
-  if( !fd_bin_parse_read_u64( ctx, &(contact_info->data.wallclock) ) ) {
-    FD_LOG_WARNING(( "unable to parse `wallclock`" ));
+  if( !fd_bin_parse_read_varint_u64( ctx, &(contact_info->data.wallclock) ) ) {
+    FD_LOG_WARNING(( "unable to parse varint `wallclock`" ));
     return 0;
   }
 
@@ -1050,8 +1068,35 @@ fd_gossip_parse_crds_contact_info( fd_bin_parse_ctx_t * ctx,
     return 0;
   }
 
-  if( !fd_bin_parse_read_u16( ctx, &(contact_info->data.version) ) ) {
-    FD_LOG_WARNING(( "unable to parse `version`" ));
+  /* deserialize `Version` object embedded in this ContactInfo object.
+     some fields are varint encoded. */
+  if( !fd_bin_parse_read_varint_u16( ctx, &(contact_info->data.version.major) ) ) {
+    FD_LOG_WARNING(( "unable to parse varint `version.major`" ));
+    return 0;
+  }
+
+  if( !fd_bin_parse_read_varint_u16( ctx, &(contact_info->data.version.minor) ) ) {
+    FD_LOG_WARNING(( "unable to parse varint `version.minor`" ));
+    return 0;
+  }
+
+  if( !fd_bin_parse_read_varint_u16( ctx, &(contact_info->data.version.patch) ) ) {
+    FD_LOG_WARNING(( "unable to parse varint `version.patch`" ));
+    return 0;
+  }
+
+  if( !fd_bin_parse_read_u32( ctx, &(contact_info->data.version.commit) ) ) {
+    FD_LOG_WARNING(( "unable to parse `version.commit`" ));
+    return 0;
+  }
+
+  if( !fd_bin_parse_read_u32( ctx, &(contact_info->data.version.feature_set) ) ) {
+    FD_LOG_WARNING(( "unable to parse `version.feature_set`" ));
+    return 0;
+  }
+
+  if( !fd_bin_parse_read_varint_u16( ctx, &(contact_info->data.version.client) ) ) {
+    FD_LOG_WARNING(( "unable to parse varint `version.client`" ));
     return 0;
   }
 
@@ -1059,7 +1104,7 @@ fd_gossip_parse_crds_contact_info( fd_bin_parse_ctx_t * ctx,
   ulong nelems = 0;
 
   /* decode addrs vector, vec<IpAddr> */
-  if ( fd_bin_parse_decode_ipaddr_entry_vector( ctx, DST_CUR, DST_BYTES_REMAINING, &nelems ) ) {
+  if ( !fd_bin_parse_decode_ipaddr_entry_vector( ctx, DST_CUR, DST_BYTES_REMAINING, &nelems ) ) {
     FD_LOG_WARNING(( "error decoding ipaddr vector" ));
     return 0;
   }
@@ -1069,7 +1114,6 @@ fd_gossip_parse_crds_contact_info( fd_bin_parse_ctx_t * ctx,
   ADVANCE_DST_PTR( nelems*sizeof( fd_ipaddr_t ) );
 
   /* decode `sockets`, i.e. vec<SocketEntry> */
-  /* get vector len */
   if( !fd_bin_parse_decode_socket_entry_vector( ctx, DST_CUR, DST_BYTES_REMAINING, &nelems ) ) {
     FD_LOG_WARNING(( "error decoding SocketEntry vector" ));
     return 0;

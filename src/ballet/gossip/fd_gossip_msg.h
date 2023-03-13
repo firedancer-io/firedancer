@@ -28,9 +28,34 @@
     for( ulong i = 0 ; i < msg->vec_descriptor.num_objs; i++, value_ptr += 1, value = *value_ptr )
 
 #define FOR_EACH_CRDS_IN_VECTOR( msg, vec_descr_name, value )                                        \
-    uchar * ptr = (uchar *)msg + msg->vec_descr_name.offset;                                         \
-    fd_gossip_crds_header_t * value = (fd_gossip_crds_header_t *)ptr;                                \
-    for( ulong i = 0 ; i < msg->vec_descr_name.num_objs; i++, value = (fd_gossip_crds_header_t *)((uchar *)value + value->obj_sz) ) 
+    uchar * crds_ptr = (uchar *)msg + msg->vec_descr_name.offset;                                    \
+    fd_gossip_crds_header_t * value = (fd_gossip_crds_header_t *)crds_ptr;                           \
+    for( ulong i = 0 ; i < msg->vec_descr_name.num_objs; i++, value = (fd_gossip_crds_header_t *)((uchar *)value + value->obj_sz) )
+
+#define GET_DATA_AND_NUM_ELEMENTS_FOR_VECTOR( msg, vector_name, ptr_to_vector, num_elements )        \
+    void * ptr_to_vector = (uchar *)msg + msg->vector_name.offset;                                   \
+    ulong num_elements = msg->vector_name.num_objs;
+
+#define FOR_EACH_ADDR_IN_VECTOR( msg, vec_descr_name, value )                                        \
+    uchar * addr_vec_ptr = (uchar *)msg + msg->vec_descr_name.offset;                                \
+    fd_socketaddr_t * value = (fd_socketaddr_t *)addr_vec_ptr;                                       \
+    for( ulong i = 0 ; i < msg->vec_descr_name.num_objs; i++, value = (fd_socketaddr_t *)((uchar *)value + sizeof( fd_socketaddr_t )) )
+
+#define FOR_EACH_SOCKET_ENTRY_IN_VECTOR( msg, vec_descr_name, value )                                \
+    uchar * socket_entry_ptr = (uchar *)msg + msg->vec_descr_name.offset;                            \
+    fd_gossip_socketentry_t * value = (fd_gossip_socketentry_t *)socket_entry_ptr;                   \
+    for( ulong i = 0 ; i < msg->vec_descr_name.num_objs; i++, value = (fd_gossip_socketentry_t *)((uchar *)value + sizeof( fd_gossip_socketentry_t )) )
+
+#define FOR_EACH_SLOT_HASH_IN_VECTOR( msg, vec_descr_name, value )                                   \
+    uchar * slot_hash_ptr = (uchar *)msg + msg->vec_descr_name.offset;                               \
+    fd_gossip_crds_slot_hash_t * value = (fd_gossip_crds_slot_hash_t *)slot_hash_ptr;                      \
+    for( ulong i = 0 ; i < msg->vec_descr_name.num_objs; i++, value = (fd_gossip_crds_slot_hash_t *)((uchar *)value + sizeof( fd_gossip_crds_slot_hash_t )) )
+
+#define FOR_EACH_COMPRESSED_SLOTS_IN_VECTOR( msg, vec_descr_name, value )                            \
+    uchar * slot_hash_ptr = (uchar *)msg + msg->vec_descr_name.offset;                               \
+    fd_gossip_crds_compressed_slots_t * value = (fd_gossip_crds_compressed_slots_t *)slot_hash_ptr;  \
+    for( ulong i = 0 ; i < msg->vec_descr_name.num_objs; i++, value = (fd_gossip_crds_compressed_slots_t *)((uchar *)value + value->obj_sz) )
+
 
 /* data structures for gossip messages */
 
@@ -46,7 +71,7 @@ typedef struct fd_gossip_ping_msg      fd_gossip_ping_msg_t;
 struct fd_gossip_pong_msg {
   int            msg_id;
   fd_pubkey_t    from;
-  uchar          token[32];
+  uchar          hash[32];
   fd_signature_t signature;
 };
 
@@ -148,6 +173,9 @@ fd_gossip_parse_pong_msg( fd_bin_parse_ctx_t * ctx,
 
 void
 fd_gossip_pretty_print( void * msg );
+
+ulong
+fd_gossip_pretty_print_crds_object( void * data );
 
 FD_PROTOTYPES_END
                       

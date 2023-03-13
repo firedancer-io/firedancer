@@ -95,7 +95,7 @@ fd_gossip_parse_pull_request_msg( fd_bin_parse_ctx_t * ctx,
                                   void               * out_buf,
                                   ulong                out_buf_sz,
                                   ulong              * obj_sz      ) {
-  FD_LOG_DEBUG(( "parsing pull req msg" ));
+  FD_LOG_NOTICE(( "parsing pull req msg" ));
 
   if( FD_UNLIKELY( out_buf_sz<sizeof( fd_gossip_pull_req_t ) ) ) {
     return 0;
@@ -180,7 +180,7 @@ fd_gossip_parse_pull_response_msg( fd_bin_parse_ctx_t * ctx,
                                    ulong                out_buf_sz,
                                    ulong              * obj_sz      ) {
 
-  FD_LOG_DEBUG(( "parsing pull resp msg " ));
+  FD_LOG_NOTICE(( "parsing pull resp msg " ));
 
   if( FD_UNLIKELY( out_buf_sz<sizeof( fd_gossip_pull_response_t ) ) ) {
     return 0;
@@ -238,7 +238,7 @@ fd_gossip_parse_prune_msg( fd_bin_parse_ctx_t * ctx,
                            ulong                out_buf_sz,
                            ulong              * obj_sz      ) {
 
-  FD_LOG_DEBUG(( "parsing prune msg " ));
+  FD_LOG_NOTICE(( "parsing prune msg " ));
 
   if( FD_UNLIKELY( out_buf_sz<sizeof( fd_gossip_prune_msg_t ) ) ) {
     return 0;
@@ -304,7 +304,7 @@ fd_gossip_parse_push_msg( fd_bin_parse_ctx_t * ctx,
                           ulong                out_buf_sz,
                           ulong              * obj_sz      ) {
   
-  FD_LOG_DEBUG(( "parsing push msg " ));
+  FD_LOG_NOTICE(( "parsing push msg " ));
 
   if( FD_UNLIKELY( out_buf_sz<sizeof( fd_gossip_push_msg_t ) ) ) {
     return 0;
@@ -360,13 +360,14 @@ fd_gossip_parse_ping_msg( fd_bin_parse_ctx_t * ctx,
                           ulong                out_buf_sz,
                           ulong              * obj_sz      ) {
 
-  FD_LOG_DEBUG(( "parsing ping resp msg " ));
+  FD_LOG_NOTICE(( "parsing ping msg " ));
 
   if( FD_UNLIKELY( out_buf_sz<sizeof( fd_gossip_ping_msg_t) ) ) {
     return 0;
   }
 
   fd_gossip_ping_msg_t * msg = (fd_gossip_ping_msg_t *)out_buf;
+  msg->msg_id = FD_GOSSIP_MSG_ID_PING;
 
   if( !fd_bin_parse_read_pubkey( ctx, &(msg->from) ) ) {
     FD_LOG_WARNING(( "failed to parse `from`" ));
@@ -393,21 +394,22 @@ fd_gossip_parse_pong_msg( fd_bin_parse_ctx_t * ctx,
                           ulong                out_buf_sz,
                           ulong              * obj_sz      ) {
 
-  FD_LOG_DEBUG(( "parsing pull pong msg " ));
+  FD_LOG_NOTICE(( "parsing pong msg " ));
 
   if( FD_UNLIKELY( out_buf_sz<sizeof( fd_gossip_pong_msg_t ) ) ) {
     return 0;
   }
 
   fd_gossip_pong_msg_t * msg = (fd_gossip_pong_msg_t *)out_buf;
+  msg->msg_id = FD_GOSSIP_MSG_ID_PONG;
 
   if( !fd_bin_parse_read_pubkey( ctx, &(msg->from) ) ) {
     FD_LOG_WARNING(( "failed to parse `from`" ));
     return 0;
   }
 
-  if( !fd_bin_parse_read_blob_of_size( ctx, 32, &(msg->token) ) ) {
-    FD_LOG_WARNING(( "failed to parse `token`" ));
+  if( !fd_bin_parse_read_blob_of_size( ctx, 32, &(msg->hash) ) ) {
+    FD_LOG_WARNING(( "failed to parse `hash`" ));
     return 0;
   }
 

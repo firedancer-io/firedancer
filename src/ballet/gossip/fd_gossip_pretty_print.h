@@ -20,9 +20,9 @@ void
 fd_gossip_pretty_print( void * data );
 
 void
-fd_gossip_pretty_print_arbitrary_hex( char * member_name,
-                                      void * data,
-                                      ulong data_sz );
+fd_gossip_pretty_print_blob_as_hex( char * member_name,
+                                    void * data,
+                                    ulong data_sz );
 
 FD_PROTOTYPES_END
 
