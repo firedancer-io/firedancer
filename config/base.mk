@@ -26,7 +26,16 @@ LLVM_PROFDATA?=llvm-profdata
 # lcov
 GENHTML=genhtml
 
+### eBPF compiler configuration
+
+# Clang is the only supported eBPF compiler for now
 EBPF_CC:=clang
-EBPF_CPPFLAGS:=-target bpf -O2 -g
 EBPF_CFLAGS:=-std=c17
 
+# Always cross-compile to eBPF; no debug syms (DWARF/BTF)
+EBPF_CPPFLAGS:=-target bpf -O2
+
+# Some versions of Clang attempt to build with stack protection
+# which is not supported for the eBPF target -- the kernel verifier
+# provides such safety features.
+EBPF_CPPFLAGS+=-fno-stack-protector
