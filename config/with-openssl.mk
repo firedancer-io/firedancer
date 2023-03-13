@@ -7,3 +7,4 @@ libs_libssl=$(shell pkg-config libssl --libs)
 CPPFLAGS+=$(inc_libcrypto) $(inc_libssl)
 LDFLAGS+=$(libs_libcrypto) $(libs_libssl) -lbpf
 
+CPPFLAGS+=-DOPENSSL_API_COMPAT=0x10100000L -DOPENSSL_SUPPRESS_DEPRECATED
