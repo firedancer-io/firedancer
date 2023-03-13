@@ -123,6 +123,7 @@ int
 pipe_aio_receive( void * vp_ctx, fd_aio_pkt_info_t * batch, ulong batch_sz, ulong * opt_batch_idx ) {
   static ulong ts = 0;
   ts += 100000ul;
+  (void)ts;
 
   aio_pipe_t * pipe = (aio_pipe_t*)vp_ctx;
 

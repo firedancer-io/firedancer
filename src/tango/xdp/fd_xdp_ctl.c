@@ -82,7 +82,7 @@ main( int     argc,
 
       if( FD_UNLIKELY( 0!=fd_xdp_hook_iface( _wksp, ifname, xdp_mode, priority, fd_xdp_redirect_prog, fd_xdp_redirect_prog_sz ) ) )
         FD_LOG_ERR(( "%i: %s: fd_xdp_hook_iface(%s,%s,%s,%d,%p,%lu) failed\n\tDo %s help for help",
-                     cnt, cmd, _wksp, ifname, _xdp_mode, priority, fd_xdp_redirect_prog, fd_xdp_redirect_prog_sz, bin ));
+                     cnt, cmd, _wksp, ifname, _xdp_mode, priority, (void *)fd_xdp_redirect_prog, fd_xdp_redirect_prog_sz, bin ));
 
       FD_LOG_NOTICE(( "%i: %s %s %s %s %d: success", cnt, cmd, _wksp, ifname, _xdp_mode, priority ));
       SHIFT( 4 );
