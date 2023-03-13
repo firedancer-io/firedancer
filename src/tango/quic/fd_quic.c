@@ -31,7 +31,7 @@
 #define MAP_NAME              fd_quic_stream_map
 #define MAP_KEY               stream_id
 #define MAP_T                 fd_quic_stream_map_t
-#define MAP_KEY_NULL          FD_QUIC_STREAM_ID_UNUSED 
+#define MAP_KEY_NULL          FD_QUIC_STREAM_ID_UNUSED
 #define MAP_KEY_INVAL(key)    ((key)==MAP_KEY_NULL)
 #define MAP_QUERY_OPT         1
 
@@ -2828,11 +2828,9 @@ fd_quic_conn_tx( fd_quic_t * quic, fd_quic_conn_t * conn ) {
       case FD_QUIC_CONN_STATE_DEAD:
         /* do not send on dead connection at all */
         return;
-
       case FD_QUIC_CONN_STATE_PEER_CLOSE:
         peer_close = 1u;
-        /* fall thru */
-
+        __attribute__((fallthrough));
       case FD_QUIC_CONN_STATE_ABORT:
       case FD_QUIC_CONN_STATE_CLOSE_PENDING:
         closing = 1u;
