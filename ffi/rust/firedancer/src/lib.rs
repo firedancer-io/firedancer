@@ -50,13 +50,12 @@ use firedancer_sys::{
         fd_wksp_pod_map,
     },
 };
-use libc::c_char;
 use rand::prelude::*;
 
 /// PackRx exposes a simple API for consuming the output from the Frank pack tile.
 /// This is an unreliable consumer: if the producer overruns the consumer, the
 /// consumer will skip data to catch up with the producer.
-struct PackRx {
+pub struct PackRx {
     /// Configuration
     // TODO: proper config using pod api
     mcache: String,
