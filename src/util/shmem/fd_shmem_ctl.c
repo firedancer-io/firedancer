@@ -6,6 +6,8 @@
 #include <errno.h>
 #include <sys/stat.h>
 
+FD_IMPORT_CSTR( fd_shmem_ctl_help, "src/util/shmem/fd_shmem_ctl_help" );
+
 int
 main( int     argc,
       char ** argv ) {
@@ -25,35 +27,49 @@ main( int     argc,
 
     if( !strcmp( cmd, "help" ) ) {
 
-      FD_LOG_NOTICE(( "\n\t"
-        "Usage: %s [cmd] [cmd args] [cmd] [cmd args] ...\n\t"
-        "Commands are:\n\t"
-        "\n\t"
-        "\thelp\n\t"
-        "\t- Prints this message\n\t"
-        "\n\t"
-        "\tcreate name page_cnt page_sz cpu_idx mode\n\t"
-        "\t- Create a shared memory region named name from page_cnt page_sz\n\t"
-        "\t  pages near logical cpu_idx.  The region will have the unix\n\t"
-        "\t  permissions specified by mode (assumed octal).\n\t"
-        "\n\t"
-        "\tunlink name page_sz\n\t"
-        "\t- Unlinks a page_sz page backed shared memory region named name.\n\t"
-        "\t- If page_sz is zero, this will attempt to detected the page_sz\n\t"
-        "\t  If there are multiple with the same name, one will be\n\t"
-        "\t  deleted (typically the one backed by the largest page_sz)\n\t"
-        "\n\t"
-        "\tquery name page_sz\n\t"
-        "\t- Pretty prints info to stdout about a shared memory region\n\t"
-        "\t  named name.  The format is:\n\t"
-        "\t    [err_code] [page_cnt] [page_sz]\n\t"
-        "\t  err code is zero, the query was successful.  If not, the query\n\t"
-        "\t  failed (details logged) and page_cnt and page_sz will be zero.\n\t"
-        "\t- If page_sz is zero, this will attempt to detected the page_sz\n\t"
-        "\t  If there are multiple with the same name, one will be\n\t"
-        "\t  queried (typically the one backed by the largest page_sz)\n\t"
-        "\n\t", bin ));
+      fputs( fd_shmem_ctl_help, stdout );
+
       FD_LOG_NOTICE(( "%i: %s: success", cnt, cmd ));
+
+    } else if( !strcmp( cmd, "cpu-cnt" ) ) {
+
+      printf( "%lu\n", fd_shmem_cpu_cnt() );
+
+      FD_LOG_NOTICE(( "%i: %s: success", cnt, cmd ));
+
+    } else if( !strcmp( cmd, "numa-cnt" ) ) {
+
+      printf( "%lu\n", fd_shmem_numa_cnt() );
+
+      FD_LOG_NOTICE(( "%i: %s: success", cnt, cmd ));
+
+    } else if( !strcmp( cmd, "cpu-idx" ) ) {
+
+      if( FD_UNLIKELY( argc<1 ) ) FD_LOG_ERR(( "%i: %s: too few arguments\n\tDo %s help for help", cnt, cmd, bin ));
+
+      ulong numa_idx = fd_cstr_to_ulong( argv[0] );
+
+      ulong cpu_idx = fd_shmem_cpu_idx( numa_idx );
+
+      if( FD_LIKELY( cpu_idx<ULONG_MAX ) ) printf( "%lu\n", cpu_idx );
+      else                                 printf( "-\n" );
+
+      FD_LOG_NOTICE(( "%i: %s %lu: success", cnt, cmd, numa_idx ));
+      SHIFT(1);
+
+    } else if( !strcmp( cmd, "numa-idx" ) ) {
+
+      if( FD_UNLIKELY( argc<1 ) ) FD_LOG_ERR(( "%i: %s: too few arguments\n\tDo %s help for help", cnt, cmd, bin ));
+
+      ulong cpu_idx = fd_cstr_to_ulong( argv[0] );
+
+      ulong numa_idx = fd_shmem_numa_idx( cpu_idx );
+
+      if( FD_LIKELY( numa_idx<ULONG_MAX ) ) printf( "%lu\n", numa_idx );
+      else                                  printf( "-\n" );
+
+      FD_LOG_NOTICE(( "%i: %s %lu: success", cnt, cmd, cpu_idx ));
+      SHIFT(1);
 
     } else if( !strcmp( cmd, "create" ) ) {
 

@@ -39,16 +39,13 @@ the necessary `sudo` access.
   systems like `git`, etc.  Firedancer likely can use other tool chains
   / compilers (e.g. `clang`) but this is not routinely tested currently.
 
-- Install additional dependencies.
-    ```
-    $ sudo dnf install numactl-devel hwloc
-    ```
-  To simplify install and Firedancer tries to have virtually no external
-  dependencies that aren't readily nearly universally prepackaged
-  available in stock Linux distributions.  `numactl-devel` and `hwloc`
-  are not included in `development` by default above unfortunately but
-  they are widely available pre-packaged.  They provide APIs used to
-  help implement various NUMA optimizations on the host.
+- Install additional dependencies.  To simplify install and improve
+  auditability, Firedancer tries to have minimal external dependencies
+  and then only use external dependencies that are trivially installable
+  on recent stock Linux distributions.  Current packages used include:
+    - pkg-config
+    - libbpf v1.1.0
+    - xdp-tools
 
 - Configure the host for high performance by allowing users to lock
   pages in memory and increase the scheduler priority of performance

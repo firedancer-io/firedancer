@@ -5,7 +5,6 @@
 if [ $# -gt 0 ] && [ "$1" = "install" ]; then
   # Install Packages needed for dev hosts
   sudo yum install                        \
-    numactl-devel                         \
     jump_module_gcc-9.3.0
 fi
 
