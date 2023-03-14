@@ -316,7 +316,7 @@ fd_bin_parse_decode_vector( fd_bin_parse_ctx_t * ctx,
 
   /* check for integer overflow wrap and bail out if so */
   if( FD_UNLIKELY( (vector_sz*type_sz)<vector_sz ) ) {
-    FD_LOG_WARNING(( "detected int overflow in int overflow protection logic" ));
+    FD_LOG_WARNING(( "vector size calculation integer overflow wrap" ));
     return 0;
   }
 

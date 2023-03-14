@@ -102,6 +102,7 @@ fd_gossip_read_socketaddr( fd_bin_parse_ctx_t * ctx,
         FD_LOG_WARNING(( "error parsing ipv4 addr" ));
         return 0;
     }
+    
     break;
   }
 
@@ -149,11 +150,7 @@ fd_bin_parse_decode_socket_entry_vector( fd_bin_parse_ctx_t * ctx,
     return 0;
   }
 
-  /* check for integer overflow wrap and bail out if so */
-  if( FD_UNLIKELY( (vector_sz*sizeof( fd_gossip_socketentry_t ))<vector_sz ) ) {
-    FD_LOG_WARNING(( "overflow in int overflow protection arithmetic" ));
-    return 0;
-  }
+  CHECK_VECTOR_SIZE_OVERFLOW( vector_sz, sizeof( fd_gossip_socketentry_t ) );
 
   uchar * ptr = (uchar *)out_buf;
 
@@ -205,11 +202,7 @@ fd_bin_parse_decode_ipaddr_entry_vector( fd_bin_parse_ctx_t * ctx,
     return 0;
   }
 
-  /* check for integer overflow wrap and bail out if so */
-  if( FD_UNLIKELY( (vector_sz*sizeof( fd_ipaddr_t ))<vector_sz ) ) {
-    FD_LOG_WARNING(( "overflow in int overflow protection arithmetic" ));
-    return 0;
-  }
+  CHECK_VECTOR_SIZE_OVERFLOW( vector_sz, sizeof( fd_ipaddr_t ) );
 
   uchar * ptr = (uchar *)out_buf;
 
@@ -270,11 +263,7 @@ fd_bin_parse_decode_slot_hash_vector( fd_bin_parse_ctx_t * ctx,
     return 0;
   }
 
-  /* check for integer overflow wrap and bail out if so */
-  if( FD_UNLIKELY( (vector_sz*sizeof( fd_gossip_crds_slot_hash_t ))<vector_sz ) ) {
-    FD_LOG_WARNING(( "overflow in int overflow protection arithmetic" ));
-    return 0;
-  }
+  CHECK_VECTOR_SIZE_OVERFLOW( vector_sz, sizeof( fd_gossip_crds_slot_hash_t ) );
 
   uchar * ptr = (uchar *)out_buf;
 

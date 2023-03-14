@@ -7,7 +7,6 @@
 
 /* a pretty-printer for gossip messages, for testing and debugging purposes */
 
-
 char *
 get_ip_addr( fd_socketaddr_t * addr,
              char            * dst   ) {
@@ -239,6 +238,12 @@ fd_gossip_pretty_print_crds_object( void * data ) {
     FD_LOG_WARNING(( "  - shred_version: 0x%hx", contact_info->data.shred_version ));
     FD_LOG_WARNING(( "  - outset: 0x%lx", contact_info->data.outset ));
     FD_LOG_WARNING(( "  - wallclock: 0x%lx", contact_info->data.wallclock ));
+    FD_LOG_WARNING(( "  - version.major: 0x%hx", contact_info->data.version.major ));
+    FD_LOG_WARNING(( "  - version.minor: 0x%hx", contact_info->data.version.minor ));
+    FD_LOG_WARNING(( "  - version.patch: 0x%hx", contact_info->data.version.patch ));
+    FD_LOG_WARNING(( "  - version.comit: 0x%x", contact_info->data.version.commit ));
+    FD_LOG_WARNING(( "  - version.feature_set: 0x%x", contact_info->data.version.feature_set ));
+    FD_LOG_WARNING(( "  - version.client: 0x%hx", contact_info->data.version.client ));
     FD_LOG_WARNING(( "  - addrs: "));
     FOR_EACH_ADDR_IN_VECTOR( contact_info, data.addrs, addr ) {
       FD_LOG_WARNING(( "%s", get_ip_addr( addr, ip_addr_str ) ));

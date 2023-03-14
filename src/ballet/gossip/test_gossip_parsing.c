@@ -238,5 +238,6 @@ main( int     argc,
   fd_gossip_pretty_print_crds_object( output );
 
   FD_LOG_NOTICE(( "pass" ));
+  fd_halt();
   return 0;
 }
