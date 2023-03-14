@@ -150,6 +150,12 @@ static inline vu_t vu_ror_vector( vu_t a, vi_t b ) {
   return vu_or( vu_shr_vector( a, vi_and( b, m ) ), vu_shl_vector( a, vi_and( vi_neg( b ), m ) ) );
 }
 
+static inline vu_t vu_bswap( vu_t a ) {
+  vu_t m = vu_bcast( 0x00FF00FFU );                                            /* Probably hoisted */
+  vu_t t = vu_rol( a, 16 );                                                    /* Swap E/O 16-bit pairs */
+  return vu_or( vu_andnot( m, vu_shl( t, 8 ) ), vu_and( m, vu_shr( t, 8 ) ) ); /* Swap E/O  8-bit pairs */
+}
+
 /* Logical operations */
 
 /* Like noted below in the vu_to_{vf,vd} converters, Intel clearly has

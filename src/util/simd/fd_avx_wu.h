@@ -180,6 +180,12 @@ static inline wu_t wu_ror_vector( wu_t a, wi_t b ) {
   return wu_or( wu_shr_vector( a, wi_and( b, m ) ), wu_shl_vector( a, wi_and( wi_neg( b ), m ) ) );
 }
 
+static inline wu_t wu_bswap( wu_t a ) {
+  wu_t m = wu_bcast( 0x00FF00FFU );                                            /* Probably hoisted */
+  wu_t t = wu_rol( a, 16 );                                                    /* Swap E/O 16-bit pairs */
+  return wu_or( wu_andnot( m, wu_shl( t, 8 ) ), wu_and( m, wu_shr( t, 8 ) ) ); /* Swap E/O  8-bit pairs */
+}
+
 /* Logical operations */
 
 /* Like noted below in the wu_to_{wf,wd} converters, Intel clearly has
