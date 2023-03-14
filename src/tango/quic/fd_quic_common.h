@@ -24,6 +24,9 @@
    -8  for udp header */
 #define FD_QUIC_MAX_UDP_PAYLOAD_SZ         ( 1500 - 20 - 8 )
 
+/* sparsity factor used by fixed sized hashmaps */
+#define FD_QUIC_SPARSITY 2.5
+
 #include <stddef.h>
 
 #include "tls/fd_quic_tls_enum.h"

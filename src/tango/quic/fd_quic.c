@@ -324,23 +324,32 @@ ulong fd_quic_align() {
 }
 
 
-ulong fd_quic_footprint( fd_quic_config_t * config ) {
+ulong fd_quic_footprint( ulong tx_buf_sz,
+                         ulong rx_buf_sz,
+                         ulong max_concur_streams_per_type,
+                         ulong max_in_flight_pkts,
+                         ulong max_concur_conns,
+                         ulong max_concur_conn_ids ) {
   ulong offs  = 0;
   ulong align = fd_quic_align();
 
   offs += FD_QUIC_POW2_ALIGN( sizeof( fd_quic_t ), align );
 
-  ulong conn_foot     = fd_quic_conn_footprint( config );
-  ulong conn_foot_tot = config->max_concur_conns * conn_foot;
+  ulong conn_foot     = fd_quic_conn_footprint(
+                          tx_buf_sz,
+                          rx_buf_sz,
+                          max_concur_streams_per_type,
+                          max_in_flight_pkts);
+  ulong conn_foot_tot = max_concur_conns * conn_foot;
   offs += FD_QUIC_POW2_ALIGN( conn_foot_tot, align );
 
   /* make enough space for the hash map slots */
-  ulong slot_cnt_bound = config->conn_id_sparsity * config->max_concur_conns * config->max_concur_conn_ids;
+  ulong slot_cnt_bound = (ulong)( FD_QUIC_SPARSITY * (double)max_concur_conns * (double)max_concur_conn_ids );
   int   lg_slot_cnt    = fd_ulong_find_msb( slot_cnt_bound - 1 ) + 1;
   offs += FD_QUIC_POW2_ALIGN( fd_quic_conn_map_footprint( lg_slot_cnt ), align );
 
   /* make enough space for the events priority queue */
-  ulong event_queue_sz = service_queue_footprint( config->max_concur_conns + 1 );
+  ulong event_queue_sz = service_queue_footprint( max_concur_conns + 1 );
   offs += FD_QUIC_POW2_ALIGN( event_queue_sz, align );
 
   return offs;
@@ -360,21 +369,14 @@ ulong fd_quic_footprint( fd_quic_config_t * config ) {
      fd_quic_t *  pointer to the new instance */
 
 fd_quic_t *
-fd_quic_new( void * mem, fd_quic_config_t const * config ) {
+fd_quic_new( void * mem,
+             ulong  tx_buf_sz,
+             ulong  rx_buf_sz,
+             ulong  max_concur_streams_per_type,
+             ulong  max_in_flight_pkts,
+             ulong  max_concur_conns,
+             ulong  max_concur_conn_ids ) {
   if( !mem ) return NULL;
-  if( !config ) return NULL;
-
-  if( !config->key_file || config->key_file[0] == '\0' ) {
-    FD_LOG_ERR(( "fd_quic_new: key_file must be specified" ));
-    return NULL;
-  }
-
-  if( !config->cert_file || config->cert_file[0] == '\0' ) {
-    FD_LOG_ERR(( "fd_quic_new: cert_file must be specified" ));
-    return NULL;
-  }
-
-  /* TODO open and close key_file and cert_file to ensure read access */
 
   ulong imem  = (ulong)mem;
   ulong align = fd_quic_align();
@@ -391,13 +393,21 @@ fd_quic_new( void * mem, fd_quic_config_t const * config ) {
   offs += FD_QUIC_POW2_ALIGN( sizeof( fd_quic_t ), align );
 
   // allocate connections
-  ulong conn_foot     = fd_quic_conn_footprint( config );
-  ulong conn_foot_tot = config->max_concur_conns * conn_foot;
+  ulong conn_foot     = fd_quic_conn_footprint( tx_buf_sz,
+                                                rx_buf_sz,
+                                                max_concur_streams_per_type,max_in_flight_pkts );
+  ulong conn_foot_tot = max_concur_conns * conn_foot;
 
   /* initialize each connection, and add to free list */
   fd_quic_conn_t * last = NULL;
-  for( ulong j = 0; j < config->max_concur_conns; ++j ) {
-    fd_quic_conn_t * conn = fd_quic_conn_new( (void*)( imem + offs + j * conn_foot ), quic, config );
+  for( ulong j = 0; j < max_concur_conns; ++j ) {
+    fd_quic_conn_t * conn = fd_quic_conn_new(
+                              (void*)( imem + offs + j * conn_foot ),
+                              quic,
+                              tx_buf_sz,
+                              rx_buf_sz,
+                              max_concur_streams_per_type,
+                              max_in_flight_pkts );
     conn->next = NULL;
     /* start with minimum supported max datagram */
     /* peers may allow more */
@@ -417,7 +427,7 @@ fd_quic_new( void * mem, fd_quic_config_t const * config ) {
   offs += FD_QUIC_POW2_ALIGN( conn_foot_tot, align );
 
   /* make enough space for the hash map slots */
-  ulong slot_cnt_bound = config->conn_id_sparsity * config->max_concur_conns * config->max_concur_conn_ids;
+  ulong slot_cnt_bound = (ulong)( FD_QUIC_SPARSITY * (double)max_concur_conns * (double)max_concur_conn_ids );
   int    lg_slot_cnt    = fd_ulong_find_msb( slot_cnt_bound - 1u ) + 1;
 
   quic->conn_map = fd_quic_conn_map_new( (void*)( imem + offs), lg_slot_cnt );
@@ -425,14 +435,43 @@ fd_quic_new( void * mem, fd_quic_config_t const * config ) {
   offs += FD_QUIC_POW2_ALIGN( fd_quic_conn_map_footprint( lg_slot_cnt ), align );
 
   /* make enough space for the events priority queue */
-  ulong event_queue_sz = service_queue_footprint( config->max_concur_conns + 1u );
+  ulong event_queue_sz = service_queue_footprint( max_concur_conns + 1u );
 
-  void * v_service_queue = service_queue_new( (void*)( imem + offs ), config->max_concur_conns + 1u );
+  void * v_service_queue = service_queue_new( (void*)( imem + offs ), max_concur_conns + 1u );
   quic->service_queue = service_queue_join( v_service_queue );
 
   offs += FD_QUIC_POW2_ALIGN( event_queue_sz, align );
 
+  FD_COMPILER_MFENCE();
+  quic->magic = FD_QUIC_MAGIC;
+  FD_COMPILER_MFENCE();
+
+  return quic;
+}
+
+
+fd_quic_t *
+fd_quic_init( fd_quic_t *        quic,
+              fd_quic_config_t * config ) {
+
+  if( quic->magic != FD_QUIC_MAGIC ) {
+    FD_LOG_ERR(( "fd_quic_init: fd_quic_new not called, or memory corrupt" ));
+  }
+
+  if( !config->key_file || config->key_file[0] == '\0' ) {
+    FD_LOG_ERR(( "fd_quic_new: key_file must be specified" ));
+    return NULL;
+  }
+
+  if( !config->cert_file || config->cert_file[0] == '\0' ) {
+    FD_LOG_ERR(( "fd_quic_new: cert_file must be specified" ));
+    return NULL;
+  }
+
+  /* TODO open and close key_file and cert_file to ensure read access */
+
   /* configure AIO */
+  /* TODO fd_aio_new should be called from fd_quic_new */
   quic->aio_net_in = fd_aio_join(
                        fd_aio_new( quic->aio_net_in_mem,
                                    quic,

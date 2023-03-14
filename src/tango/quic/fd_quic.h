@@ -41,6 +41,8 @@ typedef struct fd_quic_stream_meta    fd_quic_stream_meta_t;
 
 
 struct fd_quic {
+  ulong                         magic;
+
   /* directly from config */
   char const *                  cert_file;              /* certificate file */
   char const *                  key_file;               /* private key file */
@@ -129,9 +131,17 @@ struct fd_quic_event {
 
 FD_PROTOTYPES_BEGIN
 
-/* fd_quic_{align|footprint}(...) returns alignment or footprint needed for fd_quic_new */
+/* fd_quic_align returns the required alignment of the memory used for fd_quic_new */
 ulong fd_quic_align();
-ulong fd_quic_footprint( fd_quic_config_t * config );
+
+/* fd_quic_footprint returns the required footprint of the memory used for fd_quic_new */
+ulong
+fd_quic_footprint( ulong tx_buf_sz,
+                   ulong rx_buf_sz,
+                   ulong max_concur_streams_per_type,
+                   ulong max_in_flight_pkts,
+                   ulong max_concur_conns,
+                   ulong max_concur_conn_ids );
 
 /* fd_quic_new
 
@@ -147,7 +157,19 @@ ulong fd_quic_footprint( fd_quic_config_t * config );
      fd_quic_t *  pointer to the new instance */
 
 fd_quic_t *
-fd_quic_new( void * mem, fd_quic_config_t const * config );
+fd_quic_new( void * mem,
+             ulong  tx_buf_sz,
+             ulong  rx_buf_sz,
+             ulong  max_concur_streams_per_type,
+             ulong  max_in_flight_pkts,
+             ulong  max_concur_conns,
+             ulong  max_concur_conn_ids );
+
+
+/* initialize fd_quic_t after fd_quic_new */
+fd_quic_t *
+fd_quic_init( fd_quic_t *        quic,
+              fd_quic_config_t * config );
 
 /* fd_quic_delete
 
