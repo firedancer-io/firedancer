@@ -99,9 +99,10 @@ checkout_repo () {
 fetch () {
   mkdir -pv ./opt/git
 
-  checkout_repo zlib    https://github.com/madler/zlib     "v1.2.13"
-  checkout_repo zstd    https://github.com/facebook/zstd   "v1.5.4"
-  checkout_repo openssl https://github.com/quictls/openssl "OpenSSL_1_1_1t-quic1"
+  checkout_repo zlib      https://github.com/madler/zlib            "v1.2.13"
+  checkout_repo zstd      https://github.com/facebook/zstd          "v1.5.4"
+  checkout_repo openssl   https://github.com/quictls/openssl        "OpenSSL_1_1_1t-quic1"
+  checkout_repo secp256k1 https://github.com/bitcoin-core/secp256k1 "v0.3.1"
 }
 
 check_fedora_pkgs () {
@@ -317,10 +318,37 @@ install_openssl () {
   echo "[~] Installed all dependencies"
 }
 
+install_secp256k1 () {
+  if pkg-config --exists libsecp256k1; then
+    echo "[~] secp256k1 already installed at $(pkg-config --path libsecp256k1), skipping installation"
+    return 0
+  fi
+
+  cd ./opt/git/secp256k1
+
+  
+  echo "[+] Configuring secp256k1"
+  ./autogen.sh
+  ./configure \
+    --prefix="$PREFIX"
+  echo "[+] Configured secp256k1"
+  
+  echo "[+] Building secp256k1"
+  "${MAKE[@]}"
+  echo "[+] Successfully built secp256k1"
+
+  echo "[+] Installing secp256k1 to $PREFIX"
+  "${MAKE[@]}" install
+  echo "[+] Successfully installed secp256k1"
+}
+
+
+
 install () {
-  ( install_zlib    )
-  ( install_zstd    )
-  ( install_openssl )
+  ( install_zlib      )
+  ( install_zstd      )
+  ( install_secp256k1 )
+  ( install_openssl   )
 
   echo "[~] Done! To wire up $(pwd)/opt with make, run:"
   echo "    source activate-opt"
