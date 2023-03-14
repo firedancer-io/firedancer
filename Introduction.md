@@ -7,7 +7,7 @@
 - ---
 # Why Another Validator?
 Firedancer will be solving some of the problems which solana as a network and community is trying to Solve.
-1. **Compute Fee and gas fee estimatation** -> Firedancers new and better blockpackaging algorithm does a lot better predicting the amount of Compute units used in a specific trnsaction making it easier for validators to choose which ones to include in the next block.When taken it makes 3 times less mistakes in predicting the CUs used. ![image](https://user-images.githubusercontent.com/88841339/224479879-466202fb-d085-4c93-beb6-22d6c3885a44.png)
+1. **Compute Fee and gas fee estimation:** Firedancer's new and better block-packing algorithm is superior at predicting the number of compute units (CUs) used in a specific transaction. This makes it easier for validators to choose which transactions to include in the next block. ![image](https://user-images.githubusercontent.com/88841339/224479879-466202fb-d085-4c93-beb6-22d6c3885a44.png)
 
 2. **Robustness**:When the validators are unable to reach consesnus and verify a transaction leading to a fork and downtime. One of the biggest memes floating around about Solana is its downtime, though it was a design tradeoff for it being the most performant blockchain, downtimes lead to a lot of different issues like liquidity, validator restarts etc which are mostly casued by small bugs in the updates in the core client code. 
 When there are 2 client implementations and one of them faces a bug, the nodes running the bug free code will continue processing transactions to which the other nodes could sync to later. 
