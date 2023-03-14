@@ -1,5 +1,9 @@
  # What is Firedancer?
-- **[Firedancer](https://jumpcrypto.com/firedancer/) is a node implementation written in C for the solana blockchain**. It will be the second full node implementation of Solana with the comping up Light Client Tinydancer. Firedancer will diversify the client stack and make the network more resilient as if there is an bug in the original rust node that halts the validators from producing blocks and coming to a consensus, validators running FD will keep the network secure and stable.
+**[Firedancer](https://jumpcrypto.com/firedancer/) is a validator node implementation written in C for the Solana blockchain**. Firedancer's core goals are:
+- **Increased client diversity:** Firedancer will be the second fully-compliant Solana validator client. Diversity of client implementations makes the network more resilient to bugs in any one client implementation. 
+- **Reliability:** Firedancer is being built from the ground up with reliability and network uptime in mind. 
+- **Modularity:** Each major component of Firedancer is built to be used independently (or as independently as reasonable). This makes future feature development simple and maintainable. 
+- **Perfomance:** The Firedancer validator will be faster than the Solana client and will make the network faster and more efficienet as a whole. Firedancer will be more efficient with system resources (CPU, RAM, disk space) while being faster than the Solana client. 
 - ---
 # Why Another Validator?
 Firedancer will be solving some of the problems which solana as a network and community is trying to Solve.
