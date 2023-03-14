@@ -9,7 +9,7 @@ mod generated {
     type uint = u32;
     type ulong = u64;
 
-    include!("generated.rs");
+    include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
 }
 
 pub mod ballet;

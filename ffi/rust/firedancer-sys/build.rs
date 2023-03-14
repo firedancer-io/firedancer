@@ -1,6 +1,6 @@
 use std::{
     env,
-    path::Path,
+    path::{Path,PathBuf},
     process::Command,
 };
 
@@ -42,11 +42,12 @@ fn main() {
     println!("cargo:rustc-link-lib=stdc++");
 
     // Generate bindings to the header files
+    let out_path = PathBuf::from(env::var("OUT_DIR").unwrap());
     bindgen::Builder::default()
         .header("wrapper.h")
         .blocklist_type("schar|uchar|ushort|uint|ulong")
         .generate()
         .expect("Unable to generate bindings")
-        .write_to_file(Path::new("./src/generated.rs"))
+        .write_to_file(out_path.join("bindings.rs"))
         .expect("Failed to write bindings to file");
 }
