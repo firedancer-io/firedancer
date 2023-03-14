@@ -725,6 +725,8 @@ main( int     argc,
 
     FD_TEST( vu_test( vu_not( x ), ~x0, ~x1, ~x2, ~x3 ) );
 
+    FD_TEST( vu_test( vu_bswap( x ), fd_uint_bswap( x0 ), fd_uint_bswap( x1 ), fd_uint_bswap( x2 ), fd_uint_bswap( x3 ) ) );
+
 #   define ROL(x,n) fd_uint_rotate_left ((x),(n))
 #   define ROR(x,n) fd_uint_rotate_right((x),(n))
 
@@ -1091,6 +1093,8 @@ main( int     argc,
     /* Bit operations */
 
     FD_TEST( vv_test( vv_not( x ), ~x0, ~x1 ) );
+
+    FD_TEST( vv_test( vv_bswap( x ), fd_ulong_bswap( x0 ), fd_ulong_bswap( x1 ) ) );
 
 #   define ROL(x,n) fd_ulong_rotate_left ((x),(n))
 #   define ROR(x,n) fd_ulong_rotate_right((x),(n))

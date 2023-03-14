@@ -147,6 +147,8 @@ static inline vv_t vv_ror_vector( vv_t a, vl_t b ) {
   return vv_or( vv_shr_vector( a, vl_and( b, m ) ), vv_shl_vector( a, vl_and( vl_neg( b ), m ) ) );
 }
 
+#define vv_bswap(a) vu_to_vv_raw( vu_bswap( vv_to_vu_raw( vv_rol( (a), 32 ) ) ) )
+
 /* Logical operations */
 
 /* Like noted below in the converters, Intel clearly has the hardware to

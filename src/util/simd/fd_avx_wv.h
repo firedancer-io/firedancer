@@ -174,6 +174,8 @@ static inline wv_t wv_ror_vector( wv_t a, wl_t b ) {
   return wv_or( wv_shr_vector( a, wl_and( b, m ) ), wv_shl_vector( a, wl_and( wl_neg( b ), m ) ) );
 }
 
+#define wv_bswap(a) wu_to_wv_raw( wu_bswap( wv_to_wu_raw( wv_rol( (a), 32 ) ) ) )
+
 /* Logical operations */
 
 /* Like noted below in the converters, Intel clearly has the hardware to
