@@ -5,6 +5,7 @@
 
 #include "fd_pcap.h"
 
+#define BUF_SZ (1<<20)
 
 void
 write_shb( FILE * file ) {
@@ -121,14 +122,28 @@ fd_quic_t *
 new_quic( fd_quic_config_t * quic_config ) {
 
   ulong  align    = fd_quic_align();
-  ulong  fp       = fd_quic_footprint( quic_config );
+  ulong  fp       = fd_quic_footprint( BUF_SZ,
+                                       BUF_SZ,
+                                       quic_config->max_concur_streams,
+                                       quic_config->max_in_flight_acks,
+                                       quic_config->max_concur_conns,
+                                       quic_config->max_concur_conn_ids );
   void * mem      = malloc( fp + align );
   ulong smem     = (ulong)mem;
   ulong memalign = smem % align;
   void * aligned  = ((uchar*)mem) + ( memalign == 0 ? 0 : ( align - memalign ) );
 
-  fd_quic_t * quic = fd_quic_new( aligned, quic_config );
+  fd_quic_t * quic = fd_quic_new( aligned,
+                                  BUF_SZ,
+                                  BUF_SZ,
+                                  quic_config->max_concur_streams,
+                                  quic_config->max_in_flight_acks,
+                                  quic_config->max_concur_conns,
+                                  quic_config->max_concur_conn_ids );
   FD_TEST( quic );
+
+  fd_quic_init( quic, quic_config );
+
   return quic;
 }
 

@@ -6,7 +6,8 @@
 #include "fd_pcap.h"
 
 
-#define SEND_SZ 8000ul
+#define SEND_SZ 1400ul
+#define BUF_SZ (1<<20)
 
 
 extern uchar pkt_full[];
@@ -67,13 +68,27 @@ fd_quic_t *
 new_quic( fd_quic_config_t * quic_config ) {
 
   ulong  align    = fd_quic_align();
-  ulong  fp       = fd_quic_footprint( quic_config );
+  ulong  fp       = fd_quic_footprint( BUF_SZ,
+                                       BUF_SZ,
+                                       quic_config->max_concur_streams,
+                                       quic_config->max_in_flight_acks,
+                                       quic_config->max_concur_conns,
+                                       quic_config->max_concur_conn_ids );
   void * mem      = malloc( fp + align );
   ulong smem     = (ulong)mem;
   ulong memalign = smem % align;
   void * aligned  = ((uchar*)mem) + ( memalign == 0 ? 0 : ( align - memalign ) );
 
-  fd_quic_t * quic = fd_quic_new( aligned, quic_config );
+  fd_quic_t * quic = fd_quic_new( aligned,
+                                  BUF_SZ,
+                                  BUF_SZ,
+                                  quic_config->max_concur_streams,
+                                  quic_config->max_in_flight_acks,
+                                  quic_config->max_concur_conns,
+                                  quic_config->max_concur_conn_ids );
+
+  fd_quic_init( quic, quic_config );
+
   return quic;
 }
 
@@ -169,13 +184,13 @@ main( int argc, char ** argv ) {
   /* establish these parameters as "present" */
   tp->max_idle_timeout                               = 60000;
   tp->max_idle_timeout_present                       = 1;
-  tp->initial_max_data                               = 1048576;
+  tp->initial_max_data                               = BUF_SZ;
   tp->initial_max_data_present                       = 1;
-  tp->initial_max_stream_data_bidi_local             = 1048576;
+  tp->initial_max_stream_data_bidi_local             = BUF_SZ;
   tp->initial_max_stream_data_bidi_local_present     = 1;
-  tp->initial_max_stream_data_bidi_remote            = 1048576;
+  tp->initial_max_stream_data_bidi_remote            = BUF_SZ;
   tp->initial_max_stream_data_bidi_remote_present    = 1;
-  tp->initial_max_stream_data_uni                    = 1048576;
+  tp->initial_max_stream_data_uni                    = BUF_SZ;
   tp->initial_max_stream_data_uni_present            = 1;
   tp->initial_max_streams_bidi                       = 4;
   tp->initial_max_streams_bidi_present               = 1;
