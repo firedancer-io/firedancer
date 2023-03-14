@@ -4,7 +4,6 @@ use std::{
     mem::transmute,
     ops::Not,
     os::raw::c_int,
-    ptr,
     sync::atomic::{
         compiler_fence,
         Ordering,
@@ -46,26 +45,42 @@ use firedancer_sys::{
 use minstant::Instant;
 use rand::prelude::*;
 
+/// PackRxReceiver receives callbacks for incoming messages.
+pub trait PackRxReceiver {
+    /// Callback on speculative receive of a Tango message.
+    /// Recipient should copy data out of buffer into target at this point.
+    fn recv_txn_prepare(&mut self, txn: &[u8]);
+
+    /// Callback on complete of speculative receive.
+    /// success is true if the message was received uncorrupted.
+    /// If success is false, previous message received in
+    /// `recv_txn_prepare` should be discarded.
+    /// Returns whether message was actually received or dropped.
+    fn recv_txn_commit(&mut self, success: bool) -> bool;
+
+    /// Periodic house-keeping callback.
+    fn housekeep(&mut self);
+}
+
 /// PackRx exposes a simple API for consuming the output from the Frank pack tile.
 /// This is an unreliable consumer: if the producer overruns the consumer, the
 /// consumer will skip data to catch up with the producer.
-pub struct PackRx {
+pub struct PackRx<R: PackRxReceiver> {
     /// Configuration
     // TODO: proper config using pod api
     mcache: String,
     dcache: String,
     fseq: String,
 
-    /// Crossbeam channel to send consumed data on
-    out: crossbeam_channel::Sender<Vec<u8>>,
+    out: R,
 }
 
-impl PackRx {
+impl<R: PackRxReceiver> PackRx<R> {
     pub fn new(
         mcache: String,
         dcache: String,
         fseq: String,
-        out: crossbeam_channel::Sender<Vec<u8>>,
+        out: R,
     ) -> Self {
         Self::boot();
 
@@ -77,7 +92,7 @@ impl PackRx {
         }
     }
 
-    pub unsafe fn run(&self) -> Result<()> {
+    pub unsafe fn run(&mut self) -> Result<()> {
         // Join the mcache
         let mcache = fd_mcache_join(fd_wksp_map(CString::new(self.mcache.clone())?.as_ptr()));
         mcache
@@ -171,7 +186,9 @@ impl PackRx {
                 compiler_fence(Ordering::AcqRel);
 
                 next_housekeeping =
-                    now + Duration::from_nanos(rng.gen_range(housekeeping_interval_ns, 2 * housekeeping_interval_ns) as u64)
+                    now + Duration::from_nanos(rng.gen_range(housekeeping_interval_ns, 2 * housekeeping_interval_ns) as u64);
+
+                self.out.housekeep();
             }
 
             // Overrun check
@@ -190,36 +207,36 @@ impl PackRx {
                 println!("overran");
             }
 
-            // Speculatively copy data out of dcache into Rust slice
+            // Construct slice over data
             let chunk = fd_chunk_to_laddr_const(
                 transmute(workspace),
                 (*mline).__bindgen_anon_1.as_ref().chunk.into(),
             ) as *const u8;
-            let size = (*mline).__bindgen_anon_1.as_ref().sz;
+            let size = (*mline).__bindgen_anon_1.as_ref().sz as usize;
+            let payload = std::slice::from_raw_parts(chunk, size);
 
-            // Allocate new record on Rust heap
-            let mut bytes = Vec::with_capacity(size.into());
+            // Deliver speculatively received message
+            self.out.recv_txn_prepare(payload);
 
-            ptr::copy_nonoverlapping(chunk, bytes.as_mut_ptr(), size.into());
-            bytes.set_len(size.into());
-
-            // Check the producer hasn't overran us while we were copying the data
+            // Check the producer hasn't overran us while we were serving the data
             let seq_found = fd_frag_meta_seq_query(mline);
             if seq_found != seq {
                 accum_ovrnr_cnt += 1;
                 seq = seq_found;
+                self.out.recv_txn_commit(false);
                 continue;
             }
 
             accum_pub_cnt += 1;
-            accum_pub_sz += bytes.len() as u64;
+            accum_pub_sz += size as u64;
 
             // Update seq and mline
             seq += 1;
             mline = mcache.add(fd_mcache_line_idx(seq, depth).try_into().unwrap());
 
-            // Send the data on the channel
-            _ = self.out.send(bytes)
+            // Commit receive
+            self.out.recv_txn_commit(true);
+            // TODO handle commit result and update fseq counters accordingly
         }
     }
 
@@ -241,7 +258,7 @@ impl PackRx {
     }
 }
 
-impl Drop for PackRx {
+impl<R: PackRxReceiver> Drop for PackRx<R> {
     fn drop(&mut self) {
         unsafe {
             fd_halt();
