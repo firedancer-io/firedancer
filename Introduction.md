@@ -22,7 +22,7 @@ When there are 2 client implementations and one of them faces a bug, the nodes r
  ![image](https://user-images.githubusercontent.com/88841339/224098753-4a62136a-aad7-4343-89b0-f8c0fd45a990.png)
 
 - # Why C?
-	- When Building something like Firedancer which could potentially be run on thousands of machines, the code has to be efficient. C allows were tight integration with the hardware and make it allow developers a lot of flexibility in the ability to manage compute resources. [Here Josh Siegel](https://www.youtube.com/watch?v=9efhIs37hVI) one of the core builders of Firedancer explain in depth and practical demo on "why C"?
+	- When Building something like Firedancer which could potentially be run on thousands of machines, the code has to be efficient. C allows developers to write code which is tightly integrated with the hardware. C provides maximal flexibility to the developer in managing compute resources. [In this video](https://www.youtube.com/watch?v=9efhIs37hVI), Josh Siegel, one of the core contributors to Firedancer, explains in depth "why C?" for Firedancer, giving a practical demo to assist in the explanation.
 - # Block propagation in Firedancer
 	- ![Image](https://pbs.twimg.com/media/FmSWXByXwAAD1oH?format=jpg&name=4096x4096)
 
