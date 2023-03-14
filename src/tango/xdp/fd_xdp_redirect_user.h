@@ -154,6 +154,12 @@ fd_xdp_release_udp_port( char const * app_name,
                          uint         ip4_dst_addr,
                          uint         udp_dst_port );
 
+/* fd_xdp_clear_listeners uninstalls all listeners previously installed
+   via fd_xdp_listen_udp_port(). */
+
+int
+fd_xdp_clear_listeners( char const * app_name );
+
 /* Runtime API (unprivileged) *****************************************/
 
 /* fd_xsk_activate installs an XSK file descriptor into the XDP redirect

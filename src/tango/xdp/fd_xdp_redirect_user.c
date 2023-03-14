@@ -463,8 +463,63 @@ fd_xdp_release_udp_port( char const * app_name,
   ulong key = fd_xdp_udp_dst_key( ip4_dst_addr, udp_dst_port );
 
   if( FD_UNLIKELY( 0!=bpf_map_delete_elem( udp_dsts_fd, &key ) ) ) {
+    /* TODO: Gracefully handle error where given key does not exist.
+             In that case, should return 0 here as per method description. */
+
     FD_LOG_WARNING(( "bpf_map_delete_elem(fd=%d,key=%#lx) failed (%d-%s)",
                      udp_dsts_fd, key, errno, strerror( errno ) ));
+    close( udp_dsts_fd );
+    return -1;
+  }
+
+  /* Clean up */
+
+  close( udp_dsts_fd );
+  return 0;
+}
+
+int
+fd_xdp_clear_listeners( char const * app_name ) {
+  /* Validate arguments */
+
+  if( FD_UNLIKELY( 0!=fd_xdp_validate_name_cstr( app_name, NAME_MAX, "app_name" ) ) )
+    return -1;
+
+  /* Open map */
+
+  int udp_dsts_fd = fd_xdp_get_udp_dsts_map( app_name );
+  if( FD_UNLIKELY( udp_dsts_fd<0 ) ) return -1;
+
+  /* First pass: Iterate keys in map and delete each element */
+
+  ulong key = 0UL; /* FIXME: This fails if the key is zero, i.e. 0.0.0.0:0 */
+  ulong next_key;
+  for(;;) {
+    /* Get next element */
+
+    int res = bpf_map_get_next_key( udp_dsts_fd, &key, &next_key );
+    if( FD_UNLIKELY( res!=0 ) ) {
+      if( FD_LIKELY( errno==ENOENT ) )
+        break;
+      FD_LOG_WARNING(( "bpf_map_get_next_key(%#lx) failed (%d-%s)",
+                       key, errno, strerror( errno ) ));
+      close( udp_dsts_fd );
+      return -1;
+    }
+
+    /* Delete element ignoring errors */
+
+    if( FD_UNLIKELY( 0!=bpf_map_delete_elem( udp_dsts_fd, &next_key ) ) )
+      FD_LOG_WARNING(( "bpf_map_delete_elem(%#lx) failed (%d-%s)",
+                       next_key, errno, strerror( errno ) ));
+  }
+
+  /* Second pass: Check whether all keys have been deleted */
+
+  key = 0UL;
+  if( FD_UNLIKELY( 0==bpf_map_get_next_key( udp_dsts_fd, &key, &next_key )
+                || errno!=ENOENT ) ) {
+    FD_LOG_WARNING(( "Failed to clear map of all entries" ));
     close( udp_dsts_fd );
     return -1;
   }
