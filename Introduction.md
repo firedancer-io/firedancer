@@ -28,7 +28,9 @@ When there are 2 client implementations and one of them faces a bug, the nodes r
 
 ---
 	
-### Wanna Learn more about firedancer? make sure to check out the [announcement](https://jumpcrypto.com/jump-vs-the-speed-of-light/) and the breakpoint talks.
+### More Information 
+Links:
+- [Announcement blog post](https://jumpcrypto.com/jump-vs-the-speed-of-light/)
 - Breakpoint Talks by the legend KFB -> [General overview](https://www.youtube.com/watch?v=Dh6Yn2Odyr4)
 
 	- [Deep Dive and first demo ](https://www.youtube.com/watch?v=YF-7duYCK54)
