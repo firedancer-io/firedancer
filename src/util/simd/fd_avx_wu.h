@@ -164,6 +164,22 @@ wu_insert_variable( wu_t a, int n, uint v ) {
 #define wu_or(a,b)     _mm256_or_si256(     (a), (b) ) /* [   a0 |b0    a1 |b1 ...   a7 |b7 ] */
 #define wu_xor(a,b)    _mm256_xor_si256(    (a), (b) ) /* [   a0 ^b0    a1 ^b1 ...   a7 ^b7 ] */
 
+static inline wu_t wu_rol( wu_t a, int imm ) { return wu_or( wu_shl( a, imm & 31 ), wu_shr( a, (-imm) & 31 ) ); }
+static inline wu_t wu_ror( wu_t a, int imm ) { return wu_or( wu_shr( a, imm & 31 ), wu_shl( a, (-imm) & 31 ) ); }
+
+static inline wu_t wu_rol_variable( wu_t a, int n ) { return wu_or( wu_shl_variable( a, n&31 ), wu_shr_variable( a, (-n)&31 ) ); }
+static inline wu_t wu_ror_variable( wu_t a, int n ) { return wu_or( wu_shr_variable( a, n&31 ), wu_shl_variable( a, (-n)&31 ) ); }
+
+static inline wu_t wu_rol_vector( wu_t a, wi_t b ) {
+  wi_t m = wi_bcast( 31 );
+  return wu_or( wu_shl_vector( a, wi_and( b, m ) ), wu_shr_vector( a, wi_and( wi_neg( b ), m ) ) );
+}
+
+static inline wu_t wu_ror_vector( wu_t a, wi_t b ) {
+  wi_t m = wi_bcast( 31 );
+  return wu_or( wu_shr_vector( a, wi_and( b, m ) ), wu_shl_vector( a, wi_and( wi_neg( b ), m ) ) );
+}
+
 /* Logical operations */
 
 /* Like noted below in the wu_to_{wf,wd} converters, Intel clearly has

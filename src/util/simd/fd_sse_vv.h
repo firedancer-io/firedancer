@@ -131,6 +131,22 @@ vv_insert_variable( vv_t a, int n, ulong v ) {
 #define vv_or(a,b)     _mm_or_si128(     (a), (b) ) /* [   a0 |b0    a1 |b1 ] */
 #define vv_xor(a,b)    _mm_xor_si128(    (a), (b) ) /* [   a0 ^b0    a1 ^b1 ] */
 
+static inline vv_t vv_rol( vv_t a, int imm ) { return vv_or( vv_shl( a, imm & 63 ), vv_shr( a, (-imm) & 63 ) ); }
+static inline vv_t vv_ror( vv_t a, int imm ) { return vv_or( vv_shr( a, imm & 63 ), vv_shl( a, (-imm) & 63 ) ); }
+
+static inline vv_t vv_rol_variable( vv_t a, int n ) { return vv_or( vv_shl_variable( a, n&63 ), vv_shr_variable( a, (-n)&63 ) ); }
+static inline vv_t vv_ror_variable( vv_t a, int n ) { return vv_or( vv_shr_variable( a, n&63 ), vv_shl_variable( a, (-n)&63 ) ); }
+
+static inline vv_t vv_rol_vector( vv_t a, vl_t b ) {
+  vl_t m = vl_bcast( 63L );
+  return vv_or( vv_shl_vector( a, vl_and( b, m ) ), vv_shr_vector( a, vl_and( vl_neg( b ), m ) ) );
+}
+
+static inline vv_t vv_ror_vector( vv_t a, vl_t b ) {
+  vl_t m = vl_bcast( 63L );
+  return vv_or( vv_shr_vector( a, vl_and( b, m ) ), vv_shl_vector( a, vl_and( vl_neg( b ), m ) ) );
+}
+
 /* Logical operations */
 
 /* Like noted below in the converters, Intel clearly has the hardware to
