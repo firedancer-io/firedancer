@@ -315,14 +315,39 @@ FD_FN_CONST
 ulong
 fd_quic_conn_align();
 
-/* returns the footprint of the connection object given the number of streams */
+/* returns the footprint of the connection object given the arguments
+   supplied
+
+   Args
+     tx_buf_sz    the number of bytes of buffer space to reserve
+                    for transmission
+     rx_buf_sz    the number of bytes of buffer space to reserve
+                    for receiving
+     max_concur_streams_per_type
+                  the maximum number of streams allowed by type
+                  there are four types of stream
+     max_in_flight_pkts
+                  the maximum number of outbound packets allowed to be in flight
+                  this limits the amount of space required for packet
+                    metadata */
 FD_FN_CONST
 ulong
-fd_quic_conn_footprint( fd_quic_config_t const * config );
+fd_quic_conn_footprint( ulong tx_buf_sz,
+                        ulong rx_buf_sz,
+                        ulong max_concur_streams_per_type,
+                        ulong max_in_flight_pkts );
 
 
+/* called by fd_quic_new to initialize the connection objects
+   used by fd_quic */
 fd_quic_conn_t *
-fd_quic_conn_new( void * mem, fd_quic_t * quic, fd_quic_config_t const * config );
+fd_quic_conn_new( void *      shmem,
+                  fd_quic_t * quic,
+                  ulong       tx_buf_sz,
+                  ulong       rx_buf_sz,
+                  ulong       max_concur_streams_per_type,
+                  ulong       max_in_flight_pkts );
+   
 
 #endif
 

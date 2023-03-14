@@ -3,6 +3,8 @@
 
 #include "fd_quic_conn.h"
 
+#define FD_QUIC_MAGIC (0xdadf8cfa01cc5460UL)
+
 FD_PROTOTYPES_BEGIN
 
 /* used by quic to receive data from network */
