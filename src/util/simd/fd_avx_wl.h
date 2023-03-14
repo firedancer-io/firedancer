@@ -162,6 +162,22 @@ wl_insert_variable( wl_t a, int n, long v ) {
 #define wl_or(a,b)     _mm256_or_si256(     (a), (b) ) /* [   a0 |b0    a1 |b1 ...   a3 |b3 ] */
 #define wl_xor(a,b)    _mm256_xor_si256(    (a), (b) ) /* [   a0 ^b0    a1 ^b1 ...   a3 ^b3 ] */
 
+static inline wl_t wl_rol( wl_t a, int imm ) { return wl_or( wl_shl(  a, imm & 63 ), wl_shru( a, (-imm) & 63 ) ); }
+static inline wl_t wl_ror( wl_t a, int imm ) { return wl_or( wl_shru( a, imm & 63 ), wl_shl(  a, (-imm) & 63 ) ); }
+
+static inline wl_t wl_rol_variable( wl_t a, int n ) { return wl_or( wl_shl_variable(  a, n&63 ), wl_shru_variable( a, (-n)&63 ) ); }
+static inline wl_t wl_ror_variable( wl_t a, int n ) { return wl_or( wl_shru_variable( a, n&63 ), wl_shl_variable(  a, (-n)&63 ) ); }
+
+static inline wl_t wl_rol_vector( wl_t a, wl_t b ) {
+  wl_t m = wl_bcast( 63L );
+  return wl_or( wl_shl_vector(  a, wl_and( b, m ) ), wl_shru_vector( a, wl_and( wl_neg( b ), m ) ) );
+}
+
+static inline wl_t wl_ror_vector( wl_t a, wl_t b ) {
+  wl_t m = wl_bcast( 63L );
+  return wl_or( wl_shru_vector( a, wl_and( b, m ) ), wl_shl_vector(  a, wl_and( wl_neg( b ), m ) ) );
+}
+
 /* Logical operations */
 
 #define wl_lnot(a)    _mm256_cmpeq_epi64( (a), _mm256_setzero_si256() ) /* [  !a0  !a1 ...  !a3 ] */

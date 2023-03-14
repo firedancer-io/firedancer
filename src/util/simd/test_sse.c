@@ -565,20 +565,32 @@ main( int     argc,
 
     FD_TEST( vi_test( vi_not( x ), ~x0, ~x1, ~x2, ~x3 ) );
 
-#   define _(n) \
-    FD_TEST( vi_test( vi_shl( x, n ), x0<<n, x1<<n, x2<<n, x3<<n ) ); \
-    FD_TEST( vi_test( vi_shr( x, n ), x0>>n, x1>>n, x2>>n, x3>>n ) ); \
-    FD_TEST( vi_test( vi_shru( x, n ), (int)(((uint)x0)>>n), (int)(((uint)x1)>>n), (int)(((uint)x2)>>n), (int)(((uint)x3)>>n) ) )
+#   define SHRU(x,n) ((int)(((uint)(x))>>(n)))
+#   define ROL(x,n)  fd_int_rotate_left ((x),(n))
+#   define ROR(x,n)  fd_int_rotate_right((x),(n))
+
+#   define _(n)                                                                            \
+    FD_TEST( vi_test( vi_shl(  x, n ), x0<<n,      x1<<n,      x2<<n,      x3<<n      ) ); \
+    FD_TEST( vi_test( vi_shr(  x, n ), x0>>n,      x1>>n,      x2>>n,      x3>>n      ) ); \
+    FD_TEST( vi_test( vi_shru( x, n ), SHRU(x0,n), SHRU(x1,n), SHRU(x2,n), SHRU(x3,n) ) ); \
+    FD_TEST( vi_test( vi_rol(  x, n ), ROL( x0,n), ROL( x1,n), ROL( x2,n), ROL( x3,n) ) ); \
+    FD_TEST( vi_test( vi_ror(  x, n ), ROR( x0,n), ROR( x1,n), ROR( x2,n), ROR( x3,n) ) )
     _( 0); _( 1); _( 2); _( 3); _( 4); _( 5); _( 6); _( 7); _( 8); _( 9); _(10); _(11); _(12); _(13); _(14); _(15);
     _(16); _(17); _(18); _(19); _(20); _(21); _(22); _(23); _(24); _(25); _(26); _(27); _(28); _(29); _(30); _(31);
 #   undef _
+
     for( int n=0; n<32; n++ ) {
       int volatile m[1]; m[0] = n;
-      FD_TEST( vi_test( vi_shl_variable(  x, m[0] ), x0<<n, x1<<n, x2<<n, x3<<n ) );
-      FD_TEST( vi_test( vi_shr_variable(  x, m[0] ), x0>>n, x1>>n, x2>>n, x3>>n ) );
-      FD_TEST( vi_test( vi_shru_variable( x, m[0] ),
-                        (int)(((uint)x0)>>n), (int)(((uint)x1)>>n), (int)(((uint)x2)>>n), (int)(((uint)x3)>>n) ) );
+      FD_TEST( vi_test( vi_shl_variable(  x, m[0] ), x0<<n,      x1<<n,      x2<<n,      x3<<n      ) );
+      FD_TEST( vi_test( vi_shr_variable(  x, m[0] ), x0>>n,      x1>>n,      x2>>n,      x3>>n      ) );
+      FD_TEST( vi_test( vi_shru_variable( x, m[0] ), SHRU(x0,n), SHRU(x1,n), SHRU(x2,n), SHRU(x3,n) ) );
+      FD_TEST( vi_test( vi_rol_variable(  x, m[0] ), ROL( x0,n), ROL( x1,n), ROL( x2,n), ROL( x3,n) ) );
+      FD_TEST( vi_test( vi_ror_variable(  x, m[0] ), ROR( x0,n), ROR( x1,n), ROR( x2,n), ROR( x3,n) ) );
     }
+
+#   undef ROR
+#   undef ROL
+#   undef SHRU
 
     FD_TEST( vi_test( vi_and(    x, y ),   x0 &y0,   x1 &y1,   x2 &y2,   x3 &y3 ) );
     FD_TEST( vi_test( vi_andnot( x, y ), (~x0)&y0, (~x1)&y1, (~x2)&y2, (~x3)&y3 ) );
@@ -713,17 +725,28 @@ main( int     argc,
 
     FD_TEST( vu_test( vu_not( x ), ~x0, ~x1, ~x2, ~x3 ) );
 
-#   define _(n) \
-    FD_TEST( vu_test( vu_shl( x, n ), x0<<n, x1<<n, x2<<n, x3<<n ) ); \
-    FD_TEST( vu_test( vu_shr( x, n ), x0>>n, x1>>n, x2>>n, x3>>n ) )
+#   define ROL(x,n) fd_uint_rotate_left ((x),(n))
+#   define ROR(x,n) fd_uint_rotate_right((x),(n))
+
+#   define _(n)                                                                       \
+    FD_TEST( vu_test( vu_shl( x, n ), x0<<n,     x1<<n,     x2<<n,     x3<<n     ) ); \
+    FD_TEST( vu_test( vu_shr( x, n ), x0>>n,     x1>>n,     x2>>n,     x3>>n     ) ); \
+    FD_TEST( vu_test( vu_rol( x, n ), ROL(x0,n), ROL(x1,n), ROL(x2,n), ROL(x3,n) ) ); \
+    FD_TEST( vu_test( vu_ror( x, n ), ROR(x0,n), ROR(x1,n), ROR(x2,n), ROR(x3,n) ) )
     _( 0); _( 1); _( 2); _( 3); _( 4); _( 5); _( 6); _( 7); _( 8); _( 9); _(10); _(11); _(12); _(13); _(14); _(15);
     _(16); _(17); _(18); _(19); _(20); _(21); _(22); _(23); _(24); _(25); _(26); _(27); _(28); _(29); _(30); _(31);
 #   undef _
+
     for( int n=0; n<32; n++ ) {
       int volatile m[1]; m[0] = n;
-      FD_TEST( vu_test( vu_shl_variable( x, m[0] ), x0<<n, x1<<n, x2<<n, x3<<n ) );
-      FD_TEST( vu_test( vu_shr_variable( x, m[0] ), x0>>n, x1>>n, x2>>n, x3>>n ) );
+      FD_TEST( vu_test( vu_shl_variable( x, m[0] ), x0<<n,     x1<<n,     x2<<n,     x3<<n     ) );
+      FD_TEST( vu_test( vu_shr_variable( x, m[0] ), x0>>n,     x1>>n,     x2>>n,     x3>>n     ) );
+      FD_TEST( vu_test( vu_rol_variable( x, m[0] ), ROL(x0,n), ROL(x1,n), ROL(x2,n), ROL(x3,n) ) );
+      FD_TEST( vu_test( vu_ror_variable( x, m[0] ), ROR(x0,n), ROR(x1,n), ROR(x2,n), ROR(x3,n) ) );
     }
+
+#   undef ROR
+#   undef ROL
 
     FD_TEST( vu_test( vu_and(    x, y ),   x0 &y0,   x1 &y1,   x2 &y2,   x3 &y3 ) );
     FD_TEST( vu_test( vu_andnot( x, y ), (~x0)&y0, (~x1)&y1, (~x2)&y2, (~x3)&y3 ) );
@@ -954,21 +977,34 @@ main( int     argc,
 
     FD_TEST( vl_test( vl_not( x ), ~x0, ~x1 ) );
 
-#   define _(n) \
-    FD_TEST( vl_test( vl_shl( x, n ), x0<<n, x1<<n ) ); \
-    FD_TEST( vl_test( vl_shr( x, n ), x0>>n, x1>>n ) ); \
-    FD_TEST( vl_test( vl_shru( x, n ), (long)(((ulong)x0)>>n), (long)(((ulong)x1)>>n) ) )
+#   define SHRU(x,n) ((long)(((ulong)(x))>>(n)))
+#   define ROL(x,n)  fd_long_rotate_left ((x),(n))
+#   define ROR(x,n)  fd_long_rotate_right((x),(n))
+
+#   define _(n)                                                    \
+    FD_TEST( vl_test( vl_shl(  x, n ), x0<<n,      x1<<n      ) ); \
+    FD_TEST( vl_test( vl_shr(  x, n ), x0>>n,      x1>>n      ) ); \
+    FD_TEST( vl_test( vl_shru( x, n ), SHRU(x0,n), SHRU(x1,n) ) ); \
+    FD_TEST( vl_test( vl_rol(  x, n ), ROL( x0,n), ROL( x1,n) ) ); \
+    FD_TEST( vl_test( vl_ror(  x, n ), ROR( x0,n), ROR( x1,n) ) )
     _( 0); _( 1); _( 2); _( 3); _( 4); _( 5); _( 6); _( 7); _( 8); _( 9); _(10); _(11); _(12); _(13); _(14); _(15);
     _(16); _(17); _(18); _(19); _(20); _(21); _(22); _(23); _(24); _(25); _(26); _(27); _(28); _(29); _(30); _(31);
     _(32); _(33); _(34); _(35); _(36); _(37); _(38); _(39); _(40); _(41); _(42); _(43); _(44); _(45); _(46); _(47);
     _(48); _(49); _(50); _(51); _(52); _(53); _(54); _(55); _(56); _(57); _(58); _(59); _(60); _(61); _(62); _(63);
 #   undef _
+
     for( int n=0; n<64; n++ ) {
       int volatile m[1]; m[0] = n;
-      FD_TEST( vl_test( vl_shl_variable(  x, m[0] ), x0<<n, x1<<n ) );
-      FD_TEST( vl_test( vl_shr_variable(  x, m[0] ), x0>>n, x1>>n ) );
-      FD_TEST( vl_test( vl_shru_variable( x, m[0] ), (long)(((ulong)x0)>>n), (long)(((ulong)x1)>>n) ) );
+      FD_TEST( vl_test( vl_shl_variable(  x, m[0] ), x0<<n,      x1<<n      ) );
+      FD_TEST( vl_test( vl_shr_variable(  x, m[0] ), x0>>n,      x1>>n      ) );
+      FD_TEST( vl_test( vl_shru_variable( x, m[0] ), SHRU(x0,n), SHRU(x1,n) ) );
+      FD_TEST( vl_test( vl_rol_variable(  x, m[0] ), ROL(x0,n),  ROL(x1,n)  ) );
+      FD_TEST( vl_test( vl_ror_variable(  x, m[0] ), ROR(x0,n),  ROR(x1,n)  ) );
     }
+
+#   undef ROR
+#   undef ROL
+#   undef SHRU
 
     FD_TEST( vl_test( vl_and(    x, y ),   x0 &y0,   x1 &y1 ) );
     FD_TEST( vl_test( vl_andnot( x, y ), (~x0)&y0, (~x1)&y1 ) );
@@ -1056,19 +1092,30 @@ main( int     argc,
 
     FD_TEST( vv_test( vv_not( x ), ~x0, ~x1 ) );
 
-#   define _(n) \
-    FD_TEST( vv_test( vv_shl( x, n ), x0<<n, x1<<n ) ); \
-    FD_TEST( vv_test( vv_shr( x, n ), x0>>n, x1>>n ) );
+#   define ROL(x,n) fd_ulong_rotate_left ((x),(n))
+#   define ROR(x,n) fd_ulong_rotate_right((x),(n))
+
+#   define _(n)                                                 \
+    FD_TEST( vv_test( vv_shl( x, n ), x0<<n,     x1<<n     ) ); \
+    FD_TEST( vv_test( vv_shr( x, n ), x0>>n,     x1>>n     ) ); \
+    FD_TEST( vv_test( vv_rol( x, n ), ROL(x0,n), ROL(x1,n) ) ); \
+    FD_TEST( vv_test( vv_ror( x, n ), ROR(x0,n), ROR(x1,n) ) )
     _( 0); _( 1); _( 2); _( 3); _( 4); _( 5); _( 6); _( 7); _( 8); _( 9); _(10); _(11); _(12); _(13); _(14); _(15);
     _(16); _(17); _(18); _(19); _(20); _(21); _(22); _(23); _(24); _(25); _(26); _(27); _(28); _(29); _(30); _(31);
     _(32); _(33); _(34); _(35); _(36); _(37); _(38); _(39); _(40); _(41); _(42); _(43); _(44); _(45); _(46); _(47);
     _(48); _(49); _(50); _(51); _(52); _(53); _(54); _(55); _(56); _(57); _(58); _(59); _(60); _(61); _(62); _(63);
 #   undef _
+
     for( int n=0; n<64; n++ ) {
       int volatile m[1]; m[0] = n;
-      FD_TEST( vv_test( vv_shl_variable( x, m[0] ), x0<<n, x1<<n ) );
-      FD_TEST( vv_test( vv_shr_variable( x, m[0] ), x0>>n, x1>>n ) );
+      FD_TEST( vv_test( vv_shl_variable( x, m[0] ), x0<<n,     x1<<n     ) );
+      FD_TEST( vv_test( vv_shr_variable( x, m[0] ), x0>>n,     x1>>n     ) );
+      FD_TEST( vv_test( vv_rol_variable( x, m[0] ), ROL(x0,n), ROL(x1,n) ) );
+      FD_TEST( vv_test( vv_ror_variable( x, m[0] ), ROR(x0,n), ROR(x1,n) ) );
     }
+
+#   undef ROR
+#   undef ROL
 
     FD_TEST( vv_test( vv_and(    x, y ),   x0 &y0,   x1 &y1 ) );
     FD_TEST( vv_test( vv_andnot( x, y ), (~x0)&y0, (~x1)&y1 ) );

@@ -681,22 +681,38 @@ main( int     argc,
 
     FD_TEST( wi_test( wi_not( x ), ~x0, ~x1, ~x2, ~x3, ~x4, ~x5, ~x6, ~x7  ) );
 
-#   define _(n) \
-    FD_TEST( wi_test( wi_shl( x, n ), x0<<n, x1<<n, x2<<n, x3<<n, x4<<n, x5<<n, x6<<n, x7<<n ) ); \
-    FD_TEST( wi_test( wi_shr( x, n ), x0>>n, x1>>n, x2>>n, x3>>n, x4>>n, x5>>n, x6>>n, x7>>n ) ); \
-    FD_TEST( wi_test( wi_shru( x, n ), (int)(((uint)x0)>>n), (int)(((uint)x1)>>n), (int)(((uint)x2)>>n), (int)(((uint)x3)>>n), \
-                                       (int)(((uint)x4)>>n), (int)(((uint)x5)>>n), (int)(((uint)x6)>>n), (int)(((uint)x7)>>n) ) )
+#   define SHRU(x,n) ((int)(((uint)(x))>>(n)))
+#   define ROL(x,n)  fd_int_rotate_left ((x),(n))
+#   define ROR(x,n)  fd_int_rotate_right((x),(n))
+
+#   define _(n)                                                                                    \
+    FD_TEST( wi_test( wi_shl(  x, n ), x0<<n, x1<<n, x2<<n, x3<<n, x4<<n, x5<<n, x6<<n, x7<<n ) ); \
+    FD_TEST( wi_test( wi_shr(  x, n ), x0>>n, x1>>n, x2>>n, x3>>n, x4>>n, x5>>n, x6>>n, x7>>n ) ); \
+    FD_TEST( wi_test( wi_shru( x, n ), SHRU(x0,n), SHRU(x1,n), SHRU(x2,n), SHRU(x3,n),             \
+                                       SHRU(x4,n), SHRU(x5,n), SHRU(x6,n), SHRU(x7,n) ) );         \
+    FD_TEST( wi_test( wi_rol(  x, n ), ROL( x0,n), ROL( x1,n), ROL( x2,n), ROL( x3,n),             \
+                                       ROL( x4,n), ROL( x5,n), ROL( x6,n), ROL( x7,n) ) );         \
+    FD_TEST( wi_test( wi_ror(  x, n ), ROR( x0,n), ROR( x1,n), ROR( x2,n), ROR( x3,n),             \
+                                       ROR( x4,n), ROR( x5,n), ROR( x6,n), ROR( x7,n) ) )
     _( 0); _( 1); _( 2); _( 3); _( 4); _( 5); _( 6); _( 7); _( 8); _( 9); _(10); _(11); _(12); _(13); _(14); _(15);
     _(16); _(17); _(18); _(19); _(20); _(21); _(22); _(23); _(24); _(25); _(26); _(27); _(28); _(29); _(30); _(31);
 #   undef _
+
     for( int n=0; n<32; n++ ) {
       int volatile m[1]; m[0] = n;
       FD_TEST( wi_test( wi_shl_variable(  x, m[0] ), x0<<n, x1<<n, x2<<n, x3<<n, x4<<n, x5<<n, x6<<n, x7<<n ) );
       FD_TEST( wi_test( wi_shr_variable(  x, m[0] ), x0>>n, x1>>n, x2>>n, x3>>n, x4>>n, x5>>n, x6>>n, x7>>n ) );
-      FD_TEST( wi_test( wi_shru_variable( x, m[0] ),
-                        (int)(((uint)x0)>>n), (int)(((uint)x1)>>n), (int)(((uint)x2)>>n), (int)(((uint)x3)>>n),
-                        (int)(((uint)x4)>>n), (int)(((uint)x5)>>n), (int)(((uint)x6)>>n), (int)(((uint)x7)>>n) ) );
+      FD_TEST( wi_test( wi_shru_variable( x, m[0] ), SHRU(x0,n), SHRU(x1,n), SHRU(x2,n), SHRU(x3,n),
+                                                     SHRU(x4,n), SHRU(x5,n), SHRU(x6,n), SHRU(x7,n) ) );
+      FD_TEST( wi_test( wi_rol_variable(  x, m[0] ), ROL( x0,n), ROL( x1,n), ROL( x2,n), ROL( x3,n),
+                                                     ROL( x4,n), ROL( x5,n), ROL( x6,n), ROL( x7,n) ) );
+      FD_TEST( wi_test( wi_ror_variable(  x, m[0] ), ROR( x0,n), ROR( x1,n), ROR( x2,n), ROR( x3,n),
+                                                     ROR( x4,n), ROR( x5,n), ROR( x6,n), ROR( x7,n) ) );
     }
+
+#   undef ROR
+#   undef ROL
+#   undef SHRU
 
     FD_TEST( wi_test( wi_and(    x, y ),   x0 &y0,   x1 &y1,   x2 &y2,   x3 &y3,   x4 &y4,   x5 &y5,   x6 &y6,   x7 &y7 ) );
     FD_TEST( wi_test( wi_andnot( x, y ), (~x0)&y0, (~x1)&y1, (~x2)&y2, (~x3)&y3, (~x4)&y4, (~x5)&y5, (~x6)&y6, (~x7)&y7 ) );
@@ -796,17 +812,32 @@ main( int     argc,
 
     FD_TEST( wu_test( wu_not( x ), ~x0, ~x1, ~x2, ~x3, ~x4, ~x5, ~x6, ~x7  ) );
 
-#   define _(n) \
+#   define ROL(x,n) fd_uint_rotate_left ((x),(n))
+#   define ROR(x,n) fd_uint_rotate_right((x),(n))
+
+#   define _(n)                                                                                   \
     FD_TEST( wu_test( wu_shl( x, n ), x0<<n, x1<<n, x2<<n, x3<<n, x4<<n, x5<<n, x6<<n, x7<<n ) ); \
-    FD_TEST( wu_test( wu_shr( x, n ), x0>>n, x1>>n, x2>>n, x3>>n, x4>>n, x5>>n, x6>>n, x7>>n ) )
+    FD_TEST( wu_test( wu_shr( x, n ), x0>>n, x1>>n, x2>>n, x3>>n, x4>>n, x5>>n, x6>>n, x7>>n ) ); \
+    FD_TEST( wu_test( wu_rol( x, n ), ROL(x0,n), ROL(x1,n), ROL(x2,n), ROL(x3,n),                 \
+                                      ROL(x4,n), ROL(x5,n), ROL(x6,n), ROL(x7,n) ) );             \
+    FD_TEST( wu_test( wu_ror( x, n ), ROR(x0,n), ROR(x1,n), ROR(x2,n), ROR(x3,n),                 \
+                                      ROR(x4,n), ROR(x5,n), ROR(x6,n), ROR(x7,n) ) )
     _( 0); _( 1); _( 2); _( 3); _( 4); _( 5); _( 6); _( 7); _( 8); _( 9); _(10); _(11); _(12); _(13); _(14); _(15);
     _(16); _(17); _(18); _(19); _(20); _(21); _(22); _(23); _(24); _(25); _(26); _(27); _(28); _(29); _(30); _(31);
 #   undef _
+
     for( int n=0; n<32; n++ ) {
       int volatile m[1]; m[0] = n;
       FD_TEST( wu_test( wu_shl_variable( x, m[0] ), x0<<n, x1<<n, x2<<n, x3<<n, x4<<n, x5<<n, x6<<n, x7<<n ) );
       FD_TEST( wu_test( wu_shr_variable( x, m[0] ), x0>>n, x1>>n, x2>>n, x3>>n, x4>>n, x5>>n, x6>>n, x7>>n ) );
+      FD_TEST( wu_test( wu_rol_variable( x, m[0] ), ROL(x0,n), ROL(x1,n), ROL(x2,n), ROL(x3,n),
+                                                    ROL(x4,n), ROL(x5,n), ROL(x6,n), ROL(x7,n) ) );
+      FD_TEST( wu_test( wu_ror_variable( x, m[0] ), ROR(x0,n), ROR(x1,n), ROR(x2,n), ROR(x3,n),
+                                                    ROR(x4,n), ROR(x5,n), ROR(x6,n), ROR(x7,n) ) );
     }
+
+#   undef ROR
+#   undef ROL
 
     FD_TEST( wu_test( wu_and(    x, y ),   x0 &y0,   x1 &y1,   x2 &y2,   x3 &y3,   x4 &y4,   x5 &y5,   x6 &y6,   x7 &y7 ) );
     FD_TEST( wu_test( wu_andnot( x, y ), (~x0)&y0, (~x1)&y1, (~x2)&y2, (~x3)&y3, (~x4)&y4, (~x5)&y5, (~x6)&y6, (~x7)&y7 ) );
@@ -1027,23 +1058,34 @@ main( int     argc,
 
     FD_TEST( wl_test( wl_not( x ), ~x0, ~x1, ~x2, ~x3 ) );
 
-#   define _(n) \
-    FD_TEST( wl_test( wl_shl( x, n ), x0<<n, x1<<n, x2<<n, x3<<n ) ); \
-    FD_TEST( wl_test( wl_shr( x, n ), x0>>n, x1>>n, x2>>n, x3>>n ) ); \
-    FD_TEST( wl_test( wl_shru( x, n ), \
-                      (long)(((ulong)x0)>>n), (long)(((ulong)x1)>>n), (long)(((ulong)x2)>>n), (long)(((ulong)x3)>>n) ) )
+#   define SHRU(x,n) ((long)(((ulong)(x))>>(n)))
+#   define ROL(x,n)  fd_long_rotate_left ((x),(n))
+#   define ROR(x,n)  fd_long_rotate_right((x),(n))
+
+#   define _(n)                                                                            \
+    FD_TEST( wl_test( wl_shl(  x, n ), x0<<n,      x1<<n,      x2<<n,      x3<<n      ) ); \
+    FD_TEST( wl_test( wl_shr(  x, n ), x0>>n,      x1>>n,      x2>>n,      x3>>n      ) ); \
+    FD_TEST( wl_test( wl_shru( x, n ), SHRU(x0,n), SHRU(x1,n), SHRU(x2,n), SHRU(x3,n) ) ); \
+    FD_TEST( wl_test( wl_rol(  x, n ), ROL( x0,n), ROL( x1,n), ROL( x2,n), ROL( x3,n) ) ); \
+    FD_TEST( wl_test( wl_ror(  x, n ), ROR( x0,n), ROR( x1,n), ROR( x2,n), ROR( x3,n) ) )
     _( 0); _( 1); _( 2); _( 3); _( 4); _( 5); _( 6); _( 7); _( 8); _( 9); _(10); _(11); _(12); _(13); _(14); _(15);
     _(16); _(17); _(18); _(19); _(20); _(21); _(22); _(23); _(24); _(25); _(26); _(27); _(28); _(29); _(30); _(31);
     _(32); _(33); _(34); _(35); _(36); _(37); _(38); _(39); _(40); _(41); _(42); _(43); _(44); _(45); _(46); _(47);
     _(48); _(49); _(50); _(51); _(52); _(53); _(54); _(55); _(56); _(57); _(58); _(59); _(60); _(61); _(62); _(63);
 #   undef _
+
     for( int n=0; n<64; n++ ) {
       int volatile m[1]; m[0] = n;
-      FD_TEST( wl_test( wl_shl_variable(  x, m[0] ), x0<<n, x1<<n, x2<<n, x3<<n ) );
-      FD_TEST( wl_test( wl_shr_variable(  x, m[0] ), x0>>n, x1>>n, x2>>n, x3>>n ) );
-      FD_TEST( wl_test( wl_shru_variable( x, m[0] ),
-                        (long)(((ulong)x0)>>n), (long)(((ulong)x1)>>n), (long)(((ulong)x2)>>n), (long)(((ulong)x3)>>n)) );
+      FD_TEST( wl_test( wl_shl_variable(  x, m[0] ), x0<<n,      x1<<n,      x2<<n,      x3<<n      ) );
+      FD_TEST( wl_test( wl_shr_variable(  x, m[0] ), x0>>n,      x1>>n,      x2>>n,      x3>>n      ) );
+      FD_TEST( wl_test( wl_shru_variable( x, m[0] ), SHRU(x0,n), SHRU(x1,n), SHRU(x2,n), SHRU(x3,n) ) );
+      FD_TEST( wl_test( wl_rol_variable(  x, m[0] ), ROL( x0,n), ROL( x1,n), ROL( x2,n), ROL( x3,n) ) );
+      FD_TEST( wl_test( wl_ror_variable(  x, m[0] ), ROR( x0,n), ROR( x1,n), ROR( x2,n), ROR( x3,n) ) );
     }
+
+#   undef ROR
+#   undef ROL
+#   undef SHRU
 
     FD_TEST( wl_test( wl_and(    x, y ),   x0 &y0,   x1 &y1,   x2 &y2,   x3 &y3 ) );
     FD_TEST( wl_test( wl_andnot( x, y ), (~x0)&y0, (~x1)&y1, (~x2)&y2, (~x3)&y3 ) );
@@ -1143,19 +1185,30 @@ main( int     argc,
 
     FD_TEST( wv_test( wv_not( x ), ~x0, ~x1, ~x2, ~x3 ) );
 
-#   define _(n) \
-    FD_TEST( wv_test( wv_shl( x, n ), x0<<n, x1<<n, x2<<n, x3<<n ) ); \
-    FD_TEST( wv_test( wv_shr( x, n ), x0>>n, x1>>n, x2>>n, x3>>n ) );
+#   define ROL(x,n) fd_ulong_rotate_left ((x),(n))
+#   define ROR(x,n) fd_ulong_rotate_right((x),(n))
+
+#   define _(n)                                                                       \
+    FD_TEST( wv_test( wv_shl( x, n ), x0<<n,     x1<<n,     x2<<n,     x3<<n     ) ); \
+    FD_TEST( wv_test( wv_shr( x, n ), x0>>n,     x1>>n,     x2>>n,     x3>>n     ) ); \
+    FD_TEST( wv_test( wv_rol( x, n ), ROL(x0,n), ROL(x1,n), ROL(x2,n), ROL(x3,n) ) ); \
+    FD_TEST( wv_test( wv_ror( x, n ), ROR(x0,n), ROR(x1,n), ROR(x2,n), ROR(x3,n) ) )
     _( 0); _( 1); _( 2); _( 3); _( 4); _( 5); _( 6); _( 7); _( 8); _( 9); _(10); _(11); _(12); _(13); _(14); _(15);
     _(16); _(17); _(18); _(19); _(20); _(21); _(22); _(23); _(24); _(25); _(26); _(27); _(28); _(29); _(30); _(31);
     _(32); _(33); _(34); _(35); _(36); _(37); _(38); _(39); _(40); _(41); _(42); _(43); _(44); _(45); _(46); _(47);
     _(48); _(49); _(50); _(51); _(52); _(53); _(54); _(55); _(56); _(57); _(58); _(59); _(60); _(61); _(62); _(63);
 #   undef _
+
     for( int n=0; n<64; n++ ) {
       int volatile m[1]; m[0] = n;
-      FD_TEST( wv_test( wv_shl_variable( x, m[0] ), x0<<n, x1<<n, x2<<n, x3<<n ) );
-      FD_TEST( wv_test( wv_shr_variable( x, m[0] ), x0>>n, x1>>n, x2>>n, x3>>n ) );
+      FD_TEST( wv_test( wv_shl_variable( x, m[0] ), x0<<n,     x1<<n,     x2<<n,     x3<<n     ) );
+      FD_TEST( wv_test( wv_shr_variable( x, m[0] ), x0>>n,     x1>>n,     x2>>n,     x3>>n     ) );
+      FD_TEST( wv_test( wv_rol_variable( x, m[0] ), ROL(x0,n), ROL(x1,n), ROL(x2,n), ROL(x3,n) ) );
+      FD_TEST( wv_test( wv_ror_variable( x, m[0] ), ROR(x0,n), ROR(x1,n), ROR(x2,n), ROR(x3,n) ) );
     }
+
+#   undef ROR
+#   undef ROL
 
     FD_TEST( wv_test( wv_and(    x, y ),   x0 &y0,   x1 &y1,   x2 &y2,   x3 &y3 ) );
     FD_TEST( wv_test( wv_andnot( x, y ), (~x0)&y0, (~x1)&y1, (~x2)&y2, (~x3)&y3 ) );
@@ -1221,7 +1274,7 @@ main( int     argc,
   }
 
   /* FIXME: TEST LDIF/STIF VARIANTS */
-  /* FIXME: TEST VECTOR SHIFT VARIANTS */
+  /* FIXME: TEST VECTOR SHIFT AND ROTATE VARIANTS */
 
   fd_rng_delete( fd_rng_leave( rng ) );
 

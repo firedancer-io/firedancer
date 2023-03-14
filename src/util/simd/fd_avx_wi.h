@@ -163,6 +163,22 @@ wi_insert_variable( wi_t a, int n, int v ) {
 #define wi_or(a,b)     _mm256_or_si256(     (a), (b) ) /* [   a0 |b0    a1 |b1 ...   a7 |b7 ] */
 #define wi_xor(a,b)    _mm256_xor_si256(    (a), (b) ) /* [   a0 ^b0    a1 ^b1 ...   a7 ^b7 ] */
 
+static inline wi_t wi_rol( wi_t a, int imm ) { return wi_or( wi_shl(  a, imm & 31 ), wi_shru( a, (-imm) & 31 ) ); }
+static inline wi_t wi_ror( wi_t a, int imm ) { return wi_or( wi_shru( a, imm & 31 ), wi_shl(  a, (-imm) & 31 ) ); }
+
+static inline wi_t wi_rol_variable( wi_t a, int n ) { return wi_or( wi_shl_variable(  a, n&31 ), wi_shru_variable( a, (-n)&31 ) ); }
+static inline wi_t wi_ror_variable( wi_t a, int n ) { return wi_or( wi_shru_variable( a, n&31 ), wi_shl_variable(  a, (-n)&31 ) ); }
+
+static inline wi_t wi_rol_vector( wi_t a, wi_t b ) {
+  wi_t m = wi_bcast( 31 );
+  return wi_or( wi_shl_vector(  a, wi_and( b, m ) ), wi_shru_vector( a, wi_and( wi_neg( b ), m ) ) );
+}
+
+static inline wi_t wi_ror_vector( wi_t a, wi_t b ) {
+  wi_t m = wi_bcast( 31 );
+  return wi_or( wi_shru_vector( a, wi_and( b, m ) ), wi_shl_vector(  a, wi_and( wi_neg( b ), m ) ) );
+}
+
 /* Logical operations */
 
 #define wi_lnot(a)    _mm256_cmpeq_epi32( (a), _mm256_setzero_si256() ) /* [  !a0  !a1 ...  !a7 ] */

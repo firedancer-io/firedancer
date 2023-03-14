@@ -134,6 +134,22 @@ vu_insert_variable( vu_t a, int n, uint v ) {
 #define vu_or(a,b)     _mm_or_si128(     (a), (b) ) /* [   a0 |b0    a1 |b1 ...   a3 |b3 ] */
 #define vu_xor(a,b)    _mm_xor_si128(    (a), (b) ) /* [   a0 ^b0    a1 ^b1 ...   a3 ^b3 ] */
 
+static inline vu_t vu_rol( vu_t a, int imm ) { return vu_or( vu_shl( a, imm & 31 ), vu_shr( a, (-imm) & 31 ) ); }
+static inline vu_t vu_ror( vu_t a, int imm ) { return vu_or( vu_shr( a, imm & 31 ), vu_shl( a, (-imm) & 31 ) ); }
+
+static inline vu_t vu_rol_variable( vu_t a, int n ) { return vu_or( vu_shl_variable( a, n&31 ), vu_shr_variable( a, (-n)&31 ) ); }
+static inline vu_t vu_ror_variable( vu_t a, int n ) { return vu_or( vu_shr_variable( a, n&31 ), vu_shl_variable( a, (-n)&31 ) ); }
+
+static inline vu_t vu_rol_vector( vu_t a, vi_t b ) {
+  vi_t m = vi_bcast( 31 );
+  return vu_or( vu_shl_vector( a, vi_and( b, m ) ), vu_shr_vector( a, vi_and( vi_neg( b ), m ) ) );
+}
+
+static inline vu_t vu_ror_vector( vu_t a, vi_t b ) {
+  vi_t m = vi_bcast( 31 );
+  return vu_or( vu_shr_vector( a, vi_and( b, m ) ), vu_shl_vector( a, vi_and( vi_neg( b ), m ) ) );
+}
+
 /* Logical operations */
 
 /* Like noted below in the vu_to_{vf,vd} converters, Intel clearly has

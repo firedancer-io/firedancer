@@ -135,6 +135,22 @@ vi_insert_variable( vi_t a, int n, int v ) {
 #define vi_or(a,b)     _mm_or_si128(     (a), (b) ) /* [   a0 |b0    a1 |b1 ...   a3 |b3 ] */
 #define vi_xor(a,b)    _mm_xor_si128(    (a), (b) ) /* [   a0 ^b0    a1 ^b1 ...   a3 ^b3 ] */
 
+static inline vi_t vi_rol( vi_t a, int imm ) { return vi_or( vi_shl(  a, imm & 31 ), vi_shru( a, (-imm) & 31 ) ); }
+static inline vi_t vi_ror( vi_t a, int imm ) { return vi_or( vi_shru( a, imm & 31 ), vi_shl(  a, (-imm) & 31 ) ); }
+
+static inline vi_t vi_rol_variable( vi_t a, int n ) { return vi_or( vi_shl_variable(  a, n&31 ), vi_shru_variable( a, (-n)&31 ) ); }
+static inline vi_t vi_ror_variable( vi_t a, int n ) { return vi_or( vi_shru_variable( a, n&31 ), vi_shl_variable(  a, (-n)&31 ) ); }
+
+static inline vi_t vi_rol_vector( vi_t a, vi_t b ) {
+  vi_t m = vi_bcast( 31 );
+  return vi_or( vi_shl_vector(  a, vi_and( b, m ) ), vi_shru_vector( a, vi_and( vi_neg( b ), m ) ) );
+}
+
+static inline vi_t vi_ror_vector( vi_t a, vi_t b ) {
+  vi_t m = vi_bcast( 31 );
+  return vi_or( vi_shru_vector( a, vi_and( b, m ) ), vi_shl_vector(  a, vi_and( vi_neg( b ), m ) ) );
+}
+
 /* Logical operations */
 
 #define vi_lnot(a)     _mm_cmpeq_epi32( (a), _mm_setzero_si128() ) /* [  !a0  !a1 ...  !a3 ] */

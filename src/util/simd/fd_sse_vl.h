@@ -135,6 +135,22 @@ vl_insert_variable( vl_t a, int n, long v ) {
 #define vl_or(a,b)     _mm_or_si128(     (a), (b) ) /* [   a0 |b0    a1 |b1 ] */
 #define vl_xor(a,b)    _mm_xor_si128(    (a), (b) ) /* [   a0 ^b0    a1 ^b1 ] */
 
+static inline vl_t vl_rol( vl_t a, int imm ) { return vl_or( vl_shl(  a, imm & 63 ), vl_shru( a, (-imm) & 63 ) ); }
+static inline vl_t vl_ror( vl_t a, int imm ) { return vl_or( vl_shru( a, imm & 63 ), vl_shl(  a, (-imm) & 63 ) ); }
+
+static inline vl_t vl_rol_variable( vl_t a, int n ) { return vl_or( vl_shl_variable(  a, n&63 ), vl_shru_variable( a, (-n)&63 ) ); }
+static inline vl_t vl_ror_variable( vl_t a, int n ) { return vl_or( vl_shru_variable( a, n&63 ), vl_shl_variable(  a, (-n)&63 ) ); }
+
+static inline vl_t vl_rol_vector( vl_t a, vl_t b ) {
+  vl_t m = vl_bcast( 63L );
+  return vl_or( vl_shl_vector(  a, vl_and( b, m ) ), vl_shru_vector( a, vl_and( vl_neg( b ), m ) ) );
+}
+
+static inline vl_t vl_ror_vector( vl_t a, vl_t b ) {
+  vl_t m = vl_bcast( 63L );
+  return vl_or( vl_shru_vector( a, vl_and( b, m ) ), vl_shl_vector(  a, vl_and( vl_neg( b ), m ) ) );
+}
+
 /* Logical operations */
 
 #define vl_lnot(a)    _mm_cmpeq_epi64( (a), _mm_setzero_si128() )                                          /* [  !a0  !a1 ] */
