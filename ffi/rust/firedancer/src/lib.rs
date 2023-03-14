@@ -9,12 +9,12 @@ use std::{
         compiler_fence,
         Ordering,
     },
+    time::Duration,
 };
 use anyhow::{
     anyhow,
     Result,
 };
-use chrono::Utc;
 use firedancer_sys::{
     tango::{
         fd_chunk_to_laddr_const,
@@ -43,6 +43,7 @@ use firedancer_sys::{
         fd_wksp_map,
     },
 };
+use minstant::Instant;
 use rand::prelude::*;
 
 /// PackRx exposes a simple API for consuming the output from the Frank pack tile.
@@ -145,14 +146,14 @@ impl PackRx {
         compiler_fence(Ordering::AcqRel);
 
         // Set frequency of houskeeping operations
-        let mut next_housekeeping = Utc::now().timestamp_nanos();
+        let mut next_housekeeping = Instant::now();
         let housekeeping_interval_ns = fd_tempo_lazy_default(depth);
         let mut rng = rand::thread_rng();
 
         // Continually consume data from the queue
         loop {
             // Do housekeeping at intervals
-            let now = Utc::now().timestamp_nanos();
+            let now = Instant::now();
             if now >= next_housekeeping {
                 compiler_fence(Ordering::AcqRel);
                 fseq_diag
@@ -170,7 +171,7 @@ impl PackRx {
                 compiler_fence(Ordering::AcqRel);
 
                 next_housekeeping =
-                    now + rng.gen_range(housekeeping_interval_ns..=2 * housekeeping_interval_ns)
+                    now + Duration::from_nanos(rng.gen_range(housekeeping_interval_ns, 2 * housekeeping_interval_ns) as u64)
             }
 
             // Overrun check
@@ -189,15 +190,15 @@ impl PackRx {
                 println!("overran");
             }
 
-            // Allocate new record on Rust heap
-            let mut bytes = Vec::with_capacity(size.into());
-
             // Speculatively copy data out of dcache into Rust slice
             let chunk = fd_chunk_to_laddr_const(
                 transmute(workspace),
                 (*mline).__bindgen_anon_1.as_ref().chunk.into(),
             ) as *const u8;
             let size = (*mline).__bindgen_anon_1.as_ref().sz;
+
+            // Allocate new record on Rust heap
+            let mut bytes = Vec::with_capacity(size.into());
 
             ptr::copy_nonoverlapping(chunk, bytes.as_mut_ptr(), size.into());
             bytes.set_len(size.into());
