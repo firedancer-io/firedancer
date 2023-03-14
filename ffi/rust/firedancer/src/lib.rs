@@ -189,13 +189,16 @@ impl PackRx {
                 println!("overran");
             }
 
-            // Speculatively copy data out of dcache
+            // Allocate new record on Rust heap
+            let mut bytes = Vec::with_capacity(size.into());
+
+            // Speculatively copy data out of dcache into Rust slice
             let chunk = fd_chunk_to_laddr_const(
                 transmute(workspace),
                 (*mline).__bindgen_anon_1.as_ref().chunk.into(),
             ) as *const u8;
             let size = (*mline).__bindgen_anon_1.as_ref().sz;
-            let mut bytes = Vec::with_capacity(size.into());
+
             ptr::copy_nonoverlapping(chunk, bytes.as_mut_ptr(), size.into());
             bytes.set_len(size.into());
 
@@ -204,7 +207,6 @@ impl PackRx {
             if seq_found != seq {
                 accum_ovrnr_cnt += 1;
                 seq = seq_found;
-                println!("overran while processing");
                 continue;
             }
 
@@ -216,10 +218,7 @@ impl PackRx {
             mline = mcache.add(fd_mcache_line_idx(seq, depth).try_into().unwrap());
 
             // Send the data on the channel
-            if let Err(e) = self.out.send(bytes) {
-                // TODO: pop extra two bytes off somewhere in the pipeline (tx size, labs banking stage only accepts raw payloads)
-                println!("error sending data to output channel: {:?}", e);
-            }
+            _ = self.out.send(bytes)
         }
     }
 

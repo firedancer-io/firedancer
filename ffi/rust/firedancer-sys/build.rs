@@ -38,8 +38,9 @@ fn main() {
     println!("cargo:rustc-link-lib=static=fd_tango");
     println!("cargo:rustc-link-lib=static=fd_disco");
     println!("cargo:rustc-link-lib=static=fd_ballet");
-    println!("cargo:rustc-link-lib=numa");
+    println!("cargo:rustc-link-lib=static=fd_xdp");
     println!("cargo:rustc-link-lib=stdc++");
+    println!("cargo:rustc-link-lib=bpf");
 
     // Generate bindings to the header files
     let out_path = PathBuf::from(env::var("OUT_DIR").unwrap());
