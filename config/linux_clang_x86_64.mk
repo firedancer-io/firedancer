@@ -7,6 +7,7 @@ include config/with-debug.mk
 include config/with-brutality.mk
 include config/with-optimization.mk
 include config/with-threads.mk
+include config/with-secp256k1.mk
 
 # Clang sadly doesn't support important optimizations.  This practically
 # limits clang usage to code hygenine usage for the time being.  Here,
