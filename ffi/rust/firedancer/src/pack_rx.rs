@@ -2,7 +2,6 @@ use std::{
     ffi::CString,
     hint::spin_loop,
     mem::transmute,
-    ops::Not,
     sync::atomic::{
         compiler_fence,
         Ordering,
@@ -139,11 +138,9 @@ impl<R: PackRxReceiver> PackRx<R> {
 
         // Join the workspace
         let workspace = fd_wksp_containing(transmute(mline));
-        workspace
-            .is_null()
-            .not()
-            .then(|| ())
-            .ok_or(anyhow!("fd_wksp_containing failed"))?;
+        if workspace.is_null() {
+            return Err(anyhow!("fd_wksp_containing failed"));
+        }
 
         // Hook up to flow control diagnostics
         let fseq_diag = fd_fseq_app_laddr(fseq) as *mut u64;

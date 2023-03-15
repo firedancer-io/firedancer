@@ -1,3 +1,5 @@
+#![allow(clippy::missing_safety_doc)]
+
 pub mod pack_rx;
 
 use firedancer_sys::util;
@@ -31,7 +33,7 @@ pub fn fd_boot(args: &[&str]) {
     // Rewrite byte offsets into absolute addresses
     let argv_ptrs = argv_offs
         .into_iter()
-        .map(|off| unsafe { argv_buf_ptr.offset(off as isize) })
+        .map(|off| unsafe { argv_buf_ptr.add(off) })
         .collect::<Vec<*mut i8>>();
 
     // Leak argv string array
