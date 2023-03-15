@@ -8,10 +8,8 @@ use std::{
     },
     time::Duration,
 };
-use anyhow::{
-    anyhow,
-    Result,
-};
+use anyhow::anyhow;
+pub use anyhow::Result;
 use firedancer_sys::{
     tango::{
         fd_chunk_to_laddr_const,
