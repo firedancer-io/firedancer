@@ -292,3 +292,23 @@ static inline vu_t vu_gather( uint const * b, vi_t i ) {
   return _mm_i32gather_epi32( (int const *)b, (i), 4 );
 }
 
+/* vu_transpose_4x4 transposes the 4x4 matrix stored in vu_t r0,r1,r2,r3
+   and stores the result in 4x4 matrix vu_t c0,c1,c2,c3.  All
+   c0,c1,c2,c3 should be different for a well defined result.
+   Otherwise, in-place operation and/or using the same vu_t to specify
+   multiple rows of r is fine. */
+
+#define vu_transpose_4x4( r0,r1,r2,r3, c0,c1,c2,c3 ) do {                                                                   \
+    vu_t _vu_transpose_r0 = (r0); vu_t _vu_transpose_r1 = (r1); vu_t _vu_transpose_r2 = (r2); vu_t _vu_transpose_r3 = (r3); \
+    vu_t _vu_transpose_t;                                                                                                   \
+    /* Transpose 2x2 blocks */                                                                                              \
+    _vu_transpose_t = _vu_transpose_r0; _vu_transpose_r0 = _mm_unpacklo_epi32( _vu_transpose_t,  _vu_transpose_r2 );        \
+    /**/                                _vu_transpose_r2 = _mm_unpackhi_epi32( _vu_transpose_t,  _vu_transpose_r2 );        \
+    _vu_transpose_t = _vu_transpose_r1; _vu_transpose_r1 = _mm_unpacklo_epi32( _vu_transpose_t,  _vu_transpose_r3 );        \
+    /**/                                _vu_transpose_r3 = _mm_unpackhi_epi32( _vu_transpose_t,  _vu_transpose_r3 );        \
+    /* Transpose 1x1 blocks */                                                                                              \
+    /**/                                (c0)             = _mm_unpacklo_epi32( _vu_transpose_r0, _vu_transpose_r1 );        \
+    /**/                                (c1)             = _mm_unpackhi_epi32( _vu_transpose_r0, _vu_transpose_r1 );        \
+    /**/                                (c2)             = _mm_unpacklo_epi32( _vu_transpose_r2, _vu_transpose_r3 );        \
+    /**/                                (c3)             = _mm_unpackhi_epi32( _vu_transpose_r2, _vu_transpose_r3 );        \
+  } while(0)

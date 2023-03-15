@@ -373,3 +373,23 @@ wd_max_all( wd_t a ) { /* Returns wd_bcast( max( x ) ) */
 
 #define wd_gather(b,i,imm_hi) _mm256_i32gather_pd( (b), _mm256_extractf128_si256( (i), !!(imm_hi) ), 8 )
 
+/* wd_transpose_4x4 transposes the 4x4 matrix stored in wd_t r0,r1,r2,r3
+   and stores the result in 4x4 matrix wd_t c0,c1,c2,c3.  All
+   c0,c1,c2,c3 should be different for a well defined result.
+   Otherwise, in-place operation and/or using the same wd_t to specify
+   multiple rows of r is fine. */
+
+#define wd_transpose_4x4( r0,r1,r2,r3, c0,c1,c2,c3 ) do {                                                                      \
+    wd_t _wd_transpose_r0 = (r0); wd_t _wd_transpose_r1 = (r1); wd_t _wd_transpose_r2 = (r2); wd_t _wd_transpose_r3 = (r3);    \
+    wd_t _wd_transpose_t;                                                                                                      \
+    /* Transpose 2x2 blocks */                                                                                                 \
+    _wd_transpose_t = _wd_transpose_r0; _wd_transpose_r0 = _mm256_permute2f128_pd( _wd_transpose_t,  _wd_transpose_r2, 0x20 ); \
+    /**/                                _wd_transpose_r2 = _mm256_permute2f128_pd( _wd_transpose_t,  _wd_transpose_r2, 0x31 ); \
+    _wd_transpose_t = _wd_transpose_r1; _wd_transpose_r1 = _mm256_permute2f128_pd( _wd_transpose_t,  _wd_transpose_r3, 0x20 ); \
+    /**/                                _wd_transpose_r3 = _mm256_permute2f128_pd( _wd_transpose_t,  _wd_transpose_r3, 0x31 ); \
+    /* Transpose 1x1 blocks */                                                                                                 \
+    /**/                                (c0)             = _mm256_unpacklo_pd(     _wd_transpose_r0, _wd_transpose_r1 );       \
+    /**/                                (c1)             = _mm256_unpackhi_pd(     _wd_transpose_r0, _wd_transpose_r1 );       \
+    /**/                                (c2)             = _mm256_unpacklo_pd(     _wd_transpose_r2, _wd_transpose_r3 );       \
+    /**/                                (c3)             = _mm256_unpackhi_pd(     _wd_transpose_r2, _wd_transpose_r3 );       \
+  } while(0)

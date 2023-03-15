@@ -226,3 +226,23 @@ static inline void vc_stu( int * p, vc_t c ) { _mm_storeu_si128( (__m128i *)p, c
                                            _mm_cmpeq_epi32( _mm_i32gather_epi32( (b), (i), 4 ), _mm_setzero_si128() ) )
 #define vc_gather_fast(b,i) _mm_i32gather_epi32( (b), (i), 4 )
 
+/* vc_transpose_4x4 transposes the 4x4 matrix stored in vc_t r0,r1,r2,r3
+   and stores the result in 4x4 matrix vc_t c0,c1,c2,c3.  All
+   c0,c1,c2,c3 should be different for a well defined result.
+   Otherwise, in-place operation and/or using the same vc_t to specify
+   multiple rows of r is fine. */
+
+#define vc_transpose_4x4( r0,r1,r2,r3, c0,c1,c2,c3 ) do {                                                                   \
+    vc_t _vc_transpose_r0 = (r0); vc_t _vc_transpose_r1 = (r1); vc_t _vc_transpose_r2 = (r2); vc_t _vc_transpose_r3 = (r3); \
+    vc_t _vc_transpose_t;                                                                                                   \
+    /* Transpose 2x2 blocks */                                                                                              \
+    _vc_transpose_t = _vc_transpose_r0; _vc_transpose_r0 = _mm_unpacklo_epi32( _vc_transpose_t,  _vc_transpose_r2 );        \
+    /**/                                _vc_transpose_r2 = _mm_unpackhi_epi32( _vc_transpose_t,  _vc_transpose_r2 );        \
+    _vc_transpose_t = _vc_transpose_r1; _vc_transpose_r1 = _mm_unpacklo_epi32( _vc_transpose_t,  _vc_transpose_r3 );        \
+    /**/                                _vc_transpose_r3 = _mm_unpackhi_epi32( _vc_transpose_t,  _vc_transpose_r3 );        \
+    /* Transpose 1x1 blocks */                                                                                              \
+    /**/                                (c0)             = _mm_unpacklo_epi32( _vc_transpose_r0, _vc_transpose_r1 );        \
+    /**/                                (c1)             = _mm_unpackhi_epi32( _vc_transpose_r0, _vc_transpose_r1 );        \
+    /**/                                (c2)             = _mm_unpacklo_epi32( _vc_transpose_r2, _vc_transpose_r3 );        \
+    /**/                                (c3)             = _mm_unpackhi_epi32( _vc_transpose_r2, _vc_transpose_r3 );        \
+  } while(0)

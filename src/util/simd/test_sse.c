@@ -350,6 +350,13 @@ main( int     argc,
 
     FD_TEST( vc_any(c) == (c0 | c1 | c2 | c3) );
     FD_TEST( vc_all(c) == (c0 & c1 & c2 & c3) );
+
+    /* Misc operations */
+
+    vc_t m0; vc_t m1; vc_t m2; vc_t m3;
+    vc_transpose_4x4( vc_bcast( c0 ), vc_bcast( c1 ), vc_bcast( c2 ), vc_bcast( c3 ), m0, m1, m2, m3 );
+    vc_t mm = vc( c0, c1, c2, c3 );
+    FD_TEST( vc_all( vc_and( vc_and( vc_eq( m0, mm ), vc_eq( m1, mm ) ), vc_and( vc_eq( m2, mm ), vc_eq( m3, mm ) ) ) ) );
   }
 
   for( int x=0; x<16; x++ ) {
@@ -528,6 +535,13 @@ main( int     argc,
     FD_TEST( !vc_any( vf_ne( vf_sum_all( x ), vf_bcast( x0 + x1 + x2 + x3 ) ) ) );
     FD_TEST( !vc_any( vf_ne( vf_min_all( x ), vf_bcast( fminf( fminf( x0, x1 ), fminf( x2, x3 ) ) ) ) ) );
     FD_TEST( !vc_any( vf_ne( vf_max_all( x ), vf_bcast( fmaxf( fmaxf( x0, x1 ), fmaxf( x2, x3 ) ) ) ) ) );
+
+    /* Misc operations */
+
+    vf_t m0; vf_t m1; vf_t m2; vf_t m3;
+    vf_transpose_4x4( vf_bcast( x0 ), vf_bcast( x1 ), vf_bcast( x2 ), vf_bcast( x3 ), m0, m1, m2, m3 );
+    vf_t mm = vf( x0, x1, x2, x3 );
+    FD_TEST( vc_all( vc_and( vc_and( vf_eq( m0, mm ), vf_eq( m1, mm ) ), vc_and( vf_eq( m2, mm ), vf_eq( m3, mm ) ) ) ) );
   }
 
   /* VI tests */
@@ -688,6 +702,13 @@ main( int     argc,
     FD_TEST( !vc_any( vi_ne( vi_sum_all( x ), vi_bcast( x0 + x1 + x2 + x3 ) ) ) );
     FD_TEST( !vc_any( vi_ne( vi_min_all( x ), vi_bcast( fd_int_min( fd_int_min( x0, x1 ), fd_int_min( x2, x3 ) ) ) ) ) );
     FD_TEST( !vc_any( vi_ne( vi_max_all( x ), vi_bcast( fd_int_max( fd_int_max( x0, x1 ), fd_int_max( x2, x3 ) ) ) ) ) );
+
+    /* Misc operations */
+
+    vi_t m0; vi_t m1; vi_t m2; vi_t m3;
+    vi_transpose_4x4( vi_bcast( x0 ), vi_bcast( x1 ), vi_bcast( x2 ), vi_bcast( x3 ), m0, m1, m2, m3 );
+    vi_t mm = vi( x0, x1, x2, x3 );
+    FD_TEST( vc_all( vc_and( vc_and( vi_eq( m0, mm ), vi_eq( m1, mm ) ), vc_and( vi_eq( m2, mm ), vi_eq( m3, mm ) ) ) ) );
   }
 
   /* VU tests */
@@ -846,6 +867,13 @@ main( int     argc,
     FD_TEST( !vc_any( vu_ne( vu_sum_all( x ), vu_bcast( x0 + x1 + x2 + x3 ) ) ) );
     FD_TEST( !vc_any( vu_ne( vu_min_all( x ), vu_bcast( fd_uint_min( fd_uint_min( x0, x1 ), fd_uint_min( x2, x3 ) ) ) ) ) );
     FD_TEST( !vc_any( vu_ne( vu_max_all( x ), vu_bcast( fd_uint_max( fd_uint_max( x0, x1 ), fd_uint_max( x2, x3 ) ) ) ) ) );
+
+    /* Misc operations */
+
+    vu_t m0; vu_t m1; vu_t m2; vu_t m3;
+    vu_transpose_4x4( vu_bcast( x0 ), vu_bcast( x1 ), vu_bcast( x2 ), vu_bcast( x3 ), m0, m1, m2, m3 );
+    vu_t mm = vu( x0, x1, x2, x3 );
+    FD_TEST( vc_all( vc_and( vc_and( vu_eq( m0, mm ), vu_eq( m1, mm ) ), vc_and( vu_eq( m2, mm ), vu_eq( m3, mm ) ) ) ) );
   }
 
   /* VD tests */
@@ -952,6 +980,13 @@ main( int     argc,
     FD_TEST( !vc_any( vd_ne( vd_sum_all( x ), vd_bcast( x0 + x1        ) ) ) );
     FD_TEST( !vc_any( vd_ne( vd_min_all( x ), vd_bcast( fmin( x0, x1 ) ) ) ) );
     FD_TEST( !vc_any( vd_ne( vd_max_all( x ), vd_bcast( fmax( x0, x1 ) ) ) ) );
+
+    /* Misc operations */
+
+    vd_t m0; vd_t m1;
+    vd_transpose_2x2( vd_bcast( x0 ), vd_bcast( x1 ), m0, m1 );
+    vd_t mm = vd( x0, x1 );
+    FD_TEST( vc_all( vc_and( vd_eq( m0, mm ), vd_eq( m1, mm ) ) ) );
   }
 
   /* VL tests */
@@ -1067,6 +1102,13 @@ main( int     argc,
     FD_TEST( !vc_any( vl_ne( vl_sum_all( x ), vl_bcast( x0 + x1 ) ) ) );
     FD_TEST( !vc_any( vl_ne( vl_min_all( x ), vl_bcast( fd_long_min( x0, x1 ) ) ) ) );
     FD_TEST( !vc_any( vl_ne( vl_max_all( x ), vl_bcast( fd_long_max( x0, x1 ) ) ) ) );
+
+    /* Misc operations */
+
+    vl_t m0; vl_t m1;
+    vl_transpose_2x2( vl_bcast( x0 ), vl_bcast( x1 ), m0, m1 );
+    vl_t mm = vl( x0, x1 );
+    FD_TEST( vc_all( vc_and( vl_eq( m0, mm ), vl_eq( m1, mm ) ) ) );
   }
 
   /* VV tests */
@@ -1180,10 +1222,17 @@ main( int     argc,
     FD_TEST( !vc_any( vv_ne( vv_sum_all( x ), vv_bcast( x0 + x1 ) ) ) );
     FD_TEST( !vc_any( vv_ne( vv_min_all( x ), vv_bcast( fd_ulong_min( x0, x1 ) ) ) ) );
     FD_TEST( !vc_any( vv_ne( vv_max_all( x ), vv_bcast( fd_ulong_max( x0, x1 ) ) ) ) );
+
+    /* Misc operations */
+
+    vv_t m0; vv_t m1;
+    vv_transpose_2x2( vv_bcast( x0 ), vv_bcast( x1 ), m0, m1 );
+    vv_t mm = vv( x0, x1 );
+    FD_TEST( vc_all( vc_and( vv_eq( m0, mm ), vv_eq( m1, mm ) ) ) );
   }
 
-  /* FIXME: TEST LDIF/STIF VARIANTS */
-  /* FIXME: TEST VECTOR SHIFT VARIANTS */
+  /* FIXME: TEST LDIF/STIF AND GATHER VARIANTS */
+  /* FIXME: TEST VECTOR SHIFT AND ROTATE VARIANTS */
 
   fd_rng_delete( fd_rng_leave( rng ) );
 
