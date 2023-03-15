@@ -68,8 +68,6 @@ pub trait PackRxReceiver {
 /// This is an unreliable consumer: if the producer overruns the consumer, the
 /// consumer will skip data to catch up with the producer.
 pub struct PackRx<R: PackRxReceiver> {
-    /// Configuration
-    // TODO: proper config using pod api
     mcache: *mut fd_frag_meta_t,
     dcache: *mut u8,
     fseq: *mut u64,
@@ -149,6 +147,8 @@ impl<R: PackRxReceiver> PackRx<R> {
         let mut accum_pub_sz: u64 = 0;
         let mut accum_ovrnp_cnt: u64 = 0;
         let mut accum_ovrnr_cnt: u64 = 0;
+        let mut accum_filt_cnt: u64 = 0;
+        let mut accum_filt_sz: u64 = 0;
 
         compiler_fence(Ordering::AcqRel);
         fseq_diag
@@ -159,10 +159,10 @@ impl<R: PackRxReceiver> PackRx<R> {
             .write_volatile(accum_pub_sz);
         fseq_diag
             .add(FD_FSEQ_DIAG_FILT_CNT.try_into().unwrap())
-            .write_volatile(0);
+            .write_volatile(accum_filt_cnt);
         fseq_diag
             .add(FD_FSEQ_DIAG_FILT_SZ.try_into().unwrap())
-            .write_volatile(0);
+            .write_volatile(accum_filt_sz);
         fseq_diag
             .add(FD_FSEQ_DIAG_OVRNP_CNT.try_into().unwrap())
             .write_volatile(accum_ovrnp_cnt);
@@ -191,6 +191,12 @@ impl<R: PackRxReceiver> PackRx<R> {
                 fseq_diag
                     .add(FD_FSEQ_DIAG_PUB_SZ.try_into().unwrap())
                     .write_volatile(accum_pub_sz);
+                fseq_diag
+                    .add(FD_FSEQ_DIAG_FILT_CNT.try_into().unwrap())
+                    .write_volatile(accum_filt_cnt);
+                fseq_diag
+                    .add(FD_FSEQ_DIAG_FILT_SZ.try_into().unwrap())
+                    .write_volatile(accum_filt_sz);
                 fseq_diag
                     .add(FD_FSEQ_DIAG_OVRNP_CNT.try_into().unwrap())
                     .write_volatile(accum_ovrnp_cnt);
@@ -244,17 +250,18 @@ impl<R: PackRxReceiver> PackRx<R> {
                 continue;
             }
 
-            accum_pub_cnt += 1;
-            accum_pub_sz += size as u64;
-
             // Update seq and mline
             seq += 1;
             mline = mcache.add(fd_mcache_line_idx(seq, depth).try_into().unwrap());
 
             // Commit receive
-            self.out.recv_txn_commit(true);
-            // TODO handle commit result and update fseq counters
-            // according to downstream consumer result.
+            if self.out.recv_txn_commit(true) {
+                accum_pub_cnt += 1;
+                accum_pub_sz += size as u64;
+            } else {
+                accum_filt_cnt += 1;
+                accum_filt_sz += size as u64;
+            }
         }
     }
 }
