@@ -387,3 +387,41 @@ wf_max_all( wf_t x ) { /* Returns wf_bcast( max( x ) ) */
 
 #define wf_gather(b,i) _mm256_i32gather_ps( (b), (i), 4 )
 
+/* wf_transpose_8x8 transposes the 8x8 matrix stored in wf_t r0,r1,...r7
+   and stores the result in 8x8 matrix wf_t c0,c1,...c7.  All
+   c0,c1,...c7 should be different for a well defined result.
+   Otherwise, in-place operation and/or using the same wf_t to specify
+   multiple rows of r is fine. */
+
+#define wf_transpose_8x8( r0,r1,r2,r3,r4,r5,r6,r7, c0,c1,c2,c3,c4,c5,c6,c7 ) do {                                              \
+    wf_t _wf_transpose_r0 = (r0); wf_t _wf_transpose_r1 = (r1); wf_t _wf_transpose_r2 = (r2); wf_t _wf_transpose_r3 = (r3);    \
+    wf_t _wf_transpose_r4 = (r4); wf_t _wf_transpose_r5 = (r5); wf_t _wf_transpose_r6 = (r6); wf_t _wf_transpose_r7 = (r7);    \
+    wf_t _wf_transpose_t;                                                                                                      \
+    /* Transpose 4x4 blocks */                                                                                                 \
+    _wf_transpose_t = _wf_transpose_r0; _wf_transpose_r0 = _mm256_permute2f128_ps( _wf_transpose_t,  _wf_transpose_r4, 0x20 ); \
+    /**/                                _wf_transpose_r4 = _mm256_permute2f128_ps( _wf_transpose_t,  _wf_transpose_r4, 0x31 ); \
+    _wf_transpose_t = _wf_transpose_r1; _wf_transpose_r1 = _mm256_permute2f128_ps( _wf_transpose_t,  _wf_transpose_r5, 0x20 ); \
+    /**/                                _wf_transpose_r5 = _mm256_permute2f128_ps( _wf_transpose_t,  _wf_transpose_r5, 0x31 ); \
+    _wf_transpose_t = _wf_transpose_r2; _wf_transpose_r2 = _mm256_permute2f128_ps( _wf_transpose_t,  _wf_transpose_r6, 0x20 ); \
+    /**/                                _wf_transpose_r6 = _mm256_permute2f128_ps( _wf_transpose_t,  _wf_transpose_r6, 0x31 ); \
+    _wf_transpose_t = _wf_transpose_r3; _wf_transpose_r3 = _mm256_permute2f128_ps( _wf_transpose_t,  _wf_transpose_r7, 0x20 ); \
+    /**/                                _wf_transpose_r7 = _mm256_permute2f128_ps( _wf_transpose_t,  _wf_transpose_r7, 0x31 ); \
+    /* Transpose 2x2 blocks */                                                                                                 \
+    _wf_transpose_t = _wf_transpose_r0; _wf_transpose_r0 = _mm256_unpacklo_ps(     _wf_transpose_t,  _wf_transpose_r2 );       \
+    /**/                                _wf_transpose_r2 = _mm256_unpackhi_ps(     _wf_transpose_t,  _wf_transpose_r2 );       \
+    _wf_transpose_t = _wf_transpose_r1; _wf_transpose_r1 = _mm256_unpacklo_ps(     _wf_transpose_t,  _wf_transpose_r3 );       \
+    /**/                                _wf_transpose_r3 = _mm256_unpackhi_ps(     _wf_transpose_t,  _wf_transpose_r3 );       \
+    _wf_transpose_t = _wf_transpose_r4; _wf_transpose_r4 = _mm256_unpacklo_ps(     _wf_transpose_t,  _wf_transpose_r6 );       \
+    /**/                                _wf_transpose_r6 = _mm256_unpackhi_ps(     _wf_transpose_t,  _wf_transpose_r6 );       \
+    _wf_transpose_t = _wf_transpose_r5; _wf_transpose_r5 = _mm256_unpacklo_ps(     _wf_transpose_t,  _wf_transpose_r7 );       \
+    /**/                                _wf_transpose_r7 = _mm256_unpackhi_ps(     _wf_transpose_t,  _wf_transpose_r7 );       \
+    /* Transpose 1x1 blocks */                                                                                                 \
+    /**/                                (c0)             = _mm256_unpacklo_ps(     _wf_transpose_r0, _wf_transpose_r1 );       \
+    /**/                                (c1)             = _mm256_unpackhi_ps(     _wf_transpose_r0, _wf_transpose_r1 );       \
+    /**/                                (c2)             = _mm256_unpacklo_ps(     _wf_transpose_r2, _wf_transpose_r3 );       \
+    /**/                                (c3)             = _mm256_unpackhi_ps(     _wf_transpose_r2, _wf_transpose_r3 );       \
+    /**/                                (c4)             = _mm256_unpacklo_ps(     _wf_transpose_r4, _wf_transpose_r5 );       \
+    /**/                                (c5)             = _mm256_unpackhi_ps(     _wf_transpose_r4, _wf_transpose_r5 );       \
+    /**/                                (c6)             = _mm256_unpacklo_ps(     _wf_transpose_r6, _wf_transpose_r7 );       \
+    /**/                                (c7)             = _mm256_unpackhi_ps(     _wf_transpose_r6, _wf_transpose_r7 );       \
+  } while(0)

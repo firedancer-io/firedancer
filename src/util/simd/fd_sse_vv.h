@@ -273,3 +273,13 @@ static inline vv_t _vv_gather( ulong const * b, vi_t i ) {
 
 #define vv_gather(b,i,imm_i0,imm_i1) _vv_gather( (b), _mm_shuffle_epi32( (i), _MM_SHUFFLE(3,2,(imm_i1),(imm_i0)) ) )
 
+/* vv_transpose_2x2 transposes the 2x2 matrix stored in vv_t r0,r1
+   and stores the result in 2x2 matrix vv_t c0,c1.  All c0,c1 should be
+   different for a well defined result.  Otherwise, in-place operation
+   and/or using the same vv_t to specify multiple rows of r is fine. */
+
+#define vv_transpose_2x2( r0,r1, c0,c1 ) do {                        \
+    vv_t _vv_transpose_r0 = (r0); vv_t _vv_transpose_r1 = (r1);      \
+    (c0) = _mm_unpacklo_epi64( _vv_transpose_r0, _vv_transpose_r1 ); \
+    (c1) = _mm_unpackhi_epi64( _vv_transpose_r0, _vv_transpose_r1 ); \
+  } while(0)

@@ -283,3 +283,41 @@ wi_max_all( wi_t x ) { /* Returns wi_bcast( max( x ) ) */
 
 #define wi_gather(b,i) _mm256_i32gather_epi32( (b), (i), 4 )
 
+/* wi_transpose_8x8 transposes the 8x8 matrix stored in wi_t r0,r1,...r7
+   and stores the result in 8x8 matrix wi_t c0,c1,...c7.  All
+   c0,c1,...c7 should be different for a well defined result.
+   Otherwise, in-place operation and/or using the same wi_t to specify
+   multiple rows of r is fine. */
+
+#define wi_transpose_8x8( r0,r1,r2,r3,r4,r5,r6,r7, c0,c1,c2,c3,c4,c5,c6,c7 ) do {                                                 \
+    wi_t _wi_transpose_r0 = (r0); wi_t _wi_transpose_r1 = (r1); wi_t _wi_transpose_r2 = (r2); wi_t _wi_transpose_r3 = (r3);       \
+    wi_t _wi_transpose_r4 = (r4); wi_t _wi_transpose_r5 = (r5); wi_t _wi_transpose_r6 = (r6); wi_t _wi_transpose_r7 = (r7);       \
+    wi_t _wi_transpose_t;                                                                                                         \
+    /* Transpose 4x4 blocks */                                                                                                    \
+    _wi_transpose_t = _wi_transpose_r0; _wi_transpose_r0 = _mm256_permute2f128_si256( _wi_transpose_t,  _wi_transpose_r4, 0x20 ); \
+    /**/                                _wi_transpose_r4 = _mm256_permute2f128_si256( _wi_transpose_t,  _wi_transpose_r4, 0x31 ); \
+    _wi_transpose_t = _wi_transpose_r1; _wi_transpose_r1 = _mm256_permute2f128_si256( _wi_transpose_t,  _wi_transpose_r5, 0x20 ); \
+    /**/                                _wi_transpose_r5 = _mm256_permute2f128_si256( _wi_transpose_t,  _wi_transpose_r5, 0x31 ); \
+    _wi_transpose_t = _wi_transpose_r2; _wi_transpose_r2 = _mm256_permute2f128_si256( _wi_transpose_t,  _wi_transpose_r6, 0x20 ); \
+    /**/                                _wi_transpose_r6 = _mm256_permute2f128_si256( _wi_transpose_t,  _wi_transpose_r6, 0x31 ); \
+    _wi_transpose_t = _wi_transpose_r3; _wi_transpose_r3 = _mm256_permute2f128_si256( _wi_transpose_t,  _wi_transpose_r7, 0x20 ); \
+    /**/                                _wi_transpose_r7 = _mm256_permute2f128_si256( _wi_transpose_t,  _wi_transpose_r7, 0x31 ); \
+    /* Transpose 2x2 blocks */                                                                                                    \
+    _wi_transpose_t = _wi_transpose_r0; _wi_transpose_r0 = _mm256_unpacklo_epi32(     _wi_transpose_t,  _wi_transpose_r2 );       \
+    /**/                                _wi_transpose_r2 = _mm256_unpackhi_epi32(     _wi_transpose_t,  _wi_transpose_r2 );       \
+    _wi_transpose_t = _wi_transpose_r1; _wi_transpose_r1 = _mm256_unpacklo_epi32(     _wi_transpose_t,  _wi_transpose_r3 );       \
+    /**/                                _wi_transpose_r3 = _mm256_unpackhi_epi32(     _wi_transpose_t,  _wi_transpose_r3 );       \
+    _wi_transpose_t = _wi_transpose_r4; _wi_transpose_r4 = _mm256_unpacklo_epi32(     _wi_transpose_t,  _wi_transpose_r6 );       \
+    /**/                                _wi_transpose_r6 = _mm256_unpackhi_epi32(     _wi_transpose_t,  _wi_transpose_r6 );       \
+    _wi_transpose_t = _wi_transpose_r5; _wi_transpose_r5 = _mm256_unpacklo_epi32(     _wi_transpose_t,  _wi_transpose_r7 );       \
+    /**/                                _wi_transpose_r7 = _mm256_unpackhi_epi32(     _wi_transpose_t,  _wi_transpose_r7 );       \
+    /* Transpose 1x1 blocks */                                                                                                    \
+    /**/                                (c0)             = _mm256_unpacklo_epi32(     _wi_transpose_r0, _wi_transpose_r1 );       \
+    /**/                                (c1)             = _mm256_unpackhi_epi32(     _wi_transpose_r0, _wi_transpose_r1 );       \
+    /**/                                (c2)             = _mm256_unpacklo_epi32(     _wi_transpose_r2, _wi_transpose_r3 );       \
+    /**/                                (c3)             = _mm256_unpackhi_epi32(     _wi_transpose_r2, _wi_transpose_r3 );       \
+    /**/                                (c4)             = _mm256_unpacklo_epi32(     _wi_transpose_r4, _wi_transpose_r5 );       \
+    /**/                                (c5)             = _mm256_unpackhi_epi32(     _wi_transpose_r4, _wi_transpose_r5 );       \
+    /**/                                (c6)             = _mm256_unpacklo_epi32(     _wi_transpose_r6, _wi_transpose_r7 );       \
+    /**/                                (c7)             = _mm256_unpackhi_epi32(     _wi_transpose_r6, _wi_transpose_r7 );       \
+  } while(0)

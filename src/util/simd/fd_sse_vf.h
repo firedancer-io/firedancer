@@ -318,3 +318,23 @@ vf_max_all( vf_t x ) { /* Returns vf_bcast( max( x ) ) */
 
 #define vf_gather(b,i) _mm_i32gather_ps( (b), (i), 4 )
 
+/* vf_transpose_4x4 transposes the 4x4 matrix stored in vf_t r0,r1,r2,r3
+   and stores the result in 4x4 matrix vf_t c0,c1,c2,c3.  All
+   c0,c1,c2,c3 should be different for a well defined result.
+   Otherwise, in-place operation and/or using the same vf_t to specify
+   multiple rows of r is fine. */
+
+#define vf_transpose_4x4( r0,r1,r2,r3, c0,c1,c2,c3 ) do {                                                                   \
+    vf_t _vf_transpose_r0 = (r0); vf_t _vf_transpose_r1 = (r1); vf_t _vf_transpose_r2 = (r2); vf_t _vf_transpose_r3 = (r3); \
+    vf_t _vf_transpose_t;                                                                                                   \
+    /* Transpose 2x2 blocks */                                                                                              \
+    _vf_transpose_t = _vf_transpose_r0; _vf_transpose_r0 = _mm_unpacklo_ps( _vf_transpose_t,  _vf_transpose_r2 );           \
+    /**/                                _vf_transpose_r2 = _mm_unpackhi_ps( _vf_transpose_t,  _vf_transpose_r2 );           \
+    _vf_transpose_t = _vf_transpose_r1; _vf_transpose_r1 = _mm_unpacklo_ps( _vf_transpose_t,  _vf_transpose_r3 );           \
+    /**/                                _vf_transpose_r3 = _mm_unpackhi_ps( _vf_transpose_t,  _vf_transpose_r3 );           \
+    /* Transpose 1x1 blocks */                                                                                              \
+    /**/                                (c0)             = _mm_unpacklo_ps( _vf_transpose_r0, _vf_transpose_r1 );           \
+    /**/                                (c1)             = _mm_unpackhi_ps( _vf_transpose_r0, _vf_transpose_r1 );           \
+    /**/                                (c2)             = _mm_unpacklo_ps( _vf_transpose_r2, _vf_transpose_r3 );           \
+    /**/                                (c3)             = _mm_unpackhi_ps( _vf_transpose_r2, _vf_transpose_r3 );           \
+  } while(0)

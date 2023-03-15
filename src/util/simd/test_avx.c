@@ -479,6 +479,15 @@ main( int     argc,
 
     FD_TEST( wc_any(c) == (c0 | c1 | c2 | c3 | c4 | c5 | c6 | c7) );
     FD_TEST( wc_all(c) == (c0 & c1 & c2 & c3 & c4 & c5 & c6 & c7) );
+
+    /* Misc operations */
+
+    wc_t m0; wc_t m1; wc_t m2; wc_t m3; wc_t m4; wc_t m5; wc_t m6; wc_t m7;
+    wc_transpose_8x8( wc_bcast( c0 ), wc_bcast( c1 ), wc_bcast( c2 ), wc_bcast( c3 ),
+                      wc_bcast( c4 ), wc_bcast( c5 ), wc_bcast( c6 ), wc_bcast( c7 ), m0, m1, m2, m3, m4, m5, m6, m7 );
+    wc_t mm = wc( c0, c1, c2, c3, c4, c5, c6, c7 );
+    FD_TEST( wc_all( wc_and( wc_and( wc_and( wc_eq( m0, mm ), wc_eq( m1, mm ) ), wc_and( wc_eq( m2, mm ), wc_eq( m3, mm ) ) ),
+                             wc_and( wc_and( wc_eq( m4, mm ), wc_eq( m5, mm ) ), wc_and( wc_eq( m6, mm ), wc_eq( m7, mm ) ) ) ) ) );
   }
 
   for( int x=0; x<256; x++ ) {
@@ -642,6 +651,15 @@ main( int     argc,
                                                                fminf( fminf( x4, x5 ), fminf( x6, x7 ) ) ) ) ) ) );
     FD_TEST( !wc_any( wf_ne( wf_max_all( x ), wf_bcast( fmaxf( fmaxf( fmaxf( x0, x1 ), fmaxf( x2, x3 ) ),
                                                                fmaxf( fmaxf( x4, x5 ), fmaxf( x6, x7 ) ) ) ) ) ) );
+
+    /* Misc operations */
+
+    wf_t m0; wf_t m1; wf_t m2; wf_t m3; wf_t m4; wf_t m5; wf_t m6; wf_t m7;
+    wf_transpose_8x8( wf_bcast( x0 ), wf_bcast( x1 ), wf_bcast( x2 ), wf_bcast( x3 ),
+                      wf_bcast( x4 ), wf_bcast( x5 ), wf_bcast( x6 ), wf_bcast( x7 ), m0, m1, m2, m3, m4, m5, m6, m7 );
+    wf_t mm = wf( x0, x1, x2, x3, x4, x5, x6, x7 );
+    FD_TEST( wc_all( wc_and( wc_and( wc_and( wf_eq( m0, mm ), wf_eq( m1, mm ) ), wc_and( wf_eq( m2, mm ), wf_eq( m3, mm ) ) ),
+                             wc_and( wc_and( wf_eq( m4, mm ), wf_eq( m5, mm ) ), wc_and( wf_eq( m6, mm ), wf_eq( m7, mm ) ) ) ) ) );
   }
 
   /* WI tests */
@@ -773,6 +791,15 @@ main( int     argc,
                                                                     fd_int_min( fd_int_min( x4, x5 ), fd_int_min( x6, x7 ) ) ) ) ) ) );
     FD_TEST( !wc_any( wi_ne( wi_max_all( x ), wi_bcast( fd_int_max( fd_int_max( fd_int_max( x0, x1 ), fd_int_max( x2, x3 ) ),
                                                                     fd_int_max( fd_int_max( x4, x5 ), fd_int_max( x6, x7 ) ) ) ) ) ) );
+
+    /* Misc operations */
+
+    wi_t m0; wi_t m1; wi_t m2; wi_t m3; wi_t m4; wi_t m5; wi_t m6; wi_t m7;
+    wi_transpose_8x8( wi_bcast( x0 ), wi_bcast( x1 ), wi_bcast( x2 ), wi_bcast( x3 ),
+                      wi_bcast( x4 ), wi_bcast( x5 ), wi_bcast( x6 ), wi_bcast( x7 ), m0, m1, m2, m3, m4, m5, m6, m7 );
+    wi_t mm = wi( x0, x1, x2, x3, x4, x5, x6, x7 );
+    FD_TEST( wc_all( wc_and( wc_and( wc_and( wi_eq( m0, mm ), wi_eq( m1, mm ) ), wc_and( wi_eq( m2, mm ), wi_eq( m3, mm ) ) ),
+                             wc_and( wc_and( wi_eq( m4, mm ), wi_eq( m5, mm ) ), wc_and( wi_eq( m6, mm ), wi_eq( m7, mm ) ) ) ) ) );
   }
 
   /* WU tests */
@@ -901,6 +928,15 @@ main( int     argc,
                                                                      fd_uint_min( fd_uint_min( x4, x5 ), fd_uint_min( x6, x7 ) ) ) ) ) ) );
     FD_TEST( !wc_any( wu_ne( wu_max_all( x ), wu_bcast( fd_uint_max( fd_uint_max( fd_uint_max( x0, x1 ), fd_uint_max( x2, x3 ) ),
                                                                      fd_uint_max( fd_uint_max( x4, x5 ), fd_uint_max( x6, x7 ) ) ) ) ) ) );
+
+    /* Misc operations */
+
+    wu_t m0; wu_t m1; wu_t m2; wu_t m3; wu_t m4; wu_t m5; wu_t m6; wu_t m7;
+    wu_transpose_8x8( wu_bcast( x0 ), wu_bcast( x1 ), wu_bcast( x2 ), wu_bcast( x3 ),
+                      wu_bcast( x4 ), wu_bcast( x5 ), wu_bcast( x6 ), wu_bcast( x7 ), m0, m1, m2, m3, m4, m5, m6, m7 );
+    wu_t mm = wu( x0, x1, x2, x3, x4, x5, x6, x7 );
+    FD_TEST( wc_all( wc_and( wc_and( wc_and( wu_eq( m0, mm ), wu_eq( m1, mm ) ), wc_and( wu_eq( m2, mm ), wu_eq( m3, mm ) ) ),
+                             wc_and( wc_and( wu_eq( m4, mm ), wu_eq( m5, mm ) ), wc_and( wu_eq( m6, mm ), wu_eq( m7, mm ) ) ) ) ) );
   }
 
   /* WD tests */
@@ -1024,6 +1060,13 @@ main( int     argc,
     FD_TEST( !wc_any( wd_ne( wd_sum_all( x ), wd_bcast( x0 + x1 + x2 + x3 ) ) ) );
     FD_TEST( !wc_any( wd_ne( wd_min_all( x ), wd_bcast( fmin( fmin( x0, x1 ), fmin( x2, x3 ) ) ) ) ) );
     FD_TEST( !wc_any( wd_ne( wd_max_all( x ), wd_bcast( fmax( fmax( x0, x1 ), fmax( x2, x3 ) ) ) ) ) );
+
+    /* Misc operations */
+
+    wd_t m0; wd_t m1; wd_t m2; wd_t m3;
+    wd_transpose_4x4( wd_bcast( x0 ), wd_bcast( x1 ), wd_bcast( x2 ), wd_bcast( x3 ), m0, m1, m2, m3 );
+    wd_t mm = wd( x0, x1, x2, x3 );
+    FD_TEST( wc_all( wc_and( wc_and( wd_eq( m0, mm ), wd_eq( m1, mm ) ), wc_and( wd_eq( m2, mm ), wd_eq( m3, mm ) ) ) ) );
   }
 
   /* WL tests */
@@ -1151,6 +1194,13 @@ main( int     argc,
     FD_TEST( !wc_any( wl_ne( wl_sum_all( x ), wl_bcast( x0 + x1 + x2 + x3 ) ) ) );
     FD_TEST( !wc_any( wl_ne( wl_min_all( x ), wl_bcast( fd_long_min( fd_long_min( x0, x1 ), fd_long_min( x2, x3 ) ) ) ) ) );
     FD_TEST( !wc_any( wl_ne( wl_max_all( x ), wl_bcast( fd_long_max( fd_long_max( x0, x1 ), fd_long_max( x2, x3 ) ) ) ) ) );
+
+    /* Misc operations */
+
+    wl_t m0; wl_t m1; wl_t m2; wl_t m3;
+    wl_transpose_4x4( wl_bcast( x0 ), wl_bcast( x1 ), wl_bcast( x2 ), wl_bcast( x3 ), m0, m1, m2, m3 );
+    wl_t mm = wl( x0, x1, x2, x3 );
+    FD_TEST( wc_all( wc_and( wc_and( wl_eq( m0, mm ), wl_eq( m1, mm ) ), wc_and( wl_eq( m2, mm ), wl_eq( m3, mm ) ) ) ) );
   }
 
   /* WV tests */
@@ -1276,9 +1326,16 @@ main( int     argc,
     FD_TEST( !wc_any( wv_ne( wv_sum_all( x ), wv_bcast( x0 + x1 + x2 + x3 ) ) ) );
     FD_TEST( !wc_any( wv_ne( wv_min_all( x ), wv_bcast( fd_ulong_min( fd_ulong_min( x0, x1 ), fd_ulong_min( x2, x3 ) ) ) ) ) );
     FD_TEST( !wc_any( wv_ne( wv_max_all( x ), wv_bcast( fd_ulong_max( fd_ulong_max( x0, x1 ), fd_ulong_max( x2, x3 ) ) ) ) ) );
+
+    /* Misc operations */
+
+    wv_t m0; wv_t m1; wv_t m2; wv_t m3;
+    wv_transpose_4x4( wv_bcast( x0 ), wv_bcast( x1 ), wv_bcast( x2 ), wv_bcast( x3 ), m0, m1, m2, m3 );
+    wv_t mm = wv( x0, x1, x2, x3 );
+    FD_TEST( wc_all( wc_and( wc_and( wv_eq( m0, mm ), wv_eq( m1, mm ) ), wc_and( wv_eq( m2, mm ), wv_eq( m3, mm ) ) ) ) );
   }
 
-  /* FIXME: TEST LDIF/STIF VARIANTS */
+  /* FIXME: TEST LDIF/STIF AND GATHER VARIANTS */
   /* FIXME: TEST VECTOR SHIFT AND ROTATE VARIANTS */
 
   fd_rng_delete( fd_rng_leave( rng ) );
