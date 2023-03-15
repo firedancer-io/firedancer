@@ -1,287 +1,52 @@
-use std::{
-    ffi::CString,
-    hint::spin_loop,
-    mem::transmute,
-    ops::Not,
-    os::raw::c_int,
-    sync::atomic::{
-        compiler_fence,
-        Ordering,
-    },
-    time::Duration,
-};
-use anyhow::{
-    anyhow,
-    Result,
-};
-use firedancer_sys::{
-    tango::{
-        fd_chunk_to_laddr_const,
-        fd_dcache_join,
-        fd_frag_meta_seq_query,
-        fd_fseq_app_laddr,
-        fd_fseq_join,
-        fd_mcache_depth,
-        fd_mcache_join,
-        fd_mcache_line_idx,
-        fd_mcache_seq_laddr_const,
-        fd_mcache_seq_query,
-        fd_tempo_lazy_default,
-        FD_FSEQ_DIAG_FILT_CNT,
-        FD_FSEQ_DIAG_FILT_SZ,
-        FD_FSEQ_DIAG_OVRNP_CNT,
-        FD_FSEQ_DIAG_OVRNR_CNT,
-        FD_FSEQ_DIAG_PUB_CNT,
-        FD_FSEQ_DIAG_PUB_SZ,
-        FD_FSEQ_DIAG_SLOW_CNT,
-    },
-    util::{
-        fd_boot,
-        fd_halt,
-        fd_wksp_containing,
-        fd_wksp_map,
-    },
-};
-use minstant::Instant;
-use rand::prelude::*;
+pub mod pack_rx;
 
-/// PackRxReceiver receives callbacks for incoming messages.
-pub trait PackRxReceiver {
-    /// Callback on speculative receive of a Tango message.
-    /// Recipient should copy data out of buffer into target at this point.
-    fn recv_txn_prepare(&mut self, txn: &[u8]);
+use firedancer_sys::util;
+use std::ffi::c_int;
 
-    /// Callback on complete of speculative receive.
-    /// success is true if the message was received uncorrupted.
-    /// If success is false, previous message received in
-    /// `recv_txn_prepare` should be discarded.
-    /// Returns whether message was actually received or dropped.
-    fn recv_txn_commit(&mut self, success: bool) -> bool;
+/// fd_boot wraps fd_boot().
+///
+/// Must be called prior to application startup.
+///
+/// As the lifetime of the argv strings and the argv string array is not
+/// well defined, the given args strings will be leaked onto the heap so
+/// they persist for the lifetime of the local thread group.
+pub fn fd_boot(args: &[&str]) {
+    let mut argc = args.len() as c_int;
 
-    /// Periodic house-keeping callback.
-    fn housekeep(&mut self);
-}
+    // Allocate buffer for null-delimited string data
+    let mut argv_buf = Vec::<u8>::new();
+    // Remember byte offsets of strings
+    let mut argv_offs = Vec::<usize>::with_capacity(args.len());
 
-/// PackRx exposes a simple API for consuming the output from the Frank pack tile.
-/// This is an unreliable consumer: if the producer overruns the consumer, the
-/// consumer will skip data to catch up with the producer.
-pub struct PackRx<R: PackRxReceiver> {
-    /// Configuration
-    // TODO: proper config using pod api
-    mcache: String,
-    dcache: String,
-    fseq: String,
-
-    out: R,
-}
-
-impl<R: PackRxReceiver> PackRx<R> {
-    pub fn new(
-        mcache: String,
-        dcache: String,
-        fseq: String,
-        out: R,
-    ) -> Self {
-        Self::boot();
-
-        Self {
-            mcache,
-            dcache,
-            fseq,
-            out,
-        }
+    // Create null-delimited strings
+    for arg in args {
+        argv_offs.push(argv_buf.len());
+        argv_buf.extend_from_slice(arg.as_bytes());
+        argv_buf.push(0u8);
     }
 
-    pub unsafe fn run(&mut self) -> Result<()> {
-        // Join the mcache
-        let mcache = fd_mcache_join(fd_wksp_map(CString::new(self.mcache.clone())?.as_ptr()));
-        mcache
-            .is_null()
-            .not()
-            .then(|| ())
-            .ok_or(anyhow!("fd_mcache_join failed"))?;
+    // Leak argv backing string buffer
+    let argv_buf_ptr = argv_buf.leak().as_mut_ptr() as *mut i8;
 
-        // Join the dcache
-        let dcache = fd_dcache_join(fd_wksp_map(CString::new(self.dcache.clone())?.as_ptr()));
-        dcache
-            .is_null()
-            .not()
-            .then(|| ())
-            .ok_or(anyhow!("fd_dcache_join failed"))?;
-
-        // Look up the mline cache line
-        let depth = fd_mcache_depth(mcache);
-        let sync = fd_mcache_seq_laddr_const(mcache);
-        let mut seq = fd_mcache_seq_query(sync);
-        let mut mline = mcache.add(fd_mcache_line_idx(seq, depth).try_into().unwrap());
-
-        // Join the workspace
-        let workspace = fd_wksp_containing(transmute(mline));
-        workspace
-            .is_null()
-            .not()
-            .then(|| ())
-            .ok_or(anyhow!("fd_wksp_containing failed"))?;
-
-        // Hook up to flow control diagnostics
-        let fseq = fd_fseq_join(fd_wksp_map(CString::new(self.fseq.clone())?.as_ptr()));
-        fseq.is_null()
-            .not()
-            .then(|| ())
-            .ok_or(anyhow!("fd_fseq_join failed"))?;
-        let fseq_diag = fd_fseq_app_laddr(fseq) as *mut u64;
-
-        let mut accum_pub_cnt: u64 = 0;
-        let mut accum_pub_sz: u64 = 0;
-        let mut accum_ovrnp_cnt: u64 = 0;
-        let mut accum_ovrnr_cnt: u64 = 0;
-
-        compiler_fence(Ordering::AcqRel);
-        fseq_diag
-            .add(FD_FSEQ_DIAG_PUB_CNT.try_into().unwrap())
-            .write_volatile(accum_pub_cnt);
-        fseq_diag
-            .add(FD_FSEQ_DIAG_PUB_SZ.try_into().unwrap())
-            .write_volatile(accum_pub_sz);
-        fseq_diag
-            .add(FD_FSEQ_DIAG_FILT_CNT.try_into().unwrap())
-            .write_volatile(0);
-        fseq_diag
-            .add(FD_FSEQ_DIAG_FILT_SZ.try_into().unwrap())
-            .write_volatile(0);
-        fseq_diag
-            .add(FD_FSEQ_DIAG_OVRNP_CNT.try_into().unwrap())
-            .write_volatile(accum_ovrnp_cnt);
-        fseq_diag
-            .add(FD_FSEQ_DIAG_OVRNR_CNT.try_into().unwrap())
-            .write_volatile(accum_ovrnr_cnt);
-        fseq_diag
-            .add(FD_FSEQ_DIAG_SLOW_CNT.try_into().unwrap())
-            .write_volatile(0);
-        compiler_fence(Ordering::AcqRel);
-
-        // Set frequency of houskeeping operations
-        let mut next_housekeeping = Instant::now();
-        let housekeeping_interval_ns = fd_tempo_lazy_default(depth);
-        let mut rng = rand::thread_rng();
-
-        // Continually consume data from the queue
-        loop {
-            // Do housekeeping at intervals
-            let now = Instant::now();
-            if now >= next_housekeeping {
-                compiler_fence(Ordering::AcqRel);
-                fseq_diag
-                    .add(FD_FSEQ_DIAG_PUB_CNT.try_into().unwrap())
-                    .write_volatile(accum_pub_cnt);
-                fseq_diag
-                    .add(FD_FSEQ_DIAG_PUB_SZ.try_into().unwrap())
-                    .write_volatile(accum_pub_sz);
-                fseq_diag
-                    .add(FD_FSEQ_DIAG_OVRNP_CNT.try_into().unwrap())
-                    .write_volatile(accum_ovrnp_cnt);
-                fseq_diag
-                    .add(FD_FSEQ_DIAG_OVRNR_CNT.try_into().unwrap())
-                    .write_volatile(accum_ovrnr_cnt);
-                compiler_fence(Ordering::AcqRel);
-
-                next_housekeeping =
-                    now + Duration::from_nanos(rng.gen_range(housekeeping_interval_ns, 2 * housekeeping_interval_ns) as u64);
-
-                self.out.housekeep();
-            }
-
-            // Overrun check
-            let seq_found = fd_frag_meta_seq_query(mline);
-            if seq_found != seq {
-                // Check to see if we have caught up to the producer - if so, wait
-                if seq_found < seq {
-                    // println!("caught up");
-                    spin_loop();
-                    continue;
-                }
-
-                // We were overrun by the producer. Keep processing from the new sequence number.
-                accum_ovrnp_cnt += 1;
-                seq = seq_found;
-                println!("overran");
-            }
-
-            // Construct slice over data
-            let chunk = fd_chunk_to_laddr_const(
-                transmute(workspace),
-                (*mline).__bindgen_anon_1.as_ref().chunk.into(),
-            ) as *const u8;
-            let size = (*mline).__bindgen_anon_1.as_ref().sz as usize;
-            let payload = std::slice::from_raw_parts(chunk, size);
-
-            // Deliver speculatively received message
-            self.out.recv_txn_prepare(payload);
-
-            // Check the producer hasn't overran us while we were serving the data
-            let seq_found = fd_frag_meta_seq_query(mline);
-            if seq_found != seq {
-                accum_ovrnr_cnt += 1;
-                seq = seq_found;
-                self.out.recv_txn_commit(false);
-                continue;
-            }
-
-            accum_pub_cnt += 1;
-            accum_pub_sz += size as u64;
-
-            // Update seq and mline
-            seq += 1;
-            mline = mcache.add(fd_mcache_line_idx(seq, depth).try_into().unwrap());
-
-            // Commit receive
-            self.out.recv_txn_commit(true);
-            // TODO handle commit result and update fseq counters accordingly
-        }
-    }
-
-    fn boot() {
-        let mut argc = c_int::from(2);
-        let mut argv = vec![
-            CString::new("--tile-cpus").unwrap(),
-            CString::new("0").unwrap(),
-        ]
+    // Rewrite byte offsets into absolute addresses
+    let argv_ptrs = argv_offs
         .into_iter()
-        .map(|s| s.into_raw())
-        .collect::<Vec<_>>();
-        argv.shrink_to_fit();
+        .map(|off| unsafe { argv_buf_ptr.offset(off as isize) })
+        .collect::<Vec<*mut i8>>();
 
-        unsafe {
-            /* TODO: call fd_shmem_private_boot instead */
-            fd_boot(&mut argc, &mut argv.as_mut_ptr());
-        }
-    }
-}
-
-impl<R: PackRxReceiver> Drop for PackRx<R> {
-    fn drop(&mut self) {
-        unsafe {
-            fd_halt();
-        }
-    }
-}
-
-#[test]
-fn test_basic_pack_rx() {
-    let (tx, rx) = crossbeam_channel::unbounded();
-
-    let pack_rx = PackRx::new(
-        "test_ipc:2101248".to_string(),
-        "test_ipc:3158016".to_string(),
-        "test_ipc:57696256".to_string(),
-        tx,
-    );
-    let _rx_t = thread::spawn(move || loop {
-        let data = rx.recv().unwrap();
-        println!("received {} bytes: {:?}", data.len(), data);
-    });
+    // Leak argv string array
+    let mut argv: *mut *mut i8 = argv_ptrs.leak().as_mut_ptr();
 
     unsafe {
-        pack_rx.run().expect("consuming data");
+        util::fd_boot(&mut argc, &mut argv);
     }
+}
+
+/// fd_halt wraps fd_halt().
+///
+/// # Safety
+///
+/// U.B. if Firedancer FFI subsystem is used after calling fd_halt().
+pub unsafe fn fd_halt() {
+    util::fd_halt();
 }
