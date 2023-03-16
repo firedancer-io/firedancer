@@ -376,21 +376,33 @@ fd_quic_new( void * mem,
              ulong  max_in_flight_pkts,
              ulong  max_concur_conns,
              ulong  max_concur_conn_ids ) {
-  if( !mem ) return NULL;
 
-  ulong imem  = (ulong)mem;
+  /* Argument checks */
+
+  if( FD_UNLIKELY( !mem ) ) {
+    FD_LOG_WARNING(( "NULL mem" ));
+    return NULL;
+  }
+
   ulong align = fd_quic_align();
-  ulong offs  = 0;
+  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)mem, align ) ) ) {
+    FD_LOG_WARNING(( "misaligned mem" ));
+    return NULL;
+  }
 
-  /* check the alignment */
-  if( imem % align != 0 ) return NULL;
+  fd_quic_t * quic = (fd_quic_t *)mem;
 
-  fd_quic_t * quic = (fd_quic_t*)(imem + offs);
-  if( !quic ) return NULL;
+  ulong footprint = fd_quic_footprint( tx_buf_sz, rx_buf_sz, max_concur_streams_per_type, max_in_flight_pkts, max_concur_conns, max_concur_conn_ids );
+  if( FD_UNLIKELY( !footprint ) ) {
+    FD_LOG_WARNING(( "invalid footprint for config" ));
+    return NULL;
+  }
 
-  fd_memset( quic, 0, sizeof( *quic ) );
+  /* Reset fd_quic_t state */
 
-  offs += FD_QUIC_POW2_ALIGN( sizeof( fd_quic_t ), align );
+  fd_memset( quic, 0, footprint );
+
+  ulong offs = FD_QUIC_POW2_ALIGN( sizeof( fd_quic_t ), align );
 
   // allocate connections
   ulong conn_foot     = fd_quic_conn_footprint( tx_buf_sz,
@@ -402,7 +414,7 @@ fd_quic_new( void * mem,
   fd_quic_conn_t * last = NULL;
   for( ulong j = 0; j < max_concur_conns; ++j ) {
     fd_quic_conn_t * conn = fd_quic_conn_new(
-                              (void*)( imem + offs + j * conn_foot ),
+                              (void*)( (ulong)mem + offs + j * conn_foot ),
                               quic,
                               tx_buf_sz,
                               rx_buf_sz,
@@ -430,14 +442,14 @@ fd_quic_new( void * mem,
   ulong slot_cnt_bound = (ulong)( FD_QUIC_SPARSITY * (double)max_concur_conns * (double)max_concur_conn_ids );
   int    lg_slot_cnt    = fd_ulong_find_msb( slot_cnt_bound - 1u ) + 1;
 
-  quic->conn_map = fd_quic_conn_map_new( (void*)( imem + offs), lg_slot_cnt );
+  quic->conn_map = fd_quic_conn_map_new( (void*)( (ulong)mem + offs), lg_slot_cnt );
 
   offs += FD_QUIC_POW2_ALIGN( fd_quic_conn_map_footprint( lg_slot_cnt ), align );
 
   /* make enough space for the events priority queue */
   ulong event_queue_sz = service_queue_footprint( max_concur_conns + 1u );
 
-  void * v_service_queue = service_queue_new( (void*)( imem + offs ), max_concur_conns + 1u );
+  void * v_service_queue = service_queue_new( (void*)( (ulong)mem + offs ), max_concur_conns + 1u );
   quic->service_queue = service_queue_join( v_service_queue );
 
   offs += FD_QUIC_POW2_ALIGN( event_queue_sz, align );
@@ -454,17 +466,18 @@ fd_quic_t *
 fd_quic_init( fd_quic_t *        quic,
               fd_quic_config_t * config ) {
 
-  if( quic->magic != FD_QUIC_MAGIC ) {
-    FD_LOG_ERR(( "fd_quic_init: fd_quic_new not called, or memory corrupt" ));
-  }
-
-  if( !config->key_file || config->key_file[0] == '\0' ) {
-    FD_LOG_ERR(( "fd_quic_new: key_file must be specified" ));
+  if( FD_UNLIKELY( quic->magic != FD_QUIC_MAGIC ) ) {
+    FD_LOG_WARNING(( "fd_quic_init: fd_quic_new not called, or memory corrupt" ));
     return NULL;
   }
 
-  if( !config->cert_file || config->cert_file[0] == '\0' ) {
-    FD_LOG_ERR(( "fd_quic_new: cert_file must be specified" ));
+  if( FD_UNLIKELY( config->key_file[0] == '\0' ) ) {
+    FD_LOG_WARNING(( "fd_quic_new: key_file must be specified" ));
+    return NULL;
+  }
+
+  if( FD_UNLIKELY( config->cert_file[0] == '\0' ) ) {
+    FD_LOG_WARNING(( "fd_quic_new: cert_file must be specified" ));
     return NULL;
   }
 
