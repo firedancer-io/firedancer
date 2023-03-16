@@ -1,0 +1,11 @@
+
+Usage: fd_quic_ctl [cmd] [cmd args] [cmd] [cmd args] ...
+
+Commands are:
+
+help
+- Prints this message.
+
+new-quic wksp rx-buf-sz tx-buf-sz conn-cnt conn-id-cnt stream-cnt pkt-cnt
+
+delete-quic gaddr
