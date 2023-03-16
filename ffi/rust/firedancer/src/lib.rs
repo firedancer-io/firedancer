@@ -13,10 +13,16 @@ use std::ffi::c_int;
 /// well defined, the given args strings will be leaked onto the heap so
 /// they persist for the lifetime of the local thread group.
 pub fn fd_boot(args: &[&str]) {
-    let mut argc = args.len() as c_int;
+    let argc = args.len() as c_int;
+
+    // Find required size of buffer
+    let mut argv_buf_sz = 0usize;
+    for arg in args {
+        argv_buf_sz += arg.len() + 1;
+    }
 
     // Allocate buffer for null-delimited string data
-    let mut argv_buf = Vec::<u8>::new();
+    let mut argv_buf = Vec::<u8>::with_capacity(argv_buf_sz);
     // Remember byte offsets of strings
     let mut argv_offs = Vec::<usize>::with_capacity(args.len());
 
@@ -31,16 +37,21 @@ pub fn fd_boot(args: &[&str]) {
     let argv_buf_ptr = argv_buf.leak().as_mut_ptr() as *mut i8;
 
     // Rewrite byte offsets into absolute addresses
-    let argv_ptrs = argv_offs
-        .into_iter()
-        .map(|off| unsafe { argv_buf_ptr.add(off) })
-        .collect::<Vec<*mut i8>>();
+    let mut argv_ptrs = Vec::<*mut i8>::with_capacity(args.len() + 1);
+    for argv_off in argv_offs {
+        argv_ptrs.push(unsafe { argv_buf_ptr.add(argv_off) });
+    }
+    argv_ptrs.push(std::ptr::null_mut()); // argv is NULL-terminated in ANSI C
 
     // Leak argv string array
-    let mut argv: *mut *mut i8 = argv_ptrs.leak().as_mut_ptr();
+    let argv: *mut *mut i8 = argv_ptrs.leak().as_mut_ptr();
+
+    // Move argv/argc to heap and create pointers
+    let pargc = Box::into_raw(Box::new(argc));
+    let pargv = Box::into_raw(Box::new(argv));
 
     unsafe {
-        util::fd_boot(&mut argc, &mut argv);
+        util::fd_boot(pargc, pargv);
     }
 }
 
