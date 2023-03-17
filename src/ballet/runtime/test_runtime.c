@@ -464,7 +464,7 @@ int replay(global_state_t *state) {
     if (ret < 0) {
       FD_LOG_ERR(("fd_rocksdb_root_iter_seek returned %d", ret));
     }
-  } while (true);
+  } while (1);
 
   fd_executor_delete(fd_executor_leave(executor));
   free(fd_executor_raw);
