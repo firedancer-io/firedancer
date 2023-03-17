@@ -44,6 +44,10 @@
 #  define FD_TEMPL_MBR_FRAME_TYPE(...)
 #endif
 
+#ifndef FD_TEMPL_MBR_FRAME_TYPE_FLAG
+#  define FD_TEMPL_MBR_FRAME_TYPE_FLAG(...)
+#endif
+
 #ifndef FD_TEMPL_MBR_OPT
 #  define FD_TEMPL_MBR_OPT(...)
 #endif

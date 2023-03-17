@@ -95,10 +95,12 @@ void
 my_stream_receive_cb( fd_quic_stream_t * stream,
                       void *             ctx,
                       uchar const *      data,
-                      ulong             data_sz,
-                      ulong           offset ) {
+                      ulong              data_sz,
+                      ulong              offset,
+                      int                fin ) {
   (void)ctx;
   (void)stream;
+  (void)fin;
 
   ulong expected_data_sz = 512ul;
 
@@ -314,7 +316,8 @@ main( int argc, char ** argv ) {
   fd_aio_t * aio[2];
   uchar aio_mem[2][128] = {0};
 
-  if( fd_aio_footprint() < sizeof( aio_mem[0] ) ) {
+  if( fd_aio_footprint() > sizeof( aio_mem[0] ) ) {
+    FD_LOG_WARNING(( "aio footprint: %lu", fd_aio_footprint() ));
     FD_LOG_ERR(( "fd_aio_footprint returned value larger than reserved memory" ));
   }
 
@@ -382,15 +385,15 @@ main( int argc, char ** argv ) {
      must delay until the conn->state is ACTIVE */
 
   /* try sending */
-  fd_quic_stream_t * client_stream = fd_quic_conn_new_stream( client_conn, FD_QUIC_TYPE_BIDIR );
+  fd_quic_stream_t * client_stream = fd_quic_conn_new_stream( client_conn, FD_QUIC_TYPE_UNIDIR );
   FD_TEST( client_stream );
 
-  fd_quic_stream_t * client_stream_0 = fd_quic_conn_new_stream( client_conn, FD_QUIC_TYPE_BIDIR );
+  fd_quic_stream_t * client_stream_0 = fd_quic_conn_new_stream( client_conn, FD_QUIC_TYPE_UNIDIR );
   FD_TEST( client_stream_0 );
 
   char buf[512] = "Hello world!\x00-   ";
   fd_aio_pkt_info_t batch[1] = {{ buf, sizeof( buf ) }};
-  int rc = fd_quic_stream_send( client_stream, batch, 1 );
+  int rc = fd_quic_stream_send( client_stream, batch, 1, 0 );
 
   printf( "fd_quic_stream_send returned %d\n", rc );
 
@@ -417,9 +420,9 @@ main( int argc, char ** argv ) {
     buf[16] = (char)( ( j % 10 ) + '0' );
     int rc = 0;
     if( j&1 ) {
-      rc = fd_quic_stream_send( client_stream, batch, 1 );
+      rc = fd_quic_stream_send( client_stream, batch, 1, 0 );
     } else {
-      rc = fd_quic_stream_send( client_stream_0, batch, 1 );
+      rc = fd_quic_stream_send( client_stream_0, batch, 1, 0 );
     }
 
     printf( "fd_quic_stream_send returned %d\n", rc );

@@ -118,6 +118,8 @@ struct fd_quic {
     /* source interface MAC address */
     uchar                              src_mac[6];
   } net;
+
+  uchar                         init;                   /* whether init has been called */
 };
 
 /* events for time based processing */
@@ -167,9 +169,13 @@ fd_quic_new( void * mem,
 
 
 /* initialize fd_quic_t after fd_quic_new */
-fd_quic_t *
-fd_quic_init( fd_quic_t *        quic,
+void *
+fd_quic_init( void *             shmem,
               fd_quic_config_t * config );
+
+/* join existing quic instance */
+fd_quic_t *
+fd_quic_join( void * shmem );
 
 /* fd_quic_delete
 
@@ -315,17 +321,45 @@ fd_quic_conn_new_stream( fd_quic_conn_t * conn, int type );
 /* send data
 
    called to send arbitrary data to a peer
+   use fd_quic_conn_new_stream to create a new stream for sending
+   or use the new stream callback to obtain a stream for replying
+
+   each buffer in batch must be at most FD_QUIC_MAX_TX_BUF bytes
+
+   sends buffers in order
 
    args
      stream         the stream to send on
      batch          a pointer to an array of buffers
      batch_sz       the size of the batch
+     fin            final: bool
+                      set to indicate the stream is finalized by the last byte
+                      in the batch
+                      If the last buffer in the batch was rejected, the FIN
+                        flag is not set, and may be applied in a future send
+                        or via the fd_quic_stream_fin(...) function
 
-   */
+
+   returns
+     TODO replace numeric codes with names
+     >=0   number of buffers sent - remaining blocked
+      -1   stream id not allowed to send
+      -2   connection not in valid state for sending
+      -3   blocked from sending - try later */
 int
 fd_quic_stream_send( fd_quic_stream_t *  stream,
                      fd_aio_pkt_info_t * batch,
-                     ulong               batch_sz );
+                     ulong               batch_sz,
+                     int                 fin );
+
+/* finish sending on a stream
+
+   called to signal no more sending on a given stream
+
+   args
+     stream         the stream to finish */
+void
+fd_quic_stream_fin( fd_quic_stream_t * stream );
 
 
 /* closes tx or rx or both of a stream
