@@ -202,11 +202,11 @@ FD_TEMPL_DEF_STRUCT_BEGIN(stream_frame)
   FD_TEMPL_MBR_ELEM_VARINT( stream_id, ulong )
 
   // optional data processed in code
-    FD_TEMPL_MBR_OPT( type, offset, 0x04,
-  FD_TEMPL_MBR_ELEM_VARINT( offset,    ulong ) )
+  FD_TEMPL_MBR_OPT( type, offset, 0x04,
+    FD_TEMPL_MBR_ELEM_VARINT( offset,    ulong ) )
 
-    FD_TEMPL_MBR_OPT( type, length,0x02,
-  FD_TEMPL_MBR_ELEM_VARINT( length,    ulong ) )
+  FD_TEMPL_MBR_OPT( type, length,0x02,
+    FD_TEMPL_MBR_ELEM_VARINT( length,    ulong ) )
 
   FD_TEMPL_MBR_OPT( type, fin, 0x01, )
 FD_TEMPL_DEF_STRUCT_END(stream_frame)
@@ -253,6 +253,7 @@ FD_TEMPL_DEF_STRUCT_END(max_stream_data)
 
 FD_TEMPL_DEF_STRUCT_BEGIN(max_streams_frame)
   FD_TEMPL_MBR_FRAME_TYPE( type, 0x12,0x13 )
+  FD_TEMPL_MBR_FRAME_TYPE_FLAG( stream_type, 0x01 )
   FD_TEMPL_MBR_ELEM_VARINT( max_streams, ulong )
 FD_TEMPL_DEF_STRUCT_END(max_streams_frame)
 

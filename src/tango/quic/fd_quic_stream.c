@@ -170,3 +170,27 @@ fd_quic_stream_delete( fd_quic_stream_t * stream ) {
   /* nothing to do */
   (void)stream;
 }
+
+
+/* set stream context
+
+   args
+     stream      the stream with which to associate the context
+     context     the user-defined context associated with the stream */
+void
+fd_quic_stream_set_context( fd_quic_stream_t * stream, void * context ) {
+  stream->context = context;
+}
+
+
+/* get stream context
+
+   args
+     stream      the stream from which to obtain the context
+
+   returns
+     context     the user defined context associated with the stream */
+void *
+fd_quic_stream_get_context( fd_quic_stream_t * stream ) {
+  return stream->context;
+}

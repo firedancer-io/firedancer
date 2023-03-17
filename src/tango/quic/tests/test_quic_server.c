@@ -133,10 +133,12 @@ void
 my_stream_receive_cb( fd_quic_stream_t * stream,
                       void *             ctx,
                       uchar const *      data,
-                      ulong             data_sz,
-                      ulong           offset ) {
+                      ulong              data_sz,
+                      ulong              offset,
+                      int                fin ) {
   (void)ctx;
   (void)stream;
+  (void)fin;
 
   printf( "my_stream_receive_cb : received data from peer. size: %lu  offset: %lu\n",
       (ulong)data_sz, (ulong)offset );
