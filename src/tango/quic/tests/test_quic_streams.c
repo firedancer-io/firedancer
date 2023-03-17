@@ -433,8 +433,8 @@ main( int argc, char ** argv ) {
   quic_config.max_in_flight_acks    = 100;
   quic_config.conn_id_sparsity      = 4;
 
-  quic_config.cert_file             = "cert.pem";
-  quic_config.key_file              = "key.pem";
+  strcpy( quic_config.cert_file, "cert.pem" );
+  strcpy( quic_config.key_file,  "key.pem"  );
 
   quic_config.cb_stream_receive     = my_stream_receive_cb;
   quic_config.cb_stream_notify      = my_stream_notify_cb;
