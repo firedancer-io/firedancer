@@ -40,6 +40,9 @@
     id_lo = ID_LO;                                \
     id_hi = ID_HI;
 
+#define FD_TEMPL_MBR_FRAME_TYPE_FLAG(NAME,MASK)                                     \
+    data->NAME = id & (MASK);
+
 #define FD_TEMPL_DEF_STRUCT_END(NAME)                                               \
     if( id >= id_lo && id <= id_hi ) {                                              \
       ulong rc = fd_quic_decode_##NAME( data, p, (ulong)(p_end-p) );                \

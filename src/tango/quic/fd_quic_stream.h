@@ -33,20 +33,6 @@ struct fd_quic_buffer {
 #define fd_quic_buffer_used(  buf ) ( (buf)->head - (buf)->tail )
 #define fd_quic_buffer_avail( buf ) ( (buf)->cap - fd_quic_buffer_used(buf) )
 
-/* fd_quic_buffer_store
-   store data into cirular buffer */
-void
-fd_quic_buffer_store( fd_quic_buffer_t * buf,
-                      uchar const *      data,
-                      ulong              data_sz );
-
-/* fd_quic_buffer_load
-   load data from cirular buffer */
-void
-fd_quic_buffer_load( fd_quic_buffer_t * buf,
-                     uchar *            data,
-                     ulong              data_sz );
-
 struct fd_quic_stream {
   fd_quic_conn_t * conn;
 
@@ -65,6 +51,13 @@ struct fd_quic_stream {
 # define FD_QUIC_STREAM_FLAGS_MAX_STREAM_DATA (1u<<2u)
 # define FD_QUIC_STREAM_FLAGS_UNSENT          (1u<<3u)
 
+  /* send and receive state
+     mask made up of the following:
+       FD_QUIC_STREAM_STATE_TX_FIN      TX is finished (no more TX)
+       FD_QUIC_STREAM_STATE_RX_FIN      RX is finished (no more RX) */
+  uint state;
+# define FD_QUIC_STREAM_STATE_TX_FIN (1u<<0u)
+# define FD_QUIC_STREAM_STATE_RX_FIN (1u<<1u)
 
   /* flow control */
   ulong  tx_max_stream_data; /* the limit on the number of bytes we are allowed to send
@@ -72,6 +65,8 @@ struct fd_quic_stream {
                                   this includes bytes implied by offsets that have not
                                   been received yet */
   ulong  tx_tot_data;        /* the total number of bytes transmitted on this stream */
+  ulong  tx_last_byte;       /* the index of the last byte of the stream
+                                valid only if FD_QUIC_STREAM_FLAGS_TX_FIN set */
 
   ulong  rx_max_stream_data; /* the limit on the number of bytes we allow the peer to
                                   send to us */
@@ -95,6 +90,22 @@ struct fd_quic_stream_map {
   uint               hash;      /* hash */
   fd_quic_stream_t * stream;    /* value */
 };
+
+FD_PROTOTYPES_BEGIN
+
+/* fd_quic_buffer_store
+   store data into cirular buffer */
+void
+fd_quic_buffer_store( fd_quic_buffer_t * buf,
+                      uchar const *      data,
+                      ulong              data_sz );
+
+/* fd_quic_buffer_load
+   load data from cirular buffer */
+void
+fd_quic_buffer_load( fd_quic_buffer_t * buf,
+                     uchar *            data,
+                     ulong              data_sz );
 
 /* returns the alignment of the fd_quic_stream_t */
 FD_FN_CONST inline
@@ -128,6 +139,28 @@ fd_quic_stream_new( void * mem, fd_quic_conn_t * conn,ulong tx_buf_sz, ulong rx_
      stream       the stream to free */
 void
 fd_quic_stream_delete( fd_quic_stream_t * stream );
+
+
+/* set stream context
+
+   args
+     stream      the stream with which to associate the context
+     context     the user-defined context associated with the stream */
+void
+fd_quic_stream_set_context( fd_quic_stream_t * stream, void * context );
+
+
+/* get stream context
+
+   args
+     stream      the stream from which to obtain the context
+
+   returns
+     context     the user defined context associated with the stream */
+void *
+fd_quic_stream_get_context( fd_quic_stream_t * stream );
+
+FD_PROTOTYPES_END
 
 #endif
 

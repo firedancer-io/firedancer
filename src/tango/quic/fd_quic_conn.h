@@ -66,22 +66,25 @@ struct fd_quic_pkt_meta {
   uchar         pn_space;    /* packet number space (must be consistent with enc_level)  */
 
   /* does the referenced packet contain:
-           FD_QUIC_PKT_META_FLAGS_HS_DATA           handshake data
-           FD_QUIC_PKT_META_FLAGS_STREAM            stream data
-           FD_QUIC_PKT_META_FLAGS_HS_DONE           handshake-done frame
-           FD_QUIC_PKT_META_FLAGS_MAX_DATA          max_data frame
-           FD_QUIC_PKT_META_FLAGS_MAX_STREAM_DATA   max_stream_data frame
-           FD_QUIC_PKT_META_FLAGS_MAX_STREAMS       max_streams frame
-           FD_QUIC_PKT_META_FLAGS_CLOSE             close frame */
+           FD_QUIC_PKT_META_FLAGS_HS_DATA                   handshake data
+           FD_QUIC_PKT_META_FLAGS_STREAM                    stream data
+           FD_QUIC_PKT_META_FLAGS_HS_DONE                   handshake-done frame
+           FD_QUIC_PKT_META_FLAGS_MAX_DATA                  max_data frame
+           FD_QUIC_PKT_META_FLAGS_MAX_STREAM_DATA           max_stream_data frame
+           FD_QUIC_PKT_META_FLAGS_MAX_STREAMS_UNIDIR        max_streams frame (unidir)
+           FD_QUIC_PKT_META_FLAGS_MAX_STREAMS_BIDIR         max_streams frame (bidir)
+           FD_QUIC_PKT_META_FLAGS_ACK                       acknowledgement
+           FD_QUIC_PKT_META_FLAGS_CLOSE                     close frame */
   uint        flags;       /* flags */
-# define          FD_QUIC_PKT_META_FLAGS_HS_DATA         (1u<<0u)
-# define          FD_QUIC_PKT_META_FLAGS_STREAM          (1u<<1u)
-# define          FD_QUIC_PKT_META_FLAGS_HS_DONE         (1u<<2u)
-# define          FD_QUIC_PKT_META_FLAGS_MAX_DATA        (1u<<3u)
-# define          FD_QUIC_PKT_META_FLAGS_MAX_STREAM_DATA (1u<<4u)
-# define          FD_QUIC_PKT_META_FLAGS_MAX_STREAMS     (1u<<5u)
-# define          FD_QUIC_PKT_META_FLAGS_ACK             (1u<<6u)
-# define          FD_QUIC_PKT_META_FLAGS_CLOSE           (1u<<7u)
+# define          FD_QUIC_PKT_META_FLAGS_HS_DATA            (1u<<0u)
+# define          FD_QUIC_PKT_META_FLAGS_STREAM             (1u<<1u)
+# define          FD_QUIC_PKT_META_FLAGS_HS_DONE            (1u<<2u)
+# define          FD_QUIC_PKT_META_FLAGS_MAX_DATA           (1u<<3u)
+# define          FD_QUIC_PKT_META_FLAGS_MAX_STREAM_DATA    (1u<<4u)
+# define          FD_QUIC_PKT_META_FLAGS_MAX_STREAMS_UNIDIR (1u<<5u)
+# define          FD_QUIC_PKT_META_FLAGS_MAX_STREAMS_BIDIR  (1u<<6u)
+# define          FD_QUIC_PKT_META_FLAGS_ACK                (1u<<7u)
+# define          FD_QUIC_PKT_META_FLAGS_CLOSE              (1u<<8u)
   fd_quic_range_t range;       /* range of bytes referred to by this meta */
                                /* stream data or crypto data */
                                /* we currently do not put both in the same packet */
@@ -240,8 +243,8 @@ struct fd_quic_conn {
 
   ulong next_stream_id[4];      /* next stream id by type - see rfc9000 2.1 */
 
-  uint max_concur_streams;     /* configured max concurrent streams by connection and type */
-  uint max_streams[4];         /* maximum stream id by type */
+  uint  max_concur_streams;     /* configured max concurrent streams by connection and type */
+  ulong max_streams[4];         /* maximum stream id by type */
   /* rfc9000:
        19.11 Note that these frames (and the corresponding transport parameters)
                do not describe the number of streams that can be opened concurrently.
@@ -253,7 +256,7 @@ struct fd_quic_conn {
              0x02 Client-Initiated, Unidirectional
              0x03 Server-Initiated, Unidirectional */
 
-  uint num_streams[4];         /* current number of streams of each type */
+  ulong num_streams[4];         /* current number of streams of each type */
 
   fd_quic_pkt_meta_t * pkt_meta;           /* pkt_meta contiguous storage */
   fd_quic_pkt_meta_t * pkt_meta_free;      /* pkt_meta free list */
@@ -284,8 +287,10 @@ struct fd_quic_conn {
                                               and including implied bytes */
 
   uint                 flags;
-# define FD_QUIC_CONN_FLAGS_MAX_DATA   (1u<<0u)
-# define FD_QUIC_CONN_FLAGS_CLOSE_SENT (1u<<1u)
+# define FD_QUIC_CONN_FLAGS_MAX_DATA           (1u<<0u)
+# define FD_QUIC_CONN_FLAGS_CLOSE_SENT         (1u<<1u)
+# define FD_QUIC_CONN_FLAGS_MAX_STREAMS_UNIDIR (1u<<2u)
+# define FD_QUIC_CONN_FLAGS_MAX_STREAMS_BIDIR  (1u<<3u)
 
   uchar                spin_bit;                   /* spin bit used for latency measurements */
 

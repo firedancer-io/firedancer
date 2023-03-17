@@ -92,13 +92,15 @@ typedef void (*fd_quic_cb_stream_notify_t) ( fd_quic_stream_t * stream,
      data                  the bytes received
      data_sz               the number of bytes received
      offset                the offset in the strean of the first byte in data
-
+     fin                   bool - true if the last byte of data is the last
+                                  byte of the stream
    */
 typedef void (*fd_quic_cb_stream_receive_t)( fd_quic_stream_t * stream,
                                              void *             stream_context,
                                              uchar const *      data,
-                                             ulong             data_sz,
-                                             ulong             offset );
+                                             ulong              data_sz,
+                                             ulong              offset,
+                                             int                fin );
 
 
 /* parameters used by each host/endpoint */
