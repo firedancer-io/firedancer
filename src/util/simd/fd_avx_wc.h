@@ -253,6 +253,32 @@ static inline void wc_stu( int * p, wc_t c ) { _mm256_storeu_si256( (__m256i *)p
                                                            _mm256_setr_epi32( 1<<0, 1<<1, 1<<2, 1<<3, 1<<4, 1<<5, 1<<6, 1<<7 ) ), \
                                          _mm256_setzero_si256() )
 
+/* wc_expand expands c0:c3 (imm_hi==0) or c4:c7 (imm_hi==1) into a
+   paired lane conditional.  That is:
+
+     wc_expand(c,0) returns [ c0 c0 c1 c1 c2 c2 c3 c3 ]
+     wc_expand(c,1) returns [ c4 c4 c5 c5 c6 c6 c7 c7 ]
+
+   Conversely:
+
+     wc_narrow(a,b) returns [ a0 a2 a4 a6 b0 b2 b4 b6 ]
+
+   which is useful for turning two paired lane conditionals into a
+   single lane conditional.  U.B. if a, b, and/or c are not proper
+   vector conditionals.  These are useful, for example, for vectorizing
+   64-bit pointer arithmetic used in 32-bit lane SIMD. */
+
+#define wc_expand(c,imm_hi) _mm256_cvtepi32_epi64( _mm256_extractf128_si256( (c), (imm_hi) ) )
+
+static inline wc_t wc_narrow( wc_t a, wc_t b ) {
+  __m128 a01 = _mm_castsi128_ps( _mm256_extractf128_si256( a, 0 ) ); /* [ a0l a0h a1l a1h ] */
+  __m128 a23 = _mm_castsi128_ps( _mm256_extractf128_si256( a, 1 ) ); /* [ a2l a2h a3l a3h ] */
+  __m128 b01 = _mm_castsi128_ps( _mm256_extractf128_si256( b, 0 ) ); /* [ b0l b0h b1l b1h ] */
+  __m128 b23 = _mm_castsi128_ps( _mm256_extractf128_si256( b, 1 ) ); /* [ b2l b2h b3l b3h ] */
+  return _mm256_setr_m128i( _mm_castps_si128( _mm_shuffle_ps( a01, a23, _MM_SHUFFLE(2,0,2,0) ) ),
+                            _mm_castps_si128( _mm_shuffle_ps( b01, b23, _MM_SHUFFLE(2,0,2,0) ) ) );
+}
+
 /* wc_gather(b,i) returns [ -!!b[i(0)] -!!b[i(1)] ... -!!b[i(7)] ] where
    b is an "int const *" (0/non-zero map to false/true) and i is a wi_t.
 

@@ -58,10 +58,14 @@ main( int     argc,
     FD_TEST( wc_test( wc_exch_adj_pair( c ), c2, c3, c0, c1, c6, c7, c4, c5 ) );
     FD_TEST( wc_test( wc_exch_adj_quad( c ), c4, c5, c6, c7, c0, c1, c2, c3 ) );
 
+    /* Binary, logical and conditional operations (more below) */
+
     FD_TEST( wc_test( wc_not( c ), !c0, !c1, !c2, !c3, !c4, !c5, !c6, !c7 ) );
 
     FD_TEST( wc_test( wc_lnot( c ),     !c0,  !c1,  !c2,  !c3,  !c4,  !c5,  !c6,  !c7 ) );
     FD_TEST( wc_test( wc_lnotnot( c ), !!c0, !!c1, !!c2, !!c3, !!c4, !!c5, !!c6, !!c7 ) );
+
+    /* Conversion operations */
 
     FD_TEST( wi_test( wc_to_wi( c ), c0, c1, c2, c3, c4, c5, c6, c7 ) );
 
@@ -75,10 +79,18 @@ main( int     argc,
 
     FD_TEST( wv_test( wc_to_wv( wc_bcast_wide( c0,c1,c2,c3 ) ), (ulong)c0, (ulong)c1, (ulong)c2, (ulong)c3 ) );
 
+    /* Reduction operations */
+
     FD_TEST( wc_any(c) == (c0 | c1 | c2 | c3 | c4 | c5 | c6 | c7) );
     FD_TEST( wc_all(c) == (c0 & c1 & c2 & c3 & c4 & c5 & c6 & c7) );
 
     /* Misc operations */
+
+    wc_t cl = wc_expand( c, 0 );
+    wc_t ch = wc_expand( c, 1 );
+    FD_TEST( wc_test( cl, c0,c0, c1,c1, c2,c2, c3,c3 ) );
+    FD_TEST( wc_test( ch, c4,c4, c5,c5, c6,c6, c7,c7 ) );
+    FD_TEST( wc_test( wc_narrow(cl,ch), c0, c1, c2, c3, c4, c5, c6, c7 ) );
 
     wc_t m0; wc_t m1; wc_t m2; wc_t m3; wc_t m4; wc_t m5; wc_t m6; wc_t m7;
     wc_transpose_8x8( wc_bcast( c0 ), wc_bcast( c1 ), wc_bcast( c2 ), wc_bcast( c3 ),

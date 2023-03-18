@@ -59,10 +59,14 @@ main( int     argc,
     FD_TEST( vc_test( vc_permute( c, 0, 2, 1, 3 ), c0, c2, c1, c3 ) );
     FD_TEST( vc_test( vc_permute( c, 3, 2, 1, 0 ), c3, c2, c1, c0 ) );
 
+    /* Binary, logical and conditional operations (more below) */
+
     FD_TEST( vc_test( vc_not( c ), !c0, !c1, !c2, !c3 ) );
 
     FD_TEST( vc_test( vc_lnot( c ),     !c0,  !c1,  !c2,  !c3 ) );
     FD_TEST( vc_test( vc_lnotnot( c ), !!c0, !!c1, !!c2, !!c3 ) );
+
+    /* Conversion operations */
 
     FD_TEST( vi_test( vc_to_vi( c ), c0, c1, c2, c3 ) );
 
@@ -76,10 +80,18 @@ main( int     argc,
 
     FD_TEST( vv_test( vc_to_vv( vc_bcast_wide( c0,c1 ) ), (ulong)c0, (ulong)c1 ) );
 
+    /* Reduction operations */
+
     FD_TEST( vc_any(c) == (c0 | c1 | c2 | c3) );
     FD_TEST( vc_all(c) == (c0 & c1 & c2 & c3) );
 
     /* Misc operations */
+
+    vc_t cl = vc_expand( c, 0 );
+    vc_t ch = vc_expand( c, 1 );
+    FD_TEST( vc_test( cl, c0,c0, c1,c1 ) );
+    FD_TEST( vc_test( ch, c2,c2, c3,c3 ) );
+    FD_TEST( vc_test( vc_narrow(cl,ch), c0, c1, c2, c3 ) );
 
     vc_t m0; vc_t m1; vc_t m2; vc_t m3;
     vc_transpose_4x4( vc_bcast( c0 ), vc_bcast( c1 ), vc_bcast( c2 ), vc_bcast( c3 ), m0, m1, m2, m3 );
