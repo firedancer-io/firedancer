@@ -215,6 +215,27 @@ static inline void vc_stu( int * p, vc_t c ) { _mm_storeu_si128( (__m128i *)p, c
 #define vc_unpack(b) _mm_cmpgt_epi32( _mm_and_si128( _mm_set1_epi32( (b) ), _mm_setr_epi32( 1<<0, 1<<1, 1<<2, 1<<3 ) ), \
                                       _mm_setzero_si128() )
 
+/* vc_expand expands c0:c1 (imm_hi==0) or c2:c3 (imm_hi==1) into a
+   paired lane conditional.  That is:
+
+     vc_expand(c,0) returns [ c0 c0 c1 c1 ]
+     vc_expand(c,1) returns [ c2 c2 c3 c3 ]
+
+   Conversely:
+
+     vc_narrow(a,b) returns [ a0 a2 b0 b2 ]
+
+   which is useful for turning two paired lane conditionals into a
+   single lane conditional.  U.B. if a, b, and/or c are not proper
+   vector conditional.  These are useful, for example, for vectorizing
+   64-bit pointer arithmetic used in 32-bit lane SIMD. */
+
+static inline vc_t vc_expand( vc_t c, int imm_hi ) {
+  return _mm_cvtepi32_epi64( imm_hi ? _mm_shuffle_epi32( c, _MM_SHUFFLE(3,2,3,2) ) : c ); /* compile time */
+}
+
+#define vc_narrow(a,b) _mm_castps_si128( _mm_shuffle_ps( _mm_castsi128_ps( (a) ), _mm_castsi128_ps( (b) ), _MM_SHUFFLE(2,0,2,0) ) )
+
 /* vc_gather(b,i) returns [ -!!b[i(0)] -!!b[i(1)] ... -!!b[i(3)] ] where
    b is an "int const *" (0/non-zero map to false/true) and i is a vi_t.
 
