@@ -140,6 +140,8 @@ struct fd_quic_conn {
   /* the peer may have multiple connection ids and ip:port */
   fd_quic_endpoint_t peer[FD_QUIC_MAX_CONN_ID_PER_CONN];
 
+  ulong              local_conn_id;       /* FIXME: hack to locally identify conns */
+
   /* the original connection id is specified by the client */
   fd_quic_conn_id_t  orig_conn_id;        /* unused by client connections */
 
@@ -352,7 +354,7 @@ fd_quic_conn_new( void *      shmem,
                   ulong       rx_buf_sz,
                   ulong       max_concur_streams_per_type,
                   ulong       max_in_flight_pkts );
-   
+
 
 #endif
 
