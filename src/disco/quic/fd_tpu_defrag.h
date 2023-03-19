@@ -10,8 +10,13 @@
    across the sequence of incoming frames. */
 
 /* FIXME: Directly copy into dcache and skip buffering in chunk. */
+/* FIXME: This is a demux, not a defrag */
 
-#include "fd_tpu.h"
+#include "../../util/fd_util_base.h"
+
+/* FD_TPU_MTU is the max serialized byte size of a txn sent over TPU. */
+
+#define FD_TPU_MTU (1232UL)
 
 /* FD_TPU_DEFRAG_ALIGN: Byte alignment of fd_tpu_defrag_t */
 
@@ -38,8 +43,9 @@ typedef struct fd_tpu_defrag_private fd_tpu_defrag_t;
 struct __attribute__((aligned(FD_TPU_DEFRAG_ENTRY_ALIGN))) fd_tpu_defrag_entry {
   /* 64 byte aligned */
 
+  fd_tpu_defrag_t * defrag;
+
   ushort sz;
-  ulong  _reserved_0x08;
   ulong  conn_id;
   ulong  stream_id;  /* ULONG_MAX if not allocated */
 
@@ -87,7 +93,21 @@ fd_tpu_defrag_leave( fd_tpu_defrag_t * defragger ) {
 void *
 fd_tpu_defrag_delete( void * );
 
-/* fd_tpu_defrag_entry_{start,exists,append,fini} are used to manage a
+/* fd_tpu_defrag_entry_exists checks whether an entry is safe to access
+   after a call to fd_tpu_defrag_housekeep. */
+
+static inline fd_tpu_defrag_entry_t *
+fd_tpu_defrag_entry_exists( fd_tpu_defrag_entry_t * entry,
+                            ulong                   conn_id,
+                            ulong                   stream_id ) {
+  if( FD_UNLIKELY( entry->conn_id   != conn_id
+                || entry->stream_id != stream_id ) )
+    return NULL; /* deallocated */
+
+  return entry;
+}
+
+/* fd_tpu_defrag_entry_{start,append,fini} are used to manage a
    defrag entry.
 
    fd_tpu_defrag_entry_{start,exists,append} return the in-progress
@@ -101,9 +121,6 @@ fd_tpu_defrag_delete( void * );
    in the memory region managed by the given defragger.  Returns a defrag
    entry on success and NULL if allocation failed.
 
-   fd_tpu_defrag_entry_exists checks whether the given defrag entry is
-   still alive after a call to fd_tpu_defrag_housekeep.
-
    fd_tpu_defrag_entry_append copies a fragment payload to the end of the
    defrag entry buffer.  frag points to the first byte of the payload of
    size frag_sz.  Caller may deallocate frag after return.  Deallocates
@@ -116,30 +133,15 @@ fd_tpu_defrag_entry_start( fd_tpu_defrag_t * defragger,
                            ulong             conn_id,
                            ulong             stream_id );
 
-static inline fd_tpu_defrag_entry_t *
-fd_tpu_defrag_entry_exists( fd_tpu_defrag_entry_t * entry,
-                            ulong                   conn_id,
-                            ulong                   stream_id ) {
-  if( FD_UNLIKELY( entry->conn_id   != conn_id
-                || entry->stream_id != stream_id ) )
-    return NULL; /* deallocated */
-
-  return entry;
-}
-
 fd_tpu_defrag_entry_t *
 fd_tpu_defrag_entry_append( fd_tpu_defrag_t *       defragger,
                             fd_tpu_defrag_entry_t * entry,
-                            ulong                   conn_id,
-                            ulong                   stream_id,
-                            uchar *                 frag,
+                            uchar const *           frag,
                             ulong                   frag_sz );
 
 void
 fd_tpu_defrag_entry_fini( fd_tpu_defrag_t *       defragger,
-                          fd_tpu_defrag_entry_t * entry,
-                          ulong                   conn_id,
-                          ulong                   stream_id );
+                          fd_tpu_defrag_entry_t * entry );
 
 /* fd_tpu_defrag_housekeep evicts stale defrag entries.  This function
    should be called periodically.  After a call to this function,

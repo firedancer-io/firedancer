@@ -135,6 +135,7 @@ fd_tpu_defrag_entry_start( fd_tpu_defrag_t * defragger,
   if( FD_UNLIKELY( !entry ) )
     return NULL;
 
+  entry->defrag    = defragger;
   entry->sz        = 0U;
   entry->conn_id   = conn_id;
   entry->stream_id = stream_id;
@@ -145,13 +146,8 @@ fd_tpu_defrag_entry_start( fd_tpu_defrag_t * defragger,
 fd_tpu_defrag_entry_t *
 fd_tpu_defrag_entry_append( fd_tpu_defrag_t *       defragger,
                             fd_tpu_defrag_entry_t * entry,
-                            ulong                   conn_id,
-                            ulong                   stream_id,
-                            uchar *                 frag,
+                            uchar const *           frag,
                             ulong                   frag_sz ) {
-
-  if( FD_UNLIKELY( !fd_tpu_defrag_entry_exists( entry, conn_id, stream_id ) ) )
-    return NULL;
 
   ulong old_sz = (ulong)entry->sz;
   ulong new_sz = old_sz + frag_sz;
@@ -168,12 +164,7 @@ fd_tpu_defrag_entry_append( fd_tpu_defrag_t *       defragger,
 
 void
 fd_tpu_defrag_entry_fini( fd_tpu_defrag_t *       defragger,
-                          fd_tpu_defrag_entry_t * entry,
-                          ulong                   conn_id,
-                          ulong                   stream_id ) {
-
-  if( FD_UNLIKELY( !fd_tpu_defrag_entry_exists( entry, conn_id, stream_id ) ) )
-    return;
+                          fd_tpu_defrag_entry_t * entry ) {
 
   fd_tpu_defrag_entry_free( defragger, entry );
 }
