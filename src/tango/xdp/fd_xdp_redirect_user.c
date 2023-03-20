@@ -58,7 +58,7 @@ fd_xdp_init( char const * app_name ) {
   /* Create UDP dsts map */
 
   struct bpf_map_create_opts map_create_opts = { .sz = sizeof(struct bpf_map_create_opts) };
-  int                        udp_dsts_map_fd = bpf_map_create(
+  int udp_dsts_map_fd = bpf_map_create(
     /* map_type    */ BPF_MAP_TYPE_HASH,
     /* map_name    */ "firedancer_udp_dsts",
     /* key_size    */ 8U,

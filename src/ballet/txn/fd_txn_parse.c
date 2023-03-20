@@ -131,8 +131,8 @@ fd_txn_parse( uchar const             * payload,
 
 
   for( ulong j=0UL; j<instr_cnt; j++ ) {
-    ushort                                                 acct_cnt = (ushort)0;
-    ushort                                                 data_sz  = (ushort)0;
+    ushort acct_cnt = (ushort)0;
+    ushort data_sz  = (ushort)0;
     CHECK_LEFT( MIN_INSTR_SZ                    );   uchar program_id     = payload[ i ];     i++;
     READ_CHECKED_COMPACT_U16( bytes_consumed,             acct_cnt,                  i );     i+=bytes_consumed;
     CHECK_LEFT( acct_cnt                        );   ulong acct_off       =          i  ;     i+=acct_cnt;

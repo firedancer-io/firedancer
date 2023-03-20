@@ -24,7 +24,7 @@ LLVMFuzzerTestOneInput( uchar const * data,
   if( FD_UNLIKELY( size>=1232UL ) ) return -1;
 
   uchar __attribute__((aligned((alignof(fd_txn_t))))) txn_buf[ FD_TXN_MAX_SZ ];
-  fd_txn_parse_counters_t                             counters = {0};
+  fd_txn_parse_counters_t counters = {0};
 
   ulong sz = fd_txn_parse( data, size, txn_buf, &counters );
   __asm__ volatile( "" : "+m,r" (sz) : : "memory" ); /* prevent optimization */

@@ -225,7 +225,7 @@ test_txn( uchar * payload,
           ulong   expected_max_cu,
           ulong   expected_fee_lamports ) { /* Excludes per-signature fee */
   FD_TEST( fd_txn_parse( payload, payload_sz, parsed, NULL ) );
-  fd_txn_t *                        txn = (fd_txn_t*)parsed;
+  fd_txn_t * txn = (fd_txn_t*)parsed;
   fd_compute_budget_program_state_t state;
   fd_compute_budget_program_init( &state );
   uchar * addresses = payload + txn->acct_addr_off;
@@ -246,10 +246,10 @@ test_duplicate( ulong request_units_deprecated_cnt,
                 ulong request_heap_frame_cnt,
                 ulong set_compute_unit_limit_cnt,
                 ulong set_compute_unit_price_cnt ) {
-  uchar const                       request_units_deprecated[ 9UL ] = { 0, 4,3,2,1, 8,7,6,5 };
-  uchar const                       request_heap_frame      [ 5UL ] = { 1, 0,0,1,0          };
-  uchar const                       set_compute_unit_limit  [ 5UL ] = { 2, 4,3,2,1          };
-  uchar const                       set_compute_unit_price  [ 9UL ] = { 3, 8,7,6,5,4,3,2,1  };
+  uchar const request_units_deprecated[ 9UL ] = { 0, 4,3,2,1, 8,7,6,5 };
+  uchar const request_heap_frame      [ 5UL ] = { 1, 0,0,1,0          };
+  uchar const set_compute_unit_limit  [ 5UL ] = { 2, 4,3,2,1          };
+  uchar const set_compute_unit_price  [ 9UL ] = { 3, 8,7,6,5,4,3,2,1  };
   fd_compute_budget_program_state_t state;
   fd_compute_budget_program_init( &state );
 

@@ -6,8 +6,8 @@ FD_STATIC_ASSERT( FD_FCTL_ALIGN==sizeof(ulong), unit_test );
 
 #define RX_MAX (128UL)
 static uchar __attribute__((aligned(FD_FCTL_ALIGN))) shmem[ FD_FCTL_FOOTPRINT( RX_MAX ) ];
-static ulong                                         rx_seq [ RX_MAX ]; /* Init to zero */
-static ulong                                         rx_slow[ RX_MAX ];
+static ulong rx_seq [ RX_MAX ]; /* Init to zero */
+static ulong rx_slow[ RX_MAX ];
 
 int
 main( int     argc,
