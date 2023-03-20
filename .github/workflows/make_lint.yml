@@ -9,6 +9,7 @@ jobs:
   make-check-lint:
     continue-on-error: true
     strategy:
+      fail-fast: false
       matrix:
         compiler: [gcc]
     runs-on: [self-hosted, Linux, X64]
