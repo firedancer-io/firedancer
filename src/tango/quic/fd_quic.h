@@ -460,6 +460,10 @@ fd_quic_set_cb_stream_notify( fd_quic_t * quic, fd_quic_cb_stream_notify_t cb ) 
 ulong
 fd_quic_get_next_wakeup( fd_quic_t * quic );
 
+fd_quic_config_t *
+fd_quic_config_from_env( int * pargc,
+                         char *** pargv,
+                         fd_quic_config_t * cfg );
 
 FD_PROTOTYPES_END
 

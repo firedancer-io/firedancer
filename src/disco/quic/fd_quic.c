@@ -1,20 +1,97 @@
 #include "fd_quic.h"
-#include "fd_tpu_defrag.h"
 
-struct fd_tpu_tile_state {
-  fd_frag_meta_t *   mcache;
-  fd_tpu_defrag_t *  defrag;
+#if !FD_HAS_HOSTED
+#error "fd_quic tile requires FD_HAS_HOSTED"
+#endif
 
-  ulong   depth;
-  ulong * sync;
-  ulong   seq;
+#define SCRATCH_ALLOC( a, s ) (__extension__({                    \
+    ulong _scratch_alloc = fd_ulong_align_up( scratch_top, (a) ); \
+    scratch_top = _scratch_alloc + (s);                           \
+    (void *)_scratch_alloc;                                       \
+  }))
 
-  void *  base;
+/* dcache app region related ******************************************/
+
+/* FD_TPU_MTU is the max serialized byte size of a txn sent over TPU. */
+#define FD_TPU_MTU (1232UL)
+
+/* fd_quic_tpu_msg_ctx_t is the message context of a txn being received
+   by the QUIC tile over the TPU protocol. It is used to detect dcache
+   overruns by identifying which QUIC stream is currently bound to a
+   dcache chunk. An array of fd_quic_tpu_msg_ctx_t to fit <depth> entries
+   forms the dcache's app region.
+
+   This is necessary for stream defrag, during which multiple QUIC
+   streams produce into multiple dcache chunks concurrently. In the worst
+   case, a defrag is started for every available chunk in the dcache.
+   When the producer wraps around to the first dcache entry, it will
+   override the existing defrag process. This overrun is then safely
+   detected through a change in conn/stream IDs when this previous defrag
+   process continues. */
+
+struct __attribute__((aligned(32UL))) fd_quic_tpu_msg_ctx {
+  ulong   conn_id;
+  ulong   stream_id;  /* ULONG_MAX marks completed msg */
+  uchar * data;
+  uint    sz;
+  uint    tsorig;
+};
+typedef struct fd_quic_tpu_msg_ctx fd_quic_tpu_msg_ctx_t;
+
+/* fd_quic_dcache_app_footprint returns the required footprint in bytes
+   for the QUIC tile's out dcache app region of the given depth. */
+
+FD_FN_CONST static ulong
+fd_quic_dcache_app_footprint( ulong depth ) {
+  return depth*FD_DCACHE_SLOT_FOOTPRINT( FD_TPU_MTU );
+}
+
+/* fd_quic_dcache_msg_ctx returns a pointer to the TPU/QUIC message
+   context struct for the given dcache app laddr and chunk.  app_laddr
+   points to the first byte of the dcache's app region in the tile's
+   local address space and has FD_DCACHE_ALIGN alignment (see
+   fd_dcache_app_laddr()).  chunk must be within the valid bounds for
+   this dcache. */
+
+FD_FN_CONST static fd_quic_tpu_msg_ctx_t *
+fd_quic_dcache_msg_ctx( uchar * app_laddr,
+                        ulong   chunk0,
+                        ulong   chunk ) {
+  ulong chunk_idx = (chunk-chunk0) / FD_DCACHE_SLOT_FOOTPRINT( FD_TPU_MTU );
+  return (fd_quic_tpu_msg_ctx_t *)app_laddr + chunk_idx;
+}
+
+/* QUIC context related ***********************************************/
+
+/* Local publish queue populated by QUIC service callbacks */
+#define QUEUE_NAME pubq
+#define QUEUE_T    fd_quic_tpu_msg_ctx_t *
+#include "../../util/tmpl/fd_queue_dynamic.c"
+
+/* fd_quic_tpu_ctx_t is the tile context object provided to callbacks
+   from fd_quic. */
+
+struct fd_quic_tpu_ctx {
+  /* dcache */
+
+  uchar * base;        /* dcache chunk region */
+  uchar * dcache_app;  /* dcache app region */
   ulong   chunk0;
   ulong   wmark;
-  ulong   chunk;
+
+  ulong   chunk;       /* current dcache chunk idx */
+
+  /* publish stack */
+
+  fd_quic_tpu_msg_ctx_t ** pubq;
+
+  /* meta */
+
+  ulong   cnc_diag_tpu_conn_live_cnt;
 };
-typedef struct fd_tpu_tile_state fd_tpu_tile_state_t;
+typedef struct fd_quic_tpu_ctx fd_quic_tpu_ctx_t;
+
+/* QUIC callbacks *****************************************************/
 
 /* Tile-local sequence number for conns */
 static FD_TLS ulong conn_seq = 0UL;
@@ -29,33 +106,69 @@ fd_tpu_now( void * ctx ) {
 /* fd_tpu_conn_create implements fd_quic_cb_conn_new_t */
 static void
 fd_tpu_conn_create( fd_quic_conn_t * conn,
-                    void *           quic_ctx ) {
-  (void)conn;
-  (void)quic_ctx;
+                    void *           _ctx ) {
 
   conn->local_conn_id = ++conn_seq;
+
+  fd_quic_tpu_ctx_t * ctx = (fd_quic_tpu_ctx_t *)_ctx;
+  ctx->cnc_diag_tpu_conn_live_cnt++;
+}
+
+/* fd_tpu_conn_destroy implements fd_quic_cb_conn_final_t */
+static void
+fd_tpu_conn_destroy( fd_quic_conn_t * conn,
+                     void *           _ctx ) {
+  (void)conn;
+
+  fd_quic_tpu_ctx_t * ctx = (fd_quic_tpu_ctx_t *)_ctx;
+  ctx->cnc_diag_tpu_conn_live_cnt--;
 }
 
 /* fd_tpu_stream_create implements fd_quic_cb_stream_new_t */
 static void
 fd_tpu_stream_create( fd_quic_stream_t * stream,
-                      void *             quic_ctx,
+                      void *             _ctx,
                       int                type ) {
 
+  /* At this point, the QUIC client and server have agreed to open a
+     stream.  In case the client has opened this stream, it is assumed
+     that the QUIC implementation has verified that the client has the
+     necessary stream quota to do so. */
+
   (void)type; /* TODO reject bidi streams? */
+
+  /* Load QUIC state */
+
+  fd_quic_tpu_ctx_t * ctx = (fd_quic_tpu_ctx_t *)_ctx;
 
   ulong conn_id   = stream->conn->local_conn_id;
   ulong stream_id = stream->stream_id;
 
-  fd_tpu_defrag_t * defragger = (fd_tpu_defrag_t *)quic_ctx;
+  /* Load dcache info */
 
-  fd_tpu_defrag_entry_t * entry = fd_tpu_defrag_entry_start( defragger, conn_id, stream_id );
-  if( FD_UNLIKELY( !entry ) ) {
-    fd_quic_stream_close( stream, 0x03 ); /* FIXME fd_quic_stream_close not implemented */
-    return;
-  }
+  uchar * const base       = ctx->base;
+  uchar * const dcache_app = ctx->dcache_app;
+  ulong   const chunk0     = ctx->chunk0;
+  ulong   const wmark      = ctx->wmark;
+  ulong         chunk      = ctx->chunk;
 
-  stream->context = entry;
+  /* Allocate new dcache entry */
+
+  /* TODO How can we prevent override of not yet received metas? */
+
+  chunk = fd_dcache_compact_next( chunk, FD_TPU_MTU, chunk0, wmark );
+
+  fd_quic_tpu_msg_ctx_t * msg_ctx = fd_quic_dcache_msg_ctx( dcache_app, chunk0, chunk );
+  msg_ctx->conn_id   = conn_id;
+  msg_ctx->stream_id = stream_id;
+  msg_ctx->data      = base + chunk;
+  msg_ctx->sz        = 0U;
+  msg_ctx->tsorig     = (uint)fd_frag_meta_ts_comp( fd_tickcount() );
+
+  /* Wind up for next callback */
+
+  ctx->chunk      = chunk;    /* Update dcache chunk index */
+  stream->context = msg_ctx;  /* Update stream dcache entry */
 }
 
 /* fd_tpu_stream_receive implements fd_quic_cb_stream_receive_t */
@@ -67,22 +180,36 @@ fd_tpu_stream_receive( fd_quic_stream_t * stream,
                        ulong              offset,
                        int                fin ) {
 
-  (void)offset; /* TODO offset required? */
   (void)fin; /* TODO instantly publish if offset==0UL && fin */
+
+  /* Bounds check */
+  /* TODO this bounds check is not complete and assumes that the QUIC
+     implementation rejects obviously invalid offset values, e.g. those
+     that would overflow the data pointer. */
+
+  ulong total_sz = offset+data_sz;
+  if( FD_UNLIKELY( total_sz>FD_TPU_MTU || total_sz>offset ) ) {
+    fd_quic_stream_close( stream, 0x03 ); /* FIXME fd_quic_stream_close not implemented */
+    return;  /* oversz stream */
+  }
+
+  /* Load QUIC state */
 
   ulong conn_id   = stream->conn->local_conn_id;
   ulong stream_id = stream->stream_id;
 
-  fd_tpu_defrag_entry_t * entry     = (fd_tpu_defrag_entry_t *)stream_ctx;
-  fd_tpu_defrag_t *       defragger = entry->defrag;
+  /* Load existing dcache chunk ctx */
 
-  if( FD_UNLIKELY( !fd_tpu_defrag_entry_exists( entry, conn_id, stream_id ) ) )
-    return;
-
-  if( FD_UNLIKELY( !fd_tpu_defrag_entry_append( defragger, entry, data, data_sz ) ) ) {
+  fd_quic_tpu_msg_ctx_t * msg_ctx = (fd_quic_tpu_msg_ctx_t *)stream_ctx;
+  if( FD_UNLIKELY( msg_ctx->conn_id != conn_id || msg_ctx->stream_id != stream_id ) ) {
     fd_quic_stream_close( stream, 0x03 ); /* FIXME fd_quic_stream_close not implemented */
-    return;
+    return;  /* overrun */
   }
+
+  /* Append data into chunk */
+
+  fd_memcpy( msg_ctx->data + offset, data, data_sz );
+  msg_ctx->sz = (uint)fd_ulong_max( msg_ctx->sz, total_sz ); /* TODO will QUIC deliver frames out-of-order? */
 }
 
 /* fd_tpu_stream_notify implements fd_quic_cb_stream_notify_t */
@@ -91,90 +218,43 @@ fd_tpu_stream_notify( fd_quic_stream_t * stream,
                       void *             stream_ctx,
                       int                type ) {
 
-  /* FIXME: This is not the right place to publish messages, move
-     publishing back to main loop and populate light "publish stack"
-     from here instead. */
+  if( FD_UNLIKELY( type!=FD_QUIC_NOTIFY_END ) )
+    return;  /* not a successful stream close */
 
-  /* Stream context */
+  /* Load QUIC state */
 
-  fd_tpu_defrag_entry_t * entry     = (fd_tpu_defrag_entry_t *)stream_ctx;
-  fd_tpu_defrag_t *       defragger = entry->defrag;
-  fd_tpu_tile_state_t *   tile      = fd_tpu_defrag_containing( defragger );
-  ulong                   conn_id   = stream->conn->local_conn_id;
-  ulong                   stream_id = stream->stream_id;
+  fd_quic_tpu_msg_ctx_t * msg_ctx = (fd_quic_tpu_msg_ctx_t *)stream_ctx;
 
-  if( FD_UNLIKELY( !fd_tpu_defrag_entry_exists( entry, conn_id, stream_id ) ) )
-    return;
+  ulong conn_id   = stream->conn->local_conn_id;
+  ulong stream_id = stream->stream_id;
+  if( FD_UNLIKELY( msg_ctx->conn_id != conn_id || msg_ctx->stream_id != stream_id ) )
+    return;  /* overrun */
 
-  if( FD_UNLIKELY( type!=FD_QUIC_NOTIFY_END ) ) {
-    fd_tpu_defrag_entry_fini( defragger, entry );
-    return;
-  }
+  /* Mark message as completed */
 
-  /* At this point, we have a message to publish */
+  msg_ctx->stream_id = ULONG_MAX;
 
-  /* Load tile constants */
+  /* Add to local publish queue */
 
-  fd_frag_meta_t * const mcache = tile->mcache;
-  ulong            const depth  = tile->depth;
-  ulong *          const sync   = tile->sync;
-  void *           const base   = tile->base;
-  ulong            const chunk0 = tile->chunk0;
-  ulong            const wmark  = tile->wmark;
+  fd_quic_tpu_ctx_t * ctx = (fd_quic_tpu_ctx_t *)stream->conn->quic->context;
+  pubq_push( ctx->pubq, msg_ctx );
+}
 
-  /* Load tile variables */
+/* Tile ***************************************************************/
 
-  ulong seq   = tile->seq;
-  ulong chunk = tile->chunk;
-
-  /* Load message */
-
-  uchar * payload = entry->chunk;
-  ulong   sz      = entry->sz;
-
-  /* Copy message into dcache chunk */
-
-  uchar * chunk_laddr = (uchar *)fd_chunk_to_laddr( base, chunk );
-  fd_memcpy( chunk_laddr, payload, sz );
-
-  /* Publish meta */
-
-  ulong orig = 0UL; /* TODO origin? */
-
-  ulong ctl = fd_frag_meta_ctl( orig, 1 /*som*/, 1 /*eom*/, 0 /*err*/ );
-    /* TODO support fragmentation */
-
-  long now = fd_tickcount();
-  ulong tsorig = fd_frag_meta_ts_comp( now ); /* TODO orig time */
-  ulong tspub  = tsorig;
-
-  ulong sig = (ulong)now; /* TODO message sig */
-
-  fd_mcache_publish( mcache, depth, seq, sig, chunk, sz, ctl, tsorig, tspub );
-
-  /* Windup for the next publish and accumulate diagnostics */
-
-  chunk = fd_dcache_compact_next( chunk, sz, chunk0, wmark );
-  seq   = fd_seq_inc( seq, 1UL );
-
-  /* Free frame from demux heap */
-
-  fd_tpu_defrag_entry_fini( defragger, entry );
-
-  /* Save tile variables */
-
-  tile->seq   = seq;
-  tile->chunk = chunk;
+ulong
+fd_quic_tile_scratch_footprint( ulong depth ) {
+  return pubq_footprint( depth );
 }
 
 int
 fd_quic_tile( fd_cnc_t *         cnc,
-              ulong              shard,
+              ulong              orig,
               fd_quic_t *        quic,
               fd_quic_config_t * quic_cfg,
               fd_frag_meta_t *   mcache,
               uchar *            dcache,
-              ulong              stream_par_cnt,
+              long               lazy,
               fd_rng_t *         rng,
               void *             scratch ) {
 
@@ -193,6 +273,12 @@ fd_quic_tile( fd_cnc_t *         cnc,
   ulong   chunk0; /* ==fd_dcache_compact_chunk0( base, dcache, pkt_max ) */
   ulong   wmark;  /* ==fd_dcache_compact_wmark ( base, dcache, _pkt_max ), packets chunks start in [chunk0,wmark] */
   ulong   chunk;  /* Chunk where next packet will be written, in [chunk0,wmark] */
+
+  /* quic context */
+  fd_quic_tpu_ctx_t quic_ctx = {0};
+
+  /* local publish queue */
+  fd_quic_tpu_msg_ctx_t ** msg_pubq;
 
   /* housekeeping state */
   ulong async_min; /* minimum number of ticks between processing a housekeeping event, positive integer power of 2 */
@@ -213,6 +299,8 @@ fd_quic_tile( fd_cnc_t *         cnc,
       return 1;
     }
 
+    ulong scratch_top = (ulong)scratch;
+
     /* cnc state init */
 
     if( FD_UNLIKELY( !cnc ) ) { FD_LOG_WARNING(( "NULL cnc" )); return 1; }
@@ -231,7 +319,7 @@ fd_quic_tile( fd_cnc_t *         cnc,
 
     quic_cfg->cb_conn_new           = fd_tpu_conn_create;
     quic_cfg->cb_handshake_complete = NULL;
-    quic_cfg->cb_conn_final         = NULL;
+    quic_cfg->cb_conn_final         = fd_tpu_conn_destroy;
     quic_cfg->cb_stream_new         = fd_tpu_stream_create;
     quic_cfg->cb_stream_notify      = fd_tpu_stream_notify;
     quic_cfg->cb_stream_receive     = fd_tpu_stream_receive;
@@ -264,6 +352,11 @@ fd_quic_tile( fd_cnc_t *         cnc,
       return 1;
     }
 
+    if( FD_UNLIKELY( fd_dcache_app_sz( dcache ) < fd_quic_dcache_app_footprint( depth ) ) ) {
+      FD_LOG_WARNING(( "--dcache app sz too small" ));
+      return 1;
+    }
+
     chunk0 = fd_dcache_compact_chunk0( base, dcache );
     wmark  = fd_dcache_compact_wmark ( base, dcache, mtu );
     chunk  = FD_VOLATILE_CONST( cnc_diag[ FD_QUIC_CNC_DIAG_CHUNK_IDX ] );
@@ -271,9 +364,33 @@ fd_quic_tile( fd_cnc_t *         cnc,
       FD_LOG_INFO(( "out of bounds cnc chunk index; overriding initial chunk to chunk0" ));
     FD_LOG_INFO(( "chunk %lu", chunk ));
 
+    /* local pubq init */
+
+    msg_pubq = pubq_join( pubq_new( SCRATCH_ALLOC( pubq_align(), pubq_footprint( depth ) ), depth ) );
+    if( FD_UNLIKELY( !msg_pubq ) ) { FD_LOG_WARNING(( "pubq join failed" )); return 1; }
+
+    /* quic ctx init */
+    quic_ctx.base       = base;
+    quic_ctx.dcache_app = fd_dcache_app_laddr( dcache );
+    quic_ctx.chunk0     = chunk0;
+    quic_ctx.wmark      = wmark;
+    quic_ctx.chunk      = chunk;
+    quic_ctx.pubq       = msg_pubq;
+    quic_ctx.cnc_diag_tpu_conn_live_cnt = 0UL;
+
+    quic->context = &quic_ctx;
+
+    /* housekeeping init */
+
+    if( lazy<=0L ) lazy = fd_tempo_lazy_default( depth );
+    FD_LOG_INFO(( "Configuring housekeeping (lazy %li ns)", lazy ));
+
+    async_min = fd_tempo_async_min( lazy, 1UL /*event_cnt*/, (float)fd_tempo_tick_per_ns( NULL ) );
+    if( FD_UNLIKELY( !async_min ) ) { FD_LOG_WARNING(( "bad lazy" )); return 1; }
+
   } while(0);
 
-  FD_LOG_INFO(( "Running QUIC (shard %lu)", shard ));
+  FD_LOG_INFO(( "Running QUIC (orig %lu)", orig ));
   fd_cnc_signal( cnc, FD_CNC_SIGNAL_RUN );
   long then = fd_tickcount();
   long now  = then;
@@ -286,6 +403,14 @@ fd_quic_tile( fd_cnc_t *         cnc,
       fd_mcache_seq_update( sync, seq );
 
       fd_cnc_heartbeat( cnc, now );
+      FD_COMPILER_MFENCE();
+      cnc_diag[ FD_QUIC_CNC_DIAG_CHUNK_IDX         ]  = chunk;
+      cnc_diag[ FD_QUIC_CNC_DIAG_TPU_PUB_CNT       ] += cnc_diag_tpu_pub_cnt;
+      cnc_diag[ FD_QUIC_CNC_DIAG_TPU_PUB_SZ        ] += cnc_diag_tpu_pub_sz;
+      cnc_diag[ FD_QUIC_CNC_DIAG_TPU_CONN_LIVE_CNT ]  = cnc_diag_tpu_conn_live_cnt;
+      FD_COMPILER_MFENCE();
+      cnc_diag_tpu_pub_cnt = 0UL;
+      cnc_diag_tpu_pub_sz  = 0UL;
 
       /* Receive command-and-control signals */
       ulong s = fd_cnc_signal_query( cnc );
@@ -298,8 +423,38 @@ fd_quic_tile( fd_cnc_t *         cnc,
       then = now + (long)fd_tempo_async_reload( rng, async_min );
     }
 
+    /* Service QUIC clients */
     fd_quic_service( quic );
 
+    /* Update locals */
+    chunk                      = quic_ctx.chunk;
+    cnc_diag_tpu_conn_live_cnt = quic_ctx.cnc_diag_tpu_conn_live_cnt;
+
+    /* Publish completed messages */
+    ulong pub_cnt = pubq_cnt( msg_pubq );
+    for( ulong i=0; i<pub_cnt; i++ ) {
+
+      fd_quic_tpu_msg_ctx_t * msg = msg_pubq[ i ];
+
+      if( FD_UNLIKELY( msg->stream_id != ULONG_MAX ) )
+        continue;  /* overrun */
+
+      ulong chunk  = (ulong)msg->data - (ulong)base;
+      ulong sz     = msg->sz;
+      ulong sig    = 42UL; /* TODO */
+      ulong ctl    = fd_frag_meta_ctl( orig, 1 /* som */, 1 /* eom */, 0 /* err */ );
+      ulong tsorig = msg->tsorig;
+      ulong tspub  = fd_frag_meta_ts_comp( fd_tickcount() );
+
+      fd_mcache_publish( mcache, depth, seq, sig, chunk, sz, ctl, tsorig, tspub );
+
+      /* Windup for the next iteration and accumulate diagnostics */
+
+      seq = fd_seq_inc( seq, 1UL );
+      cnc_diag_tpu_pub_cnt++;
+      cnc_diag_tpu_pub_sz += sz;
+    }
+    pubq_remove_all( msg_pubq );
   }
 
   do {
@@ -315,3 +470,5 @@ fd_quic_tile( fd_cnc_t *         cnc,
 
   return 0;
 }
+
+#undef SCRATCH_ALLOC

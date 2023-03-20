@@ -1,7 +1,40 @@
 #ifndef HEADER_fd_src_disco_quic_fd_quic_h
 #define HEADER_fd_src_disco_quic_fd_quic_h
 
-/* fd_quic provides a TPU/QUIC server. */
+/* fd_quic provides a QUIC server tile.
+
+   ### TPU/QUIC
+
+   At present, TPU is the only protocol deployed on QUIC.  It allows
+   clients to send transactions to block producers (this tile).  For
+   each txn to be transfered, the client opens a unidirectional QUIC
+   stream and sends its serialization (see fd_txn_parse).  In QUIC, this
+   can occur in as little as a single packet (and an ACK by the server).
+   For txn exceeding MTU size, the txn is fragmented over multiple
+   packets.  For more information, see the specification:
+   https://github.com/solana-foundation/specs/blob/main/p2p/tpu.md
+
+   ### Tango semantics
+
+   The fd_quic tile acts as a plain old Tango producer writing to a cnc,
+   an mcache, and a dcache.  The tile will defragment multi-packet
+   TPU streams coming in from QUIC, such that each mcache/dcache pair
+   forms a complete txn.  This requires the dcache mtu to be at least
+   that of the largest allowed serialized txn size.
+
+   To facilitate defragmentation, the fd_quic tile stores non-standard
+   stream information in the dcache's application region.  (An array of
+   fd_quic_tpu_msg_ctx_t)
+
+   ### Networking
+
+   Each QUIC tile serves a single network device RX queue.  Serving
+   multiple network interfaces or multiple queues (receive side scaling)
+   requires multiple QUIC tiles.  Multi-queue deployments require the use
+   of flow steering to ensure that each QUIC connection only reaches one
+   QUIC tile at a time.  Flow steering based on UDP/IP source hashing as
+   frequently implemented by hardware-RSS is a practical mechanism to do
+   so. */
 
 #include "../fd_disco_base.h"
 #include "../../tango/quic/fd_quic.h"
@@ -27,26 +60,32 @@
 #define FD_QUIC_CNC_DIAG_TPU_PUB_SZ        (4UL) /* ", frequently */
 #define FD_QUIC_CNC_DIAG_TPU_CONN_LIVE_CNT (5UL) /* ", frequently */
 
+/* FD_QUIC_TILE_SCRATCH_ALIGN specifies the alignment and needed for a
+   QUIC tile scratch region.  ALIGN is an integer power of 2 of at least
+   double cache line to mitigate various kinds of false sharing. */
+
+#define FD_QUIC_TILE_SCRATCH_ALIGN (128UL)
+
 FD_PROTOTYPES_BEGIN
 
-/* fd_quic_tile runs a TPU/QUIC server  */
+FD_FN_CONST static inline ulong
+fd_quic_tile_scratch_align( void ) {
+  return FD_QUIC_TILE_SCRATCH_ALIGN;
+}
 
 FD_FN_CONST ulong
-fd_quic_tile_scratch_align( void );
-
-FD_FN_CONST ulong
-fd_quic_tile_scratch_footprint( ulong stream_par_cnt );
+fd_quic_tile_scratch_footprint( ulong depth );
 
 int
-fd_quic_tile( fd_cnc_t *         cnc,            /* Local join to the tile's command-and-control */
-              ulong              shard,          /* QUIC tile shard index of QUIC server */
-              fd_quic_t *        quic,           /* Local join to the QUIC server */
-              fd_quic_config_t * quic_cfg,       /* QUIC server config (modified by tile) */
-              fd_frag_meta_t *   mcache,         /* Local join to the tile's txn output mcache */
-              uchar *            dcache,         /* Local join to the tile's txn output dcache */
-              ulong              stream_par_cnt, /* Number of concurrent streams */
-              fd_rng_t *         rng,
-              void *             scratch );      /* Tile scratch memory */
+fd_quic_tile( fd_cnc_t *         cnc,        /* Local join to the tile's command-and-control */
+              ulong              orig,       /* Origin for this QUIC output stream, in [0,FD_FRAG_META_ORIG_MAX) */
+              fd_quic_t *        quic,       /* Local join to the QUIC server */
+              fd_quic_config_t * quic_cfg,   /* QUIC server config (modified by tile) */
+              fd_frag_meta_t *   mcache,     /* Local join to the tile's txn output mcache */
+              uchar *            dcache,     /* Local join to the tile's txn output dcache */
+              long               lazy,       /* Lazyiness, <=0 means use a reasonable default */
+              fd_rng_t *         rng,        /* Local join to the rng this tile should use */
+              void *             scratch );  /* Tile scratch memory */
 
 FD_PROTOTYPES_END
 
