@@ -508,7 +508,7 @@ fd_quic_init( void *             shmem,
   }
 
   if( quic->init ) {
-    FD_LOG_ERR(( "fd_quic_init: quic alread initialized" ));
+    FD_LOG_ERR(( "fd_quic_init: quic already initialized" ));
   }
 
   if( !config->key_file || config->key_file[0] == '\0' ) {

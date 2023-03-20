@@ -255,8 +255,8 @@ fd_quic_tile( fd_cnc_t *         cnc,
 
   /* out frag stream state */
   ulong   depth;  /* ==fd_mcache_depth( mcache ), depth of the mcache / positive integer power of 2 */
-  ulong * sync;   /* ==fd_mcache_seq_laddr( mcache ), local addr where replay mcache sync info is published */
-  ulong   seq;    /* seq replay frag sequence number to publish */
+  ulong * sync;   /* ==fd_mcache_seq_laddr( mcache ), local addr where QUIC mcache sync info is published */
+  ulong   seq;    /* seq QUIC frag sequence number to publish */
 
   void *  base;   /* ==fd_wksp_containing( dcache ), chunk reference address in the tile's local address space */
   ulong   chunk0; /* ==fd_dcache_compact_chunk0( base, dcache, pkt_max ) */
@@ -306,22 +306,22 @@ fd_quic_tile( fd_cnc_t *         cnc,
 
     if( FD_UNLIKELY( !quic_cfg ) ) { FD_LOG_WARNING(( "NULL quic cfg" )); return 1; }
 
-    quic_cfg->cb_conn_new           = fd_tpu_conn_create;
-    quic_cfg->cb_handshake_complete = NULL;
-    quic_cfg->cb_conn_final         = fd_tpu_conn_destroy;
-    quic_cfg->cb_stream_new         = fd_tpu_stream_create;
-    quic_cfg->cb_stream_notify      = fd_tpu_stream_notify;
-    quic_cfg->cb_stream_receive     = fd_tpu_stream_receive;
-
     quic_cfg->alpns    = (uchar const *)"solana-tpu";
     quic_cfg->alpns_sz = 10UL;
-
-    quic_cfg->now_fn  = fd_tpu_now;
-    quic_cfg->now_ctx = NULL;
 
     /* quic server init */
 
     if( FD_UNLIKELY( !quic ) ) { FD_LOG_WARNING(( "NULL quic" )); return 1; }
+
+    quic->cb_conn_new           = fd_tpu_conn_create;
+    quic->cb_handshake_complete = NULL;
+    quic->cb_conn_final         = fd_tpu_conn_destroy;
+    quic->cb_stream_new         = fd_tpu_stream_create;
+    quic->cb_stream_notify      = fd_tpu_stream_notify;
+    quic->cb_stream_receive     = fd_tpu_stream_receive;
+
+    quic->now_fn  = fd_tpu_now;
+    quic->now_ctx = NULL;
 
     /* out frag stream init */
 
@@ -452,7 +452,7 @@ fd_quic_tile( fd_cnc_t *         cnc,
 
     /* TODO close all open QUIC conns */
 
-    FD_LOG_INFO(( "Halted replay" ));
+    FD_LOG_INFO(( "Halted quic" ));
     fd_cnc_signal( cnc, FD_CNC_SIGNAL_BOOT );
 
   } while(0);
