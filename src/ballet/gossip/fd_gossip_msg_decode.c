@@ -39,7 +39,7 @@ fd_gossip_parse_msg( fd_bin_parse_ctx_t * ctx ) {
     return NULL;
   }
 
-  ulong dst_sz_remaining = fd_bin_parse_dst_size_remaining( ctx );
+  ulong dst_sz_remaining = fd_bin_parse_total_dst_size_remaining( ctx );
   void * msg_out = fd_bin_parse_get_cur_dst( ctx );
   ulong msg_out_sz = 0;
   int parse_status = 0;
@@ -76,17 +76,17 @@ fd_gossip_parse_msg( fd_bin_parse_ctx_t * ctx ) {
 
   if( FD_UNLIKELY( !parse_status ) ) {
     FD_LOG_WARNING(( "error parsing gossip msg" ));
-    fd_bin_parse_update_state_failed( ctx );
+    fd_bin_parse_update_state_parse_failed( ctx );
     return NULL;
   }
 
   if( FD_UNLIKELY( !fd_bin_parse_was_entire_input_blob_consumed( ctx ) ) ) {
     FD_LOG_WARNING(( "entire input blob was not consumed during parsing" ));
-    fd_bin_parse_update_state_failed( ctx );
+    fd_bin_parse_update_state_parse_failed( ctx );
     return NULL;
   }
 
-  fd_bin_parse_update_state_succeeded( ctx, msg_out_sz );
+  fd_bin_parse_update_state_parse_succeeded( ctx, msg_out_sz );
   return (fd_gossip_msg_t *)msg_out;
 }
 
@@ -116,7 +116,7 @@ fd_gossip_parse_pull_request_msg( fd_bin_parse_ctx_t * ctx,
 
   /* setup vector struct for this data */
   msg->crds_filter.bloom.keys.num_objs = nelems;
-  msg->crds_filter.bloom.keys.offset = CUR_DATA_OFFSET;
+  msg->crds_filter.bloom.keys.offset = DST_CUR_DATA_OFFSET;
 
   ADVANCE_DST_PTR( nelems*8 );
 
@@ -133,7 +133,7 @@ fd_gossip_parse_pull_request_msg( fd_bin_parse_ctx_t * ctx,
   } else {
     /* setup vector struct for this data */
     msg->crds_filter.bloom.bits.bits.num_objs = nelems;
-    msg->crds_filter.bloom.bits.bits.offset = CUR_DATA_OFFSET;
+    msg->crds_filter.bloom.bits.bits.offset = DST_CUR_DATA_OFFSET;
     ADVANCE_DST_PTR( nelems * 8);
   }
 
@@ -167,10 +167,10 @@ fd_gossip_parse_pull_request_msg( fd_bin_parse_ctx_t * ctx,
   }
 
   msg->value.num_objs = 1;
-  msg->value.offset = CUR_DATA_OFFSET;
+  msg->value.offset = DST_CUR_DATA_OFFSET;
   ADVANCE_DST_PTR( crds_obj_sz );
 
-  *obj_sz = TOTAL_DATA_OUT_SZ;
+  *obj_sz = msg->msg_sz = TOTAL_DATA_OUT_SZ;
   return 1;
 }
 
@@ -221,14 +221,14 @@ fd_gossip_parse_pull_response_msg( fd_bin_parse_ctx_t * ctx,
        using this offset and the number of CRDS objects we have, we're able
        to walk through all of the objects in sequence. */
     if( count==0 ) {
-      msg->values.offset = CUR_DATA_OFFSET;
+      msg->values.offset = DST_CUR_DATA_OFFSET;
     }
 
     msg->values.num_objs++;
     ADVANCE_DST_PTR( crds_obj_sz );
   }
 
-  *obj_sz = TOTAL_DATA_OUT_SZ;
+  *obj_sz = msg->msg_sz = TOTAL_DATA_OUT_SZ;
   return 1;
 }
 
@@ -273,7 +273,7 @@ fd_gossip_parse_prune_msg( fd_bin_parse_ctx_t * ctx,
 
   /* setup vector struct for this data */
   msg->data.prunes.num_objs = nelems;
-  msg->data.prunes.offset = CUR_DATA_OFFSET;
+  msg->data.prunes.offset = DST_CUR_DATA_OFFSET;
 
   ADVANCE_DST_PTR( nelems*32 );
 
@@ -294,7 +294,8 @@ fd_gossip_parse_prune_msg( fd_bin_parse_ctx_t * ctx,
 
   CHECK_WALLCLOCK( msg->data.wallclock );
   
-  *obj_sz = TOTAL_DATA_OUT_SZ;
+  msg->data.obj_sz = sizeof( fd_gossip_prune_data_t ) + (32*nelems);
+  *obj_sz = msg->msg_sz = TOTAL_DATA_OUT_SZ;
   return 1;
 }
 
@@ -343,14 +344,14 @@ fd_gossip_parse_push_msg( fd_bin_parse_ctx_t * ctx,
     /* If this is the first CRDS object in the 'vector', put the offset
        of it into the CRDS vector descriptor. */
     if( count==0 ) {
-      msg->values.offset = CUR_DATA_OFFSET;
+      msg->values.offset = DST_CUR_DATA_OFFSET;
     }
 
     msg->values.num_objs++;
     ADVANCE_DST_PTR( crds_obj_sz );
   }
 
-  *obj_sz = TOTAL_DATA_OUT_SZ;
+  *obj_sz = msg->msg_sz = TOTAL_DATA_OUT_SZ;
   return 1;
 }
 
@@ -384,7 +385,7 @@ fd_gossip_parse_ping_msg( fd_bin_parse_ctx_t * ctx,
     return 0;
   }
 
-  *obj_sz = sizeof( fd_gossip_ping_msg_t );
+  *obj_sz = msg->msg_sz = sizeof( fd_gossip_ping_msg_t );
   return 1;
 }
 
@@ -418,7 +419,7 @@ fd_gossip_parse_pong_msg( fd_bin_parse_ctx_t * ctx,
     return 0;
   }
 
-  *obj_sz = sizeof( fd_gossip_pong_msg_t );
+  *obj_sz = msg->msg_sz = sizeof( fd_gossip_pong_msg_t );
   return 1;
 }
 

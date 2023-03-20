@@ -16,6 +16,7 @@ main( int     argc,
   FD_IMPORT_BINARY( push_vote_message, "src/ballet/gossip/fixtures/push_vote_message.bin" );
   FD_IMPORT_BINARY( ping_message, "src/ballet/gossip/fixtures/ping_message.bin" );
   FD_IMPORT_BINARY( pong_message, "src/ballet/gossip/fixtures/pong_message.bin" );
+  FD_IMPORT_BINARY( prune_msg_testcase, "src/ballet/gossip/fixtures/prune_msg_testcase.bin" );
   
   /* an obviously bad message in the input stream to test that parsing continues
      as normal after discarding a bad message and updating the parse context's state */
@@ -48,7 +49,7 @@ main( int     argc,
   fd_gossip_msg_t *msg = NULL;
 
   fd_bin_parse_ctx_t ctx;
-  fd_bin_parse_init( &ctx, (void *)input, (ulong)(ptr - input), output, 10*2048 );
+  fd_bin_parse_init( &ctx, (uchar *)input, (ulong)(ptr - input), output, 10*2048 );
 
   fd_bin_parse_set_input_blob_size( &ctx, pull_request_sz );
   msg = fd_gossip_parse_msg( &ctx );
@@ -87,18 +88,27 @@ main( int     argc,
 
   /* test ping and pong messages observed via `solana-gossip spy` */
   fd_bin_parse_ctx_t ctx_ping;
-  fd_bin_parse_init( &ctx_ping, (void *)ping_message, ping_message_sz, output, 10*2048 );
+  fd_bin_parse_init( &ctx_ping, (uchar *)ping_message, ping_message_sz, output, 10*2048 );
   fd_bin_parse_set_input_blob_size( &ctx_ping, ping_message_sz );
   msg = fd_gossip_parse_msg( &ctx_ping );
   FD_TEST( msg );
   fd_gossip_pretty_print( msg );
 
   fd_bin_parse_ctx_t ctx_pong;
-  fd_bin_parse_init( &ctx_pong, (void *)pong_message, pong_message_sz, output, 10*2048 );
+  fd_bin_parse_init( &ctx_pong, (uchar *)pong_message, pong_message_sz, output, 10*2048 );
   fd_bin_parse_set_input_blob_size( &ctx_pong, pong_message_sz );
   msg = fd_gossip_parse_msg( &ctx_pong );
   FD_TEST( msg );
   fd_gossip_pretty_print( msg );
+
+  fd_bin_parse_ctx_t prune_ctx;
+  FD_LOG_WARNING(( "parsing Prune message" ));
+  fd_bin_parse_init( &prune_ctx, (uchar *)prune_msg_testcase, prune_msg_testcase_sz, output, 10*2048 );
+  fd_bin_parse_set_input_blob_size( &prune_ctx, prune_msg_testcase_sz );
+  msg = fd_gossip_parse_msg( &prune_ctx );
+  FD_TEST( msg );
+  FD_LOG_WARNING(( "Prune message parsed successfully" ));
+  fd_gossip_pretty_print( output );
 
   FD_IMPORT_BINARY( gossip_msg_0, "src/ballet/gossip/fixtures/gossip_msg_0.bin" );
   FD_IMPORT_BINARY( gossip_msg_1, "src/ballet/gossip/fixtures/gossip_msg_1.bin" );
@@ -113,67 +123,67 @@ main( int     argc,
   FD_IMPORT_BINARY( gossip_msg_10, "src/ballet/gossip/fixtures/gossip_msg_10.bin" );
   
   fd_bin_parse_ctx_t ctx_additional;
-  fd_bin_parse_init( &ctx_additional, (void *)gossip_msg_0, gossip_msg_0_sz, output, 10*2048 );
+  fd_bin_parse_init( &ctx_additional, (uchar *)gossip_msg_0, gossip_msg_0_sz, output, 10*2048 );
   fd_bin_parse_set_input_blob_size( &ctx_additional, gossip_msg_0_sz );
   msg = fd_gossip_parse_msg( &ctx_additional );
   FD_TEST( msg );
   fd_gossip_pretty_print( msg );
 
-  fd_bin_parse_init( &ctx_additional, (void *)gossip_msg_1, gossip_msg_1_sz, output, 10*2048 );
+  fd_bin_parse_init( &ctx_additional, (uchar *)gossip_msg_1, gossip_msg_1_sz, output, 10*2048 );
   fd_bin_parse_set_input_blob_size( &ctx_additional, gossip_msg_1_sz );
   msg = fd_gossip_parse_msg( &ctx_additional );
   FD_TEST( msg );
   fd_gossip_pretty_print( msg );
 
-  fd_bin_parse_init( &ctx_additional, (void *)gossip_msg_2, gossip_msg_2_sz, output, 10*2048 );
+  fd_bin_parse_init( &ctx_additional, (uchar *)gossip_msg_2, gossip_msg_2_sz, output, 10*2048 );
   fd_bin_parse_set_input_blob_size( &ctx_additional, gossip_msg_2_sz );
   msg = fd_gossip_parse_msg( &ctx_additional );
   FD_TEST( msg );
   fd_gossip_pretty_print( msg );
 
-  fd_bin_parse_init( &ctx_additional, (void *)gossip_msg_3, gossip_msg_3_sz, output, 10*2048 );
+  fd_bin_parse_init( &ctx_additional, (uchar *)gossip_msg_3, gossip_msg_3_sz, output, 10*2048 );
   fd_bin_parse_set_input_blob_size( &ctx_additional, gossip_msg_3_sz );
   msg = fd_gossip_parse_msg( &ctx_additional );
   FD_TEST( msg );
   fd_gossip_pretty_print( msg );
 
-  fd_bin_parse_init( &ctx_additional, (void *)gossip_msg_4, gossip_msg_4_sz, output, 10*2048 );
+  fd_bin_parse_init( &ctx_additional, (uchar *)gossip_msg_4, gossip_msg_4_sz, output, 10*2048 );
   fd_bin_parse_set_input_blob_size( &ctx_additional, gossip_msg_4_sz );
   msg = fd_gossip_parse_msg( &ctx_additional );
   FD_TEST( msg );
   fd_gossip_pretty_print( msg );
 
-  fd_bin_parse_init( &ctx_additional, (void *)gossip_msg_5, gossip_msg_5_sz, output, 10*2048 );
+  fd_bin_parse_init( &ctx_additional, (uchar *)gossip_msg_5, gossip_msg_5_sz, output, 10*2048 );
   fd_bin_parse_set_input_blob_size( &ctx_additional, gossip_msg_5_sz );
   msg = fd_gossip_parse_msg( &ctx_additional );
   FD_TEST( msg );
   fd_gossip_pretty_print( msg );
 
-  fd_bin_parse_init( &ctx_additional, (void *)gossip_msg_6, gossip_msg_6_sz, output, 10*2048 );
+  fd_bin_parse_init( &ctx_additional, (uchar *)gossip_msg_6, gossip_msg_6_sz, output, 10*2048 );
   fd_bin_parse_set_input_blob_size( &ctx_additional, gossip_msg_6_sz );
   msg = fd_gossip_parse_msg( &ctx_additional );
   FD_TEST( msg );
   fd_gossip_pretty_print( msg );
 
-  fd_bin_parse_init( &ctx_additional, (void *)gossip_msg_7, gossip_msg_7_sz, output, 10*2048 );
+  fd_bin_parse_init( &ctx_additional, (uchar *)gossip_msg_7, gossip_msg_7_sz, output, 10*2048 );
   fd_bin_parse_set_input_blob_size( &ctx_additional, gossip_msg_7_sz );
   msg = fd_gossip_parse_msg( &ctx_additional );
   FD_TEST( msg );
   fd_gossip_pretty_print( msg );
 
-  fd_bin_parse_init( &ctx_additional, (void *)gossip_msg_8, gossip_msg_8_sz, output, 10*2048 );
+  fd_bin_parse_init( &ctx_additional, (uchar *)gossip_msg_8, gossip_msg_8_sz, output, 10*2048 );
   fd_bin_parse_set_input_blob_size( &ctx_additional, gossip_msg_8_sz );
   msg = fd_gossip_parse_msg( &ctx_additional );
   FD_TEST( msg );
   fd_gossip_pretty_print( msg );
 
-  fd_bin_parse_init( &ctx_additional, (void *)gossip_msg_9, gossip_msg_9_sz, output, 10*2048 );
+  fd_bin_parse_init( &ctx_additional, (uchar *)gossip_msg_9, gossip_msg_9_sz, output, 10*2048 );
   fd_bin_parse_set_input_blob_size( &ctx_additional, gossip_msg_9_sz );
   msg = fd_gossip_parse_msg( &ctx_additional );
   FD_TEST( msg );
   fd_gossip_pretty_print( msg );
 
-  fd_bin_parse_init( &ctx_additional, (void *)gossip_msg_10, gossip_msg_10_sz, output, 10*2048 );
+  fd_bin_parse_init( &ctx_additional, (uchar *)gossip_msg_10, gossip_msg_10_sz, output, 10*2048 );
   fd_bin_parse_set_input_blob_size( &ctx_additional, gossip_msg_10_sz );
   msg = fd_gossip_parse_msg( &ctx_additional );
   FD_TEST( msg );
@@ -182,9 +192,10 @@ main( int     argc,
   /* Parse & pretty-print some ContactInfo CRDS objects. These are 'new' ContactInfo
      objects, rather than the existing ContactInfo objects that are now called
      LegacyContactInfo. Because the new ContactInfo object is not in use on any
-     public Solana cluster yet, these are included to exercise this code path separately.
-     for the same reason, these samples were generated by hacking on a testcase present in the 
-     Solana validator rather than being full gossip messages seen pn the wire. */
+     public Solana cluster yet, these are included to exercise the relevant code path 
+     separately. For the same reason, these samples were generated by hacking on a testcase 
+     present in the Solana Rust validator rather than being full gossip messages that were seen 
+     on the wire. */
   FD_IMPORT_BINARY( contact_info_crds_1, "src/ballet/gossip/fixtures/contact_info_crds_1.bin" );
   FD_IMPORT_BINARY( contact_info_crds_2, "src/ballet/gossip/fixtures/contact_info_crds_2.bin" );
   FD_IMPORT_BINARY( contact_info_crds_3, "src/ballet/gossip/fixtures/contact_info_crds_3.bin" );
@@ -197,42 +208,42 @@ main( int     argc,
   fd_bin_parse_ctx_t ctx_ci;
   ulong out_sz = 0;
 
-  fd_bin_parse_init( &ctx_ci, (void *)contact_info_crds_1, contact_info_crds_1_sz, output, 10*2048 );
+  fd_bin_parse_init( &ctx_ci, (uchar *)contact_info_crds_1, contact_info_crds_1_sz, output, 10*2048 );
   fd_bin_parse_set_input_blob_size( &ctx_ci, contact_info_crds_1_sz );
   FD_TEST( fd_gossip_parse_crds_contact_info( &ctx_ci, output, 10*2048, &out_sz ) );
   fd_gossip_pretty_print_crds_object( output );
 
-  fd_bin_parse_init( &ctx_ci, (void *)contact_info_crds_2, contact_info_crds_2_sz, output, 10*2048 );
+  fd_bin_parse_init( &ctx_ci, (uchar *)contact_info_crds_2, contact_info_crds_2_sz, output, 10*2048 );
   fd_bin_parse_set_input_blob_size( &ctx_ci, contact_info_crds_2_sz );
   FD_TEST( fd_gossip_parse_crds_contact_info( &ctx_ci, output, 10*2048, &out_sz ) );
   fd_gossip_pretty_print_crds_object( output );
 
-  fd_bin_parse_init( &ctx_ci, (void *)contact_info_crds_3, contact_info_crds_3_sz, output, 10*2048 );
+  fd_bin_parse_init( &ctx_ci, (uchar *)contact_info_crds_3, contact_info_crds_3_sz, output, 10*2048 );
   fd_bin_parse_set_input_blob_size( &ctx_ci, contact_info_crds_3_sz );
   FD_TEST( fd_gossip_parse_crds_contact_info( &ctx_ci, output, 10*2048, &out_sz ) );
   fd_gossip_pretty_print_crds_object( output );
 
-  fd_bin_parse_init( &ctx_ci, (void *)contact_info_crds_4, contact_info_crds_4_sz, output, 10*2048 );
+  fd_bin_parse_init( &ctx_ci, (uchar *)contact_info_crds_4, contact_info_crds_4_sz, output, 10*2048 );
   fd_bin_parse_set_input_blob_size( &ctx_ci, contact_info_crds_4_sz );
   FD_TEST( fd_gossip_parse_crds_contact_info( &ctx_ci, output, 10*2048, &out_sz ) );
   fd_gossip_pretty_print_crds_object( output );
 
-  fd_bin_parse_init( &ctx_ci, (void *)contact_info_crds_5, contact_info_crds_5_sz, output, 10*2048 );
+  fd_bin_parse_init( &ctx_ci, (uchar *)contact_info_crds_5, contact_info_crds_5_sz, output, 10*2048 );
   fd_bin_parse_set_input_blob_size( &ctx_ci, contact_info_crds_5_sz );
   FD_TEST( fd_gossip_parse_crds_contact_info( &ctx_ci, output, 10*2048, &out_sz ) );
   fd_gossip_pretty_print_crds_object( output );
 
-  fd_bin_parse_init( &ctx_ci, (void *)contact_info_crds_6, contact_info_crds_6_sz, output, 10*2048 );
+  fd_bin_parse_init( &ctx_ci, (uchar *)contact_info_crds_6, contact_info_crds_6_sz, output, 10*2048 );
   fd_bin_parse_set_input_blob_size( &ctx_ci, contact_info_crds_6_sz );
-  FD_TEST( fd_gossip_parse_crds_contact_info( &ctx_ci, (void *)output, 10*2048, &out_sz ) );
+  FD_TEST( fd_gossip_parse_crds_contact_info( &ctx_ci, (uchar *)output, 10*2048, &out_sz ) );
   fd_gossip_pretty_print_crds_object( output );
 
-  fd_bin_parse_init( &ctx_ci, (void *)contact_info_crds_7, contact_info_crds_7_sz, output, 10*2048 );
+  fd_bin_parse_init( &ctx_ci, (uchar *)contact_info_crds_7, contact_info_crds_7_sz, output, 10*2048 );
   fd_bin_parse_set_input_blob_size( &ctx_ci, contact_info_crds_7_sz );
   FD_TEST( fd_gossip_parse_crds_contact_info( &ctx_ci, output, 10*2048, &out_sz ) );
   fd_gossip_pretty_print_crds_object( output );
 
-  fd_bin_parse_init( &ctx_ci, (void *)contact_info_crds_8, contact_info_crds_8_sz, output, 10*2048 );
+  fd_bin_parse_init( &ctx_ci, (uchar *)contact_info_crds_8, contact_info_crds_8_sz, output, 10*2048 );
   fd_bin_parse_set_input_blob_size( &ctx_ci, contact_info_crds_8_sz );
   FD_TEST( fd_gossip_parse_crds_contact_info( &ctx_ci, output, 10*2048, &out_sz ) );
   fd_gossip_pretty_print_crds_object( output );

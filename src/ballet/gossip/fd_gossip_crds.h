@@ -317,6 +317,7 @@ typedef struct fd_gossip_socketentry fd_gossip_socketentry_t;
 
 FD_PROTOTYPES_BEGIN
 
+/* decoding functions */
 int
 fd_gossip_parse_crds_obj( fd_bin_parse_ctx_t * ctx,
                           void               * out_buf,
@@ -416,6 +417,83 @@ fd_gossip_parse_crds_contact_info( fd_bin_parse_ctx_t * ctx,
                                    void               * out_buf,
                                    ulong                out_buf_sz,
                                    ulong              * obj_sz      );
+
+/* encoding functions */
+
+int
+fd_gossip_encode_crds_obj( fd_bin_parse_ctx_t * ctx,
+                           void               * in_buf,
+                           ulong                in_buf_sz,
+                           ulong              * bytes_consumed      );
+
+int
+fd_gossip_encode_crds_legacy_contact_info( fd_bin_parse_ctx_t * ctx,
+                                           void               * in_buf,
+                                           ulong                in_buf_sz,
+                                           ulong              * bytes_consumed ); 
+
+int
+fd_gossip_write_socketaddr( fd_bin_parse_ctx_t * ctx,
+                            fd_socketaddr_t    * socketaddr );
+
+int
+fd_gossip_encode_crds_vote( fd_bin_parse_ctx_t * ctx,
+                            void               * in_buf,
+                            ulong                in_buf_sz,
+                            ulong              * bytes_consumed );   
+
+int
+fd_gossip_encode_crds_lowest_slot( fd_bin_parse_ctx_t * ctx,
+                                   void               * in_buf,
+                                   ulong                in_buf_sz,
+                                   ulong              * bytes_consumed );
+                                  
+int
+fd_gossip_encode_crds_snapshot_hashes( fd_bin_parse_ctx_t * ctx,
+                                       void               * in_buf,
+                                       ulong                in_buf_sz,
+                                       ulong              * bytes_consumed );     
+
+int
+fd_gossip_encode_crds_legacy_version( fd_bin_parse_ctx_t * ctx,
+                                      void               * in_buf,
+                                      ulong                in_buf_sz,
+                                      ulong              * bytes_consumed );
+
+int
+fd_gossip_encode_crds_version( fd_bin_parse_ctx_t * ctx,
+                                      void               * in_buf,
+                                      ulong                in_buf_sz,
+                                      ulong              * bytes_consumed );
+
+int
+fd_gossip_encode_crds_node_instance( fd_bin_parse_ctx_t * ctx,
+                                     void               * in_buf,
+                                     ulong                in_buf_sz,
+                                     ulong              * bytes_consumed );
+
+int
+fd_gossip_encode_crds_duplicate_shred( fd_bin_parse_ctx_t * ctx,
+                                       void               * in_buf,
+                                       ulong                in_buf_sz,
+                                       ulong              * bytes_consumed );
+
+int
+fd_gossip_encode_crds_incremental_snapshot_hashes( fd_bin_parse_ctx_t * ctx,
+                                                   void               * in_buf,
+                                                   ulong                in_buf_sz,
+                                                   ulong              * bytes_consumed );
+int
+fd_gossip_encode_crds_contact_info( fd_bin_parse_ctx_t * ctx,
+                                    void               * in_buf,
+                                    ulong                in_buf_sz,
+                                    ulong              * bytes_consumed );    
+
+int
+fd_gossip_encode_crds_epoch_slots( fd_bin_parse_ctx_t * ctx,
+                                    void               * in_buf,
+                                    ulong                in_buf_sz,
+                                    ulong              * bytes_consumed );
 
 FD_PROTOTYPES_END
 

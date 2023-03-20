@@ -360,6 +360,25 @@ fd_gossip_pretty_print_push( fd_gossip_push_msg_t * msg ) {
 }
 
 void
+fd_gossip_pretty_print_prune( fd_gossip_prune_msg_t * msg ) {
+  FD_LOG_WARNING(( "Prune" ));
+  FD_LOG_WARNING(( "======\n" ));
+
+  FD_LOG_WARNING(( "- msg_id: 0x%x", msg->msg_id & 0xff ));
+  fd_gossip_pretty_print_pubkey( "- pubkey1", &(msg->pubkey) );
+  FD_LOG_WARNING(( "  => PruneData" ));
+  FD_LOG_WARNING(( "    ------------" ));
+  fd_gossip_pretty_print_pubkey( "  - prune_data.pubkey", &(msg->data.pubkey) );
+  fd_gossip_pretty_print_pubkey( "  - prune_data.destination", &(msg->data.destination) );
+  fd_gossip_pretty_print_signature( "  - prune_data.signature", &(msg->data.signature) );
+  FD_LOG_WARNING(( "  - prune_data.wallclock: 0x%lx", msg->data.wallclock ));
+  FD_LOG_WARNING(( "  - prune_data.prunes: " ));
+  FOR_EACH_PUBKEY_IN_VECTOR( msg, data.prunes, pubkey ) {
+    fd_gossip_pretty_print_pubkey( "     pubkey: ", (void *)&pubkey );
+  }
+}
+
+void
 fd_gossip_pretty_print_ping( fd_gossip_ping_msg_t * msg ) {
   FD_LOG_WARNING(( "Ping" ));
   FD_LOG_WARNING(( "=====" ));
@@ -400,6 +419,10 @@ fd_gossip_pretty_print( void * data ) {
 
   case FD_GOSSIP_MSG_ID_PUSH:
     fd_gossip_pretty_print_push( (fd_gossip_push_msg_t *)msg );
+    break;
+
+  case FD_GOSSIP_MSG_ID_PRUNE:
+    fd_gossip_pretty_print_prune( (fd_gossip_prune_msg_t *)msg );
     break;
 
   case FD_GOSSIP_MSG_ID_PING:

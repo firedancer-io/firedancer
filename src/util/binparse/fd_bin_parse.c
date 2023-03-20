@@ -10,7 +10,19 @@
     FD_LOG_WARNING(( "input blob too short" ));                               \
     return 0;                                                                 \
   }                                                                           \
-} while(0)
+} while( 0 )
+
+/* These macros help to ensure that we don't write beyond the bounds of the
+   destination buffer when serializing a gossip message struct out to
+   raw bytes. */
+#define OUTPUT_SZ_REMAINING ((ulong)(ctx->dst.end - ctx->dst.cur))
+
+#define CHECK_OUTPUT_SZ_REMAINING(sz)  do {                                   \
+  if( FD_UNLIKELY( OUTPUT_SZ_REMAINING < sz ) ) {                             \
+    FD_LOG_WARNING(( "not enough space left in output buffer" ));             \
+    return 0;                                                                 \
+  }                                                                           \
+} while( 0 )
 
 /* This macro is used to assert that the parser context state is not invalid.
    A parser context should only become invalid in cases of serious programming
@@ -22,11 +34,12 @@
   }                                                                           \
 } while(0)
 
-void fd_bin_parse_init( fd_bin_parse_ctx_t * ctx,
-                            void           * src,
-                            ulong            src_sz,
-                            void           * dst,
-                            ulong            dst_sz ) {
+void
+fd_bin_parse_init( fd_bin_parse_ctx_t * ctx,
+                   void               * src,
+                   ulong                src_sz,
+                   void               * dst,
+                   ulong                dst_sz  ) {
   ctx->src.cur = src;
   ctx->src.end = (uchar *)src + src_sz;
   ctx->dst.cur = dst;
@@ -66,7 +79,7 @@ fd_bin_parse_was_entire_input_blob_consumed( fd_bin_parse_ctx_t * ctx ) {
   return ( (ulong)(ctx->src.cur-ctx->pre_parse_src_cur) )==ctx->input_blob_sz;
 }
 
-/* If parsing of a gossip message succeeds, we advance the dst `cur` up to beyond
+/* If parsing of a blob succeeds, we advance the dst `cur` up to beyond
    where the parsed structures were written to, and there's no need to update the src
    `cur` pointer because this occurred fully during parsing. This invariant is further
    checked by a call to `fd_bin_parse_was_entire_input_blob_consumed`
@@ -76,7 +89,7 @@ fd_bin_parse_was_entire_input_blob_consumed( fd_bin_parse_ctx_t * ctx ) {
    possible to trigger (such as via malformed gossip packets), hence this check is added
    to help catch serious programming errors (e.g. API misuse and invariant violations) */
 void
-fd_bin_parse_update_state_succeeded( fd_bin_parse_ctx_t * ctx,
+fd_bin_parse_update_state_parse_succeeded( fd_bin_parse_ctx_t * ctx,
                                      ulong                data_written_sz ) {
   if( FD_UNLIKELY( !fd_slice_is_enough_space( &(ctx->dst), data_written_sz ) ) ) {
     FD_LOG_WARNING(( "not enough space to advance src `cur` by the requested size" ));
@@ -86,7 +99,7 @@ fd_bin_parse_update_state_succeeded( fd_bin_parse_ctx_t * ctx,
   }
 }
 
-/* If parsing of a gossip message fails, we advance the src `cur` beyond the
+/* If parsing of a blob fails, we advance the src `cur` beyond the
    bad payload so as to move onto the next one, and we rewind the dst `cur` back to where
    it was before the parse began.
    This function contains defensive logic to prevent should-be impossible conditions such 
@@ -94,7 +107,42 @@ fd_bin_parse_update_state_succeeded( fd_bin_parse_ctx_t * ctx,
    shouldn't be possible via normal and proper use of the API, these checks exist so as to
    help catch serious programming errors. */
 void
-fd_bin_parse_update_state_failed( fd_bin_parse_ctx_t * ctx ) {
+fd_bin_parse_update_state_parse_failed( fd_bin_parse_ctx_t * ctx ) {
+  if( FD_UNLIKELY( ( ( ctx->src.cur+ctx->input_blob_sz )>ctx->src.end ) || ( ( ctx->src.cur+ctx->input_blob_sz )<ctx->src.cur ) ) ) {
+    ctx->invalid_state = 1;
+    return;
+  }
+  ctx->src.cur = ctx->pre_parse_src_cur + ctx->input_blob_sz;
+  ctx->dst.cur = ctx->pre_parse_dst_cur;
+}
+
+/* If an encode operation succeeds of a blob succeeds, we advance the src `cur` up to beyond
+   where the input blob ends. Theres no need to update the dst `cur` pointer because this will
+   have occurred fully during the encode operation.
+   This function includes defensive logic that should be impossible to trigger. As such,
+   this logic ensures that the destination slice has enough capacity to advance the `cur`
+   pointer by n bytes. In practice (such as during gossip parsing) this should not be
+   possible to trigger (such as via malformed gossip packets), hence this check is added
+   to help catch serious programming errors (e.g. API misuse and invariant violations) */
+void
+fd_bin_parse_update_state_encode_succeeded( fd_bin_parse_ctx_t * ctx ) {
+  if( FD_UNLIKELY( !fd_slice_is_enough_space( &(ctx->src), ctx->input_blob_sz ) ) ) {
+    FD_LOG_WARNING(( "not enough space to advance src `cur` by the requested size" ));
+    ctx->invalid_state = 1;
+  } else {
+    fd_slice_increment_slice( &(ctx->src), ctx->input_blob_sz );
+  }
+}
+
+/* If an encoding operation for a blob fails, we advance the src `cur` beyond the
+   bad payload so as to move onto the next one, and we rewind the dst `cur` back to where
+   it was before the parse began.
+   This function contains defensive logic to prevent should-be impossible conditions such 
+   as the source `cur` being advanced beyond the end of the src slice. Since such conditions
+   shouldn't be possible via normal and proper use of the API, these checks exist so as to
+   help catch serious programming errors. */
+void
+fd_bin_parse_update_state_encode_failed( fd_bin_parse_ctx_t * ctx ) {
   if( FD_UNLIKELY( ( ( ctx->src.cur+ctx->input_blob_sz )>ctx->src.end ) || ( ( ctx->src.cur+ctx->input_blob_sz )<ctx->src.cur ) ) ) {
     ctx->invalid_state = 1;
     return;
@@ -109,6 +157,12 @@ fd_bin_parse_is_enough_space_in_src( fd_bin_parse_ctx_t * ctx,
   return ( ctx->input_blob_sz>=sz && fd_slice_is_enough_space( &(ctx->src), sz ) );
 }
 
+int
+fd_bin_parse_is_enough_space_in_dst( fd_bin_parse_ctx_t * ctx,
+                                     ulong                sz   ) {
+  return ( fd_slice_is_enough_space( &(ctx->dst), sz ) );
+}
+
 void *
 fd_bin_parse_get_cur_dst( fd_bin_parse_ctx_t * ctx ) {
   return ctx->dst.cur;
@@ -120,13 +174,18 @@ fd_bin_parse_get_cur_src( fd_bin_parse_ctx_t * ctx ) {
 }
 
 ulong
-fd_bin_parse_dst_size_remaining( fd_bin_parse_ctx_t * ctx ) {
+fd_bin_parse_total_dst_size_remaining( fd_bin_parse_ctx_t * ctx ) {
   return (ulong)(ctx->dst.end - ctx->dst.cur);
 }
 
 ulong
-fd_bin_parse_src_size_remaining( fd_bin_parse_ctx_t * ctx ) {
+fd_bin_parse_total_src_size_remaining( fd_bin_parse_ctx_t * ctx ) {
   return (ulong)(ctx->src.end - ctx->src.cur);
+}
+
+ulong
+fd_bin_parse_src_blob_size_remaining( fd_bin_parse_ctx_t * ctx ) {
+  return (ulong)(ctx->input_blob_sz - (ulong)(ctx->src.cur - ctx->pre_parse_src_cur));
 }
 
 int
@@ -138,6 +197,10 @@ fd_bin_parse_dst_has_enough_size_remaining( fd_bin_parse_ctx_t * ctx,
 ulong
 fd_bin_parse_input_blob_size( fd_bin_parse_ctx_t * ctx ) {
   return ctx->input_blob_sz;
+}
+
+ulong fd_bin_parse_bytes_written_during_this_parse( fd_bin_parse_ctx_t * ctx ) {
+  return (ulong)ctx->dst.cur - (ulong)ctx->pre_parse_dst_cur;
 }
 
 int
@@ -214,8 +277,9 @@ fd_bin_parse_read_option_u64( fd_bin_parse_ctx_t * ctx,
   return fd_slice_read_u64( &(ctx->src), dest );
 }
 
-int fd_bin_parse_read_varint_u( fd_bin_parse_ctx_t * ctx,
-                                ulong              * x    ) {
+int
+fd_bin_parse_read_varint_u( fd_bin_parse_ctx_t * ctx,
+                            ulong              * x    ) {
   int success = 0;
   ulong b = 0;
 
@@ -241,6 +305,34 @@ int fd_bin_parse_read_varint_u( fd_bin_parse_ctx_t * ctx,
   return 0;
 
 #undef READ_UCHAR
+}
+
+int
+fd_bin_parse_write_varint_u( fd_bin_parse_ctx_t * ctx, 
+                             ulong                value ) {
+
+  if( !fd_bin_parse_is_enough_space_in_dst( ctx, 10 ) ) {         
+    FD_LOG_WARNING(( "not enough space left in dest buffer" ));   
+    return 0;                                                     
+  }  
+
+  ulong n = 0;
+  uchar * out_ptr = fd_bin_parse_get_cur_dst( ctx );
+
+  n+=value>=0x80; out_ptr[0]=(uchar)value|0x80; value>>=7;
+  n+=value>=0x80; out_ptr[1]=(uchar)value|0x80; value>>=7;
+  n+=value>=0x80; out_ptr[2]=(uchar)value|0x80; value>>=7;
+  n+=value>=0x80; out_ptr[3]=(uchar)value|0x80; value>>=7;
+  n+=value>=0x80; out_ptr[4]=(uchar)value|0x80; value>>=7;
+  n+=value>=0x80; out_ptr[5]=(uchar)value|0x80; value>>=7;
+  n+=value>=0x80; out_ptr[6]=(uchar)value|0x80; value>>=7;
+  n+=value>=0x80; out_ptr[7]=(uchar)value|0x80; value>>=7;
+  n+=value>=0x80; out_ptr[8]=(uchar)value|0x80; value>>=7;
+  n+=value>=0x80; out_ptr[9]=(uchar)value|0x80; value>>=7;
+  out_ptr[n] ^= 0x80;
+
+  fd_slice_increment_slice( &(ctx->dst), n+1 );
+  return 1;
 }
 
 int
@@ -284,6 +376,27 @@ fd_bin_parse_read_varint_u16( fd_bin_parse_ctx_t * ctx,
 
   *dest = (ushort)tmp;
   return 1;
+}
+
+int
+fd_bin_parse_write_varint_u64( fd_bin_parse_ctx_t * ctx,
+                               ulong                value ) {
+  CHECK_CTX_STATE_IS_VALID( ctx );
+  return fd_bin_parse_write_varint_u( ctx, value );
+}
+
+int
+fd_bin_parse_write_varint_u32( fd_bin_parse_ctx_t * ctx,
+                               uint                 value ) {
+  CHECK_CTX_STATE_IS_VALID( ctx );
+  return fd_bin_parse_write_varint_u( ctx, (uint)value );
+}
+
+int
+fd_bin_parse_write_varint_u16( fd_bin_parse_ctx_t * ctx,
+                               ushort               value ) {
+  CHECK_CTX_STATE_IS_VALID( ctx );
+  return fd_bin_parse_write_varint_u( ctx, (ushort)value );
 }
 
 int
@@ -359,11 +472,64 @@ fd_bin_parse_decode_option_vector( fd_bin_parse_ctx_t * ctx,
   return fd_bin_parse_decode_vector( ctx, type_sz, dst, dst_sz, nelems );
 }
 
-int fd_bin_parse_read_pubkey( fd_bin_parse_ctx_t  * ctx,
-                              fd_pubkey_t         * pubkey_out ) {
+int
+fd_bin_parse_read_pubkey( fd_bin_parse_ctx_t  * ctx,
+                          fd_pubkey_t         * pubkey_out ) {
 
   if( !fd_bin_parse_read_blob_of_size( ctx, 32, (void *)pubkey_out ) ) {
     FD_LOG_WARNING(( "failed to parse pubkey" ));
+    return 0;
+  }
+
+  return 1;
+}
+
+int
+fd_bin_parse_write_u8( fd_bin_parse_ctx_t  * ctx,
+                       uchar                 src ) {
+  CHECK_CTX_STATE_IS_VALID( ctx );
+  CHECK_OUTPUT_SZ_REMAINING( 1 );
+  return fd_slice_write_u8( &(ctx->dst), src );
+}
+
+int
+fd_bin_parse_write_u16( fd_bin_parse_ctx_t * ctx,
+                        ushort               src ) {
+  CHECK_CTX_STATE_IS_VALID( ctx );
+  CHECK_OUTPUT_SZ_REMAINING( 2 );
+  return fd_slice_write_u16( &(ctx->dst), src );
+}
+
+int
+fd_bin_parse_write_u32( fd_bin_parse_ctx_t * ctx,
+                        uint                 src ) {
+  CHECK_CTX_STATE_IS_VALID( ctx );
+  CHECK_OUTPUT_SZ_REMAINING( 4 );
+  return fd_slice_write_u32( &(ctx->dst), src );
+}
+
+int
+fd_bin_parse_write_u64( fd_bin_parse_ctx_t * ctx,
+                        ulong                src ) {
+  CHECK_CTX_STATE_IS_VALID( ctx );
+  CHECK_OUTPUT_SZ_REMAINING( 8 );
+  return fd_slice_write_u64( &(ctx->dst), src );
+}
+
+int
+fd_bin_parse_write_blob_of_size( fd_bin_parse_ctx_t * ctx,
+                                 void               * src,
+                                 ulong                size ) {
+  CHECK_CTX_STATE_IS_VALID( ctx );
+  CHECK_OUTPUT_SZ_REMAINING( size );
+  return fd_slice_write_blob_of_size( &(ctx->dst), src, size );
+}
+
+int fd_bin_parse_write_pubkey( fd_bin_parse_ctx_t  * ctx,
+                               fd_pubkey_t         * pubkey ) {
+
+  if( !fd_bin_parse_write_blob_of_size( ctx, pubkey->pubkey, 32 ) ) {
+    FD_LOG_WARNING(( "failed to write pubkey to output buffer" ));
     return 0;
   }
 

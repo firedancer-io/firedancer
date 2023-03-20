@@ -18,6 +18,11 @@ int
 fd_slice_is_enough_space( fd_slice_t * slice,
                           ulong        sz     );
 
+void fd_slice_increment_slice( fd_slice_t * slice,
+                               ulong        size   );
+
+/* read primitives */
+
 int
 fd_slice_read_u8( fd_slice_t  * slice,
                   uchar       * dest   );
@@ -39,13 +44,33 @@ fd_slice_read_blob_of_size( fd_slice_t * slice,
                             ulong        size,
                             void       * dest  );
 
-void fd_slice_increment_slice( fd_slice_t * slice,
-                               ulong        size   );
-
 int
 fd_slice_peek_u32_at_offset( fd_slice_t * slice,
                              ulong        offset,
                              uint       * dest    );
+
+/* write primitives */
+
+int
+fd_slice_write_u8( fd_slice_t * slice,
+                   uchar        src );
+
+int
+fd_slice_write_u16( fd_slice_t * slice,
+                    ushort       src );
+
+int
+fd_slice_write_u32( fd_slice_t * slice,
+                    uint         src );
+
+int
+fd_slice_write_u64( fd_slice_t * slice,
+                    ulong        src );
+
+int
+fd_slice_write_blob_of_size( fd_slice_t * slice,
+                             void       * src,
+                             ulong        size   );
 
 FD_PROTOTYPES_END
 

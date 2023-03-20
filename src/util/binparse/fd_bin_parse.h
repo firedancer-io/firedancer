@@ -33,10 +33,13 @@ int
 fd_bin_parse_was_entire_input_blob_consumed( fd_bin_parse_ctx_t * ctx );
 
 ulong
-fd_bin_parse_dst_size_remaining( fd_bin_parse_ctx_t * ctx );
+fd_bin_parse_total_dst_size_remaining( fd_bin_parse_ctx_t * ctx );
 
 ulong
-fd_bin_parse_src_size_remaining( fd_bin_parse_ctx_t * ctx );
+fd_bin_parse_total_src_size_remaining( fd_bin_parse_ctx_t * ctx );
+
+ulong
+fd_bin_parse_src_blob_size_remaining( fd_bin_parse_ctx_t * ctx );
 
 int
 fd_bin_parse_dst_has_enough_size_remaining( fd_bin_parse_ctx_t * ctx,
@@ -51,15 +54,27 @@ fd_bin_parse_get_cur_dst( fd_bin_parse_ctx_t * ctx );
 void *
 fd_bin_parse_get_cur_src( fd_bin_parse_ctx_t * ctx );
 
-void
-fd_bin_parse_update_state_failed( fd_bin_parse_ctx_t * ctx );
+ulong fd_bin_parse_bytes_written_during_this_parse( fd_bin_parse_ctx_t * ctx );
 
 void
-fd_bin_parse_update_state_succeeded( fd_bin_parse_ctx_t * ctx,
+fd_bin_parse_update_state_parse_succeeded( fd_bin_parse_ctx_t * ctx,
                                      ulong                data_written_sz );
+
+void
+fd_bin_parse_update_state_parse_failed( fd_bin_parse_ctx_t * ctx );
+
+void
+fd_bin_parse_update_state_encode_succeeded( fd_bin_parse_ctx_t * ctx );
+
+void
+fd_bin_parse_update_state_encode_failed( fd_bin_parse_ctx_t * ctx );
 
 int
 fd_bin_parse_is_enough_space_in_src( fd_bin_parse_ctx_t * ctx,
+                                     ulong                sz   );
+
+int
+fd_bin_parse_is_enough_space_in_dst( fd_bin_parse_ctx_t * ctx,
                                      ulong                sz   );
 
 ulong
@@ -98,6 +113,18 @@ fd_bin_parse_read_varint_u16( fd_bin_parse_ctx_t * ctx,
                               ushort             * dest );
 
 int
+fd_bin_parse_write_varint_u64( fd_bin_parse_ctx_t * ctx,
+                               ulong                value );
+
+int
+fd_bin_parse_write_varint_u32( fd_bin_parse_ctx_t * ctx,
+                               uint                 value );
+
+int
+fd_bin_parse_write_varint_u16( fd_bin_parse_ctx_t * ctx,
+                               ushort               value );
+
+int
 fd_bin_parse_read_option_u64( fd_bin_parse_ctx_t * ctx,
                               ulong              * dest );
 
@@ -122,6 +149,30 @@ fd_bin_parse_decode_option_vector( fd_bin_parse_ctx_t * ctx,
 
 int fd_bin_parse_read_pubkey( fd_bin_parse_ctx_t  * ctx,
                               fd_pubkey_t         * pubkey_out );
+
+int
+fd_bin_parse_write_u8( fd_bin_parse_ctx_t  * ctx,
+                       uchar                 value );
+
+int
+fd_bin_parse_write_u16( fd_bin_parse_ctx_t  * ctx,
+                        ushort                value );
+
+int
+fd_bin_parse_write_u32( fd_bin_parse_ctx_t  * ctx,
+                        uint                  value  );
+
+int
+fd_bin_parse_write_u64( fd_bin_parse_ctx_t  * ctx,
+                        ulong                 value );
+
+int
+fd_bin_parse_write_blob_of_size( fd_bin_parse_ctx_t * ctx,
+                                 void               * src,
+                                 ulong                size );
+
+int fd_bin_parse_write_pubkey( fd_bin_parse_ctx_t  * ctx,
+                               fd_pubkey_t         * pubkey );
 
 FD_PROTOTYPES_END
 

@@ -92,3 +92,71 @@ fd_slice_read_blob_of_size( fd_slice_t * slice,
   slice->cur+=size;
   return 1;
 }
+
+int
+fd_slice_write_u8( fd_slice_t * slice,
+                   uchar        src ) {
+  if( FD_UNLIKELY( slice->cur+1>slice->end ) ) {
+    return 0;
+  }
+
+  uchar * dest = (uchar *)slice->cur;
+  *dest = src;
+  slice->cur+=1;
+  return 1;
+}
+
+int
+fd_slice_write_u16( fd_slice_t * slice,
+                    ushort       src ) {
+  if( FD_UNLIKELY( slice->cur+2>slice->end ) ) {
+    return 0;
+  }
+
+  ushort * dest = (ushort *)slice->cur;
+  *dest = src;
+  slice->cur+=2;
+  return 1;
+}
+
+int
+fd_slice_write_u32( fd_slice_t * slice,
+                    uint         src ) {
+  if( FD_UNLIKELY( slice->cur+4>slice->end ) ) {
+    return 0;
+  }
+
+  uint * dest = (uint *)slice->cur;
+  *dest = src;
+  slice->cur+=4;
+  return 1;
+}
+
+int
+fd_slice_write_u64( fd_slice_t * slice,
+                    ulong        src ) {
+  if( FD_UNLIKELY( slice->cur+8>slice->end ) ) {
+    return 0;
+  }
+
+  ulong * dest = (ulong *)slice->cur;
+  *dest = src;
+  slice->cur+=8;
+  return 1;
+}
+
+int
+fd_slice_write_blob_of_size( fd_slice_t * slice,
+                             void       * src,
+                             ulong        size   ) {
+  if( ( FD_UNLIKELY( slice->cur+size>slice->end ) ) ) {
+    FD_LOG_WARNING(( " slice->cur + size > slice->end " ));
+    return 0;
+  }
+
+  fd_memcpy( slice->cur, src, size );
+  slice->cur+=size;
+  return 1;
+}
+
+

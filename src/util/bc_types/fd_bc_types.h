@@ -6,6 +6,9 @@
 #define FD_SOCKETADDR_IPV4 0
 #define FD_SOCKETADDR_IPV6 1
 
+#define FD_ADDR_LEN_IPV4   4
+#define FD_ADDR_LEN_IPV6   16
+
 struct fd_blockchain_signature {
     uchar signature[64];
 };

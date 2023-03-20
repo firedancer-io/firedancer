@@ -11,6 +11,7 @@ fd_gossip_parse_crds_obj( fd_bin_parse_ctx_t * ctx,
                           ulong              * obj_sz      ) {
 
   if( FD_UNLIKELY( out_buf_sz<sizeof( fd_gossip_crds_header_t ) ) ) {
+    FD_LOG_WARNING(( "output buffer smaller than CRDS header" ));
     return 0;
   }
 
@@ -98,7 +99,7 @@ fd_gossip_read_socketaddr( fd_bin_parse_ctx_t * ctx,
   switch( addr_type ) {
   case FD_SOCKETADDR_IPV4: {
     socketaddr->fam = FD_SOCKETADDR_IPV4;
-    if( !fd_bin_parse_read_blob_of_size( ctx, 4, &(socketaddr->addr.ipv4_sin_addr.s_addr) ) ) {
+    if( !fd_bin_parse_read_blob_of_size( ctx, FD_ADDR_LEN_IPV4, &(socketaddr->addr.ipv4_sin_addr.s_addr) ) ) {
         FD_LOG_WARNING(( "error parsing ipv4 addr" ));
         return 0;
     }
@@ -108,7 +109,7 @@ fd_gossip_read_socketaddr( fd_bin_parse_ctx_t * ctx,
 
   case FD_SOCKETADDR_IPV6:  {
     socketaddr->fam = FD_SOCKETADDR_IPV6;
-    if( !fd_bin_parse_read_blob_of_size( ctx, 16, &(socketaddr->addr.ipv6_sin_addr.__in6_u) ) ) {
+    if( !fd_bin_parse_read_blob_of_size( ctx, FD_ADDR_LEN_IPV6, &(socketaddr->addr.ipv6_sin_addr.__in6_u) ) ) {
         FD_LOG_WARNING(( "error parsing ipv6 addr" ));
         return 0;
     }
@@ -557,7 +558,7 @@ fd_gossip_parse_crds_incremental_snapshot_hashes( fd_bin_parse_ctx_t * ctx,
   }
 
   uchar * ptr = (uchar *)out_buf + sizeof( fd_gossip_crds_value_incremental_snapshot_hashes_t );
-  ulong nelems;
+  ulong nelems = 0;
 
   if( !fd_bin_parse_decode_slot_hash_vector( ctx, DST_CUR, DST_BYTES_REMAINING, &nelems ) ) {
     FD_LOG_WARNING(( "error parsing SlotHash vector `hashes`" ));
@@ -566,7 +567,7 @@ fd_gossip_parse_crds_incremental_snapshot_hashes( fd_bin_parse_ctx_t * ctx,
 
   /* setup vector struct for this data */
   incr_snapshot_hashes->data.hashes.num_objs = nelems;
-  incr_snapshot_hashes->data.hashes.offset = CUR_DATA_OFFSET;
+  incr_snapshot_hashes->data.hashes.offset = DST_CUR_DATA_OFFSET;
   ADVANCE_DST_PTR( nelems*sizeof( fd_gossip_crds_slot_hash_t ) );
 
   if( !fd_bin_parse_read_u64( ctx, &(incr_snapshot_hashes->data.wallclock) ) ) {
@@ -653,7 +654,7 @@ fd_gossip_parse_crds_duplicate_shred( fd_bin_parse_ctx_t * ctx,
 
   /* setup vector struct for this data */
   duplicate_shred->data.chunk.num_objs = nelems;
-  duplicate_shred->data.chunk.offset = CUR_DATA_OFFSET;
+  duplicate_shred->data.chunk.offset = DST_CUR_DATA_OFFSET;
   ADVANCE_DST_PTR( nelems*1 );
 
   *obj_sz = duplicate_shred->hdr.obj_sz = TOTAL_DATA_OUT_SZ;
@@ -761,7 +762,7 @@ fd_gossip_parse_crds_snapshot_hashes( fd_bin_parse_ctx_t * ctx,
 
   /* deserialize `hashes` ( slot_hash[] )*/
   uchar * ptr = (uchar *)out_buf + sizeof( fd_gossip_crds_value_snapshot_hashes_t );
-  ulong nelems;
+  ulong nelems = 0;
 
   /* parse vector of SlotHash's */
   if( !fd_bin_parse_decode_slot_hash_vector( ctx, DST_CUR, DST_BYTES_REMAINING, &nelems ) ) {
@@ -771,7 +772,7 @@ fd_gossip_parse_crds_snapshot_hashes( fd_bin_parse_ctx_t * ctx,
 
   /* setup vector struct for this data */
   snapshot_hashes->data.hashes.num_objs = nelems;
-  snapshot_hashes->data.hashes.offset = CUR_DATA_OFFSET;
+  snapshot_hashes->data.hashes.offset = DST_CUR_DATA_OFFSET;
 
   ADVANCE_DST_PTR( nelems*sizeof( fd_gossip_crds_slot_hash_t ) );
 
@@ -792,7 +793,46 @@ fd_gossip_parse_crds_account_hashes( fd_bin_parse_ctx_t * ctx,
                                      void               * out_buf,
                                      ulong                out_buf_sz,
                                      ulong              * obj_sz      ) {
-  return fd_gossip_parse_crds_snapshot_hashes( ctx, out_buf, out_buf_sz, obj_sz );
+  FD_LOG_NOTICE(( "parsing AccountHashes" ));
+
+  if( FD_UNLIKELY( out_buf_sz<sizeof( fd_gossip_crds_value_snapshot_hashes_t ) ) ) {
+    return 0;
+  }
+
+  fd_gossip_crds_value_account_hashes_t * account_hashes = (fd_gossip_crds_value_account_hashes_t *)out_buf;
+  account_hashes->hdr.crds_id = FD_GOSSIP_CRDS_ID_ACCOUNT_HASHES;
+
+  if( !fd_bin_parse_read_pubkey( ctx, &(account_hashes->data.from) ) ) {
+    FD_LOG_WARNING(( "unable to parse `from`" ));
+    return 0;
+  }
+
+  /* deserialize `hashes` ( slot_hash[] )*/
+  uchar * ptr = (uchar *)out_buf + sizeof( fd_gossip_crds_value_account_hashes_t );
+  ulong nelems = 0;
+
+  /* parse vector of SlotHash's */
+  if( !fd_bin_parse_decode_slot_hash_vector( ctx, DST_CUR, DST_BYTES_REMAINING, &nelems ) ) {
+    FD_LOG_WARNING(( "error parsing SlotHash vector `hashes`" ));
+    return 0;
+  }
+
+  /* setup vector struct for this data */
+  account_hashes->data.hashes.num_objs = nelems;
+  account_hashes->data.hashes.offset = DST_CUR_DATA_OFFSET;
+
+  ADVANCE_DST_PTR( nelems*sizeof( fd_gossip_crds_slot_hash_t ) );
+
+  /* wallclock */
+  if( !fd_bin_parse_read_u64( ctx, &(account_hashes->data.wallclock) ) ) {
+    FD_LOG_WARNING(( "unable to parse `wallclock`" ));
+    return 0;
+  }
+
+  CHECK_WALLCLOCK( account_hashes->data.wallclock );
+
+  *obj_sz = account_hashes->hdr.obj_sz = TOTAL_DATA_OUT_SZ;
+  return 1;
 }
 
 int
@@ -826,14 +866,14 @@ fd_gossip_parse_crds_vote( fd_bin_parse_ctx_t * ctx,
   uchar * ptr = (uchar *)out_buf + sizeof ( fd_gossip_crds_value_vote_t );
 
   /* parse transaction */
-  ulong txn_sz = fd_txn_parse( (uchar const *)fd_bin_parse_get_cur_src( ctx ), fd_bin_parse_src_size_remaining( ctx ), DST_CUR, NULL, &num_raw_txn_bytes_consumed );
+  ulong txn_sz = fd_txn_parse( (uchar const *)fd_bin_parse_get_cur_src( ctx ), fd_bin_parse_src_blob_size_remaining( ctx ), DST_CUR, NULL, &num_raw_txn_bytes_consumed );
   if( !txn_sz ) {
     FD_LOG_WARNING(( "error parsing transaction. bytes consumed: %lu", num_raw_txn_bytes_consumed ));
     return 0;
   }
 
   /* transaction is valid. set the data up as a vector descriptor in the form [fd_txn_t struct][raw_txn_payload] */
-  vote->data.transaction.offset = CUR_DATA_OFFSET;
+  vote->data.transaction.offset = DST_CUR_DATA_OFFSET;
   ADVANCE_DST_PTR( txn_sz );
   if( DST_BYTES_REMAINING < num_raw_txn_bytes_consumed ) {
     FD_LOG_WARNING(( "not enough room left in destination for raw tx payload" ));
@@ -911,17 +951,17 @@ fd_gossip_parse_crds_compressed_slots( fd_bin_parse_ctx_t * ctx,
       return 0;
     }
     compressed_slots->compressed.num_objs = nelems;
-    compressed_slots->compressed.offset = CUR_DATA_OFFSET;
+    compressed_slots->compressed.offset = DST_CUR_DATA_OFFSET;
     ADVANCE_DST_PTR( nelems*1 );
     break;
   }
 
   case FD_GOSSIP_COMPRESSION_TYPE_UNCOMPRESSED: {
     compressed_slots->type = FD_GOSSIP_COMPRESSION_TYPE_UNCOMPRESSED;
-    
+
     /* deserialize bitvec */
     if( !fd_bin_parse_decode_option_vector( ctx, 1, DST_CUR, DST_BYTES_REMAINING, &nelems ) ) {
-      FD_LOG_WARNING(( "error decoding option vector for bitvec64" ));
+      FD_LOG_WARNING(( "error decoding option vector for bitvec8" ));
       return 0;
     }
 
@@ -932,12 +972,12 @@ fd_gossip_parse_crds_compressed_slots( fd_bin_parse_ctx_t * ctx,
     } else {
     /* setup vector struct for this data */
       compressed_slots->slots.bits.num_objs = nelems;
-      compressed_slots->slots.bits.offset = CUR_DATA_OFFSET;
+      compressed_slots->slots.bits.offset = DST_CUR_DATA_OFFSET;
       ADVANCE_DST_PTR( nelems*1 );
     }
 
     if( !fd_bin_parse_read_u64( ctx, &(compressed_slots->slots.len) ) ) {
-      FD_LOG_WARNING(( "error parsing bloom bitvec `Len`" ));
+      FD_LOG_WARNING(( "error parsing bitvec `Len`" ));
       return 0;
     }
     break;
@@ -1002,7 +1042,7 @@ fd_gossip_parse_crds_epoch_slots( fd_bin_parse_ctx_t * ctx,
     }
 
     if( count==0 ) {
-      epoch_slots->data.compressed_slots.offset = CUR_DATA_OFFSET;
+      epoch_slots->data.compressed_slots.offset = DST_CUR_DATA_OFFSET;
     }
 
     epoch_slots->data.compressed_slots.num_objs++;
@@ -1099,7 +1139,7 @@ fd_gossip_parse_crds_contact_info( fd_bin_parse_ctx_t * ctx,
   }
 
   contact_info->data.addrs.num_objs = nelems;
-  contact_info->data.addrs.offset = CUR_DATA_OFFSET;
+  contact_info->data.addrs.offset = DST_CUR_DATA_OFFSET;
   ADVANCE_DST_PTR( nelems*sizeof( fd_ipaddr_t ) );
 
   /* decode `sockets`, i.e. vec<SocketEntry> */
@@ -1109,7 +1149,7 @@ fd_gossip_parse_crds_contact_info( fd_bin_parse_ctx_t * ctx,
   }
 
   contact_info->data.sockets.num_objs = nelems;
-  contact_info->data.sockets.offset = CUR_DATA_OFFSET;
+  contact_info->data.sockets.offset = DST_CUR_DATA_OFFSET;
   ADVANCE_DST_PTR( nelems*sizeof( fd_gossip_socketentry_t ) );
 
   *obj_sz = contact_info->hdr.obj_sz = TOTAL_DATA_OUT_SZ;
