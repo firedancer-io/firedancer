@@ -276,7 +276,7 @@ fd_alloc_private_inactive_stack_pop( fd_alloc_vgaddr_t * inactive_stack,
     old = FD_VOLATILE_CONST( *inactive_stack );
     FD_COMPILER_MFENCE();
 
-    /**/  top_gaddr = (ulong)fd_alloc_vgaddr_off( old );
+    /**/ top_gaddr = (ulong)fd_alloc_vgaddr_off( old );
     ulong top_ver   = (ulong)fd_alloc_vgaddr_ver( old );
     if( FD_UNLIKELY( !top_gaddr ) ) break;
 
@@ -404,7 +404,7 @@ fd_alloc_hdr_store( void *                  laddr,
                     fd_alloc_superblock_t * superblock,
                     ulong                   block_idx,
                     ulong                   sizeclass ) {
-  FD_STORE( fd_alloc_hdr_t, ((ulong)laddr) - sizeof(fd_alloc_hdr_t), 
+  FD_STORE( fd_alloc_hdr_t, ((ulong)laddr) - sizeof(fd_alloc_hdr_t),
             (fd_alloc_hdr_t)( ((((ulong)laddr) - ((ulong)superblock)) << 13) |    /* Bits 31:13 - 19 bit: superblock offset */
                               (block_idx                              <<  7) |    /* Bits 12: 7 -  6 bit: block */
                               sizeclass                                      ) ); /* Bits  6: 0 -  7 bit: sizeclass */
@@ -577,7 +577,7 @@ fd_alloc_delete( void * shalloc ) {
       if( FD_UNLIKELY( superblock_gaddr ) )
         fd_alloc_free( alloc, (fd_alloc_superblock_t *)fd_wksp_laddr_fast( wksp, superblock_gaddr ) );
     }
-    
+
     fd_alloc_vgaddr_t * inactive_stack = alloc->inactive_stack + sizeclass;
     for(;;) {
       ulong superblock_gaddr = fd_alloc_private_inactive_stack_pop( inactive_stack, wksp );
@@ -694,7 +694,7 @@ fd_alloc_malloc( fd_alloc_t * join,
         if( FD_UNLIKELY( !wksp_gaddr ) ) return NULL;
         superblock_gaddr = fd_ulong_align_up( wksp_gaddr + sizeof(fd_alloc_hdr_t), FD_ALLOC_SUPERBLOCK_ALIGN );
         superblock       = (fd_alloc_superblock_t *)
-          fd_alloc_hdr_store_large( fd_wksp_laddr_fast( wksp, superblock_gaddr ), 1 /* sb */ );
+                           fd_alloc_hdr_store_large( fd_wksp_laddr_fast( wksp, superblock_gaddr ), 1 /* sb */ );
 
       } else {
 
@@ -768,34 +768,34 @@ fd_alloc_malloc( fd_alloc_t * join,
 
   } //else {
 
-    /* The superblock had no more free blocks immediately after the
-       allocation occurred.  We should not make this superblock the
-       preferred superblock or push it onto the sizeclass's nonfull
-       superblock stack; it would break the invariants that all
-       superblocks in circulation for a sizeclass have at least one
-       free block.
+  /* The superblock had no more free blocks immediately after the
+     allocation occurred.  We should not make this superblock the
+     preferred superblock or push it onto the sizeclass's nonfull
+     superblock stack; it would break the invariants that all
+     superblocks in circulation for a sizeclass have at least one
+     free block.
 
-       And, as this superblock had no free blocks, we don't need to
-       track the superblock anyway as malloc can't use the superblock
-       until some of the blocks in it have been freed.  As such, this
-       superblock will not be used in a malloc until after the next call
-       to free on a block in this superblock returns this superblock to
-       circulation.  Note that this superblock will have at least one
-       allocated block until after this function returns (the block we
-       just allocated) and thus cannot ever be considered as a deletion
-       candidate until after this function returns and this allocation
-       is freed.
+     And, as this superblock had no free blocks, we don't need to
+     track the superblock anyway as malloc can't use the superblock
+     until some of the blocks in it have been freed.  As such, this
+     superblock will not be used in a malloc until after the next call
+     to free on a block in this superblock returns this superblock to
+     circulation.  Note that this superblock will have at least one
+     allocated block until after this function returns (the block we
+     just allocated) and thus cannot ever be considered as a deletion
+     candidate until after this function returns and this allocation
+     is freed.
 
-       As discussed in free below, we could update a superblock cgroup
-       hint here (such that the when the superblock goes back into
-       circulation, it will be put into circulation as the active
-       superblock for this cgroup to encourge for additional mallocs
-       from this thread for good spatial locality).  This doesn't need
-       to be atomic.  Even though a concurrent free on another thread
-       might get this into superblock into circulation before this
-       executes (and thus also have other mallocs occurred that changed
-       the active_hint), it doesn't matter.  So long as the hint is a
-       sane value at all points in time, free will work fine. */
+     As discussed in free below, we could update a superblock cgroup
+     hint here (such that the when the superblock goes back into
+     circulation, it will be put into circulation as the active
+     superblock for this cgroup to encourge for additional mallocs
+     from this thread for good spatial locality).  This doesn't need
+     to be atomic.  Even though a concurrent free on another thread
+     might get this into superblock into circulation before this
+     executes (and thus also have other mallocs occurred that changed
+     the active_hint), it doesn't matter.  So long as the hint is a
+     sane value at all points in time, free will work fine. */
 
   //}
 
@@ -815,7 +815,7 @@ fd_alloc_malloc( fd_alloc_t * join,
 void
 fd_alloc_free( fd_alloc_t * join,
                void *       laddr ) {
-  
+
   /* Handle NULL alloc and/or NULL laddr */
 
   fd_alloc_t * alloc  = fd_alloc_private_join_alloc( join );
@@ -968,7 +968,7 @@ fd_alloc_free( fd_alloc_t * join,
        a stale value in this scenario, it highly likely will not be
        injected into the inactive_stack because the CAS will detect that
        inactive_stack top has changed and fail.
-       
+
        And, lastly, we version inactive_stack top such that, even if
        somehow we had a thread stall in pop after reading
        top->next_gaddr / other threads do other operations that
@@ -1120,7 +1120,7 @@ fd_alloc_is_empty( fd_alloc_t * join ) {
   fd_wksp_private_lock( wksp );
 
   fd_wksp_private_part_t * part     = wksp->part;
-  /**/                     part_cnt = wksp->part_cnt;
+  /**/ part_cnt = wksp->part_cnt;
   for( part_idx=0UL; part_idx<part_cnt; part_idx++ ) {
     ulong p = part[ part_idx ];
     if( FD_UNLIKELY( fd_wksp_private_part_tag( p )==tag ) ) { /* optimize for leak detection case */
@@ -1178,8 +1178,8 @@ fd_alloc_superblock_fprintf( fd_wksp_t * wksp,             /* non-NULL */
 
     if( fd_alloc_block_set_test( free_blocks, block_idx ) ) { /* Free block */
 
-    //TRAP( fprintf( stream, "\t\t\tblock %2lu: gaddr %s:%lu-%s:%lu, malloc_est -, align_est -, sz_est - (free)\n",
-    //               block_idx, wksp->name, gaddr_lo, wksp->name, gaddr_hi-1UL ) );
+      //TRAP( fprintf( stream, "\t\t\tblock %2lu: gaddr %s:%lu-%s:%lu, malloc_est -, align_est -, sz_est - (free)\n",
+      //               block_idx, wksp->name, gaddr_lo, wksp->name, gaddr_hi-1UL ) );
 
     } else { /* Used block */
 
@@ -1188,8 +1188,8 @@ fd_alloc_superblock_fprintf( fd_wksp_t * wksp,             /* non-NULL */
          allocations below. */
 
       for( ulong align_est = 1UL << fd_ulong_find_msb( block_footprint - sizeof(fd_alloc_hdr_t) );;) {
-        ulong   gaddr_est = fd_ulong_align_up( gaddr_lo + sizeof(fd_alloc_hdr_t), align_est );
-        uchar * laddr_est = (uchar *)fd_wksp_laddr_fast( wksp, gaddr_est );
+        ulong          gaddr_est = fd_ulong_align_up( gaddr_lo + sizeof(fd_alloc_hdr_t), align_est );
+        uchar *        laddr_est = (uchar *)fd_wksp_laddr_fast( wksp, gaddr_est );
         fd_alloc_hdr_t hdr = FD_LOAD( fd_alloc_hdr_t, laddr_est - sizeof(fd_alloc_hdr_t) );
 
         if( fd_alloc_hdr_sizeclass ( hdr )           ==sizeclass &&
@@ -1273,7 +1273,7 @@ fd_alloc_fprintf( fd_alloc_t * join,
     ulong block_footprint = 0UL;
     for( ulong sizeclass=0UL; sizeclass<FD_ALLOC_SIZECLASS_CNT; sizeclass++ ) {
       ulong block_footprint_prev = block_footprint;
-      /**/  block_footprint      = (ulong)fd_alloc_sizeclass_cfg[ sizeclass ].block_footprint;
+      /**/ block_footprint      = (ulong)fd_alloc_sizeclass_cfg[ sizeclass ].block_footprint;
 
       ulong superblock_footprint = (ulong)fd_alloc_sizeclass_cfg[ sizeclass ].superblock_footprint;
       ulong block_cnt            = (ulong)fd_alloc_sizeclass_cfg[ sizeclass ].block_cnt;
@@ -1315,7 +1315,7 @@ fd_alloc_fprintf( fd_alloc_t * join,
       for( ulong cgroup_idx=0UL; cgroup_idx<cgroup_cnt; cgroup_idx++ ) {
         superblock_gaddr = alloc->active_slot[ sizeclass + FD_ALLOC_SIZECLASS_CNT*cgroup_idx ];
         if( !superblock_gaddr ) {
-        //TRAP( fprintf( stream, "\t\tcgroup 2lu active superblock -, next -\n", cgroup_idx ) );
+          //TRAP( fprintf( stream, "\t\tcgroup 2lu active superblock -, next -\n", cgroup_idx ) );
           continue;
         }
         ulong next_gaddr = ((fd_alloc_superblock_t *)fd_wksp_laddr_fast( wksp, superblock_gaddr))->next_gaddr;
@@ -1377,8 +1377,8 @@ fd_alloc_fprintf( fd_alloc_t * join,
 
         /* Look at a potential header location */
 
-        ulong   gaddr_est = fd_ulong_align_up( gaddr_lo + sizeof(fd_alloc_hdr_t), align_est );
-        uchar * laddr_est = (uchar *)fd_wksp_laddr_fast( wksp, gaddr_est );
+        ulong          gaddr_est = fd_ulong_align_up( gaddr_lo + sizeof(fd_alloc_hdr_t), align_est );
+        uchar *        laddr_est = (uchar *)fd_wksp_laddr_fast( wksp, gaddr_est );
         fd_alloc_hdr_t hdr = FD_LOAD( fd_alloc_hdr_t, laddr_est - sizeof(fd_alloc_hdr_t) );
 
         /* If it matches what a header at this location should be,

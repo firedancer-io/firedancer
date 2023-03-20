@@ -96,7 +96,7 @@ fd_ip4_hdr_check( fd_ip4_hdr_t const * hdr ) {
   c  = ( c>>16            ) +
        ( c      & 0xffffUL);
   c += ( c>>16            );
-  return (ushort)~c;
+  return (ushort) ~c;
 }
 
 /* fd_ip4_hdr_check_fast is the same as the above but assumes that the
@@ -112,7 +112,7 @@ fd_ip4_hdr_check_fast( fd_ip4_hdr_t const * hdr ) {
   c  = ( c>>16            ) +
        ( c      & 0xffffUL);
   c += ( c>>16            );
-  return (ushort)~c;
+  return (ushort) ~c;
 }
 
 FD_PROTOTYPES_END

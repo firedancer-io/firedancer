@@ -109,7 +109,7 @@ wc_exch_adj_quad( wc_t c ) { /* [ c4 c5 c6 c7 c0 c1 c2 c3 ] */
    location p (0/-1 for true/false).  wc_stu is the same but p does not
    have to be aligned.  Lane l will be at p[l].  FIXME: USE ATTRIBUTES
    ON P PASSED TO THESE?
-   
+
    Note: gcc knows that __m256i may alias. */
 
 static inline wc_t

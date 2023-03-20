@@ -139,14 +139,14 @@ fd_shmem_join( char const *               name,
   /* Map the region into our address space. */
 
   char path[ FD_SHMEM_PRIVATE_PATH_BUF_MAX ];
-  int fd = open( fd_shmem_private_path( name, page_sz, path ), rw ? O_RDWR : O_RDONLY, (mode_t)0 );
+  int  fd = open( fd_shmem_private_path( name, page_sz, path ), rw ? O_RDWR : O_RDONLY, (mode_t)0 );
   if( FD_UNLIKELY( fd==-1 ) ) {
     FD_LOG_WARNING(( "open(\"%s\",%s,0) failed (%i-%s)", path, rw ? "O_RDWR" : "O_RDONLY", errno, strerror( errno ) ));
     return NULL;
   }
   /* Note that MAP_HUGETLB and MAP_HUGE_* are implied by the mount point */
   void * shmem = mmap( NULL, sz, rw ? (PROT_READ|PROT_WRITE) : PROT_READ, MAP_SHARED, fd, (off_t)0 );
-  int mmap_errno = errno;
+  int    mmap_errno = errno;
   if( FD_UNLIKELY( close( fd ) ) )
     FD_LOG_WARNING(( "close(\"%s\") failed (%i-%s); attempting to continue", path, errno, strerror( errno ) ));
 

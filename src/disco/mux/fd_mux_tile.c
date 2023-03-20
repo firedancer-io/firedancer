@@ -26,7 +26,7 @@ main( int     argc,
   if( FD_UNLIKELY( !cnc ) ) FD_LOG_ERR(( "fd_cnc_join failed" ));
 
   char * _in_mcache[ 256 ];
-  ulong in_cnt = fd_cstr_tokenize( _in_mcache, 256UL, (char *)_in_mcaches, ',' ); /* argv is non-const */
+  ulong  in_cnt = fd_cstr_tokenize( _in_mcache, 256UL, (char *)_in_mcaches, ',' ); /* argv is non-const */
   if( FD_UNLIKELY( in_cnt>256UL ) ) FD_LOG_ERR(( "too many --in-mcaches specified for current implementation" ));
 
   fd_frag_meta_t const * in_mcache[ 256 ];
@@ -37,7 +37,7 @@ main( int     argc,
   }
 
   char * _in_fseq[ 256 ];
-  ulong tmp = fd_cstr_tokenize( _in_fseq, 256UL, (char *)_in_fseqs, ',' ); /* argv is non-const */
+  ulong  tmp = fd_cstr_tokenize( _in_fseq, 256UL, (char *)_in_fseqs, ',' ); /* argv is non-const */
   if( FD_UNLIKELY( tmp!=in_cnt ) ) FD_LOG_ERR(( "--in-mcaches and --in-fseqs mismatch" ));
 
   ulong * in_fseq[ 256 ];
@@ -53,7 +53,7 @@ main( int     argc,
   if( FD_UNLIKELY( !mcache ) ) FD_LOG_ERR(( "fd_mcache_join failed" ));
 
   char * _out_fseq[ 256 ];
-  ulong out_cnt = fd_cstr_tokenize( _out_fseq, 256UL, (char *)_out_fseqs, ',' ); /* argv is non-const */
+  ulong  out_cnt = fd_cstr_tokenize( _out_fseq, 256UL, (char *)_out_fseqs, ',' ); /* argv is non-const */
   if( FD_UNLIKELY( out_cnt>256UL ) ) FD_LOG_ERR(( "too many --out-fseqs specified for current implementation" ));
 
   ulong * out_fseq[ 256 ];
@@ -66,7 +66,7 @@ main( int     argc,
   FD_LOG_NOTICE(( "Using --cr-max %lu, --lazy %li", cr_max, lazy ));
 
   FD_LOG_NOTICE(( "Creating rng --seed %u", seed ));
-  fd_rng_t _rng[1];
+  fd_rng_t   _rng[1];
   fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, seed, 0UL ) );
 
   FD_LOG_NOTICE(( "Creating scratch" ));

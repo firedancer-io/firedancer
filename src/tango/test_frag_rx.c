@@ -44,7 +44,7 @@ main( int     argc,
   ulong seq = _init ? fd_cstr_to_ulong( _init ) : fd_mcache_seq_query( sync );
 
   uchar const * dcache = NULL;
-  fd_wksp_t * wksp;
+  fd_wksp_t *   wksp;
   if( !_wksp ) {
     FD_LOG_NOTICE(( "Joining to --dcache %s", _dcache ));
     dcache = fd_dcache_join( fd_wksp_map( _dcache ) );
@@ -162,7 +162,7 @@ main( int     argc,
     /* Handle overrun */
 
     if( FD_UNLIKELY( diff ) ) {
-    //FD_LOG_NOTICE(( "Overrun while polling (skipping from %lu to %lu to try to recover)", seq, seq_found ));
+      //FD_LOG_NOTICE(( "Overrun while polling (skipping from %lu to %lu to try to recover)", seq, seq_found ));
       ovrnp_cnt++;
       seq = seq_found;
 #     if WAIT_STYLE!=2
@@ -186,7 +186,7 @@ main( int     argc,
     /* Already loaded into registers as part of the wait */
 
 #   elif WAIT_STYLE==0
- 
+
     ulong sig    = (ulong)meta->sig;
     ulong chunk  = (ulong)meta->chunk;
     ulong sz     = (ulong)meta->sz;
@@ -216,11 +216,11 @@ main( int     argc,
 
 #   if VALIDATE
     uchar const * p = (uchar const *)fd_chunk_to_laddr_const( wksp, chunk );
-    __m256i avx = _mm256_set1_epi64x( (long)sig );
-    int mask0 = -1;
-    int mask1 = -1;
-    int mask2 = -1;
-    int mask3 = -1;
+    __m256i       avx = _mm256_set1_epi64x( (long)sig );
+    int           mask0 = -1;
+    int           mask1 = -1;
+    int           mask2 = -1;
+    int           mask3 = -1;
     for( ulong off=0UL; off<sz; off+=128UL ) {
       mask0 &= _mm256_movemask_epi8( _mm256_cmpeq_epi8( _mm256_load_si256( (__m256i *) p       ), avx ) );
       mask1 &= _mm256_movemask_epi8( _mm256_cmpeq_epi8( _mm256_load_si256( (__m256i *)(p+32UL) ), avx ) );
@@ -245,7 +245,7 @@ main( int     argc,
 
     seq_found = fd_frag_meta_seq_query( mline );
     if( FD_UNLIKELY( fd_seq_ne( seq_found, seq ) ) ) {
-    //FD_LOG_NOTICE(( "Overrun while reading (skipping from %lu to %lu to try to recover)", seq, seq_found ));
+      //FD_LOG_NOTICE(( "Overrun while reading (skipping from %lu to %lu to try to recover)", seq, seq_found ));
       ovrnr_cnt++;
       seq = seq_found;
       continue;

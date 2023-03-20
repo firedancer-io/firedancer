@@ -338,7 +338,7 @@ fd_log_wallclock_cstr( long   now,
     if( _ns<0L ) _ns += ns_per_s, _t--;
     time_t t = (time_t)_t;
 
-    struct tm tm[1];
+    struct tm         tm[1];
     static FD_TLS int localtime_broken = 0;
     if( FD_UNLIKELY( !localtime_broken && !localtime_r( &t, tm ) ) ) localtime_broken = 1;
     if( FD_UNLIKELY( localtime_broken ) ) { /* If localtime_r doesn't work, pretty print as a raw UNIX time */
@@ -484,7 +484,7 @@ fd_log_private_0( char const * fmt, ... ) {
   return fd_log_private_log_msg;
 }
 
-char const * 
+char const *
 fd_log_private_hexdump_msg ( char const * descr,
                              void const * mem,
                              ulong        sz ) {
@@ -493,13 +493,13 @@ fd_log_private_hexdump_msg ( char const * descr,
 # define FD_LOG_HEXDUMP_BLOB_DESCRIPTION_MAX_LEN   (32UL)
 # define FD_LOG_HEXDUMP_MAX_INPUT_BLOB_SZ          (1664UL) /* multiple of 128 >= 1542 */
 
-# define FD_LOG_HEXDUMP_ADD_TO_LOG_BUF(...)  do {                              \
-    num_bytes_written = sprintf ( log_buf_ptr, __VA_ARGS__ );                  \
-    if( FD_LIKELY( num_bytes_written>=0 )) log_buf_ptr += num_bytes_written;   \
+# define FD_LOG_HEXDUMP_ADD_TO_LOG_BUF(...)  do {                            \
+    num_bytes_written = sprintf ( log_buf_ptr, __VA_ARGS__ );                \
+    if( FD_LIKELY( num_bytes_written>=0 )) log_buf_ptr += num_bytes_written; \
     } while(0)
 
   char * log_buf_ptr = fd_log_private_log_msg;   /* used by FD_LOG_HEXDUMP_ADD_TO_LOG_BUF macro */
-  int num_bytes_written = 0;                     /* used by the FD_LOG_HEXDUMP_ADD_TO_LOG_BUF macro. signed because *printf() return 'int'. */
+  int    num_bytes_written = 0;                  /* used by the FD_LOG_HEXDUMP_ADD_TO_LOG_BUF macro. signed because *printf() return 'int'. */
 
   /* Print the hexdump header */
   /* FIXME: consider additional sanitization of descr or using compiler
@@ -615,7 +615,7 @@ fd_log_private_1( int          level,
        a previous log message */
 
     ulong hash = fd_cstr_hash_append( fd_cstr_hash_append( fd_cstr_hash_append( fd_ulong_hash(
-                                      (ulong)(uint)(8*line+level) ), file ), func ), msg );
+                                                                                  (ulong)(uint)(8*line+level) ), file ), func ), msg );
 
     static long const dedup_interval = 20000000L; /* 1/50 s */
 
@@ -875,7 +875,7 @@ fd_log_private_sig_abort( int         sig,
      all non-logging activity ... log a backtrace */
 
   void * btrace[128];
-  int btrace_cnt = backtrace( btrace, 128 );
+  int    btrace_cnt = backtrace( btrace, 128 );
 
   FILE * log_file = FD_VOLATILE_CONST( fd_log_private_file );
   if( log_file ) {
@@ -1005,8 +1005,8 @@ fd_log_private_boot( int  *   pargc,
        for finding this.) */
 
     void * btrace[128];
-    int btrace_cnt = backtrace( btrace, 128 );
-    int fd = open( "/dev/null", O_WRONLY | O_APPEND );
+    int    btrace_cnt = backtrace( btrace, 128 );
+    int    fd = open( "/dev/null", O_WRONLY | O_APPEND );
     if( FD_UNLIKELY( fd==-1 ) ) fprintf( stderr, "open( \"/dev/null\", O_WRONLY | O_APPEND ) failed; attempting to continue\n" );
     else {
       backtrace_symbols_fd( btrace, btrace_cnt, fd );

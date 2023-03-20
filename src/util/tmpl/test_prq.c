@@ -59,7 +59,7 @@ test_implicit_heap( event_t * heap,
   FD_TEST( implq_max( heap )==max );
   FD_TEST( cnt<=max );
   for( ulong child=1UL; child<cnt; child++ ) {
-    ulong parent = (child-1UL) >> 1;
+    ulong       parent = (child-1UL) >> 1;
     long double _parent = heap[ parent ].timeout / (long double) heap[ parent ].timeout2;
     long double _child  = heap[ child  ].timeout / (long double) heap[ child  ].timeout2;
     FD_TEST( _parent>=_child );
@@ -85,7 +85,7 @@ main( int     argc,
   FD_TEST( fd_ulong_is_pow2( align ) );
   FD_TEST( fd_ulong_is_aligned( footprint, align ) );
 
-  uchar _mem[ 65536 ];
+  uchar   _mem[ 65536 ];
   uchar * mem = (uchar *)fd_ulong_align_up( (ulong)_mem, align );
   if( FD_UNLIKELY( (mem+footprint) > (_mem+65536) ) ) {
     FD_LOG_WARNING(( "skip: update test to support larger --max" ));
@@ -263,7 +263,7 @@ main( int     argc,
   for( ulong i=0UL; i<max; i++ ) {
     ulong j=0UL; for( ulong b=0UL; b<10UL; b++ ) j += ((i>>(9UL-b))&1UL) << b; /* FIXME: THIS IS 1024 CENTRIC */
 
-    long denominator = (long)fd_rng_uint_roll( rng, 10000) + 1L;
+    long    denominator = (long)fd_rng_uint_roll( rng, 10000) + 1L;
     event_t event[1];
     event->timeout  = (long)((7UL*j+1UL)/8UL)*denominator;
     event->timeout2 = denominator;

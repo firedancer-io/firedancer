@@ -208,17 +208,17 @@ tx_tile_main( int     argc,
     int ctl_eom = !burst_rem;
     int ctl_err = 0;
 
-    int   is_dup = fd_rng_uint( rng ) < dup_thresh; 
+    int   is_dup = fd_rng_uint( rng ) < dup_thresh;
     uint  age    = is_dup ? (uint)(int)(1.0f + dup_avg_age*fd_rng_float_exp( rng )) : 0U;
     ulong sig    = fd_ulong_hash( (((ulong)tx_idx)<<32) | ((ulong)(dup_seq-age)) );
     sig |= (ulong)(sig==FD_TCACHE_TAG_NULL);
-    dup_seq += (uint)!is_dup;
+    dup_seq += (uint) !is_dup;
 
-  /*ulong chunk  = ... already at location where next packet will be written ...; */
+    /*ulong chunk  = ... already at location where next packet will be written ...; */
     ulong sz     = pkt_framing + frag_sz;
     ulong ctl    = fd_frag_meta_ctl( tx_idx, ctl_som, ctl_eom, ctl_err );
     ulong tsorig = burst_ts;
-  /*ulong tspub  = ... set "after" finished receiving from the "NIC" ...; */
+    /*ulong tspub  = ... set "after" finished receiving from the "NIC" ...; */
 
     uchar * p   = (uchar *)fd_chunk_to_laddr( wksp, chunk );
     __m256i avx = _mm256_set1_epi64x( (long)sig );
@@ -286,7 +286,7 @@ dedup_tile_main( int     argc,
   for( ulong rx_idx=0UL; rx_idx<cfg->rx_cnt; rx_idx++ )
     rx_fseq[ rx_idx ] = fd_fseq_join( cfg->rx_fseq_mem + rx_idx*cfg->rx_fseq_footprint );
 
-  fd_rng_t _rng[1];
+  fd_rng_t   _rng[1];
   fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, cfg->dedup_seed, 0UL ) );
 
   int err = fd_dedup_tile( cnc, cfg->tx_cnt, tx_mcache, tx_fseq, dedup_tcache, dedup_mcache, cfg->rx_cnt, rx_fseq,
@@ -333,11 +333,11 @@ rx_tile_main( int     argc,
 
   /* Hook up to the rx tcache */
   fd_tcache_t * tcache = fd_tcache_join( cfg->rx_tcache_mem + rx_idx*cfg->rx_tcache_footprint );
-  ulong   tcache_depth   = fd_tcache_depth       ( tcache );
-  ulong   tcache_map_cnt = fd_tcache_map_cnt     ( tcache );
-  ulong * _tcache_sync   = fd_tcache_oldest_laddr( tcache );
-  ulong * _tcache_ring   = fd_tcache_ring_laddr  ( tcache );
-  ulong * _tcache_map    = fd_tcache_map_laddr   ( tcache );
+  ulong         tcache_depth   = fd_tcache_depth       ( tcache );
+  ulong         tcache_map_cnt = fd_tcache_map_cnt     ( tcache );
+  ulong *       _tcache_sync   = fd_tcache_oldest_laddr( tcache );
+  ulong *       _tcache_ring   = fd_tcache_ring_laddr  ( tcache );
+  ulong *       _tcache_map    = fd_tcache_map_laddr   ( tcache );
 
   ulong tcache_sync = *_tcache_sync;
 
@@ -411,11 +411,11 @@ rx_tile_main( int     argc,
     (void)ctl; (void)tsorig; (void)tspub; (void)sz; (void)chunk; (void)wksp;
 
     uchar const * p = (uchar const *)fd_chunk_to_laddr_const( wksp, chunk );
-    __m256i avx = _mm256_set1_epi64x( (long)sig );
-    int mask0 = -1;
-    int mask1 = -1;
-    int mask2 = -1;
-    int mask3 = -1;
+    __m256i       avx = _mm256_set1_epi64x( (long)sig );
+    int           mask0 = -1;
+    int           mask1 = -1;
+    int           mask2 = -1;
+    int           mask3 = -1;
     for( ulong off=0UL; off<sz; off+=128UL ) {
       mask0 &= _mm256_movemask_epi8( _mm256_cmpeq_epi8( _mm256_load_si256( (__m256i *) p       ), avx ) );
       mask1 &= _mm256_movemask_epi8( _mm256_cmpeq_epi8( _mm256_load_si256( (__m256i *)(p+32UL) ), avx ) );
@@ -449,7 +449,7 @@ main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
 
-  uint rng_seq = 0U;
+  uint     rng_seq = 0U;
   fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, rng_seq++, 0UL ) );
 
   FD_TEST( fd_dedup_tile_scratch_align()==FD_DEDUP_TILE_SCRATCH_ALIGN );
@@ -515,7 +515,7 @@ main( int     argc,
   if( FD_UNLIKELY( !(0.f<pkt_bw) ) ) FD_LOG_ERR(( "--pkt-bw out of range" ));
 
   float burst_bw = pkt_bw
-                 / (1.f - ((((float)pkt_framing)/((float)burst_avg)) / expm1f( -((float)pkt_payload_max)/((float)burst_avg) )));
+                   / (1.f - ((((float)pkt_framing)/((float)burst_avg)) / expm1f( -((float)pkt_payload_max)/((float)burst_avg) )));
 
   float tick_per_ns = (float)fd_tempo_tick_per_ns( NULL );
   float burst_tau   = (tick_per_ns*burst_avg)*(8e9f/burst_bw); /* Avg time btw bursts in tick (8 b/B, 1e9 ns/s, bw b/s) */
@@ -612,7 +612,7 @@ main( int     argc,
   cfg->rx_rng_mem    = rng_mem  +  tx_cnt     *rng_footprint;  cfg->rx_rng_footprint    = rng_footprint;
   cfg->rx_fseq_mem   = fseq_mem +  tx_cnt     *fseq_footprint; cfg->rx_fseq_footprint   = fseq_footprint;
   cfg->rx_tcache_mem = rx_tcache_mem;                          cfg->rx_tcache_footprint = rx_tcache_footprint;
-  
+
   cfg->pkt_framing     = pkt_framing;
   cfg->pkt_payload_max = pkt_payload_max;
   cfg->burst_tau       = burst_tau;

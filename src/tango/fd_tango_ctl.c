@@ -141,7 +141,7 @@ main( int     argc,
 
         if( hdr->app_sz ) {
           uchar const * a = fd_mcache_app_laddr_const( mcache );
-          ulong app_sz;
+          ulong         app_sz;
           for( app_sz=hdr->app_sz; app_sz; app_sz-- ) if( a[app_sz-1UL] ) break;
           ulong         off = 0UL;
           printf( "\tapp     %04lx: %02x %02x %02x %02x %02x %02x %02x %02x  %02x %02x %02x %02x %02x %02x %02x %02x\n", off,
@@ -312,7 +312,7 @@ main( int     argc,
 
         if( hdr->app_sz ) {
           uchar const * a = fd_dcache_app_laddr_const( dcache );
-          ulong app_sz;
+          ulong         app_sz;
           for( app_sz=hdr->app_sz; app_sz; app_sz-- ) if( a[app_sz-1UL] ) break;
           ulong         off = 0UL;
           printf( "\tapp     %04lx: %02x %02x %02x %02x %02x %02x %02x %02x  %02x %02x %02x %02x %02x %02x %02x %02x\n", off,
@@ -414,7 +414,7 @@ main( int     argc,
         printf( "\tseq0 %lu\n", fd_fseq_seq0 ( fseq ) );
         printf( "\tseq  %lu\n", fd_fseq_query( fseq ) );
         uchar const * a = (uchar const *)fd_fseq_app_laddr_const( fseq );
-        ulong app_sz;
+        ulong         app_sz;
         for( app_sz=FD_FSEQ_APP_FOOTPRINT; app_sz; app_sz-- ) if( a[app_sz-1UL] ) break;
         ulong off = 0UL;
         printf( "\tapp  %04lx: %02x %02x %02x %02x %02x %02x %02x %02x  %02x %02x %02x %02x %02x %02x %02x %02x\n", off,
@@ -461,8 +461,8 @@ main( int     argc,
       char const * _wksp     =                                                 argv[0];
       ulong        type      =                               fd_cstr_to_ulong( argv[1] );
       long         heartbeat = (!strcmp( argv[2], "-"   )) ? fd_log_wallclock() :
-                             ( (!strcmp( argv[2], "tic" )) ? fd_tickcount()     :
-                                                             fd_cstr_to_long ( argv[2] ) );
+                               ( (!strcmp( argv[2], "tic" )) ? fd_tickcount()     :
+                                 fd_cstr_to_long ( argv[2] ) );
       ulong        app_sz    =                               fd_cstr_to_ulong( argv[3] );
 
       ulong align     = fd_cnc_align();
@@ -552,7 +552,7 @@ main( int     argc,
         printf( "\tsignal     %s (%lu)\n", fd_cnc_signal_cstr( cnc->signal, buf ), cnc->signal );
 
         uchar const * a = (uchar const *)fd_cnc_app_laddr_const( cnc );
-        ulong app_sz;
+        ulong         app_sz;
         for( app_sz=cnc->app_sz; app_sz; app_sz-- ) if( a[app_sz-1UL] ) break;
         ulong off = 0UL;
         printf( "\tapp        %04lx: %02x %02x %02x %02x %02x %02x %02x %02x  %02x %02x %02x %02x %02x %02x %02x %02x\n", off,

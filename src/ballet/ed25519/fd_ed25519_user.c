@@ -1,7 +1,7 @@
 #include "fd_ed25519_private.h"
 
 uchar *
-fd_ed25519_sc_reduce( uchar *       out, 
+fd_ed25519_sc_reduce( uchar *       out,
                       uchar const * in ) {
 
   /* Load the 512 bits to reduce */
@@ -288,7 +288,7 @@ fd_ed25519_public_from_private( void *        public_key,
   az[ 0] &= (uchar)248;
   az[31] &= (uchar)63;
   az[31] |= (uchar)64;
- 
+
   /* Compute the corresponding public key from the hash */
 
   fd_ed25519_ge_p3_t A[1];
@@ -398,7 +398,7 @@ fd_ed25519_verify( void const *  msg,
   /* 2-point decompression - this approach avoids doing a compression
      (and hence an inversion) at the end */
   fd_ed25519_ge_p3_t rD[1];
-  int err = fd_ed25519_ge_frombytes_vartime_2( A, public_key, rD, r ); if( FD_UNLIKELY( err ) ) return err;
+  int                err = fd_ed25519_ge_frombytes_vartime_2( A, public_key, rD, r ); if( FD_UNLIKELY( err ) ) return err;
 # else
   int err = fd_ed25519_ge_frombytes_vartime( A, public_key ); if( FD_UNLIKELY( err ) ) return err;
 # endif

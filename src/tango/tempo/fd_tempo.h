@@ -41,7 +41,7 @@ fd_tempo_tickcount_model( double * opt_tau );
    will take around ~0.5 s).  If opt_sigma is non-NULL, on return,
    *opt_sigma will have an estimate how much the rate was fluctuating
    when observed during the first call.
-   
+
    IMPORTANT!  Though fd_tickcount() is meant to tick at a constant rate
    relative to fd_log_wallclock(), the instantaneous rate it ticks can
    fluctuate for the usual of clock synchronization reasons (e.g.

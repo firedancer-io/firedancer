@@ -30,7 +30,7 @@
 
      // Returns 1 if set appears to be point to a valid set, 0 otherwise
      // (e.g. set is NULL, there's corruption in the set zero padding,
-     // etc). 
+     // etc).
 
      int my_set_valid( my_set_t const * set )
 
@@ -198,15 +198,29 @@ SET_(private_full_last_word)( void ) {
 
 /* Public APIs ********************************************************/
 
-FD_FN_CONST static inline ulong SET_(align)    ( void ) { return alignof(ulong); }
-FD_FN_CONST static inline ulong SET_(footprint)( void ) { return 8UL*(ulong)SET_(word_cnt); }
+FD_FN_CONST static inline ulong SET_(align)    ( void ) {
+  return alignof(ulong);
+}
+FD_FN_CONST static inline ulong SET_(footprint)( void ) {
+  return 8UL*(ulong)SET_(word_cnt);
+}
 
-static inline void    * SET_(new)   ( void *    shmem ) { return fd_memset( shmem, 0, SET_(footprint)() ); }
-static inline SET_(t) * SET_(join)  ( void *    shset ) { return (SET_(t) *)shset; }
-static inline void    * SET_(leave) ( SET_(t) * set   ) { return (void *)set; }
-static inline void    * SET_(delete)( void *    shset ) { return shset; }
+static inline void    * SET_(new)   ( void *    shmem ) {
+  return fd_memset( shmem, 0, SET_(footprint)() );
+}
+static inline SET_(t) * SET_(join)  ( void *    shset ) {
+  return (SET_(t) *)shset;
+}
+static inline void    * SET_(leave) ( SET_(t) * set   ) {
+  return (void *)set;
+}
+static inline void    * SET_(delete)( void *    shset ) {
+  return shset;
+}
 
-FD_FN_CONST static inline ulong SET_(max)( SET_(t) const * set ) { (void)set; return (ulong)SET_MAX; }
+FD_FN_CONST static inline ulong SET_(max)( SET_(t) const * set ) {
+  (void)set; return (ulong)SET_MAX;
+}
 
 FD_FN_PURE static inline int
 SET_(valid)( SET_(t) const * set ) {
@@ -267,8 +281,12 @@ SET_(iter_next)( SET_(t) * set,
   }
   return ~0UL;                                       /* No more bits to consider */
 }
-static inline ulong SET_(iter_init)( SET_(t) * set ) { return SET_(iter_next)( set, ~0UL ); }
-FD_FN_CONST static inline ulong SET_(iter_done)( ulong j ) { return !~j; }
+static inline ulong SET_(iter_init)( SET_(t) * set ) {
+  return SET_(iter_next)( set, ~0UL );
+}
+FD_FN_CONST static inline ulong SET_(iter_done)( ulong j ) {
+  return !~j;
+}
 
 FD_FN_PURE FD_FN_UNUSED static ulong /* Work around -Winline */
 SET_(const_iter_next)( SET_(t) const * set,
@@ -283,8 +301,12 @@ SET_(const_iter_next)( SET_(t) const * set,
   }
   return ~0UL;                                             /* No more bits to consider */
 }
-FD_FN_PURE  static inline ulong SET_(const_iter_init)( SET_(t) * set ) { return SET_(const_iter_next)( set, ~0UL ); }
-FD_FN_CONST static inline ulong SET_(const_iter_done)( ulong j       ) { return !~j; }
+FD_FN_PURE  static inline ulong SET_(const_iter_init)( SET_(t) * set ) {
+  return SET_(const_iter_next)( set, ~0UL );
+}
+FD_FN_CONST static inline ulong SET_(const_iter_done)( ulong j       ) {
+  return !~j;
+}
 
 static inline SET_(t) *
 SET_(insert)( SET_(t) * set,
@@ -304,7 +326,7 @@ static inline SET_(t) *
 SET_(insert_if)( SET_(t) * set,
                  int       c,
                  ulong     idx ) {
-  set[ idx >> 6 ] |= ((ulong)!!c) << (idx & 63UL);
+  set[ idx >> 6 ] |= ((ulong) !!c) << (idx & 63UL);
   return set;
 }
 
@@ -312,7 +334,7 @@ static inline SET_(t) *
 SET_(remove_if)( SET_(t) * set,
                  int       c,
                  ulong     idx ) {
-  set[ idx >> 6 ] &= ~(((ulong)!!c) << (idx & 63UL));
+  set[ idx >> 6 ] &= ~(((ulong) !!c) << (idx & 63UL));
   return set;
 }
 
@@ -357,7 +379,7 @@ static inline SET_(t) *
 SET_(full_if)( SET_(t) * z,
                int       c ) {
   ulong word_cnt = ((ulong)SET_(word_cnt))-1UL;
-  ulong word     = ((ulong)!c)-1UL;
+  ulong word     = ((ulong) !c)-1UL;
   for( ulong i=0UL; i<word_cnt; i++ ) z[i] = word;
   z[word_cnt] = word & SET_(private_full_last_word)();
   return z;

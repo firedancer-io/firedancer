@@ -3,7 +3,7 @@
 #define BUF_MAX (8UL)
 static int   buf[ BUF_MAX ];
 static ulong buf_cnt = 0UL;
-static void  buf_push( int i ) { FD_TEST( buf_cnt<BUF_MAX ); buf[ buf_cnt++ ] = i; } 
+static void  buf_push( int i ) { FD_TEST( buf_cnt<BUF_MAX ); buf[ buf_cnt++ ] = i; }
 static int   buf_pop ( void  ) { FD_TEST( buf_cnt ); return buf[ --buf_cnt ]; }
 
 #define STACK_NAME test_stack

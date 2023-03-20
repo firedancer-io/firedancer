@@ -137,7 +137,7 @@ vd_insert_variable( vd_t a, int n, double v ) {
    vd_copysign(a,b) returns [ copysign(a0,b0) copysign(a1,b1) ]
    vd_flipsign(a,b) returns [ flipsign(a0,b0) flipsign(a1,b1) ]
 
-   vd_fma( a,b,c)   returns [  fma(a0,b0, c0)  fma(a1,b1, c1) ] (i.e.  a.*b+c) 
+   vd_fma( a,b,c)   returns [  fma(a0,b0, c0)  fma(a1,b1, c1) ] (i.e.  a.*b+c)
    vd_fms( a,b,c)   returns [  fma(a0,b0,-c0)  fma(a1,b1,-c1) ] (i.e.  a.*b-c)
    vd_fnma(a,b,c)   returns [ -fma(a0,b0,-c0) -fma(a1,b1,-c1) ] (i.e. -a.*b+c)
 

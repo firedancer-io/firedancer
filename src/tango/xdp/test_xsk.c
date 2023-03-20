@@ -250,14 +250,14 @@ test_xsk( void ) {
 
   {
     fd_xsk_frame_meta_t metas[ 3UL ] =
-      { {.off=0UL}, {.off=1UL}, {.off=2UL} };
+    { {.off=0UL}, {.off=1UL}, {.off=2UL} };
     FD_TEST( fd_xsk_rx_enqueue2( xsk, metas, 3UL )==3UL );
     FD_TEST( test_xsk_ring_fr.prod==3UL );
   }
   {
     fd_xsk_frame_meta_t metas[ 6UL ] =
-      { {.off=3UL}, {.off=4UL}, {.off=5UL}, {.off=6UL}, {.off=7UL},
-        {.off=8UL} };
+    { {.off=3UL}, {.off=4UL}, {.off=5UL}, {.off=6UL}, {.off=7UL},
+      {.off=8UL} };
     FD_TEST( fd_xsk_rx_enqueue2( xsk, metas, 6UL )==5UL );
     FD_TEST( test_xsk_ring_fr.prod==8UL );
     FD_TEST( fd_xsk_rx_enqueue2( xsk, metas, 6UL )==0UL );
@@ -270,7 +270,7 @@ test_xsk( void ) {
 
   {
     fd_xsk_frame_meta_t metas[ 3UL ] =
-      { {.off=8UL}, {.off=9UL}, {.off=10UL} };
+    { {.off=8UL}, {.off=9UL}, {.off=10UL} };
     FD_TEST( fd_xsk_rx_enqueue2( xsk, metas, 3UL )==1UL );
     FD_TEST( test_xsk_ring_fr.prod==9UL );
   }
@@ -285,21 +285,21 @@ test_xsk( void ) {
 
   {
     fd_xsk_frame_meta_t metas[ 3UL ] =
-      { {.off=0UL, .sz=0U, .flags=0U},
-        {.off=1UL, .sz=1U, .flags=1U},
-        {.off=2UL, .sz=2U, .flags=2U} };
+    { {.off=0UL, .sz=0U, .flags=0U},
+      {.off=1UL, .sz=1U, .flags=1U},
+      {.off=2UL, .sz=2U, .flags=2U} };
     FD_TEST( fd_xsk_tx_enqueue( xsk, metas, 3UL )==3UL );
     FD_TEST( test_xsk_ring_tx.prod==3UL );
   }
 
   {
     fd_xsk_frame_meta_t metas[ 6UL ] =
-      { {.off=3UL, .sz=3U, .flags=3U},
-        {.off=4UL, .sz=4U, .flags=4U},
-        {.off=5UL, .sz=5U, .flags=5U},
-        {.off=6UL, .sz=6U, .flags=6U},
-        {.off=7UL, .sz=7U, .flags=7U},
-        {.off=8UL, .sz=8U, .flags=8U} };
+    { {.off=3UL, .sz=3U, .flags=3U},
+      {.off=4UL, .sz=4U, .flags=4U},
+      {.off=5UL, .sz=5U, .flags=5U},
+      {.off=6UL, .sz=6U, .flags=6U},
+      {.off=7UL, .sz=7U, .flags=7U},
+      {.off=8UL, .sz=8U, .flags=8U} };
     FD_TEST( fd_xsk_tx_enqueue( xsk, metas, 6UL )==5UL );
     FD_TEST( test_xsk_ring_tx.prod==8UL );
     FD_TEST( fd_xsk_tx_enqueue( xsk, metas, 6UL )==0UL );
@@ -566,7 +566,7 @@ test_xsk_aio( void ) {
       { .buf="hh", .buf_sz=2UL },
       { .buf="ii", .buf_sz=2UL }
     };
-    ulong batch_idx;
+    ulong             batch_idx;
     FD_TEST( fd_aio_send( aio_tx, pkts, 6UL, &batch_idx )==FD_AIO_ERR_AGAIN );
     FD_TEST( batch_idx==5UL );
     FD_TEST( xsk_aio->tx_top==0UL );

@@ -23,8 +23,8 @@ shuffle( fd_rng_t *   rng,
   for( ulong i=0UL; i<cnt; i++ ) {
     y[i] = x[i];
     ulong j  = fd_rng_ulong( rng ) % (i+1UL);
-    TYPE yi = y[i];
-    TYPE yj = y[j];
+    TYPE  yi = y[i];
+    TYPE  yj = y[j];
     y[i] = yj;
     y[j] = yi;
   }
@@ -41,7 +41,7 @@ main( int     argc,
   TYPE ref[ MAX ];
   TYPE tst[ MAX ];
   TYPE tmp[ MAX ];
-  
+
   for( ulong cnt=0UL; cnt<32UL; cnt++ ) {
     for( ulong i=0UL; i<cnt; i++ ) ref[i] = (TYPE)i;
     for( ulong i=0UL; i<cnt; i++ ) tst[i] = (TYPE)i;

@@ -181,7 +181,7 @@ FD_PROTOTYPES_BEGIN
    up to monitoring scripts.  It is recommend that inputs and outputs
    also use their cnc and fseq application regions similarly for
    monitoring simplicity / consistency.
-   
+
    The lifetime of the cnc, mcaches, fseqs, rng and scratch used by this
    tile should be a superset of this tile's lifetime.  While this tile
    is running, no other tile should use cnc for its command and control,

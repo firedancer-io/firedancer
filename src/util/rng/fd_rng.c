@@ -51,7 +51,7 @@ fd_rng_float_exp( fd_rng_t * rng ) {
    yielding a variant with minimal tail artifacts.  In single precision:
 
       e = fd_rng_coin_tosses( rng );
-      m = fd_rng_uint( rng );        
+      m = fd_rng_uint( rng );
       y = e - lg1p( m / 2^32 );
       return y*(1/log2(e));
 
@@ -222,7 +222,7 @@ fd_rng_float_norm( fd_rng_t * rng ) {
 
     ulong u = (ulong)fd_rng_uint( rng ); /* 32-bit rand */
 
-    /**/  s = (u >> 1) & 1UL;                 /* random sign */
+    /**/ s = (u >> 1) & 1UL;                  /* random sign */
     ulong l = (u >> 2) & (zig_level_cnt-1UL); /* uniform level (zig_level_cnt must be power-of-2 <= 64) */
     ulong m = (u >> 8) + (u & 1UL);           /* 24-bit trapezoidal rand */
 
@@ -398,7 +398,7 @@ fd_rng_double_norm( fd_rng_t * rng ) {
 
     ulong u = fd_rng_ulong( rng );             /* 64-bit rand */
 
-    /**/  s = (u >>  1) & 1UL;
+    /**/ s = (u >>  1) & 1UL;
     ulong l = (u >>  2) & (zig_level_cnt-1UL); /* uniform level (zig_level_cnt must be power-of-2 <= 512) */
     ulong m = (u >> 11) + (u & 1UL);           /* 53-bit trapezoidal rand */
 

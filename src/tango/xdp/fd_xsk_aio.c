@@ -24,9 +24,9 @@ fd_xsk_aio_footprint( ulong tx_depth,
   if( FD_UNLIKELY( pkt_cnt ==0UL ) ) return 0UL;
 
   ulong sz =      1UL*sizeof( fd_xsk_aio_t        )
-           +  pkt_cnt*sizeof( fd_xsk_frame_meta_t )
-           +  pkt_cnt*sizeof( fd_aio_pkt_info_t   )
-           + tx_depth*sizeof( ulong               );
+             +  pkt_cnt*sizeof( fd_xsk_frame_meta_t )
+             +  pkt_cnt*sizeof( fd_aio_pkt_info_t   )
+             + tx_depth*sizeof( ulong               );
 
   sz = fd_ulong_align_up( sz, FD_XSK_AIO_ALIGN );
   /* assert( sz%FD_XSK_AIO_ALIGN==0UL ) */
@@ -51,7 +51,7 @@ fd_xsk_aio_new( void * mem,
   ulong footprint = fd_xsk_aio_footprint( tx_depth, pkt_cnt );
   if( FD_UNLIKELY( !footprint ) ) {
     FD_LOG_WARNING(( "invalid footprint for tx_depth (%lu), pkt_cnt (%lu)",
-                      tx_depth, pkt_cnt ));
+                     tx_depth, pkt_cnt ));
     return NULL;
   }
 
@@ -174,7 +174,7 @@ fd_xsk_aio_join( void *     shxsk_aio,
   frame_off = xsk_aio->tx_off*frame_sz;
   for( ulong j=0; j<tx_depth; j++ ) {
     xsk_aio->tx_stack[xsk_aio->tx_top] =  frame_off;
-                      xsk_aio->tx_top++;
+    xsk_aio->tx_top++;
     frame_off                          += frame_sz;
   }
 

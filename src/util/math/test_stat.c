@@ -18,10 +18,10 @@ main( int     argc,
   fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
 
 # define AVG2_INT_TEST(T) do {                          \
-    FD_TEST( fd_stat_avg2_##T( (T)  0, (T)0 )==(T) 0 );  \
-    FD_TEST( fd_stat_avg2_##T( (T)  1, (T)2 )==(T) 1 );  \
-    FD_TEST( fd_stat_avg2_##T( (T)  1, (T)0 )==(T) 0 );  \
-    FD_TEST( fd_stat_avg2_##T( (T)110, (T)0 )==(T)55 );  \
+    FD_TEST( fd_stat_avg2_##T( (T)  0, (T)0 )==(T) 0 ); \
+    FD_TEST( fd_stat_avg2_##T( (T)  1, (T)2 )==(T) 1 ); \
+    FD_TEST( fd_stat_avg2_##T( (T)  1, (T)0 )==(T) 0 ); \
+    FD_TEST( fd_stat_avg2_##T( (T)110, (T)0 )==(T)55 ); \
   } while(0)
 
   AVG2_INT_TEST( schar  );
@@ -111,14 +111,14 @@ main( int     argc,
   for( ulong iter=0UL; iter<1000L; iter++ ) {
     double x      [128];
     double scratch[128];
-    ulong cnt    = fd_rng_ulong_roll( rng, 129UL );
+    ulong  cnt    = fd_rng_ulong_roll( rng, 129UL );
     double mu    = fd_rng_double_norm( rng );
     double sigma = fd_rng_double_exp ( rng );
     for( ulong idx=0UL; idx<cnt; idx++ ) x[idx] = mu + sigma*fd_rng_double_norm( rng );
 
     double mu_est;
     double sigma_est;
-    ulong cnt_est = fd_stat_robust_norm_fit_double( &mu_est, &sigma_est, x, cnt, scratch );
+    ulong  cnt_est = fd_stat_robust_norm_fit_double( &mu_est, &sigma_est, x, cnt, scratch );
     FD_TEST( cnt_est==cnt );
     if(      FD_UNLIKELY( cnt==0UL ) ) FD_TEST( mu_est==0.   && sigma_est==0. );
     else if( FD_UNLIKELY( cnt==1UL ) ) FD_TEST( mu_est==x[0] && sigma_est==0. );

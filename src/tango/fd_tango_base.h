@@ -50,7 +50,7 @@
      diagnostic purposes, they are stored in a temporally and/or
      precision compressed representation to free up room for other
      metadata.
-     
+
   -  tsorig is measured on the origin's wallclock and the tspub is
      measured on the consumer facing publisher's wallclock (these are
      often the same wallclock).  As such, tsorig from the same origin
@@ -180,7 +180,7 @@ union __attribute__((aligned(FD_FRAG_META_ALIGN))) fd_frag_meta {
 
        (Note that these instructions require the linear addresses of
        their memory operands to be 16-byte aligned.)
-       
+
      That is accesses to "sse0" and "sse1" below are atomic when AVX
      support is available given the overall structure alignment,
      appropriate intrinsics and what not.  Accesses to avx are likely
@@ -212,7 +212,7 @@ FD_PROTOTYPES_BEGIN
    sequence number reuse is not an issue practically in a real world
    application but sequence number wrapping is if we want to support
    things like initial sequence number randomization for security.
-   
+
    fd_seq_{inc,dec} returns the result of incrementing/decrementing
    sequence number a delta times.
 
@@ -283,10 +283,10 @@ fd_frag_meta_ctl( ulong orig,    /* Assumed in [0,FD_FRAG_META_ORIG_MAX) */
                   int   som,     /* 0 for false, non-zero for true */
                   int   eom,     /* 0 for false, non-zero for true */
                   int   err ) {  /* 0 for false, non-zero for true */
-  return ((ulong)!!som) | (((ulong)!!eom)<<1) | (((ulong)!!err)<<2) | (orig<<3);
+  return ((ulong) !!som) | (((ulong) !!eom)<<1) | (((ulong) !!err)<<2) | (orig<<3);
 }
 
-FD_FN_CONST static inline ulong fd_frag_meta_ctl_orig( ulong ctl ) { return        ctl>>3;         }
+FD_FN_CONST static inline ulong fd_frag_meta_ctl_orig( ulong ctl ) { return ctl>>3;         }
 FD_FN_CONST static inline int   fd_frag_meta_ctl_som ( ulong ctl ) { return (int)( ctl     & 1UL); }
 FD_FN_CONST static inline int   fd_frag_meta_ctl_eom ( ulong ctl ) { return (int)((ctl>>1) & 1UL); }
 FD_FN_CONST static inline int   fd_frag_meta_ctl_err ( ulong ctl ) { return (int)((ctl>>2) & 1UL); }

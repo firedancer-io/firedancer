@@ -33,7 +33,7 @@ FD_STATIC_ASSERT( FD_BMTREE32_COMMIT_FOOTPRINT==sizeof (fd_bmtree32_commit_t), u
 static void
 test_bmtree20_commit( ulong        leaf_cnt,
                       void const * expected_root ) {
-  fd_bmtree20_commit_t _tree[1];
+  fd_bmtree20_commit_t   _tree[1];
   fd_bmtree20_commit_t * tree = fd_bmtree20_commit_init( _tree ); FD_TEST( tree==_tree );
 
   fd_bmtree20_node_t leaf[1];
@@ -97,7 +97,7 @@ main( int     argc,
 
   /* FIXME: WRITE BETTER BENCHMARK */
   ulong bench_cnt = 1000000UL;
-  long dt = -fd_log_wallclock();
+  long  dt = -fd_log_wallclock();
   test_bmtree20_commit( bench_cnt, "\x20\x61\x9a\x7a\xe4\x65\x27\x5a\x70\x9c\xa5\xc2\x8a\x21\x91\x6c\xdf\xf9\x0e\x26" );
   dt += fd_log_wallclock();
   FD_LOG_NOTICE(( "%.3f ns/leaf @ %lu leaves", (double)((float)dt / (float)bench_cnt), bench_cnt ));
@@ -106,7 +106,7 @@ main( int     argc,
 
   // Source: https://github.com/solana-foundation/specs/blob/main/core/merkle-tree.md
 
-  ulong leaf_cnt = 11UL;
+  ulong              leaf_cnt = 11UL;
   fd_bmtree32_node_t leaf[ 11UL ];
 
   hash_leaf( leaf +  0, "my"     );
@@ -124,7 +124,7 @@ main( int     argc,
   FD_TEST( fd_bmtree32_commit_align()    ==FD_BMTREE32_COMMIT_ALIGN     );
   FD_TEST( fd_bmtree32_commit_footprint()==FD_BMTREE32_COMMIT_FOOTPRINT );
 
-  fd_bmtree32_commit_t _tree[1];
+  fd_bmtree32_commit_t   _tree[1];
   fd_bmtree32_commit_t * tree = fd_bmtree32_commit_init( _tree ); FD_TEST( tree==_tree );
 
   FD_TEST( fd_bmtree32_commit_leaf_cnt( tree )==0UL );

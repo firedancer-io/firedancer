@@ -110,7 +110,7 @@ fd_scratch_private_true_align( ulong align ) {
    define.  E.g.:
 
      uchar my_smem[ MY_SMAX ] __attribute__((aligned(FD_SCRATCH_SMEM_ALIGN)));
-   
+
    will be valid to use as a scratch smem with space for up to MY_SMAX
    bytes. */
 
@@ -157,7 +157,7 @@ static inline void
 fd_scratch_attach( void * smem,
                    void * fmem,
                    ulong  smax,
-                   ulong  depth ) { 
+                   ulong  depth ) {
 
 # if FD_SCRATCH_USE_HANDHOLDING
   if( FD_UNLIKELY( fd_scratch_private_frame_max ) ) FD_LOG_ERR(( "already attached" ));
@@ -404,7 +404,7 @@ fd_scratch_cancel( void ) {
    manually align up sz ... e.g. pass fd_ulong_align_up(sz,align) when
    align is non-zero to this call (this could be implemented as a
    compile time mode with some small extra overhead if desirable).
-   
+
    sz 0 is fine.  This will currently return a properly aligned non-NULL
    pointer (the allocator might do some allocation under the hood to get
    the desired alignment and it is possible this might fail ... there is
@@ -518,7 +518,7 @@ fd_scratch_trim( void * _end ) {
    These are safe to call at any time and also freak fast handful of
    assembly operations. */
 
-FD_FN_PURE static inline int fd_scratch_attach_is_safe( void ) { return  !fd_scratch_private_frame_max; }
+FD_FN_PURE static inline int fd_scratch_attach_is_safe( void ) { return !fd_scratch_private_frame_max; }
 FD_FN_PURE static inline int fd_scratch_detach_is_safe( void ) { return !!fd_scratch_private_frame_max; }
 FD_FN_PURE static inline int fd_scratch_reset_is_safe ( void ) { return !!fd_scratch_private_frame_max; }
 FD_FN_PURE static inline int fd_scratch_push_is_safe  ( void ) { return fd_scratch_private_frame_cnt<fd_scratch_private_frame_max; }

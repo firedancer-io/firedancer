@@ -11,13 +11,13 @@ FD_IMPORT_CSTR( fd_pod_ctl_help, "src/util/pod/fd_pod_ctl_help" );
 static int
 supported_val_type( int val_type ) {
   return (val_type==FD_POD_VAL_TYPE_CSTR  ) | (val_type==FD_POD_VAL_TYPE_CHAR  )
-       | (val_type==FD_POD_VAL_TYPE_SCHAR ) | (val_type==FD_POD_VAL_TYPE_SHORT )
-       | (val_type==FD_POD_VAL_TYPE_INT   ) | (val_type==FD_POD_VAL_TYPE_LONG  )
-       | (val_type==FD_POD_VAL_TYPE_UCHAR ) | (val_type==FD_POD_VAL_TYPE_USHORT)
-       | (val_type==FD_POD_VAL_TYPE_UINT  ) | (val_type==FD_POD_VAL_TYPE_ULONG )
-       | (val_type==FD_POD_VAL_TYPE_FLOAT )
+    | (val_type==FD_POD_VAL_TYPE_SCHAR ) | (val_type==FD_POD_VAL_TYPE_SHORT )
+    | (val_type==FD_POD_VAL_TYPE_INT   ) | (val_type==FD_POD_VAL_TYPE_LONG  )
+    | (val_type==FD_POD_VAL_TYPE_UCHAR ) | (val_type==FD_POD_VAL_TYPE_USHORT)
+    | (val_type==FD_POD_VAL_TYPE_UINT  ) | (val_type==FD_POD_VAL_TYPE_ULONG )
+    | (val_type==FD_POD_VAL_TYPE_FLOAT )
 #      if FD_HAS_DOUBLE
-       | (val_type==FD_POD_VAL_TYPE_DOUBLE)
+    | (val_type==FD_POD_VAL_TYPE_DOUBLE)
 #      endif
   ;
 }
@@ -137,7 +137,7 @@ printf_val( fd_pod_info_t const * info ) {
 
   case FD_POD_VAL_TYPE_SCHAR:  { int   i = (int) *(schar *)info->val; printf( "%i", i ); break; }
   case FD_POD_VAL_TYPE_SHORT:
-  case FD_POD_VAL_TYPE_INT: 
+  case FD_POD_VAL_TYPE_INT:
   case FD_POD_VAL_TYPE_LONG:   { ulong u; fd_ulong_svw_dec( info->val, &u ); printf( "%li", fd_long_zz_dec( u ) ); break; }
 
 # if FD_HAS_INT128
@@ -175,7 +175,7 @@ main( int     argc,
 
   if( FD_UNLIKELY( argc<1 ) ) FD_LOG_ERR(( "no arguments" ));
   char const * bin = argv[0];
-  SHIFT(1); 
+  SHIFT(1);
 
   ulong tag = 1UL;
 
@@ -230,7 +230,7 @@ main( int     argc,
         FD_LOG_ERR(( "%i: %s: fd_wksp_laddr( \"%s\", %lu ) failed\n\tDo %s help for help", cnt, cmd, name, gaddr, bin ));
       }
 
-      if( FD_UNLIKELY( !fd_pod_new( shmem, max ) ) ) {;
+      if( FD_UNLIKELY( !fd_pod_new( shmem, max ) ) ) {
         fd_wksp_free( wksp, gaddr );
         fd_wksp_detach( wksp );
         FD_LOG_ERR(( "%i: %s: fd_pod_new( \"%s:%lu\", %lu ) failed\n\tDo %s help for help", cnt, cmd, name, gaddr, max, bin ));
@@ -311,9 +311,9 @@ main( int     argc,
       }
 
       fd_pod_info_t * info;
-      ulong info_cnt = fd_pod_cnt_recursive( pod );
+      ulong           info_cnt = fd_pod_cnt_recursive( pod );
       if( FD_UNLIKELY( !info_cnt ) ) info = NULL;
-      else { 
+      else {
         info = (fd_pod_info_t *)aligned_alloc( alignof(fd_pod_info_t), info_cnt*sizeof(fd_pod_info_t) );
         if( FD_UNLIKELY( !info ) ) {
           fd_wksp_unmap( fd_pod_leave( pod ) );
@@ -332,7 +332,7 @@ main( int     argc,
       printf( "\tkcnt  %20lu keys   icnt  %20lu paths\n", fd_pod_cnt( pod ), info_cnt );
       for( ulong info_idx=0UL; info_idx<info_cnt; info_idx++ ) {
         fd_pod_info_t * node = &info[ info_idx ];
-        char type[ FD_POD_VAL_TYPE_CSTR_MAX ]; fd_pod_val_type_to_cstr( node->val_type, type );
+        char            type[ FD_POD_VAL_TYPE_CSTR_MAX ]; fd_pod_val_type_to_cstr( node->val_type, type );
         printf( "\t%s %s ", cstr, type );
         printf_path( node );
         printf( " " );
@@ -432,7 +432,7 @@ main( int     argc,
       }
 
       fd_pod_info_t info[1];
-      int err = fd_pod_query( pod, path, info );
+      int           err = fd_pod_query( pod, path, info );
       if( FD_UNLIKELY( !!err ) ) {
         fd_wksp_unmap( fd_pod_leave( pod ) );
         FD_LOG_ERR(( "%i: %s: no path %s to type (%i-%s) in pod %s (%i-%s)\n\tDo %s help for help",
@@ -489,7 +489,7 @@ main( int     argc,
       }
 
       fd_pod_info_t info[1];
-      int err = fd_pod_query( pod, path, info );
+      int           err = fd_pod_query( pod, path, info );
       if( FD_LIKELY( !err ) ) {
 
         if( FD_UNLIKELY( info->val_type!=val_type ) ) {

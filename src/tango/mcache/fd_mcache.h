@@ -339,8 +339,8 @@ fd_mcache_publish_sse( fd_frag_meta_t * mcache,   /* Assumed a current local joi
                        ulong            tsorig,   /* Assumed in [0,UINT_MAX] */
                        ulong            tspub ) { /* Assumed in [0,UINT_MAX] */
   fd_frag_meta_t * meta = mcache + fd_mcache_line_idx( seq, depth );
-  __m128i meta_sse0 = fd_frag_meta_sse0( fd_seq_dec( seq, 1UL ), sig );
-  __m128i meta_sse1 = fd_frag_meta_sse1( chunk, sz, ctl, tsorig, tspub );
+  __m128i          meta_sse0 = fd_frag_meta_sse0( fd_seq_dec( seq, 1UL ), sig );
+  __m128i          meta_sse1 = fd_frag_meta_sse1( chunk, sz, ctl, tsorig, tspub );
   FD_COMPILER_MFENCE();
   _mm_store_si128( &meta->sse0, meta_sse0 );
   FD_COMPILER_MFENCE();
@@ -371,7 +371,7 @@ fd_mcache_publish_avx( fd_frag_meta_t * mcache,   /* Assumed a current local joi
                        ulong            tsorig,   /* Assumed in [0,UINT_MAX] */
                        ulong            tspub ) { /* Assumed in [0,UINT_MAX] */
   fd_frag_meta_t * meta = mcache + fd_mcache_line_idx( seq, depth );
-  __m256i meta_avx = fd_frag_meta_avx( seq, sig, chunk, sz, ctl, tsorig, tspub );
+  __m256i          meta_avx = fd_frag_meta_avx( seq, sig, chunk, sz, ctl, tsorig, tspub );
   FD_COMPILER_MFENCE();
   _mm256_store_si256( &meta->avx, meta_avx );
   FD_COMPILER_MFENCE();

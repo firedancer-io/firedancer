@@ -4,6 +4,7 @@ bin
 unit-test
 tmp
 
+# Coverage
 genhtml/
 target/
 *.lcov
@@ -11,6 +12,10 @@ target/
 
 # Nix
 /result
+
+# Uncrustify
+*.unc-backup.md5~
+*.unc-backup~
 
 # Vimdiff
 *.orig

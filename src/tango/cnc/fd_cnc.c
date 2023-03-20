@@ -140,7 +140,7 @@ fd_cnc_open( fd_cnc_t * cnc ) {
   FD_COMPILER_MFENCE();
 
   if( FD_LIKELY( !cnc_pid ) ) {
-  
+
     /* Got the lock ... get the status of the app thread. */
 
     ulong signal = fd_cnc_signal_query( cnc );
@@ -177,7 +177,7 @@ fd_cnc_open( fd_cnc_t * cnc ) {
 
     int err = errno;
     if( FD_LIKELY( err==ESRCH ) ) {
-    
+
       /* A process died with an open command session.  Try to clean up
          after it and resume. */
 

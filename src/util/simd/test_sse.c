@@ -304,7 +304,7 @@ main( int     argc,
     float x0 = frand(); float x1 = frand(); float x2 = frand(); float x3 = frand(); vf_t x = vf( x0, x1, x2, x3 );
     float y0 = frand(); float y1 = frand(); float y2 = frand(); float y3 = frand(); vf_t y = vf( y0, y1, y2, y3 );
     float z0 = frand(); float z1 = frand(); float z2 = frand(); float z3 = frand(); vf_t z = vf( z0, z1, z2, z3 );
-    int c0   = crand(); int   c1 = crand(); int   c2 = crand(); int   c3 = crand(); vc_t c = vc( c0, c1, c2, c3 );
+    int   c0   = crand(); int   c1 = crand(); int   c2 = crand(); int   c3 = crand(); vc_t c = vc( c0, c1, c2, c3 );
 
     /* Constructors */
 
@@ -340,7 +340,7 @@ main( int     argc,
     FD_TEST( vf_test( vf_sqrt( vf_mul( x, x ) ), fabsf(x0), fabsf(x1), fabsf(x2), fabsf(x3) ) );
 
     vf_t expected;
-    
+
     expected = vf( 1.f/sqrtf(x0+4.f), 1.f/sqrtf(x1+4.f), 1.f/sqrtf(x2+4.f), 1.f/sqrtf(x3+4.f) );
     FD_TEST( !vc_any( vf_gt( vf_abs( vf_div( vf_sub( vf_rsqrt_fast( vf_add( x, vf_bcast(4.f) ) ), expected ), expected ) ),
                              vf_bcast( 1.f/1024.f ) ) ) );
@@ -465,7 +465,7 @@ main( int     argc,
 
     FD_TEST( vi_test( vi_not( x ), ~x0, ~x1, ~x2, ~x3 ) );
 
-#   define _(n) \
+#   define _(n)                                                       \
     FD_TEST( vi_test( vi_shl( x, n ), x0<<n, x1<<n, x2<<n, x3<<n ) ); \
     FD_TEST( vi_test( vi_shr( x, n ), x0>>n, x1>>n, x2>>n, x3>>n ) ); \
     FD_TEST( vi_test( vi_shru( x, n ), (int)(((uint)x0)>>n), (int)(((uint)x1)>>n), (int)(((uint)x2)>>n), (int)(((uint)x3)>>n) ) )
@@ -594,7 +594,7 @@ main( int     argc,
     FD_TEST( vd_test( vd_sqrt( vd_mul(x,x) ),  fabs(x0),     fabs(x1) ) );
 
     vd_t expected;
-    
+
     expected = vd( 1./sqrt(x0+4.), 1./sqrt(x1+4.) );
     FD_TEST( !vc_any( vd_gt( vd_abs( vd_div( vd_sub( vd_rsqrt_fast( vd_add( x, vd_bcast(4.) ) ), expected ), expected ) ),
                              vd_bcast( 1./1024. ) ) ) );
@@ -682,7 +682,7 @@ main( int     argc,
 
     FD_TEST( vl_test( vl_not( x ), ~x0, ~x1 ) );
 
-#   define _(n) \
+#   define _(n)                                         \
     FD_TEST( vl_test( vl_shl( x, n ), x0<<n, x1<<n ) ); \
     FD_TEST( vl_test( vl_shr( x, n ), x0>>n, x1>>n ) ); \
     FD_TEST( vl_test( vl_shru( x, n ), (long)(((ulong)x0)>>n), (long)(((ulong)x1)>>n) ) )
@@ -712,7 +712,7 @@ main( int     argc,
     FD_TEST( vl_test( vl_max( x, y ), fd_long_max(x0,y0), fd_long_max(x1,y1) ) );
     FD_TEST( vl_test( vl_add( x, y ), x0+y0,              x1+y1              ) );
     FD_TEST( vl_test( vl_sub( x, y ), x0-y0,              x1-y1              ) );
-  //FD_TEST( vl_test( vl_mul( x, y ), x0*y0,              x1*y1              ) );
+    //FD_TEST( vl_test( vl_mul( x, y ), x0*y0,              x1*y1              ) );
 
 #   define SE_LO(x) ((long)(int)(x))
     FD_TEST( vl_test( vl_mul_ll( x, y ), SE_LO(x0)*SE_LO(y0), SE_LO(x1)*SE_LO(y1) ) );

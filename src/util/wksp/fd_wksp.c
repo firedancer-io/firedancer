@@ -125,14 +125,14 @@ fd_wksp_private_lock( fd_wksp_t * wksp ) {
 
           ulong                    part_cnt = wksp->part_cnt;
           fd_wksp_private_part_t * part     = wksp->part;
-          
+
           /* Merging any adjacent inactive partitions that might have
              been left when the owner was killed.  Leading adjacent
              inactive partionings will become holes.  (FIXME: MERGE
              TRAILING TO GET ACTIVE BIT PROPAGATION BETTER TO SPEED UP
              COMPACT HOLES?) */
 
-          for( ulong i=1UL; i<part_cnt; i++ ) 
+          for( ulong i=1UL; i<part_cnt; i++ )
             if( ((int)!fd_wksp_private_part_tag( part[i-1UL] )) &
                 ((int)!fd_wksp_private_part_tag( part[i    ] )) ) { /* clang makes babies cry */
               FD_COMPILER_MFENCE();
@@ -491,7 +491,7 @@ fd_wksp_new( void *       shmem,
      partitions.  This in turn require partition array of size:
 
        sizeof(fd_wksp_private_part_t)*(part_max+1)
-       
+
      which in turn is carved out of the overall workspace.  The wksp
      header is also carved out of the workspace as is any padding
      necessary for alignment.  The general upshot is then, we'd like to
@@ -517,13 +517,13 @@ fd_wksp_new( void *       shmem,
      or:
 
        part_max ~ (footprint - hdr_sz + ALIGN_MIN - 1U) / (ALIGN_MIN+sizeof(fd_wksp_private_part_t))
-       
+
      For a 4KiB align min and 8 byte fd_wksp_private_part_t, this in
      turn implies there is an asymptotic 0.2% overhead for wksp metadata
      storage. */
 
   ulong part_max_default = (footprint - FD_WKSP_PRIVATE_HDR_SZ + FD_WKSP_ALLOC_ALIGN_MIN - 1UL)
-                         / (FD_WKSP_ALLOC_ALIGN_MIN + sizeof(fd_wksp_private_part_t));
+                           / (FD_WKSP_ALLOC_ALIGN_MIN + sizeof(fd_wksp_private_part_t));
   if( ((!part_max) | (part_max>part_max_default)) ) part_max = part_max_default;
 
   ulong gaddr_lo = fd_ulong_align_up( FD_WKSP_PRIVATE_HDR_SZ + (part_max+1UL)*sizeof(fd_wksp_private_part_t),
@@ -683,7 +683,7 @@ fd_wksp_alloc( fd_wksp_t * wksp,
   fd_wksp_private_part_t * part     = wksp->part;
   ulong                    part_cnt = wksp->part_cnt;
 
-  for( ulong i=0UL; i<part_cnt; i++ ) {      
+  for( ulong i=0UL; i<part_cnt; i++ ) {
     fd_wksp_private_part_t part_i = part[i];
     if( fd_wksp_private_part_tag( part_i ) ) continue;
 
@@ -808,8 +808,8 @@ fd_wksp_free( fd_wksp_t * wksp,
     if( cnt<=1UL ) break;
     ulong m = l + (cnt>>1);
     int   c = gaddr < fd_wksp_private_part_gaddr( part[m] );
-    /**/  l = fd_ulong_if( c, l, m ); /* cmov */
-    /**/  h = fd_ulong_if( c, m, h ); /* cmov */
+    /**/ l = fd_ulong_if( c, l, m );  /* cmov */
+    /**/ h = fd_ulong_if( c, m, h );  /* cmov */
   }
 
   if( FD_UNLIKELY( h==l ) ) {
@@ -891,8 +891,8 @@ fd_wksp_tag( fd_wksp_t * wksp,
     if( cnt<=1UL ) break;
     ulong m = l + (cnt>>1);
     int   c = gaddr < fd_wksp_private_part_gaddr( part[m] ); /* Yes, strict < */
-    /**/  l = fd_ulong_if( c, l, m ); /* cmov */
-    /**/  h = fd_ulong_if( c, m, h ); /* cmov */
+    /**/ l = fd_ulong_if( c, l, m );  /* cmov */
+    /**/ h = fd_ulong_if( c, m, h );  /* cmov */
   }
 
   if( FD_UNLIKELY( l==h ) ) tag = 0UL; /* Corruption detected */
@@ -925,7 +925,7 @@ fd_wksp_tag_free( fd_wksp_t *   wksp,
   /* Make a set of all provided tags in [1,FD_WKSP_ALLOC_TAG_MAX].  If
      there are none, we are done and can save a lock. */
 
-  fd_wksp_alloc_tag_set_t set_mem[ fd_wksp_alloc_tag_set_word_cnt ];
+  fd_wksp_alloc_tag_set_t   set_mem[ fd_wksp_alloc_tag_set_word_cnt ];
   fd_wksp_alloc_tag_set_t * set = fd_wksp_alloc_tag_set_join( fd_wksp_alloc_tag_set_new( set_mem ) );
 
   if( FD_UNLIKELY( !fd_wksp_alloc_tag_set_unpack( set, 1UL, FD_WKSP_ALLOC_TAG_MAX, tag, tag_cnt ) ) ) {
@@ -934,7 +934,7 @@ fd_wksp_tag_free( fd_wksp_t *   wksp,
   }
 
   fd_wksp_private_lock( wksp );
-  
+
   /* We scan the partitions backwards and whenever we find a partition
      that matches tag, we mark it inactive and merge it with adjacent
      inactive partitions via the exact same process as free.  This has
@@ -952,18 +952,18 @@ fd_wksp_tag_free( fd_wksp_t *   wksp,
     if( !fd_wksp_alloc_tag_set_test( set, fd_wksp_private_part_tag( part[l] ) ) ) continue; /* app dependent probabilty */
 
     ulong gaddr_lo = fd_wksp_private_part_gaddr( part[l] );
-  
+
     FD_COMPILER_MFENCE();
     FD_VOLATILE( part[l] ) = fd_wksp_private_part( 0UL, gaddr_lo );
     FD_COMPILER_MFENCE();
-  
+
     if( /*(l+1UL)<part_cnt &&*/ !fd_wksp_private_part_tag( part[l+1UL] ) ) {
       FD_COMPILER_MFENCE();
       FD_VOLATILE( part[l+1UL] ) = part[l+2UL];
       FD_COMPILER_MFENCE();
       hole_idx = l+1UL;
     }
-  
+
     if( l>0UL && !fd_wksp_private_part_tag( part[l-1UL] ) ) {
       FD_COMPILER_MFENCE();
       FD_VOLATILE( part[l] ) = part[l+1UL];
@@ -971,11 +971,11 @@ fd_wksp_tag_free( fd_wksp_t *   wksp,
       hole_idx = l;
     }
   }
-  
+
   /* Compact out any holes that got introduced. */
-  
+
   fd_wksp_private_compact_holes( wksp, hole_idx );
-  
+
   fd_wksp_private_unlock( wksp );
 
   fd_wksp_alloc_tag_set_delete( fd_wksp_alloc_tag_set_leave( set ) );
@@ -1186,9 +1186,9 @@ fd_wksp_usage( fd_wksp_t *       wksp,
   ulong                  gaddr_hi = fd_wksp_private_part_gaddr( part_hi );
   for( ulong part_idx=0UL; part_idx<part_cnt; part_idx++ ) {
     fd_wksp_private_part_t part_lo  = part_hi;
-    /**/                   part_hi  = part[part_idx+1UL];
+    /**/ part_hi  = part[part_idx+1UL];
     ulong                  gaddr_lo = gaddr_hi;
-    /**/                   gaddr_hi = fd_wksp_private_part_gaddr( part_hi );
+    /**/ gaddr_hi = fd_wksp_private_part_gaddr( part_hi );
 
     ulong part_tag = fd_wksp_private_part_tag( part_lo );
     ulong part_sz  = gaddr_hi - gaddr_lo;

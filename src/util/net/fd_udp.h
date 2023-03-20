@@ -71,11 +71,11 @@ fd_ip4_udp_check( uint                 ip4_saddr,
 
   /* Sum the pseudo header and UDP header words */
   uint const * u = udp->u;
-  ulong ul = ((((ulong)FD_IP4_HDR_PROTOCOL_UDP)<<8) | (((ulong)net_len)<<16))
-           + ((ulong)ip4_saddr)
-           + ((ulong)ip4_daddr)
-           + ((ulong)u[0])
-           + ((ulong)u[1]);
+  ulong        ul = ((((ulong)FD_IP4_HDR_PROTOCOL_UDP)<<8) | (((ulong)net_len)<<16))
+                    + ((ulong)ip4_saddr)
+                    + ((ulong)ip4_daddr)
+                    + ((ulong)u[0])
+                    + ((ulong)u[1]);
 
   /* Sum the dgram words (reads up to 4 past end of msg) */
   u = (uint const *)dgram; /* See warning above */
@@ -91,7 +91,7 @@ fd_ip4_udp_check( uint                 ip4_saddr,
   ul += ( ul>>16            );
 
   /* And complement it */
-  return (ushort)~ul;
+  return (ushort) ~ul;
 }
 
 FD_PROTOTYPES_END

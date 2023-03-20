@@ -94,9 +94,9 @@ struct fd_poh_test_step {
 typedef struct fd_poh_test_step fd_poh_test_step_t;
 
 struct fd_poh_test_vector {
-  fd_poh_state_t pre   __attribute__((aligned(32)));
-  fd_poh_state_t post  __attribute__((aligned(32)));
-  char const * name;
+  fd_poh_state_t             pre   __attribute__((aligned(32)));
+  fd_poh_state_t             post  __attribute__((aligned(32)));
+  char const *               name;
   fd_poh_test_step_t const * steps;
 };
 
@@ -174,7 +174,7 @@ bench_poh_sequential( void ) {
 
   /* warmup */
   ulong iter = 1000UL;
-  long dt = fd_log_wallclock();
+  long  dt = fd_log_wallclock();
   for( ulong rem=iter; rem; rem-- ) fd_poh_append( &poh, batch_sz );
   dt = fd_log_wallclock() - dt;
 
@@ -184,12 +184,12 @@ bench_poh_sequential( void ) {
   for( ulong rem=iter; rem; rem-- ) fd_poh_append( &poh, batch_sz );
   dt = fd_log_wallclock() - dt;
 
-  ulong hashes = iter*batch_sz;
+  ulong  hashes = iter*batch_sz;
   double secs = (double)dt / 1e9;
   FD_LOG_NOTICE(( "PoH sequential: ~%.3f MH/s", ((double)hashes/secs)/1e6 ));
 }
 
-int main( int argc,
+int main( int     argc,
           char ** argv ) {
   fd_boot( &argc, &argv );
 

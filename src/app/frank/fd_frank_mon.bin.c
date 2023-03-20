@@ -24,16 +24,16 @@ static void
 printf_age( long _dt ) {
   if( FD_UNLIKELY( _dt< 0L ) ) { printf( "   invalid" ); return; }
   if( FD_UNLIKELY( _dt==0L ) ) { printf( "        0s" ); return; }
-  ulong rem = (ulong)_dt;
-  ulong ns = rem % 1000UL; rem /= 1000UL; if( !rem /*no u*/ ) { printf( "      %3lun",           ns                   ); return; }
-  ulong us = rem % 1000UL; rem /= 1000UL; if( !rem /*no m*/ ) { printf( "  %3lu.%03luu",         us, ns               ); return; }
-  ulong ms = rem % 1000UL; rem /= 1000UL; if( !rem /*no s*/ ) { printf( "%3lu.%03lu%02lum",      ms, us, ns/10UL      ); return; }
+  ulong  rem = (ulong)_dt;
+  ulong  ns = rem % 1000UL; rem /= 1000UL; if( !rem /*no u*/ ) { printf( "      %3lun",           ns                   ); return; }
+  ulong  us = rem % 1000UL; rem /= 1000UL; if( !rem /*no m*/ ) { printf( "  %3lu.%03luu",         us, ns               ); return; }
+  ulong  ms = rem % 1000UL; rem /= 1000UL; if( !rem /*no s*/ ) { printf( "%3lu.%03lu%02lum",      ms, us, ns/10UL      ); return; }
   ulong  s = rem %   60UL; rem /=   60UL; if( !rem /*no m*/ ) { printf( "%2lu.%03lu%03lus",      s,  ms, us           ); return; }
   ulong  m = rem %   60UL; rem /=   60UL; if( !rem /*no h*/ ) { printf( "%2lu:%02lu.%03lu%1lu",  m,  s,  ms, us/100UL ); return; }
   ulong  h = rem %   24UL; rem /=   24UL; if( !rem /*no d*/ ) { printf( "%2lu:%02lu:%02lu.%1lu", h,  m,  s,  ms/100UL ); return; }
   ulong  d = rem %    7UL; rem /=    7UL; if( !rem /*no w*/ ) { printf( "  %1lud %2lu:%02lu",    d,  h,  m            ); return; }
   ulong  w = rem;                         if( w<=99UL       ) { printf( "%2luw %1lud %2luh",     w,  d,  h            ); return; }
-  /* note that this can handle LONG_MAX fine */                 printf( "%6luw %1lud",           w,  d                );
+  /* note that this can handle LONG_MAX fine */ printf( "%6luw %1lud",           w,  d                );
 }
 
 /* printf_stale is printf_age with the tweak that ages less than or
@@ -60,8 +60,8 @@ printf_heart( long hb_now,
               long hb_then ) {
   long dt = hb_now - hb_then;
   printf( "%s", (dt>0L) ? (TEXT_GREEN "    -" TEXT_NORMAL) :
-                (!dt)   ? (TEXT_RED   " NONE" TEXT_NORMAL) :
-                          (TEXT_BLUE  "RESET" TEXT_NORMAL) );
+          (!dt)   ? (TEXT_RED   " NONE" TEXT_NORMAL) :
+          (TEXT_BLUE  "RESET" TEXT_NORMAL) );
 }
 
 /* printf_sig will print the current and previous value of a cnc signal.
@@ -110,7 +110,7 @@ printf_err_bool( ulong err_now,
 static void
 printf_err_cnt( ulong cnt_now,
                 ulong cnt_then ) {
-  long delta = (long)(cnt_now - cnt_then);
+  long         delta = (long)(cnt_now - cnt_then);
   char const * color = (!delta)   ? TEXT_GREEN  /* no new error counts */
                      : (delta>0L) ? TEXT_RED    /* new error counts */
                      : (cnt_now)  ? TEXT_YELLOW /* decrease of existing error counts?? */
@@ -127,7 +127,7 @@ printf_err_cnt( ulong cnt_now,
 static void
 printf_seq( ulong seq_now,
             ulong seq_then ) {
-  long delta = (long)(seq_now - seq_then);
+  long         delta = (long)(seq_now - seq_then);
   char const * color = (!delta)   ? TEXT_YELLOW /* no sequence numbers published */
                      : (delta>0L) ? TEXT_GREEN  /* new sequence numbers published */
                      : (seq_now)  ? TEXT_RED    /* sequence number went backward */
@@ -168,7 +168,7 @@ printf_rate( double cvt,
     printf( TEXT_RED "overflow" TEXT_NORMAL );
     return;
   }
-  /**/          if( rate<=9999.9 ) { printf( " %6.1f ", rate ); return; }
+  /**/ if( rate<=9999.9 ) { printf( " %6.1f ", rate ); return; }
   rate *= 1e-3; if( rate<=9999.9 ) { printf( " %6.1fK", rate ); return; }
   rate *= 1e-3; if( rate<=9999.9 ) { printf( " %6.1fM", rate ); return; }
   rate *= 1e-3; if( rate<=9999.9 ) { printf( " %6.1fG", rate ); return; }
@@ -177,7 +177,7 @@ printf_rate( double cvt,
   rate *= 1e-3; if( rate<=9999.9 ) { printf( " %6.1fE", rate ); return; }
   rate *= 1e-3; if( rate<=9999.9 ) { printf( " %6.1fZ", rate ); return; }
   rate *= 1e-3; if( rate<=9999.9 ) { printf( " %6.1fY", rate ); return; }
-  /**/                               printf( ">9999.9Y" );
+  /**/ printf( ">9999.9Y" );
 }
 
 /* printf_pct prints to stdout:
@@ -219,7 +219,7 @@ printf_pct( ulong  num_now,
   }
 
   if( pct<=999.999 ) { printf( " %7.3f", pct ); return; }
-  /**/                 printf( ">999.999" );
+  /**/ printf( ">999.999" );
 }
 
 /**********************************************************************/
@@ -343,7 +343,7 @@ main( int     argc,
   if( FD_UNLIKELY( !cfg_pod ) ) FD_LOG_ERR(( "path not found" ));
 
   uchar const * verify_pods = fd_pod_query_subpod( cfg_pod, "verify" );
-  ulong verify_cnt = fd_pod_cnt_subpod( verify_pods );
+  ulong         verify_cnt = fd_pod_cnt_subpod( verify_pods );
   FD_LOG_INFO(( "%lu verify found", verify_cnt ));
   ulong tile_cnt = 3UL + verify_cnt;
 
@@ -354,7 +354,7 @@ main( int     argc,
   fd_frag_meta_t ** tile_mcache = fd_alloca( alignof(fd_frag_meta_t *), sizeof(fd_frag_meta_t *)*tile_cnt );
   ulong **          tile_fseq   = fd_alloca( alignof(ulong *         ), sizeof(ulong *         )*tile_cnt );
   if( FD_UNLIKELY( (!tile_name) | (!tile_cnc) | (!tile_mcache) | (!tile_fseq) ) ) FD_LOG_ERR(( "fd_alloca failed" )); /* paranoia */
-  
+
   do {
     ulong tile_idx = 0UL;
 
@@ -409,10 +409,10 @@ main( int     argc,
       tile_idx++;
     }
   } while(0);
-  
+
   /* Setup local objects used by this app */
 
-  fd_rng_t _rng[1];
+  fd_rng_t   _rng[1];
   fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, seed, 0UL ) );
 
   snap_t * snap_prv = (snap_t *)fd_alloca( alignof(snap_t), sizeof(snap_t)*2UL*tile_cnt );
@@ -441,7 +441,7 @@ main( int     argc,
 
     snap( tile_cnt, snap_cur, tile_cnc, tile_mcache, tile_fseq );
     long now; long toc; fd_tempo_observe_pair( &now, &toc );
-    
+
     /* Pretty print a comparison between this diagnostic snapshot and
        the previous one. */
 
@@ -487,7 +487,7 @@ main( int     argc,
       snap_t * cur = &snap_cur[ tile_idx ];
       if( tile_idx==2UL ) printf( " %5s->%-5s", tile_name[ 2        ], tile_name[ 1 ] );
       else                printf( " %5s->%-5s", tile_name[ tile_idx ], tile_name[ 2 ] );
-      long dt = now-then;
+      long  dt = now-then;
       ulong cur_raw_cnt = cur->cnc_diag_ha_filt_cnt + cur->fseq_diag_tot_cnt;
       ulong cur_raw_sz  = cur->cnc_diag_ha_filt_sz  + cur->fseq_diag_tot_sz;
       ulong prv_raw_cnt = prv->cnc_diag_ha_filt_cnt + prv->fseq_diag_tot_cnt;

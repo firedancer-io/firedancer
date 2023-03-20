@@ -136,7 +136,7 @@ vf_insert_variable( vf_t a, int n, float v ) {
    vf_copysign(a,b) returns [ copysignf(a0,b0) copysignf(a1,b1) ... copysignf(a3,b3) ]
    vf_flipsign(a,b) returns [ flipsignf(a0,b0) flipsignf(a1,b1) ... flipsignf(a3,b3) ]
 
-   vf_fma(a,b,c)    returns [  fmaf(a0,b0, c0)  fmaf(a1,b1, c1) ...  fmaf(a3,b3, c3) ] (i.e.  a.*b+c) 
+   vf_fma(a,b,c)    returns [  fmaf(a0,b0, c0)  fmaf(a1,b1, c1) ...  fmaf(a3,b3, c3) ] (i.e.  a.*b+c)
    vf_fms(a,b,c)    returns [  fmaf(a0,b0,-c0)  fmaf(a1,b1,-c1) ...  fmaf(a3,b3,-c3) ] (i.e.  a.*b-c)
    vf_fnma(a,b,c)   returns [ -fmaf(a0,b0,-c0) -fmaf(a1,b1,-c1) ... -fmaf(a3,b3,-c3) ] (i.e. -a.*b+c)
 
@@ -217,7 +217,7 @@ vf_insert_variable( vf_t a, int n, float v ) {
    vf_to_vc(a)               returns [ !!a0 !!a1 ... !!a3 ]
 
    vf_to_vi(a)               returns [ (int)a0        (int)a1        ... (int)a3        ]
-   vf_to_vi_fast(a)          returns [ (int)rintf(a0) (int)rintf(a1) ... (int)rintf(a3) ] 
+   vf_to_vi_fast(a)          returns [ (int)rintf(a0) (int)rintf(a1) ... (int)rintf(a3) ]
 
    vf_to_vd(a,imm_l0,imm_l1) returns [ (double)a(imm_l0) (double)a(imm_l1) ]
 

@@ -79,7 +79,7 @@ int firedancer_redirect( struct xdp_md *ctx ) {
   if( FD_UNLIKELY( test_ethip!=0x080011 ) ) return XDP_PASS;
 
   /* IPv4 is variable-length, so lookup IHL to find start of UDP */
-  uint iplen = ( ( (uint)iphdr[0] ) & 0x0FU ) * 4U;
+  uint          iplen = ( ( (uint)iphdr[0] ) & 0x0FU ) * 4U;
   uchar const * udp = iphdr + iplen;
 
   /* Ignore if UDP header is too short */

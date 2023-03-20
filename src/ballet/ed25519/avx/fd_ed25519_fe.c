@@ -59,21 +59,21 @@ fd_ed25519_fe_tobytes( uchar *                 s,
 
   /* Write p=2^255-19; q=floor(h/p).
      Basic claim: q = floor(2^(-255)(h + 19 2^(-25)h9 + 2^(-1))).
-    
+
      Proof:
        Have |h|<=p so |q|<=1 so |19^2 2^(-255) q|<1/4.
        Also have |h-2^230 h9|<2^231 so |19 2^(-255)(h-2^230 h9)|<1/4.
-    
+
        Write y=2^(-1)-19^2 2^(-255)q-19 2^(-255)(h-2^230 h9).
        Then 0<y<1.
-    
+
        Write r=h-pq.
        Have 0<=r<=p-1=2^255-20.
        Thus 0<=r+19(2^-255)r<r+19(2^-255)2^255<=2^255-1.
-    
+
        Write x=r+19(2^-255)r+y.
        Then 0<x<2^255 so floor(2^(-255)x) = 0 so floor(q+2^(-255)x) = q.
-    
+
        Have q+2^(-255)x = 2^(-255)(h + 19 2^(-25) h9 + 2^(-1))
        so floor(2^(-255)(h + 19 2^(-25) h9 + 2^(-1))) = q.  */
 
@@ -97,7 +97,7 @@ fd_ed25519_fe_tobytes( uchar *                 s,
   h3 += h2 >> 26; h2 &= m26; h4 += h3 >> 25; h3 &= m25;
   h5 += h4 >> 26; h4 &= m26; h6 += h5 >> 25; h5 &= m25;
   h7 += h6 >> 26; h6 &= m26; h8 += h7 >> 25; h7 &= m25;
-  h9 += h8 >> 26; h8 &= m26; /*h10=carry9*/  h9 &= m25;
+  h9 += h8 >> 26; h8 &= m26; /*h10=carry9*/ h9 &= m25;
 
   /* Pack the results into s */
 
@@ -115,21 +115,21 @@ fd_ed25519_fe_mul( fd_ed25519_fe_t *       h,
                    fd_ed25519_fe_t const * g ) {
 
   /* Notes on implementation strategy:
-    
+
      Using schoolbook multiplication.
      Karatsuba would save a little in some cost models.
-    
+
      Most multiplications by 2 and 19 are 32-bit precomputations;
      cheaper than 64-bit postcomputations.
-    
+
      There is one remaining multiplication by 19 in the carry chain;
      one *19 precomputation can be merged into this,
      but the resulting data flow is considerably less clean.
-    
+
      There are 12 carries below.
      10 of them are 2-way parallelizable and vectorizable.
      Can get away with 11 carries, but then data flow is much deeper.
-    
+
      With tighter constraints on inputs can squeeze carries into int. */
 
   long f0 = (long)f->limb[0]; long f1 = (long)f->limb[1];
@@ -321,7 +321,7 @@ fd_ed25519_fe_sq( fd_ed25519_fe_t *       h,
   long f1f3_4  = f1_2*f3_2 ; long f1f4_2  = f1_2*f4   ;
   long f1f5_4  = f1_2*f5_2 ; long f1f6_2  = f1_2*f6   ;
   long f1f7_4  = f1_2*f7_2 ; long f1f8_2  = f1_2*f8   ;
-  long f1f9_76 = f1_2*f9_38; 
+  long f1f9_76 = f1_2*f9_38;
 
   long f2f2    = f2  *f2   ; long f2f3_2  = f2_2*f3   ;
   long f2f4_2  = f2_2*f4   ; long f2f5_2  = f2_2*f5   ;
@@ -495,7 +495,7 @@ fd_ed25519_fe_sq2( fd_ed25519_fe_t *       h,
 }
 
 fd_ed25519_fe_t *
-fd_ed25519_fe_invert( fd_ed25519_fe_t * out,
+fd_ed25519_fe_invert( fd_ed25519_fe_t *       out,
                       fd_ed25519_fe_t const * z ) {
   fd_ed25519_fe_t t0[1];
   fd_ed25519_fe_t t1[1];

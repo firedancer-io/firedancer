@@ -8,7 +8,7 @@
 
    will declare in the current compile unit a header only library
    with the folling APIs:
-   
+
      // Public node API
 
      struct __attribute__((aligned(32))) bmt_node {
@@ -212,8 +212,8 @@ typedef struct BMTREE_(node) BMTREE_(node_t);
    you are willing to wait to make a larger tree, increase 63 below). */
 
 struct BMTREE_(commit) {
-  ulong           leaf_cnt;         /* Number of leaves added so far */
-  BMTREE_(node_t) node_buf[ 63UL ];
+ulong           leaf_cnt;           /* Number of leaves added so far */
+BMTREE_(node_t) node_buf[ 63UL ];
 };
 
 typedef struct BMTREE_(commit) BMTREE_(commit_t);
@@ -376,8 +376,12 @@ BMTREE_(private_depth)( ulong leaf_cnt ) {
 /* bmtree_commit_{footprint,align} return the alignment and footprint
    required for a memory region to be used as a bmtree_commit_t. */
 
-FD_FN_CONST static inline ulong BMTREE_(commit_align)    ( void ) { return alignof(BMTREE_(commit_t)); }
-FD_FN_CONST static inline ulong BMTREE_(commit_footprint)( void ) { return sizeof (BMTREE_(commit_t)); }
+FD_FN_CONST static inline ulong BMTREE_(commit_align)    ( void ) {
+  return alignof(BMTREE_(commit_t));
+}
+FD_FN_CONST static inline ulong BMTREE_(commit_footprint)( void ) {
+  return sizeof (BMTREE_(commit_t));
+}
 
 /* bmtree_commit_init starts a vector commitment calculation */
 
@@ -391,7 +395,9 @@ BMTREE_(commit_init)( void * mem ) { /* Assumed unused with required alignment a
 /* bmtree_commit_leaf_cnt returns the number of leafs appeneded thus
    far.  Assumes state is valid. */
 
-FD_FN_PURE static inline ulong BMTREE_(commit_leaf_cnt)( BMTREE_(commit_t) const * state ) { return state->leaf_cnt; }
+FD_FN_PURE static inline ulong BMTREE_(commit_leaf_cnt)( BMTREE_(commit_t) const * state ) {
+  return state->leaf_cnt;
+}
 
 /* bmtree_commit_append appends a range of leaf nodes.  Assumes that
    leaf_cnt + new_leaf_cnt << 2^63 (which, unless planning on running
@@ -483,7 +489,7 @@ BMTREE_(commit_fini)( BMTREE_(commit_t) * state ) {
        merge and unnecessary branch elimination by cmov. */
     while( layer_cnt>1UL ) {
       BMTREE_(node_t) const * tmp2 = (BMTREE_(node_t) const *)
-        fd_ulong_if( layer_cnt & 1UL, (ulong)tmp /* 1 child */, (ulong)(node_buf+layer) /* 2 children */ ); /* cmov */
+                                     fd_ulong_if( layer_cnt & 1UL, (ulong)tmp /* 1 child */, (ulong)(node_buf+layer) /* 2 children */ ); /* cmov */
       BMTREE_(private_merge)( tmp, tmp2, tmp );
       layer++; layer_cnt = (layer_cnt+1UL) >> 1;
     }

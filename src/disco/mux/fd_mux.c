@@ -50,13 +50,13 @@ fd_mux_tile_in_update( fd_mux_tile_in_t * in,
      typical fseq usages. */
 
   ulong * in_fseq = in->fseq;
-  ulong seq = fd_seq_dec( in->seq, exposed_cnt );
+  ulong   seq = fd_seq_dec( in->seq, exposed_cnt );
   if( FD_LIKELY( fd_seq_gt( seq, fd_fseq_query( in_fseq ) ) ) ) fd_fseq_update( in_fseq, seq );
 
   ulong * diag  = (ulong *)fd_fseq_app_laddr( in_fseq );
   uint *  accum = in->accum;
-  ulong a0 = (ulong)accum[0]; ulong a1 = (ulong)accum[1]; ulong a2 = (ulong)accum[2];
-  ulong a3 = (ulong)accum[3]; ulong a4 = (ulong)accum[4]; ulong a5 = (ulong)accum[5];
+  ulong   a0 = (ulong)accum[0]; ulong a1 = (ulong)accum[1]; ulong a2 = (ulong)accum[2];
+  ulong   a3 = (ulong)accum[3]; ulong a4 = (ulong)accum[4]; ulong a5 = (ulong)accum[5];
   FD_COMPILER_MFENCE();
   diag[0] += a0;              diag[1] += a1;              diag[2] += a2;
   diag[3] += a3;              diag[4] += a4;              diag[5] += a5;
@@ -258,7 +258,7 @@ fd_mux_tile( fd_cnc_t *              cnc,
        Note that:
 
          mux_in_seq = in_seq - mux_lag
-         
+
        where mux lag is the number of frags behind the mux is from the
        in and, because of in<>mux flow control, this is in
        [0,in_cr_max].  Simplifying, we need to insure:
@@ -464,7 +464,7 @@ fd_mux_tile( fd_cnc_t *              cnc,
        from not backpressured to backpressured. */
 
     if( FD_UNLIKELY( !cr_avail ) ) {
-      cnc_diag_backp_cnt += (ulong)!cnc_diag_in_backp;
+      cnc_diag_backp_cnt += (ulong) !cnc_diag_in_backp;
       cnc_diag_in_backp   = 1UL;
       FD_SPIN_PAUSE();
       now = fd_tickcount();
@@ -556,7 +556,7 @@ fd_mux_tile( fd_cnc_t *              cnc,
     FD_LOG_INFO(( "Halting mux" ));
 
     while( in_cnt ) {
-      ulong in_idx = --in_cnt;
+      ulong              in_idx = --in_cnt;
       fd_mux_tile_in_t * this_in = &in[ in_idx ];
       fd_mux_tile_in_update( this_in, 0UL ); /* exposed_cnt 0 assumes all reliable consumers caught up or shutdown */
     }

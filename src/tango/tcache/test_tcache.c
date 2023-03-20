@@ -156,7 +156,7 @@ main( int     argc,
 
   oldest = fd_tcache_reset( ring, depth, map, map_cnt );      FD_TEST( !oldest );
   uint dup_thresh = (uint)(0.5f + dup_frac*(float)(1UL<<32));
-  
+
   for( ulong rem=3UL*depth; rem; rem-- ) {
 
     ulong tag;
@@ -209,7 +209,7 @@ main( int     argc,
     /* Make a longish test vector */
     for( ulong bench_idx=0UL; bench_idx<bench_cnt; bench_idx++ ) {
       ulong tag;
-      int is_dup = (fd_rng_uint( rng ) < dup_thresh);
+      int   is_dup = (fd_rng_uint( rng ) < dup_thresh);
       if( is_dup ) { /* Next tag should be a duplicate */
         ulong age = (ulong)(uint)(int)(1.0f + dup_avg_age*fd_rng_float_exp( rng )); /* note that age is at least 1 */
         if( FD_UNLIKELY( age>=bench_idx ) ) is_dup = 0; /* Duplicate of a "pre-benchmark" tag ... just use random */

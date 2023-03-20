@@ -158,7 +158,7 @@ wd_insert_variable( wd_t a, int n, double v ) {
    wd_copysign(a,b) returns [ copysign(a0,b0) copysign(a1,b1) ... copysign(a3,b3) ]
    wd_flipsign(a,b) returns [ flipsign(a0,b0) flipsign(a1,b1) ... flipsign(a3,b3) ]
 
-   wd_fma( a,b,c)   returns [  fma(a0,b0, c0)  fma(a1,b1, c1) ...  fma(a3,b3, c3) ] (i.e.  a.*b+c) 
+   wd_fma( a,b,c)   returns [  fma(a0,b0, c0)  fma(a1,b1, c1) ...  fma(a3,b3, c3) ] (i.e.  a.*b+c)
    wd_fms( a,b,c)   returns [  fma(a0,b0,-c0)  fma(a1,b1,-c1) ...  fma(a3,b3,-c3) ] (i.e.  a.*b-c)
    wd_fnma(a,b,c)   returns [ -fma(a0,b0,-c0) -fma(a1,b1,-c1) ... -fma(a3,b3,-c3) ] (i.e. -a.*b+c)
 
@@ -219,7 +219,7 @@ wd_insert_variable( wd_t a, int n, double v ) {
   _mm256_castpd_si256( _mm256_cmp_pd( (a), _mm256_setzero_pd(), _CMP_EQ_OQ  ) )
 #define wd_lnotnot(a) /* [ !!a0 !!a0 !!a1 !!a1 ... !!a3 !!a3 ] */ \
   _mm256_castpd_si256( _mm256_cmp_pd( (a), _mm256_setzero_pd(), _CMP_NEQ_OQ ) )
-#define wd_signbit(a) /* [ signbit(a0) signbit(a0) signbit(a1) signbit(a1) ... signbit(a3) signbit(a3) ] */ \
+#define wd_signbit(a) /* [ signbit(a0) signbit(a0) signbit(a1) signbit(a1) ... signbit(a3) signbit(a3) ] */           \
   _mm256_castps_si256( _mm256_permute_ps( _mm256_castsi256_ps( _mm256_srai_epi32( _mm256_castpd_si256( (a) ), 31 ) ), \
                                           _MM_SHUFFLE(3,3,1,1) ) )
 

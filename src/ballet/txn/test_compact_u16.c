@@ -41,8 +41,8 @@ main( int     argc,
     for( ulong i = 0UL; i < max; i++ ) {
       if( (test_j==TEST_U16_BUF_SZ) & !(i&0xFFFFFFF) ) FD_LOG_NOTICE(( "fd_cu16_dec progress: %3lu/256", i>>24UL ));
       uchar * buf = (uchar *)&i;
-      ushort result = (ushort)0xFFFF;
-      ulong consumed = fd_cu16_dec( buf, test_j, &result );
+      ushort  result = (ushort)0xFFFF;
+      ulong   consumed = fd_cu16_dec( buf, test_j, &result );
       if( consumed!=0 ) FD_TEST( consumed==encoded_sz[ result ] );
       if( consumed!=0 && consumed==test_j ) {
         /* Injective (one-to-one): No byte pattern (other than an a

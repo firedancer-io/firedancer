@@ -79,7 +79,7 @@
 
 struct DEQUE_(private) {
 
-  /* The number of elements in the deque is cnt=end-start and cnt will be
+/* The number of elements in the deque is cnt=end-start and cnt will be
      in [0,max].  If cnt==0, the deque is empty.  If cnt==MAX, the deque
      if full.
 
@@ -98,9 +98,9 @@ struct DEQUE_(private) {
      multiple of max toward 2^63 sporadically (every couple of hundred
      years or so). */
 
-  ulong   start;
-  ulong   end;
-  DEQUE_T deque[ (ulong)(DEQUE_MAX) ];
+ulong   start;
+ulong   end;
+DEQUE_T deque[ (ulong)(DEQUE_MAX) ];
 };
 
 typedef struct DEQUE_(private) DEQUE_(private_t);
@@ -126,10 +126,16 @@ DEQUE_(private_const_hdr_from_deque)( DEQUE_T const * deque ) {
    optimize this to a bit-and when MAX is a power of 2 and, hopefully,
    to optimize this to a magic multiply otherwise. */
 
-FD_FN_CONST static inline ulong DEQUE_(private_slot)( ulong i ) { return i % (ulong)(DEQUE_MAX); }
+FD_FN_CONST static inline ulong DEQUE_(private_slot)( ulong i ) {
+  return i % (ulong)(DEQUE_MAX);
+}
 
-FD_FN_CONST static inline ulong DEQUE_(align)    ( void ) { return alignof(DEQUE_(private_t)); }
-FD_FN_CONST static inline ulong DEQUE_(footprint)( void ) { return sizeof (DEQUE_(private_t)); }
+FD_FN_CONST static inline ulong DEQUE_(align)    ( void ) {
+  return alignof(DEQUE_(private_t));
+}
+FD_FN_CONST static inline ulong DEQUE_(footprint)( void ) {
+  return sizeof (DEQUE_(private_t));
+}
 
 static inline void *
 DEQUE_(new)( void * shmem ) {
@@ -151,12 +157,18 @@ static inline DEQUE_T *
 DEQUE_(join)( void * shdeque ) {
   DEQUE_(private_t) * hdr = (DEQUE_(private_t) *)shdeque;
   return hdr->deque;
-} 
+}
 
-static inline void * DEQUE_(leave) ( DEQUE_T * deque   ) { return (void *)DEQUE_(private_hdr_from_deque)( deque ); }
-static inline void * DEQUE_(delete)( void *    shdeque ) { return shdeque; }
+static inline void * DEQUE_(leave) ( DEQUE_T * deque   ) {
+  return (void *)DEQUE_(private_hdr_from_deque)( deque );
+}
+static inline void * DEQUE_(delete)( void *    shdeque ) {
+  return shdeque;
+}
 
-FD_FN_CONST static inline ulong DEQUE_(max)( DEQUE_T const * deque ) { (void)deque; return (ulong)(DEQUE_MAX); }
+FD_FN_CONST static inline ulong DEQUE_(max)( DEQUE_T const * deque ) {
+  (void)deque; return (ulong)(DEQUE_MAX);
+}
 
 FD_FN_PURE static inline ulong
 DEQUE_(cnt)( DEQUE_T const * deque ) {
@@ -239,10 +251,18 @@ DEQUE_(peek_tail_const)( DEQUE_T * deque ) {
   return hdr->deque + DEQUE_(private_slot)( hdr->end-1UL );
 }
 
-static inline DEQUE_T * DEQUE_(insert_head)( DEQUE_T * deque ) { DEQUE_(private_hdr_from_deque)( deque )->start--; return deque; }
-static inline DEQUE_T * DEQUE_(insert_tail)( DEQUE_T * deque ) { DEQUE_(private_hdr_from_deque)( deque )->end++;   return deque; }
-static inline DEQUE_T * DEQUE_(remove_head)( DEQUE_T * deque ) { DEQUE_(private_hdr_from_deque)( deque )->start++; return deque; }
-static inline DEQUE_T * DEQUE_(remove_tail)( DEQUE_T * deque ) { DEQUE_(private_hdr_from_deque)( deque )->end--;   return deque; }
+static inline DEQUE_T * DEQUE_(insert_head)( DEQUE_T * deque ) {
+                                                                 DEQUE_(private_hdr_from_deque)( deque )->start--; return deque;
+}
+static inline DEQUE_T * DEQUE_(insert_tail)( DEQUE_T * deque ) {
+                                                                 DEQUE_(private_hdr_from_deque)( deque )->end++;   return deque;
+}
+static inline DEQUE_T * DEQUE_(remove_head)( DEQUE_T * deque ) {
+                                                                 DEQUE_(private_hdr_from_deque)( deque )->start++; return deque;
+}
+static inline DEQUE_T * DEQUE_(remove_tail)( DEQUE_T * deque ) {
+                                                                 DEQUE_(private_hdr_from_deque)( deque )->end--;   return deque;
+}
 
 static inline DEQUE_T *
 DEQUE_(remove_all)( DEQUE_T * deque ) {

@@ -253,7 +253,7 @@ fd_tcache_reset( ulong * ring,
    current location.  idx is assumed in [0,map_cnt) and map_cnt is
    assumed to be a positive integer power of 2. */
 
-FD_FN_CONST static inline ulong fd_tcache_map_start( ulong tag, ulong map_cnt ) { return  tag      & (map_cnt-1UL); }
+FD_FN_CONST static inline ulong fd_tcache_map_start( ulong tag, ulong map_cnt ) { return tag      & (map_cnt-1UL); }
 FD_FN_CONST static inline ulong fd_tcache_map_next ( ulong idx, ulong map_cnt ) { return (idx+1UL) & (map_cnt-1UL); }
 
 /* FD_TCACHE_QUERY searches for tag in a map with map_cnt slots.  On
@@ -382,21 +382,21 @@ fd_tcache_remove( ulong * map,
     FD_TCACHE_QUERY( _fti_dup, _fti_map_idx, _fti_map, _fti_map_cnt, _fti_tag ); \
     if( !_fti_dup ) { /* application dependent branch probability */             \
                                                                                  \
-      /* Insert tag into the map (assumes depth <= map_cnt-2) */                 \
-      /* map has at most map_cnt-2 entries here */                               \
+  /* Insert tag into the map (assumes depth <= map_cnt-2) */                     \
+  /* map has at most map_cnt-2 entries here */                                   \
       _fti_map[ _fti_map_idx ] = _fti_tag;                                       \
-      /* map has at most map_cnt-1 entries here */                               \
+  /* map has at most map_cnt-1 entries here */                                   \
                                                                                  \
-      /* Evict oldest tag / insert tag into ring */                              \
+  /* Evict oldest tag / insert tag into ring */                                  \
       ulong _fti_tag_oldest = _fti_ring[ _fti_oldest ];                          \
       _fti_ring[ _fti_oldest ] = _fti_tag;                                       \
       _fti_oldest++;                                                             \
       if( _fti_oldest >= _fti_depth ) _fti_oldest = 0UL; /* cmov */              \
                                                                                  \
-      /* Remove oldest tag from map */                                           \
-      /* _fti_tag_oldest will be null at startup but remove handles that case */ \
+  /* Remove oldest tag from map */                                               \
+  /* _fti_tag_oldest will be null at startup but remove handles that case */     \
       fd_tcache_remove( _fti_map, _fti_map_cnt, _fti_tag_oldest );               \
-      /* Map has at most map_cnt-2 entries here */                               \
+  /* Map has at most map_cnt-2 entries here */                                   \
     }                                                                            \
     (dup)    = _fti_dup;                                                         \
     (oldest) = _fti_oldest;                                                      \

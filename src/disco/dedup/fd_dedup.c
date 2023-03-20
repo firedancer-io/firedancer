@@ -43,20 +43,20 @@ typedef struct fd_dedup_tile_in fd_dedup_tile_in_t;
 static inline void
 fd_dedup_tile_in_update( fd_dedup_tile_in_t * in,
                          ulong                exposed_cnt ) {
-  
+
   /* Technically we don't need to use fd_fseq_query here as *in_fseq
      is not volatile from the dedup's point of view.  But we are
      paranoid, it won't affect performance in this case and it is
      consistent with typical fseq usages. */
 
   ulong * in_fseq = in->fseq;
-  ulong seq = fd_seq_dec( in->seq, exposed_cnt );
+  ulong   seq = fd_seq_dec( in->seq, exposed_cnt );
   if( FD_LIKELY( fd_seq_gt( seq, fd_fseq_query( in_fseq ) ) ) ) fd_fseq_update( in_fseq, seq );
 
   ulong * diag  = (ulong *)fd_fseq_app_laddr( in_fseq );
   uint *  accum = in->accum;
-  ulong a0 = (ulong)accum[0]; ulong a1 = (ulong)accum[1]; ulong a2 = (ulong)accum[2];
-  ulong a3 = (ulong)accum[3]; ulong a4 = (ulong)accum[4]; ulong a5 = (ulong)accum[5];
+  ulong   a0 = (ulong)accum[0]; ulong a1 = (ulong)accum[1]; ulong a2 = (ulong)accum[2];
+  ulong   a3 = (ulong)accum[3]; ulong a4 = (ulong)accum[4]; ulong a5 = (ulong)accum[5];
   FD_COMPILER_MFENCE();
   diag[0] += a0;              diag[1] += a1;              diag[2] += a2;
   diag[3] += a3;              diag[4] += a4;              diag[5] += a5;
@@ -112,7 +112,7 @@ fd_dedup_tile( fd_cnc_t *              cnc,
   ulong   cnc_diag_backp_cnt; /* Accumulates number of transitions of tile to backpressured between housekeeping events */
 
   /* in frag stream state */
-  ulong              in_seq; /* current position in input poll sequence, in [0,in_cnt) */
+  ulong                in_seq; /* current position in input poll sequence, in [0,in_cnt) */
   fd_dedup_tile_in_t * in;   /* in[in_seq] for in_seq in [0,in_cnt) has information about input fragment stream currently at
                                 position in_seq in the in_idx polling sequence.  The ordering of this array is continuously
                                 shuffled to avoid lighthousing effects in the output fragment stream at extreme fan-in and load */
@@ -213,7 +213,7 @@ fd_dedup_tile( fd_cnc_t *              cnc,
     _tcache_sync   = fd_tcache_oldest_laddr( tcache );
     _tcache_ring   = fd_tcache_ring_laddr  ( tcache );
     _tcache_map    = fd_tcache_map_laddr   ( tcache );
-    
+
     FD_COMPILER_MFENCE();
     tcache_sync = FD_VOLATILE_CONST( *_tcache_sync );
     FD_COMPILER_MFENCE();
@@ -467,7 +467,7 @@ fd_dedup_tile( fd_cnc_t *              cnc,
        from not backpressured to backpressured. */
 
     if( FD_UNLIKELY( cr_avail<=cr_filt ) ) {
-      cnc_diag_backp_cnt += (ulong)!cnc_diag_in_backp;
+      cnc_diag_backp_cnt += (ulong) !cnc_diag_in_backp;
       cnc_diag_in_backp   = 1UL;
       FD_SPIN_PAUSE();
       now = fd_tickcount();
@@ -571,7 +571,7 @@ fd_dedup_tile( fd_cnc_t *              cnc,
     FD_LOG_INFO(( "Halting dedup" ));
 
     while( in_cnt ) {
-      ulong in_idx = --in_cnt;
+      ulong                in_idx = --in_cnt;
       fd_dedup_tile_in_t * this_in = &in[ in_idx ];
       fd_dedup_tile_in_update( this_in, 0UL ); /* exposed_cnt 0 assumes all reliable consumers caught up or shutdown */
     }

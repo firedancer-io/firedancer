@@ -74,7 +74,7 @@
 
 struct QUEUE_(private) {
 
-  /* The number of elements in the queue is cnt=end-start and cnt will be
+/* The number of elements in the queue is cnt=end-start and cnt will be
      in [0,max].  If cnt==0, the queue is empty.  If cnt==MAX, the queue
      if full.
 
@@ -93,9 +93,9 @@ struct QUEUE_(private) {
      multiple of max toward 2^63 sporadically (every couple of hundred
      years or so). */
 
-  ulong   start;
-  ulong   end;
-  QUEUE_T queue[ (ulong)(QUEUE_MAX) ];
+ulong   start;
+ulong   end;
+QUEUE_T queue[ (ulong)(QUEUE_MAX) ];
 };
 
 typedef struct QUEUE_(private) QUEUE_(private_t);
@@ -121,10 +121,16 @@ QUEUE_(private_const_hdr_from_queue)( QUEUE_T const * queue ) {
    optimize this to a bit-and when MAX is a power of 2 and, hopefully,
    to optimize this to a magic multiply otherwise. */
 
-FD_FN_CONST static inline ulong QUEUE_(private_slot)( ulong i ) { return i % (ulong)(QUEUE_MAX); }
+FD_FN_CONST static inline ulong QUEUE_(private_slot)( ulong i ) {
+  return i % (ulong)(QUEUE_MAX);
+}
 
-FD_FN_CONST static inline ulong QUEUE_(align)    ( void ) { return alignof(QUEUE_(private_t)); }
-FD_FN_CONST static inline ulong QUEUE_(footprint)( void ) { return sizeof (QUEUE_(private_t)); }
+FD_FN_CONST static inline ulong QUEUE_(align)    ( void ) {
+  return alignof(QUEUE_(private_t));
+}
+FD_FN_CONST static inline ulong QUEUE_(footprint)( void ) {
+  return sizeof (QUEUE_(private_t));
+}
 
 static inline void *
 QUEUE_(new)( void * shmem ) {
@@ -145,12 +151,18 @@ static inline QUEUE_T *
 QUEUE_(join)( void * shqueue ) {
   QUEUE_(private_t) * hdr = (QUEUE_(private_t) *)shqueue;
   return hdr->queue;
-} 
+}
 
-static inline void * QUEUE_(leave) ( QUEUE_T * queue   ) { return (void *)QUEUE_(private_hdr_from_queue)( queue ); }
-static inline void * QUEUE_(delete)( void *    shqueue ) { return shqueue; }
+static inline void * QUEUE_(leave) ( QUEUE_T * queue   ) {
+  return (void *)QUEUE_(private_hdr_from_queue)( queue );
+}
+static inline void * QUEUE_(delete)( void *    shqueue ) {
+  return shqueue;
+}
 
-FD_FN_CONST static inline ulong QUEUE_(max)( QUEUE_T const * queue ) { (void)queue; return (ulong)(QUEUE_MAX); }
+FD_FN_CONST static inline ulong QUEUE_(max)( QUEUE_T const * queue ) {
+  (void)queue; return (ulong)(QUEUE_MAX);
+}
 
 FD_FN_PURE static inline ulong
 QUEUE_(cnt)( QUEUE_T const * queue ) {
@@ -217,8 +229,12 @@ QUEUE_(peek_remove_const)( QUEUE_T const * queue ) {
   return hdr->queue + QUEUE_(private_slot)( hdr->start );
 }
 
-static inline QUEUE_T * QUEUE_(insert)( QUEUE_T * queue ) { QUEUE_(private_hdr_from_queue)( queue )->end++;   return queue; }
-static inline QUEUE_T * QUEUE_(remove)( QUEUE_T * queue ) { QUEUE_(private_hdr_from_queue)( queue )->start++; return queue; }
+static inline QUEUE_T * QUEUE_(insert)( QUEUE_T * queue ) {
+                                                            QUEUE_(private_hdr_from_queue)( queue )->end++;   return queue;
+}
+static inline QUEUE_T * QUEUE_(remove)( QUEUE_T * queue ) {
+                                                            QUEUE_(private_hdr_from_queue)( queue )->start++; return queue;
+}
 
 static inline QUEUE_T *
 QUEUE_(remove_all)( QUEUE_T * queue ) {

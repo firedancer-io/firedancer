@@ -61,7 +61,7 @@ fd_igmp_check( fd_igmp_t const * igmp ) {
        ((c>>16) & 0xffffUL) +
        ( c      & 0xffffUL);
   c += ( c>>16            );
-  return (ushort)~c;
+  return (ushort) ~c;
 }
 
 /* fd_ip4_igmp populates the memory region of size sizeof(fd_ip4_igmp_t)

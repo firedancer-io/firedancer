@@ -16,7 +16,7 @@ FD_STATIC_ASSERT( FD_REPLAY_TILE_OUT_MAX==8192UL, unit_test );
 FD_STATIC_ASSERT( FD_REPLAY_TILE_SCRATCH_ALIGN==128UL, unit_test );
 
 struct test_cfg {
-  fd_wksp_t *  wksp;
+  fd_wksp_t *      wksp;
 
   fd_cnc_t *       tx_cnc;
   char const *     tx_pcap;
@@ -44,7 +44,7 @@ tx_tile_main( int     argc,
   (void)argc;
   test_cfg_t * cfg = (test_cfg_t *)argv;
 
-  fd_rng_t _rng[1];
+  fd_rng_t   _rng[1];
   fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, cfg->tx_seed, 0UL ) );
 
   uchar scratch[ FD_REPLAY_TILE_SCRATCH_FOOTPRINT( 1UL ) ] __attribute__((aligned( FD_REPLAY_TILE_SCRATCH_ALIGN )));
@@ -79,7 +79,7 @@ rx_tile_main( int     argc,
   ulong * fseq = cfg->rx_fseq;
 
   /* Hook up to the random number generator */
-  fd_rng_t _rng[1];
+  fd_rng_t   _rng[1];
   fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, cfg->rx_seed, 0UL ) );
 
   /* Configure housekeeping */
@@ -141,13 +141,13 @@ rx_tile_main( int     argc,
                     "%02x: " FD_LOG_HEX16_FMT "\n\t"
                     "%02x: " FD_LOG_HEX16_FMT,
                     fd_frag_meta_ctl_orig( ctl ), sz, sig,
-                      0U, FD_LOG_HEX16_FMT_ARGS( p     ),
-                     16U, FD_LOG_HEX16_FMT_ARGS( p+ 16 ),
-                     32U, FD_LOG_HEX16_FMT_ARGS( p+ 32 ),
-                     48U, FD_LOG_HEX16_FMT_ARGS( p+ 48 ),
-                     64U, FD_LOG_HEX16_FMT_ARGS( p+ 64 ),
-                     80U, FD_LOG_HEX16_FMT_ARGS( p+ 80 ),
-                     96U, FD_LOG_HEX16_FMT_ARGS( p+ 96 ),
+                    0U, FD_LOG_HEX16_FMT_ARGS( p     ),
+                    16U, FD_LOG_HEX16_FMT_ARGS( p+ 16 ),
+                    32U, FD_LOG_HEX16_FMT_ARGS( p+ 32 ),
+                    48U, FD_LOG_HEX16_FMT_ARGS( p+ 48 ),
+                    64U, FD_LOG_HEX16_FMT_ARGS( p+ 64 ),
+                    80U, FD_LOG_HEX16_FMT_ARGS( p+ 80 ),
+                    96U, FD_LOG_HEX16_FMT_ARGS( p+ 96 ),
                     112U, FD_LOG_HEX16_FMT_ARGS( p+112 ) ));
 #   endif
 
@@ -170,8 +170,8 @@ int
 main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
-  
-  uint rng_seq = 0U;
+
+  uint     rng_seq = 0U;
   fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, rng_seq++, 0UL ) );
 
   FD_TEST( fd_replay_tile_scratch_align()==FD_REPLAY_TILE_SCRATCH_ALIGN );
@@ -314,7 +314,7 @@ main( int     argc,
   FD_TEST( !fd_tile_exec_delete( rx_exec, &ret ) ); FD_TEST( !ret );
 
   FD_LOG_NOTICE(( "Cleaning up" ));
-  
+
   fd_wksp_free_laddr( fd_fseq_delete  ( fd_fseq_leave  ( cfg->rx_fseq   ) ) );
   fd_wksp_free_laddr( fd_cnc_delete   ( fd_cnc_leave   ( cfg->rx_cnc    ) ) );
   fd_wksp_free_laddr( fd_dcache_delete( fd_dcache_leave( cfg->tx_dcache ) ) );

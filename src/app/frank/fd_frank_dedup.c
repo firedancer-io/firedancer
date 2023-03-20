@@ -28,13 +28,13 @@ fd_frank_dedup_task( int     argc,
   /* FIXME: CNC DIAG REGION? */
 
   uchar const * verify_pods = fd_pod_query_subpod( cfg_pod, "verify" );
-  ulong in_cnt = fd_pod_cnt_subpod( verify_pods );
+  ulong         in_cnt = fd_pod_cnt_subpod( verify_pods );
   FD_LOG_INFO(( "%lu verify found", in_cnt ));
 
   /* Join the IPC objects needed this tile instance */
 
   fd_frag_meta_t const ** in_mcache = (fd_frag_meta_t const **)
-    fd_alloca( alignof(fd_frag_meta_t const *), sizeof(fd_frag_meta_t const *)*in_cnt );
+                                      fd_alloca( alignof(fd_frag_meta_t const *), sizeof(fd_frag_meta_t const *)*in_cnt );
   if( FD_UNLIKELY( !in_mcache ) ) FD_LOG_ERR(( "fd_alloca failed" ));
 
   ulong ** in_fseq = (ulong **)fd_alloca( alignof(ulong *), sizeof(ulong *)*in_cnt );
@@ -78,7 +78,7 @@ fd_frank_dedup_task( int     argc,
 
   uint seed = fd_pod_query_uint( cfg_pod, "dedup.seed", (uint)fd_tile_id() ); /* use app tile_id as default */
   FD_LOG_INFO(( "creating rng (%s.dedup.seed %u)", cfg_path, seed ));
-  fd_rng_t _rng[ 1 ];
+  fd_rng_t   _rng[ 1 ];
   fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, seed, 0UL ) );
   if( FD_UNLIKELY( !rng ) ) FD_LOG_ERR(( "fd_rng_join failed" ));
 

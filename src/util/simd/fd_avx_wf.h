@@ -6,7 +6,7 @@
 
 /* A wf_t is a vector where each 32-bit wide lane holds a single
    precision IEEE 754 floating point value (a "float").
-   
+
    Inputs to all operations assume that the values aren't exotic (no
    NaNs, no +/-Infs, no denorms) and, if the output of an operation
    would produce an exotic value in the IEEE 754 standard, the results
@@ -126,8 +126,8 @@ wf_extract( wf_t a, int imm ) {
 
 static inline float
 wf_extract( wf_t a, int imm ) {
-  int avx_lane = imm >> 2; /* compile time eval */
-  int sse_lane = imm & 3;  /* compile time eval */
+  int    avx_lane = imm >> 2; /* compile time eval */
+  int    sse_lane = imm & 3; /* compile time eval */
   __m128 t = _mm256_extractf128_ps( a, avx_lane );
   if( sse_lane ) /* compile time eval */
     t = _mm_castsi128_ps( _mm_insert_epi32( _mm_setzero_si128(), _mm_extract_epi32( _mm_castps_si128( t ), sse_lane ), 0 ) );
@@ -181,7 +181,7 @@ wf_insert_variable( wf_t a, int n, float v ) {
    wf_copysign(a,b) returns [ copysignf(a0,b0) copysignf(a1,b1) ... copysignf(a7,b7) ]
    wf_flipsign(a,b) returns [ flipsignf(a0,b0) flipsignf(a1,b1) ... flipsignf(a7,b7) ]
 
-   wf_fma(a,b,c)    returns [  fmaf(a0,b0, c0)  fmaf(a1,b1, c1) ...  fmaf(a7,b7, c7) ] (i.e.  a.*b+c) 
+   wf_fma(a,b,c)    returns [  fmaf(a0,b0, c0)  fmaf(a1,b1, c1) ...  fmaf(a7,b7, c7) ] (i.e.  a.*b+c)
    wf_fms(a,b,c)    returns [  fmaf(a0,b0,-c0)  fmaf(a1,b1,-c1) ...  fmaf(a7,b7,-c7) ] (i.e.  a.*b-c)
    wf_fnma(a,b,c)   returns [ -fmaf(a0,b0,-c0) -fmaf(a1,b1,-c1) ... -fmaf(a7,b7,-c7) ] (i.e. -a.*b+c)
 
@@ -263,7 +263,7 @@ wf_insert_variable( wf_t a, int n, float v ) {
    wf_to_wc(a)      returns [ !!a0 !!a1 ... !!a7 ]
 
    wf_to_wi(a)      returns [ (int)a0        (int)a1        ... (int)a7        ]
-   wf_to_wi_fast(a) returns [ (int)rintf(a0) (int)rintf(a1) ... (int)rintf(a7) ] 
+   wf_to_wi_fast(a) returns [ (int)rintf(a0) (int)rintf(a1) ... (int)rintf(a7) ]
 
    wf_to_wd(a,0)    returns [ (double)a0 (double)a1 (double)a2 (double)a3 ]
    wf_to_wd(a,1)    returns [ (double)a4 (double)a5 (double)a6 (double)a7 ]

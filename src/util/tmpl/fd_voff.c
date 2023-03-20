@@ -57,10 +57,18 @@ enum {
 
 FD_PROTOTYPES_BEGIN
 
-FD_FN_CONST static inline int       VOFF_(ver_width)( void ) { return VOFF_VER_WIDTH;                                    }
-FD_FN_CONST static inline int       VOFF_(off_width)( void ) { return 8*(int)sizeof(VOFF_TYPE) - VOFF_VER_WIDTH;         }
-FD_FN_CONST static inline VOFF_TYPE VOFF_(ver_max)  ( void ) { return (((VOFF_TYPE)1) << VOFF_VER_WIDTH) - (VOFF_TYPE)1; }
-FD_FN_CONST static inline VOFF_TYPE VOFF_(off_max)  ( void ) { return (~(VOFF_TYPE)0) >> VOFF_VER_WIDTH;                 }
+FD_FN_CONST static inline int       VOFF_(ver_width)( void ) {
+  return VOFF_VER_WIDTH;
+}
+FD_FN_CONST static inline int       VOFF_(off_width)( void ) {
+  return 8*(int)sizeof(VOFF_TYPE) - VOFF_VER_WIDTH;
+}
+FD_FN_CONST static inline VOFF_TYPE VOFF_(ver_max)  ( void ) {
+  return (((VOFF_TYPE)1) << VOFF_VER_WIDTH) - (VOFF_TYPE)1;
+}
+FD_FN_CONST static inline VOFF_TYPE VOFF_(off_max)  ( void ) {
+  return (~(VOFF_TYPE)0) >> VOFF_VER_WIDTH;
+}
 
 FD_FN_CONST static inline VOFF_(t)
 VOFF_NAME( VOFF_TYPE ver,
@@ -68,8 +76,12 @@ VOFF_NAME( VOFF_TYPE ver,
   return (ver & ((((VOFF_TYPE)1)<<VOFF_VER_WIDTH) - (VOFF_TYPE)1)) | (off << VOFF_VER_WIDTH);
 }
 
-FD_FN_CONST static inline VOFF_TYPE VOFF_(ver)( VOFF_(t) voff ) { return voff & ((((VOFF_TYPE)1)<<VOFF_VER_WIDTH) - (VOFF_TYPE)1); }
-FD_FN_CONST static inline VOFF_TYPE VOFF_(off)( VOFF_(t) voff ) { return voff >> VOFF_VER_WIDTH;                                   }
+FD_FN_CONST static inline VOFF_TYPE VOFF_(ver)( VOFF_(t) voff ) {
+  return voff & ((((VOFF_TYPE)1)<<VOFF_VER_WIDTH) - (VOFF_TYPE)1);
+}
+FD_FN_CONST static inline VOFF_TYPE VOFF_(off)( VOFF_(t) voff ) {
+  return voff >> VOFF_VER_WIDTH;
+}
 
 FD_PROTOTYPES_END
 

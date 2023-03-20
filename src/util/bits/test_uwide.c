@@ -23,12 +23,12 @@ main( int     argc,
     /* Generate a random test vector */
 
     uint t = fd_rng_uint( rng );
-    int nx =  1+(((int)t) & 127); t >>= 7; /* Bit width of the x, in [1,128] */
-    int ny =  1+(((int)t) & 127); t >>= 7; /* Bit width of the y, in [1,128] */
-    int nc =  1+(((int)t) &  63); t >>= 6; /* Bit width of the c, in [1,64] */
-    int b0 =     ((int)t) &   1;  t >>= 1; /* Random bit, in [0,1] */
-    int b1 =     ((int)t) &   1;  t >>= 1;
-    int s  = b1+(((int)t) & 127); t >>= 8; /* Shift magnitude, in [0,128] (0 and 128 at half prob) */
+    int  nx =  1+(((int)t) & 127); t >>= 7;/* Bit width of the x, in [1,128] */
+    int  ny =  1+(((int)t) & 127); t >>= 7;/* Bit width of the y, in [1,128] */
+    int  nc =  1+(((int)t) &  63); t >>= 6;/* Bit width of the c, in [1,64] */
+    int  b0 =     ((int)t) &   1;  t >>= 1;/* Random bit, in [0,1] */
+    int  b1 =     ((int)t) &   1;  t >>= 1;
+    int  s  = b1+(((int)t) & 127); t >>= 8;/* Shift magnitude, in [0,128] (0 and 128 at half prob) */
 
     uint128 x = fd_rng_uint128( rng ) >> (128-nx); ulong xh = split_hi( x ); ulong xl = split_lo( x );
     uint128 y = fd_rng_uint128( rng ) >> (128-ny); ulong yh = split_hi( y ); ulong yl = split_lo( y );
@@ -38,7 +38,7 @@ main( int     argc,
 
     do {
       uint128 z0 = (uint128)c + x; ulong w0 = (ulong)(z0<x); z0 += y; w0 += (ulong)(z0<y);
-      ulong zh,zl, w = fd_uwide_add( &zh,&zl, xh,xl, yh,yl, c );
+      ulong   zh,zl, w = fd_uwide_add( &zh,&zl, xh,xl, yh,yl, c );
       uint128 z = join( zh,zl );
       if( z!=z0 || w!=w0 )
         FD_LOG_ERR(( "FAIL: iter %i op fd_uwide_add\n\t"
@@ -50,7 +50,7 @@ main( int     argc,
 
     do {
       uint128 z0 = x + c;
-      ulong zh,zl; fd_uwide_inc( &zh,&zl, xh,xl, c );
+      ulong   zh,zl; fd_uwide_inc( &zh,&zl, xh,xl, c );
       uint128 z = join( zh,zl );
       if( z!=z0 )
         FD_LOG_ERR(( "FAIL: iter %i op fd_uwide_inc\n\t"
@@ -61,8 +61,8 @@ main( int     argc,
     /* Subtract two random uint128 x and y with a random 64-bit borrow c */
 
     do {
-      ulong w0 = (ulong)(x<(uint128)c); uint128 z0 = x - (uint128)c; w0 += (ulong)(z0<y); z0 -= y;
-      ulong zh,zl, w = fd_uwide_sub( &zh,&zl, xh,xl, yh,yl, c );
+      ulong   w0 = (ulong)(x<(uint128)c); uint128 z0 = x - (uint128)c; w0 += (ulong)(z0<y); z0 -= y;
+      ulong   zh,zl, w = fd_uwide_sub( &zh,&zl, xh,xl, yh,yl, c );
       uint128 z = join( zh,zl );
       if( z!=z0 || w!=w0 )
         FD_LOG_ERR(( "FAIL: iter %i op fd_uwide_sub\n\t"
@@ -74,7 +74,7 @@ main( int     argc,
 
     do {
       uint128 z0 = x - c;
-      ulong zh,zl; fd_uwide_dec( &zh,&zl, xh,xl, c );
+      ulong   zh,zl; fd_uwide_dec( &zh,&zl, xh,xl, c );
       uint128 z = join( zh,zl );
       if( z!=z0 )
         FD_LOG_ERR(( "FAIL: iter %i op fd_uwide_dec\n\t"
@@ -86,7 +86,7 @@ main( int     argc,
 
     do {
       uint128 z0 = ((uint128)xl)*((uint128)yl);
-      ulong zh,zl; fd_uwide_mul( &zh,&zl, xl,yl );
+      ulong   zh,zl; fd_uwide_mul( &zh,&zl, xl,yl );
       uint128 z = join( zh,zl );
       if( z!=z0 )
         FD_LOG_ERR(( "FAIL: iter %i op fd_uwide_mul\n\t"

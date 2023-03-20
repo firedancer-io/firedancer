@@ -97,11 +97,11 @@ fd_ed25519_fe_rng( fd_ed25519_fe_t * h,
    Returns h and, on return, the result will be stored in the fe pointed
    to by h.  This currently does not optimize implicitly the case of
    f==g.
-  
+
    Preconditions:
       |f| bounded by 1.1*2^25,1.1*2^24,1.1*2^25,1.1*2^24,etc.
       |g| bounded by 1.1*2^25,1.1*2^24,1.1*2^25,1.1*2^24,etc.
-  
+
    Postconditions:
       |h| bounded by 1.1*2^26,1.1*2^25,1.1*2^26,1.1*2^25,etc. */
 
@@ -121,11 +121,11 @@ fd_ed25519_fe_add( fd_ed25519_fe_t *       h,
    Returns h and, on return, the result will be stored in the fe pointed
    to by h.  This currently does not optimize implicitly the case of
    f==g.
-  
+
    Preconditions:
       |f| bounded by 1.1*2^25,1.1*2^24,1.1*2^25,1.1*2^24,etc.
       |g| bounded by 1.1*2^25,1.1*2^24,1.1*2^25,1.1*2^24,etc.
-  
+
    Postconditions:
       |h| bounded by 1.1*2^26,1.1*2^25,1.1*2^26,1.1*2^25,etc. */
 
@@ -236,7 +236,7 @@ fd_ed25519_fe_if( fd_ed25519_fe_t *       h,
 
 static inline int
 fd_ed25519_fe_isnonzero( fd_ed25519_fe_t const * f ) {
-  uchar s[32]; fd_ed25519_fe_tobytes( s, f );
+  uchar              s[32]; fd_ed25519_fe_tobytes( s, f );
   static uchar const zero[32];
   return !!memcmp( s, zero, 32UL );
 }
@@ -260,7 +260,7 @@ fd_ed25519_fe_isnegative( fd_ed25519_fe_t const * f ) {
 
    Preconditions:
       |f| bounded by 1.65*2^26,1.65*2^25,1.65*2^26,1.65*2^25,etc.
-  
+
    Postconditions:
       |h| bounded by 1.01*2^25,1.01*2^24,1.01*2^25,1.01*2^24,etc. */
 
@@ -338,10 +338,10 @@ fd_ed25519_fe_sqn4( fd_ed25519_fe_t * ha, fd_ed25519_fe_t const * fa, long na,  
                     fd_ed25519_fe_t * hb, fd_ed25519_fe_t const * fb, long nb,    /* " */
                     fd_ed25519_fe_t * hc, fd_ed25519_fe_t const * fc, long nc,    /* " */
                     fd_ed25519_fe_t * hd, fd_ed25519_fe_t const * fd, long nd ) { /* " */
-  if( na==1L ) fd_ed25519_fe_sq( ha, fa ); else fd_ed25519_fe_sq2( ha, fa ); 
-  if( nb==1L ) fd_ed25519_fe_sq( hb, fb ); else fd_ed25519_fe_sq2( hb, fb ); 
-  if( nc==1L ) fd_ed25519_fe_sq( hc, fc ); else fd_ed25519_fe_sq2( hc, fc ); 
-  if( nd==1L ) fd_ed25519_fe_sq( hd, fd ); else fd_ed25519_fe_sq2( hd, fd ); 
+  if( na==1L ) fd_ed25519_fe_sq( ha, fa ); else fd_ed25519_fe_sq2( ha, fa );
+  if( nb==1L ) fd_ed25519_fe_sq( hb, fb ); else fd_ed25519_fe_sq2( hb, fb );
+  if( nc==1L ) fd_ed25519_fe_sq( hc, fc ); else fd_ed25519_fe_sq2( hc, fc );
+  if( nd==1L ) fd_ed25519_fe_sq( hd, fd ); else fd_ed25519_fe_sq2( hd, fd );
 }
 
 #define FD_ED25519_FE_POW25523_2_FAST 0

@@ -296,7 +296,7 @@ battery_decode_fail64( decode_func_t decode_func ) {
 
 static void
 battery_sample32( encode_func_t encode_func,
-                     decode_func_t decode_func ) {
+                  decode_func_t decode_func ) {
 
 # define N_TESTS (7UL)
   static char const * encoded[ N_TESTS ] = {
@@ -337,7 +337,7 @@ battery_sample32( encode_func_t encode_func,
 
 static void
 battery_sample64( encode_func_t encode_func,
-                     decode_func_t decode_func ) {
+                  decode_func_t decode_func ) {
 # define N_TESTS (6UL)
   static char const * encoded[ N_TESTS ] = {
     "1111111111111111111111111111111111111111111111111111111111111111",
@@ -505,8 +505,8 @@ test_decode_fail##name( void ) {                                                
 }                                                                                              \
                                                                                                \
 static inline void                                                                             \
-test_sample##name( void ) {                                                                 \
-  battery_sample##n( fd_base58_encode_##name, fd_base58_decode_##name );                    \
+test_sample##name( void ) {                                                                    \
+  battery_sample##n( fd_base58_encode_##name, fd_base58_decode_##name );                       \
 }                                                                                              \
                                                                                                \
 static inline void                                                                             \
@@ -700,7 +700,7 @@ main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
 
-  ulong cnt = fd_env_strip_cmdline_ulong( &argc, &argv, "--cnt", NULL, 100000UL );
+  ulong    cnt = fd_env_strip_cmdline_ulong( &argc, &argv, "--cnt", NULL, 100000UL );
   fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
 
 # if FD_HAS_AVX

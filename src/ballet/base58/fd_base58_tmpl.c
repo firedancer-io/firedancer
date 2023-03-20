@@ -55,7 +55,7 @@ SUFFIX(fd_base58_encode)( uchar const * bytes,
 
   /* Convert N to 32-bit limbs:
      X = sum_i binary[i] * 2^(32*(BINARY_SZ-1-i)) */
-  uint binary[ BINARY_SZ ];
+  uint         binary[ BINARY_SZ ];
   uint const * bytes_as_uint = (uint const *)bytes;
   for( ulong i=0UL; i<BINARY_SZ; i++ ) binary[ i ] = fd_uint_bswap( bytes_as_uint[ i ] );
 
@@ -184,9 +184,9 @@ SUFFIX(fd_base58_encode)( uchar const * bytes,
 
 #else /* FD_HAS_AVX */
 # if N==32
-  wl_t intermediate0 = wl_ld( (long*)intermediate     );
-  wl_t intermediate1 = wl_ld( (long*)intermediate+4UL );
-  wl_t intermediate2 = wl_ld( (long*)intermediate+8UL );
+  wl_t  intermediate0 = wl_ld( (long*)intermediate     );
+  wl_t  intermediate1 = wl_ld( (long*)intermediate+4UL );
+  wl_t  intermediate2 = wl_ld( (long*)intermediate+8UL );
   wuc_t raw0 = intermediate_to_raw( intermediate0 );
   wuc_t raw1 = intermediate_to_raw( intermediate1 );
   wuc_t raw2 = intermediate_to_raw( intermediate2 );

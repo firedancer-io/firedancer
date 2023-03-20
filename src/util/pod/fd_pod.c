@@ -71,8 +71,8 @@ fd_pod_list( uchar const   * FD_RESTRICT pod,
   ulong idx = 0UL;
 
   uchar const * pair; uchar const * next;
-  ulong ksz; ulong key_sz; char const * key; int val_type;
-  ulong vsz; ulong val_sz; void const * val;
+  ulong         ksz; ulong key_sz; char const * key; int val_type;
+  ulong         vsz; ulong val_sz; void const * val;
   FD_POD_FOR_ALL_BEGIN( pod, pair, next, ksz, key_sz, key, val_type, vsz, val_sz, val ) {
 
     info[idx].key_sz   = key_sz;
@@ -95,8 +95,8 @@ fd_pod_cnt_subpod( uchar const * FD_RESTRICT pod ) {
   ulong cnt = 0UL;
 
   uchar const * pair; uchar const * next;
-  ulong ksz; ulong key_sz; char const * key; int val_type;
-  ulong vsz; ulong val_sz; void const * val;
+  ulong         ksz; ulong key_sz; char const * key; int val_type;
+  ulong         vsz; ulong val_sz; void const * val;
   FD_POD_FOR_ALL_BEGIN( pod, pair, next, ksz, key_sz, key, val_type, vsz, val_sz, val ) {
     cnt += (ulong)(val_type==FD_POD_VAL_TYPE_SUBPOD);
   } FD_POD_FOR_ALL_END;
@@ -111,8 +111,8 @@ fd_pod_cnt_recursive( uchar const * FD_RESTRICT pod ) {
   ulong cnt = 0UL;
 
   uchar const * pair; uchar const * next;
-  ulong ksz; ulong key_sz; char const * key; int val_type;
-  ulong vsz; ulong val_sz; void const * val;
+  ulong         ksz; ulong key_sz; char const * key; int val_type;
+  ulong         vsz; ulong val_sz; void const * val;
   FD_POD_FOR_ALL_BEGIN( pod, pair, next, ksz, key_sz, key, val_type, vsz, val_sz, val ) {
     cnt++;
     if( val_type==FD_POD_VAL_TYPE_SUBPOD ) cnt += fd_pod_cnt_recursive( (uchar *)val );
@@ -127,8 +127,8 @@ fd_pod_list_recursive_node( fd_pod_info_t * FD_RESTRICT parent,
                             fd_pod_info_t * FD_RESTRICT info ) {
 
   uchar const * pair; uchar const * next;
-  ulong ksz; ulong key_sz; char const * key; int val_type;
-  ulong vsz; ulong val_sz; void const * val;
+  ulong         ksz; ulong key_sz; char const * key; int val_type;
+  ulong         vsz; ulong val_sz; void const * val;
   FD_POD_FOR_ALL_BEGIN( pod, pair, next, ksz, key_sz, key, val_type, vsz, val_sz, val ) {
 
     info->key_sz   = key_sz;
@@ -164,8 +164,8 @@ fd_pod_query( uchar const   * FD_RESTRICT pod,
   FD_POD_PATH_SPLIT( path, prefix_len, delim, suffix );
 
   uchar const * pair; uchar const * next;
-  ulong ksz; ulong key_sz; char const * key; int val_type;
-  ulong vsz; ulong val_sz; void const * val;
+  ulong         ksz; ulong key_sz; char const * key; int val_type;
+  ulong         vsz; ulong val_sz; void const * val;
   FD_POD_FOR_ALL_BEGIN( pod, pair, next, ksz, key_sz, key, val_type, vsz, val_sz, val ) {
 
     if( ((key_sz-1UL)==prefix_len) && !memcmp( key, path, prefix_len ) ) { /* Found leading key in pod */
@@ -249,8 +249,8 @@ fd_pod_compact( uchar * pod,
   uchar * bdy = pod + csz*3UL;
 
   uchar * pair; uchar * next = bdy;
-  ulong ksz; ulong key_sz; char const * key; int val_type;
-  ulong vsz; ulong val_sz; void * val;
+  ulong   ksz; ulong key_sz; char const * key; int val_type;
+  ulong   vsz; ulong val_sz; void * val;
   FD_POD_FOR_ALL_BEGIN( pod, pair, next, ksz, key_sz, key, val_type, vsz, val_sz, val ) {
 
     /* Compact the pair */
@@ -306,7 +306,7 @@ fd_pod_compact( uchar * pod,
   } else {
     new_csz = 1UL;
     for(;;) {
-      /**/  new_max  = new_csz*3UL + new_bdy_sz;
+      /**/ new_max  = new_csz*3UL + new_bdy_sz;
       ulong test_csz = fd_ulong_svw_enc_sz( new_max );
       if( FD_LIKELY( test_csz==new_csz ) ) break;
       new_csz = test_csz;
@@ -455,7 +455,7 @@ fd_pod_subpod_grow( fd_pod_subpod_path_t * node,
   ulong new_vsz = fd_ulong_max( fd_ulong_svw_enc_sz( new_max ), vsz );
 
   ulong     val_footprint = vsz     + val_sz;
-  ulong new_val_footprint = new_vsz + new_max;
+  ulong     new_val_footprint = new_vsz + new_max;
   if( new_val_footprint<=val_footprint ) { /* Can grow this pod without growing our parent but have to recode val_sz */
 
     /* Repack the pod */
@@ -490,9 +490,9 @@ fd_pod_subpod_grow( fd_pod_subpod_path_t * node,
 
     parent_pod   = parent->pod;
     parent_csz   = fd_ulong_svw_dec_sz( parent_pod );
-  //parent_max   = fd_ulong_svw_dec_fixed( parent_pod,              parent_csz );
+    //parent_max   = fd_ulong_svw_dec_fixed( parent_pod,              parent_csz );
     parent_used  = fd_ulong_svw_dec_fixed( parent_pod + parent_csz, parent_csz );
-  //parent_avail = parent_max - parent_used;
+    //parent_avail = parent_max - parent_used;
 
     pod = parent_pod + parent_csz*3UL + pod_off;
   }
@@ -531,8 +531,8 @@ fd_pod_private_alloc_node( fd_pod_subpod_path_t * FD_RESTRICT parent,
   FD_POD_PATH_SPLIT( path, prefix_len, delim, suffix );
 
   uchar * pair; uchar * next;
-  ulong ksz; ulong key_sz; char * key; int val_type;
-  ulong vsz; ulong val_sz; void * val;
+  ulong   ksz; ulong key_sz; char * key; int val_type;
+  ulong   vsz; ulong val_sz; void * val;
   FD_POD_FOR_ALL_BEGIN( pod, pair, next, ksz, key_sz, key, val_type, vsz, val_sz, val ) {
 
     if( ((key_sz-1UL)==prefix_len) && !memcmp( key, path, prefix_len ) ) { /* Found leading key in pod */
@@ -587,9 +587,9 @@ fd_pod_private_alloc_node( fd_pod_subpod_path_t * FD_RESTRICT parent,
       if( FD_UNLIKELY( err ) ) return NULL;
       pod   = node->pod;
       csz   = fd_ulong_svw_dec_sz( pod );
-    //max   = fd_ulong_svw_dec_fixed( pod,       csz );
+      //max   = fd_ulong_svw_dec_fixed( pod,       csz );
       used  = fd_ulong_svw_dec_fixed( pod + csz, csz );
-    //avail = max - used;
+      //avail = max - used;
     }
 
     /* Insert the subpod */
@@ -631,7 +631,7 @@ fd_pod_private_alloc_node( fd_pod_subpod_path_t * FD_RESTRICT parent,
     if( FD_UNLIKELY( err ) ) return NULL;
     pod  = node->pod;
     csz  = fd_ulong_svw_dec_sz( pod );
-  //max  = fd_ulong_svw_dec_fixed( pod,       csz );
+    //max  = fd_ulong_svw_dec_fixed( pod,       csz );
     used = fd_ulong_svw_dec_fixed( pod + csz, csz );
   }
 
@@ -679,8 +679,8 @@ fd_pod_remove( uchar      * FD_RESTRICT pod,
   FD_POD_PATH_SPLIT( path, prefix_len, delim, suffix );
 
   uchar * pair; uchar * next;
-  ulong ksz; ulong key_sz; char const * key; int val_type;
-  ulong vsz; ulong val_sz; void * val;
+  ulong   ksz; ulong key_sz; char const * key; int val_type;
+  ulong   vsz; ulong val_sz; void * val;
   FD_POD_FOR_ALL_BEGIN( pod, pair, next, ksz, key_sz, key, val_type, vsz, val_sz, val ) {
 
     if( ((key_sz-1UL)==prefix_len) && !memcmp( key, path, prefix_len ) ) { /* Found leading key in pod */

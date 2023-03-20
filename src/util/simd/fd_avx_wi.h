@@ -77,7 +77,7 @@ wi_exch_adj_quad( wi_t x ) { /* [ i4 i5 i6 i7 i0 i1 i2 i3 ] */
    32-byte sized ocation p as 8 ints.  wi_stu is the same but p does not
    have to be aligned.  In all these lane l will be at p[l].  FIXME: USE
    ATTRIBUTES ON P PASSED TO THESE?
-   
+
    Note: gcc knows a __m256i may alias. */
 
 static inline wi_t wi_ld(  int const * p   ) { return _mm256_load_si256(  (__m256i const *)p ); }
@@ -102,7 +102,7 @@ static inline void wi_stu( int * p, wi_t i ) { _mm256_storeu_si256( (__m256i *)p
    constant in 0:7.  wi_extract_variable and wi_insert_variable are the
    slower but the lane n does not have to be known at compile time
    (should still be in 0:7).
-   
+
    Note: C99 TC3 allows type punning through a union. */
 
 #define wi_extract(a,imm)  _mm256_extract_epi32( (a), (imm) )

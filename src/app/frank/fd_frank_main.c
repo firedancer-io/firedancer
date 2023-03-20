@@ -60,7 +60,7 @@ main( int     argc,
   if( FD_UNLIKELY( !cfg_pod ) ) FD_LOG_ERR(( "path not found" ));
 
   uchar const * verify_pods = fd_pod_query_subpod( cfg_pod, "verify" );
-  ulong verify_cnt = fd_pod_cnt_subpod( verify_pods );
+  ulong         verify_cnt = fd_pod_cnt_subpod( verify_pods );
   FD_LOG_NOTICE(( "%lu verify found", verify_cnt ));
 
   ulong tile_cnt = 3UL + verify_cnt;

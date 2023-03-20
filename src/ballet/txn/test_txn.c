@@ -5,7 +5,7 @@ FD_STATIC_ASSERT( FD_TXN_PUBKEY_SZ==FD_TXN_ACCT_ADDR_SZ, solana_size_disagreemen
 FD_STATIC_ASSERT( alignof(fd_txn_acct_addr_lut_t)==alignof(fd_txn_instr_t), fd_txn );
 
 /* Calculate the max size for an fd_txn */
-#define SERIALIZED_SIZE_OF_INSTRUCTION_AREA (1232                          \
+#define SERIALIZED_SIZE_OF_INSTRUCTION_AREA (1232                         \
                                               - 1 - FD_TXN_SIGNATURE_SZ   \
                                               - 3                         \
                                               - 1 - 2*FD_TXN_ACCT_ADDR_SZ \

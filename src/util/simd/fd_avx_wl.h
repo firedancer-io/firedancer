@@ -67,7 +67,7 @@ wl_permute( wl_t x, int imm_l0, int imm_l1, int imm_l2, int imm_l3 ) {
    32-byte sized location p as 4 longs.  wl_stu is the same but p does
    not have to be aligned.  In all these 64-bit lane l wlll be at p[l].
    FIXME: USE ATTRIBUTES ON P PASSED TO THESE?
-   
+
    Note: gcc knows a __m256i may alias. */
 
 static inline wl_t wl_ld(  long const * p   ) { return _mm256_load_si256(  (__m256i const *)p ); }
@@ -92,7 +92,7 @@ static inline void wl_stu( long * p, wl_t i ) { _mm256_storeu_si256( (__m256i *)
    compile time known in 0:3.  wl_extract_variable and
    wl_insert_variable are the slower but the lane n does not have to be
    known at compile time (should still be in 0:3).
-   
+
    Note: C99 TC3 allows type punning through a union. */
 
 #define wl_extract(a,imm)  _mm256_extract_epi64( (a), (imm) )
@@ -184,7 +184,7 @@ wl_insert_variable( wl_t a, long n, long v ) {
 
 /* See note above */
 static inline wl_t wl_abs( wl_t a )         { return wl_if( wl_lt( a, wl_zero() ), wl_neg( a ), a ); }
-static inline wl_t wl_min( wl_t a, wl_t b ) { return wl_if( wl_lt( a, b ), a, b ); } 
+static inline wl_t wl_min( wl_t a, wl_t b ) { return wl_if( wl_lt( a, b ), a, b ); }
 static inline wl_t wl_max( wl_t a, wl_t b ) { return wl_if( wl_gt( a, b ), a, b ); }
 static inline wl_t wl_shr( wl_t a, int imm ) {
   wc_t c = wl_lt( a, wl_zero() ); /* Note that wc_t is binary compat with wl_t */
@@ -203,7 +203,7 @@ static inline wl_t wl_shr_vector( wl_t a, wl_t n ) {
 
 /* Summarizing:
 
-   wl_to_wc(d)     returns [ !!l0 !!l0 !!l1 !!l1 ... !!l3 !!l3 ] 
+   wl_to_wc(d)     returns [ !!l0 !!l0 !!l1 !!l1 ... !!l3 !!l3 ]
 
    wl_to_wf(l,i,0) returns [ (float)l0 (float)l1 (float)l2 (float)l3 f4 f5 f6 f7 ]
    wl_to_wf(l,i,1) returns [ f0 f1 f2 f3 (float)l0 (float)l1 (float)l2 (float)l3 ]

@@ -28,7 +28,7 @@ main( int     argc,
   FD_LOG_NOTICE(( "Testing new" ));
 
   fd_rng_t _rng[1];
-  void * shrng = fd_rng_new( _rng, 0U, 0UL ); FD_TEST( !!shrng );
+  void *   shrng = fd_rng_new( _rng, 0U, 0UL ); FD_TEST( !!shrng );
 
   FD_LOG_NOTICE(( "Testing join" ));
 
@@ -246,7 +246,7 @@ main( int     argc,
     ctr--;
 
     ulong seq = fd_rng_private_expand( (uint)i ); FD_TEST( fd_rng_private_contract( seq )==(uint)i );
-    int pop  = fd_ulong_popcnt( seq );
+    int   pop  = fd_ulong_popcnt( seq );
     sum_pop  += (long) pop;
     sum_pop2 += (long)(pop*pop);
     min_pop  = pop<min_pop ? pop : min_pop;

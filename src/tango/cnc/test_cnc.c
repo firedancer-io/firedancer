@@ -43,7 +43,7 @@ app_main( int     argc,
   FD_TEST( cnc );
   FD_TEST( fd_cnc_signal_query( cnc )==FD_CNC_SIGNAL_BOOT );
 
-  ulong * app = (ulong *)fd_cnc_app_laddr( cnc );
+  ulong *       app = (ulong *)fd_cnc_app_laddr( cnc );
   ulong const * app_const = (ulong const *)fd_cnc_app_laddr_const( cnc );
   FD_TEST( (ulong)app==(ulong)app_const );
   FD_TEST( fd_ulong_is_aligned( (ulong)app, FD_CNC_APP_ALIGN ) );
@@ -88,7 +88,7 @@ app_main( int     argc,
   }
 
   /* Halt the app thread (we are in HALT state) */
-  
+
   /* Dummy halt operations */
 
   FD_YIELD();
@@ -118,8 +118,8 @@ main( int     argc,
   FD_TEST( fd_cnc_align()            ==FD_CNC_ALIGN               );
   FD_TEST( fd_cnc_footprint( app_sz )==FD_CNC_FOOTPRINT( app_sz ) );
 
-  long now = fd_log_wallclock();
-  void * shcnc = fd_cnc_new( shmem, app_sz, type, now ); FD_TEST( shcnc );
+  long       now = fd_log_wallclock();
+  void *     shcnc = fd_cnc_new( shmem, app_sz, type, now ); FD_TEST( shcnc );
   fd_cnc_t * cnc = fd_cnc_join( shcnc );                 FD_TEST( cnc );
 
   FD_TEST( fd_cnc_app_sz( cnc )==app_sz );
@@ -167,7 +167,7 @@ main( int     argc,
 
   for( ulong iter=0UL; iter<32UL; iter++ ) {
     FD_LOG_NOTICE(( "Test %2lu (app thread heartbeat %li)", iter, fd_cnc_heartbeat_query( cnc ) ));
-    
+
     /* Request ack */
     fd_cnc_signal( cnc, USER_ACK );
     FD_TEST( fd_cnc_wait( cnc, USER_ACK, (long)30e9, &now )==FD_CNC_SIGNAL_RUN );

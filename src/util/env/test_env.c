@@ -36,7 +36,7 @@ main( int     argc,
 
   /* Test normal stripping */
 
-  int rem = my_argc;
+  int          rem = my_argc;
   char const * cstr = fd_env_strip_cmdline_cstr  ( &my_argc, &my_argv, "cstr",   NULL,          NULL ); rem-=4; FD_TEST( my_argc==rem && !my_argv[rem] && cstr && !strcmp( cstr, "one" ) );
   char         c    = fd_env_strip_cmdline_char  ( &my_argc, &my_argv, "char",   NULL,          'a'  ); rem-=4; FD_TEST( my_argc==rem && !my_argv[rem] && c   ==         '6'  );
   schar        sc   = fd_env_strip_cmdline_schar ( &my_argc, &my_argv, "schar",  NULL, (schar) -28   ); rem-=4; FD_TEST( my_argc==rem && !my_argv[rem] && sc  ==(schar) -11   );

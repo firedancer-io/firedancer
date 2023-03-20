@@ -65,7 +65,7 @@ main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
 
-  ulong data_sz = fd_env_strip_cmdline_ulong( &argc, &argv, "--data-sz", NULL, DATA_MAX );
+  ulong  data_sz = fd_env_strip_cmdline_ulong( &argc, &argv, "--data-sz", NULL, DATA_MAX );
   ulong  app_sz = fd_env_strip_cmdline_ulong( &argc, &argv,  "--app-sz", NULL,  APP_MAX );
 
   if( FD_UNLIKELY( data_sz>DATA_MAX ) ) FD_LOG_ERR(( "Increase unit test DATA_MAX to support this large --data-sz" ));
@@ -81,11 +81,11 @@ main( int     argc,
 
   /* FIXME: MORE fd_cache_footprint and fd_cache_req_data_sz TESTS */
   for( ulong iter=0UL; iter<1000000UL; iter++ ) {
-    ulong _data_sz = fd_rng_ulong_roll( rng, DATA_MAX+1UL ); /* In [0,DATA_MAX] */
+    ulong  _data_sz = fd_rng_ulong_roll( rng, DATA_MAX+1UL ); /* In [0,DATA_MAX] */
     ulong  _app_sz = fd_rng_ulong_roll( rng,  APP_MAX+1UL ); /* In [0, APP_MAX] */
     FD_TEST( fd_dcache_footprint( _data_sz, _app_sz )==FD_DCACHE_FOOTPRINT( _data_sz, _app_sz ) );
 
-    uint r = fd_rng_uint( rng );
+    uint  r = fd_rng_uint( rng );
     ulong mtu     = (ulong)(r & 63U); r >>= 6;
     ulong depth   = (ulong)(r & 63U); r >>= 6;
     ulong burst   = (ulong)(r & 63U); r >>= 6;
@@ -157,7 +157,7 @@ main( int     argc,
   ulong depth =   2UL;
   if( FD_LIKELY( data_sz >= fd_dcache_req_data_sz( mtu, depth, 1UL /*burst*/, 1 /*compact*/ ) ) ) {
     uchar const * ref = dcache;
-    ulong chunk_mtu = fd_ulong_align_up( mtu, 2UL*FD_CHUNK_SZ ) >> FD_CHUNK_LG_SZ;
+    ulong         chunk_mtu = fd_ulong_align_up( mtu, 2UL*FD_CHUNK_SZ ) >> FD_CHUNK_LG_SZ;
 
     /* Test failure cases for fd_dcache_compact_is_safe */
     FD_TEST( fd_dcache_compact_is_safe( ref+1UL, dcache,     mtu,  depth )==0 ); /* misaligned base    */

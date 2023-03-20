@@ -31,7 +31,7 @@ fd_pcap_iter_new( void * file );
    in the underlying stream are consumed. */
 
 FD_FN_CONST static inline void * fd_pcap_iter_file( fd_pcap_iter_t * iter ) { return (void *)(((ulong)iter) & ~1UL); }
-FD_FN_CONST static inline ulong  fd_pcap_iter_type( fd_pcap_iter_t * iter ) { return          ((ulong)iter) &  1UL;  }
+FD_FN_CONST static inline ulong  fd_pcap_iter_type( fd_pcap_iter_t * iter ) { return ((ulong)iter) &  1UL;  }
 
 /* fd_pcap_iter_delete destroys a fd_pcap_iter_t.  Returns the handle of
    the underlying stream; the caller has ownership of the stream. */

@@ -59,13 +59,13 @@ fd_txn_parse( uchar const             * payload,
   /* READ_CHECKED_COMPACT_U16 safely reads a compact-u16 from the indicated
      location in the payload.  It stores the resulting value in the ushort
      variable called var_name.  It stores the size in out_sz. */
-  #define READ_CHECKED_COMPACT_U16( out_sz, var_name, where )               \
-    do {                                                                    \
-      ulong _where = (where);                                               \
-      ulong _out_sz = fd_cu16_dec_sz( payload+_where, payload_sz-_where );  \
-      CHECK( _out_sz );                                                     \
-      (var_name) = fd_cu16_dec_fixed( payload+_where, _out_sz );            \
-      (out_sz)   = _out_sz;                                                 \
+  #define READ_CHECKED_COMPACT_U16( out_sz, var_name, where )              \
+    do {                                                                   \
+      ulong _where = (where);                                              \
+      ulong _out_sz = fd_cu16_dec_sz( payload+_where, payload_sz-_where ); \
+      CHECK( _out_sz );                                                    \
+      (var_name) = fd_cu16_dec_fixed( payload+_where, _out_sz );           \
+      (out_sz)   = _out_sz;                                                \
     } while( 0 )
 
   /* Minimal instr has 1B for program id, 1B acct_addr list, 1B for no data */
@@ -81,7 +81,7 @@ fd_txn_parse( uchar const             * payload,
   CHECK( (1UL<=signature_cnt) & (signature_cnt<=FD_TXN_SIG_MAX) );
   CHECK_LEFT( FD_TXN_SIGNATURE_SZ*signature_cnt );   ulong signature_off  =          i  ;     i+=FD_TXN_SIGNATURE_SZ*signature_cnt;
 
-  /* Not actually parsing anything, just store. */   ulong message_off    =          i  ;
+  /* Not actually parsing anything, just store. */ ulong   message_off    =          i  ;
   CHECK_LEFT( 1UL                               );   uchar header_b0      = payload[ i ];     i++;
 
   uchar transaction_version;
@@ -131,8 +131,8 @@ fd_txn_parse( uchar const             * payload,
 
 
   for( ulong j=0UL; j<instr_cnt; j++ ) {
-    ushort acct_cnt = (ushort)0;
-    ushort data_sz  = (ushort)0;
+    ushort                                                 acct_cnt = (ushort)0;
+    ushort                                                 data_sz  = (ushort)0;
     CHECK_LEFT( MIN_INSTR_SZ                    );   uchar program_id     = payload[ i ];     i++;
     READ_CHECKED_COMPACT_U16( bytes_consumed,             acct_cnt,                  i );     i+=bytes_consumed;
     CHECK_LEFT( acct_cnt                        );   ulong acct_off       =          i  ;     i+=acct_cnt;
@@ -193,7 +193,7 @@ fd_txn_parse( uchar const             * payload,
 
   /* Final validation that all the account address indices are in range */
   for( ulong j=0; j<instr_cnt; j++ ) {
-    /* Account 0 is the fee payer and the program can't be the fee payer. 
+    /* Account 0 is the fee payer and the program can't be the fee payer.
        The fee payer account must be owned by the system program, but the
        program must be an executable account and the system program is not
        permitted to own any executable account. */

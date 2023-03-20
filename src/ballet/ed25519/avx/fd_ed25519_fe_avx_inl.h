@@ -38,13 +38,13 @@
       ...
       fa9 fb9 fc9 fd9 */
 
-#define FE_AVX_INL_ST( p, f ) do {                     \
-   long * _p = (p);                                    \
-   wl_st( _p + 4*0, f##0 ); wl_st( _p + 4*1, f##1 );   \
-   wl_st( _p + 4*2, f##2 ); wl_st( _p + 4*3, f##3 );   \
-   wl_st( _p + 4*4, f##4 ); wl_st( _p + 4*5, f##5 );   \
-   wl_st( _p + 4*6, f##6 ); wl_st( _p + 4*7, f##7 );   \
-   wl_st( _p + 4*8, f##8 ); wl_st( _p + 4*9, f##9 );   \
+#define FE_AVX_INL_ST( p, f ) do {                   \
+   long * _p = (p);                                  \
+   wl_st( _p + 4*0, f##0 ); wl_st( _p + 4*1, f##1 ); \
+   wl_st( _p + 4*2, f##2 ); wl_st( _p + 4*3, f##3 ); \
+   wl_st( _p + 4*4, f##4 ); wl_st( _p + 4*5, f##5 ); \
+   wl_st( _p + 4*6, f##6 ); wl_st( _p + 4*7, f##7 ); \
+   wl_st( _p + 4*8, f##8 ); wl_st( _p + 4*9, f##9 ); \
  } while(0)
 
 /* FE_AVX_INL_SWIZZLE_IN4 loads 4 field elements pointed to by a,b,c,d
@@ -77,18 +77,18 @@
     wi_t _r6 = wi_ld( _d   );                                          \
     wi_t _re = wi_ld( _d+8 );                                          \
     wi_t _ta = _r0; _r0 = _mm256_permute2f128_si256( _ta, _r4, 0x20 ); \
-    /**/            _r4 = _mm256_permute2f128_si256( _ta, _r4, 0x31 ); \
+  /**/ _r4 = _mm256_permute2f128_si256( _ta, _r4, 0x31 );              \
     wi_t _tc = _r2; _r2 = _mm256_permute2f128_si256( _tc, _r6, 0x20 ); \
-    /**/            _r6 = _mm256_permute2f128_si256( _tc, _r6, 0x31 ); \
+  /**/ _r6 = _mm256_permute2f128_si256( _tc, _r6, 0x31 );              \
     wi_t _ti = _r8; _r8 = _mm256_permute2f128_si256( _ti, _rc, 0x20 ); \
-    /**/            _rc = _mm256_permute2f128_si256( _ti, _rc, 0x31 ); \
+  /**/ _rc = _mm256_permute2f128_si256( _ti, _rc, 0x31 );              \
     wi_t _tk = _ra; _ra = _mm256_permute2f128_si256( _tk, _re, 0x20 ); \
-    /**/            _re = _mm256_permute2f128_si256( _tk, _re, 0x31 ); \
+  /**/ _re = _mm256_permute2f128_si256( _tk, _re, 0x31 );              \
     wi_t _te = _r0; _r0 = _mm256_unpacklo_epi32    ( _te, _r2       ); \
-    /**/            _r2 = _mm256_unpackhi_epi32    ( _te, _r2       ); \
+  /**/ _r2 = _mm256_unpackhi_epi32    ( _te, _r2       );              \
     wi_t _tg = _r4; _r4 = _mm256_unpacklo_epi32    ( _tg, _r6       ); \
-    /**/            _r6 = _mm256_unpackhi_epi32    ( _tg, _r6       ); \
-    /**/            _r8 = _mm256_unpacklo_epi32    ( _r8, _ra       ); \
+  /**/ _r6 = _mm256_unpackhi_epi32    ( _tg, _r6       );              \
+  /**/ _r8 = _mm256_unpacklo_epi32    ( _r8, _ra       );              \
     v##0 = _mm256_unpacklo_epi32( _r0, _z );                           \
     v##1 = _mm256_unpackhi_epi32( _r0, _z );                           \
     v##2 = _mm256_unpacklo_epi32( _r2, _z );                           \
@@ -116,17 +116,17 @@
     wi_t _r4 = wi_ld( _c   );                                          \
     wi_t _rc = wi_ld( _c+8 );                                          \
     wi_t _ta = _r0; _r0 = _mm256_permute2f128_si256( _ta, _r4, 0x20 ); \
-    /**/            _r4 = _mm256_permute2f128_si256( _ta, _r4, 0x31 ); \
+  /**/ _r4 = _mm256_permute2f128_si256( _ta, _r4, 0x31 );              \
     wi_t _tc = _r2; _r2 = _mm256_permute2f128_si256( _tc, _z,  0x20 ); \
     wi_t            _r6 = _mm256_permute2f128_si256( _tc, _z,  0x31 ); \
     wi_t _ti = _r8; _r8 = _mm256_permute2f128_si256( _ti, _rc, 0x20 ); \
-    /**/            _rc = _mm256_permute2f128_si256( _ti, _rc, 0x31 ); \
+  /**/ _rc = _mm256_permute2f128_si256( _ti, _rc, 0x31 );              \
     wi_t _tk = _ra; _ra = _mm256_permute2f128_si256( _tk, _z,  0x20 ); \
     wi_t _te = _r0; _r0 = _mm256_unpacklo_epi32    ( _te, _r2       ); \
-    /**/            _r2 = _mm256_unpackhi_epi32    ( _te, _r2       ); \
+  /**/ _r2 = _mm256_unpackhi_epi32    ( _te, _r2       );              \
     wi_t _tg = _r4; _r4 = _mm256_unpacklo_epi32    ( _tg, _r6       ); \
-    /**/            _r6 = _mm256_unpackhi_epi32    ( _tg, _r6       ); \
-    /**/            _r8 = _mm256_unpacklo_epi32    ( _r8, _ra       ); \
+  /**/ _r6 = _mm256_unpackhi_epi32    ( _tg, _r6       );              \
+  /**/ _r8 = _mm256_unpacklo_epi32    ( _r8, _ra       );              \
     v##0 = _mm256_unpacklo_epi32( _r0, _z );                           \
     v##1 = _mm256_unpackhi_epi32( _r0, _z );                           \
     v##2 = _mm256_unpacklo_epi32( _r2, _z );                           \
@@ -157,10 +157,10 @@
     wi_t _ti = _r8; _r8 = _mm256_permute2f128_si256( _ti, _z,  0x20 ); \
     wi_t _tk = _ra; _ra = _mm256_permute2f128_si256( _tk, _z,  0x20 ); \
     wi_t _te = _r0; _r0 = _mm256_unpacklo_epi32    ( _te, _r2       ); \
-    /**/            _r2 = _mm256_unpackhi_epi32    ( _te, _r2       ); \
+  /**/ _r2 = _mm256_unpackhi_epi32    ( _te, _r2       );              \
     wi_t _tg = _r4; _r4 = _mm256_unpacklo_epi32    ( _tg, _r6       ); \
-    /**/            _r6 = _mm256_unpackhi_epi32    ( _tg, _r6       ); \
-    /**/            _r8 = _mm256_unpacklo_epi32    ( _r8, _ra       ); \
+  /**/ _r6 = _mm256_unpackhi_epi32    ( _tg, _r6       );              \
+  /**/ _r8 = _mm256_unpacklo_epi32    ( _r8, _ra       );              \
     v##0 = _mm256_unpacklo_epi32( _r0, _z );                           \
     v##1 = _mm256_unpackhi_epi32( _r0, _z );                           \
     v##2 = _mm256_unpacklo_epi32( _r2, _z );                           \
@@ -237,13 +237,13 @@
     wf_t _tb = _r4; _r4 = _mm256_shuffle_ps( _tb, _r6, _MM_SHUFFLE(2,0,2,0) );                                      \
                     _r6 = _mm256_shuffle_ps( _tb, _r6, _MM_SHUFFLE(3,1,3,1) );                                      \
     wf_t _ra = _r8; _r8 = _mm256_shuffle_ps( _ra, _z,  _MM_SHUFFLE(2,0,2,0) );                                      \
-    /**/            _ra = _mm256_shuffle_ps( _ra, _z,  _MM_SHUFFLE(3,1,3,1) );                                      \
+  /**/ _ra = _mm256_shuffle_ps( _ra, _z,  _MM_SHUFFLE(3,1,3,1) );                                                   \
     wf_t _tc = _r0; _r0 = _mm256_permute2f128_ps( _tc, _r4, 0x20 );                                                 \
                     _r4 = _mm256_permute2f128_ps( _tc, _r4, 0x31 );                                                 \
-    /**/            _r2 = _mm256_permute2f128_ps( _r2, _r6, 0x20 );                                                 \
+  /**/ _r2 = _mm256_permute2f128_ps( _r2, _r6, 0x20 );                                                              \
     wf_t _rc = _r8; _r8 = _mm256_permute2f128_ps( _rc, _z,  0x20 );                                                 \
-    /**/            _rc = _mm256_permute2f128_ps( _rc, _z,  0x31 );                                                 \
-    /**/            _ra = _mm256_permute2f128_ps( _ra, _z,  0x20 );                                                 \
+  /**/ _rc = _mm256_permute2f128_ps( _rc, _z,  0x31 );                                                              \
+  /**/ _ra = _mm256_permute2f128_ps( _ra, _z,  0x20 );                                                              \
     int * _a = (a)->limb;                                                                                           \
     int * _b = (b)->limb;                                                                                           \
     int * _c = (c)->limb;                                                                                           \
@@ -270,11 +270,11 @@
     wf_t _tb = _r4; _r4 = _mm256_shuffle_ps( _tb, _r6, _MM_SHUFFLE(2,0,2,0) );                                      \
                     _r6 = _mm256_shuffle_ps( _tb, _r6, _MM_SHUFFLE(3,1,3,1) );                                      \
     wf_t _ra = _r8; _r8 = _mm256_shuffle_ps( _ra, _z,  _MM_SHUFFLE(2,0,2,0) );                                      \
-    /**/            _ra = _mm256_shuffle_ps( _ra, _z,  _MM_SHUFFLE(3,1,3,1) );                                      \
-    /**/            _r0 = _mm256_permute2f128_ps( _r0, _r4, 0x20 );                                                 \
-    /**/            _r2 = _mm256_permute2f128_ps( _r2, _r6, 0x20 );                                                 \
-    /**/            _r8 = _mm256_permute2f128_ps( _r8, _z,  0x20 );                                                 \
-    /**/            _ra = _mm256_permute2f128_ps( _ra, _z,  0x20 );                                                 \
+  /**/ _ra = _mm256_shuffle_ps( _ra, _z,  _MM_SHUFFLE(3,1,3,1) );                                                   \
+  /**/ _r0 = _mm256_permute2f128_ps( _r0, _r4, 0x20 );                                                              \
+  /**/ _r2 = _mm256_permute2f128_ps( _r2, _r6, 0x20 );                                                              \
+  /**/ _r8 = _mm256_permute2f128_ps( _r8, _z,  0x20 );                                                              \
+  /**/ _ra = _mm256_permute2f128_ps( _ra, _z,  0x20 );                                                              \
     int * _a = (a)->limb;                                                                                           \
     int * _b = (b)->limb;                                                                                           \
     wi_st( _a,   _mm256_castps_si256( _r0 ) );                                                                      \
@@ -289,117 +289,117 @@
    Basically, the 2 8x8 transposes are done as before but the 2 2x8
    transposes are merged into 1 2x4 transpose. */
 
-#define FE_AVX_INL_PAIR_SWIZZLE_IN4( v, a,b,c,d, w, e,f,g,h ) do {                                                                \
-    wi_t _z  = wi_zero();                                                                                                         \
-    int const * _a = (a)->limb;                                         int const * _e = (e)->limb;                               \
-    int const * _b = (b)->limb;                                         int const * _f = (f)->limb;                               \
-    int const * _c = (c)->limb;                                         int const * _g = (g)->limb;                               \
-    int const * _d = (d)->limb;                                         int const * _h = (h)->limb;                               \
-    wi_t _r0 = wi_ld( _a   );                                           wi_t _s0 = wi_ld( _e   );                                 \
-    wi_t _r8 = wi_ld( _a+8 );                                           wi_t _s8 = wi_ld( _e+8 );                                 \
-    wi_t _r2 = wi_ld( _b   );                                           wi_t _s2 = wi_ld( _f   );                                 \
-    wi_t _ra = wi_ld( _b+8 );                                           wi_t _sa = wi_ld( _f+8 );                                 \
-    wi_t _r4 = wi_ld( _c   );                                           wi_t _s4 = wi_ld( _g   );                                 \
-    wi_t _rc = wi_ld( _c+8 );                                           wi_t _sc = wi_ld( _g+8 );                                 \
-    wi_t _r6 = wi_ld( _d   );                                           wi_t _s6 = wi_ld( _h   );                                 \
-    wi_t _re = wi_ld( _d+8 );                                           wi_t _se = wi_ld( _h+8 );                                 \
+#define FE_AVX_INL_PAIR_SWIZZLE_IN4( v, a,b,c,d, w, e,f,g,h ) do {                                                                         \
+    wi_t _z  = wi_zero();                                                                                                                  \
+    int const * _a = (a)->limb;                                         int const * _e = (e)->limb;                                        \
+    int const * _b = (b)->limb;                                         int const * _f = (f)->limb;                                        \
+    int const * _c = (c)->limb;                                         int const * _g = (g)->limb;                                        \
+    int const * _d = (d)->limb;                                         int const * _h = (h)->limb;                                        \
+    wi_t _r0 = wi_ld( _a   );                                           wi_t _s0 = wi_ld( _e   );                                          \
+    wi_t _r8 = wi_ld( _a+8 );                                           wi_t _s8 = wi_ld( _e+8 );                                          \
+    wi_t _r2 = wi_ld( _b   );                                           wi_t _s2 = wi_ld( _f   );                                          \
+    wi_t _ra = wi_ld( _b+8 );                                           wi_t _sa = wi_ld( _f+8 );                                          \
+    wi_t _r4 = wi_ld( _c   );                                           wi_t _s4 = wi_ld( _g   );                                          \
+    wi_t _rc = wi_ld( _c+8 );                                           wi_t _sc = wi_ld( _g+8 );                                          \
+    wi_t _r6 = wi_ld( _d   );                                           wi_t _s6 = wi_ld( _h   );                                          \
+    wi_t _re = wi_ld( _d+8 );                                           wi_t _se = wi_ld( _h+8 );                                          \
     wi_t _ta = _r0; _r0 = _mm256_permute2f128_si256( _ta, _r4, 0x20 );  wi_t _ua = _s0; _s0 = _mm256_permute2f128_si256( _ua, _s4, 0x20 ); \
-    /**/            _r4 = _mm256_permute2f128_si256( _ta, _r4, 0x31 );  /**/            _s4 = _mm256_permute2f128_si256( _ua, _s4, 0x31 ); \
+  /**/ _r4 = _mm256_permute2f128_si256( _ta, _r4, 0x31 ); /**/ _s4 = _mm256_permute2f128_si256( _ua, _s4, 0x31 );                          \
     wi_t _tc = _r2; _r2 = _mm256_permute2f128_si256( _tc, _r6, 0x20 );  wi_t _uc = _s2; _s2 = _mm256_permute2f128_si256( _uc, _s6, 0x20 ); \
-    /**/            _r6 = _mm256_permute2f128_si256( _tc, _r6, 0x31 );  /**/            _s6 = _mm256_permute2f128_si256( _uc, _s6, 0x31 ); \
-    /**/            _r8 = _mm256_permute2f128_si256( _r8, _s8, 0x20 );  /**/            _ra = _mm256_permute2f128_si256( _ra, _sa, 0x20 ); \
-    /**/            _rc = _mm256_permute2f128_si256( _rc, _sc, 0x20 );  /**/            _re = _mm256_permute2f128_si256( _re, _se, 0x20 ); \
+  /**/ _r6 = _mm256_permute2f128_si256( _tc, _r6, 0x31 ); /**/ _s6 = _mm256_permute2f128_si256( _uc, _s6, 0x31 );                          \
+  /**/ _r8 = _mm256_permute2f128_si256( _r8, _s8, 0x20 ); /**/ _ra = _mm256_permute2f128_si256( _ra, _sa, 0x20 );                          \
+  /**/ _rc = _mm256_permute2f128_si256( _rc, _sc, 0x20 ); /**/ _re = _mm256_permute2f128_si256( _re, _se, 0x20 );                          \
     wi_t _te = _r0; _r0 = _mm256_unpacklo_epi32    ( _te, _r2       );  wi_t _ue = _s0; _s0 = _mm256_unpacklo_epi32    ( _ue, _s2       ); \
-    /**/            _r2 = _mm256_unpackhi_epi32    ( _te, _r2       );  /**/            _s2 = _mm256_unpackhi_epi32    ( _ue, _s2       ); \
+  /**/ _r2 = _mm256_unpackhi_epi32    ( _te, _r2       ); /**/ _s2 = _mm256_unpackhi_epi32    ( _ue, _s2       );                          \
     wi_t _tg = _r4; _r4 = _mm256_unpacklo_epi32    ( _tg, _r6       );  wi_t _ug = _s4; _s4 = _mm256_unpacklo_epi32    ( _ug, _s6       ); \
-    /**/            _r6 = _mm256_unpackhi_epi32    ( _tg, _r6       );  /**/            _s6 = _mm256_unpackhi_epi32    ( _ug, _s6       ); \
-    wi_t _ti = _r8; _r8 = _mm256_permute2f128_si256( _ti, _rc, 0x20 );  /**/            _rc = _mm256_permute2f128_si256( _ti, _rc, 0x31 ); \
-    wi_t _tk = _ra; _ra = _mm256_permute2f128_si256( _tk, _re, 0x20 );  /**/            _re = _mm256_permute2f128_si256( _tk, _re, 0x31 ); \
-    /**/            _r8 = _mm256_unpacklo_epi32    ( _r8, _ra       );  /**/            _rc = _mm256_unpacklo_epi32    ( _rc, _re       ); \
-    v##0 = _mm256_unpacklo_epi32( _r0, _z );                            w##0 = _mm256_unpacklo_epi32( _s0, _z );                  \
-    v##1 = _mm256_unpackhi_epi32( _r0, _z );                            w##1 = _mm256_unpackhi_epi32( _s0, _z );                  \
-    v##2 = _mm256_unpacklo_epi32( _r2, _z );                            w##2 = _mm256_unpacklo_epi32( _s2, _z );                  \
-    v##3 = _mm256_unpackhi_epi32( _r2, _z );                            w##3 = _mm256_unpackhi_epi32( _s2, _z );                  \
-    v##4 = _mm256_unpacklo_epi32( _r4, _z );                            w##4 = _mm256_unpacklo_epi32( _s4, _z );                  \
-    v##5 = _mm256_unpackhi_epi32( _r4, _z );                            w##5 = _mm256_unpackhi_epi32( _s4, _z );                  \
-    v##6 = _mm256_unpacklo_epi32( _r6, _z );                            w##6 = _mm256_unpacklo_epi32( _s6, _z );                  \
-    v##7 = _mm256_unpackhi_epi32( _r6, _z );                            w##7 = _mm256_unpackhi_epi32( _s6, _z );                  \
-    v##8 = _mm256_unpacklo_epi32( _r8, _z );                            w##8 = _mm256_unpacklo_epi32( _rc, _z );                  \
-    v##9 = _mm256_unpackhi_epi32( _r8, _z );                            w##9 = _mm256_unpackhi_epi32( _rc, _z );                  \
+  /**/ _r6 = _mm256_unpackhi_epi32    ( _tg, _r6       ); /**/ _s6 = _mm256_unpackhi_epi32    ( _ug, _s6       );                          \
+    wi_t _ti = _r8; _r8 = _mm256_permute2f128_si256( _ti, _rc, 0x20 ); /**/ _rc = _mm256_permute2f128_si256( _ti, _rc, 0x31 );             \
+    wi_t _tk = _ra; _ra = _mm256_permute2f128_si256( _tk, _re, 0x20 ); /**/ _re = _mm256_permute2f128_si256( _tk, _re, 0x31 );             \
+  /**/ _r8 = _mm256_unpacklo_epi32    ( _r8, _ra       ); /**/ _rc = _mm256_unpacklo_epi32    ( _rc, _re       );                          \
+    v##0 = _mm256_unpacklo_epi32( _r0, _z );                            w##0 = _mm256_unpacklo_epi32( _s0, _z );                           \
+    v##1 = _mm256_unpackhi_epi32( _r0, _z );                            w##1 = _mm256_unpackhi_epi32( _s0, _z );                           \
+    v##2 = _mm256_unpacklo_epi32( _r2, _z );                            w##2 = _mm256_unpacklo_epi32( _s2, _z );                           \
+    v##3 = _mm256_unpackhi_epi32( _r2, _z );                            w##3 = _mm256_unpackhi_epi32( _s2, _z );                           \
+    v##4 = _mm256_unpacklo_epi32( _r4, _z );                            w##4 = _mm256_unpacklo_epi32( _s4, _z );                           \
+    v##5 = _mm256_unpackhi_epi32( _r4, _z );                            w##5 = _mm256_unpackhi_epi32( _s4, _z );                           \
+    v##6 = _mm256_unpacklo_epi32( _r6, _z );                            w##6 = _mm256_unpacklo_epi32( _s6, _z );                           \
+    v##7 = _mm256_unpackhi_epi32( _r6, _z );                            w##7 = _mm256_unpackhi_epi32( _s6, _z );                           \
+    v##8 = _mm256_unpacklo_epi32( _r8, _z );                            w##8 = _mm256_unpacklo_epi32( _rc, _z );                           \
+    v##9 = _mm256_unpackhi_epi32( _r8, _z );                            w##9 = _mm256_unpackhi_epi32( _rc, _z );                           \
   } while(0)
 
 /* FE_AVX_INL_PAIR_SWIZZLE_IN3 is FE_AVX_INL_PAIR_SWIZZLE_IN4 optimized
    for zero d and h columns. */
 
-#define FE_AVX_INL_PAIR_SWIZZLE_IN3( v, a,b,c, w, e,f,g ) do {                                                                    \
-    wi_t _z  = wi_zero();                                                                                                         \
-    int const * _a = (a)->limb;                                         int const * _e = (e)->limb;                               \
-    int const * _b = (b)->limb;                                         int const * _f = (f)->limb;                               \
-    int const * _c = (c)->limb;                                         int const * _g = (g)->limb;                               \
-    wi_t _r0 = wi_ld( _a   );                                           wi_t _s0 = wi_ld( _e   );                                 \
-    wi_t _r8 = wi_ld( _a+8 );                                           wi_t _s8 = wi_ld( _e+8 );                                 \
-    wi_t _r2 = wi_ld( _b   );                                           wi_t _s2 = wi_ld( _f   );                                 \
-    wi_t _ra = wi_ld( _b+8 );                                           wi_t _sa = wi_ld( _f+8 );                                 \
-    wi_t _r4 = wi_ld( _c   );                                           wi_t _s4 = wi_ld( _g   );                                 \
-    wi_t _rc = wi_ld( _c+8 );                                           wi_t _sc = wi_ld( _g+8 );                                 \
+#define FE_AVX_INL_PAIR_SWIZZLE_IN3( v, a,b,c, w, e,f,g ) do {                                                                             \
+    wi_t _z  = wi_zero();                                                                                                                  \
+    int const * _a = (a)->limb;                                         int const * _e = (e)->limb;                                        \
+    int const * _b = (b)->limb;                                         int const * _f = (f)->limb;                                        \
+    int const * _c = (c)->limb;                                         int const * _g = (g)->limb;                                        \
+    wi_t _r0 = wi_ld( _a   );                                           wi_t _s0 = wi_ld( _e   );                                          \
+    wi_t _r8 = wi_ld( _a+8 );                                           wi_t _s8 = wi_ld( _e+8 );                                          \
+    wi_t _r2 = wi_ld( _b   );                                           wi_t _s2 = wi_ld( _f   );                                          \
+    wi_t _ra = wi_ld( _b+8 );                                           wi_t _sa = wi_ld( _f+8 );                                          \
+    wi_t _r4 = wi_ld( _c   );                                           wi_t _s4 = wi_ld( _g   );                                          \
+    wi_t _rc = wi_ld( _c+8 );                                           wi_t _sc = wi_ld( _g+8 );                                          \
     wi_t _ta = _r0; _r0 = _mm256_permute2f128_si256( _ta, _r4, 0x20 );  wi_t _ua = _s0; _s0 = _mm256_permute2f128_si256( _ua, _s4, 0x20 ); \
-    /**/            _r4 = _mm256_permute2f128_si256( _ta, _r4, 0x31 );  /**/            _s4 = _mm256_permute2f128_si256( _ua, _s4, 0x31 ); \
+  /**/ _r4 = _mm256_permute2f128_si256( _ta, _r4, 0x31 ); /**/ _s4 = _mm256_permute2f128_si256( _ua, _s4, 0x31 );                          \
     wi_t _tc = _r2; _r2 = _mm256_permute2f128_si256( _tc, _z,  0x20 );  wi_t _uc = _s2; _s2 = _mm256_permute2f128_si256( _uc, _z,  0x20 ); \
     wi_t            _r6 = _mm256_permute2f128_si256( _tc, _z,  0x31 );  wi_t            _s6 = _mm256_permute2f128_si256( _uc, _z,  0x31 ); \
-    /**/            _r8 = _mm256_permute2f128_si256( _r8, _s8, 0x20 );  /**/            _ra = _mm256_permute2f128_si256( _ra, _sa, 0x20 ); \
-    /**/            _rc = _mm256_permute2f128_si256( _rc, _sc, 0x20 );                                                                     \
+  /**/ _r8 = _mm256_permute2f128_si256( _r8, _s8, 0x20 ); /**/ _ra = _mm256_permute2f128_si256( _ra, _sa, 0x20 );                          \
+  /**/ _rc = _mm256_permute2f128_si256( _rc, _sc, 0x20 );                                                                                  \
     wi_t _te = _r0; _r0 = _mm256_unpacklo_epi32    ( _te, _r2       );  wi_t _ue = _s0; _s0 = _mm256_unpacklo_epi32    ( _ue, _s2       ); \
-    /**/            _r2 = _mm256_unpackhi_epi32    ( _te, _r2       );  /**/            _s2 = _mm256_unpackhi_epi32    ( _ue, _s2       ); \
+  /**/ _r2 = _mm256_unpackhi_epi32    ( _te, _r2       ); /**/ _s2 = _mm256_unpackhi_epi32    ( _ue, _s2       );                          \
     wi_t _tg = _r4; _r4 = _mm256_unpacklo_epi32    ( _tg, _r6       );  wi_t _ug = _s4; _s4 = _mm256_unpacklo_epi32    ( _ug, _s6       ); \
-    /**/            _r6 = _mm256_unpackhi_epi32    ( _tg, _r6       );  /**/            _s6 = _mm256_unpackhi_epi32    ( _ug, _s6       ); \
-    wi_t _ti = _r8; _r8 = _mm256_permute2f128_si256( _ti, _rc, 0x20 );  /**/            _rc = _mm256_permute2f128_si256( _ti, _rc, 0x31 ); \
+  /**/ _r6 = _mm256_unpackhi_epi32    ( _tg, _r6       ); /**/ _s6 = _mm256_unpackhi_epi32    ( _ug, _s6       );                          \
+    wi_t _ti = _r8; _r8 = _mm256_permute2f128_si256( _ti, _rc, 0x20 ); /**/ _rc = _mm256_permute2f128_si256( _ti, _rc, 0x31 );             \
     wi_t _tk = _ra; _ra = _mm256_permute2f128_si256( _tk, _z,  0x20 );  wi_t            _re = _mm256_permute2f128_si256( _tk, _z,  0x31 ); \
-    /**/            _r8 = _mm256_unpacklo_epi32    ( _r8, _ra       );  /**/            _rc = _mm256_unpacklo_epi32    ( _rc, _re       ); \
-    v##0 = _mm256_unpacklo_epi32( _r0, _z );                            w##0 = _mm256_unpacklo_epi32( _s0, _z );                  \
-    v##1 = _mm256_unpackhi_epi32( _r0, _z );                            w##1 = _mm256_unpackhi_epi32( _s0, _z );                  \
-    v##2 = _mm256_unpacklo_epi32( _r2, _z );                            w##2 = _mm256_unpacklo_epi32( _s2, _z );                  \
-    v##3 = _mm256_unpackhi_epi32( _r2, _z );                            w##3 = _mm256_unpackhi_epi32( _s2, _z );                  \
-    v##4 = _mm256_unpacklo_epi32( _r4, _z );                            w##4 = _mm256_unpacklo_epi32( _s4, _z );                  \
-    v##5 = _mm256_unpackhi_epi32( _r4, _z );                            w##5 = _mm256_unpackhi_epi32( _s4, _z );                  \
-    v##6 = _mm256_unpacklo_epi32( _r6, _z );                            w##6 = _mm256_unpacklo_epi32( _s6, _z );                  \
-    v##7 = _mm256_unpackhi_epi32( _r6, _z );                            w##7 = _mm256_unpackhi_epi32( _s6, _z );                  \
-    v##8 = _mm256_unpacklo_epi32( _r8, _z );                            w##8 = _mm256_unpacklo_epi32( _rc, _z );                  \
-    v##9 = _mm256_unpackhi_epi32( _r8, _z );                            w##9 = _mm256_unpackhi_epi32( _rc, _z );                  \
+  /**/ _r8 = _mm256_unpacklo_epi32    ( _r8, _ra       ); /**/ _rc = _mm256_unpacklo_epi32    ( _rc, _re       );                          \
+    v##0 = _mm256_unpacklo_epi32( _r0, _z );                            w##0 = _mm256_unpacklo_epi32( _s0, _z );                           \
+    v##1 = _mm256_unpackhi_epi32( _r0, _z );                            w##1 = _mm256_unpackhi_epi32( _s0, _z );                           \
+    v##2 = _mm256_unpacklo_epi32( _r2, _z );                            w##2 = _mm256_unpacklo_epi32( _s2, _z );                           \
+    v##3 = _mm256_unpackhi_epi32( _r2, _z );                            w##3 = _mm256_unpackhi_epi32( _s2, _z );                           \
+    v##4 = _mm256_unpacklo_epi32( _r4, _z );                            w##4 = _mm256_unpacklo_epi32( _s4, _z );                           \
+    v##5 = _mm256_unpackhi_epi32( _r4, _z );                            w##5 = _mm256_unpackhi_epi32( _s4, _z );                           \
+    v##6 = _mm256_unpacklo_epi32( _r6, _z );                            w##6 = _mm256_unpacklo_epi32( _s6, _z );                           \
+    v##7 = _mm256_unpackhi_epi32( _r6, _z );                            w##7 = _mm256_unpackhi_epi32( _s6, _z );                           \
+    v##8 = _mm256_unpacklo_epi32( _r8, _z );                            w##8 = _mm256_unpacklo_epi32( _rc, _z );                           \
+    v##9 = _mm256_unpackhi_epi32( _r8, _z );                            w##9 = _mm256_unpackhi_epi32( _rc, _z );                           \
   } while(0)
 
 /* FE_AVX_INL_PAIR_SWIZZLE_IN2 is FE_AVX_INL_PAIR_SWIZZLE_IN2 optimized
    for zero c and g columns. */
 
-#define FE_AVX_INL_PAIR_SWIZZLE_IN2( v, a,b, w, e,f ) do {                                                                        \
-    wi_t _z  = wi_zero();                                                                                                         \
-    int const * _a = (a)->limb;                                         int const * _e = (e)->limb;                               \
-    int const * _b = (b)->limb;                                         int const * _f = (f)->limb;                               \
-    wi_t _r0 = wi_ld( _a   );                                           wi_t _s0 = wi_ld( _e   );                                 \
-    wi_t _r8 = wi_ld( _a+8 );                                           wi_t _s8 = wi_ld( _e+8 );                                 \
-    wi_t _r2 = wi_ld( _b   );                                           wi_t _s2 = wi_ld( _f   );                                 \
-    wi_t _ra = wi_ld( _b+8 );                                           wi_t _sa = wi_ld( _f+8 );                                 \
+#define FE_AVX_INL_PAIR_SWIZZLE_IN2( v, a,b, w, e,f ) do {                                                                                 \
+    wi_t _z  = wi_zero();                                                                                                                  \
+    int const * _a = (a)->limb;                                         int const * _e = (e)->limb;                                        \
+    int const * _b = (b)->limb;                                         int const * _f = (f)->limb;                                        \
+    wi_t _r0 = wi_ld( _a   );                                           wi_t _s0 = wi_ld( _e   );                                          \
+    wi_t _r8 = wi_ld( _a+8 );                                           wi_t _s8 = wi_ld( _e+8 );                                          \
+    wi_t _r2 = wi_ld( _b   );                                           wi_t _s2 = wi_ld( _f   );                                          \
+    wi_t _ra = wi_ld( _b+8 );                                           wi_t _sa = wi_ld( _f+8 );                                          \
     wi_t _ta = _r0; _r0 = _mm256_permute2f128_si256( _ta, _z,  0x20 );  wi_t _ua = _s0; _s0 = _mm256_permute2f128_si256( _ua, _z,  0x20 ); \
     wi_t            _r4 = _mm256_permute2f128_si256( _ta, _z,  0x31 );  wi_t            _s4 = _mm256_permute2f128_si256( _ua, _z,  0x31 ); \
     wi_t _tc = _r2; _r2 = _mm256_permute2f128_si256( _tc, _z,  0x20 );  wi_t _uc = _s2; _s2 = _mm256_permute2f128_si256( _uc, _z,  0x20 ); \
     wi_t            _r6 = _mm256_permute2f128_si256( _tc, _z,  0x31 );  wi_t            _s6 = _mm256_permute2f128_si256( _uc, _z,  0x31 ); \
-    /**/            _r8 = _mm256_permute2f128_si256( _r8, _s8, 0x20 );  /**/            _ra = _mm256_permute2f128_si256( _ra, _sa, 0x20 ); \
+  /**/ _r8 = _mm256_permute2f128_si256( _r8, _s8, 0x20 ); /**/ _ra = _mm256_permute2f128_si256( _ra, _sa, 0x20 );                          \
     wi_t _te = _r0; _r0 = _mm256_unpacklo_epi32    ( _te, _r2       );  wi_t _ue = _s0; _s0 = _mm256_unpacklo_epi32    ( _ue, _s2       ); \
-    /**/            _r2 = _mm256_unpackhi_epi32    ( _te, _r2       );  /**/            _s2 = _mm256_unpackhi_epi32    ( _ue, _s2       ); \
+  /**/ _r2 = _mm256_unpackhi_epi32    ( _te, _r2       ); /**/ _s2 = _mm256_unpackhi_epi32    ( _ue, _s2       );                          \
     wi_t _tg = _r4; _r4 = _mm256_unpacklo_epi32    ( _tg, _r6       );  wi_t _ug = _s4; _s4 = _mm256_unpacklo_epi32    ( _ug, _s6       ); \
-    /**/            _r6 = _mm256_unpackhi_epi32    ( _tg, _r6       );  /**/            _s6 = _mm256_unpackhi_epi32    ( _ug, _s6       ); \
+  /**/ _r6 = _mm256_unpackhi_epi32    ( _tg, _r6       ); /**/ _s6 = _mm256_unpackhi_epi32    ( _ug, _s6       );                          \
     wi_t _ti = _r8; _r8 = _mm256_permute2f128_si256( _ti, _z,  0x20 );  wi_t            _rc = _mm256_permute2f128_si256( _ti, _z,  0x31 ); \
     wi_t _tk = _ra; _ra = _mm256_permute2f128_si256( _tk, _z,  0x20 );  wi_t            _re = _mm256_permute2f128_si256( _tk, _z,  0x31 ); \
-    /**/            _r8 = _mm256_unpacklo_epi32    ( _r8, _ra       );  /**/            _rc = _mm256_unpacklo_epi32    ( _rc, _re       ); \
-    v##0 = _mm256_unpacklo_epi32( _r0, _z );                            w##0 = _mm256_unpacklo_epi32( _s0, _z );                  \
-    v##1 = _mm256_unpackhi_epi32( _r0, _z );                            w##1 = _mm256_unpackhi_epi32( _s0, _z );                  \
-    v##2 = _mm256_unpacklo_epi32( _r2, _z );                            w##2 = _mm256_unpacklo_epi32( _s2, _z );                  \
-    v##3 = _mm256_unpackhi_epi32( _r2, _z );                            w##3 = _mm256_unpackhi_epi32( _s2, _z );                  \
-    v##4 = _mm256_unpacklo_epi32( _r4, _z );                            w##4 = _mm256_unpacklo_epi32( _s4, _z );                  \
-    v##5 = _mm256_unpackhi_epi32( _r4, _z );                            w##5 = _mm256_unpackhi_epi32( _s4, _z );                  \
-    v##6 = _mm256_unpacklo_epi32( _r6, _z );                            w##6 = _mm256_unpacklo_epi32( _s6, _z );                  \
-    v##7 = _mm256_unpackhi_epi32( _r6, _z );                            w##7 = _mm256_unpackhi_epi32( _s6, _z );                  \
-    v##8 = _mm256_unpacklo_epi32( _r8, _z );                            w##8 = _mm256_unpacklo_epi32( _rc, _z );                  \
-    v##9 = _mm256_unpackhi_epi32( _r8, _z );                            w##9 = _mm256_unpackhi_epi32( _rc, _z );                  \
+  /**/ _r8 = _mm256_unpacklo_epi32    ( _r8, _ra       ); /**/ _rc = _mm256_unpacklo_epi32    ( _rc, _re       );                          \
+    v##0 = _mm256_unpacklo_epi32( _r0, _z );                            w##0 = _mm256_unpacklo_epi32( _s0, _z );                           \
+    v##1 = _mm256_unpackhi_epi32( _r0, _z );                            w##1 = _mm256_unpackhi_epi32( _s0, _z );                           \
+    v##2 = _mm256_unpacklo_epi32( _r2, _z );                            w##2 = _mm256_unpacklo_epi32( _s2, _z );                           \
+    v##3 = _mm256_unpackhi_epi32( _r2, _z );                            w##3 = _mm256_unpackhi_epi32( _s2, _z );                           \
+    v##4 = _mm256_unpacklo_epi32( _r4, _z );                            w##4 = _mm256_unpacklo_epi32( _s4, _z );                           \
+    v##5 = _mm256_unpackhi_epi32( _r4, _z );                            w##5 = _mm256_unpackhi_epi32( _s4, _z );                           \
+    v##6 = _mm256_unpacklo_epi32( _r6, _z );                            w##6 = _mm256_unpacklo_epi32( _s6, _z );                           \
+    v##7 = _mm256_unpackhi_epi32( _r6, _z );                            w##7 = _mm256_unpackhi_epi32( _s6, _z );                           \
+    v##8 = _mm256_unpacklo_epi32( _r8, _z );                            w##8 = _mm256_unpacklo_epi32( _rc, _z );                           \
+    v##9 = _mm256_unpackhi_epi32( _r8, _z );                            w##9 = _mm256_unpackhi_epi32( _rc, _z );                           \
   } while(0)
 
 /* FE_AVX_INL arithmetic operations ***********************************/
@@ -578,10 +578,10 @@
     wl_t _c6 = wl_add( h##6, _b25 ); h##7 = wl_add( h##7, wl_shr    ( _c6, 26 ) ); h##6 = wl_sub( h##6, wl_and( _c6, _m38u ) ); \
     wl_t _c3 = wl_add( h##3, _b24 ); h##4 = wl_add( h##4, wl_shr    ( _c3, 25 ) ); h##3 = wl_sub( h##3, wl_and( _c3, _m39u ) ); \
     wl_t _c7 = wl_add( h##7, _b24 ); h##8 = wl_add( h##8, wl_shr    ( _c7, 25 ) ); h##7 = wl_sub( h##7, wl_and( _c7, _m39u ) ); \
-    /**/ _c4 = wl_add( h##4, _b25 ); h##5 = wl_add( h##5, wl_shr    ( _c4, 26 ) ); h##4 = wl_sub( h##4, wl_and( _c4, _m38u ) ); \
+  /**/ _c4 = wl_add( h##4, _b25 ); h##5 = wl_add( h##5, wl_shr    ( _c4, 26 ) ); h##4 = wl_sub( h##4, wl_and( _c4, _m38u ) );   \
     wl_t _c8 = wl_add( h##8, _b25 ); h##9 = wl_add( h##9, wl_shr    ( _c8, 26 ) ); h##8 = wl_sub( h##8, wl_and( _c8, _m38u ) ); \
     wl_t _c9 = wl_add( h##9, _b24 ); h##0 = wl_add( h##0, wl_shr_x19( _c9, 25 ) ); h##9 = wl_sub( h##9, wl_and( _c9, _m39u ) ); \
-    /**/ _c0 = wl_add( h##0, _b25 ); h##1 = wl_add( h##1, wl_shr    ( _c0, 26 ) ); h##0 = wl_sub( h##0, wl_and( _c0, _m38u ) ); \
+  /**/ _c0 = wl_add( h##0, _b25 ); h##1 = wl_add( h##1, wl_shr    ( _c0, 26 ) ); h##0 = wl_sub( h##0, wl_and( _c0, _m38u ) );   \
   } while(0)
 
 /* FE_AVX_INL_SQN squares the lanes of f and then scales each lane by
@@ -667,10 +667,10 @@
     wl_t _c6 = wl_add( h##6, _b25 ); h##7 = wl_add( h##7, wl_shr    ( _c6, 26 ) ); h##6 = wl_sub( h##6, wl_and( _c6, _m38u ) ); \
     wl_t _c3 = wl_add( h##3, _b24 ); h##4 = wl_add( h##4, wl_shr    ( _c3, 25 ) ); h##3 = wl_sub( h##3, wl_and( _c3, _m39u ) ); \
     wl_t _c7 = wl_add( h##7, _b24 ); h##8 = wl_add( h##8, wl_shr    ( _c7, 25 ) ); h##7 = wl_sub( h##7, wl_and( _c7, _m39u ) ); \
-    /**/ _c4 = wl_add( h##4, _b25 ); h##5 = wl_add( h##5, wl_shr    ( _c4, 26 ) ); h##4 = wl_sub( h##4, wl_and( _c4, _m38u ) ); \
+  /**/ _c4 = wl_add( h##4, _b25 ); h##5 = wl_add( h##5, wl_shr    ( _c4, 26 ) ); h##4 = wl_sub( h##4, wl_and( _c4, _m38u ) );   \
     wl_t _c8 = wl_add( h##8, _b25 ); h##9 = wl_add( h##9, wl_shr    ( _c8, 26 ) ); h##8 = wl_sub( h##8, wl_and( _c8, _m38u ) ); \
     wl_t _c9 = wl_add( h##9, _b24 ); h##0 = wl_add( h##0, wl_shr_x19( _c9, 25 ) ); h##9 = wl_sub( h##9, wl_and( _c9, _m39u ) ); \
-    /**/ _c0 = wl_add( h##0, _b25 ); h##1 = wl_add( h##1, wl_shr    ( _c0, 26 ) ); h##0 = wl_sub( h##0, wl_and( _c0, _m38u ) ); \
+  /**/ _c0 = wl_add( h##0, _b25 ); h##1 = wl_add( h##1, wl_shr    ( _c0, 26 ) ); h##0 = wl_sub( h##0, wl_and( _c0, _m38u ) );   \
   } while(0)
 
 /* FE_AVX_INL_SQ does a square of the corresponding lanes (with partial
@@ -752,10 +752,10 @@
     wl_t _c6 = wl_add( h##6, _b25 ); h##7 = wl_add( h##7, wl_shr    ( _c6, 26 ) ); h##6 = wl_sub( h##6, wl_and( _c6, _m38u ) ); \
     wl_t _c3 = wl_add( h##3, _b24 ); h##4 = wl_add( h##4, wl_shr    ( _c3, 25 ) ); h##3 = wl_sub( h##3, wl_and( _c3, _m39u ) ); \
     wl_t _c7 = wl_add( h##7, _b24 ); h##8 = wl_add( h##8, wl_shr    ( _c7, 25 ) ); h##7 = wl_sub( h##7, wl_and( _c7, _m39u ) ); \
-    /**/ _c4 = wl_add( h##4, _b25 ); h##5 = wl_add( h##5, wl_shr    ( _c4, 26 ) ); h##4 = wl_sub( h##4, wl_and( _c4, _m38u ) ); \
+  /**/ _c4 = wl_add( h##4, _b25 ); h##5 = wl_add( h##5, wl_shr    ( _c4, 26 ) ); h##4 = wl_sub( h##4, wl_and( _c4, _m38u ) );   \
     wl_t _c8 = wl_add( h##8, _b25 ); h##9 = wl_add( h##9, wl_shr    ( _c8, 26 ) ); h##8 = wl_sub( h##8, wl_and( _c8, _m38u ) ); \
     wl_t _c9 = wl_add( h##9, _b24 ); h##0 = wl_add( h##0, wl_shr_x19( _c9, 25 ) ); h##9 = wl_sub( h##9, wl_and( _c9, _m39u ) ); \
-    /**/ _c0 = wl_add( h##0, _b25 ); h##1 = wl_add( h##1, wl_shr    ( _c0, 26 ) ); h##0 = wl_sub( h##0, wl_and( _c0, _m38u ) ); \
+  /**/ _c0 = wl_add( h##0, _b25 ); h##1 = wl_add( h##1, wl_shr    ( _c0, 26 ) ); h##0 = wl_sub( h##0, wl_and( _c0, _m38u ) );   \
   } while(0)
 
 /* FE_AVX_INL_SQ_ITER squares of the lanes (with partial reduction) of x

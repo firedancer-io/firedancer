@@ -5,7 +5,7 @@
    generator.  Supports parallel generation, interprocess shared memory
    usage, checkpointing, random access, reversible, atomic, etc.  Passes
    extremely strict tests of randomness.
-   
+
    Assumes fd_bits provides a high quality 64<>64-bit integer hash
    functions (i.e. full avalanche) with the property
    fd_ulong_hash(0)==0, fd_ulong_hash(i) for i in [0,2^64) yields a
@@ -152,7 +152,7 @@ fd_rng_idx_set( fd_rng_t * rng,
    of a signed int uniform IID can be obtained by casting the output of
    the unsigned generator of the same, assuming a typical twos
    complement arithmetic platform.)
-   
+
    The theory for this that fd_ulong_hash(i) for i in [0,2^64) specifies
    a random looking permutation of the integers in [0,2^64).  Returning
    the low order bits of this random permutation then yields a high

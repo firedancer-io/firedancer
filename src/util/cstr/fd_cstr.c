@@ -17,9 +17,9 @@ uchar        fd_cstr_to_uchar ( char const * cstr ) { return (uchar) strtoul( cs
 ushort       fd_cstr_to_ushort( char const * cstr ) { return (ushort)strtoul( cstr, NULL, 0 ); }
 uint         fd_cstr_to_uint  ( char const * cstr ) { return (uint)  strtoul( cstr, NULL, 0 ); }
 ulong        fd_cstr_to_ulong ( char const * cstr ) { return (ulong) strtoul( cstr, NULL, 0 ); }
-float        fd_cstr_to_float ( char const * cstr ) { return         strtof ( cstr, NULL    ); }
+float        fd_cstr_to_float ( char const * cstr ) { return strtof ( cstr, NULL    ); }
 #if FD_HAS_DOUBLE
-double       fd_cstr_to_double( char const * cstr ) { return         strtod ( cstr, NULL    ); }
+double       fd_cstr_to_double( char const * cstr ) { return strtod ( cstr, NULL    ); }
 #endif
 
 ulong fd_cstr_to_ulong_octal( char const * cstr ) { return (ulong)strtoul( cstr, NULL, 8 ); }
@@ -34,11 +34,11 @@ fd_cstr_to_ip4_addr( char const * s ) {
   int res = sscanf( s, "%u.%u.%u.%u%n", &x[0], &x[1], &x[2], &x[3], &n );
 
   if( FD_UNLIKELY( res!=4
-                || n<0 || s[n]!='\0'
-                || x[0]>UCHAR_MAX
-                || x[1]>UCHAR_MAX
-                || x[2]>UCHAR_MAX
-                || x[3]>UCHAR_MAX ) )
+                   || n<0 || s[n]!='\0'
+                   || x[0]>UCHAR_MAX
+                   || x[1]>UCHAR_MAX
+                   || x[2]>UCHAR_MAX
+                   || x[3]>UCHAR_MAX ) )
     return ULONG_MAX;
 
   return ( x[0] | (x[1]<<8) | (x[2]<<16) | (x[3]<<24) );

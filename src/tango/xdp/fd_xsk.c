@@ -63,7 +63,7 @@ fd_xsk_footprint( ulong frame_sz,
 
   /* TODO overflow checks */
   return fd_ulong_align_up( sizeof(fd_xsk_t), FD_XSK_UMEM_ALIGN )
-       + fd_xsk_umem_footprint( frame_sz, fr_depth, rx_depth, tx_depth, cr_depth );
+    + fd_xsk_umem_footprint( frame_sz, fr_depth, rx_depth, tx_depth, cr_depth );
 }
 
 /* Bind/unbind ********************************************************/
@@ -282,11 +282,11 @@ fd_xsk_mmap_offset_cstr( long mmap_off ) {
    and populates fd_ring_desc_t.  Every successful call to this function
    should eventually be paired with a call to fd_xsk_munmap_ring(). */
 static int
-fd_xsk_mmap_ring( fd_ring_desc_t * ring,
-                  int              xsk_fd,
-                  long             map_off,
-                  ulong            elem_sz,
-                  ulong            depth,
+fd_xsk_mmap_ring( fd_ring_desc_t *               ring,
+                  int                            xsk_fd,
+                  long                           map_off,
+                  ulong                          elem_sz,
+                  ulong                          depth,
                   struct xdp_ring_offset const * ring_offset ) {
   /* TODO what is ring_offset->desc ? */
   /* TODO: mmap was originally called with MAP_POPULATE,
@@ -389,14 +389,14 @@ fd_xsk_setup_umem( fd_xsk_t * xsk ) {
   }
 
   /* Set ring frame counts */
-# define FD_SET_XSK_RING_DEPTH(name, var)                              \
-    do {                                                               \
-      res = setsockopt( xsk->xsk_fd, SOL_XDP, name, &(var), 8UL );     \
-      if( FD_UNLIKELY( res!=0 ) ) {                                    \
-        FD_LOG_WARNING(( "setsockopt(SOL_XDP, " #name ") failed: %s",  \
-                         strerror( errno ) ));                         \
-        return -1;                                                     \
-      }                                                                \
+# define FD_SET_XSK_RING_DEPTH(name, var)                             \
+    do {                                                              \
+      res = setsockopt( xsk->xsk_fd, SOL_XDP, name, &(var), 8UL );    \
+      if( FD_UNLIKELY( res!=0 ) ) {                                   \
+        FD_LOG_WARNING(( "setsockopt(SOL_XDP, " #name ") failed: %s", \
+                         strerror( errno ) ));                        \
+        return -1;                                                    \
+      }                                                               \
     } while(0)
   FD_SET_XSK_RING_DEPTH( XDP_UMEM_FILL_RING,       xsk->params.fr_depth );
   FD_SET_XSK_RING_DEPTH( XDP_RX_RING,              xsk->params.rx_depth );
@@ -603,7 +603,7 @@ fd_xsk_rx_enqueue( fd_xsk_t * xsk,
 
   /* set ring[j] to the specified indices */
   ulong * ring = fill->frame_ring;
-  ulong mask = fill->depth - 1UL;
+  ulong   mask = fill->depth - 1UL;
   for( ulong j = 0; j < sz; ++j ) {
     ulong k = prod & mask;
     ring[k] = offset[j];
@@ -615,7 +615,7 @@ fd_xsk_rx_enqueue( fd_xsk_t * xsk,
   FD_RELEASE();
 
   /* update producer */
-                fill->cached_prod   = prod;
+  fill->cached_prod   = prod;
   FD_VOLATILE( *fill->prod        ) = prod;
 
   /* TODO do we need to check for wakeup here? */
@@ -653,7 +653,7 @@ fd_xsk_rx_enqueue2( fd_xsk_t *            xsk,
 
   /* set ring[j] to the specified indices */
   ulong * ring = fill->frame_ring;
-  ulong mask = fill->depth - 1;
+  ulong   mask = fill->depth - 1;
   for( ulong j = 0; j < sz; ++j ) {
     ulong k = prod & mask;
     ring[k] = meta[j].off & frame_mask;
@@ -665,7 +665,7 @@ fd_xsk_rx_enqueue2( fd_xsk_t *            xsk,
   FD_RELEASE();
 
   /* update producer */
-                fill->cached_prod   = prod;
+  fill->cached_prod   = prod;
   FD_VOLATILE( *fill->prod        ) = prod;
 
   /* TODO do we need to check for wakeup here? */
@@ -706,7 +706,7 @@ fd_xsk_tx_enqueue( fd_xsk_t *            xsk,
 
   /* set ring[j] to the specified indices */
   struct xdp_desc * ring = tx->packet_ring;
-  ulong mask = tx->depth - 1;
+  ulong             mask = tx->depth - 1;
   for( ulong j = 0; j < sz; ++j ) {
     ulong k = prod & mask;
     ring[k].addr    = meta[j].off;
@@ -720,7 +720,7 @@ fd_xsk_tx_enqueue( fd_xsk_t *            xsk,
   FD_RELEASE();
 
   /* update producer */
-                tx->cached_prod   = prod;
+  tx->cached_prod   = prod;
   FD_VOLATILE( *tx->prod        ) = prod;
 
   /* XDP tells us whether we need to specifically wake up the driver/hw */
@@ -756,7 +756,7 @@ fd_xsk_rx_complete( fd_xsk_t *            xsk,
   ulong sz = avail;
   if( sz > capacity ) sz = capacity;
 
-  ulong mask = rx->depth - 1;
+  ulong             mask = rx->depth - 1;
   struct xdp_desc * ring = rx->packet_ring;
   for( ulong j = 0; j < sz; ++j ) {
     ulong k = cons & mask;
@@ -769,7 +769,7 @@ fd_xsk_rx_complete( fd_xsk_t *            xsk,
 
   FD_RELEASE();
 
-                rx->cached_cons   = cons;
+  rx->cached_cons   = cons;
   FD_VOLATILE( *rx->cons        ) = cons;
 
   return sz;
@@ -798,7 +798,7 @@ fd_xsk_tx_complete( fd_xsk_t * xsk, ulong * batch, ulong capacity ) {
   ulong sz = avail;
   if( sz > capacity ) sz = capacity;
 
-  ulong mask = cr->depth - 1;
+  ulong   mask = cr->depth - 1;
   ulong * ring = cr->frame_ring;
   for( ulong j = 0; j < sz; ++j ) {
     ulong k = cons & mask;
@@ -809,7 +809,7 @@ fd_xsk_tx_complete( fd_xsk_t * xsk, ulong * batch, ulong capacity ) {
 
   FD_RELEASE();
 
-                cr->cached_cons   = cons;
+  cr->cached_cons   = cons;
   FD_VOLATILE( *cr->cons        ) = cons;
 
   return sz;
@@ -840,7 +840,7 @@ fd_xsk_tx_complete2( fd_xsk_t *            xsk,
   ulong sz = avail;
   if( sz > capacity ) sz = capacity;
 
-  ulong mask = cr->depth - 1;
+  ulong   mask = cr->depth - 1;
   ulong * ring = cr->frame_ring;
   for( ulong j = 0; j < sz; ++j ) {
     ulong k = cons & mask;
@@ -851,7 +851,7 @@ fd_xsk_tx_complete2( fd_xsk_t *            xsk,
 
   FD_RELEASE();
 
-                cr->cached_cons   = cons;
+  cr->cached_cons   = cons;
   FD_VOLATILE( *cr->cons        ) = cons;
 
   return sz;

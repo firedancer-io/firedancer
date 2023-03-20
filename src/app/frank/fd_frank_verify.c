@@ -9,7 +9,7 @@ fd_frank_verify_task( int     argc,
   fd_log_thread_set( argv[0] );
   char const * verify_name = argv[0];
   FD_LOG_INFO(( "verify.%s init", verify_name ));
-  
+
   /* Parse "command line" arguments */
 
   char const * pod_gaddr = argv[1];
@@ -100,25 +100,25 @@ fd_frank_verify_task( int     argc,
 
   uint seed = fd_pod_query_uint( verify_pod, "seed", (uint)fd_tile_id() ); /* use app tile_id as default */
   FD_LOG_INFO(( "creating rng (%s.verify.%s.seed %u)", cfg_path, verify_name, seed ));
-  fd_rng_t _rng[ 1 ];
+  fd_rng_t   _rng[ 1 ];
   fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, seed, 0UL ) );
   if( FD_UNLIKELY( !rng ) ) FD_LOG_ERR(( "fd_rng_join failed" ));
 
   /* FIXME: PROBABLY SHOULD PUT THIS IN WORKSPACE */
 # define TCACHE_DEPTH   (16UL) /* Should be ~1/2-1/4 MAP_CNT */
 # define TCACHE_MAP_CNT (64UL) /* Power of two */
-  uchar tcache_mem[ FD_TCACHE_FOOTPRINT( TCACHE_DEPTH, TCACHE_MAP_CNT ) ] __attribute__((aligned(FD_TCACHE_ALIGN)));
+  uchar         tcache_mem[ FD_TCACHE_FOOTPRINT( TCACHE_DEPTH, TCACHE_MAP_CNT ) ] __attribute__((aligned(FD_TCACHE_ALIGN)));
   fd_tcache_t * tcache  = fd_tcache_join( fd_tcache_new( tcache_mem, TCACHE_DEPTH, TCACHE_MAP_CNT ) );
-  ulong   tcache_depth   = fd_tcache_depth       ( tcache );
-  ulong   tcache_map_cnt = fd_tcache_map_cnt     ( tcache );
-  ulong * _tcache_sync   = fd_tcache_oldest_laddr( tcache );
-  ulong * _tcache_ring   = fd_tcache_ring_laddr  ( tcache );
-  ulong * _tcache_map    = fd_tcache_map_laddr   ( tcache );
-  ulong   tcache_oldest  = FD_VOLATILE_CONST( *_tcache_sync );
+  ulong         tcache_depth   = fd_tcache_depth       ( tcache );
+  ulong         tcache_map_cnt = fd_tcache_map_cnt     ( tcache );
+  ulong *       _tcache_sync   = fd_tcache_oldest_laddr( tcache );
+  ulong *       _tcache_ring   = fd_tcache_ring_laddr  ( tcache );
+  ulong *       _tcache_map    = fd_tcache_map_laddr   ( tcache );
+  ulong         tcache_oldest  = FD_VOLATILE_CONST( *_tcache_sync );
 
   ulong accum_ha_filt_cnt = 0UL; ulong accum_ha_filt_sz = 0UL;
 
-  fd_sha512_t _sha[1];
+  fd_sha512_t   _sha[1];
   fd_sha512_t * sha = fd_sha512_join( fd_sha512_new( _sha ) );
   if( FD_UNLIKELY( !sha ) ) FD_LOG_ERR(( "fd_sha512 join failed" ));
 

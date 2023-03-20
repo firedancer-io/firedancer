@@ -41,7 +41,7 @@ main( int     argc,
   if( FD_UNLIKELY( !dcache ) ) FD_LOG_ERR(( "fd_dcache_join failed" ));
 
   char * _out_fseq[ 256 ];
-  ulong out_cnt = fd_cstr_tokenize( _out_fseq, 256UL, (char *)_out_fseqs, ',' ); /* argv is non-const */
+  ulong  out_cnt = fd_cstr_tokenize( _out_fseq, 256UL, (char *)_out_fseqs, ',' ); /* argv is non-const */
   if( FD_UNLIKELY( out_cnt>256UL ) ) FD_LOG_ERR(( "too many --out-fseqs specified for current implementation" ));
 
   ulong * out_fseq[ 256 ];
@@ -54,7 +54,7 @@ main( int     argc,
   FD_LOG_NOTICE(( "Using --cr-max %lu, --lazy %li", cr_max, lazy ));
 
   FD_LOG_NOTICE(( "Creating rng --seed %u", seed ));
-  fd_rng_t _rng[1];
+  fd_rng_t   _rng[1];
   fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, seed, 0UL ) );
 
   FD_LOG_NOTICE(( "Creating scratch" ));

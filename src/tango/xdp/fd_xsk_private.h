@@ -101,9 +101,9 @@ struct __attribute__((aligned(FD_XSK_ALIGN))) fd_xsk_private {
   struct xdp_mmap_offsets offsets;
 
   /* Open file descriptors */
-  int xsk_fd;         /* AF_XDP socket file descriptor */
-  int xdp_map_fd;     /* eBPF XSKMAP */
-  int xdp_udp_map_fd; /* eBPF UDP map */
+  int                     xsk_fd; /* AF_XDP socket file descriptor */
+  int                     xdp_map_fd; /* eBPF XSKMAP */
+  int                     xdp_udp_map_fd; /* eBPF UDP map */
 
   /* ring_{rx,tx,fr,cr}: XSK ring descriptors */
 

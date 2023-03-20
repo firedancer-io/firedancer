@@ -12,9 +12,9 @@ static inline ulong            /* Random fxp */
 make_rand_fxp( ulong x,        /* Random 64-bit */
                uint *_ctl ) { /* Least significant 8 bits random, uses them up */
   uint ctl = *_ctl;
-  int s = (int)(ctl & 63U); ctl >>= 6; /* Shift, in [0,63] */
-  int d = (int)(ctl &  1U); ctl >>= 1; /* Direction, in [0,1] */
-  int i = (int)(ctl &  1U); ctl >>= 1; /* Invert, in [0,1] */
+  int  s = (int)(ctl & 63U); ctl >>= 6; /* Shift, in [0,63] */
+  int  d = (int)(ctl &  1U); ctl >>= 1;/* Direction, in [0,1] */
+  int  i = (int)(ctl &  1U); ctl >>= 1;/* Invert, in [0,1] */
   *_ctl = ctl;
   x = d ? (x<<s) : (x>>s);
   return i ? (~x) : x;
@@ -36,7 +36,7 @@ static inline ulong
 fd_fxp_sub_ref( ulong   x,
                 ulong   y,
                 ulong * _b ) {
-  ulong  b = (ulong)(x<y);
+  ulong   b = (ulong)(x<y);
   uint128 z = (((uint128)b)<<64) + ((uint128)x) - ((uint128)y);
   *_b = b;
   return split_lo( z );
@@ -84,7 +84,7 @@ fd_fxp_mul_rne_ref( ulong   x,
                     ulong   y,
                     ulong * _c ) {
   uint128 z = ((uint128)x)*((uint128)y);
-  ulong f = split_lo( z ) & ((1UL<<30)-1UL);
+  ulong   f = split_lo( z ) & ((1UL<<30)-1UL);
   z >>= 30;
   if( (f>(1UL<<29)) || ((f==(1UL<<29)) && (z & 1UL)) ) z++;
   *_c = split_hi( z );
@@ -96,7 +96,7 @@ fd_fxp_mul_rno_ref( ulong   x,
                     ulong   y,
                     ulong * _c ) {
   uint128 z = ((uint128)x)*((uint128)y);
-  ulong f = split_lo( z ) & ((1UL<<30)-1UL);
+  ulong   f = split_lo( z ) & ((1UL<<30)-1UL);
   z >>= 30;
   if( (f>(1UL<<29)) || ((f==(1UL<<29)) && !(z & 1UL)) ) z++;
   *_c = split_hi( z );
@@ -220,7 +220,7 @@ fd_fxp_log2_ref( ulong x,
                  int * _e ) {
   if( !x ) { *_e = INT_MIN; return 0UL; }
   float ef = log2f( (float)x );
-  int e = fd_ulong_find_msb( x );
+  int   e = fd_ulong_find_msb( x );
   *_e = e - 30;
   return (ulong)roundf( (ef - (float)e)*(float)(1UL<<30) );
 }
@@ -243,7 +243,7 @@ fd_fxp_log2_ref( ulong x,
                  int * _e ) {
   if( !x ) { *_e = INT_MIN; return 0UL; }
   double ef = log2( (double)x );
-  int e = fd_ulong_find_msb( x );
+  int    e = fd_ulong_find_msb( x );
   *_e = e - 30;
   return (ulong)round( (ef - (double)e)*(double)(1UL<<30) );
 }
@@ -267,7 +267,7 @@ main( int     argc,
 
   fd_boot( &argc, &argv );
 
-  fd_rng_t _rng[1];
+  fd_rng_t   _rng[1];
   fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
 
   ulong fd_fxp_log2_approx_ulp  = 0UL;
@@ -283,28 +283,28 @@ main( int     argc,
     ulong x = make_rand_fxp( fd_rng_ulong( rng ), &t );
     ulong y = make_rand_fxp( fd_rng_ulong( rng ), &t );
 
-#   define TEST(op)                                  \
-    do {                                             \
-      ulong c0,z0 = fd_fxp_##op##_ref ( x, y, &c0 ); \
-      ulong c1,z1 = fd_fxp_##op       ( x, y, &c1 ); \
-      ulong    z2 = fd_fxp_##op##_fast( x, y );      \
-      if( c0!=c1 || z0!=z1 || (!c0 && z0!=z2) )      \
+#   define TEST(op)                                                                                             \
+    do {                                                                                                        \
+      ulong c0,z0 = fd_fxp_##op##_ref ( x, y, &c0 );                                                            \
+      ulong c1,z1 = fd_fxp_##op       ( x, y, &c1 );                                                            \
+      ulong    z2 = fd_fxp_##op##_fast( x, y );                                                                 \
+      if( c0!=c1 || z0!=z1 || (!c0 && z0!=z2) )                                                                 \
         FD_LOG_ERR(( "FAIL: %i fd_fxp_" #op " x %016lx y %016lx cz0 %016lx %016lx cz1 %016lx %016lx z2 %016lx", \
-                     i, x, y, c0,z0, c1,z1, z2 ));   \
+                     i, x, y, c0,z0, c1,z1, z2 ));                                                              \
     } while(0)
 
     TEST(add);
     TEST(sub);
 
 #   undef TEST
-#   define TEST(op)                                  \
-    do {                                             \
-      ulong c0,z0 = fd_fxp_##op##_ref ( x, y, &c0 ); \
-      ulong c1,z1 = fd_fxp_##op       ( x, y, &c1 ); \
-      ulong    z2 = fd_fxp_##op##_fast( x, y );      \
-      if( c0!=c1 || z0!=z1 || (!c0 && z0<0x3c0000000UL && z0!=z2) ) \
+#   define TEST(op)                                                                                             \
+    do {                                                                                                        \
+      ulong c0,z0 = fd_fxp_##op##_ref ( x, y, &c0 );                                                            \
+      ulong c1,z1 = fd_fxp_##op       ( x, y, &c1 );                                                            \
+      ulong    z2 = fd_fxp_##op##_fast( x, y );                                                                 \
+      if( c0!=c1 || z0!=z1 || (!c0 && z0<0x3c0000000UL && z0!=z2) )                                             \
         FD_LOG_ERR(( "FAIL: %i fd_fxp_" #op " x %016lx y %016lx cz0 %016lx %016lx cz1 %016lx %016lx z2 %016lx", \
-                     i, x, y, c0,z0, c1,z1, z2 ));   \
+                     i, x, y, c0,z0, c1,z1, z2 ));                                                              \
     } while(0)
 
     TEST(mul_rtz);
@@ -315,14 +315,14 @@ main( int     argc,
     TEST(mul_rno);
 
 #   undef TEST
-#   define TEST(op)                                  \
-    do {                                             \
-      ulong c0,z0 = fd_fxp_##op##_ref ( x, y, &c0 ); \
-      ulong c1,z1 = fd_fxp_##op       ( x, y, &c1 ); \
-      ulong    z2 = y ? fd_fxp_##op##_fast( x, y ) : 0UL; \
-      if( c0!=c1 || z0!=z1 || ((x<0x400000000UL) && (y<=ULONG_MAX-(x<<30)) && (z0!=z2)) ) \
+#   define TEST(op)                                                                                             \
+    do {                                                                                                        \
+      ulong c0,z0 = fd_fxp_##op##_ref ( x, y, &c0 );                                                            \
+      ulong c1,z1 = fd_fxp_##op       ( x, y, &c1 );                                                            \
+      ulong    z2 = y ? fd_fxp_##op##_fast( x, y ) : 0UL;                                                       \
+      if( c0!=c1 || z0!=z1 || ((x<0x400000000UL) && (y<=ULONG_MAX-(x<<30)) && (z0!=z2)) )                       \
         FD_LOG_ERR(( "FAIL: %i fd_fxp_" #op " x %016lx y %016lx cz0 %016lx %016lx cz1 %016lx %016lx z2 %016lx", \
-                     i, x, y, c0,z0, c1,z1, z2 ));   \
+                     i, x, y, c0,z0, c1,z1, z2 ));                                                              \
     } while(0)
 
     TEST(div_rtz);
@@ -333,13 +333,13 @@ main( int     argc,
     TEST(div_rno);
 
 #   undef TEST
-#   define TEST(op)                       \
-    do {                                  \
-      ulong z1 = fd_fxp_##op       ( x ); \
-      ulong z2 = fd_fxp_##op##_fast( x ); \
-      if( test_fd_fxp_##op( x, z1 ) || ((x<0x400000000UL) && (z1!=z2)) ) { \
+#   define TEST(op)                                                                           \
+    do {                                                                                      \
+      ulong z1 = fd_fxp_##op       ( x );                                                     \
+      ulong z2 = fd_fxp_##op##_fast( x );                                                     \
+      if( test_fd_fxp_##op( x, z1 ) || ((x<0x400000000UL) && (z1!=z2)) ) {                    \
         FD_LOG_ERR(( "FAIL: %i fd_fxp_" #op " x %016lx z1 %016lx z2 %016lx", i, x, z1, z2 )); \
-      }                                   \
+      }                                                                                       \
     } while(0)
 
     TEST(sqrt_rtz);
@@ -349,8 +349,8 @@ main( int     argc,
 #   undef TEST
 
     do {
-      int e0; ulong f0 = fd_fxp_log2_ref   ( x, &e0 );
-      int e1; ulong f1 = fd_fxp_log2_approx( x, &e1 );
+      int   e0; ulong f0 = fd_fxp_log2_ref   ( x, &e0 );
+      int   e1; ulong f1 = fd_fxp_log2_approx( x, &e1 );
       ulong ulp = f0>f1 ? f0-f1 : f1-f0;
       if( ulp > fd_fxp_log2_approx_ulp ) fd_fxp_log2_approx_ulp = ulp;
       /* FIXME: when double support is not available, fxp is more

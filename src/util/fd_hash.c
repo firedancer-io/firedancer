@@ -21,10 +21,10 @@ fd_hash( ulong        seed,
   if( sz<32 ) h = seed + C5;
   else {
     uchar const * stop32 = stop - 32;
-    ulong w = seed + (C1+C2);
-    ulong x = seed + C2;
-    ulong y = seed;
-    ulong z = seed - C1;
+    ulong         w = seed + (C1+C2);
+    ulong         x = seed + C2;
+    ulong         y = seed;
+    ulong         z = seed - C1;
 
     do { /* All complete blocks of 32 */
       w += (((ulong const *)p)[0])*C2; w = ROTATE_LEFT( w, 31 ); w *= C1;
@@ -86,10 +86,10 @@ fd_hash_memcpy( ulong                    seed,
   if( sz<32 ) h = seed + C5;
   else {
     uchar const * FD_RESTRICT stop32 = stop - 32;
-    ulong w = seed + (C1+C2);
-    ulong x = seed + C2;
-    ulong y = seed;
-    ulong z = seed - C1;
+    ulong                     w = seed + (C1+C2);
+    ulong                     x = seed + C2;
+    ulong                     y = seed;
+    ulong                     z = seed - C1;
 
     do { /* All complete blocks of 32 */
       ulong p0 = ((ulong const *)p)[0];
@@ -127,7 +127,7 @@ fd_hash_memcpy( ulong                    seed,
   }
 
   if( (p+4)<=stop ) { /* Last complete uint */
-    uint p0 = ((uint const *)p)[0];
+    uint  p0 = ((uint const *)p)[0];
     ulong w = ((ulong)p0)*C1; h ^= w; h = ROTATE_LEFT( h, 23 )*C2 + C3;
     ((uint *)q)[0] = p0;
     p += 4;

@@ -33,7 +33,7 @@ main( int     argc,
   fd_boot( &argc, &argv );
 
   fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
-  
+
   ulong numa_cnt = fd_shmem_numa_cnt(); FD_TEST( (1UL<=numa_cnt) & (numa_cnt<=FD_SHMEM_NUMA_MAX) );
   ulong cpu_cnt  = fd_shmem_cpu_cnt (); FD_TEST( (1UL<=cpu_cnt ) & (cpu_cnt <=FD_SHMEM_CPU_MAX ) );
   FD_TEST( numa_cnt<=cpu_cnt );
@@ -58,7 +58,7 @@ main( int     argc,
 
   for( int i=0; i<1000000; i++ ) {
     ulong len = (ulong)fd_rng_uint_roll( rng, FD_SHMEM_NAME_MAX+1UL ); /* In [0,FD_SHMEM_NAME_MAX] */
-    char name[ FD_SHMEM_NAME_MAX+1UL ];
+    char  name[ FD_SHMEM_NAME_MAX+1UL ];
     for( ulong b=0UL; b<len; b++ ) {
       uint r = fd_rng_uint_roll( rng, 66U ); /* In [0,65] */
       char c;
@@ -150,14 +150,14 @@ main( int     argc,
   FD_TEST( fd_shmem_join_query_by_addr( (void *)ULONG_MAX, 2UL, info )==EINVAL );
 
   if( argc>1 ) {
-    ulong name_cnt = fd_ulong_min( (ulong)(argc-1), FD_SHMEM_JOIN_MAX );
+    ulong   name_cnt = fd_ulong_min( (ulong)(argc-1), FD_SHMEM_JOIN_MAX );
     char ** _name = &argv[1]; /* Assumed valid and distinct */
 
     fd_shmem_join_info_t ref_info[ FD_SHMEM_JOIN_MAX ];
     fd_memset( ref_info, 0, name_cnt*sizeof(fd_shmem_join_info_t) );
 
     for( int i=0; i<65536; i++ ) {
-      ulong idx = fd_rng_ulong_roll( rng, name_cnt );
+      ulong        idx = fd_rng_ulong_roll( rng, name_cnt );
       char const * name = _name[ idx ];
 
       uint r  = fd_rng_uint( rng );
@@ -210,12 +210,12 @@ main( int     argc,
         } else { /* this join just increments the ref cnt */
 
           fd_shmem_join_info_t * ref = &ref_info[idx];
-          void * join     = ref->join;
-          void * shmem    = ref->shmem;
-          ulong  page_sz  = ref->page_sz;
-          ulong  page_cnt = ref->page_cnt;
-          ulong  sz       = page_sz*page_cnt;
-          ulong  off      = fd_rng_ulong_roll( rng, sz );
+          void *                 join     = ref->join;
+          void *                 shmem    = ref->shmem;
+          ulong                  page_sz  = ref->page_sz;
+          ulong                  page_cnt = ref->page_cnt;
+          ulong                  sz       = page_sz*page_cnt;
+          ulong                  off      = fd_rng_ulong_roll( rng, sz );
 
           fd_memset( info, 0, sizeof(fd_shmem_join_info_t) );
           FD_TEST( !fd_shmem_join_query_by_name( name, NULL ) );
@@ -256,12 +256,12 @@ main( int     argc,
         if( ref_info[idx].ref_cnt<1L ) continue; /* Not currently joined */
 
         fd_shmem_join_info_t * ref = &ref_info[idx];
-        void * join     = ref->join;
-        void * shmem    = ref->shmem;
-        ulong  page_sz  = ref->page_sz;
-        ulong  page_cnt = ref->page_cnt;
-        ulong  sz       = page_sz*page_cnt;
-        ulong  off      = fd_rng_ulong_roll( rng, sz );
+        void *                 join     = ref->join;
+        void *                 shmem    = ref->shmem;
+        ulong                  page_sz  = ref->page_sz;
+        ulong                  page_cnt = ref->page_cnt;
+        ulong                  sz       = page_sz*page_cnt;
+        ulong                  off      = fd_rng_ulong_roll( rng, sz );
 
         fd_memset( info, 0, sizeof(fd_shmem_join_info_t) );
         FD_TEST( !fd_shmem_join_query_by_name( name, NULL ) );
@@ -316,7 +316,7 @@ main( int     argc,
 
   /* FIXME: DO MORE EXTENSIVE TESTS OF ACQUIRE / RELEASE */
 
-  ulong test_cnt = 3UL;
+  ulong              test_cnt = 3UL;
   static ulong const test_psz [3] = { FD_SHMEM_NORMAL_PAGE_SZ, FD_SHMEM_HUGE_PAGE_SZ, FD_SHMEM_GIGANTIC_PAGE_SZ };
   static ulong const test_pcnt[3] = { 3UL,                     2UL,                   1UL                       };
   static ulong const test_cpu [3] = { 0UL,                     0UL,                   0UL                       };

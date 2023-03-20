@@ -22,7 +22,7 @@ test_valid_ar( void ) {
   /* Read a few entries */
 
   fd_ar_meta_t meta[1];
-  uchar buf[1500];
+  uchar        buf[1500];
 
 # define CHECK_NEXT_AR(name, sz, off, val )         \
   FD_TEST( !fd_ar_read_next( file, meta )        ); \
@@ -51,7 +51,7 @@ test_valid_ar( void ) {
 
 static void
 test_empty_ar( void ) {
-  char buf[ 8 ];
+  char   buf[ 8 ];
   FILE * file = fmemopen( fd_memcpy( buf, "!<arch>\n", 8UL ), 8UL, "rb" );
   FD_TEST( file );
   FD_TEST( !fd_ar_read_init( file ) );
@@ -64,7 +64,7 @@ test_empty_ar( void ) {
 
 static void
 test_invalid_ar_magic( void ) {
-  char buf[ 128 ];
+  char   buf[ 128 ];
   FILE * file = fmemopen( fd_memset( buf, 0, 128UL ), 128UL, "rb" );
   FD_TEST( file );
   FD_TEST( fd_ar_read_init( file )==EPROTO );
@@ -75,7 +75,7 @@ test_invalid_ar_magic( void ) {
 
 static void
 test_invalid_entry_magic( void ) {
-  char buf[ 128 ];
+  char   buf[ 128 ];
   FILE * file = fmemopen( fd_memcpy( fd_memset( buf, 0, 128UL ), "!<arch>\n", 8UL ), 128UL, "rb" );
   FD_TEST( file );
   FD_TEST( !fd_ar_read_init( file ) );

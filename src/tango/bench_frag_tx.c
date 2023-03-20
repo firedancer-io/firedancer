@@ -239,7 +239,7 @@ main( int     argc,
     int ctl_err = 0;
 
     ulong sig    = seq; /* Test pattern */
-  /*ulong chunk  = ... already at location where next packet will be written ...; */
+    /*ulong chunk  = ... already at location where next packet will be written ...; */
     ulong sz     = pkt_framing + frag_sz;
     ulong ctl    = fd_frag_meta_ctl( tx_idx, ctl_som, ctl_eom, ctl_err );
     ulong tsorig = 0UL;

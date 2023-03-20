@@ -58,13 +58,13 @@ fd_xdp_init( char const * app_name ) {
   /* Create UDP dsts map */
 
   struct bpf_map_create_opts map_create_opts = { .sz = sizeof(struct bpf_map_create_opts) };
-  int udp_dsts_map_fd = bpf_map_create(
-      /* map_type    */ BPF_MAP_TYPE_HASH,
-      /* map_name    */ "firedancer_udp_dsts",
-      /* key_size    */ 8U,
-      /* value_size  */ 4U,
-      /* max_entries */ FD_XDP_UDP_MAP_CNT,
-      /* opts        */ &map_create_opts );
+  int                        udp_dsts_map_fd = bpf_map_create(
+    /* map_type    */ BPF_MAP_TYPE_HASH,
+    /* map_name    */ "firedancer_udp_dsts",
+    /* key_size    */ 8U,
+    /* value_size  */ 4U,
+    /* max_entries */ FD_XDP_UDP_MAP_CNT,
+    /* opts        */ &map_create_opts );
   if( FD_UNLIKELY( udp_dsts_map_fd<0 ) ) {
     FD_LOG_WARNING(( "bpf_map_create(BPF_MAP_TYPE_HASH,\"firedancer_udp_dsts\",8U,4U,%u,%p) failed (%d-%s)",
                      FD_XDP_UDP_MAP_CNT, (void *)&map_create_opts, errno, strerror( errno ) ));

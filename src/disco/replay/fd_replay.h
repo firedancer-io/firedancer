@@ -121,7 +121,7 @@ FD_PROTOTYPES_BEGIN
    diagnose configuration issues.  Otherwise,
    fd_replay_tile_scratch_footprint will return the same value as
    FD_REPLAY_TILE_SCRATCH_FOOTPRINT.
-   
+
    The lifetime of the cnc, mcache, dcache, out_fseq[*], rng and scratch
    used by this tile should be a superset of this tile's lifetime.
    While this tile is running, no other tile should use cnc for its

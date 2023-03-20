@@ -34,7 +34,7 @@ shuffle_pair( fd_rng_t * rng,
               pair_t *   pair,
               ulong      cnt ) {
   for( ulong i=1UL; i<cnt; i++ ) {
-    ulong j  = fd_rng_ulong_roll( rng, i+1UL );
+    ulong  j  = fd_rng_ulong_roll( rng, i+1UL );
     pair_t t = pair[i]; pair[i] = pair[j]; pair[j] = t;
   }
 }
@@ -48,7 +48,7 @@ main( int     argc,
 
   pair_t ref[511];
   pair_t tst[511];
-  ulong max = (1UL<<LG_SLOT_CNT) - 1UL; /* Take map right to its algorithmic limit */
+  ulong  max = (1UL<<LG_SLOT_CNT) - 1UL; /* Take map right to its algorithmic limit */
   if( FD_UNLIKELY( max>511UL ) ) { FD_LOG_WARNING(( "skip: adjust ref and tst to support this test" )); return 0; }
   for( ulong idx=0UL; idx<max; idx++ ) {
     ref[idx].mykey  = ((fd_rng_ulong( rng ) | 1UL) << 8) | idx; /* Every map key is unique and non-zero */
@@ -165,7 +165,7 @@ main( int     argc,
 #       if MEMOIZE
         uint  hj = tst[j].myhash;
 #       endif
-        uint  vj = tst[j].val;
+        uint     vj = tst[j].val;
         pair_t * p = map_query( map, kj, NULL );
         FD_TEST( p && map_key_equal( p->mykey, kj ) && p->val==vj );
 #       if MEMOIZE

@@ -327,8 +327,8 @@ main( int     argc,
   FD_TEST( wc_test( wc_true(),  1, 1, 1, 1, 1, 1, 1, 1 ) );
 
   for( int b=0; b<255; b++ ) {
-    int c0 = (b>>0) & 1; int c1 = (b>>1) & 1; int c2 = (b>>2) & 1; int c3 = (b>>3) & 1;
-    int c4 = (b>>4) & 1; int c5 = (b>>5) & 1; int c6 = (b>>6) & 1; int c7 = (b>>7) & 1;
+    int  c0 = (b>>0) & 1; int c1 = (b>>1) & 1; int c2 = (b>>2) & 1; int c3 = (b>>3) & 1;
+    int  c4 = (b>>4) & 1; int c5 = (b>>5) & 1; int c6 = (b>>6) & 1; int c7 = (b>>7) & 1;
     wc_t c = wc( c0, c1, c2, c3, c4, c5, c6, c7 );
 
     FD_TEST( wc_test( c, c0, c1, c2, c3, c4, c5, c6, c7 ) );
@@ -448,7 +448,7 @@ main( int     argc,
                                                     fabsf(x4),       fabsf(x5),       fabsf(x6),       fabsf(x7) ) );
 
     wf_t expected;
-    
+
     expected = wf( 1.f/sqrtf(x0+4.f), 1.f/sqrtf(x1+4.f), 1.f/sqrtf(x2+4.f), 1.f/sqrtf(x3+4.f),
                    1.f/sqrtf(x4+4.f), 1.f/sqrtf(x5+4.f), 1.f/sqrtf(x6+4.f), 1.f/sqrtf(x7+4.f) );
     FD_TEST( !wc_any( wf_gt( wf_abs( wf_div( wf_sub( wf_rsqrt_fast( wf_add( x, wf_bcast(4.f) ) ), expected ), expected ) ),
@@ -505,7 +505,7 @@ main( int     argc,
 
     FD_TEST( wi_test( wf_to_wi( x ), (int)x0, (int)x1, (int)x2, (int)x3, (int)x4, (int)x5, (int)x6, (int)x7 ) );
     FD_TEST( wi_test( wf_to_wi_fast( x ), (int)rintf(x0), (int)rintf(x1), (int)rintf(x2), (int)rintf(x3),
-                                          (int)rintf(x4), (int)rintf(x5), (int)rintf(x6), (int)rintf(x7)) );
+                      (int)rintf(x4), (int)rintf(x5), (int)rintf(x6), (int)rintf(x7)) );
 
     FD_TEST( wd_test( wf_to_wd( x, 0 ), (double)x0, (double)x1, (double)x2, (double)x3 ) );
     FD_TEST( wd_test( wf_to_wd( x, 1 ), (double)x4, (double)x5, (double)x6, (double)x7 ) );
@@ -559,9 +559,9 @@ main( int     argc,
 
     FD_TEST( wi_test( wi_not( x ), ~x0, ~x1, ~x2, ~x3, ~x4, ~x5, ~x6, ~x7  ) );
 
-#   define _(n) \
-    FD_TEST( wi_test( wi_shl( x, n ), x0<<n, x1<<n, x2<<n, x3<<n, x4<<n, x5<<n, x6<<n, x7<<n ) ); \
-    FD_TEST( wi_test( wi_shr( x, n ), x0>>n, x1>>n, x2>>n, x3>>n, x4>>n, x5>>n, x6>>n, x7>>n ) ); \
+#   define _(n)                                                                                                                \
+    FD_TEST( wi_test( wi_shl( x, n ), x0<<n, x1<<n, x2<<n, x3<<n, x4<<n, x5<<n, x6<<n, x7<<n ) );                              \
+    FD_TEST( wi_test( wi_shr( x, n ), x0>>n, x1>>n, x2>>n, x3>>n, x4>>n, x5>>n, x6>>n, x7>>n ) );                              \
     FD_TEST( wi_test( wi_shru( x, n ), (int)(((uint)x0)>>n), (int)(((uint)x1)>>n), (int)(((uint)x2)>>n), (int)(((uint)x3)>>n), \
                                        (int)(((uint)x4)>>n), (int)(((uint)x5)>>n), (int)(((uint)x6)>>n), (int)(((uint)x7)>>n) ) )
     _( 0); _( 1); _( 2); _( 3); _( 4); _( 5); _( 6); _( 7); _( 8); _( 9); _(10); _(11); _(12); _(13); _(14); _(15);
@@ -585,7 +585,7 @@ main( int     argc,
 
     FD_TEST( wi_test( wi_neg( x ), -x0, -x1, -x2, -x3, -x4, -x5, -x6, -x7  ) );
     FD_TEST( wi_test( wi_abs( x ), (int)fd_int_abs(x0), (int)fd_int_abs(x1), (int)fd_int_abs(x2), (int)fd_int_abs(x3),
-                                   (int)fd_int_abs(x4), (int)fd_int_abs(x5), (int)fd_int_abs(x6), (int)fd_int_abs(x7) ) );
+                      (int)fd_int_abs(x4), (int)fd_int_abs(x5), (int)fd_int_abs(x6), (int)fd_int_abs(x7) ) );
 
     FD_TEST( wi_test( wi_min( x, y ), fd_int_min(x0,y0), fd_int_min(x1,y1), fd_int_min(x2,y2), fd_int_min(x3,y3),
                                       fd_int_min(x4,y4), fd_int_min(x5,y5), fd_int_min(x6,y6), fd_int_min(x7,y7) ) );
@@ -677,7 +677,7 @@ main( int     argc,
     FD_TEST( wd_test( wd_sqrt( wd_mul(x,x) ),  fabs(x0),     fabs(x1),     fabs(x2),     fabs(x3) ) );
 
     wd_t expected;
-    
+
     expected = wd( 1./sqrt(x0+4.), 1./sqrt(x1+4.), 1./sqrt(x2+4.), 1./sqrt(x3+4.) );
     FD_TEST( !wc_any( wd_gt( wd_abs( wd_div( wd_sub( wd_rsqrt_fast( wd_add( x, wd_bcast(4.) ) ), expected ), expected ) ),
                              wd_bcast( 1./1024. ) ) ) );
@@ -731,7 +731,7 @@ main( int     argc,
     FD_TEST( wi_test( wd_to_wi( x, wi( 0, 1, 2, 3, 4, 5, 6, 7 ), 0 ), (int)x0, (int)x1, (int)x2, (int)x3, 4, 5, 6, 7 ) );
     FD_TEST( wi_test( wd_to_wi( x, wi( 0, 1, 2, 3, 4, 5, 6, 7 ), 1 ), 0, 1, 2, 3, (int)x0, (int)x1, (int)x2, (int)x3 ) );
 
-    FD_TEST( wi_test( wd_to_wi_fast( x, wi( 0, 1, 2, 3, 4, 5, 6, 7 ), 0 ), 
+    FD_TEST( wi_test( wd_to_wi_fast( x, wi( 0, 1, 2, 3, 4, 5, 6, 7 ), 0 ),
                       (int)rint(x0), (int)rint(x1), (int)rint(x2), (int)rint(x3), 4, 5, 6, 7 ) );
     FD_TEST( wi_test( wd_to_wi_fast( x, wi( 0, 1, 2, 3, 4, 5, 6, 7 ), 1 ),
                       0, 1, 2, 3, (int)rint(x0), (int)rint(x1), (int)rint(x2), (int)rint(x3) ) );
@@ -780,10 +780,10 @@ main( int     argc,
 
     FD_TEST( wl_test( wl_not( x ), ~x0, ~x1, ~x2, ~x3 ) );
 
-#   define _(n) \
+#   define _(n)                                                       \
     FD_TEST( wl_test( wl_shl( x, n ), x0<<n, x1<<n, x2<<n, x3<<n ) ); \
     FD_TEST( wl_test( wl_shr( x, n ), x0>>n, x1>>n, x2>>n, x3>>n ) ); \
-    FD_TEST( wl_test( wl_shru( x, n ), \
+    FD_TEST( wl_test( wl_shru( x, n ),                                \
                       (long)(((ulong)x0)>>n), (long)(((ulong)x1)>>n), (long)(((ulong)x2)>>n), (long)(((ulong)x3)>>n) ) )
     _( 0); _( 1); _( 2); _( 3); _( 4); _( 5); _( 6); _( 7); _( 8); _( 9); _(10); _(11); _(12); _(13); _(14); _(15);
     _(16); _(17); _(18); _(19); _(20); _(21); _(22); _(23); _(24); _(25); _(26); _(27); _(28); _(29); _(30); _(31);
@@ -812,7 +812,7 @@ main( int     argc,
     FD_TEST( wl_test( wl_max( x, y ), fd_long_max(x0,y0), fd_long_max(x1,y1), fd_long_max(x2,y2), fd_long_max(x3,y3) ) );
     FD_TEST( wl_test( wl_add( x, y ), x0+y0, x1+y1, x2+y2, x3+y3 ) );
     FD_TEST( wl_test( wl_sub( x, y ), x0-y0, x1-y1, x2-y2, x3-y3 ) );
-  //FD_TEST( wl_test( wl_mul( x, y ), x0*y0, x1*y1, x2*y2, x3*y3 ) );
+    //FD_TEST( wl_test( wl_mul( x, y ), x0*y0, x1*y1, x2*y2, x3*y3 ) );
 
 #   define SE_LO(x) ((long)(int)(x))
     FD_TEST( wl_test( wl_mul_ll( x, y ), SE_LO(x0)*SE_LO(y0), SE_LO(x1)*SE_LO(y1), SE_LO(x2)*SE_LO(y2), SE_LO(x3)*SE_LO(y3) ) );

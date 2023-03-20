@@ -64,7 +64,7 @@ FD_PROTOTYPES_BEGIN
    recurrence numerator to compensate:
 
      y' = floor( (y^2 + y + x) / (2 y + 1) )
-  
+
    At convergence we now have:
 
      y^2 = x-r
@@ -108,7 +108,7 @@ FD_PROTOTYPES_BEGIN
    very simple guesses.  We use:
 
      y = sqrt(x) = sqrt( 2^n + d ) <~ 2^(n/2)
-   
+
    where n is the index of the MSB and d is in [0,2^n) (i.e. is n bits
    wide).  Thus:
 
@@ -118,7 +118,7 @@ FD_PROTOTYPES_BEGIN
 
    For small values of x, we encode a 20 entry 3-bit wide lookup table
    in a 64-bit constant and just do a quick lookup.
-   
+
    For types narrower than 64-bit, we can do the iteration portably in a
    wider type and simplify the operation.  We also do this if the
    underlying platform supports 128-bit wide types.
@@ -128,8 +128,8 @@ FD_PROTOTYPES_BEGIN
 FD_FN_CONST static inline uint
 fd_uint_sqrt( uint x ) {
   if( x<21U ) return (uint)((0x49246db6da492248UL >> (3*(int)x)) & 7UL);
-  int  n = fd_uint_find_msb( x );
-  uint y = ( ((n & 1) ? 0xb504U /* floor( 2^15 sqrt(2) ) */ : 0x8000U /* 2^15 */) >> (15-(n>>1)) );
+  int   n = fd_uint_find_msb( x );
+  uint  y = ( ((n & 1) ? 0xb504U /* floor( 2^15 sqrt(2) ) */ : 0x8000U /* 2^15 */) >> (15-(n>>1)) );
   ulong _y = (ulong)y;
   ulong _x = (ulong)x;
   for(;;) {
@@ -145,8 +145,8 @@ fd_uint_sqrt( uint x ) {
 FD_FN_CONST static inline ulong
 fd_ulong_sqrt( ulong x ) {
   if( x<21UL ) return (0x49246db6da492248UL >> (3*(int)x)) & 7UL;
-  int   n = fd_ulong_find_msb( x );
-  ulong y = ((n & 1) ? 0xb504f333UL /* floor( 2^31 sqrt(2) ) */ : 0x80000000UL /* 2^31 */) >> (31-(n>>1));
+  int     n = fd_ulong_find_msb( x );
+  ulong   y = ((n & 1) ? 0xb504f333UL /* floor( 2^31 sqrt(2) ) */ : 0x80000000UL /* 2^31 */) >> (31-(n>>1));
   uint128 _y = (uint128)y;
   uint128 _x = (uint128)x;
   for(;;) {

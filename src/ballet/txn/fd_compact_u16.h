@@ -46,9 +46,9 @@ fd_cu16_dec_fixed( uchar const * buf,
   FD_TEST( (1<=sz) & (sz<=3) )
 #endif
   if( FD_LIKELY( sz==1 ) )
-      return (ushort)buf[0];
+    return (ushort)buf[0];
   if( FD_LIKELY( sz==2 ) )
-      return (ushort)((ulong)(buf[0]&0x7F) + (((ulong)buf[1])<<7));
+    return (ushort)((ulong)(buf[0]&0x7F) + (((ulong)buf[1])<<7));
   return (ushort)((ulong)(buf[0]&0x7F) + (((ulong)buf[1]&0x7F)<<7) + (((ulong)buf[2])<<14));
 }
 

@@ -225,8 +225,8 @@ main( int     argc,
       path[path_sz-1UL] = '\0';
 
       fd_pod_info_t info[1];
-      int err  = fd_pod_query( pod, path, info ); FD_TEST( (!err) | (err==FD_POD_ERR_TYPE) | (err==FD_POD_ERR_RESOLVE) );
-      int coll = 0;
+      int           err  = fd_pod_query( pod, path, info ); FD_TEST( (!err) | (err==FD_POD_ERR_TYPE) | (err==FD_POD_ERR_RESOLVE) );
+      int           coll = 0;
       if(      err==FD_POD_ERR_RESOLVE ) FD_TEST( fd_pod_remove( pod, path )==FD_POD_ERR_RESOLVE );
       else if( err==FD_POD_ERR_TYPE    ) FD_TEST( fd_pod_remove( pod, path )==FD_POD_ERR_TYPE    );
       else if( remove )                  FD_TEST( fd_pod_remove( pod, path )==FD_POD_SUCCESS     );
@@ -263,7 +263,7 @@ main( int     argc,
         else if( !info->val_sz )                            FD_TEST( cstr==NULL );
         else                                                FD_TEST( cstr==(char const *)info->val );
 
-        char _cstr[63];
+        char  _cstr[63];
         ulong _cstr_sz = ((ulong)fd_rng_uint( rng )) & 63UL;
         for( ulong b=0UL; b<_cstr_sz; b++ ) _cstr[b] = (char)(fd_rng_uint( rng ) | 1U);
         if( _cstr_sz ) _cstr[_cstr_sz-1UL] = '\0';
@@ -277,43 +277,43 @@ main( int     argc,
         }
       } break;
 
-#     define CASE(type,TYPE)                                                    \
-      case FD_POD_VAL_TYPE_##TYPE: {                                            \
-        type  def = (type)fd_rng_ulong( rng );                                  \
-        type  val = fd_pod_query_##type( pod, path, def );                      \
+#     define CASE(type,TYPE)                                                       \
+      case FD_POD_VAL_TYPE_##TYPE: {                                               \
+        type  def = (type)fd_rng_ulong( rng );                                     \
+        type  val = fd_pod_query_##type( pod, path, def );                         \
         if( !coll || info->val_type!=FD_POD_VAL_TYPE_##TYPE ) FD_TEST( val==def ); \
-        val = (type)fd_rng_ulong( rng );                                        \
-        ulong off = fd_pod_insert_##type( pod, path, val );                     \
+        val = (type)fd_rng_ulong( rng );                                           \
+        ulong off = fd_pod_insert_##type( pod, path, val );                        \
         if( coll || err==FD_POD_ERR_TYPE ) FD_TEST( !off );                        \
-        else if( !off ) goto full;                                              \
+        else if( !off ) goto full;                                                 \
         else FD_TEST( fd_pod_query_##type( pod, path, def )==val );                \
       } break
 
-      CASE(char,   CHAR   );
-      CASE(schar,  SCHAR  );
-      CASE(short,  SHORT  );
-      CASE(int,    INT    );
-      CASE(long,   LONG   );
+        CASE(char,   CHAR   );
+        CASE(schar,  SCHAR  );
+        CASE(short,  SHORT  );
+        CASE(int,    INT    );
+        CASE(long,   LONG   );
 #     if FD_HAS_INT128
-      CASE(int128, INT128 ); /* FIXME: USE WIDER GEN */
+        CASE(int128, INT128 ); /* FIXME: USE WIDER GEN */
 #     endif
-      CASE(uchar,  UCHAR  );
-      CASE(ushort, USHORT );
-      CASE(uint,   UINT   );
-      CASE(ulong,  ULONG  );
+        CASE(uchar,  UCHAR  );
+        CASE(ushort, USHORT );
+        CASE(uint,   UINT   );
+        CASE(ulong,  ULONG  );
 #     if FD_HAS_INT128
-      CASE(uint128,UINT128); /* FIXME: USE WIDER GEN */
+        CASE(uint128,UINT128); /* FIXME: USE WIDER GEN */
 #     endif
-      CASE(float,  FLOAT  );
+        CASE(float,  FLOAT  );
 #     if FD_HAS_DOUBLE
-      CASE(double, DOUBLE );
+        CASE(double, DOUBLE );
 #     endif
 
       default: break;
       }
     }
 
-  full:
+full:
     FD_TEST( fd_pod_reset( pod )==pod );
   }
 

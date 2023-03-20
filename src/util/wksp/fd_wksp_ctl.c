@@ -152,7 +152,7 @@ main( int     argc,
       /* Join the region */
 
       fd_shmem_join_info_t info[1];
-      void * shmem = fd_shmem_join( name, FD_SHMEM_JOIN_MODE_READ_WRITE, NULL, NULL, info );
+      void *               shmem = fd_shmem_join( name, FD_SHMEM_JOIN_MODE_READ_WRITE, NULL, NULL, info );
       if( FD_UNLIKELY( !shmem ) ) {
         fd_shmem_unlink( name, page_sz ); /* logs details */
         FD_LOG_ERR(( "%i: %s %s %lu %s %lu 0%03lo: fd_shmem_join failed\n\t"
@@ -190,7 +190,7 @@ main( int     argc,
       /* Join the region and get the page size */
 
       fd_shmem_join_info_t info[1];
-      void * shmem = fd_shmem_join( name, FD_SHMEM_JOIN_MODE_READ_WRITE, NULL, NULL, info ); /* logs details */
+      void *               shmem = fd_shmem_join( name, FD_SHMEM_JOIN_MODE_READ_WRITE, NULL, NULL, info ); /* logs details */
       if( FD_UNLIKELY( !shmem ) ) FD_LOG_ERR(( "%i: %s %s: fd_shmem_join failed\n\tDo %s help for help", cnt, cmd, name, bin ));
       ulong page_sz = info->page_sz;
 

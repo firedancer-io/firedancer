@@ -74,7 +74,7 @@ fd_frank_pack_task( int     argc,
 
   uint seed = fd_pod_query_uint( cfg_pod, "pack.seed", (uint)fd_tile_id() ); /* use app tile_id as default */
   FD_LOG_INFO(( "creating rng (%s.pack.seed %u)", cfg_path, seed ));
-  fd_rng_t _rng[ 1 ];
+  fd_rng_t   _rng[ 1 ];
   fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, seed, 0UL ) );
   if( FD_UNLIKELY( !rng ) ) FD_LOG_ERR(( "fd_rng_join failed" ));
 
@@ -159,7 +159,7 @@ fd_frank_pack_task( int     argc,
   }
 
   /* Clean up */
-  
+
   fd_cnc_signal( cnc, FD_CNC_SIGNAL_BOOT );
   FD_LOG_INFO(( "pack fini" ));
   fd_rng_delete    ( fd_rng_leave   ( rng    ) );

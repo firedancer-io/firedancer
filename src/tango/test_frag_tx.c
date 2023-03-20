@@ -113,7 +113,7 @@ main( int     argc,
     accurate, especially in the limit burst_avg >> pkt_payload_max. */
 
   float burst_bw = pkt_bw
-                 / (1.f - ((((float)pkt_framing)/((float)burst_avg)) / expm1f( -((float)pkt_payload_max)/((float)burst_avg) )));
+                   / (1.f - ((((float)pkt_framing)/((float)burst_avg)) / expm1f( -((float)pkt_payload_max)/((float)burst_avg) )));
 
   /* See note above about 2.1e17 */
 
@@ -307,11 +307,11 @@ main( int     argc,
     int ctl_err = 0;
 
     ulong sig    = seq; /* Test pattern */
-  /*ulong chunk  = ... already at location where next packet will be written ...; */
+    /*ulong chunk  = ... already at location where next packet will be written ...; */
     ulong sz     = pkt_framing + frag_sz;
     ulong ctl    = fd_frag_meta_ctl( tx_idx, ctl_som, ctl_eom, ctl_err );
     ulong tsorig = burst_ts;
-  /*ulong tspub  = ... set "after" finished receiving from the "NIC" ...; */
+    /*ulong tspub  = ... set "after" finished receiving from the "NIC" ...; */
 
     uchar * p   = (uchar *)fd_chunk_to_laddr( base, chunk );
     __m256i avx = _mm256_set1_epi64x( (long)seq );

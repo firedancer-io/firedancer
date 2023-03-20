@@ -26,7 +26,7 @@
 
      // Returns 1 if set appears to be point to a valid set, 0 otherwise
      // (e.g. set is NULL, set is not a valid join, there's corruption
-     // in the set zero padding, etc). 
+     // in the set zero padding, etc).
 
      int my_set_valid( my_set_t const * set )
 
@@ -174,10 +174,10 @@
 typedef ulong SET_(t);
 
 struct SET_(private) {
-  ulong   max;            /* In [1,ULONG_MAX-63] */
-  ulong   word_cnt;
-  ulong   full_last_word;
-  SET_(t) set[1];         /* Actually word_cnt in size */
+ulong   max;              /* In [1,ULONG_MAX-63] */
+ulong   word_cnt;
+ulong   full_last_word;
+SET_(t) set[1];           /* Actually word_cnt in size */
 };
 
 typedef struct SET_(private) SET_(private_t);
@@ -192,7 +192,9 @@ FD_STATIC_ASSERT( sizeof(SET_(t))==8UL, unexpected_set_word_type );
    Return is at least as max is at least 1 and no overflow in calc as
    max is at most ULONG_MAX-63. */
 
-FD_FN_CONST static inline ulong SET_(private_word_cnt)( ulong max ) { return (max+63UL)>>6; }
+FD_FN_CONST static inline ulong SET_(private_word_cnt)( ulong max ) {
+  return (max+63UL)>>6;
+}
 
 /* private_full_last_word returns the bit pattern a full set that
    can contain up to max elements has in the last word. */
@@ -218,7 +220,9 @@ SET_(private_hdr_from_set_const)( SET_(t) const * set ) {
 
 /* Public APIs ********************************************************/
 
-FD_FN_CONST static inline ulong SET_(align)( void ) { return alignof(SET_(private_t)); }
+FD_FN_CONST static inline ulong SET_(align)( void ) {
+  return alignof(SET_(private_t));
+}
 
 FD_FN_CONST static inline ulong
 SET_(footprint)( ulong max ) {
@@ -246,12 +250,18 @@ static inline SET_(t) *
 SET_(join)( void * shset ) {
   SET_(private_t) * hdr = (SET_(private_t) *)shset;
   return hdr->set;
-} 
+}
 
-static inline void * SET_(leave) ( SET_(t) * set   ) { return (void *)SET_(private_hdr_from_set)( set ); }
-static inline void * SET_(delete)( void *    shset ) { return shset; }
+static inline void * SET_(leave) ( SET_(t) * set   ) {
+  return (void *)SET_(private_hdr_from_set)( set );
+}
+static inline void * SET_(delete)( void *    shset ) {
+  return shset;
+}
 
-FD_FN_PURE static inline ulong SET_(max)( SET_(t) * set ) { return SET_(private_hdr_from_set)( set )->max; }
+FD_FN_PURE static inline ulong SET_(max)( SET_(t) * set ) {
+  return SET_(private_hdr_from_set)( set )->max;
+}
 
 FD_FN_PURE static inline int
 SET_(valid)( SET_(t) const * set ) {
@@ -314,8 +324,12 @@ SET_(iter_next)( SET_(t) * set,
   }
   return ~0UL;                                       /* No more bits to consider */
 }
-static inline ulong SET_(iter_init)( SET_(t) * set ) { return SET_(iter_next)( set, ~0UL ); }
-FD_FN_PURE static inline ulong SET_(iter_done)( ulong j ) { return !~j; }
+static inline ulong SET_(iter_init)( SET_(t) * set ) {
+  return SET_(iter_next)( set, ~0UL );
+}
+FD_FN_PURE static inline ulong SET_(iter_done)( ulong j ) {
+  return !~j;
+}
 
 FD_FN_PURE FD_FN_UNUSED static ulong /* Work around -Winline */
 SET_(const_iter_next)( SET_(t) const * set,
@@ -330,8 +344,12 @@ SET_(const_iter_next)( SET_(t) const * set,
   }
   return ~0UL;                                             /* No more bits to consider */
 }
-FD_FN_PURE static inline ulong SET_(const_iter_init)( SET_(t) * set ) { return SET_(const_iter_next)( set, ~0UL ); }
-FD_FN_PURE static inline ulong SET_(const_iter_done)( ulong j       ) { return !~j; }
+FD_FN_PURE static inline ulong SET_(const_iter_init)( SET_(t) * set ) {
+  return SET_(const_iter_next)( set, ~0UL );
+}
+FD_FN_PURE static inline ulong SET_(const_iter_done)( ulong j       ) {
+  return !~j;
+}
 
 static inline SET_(t) *
 SET_(insert)( SET_(t) * set,
@@ -351,7 +369,7 @@ static inline SET_(t) *
 SET_(insert_if)( SET_(t) * set,
                  int       c,
                  ulong     idx ) {
-  set[ idx >> 6 ] |= ((ulong)!!c) << (idx & 63UL);
+  set[ idx >> 6 ] |= ((ulong) !!c) << (idx & 63UL);
   return set;
 }
 
@@ -359,7 +377,7 @@ static inline SET_(t) *
 SET_(remove_if)( SET_(t) * set,
                  int       c,
                  ulong     idx ) {
-  set[ idx >> 6 ] &= ~(((ulong)!!c) << (idx & 63UL));
+  set[ idx >> 6 ] &= ~(((ulong) !!c) << (idx & 63UL));
   return set;
 }
 
@@ -406,7 +424,7 @@ SET_(full_if)( SET_(t) * z,
                int       c ) {
   SET_(private_t) * hdr = SET_(private_hdr_from_set)( z );
   ulong last_word = hdr->word_cnt - 1UL;
-  ulong word      = ((ulong)!c)-1UL;
+  ulong word      = ((ulong) !c)-1UL;
   for( ulong i=0UL; i<last_word; i++ ) z[i] = word;
   z[last_word] = word & hdr->full_last_word;
   return z;

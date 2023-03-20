@@ -139,7 +139,7 @@ main( int     argc,
     /* Handle overrun */
 
     if( FD_UNLIKELY( diff ) ) {
-    //FD_LOG_NOTICE(( "Overrun (skipping from %lu to %lu to try to recover)", seq, seq_found ));
+      //FD_LOG_NOTICE(( "Overrun (skipping from %lu to %lu to try to recover)", seq, seq_found ));
       ovrn_cnt++;
       seq = seq_found;
 #     if WAIT_STYLE!=2

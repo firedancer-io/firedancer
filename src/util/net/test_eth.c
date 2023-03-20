@@ -87,7 +87,7 @@ main( int     argc,
   FD_TEST( fd_vlan_tag( tag, (ushort)1234, FD_ETH_HDR_TYPE_IP )==tag );
   FD_TEST( fd_ushort_bswap( tag->net_vid  )==(ushort)1234 );
   FD_TEST( fd_ushort_bswap( tag->net_type )==FD_ETH_HDR_TYPE_IP );
-  
+
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
   return 0;

@@ -40,7 +40,7 @@ typedef struct {
 fd_pcap_iter_t *
 fd_pcap_iter_new( void * _file ) {
   FILE * file = (FILE *)_file;
-  
+
   if( FD_UNLIKELY( !file ) ) {
     FD_LOG_WARNING(( "NULL file" ));
     return NULL;
@@ -74,7 +74,7 @@ fd_pcap_iter_new( void * _file ) {
   return (fd_pcap_iter_t *)((ulong)file | cooked);
 }
 
-ulong   
+ulong
 fd_pcap_iter_next( fd_pcap_iter_t * iter,
                    void *           pkt,
                    ulong            pkt_max,
@@ -149,7 +149,7 @@ fd_pcap_iter_next( fd_pcap_iter_t * iter,
     if( FD_UNLIKELY( !feof( file ) ) ) FD_LOG_WARNING(( "packet payload fread failed (%i-%s)", errno, strerror( errno ) ));
     else                               FD_LOG_WARNING(( "packet payload fread failed (truncated pcap file?)" ));
   }
-    
+
   *_pkt_ts = ((long)pcap->usec) + 1000000000L*((long)pcap->sec); /* Note: assumes ns resolution capture */
   return pkt_sz;
 }
@@ -188,7 +188,7 @@ fd_pcap_fwrite_pkt( long         ts,
 
   uchar pkt[ FD_PCAP_SNAPLEN ];
 
-  uchar * p = pkt;
+  uchar *             p = pkt;
   fd_pcap_pkt_hdr_t * pcap    = (fd_pcap_pkt_hdr_t *)p; p += sizeof(fd_pcap_pkt_hdr_t);
   uchar *             hdr     = (uchar *            )p; p += hdr_sz;
   uchar *             payload = (uchar *            )p; p += payload_sz;

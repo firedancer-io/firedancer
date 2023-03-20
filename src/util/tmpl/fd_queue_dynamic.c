@@ -64,11 +64,11 @@
 #define QUEUE_(x) FD_EXPAND_THEN_CONCAT3(QUEUE_NAME,_,x)
 
 struct QUEUE_(private) {
-  ulong   max1;  /* Max elements in queue minus 1 */
-  ulong   cnt;   /* Num elements in queue, in [0,max] */
-  ulong   start; /* Index of next to pop,  in [0,max) */
-  ulong   end;   /* Index of next to push, in [0,max) */
-  QUEUE_T queue[ 1 ]; /* Actually max in size */
+ulong   max1;    /* Max elements in queue minus 1 */
+ulong   cnt;     /* Num elements in queue, in [0,max] */
+ulong   start;   /* Index of next to pop,  in [0,max) */
+ulong   end;     /* Index of next to push, in [0,max) */
+QUEUE_T queue[ 1 ];   /* Actually max in size */
 };
 
 typedef struct QUEUE_(private) QUEUE_(private_t);
@@ -93,10 +93,16 @@ QUEUE_(private_const_hdr_from_queue)( QUEUE_T const * queue ) {
 /* These move i to the previous or next slot to i for given max.
    Input should be in [0,max) and output will be in [0,max). */
 
-FD_FN_CONST static inline ulong QUEUE_(private_prev)( ulong i, ulong max1 ) { return fd_ulong_if( i==0UL,  max1, i-1UL ); }
-FD_FN_CONST static inline ulong QUEUE_(private_next)( ulong i, ulong max1 ) { return fd_ulong_if( i>=max1, 0UL,  i+1UL ); }
+FD_FN_CONST static inline ulong QUEUE_(private_prev)( ulong i, ulong max1 ) {
+  return fd_ulong_if( i==0UL,  max1, i-1UL );
+}
+FD_FN_CONST static inline ulong QUEUE_(private_next)( ulong i, ulong max1 ) {
+  return fd_ulong_if( i>=max1, 0UL,  i+1UL );
+}
 
-FD_FN_CONST static inline ulong QUEUE_(align)( void ) { return alignof(QUEUE_(private_t)); }
+FD_FN_CONST static inline ulong QUEUE_(align)( void ) {
+  return alignof(QUEUE_(private_t));
+}
 
 FD_FN_CONST static inline ulong
 QUEUE_(footprint)( ulong max ) {
@@ -118,10 +124,14 @@ static inline QUEUE_T *
 QUEUE_(join)( void * shqueue ) {
   QUEUE_(private_t) * hdr = (QUEUE_(private_t) *)shqueue;
   return hdr->queue;
-} 
+}
 
-static inline void * QUEUE_(leave) ( QUEUE_T * queue   ) { return (void *)QUEUE_(private_hdr_from_queue)( queue ); }
-static inline void * QUEUE_(delete)( void *    shqueue ) { return shqueue; }
+static inline void * QUEUE_(leave) ( QUEUE_T * queue   ) {
+  return (void *)QUEUE_(private_hdr_from_queue)( queue );
+}
+static inline void * QUEUE_(delete)( void *    shqueue ) {
+  return shqueue;
+}
 
 FD_FN_PURE static inline ulong
 QUEUE_(max)( QUEUE_T const * queue ) {

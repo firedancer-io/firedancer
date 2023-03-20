@@ -16,7 +16,7 @@
                                  ulong    cnt );
 
      // Return 1 if cnt is a sensible value for the stable sorting APIs
-     // (i.e. cnt*sizeof(double)+alignof(double)-1 will not overflow).  
+     // (i.e. cnt*sizeof(double)+alignof(double)-1 will not overflow).
 
      int sort_double_descend_stable_cnt_valid( ulong cnt );
 
@@ -195,7 +195,7 @@ SORT_(private_merge)( SORT_KEY_T * key,
   /* If below threshhold, use insertion sort */
 
   if( cnt<=((SORT_IDX_T)(SORT_MERGE_THRESH)) ) return SORT_(insert)( key, cnt );
-  
+
   /* Otherwise, break input in half and sort the halves */
 
   SORT_KEY_T * key_left  = key;
@@ -240,7 +240,7 @@ SORT_(private_merge)( SORT_KEY_T * key,
   for(;;) { /* Note that cnt_left>0 and cnt_right>0 as cnt > SORT_MERGE_THRESH >= 1 at this point */
     SORT_KEY_T out_j = out_left [j];
     SORT_KEY_T out_k = out_right[k];
-    int from_right = (SORT_BEFORE( out_k, out_j ));
+    int        from_right = (SORT_BEFORE( out_k, out_j ));
     key[i++] = from_right ? out_k : out_j; FD_COMPILER_FORGET( from_right );
     j += (SORT_IDX_T)(from_right^1);       FD_COMPILER_FORGET( from_right );
     k += (SORT_IDX_T) from_right;
@@ -300,8 +300,8 @@ SORT_(private_quick)( SORT_KEY_T * key,
       SORT_IDX_T n3 = n / (SORT_IDX_T)3; /* magic multiply under the hood typically */
       SORT_IDX_T h1 = h - (SORT_IDX_T)1;
       SORT_KEY_T p0 = key[ l       ];
-      /**/       p1 = key[ l  + n3 ];
-      /**/       p2 = key[ h1 - n3 ];
+      /**/ p1 = key[ l  + n3 ];
+      /**/ p2 = key[ h1 - n3 ];
       SORT_KEY_T p3 = key[ h1      ];
 #     if SORT_QUICK_ORDER_STYLE==0
       /* Generates better code for integral types (branchless via stack) */
@@ -320,7 +320,7 @@ SORT_(private_quick)( SORT_KEY_T * key,
 #     undef ORDER
     } while(0);
 
-  retry: /* Three way partitioning (silly language restriction) */;
+retry: /* Three way partitioning (silly language restriction) */;
     SORT_IDX_T i = l;
     SORT_IDX_T j = l;
     SORT_IDX_T k = h-(SORT_IDX_T)1;
@@ -335,14 +335,14 @@ SORT_(private_quick)( SORT_KEY_T * key,
 
       SORT_KEY_T kj = key[j];
 
-      int to_left  = (SORT_BEFORE( kj, p1 ));
-      int to_right = (SORT_BEFORE( p2, kj ));
+      int        to_left  = (SORT_BEFORE( kj, p1 ));
+      int        to_right = (SORT_BEFORE( p2, kj ));
       SORT_IDX_T m = SORT_IDX_IF( to_right, k, SORT_IDX_IF( to_left, i, j ) );
 
 #     if SORT_QUICK_SWAP_MINIMIZE
       if( FD_LIKELY( j!=h ) ) { key[j] = key[m]; key[m] = kj; } /* ~2/3 prob */
 #     else
-      /**/                      key[j] = key[m]; key[m] = kj;
+      /**/ key[j] = key[m]; key[m] = kj;
 #     endif
 
       i += (SORT_IDX_T) to_left;
@@ -403,7 +403,7 @@ SORT_(private_quick)( SORT_KEY_T * key,
          partitions onto the stack (four SORT_IDX_T) each level of
          recursion though instead of one like normal quick sort though. */
 
-      int left_larger = (i-l) > (h-j); /* True if the left partition should go on the stack */
+      int        left_larger = (i-l) > (h-j); /* True if the left partition should go on the stack */
       SORT_IDX_T l_larger  = SORT_IDX_IF( left_larger, l, j );
       SORT_IDX_T h_larger  = SORT_IDX_IF( left_larger, i, h );
       SORT_IDX_T l_smaller = SORT_IDX_IF( left_larger, j, l );
@@ -461,8 +461,8 @@ SORT_(private_select)( SORT_KEY_T * key,
       SORT_IDX_T n3 = n / (SORT_IDX_T)3; /* magic multiply under the hood typically */
       SORT_IDX_T h1 = h - (SORT_IDX_T)1;
       SORT_KEY_T p0 = key[ l       ];
-      /**/       p1 = key[ l  + n3 ];
-      /**/       p2 = key[ h1 - n3 ];
+      /**/ p1 = key[ l  + n3 ];
+      /**/ p2 = key[ h1 - n3 ];
       SORT_KEY_T p3 = key[ h1      ];
 #     if SORT_QUICK_ORDER_STYLE==0
       /* Generates better code for integral types (branchless via stack) */
@@ -481,7 +481,7 @@ SORT_(private_select)( SORT_KEY_T * key,
 #     undef ORDER
     } while(0);
 
-  retry: /* Three way partitioning (silly language restriction) */;
+retry: /* Three way partitioning (silly language restriction) */;
     SORT_IDX_T i = l;
     SORT_IDX_T j = l;
     SORT_IDX_T k = h-(SORT_IDX_T)1;
@@ -503,7 +503,7 @@ SORT_(private_select)( SORT_KEY_T * key,
 #     if SORT_QUICK_SWAP_MINIMIZE
       if( FD_LIKELY( j!=h ) ) { key[j] = key[m]; key[m] = kj; } /* ~2/3 prob */
 #     else
-      /**/                   key[j] = key[m]; key[m] = kj;
+      /**/ key[j] = key[m]; key[m] = kj;
 #     endif
 
       i += (SORT_IDX_T) to_left;
@@ -578,8 +578,12 @@ FD_FN_CONST static inline int SORT_(stable_cnt_valid)( SORT_IDX_T cnt ) {
   return (!cnt) | ((((SORT_IDX_T)0)<cnt) & (cnt<max)) | (cnt==max);
 }
 
-FD_FN_CONST static inline ulong SORT_(stable_scratch_align)    ( void )           { return alignof(SORT_KEY_T); } 
-FD_FN_CONST static inline ulong SORT_(stable_scratch_footprint)( SORT_IDX_T cnt ) { return sizeof (SORT_KEY_T)*(ulong)cnt; }
+FD_FN_CONST static inline ulong SORT_(stable_scratch_align)    ( void )           {
+  return alignof(SORT_KEY_T);
+}
+FD_FN_CONST static inline ulong SORT_(stable_scratch_footprint)( SORT_IDX_T cnt ) {
+  return sizeof (SORT_KEY_T)*(ulong)cnt;
+}
 
 static inline SORT_KEY_T *
 SORT_(stable_fast)( SORT_KEY_T * key,

@@ -51,7 +51,7 @@ main( int     argc,
     long  ts;
     ulong sz = fd_pcap_iter_next( iter, pkt, 2048UL, &ts );
     if( FD_UNLIKELY( !sz ) ) break;
-  //FD_LOG_NOTICE(( "sz %4lu ts %20li 0000: " FD_LOG_HEX16_FMT, sz, ts, FD_LOG_HEX16_FMT_ARGS( pkt ) ));
+    //FD_LOG_NOTICE(( "sz %4lu ts %20li 0000: " FD_LOG_HEX16_FMT, sz, ts, FD_LOG_HEX16_FMT_ARGS( pkt ) ));
     if( FD_UNLIKELY( sz<64UL ) ) {
       FD_LOG_WARNING(( "pcap appears to contain a runt frame (%lu); skipping", sz ));
       continue;

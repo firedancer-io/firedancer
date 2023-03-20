@@ -71,8 +71,8 @@
     ulong mymap_slot_idx( mymap_t const * mymap, mymap_t const * slot );
 
     // Returns the "null" key, which is the canonical key that will
-    // never be inserted (typically zero). 
-    
+    // never be inserted (typically zero).
+
     ulong mymap_key_null( void ); // == MAP_KEY_NULL
 
     // Return the 1/0 if key is a key that will never/might be inserted.
@@ -85,9 +85,9 @@
 
     // Return the hash of key used by the map.  Should ideally be a
     // random mapping from MAP_KEY_T -> MAP_HASH_T.
-    
+
     uint mymap_key_hash( ulong key );
-    
+
     // Insert key into the map, fast O(1).  Returns a pointer to the the
     // map entry with key on success and NULL on failure (i.e. key is
     // already in the map).  The returned pointer lifetime is until
@@ -131,7 +131,7 @@
     mymap_t * slot = mymap_insert( map, cxx_key );
     if( FD_UNLIKELY( !slot ) ) ... handle failure (cxx_key was not moved)
     else {
-      ... mymap_insert did a MAP_KEY_MOVE of cxx_key into slot->key 
+      ... mymap_insert did a MAP_KEY_MOVE of cxx_key into slot->key
       ... clean cxx_key's shell here as necessary here
       ... initialize other slot fields as necessary
     }
@@ -286,13 +286,21 @@ FD_PROTOTYPES_BEGIN
 /* Get the linear probing starting slot for a key and the slot to probe
    after a given slot */
 
-FD_FN_CONST static inline ulong MAP_(private_start)( MAP_HASH_T hash ) { return (ulong)(hash & (MAP_HASH_T)MAP_SLOT_MASK); }
-FD_FN_CONST static inline ulong MAP_(private_next) ( ulong      slot ) { return (++slot) & MAP_SLOT_MASK; }
+FD_FN_CONST static inline ulong MAP_(private_start)( MAP_HASH_T hash ) {
+  return (ulong)(hash & (MAP_HASH_T)MAP_SLOT_MASK);
+}
+FD_FN_CONST static inline ulong MAP_(private_next) ( ulong      slot ) {
+  return (++slot) & MAP_SLOT_MASK;
+}
 
 /* Public APIS ********************************************************/
 
-FD_FN_CONST static inline ulong MAP_(align)    ( void ) { return alignof(MAP_T); }
-FD_FN_CONST static inline ulong MAP_(footprint)( void ) { return sizeof(MAP_T)*MAP_SLOT_CNT; }
+FD_FN_CONST static inline ulong MAP_(align)    ( void ) {
+  return alignof(MAP_T);
+}
+FD_FN_CONST static inline ulong MAP_(footprint)( void ) {
+  return sizeof(MAP_T)*MAP_SLOT_CNT;
+}
 
 static inline void *
 MAP_(new)( void *  shmem ) {
@@ -300,31 +308,51 @@ MAP_(new)( void *  shmem ) {
   for( ulong slot_idx=0UL; slot_idx<MAP_SLOT_CNT; slot_idx++ ) map[ slot_idx ].MAP_KEY = (MAP_KEY_NULL);
   return map;
 }
-static inline MAP_T * MAP_(join)  ( void *  shmap ) { return (MAP_T *)shmap; }
-static inline void *  MAP_(leave) ( MAP_T * map   ) { return map; }
-static inline void *  MAP_(delete)( void *  shmap ) { return shmap; }
+static inline MAP_T * MAP_(join)  ( void *  shmap ) {
+  return (MAP_T *)shmap;
+}
+static inline void *  MAP_(leave) ( MAP_T * map   ) {
+  return map;
+}
+static inline void *  MAP_(delete)( void *  shmap ) {
+  return shmap;
+}
 
-FD_FN_CONST static inline ulong MAP_(key_max) ( void ) { return MAP_SLOT_MASK; }
-FD_FN_CONST static inline ulong MAP_(slot_cnt)( void ) { return MAP_SLOT_CNT;  }
+FD_FN_CONST static inline ulong MAP_(key_max) ( void ) {
+  return MAP_SLOT_MASK;
+}
+FD_FN_CONST static inline ulong MAP_(slot_cnt)( void ) {
+  return MAP_SLOT_CNT;
+}
 
-FD_FN_CONST static inline ulong MAP_(slot_idx)( MAP_T const * map, MAP_T const * entry ) { return (ulong)(entry - map); }
+FD_FN_CONST static inline ulong MAP_(slot_idx)( MAP_T const * map, MAP_T const * entry ) {
+  return (ulong)(entry - map);
+}
 
-FD_FN_CONST static inline MAP_KEY_T MAP_(key_null)( void ) { return (MAP_KEY_NULL); }
+FD_FN_CONST static inline MAP_KEY_T MAP_(key_null)( void ) {
+  return (MAP_KEY_NULL);
+}
 
 /* These are FD_FN_PURE instead of FD_FN_CONST in case a non-POD
    MAP_KEY_T.  FIXME: CONSIDER LETTING THE COMPILER SORT THIS OUT? */
 
-FD_FN_PURE static inline int MAP_(key_inval)( MAP_KEY_T k0               ) { return (MAP_KEY_INVAL(k0)); }
-FD_FN_PURE static inline int MAP_(key_equal)( MAP_KEY_T k0, MAP_KEY_T k1 ) { return (MAP_KEY_EQUAL(k0,k1)); }
+FD_FN_PURE static inline int MAP_(key_inval)( MAP_KEY_T k0               ) {
+  return (MAP_KEY_INVAL(k0));
+}
+FD_FN_PURE static inline int MAP_(key_equal)( MAP_KEY_T k0, MAP_KEY_T k1 ) {
+  return (MAP_KEY_EQUAL(k0,k1));
+}
 
-FD_FN_PURE static inline MAP_HASH_T MAP_(key_hash)( MAP_KEY_T key ) { return (MAP_KEY_HASH(key)); }
+FD_FN_PURE static inline MAP_HASH_T MAP_(key_hash)( MAP_KEY_T key ) {
+  return (MAP_KEY_HASH(key));
+}
 
 FD_FN_UNUSED static MAP_T * /* Work around -Winline */
 MAP_(insert)( MAP_T *   map,
               MAP_KEY_T key ) {
   MAP_HASH_T hash = MAP_(key_hash)( key );
-  ulong slot = MAP_(private_start)( hash );
-  MAP_T * m;
+  ulong      slot = MAP_(private_start)( hash );
+  MAP_T *    m;
   for(;;) {
     m = map + slot;
     MAP_KEY_T map_key = m->MAP_KEY;
@@ -395,8 +423,8 @@ MAP_(query)( MAP_T *   map,
              MAP_KEY_T key,
              MAP_T *   null ) {
   MAP_HASH_T hash = MAP_(key_hash)( key );
-  ulong slot = MAP_(private_start)( hash );
-  MAP_T * m;
+  ulong      slot = MAP_(private_start)( hash );
+  MAP_T *    m;
   for(;;) {
     m = map + slot;
     MAP_KEY_T map_key = m->MAP_KEY;

@@ -118,7 +118,7 @@ fd_ed25519_fe_if( fd_ed25519_fe_t *       h,
 static inline int
 fd_ed25519_fe_isnonzero( fd_ed25519_fe_t const * f ) {
   uchar s[32] __attribute((aligned(32))); fd_ed25519_fe_tobytes( s, f );
-  wi_t s07 = wi_ld( (int const *)s );
+  wi_t  s07 = wi_ld( (int const *)s );
   return !wc_all( wi_eq( s07, wi_zero() ) );
 }
 

@@ -140,7 +140,7 @@ fd_uwide_sl( ulong * FD_RESTRICT _zh, ulong * FD_RESTRICT _zl,
   if( s>  64 ) { s -= 64; int t = 64-s; *_zh =  xl<<s;          *_zl = 0UL;   return !!(xh|(xl>>t)); }
   if( s== 64 ) {                        *_zh =  xl;             *_zl = 0UL;   return !! xh;          }
   if( s>   0 ) {          int t = 64-s; *_zh = (xh<<s)|(xl>>t); *_zl = xl<<s; return !!(xh>>t);      }
-  /*  s==  0 */                         *_zh =  xh;             *_zl = xl;    return 0;
+  /*  s==  0 */ *_zh =  xh;             *_zl = xl;    return 0;
 }
 
 /* fd_uwide_sr compute <zh,zl> = <xh,xl> >> s.  Assumes _zh and _zl are
@@ -163,7 +163,7 @@ fd_uwide_sr( ulong * FD_RESTRICT _zh, ulong * FD_RESTRICT _zl,
   if( s>  64 ) { s -= 64; int t = 64-s; *_zh = 0UL;   *_zl =  xh>>s;          return !!((xh<<t)|xl); }
   if( s== 64 ) {                        *_zh = 0UL;   *_zl =  xh;             return !!         xl;  }
   if( s>   0 ) {          int t = 64-s; *_zh = xh>>s; *_zl = (xl>>s)|(xh<<t); return !!( xl<<t    ); }
-  /*  s==  0 */                         *_zh = xh;    *_zl =  xl;             return 0;
+  /*  s==  0 */ *_zh = xh;    *_zl =  xl;             return 0;
 }
 
 /* FIXME: LOOK FOR IMPROVED DIV ALGORITHMICS HERE! */
@@ -289,7 +289,7 @@ fd_uwide_div( ulong * FD_RESTRICT _zh, ulong * FD_RESTRICT _zl,
      This will not cause <rh,xl> to overflow as rh is less than y at
      this point. */
 
-  int s = 63-n;
+  int   s = 63-n;
   ulong nh, nl; fd_uwide_sl( &nh,&nl, rh,xl, s );
   ulong d = y << s;
 
@@ -345,7 +345,7 @@ fd_uwide_divrem( ulong * FD_RESTRICT _zh, ulong * FD_RESTRICT _zl,
 
   if( FD_UNLIKELY( !rh ) ) { ulong ql = xl / y; ulong r = xl - ql*y; *_zh = qh; *_zl = ql; return r; }
 
-  int s = 63-n;
+  int   s = 63-n;
   ulong nh, nl; fd_uwide_sl( &nh,&nl, rh,xl, s );
   ulong d = y << s;
 

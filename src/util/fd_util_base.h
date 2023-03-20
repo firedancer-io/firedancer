@@ -254,7 +254,7 @@ typedef unsigned long  ulong;
 #if FD_HAS_INT128
 
 __extension__ typedef          __int128  int128;
-__extension__ typedef unsigned __int128 uint128;
+__extension__ typedef unsigned __int128  uint128;
 
 #define UINT128_MAX (~(uint128)0)
 #define  INT128_MAX ((int128)(UINT128_MAX>>1))
@@ -455,13 +455,13 @@ __extension__ typedef unsigned __int128 uint128;
 
 static inline void *
 fd_type_pun( void * p ) {
-  __asm__( "# fd_type_pun @" FD_SRC_LOCATION : "+r" (p) :: "memory" );
+  __asm__ ( "# fd_type_pun @" FD_SRC_LOCATION: "+r" (p) :: "memory" );
   return p;
 }
 
 static inline void const *
 fd_type_pun_const( void const * p ) {
-  __asm__( "# fd_type_pun_const @" FD_SRC_LOCATION : "+r" (p) :: "memory" );
+  __asm__ ( "# fd_type_pun_const @" FD_SRC_LOCATION: "+r" (p) :: "memory" );
   return p;
 }
 
@@ -732,9 +732,9 @@ fd_type_pun_const( void const * p ) {
     }                             \
   } while(0)
 
-#define FD_THREAD_ONCE_BEGIN do {                        \
-    static FD_TLS int _fd_thread_once_block_state = 0;   \
-    if( FD_UNLIKELY( !_fd_thread_once_block_state ) ) {  \
+#define FD_THREAD_ONCE_BEGIN do {                       \
+    static FD_TLS int _fd_thread_once_block_state = 0;  \
+    if( FD_UNLIKELY( !_fd_thread_once_block_state ) ) { \
       do
 
 #define FD_THREAD_ONCE_END             \

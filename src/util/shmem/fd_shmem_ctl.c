@@ -17,7 +17,7 @@ main( int     argc,
   if( FD_UNLIKELY( argc<1 ) ) FD_LOG_ERR(( "No arguments" ));
   char const * bin = argv[0];
   SHIFT(1);
-  
+
   umask( (mode_t)0 ); /* So mode setting gets respected */
 
   int cnt = 0;
@@ -118,7 +118,7 @@ main( int     argc,
       ulong        page_sz  = fd_cstr_to_shmem_page_sz( argv[1] );
 
       fd_shmem_info_t info[1];
-      int err = fd_shmem_info( name, page_sz, info );
+      int             err = fd_shmem_info( name, page_sz, info );
       if( FD_UNLIKELY( err ) ) printf( "%i 0 0\n",    err );
       else                     printf( "0 %lu %lu\n", info->page_cnt, info->page_sz );
 

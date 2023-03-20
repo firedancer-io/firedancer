@@ -63,15 +63,15 @@
 
 struct STACK_(private) {
 
-  /* The number of elements in the stack is cnt and cnt will be in
+/* The number of elements in the stack is cnt and cnt will be in
      [0,max].  If cnt==0, the stack is empty.  If cnt==max, the stack if
      full.  For a non-empty stack, the oldest element in the stack is at
      element stack[0] and the newest element in the stack is at element
      stack[cnt-1UL]. */
 
-  ulong   max;
-  ulong   cnt;
-  STACK_T stack[1]; /* Actually max in size */
+ulong   max;
+ulong   cnt;
+STACK_T stack[1];   /* Actually max in size */
 };
 
 typedef struct STACK_(private) STACK_(private_t);
@@ -93,7 +93,9 @@ STACK_(private_const_hdr_from_stack)( STACK_T const * stack ) {
   return (STACK_(private_t) const *)( (ulong)stack - (ulong)&(((STACK_(private_t) *)NULL)->stack) );
 }
 
-FD_FN_CONST static inline ulong STACK_(align)( void ) { return alignof(STACK_(private_t)); }
+FD_FN_CONST static inline ulong STACK_(align)( void ) {
+  return alignof(STACK_(private_t));
+}
 
 FD_FN_CONST static inline ulong
 STACK_(footprint)( ulong max ) {
@@ -113,10 +115,14 @@ static inline STACK_T *
 STACK_(join)( void * shstack ) {
   STACK_(private_t) * hdr = (STACK_(private_t) *)shstack;
   return hdr->stack;
-} 
+}
 
-static inline void * STACK_(leave) ( STACK_T * stack   ) { return (void *)STACK_(private_hdr_from_stack)( stack ); }
-static inline void * STACK_(delete)( void *    shstack ) { return shstack; }
+static inline void * STACK_(leave) ( STACK_T * stack   ) {
+  return (void *)STACK_(private_hdr_from_stack)( stack );
+}
+static inline void * STACK_(delete)( void *    shstack ) {
+  return shstack;
+}
 
 FD_FN_PURE static inline ulong
 STACK_(max)( STACK_T const * stack ) {
@@ -171,9 +177,15 @@ STACK_(peek_const)( STACK_T const * stack ) {
   return hdr->stack + (hdr->cnt-1UL);
 }
 
-static inline STACK_T * STACK_(insert)    ( STACK_T * stack ) { STACK_(private_hdr_from_stack)( stack )->cnt++;     return stack; }
-static inline STACK_T * STACK_(remove)    ( STACK_T * stack ) { STACK_(private_hdr_from_stack)( stack )->cnt--;     return stack; }
-static inline STACK_T * STACK_(remove_all)( STACK_T * stack ) { STACK_(private_hdr_from_stack)( stack )->cnt = 0UL; return stack; }
+static inline STACK_T * STACK_(insert)    ( STACK_T * stack ) {
+                                                                STACK_(private_hdr_from_stack)( stack )->cnt++;     return stack;
+}
+static inline STACK_T * STACK_(remove)    ( STACK_T * stack ) {
+                                                                STACK_(private_hdr_from_stack)( stack )->cnt--;     return stack;
+}
+static inline STACK_T * STACK_(remove_all)( STACK_T * stack ) {
+                                                                STACK_(private_hdr_from_stack)( stack )->cnt = 0UL; return stack;
+}
 
 FD_PROTOTYPES_END
 

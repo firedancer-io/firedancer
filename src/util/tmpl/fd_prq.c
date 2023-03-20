@@ -14,7 +14,7 @@
      #include "util/tmpl/fd_prq.c"
 
   will declare the following static inline APIs as a header only style
-  library in the compilation unit: 
+  library in the compilation unit:
 
     // align/footprint - Return the alignment/footprint required for a
     // memory region to be used as eventq that can hold up to max
@@ -201,10 +201,10 @@
 #define PRQ_(n) FD_EXPAND_THEN_CONCAT3(PRQ_NAME,_,n)
 
 struct PRQ_(private) {
-  ulong max;
-  ulong cnt;
-  PRQ_T heap[1]; /* note that is half cache line aligned if PRQ_T is 32 byte and aligned 32 byte */
-  /* max+1 PRQ_T follow here */
+ulong max;
+ulong cnt;
+PRQ_T heap[1];   /* note that is half cache line aligned if PRQ_T is 32 byte and aligned 32 byte */
+/* max+1 PRQ_T follow here */
 };
 
 typedef struct PRQ_(private) PRQ_(private_t);
@@ -329,7 +329,7 @@ PRQ_(private_fill_hole_dn)( PRQ_T * heap,   /* Heap, half cache line aligned for
        strictly after the child, fill the hole with the child (making a
        new hole).  Otherwise, fill the hole with the event to reinsert
        and we are done.
-       
+
        Sigh - see above DIY sigh. */
 
     ulong use_reinsert = ((ulong)(child>=cnt)) | PRQ_TMP_AFTER( tmp_child, tmp_reinsert );
@@ -371,7 +371,9 @@ PRQ_(private_fill_hole)( PRQ_T * heap,
 
 /* Public APIS ********************************************************/
 
-static inline ulong PRQ_(align)( void ) { return alignof(PRQ_(private_t)); }
+static inline ulong PRQ_(align)( void ) {
+  return alignof(PRQ_(private_t));
+}
 
 static inline ulong
 PRQ_(footprint)( ulong max ) {
@@ -389,12 +391,22 @@ PRQ_(new)( void * mem,
   return (void *)prq;
 }
 
-static inline PRQ_T * PRQ_(join  )( void *  prq  ) { return ((PRQ_(private_t) *)prq)->heap;          }
-static inline void *  PRQ_(leave )( PRQ_T * heap ) { return (void *)PRQ_(private_from_heap)( heap ); }
-static inline void *  PRQ_(delete)( void *  prq  ) { return prq;                                     }
+static inline PRQ_T * PRQ_(join  )( void *  prq  ) {
+  return ((PRQ_(private_t) *)prq)->heap;
+}
+static inline void *  PRQ_(leave )( PRQ_T * heap ) {
+  return (void *)PRQ_(private_from_heap)( heap );
+}
+static inline void *  PRQ_(delete)( void *  prq  ) {
+  return prq;
+}
 
-static inline ulong PRQ_(cnt)( PRQ_T const * heap ) { return PRQ_(private_from_heap_const)( heap )->cnt;  }
-static inline ulong PRQ_(max)( PRQ_T const * heap ) { return PRQ_(private_from_heap_const)( heap )->max;  }
+static inline ulong PRQ_(cnt)( PRQ_T const * heap ) {
+  return PRQ_(private_from_heap_const)( heap )->cnt;
+}
+static inline ulong PRQ_(max)( PRQ_T const * heap ) {
+  return PRQ_(private_from_heap_const)( heap )->max;
+}
 
 static inline PRQ_T *
 PRQ_(insert)( PRQ_T *       heap,

@@ -340,7 +340,7 @@ typedef struct fd_pod_iter_private fd_pod_iter_t;
 FD_FN_UNUSED static fd_pod_iter_t /* Work around -Winline */
 fd_pod_iter_init( uchar const * pod ) {
   if( FD_UNLIKELY( !pod ) ) { fd_pod_iter_t iter; iter.cursor = NULL; iter.stop = NULL; return iter; }
-  ulong csz = fd_ulong_svw_dec_sz( pod );
+  ulong         csz = fd_ulong_svw_dec_sz( pod );
   fd_pod_iter_t iter;
   iter.cursor = pod + csz*3UL;
   iter.stop   = pod + fd_ulong_svw_dec_fixed( pod + csz, csz ); /* used */
@@ -467,7 +467,7 @@ fd_pod_resize( uchar * pod,
    is done such that the pod_max is reduced to be equal to pod_used and
    the pod header is accordingly compacted (otherwise, the pod_max will
    be unchanged on return).
-   
+
    Regardless of full, all subpods will be recursively fully compacted
    and all cstrs in the pod will have had their padding removed (they
    will be still be '\0' terminated if originally correctly '\0'
@@ -508,7 +508,7 @@ fd_pod_val_type_to_cstr( int    val_type,
    bytes), 0 on failure.  Failure reasons include NULL pod, NULL path,
    one of the path prefixes resolved to a non-subpod, path is already in
    the pod, invalid val_type or no room in pod for val_sz.
-   
+
    If subpods along the path do not exist, they will be created in the
    process.
 

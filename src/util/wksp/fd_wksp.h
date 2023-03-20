@@ -49,7 +49,7 @@
      fd_wksp_free( wksp, gaddr );
 
    Any join can free any allocation regardless of who made it.
-   
+
    When the application is done using a wksp, it should leave it.  The
    workspace will continue to exist (it just is no longer safe to access
    in the caller's address space).  E.g.
@@ -369,7 +369,7 @@ fd_wksp_name( fd_wksp_t const * wksp );
    FD_SHMEM_NORMAL_PAGE_SZ, footprint should be equal to sz.  This is to
    facilitate applications that prefer to specify workspace in terms of
    total number of pages to use. */
-   
+
 FD_FN_CONST ulong
 fd_wksp_align( void );
 
@@ -492,7 +492,7 @@ static inline void * fd_wksp_laddr_fast( fd_wksp_t const * wksp, ulong        ga
    such allocations and allocations that are intended to outlive the
    application, it is the caller's responsibility to clean up such
    (tagging can help greatly simplify this for users).
-   
+
    Priority inversion is not expected to be an issue practical as the
    expected use case is once at box startup, some non-latency critical
    processes will do a handful of operations to setup workspaces for
@@ -528,7 +528,7 @@ static inline void * fd_wksp_laddr_fast( fd_wksp_t const * wksp, ulong        ga
    normal pages but requiring much larger alignments), things like
    explicitly specifying the wksp virtual address location in the
    fd_shmem_join calls might be necessary to satisfy this constraint.
-   
+
    Theoretically, this implementation could accommodate
    FD_WKSP_ALLOC_ALIGN_MIN as low as 2 (it would be very silly though as
    the default metadata allocations would be insanely large and the tags

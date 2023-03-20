@@ -73,7 +73,7 @@ main( int     argc,
     FD_TEST( fd_seq_diff( f, d )== (long)delta );
     FD_TEST( fd_seq_diff( g, d )==LONG_MAX     );
 
-    ulong chunk_idx = d & (CHUNK_CNT-1UL);
+    ulong   chunk_idx = d & (CHUNK_CNT-1UL);
     uchar * chunk = fd_chunk_to_laddr( chunk_mem[0], chunk_idx );
     FD_TEST( chunk==chunk_mem[ chunk_idx ] );
     FD_TEST( fd_laddr_to_chunk( chunk_mem[0], chunk )==chunk_idx );
@@ -91,17 +91,17 @@ main( int     argc,
 
 # if FD_HAS_AVX
   for( ulong iter=0UL; iter<100000000UL; iter++ ) {
-    ulong seq = fd_rng_ulong( rng );
-    ulong sig = fd_rng_ulong( rng );
+    ulong   seq = fd_rng_ulong( rng );
+    ulong   sig = fd_rng_ulong( rng );
     __m128i sse0 = fd_frag_meta_sse0( seq, sig );
     FD_TEST( fd_frag_meta_sse0_seq( sse0 )==seq );
     FD_TEST( fd_frag_meta_sse0_sig( sse0 )==sig );
 
-    ulong chunk  = (ulong)fd_rng_uint  ( rng );
-    ulong sz     = (ulong)fd_rng_ushort( rng );
-    ulong ctl    = (ulong)fd_rng_ushort( rng );
-    ulong tsorig = (ulong)fd_rng_uint  ( rng );
-    ulong tspub  = (ulong)fd_rng_uint  ( rng );
+    ulong   chunk  = (ulong)fd_rng_uint  ( rng );
+    ulong   sz     = (ulong)fd_rng_ushort( rng );
+    ulong   ctl    = (ulong)fd_rng_ushort( rng );
+    ulong   tsorig = (ulong)fd_rng_uint  ( rng );
+    ulong   tspub  = (ulong)fd_rng_uint  ( rng );
     __m128i sse1 = fd_frag_meta_sse1( chunk, sz, ctl, tsorig, tspub );
     FD_TEST( fd_frag_meta_sse1_chunk ( sse1 )==chunk  );
     FD_TEST( fd_frag_meta_sse1_sz    ( sse1 )==sz     );

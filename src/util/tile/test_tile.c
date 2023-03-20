@@ -23,7 +23,7 @@ tile_main( int     argc,
   FD_TEST( !fd_tile_exec_new( fd_tile_idx(), tile_main, argc, argv ) ); /* Can't dispatch to self */
 
   if( fd_tile_idx()==fd_tile_cnt()-2UL ) { /* Test tile-to-tile dispatch */
-    ulong idx = fd_tile_idx()+1UL;
+    ulong            idx = fd_tile_idx()+1UL;
     fd_tile_exec_t * exec = fd_tile_exec_new( idx, tile_main, argc+1, argv );
 
     FD_TEST( fd_tile_exec      (               idx )==exec );

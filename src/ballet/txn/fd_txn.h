@@ -260,7 +260,7 @@ struct fd_txn {
      member" since C does not allow the pretty typical 0-len array at the end
      of the struct trick.
      Indexed [0, instr_cnt). */
-  fd_txn_instr_t instr[ ];
+  fd_txn_instr_t instr[];
 
   /* Logically, there's another field here:
      address_tables: The address tables this transaction imports and which
@@ -363,7 +363,7 @@ fd_txn_get_address_tables( fd_txn_t * txn ) {
 static inline fd_ed25519_sig_t const *
 fd_txn_get_signatures( fd_txn_t const * txn,
                        void const *     payload ) {
-   return (fd_ed25519_sig_t const *)((ulong)payload + (ulong)txn->signature_off);
+  return (fd_ed25519_sig_t const *)((ulong)payload + (ulong)txn->signature_off);
 }
 
 /* fd_txn_footprint: Returns the total size of txn, including the

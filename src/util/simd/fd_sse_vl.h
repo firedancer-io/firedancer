@@ -40,7 +40,7 @@
    16-byte sized location p as 2 longs.  vl_stu is the same but p does
    not have to be aligned.  In all these 64-bit lane l vlll be at p[l].
    FIXME: USE ATTRIBUTES ON P PASSED TO THESE?
-   
+
    Note: gcc knows a __m128i may alias. */
 
 static inline vl_t vl_ld(  long const * p   ) { return _mm_load_si128(  (__m128i const *)p ); }
@@ -65,7 +65,7 @@ static inline void vl_stu( long * p, vl_t i ) { _mm_storeu_si128( (__m128i *)p, 
    compile time known in 0:1.  vl_extract_variable and
    vl_insert_variable are the slower but the lane n does not have to be
    known at compile time (should still be in 0:1).
-   
+
    Note: C99 TC3 allows type punning through a union. */
 
 #define vl_extract(a,imm)  _mm_extract_epi64( (a), (imm) )
@@ -156,7 +156,7 @@ vl_insert_variable( vl_t a, long n, long v ) {
 
 /* See note above */
 static inline vl_t vl_abs( vl_t a )         { return vl_if( vl_lt( a, vl_zero() ), vl_neg( a ), a ); }
-static inline vl_t vl_min( vl_t a, vl_t b ) { return vl_if( vl_lt( a, b ), a, b ); } 
+static inline vl_t vl_min( vl_t a, vl_t b ) { return vl_if( vl_lt( a, b ), a, b ); }
 static inline vl_t vl_max( vl_t a, vl_t b ) { return vl_if( vl_gt( a, b ), a, b ); }
 static inline vl_t vl_shr( vl_t a, int imm ) {
   vc_t c = vl_lt( a, vl_zero() ); /* Note that vc_t is binary compat with vl_t */
@@ -175,7 +175,7 @@ static inline vl_t vl_shr_vector( vl_t a, vl_t n ) {
 
 /* Summarizing:
 
-   vl_to_vc(d)     returns [ !!l0 !!l0 !!l1 !!l1 ] 
+   vl_to_vc(d)     returns [ !!l0 !!l0 !!l1 !!l1 ]
 
    vl_to_vf(l,i,0) returns [ (float)l0 (float)l1 l2 l3 ]
    vl_to_vf(l,i,1) returns [ f0 f1 (float)l0 (float)l1 ]

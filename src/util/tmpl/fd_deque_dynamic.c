@@ -66,11 +66,11 @@
 #define DEQUE_(x) FD_EXPAND_THEN_CONCAT3(DEQUE_NAME,_,x)
 
 struct DEQUE_(private) {
-  ulong   max1;  /* Max elements in deque minus 1 */
-  ulong   cnt;   /* Num elements in deque, in [0,max] */
-  ulong   start; /* Location of current head, in [0,max) */
-  ulong   end;   /* Location of current tail, in [0,max) */
-  DEQUE_T deque[ 1 ]; /* Actually max in size */
+ulong   max1;    /* Max elements in deque minus 1 */
+ulong   cnt;     /* Num elements in deque, in [0,max] */
+ulong   start;   /* Location of current head, in [0,max) */
+ulong   end;     /* Location of current tail, in [0,max) */
+DEQUE_T deque[ 1 ];   /* Actually max in size */
 };
 
 typedef struct DEQUE_(private) DEQUE_(private_t);
@@ -95,10 +95,16 @@ DEQUE_(private_const_hdr_from_deque)( DEQUE_T const * deque ) {
 /* These move i to the previous or next slot to i for given max.
    Input should be in [0,max) and output will be in [0,max). */
 
-FD_FN_CONST static inline ulong DEQUE_(private_prev)( ulong i, ulong max1 ) { return fd_ulong_if( i==0UL,  max1, i-1UL ); }
-FD_FN_CONST static inline ulong DEQUE_(private_next)( ulong i, ulong max1 ) { return fd_ulong_if( i>=max1, 0UL,  i+1UL ); }
+FD_FN_CONST static inline ulong DEQUE_(private_prev)( ulong i, ulong max1 ) {
+  return fd_ulong_if( i==0UL,  max1, i-1UL );
+}
+FD_FN_CONST static inline ulong DEQUE_(private_next)( ulong i, ulong max1 ) {
+  return fd_ulong_if( i>=max1, 0UL,  i+1UL );
+}
 
-FD_FN_CONST static inline ulong DEQUE_(align)( void ) { return alignof(DEQUE_(private_t)); }
+FD_FN_CONST static inline ulong DEQUE_(align)( void ) {
+  return alignof(DEQUE_(private_t));
+}
 
 FD_FN_CONST static inline ulong
 DEQUE_(footprint)( ulong max ) {
@@ -122,8 +128,12 @@ DEQUE_(join)( void * shdeque ) {
   return hdr->deque;
 }
 
-static inline void * DEQUE_(leave) ( DEQUE_T * deque   ) { return (void *)DEQUE_(private_hdr_from_deque)( deque ); }
-static inline void * DEQUE_(delete)( void *    shdeque ) { return shdeque; }
+static inline void * DEQUE_(leave) ( DEQUE_T * deque   ) {
+  return (void *)DEQUE_(private_hdr_from_deque)( deque );
+}
+static inline void * DEQUE_(delete)( void *    shdeque ) {
+  return shdeque;
+}
 
 FD_FN_PURE static inline ulong
 DEQUE_(max)( DEQUE_T const * deque ) {
