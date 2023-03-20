@@ -173,12 +173,15 @@
 
 typedef ulong SET_(t);
 
+/* *LINT-OFF* */
+/* Linter wants to push these lines around due to weird syntax. */
 struct SET_(private) {
-ulong   max;              /* In [1,ULONG_MAX-63] */
-ulong   word_cnt;
-ulong   full_last_word;
-SET_(t) set[1];           /* Actually word_cnt in size */
+  ulong   max;              /* In [1,ULONG_MAX-63] */
+  ulong   word_cnt;
+  ulong   full_last_word;
+  SET_(t) set[1];           /* Actually word_cnt in size */
 };
+/* *LINT-ON* */
 
 typedef struct SET_(private) SET_(private_t);
 
