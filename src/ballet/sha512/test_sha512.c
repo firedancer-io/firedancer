@@ -118,6 +118,50 @@ main( int     argc,
   test_sha512_vectors( fd_sha512_test_vector, sha, rng );
   FD_LOG_NOTICE(( "OK: Random vectors" ));
 
+  /* Test batching */
+
+  FD_TEST( fd_ulong_is_pow2( FD_SHA512_BATCH_ALIGN )                                              );
+  FD_TEST( (FD_SHA512_BATCH_FOOTPRINT>0UL) & !(FD_SHA512_BATCH_FOOTPRINT % FD_SHA512_BATCH_ALIGN) );
+
+  FD_TEST( fd_sha512_batch_align()    ==FD_SHA512_BATCH_ALIGN     );
+  FD_TEST( fd_sha512_batch_footprint()==FD_SHA512_BATCH_FOOTPRINT );
+
+# define BATCH_MAX (16UL)
+# define DATA_MAX  (512UL)
+  uchar data_mem[ DATA_MAX       ]; for( ulong idx=0UL; idx<DATA_MAX; idx++ ) data_mem[ idx ] = fd_rng_uchar( rng );
+  uchar hash_mem[ 64UL*BATCH_MAX ];
+
+  uchar batch_mem[ FD_SHA512_BATCH_FOOTPRINT ] __attribute__((aligned(FD_SHA512_BATCH_ALIGN)));
+  for( ulong trial_rem=131072UL; trial_rem; trial_rem-- ) {
+    uchar const * data[ BATCH_MAX ];
+    ulong         sz  [ BATCH_MAX ];
+    uchar *       hash[ BATCH_MAX ];
+
+    fd_sha512_batch_t * batch = fd_sha512_batch_init( batch_mem ); FD_TEST( batch );
+
+    int   batch_abort = !(fd_rng_ulong( rng ) & 31UL);
+    ulong batch_cnt   = fd_rng_ulong( rng ) & (BATCH_MAX-1UL);
+    for( ulong batch_idx=0UL; batch_idx<batch_cnt; batch_idx++ ) {
+      ulong off0 = fd_rng_ulong( rng ) & (DATA_MAX-1UL);
+      ulong off1 = fd_rng_ulong( rng ) & (DATA_MAX-1UL);
+      data[ batch_idx ] = data_mem + fd_ulong_min( off0, off1 );
+      sz  [ batch_idx ] = fd_ulong_max( off0, off1 ) - fd_ulong_min( off0, off1 );
+      hash[ batch_idx ] = hash_mem + batch_idx*64UL;
+      FD_TEST( fd_sha512_batch_add( batch, data[ batch_idx ], sz[ batch_idx ], hash[ batch_idx ] )==batch );
+    }
+
+    if( FD_UNLIKELY( batch_abort ) ) FD_TEST( fd_sha512_batch_abort( batch )==(void *)batch_mem );
+    else {
+      FD_TEST( fd_sha512_batch_fini( batch )==(void *)batch_mem );
+      for( ulong batch_idx=0UL; batch_idx<batch_cnt; batch_idx++ ) {
+        uchar ref_hash[ 64 ];
+        FD_TEST( !memcmp( fd_sha512_hash( data[ batch_idx ], sz[ batch_idx ], ref_hash ), hash[ batch_idx ], 64UL ) );
+      }
+    }
+  }
+# undef DATA_MAX
+# undef BATCH_MAX
+
 # ifdef HAS_CAVP_TEST_VECTORS
   /* Test NIST CAVP message fixtures */
   test_sha512_vectors( cavp_sha512_short, sha, rng );
@@ -165,6 +209,32 @@ main( int     argc,
     dt += fd_log_wallclock();
     float gbps = ((float)(8UL*(70UL+sz)*iter)) / ((float)dt);
     FD_LOG_NOTICE(( "~%.3f Gbps Ethernet equiv throughput / core (sz %4lu)", (double)gbps, sz ));
+  }
+
+  FD_LOG_NOTICE(( "Benchmarking batched" ));
+  for( ulong idx=0U; idx<2UL; idx++ ) {
+    ulong sz = bench_sz[ idx ];
+    for( ulong batch_cnt=1UL; batch_cnt<16UL; batch_cnt++ ) {
+
+      /* warmup */
+      for( ulong rem=10UL; rem; rem-- ) {
+        fd_sha512_batch_t * batch = fd_sha512_batch_init( batch_mem );
+        for( ulong batch_idx=0UL; batch_idx<batch_cnt; batch_idx++ ) fd_sha512_batch_add( batch, buf, sz, hash );
+        fd_sha512_batch_fini( batch );
+      }
+
+      /* for real */
+      ulong iter = 10000UL;
+      long  dt   = -fd_log_wallclock();
+      for( ulong rem=iter; rem; rem-- ) {
+        fd_sha512_batch_t * batch = fd_sha512_batch_init( batch_mem );
+        for( ulong batch_idx=0UL; batch_idx<batch_cnt; batch_idx++ ) fd_sha512_batch_add( batch, buf, sz, hash );
+        fd_sha512_batch_fini( batch );
+      }
+      dt += fd_log_wallclock();
+      float gbps = ((float)(batch_cnt*8UL*(70UL+sz)*iter)) / ((float)dt);
+      FD_LOG_NOTICE(( "~%6.3f Gbps Ethernet equiv throughput / core (batch_cnt %2lu sz %4lu)", (double)gbps, batch_cnt, sz ));
+    }
   }
 
   /* clean up */
