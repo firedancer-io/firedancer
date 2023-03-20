@@ -88,6 +88,14 @@ int main(FD_FN_UNUSED int argc, FD_FN_UNUSED char** argv) {
     FD_TEST(a.rent_epoch == 3);
     FD_TEST(a.executable != 0);
    
+    FD_TEST(fd_solana_account_size(&a) == len);
+
+    void *o2 = malloc(len);
+    void const *ptr = o2;
+    fd_solana_account_encode(&a, &ptr);
+    FD_TEST(memcmp(o2, out, len) == 0);
+    free(o2);
+
     free(out);
     fd_solana_account_destroy(&a, freef, NULL);
   }
@@ -108,6 +116,8 @@ int main(FD_FN_UNUSED int argc, FD_FN_UNUSED char** argv) {
     FD_TEST(a.last_hash_index == 0);
     FD_TEST(a.ages[0].val.fee_calculator.lamports_per_signature == 123);
     
+    FD_TEST(fd_block_hash_queue_size(&a) == len);
+
     free(out);
     fd_block_hash_queue_destroy(&a, freef, NULL);
   }
@@ -122,12 +132,20 @@ int main(FD_FN_UNUSED int argc, FD_FN_UNUSED char** argv) {
 //    memset(&a, 0, sizeof(a));
     fd_stake_history_decode(&a, &o, outend, allocf, NULL);
 
-    FD_TEST(a.len == 1);
+    FD_TEST(a.entries_len == 1);
     FD_TEST(a.entries[0].entry.effective == 1);
     FD_TEST(a.entries[0].entry.activating == 2);
     FD_TEST(a.entries[0].entry.deactivating == 3);
 
+    FD_TEST(fd_stake_history_size(&a) == len);
+
 // fd_stake_history: [[5,{"effective":1,"activating":2,"deactivating":3}]] 01000000000000000500000000000000010000000000000002000000000000000300000000000000
+
+    void *o2 = malloc(len);
+    void const *ptr = o2;
+    fd_stake_history_encode(&a, &ptr);
+    FD_TEST(memcmp(o2, out, len) == 0);
+    free(o2);
 
     free(out);
     fd_stake_history_destroy(&a, freef, NULL);
@@ -148,6 +166,15 @@ int main(FD_FN_UNUSED int argc, FD_FN_UNUSED char** argv) {
 
     //fd_delegation: {"voter_pubkey":[70,234,68,243,52,16,42,119,155,127,91,66,248,223,42,239,150,98,108,180,182,191,95,25,44,226,180,181,167,226,181,82],"stake":1,"activation_epoch":2,"deactivation_epoch":3,"warmup_cooldown_rate":4.0} 
   
+
+    FD_TEST(fd_delegation_size(&a) == len);
+
+    void *o2 = malloc(len);
+    void const *ptr = o2;
+    fd_delegation_encode(&a, &ptr);
+    FD_TEST(memcmp(o2, out, len) == 0);
+    free(o2);
+
     free(out);
     fd_delegation_destroy(&a, freef, NULL);
   }
@@ -165,6 +192,14 @@ int main(FD_FN_UNUSED int argc, FD_FN_UNUSED char** argv) {
     FD_TEST(a.epoch == 41);
     FD_TEST(a.unused == 98);
     
+    FD_TEST(fd_stakes_delegation_size(&a) == len);
+
+    void *o2 = malloc(len);
+    void const *ptr = o2;
+    fd_stakes_delegation_encode(&a, &ptr);
+    FD_TEST(memcmp(o2, out, len) == 0);
+    free(o2);
+
     free(out);
     fd_stakes_delegation_destroy(&a, freef, NULL);
   }
@@ -183,6 +218,14 @@ int main(FD_FN_UNUSED int argc, FD_FN_UNUSED char** argv) {
     FD_TEST(a.stakes.unused == 98);
 
 //fd_epoch_stakes: 0000000000000000010000000000000046ea44f334102a779b7f5b42f8df2aef96626cb4b6bf5f192ce2b4b5a7e2b55246ea44f334102a779b7f5b42f8df2aef96626cb4b6bf5f192ce2b4b5a7e2b5520100000000000000020000000000000003000000000000000000000000001040620000000000000029000000000000000000000000000000000000000000000000000000000000000000000000000000
+
+    FD_TEST(fd_epoch_stakes_size(&a) == len);
+
+    void *o2 = malloc(len);
+    void const *ptr = o2;
+    fd_epoch_stakes_encode(&a, &ptr);
+    FD_TEST(memcmp(o2, out, len) == 0);
+    free(o2);
     
     free(out);
     fd_epoch_stakes_destroy(&a, freef, NULL);
@@ -209,7 +252,24 @@ int main(FD_FN_UNUSED int argc, FD_FN_UNUSED char** argv) {
     memset(&db, 0, sizeof(b));
     fd_solana_accounts_db_fields_decode(&db, &o, outend, allocf, NULL);
 
+    // So, why are we comparing to (o - b) instead of n?  
+    //
+    // There is cruft AFTER the accounts_db_fields we have not decoded yet.  As a result, we only
+    // want to confirm that our concept of "size" matches what we previously have decoded from
+    // as apposed to the total file size
+    ulong sz = (fd_deserializable_versioned_bank_size(&a) + fd_solana_accounts_db_fields_size(&db));
+    FD_TEST(sz == (ulong) ((char *) o - (char *) b));
+
     FD_TEST(a.is_delta != 0);
+
+    void *o2 = malloc(sz);
+    void const *ptr = o2;
+
+    fd_deserializable_versioned_bank_encode(&a, &ptr);
+    fd_solana_accounts_db_fields_encode(&db, &ptr);
+
+    FD_TEST(memcmp(o2, b, sz) == 0);
+    free(o2);
 
     free(b);
     fd_deserializable_versioned_bank_destroy(&a, freef, NULL);

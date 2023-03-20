@@ -85,7 +85,7 @@ void SnapshotParser_parseSnapshots(struct SnapshotParser* self, const void* data
   fd_deserializable_versioned_bank_decode(bank, &data, &datalen, SnapshotParser_allocTemp, self);
 
   struct fd_solana_accounts_db_fields* accounts = (struct fd_solana_accounts_db_fields*)
-    SnapshotParser_allocTemp(FD_ACCOUNTS_DB_FIELDS_FOOTPRINT, FD_ACCOUNTS_DB_FIELDS_ALIGN, self);
+    SnapshotParser_allocTemp(FD_SOLANA_ACCOUNTS_DB_FIELDS_FOOTPRINT, FD_SOLANA_ACCOUNTS_DB_FIELDS_ALIGN, self);
   fd_solana_accounts_db_fields_decode(accounts, &data, &datalen, SnapshotParser_allocTemp, self);
 }
 
