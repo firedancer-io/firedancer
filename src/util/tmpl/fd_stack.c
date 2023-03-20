@@ -61,18 +61,21 @@
 
 #define STACK_(x) FD_EXPAND_THEN_CONCAT3(STACK_NAME,_,x)
 
+/* *LINT-OFF* */
+/* Linter wants to push these lines around due to weird syntax. */
 struct STACK_(private) {
 
-/* The number of elements in the stack is cnt and cnt will be in
+  /* The number of elements in the stack is cnt and cnt will be in
      [0,max].  If cnt==0, the stack is empty.  If cnt==max, the stack if
      full.  For a non-empty stack, the oldest element in the stack is at
      element stack[0] and the newest element in the stack is at element
      stack[cnt-1UL]. */
 
-ulong   max;
-ulong   cnt;
-STACK_T stack[1];   /* Actually max in size */
+  ulong   max;
+  ulong   cnt;
+  STACK_T stack[1];   /* Actually max in size */
 };
+/* *LINT-ON* */
 
 typedef struct STACK_(private) STACK_(private_t);
 
@@ -120,6 +123,7 @@ STACK_(join)( void * shstack ) {
 static inline void * STACK_(leave) ( STACK_T * stack   ) {
   return (void *)STACK_(private_hdr_from_stack)( stack );
 }
+
 static inline void * STACK_(delete)( void *    shstack ) {
   return shstack;
 }
@@ -177,15 +181,22 @@ STACK_(peek_const)( STACK_T const * stack ) {
   return hdr->stack + (hdr->cnt-1UL);
 }
 
-static inline STACK_T * STACK_(insert)    ( STACK_T * stack ) {
-                                                                STACK_(private_hdr_from_stack)( stack )->cnt++;     return stack;
+/* *LINT-OFF* */
+/* Linter wants to push these lines around due to weird syntax. */
+static inline STACK_T * STACK_(insert)( STACK_T * stack ) {
+  STACK_(private_hdr_from_stack)( stack )->cnt++;     
+  return stack;
 }
-static inline STACK_T * STACK_(remove)    ( STACK_T * stack ) {
-                                                                STACK_(private_hdr_from_stack)( stack )->cnt--;     return stack;
+
+static inline STACK_T * STACK_(remove)( STACK_T * stack ) {
+  STACK_(private_hdr_from_stack)( stack )->cnt--;
+  return stack;
 }
 static inline STACK_T * STACK_(remove_all)( STACK_T * stack ) {
-                                                                STACK_(private_hdr_from_stack)( stack )->cnt = 0UL; return stack;
+  STACK_(private_hdr_from_stack)( stack )->cnt = 0UL;
+  return stack;
 }
+/* *LINT-ON* */
 
 FD_PROTOTYPES_END
 
