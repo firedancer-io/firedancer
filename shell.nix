@@ -28,6 +28,7 @@ pkgs.mkShell {
 
     # Dev Utils
     git
+    uncrustify
   ];
 }
 

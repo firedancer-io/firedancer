@@ -1,0 +1,24 @@
+name: Make Check Lint
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+jobs:
+  make-check-lint:
+    continue-on-error: true
+    strategy:
+      matrix:
+        compiler: [gcc]
+    runs-on: [self-hosted, Linux, X64]
+    defaults:
+      run:
+        shell: nix-shell --pure --keep MACHINE --keep EXTRAS --run "bash --noprofile --norc -eo pipefail {0}"
+    env:
+      MACHINE: linux_${{ matrix.compiler }}_x86_64
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Check lint
+        run: make check-lint || exit 
