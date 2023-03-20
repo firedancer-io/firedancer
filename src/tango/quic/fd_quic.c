@@ -4117,10 +4117,10 @@ fd_quic_create_connection( fd_quic_t *               quic,
   /* initial max_streams
      we are the client, so start server-initiated at our max-concurrent, and client-initiated at 0
      peer will advertise its configured maximum */
-    conn->max_streams[0x00]    = 0;                          /* 0x00 Client-Initiated, Bidirectional */
-    conn->max_streams[0x01]    = quic->max_concur_streams;   /* 0x01 Server-Initiated, Bidirectional */
-    conn->max_streams[0x02]    = 0;                          /* 0x02 Client-Initiated, Unidirectional */
-    conn->max_streams[0x03]    = quic->max_concur_streams;   /* 0x03 Server-Initiated, Unidirectional */
+    conn->max_streams[0x00]    = 0;                                      /* 0x00 Client-Initiated, Bidirectional */
+    conn->max_streams[0x01]    = 1u + (4u * quic->max_concur_streams);   /* 0x01 Server-Initiated, Bidirectional */
+    conn->max_streams[0x02]    = 0;                                      /* 0x02 Client-Initiated, Unidirectional */
+    conn->max_streams[0x03]    = 3u + (4u * quic->max_concur_streams);   /* 0x03 Server-Initiated, Unidirectional */
 
   /* conn->streams initialized inside fd_quic_conn_new */
 
@@ -5208,8 +5208,8 @@ fd_quic_frame_handle_handshake_done_frame(
   conn->state = FD_QUIC_CONN_STATE_ACTIVE;
 
   /* user callback */
-  if( FD_LIKELY( conn->quic->cb_conn_new ) ) {
-    conn->quic->cb_conn_new( conn, conn->quic->context );
+  if( FD_LIKELY( conn->quic->cb_handshake_complete ) ) {
+    conn->quic->cb_handshake_complete( conn, conn->quic->context );
   }
 
   return 0;
