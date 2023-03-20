@@ -93,6 +93,7 @@ main( int     argc,
     FD_TEST( vc_test( ch, c2,c2, c3,c3 ) );
     FD_TEST( vc_test( vc_narrow(cl,ch), c0, c1, c2, c3 ) );
 
+    /* FIXME: test with more general cases */
     vc_t m0; vc_t m1; vc_t m2; vc_t m3;
     vc_transpose_4x4( vc_bcast( c0 ), vc_bcast( c1 ), vc_bcast( c2 ), vc_bcast( c3 ), m0, m1, m2, m3 );
     vc_t mm = vc( c0, c1, c2, c3 );
@@ -278,6 +279,7 @@ main( int     argc,
 
     /* Misc operations */
 
+    /* FIXME: test with more general cases */
     vf_t m0; vf_t m1; vf_t m2; vf_t m3;
     vf_transpose_4x4( vf_bcast( x0 ), vf_bcast( x1 ), vf_bcast( x2 ), vf_bcast( x3 ), m0, m1, m2, m3 );
     vf_t mm = vf( x0, x1, x2, x3 );
@@ -445,6 +447,7 @@ main( int     argc,
 
     /* Misc operations */
 
+    /* FIXME: test with more general cases */
     vi_t m0; vi_t m1; vi_t m2; vi_t m3;
     vi_transpose_4x4( vi_bcast( x0 ), vi_bcast( x1 ), vi_bcast( x2 ), vi_bcast( x3 ), m0, m1, m2, m3 );
     vi_t mm = vi( x0, x1, x2, x3 );
@@ -610,6 +613,7 @@ main( int     argc,
 
     /* Misc operations */
 
+    /* FIXME: test with more general cases */
     vu_t m0; vu_t m1; vu_t m2; vu_t m3;
     vu_transpose_4x4( vu_bcast( x0 ), vu_bcast( x1 ), vu_bcast( x2 ), vu_bcast( x3 ), m0, m1, m2, m3 );
     vu_t mm = vu( x0, x1, x2, x3 );

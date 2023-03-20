@@ -5,8 +5,8 @@
 /* Vector uint API ****************************************************/
 
 /* A wu_t is a vector where each 32-bit wide lane holds an unsigned
-   32-bit twos-complement integer (a "uint").  These mirror wc and wf as
-   much as possible.
+   32-bit integer (a "uint").  These mirror wc and wf as much as
+   possible.
 
    These mirror the other APIs as much as possible.  Macros are
    preferred over static inlines when it is possible to do it robustly
@@ -47,7 +47,7 @@ wu_bcast_wide( uint u0, uint u1, uint u2, uint u3 ) {
   return _mm256_setr_epi32( i0, i0, i1, i1, i2, i2, i3, i3 );
 }
 
-/* No general vf_permute due to cross-128-bit lane limitations in AVX.
+/* No general wu_permute due to cross-128-bit lane limitations in AVX.
    Useful cases are provided below.  Given [ u0 u1 u2 u3 u4 u5 u6 u7 ],
    return ... */
 
@@ -277,8 +277,7 @@ static inline wf_t wu_to_wf( wu_t a ) {
      roundoff error) and then concat the two float halves to make a
      correctly rounded implementation. */
 
-  return _mm256_insertf128_ps( _mm256_insertf128_ps( _mm256_setzero_ps(), _mm256_cvtpd_ps( wu_to_wd( a, 0 ) ), 0 ),
-                                                                          _mm256_cvtpd_ps( wu_to_wd( a, 1 ) ), 1 );
+  return _mm256_setr_m128( _mm256_cvtpd_ps( wu_to_wd( a, 0 ) ), _mm256_cvtpd_ps( wu_to_wd( a, 1 ) ) );
 }
 
 #define wu_to_wl(a,imm_hi) _mm256_cvtepu32_epi64( _mm256_extractf128_si256( (a), !!(imm_hi) ) )

@@ -137,6 +137,7 @@ main( int     argc,
 
     /* Misc operations */
 
+    /* FIXME: test with more general cases */
     vd_t m0; vd_t m1;
     vd_transpose_2x2( vd_bcast( x0 ), vd_bcast( x1 ), m0, m1 );
     vd_t mm = vd( x0, x1 );
@@ -259,6 +260,7 @@ main( int     argc,
 
     /* Misc operations */
 
+    /* FIXME: test with more general cases */
     vl_t m0; vl_t m1;
     vl_transpose_2x2( vl_bcast( x0 ), vl_bcast( x1 ), m0, m1 );
     vl_t mm = vl( x0, x1 );
@@ -379,6 +381,7 @@ main( int     argc,
 
     /* Misc operations */
 
+    /* FIXME: test with more general cases */
     vv_t m0; vv_t m1;
     vv_transpose_2x2( vv_bcast( x0 ), vv_bcast( x1 ), m0, m1 );
     vv_t mm = vv( x0, x1 );

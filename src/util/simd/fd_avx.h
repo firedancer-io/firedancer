@@ -5,7 +5,7 @@
 
 /* An API for writing vectorized C/C++ code using 8-wide 32-bit ints,
    8-wide 32-bit uints, 8-wide 32-bit floats, 4-wide 64-bit doubles,
-   4-wide 64-bit longs, 8-wide 64-bit ulongs and 8- or 4-wide logicals
+   4-wide 64-bit longs, 4-wide 64-bit ulongs and 8- or 4-wide logicals
    assuming a platform with AVX support.
 
    Essentially, all the usual C/C++ operations you can do on an int,

@@ -92,6 +92,7 @@ main( int     argc,
     FD_TEST( wc_test( ch, c4,c4, c5,c5, c6,c6, c7,c7 ) );
     FD_TEST( wc_test( wc_narrow(cl,ch), c0, c1, c2, c3, c4, c5, c6, c7 ) );
 
+    /* FIXME: test with more general cases */
     wc_t m0; wc_t m1; wc_t m2; wc_t m3; wc_t m4; wc_t m5; wc_t m6; wc_t m7;
     wc_transpose_8x8( wc_bcast( c0 ), wc_bcast( c1 ), wc_bcast( c2 ), wc_bcast( c3 ),
                       wc_bcast( c4 ), wc_bcast( c5 ), wc_bcast( c6 ), wc_bcast( c7 ), m0, m1, m2, m3, m4, m5, m6, m7 );
@@ -264,6 +265,7 @@ main( int     argc,
 
     /* Misc operations */
 
+    /* FIXME: test with more general cases */
     wf_t m0; wf_t m1; wf_t m2; wf_t m3; wf_t m4; wf_t m5; wf_t m6; wf_t m7;
     wf_transpose_8x8( wf_bcast( x0 ), wf_bcast( x1 ), wf_bcast( x2 ), wf_bcast( x3 ),
                       wf_bcast( x4 ), wf_bcast( x5 ), wf_bcast( x6 ), wf_bcast( x7 ), m0, m1, m2, m3, m4, m5, m6, m7 );
@@ -404,6 +406,7 @@ main( int     argc,
 
     /* Misc operations */
 
+    /* FIXME: test with more general cases */
     wi_t m0; wi_t m1; wi_t m2; wi_t m3; wi_t m4; wi_t m5; wi_t m6; wi_t m7;
     wi_transpose_8x8( wi_bcast( x0 ), wi_bcast( x1 ), wi_bcast( x2 ), wi_bcast( x3 ),
                       wi_bcast( x4 ), wi_bcast( x5 ), wi_bcast( x6 ), wi_bcast( x7 ), m0, m1, m2, m3, m4, m5, m6, m7 );
@@ -541,6 +544,7 @@ main( int     argc,
 
     /* Misc operations */
 
+    /* FIXME: test with more general cases */
     wu_t m0; wu_t m1; wu_t m2; wu_t m3; wu_t m4; wu_t m5; wu_t m6; wu_t m7;
     wu_transpose_8x8( wu_bcast( x0 ), wu_bcast( x1 ), wu_bcast( x2 ), wu_bcast( x3 ),
                       wu_bcast( x4 ), wu_bcast( x5 ), wu_bcast( x6 ), wu_bcast( x7 ), m0, m1, m2, m3, m4, m5, m6, m7 );

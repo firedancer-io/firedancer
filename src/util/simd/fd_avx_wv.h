@@ -121,9 +121,9 @@ wv_insert_variable( wv_t a, int n, ulong v ) {
 /* Note: _mm256_{min,max}_epu64 are missing pre AVX-512.  We emulate
    these below.  Likewise, there is no _mm256_mullo_epi64 in AVX.  Since
    this is not cheap to emulate, we do not provide a wv_mul for the time
-   being.  There is a 64L*64L->64 multiply (where the lower 32-bits will
-   be zero extended to 64-bits beforehand) though and that is very
-   useful.  So we do provide that. */
+   being.  There is a 64L*64L->64 multiply (where the lower 32-bits of
+   the inputs will be zero extended to 64-bits beforehand) though and
+   that is very useful.  So we do provide that. */
 
 #define wv_neg(a) _mm256_sub_epi64( _mm256_setzero_si256(), (a) ) /* [ -a0  -a1  ... -a3  ] */
 #define wv_abs(a) (a)                                             /* [ |a0| |a1| ... |a3| ] */
