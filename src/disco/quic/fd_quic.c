@@ -12,9 +12,6 @@
 
 /* dcache app region related ******************************************/
 
-/* FD_TPU_MTU is the max serialized byte size of a txn sent over TPU. */
-#define FD_TPU_MTU (1232UL)
-
 /* fd_quic_tpu_msg_ctx_t is the message context of a txn being received
    by the QUIC tile over the TPU protocol. It is used to detect dcache
    overruns by identifying which QUIC stream is currently bound to a

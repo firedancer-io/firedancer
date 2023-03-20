@@ -41,6 +41,9 @@
 
 #if FD_HAS_HOSTED
 
+/* FD_TPU_MTU is the max serialized byte size of a txn sent over TPU. */
+#define FD_TPU_MTU (1232UL)
+
 /* An fd_quic_tile will use the cnc application region to accumulate
    the following tile specific counters:
 
