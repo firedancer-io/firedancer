@@ -154,6 +154,7 @@ main( int     argc,
 
     /* Misc operations */
 
+    /* FIXME: test with more general cases */
     wd_t m0; wd_t m1; wd_t m2; wd_t m3;
     wd_transpose_4x4( wd_bcast( x0 ), wd_bcast( x1 ), wd_bcast( x2 ), wd_bcast( x3 ), m0, m1, m2, m3 );
     wd_t mm = wd( x0, x1, x2, x3 );
@@ -288,6 +289,7 @@ main( int     argc,
 
     /* Misc operations */
 
+    /* FIXME: test with more general cases */
     wl_t m0; wl_t m1; wl_t m2; wl_t m3;
     wl_transpose_4x4( wl_bcast( x0 ), wl_bcast( x1 ), wl_bcast( x2 ), wl_bcast( x3 ), m0, m1, m2, m3 );
     wl_t mm = wl( x0, x1, x2, x3 );
@@ -420,6 +422,7 @@ main( int     argc,
 
     /* Misc operations */
 
+    /* FIXME: test with more general cases */
     wv_t m0; wv_t m1; wv_t m2; wv_t m3;
     wv_transpose_4x4( wv_bcast( x0 ), wv_bcast( x1 ), wv_bcast( x2 ), wv_bcast( x3 ), m0, m1, m2, m3 );
     wv_t mm = wv( x0, x1, x2, x3 );

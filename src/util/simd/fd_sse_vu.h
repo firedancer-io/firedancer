@@ -5,8 +5,8 @@
 /* Vector uint API ****************************************************/
 
 /* A vu_t is a vector where each 32-bit wide lane holds an unsigned
-   32-bit twos-complement integer (an "uint").  These mirror vc and vf
-   as much as possible.
+   32-bit integer (an "uint").  These mirror vc and vf as much as
+   possible.
 
    These mirror the other APIs as much as possible.  Macros are
    preferred over static inlines when it is possible to do it robustly

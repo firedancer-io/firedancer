@@ -193,8 +193,8 @@ static inline vl_t vl_shr_vector( vl_t a, vl_t n ) {
 
    vl_to_vc(d)     returns [ !!l0 !!l0 !!l1 !!l1 ] 
 
-   vl_to_vf(l,i,0) returns [ (float)l0 (float)l1 f2 f3 ]
-   vl_to_vf(l,i,1) returns [ f0 f1 (float)l0 (float)l1 ]
+   vl_to_vf(l,f,0) returns [ (float)l0 (float)l1 f2 f3 ]
+   vl_to_vf(l,f,1) returns [ f0 f1 (float)l0 (float)l1 ]
 
    vl_to_vi(l,i,0) returns [ (int)l0 (int)l1 i2 i3 ]
    vl_to_vi(l,i,1) returns [ i0 i1 (int)l0 (int)l1 ]
