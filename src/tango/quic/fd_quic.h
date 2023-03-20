@@ -183,7 +183,7 @@ fd_quic_join( void * shmem );
 
    Args
      quic         the quic instance to delete */
-void
+void *
 fd_quic_delete( fd_quic_t * quic );
 
 

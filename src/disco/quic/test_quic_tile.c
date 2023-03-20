@@ -1,4 +1,5 @@
 #include "fd_quic.h"
+#include "../../tango/xdp/fd_xdp.h"
 
 #if FD_HAS_HOSTED && FD_HAS_X86
 
@@ -11,6 +12,9 @@ FD_STATIC_ASSERT( FD_QUIC_TILE_SCRATCH_ALIGN==128UL, unit_test );
 
 struct test_cfg {
   fd_wksp_t * wksp;
+
+  fd_xsk_t *     xsk;
+  fd_xsk_aio_t * xsk_aio;
 
   fd_cnc_t *         tx_cnc;
   ulong              tx_mtu;
@@ -170,11 +174,17 @@ int main( int     argc,
   long         tx_lazy   = fd_env_strip_cmdline_long ( &argc, &argv, "--tx-lazy",   NULL, 0L /* use default */         );
   int          rx_lazy   = fd_env_strip_cmdline_int  ( &argc, &argv, "--rx-lazy",   NULL, 7                            );
   long         duration  = fd_env_strip_cmdline_long ( &argc, &argv, "--duration",  NULL, (long)10e9                   );
+  ulong        xdp_mtu   = fd_env_strip_cmdline_ulong( &argc, &argv, "--xdp-mtu",   NULL, 2048UL                       );
+  ulong        xdp_depth = fd_env_strip_cmdline_ulong( &argc, &argv, "--xdp-depth", NULL, 1024UL                       );
+  char const * iface     = fd_env_strip_cmdline_cstr ( &argc, &argv, "--iface",     NULL, NULL                         );
+  uint         ifqueue   = fd_env_strip_cmdline_uint ( &argc, &argv, "--ifqueue",   NULL, 0U                           );
 
   ulong page_sz = fd_cstr_to_shmem_page_sz( _page_sz );
   if( FD_UNLIKELY( !page_sz ) ) FD_LOG_ERR(( "unsupported --page-sz"  ));
 
   if( FD_UNLIKELY( fd_tile_cnt()<3UL ) ) FD_LOG_ERR(( "this unit test requires at least 3 tiles" ));
+
+  if( FD_UNLIKELY( !iface ) ) FD_LOG_ERR(( "missing --iface" ));
 
   long  hb0  = fd_tickcount();
   ulong seq0 = fd_rng_ulong( rng );
@@ -224,6 +234,20 @@ int main( int     argc,
 
   cfg->rx_seed = rng_seq++;
   cfg->rx_lazy = rx_lazy;
+
+  FD_LOG_NOTICE(( "Creating xsk (depth %lu)", xdp_depth ));
+  ulong xsk_footprint = fd_xsk_footprint( xdp_mtu, xdp_depth, xdp_depth, xdp_depth, xdp_depth );
+  cfg->xsk = fd_xsk_join( fd_xsk_new( fd_wksp_alloc_laddr( cfg->wksp, fd_xsk_align(), xsk_footprint, 1UL ),
+                                      xdp_mtu, xdp_depth, xdp_depth, xdp_depth, xdp_depth ) );
+  FD_TEST( cfg->xsk );
+  FD_TEST( fd_xsk_bind( cfg->xsk, "test_quic_tile", iface, ifqueue ) );
+
+  FD_LOG_NOTICE(( "Creating xsk_aio" ));
+  ulong xsk_aio_footprint = fd_xsk_aio_footprint( xdp_depth, xdp_depth );
+  cfg->xsk_aio = fd_xsk_aio_join( fd_xsk_aio_new( fd_wksp_alloc_laddr( cfg->wksp, fd_xsk_aio_align(), xsk_aio_footprint, 1UL ),
+                                                  xdp_depth, xdp_depth ),
+                                  cfg->xsk );
+  FD_TEST( cfg->xsk_aio );
 
   FD_LOG_NOTICE(( "Creating QUIC config" ));
   cfg->tx_quic_cfg = (fd_quic_config_t *)fd_wksp_alloc_laddr( cfg->wksp, alignof(fd_quic_config_t), sizeof(fd_quic_config_t), 1UL );
@@ -331,11 +355,16 @@ int main( int     argc,
 
   FD_LOG_NOTICE(( "Cleaning up" ));
 
-  fd_wksp_free_laddr( fd_fseq_delete  ( fd_fseq_leave  ( cfg->rx_fseq   ) ) );
-  fd_wksp_free_laddr( fd_cnc_delete   ( fd_cnc_leave   ( cfg->rx_cnc    ) ) );
-  fd_wksp_free_laddr( fd_dcache_delete( fd_dcache_leave( cfg->tx_dcache ) ) );
-  fd_wksp_free_laddr( fd_mcache_delete( fd_mcache_leave( cfg->tx_mcache ) ) );
-  fd_wksp_free_laddr( fd_cnc_delete   ( fd_cnc_leave   ( cfg->tx_cnc    ) ) );
+  fd_wksp_free_laddr( (void *)cfg->tx_quic_cfg->transport_params              );
+  fd_wksp_free_laddr( (void *)cfg->tx_quic_cfg                                );
+  fd_wksp_free_laddr( fd_quic_delete   (    (fd_quic_t *)( cfg->tx_quic   ) ) );
+  fd_wksp_free_laddr( fd_xsk_aio_delete( fd_xsk_aio_leave( cfg->xsk_aio   ) ) );
+  fd_wksp_free_laddr( fd_xsk_delete    ( fd_xsk_leave    ( cfg->xsk       ) ) );
+  fd_wksp_free_laddr( fd_fseq_delete   ( fd_fseq_leave   ( cfg->rx_fseq   ) ) );
+  fd_wksp_free_laddr( fd_cnc_delete    ( fd_cnc_leave    ( cfg->rx_cnc    ) ) );
+  fd_wksp_free_laddr( fd_dcache_delete ( fd_dcache_leave ( cfg->tx_dcache ) ) );
+  fd_wksp_free_laddr( fd_mcache_delete ( fd_mcache_leave ( cfg->tx_mcache ) ) );
+  fd_wksp_free_laddr( fd_cnc_delete    ( fd_cnc_leave    ( cfg->tx_cnc    ) ) );
 
   fd_wksp_delete_anonymous( cfg->wksp );
 

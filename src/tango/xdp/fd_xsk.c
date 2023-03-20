@@ -429,11 +429,15 @@ static int
 fd_xsk_init( fd_xsk_t * xsk ) {
   /* Find interface index */
 
+  if( FD_UNLIKELY( !xsk->if_name_cstr[0] ) ) {
+    FD_LOG_WARNING(( "not bound to any interface" ));
+    return -1;
+  }
   uint if_idx = if_nametoindex( xsk->if_name_cstr );
   if( FD_UNLIKELY( if_idx )==0 ) {
-    FD_LOG_WARNING(( "if_nametoindex(%s) failed (%d-%s) (is XSK bound to interface?)",
+    FD_LOG_WARNING(( "if_nametoindex(%s) failed (%d-%s)",
                      xsk->if_name_cstr, errno, strerror( errno ) ));
-    return 0;
+    return -1;
   }
   xsk->if_idx = if_idx;
 
@@ -442,12 +446,12 @@ fd_xsk_init( fd_xsk_t * xsk ) {
   xsk->xsk_fd = socket( AF_XDP, SOCK_RAW, 0 );
   if( FD_UNLIKELY( xsk->xsk_fd<0 ) ) {
     FD_LOG_WARNING(( "Failed to create XSK: %s", strerror( errno ) ));
-    return 0;
+    return -1;
   }
 
   /* Associate UMEM region of fd_xsk_t with XSK via setsockopt() */
 
-  if( FD_UNLIKELY( 0!=fd_xsk_setup_umem( xsk ) ) ) return 0;
+  if( FD_UNLIKELY( 0!=fd_xsk_setup_umem( xsk ) ) ) return -1;
 
   /* Map XSK rings into local address space */
 

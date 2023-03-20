@@ -604,14 +604,16 @@ fd_quic_join( void * shmem ) {
 
    Args
      quic         the quic instance to delete */
-void
+void *
 fd_quic_delete( fd_quic_t * quic ) {
-  if( !quic ) return;
+  if( !quic ) return NULL;
 
   fd_quic_conn_map_delete( quic->conn_map );
 
   service_queue_leave( quic->service_queue );
   service_queue_delete( quic->service_queue );
+
+  return (void *)quic;
 }
 
 
