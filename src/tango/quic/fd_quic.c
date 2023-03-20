@@ -5239,3 +5239,31 @@ fd_quic_conn_close( fd_quic_conn_t * conn, uint app_reason ) {
   fd_quic_reschedule_conn( conn, quic->now_fn( quic->now_ctx ) + 1u );
 }
 
+
+fd_quic_config_t *
+fd_quic_config_from_env( int * pargc,
+                         char *** pargv,
+                         fd_quic_config_t * cfg ) {
+
+  char const * cert_file             = fd_env_strip_cmdline_cstr ( pargc, pargv, "--ssl-cert",                   "SSL_CERT_FILE",              NULL   );
+  char const * key_file              = fd_env_strip_cmdline_cstr ( pargc, pargv, "--ssl-key",                    "SSL_KEY_FILE",               NULL   );
+  ulong        max_concur_conns      = fd_env_strip_cmdline_ulong( pargc, pargv, "--quic-max-concur-conns",      "QUIC_MAX_CONCUR_CONNS",      1024UL );
+  ulong        max_concur_conn_ids   = fd_env_strip_cmdline_ulong( pargc, pargv, "--quic-max-concur-conn-ids",   "QUIC_MAX_CONCUR_CONN_IDS",   1024UL );
+  uint         max_concur_streams    = fd_env_strip_cmdline_uint ( pargc, pargv, "--quic-max-concur-streams",    "QUIC_MAX_CONCUR_STREAMS",    4096UL );
+  uint         max_concur_handshakes = fd_env_strip_cmdline_uint ( pargc, pargv, "--quic-max-concur-handshakes", "QUIC_MAX_CONCUR_HANDSHAKES",  128UL );
+  ulong        max_inflight_pkts     = fd_env_strip_cmdline_ulong( pargc, pargv, "--quic-max-inflight-pkts",     "QUIC_MAX_INFLIGHT_PKTS",      128UL );
+  ulong        max_inflight_acks     = fd_env_strip_cmdline_ulong( pargc, pargv, "--quic-max-inflight-acks",     "QUIC_MAX_INFLIGHT_ACKS",      128UL );
+
+  strncpy( cfg->cert_file, cert_file, PATH_MAX-1UL );
+  strncpy( cfg->cert_file, key_file,  PATH_MAX-1UL );
+
+  cfg->max_concur_conns      = max_concur_conns;
+  cfg->max_concur_conn_ids   = max_concur_conn_ids;
+  cfg->max_concur_streams    = max_concur_streams;
+  cfg->max_concur_handshakes = max_concur_handshakes;
+  cfg->max_in_flight_pkts    = max_inflight_pkts;
+  cfg->max_in_flight_acks    = max_inflight_acks;
+
+  return cfg;
+}
+
