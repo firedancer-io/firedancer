@@ -202,11 +202,12 @@ int main( int     argc,
   FD_TEST( cfg->tx_mcache );
 
   FD_LOG_NOTICE(( "Creating tx dcache (--tx-mtu %lu, burst 1, compact 1, app_sz 0)", tx_mtu ));
+  ulong tx_app_sz  = fd_quic_dcache_app_footprint( tx_depth );
   ulong tx_data_sz = fd_dcache_req_data_sz( tx_mtu, tx_depth, 1UL, 1 ); FD_TEST( tx_data_sz );
   cfg->tx_dcache = fd_dcache_join( fd_dcache_new( fd_wksp_alloc_laddr( cfg->wksp,
                                                                        fd_dcache_align(), fd_dcache_footprint( tx_data_sz, 0UL ),
                                                                        1UL ),
-                                                  tx_data_sz, 0UL ) );
+                                                  tx_data_sz, tx_app_sz ) );
   FD_TEST( cfg->tx_dcache );
 
   cfg->tx_lazy   = tx_lazy;
@@ -223,6 +224,58 @@ int main( int     argc,
 
   cfg->rx_seed = rng_seq++;
   cfg->rx_lazy = rx_lazy;
+
+  FD_LOG_NOTICE(( "Creating QUIC config" ));
+  cfg->tx_quic_cfg = (fd_quic_config_t *)fd_wksp_alloc_laddr( cfg->wksp, alignof(fd_quic_config_t), sizeof(fd_quic_config_t), 1UL );
+  FD_TEST( cfg->tx_quic_cfg );
+  memset( cfg->tx_quic_cfg, 0, sizeof(fd_quic_config_t) );
+  FD_TEST( fd_quic_config_from_env( &argc, &argv, cfg->tx_quic_cfg ) );
+
+  fd_quic_transport_params_t * tp = (fd_quic_transport_params_t *)fd_wksp_alloc_laddr( cfg->wksp, alignof(fd_quic_transport_params_t), sizeof(fd_quic_transport_params_t), 1UL );
+  FD_TEST( tp );
+  memset( tp, 0, sizeof(fd_quic_transport_params_t) );
+  tp->max_idle_timeout                               = 60000;
+  tp->max_idle_timeout_present                       = 1;
+  tp->initial_max_data                               = 1048576;
+  tp->initial_max_data_present                       = 1;
+  tp->initial_max_stream_data_bidi_local             = 1048576;
+  tp->initial_max_stream_data_bidi_local_present     = 1;
+  tp->initial_max_stream_data_bidi_remote            = 1048576;
+  tp->initial_max_stream_data_bidi_remote_present    = 1;
+  tp->initial_max_stream_data_uni                    = 1048576;
+  tp->initial_max_stream_data_uni_present            = 1;
+  tp->initial_max_streams_bidi                       = 128;
+  tp->initial_max_streams_bidi_present               = 1;
+  tp->initial_max_streams_uni                        = 128;
+  tp->initial_max_streams_uni_present                = 1;
+  tp->ack_delay_exponent                             = 3;
+  tp->ack_delay_exponent_present                     = 1;
+  tp->max_ack_delay                                  = 25;
+  tp->max_ack_delay_present                          = 1;
+  tp->active_connection_id_limit                     = 8;
+  tp->active_connection_id_limit_present             = 1;
+
+  cfg->tx_quic_cfg->transport_params = tp;
+
+  FD_LOG_NOTICE(( "Creating QUIC" ));
+  ulong quic_footprint = fd_quic_footprint(
+      cfg->tx_quic_cfg->tx_buf_sz, cfg->tx_quic_cfg->tx_buf_sz,
+      cfg->tx_quic_cfg->max_concur_streams,
+      cfg->tx_quic_cfg->max_in_flight_pkts,
+      cfg->tx_quic_cfg->max_concur_conns,
+      cfg->tx_quic_cfg->max_concur_conn_ids );
+  FD_LOG_NOTICE(( "QUIC footprint: %lu bytes", quic_footprint ));
+  cfg->tx_quic = fd_quic_new(
+    fd_wksp_alloc_laddr( cfg->wksp, fd_quic_align(), quic_footprint, 1UL ),
+      cfg->tx_quic_cfg->tx_buf_sz, cfg->tx_quic_cfg->tx_buf_sz,
+      cfg->tx_quic_cfg->max_concur_streams,
+      cfg->tx_quic_cfg->max_in_flight_pkts,
+      cfg->tx_quic_cfg->max_concur_conns,
+      cfg->tx_quic_cfg->max_concur_conn_ids );
+  FD_TEST( cfg->tx_quic );
+
+  FD_LOG_NOTICE(( "Initializing QUIC" ));
+  FD_TEST( fd_quic_init( cfg->tx_quic, cfg->tx_quic_cfg ) );
 
   FD_LOG_NOTICE(( "Booting" ));
 

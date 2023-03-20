@@ -35,14 +35,6 @@ struct __attribute__((aligned(32UL))) fd_quic_tpu_msg_ctx {
 };
 typedef struct fd_quic_tpu_msg_ctx fd_quic_tpu_msg_ctx_t;
 
-/* fd_quic_dcache_app_footprint returns the required footprint in bytes
-   for the QUIC tile's out dcache app region of the given depth. */
-
-FD_FN_CONST static ulong
-fd_quic_dcache_app_footprint( ulong depth ) {
-  return depth*FD_DCACHE_SLOT_FOOTPRINT( FD_TPU_MTU );
-}
-
 /* fd_quic_dcache_msg_ctx returns a pointer to the TPU/QUIC message
    context struct for the given dcache app laddr and chunk.  app_laddr
    points to the first byte of the dcache's app region in the tile's

@@ -63,6 +63,14 @@
 #define FD_QUIC_CNC_DIAG_TPU_PUB_SZ        (4UL) /* ", frequently */
 #define FD_QUIC_CNC_DIAG_TPU_CONN_LIVE_CNT (5UL) /* ", frequently */
 
+/* fd_quic_dcache_app_footprint returns the required footprint in bytes
+   for the QUIC tile's out dcache app region of the given depth. */
+
+FD_FN_CONST static inline ulong
+fd_quic_dcache_app_footprint( ulong depth ) {
+  return depth*FD_DCACHE_SLOT_FOOTPRINT( FD_TPU_MTU );
+}
+
 /* FD_QUIC_TILE_SCRATCH_ALIGN specifies the alignment and needed for a
    QUIC tile scratch region.  ALIGN is an integer power of 2 of at least
    double cache line to mitigate various kinds of false sharing. */
