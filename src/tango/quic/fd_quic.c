@@ -508,7 +508,7 @@ fd_quic_init( void *             shmem,
   }
 
   if( quic->init ) {
-    FD_LOG_ERR(( "fd_quic_init: quic alread initialized" ));
+    FD_LOG_ERR(( "fd_quic_init: quic already initialized" ));
   }
 
   if( !config->key_file || config->key_file[0] == '\0' ) {
@@ -604,14 +604,16 @@ fd_quic_join( void * shmem ) {
 
    Args
      quic         the quic instance to delete */
-void
+void *
 fd_quic_delete( fd_quic_t * quic ) {
-  if( !quic ) return;
+  if( !quic ) return NULL;
 
   fd_quic_conn_map_delete( quic->conn_map );
 
   service_queue_leave( quic->service_queue );
   service_queue_delete( quic->service_queue );
+
+  return (void *)quic;
 }
 
 
@@ -5249,13 +5251,22 @@ fd_quic_config_from_env( int * pargc,
   char const * key_file              = fd_env_strip_cmdline_cstr ( pargc, pargv, "--ssl-key",                    "SSL_KEY_FILE",               NULL   );
   ulong        max_concur_conns      = fd_env_strip_cmdline_ulong( pargc, pargv, "--quic-max-concur-conns",      "QUIC_MAX_CONCUR_CONNS",      1024UL );
   ulong        max_concur_conn_ids   = fd_env_strip_cmdline_ulong( pargc, pargv, "--quic-max-concur-conn-ids",   "QUIC_MAX_CONCUR_CONN_IDS",   1024UL );
-  uint         max_concur_streams    = fd_env_strip_cmdline_uint ( pargc, pargv, "--quic-max-concur-streams",    "QUIC_MAX_CONCUR_STREAMS",    4096UL );
+  uint         max_concur_streams    = fd_env_strip_cmdline_uint ( pargc, pargv, "--quic-max-concur-streams",    "QUIC_MAX_CONCUR_STREAMS",      16UL );
   uint         max_concur_handshakes = fd_env_strip_cmdline_uint ( pargc, pargv, "--quic-max-concur-handshakes", "QUIC_MAX_CONCUR_HANDSHAKES",  128UL );
   ulong        max_inflight_pkts     = fd_env_strip_cmdline_ulong( pargc, pargv, "--quic-max-inflight-pkts",     "QUIC_MAX_INFLIGHT_PKTS",      128UL );
   ulong        max_inflight_acks     = fd_env_strip_cmdline_ulong( pargc, pargv, "--quic-max-inflight-acks",     "QUIC_MAX_INFLIGHT_ACKS",      128UL );
 
+  if( FD_UNLIKELY( !cert_file ) ) {
+    FD_LOG_WARNING(( "Missing --ssl-cert" ));
+    return NULL;
+  }
+  if( FD_UNLIKELY( !key_file ) ) {
+    FD_LOG_WARNING(( "Missing --ssl-key" ));
+    return NULL;
+  }
+
   strncpy( cfg->cert_file, cert_file, PATH_MAX-1UL );
-  strncpy( cfg->cert_file, key_file,  PATH_MAX-1UL );
+  strncpy( cfg->key_file,  key_file,  PATH_MAX-1UL );
 
   cfg->max_concur_conns      = max_concur_conns;
   cfg->max_concur_conn_ids   = max_concur_conn_ids;
