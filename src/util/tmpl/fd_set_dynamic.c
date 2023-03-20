@@ -497,6 +497,8 @@ SET_(xor)( SET_(t) *       z,
   return z;
 }
 
+/* *LINT-OFF* */
+/* Linter is confused by the use of the `if' keyword. */
 static inline SET_(t) *
 SET_(if)( SET_(t) *       z,
           int             c,
@@ -504,6 +506,8 @@ SET_(if)( SET_(t) *       z,
           SET_(t) const * y ) {
   return SET_(copy)( z, c ? x : y );
 }
+/* *LINT-ON* */
+
 
 FD_PROTOTYPES_END
 

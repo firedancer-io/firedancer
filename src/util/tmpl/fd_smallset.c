@@ -211,9 +211,12 @@ FD_FN_CONST static inline SET_(t) SET_(xor)      ( SET_(t) x, SET_(t) y ) {
   return x ^  y;
 }
 
+/* *LINT-OFF* */
+/* Linter is confused by the use of the `if' keyword. */
 FD_FN_CONST static inline SET_(t) SET_(if)( int c, SET_(t) t, SET_(t) f ) {
   return c ? t : f;
 }
+/* *LINT-ON* */
 
 FD_FN_CONST static inline SET_(iter_t) SET_(iter_init)( SET_(t)      set  ) {
   return set;
