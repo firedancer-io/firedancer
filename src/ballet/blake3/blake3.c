@@ -42,7 +42,10 @@ INLINE size_t chunk_state_fill_buf(blake3_chunk_state *self,
   }
   uint8_t *dest = self->buf + ((size_t)self->buf_len);
   memcpy(dest, input, take);
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wconversion"
   self->buf_len += (uint8_t)take;
+#pragma GCC diagnostic pop
   return take;
 }
 
@@ -122,7 +125,10 @@ INLINE void chunk_state_update(blake3_chunk_state *self, const uint8_t *input,
       blake3_compress_in_place(
           self->cv, self->buf, BLAKE3_BLOCK_LEN, self->chunk_counter,
           self->flags | chunk_state_maybe_start_flag(self));
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wconversion"
       self->blocks_compressed += 1;
+#pragma GCC diagnostic pop
       self->buf_len = 0;
       memset(self->buf, 0, BLAKE3_BLOCK_LEN);
     }
@@ -132,7 +138,10 @@ INLINE void chunk_state_update(blake3_chunk_state *self, const uint8_t *input,
     blake3_compress_in_place(self->cv, input, BLAKE3_BLOCK_LEN,
                              self->chunk_counter,
                              self->flags | chunk_state_maybe_start_flag(self));
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wconversion"
     self->blocks_compressed += 1;
+#pragma GCC diagnostic pop
     input += BLAKE3_BLOCK_LEN;
     input_len -= BLAKE3_BLOCK_LEN;
   }
@@ -411,7 +420,10 @@ INLINE void hasher_merge_cv_stack(blake3_hasher *self, uint64_t total_len) {
         &self->cv_stack[(self->cv_stack_len - 2) * BLAKE3_OUT_LEN];
     output_t output = parent_output(parent_node, self->key, self->chunk.flags);
     output_chaining_value(&output, parent_node);
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wconversion"
     self->cv_stack_len -= 1;
+#pragma GCC diagnostic pop
   }
 }
 
@@ -452,7 +464,10 @@ INLINE void hasher_push_cv(blake3_hasher *self, uint8_t new_cv[BLAKE3_OUT_LEN],
   hasher_merge_cv_stack(self, chunk_counter);
   memcpy(&self->cv_stack[self->cv_stack_len * BLAKE3_OUT_LEN], new_cv,
          BLAKE3_OUT_LEN);
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wconversion"
   self->cv_stack_len += 1;
+#pragma GCC diagnostic pop
 }
 
 void blake3_hasher_update(blake3_hasher *self, const void *input,
@@ -599,7 +614,10 @@ void blake3_hasher_finalize_seek(const blake3_hasher *self, uint64_t seek,
     output = chunk_state_output(&self->chunk);
   } else {
     // There are always at least 2 CVs in the stack in this case.
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wsign-conversion"
     cvs_remaining = self->cv_stack_len - 2;
+#pragma GCC diagnostic pop
     output = parent_output(&self->cv_stack[cvs_remaining * 32], self->key,
                            self->chunk.flags);
   }
