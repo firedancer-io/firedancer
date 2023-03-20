@@ -50,6 +50,8 @@ help:
 	# "make ppp" run all source files through the preprocessor
 	# "make show-deps" shows all the dependencies
 	# "make cov-report" creates an LCOV coverage report from LLVM profdata. Requires make run-unit-test EXTRAS="llvm-cov"
+	# "make lint" runs the linter on all C source and header files. Creates backup files.
+	# "make check-lint" runs the linter in dry run mode.
 
 clean:
 	#######################################################################
@@ -64,6 +66,18 @@ distclean:
 	#######################################################################
 	$(RMDIR) $(BASEDIR) && \
 $(SCRUB)
+
+lint:
+	#######################################################################
+	# Linting src/
+	#######################################################################
+	$(FIND) src/ -iname "*.c" -or -iname "*.h" | uncrustify -c lint.cfg -F - --replace
+
+check-lint:
+	#######################################################################
+	# Checking lint in src/
+	#######################################################################
+	$(FIND) src/ -iname "*.c" -or -iname "*.h" | uncrustify -c lint.cfg -F - --check
 
 ##############################
 # Usage: $(call make-lib,name)
@@ -106,6 +120,7 @@ add-asms = $(eval $(call _add-asms,$(1),$(2)))
 define _add-hdrs
 
 include: $(foreach hdr,$(1),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/include/%,$(OBJDIR)/$(MKPATH)$(hdr)))
+lint: 
 
 endef
 
@@ -343,6 +358,7 @@ asm: $(DEPFILES:.d=.S)
 
 ppp: $(DEPFILES:.d=.i)
 
+	
 endif
 endif
 endif
