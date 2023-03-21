@@ -24,7 +24,7 @@ print("#pragma GCC diagnostic ignored \"-Wunused-parameter\"", file=body)
 
 def do_vector_header(n, f):
       print("  ulong " + f["name"] + "_len;", file=header)
-      if f["element"] == "unsigned char":
+      if f["element"] == "unsigned char" or f["element"] == "uchar":
           print("  " + f["element"] + "* " + f["name"] + ";", file=header)
       elif f["element"] == "ulong":
           print("  " + f["element"] + "* " + f["name"] + ";", file=header)
@@ -47,6 +47,7 @@ fields_header = {
     "ulong" : lambda n, f: print("  ulong " + f["name"] + ";", file=header),
     "uint128" : lambda n, f: print("  uint128 " + f["name"] + ";", file=header),
     "unsigned char" : lambda n, f: print("  unsigned char " + f["name"] + ";", file=header),
+    "uchar" : lambda n, f: print("  unsigned char " + f["name"] + ";", file=header),
     "unsigned long" : lambda n, f: print("  unsigned long " + f["name"] + ";", file=header),
     "unsigned char[32]" : lambda n, f: print("  unsigned char " + f["name"] + "[32];", file=header),
     "ushort" : lambda n, f: print("  ushort " + f["name"] + ";", file=header),
@@ -60,7 +61,7 @@ def do_vector_body_decode(n, f):
     el = n + "_" + f["element"]
     el = el.upper()
 
-    if f["element"] == "unsigned char":
+    if f["element"] == "unsigned char" or f["element"] == "uchar":
         print("    self->" + f["name"] + " = (unsigned char*)(*allocf)(self->" + f["name"] + "_len, 8, allocf_arg);", file=body)
     elif f["element"] == "ulong":
         print("    self->" + f["name"] + " = (ulong*)(*allocf)(sizeof(ulong)*self->" + f["name"] + "_len, 8, allocf_arg);", file=body)
@@ -69,7 +70,7 @@ def do_vector_body_decode(n, f):
         print("    self->" + f["name"] + " = (" + n + "_" + f["element"] + "_t*)(*allocf)(" + el + "_FOOTPRINT*self->" + f["name"] + "_len, " + el + "_ALIGN, allocf_arg);", file=body)
         print("    for (ulong i = 0; i < self->" + f["name"] + "_len; ++i)", file=body)
 
-    if f["element"] == "unsigned char":
+    if f["element"] == "unsigned char" or f["element"] == "uchar":
         print("fd_bincode_bytes_decode(self->" + f["name"] + ", self->" + f["name"] + "_len, data, dataend);", file=body)
     elif f["element"] == "ulong":
         print("fd_bincode_uint64_decode(self->" + f["name"] + " + i, data, dataend);", file=body)
@@ -109,6 +110,7 @@ fields_body_decode = {
     "uint128" : lambda n, f: print("fd_bincode_uint128_decode(&self->" + f["name"] + ", data, dataend);", file=body),
     "ulong" : lambda n, f: print("fd_bincode_uint64_decode(&self->" + f["name"] + ", data, dataend);", file=body),
     "unsigned char" : lambda n, f: print("fd_bincode_uint8_decode(&self->" + f["name"] + ", data, dataend);", file=body),
+    "uchar" : lambda n, f: print("fd_bincode_uint8_decode(&self->" + f["name"] + ", data, dataend);", file=body),
     "unsigned char[32]" : lambda n, f: print("fd_bincode_bytes_decode(&self->" + f["name"] + "[0], sizeof(self->" + f["name"] + "), data, dataend);", file=body),
     "unsigned long" : lambda n, f: print("//6  unsigned long " + f["name"] + ";", file=body),
     "ushort" : lambda n, f: print("fd_bincode_uint16_decode(&self->" + f["name"] + ", data, dataend);", file=body),
@@ -121,14 +123,14 @@ def do_vector_body_encode(n, f):
     print("  fd_bincode_uint64_encode(&self->" + f["name"] + "_len, data);", file=body)
     print("  if (self->" + f["name"] + "_len != 0) {", file=body)
 
-    if f["element"] == "unsigned char":
+    if f["element"] == "unsigned char" or f["element"] == "uchar":
         pass
     elif f["element"] == "ulong":
         print("    for (ulong i = 0; i < self->" + f["name"] + "_len; ++i)", file=body)
     else:
         print("    for (ulong i = 0; i < self->" + f["name"] + "_len; ++i)", file=body)
 
-    if f["element"] == "unsigned char":
+    if f["element"] == "unsigned char" or f["element"] == "uchar":
         print("fd_bincode_bytes_encode(self->" + f["name"] + ", self->" + f["name"] + "_len, data);", file=body)
     elif f["element"] == "ulong":
         print("fd_bincode_uint64_encode(self->" + f["name"] + " + i, data);", file=body)
@@ -163,6 +165,7 @@ fields_body_encode = {
     "uint128" : lambda n, f: print("fd_bincode_uint128_encode(&self->" + f["name"] + ", data);", file=body),
     "ulong" : lambda n, f: print("fd_bincode_uint64_encode(&self->" + f["name"] + ", data);", file=body),
     "unsigned char" : lambda n, f: print("fd_bincode_uint8_encode(&self->" + f["name"] + ", data);", file=body),
+    "uchar" : lambda n, f: print("fd_bincode_uint8_encode(&self->" + f["name"] + ", data);", file=body),
     "unsigned char[32]" : lambda n, f: print("fd_bincode_bytes_encode(&self->" + f["name"] + "[0], sizeof(self->" + f["name"] + "), data);", file=body),
     "unsigned long" : lambda n, f: print("//6  unsigned long " + f["name"] + ";", file=body),
     "ushort" : lambda n, f: print("fd_bincode_uint16_encode(&self->" + f["name"] + ", data);", file=body),
@@ -174,7 +177,7 @@ fields_body_encode = {
 
 def do_vector_body_size(n, f):
     print("  size += sizeof(ulong);", file=body)
-    if f["element"] == "unsigned char":
+    if f["element"] == "unsigned char" or f["element"] == "uchar":
         print("    size += self->" + f["name"] + "_len;", file=body)
     elif f["element"] == "ulong":
         print("    size += self->" + f["name"] + "_len * sizeof(ulong);", file=body)
@@ -207,6 +210,7 @@ fields_body_size = {
     "uint128" : lambda n, f: print("size += sizeof(uint128);", file=body),
     "ulong" : lambda n, f: print("size += sizeof(ulong);", file=body),
     "unsigned char" : lambda n, f: print("size += sizeof(char);", file=body),
+    "uchar" : lambda n, f: print("size += sizeof(char);", file=body),
     "unsigned char[32]" : lambda n, f: print("size += sizeof(char) * 32;", file=body),
     "unsigned long" : lambda n, f: print("size += sizeof(ulong);", file=body),
     "ushort" : lambda n, f: print("size += sizeof(ushort);", file=body),
@@ -218,7 +222,7 @@ fields_body_size = {
 
 def do_vector_body_destroy(n, f):
     print("if (NULL != self->" + f["name"] + ") {", file=body)
-    if f["element"] == "unsigned char":
+    if f["element"] == "unsigned char" or f["element"] == "uchar":
         pass
     elif f["element"] == "ulong":
         pass
@@ -253,6 +257,7 @@ fields_body_destroy = {
     "uint128" : lambda n, f: do_pass(),
     "ulong" : lambda n, f: do_pass(),
     "unsigned char" : lambda n, f: do_pass(),
+    "uchar" : lambda n, f: do_pass(),
     "unsigned long" : lambda n, f: do_pass(),
     "unsigned char[32]" : lambda n, f: do_pass(),
     "ushort" : lambda n, f: do_pass(),
