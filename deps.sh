@@ -173,7 +173,10 @@ install_libbpf () {
     return 0
   fi
 
-  cd ./opt/git/libbpf/src
+  cd ./opt/git/libbpf
+  git apply ../../../contrib/libbpf-fix-pedantic-compile.patch
+
+  cd src
 
   echo "[+] Installing libbpf to $PREFIX"
   make -j install PREFIX="$PREFIX" LIBDIR="$PREFIX/lib"
