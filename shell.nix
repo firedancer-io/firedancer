@@ -19,6 +19,7 @@ pkgs.mkShell {
     llvm_15
 
     # C dependencies
+    elfutils
     libbpf
     pkg-config
     quictls
