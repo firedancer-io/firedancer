@@ -60,13 +60,13 @@ fd_xdp_init( char const * app_name ) {
   struct bpf_map_create_opts map_create_opts = { .sz = sizeof(struct bpf_map_create_opts) };
   int udp_dsts_map_fd = bpf_map_create(
       /* map_type    */ BPF_MAP_TYPE_HASH,
-      /* map_name    */ "firedancer_udp_dsts",
+      /* map_name    */ "fd_xdp_udp_dsts",
       /* key_size    */ 8U,
       /* value_size  */ 4U,
       /* max_entries */ FD_XDP_UDP_MAP_CNT,
       /* opts        */ &map_create_opts );
   if( FD_UNLIKELY( udp_dsts_map_fd<0 ) ) {
-    FD_LOG_WARNING(( "bpf_map_create(BPF_MAP_TYPE_HASH,\"firedancer_udp_dsts\",8U,4U,%u,%p) failed (%d-%s)",
+    FD_LOG_WARNING(( "bpf_map_create(BPF_MAP_TYPE_HASH,\"fd_xdp_udp_dsts\",8U,4U,%u,%p) failed (%d-%s)",
                      FD_XDP_UDP_MAP_CNT, (void *)&map_create_opts, errno, strerror( errno ) ));
     return -1;
   }
@@ -221,9 +221,9 @@ fd_xdp_hook_iface( char const * app_name,
 
   /* Load XDP program from object file */
 
-  struct bpf_program * prog = bpf_object__find_program_by_name( obj, "firedancer_redirect" );
+  struct bpf_program * prog = bpf_object__find_program_by_name( obj, "fd_xdp_redirect" );
   if( FD_UNLIKELY( !prog ) ) {
-    FD_LOG_WARNING(( "bpf_object__find_program_by_name(%p,\"firedancer_redirect\") failed (%d-%s)",
+    FD_LOG_WARNING(( "bpf_object__find_program_by_name(%p,\"fd_xdp_redirect\") failed (%d-%s)",
                      (void *)obj, errno, strerror( errno ) ));
     bpf_object__close( obj );
     close( udp_dsts_map_fd );
@@ -233,9 +233,9 @@ fd_xdp_hook_iface( char const * app_name,
   /* Load UDP dsts map from object file.
      Replace previously created map with shared pinned map (kinda ugly) */
 
-  struct bpf_map * udp_dsts_map = bpf_object__find_map_by_name( obj, "firedancer_udp_dsts" );
+  struct bpf_map * udp_dsts_map = bpf_object__find_map_by_name( obj, "fd_xdp_udp_dsts" );
   if( FD_UNLIKELY( !udp_dsts_map ) ) {
-    FD_LOG_WARNING(( "bpf_object__find_map_by_name(%p,\"firedancer_udp_dsts\") failed (%d-%s)",
+    FD_LOG_WARNING(( "bpf_object__find_map_by_name(%p,\"fd_xdp_udp_dsts\") failed (%d-%s)",
                      (void *)obj, errno, strerror( errno ) ));
     bpf_object__close( obj );
     close( udp_dsts_map_fd );
@@ -254,9 +254,9 @@ fd_xdp_hook_iface( char const * app_name,
 
   /* Load XSK map from object file. */
 
-  struct bpf_map * xsks_map = bpf_object__find_map_by_name( obj, "firedancer_xsks" );
+  struct bpf_map * xsks_map = bpf_object__find_map_by_name( obj, "fd_xdp_xsks" );
   if( FD_UNLIKELY( !xsks_map ) ) {
-    FD_LOG_WARNING(( "bpf_object__find_map_by_name(%p,\"firedancer_xsks\") failed (%d-%s)",
+    FD_LOG_WARNING(( "bpf_object__find_map_by_name(%p,\"fd_xdp_xsks\") failed (%d-%s)",
                      (void *)obj, errno, strerror( errno ) ));
     bpf_object__close( obj );
     return -1;

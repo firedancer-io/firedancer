@@ -39,16 +39,16 @@ char __license[] __attribute__(( section("license") )) = "Apache-2.0";
    eBPF programs (XDP).  In this program, they are used to lookup flow
    steering configuration. */
 
-/* firedancer_xsks: Available XSKs for AF_XDP
+/* fd_xdp_xsks: Available XSKs for AF_XDP
    key in the interface queue index (in host byte order). */
 struct {
   __uint( type,        BPF_MAP_TYPE_XSKMAP );
   __uint( max_entries, FD_XDP_XSKS_MAP_CNT );
   __type( key,         int                 );
   __type( value,       int                 );
-} firedancer_xsks SEC(".maps");
+} fd_xdp_xsks SEC(".maps");
 
-/* firedancer_udp_dsts: UDP/IP listen addrs
+/* fd_xdp_udp_dsts: UDP/IP listen addrs
    key is hex pattern 0000AAAAAAAABBBB where AAAAAAAA is the IP dest
    addr and BBBB is the UDP dest port (in network byte order). */
 struct {
@@ -56,15 +56,15 @@ struct {
   __uint( max_entries, FD_XDP_UDP_MAP_CNT );
   __type( key,         ulong              );
   __type( value,       int                );
-} firedancer_udp_dsts SEC(".maps");
+} fd_xdp_udp_dsts SEC(".maps");
 
 /* Executable Code ****************************************************/
 
-/* firedancer_redirect: Entrypoint of redirect XDP program.
+/* fd_xdp_redirect: Entrypoint of redirect XDP program.
    ctx is the XDP context for an Ethernet/IP packet.
    Returns an XDP action code in XDP_{PASS,REDIRECT,DROP}. */
 __attribute__(( section("xdp"), used ))
-int firedancer_redirect( struct xdp_md *ctx ) {
+int fd_xdp_redirect( struct xdp_md *ctx ) {
 
   uchar const * data      = (uchar const*)(ulong)ctx->data;
   uchar const * data_end  = (uchar const*)(ulong)ctx->data_end;
@@ -91,11 +91,11 @@ int firedancer_redirect( struct xdp_md *ctx ) {
   ulong flow_key    = (ip_dstaddr<<16) | udp_dstport;
 
   /* Filter for known UDP dest ports of interest */
-  uint * udp_value = bpf_map_lookup_elem( &firedancer_udp_dsts, &flow_key );
+  uint * udp_value = bpf_map_lookup_elem( &fd_xdp_udp_dsts, &flow_key );
   if( !udp_value ) return XDP_PASS;
 
   /* Look up the interface queue to find the socket to forward to */
   uint socket_key = ctx->rx_queue_index;
-  return bpf_redirect_map( &firedancer_xsks, socket_key, 0 );
+  return bpf_redirect_map( &fd_xdp_xsks, socket_key, 0 );
 }
 

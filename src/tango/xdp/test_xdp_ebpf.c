@@ -175,9 +175,9 @@ int main( int     argc,
 
   /* Open handles of object's resources */
 
-  struct bpf_program * prog         = bpf_object__find_program_by_name( obj, "firedancer_redirect" );
-  struct bpf_map *     udp_dsts_map = bpf_object__find_map_by_name    ( obj, "firedancer_udp_dsts" );
-  struct bpf_map *     xsks_map     = bpf_object__find_map_by_name    ( obj, "firedancer_xsks"     );
+  struct bpf_program * prog         = bpf_object__find_program_by_name( obj, "fd_xdp_redirect" );
+  struct bpf_map *     udp_dsts_map = bpf_object__find_map_by_name    ( obj, "fd_xdp_udp_dsts" );
+  struct bpf_map *     xsks_map     = bpf_object__find_map_by_name    ( obj, "fd_xdp_xsks"     );
 
   FD_TEST( prog         );
   FD_TEST( udp_dsts_map );

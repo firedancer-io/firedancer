@@ -237,10 +237,12 @@ int main( int     argc,
 
   FD_LOG_NOTICE(( "Creating xsk (depth %lu)", xdp_depth ));
   ulong xsk_footprint = fd_xsk_footprint( xdp_mtu, xdp_depth, xdp_depth, xdp_depth, xdp_depth );
-  cfg->xsk = fd_xsk_join( fd_xsk_new( fd_wksp_alloc_laddr( cfg->wksp, fd_xsk_align(), xsk_footprint, 1UL ),
-                                      xdp_mtu, xdp_depth, xdp_depth, xdp_depth, xdp_depth ) );
+  void * shxsk = fd_xsk_new( fd_wksp_alloc_laddr( cfg->wksp, fd_xsk_align(), xsk_footprint, 1UL ),
+                              xdp_mtu, xdp_depth, xdp_depth, xdp_depth, xdp_depth );
+  FD_TEST( shxsk );
+  FD_TEST( fd_xsk_bind( shxsk, "test_quic_tile", iface, ifqueue ) );
+  cfg->xsk = fd_xsk_join( shxsk );
   FD_TEST( cfg->xsk );
-  FD_TEST( fd_xsk_bind( cfg->xsk, "test_quic_tile", iface, ifqueue ) );
 
   FD_LOG_NOTICE(( "Creating xsk_aio" ));
   ulong xsk_aio_footprint = fd_xsk_aio_footprint( xdp_depth, xdp_depth );

@@ -61,7 +61,7 @@ FD_PROTOTYPES_BEGIN
    Assumes that /sys/fs/bpf is a valid bpffs mount.
    Creates the following files in /sys/fs/bpf/{app_name}/
 
-     udp_dsts  BPF_MAP_TYPE_HASH map, see firedancer_udp_dsts in
+     udp_dsts  BPF_MAP_TYPE_HASH map, see fd_xdp_udp_dsts in
                program ebpf_xdp_flow.c */
 int
 fd_xdp_init( char const * app_name );
@@ -121,7 +121,7 @@ fd_xdp_unhook_iface( char const * app_name,
 
 /* Listen API (privileged) ********************************************/
 
-/* fd_xdp_udp_dst_key returns a key for the firedancer_udp_dsts eBPF
+/* fd_xdp_udp_dst_key returns a key for the fd_xdp_udp_dsts eBPF
    map given the IPv4 dest address and UDP port number. */
 static inline ulong
 fd_xdp_udp_dst_key( uint ip4_addr,
