@@ -22,7 +22,7 @@ pkgs.mkShell {
     elfutils
     libbpf
     pkg-config
-    quictls
+    (quictls.override { static = true; })
     rocksdb
     xdp-tools
     zstd
