@@ -6,8 +6,8 @@ set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")"
 
 # Fix pkg-config path and environment
-# shellcheck source=./activate
-source activate
+# shellcheck source=./activate-deps
+source activate-deps
 
 # Load distro information
 source /etc/os-release || echo "[!] Failed to get OS info from /etc/os-release"
