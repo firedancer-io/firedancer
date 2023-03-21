@@ -4,6 +4,8 @@
 
 #include "fd_alloc_cfg.h"
 
+#include "../sanitize/fd_asan.h" /*adding support for ASan*/
+
 /* Note: this will still compile on platforms without FD_HAS_ATOMIC.  It
    should only be used single threaded in those use cases.  (The code
    does imitate at a very low level the operations required by
@@ -519,6 +521,8 @@ fd_alloc_join( void * shalloc,
     FD_LOG_WARNING(( "bad cgroup_idx" ));
     return NULL;
   }
+
+  fd_asan_poison(alloc, fd_alloc_footprint());
 
   return fd_alloc_private_join( alloc, cgroup_idx );
 }
