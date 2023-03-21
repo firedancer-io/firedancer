@@ -133,7 +133,7 @@ check_fedora_pkgs () {
 }
 
 check_debian_pkgs () {
-  local REQUIRED_DEBS=( perl autoconf gettext automake flex bison )
+  local REQUIRED_DEBS=( perl autoconf gettext automake autopoint flex bison build-essential pkg-config )
 
   echo "[~] Checking for required DEB packages"
 
@@ -165,21 +165,55 @@ check_debian_pkgs () {
   esac
 }
 
+check_alpine_pkgs () {
+  local REQUIRED_APKS=( perl autoconf gettext automake flex bison build-base pkgconf )
+
+  echo "[~] Checking for required APK packages"
+
+  local MISSING_APKS=( )
+  for deb in ${REQUIRED_APKS[@]}; do
+    if ! apk info -e "$deb" >/dev/null; then
+      MISSING_APKS+=( "$deb" )
+    fi
+  done
+
+  if [[ ${#MISSING_APKS[@]} -eq 0 ]]; then
+    echo "[~] OK: APK packages required for build are installed"
+    return 0
+  fi
+
+  echo "[!] Found missing packages"
+  echo "[?] This is fixed by the following command:"
+  echo "        ${SUDO}apk add ${MISSING_APKS[@]}"
+  read -r -p "[?] Install missing packages with superuser privileges? (y/N) " choice
+  case "$choice" in
+    y|Y)
+      echo "[+] Installing missing APKs"
+      ${SUDO}apk add "${MISSING_APKS[@]}"
+      echo "[+] Installed missing APKs"
+      ;;
+    *)
+      echo "[-] Skipping package install"
+      ;;
+  esac
+}
+
 check () {
-  case "${ID_LIKE:-}" in
+  DISTRO="${ID_LIKE:-${ID:-}}"
+  case "$DISTRO" in
     fedora)
       check_fedora_pkgs
       ;;
     debian)
       check_debian_pkgs
       ;;
+    alpine)
+      check_alpine_pkgs
+      ;;
     *)
       echo "Unsupported distro $DISTRO. Your mileage may vary."
       ;;
   esac
-
-  # To-do: pkg-config, perl sanity checks
-  true
 }
 
 install_zlib () {
