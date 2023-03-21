@@ -1,4 +1,4 @@
-LDFLAGS+=-Wl,--push-state,-Bstatic -lssl -lcrypto -Wl,--pop-state
+LDFLAGS+=-Wl,--push-state,-Bstatic $(shell pkg-config --libs libssl libcrypto) -Wl,--pop-state
 
 FD_HAS_OPENSSL:=1
 CPPFLAGS+=-DFD_HAS_OPENSSL=1
