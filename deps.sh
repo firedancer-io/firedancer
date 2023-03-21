@@ -176,7 +176,7 @@ install_libbpf () {
   cd ./opt/git/libbpf/src
 
   echo "[+] Installing libbpf to $PREFIX"
-  make -j install PREFIX="$PREFIX"
+  make -j install PREFIX="$PREFIX" LIBDIR="$PREFIX/lib"
   echo "[+] Successfully installed libbpf"
 }
 
