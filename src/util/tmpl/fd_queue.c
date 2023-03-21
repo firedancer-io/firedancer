@@ -72,31 +72,34 @@
 
 #define QUEUE_(x) FD_EXPAND_THEN_CONCAT3(QUEUE_NAME,_,x)
 
+/* *LINT-OFF* */
+/* Linter wants to push these lines around due to weird syntax. */
 struct QUEUE_(private) {
 
 /* The number of elements in the queue is cnt=end-start and cnt will be
-     in [0,max].  If cnt==0, the queue is empty.  If cnt==MAX, the queue
-     if full.
+   in [0,max].  If cnt==0, the queue is empty.  If cnt==MAX, the queue
+   if full.
 
-     For a non-empty queue, the next to pop  is at element queue[ start     % MAX ],
-     and                    the next to push is at element queue[ (end-1UL) % MAX ]
+   For a non-empty queue, the next to pop  is at element queue[ start     % MAX ],
+   and                    the next to push is at element queue[ (end-1UL) % MAX ]
 
-     start and end overflow/underflow are fine if max is a power of two
-     and start and end are initialized such that overflow / underflow
-     will not happen for millenia practically anyway.  More precisely,
-     this implementation is guaranteed when max is a power of two and/or
-     when fewer than 2^63 operations have been done on the queue (which,
-     practically speaking, would take millenia).  If, in some distant
-     age, a user does want to support doing more than 2^63 operations
-     when max is not a power of two, this can be done by moving start
-     and end as close as possible toward 2^63 by the same integer
-     multiple of max toward 2^63 sporadically (every couple of hundred
-     years or so). */
+   start and end overflow/underflow are fine if max is a power of two
+   and start and end are initialized such that overflow / underflow
+   will not happen for millenia practically anyway.  More precisely,
+   this implementation is guaranteed when max is a power of two and/or
+   when fewer than 2^63 operations have been done on the queue (which,
+   practically speaking, would take millenia).  If, in some distant
+   age, a user does want to support doing more than 2^63 operations
+   when max is not a power of two, this can be done by moving start
+   and end as close as possible toward 2^63 by the same integer
+   multiple of max toward 2^63 sporadically (every couple of hundred
+   years or so). */
 
-ulong   start;
-ulong   end;
-QUEUE_T queue[ (ulong)(QUEUE_MAX) ];
+  ulong   start;
+  ulong   end;
+  QUEUE_T queue[ (ulong)(QUEUE_MAX) ];
 };
+/* *LINT-ON* */
 
 typedef struct QUEUE_(private) QUEUE_(private_t);
 

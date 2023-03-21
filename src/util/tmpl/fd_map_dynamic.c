@@ -270,12 +270,15 @@
 
 #define MAP_(n) FD_EXPAND_THEN_CONCAT3(MAP_NAME,_,n)
 
+/* *LINT-OFF* */
+/* Linter wants to push these lines around due to weird syntax. */
 struct MAP_(private) {
-ulong key_cnt;       /* == number of keys currently in map */
-ulong slot_mask;     /* == key_max == 2^lg_slot_cnt - 1 */
-int   lg_slot_cnt;   /* non-negative */
-MAP_T slot[1];       /* Actually 2^lg_slot_cnt in size */
+  ulong key_cnt;       /* == number of keys currently in map */
+  ulong slot_mask;     /* == key_max == 2^lg_slot_cnt - 1 */
+  int   lg_slot_cnt;   /* non-negative */
+  MAP_T slot[1];       /* Actually 2^lg_slot_cnt in size */
 };
+/* *LINT-ON* */
 
 typedef struct MAP_(private) MAP_(private_t);
 
@@ -396,7 +399,7 @@ MAP_(insert)( MAP_T *   map,
 
   MAP_HASH_T hash = MAP_(key_hash)( key );
   ulong      slot = MAP_(private_start)( hash, slot_mask );
-  MAP_T * m;
+  MAP_T *    m;
   for(;;) {
     m = map + slot;
     MAP_KEY_T map_key = m->MAP_KEY;
@@ -475,7 +478,7 @@ MAP_(query)( MAP_T *   map,
   ulong      slot_mask = MAP_(private_from_slot)( map )->slot_mask;
   MAP_HASH_T hash      = MAP_(key_hash)( key );
   ulong      slot      = MAP_(private_start)( hash, slot_mask );
-  MAP_T * m;
+  MAP_T *    m;
   for(;;) {
     m = map + slot;
     MAP_KEY_T map_key = m->MAP_KEY;

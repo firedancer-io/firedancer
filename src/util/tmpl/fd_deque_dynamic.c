@@ -65,13 +65,16 @@
 
 #define DEQUE_(x) FD_EXPAND_THEN_CONCAT3(DEQUE_NAME,_,x)
 
+/* *LINT-OFF* */
+/* Linter wants to push these lines around due to weird syntax. */
 struct DEQUE_(private) {
-ulong   max1;    /* Max elements in deque minus 1 */
-ulong   cnt;     /* Num elements in deque, in [0,max] */
-ulong   start;   /* Location of current head, in [0,max) */
-ulong   end;     /* Location of current tail, in [0,max) */
-DEQUE_T deque[ 1 ];   /* Actually max in size */
+  ulong   max1;    /* Max elements in deque minus 1 */
+  ulong   cnt;     /* Num elements in deque, in [0,max] */
+  ulong   start;   /* Location of current head, in [0,max) */
+  ulong   end;     /* Location of current tail, in [0,max) */
+  DEQUE_T deque[ 1 ];   /* Actually max in size */
 };
+/* *LINT-ON* */
 
 typedef struct DEQUE_(private) DEQUE_(private_t);
 
@@ -195,9 +198,9 @@ DEQUE_(push_tail)( DEQUE_T * deque,
 static inline DEQUE_T
 DEQUE_(pop_head)( DEQUE_T * deque ) {
   DEQUE_(private_t) * hdr = DEQUE_(private_hdr_from_deque)( deque );
-  ulong max1  = hdr->max1;
-  ulong cnt   = hdr->cnt;
-  ulong start = hdr->start;
+  ulong   max1  = hdr->max1;
+  ulong   cnt   = hdr->cnt;
+  ulong   start = hdr->start;
   DEQUE_T ele = hdr->deque[ start ];
   start = DEQUE_(private_next)( start, max1 );
   hdr->cnt   = cnt-1UL;

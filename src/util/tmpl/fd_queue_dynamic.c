@@ -63,13 +63,16 @@
 
 #define QUEUE_(x) FD_EXPAND_THEN_CONCAT3(QUEUE_NAME,_,x)
 
+/* *LINT-OFF* */
+/* Linter wants to push these lines around due to weird syntax. */
 struct QUEUE_(private) {
-ulong   max1;    /* Max elements in queue minus 1 */
-ulong   cnt;     /* Num elements in queue, in [0,max] */
-ulong   start;   /* Index of next to pop,  in [0,max) */
-ulong   end;     /* Index of next to push, in [0,max) */
-QUEUE_T queue[ 1 ];   /* Actually max in size */
+  ulong   max1;    /* Max elements in queue minus 1 */
+  ulong   cnt;     /* Num elements in queue, in [0,max] */
+  ulong   start;   /* Index of next to pop,  in [0,max) */
+  ulong   end;     /* Index of next to push, in [0,max) */
+  QUEUE_T queue[ 1 ];   /* Actually max in size */
 };
+/* *LINT-ON* */
 
 typedef struct QUEUE_(private) QUEUE_(private_t);
 
@@ -179,9 +182,9 @@ QUEUE_(push)( QUEUE_T * queue,
 static inline QUEUE_T
 QUEUE_(pop)( QUEUE_T * queue ) {
   QUEUE_(private_t) * hdr = QUEUE_(private_hdr_from_queue)( queue );
-  ulong max1  = hdr->max1;
-  ulong cnt   = hdr->cnt;
-  ulong start = hdr->start;
+  ulong   max1  = hdr->max1;
+  ulong   cnt   = hdr->cnt;
+  ulong   start = hdr->start;
   QUEUE_T ele = hdr->queue[ start ];
   start = QUEUE_(private_next)( start, max1 );
   hdr->cnt   = cnt-1UL;

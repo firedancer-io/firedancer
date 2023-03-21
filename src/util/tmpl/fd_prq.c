@@ -200,12 +200,15 @@
 
 #define PRQ_(n) FD_EXPAND_THEN_CONCAT3(PRQ_NAME,_,n)
 
+/* *LINT-OFF* */
+/* Linter wants to push these lines around due to weird syntax. */
 struct PRQ_(private) {
-ulong max;
-ulong cnt;
-PRQ_T heap[1];   /* note that is half cache line aligned if PRQ_T is 32 byte and aligned 32 byte */
-/* max+1 PRQ_T follow here */
+  ulong max;
+  ulong cnt;
+  PRQ_T heap[1];   /* note that is half cache line aligned if PRQ_T is 32 byte and aligned 32 byte */
+  /* max+1 PRQ_T follow here */
 };
+/* *LINT-ON* */
 
 typedef struct PRQ_(private) PRQ_(private_t);
 

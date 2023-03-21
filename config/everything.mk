@@ -2,12 +2,15 @@ MAKEFLAGS += --no-builtin-rules
 MAKEFLAGS += --no-builtin-variables
 .SUFFIXES:
 .SUFFIXES: .h .hxx .c .cxx .o .a .d .S .i
-.PHONY: all bin include lib unit-test help clean distclean asm ppp show-deps
+.PHONY: all bin include lib unit-test help clean distclean asm ppp show-deps lint check-lint
 .SECONDARY:
 .SECONDEXPANSION:
 
 BASEDIR:=build
 OBJDIR:=$(BASEDIR)/$(BUILDDIR)
+
+# Auxiliarily rules that should not set up depenencies
+AUX_RULES:=clean distclean help show-deps lint check-lint
 
 all: bin include lib unit-test
 
@@ -324,9 +327,8 @@ $(OBJDIR)/example/% : src/%
 	$(MKDIR) $(dir $@) && \
 $(CP) $^ $@
 
-ifneq ($(MAKECMDGOALS),distclean)
-ifneq ($(MAKECMDGOALS),clean)
-ifneq ($(MAKECMDGOALS),help)
+ifeq ($(filter $(MAKECMDGOALS),$(AUX_RULES)),)
+# If we are not in an auxiliary rule (aka we need to actually build something/need dep tree)
 
 # Include all the make fragments
 
@@ -359,7 +361,5 @@ asm: $(DEPFILES:.d=.S)
 ppp: $(DEPFILES:.d=.i)
 
 	
-endif
-endif
 endif
 
