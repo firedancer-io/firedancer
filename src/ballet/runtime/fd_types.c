@@ -1519,3 +1519,37 @@ void fd_genesis_solana_encode(fd_genesis_solana_t* self, void const** data) {
   fd_bincode_uint32_encode(&self->cluster_type, data);
 }
 
+void fd_secp256k1_signature_offsets_decode(fd_secp256k1_signature_offsets_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
+  fd_bincode_uint16_decode(&self->signature_offset, data, dataend);
+  fd_bincode_uint8_decode(&self->signature_instruction_index, data, dataend);
+  fd_bincode_uint16_decode(&self->eth_address_offset, data, dataend);
+  fd_bincode_uint8_decode(&self->eth_address_instruction_index, data, dataend);
+  fd_bincode_uint16_decode(&self->message_data_offset, data, dataend);
+  fd_bincode_uint16_decode(&self->message_data_size, data, dataend);
+  fd_bincode_uint8_decode(&self->message_instruction_index, data, dataend);
+}
+void fd_secp256k1_signature_offsets_destroy(fd_secp256k1_signature_offsets_t* self, fd_free_fun_t freef, void* freef_arg) {
+}
+
+ulong fd_secp256k1_signature_offsets_size(fd_secp256k1_signature_offsets_t* self) {
+  ulong size = 0;
+  size += sizeof(ushort);
+  size += sizeof(char);
+  size += sizeof(ushort);
+  size += sizeof(char);
+  size += sizeof(ushort);
+  size += sizeof(ushort);
+  size += sizeof(char);
+  return size;
+}
+
+void fd_secp256k1_signature_offsets_encode(fd_secp256k1_signature_offsets_t* self, void const** data) {
+  fd_bincode_uint16_encode(&self->signature_offset, data);
+  fd_bincode_uint8_encode(&self->signature_instruction_index, data);
+  fd_bincode_uint16_encode(&self->eth_address_offset, data);
+  fd_bincode_uint8_encode(&self->eth_address_instruction_index, data);
+  fd_bincode_uint16_encode(&self->message_data_offset, data);
+  fd_bincode_uint16_encode(&self->message_data_size, data);
+  fd_bincode_uint8_encode(&self->message_instruction_index, data);
+}
+
