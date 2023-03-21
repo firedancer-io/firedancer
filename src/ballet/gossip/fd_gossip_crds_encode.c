@@ -2,7 +2,7 @@
 #include "fd_gossip_vector_utils.h"
 #include "fd_gossip_validation.h"
 
-/* Logic for parsing CRDS objects received over the network */
+/* Logic for encoding CRDS structs into on-the-wire format for transmission across the network */
 
 int
 fd_gossip_encode_crds_obj( fd_bin_parse_ctx_t * ctx,

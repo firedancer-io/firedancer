@@ -378,15 +378,13 @@ fd_gossip_encode_pull_req_msg( fd_bin_parse_ctx_t * ctx ) {
   }
 
   in_buf = (void *)((uchar *)msg + msg->value.offset);
-  ptr = in_buf;
   in_buf_sz = fd_bin_parse_src_blob_size_remaining( ctx );
   bytes_consumed = 0;
   
-  if( !fd_gossip_encode_crds_obj( ctx, SRC_CUR, SRC_BYTES_REMAINING, &bytes_consumed ) ) {
+  if( !fd_gossip_encode_crds_obj( ctx, in_buf, in_buf_sz, &bytes_consumed ) ) {
     FD_LOG_WARNING(( "error serializing out CRDS object" ));
     return 0;
   }
 
-  ADVANCE_SRC_PTR( bytes_consumed );
   return 1;
 }

@@ -315,6 +315,7 @@ main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
 
+  FD_IMPORT_BINARY( pull_request, "src/ballet/gossip/fixtures/pull_request.bin" );
   FD_IMPORT_BINARY( pull_response_contact_info, "src/ballet/gossip/fixtures/pull_response_contact_info.bin" );
   FD_IMPORT_BINARY( ping_message, "src/ballet/gossip/fixtures/ping_message.bin" );
   FD_IMPORT_BINARY( pong_message, "src/ballet/gossip/fixtures/pong_message.bin" );
@@ -381,6 +382,7 @@ main( int     argc,
   FD_IMPORT_BINARY( gossip_msg_55, "src/ballet/gossip/fixtures/gossip_msg_55.bin" );
   FD_IMPORT_BINARY( gossip_msg_56, "src/ballet/gossip/fixtures/gossip_msg_56.bin" );
 
+  FD_TEST( test_deserialization_serialization_roundtrip( (uchar *)pull_request, pull_request_sz ) );
   FD_TEST( test_deserialization_serialization_roundtrip( (uchar *)ping_message, ping_message_sz ) );
   FD_TEST( test_deserialization_serialization_roundtrip( (uchar *)pong_message, pong_message_sz ) );
   FD_TEST( test_deserialization_serialization_roundtrip( (void*)pull_response_node_instance, pull_response_node_instance_sz ) );
