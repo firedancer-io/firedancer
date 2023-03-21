@@ -1,4 +1,4 @@
-CFLAGS+=-DFD_HAS_LIBBPF=1
-LDFLAGS+=$(shell pkg-config --libs libbpf)
-CFLAGS+=$(shell pkg-config --cflags libbpf | sed s/-I/-isystem/)
+LDFLAGS+=-Wl,--push-state,-static $(shell pkg-config --libs libbpf libelf libzstd zlib) -Wl,--pop-state
+
 FD_HAS_LIBBPF:=1
+CPPFLAGS+=-DFD_HAS_LIBBPF=1

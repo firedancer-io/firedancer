@@ -1,11 +1,11 @@
 SHELL:=bash
-CPPFLAGS:=
+CPPFLAGS:=-I./opt/include
 CC:=gcc
 CFLAGS:=-std=c17
 CXX:=g++
 CXXFLAGS:=-std=c++17
 LD:=g++
-LDFLAGS:=-lm
+LDFLAGS:=-L./opt/lib -L./opt/lib64 -lm -ldl
 AR:=ar
 ARFLAGS:=rv
 RANLIB:=ranlib
@@ -33,7 +33,7 @@ EBPF_CC:=clang
 EBPF_CFLAGS:=-std=c17
 
 # Always cross-compile to eBPF
-EBPF_CPPFLAGS:=-target bpf -O2
+EBPF_CPPFLAGS+=-I./opt/include -target bpf -O2
 
 # Required for BPF Type Format
 EBPF_CPPFLAGS+=-g
