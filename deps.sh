@@ -6,6 +6,7 @@ set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")"
 
 # Fix pkg-config path and environment
+# shellcheck source=./activate
 source activate
 
 # Install prefix
@@ -46,10 +47,6 @@ EOF
 }
 
 nuke () {
-  if [[ ! $# -eq 0 ]]; then
-    echo "Unexpected arguments: $@" >&2
-    exit 1
-  fi
   rm -rf ./opt
   echo "[-] Nuked $(pwd)/opt"
   exit 0
@@ -93,7 +90,55 @@ fetch () {
   checkout_repo openssl "OpenSSL_1_1_1t-quic1"
 }
 
+check_fedora_pkgs () {
+  local REQUIRED_RPMS=( perl autoconf gettext-devel automake flex bison )
+
+  echo "[~] Checking for required RPM packages"
+
+  local MISSING_RPMS=( )
+  for rpm in ${REQUIRED_RPMS[@]}; do
+    if ! rpm -q "$rpm" >/dev/null; then
+      MISSING_RPMS+=( "$rpm" )
+    fi
+  done
+
+  if [[ ${#MISSING_RPMS[@]} -eq 0 ]]; then
+    echo "[~] OK: RPMs required for build are installed"
+    return 0
+  fi
+
+  echo "[!] Found missing packages"
+  echo "[?] This is fixed by the following command:"
+  echo "        sudo dnf install -y ${MISSING_RPMS[@]}"
+  read -r -p "[?] Use sudo privileges to install missing packages? (y/N) " choice
+  case "$choice" in
+    y|Y)
+      echo "[+] Installing missing RPMs"
+      sudo dnf install -y ${MISSING_RPMS[@]}
+      echo "[+] Installed missing RPMs"
+      ;;
+    *)
+      echo "Skipping package install"
+      ;;
+  esac
+}
+
 check () {
+  if ! command -v lsb_release &> /dev/null ; then
+    echo "Unknown Linux distribution, skipping sanity checks"
+    return 0
+  fi
+
+  DISTRO="$(lsb_release --short --id)"
+  case "$DISTRO" in
+    RedHatEnterprise)
+      check_fedora_pkgs
+      ;;
+    *)
+      echo "Unsupported distro $DISTRO. Your mileage may vary."
+      ;;
+  esac
+
   # To-do: pkg-config, perl sanity checks
   true
 }
@@ -221,8 +266,8 @@ if [[ $# -eq 0 ]]; then
   echo "[~] For help, run: $0 help"
   echo
   echo "[~] Running $0 install"
-  read -p "[?] Continue? (y/N) " choice
 
+  read -r -p "[?] Continue? (y/N) " choice
   case "$choice" in
     y|Y)
       echo
