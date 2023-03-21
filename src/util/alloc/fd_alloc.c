@@ -4,8 +4,6 @@
 
 #include "fd_alloc_cfg.h"
 
-#include "../sanitize/fd_asan.h" /* ASan support for fd_alloc */
-
 /* Note: this will still compile on platforms without FD_HAS_ATOMIC.  It
    should only be used single threaded in those use cases.  (The code
    does imitate at a very low level the operations required by
@@ -20,13 +18,12 @@
    [0,FD_ALLOC_FOOTPRINT_SMALL_THRESH].  The return will be in
    [0,FD_ALLOC_SIZECLASS_CNT). */
 
-FD_STATIC_ASSERT(64UL < FD_ALLOC_SIZECLASS_CNT &&
-                     FD_ALLOC_SIZECLASS_CNT <= 128UL,
-                 limits);
+FD_STATIC_ASSERT( 64UL<FD_ALLOC_SIZECLASS_CNT && FD_ALLOC_SIZECLASS_CNT<=128UL, limits );
 
-static inline ulong fd_alloc_preferred_sizeclass(ulong footprint) {
+static inline ulong
+fd_alloc_preferred_sizeclass( ulong footprint ) {
   ulong l = 0UL;
-  ulong h = FD_ALLOC_SIZECLASS_CNT - 1UL;
+  ulong h = FD_ALLOC_SIZECLASS_CNT-1UL;
 
   /* Fixed count loop without early exit to make it easy for compiler to
      unroll and nominally eliminate all branches for fast, highly
@@ -35,18 +32,16 @@ static inline ulong fd_alloc_preferred_sizeclass(ulong footprint) {
      the compiler is doing the right thing here with unrolling and
      branch elimination. */
 
-  for (ulong r = 0UL; r < 7UL; r++) {
+  for( ulong r=0UL; r<7UL; r++ ) {
 
     /* At this point sizeclasses<l are known to be inadequate and
        sizeclasses>=h are known to be suitable.  Sizeclasses in [l,h)
        have not been tested. */
 
-    ulong m =
-        (l + h) >>
-        1; /* Note: no overflow for reasonable sizeclass_cnt and l<=m<=h */
-    int c = (((ulong)fd_alloc_sizeclass_cfg[m].block_footprint) >= footprint);
-    l = fd_ulong_if(c, l, m + 1UL); /* cmov */
-    h = fd_ulong_if(c, m, h);       /* cmov */
+    ulong m = (l+h)>>1; /* Note: no overflow for reasonable sizeclass_cnt and l<=m<=h */
+    int   c = (((ulong)fd_alloc_sizeclass_cfg[ m ].block_footprint)>=footprint);
+    l = fd_ulong_if( c, l, m+1UL ); /* cmov */
+    h = fd_ulong_if( c, m, h     ); /* cmov */
   }
 
   return h;
@@ -56,9 +51,10 @@ static inline ulong fd_alloc_preferred_sizeclass(ulong footprint) {
    concurrency group for a join with the given cgroup_idx.  The caller
    promises sizeclass is in [0,FD_ALLOC_SIZECLASS_CNT). */
 
-static inline ulong fd_alloc_preferred_sizeclass_cgroup(ulong sizeclass,
-                                                        ulong cgroup_idx) {
-  return cgroup_idx & (ulong)fd_alloc_sizeclass_cfg[sizeclass].cgroup_mask;
+static inline ulong
+fd_alloc_preferred_sizeclass_cgroup( ulong sizeclass,
+                                     ulong cgroup_idx ) {
+  return cgroup_idx & (ulong)fd_alloc_sizeclass_cfg[ sizeclass ].cgroup_mask;
 }
 
 /* fd_alloc_block_set *************************************************/
@@ -67,7 +63,7 @@ static inline ulong fd_alloc_preferred_sizeclass_cgroup(ulong sizeclass,
 
 #define SET_NAME fd_alloc_block_set
 #define SET_TYPE ulong
-#define SET_MAX 64
+#define SET_MAX  64
 #include "../tmpl/fd_smallset.c"
 
 /* fd_alloc_block_set_{add,sub} inserts / removes blocks to / from
@@ -82,19 +78,21 @@ static inline ulong fd_alloc_preferred_sizeclass_cgroup(ulong sizeclass,
 #if FD_HAS_ATOMIC
 
 static inline fd_alloc_block_set_t
-fd_alloc_block_set_add(fd_alloc_block_set_t *set, fd_alloc_block_set_t blocks) {
+fd_alloc_block_set_add( fd_alloc_block_set_t * set,
+                        fd_alloc_block_set_t   blocks ) {
   fd_alloc_block_set_t ret;
   FD_COMPILER_MFENCE();
-  ret = FD_ATOMIC_FETCH_AND_ADD(set, blocks);
+  ret = FD_ATOMIC_FETCH_AND_ADD( set, blocks );
   FD_COMPILER_MFENCE();
   return ret;
 }
 
 static inline fd_alloc_block_set_t
-fd_alloc_block_set_sub(fd_alloc_block_set_t *set, fd_alloc_block_set_t blocks) {
+fd_alloc_block_set_sub( fd_alloc_block_set_t * set,
+                        fd_alloc_block_set_t   blocks ) {
   fd_alloc_block_set_t ret;
   FD_COMPILER_MFENCE();
-  ret = FD_ATOMIC_FETCH_AND_SUB(set, blocks);
+  ret = FD_ATOMIC_FETCH_AND_SUB( set, blocks );
   FD_COMPILER_MFENCE();
   return ret;
 }
@@ -102,21 +100,23 @@ fd_alloc_block_set_sub(fd_alloc_block_set_t *set, fd_alloc_block_set_t blocks) {
 #else
 
 static inline fd_alloc_block_set_t
-fd_alloc_block_set_add(fd_alloc_block_set_t *set, fd_alloc_block_set_t blocks) {
+fd_alloc_block_set_add( fd_alloc_block_set_t * set,
+                        fd_alloc_block_set_t   blocks ) {
   fd_alloc_block_set_t ret;
   FD_COMPILER_MFENCE();
-  ret = FD_VOLATILE_CONST(*set);
-  FD_VOLATILE(*set) = ret + blocks;
+  ret = FD_VOLATILE_CONST( *set );
+  FD_VOLATILE( *set ) = ret + blocks;
   FD_COMPILER_MFENCE();
   return ret;
 }
 
 static inline fd_alloc_block_set_t
-fd_alloc_block_set_sub(fd_alloc_block_set_t *set, fd_alloc_block_set_t blocks) {
+fd_alloc_block_set_sub( fd_alloc_block_set_t * set,
+                        fd_alloc_block_set_t   blocks ) {
   fd_alloc_block_set_t ret;
   FD_COMPILER_MFENCE();
-  ret = FD_VOLATILE_CONST(*set);
-  FD_VOLATILE(*set) = ret - blocks;
+  ret = FD_VOLATILE_CONST( *set );
+  FD_VOLATILE( *set ) = ret - blocks;
   FD_COMPILER_MFENCE();
   return ret;
 }
@@ -125,15 +125,11 @@ fd_alloc_block_set_sub(fd_alloc_block_set_t *set, fd_alloc_block_set_t blocks) {
 
 /* fd_alloc_superblock ************************************************/
 
-#define FD_ALLOC_SUPERBLOCK_ALIGN                                              \
-  (16UL) /* Guarantees free_blocks and next_gaddr aligned are on the same      \
-            cache line */
+#define FD_ALLOC_SUPERBLOCK_ALIGN (16UL) /* Guarantees free_blocks and next_gaddr aligned are on the same cache line */
 
 struct __attribute__((aligned(FD_ALLOC_SUPERBLOCK_ALIGN))) fd_alloc_superblock {
-  fd_alloc_block_set_t
-      free_blocks;  /* which blocks in this superblock are allocated */
-  ulong next_gaddr; /* if on the inactive superblock stack, next inactive
-                       superblock or NULL, ignored o.w. */
+  fd_alloc_block_set_t free_blocks; /* which blocks in this superblock are allocated */
+  ulong                next_gaddr;  /* if on the inactive superblock stack, next inactive superblock or NULL, ignored o.w. */
   /* FIXME: could put a cgroup hint in the lsb of next gaddr given
      it is already aligned 16. */
   /* Storage for blocks follows */
@@ -143,24 +139,20 @@ typedef struct fd_alloc_superblock fd_alloc_superblock_t;
 
 /* fd_alloc ***********************************************************/
 
-#define VOFF_NAME fd_alloc_vgaddr
-#define VOFF_TYPE uint128
+#define VOFF_NAME      fd_alloc_vgaddr
+#define VOFF_TYPE      uint128
 #define VOFF_VER_WIDTH 64
 #include "../tmpl/fd_voff.c"
 
 /* FD_ALLOC_MAGIC is an ideally unique number that specifies the precise
    memory layout of a fd_wksp. */
 
-#define FD_ALLOC_MAGIC                                                         \
-  (0xF17EDA2C37A110C0UL) /* FIRE DANCER ALLOC version 0                        \
-                          */
+#define FD_ALLOC_MAGIC (0xF17EDA2C37A110C0UL) /* FIRE DANCER ALLOC version 0 */
 
 struct __attribute__((aligned(FD_ALLOC_ALIGN))) fd_alloc {
   ulong magic;    /* ==FD_ALLOC_MAGIC */
-  ulong wksp_off; /* Offset of the first byte of this structure from the start
-                     of the wksp */
-  ulong tag;      /* tag that will be used by this allocator.  In
-                     [1,FD_WKSP_ALLOC_TAG_MAX]. */
+  ulong wksp_off; /* Offset of the first byte of this structure from the start of the wksp */
+  ulong tag;      /* tag that will be used by this allocator.  In [1,FD_WKSP_ALLOC_TAG_MAX]. */
 
   /* Padding to 128 byte alignment here */
 
@@ -182,20 +174,19 @@ struct __attribute__((aligned(FD_ALLOC_ALIGN))) fd_alloc {
      operations from different cgroups are unlikely to create false
      sharing. */
 
-  ulong active_slot[FD_ALLOC_SIZECLASS_CNT * FD_ALLOC_JOIN_CGROUP_CNT]
-      __attribute__((aligned(128UL)));
+  ulong active_slot[ FD_ALLOC_SIZECLASS_CNT*FD_ALLOC_JOIN_CGROUP_CNT ] __attribute__((aligned(128UL)));
 
   /* Padding to 128 byte alignment here */
 
-  fd_alloc_vgaddr_t inactive_stack[FD_ALLOC_SIZECLASS_CNT]
-      __attribute__((aligned(128UL)));
+  fd_alloc_vgaddr_t inactive_stack[ FD_ALLOC_SIZECLASS_CNT ] __attribute__((aligned(128UL)));
 };
 
 /* fd_alloc_private_wksp returns the wksp backing alloc.  Assumes alloc
    is a non-NULL pointer in the caller's address space to the fd_alloc
    (not a join handle). */
 
-FD_FN_PURE static inline fd_wksp_t *fd_alloc_private_wksp(fd_alloc_t *alloc) {
+FD_FN_PURE static inline fd_wksp_t *
+fd_alloc_private_wksp( fd_alloc_t * alloc ) {
   return (fd_wksp_t *)(((ulong)alloc) - alloc->wksp_off);
 }
 
@@ -205,16 +196,16 @@ FD_FN_PURE static inline fd_wksp_t *fd_alloc_private_wksp(fd_alloc_t *alloc) {
    fence.  If FD_HAS_ATOMIC, this will be done atomically. */
 
 static inline ulong
-fd_alloc_private_active_slot_replace(ulong *active_slot,
-                                     ulong new_superblock_gaddr) {
+fd_alloc_private_active_slot_replace( ulong * active_slot,
+                                      ulong   new_superblock_gaddr ) {
   ulong old_superblock_gaddr;
   FD_COMPILER_MFENCE();
-#if FD_HAS_ATOMIC
-  old_superblock_gaddr = FD_ATOMIC_XCHG(active_slot, new_superblock_gaddr);
-#else
-  old_superblock_gaddr = FD_VOLATILE_CONST(*active_slot);
-  FD_VOLATILE(*active_slot) = new_superblock_gaddr;
-#endif
+# if FD_HAS_ATOMIC
+  old_superblock_gaddr = FD_ATOMIC_XCHG( active_slot, new_superblock_gaddr );
+# else
+  old_superblock_gaddr = FD_VOLATILE_CONST( *active_slot );
+  FD_VOLATILE( *active_slot ) = new_superblock_gaddr;
+# endif
   FD_COMPILER_MFENCE();
   return old_superblock_gaddr;
 }
@@ -225,40 +216,36 @@ fd_alloc_private_active_slot_replace(ulong *active_slot,
    this will be done atomically. */
 
 static inline void
-fd_alloc_private_inactive_stack_push(fd_alloc_vgaddr_t *inactive_stack,
-                                     fd_wksp_t *wksp, ulong superblock_gaddr) {
-  fd_alloc_superblock_t *superblock =
-      (fd_alloc_superblock_t *)fd_wksp_laddr_fast(wksp, superblock_gaddr);
+fd_alloc_private_inactive_stack_push( fd_alloc_vgaddr_t * inactive_stack,
+                                      fd_wksp_t *         wksp,
+                                      ulong               superblock_gaddr ) {
+  fd_alloc_superblock_t * superblock = (fd_alloc_superblock_t *)fd_wksp_laddr_fast( wksp, superblock_gaddr );
 
-  for (;;) {
+  for(;;) {
 
     /* Read the top of the inactive stack. */
 
     fd_alloc_vgaddr_t old;
     FD_COMPILER_MFENCE();
-    old = FD_VOLATILE_CONST(*inactive_stack);
+    old = FD_VOLATILE_CONST( *inactive_stack );
     FD_COMPILER_MFENCE();
 
-    ulong top_ver = (ulong)fd_alloc_vgaddr_ver(old);
-    ulong top_gaddr = (ulong)fd_alloc_vgaddr_off(old);
+    ulong top_ver   = (ulong)fd_alloc_vgaddr_ver( old );
+    ulong top_gaddr = (ulong)fd_alloc_vgaddr_off( old );
 
     /* Try to push the top of the inactive stack */
 
-    fd_alloc_vgaddr_t new = fd_alloc_vgaddr(top_ver + 1UL, superblock_gaddr);
+    fd_alloc_vgaddr_t new = fd_alloc_vgaddr( top_ver+1UL, superblock_gaddr );
 
     FD_COMPILER_MFENCE();
-    FD_VOLATILE(superblock->next_gaddr) = top_gaddr;
+    FD_VOLATILE( superblock->next_gaddr ) = top_gaddr;
     FD_COMPILER_MFENCE();
 
-#if FD_HAS_ATOMIC
-    if (FD_LIKELY(FD_ATOMIC_CAS(inactive_stack, old, new) == old))
-      break;
-#else
-    if (FD_LIKELY(FD_VOLATILE_CONST(*inactive_stack) == old)) {
-      FD_VOLATILE(*inactive_stack) = new;
-      break;
-    }
-#endif
+#   if FD_HAS_ATOMIC
+    if( FD_LIKELY( FD_ATOMIC_CAS( inactive_stack, old, new )==old ) ) break;
+#   else
+    if( FD_LIKELY( FD_VOLATILE_CONST( *inactive_stack )==old ) ) { FD_VOLATILE( *inactive_stack ) = new; break; }
+#   endif
 
     /* Hmmm ... that failed ... try again */
 
@@ -275,46 +262,40 @@ fd_alloc_private_inactive_stack_push(fd_alloc_vgaddr_t *inactive_stack,
    done atomically. */
 
 static inline ulong
-fd_alloc_private_inactive_stack_pop(fd_alloc_vgaddr_t *inactive_stack,
-                                    fd_wksp_t *wksp) {
+fd_alloc_private_inactive_stack_pop( fd_alloc_vgaddr_t * inactive_stack,
+                                     fd_wksp_t *         wksp ) {
   ulong top_gaddr;
 
-  for (;;) {
+  for(;;) {
 
     /* Read the top of the inactive stack.  Return if the inactive stack
        is empty. */
 
     fd_alloc_vgaddr_t old;
     FD_COMPILER_MFENCE();
-    old = FD_VOLATILE_CONST(*inactive_stack);
+    old = FD_VOLATILE_CONST( *inactive_stack );
     FD_COMPILER_MFENCE();
 
-    /**/ top_gaddr = (ulong)fd_alloc_vgaddr_off(old);
-    ulong top_ver = (ulong)fd_alloc_vgaddr_ver(old);
-    if (FD_UNLIKELY(!top_gaddr))
-      break;
+    /**/  top_gaddr = (ulong)fd_alloc_vgaddr_off( old );
+    ulong top_ver   = (ulong)fd_alloc_vgaddr_ver( old );
+    if( FD_UNLIKELY( !top_gaddr ) ) break;
 
     /* Try to pop the top of the inactive stack. */
 
-    fd_alloc_superblock_t *top =
-        (fd_alloc_superblock_t *)fd_wksp_laddr_fast(wksp, top_gaddr);
+    fd_alloc_superblock_t * top = (fd_alloc_superblock_t *)fd_wksp_laddr_fast( wksp, top_gaddr );
 
     ulong next_gaddr;
     FD_COMPILER_MFENCE();
-    next_gaddr = FD_VOLATILE_CONST(top->next_gaddr);
+    next_gaddr = FD_VOLATILE_CONST( top->next_gaddr );
     FD_COMPILER_MFENCE();
 
-    fd_alloc_vgaddr_t new = fd_alloc_vgaddr(top_ver + 1UL, next_gaddr);
+    fd_alloc_vgaddr_t new = fd_alloc_vgaddr( top_ver+1UL, next_gaddr );
 
-#if FD_HAS_ATOMIC
-    if (FD_LIKELY(FD_ATOMIC_CAS(inactive_stack, old, new) == old))
-      break;
-#else
-    if (FD_LIKELY(FD_VOLATILE_CONST(*inactive_stack) == old)) {
-      FD_VOLATILE(*inactive_stack) = new;
-      break;
-    }
-#endif
+#   if FD_HAS_ATOMIC
+    if( FD_LIKELY( FD_ATOMIC_CAS( inactive_stack, old, new )==old ) ) break;
+#   else
+    if( FD_LIKELY( FD_VOLATILE_CONST( *inactive_stack )==old ) ) { FD_VOLATILE( *inactive_stack ) = new; break; }
+#   endif
 
     /* Hmmm ... that failed ... try again */
 
@@ -343,10 +324,8 @@ typedef uint fd_alloc_hdr_t;
    whether this allocation is direct user allocation or holds a
    superblock that aggregrates many small allocations together. */
 
-#define FD_ALLOC_HDR_LARGE_DIRECT                                              \
-  ((fd_alloc_hdr_t)(0xFDA11C00U | (fd_alloc_hdr_t)FD_ALLOC_SIZECLASS_LARGE))
-#define FD_ALLOC_HDR_LARGE_SUPERBLOCK                                          \
-  ((fd_alloc_hdr_t)(0xFDA11C80U | (fd_alloc_hdr_t)FD_ALLOC_SIZECLASS_LARGE))
+#define FD_ALLOC_HDR_LARGE_DIRECT     ((fd_alloc_hdr_t)(0xFDA11C00U | (fd_alloc_hdr_t)FD_ALLOC_SIZECLASS_LARGE))
+#define FD_ALLOC_HDR_LARGE_SUPERBLOCK ((fd_alloc_hdr_t)(0xFDA11C80U | (fd_alloc_hdr_t)FD_ALLOC_SIZECLASS_LARGE))
 
 /* fd_alloc_hdr_load loads the header for the allocation whose first
    byte is at laddr in the caller's address space.  The header will be
@@ -354,8 +333,9 @@ typedef uint fd_alloc_hdr_t;
    returned and this implies that the allocation at laddr must be at
    least until the caller stops using the header. */
 
-FD_FN_PURE static inline fd_alloc_hdr_t fd_alloc_hdr_load(void const *laddr) {
-  return FD_LOAD(fd_alloc_hdr_t, ((ulong)laddr) - sizeof(fd_alloc_hdr_t));
+FD_FN_PURE static inline fd_alloc_hdr_t
+fd_alloc_hdr_load( void const * laddr ) {
+  return FD_LOAD( fd_alloc_hdr_t, ((ulong)laddr) - sizeof(fd_alloc_hdr_t) );
 }
 
 /* fd_alloc_hdr_sizeclass returns the sizeclass of an allocation
@@ -366,9 +346,7 @@ FD_FN_PURE static inline fd_alloc_hdr_t fd_alloc_hdr_load(void const *laddr) {
    packing efficiency.  All allocations in a superblock are from the
    same sizeclass. */
 
-FD_FN_CONST static inline ulong fd_alloc_hdr_sizeclass(fd_alloc_hdr_t hdr) {
-  return (ulong)(hdr & 127U);
-}
+FD_FN_CONST static inline ulong fd_alloc_hdr_sizeclass( fd_alloc_hdr_t hdr ) { return (ulong)(hdr & 127U); }
 
 /* fd_alloc_hdr_{superblock,block} return details about a small
    allocation whose first byte is at laddr in the caller's address space
@@ -386,21 +364,21 @@ FD_FN_CONST static inline ulong fd_alloc_hdr_sizeclass(fd_alloc_hdr_t hdr) {
      fd_alloc_sizeclass_block_cnt(sizeclass)<=fd_alloc_block_set_max()<=64. */
 
 FD_FN_CONST static inline fd_alloc_superblock_t *
-fd_alloc_hdr_superblock(fd_alloc_hdr_t hdr, void *laddr) {
+fd_alloc_hdr_superblock( fd_alloc_hdr_t hdr,
+                         void *         laddr ) {
   return (fd_alloc_superblock_t *)(((ulong)laddr) - ((ulong)(hdr >> 13)));
 }
 
-FD_FN_CONST static inline ulong fd_alloc_hdr_block_idx(fd_alloc_hdr_t hdr) {
-  return (ulong)((hdr >> 7) & 63U);
-}
+FD_FN_CONST static inline ulong fd_alloc_hdr_block_idx( fd_alloc_hdr_t hdr ) { return (ulong)((hdr >> 7) & 63U); }
 
 /* fd_alloc_hdr_is_large returns 1 if hdr is for a large allocation and
    0 if not.  fd_alloc_hdr_sizeclass( hdr )==FD_ALLOC_SIZECLASS_LARGE
    also works but does not test the magic number in the most significant
    bits. */
 
-FD_FN_CONST static inline int fd_alloc_hdr_is_large(fd_alloc_hdr_t hdr) {
-  return fd_uint_clear_bit(hdr, 7) == FD_ALLOC_HDR_LARGE_DIRECT;
+FD_FN_CONST static inline int
+fd_alloc_hdr_is_large( fd_alloc_hdr_t hdr ) {
+  return fd_uint_clear_bit( hdr, 7 )==FD_ALLOC_HDR_LARGE_DIRECT;
 }
 
 /* fd_alloc_hdr_large_is_superblock returns 1 if hdr (which is assumed
@@ -408,8 +386,8 @@ FD_FN_CONST static inline int fd_alloc_hdr_is_large(fd_alloc_hdr_t hdr) {
    superblock. */
 
 FD_FN_CONST static inline int
-fd_alloc_hdr_large_is_superblock(fd_alloc_hdr_t hdr) {
-  return fd_uint_extract_bit(hdr, 7);
+fd_alloc_hdr_large_is_superblock( fd_alloc_hdr_t hdr ) {
+  return fd_uint_extract_bit( hdr, 7 );
 }
 
 /* fd_alloc_hdr_store stores a fd_alloc_hdr_t describing a small
@@ -421,22 +399,23 @@ fd_alloc_hdr_large_is_superblock(fd_alloc_hdr_t hdr) {
    fd_alloc_hdr_store_large similarly stores a fd_alloc_hdr_t describing
    a large allocation. */
 
-static inline void *fd_alloc_hdr_store(void *laddr,
-                                       fd_alloc_superblock_t *superblock,
-                                       ulong block_idx, ulong sizeclass) {
-  FD_STORE(
-      fd_alloc_hdr_t, ((ulong)laddr) - sizeof(fd_alloc_hdr_t),
-      (fd_alloc_hdr_t)(((((ulong)laddr) - ((ulong)superblock))
-                        << 13) | /* Bits 31:13 - 19 bit: superblock offset */
-                       (block_idx << 7) | /* Bits 12: 7 -  6 bit: block */
-                       sizeclass));       /* Bits  6: 0 -  7 bit: sizeclass */
+static inline void *
+fd_alloc_hdr_store( void *                  laddr,
+                    fd_alloc_superblock_t * superblock,
+                    ulong                   block_idx,
+                    ulong                   sizeclass ) {
+  FD_STORE( fd_alloc_hdr_t, ((ulong)laddr) - sizeof(fd_alloc_hdr_t), 
+            (fd_alloc_hdr_t)( ((((ulong)laddr) - ((ulong)superblock)) << 13) |    /* Bits 31:13 - 19 bit: superblock offset */
+                              (block_idx                              <<  7) |    /* Bits 12: 7 -  6 bit: block */
+                              sizeclass                                      ) ); /* Bits  6: 0 -  7 bit: sizeclass */
   return laddr;
 }
 
-static inline void *fd_alloc_hdr_store_large(void *laddr,
-                                             int is_superblock) { /* in [0,1] */
-  FD_STORE(fd_alloc_hdr_t, ((ulong)laddr) - sizeof(fd_alloc_hdr_t),
-           FD_ALLOC_HDR_LARGE_DIRECT | (((fd_alloc_hdr_t)is_superblock) << 7));
+static inline void *
+fd_alloc_hdr_store_large( void * laddr,
+                          int    is_superblock ) { /* in [0,1] */
+  FD_STORE( fd_alloc_hdr_t, ((ulong)laddr) - sizeof(fd_alloc_hdr_t),
+            FD_ALLOC_HDR_LARGE_DIRECT | (((fd_alloc_hdr_t)is_superblock) << 7) );
   return laddr;
 }
 
@@ -449,123 +428,134 @@ static inline void *fd_alloc_hdr_store_large(void *laddr,
    join handle back into {alloc,hash}. */
 
 FD_FN_CONST static inline fd_alloc_t *
-fd_alloc_private_join(fd_alloc_t *alloc,
-                      ulong cgroup_idx) { /* In [0,FD_ALLOC_JOIN_CGROUP_CNT) */
+fd_alloc_private_join( fd_alloc_t * alloc,
+                       ulong        cgroup_idx ) { /* In [0,FD_ALLOC_JOIN_CGROUP_CNT) */
   return (fd_alloc_t *)(((ulong)alloc) | cgroup_idx);
 }
 
-FD_FN_CONST fd_alloc_t *fd_alloc_private_join_alloc(fd_alloc_t *join) {
-  return (fd_alloc_t *)(((ulong)join) & ~(FD_ALLOC_JOIN_CGROUP_CNT - 1UL));
+FD_FN_CONST fd_alloc_t *
+fd_alloc_private_join_alloc( fd_alloc_t * join ) {
+  return (fd_alloc_t *)(((ulong)join) & ~(FD_ALLOC_JOIN_CGROUP_CNT-1UL));
 }
 
 FD_FN_CONST ulong /* In [0,FD_ALLOC_JOIN_CGROUP_CNT) */
-fd_alloc_private_join_cgroup_idx(fd_alloc_t *join) {
-  return ((ulong)join) & (FD_ALLOC_JOIN_CGROUP_CNT - 1UL);
+fd_alloc_private_join_cgroup_idx( fd_alloc_t * join ) {
+  return ((ulong)join) & (FD_ALLOC_JOIN_CGROUP_CNT-1UL);
 }
 
 /* Constructors *******************************************************/
 
-ulong fd_alloc_align(void) { return alignof(fd_alloc_t); }
+ulong
+fd_alloc_align( void ) {
+  return alignof(fd_alloc_t);
+}
 
-ulong fd_alloc_footprint(void) { return sizeof(fd_alloc_t); }
+ulong
+fd_alloc_footprint( void ) {
+  return sizeof(fd_alloc_t);
+}
 
-void *fd_alloc_new(void *shmem, ulong tag) {
+void *
+fd_alloc_new( void * shmem,
+              ulong  tag ) {
 
   /* Check input arguments */
 
-  if (FD_UNLIKELY(!shmem)) {
-    FD_LOG_WARNING(("NULL shmem"));
+  if( FD_UNLIKELY( !shmem ) ) {
+    FD_LOG_WARNING(( "NULL shmem" ));
     return NULL;
   }
 
-  if (FD_UNLIKELY(!fd_ulong_is_aligned((ulong)shmem, alignof(fd_alloc_t)))) {
-    FD_LOG_WARNING(("misaligned shmem"));
+  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)shmem, alignof(fd_alloc_t) ) ) ) {
+    FD_LOG_WARNING(( "misaligned shmem" ));
     return NULL;
   }
 
-  fd_wksp_t *wksp = fd_wksp_containing(shmem);
-  if (FD_UNLIKELY(!wksp)) {
-    FD_LOG_WARNING(("shmem must be in a workspace"));
+  fd_wksp_t * wksp = fd_wksp_containing( shmem );
+  if( FD_UNLIKELY( !wksp ) ) {
+    FD_LOG_WARNING(( "shmem must be in a workspace" ));
     return NULL;
   }
 
-  if (FD_UNLIKELY(!(1UL <= tag && tag <= FD_WKSP_ALLOC_TAG_MAX))) {
-    FD_LOG_WARNING(("bad tag"));
+  if( FD_UNLIKELY( !(1UL<=tag && tag<=FD_WKSP_ALLOC_TAG_MAX) ) ) {
+    FD_LOG_WARNING(( "bad tag" ));
     return NULL;
   }
 
-  fd_alloc_t *alloc = (fd_alloc_t *)shmem;
-  fd_memset(alloc, 0, sizeof(fd_alloc_t));
+  fd_alloc_t * alloc = (fd_alloc_t *)shmem;
+  fd_memset( alloc, 0, sizeof(fd_alloc_t) );
 
   alloc->wksp_off = (ulong)alloc - (ulong)wksp;
-  alloc->tag = tag;
+  alloc->tag      = tag;
 
   FD_COMPILER_MFENCE();
-  FD_VOLATILE(alloc->magic) = FD_ALLOC_MAGIC;
+  FD_VOLATILE( alloc->magic ) = FD_ALLOC_MAGIC;
   FD_COMPILER_MFENCE();
 
   return shmem;
 }
 
-fd_alloc_t *fd_alloc_join(void *shalloc, ulong cgroup_idx) {
-  fd_alloc_t *alloc = (fd_alloc_t *)shalloc;
+fd_alloc_t *
+fd_alloc_join( void * shalloc,
+               ulong  cgroup_idx ) {
+  fd_alloc_t * alloc = (fd_alloc_t *)shalloc;
 
-  if (FD_UNLIKELY(!alloc)) {
-    FD_LOG_WARNING(("NULL shalloc"));
+  if( FD_UNLIKELY( !alloc ) ) {
+    FD_LOG_WARNING(( "NULL shalloc" ));
     return NULL;
   }
 
-  if (FD_UNLIKELY(!fd_ulong_is_aligned((ulong)alloc, alignof(fd_alloc_t)))) {
-    FD_LOG_WARNING(("misaligned shalloc"));
+  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)alloc, alignof(fd_alloc_t) ) ) ) {
+    FD_LOG_WARNING(( "misaligned shalloc" ));
     return NULL;
   }
 
-  if (FD_UNLIKELY(alloc->magic != FD_ALLOC_MAGIC)) {
-    FD_LOG_WARNING(("bad magic"));
+  if( FD_UNLIKELY( alloc->magic!=FD_ALLOC_MAGIC ) ) {
+    FD_LOG_WARNING(( "bad magic" ));
     return NULL;
   }
 
-  if (FD_UNLIKELY(cgroup_idx >= FD_ALLOC_JOIN_CGROUP_CNT)) {
-    FD_LOG_WARNING(("bad cgroup_idx"));
+  if( FD_UNLIKELY( cgroup_idx>=FD_ALLOC_JOIN_CGROUP_CNT ) ) {
+    FD_LOG_WARNING(( "bad cgroup_idx" ));
     return NULL;
   }
 
-  fd_asan_poison(alloc, fd_alloc_footprint());
-
-  return fd_alloc_private_join(alloc, cgroup_idx);
+  return fd_alloc_private_join( alloc, cgroup_idx );
 }
 
-void *fd_alloc_leave(fd_alloc_t *join) {
+void *
+fd_alloc_leave( fd_alloc_t * join ) {
 
-  if (FD_UNLIKELY(!join)) {
-    FD_LOG_WARNING(("NULL join"));
+  if( FD_UNLIKELY( !join ) ) {
+    FD_LOG_WARNING(( "NULL join" ));
     return NULL;
   }
 
-  return fd_alloc_private_join_alloc(join);
+  return fd_alloc_private_join_alloc( join );
 }
 
-void *fd_alloc_delete(void *shalloc) {
+void *
+fd_alloc_delete( void * shalloc ) {
 
-  if (FD_UNLIKELY(!shalloc)) {
-    FD_LOG_WARNING(("NULL shalloc"));
+  if( FD_UNLIKELY( !shalloc ) ) {
+    FD_LOG_WARNING(( "NULL shalloc" ));
     return NULL;
   }
 
-  if (FD_UNLIKELY(!fd_ulong_is_aligned((ulong)shalloc, alignof(fd_alloc_t)))) {
-    FD_LOG_WARNING(("misaligned shalloc"));
+  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)shalloc, alignof(fd_alloc_t) ) ) ) {
+    FD_LOG_WARNING(( "misaligned shalloc" ));
     return NULL;
   }
 
-  fd_alloc_t *alloc = (fd_alloc_t *)shalloc;
+  fd_alloc_t * alloc = (fd_alloc_t *)shalloc;
 
-  if (FD_UNLIKELY(alloc->magic != FD_ALLOC_MAGIC)) {
-    FD_LOG_WARNING(("bad magic"));
+  if( FD_UNLIKELY( alloc->magic!=FD_ALLOC_MAGIC ) ) {
+    FD_LOG_WARNING(( "bad magic" ));
     return NULL;
   }
 
   FD_COMPILER_MFENCE();
-  FD_VOLATILE(alloc->magic) = 0UL;
+  FD_VOLATILE( alloc->magic ) = 0UL;
   FD_COMPILER_MFENCE();
 
   /* Clean up as much as we can.  For each sizeclass, delete all active
@@ -576,46 +566,44 @@ void *fd_alloc_delete(void *shalloc) {
      free on them).  So hopefully the application did a good job and
      cleaned up all their outstanding stuff before calling delete. */
 
-  fd_wksp_t *wksp = fd_alloc_private_wksp(alloc);
+  fd_wksp_t * wksp = fd_alloc_private_wksp( alloc );
 
-  for (ulong sizeclass = 0UL; sizeclass < FD_ALLOC_SIZECLASS_CNT; sizeclass++) {
+  for( ulong sizeclass=0UL; sizeclass<FD_ALLOC_SIZECLASS_CNT; sizeclass++ ) {
 
-    ulong cgroup_cnt =
-        (ulong)fd_alloc_sizeclass_cfg[sizeclass].cgroup_mask + 1UL;
-    for (ulong cgroup_idx = 0UL; cgroup_idx < cgroup_cnt; cgroup_idx++) {
-      ulong superblock_gaddr = fd_alloc_private_active_slot_replace(
-          alloc->active_slot + sizeclass + FD_ALLOC_SIZECLASS_CNT * cgroup_idx,
-          0UL);
-      if (FD_UNLIKELY(superblock_gaddr))
-        fd_alloc_free(alloc, (fd_alloc_superblock_t *)fd_wksp_laddr_fast(
-                                 wksp, superblock_gaddr));
-    }
-
-    fd_alloc_vgaddr_t *inactive_stack = alloc->inactive_stack + sizeclass;
-    for (;;) {
+    ulong cgroup_cnt = (ulong)fd_alloc_sizeclass_cfg[ sizeclass ].cgroup_mask + 1UL;
+    for( ulong cgroup_idx=0UL; cgroup_idx<cgroup_cnt; cgroup_idx++ ) {
       ulong superblock_gaddr =
-          fd_alloc_private_inactive_stack_pop(inactive_stack, wksp);
-      if (FD_LIKELY(!superblock_gaddr))
-        break;
-      fd_alloc_free(alloc, (fd_alloc_superblock_t *)fd_wksp_laddr_fast(
-                               wksp, superblock_gaddr));
+        fd_alloc_private_active_slot_replace( alloc->active_slot + sizeclass + FD_ALLOC_SIZECLASS_CNT*cgroup_idx, 0UL );
+      if( FD_UNLIKELY( superblock_gaddr ) )
+        fd_alloc_free( alloc, (fd_alloc_superblock_t *)fd_wksp_laddr_fast( wksp, superblock_gaddr ) );
     }
+    
+    fd_alloc_vgaddr_t * inactive_stack = alloc->inactive_stack + sizeclass;
+    for(;;) {
+      ulong superblock_gaddr = fd_alloc_private_inactive_stack_pop( inactive_stack, wksp );
+      if( FD_LIKELY( !superblock_gaddr ) ) break;
+      fd_alloc_free( alloc, (fd_alloc_superblock_t *)fd_wksp_laddr_fast( wksp, superblock_gaddr ) );
+    }
+
   }
 
   return shalloc;
 }
 
-fd_wksp_t *fd_alloc_wksp(fd_alloc_t *join) {
-  return FD_LIKELY(join)
-             ? fd_alloc_private_wksp(fd_alloc_private_join_alloc(join))
-             : NULL;
+fd_wksp_t *
+fd_alloc_wksp( fd_alloc_t * join ) {
+  return FD_LIKELY( join ) ? fd_alloc_private_wksp( fd_alloc_private_join_alloc( join ) ) : NULL;
 }
 
-ulong fd_alloc_tag(fd_alloc_t *join) {
-  return FD_LIKELY(join) ? fd_alloc_private_join_alloc(join)->tag : 0UL;
+ulong
+fd_alloc_tag( fd_alloc_t * join ) {
+  return FD_LIKELY( join ) ? fd_alloc_private_join_alloc( join )->tag : 0UL;
 }
 
-void *fd_alloc_malloc(fd_alloc_t *join, ulong align, ulong sz) {
+void *
+fd_alloc_malloc( fd_alloc_t * join,
+                 ulong        align,
+                 ulong        sz ) {
 
   /* Handle default align, NULL alloc, 0 size, non-power-of-two align
      and unreasonably large sz.  footprint has room for fd_alloc_hdr_t,
@@ -625,44 +613,37 @@ void *fd_alloc_malloc(fd_alloc_t *join, ulong align, ulong sz) {
      sizeof is 4 and we abort is align is not a power of 2.  So we don't
      need to do elaborate overflow checking. */
 
-  fd_alloc_t *alloc = fd_alloc_private_join_alloc(join);
+  fd_alloc_t * alloc = fd_alloc_private_join_alloc( join );
 
-  align = fd_ulong_if(!align, FD_ALLOC_MALLOC_ALIGN_DEFAULT, align);
+  align = fd_ulong_if( !align, FD_ALLOC_MALLOC_ALIGN_DEFAULT, align );
 
   ulong footprint = sz + sizeof(fd_alloc_hdr_t) + align - 1UL;
 
-  if (FD_UNLIKELY((!alloc) | (!fd_ulong_is_pow2(align)) | (!sz) |
-                  (footprint <= sz)))
-    return NULL;
+  if( FD_UNLIKELY( (!alloc) | (!fd_ulong_is_pow2( align )) | (!sz) | (footprint<=sz) ) ) return NULL;
 
-  fd_wksp_t *wksp = fd_alloc_private_wksp(alloc);
+  fd_wksp_t * wksp = fd_alloc_private_wksp( alloc );
 
   /* At this point, alloc is non-NULL and backed by wksp, align is a
      power-of-2, footprint is a reasonable non-zero value.  If the
      footprint is large, just allocate the memory directly, prepend the
      appropriate header and return. */
 
-  if (FD_UNLIKELY(footprint > FD_ALLOC_FOOTPRINT_SMALL_THRESH)) {
-    void *laddr = fd_wksp_alloc_laddr(wksp, 1UL, footprint, alloc->tag);
-    if (FD_UNLIKELY(!laddr))
-      return NULL;
+  if( FD_UNLIKELY( footprint > FD_ALLOC_FOOTPRINT_SMALL_THRESH ) ) {
+    void * laddr = fd_wksp_alloc_laddr( wksp, 1UL, footprint, alloc->tag );
+    if( FD_UNLIKELY( !laddr ) ) return NULL;
     /* FIXME: clear align zero padding for better alloc parameter
        recovery in diagnostcs here? */
-    return fd_alloc_hdr_store_large(
-        (void *)fd_ulong_align_up((ulong)laddr + sizeof(fd_alloc_hdr_t), align),
-        0 /* !sb */);
+    return fd_alloc_hdr_store_large( (void *)fd_ulong_align_up( (ulong)laddr + sizeof(fd_alloc_hdr_t), align ), 0 /* !sb */ );
   }
 
   /* At this point, the footprint is small.  Determine the preferred
      sizeclass for this allocation and the preferred active superblock
      to use for this sizeclass and join. */
 
-  ulong sizeclass = fd_alloc_preferred_sizeclass(footprint);
-  ulong cgroup = fd_alloc_preferred_sizeclass_cgroup(
-      sizeclass, fd_alloc_private_join_cgroup_idx(join));
+  ulong sizeclass = fd_alloc_preferred_sizeclass( footprint );
+  ulong cgroup    = fd_alloc_preferred_sizeclass_cgroup( sizeclass, fd_alloc_private_join_cgroup_idx( join ) );
 
-  ulong *active_slot =
-      alloc->active_slot + sizeclass + FD_ALLOC_SIZECLASS_CNT * cgroup;
+  ulong * active_slot = alloc->active_slot + sizeclass + FD_ALLOC_SIZECLASS_CNT*cgroup;
 
   /* Try to get exclusive access to the preferred active superblock.
      Note that all all active superblocks have at least one free block.
@@ -670,13 +651,11 @@ void *fd_alloc_malloc(fd_alloc_t *join, ulong align, ulong sz) {
      FIXME: Would doing something test-and_test-and-set like be better?
      E.g.:
        superblock_gaddr = FD_VOLATILE_CONST( *active_slot );
-       if( FD_LIKELY( superblock_gaddr ) ) superblock_gaddr =
-     fd_alloc_replace_active( active_slot, 0UL ); This would avoid an atomic
-     operation if there currently isn't an active superblock for this sizeclass
-     and cgroup. */
+       if( FD_LIKELY( superblock_gaddr ) ) superblock_gaddr = fd_alloc_replace_active( active_slot, 0UL );
+     This would avoid an atomic operation if there currently isn't an
+     active superblock for this sizeclass and cgroup. */
 
-  ulong superblock_gaddr =
-      fd_alloc_private_active_slot_replace(active_slot, 0UL);
+  ulong superblock_gaddr = fd_alloc_private_active_slot_replace( active_slot, 0UL );
 
   /* At this point, if superblock_gaddr is non-zero, we have exclusive
      access to the superblock and only we can allocate blocks from it.
@@ -699,46 +678,40 @@ void *fd_alloc_malloc(fd_alloc_t *join, ulong align, ulong sz) {
      If that fails, we are in trouble and fail (we are either out of
      memory or have too much wksp fragmentation). */
 
-  if (FD_UNLIKELY(!superblock_gaddr)) {
+  if( FD_UNLIKELY( !superblock_gaddr ) ) {
 
-    superblock_gaddr = fd_alloc_private_inactive_stack_pop(
-        alloc->inactive_stack + sizeclass, wksp);
+    superblock_gaddr = fd_alloc_private_inactive_stack_pop( alloc->inactive_stack + sizeclass, wksp );
 
-    if (FD_UNLIKELY(!superblock_gaddr)) {
+    if( FD_UNLIKELY( !superblock_gaddr ) ) {
 
-      fd_alloc_superblock_t *superblock;
+      fd_alloc_superblock_t * superblock;
 
-      ulong superblock_footprint =
-          (ulong)fd_alloc_sizeclass_cfg[sizeclass].superblock_footprint;
-      if (FD_UNLIKELY(superblock_footprint > FD_ALLOC_FOOTPRINT_SMALL_THRESH)) {
+      ulong superblock_footprint = (ulong)fd_alloc_sizeclass_cfg[ sizeclass ].superblock_footprint;
+      if( FD_UNLIKELY( superblock_footprint > FD_ALLOC_FOOTPRINT_SMALL_THRESH ) ) {
 
-        ulong wksp_footprint = superblock_footprint + sizeof(fd_alloc_hdr_t) +
-                               FD_ALLOC_SUPERBLOCK_ALIGN - 1UL;
-        ulong wksp_gaddr = fd_wksp_alloc(wksp, 1UL, wksp_footprint, alloc->tag);
-        if (FD_UNLIKELY(!wksp_gaddr))
-          return NULL;
-        superblock_gaddr = fd_ulong_align_up(
-            wksp_gaddr + sizeof(fd_alloc_hdr_t), FD_ALLOC_SUPERBLOCK_ALIGN);
-        superblock = (fd_alloc_superblock_t *)fd_alloc_hdr_store_large(
-            fd_wksp_laddr_fast(wksp, superblock_gaddr), 1 /* sb */);
+        ulong wksp_footprint = superblock_footprint + sizeof(fd_alloc_hdr_t) + FD_ALLOC_SUPERBLOCK_ALIGN - 1UL;
+        ulong wksp_gaddr     = fd_wksp_alloc( wksp, 1UL, wksp_footprint, alloc->tag );
+        if( FD_UNLIKELY( !wksp_gaddr ) ) return NULL;
+        superblock_gaddr = fd_ulong_align_up( wksp_gaddr + sizeof(fd_alloc_hdr_t), FD_ALLOC_SUPERBLOCK_ALIGN );
+        superblock       = (fd_alloc_superblock_t *)
+          fd_alloc_hdr_store_large( fd_wksp_laddr_fast( wksp, superblock_gaddr ), 1 /* sb */ );
 
       } else {
 
         /* FIXME: Consider having user facing API wrap an internal API
            so that recursive calls don't have to do redundant error
            trapping? */
-        superblock = fd_alloc_malloc(join, FD_ALLOC_SUPERBLOCK_ALIGN,
-                                     superblock_footprint);
-        if (FD_UNLIKELY(!superblock))
-          return NULL;
-        superblock_gaddr = fd_wksp_gaddr_fast(wksp, superblock);
+        superblock = fd_alloc_malloc( join, FD_ALLOC_SUPERBLOCK_ALIGN, superblock_footprint );
+        if( FD_UNLIKELY( !superblock ) ) return NULL;
+        superblock_gaddr = fd_wksp_gaddr_fast( wksp, superblock );
+
       }
 
       FD_COMPILER_MFENCE();
-      FD_VOLATILE(superblock->free_blocks) = fd_ulong_mask_lsb(
-          (int)(uint)fd_alloc_sizeclass_cfg[sizeclass].block_cnt);
-      FD_VOLATILE(superblock->next_gaddr) = 0UL;
+      FD_VOLATILE( superblock->free_blocks ) = fd_ulong_mask_lsb( (int)(uint)fd_alloc_sizeclass_cfg[ sizeclass ].block_cnt );
+      FD_VOLATILE( superblock->next_gaddr  ) = 0UL;
       FD_COMPILER_MFENCE();
+
     }
   }
 
@@ -750,23 +723,22 @@ void *fd_alloc_malloc(fd_alloc_t *join, ulong align, ulong sz) {
      we must atomically clear the bit we found so we don't mess up the
      other bits that might be concurrently set by free. */
 
-  fd_alloc_superblock_t *superblock =
-      (fd_alloc_superblock_t *)fd_wksp_laddr_fast(wksp, superblock_gaddr);
+  fd_alloc_superblock_t * superblock = (fd_alloc_superblock_t *)fd_wksp_laddr_fast( wksp, superblock_gaddr );
 
   fd_alloc_block_set_t free_blocks;
   FD_COMPILER_MFENCE();
-  free_blocks = FD_VOLATILE_CONST(superblock->free_blocks);
+  free_blocks = FD_VOLATILE_CONST( superblock->free_blocks );
   FD_COMPILER_MFENCE();
 
-  ulong block_idx = fd_alloc_block_set_first(free_blocks);
-  fd_alloc_block_set_t block = fd_alloc_block_set_ele(block_idx);
+  ulong                block_idx = fd_alloc_block_set_first( free_blocks );
+  fd_alloc_block_set_t block     = fd_alloc_block_set_ele( block_idx );
 
-  free_blocks = fd_alloc_block_set_sub(&superblock->free_blocks, block);
+  free_blocks = fd_alloc_block_set_sub( &superblock->free_blocks, block );
 
   /* At this point, free_blocks gives the set of free blocks in the
      superblock immediately before the allocation occurred. */
 
-  if (FD_LIKELY(free_blocks != block)) {
+  if( FD_LIKELY( free_blocks!=block ) ) {
 
     /* At this point, we know the superblock has at least one
        allocated block in it (the one we just allocated) and one free
@@ -778,8 +750,7 @@ void *fd_alloc_malloc(fd_alloc_t *join, ulong align, ulong sz) {
        back into circulation, we make it the active superblock for this
        sizeclass,cgroup pair. */
 
-    ulong displaced_superblock_gaddr =
-        fd_alloc_private_active_slot_replace(active_slot, superblock_gaddr);
+    ulong displaced_superblock_gaddr = fd_alloc_private_active_slot_replace( active_slot, superblock_gaddr );
 
     /* And if this displaced a previously active superblock (e.g.
        another thread made an different superblock the active one while
@@ -792,40 +763,39 @@ void *fd_alloc_malloc(fd_alloc_t *join, ulong align, ulong sz) {
        invariant that all inactive superblocks have at least one free
        block. */
 
-    if (FD_UNLIKELY(displaced_superblock_gaddr))
-      fd_alloc_private_inactive_stack_push(alloc->inactive_stack + sizeclass,
-                                           wksp, displaced_superblock_gaddr);
+    if( FD_UNLIKELY( displaced_superblock_gaddr ) )
+      fd_alloc_private_inactive_stack_push( alloc->inactive_stack + sizeclass, wksp, displaced_superblock_gaddr );
 
-  } // else {
+  } //else {
 
-  /* The superblock had no more free blocks immediately after the
-     allocation occurred.  We should not make this superblock the
-     preferred superblock or push it onto the sizeclass's nonfull
-     superblock stack; it would break the invariants that all
-     superblocks in circulation for a sizeclass have at least one
-     free block.
+    /* The superblock had no more free blocks immediately after the
+       allocation occurred.  We should not make this superblock the
+       preferred superblock or push it onto the sizeclass's nonfull
+       superblock stack; it would break the invariants that all
+       superblocks in circulation for a sizeclass have at least one
+       free block.
 
-     And, as this superblock had no free blocks, we don't need to
-     track the superblock anyway as malloc can't use the superblock
-     until some of the blocks in it have been freed.  As such, this
-     superblock will not be used in a malloc until after the next call
-     to free on a block in this superblock returns this superblock to
-     circulation.  Note that this superblock will have at least one
-     allocated block until after this function returns (the block we
-     just allocated) and thus cannot ever be considered as a deletion
-     candidate until after this function returns and this allocation
-     is freed.
+       And, as this superblock had no free blocks, we don't need to
+       track the superblock anyway as malloc can't use the superblock
+       until some of the blocks in it have been freed.  As such, this
+       superblock will not be used in a malloc until after the next call
+       to free on a block in this superblock returns this superblock to
+       circulation.  Note that this superblock will have at least one
+       allocated block until after this function returns (the block we
+       just allocated) and thus cannot ever be considered as a deletion
+       candidate until after this function returns and this allocation
+       is freed.
 
-     As discussed in free below, we could update a superblock cgroup
-     hint here (such that the when the superblock goes back into
-     circulation, it will be put into circulation as the active
-     superblock for this cgroup to encourge for additional mallocs
-     from this thread for good spatial locality).  This doesn't need
-     to be atomic.  Even though a concurrent free on another thread
-     might get this into superblock into circulation before this
-     executes (and thus also have other mallocs occurred that changed
-     the active_hint), it doesn't matter.  So long as the hint is a
-     sane value at all points in time, free will work fine. */
+       As discussed in free below, we could update a superblock cgroup
+       hint here (such that the when the superblock goes back into
+       circulation, it will be put into circulation as the active
+       superblock for this cgroup to encourge for additional mallocs
+       from this thread for good spatial locality).  This doesn't need
+       to be atomic.  Even though a concurrent free on another thread
+       might get this into superblock into circulation before this
+       executes (and thus also have other mallocs occurred that changed
+       the active_hint), it doesn't matter.  So long as the hint is a
+       sane value at all points in time, free will work fine. */
 
   //}
 
@@ -834,23 +804,22 @@ void *fd_alloc_malloc(fd_alloc_t *join, ulong align, ulong sz) {
 
   /* FIXME: clear align zero padding for better alloc parameter recovery
      in diagnostcs here? */
-  return fd_alloc_hdr_store(
-      (void *)fd_ulong_align_up(
-          (ulong)superblock + sizeof(fd_alloc_superblock_t) +
-              block_idx *
-                  (ulong)fd_alloc_sizeclass_cfg[sizeclass].block_footprint +
-              sizeof(fd_alloc_hdr_t),
-          align),
-      superblock, block_idx, sizeclass);
+  return fd_alloc_hdr_store( (void *)fd_ulong_align_up( (ulong)superblock
+                                                      + sizeof(fd_alloc_superblock_t)
+                                                      + block_idx*(ulong)fd_alloc_sizeclass_cfg[ sizeclass ].block_footprint
+                                                      + sizeof(fd_alloc_hdr_t),
+                                                      align ),
+                             superblock, block_idx, sizeclass );
 }
 
-void fd_alloc_free(fd_alloc_t *join, void *laddr) {
-
+void
+fd_alloc_free( fd_alloc_t * join,
+               void *       laddr ) {
+  
   /* Handle NULL alloc and/or NULL laddr */
 
-  fd_alloc_t *alloc = fd_alloc_private_join_alloc(join);
-  if (FD_UNLIKELY((!alloc) | (!laddr)))
-    return;
+  fd_alloc_t * alloc  = fd_alloc_private_join_alloc( join );
+  if( FD_UNLIKELY( (!alloc) | (!laddr) ) ) return;
 
   /* At this point, we have a non-NULL alloc and a pointer to the first
      byte to an allocation done by it.  Load the allocation header and
@@ -858,29 +827,28 @@ void fd_alloc_free(fd_alloc_t *join, void *laddr) {
      allocation, use fd_wksp_free to free this allocation (note that
      fd_wksp_free works for any byte within the wksp allocation). */
 
-  fd_alloc_hdr_t hdr = fd_alloc_hdr_load(laddr);
-  ulong sizeclass = fd_alloc_hdr_sizeclass(hdr);
+  fd_alloc_hdr_t hdr       = fd_alloc_hdr_load( laddr );
+  ulong          sizeclass = fd_alloc_hdr_sizeclass( hdr );
 
-  if (FD_UNLIKELY(sizeclass == FD_ALLOC_SIZECLASS_LARGE)) {
-    fd_wksp_t *wksp = fd_alloc_private_wksp(alloc);
-    fd_wksp_free(wksp, fd_wksp_gaddr_fast(wksp, laddr));
+  if( FD_UNLIKELY( sizeclass==FD_ALLOC_SIZECLASS_LARGE ) ) {
+    fd_wksp_t * wksp = fd_alloc_private_wksp( alloc );
+    fd_wksp_free( wksp, fd_wksp_gaddr_fast( wksp, laddr ) );
     return;
   }
 
   /* At this point, we have a small allocation.  Determine the
      superblock and block index from the header and then free the block. */
 
-  fd_alloc_superblock_t *superblock = fd_alloc_hdr_superblock(hdr, laddr);
-  ulong block_idx = fd_alloc_hdr_block_idx(hdr);
-  fd_alloc_block_set_t block = fd_alloc_block_set_ele(block_idx);
-  fd_alloc_block_set_t free_blocks =
-      fd_alloc_block_set_add(&superblock->free_blocks, block);
+  fd_alloc_superblock_t * superblock  = fd_alloc_hdr_superblock( hdr, laddr );
+  ulong                   block_idx   = fd_alloc_hdr_block_idx( hdr );
+  fd_alloc_block_set_t    block       = fd_alloc_block_set_ele( block_idx );
+  fd_alloc_block_set_t    free_blocks = fd_alloc_block_set_add( &superblock->free_blocks, block );
 
   /* At this point, free_blocks is the set of free blocks just before
      the free. */
 
-  ulong free_cnt = fd_alloc_block_set_cnt(free_blocks);
-  if (FD_UNLIKELY(!free_cnt)) {
+  ulong free_cnt = fd_alloc_block_set_cnt( free_blocks );
+  if( FD_UNLIKELY( !free_cnt ) ) {
 
     /* The superblock containing this block had no free blocks
        immediately before we freed the allocation.  Thus, at this point,
@@ -935,24 +903,20 @@ void fd_alloc_free(fd_alloc_t *join, void *laddr) {
        Currently we do the second option for simplicity and optimal
        behaviors in the single threaded and paired use cases. */
 
-    fd_wksp_t *wksp = fd_alloc_private_wksp(alloc);
+    fd_wksp_t * wksp = fd_alloc_private_wksp( alloc );
 
-    ulong cgroup = fd_alloc_preferred_sizeclass_cgroup(
-        sizeclass, fd_alloc_private_join_cgroup_idx(join));
-    ulong *active_slot =
-        alloc->active_slot + sizeclass + FD_ALLOC_SIZECLASS_CNT * cgroup;
+    ulong   cgroup      = fd_alloc_preferred_sizeclass_cgroup( sizeclass, fd_alloc_private_join_cgroup_idx( join ) );
+    ulong * active_slot = alloc->active_slot + sizeclass + FD_ALLOC_SIZECLASS_CNT*cgroup;
 
-    ulong displaced_superblock_gaddr = fd_alloc_private_active_slot_replace(
-        active_slot, fd_wksp_gaddr_fast(wksp, superblock));
+    ulong displaced_superblock_gaddr = fd_alloc_private_active_slot_replace( active_slot, fd_wksp_gaddr_fast( wksp, superblock ) );
 
     /* If this displaced an already active superblock, we need to push
        the displaced superblock onto the inactive stack (note that the
        superblock cannot be the same as the currently active superblock
        because the superblock was not in circulation before). */
 
-    if (FD_UNLIKELY(displaced_superblock_gaddr))
-      fd_alloc_private_inactive_stack_push(alloc->inactive_stack + sizeclass,
-                                           wksp, displaced_superblock_gaddr);
+    if( FD_UNLIKELY( displaced_superblock_gaddr ) )
+      fd_alloc_private_inactive_stack_push( alloc->inactive_stack + sizeclass, wksp, displaced_superblock_gaddr );
 
     return;
   }
@@ -962,8 +926,8 @@ void fd_alloc_free(fd_alloc_t *join, void *laddr) {
 
   free_cnt++; /* Number of free blocks immediately after above free */
 
-  ulong block_cnt = (ulong)fd_alloc_sizeclass_cfg[sizeclass].block_cnt;
-  if (FD_UNLIKELY(free_cnt == block_cnt)) {
+  ulong block_cnt = (ulong)fd_alloc_sizeclass_cfg[ sizeclass ].block_cnt;
+  if( FD_UNLIKELY( free_cnt==block_cnt ) ) {
 
     /* None of the blocks were in use after the above free.  We might
        consider freeing it to reclaim space for other sizeclasses or
@@ -1004,7 +968,7 @@ void fd_alloc_free(fd_alloc_t *join, void *laddr) {
        a stale value in this scenario, it highly likely will not be
        injected into the inactive_stack because the CAS will detect that
        inactive_stack top has changed and fail.
-
+       
        And, lastly, we version inactive_stack top such that, even if
        somehow we had a thread stall in pop after reading
        top->next_gaddr / other threads do other operations that
@@ -1015,42 +979,36 @@ void fd_alloc_free(fd_alloc_t *join, void *laddr) {
        is wide enough to make that risk zero on any practical
        timescale.) */
 
-    fd_wksp_t *wksp = fd_alloc_private_wksp(alloc);
-    ulong deletion_candidate_gaddr = fd_alloc_private_inactive_stack_pop(
-        alloc->inactive_stack + sizeclass, wksp);
+    fd_wksp_t * wksp                     = fd_alloc_private_wksp( alloc );
+    ulong       deletion_candidate_gaddr = fd_alloc_private_inactive_stack_pop( alloc->inactive_stack + sizeclass, wksp );
 
-    if (FD_UNLIKELY(!deletion_candidate_gaddr))
-      return; /* No deletion_candidate, unclear branch prob */
+    if( FD_UNLIKELY( !deletion_candidate_gaddr ) ) return; /* No deletion_candidate, unclear branch prob */
 
-    fd_alloc_superblock_t *deletion_candidate =
-        (fd_alloc_superblock_t *)fd_wksp_laddr_fast(wksp,
-                                                    deletion_candidate_gaddr);
+    fd_alloc_superblock_t * deletion_candidate = (fd_alloc_superblock_t *)fd_wksp_laddr_fast( wksp, deletion_candidate_gaddr );
 
     ulong deletion_candidate_free_blocks;
     FD_COMPILER_MFENCE();
-    deletion_candidate_free_blocks =
-        FD_VOLATILE_CONST(deletion_candidate->free_blocks);
+    deletion_candidate_free_blocks = FD_VOLATILE_CONST( deletion_candidate->free_blocks );
     FD_COMPILER_MFENCE();
 
-    if (FD_UNLIKELY(fd_alloc_block_set_cnt(deletion_candidate_free_blocks) ==
-                    block_cnt)) /* Candidate empty -> delete it */
-      fd_alloc_free(join, deletion_candidate);
+    if( FD_UNLIKELY( fd_alloc_block_set_cnt( deletion_candidate_free_blocks )==block_cnt ) ) /* Candidate empty -> delete it */
+      fd_alloc_free( join, deletion_candidate );
     else /* Candidate not empty -> return it to circulation */
-      fd_alloc_private_inactive_stack_push(alloc->inactive_stack + sizeclass,
-                                           wksp, deletion_candidate_gaddr);
+      fd_alloc_private_inactive_stack_push( alloc->inactive_stack + sizeclass, wksp, deletion_candidate_gaddr );
 
     return;
   }
 }
 
-void fd_alloc_compact(fd_alloc_t *join) {
-  fd_alloc_t *alloc = fd_alloc_private_join_alloc(join);
-  if (FD_UNLIKELY(!alloc)) {
-    FD_LOG_WARNING(("bad join"));
+void
+fd_alloc_compact( fd_alloc_t * join ) {
+  fd_alloc_t * alloc = fd_alloc_private_join_alloc( join );
+  if( FD_UNLIKELY( !alloc ) ) {
+    FD_LOG_WARNING(( "bad join" ));
     return;
   }
 
-  fd_wksp_t *wksp = fd_alloc_private_wksp(alloc);
+  fd_wksp_t * wksp = fd_alloc_private_wksp( alloc );
 
   /* We scan each sizeclass (in monotonically increasing order) for
      completely empty superblocks that thus can be freed.  This has the
@@ -1060,24 +1018,19 @@ void fd_alloc_compact(fd_alloc_t *join) {
      running concurrently, any remaining gigantic superblocks should
      contain at least one application allocation somewhere in them. */
 
-  for (ulong sizeclass = 0UL; sizeclass < FD_ALLOC_SIZECLASS_CNT; sizeclass++) {
-    ulong block_cnt = (ulong)fd_alloc_sizeclass_cfg[sizeclass].block_cnt;
-    ulong cgroup_cnt =
-        (ulong)fd_alloc_sizeclass_cfg[sizeclass].cgroup_mask + 1UL;
-    fd_alloc_vgaddr_t *inactive_stack = alloc->inactive_stack + sizeclass;
+  for( ulong sizeclass=0UL; sizeclass<FD_ALLOC_SIZECLASS_CNT; sizeclass++ ) {
+    ulong               block_cnt      = (ulong)fd_alloc_sizeclass_cfg[ sizeclass ].block_cnt;
+    ulong               cgroup_cnt     = (ulong)fd_alloc_sizeclass_cfg[ sizeclass ].cgroup_mask + 1UL;
+    fd_alloc_vgaddr_t * inactive_stack = alloc->inactive_stack + sizeclass;
 
     /* For each active superblock in this sizeclass */
 
-    for (ulong cgroup_idx = 0UL; cgroup_idx < cgroup_cnt; cgroup_idx++) {
-      ulong *active_slot =
-          alloc->active_slot + sizeclass + FD_ALLOC_SIZECLASS_CNT * cgroup_idx;
-      ulong superblock_gaddr =
-          fd_alloc_private_active_slot_replace(active_slot, 0UL);
-      if (!superblock_gaddr)
-        continue; /* application dependent branch prob */
+    for( ulong cgroup_idx=0UL; cgroup_idx<cgroup_cnt; cgroup_idx++ ) {
+      ulong * active_slot      = alloc->active_slot + sizeclass + FD_ALLOC_SIZECLASS_CNT*cgroup_idx;
+      ulong   superblock_gaddr = fd_alloc_private_active_slot_replace( active_slot, 0UL );
+      if( !superblock_gaddr ) continue; /* application dependent branch prob */
 
-      fd_alloc_superblock_t *superblock =
-          (fd_alloc_superblock_t *)fd_wksp_laddr_fast(wksp, superblock_gaddr);
+      fd_alloc_superblock_t * superblock = (fd_alloc_superblock_t *)fd_wksp_laddr_fast( wksp, superblock_gaddr );
 
       /* At this point, we have atomically acquired the cgroup_idx's
          active superblock, there is no active superblock for
@@ -1096,14 +1049,11 @@ void fd_alloc_compact(fd_alloc_t *join) {
          stack (it also will have at least one free block for the same
          reasons). */
 
-      if (fd_alloc_block_set_cnt(superblock->free_blocks) == block_cnt)
-        fd_alloc_free(join, superblock);
+      if( fd_alloc_block_set_cnt( superblock->free_blocks )==block_cnt ) fd_alloc_free( join, superblock );
       else {
-        ulong displaced_superblock_gaddr =
-            fd_alloc_private_active_slot_replace(active_slot, superblock_gaddr);
-        if (FD_UNLIKELY(displaced_superblock_gaddr))
-          fd_alloc_private_inactive_stack_push(inactive_stack, wksp,
-                                               displaced_superblock_gaddr);
+        ulong displaced_superblock_gaddr = fd_alloc_private_active_slot_replace( active_slot, superblock_gaddr );
+        if( FD_UNLIKELY( displaced_superblock_gaddr ) )
+          fd_alloc_private_inactive_stack_push( inactive_stack, wksp, displaced_superblock_gaddr );
       }
     }
 
@@ -1121,43 +1071,34 @@ void fd_alloc_compact(fd_alloc_t *join) {
 
     fd_alloc_vgaddr_t local_stack[1];
 
-    local_stack[0] = fd_alloc_vgaddr(0UL, 0UL);
+    local_stack[0] = fd_alloc_vgaddr( 0UL, 0UL );
 
-    for (;;) {
-      ulong superblock_gaddr =
-          fd_alloc_private_inactive_stack_pop(inactive_stack, wksp);
-      if (!superblock_gaddr)
-        break; /* application dependent branch prob */
-      fd_alloc_superblock_t *superblock =
-          (fd_alloc_superblock_t *)fd_wksp_laddr_fast(wksp, superblock_gaddr);
+    for(;;) {
+      ulong superblock_gaddr = fd_alloc_private_inactive_stack_pop( inactive_stack, wksp );
+      if( !superblock_gaddr ) break; /* application dependent branch prob */
+      fd_alloc_superblock_t * superblock = (fd_alloc_superblock_t *)fd_wksp_laddr_fast( wksp, superblock_gaddr );
 
-      if (fd_alloc_block_set_cnt(superblock->free_blocks) == block_cnt)
-        fd_alloc_free(join, superblock);
-      else
-        fd_alloc_private_inactive_stack_push(local_stack, wksp,
-                                             superblock_gaddr);
+      if( fd_alloc_block_set_cnt( superblock->free_blocks )==block_cnt ) fd_alloc_free( join, superblock );
+      else fd_alloc_private_inactive_stack_push( local_stack, wksp, superblock_gaddr );
     }
 
-    for (;;) {
-      ulong superblock_gaddr =
-          fd_alloc_private_inactive_stack_pop(local_stack, wksp);
-      if (!superblock_gaddr)
-        break; /* application dependent branch prob */
+    for(;;) {
+      ulong superblock_gaddr = fd_alloc_private_inactive_stack_pop( local_stack, wksp );
+      if( !superblock_gaddr ) break; /* application dependent branch prob */
 
-      fd_alloc_private_inactive_stack_push(inactive_stack, wksp,
-                                           superblock_gaddr);
+      fd_alloc_private_inactive_stack_push( inactive_stack, wksp, superblock_gaddr );
     }
   }
 }
 
 #include "../wksp/fd_wksp_private.h"
 
-int fd_alloc_is_empty(fd_alloc_t *join) {
-  fd_alloc_t *alloc = fd_alloc_private_join_alloc(join);
-  if (!alloc)
-    return 0;
+int
+fd_alloc_is_empty( fd_alloc_t * join ) {
+  fd_alloc_t * alloc = fd_alloc_private_join_alloc( join );
+  if( !alloc ) return 0;
 
-  fd_alloc_compact(join);
+  fd_alloc_compact( join );
 
   /* At this point (assuming no concurrent operations on this alloc),
      all remaining large allocations contain at least exactly one user
@@ -1168,46 +1109,37 @@ int fd_alloc_is_empty(fd_alloc_t *join) {
      scanning them so that concurrent operations on the wksp do not
      shuffle partitions behind our back and corrupt this calculation. */
 
-  fd_wksp_t *wksp = fd_alloc_private_wksp(alloc);
-  ulong tag = alloc->tag;
-  ulong lo = fd_wksp_gaddr_fast(wksp, alloc);
-  ulong hi = lo + FD_ALLOC_FOOTPRINT;
+  fd_wksp_t * wksp = fd_alloc_private_wksp( alloc );
+  ulong       tag  = alloc->tag;
+  ulong       lo   = fd_wksp_gaddr_fast( wksp, alloc );
+  ulong       hi   = lo + FD_ALLOC_FOOTPRINT;
 
   ulong part_idx;
   ulong part_cnt;
 
-  fd_wksp_private_lock(wksp);
+  fd_wksp_private_lock( wksp );
 
-  fd_wksp_private_part_t *part = wksp->part;
-  /**/ part_cnt = wksp->part_cnt;
-  for (part_idx = 0UL; part_idx < part_cnt; part_idx++) {
-    ulong p = part[part_idx];
-    if (FD_UNLIKELY(fd_wksp_private_part_tag(p) ==
-                    tag)) { /* optimize for leak detection case */
-      ulong plo = fd_wksp_private_part_gaddr(p);
-      ulong phi = fd_wksp_private_part_gaddr(part[part_idx + 1UL]);
-      if (FD_UNLIKELY(!((plo <= lo) & (hi <= phi))))
-        break; /* optimize for leak detection case, note lo<hi guaranteed */
+  fd_wksp_private_part_t * part     = wksp->part;
+  /**/                     part_cnt = wksp->part_cnt;
+  for( part_idx=0UL; part_idx<part_cnt; part_idx++ ) {
+    ulong p = part[ part_idx ];
+    if( FD_UNLIKELY( fd_wksp_private_part_tag( p )==tag ) ) { /* optimize for leak detection case */
+      ulong plo = fd_wksp_private_part_gaddr( p );
+      ulong phi = fd_wksp_private_part_gaddr( part[ part_idx+1UL ] );
+      if( FD_UNLIKELY( !((plo<=lo) & (hi<=phi)) ) ) break; /* optimize for leak detection case, note lo<hi guaranteed */
     }
   }
 
-  fd_wksp_private_unlock(wksp);
+  fd_wksp_private_unlock( wksp );
 
-  return part_idx == part_cnt;
+  return part_idx==part_cnt;
 }
 
 /**********************************************************************/
 
 #include <stdio.h>
 
-#define TRAP(x)                                                                \
-  do {                                                                         \
-    int _cnt = (x);                                                            \
-    if (_cnt < 0) {                                                            \
-      return _cnt;                                                             \
-    }                                                                          \
-    cnt += _cnt;                                                               \
-  } while (0)
+#define TRAP(x) do { int _cnt = (x); if( _cnt<0 ) { return _cnt; } cnt += _cnt; } while(0)
 
 /* fd_alloc_superblock_fprintf pretty prints to the given stream
    exhaustive details about the current state of the given superblock in
@@ -1219,42 +1151,35 @@ int fd_alloc_is_empty(fd_alloc_t *join) {
    no error trapping of its inputs. */
 
 static int
-fd_alloc_superblock_fprintf(fd_wksp_t *wksp,        /* non-NULL */
-                            ulong superblock_gaddr, /* valid gaddr for wksp */
-                            ulong sizeclass,        /* valid sizeclass */
-                            ulong block_cnt,        /* matches sizeclass cfg */
-                            ulong block_footprint,  /* matches sizeclass cfg */
-                            FILE *stream,           /* non-NULL */
-                            ulong *ctr) {           /* non-NULL, room for 2 */
+fd_alloc_superblock_fprintf( fd_wksp_t * wksp,             /* non-NULL */
+                             ulong       superblock_gaddr, /* valid gaddr for wksp */
+                             ulong       sizeclass,        /* valid sizeclass */
+                             ulong       block_cnt,        /* matches sizeclass cfg */
+                             ulong       block_footprint,  /* matches sizeclass cfg */
+                             FILE *      stream,           /* non-NULL */
+                             ulong *     ctr ) {           /* non-NULL, room for 2 */
   int cnt = 0;
 
   /* Print the block header */
 
-  fd_alloc_superblock_t *superblock =
-      fd_wksp_laddr_fast(wksp, superblock_gaddr);
+  fd_alloc_superblock_t * superblock = fd_wksp_laddr_fast( wksp, superblock_gaddr );
 
   fd_alloc_block_set_t free_blocks = superblock->free_blocks;
 
-  ulong msb = fd_ulong_shift_right(
-      free_blocks, (int)block_cnt); /* Note: block_cnt==64 possible */
-  if (FD_UNLIKELY(msb))
-    ctr[0]++;
-  TRAP(fprintf(stream, "free_blocks 0x%lx (%s)\n", free_blocks,
-               msb == 0UL ? "good" : "bad"));
+  ulong msb = fd_ulong_shift_right( free_blocks, (int)block_cnt ); /* Note: block_cnt==64 possible */
+  if( FD_UNLIKELY( msb ) ) ctr[0]++;
+  TRAP( fprintf( stream, "free_blocks 0x%lx (%s)\n", free_blocks, msb==0UL ? "good" : "bad" ) );
 
   /* For each block */
 
-  for (ulong block_idx = 0UL; block_idx < block_cnt; block_idx++) {
-    ulong gaddr_lo = superblock_gaddr + sizeof(fd_alloc_superblock_t) +
-                     block_idx * block_footprint;
+  for( ulong block_idx=0UL; block_idx<block_cnt; block_idx++ ) {
+    ulong gaddr_lo = superblock_gaddr + sizeof(fd_alloc_superblock_t) + block_idx*block_footprint;
     ulong gaddr_hi = gaddr_lo + block_footprint;
 
-    if (fd_alloc_block_set_test(free_blocks, block_idx)) { /* Free block */
+    if( fd_alloc_block_set_test( free_blocks, block_idx ) ) { /* Free block */
 
-      // TRAP( fprintf( stream, "\t\t\tblock %2lu: gaddr %s:%lu-%s:%lu,
-      // malloc_est -, align_est -, sz_est - (free)\n",
-      //                block_idx, wksp->name, gaddr_lo, wksp->name,
-      //                gaddr_hi-1UL ) );
+    //TRAP( fprintf( stream, "\t\t\tblock %2lu: gaddr %s:%lu-%s:%lu, malloc_est -, align_est -, sz_est - (free)\n",
+    //               block_idx, wksp->name, gaddr_lo, wksp->name, gaddr_hi-1UL ) );
 
     } else { /* Used block */
 
@@ -1262,37 +1187,25 @@ fd_alloc_superblock_fprintf(fd_wksp_t *wksp,        /* non-NULL */
          process nearly identical to the one described for large
          allocations below. */
 
-      for (ulong align_est = 1UL << fd_ulong_find_msb(block_footprint -
-                                                      sizeof(fd_alloc_hdr_t));
-           ;) {
-        ulong gaddr_est =
-            fd_ulong_align_up(gaddr_lo + sizeof(fd_alloc_hdr_t), align_est);
-        uchar *laddr_est = (uchar *)fd_wksp_laddr_fast(wksp, gaddr_est);
-        fd_alloc_hdr_t hdr =
-            FD_LOAD(fd_alloc_hdr_t, laddr_est - sizeof(fd_alloc_hdr_t));
+      for( ulong align_est = 1UL << fd_ulong_find_msb( block_footprint - sizeof(fd_alloc_hdr_t) );;) {
+        ulong   gaddr_est = fd_ulong_align_up( gaddr_lo + sizeof(fd_alloc_hdr_t), align_est );
+        uchar * laddr_est = (uchar *)fd_wksp_laddr_fast( wksp, gaddr_est );
+        fd_alloc_hdr_t hdr = FD_LOAD( fd_alloc_hdr_t, laddr_est - sizeof(fd_alloc_hdr_t) );
 
-        if (fd_alloc_hdr_sizeclass(hdr) == sizeclass &&
-            fd_alloc_hdr_block_idx(hdr) == block_idx &&
-            fd_alloc_hdr_superblock(hdr, laddr_est) == superblock) {
-          ulong sz_est =
-              block_footprint - sizeof(fd_alloc_hdr_t) - align_est + 1UL;
-          TRAP(fprintf(stream,
-                       "\t\t\tblock %2lu: gaddr %s:%lu-%s:%lu, malloc_est "
-                       "%s:%lu, align_est %lu, sz_est %lu\n",
-                       block_idx, wksp->name, gaddr_lo, wksp->name,
-                       gaddr_hi - 1UL, wksp->name, gaddr_est, align_est,
-                       sz_est));
+        if( fd_alloc_hdr_sizeclass ( hdr )           ==sizeclass &&
+            fd_alloc_hdr_block_idx ( hdr )           ==block_idx &&
+            fd_alloc_hdr_superblock( hdr, laddr_est )==superblock ) {
+          ulong sz_est = block_footprint - sizeof(fd_alloc_hdr_t) - align_est + 1UL;
+          TRAP( fprintf( stream, "\t\t\tblock %2lu: gaddr %s:%lu-%s:%lu, malloc_est %s:%lu, align_est %lu, sz_est %lu\n",
+                         block_idx, wksp->name, gaddr_lo, wksp->name, gaddr_hi-1UL, wksp->name, gaddr_est, align_est, sz_est ) );
           ctr[1]++;
           break;
         }
 
         align_est >>= 1;
-        if (FD_UNLIKELY(!align_est)) {
-          TRAP(fprintf(stream,
-                       "\t\t\tblock %2lu: gaddr %s:%lu-%s:%lu, malloc_est -, "
-                       "align est -, sz_est - (bad)\n",
-                       block_idx, wksp->name, gaddr_lo, wksp->name,
-                       gaddr_hi - 1UL));
+        if( FD_UNLIKELY( !align_est ) ) {
+          TRAP( fprintf( stream, "\t\t\tblock %2lu: gaddr %s:%lu-%s:%lu, malloc_est -, align est -, sz_est - (bad)\n",
+                         block_idx, wksp->name, gaddr_lo, wksp->name, gaddr_hi-1UL ) );
           ctr[0]++;
           break;
         }
@@ -1316,9 +1229,10 @@ fd_alloc_superblock_fprintf(fd_wksp_t *wksp,        /* non-NULL */
    behavior matches fprintf return behavior (i.e. the number of
    characters printed to stream or a negative error code). */
 
-int fd_alloc_fprintf(fd_alloc_t *join, FILE *stream) {
-  if (FD_UNLIKELY(!stream))
-    return 0; /* NULL stream, can't print anything */
+int
+fd_alloc_fprintf( fd_alloc_t * join,
+                  FILE *       stream ) {
+  if( FD_UNLIKELY( !stream ) ) return 0; /* NULL stream, can't print anything */
 
   int cnt = 0;
 
@@ -1330,14 +1244,12 @@ int fd_alloc_fprintf(fd_alloc_t *join, FILE *stream) {
   ctr[4] = 0UL; /* wksp partitions used for large alloc */
   ctr[5] = 0UL; /* wksp bytes used for large alloc */
 
-  fd_alloc_t *alloc = fd_alloc_private_join_alloc(join);
-  ulong cgroup_idx = fd_alloc_private_join_cgroup_idx(join);
+  fd_alloc_t * alloc      = fd_alloc_private_join_alloc     ( join );
+  ulong        cgroup_idx = fd_alloc_private_join_cgroup_idx( join );
 
-  if (FD_UNLIKELY(!alloc)) { /* NULL join passed */
+  if( FD_UNLIKELY( !alloc ) ) { /* NULL join passed */
 
-    TRAP(fprintf(stream,
-                 "alloc: gaddr -, join_cgroup_idx %lu, magic 0x0 (bad)\n",
-                 cgroup_idx));
+    TRAP( fprintf( stream, "alloc: gaddr -, join_cgroup_idx %lu, magic 0x0 (bad)\n", cgroup_idx ) );
     ctr[0]++;
 
   } else { /* Normal join */
@@ -1347,103 +1259,79 @@ int fd_alloc_fprintf(fd_alloc_t *join, FILE *stream) {
     ctr[2] += 1UL;
     ctr[3] += FD_ALLOC_FOOTPRINT;
 
-    fd_wksp_t *wksp = fd_alloc_private_wksp(alloc);
+    fd_wksp_t * wksp = fd_alloc_private_wksp( alloc );
 
     /* Print the summary header */
 
-    TRAP(fprintf(
-        stream, "alloc: gaddr %s:%lu, join_cgroup_idx %lu, magic 0x%lx (%s)\n",
-        wksp->name, fd_wksp_gaddr_fast(wksp, alloc), cgroup_idx, alloc->magic,
-        alloc->magic == FD_ALLOC_MAGIC ? "good" : "bad"));
-    if (FD_UNLIKELY(alloc->magic != FD_ALLOC_MAGIC))
-      ctr[0]++;
+    TRAP( fprintf( stream, "alloc: gaddr %s:%lu, join_cgroup_idx %lu, magic 0x%lx (%s)\n",
+                   wksp->name, fd_wksp_gaddr_fast( wksp, alloc ), cgroup_idx,
+                   alloc->magic, alloc->magic==FD_ALLOC_MAGIC ? "good" : "bad" ) );
+    if( FD_UNLIKELY( alloc->magic!=FD_ALLOC_MAGIC ) ) ctr[0]++;
 
     /* Print known details about each sizeclass */
 
     ulong block_footprint = 0UL;
-    for (ulong sizeclass = 0UL; sizeclass < FD_ALLOC_SIZECLASS_CNT;
-         sizeclass++) {
+    for( ulong sizeclass=0UL; sizeclass<FD_ALLOC_SIZECLASS_CNT; sizeclass++ ) {
       ulong block_footprint_prev = block_footprint;
-      /**/ block_footprint =
-          (ulong)fd_alloc_sizeclass_cfg[sizeclass].block_footprint;
+      /**/  block_footprint      = (ulong)fd_alloc_sizeclass_cfg[ sizeclass ].block_footprint;
 
-      ulong superblock_footprint =
-          (ulong)fd_alloc_sizeclass_cfg[sizeclass].superblock_footprint;
-      ulong block_cnt = (ulong)fd_alloc_sizeclass_cfg[sizeclass].block_cnt;
-      ulong cgroup_cnt =
-          (ulong)fd_alloc_sizeclass_cfg[sizeclass].cgroup_mask + 1UL;
+      ulong superblock_footprint = (ulong)fd_alloc_sizeclass_cfg[ sizeclass ].superblock_footprint;
+      ulong block_cnt            = (ulong)fd_alloc_sizeclass_cfg[ sizeclass ].block_cnt;
+      ulong cgroup_cnt           = (ulong)fd_alloc_sizeclass_cfg[ sizeclass ].cgroup_mask + 1UL;
 
-      fd_alloc_vgaddr_t inactive_stack = alloc->inactive_stack[sizeclass];
+      fd_alloc_vgaddr_t inactive_stack = alloc->inactive_stack[ sizeclass ];
 
-      ulong inactive_stack_ver = (ulong)fd_alloc_vgaddr_ver(inactive_stack);
-      ulong inactive_stack_gaddr = (ulong)fd_alloc_vgaddr_off(inactive_stack);
+      ulong inactive_stack_ver   = (ulong)fd_alloc_vgaddr_ver( inactive_stack );
+      ulong inactive_stack_gaddr = (ulong)fd_alloc_vgaddr_off( inactive_stack );
 
       /* Omit sizeclasses that have no superblocks in circulation */
 
       int do_print = !!inactive_stack_gaddr;
-      if (!do_print) {
-        for (ulong cgroup_idx = 0UL; cgroup_idx < cgroup_cnt; cgroup_idx++) {
-          if (alloc->active_slot[sizeclass +
-                                 FD_ALLOC_SIZECLASS_CNT * cgroup_idx]) {
+      if( !do_print ) {
+        for( ulong cgroup_idx=0UL; cgroup_idx<cgroup_cnt; cgroup_idx++ ) {
+          if( alloc->active_slot[ sizeclass + FD_ALLOC_SIZECLASS_CNT*cgroup_idx ] ) {
             do_print = 1;
             break;
           }
         }
-        if (!do_print)
-          continue;
+        if( !do_print ) continue;
       }
 
       /* Print size class header */
 
-      TRAP(fprintf(stream,
-                   "\tsizeclass %lu: superblock_footprint %lu, block_footprint "
-                   "%lu-%lu, block_cnt %lu, cgroup_cnt %lu\n",
-                   sizeclass, superblock_footprint, block_footprint_prev + 1UL,
-                   block_footprint, block_cnt, cgroup_cnt));
+      TRAP( fprintf( stream,
+                     "\tsizeclass %lu: superblock_footprint %lu, block_footprint %lu-%lu, block_cnt %lu, cgroup_cnt %lu\n",
+                     sizeclass, superblock_footprint, block_footprint_prev+1UL, block_footprint, block_cnt, cgroup_cnt ) );
 
       /* Print inactive stack top */
 
-      TRAP(fprintf(stream, "\t\tinactive_stack: gaddr %s:%lu, version %lu\n",
-                   wksp->name, inactive_stack_gaddr, inactive_stack_ver));
+      TRAP( fprintf( stream, "\t\tinactive_stack: gaddr %s:%lu, version %lu\n",
+                     wksp->name, inactive_stack_gaddr, inactive_stack_ver ) );
 
       /* Print active superblock details */
 
       ulong superblock_gaddr;
 
-      for (ulong cgroup_idx = 0UL; cgroup_idx < cgroup_cnt; cgroup_idx++) {
-        superblock_gaddr =
-            alloc->active_slot[sizeclass + FD_ALLOC_SIZECLASS_CNT * cgroup_idx];
-        if (!superblock_gaddr) {
-          // TRAP( fprintf( stream, "\t\tcgroup 2lu active superblock -, next
-          // -\n", cgroup_idx ) );
+      for( ulong cgroup_idx=0UL; cgroup_idx<cgroup_cnt; cgroup_idx++ ) {
+        superblock_gaddr = alloc->active_slot[ sizeclass + FD_ALLOC_SIZECLASS_CNT*cgroup_idx ];
+        if( !superblock_gaddr ) {
+        //TRAP( fprintf( stream, "\t\tcgroup 2lu active superblock -, next -\n", cgroup_idx ) );
           continue;
         }
-        ulong next_gaddr = ((fd_alloc_superblock_t *)fd_wksp_laddr_fast(
-                                wksp, superblock_gaddr))
-                               ->next_gaddr;
-        TRAP(fprintf(stream,
-                     "\t\tsuperblock: cgroup_idx %lu, gaddr %s:%lu, next "
-                     "%s:%lu (ignored), ",
-                     cgroup_idx, wksp->name, superblock_gaddr, wksp->name,
-                     next_gaddr));
-        TRAP(fd_alloc_superblock_fprintf(wksp, superblock_gaddr, sizeclass,
-                                         block_cnt, block_footprint, stream,
-                                         ctr));
+        ulong next_gaddr = ((fd_alloc_superblock_t *)fd_wksp_laddr_fast( wksp, superblock_gaddr))->next_gaddr;
+        TRAP( fprintf( stream, "\t\tsuperblock: cgroup_idx %lu, gaddr %s:%lu, next %s:%lu (ignored), ",
+                       cgroup_idx, wksp->name, superblock_gaddr, wksp->name, next_gaddr ) );
+        TRAP( fd_alloc_superblock_fprintf( wksp, superblock_gaddr, sizeclass, block_cnt, block_footprint, stream, ctr ) );
       }
 
       /* Print inactive superblock details */
 
       superblock_gaddr = inactive_stack_gaddr;
-      while (superblock_gaddr) {
-        ulong next_gaddr = ((fd_alloc_superblock_t *)fd_wksp_laddr_fast(
-                                wksp, superblock_gaddr))
-                               ->next_gaddr;
-        TRAP(fprintf(
-            stream, "\t\tsuperblock: cgroup_idx -, gaddr %s:%lu, next %s:%lu, ",
-            wksp->name, superblock_gaddr, wksp->name, next_gaddr));
-        TRAP(fd_alloc_superblock_fprintf(wksp, superblock_gaddr, sizeclass,
-                                         block_cnt, block_footprint, stream,
-                                         ctr));
+      while( superblock_gaddr ) {
+        ulong next_gaddr = ((fd_alloc_superblock_t *)fd_wksp_laddr_fast( wksp, superblock_gaddr))->next_gaddr;
+        TRAP( fprintf( stream, "\t\tsuperblock: cgroup_idx -, gaddr %s:%lu, next %s:%lu, ",
+                       wksp->name, superblock_gaddr, wksp->name, next_gaddr ) );
+        TRAP( fd_alloc_superblock_fprintf( wksp, superblock_gaddr, sizeclass, block_cnt, block_footprint, stream, ctr ) );
         superblock_gaddr = next_gaddr;
       }
     }
@@ -1453,25 +1341,22 @@ int fd_alloc_fprintf(fd_alloc_t *join, FILE *stream) {
 
     ulong tag = alloc->tag;
 
-    fd_wksp_private_part_t *part = wksp->part;
-    ulong part_cnt = wksp->part_cnt;
-    for (ulong part_idx = 0UL; part_idx < part_cnt; part_idx++) {
-      ulong p = part[part_idx];
-      if (fd_wksp_private_part_tag(p) != tag)
-        continue;
-      ulong gaddr_lo = fd_wksp_private_part_gaddr(p);
+    fd_wksp_private_part_t * part     = wksp->part;
+    ulong                    part_cnt = wksp->part_cnt;
+    for( ulong part_idx=0UL; part_idx<part_cnt; part_idx++ ) {
+      ulong p = part[ part_idx ];
+      if( fd_wksp_private_part_tag( p )!=tag ) continue;
+      ulong gaddr_lo = fd_wksp_private_part_gaddr( p );
 
       /* If the user used the same tag for both the alloc metadata and the
          alloc allocations, skip the metadata partition */
 
-      if (gaddr_lo == fd_wksp_gaddr_fast(wksp, alloc))
-        continue;
+      if( gaddr_lo==fd_wksp_gaddr_fast( wksp, alloc ) ) continue;
 
-      ulong gaddr_hi = fd_wksp_private_part_gaddr(part[part_idx + 1UL]);
+      ulong gaddr_hi       = fd_wksp_private_part_gaddr( part[ part_idx+1UL ] );
       ulong part_footprint = gaddr_hi - gaddr_lo;
 
-      if (FD_UNLIKELY(part_footprint <= sizeof(fd_alloc_hdr_t)))
-        continue; /* Skip over holes (FIXME: log?) */
+      if( FD_UNLIKELY( part_footprint<=sizeof(fd_alloc_hdr_t) ) ) continue; /* Skip over holes (FIXME: log?) */
 
       /* Search the partition for a plausible fd_alloc_hdr_t.  There
          will be at least one if the partition isn't bad.  We scan
@@ -1488,36 +1373,28 @@ int fd_alloc_fprintf(fd_alloc_t *join, FILE *stream) {
          estimate for simplicity (it would take a lot more space and
          time overhead in normal operation to track this explicitly). */
 
-      for (ulong align_est = 1UL << fd_ulong_find_msb(part_footprint -
-                                                      sizeof(fd_alloc_hdr_t));
-           ;) {
+      for( ulong align_est = 1UL << fd_ulong_find_msb( part_footprint-sizeof(fd_alloc_hdr_t) );;) {
 
         /* Look at a potential header location */
 
-        ulong gaddr_est =
-            fd_ulong_align_up(gaddr_lo + sizeof(fd_alloc_hdr_t), align_est);
-        uchar *laddr_est = (uchar *)fd_wksp_laddr_fast(wksp, gaddr_est);
-        fd_alloc_hdr_t hdr =
-            FD_LOAD(fd_alloc_hdr_t, laddr_est - sizeof(fd_alloc_hdr_t));
+        ulong   gaddr_est = fd_ulong_align_up( gaddr_lo + sizeof(fd_alloc_hdr_t), align_est );
+        uchar * laddr_est = (uchar *)fd_wksp_laddr_fast( wksp, gaddr_est );
+        fd_alloc_hdr_t hdr = FD_LOAD( fd_alloc_hdr_t, laddr_est - sizeof(fd_alloc_hdr_t) );
 
         /* If it matches what a header at this location should be,
            print out the estimated allocation details. */
 
-        if (fd_alloc_hdr_is_large(hdr)) {
-          int is_superblock = fd_alloc_hdr_large_is_superblock(hdr);
+        if( fd_alloc_hdr_is_large( hdr ) ) {
+          int is_superblock = fd_alloc_hdr_large_is_superblock( hdr );
 
-          ulong sz_est =
-              part_footprint - sizeof(fd_alloc_hdr_t) - align_est + 1UL;
-          TRAP(fprintf(stream,
-                       "\tlarge: gaddr %s:%lu-%s:%lu, malloc_est %s:%lu, "
-                       "align_est %lu, sz_est %lu %s\n",
-                       wksp->name, gaddr_lo, wksp->name, gaddr_hi - 1UL,
-                       wksp->name, gaddr_est, align_est, sz_est,
-                       is_superblock ? "(superblock)" : "(large)"));
+          ulong sz_est = part_footprint - sizeof(fd_alloc_hdr_t) - align_est + 1UL;
+          TRAP( fprintf( stream, "\tlarge: gaddr %s:%lu-%s:%lu, malloc_est %s:%lu, align_est %lu, sz_est %lu %s\n",
+                         wksp->name, gaddr_lo, wksp->name, gaddr_hi-1UL, wksp->name, gaddr_est, align_est, sz_est,
+                         is_superblock ? "(superblock)" : "(large)" ) );
           ctr[2]++;
           ctr[3] += part_footprint;
-          ctr[4] += fd_ulong_if(is_superblock, 0UL, 1UL);
-          ctr[5] += fd_ulong_if(is_superblock, 0UL, part_footprint);
+          ctr[4] += fd_ulong_if( is_superblock, 0UL, 1UL            );
+          ctr[5] += fd_ulong_if( is_superblock, 0UL, part_footprint );
 
           break;
         }
@@ -1526,11 +1403,9 @@ int fd_alloc_fprintf(fd_alloc_t *join, FILE *stream) {
            partition is corrupt. */
 
         align_est >>= 1;
-        if (FD_UNLIKELY(!align_est)) {
-          TRAP(fprintf(stream,
-                       "\tlarge: gaddr %s:%lu-%s:%lu, malloc_est -, align_est "
-                       "-, sz_est - (bad)\n",
-                       wksp->name, gaddr_lo, wksp->name, gaddr_hi - 1UL));
+        if( FD_UNLIKELY( !align_est ) ) {
+          TRAP( fprintf( stream, "\tlarge: gaddr %s:%lu-%s:%lu, malloc_est -, align_est -, sz_est - (bad)\n",
+                         wksp->name, gaddr_lo, wksp->name, gaddr_hi-1UL ) );
           ctr[0]++;
           break;
         }
@@ -1540,14 +1415,14 @@ int fd_alloc_fprintf(fd_alloc_t *join, FILE *stream) {
 
   /* Print summary statistics */
 
-  TRAP(fprintf(stream,
-               "\terrors detected       %21lu\n"
-               "\tsmall alloc found     %21lu\n"
-               "\twksp part cnt         %21lu\n"
-               "\twksp used             %21lu\n"
-               "\tlarge alloc cnt       %21lu\n"
-               "\tlarge alloc wksp used %21lu\n",
-               ctr[0], ctr[1], ctr[2], ctr[3], ctr[4], ctr[5]));
+  TRAP( fprintf( stream,
+                 "\terrors detected       %21lu\n"
+                 "\tsmall alloc found     %21lu\n"
+                 "\twksp part cnt         %21lu\n"
+                 "\twksp used             %21lu\n"
+                 "\tlarge alloc cnt       %21lu\n"
+                 "\tlarge alloc wksp used %21lu\n",
+                 ctr[0], ctr[1], ctr[2], ctr[3], ctr[4], ctr[5] ) );
 
   return cnt;
 }
