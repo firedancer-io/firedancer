@@ -4,8 +4,13 @@
 #include <stdlib.h>
 
 #include "fd_pcap.h"
+#include "../../xdp/fd_xsk.h"
+#include "../../xdp/fd_xsk_aio.h"
+#include "../../xdp/fd_xdp_redirect_user.h"
 
 #define BUF_SZ (1<<20)
+#define LG_FRAME_SIZE 11
+#define FRAME_SIZE (1<<LG_FRAME_SIZE)
 
 typedef struct my_stream_meta my_stream_meta_t;
 struct my_stream_meta {
@@ -209,6 +214,7 @@ my_stream_notify_cb( fd_quic_stream_t * stream, void * ctx, int type ) {
       fflush( stdout );
 
       if( stream->conn->server ) {
+        /* This should never happen */
         printf( "SERVER\n" );
         fflush( stdout );
       } else {
@@ -287,29 +293,9 @@ new_quic( fd_quic_config_t * quic_config ) {
   return quic;
 }
 
-
-struct my_context {
-  int server;
-};
-typedef struct my_context my_context_t;
-
-int server_complete = 0;
 int client_complete = 0;
 
-/* server connetion received in callback */
-fd_quic_conn_t * server_conn = NULL;
-
-void my_connection_new( fd_quic_conn_t * conn, void * vp_context ) {
-  (void)conn;
-  (void)vp_context;
-
-  printf( "server handshake complete\n" );
-  fflush( stdout );
-
-  server_complete = 1;
-  server_conn = conn;
-}
-
+/* Client handshake complete */
 void my_handshake_complete( fd_quic_conn_t * conn, void * vp_context ) {
   (void)conn;
   (void)vp_context;
@@ -431,62 +417,88 @@ main( int argc, char ** argv ) {
 
   quic_config.tx_buf_sz = 1ul << 20ul;
 
-  fd_quic_host_cfg_t server_cfg = { "server_host", 0x0a000001u, 4434 };
+  /* XDP config */
+  char const * intf        = "";
+  float        f_batch_sz  = 128;
+  uint         src_ip;
+  uchar        src_mac[6];
+  uchar        dft_route_mac[6];
+
+  /* TODO: parse command-line arguments */
+
+  char const * app_name    = "quic_load_test";
+  uint         ifqueue     = 0;
+  ulong        xsk_pkt_cnt = 16;
+  uint         udp_port    = 4433;
+  uint         proto       = 0;
+
   fd_quic_host_cfg_t client_cfg = { "client_host", 0xc01a1a1au, 2001 };
 
   quic_config.host_cfg = client_cfg;
   fd_quic_t * client_quic = new_quic( &quic_config );
 
-  quic_config.host_cfg = server_cfg;
-  fd_quic_t * server_quic = new_quic( &quic_config );
+  /* create a new XSK instance */
+  ulong frame_sz = FRAME_SIZE;
+  ulong depth    = 1ul << 20ul;
+  ulong xsk_sz   = fd_xsk_footprint( frame_sz, depth, depth, depth, depth );
 
-  /* make use aio to point quic directly at quic */
-  fd_aio_t * aio_n2q = fd_quic_get_aio_net_in( server_quic );
-  fd_aio_t * aio_q2n = fd_quic_get_aio_net_in( client_quic );
-
-#if 0
-  fd_quic_set_aio_net_out( server_quic, aio_q2n );
-  fd_quic_set_aio_net_out( client_quic, aio_n2q );
-#else
-  /* create a pipe for catching data as it passes thru */
-  aio_pipe_t pipe[2] = { { aio_n2q, pcap }, { aio_q2n, pcap } };
-
-  fd_aio_t * aio[2];
-  uchar aio_mem[2][128] = {0};
-
-  if( fd_aio_footprint() > sizeof( aio_mem[0] ) ) {
-    FD_LOG_WARNING(( "aio footprint: %lu", fd_aio_footprint() ));
-    FD_LOG_ERR(( "fd_aio_footprint returned value larger than reserved memory" ));
+  void * xsk_mem = aligned_alloc( fd_xsk_align(), xsk_sz );
+  if( !fd_xsk_new( xsk_mem, frame_sz, depth, depth, depth, depth ) ) {
+    fprintf( stderr, "Failed to create fd_xsk. Aborting\n" );
+    exit(1);
   }
 
-  aio[0] = fd_aio_join( fd_aio_new( aio_mem[0], &pipe[0], pipe_aio_receive ) );
-  aio[1] = fd_aio_join( fd_aio_new( aio_mem[1], &pipe[1], pipe_aio_receive ) );
+  /* bind the XKS instance */
+  if( !fd_xsk_bind( xsk_mem, app_name, intf, ifqueue ) ) {
+    fprintf( stderr, "Failed to bind %s to interface %s, with queue %u\n",
+        app_name, intf, ifqueue );
+    exit(1);
+  }
 
-  fd_quic_set_aio_net_out( server_quic, aio[1] );
-  fd_quic_set_aio_net_out( client_quic, aio[0] );
-#endif
+  /* join */
+  fd_xsk_t * xsk = fd_xsk_join( xsk_mem );
 
-  /* set up server_quic as server */
-  fd_quic_listen( server_quic );
+  /* new xsk_aio */
+  void * xsk_aio_mem = aligned_alloc( fd_xsk_aio_align(), fd_xsk_aio_footprint( depth, xsk_pkt_cnt ) );
+  if( !fd_xsk_aio_new( xsk_aio_mem, depth, xsk_pkt_cnt ) ) {
+    fprintf( stderr, "Failed to create xsk_aio_mem\n" );
+    exit(1);
+  }
 
-  /* set the callback for new connections */
-  fd_quic_set_cb_conn_new( server_quic, my_connection_new );
+  fd_xsk_aio_t * xsk_aio = fd_xsk_aio_join( xsk_aio_mem, xsk );
+  if( !xsk_aio ) {
+    fprintf( stderr, "Failed to join xsk_aio_mem\n" );
+    exit(1);
+  }
+
+  /* add udp port to xdp map */
+  /* TODO how do we specify the port? */
+  if( fd_xdp_listen_udp_port( app_name, src_ip, udp_port, proto ) < 0 ) {
+    fprintf( stderr, "unable to listen on given udp port\n" );
+    exit(1);
+  }
+
+  /* use XSK XDP AIO for QUIC ingress/egress */
+  fd_aio_t ingress = *fd_quic_get_aio_net_in( client_quic );
+  fd_xsk_aio_set_rx( xsk_aio, &ingress );
+  fd_aio_t egress = *fd_xsk_aio_get_tx( xsk_aio );
+  fd_quic_set_aio_net_out( client_quic, &egress );
 
   /* set the callback for handshake complete */
   fd_quic_set_cb_conn_handshake_complete( client_quic, my_handshake_complete );
 
-  /* make a connection from client to server */
-  fd_quic_conn_t * client_conn = fd_quic_connect( client_quic, server_cfg.ip_addr, server_cfg.udp_port );
+  /* make a connection from client to frank */
+  uint frank_ip_addr = parse_id; /* TODO */
+  uint frank_quic_udp_port = 93838383; /* TODO */
+  fd_quic_conn_t * client_conn = fd_quic_connect( client_quic, frank_ip_addr, frank_quic_udp_port );
   (void)client_conn;
 
   /* do general processing */
   for( ulong j = 0; j < 20; j++ ) {
-    ulong ct = fd_quic_get_next_wakeup( client_quic );
-    ulong st = fd_quic_get_next_wakeup( server_quic );
-    ulong next_wakeup = fd_ulong_min( ct, st );
+    ulong next_wakeup = fd_quic_get_next_wakeup( client_quic );
 
     if( next_wakeup == ~(ulong)0 ) {
-      printf( "client and server have no schedule\n" );
+      printf( "client has no schedule\n" );
       break;
     }
 
@@ -494,32 +506,29 @@ main( int argc, char ** argv ) {
 
     printf( "running services at %lu\n", (ulong)next_wakeup );
     fd_quic_service( client_quic );
-    fd_quic_service( server_quic );
 
-    if( server_complete && client_complete ) {
-      printf( "***** both handshakes complete *****\n" );
+    if( client_complete ) {
+      printf( "***** client handshake complete *****\n" );
 
       break;
     }
   }
 
   for( ulong j = 0; j < 20; j++ ) {
-    ulong ct = fd_quic_get_next_wakeup( client_quic );
-    ulong st = fd_quic_get_next_wakeup( server_quic );
-    ulong next_wakeup = fd_ulong_min( ct, st );
+    ulong next_wakeup = fd_quic_get_next_wakeup( client_quic );
 
     if( next_wakeup == ~(ulong)0 ) {
-      printf( "client and server have no schedule\n" );
+      printf( "client has no schedule\n" );
       break;
     }
 
     now = next_wakeup;
 
     fd_quic_service( client_quic );
-    fd_quic_service( server_quic );
   }
 
   /* populate free streams */
+  /* TODO: what is this 10 here? */
   populate_stream_meta( 10 );
   populate_streams( 10, client_conn );
 
@@ -527,12 +536,10 @@ main( int argc, char ** argv ) {
   fd_aio_pkt_info_t batch[1] = {{ buf, sizeof( buf ) }};
 
   for( unsigned j = 0; j < 5000; ++j ) {
-    ulong ct = fd_quic_get_next_wakeup( client_quic );
-    ulong st = fd_quic_get_next_wakeup( server_quic );
-    ulong next_wakeup = fd_ulong_min( ct, st );
+    ulong next_wakeup = fd_quic_get_next_wakeup( client_quic );
 
     if( next_wakeup == ~(ulong)0 ) {
-      printf( "client and server have no schedule\n" );
+      printf( "client has no schedule\n" );
       break;
     }
 
@@ -542,7 +549,6 @@ main( int argc, char ** argv ) {
     fflush( stdout );
 
     fd_quic_service( client_quic );
-    fd_quic_service( server_quic );
 
     buf[12] = ' ';
     //buf[15] = (char)( ( j / 10 ) + '0' );
@@ -580,13 +586,10 @@ main( int argc, char ** argv ) {
 
   /* close the connections */
   fd_quic_conn_close( client_conn, 0 );
-  fd_quic_conn_close( server_conn, 0 );
 
   /* allow acks to go */
   for( unsigned j = 0; j < 10; ++j ) {
-    ulong ct = fd_quic_get_next_wakeup( client_quic );
-    ulong st = fd_quic_get_next_wakeup( server_quic );
-    ulong next_wakeup = fd_ulong_min( ct, st );
+    ulong next_wakeup = fd_quic_get_next_wakeup( client_quic );
 
     if( next_wakeup == ~(ulong)0 ) {
       /* indicates no schedule, which is correct after connection
@@ -599,11 +602,9 @@ main( int argc, char ** argv ) {
 
     printf( "running services at %lu\n", (ulong)next_wakeup );
     fd_quic_service( client_quic );
-    fd_quic_service( server_quic );
 
   }
 
-  fd_quic_delete( server_quic );
   fd_quic_delete( client_quic );
 
   if( fail ) {
