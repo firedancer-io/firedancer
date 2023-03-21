@@ -11,8 +11,6 @@ jobs:
     defaults:
       run:
         shell: nix-shell --pure --keep MACHINE --keep EXTRAS --run "bash --noprofile --norc -eo pipefail {0}"
-    env:
-      EXTRAS: libbpf
     steps:
       - uses: actions/checkout@v3
 

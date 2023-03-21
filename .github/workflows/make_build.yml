@@ -16,7 +16,6 @@ jobs:
         shell: nix-shell --pure --keep MACHINE --keep EXTRAS --run "bash --noprofile --norc -eo pipefail {0}"
     env:
       MACHINE: linux_${{ matrix.compiler }}_x86_64
-      EXTRAS: libbpf
     steps:
       - uses: actions/checkout@v3
 
