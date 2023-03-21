@@ -75,6 +75,23 @@ void fd_bincode_uint32_encode(unsigned int* self, void const** data) {
 }
 
 static inline
+void fd_bincode_uint16_decode(ushort* self, void const** data, void const* dataend) {
+  const ushort *ptr = (const ushort *) *data;
+  if (FD_UNLIKELY((void const *) (ptr + 1) > dataend )) {
+    FD_LOG_ERR(( "buffer underflow"));
+  }
+  *self = *ptr;
+  *data = ptr + 1;
+}
+
+static inline
+void fd_bincode_uint16_encode(ushort* self, void const** data) {
+  ushort *ptr = (ushort *) *data;
+  *ptr = *self;
+  *data = ptr + 1;
+}
+
+static inline
 void fd_bincode_uint8_decode(unsigned char* self, void const** data, void const* dataend) {
   const unsigned char *ptr = (const unsigned char *) *data;
   if (FD_UNLIKELY((void const *) (ptr + 1) > dataend )) {
