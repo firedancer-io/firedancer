@@ -3,10 +3,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#include "fd_pcap.h"
-#include "../../xdp/fd_xsk.h"
-#include "../../xdp/fd_xsk_aio.h"
-#include "../../xdp/fd_xdp_redirect_user.h"
+#include "../../xdp/fd_xdp.h"
 
 #define BUF_SZ (1<<20)
 #define LG_FRAME_SIZE 11
@@ -120,87 +117,8 @@ populate_streams( ulong sz, fd_quic_conn_t * conn ) {
   }
 }
 
-void
-write_shb( FILE * file ) {
-  pcap_shb_t shb[1] = {{ 0x0A0D0D0A, sizeof( pcap_shb_t ), 0x1A2B3C4D, 1, 0, (ulong)-1, sizeof( pcap_shb_t ) }};
-  ulong rc = fwrite( shb, sizeof(shb), 1, file );
-  if( rc != 1 ) {
-    abort();
-  }
-}
-
-void
-write_idb( FILE * file ) {
-  pcap_idb_t idb[1] = {{ 0x00000001, sizeof( pcap_idb_t ), 1, 0, 0, sizeof( pcap_idb_t ) }};
-  ulong rc = fwrite( idb, sizeof(idb), 1, file );
-  if( rc != 1 ) {
-    abort();
-  }
-}
-
-void
-write_epb( FILE * file, uchar * buf, uint buf_sz, ulong ts ) {
-  if( buf_sz == 0 ) return;
-
-  uint ts_lo = (uint)ts;
-  uint ts_hi = (uint)( ts >> 32u );
-
-  uint align_sz = ( ( buf_sz - 1u ) | 0x03u ) + 1u;
-  uint tot_len  = align_sz + (uint)sizeof( pcap_epb_t ) + 4;
-  pcap_epb_t epb[1] = {{
-    0x00000006,
-    tot_len,
-    0, /* intf id */
-    ts_hi,
-    ts_lo,
-    buf_sz,
-    buf_sz }};
-
-  ulong rc = fwrite( epb, sizeof( epb ), 1, file );
-  if( rc != 1 ) {
-    abort();
-  }
-
-  rc = fwrite( buf, buf_sz, 1, file );
-  if( rc != 1 ) {
-    abort();
-  }
-
-  if( align_sz > buf_sz ) {
-    /* write padding */
-    uchar pad[4] = {0};
-    fwrite( pad, align_sz - buf_sz, 1, file );
-  }
-
-  rc = fwrite( &tot_len, 4, 1, file );
-  if( rc != 1 ) {
-    abort();
-  }
-
-}
-
-
 extern uchar pkt_full[];
 extern ulong pkt_full_sz;
-
-ulong
-aio_cb( void * context, fd_aio_pkt_info_t * batch, ulong batch_sz ) {
-  (void)context;
-
-  printf( "aio_cb callback\n" );
-  for( ulong j = 0; j < batch_sz; ++j ) {
-    printf( "batch %d\n", (int)j );
-    uchar const * data = (uchar const *)batch[j].buf;
-    for( ulong k = 0; k < batch[j].buf_sz; ++k ) {
-      printf( "%2.2x ", (uint)data[k] );
-    }
-    printf( "\n\n" );
-  }
-
-  fflush( stdout );
-
-  return batch_sz; /* consumed all */
-}
 
 uchar fail = 0;
 
@@ -264,6 +182,30 @@ my_stream_receive_cb( fd_quic_stream_t * stream,
 
 }
 
+void
+parse_mac( uchar * dst, char const * src ) {
+  uint a[6] = {0};
+  int r = sscanf( src, "%x:%x:%x:%x:%x:%x", a, a+1, a+2, a+3, a+4, a+5 );
+  if( r != 6 ) {
+    FD_LOG_ERR(( "Invalid MAC address: %s", src ));
+  }
+
+  for( size_t j = 0; j < 6; ++j ) {
+    dst[j] = (uchar)a[j];
+  }
+}
+
+void
+parse_ipv4_addr( uint * dst, char const * src ) {
+  uint a[4] = {0};
+  int r = sscanf( src, "%u.%u.%u.%u", a, a+1, a+2, a+3 );
+  if( r != 4 ) {
+    FD_LOG_ERR(( "Invalid ipv4 address: %s", src ));
+  }
+
+  *dst = ( a[0] << 030 ) | ( a[1] << 020 ) | ( a[2] << 010 ) | a[3];
+}
+
 fd_quic_t *
 new_quic( fd_quic_config_t * quic_config ) {
 
@@ -306,33 +248,6 @@ void my_handshake_complete( fd_quic_conn_t * conn, void * vp_context ) {
   client_complete = 1;
 }
 
-/* pcap aio pipe */
-struct aio_pipe {
-  fd_aio_t * aio;
-  FILE *     file;
-};
-typedef struct aio_pipe aio_pipe_t;
-
-
-int
-pipe_aio_receive( void * vp_ctx, fd_aio_pkt_info_t const * batch, ulong batch_sz, ulong * opt_batch_idx ) {
-  static ulong ts = 0;
-  ts += 100000ul;
-
-  aio_pipe_t * pipe = (aio_pipe_t*)vp_ctx;
-
-#if 1
-  for( unsigned j = 0; j < batch_sz; ++j ) {
-    write_epb( pipe->file, batch[j].buf, (unsigned)batch[j].buf_sz, ts );
-  }
-  fflush( pipe->file );
-#endif
-
-  /* forward */
-  return fd_aio_send( pipe->aio, batch, batch_sz, opt_batch_idx );
-}
-
-
 /* global "clock" */
 ulong now = 123;
 
@@ -345,9 +260,6 @@ int
 main( int argc, char ** argv ) {
   FILE * pcap = fopen( "test_quic_hs.pcapng", "wb" );
   if( !pcap ) abort();
-
-  write_shb( pcap );
-  write_idb( pcap );
 
   (void)argc;
   (void)argv;
@@ -395,6 +307,113 @@ main( int argc, char ** argv ) {
   tp->active_connection_id_limit                     = 8;
   tp->active_connection_id_limit_present             = 1;
 
+  /* Configuration */
+  char const * app_name = "quic_load_test";
+  char const * intf     = "";
+  uint ifqueue          = 0;
+  uint dst_ip           = 0;
+  ushort dst_port       = 0;
+  uint src_ip           = 0;
+  uchar src_mac[6];
+  ushort src_port       = 0;
+  uchar dft_route_mac[6];
+  ulong xsk_pkt_cnt     = 16;
+
+  for( int i = 1; i < argc; ++i ) {
+    /* --intf */
+    if( strcmp( argv[i], "--intf" ) == 0 ) {
+      if( i+1 < argc ) {
+        intf = argv[i+1];
+        i++;
+        continue;
+      } else {
+        fprintf( stderr, "--intf requires a value\n" );
+        exit(1);
+      }
+    }
+    if( strcmp( argv[i], "--src-ip" ) == 0 ) {
+      if( i+1 < argc ) {
+        parse_ipv4_addr( &src_ip, argv[i+1] );
+        i++;
+      } else {
+        fprintf( stderr, "--src-ip requires a value\n" );
+        exit(1);
+      }
+    }
+    if( strcmp( argv[i], "--src-mac" ) == 0 ) {
+      if( i+1 < argc ) {
+        parse_mac( src_mac, argv[i+1] );
+        i++;
+      } else {
+        fprintf( stderr, "--src-mac requires a value\n" );
+        exit(1);
+      }
+    }
+    if( strcmp( argv[i], "--src-port" ) == 0 ) {
+      if( i+1 < argc ) {
+        src_port = (ushort)strtoul( argv[i+1], NULL, 10 );
+        i++;
+      } else {
+        fprintf( stderr, "--src-port requires a value\n" );
+        exit(1);
+      }
+    }
+    if( strcmp( argv[i], "--dst-ip" ) == 0 ) {
+      if( i+1 < argc ) {
+        parse_ipv4_addr( &dst_ip, argv[i+1] );
+        i++;
+      } else {
+        fprintf( stderr, "--dst-ip requires a value\n" );
+        exit(1);
+      }
+    }
+    if( strcmp( argv[i], "--dst-port" ) == 0 ) {
+      if( i+1 < argc ) {
+        dst_port = (ushort)strtoul( argv[i+1], NULL, 10 );
+        i++;
+      } else {
+        fprintf( stderr, "--dst-port requires a value\n" );
+        exit(1);
+      }
+    }
+    if( strcmp( argv[i], "--dft-route-mac" ) == 0 ) {
+      if( i+1 < argc ) {
+        parse_mac( dft_route_mac, argv[i+1] );
+        i++;
+      } else {
+        fprintf( stderr, "--dft-route-mac requires a value\n" );
+        exit(1);
+      }
+    }
+    if( strcmp( argv[i], "--ifqueue" ) == 0 ) {
+      if( i+1 < argc ) {
+        ifqueue = (uint)strtoul( argv[i+1], NULL, 10 );
+        i++;
+      } else {
+        fprintf( stderr, "--ifqueue requires a value\n" );
+        exit(1);
+      }
+    }
+    if( strcmp( argv[i], "--app-name" ) == 0 ) {
+      if( i+1 < argc ) {
+        app_name = argv[i+1];
+      } else {
+        fprintf( stderr, "--app-name requires a value\n" );
+        exit(1);
+      }
+    }
+    if( strcmp( argv[i], "--xsk-pkt-cnt" ) == 0 ) {
+      if( i+1 < argc ) {
+        xsk_pkt_cnt = (uint)strtoul( argv[i+1], NULL, 10 );
+        i++;
+      } else {
+        fprintf( stderr, "--xsk-pkt-cnt requires a value\n" );
+        exit(1);
+      }
+    }
+  }
+
+  /* QUIC configuration */
   fd_quic_config_t quic_config = {0};
 
   quic_config.transport_params      = tp;
@@ -417,22 +436,11 @@ main( int argc, char ** argv ) {
 
   quic_config.tx_buf_sz = 1ul << 20ul;
 
-  /* XDP config */
-  char const * intf        = "";
-  float        f_batch_sz  = 128;
-  uint         src_ip;
-  uchar        src_mac[6];
-  uchar        dft_route_mac[6];
+  fd_memcpy( quic_config.net.default_route_mac, dft_route_mac, 6 );
+  fd_memcpy( quic_config.net.src_mac, src_mac, 6 );
 
-  /* TODO: parse command-line arguments */
-
-  char const * app_name    = "quic_load_test";
-  uint         ifqueue     = 0;
-  ulong        xsk_pkt_cnt = 16;
-  uint         udp_port    = 4433;
-  uint         proto       = 0;
-
-  fd_quic_host_cfg_t client_cfg = { "client_host", 0xc01a1a1au, 2001 };
+  /* hostname, ip_addr, udp port */
+  fd_quic_host_cfg_t client_cfg = { "client_host", src_ip, src_port };
 
   quic_config.host_cfg = client_cfg;
   fd_quic_t * client_quic = new_quic( &quic_config );
@@ -472,9 +480,9 @@ main( int argc, char ** argv ) {
   }
 
   /* add udp port to xdp map */
-  /* TODO how do we specify the port? */
-  if( fd_xdp_listen_udp_port( app_name, src_ip, udp_port, proto ) < 0 ) {
-    fprintf( stderr, "unable to listen on given udp port\n" );
+  uint proto = 0;
+  if( fd_xdp_listen_udp_port( app_name, src_ip, src_port, proto ) < 0 ) {
+    fprintf( stderr, "unable to listen on given src udp port\n" );
     exit(1);
   }
 
@@ -487,10 +495,8 @@ main( int argc, char ** argv ) {
   /* set the callback for handshake complete */
   fd_quic_set_cb_conn_handshake_complete( client_quic, my_handshake_complete );
 
-  /* make a connection from client to frank */
-  uint frank_ip_addr = parse_id; /* TODO */
-  uint frank_quic_udp_port = 93838383; /* TODO */
-  fd_quic_conn_t * client_conn = fd_quic_connect( client_quic, frank_ip_addr, frank_quic_udp_port );
+  /* make a connection from client to the server */
+  fd_quic_conn_t * client_conn = fd_quic_connect( client_quic, dst_ip, dst_port );
   (void)client_conn;
 
   /* do general processing */
