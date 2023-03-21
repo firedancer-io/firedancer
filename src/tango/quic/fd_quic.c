@@ -575,6 +575,11 @@ fd_quic_init( void *             shmem,
   /* set up networking parameters */
   fd_memcpy( &quic->net, &config->net, sizeof( quic->net ) );
 
+  /* set up ephemeral parameters */
+  quic->udp_ephem.lo            = config->udp_ephem.lo;
+  quic->udp_ephem.hi            = config->udp_ephem.hi;
+  quic->next_ephem              = config->udp_ephem.lo;
+
   /* initialize crypto */
   fd_quic_crypto_ctx_init( quic->crypto_ctx );
 
@@ -1028,6 +1033,7 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
     conn->quic                 = quic;
     conn->server               = 1;
     conn->version              = pkt->long_hdr->version;
+    conn->host                 = quic->host_cfg;
     conn->orig_conn_id.sz      = 0;
     conn->our_conn_id_cnt      = 0;
     conn->peer_cnt             = 0;
@@ -2644,8 +2650,7 @@ fd_quic_tx_buffered( fd_quic_t * quic, fd_quic_conn_t * conn ) {
 
   ulong                  peer_idx   = conn->cur_peer_idx;
   fd_quic_endpoint_t *   peer       = &conn->peer[peer_idx];
-  fd_quic_host_cfg_t *   host_cfg   = &quic->host_cfg; /* TODO put on conn
-                                                          outgoing connections will need to choose a udp src port */
+  fd_quic_host_cfg_t *   host_cfg   = &conn->host;
 
   uchar * cur_ptr = conn->crypt_scratch;
   ulong  cur_sz  = sizeof( conn->crypt_scratch );
@@ -3812,12 +3817,8 @@ fd_quic_create_conn_id( fd_quic_t * quic ) {
 
 fd_quic_conn_t *
 fd_quic_connect( fd_quic_t * quic,
-                 uint    dst_ip_addr,
-                 ushort    dst_udp_port ) {
-  (void)quic;
-  (void)dst_ip_addr;
-  (void)dst_udp_port;
-
+                 uint        dst_ip_addr,
+                 ushort      dst_udp_port ) {
   /* create conn ids for us and them
      client creates connection id for the peer, peer immediately replaces it */
   fd_quic_conn_id_t our_conn_id  = fd_quic_create_conn_id( quic );
@@ -3836,6 +3837,15 @@ fd_quic_connect( fd_quic_t * quic,
         )
     return NULL;
   }
+
+  /* choose a port from ephemeral range */
+  ushort next_ephem   = quic->next_ephem;
+  ushort src_port     = next_ephem;
+  next_ephem++;
+  next_ephem          = next_ephem == quic->udp_ephem.hi ? quic->udp_ephem.lo : next_ephem;
+  quic->next_ephem    = next_ephem;
+
+  conn->host.udp_port = src_port;
 
   /* adjust transport parameters and encode */
 
@@ -4056,8 +4066,8 @@ fd_quic_conn_t *
 fd_quic_create_connection( fd_quic_t *               quic,
                            fd_quic_conn_id_t const * our_conn_id,
                            fd_quic_conn_id_t const * peer_conn_id,
-                           uint                  dst_ip_addr,
-                           ushort                  dst_udp_port,
+                           uint                      dst_ip_addr,
+                           ushort                    dst_udp_port,
                            int                       server ) {
 
   /* check current number of connections */
@@ -4094,6 +4104,7 @@ fd_quic_create_connection( fd_quic_t *               quic,
   conn->quic               = quic;
   conn->server             = server;
   conn->version            = 1; /* initially try version 1, even when we support other versions */
+  conn->host               = quic->host_cfg;
   conn->our_conn_id_cnt    = 0; /* set later */
   conn->peer_cnt           = 0;
   conn->cur_conn_id_idx    = 0;
