@@ -9,6 +9,15 @@ cd "$(dirname "${BASH_SOURCE[0]}")"
 # shellcheck source=./activate
 source activate
 
+# Load distro information
+source /etc/os-release || echo "[!] Failed to get OS info from /etc/os-release"
+
+# Figure out how to escalate privileges
+SUDO=""
+if [[ ! "$(id -u)" -eq "0" ]]; then
+  SUDO="sudo "
+fi
+
 # Install prefix
 PREFIX="$(pwd)/opt"
 
@@ -103,36 +112,66 @@ check_fedora_pkgs () {
   done
 
   if [[ ${#MISSING_RPMS[@]} -eq 0 ]]; then
-    echo "[~] OK: RPMs required for build are installed"
+    echo "[~] OK: RPM packages required for build are installed"
     return 0
   fi
 
   echo "[!] Found missing packages"
   echo "[?] This is fixed by the following command:"
-  echo "        sudo dnf install -y ${MISSING_RPMS[@]}"
-  read -r -p "[?] Use sudo privileges to install missing packages? (y/N) " choice
+  echo "        ${SUDO}dnf install -y ${MISSING_RPMS[@]}"
+  read -r -p "[?] Install missing packages with superuser privileges? (y/N) " choice
   case "$choice" in
     y|Y)
       echo "[+] Installing missing RPMs"
-      sudo dnf install -y ${MISSING_RPMS[@]}
+      ${SUDO}dnf install -y "${MISSING_RPMS[@]}"
       echo "[+] Installed missing RPMs"
       ;;
     *)
-      echo "Skipping package install"
+      echo "[-] Skipping package install"
+      ;;
+  esac
+}
+
+check_debian_pkgs () {
+  local REQUIRED_DEBS=( perl autoconf gettext automake flex bison )
+
+  echo "[~] Checking for required DEB packages"
+
+  local MISSING_DEBS=( )
+  for deb in ${REQUIRED_DEBS[@]}; do
+    if ! dpkg -s "$deb" >/dev/null 2>/dev/null; then
+      MISSING_DEBS+=( "$deb" )
+    fi
+  done
+
+  if [[ ${#MISSING_DEBS[@]} -eq 0 ]]; then
+    echo "[~] OK: DEB packages required for build are installed"
+    return 0
+  fi
+
+  echo "[!] Found missing packages"
+  echo "[?] This is fixed by the following command:"
+  echo "        ${SUDO}apt-get install -y ${MISSING_DEBS[@]}"
+  read -r -p "[?] Install missing packages with superuser privileges? (y/N) " choice
+  case "$choice" in
+    y|Y)
+      echo "[+] Installing missing DEBs"
+      ${SUDO}apt-get install -y "${MISSING_DEBS[@]}"
+      echo "[+] Installed missing DEBs"
+      ;;
+    *)
+      echo "[-] Skipping package install"
       ;;
   esac
 }
 
 check () {
-  if ! command -v lsb_release &> /dev/null ; then
-    echo "Unknown Linux distribution, skipping sanity checks"
-    return 0
-  fi
-
-  DISTRO="$(lsb_release --short --id)"
-  case "$DISTRO" in
-    RedHatEnterprise)
+  case "${ID_LIKE:-}" in
+    fedora)
       check_fedora_pkgs
+      ;;
+    debian)
+      check_debian_pkgs
       ;;
     *)
       echo "Unsupported distro $DISTRO. Your mileage may vary."
