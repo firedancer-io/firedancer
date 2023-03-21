@@ -507,16 +507,16 @@ fd_quic_init( void *             shmem,
     return NULL;
   }
 
-  if( quic->init ) {
+  if( FD_UNLIKELY( quic->init ) ) {
     FD_LOG_ERR(( "fd_quic_init: quic already initialized" ));
   }
 
-  if( !config->key_file || config->key_file[0] == '\0' ) {
+  if( FD_UNLIKELY( !config->key_file[0] ) ) {
     FD_LOG_ERR(( "fd_quic_new: key_file must be specified" ));
     return NULL;
   }
 
-  if( FD_UNLIKELY( config->cert_file[0] == '\0' ) ) {
+  if( FD_UNLIKELY( !config->cert_file[0] ) ) {
     FD_LOG_WARNING(( "fd_quic_new: cert_file must be specified" ));
     return NULL;
   }
