@@ -165,19 +165,23 @@ int main( int     argc,
   ulong cpu_idx = fd_tile_cpu_id( fd_tile_idx() );
   if( cpu_idx>fd_shmem_cpu_cnt() ) cpu_idx = 0UL;
 
-  ulong        tx_mtu    = fd_env_strip_cmdline_ulong( &argc, &argv, "--tx-mtu",    NULL, FD_TPU_MTU                   );
-  ulong        tx_orig   = fd_env_strip_cmdline_ulong( &argc, &argv, "--tx-orig",   NULL, 0UL                          );
-  ulong        tx_depth  = fd_env_strip_cmdline_ulong( &argc, &argv, "--tx-depth",  NULL, 32768UL                      );
-  char const * _page_sz  = fd_env_strip_cmdline_cstr ( &argc, &argv, "--page-sz",   NULL, "gigantic"                   );
-  ulong        page_cnt  = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt",  NULL, 1UL                          );
-  ulong        numa_idx  = fd_env_strip_cmdline_ulong( &argc, &argv, "--numa-idx",  NULL, fd_shmem_numa_idx( cpu_idx ) );
-  long         tx_lazy   = fd_env_strip_cmdline_long ( &argc, &argv, "--tx-lazy",   NULL, 0L /* use default */         );
-  int          rx_lazy   = fd_env_strip_cmdline_int  ( &argc, &argv, "--rx-lazy",   NULL, 7                            );
-  long         duration  = fd_env_strip_cmdline_long ( &argc, &argv, "--duration",  NULL, (long)10e9                   );
-  ulong        xdp_mtu   = fd_env_strip_cmdline_ulong( &argc, &argv, "--xdp-mtu",   NULL, 2048UL                       );
-  ulong        xdp_depth = fd_env_strip_cmdline_ulong( &argc, &argv, "--xdp-depth", NULL, 1024UL                       );
-  char const * iface     = fd_env_strip_cmdline_cstr ( &argc, &argv, "--iface",     NULL, NULL                         );
-  uint         ifqueue   = fd_env_strip_cmdline_uint ( &argc, &argv, "--ifqueue",   NULL, 0U                           );
+  ulong        tx_mtu       =       fd_env_strip_cmdline_ulong ( &argc, &argv, "--tx-mtu",    NULL, FD_TPU_MTU                   );
+  ulong        tx_orig      =       fd_env_strip_cmdline_ulong ( &argc, &argv, "--tx-orig",   NULL, 0UL                          );
+  ulong        tx_depth     =       fd_env_strip_cmdline_ulong ( &argc, &argv, "--tx-depth",  NULL, 32768UL                      );
+  char const * _page_sz     =       fd_env_strip_cmdline_cstr  ( &argc, &argv, "--page-sz",   NULL, "gigantic"                   );
+  ulong        page_cnt     =       fd_env_strip_cmdline_ulong ( &argc, &argv, "--page-cnt",  NULL, 1UL                          );
+  ulong        numa_idx     =       fd_env_strip_cmdline_ulong ( &argc, &argv, "--numa-idx",  NULL, fd_shmem_numa_idx( cpu_idx ) );
+  long         tx_lazy      =       fd_env_strip_cmdline_long  ( &argc, &argv, "--tx-lazy",   NULL, 0L /* use default */         );
+  int          rx_lazy      =       fd_env_strip_cmdline_int   ( &argc, &argv, "--rx-lazy",   NULL, 7                            );
+  long         duration     = (long)fd_env_strip_cmdline_double( &argc, &argv, "--duration",  NULL, (long)10e9                   );
+  ulong        xdp_mtu      =       fd_env_strip_cmdline_ulong ( &argc, &argv, "--xdp-mtu",   NULL, 2048UL                       );
+  ulong        xdp_depth    =       fd_env_strip_cmdline_ulong ( &argc, &argv, "--xdp-depth", NULL, 1024UL                       );
+  char const * iface        =       fd_env_strip_cmdline_cstr  ( &argc, &argv, "--iface",     NULL, NULL                         );
+  uint         ifqueue      =       fd_env_strip_cmdline_uint  ( &argc, &argv, "--ifqueue",   NULL, 0U                           );
+  char const * _listen_addr =       fd_env_strip_cmdline_cstr  ( &argc, &argv, "--listen",    NULL, NULL                         );
+  uint         udp_port     =       fd_env_strip_cmdline_uint  ( &argc, &argv, "--port",      NULL, 8080U                        );
+
+  char const * app_name = "test_quic_tile";
 
   ulong page_sz = fd_cstr_to_shmem_page_sz( _page_sz );
   if( FD_UNLIKELY( !page_sz ) ) FD_LOG_ERR(( "unsupported --page-sz"  ));
@@ -185,6 +189,12 @@ int main( int     argc,
   if( FD_UNLIKELY( fd_tile_cnt()<3UL ) ) FD_LOG_ERR(( "this unit test requires at least 3 tiles" ));
 
   if( FD_UNLIKELY( !iface ) ) FD_LOG_ERR(( "missing --iface" ));
+
+  if( FD_UNLIKELY( !_listen_addr ) ) FD_LOG_ERR(( "missing --listen" ));
+  ulong listen_addr = fd_cstr_to_ip4_addr( _listen_addr );
+  if( FD_UNLIKELY( listen_addr==ULONG_MAX ) ) FD_LOG_ERR(( "invalid IPv4 address \"%s\"", _listen_addr ));
+
+  if( FD_UNLIKELY( udp_port<=0 || udp_port>USHORT_MAX ) ) FD_LOG_ERR(( "invalid UDP port %d", udp_port ));
 
   long  hb0  = fd_tickcount();
   ulong seq0 = fd_rng_ulong( rng );
@@ -240,7 +250,16 @@ int main( int     argc,
   void * shxsk = fd_xsk_new( fd_wksp_alloc_laddr( cfg->wksp, fd_xsk_align(), xsk_footprint, 1UL ),
                               xdp_mtu, xdp_depth, xdp_depth, xdp_depth, xdp_depth );
   FD_TEST( shxsk );
-  FD_TEST( fd_xsk_bind( shxsk, "test_quic_tile", iface, ifqueue ) );
+
+  FD_LOG_NOTICE(( "Binding xsk (iface %s ifqueue %u)", iface, ifqueue ));
+  FD_TEST( fd_xsk_bind( shxsk, app_name, iface, ifqueue ) );
+
+  FD_LOG_NOTICE(( "Listening on %u.%u.%u.%u:%u",
+                  (uchar)(listen_addr>>24), (uchar)(listen_addr>>16), (uchar)(listen_addr>>8), (uchar)listen_addr,
+                  udp_port ));
+  FD_TEST( 0==fd_xdp_listen_udp_port( app_name, (uint)listen_addr, udp_port, 0U ) );
+
+  FD_LOG_NOTICE(( "Joining xsk" ));
   cfg->xsk = fd_xsk_join( shxsk );
   FD_TEST( cfg->xsk );
 
@@ -356,6 +375,8 @@ int main( int     argc,
   FD_TEST( !fd_tile_exec_delete( rx_exec, &ret ) ); FD_TEST( !ret );
 
   FD_LOG_NOTICE(( "Cleaning up" ));
+
+  FD_TEST( 0==fd_xdp_release_udp_port( app_name, (uint)listen_addr, udp_port ) );
 
   fd_wksp_free_laddr( (void *)cfg->tx_quic_cfg->transport_params              );
   fd_wksp_free_laddr( (void *)cfg->tx_quic_cfg                                );
