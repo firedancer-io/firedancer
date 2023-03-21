@@ -501,6 +501,17 @@ typedef struct fd_secp256k1_signature_offsets fd_secp256k1_signature_offsets_t;
 #define FD_SECP256K1_SIGNATURE_OFFSETS_FOOTPRINT sizeof(fd_secp256k1_signature_offsets_t)
 #define FD_SECP256K1_SIGNATURE_OFFSETS_ALIGN (8UL)
 
+struct fd_sol_sysvar_clock {
+  ulong slot;
+  long  epoch_start_timestamp;
+  ulong epoch;
+  ulong leader_schedule_epoch;
+  long  unix_timestamp;
+};
+typedef struct fd_sol_sysvar_clock fd_sol_sysvar_clock_t;
+#define FD_SOL_SYSVAR_CLOCK_FOOTPRINT sizeof(fd_sol_sysvar_clock_t)
+#define FD_SOL_SYSVAR_CLOCK_ALIGN (8UL)
+
 
 FD_PROTOTYPES_BEGIN
 
@@ -718,6 +729,11 @@ void fd_secp256k1_signature_offsets_decode(fd_secp256k1_signature_offsets_t* sel
 void fd_secp256k1_signature_offsets_encode(fd_secp256k1_signature_offsets_t* self, void const** data);
 void fd_secp256k1_signature_offsets_destroy(fd_secp256k1_signature_offsets_t* self, fd_free_fun_t freef, void* freef_arg);
 ulong fd_secp256k1_signature_offsets_size(fd_secp256k1_signature_offsets_t* self);
+
+void fd_sol_sysvar_clock_decode(fd_sol_sysvar_clock_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
+void fd_sol_sysvar_clock_encode(fd_sol_sysvar_clock_t* self, void const** data);
+void fd_sol_sysvar_clock_destroy(fd_sol_sysvar_clock_t* self, fd_free_fun_t freef, void* freef_arg);
+ulong fd_sol_sysvar_clock_size(fd_sol_sysvar_clock_t* self);
 
 FD_PROTOTYPES_END
 

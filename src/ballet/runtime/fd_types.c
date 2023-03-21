@@ -1553,3 +1553,31 @@ void fd_secp256k1_signature_offsets_encode(fd_secp256k1_signature_offsets_t* sel
   fd_bincode_uint8_encode(&self->message_instruction_index, data);
 }
 
+void fd_sol_sysvar_clock_decode(fd_sol_sysvar_clock_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
+  fd_bincode_uint64_decode(&self->slot, data, dataend);
+  fd_bincode_uint64_decode((unsigned long *) &self->epoch_start_timestamp, data, dataend);
+  fd_bincode_uint64_decode(&self->epoch, data, dataend);
+  fd_bincode_uint64_decode(&self->leader_schedule_epoch, data, dataend);
+  fd_bincode_uint64_decode((unsigned long *) &self->unix_timestamp, data, dataend);
+}
+void fd_sol_sysvar_clock_destroy(fd_sol_sysvar_clock_t* self, fd_free_fun_t freef, void* freef_arg) {
+}
+
+ulong fd_sol_sysvar_clock_size(fd_sol_sysvar_clock_t* self) {
+  ulong size = 0;
+  size += sizeof(ulong);
+  size += sizeof(ulong);
+  size += sizeof(ulong);
+  size += sizeof(ulong);
+  size += sizeof(ulong);
+  return size;
+}
+
+void fd_sol_sysvar_clock_encode(fd_sol_sysvar_clock_t* self, void const** data) {
+  fd_bincode_uint64_encode(&self->slot, data);
+  fd_bincode_uint64_encode((unsigned long *) &self->epoch_start_timestamp, data);
+  fd_bincode_uint64_encode(&self->epoch, data);
+  fd_bincode_uint64_encode(&self->leader_schedule_epoch, data);
+  fd_bincode_uint64_encode((unsigned long *) &self->unix_timestamp, data);
+}
+

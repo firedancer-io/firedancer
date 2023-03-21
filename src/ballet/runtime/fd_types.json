@@ -486,7 +486,17 @@
           { "name": "message_data_size", "type": "ushort" },
           { "name": "message_instruction_index", "type": "unsigned char" }
       ]
+    },
+    {
+      "name": "sol_sysvar_clock",
+      "type": "struct",
+      "fields": [
+          { "name": "slot", "type": "uint64_t" },
+          { "name": "epoch_start_timestamp", "type": "int64_t" },
+          { "name": "epoch", "type": "uint64_t" },
+          { "name": "leader_schedule_epoch", "type": "uint64_t" },
+          { "name": "unix_timestamp", "type": "int64_t" }
+      ]
     }
-
   ]
 }
