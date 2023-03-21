@@ -283,6 +283,10 @@ main( int argc, char ** argv ) {
   quic_config.max_in_flight_acks    = 100;
   quic_config.conn_id_sparsity      = 4;
 
+  /* ephemeral port range for clients */
+  quic_config.udp_ephem.lo          = 4219;
+  quic_config.udp_ephem.hi          = 4220;
+
   strcpy( quic_config.cert_file, "cert.pem" );
   strcpy( quic_config.key_file,  "key.pem"  );
 

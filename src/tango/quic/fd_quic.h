@@ -119,6 +119,13 @@ struct fd_quic {
     uchar                              src_mac[6];
   } net;
 
+  struct {
+    ushort                             lo;
+    ushort                             hi;
+  } udp_ephem;
+
+  ushort                               next_ephem;
+
   uchar                         init;                   /* whether init has been called */
 };
 

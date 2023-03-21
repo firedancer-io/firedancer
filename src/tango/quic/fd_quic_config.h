@@ -108,8 +108,8 @@ typedef void (*fd_quic_cb_stream_receive_t)( fd_quic_stream_t * stream,
    is not good practice */
 struct fd_quic_host_cfg {
   char const * hostname;
-  uint     ip_addr;
-  ushort     udp_port;
+  uint         ip_addr;
+  ushort       udp_port;
 };
 
 
@@ -168,6 +168,14 @@ struct fd_quic_config {
   /* ALPN string - see ALPN spec */
   uchar const *                        alpns;
   uint                                 alpns_sz;
+
+  /* udp ephemeral port range
+     defines the range of ports used as source port on outgoing connections
+     a port will be chosen in the half open range [lo,hi) */
+  struct {
+    ushort                             lo;
+    ushort                             hi;
+  } udp_ephem;
 
   /* in lieu of maintaining a full ARP protocol, forward traffic
      to this MAC address
