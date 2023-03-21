@@ -32,25 +32,25 @@ wl_bcast_wide( long l0, long l1 ) {
   return _mm256_setr_epi64x( l0, l0, l1, l1 );
 }
 
-/* wl_permute returns [ l(imm_l0) l(imm_l1) l(imm_l2) l(imm_l3) ].
-   imm_l* should be compile time constants in 0:3. */
+/* wl_permute returns [ l(imm_i0) l(imm_i1) l(imm_i2) l(imm_i3) ].
+   imm_i* should be compile time constants in 0:3. */
 
 #if FD_USING_CLANG /* Sigh ... clang is sad and can't handle passing compile time const expressions through a static inline */
 
 static inline wl_t
-wl_permute( wl_t x, int imm_l0, int imm_l1, int imm_l2, int imm_l3 ) {
+wl_permute( wl_t x, int imm_i0, int imm_i1, int imm_i2, int imm_i3 ) {
   union { long l[4]; __m256i v[1]; } t, u;
   _mm256_store_si256( t.v, x );
-  u.l[0] = t.l[ imm_l0 ];
-  u.l[1] = t.l[ imm_l1 ];
-  u.l[2] = t.l[ imm_l2 ];
-  u.l[3] = t.l[ imm_l3 ];
+  u.l[0] = t.l[ imm_i0 ];
+  u.l[1] = t.l[ imm_i1 ];
+  u.l[2] = t.l[ imm_i2 ];
+  u.l[3] = t.l[ imm_i3 ];
   return _mm256_load_si256( u.v );
 }
 
 #else
 
-#define wl_permute(x,imm_l0,imm_l1,imm_l2,imm_l3) _mm256_permute4x64_epi64( (x), (imm_l0)+4*(imm_l1)+16*(imm_l2)+64*(imm_l3) )
+#define wl_permute(x,imm_i0,imm_i1,imm_i2,imm_i3) _mm256_permute4x64_epi64( (x), (imm_i0)+4*(imm_i1)+16*(imm_i2)+64*(imm_i3) )
 
 #endif
 
@@ -100,14 +100,14 @@ static inline void wl_stu( long * p, wl_t i ) { _mm256_storeu_si256( (__m256i *)
 #define wl_insert(a,imm,v) _mm256_insert_epi64( (a), (v), (imm) )
 
 static inline long
-wl_extract_variable( wl_t a, long n ) {
+wl_extract_variable( wl_t a, int n ) {
   union { __m256i m[1]; long l[4]; } t[1];
   _mm256_store_si256( t->m, a );
   return t->l[n];
 }
 
 static inline wl_t
-wl_insert_variable( wl_t a, long n, long v ) {
+wl_insert_variable( wl_t a, int n, long v ) {
   union { __m256i m[1]; long l[4]; } t[1];
   _mm256_store_si256( t->m, a );
   t->l[n] = v;
@@ -162,6 +162,22 @@ wl_insert_variable( wl_t a, long n, long v ) {
 #define wl_or(a,b)     _mm256_or_si256(     (a), (b) ) /* [   a0 |b0    a1 |b1 ...   a3 |b3 ] */
 #define wl_xor(a,b)    _mm256_xor_si256(    (a), (b) ) /* [   a0 ^b0    a1 ^b1 ...   a3 ^b3 ] */
 
+static inline wl_t wl_rol( wl_t a, int imm ) { return wl_or( wl_shl(  a, imm & 63 ), wl_shru( a, (-imm) & 63 ) ); }
+static inline wl_t wl_ror( wl_t a, int imm ) { return wl_or( wl_shru( a, imm & 63 ), wl_shl(  a, (-imm) & 63 ) ); }
+
+static inline wl_t wl_rol_variable( wl_t a, int n ) { return wl_or( wl_shl_variable(  a, n&63 ), wl_shru_variable( a, (-n)&63 ) ); }
+static inline wl_t wl_ror_variable( wl_t a, int n ) { return wl_or( wl_shru_variable( a, n&63 ), wl_shl_variable(  a, (-n)&63 ) ); }
+
+static inline wl_t wl_rol_vector( wl_t a, wl_t b ) {
+  wl_t m = wl_bcast( 63L );
+  return wl_or( wl_shl_vector(  a, wl_and( b, m ) ), wl_shru_vector( a, wl_and( wl_neg( b ), m ) ) );
+}
+
+static inline wl_t wl_ror_vector( wl_t a, wl_t b ) {
+  wl_t m = wl_bcast( 63L );
+  return wl_or( wl_shru_vector( a, wl_and( b, m ) ), wl_shl_vector(  a, wl_and( wl_neg( b ), m ) ) );
+}
+
 /* Logical operations */
 
 #define wl_lnot(a)    _mm256_cmpeq_epi64( (a), _mm256_setzero_si256() ) /* [  !a0  !a1 ...  !a3 ] */
@@ -177,8 +193,8 @@ wl_insert_variable( wl_t a, long n, long v ) {
 
 /* Conditional operations */
 
-#define wl_czero(c,f)    _mm256_andnot_si256( (c), (f) ) /* [ c0? 0:f0 c1? 0:f1 ... c3? 0:f3 ] */
-#define wl_notczero(c,f) _mm256_and_si256(    (c), (f) ) /* [ c0?f0: 0 c1?f1: 0 ... c3?f3: 0 ] */
+#define wl_czero(c,f)    _mm256_andnot_si256( (c), (f) ) /* [ c0?0L:f0 c1?0L:f1 ... c3?0L:f3 ] */
+#define wl_notczero(c,f) _mm256_and_si256(    (c), (f) ) /* [ c0?f0:0L c1?f1:0L ... c3?f3:0L ] */
 
 #define wl_if(c,t,f) _mm256_blendv_epi8(  (f), (t), (c) ) /* [ c0?t0:f0 c1?t1:f1 ... c3?t3:f3 ] */
 
@@ -211,7 +227,12 @@ static inline wl_t wl_shr_vector( wl_t a, wl_t n ) {
    wl_to_wi(l,i,0) returns [ (int)l0 (int)l1 (int)l2 (int)l3 i4 i5 i6 i7 ]
    wl_to_wi(l,i,1) returns [ i0 i1 i2 i3 (int)l0 (int)l1 (int)l2 (int)l3 ]
 
+   wl_to_wu(l,u,0) returns [ (uint)l0 (uint)l1 (uint)l2 (uint)l3 u4 u5 u6 u7 ]
+   wl_to_wu(l,u,1) returns [ u0 u1 u2 u3 (uint)l0 (uint)l1 (uint)l2 (uint)l3 ]
+
    wl_to_wd(l)     returns [ (double)l0 (double)l1 (double)l2 (double)l3 ]
+
+   wl_to_wv(l)     returns [ (ulong)l0 (ulong)l1 (ulong)l2 (ulong)l3 ]
 
    The raw variants just treat the raw bits as the corresponding vector
    type.  For wl_to_wc_raw, the user promises wl contains a proper
@@ -240,6 +261,13 @@ static inline wl_t wl_to_wi( wl_t l, wi_t i, int imm_hi ) {
   return imm_hi ? _mm256_insertf128_si256( i, v, 1 ) : _mm256_insertf128_si256( i, v, 0 ); /* compile time */
 }
 
+static inline wu_t wl_to_wu( wl_t l, wu_t u, int imm_hi ) {
+  __m128  v01 = _mm_castsi128_ps( _mm256_extractf128_si256( l, 0 ) ); /* [ l0l l0h l1l l1h ] */
+  __m128  v23 = _mm_castsi128_ps( _mm256_extractf128_si256( l, 1 ) ); /* [ l2l l2h l3l l3h ] */
+  __m128i v   = _mm_castps_si128( _mm_shuffle_ps( v01, v23, _MM_SHUFFLE(2,0,2,0) ) );
+  return imm_hi ? _mm256_insertf128_si256( u, v, 1 ) : _mm256_insertf128_si256( u, v, 0 ); /* compile time */
+}
+
 /* FIXME: IS IT FASTER TO USE INSERT / EXTRACT HERE? */
 static inline wd_t wl_to_wd( wl_t l ) {
   union { long   l[4]; __m256i v[1]; } t[1];
@@ -252,10 +280,14 @@ static inline wd_t wl_to_wd( wl_t l ) {
   return _mm256_load_pd( u->d );
 }
 
+#define wl_to_wv(a) (a)
+
 #define wl_to_wc_raw(a) (a)
 #define wl_to_wf_raw(a) _mm256_castsi256_ps( (a) )
 #define wl_to_wi_raw(a) (a)
+#define wl_to_wu_raw(a) (a)
 #define wl_to_wd_raw(a) _mm256_castsi256_pd( (a) )
+#define wl_to_wv_raw(a) (a)
 
 /* Reduction operations */
 
@@ -283,15 +315,33 @@ wl_max_all( wl_t x ) { /* Returns wl_bcast( max( x ) ) */
      [ b[i(0)] b[i(1)] b[i(2)] b[i(3)] ] if imm_hi is 0 and
      [ b[i(4)] b[i(5)] b[i(6)] b[i(7)] ] o.w.
    where b is a "long const*", i is wi_t and imm_hi is a compile time
-   constant.
+   constant.  We use a static inline here instead of a define to keep
+   strict type checking while working around yet another Intel intrinsic
+   type mismatch issue. */
 
-   The fd_type_pun is to workaround various intrinsic and linguistic
-   dubiousness (API takes a long long const * but incoming type is a
-   long const * and, though these are nominally the same thing, from a
-   linguistic POV, they are incompatible ... more Intel intrinsic hell
-   ... and this also degrades the optimizer near wherever this gets used
-   as a result). */
+static inline wl_t wl_gather( long const * b, wi_t i, int imm_hi ) {
+  return _mm256_i32gather_epi64( (long long const *)b,
+                                 imm_hi ?  _mm256_extractf128_si256( i, 1 ) : _mm256_extractf128_si256( i, 0 ) /* compile time */,
+                                 8 );
+}
 
-#define wl_gather(b,i,imm_hi) _mm256_i32gather_epi64( (long long const *)fd_type_pun( (b) ), \
-                                                      _mm256_extractf128_si256( (i), !!(imm_hi) ), 8 )
+/* wl_transpose_4x4 transposes the 4x4 matrix stored in wl_t r0,r1,r2,r3
+   and stores the result in 4x4 matrix wl_t c0,c1,c2,c3.  All
+   c0,c1,c2,c3 should be different for a well defined result.
+   Otherwise, in-place operation and/or using the same wl_t to specify
+   multiple rows of r is fine. */
 
+#define wl_transpose_4x4( r0,r1,r2,r3, c0,c1,c2,c3 ) do {                                                                         \
+    wl_t _wl_transpose_r0 = (r0); wl_t _wl_transpose_r1 = (r1); wl_t _wl_transpose_r2 = (r2); wl_t _wl_transpose_r3 = (r3);       \
+    wl_t _wl_transpose_t;                                                                                                         \
+    /* Transpose 2x2 blocks */                                                                                                    \
+    _wl_transpose_t = _wl_transpose_r0; _wl_transpose_r0 = _mm256_permute2f128_si256( _wl_transpose_t,  _wl_transpose_r2, 0x20 ); \
+    /**/                                _wl_transpose_r2 = _mm256_permute2f128_si256( _wl_transpose_t,  _wl_transpose_r2, 0x31 ); \
+    _wl_transpose_t = _wl_transpose_r1; _wl_transpose_r1 = _mm256_permute2f128_si256( _wl_transpose_t,  _wl_transpose_r3, 0x20 ); \
+    /**/                                _wl_transpose_r3 = _mm256_permute2f128_si256( _wl_transpose_t,  _wl_transpose_r3, 0x31 ); \
+    /* Transpose 1x1 blocks */                                                                                                    \
+    /**/                                (c0)             = _mm256_unpacklo_epi64(     _wl_transpose_r0, _wl_transpose_r1 );       \
+    /**/                                (c1)             = _mm256_unpackhi_epi64(     _wl_transpose_r0, _wl_transpose_r1 );       \
+    /**/                                (c2)             = _mm256_unpacklo_epi64(     _wl_transpose_r2, _wl_transpose_r3 );       \
+    /**/                                (c3)             = _mm256_unpackhi_epi64(     _wl_transpose_r2, _wl_transpose_r3 );       \
+  } while(0)
