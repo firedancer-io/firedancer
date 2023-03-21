@@ -74,9 +74,9 @@ wi_exch_adj_quad( wi_t x ) { /* [ i4 i5 i6 i7 i0 i1 i2 i3 ] */
 /* wi_ld return the 8 ints at the 32-byte aligned / 32-byte sized
    location p as a vector int.  wi_ldu is the same but p does not have
    to be aligned.  wi_st writes the vector int to the 32-byte aligned /
-   32-byte sized ocation p as 8 ints.  wi_stu is the same but p does not
-   have to be aligned.  In all these lane l will be at p[l].  FIXME: USE
-   ATTRIBUTES ON P PASSED TO THESE?
+   32-byte sized location p as 8 ints.  wi_stu is the same but p does
+   not have to be aligned.  In all these lane l will be at p[l].  FIXME:
+   USE ATTRIBUTES ON P PASSED TO THESE?
    
    Note: gcc knows a __m256i may alias. */
 
@@ -163,6 +163,22 @@ wi_insert_variable( wi_t a, int n, int v ) {
 #define wi_or(a,b)     _mm256_or_si256(     (a), (b) ) /* [   a0 |b0    a1 |b1 ...   a7 |b7 ] */
 #define wi_xor(a,b)    _mm256_xor_si256(    (a), (b) ) /* [   a0 ^b0    a1 ^b1 ...   a7 ^b7 ] */
 
+static inline wi_t wi_rol( wi_t a, int imm ) { return wi_or( wi_shl(  a, imm & 31 ), wi_shru( a, (-imm) & 31 ) ); }
+static inline wi_t wi_ror( wi_t a, int imm ) { return wi_or( wi_shru( a, imm & 31 ), wi_shl(  a, (-imm) & 31 ) ); }
+
+static inline wi_t wi_rol_variable( wi_t a, int n ) { return wi_or( wi_shl_variable(  a, n&31 ), wi_shru_variable( a, (-n)&31 ) ); }
+static inline wi_t wi_ror_variable( wi_t a, int n ) { return wi_or( wi_shru_variable( a, n&31 ), wi_shl_variable(  a, (-n)&31 ) ); }
+
+static inline wi_t wi_rol_vector( wi_t a, wi_t b ) {
+  wi_t m = wi_bcast( 31 );
+  return wi_or( wi_shl_vector(  a, wi_and( b, m ) ), wi_shru_vector( a, wi_and( wi_neg( b ), m ) ) );
+}
+
+static inline wi_t wi_ror_vector( wi_t a, wi_t b ) {
+  wi_t m = wi_bcast( 31 );
+  return wi_or( wi_shru_vector( a, wi_and( b, m ) ), wi_shl_vector(  a, wi_and( wi_neg( b ), m ) ) );
+}
+
 /* Logical operations */
 
 #define wi_lnot(a)    _mm256_cmpeq_epi32( (a), _mm256_setzero_si256() ) /* [  !a0  !a1 ...  !a7 ] */
@@ -189,6 +205,8 @@ wi_insert_variable( wi_t a, int n, int v ) {
 
    wi_to_wc(a)   returns [ !!a0 !!a1 ... !!a7 ]
 
+   wi_to_wu(a)   returns [ (uint)a0 (uint)a1 ... (uint)a7 ]
+
    wi_to_wf(a)   returns [ (float)a0 (float)a1 ... (float)a7 ]
 
    wi_to_wd(a,0) returns [ (double)a0 (double)a1 (double)a2 (double)a3 ]
@@ -196,6 +214,9 @@ wi_insert_variable( wi_t a, int n, int v ) {
 
    wi_to_wl(a,0) returns [ (long)a0   (long)a1   (long)a2   (long)a3   ]
    wi_to_wl(a,1) returns [ (long)a4   (long)a5   (long)a6   (long)a7   ]
+
+   wi_to_wv(a,0) returns [ (ulong)a0  (ulong)a1  (ulong)a2  (ulong)a3  ]
+   wi_to_wv(a,1) returns [ (ulong)a4  (ulong)a5  (ulong)a6  (ulong)a7  ]
 
    where imm_hi should be a compile time constant.
 
@@ -212,13 +233,17 @@ wi_insert_variable( wi_t a, int n, int v ) {
 
 #define wi_to_wc(a)        _mm256_xor_si256( _mm256_set1_epi32( -1 ), _mm256_cmpeq_epi32( (a), _mm256_setzero_si256() ) )
 #define wi_to_wf(a)        _mm256_cvtepi32_ps( (a) )
+#define wi_to_wu(a)        (a)
 #define wi_to_wd(a,imm_hi) _mm256_cvtepi32_pd(    _mm256_extractf128_si256( (a), !!(imm_hi) ) )
 #define wi_to_wl(a,imm_hi) _mm256_cvtepi32_epi64( _mm256_extractf128_si256( (a), !!(imm_hi) ) )
+#define wi_to_wv(a,imm_hi) _mm256_cvtepi32_epi64( _mm256_extractf128_si256( (a), !!(imm_hi) ) )
 
 #define wi_to_wc_raw(a) (a)
 #define wi_to_wf_raw(a) _mm256_castsi256_ps( (a) )
+#define wi_to_wu_raw(a) (a)
 #define wi_to_wd_raw(a) _mm256_castsi256_pd( (a) )
 #define wi_to_wl_raw(a) (a)
+#define wi_to_wv_raw(a) (a)
 
 /* Reduction operations */
 
@@ -258,3 +283,41 @@ wi_max_all( wi_t x ) { /* Returns wi_bcast( max( x ) ) */
 
 #define wi_gather(b,i) _mm256_i32gather_epi32( (b), (i), 4 )
 
+/* wi_transpose_8x8 transposes the 8x8 matrix stored in wi_t r0,r1,...r7
+   and stores the result in 8x8 matrix wi_t c0,c1,...c7.  All
+   c0,c1,...c7 should be different for a well defined result.
+   Otherwise, in-place operation and/or using the same wi_t to specify
+   multiple rows of r is fine. */
+
+#define wi_transpose_8x8( r0,r1,r2,r3,r4,r5,r6,r7, c0,c1,c2,c3,c4,c5,c6,c7 ) do {                                                 \
+    wi_t _wi_transpose_r0 = (r0); wi_t _wi_transpose_r1 = (r1); wi_t _wi_transpose_r2 = (r2); wi_t _wi_transpose_r3 = (r3);       \
+    wi_t _wi_transpose_r4 = (r4); wi_t _wi_transpose_r5 = (r5); wi_t _wi_transpose_r6 = (r6); wi_t _wi_transpose_r7 = (r7);       \
+    wi_t _wi_transpose_t;                                                                                                         \
+    /* Transpose 4x4 blocks */                                                                                                    \
+    _wi_transpose_t = _wi_transpose_r0; _wi_transpose_r0 = _mm256_permute2f128_si256( _wi_transpose_t,  _wi_transpose_r4, 0x20 ); \
+    /**/                                _wi_transpose_r4 = _mm256_permute2f128_si256( _wi_transpose_t,  _wi_transpose_r4, 0x31 ); \
+    _wi_transpose_t = _wi_transpose_r1; _wi_transpose_r1 = _mm256_permute2f128_si256( _wi_transpose_t,  _wi_transpose_r5, 0x20 ); \
+    /**/                                _wi_transpose_r5 = _mm256_permute2f128_si256( _wi_transpose_t,  _wi_transpose_r5, 0x31 ); \
+    _wi_transpose_t = _wi_transpose_r2; _wi_transpose_r2 = _mm256_permute2f128_si256( _wi_transpose_t,  _wi_transpose_r6, 0x20 ); \
+    /**/                                _wi_transpose_r6 = _mm256_permute2f128_si256( _wi_transpose_t,  _wi_transpose_r6, 0x31 ); \
+    _wi_transpose_t = _wi_transpose_r3; _wi_transpose_r3 = _mm256_permute2f128_si256( _wi_transpose_t,  _wi_transpose_r7, 0x20 ); \
+    /**/                                _wi_transpose_r7 = _mm256_permute2f128_si256( _wi_transpose_t,  _wi_transpose_r7, 0x31 ); \
+    /* Transpose 2x2 blocks */                                                                                                    \
+    _wi_transpose_t = _wi_transpose_r0; _wi_transpose_r0 = _mm256_unpacklo_epi32(     _wi_transpose_t,  _wi_transpose_r2 );       \
+    /**/                                _wi_transpose_r2 = _mm256_unpackhi_epi32(     _wi_transpose_t,  _wi_transpose_r2 );       \
+    _wi_transpose_t = _wi_transpose_r1; _wi_transpose_r1 = _mm256_unpacklo_epi32(     _wi_transpose_t,  _wi_transpose_r3 );       \
+    /**/                                _wi_transpose_r3 = _mm256_unpackhi_epi32(     _wi_transpose_t,  _wi_transpose_r3 );       \
+    _wi_transpose_t = _wi_transpose_r4; _wi_transpose_r4 = _mm256_unpacklo_epi32(     _wi_transpose_t,  _wi_transpose_r6 );       \
+    /**/                                _wi_transpose_r6 = _mm256_unpackhi_epi32(     _wi_transpose_t,  _wi_transpose_r6 );       \
+    _wi_transpose_t = _wi_transpose_r5; _wi_transpose_r5 = _mm256_unpacklo_epi32(     _wi_transpose_t,  _wi_transpose_r7 );       \
+    /**/                                _wi_transpose_r7 = _mm256_unpackhi_epi32(     _wi_transpose_t,  _wi_transpose_r7 );       \
+    /* Transpose 1x1 blocks */                                                                                                    \
+    /**/                                (c0)             = _mm256_unpacklo_epi32(     _wi_transpose_r0, _wi_transpose_r1 );       \
+    /**/                                (c1)             = _mm256_unpackhi_epi32(     _wi_transpose_r0, _wi_transpose_r1 );       \
+    /**/                                (c2)             = _mm256_unpacklo_epi32(     _wi_transpose_r2, _wi_transpose_r3 );       \
+    /**/                                (c3)             = _mm256_unpackhi_epi32(     _wi_transpose_r2, _wi_transpose_r3 );       \
+    /**/                                (c4)             = _mm256_unpacklo_epi32(     _wi_transpose_r4, _wi_transpose_r5 );       \
+    /**/                                (c5)             = _mm256_unpackhi_epi32(     _wi_transpose_r4, _wi_transpose_r5 );       \
+    /**/                                (c6)             = _mm256_unpacklo_epi32(     _wi_transpose_r6, _wi_transpose_r7 );       \
+    /**/                                (c7)             = _mm256_unpackhi_epi32(     _wi_transpose_r6, _wi_transpose_r7 );       \
+  } while(0)
