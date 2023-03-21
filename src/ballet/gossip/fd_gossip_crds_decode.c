@@ -719,7 +719,7 @@ fd_gossip_parse_crds_lowest_slot( fd_bin_parse_ctx_t * ctx,
     return 0;
   }
 
-  /* stash vector. this is deprecated and appears to be unused */
+  /* stash vector. this is deprecated and now always unused. */
   if( !fd_bin_parse_read_u64( ctx, &nelems ) ) {
     FD_LOG_WARNING(( "unable to parse `stash` u64 length" ));
     return 0;
@@ -776,7 +776,6 @@ fd_gossip_parse_crds_snapshot_hashes( fd_bin_parse_ctx_t * ctx,
 
   ADVANCE_DST_PTR( nelems*sizeof( fd_gossip_crds_slot_hash_t ) );
 
-  /* wallclock */
   if( !fd_bin_parse_read_u64( ctx, &(snapshot_hashes->data.wallclock) ) ) {
     FD_LOG_WARNING(( "unable to parse `wallclock`" ));
     return 0;
@@ -823,7 +822,6 @@ fd_gossip_parse_crds_account_hashes( fd_bin_parse_ctx_t * ctx,
 
   ADVANCE_DST_PTR( nelems*sizeof( fd_gossip_crds_slot_hash_t ) );
 
-  /* wallclock */
   if( !fd_bin_parse_read_u64( ctx, &(account_hashes->data.wallclock) ) ) {
     FD_LOG_WARNING(( "unable to parse `wallclock`" ));
     return 0;

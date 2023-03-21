@@ -11,11 +11,7 @@
 int
 test_deserialization_serialization_roundtrip( void * payload,
                                               ulong  payload_sz ) {
-  uchar * deser_output = malloc( 1024*1024 );
-  if( !deser_output ) {
-    FD_LOG_WARNING(( "failed to allocate memory for deserialization" ));
-    return 0;
-  }
+  uchar * deser_output = fd_alloca( alignof(uchar), 1024*1024 );
 
   fd_bin_parse_ctx_t ctx_deser;
   fd_bin_parse_init( &ctx_deser, payload, payload_sz, deser_output, 1024*1024 );
@@ -28,11 +24,7 @@ test_deserialization_serialization_roundtrip( void * payload,
 
   fd_gossip_pretty_print( msg );
 
-  void * ser_output = malloc( 1024*1024 );
-  if( !ser_output ) {
-    FD_LOG_WARNING(( "failed to allocate memory for serialization" ));
-    return 0;
-  }
+  uchar * ser_output = fd_alloca( alignof(uchar), 1024*1024 );
 
   /* now serialize it back to a byte stream again */
   fd_bin_parse_ctx_t ctx_ser;
@@ -77,15 +69,15 @@ test_deserialization_serialization_roundtrip( void * payload,
   return 1;
 }
 
+/* Because ContactInfo CRDS objects (not LegacyContactInfo) are not yet active on public Solana clusters,
+   we do not have any samples captured on the wire. We therefore add these testcases to allow us to
+   show that encoding and decoding works for this CRDS object type. */
 int test_contactinfo_deserialization_serialization_round_trip( void * payload,
-                                                                           ulong  payload_sz ) {
-  uchar * deser_output = malloc( 1024*1024 );
-  if( !deser_output ) {
-    FD_LOG_WARNING(( "unable to allocate memory for deserialization" ));
-    return 0;
-  }
-
+                                                               ulong  payload_sz ) {
+  uchar * deser_output = fd_alloca( alignof(uchar), 1024*1024 );
   ulong obj_out_sz = 0;
+
+  memset(deser_output, 0, 1024*1024 );
 
 /* test ping message */
   fd_bin_parse_ctx_t ctx_deser;
@@ -99,11 +91,7 @@ int test_contactinfo_deserialization_serialization_round_trip( void * payload,
 
   fd_gossip_pretty_print_crds_object( deser_output );
 
-  void * ser_output = malloc( 1024*1024 );
-  if( !ser_output ) {
-    FD_LOG_WARNING(( "unable to allocate memory for serialization" ));
-    return 0;
-  }
+  void * ser_output = fd_alloca( alignof(uchar), 1024*1024 );
 
   /* now serialize it back to a byte stream again */
   void * crds_obj = deser_output;
@@ -120,7 +108,10 @@ int test_contactinfo_deserialization_serialization_round_trip( void * payload,
   }
 
   /* ensure that the original serialized payload is the same as the one just produced 
-     by `fd_gossip_encode_crds_obj`. we compare the newly serialized data from offset 68. */
+     by `fd_gossip_encode_crds_obj`. we compare the newly serialized data from offset 68,
+     with this offset added to move past <signature><crds_id> (64 + 4 bytes), because the
+     'synthetic' ContactInfo blobs we're testing against are purely CRDS values and do not
+     contain a signature nor CRDS ID. */
   if( memcmp( payload, ((uchar *)ser_output+68), payload_sz ) ) {
     FD_LOG_WARNING(( "original blob different to newly serialized blob." ));
 
@@ -159,15 +150,10 @@ test_contiguous_encoding( void * payload1,
                           ulong  payload3_sz,
                           void * payload4,
                           ulong  payload4_sz ) {
-  uchar * deser1_output = malloc( 1024*1024 );
-  uchar * deser2_output = malloc( 1024*1024 );
-  uchar * deser3_output = malloc( 1024*1024 );
-  uchar * deser4_output = malloc( 1024*1024 );
-
-  if( !deser1_output || !deser2_output || !deser3_output || !deser4_output ) {
-    FD_LOG_WARNING(( "unable to allocate memory for deserialization" ));
-    return 0;
-  }
+  uchar * deser1_output = fd_alloca( alignof(uchar), 1024*1024 );
+  uchar * deser2_output = fd_alloca( alignof(uchar), 1024*1024 );
+  uchar * deser3_output = fd_alloca( alignof(uchar), 1024*1024 );
+  uchar * deser4_output = fd_alloca( alignof(uchar), 1024*1024 );
 
   fd_bin_parse_ctx_t ctx_deser;
   fd_bin_parse_init( &ctx_deser, payload1, payload1_sz, deser1_output, 1024*1024 );
@@ -202,13 +188,8 @@ test_contiguous_encoding( void * payload1,
     return 0;
   }
 
-  uchar * gossip_payloads_buf = (uchar *)malloc( 1024*1024 );
-  if( !gossip_payloads_buf ) {
-    FD_LOG_WARNING(( "unable to allocate memory for serialization" ));
-    return 0;
-  }
-  
-  uchar * gossip_buf_ptr = (uchar *)gossip_payloads_buf;
+  uchar * gossip_payloads_buf = fd_alloca( alignof(uchar), 1024*1024 );  
+  uchar * gossip_buf_ptr = gossip_payloads_buf;
 
   FD_TEST( gossip_payloads_buf );
 
@@ -227,12 +208,7 @@ test_contiguous_encoding( void * payload1,
   fd_memcpy( gossip_buf_ptr, msg4, msg4->msg_sz );
   gossip_buf_ptr += msg4->msg_sz;
 
-  void * ser_output = malloc( 1024*1024 );
-  if( !ser_output ) {
-    FD_LOG_WARNING(( "failed to allocate memory for serialization" ));
-    return 0;
-  }
-
+  uchar * ser_output = fd_alloca( alignof(uchar), 1024*1024 );
   fd_bin_parse_ctx_t contiguous_serialize_ctx;
   fd_bin_parse_init( &contiguous_serialize_ctx, gossip_payloads_buf, (ulong)(gossip_buf_ptr - gossip_payloads_buf), ser_output, 1024*1024 );
 

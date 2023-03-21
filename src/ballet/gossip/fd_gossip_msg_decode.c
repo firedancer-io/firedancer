@@ -189,7 +189,6 @@ fd_gossip_parse_pull_response_msg( fd_bin_parse_ctx_t * ctx,
   fd_gossip_pull_response_t * msg = (fd_gossip_pull_response_t *)out_buf;
   msg->msg_id = FD_GOSSIP_MSG_ID_PULL_RESP;
 
-  /* pubkey */
   if( !fd_bin_parse_read_pubkey( ctx, &(msg->pubkey) ) ) {
     FD_LOG_WARNING(( "failed to parse `pubkey`" ));
     return 0;

@@ -122,19 +122,16 @@ fd_gossip_encode_crds_legacy_contact_info( fd_bin_parse_ctx_t * ctx,
 
   fd_gossip_crds_value_legacy_contact_info_t * legacy_contact_info = (fd_gossip_crds_value_legacy_contact_info_t *)in_buf;
 
-  /* signature */
   if( !fd_bin_parse_write_blob_of_size( ctx, &(legacy_contact_info->hdr.signature), 64 ) ) {
     FD_LOG_WARNING(( "unable to serialize `signature` to blob" ));
     return 0;
   }
 
-  /* crds id */
   if( !fd_bin_parse_write_u32( ctx, FD_GOSSIP_CRDS_ID_LEGACY_CONTACT_INFO ) ) {
     FD_LOG_WARNING(( "unable to write `crds_id` to blob" ));
     return 0;
   }
 
-  /* id pubkey */
   if( !fd_bin_parse_write_pubkey( ctx, &(legacy_contact_info->data.id) ) ) {
     FD_LOG_WARNING(( "unable to write `id` pubkey to blob" ));
     return 0;
@@ -216,31 +213,27 @@ fd_gossip_encode_crds_vote( fd_bin_parse_ctx_t * ctx,
 
   fd_gossip_crds_value_vote_t * vote = (fd_gossip_crds_value_vote_t *)in_buf;
 
-  /* signature */
   if( !fd_bin_parse_write_blob_of_size( ctx, &(vote->hdr.signature), 64 ) ) {
     FD_LOG_WARNING(( "unable to serialize `signature` to blob" ));
     return 0;
   }
 
-  /* crds id */
   if( !fd_bin_parse_write_u32( ctx, FD_GOSSIP_CRDS_ID_VOTE ) ) {
     FD_LOG_WARNING(( "unable to write `crds_id` to blob" ));
     return 0;
   }
 
-  /* index */
   if( !fd_bin_parse_write_u8( ctx, vote->data.index ) ) {
     FD_LOG_WARNING(( "unable to write `index` to blob" ));
     return 0;
   }
 
-  /* from pubkey */
   if( !fd_bin_parse_write_pubkey( ctx, &(vote->data.from ) ) ) {
     FD_LOG_WARNING(( "unable to write `pubkey` out to blob" ));
     return 0;
   }
 
-  /* transaction */
+  /* vote transaction */
   fd_txn_t * txn = (fd_txn_t *)((uchar *)vote + vote->data.transaction.offset);
   ulong txn_struct_sz = fd_txn_footprint( txn->instr_cnt, txn->addr_table_lookup_cnt );
 
@@ -252,7 +245,6 @@ fd_gossip_encode_crds_vote( fd_bin_parse_ctx_t * ctx,
     return 0;
   }
 
-  /* wallclock */
   if( !fd_bin_parse_write_u64( ctx, vote->data.wallclock ) ) {
     FD_LOG_WARNING(( "error writing `wallclock` to blob" ));
     return 0;
@@ -275,13 +267,11 @@ fd_gossip_encode_crds_lowest_slot( fd_bin_parse_ctx_t * ctx,
 
   fd_gossip_crds_value_lowest_slot_t * lowest_slot = (fd_gossip_crds_value_lowest_slot_t *)in_buf;
 
-  /* signature */
   if( !fd_bin_parse_write_blob_of_size( ctx, &(lowest_slot->hdr.signature), 64 ) ) {
     FD_LOG_WARNING(( "unable to serialize `signature` to blob" ));
     return 0;
   }
 
-  /* crds id */
   if( !fd_bin_parse_write_u32( ctx, FD_GOSSIP_CRDS_ID_LOWEST_SLOT ) ) {
     FD_LOG_WARNING(( "unable to write `crds_id` to blob" ));
     return 0;
@@ -343,13 +333,11 @@ fd_gossip_encode_crds_snapshot_hashes( fd_bin_parse_ctx_t * ctx,
 
   fd_gossip_crds_value_snapshot_hashes_t * snapshot_hashes = (fd_gossip_crds_value_snapshot_hashes_t *)in_buf;
 
-  /* signature */
   if( !fd_bin_parse_write_blob_of_size( ctx, &(snapshot_hashes->hdr.signature), 64 ) ) {
     FD_LOG_WARNING(( "unable to serialize `signature` to blob" ));
     return 0;
   }
 
-  /* crds id */
   if( !fd_bin_parse_write_u32( ctx, snapshot_hashes->hdr.crds_id ) ) {
     FD_LOG_WARNING(( "unable to write `crds_id` to blob" ));
     return 0;
@@ -401,13 +389,11 @@ fd_gossip_encode_crds_legacy_version( fd_bin_parse_ctx_t * ctx,
 
   fd_gossip_crds_value_legacy_version_t * legacy_version = (fd_gossip_crds_value_legacy_version_t *)in_buf;
 
-  /* signature */
   if( !fd_bin_parse_write_blob_of_size( ctx, &(legacy_version->hdr.signature), 64 ) ) {
     FD_LOG_WARNING(( "unable to serialize `signature` to blob" ));
     return 0;
   }
 
-  /* crds id */
   if( !fd_bin_parse_write_u32( ctx, FD_GOSSIP_CRDS_ID_LEGACY_VERSION ) ) {
     FD_LOG_WARNING(( "unable to write `crds_id` to blob" ));
     return 0;
@@ -473,13 +459,11 @@ fd_gossip_encode_crds_version( fd_bin_parse_ctx_t * ctx,
 
   fd_gossip_crds_value_version_t * version = (fd_gossip_crds_value_version_t *)in_buf;
 
-  /* signature */
   if( !fd_bin_parse_write_blob_of_size( ctx, &(version->hdr.signature), 64 ) ) {
     FD_LOG_WARNING(( "unable to serialize `signature` to blob" ));
     return 0;
   }
 
-  /* crds id */
   if( !fd_bin_parse_write_u32( ctx, FD_GOSSIP_CRDS_ID_VERSION ) ) {
     FD_LOG_WARNING(( "unable to write `crds_id` to blob" ));
     return 0;
@@ -549,13 +533,11 @@ fd_gossip_encode_crds_node_instance( fd_bin_parse_ctx_t * ctx,
 
   fd_gossip_crds_value_node_instance_t * node_instance = (fd_gossip_crds_value_node_instance_t *)in_buf;
 
-  /* signature */
   if( !fd_bin_parse_write_blob_of_size( ctx, &(node_instance->hdr.signature), 64 ) ) {
     FD_LOG_WARNING(( "unable to serialize `signature` to blob" ));
     return 0;
   }
 
-  /* crds id */
   if( !fd_bin_parse_write_u32( ctx, FD_GOSSIP_CRDS_ID_NODE_INSTANCE ) ) {
     FD_LOG_WARNING(( "unable to write `crds_id` to blob" ));
     return 0;
@@ -598,13 +580,11 @@ fd_gossip_encode_crds_duplicate_shred( fd_bin_parse_ctx_t * ctx,
 
   fd_gossip_crds_value_duplicate_shred_t * duplicate_shred = (fd_gossip_crds_value_duplicate_shred_t *)in_buf;
 
-  /* signature */
   if( !fd_bin_parse_write_blob_of_size( ctx, &(duplicate_shred->hdr.signature), 64 ) ) {
     FD_LOG_WARNING(( "unable to serialize `signature` to blob" ));
     return 0;
   }
 
-  /* crds id */
   if( !fd_bin_parse_write_u32( ctx, FD_GOSSIP_CRDS_ID_DUPLICATE_SHRED ) ) {
     FD_LOG_WARNING(( "unable to write `crds_id` to blob" ));
     return 0;
@@ -656,8 +636,8 @@ fd_gossip_encode_crds_duplicate_shred( fd_bin_parse_ctx_t * ctx,
   }
 
   if( duplicate_shred->data.chunk.num_objs ) {
-    void * ptr = (void *)((uchar *)duplicate_shred + duplicate_shred->data.chunk.offset);
-    if( !fd_bin_parse_write_blob_of_size( ctx, ptr, duplicate_shred->data.chunk.num_objs ) ) {
+    void * chunk_data = ((uchar *)duplicate_shred + duplicate_shred->data.chunk.offset);
+    if( !fd_bin_parse_write_blob_of_size( ctx, chunk_data, duplicate_shred->data.chunk.num_objs ) ) {
       FD_LOG_WARNING(( "unable to write `chunk` vector to blob" ));
     }
   }
@@ -679,13 +659,11 @@ fd_gossip_encode_crds_incremental_snapshot_hashes( fd_bin_parse_ctx_t * ctx,
 
   fd_gossip_crds_value_incremental_snapshot_hashes_t * incr_snapshot_hashes = (fd_gossip_crds_value_incremental_snapshot_hashes_t *)in_buf;
 
-  /* signature */
   if( !fd_bin_parse_write_blob_of_size( ctx, &(incr_snapshot_hashes->hdr.signature), 64 ) ) {
     FD_LOG_WARNING(( "unable to serialize `signature` to blob" ));
     return 0;
   }
 
-  /* crds id */
   if( !fd_bin_parse_write_u32( ctx, FD_GOSSIP_CRDS_ID_INCREMENTAL_SNAPSHOT_HASHES ) ) {
     FD_LOG_WARNING(( "unable to write `crds_id` to blob" ));
     return 0;
@@ -747,13 +725,11 @@ fd_gossip_encode_crds_contact_info( fd_bin_parse_ctx_t * ctx,
 
   fd_gossip_crds_value_contact_info_t * contact_info = (fd_gossip_crds_value_contact_info_t *)in_buf;
 
-  /* signature */
   if( !fd_bin_parse_write_blob_of_size( ctx, &(contact_info->hdr.signature), 64 ) ) {
     FD_LOG_WARNING(( "unable to serialize `signature` to blob" ));
     return 0;
   }
 
-  /* crds id */
   if( !fd_bin_parse_write_u32( ctx, FD_GOSSIP_CRDS_ID_CONTACT_INFO ) ) {
     FD_LOG_WARNING(( "unable to write `crds_id` to blob" ));
     return 0;
@@ -875,13 +851,11 @@ fd_gossip_encode_crds_epoch_slots( fd_bin_parse_ctx_t * ctx,
 
   fd_gossip_crds_value_epoch_slots_t * epoch_slots = (fd_gossip_crds_value_epoch_slots_t *)in_buf;
 
-  /* signature */
   if( !fd_bin_parse_write_blob_of_size( ctx, &(epoch_slots->hdr.signature), 64 ) ) {
     FD_LOG_WARNING(( "unable to serialize `signature` to blob" ));
     return 0;
   }
 
-  /* crds id */
   if( !fd_bin_parse_write_u32( ctx, FD_GOSSIP_CRDS_ID_EPOCH_SLOTS ) ) {
     FD_LOG_WARNING(( "unable to write `crds_id` to blob" ));
     return 0;

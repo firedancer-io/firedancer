@@ -22,11 +22,8 @@ main( int     argc,
      as normal after discarding a bad message and updating the parse context's state */
   char * bad_message = "\x61\x61\x61\x61\x61\x61\x61\x61\x61\x61\x61\x61\x61\x61\x61\x61";
 
-  uchar *output = malloc( 10*2048 );
-  FD_TEST( output );
-
-  uchar * input = malloc( 10*2048 );
-  FD_TEST( input );
+  uchar *output = fd_alloca( alignof(uchar), 10*2048 );
+  uchar * input = fd_alloca( alignof(uchar), 10*2048 );
 
   /* Setup the gossip payloads in a contiguously packed buffer so as to simulate parsing of
      of a batch of gossip messages recently received over the network */

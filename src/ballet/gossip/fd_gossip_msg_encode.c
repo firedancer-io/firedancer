@@ -82,7 +82,6 @@ fd_gossip_encode_pull_resp_msg( fd_bin_parse_ctx_t * ctx ) {
     return 0;
   }
 
-  /* write out pubkey */
   if( !fd_bin_parse_write_pubkey( ctx, &(msg->pubkey) ) ) {
     FD_LOG_WARNING(( "unable to serialize `pubkey` to output buffer" ));
     return 0;
@@ -95,7 +94,7 @@ fd_gossip_encode_pull_resp_msg( fd_bin_parse_ctx_t * ctx ) {
     return 0;
   }
 
-  uchar * in_buf = (void *)((uchar *)msg + msg->values.offset);
+  uchar * in_buf = ((uchar *)msg + msg->values.offset);
   uchar * ptr = in_buf;
   ulong in_buf_sz = fd_bin_parse_src_blob_size_remaining( ctx );
   ulong bytes_consumed = 0;
@@ -130,19 +129,16 @@ fd_gossip_encode_ping_msg( fd_bin_parse_ctx_t   * ctx ) {
     return 0;
   }
 
-  /* write out pubkey */
   if( !fd_bin_parse_write_pubkey( ctx, &(msg->from) ) ) {
     FD_LOG_WARNING(( "unable to serialize `pubkey` to output buffer" ));
     return 0;
   }
 
-  /* write out token */
   if( !fd_bin_parse_write_blob_of_size( ctx, &(msg->token), 32 ) ) {
     FD_LOG_WARNING(( "unable to serialize `token` to output buffer" ));
     return 0;
   }
 
-  /* write out signature */
   if( !fd_bin_parse_write_blob_of_size( ctx, &(msg->signature), 64 ) ) {
     FD_LOG_WARNING(( "unable to serialize `signature` to output buffer" ));
     return 0;
@@ -167,19 +163,16 @@ fd_gossip_encode_pong_msg( fd_bin_parse_ctx_t * ctx ) {
     return 0;
   }
 
-  /* write out pubkey */
   if( !fd_bin_parse_write_pubkey( ctx, &(msg->from) ) ) {
     FD_LOG_WARNING(( "unable to serialize `pubkey` to output buffer" ));
     return 0;
   }
 
-  /* write out hash */
   if( !fd_bin_parse_write_blob_of_size( ctx, &(msg->hash), 32 ) ) {
     FD_LOG_WARNING(( "unable to serialize `hash` to output buffer" ));
     return 0;
   }
 
-  /* write out signature */
   if( !fd_bin_parse_write_blob_of_size( ctx, &(msg->signature), 64 ) ) {
     FD_LOG_WARNING(( "unable to serialize `signature` to output buffer" ));
     return 0;
@@ -204,7 +197,6 @@ fd_gossip_encode_push_msg( fd_bin_parse_ctx_t * ctx ) {
     return 0;
   }
 
-  /* write out pubkey */
   if( !fd_bin_parse_write_pubkey( ctx, &(msg->pubkey) ) ) {
     FD_LOG_WARNING(( "unable to serialize `pubkey` to output buffer" ));
     return 0;
@@ -217,7 +209,7 @@ fd_gossip_encode_push_msg( fd_bin_parse_ctx_t * ctx ) {
     return 0;
   }
 
-  uchar * in_buf = (void *)((uchar *)msg + msg->values.offset);
+  uchar * in_buf = ((uchar *)msg + msg->values.offset);
   uchar * ptr = in_buf;
   ulong in_buf_sz = fd_bin_parse_src_blob_size_remaining( ctx );
   ulong bytes_consumed = 0;
@@ -252,7 +244,6 @@ fd_gossip_encode_prune_msg( fd_bin_parse_ctx_t * ctx ) {
     return 0;
   }
 
-  /* write out pubkey */
   if( !fd_bin_parse_write_pubkey( ctx, &(msg->pubkey) ) ) {
     FD_LOG_WARNING(( "unable to serialize `pubkey` to output buffer" ));
     return 0;
@@ -319,7 +310,7 @@ fd_gossip_encode_pull_req_msg( fd_bin_parse_ctx_t * ctx ) {
 
   /* serialize out the `keys` u64 vector */
 
-  uchar * in_buf = (void *)((uchar *)msg + msg->crds_filter.bloom.keys.offset);
+  uchar * in_buf = ((uchar *)msg + msg->crds_filter.bloom.keys.offset);
   uchar * ptr = in_buf;
   ulong in_buf_sz = fd_bin_parse_src_blob_size_remaining( ctx );
   ulong bytes_consumed = 0;
@@ -377,7 +368,7 @@ fd_gossip_encode_pull_req_msg( fd_bin_parse_ctx_t * ctx ) {
     return 0;
   }
 
-  in_buf = (void *)((uchar *)msg + msg->value.offset);
+  in_buf = ((uchar *)msg + msg->value.offset);
   in_buf_sz = fd_bin_parse_src_blob_size_remaining( ctx );
   bytes_consumed = 0;
   
