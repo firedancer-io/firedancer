@@ -134,8 +134,6 @@ populate_streams( ulong sz, fd_quic_conn_t * conn ) {
 extern uchar pkt_full[];
 extern ulong pkt_full_sz;
 
-uchar fail = 0;
-
 void
 my_stream_notify_cb( fd_quic_stream_t * stream, void * ctx, int type ) {
   (void)stream;
@@ -220,6 +218,8 @@ parse_ipv4_addr( uint * dst, char const * src ) {
   *dst = ( a[0] << 030 ) | ( a[1] << 020 ) | ( a[2] << 010 ) | a[3];
 }
 
+fd_quic_conn_t * client_conn = NULL;
+
 fd_quic_t *
 new_quic( fd_quic_config_t * quic_config ) {
 
@@ -262,6 +262,17 @@ void my_handshake_complete( fd_quic_conn_t * conn, void * vp_context ) {
   client_complete = 1;
 }
 
+/* Connection closed */
+void my_connection_closed( fd_quic_conn_t * conn, void * vp_context ) {
+  (void)conn;
+  (void)vp_context;
+
+  printf( "client connection closed\n" );
+  fflush( stdout );
+
+  client_conn = NULL;
+}
+
 ulong test_clock( void * ctx ) {
   (void)ctx;
 
@@ -271,11 +282,84 @@ ulong test_clock( void * ctx ) {
   return (ulong)ts.tv_sec * (ulong)1e9 + (ulong)ts.tv_nsec;
 }
 
+void create_and_run_quic_client(
+  fd_quic_config_t * quic_config,
+  fd_xsk_aio_t * xsk_aio,
+  uint dst_ip,
+  ushort dst_port) {
+
+  fd_quic_t * client_quic = new_quic( quic_config );
+
+  /* use XSK XDP AIO for QUIC ingress/egress */
+  fd_aio_t ingress = *fd_quic_get_aio_net_in( client_quic );
+  fd_xsk_aio_set_rx( xsk_aio, &ingress );
+  fd_aio_t egress = *fd_xsk_aio_get_tx( xsk_aio );
+  fd_quic_set_aio_net_out( client_quic, &egress );
+
+  /* set the callback for handshake complete */
+  fd_quic_set_cb_conn_handshake_complete( client_quic, my_handshake_complete );
+  fd_quic_set_cb_conn_final( client_quic, my_connection_closed );
+
+  /* make a connection from client to the server */
+  /* TODO: re-connect if connection dies. up to us to check the status of this. callback which notifies you if the connection fails */
+  client_conn = fd_quic_connect( client_quic, dst_ip, dst_port );
+
+  /* do general processing */
+  while ( !client_complete ) {
+    fd_quic_service( client_quic );
+    fd_xsk_aio_service( xsk_aio );
+  }
+  printf( "***** client handshake complete *****\n" );
+
+  /* populate free streams */
+  populate_stream_meta( quic_config->max_concur_streams );
+  populate_streams( quic_config->max_concur_streams, client_conn );
+
+  /* TODO: replace with actual txns */
+  char buf[512] = "Hello world!\x00-   ";
+  fd_aio_pkt_info_t batch[1] = {{ buf, sizeof( buf ) }};
+
+  /* Continually send data while we have a valid connection */
+  while ( client_conn ) {
+    fd_quic_service( client_quic );
+    fd_xsk_aio_service( xsk_aio );
+
+    buf[12] = ' ';
+    //buf[15] = (char)( ( j / 10 ) + '0' );
+    buf[16] = (char)( ( 1 % 10 ) + '0' );
+
+    /* obtain an free stream */
+    my_stream_meta_t * meta = get_stream();
+
+    if( meta ) {
+      fd_quic_stream_t * stream = meta->stream;
+
+      int rc = fd_quic_stream_send( stream, batch, 1 /* batch_sz */, 1 /* fin */ ); /* fin: close stream after sending. last byte of transmission */
+      printf( "fd_quic_stream_send returned %d\n", rc );
+
+      if( rc == 1 ) {
+        /* successful - stream will begin closing */
+        /* stream and meta will be recycled when quic notifies the stream
+           is closed via my_stream_notify_cb */
+      } else {
+        /* did not send, did not start finalize, so stream is still available */
+        free_stream( meta );
+      }
+    } else {
+      printf( "unable to send - no streams available\n" );
+      fflush( stdout );
+    }
+  }
+
+  /* close the connections */
+  fd_quic_conn_close( client_conn, 0 );
+
+  fd_quic_delete( client_quic );
+
+}
+
 int
 main( int argc, char ** argv ) {
-  FILE * pcap = fopen( "test_quic_hs.pcapng", "wb" );
-  if( !pcap ) abort();
-
   (void)argc;
   (void)argv;
   // Transport params:
@@ -333,7 +417,7 @@ main( int argc, char ** argv ) {
   ushort src_port           = 0;
   uchar dft_route_mac[6];
   ulong xsk_pkt_cnt         = 16;
-  ulong quic_max_stream_cnt = 1000;
+  uint quic_max_stream_cnt = 1000;
 
   for( int i = 1; i < argc; ++i ) {
     /* --intf */
@@ -429,7 +513,7 @@ main( int argc, char ** argv ) {
     }
     if( strcmp( argv[i], "--quic-max-stream-cnt" ) == 0 ) {
       if( i+1 < argc ) {
-        quic_max_stream_cnt = strtoul( argv[i+1], NULL, 10 );
+        quic_max_stream_cnt = (uint)strtoul( argv[i+1], NULL, 10 );
         i++;
       } else {
         fprintf( stderr, "--quic-max-stream-cnt requires a value\n" );
@@ -473,7 +557,6 @@ main( int argc, char ** argv ) {
   quic_config.host_cfg = client_cfg;
   quic_config.udp_ephem.lo = src_port;
   quic_config.udp_ephem.hi = (ushort)(src_port + 1);
-  fd_quic_t * client_quic = new_quic( &quic_config );
 
   /* create a new XSK instance */
   ulong frame_sz = FRAME_SIZE;
@@ -516,82 +599,12 @@ main( int argc, char ** argv ) {
     exit(1);
   }
 
-  /* use XSK XDP AIO for QUIC ingress/egress */
-  fd_aio_t ingress = *fd_quic_get_aio_net_in( client_quic );
-  fd_xsk_aio_set_rx( xsk_aio, &ingress );
-  fd_aio_t egress = *fd_xsk_aio_get_tx( xsk_aio );
-  fd_quic_set_aio_net_out( client_quic, &egress );
-
-  /* set the callback for handshake complete */
-  fd_quic_set_cb_conn_handshake_complete( client_quic, my_handshake_complete );
-
-  /* make a connection from client to the server */
-  /* TODO: re-connect if connection dies. up to us to check the status of this. callback which notifies you if the connection fails */
-  fd_quic_conn_t * client_conn = fd_quic_connect( client_quic, dst_ip, dst_port );
-  (void)client_conn;
-
-  /* do general processing */
-  while ( !client_complete ) {
-    fd_quic_service( client_quic );
-    fd_xsk_aio_service( xsk_aio );
-  }
-  printf( "***** client handshake complete *****\n" );
-
-  /* populate free streams */
-  /* TODO: scale up to 1000 streams, maybe more. need enough to send all in-flight packets. explore to see how many streams give good behaviour. */
-  populate_stream_meta( quic_max_stream_cnt );
-  populate_streams( quic_max_stream_cnt, client_conn );
-
-  /* TODO: replace with actual txns */
-  char buf[512] = "Hello world!\x00-   ";
-  fd_aio_pkt_info_t batch[1] = {{ buf, sizeof( buf ) }};
-
-  /* todo: while client_connection, if connection dies client_connection won't be valid. need to make global */
+  /* loop continually, so that if the connection dies we try again */
   while (1) {
-    /* cb_conn_final callback is only way of knowing if connection is invalid */
-    fd_quic_service( client_quic );
-    fd_xsk_aio_service( xsk_aio );
-
-    buf[12] = ' ';
-    //buf[15] = (char)( ( j / 10 ) + '0' );
-    buf[16] = (char)( ( 1 % 10 ) + '0' );
-
-    /* obtain an free stream */
-    my_stream_meta_t * meta = get_stream();
-
-    if( meta ) {
-      fd_quic_stream_t * stream = meta->stream;
-
-      int rc = fd_quic_stream_send( stream, batch, 1 /* batch_sz */, 1 /* fin */ ); /* fin: close stream after sending. last byte of transmission */
-      printf( "fd_quic_stream_send returned %d\n", rc );
-
-      if( rc == 1 ) {
-        /* successful - stream will begin closing */
-        /* stream and meta will be recycled when quic notifies the stream
-           is closed via my_stream_notify_cb */
-      } else {
-        /* did not send, did not start finalize, so stream is still available */
-        free_stream( meta );
-      }
-    } else {
-      printf( "unable to send - no streams available\n" );
-      fflush( stdout );
-    }
+    create_and_run_quic_client(&quic_config, xsk_aio, dst_ip, dst_port);
   }
 
-  /* close the connections */
-  fd_quic_conn_close( client_conn, 0 );
-
-  fd_quic_delete( client_quic );
-
-  if( fail ) {
-    fprintf( stderr, "FAIL\n" );
-    exit(1);
-  }
-
-  printf( "PASS\n" );
+  printf( "Finished\n" );
 
   return 0;
 }
-
-
