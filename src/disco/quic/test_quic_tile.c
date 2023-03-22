@@ -326,7 +326,6 @@ int main( int     argc,
   FD_LOG_NOTICE(( "Initializing QUIC" ));
   FD_TEST( fd_quic_init( cfg->tx_quic, cfg->tx_quic_cfg ) );
 
-  FD_TEST( cfg->tx_quic->aio_net_out );
   fd_quic_set_aio_net_out( cfg->tx_quic, fd_xsk_aio_get_tx     ( cfg->xsk_aio ) );
   fd_xsk_aio_set_rx      ( cfg->xsk_aio, fd_quic_get_aio_net_in( cfg->tx_quic ) );
 
