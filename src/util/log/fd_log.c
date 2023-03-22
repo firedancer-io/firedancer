@@ -484,7 +484,7 @@ fd_log_private_0( char const * fmt, ... ) {
   return fd_log_private_log_msg;
 }
 
-char const * 
+char const *
 fd_log_private_hexdump_msg ( char const * descr,
                              void const * mem,
                              ulong        sz ) {
@@ -866,11 +866,6 @@ fd_log_private_sig_abort( int         sig,
                           siginfo_t * info,
                           void *      context ) {
   (void)info; (void)context;
-
-  /* Reset terminal */
-  if( isatty( 1 ) ) {
-    printf("\x1b[?1049l");
-  }
 
 # if FD_LOG_FFLUSH_STDOUT
   fflush( stdout );

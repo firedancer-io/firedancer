@@ -253,6 +253,7 @@ fd_xsk_aio_service( fd_xsk_aio_t * xsk_aio ) {
   /* forward to aio */
   if( rx_avail ) {
     for( ulong j=0; j<rx_avail; j++ ) {
+      FD_LOG_INFO(( "packet" ));
       pkt[j] = (fd_aio_pkt_info_t) {
         .buf    = (void *)(frame_laddr + meta[j].off),
         .buf_sz = (ushort)meta[j].sz
