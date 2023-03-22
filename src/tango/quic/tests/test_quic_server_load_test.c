@@ -262,9 +262,6 @@ void my_handshake_complete( fd_quic_conn_t * conn, void * vp_context ) {
   client_complete = 1;
 }
 
-/* global "clock" */
-ulong now = 123;
-
 ulong test_clock( void * ctx ) {
   (void)ctx;
 
@@ -326,16 +323,17 @@ main( int argc, char ** argv ) {
   tp->active_connection_id_limit_present             = 1;
 
   /* Configuration */
-  char const * app_name = "quic_load_test";
-  char const * intf     = "";
-  uint ifqueue          = 0;
-  uint dst_ip           = 0;
-  ushort dst_port       = 0;
-  uint src_ip           = 0;
+  char const * app_name     = "quic_load_test";
+  char const * intf         = "";
+  uint ifqueue              = 0;
+  uint dst_ip               = 0;
+  ushort dst_port           = 0;
+  uint src_ip               = 0;
   uchar src_mac[6];
-  ushort src_port       = 0;
+  ushort src_port           = 0;
   uchar dft_route_mac[6];
-  ulong xsk_pkt_cnt     = 16;
+  ulong xsk_pkt_cnt         = 16;
+  ulong quic_max_stream_cnt = 1000;
 
   for( int i = 1; i < argc; ++i ) {
     /* --intf */
@@ -422,14 +420,26 @@ main( int argc, char ** argv ) {
     }
     if( strcmp( argv[i], "--xsk-pkt-cnt" ) == 0 ) {
       if( i+1 < argc ) {
-        xsk_pkt_cnt = (uint)strtoul( argv[i+1], NULL, 10 );
+        xsk_pkt_cnt = strtoul( argv[i+1], NULL, 10 );
         i++;
       } else {
         fprintf( stderr, "--xsk-pkt-cnt requires a value\n" );
         exit(1);
       }
     }
+    if( strcmp( argv[i], "--quic-max-stream-cnt" ) == 0 ) {
+      if( i+1 < argc ) {
+        quic_max_stream_cnt = strtoul( argv[i+1], NULL, 10 );
+        i++;
+      } else {
+        fprintf( stderr, "--quic-max-stream-cnt requires a value\n" );
+        exit(1);
+      }
+    }
   }
+
+  tp->initial_max_streams_bidi = quic_max_stream_cnt;
+  tp->initial_max_streams_uni  = quic_max_stream_cnt;
 
   /* QUIC configuration */
   fd_quic_config_t quic_config = {0};
@@ -437,10 +447,10 @@ main( int argc, char ** argv ) {
   quic_config.transport_params      = tp;
   quic_config.max_concur_conns      = 10;
   quic_config.max_concur_conn_ids   = 10;
-  quic_config.max_concur_streams    = 1000;
+  quic_config.max_concur_streams    = quic_max_stream_cnt;
   quic_config.max_concur_handshakes = 10;
-  quic_config.max_in_flight_pkts    = 1000;
-  quic_config.max_in_flight_acks    = 1000;
+  quic_config.max_in_flight_pkts    = quic_max_stream_cnt;
+  quic_config.max_in_flight_acks    = quic_max_stream_cnt;
   quic_config.conn_id_sparsity      = 4;
 
   strcpy( quic_config.cert_file, "cert.pem" );
@@ -514,8 +524,6 @@ main( int argc, char ** argv ) {
 
   /* set the callback for handshake complete */
   fd_quic_set_cb_conn_handshake_complete( client_quic, my_handshake_complete );
-  /* TODO: tcpdump from either side, use secrets to decode */
-  /* TODO: check all paramaters */
 
   /* make a connection from client to the server */
   /* TODO: re-connect if connection dies. up to us to check the status of this. callback which notifies you if the connection fails */
@@ -531,8 +539,8 @@ main( int argc, char ** argv ) {
 
   /* populate free streams */
   /* TODO: scale up to 1000 streams, maybe more. need enough to send all in-flight packets. explore to see how many streams give good behaviour. */
-  populate_stream_meta( 1000 );
-  populate_streams( 1000, client_conn );
+  populate_stream_meta( quic_max_stream_cnt );
+  populate_streams( quic_max_stream_cnt, client_conn );
 
   /* TODO: replace with actual txns */
   char buf[512] = "Hello world!\x00-   ";
