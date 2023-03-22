@@ -1,6 +1,22 @@
-# Frankendancer Frank
+Frankendancer
+=============
 
-We present milestone 1.2 (transaction ingest) with a demo running a Firedancer-enabled block producer.
+The following guide walks through a demo of a Firedancer/Solana Labs-hybrid
+block producer.
+
+This first incarnation of Frankendancer is called "Frank".
+
+Prerequisites
+-------------
+
+Operating Firedancer requires the following steps:
+- [build.md](./build.md): Building the Firedancer source code
+- [system.md](./system.md): Configuring your system for Firedancer
+
+Changelog
+---------
+
+TODO Everything below is outdated:
 
 ## Changes
 

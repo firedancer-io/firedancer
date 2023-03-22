@@ -83,3 +83,13 @@ the necessary `sudo` access.
   Multiple sandboxes with different permissions, users, groups can /
   coexist simultaneously (the `""` will be use default group of
   `[USER]`).
+
+Next Steps
+----------
+
+At this point, your system is configured for the non-privileged operation
+of Firedancer with optimized access to the host's CPUs and main memory.
+
+Firedancer's applications can now be run, such as the demo explained in
+[frankendancer.md](./frankendancer.md): a hybrid between the Solana Labs
+and Firedancer validators.
