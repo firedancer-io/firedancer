@@ -181,6 +181,9 @@ typedef struct fd_aio_pkt_info fd_aio_pkt_info_t;
    that send function naturally has access to all other AIO
    functionality? */
 
+typedef void
+(*fd_aio_service_func_t)( void * ctx );
+
 typedef int
 (*fd_aio_send_func_t)( void *                    ctx,
                        fd_aio_pkt_info_t const * batch,
@@ -191,8 +194,9 @@ typedef int
    technically isn't here to facilitate inlining of fd_aio operations.) */
 
 struct fd_aio_private {
-  void *             ctx;       /* AIO specific context */
-  fd_aio_send_func_t send_func; /* Send_func for specific AIO */
+  void *                ctx;       /* AIO specific context */
+  fd_aio_service_func_t service_func;
+  fd_aio_send_func_t    send_func; /* Send_func for specific AIO */
 
   /* FIXME: probably AIO specific functionality state follows here as
      per FIXME above (this might also clean up some of the ctx messiness

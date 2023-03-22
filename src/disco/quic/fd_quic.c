@@ -266,6 +266,10 @@ fd_quic_tile( fd_cnc_t *         cnc,
   /* quic context */
   fd_quic_tpu_ctx_t quic_ctx = {0};
 
+  /* aio backend */
+  void *                net_backend;
+  fd_aio_service_func_t net_service_func;
+
   /* local publish queue */
   fd_quic_tpu_msg_ctx_t ** msg_pubq;
 
@@ -322,6 +326,12 @@ fd_quic_tile( fd_cnc_t *         cnc,
 
     quic->now_fn  = fd_tpu_now;
     quic->now_ctx = NULL;
+
+    /* aio backend init */
+
+    if( FD_UNLIKELY( !quic->aio_net_out ) ) { FD_LOG_WARNING(( "NULL quic aio backend" )); return 1; }
+    net_backend      = quic->aio_net_out->ctx;
+    net_service_func = quic->aio_net_out->service_func;
 
     /* out frag stream init */
 
@@ -413,6 +423,9 @@ fd_quic_tile( fd_cnc_t *         cnc,
       /* Reload housekeeping timer */
       then = now + (long)fd_tempo_async_reload( rng, async_min );
     }
+
+    /* Poll network backend */
+    net_service_func( net_backend );
 
     /* Service QUIC clients */
     fd_quic_service( quic );

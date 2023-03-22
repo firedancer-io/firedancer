@@ -5,12 +5,15 @@
 #include "../../util/fd_util.h"
 #include "fd_xsk_aio_private.h"
 
-/* Forward declaration */
+/* Forward declarations */
 static int
 fd_xsk_aio_send( void *                    ctx,
                  fd_aio_pkt_info_t const * batch,
                  ulong                     batch_cnt,
                  ulong *                   opt_batch_idx );
+
+static void
+fd_xsk_aio_service_( void * ctx );
 
 ulong
 fd_xsk_aio_align( void ) {
@@ -142,15 +145,17 @@ fd_xsk_aio_join( void *     shxsk_aio,
 
   /* Setup local TX */
 
-  fd_aio_new( &xsk_aio->tx, xsk_aio, fd_xsk_aio_send );
-
-  /* Set up RX callback (local address) */
-
-  fd_aio_t * rx = fd_aio_join( fd_aio_new( &xsk_aio->rx, xsk_aio, fd_xsk_aio_send ) );
-  if( FD_UNLIKELY( !rx ) ) {
-    FD_LOG_WARNING(( "Failed to join rx aio" ));
+  fd_aio_t * tx = fd_aio_join( fd_aio_new( &xsk_aio->tx, xsk_aio, fd_xsk_aio_send ) );
+  if( FD_UNLIKELY( !tx ) ) {
+    FD_LOG_WARNING(( "Failed to join local tx aio" ));
     return NULL;
   }
+  /* TODO move initialization of the service func to fd_aio_new */
+  tx->service_func = fd_xsk_aio_service_;
+
+  /* Reset RX callback (laddr pointers to external object) */
+
+  memset( &xsk_aio->rx, 0, sizeof(fd_aio_t) );
 
   /* Enqueue frames to RX ring for receive (via fill ring) */
 
@@ -278,6 +283,10 @@ fd_xsk_aio_service( fd_xsk_aio_t * xsk_aio ) {
   xsk_aio->tx_top += tx_completed;
 }
 
+static void
+fd_xsk_aio_service_( void * ctx ) {
+  fd_xsk_aio_service( (fd_xsk_aio_t *)ctx );
+}
 
 void
 fd_xsk_aio_tx_complete( fd_xsk_aio_t * xsk_aio ) {
