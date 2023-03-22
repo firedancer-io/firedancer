@@ -5,6 +5,9 @@
 #include <time.h>
 
 #include "../../xdp/fd_xdp.h"
+#include "../../../ballet/sha512/fd_sha512.h"
+#include "../../../ballet/ed25519/fd_ed25519.h"
+
 
 #define BUF_SZ (1<<20)
 #define LG_FRAME_SIZE 11
@@ -301,7 +304,6 @@ void create_and_run_quic_client(
   fd_quic_set_cb_conn_final( client_quic, my_connection_closed );
 
   /* make a connection from client to the server */
-  /* TODO: re-connect if connection dies. up to us to check the status of this. callback which notifies you if the connection fails */
   client_conn = fd_quic_connect( client_quic, dst_ip, dst_port );
 
   /* do general processing */
@@ -315,18 +317,69 @@ void create_and_run_quic_client(
   populate_stream_meta( quic_config->max_concur_streams );
   populate_streams( quic_config->max_concur_streams, client_conn );
 
-  /* TODO: replace with actual txns */
-  char buf[512] = "Hello world!\x00-   ";
-  fd_aio_pkt_info_t batch[1] = {{ buf, sizeof( buf ) }};
+  /* create and sign fake ref message txns */
+  /* generate a message for every possible message size, using code from fd_frank_verify_synth_load */
+  fd_rng_t _rng[ 1 ];
+  uint seed = (uint)fd_tile_id();
+  fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, seed, 0UL ) );
+  if( FD_UNLIKELY( !rng ) ) FD_LOG_ERR(( "fd_rng_join failed" ));
+
+  fd_sha512_t _sha[1];
+  fd_sha512_t * sha = fd_sha512_join( fd_sha512_new( _sha ) );
+  if( FD_UNLIKELY( !sha ) ) FD_LOG_ERR(( "fd_sha512 join failed" ));
+
+  #define MSG_SZ_MIN (0UL)
+  #define MSG_SZ_MAX (1232UL-64UL-32UL)
+  #define MSG_SIZE_RANGE (MSG_SZ_MAX - MSG_SZ_MIN + 1UL)
+
+  ulong ref_msg_mem_footprint = 0UL;
+  for( ulong msg_sz=MSG_SZ_MIN; msg_sz<=MSG_SZ_MAX; msg_sz++ ) ref_msg_mem_footprint += fd_ulong_align_up( msg_sz + 96UL, 128UL );
+  uchar * ref_msg_mem = fd_alloca( 128UL, ref_msg_mem_footprint );
+  if( FD_UNLIKELY( !ref_msg_mem ) ) FD_LOG_ERR(( "fd_alloc failed" ));
+
+  uchar * ref_msg[ MSG_SZ_MAX - MSG_SZ_MIN + 1UL ];
+  for( ulong msg_sz=MSG_SZ_MIN; msg_sz<=MSG_SZ_MAX; msg_sz++ ) {
+    /* ref_msg[i] is a pointer to the message with size i */
+    ref_msg[ msg_sz - MSG_SZ_MIN ] = ref_msg_mem;
+    uchar * public_key = ref_msg_mem;
+    uchar * sig        = public_key  + 32UL;
+    uchar * msg        = sig         + 64UL;
+    ref_msg_mem += fd_ulong_align_up( msg_sz + 96UL, 128UL );
+
+    /* Generate a public_key / private_key pair for this message */
+    ulong private_key[4]; for( ulong i=0UL; i<4UL; i++ ) private_key[i] = fd_rng_ulong( rng );
+    fd_ed25519_public_from_private( public_key, private_key, sha );
+
+    /* Make a random message */
+    for( ulong b=0UL; b<msg_sz; b++ ) msg[b] = fd_rng_uchar( rng );
+
+    /* Sign it */
+    fd_ed25519_sign( sig, msg, msg_sz, public_key, private_key, sha );
+  }
+
+  /* Sanity check the ref messages verify */
+  for( ulong msg_sz=MSG_SZ_MIN; msg_sz<=MSG_SZ_MAX; msg_sz++ ) {
+    uchar * public_key = ref_msg[ msg_sz - MSG_SZ_MIN ];
+    uchar * sig        = public_key + 32UL;
+    uchar * msg        = sig        + 64UL;
+    FD_TEST( fd_ed25519_verify( msg, msg_sz, sig, public_key, sha )==FD_ED25519_SUCCESS );
+  }
+
+  /* Create the QUIC batches, each with a single message in. */
+  fd_aio_pkt_info_t batches[MSG_SIZE_RANGE][1];
+  for( ulong msg_sz=MSG_SZ_MIN; msg_sz<=MSG_SZ_MAX; msg_sz++ ) {
+    batches[msg_sz - MSG_SZ_MIN]->buf = ref_msg[ msg_sz - MSG_SZ_MIN ];
+    batches[msg_sz - MSG_SZ_MIN]->buf_sz = (ushort)msg_sz;
+  }
 
   /* Continually send data while we have a valid connection */
-  while ( client_conn ) {
+  for ( ulong msg_sz=MSG_SZ_MIN; msg_sz<=MSG_SZ_MAX; msg_sz++ ) {
     fd_quic_service( client_quic );
     fd_xsk_aio_service( xsk_aio );
 
-    buf[12] = ' ';
-    //buf[15] = (char)( ( j / 10 ) + '0' );
-    buf[16] = (char)( ( 1 % 10 ) + '0' );
+    if ( !client_conn ) {
+      break;
+    }
 
     /* obtain an free stream */
     my_stream_meta_t * meta = get_stream();
@@ -334,7 +387,7 @@ void create_and_run_quic_client(
     if( meta ) {
       fd_quic_stream_t * stream = meta->stream;
 
-      int rc = fd_quic_stream_send( stream, batch, 1 /* batch_sz */, 1 /* fin */ ); /* fin: close stream after sending. last byte of transmission */
+      int rc = fd_quic_stream_send( stream, batches[msg_sz - MSG_SZ_MIN], 1 /* batch_sz */, 1 /* fin */ ); /* fin: close stream after sending. last byte of transmission */
       printf( "fd_quic_stream_send returned %d\n", rc );
 
       if( rc == 1 ) {
@@ -349,10 +402,16 @@ void create_and_run_quic_client(
       printf( "unable to send - no streams available\n" );
       fflush( stdout );
     }
+
+    if ( msg_sz == MSG_SZ_MAX ) {
+      msg_sz = MSG_SZ_MIN;
+    }
   }
 
   /* close the connections */
   fd_quic_conn_close( client_conn, 0 );
+  fd_sha512_delete ( fd_sha512_leave( sha    ) );
+  fd_rng_delete    ( fd_rng_leave   ( rng    ) );
 
   fd_quic_delete( client_quic );
 
@@ -360,8 +419,6 @@ void create_and_run_quic_client(
 
 int
 main( int argc, char ** argv ) {
-  (void)argc;
-  (void)argv;
   // Transport params:
   //   original_destination_connection_id (0x00)         :   len(0)
   //   max_idle_timeout (0x01)                           : * 60000
@@ -601,7 +658,7 @@ main( int argc, char ** argv ) {
 
   /* loop continually, so that if the connection dies we try again */
   while (1) {
-    create_and_run_quic_client(&quic_config, xsk_aio, dst_ip, dst_port);
+    create_and_run_quic_client(&quic_config, xsk_aio, dst_ip, dst_port );
   }
 
   printf( "Finished\n" );
