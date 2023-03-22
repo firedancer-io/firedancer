@@ -110,7 +110,7 @@ fd_quic_buffer_load( fd_quic_buffer_t * buf,
 /* returns the alignment of the fd_quic_stream_t */
 FD_FN_CONST inline
 ulong
-fd_quic_stream_align() {
+fd_quic_stream_align( void ) {
   return 128ul;
 }
 

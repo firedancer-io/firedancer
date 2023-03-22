@@ -26,7 +26,7 @@ FD_PROTOTYPES_BEGIN
 /* returns the required alignment of the connection map memory */
 FD_FN_CONST
 ulong
-fd_quic_conn_map_align();
+fd_quic_conn_map_align( void );
 
 /* returns the amount of memory required to initialize the connection map */
 FD_FN_CONST

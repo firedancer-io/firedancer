@@ -320,7 +320,7 @@ struct fd_quic_conn {
 /* returns the alignment requirement of fd_quic_conn_t */
 FD_FN_CONST
 ulong
-fd_quic_conn_align();
+fd_quic_conn_align( void );
 
 /* returns the footprint of the connection object given the arguments
    supplied

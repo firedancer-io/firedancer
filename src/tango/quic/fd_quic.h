@@ -141,7 +141,7 @@ struct fd_quic_event {
 FD_PROTOTYPES_BEGIN
 
 /* fd_quic_align returns the required alignment of the memory used for fd_quic_new */
-ulong fd_quic_align();
+ulong fd_quic_align( void );
 
 /* fd_quic_footprint returns the required footprint of the memory used for fd_quic_new */
 ulong

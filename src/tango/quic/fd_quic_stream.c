@@ -88,7 +88,7 @@ fd_quic_buffer_load( fd_quic_buffer_t * buf,
 
 extern
 ulong
-fd_quic_stream_align();
+fd_quic_stream_align( void );
 
 ulong
 fd_quic_stream_footprint( ulong tx_buf_sz, ulong rx_buf_sz ) {
@@ -142,13 +142,13 @@ fd_quic_stream_new( void * mem, fd_quic_conn_t * conn, ulong tx_buf_sz, ulong rx
 
   /* allocate memory for the tx ack buffer */
   stream->tx_ack = (uchar*)( base + offs );
-  
+
   offs += align_tx_ack_sz;
 
   /* allocate memory for the rx buffer */
   stream->rx_buf.buf = (uchar*)( base + offs );
   stream->rx_buf.cap = rx_buf_sz;
-  
+
   offs += align_rx_buf_sz;
 
   if( offs != fd_quic_stream_footprint( tx_buf_sz, rx_buf_sz ) ) {

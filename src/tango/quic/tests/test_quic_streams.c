@@ -36,7 +36,7 @@ populate_stream_meta( ulong sz ) {
 
 /* get free stream meta */
 my_stream_meta_t *
-get_stream_meta() {
+get_stream_meta( void ) {
   my_stream_meta_t * meta = meta_free;
   if( meta ) {
     meta_free  = meta->next;
@@ -56,7 +56,7 @@ my_stream_meta_t * stream_avail = NULL;
 
 /* get count of free streams */
 uint
-get_free_count() {
+get_free_count( void ) {
   uint count = 0u;
   my_stream_meta_t * cur = stream_avail;
   while( cur ) {
@@ -68,7 +68,7 @@ get_free_count() {
 
 /* get free stream */
 my_stream_meta_t *
-get_stream() {
+get_stream( void ) {
   printf( "before obtaining stream. count: %u\n", get_free_count() );
 
   my_stream_meta_t * meta = stream_avail;
