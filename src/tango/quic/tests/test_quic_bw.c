@@ -236,8 +236,8 @@ main( int argc, char ** argv ) {
   fd_quic_t * server_quic = new_quic( &quic_config );
 
   /* make use aio to point quic directly at quic */
-  fd_aio_t * aio_n2q = fd_quic_get_aio_net_in( server_quic );
-  fd_aio_t * aio_q2n = fd_quic_get_aio_net_in( client_quic );
+  fd_aio_t const * aio_n2q = fd_quic_get_aio_net_in( server_quic );
+  fd_aio_t const * aio_q2n = fd_quic_get_aio_net_in( client_quic );
 
   fd_quic_set_aio_net_out( server_quic, aio_q2n );
   fd_quic_set_aio_net_out( client_quic, aio_n2q );

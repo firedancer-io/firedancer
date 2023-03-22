@@ -335,8 +335,8 @@ void my_handshake_complete( fd_quic_conn_t * conn, void * vp_context ) {
 
 /* pcap aio pipe */
 struct aio_pipe {
-  fd_aio_t * aio;
-  FILE *     file;
+  fd_aio_t const * aio;
+  FILE *           file;
 };
 typedef struct aio_pipe aio_pipe_t;
 
@@ -454,8 +454,8 @@ main( int argc, char ** argv ) {
   fd_quic_t * server_quic = new_quic( &quic_config );
 
   /* make use aio to point quic directly at quic */
-  fd_aio_t * aio_n2q = fd_quic_get_aio_net_in( server_quic );
-  fd_aio_t * aio_q2n = fd_quic_get_aio_net_in( client_quic );
+  fd_aio_t const * aio_n2q = fd_quic_get_aio_net_in( server_quic );
+  fd_aio_t const * aio_q2n = fd_quic_get_aio_net_in( client_quic );
 
 #if 0
   fd_quic_set_aio_net_out( server_quic, aio_q2n );

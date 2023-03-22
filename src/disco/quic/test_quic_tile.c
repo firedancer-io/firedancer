@@ -276,6 +276,7 @@ int main( int     argc,
   memset( cfg->tx_quic_cfg, 0, sizeof(fd_quic_config_t) );
   FD_TEST( fd_quic_config_from_env( &argc, &argv, cfg->tx_quic_cfg ) );
 
+  cfg->tx_quic_cfg->aio = fd_xsk_aio_get_tx( cfg->xsk_aio );
   cfg->tx_quic_cfg->host_cfg.hostname = "test_quic_tile";
   cfg->tx_quic_cfg->host_cfg.ip_addr  = (uint)listen_addr;
   cfg->tx_quic_cfg->host_cfg.udp_port = (ushort)udp_port;
@@ -325,6 +326,9 @@ int main( int     argc,
 
   FD_LOG_NOTICE(( "Initializing QUIC" ));
   FD_TEST( fd_quic_init( cfg->tx_quic, cfg->tx_quic_cfg ) );
+
+  FD_TEST( cfg->tx_quic->aio_net_out );
+  fd_xsk_aio_set_rx( cfg->xsk_aio, fd_quic_get_aio_net_in( cfg->tx_quic ) );
 
   FD_LOG_NOTICE(( "Booting" ));
 
