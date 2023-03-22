@@ -3,6 +3,8 @@
 
 #include "../bits/fd_bits.h"
 #include "../fd_util.h"
+#include "../../ballet/txn/fd_compact_u16.h"
+
 #include <immintrin.h>
 
 static inline
@@ -142,5 +144,58 @@ void fd_bincode_option_encode(unsigned char val, void const** data) {
   *ptr = val;
   *data = ptr + 1;
 }
+
+/* Wrapper around fd_cu16_dec, to make the function signature more consistent with the
+   other fd_bincode_decode functions.  */
+static inline
+ulong fd_decode_short_u16( ushort* self, void const** data, FD_FN_UNUSED void const* dataend ) {
+  const uchar *ptr = (const uchar*) *data;
+
+  ulong size = fd_cu16_dec( (uchar const *)*data, 3, self );
+  if ( size == 0 ) {
+    FD_LOG_ERR(( "failed to decode short u16" ));
+  }
+  *data = ptr + size;
+
+  return size;
+
+}
+
+static inline
+void fd_encode_short_u16( ushort* self, void ** data) {
+  uchar *ptr = (uchar*) *data;
+
+  ulong size = fd_cu16_enc (*self, (uchar *)*data );
+  if ( size == 0 ) {
+    FD_LOG_ERR(( "failed to encode short u16" ));
+  }
+  *data = ptr + size;
+}
+
+/* Decodes an integer encoded using the serde_varint algorithm:
+   https://github.com/solana-labs/solana/blob/master/sdk/program/src/serde_varint.rs 
+   
+   A variable number of bytes could have been used to encode the integer.
+   The most significant bit of each byte indicates if more bytes have been used, so we keep consuming until
+   we reach a byte where the most significant bit is 0.
+*/
+void fd_decode_varint( ulong* self, void const** data, void const* dataend );
+
+static inline void
+fd_encode_varint( ulong val, uchar ** out ) {
+  uchar *ptr = *out;
+  ulong _i = val;
+  while( 1 ) {
+    *ptr = _i&0x7F;
+    _i >>= 7;
+    if( _i ) 
+      *(ptr++) |= 0x80;
+    else {
+      *out = ++ptr;
+      return;
+    }
+  }
+}
+
 
 #endif /* HEADER_fd_src_util_encoders_fd_bincode_h */

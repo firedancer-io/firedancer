@@ -497,6 +497,65 @@
           { "name": "leader_schedule_epoch", "type": "uint64_t" },
           { "name": "unix_timestamp", "type": "int64_t" }
       ]
+    },
+    {
+      "name": "vote_lockout",
+      "type": "struct",
+      "fields": [
+          { "name": "slot", "type": "uint64_t",  "modifier": "varint" },
+          { "name": "confirmation_count", "type": "uchar" }
+      ]
+    },
+    {
+      "name": "vote_authorized_voter",
+      "type": "struct",
+      "fields": [
+          { "name": "epoch", "type": "ulong" },
+          { "name": "pubkey", "type": "pubkey" }
+      ]
+    },
+    {
+      "name": "vote_prior_voter",
+      "type": "struct",
+      "fields": [
+          { "name": "pubkey", "type": "pubkey" },
+          { "name": "epoch_start", "type": "ulong" },
+          { "name": "epoch_end", "type": "ulong" }
+      ]
+    },
+    {
+      "name": "vote_epoch_credits",
+      "type": "struct",
+      "fields": [
+          { "name": "epoch", "type": "ulong" },
+          { "name": "credits", "type": "ulong" },
+          { "name": "prev_credits", "type": "ulong" }
+      ]
+    },
+    {
+      "name": "vote_state",
+      "type": "struct",
+      "fields": [
+          { "name": "voting_node", "type": "pubkey" },
+          { "name": "authorized_withdrawer", "type": "pubkey" },
+          { "name": "commission", "type": "uchar" },
+          { "name": "votes", "type": "vector", "element": "vote_lockout" },
+          { "name": "saved_root_slot", "type": "option", "element": "ulong" },
+          { "name": "prior_voters", "type": "vector", "element": "vote_prior_voter" },
+          { "name": "epoch_credits", "type": "vector", "element": "vote_epoch_credits" },
+          { "name": "latest_slot", "type": "ulong" },
+          { "name": "latest_timestamp", "type": "ulong" }
+      ]
+    },
+    {
+      "name": "compact_vote_state_update",
+      "type": "struct",
+      "fields": [
+          { "name": "proposed_root", "type": "ulong" },
+          { "name": "lockouts", "type": "vector", "element": "vote_lockout", "modifier": "compact" },
+          { "name": "hash", "type": "hash" },
+          { "name": "timestamp", "type": "option", "element": "ulong" }
+      ]
     }
   ]
 }
