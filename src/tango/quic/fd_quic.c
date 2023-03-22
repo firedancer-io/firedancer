@@ -913,13 +913,12 @@ extern
 void
 fd_quic_set_cb_stream_notify( fd_quic_t * quic, fd_quic_cb_stream_notify_t cb );
 
-extern
-fd_aio_t *
+extern fd_aio_t const *
 fd_quic_get_aio_net_in( fd_quic_t * quic );
 
-extern
-void
-fd_quic_set_aio_net_out( fd_quic_t * quic, fd_aio_t * aio_out );
+extern void
+fd_quic_set_aio_net_out( fd_quic_t *      quic,
+                         fd_aio_t const * aio_out );
 
 
 
