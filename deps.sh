@@ -332,6 +332,10 @@ install () {
   ( install_elfutils )
   ( install_libbpf   )
   ( install_openssl  )
+
+  echo "[~] Done! To wire up $(pwd)/opt with make, run:"
+  echo "    source activate-opt"
+  echo
 }
 
 if [[ $# -eq 0 ]]; then
