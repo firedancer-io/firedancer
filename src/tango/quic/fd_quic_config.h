@@ -114,8 +114,6 @@ struct fd_quic_host_cfg {
 
 
 struct fd_quic_config {
-  fd_aio_t const *             aio;                    /* abstract input/output interface */
-
   char                         cert_file[ PATH_MAX ];  /* certificate file path */
   char                         key_file [ PATH_MAX ];  /* private key file path */
 
