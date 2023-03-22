@@ -17,7 +17,7 @@
 
 
 ulong
-fd_quic_conn_map_align() {
+fd_quic_conn_map_align( void ) {
   return fd_quic_conn_map_impl_align();
 }
 

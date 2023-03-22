@@ -57,7 +57,7 @@ uchar raw_crypto_frame[] =
 
 
 void
-test_crypto_frame( ) {
+test_crypto_frame( void ) {
   fd_quic_common_frag_t common_frag[1];
   fd_quic_crypto_frame_t crypto_frame[1];
 
