@@ -1,12 +1,15 @@
 {
   pkgs ? import (fetchTarball {
-    url = "https://github.com/NixOS/nixpkgs/archive/de408167ede9c2cab0a7831f4079ff9ba8c644d8.tar.gz";
-    sha256 = "sha256:05xf26nd4ryyrx9xn3rzpzawf14r1pw8r0ljba0as852w63z4rh9";
+    url = "https://github.com/NixOS/nixpkgs/archive/cece2880925ae3ef222953859a37055919489474.tar.gz";
+    sha256 = "sha256:09xhpzl1p4m6js3pmzcqqmpmz3x47n1jdjzh3mrdi23lp5yb5f73";
   }) {}
 }:
 
 pkgs.mkShell {
   packages = with pkgs;[
+    # Build system
+    pkg-config
+
     # Compiler (GCC)
     gcc9
     gcc9Stdenv
@@ -21,14 +24,14 @@ pkgs.mkShell {
     # C dependencies
     elfutils
     libbpf
-    pkg-config
     (quictls.override { static = true; })
     rocksdb
-    xdp-tools
-    zstd
+    zlib.static
+    (zstd.override { static = true; })
 
     # Dev Utils
     git
+    xdp-tools
   ];
 }
 
