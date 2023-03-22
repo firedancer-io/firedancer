@@ -6,7 +6,7 @@
 #define MAP_NAME              fd_quic_stream_map
 #define MAP_KEY               stream_id
 #define MAP_T                 fd_quic_stream_map_t
-#define MAP_KEY_NULL          FD_QUIC_STREAM_ID_UNUSED 
+#define MAP_KEY_NULL          FD_QUIC_STREAM_ID_UNUSED
 #define MAP_KEY_INVAL(key)    ((key)==MAP_KEY_NULL)
 #define MAP_QUERY_OPT         1
 
@@ -14,7 +14,7 @@
 
 
 ulong
-fd_quic_conn_align() {
+fd_quic_conn_align( void ) {
   ulong align = fd_ulong_max( alignof( fd_quic_conn_t ), alignof( fd_quic_stream_t ) );
   align = fd_ulong_max( align, alignof( fd_quic_ack_t ) );
   align = fd_ulong_max( align, alignof( fd_quic_pkt_meta_t ) );
@@ -145,7 +145,7 @@ fd_quic_conn_new( void *      mem,
   imem += FD_QUIC_POW2_ALIGN( num_acks * sizeof( fd_quic_ack_t ), align );
 
   /* sanity check */
-  ulong fp = 
+  ulong fp =
         fd_quic_conn_footprint( tx_buf_sz, rx_buf_sz, max_concur_streams_per_type,
                   max_in_flight_pkts  );
   if( FD_UNLIKELY( ( imem - (ulong)mem ) != fp ) ) {

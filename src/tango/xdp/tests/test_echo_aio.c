@@ -32,7 +32,7 @@
 #define NUM_FRAMES 2048
 
 long
-gettime() {
+gettime( void ) {
   struct timespec ts;
   clock_gettime( CLOCK_REALTIME, &ts );
 
@@ -243,7 +243,7 @@ echo( fd_xdp_aio_t * xdp_aio, uchar const * raw_pkt, size_t raw_pkt_sz ) {
 
   /* send */
   fd_aio_pkt_info_t tx_buf[1] = {{ (void*)&tx_pkt, raw_pkt_sz }};
-  
+
   size_t send_cnt = fd_aio_send( &egress, tx_buf, 1u );
   if( send_cnt ) {
     printf( "echo: send successful\n" );

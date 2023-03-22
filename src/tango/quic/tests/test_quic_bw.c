@@ -14,7 +14,7 @@ extern uchar pkt_full[];
 extern ulong pkt_full_sz;
 
 ulong
-gettime() {
+gettime( void ) {
   struct timespec ts;
   clock_gettime( CLOCK_REALTIME, &ts );
   return (ulong)ts.tv_nsec + (ulong)1e9 * (ulong)ts.tv_sec;

@@ -31,7 +31,7 @@
 #define NUM_FRAMES 2048
 
 long
-gettime() {
+gettime( void ) {
   struct timespec ts;
   clock_gettime( CLOCK_REALTIME, &ts );
 

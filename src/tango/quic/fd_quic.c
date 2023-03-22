@@ -343,7 +343,8 @@ fd_quic_tls_cb_handshake_complete( fd_quic_tls_hs_t * hs,
                                    void *             context  );
 
 
-ulong fd_quic_align() {
+ulong
+fd_quic_align( void ) {
   ulong align = alignof( fd_quic_t );
   align = fd_ulong_max( align, fd_quic_conn_align() );
   align = fd_ulong_max( align, fd_quic_conn_map_align() );
