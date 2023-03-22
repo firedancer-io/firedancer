@@ -78,8 +78,8 @@ struct fd_quic {
   fd_quic_conn_map_t *          conn_map;               /* map connection ids -> connection */
 
   uchar                         aio_net_in_mem[sizeof( fd_aio_t )+16];
-  fd_aio_t *                    aio_net_in;             /* abstract input/output interface */
-  fd_aio_t *                    aio_net_out;            /* for network */
+  fd_aio_t const *              aio_net_in;             /* abstract input/output interface */
+  fd_aio_t const *              aio_net_out;            /* for network */
                                                         /* in is object configured by QUIC */
                                                         /* out is ptr to object configured externally */
 
@@ -274,8 +274,7 @@ fd_quic_conn_free( fd_quic_t * quic, fd_quic_conn_t * conn );
 
    args
      aio_in         aio for input into QUIC from network */
-inline
-fd_aio_t *
+inline fd_aio_t const *
 fd_quic_get_aio_net_in( fd_quic_t * quic ) {
   return quic->aio_net_in;
 }
@@ -285,9 +284,9 @@ fd_quic_get_aio_net_in( fd_quic_t * quic ) {
 
    args
      aio_out        aio for output to QUIC from network */
-inline
-void
-fd_quic_set_aio_net_out( fd_quic_t * quic, fd_aio_t * aio_out ) {
+inline void
+fd_quic_set_aio_net_out( fd_quic_t *      quic,
+                         fd_aio_t const * aio_out ) {
   quic->aio_net_out  = aio_out;
 }
 
