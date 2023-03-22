@@ -175,4 +175,109 @@ fd_sha512_hash( void const * data,
 
 FD_PROTOTYPES_END
 
+/* See fd_sha256.h for details on how use the batching API */
+
+#if FD_HAS_AVX /* AVX accelerated batching implementation */
+
+#define FD_SHA512_BATCH_ALIGN     (128UL)
+#define FD_SHA512_BATCH_FOOTPRINT (128UL)
+
+/* This is exposed here to facilitate inlining various operations */
+
+#define FD_SHA512_PRIVATE_BATCH_MAX (4UL)
+
+struct __attribute__((aligned(FD_SHA512_BATCH_ALIGN))) fd_sha512_private_batch {
+  void const * data[ FD_SHA512_PRIVATE_BATCH_MAX ]; /* AVX aligned */
+  ulong        sz  [ FD_SHA512_PRIVATE_BATCH_MAX ]; /* AVX aligned */
+  void *       hash[ FD_SHA512_PRIVATE_BATCH_MAX ]; /* AVX aligned */
+  ulong        cnt;
+};
+
+typedef struct fd_sha512_private_batch fd_sha512_batch_t;
+
+FD_PROTOTYPES_BEGIN
+
+/* Internal use only */
+
+void
+fd_sha512_private_batch_avx( ulong                batch_cnt,    /* In [1,FD_SHA512_PRIVATE_BATCH_MAX] */
+                             void const * const * batch_data,   /* Indexed [0,FD_SHA512_PRIVATE_BATCH_MAX), aligned 32,
+                                                                   only [0,batch_cnt) used, essentially a msg_t const * const * */
+                             ulong const *        batch_sz,     /* Indexed [0,FD_SHA512_PRIVATE_BATCH_MAX), aligned 32,
+                                                                   only [0,batch_cnt) used */
+                             void * const *       batch_hash ); /* Indexed [0,FD_SHA512_PRIVATE_BATCH_MAX), aligned 32,
+                                                                   only [0,batch_cnt) used */
+
+FD_FN_CONST static inline ulong fd_sha512_batch_align    ( void ) { return alignof(fd_sha512_batch_t); }
+FD_FN_CONST static inline ulong fd_sha512_batch_footprint( void ) { return sizeof (fd_sha512_batch_t); }
+
+static inline fd_sha512_batch_t *
+fd_sha512_batch_init( void * mem ) {
+  fd_sha512_batch_t * batch = (fd_sha512_batch_t *)mem;
+  batch->cnt = 0UL;
+  return batch;
+}
+
+static inline fd_sha512_batch_t *
+fd_sha512_batch_add( fd_sha512_batch_t * batch,
+                     void const *        data,
+                     ulong               sz,
+                     void *              hash ) {
+  ulong batch_cnt = batch->cnt;
+  batch->data[ batch_cnt ] = data;
+  batch->sz  [ batch_cnt ] = sz;
+  batch->hash[ batch_cnt ] = hash;
+  batch_cnt++;
+  if( FD_UNLIKELY( batch_cnt==FD_SHA512_PRIVATE_BATCH_MAX ) ) {
+    fd_sha512_private_batch_avx( batch_cnt, batch->data, batch->sz, batch->hash );
+    batch_cnt = 0UL;
+  }
+  batch->cnt = batch_cnt;
+  return batch;
+}
+
+static inline void *
+fd_sha512_batch_fini( fd_sha512_batch_t * batch ) {
+  ulong batch_cnt = batch->cnt;
+  if( FD_LIKELY( batch_cnt ) ) fd_sha512_private_batch_avx( batch_cnt, batch->data, batch->sz, batch->hash );
+  return (void *)batch;
+}
+
+static inline void *
+fd_sha512_batch_abort( fd_sha512_batch_t * batch ) {
+  return (void *)batch;
+}
+
+FD_PROTOTYPES_END
+
+#else /* Reference batching implementation */
+
+#define FD_SHA512_BATCH_ALIGN     (1UL)
+#define FD_SHA512_BATCH_FOOTPRINT (1UL)
+
+typedef uchar fd_sha512_batch_t;
+
+FD_PROTOTYPES_BEGIN
+
+FD_FN_CONST static inline ulong fd_sha512_batch_align    ( void ) { return alignof(fd_sha512_batch_t); }
+FD_FN_CONST static inline ulong fd_sha512_batch_footprint( void ) { return sizeof (fd_sha512_batch_t); }
+
+static inline fd_sha512_batch_t * fd_sha512_batch_init( void * mem ) { return (fd_sha512_batch_t *)mem; }
+
+static inline fd_sha512_batch_t *
+fd_sha512_batch_add( fd_sha512_batch_t * batch,
+                     void const *        data,
+                     ulong               sz,
+                     void *              hash ) {
+  fd_sha512_hash( data, sz, hash );
+  return batch;
+}
+
+static inline void * fd_sha512_batch_fini ( fd_sha512_batch_t * batch ) { return (void *)batch; }
+static inline void * fd_sha512_batch_abort( fd_sha512_batch_t * batch ) { return (void *)batch; }
+
+FD_PROTOTYPES_END
+
+#endif
+
 #endif /* HEADER_fd_src_ballet_sha512_fd_sha512_h */

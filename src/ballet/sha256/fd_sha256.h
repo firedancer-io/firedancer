@@ -140,4 +140,202 @@ fd_sha256_hash( void const * data,
 
 FD_PROTOTYPES_END
 
+#if 0 /* SHA256 batch API details */
+
+/* FD_SHA256_BATCH_{ALIGN,FOOTPRINT} return the alignment and footprint
+   in bytes required for a region of memory to can hold the state of an
+   in-progress set of SHA-256 calculations.  ALIGN will be an integer
+   power of 2 and FOOTPRINT will be a multiple of ALIGN.  These are to
+   facilitate compile time declartions. */
+
+#define FD_SHA256_BATCH_ALIGN     ...
+#define FD_SHA256_BATCH_FOOTPRINT ...
+
+/* A fd_sha256_batch_t is an opaque handle for a set of SHA-256
+   calculations. */
+
+struct fd_sha256_private_batch;
+typedef struct fd_sha256_private_batch fd_sha256_batch_t;
+
+/* fd_sha256_batch_{align,footprint} return
+   FD_SHA256_BATCH_{ALIGN,FOOTPRINT} respectively. */
+
+ulong fd_sha256_batch_align    ( void );
+ulong fd_sha256_batch_footprint( void );
+
+/* fd_sha256_batch_init starts a new batch of SHA-256 calculations.  The
+   state of the in-progress calculation will be held in the memory
+   region whose first byte in the local address space is pointed to by
+   mem.  The region should have the appropriate alignment and footprint
+   and should not be read, changed or deleted until fini or abort is
+   called on the in-progress calculation.
+
+   Returns a handle to the in-progress batch calculation.  As this is
+   used in HPC contexts, does no input validation. */
+
+fd_sha256_batch_t *
+fd_sha256_batch_init( void * mem );
+
+/* fd_sha256_batch_add adds the sz byte message whose first byte in the
+   local address space is pointed to by data to the in-progress batch
+   calculation whose handle is batch.  The result of the calculation
+   will be stored at the 32-byte memory region whose first byte in the
+   local address space is pointed to by hash.
+
+   There are _no_ alignment restrictions on data and hash and _no_
+   restrictions on sz.  After a message is added, that message should
+   not be changed or deleted until the fini or abort is called on the
+   in-progress calculation.  Likewise, the hash memory region shot not
+   be read, written or deleted until the calculation has completed.
+
+   Messages can overlap and/or be added to a batch multiple times.  Each
+   hash location added to a batch should not overlap any other hash
+   location of calculation state or message region.  (Hash reuse /
+   overlap have indeterminiant but non-crashing behavior as the
+   implementation under the hood is free to execute the elements of the
+   batch in whatever order it sees fit and potentially do those
+   calculations incrementally / in the background / ... as the batch is
+   assembled.)
+
+   Depending on the implementation, it might help performance to cluster
+   adds of similar sized messages together.  Likewise, it can be
+   advantageous to use aligned message regions, aligned hash regions and
+   messages sizes that are a multiple of a SHA block size.  None of this
+   is required though.
+
+   Returns batch (which will still be an in progress batch calculation).
+   As this is used in HPC contexts, does no input validation. */
+
+fd_sha256_batch_t *
+fd_sha256_batch_add( fd_sha256_batch_t * batch,
+                     void const *        data,
+                     ulong               sz,
+                     void *              hash );
+
+/* fd_sha256_batch_fini finishes a set of SHA-256 calculations.  On
+   return, all the hash memory regions will be populated with the
+   corresponding message hash.  Returns a pointer to the memory region
+   used to hold the calculation state (contents undefined) and the
+   calculation will no longer be in progress.  As this is used in HPC
+   contexts, does no input validation. */
+
+void *
+fd_sha256_batch_fini( fd_sha256_batch_t * batch );
+
+/* fd_sha256_batch_abort aborts an in-progress set of SHA-256
+   calcuations.  There is no guarantee which individual messages (if
+   any) had their hashes computed and the contents of the hash memory
+   regions is undefined.  Returns a pointer to the memory region used to
+   hold the calculation state (contents undefined) and the calculation
+   will no longer be in progress.  As this is used in HPC contexts, does
+   no input validation. */
+
+void *
+fd_sha256_batch_abort( fd_sha256_batch_t * batch );
+
+#endif
+
+#if FD_HAS_AVX /* AVX accelerated batching implementation */
+
+#define FD_SHA256_BATCH_ALIGN     (128UL)
+#define FD_SHA256_BATCH_FOOTPRINT (256UL)
+
+/* This is exposed here to facilitate inlining various operations */
+
+#define FD_SHA256_PRIVATE_BATCH_MAX (8UL)
+
+struct __attribute__((aligned(FD_SHA256_BATCH_ALIGN))) fd_sha256_private_batch {
+  void const * data[ FD_SHA256_PRIVATE_BATCH_MAX ]; /* AVX aligned */
+  ulong        sz  [ FD_SHA256_PRIVATE_BATCH_MAX ]; /* AVX aligned */
+  void *       hash[ FD_SHA256_PRIVATE_BATCH_MAX ]; /* AVX aligned */
+  ulong        cnt;
+};
+
+typedef struct fd_sha256_private_batch fd_sha256_batch_t;
+
+FD_PROTOTYPES_BEGIN
+
+/* Internal use only */
+
+void
+fd_sha256_private_batch_avx( ulong                batch_cnt,    /* In [1,FD_SHA256_PRIVATE_BATCH_MAX] */
+                             void const * const * batch_data,   /* Indexed [0,FD_SHA256_PRIVATE_BATCH_MAX), aligned 32,
+                                                                   only [0,batch_cnt) used, essentially a msg_t const * const * */
+                             ulong const *        batch_sz,     /* Indexed [0,FD_SHA256_PRIVATE_BATCH_MAX), aligned 32,
+                                                                   only [0,batch_cnt) used */
+                             void * const *       batch_hash ); /* Indexed [0,FD_SHA256_PRIVATE_BATCH_MAX), aligned 32,
+                                                                   only [0,batch_cnt) used */
+
+FD_FN_CONST static inline ulong fd_sha256_batch_align    ( void ) { return alignof(fd_sha256_batch_t); }
+FD_FN_CONST static inline ulong fd_sha256_batch_footprint( void ) { return sizeof (fd_sha256_batch_t); }
+
+static inline fd_sha256_batch_t *
+fd_sha256_batch_init( void * mem ) {
+  fd_sha256_batch_t * batch = (fd_sha256_batch_t *)mem;
+  batch->cnt = 0UL;
+  return batch;
+}
+
+static inline fd_sha256_batch_t *
+fd_sha256_batch_add( fd_sha256_batch_t * batch,
+                     void const *        data,
+                     ulong               sz,
+                     void *              hash ) {
+  ulong batch_cnt = batch->cnt;
+  batch->data[ batch_cnt ] = data;
+  batch->sz  [ batch_cnt ] = sz;
+  batch->hash[ batch_cnt ] = hash;
+  batch_cnt++;
+  if( FD_UNLIKELY( batch_cnt==FD_SHA256_PRIVATE_BATCH_MAX ) ) {
+    fd_sha256_private_batch_avx( batch_cnt, batch->data, batch->sz, batch->hash );
+    batch_cnt = 0UL;
+  }
+  batch->cnt = batch_cnt;
+  return batch;
+}
+
+static inline void *
+fd_sha256_batch_fini( fd_sha256_batch_t * batch ) {
+  ulong batch_cnt = batch->cnt;
+  if( FD_LIKELY( batch_cnt ) ) fd_sha256_private_batch_avx( batch_cnt, batch->data, batch->sz, batch->hash );
+  return (void *)batch;
+}
+
+static inline void *
+fd_sha256_batch_abort( fd_sha256_batch_t * batch ) {
+  return (void *)batch;
+}
+
+FD_PROTOTYPES_END
+
+#else /* Reference batching implementation */
+
+#define FD_SHA256_BATCH_ALIGN     (1UL)
+#define FD_SHA256_BATCH_FOOTPRINT (1UL)
+
+typedef uchar fd_sha256_batch_t;
+
+FD_PROTOTYPES_BEGIN
+
+FD_FN_CONST static inline ulong fd_sha256_batch_align    ( void ) { return alignof(fd_sha256_batch_t); }
+FD_FN_CONST static inline ulong fd_sha256_batch_footprint( void ) { return sizeof (fd_sha256_batch_t); }
+
+static inline fd_sha256_batch_t * fd_sha256_batch_init( void * mem ) { return (fd_sha256_batch_t *)mem; }
+
+static inline fd_sha256_batch_t *
+fd_sha256_batch_add( fd_sha256_batch_t * batch,
+                     void const *        data,
+                     ulong               sz,
+                     void *              hash ) {
+  fd_sha256_hash( data, sz, hash );
+  return batch;
+}
+
+static inline void * fd_sha256_batch_fini ( fd_sha256_batch_t * batch ) { return (void *)batch; }
+static inline void * fd_sha256_batch_abort( fd_sha256_batch_t * batch ) { return (void *)batch; }
+
+FD_PROTOTYPES_END
+
+#endif
+
 #endif /* HEADER_fd_src_ballet_sha256_fd_sha256_h */

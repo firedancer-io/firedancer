@@ -39,10 +39,10 @@
 
 #define vd_bcast(d0) _mm_set1_pd( (d0) ) /* [ d0 d0 ] */
 
-/* vd_permute returns [ d(imm_l0) d(imm_l1) ].  imm_l* should be compile
+/* vd_permute returns [ d(imm_i0) d(imm_i1) ].  imm_i* should be compile
    time constants in 0:1. */
 
-#define vd_permute( d, imm_l0, imm_l1 ) _mm_permute_pd( (d), (imm_l0) + 2*(imm_l1) )
+#define vd_permute( d, imm_i0, imm_i1 ) _mm_permute_pd( (d), (imm_i0) + 2*(imm_i1) )
 
 /* Predefined constants */
 
@@ -65,10 +65,10 @@
 
 /* vd_ldif is an optimized equivalent to vd_notczero(c,vd_ldu(p)) (may
    have different behavior if c is not a proper vector conditional).  It
-   is provided for symmetry with with the vd_stif operation.  vd_stif
-   stores x(n) to p[n] if c(n) is true and leaves p[n] unchanged
-   otherwise.  Undefined behavior if c(n) is not a proper paired lane
-   vector conditional. */
+   is provided for symmetry with the vd_stif operation.  vd_stif stores
+   x(n) to p[n] if c(n) is true and leaves p[n] unchanged otherwise.
+   Undefined behavior if c(n) is not a proper paired lane vector
+   conditional. */
 
 #define vd_ldif(c,p)   _mm_maskload_pd( (p),(c))
 #define vd_stif(c,p,x) _mm_maskstore_pd((p),(c),(x))
@@ -231,11 +231,21 @@ vd_insert_variable( vd_t a, int n, double v ) {
    vd_to_vi_fast(d,i,0) returns [ (int)rint(d0) (int)rint(d1) i2 i3 ]
    vd_to_vi_fast(d,i,1) returns [ i0 i1 (int)rint(d0) (int)rint(d1) ]
 
+   vd_to_vu(d,u,0)      returns [ (uint)d0 (uint)d1 u2 u3 ]
+   vd_to_vu(d,u,1)      returns [ u0 u1 (uint)d0 (uint)d1 ]
+
+   vd_to_vu_fast(d,u,0) returns [ (uint)rint(d0) (uint)rint(d1) u2 u3 ]
+   vd_to_vu_fast(d,u,1) returns [ u0 u1 (uint)rint(d0) (uint)rint(d1) ]
+
    vd_to_vl(d)          returns [ (long)d0 (long)d1 ]
+
+   vd_to_vv(v)          returns [ (ulong)d0 (ulong)d1 ]
 
    where rint is configured for round-to-nearest-even rounding (Intel
    architecture defaults to round-nearest-even here ... sigh, they still
    don't fully get it) and imm_hi should be a compile time constant.
+   That is, the fast variants assume that float point inputs are already
+   integral value in the appropriate range for the output type.
 
    Note that vd_to_{vf,vi,vi_fast} insert the converted values into
    lanes 0:1 (imm_hi==0) or 2:3 (imm_hi!=0) of the provided vector.
@@ -254,13 +264,8 @@ static inline vf_t vd_to_vf( vd_t d, vf_t f, int imm_hi ) {
   return _d;
 }
 
-static inline vi_t vd_to_vi( vd_t d, vi_t i, int imm_hi ) {
-  vf_t _d = _mm_castsi128_ps( _mm_cvtpd_epi32( _mm_round_pd( d, _MM_FROUND_TO_ZERO | _MM_FROUND_NO_EXC ) ) );
-  vf_t _i = _mm_castsi128_ps( i );
-  if( imm_hi ) _d = _mm_shuffle_ps( _i, _d, _MM_SHUFFLE(1,0,1,0) ); /* Compile time */
-  else         _d = _mm_shuffle_ps( _d, _i, _MM_SHUFFLE(3,2,1,0) );
-  return _mm_castps_si128( _d );
-}
+#define vd_to_vi(d,i,imm_hi) vd_to_vi_fast( _mm_round_pd( (d), _MM_FROUND_TO_ZERO | _MM_FROUND_NO_EXC ), (i), (imm_hi) )
+#define vd_to_vu(d,i,imm_hi) vd_to_vu_fast( _mm_round_pd( (d), _MM_FROUND_TO_ZERO | _MM_FROUND_NO_EXC ), (i), (imm_hi) )
 
 static inline vi_t vd_to_vi_fast( vd_t d, vi_t i, int imm_hi ) {
   vf_t _d = _mm_castsi128_ps( _mm_cvtpd_epi32( d ) ); /* [ d0 d1  0  0 ] */
@@ -270,7 +275,31 @@ static inline vi_t vd_to_vi_fast( vd_t d, vi_t i, int imm_hi ) {
   return _mm_castps_si128( _d );
 }
 
-/* FIXME: IS IT FASTER TO USE INSERT / EXTRACT HERE? */
+static inline vu_t vd_to_vu_fast( vd_t d, vu_t u, int imm_hi ) {
+
+  /* Note: Given that _mm_cvtpd_epi32 exists, Intel clearly has the
+     hardware under the hood to support a _mm_cvtpd_epu32 but didn't
+     bother to expose it pre-AVX512 ... sigh (all too typical
+     unfortunately).  We note that subtracting 2^31 from a double
+     storing an integer in [0,2^32) is exact and the result can be
+     exactly converted to a signed integer by _mm_cvtpd_epi32.  We then
+     use twos complement hacks to add any shift. */
+
+  /**/                                                 // Assumes d is integer in [0,2^32)
+  vd_t s  = vd_bcast( (double)(1UL<<31) );             // (double)2^31
+  vc_t c  = vd_lt ( d, s );                            // -1L if d<2^31, 0L o.w.
+  vd_t ds = vd_sub( d, s );                            // (double)(d-2^31)
+  vu_t v0 = _mm_cvtpd_epi32( vd_if( c, d, ds ) );      // (uint)(d      if d<2^31, d-2^31 o.w.), d/c lanes 2,3
+  vu_t v1 = vu_add( v0, vu_bcast( 1U<<31) );           // (uint)(d+2^31 if d<2^31, d      o.w.), d/c lanes 2,3
+  vu_t v  = vu_if( vc_permute( c, 0,2,0,2 ), v0, v1 ); // (uint)d, d/c lanes 2,3
+  /* Compile time */
+  if( imm_hi ) v = _mm_castps_si128( _mm_shuffle_ps( _mm_castsi128_ps( u ), _mm_castsi128_ps( v ), _MM_SHUFFLE(1,0,1,0) ) );
+  else         v = _mm_castps_si128( _mm_shuffle_ps( _mm_castsi128_ps( v ), _mm_castsi128_ps( u ), _MM_SHUFFLE(3,2,1,0) ) );
+  return v;
+}
+
+/* FIXME: IS IT FASTER TO USE INSERT / EXTRACT FOR THESE? */
+
 static inline __m128i vd_to_vl( vd_t d ) { /* FIXME: workaround vl_t isn't declared at this point */
   union { double d[2]; __m128d v[1]; } t[1];
   union { long   l[2]; __m128i v[1]; } u[1];
@@ -280,10 +309,21 @@ static inline __m128i vd_to_vl( vd_t d ) { /* FIXME: workaround vl_t isn't decla
   return _mm_load_si128( u->v );
 }
 
+static inline __m128i vd_to_vv( vd_t d ) { /* FIXME: workaround vv_t isn't declared at this point */
+  union { double d[2]; __m128d v[1]; } t[1];
+  union { ulong  u[2]; __m128i v[1]; } u[1];
+  _mm_store_pd( t->d, d );
+  u->u[0] = (ulong)t->d[0];
+  u->u[1] = (ulong)t->d[1];
+  return _mm_load_si128( u->v );
+}
+
 #define vd_to_vc_raw(a) _mm_castpd_si128( (a) )
 #define vd_to_vf_raw(a) _mm_castpd_ps(    (a) )
 #define vd_to_vi_raw(a) _mm_castpd_si128( (a) )
+#define vd_to_vu_raw(a) _mm_castpd_si128( (a) )
 #define vd_to_vl_raw(a) _mm_castpd_si128( (a) )
+#define vd_to_vv_raw(a) _mm_castpd_si128( (a) )
 
 /* Reduction operations */
 
@@ -304,9 +344,19 @@ vd_max_all( vd_t a ) { /* Returns vd_bcast( max( x ) ) */
 
 /* Misc operations */
 
-/* vd_gather(b,i,imm_l0,imm_l1) returns [ b[i(imm_l0)] b[i(imm_l1)] ]
-   where b is a  "double const *" and i is a vi_t and imm_l0,imm_l1 are
+/* vd_gather(b,i,imm_i0,imm_i1) returns [ b[i(imm_i0)] b[i(imm_i1)] ]
+   where b is a  "double const *" and i is a vi_t and imm_i0,imm_i1 are
    compile time constants in 0:3. */
 
-#define vd_gather(b,i,imm_l0,imm_l1) _mm_i32gather_pd( (b), _mm_shuffle_epi32( (i), _MM_SHUFFLE(3,2,(imm_l1),(imm_l0))), 8 )
+#define vd_gather(b,i,imm_i0,imm_i1) _mm_i32gather_pd( (b), _mm_shuffle_epi32( (i), _MM_SHUFFLE(3,2,(imm_i1),(imm_i0))), 8 )
 
+/* vd_transpose_2x2 transposes the 2x2 matrix stored in vd_t r0,r1
+   and stores the result in 2x2 matrix vd_t c0,c1.  All c0,c1 should be
+   different for a well defined result.  Otherwise, in-place operation
+   and/or using the same vd_t to specify multiple rows of r is fine. */
+
+#define vd_transpose_2x2( r0,r1, c0,c1 ) do {                     \
+    vd_t _vd_transpose_r0 = (r0); vd_t _vd_transpose_r1 = (r1);   \
+    (c0) = _mm_unpacklo_pd( _vd_transpose_r0, _vd_transpose_r1 ); \
+    (c1) = _mm_unpackhi_pd( _vd_transpose_r0, _vd_transpose_r1 ); \
+  } while(0)
