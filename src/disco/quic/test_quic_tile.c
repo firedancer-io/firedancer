@@ -276,6 +276,10 @@ int main( int     argc,
   memset( cfg->tx_quic_cfg, 0, sizeof(fd_quic_config_t) );
   FD_TEST( fd_quic_config_from_env( &argc, &argv, cfg->tx_quic_cfg ) );
 
+  cfg->tx_quic_cfg->host_cfg.hostname = "test_quic_tile";
+  cfg->tx_quic_cfg->host_cfg.ip_addr  = (uint)listen_addr;
+  cfg->tx_quic_cfg->host_cfg.udp_port = (ushort)udp_port;
+
   fd_quic_transport_params_t * tp = (fd_quic_transport_params_t *)fd_wksp_alloc_laddr( cfg->wksp, alignof(fd_quic_transport_params_t), sizeof(fd_quic_transport_params_t), 1UL );
   FD_TEST( tp );
   memset( tp, 0, sizeof(fd_quic_transport_params_t) );
