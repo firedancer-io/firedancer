@@ -300,6 +300,9 @@ for entry in entries:
                 f["element"] = type_map[f["element"]]
 
 for entry in entries:
+    if "comment" in entry:
+      print("/* " + entry["comment"] + " */", file=header)
+
     n = namespace + "_" + entry["name"]
     
     if "attribute" in entry:

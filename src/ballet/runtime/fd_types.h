@@ -572,6 +572,7 @@ typedef struct fd_vote_state fd_vote_state_t;
 #define FD_VOTE_STATE_FOOTPRINT sizeof(fd_vote_state_t)
 #define FD_VOTE_STATE_ALIGN (8UL)
 
+/* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_instruction.rs#L92-L97 */
 struct fd_vote_state_update {
   unsigned long*     proposed_root;
   ulong              lockouts_len;
