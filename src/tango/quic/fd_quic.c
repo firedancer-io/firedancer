@@ -4869,6 +4869,10 @@ fd_quic_frame_handle_stream_frame(
       /* remove from head of unused streams list */
       context.conn->unused_streams = stream->next;
       stream->next                 = NULL;
+
+      if( FD_LIKELY( context.quic->cb_stream_new ) ) {
+        context.quic->cb_stream_new( stream, context.quic->context, bidir ? FD_QUIC_TYPE_BIDIR : FD_QUIC_TYPE_UNIDIR );
+      }
     } else {
       /* no free streams - concurrent max should handle this */
       FD_LOG_WARNING(( "insufficient space for incoming stream, yet concurrent max not exceeded" ));
@@ -5083,12 +5087,11 @@ fd_quic_frame_handle_new_conn_id_frame(
     fd_quic_new_conn_id_frame_t * data,
     uchar const * p,
     ulong p_sz) {
-  FD_LOG_WARNING(( "NEW_CONNECTION_ID not implemented" ));
   (void)context;
   (void)data;
   (void)p;
   (void)p_sz;
-  return FD_QUIC_PARSE_FAIL;
+  return 0;
 }
 
 static ulong
