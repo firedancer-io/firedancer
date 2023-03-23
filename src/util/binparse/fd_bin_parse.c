@@ -280,28 +280,27 @@ fd_bin_parse_read_option_u64( fd_bin_parse_ctx_t * ctx,
 int
 fd_bin_parse_read_varint_u( fd_bin_parse_ctx_t * ctx,
                             ulong              * x    ) {
-  int success = 0;
   ulong b = 0;
 
-#define READ_UCHAR  do {                                 \
-    CHECK_INPUT_BLOB_SZ_REMAINING( 1 );                  \
-    success = fd_bin_parse_read_u8( ctx, (uchar *)&b );  \
-    if( !success ) {                                     \
-      return 0;                                          \
-    }                                                    \
+#define READ_UCHAR  do {                                             \
+    CHECK_INPUT_BLOB_SZ_REMAINING( 1 );                              \
+    if( !fd_bin_parse_read_u8( ctx, (uchar *)&b ) ) {                \
+      FD_LOG_WARNING(( "unable to read byte in decoding varint" ));  \
+      return 0;                                                      \
+    }                                                                \
 } while(0)                      
   
   *x = 0;
-  READ_UCHAR; *x|=(b&0x7f)<<(7*0); if (b<0x80) return 0+1;
-  READ_UCHAR; *x|=(b&0x7f)<<(7*1); if (b<0x80) return 1+1;
-  READ_UCHAR; *x|=(b&0x7f)<<(7*2); if (b<0x80) return 2+1;
-  READ_UCHAR; *x|=(b&0x7f)<<(7*3); if (b<0x80) return 3+1;
-  READ_UCHAR; *x|=(b&0x7f)<<(7*4); if (b<0x80) return 4+1;
-  READ_UCHAR; *x|=(b&0x7f)<<(7*5); if (b<0x80) return 5+1;
-  READ_UCHAR; *x|=(b&0x7f)<<(7*6); if (b<0x80) return 6+1;
-  READ_UCHAR; *x|=(b&0x7f)<<(7*7); if (b<0x80) return 7+1;
-  READ_UCHAR; *x|=(b&0x7f)<<(7*8); if (b<0x80) return 8+1;
-  READ_UCHAR; *x|=(b&0x7f)<<(7*9); if (b<0x80) return 9+1;
+  READ_UCHAR; *x|=(b&0x7f)<<(7*0); if (b<0x80) return 1;
+  READ_UCHAR; *x|=(b&0x7f)<<(7*1); if (b<0x80) return 1;
+  READ_UCHAR; *x|=(b&0x7f)<<(7*2); if (b<0x80) return 1;
+  READ_UCHAR; *x|=(b&0x7f)<<(7*3); if (b<0x80) return 1;
+  READ_UCHAR; *x|=(b&0x7f)<<(7*4); if (b<0x80) return 1;
+  READ_UCHAR; *x|=(b&0x7f)<<(7*5); if (b<0x80) return 1;
+  READ_UCHAR; *x|=(b&0x7f)<<(7*6); if (b<0x80) return 1;
+  READ_UCHAR; *x|=(b&0x7f)<<(7*7); if (b<0x80) return 1;
+  READ_UCHAR; *x|=(b&0x7f)<<(7*8); if (b<0x80) return 1;
+  READ_UCHAR; *x|=(b&0x7f)<<(7*9); if (b<0x80) return 1;
   return 0;
 
 #undef READ_UCHAR
@@ -311,28 +310,22 @@ int
 fd_bin_parse_write_varint_u( fd_bin_parse_ctx_t * ctx, 
                              ulong                value ) {
 
-  if( !fd_bin_parse_is_enough_space_in_dst( ctx, 10 ) ) {         
-    FD_LOG_WARNING(( "not enough space left in dest buffer" ));   
-    return 0;                                                     
-  }  
+#define WRITE_UCHAR(b)  do {                                                 \
+    if( !fd_bin_parse_write_u8( ctx, b ) ) {                                 \
+      FD_LOG_WARNING(( "error writing byte in encoding value as varint" ));  \
+      return 0;                                                              \
+    }                                                                        \
+} while( 0 )
 
-  ulong n = 0;
-  uchar * out_ptr = fd_bin_parse_get_cur_dst( ctx );
-
-  n+=value>=0x80; out_ptr[0]=(uchar)value|0x80; value>>=7;
-  n+=value>=0x80; out_ptr[1]=(uchar)value|0x80; value>>=7;
-  n+=value>=0x80; out_ptr[2]=(uchar)value|0x80; value>>=7;
-  n+=value>=0x80; out_ptr[3]=(uchar)value|0x80; value>>=7;
-  n+=value>=0x80; out_ptr[4]=(uchar)value|0x80; value>>=7;
-  n+=value>=0x80; out_ptr[5]=(uchar)value|0x80; value>>=7;
-  n+=value>=0x80; out_ptr[6]=(uchar)value|0x80; value>>=7;
-  n+=value>=0x80; out_ptr[7]=(uchar)value|0x80; value>>=7;
-  n+=value>=0x80; out_ptr[8]=(uchar)value|0x80; value>>=7;
-  n+=value>=0x80; out_ptr[9]=(uchar)value|0x80; value>>=7;
-  out_ptr[n] ^= 0x80;
-
-  fd_slice_increment_slice( &(ctx->dst), n+1 );
+  while( value>=0x80 ) {
+    uchar byte = ((uchar)value & 0x7f) | 0x80;
+    WRITE_UCHAR( byte );
+    value >>= 7;
+  }
+  WRITE_UCHAR( (uchar)value );
   return 1;
+
+#undef WRITE_UCHAR
 }
 
 int
