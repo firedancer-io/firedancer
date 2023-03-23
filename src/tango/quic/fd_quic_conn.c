@@ -1,6 +1,7 @@
 #include "fd_quic_conn.h"
 #include "fd_quic_common.h"
 #include "../../util/fd_util.h"
+#include "fd_quic_pkt_meta.h"
 
 /* define a map for stream_id -> stream* */
 #define MAP_NAME              fd_quic_stream_map
@@ -12,7 +13,8 @@
 
 #include "../../util/tmpl/fd_map_dynamic.c"
 
-
+/* TODO maybe introduce a separate parameter for size of pkt_meta
+   pool? */
 ulong
 fd_quic_conn_align( void ) {
   ulong align = fd_ulong_max( alignof( fd_quic_conn_t ), alignof( fd_quic_stream_t ) );
@@ -39,7 +41,8 @@ fd_quic_conn_footprint( ulong tx_buf_sz,
   imem += FD_QUIC_POW2_ALIGN( tot_num_streams * sizeof(void*), align );
 
   /* space for stream instances */
-  imem += FD_QUIC_POW2_ALIGN( tot_num_streams * fd_quic_stream_footprint( tx_buf_sz, rx_buf_sz ), align );
+  imem += FD_QUIC_POW2_ALIGN( tot_num_streams *
+      fd_quic_stream_footprint( tx_buf_sz, rx_buf_sz ), align );
 
   /* space for stream hash map */
   ulong lg = 0;
@@ -119,12 +122,8 @@ fd_quic_conn_new( void *      mem,
   ulong num_pkt_meta = max_in_flight_pkts;
   fd_memset( pkt_meta, 0, num_pkt_meta * sizeof( *pkt_meta ) );
 
-  /* initialize free list of packet metadata */
-  conn->pkt_meta_free = pkt_meta;
-  for( ulong j = 0; j < num_pkt_meta; ++j ) {
-    ulong k = j + 1;
-    pkt_meta[j].next =  k < num_pkt_meta ? pkt_meta + k : NULL;
-  }
+  /* initialize the pkt_meta pool with data */
+  fd_quic_pkt_meta_pool_init( &conn->pkt_meta_pool, pkt_meta, num_pkt_meta );
 
   imem += FD_QUIC_POW2_ALIGN( num_pkt_meta * sizeof( fd_quic_pkt_meta_t ), align );
 
