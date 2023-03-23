@@ -295,7 +295,6 @@ int main( int     argc,
 
   fd_memcpy( cfg->tx_quic_cfg->net.src_mac,           &hwaddr_be,  6UL );
   fd_memcpy( cfg->tx_quic_cfg->net.default_route_mac, &gateway_be, 6UL );
-  cfg->tx_quic_cfg->net.src_ip = (uint)listen_addr;
 
   fd_quic_transport_params_t * tp = (fd_quic_transport_params_t *)fd_wksp_alloc_laddr( cfg->wksp, alignof(fd_quic_transport_params_t), sizeof(fd_quic_transport_params_t), 1UL );
   FD_TEST( tp );
