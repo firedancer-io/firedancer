@@ -520,6 +520,14 @@ typedef struct fd_vote_lockout fd_vote_lockout_t;
 #define FD_VOTE_LOCKOUT_FOOTPRINT sizeof(fd_vote_lockout_t)
 #define FD_VOTE_LOCKOUT_ALIGN (8UL)
 
+struct fd_compact_vote_lockout {
+  unsigned long slot;
+  unsigned char confirmation_count;
+};
+typedef struct fd_compact_vote_lockout fd_compact_vote_lockout_t;
+#define FD_COMPACT_VOTE_LOCKOUT_FOOTPRINT sizeof(fd_compact_vote_lockout_t)
+#define FD_COMPACT_VOTE_LOCKOUT_ALIGN (8UL)
+
 struct fd_vote_authorized_voter {
   unsigned long epoch;
   fd_pubkey_t   pubkey;
@@ -564,12 +572,23 @@ typedef struct fd_vote_state fd_vote_state_t;
 #define FD_VOTE_STATE_FOOTPRINT sizeof(fd_vote_state_t)
 #define FD_VOTE_STATE_ALIGN (8UL)
 
-struct fd_compact_vote_state_update {
-  unsigned long      proposed_root;
-  ushort             lockouts_len;
+struct fd_vote_state_update {
+  unsigned long*     proposed_root;
+  ulong              lockouts_len;
   fd_vote_lockout_t* lockouts;
   fd_hash_t          hash;
   unsigned long*     timestamp;
+};
+typedef struct fd_vote_state_update fd_vote_state_update_t;
+#define FD_VOTE_STATE_UPDATE_FOOTPRINT sizeof(fd_vote_state_update_t)
+#define FD_VOTE_STATE_UPDATE_ALIGN (8UL)
+
+struct fd_compact_vote_state_update {
+  unsigned long              proposed_root;
+  ushort                     lockouts_len;
+  fd_compact_vote_lockout_t* lockouts;
+  fd_hash_t                  hash;
+  unsigned long*             timestamp;
 };
 typedef struct fd_compact_vote_state_update fd_compact_vote_state_update_t;
 #define FD_COMPACT_VOTE_STATE_UPDATE_FOOTPRINT sizeof(fd_compact_vote_state_update_t)
@@ -803,6 +822,11 @@ void fd_vote_lockout_encode(fd_vote_lockout_t* self, void const** data);
 void fd_vote_lockout_destroy(fd_vote_lockout_t* self, fd_free_fun_t freef, void* freef_arg);
 ulong fd_vote_lockout_size(fd_vote_lockout_t* self);
 
+void fd_compact_vote_lockout_decode(fd_compact_vote_lockout_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
+void fd_compact_vote_lockout_encode(fd_compact_vote_lockout_t* self, void const** data);
+void fd_compact_vote_lockout_destroy(fd_compact_vote_lockout_t* self, fd_free_fun_t freef, void* freef_arg);
+ulong fd_compact_vote_lockout_size(fd_compact_vote_lockout_t* self);
+
 void fd_vote_authorized_voter_decode(fd_vote_authorized_voter_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
 void fd_vote_authorized_voter_encode(fd_vote_authorized_voter_t* self, void const** data);
 void fd_vote_authorized_voter_destroy(fd_vote_authorized_voter_t* self, fd_free_fun_t freef, void* freef_arg);
@@ -822,6 +846,11 @@ void fd_vote_state_decode(fd_vote_state_t* self, void const** data, void const* 
 void fd_vote_state_encode(fd_vote_state_t* self, void const** data);
 void fd_vote_state_destroy(fd_vote_state_t* self, fd_free_fun_t freef, void* freef_arg);
 ulong fd_vote_state_size(fd_vote_state_t* self);
+
+void fd_vote_state_update_decode(fd_vote_state_update_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
+void fd_vote_state_update_encode(fd_vote_state_update_t* self, void const** data);
+void fd_vote_state_update_destroy(fd_vote_state_update_t* self, fd_free_fun_t freef, void* freef_arg);
+ulong fd_vote_state_update_size(fd_vote_state_update_t* self);
 
 void fd_compact_vote_state_update_decode(fd_compact_vote_state_update_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
 void fd_compact_vote_state_update_encode(fd_compact_vote_state_update_t* self, void const** data);

@@ -1582,7 +1582,7 @@ void fd_sol_sysvar_clock_encode(fd_sol_sysvar_clock_t* self, void const** data) 
 }
 
 void fd_vote_lockout_decode(fd_vote_lockout_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
-  fd_decode_varint(&self->slot, data, dataend);
+  fd_bincode_uint64_decode(&self->slot, data, dataend);
   fd_bincode_uint8_decode(&self->confirmation_count, data, dataend);
 }
 void fd_vote_lockout_destroy(fd_vote_lockout_t* self, fd_free_fun_t freef, void* freef_arg) {
@@ -1596,6 +1596,25 @@ ulong fd_vote_lockout_size(fd_vote_lockout_t* self) {
 }
 
 void fd_vote_lockout_encode(fd_vote_lockout_t* self, void const** data) {
+  fd_bincode_uint64_encode(&self->slot, data);
+  fd_bincode_uint8_encode(&self->confirmation_count, data);
+}
+
+void fd_compact_vote_lockout_decode(fd_compact_vote_lockout_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
+  fd_decode_varint(&self->slot, data, dataend);
+  fd_bincode_uint8_decode(&self->confirmation_count, data, dataend);
+}
+void fd_compact_vote_lockout_destroy(fd_compact_vote_lockout_t* self, fd_free_fun_t freef, void* freef_arg) {
+}
+
+ulong fd_compact_vote_lockout_size(fd_compact_vote_lockout_t* self) {
+  ulong size = 0;
+  size += sizeof(ulong);
+  size += sizeof(char);
+  return size;
+}
+
+void fd_compact_vote_lockout_encode(fd_compact_vote_lockout_t* self, void const** data) {
   fd_encode_varint(self->slot, (uchar **) data);
   fd_bincode_uint8_encode(&self->confirmation_count, data);
 }
@@ -1776,9 +1795,13 @@ void fd_vote_state_encode(fd_vote_state_t* self, void const** data) {
   fd_bincode_uint64_encode(&self->latest_timestamp, data);
 }
 
-void fd_compact_vote_state_update_decode(fd_compact_vote_state_update_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
-  fd_bincode_uint64_decode(&self->proposed_root, data, dataend);
-  fd_decode_short_u16(&self->lockouts_len, data, dataend);
+void fd_vote_state_update_decode(fd_vote_state_update_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
+  if (fd_bincode_option_decode(data, dataend)) {
+    self->proposed_root = (ulong*)(*allocf)(sizeof(ulong), 8, allocf_arg);
+    fd_bincode_uint64_decode(self->proposed_root, data, dataend);
+  } else
+    self->proposed_root = NULL;
+  fd_bincode_uint64_decode(&self->lockouts_len, data, dataend);
   if (self->lockouts_len != 0) {
     self->lockouts = (fd_vote_lockout_t*)(*allocf)(FD_VOTE_LOCKOUT_FOOTPRINT*self->lockouts_len, FD_VOTE_LOCKOUT_ALIGN, allocf_arg);
     for (ulong i = 0; i < self->lockouts_len; ++i)
@@ -1792,10 +1815,80 @@ void fd_compact_vote_state_update_decode(fd_compact_vote_state_update_t* self, v
   } else
     self->timestamp = NULL;
 }
-void fd_compact_vote_state_update_destroy(fd_compact_vote_state_update_t* self, fd_free_fun_t freef, void* freef_arg) {
+void fd_vote_state_update_destroy(fd_vote_state_update_t* self, fd_free_fun_t freef, void* freef_arg) {
+  if (NULL != self->proposed_root) {
+    freef(self->proposed_root, freef_arg);
+    self->proposed_root = NULL;
+  }
   if (NULL != self->lockouts) {
     for (ulong i = 0; i < self->lockouts_len; ++i)
       fd_vote_lockout_destroy(self->lockouts + i,  freef, freef_arg);
+    freef(self->lockouts, freef_arg);
+    self->lockouts = NULL;
+  }
+  fd_hash_destroy(&self->hash, freef, freef_arg);
+  if (NULL != self->timestamp) {
+    freef(self->timestamp, freef_arg);
+    self->timestamp = NULL;
+  }
+}
+
+ulong fd_vote_state_update_size(fd_vote_state_update_t* self) {
+  ulong size = 0;
+  size += sizeof(char);
+  if (NULL !=  self->proposed_root) {
+    size += sizeof(ulong);
+  }
+  size += sizeof(ulong);
+  for (ulong i = 0; i < self->lockouts_len; ++i)
+    size += fd_vote_lockout_size(self->lockouts + i);
+  size += fd_hash_size(&self->hash);
+  size += sizeof(char);
+  if (NULL !=  self->timestamp) {
+    size += sizeof(ulong);
+  }
+  return size;
+}
+
+void fd_vote_state_update_encode(fd_vote_state_update_t* self, void const** data) {
+  if (self->proposed_root!= NULL) {
+    fd_bincode_option_encode(1, data);
+    fd_bincode_uint64_encode(self->proposed_root, data);
+  } else
+    fd_bincode_option_encode(0, data);
+  fd_bincode_uint64_encode(&self->lockouts_len, data);
+  if (self->lockouts_len != 0) {
+    for (ulong i = 0; i < self->lockouts_len; ++i)
+      fd_vote_lockout_encode(self->lockouts + i, data);
+  }
+  fd_hash_encode(&self->hash, data);
+  if (self->timestamp!= NULL) {
+    fd_bincode_option_encode(1, data);
+    fd_bincode_uint64_encode(self->timestamp, data);
+  } else
+    fd_bincode_option_encode(0, data);
+}
+
+void fd_compact_vote_state_update_decode(fd_compact_vote_state_update_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
+  fd_bincode_uint64_decode(&self->proposed_root, data, dataend);
+  fd_decode_short_u16(&self->lockouts_len, data, dataend);
+  if (self->lockouts_len != 0) {
+    self->lockouts = (fd_compact_vote_lockout_t*)(*allocf)(FD_COMPACT_VOTE_LOCKOUT_FOOTPRINT*self->lockouts_len, FD_COMPACT_VOTE_LOCKOUT_ALIGN, allocf_arg);
+    for (ulong i = 0; i < self->lockouts_len; ++i)
+      fd_compact_vote_lockout_decode(self->lockouts + i, data, dataend, allocf, allocf_arg);
+  } else
+    self->lockouts = NULL;
+  fd_hash_decode(&self->hash, data, dataend, allocf, allocf_arg);
+  if (fd_bincode_option_decode(data, dataend)) {
+    self->timestamp = (ulong*)(*allocf)(sizeof(ulong), 8, allocf_arg);
+    fd_bincode_uint64_decode(self->timestamp, data, dataend);
+  } else
+    self->timestamp = NULL;
+}
+void fd_compact_vote_state_update_destroy(fd_compact_vote_state_update_t* self, fd_free_fun_t freef, void* freef_arg) {
+  if (NULL != self->lockouts) {
+    for (ulong i = 0; i < self->lockouts_len; ++i)
+      fd_compact_vote_lockout_destroy(self->lockouts + i,  freef, freef_arg);
     freef(self->lockouts, freef_arg);
     self->lockouts = NULL;
   }
@@ -1811,7 +1904,7 @@ ulong fd_compact_vote_state_update_size(fd_compact_vote_state_update_t* self) {
   size += sizeof(ulong);
   size += sizeof(ulong);
   for (ulong i = 0; i < self->lockouts_len; ++i)
-    size += fd_vote_lockout_size(self->lockouts + i);
+    size += fd_compact_vote_lockout_size(self->lockouts + i);
   size += fd_hash_size(&self->hash);
   size += sizeof(char);
   if (NULL !=  self->timestamp) {
@@ -1825,7 +1918,7 @@ void fd_compact_vote_state_update_encode(fd_compact_vote_state_update_t* self, v
   fd_encode_short_u16(&self->lockouts_len, (void **) data);
   if (self->lockouts_len != 0) {
     for (ulong i = 0; i < self->lockouts_len; ++i)
-      fd_vote_lockout_encode(self->lockouts + i, data);
+      fd_compact_vote_lockout_encode(self->lockouts + i, data);
   }
   fd_hash_encode(&self->hash, data);
   if (self->timestamp!= NULL) {

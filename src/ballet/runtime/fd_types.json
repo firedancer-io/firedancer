@@ -502,6 +502,14 @@
       "name": "vote_lockout",
       "type": "struct",
       "fields": [
+          { "name": "slot", "type": "uint64_t" },
+          { "name": "confirmation_count", "type": "uchar" }
+      ]
+    },
+    {
+      "name": "compact_vote_lockout",
+      "type": "struct",
+      "fields": [
           { "name": "slot", "type": "uint64_t",  "modifier": "varint" },
           { "name": "confirmation_count", "type": "uchar" }
       ]
@@ -548,11 +556,21 @@
       ]
     },
     {
+      "name": "vote_state_update",
+      "type": "struct",
+      "fields": [
+        { "name": "proposed_root", "type": "option", "element": "ulong" },
+        { "name": "lockouts", "type": "vector", "element": "vote_lockout" },
+        { "name": "hash", "type": "hash" },
+        { "name": "timestamp", "type": "option", "element": "ulong" }
+      ]
+    },
+    {
       "name": "compact_vote_state_update",
       "type": "struct",
       "fields": [
           { "name": "proposed_root", "type": "ulong" },
-          { "name": "lockouts", "type": "vector", "element": "vote_lockout", "modifier": "compact" },
+          { "name": "lockouts", "type": "vector", "element": "compact_vote_lockout", "modifier": "compact" },
           { "name": "hash", "type": "hash" },
           { "name": "timestamp", "type": "option", "element": "ulong" }
       ]
