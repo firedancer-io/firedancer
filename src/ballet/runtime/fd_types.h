@@ -574,9 +574,9 @@ typedef struct fd_vote_state fd_vote_state_t;
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L185 */
 struct fd_vote_state_update {
-  unsigned long*     proposed_root;
   ulong              lockouts_len;
   fd_vote_lockout_t* lockouts;
+  unsigned long*     proposed_root;
   fd_hash_t          hash;
   unsigned long*     timestamp;
 };
