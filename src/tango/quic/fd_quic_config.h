@@ -114,8 +114,9 @@ struct fd_quic_host_cfg {
 
 
 struct fd_quic_config {
-  char                         cert_file[ PATH_MAX ];  /* certificate file path */
-  char                         key_file [ PATH_MAX ];  /* private key file path */
+  char                         cert_file  [ PATH_MAX ];  /* certificate file path */
+  char                         key_file   [ PATH_MAX ];  /* private key file path */
+  char                         keylog_file[ PATH_MAX ];  /* NSS key log file */
 
   fd_quic_transport_params_t * transport_params;       /* transport parameters for connections */
 
