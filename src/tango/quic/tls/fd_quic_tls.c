@@ -51,6 +51,7 @@ fd_quic_create_context( fd_quic_tls_t * quic_tls,
 
 fd_quic_tls_t *
 fd_quic_tls_new( fd_quic_tls_cfg_t * cfg ) {
+  /* TODO eliminate malloc */
   fd_quic_tls_t * self = calloc( sizeof( fd_quic_tls_t ), 1 );
   if( !self ) {
     return NULL;
@@ -87,6 +88,12 @@ fd_quic_tls_new( fd_quic_tls_cfg_t * cfg ) {
 
   // create ssl context
   self->ssl_ctx = fd_quic_create_context( self, cfg->cert_file, cfg->key_file );
+  if( FD_UNLIKELY( !self->ssl_ctx ) ) {
+    FD_LOG_WARNING(( "NULL fd_quic_create_context" ));
+    free( handshakes );
+    free( self );
+    return NULL;
+  }
 
   /* keep pointer to ALPNs */
   self->alpns    = cfg->alpns;
@@ -554,6 +561,32 @@ SSL_QUIC_METHOD quic_method = {
   fd_quic_ssl_send_alert };
 
 
+static int
+alpn_select_cb( SSL * ssl,
+                uchar const ** out,
+                uchar       *  outlen,
+                uchar const *  in,
+                uint           inlen,
+                void *         arg ) {
+
+  (void)ssl; (void)arg;
+
+  /* sigh .. SSL_select_next_proto is clearly intended
+     to be used from the application callback but the
+     out value expected differs in constness.  According
+     to https://grep.app/search?q=SSL_select_next_proto
+     the whole world just casts the out array to a non-
+     const, so we do it here too.  Not to mention the
+     helper returns 1 on success and the callback
+     returns 0.  */
+
+  if( FD_UNLIKELY( SSL_select_next_proto( (uchar **)out, outlen, (uchar const *)"\xasolana-tpu", 11U, in, inlen )!=OPENSSL_NPN_NEGOTIATED ) ) {
+    return SSL_TLSEXT_ERR_NOACK;
+  }
+
+  return SSL_TLSEXT_ERR_OK;
+}
+
 SSL_CTX *
 fd_quic_create_context( fd_quic_tls_t * quic_tls, char const * cert_file, char const * key_file ) {
     const SSL_METHOD * method;
@@ -566,6 +599,7 @@ fd_quic_create_context( fd_quic_tls_t * quic_tls, char const * cert_file, char c
       quic_tls->err_ssl_rc  = 0;
       quic_tls->err_ssl_err = 0;
       quic_tls->err_line    = __LINE__;
+      FD_LOG_WARNING(( "SSL_CTX_new failed" ));
 
       return NULL;
     }
@@ -576,6 +610,7 @@ fd_quic_create_context( fd_quic_tls_t * quic_tls, char const * cert_file, char c
       quic_tls->err_line    = __LINE__;
 
       SSL_CTX_free( ctx );
+      FD_LOG_WARNING(( "SSL_CTX_set_min_proto_version failed" ));
 
       return NULL;
     }
@@ -587,6 +622,7 @@ fd_quic_create_context( fd_quic_tls_t * quic_tls, char const * cert_file, char c
       quic_tls->err_line    = __LINE__;
 
       SSL_CTX_free( ctx );
+      FD_LOG_WARNING(( "SSL_CTX_set_max_proto_version failed" ));
 
       return NULL;
     }
@@ -597,6 +633,7 @@ fd_quic_create_context( fd_quic_tls_t * quic_tls, char const * cert_file, char c
       quic_tls->err_line    = __LINE__;
 
       SSL_CTX_free( ctx );
+      FD_LOG_WARNING(( "SSL_CTX_set_ciphersuites failed" ));
 
       return NULL;
     }
@@ -607,6 +644,7 @@ fd_quic_create_context( fd_quic_tls_t * quic_tls, char const * cert_file, char c
       quic_tls->err_line    = __LINE__;
 
       SSL_CTX_free( ctx );
+      FD_LOG_WARNING(( "SSL_CTX_set_quic_method failed" ));
 
       return NULL;
     }
@@ -619,6 +657,7 @@ fd_quic_create_context( fd_quic_tls_t * quic_tls, char const * cert_file, char c
         quic_tls->err_line    = __LINE__;
 
         SSL_CTX_free( ctx );
+        FD_LOG_WARNING(( "Failed to load SSL cert" ));
 
         return NULL;
       }
@@ -631,10 +670,22 @@ fd_quic_create_context( fd_quic_tls_t * quic_tls, char const * cert_file, char c
         quic_tls->err_line    = __LINE__;
 
         SSL_CTX_free( ctx );
+        FD_LOG_WARNING(( "Failed to load SSL key" ));
 
         return NULL;
       }
     }
+
+    /* solana actual: "solana-tpu" */
+    if( SSL_CTX_set_alpn_protos( ctx, quic_tls->alpns, quic_tls->alpns_sz ) != 0 ) {
+
+      SSL_CTX_free( ctx );
+      FD_LOG_WARNING(( "SSL_set_alpn_protos failed" ));
+
+      return NULL;
+    }
+
+    SSL_CTX_set_alpn_select_cb( ctx, alpn_select_cb, NULL );
 
     //SSL_CTX_set_options(
     //    ctx,

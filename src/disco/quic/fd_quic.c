@@ -310,8 +310,8 @@ fd_quic_tile( fd_cnc_t *         cnc,
 
     if( FD_UNLIKELY( !quic_cfg ) ) { FD_LOG_WARNING(( "NULL quic cfg" )); return 1; }
 
-    quic_cfg->alpns    = (uchar const *)"solana-tpu";
-    quic_cfg->alpns_sz = 10UL;
+    quic_cfg->alpns    = (uchar const *)"\xasolana-tpu";
+    quic_cfg->alpns_sz = 11UL;
 
     /* quic server init */
 

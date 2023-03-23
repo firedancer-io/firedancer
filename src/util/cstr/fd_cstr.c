@@ -24,7 +24,28 @@ double       fd_cstr_to_double( char const * cstr ) { return         strtod ( cs
 
 ulong fd_cstr_to_ulong_octal( char const * cstr ) { return (ulong)strtoul( cstr, NULL, 8 ); }
 
+#define FD_ETH_MAC_FMT         "%02x:%02x:%02x:%02x:%02x:%02x"
+
 #if FD_HAS_HOSTED
+ulong
+fd_cstr_to_mac_addr( char const * s ) {
+  int  n=0;
+  uint x[6];
+
+  int res = sscanf( s, FD_ETH_MAC_FMT"%n", &x[0], &x[1], &x[2], &x[3], &x[4], &x[5], &n );
+
+  if( FD_UNLIKELY( res!=6 || n!=17 ) )
+    return ULONG_MAX;
+
+  return
+    (         (uchar)x[5]
+    | ((ulong)(uchar)x[4]<< 8)
+    | ((ulong)(uchar)x[3]<<16)
+    | ((ulong)(uchar)x[2]<<24)
+    | ((ulong)(uchar)x[1]<<32)
+    | ((ulong)(uchar)x[0]<<40) );
+}
+
 /* TODO: Provide a non-hosted implementation */
 ulong
 fd_cstr_to_ip4_addr( char const * s ) {

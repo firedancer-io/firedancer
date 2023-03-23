@@ -178,11 +178,13 @@ fd_quic_tx_enc_level( fd_quic_conn_t * conn ) {
       if( !(conn->flags & FD_QUIC_CONN_FLAGS_CLOSE_SENT ) ) {
         if( conn->handshake_complete ) {
           return fd_quic_enc_level_appdata_id;
-        } else {
+        } else if( conn->suites[ fd_quic_enc_level_handshake_id ] ) {
           return fd_quic_enc_level_handshake_id;
+        } else {
+          return fd_quic_enc_level_initial_id;
         }
       }
-      break;
+      return ~0u;
 
     case FD_QUIC_CONN_STATE_ACTIVE:
       {
@@ -572,6 +574,10 @@ fd_quic_init( void *             shmem,
   tls_cfg.alpns_sz              = config->alpns_sz;
 
   quic->quic_tls = fd_quic_tls_new( &tls_cfg );
+  if( FD_UNLIKELY( !quic->quic_tls ) ) {
+    FD_LOG_WARNING(( "NULL fd_quic_tls_new" ));
+    return NULL;
+  }
 
   /* set up networking parameters */
   fd_memcpy( &quic->net, &config->net, sizeof( quic->net ) );
@@ -3577,9 +3583,9 @@ fd_quic_conn_tx( fd_quic_t * quic, fd_quic_conn_t * conn ) {
 
     int server = conn->server;
 
-    if( fd_quic_crypto_encrypt( conn->tx_ptr, &cipher_text_sz, hdr, hdr_sz,
-          pay, pay_sz, suite, &conn->keys[enc_level][server]  ) != FD_QUIC_SUCCESS ) {
-      FD_LOG_ERR(( "%s : fd_quic_crypto_encrypt failed", __func__ ));
+    if( FD_UNLIKELY( fd_quic_crypto_encrypt( conn->tx_ptr, &cipher_text_sz, hdr, hdr_sz,
+          pay, pay_sz, suite, &conn->keys[enc_level][server]  ) != FD_QUIC_SUCCESS ) ) {
+      FD_LOG_ERR(( "fd_quic_crypto_encrypt failed" ));
       return;
     }
 
@@ -5261,7 +5267,7 @@ fd_quic_config_from_env( int * pargc,
   char const * cert_file             = fd_env_strip_cmdline_cstr ( pargc, pargv, "--ssl-cert",                   "SSL_CERT_FILE",              NULL   );
   char const * key_file              = fd_env_strip_cmdline_cstr ( pargc, pargv, "--ssl-key",                    "SSL_KEY_FILE",               NULL   );
   ulong        max_concur_conns      = fd_env_strip_cmdline_ulong( pargc, pargv, "--quic-max-concur-conns",      "QUIC_MAX_CONCUR_CONNS",      1024UL );
-  ulong        max_concur_conn_ids   = fd_env_strip_cmdline_ulong( pargc, pargv, "--quic-max-concur-conn-ids",   "QUIC_MAX_CONCUR_CONN_IDS",   1024UL );
+  ulong        max_concur_conn_ids   = fd_env_strip_cmdline_ulong( pargc, pargv, "--quic-max-concur-conn-ids",   "QUIC_MAX_CONCUR_CONN_IDS",     16UL );
   uint         max_concur_streams    = fd_env_strip_cmdline_uint ( pargc, pargv, "--quic-max-concur-streams",    "QUIC_MAX_CONCUR_STREAMS",      16UL );
   uint         max_concur_handshakes = fd_env_strip_cmdline_uint ( pargc, pargv, "--quic-max-concur-handshakes", "QUIC_MAX_CONCUR_HANDSHAKES",  128UL );
   ulong        max_inflight_pkts     = fd_env_strip_cmdline_ulong( pargc, pargv, "--quic-max-inflight-pkts",     "QUIC_MAX_INFLIGHT_PKTS",      128UL );

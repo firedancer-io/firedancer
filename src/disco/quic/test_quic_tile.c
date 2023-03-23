@@ -180,6 +180,8 @@ int main( int     argc,
   uint         ifqueue      =       fd_env_strip_cmdline_uint  ( &argc, &argv, "--ifqueue",   NULL, 0U                           );
   char const * _listen_addr =       fd_env_strip_cmdline_cstr  ( &argc, &argv, "--listen",    NULL, NULL                         );
   uint         udp_port     =       fd_env_strip_cmdline_uint  ( &argc, &argv, "--port",      NULL, 8080U                        );
+  char const * _hwaddr      =       fd_env_strip_cmdline_cstr  ( &argc, &argv, "--hwaddr",    NULL, NULL                         );
+  char const * _gateway     =       fd_env_strip_cmdline_cstr  ( &argc, &argv, "--gateway",   NULL, NULL                         );
 
   char const * app_name = "test_quic_tile";
 
@@ -195,6 +197,14 @@ int main( int     argc,
   if( FD_UNLIKELY( listen_addr==ULONG_MAX ) ) FD_LOG_ERR(( "invalid IPv4 address \"%s\"", _listen_addr ));
 
   if( FD_UNLIKELY( udp_port<=0 || udp_port>USHORT_MAX ) ) FD_LOG_ERR(( "invalid UDP port %d", udp_port ));
+
+  if( FD_UNLIKELY( !_hwaddr ) ) FD_LOG_ERR(( "missing --hwaddr" ));
+  ulong hwaddr = fd_cstr_to_mac_addr( _hwaddr );
+  if( FD_UNLIKELY( hwaddr==ULONG_MAX ) ) FD_LOG_ERR(( "invalid hwaddr \"%s\"", _hwaddr ));
+
+  if( FD_UNLIKELY( !_gateway ) ) FD_LOG_ERR(( "missing --gateway" ));
+  ulong gateway = fd_cstr_to_mac_addr( _gateway );
+  if( FD_UNLIKELY( gateway==ULONG_MAX ) ) FD_LOG_ERR(( "invalid gateway \"%s\"", _gateway ));
 
   long  hb0  = fd_tickcount();
   ulong seq0 = fd_rng_ulong( rng );
@@ -280,6 +290,13 @@ int main( int     argc,
   cfg->tx_quic_cfg->host_cfg.ip_addr  = (uint)listen_addr;
   cfg->tx_quic_cfg->host_cfg.udp_port = (ushort)udp_port;
 
+  ulong hwaddr_be  = fd_ulong_bswap( hwaddr <<16 );
+  ulong gateway_be = fd_ulong_bswap( gateway<<16 );
+
+  fd_memcpy( cfg->tx_quic_cfg->net.src_mac,           &hwaddr_be,  6UL );
+  fd_memcpy( cfg->tx_quic_cfg->net.default_route_mac, &gateway_be, 6UL );
+  cfg->tx_quic_cfg->net.src_ip = (uint)listen_addr;
+
   fd_quic_transport_params_t * tp = (fd_quic_transport_params_t *)fd_wksp_alloc_laddr( cfg->wksp, alignof(fd_quic_transport_params_t), sizeof(fd_quic_transport_params_t), 1UL );
   FD_TEST( tp );
   memset( tp, 0, sizeof(fd_quic_transport_params_t) );
@@ -293,9 +310,9 @@ int main( int     argc,
   tp->initial_max_stream_data_bidi_remote_present    = 1;
   tp->initial_max_stream_data_uni                    = 1048576;
   tp->initial_max_stream_data_uni_present            = 1;
-  tp->initial_max_streams_bidi                       = 128;
+  tp->initial_max_streams_bidi                       = cfg->tx_quic_cfg->max_concur_streams;
   tp->initial_max_streams_bidi_present               = 1;
-  tp->initial_max_streams_uni                        = 128;
+  tp->initial_max_streams_uni                        = cfg->tx_quic_cfg->max_concur_streams;
   tp->initial_max_streams_uni_present                = 1;
   tp->ack_delay_exponent                             = 3;
   tp->ack_delay_exponent_present                     = 1;
