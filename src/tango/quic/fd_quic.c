@@ -1012,11 +1012,7 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
     /* choose new destination connection id */
     fd_quic_conn_id_t new_conn_id = {8u,{0},{0}};
 
-#if 0
     fd_quic_crypto_rand( new_conn_id.conn_id, 8u );
-#else
-    new_conn_id = *conn_id; /* TEST TODO remove */
-#endif
 
     /* insert into connection map */
     insert_entry = fd_quic_conn_map_insert( quic->conn_map, &new_conn_id );
@@ -1040,8 +1036,6 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
     conn->server               = 1;
     conn->version              = pkt->long_hdr->version;
     conn->host                 = quic->host_cfg;
-    conn->orig_conn_id.sz      = 0;
-    conn->our_conn_id_cnt      = 0;
     conn->peer_cnt             = 0;
     conn->cur_conn_id_idx      = 0;
     conn->cur_peer_idx         = 0;
@@ -1104,10 +1098,6 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
     ulong our_conn_id_idx = conn->our_conn_id_cnt;
     conn->our_conn_id[our_conn_id_idx] = new_conn_id;
     conn->our_conn_id_cnt++;
-
-    /* keep original connection id */
-    /* TODO we may not need to keep this indefinitely */
-    conn->orig_conn_id = orig_conn_id;
 
     /* initial source connection id */
     conn->initial_source_conn_id = new_conn_id;
@@ -3741,7 +3731,7 @@ fd_quic_conn_service( fd_quic_t * quic, fd_quic_conn_t * conn, ulong now ) {
           conn->state = FD_QUIC_CONN_STATE_ACTIVE;
 
           /* user callback */
-          if( conn->quic->cb_conn_new ) {
+          if( FD_LIKELY( conn->quic->cb_conn_new ) ) {
             conn->quic->cb_conn_new( conn, conn->quic->context );
           }
         }
@@ -5093,6 +5083,7 @@ fd_quic_frame_handle_new_conn_id_frame(
     fd_quic_new_conn_id_frame_t * data,
     uchar const * p,
     ulong p_sz) {
+  FD_LOG_WARNING(( "NEW_CONNECTION_ID not implemented" ));
   (void)context;
   (void)data;
   (void)p;

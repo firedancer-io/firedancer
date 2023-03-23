@@ -142,9 +142,6 @@ struct fd_quic_conn {
 
   ulong              local_conn_id;       /* FIXME: hack to locally identify conns */
 
-  /* the original connection id is specified by the client */
-  fd_quic_conn_id_t  orig_conn_id;        /* unused by client connections */
-
   ushort             our_conn_id_cnt;     /* number of connection ids */
   ushort             peer_cnt;            /* number of peer endpoints */
 
