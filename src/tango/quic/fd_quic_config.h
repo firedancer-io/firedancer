@@ -185,9 +185,6 @@ struct fd_quic_config {
 
     /* source interface MAC address */
     uchar                              src_mac[6];
-
-    /* source ip address */
-    uint                               src_ip;
   } net;
 };
 typedef struct fd_quic_config fd_quic_config_t;

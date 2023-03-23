@@ -8,6 +8,7 @@
 #include "crypto/fd_quic_crypto_suites.h"
 #include "tls/fd_quic_tls.h"
 #include "templ/fd_quic_transport_params.h"
+#include "fd_quic_pkt_meta.h"
 
 enum {
   FD_QUIC_CONN_STATE_HANDSHAKE,          /* currently doing handshaking with peer */
@@ -43,58 +44,7 @@ enum {
 
 typedef struct fd_quic            fd_quic_t;
 typedef struct fd_quic_conn       fd_quic_conn_t;
-typedef struct fd_quic_pkt_meta   fd_quic_pkt_meta_t;
 typedef struct fd_quic_ack        fd_quic_ack_t;
-typedef struct fd_quic_range      fd_quic_range_t;
-
-struct fd_quic_range {
-  /* offset in [ offset_lo, offset_hi ) is considered inside the range */
-  /* a zero-initialized range will be empty [0,0) */
-  ulong offset_lo;
-  ulong offset_hi;
-};
-
-
-/* fd_quic_pkt_meta
-
-   tracks the metadata of data sent to the peer
-   used when acks arrive to determine what is being acked specifically */
-struct fd_quic_pkt_meta {
-  /* stores meta data about what was sent in the identified packet */
-  ulong         pkt_number;  /* the packet number */
-  uchar         enc_level;   /* every packet is sent at a specific enc_level */
-  uchar         pn_space;    /* packet number space (must be consistent with enc_level)  */
-
-  /* does the referenced packet contain:
-           FD_QUIC_PKT_META_FLAGS_HS_DATA                   handshake data
-           FD_QUIC_PKT_META_FLAGS_STREAM                    stream data
-           FD_QUIC_PKT_META_FLAGS_HS_DONE                   handshake-done frame
-           FD_QUIC_PKT_META_FLAGS_MAX_DATA                  max_data frame
-           FD_QUIC_PKT_META_FLAGS_MAX_STREAM_DATA           max_stream_data frame
-           FD_QUIC_PKT_META_FLAGS_MAX_STREAMS_UNIDIR        max_streams frame (unidir)
-           FD_QUIC_PKT_META_FLAGS_MAX_STREAMS_BIDIR         max_streams frame (bidir)
-           FD_QUIC_PKT_META_FLAGS_ACK                       acknowledgement
-           FD_QUIC_PKT_META_FLAGS_CLOSE                     close frame */
-  uint        flags;       /* flags */
-# define          FD_QUIC_PKT_META_FLAGS_HS_DATA            (1u<<0u)
-# define          FD_QUIC_PKT_META_FLAGS_STREAM             (1u<<1u)
-# define          FD_QUIC_PKT_META_FLAGS_HS_DONE            (1u<<2u)
-# define          FD_QUIC_PKT_META_FLAGS_MAX_DATA           (1u<<3u)
-# define          FD_QUIC_PKT_META_FLAGS_MAX_STREAM_DATA    (1u<<4u)
-# define          FD_QUIC_PKT_META_FLAGS_MAX_STREAMS_UNIDIR (1u<<5u)
-# define          FD_QUIC_PKT_META_FLAGS_MAX_STREAMS_BIDIR  (1u<<6u)
-# define          FD_QUIC_PKT_META_FLAGS_ACK                (1u<<7u)
-# define          FD_QUIC_PKT_META_FLAGS_CLOSE              (1u<<8u)
-  fd_quic_range_t range;       /* range of bytes referred to by this meta */
-                               /* stream data or crypto data */
-                               /* we currently do not put both in the same packet */
-  ulong        stream_id;   /* if this contains stream data, the stream id, else zero */
-
-  /* TODO add timeout */
-
-  fd_quic_pkt_meta_t * next;   /* next in current list */
-};
-
 
 /* we track the range of offsets we acked for handshake and stream data
    these get freed when a packet containing the relevant acks is acked by the
@@ -257,10 +207,8 @@ struct fd_quic_conn {
 
   ulong num_streams[4];         /* current number of streams of each type */
 
-  fd_quic_pkt_meta_t * pkt_meta;           /* pkt_meta contiguous storage */
-  fd_quic_pkt_meta_t * pkt_meta_free;      /* pkt_meta free list */
-  fd_quic_pkt_meta_t * pkt_meta_tx[4];     /* pkt metadata head per enc level */
-  fd_quic_pkt_meta_t * pkt_meta_tx_end[4]; /* pkt metadata end  per enc level */
+  /* TODO find better name than pool */
+  fd_quic_pkt_meta_pool_t pkt_meta_pool;
 
   fd_quic_ack_t *      acks;               /* array of acks allocate during init */
   fd_quic_ack_t *      acks_free;          /* free list of acks */
@@ -314,6 +262,8 @@ struct fd_quic_conn {
   fd_quic_conn_t *     next;               /* next connection in the free list, or in service list */
 };
 
+FD_PROTOTYPES_BEGIN
+
 /* returns the alignment requirement of fd_quic_conn_t */
 FD_FN_CONST
 ulong
@@ -352,6 +302,7 @@ fd_quic_conn_new( void *      shmem,
                   ulong       max_concur_streams_per_type,
                   ulong       max_in_flight_pkts );
 
+FD_PROTOTYPES_END
 
 #endif
 
