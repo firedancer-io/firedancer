@@ -184,6 +184,9 @@ fd_quic_init( void *             shmem,
 fd_quic_t *
 fd_quic_join( void * shmem );
 
+void *
+fd_quic_leave( fd_quic_t * quic );
+
 /* fd_quic_delete
 
    frees all related resources
