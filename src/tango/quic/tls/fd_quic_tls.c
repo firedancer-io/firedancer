@@ -6,6 +6,7 @@
 
 #include <stdlib.h>
 #include <string.h>
+#include <sys/uio.h>
 
 // some prototypes
 
@@ -22,7 +23,7 @@ fd_quic_ssl_flush_flight( SSL * ssl );
 int
 fd_quic_ssl_send_alert( SSL *                       ssl,
                         enum ssl_encryption_level_t level,
-                        uchar                     alert );
+                        uchar                       alert );
 
 int
 fd_quic_ssl_client_hello( SSL *  ssl,
@@ -61,6 +62,8 @@ fd_quic_tls_new( fd_quic_tls_cfg_t * cfg ) {
   self->alert_cb              = cfg->alert_cb;
   self->secret_cb             = cfg->secret_cb;
   self->handshake_complete_cb = cfg->handshake_complete_cb;
+  self->keylog_cb             = cfg->keylog_cb;
+  self->keylog_fd             = cfg->keylog_fd;
 
   self->max_concur_handshakes = cfg->max_concur_handshakes;
 
@@ -504,13 +507,31 @@ fd_quic_ssl_client_hello( SSL *  ssl,
 
 typedef void (*SSL_CTX_keylog_cb_func)(const SSL *ssl, const char *line);
 
-void
-fd_quic_ssl_keylog_cb( SSL const * ssl, char const * line ) {
-  fd_quic_tls_hs_t * hs = SSL_get_app_data( ssl );
-  (void)hs;
-  /* TODO this is debugging code... remove */
-  printf( "KEYLOG: %s\n", line );
-  fflush( stdout );
+/* fd_quic_ssl_keylog bounces an OpenSSL callback to a
+   user-provided QUIC keylog callback and logs to a
+   keyfile. */
+
+static void
+fd_quic_ssl_keylog( SSL const *  ssl,
+                    char const * line ) {
+
+  fd_quic_tls_hs_t * hs       = SSL_get_app_data( ssl );
+  fd_quic_tls_t *    quic_tls = hs->quic_tls;
+
+  int fd = quic_tls->keylog_fd;
+  if( fd ) {
+    struct iovec iov[ 2 ] = {
+      { .iov_base=(void *)line, .iov_len=strlen( line ) },
+      { .iov_base=(void *)"\n", .iov_len=1UL            }
+    };
+    /* TODO blocking system call - consider using io_submit */
+    if( FD_UNLIKELY( writev( fd, iov, 2 )==-1 ) ) {
+      FD_LOG_WARNING(( "Keylog write failed (%d-%s)", errno, strerror( errno ) ));
+    }
+  }
+
+  fd_quic_tls_cb_keylog_t cb = quic_tls->keylog_cb;
+  if( cb ) cb( hs, line );
 }
 
 
@@ -588,7 +609,9 @@ alpn_select_cb( SSL * ssl,
 }
 
 SSL_CTX *
-fd_quic_create_context( fd_quic_tls_t * quic_tls, char const * cert_file, char const * key_file ) {
+fd_quic_create_context( fd_quic_tls_t * quic_tls,
+                        char const *    cert_file,
+                        char const *    key_file ) {
     const SSL_METHOD * method;
     SSL_CTX * ctx;
 
@@ -707,7 +730,8 @@ fd_quic_create_context( fd_quic_tls_t * quic_tls, char const * cert_file, char c
     // set callback for client hello
     SSL_CTX_set_client_hello_cb( ctx, fd_quic_ssl_client_hello, NULL );
 
-    SSL_CTX_set_keylog_callback( ctx, fd_quic_ssl_keylog_cb );
+    if( FD_UNLIKELY( quic_tls->keylog_cb || quic_tls->keylog_fd != -1 ) )
+      SSL_CTX_set_keylog_callback( ctx, fd_quic_ssl_keylog );
 
     return ctx;
 }

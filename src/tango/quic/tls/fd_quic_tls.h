@@ -96,12 +96,15 @@ typedef void (*fd_quic_tls_cb_secret_t)( fd_quic_tls_hs_t *           hs,
 typedef void (*fd_quic_tls_cb_handshake_complete_t)( fd_quic_tls_hs_t * hs,
                                                      void *             context  );
 
+typedef void (*fd_quic_tls_cb_keylog_t)( fd_quic_tls_hs_t * hs,
+                                         char const *       line );
+
 struct fd_quic_tls_secret {
   OSSL_ENCRYPTION_LEVEL enc_level;
-  const uchar *       read_secret;
-  const uchar *       write_secret;
-  uint              suite_id;
-  ulong                secret_len;
+  uchar const *         read_secret;
+  uchar const *         write_secret;
+  uint                  suite_id;
+  ulong                 secret_len;
 };
 
 struct fd_quic_tls_cfg {
@@ -110,11 +113,13 @@ struct fd_quic_tls_cfg {
   fd_quic_tls_cb_alert_t                 alert_cb;
   fd_quic_tls_cb_secret_t                secret_cb;
   fd_quic_tls_cb_handshake_complete_t    handshake_complete_cb;
+  fd_quic_tls_cb_keylog_t                keylog_cb;
 
   int                                    max_concur_handshakes;
 
   char const *                           cert_file;             /* certificate file */
   char const *                           key_file;              /* private key file */
+  int                                    keylog_fd;             /* keylogger file */
 
   uchar const *                          alpns;                 /* ALPNs */
   uint                                   alpns_sz;              /* number of bytes... see ALPN spec */
@@ -141,6 +146,7 @@ struct fd_quic_tls {
   fd_quic_tls_cb_alert_t               alert_cb;
   fd_quic_tls_cb_secret_t              secret_cb;
   fd_quic_tls_cb_handshake_complete_t  handshake_complete_cb;
+  fd_quic_tls_cb_keylog_t              keylog_cb;
 
   int                                  max_concur_handshakes;
 
@@ -150,6 +156,10 @@ struct fd_quic_tls {
 
   /* ssl related */
   SSL_CTX *                            ssl_ctx;
+
+  /* Regular file descriptor for key logging.
+     Owned by fd_quic. */
+  int keylog_fd;
 
   /* ALPNs */
   uchar const *                        alpns;

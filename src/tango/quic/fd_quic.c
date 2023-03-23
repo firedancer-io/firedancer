@@ -4,8 +4,10 @@
 #include "fd_quic_proto.h"
 #include "templ/fd_quic_transport_params.h"
 
+#include <fcntl.h>
 #include <string.h>
 #include <stdlib.h>
+#include <unistd.h>
 
 #include "templ/fd_quic_parse_util.h"
 #include "../util/fd_net_util.h"
@@ -524,6 +526,15 @@ fd_quic_init( void *             shmem,
     return NULL;
   }
 
+  int keylog_fd = -1;
+  if( FD_UNLIKELY( config->keylog_file[0] ) ) {
+    keylog_fd = open( config->keylog_file, O_WRONLY|O_CREAT|O_APPEND, 0660 );
+    if( FD_UNLIKELY( keylog_fd<0 ) )
+      FD_LOG_WARNING(( "Cannot create keylog file at %s (%d-%s)", config->keylog_file, errno, strerror( errno ) ));
+    else
+      FD_LOG_INFO(( "Logging TLS key material to %s", config->keylog_file ));
+  }
+
   /* TODO open and close key_file and cert_file to ensure read access */
 
   /* join AIO */
@@ -558,20 +569,23 @@ fd_quic_init( void *             shmem,
   quic->now_ctx               = config->now_ctx;
 
   /* initialize tls */
-  fd_quic_tls_cfg_t tls_cfg;
-  tls_cfg.cert_file             = config->cert_file;
-  tls_cfg.key_file              = config->key_file;
-  tls_cfg.max_concur_handshakes = (int)config->max_concur_handshakes;
+  fd_quic_tls_cfg_t tls_cfg = {
+    .cert_file             = config->cert_file,
+    .key_file              = config->key_file,
+    .max_concur_handshakes = (int)config->max_concur_handshakes,
 
-  /* set up callbacks */
-  tls_cfg.client_hello_cb       = fd_quic_tls_cb_client_hello;
-  tls_cfg.alert_cb              = fd_quic_tls_cb_alert;
-  tls_cfg.secret_cb             = fd_quic_tls_cb_secret;
-  tls_cfg.handshake_complete_cb = fd_quic_tls_cb_handshake_complete;
+    /* set up callbacks */
+    .client_hello_cb       = fd_quic_tls_cb_client_hello,
+    .alert_cb              = fd_quic_tls_cb_alert,
+    .secret_cb             = fd_quic_tls_cb_secret,
+    .handshake_complete_cb = fd_quic_tls_cb_handshake_complete,
 
-  /* set up alpn */
-  tls_cfg.alpns                 = config->alpns;
-  tls_cfg.alpns_sz              = config->alpns_sz;
+    /* set up alpn */
+    .alpns                 = config->alpns,
+    .alpns_sz              = config->alpns_sz,
+
+    .keylog_fd             = keylog_fd
+  };
 
   quic->quic_tls = fd_quic_tls_new( &tls_cfg );
   if( FD_UNLIKELY( !quic->quic_tls ) ) {
@@ -609,6 +623,14 @@ fd_quic_join( void * shmem ) {
   return quic;
 }
 
+void *
+fd_quic_leave( fd_quic_t * quic ) {
+
+  close( quic->quic_tls->keylog_fd );
+  quic->quic_tls->keylog_fd = -1;
+
+  return (void *)quic;
+}
 
 /* fd_quic_delete
 
@@ -5258,8 +5280,9 @@ fd_quic_config_from_env( int * pargc,
                          char *** pargv,
                          fd_quic_config_t * cfg ) {
 
-  char const * cert_file             = fd_env_strip_cmdline_cstr ( pargc, pargv, "--ssl-cert",                   "SSL_CERT_FILE",              NULL   );
-  char const * key_file              = fd_env_strip_cmdline_cstr ( pargc, pargv, "--ssl-key",                    "SSL_KEY_FILE",               NULL   );
+  char const * cert_file             = fd_env_strip_cmdline_cstr ( pargc, pargv, "--ssl-cert",                   "QUIC_TLS_CERT",              NULL   );
+  char const * key_file              = fd_env_strip_cmdline_cstr ( pargc, pargv, "--ssl-key",                    "QUIC_TLS_KEY",               NULL   );
+  char const * keylog_file           = fd_env_strip_cmdline_cstr ( pargc, pargv, NULL,                           "SSLKEYLOGFILE",              NULL   );
   ulong        max_concur_conns      = fd_env_strip_cmdline_ulong( pargc, pargv, "--quic-max-concur-conns",      "QUIC_MAX_CONCUR_CONNS",      1024UL );
   ulong        max_concur_conn_ids   = fd_env_strip_cmdline_ulong( pargc, pargv, "--quic-max-concur-conn-ids",   "QUIC_MAX_CONCUR_CONN_IDS",     16UL );
   uint         max_concur_streams    = fd_env_strip_cmdline_uint ( pargc, pargv, "--quic-max-concur-streams",    "QUIC_MAX_CONCUR_STREAMS",      16UL );
@@ -5278,6 +5301,12 @@ fd_quic_config_from_env( int * pargc,
 
   strncpy( cfg->cert_file, cert_file, PATH_MAX-1UL );
   strncpy( cfg->key_file,  key_file,  PATH_MAX-1UL );
+
+  if( keylog_file ) {
+    strncpy( cfg->keylog_file, keylog_file, PATH_MAX-1UL );
+  } else {
+    cfg->keylog_file[ 0 ] = '\0';
+  }
 
   cfg->max_concur_conns      = max_concur_conns;
   cfg->max_concur_conn_ids   = max_concur_conn_ids;
