@@ -1,4 +1,4 @@
-#if !defined(__linux__) || !FD_HAS_LIBBPF
+#if !defined(__linux__)    || !FD_HAS_LIBBPF
 #error "fd_xsk requires Linux operating system with XDP support"
 #endif
 
@@ -292,6 +292,11 @@ fd_xsk_mmap_ring( fd_ring_desc_t * ring,
   /* TODO: mmap was originally called with MAP_POPULATE,
            but this symbol isn't available with this build */
 
+  /* sanity check */
+  if( depth > (ulong)UINT_MAX ) {
+    return -1;
+  }
+
   ulong map_sz = ring_offset->desc + depth*elem_sz;
 
   void * res = mmap( NULL, map_sz, PROT_READ|PROT_WRITE, MAP_SHARED, xsk_fd, map_off );
@@ -306,11 +311,11 @@ fd_xsk_mmap_ring( fd_ring_desc_t * ring,
   fd_memset( ring, 0, sizeof(fd_ring_desc_t) );
 
   ring->mem   = res;
-  ring->depth = depth;
-  ring->ptr   = (void  *)( (ulong)res + ring_offset->desc     );
-  ring->flags = (ulong *)( (ulong)res + ring_offset->flags    );
-  ring->prod  = (ulong *)( (ulong)res + ring_offset->producer );
-  ring->cons  = (ulong *)( (ulong)res + ring_offset->consumer );
+  ring->depth = (uint)depth;
+  ring->ptr   = (void *)( (ulong)res + ring_offset->desc     );
+  ring->flags = (uint *)( (ulong)res + ring_offset->flags    );
+  ring->prod  = (uint *)( (ulong)res + ring_offset->producer );
+  ring->cons  = (uint *)( (ulong)res + ring_offset->consumer );
 
   return 0;
 }
@@ -594,11 +599,11 @@ fd_xsk_rx_enqueue( fd_xsk_t * xsk,
   fd_ring_desc_t * fill = &xsk->ring_fr;
 
   /* fetch cached consumer, producer */
-  ulong prod = fill->cached_prod;
-  ulong cons = fill->cached_cons;
+  uint prod = fill->cached_prod;
+  uint cons = fill->cached_cons;
 
   /* ring capacity */
-  ulong cap  = fill->depth;
+  uint cap  = fill->depth;
 
   /* if not enough for batch, update cache */
   if( cap - ( prod - cons ) < count ) {
@@ -611,9 +616,9 @@ fd_xsk_rx_enqueue( fd_xsk_t * xsk,
 
   /* set ring[j] to the specified indices */
   ulong * ring = fill->frame_ring;
-  ulong mask = fill->depth - 1UL;
+  uint    mask = fill->depth - 1U;
   for( ulong j = 0; j < sz; ++j ) {
-    ulong k = prod & mask;
+    uint k = prod & mask;
     ring[k] = offset[j];
 
     prod++;
@@ -641,8 +646,8 @@ fd_xsk_rx_enqueue2( fd_xsk_t *            xsk,
   fd_ring_desc_t * fill = &xsk->ring_fr;
 
   /* fetch cached consumer, producer */
-  ulong prod = fill->cached_prod;
-  ulong cons = fill->cached_cons;
+  uint prod = fill->cached_prod;
+  uint cons = fill->cached_cons;
 
   /* assuming frame sizes are powers of 2 */
   ulong frame_mask = xsk->params.frame_sz - 1UL;
@@ -661,9 +666,9 @@ fd_xsk_rx_enqueue2( fd_xsk_t *            xsk,
 
   /* set ring[j] to the specified indices */
   ulong * ring = fill->frame_ring;
-  ulong mask = fill->depth - 1;
+  uint    mask = fill->depth - 1;
   for( ulong j = 0; j < sz; ++j ) {
-    ulong k = prod & mask;
+    uint k = prod & mask;
     ring[k] = meta[j].off & frame_mask;
 
     prod++;
@@ -691,30 +696,30 @@ fd_xsk_tx_enqueue( fd_xsk_t *            xsk,
   fd_ring_desc_t * tx = &xsk->ring_tx;
 
   /* fetch cached consumer, producer */
-  ulong prod = tx->cached_prod;
-  ulong cons = tx->cached_cons;
+  uint prod = tx->cached_prod;
+  uint cons = tx->cached_cons;
 
   /* ring capacity */
-  ulong cap  = tx->depth;
+  uint cap  = tx->depth;
 
   /* if not enough for batch, update cache */
-  if( cap - ( prod - cons ) < count ) {
+  if( cap - ( prod - cons ) < (uint)count ) {
     cons = tx->cached_cons = FD_VOLATILE_CONST( *tx->cons );
   }
 
   /* sz is min( available, count ) */
-  ulong sz = cap - ( prod - cons );
+  uint sz = cap - ( prod - cons );
   /* TODO this doesn't work as expected
      if we early exit here, no wakeup occurs, sendto doesn't get called again
      and the ring doesn't get serviced
      This implies we need to call sendto AGAIN even if the ring hasn't changed
   if( sz == 0 )    return 0;
   */
-  if( sz > count ) sz = count;
+  if( sz > (uint)count ) sz = (uint)count;
 
   /* set ring[j] to the specified indices */
   struct xdp_desc * ring = tx->packet_ring;
-  ulong mask = tx->depth - 1;
+  uint   mask            = tx->depth - 1;
   for( ulong j = 0; j < sz; ++j ) {
     ulong k = prod & mask;
     ring[k].addr    = meta[j].off;
@@ -746,14 +751,14 @@ fd_xsk_rx_complete( fd_xsk_t *            xsk,
   /* rx ring */
   fd_ring_desc_t * rx = &xsk->ring_rx;
 
-  ulong prod = rx->cached_prod;
-  ulong cons = rx->cached_cons;
+  uint prod = rx->cached_prod;
+  uint cons = rx->cached_cons;
 
   /* how many frames are available? */
-  ulong avail = prod - cons;
+  uint avail = prod - cons;
 
   /* should we update the cache */
-  if( avail < capacity ) {
+  if( (ulong)avail < capacity ) {
     /* we update cons (and keep cache up to date)
        they update prod
        so only need to fetch actual prod */
@@ -764,7 +769,7 @@ fd_xsk_rx_complete( fd_xsk_t *            xsk,
   ulong sz = avail;
   if( sz > capacity ) sz = capacity;
 
-  ulong mask = rx->depth - 1;
+  uint              mask = rx->depth - 1;
   struct xdp_desc * ring = rx->packet_ring;
   for( ulong j = 0; j < sz; ++j ) {
     ulong k = cons & mask;
@@ -788,14 +793,14 @@ fd_xsk_tx_complete( fd_xsk_t * xsk, ulong * batch, ulong capacity ) {
   /* cr ring */
   fd_ring_desc_t * cr = &xsk->ring_cr;
 
-  ulong prod = cr->cached_prod;
-  ulong cons = cr->cached_cons;
+  uint prod = cr->cached_prod;
+  uint cons = cr->cached_cons;
 
   /* how many frames are available? */
-  ulong avail = prod - cons;
+  uint avail = prod - cons;
 
   /* should we update the cache */
-  if( avail < capacity ) {
+  if( (ulong)avail < capacity ) {
     /* we update cons (and keep cache up to date)
        they update prod
        so only need to fetch actual prod */
@@ -806,7 +811,7 @@ fd_xsk_tx_complete( fd_xsk_t * xsk, ulong * batch, ulong capacity ) {
   ulong sz = avail;
   if( sz > capacity ) sz = capacity;
 
-  ulong mask = cr->depth - 1;
+  uint    mask = cr->depth - 1;
   ulong * ring = cr->frame_ring;
   for( ulong j = 0; j < sz; ++j ) {
     ulong k = cons & mask;
@@ -830,14 +835,14 @@ fd_xsk_tx_complete2( fd_xsk_t *            xsk,
   /* cr ring */
   fd_ring_desc_t * cr = &xsk->ring_cr;
 
-  ulong prod = cr->cached_prod;
-  ulong cons = cr->cached_cons;
+  uint prod = cr->cached_prod;
+  uint cons = cr->cached_cons;
 
   /* how many frames are available? */
-  ulong avail = prod - cons;
+  uint avail = prod - cons;
 
   /* should we update the cache */
-  if( avail < capacity ) {
+  if( (ulong)avail < capacity ) {
     /* we update cons (and keep cache up to date)
        they update prod
        so only need to fetch actual prod */
@@ -848,7 +853,7 @@ fd_xsk_tx_complete2( fd_xsk_t *            xsk,
   ulong sz = avail;
   if( sz > capacity ) sz = capacity;
 
-  ulong mask = cr->depth - 1;
+  uint    mask = cr->depth - 1;
   ulong * ring = cr->frame_ring;
   for( ulong j = 0; j < sz; ++j ) {
     ulong k = cons & mask;
