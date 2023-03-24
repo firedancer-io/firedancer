@@ -2,16 +2,17 @@
 
 if [ $# -ne 4 ]; then
   echo ""
-  echo "        Usage: $0 [APP_NAME] [APP_CORE_TARGET] [VERIFY_CNT] [BUILD]"
+  echo "        Usage: $0 [APP_NAME] [APP_CORE_TARGET] [QUIC_CNT] [VERIFY_CNT] [BUILD]"
   echo ""
   exit 1
 fi
 
 APP=$1
 AFFINITY=$2
-VERIFY_CNT=$3
-BUILD=$4
-shift 4
+QUIC_CNT=$3
+VERIFY_CNT=$4
+BUILD=$5
+shift 5
 
 #######################################################################
 
@@ -25,6 +26,9 @@ WKSP_PERM=0600
 POD_SZ=16384
 
 CNC_APP_SZ=4032
+
+QUIC_TILE_DEPTH=8192
+QUIC_MSG_SZ=2048
 
 VERIFY_DEPTH=8192
 VERIFY_MTU=2048
@@ -85,6 +89,17 @@ $BUILD/bin/fd_pod_ctl                        \
   insert $POD cstr $APP.dedup.mcache $MCACHE \
   insert $POD cstr $APP.dedup.fseq   $FSEQ   \
   || exit $?
+
+for((quic_idx=0;quic_idx<QUIC_CNT;quic_idx++)); do
+  CNC=`$BUILD/bin/fd_tango_ctl new-cnc $WKSP 2 tic $CNC_APP_SZ` || exit $?
+  MCACHE=`$BUILD/bin/fd_tango_ctl new-mcache $WKSP $QUIC_TILE_DEPTH 0 0` || exit $?
+  DCACHE=`$BUILD/bin/fd_tango_ctl new-dcache $WKSP $QUIC_MSG_SZ $QUIC_TILE_DEPTH 1 1 0` || exit $?
+  $BUILD/bin/fd_pod_ctl \
+    insert $POD cstr $APP.quic${quic_idx}.cnc    $CNC    \
+    insert $POD cstr $APP.quic${quic_idx}.mcache $MCACHE \
+    insert $POD cstr $APP.quic${quic_idx}.dcache $DCACHE \
+    || exit $?
+done
 
 for((verify_idx=0;verify_idx<VERIFY_CNT;verify_idx++)); do
   IN_CNC=`$BUILD/bin/fd_tango_ctl new-cnc $WKSP 2 tic $CNC_APP_SZ` || exit $?

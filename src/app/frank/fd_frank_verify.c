@@ -29,7 +29,7 @@ fd_frank_verify_task( int     argc,
 
   /* forming vin_name like 'v0in' from verify_name 'v0' */
   #define MAX_POD_NAME (128)
-  char vin_name[MAX_POD_NAME] ;
+  char vin_name[MAX_POD_NAME];
   strncpy(vin_name, verify_name, MAX_POD_NAME-1);
   strncat(vin_name, "in", MAX_POD_NAME-1);
 

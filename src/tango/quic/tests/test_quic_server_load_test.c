@@ -603,8 +603,6 @@ main( int argc, char ** argv ) {
   quic_config.now_fn  = test_clock;
   quic_config.now_ctx = NULL;
 
-  quic_config.tx_buf_sz = 1ul << 20ul;
-
   fd_memcpy( quic_config.net.default_route_mac, dft_route_mac, 6 );
   fd_memcpy( quic_config.net.src_mac, src_mac, 6 );
 

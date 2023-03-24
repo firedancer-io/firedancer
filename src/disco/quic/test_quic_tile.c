@@ -1,7 +1,10 @@
-#include "fd_quic.h"
-#include "../../tango/xdp/fd_xdp.h"
+#include "../../util/fd_util.h"
 
 #if FD_HAS_HOSTED && FD_HAS_X86
+
+#include "fd_quic.h"
+#include "../../tango/xdp/fd_xdp.h"
+#include "../../util/net/fd_eth.h"
 
 FD_STATIC_ASSERT( FD_QUIC_CNC_DIAG_CHUNK_IDX        ==2UL, unit_test );
 FD_STATIC_ASSERT( FD_QUIC_CNC_DIAG_TPU_PUB_CNT      ==3UL, unit_test );
@@ -165,23 +168,25 @@ int main( int     argc,
   ulong cpu_idx = fd_tile_cpu_id( fd_tile_idx() );
   if( cpu_idx>fd_shmem_cpu_cnt() ) cpu_idx = 0UL;
 
-  ulong        tx_mtu       =       fd_env_strip_cmdline_ulong ( &argc, &argv, "--tx-mtu",    NULL, FD_TPU_MTU                   );
-  ulong        tx_orig      =       fd_env_strip_cmdline_ulong ( &argc, &argv, "--tx-orig",   NULL, 0UL                          );
-  ulong        tx_depth     =       fd_env_strip_cmdline_ulong ( &argc, &argv, "--tx-depth",  NULL, 32768UL                      );
-  char const * _page_sz     =       fd_env_strip_cmdline_cstr  ( &argc, &argv, "--page-sz",   NULL, "gigantic"                   );
-  ulong        page_cnt     =       fd_env_strip_cmdline_ulong ( &argc, &argv, "--page-cnt",  NULL, 1UL                          );
-  ulong        numa_idx     =       fd_env_strip_cmdline_ulong ( &argc, &argv, "--numa-idx",  NULL, fd_shmem_numa_idx( cpu_idx ) );
-  long         tx_lazy      =       fd_env_strip_cmdline_long  ( &argc, &argv, "--tx-lazy",   NULL, 0L /* use default */         );
-  int          rx_lazy      =       fd_env_strip_cmdline_int   ( &argc, &argv, "--rx-lazy",   NULL, 7                            );
-  long         duration     = (long)fd_env_strip_cmdline_double( &argc, &argv, "--duration",  NULL, (long)10e9                   );
-  ulong        xdp_mtu      =       fd_env_strip_cmdline_ulong ( &argc, &argv, "--xdp-mtu",   NULL, 2048UL                       );
-  ulong        xdp_depth    =       fd_env_strip_cmdline_ulong ( &argc, &argv, "--xdp-depth", NULL, 1024UL                       );
-  char const * iface        =       fd_env_strip_cmdline_cstr  ( &argc, &argv, "--iface",     NULL, NULL                         );
-  uint         ifqueue      =       fd_env_strip_cmdline_uint  ( &argc, &argv, "--ifqueue",   NULL, 0U                           );
-  char const * _listen_addr =       fd_env_strip_cmdline_cstr  ( &argc, &argv, "--listen",    NULL, NULL                         );
-  uint         udp_port     =       fd_env_strip_cmdline_uint  ( &argc, &argv, "--port",      NULL, 8080U                        );
-  char const * _hwaddr      =       fd_env_strip_cmdline_cstr  ( &argc, &argv, "--hwaddr",    NULL, NULL                         );
-  char const * _gateway     =       fd_env_strip_cmdline_cstr  ( &argc, &argv, "--gateway",   NULL, NULL                         );
+  ulong        tx_mtu       =       fd_env_strip_cmdline_ulong ( &argc, &argv, "--tx-mtu",         NULL, FD_TPU_MTU                   );
+  ulong        tx_orig      =       fd_env_strip_cmdline_ulong ( &argc, &argv, "--tx-orig",        NULL, 0UL                          );
+  ulong        tx_depth     =       fd_env_strip_cmdline_ulong ( &argc, &argv, "--tx-depth",       NULL, 32768UL                      );
+  char const * _page_sz     =       fd_env_strip_cmdline_cstr  ( &argc, &argv, "--page-sz",        NULL, "gigantic"                   );
+  ulong        page_cnt     =       fd_env_strip_cmdline_ulong ( &argc, &argv, "--page-cnt",       NULL, 1UL                          );
+  ulong        numa_idx     =       fd_env_strip_cmdline_ulong ( &argc, &argv, "--numa-idx",       NULL, fd_shmem_numa_idx( cpu_idx ) );
+  long         tx_lazy      =       fd_env_strip_cmdline_long  ( &argc, &argv, "--tx-lazy",        NULL, 0L /* use default */         );
+  int          rx_lazy      =       fd_env_strip_cmdline_int   ( &argc, &argv, "--rx-lazy",        NULL, 7                            );
+  long         duration     = (long)fd_env_strip_cmdline_double( &argc, &argv, "--duration",       NULL, (long)10e9                   );
+  ulong        xdp_mtu      =       fd_env_strip_cmdline_ulong ( &argc, &argv, "--xdp-mtu",        NULL, 2048UL                       );
+  ulong        xdp_depth    =       fd_env_strip_cmdline_ulong ( &argc, &argv, "--xdp-depth",      NULL, 1024UL                       );
+  char const * iface        =       fd_env_strip_cmdline_cstr  ( &argc, &argv, "--iface",          NULL, NULL                         );
+  uint         ifqueue      =       fd_env_strip_cmdline_uint  ( &argc, &argv, "--ifqueue",        NULL, 0U                           );
+  char const * _listen_addr =       fd_env_strip_cmdline_cstr  ( &argc, &argv, "--listen",         NULL, NULL                         );
+  uint         udp_port     =       fd_env_strip_cmdline_uint  ( &argc, &argv, "--port",           NULL, 8080U                        );
+  char const * _hwaddr      =       fd_env_strip_cmdline_cstr  ( &argc, &argv, "--hwaddr",         NULL, NULL                         );
+  char const * _gateway     =       fd_env_strip_cmdline_cstr  ( &argc, &argv, "--gateway",        NULL, NULL                         );
+  ulong        rx_buf_sz    =       fd_env_strip_cmdline_ulong ( &argc, &argv, "--quic-rx-buf-sz", NULL, 1UL<<16UL                    );
+  ulong        tx_buf_sz    =       fd_env_strip_cmdline_ulong ( &argc, &argv, "--quic-tx-buf-sz", NULL, 1UL<<15UL                    );
 
   char const * app_name = "test_quic_tile";
 
@@ -198,13 +203,13 @@ int main( int     argc,
 
   if( FD_UNLIKELY( udp_port<=0 || udp_port>USHORT_MAX ) ) FD_LOG_ERR(( "invalid UDP port %d", udp_port ));
 
-  if( FD_UNLIKELY( !_hwaddr ) ) FD_LOG_ERR(( "missing --hwaddr" ));
-  ulong hwaddr = fd_cstr_to_mac_addr( _hwaddr );
-  if( FD_UNLIKELY( hwaddr==ULONG_MAX ) ) FD_LOG_ERR(( "invalid hwaddr \"%s\"", _hwaddr ));
+  if( FD_UNLIKELY( !_hwaddr  ) ) FD_LOG_ERR(( "missing --hwaddr" ));
+  uchar hwaddr[ 6 ]={0};
+  if( FD_UNLIKELY( !fd_cstr_to_mac_addr( _hwaddr,  hwaddr  ) ) ) FD_LOG_ERR(( "invalid hwaddr \"%s\"",  _hwaddr  ));
 
   if( FD_UNLIKELY( !_gateway ) ) FD_LOG_ERR(( "missing --gateway" ));
-  ulong gateway = fd_cstr_to_mac_addr( _gateway );
-  if( FD_UNLIKELY( gateway==ULONG_MAX ) ) FD_LOG_ERR(( "invalid gateway \"%s\"", _gateway ));
+  uchar gateway[ 6 ]={0};
+  if( FD_UNLIKELY( !fd_cstr_to_mac_addr( _gateway, gateway ) ) ) FD_LOG_ERR(( "invalid gateway \"%s\"", _gateway ));
 
   long  hb0  = fd_tickcount();
   ulong seq0 = fd_rng_ulong( rng );
@@ -290,24 +295,21 @@ int main( int     argc,
   cfg->tx_quic_cfg->host_cfg.ip_addr  = (uint)listen_addr;
   cfg->tx_quic_cfg->host_cfg.udp_port = (ushort)udp_port;
 
-  ulong hwaddr_be  = fd_ulong_bswap( hwaddr <<16 );
-  ulong gateway_be = fd_ulong_bswap( gateway<<16 );
-
-  fd_memcpy( cfg->tx_quic_cfg->net.src_mac,           &hwaddr_be,  6UL );
-  fd_memcpy( cfg->tx_quic_cfg->net.default_route_mac, &gateway_be, 6UL );
+  memcpy( cfg->tx_quic_cfg->net.src_mac,           hwaddr,  6UL );
+  memcpy( cfg->tx_quic_cfg->net.default_route_mac, gateway, 6UL );
 
   fd_quic_transport_params_t * tp = (fd_quic_transport_params_t *)fd_wksp_alloc_laddr( cfg->wksp, alignof(fd_quic_transport_params_t), sizeof(fd_quic_transport_params_t), 1UL );
   FD_TEST( tp );
   memset( tp, 0, sizeof(fd_quic_transport_params_t) );
   tp->max_idle_timeout                               = 60000;
   tp->max_idle_timeout_present                       = 1;
-  tp->initial_max_data                               = 1048576;
+  tp->initial_max_data                               = rx_buf_sz;
   tp->initial_max_data_present                       = 1;
-  tp->initial_max_stream_data_bidi_local             = 1048576;
+  tp->initial_max_stream_data_bidi_local             = rx_buf_sz;
   tp->initial_max_stream_data_bidi_local_present     = 1;
-  tp->initial_max_stream_data_bidi_remote            = 1048576;
+  tp->initial_max_stream_data_bidi_remote            = rx_buf_sz;
   tp->initial_max_stream_data_bidi_remote_present    = 1;
-  tp->initial_max_stream_data_uni                    = 1048576;
+  tp->initial_max_stream_data_uni                    = rx_buf_sz;
   tp->initial_max_stream_data_uni_present            = 1;
   tp->initial_max_streams_bidi                       = cfg->tx_quic_cfg->max_concur_streams;
   tp->initial_max_streams_bidi_present               = 1;
@@ -324,15 +326,15 @@ int main( int     argc,
 
   FD_LOG_NOTICE(( "Creating QUIC" ));
   ulong quic_footprint = fd_quic_footprint(
-      cfg->tx_quic_cfg->tx_buf_sz, cfg->tx_quic_cfg->tx_buf_sz,
+      tx_buf_sz, rx_buf_sz,
       cfg->tx_quic_cfg->max_concur_streams,
       cfg->tx_quic_cfg->max_in_flight_pkts,
       cfg->tx_quic_cfg->max_concur_conns,
       cfg->tx_quic_cfg->max_concur_conn_ids );
-  FD_LOG_NOTICE(( "QUIC footprint: %lu bytes", quic_footprint ));
+  FD_LOG_NOTICE(( "QUIC footprint: %lu KiB", quic_footprint/1024UL ));
   cfg->tx_quic = fd_quic_new(
     fd_wksp_alloc_laddr( cfg->wksp, fd_quic_align(), quic_footprint, 1UL ),
-      cfg->tx_quic_cfg->tx_buf_sz, cfg->tx_quic_cfg->tx_buf_sz,
+      tx_buf_sz, rx_buf_sz,
       cfg->tx_quic_cfg->max_concur_streams,
       cfg->tx_quic_cfg->max_in_flight_pkts,
       cfg->tx_quic_cfg->max_concur_conns,
@@ -341,6 +343,8 @@ int main( int     argc,
 
   FD_LOG_NOTICE(( "Initializing QUIC" ));
   FD_TEST( fd_quic_init( cfg->tx_quic, cfg->tx_quic_cfg ) );
+
+  FD_TEST( fd_quic_join( cfg->tx_quic ) );
 
   fd_quic_set_aio_net_out( cfg->tx_quic, fd_xsk_aio_get_tx     ( cfg->xsk_aio ) );
   fd_xsk_aio_set_rx      ( cfg->xsk_aio, fd_quic_get_aio_net_in( cfg->tx_quic ) );

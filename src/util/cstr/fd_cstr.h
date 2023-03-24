@@ -54,7 +54,6 @@ FD_FN_PURE  double       fd_cstr_to_double( char const * s );
 FD_FN_PURE ulong fd_cstr_to_ulong_octal( char const * s );
 
 #if FD_HAS_HOSTED
-FD_FN_PURE ulong fd_cstr_to_mac_addr( char const * s );
 
 /* fd_cstr_to_ip4_addr parses an IPv4 address matching format
    %u.%u.%u.%u  On success returns the numerical representation of the
