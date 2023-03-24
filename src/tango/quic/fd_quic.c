@@ -150,12 +150,14 @@ fd_quic_create_connection( fd_quic_t *               quic,
                            int                       server,
                            uint                      version );
 
-
 /* returns the enc level we should use for the next tx quic packet
    or all 1's if nothing to tx */
 uint
 fd_quic_tx_enc_level( fd_quic_conn_t * conn ) {
   uint enc_level = ~0u;
+
+  uint  app_pn_space   = fd_quic_enc_level_to_pn_space( fd_quic_enc_level_appdata_id );
+  ulong app_pkt_number = conn->pkt_number[app_pn_space];
 
   /* fd_quic_tx_enc_level( ... )
        check status - if closing, set based on handshake complete
@@ -194,7 +196,7 @@ fd_quic_tx_enc_level( fd_quic_conn_t * conn ) {
         /* optimization for case where we have stream data to send */
 
         /* find stream data to send */
-        if( conn->send_streams ) {
+        if( conn->send_streams && conn->send_streams->upd_pkt_number == app_pkt_number ) {
           return fd_quic_enc_level_appdata_id;
         }
       }
@@ -243,17 +245,15 @@ fd_quic_tx_enc_level( fd_quic_conn_t * conn ) {
   if( FD_UNLIKELY( conn->send_handshake_done ) ) return fd_quic_enc_level_appdata_id;
 
   /* find stream data to send */
-  if( conn->send_streams ) {
+  if( conn->send_streams && conn->send_streams->upd_pkt_number == app_pkt_number ) {
     return fd_quic_enc_level_appdata_id;
   }
 
-  uint pn_space = fd_quic_enc_level_to_pn_space( fd_quic_enc_level_appdata_id );
-
-  if( conn->flags && conn->upd_pkt_number >= conn->pkt_number[pn_space] ) {
+  if( conn->flags && conn->upd_pkt_number == app_pkt_number ) {
     enc_level = fd_quic_enc_level_appdata_id;
   }
 
-  return enc_level;
+  return ~0u;
 }
 
 
@@ -1804,16 +1804,21 @@ fd_quic_ack_pkt( fd_quic_t * quic, fd_quic_conn_t * conn, fd_quic_pkt_t * pkt ) 
   /* if there exists a last unsent ack, and it refers to the prior packet,
      extend it
      range.offset_hi refers the the last offset + 1 */
-  if( pkt_number > 0u && *acks_tx && (*acks_tx)->pkt_number.offset_hi == pkt_number &&
-      ( (*acks_tx)->flags & FD_QUIC_ACK_FLAGS_SENT ) == 0u ) {
-    (*acks_tx)->pkt_number.offset_hi++;
+  fd_quic_ack_t * head_ack = *acks_tx;
+  if( pkt_number > 0u && head_ack && head_ack->pkt_number.offset_hi == pkt_number &&
+      ( head_ack->flags & FD_QUIC_ACK_FLAGS_SENT ) == 0u &&
+      head_ack->tx_pkt_number == FD_QUIC_PKT_NUM_UNUSED ) {
+    head_ack->pkt_number.offset_hi++;
 
     /* if the calculaed ack time is sooner than this ack, update
        and reschedule service */
-    if( ack_time < (*acks_tx)->tx_time ) {
-      (*acks_tx)->tx_time = ack_time;
+    if( ack_time < head_ack->tx_time ) {
+      head_ack->tx_time = ack_time;
       fd_quic_reschedule_conn( conn, ack_time );
     }
+
+    /* promote to mandatory, if necessary */
+    head_ack->flags = ack_mandatory ? FD_QUIC_ACK_FLAGS_MANDATORY : head_ack->flags;
 
     return;
   }
@@ -4794,6 +4799,16 @@ fd_quic_frame_handle_stream_frame(
     /* get connection */
     fd_quic_conn_t * conn = stream->conn;
 
+    /* should we reclaim the stream */
+    if( data->fin_opt ) {
+      stream->state |= FD_QUIC_STREAM_STATE_RX_FIN;
+      if( stream->state & FD_QUIC_STREAM_STATE_TX_FIN ||
+          stream->stream_id & ( FD_QUIC_TYPE_UNIDIR << 1u ) ) {
+        fd_quic_stream_free( context.quic, conn, stream );
+        return data_sz;
+      }
+    }
+
     /* update data received */
     stream->rx_tot_data = exp_offset + delivered;
     conn->rx_tot_data  += delivered;
@@ -4819,14 +4834,6 @@ fd_quic_frame_handle_stream_frame(
     /* ensure we ack the packet */
     fd_quic_t * quic = context.quic;
     fd_quic_reschedule_conn( context.conn, quic->now_fn( quic->now_ctx ) + 1 );
-
-    if( data->fin_opt ) {
-      stream->state |= FD_QUIC_STREAM_STATE_RX_FIN;
-      if( stream->state & FD_QUIC_STREAM_STATE_TX_FIN ||
-          stream->stream_id & ( FD_QUIC_TYPE_UNIDIR << 1u ) ) {
-        fd_quic_stream_free( context.quic, conn, stream );
-      }
-    }
   } else {
     if( offset > exp_offset ) {
       /* TODO technically "future" out of order bytes should be counted,
