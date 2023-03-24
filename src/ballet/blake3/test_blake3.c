@@ -78,7 +78,7 @@ main( int     argc,
                    FD_LOG_HEX16_FMT_ARGS( expected    ), FD_LOG_HEX16_FMT_ARGS( expected+16 ) ));
   }
 
-  /* do a quick benchmark of sha-256 to UDP payloads of MTU Ethernet
+  /* do a quick benchmark of BLAKE3 to UDP payloads of MTU Ethernet
      packets on UDP/IP4/VLAN/Ethernet */
 
 # define SZ (1472UL)
@@ -92,7 +92,7 @@ main( int     argc,
   dt = fd_log_wallclock() - dt;
 
   /* for real */
-  iter = 100000UL;
+  iter = 1000000UL;
   dt = fd_log_wallclock();
   for( ulong rem=iter; rem; rem-- ) fd_blake3_fini( fd_blake3_append( fd_blake3_init( sha ), buf, SZ ), hash );
   dt = fd_log_wallclock() - dt;

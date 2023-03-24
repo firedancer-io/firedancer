@@ -3,10 +3,10 @@ CPPFLAGS+=            \
   -Wall               \
   -Wextra             \
   -Wpedantic          \
-  -Wstrict-aliasing=2 \
   -Wconversion        \
   -Wdouble-promotion  \
   -Wformat-security
+  #-Wstrict-aliasing=2 \
 
 ifdef FD_USING_CLANG
 

@@ -37,7 +37,8 @@ class randgen {
     
   public:
     randgen() {
-      gettimeofday((struct timeval*)&_s1, NULL);
+      struct timeval* _s1_ptr = (struct timeval*) &_s1;
+      gettimeofday(_s1_ptr, NULL);
     }
     ~randgen() { }
 

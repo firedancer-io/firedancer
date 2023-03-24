@@ -11,6 +11,7 @@
 #include "../../util/fd_util.h"
 #include "tar.h"
 #include "../../ballet/runtime/fd_banks_solana.h"
+#include "../../ballet/runtime/fd_hashes.h"
 
 static void usage(const char* progname) {
   fprintf(stderr, "USAGE: %s\n", progname);

@@ -13,6 +13,11 @@
 
 // run --ledger /home/jsiegel/test-ledger --db /home/jsiegel/test-ledger/funk --cmd replay --start-slot 0 --end-slot 200 --index-max 120000000 --pages 15
 
+// --ledger /home/jsiegel/test-ledger --db /home/jsiegel/funk --cmd validate --accounts /home/jsiegel/test-ledger/accounts/ --pages 15 --index-max 120000000 --manifest /home/jsiegel/test-ledger/200/snapshots/200/200 --start-slot 200
+
+// --ledger /home/jsiegel/test-ledger --db /home/jsiegel/funk --cmd validate --accounts /home/jsiegel/test-ledger/accounts/ --pages 15 --index-max 120000000 --manifest /home/jsiegel/test-ledger/100/snapshots/100/100 --start-slot 100
+
+// --ledger /home/jsiegel/test-ledger --db /home/jsiegel/funk --cmd accounts --accounts /home/jsiegel/test-ledger/accounts/ --pages 15 --index-max 120000000 --start-slot 5 --end-slot 5
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -24,6 +29,7 @@
 #include <fcntl.h>
 #include "fd_rocksdb.h"
 #include "fd_banks_solana.h"
+#include "fd_hashes.h"
 #include "fd_executor.h"
 #include "../../funk/fd_funk.h"
 #include "../../util/alloc/fd_alloc.h"
@@ -113,12 +119,164 @@ static void usage(const char* progname) {
 // pub const FULL_SNAPSHOT_ARCHIVE_FILENAME_REGEX: &str = r"^snapshot-(?P<slot>[[:digit:]]+)-(?P<hash>[[:alnum:]]+)\.(?P<ext>tar|tar\.bz2|tar\.zst|tar\.gz|tar\.lz4)$";
 // pub const INCREMENTAL_SNAPSHOT_ARCHIVE_FILENAME_REGEX: &str = r"^incremental-snapshot-(?P<base>[[:digit:]]+)-(?P<slot>[[:digit:]]+)-(?P<hash>[[:alnum:]]+)\.(?P<ext>tar|tar\.bz2|tar\.zst|tar\.gz|tar\.lz4)$";
 
+
+
 int ingest(global_state_t *state) {
   if (NULL == state->accounts)  {
     usage(state->argv[0]);
     exit(1);
   }
 
+  regex_t reg;
+  // Where were those regular expressions for snapshots?
+  if (regcomp(&reg, "[0-9]+\\.[0-9]+", REG_EXTENDED) != 0) {
+    FD_LOG_ERR(( "compile failed" ));
+  }
+
+  FD_LOG_WARNING(("starting read of %s", state->accounts));
+
+  DIR *dir = opendir(state->accounts);
+
+  struct dirent * ent;
+
+  ulong files = 0;
+  ulong accounts = 0;
+  ulong odd = 0;
+
+  while ( NULL != (ent = readdir(dir)) ) {
+    if ( regexec(&reg, ent->d_name, 0, NULL, 0) == 0 )  {
+        struct stat s;
+        char buf[1000];
+
+        strcpy(buf, ent->d_name);
+        char *p = buf;
+        while (*p != '.') p++; // It sure as heck better have a . or the regexec would fail
+        *p = '\0';
+
+        ulong slot = (ulong) atol(buf);
+        
+        sprintf(buf, "%s/%s", state->accounts, ent->d_name);
+        stat(buf,  &s);
+        unsigned char *r = (unsigned char *)allocf((unsigned long) (unsigned long) s.st_size, 8UL, state->alloc);
+        unsigned char *b = r;
+        files++;
+        int fd = open(buf, O_RDONLY);
+        ssize_t n = read(fd, b, (unsigned long) s.st_size);
+        if (n < 0) {
+          FD_LOG_ERR(( "??" ));
+        }
+        unsigned char *eptr = &b[(ulong) ((ulong)n - (ulong)sizeof(fd_solana_account_hdr_t))];
+        if (n != s.st_size) {
+          FD_LOG_ERR(( "??" ));
+        }
+
+        while (b < eptr) {
+          fd_solana_account_hdr_t *hdr = (fd_solana_account_hdr_t *)b;
+          // Look for corruption...
+          if ((b + hdr->meta.data_len) > (r + n)) {
+            // some kind of corruption in the file?
+            break;
+          }
+          // Sanitize accounts...
+          if ((hdr->info.lamports == 0) | ((hdr->info.executable & ~1) != 0))
+            break;
+
+          accounts++;
+
+          if ((accounts % 1000000) == 0) {
+            FD_LOG_WARNING(("accounts %ld", accounts));
+          }
+
+
+          do {
+            fd_account_meta_t metadata;
+            int read_result = fd_acc_mgr_get_metadata( state->acc_mgr, (fd_pubkey_t *) &hdr->meta.pubkey, &metadata );
+            if ( FD_UNLIKELY( read_result == FD_ACC_MGR_SUCCESS ) ) {
+              if (metadata.slot > slot)
+                break;
+            }
+
+            if (fd_acc_mgr_write_append_vec_account( state->acc_mgr,  slot, hdr) != FD_ACC_MGR_SUCCESS) {
+              FD_LOG_ERR(("writing failed: accounts %ld", accounts));
+            }
+            read_result = fd_acc_mgr_get_metadata( state->acc_mgr, (fd_pubkey_t *) &hdr->meta.pubkey, &metadata );
+            if ( FD_UNLIKELY( read_result != FD_ACC_MGR_SUCCESS ) ) 
+              FD_LOG_ERR(("wtf"));
+            if ((metadata.magic != FD_ACCOUNT_META_MAGIC) || (metadata.hlen != sizeof(metadata))) 
+              FD_LOG_ERR(("wtf2"));
+            
+            uchar * account_data = (uchar *) allocf( hdr->meta.data_len, 8UL, state->alloc );
+            fd_account_meta_t account_hdr;
+            read_result = fd_acc_mgr_get_account_data( state->acc_mgr, (fd_pubkey_t *) &hdr->meta.pubkey, (uchar *) &account_hdr, 0, sizeof(fd_account_meta_t));
+            
+            read_result = fd_acc_mgr_get_account_data( state->acc_mgr, (fd_pubkey_t *) &hdr->meta.pubkey, account_data, sizeof(fd_account_meta_t), account_hdr.dlen);
+            if ( FD_UNLIKELY( read_result != FD_ACC_MGR_SUCCESS ) ) 
+              FD_LOG_ERR(("wtf3"));
+
+            fd_solana_account_t account = {
+              .lamports = hdr->info.lamports,
+              .rent_epoch = hdr->info.rent_epoch,
+              .data_len = hdr->meta.data_len,
+              .data = account_data,
+              .executable = (uchar) hdr->info.executable
+            };
+            fd_memcpy( account.owner.key, hdr->info.owner, 32 );
+            
+            uchar hash[32];
+            fd_hash_account( &account, slot, (fd_pubkey_t const *)  &hdr->meta.pubkey, (fd_hash_t *) hash );
+            //fd_hash_account( &account, 1, (fd_pubkey_t const *)  &pubkey, (fd_hash_t *) hash );
+            
+            // If account hashes are mismatched, fail
+            if ( memcmp( hdr->hash.value, hash, 32 ) ) {
+              FD_LOG_ERR(( "FAIL (account hashes mismatched)"
+                 "\n\tGot"
+                 "\n\t\t" FD_LOG_HEX16_FMT "  " FD_LOG_HEX16_FMT
+                 "\n\tExpected"
+                 "\n\t\t" FD_LOG_HEX16_FMT "  " FD_LOG_HEX16_FMT,
+                 FD_LOG_HEX16_FMT_ARGS(     hdr->hash.value    ), FD_LOG_HEX16_FMT_ARGS(     hdr->hash.value+16 ),
+                 FD_LOG_HEX16_FMT_ARGS(     hash    ), FD_LOG_HEX16_FMT_ARGS(     hash+16 ) 
+              ));
+            }
+            freef( account_data, state->alloc );
+          } while (0);
+
+#if 0
+          if (memcmp(hdr->info.owner, sprog, sizeof(sprog)) != 0) {
+            // system progs are exempt no matter their lamports...
+            ulong exempt = (hdr->meta.data_len + 128) * ((ulong) ((double)state->gen.rent.lamports_per_uint8_year * state->gen.rent.exemption_threshold));
+            if (hdr->info.lamports < exempt) {
+              odd++;
+              char pubkey[50];
+              fd_memset(pubkey, 0, sizeof(pubkey));
+              fd_base58_encode_32((uchar *) hdr->meta.pubkey, pubkey);
+              char owner[50];
+              fd_memset(owner, 0, sizeof(owner));
+              fd_base58_encode_32((uchar *) hdr->info.owner, owner);
+              printf("file: %s owner: %s pubkey: %s datalen: %ld lamports: %ld  rent_epoch: %ld\n", buf, owner, pubkey, hdr->meta.data_len, hdr->info.lamports, hdr->info.rent_epoch);
+            }
+          }
+#endif
+          b += fd_ulong_align_up(hdr->meta.data_len + sizeof(*hdr), 8);
+        }
+
+        close(fd);
+        freef(r, state->alloc);
+    }
+  }
+
+  closedir(dir);
+  regfree(&reg);
+
+  FD_LOG_WARNING(("files %ld  accounts %ld  odd %ld", files, accounts, odd));
+
+  return 0;
+}
+
+int slot_dump(global_state_t *state) {
+  if (NULL == state->accounts)  {
+    usage(state->argv[0]);
+    exit(1);
+  }
   regex_t reg;
   // Where were those regular expressions for snapshots?
   if (regcomp(&reg, "[0-9]+\\.[0-9]+", REG_EXTENDED) != 0) {
@@ -139,15 +297,143 @@ int ingest(global_state_t *state) {
 
   while ( NULL != (ent = readdir(dir)) ) {
     if ( regexec(&reg, ent->d_name, 0, NULL, 0) == 0 )  {
+      struct stat s;
+      char buf[1000];
+
+      strcpy(buf, ent->d_name);
+      char *p = buf;
+      while (*p != '.') p++;
+      *p = '\0';
+
+      ulong slot = (ulong) atol(buf);
+       
+      if ((slot < state->start_slot) | (slot > state->end_slot))
+        continue;
+
+      sprintf(buf, "%s/%s", state->accounts, ent->d_name);
+      stat(buf,  &s);
+      unsigned char *r = (unsigned char *)allocf((unsigned long) (unsigned long) s.st_size, 8UL, state->alloc);
+      unsigned char *b = r;
+      files++;
+      int fd = open(buf, O_RDONLY);
+      ssize_t n = read(fd, b, (unsigned long) s.st_size);
+      if (n < 0) {
+        FD_LOG_ERR(( "??" ));
+      }
+      unsigned char *eptr = &b[(ulong) ((ulong)n - (ulong)sizeof(fd_solana_account_hdr_t))];
+      if (n != s.st_size) {
+        FD_LOG_ERR(( "??" ));
+      }
+
+      while (b < eptr) {
+        fd_solana_account_hdr_t *hdr = (fd_solana_account_hdr_t *)b;
+        // Look for corruption...
+        if ((b + hdr->meta.data_len) > (r + n)) {
+          // some kind of corruption in the file?
+          break;
+        }
+        // Sanitize accounts...
+        if ((hdr->info.lamports == 0) | ((hdr->info.executable & ~1) != 0))
+          break;
+
+        accounts++;
+
+        do {
+          char pubkey[50];
+          fd_memset(pubkey, 0, sizeof(pubkey));
+          fd_base58_encode_32((uchar *) hdr->meta.pubkey, 0, pubkey);
+
+          if (strcmp(pubkey, "SysvarC1ock11111111111111111111111111111111"))
+            break;
+
+          fd_solana_account_t account = {
+            .lamports = hdr->info.lamports,
+            .rent_epoch = hdr->info.rent_epoch,
+            .data_len = hdr->meta.data_len,
+            .data = b + sizeof(*hdr),
+            .executable = (uchar) hdr->info.executable
+          };
+          fd_memcpy( account.owner.key, hdr->info.owner, 32 );
+            
+          uchar hash[32];
+          fd_hash_account( &account, slot, (fd_pubkey_t const *)  &hdr->meta.pubkey, (fd_hash_t *) hash );
+
+          char encoded_hash[50];
+          fd_base58_encode_32((uchar *) hash, 0, encoded_hash);
+
+          char owner[50];
+          fd_memset(owner, 0, sizeof(owner));
+          fd_base58_encode_32((uchar *) hdr->info.owner, 0, owner);
+          printf("owner: %48s pubkey: %48s hash: %48s file: %s\n", owner, pubkey, encoded_hash, buf);
+
+          struct fd_sol_sysvar_clock a;
+          memset(&a, 0, sizeof(a));
+
+          const void * o = &b[sizeof(*hdr)];
+          unsigned char *outend = & (((unsigned char *) o)[hdr->meta.data_len]);
+
+          fd_sol_sysvar_clock_decode(&a, &o, outend, allocf, state->alloc);
+          printf("{slot = %ld, epoch_start_timestamp = %ld, epoch = %ld, leader_schedule_epoch = %ld, unix_timestamp = %ld}\n",
+            a.slot, a.epoch_start_timestamp, a.epoch, a.leader_schedule_epoch, a.unix_timestamp);
+          fd_sol_sysvar_clock_destroy(&a, freef, state->alloc);
+
+        } while (false);
+
+        b += fd_ulong_align_up(hdr->meta.data_len + sizeof(*hdr), 8);
+      }
+
+      close(fd);
+      freef(r, state->alloc);
+    }
+  }
+
+  closedir(dir);
+  regfree(&reg);
+
+  FD_LOG_WARNING(("files %ld  accounts %ld  odd %ld", files, accounts, odd));
+
+  return 0;
+}
+
+int validate_bank_hashes(global_state_t *state) {
+  if (NULL == state->accounts)  {
+    usage(state->argv[0]);
+    exit(1);
+  }
+
+  regex_t reg;
+  // Where were those regular expressions for snapshots?
+  if (regcomp(&reg, "[0-9]+\\.[0-9]+", REG_EXTENDED) != 0) {
+    FD_LOG_ERR(( "compile failed" ));
+  }
+
+  FD_LOG_WARNING(("starting read of %s", state->accounts));
+
+  DIR *dir = opendir(state->accounts);
+
+  struct dirent * ent;
+
+  ulong files = 0;
+  ulong accounts = 0;
+  ulong odd = 0;
+
+  ulong pairs_len = 0;
+  fd_pubkey_hash_pair_t pairs[1000];
+  while ( NULL != (ent = readdir(dir)) ) {
+    if ( regexec(&reg, ent->d_name, 0, NULL, 0) == 0 )  {
         struct stat s;
         char buf[1000];
 
         strcpy(buf, ent->d_name);
         char *p = buf;
-        while (*p != '.') p++; // It sure as heck better have a . or the regexec would fail
+        while (*p != '.') p++; // It surhdr->meta.pubkeye as heck better have a . or the regexec would fail
         *p = '\0';
 
         ulong slot = (ulong) atol(buf);
+       
+        if (slot != state->start_slot) {
+          continue;
+        }
 
         sprintf(buf, "%s/%s", state->accounts, ent->d_name);
         stat(buf,  &s);
@@ -197,24 +483,46 @@ int ingest(global_state_t *state) {
               FD_LOG_ERR(("wtf"));
             if ((metadata.magic != FD_ACCOUNT_META_MAGIC) || (metadata.hlen != sizeof(metadata))) 
               FD_LOG_ERR(("wtf2"));
+            
+
+            uchar * account_data = (uchar *) allocf( hdr->meta.data_len, 8UL, state->alloc );
+            fd_account_meta_t account_hdr;
+            read_result = fd_acc_mgr_get_account_data( state->acc_mgr, (fd_pubkey_t *) &hdr->meta.pubkey, (uchar *) &account_hdr, 0, sizeof(fd_account_meta_t));
+            
+            read_result = fd_acc_mgr_get_account_data( state->acc_mgr, (fd_pubkey_t *) &hdr->meta.pubkey, account_data, sizeof(fd_account_meta_t), account_hdr.dlen);
+            if ( FD_UNLIKELY( read_result != FD_ACC_MGR_SUCCESS ) ) 
+              FD_LOG_ERR(("wtf3"));
+
+            fd_solana_account_t account = {
+              .lamports = hdr->info.lamports,
+              .rent_epoch = hdr->info.rent_epoch,
+              .data_len = hdr->meta.data_len,
+              .data = account_data,
+              .executable = (uchar) hdr->info.executable
+            };
+            fd_memcpy( account.owner.key, hdr->info.owner, 32 );
+            
+            uchar hash[32];
+            fd_hash_account( &account, slot, (fd_pubkey_t const *)  &hdr->meta.pubkey, (fd_hash_t *) hash );
+            //fd_hash_account( &account, 1, (fd_pubkey_t const *)  &pubkey, (fd_hash_t *) hash );
+            
+            // If account hashes are mismatched, fail
+            if ( memcmp( hdr->hash.value, hash, 32 ) ) {
+              FD_LOG_ERR(( "FAIL (account hashes mismatched)"
+                 "\n\tGot"
+                 "\n\t\t" FD_LOG_HEX16_FMT "  " FD_LOG_HEX16_FMT
+                 "\n\tExpected"
+                 "\n\t\t" FD_LOG_HEX16_FMT "  " FD_LOG_HEX16_FMT,
+                 FD_LOG_HEX16_FMT_ARGS(     hdr->hash.value    ), FD_LOG_HEX16_FMT_ARGS(     hdr->hash.value+16 ),
+                 FD_LOG_HEX16_FMT_ARGS(     hash    ), FD_LOG_HEX16_FMT_ARGS(     hash+16 ) 
+              ));
+            }
+            fd_memcpy(pairs[pairs_len].pubkey.key, hdr->meta.pubkey, 32);
+            fd_memcpy(pairs[pairs_len].hash.hash, hash, 32);
+            pairs_len++;
+            freef( account_data, state->alloc );
           } while (0);
 
-#if 0
-          if (memcmp(hdr->info.owner, sprog, sizeof(sprog)) != 0) {
-            // system progs are exempt no matter their lamports...
-            ulong exempt = (hdr->meta.data_len + 128) * ((ulong) ((double)state->gen.rent.lamports_per_uint8_year * state->gen.rent.exemption_threshold));
-            if (hdr->info.lamports < exempt) {
-              odd++;
-              char pubkey[50];
-              fd_memset(pubkey, 0, sizeof(pubkey));
-              fd_base58_encode_32((uchar *) hdr->meta.pubkey, pubkey);
-              char owner[50];
-              fd_memset(owner, 0, sizeof(owner));
-              fd_base58_encode_32((uchar *) hdr->info.owner, owner);
-              printf("file: %s owner: %s pubkey: %s datalen: %ld lamports: %ld  rent_epoch: %ld\n", buf, owner, pubkey, hdr->meta.data_len, hdr->info.lamports, hdr->info.rent_epoch);
-            }
-          }
-#endif
           b += fd_ulong_align_up(hdr->meta.data_len + sizeof(*hdr), 8);
         }
 
@@ -227,6 +535,57 @@ int ingest(global_state_t *state) {
   regfree(&reg);
 
   FD_LOG_WARNING(("files %ld  accounts %ld  odd %ld", files, accounts, odd));
+
+  for (ulong i = 0; i < pairs_len; i++) {
+    FD_LOG_NOTICE(( "Pairs (%lu)"
+       "\n\t\t" FD_LOG_HEX16_FMT "  " FD_LOG_HEX16_FMT
+       "\n\t\t" FD_LOG_HEX16_FMT "  " FD_LOG_HEX16_FMT,
+       i,
+       FD_LOG_HEX16_FMT_ARGS( pairs[i].pubkey.key ), FD_LOG_HEX16_FMT_ARGS( pairs[i].pubkey.key+16 ),
+       FD_LOG_HEX16_FMT_ARGS( pairs[i].hash.hash ), FD_LOG_HEX16_FMT_ARGS( pairs[i].hash.hash+16 )));
+
+
+  }
+
+  struct stat s;
+  stat(state->manifest,  &s);
+
+  FD_LOG_WARNING(("reading manifest: %s", state->manifest));
+
+  unsigned char *b = (unsigned char *)allocf((unsigned long) (unsigned long) s.st_size, 1, state->alloc);
+  int fd = open(state->manifest, O_RDONLY);
+  ssize_t n = read(fd, b, (unsigned long) s.st_size);
+  close(fd);
+
+  FD_TEST(n == s.st_size);
+  unsigned char *outend = &b[n];
+  const void * o = b;
+
+  FD_LOG_WARNING(("deserializing version bank"));
+
+  struct fd_deserializable_versioned_bank a;
+  memset(&a, 0, sizeof(a));
+  fd_deserializable_versioned_bank_decode(&a, &o, outend, allocf, state->alloc);
+  
+  FD_LOG_WARNING(("deserializing accounts"));
+  struct fd_solana_accounts_db_fields db;
+  memset(&db, 0, sizeof(b));
+  fd_solana_accounts_db_fields_decode(&db, &o, outend, allocf, state->alloc);
+
+  FD_LOG_WARNING(("cleaning up"));
+
+  fd_hash_t bank_hash;
+  fd_hash_bank(&a, pairs, pairs_len, &bank_hash);
+    FD_LOG_NOTICE(( "Bank Hash (%lu)"
+       "\n\t\t" FD_LOG_HEX16_FMT "  " FD_LOG_HEX16_FMT
+       "\n\t\t" FD_LOG_HEX16_FMT "  " FD_LOG_HEX16_FMT,
+       a.slot,
+       FD_LOG_HEX16_FMT_ARGS( bank_hash.hash ), FD_LOG_HEX16_FMT_ARGS( bank_hash.hash+16 ),
+       FD_LOG_HEX16_FMT_ARGS( a.hash.hash ), FD_LOG_HEX16_FMT_ARGS( a.hash.hash+16 )));
+
+  fd_deserializable_versioned_bank_destroy(&a, freef, state->alloc);
+  fd_solana_accounts_db_fields_destroy(&db, freef, state->alloc);
+  freef(b, state->alloc);
 
   return 0;
 }
@@ -251,7 +610,10 @@ int manifest(global_state_t *state) {
   struct fd_deserializable_versioned_bank a;
   memset(&a, 0, sizeof(a));
   fd_deserializable_versioned_bank_decode(&a, &o, outend, allocf, state->alloc);
-
+  
+  for (ulong i = 0; i < a.ancestors_len; i++) {
+    FD_LOG_WARNING(("QQQ %lu %lu", a.ancestors[i].slot, a.ancestors[i].val ));
+  }
 
   FD_LOG_WARNING(("deserializing accounts"));
   struct fd_solana_accounts_db_fields db;
@@ -659,6 +1021,10 @@ int main(int argc, char **argv) {
     manifest(&state);
   if (strcmp(state.cmd, "ingest") == 0)
     ingest(&state);
+  if (strcmp(state.cmd, "validate") == 0)
+    validate_bank_hashes(&state);
+  if (strcmp(state.cmd, "accounts") == 0)
+    slot_dump(&state);
 
   fd_acc_mgr_delete(fd_acc_mgr_leave(state.acc_mgr));
   freef(fd_acc_mgr_raw, state.alloc);
