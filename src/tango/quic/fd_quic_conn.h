@@ -73,6 +73,7 @@ struct fd_quic_ack {
 
 struct fd_quic_conn {
   fd_quic_t *        quic;
+  void *             context;             /* user context */
 
   int                server;              /* 0=client, 1=server */
   int                established;         /* used by clients to determine whether to
@@ -301,6 +302,17 @@ fd_quic_conn_new( void *      shmem,
                   ulong       rx_buf_sz,
                   ulong       max_concur_streams_per_type,
                   ulong       max_in_flight_pkts );
+
+
+/* set the user-defined context value on the connection */
+void
+fd_quic_conn_set_context( fd_quic_conn_t * conn, void * context );
+
+
+/* get the user-defined context value from a connection */
+void *
+fd_quic_conn_get_context( fd_quic_conn_t * conn );
+
 
 FD_PROTOTYPES_END
 
