@@ -1928,3 +1928,131 @@ void fd_compact_vote_state_update_encode(fd_compact_vote_state_update_t* self, v
     fd_bincode_option_encode(0, data);
 }
 
+void fd_slot_history_decode(fd_slot_history_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
+  fd_bincode_uint64_decode(&self->bits, data, dataend);
+  fd_bincode_uint64_decode(&self->next_slot, data, dataend);
+}
+void fd_slot_history_destroy(fd_slot_history_t* self, fd_free_fun_t freef, void* freef_arg) {
+}
+
+ulong fd_slot_history_size(fd_slot_history_t* self) {
+  ulong size = 0;
+  size += sizeof(ulong);
+  size += sizeof(ulong);
+  return size;
+}
+
+void fd_slot_history_encode(fd_slot_history_t* self, void const** data) {
+  fd_bincode_uint64_encode(&self->bits, data);
+  fd_bincode_uint64_encode(&self->next_slot, data);
+}
+
+void fd_slot_hash_decode(fd_slot_hash_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
+  fd_bincode_uint64_decode(&self->slot, data, dataend);
+  fd_hash_decode(&self->hash, data, dataend, allocf, allocf_arg);
+}
+void fd_slot_hash_destroy(fd_slot_hash_t* self, fd_free_fun_t freef, void* freef_arg) {
+  fd_hash_destroy(&self->hash, freef, freef_arg);
+}
+
+ulong fd_slot_hash_size(fd_slot_hash_t* self) {
+  ulong size = 0;
+  size += sizeof(ulong);
+  size += fd_hash_size(&self->hash);
+  return size;
+}
+
+void fd_slot_hash_encode(fd_slot_hash_t* self, void const** data) {
+  fd_bincode_uint64_encode(&self->slot, data);
+  fd_hash_encode(&self->hash, data);
+}
+
+void fd_slot_hashes_decode(fd_slot_hashes_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
+  fd_bincode_uint64_decode(&self->hashes_len, data, dataend);
+  if (self->hashes_len != 0) {
+    self->hashes = (fd_slot_hash_t*)(*allocf)(FD_SLOT_HASH_FOOTPRINT*self->hashes_len, FD_SLOT_HASH_ALIGN, allocf_arg);
+    for (ulong i = 0; i < self->hashes_len; ++i)
+      fd_slot_hash_decode(self->hashes + i, data, dataend, allocf, allocf_arg);
+  } else
+    self->hashes = NULL;
+}
+void fd_slot_hashes_destroy(fd_slot_hashes_t* self, fd_free_fun_t freef, void* freef_arg) {
+  if (NULL != self->hashes) {
+    for (ulong i = 0; i < self->hashes_len; ++i)
+      fd_slot_hash_destroy(self->hashes + i,  freef, freef_arg);
+    freef(self->hashes, freef_arg);
+    self->hashes = NULL;
+  }
+}
+
+ulong fd_slot_hashes_size(fd_slot_hashes_t* self) {
+  ulong size = 0;
+  size += sizeof(ulong);
+  for (ulong i = 0; i < self->hashes_len; ++i)
+    size += fd_slot_hash_size(self->hashes + i);
+  return size;
+}
+
+void fd_slot_hashes_encode(fd_slot_hashes_t* self, void const** data) {
+  fd_bincode_uint64_encode(&self->hashes_len, data);
+  if (self->hashes_len != 0) {
+    for (ulong i = 0; i < self->hashes_len; ++i)
+      fd_slot_hash_encode(self->hashes + i, data);
+  }
+}
+
+void fd_block_block_hash_entry_decode(fd_block_block_hash_entry_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
+  fd_hash_decode(&self->blockhash, data, dataend, allocf, allocf_arg);
+  fd_fee_calculator_decode(&self->fee_calculator, data, dataend, allocf, allocf_arg);
+}
+void fd_block_block_hash_entry_destroy(fd_block_block_hash_entry_t* self, fd_free_fun_t freef, void* freef_arg) {
+  fd_hash_destroy(&self->blockhash, freef, freef_arg);
+  fd_fee_calculator_destroy(&self->fee_calculator, freef, freef_arg);
+}
+
+ulong fd_block_block_hash_entry_size(fd_block_block_hash_entry_t* self) {
+  ulong size = 0;
+  size += fd_hash_size(&self->blockhash);
+  size += fd_fee_calculator_size(&self->fee_calculator);
+  return size;
+}
+
+void fd_block_block_hash_entry_encode(fd_block_block_hash_entry_t* self, void const** data) {
+  fd_hash_encode(&self->blockhash, data);
+  fd_fee_calculator_encode(&self->fee_calculator, data);
+}
+
+void fd_recent_block_hashes_decode(fd_recent_block_hashes_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
+  fd_bincode_uint64_decode(&self->hashes_len, data, dataend);
+  if (self->hashes_len != 0) {
+    self->hashes = (fd_block_block_hash_entry_t*)(*allocf)(FD_BLOCK_BLOCK_HASH_ENTRY_FOOTPRINT*self->hashes_len, FD_BLOCK_BLOCK_HASH_ENTRY_ALIGN, allocf_arg);
+    for (ulong i = 0; i < self->hashes_len; ++i)
+      fd_block_block_hash_entry_decode(self->hashes + i, data, dataend, allocf, allocf_arg);
+  } else
+    self->hashes = NULL;
+}
+void fd_recent_block_hashes_destroy(fd_recent_block_hashes_t* self, fd_free_fun_t freef, void* freef_arg) {
+  if (NULL != self->hashes) {
+    for (ulong i = 0; i < self->hashes_len; ++i)
+      fd_block_block_hash_entry_destroy(self->hashes + i,  freef, freef_arg);
+    freef(self->hashes, freef_arg);
+    self->hashes = NULL;
+  }
+}
+
+ulong fd_recent_block_hashes_size(fd_recent_block_hashes_t* self) {
+  ulong size = 0;
+  size += sizeof(ulong);
+  for (ulong i = 0; i < self->hashes_len; ++i)
+    size += fd_block_block_hash_entry_size(self->hashes + i);
+  return size;
+}
+
+void fd_recent_block_hashes_encode(fd_recent_block_hashes_t* self, void const** data) {
+  fd_bincode_uint64_encode(&self->hashes_len, data);
+  if (self->hashes_len != 0) {
+    for (ulong i = 0; i < self->hashes_len; ++i)
+      fd_block_block_hash_entry_encode(self->hashes + i, data);
+  }
+}
+

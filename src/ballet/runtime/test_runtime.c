@@ -727,6 +727,34 @@ int replay(global_state_t *state) {
       fd_funk_fork(state->funk, fd_funk_root(state->acc_mgr->funk), &funk_txn);
     }
 
+    // SysvarS1otHashes111111111111111111111111111
+    //new.update_slot_hashes();
+    //                 .map(|account| from_account::<SlotHashes, _>(account).unwrap())
+    //
+    //                 pub type SlotHash = (Slot, Hash);
+    //                 pub struct SlotHashes(Vec<SlotHash>);
+
+    // SysvarS1otHistory11111111111111111111111111
+    //new.update_stake_history(Some(parent_epoch));
+    //                 .map(|account| from_account::<SlotHistory, _>(account).unwrap())
+    //
+    //pub struct SlotHistory {
+    //  pub bits: BitVec<u64>,
+    //  pub next_slot: Slot,
+    // }
+
+    //new.update_clock(Some(parent_epoch));
+
+    // 
+    //new.update_fees();
+
+    // "SysvarRecentB1ockHashes11111111111111111111",
+    // pub struct Entry {
+    //   pub blockhash: Hash,
+    //   pub fee_calculator: FeeCalculator,
+    // }
+    // pub struct RecentBlockhashes(Vec<Entry>);
+
     do {
       fd_slot_blocks_t *slot_data = fd_rocksdb_get_microblocks(&state->rocks_db, &m, allocf, state->alloc);
 

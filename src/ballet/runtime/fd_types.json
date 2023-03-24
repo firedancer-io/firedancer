@@ -575,6 +575,44 @@
           { "name": "hash", "type": "hash" },
           { "name": "timestamp", "type": "option", "element": "ulong" }
       ]
+    },
+    {
+      "name": "slot_history",
+      "type": "struct",
+      "fields": [
+          { "name": "bits", "type": "ulong" },
+          { "name": "next_slot", "type": "ulong" }
+      ]
+    },
+    {
+      "name": "slot_hash",
+      "type": "struct",
+      "fields": [
+          { "name": "slot", "type": "ulong" },
+          { "name": "hash", "type": "hash" }
+      ]
+    },
+    {
+      "name": "slot_hashes",
+      "type": "struct",
+      "fields": [
+          { "name": "hashes", "type": "vector", "element": "slot_hash" }
+      ]
+    },
+    {
+      "name": "block_block_hash_entry",
+      "type": "struct",
+      "fields": [
+          { "name": "blockhash", "type": "hash" },
+          { "name": "fee_calculator", "type": "fee_calculator" }
+      ]
+    },
+    {
+      "name": "recent_block_hashes",
+      "type": "struct",
+      "fields": [
+          { "name": "hashes", "type": "vector", "element": "block_block_hash_entry" }
+      ]
     }
   ]
 }

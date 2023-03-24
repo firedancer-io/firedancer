@@ -595,6 +595,46 @@ typedef struct fd_compact_vote_state_update fd_compact_vote_state_update_t;
 #define FD_COMPACT_VOTE_STATE_UPDATE_FOOTPRINT sizeof(fd_compact_vote_state_update_t)
 #define FD_COMPACT_VOTE_STATE_UPDATE_ALIGN (8UL)
 
+struct fd_slot_history {
+  unsigned long bits;
+  unsigned long next_slot;
+};
+typedef struct fd_slot_history fd_slot_history_t;
+#define FD_SLOT_HISTORY_FOOTPRINT sizeof(fd_slot_history_t)
+#define FD_SLOT_HISTORY_ALIGN (8UL)
+
+struct fd_slot_hash {
+  unsigned long slot;
+  fd_hash_t     hash;
+};
+typedef struct fd_slot_hash fd_slot_hash_t;
+#define FD_SLOT_HASH_FOOTPRINT sizeof(fd_slot_hash_t)
+#define FD_SLOT_HASH_ALIGN (8UL)
+
+struct fd_slot_hashes {
+  ulong           hashes_len;
+  fd_slot_hash_t* hashes;
+};
+typedef struct fd_slot_hashes fd_slot_hashes_t;
+#define FD_SLOT_HASHES_FOOTPRINT sizeof(fd_slot_hashes_t)
+#define FD_SLOT_HASHES_ALIGN (8UL)
+
+struct fd_block_block_hash_entry {
+  fd_hash_t           blockhash;
+  fd_fee_calculator_t fee_calculator;
+};
+typedef struct fd_block_block_hash_entry fd_block_block_hash_entry_t;
+#define FD_BLOCK_BLOCK_HASH_ENTRY_FOOTPRINT sizeof(fd_block_block_hash_entry_t)
+#define FD_BLOCK_BLOCK_HASH_ENTRY_ALIGN (8UL)
+
+struct fd_recent_block_hashes {
+  ulong                        hashes_len;
+  fd_block_block_hash_entry_t* hashes;
+};
+typedef struct fd_recent_block_hashes fd_recent_block_hashes_t;
+#define FD_RECENT_BLOCK_HASHES_FOOTPRINT sizeof(fd_recent_block_hashes_t)
+#define FD_RECENT_BLOCK_HASHES_ALIGN (8UL)
+
 
 FD_PROTOTYPES_BEGIN
 
@@ -857,6 +897,31 @@ void fd_compact_vote_state_update_decode(fd_compact_vote_state_update_t* self, v
 void fd_compact_vote_state_update_encode(fd_compact_vote_state_update_t* self, void const** data);
 void fd_compact_vote_state_update_destroy(fd_compact_vote_state_update_t* self, fd_free_fun_t freef, void* freef_arg);
 ulong fd_compact_vote_state_update_size(fd_compact_vote_state_update_t* self);
+
+void fd_slot_history_decode(fd_slot_history_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
+void fd_slot_history_encode(fd_slot_history_t* self, void const** data);
+void fd_slot_history_destroy(fd_slot_history_t* self, fd_free_fun_t freef, void* freef_arg);
+ulong fd_slot_history_size(fd_slot_history_t* self);
+
+void fd_slot_hash_decode(fd_slot_hash_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
+void fd_slot_hash_encode(fd_slot_hash_t* self, void const** data);
+void fd_slot_hash_destroy(fd_slot_hash_t* self, fd_free_fun_t freef, void* freef_arg);
+ulong fd_slot_hash_size(fd_slot_hash_t* self);
+
+void fd_slot_hashes_decode(fd_slot_hashes_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
+void fd_slot_hashes_encode(fd_slot_hashes_t* self, void const** data);
+void fd_slot_hashes_destroy(fd_slot_hashes_t* self, fd_free_fun_t freef, void* freef_arg);
+ulong fd_slot_hashes_size(fd_slot_hashes_t* self);
+
+void fd_block_block_hash_entry_decode(fd_block_block_hash_entry_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
+void fd_block_block_hash_entry_encode(fd_block_block_hash_entry_t* self, void const** data);
+void fd_block_block_hash_entry_destroy(fd_block_block_hash_entry_t* self, fd_free_fun_t freef, void* freef_arg);
+ulong fd_block_block_hash_entry_size(fd_block_block_hash_entry_t* self);
+
+void fd_recent_block_hashes_decode(fd_recent_block_hashes_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
+void fd_recent_block_hashes_encode(fd_recent_block_hashes_t* self, void const** data);
+void fd_recent_block_hashes_destroy(fd_recent_block_hashes_t* self, fd_free_fun_t freef, void* freef_arg);
+ulong fd_recent_block_hashes_size(fd_recent_block_hashes_t* self);
 
 FD_PROTOTYPES_END
 
