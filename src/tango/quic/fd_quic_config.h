@@ -112,6 +112,8 @@ struct fd_quic_host_cfg {
   ushort       udp_port;
 };
 
+/* FIXME: Clearly define the ownership, lifetime, constness, and source of each config param */
+/* FIXME: Some of this is filled in by fd_quic_config_from_env, some by the tile, and some by main. */
 
 struct fd_quic_config {
   char                         cert_file  [ PATH_MAX ];  /* certificate file path */
@@ -141,13 +143,14 @@ struct fd_quic_config {
 
   ulong                        max_in_flight_acks;     /* max in-flight (tx) acks per connection */
 
+  /* FIXME: use disco's lazy / housekeep semantics for this? */
+  /* FIXME: which unit does this field have */
+  /* FIXME: how much jitter? */
   ulong                        mean_time_between_svc;  /* mean time between connection servicing */
                                                        /* when idle */
 
   uchar                        dscp;                   /* differentiated services code point */
                                                        /* set on all IPV4 tx packets */
-
-  ulong                        tx_buf_sz;              /* the size of the per-stream transmit buffer */
 
   /* callbacks */
   fd_quic_cb_conn_new_t                cb_conn_new;
