@@ -367,6 +367,32 @@ ulong fd_quic_footprint( ulong tx_buf_sz,
                          ulong max_in_flight_pkts,
                          ulong max_concur_conns,
                          ulong max_concur_conn_ids ) {
+
+  if( FD_UNLIKELY( !tx_buf_sz ) ) {
+    FD_LOG_WARNING(( "zero tx_buf_sz" ));
+    return 0UL;
+  }
+  if( FD_UNLIKELY( !rx_buf_sz ) ) {
+    FD_LOG_WARNING(( "zero rx_buf_sz" ));
+    return 0UL;
+  }
+  if( FD_UNLIKELY( !max_concur_streams_per_type ) ) {
+    FD_LOG_WARNING(( "zero max_concur_streams_per_type" ));
+    return 0UL;
+  }
+  if( FD_UNLIKELY( !max_in_flight_pkts ) ) {
+    FD_LOG_WARNING(( "zero max_in_flight_pkts" ));
+    return 0UL;
+  }
+  if( FD_UNLIKELY( !max_concur_conns ) ) {
+    FD_LOG_WARNING(( "zero max_concur_conns" ));
+    return 0UL;
+  }
+  if( FD_UNLIKELY( !max_concur_conn_ids ) ) {
+    FD_LOG_WARNING(( "zero max_concur_conn_ids" ));
+    return 0UL;
+  }
+
   ulong offs  = 0;
   ulong align = fd_quic_align();
 
@@ -438,6 +464,7 @@ fd_quic_new( void * mem,
   /* Reset fd_quic_t state */
 
   fd_memset( quic, 0, footprint );
+  quic->max_concur_conns = max_concur_conns;
 
   ulong offs = FD_QUIC_POW2_ALIGN( sizeof( fd_quic_t ), align );
 
@@ -527,6 +554,11 @@ fd_quic_init( void *             shmem,
     return NULL;
   }
 
+  if( FD_UNLIKELY( quic->max_concur_conns != config->max_concur_conns ) ) {
+    FD_LOG_WARNING(( "incompatible config" ));
+    return NULL;
+  }
+
   int keylog_fd = -1;
   if( FD_UNLIKELY( config->keylog_file[0] ) ) {
     keylog_fd = open( config->keylog_file, O_WRONLY|O_CREAT|O_APPEND, 0660 );
@@ -548,7 +580,6 @@ fd_quic_init( void *             shmem,
 
   quic->transport_params      = *config->transport_params; /* copy transport parameters */
   quic->host_cfg              = config->host_cfg;
-  quic->max_concur_conns      = config->max_concur_conns;
   quic->max_concur_streams    = config->max_concur_streams;
   quic->max_concur_handshakes = config->max_concur_handshakes;
   quic->max_in_flight_pkts    = config->max_in_flight_pkts;
@@ -617,9 +648,20 @@ fd_quic_t *
 fd_quic_join( void * shmem ) {
   fd_quic_t * quic = (fd_quic_t*)shmem;
 
-  if( quic->magic != FD_QUIC_MAGIC || !quic->init ) {
-    FD_LOG_ERR(( "fd_quic_join: unable to join quic: it is uninitialized" ));
-  }
+# define FD_JOIN_TEST( cond ) \
+  if( FD_UNLIKELY( !(cond) ) ) { FD_LOG_WARNING(( "!" #cond )); return NULL; }
+
+  FD_JOIN_TEST( shmem                        );
+  FD_JOIN_TEST( quic->magic == FD_QUIC_MAGIC );
+  FD_JOIN_TEST( quic->max_concur_conns       );
+  FD_JOIN_TEST( quic->max_concur_streams     );
+  FD_JOIN_TEST( quic->max_concur_handshakes  );
+  FD_JOIN_TEST( quic->max_in_flight_pkts     );
+  FD_JOIN_TEST( quic->max_in_flight_acks     );
+  //FD_JOIN_TEST( quic->now_fn                 );
+  //FD_JOIN_TEST( quic->cb_conn_new            );
+
+# undef FD_JOIN_TEST
 
   return quic;
 }
@@ -2051,12 +2093,12 @@ fd_quic_process_packet( fd_quic_t * quic, uchar const * data, ulong data_sz ) {
   /* cur_ptr[0..cur_sz-1] should be payload */
 
   /* debugging */
-  DEBUG(
-      printf( "fd_quic_process_packet: received packet with headers:\n" );
-      fd_quic_dump_struct_eth( pkt.eth );
-      fd_quic_dump_struct_ipv4( pkt.ipv4 );
-      fd_quic_dump_struct_udp( pkt.udp );
-      printf( "\n" ); )
+  //DEBUG(
+  //    printf( "fd_quic_process_packet: received packet with headers:\n" );
+  //    fd_quic_dump_struct_eth( pkt.eth );
+  //    fd_quic_dump_struct_ipv4( pkt.ipv4 );
+  //    fd_quic_dump_struct_udp( pkt.udp );
+  //    printf( "\n" ); )
   /* end debugging */
 
   /* filter */
@@ -2246,12 +2288,12 @@ fd_quic_tls_cb_secret( fd_quic_tls_hs_t *           hs,
   /* look up suite */
   /* set secrets */
   if( FD_UNLIKELY( secret->enc_level < 0 || secret->enc_level >= FD_QUIC_NUM_ENC_LEVELS ) ) {
-    FD_LOG_WARNING(( "%s : callback with invalid encryption level", __func__ ));
+    FD_LOG_WARNING(( "callback with invalid encryption level" ));
     return;
   }
 
   if( FD_UNLIKELY( secret->secret_len > FD_QUIC_MAX_SECRET_SZ ) ) {
-    FD_LOG_WARNING(( "%s : callback with invalid secret length", __func__ ));
+    FD_LOG_WARNING(( "callback with invalid secret length" ));
     return;
   }
 
@@ -2263,18 +2305,18 @@ fd_quic_tls_cb_secret( fd_quic_tls_hs_t *           hs,
   crypto_secret->secret_sz[enc_level][0] = secret_sz;
   crypto_secret->secret_sz[enc_level][1] = secret_sz;
 
-  DEBUG(
-      printf( "%s read  secret - enc_level: %d  secret: ", conn->server ? "SERVER" : "CLIENT", enc_level );
-      for( ulong j = 0; j < secret_sz; ++j ) {
-        printf( "%2.2x", (uint)secret->read_secret[j] );
-      }
-      printf( "\n" );
-      printf( "%s write secret - enc_level: %d  secret: ", conn->server ? "SERVER" : "CLIENT", enc_level );
-      for( ulong j = 0; j < secret_sz; ++j ) {
-        printf( "%2.2x", (uint)secret->write_secret[j] );
-      }
-      printf( "\n" );
-    )
+  // DEBUG(
+  //     printf( "%s read  secret - enc_level: %d  secret: ", conn->server ? "SERVER" : "CLIENT", enc_level );
+  //     for( ulong j = 0; j < secret_sz; ++j ) {
+  //       printf( "%2.2x", (uint)secret->read_secret[j] );
+  //     }
+  //     printf( "\n" );
+  //     printf( "%s write secret - enc_level: %d  secret: ", conn->server ? "SERVER" : "CLIENT", enc_level );
+  //     for( ulong j = 0; j < secret_sz; ++j ) {
+  //       printf( "%2.2x", (uint)secret->write_secret[j] );
+  //     }
+  //     printf( "\n" );
+  //   )
 
   fd_memcpy( &crypto_secret->secret[enc_level][!server][0], secret->read_secret,  secret_sz );
   fd_memcpy( &crypto_secret->secret[enc_level][ server][0], secret->write_secret, secret_sz );
@@ -2407,24 +2449,24 @@ fd_quic_frame_handle_crypto_frame( void *                   vp_context,
   /* copy the context locally */
   fd_quic_frame_context_t context = *(fd_quic_frame_context_t*)vp_context;
 
-  DEBUG(
-    printf( "CRYPTO\n" );
-    fd_quic_dump_struct_crypto_frame( crypto );
+  //DEBUG(
+  //  printf( "CRYPTO\n" );
+  //  fd_quic_dump_struct_crypto_frame( crypto );
+  //
+  //  printf( "enc_level: %d\n", (int)context.pkt->enc_level );
+  //  )
 
-    printf( "enc_level: %d\n", (int)context.pkt->enc_level );
-    )
-
-  DEBUG(
-      printf( "%s : %s calling fd_quic_tls_provide_data with %ld bytes, enc_level: %d\n",
-        __func__,
-        ( context.conn->server ? "SERVER" : "CLIENT" ),
-        (long)crypto->length,
-        (int)context.pkt->enc_level );
-      for( ulong j = 0; j < crypto->length; ++j ) {
-        printf( "%2.2x ", crypto->crypto_data[j] );
-      }
-      printf( "\n" );
-    )
+  // DEBUG(
+  //     printf( "%s : %s calling fd_quic_tls_provide_data with %ld bytes, enc_level: %d\n",
+  //       __func__,
+  //       ( context.conn->server ? "SERVER" : "CLIENT" ),
+  //       (long)crypto->length,
+  //       (int)context.pkt->enc_level );
+  //     for( ulong j = 0; j < crypto->length; ++j ) {
+  //       printf( "%2.2x ", crypto->crypto_data[j] );
+  //     }
+  //     printf( "\n" );
+  //   )
 
   /* determine whether any of the data was already provided */
   fd_quic_conn_t * conn      = context.conn;
@@ -2546,19 +2588,19 @@ fd_quic_tx_buffered( fd_quic_t * quic, fd_quic_conn_t * conn ) {
   /* nothing to do */
   if( payload_sz <= 0 ) return 0;
 
-  DEBUG(
-      {
-        printf( "fd_quic_tx_buffered:\n" );
-        uchar const * end_ptr = conn->tx_ptr;
-        uchar const * cur_ptr = conn->tx_buf;
-        while( cur_ptr < end_ptr ) {
-          printf( "%2.2x ", (uint)*cur_ptr );
-          cur_ptr++;
-        }
-        printf( "\n" );
-        fflush( stdout );
-      }
-    )
+  //DEBUG(
+  //    {
+  //      printf( "fd_quic_tx_buffered:\n" );
+  //      uchar const * end_ptr = conn->tx_ptr;
+  //      uchar const * cur_ptr = conn->tx_buf;
+  //      while( cur_ptr < end_ptr ) {
+  //        printf( "%2.2x ", (uint)*cur_ptr );
+  //        cur_ptr++;
+  //      }
+  //      printf( "\n" );
+  //      fflush( stdout );
+  //    }
+  //  )
 
   ulong                  peer_idx   = conn->cur_peer_idx;
   fd_quic_endpoint_t *   peer       = &conn->peer[peer_idx];
@@ -5017,7 +5059,7 @@ fd_quic_frame_handle_conn_close_frame(
     void *                       vp_context,
     fd_quic_conn_close_frame_t * data,
     uchar const *                p,
-    ulong                       p_sz ) {
+    ulong                        p_sz ) {
   (void)data;
   (void)p;
   (void)p_sz;
@@ -5142,10 +5184,10 @@ fd_quic_config_from_env( int * pargc,
   char const * keylog_file           = fd_env_strip_cmdline_cstr ( pargc, pargv, NULL,                           "SSLKEYLOGFILE",              NULL   );
   ulong        max_concur_conns      = fd_env_strip_cmdline_ulong( pargc, pargv, "--quic-max-concur-conns",      "QUIC_MAX_CONCUR_CONNS",      1024UL );
   ulong        max_concur_conn_ids   = fd_env_strip_cmdline_ulong( pargc, pargv, "--quic-max-concur-conn-ids",   "QUIC_MAX_CONCUR_CONN_IDS",     16UL );
-  uint         max_concur_streams    = fd_env_strip_cmdline_uint ( pargc, pargv, "--quic-max-concur-streams",    "QUIC_MAX_CONCUR_STREAMS",      16UL );
-  uint         max_concur_handshakes = fd_env_strip_cmdline_uint ( pargc, pargv, "--quic-max-concur-handshakes", "QUIC_MAX_CONCUR_HANDSHAKES",  128UL );
-  ulong        max_inflight_pkts     = fd_env_strip_cmdline_ulong( pargc, pargv, "--quic-max-inflight-pkts",     "QUIC_MAX_INFLIGHT_PKTS",      128UL );
-  ulong        max_inflight_acks     = fd_env_strip_cmdline_ulong( pargc, pargv, "--quic-max-inflight-acks",     "QUIC_MAX_INFLIGHT_ACKS",      128UL );
+  uint         max_concur_streams    = fd_env_strip_cmdline_uint ( pargc, pargv, "--quic-max-concur-streams",    "QUIC_MAX_CONCUR_STREAMS",       2UL );
+  uint         max_concur_handshakes = fd_env_strip_cmdline_uint ( pargc, pargv, "--quic-max-concur-handshakes", "QUIC_MAX_CONCUR_HANDSHAKES",    2UL );
+  ulong        max_inflight_pkts     = fd_env_strip_cmdline_ulong( pargc, pargv, "--quic-max-inflight-pkts",     "QUIC_MAX_INFLIGHT_PKTS",       64UL );
+  ulong        max_inflight_acks     = fd_env_strip_cmdline_ulong( pargc, pargv, "--quic-max-inflight-acks",     "QUIC_MAX_INFLIGHT_ACKS",       64UL );
 
   if( FD_UNLIKELY( !cert_file ) ) {
     FD_LOG_WARNING(( "Missing --ssl-cert" ));
@@ -5156,13 +5198,13 @@ fd_quic_config_from_env( int * pargc,
     return NULL;
   }
 
-  strncpy( cfg->cert_file, cert_file, PATH_MAX-1UL );
-  strncpy( cfg->key_file,  key_file,  PATH_MAX-1UL );
+  strncpy( cfg->cert_file, cert_file, PATH_MAX ); cfg->cert_file[ PATH_MAX-1UL ]='\0';
+  strncpy( cfg->key_file,  key_file,  PATH_MAX ); cfg->key_file [ PATH_MAX-1UL ]='\0';
 
   if( keylog_file ) {
-    strncpy( cfg->keylog_file, keylog_file, PATH_MAX-1UL );
+    strncpy( cfg->keylog_file, keylog_file, PATH_MAX ); cfg->keylog_file[ PATH_MAX-1UL ]='\0';
   } else {
-    cfg->keylog_file[ 0 ] = '\0';
+    cfg->keylog_file[0]='\0';
   }
 
   cfg->max_concur_conns      = max_concur_conns;
@@ -5171,6 +5213,7 @@ fd_quic_config_from_env( int * pargc,
   cfg->max_concur_handshakes = max_concur_handshakes;
   cfg->max_in_flight_pkts    = max_inflight_pkts;
   cfg->max_in_flight_acks    = max_inflight_acks;
+  cfg->conn_id_sparsity      = 4;
 
   return cfg;
 }

@@ -442,8 +442,6 @@ main( int argc, char ** argv ) {
   quic_config.now_fn  = test_clock;
   quic_config.now_ctx = NULL;
 
-  quic_config.tx_buf_sz = 1ul << 20ul;
-
   fd_quic_host_cfg_t server_cfg = { "server_host", 0x0a000001u, 4434 };
   fd_quic_host_cfg_t client_cfg = { "client_host", 0xc01a1a1au, 2001 };
 
