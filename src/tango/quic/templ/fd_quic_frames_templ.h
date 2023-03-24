@@ -377,18 +377,23 @@ FD_TEMPL_DEF_STRUCT_END(path_response_frame)
    }
    Figure 43: CONNECTION_CLOSE Frame Format */
 
-FD_TEMPL_DEF_STRUCT_BEGIN(conn_close_frame)
-  FD_TEMPL_MBR_FRAME_TYPE( type, 0x1c,0x1d )
-
+FD_TEMPL_DEF_STRUCT_BEGIN(conn_close_0_frame)
+  FD_TEMPL_MBR_FRAME_TYPE( type, 0x1c,0x1c )
   FD_TEMPL_MBR_ELEM_VARINT( error_code,           ulong )
-
-    FD_TEMPL_MBR_OPT( type, frame_type, 0x01,
-  FD_TEMPL_MBR_ELEM_VARINT( frame_type,           ulong ) )
-
+  FD_TEMPL_MBR_ELEM_VARINT( frame_type,           ulong )
   FD_TEMPL_MBR_ELEM_VARINT( reason_phrase_length, ulong )
 
   /* phrase follows */
-FD_TEMPL_DEF_STRUCT_END(conn_close_frame)
+FD_TEMPL_DEF_STRUCT_END(conn_close_0_frame)
+
+
+FD_TEMPL_DEF_STRUCT_BEGIN(conn_close_1_frame)
+  FD_TEMPL_MBR_FRAME_TYPE( type, 0x1d,0x1d )
+  FD_TEMPL_MBR_ELEM_VARINT( error_code,           ulong )
+  FD_TEMPL_MBR_ELEM_VARINT( reason_phrase_length, ulong )
+
+  /* phrase follows */
+FD_TEMPL_DEF_STRUCT_END(conn_close_1_frame)
 
 
 /* Handshake Done Frame

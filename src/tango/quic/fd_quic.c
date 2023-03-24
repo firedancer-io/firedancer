@@ -14,6 +14,7 @@
 #include "crypto/fd_quic_crypto_suites.h"
 #include "fd_quic_proto.h"
 
+
 /* define a priority queue for time based processing */
 #define PRQ_NAME      service_queue
 #define PRQ_T         fd_quic_event_t
@@ -1856,8 +1857,10 @@ fd_quic_ack_pkt( fd_quic_t * quic, fd_quic_conn_t * conn, fd_quic_pkt_t * pkt ) 
        and reschedule service */
     if( ack_time < head_ack->tx_time ) {
       head_ack->tx_time = ack_time;
-      fd_quic_reschedule_conn( conn, ack_time );
     }
+
+    /* TODO may be able to avoid this call sometimes */
+    fd_quic_reschedule_conn( conn, ack_time );
 
     /* promote to mandatory, if necessary */
     head_ack->flags = ack_mandatory ? FD_QUIC_ACK_FLAGS_MANDATORY : head_ack->flags;
@@ -2899,13 +2902,14 @@ fd_quic_conn_tx( fd_quic_t * quic, fd_quic_conn_t * conn ) {
      data is populated, then encoded into a buffer
      so only one member in use */
   union {
-    fd_quic_crypto_frame_t      crypto;
-    fd_quic_ack_frame_t         ack;
-    fd_quic_stream_frame_t      stream;
-    fd_quic_max_stream_data_t   max_stream_data;
-    fd_quic_max_data_frame_t    max_data;
-    fd_quic_conn_close_frame_t  conn_close;
-    fd_quic_max_streams_frame_t max_streams;
+    fd_quic_crypto_frame_t       crypto;
+    fd_quic_ack_frame_t          ack;
+    fd_quic_stream_frame_t       stream;
+    fd_quic_max_stream_data_t    max_stream_data;
+    fd_quic_max_data_frame_t     max_data;
+    fd_quic_conn_close_0_frame_t conn_close_0;
+    fd_quic_conn_close_1_frame_t conn_close_1;
+    fd_quic_max_streams_frame_t  max_streams;
   } frame;
 
   while(1) {
@@ -3074,26 +3078,28 @@ fd_quic_conn_tx( fd_quic_t * quic, fd_quic_conn_t * conn ) {
 
     /* closing? */
     if( FD_UNLIKELY( closing ) ) {
-      if( !peer_close && !( conn->flags & FD_QUIC_CONN_FLAGS_CLOSE_SENT ) ) {
+      if( !( conn->flags & FD_QUIC_CONN_FLAGS_CLOSE_SENT ) ) {
         /* only send one unless timeout before ack */
         conn->flags |= FD_QUIC_CONN_FLAGS_CLOSE_SENT;
 
-        /* we ack the close */
-        if( conn->reason != 0u ) {
-          frame.conn_close.error_code           = conn->reason;
-          frame.conn_close.frame_type_opt       = 1u; /* presence of frame_type indicates a quic reason */
-          frame.conn_close.frame_type           = 0u; /* we do not know the frame in question */
-          frame.conn_close.reason_phrase_length = 0u; /* no reason phrase */
-        } else {
-          frame.conn_close.error_code           = conn->app_reason;
-          frame.conn_close.frame_type_opt       = 0u; /* absence of frame_type indicates an application reason */
-          frame.conn_close.reason_phrase_length = 0u; /* no reason phrase */
-        }
+        if( conn->reason != 0u || peer_close ) {
+          frame.conn_close_0.error_code           = conn->reason;
+          frame.conn_close_0.frame_type           = 0u; /* we do not know the frame in question */
+          frame.conn_close_0.reason_phrase_length = 0u; /* no reason phrase */
 
-        /* output */
-        frame_sz = fd_quic_encode_conn_close_frame( payload_ptr,
-                                                    (ulong)( payload_end - payload_ptr ),
-                                                    &frame.conn_close );
+          /* output */
+          frame_sz = fd_quic_encode_conn_close_0_frame( payload_ptr,
+                                                        (ulong)( payload_end - payload_ptr ),
+                                                        &frame.conn_close_0 );
+        } else {
+          frame.conn_close_1.error_code           = conn->app_reason;
+          frame.conn_close_1.reason_phrase_length = 0u; /* no reason phrase */
+
+          /* output */
+          frame_sz = fd_quic_encode_conn_close_1_frame( payload_ptr,
+                                                        (ulong)( payload_end - payload_ptr ),
+                                                        &frame.conn_close_1 );
+        }
 
         if( FD_UNLIKELY( frame_sz == FD_QUIC_PARSE_FAIL ) ) {
           FD_LOG_WARNING(( "%s - fd_quic_encode_crypto_frame failed, but space "
@@ -3675,12 +3681,13 @@ fd_quic_conn_service( fd_quic_t * quic, fd_quic_conn_t * conn, ulong now ) {
       }
 
     case FD_QUIC_CONN_STATE_CLOSE_PENDING:
+    case FD_QUIC_CONN_STATE_PEER_CLOSE:
         /* user requested close, and may have set a reason code */
         /* transmit the failure reason */
         fd_quic_conn_tx( quic, conn );
 
         /* this will make the service call free the connection */
-        conn->state = FD_QUIC_CONN_STATE_DEAD;
+        conn->state = FD_QUIC_CONN_STATE_DEAD; /* TODO need draining state wait for 3 * TPO */
 
         break;
 
@@ -5054,15 +5061,9 @@ fd_quic_frame_handle_path_response_frame(
   return FD_QUIC_PARSE_FAIL;
 }
 
-static ulong
+static void
 fd_quic_frame_handle_conn_close_frame(
-    void *                       vp_context,
-    fd_quic_conn_close_frame_t * data,
-    uchar const *                p,
-    ulong                        p_sz ) {
-  (void)data;
-  (void)p;
-  (void)p_sz;
+    void *                       vp_context ) {
   fd_quic_frame_context_t context = *(fd_quic_frame_context_t*)vp_context;
 
   /* ack-eliciting */
@@ -5076,16 +5077,58 @@ fd_quic_frame_handle_conn_close_frame(
       printf( "%s : peer requested close\n", __func__ );
       )
 
+  uint enc_level = 0u;
   switch( context.conn->state ) {
+    case FD_QUIC_CONN_STATE_PEER_CLOSE:
     case FD_QUIC_CONN_STATE_ABORT:
     case FD_QUIC_CONN_STATE_CLOSE_PENDING:
-      return 0u;
+      return;
+
+    case FD_QUIC_CONN_STATE_HANDSHAKE_COMPLETE:
+    case FD_QUIC_CONN_STATE_ACTIVE:
+      enc_level = fd_quic_enc_level_appdata_id;
+      context.conn->state = FD_QUIC_CONN_STATE_PEER_CLOSE;
+      break;
 
     default:
       context.conn->state = FD_QUIC_CONN_STATE_PEER_CLOSE;
+      if( context.conn->suites[fd_quic_enc_level_handshake_id] ) {
+        enc_level = fd_quic_enc_level_handshake_id;
+      } else {
+        enc_level = fd_quic_enc_level_initial_id;
+      }
   }
 
-  return 0u;
+  context.conn->upd_pkt_number = context.conn->pkt_number[enc_level];
+  fd_quic_reschedule_conn( context.conn, context.quic->now_fn( context.quic->now_ctx ) + 1u );
+}
+
+static ulong
+fd_quic_frame_handle_conn_close_0_frame(
+    void *                         vp_context,
+    fd_quic_conn_close_0_frame_t * data,
+    uchar const *                  p,
+    ulong                          p_sz ) {
+  (void)p;
+  (void)p_sz;
+
+  fd_quic_frame_handle_conn_close_frame( vp_context );
+
+  return data->reason_phrase_length;
+}
+
+static ulong
+fd_quic_frame_handle_conn_close_1_frame(
+    void *                         vp_context,
+    fd_quic_conn_close_1_frame_t * data,
+    uchar const *                  p,
+    ulong                          p_sz ) {
+  (void)p;
+  (void)p_sz;
+
+  fd_quic_frame_handle_conn_close_frame( vp_context );
+
+  return data->reason_phrase_length;
 }
 
 static ulong
