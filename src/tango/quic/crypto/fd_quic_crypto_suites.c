@@ -1,17 +1,17 @@
 #include "fd_quic_crypto_suites.h"
 #include "../fd_quic.h"
+#include <openssl/err.h>
 #include <openssl/rand.h>
 #include <limits.h>
 
+/* FD_QUIC_CRYPTO_V1_INITIAL_SALT is the salt to the initial secret
+   HKDF in QUIC v1. */
 
-/* define initial salt */
-uchar  FD_QUIC_CRYPTO_V1_INITIAL_SALT[]  = { 0x38, 0x76, 0x2c, 0xf7, 0xf5, 0x59, 0x34, 0xb3,
-                                             0x4d, 0x17, 0x9a, 0xe6, 0xa4, 0xc8, 0x0c, 0xad,
-                                             0xcc, 0xbb, 0x7f, 0x0a };
-ulong FD_QUIC_CRYPTO_V1_INITIAL_SALT_SZ = sizeof( FD_QUIC_CRYPTO_V1_INITIAL_SALT );
+uchar FD_QUIC_CRYPTO_V1_INITIAL_SALT[ 20UL ] = {
+    0x38, 0x76, 0x2c, 0xf7, 0xf5, 0x59, 0x34, 0xb3,
+    0x4d, 0x17, 0x9a, 0xe6, 0xa4, 0xc8, 0x0c, 0xad,
+    0xcc, 0xbb, 0x7f, 0x0a };
 
-
-/* initialize crypto context */
 void
 fd_quic_crypto_ctx_init( fd_quic_crypto_ctx_t * ctx ) {
   ctx->CIPHER_AES_128_GCM       = EVP_aes_128_gcm();
@@ -27,24 +27,24 @@ fd_quic_crypto_ctx_init( fd_quic_crypto_ctx_t * ctx ) {
   ctx->HASH_SHA384              = EVP_sha384();
 
   /* initialize suites map */
-#define _( ID, SUITE, MAJ, MIN, PKT, HP, HASHFN, KEY_SZ, IV_SZ, ... ) \
-  ctx->suites[ID].id         = ID;                     \
-  ctx->suites[ID].major      = MAJ;                    \
-  ctx->suites[ID].minor      = MIN;                    \
-  ctx->suites[ID].key_sz     = KEY_SZ;                 \
-  ctx->suites[ID].iv_sz      = IV_SZ;                  \
-  ctx->suites[ID].pkt_cipher = ctx->CIPHER_##PKT;      \
-  ctx->suites[ID].hp_cipher  = ctx->CIPHER_##HP;       \
-  ctx->suites[ID].hash       = ctx->HASH_##HASHFN;
-  FD_QUIC_CRYPTO_SUITE_LIST( _, )
-#undef _
+#define EACH( ID, SUITE, MAJ, MIN, PKT, HP, HASHFN, KEY_SZ, IV_SZ, ... ) \
+  ctx->suites[ ID ].id         = ID;                     \
+  ctx->suites[ ID ].major      = MAJ;                    \
+  ctx->suites[ ID ].minor      = MIN;                    \
+  ctx->suites[ ID ].key_sz     = KEY_SZ;                 \
+  ctx->suites[ ID ].iv_sz      = IV_SZ;                  \
+  ctx->suites[ ID ].pkt_cipher = ctx->CIPHER_##PKT;      \
+  ctx->suites[ ID ].hp_cipher  = ctx->CIPHER_##HP;       \
+  ctx->suites[ ID ].hash       = ctx->HASH_##HASHFN;
+  FD_QUIC_CRYPTO_SUITE_LIST( EACH, )
+#undef EACH
 }
 
 void
-fd_quic_crypto_ctx_reset( fd_quic_crypto_ctx_t * ctx ) {
+fd_quic_crypto_ctx_fini( fd_quic_crypto_ctx_t * ctx ) {
   /* no need to free the EVP_MD hash functions */
 
-  /* apparently nothing to do here */
+  /* for now, nothing to do */
   (void)ctx;
 }
 
@@ -178,7 +178,7 @@ fd_quic_hkdf_expand_label( uchar *        output,  ulong output_sz,
   label_data[3 + HKDF_PREFIX_SZ + label_sz] = 0x00u;
 
   // This is the first stage of HKDF-expand from https://www.rfc-editor.org/rfc/rfc5869
-  // only one stage is required to achive the desired length
+  // only one stage is required to achieve the desired length
   // so we just do it here
   label_data[4 + HKDF_PREFIX_SZ + label_sz] = 0x01u;
 
@@ -327,16 +327,16 @@ fd_quic_gen_keys(
   keys->iv_sz = iv_sz;
 
   /* initialize the cipher context */
-  EVP_CIPHER_CTX * pkt_cpher_ctx = EVP_CIPHER_CTX_new();
-  if( FD_UNLIKELY( !pkt_cpher_ctx ) ) {
+  EVP_CIPHER_CTX * pkt_cipher_ctx = EVP_CIPHER_CTX_new();
+  if( FD_UNLIKELY( !pkt_cipher_ctx ) ) {
     FD_LOG_ERR(( "fd_quic_crypto_encrypt: Error creating cipher ctx" ));
   }
 
-  if( FD_UNLIKELY( EVP_CipherInit_ex( pkt_cpher_ctx, suite->pkt_cipher, NULL, NULL, NULL, 1 /* encryption */ ) != 1 ) ) {
+  if( FD_UNLIKELY( EVP_CipherInit_ex( pkt_cipher_ctx, suite->pkt_cipher, NULL, NULL, NULL, 1 /* encryption */ ) != 1 ) ) {
     FD_LOG_ERR(( "fd_quic_crypto_encrypt: EVP_CipherInit_ex failed" ));
   }
 
-  if( FD_UNLIKELY( EVP_CIPHER_CTX_ctrl( pkt_cpher_ctx, EVP_CTRL_AEAD_SET_IVLEN, FD_QUIC_NONCE_SZ, NULL ) != 1 ) ) {
+  if( FD_UNLIKELY( EVP_CIPHER_CTX_ctrl( pkt_cipher_ctx, EVP_CTRL_AEAD_SET_IVLEN, FD_QUIC_NONCE_SZ, NULL ) != 1 ) ) {
     FD_LOG_ERR(( "fd_quic_crypto_encrypt: EVP_CIPHER_CTX_ctrl failed" ));
   }
 
@@ -355,7 +355,7 @@ fd_quic_gen_keys(
     EVP_CIPHER_CTX_free( hp_cipher_ctx );
   }
 
-  keys->pkt_cipher_ctx = pkt_cpher_ctx;
+  keys->pkt_cipher_ctx = pkt_cipher_ctx;
   keys->hp_cipher_ctx  = hp_cipher_ctx;
 
   return FD_QUIC_SUCCESS;
@@ -370,7 +370,7 @@ fd_quic_gen_keys(
    out should have enough space to contain the full output with extra space
    for a full block which depends on the cipher
 
-   *out_sz is used to determine the amound of buffer space left at *out
+   *out_sz is used to determine the amount of buffer space left at *out
      if enough space is not available, the function fails and returns
      FD_QUIC_FAILED
    *out_sz is also set to the number of bytes written into *out at the end
@@ -685,7 +685,7 @@ fd_quic_crypto_decrypt_hdr(
     return FD_QUIC_FAILED;
   }
 
-  uchar hp_cipher[FD_QUIC_CRYPTO_BLOCK_BOUND] = {0};
+  uchar hp_cipher[ FD_QUIC_CRYPTO_BLOCK_BOUND ] = {0};
   if( FD_UNLIKELY( EVP_CIPHER_block_size( suite->hp_cipher ) > FD_QUIC_CRYPTO_BLOCK_BOUND ) ) {
     FD_LOG_ERR(( "fd_quic_crypto_decrypt failed. HP cipher block size too big" ));
   }
@@ -723,19 +723,21 @@ fd_quic_crypto_decrypt_hdr(
   return FD_QUIC_SUCCESS;
 }
 
-extern
 int
-fd_quic_crypto_lookup_suite( uchar major, uchar minor );
+fd_quic_crypto_lookup_suite( uchar major,
+                             uchar minor );
 
-/* get random bytes
+int
+fd_quic_crypto_rand( uchar * buf,
+                     ulong   buf_sz ) {
 
-   just forward to openssl
+  if( FD_UNLIKELY( buf_sz > INT_MAX ) ) {
+    FD_LOG_WARNING(( "fd_quic_crypto_rand: buf_sz too big (%#lx)", buf_sz ));
+    return FD_QUIC_FAILED;
+  }
 
-   here to easily allow the source to change */
-void
-fd_quic_crypto_rand( uchar * buf, int buf_sz ) {
-  int rc = RAND_bytes( buf, buf_sz );
-  if( FD_LIKELY( rc == 1 ) ) return;
+  if( FD_LIKELY( 1==RAND_bytes( buf, (int)buf_sz ) ) )
+    return FD_QUIC_SUCCESS;
 
   /* openssl error getting random bytes - bail */
   ulong err = ERR_get_error();

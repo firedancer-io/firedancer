@@ -7,7 +7,7 @@
 
    At present, TPU is the only protocol deployed on QUIC.  It allows
    clients to send transactions to block producers (this tile).  For
-   each txn to be transfered, the client opens a unidirectional QUIC
+   each txn to be transferred, the client opens a unidirectional QUIC
    stream and sends its serialization (see fd_txn_parse).  In QUIC, this
    can occur in as little as a single packet (and an ACK by the server).
    For txn exceeding MTU size, the txn is fragmented over multiple
@@ -91,10 +91,9 @@ int
 fd_quic_tile( fd_cnc_t *         cnc,        /* Local join to the tile's command-and-control */
               ulong              orig,       /* Origin for this QUIC output stream, in [0,FD_FRAG_META_ORIG_MAX) */
               fd_quic_t *        quic,       /* Local join to the QUIC server */
-              fd_quic_config_t * quic_cfg,   /* QUIC server config (modified by tile) */
               fd_frag_meta_t *   mcache,     /* Local join to the tile's txn output mcache */
               uchar *            dcache,     /* Local join to the tile's txn output dcache */
-              long               lazy,       /* Lazyiness, <=0 means use a reasonable default */
+              long               lazy,       /* Laziness, <=0 means use a reasonable default */
               fd_rng_t *         rng,        /* Local join to the rng this tile should use */
               void *             scratch );  /* Tile scratch memory */
 

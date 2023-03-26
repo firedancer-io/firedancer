@@ -1,26 +1,18 @@
-#ifndef HEADER_fd_quic_tls_enum_h
-#define HEADER_fd_quic_tls_enum_h
+#ifndef HEADER_src_tango_quic_tls_fd_quic_tls_enum_h
+#define HEADER_src_tango_quic_tls_fd_quic_tls_enum_h
 
+#define FD_QUIC_TLS_SUCCESS (0)
+#define FD_QUIC_TLS_FAILED  (1)
 
-enum {
-  FD_QUIC_TLS_SUCCESS = 0,
-  FD_QUIC_TLS_FAILED,
+#define FD_QUIC_TLS_HASH_SHA256 (100)
+#define FD_QUIC_TLS_HASH_SHA384 (101)
 
-  // supported hash algorithms
-  FD_QUIC_TLS_HASH_SHA256 = 100,
-  FD_QUIC_TLS_HASH_SHA384,
+#define FD_QUIC_TLS_AEAD_AES_128_GCM (200)
 
-  // supported packet ciphers
-  FD_QUIC_TLS_AEAD_AES_128_GCM,
+#define FD_QUIC_PKTTYPE_V1_INITIAL   (0)
+#define FD_QUIC_PKTTYPE_V1_ZERO_RTT  (1)
+#define FD_QUIC_PKTTYPE_V1_HANDSHAKE (2)
+#define FD_QUIC_PKTTYPE_V1_RETRY     (3)
 
-  // supported header-protection ciphers
-
-  // packet types
-  FD_QUIC_PKTTYPE_V1_INITIAL = 0,
-  FD_QUIC_PKTTYPE_V1_ZERO_RTT,
-  FD_QUIC_PKTTYPE_V1_HANDSHAKE,
-  FD_QUIC_PKTTYPE_V1_RETRY,
-};
-
-#endif
+#endif /* HEADER_src_tango_quic_tls_fd_quic_tls_enum_h */
 

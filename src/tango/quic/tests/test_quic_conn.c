@@ -319,7 +319,7 @@ typedef struct my_context my_context_t;
 int server_complete = 0;
 int client_complete = 0;
 
-/* server connetion received in callback */
+/* server connection received in callback */
 fd_quic_conn_t * server_conn = NULL;
 fd_quic_conn_t * client_conn = NULL;
 

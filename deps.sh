@@ -4,6 +4,7 @@ set -euo pipefail
 
 # Change into Firedancer root directory
 cd "$(dirname "${BASH_SOURCE[0]}")"
+REPO_ROOT="$(pwd)"
 
 # Fix pkg-config path and environment
 # shellcheck source=./activate-opt
@@ -292,7 +293,7 @@ install_libbpf () {
   fi
 
   cd ./opt/git/libbpf
-  git apply ../../../contrib/libbpf-fix-pedantic-compile.patch
+  git apply "$REPO_ROOT"/contrib/libbpf-fix-pedantic-compile.patch
 
   cd src
 

@@ -246,7 +246,6 @@ int
 fd_quic_tile( fd_cnc_t *         cnc,
               ulong              orig,
               fd_quic_t *        quic,
-              fd_quic_config_t * quic_cfg,
               fd_frag_meta_t *   mcache,
               uchar *            dcache,
               long               lazy,
@@ -314,28 +313,29 @@ fd_quic_tile( fd_cnc_t *         cnc,
 
     /* quic config init */
 
-    if( FD_UNLIKELY( !quic_cfg ) ) { FD_LOG_WARNING(( "NULL quic cfg" )); return 1; }
+    if( FD_UNLIKELY( !quic ) ) { FD_LOG_WARNING(( "NULL quic" )); return 1; }
 
-    quic_cfg->alpns    = (uchar const *)"\xasolana-tpu";
+    fd_quic_config_t * quic_cfg = fd_quic_get_config( quic );
+    memcpy( quic_cfg->alpns, (uchar const *)"\xasolana-tpu", 11UL );
     quic_cfg->alpns_sz = 11UL;
 
     /* quic server init */
 
-    if( FD_UNLIKELY( !quic ) ) { FD_LOG_WARNING(( "NULL quic" )); return 1; }
+    fd_quic_callbacks_t * quic_cb = fd_quic_get_callbacks( quic );
 
-    quic->cb_conn_new           = fd_tpu_conn_create;
-    quic->cb_handshake_complete = NULL;
-    quic->cb_conn_final         = fd_tpu_conn_destroy;
-    quic->cb_stream_new         = fd_tpu_stream_create;
-    quic->cb_stream_notify      = fd_tpu_stream_notify;
-    quic->cb_stream_receive     = fd_tpu_stream_receive;
+    quic_cb->conn_new         = fd_tpu_conn_create;
+    quic_cb->conn_hs_complete = NULL;
+    quic_cb->conn_final       = fd_tpu_conn_destroy;
+    quic_cb->stream_new       = fd_tpu_stream_create;
+    quic_cb->stream_notify    = fd_tpu_stream_notify;
+    quic_cb->stream_receive   = fd_tpu_stream_receive;
 
-    quic->now_fn  = fd_tpu_now;
-    quic->now_ctx = NULL;
+    quic_cb->now     = fd_tpu_now;
+    quic_cb->now_ctx = NULL;
 
     /* aio backend init */
 
-    if( FD_UNLIKELY( !quic->aio_net_out ) ) { FD_LOG_WARNING(( "NULL quic aio backend" )); return 1; }
+    if( FD_UNLIKELY( !quic_cb-> ) ) { FD_LOG_WARNING(( "NULL quic aio backend" )); return 1; }
     net_backend      = quic->aio_net_out->ctx;
     net_service_func = quic->aio_net_out->service_func;
 

@@ -12,9 +12,6 @@ fd_xsk_aio_send( void *                    ctx,
                  ulong                     batch_cnt,
                  ulong *                   opt_batch_idx );
 
-static void
-fd_xsk_aio_service_( void * ctx );
-
 ulong
 fd_xsk_aio_align( void ) {
   return FD_XSK_AIO_ALIGN;
@@ -150,8 +147,6 @@ fd_xsk_aio_join( void *     shxsk_aio,
     FD_LOG_WARNING(( "Failed to join local tx aio" ));
     return NULL;
   }
-  /* TODO move initialization of the service func to fd_aio_new */
-  tx->service_func = fd_xsk_aio_service_;
 
   /* Reset RX callback (laddr pointers to external object) */
 
@@ -283,10 +278,6 @@ fd_xsk_aio_service( fd_xsk_aio_t * xsk_aio ) {
   xsk_aio->tx_top += tx_completed;
 }
 
-static void
-fd_xsk_aio_service_( void * ctx ) {
-  fd_xsk_aio_service( (fd_xsk_aio_t *)ctx );
-}
 
 void
 fd_xsk_aio_tx_complete( fd_xsk_aio_t * xsk_aio ) {

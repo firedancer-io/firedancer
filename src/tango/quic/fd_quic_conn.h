@@ -1,8 +1,7 @@
-#ifndef HEADER_fd_quic_conn_h
-#define HEADER_fd_quic_conn_h
+#ifndef HEADER_fd_src_tango_quic_fd_quic_conn_h
+#define HEADER_fd_src_tango_quic_fd_quic_conn_h
 
-#include "fd_quic_config.h"
-#include "../../util/fd_util.h"
+#include "fd_quic.h"
 #include "fd_quic_stream.h"
 #include "fd_quic_conn_id.h"
 #include "crypto/fd_quic_crypto_suites.h"
@@ -42,7 +41,6 @@ enum {
   FD_QUIC_CONN_REASON_CRYPTO_BASE                  = 0x100    /* base for crypto errors */
 };
 
-typedef struct fd_quic            fd_quic_t;
 typedef struct fd_quic_conn       fd_quic_conn_t;
 typedef struct fd_quic_ack        fd_quic_ack_t;
 
@@ -83,13 +81,17 @@ struct fd_quic_conn {
 
   ulong              next_service_time;   /* time service should be called next */
 
-  fd_quic_host_cfg_t host;                /* host configuration */
-
   /* we can have multiple connection ids */
-  fd_quic_conn_id_t  our_conn_id[FD_QUIC_MAX_CONN_ID_PER_CONN];
+  fd_quic_conn_id_t  our_conn_id[ FD_QUIC_MAX_CONN_ID_PER_CONN ];
 
-  /* the peer may have multiple connection ids and ip:port */
-  fd_quic_endpoint_t peer[FD_QUIC_MAX_CONN_ID_PER_CONN];
+  /* Host network endpoint
+     - for server, just a copy of config->net
+     - for client, an allocated ephemeral UDP port */
+  fd_quic_net_endpoint_t host;
+
+  /* Peer network endpoints – have multiple connection ids and ip:port */
+  /* TODO: footprint allows specifying conn_id_cnt but hardcoded limit used here */
+  fd_quic_endpoint_t  peer[ FD_QUIC_MAX_CONN_ID_PER_CONN ];
 
   ulong              local_conn_id;       /* FIXME: hack to locally identify conns */
 
@@ -119,7 +121,7 @@ struct fd_quic_conn {
   ulong rx_crypto_offset[4]; /* expected handshake data (crypto) offset
                                    one per encryption level */
 
-  /* amount of handshade data already sent from head of queue */
+  /* amount of handshake data already sent from head of queue */
   ulong hs_sent_bytes[4];
 
   /* secret members */
@@ -250,7 +252,7 @@ struct fd_quic_conn {
   ulong                rx_initial_max_stream_data_bidi_local;
   ulong                rx_initial_max_stream_data_bidi_remote;
 
-  /* last tx packet num with max_data frame refering to this stream
+  /* last tx packet num with max_data frame referring to this stream
      set to next_pkt_number to indicate a new max_data frame should be sent
      if we time out this packet (or possibly a later packet) we resend the frame
        and update this value */
@@ -260,7 +262,8 @@ struct fd_quic_conn {
      should be at least the smoothed round-trip-time */
   ulong                base_timeout;
 
-  fd_quic_conn_t *     next;               /* next connection in the free list, or in service list */
+  /* next connection in the free list, or in service list */
+  fd_quic_conn_t *     next;
 };
 
 FD_PROTOTYPES_BEGIN
@@ -313,8 +316,31 @@ fd_quic_conn_set_context( fd_quic_conn_t * conn, void * context );
 void *
 fd_quic_conn_get_context( fd_quic_conn_t * conn );
 
+/* fd_quic_handshake_complete checks whether the initial conn handshake
+   is complete for the given conn.  Returns 1 if a handshake has been
+   completed, 0 otherwise.  Will return 1 even if the conn has died
+   since handshake. */
+
+FD_QUIC_API FD_FN_CONST inline int
+fd_quic_handshake_complete( fd_quic_conn_t * conn ) {
+  return conn->handshake_complete;
+}
+
+//static inline void
+//fd_quic_conn_set_next( fd_quic_conn_t * conn,
+//                       fd_quic_conn_t * next ) {
+//  if( next == NULL ) conn->next_off == 0L;
+//  else               conn->next_off = (long)((ulong)next - (ulong)conn);
+//  /* TODO assumes two's complement */
+//}
+//
+//FD_FN_PURE static inline fd_quic_conn_t *
+//fd_quic_conn_get_next( fd_quic_conn_t const * conn ) {
+//  if( conn->next_off == 0L ) return NULL;
+//
+//  return (fd_quic_conn_t *)((uchar *)conn + conn->next_off);
+//}
 
 FD_PROTOTYPES_END
 
-#endif
-
+#endif /* HEADER_fd_src_tango_quic_fd_quic_conn_h */

@@ -1,14 +1,10 @@
-/* TODO
-   replace malloc with align/footprint/placement new */
-
 #include "fd_quic_tls.h"
 #include "../../../util/fd_util.h"
 
 #include <stdlib.h>
 #include <string.h>
 #include <sys/uio.h>
-
-// some prototypes
+#include <openssl/err.h>
 
 /* internal callbacks */
 int
@@ -31,32 +27,80 @@ fd_quic_ssl_client_hello( SSL *  ssl,
                           void * arg );
 
 int
-fd_quic_alpn_select_cb( SSL * ssl,
-                        uchar const ** out,
-                        uchar *        out_len,
-                        uchar const *  in,
-                        unsigned       in_len,
-                        void *         arg );
+fd_quic_tls_cb_alpn_select( SSL * ssl,
+                            uchar const ** out,
+                            uchar *        out_len,
+                            uchar const *  in,
+                            unsigned       in_len,
+                            void *         arg );
 
 int
 fd_quic_ssl_set_encryption_secrets( SSL *                 ssl,
                                     OSSL_ENCRYPTION_LEVEL enc_level,
-                                    const uchar *       read_secret,
-                                    const uchar *       write_secret,
-                                    ulong                secret_len );
+                                    uchar const *         read_secret,
+                                    uchar const *         write_secret,
+                                    ulong                 secret_len );
 
 SSL_CTX *
 fd_quic_create_context( fd_quic_tls_t * quic_tls,
                         char const *    cert_file,
                         char const *    key_file );
 
+/* fd_quic_tls_strerror returns a cstr describing the last OpenSSL
+   error.  Error is read from OpenSSL's error stack.  The returned
+   cstr is backed by a static buffer and is valid until next call. */
+
+static char const *
+fd_quic_tls_strerror( void ) {
+  static char errbuf[ 512UL ];
+  errbuf[ 0 ] = '\0';
+
+  ulong err_id = ERR_get_error();
+  ERR_error_string_n( err_id, errbuf, 2048UL );
+
+  return errbuf;
+}
+
+ulong
+fd_quic_tls_align( void ) {
+  return alignof( fd_quic_tls_t );
+}
+
+ulong
+fd_quic_tls_footprint( ulong handshake_cnt ) {
+  ulong off  = sizeof( fd_quic_tls_t );
+        off  = fd_ulong_align_up( off, alignof( fd_quic_tls_hs_t ) );
+        off += handshake_cnt * sizeof( fd_quic_tls_hs_t );
+        off += handshake_cnt; /* used handshakes */
+  return off;
+}
+
 fd_quic_tls_t *
-fd_quic_tls_new( fd_quic_tls_cfg_t * cfg ) {
-  /* TODO eliminate malloc */
-  fd_quic_tls_t * self = calloc( sizeof( fd_quic_tls_t ), 1 );
-  if( !self ) {
+fd_quic_tls_new( void *              mem,
+                 fd_quic_tls_cfg_t * cfg ) {
+
+  if( FD_UNLIKELY( !mem ) ) {
+    FD_LOG_WARNING(( "NULL mem" ));
     return NULL;
   }
+  if( FD_UNLIKELY( !cfg ) ) {
+    FD_LOG_WARNING(( "NULL cfg" ));
+    return NULL;
+  }
+
+  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)mem, alignof( fd_quic_tls_t ) ) ) ) {
+    FD_LOG_WARNING(( "misaligned mem" ));
+    return NULL;
+  }
+
+  ulong handshake_cnt = cfg->max_concur_handshakes;
+  ulong footprint     = fd_quic_tls_footprint( handshake_cnt );
+  if( FD_UNLIKELY( !footprint ) ) {
+    FD_LOG_WARNING(( "invalid footprint for config" ));
+    return NULL;
+  }
+
+  fd_quic_tls_t * self = (fd_quic_tls_t *)mem;
 
   self->client_hello_cb       = cfg->client_hello_cb;
   self->alert_cb              = cfg->alert_cb;
@@ -64,26 +108,18 @@ fd_quic_tls_new( fd_quic_tls_cfg_t * cfg ) {
   self->handshake_complete_cb = cfg->handshake_complete_cb;
   self->keylog_cb             = cfg->keylog_cb;
   self->keylog_fd             = cfg->keylog_fd;
-
   self->max_concur_handshakes = cfg->max_concur_handshakes;
 
-  // preallocate all handshake structures
-  ulong bytes = (ulong)self->max_concur_handshakes * sizeof( fd_quic_tls_hs_t );
-  fd_quic_tls_hs_t * handshakes = (fd_quic_tls_hs_t*)malloc( bytes );
-  if( !handshakes ) {
-    free( self );
-    return NULL;
-  }
+  ulong off = sizeof( fd_quic_tls_t );
+        off = fd_ulong_align_up( off, alignof( fd_quic_tls_hs_t ) );
 
+  fd_quic_tls_hs_t * handshakes = (fd_quic_tls_hs_t *)( (ulong)mem + off );
   self->handshakes = handshakes;
 
-  uchar * used_handshakes = (uchar*)malloc( (ulong)self->max_concur_handshakes );
-  if( !used_handshakes ) {
-    free( handshakes );
-    free( self );
-    return NULL;
-  }
+  off += handshake_cnt * sizeof( fd_quic_tls_hs_t );
 
+  /* FIXME use a bitmap instead of an array */
+  uchar * used_handshakes = (uchar *)malloc( (ulong)mem + off );
   self->used_handshakes = used_handshakes;
 
   // set all to free
@@ -92,9 +128,7 @@ fd_quic_tls_new( fd_quic_tls_cfg_t * cfg ) {
   // create ssl context
   self->ssl_ctx = fd_quic_create_context( self, cfg->cert_file, cfg->key_file );
   if( FD_UNLIKELY( !self->ssl_ctx ) ) {
-    FD_LOG_WARNING(( "NULL fd_quic_create_context" ));
-    free( handshakes );
-    free( self );
+    FD_LOG_WARNING(( "fd_quic_create_context failed" ));
     return NULL;
   }
 
@@ -105,9 +139,12 @@ fd_quic_tls_new( fd_quic_tls_cfg_t * cfg ) {
   return self;
 }
 
-void
+void *
 fd_quic_tls_delete( fd_quic_tls_t * self ) {
-  if( !self ) return;
+  if( FD_UNLIKELY( !self ) ) {
+    FD_LOG_WARNING(( "NULL self" ));
+    return NULL;
+  }
 
   // free up all used handshakes
   ulong              hs_sz   = (ulong)self->max_concur_handshakes;
@@ -117,11 +154,7 @@ fd_quic_tls_delete( fd_quic_tls_t * self ) {
     if( hs_used[j] ) fd_quic_tls_hs_delete( hs + j );
   }
 
-  // free up memory
-  free( self->handshakes );
-  free( self->used_handshakes );
-
-  free( self );
+  return self;
 }
 
 fd_quic_tls_hs_t *
@@ -183,12 +216,10 @@ fd_quic_tls_hs_new( fd_quic_tls_t * quic_tls,
   fd_memset( self->hs_data_offset, 0, sizeof( self->hs_data_offset ) );
 
   // set up ssl
+  ERR_clear_error();
   SSL * ssl = SSL_new( quic_tls->ssl_ctx );
-  if( !ssl ) {
-    quic_tls->err_ssl_rc  = 0;
-    quic_tls->err_ssl_err = SSL_get_error( ssl, (int)ssl_rc );
-    quic_tls->err_line    = __LINE__;
-
+  if( FD_UNLIKELY( !ssl ) ) {
+    FD_LOG_WARNING(( "SSL_new failed: %s", fd_quic_tls_strerror() ));
     goto fd_quic_tls_hs_new_error;
   }
 
@@ -199,22 +230,17 @@ fd_quic_tls_hs_new( fd_quic_tls_t * quic_tls,
   self->ssl = ssl;
 
   /* solana actual: "solana-tpu" */
+  ERR_clear_error();
   ssl_rc = SSL_set_alpn_protos( ssl, quic_tls->alpns, quic_tls->alpns_sz );
-  if( ssl_rc != 0 ) {
-    quic_tls->err_ssl_rc  = (int)ssl_rc;
-    quic_tls->err_ssl_err = SSL_get_error( ssl, (int)ssl_rc );
-    quic_tls->err_line    = __LINE__;
-
+  if( FD_UNLIKELY( 0!=ssl_rc ) ) {
+    FD_LOG_WARNING(( "SSL_set_alpn_protos failed: %s", fd_quic_tls_strerror() ));
     goto fd_quic_tls_hs_new_error;
   }
 
   /* set transport params on ssl */
-  ssl_rc = SSL_set_quic_transport_params( ssl, transport_params_raw, transport_params_raw_sz );
-  if( ssl_rc != 1 ) {
-    quic_tls->err_ssl_rc  = (int)ssl_rc;
-    quic_tls->err_ssl_err = SSL_get_error( ssl, (int)ssl_rc );
-    quic_tls->err_line    = __LINE__;
-
+  ERR_clear_error();
+  if( FD_UNLIKELY( 1!=SSL_set_quic_transport_params( ssl, transport_params_raw, transport_params_raw_sz ) ) ) {
+    FD_LOG_WARNING(( "SSL_set_quic_transport_params failed: %s", fd_quic_tls_strerror() ));
     goto fd_quic_tls_hs_new_error;
   }
 
@@ -224,13 +250,9 @@ fd_quic_tls_hs_new( fd_quic_tls_t * quic_tls,
 
     /* TODO determine whether hostname is required */
     if( hostname && hostname[0] != '\0' ) {
-      ssl_rc = SSL_set_tlsext_host_name( ssl, hostname );
-
-      if( ssl_rc != 1 ) {
-        quic_tls->err_ssl_rc  = (int)ssl_rc;
-        quic_tls->err_ssl_err = SSL_get_error( ssl, (int)ssl_rc );
-        quic_tls->err_line    = __LINE__;
-
+      ERR_clear_error();
+      if( FD_UNLIKELY( 1!=SSL_set_tlsext_host_name( ssl, hostname ) ) ) {
+        FD_LOG_WARNING(( "SSL_set_tlsext_host_name failed: %s", fd_quic_tls_strerror() ));
         goto fd_quic_tls_hs_new_error;
       }
     }
@@ -256,7 +278,7 @@ fd_quic_tls_hs_delete( fd_quic_tls_hs_t * self ) {
   // find index into array
   ulong hs_idx = (ulong)( self - quic_tls->handshakes );
   if( quic_tls->used_handshakes[hs_idx] != 1 ) {
-    __asm__ __volatile__( "int $3" );
+    //__asm__ __volatile__( "int $3" );
     return;
   }
 
@@ -271,12 +293,9 @@ fd_quic_tls_provide_data( fd_quic_tls_hs_t *    self,
                           OSSL_ENCRYPTION_LEVEL enc_level,
                           uchar const *         data,
                           ulong                data_sz ) {
-  int ssl_rc = SSL_provide_quic_data( self->ssl, enc_level, data, data_sz );
-  if( ssl_rc != 1 ) {
-    self->err_ssl_rc  = (int)ssl_rc;
-    self->err_ssl_err = SSL_get_error( self->ssl, (int)ssl_rc );
-    self->err_line    = __LINE__;
 
+  if( FD_UNLIKELY( 1!=SSL_provide_quic_data( self->ssl, enc_level, data, data_sz ) ) ) {
+    FD_LOG_WARNING(( "SSL_provide_quic_data failed: %s", fd_quic_tls_strerror() ));
     return FD_QUIC_TLS_FAILED;
   }
 
@@ -327,8 +346,7 @@ fd_quic_tls_process( fd_quic_tls_hs_t * self ) {
     }
   } else {
     // handle post-handshake messages
-    ssl_rc = SSL_process_quic_post_handshake( self->ssl );
-    switch( ssl_rc ) {
+    switch( SSL_process_quic_post_handshake( self->ssl ) ) {
       case 0: // failed
         {
           int err = SSL_get_error( ssl, (int)ssl_rc );
@@ -581,14 +599,13 @@ SSL_QUIC_METHOD quic_method = {
   fd_quic_ssl_flush_flight,
   fd_quic_ssl_send_alert };
 
-
-static int
-alpn_select_cb( SSL * ssl,
-                uchar const ** out,
-                uchar       *  outlen,
-                uchar const *  in,
-                uint           inlen,
-                void *         arg ) {
+int
+fd_quic_tls_cb_alpn_select( SSL * ssl,
+                            uchar const ** out,
+                            uchar       *  outlen,
+                            uchar const *  in,
+                            uint           inlen,
+                            void *         arg ) {
 
   (void)ssl; (void)arg;
 
@@ -612,128 +629,98 @@ SSL_CTX *
 fd_quic_create_context( fd_quic_tls_t * quic_tls,
                         char const *    cert_file,
                         char const *    key_file ) {
-    const SSL_METHOD * method;
-    SSL_CTX * ctx;
 
-    method = TLS_method();
+  SSL_METHOD const * method = TLS_method();
 
-    ctx = SSL_CTX_new( method );
-    if( !ctx ) {
-      quic_tls->err_ssl_rc  = 0;
-      quic_tls->err_ssl_err = 0;
-      quic_tls->err_line    = __LINE__;
-      FD_LOG_WARNING(( "SSL_CTX_new failed" ));
+  ERR_clear_error();
+  SSL_CTX * ctx = SSL_CTX_new( method );
+  if( FD_UNLIKELY( !ctx ) ) {
+    FD_LOG_WARNING(( "SSL_CTX_new failed: %s", fd_quic_tls_strerror() ));
 
-      return NULL;
-    }
+    return NULL;
+  }
 
-    if( !SSL_CTX_set_min_proto_version( ctx, TLS1_3_VERSION ) ) {
-      quic_tls->err_ssl_rc  = 0;
-      quic_tls->err_ssl_err = 0;
-      quic_tls->err_line    = __LINE__;
+  ERR_clear_error();
+  if( !SSL_CTX_set_min_proto_version( ctx, TLS1_3_VERSION ) ) {
+    SSL_CTX_free( ctx );
+    FD_LOG_WARNING(( "SSL_CTX_set_min_proto_version failed: %s", fd_quic_tls_strerror() ));
+    return NULL;
+  }
 
+
+  ERR_clear_error();
+  if( !SSL_CTX_set_max_proto_version( ctx, TLS1_3_VERSION ) ) {
+    SSL_CTX_free( ctx );
+    FD_LOG_WARNING(( "SSL_CTX_set_max_proto_version failed: %s", fd_quic_tls_strerror() ));
+    return NULL;
+  }
+
+  ERR_clear_error();
+  char const * ciphersuites = "TLS_AES_128_GCM_SHA256:TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256";
+  if( !SSL_CTX_set_ciphersuites( ctx, ciphersuites ) ) {
+    SSL_CTX_free( ctx );
+    FD_LOG_WARNING(( "SSL_CTX_set_ciphersuites failed: %s", fd_quic_tls_strerror() ));
+    return NULL;
+  }
+
+  ERR_clear_error();
+  if( !SSL_CTX_set_quic_method( ctx, &quic_method ) ) {
+    SSL_CTX_free( ctx );
+    FD_LOG_WARNING(( "SSL_CTX_set_quic_method failed: %s", fd_quic_tls_strerror() ));
+    return NULL;
+  }
+
+  /* Set the key and cert */
+  if( cert_file ) {
+    ERR_clear_error();
+    if( SSL_CTX_use_certificate_file( ctx, cert_file, SSL_FILETYPE_PEM ) <= 0 ) {
       SSL_CTX_free( ctx );
-      FD_LOG_WARNING(( "SSL_CTX_set_min_proto_version failed" ));
-
+      FD_LOG_WARNING(( "Failed to load SSL cert: %s", fd_quic_tls_strerror() ));
       return NULL;
     }
+  }
 
-
-    if( !SSL_CTX_set_max_proto_version( ctx, TLS1_3_VERSION ) ) {
-      quic_tls->err_ssl_rc  = 0;
-      quic_tls->err_ssl_err = 0;
-      quic_tls->err_line    = __LINE__;
-
+  if( key_file ) {
+    ERR_clear_error();
+    if( SSL_CTX_use_PrivateKey_file( ctx, key_file, SSL_FILETYPE_PEM ) <= 0 ) {
       SSL_CTX_free( ctx );
-      FD_LOG_WARNING(( "SSL_CTX_set_max_proto_version failed" ));
-
+      FD_LOG_WARNING(( "Failed to load SSL key: %s", fd_quic_tls_strerror() ));
       return NULL;
     }
+  }
 
-    if( !SSL_CTX_set_ciphersuites( ctx, "TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256:TLS_AES_128_GCM_SHA256" ) ) {
-      quic_tls->err_ssl_rc  = 0;
-      quic_tls->err_ssl_err = 0;
-      quic_tls->err_line    = __LINE__;
+  /* solana actual: "solana-tpu" */
+  ERR_clear_error();
+  if( SSL_CTX_set_alpn_protos( ctx, quic_tls->alpns, quic_tls->alpns_sz ) != 0 ) {
+    SSL_CTX_free( ctx );
+    FD_LOG_WARNING(( "SSL_set_alpn_protos failed" ));
+    return NULL;
+  }
 
-      SSL_CTX_free( ctx );
-      FD_LOG_WARNING(( "SSL_CTX_set_ciphersuites failed" ));
+  SSL_CTX_set_alpn_select_cb( ctx, fd_quic_tls_cb_alpn_select, NULL );
 
-      return NULL;
-    }
+  //SSL_CTX_set_options(
+  //    ctx,
+  //    (SSL_OP_ALL & ~SSL_OP_DONT_INSERT_EMPTY_FRAGMENTS) |
+  //    SSL_OP_SINGLE_ECDH_USE |
+  //    SSL_OP_CIPHER_SERVER_PREFERENCE |
+  //    SSL_OP_NO_ANTI_REPLAY);
+  //SSL_CTX_clear_options(ctx, SSL_OP_ENABLE_MIDDLEBOX_COMPAT);
+  //SSL_CTX_set_mode(ctx, SSL_MODE_RELEASE_BUFFERS);
 
-    if( !SSL_CTX_set_quic_method( ctx, &quic_method ) ) {
-      quic_tls->err_ssl_rc  = 0;
-      quic_tls->err_ssl_err = 0;
-      quic_tls->err_line    = __LINE__;
+  // TODO set cipher suites?
+  // TODO set verify clients?
 
-      SSL_CTX_free( ctx );
-      FD_LOG_WARNING(( "SSL_CTX_set_quic_method failed" ));
+  // TODO support early data?
+  SSL_CTX_set_max_early_data( ctx, 0 );
 
-      return NULL;
-    }
+  // set callback for client hello
+  SSL_CTX_set_client_hello_cb( ctx, fd_quic_ssl_client_hello, NULL );
 
-    /* Set the key and cert */
-    if( cert_file ) {
-      if( SSL_CTX_use_certificate_file( ctx, cert_file, SSL_FILETYPE_PEM ) <= 0 ) {
-        quic_tls->err_ssl_rc  = 0;
-        quic_tls->err_ssl_err = 0;
-        quic_tls->err_line    = __LINE__;
+  if( FD_UNLIKELY( quic_tls->keylog_cb || quic_tls->keylog_fd != -1 ) )
+    SSL_CTX_set_keylog_callback( ctx, fd_quic_ssl_keylog );
 
-        SSL_CTX_free( ctx );
-        FD_LOG_WARNING(( "Failed to load SSL cert" ));
-
-        return NULL;
-      }
-    }
-
-    if( key_file ) {
-      if( SSL_CTX_use_PrivateKey_file( ctx, key_file, SSL_FILETYPE_PEM ) <= 0 ) {
-        quic_tls->err_ssl_rc  = 0;
-        quic_tls->err_ssl_err = 0;
-        quic_tls->err_line    = __LINE__;
-
-        SSL_CTX_free( ctx );
-        FD_LOG_WARNING(( "Failed to load SSL key" ));
-
-        return NULL;
-      }
-    }
-
-    /* solana actual: "solana-tpu" */
-    if( SSL_CTX_set_alpn_protos( ctx, quic_tls->alpns, quic_tls->alpns_sz ) != 0 ) {
-
-      SSL_CTX_free( ctx );
-      FD_LOG_WARNING(( "SSL_set_alpn_protos failed" ));
-
-      return NULL;
-    }
-
-    SSL_CTX_set_alpn_select_cb( ctx, alpn_select_cb, NULL );
-
-    //SSL_CTX_set_options(
-    //    ctx,
-    //    (SSL_OP_ALL & ~SSL_OP_DONT_INSERT_EMPTY_FRAGMENTS) |
-    //    SSL_OP_SINGLE_ECDH_USE |
-    //    SSL_OP_CIPHER_SERVER_PREFERENCE |
-    //    SSL_OP_NO_ANTI_REPLAY);
-    //SSL_CTX_clear_options(ctx, SSL_OP_ENABLE_MIDDLEBOX_COMPAT);
-    //SSL_CTX_set_mode(ctx, SSL_MODE_RELEASE_BUFFERS);
-
-    // TODO set cipher suites?
-    // TODO set verify clients?
-    // TODO alpn?
-    //SSL_CTX_set_alpn_select_cb( ctx, fd_quic_alpn_select_cb, NULL);
-
-    // TODO support early data?
-    SSL_CTX_set_max_early_data( ctx, 0 );
-
-    // set callback for client hello
-    SSL_CTX_set_client_hello_cb( ctx, fd_quic_ssl_client_hello, NULL );
-
-    if( FD_UNLIKELY( quic_tls->keylog_cb || quic_tls->keylog_fd != -1 ) )
-      SSL_CTX_set_keylog_callback( ctx, fd_quic_ssl_keylog );
-
-    return ctx;
+  return ctx;
 }
 
 
@@ -802,23 +789,3 @@ fd_quic_tls_get_peer_transport_params( fd_quic_tls_hs_t * self,
                                        ulong *           transport_params_sz ) {
   SSL_get_peer_quic_transport_params( self->ssl, transport_params, transport_params_sz );
 }
-
-
-int
-fd_quic_alpn_select_cb( SSL *          ssl,
-                        uchar const ** out,
-                        uchar *        out_len,
-                        uchar const *  in,
-                        unsigned       in_len,
-                        void *         arg ) {
-  (void)ssl;
-  (void)out;
-  (void)out_len;
-  (void)in;
-  (void)in_len;
-  (void)arg;
-  /* tells us what alpn was selected - but we probably either don't use alpn, or only have one */
-  /* alpn: "solana-tpu" */
-  return SSL_TLSEXT_ERR_OK;
-}
-

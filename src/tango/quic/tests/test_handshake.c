@@ -120,9 +120,9 @@ main( int     argc,
   /* dump transport params */
   fd_quic_transport_params_t tmp_tp[1] = {0};
   uchar const * transport_params      = test_tp;
-  ulong        transport_params_sz   = sizeof( test_tp ) - 1; /* test_tp has terminating NUL */
+  ulong         transport_params_sz   = sizeof( test_tp ) - 1; /* test_tp has terminating NUL */
   uchar const * tp_p  = transport_params;
-  ulong        tp_sz = transport_params_sz;
+  ulong         tp_sz = transport_params_sz;
 
   FD_TEST( fd_quic_decode_transport_params( tmp_tp, tp_p, tp_sz )>=0 );
 

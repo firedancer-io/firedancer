@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_quic_tls_h
-#define HEADER_fd_quic_tls_h
+#ifndef HEADER_fd_src_tango_quic_tls_fd_quic_tls_h
+#define HEADER_fd_src_tango_quic_tls_fd_quic_tls_h
 
 #include <openssl/ssl.h>
 #include <openssl/err.h>
@@ -82,22 +82,27 @@ typedef struct fd_quic_tls_secret  fd_quic_tls_secret_t;
 typedef struct fd_quic_tls_hs_data fd_quic_tls_hs_data_t;
 
 /* callback function prototypes */
-typedef int (*fd_quic_tls_cb_client_hello_t)( fd_quic_tls_hs_t * hs,
-                                              void *             context );
+typedef int
+(* fd_quic_tls_cb_client_hello_t)( fd_quic_tls_hs_t * hs,
+                                   void *             context );
 
-typedef void (*fd_quic_tls_cb_alert_t)( fd_quic_tls_hs_t * hs,
-                                        void *             context,
-                                        int                alert );
+typedef void
+(* fd_quic_tls_cb_alert_t)( fd_quic_tls_hs_t * hs,
+                            void *             context,
+                            int                alert );
 
-typedef void (*fd_quic_tls_cb_secret_t)( fd_quic_tls_hs_t *           hs,
-                                         void *                       context,
-                                         fd_quic_tls_secret_t const * secret );
+typedef void
+(* fd_quic_tls_cb_secret_t)( fd_quic_tls_hs_t *           hs,
+                             void *                       context,
+                             fd_quic_tls_secret_t const * secret );
 
-typedef void (*fd_quic_tls_cb_handshake_complete_t)( fd_quic_tls_hs_t * hs,
-                                                     void *             context  );
+typedef void
+(* fd_quic_tls_cb_handshake_complete_t)( fd_quic_tls_hs_t * hs,
+                                         void *             context  );
 
-typedef void (*fd_quic_tls_cb_keylog_t)( fd_quic_tls_hs_t * hs,
-                                         char const *       line );
+typedef void
+(* fd_quic_tls_cb_keylog_t)( fd_quic_tls_hs_t * hs,
+                             char const *       line );
 
 struct fd_quic_tls_secret {
   OSSL_ENCRYPTION_LEVEL enc_level;
@@ -109,20 +114,20 @@ struct fd_quic_tls_secret {
 
 struct fd_quic_tls_cfg {
   // callbacks ../crypto/fd_quic_crypto_suites
-  fd_quic_tls_cb_client_hello_t          client_hello_cb;
-  fd_quic_tls_cb_alert_t                 alert_cb;
-  fd_quic_tls_cb_secret_t                secret_cb;
-  fd_quic_tls_cb_handshake_complete_t    handshake_complete_cb;
-  fd_quic_tls_cb_keylog_t                keylog_cb;
+  fd_quic_tls_cb_client_hello_t        client_hello_cb;
+  fd_quic_tls_cb_alert_t               alert_cb;
+  fd_quic_tls_cb_secret_t              secret_cb;
+  fd_quic_tls_cb_handshake_complete_t  handshake_complete_cb;
+  fd_quic_tls_cb_keylog_t              keylog_cb;
 
-  int                                    max_concur_handshakes;
+  ulong          max_concur_handshakes;
 
-  char const *                           cert_file;             /* certificate file */
-  char const *                           key_file;              /* private key file */
-  int                                    keylog_fd;             /* keylogger file */
+  char const *   cert_file;             /* certificate file */
+  char const *   key_file;              /* private key file */
+  int            keylog_fd;             /* keylogger file */
 
-  uchar const *                          alpns;                 /* ALPNs */
-  uint                                   alpns_sz;              /* number of bytes... see ALPN spec */
+  uchar const *  alpns;                 /* ALPNs */
+  uint           alpns_sz;              /* number of bytes... see ALPN spec */
 };
 
 /* structure for organising handshake data */
@@ -148,9 +153,9 @@ struct fd_quic_tls {
   fd_quic_tls_cb_handshake_complete_t  handshake_complete_cb;
   fd_quic_tls_cb_keylog_t              keylog_cb;
 
-  int                                  max_concur_handshakes;
+  ulong                                max_concur_handshakes;
 
-  /* array of (max_concur_handshakes) preallocated handshakes */
+  /* array of (max_concur_handshakes) pre-allocated handshakes */
   fd_quic_tls_hs_t *                   handshakes;
   uchar *                              used_handshakes;
 
@@ -161,47 +166,42 @@ struct fd_quic_tls {
      Owned by fd_quic. */
   int keylog_fd;
 
-  /* ALPNs */
-  uchar const *                        alpns;
-  uint                                 alpns_sz;
-
-  /* error condition */
-  int                                  err_ssl_rc;
-  int                                  err_ssl_err;
-  int                                  err_line;
+  /* ALPNs in OpenSSL length-prefixed list format */
+  uchar const * alpns;
+  uint          alpns_sz;
 };
 
 #define FD_QUIC_TLS_HS_DATA_UNUSED ((ushort)~0u)
 
 struct fd_quic_tls_hs {
-  fd_quic_tls_t *               quic_tls;
+  fd_quic_tls_t * quic_tls;
 
-  SSL *                         ssl;
+  SSL *           ssl;
 
-  int                           is_server;
-  int                           is_flush;
-  int                           is_hs_complete;
+  int             is_server;
+  int             is_flush;
+  int             is_hs_complete;
 
   /* user defined context supplied in callbacks */
-  void *                        context;
+  void *          context;
 
   /* handshake data
      this is data that must be sent to the peer
      it consists of an arbitrary list of tuples of:
        < "encryption level", array of bytes >
      these will be encapsulated and sent in order */
-  fd_quic_tls_hs_data_t                hs_data[FD_QUIC_TLS_HS_DATA_CNT];
+  fd_quic_tls_hs_data_t hs_data[ FD_QUIC_TLS_HS_DATA_CNT ];
 
   /* head of handshake data free list */
-  ushort                             hs_data_free_idx;
+  ushort hs_data_free_idx;
 
   /* head of handshake data pending (to be sent) */
-  ushort                             hs_data_pend_idx[4];
-  ushort                             hs_data_pend_end_idx[4];
+  ushort hs_data_pend_idx[4];
+  ushort hs_data_pend_end_idx[4];
 
   /* handshake data buffer
      allocated in arbitrary chunks in a circular queue manner */
-  uchar                                hs_data_buf[FD_QUIC_TLS_HS_DATA_SZ];
+  uchar  hs_data_buf[ FD_QUIC_TLS_HS_DATA_SZ ];
 
   /* head and tail of unused hs_data_buf data
        head % buf_sz is first used byte
@@ -214,35 +214,37 @@ struct fd_quic_tls_hs {
          head -  tail == unused size */
 
   /* buffer space is shared between encryption levels */
-  uint                             hs_data_buf_head;
-  uint                             hs_data_buf_tail;
-
-  uint                             hs_data_offset[4]; /* one offset per encoding level */
+  uint  hs_data_buf_head;
+  uint  hs_data_buf_tail;
+  uint  hs_data_offset[ 4 ]; /* one offset per encoding level */
 
   /* TLS alert code */
-  unsigned                             alert;
+  uint  alert;
 
   /* error condition */
-  int                                  err_ssl_rc;
-  int                                  err_ssl_err;
-  int                                  err_line;
+  int   err_ssl_rc;
+  int   err_ssl_err;
+  int   err_line;
 };
 
-/* create a quic-tls object for managing quic-tls handshakes
+ulong
+fd_quic_tls_align( void );
 
-   returns
-     pointer to new initialized tls handshake object
-     NULL if failed
+ulong 
+fd_quic_tls_footprint( ulong handshake_cnt );
 
-   args
-     cfg   the configuration to use
+/* fd_quic_tls_new formats an unused memory region for use as an
+   fd_quic_tls_t object and joins the caller to it */
 
-   */
 fd_quic_tls_t *
-fd_quic_tls_new( fd_quic_tls_cfg_t * cfg );
+fd_quic_tls_new( void *              mem,
+                 fd_quic_tls_cfg_t * cfg );
 
-/* delete a quic-tls object and free resources */
-void
+/* fd_quic_delete unformats a memory region used as an fd_quic_tls_t.
+   Returns the given pointer on success and NULL if used obviously in error.
+   Frees any OpenSSL resources. */
+
+void *
 fd_quic_tls_delete( fd_quic_tls_t * self );
 
 /* create a quic-tls handshake object for managing
@@ -253,7 +255,7 @@ fd_quic_tls_hs_new( fd_quic_tls_t * quic_tls,
                     int             is_server,
                     char const *    hostname,
                     uchar const *   transport_params_raw,
-                    ulong          transport_params_raw_sz );
+                    ulong           transport_params_raw_sz );
 
 /* delete a handshake object and free resources */
 void
@@ -279,7 +281,7 @@ int
 fd_quic_tls_provide_data( fd_quic_tls_hs_t *    self,
                           OSSL_ENCRYPTION_LEVEL enc_level,
                           uchar const *         data,
-                          ulong                data_sz );
+                          ulong                 data_sz );
 
 
 /* fd_quic_tls_get_hs_data
@@ -343,7 +345,7 @@ fd_quic_tls_process( fd_quic_tls_hs_t * self );
 void
 fd_quic_tls_get_peer_transport_params( fd_quic_tls_hs_t * self,
                                        uchar const **     transport_params,
-                                       ulong *           transport_params_sz );
+                                       ulong *            transport_params_sz );
 
 #endif
 

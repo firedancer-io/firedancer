@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_quic_pkt_meta_h
-#define HEADER_fd_quic_pkt_meta_h
+#ifndef HEADER_fd_src_tango_quic_fd_quic_pkt_meta_h
+#define HEADER_fd_src_tango_quic_fd_quic_pkt_meta_h
 
 #include "../../util/fd_util.h"
 
@@ -22,7 +22,7 @@ struct fd_quic_range {
    tracks the metadata of data sent to the peer
    used when acks arrive to determine what is being acked specifically */
 struct fd_quic_pkt_meta {
-  /* stores meta data about what was sent in the identified packet */
+  /* stores metadata about what was sent in the identified packet */
   ulong                pkt_number;  /* the packet number */
   uchar                enc_level;   /* every packet is sent at a specific
                                        enc_level */
@@ -129,5 +129,5 @@ fd_quic_pkt_meta_deallocate( fd_quic_pkt_meta_pool_t * pool,
 
 FD_PROTOTYPES_END
 
-#endif // HEADER_fd_quic_pkt_meta_h
+#endif // HEADER_fd_src_tango_quic_fd_quic_pkt_meta_h
 

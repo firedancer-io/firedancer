@@ -6,25 +6,24 @@
 
 #define FD_QUIC_STREAM_ID_UNUSED (~0ul)
 
+/* Forward declarations */
+
 typedef struct fd_quic_conn       fd_quic_conn_t;
 typedef struct fd_quic_stream     fd_quic_stream_t;
-typedef struct fd_quic_buffer     fd_quic_buffer_t;
 typedef struct fd_quic_stream_map fd_quic_stream_map_t;
 
-/* define a circular buffer
+/* fd_quic_buffer_t is a circular buffer */
 
-   cap is a power of 2
-   head, tail are offsets from beginning of stream
-     they should be masked before being used to access buf data
-   head is first unused byte of stream
-   tail is first byte of used range
-   cap is capacity of buffer */
 struct fd_quic_buffer {
   uchar * buf;
-  ulong   cap;
-  ulong   head;
-  ulong   tail;
+  ulong   cap;  /* capacity of buffer; assert fd_ulong_is_pow2 */
+
+  /* offsets to beginning of stream
+     should be masked before being used to access buf data */
+  ulong   head; /* first unused byte of stream */
+  ulong   tail; /* first byte of used range    */
 };
+typedef struct fd_quic_buffer fd_quic_buffer_t;
 
 
 /* buffer helper functions
@@ -36,12 +35,12 @@ struct fd_quic_buffer {
 struct fd_quic_stream {
   fd_quic_conn_t * conn;
 
-  ulong            stream_id;                    /* all 1's indicates an unused stream object */
-  void *           context;                      /* user context for callbacks */
+  ulong            stream_id;  /* all 1's indicates an unused stream object */
+  void *           context;    /* user context for callbacks */
 
-  fd_quic_buffer_t tx_buf;                       /* transmit buffer */
-  uchar *          tx_ack;                       /* ack - 1 bit per byte of tx_buf */
-  ulong            tx_sent;                      /* first unsent byte of tx_buf */
+  fd_quic_buffer_t tx_buf;     /* transmit buffer */
+  uchar *          tx_ack;     /* ack - 1 bit per byte of tx_buf */
+  ulong            tx_sent;    /* first unsent byte of tx_buf */
 
   fd_quic_buffer_t rx_buf;                       /* receive reorder buffer */
 
@@ -72,7 +71,7 @@ struct fd_quic_stream {
                                   send to us */
   ulong  rx_tot_data;        /* the total number of bytes received on this stream */
 
-  /* last tx packet num with max_stream_data frame refering to this stream
+  /* last tx packet num with max_stream_data frame referring to this stream
      set to next_pkt_number to indicate a new max_stream_data frame should be sent
      if we time out this packet (or possibly a later packet) we resend the frame
        and update this value */
@@ -94,14 +93,14 @@ struct fd_quic_stream_map {
 FD_PROTOTYPES_BEGIN
 
 /* fd_quic_buffer_store
-   store data into cirular buffer */
+   store data into circular buffer */
 void
 fd_quic_buffer_store( fd_quic_buffer_t * buf,
                       uchar const *      data,
                       ulong              data_sz );
 
 /* fd_quic_buffer_load
-   load data from cirular buffer */
+   load data from circular buffer */
 void
 fd_quic_buffer_load( fd_quic_buffer_t * buf,
                      uchar *            data,

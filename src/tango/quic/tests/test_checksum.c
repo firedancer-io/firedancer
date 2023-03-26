@@ -24,8 +24,8 @@ uchar pkt4[] = "\xff\xff\xfe\xff\xff\xff\xff\xff\xff\xff\x01\x00\xff\xff\xff\xff
 void
 test( uchar const * pkt ) {
   uchar tmp[20];
-  fd_memcpy( tmp, pkt, 20 );
-  fd_memset( tmp + 10, -1, 2 ); /* corrupt checksum field */
+  memcpy( tmp, pkt, 20 );
+  memset( tmp + 10, -1, 2 ); /* corrupt checksum field */
 
   fd_quic_net_ipv4_checksum( tmp );
 

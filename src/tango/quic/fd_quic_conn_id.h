@@ -51,16 +51,23 @@ typedef struct fd_quic_conn_id fd_quic_conn_id_t;
 /* hash function for connection ids */
 #define FD_QUIC_CONN_ID_HASH(CONN_ID) ((uint)fd_hash(fd_quic_conn_id_hash_seed,&(CONN_ID),sizeof(fd_quic_conn_id_t)))
 
-typedef struct fd_quic_endpoint fd_quic_endpoint_t;
+/* fd_quic_net_endpoint_t identifies a UDP/IP network endpoint.
+   Stored in host endian.  May change during the lifetime of the conn. */
+
+struct fd_quic_net_endpoint {
+  uint   ip_addr;
+  ushort udp_port;
+};
+typedef struct fd_quic_net_endpoint fd_quic_net_endpoint_t;
+
+/* fd_quic_endpoint_t identifies a QUIC endpoint, including UDP/IP
+   endpoint and QUIC conn ID. */
 
 struct fd_quic_endpoint {
-  fd_quic_conn_id_t conn_id;
-
-  /* current ip addr and port used by the peer
-     stored host endian */
-  uint cur_ip_addr;
-  ushort cur_udp_port;
+  fd_quic_conn_id_t      conn_id;
+  fd_quic_net_endpoint_t net;
 };
+typedef struct fd_quic_endpoint fd_quic_endpoint_t;
 
 #endif
 

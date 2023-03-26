@@ -63,36 +63,7 @@ my_stream_receive_cb( fd_quic_stream_t * stream,
   printf( "%s\n", data );
 #endif
 
-  rx_tot_sz += data_sz;
-}
-
-fd_quic_t *
-new_quic( fd_quic_config_t * quic_config ) {
-
-  ulong  align    = fd_quic_align();
-  ulong  fp       = fd_quic_footprint( BUF_SZ,
-                                       BUF_SZ,
-                                       quic_config->max_concur_streams,
-                                       quic_config->max_in_flight_acks,
-                                       quic_config->max_concur_conns,
-                                       quic_config->max_concur_conn_ids );
-  void * mem      = malloc( fp + align );
-  ulong smem     = (ulong)mem;
-  ulong memalign = smem % align;
-  void * aligned  = ((uchar*)mem) + ( memalign == 0 ? 0 : ( align - memalign ) );
-
-  fd_quic_t * quic = fd_quic_new( aligned,
-                                  BUF_SZ,
-                                  BUF_SZ,
-                                  quic_config->max_concur_streams,
-                                  quic_config->max_in_flight_acks,
-                                  quic_config->max_concur_conns,
-                                  quic_config->max_concur_conn_ids );
-
-  fd_quic_init( quic, quic_config );
-
-  return quic;
-}
+  rx_tot_sz += data_sz;}
 
 
 struct my_context {
@@ -103,26 +74,27 @@ typedef struct my_context my_context_t;
 int server_complete = 0;
 int client_complete = 0;
 
-/* server connetion received in callback */
+/* server connection received in callback */
 fd_quic_conn_t * server_conn = NULL;
 
-void my_connection_new( fd_quic_conn_t * conn, void * vp_context ) {
-  (void)conn;
+void my_connection_new( fd_quic_conn_t * conn,
+                        void *           vp_context ) {
   (void)vp_context;
 
-  printf( "server handshake complete\n" );
-  fflush( stdout );
+  FD_LOG_INFO(( "server handshake complete" ));
+  fd_log_flush();
 
   server_complete = 1;
   server_conn = conn;
 }
 
-void my_handshake_complete( fd_quic_conn_t * conn, void * vp_context ) {
+void my_handshake_complete( fd_quic_conn_t * conn,
+                            void *           vp_context ) {
   (void)conn;
   (void)vp_context;
 
-  printf( "client handshake complete\n" );
-  fflush( stdout );
+  FD_LOG_INFO(( "client handshake complete" ));
+  fd_log_flush();
 
   client_complete = 1;
 }
@@ -137,7 +109,10 @@ typedef struct aio_pipe aio_pipe_t;
 
 
 int
-pipe_aio_receive( void * vp_ctx, fd_aio_pkt_info_t * batch, ulong batch_sz, ulong * opt_batch_idx ) {
+pipe_aio_receive( void *              vp_ctx,
+                  fd_aio_pkt_info_t * batch,
+                  ulong               batch_sz,
+                  ulong *             opt_batch_idx ) {
   static ulong ts = 0;
   ts += 100000ul;
   (void)ts;
@@ -156,8 +131,12 @@ ulong test_clock( void * ctx ) {
 
 int
 main( int argc, char ** argv ) {
-  FILE * pcap = fopen( "test_quic_hs.pcapng", "wb" );
-  if( !pcap ) abort();
+  fd_boot( &argc, &argv );
+
+  char const * _pcap = fd_env_strip_cmdline_cstr( &argc, &argv, "--pcap", NULL, "test_quic_hs.pcapng" );
+
+  FILE * pcap = fopen( _pcap, "wb" );
+  FD_TEST( pcap );
 
   (void)argc;
   (void)argv;
@@ -205,33 +184,35 @@ main( int argc, char ** argv ) {
   tp->active_connection_id_limit                     = 8;
   tp->active_connection_id_limit_present             = 1;
 
-  fd_quic_config_t quic_config = {0};
+  fd_quic_limits_t quic_limits = {
+    .conn_cnt         = 10,
+    .conn_id_cnt      = 10,
+    .conn_id_sparsity = 4.0,
+    .handshake_cnt    = 10,
+    .stream_cnt       = 4,
+    .inflight_pkt_cnt = 100
+  };
+  fd_quic_config_t quic_cfg = {0};
 
-  quic_config.transport_params      = tp;
-  quic_config.max_concur_conns      = 10;
-  quic_config.max_concur_conn_ids   = 10;
-  quic_config.max_concur_streams    = 4;
-  quic_config.max_concur_handshakes = 10;
-  quic_config.max_in_flight_pkts    = 100;
-  quic_config.max_in_flight_acks    = 100;
-  quic_config.conn_id_sparsity      = 4;
+  quic_cfg.transport_params      = tp;
 
-  strcpy( quic_config.cert_file, "cert.pem" );
-  strcpy( quic_config.key_file,  "key.pem"  );
+  strcpy( quic_cfg.cert_file, "cert.pem" );
+  strcpy( quic_cfg.key_file, "key.pem"  );
 
-  quic_config.cb_stream_receive     = my_stream_receive_cb;
-
-  quic_config.now_fn  = test_clock;
-  quic_config.now_ctx = NULL;
+  fd_quic_callbacks_t quic_cb = {
+    .stream_receive = my_stream_receive_cb,
+    .now     = test_clock,
+    .now_ctx = NULL
+  };
 
   fd_quic_host_cfg_t server_cfg = { "server_host", 0x0a000001u, 4434 };
   fd_quic_host_cfg_t client_cfg = { "client_host", 0xc01a1a1au, 2001 };
 
-  quic_config.host_cfg = client_cfg;
-  fd_quic_t * client_quic = new_quic( &quic_config );
+  quic_cfg.host_cfg = client_cfg;
+  fd_quic_t * client_quic = new_quic( &quic_cfg );
 
-  quic_config.host_cfg = server_cfg;
-  fd_quic_t * server_quic = new_quic( &quic_config );
+  quic_cfg.host_cfg = server_cfg;
+  fd_quic_t * server_quic = new_quic( &quic_cfg );
 
   /* make use aio to point quic directly at quic */
   fd_aio_t const * aio_n2q = fd_quic_get_aio_net_in( server_quic );
@@ -359,8 +340,10 @@ main( int argc, char ** argv ) {
     exit(1);
   }
 
-  printf( "PASS\n" );
+  fclose( pcap );
 
+  FD_LOG_NOTICE(( "pass" ));
+  fd_halt();
   return 0;
 }
 

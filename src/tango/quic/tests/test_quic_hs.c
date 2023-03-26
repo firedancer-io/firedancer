@@ -158,7 +158,7 @@ typedef struct my_context my_context_t;
 int server_complete = 0;
 int client_complete = 0;
 
-/* server connetion received in callback */
+/* server connection received in callback */
 fd_quic_conn_t * server_conn = NULL;
 
 void my_connection_new( fd_quic_conn_t * conn, void * vp_context ) {
