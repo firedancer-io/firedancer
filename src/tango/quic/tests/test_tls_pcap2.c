@@ -375,7 +375,7 @@ main( int     argc,
   //   find the sample
   //   calculate the header mask
   //   apply the header mask
-  //   use the header to determing the nonce for the decryption
+  //   use the header to determine the nonce for the decryption
   //   decrypt the packet
   //   determine the tag
   //   compare the tag

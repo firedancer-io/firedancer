@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_quic_conn_map_h
-#define HEADER_fd_quic_conn_map_h
+#ifndef HEADER_fd_src_tango_quic_fd_quic_conn_map_h
+#define HEADER_fd_src_tango_quic_fd_quic_conn_map_h
 
 #include "fd_quic_conn_id.h"
 
@@ -65,5 +65,5 @@ fd_quic_conn_map_query( fd_quic_conn_map_t * map, fd_quic_conn_id_t * key );
 
 FD_PROTOTYPES_END
 
-#endif
+#endif /* HEADER_fd_src_tango_quic_fd_quic_conn_map_h */
 

@@ -32,16 +32,16 @@ fd_quic_conn_footprint( ulong tx_buf_sz,
   ulong imem  = 0;
   ulong align = fd_quic_conn_align();
 
-  imem += FD_QUIC_POW2_ALIGN( sizeof( fd_quic_conn_t ), align );
+  imem += fd_ulong_align_up( sizeof( fd_quic_conn_t ), align );
 
   ulong tot_num_streams = 4 * max_concur_streams_per_type;
 
   /* space for the array of stream pointers */
   /* four types of stream */
-  imem += FD_QUIC_POW2_ALIGN( tot_num_streams * sizeof(void*), align );
+  imem += fd_ulong_align_up( tot_num_streams * sizeof(void*), align );
 
   /* space for stream instances */
-  imem += FD_QUIC_POW2_ALIGN( tot_num_streams *
+  imem += fd_ulong_align_up( tot_num_streams *
       fd_quic_stream_footprint( tx_buf_sz, rx_buf_sz ), align );
 
   /* space for stream hash map */
@@ -49,13 +49,13 @@ fd_quic_conn_footprint( ulong tx_buf_sz,
   while( lg < 40 && (1ul<<lg) < (ulong)((double)tot_num_streams*FD_QUIC_SPARSITY) ) {
     lg++;
   }
-  imem += FD_QUIC_POW2_ALIGN( fd_quic_stream_map_footprint( (int)lg ), align );
+  imem += fd_ulong_align_up( fd_quic_stream_map_footprint( (int)lg ), align );
 
   ulong num_pkt_meta = max_in_flight_pkts;
-  imem += FD_QUIC_POW2_ALIGN( num_pkt_meta * sizeof( fd_quic_pkt_meta_t ), align );
+  imem += fd_ulong_align_up( num_pkt_meta * sizeof( fd_quic_pkt_meta_t ), align );
 
   ulong num_acks = max_in_flight_pkts;
-  imem += FD_QUIC_POW2_ALIGN( num_acks * sizeof( fd_quic_ack_t ), align );
+  imem += fd_ulong_align_up( num_acks * sizeof( fd_quic_ack_t ), align );
 
   return imem;
 }
@@ -77,7 +77,7 @@ fd_quic_conn_new( void *      mem,
   conn->stream_tx_buf_sz = tx_buf_sz;
   conn->stream_rx_buf_sz = rx_buf_sz;
 
-  imem += FD_QUIC_POW2_ALIGN( sizeof( fd_quic_conn_t ), align );
+  imem += fd_ulong_align_up( sizeof( fd_quic_conn_t ), align );
 
   /* allocate streams */
 
@@ -87,7 +87,7 @@ fd_quic_conn_new( void *      mem,
 
   /* space for the array of stream pointers */
   conn->streams = (fd_quic_stream_t**)imem;
-  imem += FD_QUIC_POW2_ALIGN( tot_num_streams * sizeof(void*), align );
+  imem += fd_ulong_align_up( tot_num_streams * sizeof(void*), align );
 
   /* initialize each stream */
   ulong stream_footprint = fd_quic_stream_footprint( tx_buf_sz, rx_buf_sz );
@@ -113,7 +113,7 @@ fd_quic_conn_new( void *      mem,
   }
   /* TODO move join into fd_quic_conn_join */
   conn->stream_map = fd_quic_stream_map_join( fd_quic_stream_map_new( (void*)imem, (int)lg ) );
-  imem += FD_QUIC_POW2_ALIGN( fd_quic_stream_map_footprint( (int)lg ), align );
+  imem += fd_ulong_align_up( fd_quic_stream_map_footprint( (int)lg ), align );
 
   /* allocate pkt_meta_t */
   fd_quic_pkt_meta_t * pkt_meta = (fd_quic_pkt_meta_t*)imem;
@@ -125,7 +125,7 @@ fd_quic_conn_new( void *      mem,
   /* initialize the pkt_meta pool with data */
   fd_quic_pkt_meta_pool_init( &conn->pkt_meta_pool, pkt_meta, num_pkt_meta );
 
-  imem += FD_QUIC_POW2_ALIGN( num_pkt_meta * sizeof( fd_quic_pkt_meta_t ), align );
+  imem += fd_ulong_align_up( num_pkt_meta * sizeof( fd_quic_pkt_meta_t ), align );
 
   /* allocate ack_t */
   fd_quic_ack_t * acks = (fd_quic_ack_t*)imem;
@@ -141,7 +141,7 @@ fd_quic_conn_new( void *      mem,
     acks[j].next =  k < num_acks ? acks + k : NULL;
   }
 
-  imem += FD_QUIC_POW2_ALIGN( num_acks * sizeof( fd_quic_ack_t ), align );
+  imem += fd_ulong_align_up( num_acks * sizeof( fd_quic_ack_t ), align );
 
   /* sanity check */
   ulong fp =

@@ -2,7 +2,7 @@
 
 /* buffer helper functions */
 /* fd_quic_buffer_store
-   store data into cirular buffer */
+   store data into circular buffer */
 void
 fd_quic_buffer_store( fd_quic_buffer_t * buf,
                       uchar const *      data,
@@ -96,10 +96,10 @@ fd_quic_stream_footprint( ulong tx_buf_sz, ulong rx_buf_sz ) {
   ulong offs            = 0ul;
 
   ulong tx_ack_sz       = tx_buf_sz >> 3ul;
-  ulong align_stream_sz = FD_QUIC_POW2_ALIGN( sizeof( fd_quic_stream_t ), align );
-  ulong align_tx_ack_sz = FD_QUIC_POW2_ALIGN( tx_ack_sz, align );
-  ulong align_tx_buf_sz = FD_QUIC_POW2_ALIGN( tx_buf_sz, align );
-  ulong align_rx_buf_sz = FD_QUIC_POW2_ALIGN( rx_buf_sz, align );
+  ulong align_stream_sz = fd_ulong_align_up( sizeof( fd_quic_stream_t ), align );
+  ulong align_tx_ack_sz = fd_ulong_align_up( tx_ack_sz, align );
+  ulong align_tx_buf_sz = fd_ulong_align_up( tx_buf_sz, align );
+  ulong align_rx_buf_sz = fd_ulong_align_up( rx_buf_sz, align );
 
   offs += align_stream_sz; /* space for stream instance */
   offs += align_tx_buf_sz; /* space for tx_buf */
@@ -121,10 +121,10 @@ fd_quic_stream_new( void * mem, fd_quic_conn_t * conn, ulong tx_buf_sz, ulong rx
   ulong align = fd_quic_stream_align();
 
   ulong tx_ack_sz       = tx_buf_sz >> 3ul;
-  ulong align_stream_sz = FD_QUIC_POW2_ALIGN( sizeof( fd_quic_stream_t ), align );
-  ulong align_tx_buf_sz = FD_QUIC_POW2_ALIGN( tx_buf_sz, align );
-  ulong align_tx_ack_sz = FD_QUIC_POW2_ALIGN( tx_ack_sz, align );
-  ulong align_rx_buf_sz = FD_QUIC_POW2_ALIGN( rx_buf_sz, align );
+  ulong align_stream_sz = fd_ulong_align_up( sizeof( fd_quic_stream_t ), align );
+  ulong align_tx_buf_sz = fd_ulong_align_up( tx_buf_sz, align );
+  ulong align_tx_ack_sz = fd_ulong_align_up( tx_ack_sz, align );
+  ulong align_rx_buf_sz = fd_ulong_align_up( rx_buf_sz, align );
 
   ulong offs = 0;
   ulong base = (ulong)mem;

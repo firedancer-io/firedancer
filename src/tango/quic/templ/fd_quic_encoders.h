@@ -69,7 +69,7 @@
 
 /* encodes a packet number
    simply bits
-   keeps the pointer to the start of the packet number fiels */
+   keeps the pointer to the start of the packet number field */
 #define FD_TEMPL_MBR_ELEM_PKTNUM(NAME,TYPE)                            \
     buf += (cur_bit != 0);                                             \
     cur_bit = 0;                                                       \

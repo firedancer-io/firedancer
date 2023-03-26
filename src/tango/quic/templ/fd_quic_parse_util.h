@@ -134,8 +134,8 @@ fd_quic_parse_bits( uchar const * buf, ulong cur_bit, ulong bits ) {
 
 
 
-/* encode contiguos unaligned bits across bytes
-   caller responsible for ensuring enough space for oparation
+/* encode contiguous unaligned bits across bytes
+   caller responsible for ensuring enough space for operation
    returns 0 for success */
 inline
 int
