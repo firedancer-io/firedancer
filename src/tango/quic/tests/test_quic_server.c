@@ -1,79 +1,51 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <time.h>
 
 #include <math.h>
 
 #include <linux/if_xdp.h>
 
-#include "../../util/fd_util_base.h"
+#include "../../../util/fd_util_base.h"
+#include "../../../util/net/fd_eth.h"
+#include "../../../util/net/fd_ip4.h"
 
-#include "../quic/fd_quic.h"
-#include "../quic/tests/fd_pcap.h"
+#include "../fd_quic.h"
+#include "../templ/fd_quic_transport_params.h"
+#include "fd_pcap.h"
 
-#include "../xdp/fd_xsk.h"
-#include "../xdp/fd_xsk_aio.h"
-#include "../xdp/fd_xdp_redirect_user.h"
-
-
-#define LG_FRAME_SIZE 11
-#define FRAME_SIZE (1<<LG_FRAME_SIZE)
+#include "../../xdp/fd_xsk.h"
+#include "../../xdp/fd_xsk_aio.h"
+#include "../../xdp/fd_xdp_redirect_user.h"
 
 #define BUF_SZ (1<<20)
-
-/* parse a mac address */
-void
-parse_mac( uchar * dst, char const * src ) {
-  uint a[6] = {0};
-  int r = sscanf( src, "%x:%x:%x:%x:%x:%x", a, a+1, a+2, a+3, a+4, a+5 );
-  if( r != 6 ) {
-    FD_LOG_ERR(( "Invalid MAC address: %s", src ));
-  }
-
-  for( size_t j = 0; j < 6; ++j ) {
-    dst[j] = (uchar)a[j];
-  }
-}
-
-/* parse a mac address */
-void
-parse_ipv4_addr( uint * dst, char const * src ) {
-  uint a[4] = {0};
-  int r = sscanf( src, "%u.%u.%u.%u", a, a+1, a+2, a+3 );
-  if( r != 4 ) {
-    FD_LOG_ERR(( "Invalid ipv4 address: %s", src ));
-  }
-
-  *dst = ( a[0] << 030 ) | ( a[1] << 020 ) | ( a[2] << 010 ) | a[3];
-}
 
 
 void
 write_shb( FILE * file ) {
   pcap_shb_t shb[1] = {{ 0x0A0D0D0A, sizeof( pcap_shb_t ), 0x1A2B3C4D, 1, 0, (ulong)-1, sizeof( pcap_shb_t ) }};
-  ulong rc = fwrite( shb, sizeof(shb), 1, file );
-  if( rc != 1 ) {
-    abort();
-  }
+  FD_TEST( fwrite( shb, sizeof(shb), 1, file )==1 );
 }
 
 void
 write_idb( FILE * file ) {
   pcap_idb_t idb[1] = {{ 0x00000001, sizeof( pcap_idb_t ), 1, 0, 0, sizeof( pcap_idb_t ) }};
-  ulong rc = fwrite( idb, sizeof(idb), 1, file );
-  if( rc != 1 ) {
-    abort();
-  }
+  FD_TEST( fwrite( idb, sizeof(idb), 1, file )==1 );
 }
 
 void
-write_epb( FILE * file, uchar * buf, unsigned buf_sz, ulong ts ) {
+write_epb( FILE *  file,
+           uchar * buf,
+           uint    buf_sz,
+           ulong   ts ) {
+
   if( buf_sz == 0 ) return;
 
   uint ts_lo = (uint)ts;
   uint ts_hi = (uint)( ts >> 32u );
 
-  unsigned align_sz = ( ( buf_sz - 1u ) | 0x03u ) + 1u;
-  unsigned tot_len  = align_sz + (unsigned)sizeof( pcap_epb_t ) + 4;
+  uint align_sz = ( ( buf_sz - 1u ) | 0x03u ) + 1u;
+  uint tot_len  = align_sz + (uint)sizeof( pcap_epb_t ) + 4;
   pcap_epb_t epb[1] = {{
     0x00000006,
     tot_len,
@@ -83,48 +55,30 @@ write_epb( FILE * file, uchar * buf, unsigned buf_sz, ulong ts ) {
     buf_sz,
     buf_sz }};
 
-  ulong rc = fwrite( epb, sizeof( epb ), 1, file );
-  if( rc != 1 ) {
-    abort();
-  }
-
-  rc = fwrite( buf, buf_sz, 1, file );
-  if( rc != 1 ) {
-    abort();
-  }
+  FD_TEST( fwrite( epb, sizeof( epb ), 1, file )==1 );
+  FD_TEST( fwrite( buf, buf_sz,        1, file )==1 );
 
   if( align_sz > buf_sz ) {
     /* write padding */
     uchar pad[4] = {0};
-    fwrite( pad, align_sz - buf_sz, 1, file );
+    FD_TEST( fwrite( pad, align_sz - buf_sz, 1, file )==1 );
   }
 
-  rc = fwrite( &tot_len, 4, 1, file );
-  if( rc != 1 ) {
-    abort();
-  }
-
+  FD_TEST( fwrite( &tot_len, 4, 1, file )==1 );
 }
 
-
-extern uchar  pkt_full[];
-extern ulong pkt_full_sz;
-
 ulong
-aio_cb( void * context, fd_aio_pkt_info_t * batch, ulong batch_sz ) {
+aio_cb( void *              context,
+        fd_aio_pkt_info_t * batch,
+        ulong               batch_sz ) {
   (void)context;
 
-  printf( "aio_cb callback\n" );
+  FD_LOG_DEBUG(( "aio_cb callback" ));
   for( ulong j = 0; j < batch_sz; ++j ) {
-    printf( "batch %d\n", (int)j );
-    uchar const * data = (uchar const *)batch[j].buf;
-    for( ulong k = 0; k < batch[j].buf_sz; ++k ) {
-      printf( "%2.2x ", (unsigned)data[k] );
-    }
-    printf( "\n\n" );
+    FD_LOG_DEBUG(( "batch %lu", j ));
+    FD_LOG_HEXDUMP_DEBUG(( "aio data", batch[j].buf, batch[j].buf_sz ));
   }
-
-  fflush( stdout );
+  fd_log_flush();
 
   return batch_sz; /* consumed all */
 }
@@ -145,48 +99,15 @@ my_stream_receive_cb( fd_quic_stream_t * stream,
   printf( "%s\n", data );
 }
 
-fd_quic_t *
-new_quic( fd_quic_config_t * quic_config ) {
-
-  ulong  align    = fd_quic_align();
-  ulong  fp       = fd_quic_footprint( BUF_SZ,
-                                       BUF_SZ,
-                                       quic_config->max_concur_streams,
-                                       quic_config->max_in_flight_acks,
-                                       quic_config->max_concur_conns,
-                                       quic_config->max_concur_conn_ids );
-  void * mem      = malloc( fp + align );
-  ulong smem     = (ulong)mem;
-  ulong memalign = smem % align;
-  void * aligned  = ((uchar*)mem) + ( memalign == 0 ? 0 : ( align - memalign ) );
-
-  fd_quic_t * quic = fd_quic_new( aligned,
-                                  BUF_SZ,
-                                  BUF_SZ,
-                                  quic_config->max_concur_streams,
-                                  quic_config->max_in_flight_acks,
-                                  quic_config->max_concur_conns,
-                                  quic_config->max_concur_conn_ids );
-  FD_TEST( quic );
-
-  fd_quic_init( quic, quic_config );
-
-  return quic;
-}
-
-
-struct my_context {
-  int server;
-};
-typedef struct my_context my_context_t;
-
 int server_complete = 0;
 int client_complete = 0;
 
-/* server connetion received in callback */
+/* server connection received in callback */
 fd_quic_conn_t * server_conn = NULL;
 
-void my_connection_new( fd_quic_conn_t * conn, void * vp_context ) {
+void
+my_connection_new( fd_quic_conn_t * conn,
+                   void *           vp_context ) {
   (void)conn;
   (void)vp_context;
 
@@ -197,7 +118,9 @@ void my_connection_new( fd_quic_conn_t * conn, void * vp_context ) {
   server_conn = conn;
 }
 
-void my_handshake_complete( fd_quic_conn_t * conn, void * vp_context ) {
+void
+my_handshake_complete( fd_quic_conn_t * conn,
+                       void *           vp_context ) {
   (void)conn;
   (void)vp_context;
 
@@ -209,14 +132,17 @@ void my_handshake_complete( fd_quic_conn_t * conn, void * vp_context ) {
 
 /* pcap aio pipe */
 struct aio_pipe {
-  fd_aio_t * aio;
-  FILE *     file;
+  fd_aio_t const * aio;
+  FILE *           file;
 };
 typedef struct aio_pipe aio_pipe_t;
 
 
 int
-pipe_aio_receive( void * vp_ctx, fd_aio_pkt_info_t * batch, ulong batch_sz, ulong * opt_batch_idx ) {
+pipe_aio_receive( void *                    vp_ctx,
+                  fd_aio_pkt_info_t const * batch,
+                  ulong                     batch_sz,
+                  ulong *                   opt_batch_idx ) {
   static ulong ts = 0;
   ts += 100000ul;
 
@@ -235,7 +161,8 @@ pipe_aio_receive( void * vp_ctx, fd_aio_pkt_info_t * batch, ulong batch_sz, ulon
 
 
 /* global "clock" */
-ulong test_clock( void * ctx ) {
+ulong
+test_clock( void * ctx ) {
   (void)ctx;
 
   struct timespec ts;
@@ -247,122 +174,60 @@ ulong test_clock( void * ctx ) {
 
 int
 main( int argc, char ** argv ) {
-  FILE * pcap = fopen( "test_quic_service.pcapng", "wb" );
-  if( !pcap ) abort();
+  fd_boot( &argc, &argv );
+
+  ulong cpu_idx = fd_tile_cpu_id( fd_tile_idx() );
+  if( cpu_idx>=fd_shmem_cpu_cnt() ) cpu_idx = 0UL;
+
+  char const * _pcap        = fd_env_strip_cmdline_cstr  ( &argc, &argv, "--pcap",         NULL, NULL                       );
+  char const * app_name     = fd_env_strip_cmdline_cstr  ( &argc, &argv, "--app-name",     NULL, "test_quic_server"         );
+  char const * _page_sz     = fd_env_strip_cmdline_cstr  ( &argc, &argv, "--page-sz",      NULL, "gigantic"                 );
+  ulong        page_cnt     = fd_env_strip_cmdline_ulong ( &argc, &argv, "--page-cnt",     NULL, 1UL                        );
+  ulong        numa_idx     = fd_env_strip_cmdline_ulong ( &argc, &argv, "--numa-idx",     NULL, fd_shmem_numa_idx(cpu_idx) );
+  char const * iface        = fd_env_strip_cmdline_cstr  ( &argc, &argv, "--iface",        NULL, NULL                       );
+  uint         ifqueue      = fd_env_strip_cmdline_uint  ( &argc, &argv, "--ifqueue",      NULL, 0U                         );
+  char const * _src_mac     = fd_env_strip_cmdline_cstr  ( &argc, &argv, "--src-mac",      NULL, NULL                       );
+  char const * _dst_mac     = fd_env_strip_cmdline_cstr  ( &argc, &argv, "--dst-mac",      NULL, NULL                       );
+  char const * _listen_ip   = fd_env_strip_cmdline_cstr  ( &argc, &argv, "--listen-ip",    NULL, NULL                       );
+  ushort       listen_port  = fd_env_strip_cmdline_ushort( &argc, &argv, "--listen-port",  NULL, 0U                         );
+  ulong        xsk_frame_sz = fd_env_strip_cmdline_ulong ( &argc, &argv, "--xsk-frame-sz", NULL, 2048UL                     );
+  ulong        xsk_rx_depth = fd_env_strip_cmdline_ulong ( &argc, &argv, "--xsk-rx-depth", NULL, 1024UL                     );
+  ulong        xsk_tx_depth = fd_env_strip_cmdline_ulong ( &argc, &argv, "--xsk-tx-depth", NULL, 1024UL                     );
+  ulong        xsk_pkt_cnt  = fd_env_strip_cmdline_ulong ( &argc, &argv, "--xsk-pkt-cnt",  NULL,   32UL                     );
+
+  ulong page_sz = fd_cstr_to_shmem_page_sz( _page_sz );
+  if( FD_UNLIKELY( !page_sz ) ) FD_LOG_ERR(( "unsupported --page-sz" ));
+
+  if( FD_UNLIKELY( !_src_mac    ) ) FD_LOG_ERR(( "missing --src-mac"     ));
+  if( FD_UNLIKELY( !_dst_mac    ) ) FD_LOG_ERR(( "missing --dst-mac"     ));
+  if( FD_UNLIKELY( !_listen_ip  ) ) FD_LOG_ERR(( "missing --listen-ip"   ));
+  if( FD_UNLIKELY( !listen_port ) ) FD_LOG_ERR(( "missing --listen-port" ));
+
+  uchar src_mac[6];
+  if( FD_UNLIKELY( !fd_cstr_to_mac_addr( _src_mac, src_mac ) ) ) FD_LOG_ERR(( "invalid --src-mac" ));
+  uchar dst_mac[6];
+  if( FD_UNLIKELY( !fd_cstr_to_mac_addr( _dst_mac, dst_mac ) ) ) FD_LOG_ERR(( "invalid --dst-mac" ));
+  uint listen_ip = 0;
+  if( FD_UNLIKELY( !fd_cstr_to_ip4_addr( _listen_ip, &listen_ip ) ) ) FD_LOG_ERR(( "invalid --listen-ip" ));
+
+  fd_quic_limits_t quic_limits = {0};
+  fd_quic_limits_from_env( &argc, &argv, &quic_limits);
+
+  FD_LOG_NOTICE(( "Creating workspace with --page-cnt %lu --page-sz %s pages on --numa-idx %lu", page_cnt, _page_sz, numa_idx ));
+  fd_wksp_t * wksp = fd_wksp_new_anonymous( page_sz, page_cnt, fd_shmem_cpu_idx( numa_idx ), "wksp", 0UL );
+  FD_TEST( wksp );
+
+  FD_LOG_NOTICE(( "Creating fd_quic" ));
+  void *      quic_mem = fd_wksp_alloc_laddr( wksp, fd_quic_align(), fd_quic_footprint( &quic_limits ), 1UL );
+  fd_quic_t * quic     = fd_quic_new( wksp, &quic_limits );
+  FD_TEST( quic );
+
+  FD_LOG_NOTICE(( "Writing to pcap: %s", _pcap ));
+  FILE * pcap = fopen( _pcap, "wb" );
+  FD_TEST( pcap );
 
   write_shb( pcap );
   write_idb( pcap );
-
-  (void)argc;
-  (void)argv;
-
-  /* confiugre xdp */
-  char const * intf        = "";
-  float        f_batch_sz  = 128;
-  uint         src_ip;
-  uchar        src_mac[6];
-  uchar        dft_route_mac[6];
-
-  char const * app_name    = "test_quic_srver";
-  uint         ifqueue     = 0;
-  ulong        xsk_pkt_cnt = 16;
-  uint         udp_port    = 4433;
-  uint         proto       = 0;
-
-  for( int i = 1; i < argc; ++i ) {
-    /* --intf */
-    if( strcmp( argv[i], "--intf" ) == 0 ) {
-      if( i+1 < argc ) {
-        intf = argv[i+1];
-        i++;
-        continue;
-      } else {
-        fprintf( stderr, "--intf requires a value\n" );
-        exit(1);
-      }
-    }
-    if( strcmp( argv[i], "--batch-sz" ) == 0 ) {
-      if( i+1 < argc ) {
-        f_batch_sz = strtof( argv[i+1], NULL );
-        i++;
-      } else {
-        fprintf( stderr, "--batch-sz requires a value\n" );
-        exit(1);
-      }
-    }
-    if( strcmp( argv[i], "--src-ip" ) == 0 ) {
-      if( i+1 < argc ) {
-        parse_ipv4_addr( &src_ip, argv[i+1] );
-        i++;
-      } else {
-        fprintf( stderr, "--src-ip requires a value\n" );
-        exit(1);
-      }
-    }
-    if( strcmp( argv[i], "--src-mac" ) == 0 ) {
-      if( i+1 < argc ) {
-        parse_mac( src_mac, argv[i+1] );
-        i++;
-      } else {
-        fprintf( stderr, "--src-mac requires a value\n" );
-        exit(1);
-      }
-    }
-    if( strcmp( argv[i], "--dft-route-mac" ) == 0 ) {
-      if( i+1 < argc ) {
-        parse_mac( dft_route_mac, argv[i+1] );
-        i++;
-      } else {
-        fprintf( stderr, "--dft-route-mac requires a value\n" );
-        exit(1);
-      }
-    }
-    if( strcmp( argv[i], "--ifqueue" ) == 0 ) {
-      if( i+1 < argc ) {
-        ifqueue = (uint)strtoul( argv[i+1], NULL, 10 );
-        i++;
-      } else {
-        fprintf( stderr, "--ifqueue requires a value\n" );
-        exit(1);
-      }
-    }
-    if( strcmp( argv[i], "--app-name" ) == 0 ) {
-      if( i+1 < argc ) {
-        app_name = argv[i+1];
-      } else {
-        fprintf( stderr, "--app-name requires a value\n" );
-        exit(1);
-      }
-    }
-    if( strcmp( argv[i], "--xsk-pkt-cnt" ) == 0 ) {
-      if( i+1 < argc ) {
-        xsk_pkt_cnt = (uint)strtoul( argv[i+1], NULL, 10 );
-        i++;
-      } else {
-        fprintf( stderr, "--xsk-pkt-cnt requires a value\n" );
-        exit(1);
-      }
-    }
-    if( strcmp( argv[i], "--udp-port" ) == 0 ) {
-      if( i+1 < argc ) {
-        udp_port = (uint)strtoul( argv[i+1], NULL, 10 );
-        i++;
-      } else {
-        fprintf( stderr, "--udp-port requires a value\n" );
-        exit(1);
-      }
-    }
-  }
-
-  long batch_sz = (long)roundf( f_batch_sz );
-
-  printf( "xdp test parms:\n" );
-
-  printf( "--intf %s\n", intf );
-  printf( "--batch-sz %ld\n", batch_sz );
-
-
-  /* configure quic */
 
   /* Transport params:
        original_destination_connection_id (0x00)         :   len(0)
@@ -383,136 +248,91 @@ main( int argc, char ** argv ) {
        initial_source_connection_id (0x0f)               : * len(8) ec 73 1b 41 a0 d5 c6 fe
        retry_source_connection_id (0x10)                 :   len(0) */
 
-  /* all zeros transport params is a reasonable default */
-  fd_quic_transport_params_t tp[1] = {0};
+  fd_quic_config_t * quic_config = fd_quic_get_config( quic );
+  FD_TEST( quic_config );
 
-  /* establish these parameters as "present" */
-  tp->max_idle_timeout                               = 60000;
-  tp->max_idle_timeout_present                       = 1;
-  tp->initial_max_data                               = BUF_SZ;
-  tp->initial_max_data_present                       = 1;
-  tp->initial_max_stream_data_bidi_local             = BUF_SZ;
-  tp->initial_max_stream_data_bidi_local_present     = 1;
-  tp->initial_max_stream_data_bidi_remote            = BUF_SZ;
-  tp->initial_max_stream_data_bidi_remote_present    = 1;
-  tp->initial_max_stream_data_uni                    = BUF_SZ;
-  tp->initial_max_stream_data_uni_present            = 1;
-  tp->initial_max_streams_bidi                       = 128;
-  tp->initial_max_streams_bidi_present               = 1;
-  tp->initial_max_streams_uni                        = 128;
-  tp->initial_max_streams_uni_present                = 1;
-  tp->ack_delay_exponent                             = 3;
-  tp->ack_delay_exponent_present                     = 1;
-  tp->max_ack_delay                                  = 25;
-  tp->max_ack_delay_present                          = 1;
-  tp->active_connection_id_limit                     = 8;
-  tp->active_connection_id_limit_present             = 1;
+  quic_config->role = FD_QUIC_ROLE_SERVER;
+  fd_quic_config_from_env( &argc, &argv, quic_config );
 
-  fd_quic_config_t quic_config = {0};
+  memcpy( quic_config->link.src_mac_addr, src_mac, 6UL );
+  memcpy( quic_config->link.dst_mac_addr, dst_mac, 6UL );
 
-  quic_config.transport_params      = tp;
-  quic_config.max_concur_conns      = 10;
-  quic_config.max_concur_conn_ids   = 10;
-  quic_config.max_concur_streams    = 10;
-  quic_config.max_concur_handshakes = 10;
-  quic_config.max_in_flight_pkts    = 100;
-  quic_config.max_in_flight_acks    = 100;
-  quic_config.conn_id_sparsity      = 4;
+  quic_config->net.ip_addr         = listen_ip;
+  quic_config->net.listen_udp_port = listen_port;
 
-  strcpy( quic_config.cert_file, "cert.pem" );
-  strcpy( quic_config.key_file,  "key.pem"  );
+  fd_quic_callbacks_t * quic_cb = fd_quic_get_callbacks( quic );
+  FD_TEST( quic_cb );
+  quic_cb->conn_new       = my_connection_new;
+  quic_cb->stream_receive = my_stream_receive_cb;
+  quic_cb->now            = test_clock;
+  quic_cb->now_ctx        = NULL;
 
-  quic_config.cb_stream_receive     = my_stream_receive_cb;
+  ulong xsk_sz   = fd_xsk_footprint( xsk_frame_sz, xsk_rx_depth, xsk_rx_depth, xsk_tx_depth, xsk_tx_depth );
 
-  quic_config.now_fn  = test_clock;
-  quic_config.now_ctx = NULL;
+  FD_LOG_NOTICE(( "Creating XSK" ));
+  void * xsk_mem = fd_wksp_alloc_laddr( wksp, fd_xsk_align(), xsk_sz, 1UL );
+  FD_TEST( fd_xsk_new( xsk_mem, xsk_frame_sz, xsk_rx_depth, xsk_rx_depth, xsk_tx_depth, xsk_tx_depth ) );
 
-  fd_memcpy( quic_config.net.default_route_mac, dft_route_mac, 6 );
-  fd_memcpy( quic_config.net.src_mac, src_mac, 6 );
+  FD_LOG_NOTICE(( "Binding XSK (--iface %s, --ifqueue %u)", iface, ifqueue ));
+  FD_TEST( fd_xsk_bind( xsk_mem, app_name, iface, ifqueue ) );
 
-  fd_quic_host_cfg_t server_cfg = { "server_host", src_ip, 4433 };
-
-  quic_config.host_cfg = server_cfg;
-  fd_quic_t * server_quic = new_quic( &quic_config );
-
-  ulong frame_sz = FRAME_SIZE;
-  ulong depth    = 1ul << 20ul;
-  ulong xsk_sz   = fd_xsk_footprint( frame_sz, depth, depth, depth, depth );
-
-  /* new xsk */
-  void * xsk_mem = aligned_alloc( fd_xsk_align(), xsk_sz );
-  if( !fd_xsk_new( xsk_mem, frame_sz, depth, depth, depth, depth ) ) {
-    fprintf( stderr, "Failed to create fd_xsk. Aborting\n" );
-    exit(1);
-  }
-
-  /* bind */
-  if( !fd_xsk_bind( xsk_mem, app_name, intf, ifqueue ) ) {
-    fprintf( stderr, "Failed to bind %s to interface %s, with queue %u\n",
-        app_name, intf, ifqueue );
-    exit(1);
-  }
-
-  /* join */
+  FD_LOG_NOTICE(( "Joining XSK" ));
   fd_xsk_t * xsk = fd_xsk_join( xsk_mem );
+  FD_TEST( xsk );
 
-  /* new xsk_aio */
-  void * xsk_aio_mem = aligned_alloc( fd_xsk_aio_align(), fd_xsk_aio_footprint( depth, xsk_pkt_cnt ) );
-  if( !fd_xsk_aio_new( xsk_aio_mem, depth, xsk_pkt_cnt ) ) {
-    fprintf( stderr, "Failed to create xsk_aio_mem\n" );
-    exit(1);
-  }
+  FD_LOG_NOTICE(( "Creating fd_xsk_aio" ));
+  void * xsk_aio_mem =
+    fd_wksp_alloc_laddr( wksp, fd_xsk_aio_align(), fd_xsk_aio_footprint( xsk_tx_depth, xsk_pkt_cnt ), 1UL );
+  FD_TEST( fd_xsk_aio_new( xsk_aio_mem, xsk_tx_depth, xsk_pkt_cnt ) );
 
   fd_xsk_aio_t * xsk_aio = fd_xsk_aio_join( xsk_aio_mem, xsk );
-  if( !xsk_aio ) {
-    fprintf( stderr, "Failed to join xsk_aio_mem\n" );
-    exit(1);
-  }
+  FD_TEST( xsk_aio );
 
-  /* add udp port to xdp map */
   /* TODO how do we specify the port? */
-  if( fd_xdp_listen_udp_port( app_name, src_ip, udp_port, proto ) < 0 ) {
-    fprintf( stderr, "unable to listen on given udp port\n" );
-    exit(1);
-  }
+  FD_LOG_NOTICE(( "Adding UDP listener (" FD_IP4_ADDR_FMT ":%u)",
+                  FD_IP4_ADDR_FMT_ARGS( listen_ip ), listen_port ));
+  FD_TEST( 0==fd_xdp_listen_udp_port( app_name, listen_ip, listen_port, 0 ) );
 
-  /* set up aio ingress */
-  fd_aio_t ingress = *fd_quic_get_aio_net_in( server_quic );
-  fd_xsk_aio_set_rx( xsk_aio, &ingress );
+  FD_LOG_NOTICE(( "Wiring up QUIC and XSK" ));
+  fd_xsk_aio_set_rx( xsk_aio, fd_quic_get_aio_net_rx( quic ) );
 
-  fd_aio_t egress = *fd_xsk_aio_get_tx( xsk_aio );
-
-#if 1
+#if 0
   /* set up egress */
-  fd_quic_set_aio_net_out( server_quic, &egress );
+  fd_quic_set_aio_net_tx( quic,    fd_xsk_aio_get_tx     ( xsk_aio ) );
 #else
-  /* create a pipe for catching data as it passes thru */
-  aio_pipe_t pipe[2] = { { ingress, pcap }, { egress, pcap } };
+  /* create a pipe for catching data as it passes through */
+  aio_pipe_t pipe[2] = {
+    { fd_quic_get_aio_net_rx( quic    ), pcap },
+    { fd_xsk_aio_get_tx     ( xsk_aio ), pcap }
+  };
 
-  fd_aio_t aio[2] = { { pipe_aio_receive, (void*)&pipe[0] }, { pipe_aio_receive, (void*)&pipe[1] } };
+  fd_aio_t aio[2] = {
+    { .ctx = (void*)&pipe[0], .send_func = pipe_aio_receive },
+    { .ctx = (void*)&pipe[1], .send_func = pipe_aio_receive }
+  };
 
-  fd_quic_set_aio_net_out( server_quic, &aio[1] );
+  fd_quic_set_aio_net_tx( quic, &aio[1] );
 #endif
-
-  /* set up server_quic as server */
-  fd_quic_listen( server_quic );
-
-  /* set the callback for new connections */
-  fd_quic_set_cb_conn_new( server_quic, my_connection_new );
 
   /* do general processing */
   while(1) {
-    /* service quic */
-    fd_quic_service( server_quic );
+    fd_quic_service( quic );
 
-    /* service xdp */
     fd_xsk_aio_service( xsk_aio );
   }
 
+  FD_TEST( fd_quic_delete   ( fd_quic_leave   ( quic    ) ) );
+  FD_TEST( fd_xsk_aio_delete( fd_xsk_aio_leave( xsk_aio ) ) );
+  FD_TEST( fd_xsk_delete    ( fd_xsk_leave    ( xsk     ) ) );
 
-  fd_quic_delete( server_quic );
+  fd_wksp_free_laddr( quic_mem    );
+  fd_wksp_free_laddr( xsk_aio_mem );
+  fd_wksp_free_laddr( xsk_mem     );
 
+  fd_wksp_delete_anonymous( wksp );
+
+  FD_LOG_NOTICE(( "pass" ));
+  fd_halt();
   return 0;
 }
-
 

@@ -28,18 +28,15 @@ main( int     argc,
 
     } else if( 0==strcmp( cmd, "new-quic" ) ) {
 
-      if( FD_UNLIKELY( argc<7 ) ) FD_LOG_ERR(( "%i: %s: too few arguments\n\tDo %s help for help", cnt, cmd, bin ));
+      fd_quic_limits_t limits = {0};
+      fd_quic_limits_from_env( &argc, &argv, &limits );
 
-      char const * _wksp       =                   argv[0];
-      ulong        rx_buf_sz   = fd_cstr_to_ulong( argv[1] );
-      ulong        tx_buf_sz   = fd_cstr_to_ulong( argv[2] );
-      ulong        conn_cnt    = fd_cstr_to_ulong( argv[3] );
-      ulong        conn_id_cnt = fd_cstr_to_ulong( argv[4] );
-      ulong        stream_cnt  = fd_cstr_to_ulong( argv[5] );
-      ulong        pkt_cnt     = fd_cstr_to_ulong( argv[6] );
+      if( FD_UNLIKELY( argc<1 ) ) FD_LOG_ERR(( "%i: %s: too few arguments\n\tDo %s help for help", cnt, cmd, bin ));
+
+      char const * _wksp = argv[0];
 
       ulong align     = fd_quic_align();
-      ulong footprint = fd_quic_footprint( tx_buf_sz, rx_buf_sz, stream_cnt, pkt_cnt, conn_cnt, conn_id_cnt );
+      ulong footprint = fd_quic_footprint( &limits );
       if( FD_UNLIKELY( !footprint ) )
         FD_LOG_ERR(( "%i: %s: invalid params\n\tDo %s help for help", cnt, cmd, bin ));
 
@@ -61,12 +58,12 @@ main( int     argc,
         FD_LOG_ERR(( "%i: %s: fd_wksp_laddr( \"%s\", %lu ) failed\n\tDo %s help for help", cnt, cmd, _wksp, gaddr, bin ));
       }
 
-      fd_quic_t * quic = fd_quic_new( shmem, tx_buf_sz, rx_buf_sz, stream_cnt, pkt_cnt, conn_cnt, conn_id_cnt );
+      fd_quic_t * quic = fd_quic_new( shmem, &limits );
       if( FD_UNLIKELY( !quic ) ) {
         fd_wksp_free( wksp, gaddr );
         fd_wksp_detach( wksp );
-        FD_LOG_ERR(( "%i: %s: fd_quic_new( %s:%lu, %lu, %lu, %lu, %lu, %lu, %lu ) failed\n\tDo %s help for help",
-                     cnt, cmd, _wksp, gaddr, tx_buf_sz, rx_buf_sz, stream_cnt, pkt_cnt, conn_cnt, conn_id_cnt, bin ));
+        FD_LOG_ERR(( "%i: %s: fd_quic_new failed\n\tDo %s help for help",
+                     cnt, cmd, bin ));
       }
 
       char buf[ FD_WKSP_CSTR_MAX ];
@@ -74,8 +71,8 @@ main( int     argc,
 
       fd_wksp_detach( wksp );
 
-      FD_LOG_NOTICE(( "%i: %s %s %lu %lu %lu %lu %lu %lu: success", cnt, cmd, _wksp, rx_buf_sz, tx_buf_sz, conn_cnt, conn_id_cnt, stream_cnt, pkt_cnt ));
-      SHIFT( 7 );
+      FD_LOG_NOTICE(( "%i: %s %s: success", cnt, cmd, _wksp ));
+      SHIFT( 1 );
 
     } else if( 0==strcmp( cmd, "delete-quic" ) ) {
 

@@ -1,42 +1,34 @@
-#ifndef HEADER_fd_quic_suites_h
-#define HEADER_fd_quic_suites_h
+#ifndef HEADER_fd_src_tango_quic_crypto_fd_quic_crypto_suites_h
+#define HEADER_fd_src_tango_quic_crypto_fd_quic_crypto_suites_h
 
 #include <openssl/ssl.h>
 #include "../fd_quic_common.h"
 
-/* Defines the crypto suites used by QUIC V1 and V2
+/* Defines the crypto suites used by QUIC v1.
 
-   V1 is defined here:
+   QUIC v2 is defined here:
      https://www.rfc-editor.org/rfc/rfc9001.html#name-header-protection
      https://www.rfc-editor.org/rfc/rfc8446.html#page-133
 
-   V2 TODO
-
-
    The suites are defined thusly:
-              +------------------------------+-------------+
-              | Description                  | Value       |
-              +------------------------------+-------------+
-              | TLS_AES_128_GCM_SHA256       | {0x13,0x01} |
-              |                              |             |
-              | TLS_AES_256_GCM_SHA384       | {0x13,0x02} |
-              |                              |             |
-              | TLS_CHACHA20_POLY1305_SHA256 | {0x13,0x03} |
-              |                              |             |
-              | TLS_AES_128_CCM_SHA256       | {0x13,0x04} |
-              |                              |             |
-              | TLS_AES_128_CCM_8_SHA256     | {0x13,0x05} |
-              +------------------------------+-------------+
+
+       +------------------------------+-------------+
+       | Description                  | Value       |
+       +------------------------------+-------------+
+       | TLS_AES_128_GCM_SHA256       | {0x13,0x01} |
+       | TLS_AES_256_GCM_SHA384       | {0x13,0x02} |
+       | TLS_CHACHA20_POLY1305_SHA256 | {0x13,0x03} |
+       | TLS_AES_128_CCM_SHA256       | {0x13,0x04} |
+       | TLS_AES_128_CCM_8_SHA256     | {0x13,0x05} |
+       +------------------------------+-------------+
 
    Notes:
      TLS_AES_128_CCM_SHA256 does not seem to be mentioned in rfc9001, so is excluded
      TLS_AES_128_CCM_8_SHA256 has no packet-header encryption defined, and so must be excluded
 
-     The remainder are defined below
+     The remainder are defined below */
 
-   */
-
-/* suites
+/* TLS suites
 
     id,  suite name,                   major, minor, pkt cipher,        hp cipher,   hash,   key sz, iv sz */
 #define FD_QUIC_CRYPTO_SUITE_LIST( X, ... ) \
@@ -55,12 +47,6 @@
 #define FD_QUIC_NUM_ENC_LEVELS 4
 
 
-/* openssl definitions */
-#define FD_QUIC_OSSL_EVP_AES_128_GCM           EVP_aes_128_gcm()
-#define FD_QUIC_OSSL_EVP_AES_256_GCM           EVP_aes_256_gcm()
-#define FD_QUIC_OSSL_EVP_AES_CHACHA20_POLY1305 EVP_chacha20_poly1305()
-#define FD_QUIC_OSSL_EVP_AES_CHACHA20          EVP_chacha20()
-
 typedef struct fd_quic_crypto_keys    fd_quic_crypto_keys_t;
 typedef struct fd_quic_crypto_ctx     fd_quic_crypto_ctx_t;
 typedef struct fd_quic_crypto_suite   fd_quic_crypto_suite_t;
@@ -76,15 +62,15 @@ typedef struct fd_quic_crypto_secrets fd_quic_crypto_secrets_t;
 #define FD_QUIC_CRYPTO_SAMPLE_SZ 16
 
 struct fd_quic_crypto_suite {
-  int id;
-  int major;
-  int minor;
+  int   id;
+  int   major;
+  int   minor;
   ulong key_sz;
   ulong iv_sz;
 
   EVP_CIPHER const * pkt_cipher;  /* not owned */
   EVP_CIPHER const * hp_cipher;   /* not owned */
-  EVP_MD const *     hash;        /* not owned */
+  EVP_MD     const * hash;        /* not owned */
 };
 
 struct fd_quic_crypto_keys {
@@ -166,8 +152,8 @@ enum {
 #define FD_QUIC_CRYPTO_LABEL_QUIC_HP  "quic hp"
 
 /* initial salt */
-extern uchar  FD_QUIC_CRYPTO_V1_INITIAL_SALT[];
-extern ulong FD_QUIC_CRYPTO_V1_INITIAL_SALT_SZ;
+#define FD_QUIC_CRYPTO_V1_INITIAL_SALT_SZ   (20UL)
+extern uchar FD_QUIC_CRYPTO_V1_INITIAL_SALT[ 20UL ];
 
 /* each of these has "-1" to avoid counting the implied terminating NUL byte */
 #define FD_QUIC_CRYPTO_LABEL_CLIENT_IN_SZ ( sizeof( FD_QUIC_CRYPTO_LABEL_CLIENT_IN ) - 1 )
@@ -198,23 +184,32 @@ struct fd_quic_crypto_secrets {
   uchar secret_sz[FD_QUIC_NUM_ENC_LEVELS][2];
 };
 
-/* get random bytes
+/* fd_quic_crypto_rand retrieves cryptographic quality random bytes
+   into given memory region.  buf points to first byte of buffer in
+   local address space.  buf_sz is the number of bytes to fill.  Current
+   backend is OpenSSL RAND_bytes (>=256-bit security level on Linux).
+   Return value in FD_QUIC_{SUCCESS,FAILURE}.  Reasons for failure
+   include lack of entropy, in which case caller should wait and retry.
+   buf_sz in [1,INT_MAX] but should be reasonably small (max KiB-ish) */
 
-   intended to be a "good" source of randomness
+int
+fd_quic_crypto_rand( uchar * buf,
+                     ulong   buf_sz );
 
-   args
-     buf     pointer to buffer to receive the bytes
-     buf_sz  the size of the buffer to fill */
-void
-fd_quic_crypto_rand( uchar * buf, int buf_sz );
+/* fd_quic_crypto_ctx_init initializes the given QUIC crypto context
+   using the TLS provider library.  Should be considered an expensive
+   operation and thus used sparingly.  On failure, logs error and
+   terminates program.  Reasons for failure include fatal init error
+   in TLS library. */
 
-/* initialize crypto context */
 void
 fd_quic_crypto_ctx_init( fd_quic_crypto_ctx_t * ctx );
 
-/* reset the context and free resources */
+/* fd_quic_crypto_ctx_fini finalizes the given QUIC crypto context
+   object.  Releases resources back to the TLS provider library. */
+
 void
-fd_quic_crypto_ctx_reset( fd_quic_crypto_ctx_t * ctx );
+fd_quic_crypto_ctx_fini( fd_quic_crypto_ctx_t * ctx );
 
 /* HKDF extract and expand-label are defined here:
      https://www.rfc-editor.org/rfc/rfc9001.html#name-packet-protection
@@ -227,7 +222,7 @@ fd_quic_crypto_ctx_reset( fd_quic_crypto_ctx_t * ctx );
    TODO how to ensure no buffer overrun occurs here
 
    returns
-     FD_QUIC_SUCCESS   if the operation succeded
+     FD_QUIC_SUCCESS   if the operation succeeded
      FD_QUIC_FAILED    otherwise
 
    args
@@ -247,7 +242,7 @@ fd_quic_hkdf_extract( uchar *        output,  ulong output_sz,
 /* fd_quic_hkdf_expand_label
 
    returns
-     FD_QUIC_SUCCESS   if the operation succeded
+     FD_QUIC_SUCCESS   if the operation succeeded
      FD_QUIC_FAILED    otherwise
 
    args
@@ -263,12 +258,10 @@ fd_quic_hkdf_expand_label( uchar *        output,  ulong output_sz,
                            uchar const *  secret,  ulong secret_sz,
                            uchar const *  label,   ulong label_sz );
 
-/* fd_quic_gen_initial_secret
-
-   generate the initial secret according to spec
+/* fd_quic_gen_initial_secret generates the initial secret according to spec
 
    returns
-     FD_QUIC_SUCCESS   if the operation succeded
+     FD_QUIC_SUCCESS   if the operation succeeded
      FD_QUIC_FAILED    otherwise
 
    args
@@ -287,12 +280,10 @@ fd_quic_gen_initial_secret(
     ulong                      conn_id_sz,
     EVP_MD const *             md );
 
-/* fd_quic_gen_secrets
-
-   generate secrets according to the above mentioned rfc's
+/* fd_quic_gen_secrets generate secrets according to the aforementioned RFCs
 
    returns
-     FD_QUIC_SUCCESS   if the operation succeded
+     FD_QUIC_SUCCESS   if the operation succeeded
      FD_QUIC_FAILED    otherwise
 
    args
@@ -312,7 +303,7 @@ fd_quic_gen_secrets(
    and associated data
 
    returns
-     FD_QUIC_SUCCESS   if the operation succeded
+     FD_QUIC_SUCCESS   if the operation succeeded
      FD_QUIC_FAILED    otherwise
 
    args
@@ -336,7 +327,7 @@ fd_quic_gen_keys(
      the decryption functions report failure (openssl)
 
    returns
-     FD_QUIC_SUCCESS   if the operation succeded
+     FD_QUIC_SUCCESS   if the operation succeeded
      FD_QUIC_FAILED    otherwise
 
    args
@@ -369,7 +360,7 @@ fd_quic_crypto_encrypt(
      the decrypted data is corrupt
 
    returns
-     FD_QUIC_SUCCESS   if the operation succeded
+     FD_QUIC_SUCCESS   if the operation succeeded
      FD_QUIC_FAILED    otherwise
 
    args
@@ -406,7 +397,7 @@ fd_quic_crypto_decrypt(
      the decrypted data is corrupt
 
    returns
-     FD_QUIC_SUCCESS   if the operation succeded
+     FD_QUIC_SUCCESS   if the operation succeeded
      FD_QUIC_FAILED    otherwise
 
    args
@@ -444,9 +435,10 @@ fd_quic_crypto_decrypt_hdr(
 /*
   X( 0, TLS_AES_128_GCM_SHA256,        0x13,  0x01,  AES_128_GCM,       AES_128_ECB, SHA256, 16,     12, __VA_ARGS__ ) \
   */
-inline
-int
-fd_quic_crypto_lookup_suite( uchar major, uchar minor ) {
+
+inline int
+fd_quic_crypto_lookup_suite( uchar major,
+                             uchar minor ) {
   switch( ( (unsigned)major << 8 ) | (unsigned)minor ) {
 #define _( ID, SUITE, MAJOR, MINOR, ... ) \
     case ( (unsigned)MAJOR << 8u ) + (unsigned)MINOR: return ID;
@@ -457,6 +449,5 @@ fd_quic_crypto_lookup_suite( uchar major, uchar minor ) {
   }
 }
 
-
-#endif
+#endif /* HEADER_fd_src_tango_quic_crypto_fd_quic_crypto_suites_h */
 

@@ -28,14 +28,14 @@
     buf += FD_TEMPL_ENCODE_FP(TYPE);                                        \
 
 
-/* determines the encoding footpring of the PKTNUM */
+/* determines the encoding footprint of the PKTNUM */
 #define FD_TEMPL_MBR_ELEM_PKTNUM(NAME,TYPE)                              \
     buf += (cur_bit != 0);                                               \
     cur_bit = 0;                                                         \
     buf += (ulong)frame->NAME##_bits >> (ulong)3u;
 
 
-/* determines the encoding footpring of the VARINT */
+/* determines the encoding footprint of the VARINT */
 #define FD_TEMPL_MBR_ELEM_VARINT(NAME,TYPE)                              \
     buf += (cur_bit != 0);                                             \
     cur_bit = 0;                                                       \
