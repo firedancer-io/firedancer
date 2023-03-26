@@ -1,13 +1,11 @@
-#ifndef SOURCE_fd_src_util_shmem_fd_shmem_admin
-#error "Do not compile this file directly"
-#endif
-
 #if !defined(__linux__)
 #error "Unsupported platform"
 #endif
 
 #define _GNU_SOURCE
+#include <fcntl.h>
 #include <unistd.h>
+#include <sys/mman.h>
 #include <sys/syscall.h>
 #include <sys/sysinfo.h>
 #include <sys/types.h>
@@ -114,6 +112,7 @@ fd_shmem_create( char const * name,
   if( FD_UNLIKELY( mode!=(ulong)(mode_t)mode ) ) { FD_LOG_WARNING(( "bad mode (0%03lo)", mode )); return EINVAL; }
 
   ulong sz       = page_cnt*page_sz;
+  ulong numa_idx = fd_shmem_numa_idx( cpu_idx );
 
   /* We use the FD_SHMEM_LOCK in create just to be safe given some
      thread safety ambiguities in the documentation for some of the
@@ -124,14 +123,12 @@ fd_shmem_create( char const * name,
   int err;
 # define ERROR( cleanup ) do { err = errno; goto cleanup; } while(0)
 
-  char   path[ FD_SHMEM_PRIVATE_PATH_BUF_MAX ];
-  int    fd;
-  void * shmem;
-
-  ulong numa_idx = fd_shmem_numa_idx( cpu_idx );
   int    orig_mempolicy;
   ulong  orig_nodemask[ (FD_SHMEM_NUMA_MAX+63UL)/64UL ];
   ulong  nodemask[ (FD_SHMEM_NUMA_MAX+63UL)/64UL ];
+  char   path[ FD_SHMEM_PRIVATE_PATH_BUF_MAX ];
+  int    fd;
+  void * shmem;
 
   /* Save this thread's numa node mempolicy and then set it to bind
      newly created memory to the numa idx corresponding to logical cpu
@@ -182,7 +179,7 @@ fd_shmem_create( char const * name,
   /* Validate the mapping */
 
   if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)shmem, page_sz ) ) ) {
-    FD_LOG_WARNING(( "misaligned memory mapping for \"%s\""
+    FD_LOG_WARNING(( "misaligned memory mapping for \"%s\"\n\t"
                      "This thread group's hugetlbfs mount path (--shmem-path / FD_SHMEM_PATH):\n\t"
                      "\t%s\n\t"
                      "has probably been corrupted and needs to be redone.\n\t"
@@ -286,12 +283,11 @@ fd_shmem_acquire( ulong page_sz,
   }
 
   ulong sz       = page_cnt*page_sz;
+  ulong numa_idx = fd_shmem_numa_idx( cpu_idx );
 
   int flags = MAP_PRIVATE | MAP_ANONYMOUS;
   if( page_sz==FD_SHMEM_HUGE_PAGE_SZ     ) flags |= (int)MAP_HUGETLB | (int)MAP_HUGE_2MB;
   if( page_sz==FD_SHMEM_GIGANTIC_PAGE_SZ ) flags |= (int)MAP_HUGETLB | (int)MAP_HUGE_1GB;
-
-  int fd = -1;
 
   /* See fd_shmem_create for details on the locking, mempolicy
      and what not tricks */
@@ -301,11 +297,10 @@ fd_shmem_acquire( ulong page_sz,
   int err;
 # define ERROR( cleanup ) do { err = errno; goto cleanup; } while(0)
 
-  void * mem = NULL;
-
   int    orig_mempolicy;
   ulong  orig_nodemask[ (FD_SHMEM_NUMA_MAX+63UL)/64UL ];
   ulong  nodemask[ (FD_SHMEM_NUMA_MAX+63UL)/64UL ];
+  void * mem = NULL;
 
   if( FD_UNLIKELY( fd_numa_get_mempolicy( &orig_mempolicy, orig_nodemask, FD_SHMEM_NUMA_MAX, NULL, 0UL ) ) ) {
     FD_LOG_WARNING(( "fd_numa_get_mempolicy failed (%i-%s)", errno, strerror( errno ) ));
@@ -319,7 +314,7 @@ fd_shmem_acquire( ulong page_sz,
     ERROR( done );
   }
 
-  mem = mmap( NULL, sz, PROT_READ | PROT_WRITE, flags, fd, (off_t)0);
+  mem = mmap( NULL, sz, PROT_READ | PROT_WRITE, flags, -1, (off_t)0);
   if( FD_UNLIKELY( mem==MAP_FAILED ) ) {
     FD_LOG_WARNING(( "mmap(NULL,%lu KiB,PROT_READ|PROT_WRITE,%x,-1,0) failed (%i-%s)", sz>>10, flags, errno, strerror( errno ) ));
     ERROR( restore );
@@ -340,7 +335,6 @@ fd_shmem_acquire( ulong page_sz,
      MEMPOLICY DONE ABOVE?) */
 
   /* Just in case fd_numa_set_mempolicy clobbered it */
-
   fd_memset( nodemask, 0, 8UL*((FD_SHMEM_NUMA_MAX+63UL)/64UL) );
   nodemask[ numa_idx >> 6 ] = 1UL << (numa_idx & 63UL);
   if( FD_UNLIKELY( fd_numa_mbind( mem, sz, MPOL_BIND, nodemask, FD_SHMEM_NUMA_MAX, MPOL_MF_MOVE | MPOL_MF_STRICT ) ) ) {
