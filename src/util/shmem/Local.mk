@@ -8,11 +8,11 @@ $(call add-test-scripts,test_shmem_ctl)
 ifdef FD_HAS_HOSTED
 
 ifdef FD_ON_LINUX
-$(call add-objs,fd_numa_linux,fd_util)
+$(call add-objs,fd_numa_linux fd_shmem_linux,fd_util)
 endif
 
 ifdef FD_ON_MACOS
-$(call add-objs,fd_shmem_macos,fd_util)
+$(call add-objs,fd_numa_macos fd_shmem_macos,fd_util)
 endif
 
 else

@@ -425,15 +425,15 @@ __extension__ typedef unsigned __int128 uint128;
 /* TODO support proper alignment – mach as takes 2^n */
 #define FD_IMPORT( name, path, type, align, footer ) \
   __asm__( ".section __DATA,__const\n"                       \
-           ".globl " #name "\n"                              \
+           ".globl _" #name "\n"                              \
            ".align 8, 0x00\n"                                \
-           #name ":\n"                                       \
+           "_" #name ":\n"                                       \
            ".incbin \"" path "\"\n"                          \
            footer "\n"                                       \
-           "_fd_import_" #name "_sz = . - " #name "\n"       \
-           ".globl " #name "_sz\n"                           \
+           "_fd_import_" #name "_sz = . - _" #name "\n"       \
+           ".globl _" #name "_sz\n"                           \
            ".align 8\n"                                      \
-           #name "_sz:\n"                                    \
+           "_" #name "_sz:\n"                                \
            ".quad _fd_import_" #name "_sz\n"                 \
            ".previous\n" );                                  \
   extern type  const name[] __attribute__((aligned(align))); \

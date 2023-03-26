@@ -10,22 +10,12 @@
 #include <unistd.h>
 #include <errno.h>
 #include <sys/mman.h>
-#include <sys/types.h>
-#include <sys/sysctl.h>
 #include <mach/thread_policy.h>
 #include <mach/thread_act.h>
 #include <mach/mach_init.h>
 #include <mach/vm_statistics.h>
 #include "../fd_util.h"
 
-#define _SC_NPROCESSORS_CONF 57
-#define _SC_NPROCESSORS_ONLN 58
-
-int
-fd_shmem_cpu_cnt_private( void ) {
-  /* Arm devices can turn off CPUs to save power */
-  return (int)sysconf( _SC_NPROCESSORS_ONLN );
-}
 
 /* SHMEM REGION CREATION AND DESTRUCTION ******************************/
 
