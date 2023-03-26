@@ -401,6 +401,7 @@ __extension__ typedef unsigned __int128 uint128;
    "pseudo-include".)  Another reminder that make clean and fast builds
    are our friend. */
 
+#if defined(__ELF__)
 #define FD_IMPORT( name, path, type, align, footer )         \
   __asm__( ".section .rodata,\"a\",@progbits\n"              \
            ".type " #name ",@object\n"                       \
@@ -420,6 +421,24 @@ __extension__ typedef unsigned __int128 uint128;
            ".previous\n" );                                  \
   extern type  const name[] __attribute__((aligned(align))); \
   extern ulong const name##_sz
+#elif defined(__MACH__)
+/* TODO support proper alignment – mach as takes 2^n */
+#define FD_IMPORT( name, path, type, align, footer ) \
+  __asm__( ".section __DATA,__const\n"                       \
+           ".globl " #name "\n"                              \
+           ".align 8, 0x00\n"                                \
+           #name ":\n"                                       \
+           ".incbin \"" path "\"\n"                          \
+           footer "\n"                                       \
+           "_fd_import_" #name "_sz = . - " #name "\n"       \
+           ".globl " #name "_sz\n"                           \
+           ".align 8\n"                                      \
+           #name "_sz:\n"                                    \
+           ".quad _fd_import_" #name "_sz\n"                 \
+           ".previous\n" );                                  \
+  extern type  const name[] __attribute__((aligned(align))); \
+  extern ulong const name##_sz
+#endif
 
 /* FD_IMPORT_{BINARY,CSTR} are common cases for FD_IMPORT.
 

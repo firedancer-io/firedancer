@@ -11,16 +11,17 @@ main( int     argc,
 
   FD_LOG_NOTICE(( "Init" ));
 
-  char const * _cnc       = fd_env_strip_cmdline_cstr ( &argc, &argv, "--cnc",       NULL, NULL   );
-  char const * _pcap      = fd_env_strip_cmdline_cstr ( &argc, &argv, "--pcap",      NULL, NULL   );
-  ulong        pkt_max    = fd_env_strip_cmdline_ulong( &argc, &argv, "--pkt-max",   NULL, 1522UL );
-  ulong        orig       = fd_env_strip_cmdline_ulong( &argc, &argv, "--orig",      NULL, 0UL    );
-  char const * _mcache    = fd_env_strip_cmdline_cstr ( &argc, &argv, "--mcache",    NULL, NULL   );
-  char const * _dcache    = fd_env_strip_cmdline_cstr ( &argc, &argv, "--dcache",    NULL, NULL   );
-  char const * _out_fseqs = fd_env_strip_cmdline_cstr ( &argc, &argv, "--out-fseqs", NULL, ""     );
-  ulong        cr_max     = fd_env_strip_cmdline_ulong( &argc, &argv, "--cr-max",    NULL, 0UL    ); /*   0 <> use default */
-  long         lazy       = fd_env_strip_cmdline_long ( &argc, &argv, "--lazy",      NULL, 0L     ); /* <=0 <> use default */
-  uint         seed       = fd_env_strip_cmdline_uint ( &argc, &argv, "--seed",      NULL, (uint)(ulong)fd_tickcount() );
+  char const * _cnc             = fd_env_strip_cmdline_cstr ( &argc, &argv, "--cnc",       NULL, NULL   );
+  char const * _pcap            = fd_env_strip_cmdline_cstr ( &argc, &argv, "--pcap",      NULL, NULL   );
+  ulong        pkt_max          = fd_env_strip_cmdline_ulong( &argc, &argv, "--pkt-max",   NULL, 1522UL );
+  ulong        orig             = fd_env_strip_cmdline_ulong( &argc, &argv, "--orig",      NULL, 0UL    );
+  char const * _mcache          = fd_env_strip_cmdline_cstr ( &argc, &argv, "--mcache",    NULL, NULL   );
+  char const * _dcache          = fd_env_strip_cmdline_cstr ( &argc, &argv, "--dcache",    NULL, NULL   );
+  char const * _out_fseqs       = fd_env_strip_cmdline_cstr ( &argc, &argv, "--out-fseqs", NULL, ""     );
+  char const *_use_normal_pages = fd_env_strip_cmdline_cstr(&argc, &argv, "--use-normal-pages", "FD_USE_NORMAL_PAGES", NULL);
+  ulong        cr_max           = fd_env_strip_cmdline_ulong( &argc, &argv, "--cr-max",    NULL, 0UL    ); /*   0 <> use default */
+  long         lazy             = fd_env_strip_cmdline_long ( &argc, &argv, "--lazy",      NULL, 0L     ); /* <=0 <> use default */
+  uint         seed             = fd_env_strip_cmdline_uint ( &argc, &argv, "--seed",      NULL, (uint)(ulong)fd_tickcount() );
 
   if( FD_UNLIKELY( !_cnc ) ) FD_LOG_ERR(( "--cnc not specified" ));
   FD_LOG_NOTICE(( "Joining --cnc %s", _cnc ));
@@ -60,7 +61,7 @@ main( int     argc,
   FD_LOG_NOTICE(( "Creating scratch" ));
   ulong footprint = fd_replay_tile_scratch_footprint( out_cnt );
   if( FD_UNLIKELY( !footprint ) ) FD_LOG_ERR(( "fd_replay_tile_scratch_footprint failed" ));
-  ulong  page_sz  = FD_SHMEM_HUGE_PAGE_SZ;
+  ulong page_sz = _use_normal_pages ? FD_SHMEM_NORMAL_PAGE_SZ : FD_SHMEM_HUGE_PAGE_SZ; // default huge pages
   ulong  page_cnt = fd_ulong_align_up( footprint, page_sz ) / page_sz;
   ulong  cpu_idx  = fd_tile_cpu_id( fd_tile_idx() );
   void * scratch  = fd_shmem_acquire( page_sz, page_cnt, cpu_idx );

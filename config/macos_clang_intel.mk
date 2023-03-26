@@ -1,27 +1,15 @@
-BUILDDIR:=linux/clang/x86_64
+BUILDDIR:=macos/clang/intel
 
 include config/base.mk
-include config/with-linux.mk
-include config/with-hosted.mk
 include config/with-clang.mk
+include config/with-macos.mk
 include config/with-debug.mk
 include config/with-brutality.mk
 include config/with-optimization.mk
 include config/with-threads.mk
-include config/with-openssl.mk
-include config/with-libbpf.mk
-
-# Clang sadly doesn't support important optimizations.  This practically
-# limits clang usage to code hygenine usage for the time being.  Here,
-# ideally would do:
-#
-# -falign-functions=32 -falign-jumps=32 -falign-labels=32 -falign-loops=32
-# -mbranch-cost=5
 
 CPPFLAGS+=-fomit-frame-pointer -march=haswell -mtune=skylake -mfpmath=sse \
-      -Wno-gnu-redeclared-enum \
 	  -DFD_HAS_INT128=1 -DFD_HAS_DOUBLE=1 -DFD_HAS_ALLOCA=1 -DFD_HAS_X86=1 -DFD_HAS_SSE=1 -DFD_HAS_AVX=1
-LDFLAGS+=-lrt
 
 FD_HAS_INT128:=1
 FD_HAS_DOUBLE:=1
@@ -30,3 +18,11 @@ FD_HAS_X86:=1
 FD_HAS_SSE:=1
 FD_HAS_AVX:=1
 
+CC:=$(LLVM_DIR)/bin/clang
+CXX:=$(LLVM_DIR)/bin/clang++
+LD:=$(LLVM_DIR)/bin/clang++
+AR:=$(LLVM_DIR)/bin/llvm-ar
+RANLIB:=$(LLVM_DIR)/bin/llvm-ranlib
+LLVM_COV:=$(LLVM_DIR)/bin/llvm-cov
+LLVM_PROFDATA:=$(LLVM_DIR)/bin/llvm-profdata
+EBPF_CC:=$(LLVM_DIR)/bin/clang

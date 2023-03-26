@@ -7,7 +7,16 @@
 #include <pthread.h>
 #include <unistd.h>
 #include <sched.h>
+
+#ifdef __APPLE__
+#define SOURCE_fd_src_util_tile_fd_tile_threads
+#include <sys/syscall.h>
+#include "fd_tile_thread_utils_mac.h"
+#define _DARWIN_C_SOURCE /* we need this for mmap() flags to be brought in via sys/mman.h */
+#else
 #include <syscall.h>
+#endif
+
 #include <sys/resource.h>
 
 #if FD_HAS_X86
@@ -82,8 +91,14 @@ fd_tile_private_cpu_restore( fd_tile_private_cpu_config_t * save ) {
 
 #if FD_HAS_X86
 
+#if defined(__linux__)
 #define FD_TILE_PRIVATE_STACK_PAGE_SZ  FD_SHMEM_HUGE_PAGE_SZ
 #define FD_TILE_PRIVATE_STACK_PAGE_CNT (4UL)
+#else
+#define FD_TILE_PRIVATE_STACK_PAGE_SZ  FD_SHMEM_NORMAL_PAGE_SZ
+#define FD_TILE_PRIVATE_STACK_PAGE_CNT (2048UL)
+#endif
+
 #define FD_TILE_PRIVATE_STACK_SZ       (FD_TILE_PRIVATE_STACK_PAGE_SZ*FD_TILE_PRIVATE_STACK_PAGE_CNT)
 
 static void *
@@ -223,6 +238,10 @@ fd_tile_private_manager( void * _args ) {
   ulong  id    = args->id;
   ulong  idx   = args->idx;
   void * stack = args->stack;
+
+#ifdef __APPLE__
+  pthread_setaffinity_mac(args->cpu_idx);
+#endif
 
   if( FD_UNLIKELY( !( (id ==fd_log_thread_id()                                       ) &
                       (idx==(id-fd_tile_private_id0)                                 ) &
@@ -466,7 +485,7 @@ fd_tile_private_cpus_parse( char const * cstr,
       if( FD_UNLIKELY( CPU_ISSET( cpu, assigned_set ) ) ) FD_LOG_ERR(( "fd_tile: malformed --tile-cpus (repeated cpu)" ));
       if( FD_UNLIKELY( cnt>=FD_TILE_MAX               ) ) FD_LOG_ERR(( "fd_tile: too many --tile-cpus" ));
       tile_to_cpu[ cnt++ ] = (ushort)cpu;
-      CPU_SET( cpu, assigned_set );
+      CPU_SET( (int)cpu, assigned_set );
     }
   }
 
@@ -532,7 +551,9 @@ fd_tile_private_boot( int *    pargc,
 
         cpu_set_t cpu_set[1];
         CPU_ZERO( cpu_set );
-        CPU_SET( cpu_idx, cpu_set );
+        CPU_SET( (int)cpu_idx, cpu_set );
+
+        #ifndef __APPLE__
         err = pthread_attr_setaffinity_np( attr, sizeof(cpu_set_t), cpu_set );
         if( FD_UNLIKELY( err ) ) FD_LOG_WARNING(( "fd_tile: pthread_attr_setaffinity_failed (%i-%s)\n\t"
                                                   "Unable to set the thread affinity for tile %lu on cpu %lu.  Attempting to\n\t"
@@ -542,6 +563,7 @@ fd_tile_private_boot( int *    pargc,
                                                   "allowed cpus that have been reserved for this thread group on this host\n\t"
                                                   "to eliminate this warning.",
                                                   err, strerror( err ), tile_idx, cpu_idx ));
+        #endif
 
         stack = fd_tile_private_stack_new( cpu_idx );
         if( FD_LIKELY( stack ) ) {

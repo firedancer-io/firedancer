@@ -90,10 +90,21 @@ init() {
       exit 1
     fi
 
-    if grep -q $MNT_PATH /proc/mounts; then
-      echo "init $1 $2 $3: fail, internal error, mount $MNT_PATH already exists"
-      exit 1
+    if [ "$IS_LINUX_X64" == "1" ]; then
+      if grep -q $MNT_PATH /proc/mounts; then
+        echo "init $1 $2 $3: fail, internal error, mount $MNT_PATH already exists"
+        exit 1
+      fi
+    elif [ "$IS_MAC_M1_M2" == "1" ] || [ "$IS_MAC_X64" == "1" ]; then
+      mount > ./mount_points
+      if grep -q $MNT_PATH ./mount_points; then
+        echo "init $1 $2 $3: fail, internal error, mount $MNT_PATH already exists"
+        rm -rf mount_points
+        exit 1
+      fi
+      rm -rf mount_points
     fi
+
     # mount point is large enough to cover the number of whole pages of
     # system DRAM (in the proc/meminfo total memory sense) for maximum
     # flexibility.  Since the pages themselves are large, the number of
@@ -101,24 +112,39 @@ init() {
     # For normal pages, we need to use a tmpfs.
     try_defrag_memory 2> /dev/null > /dev/null
     if [ "$t" = "normal" ]; then
-      mount -v -t tmpfs tmpfs $MNT_PATH
+      if [ "$IS_LINUX_X64" == "1" ]; then
+        mount -v -t tmpfs tmpfs $MNT_PATH
+      elif [ "$IS_MAC_X64" == "1" ] || [ "$IS_MAC_M1_M2" == "1" ]; then
+        mount_tmpfs $MNT_PATH
+      fi
       if [ "$?" != "0" ]; then
         echo "init $1 $2 $3: fail, mount failed"
         echo "Do $0 help for help"
         exit 1
       fi
     else
-      msz=`free -b | grep Mem | awk '{ print $2 }'` # FIXME: Ugly
+      if [ "$IS_LINUX_X64" == "1" ]; then
+        msz=`free -b | grep Mem | awk '{ print $2 }'` # FIXME: Ugly
+      elif [ "$IS_MAC_X64" == "1" ] || [ "$IS_MAC_M1_M2" == "1" ]; then
+        msz=`sysctl hw.memsize | awk '{ print $2 }'`
+      fi
       psz=`get_page_size $t`
       msz=$((psz*(msz/psz))) # Round down to whole pages to be on safe side
-      mount -v -t hugetlbfs -o pagesize=$psz,size=$msz none $MNT_PATH
+      if [ "$IS_LINUX_X64" == "1" ]; then
+        mount -v -t hugetlbfs -o pagesize=$psz,size=$msz none $MNT_PATH
+      elif [ "$IS_MAC_X64" == "1" ]; then
+        mount_tmpfs $MNT_PATH
+      fi
+
       if [ "$?" != "0" ]; then
         echo "init $1 $2 $3: fail, mount failed"
         echo "Do $0 help for help"
         exit 1
       fi
     fi
-    try_defrag_memory 2> /dev/null > /dev/null
+    if [ "$IS_LINUX_X64" == "1" ]; then
+      try_defrag_memory 2> /dev/null > /dev/null
+    fi
   done
 
   chown -v -R $SHMEM_USER:$SHMEM_GROUP $SHMEM_PATH
@@ -197,8 +223,25 @@ alloc() {
   TYPE=$2
   NUMA=$3
 
+  # Check for cases that do not require any explicit allocation; 'normal' on all platforms,
+  # and 'huge' (superpages) on macOS.
   if [ "$TYPE" = "normal" ]; then
     echo "alloc $1 $2 $3: fail, normal pages do not require explicit allocation"
+    echo "Do $0 help for help"
+    exit 1
+  elif [ "$IS_MAC_X64" == "1" ] && [ "$TYPE" == "huge" ]; then
+    echo "alloc $1 $2 $3: fail, superpages do not require explicit allocation on macOS"
+    echo "Do $0 help for help"
+    exit 1
+  fi
+
+  # Check for options that are unsupported on the target platform.
+  if [ "$IS_MAC_M1_M2" == "1" ] && ([ "$TYPE" == "huge" ] || [ "$TYPE" == "gigantic" ]); then
+    echo "alloc $1 $2 $3: fail, macOS on ARM64 (M1/M2) does not support neither superpages (hugepages) nor gigantic pages"
+    echo "Do $0 help for help"
+    exit 1
+  elif [ "$IS_MAC_X64" == "1" ] && [ "$TYPE" == "gigantic" ]; then
+    echo "alloc $1 $2 $3: fail, macOS on x64 does not support gigantic pages"
     echo "Do $0 help for help"
     exit 1
   fi
@@ -259,6 +302,25 @@ reset() {
 if [ $# -lt 1 ]; then
   echo "Commands not specified"
   echo "Do $0 help for help"
+  exit 1
+fi
+
+OS_STR=`uname -s`
+ARCH_STR=`uname -m`
+if [[ "$OS_STR" == "Linux" ]] && [[ "$ARCH_STR" == "x86_64" ]]; then
+  export IS_LINUX_X64=1
+elif [[ "$OS_STR" == "Darwin" ]] && [[ "$ARCH_STR" == "x86_64" ]]; then
+  VERSION_LEVEL_STR=`uname -v`
+  if [[ "$VERSION_LEVEL_STR" == *"ARM64"* ]]; then
+    export IS_MAC_M1_M2=1
+  else
+    export IS_MAC_X64=1
+  fi
+elif [[ "$OS_STR" == "Darwin" ]] && [[ "$ARCH_STR" == "arm64" ]]; then
+  echo "Run firedancer under Rosetta on macOS M1 and M2 systems"
+  exit 1
+else
+  echo "Firedancer is not supported on this platform"
   exit 1
 fi
 

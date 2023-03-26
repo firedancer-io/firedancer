@@ -1,3 +1,5 @@
+ifdef FD_HAS_HOSTED
+ifdef FD_HAS_OPENSSL
 $(call make-unit-test,test_quic_hs,test_quic_hs,fd_aio fd_quic fd_util)
 $(call make-unit-test,test_quic_streams,test_quic_streams,fd_aio fd_quic fd_util)
 $(call make-unit-test,test_quic_conn,test_quic_conn,fd_aio fd_quic fd_util)
@@ -10,3 +12,5 @@ $(call make-unit-test,test_frames,test_frames,fd_quic fd_util)
 $(call make-unit-test,test_checksum,test_checksum,fd_util)
 $(call make-unit-test,test_tls_decrypt,test_tls_decrypt,fd_quic fd_util)
 $(call make-bin,dump_struct_sizes,dump_struct_sizes,)
+endif
+endif

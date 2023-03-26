@@ -3,8 +3,6 @@
 NUMA_IDX=0
 
 WKSP=test_mux_ipc
-WKSP_CNT=1
-WKSP_PAGE=gigantic
 
 TX_MAX=16
 MUX_MAX=1
@@ -18,6 +16,15 @@ MUX_DEPTH=32768
 APP_SZ=4032
 
 CONF=tmp/test_mux_ipc.conf
+
+WKSP_PAGE=${FD_PAGE_SIZE:-gigantic}
+if [[ "$WKSP_PAGE" == "gigantic" ]]; then
+  WKSP_CNT=1
+elif [[ "$WKSP_PAGE" == "huge" ]]; then
+  WKSP_CNT=500
+elif [[ "$WKSP_PAGE" == "normal" ]]; then
+  WKSP_CNT=250000
+fi
 
 ########################################################################
 

@@ -10,8 +10,24 @@ REPO_ROOT="$(pwd)"
 # shellcheck source=./activate-opt
 source activate-opt
 
-# Load distro information
-source /etc/os-release || echo "[!] Failed to get OS info from /etc/os-release"
+# Load OS information
+OS="$(uname -s)"
+case "$OS" in
+  Darwin)
+    MAKE=( make -j )
+    ID=macos
+    ;;
+  Linux)
+    MAKE=( make -j --output-target=sync )
+    # Load distro information
+    if [[ -f /etc/os-release ]]; then
+      source /etc/os-release
+    fi
+    ;;
+  *)
+    echo "[!] Unsupported OS $OS"
+    ;;
+esac
 
 # Figure out how to escalate privileges
 SUDO=""
@@ -106,20 +122,20 @@ check_fedora_pkgs () {
   echo "[~] Checking for required RPM packages"
 
   local MISSING_RPMS=( )
-  for rpm in ${REQUIRED_RPMS[@]}; do
+  for rpm in "${REQUIRED_RPMS[@]}"; do
     if ! rpm -q "$rpm" >/dev/null; then
       MISSING_RPMS+=( "$rpm" )
     fi
   done
 
-  if [[ ${#MISSING_RPMS[@]} -eq 0 ]]; then
+  if [[ "${#MISSING_RPMS[@]}" -eq 0 ]]; then
     echo "[~] OK: RPM packages required for build are installed"
     return 0
   fi
 
   echo "[!] Found missing packages"
   echo "[?] This is fixed by the following command:"
-  echo "        ${SUDO}dnf install -y ${MISSING_RPMS[@]}"
+  echo "        ${SUDO}dnf install -y ${MISSING_RPMS[*]}"
   read -r -p "[?] Install missing packages with superuser privileges? (y/N) " choice
   case "$choice" in
     y|Y)
@@ -139,7 +155,7 @@ check_debian_pkgs () {
   echo "[~] Checking for required DEB packages"
 
   local MISSING_DEBS=( )
-  for deb in ${REQUIRED_DEBS[@]}; do
+  for deb in "${REQUIRED_DEBS[@]}"; do
     if ! dpkg -s "$deb" >/dev/null 2>/dev/null; then
       MISSING_DEBS+=( "$deb" )
     fi
@@ -152,7 +168,7 @@ check_debian_pkgs () {
 
   echo "[!] Found missing packages"
   echo "[?] This is fixed by the following command:"
-  echo "        ${SUDO}apt-get install -y ${MISSING_DEBS[@]}"
+  echo "        ${SUDO}apt-get install -y ${MISSING_DEBS[*]}"
   read -r -p "[?] Install missing packages with superuser privileges? (y/N) " choice
   case "$choice" in
     y|Y)
@@ -172,7 +188,7 @@ check_alpine_pkgs () {
   echo "[~] Checking for required APK packages"
 
   local MISSING_APKS=( )
-  for deb in ${REQUIRED_APKS[@]}; do
+  for deb in "${REQUIRED_APKS[@]}"; do
     if ! apk info -e "$deb" >/dev/null; then
       MISSING_APKS+=( "$deb" )
     fi
@@ -185,7 +201,7 @@ check_alpine_pkgs () {
 
   echo "[!] Found missing packages"
   echo "[?] This is fixed by the following command:"
-  echo "        ${SUDO}apk add ${MISSING_APKS[@]}"
+  echo "        ${SUDO}apk add ${MISSING_APKS[*]}"
   read -r -p "[?] Install missing packages with superuser privileges? (y/N) " choice
   case "$choice" in
     y|Y)
@@ -195,6 +211,39 @@ check_alpine_pkgs () {
       ;;
     *)
       echo "[-] Skipping package install"
+      ;;
+  esac
+}
+
+check_macos_pkgs () {
+  local REQUIRED_FORMULAE=( perl autoconf gettext automake flex bison pkg-config )
+
+  echo "[~] Checking for required brew formulae"
+
+  local MISSING_FORMULAE=( )
+  for formula in "${REQUIRED_FORMULAE[@]}"; do
+    if [[ ! -d "/usr/local/Cellar/$formula" ]]; then
+      MISSING_FORMULAE+=( "$formula" )
+    fi
+  done
+
+  if [[ ${#MISSING_FORMULAE[@]} -eq 0 ]]; then
+    echo "[~] OK: brew formulae required for build are installed"
+    return 0
+  fi
+
+  echo "[!] Found missing formulae"
+  echo "[?] This is fixed by the following command:"
+  echo "        brew install ${MISSING_FORMULAE[*]}"
+  read -r -p "[?] Install missing formulae with brew? (y/N) " choice
+  case "$choice" in
+    y|Y)
+      echo "[+] Installing missing formulae"
+      brew install "${MISSING_FORMULAE[@]}"
+      echo "[+] Installed missing formulae"
+      ;;
+    *)
+      echo "[-] Skipping formula install"
       ;;
   esac
 }
@@ -210,6 +259,9 @@ check () {
       ;;
     alpine)
       check_alpine_pkgs
+      ;;
+    macos)
+      check_macos_pkgs
       ;;
     *)
       echo "Unsupported distro $DISTRO. Your mileage may vary."
@@ -231,7 +283,7 @@ install_zlib () {
   echo "[+] Configured zlib"
 
   echo "[+] Building zlib"
-  make -j --output-sync=target libz.a
+  "${MAKE[@]}" libz.a
   echo "[+] Successfully built zlib"
 
   echo "[+] Installing zlib to $PREFIX"
@@ -248,7 +300,7 @@ install_zstd () {
   cd ./opt/git/zstd/lib
 
   echo "[+] Installing zstd to $PREFIX"
-  make -j DESTDIR="$PREFIX" PREFIX="" install-pc install-static install-includes
+  "${MAKE[@]}" DESTDIR="$PREFIX" PREFIX="" install-pc install-static install-includes
   echo "[+] Successfully installed zstd"
 }
 
@@ -278,7 +330,7 @@ install_elfutils () {
   echo "[+] Configured elfutils"
 
   echo "[+] Building elfutils"
-  make -j --output-sync=target
+  "${MAKE[@]}"
   echo "[+] Successfully built elfutils"
 
   echo "[+] Installing elfutils to $PREFIX"
@@ -298,7 +350,7 @@ install_libbpf () {
   cd src
 
   echo "[+] Installing libbpf to $PREFIX"
-  make -j install PREFIX="$PREFIX" LIBDIR="$PREFIX/lib"
+  "${MAKE[@]}" install PREFIX="$PREFIX" LIBDIR="$PREFIX/lib"
   echo "[+] Successfully installed libbpf"
 }
 
@@ -317,7 +369,7 @@ install_openssl () {
   echo "[+] Configured OpenSSL"
 
   echo "[+] Building OpenSSL"
-  make -j --output-sync=target
+  "${MAKE[@]}"
   echo "[+] Successfully built OpenSSL"
 
   echo "[+] Installing OpenSSL to $PREFIX"
@@ -328,11 +380,14 @@ install_openssl () {
 }
 
 install () {
-  ( install_zlib     )
-  ( install_zstd     )
-  ( install_elfutils )
-  ( install_libbpf   )
-  ( install_openssl  )
+  ( install_zlib    )
+  ( install_zstd    )
+  ( install_openssl )
+
+  if [[ "$OS" == "Linux" ]]; then
+    ( install_elfutils )
+    ( install_libbpf   )
+  fi
 
   echo "[~] Done! To wire up $(pwd)/opt with make, run:"
   echo "    source activate-opt"
