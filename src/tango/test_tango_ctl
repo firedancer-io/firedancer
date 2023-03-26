@@ -15,23 +15,15 @@ BIN=$BUILD/bin
 # Specify test details
 
 WKSP=test_fd_tango_ctl.wksp
+PAGE_CNT=1
+PAGE_SZ=gigantic
 CPU_IDX=0
 MODE=0600
-
-PAGE_SZ=${FD_PAGE_SIZE:-gigantic}
-if [[ "$PAGE_SZ" == "gigantic" ]]; then
-  PAGE_CNT=1
-elif [[ "$PAGE_SZ" == "huge" ]]; then
-  PAGE_CNT=500
-elif [[ "$PAGE_SZ" == "normal" ]]; then
-  PAGE_CNT=250000
-fi
 
 # Disable the permanent log
 
 FD_LOG_PATH=""
 export FD_LOG_PATH
-
 
 echo Init
 

@@ -3,6 +3,8 @@
 NUMA_IDX=0
 
 WKSP=test_ipc
+WKSP_CNT=1
+WKSP_PAGE=gigantic
 
 TX_MAX=1
 RX_MAX=16
@@ -13,15 +15,6 @@ TX_MTU=1542
 APP_SZ=4032
 
 CONF=tmp/test_ipc.conf
-
-WKSP_PAGE=${FD_PAGE_SIZE:-gigantic}
-if [[ "$WKSP_PAGE" == "gigantic" ]]; then
-  WKSP_CNT=1
-elif [[ "$WKSP_PAGE" == "huge" ]]; then
-  WKSP_CNT=500
-elif [[ "$WKSP_PAGE" == "normal" ]]; then
-  WKSP_CNT=250000
-fi
 
 ########################################################################
 

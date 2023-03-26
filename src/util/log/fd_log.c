@@ -39,7 +39,11 @@
 
 /* FIXME: SANITIZE VARIOUS USER SET STRINGS */
 
+#if defined(__linux__)
 #define _GNU_SOURCE
+#elif defined(__APPLE__)
+#define _DARWIN_C_SOURCE
+#endif
 
 #include "fd_log.h"
 
@@ -55,13 +59,12 @@
 #include <time.h>
 #include <execinfo.h>
 
-#ifdef __APPLE__
-#define _DARWIN_C_SOURCE /* we need this */
+#if defined(__linux__)
+#include <syscall.h>
+#elif defined(__APPLE__)
 #include <sys/syscall.h>
 #include <pthread.h>
 #include "../tile/fd_tile_thread_utils_mac.h"
-#else
-#include <syscall.h>
 #endif
 
 /* APPLICATION LOGICAL ID APIS ****************************************/

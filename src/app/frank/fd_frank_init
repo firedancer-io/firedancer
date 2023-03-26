@@ -2,35 +2,18 @@
 
 if [ $# -lt 4 ]; then
   echo ""
-<<<<<<< HEAD
   echo "        Usage: $0 [APP_NAME] [APP_CORE_TARGET] [QUIC_CNT] [VERIFY_CNT] [BUILD]"
-=======
-  echo "        Usage: $0 [APP_NAME] [APP_CORE_TARGET] [VERIFY_CNT] [BUILD] [PAGE_SIZE]"
->>>>>>> prelim-mac-support
   echo ""
   exit 1
 fi
 
 APP=$1
 AFFINITY=$2
-<<<<<<< HEAD
 QUIC_CNT=$3
 VERIFY_CNT=$4
 BUILD=$5
 shift 5
 
-=======
-VERIFY_CNT=$3
-BUILD=$4
-if [ -z "$5" ]; then
-  WKSP_PAGE_SZ=""
-  shift 4
-else
-  WKSP_PAGE_SZ=$5
-  shift 5
-fi
-  
->>>>>>> prelim-mac-support
 #######################################################################
 
 CONF=tmp/$APP.cfg
@@ -52,57 +35,12 @@ DEDUP_TCACHE_DEPTH=4194302
 DEDUP_TCACHE_MAP_CNT=0
 DEDUP_DEPTH=$VERIFY_DEPTH
 
-<<<<<<< HEAD
 PACK_BANK_CNT=4
 PACK_PRQ_SZ=4096
 PACK_CU_EST_TBL_SZ=1024
 PACK_CU_EST_HISTORY=1000
 PACK_CU_EST_DEFAULT=200000
 PACK_CU_LIMIT=12000001
-=======
-# Set a sensible default for page size depending on OS and architecture platform in use;
-# Linux x64: gigantic
-# macOS x64 Intel: huge (superpages)
-# macOS ARM (M1/M2): normal
-OS_STR=`uname -s`
-ARCH_STR=`uname -m`
-if [[ "$OS_STR" == "Linux" ]] && [[ "$ARCH_STR" == "x86_64" ]]; then
-  PLATFORM_DEFAULT_WKSP_PAGE_SZ=gigantic
-elif [[ "$OS_STR" == "Darwin" ]] && [[ "$ARCH_STR" == "x86_64" ]]; then
-  VERSION_LEVEL_STR=`uname -v`
-  if [[ "$VERSION_LEVEL_STR" == *"ARM64"* ]]; then
-    PLATFORM_DEFAULT_WKSP_PAGE_SZ=normal
-  else
-    PLATFORM_DEFAULT_WKSP_PAGE_SZ=huge
-  fi
-elif [[ "$OS_STR" == "Darwin" ]] && [[ "$ARCH_STR" == "arm64" ]]; then
-  echo "Run firedancer under Rosetta on macOS M1 and M2 systems"
-  exit 1
-else
-  echo "Firedancer is not supported on this platform"
-  exit 1
-fi
-
-# Allow override of platform's default page size via a command line argument
-# If PAGE_SIZE argument was not provided at the command line, use the platform's default,
-# as determined above.
-if [[ -z "$WKSP_PAGE_SZ" ]]; then
-  WKSP_PAGE_SZ=$PLATFORM_DEFAULT_WKSP_PAGE_SZ
-fi
-
-if [ "$WKSP_PAGE_SZ" != "huge" ] && [ "$WKSP_PAGE_SZ" != "gigantic" ] && [ "$WKSP_PAGE_SZ" != "normal" ]; then
-  echo "fd_frank_init fail, invalid page size '$WKSP_PAGE_SZ' specified"
-  exit 1
-fi
-
-if [[ "$WKSP_PAGE_SZ" == "gigantic" ]]; then
-  WKSP_PAGE_CNT=2
-elif [[ "$WKSP_PAGE_SZ" == "huge" ]]; then
-  WKSP_PAGE_CNT=1024
-elif [[ "$WKSP_PAGE_SZ" == "normal" ]]; then
-  WKSP_PAGE_CNT=524288
-fi    
->>>>>>> prelim-mac-support
 
 #######################################################################
 
