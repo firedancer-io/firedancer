@@ -14,14 +14,22 @@ void fd_bincode_uint128_decode(uint128* self, void const** data, void const* dat
     FD_LOG_ERR(( "buffer underflow"));
   }
 
+#if FD_HAS_INT128 && FD_HAS_SSE
   *self = (uint128) _mm_loadu_si128((void const *) ptr);
+#else
+  memcpy(self, ptr, sizeof(uint128));
+#endif
   *data = ptr + 1;
 }
 
 static inline
 void fd_bincode_uint128_encode(uint128* self, void const** data) {
   uint128 *ptr = (uint128 *) *data;
+#if FD_HAS_INT128 && FD_HAS_SSE
   _mm_storeu_si128((__m128i *) ptr, (__m128i) *self);
+#else
+  memcpy(ptr, *self, sizeof(uint128));
+#endif
   *data = ptr + 1;
 }
 
