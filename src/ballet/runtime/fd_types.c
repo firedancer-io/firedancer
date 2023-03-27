@@ -79,13 +79,13 @@ void fd_hash_hash_age_pair_encode(fd_hash_hash_age_pair_t* self, void const** da
 void fd_block_hash_queue_decode(fd_block_hash_queue_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
   fd_bincode_uint64_decode(&self->last_hash_index, data, dataend);
   if (fd_bincode_option_decode(data, dataend)) {
-    self->last_hash = (fd_hash_t*)(*allocf)(FD_HASH_FOOTPRINT, FD_HASH_ALIGN, allocf_arg);
+    self->last_hash = (fd_hash_t*)(*allocf)(allocf_arg, FD_HASH_ALIGN, FD_HASH_FOOTPRINT);
     fd_hash_decode(self->last_hash, data, dataend, allocf, allocf_arg);
   } else
     self->last_hash = NULL;
   fd_bincode_uint64_decode(&self->ages_len, data, dataend);
   if (self->ages_len != 0) {
-    self->ages = (fd_hash_hash_age_pair_t*)(*allocf)(FD_HASH_HASH_AGE_PAIR_FOOTPRINT*self->ages_len, FD_HASH_HASH_AGE_PAIR_ALIGN, allocf_arg);
+    self->ages = (fd_hash_hash_age_pair_t*)(*allocf)(allocf_arg, FD_HASH_HASH_AGE_PAIR_ALIGN, FD_HASH_HASH_AGE_PAIR_FOOTPRINT*self->ages_len);
     for (ulong i = 0; i < self->ages_len; ++i)
       fd_hash_hash_age_pair_decode(self->ages + i, data, dataend, allocf, allocf_arg);
   } else
@@ -95,13 +95,13 @@ void fd_block_hash_queue_decode(fd_block_hash_queue_t* self, void const** data, 
 void fd_block_hash_queue_destroy(fd_block_hash_queue_t* self, fd_free_fun_t freef, void* freef_arg) {
   if (NULL != self->last_hash) {
     fd_hash_destroy(self->last_hash,  freef, freef_arg);
-    freef(self->last_hash, freef_arg);
+    freef(freef_arg, self->last_hash);
     self->last_hash = NULL;
   }
   if (NULL != self->ages) {
     for (ulong i = 0; i < self->ages_len; ++i)
       fd_hash_hash_age_pair_destroy(self->ages + i,  freef, freef_arg);
-    freef(self->ages, freef_arg);
+    freef(freef_arg, self->ages);
     self->ages = NULL;
   }
 }
@@ -229,7 +229,7 @@ void fd_slot_pair_encode(fd_slot_pair_t* self, void const** data) {
 void fd_hard_forks_decode(fd_hard_forks_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
   fd_bincode_uint64_decode(&self->hard_forks_len, data, dataend);
   if (self->hard_forks_len != 0) {
-    self->hard_forks = (fd_slot_pair_t*)(*allocf)(FD_SLOT_PAIR_FOOTPRINT*self->hard_forks_len, FD_SLOT_PAIR_ALIGN, allocf_arg);
+    self->hard_forks = (fd_slot_pair_t*)(*allocf)(allocf_arg, FD_SLOT_PAIR_ALIGN, FD_SLOT_PAIR_FOOTPRINT*self->hard_forks_len);
     for (ulong i = 0; i < self->hard_forks_len; ++i)
       fd_slot_pair_decode(self->hard_forks + i, data, dataend, allocf, allocf_arg);
   } else
@@ -239,7 +239,7 @@ void fd_hard_forks_destroy(fd_hard_forks_t* self, fd_free_fun_t freef, void* fre
   if (NULL != self->hard_forks) {
     for (ulong i = 0; i < self->hard_forks_len; ++i)
       fd_slot_pair_destroy(self->hard_forks + i,  freef, freef_arg);
-    freef(self->hard_forks, freef_arg);
+    freef(freef_arg, self->hard_forks);
     self->hard_forks = NULL;
   }
 }
@@ -385,7 +385,7 @@ void fd_stake_history_epochentry_pair_encode(fd_stake_history_epochentry_pair_t*
 void fd_stake_history_decode(fd_stake_history_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
   fd_bincode_uint64_decode(&self->entries_len, data, dataend);
   if (self->entries_len != 0) {
-    self->entries = (fd_stake_history_epochentry_pair_t*)(*allocf)(FD_STAKE_HISTORY_EPOCHENTRY_PAIR_FOOTPRINT*self->entries_len, FD_STAKE_HISTORY_EPOCHENTRY_PAIR_ALIGN, allocf_arg);
+    self->entries = (fd_stake_history_epochentry_pair_t*)(*allocf)(allocf_arg, FD_STAKE_HISTORY_EPOCHENTRY_PAIR_ALIGN, FD_STAKE_HISTORY_EPOCHENTRY_PAIR_FOOTPRINT*self->entries_len);
     for (ulong i = 0; i < self->entries_len; ++i)
       fd_stake_history_epochentry_pair_decode(self->entries + i, data, dataend, allocf, allocf_arg);
   } else
@@ -395,7 +395,7 @@ void fd_stake_history_destroy(fd_stake_history_t* self, fd_free_fun_t freef, voi
   if (NULL != self->entries) {
     for (ulong i = 0; i < self->entries_len; ++i)
       fd_stake_history_epochentry_pair_destroy(self->entries + i,  freef, freef_arg);
-    freef(self->entries, freef_arg);
+    freef(freef_arg, self->entries);
     self->entries = NULL;
   }
 }
@@ -420,7 +420,7 @@ void fd_solana_account_decode(fd_solana_account_t* self, void const** data, void
   fd_bincode_uint64_decode(&self->lamports, data, dataend);
   fd_bincode_uint64_decode(&self->data_len, data, dataend);
   if (self->data_len != 0) {
-    self->data = (unsigned char*)(*allocf)(self->data_len, 8, allocf_arg);
+    self->data = (unsigned char*)(*allocf)(allocf_arg, 8, self->data_len);
     fd_bincode_bytes_decode(self->data, self->data_len, data, dataend);
   } else
     self->data = NULL;
@@ -430,7 +430,7 @@ void fd_solana_account_decode(fd_solana_account_t* self, void const** data, void
 }
 void fd_solana_account_destroy(fd_solana_account_t* self, fd_free_fun_t freef, void* freef_arg) {
   if (NULL != self->data) {
-    freef(self->data, freef_arg);
+    freef(freef_arg, self->data);
     self->data = NULL;
   }
   fd_pubkey_destroy(&self->owner, freef, freef_arg);
@@ -485,7 +485,7 @@ void fd_vote_accounts_pair_encode(fd_vote_accounts_pair_t* self, void const** da
 void fd_vote_accounts_decode(fd_vote_accounts_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
   fd_bincode_uint64_decode(&self->vote_accounts_len, data, dataend);
   if (self->vote_accounts_len != 0) {
-    self->vote_accounts = (fd_vote_accounts_pair_t*)(*allocf)(FD_VOTE_ACCOUNTS_PAIR_FOOTPRINT*self->vote_accounts_len, FD_VOTE_ACCOUNTS_PAIR_ALIGN, allocf_arg);
+    self->vote_accounts = (fd_vote_accounts_pair_t*)(*allocf)(allocf_arg, FD_VOTE_ACCOUNTS_PAIR_ALIGN, FD_VOTE_ACCOUNTS_PAIR_FOOTPRINT*self->vote_accounts_len);
     for (ulong i = 0; i < self->vote_accounts_len; ++i)
       fd_vote_accounts_pair_decode(self->vote_accounts + i, data, dataend, allocf, allocf_arg);
   } else
@@ -495,7 +495,7 @@ void fd_vote_accounts_destroy(fd_vote_accounts_t* self, fd_free_fun_t freef, voi
   if (NULL != self->vote_accounts) {
     for (ulong i = 0; i < self->vote_accounts_len; ++i)
       fd_vote_accounts_pair_destroy(self->vote_accounts + i,  freef, freef_arg);
-    freef(self->vote_accounts, freef_arg);
+    freef(freef_arg, self->vote_accounts);
     self->vote_accounts = NULL;
   }
 }
@@ -570,7 +570,7 @@ void fd_stakes_delegation_decode(fd_stakes_delegation_t* self, void const** data
   fd_vote_accounts_decode(&self->vote_accounts, data, dataend, allocf, allocf_arg);
   fd_bincode_uint64_decode(&self->stake_delegations_len, data, dataend);
   if (self->stake_delegations_len != 0) {
-    self->stake_delegations = (fd_delegation_pair_t*)(*allocf)(FD_DELEGATION_PAIR_FOOTPRINT*self->stake_delegations_len, FD_DELEGATION_PAIR_ALIGN, allocf_arg);
+    self->stake_delegations = (fd_delegation_pair_t*)(*allocf)(allocf_arg, FD_DELEGATION_PAIR_ALIGN, FD_DELEGATION_PAIR_FOOTPRINT*self->stake_delegations_len);
     for (ulong i = 0; i < self->stake_delegations_len; ++i)
       fd_delegation_pair_decode(self->stake_delegations + i, data, dataend, allocf, allocf_arg);
   } else
@@ -584,7 +584,7 @@ void fd_stakes_delegation_destroy(fd_stakes_delegation_t* self, fd_free_fun_t fr
   if (NULL != self->stake_delegations) {
     for (ulong i = 0; i < self->stake_delegations_len; ++i)
       fd_delegation_pair_destroy(self->stake_delegations + i,  freef, freef_arg);
-    freef(self->stake_delegations, freef_arg);
+    freef(freef_arg, self->stake_delegations);
     self->stake_delegations = NULL;
   }
   fd_stake_history_destroy(&self->stake_history, freef, freef_arg);
@@ -647,7 +647,7 @@ void fd_bank_incremental_snapshot_persistence_encode(fd_bank_incremental_snapsho
 void fd_node_vote_accounts_decode(fd_node_vote_accounts_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
   fd_bincode_uint64_decode(&self->vote_accounts_len, data, dataend);
   if (self->vote_accounts_len != 0) {
-    self->vote_accounts = (fd_pubkey_t*)(*allocf)(FD_PUBKEY_FOOTPRINT*self->vote_accounts_len, FD_PUBKEY_ALIGN, allocf_arg);
+    self->vote_accounts = (fd_pubkey_t*)(*allocf)(allocf_arg, FD_PUBKEY_ALIGN, FD_PUBKEY_FOOTPRINT*self->vote_accounts_len);
     for (ulong i = 0; i < self->vote_accounts_len; ++i)
       fd_pubkey_decode(self->vote_accounts + i, data, dataend, allocf, allocf_arg);
   } else
@@ -658,7 +658,7 @@ void fd_node_vote_accounts_destroy(fd_node_vote_accounts_t* self, fd_free_fun_t 
   if (NULL != self->vote_accounts) {
     for (ulong i = 0; i < self->vote_accounts_len; ++i)
       fd_pubkey_destroy(self->vote_accounts + i,  freef, freef_arg);
-    freef(self->vote_accounts, freef_arg);
+    freef(freef_arg, self->vote_accounts);
     self->vote_accounts = NULL;
   }
 }
@@ -728,14 +728,14 @@ void fd_epoch_stakes_decode(fd_epoch_stakes_t* self, void const** data, void con
   fd_bincode_uint64_decode(&self->total_stake, data, dataend);
   fd_bincode_uint64_decode(&self->node_id_to_vote_accounts_len, data, dataend);
   if (self->node_id_to_vote_accounts_len != 0) {
-    self->node_id_to_vote_accounts = (fd_pubkey_node_vote_accounts_pair_t*)(*allocf)(FD_PUBKEY_NODE_VOTE_ACCOUNTS_PAIR_FOOTPRINT*self->node_id_to_vote_accounts_len, FD_PUBKEY_NODE_VOTE_ACCOUNTS_PAIR_ALIGN, allocf_arg);
+    self->node_id_to_vote_accounts = (fd_pubkey_node_vote_accounts_pair_t*)(*allocf)(allocf_arg, FD_PUBKEY_NODE_VOTE_ACCOUNTS_PAIR_ALIGN, FD_PUBKEY_NODE_VOTE_ACCOUNTS_PAIR_FOOTPRINT*self->node_id_to_vote_accounts_len);
     for (ulong i = 0; i < self->node_id_to_vote_accounts_len; ++i)
       fd_pubkey_node_vote_accounts_pair_decode(self->node_id_to_vote_accounts + i, data, dataend, allocf, allocf_arg);
   } else
     self->node_id_to_vote_accounts = NULL;
   fd_bincode_uint64_decode(&self->epoch_authorized_voters_len, data, dataend);
   if (self->epoch_authorized_voters_len != 0) {
-    self->epoch_authorized_voters = (fd_pubkey_pubkey_pair_t*)(*allocf)(FD_PUBKEY_PUBKEY_PAIR_FOOTPRINT*self->epoch_authorized_voters_len, FD_PUBKEY_PUBKEY_PAIR_ALIGN, allocf_arg);
+    self->epoch_authorized_voters = (fd_pubkey_pubkey_pair_t*)(*allocf)(allocf_arg, FD_PUBKEY_PUBKEY_PAIR_ALIGN, FD_PUBKEY_PUBKEY_PAIR_FOOTPRINT*self->epoch_authorized_voters_len);
     for (ulong i = 0; i < self->epoch_authorized_voters_len; ++i)
       fd_pubkey_pubkey_pair_decode(self->epoch_authorized_voters + i, data, dataend, allocf, allocf_arg);
   } else
@@ -746,13 +746,13 @@ void fd_epoch_stakes_destroy(fd_epoch_stakes_t* self, fd_free_fun_t freef, void*
   if (NULL != self->node_id_to_vote_accounts) {
     for (ulong i = 0; i < self->node_id_to_vote_accounts_len; ++i)
       fd_pubkey_node_vote_accounts_pair_destroy(self->node_id_to_vote_accounts + i,  freef, freef_arg);
-    freef(self->node_id_to_vote_accounts, freef_arg);
+    freef(freef_arg, self->node_id_to_vote_accounts);
     self->node_id_to_vote_accounts = NULL;
   }
   if (NULL != self->epoch_authorized_voters) {
     for (ulong i = 0; i < self->epoch_authorized_voters_len; ++i)
       fd_pubkey_pubkey_pair_destroy(self->epoch_authorized_voters + i,  freef, freef_arg);
-    freef(self->epoch_authorized_voters, freef_arg);
+    freef(freef_arg, self->epoch_authorized_voters);
     self->epoch_authorized_voters = NULL;
   }
 }
@@ -828,21 +828,21 @@ void fd_pubkey_u64_pair_encode(fd_pubkey_u64_pair_t* self, void const** data) {
 void fd_unused_accounts_decode(fd_unused_accounts_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
   fd_bincode_uint64_decode(&self->unused1_len, data, dataend);
   if (self->unused1_len != 0) {
-    self->unused1 = (fd_pubkey_t*)(*allocf)(FD_PUBKEY_FOOTPRINT*self->unused1_len, FD_PUBKEY_ALIGN, allocf_arg);
+    self->unused1 = (fd_pubkey_t*)(*allocf)(allocf_arg, FD_PUBKEY_ALIGN, FD_PUBKEY_FOOTPRINT*self->unused1_len);
     for (ulong i = 0; i < self->unused1_len; ++i)
       fd_pubkey_decode(self->unused1 + i, data, dataend, allocf, allocf_arg);
   } else
     self->unused1 = NULL;
   fd_bincode_uint64_decode(&self->unused2_len, data, dataend);
   if (self->unused2_len != 0) {
-    self->unused2 = (fd_pubkey_t*)(*allocf)(FD_PUBKEY_FOOTPRINT*self->unused2_len, FD_PUBKEY_ALIGN, allocf_arg);
+    self->unused2 = (fd_pubkey_t*)(*allocf)(allocf_arg, FD_PUBKEY_ALIGN, FD_PUBKEY_FOOTPRINT*self->unused2_len);
     for (ulong i = 0; i < self->unused2_len; ++i)
       fd_pubkey_decode(self->unused2 + i, data, dataend, allocf, allocf_arg);
   } else
     self->unused2 = NULL;
   fd_bincode_uint64_decode(&self->unused3_len, data, dataend);
   if (self->unused3_len != 0) {
-    self->unused3 = (fd_pubkey_u64_pair_t*)(*allocf)(FD_PUBKEY_U64_PAIR_FOOTPRINT*self->unused3_len, FD_PUBKEY_U64_PAIR_ALIGN, allocf_arg);
+    self->unused3 = (fd_pubkey_u64_pair_t*)(*allocf)(allocf_arg, FD_PUBKEY_U64_PAIR_ALIGN, FD_PUBKEY_U64_PAIR_FOOTPRINT*self->unused3_len);
     for (ulong i = 0; i < self->unused3_len; ++i)
       fd_pubkey_u64_pair_decode(self->unused3 + i, data, dataend, allocf, allocf_arg);
   } else
@@ -852,19 +852,19 @@ void fd_unused_accounts_destroy(fd_unused_accounts_t* self, fd_free_fun_t freef,
   if (NULL != self->unused1) {
     for (ulong i = 0; i < self->unused1_len; ++i)
       fd_pubkey_destroy(self->unused1 + i,  freef, freef_arg);
-    freef(self->unused1, freef_arg);
+    freef(freef_arg, self->unused1);
     self->unused1 = NULL;
   }
   if (NULL != self->unused2) {
     for (ulong i = 0; i < self->unused2_len; ++i)
       fd_pubkey_destroy(self->unused2 + i,  freef, freef_arg);
-    freef(self->unused2, freef_arg);
+    freef(freef_arg, self->unused2);
     self->unused2 = NULL;
   }
   if (NULL != self->unused3) {
     for (ulong i = 0; i < self->unused3_len; ++i)
       fd_pubkey_u64_pair_destroy(self->unused3 + i,  freef, freef_arg);
-    freef(self->unused3, freef_arg);
+    freef(freef_arg, self->unused3);
     self->unused3 = NULL;
   }
 }
@@ -905,7 +905,7 @@ void fd_deserializable_versioned_bank_decode(fd_deserializable_versioned_bank_t*
   fd_block_hash_queue_decode(&self->blockhash_queue, data, dataend, allocf, allocf_arg);
   fd_bincode_uint64_decode(&self->ancestors_len, data, dataend);
   if (self->ancestors_len != 0) {
-    self->ancestors = (fd_slot_pair_t*)(*allocf)(FD_SLOT_PAIR_FOOTPRINT*self->ancestors_len, FD_SLOT_PAIR_ALIGN, allocf_arg);
+    self->ancestors = (fd_slot_pair_t*)(*allocf)(allocf_arg, FD_SLOT_PAIR_ALIGN, FD_SLOT_PAIR_FOOTPRINT*self->ancestors_len);
     for (ulong i = 0; i < self->ancestors_len; ++i)
       fd_slot_pair_decode(self->ancestors + i, data, dataend, allocf, allocf_arg);
   } else
@@ -920,7 +920,7 @@ void fd_deserializable_versioned_bank_decode(fd_deserializable_versioned_bank_t*
   fd_bincode_uint64_decode(&self->capitalization, data, dataend);
   fd_bincode_uint64_decode(&self->max_tick_height, data, dataend);
   if (fd_bincode_option_decode(data, dataend)) {
-    self->hashes_per_tick = (ulong*)(*allocf)(sizeof(ulong), 8, allocf_arg);
+    self->hashes_per_tick = (ulong*)(*allocf)(allocf_arg, 8, sizeof(ulong));
     fd_bincode_uint64_decode(self->hashes_per_tick, data, dataend);
   } else
     self->hashes_per_tick = NULL;
@@ -944,7 +944,7 @@ void fd_deserializable_versioned_bank_decode(fd_deserializable_versioned_bank_t*
   fd_unused_accounts_decode(&self->unused_accounts, data, dataend, allocf, allocf_arg);
   fd_bincode_uint64_decode(&self->epoch_stakes_len, data, dataend);
   if (self->epoch_stakes_len != 0) {
-    self->epoch_stakes = (fd_epoch_epoch_stakes_pair_t*)(*allocf)(FD_EPOCH_EPOCH_STAKES_PAIR_FOOTPRINT*self->epoch_stakes_len, FD_EPOCH_EPOCH_STAKES_PAIR_ALIGN, allocf_arg);
+    self->epoch_stakes = (fd_epoch_epoch_stakes_pair_t*)(*allocf)(allocf_arg, FD_EPOCH_EPOCH_STAKES_PAIR_ALIGN, FD_EPOCH_EPOCH_STAKES_PAIR_FOOTPRINT*self->epoch_stakes_len);
     for (ulong i = 0; i < self->epoch_stakes_len; ++i)
       fd_epoch_epoch_stakes_pair_decode(self->epoch_stakes + i, data, dataend, allocf, allocf_arg);
   } else
@@ -956,14 +956,14 @@ void fd_deserializable_versioned_bank_destroy(fd_deserializable_versioned_bank_t
   if (NULL != self->ancestors) {
     for (ulong i = 0; i < self->ancestors_len; ++i)
       fd_slot_pair_destroy(self->ancestors + i,  freef, freef_arg);
-    freef(self->ancestors, freef_arg);
+    freef(freef_arg, self->ancestors);
     self->ancestors = NULL;
   }
   fd_hash_destroy(&self->hash, freef, freef_arg);
   fd_hash_destroy(&self->parent_hash, freef, freef_arg);
   fd_hard_forks_destroy(&self->hard_forks, freef, freef_arg);
   if (NULL != self->hashes_per_tick) {
-    freef(self->hashes_per_tick, freef_arg);
+    freef(freef_arg, self->hashes_per_tick);
     self->hashes_per_tick = NULL;
   }
   fd_pubkey_destroy(&self->collector_id, freef, freef_arg);
@@ -977,7 +977,7 @@ void fd_deserializable_versioned_bank_destroy(fd_deserializable_versioned_bank_t
   if (NULL != self->epoch_stakes) {
     for (ulong i = 0; i < self->epoch_stakes_len; ++i)
       fd_epoch_epoch_stakes_pair_destroy(self->epoch_stakes + i,  freef, freef_arg);
-    freef(self->epoch_stakes, freef_arg);
+    freef(freef_arg, self->epoch_stakes);
     self->epoch_stakes = NULL;
   }
 }
@@ -1149,7 +1149,7 @@ void fd_slot_account_pair_decode(fd_slot_account_pair_t* self, void const** data
   fd_bincode_uint64_decode(&self->slot, data, dataend);
   fd_bincode_uint64_decode(&self->accounts_len, data, dataend);
   if (self->accounts_len != 0) {
-    self->accounts = (fd_serializable_account_storage_entry_t*)(*allocf)(FD_SERIALIZABLE_ACCOUNT_STORAGE_ENTRY_FOOTPRINT*self->accounts_len, FD_SERIALIZABLE_ACCOUNT_STORAGE_ENTRY_ALIGN, allocf_arg);
+    self->accounts = (fd_serializable_account_storage_entry_t*)(*allocf)(allocf_arg, FD_SERIALIZABLE_ACCOUNT_STORAGE_ENTRY_ALIGN, FD_SERIALIZABLE_ACCOUNT_STORAGE_ENTRY_FOOTPRINT*self->accounts_len);
     for (ulong i = 0; i < self->accounts_len; ++i)
       fd_serializable_account_storage_entry_decode(self->accounts + i, data, dataend, allocf, allocf_arg);
   } else
@@ -1159,7 +1159,7 @@ void fd_slot_account_pair_destroy(fd_slot_account_pair_t* self, fd_free_fun_t fr
   if (NULL != self->accounts) {
     for (ulong i = 0; i < self->accounts_len; ++i)
       fd_serializable_account_storage_entry_destroy(self->accounts + i,  freef, freef_arg);
-    freef(self->accounts, freef_arg);
+    freef(freef_arg, self->accounts);
     self->accounts = NULL;
   }
 }
@@ -1205,7 +1205,7 @@ void fd_slot_map_pair_encode(fd_slot_map_pair_t* self, void const** data) {
 void fd_solana_accounts_db_fields_decode(fd_solana_accounts_db_fields_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
   fd_bincode_uint64_decode(&self->storages_len, data, dataend);
   if (self->storages_len != 0) {
-    self->storages = (fd_slot_account_pair_t*)(*allocf)(FD_SLOT_ACCOUNT_PAIR_FOOTPRINT*self->storages_len, FD_SLOT_ACCOUNT_PAIR_ALIGN, allocf_arg);
+    self->storages = (fd_slot_account_pair_t*)(*allocf)(allocf_arg, FD_SLOT_ACCOUNT_PAIR_ALIGN, FD_SLOT_ACCOUNT_PAIR_FOOTPRINT*self->storages_len);
     for (ulong i = 0; i < self->storages_len; ++i)
       fd_slot_account_pair_decode(self->storages + i, data, dataend, allocf, allocf_arg);
   } else
@@ -1215,14 +1215,14 @@ void fd_solana_accounts_db_fields_decode(fd_solana_accounts_db_fields_t* self, v
   fd_bank_hash_info_decode(&self->bank_hash_info, data, dataend, allocf, allocf_arg);
   fd_bincode_uint64_decode(&self->historical_roots_len, data, dataend);
   if (self->historical_roots_len != 0) {
-    self->historical_roots = (ulong*)(*allocf)(sizeof(ulong)*self->historical_roots_len, 8, allocf_arg);
+    self->historical_roots = (ulong*)(*allocf)(allocf_arg, 8UL, sizeof(ulong)*self->historical_roots_len);
     for (ulong i = 0; i < self->historical_roots_len; ++i)
       fd_bincode_uint64_decode(self->historical_roots + i, data, dataend);
   } else
     self->historical_roots = NULL;
   fd_bincode_uint64_decode(&self->historical_roots_with_hash_len, data, dataend);
   if (self->historical_roots_with_hash_len != 0) {
-    self->historical_roots_with_hash = (fd_slot_map_pair_t*)(*allocf)(FD_SLOT_MAP_PAIR_FOOTPRINT*self->historical_roots_with_hash_len, FD_SLOT_MAP_PAIR_ALIGN, allocf_arg);
+    self->historical_roots_with_hash = (fd_slot_map_pair_t*)(*allocf)(allocf_arg, FD_SLOT_MAP_PAIR_ALIGN, FD_SLOT_MAP_PAIR_FOOTPRINT*self->historical_roots_with_hash_len);
     for (ulong i = 0; i < self->historical_roots_with_hash_len; ++i)
       fd_slot_map_pair_decode(self->historical_roots_with_hash + i, data, dataend, allocf, allocf_arg);
   } else
@@ -1232,18 +1232,18 @@ void fd_solana_accounts_db_fields_destroy(fd_solana_accounts_db_fields_t* self, 
   if (NULL != self->storages) {
     for (ulong i = 0; i < self->storages_len; ++i)
       fd_slot_account_pair_destroy(self->storages + i,  freef, freef_arg);
-    freef(self->storages, freef_arg);
+    freef(freef_arg, self->storages);
     self->storages = NULL;
   }
   fd_bank_hash_info_destroy(&self->bank_hash_info, freef, freef_arg);
   if (NULL != self->historical_roots) {
-    freef(self->historical_roots, freef_arg);
+    freef(freef_arg, self->historical_roots);
     self->historical_roots = NULL;
   }
   if (NULL != self->historical_roots_with_hash) {
     for (ulong i = 0; i < self->historical_roots_with_hash_len; ++i)
       fd_slot_map_pair_destroy(self->historical_roots_with_hash + i,  freef, freef_arg);
-    freef(self->historical_roots_with_hash, freef_arg);
+    freef(freef_arg, self->historical_roots_with_hash);
     self->historical_roots_with_hash = NULL;
   }
 }
@@ -1307,12 +1307,12 @@ void fd_rust_duration_encode(fd_rust_duration_t* self, void const** data) {
 void fd_poh_config_decode(fd_poh_config_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
   fd_rust_duration_decode(&self->target_tick_duration, data, dataend, allocf, allocf_arg);
   if (fd_bincode_option_decode(data, dataend)) {
-    self->target_tick_count = (ulong*)(*allocf)(sizeof(ulong), 8, allocf_arg);
+    self->target_tick_count = (ulong*)(*allocf)(allocf_arg, 8, sizeof(ulong));
     fd_bincode_uint64_decode(self->target_tick_count, data, dataend);
   } else
     self->target_tick_count = NULL;
   if (fd_bincode_option_decode(data, dataend)) {
-    self->hashes_per_tick = (ulong*)(*allocf)(sizeof(ulong), 8, allocf_arg);
+    self->hashes_per_tick = (ulong*)(*allocf)(allocf_arg, 8, sizeof(ulong));
     fd_bincode_uint64_decode(self->hashes_per_tick, data, dataend);
   } else
     self->hashes_per_tick = NULL;
@@ -1320,11 +1320,11 @@ void fd_poh_config_decode(fd_poh_config_t* self, void const** data, void const* 
 void fd_poh_config_destroy(fd_poh_config_t* self, fd_free_fun_t freef, void* freef_arg) {
   fd_rust_duration_destroy(&self->target_tick_duration, freef, freef_arg);
   if (NULL != self->target_tick_count) {
-    freef(self->target_tick_count, freef_arg);
+    freef(freef_arg, self->target_tick_count);
     self->target_tick_count = NULL;
   }
   if (NULL != self->hashes_per_tick) {
-    freef(self->hashes_per_tick, freef_arg);
+    freef(freef_arg, self->hashes_per_tick);
     self->hashes_per_tick = NULL;
   }
 }
@@ -1360,14 +1360,14 @@ void fd_poh_config_encode(fd_poh_config_t* self, void const** data) {
 void fd_string_pubkey_pair_decode(fd_string_pubkey_pair_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
   ulong slen;
   fd_bincode_uint64_decode(&slen, data, dataend);
-  self->string = (char*)(*allocf)(slen + 1, 1, allocf_arg);
+  self->string = (char*)(*allocf)(allocf_arg, 1, slen + 1);
   fd_bincode_bytes_decode((uchar *) self->string, slen, data, dataend);
   self->string[slen] = '\0';
   fd_pubkey_decode(&self->pubkey, data, dataend, allocf, allocf_arg);
 }
 void fd_string_pubkey_pair_destroy(fd_string_pubkey_pair_t* self, fd_free_fun_t freef, void* freef_arg) {
   if (NULL != self->string) {
-    freef(self->string, freef_arg);
+    freef(freef_arg, self->string);
     self->string = NULL;
   }
   fd_pubkey_destroy(&self->pubkey, freef, freef_arg);
@@ -1412,21 +1412,21 @@ void fd_genesis_solana_decode(fd_genesis_solana_t* self, void const** data, void
   fd_bincode_uint64_decode(&self->creation_time, data, dataend);
   fd_bincode_uint64_decode(&self->accounts_len, data, dataend);
   if (self->accounts_len != 0) {
-    self->accounts = (fd_pubkey_account_pair_t*)(*allocf)(FD_PUBKEY_ACCOUNT_PAIR_FOOTPRINT*self->accounts_len, FD_PUBKEY_ACCOUNT_PAIR_ALIGN, allocf_arg);
+    self->accounts = (fd_pubkey_account_pair_t*)(*allocf)(allocf_arg, FD_PUBKEY_ACCOUNT_PAIR_ALIGN, FD_PUBKEY_ACCOUNT_PAIR_FOOTPRINT*self->accounts_len);
     for (ulong i = 0; i < self->accounts_len; ++i)
       fd_pubkey_account_pair_decode(self->accounts + i, data, dataend, allocf, allocf_arg);
   } else
     self->accounts = NULL;
   fd_bincode_uint64_decode(&self->native_instruction_processors_len, data, dataend);
   if (self->native_instruction_processors_len != 0) {
-    self->native_instruction_processors = (fd_string_pubkey_pair_t*)(*allocf)(FD_STRING_PUBKEY_PAIR_FOOTPRINT*self->native_instruction_processors_len, FD_STRING_PUBKEY_PAIR_ALIGN, allocf_arg);
+    self->native_instruction_processors = (fd_string_pubkey_pair_t*)(*allocf)(allocf_arg, FD_STRING_PUBKEY_PAIR_ALIGN, FD_STRING_PUBKEY_PAIR_FOOTPRINT*self->native_instruction_processors_len);
     for (ulong i = 0; i < self->native_instruction_processors_len; ++i)
       fd_string_pubkey_pair_decode(self->native_instruction_processors + i, data, dataend, allocf, allocf_arg);
   } else
     self->native_instruction_processors = NULL;
   fd_bincode_uint64_decode(&self->rewards_pools_len, data, dataend);
   if (self->rewards_pools_len != 0) {
-    self->rewards_pools = (fd_pubkey_account_pair_t*)(*allocf)(FD_PUBKEY_ACCOUNT_PAIR_FOOTPRINT*self->rewards_pools_len, FD_PUBKEY_ACCOUNT_PAIR_ALIGN, allocf_arg);
+    self->rewards_pools = (fd_pubkey_account_pair_t*)(*allocf)(allocf_arg, FD_PUBKEY_ACCOUNT_PAIR_ALIGN, FD_PUBKEY_ACCOUNT_PAIR_FOOTPRINT*self->rewards_pools_len);
     for (ulong i = 0; i < self->rewards_pools_len; ++i)
       fd_pubkey_account_pair_decode(self->rewards_pools + i, data, dataend, allocf, allocf_arg);
   } else
@@ -1445,19 +1445,19 @@ void fd_genesis_solana_destroy(fd_genesis_solana_t* self, fd_free_fun_t freef, v
   if (NULL != self->accounts) {
     for (ulong i = 0; i < self->accounts_len; ++i)
       fd_pubkey_account_pair_destroy(self->accounts + i,  freef, freef_arg);
-    freef(self->accounts, freef_arg);
+    freef(freef_arg, self->accounts);
     self->accounts = NULL;
   }
   if (NULL != self->native_instruction_processors) {
     for (ulong i = 0; i < self->native_instruction_processors_len; ++i)
       fd_string_pubkey_pair_destroy(self->native_instruction_processors + i,  freef, freef_arg);
-    freef(self->native_instruction_processors, freef_arg);
+    freef(freef_arg, self->native_instruction_processors);
     self->native_instruction_processors = NULL;
   }
   if (NULL != self->rewards_pools) {
     for (ulong i = 0; i < self->rewards_pools_len; ++i)
       fd_pubkey_account_pair_destroy(self->rewards_pools + i,  freef, freef_arg);
-    freef(self->rewards_pools, freef_arg);
+    freef(freef_arg, self->rewards_pools);
     self->rewards_pools = NULL;
   }
   fd_poh_config_destroy(&self->poh_config, freef, freef_arg);
@@ -1729,26 +1729,26 @@ void fd_vote_state_decode(fd_vote_state_t* self, void const** data, void const* 
   fd_bincode_uint8_decode(&self->commission, data, dataend);
   fd_bincode_uint64_decode(&self->votes_len, data, dataend);
   if (self->votes_len != 0) {
-    self->votes = (fd_vote_lockout_t*)(*allocf)(FD_VOTE_LOCKOUT_FOOTPRINT*self->votes_len, FD_VOTE_LOCKOUT_ALIGN, allocf_arg);
+    self->votes = (fd_vote_lockout_t*)(*allocf)(allocf_arg, FD_VOTE_LOCKOUT_ALIGN, FD_VOTE_LOCKOUT_FOOTPRINT*self->votes_len);
     for (ulong i = 0; i < self->votes_len; ++i)
       fd_vote_lockout_decode(self->votes + i, data, dataend, allocf, allocf_arg);
   } else
     self->votes = NULL;
   if (fd_bincode_option_decode(data, dataend)) {
-    self->saved_root_slot = (ulong*)(*allocf)(sizeof(ulong), 8, allocf_arg);
+    self->saved_root_slot = (ulong*)(*allocf)(allocf_arg, 8, sizeof(ulong));
     fd_bincode_uint64_decode(self->saved_root_slot, data, dataend);
   } else
     self->saved_root_slot = NULL;
   fd_bincode_uint64_decode(&self->authorized_voters_len, data, dataend);
   if (self->authorized_voters_len != 0) {
-    self->authorized_voters = (fd_vote_historical_authorized_voter_t*)(*allocf)(FD_VOTE_HISTORICAL_AUTHORIZED_VOTER_FOOTPRINT*self->authorized_voters_len, FD_VOTE_HISTORICAL_AUTHORIZED_VOTER_ALIGN, allocf_arg);
+    self->authorized_voters = (fd_vote_historical_authorized_voter_t*)(*allocf)(allocf_arg, FD_VOTE_HISTORICAL_AUTHORIZED_VOTER_ALIGN, FD_VOTE_HISTORICAL_AUTHORIZED_VOTER_FOOTPRINT*self->authorized_voters_len);
     for (ulong i = 0; i < self->authorized_voters_len; ++i)
       fd_vote_historical_authorized_voter_decode(self->authorized_voters + i, data, dataend, allocf, allocf_arg);
   } else
     self->authorized_voters = NULL;
   fd_bincode_uint64_decode(&self->prior_voters_len, data, dataend);
   if (self->prior_voters_len != 0) {
-    self->prior_voters = (fd_vote_prior_voter_t*)(*allocf)(FD_VOTE_PRIOR_VOTER_FOOTPRINT*self->prior_voters_len, FD_VOTE_PRIOR_VOTER_ALIGN, allocf_arg);
+    self->prior_voters = (fd_vote_prior_voter_t*)(*allocf)(allocf_arg, FD_VOTE_PRIOR_VOTER_ALIGN, FD_VOTE_PRIOR_VOTER_FOOTPRINT*self->prior_voters_len);
     for (ulong i = 0; i < self->prior_voters_len; ++i)
       fd_vote_prior_voter_decode(self->prior_voters + i, data, dataend, allocf, allocf_arg);
   } else
@@ -1769,23 +1769,23 @@ void fd_vote_state_destroy(fd_vote_state_t* self, fd_free_fun_t freef, void* fre
   if (NULL != self->votes) {
     for (ulong i = 0; i < self->votes_len; ++i)
       fd_vote_lockout_destroy(self->votes + i,  freef, freef_arg);
-    freef(self->votes, freef_arg);
+    freef(freef_arg, self->votes);
     self->votes = NULL;
   }
   if (NULL != self->saved_root_slot) {
-    freef(self->saved_root_slot, freef_arg);
+    freef(freef_arg, self->saved_root_slot);
     self->saved_root_slot = NULL;
   }
   if (NULL != self->authorized_voters) {
     for (ulong i = 0; i < self->authorized_voters_len; ++i)
       fd_vote_historical_authorized_voter_destroy(self->authorized_voters + i,  freef, freef_arg);
-    freef(self->authorized_voters, freef_arg);
+    freef(freef_arg, self->authorized_voters);
     self->authorized_voters = NULL;
   }
   if (NULL != self->prior_voters) {
     for (ulong i = 0; i < self->prior_voters_len; ++i)
       fd_vote_prior_voter_destroy(self->prior_voters + i,  freef, freef_arg);
-    freef(self->prior_voters, freef_arg);
+    freef(freef_arg, self->prior_voters);
     self->prior_voters = NULL;
   }
   fd_vec_fd_vote_epoch_credits_t_destroy(&self->epoch_credits);
@@ -1848,19 +1848,19 @@ void fd_vote_state_encode(fd_vote_state_t* self, void const** data) {
 void fd_vote_state_update_decode(fd_vote_state_update_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
   fd_bincode_uint64_decode(&self->lockouts_len, data, dataend);
   if (self->lockouts_len != 0) {
-    self->lockouts = (fd_vote_lockout_t*)(*allocf)(FD_VOTE_LOCKOUT_FOOTPRINT*self->lockouts_len, FD_VOTE_LOCKOUT_ALIGN, allocf_arg);
+    self->lockouts = (fd_vote_lockout_t*)(*allocf)(allocf_arg, FD_VOTE_LOCKOUT_ALIGN, FD_VOTE_LOCKOUT_FOOTPRINT*self->lockouts_len);
     for (ulong i = 0; i < self->lockouts_len; ++i)
       fd_vote_lockout_decode(self->lockouts + i, data, dataend, allocf, allocf_arg);
   } else
     self->lockouts = NULL;
   if (fd_bincode_option_decode(data, dataend)) {
-    self->proposed_root = (ulong*)(*allocf)(sizeof(ulong), 8, allocf_arg);
+    self->proposed_root = (ulong*)(*allocf)(allocf_arg, 8, sizeof(ulong));
     fd_bincode_uint64_decode(self->proposed_root, data, dataend);
   } else
     self->proposed_root = NULL;
   fd_hash_decode(&self->hash, data, dataend, allocf, allocf_arg);
   if (fd_bincode_option_decode(data, dataend)) {
-    self->timestamp = (ulong*)(*allocf)(sizeof(ulong), 8, allocf_arg);
+    self->timestamp = (ulong*)(*allocf)(allocf_arg, 8, sizeof(ulong));
     fd_bincode_uint64_decode(self->timestamp, data, dataend);
   } else
     self->timestamp = NULL;
@@ -1869,16 +1869,16 @@ void fd_vote_state_update_destroy(fd_vote_state_update_t* self, fd_free_fun_t fr
   if (NULL != self->lockouts) {
     for (ulong i = 0; i < self->lockouts_len; ++i)
       fd_vote_lockout_destroy(self->lockouts + i,  freef, freef_arg);
-    freef(self->lockouts, freef_arg);
+    freef(freef_arg, self->lockouts);
     self->lockouts = NULL;
   }
   if (NULL != self->proposed_root) {
-    freef(self->proposed_root, freef_arg);
+    freef(freef_arg, self->proposed_root);
     self->proposed_root = NULL;
   }
   fd_hash_destroy(&self->hash, freef, freef_arg);
   if (NULL != self->timestamp) {
-    freef(self->timestamp, freef_arg);
+    freef(freef_arg, self->timestamp);
     self->timestamp = NULL;
   }
 }
@@ -1923,14 +1923,14 @@ void fd_compact_vote_state_update_decode(fd_compact_vote_state_update_t* self, v
   fd_bincode_uint64_decode(&self->proposed_root, data, dataend);
   fd_decode_short_u16(&self->lockouts_len, data, dataend);
   if (self->lockouts_len != 0) {
-    self->lockouts = (fd_compact_vote_lockout_t*)(*allocf)(FD_COMPACT_VOTE_LOCKOUT_FOOTPRINT*self->lockouts_len, FD_COMPACT_VOTE_LOCKOUT_ALIGN, allocf_arg);
+    self->lockouts = (fd_compact_vote_lockout_t*)(*allocf)(allocf_arg, FD_COMPACT_VOTE_LOCKOUT_ALIGN, FD_COMPACT_VOTE_LOCKOUT_FOOTPRINT*self->lockouts_len);
     for (ulong i = 0; i < self->lockouts_len; ++i)
       fd_compact_vote_lockout_decode(self->lockouts + i, data, dataend, allocf, allocf_arg);
   } else
     self->lockouts = NULL;
   fd_hash_decode(&self->hash, data, dataend, allocf, allocf_arg);
   if (fd_bincode_option_decode(data, dataend)) {
-    self->timestamp = (ulong*)(*allocf)(sizeof(ulong), 8, allocf_arg);
+    self->timestamp = (ulong*)(*allocf)(allocf_arg, 8, sizeof(ulong));
     fd_bincode_uint64_decode(self->timestamp, data, dataend);
   } else
     self->timestamp = NULL;
@@ -1939,12 +1939,12 @@ void fd_compact_vote_state_update_destroy(fd_compact_vote_state_update_t* self, 
   if (NULL != self->lockouts) {
     for (ulong i = 0; i < self->lockouts_len; ++i)
       fd_compact_vote_lockout_destroy(self->lockouts + i,  freef, freef_arg);
-    freef(self->lockouts, freef_arg);
+    freef(freef_arg, self->lockouts);
     self->lockouts = NULL;
   }
   fd_hash_destroy(&self->hash, freef, freef_arg);
   if (NULL != self->timestamp) {
-    freef(self->timestamp, freef_arg);
+    freef(freef_arg, self->timestamp);
     self->timestamp = NULL;
   }
 }
@@ -1981,7 +1981,7 @@ void fd_compact_vote_state_update_encode(fd_compact_vote_state_update_t* self, v
 void fd_slot_history_inner_decode(fd_slot_history_inner_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
   fd_bincode_uint64_decode(&self->blocks_len, data, dataend);
   if (self->blocks_len != 0) {
-    self->blocks = (ulong*)(*allocf)(sizeof(ulong)*self->blocks_len, 8, allocf_arg);
+    self->blocks = (ulong*)(*allocf)(allocf_arg, 8UL, sizeof(ulong)*self->blocks_len);
     for (ulong i = 0; i < self->blocks_len; ++i)
       fd_bincode_uint64_decode(self->blocks + i, data, dataend);
   } else
@@ -1989,7 +1989,7 @@ void fd_slot_history_inner_decode(fd_slot_history_inner_t* self, void const** da
 }
 void fd_slot_history_inner_destroy(fd_slot_history_inner_t* self, fd_free_fun_t freef, void* freef_arg) {
   if (NULL != self->blocks) {
-    freef(self->blocks, freef_arg);
+    freef(freef_arg, self->blocks);
     self->blocks = NULL;
   }
 }
@@ -2011,7 +2011,7 @@ void fd_slot_history_inner_encode(fd_slot_history_inner_t* self, void const** da
 
 void fd_slot_history_bitvec_decode(fd_slot_history_bitvec_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
   if (fd_bincode_option_decode(data, dataend)) {
-    self->bits = (fd_slot_history_inner_t*)(*allocf)(FD_SLOT_HISTORY_INNER_FOOTPRINT, FD_SLOT_HISTORY_INNER_ALIGN, allocf_arg);
+    self->bits = (fd_slot_history_inner_t*)(*allocf)(allocf_arg, FD_SLOT_HISTORY_INNER_ALIGN, FD_SLOT_HISTORY_INNER_FOOTPRINT);
     fd_slot_history_inner_decode(self->bits, data, dataend, allocf, allocf_arg);
   } else
     self->bits = NULL;
@@ -2020,7 +2020,7 @@ void fd_slot_history_bitvec_decode(fd_slot_history_bitvec_t* self, void const** 
 void fd_slot_history_bitvec_destroy(fd_slot_history_bitvec_t* self, fd_free_fun_t freef, void* freef_arg) {
   if (NULL != self->bits) {
     fd_slot_history_inner_destroy(self->bits,  freef, freef_arg);
-    freef(self->bits, freef_arg);
+    freef(freef_arg, self->bits);
     self->bits = NULL;
   }
 }
@@ -2087,7 +2087,7 @@ void fd_slot_hash_encode(fd_slot_hash_t* self, void const** data) {
 void fd_slot_hashes_decode(fd_slot_hashes_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
   fd_bincode_uint64_decode(&self->hashes_len, data, dataend);
   if (self->hashes_len != 0) {
-    self->hashes = (fd_slot_hash_t*)(*allocf)(FD_SLOT_HASH_FOOTPRINT*self->hashes_len, FD_SLOT_HASH_ALIGN, allocf_arg);
+    self->hashes = (fd_slot_hash_t*)(*allocf)(allocf_arg, FD_SLOT_HASH_ALIGN, FD_SLOT_HASH_FOOTPRINT*self->hashes_len);
     for (ulong i = 0; i < self->hashes_len; ++i)
       fd_slot_hash_decode(self->hashes + i, data, dataend, allocf, allocf_arg);
   } else
@@ -2097,7 +2097,7 @@ void fd_slot_hashes_destroy(fd_slot_hashes_t* self, fd_free_fun_t freef, void* f
   if (NULL != self->hashes) {
     for (ulong i = 0; i < self->hashes_len; ++i)
       fd_slot_hash_destroy(self->hashes + i,  freef, freef_arg);
-    freef(self->hashes, freef_arg);
+    freef(freef_arg, self->hashes);
     self->hashes = NULL;
   }
 }
@@ -2142,7 +2142,7 @@ void fd_block_block_hash_entry_encode(fd_block_block_hash_entry_t* self, void co
 void fd_recent_block_hashes_decode(fd_recent_block_hashes_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
   fd_bincode_uint64_decode(&self->hashes_len, data, dataend);
   if (self->hashes_len != 0) {
-    self->hashes = (fd_block_block_hash_entry_t*)(*allocf)(FD_BLOCK_BLOCK_HASH_ENTRY_FOOTPRINT*self->hashes_len, FD_BLOCK_BLOCK_HASH_ENTRY_ALIGN, allocf_arg);
+    self->hashes = (fd_block_block_hash_entry_t*)(*allocf)(allocf_arg, FD_BLOCK_BLOCK_HASH_ENTRY_ALIGN, FD_BLOCK_BLOCK_HASH_ENTRY_FOOTPRINT*self->hashes_len);
     for (ulong i = 0; i < self->hashes_len; ++i)
       fd_block_block_hash_entry_decode(self->hashes + i, data, dataend, allocf, allocf_arg);
   } else
@@ -2152,7 +2152,7 @@ void fd_recent_block_hashes_destroy(fd_recent_block_hashes_t* self, fd_free_fun_
   if (NULL != self->hashes) {
     for (ulong i = 0; i < self->hashes_len; ++i)
       fd_block_block_hash_entry_destroy(self->hashes + i,  freef, freef_arg);
-    freef(self->hashes, freef_arg);
+    freef(freef_arg, self->hashes);
     self->hashes = NULL;
   }
 }
@@ -2170,6 +2170,76 @@ void fd_recent_block_hashes_encode(fd_recent_block_hashes_t* self, void const** 
   if (self->hashes_len != 0) {
     for (ulong i = 0; i < self->hashes_len; ++i)
       fd_block_block_hash_entry_encode(self->hashes + i, data);
+  }
+}
+
+void fd_slot_meta_decode(fd_slot_meta_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
+  fd_bincode_uint64_decode(&self->slot, data, dataend);
+  fd_bincode_uint64_decode(&self->consumed, data, dataend);
+  fd_bincode_uint64_decode(&self->received, data, dataend);
+  fd_bincode_uint64_decode(&self->first_shred_timestamp, data, dataend);
+  fd_bincode_uint64_decode(&self->last_index, data, dataend);
+  fd_bincode_uint64_decode(&self->parent_slot, data, dataend);
+  fd_bincode_uint64_decode(&self->next_slot_len, data, dataend);
+  if (self->next_slot_len != 0) {
+    self->next_slot = (ulong*)(*allocf)(allocf_arg, 8UL, sizeof(ulong)*self->next_slot_len);
+    for (ulong i = 0; i < self->next_slot_len; ++i)
+      fd_bincode_uint64_decode(self->next_slot + i, data, dataend);
+  } else
+    self->next_slot = NULL;
+  fd_bincode_uint8_decode(&self->is_connected, data, dataend);
+  fd_bincode_uint64_decode(&self->entry_end_indexes_len, data, dataend);
+  if (self->entry_end_indexes_len != 0) {
+    self->entry_end_indexes = (uint*)(*allocf)(allocf_arg, 8UL, sizeof(ulong)*self->entry_end_indexes_len);
+    for (ulong i = 0; i < self->entry_end_indexes_len; ++i)
+      fd_bincode_uint32_decode(self->entry_end_indexes + i, data, dataend);
+  } else
+    self->entry_end_indexes = NULL;
+}
+void fd_slot_meta_destroy(fd_slot_meta_t* self, fd_free_fun_t freef, void* freef_arg) {
+  if (NULL != self->next_slot) {
+    freef(freef_arg, self->next_slot);
+    self->next_slot = NULL;
+  }
+  if (NULL != self->entry_end_indexes) {
+    freef(freef_arg, self->entry_end_indexes);
+    self->entry_end_indexes = NULL;
+  }
+}
+
+ulong fd_slot_meta_size(fd_slot_meta_t* self) {
+  ulong size = 0;
+  size += sizeof(ulong);
+  size += sizeof(ulong);
+  size += sizeof(ulong);
+  size += sizeof(ulong);
+  size += sizeof(ulong);
+  size += sizeof(ulong);
+  size += sizeof(ulong);
+  size += self->next_slot_len * sizeof(ulong);
+  size += sizeof(char);
+  size += sizeof(ulong);
+  size += self->entry_end_indexes_len * sizeof(uint);
+  return size;
+}
+
+void fd_slot_meta_encode(fd_slot_meta_t* self, void const** data) {
+  fd_bincode_uint64_encode(&self->slot, data);
+  fd_bincode_uint64_encode(&self->consumed, data);
+  fd_bincode_uint64_encode(&self->received, data);
+  fd_bincode_uint64_encode(&self->first_shred_timestamp, data);
+  fd_bincode_uint64_encode(&self->last_index, data);
+  fd_bincode_uint64_encode(&self->parent_slot, data);
+  fd_bincode_uint64_encode(&self->next_slot_len, data);
+  if (self->next_slot_len != 0) {
+    for (ulong i = 0; i < self->next_slot_len; ++i)
+      fd_bincode_uint64_encode(self->next_slot + i, data);
+  }
+  fd_bincode_uint8_encode(&self->is_connected, data);
+  fd_bincode_uint64_encode(&self->entry_end_indexes_len, data);
+  if (self->entry_end_indexes_len != 0) {
+    for (ulong i = 0; i < self->entry_end_indexes_len; ++i)
+      fd_bincode_uint32_encode(self->entry_end_indexes + i, data);
   }
 }
 

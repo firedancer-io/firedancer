@@ -44,7 +44,7 @@ uchar do_valgrind = 1;
 
 int fd_alloc_fprintf( fd_alloc_t * join, FILE *       stream );
 
-char* allocf(unsigned long len, unsigned long align, void* arg) {
+char* allocf(void *arg, ulong align, ulong len) {
   if (NULL == arg) {
     FD_LOG_ERR(( "yo dawg.. you passed a NULL as a fd_alloc pool"));
   }
@@ -58,7 +58,7 @@ char* allocf(unsigned long len, unsigned long align, void* arg) {
     return fd_alloc_malloc(arg, align, len);
 }
 
-void freef(void *ptr, void* arg) {
+void freef(void *arg, void *ptr) {
   if (NULL == arg) {
     FD_LOG_ERR(( "yo dawg.. you passed a NULL as a fd_alloc pool"));
   }
@@ -157,7 +157,7 @@ int ingest(global_state_t *state) {
         
         sprintf(buf, "%s/%s", state->accounts, ent->d_name);
         stat(buf,  &s);
-        unsigned char *r = (unsigned char *)allocf((unsigned long) (unsigned long) s.st_size, 8UL, state->alloc);
+        unsigned char *r = (unsigned char *)allocf(state->alloc, 8UL, (unsigned long) (unsigned long) s.st_size);
         unsigned char *b = r;
         files++;
         int fd = open(buf, O_RDONLY);
@@ -205,7 +205,7 @@ int ingest(global_state_t *state) {
             if ((metadata.magic != FD_ACCOUNT_META_MAGIC) || (metadata.hlen != sizeof(metadata))) 
               FD_LOG_ERR(("wtf2"));
             
-            uchar * account_data = (uchar *) allocf( hdr->meta.data_len, 8UL, state->alloc );
+            uchar * account_data = (uchar *) allocf(state->alloc , 8UL,  hdr->meta.data_len);
             fd_account_meta_t account_hdr;
             read_result = fd_acc_mgr_get_account_data( state->acc_mgr, (fd_pubkey_t *) &hdr->meta.pubkey, (uchar *) &account_hdr, 0, sizeof(fd_account_meta_t));
             
@@ -237,7 +237,7 @@ int ingest(global_state_t *state) {
                  FD_LOG_HEX16_FMT_ARGS(     hash    ), FD_LOG_HEX16_FMT_ARGS(     hash+16 ) 
               ));
             }
-            freef( account_data, state->alloc );
+            freef( state->alloc, account_data );
           } while (0);
 
 #if 0
@@ -260,7 +260,7 @@ int ingest(global_state_t *state) {
         }
 
         close(fd);
-        freef(r, state->alloc);
+        freef(state->alloc, r);
     }
   }
 
@@ -312,7 +312,7 @@ int slot_dump(global_state_t *state) {
 
       sprintf(buf, "%s/%s", state->accounts, ent->d_name);
       stat(buf,  &s);
-      unsigned char *r = (unsigned char *)allocf((unsigned long) (unsigned long) s.st_size, 8UL, state->alloc);
+      unsigned char *r = (unsigned char *)allocf(state->alloc, 8UL, (unsigned long) (unsigned long) s.st_size);
       unsigned char *b = r;
       files++;
       int fd = open(buf, O_RDONLY);
@@ -383,7 +383,7 @@ int slot_dump(global_state_t *state) {
       }
 
       close(fd);
-      freef(r, state->alloc);
+      freef(state->alloc, r);
     }
   }
 
@@ -437,7 +437,7 @@ int validate_bank_hashes(global_state_t *state) {
 
         sprintf(buf, "%s/%s", state->accounts, ent->d_name);
         stat(buf,  &s);
-        unsigned char *r = (unsigned char *)allocf((unsigned long) (unsigned long) s.st_size, 8UL, state->alloc);
+        unsigned char *r = (unsigned char *)allocf(state->alloc, 8UL, (unsigned long) (unsigned long) s.st_size);
         unsigned char *b = r;
         files++;
         int fd = open(buf, O_RDONLY);
@@ -485,7 +485,7 @@ int validate_bank_hashes(global_state_t *state) {
               FD_LOG_ERR(("wtf2"));
             
 
-            uchar * account_data = (uchar *) allocf( hdr->meta.data_len, 8UL, state->alloc );
+            uchar * account_data = (uchar *) allocf(state->alloc , 8UL,  hdr->meta.data_len);
             fd_account_meta_t account_hdr;
             read_result = fd_acc_mgr_get_account_data( state->acc_mgr, (fd_pubkey_t *) &hdr->meta.pubkey, (uchar *) &account_hdr, 0, sizeof(fd_account_meta_t));
             
@@ -520,14 +520,14 @@ int validate_bank_hashes(global_state_t *state) {
             fd_memcpy(pairs[pairs_len].pubkey.key, hdr->meta.pubkey, 32);
             fd_memcpy(pairs[pairs_len].hash.hash, hash, 32);
             pairs_len++;
-            freef( account_data, state->alloc );
+            freef(state->alloc,  account_data);
           } while (0);
 
           b += fd_ulong_align_up(hdr->meta.data_len + sizeof(*hdr), 8);
         }
 
         close(fd);
-        freef(r, state->alloc);
+        freef(state->alloc, r);
     }
   }
 
@@ -552,7 +552,7 @@ int validate_bank_hashes(global_state_t *state) {
 
   FD_LOG_WARNING(("reading manifest: %s", state->manifest));
 
-  unsigned char *b = (unsigned char *)allocf((unsigned long) (unsigned long) s.st_size, 1, state->alloc);
+  unsigned char *b = (unsigned char *)allocf(state->alloc, 1, (unsigned long) (unsigned long) s.st_size);
   int fd = open(state->manifest, O_RDONLY);
   ssize_t n = read(fd, b, (unsigned long) s.st_size);
   close(fd);
@@ -585,7 +585,7 @@ int validate_bank_hashes(global_state_t *state) {
 
   fd_deserializable_versioned_bank_destroy(&a, freef, state->alloc);
   fd_solana_accounts_db_fields_destroy(&db, freef, state->alloc);
-  freef(b, state->alloc);
+  freef(state->alloc, b);
 
   return 0;
 }
@@ -596,7 +596,7 @@ int manifest(global_state_t *state) {
 
   FD_LOG_WARNING(("reading manifest: %s", state->manifest));
 
-  unsigned char *b = (unsigned char *)allocf((unsigned long) (unsigned long) s.st_size, 1, state->alloc);
+  unsigned char *b = (unsigned char *)allocf(state->alloc, 1, (unsigned long) (unsigned long) s.st_size);
   int fd = open(state->manifest, O_RDONLY);
   ssize_t n = read(fd, b, (unsigned long) s.st_size);
   close(fd);
@@ -624,7 +624,7 @@ int manifest(global_state_t *state) {
 
   fd_deserializable_versioned_bank_destroy(&a, freef, state->alloc);
   fd_solana_accounts_db_fields_destroy(&db, freef, state->alloc);
-  freef(b, state->alloc);
+  freef(state->alloc, b);
 
   return 0;
 }
@@ -844,7 +844,7 @@ int replay(global_state_t *state) {
 
       // free the slot data...
       fd_slot_blocks_destroy(slot_data, freef, state->alloc);
-      freef(slot_data, state->alloc);
+      freef(state->alloc, slot_data);
     } while (0);
 
     if (state->txn_exe == 2) 
@@ -991,7 +991,7 @@ int main(int argc, char **argv) {
   /* Initialize the account manager */
   struct fd_funk_xactionid const* xroot = fd_funk_root(state.funk);
 
-  void *fd_acc_mgr_raw = allocf(FD_ACC_MGR_FOOTPRINT, FD_ACC_MGR_ALIGN, state.alloc);
+  void *fd_acc_mgr_raw = allocf(state.alloc, FD_ACC_MGR_ALIGN, FD_ACC_MGR_FOOTPRINT);
   state.acc_mgr = fd_acc_mgr_join(fd_acc_mgr_new(fd_acc_mgr_raw, state.funk, xroot, FD_ACC_MGR_FOOTPRINT));
 
   FD_LOG_WARNING(("loading genesis account into funk db"));
@@ -1055,7 +1055,7 @@ int main(int argc, char **argv) {
     slot_dump(&state);
 
   fd_acc_mgr_delete(fd_acc_mgr_leave(state.acc_mgr));
-  freef(fd_acc_mgr_raw, state.alloc);
+  freef(state.alloc, fd_acc_mgr_raw);
 
   fd_genesis_solana_destroy(&state.gen, freef, state.alloc);
 

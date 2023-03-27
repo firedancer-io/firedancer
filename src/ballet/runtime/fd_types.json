@@ -3,8 +3,8 @@
   "name": "fd_banks_solana",
   "extra_header": [
       "#include \"../../util/encoders/fd_bincode.h\"",
-      "typedef char* (*fd_alloc_fun_t)(ulong len, ulong align, void* arg);",
-      "typedef void  (*fd_free_fun_t) (void *ptr, void* arg);",
+      "typedef char* (*fd_alloc_fun_t)(void *arg, ulong align, ulong len);",
+      "typedef void  (*fd_free_fun_t) (void *arg, void *ptr);",
       "#define FD_ACCOUNT_META_MAGIC 9823"
   ],
   "entries": [
@@ -608,7 +608,7 @@
           { "name": "bits", "type": "option", "element": "slot_history_inner" },
           { "name": "len", "type": "ulong" }
       ],
-      "comment": "https://github.com/tov/bv-rs/blob/107be3e9c45324e55844befa4c4239d4d3d092c6/src/bit_vec/inner.rs#L8",
+      "comment": "https://github.com/tov/bv-rs/blob/107be3e9c45324e55844befa4c4239d4d3d092c6/src/bit_vec/inner.rs#L8"
     },
     {
       "name": "slot_history",
@@ -647,6 +647,21 @@
       "type": "struct",
       "fields": [
           { "name": "hashes", "type": "vector", "element": "block_block_hash_entry" }
+      ]
+    },
+    {
+      "name": "slot_meta",
+      "type": "struct",
+      "fields": [
+          { "name": "slot", "type": "ulong" },
+          { "name": "consumed", "type": "ulong" },
+          { "name": "received", "type": "ulong" },
+          { "name": "first_shred_timestamp", "type": "ulong" },
+          { "name": "last_index", "type": "ulong" },
+          { "name": "parent_slot", "type": "ulong" },
+          { "name": "next_slot", "type": "vector", "element": "ulong"},
+          { "name": "is_connected", "type": "uchar" },
+          { "name": "entry_end_indexes", "type": "vector", "element": "uint" }
       ]
     }
   ]

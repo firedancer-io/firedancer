@@ -58,13 +58,17 @@ size_t hexs2bin(const char *hex, unsigned char **out)
   return len;
 }
 
-char* allocf(unsigned long len, FD_FN_UNUSED unsigned long align, FD_FN_UNUSED void* arg) {
-  return malloc(len);
+static
+char* allocf(FD_FN_UNUSED void* arg, unsigned long align, unsigned long len) {
+  char * ptr = malloc(fd_ulong_align_up(sizeof(char *) + len, align));
+  char * ret = (char *) fd_ulong_align_up( (ulong) (ptr + sizeof(char *)), align );
+  *((char **)(ret - sizeof(char *))) = ptr;
+  return ret;
 }
 
-void freef(void* obj, FD_FN_UNUSED void* arg) {
-  free(obj);
-  return;
+static
+void freef(FD_FN_UNUSED void* arg, void *ptr) {
+  free(*((char **)((char *) ptr - sizeof(char *))));
 }
 
 int main(FD_FN_UNUSED int argc, FD_FN_UNUSED char** argv) {

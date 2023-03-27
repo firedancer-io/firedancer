@@ -40,6 +40,8 @@ def do_vector_header(n, f):
         print("  " + f["element"] + "* " + f["name"] + ";", file=header)
     elif f["element"] == "ulong" or f["element"] == "unsigned long":
         print("  " + f["element"] + "* " + f["name"] + ";", file=header)
+    elif f["element"] == "uint" or f["element"] == "unsigned int":
+        print("  " + f["element"] + "* " + f["name"] + ";", file=header)
     else:
         print("  " + n + "_" + f["element"] + "_t* " + f["name"] + ";", file=header)
 
@@ -48,6 +50,8 @@ def vector_dynamic_elem_type(n, f):
     return "uchar"
   elif f["element"] == "ulong" or f["element"] == "unsigned long":
       return "ulong"
+  elif f["element"] == "uint" or f["element"] == "unsigned int":
+      return "uint"
   else:
       return namespace + "_" + f["element"] + "_t"
   
@@ -59,6 +63,8 @@ def do_vector_dynamic_header(n, f):
 
 def do_option_header(n, f):
       if f["element"] == "ulong" or f["element"] == "unsigned long":
+          print("  " + f["element"] + "* " + f["name"] + ";", file=header)
+      elif f["element"] == "uint" or f["element"] == "unsigned int":
           print("  " + f["element"] + "* " + f["name"] + ";", file=header)
       else:
           print("  " + n + "_" + f["element"] + "_t* " + f["name"] + ";", file=header)
@@ -91,18 +97,23 @@ def do_vector_body_decode(n, f):
     el = el.upper()
 
     if f["element"] == "unsigned char" or f["element"] == "uchar":
-        print("    self->" + f["name"] + " = (unsigned char*)(*allocf)(self->" + f["name"] + "_len, 8, allocf_arg);", file=body)
+        print("    self->" + f["name"] + " = (unsigned char*)(*allocf)(allocf_arg, 8, self->" + f["name"] + "_len);", file=body)
     elif f["element"] == "ulong" or f["element"] == "unsigned long":
-        print("    self->" + f["name"] + " = (ulong*)(*allocf)(sizeof(ulong)*self->" + f["name"] + "_len, 8, allocf_arg);", file=body)
+        print("    self->" + f["name"] + " = (ulong*)(*allocf)(allocf_arg, 8UL, sizeof(ulong)*self->" + f["name"] + "_len);", file=body)
+        print("    for (ulong i = 0; i < self->" + f["name"] + "_len; ++i)", file=body)
+    elif f["element"] == "uint" or f["element"] == "unsigned int":
+        print("    self->" + f["name"] + " = (uint*)(*allocf)(allocf_arg, 8UL, sizeof(ulong)*self->" + f["name"] + "_len);", file=body)
         print("    for (ulong i = 0; i < self->" + f["name"] + "_len; ++i)", file=body)
     else:
-        print("    self->" + f["name"] + " = (" + n + "_" + f["element"] + "_t*)(*allocf)(" + el + "_FOOTPRINT*self->" + f["name"] + "_len, " + el + "_ALIGN, allocf_arg);", file=body)
+        print("    self->" + f["name"] + " = (" + n + "_" + f["element"] + "_t*)(*allocf)(allocf_arg, " + el + "_ALIGN, " + el + "_FOOTPRINT*self->" + f["name"] + "_len);", file=body)
         print("    for (ulong i = 0; i < self->" + f["name"] + "_len; ++i)", file=body)
 
     if f["element"] == "unsigned char" or f["element"] == "uchar":
         print("fd_bincode_bytes_decode(self->" + f["name"] + ", self->" + f["name"] + "_len, data, dataend);", file=body)
     elif f["element"] == "ulong" or f["element"] == "unsigned long":
         print("fd_bincode_uint64_decode(self->" + f["name"] + " + i, data, dataend);", file=body)
+    elif f["element"] == "uint" or f["element"] == "unsigned int":
+        print("fd_bincode_uint32_decode(self->" + f["name"] + " + i, data, dataend);", file=body)
     else:
         print("      " + n + "_" + f["element"] + "_decode(self->" + f["name"] + " + i, data, dataend, allocf, allocf_arg);", file=body)
     print("  } else", file=body)
@@ -128,6 +139,8 @@ def do_vector_dynamic_body_decode(n, f):
         print("    fd_bincode_bytes_decode(&elem, " + f["name"] + "_len, data, dataend);", file=body)
     elif f["element"] == "ulong" or f["element"] == "unsigned long":
         print("    fd_bincode_uint64_decode(&elem, data, dataend);", file=body)
+    elif f["element"] == "uint" or f["element"] == "unsigned int":
+        print("    fd_bincode_uint32_decode(&elem, data, dataend);", file=body)
     else:
         print("    " + n + "_" + f["element"] + "_decode(&elem, data, dataend, allocf, allocf_arg);", file=body)
     print("    " + vector_dynamic_prefix(n, f) + "_push(&self->" + f["name"] + ", elem);", file=body)
@@ -137,12 +150,15 @@ def do_vector_dynamic_body_decode(n, f):
 def do_option_body_decode(n, f):
     print("  if (fd_bincode_option_decode(data, dataend)) {", file=body)
     if f["element"] == "ulong" or f["element"] == "unsigned long":
-        print("    self->" + f["name"] + " = (ulong*)(*allocf)(sizeof(ulong), 8, allocf_arg);", file=body)
+        print("    self->" + f["name"] + " = (ulong*)(*allocf)(allocf_arg, 8, sizeof(ulong));", file=body)
         print("    fd_bincode_uint64_decode(self->" + f["name"] + ", data, dataend);", file=body)
+    elif f["element"] == "uint" or f["element"] == "unsigned int":
+        print("    self->" + f["name"] + " = (uint*)(*allocf)(allocf_arg, 8, sizeof(uint));", file=body)
+        print("    fd_bincode_uint32_decode(self->" + f["name"] + ", data, dataend);", file=body)
     else:
         el = n + "_" + f["element"]
         el = el.upper()
-        print("    self->" + f["name"] + " = (" + n + "_" + f["element"] + "_t*)(*allocf)(" + el + "_FOOTPRINT, " + el + "_ALIGN, allocf_arg);", file=body)
+        print("    self->" + f["name"] + " = (" + n + "_" + f["element"] + "_t*)(*allocf)(allocf_arg, " + el + "_ALIGN, " + el + "_FOOTPRINT);", file=body)
         print("    " + n + "_" + f["element"] + "_decode(self->" + f["name"] + ", data, dataend, allocf, allocf_arg);", file=body)
     print("  } else", file=body)
     print("    self->" + f["name"] + " = NULL;", file=body)
@@ -150,7 +166,7 @@ def do_option_body_decode(n, f):
 def do_string_decode(n, f):    
     print("  ulong slen;", file=body)
     print("  fd_bincode_uint64_decode(&slen, data, dataend);", file=body)
-    print("  self->" + f["name"] + " = (char*)(*allocf)(slen + 1, 1, allocf_arg);", file=body)
+    print("  self->" + f["name"] + " = (char*)(*allocf)(allocf_arg, 1, slen + 1);", file=body)
     print("  fd_bincode_bytes_decode((uchar *) self->" + f["name"] + ", slen, data, dataend);", file=body)
     print("  self->" + f["name"] + "[slen] = '\\0';", file=body)
 
@@ -190,6 +206,8 @@ def do_vector_body_encode(n, f):
         pass
     elif f["element"] == "ulong" or f["element"] == "unsigned long":
         print("    for (ulong i = 0; i < self->" + f["name"] + "_len; ++i)", file=body)
+    elif f["element"] == "uint" or f["element"] == "unsigned int":
+        print("    for (ulong i = 0; i < self->" + f["name"] + "_len; ++i)", file=body)
     else:
         print("    for (ulong i = 0; i < self->" + f["name"] + "_len; ++i)", file=body)
 
@@ -197,6 +215,8 @@ def do_vector_body_encode(n, f):
         print("fd_bincode_bytes_encode(self->" + f["name"] + ", self->" + f["name"] + "_len, data);", file=body)
     elif f["element"] == "ulong" or f["element"] == "unsigned long":
         print("fd_bincode_uint64_encode(self->" + f["name"] + " + i, data);", file=body)
+    elif f["element"] == "uint" or f["element"] == "unsigned int":
+        print("fd_bincode_uint32_encode(self->" + f["name"] + " + i, data);", file=body)
     else:
         print("      " + n + "_" + f["element"] + "_encode(self->" + f["name"] + " + i, data);", file=body)
     print("  }", file=body)
@@ -212,6 +232,8 @@ def do_vector_dynamic_body_encode(n, f):
         print("    for (ulong i = 0; i < self->" + f["name"] + ".cnt; ++i)", file=body)
     elif f["element"] == "ulong" or f["element"] == "unsigned long":
         print("    for (ulong i = 0; i < self->" + f["name"] + ".cnt; ++i)", file=body)
+    elif f["element"] == "uint" or f["element"] == "unsigned int":
+        print("    for (ulong i = 0; i < self->" + f["name"] + ".cnt; ++i)", file=body)
     else:
         print("    for (ulong i = 0; i < self->" + f["name"] + ".cnt; ++i)", file=body)
 
@@ -219,6 +241,8 @@ def do_vector_dynamic_body_encode(n, f):
         print("fd_bincode_bytes_encode(&self->" + f["name"] + ".elems[i], 1, data);", file=body)
     elif f["element"] == "ulong" or f["element"] == "unsigned long":
         print("fd_bincode_uint64_encode(&self->" + f["name"] + ".elems[i], data);", file=body)
+    elif f["element"] == "uint" or f["element"] == "unsigned int":
+        print("fd_bincode_uint32_encode(&self->" + f["name"] + ".elems[i], data);", file=body)
     else:
         print("      " + n + "_" + f["element"] + "_encode(&self->" + f["name"] + ".elems[i], data);", file=body)
 
@@ -229,6 +253,8 @@ def do_option_body_encode(n, f):
 
     if f["element"] == "ulong" or f["element"] == "unsigned long":
         print("    fd_bincode_uint64_encode(self->" + f["name"] + ", data);", file=body)
+    elif f["element"] == "uint" or f["element"] == "unsigned int":
+        print("    fd_bincode_uint32_encode(self->" + f["name"] + ", data);", file=body)
     else:
         print("    " + n + "_" + f["element"] + "_encode(self->" + f["name"] + ", data);", file=body)
     print("  } else", file=body)
@@ -271,6 +297,8 @@ def do_vector_body_size(n, f):
         print("    size += self->" + f["name"] + "_len;", file=body)
     elif f["element"] == "ulong" or f["element"] == "unsigned long":
         print("    size += self->" + f["name"] + "_len * sizeof(ulong);", file=body)
+    elif f["element"] == "uint" or f["element"] == "unsigned int":
+        print("    size += self->" + f["name"] + "_len * sizeof(uint);", file=body)
     else:
         print("    for (ulong i = 0; i < self->" + f["name"] + "_len; ++i)", file=body)
         print("      size += " + n + "_" + f["element"] + "_size(self->" + f["name"] + " + i);", file=body)
@@ -284,6 +312,8 @@ def do_option_body_size(n, f):
 
     if f["element"] == "ulong" or f["element"] == "unsigned long":
         print("    size += sizeof(ulong);", file=body)
+    elif f["element"] == "uint" or f["element"] == "unsigned int":
+        print("    size += sizeof(uint);", file=body)
     else:
         el = n + "_" + f["element"]
         el = el.upper()
@@ -319,10 +349,12 @@ def do_vector_body_destroy(n, f):
         pass
     elif f["element"] == "ulong" or f["element"] == "unsigned long":
         pass
+    elif f["element"] == "uint" or f["element"] == "unsigned int":
+        pass
     else:
         print("for (ulong i = 0; i < self->" + f["name"] + "_len; ++i)", file=body)
         print("    " + n + "_" + f["element"] + "_destroy(self->" + f["name"] + " + i,  freef, freef_arg);", file=body)
-    print("freef(self->" + f["name"] + ", freef_arg);", file=body)
+    print("freef(freef_arg, self->" + f["name"] + ");", file=body)
     print("self->" + f["name"] + " = NULL;", file=body)
     print("}", file=body)
 
@@ -334,10 +366,12 @@ def do_option_body_destroy(n, f):
     print("if (NULL != self->" + f["name"] + ") {", file=body)
     if f["element"] == "ulong" or f["element"] == "unsigned long":
         pass
+    elif f["element"] == "uint" or f["element"] == "unsigned int":
+        pass
     else:
         print("    " + n + "_" + f["element"] + "_destroy(self->" + f["name"] + ",  freef, freef_arg);", file=body)
 
-    print("freef(self->" + f["name"] + ", freef_arg);", file=body)
+    print("freef(freef_arg, self->" + f["name"] + ");", file=body)
     print("self->" + f["name"] + " = NULL;", file=body)
     print("}", file=body)
 
@@ -346,7 +380,7 @@ def do_pass():
 
 fields_body_destroy = {
     "char" :              lambda n, f: do_pass(),
-    "char*" :             lambda n, f: print("if (NULL != self->" + f["name"] + ") {\nfreef(self->" + f["name"] + ", freef_arg);\nself->" + f["name"] + " = NULL;}", file=body),
+    "char*" :             lambda n, f: print("if (NULL != self->" + f["name"] + ") {\nfreef(freef_arg, self->" + f["name"] + ");\nself->" + f["name"] + " = NULL;}", file=body),
     "char[32]" :          lambda n, f: do_pass(),
     "char[7]" :           lambda n, f: do_pass(),
     "double" :            lambda n, f: do_pass(),

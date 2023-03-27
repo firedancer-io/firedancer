@@ -68,25 +68,21 @@ void SnapshotParser_parsefd_solana_accounts(struct SnapshotParser* self, const v
   }
 }
 
-char* SnapshotParser_allocTemp(unsigned long len, unsigned long align, void* arg) {
-  struct SnapshotParser* self = (struct SnapshotParser*)arg;
-  char* p = self->tmpcur_;
-  p = (char*)FD_ULONG_ALIGN_UP(((unsigned long)p), align);
-  if (p + len > self->tmpend_) {
-    FD_LOG_ERR(("out of temp memory"));
-    return NULL;
-  }
-  self->tmpcur_ = p + len;
-  return p;
+static
+char* SnapshotParser_allocTemp(FD_FN_UNUSED void* arg, unsigned long align, unsigned long len) {
+  char * ptr = malloc(fd_ulong_align_up(sizeof(char *) + len, align));
+  char * ret = (char *) fd_ulong_align_up( (ulong) (ptr + sizeof(char *)), align );
+  *((char **)(ret - sizeof(char *))) = ptr;
+  return ret;
 }
 
 void SnapshotParser_parseSnapshots(struct SnapshotParser* self, const void* data, size_t datalen) {
   struct fd_deserializable_versioned_bank* bank = (struct fd_deserializable_versioned_bank*)
-    SnapshotParser_allocTemp(FD_DESERIALIZABLE_VERSIONED_BANK_FOOTPRINT, FD_DESERIALIZABLE_VERSIONED_BANK_ALIGN, self);
+    SnapshotParser_allocTemp(self, FD_DESERIALIZABLE_VERSIONED_BANK_ALIGN, FD_DESERIALIZABLE_VERSIONED_BANK_FOOTPRINT);
   fd_deserializable_versioned_bank_decode(bank, &data, &datalen, SnapshotParser_allocTemp, self);
 
   struct fd_solana_accounts_db_fields* accounts = (struct fd_solana_accounts_db_fields*)
-    SnapshotParser_allocTemp(FD_SOLANA_ACCOUNTS_DB_FIELDS_FOOTPRINT, FD_SOLANA_ACCOUNTS_DB_FIELDS_ALIGN, self);
+    SnapshotParser_allocTemp(self, FD_SOLANA_ACCOUNTS_DB_FIELDS_ALIGN, FD_SOLANA_ACCOUNTS_DB_FIELDS_FOOTPRINT);
   fd_solana_accounts_db_fields_decode(accounts, &data, &datalen, SnapshotParser_allocTemp, self);
 }
 

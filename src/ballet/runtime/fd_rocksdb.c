@@ -4,45 +4,6 @@
 #include <stdlib.h>
 #include "../../util/bits/fd_bits.h"
 
-void fd_slot_meta_decode(fd_slot_meta_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
-  fd_bincode_uint64_decode(&self->slot, data, dataend);
-  fd_bincode_uint64_decode(&self->consumed, data, dataend);
-  fd_bincode_uint64_decode(&self->received, data, dataend);
-  fd_bincode_uint64_decode(&self->first_shred_timestamp, data, dataend);
-  fd_bincode_uint64_decode(&self->last_index, data, dataend);
-  fd_bincode_uint64_decode(&self->parent_slot, data, dataend);
-  fd_bincode_uint64_decode(&self->num_next_slots, data, dataend);
-  if (self->num_next_slots > 0) {
-    self->next_slots = (ulong*)(*allocf)(sizeof(ulong)*self->num_next_slots, (8UL), allocf_arg);
-    for (ulong i = 0; i < self->num_next_slots; ++i)
-      fd_bincode_uint64_decode(self->next_slots + i, data, dataend);
-  } else
-    self->next_slots = NULL;
-  fd_bincode_uint8_decode(&self->is_connected, data, dataend);
-  fd_bincode_uint64_decode(&self->num_entry_end_indexes, data, dataend);
-  if (self->num_entry_end_indexes > 0) {
-    self->entry_end_indexes = (uint*)(*allocf)(sizeof(uint)*self->num_entry_end_indexes, (4UL), allocf_arg);
-    for (ulong i = 0; i < self->num_entry_end_indexes; ++i) 
-      fd_bincode_uint32_decode(self->entry_end_indexes + i, data, dataend);
-  } else 
-    self->entry_end_indexes = NULL;
-}
-
-void fd_slot_meta_destroy(
-  fd_slot_meta_t* self,
-    fd_free_fun_t freef, 
-    void* freef_arg
-  ) {
-  if (NULL != self->next_slots) {
-    freef(self->next_slots, freef_arg);
-    self->next_slots = NULL;
-  }
-  if (NULL != self->entry_end_indexes) {
-    freef(self->entry_end_indexes, freef_arg);
-    self->entry_end_indexes = NULL;
-  }
-}
-
 char * fd_rocksdb_init(fd_rocksdb_t *db, const char *db_name) {
   fd_memset(db, 0, sizeof(fd_rocksdb_t));
 
@@ -168,7 +129,7 @@ fd_slot_blocks_t * fd_rocksdb_get_microblocks(fd_rocksdb_t *db, fd_slot_meta_t *
   rocksdb_iter_seek(iter, (const char *) k, sizeof(k));
   // Put valid check for iter up here... to short circut unused memory alloc
   ulong bufsize = m->consumed * 1500;
-  fd_slot_blocks_t *batch = (fd_slot_blocks_t *) allocf(FD_SLOT_BLOCKS_FOOTPRINT(bufsize), FD_SLOT_BLOCKS_ALIGN, allocf_arg);
+  fd_slot_blocks_t *batch = (fd_slot_blocks_t *) allocf(allocf_arg, FD_SLOT_BLOCKS_ALIGN, FD_SLOT_BLOCKS_FOOTPRINT(bufsize));
 
   fd_slot_blocks_new(batch);
 
@@ -279,7 +240,7 @@ fd_slot_blocks_t * fd_rocksdb_get_microblocks(fd_rocksdb_t *db, fd_slot_meta_t *
       }
 
       if (mcnt > 0) {
-        uchar * blob = (uchar *) allocf(bsz, FD_MICROBLOCK_ALIGN, allocf_arg);
+        uchar * blob = (uchar *) allocf(allocf_arg, FD_MICROBLOCK_ALIGN, bsz);
         // Yes, a simple linked list...
         if (NULL != batch->last_blob) 
           *((uchar **) batch->last_blob) = blob;
@@ -339,7 +300,7 @@ void fd_slot_blocks_destroy(fd_slot_blocks_t *b, fd_free_fun_t freef,  void* fre
   uchar *blob = b->first_blob;
   while (NULL != blob) {
     uchar *n = *((uchar **) blob);
-    freef(blob, freef_arg);
+    freef(freef_arg, blob);
     blob = n;
   }
   fd_memset(b, 0, sizeof(*b));

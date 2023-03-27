@@ -3,19 +3,6 @@
 #include "fd_executor.h"
 #include "../../ballet/txn/fd_compact_u16.h"
 
-static
-char* local_allocf(unsigned long len, unsigned long align, FD_FN_UNUSED void* arg) {
-  char * ptr = malloc(fd_ulong_align_up(sizeof(char *) + len, align));
-  char * ret = (char *) fd_ulong_align_up( (ulong) (ptr + sizeof(char *)), align );
-  *((char **)(ret - sizeof(char *))) = ptr;
-  return ret;
-}
-
-static
-void local_freef(void *ptr, FD_FN_UNUSED void* arg) {
-  free(*((char **)((char *) ptr - sizeof(char *))));
-}
-
 int fd_executor_vote_program_execute_instruction(
     instruction_ctx_t ctx
 ) {
@@ -63,9 +50,9 @@ int fd_executor_vote_program_execute_instruction(
 
       /* Decode the vote tower */
       fd_compact_vote_state_update_t compact_vote;
-      fd_compact_vote_state_update_decode(&compact_vote, input_ptr, dataend, local_allocf, NULL);
+      fd_compact_vote_state_update_decode(&compact_vote, input_ptr, dataend, ctx.global->allocf, ctx.global->allocf_arg);
 
-      fd_compact_vote_state_update_destroy(&compact_vote, local_freef, NULL);
+      fd_compact_vote_state_update_destroy(&compact_vote, ctx.global->freef, ctx.global->freef_arg);
 
   //    ulong proposed_root = 0;
   //    fd_bincode_uint64_decode( &proposed_root, input_ptr, dataend );
@@ -136,9 +123,9 @@ int fd_executor_vote_program_execute_instruction(
 
       /* Decode the VoteState data structure: solana/sdk/program/src/vote/state/mod.rs::VoteState */
       fd_vote_state_t vote_state;
-      fd_vote_state_decode(&vote_state, input_ptr, dataend, local_allocf, NULL);
+      fd_vote_state_decode(&vote_state, input_ptr, dataend, ctx.global->allocf, ctx.global->allocf_arg);
 
-      fd_vote_state_destroy(&vote_state, local_freef, NULL);
+      fd_vote_state_destroy(&vote_state, ctx.global->freef, ctx.global->freef_arg);
     } else {
       /* TODO: support other vote program instructions */
       FD_LOG_ERR(( "unsupported vote program instruction: discrimant: %d", discrimant ));

@@ -2,8 +2,8 @@
 #define HEADER_FD_BANKS_SOLANA
 
 #include "../../util/encoders/fd_bincode.h"
-typedef char* (*fd_alloc_fun_t)(ulong len, ulong align, void* arg);
-typedef void  (*fd_free_fun_t) (void *ptr, void* arg);
+typedef char* (*fd_alloc_fun_t)(void *arg, ulong align, ulong len);
+typedef void  (*fd_free_fun_t) (void *arg, void *ptr);
 #define FD_ACCOUNT_META_MAGIC 9823
 
 struct fd_fee_calculator {
@@ -627,6 +627,7 @@ typedef struct fd_slot_history_inner fd_slot_history_inner_t;
 #define FD_SLOT_HISTORY_INNER_FOOTPRINT sizeof(fd_slot_history_inner_t)
 #define FD_SLOT_HISTORY_INNER_ALIGN (8UL)
 
+/* https://github.com/tov/bv-rs/blob/107be3e9c45324e55844befa4c4239d4d3d092c6/src/bit_vec/inner.rs#L8 */
 struct fd_slot_history_bitvec {
   fd_slot_history_inner_t* bits;
   unsigned long            len;
@@ -635,6 +636,7 @@ typedef struct fd_slot_history_bitvec fd_slot_history_bitvec_t;
 #define FD_SLOT_HISTORY_BITVEC_FOOTPRINT sizeof(fd_slot_history_bitvec_t)
 #define FD_SLOT_HISTORY_BITVEC_ALIGN (8UL)
 
+/* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/slot_history.rs#L11 */
 struct fd_slot_history {
   fd_slot_history_bitvec_t bits;
   unsigned long            next_slot;
@@ -674,6 +676,23 @@ struct fd_recent_block_hashes {
 typedef struct fd_recent_block_hashes fd_recent_block_hashes_t;
 #define FD_RECENT_BLOCK_HASHES_FOOTPRINT sizeof(fd_recent_block_hashes_t)
 #define FD_RECENT_BLOCK_HASHES_ALIGN (8UL)
+
+struct fd_slot_meta {
+  unsigned long  slot;
+  unsigned long  consumed;
+  unsigned long  received;
+  unsigned long  first_shred_timestamp;
+  unsigned long  last_index;
+  unsigned long  parent_slot;
+  ulong          next_slot_len;
+  unsigned long* next_slot;
+  unsigned char  is_connected;
+  ulong          entry_end_indexes_len;
+  uint*          entry_end_indexes;
+};
+typedef struct fd_slot_meta fd_slot_meta_t;
+#define FD_SLOT_META_FOOTPRINT sizeof(fd_slot_meta_t)
+#define FD_SLOT_META_ALIGN (8UL)
 
 
 FD_PROTOTYPES_BEGIN
@@ -982,6 +1001,11 @@ void fd_recent_block_hashes_decode(fd_recent_block_hashes_t* self, void const** 
 void fd_recent_block_hashes_encode(fd_recent_block_hashes_t* self, void const** data);
 void fd_recent_block_hashes_destroy(fd_recent_block_hashes_t* self, fd_free_fun_t freef, void* freef_arg);
 ulong fd_recent_block_hashes_size(fd_recent_block_hashes_t* self);
+
+void fd_slot_meta_decode(fd_slot_meta_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
+void fd_slot_meta_encode(fd_slot_meta_t* self, void const** data);
+void fd_slot_meta_destroy(fd_slot_meta_t* self, fd_free_fun_t freef, void* freef_arg);
+ulong fd_slot_meta_size(fd_slot_meta_t* self);
 
 FD_PROTOTYPES_END
 

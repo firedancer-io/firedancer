@@ -10,24 +10,6 @@
 
 /* Solana rocksdb client */
 
-/* slot meta data object found in the rocksdb */
-struct fd_slot_meta {
-  ulong  slot;
-  ulong  consumed;
-  ulong  received;
-  ulong  first_shred_timestamp;
-  ulong  last_index;
-  ulong  parent_slot;
-  ulong  num_next_slots;
-  ulong *next_slots;
-  uchar  is_connected;
-  ulong  num_entry_end_indexes;
-  uint  *entry_end_indexes;
-};
-typedef struct fd_slot_meta fd_slot_meta_t;
-#define FD_SLOT_META_FOOTPRINT sizeof(fd_slot_meta_t)
-#define FD_SLOT_META_ALIGN (8UL)
-
 /* all the micro blocks found in a slot */
 struct fd_slot_blocks {
   uint block_cnt;
