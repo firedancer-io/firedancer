@@ -1,0 +1,5 @@
+#!/bin/bash
+
+# Set pkg-config path to source libraries from ./opt
+export PKG_CONFIG_LIBDIR=""
+export PKG_CONFIG_PATH="$(pwd)/opt/lib/pkgconfig:$(pwd)/opt/lib64/pkgconfig"

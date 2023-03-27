@@ -13,6 +13,8 @@ fd_ffi.rs
 
 # Core Dumps
 core.*.*
+# Dependencies
+opt/
 
 # Nix
 /result
