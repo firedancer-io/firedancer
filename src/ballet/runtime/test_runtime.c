@@ -377,7 +377,7 @@ int slot_dump(global_state_t *state) {
             a.slot, a.epoch_start_timestamp, a.epoch, a.leader_schedule_epoch, a.unix_timestamp);
           fd_sol_sysvar_clock_destroy(&a, freef, state->alloc);
 
-        } while (false);
+        } while (0);
 
         b += fd_ulong_align_up(hdr->meta.data_len + sizeof(*hdr), 8);
       }
