@@ -7,16 +7,19 @@ struct VECT_NAME {
 };
 typedef struct VECT_NAME VECT_(t);
 
+static inline
 void VECT_(new)(struct VECT_NAME* self) {
   self->cnt = 0;
   self->max = 64;
   self->elems = (VECT_ELEMENT*)malloc(sizeof(VECT_ELEMENT)*self->max);
 }
 
+static inline
 void VECT_(destroy)(struct VECT_NAME* self) {
   free(self->elems);
 }
 
+static inline
 void VECT_(push)(struct VECT_NAME* self, const VECT_ELEMENT elem) {
   if (self->cnt == self->max) {
     self->max <<= 1;
@@ -25,15 +28,18 @@ void VECT_(push)(struct VECT_NAME* self, const VECT_ELEMENT elem) {
   self->elems[self->cnt ++] = elem;
 }
 
+static inline
 int VECT_(empty)(struct VECT_NAME* self) {
   return self->cnt == 0;
 }
 
+static inline
 VECT_ELEMENT VECT_(pop_unsafe)(struct VECT_NAME* self) {
   // Not safe on purpose
   return self->elems[--(self->cnt)];
 }
 
+static inline
 void VECT_(remove_at)(struct VECT_NAME* self, ulong i) {
   VECT_ELEMENT* const elems = self->elems;
   ulong cnt = --(self->cnt);

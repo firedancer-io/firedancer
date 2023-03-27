@@ -43,6 +43,20 @@ def do_vector_header(n, f):
     else:
         print("  " + n + "_" + f["element"] + "_t* " + f["name"] + ";", file=header)
 
+def vector_resizable_elem_type(n, f):
+  if f["element"] == "unsigned char" or f["element"] == "uchar":
+    return "uchar"
+  elif f["element"] == "ulong" or f["element"] == "unsigned long":
+      return "ulong"
+  else:
+      return namespace + "_" + f["element"] + "_t"
+  
+def vector_resizable_prefix(n, f):
+    return n + "_vec_" + vector_resizable_elem_type(n, f)
+
+def do_vector_resizable_header(n, f):
+    print("  " + vector_resizable_prefix(n, f) + "_t " + f["name"] + ";", file=header)
+
 def do_option_header(n, f):
       if f["element"] == "ulong" or f["element"] == "unsigned long":
           print("  " + f["element"] + "* " + f["name"] + ";", file=header)
@@ -63,6 +77,7 @@ fields_header = {
     "unsigned long" :     lambda n, f: print("  unsigned long " + f["name"] + ";",     file=header),
     "ushort" :            lambda n, f: print("  ushort " + f["name"] + ";",            file=header),
     "vector" :            lambda n, f: do_vector_header(n, f),
+    "vector_resizable":   lambda n, f: do_vector_resizable_header(n, f),
     "option" :            lambda n, f: do_option_header(n, f)
 }
 
@@ -93,6 +108,31 @@ def do_vector_body_decode(n, f):
     print("  } else", file=body)
     print("   self->" + f["name"] + " = NULL;", file=body)
 
+
+def do_vector_resizable_body_decode(n, f):
+    print(vector_resizable_prefix(n, f) + "_new(&self->" + f["name"] + ");", file=body)
+
+    print("ulong " + f["name"] + "_len;", file=body)
+
+    if "modifier" in f and f["modifier"] == "compact":
+        print("  fd_decode_short_u16(&" + f["name"] + "_len, data, dataend);", file=body)
+    else:
+        print("  fd_bincode_uint64_decode(&" + f["name"] + "_len, data, dataend);", file=body)
+    el = n + "_" + f["element"]
+    el = el.upper()
+
+    print("  for (ulong i = 0; i < " + f["name"] + "_len; ++i) {", file=body)
+    print("    " + vector_resizable_elem_type(n, f) + " elem;", file=body); 
+
+    if f["element"] == "unsigned char" or f["element"] == "uchar":
+        print("    fd_bincode_bytes_decode(&elem, " + f["name"] + "_len, data, dataend);", file=body)
+    elif f["element"] == "ulong" or f["element"] == "unsigned long":
+        print("    fd_bincode_uint64_decode(&elem, data, dataend);", file=body)
+    else:
+        print("    " + n + "_" + f["element"] + "_decode(&elem, data, dataend, allocf, allocf_arg);", file=body)
+    print("    " + vector_resizable_prefix(n, f) + "_push(&self->" + f["name"] + ", elem);", file=body)
+
+    print("  }", file=body)
 
 def do_option_body_decode(n, f):
     print("  if (fd_bincode_option_decode(data, dataend)) {", file=body)
@@ -134,6 +174,7 @@ fields_body_decode = {
     "unsigned long" :     lambda n, f: do_ulong_decode(n, f),
     "ushort" :            lambda n, f: print("fd_bincode_uint16_decode(&self->" + f["name"] + ", data, dataend);", file=body),
     "vector" :            lambda n, f: do_vector_body_decode(n, f),
+    "vector_resizable":   lambda n, f: do_vector_resizable_body_decode(n, f),
     "option" :            lambda n, f: do_option_body_decode(n, f)
 }
 # encode
@@ -159,6 +200,27 @@ def do_vector_body_encode(n, f):
     else:
         print("      " + n + "_" + f["element"] + "_encode(self->" + f["name"] + " + i, data);", file=body)
     print("  }", file=body)
+
+
+def do_vector_resizable_body_encode(n, f):
+    if "modifier" in f and f["modifier"] == "compact":
+        print("  fd_encode_short_u16(&self->" + f["name"] + ".cnt, (void **) data);", file=body)
+    else:
+        print("  fd_bincode_uint64_encode(&self->" + f["name"] + ".cnt, data);", file=body)
+
+    if f["element"] == "unsigned char" or f["element"] == "uchar":
+        print("    for (ulong i = 0; i < self->" + f["name"] + ".cnt; ++i)", file=body)
+    elif f["element"] == "ulong" or f["element"] == "unsigned long":
+        print("    for (ulong i = 0; i < self->" + f["name"] + ".cnt; ++i)", file=body)
+    else:
+        print("    for (ulong i = 0; i < self->" + f["name"] + ".cnt; ++i)", file=body)
+
+    if f["element"] == "unsigned char" or f["element"] == "uchar":
+        print("fd_bincode_bytes_encode(&self->" + f["name"] + ".elems[i], 1, data);", file=body)
+    elif f["element"] == "ulong" or f["element"] == "unsigned long":
+        print("fd_bincode_uint64_encode(&self->" + f["name"] + ".elems[i], data);", file=body)
+    else:
+        print("      " + n + "_" + f["element"] + "_encode(&self->" + f["name"] + ".elems[i], data);", file=body)
 
 
 def do_option_body_encode(n, f):
@@ -197,6 +259,7 @@ fields_body_encode = {
     "unsigned long" :     lambda n, f: do_ulong_encode(n, f),
     "ushort" :            lambda n, f: print("fd_bincode_uint16_encode(&self->" + f["name"] + ", data);", file=body),
     "vector" :            lambda n, f: do_vector_body_encode(n, f),
+    "vector_resizable" :  lambda n, f: do_vector_resizable_body_encode(n, f),
     "option" :            lambda n, f: do_option_body_encode(n, f)
 }
 
@@ -211,6 +274,9 @@ def do_vector_body_size(n, f):
     else:
         print("    for (ulong i = 0; i < self->" + f["name"] + "_len; ++i)", file=body)
         print("      size += " + n + "_" + f["element"] + "_size(self->" + f["name"] + " + i);", file=body)
+
+def do_vector_resizable_body_size(n, f):
+    print("size += sizeof(" + vector_resizable_prefix(n, f) + "_t);", file=body)
 
 def do_option_body_size(n, f):
     print("  size += sizeof(char);", file=body)
@@ -241,6 +307,7 @@ fields_body_size = {
     "unsigned long" :     lambda n, f: print("size += sizeof(ulong);", file=body),
     "ushort" :            lambda n, f: print("size += sizeof(ushort);", file=body),
     "vector" :            lambda n, f: do_vector_body_size(n, f),
+    "vector_resizable" :  lambda n, f: do_vector_resizable_body_size(n, f),
     "option" :            lambda n, f: do_option_body_size(n, f)
 }
 
@@ -258,6 +325,10 @@ def do_vector_body_destroy(n, f):
     print("freef(self->" + f["name"] + ", freef_arg);", file=body)
     print("self->" + f["name"] + " = NULL;", file=body)
     print("}", file=body)
+
+
+def do_vector_resizable_body_destroy(n, f):
+    print(vector_resizable_prefix(namespace, f) + "_destroy(&self->" + f["name"] + ");", file=body)
 
 def do_option_body_destroy(n, f):
     print("if (NULL != self->" + f["name"] + ") {", file=body)
@@ -287,6 +358,7 @@ fields_body_destroy = {
     "unsigned long" :     lambda n, f: do_pass(),
     "ushort" :            lambda n, f: do_pass(),
     "vector" :            lambda n, f: do_vector_body_destroy(n, f),
+    "vector_resizable" :  lambda n, f: do_vector_resizable_body_destroy(n, f),
     "option" :            lambda n, f: do_option_body_destroy(n, f)
 }
 
@@ -299,7 +371,25 @@ for entry in entries:
             if f["element"] in type_map:
                 f["element"] = type_map[f["element"]]
 
+# Generate one instance of the fd_vector.h template for each unique element type.
+vector_resizable_element_types = set()
+
 for entry in entries:
+    # Create the resizable vector types needed for this entry
+    for f in entry["fields"]:
+        if f["type"] == "vector_resizable":
+            element_type = vector_resizable_elem_type(namespace, f)
+            if element_type in vector_resizable_element_types:
+                continue
+
+            print("#define VECT_NAME " + vector_resizable_prefix(namespace, f), file=header)
+            print("#define VECT_ELEMENT " + element_type, file=header)
+            print("#include \"../../funk/fd_vector.h\"", file=header)
+            print("#undef VECT_NAME", file=header)
+            print("#undef VECT_ELEMENT\n", file=header)
+
+            vector_resizable_element_types.add(element_type)
+
     if "comment" in entry:
       print("/* " + entry["comment"] + " */", file=header)
 
