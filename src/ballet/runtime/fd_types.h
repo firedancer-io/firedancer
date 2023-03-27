@@ -619,9 +619,25 @@ typedef struct fd_compact_vote_state_update fd_compact_vote_state_update_t;
 #define FD_COMPACT_VOTE_STATE_UPDATE_FOOTPRINT sizeof(fd_compact_vote_state_update_t)
 #define FD_COMPACT_VOTE_STATE_UPDATE_ALIGN (8UL)
 
+struct fd_slot_history_inner {
+  ulong          blocks_len;
+  unsigned long* blocks;
+};
+typedef struct fd_slot_history_inner fd_slot_history_inner_t;
+#define FD_SLOT_HISTORY_INNER_FOOTPRINT sizeof(fd_slot_history_inner_t)
+#define FD_SLOT_HISTORY_INNER_ALIGN (8UL)
+
+struct fd_slot_history_bitvec {
+  fd_slot_history_inner_t* bits;
+  unsigned long            len;
+};
+typedef struct fd_slot_history_bitvec fd_slot_history_bitvec_t;
+#define FD_SLOT_HISTORY_BITVEC_FOOTPRINT sizeof(fd_slot_history_bitvec_t)
+#define FD_SLOT_HISTORY_BITVEC_ALIGN (8UL)
+
 struct fd_slot_history {
-  unsigned long bits;
-  unsigned long next_slot;
+  fd_slot_history_bitvec_t bits;
+  unsigned long            next_slot;
 };
 typedef struct fd_slot_history fd_slot_history_t;
 #define FD_SLOT_HISTORY_FOOTPRINT sizeof(fd_slot_history_t)
@@ -931,6 +947,16 @@ void fd_compact_vote_state_update_decode(fd_compact_vote_state_update_t* self, v
 void fd_compact_vote_state_update_encode(fd_compact_vote_state_update_t* self, void const** data);
 void fd_compact_vote_state_update_destroy(fd_compact_vote_state_update_t* self, fd_free_fun_t freef, void* freef_arg);
 ulong fd_compact_vote_state_update_size(fd_compact_vote_state_update_t* self);
+
+void fd_slot_history_inner_decode(fd_slot_history_inner_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
+void fd_slot_history_inner_encode(fd_slot_history_inner_t* self, void const** data);
+void fd_slot_history_inner_destroy(fd_slot_history_inner_t* self, fd_free_fun_t freef, void* freef_arg);
+ulong fd_slot_history_inner_size(fd_slot_history_inner_t* self);
+
+void fd_slot_history_bitvec_decode(fd_slot_history_bitvec_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
+void fd_slot_history_bitvec_encode(fd_slot_history_bitvec_t* self, void const** data);
+void fd_slot_history_bitvec_destroy(fd_slot_history_bitvec_t* self, fd_free_fun_t freef, void* freef_arg);
+ulong fd_slot_history_bitvec_size(fd_slot_history_bitvec_t* self);
 
 void fd_slot_history_decode(fd_slot_history_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
 void fd_slot_history_encode(fd_slot_history_t* self, void const** data);

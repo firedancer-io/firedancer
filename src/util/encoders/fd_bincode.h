@@ -21,7 +21,7 @@ void fd_bincode_uint128_decode(uint128* self, void const** data, void const* dat
 static inline
 void fd_bincode_uint128_encode(uint128* self, void const** data) {
   uint128 *ptr = (uint128 *) *data;
-  *ptr = *self;
+  _mm_storeu_si128((__m128i *) ptr, (__m128i) *self);
   *data = ptr + 1;
 }
 

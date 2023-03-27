@@ -1978,22 +1978,89 @@ void fd_compact_vote_state_update_encode(fd_compact_vote_state_update_t* self, v
     fd_bincode_option_encode(0, data);
 }
 
+void fd_slot_history_inner_decode(fd_slot_history_inner_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
+  fd_bincode_uint64_decode(&self->blocks_len, data, dataend);
+  if (self->blocks_len != 0) {
+    self->blocks = (ulong*)(*allocf)(sizeof(ulong)*self->blocks_len, 8, allocf_arg);
+    for (ulong i = 0; i < self->blocks_len; ++i)
+      fd_bincode_uint64_decode(self->blocks + i, data, dataend);
+  } else
+    self->blocks = NULL;
+}
+void fd_slot_history_inner_destroy(fd_slot_history_inner_t* self, fd_free_fun_t freef, void* freef_arg) {
+  if (NULL != self->blocks) {
+    freef(self->blocks, freef_arg);
+    self->blocks = NULL;
+  }
+}
+
+ulong fd_slot_history_inner_size(fd_slot_history_inner_t* self) {
+  ulong size = 0;
+  size += sizeof(ulong);
+  size += self->blocks_len * sizeof(ulong);
+  return size;
+}
+
+void fd_slot_history_inner_encode(fd_slot_history_inner_t* self, void const** data) {
+  fd_bincode_uint64_encode(&self->blocks_len, data);
+  if (self->blocks_len != 0) {
+    for (ulong i = 0; i < self->blocks_len; ++i)
+      fd_bincode_uint64_encode(self->blocks + i, data);
+  }
+}
+
+void fd_slot_history_bitvec_decode(fd_slot_history_bitvec_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
+  if (fd_bincode_option_decode(data, dataend)) {
+    self->bits = (fd_slot_history_inner_t*)(*allocf)(FD_SLOT_HISTORY_INNER_FOOTPRINT, FD_SLOT_HISTORY_INNER_ALIGN, allocf_arg);
+    fd_slot_history_inner_decode(self->bits, data, dataend, allocf, allocf_arg);
+  } else
+    self->bits = NULL;
+  fd_bincode_uint64_decode(&self->len, data, dataend);
+}
+void fd_slot_history_bitvec_destroy(fd_slot_history_bitvec_t* self, fd_free_fun_t freef, void* freef_arg) {
+  if (NULL != self->bits) {
+    fd_slot_history_inner_destroy(self->bits,  freef, freef_arg);
+    freef(self->bits, freef_arg);
+    self->bits = NULL;
+  }
+}
+
+ulong fd_slot_history_bitvec_size(fd_slot_history_bitvec_t* self) {
+  ulong size = 0;
+  size += sizeof(char);
+  if (NULL !=  self->bits) {
+    size += fd_slot_history_inner_size(self->bits);
+  }
+  size += sizeof(ulong);
+  return size;
+}
+
+void fd_slot_history_bitvec_encode(fd_slot_history_bitvec_t* self, void const** data) {
+  if (self->bits!= NULL) {
+    fd_bincode_option_encode(1, data);
+    fd_slot_history_inner_encode(self->bits, data);
+  } else
+    fd_bincode_option_encode(0, data);
+  fd_bincode_uint64_encode(&self->len, data);
+}
+
 void fd_slot_history_decode(fd_slot_history_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
-  fd_bincode_uint64_decode(&self->bits, data, dataend);
+  fd_slot_history_bitvec_decode(&self->bits, data, dataend, allocf, allocf_arg);
   fd_bincode_uint64_decode(&self->next_slot, data, dataend);
 }
 void fd_slot_history_destroy(fd_slot_history_t* self, fd_free_fun_t freef, void* freef_arg) {
+  fd_slot_history_bitvec_destroy(&self->bits, freef, freef_arg);
 }
 
 ulong fd_slot_history_size(fd_slot_history_t* self) {
   ulong size = 0;
-  size += sizeof(ulong);
+  size += fd_slot_history_bitvec_size(&self->bits);
   size += sizeof(ulong);
   return size;
 }
 
 void fd_slot_history_encode(fd_slot_history_t* self, void const** data) {
-  fd_bincode_uint64_encode(&self->bits, data);
+  fd_slot_history_bitvec_encode(&self->bits, data);
   fd_bincode_uint64_encode(&self->next_slot, data);
 }
 

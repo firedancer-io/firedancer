@@ -231,6 +231,28 @@ int main(FD_FN_UNUSED int argc, FD_FN_UNUSED char** argv) {
     fd_epoch_stakes_destroy(&a, freef, NULL);
   }
 
+  {
+    // Account: {"a":{"bits":[45],"len":6},"b":5} 0101000000000000002d0000000000000006000000000000000500000000000000
+    unsigned char *out = NULL;
+    size_t len = hexs2bin("0101000000000000002d0000000000000006000000000000000500000000000000", &out);
+    unsigned char *outend = &out[len];
+    const void * o = out;
+
+    struct fd_slot_history a;
+    memset(&a, 0, sizeof(a));
+    fd_slot_history_decode(&a, &o, outend, allocf, NULL);
+
+    FD_TEST(fd_slot_history_size(&a) == len);
+
+    void *o2 = malloc(len);
+    void const *ptr = o2;
+    fd_slot_history_encode(&a, &ptr);
+    FD_TEST(memcmp(o2, out, len) == 0);
+    free(o2);
+    
+    free(out);
+    fd_slot_history_destroy(&a, freef, NULL);
+  }
 
   {
     struct stat s;
