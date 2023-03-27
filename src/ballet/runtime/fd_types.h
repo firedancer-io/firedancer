@@ -554,19 +554,38 @@ typedef struct fd_vote_epoch_credits fd_vote_epoch_credits_t;
 #define FD_VOTE_EPOCH_CREDITS_FOOTPRINT sizeof(fd_vote_epoch_credits_t)
 #define FD_VOTE_EPOCH_CREDITS_ALIGN (8UL)
 
+/* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/authorized_voters.rs#L9 */
+struct fd_vote_historical_authorized_voter {
+  unsigned long epoch;
+  fd_pubkey_t   pubkey;
+};
+typedef struct fd_vote_historical_authorized_voter fd_vote_historical_authorized_voter_t;
+#define FD_VOTE_HISTORICAL_AUTHORIZED_VOTER_FOOTPRINT sizeof(fd_vote_historical_authorized_voter_t)
+#define FD_VOTE_HISTORICAL_AUTHORIZED_VOTER_ALIGN (8UL)
+
+struct fd_vote_block_timestamp {
+  unsigned long slot;
+  unsigned long timestamp;
+};
+typedef struct fd_vote_block_timestamp fd_vote_block_timestamp_t;
+#define FD_VOTE_BLOCK_TIMESTAMP_FOOTPRINT sizeof(fd_vote_block_timestamp_t)
+#define FD_VOTE_BLOCK_TIMESTAMP_ALIGN (8UL)
+
+/* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L310 */
 struct fd_vote_state {
-  fd_pubkey_t              voting_node;
-  fd_pubkey_t              authorized_withdrawer;
-  unsigned char            commission;
-  ulong                    votes_len;
-  fd_vote_lockout_t*       votes;
-  unsigned long*           saved_root_slot;
-  ulong                    prior_voters_len;
-  fd_vote_prior_voter_t*   prior_voters;
-  ulong                    epoch_credits_len;
-  fd_vote_epoch_credits_t* epoch_credits;
-  unsigned long            latest_slot;
-  unsigned long            latest_timestamp;
+  fd_pubkey_t                            voting_node;
+  fd_pubkey_t                            authorized_withdrawer;
+  unsigned char                          commission;
+  ulong                                  votes_len;
+  fd_vote_lockout_t*                     votes;
+  unsigned long*                         saved_root_slot;
+  ulong                                  authorized_voters_len;
+  fd_vote_historical_authorized_voter_t* authorized_voters;
+  ulong                                  prior_voters_len;
+  fd_vote_prior_voter_t*                 prior_voters;
+  ulong                                  epoch_credits_len;
+  fd_vote_epoch_credits_t*               epoch_credits;
+  fd_vote_block_timestamp_t              latest_timestamp;
 };
 typedef struct fd_vote_state fd_vote_state_t;
 #define FD_VOTE_STATE_FOOTPRINT sizeof(fd_vote_state_t)
@@ -882,6 +901,16 @@ void fd_vote_epoch_credits_decode(fd_vote_epoch_credits_t* self, void const** da
 void fd_vote_epoch_credits_encode(fd_vote_epoch_credits_t* self, void const** data);
 void fd_vote_epoch_credits_destroy(fd_vote_epoch_credits_t* self, fd_free_fun_t freef, void* freef_arg);
 ulong fd_vote_epoch_credits_size(fd_vote_epoch_credits_t* self);
+
+void fd_vote_historical_authorized_voter_decode(fd_vote_historical_authorized_voter_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
+void fd_vote_historical_authorized_voter_encode(fd_vote_historical_authorized_voter_t* self, void const** data);
+void fd_vote_historical_authorized_voter_destroy(fd_vote_historical_authorized_voter_t* self, fd_free_fun_t freef, void* freef_arg);
+ulong fd_vote_historical_authorized_voter_size(fd_vote_historical_authorized_voter_t* self);
+
+void fd_vote_block_timestamp_decode(fd_vote_block_timestamp_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
+void fd_vote_block_timestamp_encode(fd_vote_block_timestamp_t* self, void const** data);
+void fd_vote_block_timestamp_destroy(fd_vote_block_timestamp_t* self, fd_free_fun_t freef, void* freef_arg);
+ulong fd_vote_block_timestamp_size(fd_vote_block_timestamp_t* self);
 
 void fd_vote_state_decode(fd_vote_state_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
 void fd_vote_state_encode(fd_vote_state_t* self, void const** data);

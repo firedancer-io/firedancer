@@ -541,6 +541,23 @@
       ]
     },
     {
+      "name": "vote_historical_authorized_voter",
+      "type": "struct",
+      "fields": [
+        { "name": "epoch", "type": "ulong" },
+        { "name": "pubkey", "type": "pubkey" }
+      ],
+      "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/authorized_voters.rs#L9"
+    },
+    {
+      "name": "vote_block_timestamp",
+      "type": "struct",
+      "fields": [
+        { "name": "slot", "type": "ulong" },
+        { "name": "timestamp", "type": "ulong" }
+      ]
+    },
+    {
       "name": "vote_state",
       "type": "struct",
       "fields": [
@@ -549,11 +566,12 @@
           { "name": "commission", "type": "uchar" },
           { "name": "votes", "type": "vector", "element": "vote_lockout" },
           { "name": "saved_root_slot", "type": "option", "element": "ulong" },
+          { "name": "authorized_voters", "type": "vector", "element": "vote_historical_authorized_voter" },
           { "name": "prior_voters", "type": "vector", "element": "vote_prior_voter" },
           { "name": "epoch_credits", "type": "vector", "element": "vote_epoch_credits" },
-          { "name": "latest_slot", "type": "ulong" },
-          { "name": "latest_timestamp", "type": "ulong" }
-      ]
+          { "name": "latest_timestamp", "type": "vote_block_timestamp" }
+      ],
+      "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L310"
     },
     {
       "name": "vote_state_update",
