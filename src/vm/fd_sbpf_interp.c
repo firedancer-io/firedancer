@@ -1,16 +1,15 @@
 #include "fd_sbpf_interp.h"
 
-void 
-fd_vm_sbpf_interp_instrs( FD_FN_UNUSED fd_vm_sbpf_exec_context_t * ctx, 
-                          FD_FN_UNUSED fd_vm_sbpf_instr_t const * instrs, 
-                          FD_FN_UNUSED ulong sz ) {
-  ulong program_counter = ctx->entrypoint;
+#include <immintrin.h>
+
+void
+fd_vm_sbpf_interp_instrs( fd_vm_sbpf_exec_context_t * ctx ) {
+  long pc = ctx->entrypoint;
   ulong register_file[11];
   fd_memset(register_file, 0, sizeof(register_file));
   
-  ulong r0 = 0, r1 = 0, r2 = 0, r3 = 0, r4 = 0, r5 = 0, r6 = 0, r7 = 0, r8 = 0, r9 = 0, r10 = 0;
-  uint cond_exit = 0;
-  uint cond_fault = 0;
+  ulong cond_exit = 0;
+  ulong cond_fault = 0;
 
 #define ALIGNED_JMP_TAB_ID interp
 #define ALIGNED_JMP_TAB_ALIGNMENT 16
@@ -22,22 +21,22 @@ fd_vm_sbpf_interp_instrs( FD_FN_UNUSED fd_vm_sbpf_exec_context_t * ctx,
   };
   
   for( ulong i = 0; 1; ++i ) {
-    if( FD_UNLIKELY(cond_exit) ) {
+    if( FD_UNLIKELY( cond_exit ) ) {
       return;
     }
-    if( FD_UNLIKELY(cond_fault) ) {
+    if( FD_UNLIKELY( cond_fault ) ) {
       return;
     }
 
-    instr = instrs[program_counter];
+    instr = ctx->instrs[pc];
     AJT_GOTO(instr.opcode.raw);
-    program_counter++;
+    pc++;
 AJT_BREAK_LOC:
     continue;
   }
 
 AJT_START;
-#include "fd_sbf_interp_dispatch_tab.c"
+#include "fd_sbpf_interp_dispatch_tab.c"
 AJT_END;
 
 #include "fd_aligned_jump_tab_teardown.c"
@@ -80,6 +79,7 @@ uchar const FD_OPCODE_VALIDATION_MAP[256] = {
   /* 0x4c */ FD_VALID,      /* 0x4d */ FD_CHECK_JMP,  /* 0x4e */ FD_CHECK_JMP,  /* 0x4f */ FD_VALID,   
   /* 0x50 */ FD_INVALID,    /* 0x51 */ FD_INVALID,    /* 0x52 */ FD_INVALID,    /* 0x53 */ FD_INVALID,   
   /* 0x54 */ FD_VALID,      /* 0x55 */ FD_CHECK_JMP,  /* 0x56 */ FD_CHECK_JMP,  /* 0x57 */ FD_VALID,   
+  /* 0x54 */ FD_VALID,      /* 0x55 */ FD_CHECK_JMP,  /* 0x56 */ FD_CHECK_JMP,  /* 0x57 */ FD_VALID,   
   /* 0x58 */ FD_INVALID,    /* 0x59 */ FD_INVALID,    /* 0x5a */ FD_INVALID,    /* 0x5b */ FD_INVALID,   
   /* 0x5c */ FD_VALID,      /* 0x5d */ FD_CHECK_JMP,  /* 0x5e */ FD_CHECK_JMP,  /* 0x5f */ FD_VALID,   
   /* 0x60 */ FD_INVALID,    /* 0x61 */ FD_VALID,      /* 0x62 */ FD_CHECK_ST,   /* 0x63 */ FD_CHECK_ST,   
@@ -116,7 +116,6 @@ uchar const FD_OPCODE_VALIDATION_MAP[256] = {
   /* 0xdc */ FD_CHECK_END,  /* 0xdd */ FD_CHECK_JMP,  /* 0xde */ FD_CHECK_JMP,  /* 0xdf */ FD_INVALID,   
   /* 0xe0 */ FD_INVALID,    /* 0xe1 */ FD_INVALID,    /* 0xe2 */ FD_INVALID,    /* 0xe3 */ FD_INVALID,   
   /* 0xe4 */ FD_INVALID,    /* 0xe5 */ FD_INVALID,    /* 0xe6 */ FD_INVALID,    /* 0xe7 */ FD_INVALID,   
-  /* 0xe8 */ FD_INVALID,    /* 0xe9 */ FD_INVALID,    /* 0xea */ FD_INVALID,    /* 0xeb */ FD_INVALID,   
   /* 0xec */ FD_INVALID,    /* 0xed */ FD_INVALID,    /* 0xee */ FD_INVALID,    /* 0xef */ FD_INVALID,   
   /* 0xf0 */ FD_INVALID,    /* 0xf1 */ FD_INVALID,    /* 0xf2 */ FD_INVALID,    /* 0xf3 */ FD_INVALID,   
   /* 0xf4 */ FD_INVALID,    /* 0xf5 */ FD_INVALID,    /* 0xf6 */ FD_INVALID,    /* 0xf7 */ FD_INVALID,   

@@ -1,7 +1,7 @@
 #ifndef HEADER_fd_src_ballet_runtime_vm_fd_log_collector_h
 #define HEADER_fd_src_ballet_runtime_vm_fd_log_collector_h
 
-#include "../../fd_ballet_base.h"
+#include "../ballet/fd_ballet_base.h"
 
 #define FD_VM_LOG_COLLECTOR_BYTES_LIMIT (10000UL)
 

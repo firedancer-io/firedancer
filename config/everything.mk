@@ -286,6 +286,13 @@ $(OBJDIR)/obj/%.i : src/%.cxx
 	$(MKDIR) $(dir $@) && \
 $(CXX) $(CPPFLAGS) $(CXXFLAGS) -E $< -o $@
 
+$(OBJDIR)/obj/%.o.d : $(OBJDIR)/obj/%.o
+	#######################################################################
+	# Decompiling object $< to $@
+	#######################################################################
+	$(MKDIR) $(dir $@) && \
+$(OBJDUMP) -dz $< > $@
+
 $(OBJDIR)/lib/%.a :
 	#######################################################################
 	# Creating library $@ from $^
@@ -342,6 +349,9 @@ asm: $(DEPFILES:.d=.S)
 # DEPFILES is fully populated
 
 ppp: $(DEPFILES:.d=.i)
+
+dec: $(DEPFILES:.d=.o.d)
+
 
 endif
 endif

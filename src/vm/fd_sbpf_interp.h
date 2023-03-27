@@ -1,8 +1,9 @@
 #ifndef HEADER_fd_src_ballet_runtime_vm_fd_sbpf_interp_h
 #define HEADER_fd_src_ballet_runtime_vm_fd_sbpf_interp_h
 
-#include "../../fd_ballet_base.h"
+#include "../ballet/fd_ballet_base.h"
 #include "fd_opcodes.h"
+#include "fd_mem_map.h"
 
 #define FD_VM_SBPF_VALIDATE_SUCCESS               (0UL)
 #define FD_VM_SBPF_VALIDATE_ERR_INVALID_OPCODE    (1UL)
@@ -17,9 +18,11 @@
 #define FD_VM_SBPF_VALIDATE_ERR_NO_SUCH_EXT_CALL  (10UL)
 
 struct fd_vm_sbpf_exec_context {
-  ulong entrypoint;
-  ulong program_counter; 
-  ulong num_ext_funcs;
+  long                  entrypoint;
+  ulong                 num_ext_funcs;
+  fd_vm_sbpf_instr_t *  instrs;
+  ulong                 instrs_sz;
+  fd_vm_mem_map_t          mem_map;
 };
 typedef struct fd_vm_sbpf_exec_context fd_vm_sbpf_exec_context_t;
 
@@ -28,7 +31,7 @@ struct fd_vm_sbpf_program {
 };
 typedef struct fd_vm_sbpf_program fd_vm_sbpf_program_t;
 
-void fd_vm_sbpf_interp_instrs(fd_vm_sbpf_exec_context_t * ctx, fd_vm_sbpf_instr_t const * instrs, ulong sz);
+void fd_vm_sbpf_interp_instrs(fd_vm_sbpf_exec_context_t * ctx );
 
 ulong fd_vm_sbpf_interp_validate( fd_vm_sbpf_exec_context_t const * ctx,
                                   fd_vm_sbpf_instr_t const *        instrs, 
