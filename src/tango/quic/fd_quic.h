@@ -106,33 +106,32 @@
 
 /* Forward declarations */
 
-struct fd_quic_private;
-typedef struct fd_quic_private fd_quic_t;
-
 struct fd_quic_conn;
 typedef struct fd_quic_conn fd_quic_conn_t;
 
 struct fd_quic_stream;
 typedef struct fd_quic_stream fd_quic_stream_t;
 
+struct fd_quic_state_private;
+typedef struct fd_quic_state_private fd_quic_state_t;
+
 /* fd_quic_limits_t defines the memory layout of an fd_quic_t object.
    Limits are immutable and valid for the lifetime of an fd_quic_t
    (i.e. outlasts joins, until fd_quic_delete) */
 
-struct fd_quic_limits {
-  ulong  conn_cnt;         /* instance-wide, max concurrent conn count */
+struct __attribute__((aligned(16UL))) fd_quic_limits {
+  ulong  conn_cnt;         /* instance-wide, max concurrent conn count      */
+  ulong  handshake_cnt;    /* instance-wide, max concurrent handshake count */
 
-  ulong  conn_id_cnt;      /* per-conn, max conn ID count (min 4UL)   */
-  double conn_id_sparsity; /* per-conn, max conn ID sparsity          */
+  ulong  conn_id_cnt;      /* per-conn, max conn ID count (min 4UL) */
+  double conn_id_sparsity; /* per-conn, max conn ID sparsity        */
 
-  ulong  stream_cnt;       /* per-conn, max concurrent stream count    */
+  ulong  stream_cnt;       /* per-conn, max concurrent stream count */
 
-  ulong  handshake_cnt;    /* per-conn, max concurrent handshake count */
+  ulong  inflight_pkt_cnt; /* per-conn, max inflight packet count   */
 
-  ulong  inflight_pkt_cnt; /* per-conn, max inflight packet count      */
-
-  ulong  tx_buf_sz;        /* per-conn, tx buf sz in bytes             */
-  ulong  rx_buf_sz;        /* per-conn, rx buf sz in bytes             */
+  ulong  tx_buf_sz;        /* per-conn, tx buf sz in bytes          */
+  ulong  rx_buf_sz;        /* per-conn, rx buf sz in bytes          */
 };
 typedef struct fd_quic_limits fd_quic_limits_t;
 
@@ -147,7 +146,7 @@ typedef ulong
 /* fd_quic_config_t defines mutable config of an fd_quic_t.  The config is
    immutable during an active join. */
 
-struct fd_quic_config {
+struct __attribute__((aligned(16UL))) fd_quic_config {
   /* Protocol config ***************************************/
 
   /* role: one of FD_QUIC_ROLE_{CLIENT,SERVER} */
@@ -167,12 +166,10 @@ struct fd_quic_config {
   /* TLS config ********************************************/
 
   /* cstrs containing TLS PEM cert and key file path */
-  char cert_file  [ PATH_MAX ];
-  char key_file   [ PATH_MAX ];
-  char keylog_file[ PATH_MAX ];
-
-  /* QUIC-TLS transport params template */
-  fd_quic_transport_params_t transport_params;
+# define FD_QUIC_CERT_PATH_LEN (1024UL)
+  char cert_file  [ FD_QUIC_CERT_PATH_LEN ];
+  char key_file   [ FD_QUIC_CERT_PATH_LEN ];
+  char keylog_file[ FD_QUIC_CERT_PATH_LEN ];
 
   /* alpns: List of supported ALPN IDs in OpenSSL format.
      Contains packed list of uchar length prefixed strings
@@ -182,9 +179,9 @@ struct fd_quic_config {
   uint alpns_sz;
 
   /* Server name indication (client only)
-     FIXME: Support IP SNI
      FIXME: Extend server to validate SNI */
-  char sni[ 256 ];
+# define FD_QUIC_SNI_LEN (255UL)
+  char sni[ FD_QUIC_SNI_LEN+1UL ];
 
   /* Network config ****************************************/
 
@@ -310,6 +307,37 @@ struct fd_quic_callbacks {
 };
 typedef struct fd_quic_callbacks fd_quic_callbacks_t;
 
+/* fd_quic_t memory layout ********************************************/
+
+/* fd_quic_join_t contains externally provided objects that are
+   required to join an fd_quic_t. */
+
+struct __attribute__((aligned(16UL))) fd_quic_join {
+  /* User-provided callbacks */
+
+  fd_quic_callbacks_t cb;
+
+  /* fd_aio I/O abstraction */
+
+  fd_aio_t aio_rx; /* owned by fd_quic_t, used by net driver to send rx data to fd_quic_t  */
+  fd_aio_t aio_tx; /* owned externally,   used by fd_quic_t  to send tx data to net driver */
+};
+typedef struct fd_quic_join fd_quic_join_t;
+
+/* fd_quic_t is the publicly exported memory layout of a QUIC memory
+   region.  fd_quic_t should not be statically allocated.  Instead, use
+   fd_quic_footprint() and fd_quic_join(). */
+
+struct fd_quic {
+  ulong            magic;   /* ==FD_QUIC_MAGIC */
+  fd_quic_limits_t limits;
+  fd_quic_config_t config;
+  fd_quic_join_t   join;
+
+  /* ... variable length structures follow ... */
+};
+typedef struct fd_quic fd_quic_t;
+
 FD_PROTOTYPES_BEGIN
 
 /* Construction API ***************************************************/
@@ -348,11 +376,12 @@ fd_quic_new( void *                   mem,
 FD_QUIC_API FD_FN_CONST fd_quic_config_t *
 fd_quic_get_config( fd_quic_t * quic );
 
-/* fd_quic_config_from_env populates the given QUIC config from
-   command-line args and env vars.  If parg{c,v} are non-NULL, they are
-   updated to strip the parsed args.  The last element of the *argv
-   array must be NULL.  Returns given config on success and NULL on
-   failure (logs details). */
+/* fd_quic_{limits,config}_from_env populates the given QUIC limits or
+   config from command-line args and env vars.  If parg{c,v} are non-
+   NULL, they are updated to strip the parsed args.  The last element of
+   the *argv array must be NULL.  Returns given config on success and
+   NULL on failure (logs details).  It is up to the caller to properly
+   initialize the given limits/config. */
 
 FD_QUIC_API fd_quic_limits_t *
 fd_quic_limits_from_env( int  *   pargc,
@@ -431,13 +460,15 @@ fd_quic_delete( fd_quic_t * quic );
    TODO who is responsible for freeing the returned conn object?
 
    args
-     dst_ip_addr       destination ip address
-     dst_udp_port      destination port number */
+     dst_ip_addr   destination ip address
+     dst_udp_port  destination port number
+     sni           server name indication cstr, max 253 chars, nullable */
 
 FD_QUIC_API fd_quic_conn_t *
-fd_quic_connect( fd_quic_t * quic,
-                 uint        dst_ip_addr,
-                 ushort      dst_udp_port );
+fd_quic_connect( fd_quic_t *  quic,
+                 uint         dst_ip_addr,
+                 ushort       dst_udp_port,
+                 char const * sni );
 
 /* fd_quic_conn_close initiates a shutdown of the conn.  The given
    reason code is returned to the peer via a CONNECTION_CLOSE frame, if

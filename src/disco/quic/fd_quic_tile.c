@@ -182,7 +182,7 @@ fd_tpu_stream_receive( fd_quic_stream_t * stream,
 
   ulong total_sz = offset+data_sz;
   if( FD_UNLIKELY( total_sz>FD_TPU_MTU || total_sz>offset ) ) {
-    fd_quic_stream_close( stream, 0x03 ); /* FIXME fd_quic_stream_close not implemented */
+    //fd_quic_stream_close( stream, 0x03 ); /* FIXME fd_quic_stream_close not implemented */
     return;  /* oversz stream */
   }
 
@@ -195,7 +195,7 @@ fd_tpu_stream_receive( fd_quic_stream_t * stream,
 
   fd_quic_tpu_msg_ctx_t * msg_ctx = (fd_quic_tpu_msg_ctx_t *)stream_ctx;
   if( FD_UNLIKELY( msg_ctx->conn_id != conn_id || msg_ctx->stream_id != stream_id ) ) {
-    fd_quic_stream_close( stream, 0x03 ); /* FIXME fd_quic_stream_close not implemented */
+    //fd_quic_stream_close( stream, 0x03 ); /* FIXME fd_quic_stream_close not implemented */
     return;  /* overrun */
   }
 
@@ -219,6 +219,8 @@ fd_tpu_stream_notify( fd_quic_stream_t * stream,
   /* Load QUIC state */
 
   fd_quic_tpu_msg_ctx_t * msg_ctx = (fd_quic_tpu_msg_ctx_t *)stream_ctx;
+  fd_quic_conn_t *        conn    = stream->conn;
+  fd_quic_t *             quic    = conn->quic;
 
   ulong conn_id   = stream->conn->local_conn_id;
   ulong stream_id = stream->stream_id;
@@ -231,7 +233,7 @@ fd_tpu_stream_notify( fd_quic_stream_t * stream,
 
   /* Add to local publish queue */
 
-  fd_quic_tpu_ctx_t * ctx = (fd_quic_tpu_ctx_t *)stream->conn->quic->context;
+  fd_quic_tpu_ctx_t * ctx = (fd_quic_tpu_ctx_t *)quic->join.cb.quic_ctx; /* TODO ugly */
   pubq_push( ctx->pubq, msg_ctx );
 }
 
@@ -246,6 +248,7 @@ int
 fd_quic_tile( fd_cnc_t *         cnc,
               ulong              orig,
               fd_quic_t *        quic,
+              fd_xsk_aio_t *     xsk_aio,
               fd_frag_meta_t *   mcache,
               uchar *            dcache,
               long               lazy,
@@ -270,10 +273,6 @@ fd_quic_tile( fd_cnc_t *         cnc,
 
   /* quic context */
   fd_quic_tpu_ctx_t quic_ctx = {0};
-
-  /* aio backend */
-  void *                net_backend;
-  fd_aio_service_func_t net_service_func;
 
   /* local publish queue */
   fd_quic_tpu_msg_ctx_t ** msg_pubq;
@@ -310,34 +309,6 @@ fd_quic_tile( fd_cnc_t *         cnc,
     cnc_diag_tpu_pub_cnt       = 0UL;
     cnc_diag_tpu_pub_sz        = 0UL;
     cnc_diag_tpu_conn_live_cnt = 0UL;
-
-    /* quic config init */
-
-    if( FD_UNLIKELY( !quic ) ) { FD_LOG_WARNING(( "NULL quic" )); return 1; }
-
-    fd_quic_config_t * quic_cfg = fd_quic_get_config( quic );
-    memcpy( quic_cfg->alpns, (uchar const *)"\xasolana-tpu", 11UL );
-    quic_cfg->alpns_sz = 11UL;
-
-    /* quic server init */
-
-    fd_quic_callbacks_t * quic_cb = fd_quic_get_callbacks( quic );
-
-    quic_cb->conn_new         = fd_tpu_conn_create;
-    quic_cb->conn_hs_complete = NULL;
-    quic_cb->conn_final       = fd_tpu_conn_destroy;
-    quic_cb->stream_new       = fd_tpu_stream_create;
-    quic_cb->stream_notify    = fd_tpu_stream_notify;
-    quic_cb->stream_receive   = fd_tpu_stream_receive;
-
-    quic_cb->now     = fd_tpu_now;
-    quic_cb->now_ctx = NULL;
-
-    /* aio backend init */
-
-    if( FD_UNLIKELY( !quic_cb-> ) ) { FD_LOG_WARNING(( "NULL quic aio backend" )); return 1; }
-    net_backend      = quic->aio_net_out->ctx;
-    net_service_func = quic->aio_net_out->service_func;
 
     /* out frag stream init */
 
@@ -376,7 +347,22 @@ fd_quic_tile( fd_cnc_t *         cnc,
     msg_pubq = pubq_join( pubq_new( SCRATCH_ALLOC( pubq_align(), pubq_footprint( depth ) ), depth ) );
     if( FD_UNLIKELY( !msg_pubq ) ) { FD_LOG_WARNING(( "pubq join failed" )); return 1; }
 
-    /* quic ctx init */
+    /* quic server init */
+
+    if( FD_UNLIKELY( !quic    ) ) { FD_LOG_WARNING(( "NULL quic"          ) ); return 1; }
+    fd_quic_callbacks_t * quic_cb = fd_quic_get_callbacks( quic );
+    if( FD_UNLIKELY( !quic_cb ) ) { FD_LOG_WARNING(( "NULL quic callbacks") ); return 1; }
+
+    quic_cb->conn_new         = fd_tpu_conn_create;
+    quic_cb->conn_hs_complete = NULL;
+    quic_cb->conn_final       = fd_tpu_conn_destroy;
+    quic_cb->stream_new       = fd_tpu_stream_create;
+    quic_cb->stream_notify    = fd_tpu_stream_notify;
+    quic_cb->stream_receive   = fd_tpu_stream_receive;
+
+    quic_cb->now     = fd_tpu_now;
+    quic_cb->now_ctx = NULL;
+
     quic_ctx.base       = base;
     quic_ctx.dcache_app = fd_dcache_app_laddr( dcache );
     quic_ctx.chunk0     = chunk0;
@@ -385,7 +371,9 @@ fd_quic_tile( fd_cnc_t *         cnc,
     quic_ctx.pubq       = msg_pubq;
     quic_ctx.cnc_diag_tpu_conn_live_cnt = 0UL;
 
-    quic->context = &quic_ctx;
+    quic_cb->quic_ctx = &quic_ctx;
+
+    if( FD_UNLIKELY( !fd_quic_join( quic ) ) ) { FD_LOG_WARNING(( "fd_quic_join failed" )); return 1; }
 
     /* housekeeping init */
 
@@ -431,7 +419,7 @@ fd_quic_tile( fd_cnc_t *         cnc,
     }
 
     /* Poll network backend */
-    net_service_func( net_backend );
+    fd_xsk_aio_service( xsk_aio );
 
     /* Service QUIC clients */
     fd_quic_service( quic );
@@ -471,6 +459,7 @@ fd_quic_tile( fd_cnc_t *         cnc,
   do {
 
     FD_LOG_INFO(( "Halting quic" ));
+    fd_quic_leave( quic );
 
     /* TODO close all open QUIC conns */
 

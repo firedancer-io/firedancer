@@ -1,10 +1,11 @@
 #include "../../util/fd_util.h"
 
-#if FD_HAS_HOSTED && FD_HAS_X86
+#if FD_HAS_HOSTED && FD_HAS_X86 && FD_HAS_OPENSSL
 
 #include "fd_quic.h"
 #include "../../tango/xdp/fd_xdp.h"
 #include "../../util/net/fd_eth.h"
+#include "../../util/net/fd_ip4.h"
 
 FD_STATIC_ASSERT( FD_QUIC_CNC_DIAG_CHUNK_IDX        ==2UL, unit_test );
 FD_STATIC_ASSERT( FD_QUIC_CNC_DIAG_TPU_PUB_CNT      ==3UL, unit_test );
@@ -147,8 +148,16 @@ tx_tile_main( int     argc,
   void * scratch = fd_alloca( FD_QUIC_TILE_SCRATCH_ALIGN, scratch_footprint );
   FD_TEST( scratch );
 
-  FD_TEST( !fd_quic_tile( cfg->tx_cnc, cfg->tx_orig, cfg->tx_quic, cfg->tx_quic_cfg, cfg->tx_mcache, cfg->tx_dcache,
-                          cfg->tx_lazy, rng, scratch ) );
+  FD_TEST( !fd_quic_tile(
+      cfg->tx_cnc,
+      cfg->tx_orig,
+      cfg->tx_quic,
+      cfg->xsk_aio,
+      cfg->tx_mcache,
+      cfg->tx_dcache,
+      cfg->tx_lazy,
+      rng,
+      scratch ) );
 
   fd_rng_delete( fd_rng_leave( rng ) );
   return 0;
@@ -185,31 +194,41 @@ int main( int     argc,
   uint         udp_port     =       fd_env_strip_cmdline_uint  ( &argc, &argv, "--port",           NULL, 8080U                        );
   char const * _hwaddr      =       fd_env_strip_cmdline_cstr  ( &argc, &argv, "--hwaddr",         NULL, NULL                         );
   char const * _gateway     =       fd_env_strip_cmdline_cstr  ( &argc, &argv, "--gateway",        NULL, NULL                         );
-  ulong        rx_buf_sz    =       fd_env_strip_cmdline_ulong ( &argc, &argv, "--quic-rx-buf-sz", NULL, 1UL<<16UL                    );
-  ulong        tx_buf_sz    =       fd_env_strip_cmdline_ulong ( &argc, &argv, "--quic-tx-buf-sz", NULL, 1UL<<15UL                    );
 
   char const * app_name = "test_quic_tile";
 
   ulong page_sz = fd_cstr_to_shmem_page_sz( _page_sz );
-  if( FD_UNLIKELY( !page_sz ) ) FD_LOG_ERR(( "unsupported --page-sz"  ));
+  if( FD_UNLIKELY( !page_sz ) )
+    FD_LOG_ERR(( "unsupported --page-sz"  ));
 
-  if( FD_UNLIKELY( fd_tile_cnt()<3UL ) ) FD_LOG_ERR(( "this unit test requires at least 3 tiles" ));
+  if( FD_UNLIKELY( fd_tile_cnt()<3UL ) )
+    FD_LOG_ERR(( "this unit test requires at least 3 tiles" ));
 
-  if( FD_UNLIKELY( !iface ) ) FD_LOG_ERR(( "missing --iface" ));
+  if( FD_UNLIKELY( !iface ) )
+    FD_LOG_ERR(( "missing --iface" ));
 
-  if( FD_UNLIKELY( !_listen_addr ) ) FD_LOG_ERR(( "missing --listen" ));
-  ulong listen_addr = fd_cstr_to_ip4_addr( _listen_addr );
-  if( FD_UNLIKELY( listen_addr==ULONG_MAX ) ) FD_LOG_ERR(( "invalid IPv4 address \"%s\"", _listen_addr ));
+  if( FD_UNLIKELY( !_listen_addr ) )
+    FD_LOG_ERR(( "missing --listen" ));
+  uint listen_addr;
+  if( FD_UNLIKELY( !fd_cstr_to_ip4_addr( _listen_addr, &listen_addr ) ) )
+    FD_LOG_ERR(( "invalid IPv4 address \"%s\"", _listen_addr ));
 
-  if( FD_UNLIKELY( udp_port<=0 || udp_port>USHORT_MAX ) ) FD_LOG_ERR(( "invalid UDP port %d", udp_port ));
+  if( FD_UNLIKELY( udp_port<=0 || udp_port>USHORT_MAX ) )
+    FD_LOG_ERR(( "invalid UDP port %d", udp_port ));
 
   if( FD_UNLIKELY( !_hwaddr  ) ) FD_LOG_ERR(( "missing --hwaddr" ));
   uchar hwaddr[ 6 ]={0};
-  if( FD_UNLIKELY( !fd_cstr_to_mac_addr( _hwaddr,  hwaddr  ) ) ) FD_LOG_ERR(( "invalid hwaddr \"%s\"",  _hwaddr  ));
+  if( FD_UNLIKELY( !fd_cstr_to_mac_addr( _hwaddr,  hwaddr  ) ) )
+    FD_LOG_ERR(( "invalid hwaddr \"%s\"",  _hwaddr  ));
 
   if( FD_UNLIKELY( !_gateway ) ) FD_LOG_ERR(( "missing --gateway" ));
   uchar gateway[ 6 ]={0};
-  if( FD_UNLIKELY( !fd_cstr_to_mac_addr( _gateway, gateway ) ) ) FD_LOG_ERR(( "invalid gateway \"%s\"", _gateway ));
+  if( FD_UNLIKELY( !fd_cstr_to_mac_addr( _gateway, gateway ) ) )
+    FD_LOG_ERR(( "invalid gateway \"%s\"", _gateway ));
+
+  fd_quic_limits_t quic_limits = {0};
+  if( FD_UNLIKELY( !fd_quic_limits_from_env( &argc, &argv, &quic_limits  ) ) )
+    FD_LOG_ERR(( "invalid QUIC limits" ));
 
   long  hb0  = fd_tickcount();
   ulong seq0 = fd_rng_ulong( rng );
@@ -269,10 +288,9 @@ int main( int     argc,
   FD_LOG_NOTICE(( "Binding xsk (iface %s ifqueue %u)", iface, ifqueue ));
   FD_TEST( fd_xsk_bind( shxsk, app_name, iface, ifqueue ) );
 
-  FD_LOG_NOTICE(( "Listening on %u.%u.%u.%u:%u",
-                  (uchar)(listen_addr>>24), (uchar)(listen_addr>>16), (uchar)(listen_addr>>8), (uchar)listen_addr,
-                  udp_port ));
-  FD_TEST( 0==fd_xdp_listen_udp_port( app_name, (uint)listen_addr, udp_port, 0U ) );
+  FD_LOG_NOTICE(( "Listening on " FD_IP4_ADDR_FMT ":%u",
+                  FD_IP4_ADDR_FMT_ARGS( listen_addr ), udp_port ));
+  FD_TEST( 0==fd_xdp_listen_udp_port( app_name, listen_addr, udp_port, 0U ) );
 
   FD_LOG_NOTICE(( "Joining xsk" ));
   cfg->xsk = fd_xsk_join( shxsk );
@@ -285,69 +303,32 @@ int main( int     argc,
                                   cfg->xsk );
   FD_TEST( cfg->xsk_aio );
 
-  FD_LOG_NOTICE(( "Creating QUIC config" ));
-  cfg->tx_quic_cfg = (fd_quic_config_t *)fd_wksp_alloc_laddr( cfg->wksp, alignof(fd_quic_config_t), sizeof(fd_quic_config_t), 1UL );
-  FD_TEST( cfg->tx_quic_cfg );
-  memset( cfg->tx_quic_cfg, 0, sizeof(fd_quic_config_t) );
-  FD_TEST( fd_quic_config_from_env( &argc, &argv, cfg->tx_quic_cfg ) );
-
-  cfg->tx_quic_cfg->host_cfg.hostname = "test_quic_tile";
-  cfg->tx_quic_cfg->host_cfg.ip_addr  = (uint)listen_addr;
-  cfg->tx_quic_cfg->host_cfg.udp_port = (ushort)udp_port;
-
-  memcpy( cfg->tx_quic_cfg->net.src_mac,           hwaddr,  6UL );
-  memcpy( cfg->tx_quic_cfg->net.default_route_mac, gateway, 6UL );
-
-  fd_quic_transport_params_t * tp = (fd_quic_transport_params_t *)fd_wksp_alloc_laddr( cfg->wksp, alignof(fd_quic_transport_params_t), sizeof(fd_quic_transport_params_t), 1UL );
-  FD_TEST( tp );
-  memset( tp, 0, sizeof(fd_quic_transport_params_t) );
-  tp->max_idle_timeout                               = 60000;
-  tp->max_idle_timeout_present                       = 1;
-  tp->initial_max_data                               = rx_buf_sz;
-  tp->initial_max_data_present                       = 1;
-  tp->initial_max_stream_data_bidi_local             = rx_buf_sz;
-  tp->initial_max_stream_data_bidi_local_present     = 1;
-  tp->initial_max_stream_data_bidi_remote            = rx_buf_sz;
-  tp->initial_max_stream_data_bidi_remote_present    = 1;
-  tp->initial_max_stream_data_uni                    = rx_buf_sz;
-  tp->initial_max_stream_data_uni_present            = 1;
-  tp->initial_max_streams_bidi                       = cfg->tx_quic_cfg->max_concur_streams;
-  tp->initial_max_streams_bidi_present               = 1;
-  tp->initial_max_streams_uni                        = cfg->tx_quic_cfg->max_concur_streams;
-  tp->initial_max_streams_uni_present                = 1;
-  tp->ack_delay_exponent                             = 3;
-  tp->ack_delay_exponent_present                     = 1;
-  tp->max_ack_delay                                  = 25;
-  tp->max_ack_delay_present                          = 1;
-  tp->active_connection_id_limit                     = 8;
-  tp->active_connection_id_limit_present             = 1;
-
-  cfg->tx_quic_cfg->transport_params = tp;
-
   FD_LOG_NOTICE(( "Creating QUIC" ));
-  ulong quic_footprint = fd_quic_footprint(
-      tx_buf_sz, rx_buf_sz,
-      cfg->tx_quic_cfg->max_concur_streams,
-      cfg->tx_quic_cfg->max_in_flight_pkts,
-      cfg->tx_quic_cfg->max_concur_conns,
-      cfg->tx_quic_cfg->max_concur_conn_ids );
+  ulong quic_footprint = fd_quic_footprint( &quic_limits );
   FD_LOG_NOTICE(( "QUIC footprint: %lu KiB", quic_footprint/1024UL ));
   cfg->tx_quic = fd_quic_new(
     fd_wksp_alloc_laddr( cfg->wksp, fd_quic_align(), quic_footprint, 1UL ),
-      tx_buf_sz, rx_buf_sz,
-      cfg->tx_quic_cfg->max_concur_streams,
-      cfg->tx_quic_cfg->max_in_flight_pkts,
-      cfg->tx_quic_cfg->max_concur_conns,
-      cfg->tx_quic_cfg->max_concur_conn_ids );
+    &quic_limits );
   FD_TEST( cfg->tx_quic );
 
-  FD_LOG_NOTICE(( "Initializing QUIC" ));
-  FD_TEST( fd_quic_init( cfg->tx_quic, cfg->tx_quic_cfg ) );
+  FD_LOG_NOTICE(( "Configuring QUIC "));
+  fd_quic_config_t * quic_cfg = fd_quic_get_config( cfg->tx_quic );
+  FD_TEST( quic_cfg );
 
+  FD_TEST( fd_quic_config_from_env( &argc, &argv, quic_cfg ) );
+
+  strcpy( quic_cfg->sni, "test_quic_tile" );
+  quic_cfg->net.ip_addr         = (uint)listen_addr;
+  quic_cfg->net.listen_udp_port = (ushort)udp_port;
+
+  memcpy( quic_cfg->link.src_mac_addr, hwaddr,  6UL );
+  memcpy( quic_cfg->link.dst_mac_addr, gateway, 6UL );
+
+  FD_LOG_NOTICE(( "Joining QUIC" ));
   FD_TEST( fd_quic_join( cfg->tx_quic ) );
 
-  fd_quic_set_aio_net_out( cfg->tx_quic, fd_xsk_aio_get_tx     ( cfg->xsk_aio ) );
-  fd_xsk_aio_set_rx      ( cfg->xsk_aio, fd_quic_get_aio_net_in( cfg->tx_quic ) );
+  fd_quic_set_aio_net_tx( cfg->tx_quic, fd_xsk_aio_get_tx     ( cfg->xsk_aio ) );
+  fd_xsk_aio_set_rx     ( cfg->xsk_aio, fd_quic_get_aio_net_rx( cfg->tx_quic ) );
 
   FD_LOG_NOTICE(( "Booting" ));
 
@@ -405,7 +386,6 @@ int main( int     argc,
 
   FD_TEST( 0==fd_xdp_release_udp_port( app_name, (uint)listen_addr, udp_port ) );
 
-  fd_wksp_free_laddr( (void *)cfg->tx_quic_cfg->transport_params              );
   fd_wksp_free_laddr( (void *)cfg->tx_quic_cfg                                );
   fd_wksp_free_laddr( fd_quic_delete   (    (fd_quic_t *)( cfg->tx_quic   ) ) );
   fd_wksp_free_laddr( fd_xsk_aio_delete( fd_xsk_aio_leave( cfg->xsk_aio   ) ) );
@@ -431,9 +411,9 @@ int
 main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
-  FD_LOG_WARNING(( "skip: unit test requires FD_HAS_HOSTED and FD_HAS_X86 capabilities" ));
+  FD_LOG_WARNING(( "skip: unit test requires FD_HAS_HOSTED, FD_HAS_X86, FD_HAS_OPENSSL capabilities" ));
   fd_halt();
   return 0;
 }
 
-#endif /* FD_HAS_HOSTED && FD_HAS_X86 */
+#endif /* FD_HAS_HOSTED && FD_HAS_X86 && FD_HAS_OPENSSL */

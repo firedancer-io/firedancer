@@ -4,6 +4,7 @@
 
 #include "fd_xdp.h"
 #include "../../util/fd_util.h"
+#include "../../util/net/fd_ip4.h"
 
 /* fd_xdp_redirect_prog is eBPF ELF object containing the XDP program.
    It is embedded into this program. Build with `make ebpf-bin`. */
@@ -110,8 +111,8 @@ main( int     argc,
       ulong        udp_port = fd_cstr_to_ulong( argv[2] );
       char const * _proto   =                   argv[3];
 
-      ulong ip_addr = fd_cstr_to_ip4_addr( _ip_addr );
-      if( FD_UNLIKELY( ip_addr==ULONG_MAX ) )
+      uint ip_addr;
+      if( FD_UNLIKELY( !fd_cstr_to_ip4_addr( _ip_addr, &ip_addr ) ) )
         FD_LOG_ERR(( "%i: %s: invalid IPv4 address \"%s\"\n\tDo %s help for help",
                      cnt, cmd, _ip_addr, bin ));
 
@@ -123,7 +124,7 @@ main( int     argc,
       (void)_proto;
       uint proto = 1UL;
 
-      if( FD_UNLIKELY( 0!=fd_xdp_listen_udp_port( _wksp, (uint)ip_addr, (uint)udp_port, proto ) ) )
+      if( FD_UNLIKELY( 0!=fd_xdp_listen_udp_port( _wksp, ip_addr, (uint)udp_port, proto ) ) )
         FD_LOG_ERR(( "%i: %s: fd_xdp_listen_udp_port(%s,%s,%lu,%s) failed\n\tDo %s help for help",
                      cnt, cmd, _wksp, _ip_addr, udp_port, _proto, bin ));
 
@@ -138,8 +139,8 @@ main( int     argc,
       char const * _ip_addr =                   argv[1];
       ulong        udp_port = fd_cstr_to_ulong( argv[2] );
 
-      ulong ip_addr = fd_cstr_to_ip4_addr( _ip_addr );
-      if( FD_UNLIKELY( ip_addr==ULONG_MAX ) )
+      uint ip_addr;
+      if( FD_UNLIKELY( !fd_cstr_to_ip4_addr( _ip_addr, &ip_addr ) ) )
         FD_LOG_ERR(( "%i: %s: invalid IPv4 address \"%s\"\n\tDo %s help for help",
                      cnt, cmd, _ip_addr, bin ));
 
@@ -147,7 +148,7 @@ main( int     argc,
         FD_LOG_ERR(( "%i: %s: invalid UDP port number\n\tDo %s help for help",
                      cnt, cmd, bin ));
 
-      if( FD_UNLIKELY( 0!=fd_xdp_release_udp_port( _wksp, (uint)ip_addr, (uint)udp_port ) ) )
+      if( FD_UNLIKELY( 0!=fd_xdp_release_udp_port( _wksp, ip_addr, (uint)udp_port ) ) )
         FD_LOG_ERR(( "%i: %s: fd_xdp_release_udp_port(%s,%s,%lu) failed\n\tDo %s help for help",
                      cnt, cmd, _wksp, _ip_addr, udp_port, bin ));
 

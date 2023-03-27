@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <time.h>
 
 #include <math.h>
 
@@ -251,19 +252,6 @@ main( int argc, char ** argv ) {
   FD_TEST( quic_config );
 
   quic_config->role = FD_QUIC_ROLE_SERVER;
-
-  quic_config->transport_params = (fd_quic_transport_params_t) {
-    .max_idle_timeout                    = 60000,  .max_idle_timeout_present                    = 1,
-    .initial_max_data                    = BUF_SZ, .initial_max_data_present                    = 1,
-    .initial_max_stream_data_bidi_local  = BUF_SZ, .initial_max_stream_data_bidi_local_present  = 1,
-    .initial_max_stream_data_bidi_remote = BUF_SZ, .initial_max_stream_data_bidi_remote_present = 1,
-    .initial_max_stream_data_uni         = BUF_SZ, .initial_max_stream_data_uni_present         = 1,
-    .initial_max_streams_bidi            = 128,    .initial_max_streams_bidi_present            = 1,
-    .initial_max_streams_uni             = 128,    .initial_max_streams_uni_present             = 1,
-    .ack_delay_exponent                  = 3,      .ack_delay_exponent_present                  = 1,
-    .max_ack_delay                       = 25,     .max_ack_delay_present                       = 1,
-    .active_connection_id_limit          = 8,      .active_connection_id_limit_present          = 1
-  };
   fd_quic_config_from_env( &argc, &argv, quic_config );
 
   memcpy( quic_config->link.src_mac_addr, src_mac, 6UL );

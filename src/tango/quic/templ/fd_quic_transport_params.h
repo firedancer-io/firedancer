@@ -202,7 +202,7 @@ fd_quic_dump_transport_param_desc( FILE * out );
 // TODO verify max length on these - CONN_ID and TOKEN
 // PREFERRED_ADDRESS is incomplete
 #define FD_QUIC_MBR_TYPE_VARINT(NAME,TYPE)            \
-  ulong NAME;                                         \
+  ulong  NAME;                                        \
   uchar  NAME##_present;
 #define FD_QUIC_MBR_TYPE_CONN_ID(NAME,TYPE)           \
   uchar  NAME##_len;                                  \
@@ -212,11 +212,11 @@ fd_quic_dump_transport_param_desc( FILE * out );
   uchar  NAME;                                        \
   uchar  NAME##_present;
 #define FD_QUIC_MBR_TYPE_TOKEN(NAME,TYPE)             \
-  uint NAME##_len;                                    \
+  uint   NAME##_len;                                  \
   uchar  NAME[1024];                                  \
   uchar  NAME##_present;
 #define FD_QUIC_MBR_TYPE_PREFERRED_ADDRESS(NAME,TYPE) \
-  uint NAME##_len;                                    \
+  uint   NAME##_len;                                  \
   uchar  NAME[1024];                                  \
   uchar  NAME##_present;
 
@@ -228,6 +228,10 @@ struct fd_quic_transport_params {
 };
 typedef struct fd_quic_transport_params fd_quic_transport_params_t;
 
+#define FD_QUIC_TRANSPORT_PARAM_SET( TP, NAME, VALUE ) \
+  do { (TP)->NAME##_present = 1; (TP)->NAME = VALUE; } while(0);
+#define FD_QUIC_TRANSPORT_PARAM_UNSET( TP, NAME ) \
+  do { (TP)->NAME##_present = 0;                     } while(0);
 
 /* parses the varint at *buf (capacity *buf_sz)
    advances the *buf and reduces *buf_sz by the number of bytes
@@ -295,8 +299,8 @@ fd_quic_dump_transport_params( fd_quic_transport_params_t const * params,
 
    returns the number of bytes written */
 ulong
-fd_quic_encode_transport_params( uchar *                           buf,
-                                 ulong                             buf_sz,
+fd_quic_encode_transport_params( uchar *                            buf,
+                                 ulong                              buf_sz,
                                  fd_quic_transport_params_t const * params );
 
 

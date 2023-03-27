@@ -138,52 +138,6 @@ main( int argc, char ** argv ) {
   FILE * pcap = fopen( _pcap, "wb" );
   FD_TEST( pcap );
 
-  (void)argc;
-  (void)argv;
-  // Transport params:
-  //   original_destination_connection_id (0x00)         :   len(0)
-  //   max_idle_timeout (0x01)                           : * 60000
-  //   stateless_reset_token (0x02)                      :   len(0)
-  //   max_udp_payload_size (0x03)                       :   0
-  //   initial_max_data (0x04)                           : * 1048576
-  //   initial_max_stream_data_bidi_local (0x05)         : * 1048576
-  //   initial_max_stream_data_bidi_remote (0x06)        : * 1048576
-  //   initial_max_stream_data_uni (0x07)                : * 1048576
-  //   initial_max_streams_bidi (0x08)                   : * 128
-  //   initial_max_streams_uni (0x09)                    : * 128
-  //   ack_delay_exponent (0x0a)                         : * 3
-  //   max_ack_delay (0x0b)                              : * 25
-  //   disable_active_migration (0x0c)                   :   0
-  //   preferred_address (0x0d)                          :   len(0)
-  //   active_connection_id_limit (0x0e)                 : * 8
-  //   initial_source_connection_id (0x0f)               : * len(8) ec 73 1b 41 a0 d5 c6 fe
-  //   retry_source_connection_id (0x10)                 :   len(0)
-
-  /* all zeros transport params is a reasonable default */
-  fd_quic_transport_params_t tp[1] = {0};
-
-  /* establish these parameters as "present" */
-  tp->max_idle_timeout                               = 60000;
-  tp->max_idle_timeout_present                       = 1;
-  tp->initial_max_data                               = BUF_SZ;
-  tp->initial_max_data_present                       = 1;
-  tp->initial_max_stream_data_bidi_local             = BUF_SZ;
-  tp->initial_max_stream_data_bidi_local_present     = 1;
-  tp->initial_max_stream_data_bidi_remote            = BUF_SZ;
-  tp->initial_max_stream_data_bidi_remote_present    = 1;
-  tp->initial_max_stream_data_uni                    = BUF_SZ;
-  tp->initial_max_stream_data_uni_present            = 1;
-  tp->initial_max_streams_bidi                       = 4;
-  tp->initial_max_streams_bidi_present               = 1;
-  tp->initial_max_streams_uni                        = 4;
-  tp->initial_max_streams_uni_present                = 1;
-  tp->ack_delay_exponent                             = 3;
-  tp->ack_delay_exponent_present                     = 1;
-  tp->max_ack_delay                                  = 25;
-  tp->max_ack_delay_present                          = 1;
-  tp->active_connection_id_limit                     = 8;
-  tp->active_connection_id_limit_present             = 1;
-
   fd_quic_limits_t quic_limits = {
     .conn_cnt         = 10,
     .conn_id_cnt      = 10,
@@ -192,7 +146,6 @@ main( int argc, char ** argv ) {
     .stream_cnt       = 4,
     .inflight_pkt_cnt = 100
   };
-  fd_quic_config_t quic_cfg = {0};
 
   quic_cfg.transport_params      = tp;
 

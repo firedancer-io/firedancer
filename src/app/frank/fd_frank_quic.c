@@ -1,6 +1,7 @@
 #include "fd_frank.h"
 
 #include "../../disco/quic/fd_quic.h"
+#include "../../tango/xdp/fd_xdp.h"
 #include "../../util/net/fd_eth.h"
 
 int
@@ -43,64 +44,17 @@ fd_frank_quic_task( int     argc,
   uchar * dcache = fd_dcache_join( fd_wksp_pod_map( quic_pod, "dcache" ) );
   if( FD_UNLIKELY( !dcache ) ) FD_LOG_ERR(( "fd_dcache_join failed" ));
 
-  FD_LOG_INFO(( "joining %s.%s.quic", cfg_path, tile_name ));
-  fd_quic_t * quic = fd_quic_join( fd_wksp_pod_map( quic_pod, "quic" ) );
-  if( FD_UNLIKELY( !quic ) ) FD_LOG_ERR(( "fd_quic_join failed" ));
+  FD_LOG_INFO(( "loading %s.%s.quic", cfg_path, tile_name ));
+  fd_quic_t * quic = (fd_quic_t *)fd_wksp_pod_map( quic_pod, "quic" );
+  if( FD_UNLIKELY( !quic ) ) FD_LOG_ERR(( "fd_wksp_pod_map quic failed" ));
 
-  /* Load the QUIC config */
+  FD_LOG_INFO(( "loading %s.%s.xsk", cfg_path, tile_name ));
+  fd_xsk_t * xsk = fd_xsk_join( fd_wksp_pod_map( quic_pod, "xsk") );
+  if( FD_UNLIKELY( !xsk ) ) FD_LOG_ERR(( "fd_xsk_join failed" ));
 
-  uchar const * tls_pod = fd_pod_query_subpod( cfg_pod, "tls" );
-  if( FD_UNLIKELY( !tls_pod ) ) FD_LOG_ERR(( "path %s.tls not found", cfg_path ));
-
-  char const * tls_cert_path = fd_pod_query_cstr( tls_pod, "cert-file", NULL );
-  char const * tls_key_path  = fd_pod_query_cstr( tls_pod, "key_file",  NULL );
-  if( FD_UNLIKELY( !tls_cert_path ) ) FD_LOG_ERR(( "missing %s.tls.cert-file", cfg_path ));
-  if( FD_UNLIKELY( !tls_key_path  ) ) FD_LOG_ERR(( "missing %s.tls.key-file",  cfg_path ));
-
-  char const * tls_keylog_path = fd_pod_query_cstr( tls_pod, "keylog-file", NULL );
-  if( tls_keylog_path ) FD_LOG_INFO(( "Logging TLS keys to %s", tls_keylog_path ));
-
-  /* Build the QUIC config object */
-
-  fd_quic_config_t quic_cfg = {0};
-  strncpy( quic_cfg.cert_file, tls_cert_path, PATH_MAX-1UL );
-  strncpy( quic_cfg.key_file,  tls_key_path,  PATH_MAX-1UL );
-  if( tls_keylog_path )
-    strncpy( quic_cfg.keylog_file, tls_keylog_path, PATH_MAX-1UL );
-
-  /* Read QUIC params */
-  /* FIXME: Most of these params are already constants set pre-join */
-
-  quic_cfg.max_concur_conns       = fd_pod_query_ulong( quic_pod, "max-concur-conns",      0UL  );
-  quic_cfg.max_concur_conn_ids    = fd_pod_query_ulong( quic_pod, "max-concur-conn-ids",   0UL  );
-  quic_cfg.max_concur_streams     = fd_pod_query_uint ( quic_pod, "max-concur-streams",    0U   );
-  quic_cfg.max_concur_handshakes  = fd_pod_query_uint ( quic_pod, "max-concur-handshakes", 0U   );
-  quic_cfg.conn_id_sparsity       = fd_pod_query_ulong( quic_pod, "conn-id-sparsity",      0UL  );
-  quic_cfg.max_in_flight_pkts     = fd_pod_query_ulong( quic_pod, "max-in-flight-pkts",    0UL  );
-  quic_cfg.max_in_flight_acks     = fd_pod_query_ulong( quic_pod, "max-in-flight-acks",    0UL  );
-  quic_cfg.mean_time_between_svc  = fd_pod_query_ulong( quic_pod, "mean-time-between-svc", 0UL  );
-  quic_cfg.dscp            = (uchar)fd_pod_query_uint ( quic_pod, "dscp",                  0U   );
-
-  /* Read network params */
-
-  uchar const * net_pod = fd_pod_query_subpod( cfg_pod, "net" );
-  if( FD_UNLIKELY( !net_pod ) ) FD_LOG_ERR(( "path %s.net not found", cfg_path ));
-
-  char const * _default_route_mac = fd_pod_query_cstr  ( net_pod, "gateway-mac-addr", "" );
-  char const * _src_mac           = fd_pod_query_cstr  ( net_pod, "mac-addr",         "" );
-  char const * _ip_addr           = fd_pod_query_cstr  ( net_pod, "ip-addr",          "" );
-  quic_cfg.host_cfg.udp_port      = fd_pod_query_ushort( net_pod, "udp-port",         0U );
-
-  if( FD_UNLIKELY( !fd_cstr_to_mac_addr( _default_route_mac, quic_cfg.net.default_route_mac ) ) )
-    FD_LOG_ERR(( "invalid gateway-mac-addr" ));
-  if( FD_UNLIKELY( !fd_cstr_to_mac_addr( _src_mac,           quic_cfg.net.src_mac           ) ) )
-    FD_LOG_ERR(( "invalid mac-addr" ));
-  if( FD_UNLIKELY( quic_cfg.host_cfg.udp_port==0U ) )
-    FD_LOG_ERR(( "missing udp-port" ));
-
-  ulong ip_addr = fd_cstr_to_ip4_addr( _ip_addr );
-  if( FD_UNLIKELY( ip_addr==ULONG_MAX ) ) FD_LOG_ERR(( "invalid ip-addr \"%s\"", _ip_addr ));
-  quic_cfg.host_cfg.ip_addr = (uint)ip_addr;
+  FD_LOG_INFO(( "loading %s.%s.xsk_aio", cfg_path, tile_name ));
+  fd_xsk_aio_t * xsk_aio = fd_xsk_aio_join( fd_wksp_pod_map( quic_pod, "xsk_aio" ), xsk );
+  if( FD_UNLIKELY( !xsk_aio ) ) FD_LOG_ERR(( "fd_xsk_aio_join failed" ));
 
   /* Setup local objects used by this tile */
 
@@ -132,17 +86,19 @@ fd_frank_quic_task( int     argc,
   /* Start serving */
 
   FD_LOG_INFO(( "%s run", tile_name ));
-  int err = fd_quic_tile( cnc, orig, quic, &quic_cfg, mcache, dcache, lazy, rng, scratch );
+  int err = fd_quic_tile( cnc, orig, quic, xsk_aio, mcache, dcache, lazy, rng, scratch );
   if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_quic_tile failed (%i)", err ));
 
   /* Clean up */
 
   FD_LOG_INFO(( "%s fini", tile_name ));
-  fd_rng_delete    ( fd_rng_leave   ( rng    ) );
-  fd_wksp_pod_unmap( fd_quic_leave  ( quic   ) );
-  fd_wksp_pod_unmap( fd_mcache_leave( mcache ) );
-  fd_wksp_pod_unmap( fd_dcache_leave( dcache ) );
-  fd_wksp_pod_unmap( fd_cnc_leave   ( cnc    ) );
+  fd_rng_delete    ( fd_rng_leave    ( rng     ) );
+  fd_wksp_pod_unmap(                   quic      );
+  fd_wksp_pod_unmap( fd_xsk_aio_leave( xsk_aio ) );
+  fd_wksp_pod_unmap( fd_xsk_leave    ( xsk     ) );
+  fd_wksp_pod_unmap( fd_mcache_leave ( mcache  ) );
+  fd_wksp_pod_unmap( fd_dcache_leave ( dcache  ) );
+  fd_wksp_pod_unmap( fd_cnc_leave    ( cnc     ) );
   fd_wksp_pod_detach( pod );
   return 0;
 }

@@ -120,7 +120,7 @@ fd_ip4_hdr_check_fast( fd_ip4_hdr_t const * hdr ) {
    returns 0.  The given address is returned in host byte order such
    that "1.0.0.0" => 0x01000000. */
 
-FD_FN_PURE int
+int
 fd_cstr_to_ip4_addr( char const * s,
                      uint *       addr );
 

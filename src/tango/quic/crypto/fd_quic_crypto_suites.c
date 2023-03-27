@@ -226,7 +226,7 @@ fd_quic_gen_initial_secret(
                             initial_salt, initial_salt_sz,
                             conn_id, conn_id_sz )
       != FD_QUIC_SUCCESS ) ) {
-    FD_LOG_ERR(( "fd_quic_hkdf_extract failed" ));
+    FD_LOG_WARNING(( "fd_quic_hkdf_extract failed" ));
     return FD_QUIC_FAILED;
   }
 

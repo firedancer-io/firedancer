@@ -27,11 +27,11 @@ fd_quic_conn_map_footprint( int lg_slot_cnt ) {
 }
 
 fd_quic_conn_map_t *
-fd_quic_conn_map_new( void * mem, int lg_slot_cnt ) {
+fd_quic_conn_map_new( void * mem,
+                      int    lg_slot_cnt ) {
   mem = fd_quic_conn_map_impl_new( mem, lg_slot_cnt );
-  /* can this return null? */
-  if( FD_UNLIKELY( !mem ) ) return NULL;
-  return fd_quic_conn_map_impl_join( mem );
+  mem = fd_quic_conn_map_impl_join( mem );
+  return mem;
 }
 
 void

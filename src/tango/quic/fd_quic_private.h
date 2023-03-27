@@ -32,29 +32,27 @@ struct fd_quic_event {
 };
 typedef struct fd_quic_event fd_quic_event_t;
 
-/* fd_quic_join_t contains externally provided objects that are
-   required to join an fd_quic_t. */
-
-struct fd_quic_join {
-  /* User-provided callbacks */
-
-  fd_quic_callbacks_t cb;
-
-  /* fd_aio I/O abstraction */
-
-  fd_aio_t aio_rx; /* owned by fd_quic_t, used by net driver to send rx data to fd_quic_t  */
-  fd_aio_t aio_tx; /* owned externally,   used by fd_quic_t  to send tx data to net driver */
-};
-typedef struct fd_quic_join fd_quic_join_t;
-
 /* fd_quic_state_t is the internal state of an fd_quic_t.  Valid for
- lifetime of join. */
+   lifetime of join. */
 
-struct fd_quic_state {
+struct __attribute__((aligned(16UL))) fd_quic_state_private {
   /* Pointer to OpenSSL TLS state (part of quic memory region) */
 
   fd_quic_tls_t * tls;
   int             keylog_fd;
+
+  /* transport_params: Template for QUIC-TLS transport params extension.
+     Contains a mix of mutable and immutable fields.  Immutable fields
+     are set on join.  Mutable fields may be modified during packet
+     processing.  Any code using this struct must ensure that the
+     mutable fields are cleared before using (otherwise would leak a
+     side channel).
+
+     Mutable fields include:
+     - original_destination_connection_id
+     - initial_source_conn_id */
+
+  fd_quic_transport_params_t transport_params;
 
   /* Various internal state */
 
@@ -78,21 +76,19 @@ struct fd_quic_state {
   /* next_ephem_udp_port: Next ephemeral UDP port to allocate */
   ushort next_ephem_udp_port;
 };
-typedef struct fd_quic_state fd_quic_state_t;
 
-/* fd_quic_private is the memory layout of an fd_quic_t */
-
-struct __attribute__((aligned(FD_QUIC_ALIGN))) fd_quic_private {
-  ulong            magic;   /* ==FD_QUIC_MAGIC */
-  fd_quic_limits_t limits;
-  fd_quic_config_t config;
-  fd_quic_join_t   join;
-  fd_quic_state_t  state;
-
-  /* ... variable length structures follow ... */
-};
+/* FD_QUIC_STATE_OFF is the offset of fd_quic_state_t within fd_quic_t. */
+#define FD_QUIC_STATE_OFF (fd_ulong_align_up( sizeof(fd_quic_t), alignof(fd_quic_state_t) ))
 
 FD_PROTOTYPES_BEGIN
+
+/* fd_quic_get_state returns a pointer to private state area given a
+   pointer to fd_quic_t.  Const func, guaranteed to not access memory. */
+
+FD_FN_CONST static inline fd_quic_state_t *
+fd_quic_get_state( fd_quic_t * quic ) {
+  return (fd_quic_state_t *)( (ulong)quic + FD_QUIC_STATE_OFF );
+}
 
 /* fd_quic_conn_service is called periodically to perform pending
    operations and time based operations.

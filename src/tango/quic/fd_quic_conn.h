@@ -73,7 +73,7 @@ struct fd_quic_conn {
   fd_quic_t *        quic;
   void *             context;             /* user context */
 
-  int                server;              /* 0=client, 1=server */
+  int                server;              /* role from self POV: 0=client, 1=server */
   int                established;         /* used by clients to determine whether to
                                              switch the destination conn id used */
 
