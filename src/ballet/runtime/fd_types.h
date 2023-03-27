@@ -571,6 +571,12 @@ typedef struct fd_vote_block_timestamp fd_vote_block_timestamp_t;
 #define FD_VOTE_BLOCK_TIMESTAMP_FOOTPRINT sizeof(fd_vote_block_timestamp_t)
 #define FD_VOTE_BLOCK_TIMESTAMP_ALIGN (8UL)
 
+#define VECT_NAME fd_vec_fd_vote_epoch_credits_t
+#define VECT_ELEMENT fd_vote_epoch_credits_t
+#include "../../funk/fd_vector.h"
+#undef VECT_NAME
+#undef VECT_ELEMENT
+
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L310 */
 struct fd_vote_state {
   fd_pubkey_t                            voting_node;
@@ -583,8 +589,7 @@ struct fd_vote_state {
   fd_vote_historical_authorized_voter_t* authorized_voters;
   ulong                                  prior_voters_len;
   fd_vote_prior_voter_t*                 prior_voters;
-  ulong                                  epoch_credits_len;
-  fd_vote_epoch_credits_t*               epoch_credits;
+  fd_vec_fd_vote_epoch_credits_t_t       epoch_credits;
   fd_vote_block_timestamp_t              latest_timestamp;
 };
 typedef struct fd_vote_state fd_vote_state_t;
