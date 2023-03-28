@@ -9,12 +9,12 @@
 .globl	fd_sha512_core_avx2
 .type	fd_sha512_core_avx2,@function
 .align	64
-#elif defined(__MACH__)
-.globl	fd_sha512_core_avx2
-.align  6, 0x00
-#endif
-
 fd_sha512_core_avx2:
+#elif defined(__MACH__)
+.globl	_fd_sha512_core_avx2
+.align  6, 0x00
+_fd_sha512_core_avx2:
+#endif
 .cfi_startproc	
 	movq	%rsp,%rax
 .cfi_def_cfa_register	%rax

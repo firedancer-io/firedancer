@@ -13,11 +13,12 @@
 .globl	fd_sha256_core_shaext
 .type	fd_sha256_core_shaext,@function
 .align	32
-#elif defined(__MACH__)
-.globl	fd_sha256_core_shaext
-.align  5, 0x00
-#endif
 fd_sha256_core_shaext:
+#elif defined(__MACH__)
+.globl	_fd_sha256_core_shaext
+.align  5, 0x00
+_fd_sha256_core_shaext:
+#endif
         # Note: At this point
         # rdi is state
         # rsi is block

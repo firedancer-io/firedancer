@@ -62,6 +62,7 @@
 #if defined(__linux__)
 #include <syscall.h>
 #elif defined(__APPLE__)
+#include <sys/signal.h>
 #include <sys/syscall.h>
 #include <pthread.h>
 #include "../tile/fd_tile_thread_utils_mac.h"
@@ -1053,13 +1054,17 @@ fd_log_private_boot( int  *   pargc,
     fd_log_private_sig_trap( SIGUSR1   );
     fd_log_private_sig_trap( SIGUSR2   );
     fd_log_private_sig_trap( SIGBUS    );
-    fd_log_private_sig_trap( SIGPOLL   );
     fd_log_private_sig_trap( SIGPROF   );
     fd_log_private_sig_trap( SIGSYS    );
     fd_log_private_sig_trap( SIGTRAP   );
     fd_log_private_sig_trap( SIGVTALRM );
     fd_log_private_sig_trap( SIGXCPU   );
     fd_log_private_sig_trap( SIGXFSZ   );
+#   if defined(__linux__)
+    fd_log_private_sig_trap( SIGPOLL   );
+#   elif defined(__APPLE__)
+    fd_log_private_sig_trap( SIGIOT    );
+#   endif
   }
 
   /* Hook up the permanent log */
