@@ -289,7 +289,7 @@ fd_vlan_tag( void * _tag,
    in an undefined state.  Reasons for failure include that strlen
    of s is not exactly 17 or that s is not formatted correctly. */
 
-FD_FN_PURE uchar *
+uchar *
 fd_cstr_to_mac_addr( char const * s,
                      uchar      * mac );
 

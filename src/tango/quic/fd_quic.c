@@ -55,6 +55,7 @@ struct fd_quic_layout {
   ulong conn_map_off;    /* offset of conn map mem region    */
   ulong event_queue_off; /* offset of event queue mem region */
   int   lg_slot_cnt;     /* see conn_map_new */
+  ulong tls_off;         /* offset of fd_quic_tls_t          */
 };
 typedef struct fd_quic_layout fd_quic_layout_t;
 
@@ -94,29 +95,41 @@ fd_quic_footprint_ext( fd_quic_limits_t const * limits,
   offs += sizeof(fd_quic_state_t);
 
   /* allocate space for connections */
-  offs              = fd_ulong_align_up( offs, fd_quic_conn_align() );
-  layout->conns_off = offs;
-  ulong conn_footprint = fd_quic_conn_footprint(
+  offs                    = fd_ulong_align_up( offs, fd_quic_conn_align() );
+  layout->conns_off       = offs;
+  ulong conn_footprint    = fd_quic_conn_footprint(
       tx_buf_sz,
       rx_buf_sz,
       stream_cnt,
       inflight_pkt_cnt );
+  if( FD_UNLIKELY( !conn_footprint ) ) { FD_LOG_WARNING(( "invalid fd_quic_conn_footprint" )); return 0UL; }
   layout->conn_footprint  = conn_footprint;
   ulong conn_foot_tot     = conn_cnt * conn_footprint;
   offs                   += conn_foot_tot;
 
   /* allocate space for conn IDs */
-  offs                  = fd_ulong_align_up( offs, fd_quic_conn_map_align() );
-  layout->conn_map_off  = offs;
-  ulong slot_cnt_bound  = (ulong)( conn_id_sparsity * (double)conn_cnt * (double)conn_id_cnt );
-  int     lg_slot_cnt   = fd_ulong_find_msb( slot_cnt_bound - 1 ) + 1;
-  layout->lg_slot_cnt   = lg_slot_cnt;
-  offs                 += fd_quic_conn_map_footprint( lg_slot_cnt );
+  offs                     = fd_ulong_align_up( offs, fd_quic_conn_map_align() );
+  layout->conn_map_off     = offs;
+  ulong slot_cnt_bound     = (ulong)( conn_id_sparsity * (double)conn_cnt * (double)conn_id_cnt );
+  int     lg_slot_cnt      = fd_ulong_find_msb( slot_cnt_bound - 1 ) + 1;
+  layout->lg_slot_cnt      = lg_slot_cnt;
+  ulong conn_map_footprint = fd_quic_conn_map_footprint( lg_slot_cnt );
+  if( FD_UNLIKELY( !conn_map_footprint ) ) { FD_LOG_WARNING(( "invalid fd_quic_conn_map_footprint" )); return 0UL; }
+  offs                    += conn_map_footprint;
 
   /* allocate space for events priority queue */
-  offs                  = fd_ulong_align_up( offs, service_queue_align() );
-  ulong event_queue_sz  = service_queue_footprint( conn_cnt + 1 );
-  offs                 += event_queue_sz;
+  offs                        = fd_ulong_align_up( offs, service_queue_align() );
+  layout->event_queue_off     = offs;
+  ulong event_queue_footprint = service_queue_footprint( conn_cnt + 1 );
+  if( FD_UNLIKELY( !event_queue_footprint ) ) { FD_LOG_WARNING(( "invalid service_queue_footprint" )); return 0UL; }
+  offs                       += event_queue_footprint;
+
+  /* allocate space for fd_quic_tls_t */
+  offs                 = fd_ulong_align_up( offs, fd_quic_tls_align() );
+  layout->tls_off      = offs;
+  ulong tls_footprint  = fd_quic_tls_footprint( limits->handshake_cnt );
+  if( FD_UNLIKELY( !tls_footprint ) ) { FD_LOG_WARNING(( "invalid fd_quic_tls_footprint" )); return 0UL; }
+  offs                += tls_footprint;
 
   return offs;
 }
@@ -194,6 +207,8 @@ fd_quic_limits_from_env( int  *   pargc,
   limits->stream_cnt       = fd_env_strip_cmdline_uint ( pargc, pargv, "--quic-streams",       "QUIC_STREAM_CNT",         2UL );
   limits->handshake_cnt    = fd_env_strip_cmdline_uint ( pargc, pargv, "--quic-handshakes",    "QUIC_HANDSHAKE_CNT",      2UL );
   limits->inflight_pkt_cnt = fd_env_strip_cmdline_ulong( pargc, pargv, "--quic-inflight-pkts", "QUIC_MAX_INFLIGHT_PKTS", 64UL );
+  limits->tx_buf_sz        = fd_env_strip_cmdline_ulong( pargc, pargv, "--quic-tx-buf-sz",     "QUIC_TX_BUF_SZ",    1UL<<20UL );
+  limits->rx_buf_sz        = fd_env_strip_cmdline_ulong( pargc, pargv, "--quic-rx-buf-sz",     "QUIC_RX_BUF_SZ",    1UL<<20UL );
 
   return limits;
 }
@@ -369,7 +384,7 @@ fd_quic_join( fd_quic_t * quic ) {
     return NULL;
   }
 
-  /* Initialize TLS */
+  /* State: Initialize TLS */
 
   fd_quic_tls_cfg_t tls_cfg = {
     .cert_file             = config->cert_file,
@@ -389,7 +404,9 @@ fd_quic_join( fd_quic_t * quic ) {
     .keylog_fd             = keylog_fd
   };
 
-  if( FD_UNLIKELY( !fd_quic_tls_new( state->tls, &tls_cfg ) ) ) {
+  ulong tls_laddr = (ulong)quic + layout.tls_off;
+  state->tls = fd_quic_tls_new( (void *)tls_laddr, &tls_cfg );
+  if( FD_UNLIKELY( !state->tls ) ) {
     FD_LOG_WARNING(( "fd_quic_tls_new failed" ));
     return NULL;
   }

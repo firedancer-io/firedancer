@@ -1,18 +1,13 @@
 #include "../fd_quic.h"
 
-#include <stdio.h>
 #include <stdlib.h>
-#include <time.h>
 
 #include "../../xdp/fd_xdp.h"
 #include "../../../ballet/sha512/fd_sha512.h"
 #include "../../../ballet/ed25519/fd_ed25519.h"
+#include "../../../util/fd_util.h"
 #include "../../../util/net/fd_eth.h"
 #include "../../../util/net/fd_ip4.h"
-
-#define BUF_SZ (1<<20)
-#define LG_FRAME_SIZE 11
-#define FRAME_SIZE (1<<LG_FRAME_SIZE)
 
 typedef struct my_stream_meta my_stream_meta_t;
 struct my_stream_meta {
@@ -76,52 +71,30 @@ get_free_count( void ) {
 /* get free stream */
 my_stream_meta_t *
 get_stream( void ) {
-  printf( "before obtaining stream. count: %u\n", get_free_count() );
-
   my_stream_meta_t * meta = stream_avail;
   if( meta ) {
     stream_avail = meta->next;
     meta->next   = NULL;
   }
-
-  printf( "after obtaining stream. count: %u\n", get_free_count() );
-
   return meta;
 }
 
 /* push stream meta into front of free list */
 void
 free_stream( my_stream_meta_t * meta ) {
-  printf( "before freeing stream. count: %u\n", get_free_count() );
-
   meta->next   = stream_avail;
   stream_avail = meta;
-
-  printf( "freed stream. count: %u\n", get_free_count() );
-  fflush( stdout );
 }
 
 void
 populate_streams( ulong sz, fd_quic_conn_t * conn ) {
   for( ulong j = 0; j < sz; ++j ) {
-    printf("populating streams\n");
-    fflush( stdout );
-
     /* get free stream meta */
     my_stream_meta_t * meta = get_stream_meta();
-    printf("meta: %p\n", (void*)meta);
-    fflush( stdout );
-
-    printf("conn: %p\n", (void*)conn);
-    printf("conn state: %d\n", conn->state);
-    fflush( stdout );
 
     /* obtain stream */
     fd_quic_stream_t * stream =
       fd_quic_conn_new_stream( conn, FD_QUIC_TYPE_UNIDIR );
-
-    printf("stream: %p", (void*)stream);
-    fflush( stdout );
 
     /* set context on stream to meta */
     /* stream here is null */
@@ -144,40 +117,28 @@ my_stream_notify_cb( fd_quic_stream_t * stream, void * ctx, int type ) {
   my_stream_meta_t * meta = (my_stream_meta_t*)ctx;
   switch( type ) {
     case FD_QUIC_NOTIFY_END:
-      printf( "reclaiming stream\n" );
-      fflush( stdout );
+      FD_LOG_DEBUG(( "stream end" ));
 
-      if( stream->conn->server ) {
-        /* This should never happen */
-        printf( "SERVER\n" );
-        fflush( stdout );
-      } else {
-        printf( "CLIENT\n" );
-        fflush( stdout );
+      FD_TEST( !stream->conn->server );
 
-        /* obtain new stream */
-        fd_quic_stream_t * new_stream =
-          fd_quic_conn_new_stream( stream->conn, FD_QUIC_TYPE_UNIDIR );
+      /* obtain new stream */
+      fd_quic_stream_t * new_stream =
+        fd_quic_conn_new_stream( stream->conn, FD_QUIC_TYPE_UNIDIR );
+      FD_TEST( new_stream );
 
-        if( !new_stream ) {
-          fprintf( stderr, "fd_quic_conn_new_stream returned NULL\n" );
-          exit(1);
-        }
+      /* set context on stream to meta */
+      fd_quic_stream_set_context( new_stream, meta );
 
-        /* set context on stream to meta */
-        fd_quic_stream_set_context( new_stream, meta );
+      /* populate meta */
+      meta->stream = new_stream;
 
-        /* populate meta */
-        meta->stream = new_stream;
-
-        /* return meta */
-        free_stream( meta );
-      }
+      /* return meta */
+      free_stream( meta );
       break;
 
     default:
-      printf( "NOTIFY: %x\n", type );
-      fflush( stdout );
+      FD_LOG_INFO(( "stream notify: %#x", type ));
+      break;
   }
 }
 
@@ -222,46 +183,44 @@ void my_connection_closed( fd_quic_conn_t * conn, void * vp_context ) {
   client_conn = NULL;
 }
 
-ulong test_clock( void * ctx ) {
+ulong
+test_clock( void * ctx ) {
   (void)ctx;
-
-  struct timespec ts;
-  clock_gettime( CLOCK_REALTIME, &ts );
-
-  return (ulong)ts.tv_sec * (ulong)1e9 + (ulong)ts.tv_nsec;
+  return (ulong)fd_log_wallclock();
 }
 
-void create_and_run_quic_client(
-  fd_quic_config_t * quic_config,
+void
+run_quic_client(
+  fd_quic_t *    quic,
   fd_xsk_aio_t * xsk_aio,
-  uint dst_ip,
-  ushort dst_port) {
+  uint           dst_ip,
+  ushort         dst_port) {
 
-  fd_quic_t * client_quic = new_quic( quic_config );
+  fd_quic_callbacks_t * client_cb = fd_quic_get_callbacks( quic );
+  client_cb->conn_hs_complete = my_handshake_complete;
+  client_cb->conn_final       = my_connection_closed;
+  client_cb->stream_receive   = my_stream_receive_cb;
+  client_cb->stream_notify    = my_stream_notify_cb;
+  client_cb->now              = test_clock;
+  client_cb->now_ctx          = NULL;
 
   /* use XSK XDP AIO for QUIC ingress/egress */
-  fd_aio_t ingress = *fd_quic_get_aio_net_in( client_quic );
-  fd_xsk_aio_set_rx( xsk_aio, &ingress );
-  fd_aio_t egress = *fd_xsk_aio_get_tx( xsk_aio );
-  fd_quic_set_aio_net_out( client_quic, &egress );
-
-  /* set the callback for handshake complete */
-  fd_quic_set_cb_conn_handshake_complete( client_quic, my_handshake_complete );
-  fd_quic_set_cb_conn_final( client_quic, my_connection_closed );
+  fd_xsk_aio_set_rx     ( xsk_aio, fd_quic_get_aio_net_rx( quic    ) );
+  fd_quic_set_aio_net_tx( quic,    fd_xsk_aio_get_tx     ( xsk_aio ) );
 
   /* make a connection from client to the server */
-  client_conn = fd_quic_connect( client_quic, dst_ip, dst_port );
+  client_conn = fd_quic_connect( quic, dst_ip, dst_port, NULL );
 
   /* do general processing */
   while ( !client_complete ) {
-    fd_quic_service( client_quic );
+    fd_quic_service( quic );
     fd_xsk_aio_service( xsk_aio );
   }
-  printf( "***** client handshake complete *****\n" );
+  FD_LOG_NOTICE(( "Client handshake complete" ));
 
   /* populate free streams */
-  populate_stream_meta( quic_config->max_concur_streams );
-  populate_streams( quic_config->max_concur_streams, client_conn );
+  populate_stream_meta( quic->limits.stream_cnt              );
+  populate_streams    ( quic->limits.stream_cnt, client_conn );
 
   /* create and sign fake ref message txns */
   /* generate a message for every possible message size, using code from fd_frank_verify_synth_load */
@@ -320,7 +279,7 @@ void create_and_run_quic_client(
 
   /* Continually send data while we have a valid connection */
   for ( ulong msg_sz=MSG_SZ_MIN; msg_sz<=MSG_SZ_MAX; msg_sz++ ) {
-    fd_quic_service( client_quic );
+    fd_quic_service( quic );
     fd_xsk_aio_service( xsk_aio );
 
     if ( !client_conn ) {
@@ -334,7 +293,7 @@ void create_and_run_quic_client(
       fd_quic_stream_t * stream = meta->stream;
 
       int rc = fd_quic_stream_send( stream, batches[msg_sz - MSG_SZ_MIN], 1 /* batch_sz */, 1 /* fin */ ); /* fin: close stream after sending. last byte of transmission */
-      printf( "fd_quic_stream_send returned %d\n", rc );
+      FD_LOG_DEBUG(( "fd_quic_stream_send returned %d", rc ));
 
       if( rc == 1 ) {
         /* successful - stream will begin closing */
@@ -345,8 +304,7 @@ void create_and_run_quic_client(
         free_stream( meta );
       }
     } else {
-      printf( "unable to send - no streams available\n" );
-      fflush( stdout );
+      FD_LOG_ERR(( "unable to send. no streams available" ));
     }
 
     if ( msg_sz == MSG_SZ_MAX ) {
@@ -359,8 +317,7 @@ void create_and_run_quic_client(
   fd_sha512_delete ( fd_sha512_leave( sha    ) );
   fd_rng_delete    ( fd_rng_leave   ( rng    ) );
 
-  fd_quic_delete( client_quic );
-
+  fd_quic_leave( quic );
 }
 
 int
@@ -381,6 +338,9 @@ main( int argc, char ** argv ) {
   char const * _dst_mac       = fd_env_strip_cmdline_cstr  ( &argc, &argv, "--dst-mac",        NULL, NULL                       );
   char const * _dst_ip        = fd_env_strip_cmdline_cstr  ( &argc, &argv, "--dst-ip",         NULL, NULL                       );
   ushort       dst_port       = fd_env_strip_cmdline_ushort( &argc, &argv, "--dst-port",       NULL, 0U                         );
+  char const * app_name       = fd_env_strip_cmdline_cstr  ( &argc, &argv, "--app-name",       NULL, "test_quic"                );
+  ulong        xdp_mtu        = fd_env_strip_cmdline_ulong ( &argc, &argv, "--xdp-mtu",        NULL, 2048UL                     );
+  ulong        xdp_depth      = fd_env_strip_cmdline_ulong ( &argc, &argv, "--xdp-depth",      NULL, 1024UL                     );
 
   ulong page_sz = fd_cstr_to_shmem_page_sz( _page_sz );
   if( FD_UNLIKELY( !page_sz ) ) FD_LOG_ERR(( "unsupported --page-sz" ));
@@ -401,45 +361,48 @@ main( int argc, char ** argv ) {
   uint dst_ip;
   if( FD_UNLIKELY( !fd_cstr_to_ip4_addr( _dst_ip, &dst_ip  ) ) ) FD_LOG_ERR(( "invalid --dst-ip" ));
 
-  fd_quic_limits_t quic_limits = {0};
-  fd_quic_limits_from_env( &argc, &argv, &quic_limits);
-
   FD_LOG_NOTICE(( "Creating workspace with --page-cnt %lu --page-sz %s pages on --numa-idx %lu", page_cnt, _page_sz, numa_idx ));
   fd_wksp_t * wksp = fd_wksp_new_anonymous( page_sz, page_cnt, fd_shmem_cpu_idx( numa_idx ), "wksp", 0UL );
   FD_TEST( wksp );
 
-  /* QUIC configuration */
-  fd_quic_config_t quic_config = {0};
+  fd_quic_limits_t quic_limits = {0};
+  fd_quic_limits_from_env( &argc, &argv, &quic_limits );
+  quic_limits.conn_id_sparsity = 4.0;
 
-  strcpy( quic_config.cert_file, "cert.pem" );
-  strcpy( quic_config.key_file,  "key.pem"  );
+  ulong quic_footprint = fd_quic_footprint( &quic_limits );
+  FD_TEST( quic_footprint );
+  FD_LOG_NOTICE(( "QUIC footprint: %lu bytes", quic_footprint ));
 
-  fd_quic_callbacks_t quic_cb = {
-    .stream_receive = my_stream_receive_cb,
-    .stream_notify  = my_stream_notify_cb,
+  FD_LOG_NOTICE(( "Creating client QUIC" ));
+  fd_quic_t * server_quic = fd_quic_new(
+      fd_wksp_alloc_laddr( wksp, fd_quic_align(), fd_quic_footprint( &quic_limits ), 1UL ),
+      &quic_limits );
+  FD_TEST( server_quic );
 
-    .now     = test_clock,
-    .now_ctx = NULL
-  };
+  fd_quic_config_t * server_cfg = fd_quic_get_config( server_quic );
 
-  fd_memcpy( quic_config.net.default_route_mac, dft_route_mac, 6 );
-  fd_memcpy( quic_config.net.src_mac, src_mac, 6 );
+  strcpy( server_cfg->cert_file, "cert.pem" );
+  strcpy( server_cfg->key_file,  "key.pem"  );
 
-  /* hostname, ip_addr, udp port */
-  fd_quic_host_cfg_t client_cfg = { "client_host", src_ip, src_port };
+  memcpy( server_cfg->link.dst_mac_addr, dst_mac, 6UL );
+  memcpy( server_cfg->link.src_mac_addr, src_mac, 6UL );
 
-  quic_config.host_cfg = client_cfg;
-  quic_config.udp_ephem.lo = src_port;
-  quic_config.udp_ephem.hi = (ushort)(src_port + 1);
+  server_cfg->net.ip_addr           = src_ip;
+  server_cfg->net.ephem_udp_port.lo = src_port;
+  server_cfg->net.ephem_udp_port.hi = (ushort)(src_port + 1);
+
+  FD_LOG_NOTICE(( "Creating client QUIC" ));
+  fd_quic_t * quic = fd_quic_new(
+      fd_wksp_alloc_laddr( wksp, fd_quic_align(), fd_quic_footprint( &quic_limits ), 1UL ),
+      &quic_limits );
+  FD_TEST( quic );
 
   /* create a new XSK instance */
-  ulong frame_sz = FRAME_SIZE;
-  ulong depth    = 1ul << 10ul;
-  ulong xsk_sz   = fd_xsk_footprint( frame_sz, depth, depth, depth, depth );
+  ulong xsk_sz   = fd_xsk_footprint( xdp_mtu, xdp_depth, xdp_depth, xdp_depth, xdp_depth );
 
   FD_LOG_NOTICE(( "Creating XSK" ));
   void * xsk_mem = fd_wksp_alloc_laddr( wksp, fd_xsk_align(), xsk_sz, 1UL );
-  FD_TEST( fd_xsk_new( xsk_mem, frame_sz, depth, depth, depth, depth ) );
+  FD_TEST( fd_xsk_new( xsk_mem, xdp_mtu, xdp_depth, xdp_depth, xdp_depth, xdp_depth ) );
 
   FD_LOG_NOTICE(( "Binding XSK (--iface %s, --ifqueue %u)", iface, ifqueue ));
   FD_TEST( fd_xsk_bind( xsk_mem, app_name, iface, ifqueue ) );
@@ -450,8 +413,8 @@ main( int argc, char ** argv ) {
 
   FD_LOG_NOTICE(( "Creating fd_xsk_aio" ));
   void * xsk_aio_mem =
-    fd_wksp_alloc_laddr( wksp,fd_xsk_aio_align(), fd_xsk_aio_footprint( depth, xsk_pkt_cnt ) ) );
-  FD_TEST( fd_xsk_aio_new( xsk_aio_mem, depth, xsk_pkt_cnt ) );
+    fd_wksp_alloc_laddr( wksp,fd_xsk_aio_align(), fd_xsk_aio_footprint( xdp_depth, xdp_depth ), 1UL );
+  FD_TEST( fd_xsk_aio_new( xsk_aio_mem, xdp_depth, xdp_depth ) );
 
   fd_xsk_aio_t * xsk_aio = fd_xsk_aio_join( xsk_aio_mem, xsk );
   FD_TEST( xsk_aio );
@@ -462,8 +425,10 @@ main( int argc, char ** argv ) {
 
   /* loop continually, so that if the connection dies we try again */
   while (1) {
-    create_and_run_quic_client(&quic_config, xsk_aio, dst_ip, dst_port );
+    run_quic_client( quic, xsk_aio, dst_ip, dst_port );
   }
+
+  fd_quic_delete( quic );
 
   fd_wksp_free_laddr( xsk_aio_mem );
   fd_wksp_free_laddr( xsk_mem     );

@@ -66,13 +66,34 @@ fd_quic_tls_align( void ) {
   return alignof( fd_quic_tls_t );
 }
 
+/* fd_quic_tls_layout_t describes the memory layout on an fd_quic_tls_t */
+struct fd_quic_tls_layout {
+  ulong handshakes_off;
+  ulong handshakes_used_off;
+};
+typedef struct fd_quic_tls_layout fd_quic_tls_layout_t;
+
+ulong
+fd_quic_tls_footprint_ext( ulong handshake_cnt,
+                           fd_quic_tls_layout_t * layout ) {
+
+  ulong off  = sizeof( fd_quic_tls_t );
+
+        off  = fd_ulong_align_up( off, alignof( fd_quic_tls_hs_t ) );
+  layout->handshakes_off = off;
+        off += handshake_cnt * sizeof( fd_quic_tls_hs_t );
+
+        /* no align required */
+  layout->handshakes_used_off = off;
+        off += handshake_cnt; /* used handshakes */
+
+  return off;
+}
+
 ulong
 fd_quic_tls_footprint( ulong handshake_cnt ) {
-  ulong off  = sizeof( fd_quic_tls_t );
-        off  = fd_ulong_align_up( off, alignof( fd_quic_tls_hs_t ) );
-        off += handshake_cnt * sizeof( fd_quic_tls_hs_t );
-        off += handshake_cnt; /* used handshakes */
-  return off;
+  fd_quic_tls_layout_t layout;
+  return fd_quic_tls_footprint_ext( handshake_cnt, &layout );
 }
 
 fd_quic_tls_t *
@@ -94,7 +115,9 @@ fd_quic_tls_new( void *              mem,
   }
 
   ulong handshake_cnt = cfg->max_concur_handshakes;
-  ulong footprint     = fd_quic_tls_footprint( handshake_cnt );
+
+  fd_quic_tls_layout_t layout = {0};
+  ulong footprint = fd_quic_tls_footprint_ext( handshake_cnt, &layout );
   if( FD_UNLIKELY( !footprint ) ) {
     FD_LOG_WARNING(( "invalid footprint for config" ));
     return NULL;
@@ -110,16 +133,13 @@ fd_quic_tls_new( void *              mem,
   self->keylog_fd             = cfg->keylog_fd;
   self->max_concur_handshakes = cfg->max_concur_handshakes;
 
-  ulong off = sizeof( fd_quic_tls_t );
-        off = fd_ulong_align_up( off, alignof( fd_quic_tls_hs_t ) );
-
-  fd_quic_tls_hs_t * handshakes = (fd_quic_tls_hs_t *)( (ulong)mem + off );
+  ulong handshakes_laddr = (ulong)mem + layout.handshakes_off;
+  fd_quic_tls_hs_t * handshakes = (fd_quic_tls_hs_t *)(handshakes_laddr);
   self->handshakes = handshakes;
 
-  off += handshake_cnt * sizeof( fd_quic_tls_hs_t );
-
   /* FIXME use a bitmap instead of an array */
-  uchar * used_handshakes = (uchar *)malloc( (ulong)mem + off );
+  ulong used_handshakes_laddr = (ulong)mem + layout.handshakes_used_off;
+  uchar * used_handshakes = (uchar *)(used_handshakes_laddr);
   self->used_handshakes = used_handshakes;
 
   // set all to free
@@ -307,6 +327,7 @@ fd_quic_tls_process( fd_quic_tls_hs_t * self ) {
   int   ssl_rc = 0;
   SSL * ssl    = self->ssl;
   if( !self->is_hs_complete ) {
+    FD_LOG_DEBUG(( "Hs" ));
     ssl_rc = SSL_do_handshake( self->ssl );
     switch( ssl_rc ) {
       case 0: // failed

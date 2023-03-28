@@ -69,7 +69,7 @@ get_free_count( void ) {
 /* get free stream */
 my_stream_meta_t *
 get_stream( void ) {
-  printf( "before obtaining stream. count: %u\n", get_free_count() );
+  FD_LOG_DEBUG(( "before obtaining stream. count: %u", get_free_count() ));
 
   my_stream_meta_t * meta = stream_avail;
   if( meta ) {
@@ -77,7 +77,7 @@ get_stream( void ) {
     meta->next   = NULL;
   }
 
-  printf( "after obtaining stream. count: %u\n", get_free_count() );
+  FD_LOG_DEBUG(( "after obtaining stream. count: %u", get_free_count() ));
 
   return meta;
 }
@@ -85,13 +85,13 @@ get_stream( void ) {
 /* push stream meta into front of free list */
 void
 free_stream( my_stream_meta_t * meta ) {
-  printf( "before freeing stream. count: %u\n", get_free_count() );
+  FD_LOG_DEBUG(( "before freeing stream. count: %u", get_free_count() ));
 
   meta->next   = stream_avail;
   stream_avail = meta;
 
-  printf( "freed stream. count: %u\n", get_free_count() );
-  fflush( stdout );
+  FD_LOG_DEBUG(( "freed stream. count: %u", get_free_count() ));
+  fd_log_flush();
 }
 
 static void
@@ -111,7 +111,7 @@ populate_streams( ulong sz, fd_quic_conn_t * conn ) {
 
     if( !stream ) {
       bkp();
-      fprintf( stderr, "Failed to obtain a stream\n" );
+      FD_LOG_ERR(( "Failed to obtain a stream" ));
       exit(1);
     }
 
@@ -193,17 +193,12 @@ ulong
 aio_cb( void * context, fd_aio_pkt_info_t * batch, ulong batch_sz ) {
   (void)context;
 
-  printf( "aio_cb callback\n" );
+  FD_LOG_DEBUG(( "aio_cb callback" ));
   for( ulong j = 0; j < batch_sz; ++j ) {
-    printf( "batch %d\n", (int)j );
-    uchar const * data = (uchar const *)batch[j].buf;
-    for( ulong k = 0; k < batch[j].buf_sz; ++k ) {
-      printf( "%2.2x ", (uint)data[k] );
-    }
-    printf( "\n\n" );
+    FD_LOG_DEBUG(( "batch %d", (int)j ));
+    FD_LOG_HEXDUMP_DEBUG(( "batch data", batch[ j ].buf, batch[ j ].buf_sz ));
   }
-
-  fflush( stdout );
+  fd_log_flush();
 
   return batch_sz; /* consumed all */
 }
@@ -216,24 +211,20 @@ my_stream_notify_cb( fd_quic_stream_t * stream, void * ctx, int type ) {
   my_stream_meta_t * meta = (my_stream_meta_t*)ctx;
   switch( type ) {
     case FD_QUIC_NOTIFY_END:
-      printf( "reclaiming stream\n" );
-      fflush( stdout );
+      FD_LOG_DEBUG(( "reclaiming stream" ));
+      fd_log_flush();
 
       if( stream->conn->server ) {
-        printf( "SERVER\n" );
-        fflush( stdout );
+        FD_LOG_DEBUG(( "SERVER" ));
+        fd_log_flush();
       } else {
-        printf( "CLIENT\n" );
-        fflush( stdout );
+        FD_LOG_DEBUG(( "CLIENT" ));
+        fd_log_flush();
 
         /* obtain new stream */
         fd_quic_stream_t * new_stream =
           fd_quic_conn_new_stream( stream->conn, FD_QUIC_TYPE_UNIDIR );
-
-        if( !new_stream ) {
-          fprintf( stderr, "fd_quic_conn_new_stream returned NULL\n" );
-          exit(1);
-        }
+        FD_TEST( new_stream );
 
         /* set context on stream to meta */
         fd_quic_stream_set_context( new_stream, meta );
@@ -247,8 +238,9 @@ my_stream_notify_cb( fd_quic_stream_t * stream, void * ctx, int type ) {
       break;
 
     default:
-      printf( "NOTIFY: %x\n", type );
-      fflush( stdout );
+      FD_LOG_DEBUG(( "NOTIFY: %#x", type ));
+      fd_log_flush();
+      break;
   }
 }
 
@@ -265,49 +257,24 @@ my_stream_receive_cb( fd_quic_stream_t * stream,
 
   ulong expected_data_sz = 512ul;
 
-  printf( "my_stream_receive_cb : received data from peer. size: %lu  offset: %lu\n",
-      (ulong)data_sz, (ulong)offset );
-  printf( "%s\n", data );
+  FD_LOG_INFO(( "received data from peer. size: %lu offset: %lu\n",
+                data_sz, offset ));
+  FD_LOG_HEXDUMP_DEBUG(( "received data", data, data_sz ));
 
-  if( data_sz != 512 ) {
-    fprintf( stderr, "my_stream_receive_cb : data wrong size. Is: %lu, expected: %lu\n",
-        data_sz, expected_data_sz );
+  if( FD_UNLIKELY( data_sz!=512UL ) ) {
+    FD_LOG_WARNING(( "data wrong size. Is: %lu, expected: %lu",
+                     data_sz, expected_data_sz ));
     fail = 1;
-  } else {
-    if( memcmp( data, "Hello world", 11u ) != 0 ) {
-      fprintf( stderr, "my_stream_receive_cb : value received incorrect" );
-      fail = 1;
-    }
+    return;
   }
-}
 
-fd_quic_t *
-new_quic( fd_quic_config_t * quic_config ) {
+  if( FD_UNLIKELY( 0!=memcmp( data, "Hello world", 11u ) ) ) {
+    FD_LOG_WARNING(( "value received incorrect" ));
+    fail = 1;
+    return;
+  }
 
-  ulong  align    = fd_quic_align();
-  ulong  fp       = fd_quic_footprint( BUF_SZ,
-                                       BUF_SZ,
-                                       quic_config->max_concur_streams,
-                                       quic_config->max_in_flight_acks,
-                                       quic_config->max_concur_conns,
-                                       quic_config->max_concur_conn_ids );
-  void * mem      = malloc( fp + align );
-  ulong smem     = (ulong)mem;
-  ulong memalign = smem % align;
-  void * aligned  = ((uchar*)mem) + ( memalign == 0 ? 0 : ( align - memalign ) );
-
-  fd_quic_t * quic = fd_quic_new( aligned,
-                                  BUF_SZ,
-                                  BUF_SZ,
-                                  quic_config->max_concur_streams,
-                                  quic_config->max_in_flight_acks,
-                                  quic_config->max_concur_conns,
-                                  quic_config->max_concur_conn_ids );
-  FD_TEST( quic );
-
-  fd_quic_init( quic, quic_config );
-
-  return quic;
+  FD_LOG_DEBUG(( "recv ok" ));
 }
 
 
@@ -338,8 +305,8 @@ void my_connection_new( fd_quic_conn_t * conn, void * vp_context ) {
   (void)conn;
   (void)vp_context;
 
-  printf( "server handshake complete\n" );
-  fflush( stdout );
+  FD_LOG_NOTICE(( "server handshake complete" ));
+  fd_log_flush();
 
   server_complete = 1;
   server_conn = conn;
@@ -351,8 +318,8 @@ void my_handshake_complete( fd_quic_conn_t * conn, void * vp_context ) {
   (void)conn;
   (void)vp_context;
 
-  printf( "client handshake complete\n" );
-  fflush( stdout );
+  FD_LOG_NOTICE(( "client handshake complete" ));
+  fd_log_flush();
 
   client_complete = 1;
 
@@ -397,132 +364,98 @@ ulong test_clock( void * ctx ) {
 
 int
 main( int argc, char ** argv ) {
-  FILE * pcap = fopen( "test_quic_hs.pcapng", "wb" );
-  if( !pcap ) abort();
+  fd_boot( &argc, &argv );
+
+  ulong cpu_idx = fd_tile_cpu_id( fd_tile_idx() );
+  if( cpu_idx>fd_shmem_cpu_cnt() ) cpu_idx = 0UL;
+
+  char const * _page_sz  = fd_env_strip_cmdline_cstr ( &argc, &argv, "--page-sz",   NULL, "gigantic"                   );
+  ulong        page_cnt  = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt",  NULL, 2UL                          );
+  ulong        numa_idx  = fd_env_strip_cmdline_ulong( &argc, &argv, "--numa-idx",  NULL, fd_shmem_numa_idx( cpu_idx ) );
+  char const * _pcap     = fd_env_strip_cmdline_cstr ( &argc, &argv, "--pcap",      NULL, "test_quic_hs.pcapng"        );
+
+  ulong page_sz = fd_cstr_to_shmem_page_sz( _page_sz );
+  if( FD_UNLIKELY( !page_sz ) ) FD_LOG_ERR(( "unsupported --page-sz" ));
+
+  FD_LOG_NOTICE(( "Creating workspace (--page-cnt %lu, --page-sz %s, --numa-idx %lu)", page_cnt, _page_sz, numa_idx ));
+  fd_wksp_t * wksp = fd_wksp_new_anonymous( page_sz, page_cnt, fd_shmem_cpu_idx( numa_idx ), "wksp", 0UL );
+  FD_TEST( wksp );
+
+  fd_quic_limits_t const quic_limits = {
+    .conn_cnt         = 10,
+    .conn_id_cnt      = 10,
+    .conn_id_sparsity = 4.0,
+    .handshake_cnt    = 10,
+    .stream_cnt       = 10,
+    .inflight_pkt_cnt = 100,
+    .tx_buf_sz        = 1<<20,
+    .rx_buf_sz        = 1<<20
+  };
+
+  ulong quic_footprint = fd_quic_footprint( &quic_limits );
+  FD_TEST( quic_footprint );
+  FD_LOG_NOTICE(( "QUIC footprint: %lu bytes", quic_footprint ));
+
+  FD_LOG_NOTICE(( "Creating server QUIC" ));
+  fd_quic_t * server_quic = fd_quic_new(
+      fd_wksp_alloc_laddr( wksp, fd_quic_align(), fd_quic_footprint( &quic_limits ), 1UL ),
+      &quic_limits );
+  FD_TEST( server_quic );
+
+  FD_LOG_NOTICE(( "Creating client QUIC" ));
+  fd_quic_t * client_quic = fd_quic_new(
+      fd_wksp_alloc_laddr( wksp, fd_quic_align(), fd_quic_footprint( &quic_limits ), 1UL ),
+      &quic_limits );
+  FD_TEST( client_quic );
+
+  FD_LOG_NOTICE(( "Writing to pcap: %s", _pcap ));
+  FILE * pcap = fopen( _pcap, "wb" );
+  FD_TEST( pcap );
 
   write_shb( pcap );
   write_idb( pcap );
 
-  (void)argc;
-  (void)argv;
-  // Transport params:
-  //   original_destination_connection_id (0x00)         :   len(0)
-  //   max_idle_timeout (0x01)                           : * 60000
-  //   stateless_reset_token (0x02)                      :   len(0)
-  //   max_udp_payload_size (0x03)                       :   0
-  //   initial_max_data (0x04)                           : * 1048576
-  //   initial_max_stream_data_bidi_local (0x05)         : * 1048576
-  //   initial_max_stream_data_bidi_remote (0x06)        : * 1048576
-  //   initial_max_stream_data_uni (0x07)                : * 1048576
-  //   initial_max_streams_bidi (0x08)                   : * 128
-  //   initial_max_streams_uni (0x09)                    : * 128
-  //   ack_delay_exponent (0x0a)                         : * 3
-  //   max_ack_delay (0x0b)                              : * 25
-  //   disable_active_migration (0x0c)                   :   0
-  //   preferred_address (0x0d)                          :   len(0)
-  //   active_connection_id_limit (0x0e)                 : * 8
-  //   initial_source_connection_id (0x0f)               : * len(8) ec 73 1b 41 a0 d5 c6 fe
-  //   retry_source_connection_id (0x10)                 :   len(0)
+  fd_quic_config_t * client_config = fd_quic_get_config( client_quic );
 
-  /* all zeros transport params is a reasonable default */
-  fd_quic_transport_params_t base_tp[1] = {0};
+  client_config->net.ip_addr           = 0xc01a1a1au;
+  client_config->net.ephem_udp_port.lo = 4435;
+  client_config->net.ephem_udp_port.hi = 4440;
 
-#define MAX_STREAMS 10
+  strcpy( client_config->cert_file,   "cert.pem"   );
+  strcpy( client_config->key_file,    "key.pem"    );
+  strcpy( client_config->keylog_file, "keylog.log" );
 
-  /* establish these parameters as "present" */
-  base_tp->max_idle_timeout                               = 60000;
-  base_tp->max_idle_timeout_present                       = 1;
-  base_tp->initial_max_data                               = 1048576;
-  base_tp->initial_max_data_present                       = 1;
-  base_tp->initial_max_stream_data_bidi_local             = 1048576;
-  base_tp->initial_max_stream_data_bidi_local_present     = 1;
-  base_tp->initial_max_stream_data_bidi_remote            = 1048576;
-  base_tp->initial_max_stream_data_bidi_remote_present    = 1;
-  base_tp->initial_max_stream_data_uni                    = 1048576;
-  base_tp->initial_max_stream_data_uni_present            = 1;
-  base_tp->initial_max_streams_bidi                       = 0;
-  base_tp->initial_max_streams_bidi_present               = 1;
-  base_tp->initial_max_streams_uni                        = 0;
-  base_tp->initial_max_streams_uni_present                = 1;
-  base_tp->ack_delay_exponent                             = 3;
-  base_tp->ack_delay_exponent_present                     = 1;
-  base_tp->max_ack_delay                                  = 25;
-  base_tp->max_ack_delay_present                          = 1;
-  base_tp->active_connection_id_limit                     = 8;
-  base_tp->active_connection_id_limit_present             = 1;
+  fd_quic_callbacks_t * client_cb = fd_quic_get_callbacks( client_quic );
 
-  /* all zeros transport params is a reasonable default */
-  fd_quic_transport_params_t client_tp[1] = {base_tp[0]};
+  client_cb->conn_hs_complete = my_handshake_complete;
+  client_cb->stream_receive   = my_stream_receive_cb;
+  client_cb->stream_notify    = my_stream_notify_cb;
+  client_cb->conn_final       = my_cb_conn_final;
 
-  /* establish these parameters as "present" */
-  client_tp->initial_max_streams_bidi                       = MAX_STREAMS;
-  client_tp->initial_max_streams_bidi_present               = 1;
-  client_tp->initial_max_streams_uni                        = MAX_STREAMS;
-  client_tp->initial_max_streams_uni_present                = 1;
+  client_cb->now     = test_clock;
+  client_cb->now_ctx = NULL;
 
-  fd_quic_transport_params_t server_tp[1] = {base_tp[0]};
-  server_tp->initial_max_streams_bidi                       = MAX_STREAMS;
-  server_tp->initial_max_streams_bidi_present               = 1;
-  server_tp->initial_max_streams_uni                        = MAX_STREAMS;
-  server_tp->initial_max_streams_uni_present                = 1;
+  fd_quic_config_t * server_config = fd_quic_get_config( server_quic );
 
-  fd_quic_config_t client_config = {0};
+  server_config->net.ip_addr         = 0x0a000001u;
+  server_config->net.listen_udp_port = 2001;
 
-  client_config.transport_params      = client_tp;
-  client_config.max_concur_conns      = 10;
-  client_config.max_concur_conn_ids   = 10;
-  client_config.max_concur_streams    = MAX_STREAMS;
-  client_config.max_concur_handshakes = 10;
-  client_config.max_in_flight_pkts    = 100;
-  client_config.max_in_flight_acks    = 100;
-  client_config.conn_id_sparsity      = 4;
-  client_config.udp_ephem.lo          = 4435;
-  client_config.udp_ephem.hi          = 4440;
+  strcpy( server_config->cert_file, "cert.pem" );
+  strcpy( server_config->key_file,  "key.pem"  );
 
-  strcpy( client_config.cert_file,   "cert.pem" );
-  strcpy( client_config.key_file,    "key.pem"  );
-  strcpy( client_config.keylog_file, "keylog.log" );
+  fd_quic_callbacks_t * server_cb = fd_quic_get_callbacks( server_quic );
 
-  client_config.cb_stream_receive     = my_stream_receive_cb;
-  client_config.cb_stream_notify      = my_stream_notify_cb;
-  client_config.cb_conn_final         = my_cb_conn_final;
+  server_cb->conn_new       = my_connection_new;
+  server_cb->stream_receive = my_stream_receive_cb;
+  server_cb->stream_notify  = my_stream_notify_cb;
+  server_cb->conn_final     = my_cb_conn_final;
 
-  client_config.now_fn  = test_clock;
-  client_config.now_ctx = NULL;
-
-  fd_quic_config_t server_config = {0};
-
-  server_config.transport_params      = server_tp;
-  server_config.max_concur_conns      = 10;
-  server_config.max_concur_conn_ids   = 10;
-  server_config.max_concur_streams    = MAX_STREAMS;
-  server_config.max_concur_handshakes = 10;
-  server_config.max_in_flight_pkts    = 100;
-  server_config.max_in_flight_acks    = 100;
-  server_config.conn_id_sparsity      = 4;
-
-  strcpy( server_config.cert_file, "cert.pem" );
-  strcpy( server_config.key_file,  "key.pem"  );
-
-  server_config.cb_stream_receive     = my_stream_receive_cb;
-  server_config.cb_stream_notify      = my_stream_notify_cb;
-  server_config.cb_conn_final         = my_cb_conn_final;
-
-  server_config.now_fn  = test_clock;
-  server_config.now_ctx = NULL;
-
-  fd_quic_host_cfg_t server_cfg = { "server_host", 0x0a000001u, 4434 };
-  fd_quic_host_cfg_t client_cfg = { "client_host", 0xc01a1a1au, 2001 };
-
-  client_config.host_cfg = client_cfg;
-  fd_quic_t * client_quic = new_quic( &client_config );
-
-  server_config.host_cfg = server_cfg;
-  fd_quic_t * server_quic = new_quic( &server_config );
+  server_cb->now     = test_clock;
+  server_cb->now_ctx = NULL;
 
   /* make use aio to point quic directly at quic */
-  fd_aio_t const * aio_n2q = fd_quic_get_aio_net_in( server_quic );
-  fd_aio_t const * aio_q2n = fd_quic_get_aio_net_in( client_quic );
+  fd_aio_t const * aio_n2q = fd_quic_get_aio_net_rx( server_quic );
+  fd_aio_t const * aio_q2n = fd_quic_get_aio_net_rx( client_quic );
 
 #if 0
   fd_quic_set_aio_net_out( server_quic, aio_q2n );
@@ -542,22 +475,22 @@ main( int argc, char ** argv ) {
   aio[0] = fd_aio_join( fd_aio_new( aio_mem[0], &pipe[0], pipe_aio_receive ) );
   aio[1] = fd_aio_join( fd_aio_new( aio_mem[1], &pipe[1], pipe_aio_receive ) );
 
-  fd_quic_set_aio_net_out( server_quic, aio[1] );
-  fd_quic_set_aio_net_out( client_quic, aio[0] );
+  fd_quic_set_aio_net_tx( server_quic, aio[1] );
+  fd_quic_set_aio_net_tx( client_quic, aio[0] );
 #endif
 
-  /* set up server_quic as server */
-  fd_quic_listen( server_quic );
+  server_quic->config.role = FD_QUIC_ROLE_SERVER;
+  client_quic->config.role = FD_QUIC_ROLE_CLIENT;
 
-  /* set the callback for new connections */
-  fd_quic_set_cb_conn_new( server_quic, my_connection_new );
-
-  /* set the callback for handshake complete */
-  fd_quic_set_cb_conn_handshake_complete( client_quic, my_handshake_complete );
+  FD_TEST( fd_quic_join( client_quic ) );
+  FD_TEST( fd_quic_join( server_quic ) );
 
   /* make a connection from client to server */
-  client_conn = fd_quic_connect( client_quic, server_cfg.ip_addr, server_cfg.udp_port );
-  (void)client_conn;
+  fd_quic_conn_t * client_conn = fd_quic_connect(
+      client_quic,
+      server_quic->config.net.ip_addr,
+      server_quic->config.net.listen_udp_port,
+      server_quic->config.sni );
 
   /* do general processing */
   for( ulong j = 0; j < 20; j++ ) {
@@ -566,18 +499,18 @@ main( int argc, char ** argv ) {
     ulong next_wakeup = fd_ulong_min( ct, st );
 
     if( next_wakeup == ~(ulong)0 ) {
-      printf( "client and server have no schedule\n" );
+      FD_LOG_INFO(( "client and server have no schedule" ));
       break;
     }
 
     if( next_wakeup > now ) now = next_wakeup;
 
-    printf( "running services at %lu\n", (ulong)next_wakeup );
+    FD_LOG_INFO(( "running services at %lu", next_wakeup ));
     fd_quic_service( client_quic );
     fd_quic_service( server_quic );
 
     if( server_complete && client_complete ) {
-      printf( "***** both handshakes complete *****\n" );
+      FD_LOG_INFO(( "***** both handshakes complete *****" ));
 
       break;
     }
@@ -589,7 +522,7 @@ main( int argc, char ** argv ) {
     ulong next_wakeup = fd_ulong_min( ct, st );
 
     if( next_wakeup == ~(ulong)0 ) {
-      printf( "client and server have no schedule\n" );
+      FD_LOG_INFO(( "client and server have no schedule" ));
       break;
     }
 
@@ -602,8 +535,8 @@ main( int argc, char ** argv ) {
   uint k = 1;
 
   /* populate free streams */
-  populate_stream_meta( MAX_STREAMS );
-  populate_streams( MAX_STREAMS, client_conn );
+  populate_stream_meta( quic_limits.stream_cnt );
+  populate_streams( quic_limits.stream_cnt, client_conn );
 
   char buf[512] = "Hello world!\x00-   ";
   fd_aio_pkt_info_t batch[1] = {{ buf, sizeof( buf ) }};
@@ -631,7 +564,7 @@ main( int argc, char ** argv ) {
         if( meta ) {
           fd_quic_stream_t * stream = meta->stream;
 
-          printf( "sending: %d\n", (int)k );
+          FD_LOG_DEBUG(( "sending: %d", (int)k ));
 
           int rc = fd_quic_stream_send( stream, batch, 1 /* batch_sz */, 1 /* fin */ );
 
@@ -650,35 +583,35 @@ main( int argc, char ** argv ) {
             /* did not send, did not start finalize, so stream is still available */
             free_stream( meta );
 
-            printf( "send failed\n" );
-            fflush( stdout );
+            FD_LOG_WARNING(( "send failed" ));
+            fd_log_flush();
           }
         } else {
-          printf( "unable to send - no streams available\n" );
-          fflush( stdout );
+          FD_LOG_WARNING(( "unable to send - no streams available" ));
+          fd_log_flush();
         }
         break;
 
       case 1:
         // wait for connection to close
         if( !client_conn ) {
-          printf( "client closed\n" );
+          FD_LOG_INFO(( "client closed" ));
           break;
         }
     }
 
   }
 
-  printf( "client_conn: %p\n", (void*)client_conn );
-  printf( "server_conn: %p\n", (void*)server_conn );
-  fflush( stdout );
+  FD_LOG_INFO(( "client_conn: %p", (void*)client_conn ));
+  FD_LOG_INFO(( "server_conn: %p", (void*)server_conn ));
+  fd_log_flush();
 
   /* give server connection a chance to close */
   for( int j = 0; j < 1000; ++j ) {
     ulong next_wakeup = fd_quic_get_next_wakeup( server_quic );
 
     if( next_wakeup == ~(ulong)0 ) {
-      printf( "server has no schedule\n" );
+      FD_LOG_INFO(( "server has no schedule "));
       break;
     }
 
@@ -687,20 +620,16 @@ main( int argc, char ** argv ) {
     fd_quic_service( server_quic );
   }
 
-  printf( "client_conn: %p\n", (void*)client_conn );
-  printf( "server_conn: %p\n", (void*)server_conn );
-  fflush( stdout );
+  FD_LOG_INFO(( "client_conn: %p", (void*)client_conn ));
+  FD_LOG_INFO(( "server_conn: %p", (void*)server_conn ));
+  fd_log_flush();
 
   fd_quic_delete( server_quic );
   fd_quic_delete( client_quic );
 
-  if( fail ) {
-    fprintf( stderr, "FAIL\n" );
-    exit(1);
-  }
-
-  printf( "PASS\n" );
-
+  if( fail ) FD_LOG_ERR(( "fail" ));
+  FD_LOG_NOTICE(( "pass" ));
+  fd_halt();
   return 0;
 }
 

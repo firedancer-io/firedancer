@@ -1,5 +1,6 @@
 #include "../fd_quic.h"
 
+#include <stdio.h>
 #include <stdlib.h>
 
 #include "fd_pcap.h"
@@ -64,11 +65,13 @@ write_epb( FILE * file, uchar * buf, uint buf_sz, ulong ts ) {
 }
 
 
-extern uchar  pkt_full[];
+extern uchar pkt_full[];
 extern ulong pkt_full_sz;
 
 ulong
-aio_cb( void * context, fd_aio_pkt_info_t * batch, ulong batch_sz ) {
+aio_cb( void *              context,
+        fd_aio_pkt_info_t * batch,
+        ulong               batch_sz ) {
   (void)context;
 
   FD_LOG_DEBUG(( "aio_cb callback" ));
@@ -127,8 +130,9 @@ int client_complete = 0;
 /* server connection received in callback */
 fd_quic_conn_t * server_conn = NULL;
 
-void my_connection_new( fd_quic_conn_t * conn, void * vp_context ) {
-  (void)conn;
+void
+my_connection_new( fd_quic_conn_t * conn,
+                   void *           vp_context ) {
   (void)vp_context;
 
   FD_LOG_NOTICE(( "server handshake complete" ));
@@ -138,7 +142,9 @@ void my_connection_new( fd_quic_conn_t * conn, void * vp_context ) {
   server_conn = conn;
 }
 
-void my_handshake_complete( fd_quic_conn_t * conn, void * vp_context ) {
+void
+my_handshake_complete( fd_quic_conn_t * conn,
+                       void *           vp_context ) {
   (void)conn;
   (void)vp_context;
 
@@ -272,7 +278,7 @@ main( int argc, char ** argv ) {
   client_quic->config.role = FD_QUIC_ROLE_CLIENT;
 
   server_quic->join.cb.conn_new         = my_connection_new;
-  server_quic->join.cb.conn_hs_complete = my_handshake_complete;
+  client_quic->join.cb.conn_hs_complete = my_handshake_complete;
 
   /* make use aio to point quic directly at quic */
   fd_aio_t const * aio_n2q = fd_quic_get_aio_net_rx( server_quic );
@@ -300,6 +306,7 @@ main( int argc, char ** argv ) {
   fd_quic_set_aio_net_tx( client_quic, aio[0] );
 #endif
 
+  FD_LOG_NOTICE(( "Joining QUICs" ));
   FD_TEST( fd_quic_join( server_quic ) );
   FD_TEST( fd_quic_join( client_quic ) );
 
@@ -329,7 +336,6 @@ main( int argc, char ** argv ) {
 
     if( server_complete && client_complete ) {
       FD_LOG_INFO(( "***** both handshakes complete *****" ));
-
       break;
     }
   }
@@ -430,7 +436,6 @@ main( int argc, char ** argv ) {
   fd_wksp_delete_anonymous( wksp );
 
   if( fail ) FD_LOG_ERR(( "fail" ));
-
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
   return 0;
