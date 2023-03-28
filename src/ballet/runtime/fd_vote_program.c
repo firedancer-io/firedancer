@@ -20,76 +20,17 @@ int fd_executor_vote_program_execute_instruction(
 
     FD_LOG_INFO(( "decoded vote program discriminant: %d", discrimant ));
 
-    if ( discrimant == 8 ) { /* VoteInstruction::UpdateVoteState */
-      FD_LOG_INFO(( "executing VoteInstruction::UpdateVoteState instruction" ));
-
-      /* Decode the VoteInstruction::UpdateVoteState instruction
-         https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_instruction.rs#L92-L97
+    if ( discrimant == 8 ) {
+      /* VoteInstruction::UpdateVoteState instruction
+         https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_processor.rs#L174
        */
+      FD_LOG_WARNING(( "executing VoteInstruction::UpdateVoteState instruction" ));
 
-    }
-    else if ( discrimant == 12 ) { /* VoteInstruction::CompactVoteStateUpdate (not present in v1.13.6) */
-      FD_LOG_INFO(( "executing VoteInstruction::CompactVoteStateUpdate instruction" ));
+      /* Decode the vote state update instruction */
+      fd_vote_state_update_t vote_state_update;
+      fd_vote_state_update_decode(&vote_state_update, input_ptr, dataend, ctx.global->allocf, ctx.global->allocf_arg);
 
-      /* Decode the VoteInstruction::CompactVoteStateUpdate instruction from the encoding detailed in
-        solana/sdk/program/src/vote/state/mod.rs::serde_compact_vote_state_update.
-        See solana/sdk/program/src/vote/instruction.rs::VoteInstruction
-        
-        The encoding is as follows:
-        - The proposed root, encoded as a u64.
-        - The lockout, encoded as a vector in the "Short Vec" format:
-          see https://github.com/solana-labs/solana/blob/master/sdk/program/src/short_vec.rs
-          
-          This is a normal bincode vector, but the length is encoded as a variable-length "Short U16".
-          - The elements of the lockout vector are tuples of slot offsets and confirmation counts.
-            - The slot offsets are cumulative offsets, starting at the proposed root. These are encoded
-              in the variable-length serde_varint format.
-            - Confirmation counts are uchars.
-        - The vote's bank hash, encoded as a 32-byte array.
-        - The processing timestamp of the last slot, encoded as a ulong. */
-
-      /* Decode the vote tower */
-      fd_compact_vote_state_update_t compact_vote;
-      fd_compact_vote_state_update_decode(&compact_vote, input_ptr, dataend, ctx.global->allocf, ctx.global->allocf_arg);
-
-      fd_compact_vote_state_update_destroy(&compact_vote, ctx.global->freef, ctx.global->freef_arg);
-
-  //    ulong proposed_root = 0;
-  //    fd_bincode_uint64_decode( &proposed_root, input_ptr, dataend );
-  //
-  //    /* Decode the proposed tower of votes (for slot/lockout pairs) */
-  //    ushort lockouts_len = 0;
-  //    fd_decode_short_u16( &lockouts_len, input_ptr, dataend );
-  //
-  //    fd_vote_lockout_t lockouts[lockouts_len];
-  //    ulong current_lockout_slot = proposed_root;
-  //    for ( ushort i = 0; i < lockouts_len; i++ ) {
-  //      ulong offset = 0;
-  //      fd_decode_varint( &offset, input_ptr, dataend );
-  //      current_lockout_slot += offset;
-  //      lockouts[i].slot = current_lockout_slot;
-  //      FD_LOG_INFO(( "slot: %lu", lockouts[i].slot ));
-  //      fd_bincode_uint8_decode( &lockouts[i].confirmation_count, input_ptr, dataend );
-  //      FD_LOG_INFO(( "confirmation_count: %d", lockouts[i].confirmation_count ));
-  //    }
-  //
-  //    /* Decode the hash */
-  //    fd_hash_t hash;
-  //    fd_bincode_bytes_decode( (uchar *)&hash.hash, sizeof(hash), input_ptr, dataend );
-  //    FD_LOG_HEXDUMP_INFO(( "hash", &hash, sizeof(hash) ));
-  //
-  //    /* Decode the processing timestamp of last slot */
-  //    fd_unix_timestamp_t timestamp = 0;
-  //    uchar timestamp_present = 0;
-  //    fd_bincode_uint8_decode( &timestamp_present, input_ptr, dataend );
-  //    if ( timestamp_present ) {
-  //      fd_bincode_uint64_decode( &timestamp, input_ptr, dataend );
-  //      FD_LOG_INFO(( "timestamp: %lu", timestamp ));
-  //    }
-
-      /* Skip reading in sysvars, as we are skipping safety checks for minimal slice */
-
-      /* Read vote account data */
+      /* Read vote account state stored in the vote account data */
       uchar * instr_acc_idxs = ((uchar *)ctx.txn_raw->raw + ctx.instr->acct_off);
       fd_pubkey_t * txn_accs = (fd_pubkey_t *)((uchar *)ctx.txn_raw->raw + ctx.txn_descriptor->acct_addr_off);
       fd_pubkey_t * vote_acc = &txn_accs[instr_acc_idxs[0]];
@@ -100,14 +41,16 @@ int fd_executor_vote_program_execute_instruction(
         FD_LOG_WARNING(( "failed to read account metadata" ));
         return read_result;
       }
-      uchar *vota_acc_data = fd_alloca(8UL, metadata.dlen);
+      uchar *vota_acc_data = (uchar *)(ctx.global->allocf)(ctx.global->allocf_arg, 8UL, metadata.dlen);
       read_result = fd_acc_mgr_get_account_data( ctx.acc_mgr, vote_acc, (uchar*)vota_acc_data, sizeof(fd_account_meta_t), metadata.dlen );
       if ( read_result != FD_ACC_MGR_SUCCESS ) {
         FD_LOG_WARNING(( "failed to read account data" ));
         return read_result;
       }
-      
-      /* Decoding the VoteStateVersions enum: solana/programs/vote/src/vote_processor.rs::VoteStateVersions */
+
+      /* The vote account data structure is versioned, so we decode the VoteStateVersions enum
+         https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/vote_state_versions.rs#L4
+       */
       input     = (void *)vota_acc_data;
       input_ptr = (const void **)&input;
       dataend   = (void*)&vota_acc_data[metadata.dlen];
@@ -117,15 +60,76 @@ int fd_executor_vote_program_execute_instruction(
       fd_bincode_uint32_decode( &discrimant, input_ptr, dataend );
       if ( discrimant != 1 ) {
           /* TODO: support legacy V0_23_5 vote state layout */
-          FD_LOG_ERR(( "unsupported vote state version: discrimant: %d", discrimant ));
+          FD_LOG_ERR(( "unsupported vote account state version: discrimant: %d", discrimant ));
           return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
       }
 
-      /* Decode the VoteState data structure: solana/sdk/program/src/vote/state/mod.rs::VoteState */
+      /* Decode the current vote state */
       fd_vote_state_t vote_state;
       fd_vote_state_decode(&vote_state, input_ptr, dataend, ctx.global->allocf, ctx.global->allocf_arg);
 
-      fd_vote_state_destroy(&vote_state, ctx.global->freef, ctx.global->freef_arg);
+      /* Execute the extremely thin minimal slice of the vote state update logic necessary to validate our test ledger, lifted from
+         https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L886-L898
+         This skips all the safety checks, and assumes many things including that:
+         - The vote state update is valid and for the current epoch
+         - The vote is for the current fork
+         - ...
+      */
+
+      /* If the root has changed, give this validator a credit for doing work */
+      /* In mininal slice proposed_root will always be present */
+      if ( vote_state.saved_root_slot == NULL || ( *vote_state_update.proposed_root != *vote_state.saved_root_slot ) ) {
+        if ( vote_state.epoch_credits.cnt == 0 ) {
+          fd_vote_epoch_credits_t epoch_credits = {
+            .epoch = 0,
+            .credits = 0,
+            .prev_credits = 0,
+          };
+          fd_vec_fd_vote_epoch_credits_t_push( &vote_state.epoch_credits, epoch_credits );
+        }
+        vote_state.epoch_credits.elems[0].credits += 1;
+      }
+
+      /* Update the new root slot, timestamp and votes */
+      if ( vote_state_update.timestamp != NULL ) {
+        vote_state.latest_timestamp.slot = vote_state_update.lockouts[ vote_state_update.lockouts_len - 1 ].slot;
+        vote_state.latest_timestamp.timestamp = *vote_state_update.timestamp;
+      }
+      /* TODO: add constructors to fd_types */
+      if ( vote_state.saved_root_slot == NULL ) {
+        vote_state.saved_root_slot = (ulong *)(ctx.global->allocf)( ctx.global->allocf_arg, 8UL, sizeof(ulong) );
+      }
+      *vote_state.saved_root_slot = *vote_state_update.proposed_root;
+      fd_vec_fd_vote_lockout_t_clear( &vote_state.votes );
+      for ( ulong i = 0; i < vote_state_update.lockouts_len; i++ ) {
+        fd_vec_fd_vote_lockout_t_push( &vote_state.votes, vote_state_update.lockouts[i] );
+      }
+
+      /* Write the new state back to the database */
+      ulong encoded_vote_state_size = fd_vote_state_size( &vote_state );
+      FD_LOG_NOTICE(( "encoded_vote_state_size: %lu", encoded_vote_state_size ));
+
+      /* Write the new account data. Write at offset (dlen + 4) to preserve VoteStateVersions enum discriminant */
+      /* TODO: free this, and make it encoded_vote_state_size in length */
+      uchar* encoded_vote_state = (uchar *)(ctx.global->allocf)( ctx.global->allocf_arg, 8UL, encoded_vote_state_size );
+      void* encode_vote_state_dest = encoded_vote_state;
+      fd_vote_state_encode( &vote_state, (const void **)(&encode_vote_state_dest) );
+
+      /* TEST: decode the result again, and check that it is correct (encoding-decoding flow works end-to-end) */
+      // fd_vote_state_t check_vote_state;
+      // void* check_vote_state_input = encoded_vote_state;
+      // void *check_vote_state_dataend = ((uchar *)check_vote_state_input) + encoded_vote_state_size;
+      // fd_vote_state_decode(&check_vote_state, (const void**)&check_vote_state_input, check_vote_state_dataend, ctx.global->allocf, ctx.global->allocf_arg);
+
+      /* TODO: write back max(previous size, new size). Maybe move this abstraction into the accounts manager. */
+      int write_result = fd_acc_mgr_write_account_data( ctx.acc_mgr, fd_funk_root(ctx.acc_mgr->funk), vote_acc, (ulong)(metadata.hlen + 4), (uchar*)encoded_vote_state, encoded_vote_state_size );
+      if ( write_result != FD_ACC_MGR_SUCCESS ) {
+        FD_LOG_WARNING(( "failed to write account data" ));
+        return write_result;
+      }
+
+      fd_vote_state_destroy( &vote_state, ctx.global->freef, ctx.global->freef_arg );
+      fd_vote_state_update_destroy( &vote_state_update, ctx.global->freef, ctx.global->freef_arg );
     } else {
       /* TODO: support other vote program instructions */
       FD_LOG_ERR(( "unsupported vote program instruction: discrimant: %d", discrimant ));

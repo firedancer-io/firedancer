@@ -42,6 +42,12 @@ typedef ulong fd_acc_lamports_t;
    The account will be created if it doesn't already exist. */
 int fd_acc_mgr_write_account( fd_acc_mgr_t* acc_mgr, struct fd_funk_xactionid const*, fd_pubkey_t* pubkey, uchar* data, ulong data_len );
 
+/* Writes account data to the database, starting at the given offset.
+
+   TODO: make this automatically update the metadata (hash, dlen etc)
+ */
+int fd_acc_mgr_write_account_data( fd_acc_mgr_t* acc_mgr, struct fd_funk_xactionid const*, fd_pubkey_t* pubkey, ulong offset, uchar* data, ulong data_len );
+
 /* Fetches the account data for the account with the given public key.
    
    TODO: nicer API so users of this method don't have to make two db calls, one to determine the

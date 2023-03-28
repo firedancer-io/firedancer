@@ -34,6 +34,11 @@ int VECT_(empty)(struct VECT_NAME* self) {
 }
 
 static inline
+void VECT_(clear)(struct VECT_NAME* self) {
+  self->cnt = 0;
+}
+
+static inline
 VECT_ELEMENT VECT_(pop_unsafe)(struct VECT_NAME* self) {
   // Not safe on purpose
   return self->elems[--(self->cnt)];

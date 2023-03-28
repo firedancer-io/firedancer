@@ -514,7 +514,7 @@ typedef struct fd_sol_sysvar_clock fd_sol_sysvar_clock_t;
 
 struct fd_vote_lockout {
   unsigned long slot;
-  unsigned char confirmation_count;
+  uint          confirmation_count;
 };
 typedef struct fd_vote_lockout fd_vote_lockout_t;
 #define FD_VOTE_LOCKOUT_FOOTPRINT sizeof(fd_vote_lockout_t)
@@ -571,6 +571,12 @@ typedef struct fd_vote_block_timestamp fd_vote_block_timestamp_t;
 #define FD_VOTE_BLOCK_TIMESTAMP_FOOTPRINT sizeof(fd_vote_block_timestamp_t)
 #define FD_VOTE_BLOCK_TIMESTAMP_ALIGN (8UL)
 
+#define VECT_NAME fd_vec_fd_vote_lockout_t
+#define VECT_ELEMENT fd_vote_lockout_t
+#include "../../funk/fd_vector.h"
+#undef VECT_NAME
+#undef VECT_ELEMENT
+
 #define VECT_NAME fd_vec_fd_vote_epoch_credits_t
 #define VECT_ELEMENT fd_vote_epoch_credits_t
 #include "../../funk/fd_vector.h"
@@ -582,8 +588,7 @@ struct fd_vote_state {
   fd_pubkey_t                            voting_node;
   fd_pubkey_t                            authorized_withdrawer;
   unsigned char                          commission;
-  ulong                                  votes_len;
-  fd_vote_lockout_t*                     votes;
+  fd_vec_fd_vote_lockout_t_t             votes;
   unsigned long*                         saved_root_slot;
   ulong                                  authorized_voters_len;
   fd_vote_historical_authorized_voter_t* authorized_voters;

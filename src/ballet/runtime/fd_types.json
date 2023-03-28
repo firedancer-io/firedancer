@@ -503,7 +503,7 @@
       "type": "struct",
       "fields": [
           { "name": "slot", "type": "uint64_t" },
-          { "name": "confirmation_count", "type": "uchar" }
+          { "name": "confirmation_count", "type": "uint" }
       ]
     },
     {
@@ -564,7 +564,7 @@
           { "name": "voting_node", "type": "pubkey" },
           { "name": "authorized_withdrawer", "type": "pubkey" },
           { "name": "commission", "type": "uchar" },
-          { "name": "votes", "type": "vector", "element": "vote_lockout" },
+          { "name": "votes", "type": "vector_dynamic", "element": "vote_lockout" },
           { "name": "saved_root_slot", "type": "option", "element": "ulong" },
           { "name": "authorized_voters", "type": "vector", "element": "vote_historical_authorized_voter" },
           { "name": "prior_voters", "type": "vector", "element": "vote_prior_voter" },
