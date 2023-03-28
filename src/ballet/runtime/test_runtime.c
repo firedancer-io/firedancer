@@ -17,7 +17,7 @@
 
 // --ledger /home/jsiegel/test-ledger --db /home/jsiegel/funk --cmd validate --accounts /home/jsiegel/test-ledger/accounts/ --pages 15 --index-max 120000000 --manifest /home/jsiegel/test-ledger/100/snapshots/100/100 --start-slot 100
 
-// --ledger /home/jsiegel/test-ledger --db /home/jsiegel/funk --cmd accounts --accounts /home/jsiegel/test-ledger/accounts/ --pages 15 --index-max 120000000 --start-slot 5 --end-slot 5
+// --ledger /home/jsiegel/test-ledger --db /home/jsiegel/funk --cmd accounts --accounts /home/jsiegel/test-ledger/accounts/ --pages 15 --index-max 120000000 --start-slot 4 --end-slot 5 --start-id 41 --end-id 43
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -39,6 +39,8 @@
 #include "../sha256/fd_sha256.h"
 
 #include <dirent.h>
+
+#pragma GCC optimize ("O0")
 
 uchar do_valgrind = 1;
 
@@ -70,8 +72,10 @@ void freef(void *arg, void *ptr) {
 }
 
 struct global_state {
-  ulong        end_slot;
   ulong        start_slot;
+  ulong        end_slot;
+  ulong        start_id;
+  ulong        end_id;
   ulong        pages;
   uchar        txn_exe;
 
@@ -81,8 +85,10 @@ struct global_state {
   char const * name;
   char const * ledger;
   char const * db;
-  char const * end_slot_opt;
   char const * start_slot_opt;
+  char const * end_slot_opt;
+  char const * start_id_opt;
+  char const * end_id_opt;
   char const * manifest;
   char const * accounts;
   char const * cmd;
@@ -272,6 +278,109 @@ int ingest(global_state_t *state) {
   return 0;
 }
 
+void print_file(global_state_t *state, const char *file) {
+  char buf[1000];
+  char *p = (char *) &file[strlen(file) - 1];
+  ulong slot = 0;
+//  ulong id = 0;
+
+  while ((p > file) && *p != '/')
+    p--;
+  if (*p == '/') 
+    p++;
+
+  strcpy(buf, p);
+  p = buf;
+  while (*p != '.') p++;
+
+  if (*p == '.') {
+    *p++ = '\0';
+//    id = (ulong) atol(p);
+  }
+  slot = (ulong) atol(buf);
+
+  struct stat s;
+
+  stat(file,  &s);
+  unsigned char *r = (unsigned char *)allocf(state->alloc, 8UL, (unsigned long) (unsigned long) s.st_size);
+  unsigned char *b = r;
+  int fd = open(file, O_RDONLY);
+  ssize_t n = read(fd, b, (unsigned long) s.st_size);
+  if (n != s.st_size) {
+    FD_LOG_ERR(( "Read failure" ));
+  }
+
+  unsigned char *eptr = &b[(ulong) ((ulong)n - (ulong)sizeof(fd_solana_account_hdr_t))];
+
+  while (b < eptr) {
+    fd_solana_account_hdr_t *hdr = (fd_solana_account_hdr_t *)b;
+    // Look for corruption...
+    if ((b + hdr->meta.data_len) > (r + n)) {
+      // some kind of corruption in the file?
+      break;
+    }
+    // Sanitize accounts...
+    if ((hdr->info.lamports == 0) | ((hdr->info.executable & ~1) != 0))
+      break;
+
+    char pubkey[50];
+    fd_memset(pubkey, 0, sizeof(pubkey));
+    fd_base58_encode_32((uchar *) hdr->meta.pubkey, 0, pubkey);
+
+    char owner[50];
+    fd_memset(owner, 0, sizeof(owner));
+    fd_base58_encode_32((uchar *) hdr->info.owner, 0, owner);
+
+    fd_solana_account_t account = {
+      .lamports = hdr->info.lamports,
+      .rent_epoch = hdr->info.rent_epoch,
+      .data_len = hdr->meta.data_len,
+      .data = b + sizeof(*hdr),
+      .executable = (uchar) hdr->info.executable
+    };
+    fd_memcpy( account.owner.key, hdr->info.owner, 32 );
+            
+    uchar hash[32];
+    fd_hash_account( &account, slot, (fd_pubkey_t const *)  &hdr->meta.pubkey, (fd_hash_t *) hash );
+
+    char encoded_hash[50];
+    fd_base58_encode_32((uchar *) hash, 0, encoded_hash);
+
+    printf("owner: %48s pubkey: %48s hash: %48s file: %s\n", owner, pubkey, encoded_hash, file);
+
+    const void * o = &b[sizeof(*hdr)];
+    unsigned char *outend = & (((unsigned char *) o)[hdr->meta.data_len]);
+
+    if (strcmp(pubkey, "SysvarC1ock11111111111111111111111111111111") == 0) {
+      fd_sol_sysvar_clock_t a;
+      memset(&a, 0, sizeof(a));
+
+      fd_sol_sysvar_clock_decode(&a, &o, outend, allocf, state->alloc);
+      printf("  {slot = %ld, epoch_start_timestamp = %ld, epoch = %ld, leader_schedule_epoch = %ld, unix_timestamp = %ld}\n",
+        a.slot, a.epoch_start_timestamp, a.epoch, a.leader_schedule_epoch, a.unix_timestamp);
+      fd_sol_sysvar_clock_destroy(&a, freef, state->alloc);
+    } else if (strcmp(pubkey, "SysvarRecentB1ockHashes11111111111111111111") == 0) {
+      fd_recent_block_hashes_t a;
+      memset(&a, 0, sizeof(a));
+
+      fd_recent_block_hashes_decode(&a, &o, outend, allocf, state->alloc);
+      for (ulong i = 0; i < a.hashes_len; i++) {
+        fd_block_block_hash_entry_t *e = &a.hashes[i];
+        char encoded_hash[50];
+        fd_base58_encode_32((uchar *) e->blockhash.hash, 0, encoded_hash);
+
+        printf("  {blockhash = %s,  fee_calculator={lamports_per_signature = %ld}}\n", encoded_hash, e->fee_calculator.lamports_per_signature);
+      }
+      fd_recent_block_hashes_destroy(&a, freef, state->alloc);
+    }
+
+    b += fd_ulong_align_up(hdr->meta.data_len + sizeof(*hdr), 8);
+  }
+
+  close(fd);
+  freef(state->alloc, r);
+}
+
 int slot_dump(global_state_t *state) {
   if (NULL == state->accounts)  {
     usage(state->argv[0]);
@@ -288,109 +397,33 @@ int slot_dump(global_state_t *state) {
   DIR *dir = opendir(state->accounts);
 
   struct dirent * ent;
-  uchar sprog[32];
-  fd_memset(sprog, 0, sizeof(sprog));
-
-  ulong files = 0;
-  ulong accounts = 0;
-  ulong odd = 0;
 
   while ( NULL != (ent = readdir(dir)) ) {
     if ( regexec(&reg, ent->d_name, 0, NULL, 0) == 0 )  {
-      struct stat s;
       char buf[1000];
 
       strcpy(buf, ent->d_name);
       char *p = buf;
       while (*p != '.') p++;
-      *p = '\0';
+      *p++ = '\0';
 
       ulong slot = (ulong) atol(buf);
+      ulong id = (ulong) atol(p);
        
       if ((slot < state->start_slot) | (slot > state->end_slot))
         continue;
 
+      if ((id < state->start_id) | ((state->end_id > 0) & (id > state->end_id)))
+        continue;
+
       sprintf(buf, "%s/%s", state->accounts, ent->d_name);
-      stat(buf,  &s);
-      unsigned char *r = (unsigned char *)allocf(state->alloc, 8UL, (unsigned long) (unsigned long) s.st_size);
-      unsigned char *b = r;
-      files++;
-      int fd = open(buf, O_RDONLY);
-      ssize_t n = read(fd, b, (unsigned long) s.st_size);
-      if (n < 0) {
-        FD_LOG_ERR(( "??" ));
-      }
-      unsigned char *eptr = &b[(ulong) ((ulong)n - (ulong)sizeof(fd_solana_account_hdr_t))];
-      if (n != s.st_size) {
-        FD_LOG_ERR(( "??" ));
-      }
 
-      while (b < eptr) {
-        fd_solana_account_hdr_t *hdr = (fd_solana_account_hdr_t *)b;
-        // Look for corruption...
-        if ((b + hdr->meta.data_len) > (r + n)) {
-          // some kind of corruption in the file?
-          break;
-        }
-        // Sanitize accounts...
-        if ((hdr->info.lamports == 0) | ((hdr->info.executable & ~1) != 0))
-          break;
-
-        accounts++;
-
-        do {
-          char pubkey[50];
-          fd_memset(pubkey, 0, sizeof(pubkey));
-          fd_base58_encode_32((uchar *) hdr->meta.pubkey, 0, pubkey);
-
-          if (strcmp(pubkey, "SysvarC1ock11111111111111111111111111111111"))
-            break;
-
-          fd_solana_account_t account = {
-            .lamports = hdr->info.lamports,
-            .rent_epoch = hdr->info.rent_epoch,
-            .data_len = hdr->meta.data_len,
-            .data = b + sizeof(*hdr),
-            .executable = (uchar) hdr->info.executable
-          };
-          fd_memcpy( account.owner.key, hdr->info.owner, 32 );
-            
-          uchar hash[32];
-          fd_hash_account( &account, slot, (fd_pubkey_t const *)  &hdr->meta.pubkey, (fd_hash_t *) hash );
-
-          char encoded_hash[50];
-          fd_base58_encode_32((uchar *) hash, 0, encoded_hash);
-
-          char owner[50];
-          fd_memset(owner, 0, sizeof(owner));
-          fd_base58_encode_32((uchar *) hdr->info.owner, 0, owner);
-          printf("owner: %48s pubkey: %48s hash: %48s file: %s\n", owner, pubkey, encoded_hash, buf);
-
-          struct fd_sol_sysvar_clock a;
-          memset(&a, 0, sizeof(a));
-
-          const void * o = &b[sizeof(*hdr)];
-          unsigned char *outend = & (((unsigned char *) o)[hdr->meta.data_len]);
-
-          fd_sol_sysvar_clock_decode(&a, &o, outend, allocf, state->alloc);
-          printf("{slot = %ld, epoch_start_timestamp = %ld, epoch = %ld, leader_schedule_epoch = %ld, unix_timestamp = %ld}\n",
-            a.slot, a.epoch_start_timestamp, a.epoch, a.leader_schedule_epoch, a.unix_timestamp);
-          fd_sol_sysvar_clock_destroy(&a, freef, state->alloc);
-
-        } while (0);
-
-        b += fd_ulong_align_up(hdr->meta.data_len + sizeof(*hdr), 8);
-      }
-
-      close(fd);
-      freef(state->alloc, r);
+      print_file(state, buf);
     }
   }
 
   closedir(dir);
   regfree(&reg);
-
-  FD_LOG_WARNING(("files %ld  accounts %ld  odd %ld", files, accounts, odd));
 
   return 0;
 }
@@ -873,18 +906,17 @@ int main(int argc, char **argv) {
   state.argc = argc;
   state.argv = argv;
 
-  state.end_slot = 73;
-  state.start_slot = 0;
-
   state.name                = fd_env_strip_cmdline_cstr ( &argc, &argv, "--wksp",         NULL, NULL );
   state.ledger              = fd_env_strip_cmdline_cstr ( &argc, &argv, "--ledger",       NULL, NULL);
   state.db                  = fd_env_strip_cmdline_cstr ( &argc, &argv, "--db",           NULL, NULL);
-  state.end_slot_opt        = fd_env_strip_cmdline_cstr ( &argc, &argv, "--end-slot",     NULL, NULL);
   state.start_slot_opt      = fd_env_strip_cmdline_cstr ( &argc, &argv, "--start-slot",   NULL, NULL);
+  state.end_slot_opt        = fd_env_strip_cmdline_cstr ( &argc, &argv, "--end-slot",     NULL, NULL);
+  state.start_id_opt        = fd_env_strip_cmdline_cstr ( &argc, &argv, "--start-id",     NULL, NULL);
+  state.end_id_opt          = fd_env_strip_cmdline_cstr ( &argc, &argv, "--end-id",       NULL, NULL);
   state.manifest            = fd_env_strip_cmdline_cstr ( &argc, &argv, "--manifest",     NULL, NULL);
   state.accounts            = fd_env_strip_cmdline_cstr ( &argc, &argv, "--accounts",     NULL, NULL);
   state.cmd                 = fd_env_strip_cmdline_cstr ( &argc, &argv, "--cmd",          NULL, NULL);
-  state.txn_exe_opt         = fd_env_strip_cmdline_cstr ( &argc, &argv, "--txn-exe",     NULL, NULL);
+  state.txn_exe_opt         = fd_env_strip_cmdline_cstr ( &argc, &argv, "--txn-exe",      NULL, NULL);
   state.pages_opt           = fd_env_strip_cmdline_cstr ( &argc, &argv, "--pages",        NULL, NULL);
   const char *index_max_opt = fd_env_strip_cmdline_cstr ( &argc, &argv, "--index-max",    NULL, NULL);
   const char *validate_db   = fd_env_strip_cmdline_cstr ( &argc, &argv, "--validate",     NULL, NULL);
@@ -949,6 +981,10 @@ int main(int argc, char **argv) {
     state.end_slot = (ulong) atoi(state.end_slot_opt);
   if (NULL != state.start_slot_opt) 
     state.start_slot = (ulong) atoi(state.start_slot_opt);
+  if (NULL != state.end_id_opt)
+    state.end_id = (ulong) atoi(state.end_id_opt);
+  if (NULL != state.start_id_opt) 
+    state.start_id = (ulong) atoi(state.start_id_opt);
 
   // Eventually we will have to add support for reading compressed genesis blocks...
   char genesis[128];
