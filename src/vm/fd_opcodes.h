@@ -1,6 +1,8 @@
 #ifndef HEADER_fd_src_ballet_runtime_vm_fd_opcodes_h
 #define HEADER_fd_src_ballet_runtime_vm_fd_opcodes_h
 
+#include "../util/fd_util.h"
+
 struct fd_vm_sbpf_opcode_any {
   uchar op_class  : 3;
   uchar _unknown  : 5;

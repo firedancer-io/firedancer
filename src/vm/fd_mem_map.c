@@ -10,20 +10,21 @@ ulong
 fd_vm_mem_map_read_uchar( FD_FN_UNUSED fd_vm_mem_map_t *  mem_map,
                           FD_FN_UNUSED ulong              vm_address,
                           FD_FN_UNUSED uchar *            val ) {
+  
   return 0;
 }
 
 ulong 
-fd_vm_mem_map_read_ushort( FD_FN_UNUSED fd_vm_mem_map_t *  mem_map,
-                          FD_FN_UNUSED ulong              vm_address,
-                          FD_FN_UNUSED ushort *            val ) {
+fd_vm_mem_map_read_ushort( FD_FN_UNUSED fd_vm_mem_map_t *   mem_map,
+                          FD_FN_UNUSED ulong                vm_address,
+                          FD_FN_UNUSED ushort *             val ) {
   return 0;
 }
 
 ulong 
-fd_vm_mem_map_read_uint( FD_FN_UNUSED fd_vm_mem_map_t *  mem_map,
-                          FD_FN_UNUSED ulong              vm_address,
-                          FD_FN_UNUSED uint *            val ) {
+fd_vm_mem_map_read_uint( FD_FN_UNUSED fd_vm_mem_map_t *   mem_map,
+                         FD_FN_UNUSED ulong               vm_address,
+                         FD_FN_UNUSED uint *              val ) {
   return 0;
 }
 
@@ -50,8 +51,8 @@ fd_vm_mem_map_write_ushort( FD_FN_UNUSED fd_vm_mem_map_t *  mem_map,
 
 ulong 
 fd_vm_mem_map_write_uint( FD_FN_UNUSED fd_vm_mem_map_t *  mem_map,
-                           FD_FN_UNUSED ulong              vm_address,
-                           FD_FN_UNUSED uint              val ) {
+                          FD_FN_UNUSED ulong              vm_address,
+                          FD_FN_UNUSED uint               val ) {
   return 0;
 }
 

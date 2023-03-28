@@ -1,6 +1,174 @@
-#include "fd_sbpf_interp.h"
+#include "fd_sbpf_interp.h" 
 
 #include <immintrin.h>
+
+#define FD_MEM_MAP_PROGRAM_REGION_START   (0x100000000UL)
+#define FD_MEM_MAP_STACK_REGION_START     (0x200000000UL)
+#define FD_MEM_MAP_HEAP_REGION_START      (0x300000000UL)
+#define FD_MEM_MAP_INPUT_REGION_START     (0x400000000UL)
+#define FD_MEM_MAP_REGION_SZ              (0x0FFFFFFFFUL)
+#define FD_MEM_MAP_REGION_MASK            (~FD_MEM_MAP_REGION_SZ)
+#define FD_MEM_MAP_REGION_VIRT_ADDR_BITS  (32)
+
+static ulong
+fd_vm_sbpf_interp_translate_vm_to_host( fd_vm_sbpf_exec_context_t * ctx,
+                                        uchar                       write,
+                                        ulong                       vm_addr,
+                                        ulong                       sz,
+                                        void * *                   host_addr ) { 
+  ulong mem_region = vm_addr & FD_MEM_MAP_REGION_MASK;
+  ulong start_addr = vm_addr & FD_MEM_MAP_REGION_SZ;
+  ulong end_addr = start_addr + sz;
+
+  switch( mem_region ) {
+    case FD_MEM_MAP_PROGRAM_REGION_START:
+      if( write ) {
+        return FD_VM_MEM_MAP_ERR_ACC_VIO;
+      }
+      if( end_addr >= ctx->read_only_sz ) {
+        return FD_VM_MEM_MAP_ERR_ACC_VIO;
+      }
+      *host_addr = &ctx->read_only[start_addr];
+      break;
+    case FD_MEM_MAP_STACK_REGION_START:
+    case FD_MEM_MAP_HEAP_REGION_START:
+      if( end_addr >= FD_VM_HEAP_SZ ) {
+        return FD_VM_MEM_MAP_ERR_ACC_VIO;
+      }
+      *host_addr = &ctx->heap[start_addr];
+      break;
+    case FD_MEM_MAP_INPUT_REGION_START:
+      if( end_addr >= ctx->input_sz ) {
+        return FD_VM_MEM_MAP_ERR_ACC_VIO;
+      }
+      *host_addr = &ctx->input[start_addr];
+      break;
+    default:
+      return FD_VM_MEM_MAP_ERR_ACC_VIO;
+  }
+
+  return FD_VM_MEM_MAP_SUCCESS;
+}
+
+static ulong 
+fd_vm_mem_map_read_uchar( fd_vm_sbpf_exec_context_t * ctx,
+                          ulong              vm_addr,
+                          uchar *            val ) {
+  void * vm_mem;
+  ulong translation_res = fd_vm_sbpf_interp_translate_vm_to_host(ctx, 0, vm_addr, sizeof(uchar), &vm_mem);
+  if( translation_res != FD_VM_MEM_MAP_SUCCESS) {
+    return translation_res;
+  }
+
+  *val = *(uchar *)vm_mem;
+
+  return FD_VM_MEM_MAP_SUCCESS;
+}
+
+static ulong 
+fd_vm_mem_map_read_ushort( fd_vm_sbpf_exec_context_t * ctx,
+                          ulong              vm_addr,
+                          ushort *            val ) {
+  void * vm_mem;
+  ulong translation_res = fd_vm_sbpf_interp_translate_vm_to_host(ctx, 0, vm_addr, sizeof(ushort), &vm_mem);
+  if( translation_res != FD_VM_MEM_MAP_SUCCESS) {
+    return translation_res;
+  }
+
+  *val = *(ushort *)vm_mem;
+
+  return FD_VM_MEM_MAP_SUCCESS;
+}
+
+static ulong 
+fd_vm_mem_map_read_uint( fd_vm_sbpf_exec_context_t * ctx,
+                          ulong              vm_addr,
+                          uint *            val ) {
+  void * vm_mem;
+  ulong translation_res = fd_vm_sbpf_interp_translate_vm_to_host(ctx, 0, vm_addr, sizeof(uint), &vm_mem);
+  if( translation_res != FD_VM_MEM_MAP_SUCCESS) {
+    return translation_res;
+  }
+
+  *val = *(uint *)vm_mem;
+
+  return FD_VM_MEM_MAP_SUCCESS;
+}
+
+static ulong 
+fd_vm_mem_map_read_ulong( fd_vm_sbpf_exec_context_t * ctx,
+                          ulong              vm_addr,
+                          ulong *            val ) {
+  void * vm_mem;
+  ulong translation_res = fd_vm_sbpf_interp_translate_vm_to_host(ctx, 0, vm_addr, sizeof(ulong), &vm_mem);
+  if( translation_res != FD_VM_MEM_MAP_SUCCESS) {
+    return translation_res;
+  }
+
+  *val = *(ulong *)vm_mem;
+
+  return FD_VM_MEM_MAP_SUCCESS;
+}
+
+static ulong 
+fd_vm_mem_map_write_uchar( fd_vm_sbpf_exec_context_t * ctx,
+                          ulong              vm_addr,
+                          uchar             val ) {
+  void * vm_mem;
+  ulong translation_res = fd_vm_sbpf_interp_translate_vm_to_host(ctx, 1, vm_addr, sizeof(uchar), &vm_mem);
+  if( translation_res != FD_VM_MEM_MAP_SUCCESS) {
+    return translation_res;
+  }
+
+  *(uchar *)vm_mem = val;
+
+  return FD_VM_MEM_MAP_SUCCESS;
+}
+
+static ulong 
+fd_vm_mem_map_write_ushort( fd_vm_sbpf_exec_context_t * ctx,
+                          ulong              vm_addr,
+                          ushort             val ) {
+  void * vm_mem;
+  ulong translation_res = fd_vm_sbpf_interp_translate_vm_to_host(ctx, 1, vm_addr, sizeof(ushort), &vm_mem);
+  if( translation_res != FD_VM_MEM_MAP_SUCCESS) {
+    return translation_res;
+  }
+
+  *(ushort *)vm_mem = val;
+
+  return FD_VM_MEM_MAP_SUCCESS;
+}
+
+static ulong 
+fd_vm_mem_map_write_uint( fd_vm_sbpf_exec_context_t * ctx,
+                          ulong              vm_addr,
+                          uint             val ) {
+  void * vm_mem;
+  ulong translation_res = fd_vm_sbpf_interp_translate_vm_to_host(ctx, 1, vm_addr, sizeof(uint), &vm_mem);
+  if( translation_res != FD_VM_MEM_MAP_SUCCESS) {
+    return translation_res;
+  }
+
+  *(uint *)vm_mem = val;
+
+  return FD_VM_MEM_MAP_SUCCESS;
+}
+
+static ulong 
+fd_vm_mem_map_write_ulong( fd_vm_sbpf_exec_context_t * ctx,
+                          ulong              vm_addr,
+                          ulong             val ) {
+  void * vm_mem;
+  ulong translation_res = fd_vm_sbpf_interp_translate_vm_to_host(ctx, 1, vm_addr, sizeof(ulong), &vm_mem);
+  if( translation_res != FD_VM_MEM_MAP_SUCCESS) {
+    return translation_res;
+  }
+
+  *(ulong *)vm_mem = val;
+
+  return FD_VM_MEM_MAP_SUCCESS;
+}
 
 void
 fd_vm_sbpf_interp_instrs( fd_vm_sbpf_exec_context_t * ctx ) {
@@ -12,10 +180,13 @@ fd_vm_sbpf_interp_instrs( fd_vm_sbpf_exec_context_t * ctx ) {
   ulong cond_fault = 0;
 
 #define ALIGNED_JMP_TAB_ID interp
-#define ALIGNED_JMP_TAB_ALIGNMENT 16
+#define ALIGNED_JMP_TAB_ALIGNMENT 32
 #include "fd_aligned_jump_tab.c"
   
   fd_vm_sbpf_instr_t instr;
+  ulong dst_reg;
+  ulong src_reg;
+  ulong imm; 
   static const void* locs[257] = {
 #include "fd_sbpf_interp_locs.c"  
   };
@@ -29,6 +200,9 @@ fd_vm_sbpf_interp_instrs( fd_vm_sbpf_exec_context_t * ctx ) {
     }
 
     instr = ctx->instrs[pc];
+    dst_reg = instr.dst_reg;
+    src_reg = instr.src_reg;
+    imm = instr.imm;
     AJT_GOTO(instr.opcode.raw);
     pc++;
 AJT_BREAK_LOC:
@@ -69,7 +243,7 @@ uchar const FD_OPCODE_VALIDATION_MAP[256] = {
   /* 0x24 */ FD_VALID,      /* 0x25 */ FD_CHECK_JMP,  /* 0x26 */ FD_CHECK_JMP,  /* 0x27 */ FD_VALID,   
   /* 0x28 */ FD_INVALID,    /* 0x29 */ FD_INVALID,    /* 0x2a */ FD_INVALID,    /* 0x2b */ FD_INVALID,   
   /* 0x2c */ FD_VALID,      /* 0x2d */ FD_CHECK_JMP,  /* 0x2e */ FD_CHECK_JMP,  /* 0x2f */ FD_VALID,   
-  /* 0x30 */ FD_INVALID,    /* 0x31 */ FD_INVALID,    /* 0x32 */ FD_INVALID,    /* 0x33 */ FD_INVALID,   
+  /* 0x30 */ FD_INVALID,    /* 0x31 */ FD_INVALID,    /* 0x32 */ FD_INVALID,    /* 0x33 */ FD_INVALID, 
   /* 0x34 */ FD_VALID,      /* 0x35 */ FD_CHECK_JMP,  /* 0x36 */ FD_CHECK_JMP,  /* 0x37 */ FD_VALID,   
   /* 0x38 */ FD_INVALID,    /* 0x39 */ FD_INVALID,    /* 0x3a */ FD_INVALID,    /* 0x3b */ FD_INVALID,   
   /* 0x3c */ FD_VALID,      /* 0x3d */ FD_CHECK_JMP,  /* 0x3e */ FD_CHECK_JMP,  /* 0x3f */ FD_VALID,   

@@ -1,9 +1,12 @@
 #ifndef HEADER_fd_src_ballet_runtime_vm_fd_sbpf_interp_h
 #define HEADER_fd_src_ballet_runtime_vm_fd_sbpf_interp_h
 
-#include "../ballet/fd_ballet_base.h"
+// #include "../ballet/fd_ballet_base.h"
 #include "fd_opcodes.h"
 #include "fd_mem_map.h"
+#include "fd_stack.h"
+
+#define FD_VM_HEAP_SZ (32*1024)
 
 #define FD_VM_SBPF_VALIDATE_SUCCESS               (0UL)
 #define FD_VM_SBPF_VALIDATE_ERR_INVALID_OPCODE    (1UL)
@@ -22,7 +25,13 @@ struct fd_vm_sbpf_exec_context {
   ulong                 num_ext_funcs;
   fd_vm_sbpf_instr_t *  instrs;
   ulong                 instrs_sz;
-  fd_vm_mem_map_t          mem_map;
+
+  uchar *       read_only;
+  ulong         read_only_sz;
+  uchar *       input;
+  ulong         input_sz;
+  fd_vm_stack_t stack;
+  uchar         heap[FD_VM_HEAP_SZ];
 };
 typedef struct fd_vm_sbpf_exec_context fd_vm_sbpf_exec_context_t;
 
