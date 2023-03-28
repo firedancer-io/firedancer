@@ -674,9 +674,14 @@ typedef struct fd_block_block_hash_entry fd_block_block_hash_entry_t;
 #define FD_BLOCK_BLOCK_HASH_ENTRY_FOOTPRINT sizeof(fd_block_block_hash_entry_t)
 #define FD_BLOCK_BLOCK_HASH_ENTRY_ALIGN (8UL)
 
+#define VECT_NAME fd_vec_fd_block_block_hash_entry_t
+#define VECT_ELEMENT fd_block_block_hash_entry_t
+#include "../../funk/fd_vector.h"
+#undef VECT_NAME
+#undef VECT_ELEMENT
+
 struct fd_recent_block_hashes {
-  ulong                        hashes_len;
-  fd_block_block_hash_entry_t* hashes;
+  fd_vec_fd_block_block_hash_entry_t_t hashes;
 };
 typedef struct fd_recent_block_hashes fd_recent_block_hashes_t;
 #define FD_RECENT_BLOCK_HASHES_FOOTPRINT sizeof(fd_recent_block_hashes_t)
