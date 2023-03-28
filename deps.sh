@@ -150,7 +150,7 @@ check_fedora_pkgs () {
 }
 
 check_debian_pkgs () {
-  local REQUIRED_DEBS=( perl autoconf gettext automake autopoint flex bison build-essential pkg-config )
+  local REQUIRED_DEBS=( perl autoconf gettext automake autopoint flex bison build-essential pkg-config gcc-multilib )
 
   echo "[~] Checking for required DEB packages"
 

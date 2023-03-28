@@ -64,10 +64,6 @@ write_epb( FILE * file, uchar * buf, uint buf_sz, ulong ts ) {
 
 }
 
-
-extern uchar pkt_full[];
-extern ulong pkt_full_sz;
-
 ulong
 aio_cb( void *              context,
         fd_aio_pkt_info_t * batch,
@@ -285,8 +281,8 @@ main( int argc, char ** argv ) {
   fd_aio_t const * aio_q2n = fd_quic_get_aio_net_rx( client_quic );
 
 #if 0
-  fd_quic_set_aio_net_out( server_quic, aio_q2n );
-  fd_quic_set_aio_net_out( client_quic, aio_n2q );
+  fd_quic_set_aio_net_tx( server_quic, aio_q2n );
+  fd_quic_set_aio_net_tx( client_quic, aio_n2q );
 #else
   /* create a pipe for catching data as it passes thru */
   aio_pipe_t pipe[2] = { { aio_n2q, pcap }, { aio_q2n, pcap } };

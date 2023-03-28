@@ -1,42 +1,10 @@
 #include "../fd_quic.h"
 
-#include <stdio.h>
-#include <stdlib.h>
-
 #include "fd_pcap.h"
-
-
-#define SEND_SZ 1400ul
-#define BUF_SZ (1<<20)
-
-
-extern uchar pkt_full[];
-extern ulong pkt_full_sz;
 
 ulong
 gettime( void ) {
-  struct timespec ts;
-  clock_gettime( CLOCK_REALTIME, &ts );
-  return (ulong)ts.tv_nsec + (ulong)1e9 * (ulong)ts.tv_sec;
-}
-
-ulong
-aio_cb( void * context, fd_aio_pkt_info_t * batch, ulong batch_sz ) {
-  (void)context;
-
-  printf( "aio_cb callback\n" );
-  for( ulong j = 0; j < batch_sz; ++j ) {
-    printf( "batch %d\n", (int)j );
-    uchar const * data = (uchar const *)batch[j].buf;
-    for( ulong k = 0; k < batch[j].buf_sz; ++k ) {
-      printf( "%2.2x ", (uint)data[k] );
-    }
-    printf( "\n\n" );
-  }
-
-  fflush( stdout );
-
-  return batch_sz; /* consumed all */
+  return (ulong)fd_log_wallclock();
 }
 
 uchar fail = 0;
@@ -57,19 +25,8 @@ my_stream_receive_cb( fd_quic_stream_t * stream,
   (void)offset;
   (void)fin;
 
-#if 0
-  printf( "my_stream_receive_cb : received data from peer. size: %lu  offset: %lu\n",
-      (ulong)data_sz, (ulong)offset );
-  printf( "%s\n", data );
-#endif
-
-  rx_tot_sz += data_sz;}
-
-
-struct my_context {
-  int server;
-};
-typedef struct my_context my_context_t;
+  rx_tot_sz += data_sz;
+}
 
 int server_complete = 0;
 int client_complete = 0;
@@ -82,7 +39,6 @@ void my_connection_new( fd_quic_conn_t * conn,
   (void)vp_context;
 
   FD_LOG_INFO(( "server handshake complete" ));
-  fd_log_flush();
 
   server_complete = 1;
   server_conn = conn;
@@ -94,98 +50,114 @@ void my_handshake_complete( fd_quic_conn_t * conn,
   (void)vp_context;
 
   FD_LOG_INFO(( "client handshake complete" ));
-  fd_log_flush();
 
   client_complete = 1;
 }
-
-
-/* pcap aio pipe */
-struct aio_pipe {
-  fd_aio_t * aio;
-  FILE *     file;
-};
-typedef struct aio_pipe aio_pipe_t;
-
-
-int
-pipe_aio_receive( void *              vp_ctx,
-                  fd_aio_pkt_info_t * batch,
-                  ulong               batch_sz,
-                  ulong *             opt_batch_idx ) {
-  static ulong ts = 0;
-  ts += 100000ul;
-  (void)ts;
-
-  aio_pipe_t * pipe = (aio_pipe_t*)vp_ctx;
-
-  /* forward */
-  return fd_aio_send( pipe->aio, batch, batch_sz, opt_batch_idx );
-}
-
 
 ulong test_clock( void * ctx ) {
   (void)ctx;
   return gettime();
 }
 
+static void
+init_quic( fd_quic_t *  quic,
+           char const * hostname,
+           uint         ip_addr,
+           uint         udp_port ) {
+
+  FD_LOG_NOTICE(( "Configuring QUIC \"%s\"", hostname ));
+
+  fd_quic_config_t * quic_config = fd_quic_get_config( quic );
+
+  strcpy ( quic_config->cert_file, "cert.pem" );
+  strcpy ( quic_config->key_file,  "key.pem"  );
+  strncpy( quic_config->sni,       hostname, FD_QUIC_SNI_LEN );
+
+  quic_config->net.ip_addr         = ip_addr;
+  quic_config->net.listen_udp_port = (ushort)udp_port;
+
+  quic_config->net.ephem_udp_port.lo = 4219;
+  quic_config->net.ephem_udp_port.hi = 4220;
+
+  fd_quic_callbacks_t * quic_cb = fd_quic_get_callbacks( quic );
+
+  quic_cb->stream_receive = my_stream_receive_cb;
+
+  quic_cb->now     = test_clock;
+  quic_cb->now_ctx = NULL;
+}
+
 int
 main( int argc, char ** argv ) {
   fd_boot( &argc, &argv );
 
-  char const * _pcap = fd_env_strip_cmdline_cstr( &argc, &argv, "--pcap", NULL, "test_quic_hs.pcapng" );
+  ulong cpu_idx = fd_tile_cpu_id( fd_tile_idx() );
+  if( cpu_idx>fd_shmem_cpu_cnt() ) cpu_idx = 0UL;
 
-  FILE * pcap = fopen( _pcap, "wb" );
-  FD_TEST( pcap );
+  char const * _page_sz  = fd_env_strip_cmdline_cstr ( &argc, &argv, "--page-sz",   NULL, "gigantic"                   );
+  ulong        page_cnt  = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt",  NULL, 2UL                          );
+  ulong        numa_idx  = fd_env_strip_cmdline_ulong( &argc, &argv, "--numa-idx",  NULL, fd_shmem_numa_idx( cpu_idx ) );
 
-  fd_quic_limits_t quic_limits = {
+  ulong page_sz = fd_cstr_to_shmem_page_sz( _page_sz );
+  if( FD_UNLIKELY( !page_sz ) ) FD_LOG_ERR(( "unsupported --page-sz" ));
+
+  FD_LOG_NOTICE(( "Creating workspace (--page-cnt %lu, --page-sz %s, --numa-idx %lu)", page_cnt, _page_sz, numa_idx ));
+  fd_wksp_t * wksp = fd_wksp_new_anonymous( page_sz, page_cnt, fd_shmem_cpu_idx( numa_idx ), "wksp", 0UL );
+  FD_TEST( wksp );
+
+  fd_quic_limits_t const quic_limits = {
     .conn_cnt         = 10,
     .conn_id_cnt      = 10,
     .conn_id_sparsity = 4.0,
     .handshake_cnt    = 10,
-    .stream_cnt       = 4,
-    .inflight_pkt_cnt = 100
+    .stream_cnt       = 10,
+    .inflight_pkt_cnt = 100,
+    .tx_buf_sz        = 1<<20,
+    .rx_buf_sz        = 1<<20
   };
 
-  quic_cfg.transport_params      = tp;
+  ulong quic_footprint = fd_quic_footprint( &quic_limits );
+  FD_TEST( quic_footprint );
+  FD_LOG_NOTICE(( "QUIC footprint: %lu bytes", quic_footprint ));
 
-  strcpy( quic_cfg.cert_file, "cert.pem" );
-  strcpy( quic_cfg.key_file, "key.pem"  );
+  FD_LOG_NOTICE(( "Creating server QUIC" ));
+  fd_quic_t * server_quic = fd_quic_new(
+      fd_wksp_alloc_laddr( wksp, fd_quic_align(), fd_quic_footprint( &quic_limits ), 1UL ),
+      &quic_limits );
+  FD_TEST( server_quic );
 
-  fd_quic_callbacks_t quic_cb = {
-    .stream_receive = my_stream_receive_cb,
-    .now     = test_clock,
-    .now_ctx = NULL
-  };
+  FD_LOG_NOTICE(( "Creating client QUIC" ));
+  fd_quic_t * client_quic = fd_quic_new(
+      fd_wksp_alloc_laddr( wksp, fd_quic_align(), fd_quic_footprint( &quic_limits ), 1UL ),
+      &quic_limits );
+  FD_TEST( client_quic );
 
-  fd_quic_host_cfg_t server_cfg = { "server_host", 0x0a000001u, 4434 };
-  fd_quic_host_cfg_t client_cfg = { "client_host", 0xc01a1a1au, 2001 };
+  init_quic( server_quic, "server_host", 0x0a000001u, 4434 );
+  init_quic( client_quic, "client_host", 0xc01a1a1au, 2001 );
 
-  quic_cfg.host_cfg = client_cfg;
-  fd_quic_t * client_quic = new_quic( &quic_cfg );
+  server_quic->config.role = FD_QUIC_ROLE_SERVER;
+  client_quic->config.role = FD_QUIC_ROLE_CLIENT;
 
-  quic_cfg.host_cfg = server_cfg;
-  fd_quic_t * server_quic = new_quic( &quic_cfg );
+  server_quic->join.cb.conn_new         = my_connection_new;
+  client_quic->join.cb.conn_hs_complete = my_handshake_complete;
 
   /* make use aio to point quic directly at quic */
-  fd_aio_t const * aio_n2q = fd_quic_get_aio_net_in( server_quic );
-  fd_aio_t const * aio_q2n = fd_quic_get_aio_net_in( client_quic );
+  fd_aio_t const * aio_n2q = fd_quic_get_aio_net_rx( server_quic );
+  fd_aio_t const * aio_q2n = fd_quic_get_aio_net_rx( client_quic );
 
-  fd_quic_set_aio_net_out( server_quic, aio_q2n );
-  fd_quic_set_aio_net_out( client_quic, aio_n2q );
+  fd_quic_set_aio_net_tx( server_quic, aio_q2n );
+  fd_quic_set_aio_net_tx( client_quic, aio_n2q );
 
-  /* set up server_quic as server */
-  fd_quic_listen( server_quic );
-
-  /* set the callback for new connections */
-  fd_quic_set_cb_conn_new( server_quic, my_connection_new );
-
-  /* set the callback for handshake complete */
-  fd_quic_set_cb_conn_handshake_complete( client_quic, my_handshake_complete );
+  FD_LOG_NOTICE(( "Joining QUICs" ));
+  FD_TEST( fd_quic_join( server_quic ) );
+  FD_TEST( fd_quic_join( client_quic ) );
 
   /* make a connection from client to server */
-  fd_quic_conn_t * client_conn = fd_quic_connect( client_quic, server_cfg.ip_addr, server_cfg.udp_port );
-  (void)client_conn;
+  fd_quic_conn_t * client_conn = fd_quic_connect(
+      client_quic,
+      server_quic->config.net.ip_addr,
+      server_quic->config.net.listen_udp_port,
+      server_quic->config.sni );
 
   /* do general processing */
   for( ulong j = 0; j < 20; j++ ) {
@@ -194,17 +166,16 @@ main( int argc, char ** argv ) {
     ulong next_wakeup = fd_ulong_min( ct, st );
 
     if( next_wakeup == ~(ulong)0 ) {
-      printf( "client and server have no schedule\n" );
+      FD_LOG_INFO(( "client and server have no schedule" ));
       break;
     }
 
-    printf( "running services at %lu\n", (ulong)next_wakeup );
+    FD_LOG_INFO(( "running services at %lu", next_wakeup ));
     fd_quic_service( client_quic );
     fd_quic_service( server_quic );
 
     if( server_complete && client_complete ) {
-      printf( "***** both handshakes complete *****\n" );
-
+      FD_LOG_INFO(( "***** both handshakes complete *****" ));
       break;
     }
   }
@@ -215,7 +186,7 @@ main( int argc, char ** argv ) {
     ulong next_wakeup = fd_ulong_min( ct, st );
 
     if( next_wakeup == ~(ulong)0 ) {
-      printf( "client and server have no schedule\n" );
+      FD_LOG_INFO(( "client and server have no schedule" ));
       break;
     }
 
@@ -225,13 +196,14 @@ main( int argc, char ** argv ) {
 
   /* try sending */
   fd_quic_stream_t * client_stream = fd_quic_conn_new_stream( client_conn, FD_QUIC_TYPE_BIDIR );
+  FD_TEST( client_stream );
 
-  char buf[SEND_SZ] = "Hello world!\x00-   ";
-  ulong buf_sz = sizeof( buf );
+  char buf[ 256UL ] = "Hello world!\x00-   ";
+  ulong buf_sz = sizeof(buf);
   fd_aio_pkt_info_t batch[1] = {{ buf, (ushort)buf_sz }};
   int rc = fd_quic_stream_send( client_stream, batch, 1, 0 );
 
-  printf( "fd_quic_stream_send returned %d\n", rc );
+  FD_LOG_INFO(( "fd_quic_stream_send returned %d", rc ));
 
   ulong tot     = 0;
   ulong last_ts = gettime();
@@ -252,7 +224,7 @@ main( int argc, char ** argv ) {
     if( t >= rprt_ts ) {
       ulong dt = t - last_ts;
       float bps = (float)tot / (float)dt;
-      printf( "bw: %f  dt: %f  bytes: %f\n", (double)bps, (double)dt, (double)tot );
+      FD_LOG_NOTICE(( "bw: %f  dt: %f  bytes: %f", (double)bps, (double)dt, (double)tot ));
 
       tot     = 0;
       last_ts = t;
@@ -275,26 +247,21 @@ main( int argc, char ** argv ) {
     if( next_wakeup == ~(ulong)0 ) {
       /* indicates no schedule, which is correct after connection
          instances have been reclaimed */
-      printf( "Finished cleaning up connections\n" );
+      FD_LOG_INFO(( "Finished cleaning up connections" ));
       break;
     }
 
-    printf( "running services at %lu\n", (ulong)next_wakeup );
+    FD_LOG_INFO(( "running services at %lu", next_wakeup ));
     fd_quic_service( client_quic );
     fd_quic_service( server_quic );
-
   }
 
-  fd_quic_delete( server_quic );
-  fd_quic_delete( client_quic );
+  FD_LOG_NOTICE(( "Cleaning up" ));
+  fd_wksp_free_laddr( fd_quic_delete( fd_quic_leave( server_quic ) ) );
+  fd_wksp_free_laddr( fd_quic_delete( fd_quic_leave( client_quic ) ) );
+  fd_wksp_delete_anonymous( wksp );
 
-  if( fail ) {
-    fprintf( stderr, "FAIL\n" );
-    exit(1);
-  }
-
-  fclose( pcap );
-
+  if( fail ) FD_LOG_ERR(( "fail" ));
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
   return 0;
