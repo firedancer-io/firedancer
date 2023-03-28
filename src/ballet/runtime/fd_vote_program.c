@@ -107,7 +107,6 @@ int fd_executor_vote_program_execute_instruction(
 
       /* Write the new state back to the database */
       ulong encoded_vote_state_size = fd_vote_state_size( &vote_state );
-      FD_LOG_NOTICE(( "encoded_vote_state_size: %lu", encoded_vote_state_size ));
 
       /* Write the new account data. Write at offset (dlen + 4) to preserve VoteStateVersions enum discriminant */
       /* TODO: free this, and make it encoded_vote_state_size in length */
