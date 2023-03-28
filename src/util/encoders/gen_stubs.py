@@ -304,7 +304,16 @@ def do_vector_body_size(n, f):
         print("      size += " + n + "_" + f["element"] + "_size(self->" + f["name"] + " + i);", file=body)
 
 def do_vector_dynamic_body_size(n, f):
-    print("size += sizeof(" + vector_dynamic_prefix(n, f) + "_t);", file=body)
+    print("  size += sizeof(ulong);", file=body)
+    if f["element"] == "unsigned char" or f["element"] == "uchar":
+        print("    size += self->" + f["name"] + ".cnt;", file=body)
+    elif f["element"] == "ulong" or f["element"] == "unsigned long":
+        print("    size += self->" + f["name"] + ".cnt * sizeof(ulong);", file=body)
+    elif f["element"] == "uint" or f["element"] == "unsigned int":
+        print("    size += self->" + f["name"] + ".cnt * sizeof(uint);", file=body)
+    else:
+        print("    for (ulong i = 0; i < self->" + f["name"] + ".cnt; ++i)", file=body)
+        print("      size += " + n + "_" + f["element"] + "_size(&self->" + f["name"] + ".elems[i]);", file=body)
 
 def do_option_body_size(n, f):
     print("  size += sizeof(char);", file=body)
