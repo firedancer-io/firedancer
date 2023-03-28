@@ -109,7 +109,6 @@ int fd_executor_vote_program_execute_instruction(
       ulong encoded_vote_state_size = fd_vote_state_size( &vote_state );
 
       /* Write the new account data. Write at offset (dlen + 4) to preserve VoteStateVersions enum discriminant */
-      /* TODO: free this, and make it encoded_vote_state_size in length */
       uchar* encoded_vote_state = (uchar *)(ctx.global->allocf)( ctx.global->allocf_arg, 8UL, encoded_vote_state_size );
       void* encode_vote_state_dest = encoded_vote_state;
       fd_vote_state_encode( &vote_state, (const void **)(&encode_vote_state_dest) );
