@@ -2,7 +2,6 @@
 #include <unistd.h>
 #include <string.h>
 #include <signal.h>
-#include <arpa/inet.h>
 
 #include "../../../util/fd_util.h"
 #include "../tls/fd_quic_tls.h"
@@ -28,40 +27,19 @@ struct my_quic_tls {
   int sec_level;
 };
 
-
-
-int
-my_client_hello( fd_quic_tls_hs_t * hs,
-                 void *             context );
-
-void
-my_alert( fd_quic_tls_hs_t * hs,
-          void *             context,
-          int                alert );
-
-void
-my_secret( fd_quic_tls_hs_t * hs,
-           void *             context,
-           fd_quic_tls_secret_t * secret );
-
-void
-my_handshake_complete( fd_quic_tls_hs_t * hs,
-                       void *             context  );
-
-
-void
+static void
 my_hs_complete( fd_quic_tls_hs_t *           hs,
                 void *                       context ) {
   (void)hs;
   (void)context;
 
-  printf( "In %s\n", __func__ );
+  FD_LOG_DEBUG(( "callback handshake complete" ));
 
   my_quic_tls_t * ctx = (my_quic_tls_t*)context;
   ctx->is_hs_complete = 1;
 }
 
-void
+static void
 my_secrets( fd_quic_tls_hs_t *           hs,
             void *                       context,
             fd_quic_tls_secret_t const * secret ) {
@@ -69,10 +47,7 @@ my_secrets( fd_quic_tls_hs_t *           hs,
   (void)context;
   (void)secret;
 
-  printf( "In %s\n", __func__ );
-
-  my_quic_tls_t * ctx = (my_quic_tls_t*)context;
-  (void)ctx;
+  FD_LOG_DEBUG(( "callback secrets" ));
 }
 
 void
@@ -83,8 +58,10 @@ my_alert( fd_quic_tls_hs_t * hs,
   (void)context;
   (void)alert;
 
-  printf( "In %s\n", __func__ );
-  printf( "Alert: %d %s %s\n", (int)alert, SSL_alert_type_string_long( alert ), SSL_alert_desc_string_long( alert ) );
+  FD_LOG_INFO(( "Alert: %d %s %s\n",
+                (int)alert,
+                SSL_alert_type_string_long( alert ),
+                SSL_alert_desc_string_long( alert ) ));
 }
 
 int
@@ -93,10 +70,11 @@ my_client_hello( fd_quic_tls_hs_t * hs,
   (void)hs;
   (void)context;
 
-  printf( "In %s\n", __func__ );
+  FD_LOG_INFO(( "callback client hello" ));
   return FD_QUIC_TLS_SUCCESS;
 }
 
+static uchar test_quic_tls_mem[ 272128UL ];
 
 int
 main( int     argc,
@@ -129,7 +107,15 @@ main( int     argc,
   fd_quic_dump_transport_params( tmp_tp, stdout );
   fflush( stdout );
 
-  fd_quic_tls_t * quic_tls = fd_quic_tls_new( &cfg );
+  ulong tls_align     = fd_quic_tls_align();
+  ulong tls_footprint = fd_quic_tls_footprint( cfg.max_concur_handshakes );
+
+  FD_LOG_INFO(( "fd_quic_tls_t align:     %lu bytes", tls_align     ));
+  FD_LOG_INFO(( "fd_quic_tls_t footprint: %lu bytes", tls_footprint ));
+  FD_TEST( tls_footprint<=sizeof(test_quic_tls_mem) );
+
+  fd_quic_tls_t * quic_tls = fd_quic_tls_new( test_quic_tls_mem, &cfg );
+  FD_TEST( quic_tls );
 
   my_quic_tls_t tls_client[1] = {0};
   my_quic_tls_t tls_server[1] = {0};
@@ -160,7 +146,7 @@ main( int     argc,
   //   What happens when dst conn id changes?
 
   /* Ignore broken pipe signals */
-  signal(SIGPIPE, SIG_IGN);
+  signal( SIGPIPE, SIG_IGN );
 
   // start client handshake
   // client fd_quic_tls_hs_t is primed upon creation
@@ -168,7 +154,7 @@ main( int     argc,
   FD_LOG_NOTICE(( "entering main handshake loop" ));
 
   for( int l = 0; l < 30; ++l ) {
-    printf( "start of handshake loop\n");
+    FD_LOG_INFO(( "start of handshake loop" ));
 
     int have_client_data = 0;
     int have_server_data = 0;
@@ -218,16 +204,15 @@ main( int     argc,
 
     // do we have data to transfer from server to client
     while( 1 ) {
-      fd_quic_tls_hs_data_t * hs_data   = NULL;
-      for( int j = 0; j < 4; ++j ) {
+      fd_quic_tls_hs_data_t * hs_data = NULL;
+      for( int j=0; j<4; ++j ) {
         hs_data = fd_quic_tls_get_hs_data( hs_server, j );
         if( hs_data ) break;
       }
       if( !hs_data ) break;
 
-      printf( "server hs_data: %p\n", (void*)hs_data );
-
-      printf( "provide quic data server->client\n" );
+      FD_LOG_INFO(( "server hs_data: %p", (void *)hs_data ));
+      FD_LOG_DEBUG(( "provide quic data server->client" ));
 
       // here we need encrypt/decrypt
       FD_TEST( fd_quic_tls_provide_data( hs_client, hs_data->enc_level, hs_data->data, hs_data->data_sz )!=FD_QUIC_TLS_FAILED );
@@ -262,19 +247,19 @@ main( int     argc,
     }
 
     if( tls_server->is_hs_complete && tls_client->is_hs_complete ) {
-      printf( "both handshakes complete\n" );
+      FD_LOG_INFO(( "both handshakes complete" ));
       if( have_server_data ) {
-        printf( "tls_server still has data\n" );
+        FD_LOG_INFO(( "tls_server still has data" ));
       }
 
       if( have_client_data ) {
-        printf( "tls_client still has data\n" );
+        FD_LOG_INFO(( "tls_client still has data" ));
       }
       if( !( have_server_data || have_client_data ) ) break;
     }
 
     if( !( have_server_data || have_client_data ) ) {
-      printf( "incomplete, but no more data to exchange\n" );
+      FD_LOG_INFO(( "incomplete, but no more data to exchange" ));
     }
 
   }
@@ -283,26 +268,17 @@ main( int     argc,
   ulong        peer_tp_sz = 0;
 
   fd_quic_tls_get_peer_transport_params( hs_server, &peer_tp, &peer_tp_sz );
-  printf( "tls_server returned peer transport params of length %lu\n", peer_tp_sz );
-  for( ulong j = 0; j < peer_tp_sz; ++j ) {
-    printf( "%2.2x ", peer_tp[j] );
-  }
-  printf( "\n" );
+  FD_LOG_HEXDUMP_INFO(( "tls server peer transport params", peer_tp, peer_tp_sz ));
 
   peer_tp    = NULL;
   peer_tp_sz = 0;
 
   fd_quic_tls_get_peer_transport_params( hs_client, &peer_tp, &peer_tp_sz );
-  printf( "tls_client returned peer transport params of length %lu\n", peer_tp_sz );
-  for( ulong j = 0; j < peer_tp_sz; ++j ) {
-    printf( "%2.2x ", peer_tp[j] );
-  }
-  printf( "\n" );
+  FD_LOG_HEXDUMP_INFO(( "tls client peer transport params", peer_tp, peer_tp_sz ));
 
-
-  fd_quic_tls_hs_delete( hs_client );
-  fd_quic_tls_hs_delete( hs_server );
-  fd_quic_tls_delete( quic_tls );
+           fd_quic_tls_hs_delete( hs_client );
+           fd_quic_tls_hs_delete( hs_server );
+  FD_TEST( fd_quic_tls_delete   ( quic_tls  ) );
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
