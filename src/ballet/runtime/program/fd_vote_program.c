@@ -23,7 +23,7 @@ int fd_executor_vote_program_execute_instruction(
       /* VoteInstruction::UpdateVoteState instruction
          https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_processor.rs#L174
        */
-      FD_LOG_WARNING(( "executing VoteInstruction::UpdateVoteState instruction" ));
+      FD_LOG_INFO(( "executing VoteInstruction::UpdateVoteState instruction" ));
 
       /* Decode the vote state update instruction */
       fd_vote_state_update_t vote_state_update;
