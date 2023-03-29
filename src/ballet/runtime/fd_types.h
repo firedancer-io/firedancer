@@ -501,6 +501,7 @@ typedef struct fd_secp256k1_signature_offsets fd_secp256k1_signature_offsets_t;
 #define FD_SECP256K1_SIGNATURE_OFFSETS_FOOTPRINT sizeof(fd_secp256k1_signature_offsets_t)
 #define FD_SECP256K1_SIGNATURE_OFFSETS_ALIGN (8UL)
 
+/* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/clock.rs#L114 */
 struct fd_sol_sysvar_clock {
   unsigned long slot;
   long          epoch_start_timestamp;

@@ -10,14 +10,23 @@
 
 FD_PROTOTYPES_BEGIN
 
+struct global_ctx {
+  fd_alloc_fun_t  allocf;
+  void *          allocf_arg;
+  fd_free_fun_t   freef;
+  void *          freef_arg;
+  fd_acc_mgr_t*   acc_mgr;
+};
+typedef struct global_ctx global_ctx_t;
+
 struct fd_executor {
-    fd_acc_mgr_t* acc_mgr;
+    global_ctx_t* global;
 };
 typedef struct fd_executor fd_executor_t;
 
 #define FD_EXECUTOR_FOOTPRINT ( sizeof(fd_executor_t) )
 
-void* fd_executor_new( void* mem, fd_acc_mgr_t* acc_mgr, ulong footprint );
+void* fd_executor_new( void* mem, global_ctx_t* global, ulong footprint );
 
 fd_executor_t *fd_executor_join( void* mem );
 
@@ -80,21 +89,12 @@ void* fd_executor_delete( void* mem );
 void
 fd_execute_txn( fd_executor_t* executor, fd_txn_t * txn_descriptor, fd_rawtxn_b_t* txn_raw ) ;
 
-struct global_ctx {
-  fd_alloc_fun_t  allocf;
-  void *          allocf_arg;
-  fd_free_fun_t   freef;
-  void *          freef_arg;
-};
-typedef struct global_ctx global_ctx_t;
-
 /* Context needed to execute a single instruction. TODO: split into a hierarchy of layered contexts.  */
 struct instruction_ctx {
   global_ctx_t*   global;
   fd_txn_instr_t* instr;                      /* The instruction */
   fd_txn_t*       txn_descriptor;             /* Descriptor of the transaction this instruction was part of */
   fd_rawtxn_b_t*  txn_raw;                    /* Raw bytes of the transaction this instruction was part of */
-  fd_acc_mgr_t*   acc_mgr;                    /* Account manager */
 };
 typedef struct instruction_ctx instruction_ctx_t;
 

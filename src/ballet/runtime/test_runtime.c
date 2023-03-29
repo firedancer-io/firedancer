@@ -41,6 +41,7 @@
 #include "../poh/fd_poh.h"
 #include "../bmtree/fd_bmtree.h"
 #include "../sha256/fd_sha256.h"
+#include "sysvar/fd_sysvar_clock.h"
 
 #include <dirent.h>
 
@@ -757,10 +758,31 @@ void boot_recent_block_hashes(FD_FN_UNUSED global_state_t *state) {
    fd_hash_account( &account, 0, (fd_pubkey_t const *)  pubkey, (fd_hash_t *) hdr.hash);
 }
 
+static
+char* local_allocf(FD_FN_UNUSED void* arg, unsigned long align, unsigned long len) {
+  char * ptr = malloc(fd_ulong_align_up(sizeof(char *) + len, align));
+  char * ret = (char *) fd_ulong_align_up( (ulong) (ptr + sizeof(char *)), align );
+  *((char **)(ret - sizeof(char *))) = ptr;
+  return ret;
+}
+
+static
+void local_freef(FD_FN_UNUSED void* arg, void *ptr) {
+  free(*((char **)((char *) ptr - sizeof(char *))));
+}
+
 int replay(global_state_t *state) {
-  // Lets start executing!
+  // Lets start executing!  
+  global_ctx_t global = {
+    .allocf = &local_allocf,
+    .allocf_arg = NULL,
+    .freef = &local_freef,
+    .freef_arg = NULL,
+    .acc_mgr = state->acc_mgr,
+  };
+
   void *fd_executor_raw = malloc(FD_EXECUTOR_FOOTPRINT);
-  fd_executor_t* executor = fd_executor_join(fd_executor_new(fd_executor_raw, state->acc_mgr, FD_EXECUTOR_FOOTPRINT));
+  fd_executor_t* executor = fd_executor_join(fd_executor_new(fd_executor_raw, &global, FD_EXECUTOR_FOOTPRINT));
 
   fd_rng_t rnd_mem;
   void *shrng = fd_rng_new(&rnd_mem, 0, 0);
@@ -785,6 +807,9 @@ int replay(global_state_t *state) {
   if (ret < 0) {
     FD_LOG_ERR(("fd_rocksdb_root_iter_seek returned %d", ret));
   }
+
+  /* TODO: move this somewhere more appropiate. Properly organise sysvars. */
+  /* fd_sysvar_clock_init( global,  ); */
 
   do {
     ulong slot;
