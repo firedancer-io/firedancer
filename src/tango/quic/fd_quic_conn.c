@@ -122,10 +122,16 @@ fd_quic_conn_new( void *      mem,
   ulong num_pkt_meta = max_in_flight_pkts;
   fd_memset( pkt_meta, 0, num_pkt_meta * sizeof( *pkt_meta ) );
 
+  fd_quic_pkt_meta_t * pkt_meta     = (fd_quic_pkt_meta_t *)( (ulong)mem + layout.pkt_meta_off );
+  ulong                num_pkt_meta = limits->inflight_pkt_cnt;
+  fd_memset( pkt_meta, 0, num_pkt_meta * sizeof(fd_quic_pkt_meta_t) );
+
+  /* store pointer to storage and size */
+  conn->pkt_meta_mem = pkt_meta;
+  conn->num_pkt_meta = num_pkt_meta;
+
   /* initialize the pkt_meta pool with data */
   fd_quic_pkt_meta_pool_init( &conn->pkt_meta_pool, pkt_meta, num_pkt_meta );
-
-  imem += fd_ulong_align_up( num_pkt_meta * sizeof( fd_quic_pkt_meta_t ), align );
 
   /* allocate ack_t */
   fd_quic_ack_t * acks = (fd_quic_ack_t*)imem;
