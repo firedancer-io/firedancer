@@ -203,9 +203,9 @@ struct __attribute__((aligned(16UL))) fd_quic_config {
     struct { /* Ephemeral UDP port range (client only) */
       ushort lo;
       ushort hi;
-      /* TODO do we really need an ephem port range?
-              a single QUIC client could dial to arbitrarily many servers,
-              assuming our client can control the local conn ID len. */
+      /* we need an ephemeral UDP port range for at least two reasons:
+         1. Some nextwork hardware assumes src_ip:src_port:dst_ip:dst_port is a unique connection
+         2. For receive-side scaling, the server will be using the source port for load balancing */
     } ephem_udp_port;
 
     /* dscp: Differentiated services code point.

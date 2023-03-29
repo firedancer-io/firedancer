@@ -311,6 +311,7 @@ fd_quic_join( fd_quic_t * quic ) {
   fd_quic_state_t * state = fd_quic_get_state( quic );
   memset( state, 0, sizeof(fd_quic_state_t) );
 
+  /* TODO should this be in join? */
   /* State: initialize each connection, and add to free list */
 
   ulong conn_laddr = (ulong)quic + layout.conns_off;
@@ -433,6 +434,9 @@ fd_quic_join( fd_quic_t * quic ) {
   FD_QUIC_TRANSPORT_PARAM_SET( tp, max_ack_delay,                       25                     ); /* TODO */
   FD_QUIC_TRANSPORT_PARAM_SET( tp, disable_active_migration,            1                      );
   FD_QUIC_TRANSPORT_PARAM_SET( tp, active_connection_id_limit,          limits->conn_id_cnt    ); /* TODO */
+
+  /* Initialize next ephemeral udp port */
+  state->next_ephem_udp_port = config->net.ephem_udp_port.lo;
 
   return quic;
 }
@@ -944,11 +948,13 @@ struct fd_quic_pkt {
 
 ulong
 fd_quic_handle_v1_initial( fd_quic_t *               quic,
-                           fd_quic_conn_t *          conn,
+                           fd_quic_conn_t **         p_conn,
                            fd_quic_pkt_t *           pkt,
                            fd_quic_conn_id_t const * conn_id,
                            uchar const *             cur_ptr,
                            ulong                     cur_sz ) {
+
+  fd_quic_conn_t * conn = *p_conn;
 
   fd_quic_state_t * state = fd_quic_get_state( quic );
 
@@ -1057,6 +1063,9 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
       FD_LOG_WARNING(( "failed to allocate QUIC conn" ));
       return FD_QUIC_PARSE_FAIL;
     }
+
+    /* set the value for the caller */
+    *p_conn = conn;
 
     /* if we fail after here, we must free the connection (fd_quic_conn_free)
        TODO maybe actually set the connection to reset, and clean up resources later */
@@ -1947,9 +1956,7 @@ fd_quic_process_quic_packet_v1( fd_quic_t *     quic,
     /* long_packet_type is 2 bits, so only four possibilities */
     switch( common_hdr->long_packet_type ) {
       case FD_QUIC_PKTTYPE_V1_INITIAL:
-        rc = fd_quic_handle_v1_initial( quic, conn, pkt, &dst_conn_id, cur_ptr, cur_sz );
-        entry = fd_quic_conn_map_query( state->conn_map, &dst_conn_id );
-        conn  = entry ? entry->conn : NULL; /* TODO is this the correct dst_conn_is to look up? */
+        rc = fd_quic_handle_v1_initial( quic, &conn, pkt, &dst_conn_id, cur_ptr, cur_sz );
         if( !conn ) return FD_QUIC_PARSE_FAIL;
         break;
       case FD_QUIC_PKTTYPE_V1_HANDSHAKE:
@@ -2549,6 +2556,9 @@ fd_quic_service( fd_quic_t * quic ) {
       fd_quic_cb_conn_final( quic, conn ); /* inform user before freeing */
       fd_quic_conn_free( quic, conn );
     } else {
+      if( conn->next_service_time <= now ) {
+        conn->next_service_time = now+1ul;
+      }
       event->timeout = conn->next_service_time;
       service_queue_insert( state->service_queue, event );
     }
@@ -2616,7 +2626,7 @@ fd_quic_tx_buffered( fd_quic_t *      quic,
   pkt.ipv4->saddr    = config->net.ip_addr;
   pkt.ipv4->daddr    = peer  ->net.ip_addr;
 
-  pkt.udp->srcport   = config->net.listen_udp_port;
+  pkt.udp->srcport   = conn  ->host.udp_port;
   pkt.udp->dstport   = peer  ->net.udp_port;
   pkt.udp->length    = (ushort)( 8 + payload_sz );
   pkt.udp->check     = 0x0000;
@@ -3763,11 +3773,13 @@ fd_quic_connect( fd_quic_t *  quic,
   }
 
   /* choose a port from ephemeral range */
-  ushort next_ephem = state->next_ephem_udp_port;
-  ushort src_port   = next_ephem;
+  fd_quic_config_t * config     = &quic->config;
+  ushort             ephem_lo   = config->net.ephem_udp_port.lo;
+  ushort             ephem_hi   = config->net.ephem_udp_port.hi;
+  ushort             next_ephem = state->next_ephem_udp_port;
+  ushort             src_port   = next_ephem;
   next_ephem++;
-  next_ephem = fd_ushort_if( next_ephem == quic->config.net.ephem_udp_port.hi,
-                             quic->config.net.ephem_udp_port.lo, next_ephem );
+  next_ephem = fd_ushort_if( next_ephem >= ephem_hi, ephem_lo, next_ephem );
   state->next_ephem_udp_port = next_ephem;
 
   conn->host.udp_port = src_port;
