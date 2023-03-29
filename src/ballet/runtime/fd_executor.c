@@ -14,7 +14,7 @@ fd_pubkey_t solana_ed25519_sig_verify_program;
 fd_pubkey_t solana_keccak_secp_256k_program;
 
 void* fd_executor_new(void* mem,
-                      fd_acc_mgr_t* acc_mgr,
+                      global_ctx_t* global,
                       ulong footprint) {
   if( FD_UNLIKELY( !mem ) ) {
     FD_LOG_WARNING(( "NULL mem" ));
@@ -24,7 +24,7 @@ void* fd_executor_new(void* mem,
   fd_memset( mem, 0, footprint );
 
   fd_executor_t *executor = (fd_executor_t*)mem;
-  executor->acc_mgr = acc_mgr;
+  executor->global = global;
 
  // https://docs.solana.com/developing/runtime-facilities/programs
 
@@ -70,30 +70,9 @@ fd_executor_lookup_native_program( fd_pubkey_t *pubkey ) {
   }
 }
 
-static
-char* local_allocf(FD_FN_UNUSED void* arg, unsigned long align, unsigned long len) {
-  char * ptr = malloc(fd_ulong_align_up(sizeof(char *) + len, align));
-  char * ret = (char *) fd_ulong_align_up( (ulong) (ptr + sizeof(char *)), align );
-  *((char **)(ret - sizeof(char *))) = ptr;
-  return ret;
-}
-
-static
-void local_freef(FD_FN_UNUSED void* arg, void *ptr) {
-  free(*((char **)((char *) ptr - sizeof(char *))));
-}
-
 void
 fd_execute_txn( fd_executor_t* executor, fd_txn_t * txn_descriptor, fd_rawtxn_b_t* txn_raw ) {
     fd_pubkey_t *tx_accs   = (fd_pubkey_t *)((uchar *)txn_raw->raw + txn_descriptor->acct_addr_off);
-
-    global_ctx_t global = {
-      .allocf = &local_allocf,
-      .allocf_arg = NULL,
-      .freef = &local_freef,
-      .freef_arg = NULL,
-      .acc_mgr = executor->acc_mgr,
-    };
 
     /* TODO: track compute budget used within execution */
     /* TODO: store stack of instructions to detect reentrancy */
@@ -103,7 +82,7 @@ fd_execute_txn( fd_executor_t* executor, fd_txn_t * txn_descriptor, fd_rawtxn_b_
     for ( ushort i = 0; i < txn_descriptor->instr_cnt; ++i ) {
         fd_txn_instr_t * instr = &txn_descriptor->instr[i];
         instruction_ctx_t ctx = {
-            .global         = &global,
+            .global         = executor->global,
             .instr          = instr,
             .txn_descriptor = txn_descriptor,
             .txn_raw        = txn_raw,
