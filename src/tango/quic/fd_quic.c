@@ -207,8 +207,8 @@ fd_quic_limits_from_env( int  *   pargc,
   limits->stream_cnt       = fd_env_strip_cmdline_uint ( pargc, pargv, "--quic-streams",       "QUIC_STREAM_CNT",         2UL );
   limits->handshake_cnt    = fd_env_strip_cmdline_uint ( pargc, pargv, "--quic-handshakes",    "QUIC_HANDSHAKE_CNT",      2UL );
   limits->inflight_pkt_cnt = fd_env_strip_cmdline_ulong( pargc, pargv, "--quic-inflight-pkts", "QUIC_MAX_INFLIGHT_PKTS", 64UL );
-  limits->tx_buf_sz        = fd_env_strip_cmdline_ulong( pargc, pargv, "--quic-tx-buf-sz",     "QUIC_TX_BUF_SZ",    1UL<<20UL );
-  limits->rx_buf_sz        = fd_env_strip_cmdline_ulong( pargc, pargv, "--quic-rx-buf-sz",     "QUIC_RX_BUF_SZ",    1UL<<20UL );
+  limits->tx_buf_sz        = fd_env_strip_cmdline_ulong( pargc, pargv, "--quic-tx-buf-sz",     "QUIC_TX_BUF_SZ",    1UL<<15UL );
+  limits->rx_buf_sz        = fd_env_strip_cmdline_ulong( pargc, pargv, "--quic-rx-buf-sz",     "QUIC_RX_BUF_SZ",    1UL<<15UL );
 
   return limits;
 }
