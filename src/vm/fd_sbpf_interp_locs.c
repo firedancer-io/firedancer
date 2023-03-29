@@ -1,4 +1,3 @@
-&&done,
 &&AJT_CASE_LOC(0x00),
 &&AJT_CASE_LOC(0x01),
 &&AJT_CASE_LOC(0x02),

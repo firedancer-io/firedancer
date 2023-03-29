@@ -1,5 +1,5 @@
 /* 0x00 - 0x0f */
-/* 0x00 */ AJT_CASE(0x00) // FD_BPF_OP_ADDL_IMM
+/* 0x00 */ AJT_CASE(0x00); // FD_BPF_OP_ADDL_IMM
 /* 0x01 */ AJT_CASE(0x01);
 /* 0x02 */ AJT_CASE(0x02);
 /* 0x03 */ AJT_CASE(0x03);
@@ -40,12 +40,12 @@
 /* 0x1a */ AJT_CASE(0x1a);
 /* 0x1b */ AJT_CASE(0x1b);
 /* 0x1c */ AJT_CASE(0x1c) // FD_BPF_OP_SUB_REG
-  register_file[dst_reg] = (uint)((uint)register_file[dst_reg] + (uint)register_file[src_reg]); 
+  register_file[dst_reg] = (uint)((uint)register_file[dst_reg] - (uint)register_file[src_reg]); 
 /* 0x1d */ AJT_CASE(0x1d) // FD_BPF_OP_JEQ_REG
   pc += (register_file[dst_reg] == register_file[src_reg]) ? instr.offset : 0;
 /* 0x1e */ AJT_CASE(0x1e);
 /* 0x1f */ AJT_CASE(0x1f) // FD_BPF_OP_SUB64_REG
-  register_file[dst_reg] += register_file[src_reg];
+  register_file[dst_reg] -= register_file[src_reg];
 
 /* 0x20 - 0x2f */
 /* 0x20 */ AJT_CASE(0x20);
@@ -77,23 +77,23 @@
 /* 0x32 */ AJT_CASE(0x32);
 /* 0x33 */ AJT_CASE(0x33);
 /* 0x34 */ AJT_CASE(0x34) // FD_BPF_OP_DIV_IMM
-  register_file[dst_reg] = (uint)((uint)register_file[dst_reg] / (uint)imm); 
+  register_file[dst_reg] = imm == 0 ? 0 : (uint)((uint)register_file[dst_reg] / (uint)imm); 
 /* 0x35 */ AJT_CASE(0x35) // FD_BPF_OP_JGE_IMM
   pc += (register_file[dst_reg] >= imm) ? instr.offset : 0;
 /* 0x36 */ AJT_CASE(0x36);
 /* 0x37 */ AJT_CASE(0x37) // FD_BPF_OP_DIV64_IMM 
-  register_file[dst_reg] /= imm;
+  register_file[dst_reg] = imm == 0 ? 0 : register_file[dst_reg] / imm;
 /* 0x38 */ AJT_CASE(0x38);
 /* 0x39 */ AJT_CASE(0x39);
 /* 0x3a */ AJT_CASE(0x3a);
 /* 0x3b */ AJT_CASE(0x3b);
 /* 0x3c */ AJT_CASE(0x3c) // FD_BPF_OP_DIV_REG
-  register_file[dst_reg] = (uint)((uint)register_file[dst_reg] / (uint)register_file[src_reg]); 
+  register_file[dst_reg] = (uint)register_file[src_reg] == 0 ? 0 : (uint)((uint)register_file[dst_reg] / (uint)register_file[src_reg]); 
 /* 0x3d */ AJT_CASE(0x3d) // FD_BPF_OP_JGE_REG
   pc += (register_file[dst_reg] >= register_file[src_reg]) ? instr.offset : 0;
 /* 0x3e */ AJT_CASE(0x3e);
 /* 0x3f */ AJT_CASE(0x3f) // FD_BPF_OP_DIV64_REG
-  register_file[dst_reg] /= register_file[src_reg];
+  register_file[dst_reg] = register_file[src_reg] == 0 ? 0 : (register_file[dst_reg] / register_file[src_reg]);
 
 /* 0x40 - 0x4f */
 /* 0x40 */ AJT_CASE(0x40);
@@ -135,7 +135,7 @@
 /* 0x59 */ AJT_CASE(0x59);
 /* 0x5a */ AJT_CASE(0x5a);
 /* 0x5b */ AJT_CASE(0x5b);
-/* 0x5c */ AJT_CASE(0x5c) // FD_BPF_OP_AND_RED
+/* 0x5c */ AJT_CASE(0x5c) // FD_BPF_OP_AND_REG
   register_file[dst_reg] = (uint)((uint)register_file[dst_reg] & (uint)register_file[src_reg]); 
 /* 0x5d */ AJT_CASE(0x5d) // FD_BPF_OP_JNE_REG
   pc += (register_file[dst_reg] != register_file[src_reg]) ? instr.offset : 0;
@@ -232,7 +232,7 @@
 /* 0x93 */ AJT_CASE(0x93);
 /* 0x94 */ AJT_CASE(0x94) // FD_BPF_OP_MOD_IMM
   register_file[dst_reg] = (uint)((uint)register_file[dst_reg] % (uint)imm); 
-/* 0x95 */ AJT_CASE(0x95);
+/* 0x95 */ AJT_CASE(0x95) // FD_BPF_OP_EXIT
   cond_exit = 1;
 /* 0x96 */ AJT_CASE(0x96);
 /* 0x97 */ AJT_CASE(0x97) // FD_BPF_OP_MOD64_IMM
@@ -325,7 +325,7 @@
 /* 0xd1 */ AJT_CASE(0xd1);
 /* 0xd2 */ AJT_CASE(0xd2);
 /* 0xd3 */ AJT_CASE(0xd3);
-/* 0xd4 */ AJT_CASE(0xd4) // FD_BPF_OP_LE
+/* 0xd4 */ AJT_CASE(0xd4) // FD_BPF_OP_END_LE
   /* On x86_64, the host is LE already */
 /* 0xd5 */ AJT_CASE(0xd5) // FD_BPF_OP_JSLE_IMM
   pc += ((long)register_file[dst_reg] <= (long)imm) ? instr.offset : 0;
@@ -335,13 +335,13 @@
 /* 0xd9 */ AJT_CASE(0xd9);
 /* 0xda */ AJT_CASE(0xda);
 /* 0xdb */ AJT_CASE(0xdb);
-/* 0xdc */ AJT_CASE(0xdc) // FD_BPF_OP_BE 
+/* 0xdc */ AJT_CASE(0xdc) // FD_BPF_OP_END_BE 
   switch (imm) {
     case 16:
       uchar tmp = ((uchar *)&register_file[dst_reg])[0];
       ((uchar *)&register_file[dst_reg])[0] = ((uchar *)&register_file[dst_reg])[1];
       ((uchar *)&register_file[dst_reg])[1] = tmp;
-      
+      register_file[dst_reg] &= 0xFFFF;
       break;
     case 32:
       register_file[dst_reg] = (uint)_bswap((int)register_file[dst_reg]);

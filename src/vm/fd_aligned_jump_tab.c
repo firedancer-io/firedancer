@@ -21,6 +21,7 @@
 #define AJT_BREAK_LOC AJT_BREAK_LABEL(__AJT_ID)
 #define AJT_RET_LOC AJT_BREAK_LABEL(__AJT_ID)
 #define AJT_CASE_LOC(val) AJT_CASE_LABEL(val, __AJT_ID)
+#define AJT_BASE_LOC AJT_BASE_LABEL(__AJT_ID)
 
 #define __AJT_GOTO(idx, base_lbl, alignment) goto *(&&base_lbl + (idx * alignment))
 #define AJT_GOTO(idx) __AJT_GOTO( \
@@ -31,11 +32,12 @@
 
 #define __AJT_START_IMPL(base_lbl, ret_lbl, alignment) \
   __asm__ volatile goto ( \
+    ".align " #alignment ", 0xF4, " #alignment ";" \
     "jmp %l[" #ret_lbl "];\n" \
     ".align " #alignment ", 0xF4, " #alignment ";" \
     : : : : ret_lbl \
   ); \
-base_lbl:
+//base_lbl:
 #define __AJT_START(base_lbl, ret_lbl, alignment) __AJT_START_IMPL(base_lbl, ret_lbl, alignment)
 #define AJT_START __AJT_START( \
     AJT_BASE_LABEL(__AJT_ID), \

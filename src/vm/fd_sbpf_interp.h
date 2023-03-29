@@ -23,6 +23,7 @@
 struct fd_vm_sbpf_exec_context {
   long                  entrypoint;
   ulong                 num_ext_funcs;
+  ulong                 register_file[11];
   fd_vm_sbpf_instr_t *  instrs;
   ulong                 instrs_sz;
 
@@ -42,8 +43,6 @@ typedef struct fd_vm_sbpf_program fd_vm_sbpf_program_t;
 
 void fd_vm_sbpf_interp_instrs(fd_vm_sbpf_exec_context_t * ctx );
 
-ulong fd_vm_sbpf_interp_validate( fd_vm_sbpf_exec_context_t const * ctx,
-                                  fd_vm_sbpf_instr_t const *        instrs, 
-                                  ulong                             sz );
+ulong fd_vm_sbpf_interp_validate( fd_vm_sbpf_exec_context_t const * ctx );
 
 #endif /* HEADER_fd_src_ballet_runtime_vm_fd_sbpf_interp_h */

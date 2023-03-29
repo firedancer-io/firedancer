@@ -56,7 +56,7 @@ fd_vm_mem_map_read_uchar( fd_vm_sbpf_exec_context_t * ctx,
                           uchar *            val ) {
   void * vm_mem;
   ulong translation_res = fd_vm_sbpf_interp_translate_vm_to_host(ctx, 0, vm_addr, sizeof(uchar), &vm_mem);
-  if( translation_res != FD_VM_MEM_MAP_SUCCESS) {
+  if( translation_res != FD_VM_MEM_MAP_SUCCESS ) {
     return translation_res;
   }
 
@@ -71,7 +71,7 @@ fd_vm_mem_map_read_ushort( fd_vm_sbpf_exec_context_t * ctx,
                           ushort *            val ) {
   void * vm_mem;
   ulong translation_res = fd_vm_sbpf_interp_translate_vm_to_host(ctx, 0, vm_addr, sizeof(ushort), &vm_mem);
-  if( translation_res != FD_VM_MEM_MAP_SUCCESS) {
+  if( translation_res != FD_VM_MEM_MAP_SUCCESS ) {
     return translation_res;
   }
 
@@ -86,7 +86,7 @@ fd_vm_mem_map_read_uint( fd_vm_sbpf_exec_context_t * ctx,
                           uint *            val ) {
   void * vm_mem;
   ulong translation_res = fd_vm_sbpf_interp_translate_vm_to_host(ctx, 0, vm_addr, sizeof(uint), &vm_mem);
-  if( translation_res != FD_VM_MEM_MAP_SUCCESS) {
+  if( translation_res != FD_VM_MEM_MAP_SUCCESS ) {
     return translation_res;
   }
 
@@ -101,7 +101,7 @@ fd_vm_mem_map_read_ulong( fd_vm_sbpf_exec_context_t * ctx,
                           ulong *            val ) {
   void * vm_mem;
   ulong translation_res = fd_vm_sbpf_interp_translate_vm_to_host(ctx, 0, vm_addr, sizeof(ulong), &vm_mem);
-  if( translation_res != FD_VM_MEM_MAP_SUCCESS) {
+  if( translation_res != FD_VM_MEM_MAP_SUCCESS ) {
     return translation_res;
   }
 
@@ -116,7 +116,7 @@ fd_vm_mem_map_write_uchar( fd_vm_sbpf_exec_context_t * ctx,
                           uchar             val ) {
   void * vm_mem;
   ulong translation_res = fd_vm_sbpf_interp_translate_vm_to_host(ctx, 1, vm_addr, sizeof(uchar), &vm_mem);
-  if( translation_res != FD_VM_MEM_MAP_SUCCESS) {
+  if( translation_res != FD_VM_MEM_MAP_SUCCESS ) {
     return translation_res;
   }
 
@@ -173,7 +173,7 @@ fd_vm_mem_map_write_ulong( fd_vm_sbpf_exec_context_t * ctx,
 void
 fd_vm_sbpf_interp_instrs( fd_vm_sbpf_exec_context_t * ctx ) {
   long pc = ctx->entrypoint;
-  ulong register_file[11];
+  ulong * register_file = ctx->register_file;
   fd_memset(register_file, 0, sizeof(register_file));
   
   ulong cond_exit = 0;
@@ -187,9 +187,16 @@ fd_vm_sbpf_interp_instrs( fd_vm_sbpf_exec_context_t * ctx ) {
   ulong dst_reg;
   ulong src_reg;
   ulong imm; 
-  static const void* locs[257] = {
+  static const void* locs[256] = {
 #include "fd_sbpf_interp_locs.c"  
   };
+
+  /*
+  FD_LOG_WARNING(( "BASE1 %p", locs[0] ));
+  for( ulong i = 1; i < 256; i++ ) {
+    FD_LOG_WARNING(( "DIFF %lu: %lu %p %p", i, locs[i] - locs[i-1], locs[i-1], locs[i]));
+  }
+  */
   
   for( ulong i = 0; 1; ++i ) {
     if( FD_UNLIKELY( cond_exit ) ) {
@@ -203,9 +210,10 @@ fd_vm_sbpf_interp_instrs( fd_vm_sbpf_exec_context_t * ctx ) {
     dst_reg = instr.dst_reg;
     src_reg = instr.src_reg;
     imm = instr.imm;
-    AJT_GOTO(instr.opcode.raw);
-    pc++;
+    goto *locs[instr.opcode.raw];
+    //AJT_GOTO(instr.opcode.raw);
 AJT_BREAK_LOC:
+    pc++;
     continue;
   }
 
@@ -216,8 +224,8 @@ AJT_END;
 #include "fd_aligned_jump_tab_teardown.c"
 #undef ALIGNED_JMP_TAB_ALIGNMENT
 
-  goto *locs[0];
-done:
+//  goto *locs[0];
+//done:
   return;
 }
 
@@ -252,7 +260,6 @@ uchar const FD_OPCODE_VALIDATION_MAP[256] = {
   /* 0x48 */ FD_INVALID,    /* 0x49 */ FD_INVALID,    /* 0x4a */ FD_INVALID,    /* 0x4b */ FD_INVALID,   
   /* 0x4c */ FD_VALID,      /* 0x4d */ FD_CHECK_JMP,  /* 0x4e */ FD_CHECK_JMP,  /* 0x4f */ FD_VALID,   
   /* 0x50 */ FD_INVALID,    /* 0x51 */ FD_INVALID,    /* 0x52 */ FD_INVALID,    /* 0x53 */ FD_INVALID,   
-  /* 0x54 */ FD_VALID,      /* 0x55 */ FD_CHECK_JMP,  /* 0x56 */ FD_CHECK_JMP,  /* 0x57 */ FD_VALID,   
   /* 0x54 */ FD_VALID,      /* 0x55 */ FD_CHECK_JMP,  /* 0x56 */ FD_CHECK_JMP,  /* 0x57 */ FD_VALID,   
   /* 0x58 */ FD_INVALID,    /* 0x59 */ FD_INVALID,    /* 0x5a */ FD_INVALID,    /* 0x5b */ FD_INVALID,   
   /* 0x5c */ FD_VALID,      /* 0x5d */ FD_CHECK_JMP,  /* 0x5e */ FD_CHECK_JMP,  /* 0x5f */ FD_VALID,   
@@ -298,11 +305,9 @@ uchar const FD_OPCODE_VALIDATION_MAP[256] = {
 };
 
 ulong 
-fd_vm_sbpf_interp_validate( fd_vm_sbpf_exec_context_t const *   ctx,
-                            fd_vm_sbpf_instr_t const *          instrs, 
-                            ulong                               sz ) {
-  for( ulong i = 0; i < sz; ++i ) {
-    fd_vm_sbpf_instr_t instr = instrs[i];
+fd_vm_sbpf_interp_validate( fd_vm_sbpf_exec_context_t const * ctx ) {
+  for( ulong i = 0; i < ctx->instrs_sz; ++i ) {
+    fd_vm_sbpf_instr_t instr = ctx->instrs[i];
     uchar validation_code = FD_OPCODE_VALIDATION_MAP[instr.opcode.raw];
 
     switch (validation_code) {
@@ -313,9 +318,9 @@ fd_vm_sbpf_interp_validate( fd_vm_sbpf_exec_context_t const *   ctx,
           return FD_VM_SBPF_VALIDATE_ERR_INF_LOOP;
         }
         long jmp_dst = (long)i + instr.offset + 1;
-        if (jmp_dst < 0 || jmp_dst >= (long)sz) {
+        if (jmp_dst < 0 || jmp_dst >= (long)ctx->instrs_sz) {
           return FD_VM_SBPF_VALIDATE_ERR_JMP_OUT_OF_BOUNDS;
-        } else if (instrs[jmp_dst].opcode.raw == FD_BPF_OP_ADDL_IMM) {
+        } else if (ctx->instrs[jmp_dst].opcode.raw == FD_BPF_OP_ADDL_IMM) {
           return FD_VM_SBPF_VALIDATE_ERR_JMP_TO_ADDL_IMM;
         }
         break;
@@ -330,10 +335,10 @@ fd_vm_sbpf_interp_validate( fd_vm_sbpf_exec_context_t const *   ctx,
         if (instr.src_reg != 0) {
           return FD_VM_SBPF_VALIDATE_ERR_INVALID_SRC_REG;
         }
-        if ((i+1) >= sz) {
+        if ((i+1) >= ctx->instrs_sz) {
           return FD_VM_SBPF_VALIDATE_ERR_INCOMPLETE_LDQ;
         }
-        if (instrs[i + 1].opcode.raw != FD_BPF_OP_ADDL_IMM) {
+        if (ctx->instrs[i + 1].opcode.raw != FD_BPF_OP_ADDL_IMM) {
           return FD_VM_SBPF_VALIDATE_ERR_LDQ_NO_ADDL_IMM; 
         }
         ++i;
@@ -345,6 +350,7 @@ fd_vm_sbpf_interp_validate( fd_vm_sbpf_exec_context_t const *   ctx,
         }
         break;
       case FD_INVALID:
+        // FD_LOG_WARNING(( "INVALID OPCODE: %u", instr.opcode.raw)); 
         return FD_VM_SBPF_VALIDATE_ERR_INVALID_OPCODE;
     }
     
