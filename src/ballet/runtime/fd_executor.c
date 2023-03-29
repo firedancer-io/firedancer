@@ -91,7 +91,8 @@ fd_execute_txn( fd_executor_t* executor, fd_txn_t * txn_descriptor, fd_rawtxn_b_
       .allocf = &local_allocf,
       .allocf_arg = NULL,
       .freef = &local_freef,
-      .freef_arg = NULL
+      .freef_arg = NULL,
+      .acc_mgr = executor->acc_mgr,
     };
 
     /* TODO: track compute budget used within execution */
@@ -106,7 +107,6 @@ fd_execute_txn( fd_executor_t* executor, fd_txn_t * txn_descriptor, fd_rawtxn_b_
             .instr          = instr,
             .txn_descriptor = txn_descriptor,
             .txn_raw        = txn_raw,
-            .acc_mgr        = executor->acc_mgr,
         };
 
         /* TODO: allow instructions to be failed, and the transaction to be reverted */

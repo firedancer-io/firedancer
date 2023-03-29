@@ -85,6 +85,7 @@ struct global_ctx {
   void *          allocf_arg;
   fd_free_fun_t   freef;
   void *          freef_arg;
+  fd_acc_mgr_t*   acc_mgr;
 };
 typedef struct global_ctx global_ctx_t;
 
@@ -94,7 +95,6 @@ struct instruction_ctx {
   fd_txn_instr_t* instr;                      /* The instruction */
   fd_txn_t*       txn_descriptor;             /* Descriptor of the transaction this instruction was part of */
   fd_rawtxn_b_t*  txn_raw;                    /* Raw bytes of the transaction this instruction was part of */
-  fd_acc_mgr_t*   acc_mgr;                    /* Account manager */
 };
 typedef struct instruction_ctx instruction_ctx_t;
 

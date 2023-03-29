@@ -35,13 +35,13 @@ int fd_executor_vote_program_execute_instruction(
       fd_pubkey_t * vote_acc = &txn_accs[instr_acc_idxs[0]];
 
       fd_account_meta_t metadata;
-      int read_result = fd_acc_mgr_get_metadata( ctx.acc_mgr, vote_acc, &metadata );
+      int read_result = fd_acc_mgr_get_metadata( ctx.global->acc_mgr, vote_acc, &metadata );
       if ( FD_UNLIKELY( read_result != FD_ACC_MGR_SUCCESS ) ) {
         FD_LOG_WARNING(( "failed to read account metadata" ));
         return read_result;
       }
       uchar *vota_acc_data = (uchar *)(ctx.global->allocf)(ctx.global->allocf_arg, 8UL, metadata.dlen);
-      read_result = fd_acc_mgr_get_account_data( ctx.acc_mgr, vote_acc, (uchar*)vota_acc_data, sizeof(fd_account_meta_t), metadata.dlen );
+      read_result = fd_acc_mgr_get_account_data( ctx.global->acc_mgr, vote_acc, (uchar*)vota_acc_data, sizeof(fd_account_meta_t), metadata.dlen );
       if ( read_result != FD_ACC_MGR_SUCCESS ) {
         FD_LOG_WARNING(( "failed to read account data" ));
         return read_result;
@@ -119,7 +119,7 @@ int fd_executor_vote_program_execute_instruction(
       // fd_vote_state_decode(&check_vote_state, (const void**)&check_vote_state_input, check_vote_state_dataend, ctx.global->allocf, ctx.global->allocf_arg);
 
       /* TODO: write back max(previous size, new size). Maybe move this abstraction into the accounts manager. */
-      int write_result = fd_acc_mgr_write_account_data( ctx.acc_mgr, fd_funk_root(ctx.acc_mgr->funk), vote_acc, (ulong)(metadata.hlen + 4), (uchar*)encoded_vote_state, encoded_vote_state_size );
+      int write_result = fd_acc_mgr_write_account_data( ctx.global->acc_mgr, fd_funk_root(ctx.global->acc_mgr->funk), vote_acc, (ulong)(metadata.hlen + 4), (uchar*)encoded_vote_state, encoded_vote_state_size );
       if ( write_result != FD_ACC_MGR_SUCCESS ) {
         FD_LOG_WARNING(( "failed to write account data" ));
         return write_result;
