@@ -191,7 +191,10 @@ fd_quic_tls_hs_new( fd_quic_tls_t * quic_tls,
   while( hs_idx < hs_sz && hs_used[hs_idx] ) hs_idx++;
 
   // no room
-  if( hs_idx == hs_sz ) return NULL;
+  if( hs_idx == hs_sz ) {
+    FD_LOG_INFO(( "cannot alloc handshake: %lu", quic_tls->max_concur_handshakes ));
+    return NULL;
+  }
 
   // set the handshake to used
   hs_used[hs_idx] = 1;
@@ -202,7 +205,7 @@ fd_quic_tls_hs_new( fd_quic_tls_t * quic_tls,
   fd_quic_tls_hs_t * self = quic_tls->handshakes + hs_idx;
 
   // clear the handshake bits
-  fd_memset( self, 0, sizeof( *self ) );
+  fd_memset( self, 0, sizeof(fd_quic_tls_hs_t) );
 
   // set properties on self
   self->quic_tls  = quic_tls;
@@ -284,6 +287,7 @@ fd_quic_tls_hs_new( fd_quic_tls_t * quic_tls,
 
 fd_quic_tls_hs_new_error:
   // free handshake
+  FD_LOG_INFO(( "free handshake %lu inline", hs_idx ));
   quic_tls->used_handshakes[hs_idx] = 0;
 
   return NULL;
@@ -297,6 +301,7 @@ fd_quic_tls_hs_delete( fd_quic_tls_hs_t * self ) {
 
   // find index into array
   ulong hs_idx = (ulong)( self - quic_tls->handshakes );
+  FD_LOG_INFO(( "free handshake %lu", hs_idx ));
   if( quic_tls->used_handshakes[hs_idx] != 1 ) {
     //__asm__ __volatile__( "int $3" );
     return;
@@ -327,7 +332,6 @@ fd_quic_tls_process( fd_quic_tls_hs_t * self ) {
   int   ssl_rc = 0;
   SSL * ssl    = self->ssl;
   if( !self->is_hs_complete ) {
-    FD_LOG_DEBUG(( "Hs" ));
     ssl_rc = SSL_do_handshake( self->ssl );
     switch( ssl_rc ) {
       case 0: // failed
@@ -335,16 +339,11 @@ fd_quic_tls_process( fd_quic_tls_hs_t * self ) {
         // but can this occur without any error?
         {
           int err = SSL_get_error( ssl, (int)ssl_rc );
-          if( err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE ) {
-            // WANT_READ and WANT_WRITE are expected conditions
-            return FD_QUIC_TLS_SUCCESS;
-          } else {
-            self->err_ssl_rc  = (int)ssl_rc;
-            self->err_ssl_err = err;
-            self->err_line    = __LINE__;
-
-            return FD_QUIC_TLS_FAILED;
-          }
+          FD_LOG_WARNING(( "OpenSSL error: %d %s", err, fd_quic_tls_strerror() ));
+          self->err_ssl_rc  = (int)ssl_rc;
+          self->err_ssl_err = err;
+          self->err_line    = __LINE__;
+          return FD_QUIC_TLS_FAILED;
         }
       case 1: // completed
         self->is_hs_complete = 1;
@@ -353,16 +352,15 @@ fd_quic_tls_process( fd_quic_tls_hs_t * self ) {
       default:
         {
           int err = SSL_get_error( ssl, (int)ssl_rc );
-          if( err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE ) {
+          if( FD_LIKELY( err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE ) ) {
             // WANT_READ and WANT_WRITE are expected conditions
             return FD_QUIC_TLS_SUCCESS;
-          } else {
-            self->err_ssl_rc  = (int)ssl_rc;
-            self->err_ssl_err = err;
-            self->err_line    = __LINE__;
-
-            return FD_QUIC_TLS_FAILED;
           }
+          FD_LOG_WARNING(( "OpenSSL error: %d %s", err, fd_quic_tls_strerror() ));
+          self->err_ssl_rc  = (int)ssl_rc;
+          self->err_ssl_err = err;
+          self->err_line    = __LINE__;
+          return FD_QUIC_TLS_FAILED;
         }
     }
   } else {

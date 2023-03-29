@@ -350,9 +350,10 @@ init_quic( fd_quic_t *  quic,
 
   fd_quic_config_t * quic_config = fd_quic_get_config( quic );
 
-  strcpy ( quic_config->cert_file, "cert.pem" );
-  strcpy ( quic_config->key_file,  "key.pem"  );
-  strncpy( quic_config->sni,       hostname, FD_QUIC_SNI_LEN );
+  strcpy ( quic_config->cert_file,   "cert.pem" );
+  strcpy ( quic_config->key_file,    "key.pem"  );
+  strncpy( quic_config->sni,         hostname, FD_QUIC_SNI_LEN );
+  strcpy ( quic_config->keylog_file, "keylog.log" );
 
   quic_config->net.ip_addr         = ip_addr;
   quic_config->net.listen_udp_port = (ushort)udp_port;
@@ -523,7 +524,11 @@ main( int argc, char ** argv ) {
       break;
     }
 
-    if( next_wakeup > now ) now = next_wakeup;
+    if( next_wakeup > now ) {
+      now = next_wakeup;
+    } else {
+      now += (ulong)10e6;
+    }
 
     FD_LOG_INFO(( "running services at %lu", next_wakeup ));
     fd_log_flush();
@@ -542,11 +547,6 @@ main( int argc, char ** argv ) {
       fd_quic_stream_t * stream = meta->stream;
 
       FD_LOG_DEBUG(( "sending: %d", (int)j ));
-
-      if( (j&1) == 0 ) {
-        FD_LOG_DEBUG(( "even" ));
-        fd_log_flush();
-      }
 
       int rc = fd_quic_stream_send( stream, batch, 1 /* batch_sz */, 1 /* fin */ );
       FD_LOG_INFO(( "fd_quic_stream_send returned %d", rc ));

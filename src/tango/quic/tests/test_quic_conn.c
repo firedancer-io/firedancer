@@ -7,21 +7,49 @@
 
 #define BUF_SZ (1<<20)
 
+int state           = 0;
+int server_complete = 0;
+int client_complete = 0;
+
+/* server connection received in callback */
+fd_quic_conn_t * server_conn = NULL;
+fd_quic_conn_t * client_conn = NULL;
+
+/* this is slow */
+int
+rand_256() {
+  static uint  j     = 56u;
+  static ulong rnd64 = 0u;
+  j = (j+8)&63u;
+
+  if( j == 0 ) {
+    fd_quic_crypto_rand( (void*)&rnd64, 8u );
+  }
+
+  return ( rnd64 >> j ) & 255u;
+}
+
+
 typedef struct my_stream_meta my_stream_meta_t;
 struct my_stream_meta {
   fd_quic_stream_t * stream;
   my_stream_meta_t * next;
 };
 
+my_stream_meta_t * meta_mem;
 my_stream_meta_t * meta_free;
+ulong              meta_sz;
 
 /* populate meta_free with free stream meta */
 void
 populate_stream_meta( ulong sz ) {
   my_stream_meta_t * prev = NULL;
 
+  meta_mem = (my_stream_meta_t*)malloc( sz * sizeof( my_stream_meta_t ) );
+  meta_sz  = sz;
+
   for( ulong j = 0; j < sz; ++j ) {
-    my_stream_meta_t * meta = (my_stream_meta_t*)malloc( sizeof( my_stream_meta_t ) );
+    my_stream_meta_t * meta = &meta_mem[j];
     meta->stream = NULL;
     meta->next   = NULL;
     if( !prev ) {
@@ -94,11 +122,6 @@ free_stream( my_stream_meta_t * meta ) {
   fd_log_flush();
 }
 
-static void
-bkp() {
-  __asm__ __volatile__( "nop" );
-}
-
 void
 populate_streams( ulong sz, fd_quic_conn_t * conn ) {
   for( ulong j = 0; j < sz; ++j ) {
@@ -110,9 +133,7 @@ populate_streams( ulong sz, fd_quic_conn_t * conn ) {
       fd_quic_conn_new_stream( conn, FD_QUIC_TYPE_UNIDIR );
 
     if( !stream ) {
-      bkp();
       FD_LOG_ERR(( "Failed to obtain a stream" ));
-      exit(1);
     }
 
     /* set context on stream to meta */
@@ -123,6 +144,28 @@ populate_streams( ulong sz, fd_quic_conn_t * conn ) {
 
     /* insert into avail list */
     free_stream( meta );
+  }
+}
+
+/* obtain all free stream meta, clear the stream, and
+   deallocate */
+void
+free_all_streams() {
+  my_stream_meta_t * prev = NULL;
+
+  meta_mem = (my_stream_meta_t*)malloc( meta_sz * sizeof( my_stream_meta_t ) );
+
+  for( ulong j = 0; j < meta_sz; ++j ) {
+    my_stream_meta_t * meta = &meta_mem[j];
+    meta->stream = NULL;
+    meta->next   = NULL;
+    if( !prev ) {
+      meta_free = meta;
+    } else {
+      prev->next  = meta;
+    }
+
+    prev = meta;
   }
 }
 
@@ -221,19 +264,21 @@ my_stream_notify_cb( fd_quic_stream_t * stream, void * ctx, int type ) {
         FD_LOG_DEBUG(( "CLIENT" ));
         fd_log_flush();
 
-        /* obtain new stream */
-        fd_quic_stream_t * new_stream =
-          fd_quic_conn_new_stream( stream->conn, FD_QUIC_TYPE_UNIDIR );
-        FD_TEST( new_stream );
+        if( client_conn && state == 0 ) {
+          /* obtain new stream */
+          fd_quic_stream_t * new_stream =
+            fd_quic_conn_new_stream( client_conn, FD_QUIC_TYPE_UNIDIR );
+          FD_TEST( new_stream );
 
-        /* set context on stream to meta */
-        fd_quic_stream_set_context( new_stream, meta );
+          /* set context on stream to meta */
+          fd_quic_stream_set_context( new_stream, meta );
 
-        /* populate meta */
-        meta->stream = new_stream;
+          /* populate meta */
+          meta->stream = new_stream;
 
-        /* return meta */
-        free_stream( meta );
+          /* return meta */
+          free_stream( meta );
+        }
       }
       break;
 
@@ -283,21 +328,22 @@ struct my_context {
 };
 typedef struct my_context my_context_t;
 
-int server_complete = 0;
-int client_complete = 0;
-
-/* server connection received in callback */
-fd_quic_conn_t * server_conn = NULL;
-fd_quic_conn_t * client_conn = NULL;
-
 void
 my_cb_conn_final( fd_quic_conn_t * conn,
                   void *           context ) {
   (void)context;
 
-  fd_quic_conn_t ** ppconn = (fd_quic_conn_t**)fd_quic_conn_get_context( conn );;
+  if( !conn->server ) {
+    /* remove all invalidated stream objects */
+    free_all_streams();
+  }
+
+  fd_quic_conn_t ** ppconn = (fd_quic_conn_t**)fd_quic_conn_get_context( conn );
   if( ppconn ) {
+    printf( "my_cb_conn_final %p SUCCESS\n", (void*)*ppconn ); fflush( stdout );
     *ppconn = NULL;
+  } else {
+    printf( "my_cb_conn_final FAIL\n" ); fflush( stdout );
   }
 }
 
@@ -350,7 +396,15 @@ pipe_aio_receive( void * vp_ctx, fd_aio_pkt_info_t const * batch, ulong batch_sz
 #endif
 
   /* forward */
-  return fd_aio_send( pipe->aio, batch, batch_sz, opt_batch_idx );
+  if( rand_256() < 1000 ) {
+    return fd_aio_send( pipe->aio, batch, batch_sz, opt_batch_idx );
+  } else {
+    printf( "drop\n" ); fflush( stdout );
+    if( opt_batch_idx ) {
+      *opt_batch_idx = batch_sz;
+    }
+    return FD_AIO_SUCCESS;
+  }
 }
 
 
@@ -486,14 +540,14 @@ main( int argc, char ** argv ) {
   FD_TEST( fd_quic_join( server_quic ) );
 
   /* make a connection from client to server */
-  fd_quic_conn_t * client_conn = fd_quic_connect(
+  client_conn = fd_quic_connect(
       client_quic,
       server_quic->config.net.ip_addr,
       server_quic->config.net.listen_udp_port,
       server_quic->config.sni );
 
   /* do general processing */
-  for( ulong j = 0; j < 20; j++ ) {
+  while(1) {
     ulong ct = fd_quic_get_next_wakeup( client_quic );
     ulong st = fd_quic_get_next_wakeup( server_quic );
     ulong next_wakeup = fd_ulong_min( ct, st );
@@ -514,6 +568,8 @@ main( int argc, char ** argv ) {
 
       break;
     }
+
+    now = next_wakeup + (ulong)100e6;
   }
 
   for( ulong j = 0; j < 20; j++ ) {
@@ -526,7 +582,7 @@ main( int argc, char ** argv ) {
       break;
     }
 
-    now = next_wakeup;
+    now = next_wakeup + (ulong)100e6;
 
     fd_quic_service( client_quic );
     fd_quic_service( server_quic );
@@ -541,21 +597,26 @@ main( int argc, char ** argv ) {
   char buf[512] = "Hello world!\x00-   ";
   fd_aio_pkt_info_t batch[1] = {{ buf, sizeof( buf ) }};
 
-  int status = 0;
+  int done  = 0;
 
-  for( unsigned j = 0; j < 1000000000 && k < 100 && client_conn; ++j ) {
+  ulong j = 0;
+  while( k < 400 && !done ) {
+    j++;
+
     my_stream_meta_t * meta = NULL;
     now += 50000;
 
     fd_quic_service( client_quic );
-    if( (j%1)==0 )
+
+    if( (j%1)==0 ) {
       fd_quic_service( server_quic );
+    }
 
     buf[12] = ' ';
     buf[15] = (char)( ( k / 10 ) + '0' );
     buf[16] = (char)( ( k % 10 ) + '0' );
 
-    switch( status ) {
+    switch( state ) {
       case 0:
 
         /* obtain an free stream */
@@ -575,7 +636,7 @@ main( int argc, char ** argv ) {
             k++;
             if( (k%50) == 0 ) {
               // close client
-              status = 1;
+              state = 1;
 
               fd_quic_conn_close( client_conn, 0 /* app defined reason code */ );
             }
@@ -595,9 +656,40 @@ main( int argc, char ** argv ) {
       case 1:
         // wait for connection to close
         if( !client_conn ) {
-          FD_LOG_INFO(( "client closed" ));
-          break;
+          FD_LOG_INFO(( "client closed. opening new" ));
+
+          /* new handshake starting */
+          client_complete = 0;
+
+          /* start new connection */
+          client_conn = fd_quic_connect(
+              client_quic,
+              server_quic->config.net.ip_addr,
+              server_quic->config.net.listen_udp_port,
+              server_quic->config.sni );
+
+          if( !client_quic ) {
+            FD_LOG_ERR(( "fd_quic_connect failed" ));
+          }
+
+          state = 2;
         }
+
+        break;
+
+      case 2:
+        if( client_complete ) {
+          FD_LOG_INFO(( "new connection completed handshake" ));
+
+          state = 0;
+
+          populate_streams( quic_limits.stream_cnt, client_conn );
+        }
+
+        break;
+
+      default:
+        done = 1;
     }
 
   }
