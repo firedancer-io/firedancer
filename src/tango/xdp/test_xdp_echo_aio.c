@@ -10,8 +10,8 @@
    high-performance UDP reflection attack gadget that can be abused
    from networks that permit source IP spoofing (see BCP 38).  */
 
-#if !FD_HAS_HOSTED || !FD_HAS_LIBBPF
-#error "test_xdp_io requires FD_HAS_HOSTED && FD_HAS_LIBBPF"
+#if !FD_HAS_HOSTED
+#error "test_xdp_io requires FD_HAS_HOSTED"
 #endif
 
 #include "fd_xdp.h"

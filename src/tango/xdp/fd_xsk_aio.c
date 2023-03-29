@@ -1,4 +1,4 @@
-#if !defined(__linux__) || !FD_HAS_LIBBPF
+#if !defined(__linux__)
 #error "fd_xsk_aio requires Linux operating system with XDP support"
 #endif
 

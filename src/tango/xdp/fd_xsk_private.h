@@ -1,7 +1,7 @@
 #ifndef HEADER_fd_src_tango_xdp_fd_xsk_private_h
 #define HEADER_fd_src_tango_xdp_fd_xsk_private_h
 
-#if defined(__linux__) && FD_HAS_LIBBPF
+#if defined(__linux__)
 
 #include "fd_xsk.h"
 #include "../../util/fd_util.h"
@@ -137,5 +137,5 @@ fd_xsk_tx_need_wakeup( fd_xsk_t * xsk ) {
 
 FD_PROTOTYPES_END
 
-#endif /* defined(__linux__) && FD_HAS_LIBBPF */
+#endif /* defined(__linux__) */
 #endif /* HEADER_fd_src_tango_xdp_fd_xsk_private_h */

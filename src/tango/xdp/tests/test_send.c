@@ -8,8 +8,6 @@
 #include <stdio.h>
 #include <string.h>
 #include <errno.h>
-#include <bpf/bpf.h>
-#include <bpf/libbpf.h>
 #include <linux/if_link.h>
 #include <linux/types.h>
 #include <poll.h>

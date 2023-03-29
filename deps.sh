@@ -105,14 +105,10 @@ fetch () {
 
   fetch_repo zlib https://github.com/madler/zlib
   fetch_repo zstd https://github.com/facebook/zstd
-  fetch_repo elfutils git://sourceware.org/git/elfutils.git
-  fetch_repo libbpf https://github.com/libbpf/libbpf
   fetch_repo openssl https://github.com/quictls/openssl
 
   checkout_repo zlib "v1.2.13"
   checkout_repo zstd "v1.5.4"
-  checkout_repo elfutils "elfutils-0.189"
-  checkout_repo libbpf "v1.1.0"
   checkout_repo openssl "OpenSSL_1_1_1t-quic1"
 }
 
@@ -304,56 +300,6 @@ install_zstd () {
   echo "[+] Successfully installed zstd"
 }
 
-install_elfutils () {
-  if pkg-config --exists libelf; then
-    echo "[~] libelf already installed at $(pkg-config --path libelf), skipping installation"
-    return 0
-  fi
-
-  cd ./opt/git/elfutils
-
-  echo "[+] Generating elfutils configure script"
-  autoreconf -i -f
-  echo "[+] Generated elfutils configure script"
-
-  echo "[+] Configuring elfutils"
-  ./configure \
-    --prefix="$PREFIX" \
-    --enable-maintainer-mode \
-    --disable-debuginfod \
-    --disable-libdebuginfod \
-    --without-curl \
-    --without-microhttpd \
-    --without-sqlite3 \
-    --without-libarchive \
-    --without-tests
-  echo "[+] Configured elfutils"
-
-  echo "[+] Building elfutils"
-  "${MAKE[@]}"
-  echo "[+] Successfully built elfutils"
-
-  echo "[+] Installing elfutils to $PREFIX"
-  make install -j
-  echo "[+] Successfully installed elfutils"
-}
-
-install_libbpf () {
-  if pkg-config --exists libbpf; then
-    echo "[~] libbpf already installed at $(pkg-config --path libbpf), skipping installation"
-    return 0
-  fi
-
-  cd ./opt/git/libbpf
-  git apply "$REPO_ROOT"/contrib/libbpf-fix-pedantic-compile.patch
-
-  cd src
-
-  echo "[+] Installing libbpf to $PREFIX"
-  "${MAKE[@]}" install PREFIX="$PREFIX" LIBDIR="$PREFIX/lib"
-  echo "[+] Successfully installed libbpf"
-}
-
 install_openssl () {
   if pkg-config --exists openssl; then
     echo "[~] openssl already installed at $(pkg-config --path openssl), skipping installation"
@@ -383,11 +329,6 @@ install () {
   ( install_zlib    )
   ( install_zstd    )
   ( install_openssl )
-
-  if [[ "$OS" == "Linux" ]]; then
-    ( install_elfutils )
-    ( install_libbpf   )
-  fi
 
   echo "[~] Done! To wire up $(pwd)/opt with make, run:"
   echo "    source activate-opt"

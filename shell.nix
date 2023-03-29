@@ -22,8 +22,6 @@ pkgs.mkShell {
     llvm_15
 
     # C dependencies
-    elfutils
-    libbpf
     (quictls.override { static = true; })
     rocksdb
     zlib.static

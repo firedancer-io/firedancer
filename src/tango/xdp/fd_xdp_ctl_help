@@ -23,17 +23,13 @@ fini [WKSP]
   [WKSP] including any XDP programs and eBPF maps.
 - Requires CAP_SYS_ADMIN, see capabilities(7).
 
-hook-iface [WKSP] [IFACE] [XDP_MODE] [PRIORITY]
+hook-iface [WKSP] [IFACE] [XDP_MODE]
 - Install the XDP redirect program to the network device
   [IFACE]. The XDP installation mode [XDP_MODE] can be one of
   "skb" (supported on all hardware), "drv" (requires driver
   support), "hw" (requires NIC hardware support).
 - Any XDP program previously installed by fd_xdp_ctl will be
   replaced. Other XDP programs are left intact.
-- The program priority [PRIORITY] is a 32-bit signed integer
-  used to determine order of execution when multiple XDP
-  programs are installed on this interface. Lower priority
-  programs take precedence.
 - Creates the following files:
   /sys/fs/bpf/[WKSP]/[IFACE]/xdp   Link to BPF_PROG_TYPE_XDP
   /sys/fs/bpf/[WKSP]/[IFACE]/xsks  BPF_MAP_TYPE_XSKMAP

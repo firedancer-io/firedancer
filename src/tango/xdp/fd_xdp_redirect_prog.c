@@ -91,6 +91,10 @@ int fd_xdp_redirect( struct xdp_md *ctx ) {
   ulong flow_key    = (ip_dstaddr<<16) | udp_dstport;
 
   /* Filter for known UDP dest ports of interest */
+  /* FIXME: This generates invalid asm.  The lddw instruction for
+            loading the fd_xdp_udp_dsts has src_reg==0, but it should
+            be src_reg==1 */
+  /* TODO: Consider using inline asm instead */
   uint * udp_value = bpf_map_lookup_elem( &fd_xdp_udp_dsts, &flow_key );
   if( !udp_value ) return XDP_PASS;
 

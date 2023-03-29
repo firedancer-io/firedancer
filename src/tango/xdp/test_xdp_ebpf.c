@@ -1,18 +1,18 @@
 /* test_xdp_ebpf: Exercises unit test invocations of ebpf_xdp_flow via
    bpf(2) syscall in BPF_PROG_TEST_RUN mode. */
 
-#if !defined(__linux__) || !FD_HAS_LIBBPF
+#if !defined(__linux__)
 #error "fd_xdp_steer requires Linux operating system with XDP support"
 #endif
 
+#define _DEFAULT_SOURCE
 #include <errno.h>
 #include <unistd.h>
 #include <sys/socket.h>
 
-#include <bpf/bpf.h>
-#include <bpf/libbpf.h>
 #include "fd_xdp_redirect_user.h"
 #include "../../util/fd_util.h"
+#include "../../ballet/ebpf/fd_ebpf.h"
 
 
 /* Test support *******************************************************/
@@ -21,6 +21,8 @@
    It is embedded into this program. Build with `make ebpf-bin`. */
 
 FD_IMPORT_BINARY( fd_xdp_redirect_prog, "build/ebpf/clang/bin/fd_xdp_redirect_prog.o" );
+
+static uchar tmp_prog[ 2048UL ];
 
 /* Kernel file descriptors */
 
@@ -57,14 +59,13 @@ fd_bpf_map_clear( int map_fd ) {
 
   for(;;) {
     ulong next_key;
-    int res = bpf_map_get_next_key( map_fd, &key, &next_key );
-    if( FD_UNLIKELY( res!=0 ) ) {
+    if( FD_UNLIKELY( 0!=fd_bpf_map_get_next_key( map_fd, &key, &next_key ) ) ) {
       if( FD_LIKELY( errno==ENOENT ) ) break;
       FD_LOG_ERR(( "bpf_map_get_next_key(%d,%#lx,%p) failed (%d-%s)",
                    map_fd, key, (void *)&next_key, errno, strerror( errno ) ));
     }
 
-    if( FD_UNLIKELY( 0!=bpf_map_delete_elem( map_fd, &next_key ) ) )
+    if( FD_UNLIKELY( 0!=fd_bpf_map_delete_elem( map_fd, &next_key ) ) )
       FD_LOG_ERR(( "bpf_map_delete_elem(%d,%#lx) failed (%d-%s)",
                    map_fd, next_key, errno, strerror( errno ) ));
 
@@ -83,8 +84,8 @@ fd_run_xdp_redirect_test( fd_xdp_redirect_test_t const * test ) {
 
   if( test->udp_dsts_kv ) {
     for( fd_udp_dst_kv_t *kv=test->udp_dsts_kv; kv->k; kv++ ) {
-      if( FD_UNLIKELY( 0!=bpf_map_update_elem( udp_dsts_fd, &kv->k, &kv->v, 0UL ) ) ) {
-        FD_LOG_ERR(( "bpf_map_update_elem(%d,%#lx,%#x,0) failed (%d-%s)",
+      if( FD_UNLIKELY( 0!=fd_bpf_map_update_elem( udp_dsts_fd, &kv->k, &kv->v, 0UL ) ) ) {
+        FD_LOG_ERR(( "fd_bpf_map_update_elem(%d,%#lx,%#x,0) failed (%d-%s)",
                     udp_dsts_fd, kv->k, kv->v, errno, strerror( errno ) ));
       }
     }
@@ -92,23 +93,25 @@ fd_run_xdp_redirect_test( fd_xdp_redirect_test_t const * test ) {
     /* Add 127.0.0.1:8001 to map by default */
     ulong k=fd_xdp_udp_dst_key( 0x7f000001U, 8001U );
     uint  v=0U;
-    FD_TEST( 0==bpf_map_update_elem( udp_dsts_fd, &k, &v, 0UL ) );
+    FD_TEST( 0==fd_bpf_map_update_elem( udp_dsts_fd, &k, &v, 0UL ) );
   }
 
   /* Hook up to XSK */
   int rx_queue = 0;
-  FD_TEST( 0==bpf_map_update_elem( xsks_fd, &rx_queue, &xsk_fd, 0UL ) );
+  FD_TEST( 0==fd_bpf_map_update_elem( xsks_fd, &rx_queue, &xsk_fd, 0UL ) );
 
-  struct bpf_test_run_opts test_run = {
-    .sz           = sizeof(struct bpf_test_run_opts),
-    .data_in      =        test->packet,
-    .data_size_in = (uint)*test->packet_sz,
+  union bpf_attr attr = {
+    .test = {
+      .prog_fd      = (uint)prog_fd,
+      .data_in      = (ulong)test->packet,
+      .data_size_in = (uint)*test->packet_sz
+    }
   };
-  FD_XDP_TEST( 0==bpf_prog_test_run_opts( prog_fd, &test_run ) );
+  FD_XDP_TEST( 0==bpf( BPF_PROG_TEST_RUN, &attr, sizeof(union bpf_attr) ) );
 
-  FD_LOG_INFO(( "bpf test %s returned %#x", test->name, test_run.retval ));
+  FD_LOG_INFO(( "bpf test %s returned %#x", test->name, attr.test.retval ));
 
-  FD_XDP_TEST( test_run.retval == test->xdp_action );
+  FD_XDP_TEST( attr.test.retval == test->xdp_action );
 
 # undef FD_XDP_TEST
 }
@@ -153,54 +156,52 @@ int main( int     argc,
           char ** argv ) {
   fd_boot( &argc, &argv );
 
-  /* Open program */
+  /* Link program */
 
-  struct bpf_object_open_opts open_opts = {
-    .sz = sizeof(struct bpf_object_open_opts)
+  fd_ebpf_sym_t syms[ 2 ] = {
+    { .name = "fd_xdp_udp_dsts", .value = (ulong)udp_dsts_fd },
+    { .name = "fd_xdp_xsks",     .value = (ulong)xsks_fd     }
   };
-  struct bpf_object * obj = bpf_object__open_mem( fd_xdp_redirect_prog, fd_xdp_redirect_prog_sz, &open_opts );
-  FD_TEST( obj );
+
+  fd_ebpf_link_opts_t link_opts = {
+    .section = "xdp",
+    .sym     = syms,
+    .sym_cnt = 2UL
+  };
+
+  FD_TEST( fd_xdp_redirect_prog_sz<=sizeof(tmp_prog) );
+  fd_memcpy( tmp_prog, fd_xdp_redirect_prog, fd_xdp_redirect_prog_sz );
+
+  fd_ebpf_link_opts_t * res =
+    fd_ebpf_static_link( &link_opts, tmp_prog, fd_xdp_redirect_prog_sz );
 
   /* Load object into kernel */
 
-  if( FD_UNLIKELY( 0!=bpf_object__load( obj ) ) ) {
+  union bpf_attr attr = {
+    .prog_type = BPF_PROG_TYPE_XDP,
+    .insn_cnt  = (uint)(res->bpf_sz / 8UL),
+    .insns     = (ulong)res->bpf,
+    .license   = (ulong)"Apache-2.0",
+    .prog_name = "fd_redirect"
+  };
+  int prog_fd = (int)bpf( BPF_PROG_LOAD, &attr, sizeof(union bpf_attr) );
+  if( FD_UNLIKELY( prog_fd <= 0 ) ) {
     if( errno==EPERM ) {
       FD_LOG_WARNING(( "skip: insufficient permissions to load BPF object" ));
-      bpf_object__close( obj );
       fd_halt();
       return 0;
     }
     FD_LOG_ERR(( "bpf_object__load failed (%d-%s)", errno, strerror( errno ) ));
   }
 
-  /* Open handles of object's resources */
-
-  struct bpf_program * prog         = bpf_object__find_program_by_name( obj, "fd_xdp_redirect" );
-  struct bpf_map *     udp_dsts_map = bpf_object__find_map_by_name    ( obj, "fd_xdp_udp_dsts" );
-  struct bpf_map *     xsks_map     = bpf_object__find_map_by_name    ( obj, "fd_xdp_xsks"     );
-
-  FD_TEST( prog         );
-  FD_TEST( udp_dsts_map );
-  FD_TEST( xsks_map     );
-
-  /* Query program/maps from BPF object */
-  int _prog_fd     = bpf_program__fd( prog         );
-  int _udp_dsts_fd = bpf_map__fd    ( udp_dsts_map );
-  int _xsks_fd     = bpf_map__fd    ( xsks_map     );
   /* Create new AF_XDP socket. Doesn't actually have to be operational
      for bpf_redirect_map() to return XDP_REDIRECT. */
   int _xsk_fd      = socket( AF_XDP, SOCK_RAW, 0 );
 
-  FD_TEST( _prog_fd    >=0 );
-  FD_TEST( _udp_dsts_fd>=0 );
-  FD_TEST( _xsks_fd    >=0 );
   FD_TEST( _xsk_fd     >=0 );
 
   /* Set globals */
 
-  prog_fd     = _prog_fd;
-  udp_dsts_fd = _udp_dsts_fd;
-  xsks_fd     = _xsks_fd;
   xsk_fd      = _xsk_fd;
 
   /* Run tests */
@@ -210,8 +211,8 @@ int main( int     argc,
 
   /* Clean up */
 
-  bpf_object__close( obj ); /* Also unloads programs */
   close( xsk_fd );
+  close( prog_fd );
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

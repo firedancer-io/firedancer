@@ -66,8 +66,6 @@ Current packages and tools used include:
 |-----------|----------|-------------|-----------------------------------------------------|
 | GNU make  | -        | Build       | Main build tool                                     |
 | pkgconf   | -        | Build       | `pkg-config`, used to locate C library dependencies |
-| elfutils  | >=0.187  | Runtime     | `libelf`, used by `libbpf`                          |
-| libbpf    | 1.1.0    | Runtime     | `libbpf`, used to load XDP programs                 |
 | quictls   | >=1.1.0  | Runtime     | OpenSSL fork, used for the QUIC protocol            |
 | zlib      | -        | Runtime     | DEFLATE compression                                 |
 | zstd      | -        | Runtime     | Zstandard compression                               |

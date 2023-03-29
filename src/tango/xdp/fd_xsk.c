@@ -1,11 +1,9 @@
-#if !defined(__linux__)    || !FD_HAS_LIBBPF
+#if !defined(__linux__)
 #error "fd_xsk requires Linux operating system with XDP support"
 #endif
 
 #include <linux/if_xdp.h>
 #include <linux/limits.h>
-#include <bpf/bpf.h>
-#include <bpf/libbpf.h>
 
 #include <net/if.h>
 #include <sys/socket.h>
@@ -16,6 +14,7 @@
 #include <errno.h>
 #include <string.h>
 #include <stdlib.h>
+#include <stdio.h>
 #include <sys/mman.h>
 
 #include "fd_xsk_private.h"

@@ -1,4 +1,4 @@
-#if FD_HAS_HOSTED && FD_HAS_LIBBPF
+#if FD_HAS_HOSTED
 
 #include <stdio.h>
 
@@ -70,23 +70,22 @@ main( int     argc,
 
     } else if( 0==strcmp( cmd, "hook-iface" ) ) {
 
-      if( FD_UNLIKELY( argc<4 ) ) FD_LOG_ERR(( "%i: %s: too few arguments\n\tDo %s help for help", cnt, cmd, bin ));
+      if( FD_UNLIKELY( argc<3 ) ) FD_LOG_ERR(( "%i: %s: too few arguments\n\tDo %s help for help", cnt, cmd, bin ));
 
       char const * _wksp     =                 argv[0];
       char const * ifname    =                 argv[1];
       char const * _xdp_mode =                 argv[2];
-      int          priority  = fd_cstr_to_int( argv[3] );
 
       uint xdp_mode = fd_cstr_to_xdp_mode( _xdp_mode );
       if( FD_UNLIKELY( xdp_mode==0UL ) )
         FD_LOG_ERR(( "%i: %s: unsupported XDP mode \"%s\"\n\tDo %s help for help", cnt, cmd, _xdp_mode, bin ));
 
-      if( FD_UNLIKELY( 0!=fd_xdp_hook_iface( _wksp, ifname, xdp_mode, priority, fd_xdp_redirect_prog, fd_xdp_redirect_prog_sz ) ) )
-        FD_LOG_ERR(( "%i: %s: fd_xdp_hook_iface(%s,%s,%s,%d,%p,%lu) failed\n\tDo %s help for help",
-                     cnt, cmd, _wksp, ifname, _xdp_mode, priority, (void *)fd_xdp_redirect_prog, fd_xdp_redirect_prog_sz, bin ));
+      if( FD_UNLIKELY( 0!=fd_xdp_hook_iface( _wksp, ifname, xdp_mode, fd_xdp_redirect_prog, fd_xdp_redirect_prog_sz ) ) )
+        FD_LOG_ERR(( "%i: %s: fd_xdp_hook_iface(%s,%s,%s,%p,%lu) failed\n\tDo %s help for help",
+                     cnt, cmd, _wksp, ifname, _xdp_mode, (void *)fd_xdp_redirect_prog, fd_xdp_redirect_prog_sz, bin ));
 
-      FD_LOG_NOTICE(( "%i: %s %s %s %s %d: success", cnt, cmd, _wksp, ifname, _xdp_mode, priority ));
-      SHIFT( 4 );
+      FD_LOG_NOTICE(( "%i: %s %s %s %s: success", cnt, cmd, _wksp, ifname, _xdp_mode ));
+      SHIFT( 3 );
 
     } else if( 0==strcmp( cmd, "unhook-iface" ) ) {
 
@@ -355,4 +354,4 @@ main( int     argc,
   return 0;
 }
 
-#endif /* FD_HAS_HOSTED && FD_HAS_LIBBPF */
+#endif /* FD_HAS_HOSTED */

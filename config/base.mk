@@ -35,9 +35,6 @@ EBPF_CFLAGS:=-std=c17
 # Always cross-compile to eBPF
 EBPF_CPPFLAGS+=-I./opt/include -target bpf -O2
 
-# Required for BPF Type Format
-EBPF_CPPFLAGS+=-g
-
 # Some versions of Clang attempt to build with stack protection
 # which is not supported for the eBPF target -- the kernel verifier
 # provides such safety features.
