@@ -742,7 +742,8 @@ void boot_recent_block_hashes(FD_FN_UNUSED global_state_t *state) {
    char pubkey[50];
    fd_base58_decode_32( "Sysvar1111111111111111111111111111111111111",  (unsigned char *) hdr.info.owner);
    fd_base58_decode_32( "SysvarRecentB1ockHashes11111111111111111111",  (unsigned char *) pubkey);
-   hdr.info.lamports = 42706560;
+   ulong exempt = (sz + 128) * ((ulong) ((double)state->gen.rent.lamports_per_uint8_year * state->gen.rent.exemption_threshold));
+   hdr.info.lamports = exempt;
 
    fd_solana_account_t account = {
      .lamports = hdr.info.lamports,
@@ -1066,6 +1067,10 @@ int main(int argc, char **argv) {
     fd_pubkey_account_pair_t *a = &state.gen.accounts[i];
 
     fd_acc_mgr_write_structured_account(state.acc_mgr, 0, &a->key, &a->account);
+
+    char pubkey[50];
+    fd_base58_encode_32((uchar *) a->key.key, NULL, pubkey);
+    FD_LOG_WARNING(("genesis accounts:  %s", pubkey));
   }
 
   for (ulong i = 0; i < state.gen.native_instruction_processors_len; i++) {
