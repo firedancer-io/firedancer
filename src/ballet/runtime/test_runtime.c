@@ -21,6 +21,11 @@
 
 // --ledger /home/jsiegel/test-ledger --db /home/jsiegel/funk --cmd replay --pages 15 --index-max 120000000 --start-slot 0 --end-slot 6
 
+//  --ledger /home/jsiegel/test-ledger --db /home/jsiegel/funk --cmd accounts --accounts /home/jsiegel/test-ledger/accounts/ --pages 15 --index-max 120000000 --start-slot 0 --end-slot 0 --start-id 35 --end-id 35
+
+//owner:      Sysvar1111111111111111111111111111111111111 pubkey:      SysvarRecentB1ockHashes11111111111111111111 hash:     EeEiSR3bwzfALaqzJdNSgf81c6dsnb4Cvb7f1rEqUaE9 file: /home/jsiegel/test-ledger/accounts//0.35
+//  {blockhash = Ha5DVgnD1xSA8oQc337jtA3atEfQ4TFX1ajeZG1Y2tUx,  fee_calculator={lamports_per_signature = 0}}
+
 // #define _VHASH
 
 #include <stdio.h>
@@ -754,8 +759,9 @@ void boot_recent_block_hashes(FD_FN_UNUSED global_state_t *state) {
      .executable = (uchar) hdr.info.executable
    };
    fd_memcpy( account.owner.key, hdr.info.owner, 32 );
-            
+
    fd_hash_account( &account, 0, (fd_pubkey_t const *)  pubkey, (fd_hash_t *) hdr.hash);
+fd_acc_mgr_write_structured_account( state->acc_mgr, 0, (fd_pubkey_t *)  pubkey, &account );
 }
 
 static
