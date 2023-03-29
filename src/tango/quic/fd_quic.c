@@ -13,6 +13,7 @@
 #include "../../util/net/fd_ip4.h"
 
 #include <errno.h>
+#include <execinfo.h>
 #include <string.h>
 #include <fcntl.h>   /* for keylog open(2)  */
 #include <unistd.h>  /* for keylog close(2) */
@@ -1317,6 +1318,10 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
 
   DEBUG( FD_LOG_DEBUG(( "new connection success" )); )
 
+  /* insert into service queue */
+  fd_quic_event_t event[1] = {{ .timeout = 0, .conn = conn }};
+  service_queue_insert( state->service_queue, event );
+
   /* return number of bytes consumed */
   return tot_sz;
 }
@@ -2420,7 +2425,7 @@ static ulong
 fd_quic_frame_handle_crypto_frame( void *                   vp_context,
                                    fd_quic_crypto_frame_t * crypto,
                                    uchar const *            p,
-                                   ulong                   p_sz ) {
+                                   ulong                    p_sz ) {
   /* copy the context locally */
   fd_quic_frame_context_t context = *(fd_quic_frame_context_t*)vp_context;
 
@@ -3892,14 +3897,18 @@ fail_tls_hs:
   fd_quic_tls_hs_delete( tls_hs );
 
 fail_conn:
-  /* remote entry from map */
+  /* remove entry from map */
   entry = fd_quic_conn_map_query( state->conn_map, &our_conn_id );
   if( FD_LIKELY( entry ) )
     fd_quic_conn_map_remove( state->conn_map, entry );
 
   /* add to free list */
-  conn->next  = state->conns;
+  conn->next   = state->conns;
   state->conns = conn;
+
+  /* insert into service queue */
+  fd_quic_event_t event[1] = {{ .timeout = 0, .conn = conn }};
+  service_queue_insert( state->service_queue, event );
 
   return NULL;
 }
@@ -4055,11 +4064,6 @@ fd_quic_conn_create( fd_quic_t *               quic,
   /* no stream bytes sent or received yet */
   conn->tx_tot_data = 0;
   conn->rx_tot_data = 0;
-
-  /* TODO probably should be the responsibility of the caller */
-  /* insert into service queue */
-  fd_quic_event_t event[1] = {{ .timeout = 0, .conn = conn }};
-  service_queue_insert( state->service_queue, event );
 
   /* return number of bytes consumed */
   return conn;
