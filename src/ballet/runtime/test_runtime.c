@@ -37,6 +37,7 @@
 #include "../poh/fd_poh.h"
 #include "../bmtree/fd_bmtree.h"
 #include "../sha256/fd_sha256.h"
+#include "sysvar/fd_sysvar_clock.h"
 
 #include <dirent.h>
 
@@ -757,6 +758,9 @@ int replay(global_state_t *state) {
   if (ret < 0) {
     FD_LOG_ERR(("fd_rocksdb_root_iter_seek returned %d", ret));
   }
+
+  /* TODO: move this somewhere more appropiate. Properly organise sysvars. */
+  /* fd_sysvar_clock_init( global,  ); */
 
   do {
     ulong slot;

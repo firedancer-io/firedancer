@@ -496,7 +496,8 @@
           { "name": "epoch", "type": "uint64_t" },
           { "name": "leader_schedule_epoch", "type": "uint64_t" },
           { "name": "unix_timestamp", "type": "int64_t" }
-      ]
+      ],
+      "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/clock.rs#L114"
     },
     {
       "name": "vote_lockout",
