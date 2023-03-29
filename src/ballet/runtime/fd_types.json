@@ -647,7 +647,7 @@
       "name": "recent_block_hashes",
       "type": "struct",
       "fields": [
-          { "name": "hashes", "type": "vector", "element": "block_block_hash_entry" }
+          { "name": "hashes", "type": "vector_dynamic", "element": "block_block_hash_entry" }
       ]
     },
     {

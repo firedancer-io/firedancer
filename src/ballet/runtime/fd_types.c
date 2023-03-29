@@ -2136,37 +2136,31 @@ void fd_block_block_hash_entry_encode(fd_block_block_hash_entry_t* self, void co
 }
 
 void fd_recent_block_hashes_decode(fd_recent_block_hashes_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
-  fd_bincode_uint64_decode(&self->hashes_len, data, dataend);
-  if (self->hashes_len != 0) {
-    self->hashes = (fd_block_block_hash_entry_t*)(*allocf)(allocf_arg, FD_BLOCK_BLOCK_HASH_ENTRY_ALIGN, FD_BLOCK_BLOCK_HASH_ENTRY_FOOTPRINT*self->hashes_len);
-    for (ulong i = 0; i < self->hashes_len; ++i)
-      fd_block_block_hash_entry_decode(self->hashes + i, data, dataend, allocf, allocf_arg);
-  } else
-    self->hashes = NULL;
+  fd_vec_fd_block_block_hash_entry_t_new(&self->hashes);
+  ulong hashes_len;
+  fd_bincode_uint64_decode(&hashes_len, data, dataend);
+  for (ulong i = 0; i < hashes_len; ++i) {
+    fd_block_block_hash_entry_t elem;
+    fd_block_block_hash_entry_decode(&elem, data, dataend, allocf, allocf_arg);
+    fd_vec_fd_block_block_hash_entry_t_push(&self->hashes, elem);
+  }
 }
 void fd_recent_block_hashes_destroy(fd_recent_block_hashes_t* self, fd_free_fun_t freef, void* freef_arg) {
-  if (NULL != self->hashes) {
-    for (ulong i = 0; i < self->hashes_len; ++i)
-      fd_block_block_hash_entry_destroy(self->hashes + i,  freef, freef_arg);
-    freef(freef_arg, self->hashes);
-    self->hashes = NULL;
-  }
+  fd_vec_fd_block_block_hash_entry_t_destroy(&self->hashes);
 }
 
 ulong fd_recent_block_hashes_size(fd_recent_block_hashes_t* self) {
   ulong size = 0;
   size += sizeof(ulong);
-  for (ulong i = 0; i < self->hashes_len; ++i)
-    size += fd_block_block_hash_entry_size(self->hashes + i);
+  for (ulong i = 0; i < self->hashes.cnt; ++i)
+    size += fd_block_block_hash_entry_size(&self->hashes.elems[i]);
   return size;
 }
 
 void fd_recent_block_hashes_encode(fd_recent_block_hashes_t* self, void const** data) {
-  fd_bincode_uint64_encode(&self->hashes_len, data);
-  if (self->hashes_len != 0) {
-    for (ulong i = 0; i < self->hashes_len; ++i)
-      fd_block_block_hash_entry_encode(self->hashes + i, data);
-  }
+  fd_bincode_uint64_encode(&self->hashes.cnt, data);
+  for (ulong i = 0; i < self->hashes.cnt; ++i)
+    fd_block_block_hash_entry_encode(&self->hashes.elems[i], data);
 }
 
 void fd_slot_meta_decode(fd_slot_meta_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {

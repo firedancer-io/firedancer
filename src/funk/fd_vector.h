@@ -29,6 +29,16 @@ void VECT_(push)(struct VECT_NAME* self, const VECT_ELEMENT elem) {
 }
 
 static inline
+void VECT_(push_front)(struct VECT_NAME* self, const VECT_ELEMENT elem) {
+  if (self->cnt == self->max) {
+    self->max <<= 1;
+    self->elems = (VECT_ELEMENT*)realloc(self->elems, sizeof(VECT_ELEMENT)*self->max);
+  }
+  fd_memcpy(&self->elems[1], &self->elems[0], sizeof(VECT_ELEMENT)*self->cnt++);
+  self->elems[0] = elem;
+}
+
+static inline
 int VECT_(empty)(struct VECT_NAME* self) {
   return self->cnt == 0;
 }

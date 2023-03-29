@@ -19,6 +19,15 @@
 
 // --ledger /home/jsiegel/test-ledger --db /home/jsiegel/funk --cmd accounts --accounts /home/jsiegel/test-ledger/accounts/ --pages 15 --index-max 120000000 --start-slot 4 --end-slot 5 --start-id 41 --end-id 43
 
+// --ledger /home/jsiegel/test-ledger --db /home/jsiegel/funk --cmd replay --pages 15 --index-max 120000000 --start-slot 0 --end-slot 6
+
+//  --ledger /home/jsiegel/test-ledger --db /home/jsiegel/funk --cmd accounts --accounts /home/jsiegel/test-ledger/accounts/ --pages 15 --index-max 120000000 --start-slot 0 --end-slot 0 --start-id 35 --end-id 35
+
+//owner:      Sysvar1111111111111111111111111111111111111 pubkey:      SysvarRecentB1ockHashes11111111111111111111 hash:     EeEiSR3bwzfALaqzJdNSgf81c6dsnb4Cvb7f1rEqUaE9 file: /home/jsiegel/test-ledger/accounts//0.35
+//  {blockhash = Ha5DVgnD1xSA8oQc337jtA3atEfQ4TFX1ajeZG1Y2tUx,  fee_calculator={lamports_per_signature = 0}}
+
+// #define _VHASH
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -365,8 +374,8 @@ void print_file(global_state_t *state, const char *file) {
       memset(&a, 0, sizeof(a));
 
       fd_recent_block_hashes_decode(&a, &o, outend, allocf, state->alloc);
-      for (ulong i = 0; i < a.hashes_len; i++) {
-        fd_block_block_hash_entry_t *e = &a.hashes[i];
+      for (ulong i = 0; i < a.hashes.cnt; i++) {
+        fd_block_block_hash_entry_t *e = &a.hashes.elems[i];
         char encoded_hash[50];
         fd_base58_encode_32((uchar *) e->blockhash.hash, 0, encoded_hash);
 
@@ -710,6 +719,51 @@ fd_sim_txn(global_state_t *state, FD_FN_UNUSED fd_executor_t* executor, fd_txn_t
   }
 }
 
+void boot_recent_block_hashes(FD_FN_UNUSED global_state_t *state) {
+  // https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/fee_calculator.rs#L110
+   fd_recent_block_hashes_t a;
+   memset(&a, 0, sizeof(a));
+
+   fd_block_block_hash_entry_t s;
+   memset(&s, 0, sizeof(s));
+
+   fd_vec_fd_block_block_hash_entry_t_new(&a.hashes);
+
+   fd_memcpy(s.blockhash.hash, state->genesis_hash, sizeof(state->genesis_hash));
+   fd_vec_fd_block_block_hash_entry_t_push_front(&a.hashes, s);
+
+   ulong sz = fd_recent_block_hashes_size(&a);
+   if (sz < 6008)
+     sz = 6008;
+   char *enc = fd_alloca(1, sz);
+   memset(enc, 0, sz);
+   void const *ptr = (void const *) enc;
+   fd_recent_block_hashes_encode(&a, &ptr);
+
+   fd_recent_block_hashes_destroy(&a, freef, state->alloc);
+
+   fd_account_meta_t hdr;
+   fd_account_meta_init(&hdr);
+
+   char pubkey[50];
+   fd_base58_decode_32( "Sysvar1111111111111111111111111111111111111",  (unsigned char *) hdr.info.owner);
+   fd_base58_decode_32( "SysvarRecentB1ockHashes11111111111111111111",  (unsigned char *) pubkey);
+   ulong exempt = (sz + 128) * ((ulong) ((double)state->gen.rent.lamports_per_uint8_year * state->gen.rent.exemption_threshold));
+   hdr.info.lamports = exempt;
+
+   fd_solana_account_t account = {
+     .lamports = hdr.info.lamports,
+     .rent_epoch = hdr.info.rent_epoch,
+     .data_len = sz,
+     .data = (unsigned char *) enc,
+     .executable = (uchar) hdr.info.executable
+   };
+   fd_memcpy( account.owner.key, hdr.info.owner, 32 );
+
+   fd_hash_account( &account, 0, (fd_pubkey_t const *)  pubkey, (fd_hash_t *) hdr.hash);
+fd_acc_mgr_write_structured_account( state->acc_mgr, 0, (fd_pubkey_t *)  pubkey, &account );
+}
+
 static
 char* local_allocf(FD_FN_UNUSED void* arg, unsigned long align, unsigned long len) {
   char * ptr = malloc(fd_ulong_align_up(sizeof(char *) + len, align));
@@ -746,6 +800,7 @@ int replay(global_state_t *state) {
   if (0 == state->start_slot) {
     fd_memcpy(state->poh.state, state->genesis_hash, sizeof(state->genesis_hash));
     boot_boh = 0;
+    boot_recent_block_hashes(state);
   }
 
   fd_rocksdb_root_iter_t iter;
@@ -787,31 +842,13 @@ int replay(global_state_t *state) {
 
     // SysvarS1otHashes111111111111111111111111111
     //new.update_slot_hashes();
-    //                 .map(|account| from_account::<SlotHashes, _>(account).unwrap())
-    //
-    //                 pub type SlotHash = (Slot, Hash);
-    //                 pub struct SlotHashes(Vec<SlotHash>);
-
     // SysvarS1otHistory11111111111111111111111111
     //new.update_stake_history(Some(parent_epoch));
     //                 .map(|account| from_account::<SlotHistory, _>(account).unwrap())
-    //
-    //pub struct SlotHistory {
-    //  pub bits: BitVec<u64>,
-    //  pub next_slot: Slot,
-    // }
 
     //new.update_clock(Some(parent_epoch));
-
-    // 
     //new.update_fees();
-
     // "SysvarRecentB1ockHashes11111111111111111111",
-    // pub struct Entry {
-    //   pub blockhash: Hash,
-    //   pub fee_calculator: FeeCalculator,
-    // }
-    // pub struct RecentBlockhashes(Vec<Entry>);
 
     do {
       fd_slot_blocks_t *slot_data = fd_rocksdb_get_microblocks(&state->rocks_db, &m, allocf, state->alloc);
@@ -866,7 +903,7 @@ int replay(global_state_t *state) {
             fd_microblock_mixin(micro_block, outhash);
 
 #ifdef _VHASH
-            fd_base58_encode_32((uchar *) outhash, outhash_base58);
+            fd_base58_encode_32((uchar *) outhash, NULL, outhash_base58);
 #endif
 
             fd_poh_mixin(&state->poh, outhash);
@@ -875,10 +912,10 @@ int replay(global_state_t *state) {
 
 #ifdef _VHASH
           char block_hash[50];
-          fd_base58_encode_32((uchar *) micro_block->hdr.hash, block_hash);
+          fd_base58_encode_32((uchar *) micro_block->hdr.hash, NULL, block_hash);
 
           char poh_state[50];
-          fd_base58_encode_32((uchar *) state->poh.state, poh_state);
+          fd_base58_encode_32((uchar *) state->poh.state, NULL, poh_state);
 
           FD_LOG_WARNING(( "poh at slot: %ld,  batch: %03ld,  entry: %03ld  hash_cnt: %03ld  block_hash: %s  poh_state: %s  mixin: %s", slot, blob_idx, entry_idx, micro_block->hdr.hash_cnt, block_hash, poh_state, outhash_base58));
 #endif
@@ -1061,6 +1098,10 @@ int main(int argc, char **argv) {
     fd_pubkey_account_pair_t *a = &state.gen.accounts[i];
 
     fd_acc_mgr_write_structured_account(state.acc_mgr, 0, &a->key, &a->account);
+
+    char pubkey[50];
+    fd_base58_encode_32((uchar *) a->key.key, NULL, pubkey);
+    FD_LOG_WARNING(("genesis accounts:  %s", pubkey));
   }
 
   for (ulong i = 0; i < state.gen.native_instruction_processors_len; i++) {
