@@ -1,7 +1,7 @@
 #include "fd_executor.h"
 
-#include "fd_system_program.h"
-#include "fd_vote_program.h"
+#include "program/fd_system_program.h"
+#include "program/fd_vote_program.h"
 
 #include "../base58/fd_base58.h"
 
