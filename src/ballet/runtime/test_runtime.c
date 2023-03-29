@@ -730,8 +730,11 @@ void boot_recent_block_hashes(FD_FN_UNUSED global_state_t *state) {
    if (sz < 6008)
      sz = 6008;
    char *enc = fd_alloca(1, sz);
+   memset(enc, 0, sz);
    void const *ptr = (void const *) enc;
    fd_recent_block_hashes_encode(&a, &ptr);
+
+   fd_recent_block_hashes_destroy(&a, freef, state->alloc);
 
    fd_account_meta_t hdr;
    fd_account_meta_init(&hdr);
@@ -744,7 +747,7 @@ void boot_recent_block_hashes(FD_FN_UNUSED global_state_t *state) {
    fd_solana_account_t account = {
      .lamports = hdr.info.lamports,
      .rent_epoch = hdr.info.rent_epoch,
-     .data_len = (long unsigned int) ((char *) ptr - enc),
+     .data_len = sz,
      .data = (unsigned char *) enc,
      .executable = (uchar) hdr.info.executable
    };
