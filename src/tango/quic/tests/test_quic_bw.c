@@ -9,7 +9,17 @@ gettime( void ) {
 
 uchar fail = 0;
 
+uchar conn_final_cnt = 0;
+
 ulong rx_tot_sz = 0;
+
+void
+my_conn_final( fd_quic_conn_t * conn,
+               void *           quic_ctx ) {
+  (void)conn;
+  (void)quic_ctx;
+  conn_final_cnt++;
+}
 
 void
 my_stream_receive_cb( fd_quic_stream_t * stream,
@@ -81,6 +91,7 @@ init_quic( fd_quic_t *  quic,
 
   fd_quic_callbacks_t * quic_cb = fd_quic_get_callbacks( quic );
 
+  quic_cb->conn_final     = my_conn_final;
   quic_cb->stream_receive = my_stream_receive_cb;
 
   quic_cb->now     = test_clock;
@@ -159,6 +170,8 @@ main( int argc, char ** argv ) {
       server_quic->config.net.listen_udp_port,
       server_quic->config.sni );
 
+  FD_TEST( conn_final_cnt==0 );
+
   /* do general processing */
   for( ulong j = 0; j < 20; j++ ) {
     ulong ct = fd_quic_get_next_wakeup( client_quic );
@@ -193,6 +206,8 @@ main( int argc, char ** argv ) {
     fd_quic_service( client_quic );
     fd_quic_service( server_quic );
   }
+
+  FD_TEST( conn_final_cnt==0 );
 
   /* try sending */
   fd_quic_stream_t * client_stream = fd_quic_conn_new_stream( client_conn, FD_QUIC_TYPE_BIDIR );
@@ -255,6 +270,8 @@ main( int argc, char ** argv ) {
     fd_quic_service( client_quic );
     fd_quic_service( server_quic );
   }
+
+  FD_TEST( conn_final_cnt==2 );
 
   FD_LOG_NOTICE(( "Cleaning up" ));
   fd_wksp_free_laddr( fd_quic_delete( fd_quic_leave( server_quic ) ) );

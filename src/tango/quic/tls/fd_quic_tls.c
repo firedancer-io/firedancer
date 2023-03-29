@@ -348,6 +348,7 @@ fd_quic_tls_process( fd_quic_tls_hs_t * self ) {
         }
       case 1: // completed
         self->is_hs_complete = 1;
+        FD_LOG_NOTICE(( "dispatchign hs complete cb" ));
         self->quic_tls->handshake_complete_cb( self, self->context );
         return FD_QUIC_TLS_SUCCESS;
       default:

@@ -745,7 +745,8 @@ fd_quic_delete( fd_quic_t * quic ) {
 }
 
 fd_quic_stream_t *
-fd_quic_conn_new_stream( fd_quic_conn_t * conn, int dirtype ) {
+fd_quic_conn_new_stream( fd_quic_conn_t * conn,
+                         int              dirtype ) {
   dirtype &= 1;
 
   uint server = (uint)conn->server;
@@ -755,6 +756,7 @@ fd_quic_conn_new_stream( fd_quic_conn_t * conn, int dirtype ) {
   ulong max_stream_id = conn->max_streams[type];
   if( FD_UNLIKELY( ( conn->num_streams[type] == max_stream_id ) |
                    ( conn->state             != FD_QUIC_CONN_STATE_ACTIVE ) ) ) {
+    FD_LOG_WARNING(( "Failed to alloc stream (type=%u max_streams=%lu)", type, conn->max_streams[ type ] ));
     return NULL;
   }
 
@@ -764,7 +766,7 @@ fd_quic_conn_new_stream( fd_quic_conn_t * conn, int dirtype ) {
   /* should not occur
      implies logic error */
   if( FD_UNLIKELY( !stream ) ) {
-    FD_LOG_ERR(( "%s : max_concur_streams not reached, yet no free streams found", __func__ ));
+    FD_LOG_ERR(( "max_concur_streams not reached, yet no free streams found" ));
   }
 
   /* remove from unused list */
@@ -2342,8 +2344,10 @@ fd_quic_tls_cb_secret( fd_quic_tls_hs_t *           hs,
 
 void
 fd_quic_tls_cb_handshake_complete( fd_quic_tls_hs_t * hs,
-                                   void *             context  ) {
+                                   void *             context ) {
   fd_quic_conn_t * conn = (fd_quic_conn_t*)context;
+
+  FD_LOG_NOTICE(( "cb" ));
 
   /* need to send quic handshake completion */
   switch( conn->state ) {
@@ -2401,6 +2405,7 @@ fd_quic_tls_cb_handshake_complete( fd_quic_tls_hs_t * hs,
 
         /* max streams
            set the initial max allowed by the peer */
+        FD_LOG_NOTICE(( "setting max streams" ));
         if( conn->server ) {
           /* 0x01 server-initiated, bidirectional */
           conn->max_streams[0x01] = (uint)peer_tp->initial_max_streams_bidi;
@@ -3887,6 +3892,10 @@ fd_quic_connect( fd_quic_t *  quic,
     goto fail_tls_hs;
   }
 
+  /* insert into service queue */
+  fd_quic_event_t event[1] = {{ .timeout = 0, .conn = conn }};
+  service_queue_insert( state->service_queue, event );
+
   /* everything initialized */
   return conn;
 
@@ -3905,10 +3914,6 @@ fail_conn:
   /* add to free list */
   conn->next   = state->conns;
   state->conns = conn;
-
-  /* insert into service queue */
-  fd_quic_event_t event[1] = {{ .timeout = 0, .conn = conn }};
-  service_queue_insert( state->service_queue, event );
 
   return NULL;
 }
