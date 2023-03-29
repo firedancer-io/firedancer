@@ -713,19 +713,44 @@ fd_sim_txn(global_state_t *state, FD_FN_UNUSED fd_executor_t* executor, fd_txn_t
   }
 }
 
-void boot_recent_block_hashes(global_state_t *state) {
+void boot_recent_block_hashes(FD_FN_UNUSED global_state_t *state) {
+  // https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/fee_calculator.rs#L110
    fd_recent_block_hashes_t a;
    memset(&a, 0, sizeof(a));
 
    fd_block_block_hash_entry_t s;
    memset(&s, 0, sizeof(s));
 
+   fd_vec_fd_block_block_hash_entry_t_new(&a.hashes);
+
    fd_memcpy(s.blockhash.hash, state->genesis_hash, sizeof(state->genesis_hash));
+   fd_vec_fd_block_block_hash_entry_t_push_front(&a.hashes, s);
+
+   ulong sz = fd_recent_block_hashes_size(&a);
+   if (sz < 6008)
+     sz = 6008;
+   char *enc = fd_alloca(1, sz);
+   void const *ptr = (void const *) enc;
+   fd_recent_block_hashes_encode(&a, &ptr);
 
    fd_account_meta_t hdr;
    fd_account_meta_init(&hdr);
 
-   fd_vec_fd_block_block_hash_entry_t_push_front(&a.hashes, s);
+   char pubkey[50];
+   fd_base58_decode_32( "Sysvar1111111111111111111111111111111111111",  (unsigned char *) hdr.info.owner);
+   fd_base58_decode_32( "SysvarRecentB1ockHashes11111111111111111111",  (unsigned char *) pubkey);
+   hdr.info.lamports = 42706560;
+
+   fd_solana_account_t account = {
+     .lamports = hdr.info.lamports,
+     .rent_epoch = hdr.info.rent_epoch,
+     .data_len = (long unsigned int) ((char *) ptr - enc),
+     .data = (unsigned char *) enc,
+     .executable = (uchar) hdr.info.executable
+   };
+   fd_memcpy( account.owner.key, hdr.info.owner, 32 );
+            
+   fd_hash_account( &account, 0, (fd_pubkey_t const *)  pubkey, (fd_hash_t *) hdr.hash);
 }
 
 int replay(global_state_t *state) {
@@ -743,7 +768,6 @@ int replay(global_state_t *state) {
   if (0 == state->start_slot) {
     fd_memcpy(state->poh.state, state->genesis_hash, sizeof(state->genesis_hash));
     boot_boh = 0;
-
     boot_recent_block_hashes(state);
   }
 
