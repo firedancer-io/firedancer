@@ -570,6 +570,9 @@ fd_xsk_activate( fd_xsk_t * xsk ) {
     return -1;
   }
 
+  FD_LOG_NOTICE(( "Attached to XDP instance %s on interface %s queue %u",
+                  fd_xsk_app_name( xsk ), fd_xsk_ifname( xsk ), fd_xsk_ifqueue( xsk ) ));
+
   close( xsks_fd );
   return 0;
 }
@@ -586,6 +589,9 @@ fd_xsk_deactivate( fd_xsk_t * xsk ) {
     close( xsks_fd );
     return -1;
   }
+
+  FD_LOG_NOTICE(( "Detached from %s XDP instance on interface %s queue %u",
+                  fd_xsk_app_name( xsk ), fd_xsk_ifname( xsk ), fd_xsk_ifqueue( xsk ) ));
 
   close( xsks_fd );
   return 0;

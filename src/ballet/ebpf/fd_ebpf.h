@@ -47,8 +47,8 @@ fd_bpf_map_get_next_key( int    map_fd,
                          void * next_key ) {
   union bpf_attr attr = {
     .map_fd   = (uint)map_fd,
-    .key      = (ulong)&key,
-    .next_key = (ulong)&next_key
+    .key      = (ulong)key,
+    .next_key = (ulong)next_key
   };
   return (int)bpf( BPF_MAP_GET_NEXT_KEY, &attr, sizeof(union bpf_attr) );
 }
@@ -72,7 +72,7 @@ fd_bpf_map_delete_elem( int          map_fd,
                         void const * key ) {
   union bpf_attr attr = {
     .map_fd   = (uint)map_fd,
-    .key      = (ulong)&key
+    .key      = (ulong)key
   };
   return (int)bpf( BPF_MAP_DELETE_ELEM, &attr, sizeof(union bpf_attr) );
 }
