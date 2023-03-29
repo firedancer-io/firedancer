@@ -317,6 +317,8 @@ int main( int     argc,
 
   FD_TEST( fd_quic_config_from_env( &argc, &argv, quic_cfg ) );
 
+  quic_cfg->role = FD_QUIC_ROLE_SERVER;
+
   strcpy( quic_cfg->sni, "test_quic_tile" );
   quic_cfg->net.ip_addr         = (uint)listen_addr;
   quic_cfg->net.listen_udp_port = (ushort)udp_port;

@@ -120,8 +120,8 @@ rm -rvf /sys/fs/bpf/"$WKSP"
 
 "$BIN/fd_xdp_ctl" unhook-iface --netns "$NETNS0" "$WKSP" "$IFACE0" # Okay if this fails
 "$BIN/fd_xdp_ctl" unhook-iface --netns "$NETNS1" "$WKSP" "$IFACE1" # Okay if this fails
-"$BIN/fd_xdp_ctl"   hook-iface --netns "$NETNS0" "$WKSP" "$IFACE0" drv 0 || exit $?
-"$BIN/fd_xdp_ctl"   hook-iface --netns "$NETNS1" "$WKSP" "$IFACE1" drv 0 || exit $?
+"$BIN/fd_xdp_ctl"   hook-iface --netns "$NETNS0" "$WKSP" "$IFACE0" drv || exit $?
+"$BIN/fd_xdp_ctl"   hook-iface --netns "$NETNS1" "$WKSP" "$IFACE1" drv || exit $?
 
 # Show XDP program status (xdp-tools)
 

@@ -60,7 +60,7 @@ fd_bpf_map_update_elem( int          map_fd,
                         ulong        flags ) {
   union bpf_attr attr = {
     .map_fd   = (uint)map_fd,
-    .key      = (ulong)&key,
+    .key      = (ulong)key,
     .value    = (ulong)value,
     .flags    = flags
   };
