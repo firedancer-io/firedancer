@@ -11,6 +11,7 @@
 #include <sys/socket.h>
 
 #include "fd_xdp_redirect_user.h"
+#include "fd_xdp_redirect_prog.h"
 #include "../../util/fd_util.h"
 #include "../../ballet/ebpf/fd_ebpf.h"
 
@@ -156,6 +157,36 @@ int main( int     argc,
           char ** argv ) {
   fd_boot( &argc, &argv );
 
+  /* Create maps */
+
+  union bpf_attr attr = {
+    .map_type    = BPF_MAP_TYPE_HASH,
+    .map_name    = "fd_xdp_udp_dsts",
+    .key_size    = 8U,
+    .value_size  = 4U,
+    .max_entries = FD_XDP_UDP_MAP_CNT,
+  };
+  udp_dsts_fd = (int)bpf( BPF_MAP_CREATE, &attr, sizeof(union bpf_attr) );
+  if( FD_UNLIKELY( udp_dsts_fd<0 ) ) {
+    FD_LOG_WARNING(( "bpf_map_create(BPF_MAP_TYPE_HASH,\"fd_xdp_udp_dsts\",8U,4U,%u) failed (%d-%s)",
+                     FD_XDP_UDP_MAP_CNT, errno, strerror( errno ) ));
+    return -1;
+  }
+
+  attr = (union bpf_attr) {
+    .map_type    = BPF_MAP_TYPE_XSKMAP,
+    .key_size    = 4U,
+    .value_size  = 4U,
+    .max_entries = 4U,
+    .map_name    = "fd_xdp_xsks"
+  };
+  xsks_fd = (int)bpf( BPF_MAP_CREATE, &attr, sizeof(union bpf_attr) );
+  if( FD_UNLIKELY( xsks_fd<0 ) ) {
+    FD_LOG_WARNING(( "Failed to create XSKMAP (%d-%s)",
+                     errno, strerror( errno ) ));
+    return -1;
+  }
+
   /* Link program */
 
   fd_ebpf_sym_t syms[ 2 ] = {
@@ -177,32 +208,27 @@ int main( int     argc,
 
   /* Load object into kernel */
 
-  union bpf_attr attr = {
+  attr = (union bpf_attr) {
     .prog_type = BPF_PROG_TYPE_XDP,
     .insn_cnt  = (uint)(res->bpf_sz / 8UL),
     .insns     = (ulong)res->bpf,
     .license   = (ulong)"Apache-2.0",
     .prog_name = "fd_redirect"
   };
-  int prog_fd = (int)bpf( BPF_PROG_LOAD, &attr, sizeof(union bpf_attr) );
-  if( FD_UNLIKELY( prog_fd <= 0 ) ) {
+  prog_fd = (int)bpf( BPF_PROG_LOAD, &attr, sizeof(union bpf_attr) );
+  if( FD_UNLIKELY( prog_fd<0 ) ) {
     if( errno==EPERM ) {
       FD_LOG_WARNING(( "skip: insufficient permissions to load BPF object" ));
       fd_halt();
       return 0;
     }
-    FD_LOG_ERR(( "bpf_object__load failed (%d-%s)", errno, strerror( errno ) ));
+    FD_LOG_ERR(( "BPF_PROG_LOAD failed (%d-%s)", errno, strerror( errno ) ));
   }
 
   /* Create new AF_XDP socket. Doesn't actually have to be operational
      for bpf_redirect_map() to return XDP_REDIRECT. */
-  int _xsk_fd      = socket( AF_XDP, SOCK_RAW, 0 );
-
-  FD_TEST( _xsk_fd     >=0 );
-
-  /* Set globals */
-
-  xsk_fd      = _xsk_fd;
+  xsk_fd = socket( AF_XDP, SOCK_RAW, 0 );
+  FD_TEST( xsk_fd>=0 );
 
   /* Run tests */
 
