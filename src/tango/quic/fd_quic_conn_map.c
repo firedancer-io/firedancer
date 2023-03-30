@@ -55,4 +55,9 @@ fd_quic_conn_map_query( fd_quic_conn_map_t * map, fd_quic_conn_id_t * key ) {
   return fd_quic_conn_map_impl_query( map, *key, NULL );
 }
 
+/* max entries in the map */
+ulong
+fd_quic_conn_map_max( fd_quic_conn_map_t * map ) {
+  return fd_quic_conn_map_impl_key_max( map );
+}
 

@@ -306,11 +306,12 @@ fd_quic_tls_hs_delete( fd_quic_tls_hs_t * self ) {
   ulong hs_idx = (ulong)( self - quic_tls->handshakes );
   DEBUG( FD_LOG_DEBUG(( "tls_hs free %lu", hs_idx )); );
   if( quic_tls->used_handshakes[hs_idx] != 1 ) {
-    //__asm__ __volatile__( "int $3" );
     return;
   }
 
   if( self->ssl ) SSL_free( self->ssl );
+
+  self->ssl = NULL;
 
   // set used at the given index to zero to free
   quic_tls->used_handshakes[hs_idx] = 0;
