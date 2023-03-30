@@ -29,7 +29,7 @@ void fd_sysvar_clock_init( global_ctx_t* global, long genesis_creation_time, ulo
   /* TODO: write the account to the funk database */
 }
 
-void fd_sysvar_clock_update() {
+void fd_sysvar_clock_update( FD_FN_UNUSED global_ctx_t* global ) {
 
   /*
   Information we need:
