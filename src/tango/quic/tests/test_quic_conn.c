@@ -396,10 +396,9 @@ pipe_aio_receive( void * vp_ctx, fd_aio_pkt_info_t const * batch, ulong batch_sz
 #endif
 
   /* forward */
-  if( rand_256() < 1000 ) {
+  if( rand_256() < 231 ) {
     return fd_aio_send( pipe->aio, batch, batch_sz, opt_batch_idx );
   } else {
-    printf( "drop\n" ); fflush( stdout );
     if( opt_batch_idx ) {
       *opt_batch_idx = batch_sz;
     }
@@ -540,68 +539,20 @@ main( int argc, char ** argv ) {
   FD_TEST( fd_quic_join( client_quic ) );
   FD_TEST( fd_quic_join( server_quic ) );
 
-  /* make a connection from client to server */
-  client_conn = fd_quic_connect(
-      client_quic,
-      server_quic->config.net.ip_addr,
-      server_quic->config.net.listen_udp_port,
-      server_quic->config.sni );
-
-  /* do general processing */
-  while(1) {
-    ulong ct = fd_quic_get_next_wakeup( client_quic );
-    ulong st = fd_quic_get_next_wakeup( server_quic );
-    ulong next_wakeup = fd_ulong_min( ct, st );
-
-    if( next_wakeup == ~(ulong)0 ) {
-      FD_LOG_INFO(( "client and server have no schedule" ));
-      break;
-    }
-
-    if( next_wakeup > now ) now = next_wakeup;
-
-    FD_LOG_INFO(( "running services at %lu", next_wakeup ));
-    fd_quic_service( client_quic );
-    fd_quic_service( server_quic );
-
-    if( server_complete && client_complete ) {
-      FD_LOG_INFO(( "***** both handshakes complete *****" ));
-
-      break;
-    }
-
-    now = next_wakeup + (ulong)100e6;
-  }
-
-  for( ulong j = 0; j < 20; j++ ) {
-    ulong ct = fd_quic_get_next_wakeup( client_quic );
-    ulong st = fd_quic_get_next_wakeup( server_quic );
-    ulong next_wakeup = fd_ulong_min( ct, st );
-
-    if( next_wakeup == ~(ulong)0 ) {
-      FD_LOG_INFO(( "client and server have no schedule" ));
-      break;
-    }
-
-    now = next_wakeup + (ulong)100e6;
-
-    fd_quic_service( client_quic );
-    fd_quic_service( server_quic );
-  }
-
   uint k = 1;
 
   /* populate free streams */
   populate_stream_meta( quic_limits.stream_cnt );
-  populate_streams( quic_limits.stream_cnt, client_conn );
 
   char buf[512] = "Hello world!\x00-   ";
   fd_aio_pkt_info_t batch[1] = {{ buf, sizeof( buf ) }};
 
   int done  = 0;
 
+  state = 1;
+
   ulong j = 0;
-  while( k < 400 && !done ) {
+  while( k < 4000 && !done ) {
     j++;
 
     my_stream_meta_t * meta = NULL;
@@ -617,10 +568,15 @@ main( int argc, char ** argv ) {
     buf[15] = (char)( ( k / 10 ) + '0' );
     buf[16] = (char)( ( k % 10 ) + '0' );
 
+    /* connection torn down? */
+    if( !client_conn ) {
+      state = 1; /* start a new one */
+    }
+
     switch( state ) {
       case 0:
 
-        /* obtain an free stream */
+        /* obtain a free stream */
         meta = get_stream();
 
         if( meta ) {
@@ -635,7 +591,7 @@ main( int argc, char ** argv ) {
             /* stream and meta will be recycled when quic notifies the stream
                is closed via my_stream_notify_cb */
             k++;
-            if( (k%50) == 0 ) {
+            if( (k%2) == 0 ) {
               // close client
               state = 1;
 
