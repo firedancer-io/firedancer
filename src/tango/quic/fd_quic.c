@@ -1332,6 +1332,8 @@ https://datatracker.ietf.org/doc/draft-ietf-quic-v2/ */
     conn->established = 1;
   }
 
+  /* update last activity */
+  conn->last_activity = fd_quic_now( quic );
 
   /* handle frames */
   ulong         payload_off = pn_offset + pkt_number_sz;
@@ -1524,6 +1526,9 @@ fd_quic_handle_v1_handshake(
   /* if peer encryption level increases, consider prior encryption
      level pkt_meta acked */
   fd_quic_ack_enc_level( conn, enc_level );
+
+  /* update last activity */
+  conn->last_activity = fd_quic_now( quic );
 
   /* handle frames */
   ulong         payload_off = pn_offset + pkt_number_sz;
@@ -1722,6 +1727,9 @@ fd_quic_handle_v1_one_rtt( fd_quic_t * quic, fd_quic_conn_t * conn, fd_quic_pkt_
      level pkt_meta acked */
   fd_quic_ack_enc_level( conn, enc_level );
 
+  /* update last activity */
+  conn->last_activity = fd_quic_now( quic );
+
   /* handle frames */
   ulong         payload_off = pn_offset + pkt_number_sz;
   uchar const * frame_ptr   = crypt_scratch + payload_off;
@@ -1735,7 +1743,6 @@ fd_quic_handle_v1_one_rtt( fd_quic_t * quic, fd_quic_conn_t * conn, fd_quic_pkt_
     frame_sz  -= rc;
   }
 
-  //fd_quic_handle_frames( quic, conn, pkt, cur_ptr, cur_sz );
   return 0;
 }
 
@@ -2570,15 +2577,24 @@ fd_quic_service( fd_quic_t * quic ) {
     ulong service_time = event->timeout;
     if( now < service_time ) break;
 
-    fd_quic_conn_t * conn = event->conn;
-    fd_quic_conn_service( quic, conn, now );
-
-    if( conn->next_service_time <= now ) {
-      conn->next_service_time = now + quic->config.service_interval;
-    }
-
-    /* remove event, and reinsert at new time */
+    /* remove event, later reinserted at new time */
     service_queue_remove_min( state->service_queue );
+
+    fd_quic_conn_t * conn = event->conn;
+
+    if( FD_UNLIKELY( now > conn->last_activity + conn->idle_timeout ) ) {
+      /* rfc9000 10.1 Idle Timeout
+         "... the connection is silently closed and its state is discarded
+         when it remains idle for longer than the minimum of the
+         max_idle_timeout value advertised by both endpoints." */
+      conn->state = FD_QUIC_CONN_STATE_DEAD;
+    } else {
+      fd_quic_conn_service( quic, conn, now );
+
+      if( conn->next_service_time <= now ) {
+        conn->next_service_time = now + quic->config.service_interval;
+      }
+    }
 
     /* dead? don't reinsert, just clean up */
     switch( conn->state ) {
@@ -4238,6 +4254,10 @@ fd_quic_conn_create( fd_quic_t *               quic,
 
   /* highest peer encryption level */
   conn->peer_enc_level = 0;
+
+  /* idle timeout */
+  conn->idle_timeout  = (ulong)1000e6; /* TODO parameterize, and set to min of our and peer values */
+  conn->last_activity = fd_quic_now( quic );
 
   /* return number of bytes consumed */
   return conn;
