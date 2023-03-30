@@ -1010,201 +1010,206 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
   /* Do we have a conn object for this dest conn ID?
      If not, allocate one. */
 
-  if( !conn && quic->config.role==FD_QUIC_ROLE_SERVER ) {
-    /* According to RFC 9000 Section 14.1, INITIAL packets less than the
-       a certain length must be discarded, and the connection may be
-       closed.  (Mitigates UDP amplification) */
+  if( FD_UNLIKELY( !conn ) ) {
+    if( quic->config.role==FD_QUIC_ROLE_SERVER ) {
+      /* According to RFC 9000 Section 14.1, INITIAL packets less than the
+         a certain length must be discarded, and the connection may be
+         closed.  (Mitigates UDP amplification) */
 
-    if( pkt->datagram_sz < FD_QUIC_INITIAL_PAYLOAD_SZ_MIN ) {
-      if( conn ) {
-        /* This allows attackers to reset non-initialize */
-        conn->state  = FD_QUIC_CONN_STATE_ABORT;
-        conn->reason = FD_QUIC_CONN_REASON_PROTOCOL_VIOLATION;
-        /* FIXME Reschedule */
+      if( pkt->datagram_sz < FD_QUIC_INITIAL_PAYLOAD_SZ_MIN ) {
+        if( conn ) {
+          /* This allows attackers to reset non-initialize */
+          conn->state  = FD_QUIC_CONN_STATE_ABORT;
+          conn->reason = FD_QUIC_CONN_REASON_PROTOCOL_VIOLATION;
+          /* FIXME Reschedule */
+        }
+        /* FIXME Arguably no need to inform client of misbehavior */
+        return FD_QUIC_PARSE_FAIL;
       }
-      /* FIXME Arguably no need to inform client of misbehavior */
-      return FD_QUIC_PARSE_FAIL;
-    }
 
-    /* Check current number of connections */
+      /* Check current number of connections */
 
-    if( state->conn_cnt == quic->limits.conn_cnt ) {
-      DEBUG( FD_LOG_DEBUG(( "fd_quic_handle_v1_initial: new connection would exceed max_concur_conns" )); )
-      return FD_QUIC_PARSE_FAIL; /* FIXME better error code? */
-    }
+      if( state->conn_cnt == quic->limits.conn_cnt ) {
+        DEBUG( FD_LOG_DEBUG(( "fd_quic_handle_v1_initial: new connection would exceed max_concur_conns" )); )
+          return FD_QUIC_PARSE_FAIL; /* FIXME better error code? */
+      }
 
-    /* Pick a new conn ID for ourselves, which the peer will address us
-       with in the future (via dest conn ID). */
+      /* Pick a new conn ID for ourselves, which the peer will address us
+         with in the future (via dest conn ID). */
 
-    fd_quic_conn_id_t new_conn_id = {8u,{0},{0}};
+      fd_quic_conn_id_t new_conn_id = {8u,{0},{0}};
 
-    fd_quic_crypto_rand( new_conn_id.conn_id, 8u );
+      fd_quic_crypto_rand( new_conn_id.conn_id, 8u );
 
-    /* Save peer's conn ID, which we will use to address peer with. */
+      /* Save peer's conn ID, which we will use to address peer with. */
 
-    fd_quic_conn_id_t peer_conn_id = {0};
+      fd_quic_conn_id_t peer_conn_id = {0};
 
-    fd_memcpy( peer_conn_id.conn_id, initial->src_conn_id, initial->src_conn_id_len );
-    peer_conn_id.sz = initial->src_conn_id_len;
+      fd_memcpy( peer_conn_id.conn_id, initial->src_conn_id, initial->src_conn_id_len );
+      peer_conn_id.sz = initial->src_conn_id_len;
 
-    /* Save peer's network endpoint */
+      /* Save peer's network endpoint */
 
-    uint   dst_ip_addr  = pkt->ipv4->saddr;
-    ushort dst_udp_port = pkt->udp->srcport;
+      uint   dst_ip_addr  = pkt->ipv4->saddr;
+      ushort dst_udp_port = pkt->udp->srcport;
 
-    /* For now, only supporting QUIC v1.
-       QUIC v2 is an active IETF draft as of 2023-Mar:
-       https://datatracker.ietf.org/doc/draft-ietf-quic-v2/ */
+      /* For now, only supporting QUIC v1.
+         QUIC v2 is an active IETF draft as of 2023-Mar:
+https://datatracker.ietf.org/doc/draft-ietf-quic-v2/ */
 
-    uint version = pkt->long_hdr->version;
-    if( FD_UNLIKELY( version != 1u ) ) {
-      /* FIXME this should already have been checked */
-      FD_LOG_WARNING(( "Unsupported version reached fd_quic_handle_v1_initial" ));
-      return FD_QUIC_PARSE_FAIL;
-    }
+      uint version = pkt->long_hdr->version;
+      if( FD_UNLIKELY( version != 1u ) ) {
+        /* FIXME this should already have been checked */
+        FD_LOG_WARNING(( "Unsupported version reached fd_quic_handle_v1_initial" ));
+        return FD_QUIC_PARSE_FAIL;
+      }
 
-    /* Allocate new conn */
+      /* Allocate new conn */
 
-    conn = fd_quic_conn_create( quic,
-                                &new_conn_id,  /* our_conn_id */
-                                &peer_conn_id,
-                                dst_ip_addr,
-                                dst_udp_port,
-                                1,            /* server */
-                                version );    /* version */
+      conn = fd_quic_conn_create( quic,
+          &new_conn_id,  /* our_conn_id */
+          &peer_conn_id,
+          dst_ip_addr,
+          dst_udp_port,
+          1,            /* server */
+          version );    /* version */
 
-    if( FD_UNLIKELY( !conn ) ) { /* no free connections */
-      /* TODO send failure back to origin? */
-      /* FIXME unreachable? conn_cnt already checked above */
-      FD_LOG_WARNING(( "failed to allocate QUIC conn" ));
-      return FD_QUIC_PARSE_FAIL;
-    }
+      if( FD_UNLIKELY( !conn ) ) { /* no free connections */
+        /* TODO send failure back to origin? */
+        /* FIXME unreachable? conn_cnt already checked above */
+        FD_LOG_WARNING(( "failed to allocate QUIC conn" ));
+        return FD_QUIC_PARSE_FAIL;
+      }
 
-    /* set the value for the caller */
-    *p_conn = conn;
+      /* set the value for the caller */
+      *p_conn = conn;
 
-    /* if we fail after here, we must reap the connection
-       TODO maybe actually set the connection to reset, and clean up resources later */
+      /* if we fail after here, we must reap the connection
+         TODO maybe actually set the connection to reset, and clean up resources later */
 
-    /* Prepare QUIC-TLS transport params object (sent as a TLS extension).
-       Take template from state and mutate certain params in-place.
+      /* Prepare QUIC-TLS transport params object (sent as a TLS extension).
+         Take template from state and mutate certain params in-place.
 
-       See RFC 9000 Section 18 */
+         See RFC 9000 Section 18 */
 
-    /* TODO Each transport param is a TLV tuple. This allows serializing
-            most transport params ahead of time.  Only the conn-specific
-            differences will have to be appended here. */
+      /* TODO Each transport param is a TLV tuple. This allows serializing
+         most transport params ahead of time.  Only the conn-specific
+         differences will have to be appended here. */
 
-    fd_quic_transport_params_t * tp = &state->transport_params;
+      fd_quic_transport_params_t * tp = &state->transport_params;
 
-    /* Send orig conn ID back to client (server only) */
+      /* Send orig conn ID back to client (server only) */
 
-    tp->original_destination_connection_id_present = 1;
-    fd_memcpy( state->transport_params.original_destination_connection_id,
-              orig_conn_id.conn_id,
-              orig_conn_id.sz );
-    tp->original_destination_connection_id_len     = orig_conn_id.sz;
+      tp->original_destination_connection_id_present = 1;
+      fd_memcpy( state->transport_params.original_destination_connection_id,
+          orig_conn_id.conn_id,
+          orig_conn_id.sz );
+      tp->original_destination_connection_id_len     = orig_conn_id.sz;
 
-    /* Repeat the conn ID we picked in transport params (this is done
-       to authenticate conn IDs via TLS by including them in TLS-
-       protected data).
+      /* Repeat the conn ID we picked in transport params (this is done
+         to authenticate conn IDs via TLS by including them in TLS-
+         protected data).
 
-       Per spec, this field should be the source conn ID field we've set
-       on the first Initial packet we've sent.  At this point, we might
-       not have sent an Initial packet yet -- so this field should hold
-       a value we are about to pick.
+         Per spec, this field should be the source conn ID field we've set
+         on the first Initial packet we've sent.  At this point, we might
+         not have sent an Initial packet yet -- so this field should hold
+         a value we are about to pick.
 
-       fd_quic_conn_create will set conn->initial_source_conn_id to
-       the random new_conn_id we've created earlier. */
+         fd_quic_conn_create will set conn->initial_source_conn_id to
+         the random new_conn_id we've created earlier. */
 
-    fd_memcpy( tp->initial_source_connection_id,
-        conn->initial_source_conn_id.conn_id,
-        conn->initial_source_conn_id.sz );
-    tp->initial_source_connection_id_present = 1;
-    tp->initial_source_connection_id_len     = conn->initial_source_conn_id.sz;
+      fd_memcpy( tp->initial_source_connection_id,
+          conn->initial_source_conn_id.conn_id,
+          conn->initial_source_conn_id.sz );
+      tp->initial_source_connection_id_present = 1;
+      tp->initial_source_connection_id_len     = conn->initial_source_conn_id.sz;
 
-    //DEBUG(
-    //  fd_quic_dump_transport_params( &state->transport_params, stderr );
-    //)
+      //DEBUG(
+      //  fd_quic_dump_transport_params( &state->transport_params, stderr );
+      //)
 
-    /* Encode transport params to be sent to peer */
+      /* Encode transport params to be sent to peer */
 
-    uchar transport_params_raw[ FD_QUIC_TRANSPORT_PARAMS_RAW_SZ ];
-    ulong tp_rc = fd_quic_encode_transport_params(
-        transport_params_raw,
-        FD_QUIC_TRANSPORT_PARAMS_RAW_SZ,
-        tp );
-    if( FD_UNLIKELY( tp_rc == FD_QUIC_ENCODE_FAIL ) ) {
-      /* FIXME log error in counters */
-      conn->state = FD_QUIC_CONN_STATE_DEAD;
-      return FD_QUIC_PARSE_FAIL;
-    }
-    ulong transport_params_raw_sz = tp_rc;
+      uchar transport_params_raw[ FD_QUIC_TRANSPORT_PARAMS_RAW_SZ ];
+      ulong tp_rc = fd_quic_encode_transport_params(
+          transport_params_raw,
+          FD_QUIC_TRANSPORT_PARAMS_RAW_SZ,
+          tp );
+      if( FD_UNLIKELY( tp_rc == FD_QUIC_ENCODE_FAIL ) ) {
+        /* FIXME log error in counters */
+        conn->state = FD_QUIC_CONN_STATE_DEAD;
+        return FD_QUIC_PARSE_FAIL;
+      }
+      ulong transport_params_raw_sz = tp_rc;
 
-    /* Create a TLS handshake */
+      /* Create a TLS handshake */
 
-    fd_quic_tls_hs_t * tls_hs = fd_quic_tls_hs_new(
-                                    state->tls,
-                                    (void*)conn,
-                                    1 /*is_server*/,
-                                    quic->config.sni,
-                                    transport_params_raw,
-                                    transport_params_raw_sz );
-    if( !tls_hs ) {
-      DEBUG( FD_LOG_DEBUG(( "fd_quic_tls_hs_new failed" )); )
-      conn->state = FD_QUIC_CONN_STATE_DEAD;
-      return FD_QUIC_PARSE_FAIL;
-    }
-    conn->tls_hs = tls_hs;
+      fd_quic_tls_hs_t * tls_hs = fd_quic_tls_hs_new(
+          state->tls,
+          (void*)conn,
+          1 /*is_server*/,
+          quic->config.sni,
+          transport_params_raw,
+          transport_params_raw_sz );
+      if( !tls_hs ) {
+        DEBUG( FD_LOG_DEBUG(( "fd_quic_tls_hs_new failed" )); )
+          conn->state = FD_QUIC_CONN_STATE_DEAD;
+        return FD_QUIC_PARSE_FAIL;
+      }
+      conn->tls_hs = tls_hs;
 
-    /* generate initial secrets, keys etc */
+      /* generate initial secrets, keys etc */
 
-    /* TODO move this to somewhere more appropriate */
-    /* Initial Packets
-       from rfc:
-       initial_salt = 0x38762cf7f55934b34d179ae6a4c80cadccbb7f0a */
-    uchar const * initial_salt    = FD_QUIC_CRYPTO_V1_INITIAL_SALT;
-    ulong         initial_salt_sz = FD_QUIC_CRYPTO_V1_INITIAL_SALT_SZ;
+      /* TODO move this to somewhere more appropriate */
+      /* Initial Packets
+         from rfc:
+         initial_salt = 0x38762cf7f55934b34d179ae6a4c80cadccbb7f0a */
+      uchar const * initial_salt    = FD_QUIC_CRYPTO_V1_INITIAL_SALT;
+      ulong         initial_salt_sz = FD_QUIC_CRYPTO_V1_INITIAL_SALT_SZ;
 
-    if( FD_UNLIKELY( FD_QUIC_SUCCESS!=fd_quic_gen_initial_secret(
-          &conn->secrets,
-          initial_salt,         initial_salt_sz,
-          orig_conn_id.conn_id, conn_id->sz,
-          suite->hash ) ) ) {
-      DEBUG( FD_LOG_DEBUG(( "fd_quic_gen_initial_secret failed" )); )
-      conn->state = FD_QUIC_CONN_STATE_DEAD;
-      return FD_QUIC_PARSE_FAIL;
-    }
+      if( FD_UNLIKELY( FD_QUIC_SUCCESS!=fd_quic_gen_initial_secret(
+              &conn->secrets,
+              initial_salt,         initial_salt_sz,
+              orig_conn_id.conn_id, conn_id->sz,
+              suite->hash ) ) ) {
+        DEBUG( FD_LOG_DEBUG(( "fd_quic_gen_initial_secret failed" )); )
+          conn->state = FD_QUIC_CONN_STATE_DEAD;
+        return FD_QUIC_PARSE_FAIL;
+      }
 
-    if( FD_UNLIKELY( FD_QUIC_SUCCESS!=fd_quic_gen_secrets(
-          &conn->secrets,
-          (int)enc_level, /* generate initial secrets */
-          suite->hash ) ) ) {
-      DEBUG( FD_LOG_DEBUG(( "fd_quic_gen_secrets failed" )); )
-      conn->state = FD_QUIC_CONN_STATE_DEAD;
-      return FD_QUIC_PARSE_FAIL;
-    }
+      if( FD_UNLIKELY( FD_QUIC_SUCCESS!=fd_quic_gen_secrets(
+              &conn->secrets,
+              (int)enc_level, /* generate initial secrets */
+              suite->hash ) ) ) {
+        DEBUG( FD_LOG_DEBUG(( "fd_quic_gen_secrets failed" )); )
+          conn->state = FD_QUIC_CONN_STATE_DEAD;
+        return FD_QUIC_PARSE_FAIL;
+      }
 
-    /* gen initial keys */
-    if( FD_UNLIKELY( FD_QUIC_SUCCESS!=fd_quic_gen_keys(
-          &conn->keys[enc_level][0],
-          suite,
-          suite->hash,
-          conn->secrets.secret[enc_level][0],
-          conn->secrets.secret_sz[enc_level][0] ) ) ) {
-      DEBUG( FD_LOG_DEBUG(( "fd_quic_gen_keys failed" )); )
-      conn->state = FD_QUIC_CONN_STATE_DEAD;
-      return FD_QUIC_PARSE_FAIL;
-    }
+      /* gen initial keys */
+      if( FD_UNLIKELY( FD_QUIC_SUCCESS!=fd_quic_gen_keys(
+              &conn->keys[enc_level][0],
+              suite,
+              suite->hash,
+              conn->secrets.secret[enc_level][0],
+              conn->secrets.secret_sz[enc_level][0] ) ) ) {
+        DEBUG( FD_LOG_DEBUG(( "fd_quic_gen_keys failed" )); )
+          conn->state = FD_QUIC_CONN_STATE_DEAD;
+        return FD_QUIC_PARSE_FAIL;
+      }
 
-    if( FD_UNLIKELY( FD_QUIC_SUCCESS!=fd_quic_gen_keys(
-          &conn->keys[enc_level][1],
-          suite,
-          suite->hash,
-          conn->secrets.secret[enc_level][1],
-          conn->secrets.secret_sz[enc_level][1] ) ) ) {
-      DEBUG( FD_LOG_DEBUG(( "fd_quic_gen_keys failed" )); )
-      conn->state = FD_QUIC_CONN_STATE_DEAD;
+      if( FD_UNLIKELY( FD_QUIC_SUCCESS!=fd_quic_gen_keys(
+              &conn->keys[enc_level][1],
+              suite,
+              suite->hash,
+              conn->secrets.secret[enc_level][1],
+              conn->secrets.secret_sz[enc_level][1] ) ) ) {
+        DEBUG( FD_LOG_DEBUG(( "fd_quic_gen_keys failed" )); )
+          conn->state = FD_QUIC_CONN_STATE_DEAD;
+        return FD_QUIC_PARSE_FAIL;
+      }
+    } else {
+      /* not accepting incoming connections */
       return FD_QUIC_PARSE_FAIL;
     }
   }
@@ -3713,24 +3718,26 @@ fd_quic_conn_service( fd_quic_t * quic, fd_quic_conn_t * conn, ulong now ) {
     case FD_QUIC_CONN_STATE_HANDSHAKE:
     case FD_QUIC_CONN_STATE_HANDSHAKE_COMPLETE:
       {
-        /* call process on TLS */
-        int process_rc = fd_quic_tls_process( conn->tls_hs );
-        if( process_rc == FD_QUIC_TLS_FAILED ) {
-          /* mark as DEAD, and allow it to be cleaned up */
-          conn->state             = FD_QUIC_CONN_STATE_DEAD;
-          fd_quic_reschedule_conn( conn, now + 1u );
-          return;
-        }
+        if( conn->tls_hs ) {
+          /* call process on TLS */
+          int process_rc = fd_quic_tls_process( conn->tls_hs );
+          if( process_rc == FD_QUIC_TLS_FAILED ) {
+            /* mark as DEAD, and allow it to be cleaned up */
+            conn->state             = FD_QUIC_CONN_STATE_DEAD;
+            fd_quic_reschedule_conn( conn, now + 1u );
+            return;
+          }
 
-        /* if we're the server, we send "handshake-done" frame */
-        if( conn->state == FD_QUIC_CONN_STATE_HANDSHAKE_COMPLETE && conn->server ) {
-          conn->handshake_done_send = 1;
+          /* if we're the server, we send "handshake-done" frame */
+          if( conn->state == FD_QUIC_CONN_STATE_HANDSHAKE_COMPLETE && conn->server ) {
+            conn->handshake_done_send = 1;
 
-          /* move straight to ACTIVE */
-          conn->state = FD_QUIC_CONN_STATE_ACTIVE;
+            /* move straight to ACTIVE */
+            conn->state = FD_QUIC_CONN_STATE_ACTIVE;
 
-          /* user callback */
-          fd_quic_cb_conn_new( quic, conn );
+            /* user callback */
+            fd_quic_cb_conn_new( quic, conn );
+          }
         }
 
         /* do we have data to transmit? */
@@ -3785,6 +3792,8 @@ fd_quic_conn_free( fd_quic_t *      quic,
   for( ulong j=0; j<conn->our_conn_id_cnt; ++j ) {
     fd_quic_conn_entry_t * entry = fd_quic_conn_map_query( state->conn_map, &conn->our_conn_id[j] );
     if( entry ) {
+      entry->conn = NULL;
+
       fd_quic_conn_map_remove( state->conn_map, entry );
     }
   }
@@ -4356,9 +4365,11 @@ fd_quic_pkt_meta_retry( fd_quic_t *          quic,
     if( flags & FD_QUIC_PKT_META_FLAGS_HS_DATA            ) {
       /* find handshake data to retry */
       /* reset offset to beginning of retried range if necessary */
-      ulong offset = pkt_meta->range.offset_hi;
+      ulong offset = pkt_meta->range.offset_lo;
       if( offset < conn->hs_sent_bytes[enc_level] ) {
+        ulong diff = conn->hs_sent_bytes[enc_level] - offset;
         conn->hs_sent_bytes[enc_level] = offset;
+        conn->tx_crypto_offset[enc_level] -= diff;
         /* TODO might need to have a member "hs_ackd_bytes" so we don't
            try to resend bytes that were acked (and may have been discarded) */
         /* TODO do we need to set upd_pkt_number etc? */
@@ -4367,7 +4378,7 @@ fd_quic_pkt_meta_retry( fd_quic_t *          quic,
     if( flags & FD_QUIC_PKT_META_FLAGS_STREAM             ) {
       /* set the stream in question to resend the data */
       ulong stream_id = pkt_meta->stream_id;
-      ulong offset    = pkt_meta->range.offset_hi;
+      ulong offset    = pkt_meta->range.offset_lo;
 
       /* find the stream in the stream map */
       fd_quic_stream_map_t * stream_entry = fd_quic_stream_map_query( conn->stream_map, stream_id, NULL );
@@ -4380,6 +4391,9 @@ fd_quic_pkt_meta_retry( fd_quic_t *          quic,
 
         /* any data left to retry? */
         if( FD_LIKELY( offset < stream->tx_sent ) ) {
+          /* move tx_sent back to calculated offset */
+          stream->tx_sent = offset;
+
           /* if flags==0, the stream is not in the send list */
           if( stream->flags == 0 ) {
             stream->next       = conn->send_streams;
