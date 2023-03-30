@@ -267,6 +267,10 @@ struct fd_quic_conn {
   /* highest peer encryption level */
   uchar                peer_enc_level;
 
+  /* idle timeout arguments */
+  ulong                idle_timeout;
+  ulong                last_activity;
+
   /* next connection in the free list, or in service list */
   fd_quic_conn_t *     next;
 };
