@@ -15,7 +15,6 @@ struct global_ctx {
   fd_alloc_fun_t      allocf;
   void *              allocf_arg;
   fd_free_fun_t       freef;
-  void *              freef_arg;
   fd_acc_mgr_t*       acc_mgr;
 
   fd_genesis_solana_t gen;
@@ -24,6 +23,7 @@ struct global_ctx {
   fd_poh_state_t      poh;
   fd_wksp_t *         wksp;
   fd_funk_t*          funk;
+  fd_alloc_t *        alloc;
 };
 typedef struct global_ctx global_ctx_t;
 

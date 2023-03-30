@@ -125,8 +125,8 @@ int fd_executor_vote_program_execute_instruction(
         return write_result;
       }
 
-      fd_vote_state_destroy( &vote_state, ctx.global->freef, ctx.global->freef_arg );
-      fd_vote_state_update_destroy( &vote_state_update, ctx.global->freef, ctx.global->freef_arg );
+      fd_vote_state_destroy( &vote_state, ctx.global->freef, ctx.global->allocf_arg );
+      fd_vote_state_update_destroy( &vote_state_update, ctx.global->freef, ctx.global->allocf_arg );
     } else {
       /* TODO: support other vote program instructions */
       FD_LOG_ERR(( "unsupported vote program instruction: discrimant: %d", discrimant ));
