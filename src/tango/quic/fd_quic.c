@@ -5019,6 +5019,16 @@ fd_quic_frame_handle_stream_frame(
     /* get connection */
     fd_quic_conn_t * conn = stream->conn;
 
+    /* send a max data update
+       must do this before the stream-fin flags are checked */
+    conn->rx_max_data += delivered;
+    conn->flags       |= FD_QUIC_CONN_FLAGS_MAX_DATA;
+
+    /* ensure we ack the packet, and send any max data or max stream data
+       frames */
+    fd_quic_t * quic = context.quic;
+    fd_quic_reschedule_conn( context.conn, fd_quic_now( quic ) + 1 );
+
     /* should we reclaim the stream */
     if( data->fin_opt ) {
       stream->state |= FD_QUIC_STREAM_STATE_RX_FIN;
@@ -5033,10 +5043,8 @@ fd_quic_frame_handle_stream_frame(
     stream->rx_tot_data = exp_offset + delivered;
     conn->rx_tot_data  += delivered;
 
-    /* send max_stream_data and max_data updates */
-    /* TODO when RX is buffered, this will change */
+    /* send max_stream_data update */
     stream->rx_max_stream_data += delivered;
-    conn->rx_max_data          += delivered;
 
     /* set max_data and max_data_frame to go out next packet */
     uint pn_space = fd_quic_enc_level_to_pn_space( fd_quic_enc_level_appdata_id );
@@ -5049,11 +5057,6 @@ fd_quic_frame_handle_stream_frame(
     }
 
     stream->flags |= FD_QUIC_STREAM_FLAGS_MAX_STREAM_DATA;
-    conn->flags   |= FD_QUIC_CONN_FLAGS_MAX_DATA;
-
-    /* ensure we ack the packet */
-    fd_quic_t * quic = context.quic;
-    fd_quic_reschedule_conn( context.conn, fd_quic_now( quic ) + 1 );
   } else {
     if( offset > exp_offset ) {
       /* TODO technically "future" out of order bytes should be counted,
