@@ -7,20 +7,28 @@
 #include "fd_banks_solana.h"
 #include "fd_acc_mgr.h"
 #include "../../funk/fd_funk.h"
+#include "../poh/fd_poh.h"
 
 FD_PROTOTYPES_BEGIN
 
 struct global_ctx {
-  fd_alloc_fun_t  allocf;
-  void *          allocf_arg;
-  fd_free_fun_t   freef;
-  void *          freef_arg;
-  fd_acc_mgr_t*   acc_mgr;
+  fd_alloc_fun_t      allocf;
+  void *              allocf_arg;
+  fd_free_fun_t       freef;
+  void *              freef_arg;
+  fd_acc_mgr_t*       acc_mgr;
+
+  fd_genesis_solana_t gen;
+  uchar               genesis_hash[FD_SHA256_HASH_SZ];
+
+  fd_poh_state_t      poh;
+  fd_wksp_t *         wksp;
+  fd_funk_t*          funk;
 };
 typedef struct global_ctx global_ctx_t;
 
 struct fd_executor {
-    global_ctx_t* global;
+  global_ctx_t* global;
 };
 typedef struct fd_executor fd_executor_t;
 
@@ -82,9 +90,9 @@ void* fd_executor_delete( void* mem );
 #define FD_EXECUTOR_INSTR_ERR_ACC_IMMUTABLE                      ( -44 ) /* Account is immutable */
 #define FD_EXECUTOR_INSTR_ERR_INCORRECT_AUTHORITY                ( -45 ) /* Incorrect authority provided */
 
-/* 
+/*
   Execute the given transaction.
-  
+
   Makes changes to the Funk accounts DB. */
 void
 fd_execute_txn( fd_executor_t* executor, fd_txn_t * txn_descriptor, fd_rawtxn_b_t* txn_raw ) ;

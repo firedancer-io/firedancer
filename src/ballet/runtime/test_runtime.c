@@ -761,7 +761,7 @@ void boot_recent_block_hashes(FD_FN_UNUSED global_state_t *state) {
    fd_memcpy( account.owner.key, hdr.info.owner, 32 );
 
    fd_hash_account( &account, 0, (fd_pubkey_t const *)  pubkey, (fd_hash_t *) hdr.hash);
-fd_acc_mgr_write_structured_account( state->acc_mgr, 0, (fd_pubkey_t *)  pubkey, &account );
+   fd_acc_mgr_write_structured_account( state->acc_mgr, 0, (fd_pubkey_t *)  pubkey, &account );
 }
 
 static
