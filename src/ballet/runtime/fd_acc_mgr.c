@@ -77,22 +77,6 @@ int fd_acc_mgr_get_metadata( fd_acc_mgr_t* acc_mgr, fd_pubkey_t* pubkey, fd_acco
   return FD_ACC_MGR_SUCCESS;
 } 
 
-int fd_acc_mgr_write_account( fd_acc_mgr_t* acc_mgr, struct fd_funk_xactionid const* txn, fd_pubkey_t* pubkey, uchar* data, ulong data_len ) {
-#ifdef _VWRITE
-  char buf[50];
-  fd_base58_encode_32((uchar *) pubkey, NULL, buf);
-  FD_LOG_WARNING(( "fd_acc_mgr_write_account to %s", buf ));
-#endif
-
-  fd_funk_recordid_t id = funk_id( pubkey );
-  if ( FD_UNLIKELY( fd_funk_write( acc_mgr->funk, txn, &id, data, 0, data_len ) != (long)data_len ) ) {
-    FD_LOG_WARNING(( "failed to write account data" ));
-    return FD_ACC_MGR_ERR_WRITE_FAILED;
-  }
-
-  return FD_ACC_MGR_SUCCESS;
-}
-
 int fd_acc_mgr_write_account_data( fd_acc_mgr_t* acc_mgr, struct fd_funk_xactionid const* txn, fd_pubkey_t* pubkey, ulong offset, uchar* data, ulong data_len ) {
 #ifdef _VWRITE
   char buf[50];
