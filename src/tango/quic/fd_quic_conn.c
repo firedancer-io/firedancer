@@ -13,6 +13,18 @@
 
 #include "../../util/tmpl/fd_map_dynamic.c"
 
+struct fd_quic_conn_layout {
+  ulong stream_cnt;
+  ulong stream_ptr_off;
+  ulong stream_footprint;
+  ulong stream_off;
+  int   stream_map_lg;
+  ulong stream_map_off;
+  ulong pkt_meta_off;
+  ulong ack_off;
+};
+typedef struct fd_quic_conn_layout fd_quic_conn_layout_t;
+
 /* TODO maybe introduce a separate parameter for size of pkt_meta
    pool? */
 ulong
@@ -24,131 +36,174 @@ fd_quic_conn_align( void ) {
   return align;
 }
 
-ulong
-fd_quic_conn_footprint( ulong tx_buf_sz,
-                        ulong rx_buf_sz,
-                        ulong max_concur_streams_per_type,
-                        ulong max_in_flight_pkts ) {
-  ulong imem  = 0;
-  ulong align = fd_quic_conn_align();
+static ulong
+fd_quic_conn_footprint_ext( fd_quic_limits_t const * limits,
+                            fd_quic_conn_layout_t *  layout ) {
 
-  imem += fd_ulong_align_up( sizeof( fd_quic_conn_t ), align );
+  ulong  stream_per_type_cnt = limits->stream_cnt;
+  ulong  tx_buf_sz           = limits->tx_buf_sz;
+  ulong  rx_buf_sz           = limits->rx_buf_sz;
+  double stream_sparsity     = limits->stream_sparsity;
+  ulong  inflight_pkt_cnt    = limits->inflight_pkt_cnt;
 
-  ulong tot_num_streams = 4 * max_concur_streams_per_type;
+  ulong   stream_cnt = 4 * stream_per_type_cnt;
+  layout->stream_cnt = stream_cnt;
 
-  /* space for the array of stream pointers */
-  /* four types of stream */
-  imem += fd_ulong_align_up( tot_num_streams * sizeof(void*), align );
+  if( FD_UNLIKELY( stream_per_type_cnt==0UL ) ) return 0UL;
+  if( FD_UNLIKELY( stream_cnt         ==0UL ) ) return 0UL;
+  if( FD_UNLIKELY( tx_buf_sz          ==0UL ) ) return 0UL;
+  if( FD_UNLIKELY( rx_buf_sz          ==0UL ) ) return 0UL;
+  if( FD_UNLIKELY( inflight_pkt_cnt   ==0UL ) ) return 0UL;
+  if( FD_UNLIKELY( stream_sparsity==0.0 ) )
+    stream_sparsity = FD_QUIC_DEFAULT_SPARSITY;
 
-  /* space for stream instances */
-  imem += fd_ulong_align_up( tot_num_streams *
-      fd_quic_stream_footprint( tx_buf_sz, rx_buf_sz ), align );
+  ulong off  = 0;
 
-  /* space for stream hash map */
+  off += sizeof( fd_quic_conn_t );
+
+  /* allocate space for stream pointers
+     FIXME: for now assuming stream cnt is same for each 4 types of streams */
+  off                     = fd_ulong_align_up( off, alignof(void *) );
+  layout->stream_ptr_off  = off;
+  off                    += stream_cnt * sizeof(void *);
+
+  /* allocate space for stream instances */
+  ulong   stream_footprint = fd_quic_stream_footprint( tx_buf_sz, rx_buf_sz );
+  layout->stream_footprint = stream_footprint;
+
+  off                 = fd_ulong_align_up( off, fd_quic_stream_align() );
+  layout->stream_off  = off;
+  off                += stream_cnt*stream_footprint;
+
+  /* allocate space for stream hash map */
   ulong lg = 0;
-  while( lg < 40 && (1ul<<lg) < (ulong)((double)tot_num_streams*FD_QUIC_SPARSITY) ) {
+  while( lg < 40 && (1ul<<lg) < (ulong)((double)stream_cnt*stream_sparsity) ) {
     lg++;
   }
-  imem += fd_ulong_align_up( fd_quic_stream_map_footprint( (int)lg ), align );
+  layout->stream_map_lg = (int)lg;
 
-  ulong num_pkt_meta = max_in_flight_pkts;
-  imem += fd_ulong_align_up( num_pkt_meta * sizeof( fd_quic_pkt_meta_t ), align );
+  off                     = fd_ulong_align_up( off, fd_quic_stream_align() );
+  layout->stream_map_off  = off;
+  off                    += fd_quic_stream_map_footprint( (int)lg );
 
-  ulong num_acks = max_in_flight_pkts;
-  imem += fd_ulong_align_up( num_acks * sizeof( fd_quic_ack_t ), align );
+  /* allocate space for packet metadata */
+  off                   = fd_ulong_align_up( off, alignof(fd_quic_pkt_meta_t) );
+  layout->pkt_meta_off  = off;
+  off                  += inflight_pkt_cnt * sizeof(fd_quic_pkt_meta_t);
 
-  return imem;
+  /* allocate space for ACKs */
+  off                   = fd_ulong_align_up( off, alignof(fd_quic_ack_t) );
+  layout->ack_off       = off;
+  off                  += inflight_pkt_cnt * sizeof(fd_quic_ack_t);
+
+  /* align total footprint */
+  off = fd_ulong_align_up( off, fd_quic_conn_align() );
+
+  return off;
+}
+
+FD_FN_PURE ulong
+fd_quic_conn_footprint( fd_quic_limits_t const * limits ) {
+  fd_quic_conn_layout_t layout;
+  return fd_quic_conn_footprint_ext( limits, &layout );
 }
 
 fd_quic_conn_t *
-fd_quic_conn_new( void *      mem,
-                  fd_quic_t * quic,
-                  ulong       tx_buf_sz,
-                  ulong       rx_buf_sz,
-                  ulong       max_concur_streams_per_type,
-                  ulong       max_in_flight_pkts ) {
-  ulong imem      = (ulong)mem;
-  ulong align     = fd_quic_conn_align();
+fd_quic_conn_new( void *                   mem,
+                  fd_quic_t *              quic,
+                  fd_quic_limits_t const * limits ) {
 
-  fd_quic_conn_t * conn = (fd_quic_conn_t*)imem;
+  /* Argument checks */
 
-  fd_memset( conn, 0, sizeof( fd_quic_conn_t ) );
+  if( FD_UNLIKELY( !mem ) ) {
+    FD_LOG_WARNING(( "NULL mem" ));
+    return NULL;
+  }
+
+  ulong align = fd_quic_conn_align();
+  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)mem, align ) ) ) {
+    FD_LOG_WARNING(( "misaligned mem" ));
+    return NULL;
+  }
+
+  if( FD_UNLIKELY( !quic ) ) {
+    FD_LOG_WARNING(( "NULL quic" ));
+    return NULL;
+  }
+
+  if( FD_UNLIKELY( !limits ) ) {
+    FD_LOG_WARNING(( "NULL limits" ));
+    return NULL;
+  }
+
+  fd_quic_conn_layout_t layout = {0};
+  ulong footprint = fd_quic_conn_footprint_ext( limits, &layout );
+  if( FD_UNLIKELY( !footprint ) ) {
+    FD_LOG_WARNING(( "invalid footprint for limits" ));
+    return NULL;
+  }
+
+  /* Initialize conn */
+
+  fd_quic_conn_t * conn = (fd_quic_conn_t *)mem;
+  fd_memset( conn, 0, sizeof(fd_quic_conn_t) );
+
   conn->quic             = quic;
-  conn->stream_tx_buf_sz = tx_buf_sz;
-  conn->stream_rx_buf_sz = rx_buf_sz;
+  conn->stream_tx_buf_sz = limits->tx_buf_sz;
+  conn->stream_rx_buf_sz = limits->rx_buf_sz;
+  conn->tot_num_streams  = layout.stream_cnt;
 
-  imem += fd_ulong_align_up( sizeof( fd_quic_conn_t ), align );
+  /* Initialize stream pointers */
 
-  /* allocate streams */
+  conn->streams = (fd_quic_stream_t **)( (ulong)mem + layout.stream_ptr_off );
 
-  /* max_concur_streams is per-type, and there are 4 types */
-  ulong tot_num_streams = 4 * max_concur_streams_per_type;
-  conn->tot_num_streams = tot_num_streams;
+  /* Initialize streams */
 
-  /* space for the array of stream pointers */
-  conn->streams = (fd_quic_stream_t**)imem;
-  imem += fd_ulong_align_up( tot_num_streams * sizeof(void*), align );
+  ulong stream_laddr = (ulong)mem + layout.stream_off;
+  for( ulong j=0; j < layout.stream_cnt; j++ ) {
+    fd_quic_stream_t * stream = fd_quic_stream_new(
+        (void *)stream_laddr, conn, limits->tx_buf_sz, limits->rx_buf_sz );
+    if( FD_UNLIKELY( !stream ) ) return NULL;
 
-  /* initialize each stream */
-  ulong stream_footprint = fd_quic_stream_footprint( tx_buf_sz, rx_buf_sz );
-  for( ulong j = 0; j < conn->tot_num_streams; ++j ) {
-    conn->streams[j] = fd_quic_stream_new( (void*)imem, conn, tx_buf_sz, rx_buf_sz );
-
+    conn->streams[j]       = stream;
     conn->streams[j]->next = NULL;
 
     /* insert into unused list */
-    if( j == 0 ) {
+    if( j==0 ) {
       conn->unused_streams = conn->streams[j];
     } else {
       conn->streams[j-1]->next = conn->streams[j];
     }
 
-    imem += stream_footprint;
+    stream_laddr += layout.stream_footprint;
   }
 
-  /* space for stream hash map */
-  ulong lg = 0;
-  while( lg < 64 && (1ul<<lg) < (ulong)((double)tot_num_streams*FD_QUIC_SPARSITY) ) {
-    lg++;
-  }
-  /* TODO move join into fd_quic_conn_join */
-  conn->stream_map = fd_quic_stream_map_join( fd_quic_stream_map_new( (void*)imem, (int)lg ) );
-  imem += fd_ulong_align_up( fd_quic_stream_map_footprint( (int)lg ), align );
+  /* Initialize stream hash map */
 
-  /* allocate pkt_meta_t */
-  fd_quic_pkt_meta_t * pkt_meta = (fd_quic_pkt_meta_t*)imem;
+  ulong stream_map_laddr = (ulong)mem + layout.stream_map_off;
+  FD_LOG_NOTICE(( "%#lx %#lx", stream_laddr, stream_map_laddr ));
+  FD_TEST( stream_laddr <= stream_map_laddr );
+  conn->stream_map = fd_quic_stream_map_join( fd_quic_stream_map_new( (void *)stream_map_laddr, layout.stream_map_lg ) );
+  if( FD_UNLIKELY( !conn->stream_map ) ) return NULL;
 
-  /* initialize pkt_meta */
-  ulong num_pkt_meta = max_in_flight_pkts;
-  fd_memset( pkt_meta, 0, num_pkt_meta * sizeof( *pkt_meta ) );
+  /* Initialize packet meta pool */
 
-  /* initialize the pkt_meta pool with data */
-  fd_quic_pkt_meta_pool_init( &conn->pkt_meta_pool, pkt_meta, num_pkt_meta );
+  fd_quic_pkt_meta_t * pkt_meta = (fd_quic_pkt_meta_t *)( (ulong)mem + layout.pkt_meta_off );
+  fd_memset( pkt_meta, 0, limits->inflight_pkt_cnt * sizeof(fd_quic_pkt_meta_t) );
 
-  imem += fd_ulong_align_up( num_pkt_meta * sizeof( fd_quic_pkt_meta_t ), align );
+  fd_quic_pkt_meta_pool_init( &conn->pkt_meta_pool, pkt_meta, limits->inflight_pkt_cnt );
 
-  /* allocate ack_t */
-  fd_quic_ack_t * acks = (fd_quic_ack_t*)imem;
+  /* Initialize ACKs array */
 
-  /* initialize acks */
-  ulong num_acks = max_in_flight_pkts;
-  fd_memset( acks, 0, num_acks * sizeof( *acks ) );
+  ulong           ack_cnt = limits->inflight_pkt_cnt;
+  fd_quic_ack_t * acks    = (fd_quic_ack_t *)( (ulong)mem + layout.ack_off );
+  fd_memset( acks, 0, ack_cnt * sizeof(fd_quic_ack_t) );
 
   /* initialize free list of acks metadata */
   conn->acks_free = acks;
-  for( ulong j = 0; j < num_acks; ++j ) {
+  for( ulong j=0; j<ack_cnt; ++j ) {
     ulong k = j + 1;
-    acks[j].next =  k < num_acks ? acks + k : NULL;
-  }
-
-  imem += fd_ulong_align_up( num_acks * sizeof( fd_quic_ack_t ), align );
-
-  /* sanity check */
-  ulong fp =
-        fd_quic_conn_footprint( tx_buf_sz, rx_buf_sz, max_concur_streams_per_type,
-                  max_in_flight_pkts  );
-  if( FD_UNLIKELY( ( imem - (ulong)mem ) != fp ) ) {
-    FD_LOG_ERR(( "memory used does not match memory allocated" ));
+    acks[j].next =  k < ack_cnt ? acks + k : NULL;
   }
 
   return conn;
@@ -167,5 +222,4 @@ void *
 fd_quic_conn_get_context( fd_quic_conn_t * conn ) {
   return conn->context;
 }
-
 
