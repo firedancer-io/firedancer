@@ -1,4 +1,5 @@
 #include "fd_quic_tls.h"
+#include "../fd_quic_private.h"
 #include "../../../util/fd_util.h"
 
 #include <stdlib.h>
@@ -192,9 +193,11 @@ fd_quic_tls_hs_new( fd_quic_tls_t * quic_tls,
 
   // no room
   if( hs_idx == hs_sz ) {
-    FD_LOG_INFO(( "cannot alloc handshake: %lu", quic_tls->max_concur_handshakes ));
+    DEBUG( FD_LOG_DEBUG(( "tls_hs alloc fail" )); );
     return NULL;
   }
+
+  DEBUG( FD_LOG_DEBUG(( "tls_hs alloc %lu", hs_idx )); );
 
   // set the handshake to used
   hs_used[hs_idx] = 1;
@@ -287,7 +290,7 @@ fd_quic_tls_hs_new( fd_quic_tls_t * quic_tls,
 
 fd_quic_tls_hs_new_error:
   // free handshake
-  FD_LOG_INFO(( "free handshake %lu inline", hs_idx ));
+  DEBUG( FD_LOG_DEBUG(( "tls_hs free inline %lu", hs_idx )); );
   quic_tls->used_handshakes[hs_idx] = 0;
 
   return NULL;
@@ -301,7 +304,7 @@ fd_quic_tls_hs_delete( fd_quic_tls_hs_t * self ) {
 
   // find index into array
   ulong hs_idx = (ulong)( self - quic_tls->handshakes );
-  FD_LOG_INFO(( "free handshake %lu", hs_idx ));
+  DEBUG( FD_LOG_DEBUG(( "tls_hs free %lu", hs_idx )); );
   if( quic_tls->used_handshakes[hs_idx] != 1 ) {
     //__asm__ __volatile__( "int $3" );
     return;

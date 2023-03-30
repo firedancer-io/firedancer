@@ -205,8 +205,9 @@ run_quic_client(
   client_cb->now_ctx          = NULL;
 
   /* use XSK XDP AIO for QUIC ingress/egress */
-  fd_xsk_aio_set_rx     ( xsk_aio, fd_quic_get_aio_net_rx( quic    ) );
-  fd_quic_set_aio_net_tx( quic,    fd_xsk_aio_get_tx     ( xsk_aio ) );
+  fd_aio_t _quic_aio[1];
+  fd_xsk_aio_set_rx     ( xsk_aio, fd_quic_get_aio_net_rx( quic, _quic_aio ) );
+  fd_quic_set_aio_net_tx( quic,    fd_xsk_aio_get_tx     ( xsk_aio )         );
 
   /* make a connection from client to the server */
   client_conn = fd_quic_connect( quic, dst_ip, dst_port, NULL );

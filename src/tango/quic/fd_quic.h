@@ -320,8 +320,8 @@ struct __attribute__((aligned(16UL))) fd_quic_join {
 
   /* fd_aio I/O abstraction */
 
-  fd_aio_t aio_rx; /* owned by fd_quic_t, used by net driver to send rx data to fd_quic_t  */
-  fd_aio_t aio_tx; /* owned externally,   used by fd_quic_t  to send tx data to net driver */
+  fd_aio_t aio_tx; /* owned externally, used by fd_quic_t
+                      to send tx data to net driver */
 };
 typedef struct fd_quic_join fd_quic_join_t;
 
@@ -409,11 +409,13 @@ fd_quic_config_from_env( int  *   pargc,
 FD_QUIC_API FD_FN_CONST fd_quic_callbacks_t *
 fd_quic_get_callbacks( fd_quic_t * quic );
 
-/* fd_quic_get_aio_net_rx returns the fd_aio_t used by the network
-   driver to send rx data to the fd_quic_t.  Valid for lifetime of quic. */
+/* fd_quic_get_aio_net_rx configures the given aio to receive data into
+   quic instance.  aio should be deleted before lifetime of quic ends.
+   Returns given aio on success. */
 
-FD_QUIC_API FD_FN_CONST fd_aio_t const *
-fd_quic_get_aio_net_rx( fd_quic_t const * quic );
+FD_QUIC_API fd_aio_t *
+fd_quic_get_aio_net_rx( fd_quic_t * quic,
+                        fd_aio_t *  aio );
 
 /* fd_quic_set_aio_net_tx sets the fd_aio_t used by the fd_quic_t to
    send tx data to the network driver.  Cleared on leave.
