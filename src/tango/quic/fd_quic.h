@@ -124,9 +124,10 @@ struct __attribute__((aligned(16UL))) fd_quic_limits {
   ulong  handshake_cnt;    /* instance-wide, max concurrent handshake count */
 
   ulong  conn_id_cnt;      /* per-conn, max conn ID count (min 4UL) */
-  double conn_id_sparsity; /* per-conn, max conn ID sparsity        */
+  double conn_id_sparsity; /* per-conn, conn ID hashmap sparsity    */
 
   ulong  stream_cnt;       /* per-conn, max concurrent stream count */
+  double stream_sparsity;  /* per-conn, stream hashmap sparsity     */
 
   ulong  inflight_pkt_cnt; /* per-conn, max inflight packet count   */
 
