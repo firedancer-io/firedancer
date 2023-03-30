@@ -37,8 +37,6 @@ void* fd_acc_mgr_delete( void* mem );
 /* Represents the lamport balance associated with an account. */
 typedef ulong fd_acc_lamports_t;
 
-/* Writes an account to the database with the given data and public key.
-
 /* Writes account data to the database, starting at the given offset.
 
    TODO: make this automatically update the metadata (hash, dlen etc)
