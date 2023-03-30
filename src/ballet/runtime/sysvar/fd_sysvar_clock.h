@@ -10,7 +10,7 @@
 void fd_sysvar_clock_init( global_ctx_t* global, long genesis_creation_time, ulong slot, uint128 ns_per_slot );
 
 /* Update the clock sysvar account. This should be called at the start of every slot, before execution commences. */
-void fd_sysvar_clock_update( );
+void fd_sysvar_clock_update( global_ctx_t* global );
 
 #endif /* HEADER_fd_src_ballet_runtime_sysvar_fd_clock_h */
 
