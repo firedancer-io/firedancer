@@ -706,7 +706,7 @@ fd_sim_txn(global_state_t *state, FD_FN_UNUSED fd_executor_t* executor, fd_txn_t
     }
     if ((what == 0) | (what == 2)) {
       metadata.info.lamports++;
-      int write_result = fd_acc_mgr_write_account( state->global.acc_mgr, funk_txn, addr, (uchar*)&metadata, sizeof(metadata) );
+      int write_result = fd_acc_mgr_write_account_data( state->global.acc_mgr, funk_txn, addr, 0,  (uchar*)&metadata, sizeof(metadata) );
       if ( FD_UNLIKELY( write_result != FD_ACC_MGR_SUCCESS ) ) {
         FD_LOG_ERR(("wtf"));
       }
