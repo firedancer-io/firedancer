@@ -63,6 +63,10 @@ fd_quic_conn_map_remove( fd_quic_conn_map_t * map, fd_quic_conn_entry_t * entry 
 fd_quic_conn_entry_t *
 fd_quic_conn_map_query( fd_quic_conn_map_t * map, fd_quic_conn_id_t * key );
 
+/* max entries in the map */
+ulong
+fd_quic_conn_map_max( fd_quic_conn_map_t * map );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_tango_quic_fd_quic_conn_map_h */
