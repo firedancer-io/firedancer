@@ -714,37 +714,6 @@ fd_sim_txn(global_state_t *state, FD_FN_UNUSED fd_executor_t* executor, fd_txn_t
   }
 }
 
-void boot_recent_block_hashes(FD_FN_UNUSED global_state_t *state) {
-  // https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/fee_calculator.rs#L110
-   fd_recent_block_hashes_t a;
-   memset(&a, 0, sizeof(a));
-
-   fd_block_block_hash_entry_t s;
-   memset(&s, 0, sizeof(s));
-
-   fd_vec_fd_block_block_hash_entry_t_new(&a.hashes);
-
-   fd_memcpy(s.blockhash.hash, state->global.genesis_hash, sizeof(state->global.genesis_hash));
-   fd_vec_fd_block_block_hash_entry_t_push_front(&a.hashes, s);
-
-   ulong sz = fd_recent_block_hashes_size(&a);
-   if (sz < 6008)
-     sz = 6008;
-   unsigned char *enc = fd_alloca(1, sz);
-   memset(enc, 0, sz);
-   void const *ptr = (void const *) enc;
-   fd_recent_block_hashes_encode(&a, &ptr);
-
-   fd_recent_block_hashes_destroy(&a, state->global.freef, state->global.allocf_arg);
-
-   unsigned char pubkey[32];
-   unsigned char owner[32];
-   fd_base58_decode_32( "Sysvar1111111111111111111111111111111111111",  (unsigned char *) owner);
-   fd_base58_decode_32( "SysvarRecentB1ockHashes11111111111111111111",  (unsigned char *) pubkey);
-
-   fd_sysvar_set(&state->global, owner, pubkey, enc, sz);
-}
-
 int replay(global_state_t *state) {
   void *fd_executor_raw = malloc(FD_EXECUTOR_FOOTPRINT);
   fd_executor_t* executor = fd_executor_join(fd_executor_new(fd_executor_raw, &state->global, FD_EXECUTOR_FOOTPRINT));
@@ -759,7 +728,7 @@ int replay(global_state_t *state) {
   if (0 == state->start_slot) {
     fd_memcpy(state->global.poh.state, state->global.genesis_hash, sizeof(state->global.genesis_hash));
     boot_boh = 0;
-    boot_recent_block_hashes(state);
+    fd_sysvar_recent_hashes_init(&state->global, 0);
   }
 
   fd_rocksdb_root_iter_t iter;
