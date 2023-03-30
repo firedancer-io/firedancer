@@ -7,7 +7,7 @@
 /* The clock sysvar provides an approximate measure of network time. */
 
 /* Initialize the clock sysvar account. */
-void fd_sysvar_clock_init( global_ctx_t* global, long genesis_creation_time, ulong slot, uint128 ns_per_slot );
+void fd_sysvar_clock_init( global_ctx_t* global );
 
 /* Update the clock sysvar account. This should be called at the start of every slot, before execution commences. */
 void fd_sysvar_clock_update( global_ctx_t* global );

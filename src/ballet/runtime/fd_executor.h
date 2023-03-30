@@ -12,18 +12,22 @@
 FD_PROTOTYPES_BEGIN
 
 struct global_ctx {
-  fd_alloc_fun_t      allocf;
-  void *              allocf_arg;
-  fd_free_fun_t       freef;
-  fd_acc_mgr_t*       acc_mgr;
+  fd_alloc_fun_t             allocf;
+  void *                     allocf_arg;
+  fd_free_fun_t              freef;
+  fd_acc_mgr_t*              acc_mgr;
 
-  fd_genesis_solana_t gen;
-  uchar               genesis_hash[FD_SHA256_HASH_SZ];
+  fd_genesis_solana_t        gen;
+  uchar                      genesis_hash[FD_SHA256_HASH_SZ];
 
-  fd_poh_state_t      poh;
-  fd_wksp_t *         wksp;
-  fd_funk_t*          funk;
-  fd_alloc_t *        alloc;
+  fd_poh_state_t             poh;
+  fd_wksp_t *                wksp;
+  fd_funk_t*                 funk;
+  fd_alloc_t *               alloc;
+  
+  ulong                      current_slot;
+
+  fd_clock_timestamp_votes_t timestamp_votes;
 };
 typedef struct global_ctx global_ctx_t;
 

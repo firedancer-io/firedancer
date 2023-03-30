@@ -2233,3 +2233,54 @@ void fd_slot_meta_encode(fd_slot_meta_t* self, void const** data) {
   }
 }
 
+void fd_clock_timestamp_vote_decode(fd_clock_timestamp_vote_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
+  fd_pubkey_decode(&self->pubkey, data, dataend, allocf, allocf_arg);
+  fd_bincode_uint64_decode((unsigned long *) &self->timestamp, data, dataend);
+  fd_bincode_uint64_decode(&self->slot, data, dataend);
+}
+void fd_clock_timestamp_vote_destroy(fd_clock_timestamp_vote_t* self, fd_free_fun_t freef, void* freef_arg) {
+  fd_pubkey_destroy(&self->pubkey, freef, freef_arg);
+}
+
+ulong fd_clock_timestamp_vote_size(fd_clock_timestamp_vote_t* self) {
+  ulong size = 0;
+  size += fd_pubkey_size(&self->pubkey);
+  size += sizeof(long);
+  size += sizeof(ulong);
+  return size;
+}
+
+void fd_clock_timestamp_vote_encode(fd_clock_timestamp_vote_t* self, void const** data) {
+  fd_pubkey_encode(&self->pubkey, data);
+  fd_bincode_uint64_encode((unsigned long *) &self->timestamp, data);
+  fd_bincode_uint64_encode(&self->slot, data);
+}
+
+void fd_clock_timestamp_votes_decode(fd_clock_timestamp_votes_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
+  fd_vec_fd_clock_timestamp_vote_t_new(&self->votes);
+  ulong votes_len;
+  fd_bincode_uint64_decode(&votes_len, data, dataend);
+  for (ulong i = 0; i < votes_len; ++i) {
+    fd_clock_timestamp_vote_t elem;
+    fd_clock_timestamp_vote_decode(&elem, data, dataend, allocf, allocf_arg);
+    fd_vec_fd_clock_timestamp_vote_t_push(&self->votes, elem);
+  }
+}
+void fd_clock_timestamp_votes_destroy(fd_clock_timestamp_votes_t* self, fd_free_fun_t freef, void* freef_arg) {
+  fd_vec_fd_clock_timestamp_vote_t_destroy(&self->votes);
+}
+
+ulong fd_clock_timestamp_votes_size(fd_clock_timestamp_votes_t* self) {
+  ulong size = 0;
+  size += sizeof(ulong);
+  for (ulong i = 0; i < self->votes.cnt; ++i)
+    size += fd_clock_timestamp_vote_size(&self->votes.elems[i]);
+  return size;
+}
+
+void fd_clock_timestamp_votes_encode(fd_clock_timestamp_votes_t* self, void const** data) {
+  fd_bincode_uint64_encode(&self->votes.cnt, data);
+  for (ulong i = 0; i < self->votes.cnt; ++i)
+    fd_clock_timestamp_vote_encode(&self->votes.elems[i], data);
+}
+

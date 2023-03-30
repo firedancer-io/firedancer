@@ -40,6 +40,7 @@
 #include "fd_banks_solana.h"
 #include "fd_hashes.h"
 #include "fd_executor.h"
+#include "fd_types.h"
 #include "../../funk/fd_funk.h"
 #include "../../util/alloc/fd_alloc.h"
 #include "../base58/fd_base58.h"
@@ -729,6 +730,7 @@ int replay(global_state_t *state) {
     fd_memcpy(state->global.poh.state, state->global.genesis_hash, sizeof(state->global.genesis_hash));
     boot_boh = 0;
     fd_sysvar_recent_hashes_init(&state->global, 0);
+    fd_sysvar_clock_init( &state->global );
   }
 
   fd_rocksdb_root_iter_t iter;
@@ -757,6 +759,8 @@ int replay(global_state_t *state) {
 
     if ((slot % 10) == 0)
       FD_LOG_WARNING(("reading slot %ld", slot));
+
+    state->global.current_slot = slot;
 
     if (state->txn_exe == 2) {
       ulong *p = (ulong *) &funk_txn.id[0];
@@ -1022,6 +1026,8 @@ int main(int argc, char **argv) {
 
   void *fd_acc_mgr_raw = state.global.allocf(state.global.allocf_arg, FD_ACC_MGR_ALIGN, FD_ACC_MGR_FOOTPRINT);
   state.global.acc_mgr = fd_acc_mgr_join(fd_acc_mgr_new(fd_acc_mgr_raw, state.global.funk, xroot, FD_ACC_MGR_FOOTPRINT));
+
+  fd_vec_fd_clock_timestamp_vote_t_new( &state.global.timestamp_votes.votes );
 
   FD_LOG_WARNING(("loading genesis account into funk db"));
 
