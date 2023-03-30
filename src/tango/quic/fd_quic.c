@@ -2481,7 +2481,7 @@ fd_quic_frame_handle_crypto_frame( void *                   vp_context,
 
   /* determine whether any of the data was already provided */
   fd_quic_conn_t * conn      = context.conn;
-  uint         enc_level = context.pkt->enc_level;
+  uint             enc_level = context.pkt->enc_level;
 
   /* offset expected */
   ulong           exp_offset = conn->rx_crypto_offset[enc_level];
@@ -2490,6 +2490,11 @@ fd_quic_frame_handle_crypto_frame( void *                   vp_context,
 
   /* do we have bytes we can use? */
   if( FD_LIKELY( rcv_offset <= exp_offset && rcv_offset + rcv_sz > exp_offset ) ) {
+    if( !conn->tls_hs ) {
+      conn->state = FD_QUIC_CONN_STATE_DEAD;
+      return FD_QUIC_TLS_FAILED;
+    }
+
     ulong skip = 0;
     if( rcv_offset < exp_offset ) skip = exp_offset - rcv_offset;
 
@@ -4351,8 +4356,9 @@ fd_quic_pkt_meta_retry( fd_quic_t *          quic,
     if( flags & FD_QUIC_PKT_META_FLAGS_HS_DATA            ) {
       /* find handshake data to retry */
       /* reset offset to beginning of retried range if necessary */
-      if( pkt_meta->range.offset_lo < conn->hs_sent_bytes[enc_level] ) {
-        conn->hs_sent_bytes[enc_level] = pkt_meta->range.offset_lo;
+      ulong offset = pkt_meta->range.offset_hi;
+      if( offset < conn->hs_sent_bytes[enc_level] ) {
+        conn->hs_sent_bytes[enc_level] = offset;
         /* TODO might need to have a member "hs_ackd_bytes" so we don't
            try to resend bytes that were acked (and may have been discarded) */
         /* TODO do we need to set upd_pkt_number etc? */
@@ -4361,7 +4367,7 @@ fd_quic_pkt_meta_retry( fd_quic_t *          quic,
     if( flags & FD_QUIC_PKT_META_FLAGS_STREAM             ) {
       /* set the stream in question to resend the data */
       ulong stream_id = pkt_meta->stream_id;
-      ulong offset    = pkt_meta->range.offset_lo;
+      ulong offset    = pkt_meta->range.offset_hi;
 
       /* find the stream in the stream map */
       fd_quic_stream_map_t * stream_entry = fd_quic_stream_map_query( conn->stream_map, stream_id, NULL );
