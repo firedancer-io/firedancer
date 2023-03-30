@@ -508,8 +508,9 @@ main( int argc, char ** argv ) {
   server_cb->now_ctx = NULL;
 
   /* make use aio to point quic directly at quic */
-  fd_aio_t const * aio_n2q = fd_quic_get_aio_net_rx( server_quic );
-  fd_aio_t const * aio_q2n = fd_quic_get_aio_net_rx( client_quic );
+  fd_aio_t _aio[2];
+  fd_aio_t const * aio_n2q = fd_quic_get_aio_net_rx( server_quic, &_aio[ 0 ] );
+  fd_aio_t const * aio_q2n = fd_quic_get_aio_net_rx( client_quic, &_aio[ 1 ] );
 
 #if 0
   fd_quic_set_aio_net_out( server_quic, aio_q2n );

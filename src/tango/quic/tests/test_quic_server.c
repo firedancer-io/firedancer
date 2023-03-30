@@ -294,7 +294,10 @@ main( int argc, char ** argv ) {
   FD_TEST( 0==fd_xdp_listen_udp_port( app_name, listen_ip, listen_port, 0 ) );
 
   FD_LOG_NOTICE(( "Wiring up QUIC and XSK" ));
-  fd_xsk_aio_set_rx( xsk_aio, fd_quic_get_aio_net_rx( quic ) );
+  fd_aio_t  _aio_rx[1];
+  fd_aio_t * aio_rx = fd_quic_get_aio_net_rx( quic, _aio_rx );
+
+  fd_xsk_aio_set_rx( xsk_aio, aio_rx );
 
 #if 0
   /* set up egress */
@@ -302,8 +305,8 @@ main( int argc, char ** argv ) {
 #else
   /* create a pipe for catching data as it passes through */
   aio_pipe_t pipe[2] = {
-    { fd_quic_get_aio_net_rx( quic    ), pcap },
-    { fd_xsk_aio_get_tx     ( xsk_aio ), pcap }
+    { aio_rx,                       pcap },
+    { fd_xsk_aio_get_tx( xsk_aio ), pcap }
   };
 
   fd_aio_t aio[2] = {

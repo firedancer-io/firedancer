@@ -153,8 +153,9 @@ main( int argc, char ** argv ) {
   client_quic->join.cb.conn_hs_complete = my_handshake_complete;
 
   /* make use aio to point quic directly at quic */
-  fd_aio_t const * aio_n2q = fd_quic_get_aio_net_rx( server_quic );
-  fd_aio_t const * aio_q2n = fd_quic_get_aio_net_rx( client_quic );
+  fd_aio_t _aio[2];
+  fd_aio_t const * aio_n2q = fd_quic_get_aio_net_rx( server_quic, &_aio[ 0 ] );
+  fd_aio_t const * aio_q2n = fd_quic_get_aio_net_rx( client_quic, &_aio[ 1 ] );
 
   fd_quic_set_aio_net_tx( server_quic, aio_q2n );
   fd_quic_set_aio_net_tx( client_quic, aio_n2q );
