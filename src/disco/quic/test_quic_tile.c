@@ -326,12 +326,12 @@ int main( int     argc,
   memcpy( quic_cfg->link.src_mac_addr, hwaddr,  6UL );
   memcpy( quic_cfg->link.dst_mac_addr, gateway, 6UL );
 
-  FD_LOG_NOTICE(( "Joining QUIC" ));
-  FD_TEST( fd_quic_join( cfg->tx_quic ) );
-
   fd_aio_t _aio_rx[1];
   fd_quic_set_aio_net_tx( cfg->tx_quic, fd_xsk_aio_get_tx     ( cfg->xsk_aio ) );
   fd_xsk_aio_set_rx     ( cfg->xsk_aio, fd_quic_get_aio_net_rx( cfg->tx_quic, _aio_rx ) );
+
+  FD_LOG_NOTICE(( "Joining QUIC" ));
+  FD_TEST( fd_quic_join( cfg->tx_quic ) );
 
   FD_LOG_NOTICE(( "Booting" ));
 

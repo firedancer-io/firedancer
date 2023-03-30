@@ -62,9 +62,16 @@ FD_PROTOTYPES_BEGIN
    Creates the following files in /sys/fs/bpf/{app_name}/
 
      udp_dsts  BPF_MAP_TYPE_HASH map, see fd_xdp_udp_dsts in
-               program ebpf_xdp_flow.c */
+               program ebpf_xdp_flow.c
+
+   /sys/fs/bpf and any created dirs and files will assume the given FS
+   mode, user ID and group ID.  Executable bit is removed as required.
+   If uid or gid are -1, then that ID is not changed. */
 int
-fd_xdp_init( char const * app_name );
+fd_xdp_init( char const * app_name,
+             uint         mode,
+             int          uid,
+             int          gid );
 
 /* fd_xdp_fini: Destroy all kernel resources installed by fd_xdp
    corresponding to the given app name, including any XDP programs,

@@ -449,7 +449,7 @@ fd_xsk_init( fd_xsk_t * xsk ) {
 
   xsk->xsk_fd = socket( AF_XDP, SOCK_RAW, 0 );
   if( FD_UNLIKELY( xsk->xsk_fd<0 ) ) {
-    FD_LOG_WARNING(( "Failed to create XSK: %s", strerror( errno ) ));
+    FD_LOG_WARNING(( "Failed to create XSK (%d-%s)", errno, strerror( errno ) ));
     return -1;
   }
 

@@ -47,13 +47,39 @@ fd_xdp_validate_name_cstr( char const * s,
   return 0;
 }
 
+static void
+fd_xdp_reperm( char const * path,
+               uint         mode,
+               int          uid,
+               int          gid,
+               int          is_dir ) {
+
+  if( FD_UNLIKELY( 0!=chown( path, (uint)uid, (uint)gid ) ) ) {
+    FD_LOG_WARNING(( "chown(%s,%u,%u) failed (%d-%s)",
+                     path, uid, gid, errno, strerror( errno ) ));
+    return;
+  }
+
+  mode &= fd_uint_if( is_dir, 0777, 0666 );
+  if( FD_UNLIKELY( 0!=chmod( path, mode ) ) ) {
+    FD_LOG_WARNING(( "chown(%s,%u,%u) failed (%d-%s)",
+                     path, uid, gid, errno, strerror( errno ) ));
+    return;
+  }
+}
+
 
 int
-fd_xdp_init( char const * app_name ) {
+fd_xdp_init( char const * app_name,
+             uint         mode,
+             int          uid,
+             int          gid ) {
   /* Validate arguments */
 
   if( FD_UNLIKELY( 0!=fd_xdp_validate_name_cstr( app_name, NAME_MAX, "app_name" ) ) )
     return -1;
+
+  fd_xdp_reperm( "/sys/fs/bpf", mode, uid, gid, 1 );
 
   /* Create UDP dsts map */
 
@@ -76,12 +102,14 @@ fd_xdp_init( char const * app_name ) {
   char path[ PATH_MAX ];
   snprintf( path, PATH_MAX, "/sys/fs/bpf/%s", app_name );
 
-  if( FD_UNLIKELY( 0!=mkdir( path, 0777UL ) && errno!=EEXIST ) ) {
+  if( FD_UNLIKELY( 0!=mkdir( path, mode ) && errno!=EEXIST ) ) {
     FD_LOG_WARNING(( "mkdir(%s) failed (%d-%s)",
                      path, errno, strerror( errno ) ));
     close( udp_dsts_map_fd );
     return -1;
   }
+
+  fd_xdp_reperm( path, mode, uid, gid, 1 );
 
   snprintf( path, PATH_MAX, "/sys/fs/bpf/%s/udp_dsts", app_name );
   if( FD_UNLIKELY( 0!=fd_bpf_obj_pin( udp_dsts_map_fd, path ) ) ) {
@@ -90,6 +118,8 @@ fd_xdp_init( char const * app_name ) {
     close( udp_dsts_map_fd );
     return -1;
   }
+
+  fd_xdp_reperm( path, mode, uid, gid, 0 );
 
   close( udp_dsts_map_fd );
   return 0;
@@ -206,25 +236,29 @@ fd_xdp_hook_iface( char const * app_name,
     return -1;
   }
 
-  /* Create dirs */
+  /* Find uid, gid, mode of install dir */
 
   char path[ PATH_MAX ];
 
   snprintf( path, PATH_MAX, "/sys/fs/bpf/%s", app_name );
-  int rc = mkdir( path, 0755 );
+
+  struct stat install_stat = {0};
+  if( FD_UNLIKELY( 0!=stat( path, &install_stat ) ) ) {
+    FD_LOG_WARNING(( "stat(%s) failed (%d-%s)", path, errno, strerror( errno ) ));
+    return -1;
+  }
+
+  /* Create dirs */
+
+  snprintf( path, PATH_MAX, "/sys/fs/bpf/%s/%s", app_name, ifname );
+  int rc = mkdir( path, install_stat.st_mode & 0777 );
   if( FD_UNLIKELY( rc!=0 && errno!=EEXIST ) ) {
-    FD_LOG_WARNING(( "failed to create dir %s (%d-%s)",
+    FD_LOG_WARNING(( "mkdir(%s) failed (%d-%s)",
                      path, errno, strerror( errno ) ));
     return -1;
   }
 
-  snprintf( path, PATH_MAX, "/sys/fs/bpf/%s/%s", app_name, ifname );
-  rc = mkdir( path, 0755 );
-  if( FD_UNLIKELY( rc!=0 && errno!=EEXIST ) ) {
-    FD_LOG_WARNING(( "failed to create dir %s (%d-%s)",
-                     path, errno, strerror( errno ) ));
-    return -1;
-  }
+  fd_xdp_reperm( path, install_stat.st_mode, (int)install_stat.st_uid, (int)install_stat.st_gid, 1 );
 
   /* Find UDP dsts map fd */
 
@@ -259,6 +293,8 @@ fd_xdp_hook_iface( char const * app_name,
                      path, errno, strerror( errno ) ));
     return -1;
   }
+
+  fd_xdp_reperm( path, install_stat.st_mode, (int)install_stat.st_uid, (int)install_stat.st_gid, 0 );
 
   /* Link BPF bytecode */
 
@@ -310,6 +346,8 @@ fd_xdp_hook_iface( char const * app_name,
     return -1;
   }
 
+  fd_xdp_reperm( path, install_stat.st_mode, (int)install_stat.st_uid, (int)install_stat.st_gid, 0 );
+
   /* Install program to device */
 
   attr = (union bpf_attr) {
@@ -335,6 +373,8 @@ fd_xdp_hook_iface( char const * app_name,
                      errno, strerror( errno ) ));
     return -1;
   }
+
+  fd_xdp_reperm( path, install_stat.st_mode, (int)install_stat.st_uid, (int)install_stat.st_gid, 0 );
 
   return 0;
 }

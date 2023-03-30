@@ -1,6 +1,10 @@
 #if FD_HAS_HOSTED
 
+#define _POSIX_C_SOURCE
 #include <stdio.h>
+#include <sys/types.h>
+#include <pwd.h>
+#include <grp.h>
 
 #include "fd_xdp.h"
 #include "../../util/fd_util.h"
@@ -44,16 +48,33 @@ main( int     argc,
 
     } else if( 0==strcmp( cmd, "init" ) ) {
 
-      if( FD_UNLIKELY( argc<1 ) ) FD_LOG_ERR(( "%i: %s: too few arguments\n\tDo %s help for help", cnt, cmd, bin ));
+      if( FD_UNLIKELY( argc<4 ) ) FD_LOG_ERR(( "%i: %s: too few arguments\n\tDo %s help for help", cnt, cmd, bin ));
 
-      char const * _wksp =  argv[0];
+      char const * _wksp  =                  argv[0];
+      uint        perm    = fd_cstr_to_uint( argv[1] );
+      char const * _user  =                  argv[2];
+      char const * _group =                  argv[3];
 
-      if( FD_UNLIKELY( 0!=fd_xdp_init( _wksp ) ) )
+      int uid = -1;
+      if( _user[0] ) {
+        struct passwd * user = getpwnam( _user );
+        if( FD_UNLIKELY( !user ) ) FD_LOG_ERR(( "%i: %s: unknown user %s\n\tDo %s help for help", cnt, cmd, _user, bin ));
+        uid = (int)user->pw_uid;
+      }
+
+      int gid = -1;
+      if( _group[0] ) {
+        struct group * group = getgrnam( _group );
+        if( FD_UNLIKELY( !group ) ) FD_LOG_ERR(( "%i: %s: unknown user %s\n\tDo %s help for help", cnt, cmd, _group, bin ));
+        gid = (int)group->gr_gid;
+      }
+
+      if( FD_UNLIKELY( 0!=fd_xdp_init( _wksp, perm, uid, gid ) ) )
         FD_LOG_ERR(( "%i: %s: fd_xdp_init(%s) failed\n\tDo %s help for help",
                      cnt, cmd, _wksp, bin ));
 
-      FD_LOG_NOTICE(( "%i: %s %s: success", cnt, cmd, _wksp ));
-      SHIFT( 1 );
+      FD_LOG_NOTICE(( "%i: %s %s %#o %s %s: success", cnt, cmd, _wksp, perm, _user, _group ));
+      SHIFT( 4 );
 
     } else if( 0==strcmp( cmd, "fini" ) ) {
 
