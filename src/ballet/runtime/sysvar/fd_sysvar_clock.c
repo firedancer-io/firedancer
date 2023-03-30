@@ -52,7 +52,7 @@ void fd_sysvar_clock_init( global_ctx_t* global ) {
   unsigned char pubkey[32];
   unsigned char owner[32];
   fd_base58_decode_32( "Sysvar1111111111111111111111111111111111111",  (unsigned char *) owner);
-  fd_base58_decode_32( "SysvarRecentB1ockHashes11111111111111111111",  (unsigned char *) pubkey);
+  fd_base58_decode_32( "SysvarC1ock11111111111111111111111111111111",  (unsigned char *) pubkey);
 
   fd_sysvar_set( global, owner, pubkey, enc, sz, global->current_slot );
 }
