@@ -70,6 +70,8 @@ rx_tile_main( int     argc,
   ulong async_min = 1UL << cfg->rx_lazy;
   ulong async_rem = 1UL; /* Do housekeeping on first iteration */
 
+  ulong txn_idx = 0UL;
+
   fd_cnc_signal( cnc, FD_CNC_SIGNAL_RUN );
   for(;;) {
 
@@ -154,7 +156,7 @@ rx_tile_main( int     argc,
 
     /* Print txn sig to user */
 
-    FD_LOG_NOTICE(( "Received txn %s", txn_sig_cstr ));
+    FD_LOG_NOTICE(( "Received txn no=%lu sig=%s", ++txn_idx, txn_sig_cstr ));
   }
 
   fd_cnc_signal( cnc, FD_CNC_SIGNAL_BOOT );
