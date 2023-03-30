@@ -587,7 +587,7 @@ fd_quic_tx_enc_level( fd_quic_conn_t * conn ) {
   if( enc_level != ~0u ) return enc_level;
 
   /* handshake done? */
-  if( FD_UNLIKELY( conn->send_handshake_done ) ) return fd_quic_enc_level_appdata_id;
+  if( FD_UNLIKELY( conn->handshake_done_send ) ) return fd_quic_enc_level_appdata_id;
 
   /* find stream data to send */
   if( conn->send_streams && conn->send_streams->upd_pkt_number == app_pkt_number ) {
@@ -1088,7 +1088,7 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
     /* set the value for the caller */
     *p_conn = conn;
 
-    /* if we fail after here, we must free the connection (fd_quic_conn_free)
+    /* if we fail after here, we must reap the connection
        TODO maybe actually set the connection to reset, and clean up resources later */
 
     /* Prepare QUIC-TLS transport params object (sent as a TLS extension).
@@ -1141,7 +1141,7 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
         tp );
     if( FD_UNLIKELY( tp_rc == FD_QUIC_ENCODE_FAIL ) ) {
       /* FIXME log error in counters */
-      fd_quic_conn_free( quic, conn );
+      conn->state = FD_QUIC_CONN_STATE_DEAD;
       return FD_QUIC_PARSE_FAIL;
     }
     ulong transport_params_raw_sz = tp_rc;
@@ -1157,7 +1157,7 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
                                     transport_params_raw_sz );
     if( !tls_hs ) {
       DEBUG( FD_LOG_DEBUG(( "fd_quic_tls_hs_new failed" )); )
-      fd_quic_conn_free( quic, conn );
+      conn->state = FD_QUIC_CONN_STATE_DEAD;
       return FD_QUIC_PARSE_FAIL;
     }
     conn->tls_hs = tls_hs;
@@ -1177,7 +1177,7 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
           orig_conn_id.conn_id, conn_id->sz,
           suite->hash ) ) ) {
       DEBUG( FD_LOG_DEBUG(( "fd_quic_gen_initial_secret failed" )); )
-      fd_quic_conn_free( quic, conn );
+      conn->state = FD_QUIC_CONN_STATE_DEAD;
       return FD_QUIC_PARSE_FAIL;
     }
 
@@ -1186,7 +1186,7 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
           (int)enc_level, /* generate initial secrets */
           suite->hash ) ) ) {
       DEBUG( FD_LOG_DEBUG(( "fd_quic_gen_secrets failed" )); )
-      fd_quic_conn_free( quic, conn );
+      conn->state = FD_QUIC_CONN_STATE_DEAD;
       return FD_QUIC_PARSE_FAIL;
     }
 
@@ -1198,7 +1198,7 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
           conn->secrets.secret[enc_level][0],
           conn->secrets.secret_sz[enc_level][0] ) ) ) {
       DEBUG( FD_LOG_DEBUG(( "fd_quic_gen_keys failed" )); )
-      fd_quic_conn_free( quic, conn );
+      conn->state = FD_QUIC_CONN_STATE_DEAD;
       return FD_QUIC_PARSE_FAIL;
     }
 
@@ -1209,7 +1209,7 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
           conn->secrets.secret[enc_level][1],
           conn->secrets.secret_sz[enc_level][1] ) ) ) {
       DEBUG( FD_LOG_DEBUG(( "fd_quic_gen_keys failed" )); )
-      fd_quic_conn_free( quic, conn );
+      conn->state = FD_QUIC_CONN_STATE_DEAD;
       return FD_QUIC_PARSE_FAIL;
     }
   }
@@ -1269,9 +1269,10 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
                                     pn_offset,
                                     suite,
                                     &conn->keys[enc_level][!server] ) != FD_QUIC_SUCCESS ) {
-      /* remove connection from map, and insert into free list */
+      /* As this is an INITIAL packet, change the status to DEAD, and allow
+         it to be reaped */
       DEBUG( FD_LOG_DEBUG(( "fd_quic_crypto_decrypt_hdr failed" )); )
-      fd_quic_conn_free( quic, conn );
+      conn->state = FD_QUIC_CONN_STATE_DEAD;
       return FD_QUIC_PARSE_FAIL;
     }
 
@@ -1312,9 +1313,7 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
                                 pkt_number,
                                 suite,
                                 &conn->keys[enc_level][!server] ) != FD_QUIC_SUCCESS ) {
-      /* remove connection from map, and insert into free list */
       DEBUG( FD_LOG_DEBUG(( "fd_quic_crypto_decrypt failed" )); )
-      fd_quic_conn_free( quic, conn );
       return FD_QUIC_PARSE_FAIL;
     }
   }
@@ -1749,12 +1748,12 @@ fd_quic_reschedule_conn( fd_quic_conn_t * conn,
   fd_quic_state_t * state = fd_quic_get_state( quic );
 
   /* set new timeout */
-  /* only brings it in - never pushed it out */
+  /* only brings it in - never pushes it out */
   if( timeout < conn->next_service_time ) {
     /* find conn in events, then remove, update, insert */
     fd_quic_event_t * event     = NULL;
-    ulong            event_idx = 0;
-    ulong            cnt   = service_queue_cnt( state->service_queue );
+    ulong             event_idx = 0;
+    ulong             cnt   = service_queue_cnt( state->service_queue );
     for( ulong j = 0; j < cnt; ++j ) {
       fd_quic_event_t * cur_event = state->service_queue + j;
       if( cur_event->conn == conn ) {
@@ -2580,15 +2579,22 @@ fd_quic_service( fd_quic_t * quic ) {
     service_queue_remove_min( state->service_queue );
 
     /* dead? don't reinsert, just clean up */
-    if( conn->state == FD_QUIC_CONN_STATE_DEAD ) {
-      fd_quic_cb_conn_final( quic, conn ); /* inform user before freeing */
-      fd_quic_conn_free( quic, conn );
-    } else {
-      if( conn->next_service_time <= now ) {
-        conn->next_service_time = now+1ul;
-      }
-      event->timeout = conn->next_service_time;
-      service_queue_insert( state->service_queue, event );
+    switch( conn->state ) {
+      case FD_QUIC_CONN_STATE_DEAD:
+        fd_quic_cb_conn_final( quic, conn ); /* inform user before freeing */
+        fd_quic_conn_free( quic, conn );
+        break;
+
+      case FD_QUIC_CONN_STATE_FREED:
+        /* skip entirely */
+        break;
+
+      default:
+        if( conn->next_service_time <= now ) {
+          conn->next_service_time = now+1ul;
+        }
+        event->timeout = conn->next_service_time;
+        service_queue_insert( state->service_queue, event );
     }
   }
 }
@@ -3246,7 +3252,7 @@ fd_quic_conn_tx( fd_quic_t * quic, fd_quic_conn_t * conn ) {
 
       /* are we at application level of encryption? */
       if( enc_level == fd_quic_enc_level_appdata_id ) {
-        if( conn->send_handshake_done ) {
+        if( conn->handshake_done_send ) {
           /* send handshake done frame */
           frame_sz = 1;
           pkt_meta->flags |= FD_QUIC_PKT_META_FLAGS_HS_DONE;
@@ -3669,7 +3675,7 @@ fd_quic_conn_tx( fd_quic_t * quic, fd_quic_conn_t * conn ) {
 
     /* did we send handshake-done? */
     if( pkt_meta->flags & FD_QUIC_PKT_META_FLAGS_HS_DONE ) {
-      conn->send_handshake_done = 0;
+      conn->handshake_done_send = 0;
     }
 
     /* reschedule based on expiry */
@@ -3721,7 +3727,7 @@ fd_quic_conn_service( fd_quic_t * quic, fd_quic_conn_t * conn, ulong now ) {
 
         /* if we're the server, we send "handshake-done" frame */
         if( conn->state == FD_QUIC_CONN_STATE_HANDSHAKE_COMPLETE && conn->server ) {
-          conn->send_handshake_done = 1;
+          conn->handshake_done_send = 1;
 
           /* move straight to ACTIVE */
           conn->state = FD_QUIC_CONN_STATE_ACTIVE;
@@ -3763,6 +3769,7 @@ fd_quic_conn_service( fd_quic_t * quic, fd_quic_conn_t * conn, ulong now ) {
         break;
 
     case FD_QUIC_CONN_STATE_DEAD:
+    case FD_QUIC_CONN_STATE_FREED:
       /* fall thru */
     default:
       return;
@@ -3785,9 +3792,41 @@ fd_quic_conn_free( fd_quic_t *      quic,
     }
   }
 
+  /* find conn in events, then remove */
+  ulong             event_idx = 0;
+  ulong             cnt   = service_queue_cnt( state->service_queue );
+  for( ulong j = 0; j < cnt; ++j ) {
+    fd_quic_event_t * cur_event = state->service_queue + j;
+    if( cur_event->conn == conn ) {
+      /* remove */
+      service_queue_remove( state->service_queue, event_idx );
+    }
+  }
+
+  /* remove all stream ids from map */
+  ulong tot_num_streams = conn->tot_num_streams;
+  for( ulong j = 0; j < tot_num_streams; ++j ) {
+    fd_quic_stream_t * stream = conn->streams[j];
+    if( stream->stream_id != FD_QUIC_STREAM_ID_UNUSED ) {
+      fd_quic_stream_map_t * stream_entry = fd_quic_stream_map_query( conn->stream_map, stream->stream_id, NULL );
+      if( stream_entry ) {
+        fd_quic_stream_map_remove( conn->stream_map, stream_entry );
+      }
+    }
+  }
+
+  /* free tls-hs */
+  if( conn->tls_hs ) {
+    fd_quic_tls_hs_delete( conn->tls_hs );
+    conn->tls_hs = NULL;
+  }
+
   /* put connection back in free list */
   conn->next   = state->conns;
   state->conns = conn;
+
+  /* prevent double free */
+  conn->state  = 0;
 }
 
 fd_quic_conn_id_t
@@ -4036,23 +4075,30 @@ fd_quic_conn_create( fd_quic_t *               quic,
   conn->next        = NULL;
 
   /* initialize connection members */
-  conn->quic               = quic;
-  conn->server             = server;
-  conn->version            = version;
-  conn->host               = (fd_quic_net_endpoint_t){
+  conn->quic                = quic;
+  conn->server              = server;
+  conn->established         = 0;
+  conn->version             = version;
+  conn->next_service_time   = 0;
+  fd_memset( &conn->our_conn_id[0], 0, sizeof( conn->our_conn_id ) );
+  conn->host                = (fd_quic_net_endpoint_t){
     .ip_addr  = config->net.ip_addr,
     .udp_port = fd_ushort_if( server,
                               config->net.listen_udp_port,
                               state->next_ephem_udp_port )
   };
-  conn->our_conn_id_cnt    = 0; /* set later */
-  conn->peer_cnt           = 0;
-  conn->cur_conn_id_idx    = 0;
-  conn->cur_peer_idx       = 0;
+  fd_memset( &conn->peer[0], 0, sizeof( conn->peer ) );
+  conn->local_conn_id       = 0; /* TODO probably set it here, or is it only valid for servers? */
+  conn->peer_cnt            = 0;
+  conn->our_conn_id_cnt     = 0; /* set later */
+  conn->cur_conn_id_idx     = 0;
+  conn->cur_peer_idx        = 0;
+
   /* start with smallest value we allow, then allow peer to increase */
-  conn->tx_max_datagram_sz = FD_QUIC_INITIAL_PAYLOAD_SZ_MAX;
-  conn->handshake_complete = 0;
-  conn->tls_hs             = NULL; /* created later */
+  conn->tx_max_datagram_sz  = FD_QUIC_INITIAL_PAYLOAD_SZ_MAX;
+  conn->handshake_complete  = 0;
+  conn->handshake_done_send = 0;
+  conn->tls_hs              = NULL; /* created later */
 
   /* initial max_streams */
 
@@ -4078,6 +4124,11 @@ fd_quic_conn_create( fd_quic_t *               quic,
   conn->tx_ptr = conn->tx_buf;
   conn->tx_sz  = sizeof( conn->tx_buf );
 
+  conn->stream_tx_buf_sz = 0;
+  conn->stream_rx_buf_sz = 0;
+
+  fd_memset( &conn->suites[0], 0, sizeof( conn->suites ) );
+
   /* rfc specifies TLS_AES_128_GCM_SHA256_ID for the suite for initial
      secrets and keys */
   conn->suites[ fd_quic_enc_level_initial_id ]
@@ -4092,8 +4143,29 @@ fd_quic_conn_create( fd_quic_t *               quic,
   /* start at our max, peer is allowed to lower */
   conn->max_concur_streams = (uint)quic->limits.stream_cnt;
 
-  /* current number of streams by type is zero */
+  /* array: current number of streams by type is zero */
   fd_memset( &conn->num_streams, 0, sizeof( conn->num_streams ) );
+
+  /* initialize streams */
+  ulong tot_num_streams = conn->tot_num_streams;
+  for( ulong j = 0; j < tot_num_streams; ++j ) {
+    conn->streams[j]->next = NULL;
+
+    /* insert into unused list */
+    if( j == 0 ) {
+      conn->unused_streams = conn->streams[j];
+    } else {
+      conn->streams[j-1]->next = conn->streams[j];
+    }
+  }
+
+  conn->send_streams   = NULL;
+
+  /* initialize packet metadata */
+  ulong num_pkt_meta = conn->num_pkt_meta;
+
+  /* initialize the pkt_meta pool with data */
+  fd_quic_pkt_meta_pool_init( &conn->pkt_meta_pool, conn->pkt_meta_mem, num_pkt_meta );
 
   /* clear peer transport parameters */
   fd_memset( &conn->peer_transport_params, 0, sizeof( conn->peer_transport_params ) );
@@ -4111,9 +4183,19 @@ fd_quic_conn_create( fd_quic_t *               quic,
   fd_memset( conn->tx_crypto_offset, 0, sizeof( conn->pkt_number ) );
   fd_memset( conn->rx_crypto_offset, 0, sizeof( conn->pkt_number ) );
 
+  fd_memset( conn->hs_sent_bytes, 0, sizeof( conn->hs_sent_bytes ) );
+
+  fd_memset( &conn->secrets, 0, sizeof( conn->secrets ) );
+  fd_memset( &conn->keys, 0, sizeof( conn->keys ) );
+  /* suites initialized above */
+
   conn->state                = FD_QUIC_CONN_STATE_HANDSHAKE;
   conn->reason               = 0;
   conn->app_reason           = 0;
+  conn->flags                = 0;
+  conn->spin_bit             = 0;
+  conn->upd_pkt_number       = 0;
+  conn->base_timeout         = 0;
 
   /* initialize connection members */
   ulong our_conn_id_idx = 0;
@@ -4154,6 +4236,7 @@ fd_quic_conn_create( fd_quic_t *               quic,
   /* return number of bytes consumed */
   return conn;
 }
+
 
 extern inline FD_FN_CONST
 int
@@ -4313,7 +4396,7 @@ fd_quic_pkt_meta_retry( fd_quic_t *          quic,
     }
     if( flags & FD_QUIC_PKT_META_FLAGS_HS_DONE            ) {
       /* do we need to resend the handshake done flag? */
-      conn->send_handshake_done = 1;
+      conn->handshake_done_send = 1;
       conn->upd_pkt_number      = next_pkt_number;
     }
     if( flags & FD_QUIC_PKT_META_FLAGS_MAX_DATA           ) {
