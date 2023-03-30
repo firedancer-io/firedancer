@@ -277,8 +277,9 @@ main( int argc, char ** argv ) {
   client_quic->join.cb.conn_hs_complete = my_handshake_complete;
 
   /* make use aio to point quic directly at quic */
-  fd_aio_t const * aio_n2q = fd_quic_get_aio_net_rx( server_quic );
-  fd_aio_t const * aio_q2n = fd_quic_get_aio_net_rx( client_quic );
+  fd_aio_t _aio[2];
+  fd_aio_t const * aio_n2q = fd_quic_get_aio_net_rx( server_quic, &_aio[ 0 ] );
+  fd_aio_t const * aio_q2n = fd_quic_get_aio_net_rx( client_quic, &_aio[ 1 ] );
 
 #if 0
   fd_quic_set_aio_net_tx( server_quic, aio_q2n );
@@ -400,7 +401,7 @@ main( int argc, char ** argv ) {
   }
 
   /* allow acks to go */
-  for( unsigned j = 0; j < 10; ++j ) {
+  for( uint j=0; j<10U; ++j ) {
     ulong ct = fd_quic_get_next_wakeup( client_quic );
     ulong st = fd_quic_get_next_wakeup( server_quic );
     ulong next_wakeup = fd_ulong_min( ct, st );

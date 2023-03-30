@@ -181,23 +181,19 @@ fd_quic_conn_new( void *                   mem,
   /* Initialize stream hash map */
 
   ulong stream_map_laddr = (ulong)mem + layout.stream_map_off;
-  FD_LOG_NOTICE(( "%#lx %#lx", stream_laddr, stream_map_laddr ));
   FD_TEST( stream_laddr <= stream_map_laddr );
   conn->stream_map = fd_quic_stream_map_join( fd_quic_stream_map_new( (void *)stream_map_laddr, layout.stream_map_lg ) );
   if( FD_UNLIKELY( !conn->stream_map ) ) return NULL;
 
   /* Initialize packet meta pool */
 
+  ulong                pkt_meta_cnt = limits->inflight_pkt_cnt;
   fd_quic_pkt_meta_t * pkt_meta     = (fd_quic_pkt_meta_t *)( (ulong)mem + layout.pkt_meta_off );
-  ulong                num_pkt_meta = limits->inflight_pkt_cnt;
-  fd_memset( pkt_meta, 0, num_pkt_meta * sizeof(fd_quic_pkt_meta_t) );
+  fd_memset( pkt_meta, 0, pkt_meta_cnt*sizeof(fd_quic_pkt_meta_t) );
 
   /* store pointer to storage and size */
   conn->pkt_meta_mem = pkt_meta;
-  conn->num_pkt_meta = num_pkt_meta;
-
-  /* initialize the pkt_meta pool with data */
-  fd_quic_pkt_meta_pool_init( &conn->pkt_meta_pool, pkt_meta, num_pkt_meta );
+  conn->num_pkt_meta = pkt_meta_cnt;
 
   /* Initialize ACKs array */
 

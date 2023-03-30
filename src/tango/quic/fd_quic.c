@@ -33,12 +33,6 @@
 #define MAP_QUERY_OPT         1
 #include "../../util/tmpl/fd_map_dynamic.c"
 
-#if 0
-#define DEBUG(...) __VA_ARGS__ fflush( stdout ); fflush( stderr );
-#else
-#define DEBUG(...)
-#endif
-
 /* Is this a TODO? */
 #define QUIC_DISABLE_CRYPTO 0
 
@@ -202,7 +196,7 @@ fd_quic_limits_from_env( int  *   pargc,
   limits->conn_cnt         = fd_env_strip_cmdline_ulong( pargc, pargv, "--quic-conns",         "QUIC_CONN_CNT",        1024UL );
   limits->conn_id_cnt      = fd_env_strip_cmdline_ulong( pargc, pargv, "--quic-conn-ids",      "QUIC_CONN_ID_CNT",       16UL );
   limits->stream_cnt       = fd_env_strip_cmdline_uint ( pargc, pargv, "--quic-streams",       "QUIC_STREAM_CNT",         2UL );
-  limits->handshake_cnt    = fd_env_strip_cmdline_uint ( pargc, pargv, "--quic-handshakes",    "QUIC_HANDSHAKE_CNT",      2UL );
+  limits->handshake_cnt    = fd_env_strip_cmdline_uint ( pargc, pargv, "--quic-handshakes",    "QUIC_HANDSHAKE_CNT",    256UL );
   limits->inflight_pkt_cnt = fd_env_strip_cmdline_ulong( pargc, pargv, "--quic-inflight-pkts", "QUIC_MAX_INFLIGHT_PKTS", 64UL );
   limits->tx_buf_sz        = fd_env_strip_cmdline_ulong( pargc, pargv, "--quic-tx-buf-sz",     "QUIC_TX_BUF_SZ",    1UL<<15UL );
   limits->rx_buf_sz        = fd_env_strip_cmdline_ulong( pargc, pargv, "--quic-rx-buf-sz",     "QUIC_RX_BUF_SZ",    1UL<<15UL );
@@ -247,9 +241,10 @@ fd_quic_get_callbacks( fd_quic_t * quic ) {
   return &quic->join.cb;
 }
 
-FD_QUIC_API FD_FN_CONST fd_aio_t const *
-fd_quic_get_aio_net_rx( fd_quic_t const * quic ) {
-  return &quic->join.aio_rx;
+FD_QUIC_API fd_aio_t *
+fd_quic_get_aio_net_rx( fd_quic_t * quic,
+                        fd_aio_t *  aio ) {
+  return fd_aio_join( fd_aio_new( aio, quic, fd_quic_aio_cb_receive ) );
 }
 
 FD_QUIC_API void
@@ -367,12 +362,12 @@ fd_quic_join( fd_quic_t * quic ) {
     else
       FD_LOG_INFO(( "Logging TLS key material to %s", keylog_file ));
   }
+  state->keylog_fd = keylog_fd;
 
-  /* New AIO */
+  /* Check TX AIO */
 
-  fd_aio_t * aio_rx = fd_aio_join( fd_aio_new( &quic->join.aio_rx, quic, fd_quic_aio_cb_receive ) );
-  if( FD_UNLIKELY( !aio_rx ) ) {
-    FD_LOG_WARNING(( "NULL aio_rx" ));
+  if( FD_UNLIKELY( !quic->join.aio_tx.send_func ) ) {
+    FD_LOG_WARNING(( "NULL aio_tx" ));
     return NULL;
   }
 
@@ -1128,9 +1123,9 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
     tp->initial_source_connection_id_present = 1;
     tp->initial_source_connection_id_len     = conn->initial_source_conn_id.sz;
 
-    DEBUG(
-      fd_quic_dump_transport_params( &quic->transport_params, stdout );
-    )
+    //DEBUG(
+    //  fd_quic_dump_transport_params( &state->transport_params, stderr );
+    //)
 
     /* Encode transport params to be sent to peer */
 
@@ -1285,7 +1280,7 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
 
     /* now we have decrypted packet number */
     pkt_number = fd_quic_parse_bits( dec_hdr + pn_offset, 0, 8u * pkt_number_sz );
-    DEBUG( FD_LOG_DEBUG(( "pkt_number: %lu", (ulong)pkg_number )); fd_log_flush(); )
+    DEBUG( FD_LOG_DEBUG(( "pkt_number: %lu", (ulong)pkt_number )); )
 
     /* packet number space */
     uint pn_space = fd_quic_enc_level_to_pn_space( enc_level );
@@ -1584,10 +1579,10 @@ fd_quic_handle_v1_one_rtt( fd_quic_t * quic, fd_quic_conn_t * conn, fd_quic_pkt_
     return 0;
   }
 
-  DEBUG(
-    FD_LOG_DEBUG(( "dump:" ));
-    fd_quic_dump_struct_one_rtt( one_rtt );
-  )
+  //DEBUG(
+  //  FD_LOG_DEBUG(( "dump:" ));
+  //  fd_quic_dump_struct_one_rtt( one_rtt );
+  //)
 
   /* generate one_rtt secrets, keys etc */
 
@@ -1676,7 +1671,7 @@ fd_quic_handle_v1_one_rtt( fd_quic_t * quic, fd_quic_conn_t * conn, fd_quic_pkt_
     /* now we have decrypted packet number */
     /* TODO packet number processing */
     pkt_number = fd_quic_parse_bits( dec_hdr + pn_offset, 0, 8u * pkt_number_sz );
-    DEBUG( FD_LOG_DEBUG(( "pkt_number: %lu" )); fd_log_flush(); )
+    DEBUG( FD_LOG_DEBUG(( "pkt_number: %lu", pkt_number )); fd_log_flush(); )
 
     /* packet number space */
     uint pn_space = fd_quic_enc_level_to_pn_space( enc_level );
@@ -2262,7 +2257,6 @@ fd_quic_tls_cb_client_hello( fd_quic_tls_hs_t * hs,
                              void *             context ) {
   (void)hs;
   (void)context;
-  DEBUG( FD_LOG_DEBUG(( "TLS CALLBACK" )); )
   return FD_QUIC_TLS_SUCCESS; /* accept everything */
 }
 
@@ -2296,13 +2290,11 @@ fd_quic_tls_cb_secret( fd_quic_tls_hs_t *           hs,
   (void)hs;
   (void)context;
   (void)secret;
-  DEBUG( FD_LOG_DEBUG(( "TLS CALLBACK" )); )
 
   fd_quic_conn_t *  conn   = (fd_quic_conn_t*)context;
   fd_quic_t *       quic   = conn->quic;
   fd_quic_state_t * state  = fd_quic_get_state( quic );
   int               server = conn->server;
-  DEBUG( FD_LOG_DEBUG(( "TLS %s", server ? "server" : "client" )); )
 
   /* look up suite */
   /* set secrets */
@@ -2345,10 +2337,10 @@ fd_quic_tls_cb_secret( fd_quic_tls_hs_t *           hs,
   uchar minor = (uchar)( suite_id );
   int suite_idx = fd_quic_crypto_lookup_suite( major, minor );
 
-  DEBUG(
-      printf( "suite: maj min: %u %u  suite_id: %x  suite_idx: %u\n",
-        (uint)major, (uint)minor, (uint)suite_id, (uint)suite_idx );
-      )
+  //DEBUG(
+  //    printf( "suite: maj min: %u %u  suite_id: %x  suite_idx: %u\n",
+  //      (uint)major, (uint)minor, (uint)suite_id, (uint)suite_idx );
+  //    )
 
   if( suite_idx >= 0 ) {
     fd_quic_crypto_suite_t * suite = conn->suites[enc_level] = &state->crypto_ctx->suites[ suite_idx ];
@@ -3877,7 +3869,7 @@ fd_quic_connect( fd_quic_t *  quic,
       1u /* version */ );
 
   if( FD_UNLIKELY( !conn ) ) {
-    DEBUG( FD_LOG_DEBUG(( "fd_quic_conn_create failed" )) )
+    DEBUG( FD_LOG_DEBUG(( "fd_quic_conn_create failed" )); )
     return NULL;
   }
 
