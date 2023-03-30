@@ -114,7 +114,7 @@ ip netns exec "$IFACE1" ip link set dev "$IFACE1" up || exit $?
 
 rm -rvf /sys/fs/bpf/"$WKSP"
 rm -rvf /sys/fs/bpf/"$WKSP"
-"$BIN/fd_xdp_ctl" init "$WKSP" || exit $?
+"$BIN/fd_xdp_ctl" init "$WKSP" 0755 "$USER" "" || exit $?
 
 # Install XDP program
 

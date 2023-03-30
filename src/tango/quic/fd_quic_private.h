@@ -8,6 +8,12 @@
 #include "crypto/fd_quic_crypto_suites.h"
 #include "tls/fd_quic_tls.h"
 
+#if 1
+#define DEBUG(...) __VA_ARGS__ fd_log_flush();
+#else
+#define DEBUG(...)
+#endif
+
 /* FD_QUIC_MAGIC is used to signal the layout of shared memory region
    of an fd_quic_t. */
 

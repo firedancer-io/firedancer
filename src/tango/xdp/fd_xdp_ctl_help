@@ -6,7 +6,7 @@ Commands are:
 help
 - Prints this message
 
-init [WKSP]
+init [WKSP] [PERM] [USER] [GROUP]
 - Prepare an XDP environment by pinning the XDP redirect
   program and associated eBPF maps in /sys/fs/bpf/[WKSP].
   All kernel OS resources allocated by fd_xdp_ctl will be
@@ -17,6 +17,11 @@ init [WKSP]
   /sys/fs/bpf/[WKSP]/udp_dsts  eBPF map of UDP/IP listen addrs
 - Must be re-run after each reboot.
 - Requires CAP_SYS_ADMIN, see capabilities(7).
+- /sys/fs/bpf and /sys/fs/bpf/[WKSP] are updated with
+  permission bits in [PERM] and set to owner [USER]:[GROUP].
+  Empty strings for [USER] are [GROUP] use current user
+  defaults.  A typical use case is
+  'init firedancer 0700 $(whoami) ""'
 
 fini [WKSP]
 - Destroy all kernel resources installed by fd_xdp_ctl app

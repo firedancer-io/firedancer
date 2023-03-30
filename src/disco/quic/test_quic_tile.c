@@ -6,6 +6,8 @@
 #include "../../tango/xdp/fd_xdp.h"
 #include "../../util/net/fd_eth.h"
 #include "../../util/net/fd_ip4.h"
+#include "../../ballet/base58/fd_base58.h"
+#include "../../ballet/txn/fd_txn.h"
 
 FD_STATIC_ASSERT( FD_QUIC_CNC_DIAG_CHUNK_IDX        ==2UL, unit_test );
 FD_STATIC_ASSERT( FD_QUIC_CNC_DIAG_TPU_PUB_CNT      ==3UL, unit_test );
@@ -45,7 +47,8 @@ rx_tile_main( int     argc,
               char ** argv ) {
   (void)argc;
   test_cfg_t * cfg = (test_cfg_t *)argv;
-  fd_wksp_t *  wksp   = cfg->wksp;
+
+  fd_wksp_t * wksp = cfg->wksp;
 
   /* Hook up to rx cnc */
   fd_cnc_t * cnc = cfg->rx_cnc;
@@ -66,6 +69,8 @@ rx_tile_main( int     argc,
   /* Configure housekeeping */
   ulong async_min = 1UL << cfg->rx_lazy;
   ulong async_rem = 1UL; /* Do housekeeping on first iteration */
+
+  ulong txn_idx = 0UL;
 
   fd_cnc_signal( cnc, FD_CNC_SIGNAL_RUN );
   for(;;) {
@@ -114,10 +119,24 @@ rx_tile_main( int     argc,
       /* TODO make QUIC tile respect backpressure instead? */
     }
 
-    /* Process the received fragment */
+    /* Process the received txn */
 
     uchar const * p = (uchar const *)fd_chunk_to_laddr_const( wksp, chunk );
-    (void)ctl; (void)sz; (void)sig; (void)tsorig; (void)tspub; (void)p;
+    (void)ctl; (void)sig; (void)tsorig; (void)tspub;
+
+    static FD_TLS fd_txn_parse_counters_t txn_parse_counters = {0};
+    uchar __attribute__((aligned(alignof(fd_txn_t)))) txn_buf[ FD_TXN_MAX_SZ ];
+    fd_txn_t * txn = NULL;
+    if( FD_LIKELY( fd_txn_parse( p, sz, txn_buf, &txn_parse_counters ) ) )
+      txn = (fd_txn_t *)txn_buf;
+
+    char txn_sig_cstr[ FD_BASE58_ENCODED_32_SZ ];
+    txn_sig_cstr[ 0 ] = '\0';
+
+    if( FD_LIKELY( txn ) ) {
+      uchar const * txn_sig = fd_txn_get_signatures( txn, p )[0];
+      fd_base58_encode_32( txn_sig, NULL, txn_sig_cstr );
+    }
 
     /* Check that we weren't overrun while processing */
 
@@ -127,6 +146,17 @@ rx_tile_main( int     argc,
 
     /* Wind up for the next iteration */
     seq = fd_seq_inc( seq, 1UL );
+
+    /* Check for corruption */
+
+    if( FD_UNLIKELY( !txn ) ) {
+      FD_LOG_WARNING(( "Received invalid txn from QUIC" ));
+      continue;
+    }
+
+    /* Print txn sig to user */
+
+    FD_LOG_NOTICE(( "Received txn no=%lu sig=%s", ++txn_idx, txn_sig_cstr ));
   }
 
   fd_cnc_signal( cnc, FD_CNC_SIGNAL_BOOT );
@@ -326,11 +356,12 @@ int main( int     argc,
   memcpy( quic_cfg->link.src_mac_addr, hwaddr,  6UL );
   memcpy( quic_cfg->link.dst_mac_addr, gateway, 6UL );
 
+  fd_aio_t _aio_rx[1];
+  fd_quic_set_aio_net_tx( cfg->tx_quic, fd_xsk_aio_get_tx     ( cfg->xsk_aio ) );
+  fd_xsk_aio_set_rx     ( cfg->xsk_aio, fd_quic_get_aio_net_rx( cfg->tx_quic, _aio_rx ) );
+
   FD_LOG_NOTICE(( "Joining QUIC" ));
   FD_TEST( fd_quic_join( cfg->tx_quic ) );
-
-  fd_quic_set_aio_net_tx( cfg->tx_quic, fd_xsk_aio_get_tx     ( cfg->xsk_aio ) );
-  fd_xsk_aio_set_rx     ( cfg->xsk_aio, fd_quic_get_aio_net_rx( cfg->tx_quic ) );
 
   FD_LOG_NOTICE(( "Booting" ));
 
@@ -361,9 +392,10 @@ int main( int     argc,
       ulong pub_cnt   = tx_cnc_diag[ FD_QUIC_CNC_DIAG_TPU_PUB_CNT  ];
       ulong pub_sz    = tx_cnc_diag[ FD_QUIC_CNC_DIAG_TPU_PUB_SZ   ];
       FD_COMPILER_MFENCE();
-      FD_LOG_NOTICE(( "monitor\n\t"
-                      "tx: pub_cnt %20lu pub_sz %20lu",
-                      pub_cnt, pub_sz ));
+      //FD_LOG_NOTICE(( "monitor\n\t"
+      //                "tx: pub_cnt %20lu pub_sz %20lu",
+      //                pub_cnt, pub_sz ));
+      (void)pub_sz; (void)pub_cnt;
       next += (long)1e9;
     }
     FD_YIELD();
