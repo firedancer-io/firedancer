@@ -126,8 +126,6 @@ fd_tpu_stream_create( fd_quic_stream_t * stream,
 
   (void)type; /* TODO reject bidi streams? */
 
-  FD_LOG_INFO(( "stream create" ));
-
   /* Load QUIC state */
 
   fd_quic_tpu_ctx_t * ctx = (fd_quic_tpu_ctx_t *)_ctx;
@@ -152,9 +150,9 @@ fd_tpu_stream_create( fd_quic_stream_t * stream,
   fd_quic_tpu_msg_ctx_t * msg_ctx = fd_quic_dcache_msg_ctx( dcache_app, chunk0, chunk );
   msg_ctx->conn_id   = conn_id;
   msg_ctx->stream_id = stream_id;
-  msg_ctx->data      = base + chunk;
+  msg_ctx->data      = fd_chunk_to_laddr( base, chunk );
   msg_ctx->sz        = 0U;
-  msg_ctx->tsorig     = (uint)fd_frag_meta_ts_comp( fd_tickcount() );
+  msg_ctx->tsorig    = (uint)fd_frag_meta_ts_comp( fd_tickcount() );
 
   /* Wind up for next callback */
 
@@ -173,15 +171,13 @@ fd_tpu_stream_receive( fd_quic_stream_t * stream,
 
   (void)fin; /* TODO instantly publish if offset==0UL && fin */
 
-  FD_LOG_INFO(( "stream receive" ));
-
   /* Bounds check */
   /* TODO this bounds check is not complete and assumes that the QUIC
      implementation rejects obviously invalid offset values, e.g. those
      that would overflow the data pointer. */
 
   ulong total_sz = offset+data_sz;
-  if( FD_UNLIKELY( total_sz>FD_TPU_MTU || total_sz>offset ) ) {
+  if( FD_UNLIKELY( total_sz>FD_TPU_MTU || total_sz<offset ) ) {
     //fd_quic_stream_close( stream, 0x03 ); /* FIXME fd_quic_stream_close not implemented */
     return;  /* oversz stream */
   }
@@ -202,7 +198,7 @@ fd_tpu_stream_receive( fd_quic_stream_t * stream,
   /* Append data into chunk */
 
   fd_memcpy( msg_ctx->data + offset, data, data_sz );
-  msg_ctx->sz = (uint)fd_ulong_max( msg_ctx->sz, total_sz ); /* TODO will QUIC deliver frames out-of-order? */
+  msg_ctx->sz = (uint)total_sz;
 }
 
 /* fd_tpu_stream_notify implements fd_quic_cb_stream_notify_t */
@@ -210,8 +206,6 @@ static void
 fd_tpu_stream_notify( fd_quic_stream_t * stream,
                       void *             stream_ctx,
                       int                type ) {
-
-  FD_LOG_INFO(( "stream notify" ));
 
   if( FD_UNLIKELY( type!=FD_QUIC_NOTIFY_END ) )
     return;  /* not a successful stream close */
@@ -233,7 +227,7 @@ fd_tpu_stream_notify( fd_quic_stream_t * stream,
 
   /* Add to local publish queue */
 
-  fd_quic_tpu_ctx_t * ctx = (fd_quic_tpu_ctx_t *)quic->join.cb.quic_ctx; /* TODO ugly */
+  fd_quic_tpu_ctx_t * ctx = fd_quic_get_callbacks( quic )->quic_ctx; /* TODO ugly */
   pubq_push( ctx->pubq, msg_ctx );
 }
 
@@ -437,7 +431,7 @@ fd_quic_tile( fd_cnc_t *         cnc,
       if( FD_UNLIKELY( msg->stream_id != ULONG_MAX ) )
         continue;  /* overrun */
 
-      ulong chunk  = (ulong)msg->data - (ulong)base;
+      ulong chunk  = fd_laddr_to_chunk( base, msg->data );
       ulong sz     = msg->sz;
       ulong sig    = 42UL; /* TODO */
       ulong ctl    = fd_frag_meta_ctl( orig, 1 /* som */, 1 /* eom */, 0 /* err */ );
@@ -445,7 +439,6 @@ fd_quic_tile( fd_cnc_t *         cnc,
       ulong tspub  = fd_frag_meta_ts_comp( fd_tickcount() );
 
       fd_mcache_publish( mcache, depth, seq, sig, chunk, sz, ctl, tsorig, tspub );
-      FD_LOG_INFO(( "publish" ));
 
       /* Windup for the next iteration and accumulate diagnostics */
 
