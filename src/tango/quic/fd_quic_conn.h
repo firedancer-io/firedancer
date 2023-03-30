@@ -262,6 +262,12 @@ struct fd_quic_conn {
      should be at least the smoothed round-trip-time */
   ulong                base_timeout;
 
+  /* current round-trip-time */
+  ulong                rtt;
+
+  /* highest peer encryption level */
+  uchar                peer_enc_level;
+
   /* next connection in the free list, or in service list */
   fd_quic_conn_t *     next;
 };

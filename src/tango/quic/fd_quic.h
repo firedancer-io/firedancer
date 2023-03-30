@@ -340,6 +340,12 @@ typedef struct fd_quic fd_quic_t;
 
 FD_PROTOTYPES_BEGIN
 
+/* debugging */
+
+ulong
+fd_quic_conn_get_pkt_meta_free_count( fd_quic_conn_t * conn );
+
+
 /* Construction API ***************************************************/
 
 /* fd_quic_{align,footprint} return the required alignment and footprint

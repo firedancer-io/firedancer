@@ -7,6 +7,21 @@
 
 #define BUF_SZ (1<<20)
 
+/* this is slow */
+int
+rand_256() {
+  static uint  j     = 56u;
+  static ulong rnd64 = 0u;
+  j = (j+8)&63u;
+
+  if( j == 0 ) {
+    fd_quic_crypto_rand( (void*)&rnd64, 8u );
+  }
+
+  return ( rnd64 >> j ) & 255u;
+}
+
+
 typedef struct my_stream_meta my_stream_meta_t;
 struct my_stream_meta {
   fd_quic_stream_t * stream;
@@ -295,9 +310,12 @@ my_cb_conn_final( fd_quic_conn_t * conn,
                   void *           context ) {
   (void)context;
 
-  fd_quic_conn_t ** ppconn = (fd_quic_conn_t**)fd_quic_conn_get_context( conn );;
+  fd_quic_conn_t ** ppconn = (fd_quic_conn_t**)fd_quic_conn_get_context( conn );
   if( ppconn ) {
+    printf( "my_cb_conn_final %p SUCCESS\n", (void*)*ppconn ); fflush( stdout );
     *ppconn = NULL;
+  } else {
+    printf( "my_cb_conn_final FAIL\n" ); fflush( stdout );
   }
 }
 
@@ -350,7 +368,15 @@ pipe_aio_receive( void * vp_ctx, fd_aio_pkt_info_t const * batch, ulong batch_sz
 #endif
 
   /* forward */
-  return fd_aio_send( pipe->aio, batch, batch_sz, opt_batch_idx );
+  if( rand_256() < 1000 ) {
+    return fd_aio_send( pipe->aio, batch, batch_sz, opt_batch_idx );
+  } else {
+    printf( "drop\n" ); fflush( stdout );
+    if( opt_batch_idx ) {
+      *opt_batch_idx = batch_sz;
+    }
+    return FD_AIO_SUCCESS;
+  }
 }
 
 
@@ -486,14 +512,14 @@ main( int argc, char ** argv ) {
   FD_TEST( fd_quic_join( server_quic ) );
 
   /* make a connection from client to server */
-  fd_quic_conn_t * client_conn = fd_quic_connect(
+  client_conn = fd_quic_connect(
       client_quic,
       server_quic->config.net.ip_addr,
       server_quic->config.net.listen_udp_port,
       server_quic->config.sni );
 
   /* do general processing */
-  for( ulong j = 0; j < 20; j++ ) {
+  while(1) {
     ulong ct = fd_quic_get_next_wakeup( client_quic );
     ulong st = fd_quic_get_next_wakeup( server_quic );
     ulong next_wakeup = fd_ulong_min( ct, st );
@@ -514,6 +540,8 @@ main( int argc, char ** argv ) {
 
       break;
     }
+
+    now = next_wakeup + (ulong)100e6;
   }
 
   for( ulong j = 0; j < 20; j++ ) {
@@ -526,7 +554,7 @@ main( int argc, char ** argv ) {
       break;
     }
 
-    now = next_wakeup;
+    now = next_wakeup + (ulong)100e6;
 
     fd_quic_service( client_quic );
     fd_quic_service( server_quic );
@@ -548,8 +576,10 @@ main( int argc, char ** argv ) {
     now += 50000;
 
     fd_quic_service( client_quic );
-    if( (j%1)==0 )
+
+    if( (j%1)==0 ) {
       fd_quic_service( server_quic );
+    }
 
     buf[12] = ' ';
     buf[15] = (char)( ( k / 10 ) + '0' );

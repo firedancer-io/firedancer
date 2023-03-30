@@ -229,6 +229,20 @@ fd_quic_cb_stream_notify( fd_quic_t *        quic,
   quic->join.cb.stream_notify( stream, stream_ctx, event );
 }
 
+
+void
+fd_quic_pkt_meta_retry( fd_quic_t *          quic,
+                        fd_quic_conn_t *     conn,
+                        int                  force );
+
+/* reclaim resources associated with packet metadata
+   this is called in response to received acks */
+void
+fd_quic_reclaim_pkt_meta( fd_quic_conn_t *     conn,
+                          fd_quic_pkt_meta_t * pkt_meta,
+                          uint                 enc_level );
+
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_tango_quic_fd_quic_private_h */

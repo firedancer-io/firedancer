@@ -42,7 +42,9 @@ struct fd_quic_pkt_meta {
        FD_QUIC_PKT_META_FLAGS_MAX_STREAMS_UNIDIR  max_streams frame (unidir)
        FD_QUIC_PKT_META_FLAGS_MAX_STREAMS_BIDIR   max_streams frame (bidir)
        FD_QUIC_PKT_META_FLAGS_ACK                 acknowledgement
-       FD_QUIC_PKT_META_FLAGS_CLOSE               close frame */
+       FD_QUIC_PKT_META_FLAGS_CLOSE               close frame
+
+     some of thesse flags are mutually exclusive */
   uint                 flags;       /* flags */
 # define          FD_QUIC_PKT_META_FLAGS_HS_DATA            (1u<<0u)
 # define          FD_QUIC_PKT_META_FLAGS_STREAM             (1u<<1u)
@@ -59,7 +61,8 @@ struct fd_quic_pkt_meta {
   ulong                stream_id;   /* if this contains stream data,
                                        the stream id, else zero */
 
-  /* TODO add timeout */
+  ulong                expiry; /* time pkt_meta expires... this is the time the
+                                  ack is expected by */
 
   fd_quic_pkt_meta_t * next;   /* next in current list */
 };
