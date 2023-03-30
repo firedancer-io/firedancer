@@ -9,9 +9,6 @@
 /* the max supported versions we could receive in a version packet */
 #define FD_QUIC_MAX_VERSIONS 8
 
-/* sparsity factor used by fixed sized hashmaps */
-#define FD_QUIC_SPARSITY 2.5
-
 #include <stddef.h>
 
 #include "tls/fd_quic_tls_enum.h"

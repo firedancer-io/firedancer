@@ -98,11 +98,7 @@ fd_quic_footprint_ext( fd_quic_limits_t const * limits,
   /* allocate space for connections */
   offs                    = fd_ulong_align_up( offs, fd_quic_conn_align() );
   layout->conns_off       = offs;
-  ulong conn_footprint    = fd_quic_conn_footprint(
-      tx_buf_sz,
-      rx_buf_sz,
-      stream_cnt,
-      inflight_pkt_cnt );
+  ulong conn_footprint    = fd_quic_conn_footprint( limits );
   if( FD_UNLIKELY( !conn_footprint ) ) { FD_LOG_WARNING(( "invalid fd_quic_conn_footprint" )); return 0UL; }
   layout->conn_footprint  = conn_footprint;
   ulong conn_foot_tot     = conn_cnt * conn_footprint;
@@ -320,13 +316,7 @@ fd_quic_join( fd_quic_t * quic ) {
     void * conn_mem  = (void *)( conn_laddr );
     conn_laddr      += layout.conn_footprint;
 
-    fd_quic_conn_t * conn = fd_quic_conn_new(
-        conn_mem,
-        quic,
-        limits->tx_buf_sz,
-        limits->rx_buf_sz,
-        limits->stream_cnt,
-        limits->inflight_pkt_cnt );
+    fd_quic_conn_t * conn = fd_quic_conn_new( conn_mem, quic, limits );
     if( FD_UNLIKELY( !conn ) ) {
       FD_LOG_WARNING(( "NULL conn" ));
       return NULL;
