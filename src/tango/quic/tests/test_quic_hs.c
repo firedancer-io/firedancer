@@ -404,7 +404,7 @@ main( int argc, char ** argv ) {
   fd_quic_conn_close( server_conn, 0 );
 
   /* allow acks to go */
-  for( unsigned j = 0; j < 10; ++j ) {
+  for( uint j=0; j<10U; ++j ) {
     ulong ct = fd_quic_get_next_wakeup( client_quic );
     ulong st = fd_quic_get_next_wakeup( server_quic );
     ulong next_wakeup = fd_ulong_min( ct, st );
