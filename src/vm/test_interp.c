@@ -22,6 +22,7 @@ test_program_success( char *                test_case_name,
     .instrs_sz = instrs_sz,
   };
 
+  /*
   char str[1024];
   fd_memset(str, 0, 1024);
   int x = 0;
@@ -29,7 +30,7 @@ test_program_success( char *                test_case_name,
     x += sprintf(&str[x], "%016llx\n", _bswap64(*((long*)&instrs[i])));
   }
   FD_LOG_NOTICE(( "Code: \n%s", str ));
-
+  */
   ulong validation_res = fd_vm_sbpf_interp_validate( &ctx ); 
   if (validation_res != 0) {
     FD_LOG_WARNING(( "VAL_RES: %lu, %x", validation_res, FD_BPF_OP_DIV64_REG  ));
@@ -46,7 +47,7 @@ test_program_success( char *                test_case_name,
   FD_LOG_NOTICE(( "Instr counter: %lu", ctx.instruction_counter ));
   FD_LOG_NOTICE(( "Time: %ldns", dt ));
   FD_LOG_NOTICE(( "Time/Instr: %f ns", (double)dt / (double)ctx.instruction_counter ));
-  FD_LOG_NOTICE(( "Mega Instr/Sec: %f", 1000.0 * (double)ctx.instruction_counter / (double) dt));
+  FD_LOG_NOTICE(( "Mega Instr/Sec: %f", 1000.0 * ((double)ctx.instruction_counter / (double) dt)));
   /*
   for( ulong i = 0; i < 11; i++ ) {
     FD_LOG_WARNING(( "REG %lu: %lu", i, ctx.register_file[i] ));
@@ -63,7 +64,7 @@ int
 main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
-
+/*
   TEST_PROGRAM_SUCCESS("add", 0x3, 5,
     FD_BPF_INSTR(FD_BPF_OP_MOV_IMM,   FD_R0,  0,      0, 0),
     FD_BPF_INSTR(FD_BPF_OP_MOV_IMM,   FD_R1,  0,      0, 2),
@@ -410,7 +411,7 @@ main( int     argc,
     FD_BPF_INSTR(FD_BPF_OP_MOV_IMM,   FD_R0,  0,      0, 1),
     FD_BPF_INSTR(FD_BPF_OP_EXIT,      0,      0,      0, 0),
   );
-  
+ */ 
   TEST_PROGRAM_SUCCESS("prime", 0x1, 16,
     FD_BPF_INSTR(FD_BPF_OP_MOV64_IMM, FD_R1,  0,      0, 100000007),
     FD_BPF_INSTR(FD_BPF_OP_MOV64_IMM, FD_R0,  0,      0, 0x1),

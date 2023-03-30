@@ -177,7 +177,6 @@ fd_vm_sbpf_interp_instrs( fd_vm_sbpf_exec_context_t * ctx ) {
   ulong * register_file = ctx->register_file;
   fd_memset(register_file, 0, sizeof(register_file));
   
-  ulong cond_exit = 0;
   ulong cond_fault = 0;
 
 #define ALIGNED_JMP_TAB_ID interp
@@ -188,24 +187,22 @@ fd_vm_sbpf_interp_instrs( fd_vm_sbpf_exec_context_t * ctx ) {
   ulong dst_reg;
   ulong src_reg;
   ulong imm; 
-  static const void* locs[256] = {
+  static const long locs[256] = {
 #include "fd_sbpf_interp_locs.c"  
   };
 
-  /*
-  FD_LOG_WARNING(( "BASE1 %p", locs[0] ));
+  FD_LOG_WARNING(( "BASE1 %lx", locs[0] ));
   for( ulong i = 1; i < 256; i++ ) {
-    FD_LOG_WARNING(( "DIFF %lu: %lu %p %p", i, locs[i] - locs[i-1], locs[i-1], locs[i]));
+    FD_LOG_WARNING(( "DIFF %02lx: %ld %lx %lx", i, locs[i] - locs[i-1], locs[i-1], locs[i]));
   }
-  */
   
-  for( ;; ) {
-    if( FD_UNLIKELY( cond_exit ) ) {
-      break;
-    }
-    if( FD_UNLIKELY( cond_fault ) ) {
-      break;
-    }
+    instr = ctx->instrs[pc];
+    dst_reg = instr.dst_reg;
+    src_reg = instr.src_reg;
+    imm = instr.imm;
+
+    goto *(&&AJT_BASE_LOC + locs[instr.opcode.raw]);
+  /*for( ;; ) {
     if( pc >= (long) ctx->instrs_sz ) {
       break;
     }
@@ -222,14 +219,13 @@ AJT_BREAK_LOC:
     pc++;
     
     continue;
-  }
+  }*/
 
-  ctx->program_counter = (ulong) pc;
-  ctx->instruction_counter = ic;
-  return;
 AJT_START;
 #include "fd_sbpf_interp_dispatch_tab.c"
 AJT_END;
+  ctx->program_counter = (ulong) pc;
+  ctx->instruction_counter = ic;
 
 #include "fd_aligned_jump_tab_teardown.c"
 #undef ALIGNED_JMP_TAB_ALIGNMENT
