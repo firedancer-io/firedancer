@@ -1,5 +1,8 @@
 #include "fd_acc_mgr.h"
 #include "../base58/fd_base58.h"
+#include "fd_hashes.h"
+
+#pragma GCC optimize ("O0")
 
 void* fd_acc_mgr_new( void* mem,
                       fd_funk_t* funk,
@@ -159,8 +162,7 @@ int fd_acc_mgr_write_structured_account( fd_acc_mgr_t* acc_mgr, ulong slot, fd_p
 
   m->slot = slot; 
 
-  // What is the correct hash function we should be using?
-  fd_memset(m->hash, 0, sizeof(m->hash));
+  fd_hash_account( account, slot, (fd_pubkey_t const *)  pubkey, (fd_hash_t *) m->hash);
 
   fd_memcpy(&data[sizeof(fd_account_meta_t)], account->data, account->data_len);
 
