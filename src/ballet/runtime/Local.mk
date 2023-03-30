@@ -2,7 +2,7 @@
 
 ifneq ($(FD_HAS_ROCKSDB),)
 
-$(call add-hdrs,fd_banks_solana.h fd_global_state.h fd_rocksdb.h fd_executor.h fd_acc_mgr.h fd_hashes.h fd_types.h)
+$(call add-hdrs,fd_banks_solana.h fd_rocksdb.h fd_executor.h fd_acc_mgr.h fd_hashes.h fd_types.h)
 $(call add-hdrs,sysvar/fd_sysvar.h sysvar/fd_sysvar_clock.h)
 $(call add-hdrs,program/fd_system_program.h program/fd_vote_program.h)
 
