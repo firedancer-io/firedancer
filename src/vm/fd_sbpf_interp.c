@@ -187,13 +187,16 @@ fd_vm_sbpf_interp_instrs( fd_vm_sbpf_exec_context_t * ctx ) {
   ulong dst_reg;
   ulong src_reg;
   ulong imm; 
-  static const long locs[256] = {
+  //static const long locs[256] = {
+  static const void * locs[256] = {
 #include "fd_sbpf_interp_locs.c"  
   };
 
-  FD_LOG_WARNING(( "BASE1 %lx", locs[0] ));
+  FD_LOG_WARNING(( "BASE1 %p", locs[0] ));
+  //FD_LOG_WARNING(( "BASE1 %lx", locs[0] ));
   for( ulong i = 1; i < 256; i++ ) {
-    FD_LOG_WARNING(( "DIFF %02lx: %ld %lx %lx", i, locs[i] - locs[i-1], locs[i-1], locs[i]));
+    // FD_LOG_WARNING(( "DIFF %02lx: %ld %lx %lx", i, locs[i] - locs[i-1], locs[i-1], locs[i]));
+    FD_LOG_WARNING(( "DIFF %02lx: %ld %p %p", i, locs[i] - locs[i-1], locs[i-1], locs[i]));
   }
   
     instr = ctx->instrs[pc];
@@ -201,7 +204,7 @@ fd_vm_sbpf_interp_instrs( fd_vm_sbpf_exec_context_t * ctx ) {
     src_reg = instr.src_reg;
     imm = instr.imm;
 
-    goto *(&&AJT_BASE_LOC + locs[instr.opcode.raw]);
+    goto *(locs[instr.opcode.raw]);
   /*for( ;; ) {
     if( pc >= (long) ctx->instrs_sz ) {
       break;

@@ -32,7 +32,7 @@
 
 #define __AJT_START_IMPL(base_lbl, ret_lbl, alignment) \
 goto ret_lbl; \
-base_lbl:
+// base_lbl:
 #define __AJT_START(base_lbl, ret_lbl, alignment) __AJT_START_IMPL(base_lbl, ret_lbl, alignment)
 #define AJT_START __AJT_START( \
     AJT_BASE_LABEL(__AJT_ID), \
@@ -40,12 +40,11 @@ base_lbl:
     ALIGNED_JMP_TAB_ALIGNMENT \
 )
 
-#define __AJT_CASE_END_IMPL { \
+#define __AJT_CASE_END_IMPL \
   ic++; \
-  pc++; \
-  instr = ctx->instrs[pc]; \
-  goto *(&&AJT_BASE_LOC + locs[instr.opcode.raw]); \
-}
+  instr = ctx->instrs[++pc]; \
+  goto *(locs[instr.opcode.raw]);
+//  goto *(&&AJT_BASE_LOC + locs[instr.opcode.raw]);
 #define __AJT_CASE_END __AJT_CASE_END_IMPL
 #define AJT_CASE_END __AJT_CASE_END
 
