@@ -191,7 +191,12 @@ fd_quic_conn_new( void *                   mem,
   fd_quic_pkt_meta_t * pkt_meta = (fd_quic_pkt_meta_t *)( (ulong)mem + layout.pkt_meta_off );
   fd_memset( pkt_meta, 0, limits->inflight_pkt_cnt * sizeof(fd_quic_pkt_meta_t) );
 
-  fd_quic_pkt_meta_pool_init( &conn->pkt_meta_pool, pkt_meta, limits->inflight_pkt_cnt );
+  /* store pointer to storage and size */
+  conn->pkt_meta_mem = pkt_meta;
+  conn->num_pkt_meta = num_pkt_meta;
+
+  /* initialize the pkt_meta pool with data */
+  fd_quic_pkt_meta_pool_init( &conn->pkt_meta_pool, pkt_meta, num_pkt_meta );
 
   /* Initialize ACKs array */
 

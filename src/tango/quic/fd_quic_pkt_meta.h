@@ -75,7 +75,6 @@ struct fd_quic_pkt_meta_list {
 
 
 struct fd_quic_pkt_meta_pool {
-  fd_quic_pkt_meta_list_t all;     /* all pkt_meta */
   fd_quic_pkt_meta_list_t free;    /* free pkt_meta */
 
   /* one of each of these for each enc_level */

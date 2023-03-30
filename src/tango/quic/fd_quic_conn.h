@@ -16,7 +16,8 @@ enum {
   FD_QUIC_CONN_STATE_PEER_CLOSE,         /* peer requested close */
   FD_QUIC_CONN_STATE_ABORT,              /* connection terminating due to error */
   FD_QUIC_CONN_STATE_CLOSE_PENDING,      /* connection is closing */
-  FD_QUIC_CONN_STATE_DEAD                /* connection about to be freed */
+  FD_QUIC_CONN_STATE_DEAD,               /* connection about to be freed */
+  FD_QUIC_CONN_STATE_FREED,              /* connection on free list */
 };
 
 enum {
@@ -108,7 +109,7 @@ struct fd_quic_conn {
 
   /* handshake members */
   int                handshake_complete;  /* have we completed a successful handshake? */
-  int                send_handshake_done; /* do we need to send handshake-done to peer? */
+  int                handshake_done_send; /* do we need to send handshake-done to peer? */
   fd_quic_tls_hs_t * tls_hs;
 
   /* expected handshake data offset - one per encryption level
@@ -189,10 +190,6 @@ struct fd_quic_conn {
            crypto streams - one for each enc_level
        acks sent */
 
-  /* indicates we need to send "handshake done"
-     cleared once packet is acked */
-  int handshake_done_send;
-
   ulong next_stream_id[4];      /* next stream id by type - see rfc9000 2.1 */
 
   uint  max_concur_streams;     /* configured max concurrent streams by connection and type */
@@ -212,6 +209,8 @@ struct fd_quic_conn {
 
   /* TODO find better name than pool */
   fd_quic_pkt_meta_pool_t pkt_meta_pool;
+  ulong                   num_pkt_meta;
+  fd_quic_pkt_meta_t *    pkt_meta_mem;    /* owns the memory */
 
   fd_quic_ack_t *      acks;               /* array of acks allocate during init */
   fd_quic_ack_t *      acks_free;          /* free list of acks */
