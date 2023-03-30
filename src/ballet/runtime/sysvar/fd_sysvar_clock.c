@@ -30,24 +30,12 @@ long timestamp_from_genesis( fd_genesis_solana_t* gen, ulong current_slot ) {
   return (long)(gen->creation_time + ( ( current_slot * ns_per_slot( gen->ticks_per_slot ) ) / 1000000000 ));
 }
 
-void fd_sysvar_clock_init( global_ctx_t* global ) {
-
-  /* Calculate timestamp estimate from Genesis config */
-  long timestamp = timestamp_from_genesis( &global->gen, global->current_slot );
-
-  /* Write the data to the clock account */
-  fd_sol_sysvar_clock_t clock = {
-    .slot = 0,
-    .epoch = 0,
-    .epoch_start_timestamp = timestamp,
-    .leader_schedule_epoch = 0,
-    .unix_timestamp = timestamp,
-  };
-  ulong sz = fd_sol_sysvar_clock_size( &clock );
+void write_clock( global_ctx_t* global, fd_sol_sysvar_clock_t* clock ) {
+  ulong sz = fd_sol_sysvar_clock_size( clock );
   unsigned char *enc = fd_alloca( 1, sz );
   memset( enc, 0, sz );
   void const *ptr = (void const *) enc;
-  fd_sol_sysvar_clock_encode( &clock, &ptr );
+  fd_sol_sysvar_clock_encode( clock, &ptr );
 
   unsigned char pubkey[32];
   unsigned char owner[32];
@@ -57,7 +45,42 @@ void fd_sysvar_clock_init( global_ctx_t* global ) {
   fd_sysvar_set( global, owner, pubkey, enc, sz, global->current_slot );
 }
 
+void fd_sysvar_clock_read( global_ctx_t* global, fd_sol_sysvar_clock_t* result ) {
+  fd_pubkey_t pubkey;
+  fd_base58_decode_32( "SysvarC1ock11111111111111111111111111111111", (unsigned char *) &pubkey);
 
+  /* Read the clock sysvar from the account */
+  fd_account_meta_t metadata;
+  int read_result = fd_acc_mgr_get_metadata( global->acc_mgr, &pubkey, &metadata );
+  if ( read_result != FD_ACC_MGR_SUCCESS ) {
+    FD_LOG_NOTICE(( "failed to read account metadata: %d", read_result ));
+    return;
+  }
+
+  unsigned char *raw_acc_data = fd_alloca( 1, metadata.dlen );
+  read_result = fd_acc_mgr_get_account_data( global->acc_mgr, &pubkey, raw_acc_data, metadata.hlen, metadata.dlen );
+  if ( read_result != FD_ACC_MGR_SUCCESS ) {
+    FD_LOG_NOTICE(( "failed to read account data: %d", read_result ));
+    return;
+  }
+
+  void* input = (void *)raw_acc_data;
+  fd_sol_sysvar_clock_decode( result, (const void **)&input, raw_acc_data + metadata.dlen, global->allocf, global->allocf_arg );
+}
+
+void fd_sysvar_clock_init( global_ctx_t* global ) {
+  /* Calculate timestamp estimate from Genesis config */
+  long timestamp = timestamp_from_genesis( &global->gen, global->current_slot );
+
+  fd_sol_sysvar_clock_t clock = {
+    .slot = 0,
+    .epoch = 0,
+    .epoch_start_timestamp = timestamp,
+    .leader_schedule_epoch = 0,
+    .unix_timestamp = timestamp,
+  };
+  write_clock( global, &clock );
+}
 
 /* Estimates the current timestamp, using the stake-weighted median of the latest validator timestamp oracle votes received
    from each voting node:
@@ -68,34 +91,20 @@ void fd_sysvar_clock_init( global_ctx_t* global ) {
     timestamp = (stake-weighted median of vote timestamps) + ((target slot duration) * (slots since median timestamp vote was received))
  */
 long estimate_timestamp( global_ctx_t* global, uint128 ns_per_slot ) {
-
-  /* TODO: actually take the stake-weighted median. For now, just take the first vote */
-  long estimate = global->timestamp_votes.votes.elems[0].timestamp + (long)( ns_per_slot * ( global->current_slot - global->timestamp_votes.votes.elems[0].slot ) );
-
-  /*
-  TODO: bound the estimate to ensure it stays within a certain range of the expected PoH clock:
+  /* TODO: bound the estimate to ensure it stays within a certain range of the expected PoH clock:
   https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/runtime/src/stake_weighted_timestamp.rs#L13 */
 
-  return estimate;
+  /* TODO: actually take the stake-weighted median. For now, just take the first vote */
+  return global->timestamp_votes.votes.elems[0].timestamp + (long)( ns_per_slot * ( global->current_slot - global->timestamp_votes.votes.elems[0].slot ) );;
 }
 
-/* TODO: make this conform to usual sysvar interface */
-void fd_sysvar_clock_update( FD_FN_UNUSED global_ctx_t* global ) {
+void fd_sysvar_clock_update( global_ctx_t* global ) {
+  fd_sol_sysvar_clock_t clock;
+  fd_sysvar_clock_read( global, &clock );
 
-  // long timestamp_estimate = estimate_timestamp( global, ns_per_slot( global->gen.ticks_per_slot ) );
+  long timestamp_estimate = estimate_timestamp( global, ns_per_slot( global->gen.ticks_per_slot ) );
+  clock.slot              = global->current_slot;
+  clock.unix_timestamp    = timestamp_estimate;
 
-  /* Read the clock sysvar from the account */
-
-  /* Update the values */
-
-  /* Write the account back to disk */
-
-  /*
-  Information we need:
-  - Pubkeys of all the vote accounts
-    - How to get these?
-  - Slot in which the vote accounts were updated.
-  - PoH slot duration estimate
-  */
-
+  write_clock( global, &clock );
 }

@@ -778,7 +778,8 @@ int replay(global_state_t *state) {
     //new.update_stake_history(Some(parent_epoch));
     //                 .map(|account| from_account::<SlotHistory, _>(account).unwrap())
 
-    //new.update_clock(Some(parent_epoch));
+    fd_sysvar_clock_update( &state->global );
+
     //new.update_fees();
     // "SysvarRecentB1ockHashes11111111111111111111",
 
