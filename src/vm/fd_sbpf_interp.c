@@ -173,6 +173,7 @@ fd_vm_mem_map_write_ulong( fd_vm_sbpf_exec_context_t * ctx,
 void
 fd_vm_sbpf_interp_instrs( fd_vm_sbpf_exec_context_t * ctx ) {
   long pc = ctx->entrypoint;
+  ulong ic = ctx->instruction_counter;
   ulong * register_file = ctx->register_file;
   fd_memset(register_file, 0, sizeof(register_file));
   
@@ -198,25 +199,34 @@ fd_vm_sbpf_interp_instrs( fd_vm_sbpf_exec_context_t * ctx ) {
   }
   */
   
-  for( ulong i = 0; 1; ++i ) {
+  for( ;; ) {
     if( FD_UNLIKELY( cond_exit ) ) {
-      return;
+      break;
     }
     if( FD_UNLIKELY( cond_fault ) ) {
-      return;
+      break;
+    }
+    if( pc >= (long) ctx->instrs_sz ) {
+      break;
     }
 
     instr = ctx->instrs[pc];
     dst_reg = instr.dst_reg;
     src_reg = instr.src_reg;
     imm = instr.imm;
+
     goto *locs[instr.opcode.raw];
     //AJT_GOTO(instr.opcode.raw);
 AJT_BREAK_LOC:
+    ic++;
     pc++;
+    
     continue;
   }
 
+  ctx->program_counter = (ulong) pc;
+  ctx->instruction_counter = ic;
+  return;
 AJT_START;
 #include "fd_sbpf_interp_dispatch_tab.c"
 AJT_END;

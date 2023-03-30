@@ -2,6 +2,9 @@
 #include "fd_opcodes.h"
 #include "fd_sbpf_interp.h"
 #include "../util/fd_util.h"
+#include <string.h>
+#include <stdio.h>
+#include <immintrin.h>
 
 static void
 test_program_success( char *                test_case_name,
@@ -13,9 +16,19 @@ test_program_success( char *                test_case_name,
   fd_vm_sbpf_exec_context_t ctx = {
     .entrypoint = 0,
     .num_ext_funcs = 0,
+    .program_counter = 0,
+    .instruction_counter = 0,
     .instrs = instrs,
     .instrs_sz = instrs_sz,
   };
+
+  char str[1024];
+  fd_memset(str, 0, 1024);
+  int x = 0;
+  for( ulong i = 0; i < instrs_sz; i++ ) {
+    x += sprintf(&str[x], "%016llx\n", _bswap64(*((long*)&instrs[i])));
+  }
+  FD_LOG_NOTICE(( "Code: \n%s", str ));
 
   ulong validation_res = fd_vm_sbpf_interp_validate( &ctx ); 
   if (validation_res != 0) {
@@ -23,12 +36,17 @@ test_program_success( char *                test_case_name,
   }
   FD_TEST( validation_res==FD_VM_SBPF_VALIDATE_SUCCESS );
 
+  long dt = -fd_log_wallclock();
   fd_vm_sbpf_interp_instrs( &ctx );
+  dt += fd_log_wallclock(); 
   if (expected_result != ctx.register_file[0]) {
     FD_LOG_WARNING(( "RET: %lu 0x%lx", ctx.register_file[0], ctx.register_file[0] ));
   }
   FD_TEST( ctx.register_file[0]==expected_result );
-
+  FD_LOG_NOTICE(( "Instr counter: %lu", ctx.instruction_counter ));
+  FD_LOG_NOTICE(( "Time: %ldns", dt ));
+  FD_LOG_NOTICE(( "Time/Instr: %f ns", (double)dt / (double)ctx.instruction_counter ));
+  FD_LOG_NOTICE(( "Mega Instr/Sec: %f", 1000.0 * (double)ctx.instruction_counter / (double) dt));
   /*
   for( ulong i = 0; i < 11; i++ ) {
     FD_LOG_WARNING(( "REG %lu: %lu", i, ctx.register_file[i] ));
@@ -328,6 +346,90 @@ main( int     argc,
   
   TEST_PROGRAM_SUCCESS("exit", 0x0, 2,
     FD_BPF_INSTR(FD_BPF_OP_MOV_IMM,   FD_R0,  0,      0, 0),
+    FD_BPF_INSTR(FD_BPF_OP_EXIT,      0,      0,      0, 0),
+  );
+
+  TEST_PROGRAM_SUCCESS("ja", 0x1, 4,
+    FD_BPF_INSTR(FD_BPF_OP_MOV_IMM,   FD_R0,  0,      0, 1),
+    FD_BPF_INSTR(FD_BPF_OP_JA,        0,      0,     +1, 0),
+    FD_BPF_INSTR(FD_BPF_OP_MOV_IMM,   FD_R0,  0,      0, 2),
+    FD_BPF_INSTR(FD_BPF_OP_EXIT,      0,      0,      0, 0),
+  );
+  
+  TEST_PROGRAM_SUCCESS("jeq-imm", 0x1, 8,
+    FD_BPF_INSTR(FD_BPF_OP_MOV_IMM,   FD_R0,  0,      0, 0),
+    FD_BPF_INSTR(FD_BPF_OP_MOV_IMM,   FD_R1,  0,      0, 0xa),
+    FD_BPF_INSTR(FD_BPF_OP_JEQ_IMM,   FD_R1,  0,     +4, 0xb),
+
+    FD_BPF_INSTR(FD_BPF_OP_MOV_IMM,   FD_R0,  0,      0, 1),
+    FD_BPF_INSTR(FD_BPF_OP_MOV_IMM,   FD_R1,  0,      0, 0xb),
+    FD_BPF_INSTR(FD_BPF_OP_JEQ_IMM,   FD_R1,  0,     +1, 0xb),
+
+    FD_BPF_INSTR(FD_BPF_OP_MOV_IMM,   FD_R0,  0,      0, 2),
+    FD_BPF_INSTR(FD_BPF_OP_EXIT,      0,      0,      0, 0),
+  );
+
+  TEST_PROGRAM_SUCCESS("jeq-reg", 0x1, 9,
+    FD_BPF_INSTR(FD_BPF_OP_MOV_IMM,   FD_R0,  0,      0, 0),
+    FD_BPF_INSTR(FD_BPF_OP_MOV_IMM,   FD_R1,  0,      0, 0xa),
+    FD_BPF_INSTR(FD_BPF_OP_MOV_IMM,   FD_R2,  0,      0, 0xb),
+    FD_BPF_INSTR(FD_BPF_OP_JEQ_REG,   FD_R1,  FD_R2, +4, 0),
+
+    FD_BPF_INSTR(FD_BPF_OP_MOV_IMM,   FD_R0,  0,      0, 1),
+    FD_BPF_INSTR(FD_BPF_OP_MOV_IMM,   FD_R1,  0,      0, 0xb),
+    FD_BPF_INSTR(FD_BPF_OP_JEQ_REG,   FD_R1,  FD_R2, +1, 0),
+
+    FD_BPF_INSTR(FD_BPF_OP_MOV_IMM,   FD_R0,  0,      0, 2),
+    FD_BPF_INSTR(FD_BPF_OP_EXIT,      0,      0,      0, 0),
+  );
+
+  TEST_PROGRAM_SUCCESS("jgt-imm", 0x1, 8,
+    FD_BPF_INSTR(FD_BPF_OP_MOV_IMM,   FD_R0,  0,      0, 0),
+    FD_BPF_INSTR(FD_BPF_OP_MOV_IMM,   FD_R1,  0,      0, 5),
+    
+    FD_BPF_INSTR(FD_BPF_OP_JGT_IMM,   FD_R1,  0,     +2, 6),
+    FD_BPF_INSTR(FD_BPF_OP_JGT_IMM,   FD_R1,  0,     +1, 5),
+    FD_BPF_INSTR(FD_BPF_OP_JGT_IMM,   FD_R1,  0,     +1, 4),
+
+    FD_BPF_INSTR(FD_BPF_OP_EXIT,      0,      0,      0, 0),
+    FD_BPF_INSTR(FD_BPF_OP_MOV_IMM,   FD_R0,  0,      0, 1),
+    FD_BPF_INSTR(FD_BPF_OP_EXIT,      0,      0,      0, 0),
+  );
+  
+  TEST_PROGRAM_SUCCESS("jgt-reg", 0x1, 10,
+    FD_BPF_INSTR(FD_BPF_OP_MOV_IMM,   FD_R0,  0,      0, 0),
+    FD_BPF_INSTR(FD_BPF_OP_MOV_IMM,   FD_R1,  0,      0, 5),
+    FD_BPF_INSTR(FD_BPF_OP_MOV_IMM,   FD_R2,  0,      0, 6),
+    FD_BPF_INSTR(FD_BPF_OP_MOV_IMM,   FD_R3,  0,      0, 4),
+    
+    FD_BPF_INSTR(FD_BPF_OP_JGT_REG,   FD_R1,  FD_R2, +2, 0),
+    FD_BPF_INSTR(FD_BPF_OP_JGT_REG,   FD_R1,  FD_R1, +1, 0),
+    FD_BPF_INSTR(FD_BPF_OP_JGT_REG,   FD_R1,  FD_R3, +1, 0),
+
+    FD_BPF_INSTR(FD_BPF_OP_EXIT,      0,      0,      0, 0),
+    FD_BPF_INSTR(FD_BPF_OP_MOV_IMM,   FD_R0,  0,      0, 1),
+    FD_BPF_INSTR(FD_BPF_OP_EXIT,      0,      0,      0, 0),
+  );
+  
+  TEST_PROGRAM_SUCCESS("prime", 0x1, 16,
+    FD_BPF_INSTR(FD_BPF_OP_MOV64_IMM, FD_R1,  0,      0, 100000007),
+    FD_BPF_INSTR(FD_BPF_OP_MOV64_IMM, FD_R0,  0,      0, 0x1),
+    FD_BPF_INSTR(FD_BPF_OP_MOV64_IMM, FD_R2,  0,      0, 0x2),
+    FD_BPF_INSTR(FD_BPF_OP_JGT_IMM,   FD_R1,  0,     +4, 0x2),
+    
+    FD_BPF_INSTR(FD_BPF_OP_JA,        0,      0,    +10, 0),
+    FD_BPF_INSTR(FD_BPF_OP_ADD64_IMM, FD_R2,  0,      0, 0x1),
+    FD_BPF_INSTR(FD_BPF_OP_MOV64_IMM, FD_R0,  0,      0, 0x1),
+    FD_BPF_INSTR(FD_BPF_OP_JGE_REG,   FD_R2,  FD_R1, +7, 0),
+    
+    FD_BPF_INSTR(FD_BPF_OP_MOV64_REG, FD_R3,  FD_R1,  0, 0),
+    FD_BPF_INSTR(FD_BPF_OP_DIV64_REG, FD_R3,  FD_R2,  0, 0),
+    FD_BPF_INSTR(FD_BPF_OP_MUL64_REG, FD_R3,  FD_R2,  0, 0),
+    FD_BPF_INSTR(FD_BPF_OP_MOV64_REG, FD_R4,  FD_R1,  0, 0),
+
+    FD_BPF_INSTR(FD_BPF_OP_SUB64_REG, FD_R4,  FD_R3,  0, 0),
+    FD_BPF_INSTR(FD_BPF_OP_MOV64_IMM, FD_R0,  0,      0, 0x0),
+    FD_BPF_INSTR(FD_BPF_OP_JNE_IMM,   FD_R4,  0,    -10, 0x0),
     FD_BPF_INSTR(FD_BPF_OP_EXIT,      0,      0,      0, 0),
   );
 

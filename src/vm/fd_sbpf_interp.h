@@ -23,9 +23,12 @@
 struct fd_vm_sbpf_exec_context {
   long                  entrypoint;
   ulong                 num_ext_funcs;
-  ulong                 register_file[11];
   fd_vm_sbpf_instr_t *  instrs;
   ulong                 instrs_sz;
+  
+  ulong                 register_file[11];
+  ulong                 program_counter;
+  ulong                 instruction_counter;
 
   uchar *       read_only;
   ulong         read_only_sz;

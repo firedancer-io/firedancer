@@ -250,6 +250,10 @@
    This macro is robust. */
 
 #define FD_TEST(c) do { if( FD_UNLIKELY( !(c) ) ) FD_LOG_ERR(( "FAIL: %s", #c )); } while(0)
+#define FD_TEST_EQ_UCHAR(value, expected) do { if( FD_UNLIKELY( !(value==expected) ) FD_LOG_ERR(( "FAIL: %s==%s\n\tvalue = %u \n\texpected = %u", #value, #expected, value, expected )); } while(0)
+#define FD_TEST_EQ_USHORT(value, expected) do { if( FD_UNLIKELY( !(value==expected) ) FD_LOG_ERR(( "FAIL: %s==%s\n\tvalue = %u\n\texpected = %u", #value, #expected, value, expected )); } while(0)
+#define FD_TEST_EQ_UINT(value, expected) do { if( FD_UNLIKELY( !(value==expected) ) FD_LOG_ERR(( "FAIL: %s==%s\n\tvalue = %u\n\texpected = %u", #value, #expected, value, expected )); } while(0)
+#define FD_TEST_EQ_ULONG(value, expected) do { if( FD_UNLIKELY( !(value==expected) ) FD_LOG_ERR(( "FAIL: %s==%s\n\tvalue = %lu\n\texpected = %lu", #value, #expected, value, expected )); } while(0)
 
 /* Macros for doing hexedit / tcpdump-like logging of memory regions.
    E.g.
