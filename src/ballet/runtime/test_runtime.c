@@ -760,8 +760,6 @@ int replay(global_state_t *state) {
     if ((state->end_slot < 10) || ((slot % 10) == 0))
       FD_LOG_WARNING(("reading slot %ld", slot));
 
-    state->global.current_slot = slot;
-
     ulong *p = (ulong *) &state->global.funk_txn.id[0];
     p[0] = fd_rng_ulong(rng);
     p[1] = fd_rng_ulong(rng);
@@ -779,7 +777,32 @@ int replay(global_state_t *state) {
     do {
       fd_slot_blocks_t *slot_data = fd_rocksdb_get_microblocks(&state->rocks_db, &m, state->global.allocf, state->global.allocf_arg);
 
-      // I need slot data first
+      state->global.current_slot = slot;
+
+      if (NULL == slot_data) {
+        FD_LOG_WARNING(("fd_rocksdb_get_microblocks returned NULL for slot %ld", slot));
+        break;
+      }
+
+      uchar *blob = slot_data->last_blob;
+      if (NULL == blob) {
+        FD_LOG_WARNING(("fd_rocksdb_get_microblocks returned empty for slot %ld", slot));
+        break;
+      }
+
+      uchar *blob_ptr = blob + FD_BLOB_DATA_START;
+      uint cnt = *((uint *) (blob + 8));
+      while (cnt > 0) {
+        fd_microblock_t * micro_block = fd_microblock_join( blob_ptr );
+  
+        blob_ptr = (uchar *) fd_ulong_align_up((ulong)blob_ptr + fd_microblock_footprint( micro_block->hdr.txn_cnt ), FD_MICROBLOCK_ALIGN);
+
+        if (1 == cnt) 
+          fd_memcpy(state->global.block_hash, micro_block->hdr.hash, sizeof(micro_block->hdr.hash));
+        fd_microblock_leave(micro_block);
+
+        cnt--;
+      } // while (cnt > 0) 
 
       fd_sysvar_clock_update( &state->global );
       fd_sysvar_recent_hashes_update ( &state->global, slot );
@@ -787,15 +810,10 @@ int replay(global_state_t *state) {
       // free 
       fd_slot_meta_destroy(&m, state->global.freef, state->global.allocf_arg);
 
-      if (NULL == slot_data) {
-        FD_LOG_WARNING(("fd_rocksdb_get_microblocks returned NULL for slot %ld", slot));
-        break;
-      }
-
       ulong blob_idx = 0;
       ulong entry_idx = 0;
       // execute slot_block...
-      uchar *blob = slot_data->first_blob;
+      blob = slot_data->first_blob;
       while (NULL != blob) {
         blob_idx++;
         uchar *blob_ptr = blob + FD_BLOB_DATA_START;

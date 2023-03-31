@@ -77,8 +77,7 @@ void fd_sysvar_recent_hashes_update(global_ctx_t* global, ulong slot) {
   memset(&s, 0, sizeof(s));
 
   s.fee_calculator.lamports_per_signature = global->gen.fee_rate_governor.target_lamports_per_signature / 2;
-
-  fd_memcpy(s.blockhash.hash, global->genesis_hash, sizeof(global->genesis_hash));
+  fd_memcpy(s.blockhash.hash, global->block_hash, sizeof(global->block_hash));
 
   while (a.hashes.cnt >= 150)
     fd_vec_fd_block_block_hash_entry_t_pop_unsafe(&a.hashes);
