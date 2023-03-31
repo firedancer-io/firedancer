@@ -10,7 +10,7 @@
 void fd_sysvar_recent_hashes_init( global_ctx_t* global, ulong slot );
 
 /* Update the recent hashes sysvar account. This should be called at the start of every slot, before execution commences. */
-void fd_sysvar_recent_hashes_update( );
+void fd_sysvar_recent_hashes_update( global_ctx_t* global, ulong slot );
 
 #endif /* HEADER_fd_src_ballet_runtime_sysvar_fd_recent_hashes_h */
 
