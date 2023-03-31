@@ -705,6 +705,30 @@ typedef struct fd_slot_meta fd_slot_meta_t;
 #define FD_SLOT_META_FOOTPRINT sizeof(fd_slot_meta_t)
 #define FD_SLOT_META_ALIGN (8UL)
 
+/* A validator timestamp oracle vote received from a voting node */
+struct fd_clock_timestamp_vote {
+  fd_pubkey_t   pubkey;
+  long          timestamp;
+  unsigned long slot;
+};
+typedef struct fd_clock_timestamp_vote fd_clock_timestamp_vote_t;
+#define FD_CLOCK_TIMESTAMP_VOTE_FOOTPRINT sizeof(fd_clock_timestamp_vote_t)
+#define FD_CLOCK_TIMESTAMP_VOTE_ALIGN (8UL)
+
+#define VECT_NAME fd_vec_fd_clock_timestamp_vote_t
+#define VECT_ELEMENT fd_clock_timestamp_vote_t
+#include "../../funk/fd_vector.h"
+#undef VECT_NAME
+#undef VECT_ELEMENT
+
+/* Validator timestamp oracle votes received from voting nodes. TODO: make this a map */
+struct fd_clock_timestamp_votes {
+  fd_vec_fd_clock_timestamp_vote_t_t votes;
+};
+typedef struct fd_clock_timestamp_votes fd_clock_timestamp_votes_t;
+#define FD_CLOCK_TIMESTAMP_VOTES_FOOTPRINT sizeof(fd_clock_timestamp_votes_t)
+#define FD_CLOCK_TIMESTAMP_VOTES_ALIGN (8UL)
+
 
 FD_PROTOTYPES_BEGIN
 
@@ -1017,6 +1041,16 @@ void fd_slot_meta_decode(fd_slot_meta_t* self, void const** data, void const* da
 void fd_slot_meta_encode(fd_slot_meta_t* self, void const** data);
 void fd_slot_meta_destroy(fd_slot_meta_t* self, fd_free_fun_t freef, void* freef_arg);
 ulong fd_slot_meta_size(fd_slot_meta_t* self);
+
+void fd_clock_timestamp_vote_decode(fd_clock_timestamp_vote_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
+void fd_clock_timestamp_vote_encode(fd_clock_timestamp_vote_t* self, void const** data);
+void fd_clock_timestamp_vote_destroy(fd_clock_timestamp_vote_t* self, fd_free_fun_t freef, void* freef_arg);
+ulong fd_clock_timestamp_vote_size(fd_clock_timestamp_vote_t* self);
+
+void fd_clock_timestamp_votes_decode(fd_clock_timestamp_votes_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
+void fd_clock_timestamp_votes_encode(fd_clock_timestamp_votes_t* self, void const** data);
+void fd_clock_timestamp_votes_destroy(fd_clock_timestamp_votes_t* self, fd_free_fun_t freef, void* freef_arg);
+ulong fd_clock_timestamp_votes_size(fd_clock_timestamp_votes_t* self);
 
 FD_PROTOTYPES_END
 

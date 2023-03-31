@@ -664,6 +664,24 @@
           { "name": "is_connected", "type": "uchar" },
           { "name": "entry_end_indexes", "type": "vector", "element": "uint" }
       ]
+    },
+    {
+      "name": "clock_timestamp_vote",
+      "type": "struct",
+      "fields": [
+        { "name": "pubkey", "type": "pubkey" },
+        { "name": "timestamp", "type": "long" },
+        { "name": "slot", "type": "ulong" }
+      ],
+      "comment": "A validator timestamp oracle vote received from a voting node"
+    },
+    {
+      "name": "clock_timestamp_votes",
+      "type": "struct",
+      "fields": [
+        { "name": "votes", "type": "vector_dynamic", "element": "clock_timestamp_vote" }
+      ],
+      "comment": "Validator timestamp oracle votes received from voting nodes. TODO: make this a map"
     }
   ]
 }

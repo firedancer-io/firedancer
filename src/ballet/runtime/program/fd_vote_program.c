@@ -125,6 +125,26 @@ int fd_executor_vote_program_execute_instruction(
         return write_result;
       }
 
+      /* Record this timestamp vote */
+      if ( vote_state_update.timestamp != NULL ) {
+        uchar found = 0;
+        for ( ulong i = 0; i < ctx.global->timestamp_votes.votes.cnt; i++ ) {
+          if ( memcmp( &ctx.global->timestamp_votes.votes.elems[i].pubkey, vote_acc, sizeof(fd_pubkey_t) ) == 0 ) {
+            ctx.global->timestamp_votes.votes.elems[i].slot      = ctx.global->current_slot;
+            ctx.global->timestamp_votes.votes.elems[i].timestamp = (long)*vote_state_update.timestamp;
+            found = 1;
+          }
+        } 
+        if ( !found ) {
+          fd_clock_timestamp_vote_t timestamp_vote = {
+            .pubkey    = *vote_acc,
+            .timestamp = (long)*vote_state_update.timestamp,
+            .slot      = ctx.global->current_slot,
+          };
+          fd_vec_fd_clock_timestamp_vote_t_push( &ctx.global->timestamp_votes.votes, timestamp_vote );
+        }
+      }
+
       fd_vote_state_destroy( &vote_state, ctx.global->freef, ctx.global->allocf_arg );
       fd_vote_state_update_destroy( &vote_state_update, ctx.global->freef, ctx.global->allocf_arg );
     } else {

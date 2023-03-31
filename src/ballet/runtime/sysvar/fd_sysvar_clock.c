@@ -1,18 +1,77 @@
 #include "fd_sysvar_clock.h"
 #include "../fd_types.h"
+#include "../../base58/fd_base58.h"
+#include "fd_sysvar.h"
 
-/* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/runtime/src/bank.rs#L2200 */
-long timestamp_from_genesis( long genesis_creation_time, ulong slot, uint128 ns_per_slot ) {
-  /* TODO: check correctness */
-  return genesis_creation_time + (long)( ( slot * ns_per_slot ) / 1000000000 );
+const ulong ns_in_s = 1000000000;
+
+/* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/clock.rs#L10 */
+const ulong default_ticks_per_second = 160;
+
+/* The target tick duration, derived from the target tick rate.
+ https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/src/poh_config.rs#L32 
+  */
+const uint128 default_target_tick_duration_ns = ns_in_s / default_ticks_per_second;
+
+/* Calculates the target duration of a slot, in nanoseconds.
+   https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/src/genesis_config.rs#L222
+   
+   ticks_per_slot is found in the genesis block. The default value is 64, for a target slot duration of 400ms:
+   https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/clock.rs#L22
+    */
+uint128 ns_per_slot( ulong ticks_per_slot ) {
+  return default_target_tick_duration_ns * ticks_per_slot;
 }
 
-void fd_sysvar_clock_init( global_ctx_t* global, long genesis_creation_time, ulong slot, uint128 ns_per_slot ) {
+/* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/runtime/src/bank.rs#L2200 */
+long timestamp_from_genesis( fd_genesis_solana_t* gen, ulong current_slot ) {
+  /* TODO: check correctness */
+  /* TODO: make types of timestamps the same throughout the codebase */
+  return (long)(gen->creation_time + ( ( current_slot * ns_per_slot( gen->ticks_per_slot ) ) / 1000000000 ));
+}
 
+void write_clock( global_ctx_t* global, fd_sol_sysvar_clock_t* clock ) {
+  ulong sz = fd_sol_sysvar_clock_size( clock );
+  unsigned char *enc = fd_alloca( 1, sz );
+  memset( enc, 0, sz );
+  void const *ptr = (void const *) enc;
+  fd_sol_sysvar_clock_encode( clock, &ptr );
+
+  unsigned char pubkey[32];
+  unsigned char owner[32];
+  fd_base58_decode_32( "Sysvar1111111111111111111111111111111111111",  (unsigned char *) owner);
+  fd_base58_decode_32( "SysvarC1ock11111111111111111111111111111111",  (unsigned char *) pubkey);
+
+  fd_sysvar_set( global, owner, pubkey, enc, sz, global->current_slot );
+}
+
+void fd_sysvar_clock_read( global_ctx_t* global, fd_sol_sysvar_clock_t* result ) {
+  fd_pubkey_t pubkey;
+  fd_base58_decode_32( "SysvarC1ock11111111111111111111111111111111", (unsigned char *) &pubkey);
+
+  /* Read the clock sysvar from the account */
+  fd_account_meta_t metadata;
+  int read_result = fd_acc_mgr_get_metadata( global->acc_mgr, &pubkey, &metadata );
+  if ( read_result != FD_ACC_MGR_SUCCESS ) {
+    FD_LOG_NOTICE(( "failed to read account metadata: %d", read_result ));
+    return;
+  }
+
+  unsigned char *raw_acc_data = fd_alloca( 1, metadata.dlen );
+  read_result = fd_acc_mgr_get_account_data( global->acc_mgr, &pubkey, raw_acc_data, metadata.hlen, metadata.dlen );
+  if ( read_result != FD_ACC_MGR_SUCCESS ) {
+    FD_LOG_NOTICE(( "failed to read account data: %d", read_result ));
+    return;
+  }
+
+  void* input = (void *)raw_acc_data;
+  fd_sol_sysvar_clock_decode( result, (const void **)&input, raw_acc_data + metadata.dlen, global->allocf, global->allocf_arg );
+}
+
+void fd_sysvar_clock_init( global_ctx_t* global ) {
   /* Calculate timestamp estimate from Genesis config */
-  long timestamp = timestamp_from_genesis( genesis_creation_time, slot, ns_per_slot );
+  long timestamp = timestamp_from_genesis( &global->gen, global->current_slot );
 
-  /* Write the data to the clock account */
   fd_sol_sysvar_clock_t clock = {
     .slot = 0,
     .epoch = 0,
@@ -20,33 +79,32 @@ void fd_sysvar_clock_init( global_ctx_t* global, long genesis_creation_time, ulo
     .leader_schedule_epoch = 0,
     .unix_timestamp = timestamp,
   };
-
-  (void)clock;
-  (void)global;
-
-  /* TODO: give the account enough lamports to make it rent exempt */
-
-  /* TODO: write the account to the funk database */
+  write_clock( global, &clock );
 }
 
-void fd_sysvar_clock_update( FD_FN_UNUSED global_ctx_t* global ) {
+/* Estimates the current timestamp, using the stake-weighted median of the latest validator timestamp oracle votes received
+   from each voting node:
+   https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/runtime/src/bank.rs#L2927
 
-  /*
-  Information we need:
-  - Pubkeys of all the vote accounts
-  - PoH slot duration estimate
-  */
+   Linear interpolation, using the target duration of a slot, is used to calculate the timestamp estimate for the current slot:
 
-  /* Update the clock using a stake-weighted estimate of the latest
-  (timestamp, slot) values received from voting validators in vote instructions:
-  https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/runtime/src/stake_weighted_timestamp.rs#L24
-
-  Linear interpolation, using the Leader's PoH estimate for the real-world duration
-  of a slot, is then used to calculate the timestamp estimate for the current slot:
-
-    timestamp = (stake-weighted votes timestamp) + ((PoH slot duration estimate) * (slots since votes were received))
-
-  This estimate is bounded to ensure it stays within a certain range of the PoH estimate:
+    timestamp = (stake-weighted median of vote timestamps) + ((target slot duration) * (slots since median timestamp vote was received))
+ */
+long estimate_timestamp( global_ctx_t* global, uint128 ns_per_slot ) {
+  /* TODO: bound the estimate to ensure it stays within a certain range of the expected PoH clock:
   https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/runtime/src/stake_weighted_timestamp.rs#L13 */
 
+  /* TODO: actually take the stake-weighted median. For now, just take the first vote */
+  return global->timestamp_votes.votes.elems[0].timestamp + (long)( ns_per_slot * ( global->current_slot - global->timestamp_votes.votes.elems[0].slot ) );;
+}
+
+void fd_sysvar_clock_update( global_ctx_t* global ) {
+  fd_sol_sysvar_clock_t clock;
+  fd_sysvar_clock_read( global, &clock );
+
+  long timestamp_estimate = estimate_timestamp( global, ns_per_slot( global->gen.ticks_per_slot ) );
+  clock.slot              = global->current_slot;
+  clock.unix_timestamp    = timestamp_estimate;
+
+  write_clock( global, &clock );
 }
