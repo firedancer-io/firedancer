@@ -27,6 +27,7 @@ struct global_ctx {
   ulong                      current_slot;
   fd_poh_state_t             poh;
   struct fd_funk_xactionid   funk_txn;
+  uchar                      block_hash[FD_SHA256_HASH_SZ];
 
   fd_clock_timestamp_votes_t timestamp_votes;
 };
