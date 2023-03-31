@@ -929,6 +929,15 @@ fd_hash_memcpy( ulong                    seed,
 
 #define fd_tickcount() ((long)__builtin_ia32_rdtsc())
 
+#elif FD_HAS_ARM
+
+static inline long
+fd_tickcount( void ) {
+  ulong val;
+  __asm__ volatile("mrs %0, cntvct_el0" : "=r" (val));
+  return (long)val;
+}
+
 #endif
 
 #if FD_HAS_HOSTED
