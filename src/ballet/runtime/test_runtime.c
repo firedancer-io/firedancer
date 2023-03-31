@@ -776,11 +776,13 @@ int replay(global_state_t *state) {
     //new.update_stake_history(Some(parent_epoch));
     //                 .map(|account| from_account::<SlotHistory, _>(account).unwrap())
 
-    fd_sysvar_clock_update( &state->global );
-    fd_sysvar_recent_hashes_update ( &state->global, slot );
-
     do {
       fd_slot_blocks_t *slot_data = fd_rocksdb_get_microblocks(&state->rocks_db, &m, state->global.allocf, state->global.allocf_arg);
+
+      // I need slot data first
+
+      fd_sysvar_clock_update( &state->global );
+      fd_sysvar_recent_hashes_update ( &state->global, slot );
 
       // free 
       fd_slot_meta_destroy(&m, state->global.freef, state->global.allocf_arg);
