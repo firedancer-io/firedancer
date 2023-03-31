@@ -9,7 +9,7 @@ const ulong max_entries = 1024 * 1024;
 const bits_per_block = 8 * sizeof(ulong);
 void set( fd_slot_history_inner_t* bits, ulong i ) {
   ulong block_idx = i / bits_per_block;
-  bits->blocks[ block_idx ] |= ( 1UL << i );
+  bits->blocks[ block_idx ] |= ( 1UL << ( i % bits_per_block ) );
 }
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/slot_history.rs#L16 */
