@@ -21,8 +21,8 @@ struct __attribute__((aligned(FD_XSK_AIO_ALIGN))) fd_xsk_aio_private {
   /* Join Config ******************************************************/
 
   fd_xsk_t * xsk;
-  fd_aio_t   rx;  /* from outside to user */
-  fd_aio_t   tx;  /* from user to outside */
+  fd_aio_t   rx;  /* from outside to user (externally owned) */
+  fd_aio_t   tx;  /* from user to outside (owned by fd_xsk_aio) */
   void *     frame_mem; /* Address of start of frame memory */
 
   /* {rx,tx}_off: Offset from frame_mem to {rx,tx} frames.

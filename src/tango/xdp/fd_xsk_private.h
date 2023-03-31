@@ -1,7 +1,7 @@
 #ifndef HEADER_fd_src_tango_xdp_fd_xsk_private_h
 #define HEADER_fd_src_tango_xdp_fd_xsk_private_h
 
-#if defined(__linux__) && FD_HAS_LIBBPF
+#if defined(__linux__)
 
 #include "fd_xsk.h"
 #include "../../util/fd_util.h"
@@ -36,17 +36,17 @@ struct __attribute__((aligned(64UL))) fd_ring_desc {
     struct xdp_desc * packet_ring; /* For RX, TX rings */
     ulong *           frame_ring;  /* For FILL, COMPLETION rings */
   };
-  ulong * flags;       /* Points to flags in shared descriptor ring */
-  ulong * prod;        /* Points to producer seq in shared descriptor ring */
-  ulong * cons;        /* Points to consumer seq in shared descriptor ring */
+  uint *  flags;       /* Points to flags in shared descriptor ring */
+  uint *  prod;        /* Points to producer seq in shared descriptor ring */
+  uint *  cons;        /* Points to consumer seq in shared descriptor ring */
 
   /* This point is 64-byte aligned */
 
   /* Managed by fd_xsk_t */
 
-  ulong   depth;       /* Capacity of ring in no of entries */
-  ulong   cached_prod; /* Cached value of *prod */
-  ulong   cached_cons; /* Cached value of *cons */
+  uint    depth;       /* Capacity of ring in no of entries */
+  uint    cached_prod; /* Cached value of *prod */
+  uint    cached_cons; /* Cached value of *cons */
 };
 typedef struct fd_ring_desc fd_ring_desc_t;
 
@@ -137,5 +137,5 @@ fd_xsk_tx_need_wakeup( fd_xsk_t * xsk ) {
 
 FD_PROTOTYPES_END
 
-#endif /* defined(__linux__) && FD_HAS_LIBBPF */
+#endif /* defined(__linux__) */
 #endif /* HEADER_fd_src_tango_xdp_fd_xsk_private_h */
