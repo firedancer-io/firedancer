@@ -68,7 +68,6 @@ void fd_sysvar_clock_read( global_ctx_t* global, fd_sol_sysvar_clock_t* result )
 }
 
 void fd_sysvar_clock_init( global_ctx_t* global ) {
-  /* Calculate timestamp estimate from Genesis config */
   long timestamp = timestamp_from_genesis( &global->gen, global->current_slot );
 
   fd_sol_sysvar_clock_t clock = {
