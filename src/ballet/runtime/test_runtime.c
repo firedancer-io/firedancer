@@ -52,7 +52,9 @@
 
 #include <dirent.h>
 
+#ifdef _DISABLE_OPTIMIZATION
 #pragma GCC optimize ("O0")
+#endif
 
 uchar do_valgrind = 1;
 
@@ -723,8 +725,6 @@ int replay(global_state_t *state) {
   void *shrng = fd_rng_new(&rnd_mem, 0, 0);
   fd_rng_t * rng  = fd_rng_join( shrng );
 
-  struct fd_funk_xactionid funk_txn;
-
   uchar boot_boh = 1;
   if (0 == state->start_slot) {
     fd_memcpy(state->global.poh.state, state->global.genesis_hash, sizeof(state->global.genesis_hash));
@@ -757,20 +757,18 @@ int replay(global_state_t *state) {
     if (slot >= state->end_slot)
       break;
 
-    if ((slot % 10) == 0)
+    if ((state->end_slot < 10) || ((slot % 10) == 0))
       FD_LOG_WARNING(("reading slot %ld", slot));
 
     state->global.current_slot = slot;
 
-    if (state->txn_exe == 2) {
-      ulong *p = (ulong *) &funk_txn.id[0];
-      p[0] = fd_rng_ulong(rng);
-      p[1] = fd_rng_ulong(rng);
-      p[2] = fd_rng_ulong(rng);
-      p[3] = fd_rng_ulong(rng);
+    ulong *p = (ulong *) &state->global.funk_txn.id[0];
+    p[0] = fd_rng_ulong(rng);
+    p[1] = fd_rng_ulong(rng);
+    p[2] = fd_rng_ulong(rng);
+    p[3] = fd_rng_ulong(rng);
 
-      fd_funk_fork(state->global.funk, fd_funk_root(state->global.acc_mgr->funk), &funk_txn);
-    }
+    fd_funk_fork(state->global.funk, fd_funk_root(state->global.acc_mgr->funk), &state->global.funk_txn);
 
     // SysvarS1otHashes111111111111111111111111111
     //new.update_slot_hashes();
@@ -782,6 +780,7 @@ int replay(global_state_t *state) {
 
     //new.update_fees();
     // "SysvarRecentB1ockHashes11111111111111111111",
+    fd_sysvar_recent_hashes_update ( &state->global, slot );
 
     do {
       fd_slot_blocks_t *slot_data = fd_rocksdb_get_microblocks(&state->rocks_db, &m, state->global.allocf, state->global.allocf_arg);
@@ -825,7 +824,7 @@ int replay(global_state_t *state) {
                 fd_execute_txn( executor, txn_descriptor, txn_raw );
                 break;
               case 2:
-                fd_sim_txn( state, executor, txn_descriptor, txn_raw, &funk_txn );
+                fd_sim_txn( state, executor, txn_descriptor, txn_raw, &state->global.funk_txn );
                 break;
               default: // skip
                 break;
@@ -875,8 +874,7 @@ int replay(global_state_t *state) {
       state->global.freef(state->global.allocf_arg, slot_data);
     } while (0);
 
-    if (state->txn_exe == 2) 
-      fd_funk_commit(state->global.funk, &funk_txn);
+    fd_funk_commit(state->global.funk, &state->global.funk_txn);
 
     ret = fd_rocksdb_root_iter_next ( &iter, &m, state->global.allocf, state->global.allocf_arg);
     if (ret < 0) {
@@ -1020,13 +1018,13 @@ int main(int argc, char **argv) {
     free(buf);
   }
 
+  state.global.funk_txn = *fd_funk_root(state.global.funk);
+
   // Jam all the accounts into the database....  (gen.accounts)
 
   /* Initialize the account manager */
-  struct fd_funk_xactionid const* xroot = fd_funk_root(state.global.funk);
-
   void *fd_acc_mgr_raw = state.global.allocf(state.global.allocf_arg, FD_ACC_MGR_ALIGN, FD_ACC_MGR_FOOTPRINT);
-  state.global.acc_mgr = fd_acc_mgr_join(fd_acc_mgr_new(fd_acc_mgr_raw, state.global.funk, xroot, FD_ACC_MGR_FOOTPRINT));
+  state.global.acc_mgr = fd_acc_mgr_join(fd_acc_mgr_new(fd_acc_mgr_raw, state.global.funk, &state.global.funk_txn , FD_ACC_MGR_FOOTPRINT));
 
   fd_vec_fd_clock_timestamp_vote_t_new( &state.global.timestamp_votes.votes );
 
@@ -1035,7 +1033,7 @@ int main(int argc, char **argv) {
   for (ulong i = 0; i < state.global.gen.accounts_len; i++) {
     fd_pubkey_account_pair_t *a = &state.global.gen.accounts[i];
 
-    fd_acc_mgr_write_structured_account(state.global.acc_mgr, 0, &a->key, &a->account);
+    fd_acc_mgr_write_structured_account(state.global.acc_mgr, &state.global.funk_txn, 0, &a->key, &a->account);
 
     char pubkey[50];
     fd_base58_encode_32((uchar *) a->key.key, NULL, pubkey);

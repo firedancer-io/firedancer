@@ -4,6 +4,10 @@
 #include "../fd_hashes.h"
 #include "fd_sysvar.h"
 
+#ifdef _DISABLE_OPTIMIZATION
+#pragma GCC optimize ("O0")
+#endif
+
 void fd_sysvar_set(global_ctx_t *state, const unsigned char *owner, const unsigned char *pubkey, unsigned char *data, unsigned long sz, ulong slot) {
   // MAYBE, as a defense in depth thing, we should only let it reset the lamports on initial creation?
 
@@ -16,5 +20,5 @@ void fd_sysvar_set(global_ctx_t *state, const unsigned char *owner, const unsign
   };
   fd_memcpy( account.owner.key, owner, 32 );
 
-  fd_acc_mgr_write_structured_account( state->acc_mgr, slot, (fd_pubkey_t *)  pubkey, &account );
+  fd_acc_mgr_write_structured_account( state->acc_mgr, &state->funk_txn, slot, (fd_pubkey_t *)  pubkey, &account );
 }

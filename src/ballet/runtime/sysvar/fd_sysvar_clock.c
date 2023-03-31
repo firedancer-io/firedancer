@@ -9,13 +9,13 @@ const ulong ns_in_s = 1000000000;
 const ulong default_ticks_per_second = 160;
 
 /* The target tick duration, derived from the target tick rate.
- https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/src/poh_config.rs#L32 
+ https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/src/poh_config.rs#L32
   */
 const uint128 default_target_tick_duration_ns = ns_in_s / default_ticks_per_second;
 
 /* Calculates the target duration of a slot, in nanoseconds.
    https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/src/genesis_config.rs#L222
-   
+
    ticks_per_slot is found in the genesis block. The default value is 64, for a target slot duration of 400ms:
    https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/clock.rs#L22
     */
@@ -30,7 +30,7 @@ long timestamp_from_genesis( fd_genesis_solana_t* gen, ulong current_slot ) {
 }
 
 void write_clock( global_ctx_t* global, fd_sol_sysvar_clock_t* clock ) {
-  ulong sz = fd_sol_sysvar_clock_size( clock );
+  ulong          sz = fd_sol_sysvar_clock_size( clock );
   unsigned char *enc = fd_alloca( 1, sz );
   memset( enc, 0, sz );
   void const *ptr = (void const *) enc;
@@ -50,7 +50,7 @@ void fd_sysvar_clock_read( global_ctx_t* global, fd_sol_sysvar_clock_t* result )
 
   /* Read the clock sysvar from the account */
   fd_account_meta_t metadata;
-  int read_result = fd_acc_mgr_get_metadata( global->acc_mgr, &pubkey, &metadata );
+  int               read_result = fd_acc_mgr_get_metadata( global->acc_mgr, &pubkey, &metadata );
   if ( read_result != FD_ACC_MGR_SUCCESS ) {
     FD_LOG_NOTICE(( "failed to read account metadata: %d", read_result ));
     return;
@@ -98,7 +98,7 @@ long estimate_timestamp( global_ctx_t* global, uint128 ns_per_slot ) {
   }
 
   /* TODO: actually take the stake-weighted median. For now, just take the first vote */
-  return global->timestamp_votes.votes.elems[0].timestamp + (long)( ns_per_slot * ( global->current_slot - global->timestamp_votes.votes.elems[0].slot ) );;
+  return global->timestamp_votes.votes.elems[0].timestamp + (long)( ns_per_slot * ( global->current_slot - global->timestamp_votes.votes.elems[0].slot ) );
 }
 
 void fd_sysvar_clock_update( global_ctx_t* global ) {

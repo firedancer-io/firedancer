@@ -2,7 +2,9 @@
 #include "../base58/fd_base58.h"
 #include "fd_hashes.h"
 
+#ifdef _DISABLE_OPTIMIZATION
 #pragma GCC optimize ("O0")
+#endif
 
 void* fd_acc_mgr_new( void* mem,
                       fd_funk_t* funk,
@@ -130,7 +132,7 @@ int fd_acc_mgr_set_lamports( fd_acc_mgr_t* acc_mgr, struct fd_funk_xactionid con
   return FD_ACC_MGR_SUCCESS;
 }
 
-int fd_acc_mgr_write_structured_account( fd_acc_mgr_t* acc_mgr, ulong slot, fd_pubkey_t* pubkey, fd_solana_account_t * account) {
+int fd_acc_mgr_write_structured_account( fd_acc_mgr_t* acc_mgr, struct fd_funk_xactionid const* txn, ulong slot, fd_pubkey_t* pubkey, fd_solana_account_t * account) {
   ulong dlen =  sizeof(fd_account_meta_t) + account->data_len;
   uchar *data = fd_alloca(8UL, dlen);
   fd_account_meta_t *m = (fd_account_meta_t *) data;
@@ -150,7 +152,7 @@ int fd_acc_mgr_write_structured_account( fd_acc_mgr_t* acc_mgr, ulong slot, fd_p
 
   fd_memcpy(&data[sizeof(fd_account_meta_t)], account->data, account->data_len);
 
-  return fd_acc_mgr_write_account_data(acc_mgr, fd_funk_root(acc_mgr->funk), pubkey, 0, (uchar *) data, dlen);
+  return fd_acc_mgr_write_account_data(acc_mgr, txn, pubkey, 0, (uchar *) data, dlen);
 }
 
 int fd_acc_mgr_write_append_vec_account( fd_acc_mgr_t* acc_mgr, ulong slot, fd_solana_account_hdr_t * hdr) {
