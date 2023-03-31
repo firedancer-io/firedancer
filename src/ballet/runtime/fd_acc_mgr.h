@@ -59,7 +59,7 @@ int fd_acc_mgr_get_lamports( fd_acc_mgr_t* acc_mgr, fd_pubkey_t* pubkey, fd_acc_
 /* Sets the lamport balance for the account with the given public key. */
 int fd_acc_mgr_set_lamports( fd_acc_mgr_t* acc_mgr, struct fd_funk_xactionid const*, fd_pubkey_t* pubkey, fd_acc_lamports_t lamports );
 
-int fd_acc_mgr_write_structured_account( fd_acc_mgr_t* acc_mgr, ulong slot, fd_pubkey_t*, fd_solana_account_t *);
+int fd_acc_mgr_write_structured_account( fd_acc_mgr_t* acc_mgr, struct fd_funk_xactionid const* txn, ulong slot, fd_pubkey_t*, fd_solana_account_t *);
 
 int fd_acc_mgr_write_append_vec_account( fd_acc_mgr_t* acc_mgr, ulong slot, fd_solana_account_hdr_t *);
 

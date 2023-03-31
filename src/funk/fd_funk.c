@@ -12,6 +12,10 @@
 #include "fd_funk_root.h"
 #include "fd_funk_xaction.h"
 
+#ifdef _DISABLE_OPTIMIZATION
+#pragma GCC optimize ("O0")
+#endif
+
 struct fd_funk {
     // Workspace for allocation
     fd_wksp_t* wksp;

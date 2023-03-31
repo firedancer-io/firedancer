@@ -6,6 +6,10 @@
 
 #include "../../base58/fd_base58.h"
 
+#ifdef _DISABLE_OPTIMIZATION
+#pragma GCC optimize ("O0")
+#endif
+
 unsigned char pubkey[32] = {0};
 unsigned char owner[32] = {0};
 
@@ -42,6 +46,9 @@ void fd_sysvar_recent_hashes_init( global_ctx_t* global, ulong slot ) {
 }
 
 void fd_sysvar_recent_hashes_update(global_ctx_t* global, ulong slot) {
+  if (slot == 0)  // we already set this... as part of boot
+    return; 
+
   if (pubkey[0] == '0')
     fd_base58_decode_32( "SysvarRecentB1ockHashes11111111111111111111",  (unsigned char *) pubkey);
 
@@ -68,6 +75,8 @@ void fd_sysvar_recent_hashes_update(global_ctx_t* global, ulong slot) {
 
   fd_block_block_hash_entry_t s;
   memset(&s, 0, sizeof(s));
+
+  s.fee_calculator.lamports_per_signature = global->gen.fee_rate_governor.target_lamports_per_signature / 2;
 
   fd_memcpy(s.blockhash.hash, global->genesis_hash, sizeof(global->genesis_hash));
 
