@@ -777,9 +777,6 @@ int replay(global_state_t *state) {
     //                 .map(|account| from_account::<SlotHistory, _>(account).unwrap())
 
     fd_sysvar_clock_update( &state->global );
-
-    //new.update_fees();
-    // "SysvarRecentB1ockHashes11111111111111111111",
     fd_sysvar_recent_hashes_update ( &state->global, slot );
 
     do {
