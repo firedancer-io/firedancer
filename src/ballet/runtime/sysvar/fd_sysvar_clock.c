@@ -25,8 +25,7 @@ uint128 ns_per_slot( ulong ticks_per_slot ) {
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/runtime/src/bank.rs#L2200 */
 long timestamp_from_genesis( fd_genesis_solana_t* gen, ulong current_slot ) {
-  /* TODO: check correctness */
-  /* TODO: make types of timestamps the same throughout the codebase */
+  /* TODO: maybe make types of timestamps the same throughout the runtime codebase. as Solana uses a signed representation */
   return (long)(gen->creation_time + ( ( current_slot * ns_per_slot( gen->ticks_per_slot ) ) / 1000000000 ));
 }
 
@@ -76,7 +75,7 @@ void fd_sysvar_clock_init( global_ctx_t* global ) {
     .slot = 0,
     .epoch = 0,
     .epoch_start_timestamp = timestamp,
-    .leader_schedule_epoch = 0,
+    .leader_schedule_epoch = 1,
     .unix_timestamp = timestamp,
   };
   write_clock( global, &clock );
@@ -94,6 +93,10 @@ long estimate_timestamp( global_ctx_t* global, uint128 ns_per_slot ) {
   /* TODO: bound the estimate to ensure it stays within a certain range of the expected PoH clock:
   https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/runtime/src/stake_weighted_timestamp.rs#L13 */
 
+  if ( global->timestamp_votes.votes.cnt == 0 ) {
+    return timestamp_from_genesis( &global->gen, global->current_slot );
+  }
+
   /* TODO: actually take the stake-weighted median. For now, just take the first vote */
   return global->timestamp_votes.votes.elems[0].timestamp + (long)( ns_per_slot * ( global->current_slot - global->timestamp_votes.votes.elems[0].slot ) );;
 }
@@ -105,6 +108,13 @@ void fd_sysvar_clock_update( global_ctx_t* global ) {
   long timestamp_estimate = estimate_timestamp( global, ns_per_slot( global->gen.ticks_per_slot ) );
   clock.slot              = global->current_slot;
   clock.unix_timestamp    = timestamp_estimate;
+
+  FD_LOG_INFO(( "Updated clock at slot %lu", global->current_slot ));
+  FD_LOG_INFO(( "clock.slot: %lu", clock.slot ));
+  FD_LOG_INFO(( "clock.epoch_start_timestamp: %ld", clock.epoch_start_timestamp ));
+  FD_LOG_INFO(( "clock.epoch: %lu", clock.epoch ));
+  FD_LOG_INFO(( "clock.leader_schedule_epoch: %lu", clock.leader_schedule_epoch ));
+  FD_LOG_INFO(( "clock.unix_timestamp: %ld", clock.unix_timestamp ));
 
   write_clock( global, &clock );
 }
