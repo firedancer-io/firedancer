@@ -32,7 +32,10 @@ fd_runtime_boot_slot_zero( fd_global_ctx_t *global ) {
 // could execute the cryptography in another thread for tracking this
 // but we don't actually have anything to compare it to until we hit
 // another snapshot...  Probably we should just store the results into
-// the global state (a slot/hash map)...
+// the global state (a slot/hash map)?
+//
+// What slots exactly do cache'd account_updates go into?  how are
+// they hashed (which slot?)?
 
 int
 fd_runtime_block_execute( fd_global_ctx_t *global, fd_slot_blocks_t *slot_data ) {
