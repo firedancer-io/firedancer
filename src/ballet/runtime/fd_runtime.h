@@ -35,7 +35,6 @@ struct fd_global_ctx {
   // TODO: should we instead remember which slot the poh is valid for?
   uchar                      poh_booted;
   fd_clock_timestamp_votes_t timestamp_votes;
-
 };
 typedef struct fd_global_ctx fd_global_ctx_t;
 
