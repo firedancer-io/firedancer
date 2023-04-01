@@ -719,6 +719,7 @@ fd_sim_txn(global_state_t *state, FD_FN_UNUSED fd_executor_t* executor, fd_txn_t
 }
 
 int replay(global_state_t *state) {
+  // TODO: We need to formalize how global state gets booted
   if (NULL == state->global.executor) {
     void *fd_executor_raw = malloc(FD_EXECUTOR_FOOTPRINT);
     state->global.executor = fd_executor_join(fd_executor_new(fd_executor_raw, &state->global, FD_EXECUTOR_FOOTPRINT));
@@ -740,9 +741,6 @@ int replay(global_state_t *state) {
     FD_LOG_ERR(("fd_rocksdb_root_iter_seek returned %d", ret));
   }
 
-  /* TODO: move this somewhere more appropiate. Properly organise sysvars. */
-  /* fd_sysvar_clock_init( global,  ); */
-
   do {
     ulong slot;
     ret = fd_rocksdb_root_iter_slot ( &iter, &slot );
@@ -760,8 +758,7 @@ int replay(global_state_t *state) {
 
     state->global.current_slot = slot;
 
-    FD_TEST (fd_runtime_block_verify( &state->global, slot_data) == FD_RUNTIME_EXECUTE_SUCCESS);
-    FD_TEST (fd_runtime_block_execute( &state->global, slot_data) == FD_RUNTIME_EXECUTE_SUCCESS);
+    FD_TEST (fd_runtime_block_eval( &state->global, slot_data) == FD_RUNTIME_EXECUTE_SUCCESS);
 
     // free
     fd_slot_meta_destroy(&m, state->global.freef, state->global.allocf_arg);

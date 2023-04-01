@@ -12,6 +12,7 @@ FD_PROTOTYPES_BEGIN
 void fd_runtime_boot_slot_zero( global_ctx_t *global );
 int fd_runtime_block_execute( global_ctx_t *global, fd_slot_blocks_t *slot_data );
 int fd_runtime_block_verify( global_ctx_t *global, fd_slot_blocks_t *slot_data );
+int fd_runtime_block_eval( global_ctx_t *global, fd_slot_blocks_t *slot_data );
 
 FD_PROTOTYPES_END
 

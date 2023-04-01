@@ -2,6 +2,16 @@
 #include "sysvar/fd_sysvar_clock.h"
 #include "sysvar/fd_sysvar.h"
 
+#ifdef _DISABLE_OPTIMIZATION
+#pragma GCC optimize ("O0")
+#endif
+
+// boot the global state at slot zero...
+//
+// We have an issue with a lot of the sysvars when we do not start at
+// state zero or bounce around.  For example, if you bounce block_execute around,
+// recent_hashes will make zero sense...
+
 void
 fd_runtime_boot_slot_zero( global_ctx_t *global ) {
   fd_memcpy(global->poh.state, global->genesis_hash, sizeof(global->genesis_hash));
@@ -11,6 +21,12 @@ fd_runtime_boot_slot_zero( global_ctx_t *global ) {
   fd_sysvar_clock_init( global );
 }
 
+// fd_runtime_block_execute
+//
+// There is a strong assumption here that we are executing and
+// verifying blocks in order.  If you bounce around, the poh state
+// will not match AND the sysvars will be set incorrectly.  Since the
+// verify WILL fail, the runtime will detect incorrect usage..
 int
 fd_runtime_block_execute( global_ctx_t *global, fd_slot_blocks_t *slot_data ) {
   ulong *p = (ulong *) &global->funk_txn.id[0];
@@ -31,6 +47,9 @@ fd_runtime_block_execute( global_ctx_t *global, fd_slot_blocks_t *slot_data ) {
     return FD_RUNTIME_EXECUTE_GENERIC_ERR;
   }
 
+  // It sucks that we need to know the current block hash which is
+  // stored at the END of the block.  Lets have a fever dream another
+  // time and optimize this...
   uchar *blob_ptr = blob + FD_BLOB_DATA_START;
   uint   cnt = *((uint *) (blob + 8));
   while (cnt > 0) {
@@ -114,4 +133,20 @@ fd_runtime_block_verify( global_ctx_t *global, fd_slot_blocks_t *slot_data ) {
   } // while (NULL != blob)
 
   return FD_RUNTIME_EXECUTE_SUCCESS;
+}
+
+int
+fd_runtime_block_eval( global_ctx_t *global, fd_slot_blocks_t *slot_data ) {
+  // This is simple now but really we need to execute block_verify in
+  // its own thread/tile and IT needs to parallelize out the
+  // microblock verifies out into worker threads as well.
+  //
+  // Finally, if the verify fails, we need to abort the entire
+  // transaction which means we should move the funk_txn out to
+  // here... 
+
+  int ret = fd_runtime_block_verify( global, slot_data);
+  if (FD_RUNTIME_EXECUTE_SUCCESS != ret )
+    return ret;
+  return fd_runtime_block_execute( global, slot_data);
 }
