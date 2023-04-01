@@ -22,6 +22,8 @@ struct global_ctx {
   fd_genesis_solana_t        gen;
   uchar                      genesis_hash[FD_SHA256_HASH_SZ];
 
+  fd_rng_t                   rnd_mem;
+
   fd_wksp_t *                wksp;
   fd_funk_t*                 funk;
   fd_alloc_t *               alloc;

@@ -49,6 +49,7 @@
 #include "../sha256/fd_sha256.h"
 #include "sysvar/fd_sysvar_clock.h"
 #include "sysvar/fd_sysvar.h"
+#include "fd_runtime.h"
 
 #include <dirent.h>
 
@@ -70,7 +71,7 @@ char* local_allocf(void *arg, ulong align, ulong len) {
     char * ret = (char *) fd_ulong_align_up( (ulong) (ptr + sizeof(char *)), align );
     *((char **)(ret - sizeof(char *))) = ptr;
     return ret;
-  } else 
+  } else
     return fd_alloc_malloc(arg, align, len);
 }
 
@@ -79,37 +80,37 @@ void local_freef(void *arg, void *ptr) {
     FD_LOG_ERR(( "yo dawg.. you passed a NULL as a fd_alloc pool"));
   }
 
-  if (do_valgrind) 
+  if (do_valgrind)
     free(*((char **)((char *) ptr - sizeof(char *))));
   else
     fd_alloc_free(arg, ptr);
 }
 
 struct global_state {
-  global_ctx_t global;
+  global_ctx_t        global;
 
-  ulong        start_slot;
-  ulong        end_slot;
-  ulong        start_id;
-  ulong        end_id;
-  ulong        pages;
-  uchar        txn_exe;
+  ulong               start_slot;
+  ulong               end_slot;
+  ulong               start_id;
+  ulong               end_id;
+  ulong               pages;
+  uchar               txn_exe;
 
-  int          argc;
-  char       **argv;
+  int                 argc;
+  char       **       argv;
 
-  char const * name;
-  char const * ledger;
-  char const * db;
-  char const * start_slot_opt;
-  char const * end_slot_opt;
-  char const * start_id_opt;
-  char const * end_id_opt;
-  char const * manifest;
-  char const * accounts;
-  char const * cmd;
-  char const * txn_exe_opt;
-  char const * pages_opt;
+  char const *        name;
+  char const *        ledger;
+  char const *        db;
+  char const *        start_slot_opt;
+  char const *        end_slot_opt;
+  char const *        start_id_opt;
+  char const *        end_id_opt;
+  char const *        manifest;
+  char const *        accounts;
+  char const *        cmd;
+  char const *        txn_exe_opt;
+  char const *        pages_opt;
 
   fd_rocksdb_t        rocks_db;
 };
@@ -159,122 +160,122 @@ int ingest(global_state_t *state) {
 
   while ( NULL != (ent = readdir(dir)) ) {
     if ( regexec(&reg, ent->d_name, 0, NULL, 0) == 0 )  {
-        struct stat s;
-        char buf[1000];
+      struct stat s;
+      char        buf[1000];
 
-        strcpy(buf, ent->d_name);
-        char *p = buf;
-        while (*p != '.') p++; // It sure as heck better have a . or the regexec would fail
-        *p = '\0';
+      strcpy(buf, ent->d_name);
+      char *p = buf;
+      while (*p != '.') p++;   // It sure as heck better have a . or the regexec would fail
+      *p = '\0';
 
-        ulong slot = (ulong) atol(buf);
-        
-        sprintf(buf, "%s/%s", state->accounts, ent->d_name);
-        stat(buf,  &s);
-        unsigned char *r = (unsigned char *)state->global.allocf(state->global.allocf_arg, 8UL, (unsigned long) (unsigned long) s.st_size);
-        unsigned char *b = r;
-        files++;
-        int fd = open(buf, O_RDONLY);
-        ssize_t n = read(fd, b, (unsigned long) s.st_size);
-        if (n < 0) {
-          FD_LOG_ERR(( "??" ));
+      ulong slot = (ulong) atol(buf);
+
+      sprintf(buf, "%s/%s", state->accounts, ent->d_name);
+      stat(buf,  &s);
+      unsigned char *r = (unsigned char *)state->global.allocf(state->global.allocf_arg, 8UL, (unsigned long) (unsigned long) s.st_size);
+      unsigned char *b = r;
+      files++;
+      int     fd = open(buf, O_RDONLY);
+      ssize_t n = read(fd, b, (unsigned long) s.st_size);
+      if (n < 0) {
+        FD_LOG_ERR(( "??" ));
+      }
+      unsigned char *eptr = &b[(ulong) ((ulong)n - (ulong)sizeof(fd_solana_account_hdr_t))];
+      if (n != s.st_size) {
+        FD_LOG_ERR(( "??" ));
+      }
+
+      while (b < eptr) {
+        fd_solana_account_hdr_t *hdr = (fd_solana_account_hdr_t *)b;
+        // Look for corruption...
+        if ((b + hdr->meta.data_len) > (r + n)) {
+          // some kind of corruption in the file?
+          break;
         }
-        unsigned char *eptr = &b[(ulong) ((ulong)n - (ulong)sizeof(fd_solana_account_hdr_t))];
-        if (n != s.st_size) {
-          FD_LOG_ERR(( "??" ));
+        // Sanitize accounts...
+        if ((hdr->info.lamports == 0) | ((hdr->info.executable & ~1) != 0))
+          break;
+
+        accounts++;
+
+        if ((accounts % 1000000) == 0) {
+          FD_LOG_WARNING(("accounts %ld", accounts));
         }
 
-        while (b < eptr) {
-          fd_solana_account_hdr_t *hdr = (fd_solana_account_hdr_t *)b;
-          // Look for corruption...
-          if ((b + hdr->meta.data_len) > (r + n)) {
-            // some kind of corruption in the file?
-            break;
-          }
-          // Sanitize accounts...
-          if ((hdr->info.lamports == 0) | ((hdr->info.executable & ~1) != 0))
-            break;
 
-          accounts++;
-
-          if ((accounts % 1000000) == 0) {
-            FD_LOG_WARNING(("accounts %ld", accounts));
+        do {
+          fd_account_meta_t metadata;
+          int               read_result = fd_acc_mgr_get_metadata( state->global.acc_mgr, (fd_pubkey_t *) &hdr->meta.pubkey, &metadata );
+          if ( FD_UNLIKELY( read_result == FD_ACC_MGR_SUCCESS ) ) {
+            if (metadata.slot > slot)
+              break;
           }
 
+          if (fd_acc_mgr_write_append_vec_account( state->global.acc_mgr,  slot, hdr) != FD_ACC_MGR_SUCCESS) {
+            FD_LOG_ERR(("writing failed: accounts %ld", accounts));
+          }
+          read_result = fd_acc_mgr_get_metadata( state->global.acc_mgr, (fd_pubkey_t *) &hdr->meta.pubkey, &metadata );
+          if ( FD_UNLIKELY( read_result != FD_ACC_MGR_SUCCESS ) )
+            FD_LOG_ERR(("wtf"));
+          if ((metadata.magic != FD_ACCOUNT_META_MAGIC) || (metadata.hlen != sizeof(metadata)))
+            FD_LOG_ERR(("wtf2"));
 
-          do {
-            fd_account_meta_t metadata;
-            int read_result = fd_acc_mgr_get_metadata( state->global.acc_mgr, (fd_pubkey_t *) &hdr->meta.pubkey, &metadata );
-            if ( FD_UNLIKELY( read_result == FD_ACC_MGR_SUCCESS ) ) {
-              if (metadata.slot > slot)
-                break;
-            }
+          uchar *           account_data = (uchar *) state->global.allocf(state->global.allocf_arg , 8UL,  hdr->meta.data_len);
+          fd_account_meta_t account_hdr;
+          read_result = fd_acc_mgr_get_account_data( state->global.acc_mgr, (fd_pubkey_t *) &hdr->meta.pubkey, (uchar *) &account_hdr, 0, sizeof(fd_account_meta_t));
 
-            if (fd_acc_mgr_write_append_vec_account( state->global.acc_mgr,  slot, hdr) != FD_ACC_MGR_SUCCESS) {
-              FD_LOG_ERR(("writing failed: accounts %ld", accounts));
-            }
-            read_result = fd_acc_mgr_get_metadata( state->global.acc_mgr, (fd_pubkey_t *) &hdr->meta.pubkey, &metadata );
-            if ( FD_UNLIKELY( read_result != FD_ACC_MGR_SUCCESS ) ) 
-              FD_LOG_ERR(("wtf"));
-            if ((metadata.magic != FD_ACCOUNT_META_MAGIC) || (metadata.hlen != sizeof(metadata))) 
-              FD_LOG_ERR(("wtf2"));
-            
-            uchar * account_data = (uchar *) state->global.allocf(state->global.allocf_arg , 8UL,  hdr->meta.data_len);
-            fd_account_meta_t account_hdr;
-            read_result = fd_acc_mgr_get_account_data( state->global.acc_mgr, (fd_pubkey_t *) &hdr->meta.pubkey, (uchar *) &account_hdr, 0, sizeof(fd_account_meta_t));
-            
-            read_result = fd_acc_mgr_get_account_data( state->global.acc_mgr, (fd_pubkey_t *) &hdr->meta.pubkey, account_data, sizeof(fd_account_meta_t), account_hdr.dlen);
-            if ( FD_UNLIKELY( read_result != FD_ACC_MGR_SUCCESS ) ) 
-              FD_LOG_ERR(("wtf3"));
+          read_result = fd_acc_mgr_get_account_data( state->global.acc_mgr, (fd_pubkey_t *) &hdr->meta.pubkey, account_data, sizeof(fd_account_meta_t), account_hdr.dlen);
+          if ( FD_UNLIKELY( read_result != FD_ACC_MGR_SUCCESS ) )
+            FD_LOG_ERR(("wtf3"));
 
-            fd_solana_account_t account = {
-              .lamports = hdr->info.lamports,
-              .rent_epoch = hdr->info.rent_epoch,
-              .data_len = hdr->meta.data_len,
-              .data = account_data,
-              .executable = (uchar) hdr->info.executable
-            };
-            fd_memcpy( account.owner.key, hdr->info.owner, 32 );
-            
-            uchar hash[32];
-            fd_hash_account( &account, slot, (fd_pubkey_t const *)  &hdr->meta.pubkey, (fd_hash_t *) hash );
-            //fd_hash_account( &account, 1, (fd_pubkey_t const *)  &pubkey, (fd_hash_t *) hash );
-            
-            // If account hashes are mismatched, fail
-            if ( memcmp( hdr->hash.value, hash, 32 ) ) {
-              FD_LOG_ERR(( "FAIL (account hashes mismatched)"
-                 "\n\tGot"
-                 "\n\t\t" FD_LOG_HEX16_FMT "  " FD_LOG_HEX16_FMT
-                 "\n\tExpected"
-                 "\n\t\t" FD_LOG_HEX16_FMT "  " FD_LOG_HEX16_FMT,
-                 FD_LOG_HEX16_FMT_ARGS(     hdr->hash.value    ), FD_LOG_HEX16_FMT_ARGS(     hdr->hash.value+16 ),
-                 FD_LOG_HEX16_FMT_ARGS(     hash    ), FD_LOG_HEX16_FMT_ARGS(     hash+16 ) 
-              ));
-            }
-            state->global.freef( state->global.allocf_arg, account_data );
-          } while (0);
+          fd_solana_account_t account = {
+            .lamports = hdr->info.lamports,
+            .rent_epoch = hdr->info.rent_epoch,
+            .data_len = hdr->meta.data_len,
+            .data = account_data,
+            .executable = (uchar) hdr->info.executable
+          };
+          fd_memcpy( account.owner.key, hdr->info.owner, 32 );
+
+          uchar hash[32];
+          fd_hash_account( &account, slot, (fd_pubkey_t const *)  &hdr->meta.pubkey, (fd_hash_t *) hash );
+          //fd_hash_account( &account, 1, (fd_pubkey_t const *)  &pubkey, (fd_hash_t *) hash );
+
+          // If account hashes are mismatched, fail
+          if ( memcmp( hdr->hash.value, hash, 32 ) ) {
+            FD_LOG_ERR(( "FAIL (account hashes mismatched)"
+                         "\n\tGot"
+                         "\n\t\t" FD_LOG_HEX16_FMT "  " FD_LOG_HEX16_FMT
+                         "\n\tExpected"
+                         "\n\t\t" FD_LOG_HEX16_FMT "  " FD_LOG_HEX16_FMT,
+                         FD_LOG_HEX16_FMT_ARGS(     hdr->hash.value    ), FD_LOG_HEX16_FMT_ARGS(     hdr->hash.value+16 ),
+                         FD_LOG_HEX16_FMT_ARGS(     hash    ), FD_LOG_HEX16_FMT_ARGS(     hash+16 )
+                         ));
+          }
+          state->global.freef( state->global.allocf_arg, account_data );
+        } while (0);
 
 #if 0
-          if (memcmp(hdr->info.owner, sprog, sizeof(sprog)) != 0) {
-            // system progs are exempt no matter their lamports...
-            ulong exempt = (hdr->meta.data_len + 128) * ((ulong) ((double)state->gen.rent.lamports_per_uint8_year * state->gen.rent.exemption_threshold));
-            if (hdr->info.lamports < exempt) {
-              odd++;
-              char pubkey[50];
-              fd_memset(pubkey, 0, sizeof(pubkey));
-              fd_base58_encode_32((uchar *) hdr->meta.pubkey, pubkey);
-              char owner[50];
-              fd_memset(owner, 0, sizeof(owner));
-              fd_base58_encode_32((uchar *) hdr->info.owner, owner);
-              printf("file: %s owner: %s pubkey: %s datalen: %ld lamports: %ld  rent_epoch: %ld\n", buf, owner, pubkey, hdr->meta.data_len, hdr->info.lamports, hdr->info.rent_epoch);
-            }
+        if (memcmp(hdr->info.owner, sprog, sizeof(sprog)) != 0) {
+          // system progs are exempt no matter their lamports...
+          ulong exempt = (hdr->meta.data_len + 128) * ((ulong) ((double)state->gen.rent.lamports_per_uint8_year * state->gen.rent.exemption_threshold));
+          if (hdr->info.lamports < exempt) {
+            odd++;
+            char pubkey[50];
+            fd_memset(pubkey, 0, sizeof(pubkey));
+            fd_base58_encode_32((uchar *) hdr->meta.pubkey, pubkey);
+            char owner[50];
+            fd_memset(owner, 0, sizeof(owner));
+            fd_base58_encode_32((uchar *) hdr->info.owner, owner);
+            printf("file: %s owner: %s pubkey: %s datalen: %ld lamports: %ld  rent_epoch: %ld\n", buf, owner, pubkey, hdr->meta.data_len, hdr->info.lamports, hdr->info.rent_epoch);
           }
-#endif
-          b += fd_ulong_align_up(hdr->meta.data_len + sizeof(*hdr), 8);
         }
+#endif
+        b += fd_ulong_align_up(hdr->meta.data_len + sizeof(*hdr), 8);
+      }
 
-        close(fd);
-        state->global.freef(state->global.allocf_arg, r);
+      close(fd);
+      state->global.freef(state->global.allocf_arg, r);
     }
   }
 
@@ -287,14 +288,14 @@ int ingest(global_state_t *state) {
 }
 
 void print_file(global_state_t *state, const char *file) {
-  char buf[1000];
+  char  buf[1000];
   char *p = (char *) &file[strlen(file) - 1];
   ulong slot = 0;
 //  ulong id = 0;
 
   while ((p > file) && *p != '/')
     p--;
-  if (*p == '/') 
+  if (*p == '/')
     p++;
 
   strcpy(buf, p);
@@ -312,8 +313,8 @@ void print_file(global_state_t *state, const char *file) {
   stat(file,  &s);
   unsigned char *r = (unsigned char *)state->global.allocf(state->global.allocf_arg, 8UL, (unsigned long) (unsigned long) s.st_size);
   unsigned char *b = r;
-  int fd = open(file, O_RDONLY);
-  ssize_t n = read(fd, b, (unsigned long) s.st_size);
+  int            fd = open(file, O_RDONLY);
+  ssize_t        n = read(fd, b, (unsigned long) s.st_size);
   if (n != s.st_size) {
     FD_LOG_ERR(( "Read failure" ));
   }
@@ -347,7 +348,7 @@ void print_file(global_state_t *state, const char *file) {
       .executable = (uchar) hdr->info.executable
     };
     fd_memcpy( account.owner.key, hdr->info.owner, 32 );
-            
+
     uchar hash[32];
     fd_hash_account( &account, slot, (fd_pubkey_t const *)  &hdr->meta.pubkey, (fd_hash_t *) hash );
 
@@ -356,8 +357,8 @@ void print_file(global_state_t *state, const char *file) {
 
     printf("owner: %48s pubkey: %48s hash: %48s file: %s\n", owner, pubkey, encoded_hash, file);
 
-    const void * o = &b[sizeof(*hdr)];
-    unsigned char *outend = & (((unsigned char *) o)[hdr->meta.data_len]);
+    const void *   o = &b[sizeof(*hdr)];
+    unsigned char *outend = &(((unsigned char *) o)[hdr->meta.data_len]);
 
     if (strcmp(pubkey, "SysvarC1ock11111111111111111111111111111111") == 0) {
       fd_sol_sysvar_clock_t a;
@@ -417,7 +418,7 @@ int slot_dump(global_state_t *state) {
 
       ulong slot = (ulong) atol(buf);
       ulong id = (ulong) atol(p);
-       
+
       if ((slot < state->start_slot) | (slot > state->end_slot))
         continue;
 
@@ -458,117 +459,117 @@ int validate_bank_hashes(global_state_t *state) {
   ulong accounts = 0;
   ulong odd = 0;
 
-  ulong pairs_len = 0;
+  ulong                 pairs_len = 0;
   fd_pubkey_hash_pair_t pairs[1000];
   while ( NULL != (ent = readdir(dir)) ) {
     if ( regexec(&reg, ent->d_name, 0, NULL, 0) == 0 )  {
-        struct stat s;
-        char buf[1000];
+      struct stat s;
+      char        buf[1000];
 
-        strcpy(buf, ent->d_name);
-        char *p = buf;
-        while (*p != '.') p++; // It surhdr->meta.pubkeye as heck better have a . or the regexec would fail
-        *p = '\0';
+      strcpy(buf, ent->d_name);
+      char *p = buf;
+      while (*p != '.') p++;   // It surhdr->meta.pubkeye as heck better have a . or the regexec would fail
+      *p = '\0';
 
-        ulong slot = (ulong) atol(buf);
-       
-        if (slot != state->start_slot) {
-          continue;
+      ulong slot = (ulong) atol(buf);
+
+      if (slot != state->start_slot) {
+        continue;
+      }
+
+      sprintf(buf, "%s/%s", state->accounts, ent->d_name);
+      stat(buf,  &s);
+      unsigned char *r = (unsigned char *)state->global.allocf(state->global.allocf_arg, 8UL, (unsigned long) (unsigned long) s.st_size);
+      unsigned char *b = r;
+      files++;
+      int     fd = open(buf, O_RDONLY);
+      ssize_t n = read(fd, b, (unsigned long) s.st_size);
+      if (n < 0) {
+        FD_LOG_ERR(( "??" ));
+      }
+      unsigned char *eptr = &b[(ulong) ((ulong)n - (ulong)sizeof(fd_solana_account_hdr_t))];
+      if (n != s.st_size) {
+        FD_LOG_ERR(( "??" ));
+      }
+
+      while (b < eptr) {
+        fd_solana_account_hdr_t *hdr = (fd_solana_account_hdr_t *)b;
+        // Look for corruption...
+        if ((b + hdr->meta.data_len) > (r + n)) {
+          // some kind of corruption in the file?
+          break;
+        }
+        // Sanitize accounts...
+        if ((hdr->info.lamports == 0) | ((hdr->info.executable & ~1) != 0))
+          break;
+
+        accounts++;
+
+        if ((accounts % 1000000) == 0) {
+          FD_LOG_WARNING(("accounts %ld", accounts));
         }
 
-        sprintf(buf, "%s/%s", state->accounts, ent->d_name);
-        stat(buf,  &s);
-        unsigned char *r = (unsigned char *)state->global.allocf(state->global.allocf_arg, 8UL, (unsigned long) (unsigned long) s.st_size);
-        unsigned char *b = r;
-        files++;
-        int fd = open(buf, O_RDONLY);
-        ssize_t n = read(fd, b, (unsigned long) s.st_size);
-        if (n < 0) {
-          FD_LOG_ERR(( "??" ));
-        }
-        unsigned char *eptr = &b[(ulong) ((ulong)n - (ulong)sizeof(fd_solana_account_hdr_t))];
-        if (n != s.st_size) {
-          FD_LOG_ERR(( "??" ));
-        }
-
-        while (b < eptr) {
-          fd_solana_account_hdr_t *hdr = (fd_solana_account_hdr_t *)b;
-          // Look for corruption...
-          if ((b + hdr->meta.data_len) > (r + n)) {
-            // some kind of corruption in the file?
-            break;
+        do {
+          fd_account_meta_t metadata;
+          int               read_result = fd_acc_mgr_get_metadata( state->global.acc_mgr, (fd_pubkey_t *) &hdr->meta.pubkey, &metadata );
+          if ( FD_UNLIKELY( read_result == FD_ACC_MGR_SUCCESS ) ) {
+            if (metadata.slot > slot)
+              break;
           }
-          // Sanitize accounts...
-          if ((hdr->info.lamports == 0) | ((hdr->info.executable & ~1) != 0))
-            break;
 
-          accounts++;
-
-          if ((accounts % 1000000) == 0) {
-            FD_LOG_WARNING(("accounts %ld", accounts));
+          if (fd_acc_mgr_write_append_vec_account( state->global.acc_mgr,  slot, hdr) != FD_ACC_MGR_SUCCESS) {
+            FD_LOG_ERR(("writing failed: accounts %ld", accounts));
           }
+          read_result = fd_acc_mgr_get_metadata( state->global.acc_mgr, (fd_pubkey_t *) &hdr->meta.pubkey, &metadata );
+          if ( FD_UNLIKELY( read_result != FD_ACC_MGR_SUCCESS ) )
+            FD_LOG_ERR(("wtf"));
+          if ((metadata.magic != FD_ACCOUNT_META_MAGIC) || (metadata.hlen != sizeof(metadata)))
+            FD_LOG_ERR(("wtf2"));
 
-          do {
-            fd_account_meta_t metadata;
-            int read_result = fd_acc_mgr_get_metadata( state->global.acc_mgr, (fd_pubkey_t *) &hdr->meta.pubkey, &metadata );
-            if ( FD_UNLIKELY( read_result == FD_ACC_MGR_SUCCESS ) ) {
-              if (metadata.slot > slot)
-                break;
-            }
 
-            if (fd_acc_mgr_write_append_vec_account( state->global.acc_mgr,  slot, hdr) != FD_ACC_MGR_SUCCESS) {
-              FD_LOG_ERR(("writing failed: accounts %ld", accounts));
-            }
-            read_result = fd_acc_mgr_get_metadata( state->global.acc_mgr, (fd_pubkey_t *) &hdr->meta.pubkey, &metadata );
-            if ( FD_UNLIKELY( read_result != FD_ACC_MGR_SUCCESS ) ) 
-              FD_LOG_ERR(("wtf"));
-            if ((metadata.magic != FD_ACCOUNT_META_MAGIC) || (metadata.hlen != sizeof(metadata))) 
-              FD_LOG_ERR(("wtf2"));
-            
+          uchar *           account_data = (uchar *) state->global.allocf(state->global.allocf_arg , 8UL,  hdr->meta.data_len);
+          fd_account_meta_t account_hdr;
+          read_result = fd_acc_mgr_get_account_data( state->global.acc_mgr, (fd_pubkey_t *) &hdr->meta.pubkey, (uchar *) &account_hdr, 0, sizeof(fd_account_meta_t));
 
-            uchar * account_data = (uchar *) state->global.allocf(state->global.allocf_arg , 8UL,  hdr->meta.data_len);
-            fd_account_meta_t account_hdr;
-            read_result = fd_acc_mgr_get_account_data( state->global.acc_mgr, (fd_pubkey_t *) &hdr->meta.pubkey, (uchar *) &account_hdr, 0, sizeof(fd_account_meta_t));
-            
-            read_result = fd_acc_mgr_get_account_data( state->global.acc_mgr, (fd_pubkey_t *) &hdr->meta.pubkey, account_data, sizeof(fd_account_meta_t), account_hdr.dlen);
-            if ( FD_UNLIKELY( read_result != FD_ACC_MGR_SUCCESS ) ) 
-              FD_LOG_ERR(("wtf3"));
+          read_result = fd_acc_mgr_get_account_data( state->global.acc_mgr, (fd_pubkey_t *) &hdr->meta.pubkey, account_data, sizeof(fd_account_meta_t), account_hdr.dlen);
+          if ( FD_UNLIKELY( read_result != FD_ACC_MGR_SUCCESS ) )
+            FD_LOG_ERR(("wtf3"));
 
-            fd_solana_account_t account = {
-              .lamports = hdr->info.lamports,
-              .rent_epoch = hdr->info.rent_epoch,
-              .data_len = hdr->meta.data_len,
-              .data = account_data,
-              .executable = (uchar) hdr->info.executable
-            };
-            fd_memcpy( account.owner.key, hdr->info.owner, 32 );
-            
-            uchar hash[32];
-            fd_hash_account( &account, slot, (fd_pubkey_t const *)  &hdr->meta.pubkey, (fd_hash_t *) hash );
-            //fd_hash_account( &account, 1, (fd_pubkey_t const *)  &pubkey, (fd_hash_t *) hash );
-            
-            // If account hashes are mismatched, fail
-            if ( memcmp( hdr->hash.value, hash, 32 ) ) {
-              FD_LOG_ERR(( "FAIL (account hashes mismatched)"
-                 "\n\tGot"
-                 "\n\t\t" FD_LOG_HEX16_FMT "  " FD_LOG_HEX16_FMT
-                 "\n\tExpected"
-                 "\n\t\t" FD_LOG_HEX16_FMT "  " FD_LOG_HEX16_FMT,
-                 FD_LOG_HEX16_FMT_ARGS(     hdr->hash.value    ), FD_LOG_HEX16_FMT_ARGS(     hdr->hash.value+16 ),
-                 FD_LOG_HEX16_FMT_ARGS(     hash    ), FD_LOG_HEX16_FMT_ARGS(     hash+16 ) 
-              ));
-            }
-            fd_memcpy(pairs[pairs_len].pubkey.key, hdr->meta.pubkey, 32);
-            fd_memcpy(pairs[pairs_len].hash.hash, hash, 32);
-            pairs_len++;
-            state->global.freef(state->global.allocf_arg,  account_data);
-          } while (0);
+          fd_solana_account_t account = {
+            .lamports = hdr->info.lamports,
+            .rent_epoch = hdr->info.rent_epoch,
+            .data_len = hdr->meta.data_len,
+            .data = account_data,
+            .executable = (uchar) hdr->info.executable
+          };
+          fd_memcpy( account.owner.key, hdr->info.owner, 32 );
 
-          b += fd_ulong_align_up(hdr->meta.data_len + sizeof(*hdr), 8);
-        }
+          uchar hash[32];
+          fd_hash_account( &account, slot, (fd_pubkey_t const *)  &hdr->meta.pubkey, (fd_hash_t *) hash );
+          //fd_hash_account( &account, 1, (fd_pubkey_t const *)  &pubkey, (fd_hash_t *) hash );
 
-        close(fd);
-        state->global.freef(state->global.allocf_arg, r);
+          // If account hashes are mismatched, fail
+          if ( memcmp( hdr->hash.value, hash, 32 ) ) {
+            FD_LOG_ERR(( "FAIL (account hashes mismatched)"
+                         "\n\tGot"
+                         "\n\t\t" FD_LOG_HEX16_FMT "  " FD_LOG_HEX16_FMT
+                         "\n\tExpected"
+                         "\n\t\t" FD_LOG_HEX16_FMT "  " FD_LOG_HEX16_FMT,
+                         FD_LOG_HEX16_FMT_ARGS(     hdr->hash.value    ), FD_LOG_HEX16_FMT_ARGS(     hdr->hash.value+16 ),
+                         FD_LOG_HEX16_FMT_ARGS(     hash    ), FD_LOG_HEX16_FMT_ARGS(     hash+16 )
+                         ));
+          }
+          fd_memcpy(pairs[pairs_len].pubkey.key, hdr->meta.pubkey, 32);
+          fd_memcpy(pairs[pairs_len].hash.hash, hash, 32);
+          pairs_len++;
+          state->global.freef(state->global.allocf_arg,  account_data);
+        } while (0);
+
+        b += fd_ulong_align_up(hdr->meta.data_len + sizeof(*hdr), 8);
+      }
+
+      close(fd);
+      state->global.freef(state->global.allocf_arg, r);
     }
   }
 
@@ -579,11 +580,11 @@ int validate_bank_hashes(global_state_t *state) {
 
   for (ulong i = 0; i < pairs_len; i++) {
     FD_LOG_NOTICE(( "Pairs (%lu)"
-       "\n\t\t" FD_LOG_HEX16_FMT "  " FD_LOG_HEX16_FMT
-       "\n\t\t" FD_LOG_HEX16_FMT "  " FD_LOG_HEX16_FMT,
-       i,
-       FD_LOG_HEX16_FMT_ARGS( pairs[i].pubkey.key ), FD_LOG_HEX16_FMT_ARGS( pairs[i].pubkey.key+16 ),
-       FD_LOG_HEX16_FMT_ARGS( pairs[i].hash.hash ), FD_LOG_HEX16_FMT_ARGS( pairs[i].hash.hash+16 )));
+                    "\n\t\t" FD_LOG_HEX16_FMT "  " FD_LOG_HEX16_FMT
+                    "\n\t\t" FD_LOG_HEX16_FMT "  " FD_LOG_HEX16_FMT,
+                    i,
+                    FD_LOG_HEX16_FMT_ARGS( pairs[i].pubkey.key ), FD_LOG_HEX16_FMT_ARGS( pairs[i].pubkey.key+16 ),
+                    FD_LOG_HEX16_FMT_ARGS( pairs[i].hash.hash ), FD_LOG_HEX16_FMT_ARGS( pairs[i].hash.hash+16 )));
 
 
   }
@@ -594,20 +595,20 @@ int validate_bank_hashes(global_state_t *state) {
   FD_LOG_WARNING(("reading manifest: %s", state->manifest));
 
   unsigned char *b = (unsigned char *)state->global.allocf(state->global.allocf_arg, 1, (unsigned long) (unsigned long) s.st_size);
-  int fd = open(state->manifest, O_RDONLY);
-  ssize_t n = read(fd, b, (unsigned long) s.st_size);
+  int            fd = open(state->manifest, O_RDONLY);
+  ssize_t        n = read(fd, b, (unsigned long) s.st_size);
   close(fd);
 
   FD_TEST(n == s.st_size);
   unsigned char *outend = &b[n];
-  const void * o = b;
+  const void *   o = b;
 
   FD_LOG_WARNING(("deserializing version bank"));
 
   struct fd_deserializable_versioned_bank a;
   memset(&a, 0, sizeof(a));
   fd_deserializable_versioned_bank_decode(&a, &o, outend, state->global.allocf, state->global.allocf_arg);
-  
+
   FD_LOG_WARNING(("deserializing accounts"));
   struct fd_solana_accounts_db_fields db;
   memset(&db, 0, sizeof(b));
@@ -617,12 +618,12 @@ int validate_bank_hashes(global_state_t *state) {
 
   fd_hash_t bank_hash;
   fd_hash_bank(&a, pairs, pairs_len, &bank_hash);
-    FD_LOG_NOTICE(( "Bank Hash (%lu)"
-       "\n\t\t" FD_LOG_HEX16_FMT "  " FD_LOG_HEX16_FMT
-       "\n\t\t" FD_LOG_HEX16_FMT "  " FD_LOG_HEX16_FMT,
-       a.slot,
-       FD_LOG_HEX16_FMT_ARGS( bank_hash.hash ), FD_LOG_HEX16_FMT_ARGS( bank_hash.hash+16 ),
-       FD_LOG_HEX16_FMT_ARGS( a.hash.hash ), FD_LOG_HEX16_FMT_ARGS( a.hash.hash+16 )));
+  FD_LOG_NOTICE(( "Bank Hash (%lu)"
+                  "\n\t\t" FD_LOG_HEX16_FMT "  " FD_LOG_HEX16_FMT
+                  "\n\t\t" FD_LOG_HEX16_FMT "  " FD_LOG_HEX16_FMT,
+                  a.slot,
+                  FD_LOG_HEX16_FMT_ARGS( bank_hash.hash ), FD_LOG_HEX16_FMT_ARGS( bank_hash.hash+16 ),
+                  FD_LOG_HEX16_FMT_ARGS( a.hash.hash ), FD_LOG_HEX16_FMT_ARGS( a.hash.hash+16 )));
 
   fd_deserializable_versioned_bank_destroy(&a, state->global.freef, state->global.allocf_arg);
   fd_solana_accounts_db_fields_destroy(&db, state->global.freef, state->global.allocf_arg);
@@ -638,20 +639,20 @@ int manifest(global_state_t *state) {
   FD_LOG_WARNING(("reading manifest: %s", state->manifest));
 
   unsigned char *b = (unsigned char *)state->global.allocf(state->global.allocf_arg, 1, (unsigned long) (unsigned long) s.st_size);
-  int fd = open(state->manifest, O_RDONLY);
-  ssize_t n = read(fd, b, (unsigned long) s.st_size);
+  int            fd = open(state->manifest, O_RDONLY);
+  ssize_t        n = read(fd, b, (unsigned long) s.st_size);
   close(fd);
 
   FD_TEST(n == s.st_size);
   unsigned char *outend = &b[n];
-  const void * o = b;
+  const void *   o = b;
 
   FD_LOG_WARNING(("deserializing version bank"));
 
   struct fd_deserializable_versioned_bank a;
   memset(&a, 0, sizeof(a));
   fd_deserializable_versioned_bank_decode(&a, &o, outend, state->global.allocf, state->global.allocf_arg);
-  
+
   for (ulong i = 0; i < a.ancestors_len; i++) {
     FD_LOG_WARNING(("QQQ %lu %lu", a.ancestors[i].slot, a.ancestors[i].val ));
   }
@@ -688,15 +689,15 @@ fd_sim_txn(global_state_t *state, FD_FN_UNUSED fd_executor_t* executor, fd_txn_t
   for (ushort i = 0; i < txn->acct_addr_cnt; i++) {
     fd_pubkey_t *addr = &tx_accs[i];
 
-      long what = -1;
-      if (i < (txn->signature_cnt - txn->readonly_signed_cnt))
-        what = 0;
-      else if ((i >= (txn->signature_cnt - txn->readonly_signed_cnt)))
-        what = 1;
-      else if ((i >= txn->signature_cnt) && (i < (txn->acct_addr_cnt - txn->readonly_unsigned_cnt)))
-        what = 2;
-      else
-        what = 3;
+    long what = -1;
+    if (i < (txn->signature_cnt - txn->readonly_signed_cnt))
+      what = 0;
+    else if ((i >= (txn->signature_cnt - txn->readonly_signed_cnt)))
+      what = 1;
+    else if ((i >= txn->signature_cnt) && (i < (txn->acct_addr_cnt - txn->readonly_unsigned_cnt)))
+      what = 2;
+    else
+      what = 3;
 
     fd_account_meta_t metadata;
     if ( fd_acc_mgr_get_metadata( state->global.acc_mgr, addr, &metadata ) != FD_ACC_MGR_SUCCESS) {
@@ -718,23 +719,18 @@ fd_sim_txn(global_state_t *state, FD_FN_UNUSED fd_executor_t* executor, fd_txn_t
 }
 
 int replay(global_state_t *state) {
-  void *fd_executor_raw = malloc(FD_EXECUTOR_FOOTPRINT);
-  fd_executor_t* executor = fd_executor_join(fd_executor_new(fd_executor_raw, &state->global, FD_EXECUTOR_FOOTPRINT));
-
-  fd_rng_t rnd_mem;
-  void *shrng = fd_rng_new(&rnd_mem, 0, 0);
-  fd_rng_t * rng  = fd_rng_join( shrng );
-
-  uchar boot_boh = 1;
-  if (0 == state->start_slot) {
-    fd_memcpy(state->global.poh.state, state->global.genesis_hash, sizeof(state->global.genesis_hash));
-    boot_boh = 0;
-    fd_sysvar_recent_hashes_init(&state->global, 0);
-    fd_sysvar_clock_init( &state->global );
+  if (NULL == state->global.executor) {
+    void *fd_executor_raw = malloc(FD_EXECUTOR_FOOTPRINT);
+    state->global.executor = fd_executor_join(fd_executor_new(fd_executor_raw, &state->global, FD_EXECUTOR_FOOTPRINT));
   }
+  if (NULL == state->global.rng)
+    state->global.rng  = fd_rng_join( fd_rng_new(&state->global.rnd_mem, 0, 0) );
+
+  if (0 == state->start_slot)
+    fd_runtime_boot_slot_zero(&state->global);
 
   fd_rocksdb_root_iter_t iter;
-  fd_rocksdb_root_iter_new ( & iter );
+  fd_rocksdb_root_iter_new ( &iter );
 
   fd_slot_meta_t m;
   fd_memset(&m, 0, sizeof(m));
@@ -749,7 +745,69 @@ int replay(global_state_t *state) {
 
   do {
     ulong slot;
-    ret = fd_rocksdb_root_iter_slot ( & iter, &slot );
+    ret = fd_rocksdb_root_iter_slot ( &iter, &slot );
+    if (ret < 0) {
+      FD_LOG_ERR(("fd_rocksdb_root_iter_slot returned %d", ret));
+    }
+
+    if (slot >= state->end_slot)
+      break;
+
+    if ((state->end_slot < 10) || ((slot % 10) == 0))
+      FD_LOG_WARNING(("reading slot %ld", slot));
+
+    fd_slot_blocks_t *slot_data = fd_rocksdb_get_microblocks(&state->rocks_db, &m, state->global.allocf, state->global.allocf_arg);
+
+    state->global.current_slot = slot;
+
+    FD_TEST (fd_runtime_block_verify( &state->global, slot_data) == FD_RUNTIME_EXECUTE_SUCCESS);
+    FD_TEST (fd_runtime_block_execute( &state->global, slot_data) == FD_RUNTIME_EXECUTE_SUCCESS);
+
+    // free
+    fd_slot_meta_destroy(&m, state->global.freef, state->global.allocf_arg);
+
+    ret = fd_rocksdb_root_iter_next ( &iter, &m, state->global.allocf, state->global.allocf_arg);
+    if (ret < 0)
+      FD_LOG_ERR(("fd_rocksdb_root_iter_seek returned %d", ret));
+  } while (1);
+
+  return 0;
+}
+
+// delete this eventually
+int old_replay(global_state_t *state) {
+  void *         fd_executor_raw = malloc(FD_EXECUTOR_FOOTPRINT);
+  fd_executor_t* executor = fd_executor_join(fd_executor_new(fd_executor_raw, &state->global, FD_EXECUTOR_FOOTPRINT));
+
+  fd_rng_t   rnd_mem;
+  void *     shrng = fd_rng_new(&rnd_mem, 0, 0);
+  fd_rng_t * rng  = fd_rng_join( shrng );
+
+  uchar boot_boh = 1;
+  if (0 == state->start_slot) {
+    fd_memcpy(state->global.poh.state, state->global.genesis_hash, sizeof(state->global.genesis_hash));
+    boot_boh = 0;
+    fd_sysvar_recent_hashes_init(&state->global, 0);
+    fd_sysvar_clock_init( &state->global );
+  }
+
+  fd_rocksdb_root_iter_t iter;
+  fd_rocksdb_root_iter_new ( &iter );
+
+  fd_slot_meta_t m;
+  fd_memset(&m, 0, sizeof(m));
+
+  int ret = fd_rocksdb_root_iter_seek ( &iter, &state->rocks_db, state->start_slot, &m, state->global.allocf, state->global.allocf_arg);
+  if (ret < 0) {
+    FD_LOG_ERR(("fd_rocksdb_root_iter_seek returned %d", ret));
+  }
+
+  /* TODO: move this somewhere more appropiate. Properly organise sysvars. */
+  /* fd_sysvar_clock_init( global,  ); */
+
+  do {
+    ulong slot;
+    ret = fd_rocksdb_root_iter_slot ( &iter, &slot );
     if (ret < 0) {
       FD_LOG_ERR(("fd_rocksdb_root_iter_slot returned %d", ret));
     }
@@ -791,23 +849,23 @@ int replay(global_state_t *state) {
       }
 
       uchar *blob_ptr = blob + FD_BLOB_DATA_START;
-      uint cnt = *((uint *) (blob + 8));
+      uint   cnt = *((uint *) (blob + 8));
       while (cnt > 0) {
         fd_microblock_t * micro_block = fd_microblock_join( blob_ptr );
-  
+
         blob_ptr = (uchar *) fd_ulong_align_up((ulong)blob_ptr + fd_microblock_footprint( micro_block->hdr.txn_cnt ), FD_MICROBLOCK_ALIGN);
 
-        if (1 == cnt) 
+        if (1 == cnt)
           fd_memcpy(state->global.block_hash, micro_block->hdr.hash, sizeof(micro_block->hdr.hash));
         fd_microblock_leave(micro_block);
 
         cnt--;
-      } // while (cnt > 0) 
+      } // while (cnt > 0)
 
       fd_sysvar_clock_update( &state->global );
       fd_sysvar_recent_hashes_update ( &state->global, slot );
 
-      // free 
+      // free
       fd_slot_meta_destroy(&m, state->global.freef, state->global.allocf_arg);
 
       ulong blob_idx = 0;
@@ -817,7 +875,7 @@ int replay(global_state_t *state) {
       while (NULL != blob) {
         blob_idx++;
         uchar *blob_ptr = blob + FD_BLOB_DATA_START;
-        uint cnt = *((uint *) (blob + 8));
+        uint   cnt = *((uint *) (blob + 8));
         while (cnt > 0) {
           fd_microblock_t * micro_block = fd_microblock_join( blob_ptr );
 
@@ -833,7 +891,7 @@ int replay(global_state_t *state) {
               fd_poh_append(&state->global.poh, micro_block->hdr.hash_cnt - 1);
 
             for ( ulong txn_idx = 0; txn_idx < micro_block->txn_max_cnt; txn_idx++ ) {
-              fd_txn_t* txn_descriptor = (fd_txn_t *)&micro_block->txn_tbl[ txn_idx ];
+              fd_txn_t*      txn_descriptor = (fd_txn_t *)&micro_block->txn_tbl[ txn_idx ];
               fd_rawtxn_b_t* txn_raw   = (fd_rawtxn_b_t *)&micro_block->raw_tbl[ txn_idx ];
 
               switch (state->txn_exe) {
@@ -880,11 +938,11 @@ int replay(global_state_t *state) {
           fd_microblock_leave(micro_block);
 
           blob_ptr = (uchar *) fd_ulong_align_up((ulong)blob_ptr + fd_microblock_footprint( micro_block->hdr.txn_cnt ), FD_MICROBLOCK_ALIGN);
-        
+
           cnt--;
-        } // while (cnt > 0) 
+        } // while (cnt > 0)
         blob = *((uchar **) blob);
-      } // while (NULL != blob) 
+      } // while (NULL != blob)
 
       // free the slot data...
       fd_slot_blocks_destroy(slot_data, state->global.freef, state->global.allocf_arg);
@@ -941,7 +999,7 @@ int main(int argc, char **argv) {
     state.txn_exe = (strcmp(state.txn_exe_opt, "sim") == 0) ? 2 : 0;
   }
 
-  if (state.pages_opt) 
+  if (state.pages_opt)
     state.pages = (ulong) atoi(state.pages_opt);
   else
     state.pages = 2;
@@ -957,7 +1015,7 @@ int main(int argc, char **argv) {
     FD_LOG_NOTICE(( "--wksp not specified, using an anonymous local workspace" ));
     state.global.wksp = fd_wksp_new_anonymous( FD_SHMEM_GIGANTIC_PAGE_SZ, state.pages, 0, "wksp", 0UL );
     FD_LOG_NOTICE(("attach complete"));
-  } 
+  }
 
   if( FD_UNLIKELY( !state.global.wksp ) ) FD_LOG_ERR(( "Unable to attach to wksp" ));
 
@@ -967,13 +1025,13 @@ int main(int argc, char **argv) {
 
   if( FD_UNLIKELY( !shmem ) ) FD_LOG_ERR(( "Unable to allocate wksp memory for fd_alloc" ));
 
-  void * shalloc = fd_alloc_new ( shmem, 1 ); 
+  void * shalloc = fd_alloc_new ( shmem, 1 );
 
   state.global.allocf_arg = fd_alloc_join( shalloc, 0UL );
 
   ulong index_max = 1000000;    // Maximum size (count) of master index
 
-  if (index_max_opt) 
+  if (index_max_opt)
     index_max = (ulong) atoi((char *) index_max_opt);
 
   ulong xactions_max = 100;     // Maximum size (count) of transaction index
@@ -992,11 +1050,11 @@ int main(int argc, char **argv) {
 
   if (NULL != state.end_slot_opt)
     state.end_slot = (ulong) atoi(state.end_slot_opt);
-  if (NULL != state.start_slot_opt) 
+  if (NULL != state.start_slot_opt)
     state.start_slot = (ulong) atoi(state.start_slot_opt);
   if (NULL != state.end_id_opt)
     state.end_id = (ulong) atoi(state.end_id_opt);
-  if (NULL != state.start_id_opt) 
+  if (NULL != state.start_id_opt)
     state.start_id = (ulong) atoi(state.start_id_opt);
 
   // Eventually we will have to add support for reading compressed genesis blocks...
@@ -1013,7 +1071,7 @@ int main(int argc, char **argv) {
     if (fd < 0) {
       FD_LOG_ERR(("Cannot open %s", genesis));
     }
-    uchar *buf = malloc((ulong) sbuf.st_size);
+    uchar * buf = malloc((ulong) sbuf.st_size);
     ssize_t n = read(fd, buf, (ulong) sbuf.st_size);
     close(fd);
 
@@ -1026,7 +1084,7 @@ int main(int argc, char **argv) {
     //DDaHhm7PCCf6a2s2YxvD5mBcp2NfDkiWr61sBW4nuN7
     char hash[100];
     fd_base58_encode_32((uchar *) state.global.genesis_hash, NULL, hash);
-    
+
     void *data = buf;
     void *dataend = &buf[n];
     fd_memset(&state.global.gen, 0, sizeof(state.global.gen));
@@ -1071,7 +1129,7 @@ int main(int argc, char **argv) {
 //  FD_LOG_WARNING(("validating funk db"));
 //  fd_funk_validate(state.funk);
 
-  // Initialize the rocksdb 
+  // Initialize the rocksdb
   char *err = fd_rocksdb_init(&state.rocks_db, db_name);
 
   if (err != NULL) {
@@ -1131,9 +1189,9 @@ int main(int argc, char **argv) {
 
   // dump wksp state
 
-  if( state.name ) 
+  if( state.name )
     fd_wksp_detach( state.global.wksp );
-  else  
+  else
     fd_wksp_delete_anonymous( state.global.wksp );
 
   FD_LOG_NOTICE(( "pass" ));

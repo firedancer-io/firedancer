@@ -32,18 +32,18 @@ fd_runtime_block_execute( global_ctx_t *global, fd_slot_blocks_t *slot_data ) {
   }
 
   uchar *blob_ptr = blob + FD_BLOB_DATA_START;
-  uint cnt = *((uint *) (blob + 8));
+  uint   cnt = *((uint *) (blob + 8));
   while (cnt > 0) {
     fd_microblock_t * micro_block = fd_microblock_join( blob_ptr );
-  
+
     blob_ptr = (uchar *) fd_ulong_align_up((ulong)blob_ptr + fd_microblock_footprint( micro_block->hdr.txn_cnt ), FD_MICROBLOCK_ALIGN);
 
-    if (1 == cnt) 
+    if (1 == cnt)
       fd_memcpy(global->block_hash, micro_block->hdr.hash, sizeof(micro_block->hdr.hash));
     fd_microblock_leave(micro_block);
 
     cnt--;
-  } // while (cnt > 0) 
+  } // while (cnt > 0)
 
   fd_sysvar_clock_update( global);
   fd_sysvar_recent_hashes_update ( global, global->current_slot);
@@ -51,12 +51,12 @@ fd_runtime_block_execute( global_ctx_t *global, fd_slot_blocks_t *slot_data ) {
   blob = slot_data->first_blob;
   while (NULL != blob) {
     uchar *blob_ptr = blob + FD_BLOB_DATA_START;
-    uint cnt = *((uint *) (blob + 8));
+    uint   cnt = *((uint *) (blob + 8));
     while (cnt > 0) {
       fd_microblock_t * micro_block = fd_microblock_join( blob_ptr );
       if (micro_block->txn_max_cnt > 0) {
         for ( ulong txn_idx = 0; txn_idx < micro_block->txn_max_cnt; txn_idx++ ) {
-          fd_txn_t* txn_descriptor = (fd_txn_t *)&micro_block->txn_tbl[ txn_idx ];
+          fd_txn_t*      txn_descriptor = (fd_txn_t *)&micro_block->txn_tbl[ txn_idx ];
           fd_rawtxn_b_t* txn_raw   = (fd_rawtxn_b_t *)&micro_block->raw_tbl[ txn_idx ];
           fd_execute_txn( global->executor, txn_descriptor, txn_raw );
         }
@@ -64,11 +64,11 @@ fd_runtime_block_execute( global_ctx_t *global, fd_slot_blocks_t *slot_data ) {
       fd_microblock_leave(micro_block);
 
       blob_ptr = (uchar *) fd_ulong_align_up((ulong)blob_ptr + fd_microblock_footprint( micro_block->hdr.txn_cnt ), FD_MICROBLOCK_ALIGN);
-        
+
       cnt--;
-    } // while (cnt > 0) 
+    } // while (cnt > 0)
     blob = *((uchar **) blob);
-  } // while (NULL != blob) 
+  } // while (NULL != blob)
 
   fd_funk_commit(global->funk, &global->funk_txn);
 
@@ -85,7 +85,7 @@ fd_runtime_block_verify( global_ctx_t *global, fd_slot_blocks_t *slot_data ) {
   uchar *blob = slot_data->first_blob;
   while (NULL != blob) {
     uchar *blob_ptr = blob + FD_BLOB_DATA_START;
-    uint cnt = *((uint *) (blob + 8));
+    uint   cnt = *((uint *) (blob + 8));
     while (cnt > 0) {
       fd_microblock_t * micro_block = fd_microblock_join( blob_ptr );
       if (micro_block->txn_max_cnt > 0) {
@@ -97,21 +97,21 @@ fd_runtime_block_verify( global_ctx_t *global, fd_slot_blocks_t *slot_data ) {
       } else
         fd_poh_append(&global->poh, micro_block->hdr.hash_cnt);
       if (memcmp(micro_block->hdr.hash, global->poh.state, sizeof(global->poh.state))) {
-        if (global->poh_booted) 
+        if (global->poh_booted)
           FD_LOG_ERR(( "poh missmatch at slot: %ld", global->current_slot));
         else {
           fd_memcpy(global->poh.state, micro_block->hdr.hash, sizeof(global->poh.state));
           global->poh_booted = 1;
-        } 
+        }
       }
       fd_microblock_leave(micro_block);
 
       blob_ptr = (uchar *) fd_ulong_align_up((ulong)blob_ptr + fd_microblock_footprint( micro_block->hdr.txn_cnt ), FD_MICROBLOCK_ALIGN);
-        
+
       cnt--;
-    } // while (cnt > 0) 
+    } // while (cnt > 0)
     blob = *((uchar **) blob);
-  } // while (NULL != blob) 
+  } // while (NULL != blob)
 
   return FD_RUNTIME_EXECUTE_SUCCESS;
 }
