@@ -87,7 +87,7 @@ void local_freef(void *arg, void *ptr) {
 }
 
 struct global_state {
-  global_ctx_t        global;
+  fd_global_ctx_t     global;
 
   ulong               start_slot;
   ulong               end_slot;

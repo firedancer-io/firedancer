@@ -13,7 +13,7 @@ void set( fd_slot_history_inner_t* bits, ulong i ) {
 }
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/slot_history.rs#L16 */
-void fd_sysvar_slot_history_init( global_ctx_t* global ) {
+void fd_sysvar_slot_history_init( fd_global_ctx_t* global ) {
   fd_slot_history_t history;
   /* How to initialize:
     - Two structures: fd_slot_history_t and fd_slot_history_inner_t
@@ -28,7 +28,7 @@ void fd_sysvar_slot_history_init( global_ctx_t* global ) {
   /* Free malloc'd structure */
 } 
 
-void fd_sysvar_slot_history_update( global_ctx_t* global ) {
+void fd_sysvar_slot_history_update( fd_global_ctx_t* global ) {
 
   /* Set current_slot, and update next_slot */
 
@@ -36,7 +36,7 @@ void fd_sysvar_slot_history_update( global_ctx_t* global ) {
 
 }
 
-void fd_sysvar_slot_history_read( global_ctx_t* global, fd_slot_history_t* result ) {
+void fd_sysvar_slot_history_read( fd_global_ctx_t* global, fd_slot_history_t* result ) {
 
   /* Deserialize case from  */
 

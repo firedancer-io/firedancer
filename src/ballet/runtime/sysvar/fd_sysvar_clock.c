@@ -29,7 +29,7 @@ long timestamp_from_genesis( fd_genesis_solana_t* gen, ulong current_slot ) {
   return (long)(gen->creation_time + ( ( current_slot * ns_per_slot( gen->ticks_per_slot ) ) / 1000000000 ));
 }
 
-void write_clock( global_ctx_t* global, fd_sol_sysvar_clock_t* clock ) {
+void write_clock( fd_global_ctx_t* global, fd_sol_sysvar_clock_t* clock ) {
   ulong          sz = fd_sol_sysvar_clock_size( clock );
   unsigned char *enc = fd_alloca( 1, sz );
   memset( enc, 0, sz );
@@ -44,7 +44,7 @@ void write_clock( global_ctx_t* global, fd_sol_sysvar_clock_t* clock ) {
   fd_sysvar_set( global, owner, pubkey, enc, sz, global->current_slot );
 }
 
-void fd_sysvar_clock_read( global_ctx_t* global, fd_sol_sysvar_clock_t* result ) {
+void fd_sysvar_clock_read( fd_global_ctx_t* global, fd_sol_sysvar_clock_t* result ) {
   fd_pubkey_t pubkey;
   fd_base58_decode_32( "SysvarC1ock11111111111111111111111111111111", (unsigned char *) &pubkey);
 
@@ -67,7 +67,7 @@ void fd_sysvar_clock_read( global_ctx_t* global, fd_sol_sysvar_clock_t* result )
   fd_sol_sysvar_clock_decode( result, (const void **)&input, raw_acc_data + metadata.dlen, global->allocf, global->allocf_arg );
 }
 
-void fd_sysvar_clock_init( global_ctx_t* global ) {
+void fd_sysvar_clock_init( fd_global_ctx_t* global ) {
   long timestamp = timestamp_from_genesis( &global->gen, global->current_slot );
 
   fd_sol_sysvar_clock_t clock = {
@@ -88,7 +88,7 @@ void fd_sysvar_clock_init( global_ctx_t* global ) {
 
     timestamp = (stake-weighted median of vote timestamps) + ((target slot duration) * (slots since median timestamp vote was received))
  */
-long estimate_timestamp( global_ctx_t* global, uint128 ns_per_slot ) {
+long estimate_timestamp( fd_global_ctx_t* global, uint128 ns_per_slot ) {
   /* TODO: bound the estimate to ensure it stays within a certain range of the expected PoH clock:
   https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/runtime/src/stake_weighted_timestamp.rs#L13 */
 
@@ -100,7 +100,7 @@ long estimate_timestamp( global_ctx_t* global, uint128 ns_per_slot ) {
   return global->timestamp_votes.votes.elems[0].timestamp + (long)( ns_per_slot * ( global->current_slot - global->timestamp_votes.votes.elems[0].slot ) );
 }
 
-void fd_sysvar_clock_update( global_ctx_t* global ) {
+void fd_sysvar_clock_update( fd_global_ctx_t* global ) {
   fd_sol_sysvar_clock_t clock;
   fd_sysvar_clock_read( global, &clock );
 

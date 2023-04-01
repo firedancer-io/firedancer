@@ -13,7 +13,7 @@
 unsigned char pubkey[32] = {0};
 unsigned char owner[32] = {0};
 
-void fd_sysvar_recent_hashes_init( global_ctx_t* global, ulong slot ) {
+void fd_sysvar_recent_hashes_init( fd_global_ctx_t* global, ulong slot ) {
   // https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/fee_calculator.rs#L110
   fd_recent_block_hashes_t a;
   memset(&a, 0, sizeof(a));
@@ -45,7 +45,7 @@ void fd_sysvar_recent_hashes_init( global_ctx_t* global, ulong slot ) {
   fd_sysvar_set(global, owner, pubkey, enc, sz, slot);
 }
 
-void fd_sysvar_recent_hashes_update(global_ctx_t* global, ulong slot) {
+void fd_sysvar_recent_hashes_update(fd_global_ctx_t* global, ulong slot) {
   if (slot == 0)  // we already set this... as part of boot
     return; 
 
