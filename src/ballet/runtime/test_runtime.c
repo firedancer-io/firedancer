@@ -1088,10 +1088,8 @@ int main(int argc, char **argv) {
     free(buf);
   }
 
-  state.global->funk_txn = &state.global->funk_txn_stack[0];
+  state.global->funk_txn = &state.global->funk_txn_stack[state.global->funk_txn_index];
   *state.global->funk_txn = *fd_funk_root(state.global->funk);
-
-  // Jam all the accounts into the database....  (gen.accounts)
 
   /* Initialize the account manager */
   void *fd_acc_mgr_raw = state.global->allocf(state.global->allocf_arg, FD_ACC_MGR_ALIGN, FD_ACC_MGR_FOOTPRINT);

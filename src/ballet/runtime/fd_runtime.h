@@ -34,6 +34,8 @@ struct __attribute__((aligned(FD_GLOBAL_CTX_ALIGN))) fd_global_ctx {
   fd_poh_state_t             poh;
   struct fd_funk_xactionid   funk_txn_stack[32];
   struct fd_funk_xactionid*  funk_txn;
+  ushort                     funk_txn_index;
+  ushort                     funk_txn_depth;
   uchar                      block_hash[FD_SHA256_HASH_SZ];
   // TODO: should we instead remember which slot the poh is valid for?
   uchar                      poh_booted;
