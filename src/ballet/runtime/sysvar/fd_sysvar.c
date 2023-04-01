@@ -21,5 +21,5 @@ void fd_sysvar_set(fd_global_ctx_t *state, const unsigned char *owner, const uns
   };
   fd_memcpy( account.owner.key, owner, 32 );
 
-  fd_acc_mgr_write_structured_account( state->acc_mgr, &state->funk_txn, slot, (fd_pubkey_t *)  pubkey, &account );
+  fd_acc_mgr_write_structured_account( state->acc_mgr, state->funk_txn, slot, (fd_pubkey_t *)  pubkey, &account );
 }

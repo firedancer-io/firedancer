@@ -1088,14 +1088,14 @@ int main(int argc, char **argv) {
     free(buf);
   }
 
-  fd_funk_xactionid_t const* r = fd_funk_root(state.global->funk);
-  state.global->funk_txn = *r;
+  state.global->funk_txn = &state.global->funk_txn_stack[0];
+  *state.global->funk_txn = *fd_funk_root(state.global->funk);
 
   // Jam all the accounts into the database....  (gen.accounts)
 
   /* Initialize the account manager */
   void *fd_acc_mgr_raw = state.global->allocf(state.global->allocf_arg, FD_ACC_MGR_ALIGN, FD_ACC_MGR_FOOTPRINT);
-  state.global->acc_mgr = fd_acc_mgr_join(fd_acc_mgr_new(fd_acc_mgr_raw, state.global->funk, &state.global->funk_txn , FD_ACC_MGR_FOOTPRINT));
+  state.global->acc_mgr = fd_acc_mgr_join(fd_acc_mgr_new(fd_acc_mgr_raw, state.global->funk, state.global->funk_txn , FD_ACC_MGR_FOOTPRINT));
 
   fd_vec_fd_clock_timestamp_vote_t_new( &state.global->timestamp_votes.votes );
 
@@ -1104,7 +1104,7 @@ int main(int argc, char **argv) {
   for (ulong i = 0; i < state.global->genesis_block.accounts_len; i++) {
     fd_pubkey_account_pair_t *a = &state.global->genesis_block.accounts[i];
 
-    fd_acc_mgr_write_structured_account(state.global->acc_mgr, &state.global->funk_txn, 0, &a->key, &a->account);
+    fd_acc_mgr_write_structured_account(state.global->acc_mgr, state.global->funk_txn, 0, &a->key, &a->account);
 
     char pubkey[50];
     fd_base58_encode_32((uchar *) a->key.key, NULL, pubkey);
