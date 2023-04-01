@@ -26,14 +26,16 @@ struct fd_global_ctx {
   fd_alloc_t *               alloc;
   fd_executor_t*             executor;  // Amusingly, it is just a pointer to this...
   fd_rng_t*                  rng;
-  
+
+  // This state needs to be commited to funk so that we can roll it back?
   ulong                      current_slot;
   fd_poh_state_t             poh;
   struct fd_funk_xactionid   funk_txn;
   uchar                      block_hash[FD_SHA256_HASH_SZ];
+  // TODO: should we instead remember which slot the poh is valid for?
   uchar                      poh_booted;
-
   fd_clock_timestamp_votes_t timestamp_votes;
+
 };
 typedef struct fd_global_ctx fd_global_ctx_t;
 
