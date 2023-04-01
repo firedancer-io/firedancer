@@ -154,13 +154,13 @@ fd_runtime_block_eval( fd_global_ctx_t *global, fd_slot_blocks_t *slot_data ) {
   // finalize...
 
   // TODO: funk_txn should just be a pointer to the top of the funk_txn stack
-  ulong *p = (ulong *) &global->funk_txn.id[0];
+  ulong *p = (ulong *) &global->funk_txn->id[0];
   p[0] = fd_rng_ulong( global->rng);
   p[1] = fd_rng_ulong( global->rng);
   p[2] = fd_rng_ulong( global->rng);
   p[3] = fd_rng_ulong( global->rng);
 
-  fd_funk_fork(global->funk, fd_funk_root(global->funk), &global->funk_txn);
+  fd_funk_fork(global->funk, fd_funk_root(global->funk), global->funk_txn);
 
   // This is simple now but really we need to execute block_verify in
   // its own thread/tile and IT needs to parallelize the
@@ -176,13 +176,13 @@ fd_runtime_block_eval( fd_global_ctx_t *global, fd_slot_blocks_t *slot_data ) {
 
   ret = fd_runtime_block_execute( global, slot_data );
   if (FD_RUNTIME_EXECUTE_SUCCESS != ret ) {
-    fd_funk_cancel(global->funk, &global->funk_txn);
+    fd_funk_cancel(global->funk, global->funk_txn);
     return ret;
   }
 
   // TODO: We should be committing finalized blocks... once we have a
   // "tower", we will remove this line..
-  fd_funk_commit(global->funk, &global->funk_txn);
+  fd_funk_commit(global->funk, global->funk_txn);
 
   return ret;
 }

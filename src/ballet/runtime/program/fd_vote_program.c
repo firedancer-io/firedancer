@@ -120,7 +120,7 @@ int fd_executor_vote_program_execute_instruction(
       // fd_vote_state_decode(&check_vote_state, (const void**)&check_vote_state_input, check_vote_state_dataend, ctx.global->allocf, ctx.global->allocf_arg);
 
       /* TODO: write back max(previous size, new size). Maybe move this abstraction into the accounts manager. */
-      int write_result = fd_acc_mgr_write_account_data( ctx.global->acc_mgr, &ctx.global->funk_txn, vote_acc, (ulong)(metadata.hlen + 4), (uchar*)encoded_vote_state, encoded_vote_state_size );
+      int write_result = fd_acc_mgr_write_account_data( ctx.global->acc_mgr, ctx.global->funk_txn, vote_acc, (ulong)(metadata.hlen + 4), (uchar*)encoded_vote_state, encoded_vote_state_size );
       if ( write_result != FD_ACC_MGR_SUCCESS ) {
         FD_LOG_WARNING(( "failed to write account data" ));
         return write_result;
