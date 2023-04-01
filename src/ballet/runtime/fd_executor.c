@@ -14,7 +14,7 @@ fd_pubkey_t solana_ed25519_sig_verify_program;
 fd_pubkey_t solana_keccak_secp_256k_program;
 
 void* fd_executor_new(void* mem,
-                      global_ctx_t* global,
+                      fd_global_ctx_t* global,
                       ulong footprint) {
   if( FD_UNLIKELY( !mem ) ) {
     FD_LOG_WARNING(( "NULL mem" ));

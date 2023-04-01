@@ -5,42 +5,22 @@
 #include "../txn/fd_txn.h"
 #include "../block/fd_microblock.h"
 #include "fd_banks_solana.h"
+#include "fd_runtime.h"
 #include "fd_acc_mgr.h"
 #include "../../funk/fd_funk.h"
 #include "../poh/fd_poh.h"
 
 FD_PROTOTYPES_BEGIN
 
-struct global_ctx {
-  fd_alloc_fun_t             allocf;
-  void *                     allocf_arg;
-  fd_free_fun_t              freef;
-  fd_acc_mgr_t*              acc_mgr;
-
-  fd_genesis_solana_t        gen;
-  uchar                      genesis_hash[FD_SHA256_HASH_SZ];
-
-  fd_wksp_t *                wksp;
-  fd_funk_t*                 funk;
-  fd_alloc_t *               alloc;
-  
-  ulong                      current_slot;
-  fd_poh_state_t             poh;
-  struct fd_funk_xactionid   funk_txn;
-  uchar                      block_hash[FD_SHA256_HASH_SZ];
-
-  fd_clock_timestamp_votes_t timestamp_votes;
-};
-typedef struct global_ctx global_ctx_t;
-
+// Should we just get rid of fd_executor and pass the fd_global_ctx_t?
 struct fd_executor {
-  global_ctx_t* global;
+  fd_global_ctx_t* global;
 };
 typedef struct fd_executor fd_executor_t;
 
 #define FD_EXECUTOR_FOOTPRINT ( sizeof(fd_executor_t) )
 
-void* fd_executor_new( void* mem, global_ctx_t* global, ulong footprint );
+void* fd_executor_new( void* mem, fd_global_ctx_t* global, ulong footprint );
 
 fd_executor_t *fd_executor_join( void* mem );
 
@@ -105,7 +85,7 @@ fd_execute_txn( fd_executor_t* executor, fd_txn_t * txn_descriptor, fd_rawtxn_b_
 
 /* Context needed to execute a single instruction. TODO: split into a hierarchy of layered contexts.  */
 struct instruction_ctx {
-  global_ctx_t*   global;
+  fd_global_ctx_t*   global;
   fd_txn_instr_t* instr;                      /* The instruction */
   fd_txn_t*       txn_descriptor;             /* Descriptor of the transaction this instruction was part of */
   fd_rawtxn_b_t*  txn_raw;                    /* Raw bytes of the transaction this instruction was part of */
