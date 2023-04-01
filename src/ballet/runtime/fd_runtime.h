@@ -16,7 +16,7 @@ struct fd_global_ctx {
   fd_free_fun_t              freef;
   fd_acc_mgr_t*              acc_mgr;
 
-  fd_genesis_solana_t        gen;
+  fd_genesis_solana_t        genesis_block;
   uchar                      genesis_hash[FD_SHA256_HASH_SZ];
 
   fd_rng_t                   rnd_mem;
