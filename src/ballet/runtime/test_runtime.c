@@ -719,15 +719,6 @@ fd_sim_txn(global_state_t *state, FD_FN_UNUSED fd_executor_t* executor, fd_txn_t
 }
 
 int replay(global_state_t *state) {
-  // TODO: We need to formalize how global state gets booted
-
-  fd_global_ctx_new(&state->global);
-
-  if (NULL == state->global.executor) {
-    void *fd_executor_raw = malloc(FD_EXECUTOR_FOOTPRINT);
-    state->global.executor = fd_executor_join(fd_executor_new(fd_executor_raw, &state->global, FD_EXECUTOR_FOOTPRINT));
-  }
-
   if (0 == state->start_slot)
     fd_runtime_boot_slot_zero(&state->global);
 
@@ -968,6 +959,8 @@ int main(int argc, char **argv) {
 
   global_state_t state;
   fd_memset(&state, 0, sizeof(state));
+
+  fd_global_ctx_new(&state.global);
 
   state.argc = argc;
   state.argv = argv;

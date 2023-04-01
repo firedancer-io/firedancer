@@ -2,6 +2,7 @@
 #include "../fd_types.h"
 #include "../../base58/fd_base58.h"
 #include "fd_sysvar.h"
+#include "../fd_runtime.h"
 
 const ulong ns_in_s = 1000000000;
 

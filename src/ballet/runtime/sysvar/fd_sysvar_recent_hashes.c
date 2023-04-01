@@ -3,6 +3,7 @@
 #include "../fd_acc_mgr.h"
 #include "../fd_hashes.h"
 #include "fd_sysvar.h"
+#include "../fd_runtime.h"
 
 #include "../../base58/fd_base58.h"
 

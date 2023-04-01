@@ -5,12 +5,13 @@
 #include "../txn/fd_txn.h"
 #include "../block/fd_microblock.h"
 #include "fd_banks_solana.h"
-#include "fd_runtime.h"
 #include "fd_acc_mgr.h"
 #include "../../funk/fd_funk.h"
 #include "../poh/fd_poh.h"
 
 FD_PROTOTYPES_BEGIN
+
+typedef struct fd_global_ctx fd_global_ctx_t;
 
 // Should we just get rid of fd_executor and pass the fd_global_ctx_t?
 struct fd_executor {

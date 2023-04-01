@@ -3,12 +3,11 @@
 
 #include "fd_rocksdb.h"
 #include "fd_acc_mgr.h"
+#include "fd_executor.h"
 #include "../poh/fd_poh.h"
 
 #define FD_RUNTIME_EXECUTE_SUCCESS                               ( 0 )  /* Slot executed successfully */
 #define FD_RUNTIME_EXECUTE_GENERIC_ERR                          ( -1 ) /* The Slot execute returned an error */
-
-typedef struct fd_executor fd_executor_t;
 
 #define FD_GLOBAL_CTX_ALIGN (8UL)
 struct __attribute__((aligned(FD_GLOBAL_CTX_ALIGN))) fd_global_ctx {
@@ -27,7 +26,7 @@ struct __attribute__((aligned(FD_GLOBAL_CTX_ALIGN))) fd_global_ctx {
   fd_wksp_t *                wksp;
   fd_funk_t*                 funk;
   fd_alloc_t *               alloc;
-  fd_executor_t*             executor;  // Amusingly, it is just a pointer to this...
+  fd_executor_t              executor;  // Amusingly, it is just a pointer to this...
   fd_rng_t*                  rng;
 
   // This state needs to be commited to funk so that we can roll it back?
