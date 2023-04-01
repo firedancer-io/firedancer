@@ -36,7 +36,7 @@ fd_runtime_boot_slot_zero( fd_global_ctx_t *global ) {
 
 int
 fd_runtime_block_execute( fd_global_ctx_t *global, fd_slot_blocks_t *slot_data ) {
-  uchar *blob = slot_data->first_blob;
+  uchar *blob = slot_data->last_blob;
   uchar *blob_ptr = blob + FD_BLOB_DATA_START;
   uint   cnt = *((uint *) (blob + 8));
 
