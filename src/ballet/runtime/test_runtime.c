@@ -719,14 +719,6 @@ fd_sim_txn(global_state_t *state, FD_FN_UNUSED fd_executor_t* executor, fd_txn_t
 }
 
 int replay(global_state_t *state) {
-  // TODO: We need to formalize how global state gets booted
-  if (NULL == state->global.executor) {
-    void *fd_executor_raw = malloc(FD_EXECUTOR_FOOTPRINT);
-    state->global.executor = fd_executor_join(fd_executor_new(fd_executor_raw, &state->global, FD_EXECUTOR_FOOTPRINT));
-  }
-  if (NULL == state->global.rng)
-    state->global.rng  = fd_rng_join( fd_rng_new(&state->global.rnd_mem, 0, 0) );
-
   if (0 == state->start_slot)
     fd_runtime_boot_slot_zero(&state->global);
 
@@ -968,6 +960,8 @@ int main(int argc, char **argv) {
   global_state_t state;
   fd_memset(&state, 0, sizeof(state));
 
+  fd_global_ctx_new(&state.global);
+
   state.argc = argc;
   state.argv = argv;
 
@@ -1084,8 +1078,8 @@ int main(int argc, char **argv) {
 
     void *data = buf;
     void *dataend = &buf[n];
-    fd_memset(&state.global.gen, 0, sizeof(state.global.gen));
-    fd_genesis_solana_decode(&state.global.gen, ( void const** )&data, dataend, state.global.allocf, state.global.allocf_arg);
+    fd_memset(&state.global.genesis_block, 0, sizeof(state.global.genesis_block));
+    fd_genesis_solana_decode(&state.global.genesis_block, ( void const** )&data, dataend, state.global.allocf, state.global.allocf_arg);
 
     free(buf);
   }
@@ -1102,8 +1096,8 @@ int main(int argc, char **argv) {
 
   FD_LOG_WARNING(("loading genesis account into funk db"));
 
-  for (ulong i = 0; i < state.global.gen.accounts_len; i++) {
-    fd_pubkey_account_pair_t *a = &state.global.gen.accounts[i];
+  for (ulong i = 0; i < state.global.genesis_block.accounts_len; i++) {
+    fd_pubkey_account_pair_t *a = &state.global.genesis_block.accounts[i];
 
     fd_acc_mgr_write_structured_account(state.global.acc_mgr, &state.global.funk_txn, 0, &a->key, &a->account);
 
@@ -1112,8 +1106,8 @@ int main(int argc, char **argv) {
     FD_LOG_WARNING(("genesis accounts:  %s", pubkey));
   }
 
-  for (ulong i = 0; i < state.global.gen.native_instruction_processors_len; i++) {
-    fd_string_pubkey_pair_t * ins = &state.global.gen.native_instruction_processors[i];
+  for (ulong i = 0; i < state.global.genesis_block.native_instruction_processors_len; i++) {
+    fd_string_pubkey_pair_t * ins = &state.global.genesis_block.native_instruction_processors[i];
 
     char pubkey[50];
 
@@ -1167,7 +1161,7 @@ int main(int argc, char **argv) {
   fd_acc_mgr_delete(fd_acc_mgr_leave(state.global.acc_mgr));
   state.global.freef(state.global.allocf_arg, fd_acc_mgr_raw);
 
-  fd_genesis_solana_destroy(&state.global.gen, state.global.freef, state.global.allocf_arg);
+  fd_genesis_solana_destroy(&state.global.genesis_block, state.global.freef, state.global.allocf_arg);
 
   // The memory management model is odd...  how do I know how to destroy this
   fd_rocksdb_destroy(&state.rocks_db);

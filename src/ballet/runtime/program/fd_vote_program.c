@@ -1,6 +1,7 @@
 #include "fd_vote_program.h"
 #include "../fd_executor.h"
 #include "../../../ballet/txn/fd_compact_u16.h"
+#include "../fd_runtime.h"
 
 int fd_executor_vote_program_execute_instruction(
     instruction_ctx_t ctx

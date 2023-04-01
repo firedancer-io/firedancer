@@ -32,7 +32,10 @@ fd_runtime_boot_slot_zero( fd_global_ctx_t *global ) {
 // could execute the cryptography in another thread for tracking this
 // but we don't actually have anything to compare it to until we hit
 // another snapshot...  Probably we should just store the results into
-// the global state (a slot/hash map)...
+// the global state (a slot/hash map)?
+//
+// What slots exactly do cache'd account_updates go into?  how are
+// they hashed (which slot?)?
 
 int
 fd_runtime_block_execute( fd_global_ctx_t *global, fd_slot_blocks_t *slot_data ) {
@@ -76,7 +79,7 @@ fd_runtime_block_execute( fd_global_ctx_t *global, fd_slot_blocks_t *slot_data )
         fd_rawtxn_b_t* txn_raw   = (fd_rawtxn_b_t *)&micro_block->raw_tbl[ txn_idx ];
         // TODO: fork and commit a new funk_txn for each txn and properly
         // cancel if it fails
-        fd_execute_txn( global->executor, txn_descriptor, txn_raw );
+        fd_execute_txn( &global->executor, txn_descriptor, txn_raw );
       }
       fd_microblock_leave(micro_block);
 
@@ -90,7 +93,8 @@ fd_runtime_block_execute( fd_global_ctx_t *global, fd_slot_blocks_t *slot_data )
   return FD_RUNTIME_EXECUTE_SUCCESS;
 }
 
-// TODO: add txn verify to this as well
+// TODO: add solana txn verify to this as well since, again, it can be
+// done in parallel...
 int
 fd_runtime_block_verify( fd_global_ctx_t *global, fd_slot_blocks_t *slot_data ) {
   if (NULL == slot_data) {
@@ -113,9 +117,11 @@ fd_runtime_block_verify( fd_global_ctx_t *global, fd_slot_blocks_t *slot_data ) 
       } else
         fd_poh_append(&global->poh, micro_block->hdr.hash_cnt);
       if (memcmp(micro_block->hdr.hash, global->poh.state, sizeof(global->poh.state))) {
-        if (global->poh_booted)
+        if (global->poh_booted) {
+          // TODO should this log and return?  instead of knocking the
+          // whole system over via a _ERR?
           FD_LOG_ERR(( "poh missmatch at slot: %ld", global->current_slot));
-        else {
+        } else {
           fd_memcpy(global->poh.state, micro_block->hdr.hash, sizeof(global->poh.state));
           global->poh_booted = 1;
         }
@@ -179,4 +185,78 @@ fd_runtime_block_eval( fd_global_ctx_t *global, fd_slot_blocks_t *slot_data ) {
   fd_funk_commit(global->funk, &global->funk_txn);
 
   return ret;
+}
+
+void *
+fd_global_ctx_new        ( void * mem ) {
+  if( FD_UNLIKELY( !mem ) ) {
+    FD_LOG_WARNING(( "NULL mem" ));
+    return NULL;
+  }
+
+  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)mem, FD_GLOBAL_CTX_ALIGN ) ) ) {
+    FD_LOG_WARNING(( "misaligned mem" ));
+    return NULL;
+  }
+
+  fd_memset(mem, 0, FD_GLOBAL_CTX_FOOTPRINT);
+
+  fd_global_ctx_t * self = (fd_global_ctx_t *) mem;
+
+  self->rng  = fd_rng_join( fd_rng_new(&self->rnd_mem, 0, 0) );
+
+  // Yeah, maybe we should get rid of this?
+  fd_executor_new ( & self->executor, self, FD_EXECUTOR_FOOTPRINT );
+
+  FD_COMPILER_MFENCE();
+  self->magic = FD_GLOBAL_CTX_MAGIC;
+  FD_COMPILER_MFENCE();
+
+  return mem;
+}
+
+fd_global_ctx_t *
+fd_global_ctx_join       ( void * mem ) {
+  fd_global_ctx_t * self = (fd_global_ctx_t *) mem;
+
+  if( FD_UNLIKELY( self->magic!=FD_GLOBAL_CTX_MAGIC ) ) {
+    FD_LOG_WARNING(( "bad magic" ));
+    return NULL;
+  }
+
+  return self;
+}
+void *
+fd_global_ctx_leave      ( fd_global_ctx_t * ctx) {
+  if( FD_UNLIKELY( !ctx ) ) {
+    FD_LOG_WARNING(( "NULL block" ));
+    return NULL;
+  }
+
+  return (void *) ctx;
+}
+
+void *
+fd_global_ctx_delete     ( void * mem ) {
+  if( FD_UNLIKELY( !mem ) ) {
+    FD_LOG_WARNING(( "NULL mem" ));
+    return NULL;
+  }
+
+  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)mem, fd_microblock_align() ) ) ) {
+    FD_LOG_WARNING(( "misaligned mem" ));
+    return NULL;
+  }
+
+  fd_global_ctx_t * hdr = (fd_global_ctx_t *)mem;
+  if( FD_UNLIKELY( hdr->magic!=FD_GLOBAL_CTX_MAGIC ) ) {
+    FD_LOG_WARNING(( "bad magic" ));
+    return NULL;
+  }
+
+  FD_COMPILER_MFENCE();
+  FD_VOLATILE( hdr->magic ) = 0UL;
+  FD_COMPILER_MFENCE();
+
+  return mem;
 }

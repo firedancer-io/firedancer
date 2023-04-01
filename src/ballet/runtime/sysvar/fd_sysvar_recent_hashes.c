@@ -3,6 +3,7 @@
 #include "../fd_acc_mgr.h"
 #include "../fd_hashes.h"
 #include "fd_sysvar.h"
+#include "../fd_runtime.h"
 
 #include "../../base58/fd_base58.h"
 
@@ -76,7 +77,7 @@ void fd_sysvar_recent_hashes_update(fd_global_ctx_t* global, ulong slot) {
   fd_block_block_hash_entry_t s;
   memset(&s, 0, sizeof(s));
 
-  s.fee_calculator.lamports_per_signature = global->gen.fee_rate_governor.target_lamports_per_signature / 2;
+  s.fee_calculator.lamports_per_signature = global->genesis_block.fee_rate_governor.target_lamports_per_signature / 2;
   fd_memcpy(s.blockhash.hash, global->block_hash, sizeof(global->block_hash));
 
   while (a.hashes.cnt >= 150)

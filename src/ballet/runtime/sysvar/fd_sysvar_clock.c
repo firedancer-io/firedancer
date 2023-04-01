@@ -2,6 +2,7 @@
 #include "../fd_types.h"
 #include "../../base58/fd_base58.h"
 #include "fd_sysvar.h"
+#include "../fd_runtime.h"
 
 const ulong ns_in_s = 1000000000;
 
@@ -68,7 +69,7 @@ void fd_sysvar_clock_read( fd_global_ctx_t* global, fd_sol_sysvar_clock_t* resul
 }
 
 void fd_sysvar_clock_init( fd_global_ctx_t* global ) {
-  long timestamp = timestamp_from_genesis( &global->gen, global->current_slot );
+  long timestamp = timestamp_from_genesis( &global->genesis_block, global->current_slot );
 
   fd_sol_sysvar_clock_t clock = {
     .slot = 0,
@@ -93,7 +94,7 @@ long estimate_timestamp( fd_global_ctx_t* global, uint128 ns_per_slot ) {
   https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/runtime/src/stake_weighted_timestamp.rs#L13 */
 
   if ( global->timestamp_votes.votes.cnt == 0 ) {
-    return timestamp_from_genesis( &global->gen, global->current_slot );
+    return timestamp_from_genesis( &global->genesis_block, global->current_slot );
   }
 
   /* TODO: actually take the stake-weighted median. For now, just take the first vote */
@@ -104,7 +105,7 @@ void fd_sysvar_clock_update( fd_global_ctx_t* global ) {
   fd_sol_sysvar_clock_t clock;
   fd_sysvar_clock_read( global, &clock );
 
-  long timestamp_estimate = estimate_timestamp( global, ns_per_slot( global->gen.ticks_per_slot ) );
+  long timestamp_estimate = estimate_timestamp( global, ns_per_slot( global->genesis_block.ticks_per_slot ) );
   clock.slot              = global->current_slot;
   clock.unix_timestamp    = timestamp_estimate;
 
