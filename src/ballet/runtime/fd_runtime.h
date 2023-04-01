@@ -32,7 +32,7 @@ struct __attribute__((aligned(FD_GLOBAL_CTX_ALIGN))) fd_global_ctx {
   // This state needs to be commited to funk so that we can roll it back?
   ulong                      current_slot;
   fd_poh_state_t             poh;
-  struct fd_funk_xactionid   funk_txn_stack[32];
+  struct fd_funk_xactionid   funk_txn_tower[32];
   struct fd_funk_xactionid*  funk_txn;
   ushort                     funk_txn_index;
   ushort                     funk_txn_depth;

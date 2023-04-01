@@ -1088,7 +1088,7 @@ int main(int argc, char **argv) {
     free(buf);
   }
 
-  state.global->funk_txn = &state.global->funk_txn_stack[state.global->funk_txn_index];
+  state.global->funk_txn = &state.global->funk_txn_tower[state.global->funk_txn_index];
   *state.global->funk_txn = *fd_funk_root(state.global->funk);
 
   /* Initialize the account manager */
