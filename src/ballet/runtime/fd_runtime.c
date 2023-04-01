@@ -150,17 +150,23 @@ fd_runtime_block_eval( fd_global_ctx_t *global, fd_slot_blocks_t *slot_data ) {
     return FD_RUNTIME_EXECUTE_GENERIC_ERR;
   }
 
-  // The funk_txn needs to be a "tower" so that we can correctly
-  // finalize...
+  // this makes my head hurt... need some sleep...
+  struct fd_funk_xactionid*  parent_txn = global->funk_txn;
+  global->funk_txn_index = (global->funk_txn_index + 1) & 31;
+  global->funk_txn = &global->funk_txn_tower[global->funk_txn_index];
 
-  // TODO: funk_txn should just be a pointer to the top of the funk_txn stack
   ulong *p = (ulong *) &global->funk_txn->id[0];
+
+  // Reasonable to let the compiler figure this out?
+  if ( memcmp(global->funk_txn, fd_funk_root(global->funk), sizeof(fd_funk_xactionid_t) ) )
+    fd_funk_commit(global->funk, global->funk_txn);
+
   p[0] = fd_rng_ulong( global->rng);
   p[1] = fd_rng_ulong( global->rng);
   p[2] = fd_rng_ulong( global->rng);
   p[3] = fd_rng_ulong( global->rng);
 
-  fd_funk_fork(global->funk, fd_funk_root(global->funk), global->funk_txn);
+  fd_funk_fork(global->funk, parent_txn, global->funk_txn);
 
   // This is simple now but really we need to execute block_verify in
   // its own thread/tile and IT needs to parallelize the
@@ -179,10 +185,6 @@ fd_runtime_block_eval( fd_global_ctx_t *global, fd_slot_blocks_t *slot_data ) {
     fd_funk_cancel(global->funk, global->funk_txn);
     return ret;
   }
-
-  // TODO: We should be committing finalized blocks... once we have a
-  // "tower", we will remove this line..
-  fd_funk_commit(global->funk, global->funk_txn);
 
   return ret;
 }
