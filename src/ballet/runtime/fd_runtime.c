@@ -23,33 +23,16 @@ fd_runtime_boot_slot_zero( global_ctx_t *global ) {
 
 // fd_runtime_block_execute
 //
-// There is a strong assumption here that we are executing and
-// verifying blocks in order.  If you bounce around, the poh state
+// If you bounce around slots, the poh state
 // will not match AND the sysvars will be set incorrectly.  Since the
-// verify WILL fail, the runtime will detect incorrect usage..
+// verify WILL also fail, the runtime will detect incorrect usage..
+
 int
 fd_runtime_block_execute( global_ctx_t *global, fd_slot_blocks_t *slot_data ) {
-  ulong *p = (ulong *) &global->funk_txn.id[0];
-  p[0] = fd_rng_ulong( global->rng);
-  p[1] = fd_rng_ulong( global->rng);
-  p[2] = fd_rng_ulong( global->rng);
-  p[3] = fd_rng_ulong( global->rng);
-
-  fd_funk_fork(global->funk, fd_funk_root(global->funk), &global->funk_txn);
-
-  if (NULL == slot_data) {
-    FD_LOG_WARNING(("NULL slot passed to fd_runtime_block_execute at slot %ld", global->current_slot));
-    return FD_RUNTIME_EXECUTE_GENERIC_ERR;
-  }
-  uchar *blob = slot_data->last_blob;
-  if (NULL == blob) {
-    FD_LOG_WARNING(("empty slot passed to fd_runtime_block_execute at slot %ld", global->current_slot));
-    return FD_RUNTIME_EXECUTE_GENERIC_ERR;
-  }
-
   // It sucks that we need to know the current block hash which is
   // stored at the END of the block.  Lets have a fever dream another
   // time and optimize this...
+  uchar *blob = slot_data->first_blob;
   uchar *blob_ptr = blob + FD_BLOB_DATA_START;
   uint   cnt = *((uint *) (blob + 8));
   while (cnt > 0) {
@@ -89,10 +72,11 @@ fd_runtime_block_execute( global_ctx_t *global, fd_slot_blocks_t *slot_data ) {
     blob = *((uchar **) blob);
   } // while (NULL != blob)
 
-  fd_funk_commit(global->funk, &global->funk_txn);
-
   return FD_RUNTIME_EXECUTE_SUCCESS;
 }
+
+// TODO: add the account_state verify to this as well..
+// TODO: add txn verify to this as well
 
 int
 fd_runtime_block_verify( global_ctx_t *global, fd_slot_blocks_t *slot_data ) {
@@ -137,16 +121,38 @@ fd_runtime_block_verify( global_ctx_t *global, fd_slot_blocks_t *slot_data ) {
 
 int
 fd_runtime_block_eval( global_ctx_t *global, fd_slot_blocks_t *slot_data ) {
+  if (NULL == slot_data) {
+    FD_LOG_WARNING(("NULL slot passed to fd_runtime_block_execute at slot %ld", global->current_slot));
+    return FD_RUNTIME_EXECUTE_GENERIC_ERR;
+  }
+  uchar *blob = slot_data->last_blob;
+  if (NULL == blob) {
+    FD_LOG_WARNING(("empty slot passed to fd_runtime_block_execute at slot %ld", global->current_slot));
+    return FD_RUNTIME_EXECUTE_GENERIC_ERR;
+  }
+
   // This is simple now but really we need to execute block_verify in
   // its own thread/tile and IT needs to parallelize out the
   // microblock verifies out into worker threads as well.
   //
-  // Finally, if the verify fails, we need to abort the entire
-  // transaction which means we should move the funk_txn out to
-  // here... 
+  ulong *p = (ulong *) &global->funk_txn.id[0];
+  p[0] = fd_rng_ulong( global->rng);
+  p[1] = fd_rng_ulong( global->rng);
+  p[2] = fd_rng_ulong( global->rng);
+  p[3] = fd_rng_ulong( global->rng);
+
+  fd_funk_fork(global->funk, fd_funk_root(global->funk), &global->funk_txn);
 
   int ret = fd_runtime_block_verify( global, slot_data);
   if (FD_RUNTIME_EXECUTE_SUCCESS != ret )
     return ret;
-  return fd_runtime_block_execute( global, slot_data);
+
+  ret = fd_runtime_block_execute( global, slot_data);
+  if (FD_RUNTIME_EXECUTE_SUCCESS != ret ) {
+    fd_funk_cancel(global->funk, &global->funk_txn);
+    return ret;
+  }
+
+  fd_funk_commit(global->funk, &global->funk_txn);
+  return ret;
 }

@@ -771,196 +771,196 @@ int replay(global_state_t *state) {
   return 0;
 }
 
-// delete this eventually
-int old_replay(global_state_t *state) {
-  void *         fd_executor_raw = malloc(FD_EXECUTOR_FOOTPRINT);
-  fd_executor_t* executor = fd_executor_join(fd_executor_new(fd_executor_raw, &state->global, FD_EXECUTOR_FOOTPRINT));
-
-  fd_rng_t   rnd_mem;
-  void *     shrng = fd_rng_new(&rnd_mem, 0, 0);
-  fd_rng_t * rng  = fd_rng_join( shrng );
-
-  uchar boot_boh = 1;
-  if (0 == state->start_slot) {
-    fd_memcpy(state->global.poh.state, state->global.genesis_hash, sizeof(state->global.genesis_hash));
-    boot_boh = 0;
-    fd_sysvar_recent_hashes_init(&state->global, 0);
-    fd_sysvar_clock_init( &state->global );
-  }
-
-  fd_rocksdb_root_iter_t iter;
-  fd_rocksdb_root_iter_new ( &iter );
-
-  fd_slot_meta_t m;
-  fd_memset(&m, 0, sizeof(m));
-
-  int ret = fd_rocksdb_root_iter_seek ( &iter, &state->rocks_db, state->start_slot, &m, state->global.allocf, state->global.allocf_arg);
-  if (ret < 0) {
-    FD_LOG_ERR(("fd_rocksdb_root_iter_seek returned %d", ret));
-  }
-
-  /* TODO: move this somewhere more appropiate. Properly organise sysvars. */
-  /* fd_sysvar_clock_init( global,  ); */
-
-  do {
-    ulong slot;
-    ret = fd_rocksdb_root_iter_slot ( &iter, &slot );
-    if (ret < 0) {
-      FD_LOG_ERR(("fd_rocksdb_root_iter_slot returned %d", ret));
-    }
-
-    if (slot >= state->end_slot)
-      break;
-
-    if ((state->end_slot < 10) || ((slot % 10) == 0))
-      FD_LOG_WARNING(("reading slot %ld", slot));
-
-    ulong *p = (ulong *) &state->global.funk_txn.id[0];
-    p[0] = fd_rng_ulong(rng);
-    p[1] = fd_rng_ulong(rng);
-    p[2] = fd_rng_ulong(rng);
-    p[3] = fd_rng_ulong(rng);
-
-    fd_funk_fork(state->global.funk, fd_funk_root(state->global.acc_mgr->funk), &state->global.funk_txn);
-
-    // SysvarS1otHashes111111111111111111111111111
-    //new.update_slot_hashes();
-    // SysvarS1otHistory11111111111111111111111111
-    //new.update_stake_history(Some(parent_epoch));
-    //                 .map(|account| from_account::<SlotHistory, _>(account).unwrap())
-
-    do {
-      fd_slot_blocks_t *slot_data = fd_rocksdb_get_microblocks(&state->rocks_db, &m, state->global.allocf, state->global.allocf_arg);
-
-      state->global.current_slot = slot;
-
-      if (NULL == slot_data) {
-        FD_LOG_WARNING(("fd_rocksdb_get_microblocks returned NULL for slot %ld", slot));
-        break;
-      }
-
-      uchar *blob = slot_data->last_blob;
-      if (NULL == blob) {
-        FD_LOG_WARNING(("fd_rocksdb_get_microblocks returned empty for slot %ld", slot));
-        break;
-      }
-
-      uchar *blob_ptr = blob + FD_BLOB_DATA_START;
-      uint   cnt = *((uint *) (blob + 8));
-      while (cnt > 0) {
-        fd_microblock_t * micro_block = fd_microblock_join( blob_ptr );
-
-        blob_ptr = (uchar *) fd_ulong_align_up((ulong)blob_ptr + fd_microblock_footprint( micro_block->hdr.txn_cnt ), FD_MICROBLOCK_ALIGN);
-
-        if (1 == cnt)
-          fd_memcpy(state->global.block_hash, micro_block->hdr.hash, sizeof(micro_block->hdr.hash));
-        fd_microblock_leave(micro_block);
-
-        cnt--;
-      } // while (cnt > 0)
-
-      fd_sysvar_clock_update( &state->global );
-      fd_sysvar_recent_hashes_update ( &state->global, slot );
-
-      // free
-      fd_slot_meta_destroy(&m, state->global.freef, state->global.allocf_arg);
-
-      ulong blob_idx = 0;
-      ulong entry_idx = 0;
-      // execute slot_block...
-      blob = slot_data->first_blob;
-      while (NULL != blob) {
-        blob_idx++;
-        uchar *blob_ptr = blob + FD_BLOB_DATA_START;
-        uint   cnt = *((uint *) (blob + 8));
-        while (cnt > 0) {
-          fd_microblock_t * micro_block = fd_microblock_join( blob_ptr );
-
-          entry_idx++;
-
-#ifdef _VHASH
-          char outhash_base58[50];
-          fd_memset(outhash_base58, 0, sizeof(outhash_base58));
-#endif
-
-          if (micro_block->txn_max_cnt > 0) {
-            if (micro_block->hdr.hash_cnt > 0)
-              fd_poh_append(&state->global.poh, micro_block->hdr.hash_cnt - 1);
-
-            for ( ulong txn_idx = 0; txn_idx < micro_block->txn_max_cnt; txn_idx++ ) {
-              fd_txn_t*      txn_descriptor = (fd_txn_t *)&micro_block->txn_tbl[ txn_idx ];
-              fd_rawtxn_b_t* txn_raw   = (fd_rawtxn_b_t *)&micro_block->raw_tbl[ txn_idx ];
-
-              switch (state->txn_exe) {
-              case 0:
-                fd_execute_txn( executor, txn_descriptor, txn_raw );
-                break;
-              case 2:
-                fd_sim_txn( state, executor, txn_descriptor, txn_raw, &state->global.funk_txn );
-                break;
-              default: // skip
-                break;
-              } // switch (state->txn_exe)
-            } // for ( ulong txn_idx = 0; txn_idx < micro_block->txn_max_cnt; txn_idx++ )
-
-            uchar outhash[32];
-            fd_microblock_mixin(micro_block, outhash);
-
-#ifdef _VHASH
-            fd_base58_encode_32((uchar *) outhash, NULL, outhash_base58);
-#endif
-
-            fd_poh_mixin(&state->global.poh, outhash);
-          } else
-            fd_poh_append(&state->global.poh, micro_block->hdr.hash_cnt);
-
-#ifdef _VHASH
-          char block_hash[50];
-          fd_base58_encode_32((uchar *) micro_block->hdr.hash, NULL, block_hash);
-
-          char poh_state[50];
-          fd_base58_encode_32((uchar *) state->global.poh.state, NULL, poh_state);
-
-          FD_LOG_WARNING(( "poh at slot: %ld,  batch: %03ld,  entry: %03ld  hash_cnt: %03ld  block_hash: %s  poh_state: %s  mixin: %s", slot, blob_idx, entry_idx, micro_block->hdr.hash_cnt, block_hash, poh_state, outhash_base58));
-#endif
-
-          if (memcmp(micro_block->hdr.hash, state->global.poh.state, sizeof(state->global.poh.state))) {
-            if (boot_boh) {
-              fd_memcpy(state->global.poh.state, micro_block->hdr.hash, sizeof(state->global.poh.state));
-              boot_boh = 0;
-            } else
-              FD_LOG_ERR(( "poh missmatch at slot: %ld,  batch: %ld,  entry: %ld", slot, blob_idx, entry_idx));
-          }
-
-          fd_microblock_leave(micro_block);
-
-          blob_ptr = (uchar *) fd_ulong_align_up((ulong)blob_ptr + fd_microblock_footprint( micro_block->hdr.txn_cnt ), FD_MICROBLOCK_ALIGN);
-
-          cnt--;
-        } // while (cnt > 0)
-        blob = *((uchar **) blob);
-      } // while (NULL != blob)
-
-      // free the slot data...
-      fd_slot_blocks_destroy(slot_data, state->global.freef, state->global.allocf_arg);
-      state->global.freef(state->global.allocf_arg, slot_data);
-    } while (0);
-
-    fd_funk_commit(state->global.funk, &state->global.funk_txn);
-
-    ret = fd_rocksdb_root_iter_next ( &iter, &m, state->global.allocf, state->global.allocf_arg);
-    if (ret < 0) {
-      FD_LOG_ERR(("fd_rocksdb_root_iter_seek returned %d", ret));
-    }
-  } while (1);
-
-  fd_executor_delete(fd_executor_leave(executor));
-  free(fd_executor_raw);
-
-  FD_TEST( fd_rng_leave( rng )==shrng );
-
-  return 0;
-}
+// // delete this eventually
+// int old_replay(global_state_t *state) {
+//   void *         fd_executor_raw = malloc(FD_EXECUTOR_FOOTPRINT);
+//   fd_executor_t* executor = fd_executor_join(fd_executor_new(fd_executor_raw, &state->global, FD_EXECUTOR_FOOTPRINT));
+// 
+//   fd_rng_t   rnd_mem;
+//   void *     shrng = fd_rng_new(&rnd_mem, 0, 0);
+//   fd_rng_t * rng  = fd_rng_join( shrng );
+// 
+//   uchar boot_boh = 1;
+//   if (0 == state->start_slot) {
+//     fd_memcpy(state->global.poh.state, state->global.genesis_hash, sizeof(state->global.genesis_hash));
+//     boot_boh = 0;
+//     fd_sysvar_recent_hashes_init(&state->global, 0);
+//     fd_sysvar_clock_init( &state->global );
+//   }
+// 
+//   fd_rocksdb_root_iter_t iter;
+//   fd_rocksdb_root_iter_new ( &iter );
+// 
+//   fd_slot_meta_t m;
+//   fd_memset(&m, 0, sizeof(m));
+// 
+//   int ret = fd_rocksdb_root_iter_seek ( &iter, &state->rocks_db, state->start_slot, &m, state->global.allocf, state->global.allocf_arg);
+//   if (ret < 0) {
+//     FD_LOG_ERR(("fd_rocksdb_root_iter_seek returned %d", ret));
+//   }
+// 
+//   /* TODO: move this somewhere more appropiate. Properly organise sysvars. */
+//   /* fd_sysvar_clock_init( global,  ); */
+// 
+//   do {
+//     ulong slot;
+//     ret = fd_rocksdb_root_iter_slot ( &iter, &slot );
+//     if (ret < 0) {
+//       FD_LOG_ERR(("fd_rocksdb_root_iter_slot returned %d", ret));
+//     }
+// 
+//     if (slot >= state->end_slot)
+//       break;
+// 
+//     if ((state->end_slot < 10) || ((slot % 10) == 0))
+//       FD_LOG_WARNING(("reading slot %ld", slot));
+// 
+//     ulong *p = (ulong *) &state->global.funk_txn.id[0];
+//     p[0] = fd_rng_ulong(rng);
+//     p[1] = fd_rng_ulong(rng);
+//     p[2] = fd_rng_ulong(rng);
+//     p[3] = fd_rng_ulong(rng);
+// 
+//     fd_funk_fork(state->global.funk, fd_funk_root(state->global.acc_mgr->funk), &state->global.funk_txn);
+// 
+//     // SysvarS1otHashes111111111111111111111111111
+//     //new.update_slot_hashes();
+//     // SysvarS1otHistory11111111111111111111111111
+//     //new.update_stake_history(Some(parent_epoch));
+//     //                 .map(|account| from_account::<SlotHistory, _>(account).unwrap())
+// 
+//     do {
+//       fd_slot_blocks_t *slot_data = fd_rocksdb_get_microblocks(&state->rocks_db, &m, state->global.allocf, state->global.allocf_arg);
+// 
+//       state->global.current_slot = slot;
+// 
+//       if (NULL == slot_data) {
+//         FD_LOG_WARNING(("fd_rocksdb_get_microblocks returned NULL for slot %ld", slot));
+//         break;
+//       }
+// 
+//       uchar *blob = slot_data->last_blob;
+//       if (NULL == blob) {
+//         FD_LOG_WARNING(("fd_rocksdb_get_microblocks returned empty for slot %ld", slot));
+//         break;
+//       }
+// 
+//       uchar *blob_ptr = blob + FD_BLOB_DATA_START;
+//       uint   cnt = *((uint *) (blob + 8));
+//       while (cnt > 0) {
+//         fd_microblock_t * micro_block = fd_microblock_join( blob_ptr );
+// 
+//         blob_ptr = (uchar *) fd_ulong_align_up((ulong)blob_ptr + fd_microblock_footprint( micro_block->hdr.txn_cnt ), FD_MICROBLOCK_ALIGN);
+// 
+//         if (1 == cnt)
+//           fd_memcpy(state->global.block_hash, micro_block->hdr.hash, sizeof(micro_block->hdr.hash));
+//         fd_microblock_leave(micro_block);
+// 
+//         cnt--;
+//       } // while (cnt > 0)
+// 
+//       fd_sysvar_clock_update( &state->global );
+//       fd_sysvar_recent_hashes_update ( &state->global, slot );
+// 
+//       // free
+//       fd_slot_meta_destroy(&m, state->global.freef, state->global.allocf_arg);
+// 
+//       ulong blob_idx = 0;
+//       ulong entry_idx = 0;
+//       // execute slot_block...
+//       blob = slot_data->first_blob;
+//       while (NULL != blob) {
+//         blob_idx++;
+//         uchar *blob_ptr = blob + FD_BLOB_DATA_START;
+//         uint   cnt = *((uint *) (blob + 8));
+//         while (cnt > 0) {
+//           fd_microblock_t * micro_block = fd_microblock_join( blob_ptr );
+// 
+//           entry_idx++;
+// 
+// #ifdef _VHASH
+//           char outhash_base58[50];
+//           fd_memset(outhash_base58, 0, sizeof(outhash_base58));
+// #endif
+// 
+//           if (micro_block->txn_max_cnt > 0) {
+//             if (micro_block->hdr.hash_cnt > 0)
+//               fd_poh_append(&state->global.poh, micro_block->hdr.hash_cnt - 1);
+// 
+//             for ( ulong txn_idx = 0; txn_idx < micro_block->txn_max_cnt; txn_idx++ ) {
+//               fd_txn_t*      txn_descriptor = (fd_txn_t *)&micro_block->txn_tbl[ txn_idx ];
+//               fd_rawtxn_b_t* txn_raw   = (fd_rawtxn_b_t *)&micro_block->raw_tbl[ txn_idx ];
+// 
+//               switch (state->txn_exe) {
+//               case 0:
+//                 fd_execute_txn( executor, txn_descriptor, txn_raw );
+//                 break;
+//               case 2:
+//                 fd_sim_txn( state, executor, txn_descriptor, txn_raw, &state->global.funk_txn );
+//                 break;
+//               default: // skip
+//                 break;
+//               } // switch (state->txn_exe)
+//             } // for ( ulong txn_idx = 0; txn_idx < micro_block->txn_max_cnt; txn_idx++ )
+// 
+//             uchar outhash[32];
+//             fd_microblock_mixin(micro_block, outhash);
+// 
+// #ifdef _VHASH
+//             fd_base58_encode_32((uchar *) outhash, NULL, outhash_base58);
+// #endif
+// 
+//             fd_poh_mixin(&state->global.poh, outhash);
+//           } else
+//             fd_poh_append(&state->global.poh, micro_block->hdr.hash_cnt);
+// 
+// #ifdef _VHASH
+//           char block_hash[50];
+//           fd_base58_encode_32((uchar *) micro_block->hdr.hash, NULL, block_hash);
+// 
+//           char poh_state[50];
+//           fd_base58_encode_32((uchar *) state->global.poh.state, NULL, poh_state);
+// 
+//           FD_LOG_WARNING(( "poh at slot: %ld,  batch: %03ld,  entry: %03ld  hash_cnt: %03ld  block_hash: %s  poh_state: %s  mixin: %s", slot, blob_idx, entry_idx, micro_block->hdr.hash_cnt, block_hash, poh_state, outhash_base58));
+// #endif
+// 
+//           if (memcmp(micro_block->hdr.hash, state->global.poh.state, sizeof(state->global.poh.state))) {
+//             if (boot_boh) {
+//               fd_memcpy(state->global.poh.state, micro_block->hdr.hash, sizeof(state->global.poh.state));
+//               boot_boh = 0;
+//             } else
+//               FD_LOG_ERR(( "poh missmatch at slot: %ld,  batch: %ld,  entry: %ld", slot, blob_idx, entry_idx));
+//           }
+// 
+//           fd_microblock_leave(micro_block);
+// 
+//           blob_ptr = (uchar *) fd_ulong_align_up((ulong)blob_ptr + fd_microblock_footprint( micro_block->hdr.txn_cnt ), FD_MICROBLOCK_ALIGN);
+// 
+//           cnt--;
+//         } // while (cnt > 0)
+//         blob = *((uchar **) blob);
+//       } // while (NULL != blob)
+// 
+//       // free the slot data...
+//       fd_slot_blocks_destroy(slot_data, state->global.freef, state->global.allocf_arg);
+//       state->global.freef(state->global.allocf_arg, slot_data);
+//     } while (0);
+// 
+//     fd_funk_commit(state->global.funk, &state->global.funk_txn);
+// 
+//     ret = fd_rocksdb_root_iter_next ( &iter, &m, state->global.allocf, state->global.allocf_arg);
+//     if (ret < 0) {
+//       FD_LOG_ERR(("fd_rocksdb_root_iter_seek returned %d", ret));
+//     }
+//   } while (1);
+// 
+//   fd_executor_delete(fd_executor_leave(executor));
+//   free(fd_executor_raw);
+// 
+//   FD_TEST( fd_rng_leave( rng )==shrng );
+// 
+//   return 0;
+// }
 
 int main(int argc, char **argv) {
   fd_boot( &argc, &argv );
