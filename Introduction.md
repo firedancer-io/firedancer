@@ -11,6 +11,7 @@ Firedancer will be solving some of the problems which solana as a network and co
 
 2. **Robustness**:When the validators are unable to reach consesnus and verify a transaction leading to a fork and downtime. One of the biggest memes floating around about Solana is its downtime, though it was a design tradeoff for it being the most performant blockchain, downtimes lead to a lot of different issues like liquidity, validator restarts etc which are mostly casued by small bugs in the updates in the core client code. 
 When there are 2 client implementations and one of them faces a bug, the nodes running the bug free code will continue processing transactions to which the other nodes could sync to later. 
+	- You can also read how [multi-client architecutre](https://vitalik.eth.limo/general/2023/03/31/zkmulticlient.html) is one of the most crucial parts of the decentralization philosphy. 
 		
  # How?
  Firedancer has 3 high level Components which are modular and can be replaced with the components of Old Solana validator making it like different  components being stitched together while also writing a better documentation of the original validator client
