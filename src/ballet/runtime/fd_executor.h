@@ -11,6 +11,8 @@
 
 FD_PROTOTYPES_BEGIN
 
+typedef struct fd_executor fd_executor_t;
+
 struct global_ctx {
   fd_alloc_fun_t             allocf;
   void *                     allocf_arg;
@@ -23,20 +25,23 @@ struct global_ctx {
   fd_wksp_t *                wksp;
   fd_funk_t*                 funk;
   fd_alloc_t *               alloc;
+  fd_executor_t*             executor;  // Amusingly, it is just a pointer to itself...
+  fd_rng_t*                  rng;
   
   ulong                      current_slot;
   fd_poh_state_t             poh;
   struct fd_funk_xactionid   funk_txn;
   uchar                      block_hash[FD_SHA256_HASH_SZ];
+  uchar                      poh_booted;
 
   fd_clock_timestamp_votes_t timestamp_votes;
 };
 typedef struct global_ctx global_ctx_t;
 
+// Should we just get rid of fd_executor and pass the global_ctx_t?
 struct fd_executor {
   global_ctx_t* global;
 };
-typedef struct fd_executor fd_executor_t;
 
 #define FD_EXECUTOR_FOOTPRINT ( sizeof(fd_executor_t) )
 
