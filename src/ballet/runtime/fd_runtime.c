@@ -71,14 +71,12 @@ fd_runtime_block_execute( fd_global_ctx_t *global, fd_slot_blocks_t *slot_data )
     uint   cnt = *((uint *) (blob + 8));
     while (cnt > 0) {
       fd_microblock_t * micro_block = fd_microblock_join( blob_ptr );
-      if (micro_block->txn_max_cnt > 0) {
-        for ( ulong txn_idx = 0; txn_idx < micro_block->txn_max_cnt; txn_idx++ ) {
-          fd_txn_t*      txn_descriptor = (fd_txn_t *)&micro_block->txn_tbl[ txn_idx ];
-          fd_rawtxn_b_t* txn_raw   = (fd_rawtxn_b_t *)&micro_block->raw_tbl[ txn_idx ];
-          // TODO: fork and commit a new funk_txn for each txn and properly
-          // cancel if it fails
-          fd_execute_txn( global->executor, txn_descriptor, txn_raw );
-        }
+      for ( ulong txn_idx = 0; txn_idx < micro_block->txn_max_cnt; txn_idx++ ) {
+        fd_txn_t*      txn_descriptor = (fd_txn_t *)&micro_block->txn_tbl[ txn_idx ];
+        fd_rawtxn_b_t* txn_raw   = (fd_rawtxn_b_t *)&micro_block->raw_tbl[ txn_idx ];
+        // TODO: fork and commit a new funk_txn for each txn and properly
+        // cancel if it fails
+        fd_execute_txn( global->executor, txn_descriptor, txn_raw );
       }
       fd_microblock_leave(micro_block);
 
