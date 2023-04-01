@@ -135,6 +135,8 @@ fd_runtime_block_eval( global_ctx_t *global, fd_slot_blocks_t *slot_data ) {
   // its own thread/tile and IT needs to parallelize out the
   // microblock verifies out into worker threads as well.
   //
+
+  // The funk_txn needs to be a "tower" so that we can correctly finalize...
   ulong *p = (ulong *) &global->funk_txn.id[0];
   p[0] = fd_rng_ulong( global->rng);
   p[1] = fd_rng_ulong( global->rng);
