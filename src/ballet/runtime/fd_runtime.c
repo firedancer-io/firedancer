@@ -155,18 +155,19 @@ fd_runtime_block_eval( fd_global_ctx_t *global, fd_slot_blocks_t *slot_data ) {
   global->funk_txn_index = (global->funk_txn_index + 1) & 31;
   global->funk_txn = &global->funk_txn_tower[global->funk_txn_index];
 
-  ulong *p = (ulong *) &global->funk_txn->id[0];
-
   // Reasonable to let the compiler figure this out?
   if ( memcmp(global->funk_txn, fd_funk_root(global->funk), sizeof(fd_funk_xactionid_t) ) )
-    fd_funk_commit(global->funk, global->funk_txn);
+    if (fd_funk_commit(global->funk, global->funk_txn))
+      FD_LOG_ERR(("fd_funk_commit failed"));
 
-  p[0] = fd_rng_ulong( global->rng);
-  p[1] = fd_rng_ulong( global->rng);
-  p[2] = fd_rng_ulong( global->rng);
-  p[3] = fd_rng_ulong( global->rng);
+  ulong *p = (ulong *) &global->funk_txn->id[0];
+  p[0] = fd_rng_ulong( global->rng );
+  p[1] = fd_rng_ulong( global->rng );
+  p[2] = fd_rng_ulong( global->rng );
+  p[3] = fd_rng_ulong( global->rng );
 
-  fd_funk_fork(global->funk, parent_txn, global->funk_txn);
+  if (fd_funk_fork(global->funk, parent_txn, global->funk_txn))
+    FD_LOG_ERR(("fd_funk_fork failed"));
 
   // This is simple now but really we need to execute block_verify in
   // its own thread/tile and IT needs to parallelize the
@@ -177,13 +178,16 @@ fd_runtime_block_eval( fd_global_ctx_t *global, fd_slot_blocks_t *slot_data ) {
   // verify threads complete successfully..
 
   int ret = fd_runtime_block_verify( global, slot_data );
-  if (FD_RUNTIME_EXECUTE_SUCCESS != ret )
-    return ret;
+  if ( FD_RUNTIME_EXECUTE_SUCCESS == ret ) 
+    ret = fd_runtime_block_execute( global, slot_data );
 
-  ret = fd_runtime_block_execute( global, slot_data );
   if (FD_RUNTIME_EXECUTE_SUCCESS != ret ) {
+    // Not exactly sure what I am supposed to do if execute fails to
+    // this point...  is this a "log and fall over?"
     fd_funk_cancel(global->funk, global->funk_txn);
-    return ret;
+    *global->funk_txn = *fd_funk_root(global->funk);
+    global->funk_txn_index = (global->funk_txn_index - 1) & 31;
+    global->funk_txn = &global->funk_txn_tower[global->funk_txn_index];
   }
 
   return ret;
