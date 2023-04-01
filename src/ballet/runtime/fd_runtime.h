@@ -9,7 +9,7 @@
 #define FD_RUNTIME_EXECUTE_SUCCESS                               ( 0 )  /* Slot executed successfully */
 #define FD_RUNTIME_EXECUTE_GENERIC_ERR                          ( -1 ) /* The Slot execute returned an error */
 
-#define FD_GLOBAL_CTX_ALIGN (8UL)
+#define FD_GLOBAL_CTX_ALIGN (32UL)
 struct __attribute__((aligned(FD_GLOBAL_CTX_ALIGN))) fd_global_ctx {
   ulong                      magic;       /* ==FD_GLOBAL_CTX_MAGIC */
 
