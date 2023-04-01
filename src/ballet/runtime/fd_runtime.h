@@ -10,7 +10,10 @@
 
 typedef struct fd_executor fd_executor_t;
 
-struct fd_global_ctx {
+#define FD_GLOBAL_CTX_ALIGN (8UL)
+struct __attribute__((aligned(FD_GLOBAL_CTX_ALIGN))) fd_global_ctx {
+  ulong                      magic;       /* ==FD_GLOBAL_CTX_MAGIC */
+
   fd_alloc_fun_t             allocf;
   void *                     allocf_arg;
   fd_free_fun_t              freef;
@@ -39,16 +42,19 @@ struct fd_global_ctx {
 typedef struct fd_global_ctx fd_global_ctx_t;
 
 #define FD_GLOBAL_CTX_FOOTPRINT ( sizeof(fd_global_ctx_t) )
-#define FD_GLOBAL_CTX_ALIGN (8UL)
+#define FD_GLOBAL_CTX_MAGIC (0xBBB3CB3B91A2FB96UL) /* random */
 
 FD_PROTOTYPES_BEGIN
 
-// TODO: add a global_ctx_new/init..
+void *            fd_global_ctx_new        ( void * );
+fd_global_ctx_t * fd_global_ctx_join       ( void * );
+void *            fd_global_ctx_leave      ( fd_global_ctx_t *  );
+void *            fd_global_ctx_delete     ( void *  );
 
-void fd_runtime_boot_slot_zero( fd_global_ctx_t *global );
-int  fd_runtime_block_execute ( fd_global_ctx_t *global, fd_slot_blocks_t *slot_data );
-int  fd_runtime_block_verify  ( fd_global_ctx_t *global, fd_slot_blocks_t *slot_data );
-int  fd_runtime_block_eval    ( fd_global_ctx_t *global, fd_slot_blocks_t *slot_data );
+void              fd_runtime_boot_slot_zero( fd_global_ctx_t *global );
+int               fd_runtime_block_execute ( fd_global_ctx_t *global, fd_slot_blocks_t *slot_data );
+int               fd_runtime_block_verify  ( fd_global_ctx_t *global, fd_slot_blocks_t *slot_data );
+int               fd_runtime_block_eval    ( fd_global_ctx_t *global, fd_slot_blocks_t *slot_data );
 
 FD_PROTOTYPES_END
 
