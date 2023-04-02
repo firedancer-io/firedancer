@@ -46,6 +46,8 @@ fd_quic_conn_footprint_ext( fd_quic_limits_t const * limits,
   double stream_sparsity     = limits->stream_sparsity;
   ulong  inflight_pkt_cnt    = limits->inflight_pkt_cnt;
 
+  /* TODO stream_cnt in limits is a factor of 4 off stream_cnt in layout
+     one should have a different name */
   ulong   stream_cnt = 4 * stream_per_type_cnt;
   layout->stream_cnt = stream_cnt;
 
