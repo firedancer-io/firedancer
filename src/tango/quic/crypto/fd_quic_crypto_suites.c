@@ -691,7 +691,8 @@ fd_quic_crypto_decrypt_hdr(
   }
 
   if( FD_UNLIKELY( sample + FD_QUIC_HP_SAMPLE_SZ > cipher_text + cipher_text_sz ) ) {
-    FD_LOG_ERR(( "fd_quic_crypto_decrypt failed. Not enough bytes for a sample" ));
+    FD_LOG_WARNING(( "fd_quic_crypto_decrypt failed. Not enough bytes for a sample" ));
+    return FD_QUIC_FAILED;
   }
 
   int hp_cipher_sz = 0;
