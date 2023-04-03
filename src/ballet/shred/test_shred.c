@@ -68,8 +68,8 @@ main( int     argc,
     buf[0x40] = (uchar)i;
 
     /* Make sure our buffer is larger than the smallest size of the largest shred variant. */
-    _Static_assert( sizeof(buf) > sizeof(fd_shred_t)+(((1<<4)-1))*FD_SHRED_MERKLE_NODE_SZ,
-                    "buffer is too small to fit coding shred with 15 merkle nodes" );
+    FD_STATIC_ASSERT( sizeof(buf) > sizeof(fd_shred_t)+(((1<<4)-1))*FD_SHRED_MERKLE_NODE_SZ,
+                      "buffer must be large enough to fit shred with 15 merkle nodes" );
 
     /* Test type detection */
     int is_legacy =  i      ==0x5a ||  i      ==0xa5;
@@ -78,19 +78,22 @@ main( int     argc,
     int is_code   =  i      ==0x5a || (i&0xf0)==0x40;
     int is_valid  = (is_legacy^is_merkle) && (is_data^is_code);
 
-    /* Test merkle node count */
-    uint merkle_cnt = fd_shred_merkle_cnt( (uchar)i );
-    FD_TEST( (is_merkle || merkle_cnt==0) && merkle_cnt<=16 );
+    /* Find sizes for shred type */
+    ulong header_sz = 0;
+    if( FD_LIKELY( is_data   ) ) header_sz = 0x58;
+    if( FD_LIKELY( is_code   ) ) header_sz = 0x59;
+    ulong merkle_sz = 0;
+    if( FD_LIKELY( is_merkle ) ) merkle_sz = ((i&0x0f)+1)*FD_SHRED_MERKLE_NODE_SZ;
+    ulong payload_sz = sizeof(buf) - header_sz - merkle_sz;
+
+    if( is_data )
+      *(ushort*)(buf+0x56) = (ushort)(sizeof(buf) - merkle_sz); /* write data.size */
 
     /* Test type-specific bounds checks */
     if( FD_LIKELY( is_valid )) {
-      /* Find sizes for shred type */
-      ulong header_sz = 0;
-      if( FD_LIKELY( is_data   ) ) header_sz = 0x58;
-      if( FD_LIKELY( is_code   ) ) header_sz = 0x59;
-      ulong merkle_sz = 0;
-      if( FD_LIKELY( is_merkle ) ) merkle_sz = ((i&0x0f)+1)*FD_SHRED_MERKLE_NODE_SZ;
-      ulong payload_sz = sizeof(buf) - header_sz - merkle_sz;
+      /* Test merkle node count */
+      uint merkle_cnt = fd_shred_merkle_cnt( (uchar)i );
+      FD_TEST( (is_merkle || merkle_cnt==0) && merkle_cnt<=16 );
 
       FD_TEST( header_sz > 0 );
       FD_TEST( !!merkle_sz==is_merkle );
@@ -100,20 +103,22 @@ main( int     argc,
 
       /* Test with min buffer size */
       fd_shred_t const * shred;
-      FD_TEST( (shred = fd_shred_parse( buf ))!=NULL );
+      FD_TEST( (shred = fd_shred_parse( buf, sizeof(buf) ))!=NULL );
       FD_TEST( i==fd_shred_variant( fd_shred_type( shred->variant ), (uchar)fd_shred_merkle_cnt( shred->variant ) ) );
       FD_TEST( fd_shred_header_sz ( shred->variant )==header_sz  );
-      FD_TEST( fd_shred_payload_sz( shred->variant )==payload_sz );
+      FD_TEST( fd_shred_payload_sz( shred          )==payload_sz );
       FD_TEST( fd_shred_merkle_sz ( shred->variant )==merkle_sz  );
     } else {
       FD_LOG_NOTICE(( "shred type 0x%02x: invalid", i ));
       /* Invalid shred types should always be rejected irrespective of buffer size */
-      FD_TEST( fd_shred_parse( buf )==NULL );
+      FD_TEST( fd_shred_parse( buf, sizeof(buf) )==NULL );
     }
   }
 
+# define PARSE(x) fd_shred_parse( x, sizeof(x) )
+
   /* Parse legacy data shred. */
-  shred = fd_shred_parse( fixture_legacy_data_shred );
+  shred = PARSE( fixture_legacy_data_shred );
   FD_TEST( shred != NULL );
   FD_TEST( !memcmp( shred->signature, fixture_legacy_data_shred, sizeof(shred->signature) ) );
   FD_TEST( fd_shred_type      ( shred->variant )==FD_SHRED_TYPE_LEGACY_DATA );
@@ -126,7 +131,7 @@ main( int     argc,
   FD_TEST( shred->data.flags     ==     0xe5 );
 
   /* Parse empty legacy data shred. */
-  shred = fd_shred_parse( fixture_legacy_data_shred_empty );
+  shred = PARSE( fixture_legacy_data_shred_empty );
   FD_TEST( shred != NULL );
   FD_TEST( !memcmp( shred->signature, fixture_legacy_data_shred_empty, sizeof(shred->signature) ) );
   FD_TEST( fd_shred_type      ( shred->variant )==FD_SHRED_TYPE_LEGACY_DATA );
@@ -140,7 +145,7 @@ main( int     argc,
   FD_TEST( shred->data.size      ==     0x58 );
 
   /* Parse legacy coding shred. */
-  shred = fd_shred_parse( fixture_legacy_coding_shred );
+  shred = PARSE( fixture_legacy_coding_shred );
   FD_TEST( shred != NULL );
   FD_TEST( !memcmp( shred->signature, fixture_legacy_coding_shred, sizeof(shred->signature) ) );
   FD_TEST( fd_shred_type      ( shred->variant )==FD_SHRED_TYPE_LEGACY_CODE );
@@ -152,6 +157,8 @@ main( int     argc,
   FD_TEST( shred->code.data_cnt==        32 );
   FD_TEST( shred->code.code_cnt==        58 );
   FD_TEST( shred->code.idx     ==        43 );
+
+# undef PARSE
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

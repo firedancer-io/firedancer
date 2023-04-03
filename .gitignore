@@ -4,11 +4,15 @@ bin
 unit-test
 tmp
 
+# Coverage
 genhtml/
 target/
+fd_ffi.rs
 *.lcov
 *.profraw
 
+# Core Dumps
+core.*.*
 # Dependencies
 opt/
 
@@ -21,3 +25,4 @@ opt/
 # Vim
 *.swp
 *.swo
+

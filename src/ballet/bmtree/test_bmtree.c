@@ -14,20 +14,6 @@ FD_STATIC_ASSERT( FD_BMTREE20_COMMIT_FOOTPRINT==sizeof (fd_bmtree20_commit_t), u
 FD_STATIC_ASSERT( FD_BMTREE32_COMMIT_ALIGN    ==alignof(fd_bmtree32_commit_t), unit_test );
 FD_STATIC_ASSERT( FD_BMTREE32_COMMIT_FOOTPRINT==sizeof (fd_bmtree32_commit_t), unit_test );
 
-/* Convenience macros for pretty-printing hex strings of 20 chars. */
-#define FD_LOG_HEX20_FMT "%02x%02x%02x%02x %02x%02x%02x%02x %02x%02x%02x%02x %02x%02x%02x%02x %02x%02x%02x%02x"
-#define FD_LOG_HEX20_FMT_ARGS(b)                                      \
-  (uint)(((uchar const *)(b))[ 0]), (uint)(((uchar const *)(b))[ 1]), \
-  (uint)(((uchar const *)(b))[ 2]), (uint)(((uchar const *)(b))[ 3]), \
-  (uint)(((uchar const *)(b))[ 4]), (uint)(((uchar const *)(b))[ 5]), \
-  (uint)(((uchar const *)(b))[ 6]), (uint)(((uchar const *)(b))[ 7]), \
-  (uint)(((uchar const *)(b))[ 8]), (uint)(((uchar const *)(b))[ 9]), \
-  (uint)(((uchar const *)(b))[10]), (uint)(((uchar const *)(b))[11]), \
-  (uint)(((uchar const *)(b))[12]), (uint)(((uchar const *)(b))[13]), \
-  (uint)(((uchar const *)(b))[14]), (uint)(((uchar const *)(b))[15]), \
-  (uint)(((uchar const *)(b))[16]), (uint)(((uchar const *)(b))[17]), \
-  (uint)(((uchar const *)(b))[18]), (uint)(((uchar const *)(b))[19])
-
 /* Test tree-20 construction */
 
 static void

@@ -1,0 +1,15 @@
+[package]
+name = "firedancer"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+libc = "0.2"
+log = "0.4.17"
+chrono = "0.4"
+itertools = "0.10.5"
+nix = { version = "0.26.1", features = ["fs", "mman"] }
+
+[build-dependencies]
+rustc_version = "0.4"
+bindgen = "0.63.0"
