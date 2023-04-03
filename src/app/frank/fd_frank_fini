@@ -12,6 +12,7 @@ shift 1
 
 CONF=tmp/$APP.cfg
 . $CONF || exit $?
+CONF_DIR=tmp/$APP
 
 FD_LOG_PATH=""
 export FD_LOG_PATH
@@ -19,8 +20,9 @@ export FD_LOG_PATH
 #$BUILD/bin/fd_tango_ctl signal-cnc $MAIN_CNC halt
 # FIXME: PKILL?
 
-$BUILD/bin/fd_wksp_ctl delete $WKSP
-rm -fv $CONF
+"$BUILD"/bin/fd_xdp_ctl unhook-iface $APP $IFACE
+"$BUILD"/bin/fd_wksp_ctl delete $WKSP
+rm -fv $CONF $CONF_DIR
 
 echo success
 exit 0

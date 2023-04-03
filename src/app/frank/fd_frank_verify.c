@@ -39,24 +39,7 @@ fd_frank_verify_task( int     argc,
   uchar const * vin_pod = fd_pod_query_subpod( vin_pods, vin_name );
   if( FD_UNLIKELY( !vin_pod ) ) FD_LOG_ERR(( "%s.verifyin.%s path not found", cfg_path, vin_name ));
 
-    /* Join the IPC objects for communicating with Rust world */
-
-  FD_LOG_INFO(( "joining %s.verifyin.%s.cnc", cfg_path, vin_name ));
-  fd_cnc_t * vin_cnc = fd_cnc_join( fd_wksp_pod_map( vin_pod, "cnc" ) );
-  if( FD_UNLIKELY( !vin_cnc ) ) FD_LOG_ERR(( "fd_cnc_join failed" ));
-  if( FD_UNLIKELY( fd_cnc_signal_query( vin_cnc )!=FD_CNC_SIGNAL_BOOT ) ) FD_LOG_ERR(( "vin_cnc not in boot state" ));
-  ulong * vin_cnc_diag = (ulong *)fd_cnc_app_laddr( vin_cnc );
-  if( FD_UNLIKELY( !vin_cnc_diag ) ) FD_LOG_ERR(( "fd_cnc_app_laddr failed" ));
-
-  /* TODO: consider moving to source */
-  FD_COMPILER_MFENCE();
-  FD_VOLATILE( vin_cnc_diag[ FD_FRANK_CNC_DIAG_IN_BACKP    ] ) = 0UL; //WW: Job for Tx, not RX, so init to 0 instead: 1UL;
-  FD_VOLATILE( vin_cnc_diag[ FD_FRANK_CNC_DIAG_BACKP_CNT   ] ) = 0UL;
-  FD_VOLATILE( vin_cnc_diag[ FD_FRANK_CNC_DIAG_HA_FILT_CNT ] ) = 0UL;
-  FD_VOLATILE( vin_cnc_diag[ FD_FRANK_CNC_DIAG_HA_FILT_SZ  ] ) = 0UL;
-  FD_VOLATILE( vin_cnc_diag[ FD_FRANK_CNC_DIAG_SV_FILT_CNT ] ) = 0UL;
-  FD_VOLATILE( vin_cnc_diag[ FD_FRANK_CNC_DIAG_SV_FILT_SZ  ] ) = 0UL;
-  FD_COMPILER_MFENCE();
+  /* Join the IPC objects for communicating with Rust world */
 
   FD_LOG_INFO(( "joining %s.verifyin.%s.mcache", cfg_path, vin_name ));
   fd_frag_meta_t * vin_mcache = fd_mcache_join( fd_wksp_pod_map( vin_pod, "mcache" ) );
@@ -117,9 +100,6 @@ fd_frank_verify_task( int     argc,
   FD_LOG_INFO(( "using lazy %li ns", vin_lazy ));
   ulong vin_async_min = fd_tempo_async_min( vin_lazy, 1UL /*event_cnt*/, (float)fd_tempo_tick_per_ns( NULL ) );
   if( FD_UNLIKELY( !vin_async_min ) ) FD_LOG_ERR(( "bad vin_lazy" ));
-
-  ulong vin_accum_ha_filt_cnt = 0UL; ulong vin_accum_ha_filt_sz = 0UL;
-  ulong vin_accum_sv_filt_cnt = 0UL; ulong vin_accum_sv_filt_sz = 0UL;
 
   /* Start verifyin */
 
@@ -236,9 +216,8 @@ fd_frank_verify_task( int     argc,
   FD_LOG_INFO(( "verify.%s run", verify_name ));
 
   long now  = fd_tickcount();
-  long then = now;            /* Do housekeeping on first iteration of run loop */
+  long then = now; /* Do housekeeping on first iteration of run loop */
 
-  fd_cnc_signal( vin_cnc, FD_CNC_SIGNAL_RUN );
   fd_cnc_signal( cnc, FD_CNC_SIGNAL_RUN );
 
   ulong sigvfy_pass_cnt =0UL;
@@ -257,19 +236,6 @@ fd_frank_verify_task( int     argc,
 
       /* Send synchronization info */
 
-      /* Send diagnostic info */
-      fd_cnc_heartbeat( vin_cnc, now );
-      FD_COMPILER_MFENCE();
-      FD_VOLATILE( vin_cnc_diag[ FD_FRANK_CNC_DIAG_HA_FILT_CNT ] ) = FD_VOLATILE_CONST( vin_cnc_diag[ FD_FRANK_CNC_DIAG_HA_FILT_CNT ] ) + vin_accum_ha_filt_cnt;
-      FD_VOLATILE( vin_cnc_diag[ FD_FRANK_CNC_DIAG_HA_FILT_SZ  ] ) = FD_VOLATILE_CONST( vin_cnc_diag[ FD_FRANK_CNC_DIAG_HA_FILT_SZ  ] ) + vin_accum_ha_filt_sz;
-      FD_VOLATILE( vin_cnc_diag[ FD_FRANK_CNC_DIAG_SV_FILT_CNT ] ) = FD_VOLATILE_CONST( vin_cnc_diag[ FD_FRANK_CNC_DIAG_SV_FILT_CNT ] ) + vin_accum_sv_filt_cnt;
-      FD_VOLATILE( vin_cnc_diag[ FD_FRANK_CNC_DIAG_SV_FILT_SZ  ] ) = FD_VOLATILE_CONST( vin_cnc_diag[ FD_FRANK_CNC_DIAG_SV_FILT_SZ  ] ) + vin_accum_sv_filt_sz;
-      FD_COMPILER_MFENCE();
-      vin_accum_ha_filt_cnt = 0UL;
-      vin_accum_ha_filt_sz  = 0UL;
-      vin_accum_sv_filt_cnt = 0UL;
-      vin_accum_sv_filt_sz  = 0UL;
-
       FD_COMPILER_MFENCE();
       FD_VOLATILE( vin_fseq_diag[ FD_FSEQ_DIAG_PUB_CNT   ] ) += vin_accum_pub_cnt;
       FD_VOLATILE( vin_fseq_diag[ FD_FSEQ_DIAG_PUB_SZ    ] ) += vin_accum_pub_sz;
@@ -280,13 +246,6 @@ fd_frank_verify_task( int     argc,
       vin_accum_pub_sz    = 0UL;
       vin_accum_ovrnp_cnt = 0UL;
       vin_accum_ovrnr_cnt = 0UL;
-
-      /* Receive command-and-control signals */
-      ulong vin_cnc_state = fd_cnc_signal_query( vin_cnc );
-      if( FD_UNLIKELY( vin_cnc_state != FD_CNC_SIGNAL_RUN ) ) {
-        if( FD_UNLIKELY( vin_cnc_state != FD_CNC_SIGNAL_HALT ) ) FD_LOG_ERR(( "Unexpected signal" ));
-        break;
-      }
 
       /*
         end verifyin related
@@ -496,12 +455,10 @@ fd_frank_verify_task( int     argc,
   fd_tcache_delete ( fd_tcache_leave( tcache ) );
   fd_rng_delete    ( fd_rng_leave   ( rng    ) );
 
-  fd_cnc_signal    ( vin_cnc, FD_CNC_SIGNAL_BOOT   );
   fd_fctl_delete   ( fd_fctl_leave  ( vin_fctl   ) );
   fd_wksp_pod_unmap( fd_fseq_leave  ( vin_fseq   ) );
   fd_wksp_pod_unmap( fd_dcache_leave( vin_dcache ) );
   fd_wksp_pod_unmap( fd_mcache_leave( vin_mcache ) );
-  fd_wksp_pod_unmap( fd_cnc_leave   ( vin_cnc    ) );
 
   fd_fctl_delete   ( fd_fctl_leave  ( fctl   ) );
   fd_wksp_pod_unmap( fd_fseq_leave  ( fseq   ) );

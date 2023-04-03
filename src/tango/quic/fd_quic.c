@@ -225,11 +225,11 @@ fd_quic_config_from_env( int  *             pargc,
     return NULL;
   }
 
-  strncpy( cfg->cert_file, cert_file, FD_QUIC_CERT_PATH_LEN ); cfg->cert_file[ FD_QUIC_CERT_PATH_LEN-1UL ]='\0';
-  strncpy( cfg->key_file,  key_file,  FD_QUIC_CERT_PATH_LEN ); cfg->key_file [ FD_QUIC_CERT_PATH_LEN-1UL ]='\0';
+  strncpy( cfg->cert_file, cert_file, FD_QUIC_CERT_PATH_LEN );
+  strncpy( cfg->key_file,  key_file,  FD_QUIC_CERT_PATH_LEN );
 
   if( keylog_file ) {
-    strncpy( cfg->keylog_file, keylog_file, FD_QUIC_CERT_PATH_LEN ); cfg->keylog_file[ FD_QUIC_CERT_PATH_LEN-1UL ]='\0';
+    strncpy( cfg->keylog_file, keylog_file, FD_QUIC_CERT_PATH_LEN );
   } else {
     cfg->keylog_file[0]='\0';
   }

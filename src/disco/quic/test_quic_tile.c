@@ -24,7 +24,6 @@ struct test_cfg {
 
   fd_cnc_t *         tx_cnc;
   ulong              tx_mtu;
-  ulong              tx_orig;
   fd_frag_meta_t *   tx_mcache;
   uchar *            tx_dcache;
   long               tx_lazy;
@@ -180,7 +179,6 @@ tx_tile_main( int     argc,
 
   FD_TEST( !fd_quic_tile(
       cfg->tx_cnc,
-      cfg->tx_orig,
       cfg->tx_quic,
       cfg->xsk_aio,
       cfg->tx_mcache,
@@ -208,7 +206,6 @@ int main( int     argc,
   if( cpu_idx>fd_shmem_cpu_cnt() ) cpu_idx = 0UL;
 
   ulong        tx_mtu       =       fd_env_strip_cmdline_ulong ( &argc, &argv, "--tx-mtu",         NULL, FD_TPU_MTU                   );
-  ulong        tx_orig      =       fd_env_strip_cmdline_ulong ( &argc, &argv, "--tx-orig",        NULL, 0UL                          );
   ulong        tx_depth     =       fd_env_strip_cmdline_ulong ( &argc, &argv, "--tx-depth",       NULL, 32768UL                      );
   char const * _page_sz     =       fd_env_strip_cmdline_cstr  ( &argc, &argv, "--page-sz",        NULL, "gigantic"                   );
   ulong        page_cnt     =       fd_env_strip_cmdline_ulong ( &argc, &argv, "--page-cnt",       NULL, 1UL                          );
@@ -276,7 +273,6 @@ int main( int     argc,
   FD_TEST( cfg->tx_cnc );
 
   cfg->tx_mtu  = tx_mtu;
-  cfg->tx_orig = tx_orig;
 
   FD_LOG_NOTICE(( "Creating tx mcache (--tx-depth %lu, app_sz 0, seq0 %lu)", tx_depth, seq0 ));
   cfg->tx_mcache = fd_mcache_join( fd_mcache_new( fd_wksp_alloc_laddr( cfg->wksp,

@@ -67,6 +67,10 @@ main( int     argc,
                      cnt, cmd, bin ));
       }
 
+      fd_quic_config_t * quic_cfg = fd_quic_get_config( quic );
+      if( FD_UNLIKELY( !quic_cfg ) ) FD_LOG_ERR(( "failed to access quic_cfg" ));
+      quic_cfg->role = FD_QUIC_ROLE_SERVER;
+
       char buf[ FD_WKSP_CSTR_MAX ];
       printf( "%s\n", fd_wksp_cstr( wksp, gaddr, buf ) );
 

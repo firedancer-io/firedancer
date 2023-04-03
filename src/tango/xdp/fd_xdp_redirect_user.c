@@ -121,6 +121,8 @@ fd_xdp_init( char const * app_name,
 
   fd_xdp_reperm( path, mode, uid, gid, 0 );
 
+  FD_LOG_NOTICE(( "Activated XDP environment at /sys/fs/bpf/%s", app_name ));
+
   close( udp_dsts_map_fd );
   return 0;
 }

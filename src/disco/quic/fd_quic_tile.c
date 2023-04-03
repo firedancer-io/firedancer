@@ -12,29 +12,6 @@
 
 /* dcache app region related ******************************************/
 
-/* fd_quic_tpu_msg_ctx_t is the message context of a txn being received
-   by the QUIC tile over the TPU protocol. It is used to detect dcache
-   overruns by identifying which QUIC stream is currently bound to a
-   dcache chunk. An array of fd_quic_tpu_msg_ctx_t to fit <depth> entries
-   forms the dcache's app region.
-
-   This is necessary for stream defrag, during which multiple QUIC
-   streams produce into multiple dcache chunks concurrently. In the worst
-   case, a defrag is started for every available chunk in the dcache.
-   When the producer wraps around to the first dcache entry, it will
-   override the existing defrag process. This overrun is then safely
-   detected through a change in conn/stream IDs when this previous defrag
-   process continues. */
-
-struct __attribute__((aligned(32UL))) fd_quic_tpu_msg_ctx {
-  ulong   conn_id;
-  ulong   stream_id;  /* ULONG_MAX marks completed msg */
-  uchar * data;
-  uint    sz;
-  uint    tsorig;
-};
-typedef struct fd_quic_tpu_msg_ctx fd_quic_tpu_msg_ctx_t;
-
 /* fd_quic_dcache_msg_ctx returns a pointer to the TPU/QUIC message
    context struct for the given dcache app laddr and chunk.  app_laddr
    points to the first byte of the dcache's app region in the tile's
@@ -240,7 +217,6 @@ fd_quic_tile_scratch_footprint( ulong depth ) {
 
 int
 fd_quic_tile( fd_cnc_t *         cnc,
-              ulong              orig,
               fd_quic_t *        quic,
               fd_xsk_aio_t *     xsk_aio,
               fd_frag_meta_t *   mcache,
@@ -323,7 +299,9 @@ fd_quic_tile( fd_cnc_t *         cnc,
     }
 
     if( FD_UNLIKELY( fd_dcache_app_sz( dcache ) < fd_quic_dcache_app_footprint( depth ) ) ) {
-      FD_LOG_WARNING(( "--dcache app sz too small" ));
+      FD_LOG_WARNING(( "--dcache app sz too small (min=%lu have=%lu)",
+                       fd_quic_dcache_app_footprint( depth ),
+                       fd_dcache_app_sz( dcache ) ));
       return 1;
     }
 
@@ -379,7 +357,9 @@ fd_quic_tile( fd_cnc_t *         cnc,
 
   } while(0);
 
-  FD_LOG_INFO(( "Running QUIC (orig %lu)", orig ));
+  ulong tx_idx  = fd_tile_idx();
+
+  FD_LOG_INFO(( "running QUIC server" ));
   fd_cnc_signal( cnc, FD_CNC_SIGNAL_RUN );
   long then = fd_tickcount();
   long now  = then;
@@ -434,7 +414,7 @@ fd_quic_tile( fd_cnc_t *         cnc,
       ulong chunk  = fd_laddr_to_chunk( base, msg->data );
       ulong sz     = msg->sz;
       ulong sig    = 42UL; /* TODO */
-      ulong ctl    = fd_frag_meta_ctl( orig, 1 /* som */, 1 /* eom */, 0 /* err */ );
+      ulong ctl    = fd_frag_meta_ctl( tx_idx, 1 /* som */, 1 /* eom */, 0 /* err */ );
       ulong tsorig = msg->tsorig;
       ulong tspub  = fd_frag_meta_ts_comp( fd_tickcount() );
 

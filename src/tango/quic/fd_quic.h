@@ -167,10 +167,10 @@ struct __attribute__((aligned(16UL))) fd_quic_config {
   /* TLS config ********************************************/
 
   /* cstrs containing TLS PEM cert and key file path */
-# define FD_QUIC_CERT_PATH_LEN (1024UL)
-  char cert_file  [ FD_QUIC_CERT_PATH_LEN ];
-  char key_file   [ FD_QUIC_CERT_PATH_LEN ];
-  char keylog_file[ FD_QUIC_CERT_PATH_LEN ];
+# define FD_QUIC_CERT_PATH_LEN (1023UL)
+  char cert_file  [ FD_QUIC_CERT_PATH_LEN+1UL ];
+  char key_file   [ FD_QUIC_CERT_PATH_LEN+1UL ];
+  char keylog_file[ FD_QUIC_CERT_PATH_LEN+1UL ];
 
   /* alpns: List of supported ALPN IDs in OpenSSL format.
      Contains packed list of uchar length prefixed strings

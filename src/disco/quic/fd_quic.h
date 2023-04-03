@@ -64,12 +64,35 @@
 #define FD_QUIC_CNC_DIAG_TPU_PUB_SZ        (4UL) /* ", frequently */
 #define FD_QUIC_CNC_DIAG_TPU_CONN_LIVE_CNT (5UL) /* ", frequently */
 
+/* fd_quic_tpu_msg_ctx_t is the message context of a txn being received
+   by the QUIC tile over the TPU protocol. It is used to detect dcache
+   overruns by identifying which QUIC stream is currently bound to a
+   dcache chunk. An array of fd_quic_tpu_msg_ctx_t to fit <depth> entries
+   forms the dcache's app region.
+
+   This is necessary for stream defrag, during which multiple QUIC
+   streams produce into multiple dcache chunks concurrently. In the worst
+   case, a defrag is started for every available chunk in the dcache.
+   When the producer wraps around to the first dcache entry, it will
+   override the existing defrag process. This overrun is then safely
+   detected through a change in conn/stream IDs when this previous defrag
+   process continues. */
+
+struct __attribute__((aligned(32UL))) fd_quic_tpu_msg_ctx {
+  ulong   conn_id;
+  ulong   stream_id;  /* ULONG_MAX marks completed msg */
+  uchar * data;
+  uint    sz;
+  uint    tsorig;
+};
+typedef struct fd_quic_tpu_msg_ctx fd_quic_tpu_msg_ctx_t;
+
 /* fd_quic_dcache_app_footprint returns the required footprint in bytes
    for the QUIC tile's out dcache app region of the given depth. */
 
 FD_FN_CONST static inline ulong
 fd_quic_dcache_app_footprint( ulong depth ) {
-  return depth*FD_DCACHE_SLOT_FOOTPRINT( FD_TPU_MTU );
+  return depth * sizeof(fd_quic_tpu_msg_ctx_t);
 }
 
 /* FD_QUIC_TILE_SCRATCH_ALIGN specifies the alignment and needed for a
@@ -90,7 +113,6 @@ fd_quic_tile_scratch_footprint( ulong depth );
 
 int
 fd_quic_tile( fd_cnc_t *         cnc,        /* Local join to the tile's command-and-control */
-              ulong              orig,       /* Origin for this QUIC output stream, in [0,FD_FRAG_META_ORIG_MAX) */
               fd_quic_t *        quic,       /* QUIC without active join */
               fd_xsk_aio_t *     xsk_aio,    /* Local join to QUIC XSK aio */
               fd_frag_meta_t *   mcache,     /* Local join to the tile's txn output mcache */
