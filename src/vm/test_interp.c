@@ -60,11 +60,95 @@ test_program_success( char *                test_case_name,
   test_program_success(test_case_name, expected_result, instrs_sz, instrs_var); \
 }
 
+static void
+generate_random_alu_instrs( fd_rng_t * rng, fd_vm_sbpf_instr_t * instrs, ulong instrs_sz ) {
+  uchar opcodes[25] = {
+    FD_BPF_OP_ADD_IMM,
+    FD_BPF_OP_ADD_REG,
+    FD_BPF_OP_SUB_IMM,
+    FD_BPF_OP_SUB_REG,
+    FD_BPF_OP_MUL_IMM,
+    FD_BPF_OP_MUL_REG,
+    FD_BPF_OP_DIV_IMM,
+    FD_BPF_OP_DIV_REG,
+    FD_BPF_OP_OR_IMM,
+    FD_BPF_OP_OR_REG,
+    FD_BPF_OP_AND_IMM,
+    FD_BPF_OP_AND_REG,
+    FD_BPF_OP_LSH_IMM,
+    FD_BPF_OP_LSH_REG,
+    FD_BPF_OP_RSH_IMM,
+    FD_BPF_OP_RSH_REG,
+    FD_BPF_OP_NEG,
+    FD_BPF_OP_MOD_IMM,
+    FD_BPF_OP_MOD_REG,
+    FD_BPF_OP_XOR_IMM,
+    FD_BPF_OP_XOR_REG,
+    FD_BPF_OP_MOV_IMM,
+    FD_BPF_OP_MOV_REG,
+    FD_BPF_OP_ARSH_IMM,
+    FD_BPF_OP_ARSH_REG,
+  };
+  
+  for( ulong i = 0; i < instrs_sz-1; i++ ) {
+    fd_vm_sbpf_instr_t * instr = &instrs[i];
+    instr->opcode.raw = opcodes[fd_rng_ulong_roll(rng, 25)];
+    instr->dst_reg = 1+fd_rng_uchar_roll(rng, 9);
+    instr->src_reg = 1+fd_rng_uchar_roll(rng, 9);
+    instr->offset = 0;
+    instr->imm = fd_rng_uint_roll(rng, 1024*1024);
+  }
+  instrs[instrs_sz-1].opcode.raw = FD_BPF_OP_EXIT;
+}
+
+static void
+generate_random_alu64_instrs( fd_rng_t * rng, fd_vm_sbpf_instr_t * instrs, ulong instrs_sz ) {
+  uchar opcodes[25] = {
+    FD_BPF_OP_ADD64_IMM,
+    FD_BPF_OP_ADD64_REG,
+    FD_BPF_OP_SUB64_IMM,
+    FD_BPF_OP_SUB64_REG,
+    FD_BPF_OP_MUL64_IMM,
+    FD_BPF_OP_MUL64_REG,
+    FD_BPF_OP_DIV64_IMM,
+    FD_BPF_OP_DIV64_REG,
+    FD_BPF_OP_OR64_IMM,
+    FD_BPF_OP_OR64_REG,
+    FD_BPF_OP_AND64_IMM,
+    FD_BPF_OP_AND64_REG,
+    FD_BPF_OP_LSH64_IMM,
+    FD_BPF_OP_LSH64_REG,
+    FD_BPF_OP_RSH64_IMM,
+    FD_BPF_OP_RSH64_REG,
+    FD_BPF_OP_NEG64,
+    FD_BPF_OP_MOD64_IMM,
+    FD_BPF_OP_MOD64_REG,
+    FD_BPF_OP_XOR64_IMM,
+    FD_BPF_OP_XOR64_REG,
+    FD_BPF_OP_MOV64_IMM,
+    FD_BPF_OP_MOV64_REG,
+    FD_BPF_OP_ARSH64_IMM,
+    FD_BPF_OP_ARSH64_REG,
+  };
+  
+  for( ulong i = 0; i < instrs_sz-1; i++ ) {
+    fd_vm_sbpf_instr_t * instr = &instrs[i];
+    instr->opcode.raw = opcodes[fd_rng_ulong_roll(rng, 25)];
+    instr->dst_reg = 1+fd_rng_uchar_roll(rng, 9);
+    instr->src_reg = 1+fd_rng_uchar_roll(rng, 9);
+    instr->offset = 0;
+    instr->imm = fd_rng_uint_roll(rng, 1024*1024);
+  }
+  instrs[instrs_sz-1].opcode.raw = FD_BPF_OP_EXIT;
+}
+
 int
 main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
-/*
+  
+  fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
+  
   TEST_PROGRAM_SUCCESS("add", 0x3, 5,
     FD_BPF_INSTR(FD_BPF_OP_MOV_IMM,   FD_R0,  0,      0, 0),
     FD_BPF_INSTR(FD_BPF_OP_MOV_IMM,   FD_R1,  0,      0, 2),
@@ -334,6 +418,80 @@ main( int     argc,
     FD_BPF_INSTR(FD_BPF_OP_EXIT,      0,      0,      0, 0),
   );
   
+  TEST_PROGRAM_SUCCESS("mod-by-zero-imm", 0x1, 3,
+    FD_BPF_INSTR(FD_BPF_OP_MOV_IMM,   FD_R0,  0,      0, 1),
+    FD_BPF_INSTR(FD_BPF_OP_MOD_IMM,   FD_R0,  0,      0, 0),
+    FD_BPF_INSTR(FD_BPF_OP_EXIT,      0,      0,      0, 0),
+  );
+  
+  TEST_PROGRAM_SUCCESS("mod-by-zero-reg", 0x1, 4,
+    FD_BPF_INSTR(FD_BPF_OP_MOV_IMM,   FD_R0,  0,      0, 1),
+    FD_BPF_INSTR(FD_BPF_OP_MOV_IMM,   FD_R1,  0,      0, 0),
+    FD_BPF_INSTR(FD_BPF_OP_MOD_REG,   FD_R0,  FD_R1,  0, 0),
+    FD_BPF_INSTR(FD_BPF_OP_EXIT,      0,      0,      0, 0),
+  );
+
+  TEST_PROGRAM_SUCCESS("mod-high-divisor", 0x0, 5,
+    FD_BPF_INSTR(FD_BPF_OP_MOV_IMM,   FD_R0,  0,      0, 12),
+    FD_BPF_INSTR(FD_BPF_OP_LDQ,       FD_R1,  0,      0, 0x4),
+    FD_BPF_INSTR(FD_BPF_OP_ADDL_IMM,  0,      0,      0, 0x1),
+    FD_BPF_INSTR(FD_BPF_OP_MOD_REG,   FD_R0,  FD_R1,  0, 0),
+    FD_BPF_INSTR(FD_BPF_OP_EXIT,      0,      0,      0, 0),
+  );
+  
+  TEST_PROGRAM_SUCCESS("mod-imm", 0x0, 4,
+    FD_BPF_INSTR(FD_BPF_OP_LDQ,       FD_R0,  0,      0, 0xc),
+    FD_BPF_INSTR(FD_BPF_OP_ADDL_IMM,  0,      0,      0, 0x1),
+    FD_BPF_INSTR(FD_BPF_OP_MOD_IMM,   FD_R0,  0,      0, 4),
+    FD_BPF_INSTR(FD_BPF_OP_EXIT,      0,      0,      0, 0),
+  );
+
+  TEST_PROGRAM_SUCCESS("mod-reg", 0x0, 5,
+    FD_BPF_INSTR(FD_BPF_OP_LDQ,       FD_R0,  0,      0, 0xc),
+    FD_BPF_INSTR(FD_BPF_OP_ADDL_IMM,  0,      0,      0, 0x1),
+    FD_BPF_INSTR(FD_BPF_OP_MOV_IMM,   FD_R1,  0,      0, 4),
+    FD_BPF_INSTR(FD_BPF_OP_MOD_REG,   FD_R0,  FD_R1,  0, 0),
+    FD_BPF_INSTR(FD_BPF_OP_EXIT,      0,      0,      0, 0),
+  );
+  
+  TEST_PROGRAM_SUCCESS("mod64-by-zero-imm", 0x1, 3,
+    FD_BPF_INSTR(FD_BPF_OP_MOV_IMM,   FD_R0,  0,      0, 1),
+    FD_BPF_INSTR(FD_BPF_OP_MOD64_IMM, FD_R0,  0,      0, 0),
+    FD_BPF_INSTR(FD_BPF_OP_EXIT,      0,      0,      0, 0),
+  );
+  
+  TEST_PROGRAM_SUCCESS("mod64-by-zero-reg", 0x1, 4,
+    FD_BPF_INSTR(FD_BPF_OP_MOV_IMM,   FD_R0,  0,      0, 1),
+    FD_BPF_INSTR(FD_BPF_OP_MOV_IMM,   FD_R1,  0,      0, 0),
+    FD_BPF_INSTR(FD_BPF_OP_MOD64_REG, FD_R0,  FD_R1,  0, 0),
+    FD_BPF_INSTR(FD_BPF_OP_EXIT,      0,      0,      0, 0),
+  );
+
+  TEST_PROGRAM_SUCCESS("mod64-high-divisor", 0x8, 6,
+    FD_BPF_INSTR(FD_BPF_OP_MOV_IMM,   FD_R0,  0,      0, 12),
+    FD_BPF_INSTR(FD_BPF_OP_LDQ,       FD_R1,  0,      0, 0x4),
+    FD_BPF_INSTR(FD_BPF_OP_ADDL_IMM,  0,      0,      0, 0x1),
+    FD_BPF_INSTR(FD_BPF_OP_MOD64_REG, FD_R1,  FD_R0,  0, 0),
+    FD_BPF_INSTR(FD_BPF_OP_MOV_REG,   FD_R0,  FD_R1,  0, 0),
+    FD_BPF_INSTR(FD_BPF_OP_EXIT,      0,      0,      0, 0),
+  );
+  
+  TEST_PROGRAM_SUCCESS("mod64-imm", 0x0, 4,
+    FD_BPF_INSTR(FD_BPF_OP_LDQ,       FD_R0,  0,      0, 0xc),
+    FD_BPF_INSTR(FD_BPF_OP_ADDL_IMM,  0,      0,      0, 0x1),
+    FD_BPF_INSTR(FD_BPF_OP_MOD64_IMM, FD_R0,  0,      0, 4),
+    FD_BPF_INSTR(FD_BPF_OP_EXIT,      0,      0,      0, 0),
+  );
+
+  TEST_PROGRAM_SUCCESS("mod64-reg", 0x0, 6,
+    FD_BPF_INSTR(FD_BPF_OP_LDQ,       FD_R1,  0,      0, 0xc),
+    FD_BPF_INSTR(FD_BPF_OP_ADDL_IMM,  0,      0,      0, 0x1),
+    FD_BPF_INSTR(FD_BPF_OP_MOV_IMM,   FD_R0,  0,      0, 4),
+    FD_BPF_INSTR(FD_BPF_OP_MOD64_REG, FD_R1,  FD_R0,  0, 0),
+    FD_BPF_INSTR(FD_BPF_OP_MOV_REG,   FD_R0,  FD_R1,  0, 0),
+    FD_BPF_INSTR(FD_BPF_OP_EXIT,      0,      0,      0, 0),
+  );
+  
   TEST_PROGRAM_SUCCESS("early-exit", 0x3, 4,
     FD_BPF_INSTR(FD_BPF_OP_MOV_IMM,   FD_R0,  0,      0, 3),
     FD_BPF_INSTR(FD_BPF_OP_EXIT,      0,      0,      0, 0),
@@ -411,7 +569,83 @@ main( int     argc,
     FD_BPF_INSTR(FD_BPF_OP_MOV_IMM,   FD_R0,  0,      0, 1),
     FD_BPF_INSTR(FD_BPF_OP_EXIT,      0,      0,      0, 0),
   );
- */ 
+
+  TEST_PROGRAM_SUCCESS("ldq", 0x1122334455667788, 3,
+    FD_BPF_INSTR(FD_BPF_OP_LDQ,       FD_R0,  0,      0, 0x55667788),
+    FD_BPF_INSTR(FD_BPF_OP_ADDL_IMM,  0,      0,      0, 0x11223344),
+    FD_BPF_INSTR(FD_BPF_OP_EXIT,      0,      0,      0, 0),
+  );
+  
+  TEST_PROGRAM_SUCCESS("stb-heap", 0x11, 5,
+    FD_BPF_INSTR(FD_BPF_OP_LDQ,       FD_R1,  0,      0, 0x0),
+    FD_BPF_INSTR(FD_BPF_OP_ADDL_IMM,  0,      0,      0, 0x3),
+    FD_BPF_INSTR(FD_BPF_OP_STB,       FD_R1,  0,     +2, 0x11),
+    FD_BPF_INSTR(FD_BPF_OP_LDXB,      FD_R0,  FD_R1, +2, 0),
+    FD_BPF_INSTR(FD_BPF_OP_EXIT,      0,      0,      0, 0),
+  );
+  
+  TEST_PROGRAM_SUCCESS("sth-heap", 0x1122, 5,
+    FD_BPF_INSTR(FD_BPF_OP_LDQ,       FD_R1,  0,      0, 0x0),
+    FD_BPF_INSTR(FD_BPF_OP_ADDL_IMM,  0,      0,      0, 0x3),
+    FD_BPF_INSTR(FD_BPF_OP_STH,       FD_R1,  0,     +2, 0x1122),
+    FD_BPF_INSTR(FD_BPF_OP_LDXH,      FD_R0,  FD_R1, +2, 0),
+    FD_BPF_INSTR(FD_BPF_OP_EXIT,      0,      0,      0, 0),
+  );
+  
+  TEST_PROGRAM_SUCCESS("stw-heap", 0x11223344, 5,
+    FD_BPF_INSTR(FD_BPF_OP_LDQ,       FD_R1,  0,      0, 0x0),
+    FD_BPF_INSTR(FD_BPF_OP_ADDL_IMM,  0,      0,      0, 0x3),
+    FD_BPF_INSTR(FD_BPF_OP_STW,       FD_R1,  0,     +2, 0x11223344),
+    FD_BPF_INSTR(FD_BPF_OP_LDXW,      FD_R0,  FD_R1, +2, 0),
+    FD_BPF_INSTR(FD_BPF_OP_EXIT,      0,      0,      0, 0),
+  );
+  
+  // TODO: check that we zero upper 32 bits
+  TEST_PROGRAM_SUCCESS("stq-heap", 0x11223344, 5,
+    FD_BPF_INSTR(FD_BPF_OP_LDQ,       FD_R1,  0,      0, 0x0),
+    FD_BPF_INSTR(FD_BPF_OP_ADDL_IMM,  0,      0,      0, 0x3),
+    FD_BPF_INSTR(FD_BPF_OP_STQ,       FD_R1,  0,     +2, 0x11223344),
+    FD_BPF_INSTR(FD_BPF_OP_LDXQ,      FD_R0,  FD_R1, +2, 0),
+    FD_BPF_INSTR(FD_BPF_OP_EXIT,      0,      0,      0, 0),
+  );
+
+  TEST_PROGRAM_SUCCESS("stxb-heap", 0x11, 6,
+    FD_BPF_INSTR(FD_BPF_OP_LDQ,       FD_R1,  0,      0, 0x0),
+    FD_BPF_INSTR(FD_BPF_OP_ADDL_IMM,  0,      0,      0, 0x3),
+    FD_BPF_INSTR(FD_BPF_OP_MOV_IMM,   FD_R2,  0,      0, 0x11),
+    FD_BPF_INSTR(FD_BPF_OP_STXB,      FD_R1,  FD_R2, +2, 0),
+    FD_BPF_INSTR(FD_BPF_OP_LDXB,      FD_R0,  FD_R1, +2, 0),
+    FD_BPF_INSTR(FD_BPF_OP_EXIT,      0,      0,      0, 0),
+  );
+  
+  TEST_PROGRAM_SUCCESS("stxh-heap", 0x1122, 6,
+    FD_BPF_INSTR(FD_BPF_OP_LDQ,       FD_R1,  0,      0, 0x0),
+    FD_BPF_INSTR(FD_BPF_OP_ADDL_IMM,  0,      0,      0, 0x3),
+    FD_BPF_INSTR(FD_BPF_OP_MOV_IMM,   FD_R2,  0,      0, 0x1122),
+    FD_BPF_INSTR(FD_BPF_OP_STXH,      FD_R1,  FD_R2, +2, 0),
+    FD_BPF_INSTR(FD_BPF_OP_LDXH,      FD_R0,  FD_R1, +2, 0),
+    FD_BPF_INSTR(FD_BPF_OP_EXIT,      0,      0,      0, 0),
+  );
+  
+  TEST_PROGRAM_SUCCESS("stxw-heap", 0x11223344, 6,
+    FD_BPF_INSTR(FD_BPF_OP_LDQ,       FD_R1,  0,      0, 0x0),
+    FD_BPF_INSTR(FD_BPF_OP_ADDL_IMM,  0,      0,      0, 0x3),
+    FD_BPF_INSTR(FD_BPF_OP_MOV_IMM,   FD_R2,  0,      0, 0x11223344),
+    FD_BPF_INSTR(FD_BPF_OP_STXW,      FD_R1,  FD_R2, +2, 0),
+    FD_BPF_INSTR(FD_BPF_OP_LDXW,      FD_R0,  FD_R1, +2, 0),
+    FD_BPF_INSTR(FD_BPF_OP_EXIT,      0,      0,      0, 0),
+  );
+  
+  TEST_PROGRAM_SUCCESS("stxq-heap", 0x1122334455667788, 7,
+    FD_BPF_INSTR(FD_BPF_OP_LDQ,       FD_R1,  0,      0, 0x0),
+    FD_BPF_INSTR(FD_BPF_OP_ADDL_IMM,  0,      0,      0, 0x3),
+    FD_BPF_INSTR(FD_BPF_OP_LDQ,       FD_R2,  0,      0, 0x55667788),
+    FD_BPF_INSTR(FD_BPF_OP_ADDL_IMM,  0,      0,      0, 0x11223344),
+    FD_BPF_INSTR(FD_BPF_OP_STXQ,      FD_R1,  FD_R2, +2, 0),
+    FD_BPF_INSTR(FD_BPF_OP_LDXQ,      FD_R0,  FD_R1, +2, 0),
+    FD_BPF_INSTR(FD_BPF_OP_EXIT,      0,      0,      0, 0),
+  );
+
   TEST_PROGRAM_SUCCESS("prime", 0x1, 16,
     FD_BPF_INSTR(FD_BPF_OP_MOV64_IMM, FD_R1,  0,      0, 100000007),
     FD_BPF_INSTR(FD_BPF_OP_MOV64_IMM, FD_R0,  0,      0, 0x1),
@@ -433,6 +667,24 @@ main( int     argc,
     FD_BPF_INSTR(FD_BPF_OP_JNE_IMM,   FD_R4,  0,    -10, 0x0),
     FD_BPF_INSTR(FD_BPF_OP_EXIT,      0,      0,      0, 0),
   );
+
+  ulong instrs_sz = 128*1024*1024;
+  fd_vm_sbpf_instr_t * instrs = malloc( sizeof(fd_vm_sbpf_instr_t) * instrs_sz );
+
+  generate_random_alu_instrs( rng, instrs, instrs_sz );
+  test_program_success("alu_bench", 0x0, instrs_sz, instrs);
+
+  generate_random_alu64_instrs( rng, instrs, instrs_sz );
+  test_program_success("alu64_bench", 0x0, instrs_sz, instrs);
+  
+  instrs_sz = 1024;
+  generate_random_alu_instrs( rng, instrs, instrs_sz );
+  test_program_success("alu_bench_short", 0x0, instrs_sz, instrs);
+
+  generate_random_alu64_instrs( rng, instrs, instrs_sz );
+  test_program_success("alu64_bench_short", 0x0, instrs_sz, instrs);
+  
+  fd_rng_delete( fd_rng_leave( rng ) );
 
   fd_halt();
   return 0;

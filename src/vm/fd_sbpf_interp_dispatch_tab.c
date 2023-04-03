@@ -175,12 +175,18 @@ AJT_CASE_END
 /* 0x70 - 0x7f */
 /* 0x71 */ AJT_CASE(0x71) // FD_BPF_OP_LDXB
   cond_fault = fd_vm_mem_map_read_uchar( ctx, (ulong)((long)register_file[src_reg] + instr.offset), (uchar *)&register_file[dst_reg] );
+  goto *((cond_fault == 0) ? &&fallthrough_0x71 : &&AJT_RET_LOC);
+fallthrough_0x71:
 AJT_CASE_END
 /* 0x72 */ AJT_CASE(0x72) // FD_BPF_OP_STB
   cond_fault = fd_vm_mem_map_write_uchar( ctx, (ulong)((long)register_file[dst_reg] + instr.offset), (uchar)imm );
+  goto *((cond_fault == 0) ? &&fallthrough_0x72 : &&AJT_RET_LOC);
+fallthrough_0x72:
 AJT_CASE_END
 /* 0x73 */ AJT_CASE(0x73) // FD_BPF_OP_STXB
   cond_fault = fd_vm_mem_map_write_uchar( ctx, (ulong)((long)register_file[dst_reg] + instr.offset), (uchar)register_file[src_reg] );
+  goto *((cond_fault == 0) ? &&fallthrough_0x73 : &&AJT_RET_LOC);
+fallthrough_0x73:
 AJT_CASE_END
 /* 0x74 */ AJT_CASE(0x74) // FD_BPF_OP_RSH_IMM
   register_file[dst_reg] = (uint)((uint)register_file[dst_reg] >> (uint)imm); 
@@ -193,12 +199,18 @@ AJT_CASE_END
 AJT_CASE_END
 /* 0x79 */ AJT_CASE(0x79) // FD_BPF_OP_LDXQ
   cond_fault = fd_vm_mem_map_read_ulong( ctx, (ulong)((long)register_file[src_reg] + instr.offset), (ulong *)&register_file[dst_reg] );
+  goto *((cond_fault == 0) ? &&fallthrough_0x79 : &&AJT_RET_LOC);
+fallthrough_0x79:
 AJT_CASE_END
 /* 0x7a */ AJT_CASE(0x7a) // FD_BPF_OP_STQ
   cond_fault = fd_vm_mem_map_write_ulong( ctx, (ulong)((long)register_file[dst_reg] + instr.offset), (ulong)imm );
+  goto *((cond_fault == 0) ? &&fallthrough_0x7a : &&AJT_RET_LOC);
+fallthrough_0x7a:
 AJT_CASE_END
 /* 0x7b */ AJT_CASE(0x7b) // FD_BPF_OP_STXQ
   cond_fault = fd_vm_mem_map_write_ulong( ctx, (ulong)((long)register_file[dst_reg] + instr.offset), (ulong)register_file[src_reg] );
+  goto *((cond_fault == 0) ? &&fallthrough_0x7b : &&AJT_RET_LOC);
+fallthrough_0x7b:
 AJT_CASE_END
 /* 0x7c */ AJT_CASE(0x7c) // FD_BPF_OP_RSH_REG
   register_file[dst_reg] = (uint)((uint)register_file[dst_reg] >> (uint)register_file[src_reg]); 
@@ -214,25 +226,33 @@ AJT_CASE_END
 /* 0x84 */ AJT_CASE(0x84) // FD_BPF_OP_NEG
   register_file[dst_reg] = (uint)(~((uint)register_file[dst_reg])); 
 AJT_CASE_END
+/* 0x85 */ AJT_CASE(0x85) // FD_BPF_OP_CALL
+  fd_vm_sbpf_syscall_map_t * syscall_entry = fd_vm_sbpf_syscall_map_query(ctx->syscall_map, imm);
+  register_file[0] = syscall_entry->syscall_fn_ptr(ctx, register_file[1], register_file[2], register_file[3], register_file[4], register_file[5]);
+AJT_CASE_END
 /* 0x87 */ AJT_CASE(0x87) // FD_BPF_OP_NEG64
   register_file[dst_reg] = ~register_file[dst_reg];
 AJT_CASE_END
 
 /* 0x90 - 0x9f */
 /* 0x94 */ AJT_CASE(0x94) // FD_BPF_OP_MOD_IMM
-  register_file[dst_reg] = (uint)((uint)register_file[dst_reg] % (uint)imm); 
+  register_file[dst_reg] = ((uint)imm==0) ? (uint)register_file[dst_reg] : (uint)((uint)register_file[dst_reg] % (uint)imm); 
 AJT_CASE_END
 /* 0x95 */ AJT_CASE(0x95) // FD_BPF_OP_EXIT
   goto AJT_RET_LOC;
 AJT_CASE_END
 /* 0x97 */ AJT_CASE(0x97) // FD_BPF_OP_MOD64_IMM
-  register_file[dst_reg] %= imm;
+  register_file[dst_reg] = (imm==0) ? register_file[dst_reg] : register_file[dst_reg] % imm;
 AJT_CASE_END
 /* 0x9c */ AJT_CASE(0x9c) // FD_BPF_OP_MOD_REG
-  register_file[dst_reg] = (uint)((uint)register_file[dst_reg] % (uint)register_file[src_reg]); 
+  register_file[dst_reg] = ((uint)register_file[src_reg]==0)
+    ? (uint)register_file[dst_reg]
+    : (uint)((uint)register_file[dst_reg] % (uint)register_file[src_reg]); 
 AJT_CASE_END
 /* 0x9f */ AJT_CASE(0x9f) // FD_BPF_OP_MOD64_REG
-  register_file[dst_reg] %= register_file[src_reg];
+  register_file[dst_reg] = (register_file[src_reg]==0) 
+    ? register_file[dst_reg]
+    : register_file[dst_reg] % register_file[src_reg];
 AJT_CASE_END
 
 /* 0xa0 - 0xaf */
@@ -303,16 +323,15 @@ AJT_CASE_END
 /* 0xdc */ AJT_CASE(0xdc) // FD_BPF_OP_END_BE 
   switch (imm) {
     case 16:
-      uchar tmp = ((uchar *)&register_file[dst_reg])[0];
-      ((uchar *)&register_file[dst_reg])[0] = ((uchar *)&register_file[dst_reg])[1];
-      ((uchar *)&register_file[dst_reg])[1] = tmp;
+      register_file[dst_reg] = (ushort)fd_ushort_bswap((short)register_file[dst_reg]);
       register_file[dst_reg] &= 0xFFFF;
       break;
     case 32:
-      register_file[dst_reg] = (uint)_bswap((int)register_file[dst_reg]);
+      register_file[dst_reg] = (uint)fd_uint_bswap((int)register_file[dst_reg]);
+      register_file[dst_reg] &= 0xFFFFFFFF;
       break;
     case 64:
-      register_file[dst_reg] = (ulong)_bswap64((long)register_file[dst_reg]);
+      register_file[dst_reg] = (ulong)fd_ulong_bswap((long)register_file[dst_reg]);
       break;
   }
 AJT_CASE_END

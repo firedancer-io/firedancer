@@ -187,54 +187,28 @@ fd_vm_sbpf_interp_instrs( fd_vm_sbpf_exec_context_t * ctx ) {
   ulong dst_reg;
   ulong src_reg;
   ulong imm; 
-  //static const long locs[256] = {
-  static const void * locs[256] = {
+  
+  static const void * locs[222] = {
 #include "fd_sbpf_interp_locs.c"  
   };
 
-  FD_LOG_WARNING(( "BASE1 %p", locs[0] ));
-  //FD_LOG_WARNING(( "BASE1 %lx", locs[0] ));
-  for( ulong i = 1; i < 256; i++ ) {
-    // FD_LOG_WARNING(( "DIFF %02lx: %ld %lx %lx", i, locs[i] - locs[i-1], locs[i-1], locs[i]));
-    FD_LOG_WARNING(( "DIFF %02lx: %ld %p %p", i, locs[i] - locs[i-1], locs[i-1], locs[i]));
-  }
-  
-    instr = ctx->instrs[pc];
-    dst_reg = instr.dst_reg;
-    src_reg = instr.src_reg;
-    imm = instr.imm;
+  instr = ctx->instrs[pc];
+  dst_reg = instr.dst_reg;
+  src_reg = instr.src_reg;
+  imm = instr.imm;
 
-    goto *(locs[instr.opcode.raw]);
-  /*for( ;; ) {
-    if( pc >= (long) ctx->instrs_sz ) {
-      break;
-    }
-
-    instr = ctx->instrs[pc];
-    dst_reg = instr.dst_reg;
-    src_reg = instr.src_reg;
-    imm = instr.imm;
-
-    goto *locs[instr.opcode.raw];
-    //AJT_GOTO(instr.opcode.raw);
-AJT_BREAK_LOC:
-    ic++;
-    pc++;
-    
-    continue;
-  }*/
+  goto *(locs[instr.opcode.raw]);
 
 AJT_START;
 #include "fd_sbpf_interp_dispatch_tab.c"
 AJT_END;
+
   ctx->program_counter = (ulong) pc;
   ctx->instruction_counter = ic;
 
 #include "fd_aligned_jump_tab_teardown.c"
 #undef ALIGNED_JMP_TAB_ALIGNMENT
 
-//  goto *locs[0];
-//done:
   return;
 }
 
@@ -313,6 +287,10 @@ uchar const FD_OPCODE_VALIDATION_MAP[256] = {
   /* 0xfc */ FD_INVALID,    /* 0xfd */ FD_INVALID,    /* 0xfe */ FD_INVALID,    /* 0xff */ FD_INVALID,   
 };
 
+// FIXME: need to check if the last instruction is the end of a basic block (jmp, exit)
+// FIXME: add a pedantic version of this validation that does things like:
+//  - only 0 imms when the instruction does not use an imm
+//  - same as above but for src/dst reg, offset
 ulong 
 fd_vm_sbpf_interp_validate( fd_vm_sbpf_exec_context_t const * ctx ) {
   for( ulong i = 0; i < ctx->instrs_sz; ++i ) {

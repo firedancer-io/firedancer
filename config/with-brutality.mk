@@ -3,7 +3,6 @@ CPPFLAGS+=            \
   -Wall               \
   -Wextra             \
   -Wstrict-aliasing=2 \
-  -Wconversion        \
   -Wdouble-promotion  \
   -Wformat-security
 

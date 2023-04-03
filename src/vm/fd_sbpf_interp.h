@@ -20,11 +20,24 @@
 #define FD_VM_SBPF_VALIDATE_ERR_LDQ_NO_ADDL_IMM   (9UL)
 #define FD_VM_SBPF_VALIDATE_ERR_NO_SUCH_EXT_CALL  (10UL)
 
+typedef ulong (*fd_vm_sbpf_syscall_fn_ptr)(fd_vm_sbpf_exec_context * ctx, ulong arg0, ulong arg1, ulong arg2, ulong arg3, ulong arg4);
+
+struct fd_vm_sbpf_syscall_map {
+  uint key;
+  uint hash;
+}
+typedef struct fd_vm_sbpf_syscall_map fd_vm_sbpf_syscall_map_t;
+
+#define MAP_NAME        fd_vm_sbpf_syscall_map
+#define MAP_T           fd_vm_sbpf_syscall_map_t
+#define MAP_LG_SLOT_CNT 6
+#include "../util/tmpl/fd_map.c"
+
 struct fd_vm_sbpf_exec_context {
-  long                  entrypoint;
-  ulong                 num_ext_funcs;
-  fd_vm_sbpf_instr_t *  instrs;
-  ulong                 instrs_sz;
+  long                      entrypoint;
+  fd_vm_sbpf_syscall_map_t  syscall_map;
+  fd_vm_sbpf_instr_t *      instrs;
+  ulong                     instrs_sz;
   
   ulong                 register_file[11];
   ulong                 program_counter;
