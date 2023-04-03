@@ -8,7 +8,6 @@
 
 void* fd_acc_mgr_new( void* mem,
                       fd_funk_t* funk,
-                      const fd_funk_xactionid_t* funk_xroot,
                       ulong footprint ) {
   if( FD_UNLIKELY( !mem ) ) {
     FD_LOG_WARNING(( "NULL mem" ));
@@ -19,7 +18,6 @@ void* fd_acc_mgr_new( void* mem,
 
   fd_acc_mgr_t* acc_mgr = (fd_acc_mgr_t*)mem;
   acc_mgr->funk         = funk;
-  acc_mgr->funk_xroot   = funk_xroot;
   
   return mem;
 }
@@ -155,7 +153,7 @@ int fd_acc_mgr_write_structured_account( fd_acc_mgr_t* acc_mgr, struct fd_funk_x
   return fd_acc_mgr_write_account_data(acc_mgr, txn, pubkey, 0, (uchar *) data, dlen);
 }
 
-int fd_acc_mgr_write_append_vec_account( fd_acc_mgr_t* acc_mgr, ulong slot, fd_solana_account_hdr_t * hdr) {
+int fd_acc_mgr_write_append_vec_account( fd_acc_mgr_t* acc_mgr, struct fd_funk_xactionid const* txn, ulong slot, fd_solana_account_hdr_t * hdr) {
   ulong dlen =  sizeof(fd_account_meta_t) + hdr->meta.data_len;
 
   // TODO: Switch this all over to using alexs new writev interface and get rid of malloc
@@ -175,7 +173,7 @@ int fd_acc_mgr_write_append_vec_account( fd_acc_mgr_t* acc_mgr, ulong slot, fd_s
 
   fd_memcpy(&data[sizeof(fd_account_meta_t)], &hdr[1], hdr->meta.data_len);
 
-  int ret = fd_acc_mgr_write_account_data(acc_mgr, fd_funk_root(acc_mgr->funk), (fd_pubkey_t *) &hdr->meta.pubkey, 0, (uchar *) data, dlen);
+  int ret = fd_acc_mgr_write_account_data(acc_mgr, txn, (fd_pubkey_t *) &hdr->meta.pubkey, 0, (uchar *) data, dlen);
   free(data);
   return ret;
 }
