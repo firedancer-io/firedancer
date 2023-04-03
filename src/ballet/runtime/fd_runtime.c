@@ -40,13 +40,16 @@ fd_runtime_boot_slot_zero( fd_global_ctx_t *global ) {
 int
 fd_runtime_block_execute( fd_global_ctx_t *global, fd_slot_blocks_t *slot_data ) {
   uchar *blob = slot_data->last_blob;
+
+  if (NULL == blob)  // empty slot
+    return FD_RUNTIME_EXECUTE_SUCCESS;
+
   uchar *blob_ptr = blob + FD_BLOB_DATA_START;
   uint   cnt = *((uint *) (blob + 8));
 
-  if (0 == cnt) {
-    // WHA?! . what is the correct behavior here?  what should the
-    // sysvar_recent_hashes get set to?
-    return FD_RUNTIME_EXECUTE_GENERIC_ERR;
+  if (0 == cnt)  {
+    // can you have an empty last tick?
+    return FD_RUNTIME_EXECUTE_SUCCESS;
   }
 
   // It sucks that we need to know the current block hash which is
@@ -101,6 +104,9 @@ fd_runtime_block_verify( fd_global_ctx_t *global, fd_slot_blocks_t *slot_data ) 
     FD_LOG_WARNING(("NULL slot passed to fd_runtime_block_execute at slot %ld", global->current_slot));
     return FD_RUNTIME_EXECUTE_GENERIC_ERR;
   }
+
+  if (NULL == blob) // empty slot
+    return FD_RUNTIME_EXECUTE_SUCCESS;
 
   uchar *blob = slot_data->first_blob;
   while (NULL != blob) {
