@@ -1,6 +1,7 @@
 #include "fd_runtime.h"
 #include "sysvar/fd_sysvar_clock.h"
 #include "sysvar/fd_sysvar.h"
+#include "../base58/fd_base58.h"
 
 #ifdef _DISABLE_OPTIMIZATION
 #pragma GCC optimize ("O0")
@@ -16,6 +17,9 @@ void
 fd_runtime_boot_slot_zero( fd_global_ctx_t *global ) {
   fd_memcpy(global->poh.state, global->genesis_hash, sizeof(global->genesis_hash));
   global->poh_booted = 1;
+
+  fd_base58_decode_32( "SysvarRecentB1ockHashes11111111111111111111",  (unsigned char *) global->sysvar_recent_block_hashes);
+  fd_base58_decode_32( "Sysvar1111111111111111111111111111111111111",  (unsigned char *) global->sysvar_owner);
 
   fd_sysvar_recent_hashes_init(global, 0);
   fd_sysvar_clock_init( global );
@@ -105,10 +109,8 @@ fd_runtime_block_verify( fd_global_ctx_t *global, fd_slot_blocks_t *slot_data ) 
     return FD_RUNTIME_EXECUTE_GENERIC_ERR;
   }
 
-  if (NULL == blob) // empty slot
-    return FD_RUNTIME_EXECUTE_SUCCESS;
-
   uchar *blob = slot_data->first_blob;
+
   while (NULL != blob) {
     uchar *blob_ptr = blob + FD_BLOB_DATA_START;
     uint   cnt = *((uint *) (blob + 8));

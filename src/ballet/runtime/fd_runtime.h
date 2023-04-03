@@ -29,6 +29,9 @@ struct __attribute__((aligned(FD_GLOBAL_CTX_ALIGN))) fd_global_ctx {
   fd_executor_t              executor;  // Amusingly, it is just a pointer to this...
   fd_rng_t*                  rng;
 
+  unsigned char              sysvar_recent_block_hashes[32];
+  unsigned char              sysvar_owner[32];
+
   // This state needs to be commited to funk so that we can roll it back?
   ulong                      current_slot;
   fd_poh_state_t             poh;
