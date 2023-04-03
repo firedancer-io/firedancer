@@ -159,18 +159,22 @@ struct __attribute__((aligned(16UL))) fd_quic_config {
   /* TODO are there any other duties than ACKs? */
   ulong service_interval;
 
-  /* ping_interval: inactivity time in ns before requesting sending a
+  /* ping_interval: inactivity time in ns before sending a
      ping request to peer. */
   /* TODO unused for now */
   ulong ping_interval;
 
+  /* idle_timeout: time in ns before timing out a conn.
+     Also sent to peer via max_idle_timeout transport (in ms). */
+  ulong idle_timeout;
+
   /* TLS config ********************************************/
 
   /* cstrs containing TLS PEM cert and key file path */
-# define FD_QUIC_CERT_PATH_LEN (1024UL)
-  char cert_file  [ FD_QUIC_CERT_PATH_LEN ];
-  char key_file   [ FD_QUIC_CERT_PATH_LEN ];
-  char keylog_file[ FD_QUIC_CERT_PATH_LEN ];
+# define FD_QUIC_CERT_PATH_LEN (1023UL)
+  char cert_file  [ FD_QUIC_CERT_PATH_LEN+1UL ];
+  char key_file   [ FD_QUIC_CERT_PATH_LEN+1UL ];
+  char keylog_file[ FD_QUIC_CERT_PATH_LEN+1UL ];
 
   /* alpns: List of supported ALPN IDs in OpenSSL format.
      Contains packed list of uchar length prefixed strings
