@@ -23,6 +23,7 @@ fd_runtime_boot_slot_zero( fd_global_ctx_t *global ) {
 
   fd_sysvar_recent_hashes_init(global, 0);
   fd_sysvar_clock_init( global );
+  fd_sysvar_slot_history_init( global );
 }
 
 // fd_runtime_block_execute
@@ -96,6 +97,8 @@ fd_runtime_block_execute( fd_global_ctx_t *global, fd_slot_blocks_t *slot_data )
     } // while (cnt > 0)
     blob = *((uchar **) blob);
   } // while (NULL != blob)
+
+  fd_sysvar_slot_history_update( global );
 
   return FD_RUNTIME_EXECUTE_SUCCESS;
 }
