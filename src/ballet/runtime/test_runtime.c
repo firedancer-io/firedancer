@@ -213,7 +213,7 @@ int ingest(global_state_t *state) {
               break;
           }
 
-          if (fd_acc_mgr_write_append_vec_account( state->global->acc_mgr,  slot, hdr) != FD_ACC_MGR_SUCCESS) {
+          if (fd_acc_mgr_write_append_vec_account( state->global->acc_mgr, state->global->funk_txn,  slot, hdr) != FD_ACC_MGR_SUCCESS) {
             FD_LOG_ERR(("writing failed: accounts %ld", accounts));
           }
           read_result = fd_acc_mgr_get_metadata( state->global->acc_mgr, state->global->funk_txn, (fd_pubkey_t *) &hdr->meta.pubkey, &metadata );
@@ -519,7 +519,7 @@ int validate_bank_hashes(global_state_t *state) {
               break;
           }
 
-          if (fd_acc_mgr_write_append_vec_account( state->global->acc_mgr,  slot, hdr) != FD_ACC_MGR_SUCCESS) {
+          if (fd_acc_mgr_write_append_vec_account( state->global->acc_mgr, state->global->funk_txn,  slot, hdr) != FD_ACC_MGR_SUCCESS) {
             FD_LOG_ERR(("writing failed: accounts %ld", accounts));
           }
           read_result = fd_acc_mgr_get_metadata( state->global->acc_mgr, state->global->funk_txn, (fd_pubkey_t *) &hdr->meta.pubkey, &metadata );
@@ -1095,7 +1095,7 @@ int main(int argc, char **argv) {
 
   /* Initialize the account manager */
   void *fd_acc_mgr_raw = state.global->allocf(state.global->allocf_arg, FD_ACC_MGR_ALIGN, FD_ACC_MGR_FOOTPRINT);
-  state.global->acc_mgr = fd_acc_mgr_join(fd_acc_mgr_new(fd_acc_mgr_raw, state.global->funk, state.global->funk_txn , FD_ACC_MGR_FOOTPRINT));
+  state.global->acc_mgr = fd_acc_mgr_join(fd_acc_mgr_new(fd_acc_mgr_raw, state.global->funk, FD_ACC_MGR_FOOTPRINT));
 
   fd_vec_fd_clock_timestamp_vote_t_new( &state.global->timestamp_votes.votes );
 

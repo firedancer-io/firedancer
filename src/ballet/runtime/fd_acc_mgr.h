@@ -16,7 +16,6 @@ FD_PROTOTYPES_BEGIN
 
 struct fd_acc_mgr {
     fd_funk_t* funk;
-    const struct fd_funk_xactionid* funk_xroot;
 };
 typedef struct fd_acc_mgr fd_acc_mgr_t;
 
@@ -25,7 +24,6 @@ typedef struct fd_acc_mgr fd_acc_mgr_t;
 
 void* fd_acc_mgr_new( void* mem,
                       fd_funk_t* funk,
-                      const fd_funk_xactionid_t* funk_xroot,
                       ulong footprint );
 
 fd_acc_mgr_t* fd_acc_mgr_join( void* mem );
@@ -61,7 +59,7 @@ int fd_acc_mgr_set_lamports( fd_acc_mgr_t* acc_mgr, struct fd_funk_xactionid con
 
 int fd_acc_mgr_write_structured_account( fd_acc_mgr_t* acc_mgr, struct fd_funk_xactionid const* txn, ulong slot, fd_pubkey_t*, fd_solana_account_t *);
 
-int fd_acc_mgr_write_append_vec_account( fd_acc_mgr_t* acc_mgr, ulong slot, fd_solana_account_hdr_t *);
+int fd_acc_mgr_write_append_vec_account( fd_acc_mgr_t* acc_mgr, struct fd_funk_xactionid const* txn, ulong slot, fd_solana_account_hdr_t *);
 
 FD_PROTOTYPES_END
 
