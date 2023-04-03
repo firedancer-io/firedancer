@@ -72,7 +72,7 @@ main( int     argc,
       }
 
       char buf[ FD_WKSP_CSTR_MAX ];
-      char * cstr_addr = fd_wksp_cstr_alloc( wksp_name, fd_pack_align(), footprint, 0UL, buf );
+      char * cstr_addr = fd_wksp_cstr_alloc( wksp_name, fd_pack_align(), footprint, 1UL, buf );
       if( FD_UNLIKELY( !cstr_addr ) )
         FD_LOG_ERR(( "%i: %s: fd_wksp_cstr_alloc( \"%s\", %lu, %lu ) failed\n\tDo %s help for help",
               cnt, cmd, wksp_name, bank_cnt, txnq_sz, bin ));
@@ -96,7 +96,7 @@ main( int     argc,
       }
 
       char buf[ FD_WKSP_CSTR_MAX ];
-      char * cstr_addr = fd_wksp_cstr_alloc( wksp_name, fd_pack_align(), footprint, 0UL, buf );
+      char * cstr_addr = fd_wksp_cstr_alloc( wksp_name, fd_pack_align(), footprint, 1UL, buf );
       if( FD_UNLIKELY( !cstr_addr ) )
         FD_LOG_ERR(( "%i: %s: fd_wksp_cstr_alloc( \"%s\", %lu, %lu ) failed\n\tDo %s help for help",
               cnt, cmd, wksp_name, fd_pack_align(), footprint, bin ));

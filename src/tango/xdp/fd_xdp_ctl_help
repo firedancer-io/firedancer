@@ -28,7 +28,7 @@ fini [WKSP]
   [WKSP] including any XDP programs and eBPF maps.
 - Requires CAP_SYS_ADMIN, see capabilities(7).
 
-hook-iface [WKSP] [IFACE] [XDP_MODE]
+hook-iface [BPF_DIR] [IFACE] [XDP_MODE]
 - Install the XDP redirect program to the network device
   [IFACE]. The XDP installation mode [XDP_MODE] can be one of
   "skb" (supported on all hardware), "drv" (requires driver
@@ -36,24 +36,24 @@ hook-iface [WKSP] [IFACE] [XDP_MODE]
 - Any XDP program previously installed by fd_xdp_ctl will be
   replaced. Other XDP programs are left intact.
 - Creates the following files:
-  /sys/fs/bpf/[WKSP]/[IFACE]/xdp   Link to BPF_PROG_TYPE_XDP
-  /sys/fs/bpf/[WKSP]/[IFACE]/xsks  BPF_MAP_TYPE_XSKMAP
+  /sys/fs/bpf/[BPF_DIR]/[IFACE]/xdp   Link to BPF_PROG_TYPE_XDP
+  /sys/fs/bpf/[BPF_DIR]/[IFACE]/xsks  BPF_MAP_TYPE_XSKMAP
 - Must be re-run after each reboot.
 - Requires CAP_SYS_ADMIN, see capabilities(7).
 
-unhook-iface [WKSP] [IFACE]
+unhook-iface [BPF_DIR] [IFACE]
 - Remove an installation of the XDP program created by
   fd_xdp_ctl add-iface [IFACE]. No-op if no such XDP
   program is present on the given interface.
 - Requires CAP_SYS_ADMIN, see capabilities(7).
 
-listen-udp-port [WKSP] [IP_ADDR] [UDP_PORT] [PROTO]
+listen-udp-port [BPF_DIR] [IP_ADDR] [UDP_PORT] [PROTO]
 - Install listener for protocol [PROTO] on IP destination
   address [IP_ADDR] and UDP destination port [UDP_PORT].
   [IP_ADDR] must be an IPv4 address in the form of "x.y.z.w".
   [UDP_PORT] must be a decimal integer in [0;65536).
   On interfaces running the XDP redirect program, redirects
-  matching packets to active XSKs in [WKSP].
+  matching packets to active XSKs in [BPF_DIR].
   If no XSK matches, the affected traffic will be dropped.
   Fails if a listener installed by fd_xdp_ctl is already
   registered on this port.
@@ -67,7 +67,7 @@ listen-udp-port [WKSP] [IP_ADDR] [UDP_PORT] [PROTO]
   - tvu: Turbine shred stream
 - Requires CAP_SYS_ADMIN, see capabilities(7).
 
-release-udp-port [WKSP] [IP_ADDR] [UDP_PORT]
+release-udp-port [BPF_DIR] [IP_ADDR] [UDP_PORT]
 - Uninstall listener on [IP_ADDR]:[UDP_PORT].
   XSKs bound to the eBPF program with the given pin-dir will
   no longer receive packets with the given UDP destination
@@ -83,7 +83,7 @@ new-xsk [WKSP] [FRAME_SZ] [RX_DEPTH] [TX_DEPTH]
   As of Linux 4.18, valid values include 2048 and 4096.
 - Prints the wksp gaddr of the xdp to stdout.
 
-bind-xsk [WKSP:GADDR] [WKSP] [IFACE] [IFACE_QUEUE]
+bind-xsk [WKSP:GADDR] [BPF_DIR] [IFACE] [IFACE_QUEUE]
 - Bind the XSK buffer identified by [WKSP:GADDR] to network
   device [IFACE] on queue number [IFACE_QUEUE].
 - Note that does not create any XSK file descriptors at the
@@ -98,7 +98,7 @@ bind-xsk [WKSP:GADDR] [WKSP] [IFACE] [IFACE_QUEUE]
   Failure to bind at least one XSK for each active iface queue
   will result in packet loss.
 - The eBPF program installation done in hook-iface must use
-  the same [WKSP] as bind-xsk.
+  the same [BPF_DIR] as bind-xsk.
 
 unbind-xsk [WKSP:GADDR]
 - Unbinds the XSK buffer identified by [WKSP:GADDR] from a network
@@ -109,10 +109,10 @@ delete-xsk [WKSP:GADDR]
 - Deletes the XSK buffer at [WKSP:GADDR]. No XSK fd may be
   assigned to this buffer at the time of running this command.
 
-new-xsk-aio [WKSP] [TX_DEPTH] [BATCH_CNT]
+new-xsk-aio [WKSP] [TX_DEPTH] [AIO_DEPTH]
 - Creates a new XSK fd_aio driver in [WKSP] with the given
   TX/Completion queue depth [TX_DEPTH] and the given aio batch
-  depth [BATCH_CNT].
+  packet count [AIO_DEPTH].
 
 delete-xsk-aio [WKSP:GADDR]
 - Destroys the XSK fd_aio driver at [WKSP:GADDR].

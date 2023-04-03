@@ -28,6 +28,7 @@ main( int     argc,
 
     } else if( 0==strcmp( cmd, "new-quic" ) ) {
 
+      /* TODO only read args up to next command */
       fd_quic_limits_t limits = {0};
       fd_quic_limits_from_env( &argc, &argv, &limits );
 
@@ -71,7 +72,23 @@ main( int     argc,
 
       fd_wksp_detach( wksp );
 
-      FD_LOG_NOTICE(( "%i: %s %s: success", cnt, cmd, _wksp ));
+      FD_LOG_NOTICE(( "%i: %s %s"
+                      " --quic-conns %lu"
+                      " --quic-conn-ids %lu"
+                      " --quic-streams %lu"
+                      " --quic-handshakes %lu"
+                      " --quic-inflight-pkts %lu"
+                      " --quic-tx-buf-sz %lu"
+                      " --quic-rx-buf-sz %lu"
+                      ": success",
+                      cnt, cmd, _wksp,
+                      limits.conn_cnt,
+                      limits.conn_id_cnt,
+                      limits.stream_cnt,
+                      limits.handshake_cnt,
+                      limits.inflight_pkt_cnt,
+                      limits.tx_buf_sz,
+                      limits.rx_buf_sz ));
       SHIFT( 1 );
 
     } else if( 0==strcmp( cmd, "delete-quic" ) ) {

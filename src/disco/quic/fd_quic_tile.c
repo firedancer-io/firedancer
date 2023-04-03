@@ -447,6 +447,8 @@ fd_quic_tile( fd_cnc_t *         cnc,
       cnc_diag_tpu_pub_sz += sz;
     }
     pubq_remove_all( msg_pubq );
+
+    now = fd_tickcount();
   }
 
   do {

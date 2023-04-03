@@ -309,12 +309,13 @@ fd_xsk_mmap_ring( fd_ring_desc_t * ring,
           cleared on join */
   fd_memset( ring, 0, sizeof(fd_ring_desc_t) );
 
-  ring->mem   = res;
-  ring->depth = (uint)depth;
-  ring->ptr   = (void *)( (ulong)res + ring_offset->desc     );
-  ring->flags = (uint *)( (ulong)res + ring_offset->flags    );
-  ring->prod  = (uint *)( (ulong)res + ring_offset->producer );
-  ring->cons  = (uint *)( (ulong)res + ring_offset->consumer );
+  ring->mem    = res;
+  ring->map_sz = map_sz;
+  ring->depth  = (uint)depth;
+  ring->ptr    = (void *)( (ulong)res + ring_offset->desc     );
+  ring->flags  = (uint *)( (ulong)res + ring_offset->flags    );
+  ring->prod   = (uint *)( (ulong)res + ring_offset->producer );
+  ring->cons   = (uint *)( (ulong)res + ring_offset->consumer );
 
   return 0;
 }

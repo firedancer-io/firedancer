@@ -6,6 +6,6 @@ Commands are:
 help
 - Prints this message.
 
-new-quic wksp rx-buf-sz tx-buf-sz conn-cnt conn-id-cnt stream-cnt pkt-cnt
+new-quic wksp [flags...]
 
 delete-quic gaddr
