@@ -165,7 +165,7 @@ fd_runtime_block_eval( fd_global_ctx_t *global, fd_slot_blocks_t *slot_data ) {
 
   // Reasonable to let the compiler figure this out?
   if ( memcmp(global->funk_txn, fd_funk_root(global->funk), sizeof(fd_funk_xactionid_t) ) )
-    if (fd_funk_commit(global->funk, global->funk_txn))
+    if (fd_funk_commit(global->funk, global->funk_txn) == 0)
       FD_LOG_ERR(("fd_funk_commit failed"));
 
   ulong *p = (ulong *) &global->funk_txn->id[0];
@@ -174,7 +174,7 @@ fd_runtime_block_eval( fd_global_ctx_t *global, fd_slot_blocks_t *slot_data ) {
   p[2] = fd_rng_ulong( global->rng );
   p[3] = fd_rng_ulong( global->rng );
 
-  if (fd_funk_fork(global->funk, parent_txn, global->funk_txn))
+  if (fd_funk_fork(global->funk, parent_txn, global->funk_txn) == 0)
     FD_LOG_ERR(("fd_funk_fork failed"));
 
   // This is simple now but really we need to execute block_verify in
