@@ -7,10 +7,10 @@ on:
   workflow_dispatch:
 jobs:
   make-test:
-    runs-on: [self-hosted, Linux, X64]
+    runs-on: [self-hosted, Linux, X64, fedora28]
     defaults:
       run:
-        shell: bash --noprofile --norc -eo pipefail -c "source /home/runner/firedancer-opt/activate-opt && {0}"
+        shell: bash --noprofile --norc -eo pipefail -c "source /root/firedancer/activate-opt && {0}"
     env:
       EXTRAS: libbpf
     steps:
