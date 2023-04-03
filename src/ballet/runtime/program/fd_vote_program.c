@@ -36,13 +36,13 @@ int fd_executor_vote_program_execute_instruction(
       fd_pubkey_t * vote_acc = &txn_accs[instr_acc_idxs[0]];
 
       fd_account_meta_t metadata;
-      int read_result = fd_acc_mgr_get_metadata( ctx.global->acc_mgr, vote_acc, &metadata );
+      int read_result = fd_acc_mgr_get_metadata( ctx.global->acc_mgr, ctx.global->funk_txn, vote_acc, &metadata );
       if ( FD_UNLIKELY( read_result != FD_ACC_MGR_SUCCESS ) ) {
         FD_LOG_WARNING(( "failed to read account metadata" ));
         return read_result;
       }
       uchar *vota_acc_data = (uchar *)(ctx.global->allocf)(ctx.global->allocf_arg, 8UL, metadata.dlen);
-      read_result = fd_acc_mgr_get_account_data( ctx.global->acc_mgr, vote_acc, (uchar*)vota_acc_data, sizeof(fd_account_meta_t), metadata.dlen );
+      read_result = fd_acc_mgr_get_account_data( ctx.global->acc_mgr, ctx.global->funk_txn, vote_acc, (uchar*)vota_acc_data, sizeof(fd_account_meta_t), metadata.dlen );
       if ( read_result != FD_ACC_MGR_SUCCESS ) {
         FD_LOG_WARNING(( "failed to read account data" ));
         return read_result;

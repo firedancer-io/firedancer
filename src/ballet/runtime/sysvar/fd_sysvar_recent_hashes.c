@@ -41,14 +41,14 @@ void fd_sysvar_recent_hashes_update(fd_global_ctx_t* global, ulong slot) {
 
   /* Read the recent hashes sysvar from the account */
   fd_account_meta_t metadata;
-  int               read_result = fd_acc_mgr_get_metadata( global->acc_mgr, (fd_pubkey_t*) global->sysvar_recent_block_hashes, &metadata );
+  int               read_result = fd_acc_mgr_get_metadata( global->acc_mgr, global->funk_txn, (fd_pubkey_t*) global->sysvar_recent_block_hashes, &metadata );
   if ( read_result != FD_ACC_MGR_SUCCESS ) {
     FD_LOG_NOTICE(( "failed to read account metadata: %d", read_result ));
     return;
   }
 
   unsigned char *raw_acc_data = fd_alloca( 1, metadata.dlen );
-  read_result = fd_acc_mgr_get_account_data( global->acc_mgr, (fd_pubkey_t*) global->sysvar_recent_block_hashes, raw_acc_data, metadata.hlen, metadata.dlen );
+  read_result = fd_acc_mgr_get_account_data( global->acc_mgr, global->funk_txn, (fd_pubkey_t*) global->sysvar_recent_block_hashes, raw_acc_data, metadata.hlen, metadata.dlen );
   if ( read_result != FD_ACC_MGR_SUCCESS ) {
     FD_LOG_NOTICE(( "failed to read account data: %d", read_result ));
     return;

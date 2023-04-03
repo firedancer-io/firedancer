@@ -48,13 +48,13 @@ int fd_acc_mgr_write_account_data( fd_acc_mgr_t* acc_mgr, struct fd_funk_xaction
    TODO: nicer API so users of this method don't have to make two db calls, one to determine the
          size of the buffer and the other to actually read the data.
     */
-int fd_acc_mgr_get_account_data( fd_acc_mgr_t* acc_mgr, fd_pubkey_t* pubkey, uchar* result, ulong offset, ulong bytes );
+int fd_acc_mgr_get_account_data( fd_acc_mgr_t* acc_mgr, struct fd_funk_xactionid const* txn, fd_pubkey_t* pubkey, uchar* result, ulong offset, ulong bytes );
 
 /* Fetches the account metadata for the account with the given public key. */
-int fd_acc_mgr_get_metadata( fd_acc_mgr_t* acc_mgr, fd_pubkey_t* pubkey, fd_account_meta_t *result );
+int fd_acc_mgr_get_metadata( fd_acc_mgr_t* acc_mgr, struct fd_funk_xactionid const* txn, fd_pubkey_t* pubkey, fd_account_meta_t *result );
 
 /* Fetches the lamport balance for the account with the given public key. */
-int fd_acc_mgr_get_lamports( fd_acc_mgr_t* acc_mgr, fd_pubkey_t* pubkey, fd_acc_lamports_t* result );
+int fd_acc_mgr_get_lamports( fd_acc_mgr_t* acc_mgr, struct fd_funk_xactionid const* txn, fd_pubkey_t* pubkey, fd_acc_lamports_t* result );
 
 /* Sets the lamport balance for the account with the given public key. */
 int fd_acc_mgr_set_lamports( fd_acc_mgr_t* acc_mgr, struct fd_funk_xactionid const*, fd_pubkey_t* pubkey, fd_acc_lamports_t lamports );

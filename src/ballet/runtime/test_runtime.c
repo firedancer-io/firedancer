@@ -207,7 +207,7 @@ int ingest(global_state_t *state) {
 
         do {
           fd_account_meta_t metadata;
-          int               read_result = fd_acc_mgr_get_metadata( state->global->acc_mgr, (fd_pubkey_t *) &hdr->meta.pubkey, &metadata );
+          int               read_result = fd_acc_mgr_get_metadata( state->global->acc_mgr, state->global->funk_txn, (fd_pubkey_t *) &hdr->meta.pubkey, &metadata );
           if ( FD_UNLIKELY( read_result == FD_ACC_MGR_SUCCESS ) ) {
             if (metadata.slot > slot)
               break;
@@ -216,7 +216,7 @@ int ingest(global_state_t *state) {
           if (fd_acc_mgr_write_append_vec_account( state->global->acc_mgr,  slot, hdr) != FD_ACC_MGR_SUCCESS) {
             FD_LOG_ERR(("writing failed: accounts %ld", accounts));
           }
-          read_result = fd_acc_mgr_get_metadata( state->global->acc_mgr, (fd_pubkey_t *) &hdr->meta.pubkey, &metadata );
+          read_result = fd_acc_mgr_get_metadata( state->global->acc_mgr, state->global->funk_txn, (fd_pubkey_t *) &hdr->meta.pubkey, &metadata );
           if ( FD_UNLIKELY( read_result != FD_ACC_MGR_SUCCESS ) )
             FD_LOG_ERR(("wtf"));
           if ((metadata.magic != FD_ACCOUNT_META_MAGIC) || (metadata.hlen != sizeof(metadata)))
@@ -224,9 +224,9 @@ int ingest(global_state_t *state) {
 
           uchar *           account_data = (uchar *) state->global->allocf(state->global->allocf_arg , 8UL,  hdr->meta.data_len);
           fd_account_meta_t account_hdr;
-          read_result = fd_acc_mgr_get_account_data( state->global->acc_mgr, (fd_pubkey_t *) &hdr->meta.pubkey, (uchar *) &account_hdr, 0, sizeof(fd_account_meta_t));
+          read_result = fd_acc_mgr_get_account_data( state->global->acc_mgr, state->global->funk_txn, (fd_pubkey_t *) &hdr->meta.pubkey, (uchar *) &account_hdr, 0, sizeof(fd_account_meta_t));
 
-          read_result = fd_acc_mgr_get_account_data( state->global->acc_mgr, (fd_pubkey_t *) &hdr->meta.pubkey, account_data, sizeof(fd_account_meta_t), account_hdr.dlen);
+          read_result = fd_acc_mgr_get_account_data( state->global->acc_mgr, state->global->funk_txn, (fd_pubkey_t *) &hdr->meta.pubkey, account_data, sizeof(fd_account_meta_t), account_hdr.dlen);
           if ( FD_UNLIKELY( read_result != FD_ACC_MGR_SUCCESS ) )
             FD_LOG_ERR(("wtf3"));
 
@@ -513,7 +513,7 @@ int validate_bank_hashes(global_state_t *state) {
 
         do {
           fd_account_meta_t metadata;
-          int               read_result = fd_acc_mgr_get_metadata( state->global->acc_mgr, (fd_pubkey_t *) &hdr->meta.pubkey, &metadata );
+          int               read_result = fd_acc_mgr_get_metadata( state->global->acc_mgr, state->global->funk_txn, (fd_pubkey_t *) &hdr->meta.pubkey, &metadata );
           if ( FD_UNLIKELY( read_result == FD_ACC_MGR_SUCCESS ) ) {
             if (metadata.slot > slot)
               break;
@@ -522,7 +522,7 @@ int validate_bank_hashes(global_state_t *state) {
           if (fd_acc_mgr_write_append_vec_account( state->global->acc_mgr,  slot, hdr) != FD_ACC_MGR_SUCCESS) {
             FD_LOG_ERR(("writing failed: accounts %ld", accounts));
           }
-          read_result = fd_acc_mgr_get_metadata( state->global->acc_mgr, (fd_pubkey_t *) &hdr->meta.pubkey, &metadata );
+          read_result = fd_acc_mgr_get_metadata( state->global->acc_mgr, state->global->funk_txn, (fd_pubkey_t *) &hdr->meta.pubkey, &metadata );
           if ( FD_UNLIKELY( read_result != FD_ACC_MGR_SUCCESS ) )
             FD_LOG_ERR(("wtf"));
           if ((metadata.magic != FD_ACCOUNT_META_MAGIC) || (metadata.hlen != sizeof(metadata)))
@@ -531,9 +531,9 @@ int validate_bank_hashes(global_state_t *state) {
 
           uchar *           account_data = (uchar *) state->global->allocf(state->global->allocf_arg , 8UL,  hdr->meta.data_len);
           fd_account_meta_t account_hdr;
-          read_result = fd_acc_mgr_get_account_data( state->global->acc_mgr, (fd_pubkey_t *) &hdr->meta.pubkey, (uchar *) &account_hdr, 0, sizeof(fd_account_meta_t));
+          read_result = fd_acc_mgr_get_account_data( state->global->acc_mgr, state->global->funk_txn, (fd_pubkey_t *) &hdr->meta.pubkey, (uchar *) &account_hdr, 0, sizeof(fd_account_meta_t));
 
-          read_result = fd_acc_mgr_get_account_data( state->global->acc_mgr, (fd_pubkey_t *) &hdr->meta.pubkey, account_data, sizeof(fd_account_meta_t), account_hdr.dlen);
+          read_result = fd_acc_mgr_get_account_data( state->global->acc_mgr, state->global->funk_txn, (fd_pubkey_t *) &hdr->meta.pubkey, account_data, sizeof(fd_account_meta_t), account_hdr.dlen);
           if ( FD_UNLIKELY( read_result != FD_ACC_MGR_SUCCESS ) )
             FD_LOG_ERR(("wtf3"));
 
@@ -702,7 +702,7 @@ fd_sim_txn(global_state_t *state, FD_FN_UNUSED fd_executor_t* executor, fd_txn_t
       what = 3;
 
     fd_account_meta_t metadata;
-    if ( fd_acc_mgr_get_metadata( state->global->acc_mgr, addr, &metadata ) != FD_ACC_MGR_SUCCESS) {
+    if ( fd_acc_mgr_get_metadata( state->global->acc_mgr, state->global->funk_txn, addr, &metadata ) != FD_ACC_MGR_SUCCESS) {
       if (what > 1) {
         char pubkey[33];
         fd_base58_encode_32((uchar *) addr, NULL, pubkey);

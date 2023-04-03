@@ -51,14 +51,14 @@ void fd_sysvar_clock_read( fd_global_ctx_t* global, fd_sol_sysvar_clock_t* resul
 
   /* Read the clock sysvar from the account */
   fd_account_meta_t metadata;
-  int               read_result = fd_acc_mgr_get_metadata( global->acc_mgr, &pubkey, &metadata );
+  int               read_result = fd_acc_mgr_get_metadata( global->acc_mgr, global->funk_txn, &pubkey, &metadata );
   if ( read_result != FD_ACC_MGR_SUCCESS ) {
     FD_LOG_NOTICE(( "failed to read account metadata: %d", read_result ));
     return;
   }
 
   unsigned char *raw_acc_data = fd_alloca( 1, metadata.dlen );
-  read_result = fd_acc_mgr_get_account_data( global->acc_mgr, &pubkey, raw_acc_data, metadata.hlen, metadata.dlen );
+  read_result = fd_acc_mgr_get_account_data( global->acc_mgr, global->funk_txn, &pubkey, raw_acc_data, metadata.hlen, metadata.dlen );
   if ( read_result != FD_ACC_MGR_SUCCESS ) {
     FD_LOG_NOTICE(( "failed to read account data: %d", read_result ));
     return;
