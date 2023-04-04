@@ -659,9 +659,15 @@ typedef struct fd_slot_hash fd_slot_hash_t;
 #define FD_SLOT_HASH_FOOTPRINT sizeof(fd_slot_hash_t)
 #define FD_SLOT_HASH_ALIGN (8UL)
 
+#define VECT_NAME fd_vec_fd_slot_hash_t
+#define VECT_ELEMENT fd_slot_hash_t
+#include "../../funk/fd_vector.h"
+#undef VECT_NAME
+#undef VECT_ELEMENT
+
+/* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/slot_hashes.rs#L31 */
 struct fd_slot_hashes {
-  ulong           hashes_len;
-  fd_slot_hash_t* hashes;
+  fd_vec_fd_slot_hash_t_t hashes;
 };
 typedef struct fd_slot_hashes fd_slot_hashes_t;
 #define FD_SLOT_HASHES_FOOTPRINT sizeof(fd_slot_hashes_t)

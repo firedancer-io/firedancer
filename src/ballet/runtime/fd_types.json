@@ -632,8 +632,9 @@
       "name": "slot_hashes",
       "type": "struct",
       "fields": [
-          { "name": "hashes", "type": "vector", "element": "slot_hash" }
-      ]
+          { "name": "hashes", "type": "vector_dynamic", "element": "slot_hash" }
+      ],
+      "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/slot_hashes.rs#L31"
     },
     {
       "name": "block_block_hash_entry",

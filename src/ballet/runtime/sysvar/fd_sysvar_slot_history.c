@@ -2,10 +2,10 @@
 #include "../fd_types.h"
 #include "fd_sysvar.h"
 
-const ulong min_account_size = 131097;
+const ulong slot_history_min_account_size = 131097;
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/slot_history.rs#L37 */
-const ulong max_entries = 1024 * 1024;
+const ulong slot_history_max_entries = 1024 * 1024;
 
 /* TODO: move into seperate bitvec library */
 const ulong bits_per_block = 8 * sizeof(ulong);
@@ -14,12 +14,12 @@ void set( fd_slot_history_t* history, ulong i ) {
   history->bits.bits->blocks[ block_idx ] |= ( 1UL << ( i % bits_per_block ) );
 }
 
-const ulong blocks_len = max_entries / bits_per_block;
+const ulong blocks_len = slot_history_max_entries / bits_per_block;
 
 void write_history( fd_global_ctx_t* global, fd_slot_history_t* history ) {
   ulong          sz = fd_slot_history_size( history );
-  if (sz < min_account_size)
-    sz = min_account_size;
+  if (sz < slot_history_min_account_size)
+    sz = slot_history_min_account_size;
   unsigned char *enc = fd_alloca( 1, sz );
   memset( enc, 0, sz );
   void const *ptr = (void const *) enc;
