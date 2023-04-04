@@ -610,6 +610,9 @@ fd_xsk_rx_enqueue( fd_xsk_t * xsk,
   uint prod = fill->cached_prod;
   uint cons = fill->cached_cons;
 
+  /* assuming frame sizes are powers of 2 */
+  ulong frame_mask = xsk->params.frame_sz - 1UL;
+
   /* ring capacity */
   uint cap  = fill->depth;
 
@@ -627,7 +630,7 @@ fd_xsk_rx_enqueue( fd_xsk_t * xsk,
   uint    mask = fill->depth - 1U;
   for( ulong j = 0; j < sz; ++j ) {
     uint k = prod & mask;
-    ring[k] = offset[j];
+    ring[k] = offset[j] & ~frame_mask;
 
     prod++;
   }
@@ -677,7 +680,7 @@ fd_xsk_rx_enqueue2( fd_xsk_t *            xsk,
   uint    mask = fill->depth - 1;
   for( ulong j = 0; j < sz; ++j ) {
     uint k = prod & mask;
-    ring[k] = meta[j].off & frame_mask;
+    ring[k] = meta[j].off & ~frame_mask;
 
     prod++;
   }

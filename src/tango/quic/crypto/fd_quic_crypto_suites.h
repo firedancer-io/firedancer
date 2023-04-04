@@ -297,6 +297,10 @@ fd_quic_gen_secrets(
     EVP_MD const *             md );
 
 
+void
+fd_quic_free_keys( fd_quic_crypto_keys_t * keys );
+
+
 /* fd_quic_gen_keys
 
    generate the keys used for encrypting and decrypting from the given secrets

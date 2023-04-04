@@ -133,32 +133,33 @@ fd_quic_dump_transport_params( fd_quic_transport_params_t const * params, FILE *
 }
 
 
-#define FD_QUIC_ENCODE_TP_VARINT(NAME,ID) \
-  do { \
-    ulong val_len = FD_QUIC_ENCODE_VARINT_LEN( params->NAME ); \
-    FD_QUIC_ENCODE_VARINT( buf, buf_sz, ID ); \
-    FD_QUIC_ENCODE_VARINT( buf, buf_sz, val_len ); \
-    FD_QUIC_ENCODE_VARINT(buf,buf_sz,params->NAME); \
+#define FD_QUIC_ENCODE_TP_VARINT(NAME,ID)                              \
+  do {                                                                 \
+    ulong val_len = FD_QUIC_ENCODE_VARINT_LEN( params->NAME );         \
+    if( val_len == FD_QUIC_ENCODE_FAIL ) return FD_QUIC_ENCODE_FAIL;   \
+    FD_QUIC_ENCODE_VARINT( buf, buf_sz, ID );                          \
+    FD_QUIC_ENCODE_VARINT( buf, buf_sz, val_len );                     \
+    FD_QUIC_ENCODE_VARINT(buf,buf_sz,params->NAME);                    \
   } while(0)
 
-#define FD_QUIC_ENCODE_TP_CONN_ID(NAME,ID) \
-  do { \
-    ulong val_len = params->NAME##_len; \
-    FD_QUIC_ENCODE_VARINT( buf, buf_sz, ID ); \
-    FD_QUIC_ENCODE_VARINT( buf, buf_sz, val_len ); \
-    if( val_len + 1 > buf_sz ) return FD_QUIC_ENCODE_FAIL; \
-    for( ulong j = 0; j < val_len; ++j ) { \
-      buf[j] = params->NAME[j]; \
-    } \
-    buf += val_len; buf_sz -= val_len; \
+#define FD_QUIC_ENCODE_TP_CONN_ID(NAME,ID)                             \
+  do {                                                                 \
+    ulong val_len = params->NAME##_len;                                \
+    FD_QUIC_ENCODE_VARINT( buf, buf_sz, ID );                          \
+    FD_QUIC_ENCODE_VARINT( buf, buf_sz, val_len );                     \
+    if( val_len + 1 > buf_sz ) return FD_QUIC_ENCODE_FAIL;             \
+    for( ulong j = 0; j < val_len; ++j ) {                             \
+      buf[j] = params->NAME[j];                                        \
+    }                                                                  \
+    buf += val_len; buf_sz -= val_len;                                 \
   } while(0);
 
-#define FD_QUIC_ENCODE_TP_ZERO_LENGTH(NAME,ID) \
-  do { \
-    if( params->NAME ) { \
-      FD_QUIC_ENCODE_VARINT( buf, buf_sz, ID ); \
-      FD_QUIC_ENCODE_VARINT( buf, buf_sz, 0 ); \
-    } \
+#define FD_QUIC_ENCODE_TP_ZERO_LENGTH(NAME,ID)                         \
+  do {                                                                 \
+    if( params->NAME ) {                                               \
+      FD_QUIC_ENCODE_VARINT( buf, buf_sz, ID );                        \
+      FD_QUIC_ENCODE_VARINT( buf, buf_sz, 0 );                         \
+    }                                                                  \
   } while(0)
 
 #define FD_QUIC_ENCODE_TP_TOKEN(NAME,ID) \
@@ -174,25 +175,25 @@ fd_quic_dump_transport_params( fd_quic_transport_params_t const * params, FILE *
 
 /* we need the length of the ID + the length of the length of the parameter value
    plus the length of the parameter value */
-#define FD_QUIC_FOOTPRINT_TP_VARINT(NAME,ID) \
-  ( \
-    FD_QUIC_ENCODE_VARINT_LEN( ID ) + \
+#define FD_QUIC_FOOTPRINT_TP_VARINT(NAME,ID)                           \
+  (                                                                    \
+    FD_QUIC_ENCODE_VARINT_LEN( ID ) +                                  \
     FD_QUIC_ENCODE_VARINT_LEN( FD_QUIC_ENCODE_VARINT_LEN( params->NAME ) ) + \
-    FD_QUIC_ENCODE_VARINT_LEN( params->NAME ) \
+    FD_QUIC_ENCODE_VARINT_LEN( params->NAME )                          \
   )
 
 /* the length of a connection id is specified by *_len */
-#define FD_QUIC_FOOTPRINT_TP_CONN_ID(NAME,ID) \
-  ( \
-    FD_QUIC_ENCODE_VARINT_LEN( ID ) + \
-    FD_QUIC_ENCODE_VARINT_LEN( params->NAME##_len ) + \
-    params->NAME##_len \
+#define FD_QUIC_FOOTPRINT_TP_CONN_ID(NAME,ID)                          \
+  (                                                                    \
+    FD_QUIC_ENCODE_VARINT_LEN( ID ) +                                  \
+    FD_QUIC_ENCODE_VARINT_LEN( params->NAME##_len ) +                  \
+    params->NAME##_len                                                 \
   )
 
-#define FD_QUIC_FOOTPRINT_TP_ZERO_LENGTH(NAME,ID) \
-  ( \
-    FD_QUIC_ENCODE_VARINT_LEN( ID ) + \
-    FD_QUIC_ENCODE_VARINT_LEN( 0 ) \
+#define FD_QUIC_FOOTPRINT_TP_ZERO_LENGTH(NAME,ID)                      \
+  (                                                                    \
+    FD_QUIC_ENCODE_VARINT_LEN( ID ) +                                  \
+    FD_QUIC_ENCODE_VARINT_LEN( 0 )                                     \
   )
 
 #define FD_QUIC_FOOTPRINT_TP_TOKEN(NAME,ID) \
@@ -202,6 +203,30 @@ fd_quic_dump_transport_params( fd_quic_transport_params_t const * params, FILE *
   FD_QUIC_FOOTPRINT_TP_CONN_ID(NAME,ID)
 
 
+/* validate TP_VARINT */
+#define FD_QUIC_VALIDATE_TP_VARINT(NAME,ID)                          \
+  (                                                                  \
+  FD_QUIC_VALIDATE_VARINT( ID ) |                                    \
+  FD_QUIC_VALIDATE_VARINT( params->NAME )                            \
+  )
+
+/* validate TP_CONN_ID */
+#define FD_QUIC_VALIDATE_TP_CONN_ID(NAME,ID)                       \
+  (                                                                \
+  FD_QUIC_VALIDATE_VARINT( ID ) |                                  \
+  FD_QUIC_VALIDATE_VARINT( params->NAME##_len )                    \
+  )
+
+#define FD_QUIC_VALIDATE_TP_ZERO_LENGTH(NAME,ID)                   \
+  FD_QUIC_VALIDATE_VARINT( ID )
+
+#define FD_QUIC_VALIDATE_TP_TOKEN(NAME,ID) \
+  FD_QUIC_VALIDATE_TP_CONN_ID(NAME,ID)
+
+#define FD_QUIC_VALIDATE_TP_PREFERRED_ADDRESS(NAME,ID) \
+  FD_QUIC_VALIDATE_TP_CONN_ID(NAME,ID)
+
+
 // encode transport parameters into a buffer
 // returns the number of bytes written
 ulong
@@ -209,9 +234,9 @@ fd_quic_encode_transport_params( uchar *                            buf,
                                  ulong                             buf_sz,
                                  fd_quic_transport_params_t const * params ) {
   ulong orig_buf_sz = buf_sz;
-#define __( NAME, ID, TYPE, DFT, DESC, ... ) \
-  if( params->NAME##_present ) { \
-    FD_QUIC_ENCODE_TP_##TYPE(NAME,ID); \
+#define __( NAME, ID, TYPE, DFT, DESC, ... )                           \
+  if( params->NAME##_present ) {                                       \
+    FD_QUIC_ENCODE_TP_##TYPE(NAME,ID);                                 \
   }
   FD_QUIC_TRANSPORT_PARAMS( __, _ )
 #undef __
@@ -225,6 +250,15 @@ fd_quic_transport_params_footprint( fd_quic_transport_params_t const * params ) 
 #define __( NAME, ID, TYPE, DFT, DESC, ... ) \
   + ( ( params->NAME##_present ) ?  FD_QUIC_FOOTPRINT_TP_##TYPE(NAME,ID) : 0 )
   return  FD_QUIC_TRANSPORT_PARAMS( __, _ );
+#undef __
+}
+
+
+int
+fd_quic_transport_params_validate( fd_quic_transport_params_t const * params ) {
+#define __( NAME, ID, TYPE, DFT, DESC, ... ) \
+  & ( (!params->NAME##_present) | FD_QUIC_VALIDATE_TP_##TYPE(NAME,ID) )
+  return 1 FD_QUIC_TRANSPORT_PARAMS( __, _ );
 #undef __
 }
 

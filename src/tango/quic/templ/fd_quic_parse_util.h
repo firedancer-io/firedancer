@@ -32,6 +32,15 @@
   )
 
 
+/* determine whether a value is valid for a VARINT encoding
+   0 <= varint < 2^62 */
+/* VARINT isn't valid for negatives .. shouldn't occur */
+#define FD_QUIC_VALIDATE_VARINT(val)                               \
+  (                                                                \
+    (!fd_quic_test_negative(val)) & ( (ulong)(val) < (1UL<<62UL) ) \
+  )
+
+
 /* encode a VARINT "val" into "buf" of size "buf_sz"
    buf must be a mutable uchar pointer, and will be updated to point to
      the remaining buffer

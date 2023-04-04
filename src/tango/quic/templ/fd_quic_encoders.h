@@ -94,7 +94,7 @@
       buf += (cur_bit != 0);                                           \
       cur_bit = 0;                                                     \
       tmp_len = FD_QUIC_ENCODE_VARINT_LEN(frame->NAME);                \
-      if( buf + tmp_len > buf_end ) return FD_QUIC_PARSE_FAIL;         \
+      if( tmp_len > ((ulong)(buf_end - buf) ) ) return FD_QUIC_PARSE_FAIL; \
       ulong tmp_sz = (ulong)( buf_end - buf );                         \
       FD_QUIC_ENCODE_VARINT(buf,tmp_sz,frame->NAME);                   \
     } while(0);
