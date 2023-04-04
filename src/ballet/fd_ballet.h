@@ -8,5 +8,6 @@
 #include "poh/fd_poh.h"         /* Includes sha256/fd_sha256.h */
 #include "shred/fd_shred.h"
 #include "bmtree/fd_bmtree.h"   /* Includes sha256/fd_sha256.h */
+#include "blake3/fd_blake3.h"
 
 #endif /* HEADER_fd_src_ballet_fd_ballet_h */
