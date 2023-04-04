@@ -25,6 +25,14 @@
 #define FD_ACQUIRE FD_COMPILER_MFENCE
 #define FD_RELEASE FD_COMPILER_MFENCE
 
+/* Set to 1 to trace packet events to debug log */
+
+#if 0
+#define TRACE_PACKET(...) FD_LOG_DEBUG(( __VA_ARGS__ ))
+#else
+#define TRACE_PACKET(...)
+#endif
+
 ulong
 fd_xsk_align( void ) {
   return FD_XSK_ALIGN;
@@ -720,6 +728,8 @@ fd_xsk_tx_enqueue( fd_xsk_t *            xsk,
   /* set ring[j] to the specified indices */
   struct xdp_desc * ring = tx->packet_ring;
   uint   mask            = tx->depth - 1;
+
+  TRACE_PACKET( "tx packets ring=%p seq=%u cnt=%u", (void *)ring, prod, sz );
   for( ulong j = 0; j < sz; ++j ) {
     ulong k = prod & mask;
     ring[k].addr    = meta[j].off;
@@ -771,6 +781,8 @@ fd_xsk_rx_complete( fd_xsk_t *            xsk,
 
   uint              mask = rx->depth - 1;
   struct xdp_desc * ring = rx->packet_ring;
+
+  TRACE_PACKET( "rx packets ring=%p seq=%u cnt=%lu", (void *)ring, cons, sz );
   for( ulong j = 0; j < sz; ++j ) {
     ulong k = cons & mask;
     batch[j].off   = ring[k].addr;

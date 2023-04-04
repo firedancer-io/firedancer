@@ -291,9 +291,14 @@ fd_quic_join( fd_quic_t * quic ) {
   fd_quic_limits_t const * limits = &quic->limits;
   fd_quic_config_t       * config = &quic->config;
 
-  if( FD_UNLIKELY( !config->role         ) ) { FD_LOG_WARNING(( "cfg.role not set"   )); return NULL; }
-  if( FD_UNLIKELY( !config->cert_file[0] ) ) { FD_LOG_WARNING(( "no cfg.cert_file"   )); return NULL; }
-  if( FD_UNLIKELY( !config->key_file [0] ) ) { FD_LOG_WARNING(( "no cfg.key_file"    )); return NULL; }
+  if( FD_UNLIKELY( !config->role                ) ) { FD_LOG_WARNING(( "cfg.role not set"           )); return NULL; }
+  if( FD_UNLIKELY( !config->cert_file[0]        ) ) { FD_LOG_WARNING(( "no cfg.cert_file"           )); return NULL; }
+  if( FD_UNLIKELY( !config->key_file [0]        ) ) { FD_LOG_WARNING(( "no cfg.key_file"            )); return NULL; }
+  if( FD_UNLIKELY( !config->net.listen_udp_port ) ) { FD_LOG_WARNING(( "no cfg.net.listen_udp_port" )); return NULL; }
+  if( FD_UNLIKELY( !config->net.ip_addr         ) ) { FD_LOG_WARNING(( "no cfg.net.ip_addr"         )); return NULL; }
+  if( FD_UNLIKELY( fd_ulong_load_6( config->link.src_mac_addr )==0 ) ) { FD_LOG_WARNING(( "no cfg.link.src_mac_addr" )); return NULL; }
+  if( FD_UNLIKELY( fd_ulong_load_6( config->link.dst_mac_addr )==0 ) ) { FD_LOG_WARNING(( "no cfg.link.dst_mac_addr" )); return NULL; }
+  if( FD_UNLIKELY( !config->idle_timeout        ) ) { FD_LOG_WARNING(( "zero cfg.idle_timeout"      )); return NULL; }
 
   /* Derive memory layout */
 
@@ -414,7 +419,8 @@ fd_quic_join( fd_quic_t * quic ) {
   fd_quic_transport_params_t * tp = &state->transport_params;
 
   memset( tp, 0, sizeof(fd_quic_transport_params_t) );
-  FD_QUIC_TRANSPORT_PARAM_SET( tp, max_idle_timeout,                    2                      ); /* TODO */
+  ulong idle_timeout_ms = (config->idle_timeout + 1000UL - 1UL) / 1000;
+  FD_QUIC_TRANSPORT_PARAM_SET( tp, max_idle_timeout,                    idle_timeout_ms        );
   FD_QUIC_TRANSPORT_PARAM_SET( tp, max_udp_payload_size,                FD_QUIC_MAX_PAYLOAD_SZ ); /* TODO */
   FD_QUIC_TRANSPORT_PARAM_SET( tp, initial_max_data,                    tot_initial_max_data   );
   FD_QUIC_TRANSPORT_PARAM_SET( tp, initial_max_stream_data_bidi_local,  limits->rx_buf_sz      );
@@ -4333,7 +4339,7 @@ fd_quic_conn_create( fd_quic_t *               quic,
   conn->peer_enc_level = 0;
 
   /* idle timeout */
-  conn->idle_timeout  = (ulong)2e6; /* TODO parameterize, and set to min of our and peer values */
+  conn->idle_timeout  = config->idle_timeout;
   conn->last_activity = fd_quic_now( quic );
 
   /* return number of bytes consumed */

@@ -3,6 +3,7 @@
 #include "../../disco/quic/fd_quic.h"
 #include "../../tango/xdp/fd_xdp.h"
 #include "../../util/net/fd_eth.h"
+#include "../../util/net/fd_ip4.h"
 
 int
 fd_frank_quic_task( int     argc,
@@ -93,9 +94,37 @@ fd_frank_quic_task( int     argc,
   if( FD_UNLIKELY( !cert_file ) ) FD_LOG_ERR(( "%s.quic_cfg.cert_file not set", cfg_path ));
   char const * key_file  = fd_pod_query_cstr( quic_cfg_pod, "key_file",  NULL );
   if( FD_UNLIKELY( !key_file  ) ) FD_LOG_ERR(( "%s.quic_cfg.key_file not set", cfg_path ));
+  char const * keylog_file = fd_pod_query_cstr( quic_cfg_pod, "keylog_file", NULL ); /* optional */
 
   strncpy( quic_cfg->cert_file, cert_file, FD_QUIC_CERT_PATH_LEN );
   strncpy( quic_cfg->key_file,  key_file,  FD_QUIC_CERT_PATH_LEN );
+  strncpy( quic_cfg->keylog_file, keylog_file ? keylog_file : "", FD_QUIC_CERT_PATH_LEN );
+
+  /* TODO read IP addresses from interface instead? */
+  char const * ip_addr_cstr = fd_pod_query_cstr( quic_cfg_pod, "ip_addr", NULL );
+  if( FD_UNLIKELY( !ip_addr_cstr ) ) FD_LOG_ERR(( "%s.quic_cfg.ip_addr not set", cfg_path ));
+  if( FD_UNLIKELY( !fd_cstr_to_ip4_addr( ip_addr_cstr, &quic_cfg->net.ip_addr ) ) )
+    FD_LOG_ERR(( "%s.quic_cfg.ip_addr is invalid (\"%s\")", cfg_path, ip_addr_cstr ));
+
+  /* TODO read MAC address from interface instead? */
+  char const * src_mac_addr_cstr = fd_pod_query_cstr( quic_cfg_pod, "src_mac_addr", NULL );
+  if( FD_UNLIKELY( !src_mac_addr_cstr ) ) FD_LOG_ERR(( "%s.quic_cfg.src_mac_addr not set", cfg_path ));
+  if( FD_UNLIKELY( !fd_cstr_to_mac_addr( src_mac_addr_cstr, quic_cfg->link.src_mac_addr ) ) )
+    FD_LOG_ERR(( "%s.quic_cfg.src_mac_addr is invalid (\"%s\")", cfg_path, src_mac_addr_cstr ));
+
+  /* TODO implement ARP */
+  char const * dst_mac_addr_cstr = fd_pod_query_cstr( quic_cfg_pod, "dst_mac_addr", NULL );
+  if( FD_UNLIKELY( !dst_mac_addr_cstr ) ) FD_LOG_ERR(( "%s.quic_cfg.dst_mac_addr not set", cfg_path ));
+  if( FD_UNLIKELY( !fd_cstr_to_mac_addr( dst_mac_addr_cstr, quic_cfg->link.dst_mac_addr ) ) )
+    FD_LOG_ERR(( "%s.quic_cfg.dst_mac_addr is invalid (\"%s\")", cfg_path, dst_mac_addr_cstr ));
+
+  ushort listen_port = fd_pod_query_ushort( quic_cfg_pod, "listen_port", 0 );
+  if( FD_UNLIKELY( !listen_port ) ) FD_LOG_ERR(( "%s.quic_cfg.listen_port not set", cfg_path ));
+  quic_cfg->net.listen_udp_port = listen_port;
+
+  ulong idle_timeout_ms = fd_pod_query_ulong( quic_cfg_pod, "idle_timeout_ms", 0 );
+  if( FD_UNLIKELY( !idle_timeout_ms ) ) FD_LOG_ERR(( "%s.quic_cfg.idle_timeout_ms not set", cfg_path ));
+  quic_cfg->idle_timeout = idle_timeout_ms * 1000;
 
   /* Attach to XSK */
 

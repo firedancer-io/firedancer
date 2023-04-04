@@ -159,10 +159,14 @@ struct __attribute__((aligned(16UL))) fd_quic_config {
   /* TODO are there any other duties than ACKs? */
   ulong service_interval;
 
-  /* ping_interval: inactivity time in ns before requesting sending a
+  /* ping_interval: inactivity time in ns before sending a
      ping request to peer. */
   /* TODO unused for now */
   ulong ping_interval;
+
+  /* idle_timeout: time in ns before timing out a conn.
+     Also sent to peer via max_idle_timeout transport (in ms). */
+  ulong idle_timeout;
 
   /* TLS config ********************************************/
 

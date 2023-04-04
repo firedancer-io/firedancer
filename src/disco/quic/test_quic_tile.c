@@ -356,9 +356,6 @@ int main( int     argc,
   fd_quic_set_aio_net_tx( cfg->tx_quic, fd_xsk_aio_get_tx     ( cfg->xsk_aio ) );
   fd_xsk_aio_set_rx     ( cfg->xsk_aio, fd_quic_get_aio_net_rx( cfg->tx_quic, _aio_rx ) );
 
-  FD_LOG_NOTICE(( "Joining QUIC" ));
-  FD_TEST( fd_quic_join( cfg->tx_quic ) );
-
   FD_LOG_NOTICE(( "Booting" ));
 
   fd_tile_exec_t * rx_exec = fd_tile_exec_new( 2UL, rx_tile_main, 0, (char **)fd_type_pun( cfg ) ); FD_TEST( rx_exec );

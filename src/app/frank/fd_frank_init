@@ -137,6 +137,7 @@ done
 # Initialize XDP
 
 "$BUILD"/bin/fd_xdp_ctl unhook-iface $APP $IFACE # okay if this fails
+sleep 1  # work around race condition -- ugly hack
 "$BUILD"/bin/fd_xdp_ctl hook-iface $APP $IFACE $XDP_MODE || exit $?
 LISTEN_ADDRS=( $( ip address show dev $IFACE scope global up | sed -n -E 's/\s+inet ([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+)\/.*/\1/p' ) ) || exit $?
 if ! (( ${#LISTEN_ADDRS[@]} )); then
@@ -145,6 +146,11 @@ fi
 for addr in "${LISTEN_ADDRS[@]}"; do
   "$BUILD"/bin/fd_xdp_ctl listen-udp-port $APP $addr $QUIC_LISTEN_PORT tpu-quic || exit $?
 done
+SRC_MAC_ADDR="$(cat /sys/class/net/$IFACE/address)" || exit $?
+DST_MAC_ADDR="$(arp -i bond0 -n -a _gateway | head -n1 | awk '{print $4}')" || exit $?
+if [[ ! "$DST_MAC_ADDR" =~ ^[0-9a-f]{2}:[0-9a-f]{2}:[0-9a-f]{2}:[0-9a-f]{2}:[0-9a-f]{2}:[0-9a-f]{2}$ ]]; then
+  echo "Failed to parse gateway MAC address from arp output: $DST_MAC_ADDR" >&2; exit 1
+fi
 
 # For now, let each QUIC publish to one verifyin
 # TODO manage XSK queue <-> QUIC tile core mapping
@@ -204,8 +210,13 @@ echo "Generating certs"
   ../../contrib/gen-pem-cert.sh
 )
 "$BUILD"/bin/fd_pod_ctl \
-  insert "$POD" cstr $APP.quic_cfg.cert_file "$(realpath "$CONF_DIR/cert.pem" )" \
-  insert "$POD" cstr $APP.quic_cfg.key_file  "$(realpath "$CONF_DIR/key.pem"  )" \
+  insert "$POD" cstr   $APP.quic_cfg.cert_file       "$(realpath "$CONF_DIR/cert.pem" )" \
+  insert "$POD" cstr   $APP.quic_cfg.key_file        "$(realpath "$CONF_DIR/key.pem"  )" \
+  insert "$POD" cstr   $APP.quic_cfg.ip_addr         "${LISTEN_ADDRS[0]}"                \
+  insert "$POD" ushort $APP.quic_cfg.listen_port     $QUIC_LISTEN_PORT                   \
+  insert "$POD" cstr   $APP.quic_cfg.src_mac_addr    "$SRC_MAC_ADDR"                     \
+  insert "$POD" cstr   $APP.quic_cfg.dst_mac_addr    "$DST_MAC_ADDR"                     \
+  insert "$POD" ulong  $APP.quic_cfg.idle_timeout_ms "1000"                              \
   || exit $?
 
 echo Configuration details
