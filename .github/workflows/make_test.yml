@@ -16,7 +16,7 @@ jobs:
     steps:
       - uses: actions/checkout@v3
       - name: Copy prebuilt deps
-        run: "cp -r /home/runner/firedancer-opts/opt . && ls -lah"
+        run: "cp -r /home/runner/firedancer-opts/opt . && ls -lah opt"
 
       - name: Build everything
         run: make -j
