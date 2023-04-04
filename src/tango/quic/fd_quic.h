@@ -165,7 +165,7 @@ struct __attribute__((aligned(16UL))) fd_quic_config {
   ulong ping_interval;
 
   /* idle_timeout: time in ns before timing out a conn.
-     Also sent to peer via max_idle_timeout transport (in ms). */
+     Also sent to peer via max_idle_timeout transport param */
   ulong idle_timeout;
 
   /* TLS config ********************************************/
