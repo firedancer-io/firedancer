@@ -148,6 +148,15 @@ int fd_acc_mgr_write_structured_account( fd_acc_mgr_t* acc_mgr, struct fd_funk_x
 
   fd_hash_account( account, slot, (fd_pubkey_t const *)  pubkey, (fd_hash_t *) m->hash);
 
+#ifdef _DUMP_ACC_HASH
+  char encoded_hash[50];
+  fd_base58_encode_32((uchar *) m->hash, 0, encoded_hash);
+  char encoded_pubkey[50];
+  fd_base58_encode_32((uchar *) pubkey, 0, encoded_pubkey);
+
+  FD_LOG_WARNING(( "fd_acc_mgr_write_structured_account: slot=%ld, pubkey=%s  hash=%s   dlen=%ld", slot, encoded_pubkey, encoded_hash, m->dlen ));
+#endif
+
   fd_memcpy(&data[sizeof(fd_account_meta_t)], account->data, account->data_len);
 
   return fd_acc_mgr_write_account_data(acc_mgr, txn, pubkey, 0, (uchar *) data, dlen);
