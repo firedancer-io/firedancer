@@ -560,7 +560,7 @@ fd_quic_ssl_keylog( SSL const *  ssl,
   fd_quic_tls_t *    quic_tls = hs->quic_tls;
 
   int fd = quic_tls->keylog_fd;
-  if( fd ) {
+  if( fd>0 ) {
     struct iovec iov[ 2 ] = {
       { .iov_base=(void *)line, .iov_len=strlen( line ) },
       { .iov_base=(void *)"\n", .iov_len=1UL            }

@@ -682,7 +682,22 @@ fd_quic_leave( fd_quic_t * quic ) {
     return NULL;
   }
 
+  /* Derive memory layout */
+
+  fd_quic_layout_t layout = {0};
+  fd_quic_footprint_ext( &quic->limits, &layout );
+
   fd_quic_state_t * state = fd_quic_get_state( quic );
+
+  /* Free conns */
+
+  ulong conn_laddr = (ulong)quic + layout.conns_off;
+  for( ulong i=0; i < quic->limits.conn_cnt; i++ ) {
+    fd_quic_conn_t * conn  = (fd_quic_conn_t *)( conn_laddr );
+    conn_laddr            += layout.conn_footprint;
+
+    if( conn->state ) fd_quic_conn_free( quic, conn );
+  }
 
   /* Deinit crypto */
 
@@ -708,8 +723,6 @@ fd_quic_leave( fd_quic_t * quic ) {
 
   fd_quic_conn_map_delete( state->conn_map );
   state->conn_map = NULL;
-
-  /* "Free" conns */
 
   state->conn_cnt = 0;
   state->conns    = NULL;
@@ -3868,6 +3881,15 @@ void
 fd_quic_conn_free( fd_quic_t *      quic,
                    fd_quic_conn_t * conn ) {
 
+  if( FD_UNLIKELY( !conn ) ) {
+    FD_LOG_WARNING(( "NULL conn" ));
+    return;
+  }
+  if( FD_UNLIKELY( conn->state == FD_QUIC_CONN_STATE_INVALID ) ) {
+    FD_LOG_WARNING(( "double free detected" ));
+    return;
+  }
+
   fd_quic_state_t * state = fd_quic_get_state( quic );
 
   /* remove connection ids from conn_map */
@@ -3925,9 +3947,7 @@ fd_quic_conn_free( fd_quic_t *      quic,
   /* put connection back in free list */
   conn->next   = state->conns;
   state->conns = conn;
-
-  /* prevent double free */
-  conn->state  = 0;
+  conn->state  = FD_QUIC_CONN_STATE_INVALID;
 
   /* free acks */
   for( ulong j = 0; j < 4; ++j ) {
@@ -4147,6 +4167,7 @@ fail_conn:
   /* add to free list */
   conn->next   = state->conns;
   state->conns = conn;
+  conn->state  = FD_QUIC_CONN_STATE_INVALID;
 
   return NULL;
 }
@@ -4192,7 +4213,13 @@ fd_quic_conn_create( fd_quic_t *               quic,
 
   /* remove from free list */
   state->conns = conn->next;
-  conn->next        = NULL;
+  conn->next   = NULL;
+
+  /* if conn not marked free, skip */
+  if( FD_UNLIKELY( conn->state != FD_QUIC_CONN_STATE_INVALID ) ) {
+    FD_LOG_WARNING(( "conn %p not free, this is a bug", (void *)conn ));
+    return NULL;
+  }
 
   /* initialize connection members */
   conn->quic                = quic;
