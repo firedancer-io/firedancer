@@ -17,12 +17,7 @@ void write_slot_hashes( fd_global_ctx_t* global, fd_slot_hashes_t* slot_hashes )
   void const *ptr = (void const *) enc;
   fd_slot_hashes_encode( slot_hashes, &ptr );
 
-  unsigned char pubkey[32];
-  unsigned char owner[32];
-  fd_base58_decode_32( "Sysvar1111111111111111111111111111111111111",  (unsigned char *) owner);
-  fd_base58_decode_32( "SysvarS1otHashes111111111111111111111111111",  (unsigned char *) pubkey);
-
-  fd_sysvar_set( global, owner, pubkey, enc, sz, global->current_slot );
+  fd_sysvar_set( global, global->sysvar_owner, global->sysvar_slot_hashes, enc, sz, global->current_slot );
 }
 
 void fd_sysvar_slot_hashes_init( fd_global_ctx_t* global ) {
@@ -59,12 +54,9 @@ void fd_sysvar_slot_hashes_update( fd_global_ctx_t* global, ulong slot, fd_hash_
 }
 
 void fd_sysvar_slot_hashes_read( fd_global_ctx_t* global, fd_slot_hashes_t* result ) {
-  fd_pubkey_t pubkey;
-  fd_base58_decode_32( "SysvarS1otHashes111111111111111111111111111", (unsigned char *) &pubkey);
-
   /* Read the slot hashes sysvar from the account */
   fd_account_meta_t metadata;
-  int               read_result = fd_acc_mgr_get_metadata( global->acc_mgr, global->funk_txn, &pubkey, &metadata );
+  int               read_result = fd_acc_mgr_get_metadata( global->acc_mgr, global->funk_txn, (fd_pubkey_t *) global->sysvar_slot_hashes, &metadata );
   if ( read_result != FD_ACC_MGR_SUCCESS ) {
     FD_LOG_NOTICE(( "failed to read account metadata: %d", read_result ));
     return;
@@ -73,7 +65,7 @@ void fd_sysvar_slot_hashes_read( fd_global_ctx_t* global, fd_slot_hashes_t* resu
   FD_LOG_INFO(( "SysvarS1otHashes111111111111111111111111111 at slot %lu: " FD_LOG_HEX16_FMT, global->current_slot, FD_LOG_HEX16_FMT_ARGS(     metadata.hash    ) ));
 
   unsigned char *raw_acc_data = fd_alloca( 1, metadata.dlen );
-  read_result = fd_acc_mgr_get_account_data( global->acc_mgr, global->funk_txn, &pubkey, raw_acc_data, metadata.hlen, metadata.dlen );
+  read_result = fd_acc_mgr_get_account_data( global->acc_mgr, global->funk_txn, (fd_pubkey_t *) global->sysvar_slot_hashes, raw_acc_data, metadata.hlen, metadata.dlen );
   if ( read_result != FD_ACC_MGR_SUCCESS ) {
     FD_LOG_NOTICE(( "failed to read account data: %d", read_result ));
     return;

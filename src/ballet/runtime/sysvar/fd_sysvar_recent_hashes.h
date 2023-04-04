@@ -7,7 +7,7 @@
 /* The recent hashes sysvar */
 
 /* Initialize the recent hashes sysvar account. */
-void fd_sysvar_recent_hashes_init( fd_global_ctx_t* global, ulong slot );
+void fd_sysvar_recent_hashes_init( fd_global_ctx_t* global );
 
 /* Update the recent hashes sysvar account. This should be called at the start of every slot, before execution commences. */
 void fd_sysvar_recent_hashes_update( fd_global_ctx_t* global, ulong slot );

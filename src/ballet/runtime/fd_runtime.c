@@ -18,10 +18,7 @@ fd_runtime_boot_slot_zero( fd_global_ctx_t *global ) {
   fd_memcpy(global->poh.state, global->genesis_hash, sizeof(global->genesis_hash));
   global->poh_booted = 1;
 
-  fd_base58_decode_32( "SysvarRecentB1ockHashes11111111111111111111",  (unsigned char *) global->sysvar_recent_block_hashes);
-  fd_base58_decode_32( "Sysvar1111111111111111111111111111111111111",  (unsigned char *) global->sysvar_owner);
-
-  fd_sysvar_recent_hashes_init(global, 0);
+  fd_sysvar_recent_hashes_init(global );
   fd_sysvar_clock_init( global );
   fd_sysvar_slot_history_init( global );
   fd_sysvar_slot_hashes_init( global );
@@ -227,6 +224,20 @@ fd_global_ctx_new        ( void * mem ) {
   // Yeah, maybe we should get rid of this?
   fd_executor_new ( &self->executor, self, FD_EXECUTOR_FOOTPRINT );
 
+  fd_base58_decode_32( "Sysvar1111111111111111111111111111111111111",  (unsigned char *) self->sysvar_owner);
+  fd_base58_decode_32( "SysvarRecentB1ockHashes11111111111111111111",  (unsigned char *) self->sysvar_recent_block_hashes);
+  fd_base58_decode_32( "SysvarC1ock11111111111111111111111111111111",  (unsigned char *) self->sysvar_clock);
+  fd_base58_decode_32( "SysvarS1otHistory11111111111111111111111111",  (unsigned char *) self->sysvar_slot_history);
+  fd_base58_decode_32( "SysvarS1otHashes111111111111111111111111111",  (unsigned char *) self->sysvar_slot_hashes);
+
+  fd_base58_decode_32( "Config1111111111111111111111111111111111111",  (unsigned char *) self->solana_config_program);
+  fd_base58_decode_32( "Stake11111111111111111111111111111111111111",  (unsigned char *) self->solana_stake_program);
+  fd_base58_decode_32( "11111111111111111111111111111111",             (unsigned char *) self->solana_system_program);
+  fd_base58_decode_32( "Vote111111111111111111111111111111111111111",  (unsigned char *) self->solana_vote_program);
+  fd_base58_decode_32( "BPFLoaderUpgradeab1e11111111111111111111111",  (unsigned char *) self->solana_bpf_loader_program);
+  fd_base58_decode_32( "Ed25519SigVerify111111111111111111111111111",  (unsigned char *) self->solana_ed25519_sig_verify_program);
+  fd_base58_decode_32( "KeccakSecp256k11111111111111111111111111111",  (unsigned char *) self->solana_keccak_secp_256k_program);
+
   FD_COMPILER_MFENCE();
   self->magic = FD_GLOBAL_CTX_MAGIC;
   FD_COMPILER_MFENCE();
@@ -236,19 +247,29 @@ fd_global_ctx_new        ( void * mem ) {
 
 fd_global_ctx_t *
 fd_global_ctx_join       ( void * mem ) {
-  fd_global_ctx_t * self = (fd_global_ctx_t *) mem;
+  if( FD_UNLIKELY( !mem) ) {
+    FD_LOG_WARNING(( "NULL block" ));
+    return NULL;
+  }
 
-  if( FD_UNLIKELY( self->magic!=FD_GLOBAL_CTX_MAGIC ) ) {
+  fd_global_ctx_t * ctx = (fd_global_ctx_t *) mem;
+
+  if( FD_UNLIKELY( ctx->magic!=FD_GLOBAL_CTX_MAGIC ) ) {
     FD_LOG_WARNING(( "bad magic" ));
     return NULL;
   }
 
-  return self;
+  return ctx;
 }
 void *
 fd_global_ctx_leave      ( fd_global_ctx_t * ctx) {
   if( FD_UNLIKELY( !ctx ) ) {
     FD_LOG_WARNING(( "NULL block" ));
+    return NULL;
+  }
+
+  if( FD_UNLIKELY( ctx->magic!=FD_GLOBAL_CTX_MAGIC ) ) {
+    FD_LOG_WARNING(( "bad magic" ));
     return NULL;
   }
 
@@ -262,7 +283,7 @@ fd_global_ctx_delete     ( void * mem ) {
     return NULL;
   }
 
-  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)mem, fd_microblock_align() ) ) ) {
+  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)mem, FD_GLOBAL_CTX_ALIGN) ) )  {
     FD_LOG_WARNING(( "misaligned mem" ));
     return NULL;
   }

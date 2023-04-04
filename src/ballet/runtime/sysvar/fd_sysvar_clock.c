@@ -35,28 +35,20 @@ void write_clock( fd_global_ctx_t* global, fd_sol_sysvar_clock_t* clock ) {
   void const *ptr = (void const *) enc;
   fd_sol_sysvar_clock_encode( clock, &ptr );
 
-  unsigned char pubkey[32];
-  unsigned char owner[32];
-  fd_base58_decode_32( "Sysvar1111111111111111111111111111111111111",  (unsigned char *) owner);
-  fd_base58_decode_32( "SysvarC1ock11111111111111111111111111111111",  (unsigned char *) pubkey);
-
-  fd_sysvar_set( global, owner, pubkey, enc, sz, global->current_slot );
+  fd_sysvar_set( global, global->sysvar_owner, global->sysvar_clock, enc, sz, global->current_slot );
 }
 
 void fd_sysvar_clock_read( fd_global_ctx_t* global, fd_sol_sysvar_clock_t* result ) {
-  fd_pubkey_t pubkey;
-  fd_base58_decode_32( "SysvarC1ock11111111111111111111111111111111", (unsigned char *) &pubkey);
-
   /* Read the clock sysvar from the account */
   fd_account_meta_t metadata;
-  int               read_result = fd_acc_mgr_get_metadata( global->acc_mgr, global->funk_txn, &pubkey, &metadata );
+  int               read_result = fd_acc_mgr_get_metadata( global->acc_mgr, global->funk_txn, (fd_pubkey_t *) global->sysvar_clock, &metadata );
   if ( read_result != FD_ACC_MGR_SUCCESS ) {
     FD_LOG_NOTICE(( "failed to read account metadata: %d", read_result ));
     return;
   }
 
   unsigned char *raw_acc_data = fd_alloca( 1, metadata.dlen );
-  read_result = fd_acc_mgr_get_account_data( global->acc_mgr, global->funk_txn, &pubkey, raw_acc_data, metadata.hlen, metadata.dlen );
+  read_result = fd_acc_mgr_get_account_data( global->acc_mgr, global->funk_txn, (fd_pubkey_t *) global->sysvar_clock, raw_acc_data, metadata.hlen, metadata.dlen );
   if ( read_result != FD_ACC_MGR_SUCCESS ) {
     FD_LOG_NOTICE(( "failed to read account data: %d", read_result ));
     return;

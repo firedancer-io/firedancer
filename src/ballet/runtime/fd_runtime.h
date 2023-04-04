@@ -11,6 +11,8 @@
 
 #define FD_GLOBAL_CTX_ALIGN (32UL)
 struct __attribute__((aligned(FD_GLOBAL_CTX_ALIGN))) fd_global_ctx {
+  // TODO: We need to organize this structure in a cache line aware way?
+
   ulong                      magic;       /* ==FD_GLOBAL_CTX_MAGIC */
 
   fd_alloc_fun_t             allocf;
@@ -30,7 +32,17 @@ struct __attribute__((aligned(FD_GLOBAL_CTX_ALIGN))) fd_global_ctx {
   fd_rng_t*                  rng;
 
   unsigned char              sysvar_recent_block_hashes[32];
+  unsigned char              sysvar_clock[32];
+  unsigned char              sysvar_slot_history[32];
+  unsigned char              sysvar_slot_hashes[32];
   unsigned char              sysvar_owner[32];
+  unsigned char              solana_config_program[32];
+  unsigned char              solana_stake_program[32];
+  unsigned char              solana_system_program[32];
+  unsigned char              solana_vote_program[32];
+  unsigned char              solana_bpf_loader_program[32];
+  unsigned char              solana_ed25519_sig_verify_program[32];
+  unsigned char              solana_keccak_secp_256k_program[32];
 
   // This state needs to be commited to funk so that we can roll it back?
   ulong                      current_slot;
