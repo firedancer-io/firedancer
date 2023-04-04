@@ -1530,7 +1530,7 @@ fd_quic_handle_v1_handshake(
 
     /* packet number must be greater than the last processed
        on a new connection, the minimum allowed is set to zero */
-    if( FD_UNLIKELY( pkt_number < conn->exp_pkt_number[0] ) ) {
+    if( FD_UNLIKELY( pkt_number < conn->exp_pkt_number[pn_space] ) ) {
       DEBUG(
           printf( "%s - packet number less than expected. Discarding\n", __func__ );
           )

@@ -8,19 +8,13 @@
 void
 write_shb( FILE * file ) {
   pcap_shb_t shb[1] = {{ 0x0A0D0D0A, sizeof( pcap_shb_t ), 0x1A2B3C4D, 1, 0, (ulong)-1, sizeof( pcap_shb_t ) }};
-  ulong rc = fwrite( shb, sizeof(shb), 1, file );
-  if( rc != 1 ) {
-    abort();
-  }
+  FD_TEST( fwrite( shb, sizeof(shb), 1, file )==1 );
 }
 
 void
 write_idb( FILE * file ) {
   pcap_idb_t idb[1] = {{ 0x00000001, sizeof( pcap_idb_t ), 1, 0, 0, sizeof( pcap_idb_t ) }};
-  ulong rc = fwrite( idb, sizeof(idb), 1, file );
-  if( rc != 1 ) {
-    abort();
-  }
+  FD_TEST( fwrite( idb, sizeof(idb), 1, file )==1 );
 }
 
 void
@@ -41,27 +35,16 @@ write_epb( FILE * file, uchar * buf, unsigned buf_sz, ulong ts ) {
     buf_sz,
     buf_sz }};
 
-  ulong rc = fwrite( epb, sizeof( epb ), 1, file );
-  if( rc != 1 ) {
-    abort();
-  }
-
-  rc = fwrite( buf, buf_sz, 1, file );
-  if( rc != 1 ) {
-    abort();
-  }
+  FD_TEST( fwrite( epb, sizeof( epb ), 1, file )==1 );
+  FD_TEST( fwrite( buf, buf_sz,        1, file )==1 );
 
   if( align_sz > buf_sz ) {
     /* write padding */
     uchar pad[4] = {0};
-    fwrite( pad, align_sz - buf_sz, 1, file );
+    FD_TEST( fwrite( pad, align_sz - buf_sz, 1, file )==1 );
   }
 
-  rc = fwrite( &tot_len, 4, 1, file );
-  if( rc != 1 ) {
-    abort();
-  }
-
+  FD_TEST( fwrite( &tot_len, 4, 1, file )==1 );
 }
 
 ulong
@@ -155,6 +138,7 @@ my_handshake_complete( fd_quic_conn_t * conn,
 struct aio_pipe {
   fd_aio_t const * aio;
   FILE *           file;
+  char *           recv_name;
 };
 typedef struct aio_pipe aio_pipe_t;
 
@@ -174,7 +158,12 @@ pipe_aio_receive( void * vp_ctx, fd_aio_pkt_info_t const * batch, ulong batch_sz
 #endif
 
   /* forward */
-  return fd_aio_send( pipe->aio, batch, batch_sz, opt_batch_idx );
+  char thread_name[ 32UL ]={0};
+  strncpy( thread_name, fd_log_thread(), 31UL );
+  fd_log_thread_set( pipe->recv_name );
+  int rc = fd_aio_send( pipe->aio, batch, batch_sz, opt_batch_idx );
+  fd_log_thread_set( thread_name );
+  return rc;
 }
 
 
@@ -200,11 +189,16 @@ init_quic( fd_quic_t *  quic,
   strcpy ( quic_config->key_file,  "key.pem"  );
   strncpy( quic_config->sni,       hostname, FD_QUIC_SNI_LEN );
 
+  quic_config->link.src_mac_addr[ 0 ] = 0x01;
+  quic_config->link.dst_mac_addr[ 0 ] = 0x01;
+
   quic_config->net.ip_addr         = ip_addr;
   quic_config->net.listen_udp_port = (ushort)udp_port;
 
   quic_config->net.ephem_udp_port.lo = 4219;
   quic_config->net.ephem_udp_port.hi = 4220;
+
+  quic_config->idle_timeout = 5e6;
 
   fd_quic_callbacks_t * quic_cb = fd_quic_get_callbacks( quic );
 
@@ -217,6 +211,7 @@ init_quic( fd_quic_t *  quic,
 int
 main( int argc, char ** argv ) {
   fd_boot( &argc, &argv );
+  fd_log_thread_set( "main" );
 
   ulong cpu_idx = fd_tile_cpu_id( fd_tile_idx() );
   if( cpu_idx>fd_shmem_cpu_cnt() ) cpu_idx = 0UL;
@@ -286,7 +281,7 @@ main( int argc, char ** argv ) {
   fd_quic_set_aio_net_tx( client_quic, aio_n2q );
 #else
   /* create a pipe for catching data as it passes thru */
-  aio_pipe_t pipe[2] = { { aio_n2q, pcap }, { aio_q2n, pcap } };
+  aio_pipe_t pipe[2] = { { aio_n2q, pcap, "server" }, { aio_q2n, pcap, "client" } };
 
   fd_aio_t * aio[2];
   uchar aio_mem[2][128] = {0};
@@ -304,15 +299,20 @@ main( int argc, char ** argv ) {
 #endif
 
   FD_LOG_NOTICE(( "Joining QUICs" ));
+  fd_log_thread_set( "server" );
   FD_TEST( fd_quic_join( server_quic ) );
+  fd_log_thread_set( "client" );
   FD_TEST( fd_quic_join( client_quic ) );
+  fd_log_thread_set( "main" );
 
   /* make a connection from client to server */
+  fd_log_thread_set( "client" );
   fd_quic_conn_t * client_conn = fd_quic_connect(
       client_quic,
       server_quic->config.net.ip_addr,
       server_quic->config.net.listen_udp_port,
       server_quic->config.sni );
+  fd_log_thread_set( "main" );
 
   /* do general processing */
   for( ulong j = 0; j < 20; j++ ) {
@@ -328,8 +328,11 @@ main( int argc, char ** argv ) {
     if( next_wakeup > now ) now = next_wakeup;
 
     FD_LOG_INFO(( "running services at %lu", next_wakeup ));
+    fd_log_thread_set( "client" );
     fd_quic_service( client_quic );
+    fd_log_thread_set( "server" );
     fd_quic_service( server_quic );
+    fd_log_thread_set( "main" );
 
     if( server_complete && client_complete ) {
       FD_LOG_INFO(( "***** both handshakes complete *****" ));
@@ -349,27 +352,36 @@ main( int argc, char ** argv ) {
 
     now = next_wakeup;
 
+    fd_log_thread_set( "client" );
     fd_quic_service( client_quic );
+    fd_log_thread_set( "server" );
     fd_quic_service( server_quic );
+    fd_log_thread_set( "main" );
   }
 
   /* TODO we get callback before the call to fd_quic_conn_new_stream can complete
      must delay until the conn->state is ACTIVE */
 
   /* try sending */
+  fd_log_thread_set( "client" );
   fd_quic_stream_t * client_stream = fd_quic_conn_new_stream( client_conn, FD_QUIC_TYPE_UNIDIR );
+  fd_log_thread_set( "main" );
   FD_TEST( client_stream );
 
+  fd_log_thread_set( "client" );
   fd_quic_stream_t * client_stream_0 = fd_quic_conn_new_stream( client_conn, FD_QUIC_TYPE_UNIDIR );
+  fd_log_thread_set( "main" );
   FD_TEST( client_stream_0 );
 
   char buf[512] = "Hello world!\x00-   ";
   fd_aio_pkt_info_t batch[1] = {{ buf, sizeof( buf ) }};
+  fd_log_thread_set( "client" );
   int rc = fd_quic_stream_send( client_stream, batch, 1, 0 );
+  fd_log_thread_set( "main" );
 
   FD_LOG_INFO(( "fd_quic_stream_send returned %d", rc ));
 
-  for( unsigned j = 0; j < 5000; ++j ) {
+  for( unsigned j = 0; j < 16; ++j ) {
     ulong ct = fd_quic_get_next_wakeup( client_quic );
     ulong st = fd_quic_get_next_wakeup( server_quic );
     ulong next_wakeup = fd_ulong_min( ct, st );
@@ -384,18 +396,23 @@ main( int argc, char ** argv ) {
     FD_LOG_INFO(( "running services at %lu", (ulong)next_wakeup ));
     fd_log_flush();
 
+    fd_log_thread_set( "client" );
     fd_quic_service( client_quic );
+    fd_log_thread_set( "server" );
     fd_quic_service( server_quic );
+    fd_log_thread_set( "main" );
 
     buf[12] = ' ';
     //buf[15] = (char)( ( j / 10 ) + '0' );
     buf[16] = (char)( ( j % 10 ) + '0' );
     int rc = 0;
+    fd_log_thread_set( "client" );
     if( j&1 ) {
       rc = fd_quic_stream_send( client_stream, batch, 1, 0 );
     } else {
       rc = fd_quic_stream_send( client_stream_0, batch, 1, 0 );
     }
+    fd_log_thread_set( "main" );
 
     FD_LOG_INFO(( "fd_quic_stream_send returned %d", rc ));
   }
@@ -416,9 +433,11 @@ main( int argc, char ** argv ) {
     if( next_wakeup > now ) now = next_wakeup;
 
     FD_LOG_INFO(( "running services at %lu", next_wakeup ));
+    fd_log_thread_set( "client" );
     fd_quic_service( client_quic );
+    fd_log_thread_set( "server" );
     fd_quic_service( server_quic );
-
+    fd_log_thread_set( "main" );
   }
 
   fclose( pcap );
