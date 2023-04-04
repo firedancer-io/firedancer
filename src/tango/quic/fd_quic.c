@@ -268,7 +268,7 @@ fd_quic_stream_init( fd_quic_stream_t * stream ) {
   stream->rx_buf.tail        = 0;
 
   stream->flags              = 0;
-  stream->next               = NULL;
+  /* don't update next here, since it's still in use */
 
   stream->state              = 0;
 
@@ -544,15 +544,16 @@ fd_quic_tx_enc_level( fd_quic_conn_t * conn ) {
       }
       return ~0u;
 
-    case FD_QUIC_CONN_STATE_ACTIVE:
-      {
-        /* optimization for case where we have stream data to send */
+      /* TODO consider this optimization... but we want to ack all handshakes, even if there is stream_data */
+    //case FD_QUIC_CONN_STATE_ACTIVE:
+    //  {
+    //    /* optimization for case where we have stream data to send */
 
-        /* find stream data to send */
-        if( conn->send_streams && conn->send_streams->upd_pkt_number == app_pkt_number ) {
-          return fd_quic_enc_level_appdata_id;
-        }
-      }
+    //    /* find stream data to send */
+    //    if( conn->send_streams && conn->send_streams->upd_pkt_number == app_pkt_number ) {
+    //      return fd_quic_enc_level_appdata_id;
+    //    }
+    //  }
   }
 
   /* Check for acks to send */
@@ -1188,7 +1189,7 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
               orig_conn_id.conn_id, conn_id->sz,
               suite->hash ) ) ) {
         DEBUG( FD_LOG_DEBUG(( "fd_quic_gen_initial_secret failed" )); )
-          conn->state = FD_QUIC_CONN_STATE_DEAD;
+        conn->state = FD_QUIC_CONN_STATE_DEAD;
         return FD_QUIC_PARSE_FAIL;
       }
 
@@ -1197,7 +1198,7 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
               (int)enc_level, /* generate initial secrets */
               suite->hash ) ) ) {
         DEBUG( FD_LOG_DEBUG(( "fd_quic_gen_secrets failed" )); )
-          conn->state = FD_QUIC_CONN_STATE_DEAD;
+        conn->state = FD_QUIC_CONN_STATE_DEAD;
         return FD_QUIC_PARSE_FAIL;
       }
 
@@ -1209,7 +1210,7 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
               conn->secrets.secret[enc_level][0],
               conn->secrets.secret_sz[enc_level][0] ) ) ) {
         DEBUG( FD_LOG_DEBUG(( "fd_quic_gen_keys failed" )); )
-          conn->state = FD_QUIC_CONN_STATE_DEAD;
+        conn->state = FD_QUIC_CONN_STATE_DEAD;
         return FD_QUIC_PARSE_FAIL;
       }
 
@@ -1220,7 +1221,7 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
               conn->secrets.secret[enc_level][1],
               conn->secrets.secret_sz[enc_level][1] ) ) ) {
         DEBUG( FD_LOG_DEBUG(( "fd_quic_gen_keys failed" )); )
-          conn->state = FD_QUIC_CONN_STATE_DEAD;
+        conn->state = FD_QUIC_CONN_STATE_DEAD;
         return FD_QUIC_PARSE_FAIL;
       }
     } else {
@@ -2428,7 +2429,8 @@ fd_quic_tls_cb_secret( fd_quic_tls_hs_t *           hs,
                           conn->secrets.secret[enc_level][0],
                           conn->secrets.secret_sz[enc_level][0] )
           != FD_QUIC_SUCCESS ) {
-      /* remove connection from map, and insert into free list */
+      /* set state to DEAD to reclaim connection */
+      conn->state = FD_QUIC_CONN_STATE_DEAD;
       FD_LOG_WARNING(( "fd_quic_gen_keys failed on client" ));
     }
 
@@ -2439,7 +2441,8 @@ fd_quic_tls_cb_secret( fd_quic_tls_hs_t *           hs,
                           conn->secrets.secret[enc_level][1],
                           conn->secrets.secret_sz[enc_level][1] )
           != FD_QUIC_SUCCESS ) {
-      /* remove connection from map, and insert into free list */
+      /* set state to DEAD to reclaim connection */
+      conn->state = FD_QUIC_CONN_STATE_DEAD;
       FD_LOG_WARNING(( "fd_quic_gen_keys failed on server" ));
     }
 
@@ -3781,7 +3784,6 @@ fd_quic_conn_tx_abort:
   }
 }
 
-
 void
 fd_quic_conn_service( fd_quic_t * quic, fd_quic_conn_t * conn, ulong now ) {
   (void)now;
@@ -3899,12 +3901,20 @@ fd_quic_conn_free( fd_quic_t *      quic,
       fd_quic_stream_map_t * stream_entry = fd_quic_stream_map_query( conn->stream_map, stream->stream_id, NULL );
       if( stream_entry ) {
         /* fd_quic_stream_free calls fd_quic_stream_map_remove */
-        fd_quic_stream_free( quic, conn, stream_entry->stream );
+        fd_quic_stream_free( quic, conn, stream_entry->stream, FD_QUIC_NOTIFY_ABORT );
       }
     }
   }
 
-  /* TODO free keys here */
+  /* destroy keys */
+  fd_quic_free_keys( &conn->keys[0][0] );
+  fd_quic_free_keys( &conn->keys[1][0] );
+  fd_quic_free_keys( &conn->keys[2][0] );
+  fd_quic_free_keys( &conn->keys[3][0] );
+  fd_quic_free_keys( &conn->keys[0][1] );
+  fd_quic_free_keys( &conn->keys[1][1] );
+  fd_quic_free_keys( &conn->keys[2][1] );
+  fd_quic_free_keys( &conn->keys[3][1] );
 
   /* free tls-hs */
   if( conn->tls_hs ) {
@@ -3929,7 +3939,6 @@ fd_quic_conn_free( fd_quic_t *      quic,
       conn->acks_tx[j] = conn->acks_tx_end[j] = NULL;
     }
   }
-
 }
 
 fd_quic_conn_id_t
@@ -4011,6 +4020,13 @@ fd_quic_connect( fd_quic_t *  quic,
           FD_QUIC_MAX_CONN_ID_SZ );
   tp->initial_source_connection_id_present = 1;
   tp->initial_source_connection_id_len     = our_conn_id.sz;
+
+  /* validate transport parameters */
+
+  if( !fd_quic_transport_params_validate( tp ) ) {
+    FD_LOG_WARNING(( "fd_quic_transport_params_validate failed" ));
+    goto fail_conn;
+  }
 
   /* Encode transport params to be sent to peer */
 
@@ -4285,8 +4301,8 @@ fd_quic_conn_create( fd_quic_t *               quic,
   fd_memset( conn->pkt_number, 0, sizeof( conn->pkt_number ) );
 
   /* crypto offset for first packet always starts at 0 */
-  fd_memset( conn->tx_crypto_offset, 0, sizeof( conn->pkt_number ) );
-  fd_memset( conn->rx_crypto_offset, 0, sizeof( conn->pkt_number ) );
+  fd_memset( conn->tx_crypto_offset, 0, sizeof( conn->tx_crypto_offset ) );
+  fd_memset( conn->rx_crypto_offset, 0, sizeof( conn->rx_crypto_offset ) );
 
   fd_memset( conn->hs_sent_bytes, 0, sizeof( conn->hs_sent_bytes ) );
 
@@ -4745,7 +4761,7 @@ fd_quic_reclaim_pkt_meta( fd_quic_conn_t *     conn,
             uint state_mask = FD_QUIC_STREAM_STATE_TX_FIN | FD_QUIC_STREAM_STATE_RX_FIN;
             if( ( stream->state & state_mask ) == state_mask ) {
               /* fd_quic_stream_free also notifies the user */
-              fd_quic_stream_free( conn->quic, conn, stream );
+              fd_quic_stream_free( conn->quic, conn, stream, FD_QUIC_NOTIFY_END );
             }
           }
         }
@@ -5009,9 +5025,9 @@ fd_quic_frame_handle_new_token_frame(
 }
 
 void
-fd_quic_stream_free( fd_quic_t * quic, fd_quic_conn_t * conn, fd_quic_stream_t * stream ) {
+fd_quic_stream_free( fd_quic_t * quic, fd_quic_conn_t * conn, fd_quic_stream_t * stream, int code ) {
   /* TODO rename FD_QUIC_NOTIFY_END to FD_QUIC_STREAM_NOTIFY_END et al */
-  fd_quic_cb_stream_notify( quic, stream, stream->context, FD_QUIC_NOTIFY_END );
+  fd_quic_cb_stream_notify( quic, stream, stream->context, code );
 
   ulong stream_id = stream->stream_id;
 
@@ -5242,7 +5258,7 @@ fd_quic_frame_handle_stream_frame(
       stream->state |= FD_QUIC_STREAM_STATE_RX_FIN;
       if( stream->state & FD_QUIC_STREAM_STATE_TX_FIN ||
           stream->stream_id & ( FD_QUIC_TYPE_UNIDIR << 1u ) ) {
-        fd_quic_stream_free( context.quic, conn, stream );
+        fd_quic_stream_free( context.quic, conn, stream, FD_QUIC_NOTIFY_END );
         return data_sz;
       }
     }

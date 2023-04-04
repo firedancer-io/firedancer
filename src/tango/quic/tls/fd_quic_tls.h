@@ -124,6 +124,8 @@ struct fd_quic_tls_cfg {
 
   char const *   cert_file;             /* certificate file */
   char const *   key_file;              /* private key file */
+
+  /* keylog_fd == 0 indicates no keylogger file */
   int            keylog_fd;             /* keylogger file */
 
   uchar const *  alpns;                 /* ALPNs */

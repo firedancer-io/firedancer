@@ -740,8 +740,9 @@ fd_quic_create_context( fd_quic_tls_t * quic_tls,
   // set callback for client hello
   SSL_CTX_set_client_hello_cb( ctx, fd_quic_ssl_client_hello, NULL );
 
-  if( FD_UNLIKELY( quic_tls->keylog_cb || quic_tls->keylog_fd != -1 ) )
+  if( FD_UNLIKELY( quic_tls->keylog_cb || quic_tls->keylog_fd != 0 ) ) {
     SSL_CTX_set_keylog_callback( ctx, fd_quic_ssl_keylog );
+  }
 
   return ctx;
 }

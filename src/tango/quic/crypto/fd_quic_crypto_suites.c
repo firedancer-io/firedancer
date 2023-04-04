@@ -272,6 +272,13 @@ fd_quic_gen_secrets(
 }
 
 
+void
+fd_quic_free_keys( fd_quic_crypto_keys_t * keys ) {
+  if( keys->pkt_cipher_ctx ) EVP_CIPHER_CTX_free( keys->pkt_cipher_ctx );
+  if( keys->hp_cipher_ctx  ) EVP_CIPHER_CTX_free( keys->hp_cipher_ctx  );
+}
+
+
 /* TODO need to dispose of keys somewhere
    these allocate openssl resources now */
 int
@@ -550,6 +557,24 @@ fd_quic_crypto_encrypt(
   return FD_QUIC_SUCCESS;
 }
 
+static char const *
+fd_quic_tls_strerror( void ) {
+  /* had a segfault in ERR_error_string_n
+   * so disaabling this for now
+   * TODO fix */
+#if 1
+  static char errbuf[ 512UL ];
+  errbuf[ 0 ] = '\0';
+
+  ulong err_id = ERR_get_error();
+  ERR_error_string_n( err_id, errbuf, 2048UL );
+
+  return errbuf;
+#else
+  return "";
+#endif
+}
+
 
 int
 fd_quic_crypto_decrypt(
@@ -570,7 +595,7 @@ fd_quic_crypto_decrypt(
 
   /* must have space for cipher_text_sz - FD_QUIC_CRYPTO_TAG_SZ */
   if( FD_UNLIKELY( *plain_text_sz + FD_QUIC_CRYPTO_TAG_SZ < cipher_text_sz ) ) {
-    FD_LOG_ERR(( "fd_quic_crypto_decrypt: plain text buffer too small" ));
+    FD_LOG_WARNING(( "fd_quic_crypto_decrypt: plain text buffer too small" ));
     return FD_QUIC_FAILED;
   }
 
@@ -639,7 +664,7 @@ fd_quic_crypto_decrypt(
   ulong offset = (ulong)out_sz;
   if( EVP_DecryptFinal( cipher_ctx, payload + offset, &out_sz ) != 1 ) {
     /* TODO this can happen, probably shouldn't warn here */
-    FD_LOG_WARNING(( "fd_quic_crypto_decrypt: EVP_DecryptFinal failed" ));
+    FD_LOG_WARNING(( "EVP_DecryptFinal failed: %s", fd_quic_tls_strerror() ));
 
     return FD_QUIC_FAILED;
   }

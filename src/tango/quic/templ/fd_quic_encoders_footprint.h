@@ -36,10 +36,11 @@
 
 
 /* determines the encoding footprint of the VARINT */
-#define FD_TEMPL_MBR_ELEM_VARINT(NAME,TYPE)                              \
+#define FD_TEMPL_MBR_ELEM_VARINT(NAME,TYPE)                            \
     buf += (cur_bit != 0);                                             \
     cur_bit = 0;                                                       \
     tmp_len = FD_QUIC_ENCODE_VARINT_LEN(frame->NAME);                  \
+    if( tmp_len == FD_QUIC_ENCODE_FAIL ) return FD_QUIC_ENCODE_FAIL;   \
     buf += tmp_len;                                                    \
 
 
