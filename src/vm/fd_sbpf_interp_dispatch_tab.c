@@ -227,8 +227,10 @@ AJT_CASE_END
   register_file[dst_reg] = (uint)(~((uint)register_file[dst_reg])); 
 AJT_CASE_END
 /* 0x85 */ AJT_CASE(0x85) // FD_BPF_OP_CALL
-  fd_vm_sbpf_syscall_map_t * syscall_entry = fd_vm_sbpf_syscall_map_query(ctx->syscall_map, imm);
-  register_file[0] = syscall_entry->syscall_fn_ptr(ctx, register_file[1], register_file[2], register_file[3], register_file[4], register_file[5]);
+  fd_vm_sbpf_syscall_map_t * syscall_entry = fd_vm_sbpf_syscall_map_query(&ctx->syscall_map, imm, NULL);
+  cond_fault = syscall_entry->syscall_fn_ptr(ctx, register_file[1], register_file[2], register_file[3], register_file[4], register_file[5], &register_file[0]);
+  goto *((cond_fault == 0) ? &&fallthrough_0x85 : &&AJT_RET_LOC);
+fallthrough_0x85:
 AJT_CASE_END
 /* 0x87 */ AJT_CASE(0x87) // FD_BPF_OP_NEG64
   register_file[dst_reg] = ~register_file[dst_reg];

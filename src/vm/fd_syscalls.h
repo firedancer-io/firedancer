@@ -1,11 +1,13 @@
 #ifndef HEADER_fd_src_ballet_runtime_fd_syscalls_h
 #define HEADER_fd_src_ballet_runtime_fd_syscalls_h
 
-#include "../fd_ballet_base.h"
+#include "../ballet/fd_ballet_base.h"
+#include "fd_sbpf_interp.h"
 
-#define FD_VM_SYSCALL_SUCCESS     (0UL)
-#define FD_VM_SYSCALL_ERR_ABORT   (1UL)
-#define FD_VM_SYSCALL_ERR_PANIC   (2UL)
+#define FD_VM_SYSCALL_SUCCESS           (0UL)
+#define FD_VM_SYSCALL_ERR_ABORT         (1UL)
+#define FD_VM_SYSCALL_ERR_PANIC         (2UL)
+#define FD_VM_SYSCALL_ERR_MEM_OVERLAP   (3UL)
 
 #define FD_VM_SYSCALL_DECL(name) ulong fd_vm_syscall_##name##( \
     fd_vm_exec_context_t *  ctx, \
@@ -15,11 +17,7 @@
 
 FD_PROTOTYPES_BEGIN
 
-FD_VM_SYSCALL_DECL(abort);
-FD_VM_SYSCALL_DECL(sol_panic_);
-
-FD_VM_SYSCALL_DECL(sol_log_64_);
-
+/*
 void fd_syscall_sol_log( uchar const * message, ulong len );
 void fd_syscall_sol_log_64( ulong arg1, ulong arg2, ulong arg3, ulong arg4, ulong arg5 );
 void fd_syscall_sol_log_compute_units();
@@ -56,7 +54,7 @@ void fd_syscall_sol_get_stack_height();
 void fd_syscall_sol_curve_multiscalar_mul();
 void fd_syscall_sol_curve_pairing_map();
 void fd_syscall_sol_alt_bn128_group_op();
-
+*/
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_ballet_runtime_fd_syscalls_h */

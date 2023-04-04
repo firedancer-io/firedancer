@@ -1,10 +1,16 @@
 #include "fd_vm.h"
+#include "fd_murmur3.h"
 #include "fd_opcodes.h"
 #include "fd_sbpf_interp.h"
 #include "../util/fd_util.h"
 #include <string.h>
 #include <stdio.h>
 #include <immintrin.h>
+
+static ulong accumulator_syscall(FD_FN_UNUSED fd_vm_sbpf_exec_context_t * ctx, ulong arg0, ulong arg1, ulong arg2, ulong arg3, ulong arg4, ulong * ret) {
+  *ret = arg0 + arg1 + arg2 + arg3 + arg4; 
+  return 0;
+}
 
 static void
 test_program_success( char *                test_case_name,
@@ -15,12 +21,13 @@ test_program_success( char *                test_case_name,
 
   fd_vm_sbpf_exec_context_t ctx = {
     .entrypoint = 0,
-    .num_ext_funcs = 0,
     .program_counter = 0,
     .instruction_counter = 0,
     .instrs = instrs,
     .instrs_sz = instrs_sz,
   };
+
+  fd_vm_sbpf_interp_register_syscall( &ctx, "accumulator", accumulator_syscall );
 
   /*
   char str[1024];
@@ -33,7 +40,7 @@ test_program_success( char *                test_case_name,
   */
   ulong validation_res = fd_vm_sbpf_interp_validate( &ctx ); 
   if (validation_res != 0) {
-    FD_LOG_WARNING(( "VAL_RES: %lu, %x", validation_res, FD_BPF_OP_DIV64_REG  ));
+    FD_LOG_WARNING(( "VAL_RES: %lu", validation_res ));
   }
   FD_TEST( validation_res==FD_VM_SBPF_VALIDATE_SUCCESS );
 
@@ -59,6 +66,7 @@ test_program_success( char *                test_case_name,
   fd_vm_sbpf_instr_t instrs_var[instrs_sz] = { __VA_ARGS__ }; \
   test_program_success(test_case_name, expected_result, instrs_sz, instrs_var); \
 }
+
 
 static void
 generate_random_alu_instrs( fd_rng_t * rng, fd_vm_sbpf_instr_t * instrs, ulong instrs_sz ) {
@@ -665,6 +673,17 @@ main( int     argc,
     FD_BPF_INSTR(FD_BPF_OP_SUB64_REG, FD_R4,  FD_R3,  0, 0),
     FD_BPF_INSTR(FD_BPF_OP_MOV64_IMM, FD_R0,  0,      0, 0x0),
     FD_BPF_INSTR(FD_BPF_OP_JNE_IMM,   FD_R4,  0,    -10, 0x0),
+    FD_BPF_INSTR(FD_BPF_OP_EXIT,      0,      0,      0, 0),
+  );
+  
+  TEST_PROGRAM_SUCCESS("call", 15, 7,
+    FD_BPF_INSTR(FD_BPF_OP_MOV64_IMM, FD_R1,  0,      0, 1),
+    FD_BPF_INSTR(FD_BPF_OP_MOV64_IMM, FD_R2,  0,      0, 2),
+    FD_BPF_INSTR(FD_BPF_OP_MOV64_IMM, FD_R3,  0,      0, 3),
+    FD_BPF_INSTR(FD_BPF_OP_MOV64_IMM, FD_R4,  0,      0, 4),
+    FD_BPF_INSTR(FD_BPF_OP_MOV64_IMM, FD_R5,  0,      0, 5),
+    FD_BPF_INSTR(FD_BPF_OP_CALL,      0,      0,      0, 0x7e6bb1fb),
+
     FD_BPF_INSTR(FD_BPF_OP_EXIT,      0,      0,      0, 0),
   );
 

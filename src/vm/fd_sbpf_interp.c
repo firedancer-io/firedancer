@@ -1,6 +1,7 @@
-#include "fd_sbpf_interp.h" 
+#include "fd_sbpf_interp.h"
 
-#include <immintrin.h>
+#include "fd_murmur3.h"
+
 
 #define FD_MEM_MAP_PROGRAM_REGION_START   (0x100000000UL)
 #define FD_MEM_MAP_STACK_REGION_START     (0x200000000UL)
@@ -10,7 +11,7 @@
 #define FD_MEM_MAP_REGION_MASK            (~FD_MEM_MAP_REGION_SZ)
 #define FD_MEM_MAP_REGION_VIRT_ADDR_BITS  (32)
 
-static ulong
+ulong
 fd_vm_sbpf_interp_translate_vm_to_host( fd_vm_sbpf_exec_context_t * ctx,
                                         uchar                       write,
                                         ulong                       vm_addr,
@@ -170,6 +171,17 @@ fd_vm_mem_map_write_ulong( fd_vm_sbpf_exec_context_t * ctx,
   return FD_VM_MEM_MAP_SUCCESS;
 }
 
+void 
+fd_vm_sbpf_interp_register_syscall( fd_vm_sbpf_exec_context_t * ctx, 
+                                    char const *                name,
+                                    fd_vm_sbpf_syscall_fn_ptr_t fn_ptr) {
+  ulong name_len = strlen(name);
+  uint syscall_hash = fd_murmur3_hash_cstr_to_uint(name, name_len, 0);
+
+  fd_vm_sbpf_syscall_map_t * syscall_entry = fd_vm_sbpf_syscall_map_insert(&ctx->syscall_map, syscall_hash);
+  syscall_entry->syscall_fn_ptr = fn_ptr;
+}
+
 void
 fd_vm_sbpf_interp_instrs( fd_vm_sbpf_exec_context_t * ctx ) {
   long pc = ctx->entrypoint;
@@ -292,7 +304,7 @@ uchar const FD_OPCODE_VALIDATION_MAP[256] = {
 //  - only 0 imms when the instruction does not use an imm
 //  - same as above but for src/dst reg, offset
 ulong 
-fd_vm_sbpf_interp_validate( fd_vm_sbpf_exec_context_t const * ctx ) {
+fd_vm_sbpf_interp_validate( fd_vm_sbpf_exec_context_t * ctx ) {
   for( ulong i = 0; i < ctx->instrs_sz; ++i ) {
     fd_vm_sbpf_instr_t instr = ctx->instrs[i];
     uchar validation_code = FD_OPCODE_VALIDATION_MAP[instr.opcode.raw];
@@ -332,7 +344,7 @@ fd_vm_sbpf_interp_validate( fd_vm_sbpf_exec_context_t const * ctx ) {
         break;
       case FD_CHECK_CALL:
         // TODO: CHECK CALL!
-        if (instr.imm >= ctx->num_ext_funcs) {
+        if (fd_vm_sbpf_syscall_map_query(&ctx->syscall_map, instr.imm, NULL) == NULL) {
           return FD_VM_SBPF_VALIDATE_ERR_NO_SUCH_EXT_CALL;
         }
         break;
