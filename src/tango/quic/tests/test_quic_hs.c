@@ -158,8 +158,12 @@ pipe_aio_receive( void * vp_ctx, fd_aio_pkt_info_t const * batch, ulong batch_sz
 #endif
 
   /* forward */
+  char thread_name[ 32UL ]={0};
+  strncpy( thread_name, fd_log_thread(), 31UL );
   fd_log_thread_set( pipe->recv_name );
-  return fd_aio_send( pipe->aio, batch, batch_sz, opt_batch_idx );
+  int rc = fd_aio_send( pipe->aio, batch, batch_sz, opt_batch_idx );
+  fd_log_thread_set( thread_name );
+  return rc;
 }
 
 
@@ -311,7 +315,7 @@ main( int argc, char ** argv ) {
   fd_log_thread_set( "main" );
 
   /* do general processing */
-  for( ulong j = 0; j < 120; j++ ) {
+  for( ulong j = 0; j < 20; j++ ) {
     ulong ct = fd_quic_get_next_wakeup( client_quic );
     ulong st = fd_quic_get_next_wakeup( server_quic );
     ulong next_wakeup = fd_ulong_min( ct, st );
