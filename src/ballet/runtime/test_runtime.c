@@ -357,7 +357,7 @@ void print_file(global_state_t *state, const char *file) {
     char encoded_hash[50];
     fd_base58_encode_32((uchar *) hash, 0, encoded_hash);
 
-    printf("owner: %48s pubkey: %48s hash: %48s file: %s\n", owner, pubkey, encoded_hash, file);
+    printf("owner: %48s pubkey: %48s hash: %48s file: %s size: %lu\n", owner, pubkey, encoded_hash, file, hdr->meta.data_len);
 
     const void *   o = &b[sizeof(*hdr)];
     unsigned char *outend = &(((unsigned char *) o)[hdr->meta.data_len]);
@@ -1108,7 +1108,7 @@ int main(int argc, char **argv) {
 
     char pubkey[50];
     fd_base58_encode_32((uchar *) a->key.key, NULL, pubkey);
-    FD_LOG_WARNING(("genesis accounts:  %s", pubkey));
+    FD_LOG_WARNING(("genesis account:  %s", pubkey));
   }
 
   for (ulong i = 0; i < state.global->genesis_block.native_instruction_processors_len; i++) {
