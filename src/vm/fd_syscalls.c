@@ -1,6 +1,7 @@
 #include "fd_syscalls.h"
 
 #include "../ballet/sha256/fd_sha256.h"
+#include "../ballet/keccak256/fd_keccak256.h"
 
 #define FD_VM_SYSCALL_DEFN(name, ctx_attr, mem_map_attr, arg0, arg1, arg2, arg3, arg4) \
 ulong \
