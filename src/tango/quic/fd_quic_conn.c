@@ -154,6 +154,7 @@ fd_quic_conn_new( void *                   mem,
   conn->stream_tx_buf_sz = limits->tx_buf_sz;
   conn->stream_rx_buf_sz = limits->rx_buf_sz;
   conn->tot_num_streams  = layout.stream_cnt;
+  conn->state            = FD_QUIC_CONN_STATE_INVALID;
 
   /* Initialize stream pointers */
 

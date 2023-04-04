@@ -10,6 +10,7 @@
 #include "fd_quic_pkt_meta.h"
 
 enum {
+  FD_QUIC_CONN_STATE_INVALID,            /* dead object / freed */
   FD_QUIC_CONN_STATE_HANDSHAKE,          /* currently doing handshaking with peer */
   FD_QUIC_CONN_STATE_HANDSHAKE_COMPLETE, /* handshake complete, confirming with peer */
   FD_QUIC_CONN_STATE_ACTIVE,             /* connection established - data may be transferred */
