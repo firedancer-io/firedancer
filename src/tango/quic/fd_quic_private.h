@@ -133,7 +133,8 @@ fd_quic_conn_free( fd_quic_t *      quic,
 void
 fd_quic_stream_free( fd_quic_t *        quic,
                      fd_quic_conn_t *   conn,
-                     fd_quic_stream_t * stream );
+                     fd_quic_stream_t * stream,
+                     int                code );
 
 /* Callbacks provided by fd_quic **************************************/
 

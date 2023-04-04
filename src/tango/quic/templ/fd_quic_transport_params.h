@@ -312,5 +312,11 @@ fd_quic_encode_transport_params( uchar *                            buf,
 ulong
 fd_quic_transport_params_footprint( fd_quic_transport_params_t const * params );
 
+
+/* validates whether the values in the transport params struct
+   have valid lengths for varint encoding */
+int
+fd_quic_transport_params_validate( fd_quic_transport_params_t const * params );
+
 #endif
 
