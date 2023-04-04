@@ -10,7 +10,7 @@ jobs:
     runs-on: [self-hosted, Linux, X64, fedora28]
     defaults:
       run:
-        shell: bash --noprofile --norc -eo pipefail -c "set -ex; source /home/runner/firedancer-opts/activate-opt && pwd && ls -lah {0} && chmod +x {0} && {0}"
+        shell: bash --noprofile --norc -eo pipefail -c "set -ex; source /home/runner/firedancer-opts/activate-opt && echo `pwd` && ls -lah {0} && chmod +x {0} && {0}"
     env:
       EXTRAS: libbpf
     steps:
