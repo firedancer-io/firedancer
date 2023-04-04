@@ -21,7 +21,6 @@
 #include "fd_xdp_redirect_prog.h"
 
 #include <linux/bpf.h>
-#include <bpf/bpf_helpers.h>
 
 
 /* TODO: Some devices only support one XSK which requires multiplexing
@@ -33,6 +32,19 @@
 
 char __license[] __attribute__(( section("license") )) = "Apache-2.0";
 
+/* eBPF syscalls ******************************************************/
+
+static void *
+(* bpf_map_lookup_elem)( void *       map,
+                         void const * key)
+  = (void *)1U;
+
+static long
+(* bpf_redirect_map)( void * map,
+                      ulong  key,
+                      ulong  flags )
+  = (void *)51U;
+
 /* eBPF maps **********************************************************/
 
 /* eBPF maps allows sharing information between the Linux userspace and
@@ -41,22 +53,12 @@ char __license[] __attribute__(( section("license") )) = "Apache-2.0";
 
 /* fd_xdp_xsks: Available XSKs for AF_XDP
    key in the interface queue index (in host byte order). */
-struct {
-  __uint( type,        BPF_MAP_TYPE_XSKMAP );
-  __uint( max_entries, FD_XDP_XSKS_MAP_CNT );
-  __type( key,         int                 );
-  __type( value,       int                 );
-} fd_xdp_xsks SEC(".maps");
+extern uint fd_xdp_xsks __attribute__((section("maps")));
 
 /* fd_xdp_udp_dsts: UDP/IP listen addrs
    key is hex pattern 0000AAAAAAAABBBB where AAAAAAAA is the IP dest
    addr and BBBB is the UDP dest port (in network byte order). */
-struct {
-  __uint( type,        BPF_MAP_TYPE_HASH  );
-  __uint( max_entries, FD_XDP_UDP_MAP_CNT );
-  __type( key,         ulong              );
-  __type( value,       int                );
-} fd_xdp_udp_dsts SEC(".maps");
+extern uint fd_xdp_udp_dsts __attribute__((section("maps")));
 
 /* Executable Code ****************************************************/
 
