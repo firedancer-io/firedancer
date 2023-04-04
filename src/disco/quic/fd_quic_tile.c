@@ -12,6 +12,12 @@
 
 /* dcache app region related ******************************************/
 
+FD_FN_CONST static inline ulong
+fd_quic_chunk_idx( ulong chunk0,
+                   ulong chunk ) {
+  return (chunk-chunk0) / FD_DCACHE_SLOT_FOOTPRINT( FD_TPU_MTU );
+}
+
 /* fd_quic_dcache_msg_ctx returns a pointer to the TPU/QUIC message
    context struct for the given dcache app laddr and chunk.  app_laddr
    points to the first byte of the dcache's app region in the tile's
@@ -19,12 +25,12 @@
    fd_dcache_app_laddr()).  chunk must be within the valid bounds for
    this dcache. */
 
-FD_FN_CONST static fd_quic_tpu_msg_ctx_t *
+FD_FN_CONST static inline fd_quic_tpu_msg_ctx_t *
 fd_quic_dcache_msg_ctx( uchar * app_laddr,
                         ulong   chunk0,
                         ulong   chunk ) {
-  ulong chunk_idx = (chunk-chunk0) / FD_DCACHE_SLOT_FOOTPRINT( FD_TPU_MTU );
-  return (fd_quic_tpu_msg_ctx_t *)app_laddr + chunk_idx;
+  fd_quic_tpu_msg_ctx_t * msg_arr = (fd_quic_tpu_msg_ctx_t *)app_laddr;
+  return &msg_arr[ fd_quic_chunk_idx( chunk0, chunk ) ];
 }
 
 /* QUIC context related ***********************************************/
@@ -237,7 +243,8 @@ fd_quic_tile( fd_cnc_t *         cnc,
   ulong   seq;    /* seq QUIC frag sequence number to publish */
 
   void *  base;   /* ==fd_wksp_containing( dcache ), chunk reference address in the tile's local address space */
-  ulong   chunk0; /* ==fd_dcache_compact_chunk0( base, dcache, pkt_max ) */
+  ulong   chunk0; /* ==fd_dcache_compact_chunk0( base, dcache ) */
+  ulong   chunk1; /* ==fd_dcache_compact_chunk1( base, dcache ) */
   ulong   wmark;  /* ==fd_dcache_compact_wmark ( base, dcache, _pkt_max ), packets chunks start in [chunk0,wmark] */
   ulong   chunk;  /* Chunk where next packet will be written, in [chunk0,wmark] */
 
@@ -306,13 +313,19 @@ fd_quic_tile( fd_cnc_t *         cnc,
     }
 
     chunk0 = fd_dcache_compact_chunk0( base, dcache );
+    chunk1 = fd_dcache_compact_chunk1( base, dcache );
     wmark  = fd_dcache_compact_wmark ( base, dcache, mtu );
     chunk  = FD_VOLATILE_CONST( cnc_diag[ FD_QUIC_CNC_DIAG_CHUNK_IDX ] );
     if( FD_UNLIKELY( !((chunk0<=chunk) & (chunk<=wmark)) ) ) {
       chunk = chunk0;
       FD_LOG_INFO(( "out of bounds cnc chunk index; overriding initial chunk to chunk0" ));
     }
-    FD_LOG_INFO(( "chunk %lu", chunk ));
+
+    FD_LOG_INFO(( "dcache chunk  %lu", chunk  ));
+    FD_LOG_INFO(( "dcache chunk0 %lu", chunk0 ));
+    FD_LOG_INFO(( "dcache wmark  %lu", wmark  ));
+    FD_LOG_INFO(( "dcache chunk1 %lu", chunk1 ));
+    FD_LOG_INFO(( "dcache max chunk_idx %lu", fd_quic_chunk_idx( chunk0, chunk1 ) ));
 
     /* local pubq init */
 
