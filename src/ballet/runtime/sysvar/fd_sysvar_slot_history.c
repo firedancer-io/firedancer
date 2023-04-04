@@ -34,10 +34,12 @@ void fd_sysvar_slot_history_init( fd_global_ctx_t* global ) {
   fd_slot_history_t history;
   fd_slot_history_inner_t *inner = (fd_slot_history_inner_t *)(global->allocf)( global->allocf_arg, 8UL, sizeof(fd_slot_history_inner_t) );
   inner->blocks = (ulong*)(global->allocf)( global->allocf_arg, 8UL, sizeof(ulong) * blocks_len );
+  memset( inner->blocks, 0, sizeof(ulong) * blocks_len );
   inner->blocks_len = blocks_len;
   history.bits.bits = inner;
+  history.bits.len = slot_history_max_entries;
 
-  /* TODO: handle slot != 0 case */
+  /* TODO: handle slot != 0 init case */
   set( &history, 0 );
   history.next_slot = 1;
 
@@ -70,7 +72,9 @@ void fd_sysvar_slot_history_read( fd_global_ctx_t* global, fd_slot_history_t* re
     return;
   }
 
-  FD_LOG_INFO(( "slot hashes syavar at slot %lu: " FD_LOG_HEX16_FMT, global->current_slot, FD_LOG_HEX16_FMT_ARGS(     metadata.hash    ) ));
+  char encoded_hash[50];
+  fd_base58_encode_32((uchar *) metadata.hash, 0, encoded_hash);
+  FD_LOG_INFO(( "slot history sysvar hash at slot %lu: %48s", global->current_slot, encoded_hash ));
 
   unsigned char *raw_acc_data = fd_alloca( 1, metadata.dlen );
   read_result = fd_acc_mgr_get_account_data( global->acc_mgr, global->funk_txn, (fd_pubkey_t *) global->sysvar_slot_history, raw_acc_data, metadata.hlen, metadata.dlen );
