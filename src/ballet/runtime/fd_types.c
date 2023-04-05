@@ -2278,3 +2278,20 @@ void fd_clock_timestamp_votes_encode(fd_clock_timestamp_votes_t* self, void cons
     fd_clock_timestamp_vote_encode(&self->votes.elems[i], data);
 }
 
+void fd_sysvar_fees_decode(fd_sysvar_fees_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
+  fd_fee_calculator_decode(&self->fee_calculator, data, dataend, allocf, allocf_arg);
+}
+void fd_sysvar_fees_destroy(fd_sysvar_fees_t* self, fd_free_fun_t freef, void* freef_arg) {
+  fd_fee_calculator_destroy(&self->fee_calculator, freef, freef_arg);
+}
+
+ulong fd_sysvar_fees_size(fd_sysvar_fees_t* self) {
+  ulong size = 0;
+  size += fd_fee_calculator_size(&self->fee_calculator);
+  return size;
+}
+
+void fd_sysvar_fees_encode(fd_sysvar_fees_t* self, void const** data) {
+  fd_fee_calculator_encode(&self->fee_calculator, data);
+}
+

@@ -23,6 +23,7 @@ fd_runtime_boot_slot_zero( fd_global_ctx_t *global ) {
   fd_sysvar_slot_history_init( global );
   fd_sysvar_slot_hashes_init( global );
   fd_sysvar_epoch_schedule_init( global );
+  fd_sysvar_fees_init( global );
 }
 
 // fd_runtime_block_execute

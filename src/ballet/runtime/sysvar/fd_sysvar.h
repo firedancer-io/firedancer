@@ -10,6 +10,7 @@
 #include "fd_sysvar_slot_history.h"
 #include "fd_sysvar_slot_hashes.h"
 #include "fd_sysvar_epoch_schedule.h"
+#include "fd_sysvar_fees.h"
 
 void fd_sysvar_set(fd_global_ctx_t *state, const unsigned char *owner, const unsigned char *pubkey, unsigned char *data, unsigned long sz, ulong slot);
 

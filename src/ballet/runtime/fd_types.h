@@ -6,6 +6,7 @@ typedef char* (*fd_alloc_fun_t)(void *arg, ulong align, ulong len);
 typedef void  (*fd_free_fun_t) (void *arg, void *ptr);
 #define FD_ACCOUNT_META_MAGIC 9823
 
+/* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/fee_calculator.rs#L9 */
 struct fd_fee_calculator {
   unsigned long lamports_per_signature;
 };
@@ -736,6 +737,14 @@ typedef struct fd_clock_timestamp_votes fd_clock_timestamp_votes_t;
 #define FD_CLOCK_TIMESTAMP_VOTES_FOOTPRINT sizeof(fd_clock_timestamp_votes_t)
 #define FD_CLOCK_TIMESTAMP_VOTES_ALIGN (8UL)
 
+/* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/sysvar/fees.rs#L21 */
+struct fd_sysvar_fees {
+  fd_fee_calculator_t fee_calculator;
+};
+typedef struct fd_sysvar_fees fd_sysvar_fees_t;
+#define FD_SYSVAR_FEES_FOOTPRINT sizeof(fd_sysvar_fees_t)
+#define FD_SYSVAR_FEES_ALIGN (8UL)
+
 
 FD_PROTOTYPES_BEGIN
 
@@ -1058,6 +1067,11 @@ void fd_clock_timestamp_votes_decode(fd_clock_timestamp_votes_t* self, void cons
 void fd_clock_timestamp_votes_encode(fd_clock_timestamp_votes_t* self, void const** data);
 void fd_clock_timestamp_votes_destroy(fd_clock_timestamp_votes_t* self, fd_free_fun_t freef, void* freef_arg);
 ulong fd_clock_timestamp_votes_size(fd_clock_timestamp_votes_t* self);
+
+void fd_sysvar_fees_decode(fd_sysvar_fees_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
+void fd_sysvar_fees_encode(fd_sysvar_fees_t* self, void const** data);
+void fd_sysvar_fees_destroy(fd_sysvar_fees_t* self, fd_free_fun_t freef, void* freef_arg);
+ulong fd_sysvar_fees_size(fd_sysvar_fees_t* self);
 
 FD_PROTOTYPES_END
 
