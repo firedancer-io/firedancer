@@ -15,6 +15,9 @@
 #define FD_SHA512_ALIGN     (128UL)
 #define FD_SHA512_FOOTPRINT (256UL)
 
+#define FD_SHA384_ALIGN     FD_SHA512_ALIGN
+#define FD_SHA384_FOOTPRINT FD_SHA512_FOOTPRINT
+
 /* FD_SHA512_{LG_HASH_SZ,HASH_SZ} describe the size of a SHA512 hash
    in bytes.  HASH_SZ==2^LG_HASH_SZ==64. */
 
@@ -26,6 +29,16 @@
 
 #define FD_SHA512_LG_BLOCK_SZ (7)
 #define FD_SHA512_BLOCK_SZ    (128UL) /* == 2^FD_SHA512_LG_BLOCK_SZ, explicit to workaround compiler limitations */
+
+/* FD_SHA384_HASH_SZ describes the size of a SHA384 hash in bytes. */
+
+#define FD_SHA384_HASH_SZ    (48UL)
+
+/* FD_SHA384_{LG_BLOCK_SZ,BLOCK_SZ} are identical to their SHA512
+   variants.  (SHA384 uses the same internal state as SHA512) */
+
+#define FD_SHA384_LG_BLOCK_SZ FD_SHA512_LG_BLOCK_SZ
+#define FD_SHA384_BLOCK_SZ    FD_SHA512_BLOCK_SZ
 
 /* A fd_sha512_t should be treated as an opaque handle of a sha512
    calculation state.  (It technically isn't here facilitate compile
@@ -62,6 +75,8 @@ struct __attribute__((aligned(FD_SHA512_ALIGN))) fd_sha512_private {
 };
 
 typedef struct fd_sha512_private fd_sha512_t;
+
+typedef struct fd_sha512_private fd_sha384_t;
 
 FD_PROTOTYPES_BEGIN
 
@@ -107,6 +122,9 @@ fd_sha512_align( void );
 FD_FN_CONST ulong
 fd_sha512_footprint( void );
 
+#define fd_sha384_align     fd_sha512_align
+#define fd_sha384_footprint fd_sha512_footprint
+
 void *
 fd_sha512_new( void * shmem );
 
@@ -119,6 +137,11 @@ fd_sha512_leave( fd_sha512_t * sha );
 void *
 fd_sha512_delete( void * shsha );
 
+#define fd_sha384_new    fd_sha512_new
+#define fd_sha384_join   fd_sha512_join
+#define fd_sha384_leave  fd_sha512_leave
+#define fd_sha384_delete fd_sha512_delete
+
 /* fd_sha512_init starts a sha512 calculation.  sha is assumed to be a
    current local join to a sha512 calculation state with no other
    concurrent operation that would modify the state while this is
@@ -128,6 +151,9 @@ fd_sha512_delete( void * shsha );
 
 fd_sha512_t *
 fd_sha512_init( fd_sha512_t * sha );
+
+fd_sha512_t *
+fd_sha384_init( fd_sha512_t * sha );
 
 /* fd_sha512_append adds sz bytes locally pointed to by data an
    in-progress sha512 calculation.  sha, data and sz are assumed to be
@@ -150,6 +176,8 @@ fd_sha512_append( fd_sha512_t * sha,
                   void const *  data,
                   ulong         sz );
 
+#define fd_sha384_append fd_sha512_append
+
 /* fd_sha512_fini finishes a a sha512 calculation.  sha and hash are
    assumed to be valid (i.e. sha is a local join to a sha512 calculation
    state that has an in-progress calculation with no other concurrent
@@ -164,6 +192,10 @@ void *
 fd_sha512_fini( fd_sha512_t * sha,
                 void *        hash );
 
+void *
+fd_sha384_fini( fd_sha384_t * sha,
+                void *        hash );
+
 /* fd_sha512_hash is a streamlined implementation of:
 
      fd_sha512_t sha[1];
@@ -176,6 +208,11 @@ fd_sha512_fini( fd_sha512_t * sha,
 
 void *
 fd_sha512_hash( void const * data,
+                ulong        sz,
+                void *       hash );
+
+void *
+fd_sha384_hash( void const * data,
                 ulong        sz,
                 void *       hash );
 
