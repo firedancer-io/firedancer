@@ -55,6 +55,7 @@ typedef struct fd_pubkey fd_pubkey_t;
 #define FD_PUBKEY_FOOTPRINT sizeof(fd_pubkey_t)
 #define FD_PUBKEY_ALIGN (8UL)
 
+/* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/epoch_schedule.rs#L26 */
 struct fd_epoch_schedule {
   unsigned long slots_per_epoch;
   unsigned long leader_schedule_slot_offset;
