@@ -747,6 +747,15 @@ typedef struct fd_sysvar_fees fd_sysvar_fees_t;
 #define FD_SYSVAR_FEES_FOOTPRINT sizeof(fd_sysvar_fees_t)
 #define FD_SYSVAR_FEES_ALIGN (8UL)
 
+/* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/config.rs#L14 */
+struct fd_stake_config {
+  double        warmup_cooldown_rate;
+  unsigned char slash_penalty;
+};
+typedef struct fd_stake_config fd_stake_config_t;
+#define FD_STAKE_CONFIG_FOOTPRINT sizeof(fd_stake_config_t)
+#define FD_STAKE_CONFIG_ALIGN (8UL)
+
 
 FD_PROTOTYPES_BEGIN
 
@@ -1074,6 +1083,11 @@ void fd_sysvar_fees_decode(fd_sysvar_fees_t* self, void const** data, void const
 void fd_sysvar_fees_encode(fd_sysvar_fees_t* self, void const** data);
 void fd_sysvar_fees_destroy(fd_sysvar_fees_t* self, fd_free_fun_t freef, void* freef_arg);
 ulong fd_sysvar_fees_size(fd_sysvar_fees_t* self);
+
+void fd_stake_config_decode(fd_stake_config_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
+void fd_stake_config_encode(fd_stake_config_t* self, void const** data);
+void fd_stake_config_destroy(fd_stake_config_t* self, fd_free_fun_t freef, void* freef_arg);
+ulong fd_stake_config_size(fd_stake_config_t* self);
 
 FD_PROTOTYPES_END
 

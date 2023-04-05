@@ -28,6 +28,7 @@ fd_runtime_boot_slot_zero( fd_global_ctx_t *global ) {
   fd_sysvar_stake_history_init( global );
 
   fd_builtin_programs_init( global );
+  fd_stake_program_config_init( global );
 }
 
 // fd_runtime_block_execute
@@ -243,6 +244,7 @@ fd_global_ctx_new        ( void * mem ) {
   fd_base58_decode_32( "NativeLoader1111111111111111111111111111111",  (unsigned char *) self->solana_native_loader);
   fd_base58_decode_32( "Config1111111111111111111111111111111111111",  (unsigned char *) self->solana_config_program);
   fd_base58_decode_32( "Stake11111111111111111111111111111111111111",  (unsigned char *) self->solana_stake_program);
+  fd_base58_decode_32( "StakeConfig11111111111111111111111111111111",  (unsigned char *) self->solana_stake_program_config);
   fd_base58_decode_32( "11111111111111111111111111111111",             (unsigned char *) self->solana_system_program);
   fd_base58_decode_32( "Vote111111111111111111111111111111111111111",  (unsigned char *) self->solana_vote_program);
   fd_base58_decode_32( "BPFLoader1111111111111111111111111111111111",  (unsigned char *) self->solana_bpf_loader_deprecated_program);

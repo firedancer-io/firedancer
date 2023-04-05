@@ -2295,3 +2295,22 @@ void fd_sysvar_fees_encode(fd_sysvar_fees_t* self, void const** data) {
   fd_fee_calculator_encode(&self->fee_calculator, data);
 }
 
+void fd_stake_config_decode(fd_stake_config_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
+  fd_bincode_double_decode(&self->warmup_cooldown_rate, data, dataend);
+  fd_bincode_uint8_decode(&self->slash_penalty, data, dataend);
+}
+void fd_stake_config_destroy(fd_stake_config_t* self, fd_free_fun_t freef, void* freef_arg) {
+}
+
+ulong fd_stake_config_size(fd_stake_config_t* self) {
+  ulong size = 0;
+  size += sizeof(double);
+  size += sizeof(char);
+  return size;
+}
+
+void fd_stake_config_encode(fd_stake_config_t* self, void const** data) {
+  fd_bincode_double_encode(&self->warmup_cooldown_rate, data);
+  fd_bincode_uint8_encode(&self->slash_penalty, data);
+}
+
