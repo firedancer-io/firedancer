@@ -188,12 +188,7 @@ main( int     argc,
                         initial_salt, initial_salt_sz,
                         test_dst_conn_id, 8 );
 
-  printf( "initial secret: " );
-  for( ulong j = 0; j < initial_secret_sz; ++j ) {
-    printf( "%2.2x ", initial_secret[j] );
-  }
-
-  printf( "\n" );
+  FD_LOG_HEXDUMP_NOTICE(( "initial secret", initial_secret, initial_secret_sz ));
 
   // Derive key TEST from rfc9001
 
@@ -304,21 +299,10 @@ main( int     argc,
 
   offset += 16;
 
-  printf( "Encrypted %ld bytes\n", (ulong)cipher_text_sz );
+  FD_LOG_NOTICE(( "Encrypted %ld bytes", (ulong)cipher_text_sz ));
 
-  printf( "plain_text: " );
-  for( ulong j=0; j < (ulong)plain_text_sz; ++j ) {
-    printf( "%2.2x ", test_client_initial[j] );
-  }
-  printf( "\n" );
-  printf( "\n" );
-
-  printf( "cipher_text: " );
-  for( ulong j = 0; j < offset + (ulong)cipher_text_sz; ++j ) {
-    printf( "%2.2x ", cipher_text[j] );
-  }
-  printf( "\n" );
-
+  FD_LOG_HEXDUMP_INFO(( "plain_text", test_client_initial, (ulong)plain_text_sz           ));
+  FD_LOG_HEXDUMP_INFO(( "plain_text", cipher_text,         offset + (ulong)cipher_text_sz ));
 
   // Header protection
 
@@ -356,16 +340,8 @@ main( int     argc,
     enc_header[pn_offset + j] ^= mask[1+j];
   }
 
-  printf( "header:  " );
-  for( ulong j = 0; j < sizeof( packet_header ); ++j ) {
-    printf( "%2.2x ", packet_header[j] );
-  }
-  printf( "\n" );
-  printf( "encoded: " );
-  for( ulong j = 0; j < sizeof( packet_header ); ++j ) {
-    printf( "%2.2x ", enc_header[j] );
-  }
-  printf( "\n" );
+  FD_LOG_HEXDUMP_INFO(( "header",  packet_header, sizeof(packet_header) ));
+  FD_LOG_HEXDUMP_INFO(( "encoded", enc_header,    sizeof(packet_header) ));
 
   // FD_TEST( 1==EVP_DecryptInit_ex( cipher_ctx, NULL, NULL, NULL, Iv ) );
 
@@ -384,7 +360,7 @@ main( int     argc,
   // then we can start handling the frames
 
   // what happens if we run the encryption again?
-  printf( "\n\nAGAIN\n\n" );
+  FD_LOG_NOTICE(( "AGAIN" ));
 
   FD_TEST( 1==EVP_CIPHER_CTX_reset( cipher_ctx ) );
 
@@ -412,11 +388,10 @@ main( int     argc,
   FD_TEST( cipher_text_sz>=0 );
   offset += (ulong)cipher_text_sz;
 
-  printf( "cipher_text: " );
-  for( ulong j = 0; j < offset; ++j ) {
-    printf( "%2.2x ", cipher_text[j] );
-  }
-  printf( "\n" );
+  FD_LOG_HEXDUMP_INFO(( "cipher_text", cipher_text, offset ));
+
+  EVP_CIPHER_CTX_free( cipher_ctx    );
+  EVP_CIPHER_CTX_free( hp_cipher_ctx );
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

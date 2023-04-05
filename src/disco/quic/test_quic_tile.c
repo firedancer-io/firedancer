@@ -221,7 +221,6 @@ int main( int     argc,
   uint         udp_port     =       fd_env_strip_cmdline_uint  ( &argc, &argv, "--port",           NULL, 8080U                        );
   char const * _hwaddr      =       fd_env_strip_cmdline_cstr  ( &argc, &argv, "--hwaddr",         NULL, NULL                         );
   char const * _gateway     =       fd_env_strip_cmdline_cstr  ( &argc, &argv, "--gateway",        NULL, NULL                         );
-  ulong        idle_timeout_ms =    fd_env_strip_cmdline_ulong ( &argc, &argv, "--idle-timeout",   NULL, 100UL                        );
 
   char const * app_name = "test_quic";
 
@@ -352,8 +351,6 @@ int main( int     argc,
 
   memcpy( quic_cfg->link.src_mac_addr, hwaddr,  6UL );
   memcpy( quic_cfg->link.dst_mac_addr, gateway, 6UL );
-
-  quic_cfg->idle_timeout = idle_timeout_ms * (ulong)1e6;
 
   fd_aio_t _aio_rx[1];
   fd_quic_set_aio_net_tx( cfg->tx_quic, fd_xsk_aio_get_tx     ( cfg->xsk_aio ) );
