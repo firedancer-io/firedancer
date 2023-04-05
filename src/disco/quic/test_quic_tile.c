@@ -221,8 +221,7 @@ int main( int     argc,
   uint         udp_port     =       fd_env_strip_cmdline_uint  ( &argc, &argv, "--port",           NULL, 8080U                        );
   char const * _hwaddr      =       fd_env_strip_cmdline_cstr  ( &argc, &argv, "--hwaddr",         NULL, NULL                         );
   char const * _gateway     =       fd_env_strip_cmdline_cstr  ( &argc, &argv, "--gateway",        NULL, NULL                         );
-
-  char const * app_name = "test_quic";
+  char const * bpf_dir      =       fd_env_strip_cmdline_cstr  ( &argc, &argv, "--bpf-dir",        NULL, "test_quic"                  );
 
   ulong page_sz = fd_cstr_to_shmem_page_sz( _page_sz );
   if( FD_UNLIKELY( !page_sz ) )
@@ -312,11 +311,11 @@ int main( int     argc,
   FD_TEST( shxsk );
 
   FD_LOG_NOTICE(( "Binding xsk (iface %s ifqueue %u)", iface, ifqueue ));
-  FD_TEST( fd_xsk_bind( shxsk, app_name, iface, ifqueue ) );
+  FD_TEST( fd_xsk_bind( shxsk, bpf_dir, iface, ifqueue ) );
 
   FD_LOG_NOTICE(( "Listening on " FD_IP4_ADDR_FMT ":%u",
                   FD_IP4_ADDR_FMT_ARGS( listen_addr ), udp_port ));
-  FD_TEST( 0==fd_xdp_listen_udp_port( app_name, listen_addr, udp_port, 0U ) );
+  FD_TEST( 0==fd_xdp_listen_udp_port( bpf_dir, listen_addr, udp_port, 0U ) );
 
   FD_LOG_NOTICE(( "Joining xsk" ));
   cfg->xsk = fd_xsk_join( shxsk );
@@ -411,7 +410,7 @@ int main( int     argc,
 
   FD_LOG_NOTICE(( "Cleaning up" ));
 
-  FD_TEST( 0==fd_xdp_release_udp_port( app_name, (uint)listen_addr, udp_port ) );
+  FD_TEST( 0==fd_xdp_release_udp_port( bpf_dir, (uint)listen_addr, udp_port ) );
 
   fd_wksp_free_laddr( (void *)cfg->tx_quic_cfg                                );
   fd_wksp_free_laddr( fd_quic_delete   (    (fd_quic_t *)( cfg->tx_quic   ) ) );

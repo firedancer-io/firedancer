@@ -5462,9 +5462,8 @@ fd_quic_frame_handle_new_conn_id_frame(
   (void)data;
   (void)p;
   (void)p_sz;
-  DEBUG(
-    printf( "%s:%d  new_conn_id requested\n", __func__, (int)(__LINE__) ); fflush( stdout );
-    )
+
+  DEBUG( FD_LOG_DEBUG(( "new_conn_id requested" )); )
   return 0;
 }
 
