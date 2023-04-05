@@ -144,6 +144,7 @@ typedef struct fd_stake_history_epochentry_pair fd_stake_history_epochentry_pair
 #define FD_STAKE_HISTORY_EPOCHENTRY_PAIR_FOOTPRINT sizeof(fd_stake_history_epochentry_pair_t)
 #define FD_STAKE_HISTORY_EPOCHENTRY_PAIR_ALIGN (8UL)
 
+/* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake_history.rs#L55 */
 struct fd_stake_history {
   ulong                               entries_len;
   fd_stake_history_epochentry_pair_t* entries;

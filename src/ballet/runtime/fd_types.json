@@ -149,7 +149,8 @@
       "type": "struct",
       "fields": [
         { "name": "entries", "type": "vector", "element": "stake_history_epochentry_pair" }
-      ]
+      ],
+      "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake_history.rs#L55"
     },
     {
       "name": "solana_account",
