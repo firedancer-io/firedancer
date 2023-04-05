@@ -23,11 +23,7 @@ fd_quic_net_ipv4_checksum( uchar * pkt ) {
                  + (ulong)tmp[4];
   check = ( check & 0xffffu ) + ( check >> 16u );
   check = ( check & 0xffffu ) + ( check >> 16u );
-
-  /* TODO remove sanity check */
-  if( check >> 16u ) {
-    abort();
-  }
+  check = ( check & 0xffffu ) + ( check >> 16u );
 
   /* inverse gets inserted */
   ushort inv_check = (ushort)( check ^ 0xffffu );
