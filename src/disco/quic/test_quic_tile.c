@@ -96,11 +96,11 @@ rx_tile_main( int     argc,
       fd_cnc_heartbeat( cnc, fd_tickcount() );
 
       /* Receive command-and-control signals */
-      ulong s = fd_cnc_signal_query( cnc );
-      if( FD_UNLIKELY( s!=FD_CNC_SIGNAL_RUN ) ) {
-        if( FD_UNLIKELY( s!=FD_CNC_SIGNAL_HALT ) ) FD_LOG_ERR(( "Unexpected signal" ));
-        break;
-      }
+      //ulong s = fd_cnc_signal_query( cnc );
+      //if( FD_UNLIKELY( s!=FD_CNC_SIGNAL_RUN ) ) {
+      //  if( FD_UNLIKELY( s!=FD_CNC_SIGNAL_HALT ) ) FD_LOG_ERR(( "Unexpected signal" ));
+      //  break;
+      //}
 
       /* Reload housekeeping timer */
       async_rem = fd_tempo_async_reload( rng, async_min );
@@ -286,7 +286,7 @@ int main( int     argc,
   ulong tx_app_sz  = fd_quic_dcache_app_footprint( tx_depth );
   ulong tx_data_sz = fd_dcache_req_data_sz( tx_mtu, tx_depth, 1UL, 1 ); FD_TEST( tx_data_sz );
   cfg->tx_dcache = fd_dcache_join( fd_dcache_new( fd_wksp_alloc_laddr( cfg->wksp,
-                                                                       fd_dcache_align(), fd_dcache_footprint( tx_data_sz, 0UL ),
+                                                                       fd_dcache_align(), fd_dcache_footprint( tx_data_sz, tx_app_sz ),
                                                                        1UL ),
                                                   tx_data_sz, tx_app_sz ) );
   FD_TEST( cfg->tx_dcache );
