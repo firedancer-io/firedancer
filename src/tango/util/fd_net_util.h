@@ -21,11 +21,8 @@ fd_quic_net_ipv4_checksum( uchar * pkt ) {
                  + (ulong)tmp[3]
                  + (ulong)tmp[4];
   check = ( check & 0xffffu ) + ( check >> 16u );
-  check = (uint32_t)( check >> 16u ) + (uint16_t)check;
-  if( check >> 16u ) {
-    abort();
-  }
-  check = (unsigned)check ^ (unsigned)0xffff;
+  check = ( check & 0xffffu ) + ( check >> 16u );
+  check = ( check & 0xffffu ) + ( check >> 16u );
 
   /* inverse gets inserted */
   ushort inv_check = (ushort)( check ^ 0xffffu );
