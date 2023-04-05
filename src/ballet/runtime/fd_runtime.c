@@ -26,6 +26,8 @@ fd_runtime_boot_slot_zero( fd_global_ctx_t *global ) {
   fd_sysvar_fees_init( global );
   fd_sysvar_rent_init( global );
   fd_sysvar_stake_history_init( global );
+
+  fd_builtin_programs_init( global );
 }
 
 // fd_runtime_block_execute
@@ -244,8 +246,8 @@ fd_global_ctx_new        ( void * mem ) {
   fd_base58_decode_32( "11111111111111111111111111111111",             (unsigned char *) self->solana_system_program);
   fd_base58_decode_32( "Vote111111111111111111111111111111111111111",  (unsigned char *) self->solana_vote_program);
   fd_base58_decode_32( "BPFLoader1111111111111111111111111111111111",  (unsigned char *) self->solana_bpf_loader_deprecated_program);
-  fd_base58_decode_32( "BPFLoader2111111111111111111111111111111111",  (unsigned char *) self->solana_bpf_loader_program);
-  fd_base58_decode_32( "BPFLoaderUpgradeab1e11111111111111111111111",  (unsigned char *) self->solana_bpf_loader_upgradable_program);
+  fd_base58_decode_32( "BPFLoader2111111111111111111111111111111111",  (unsigned char *) self->solana_bpf_loader_program_with_jit);
+  fd_base58_decode_32( "BPFLoaderUpgradeab1e11111111111111111111111",  (unsigned char *) self->solana_bpf_loader_upgradeable_program_with_jit);
   fd_base58_decode_32( "Ed25519SigVerify111111111111111111111111111",  (unsigned char *) self->solana_ed25519_sig_verify_program);
   fd_base58_decode_32( "KeccakSecp256k11111111111111111111111111111",  (unsigned char *) self->solana_keccak_secp_256k_program);
   fd_base58_decode_32( "ComputeBudget111111111111111111111111111111",  (unsigned char *) self->solana_compute_budget_program);

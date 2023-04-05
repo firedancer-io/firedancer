@@ -5,6 +5,7 @@
 #include "fd_acc_mgr.h"
 #include "fd_executor.h"
 #include "../poh/fd_poh.h"
+#include "program/fd_builtin_programs.h"
 
 #define FD_RUNTIME_EXECUTE_SUCCESS                               ( 0 )  /* Slot executed successfully */
 #define FD_RUNTIME_EXECUTE_GENERIC_ERR                          ( -1 ) /* The Slot execute returned an error */
@@ -46,8 +47,8 @@ struct __attribute__((aligned(FD_GLOBAL_CTX_ALIGN))) fd_global_ctx {
   unsigned char              solana_system_program[32];
   unsigned char              solana_vote_program[32];
   unsigned char              solana_bpf_loader_deprecated_program[32];
-  unsigned char              solana_bpf_loader_program[32];
-  unsigned char              solana_bpf_loader_upgradable_program[32];
+  unsigned char              solana_bpf_loader_program_with_jit[32];
+  unsigned char              solana_bpf_loader_upgradeable_program_with_jit[32];
   unsigned char              solana_ed25519_sig_verify_program[32];
   unsigned char              solana_keccak_secp_256k_program[32];
   unsigned char              solana_compute_budget_program[32];
