@@ -142,7 +142,11 @@ fd_quic_hkdf_expand_label( uchar *        output,  ulong output_sz,
 }
 
 void
-test_secret_gen( uchar const * expected_output, uchar const * secret, ulong secret_sz, char const * label, ulong output_sz ) {
+test_secret_gen( uchar const * expected_output,
+                 uchar const * secret,
+                 ulong         secret_sz,
+                 char const *  label,
+                 ulong         output_sz ) {
   uchar new_secret[64] = {0};
   ulong label_sz = strlen( label );
 
@@ -153,10 +157,9 @@ test_secret_gen( uchar const * expected_output, uchar const * secret, ulong secr
                              secret, secret_sz,
                              (uchar*)label, label_sz );
 
-  printf( "secret for %s: ", label );
-  for( ulong j = 0; j < output_sz; ++j ) {
-    printf( "%2.2x ", new_secret[j] );
-  }
+  char hexdump_label_buf[ 128 ];
+  snprintf( hexdump_label_buf, 128UL, "secret for %s", label );
+  FD_LOG_HEXDUMP_NOTICE(( hexdump_label_buf, new_secret, output_sz ));
 
   FD_TEST( 0==memcmp( new_secret, expected_output, output_sz ) );
 }
@@ -218,12 +221,7 @@ main( int     argc,
                         initial_salt, initial_salt_sz,
                         test_dst_conn_id, sizeof( test_dst_conn_id ) );
 
-  printf( "initial secret: " );
-  for( ulong j = 0; j < initial_secret_sz; ++j ) {
-    printf( "%2.2x ", initial_secret[j] );
-  }
-
-  printf( "\n" );
+  FD_LOG_HEXDUMP_NOTICE(( "initial secret", initial_secret, initial_secret_sz ));
 
   FD_TEST( 0==memcmp( initial_secret, initial_secret_expect, initial_secret_sz ) );
   FD_LOG_NOTICE(( "initial_secret PASSED" ));
@@ -313,13 +311,13 @@ main( int     argc,
   int cipher_text_sz = 2048;
   int plain_text_sz = sizeof( test_client_initial );
   FD_TEST( 1==EVP_EncryptUpdate( cipher_ctx, cipher_text, &cipher_text_sz, test_client_initial, plain_text_sz ) );
-  FD_TEST( cipher_text_sz>=0 );
+  FD_TEST( cipher_text_sz>0 );
   offset = (ulong)cipher_text_sz;
 
   FD_LOG_NOTICE(( "Encrypted %d bytes", cipher_text_sz ));
 
   FD_TEST( 1==EVP_EncryptFinal( cipher_ctx, cipher_text + offset, &cipher_text_sz ) );
-  FD_TEST( cipher_text_sz>=0 );
+  FD_TEST( cipher_text_sz==0 );
   offset += (ulong)cipher_text_sz;
 
   // TODO put TAG on end
@@ -331,19 +329,8 @@ main( int     argc,
 
   FD_LOG_NOTICE(( "Encrypted %d bytes", cipher_text_sz ));
 
-  printf( "plain_text: " );
-  for( ulong j=0; j<offset; ++j ) {
-    printf( "%2.2x ", test_client_initial[j] );
-  }
-  printf( "\n" );
-  printf( "\n" );
-
-  printf( "cipher_text: " );
-  for( ulong j=0; j < offset + (ulong)cipher_text_sz; ++j ) {
-    printf( "%2.2x ", cipher_text[j] );
-  }
-  printf( "\n" );
-
+  FD_LOG_HEXDUMP_NOTICE(( "plain_text",  test_client_initial, sizeof(test_client_initial) ));
+  FD_LOG_HEXDUMP_NOTICE(( "cipher_text", cipher_text,         offset                      ));
 
   // Header protection
 
@@ -359,13 +346,12 @@ main( int     argc,
   int hp_cipher_sz = 0;
   FD_TEST( 1==EVP_EncryptUpdate( hp_cipher_ctx, hp_cipher, &hp_cipher_sz, sample, 16 ) );
 
-  printf( "hp: " );
-  for( ulong j = 0; j < 16; ++j ) {
-    printf( "%2.2x ", hp_cipher[j] );
-  }
-  printf( "\n" );
+  FD_LOG_HEXDUMP_INFO(( "hp", hp_cipher, 16UL ));
 
   // FD_TEST( 1==EVP_DecryptInit_ex( cipher_ctx, NULL, NULL, NULL, Iv ) );
+
+  EVP_CIPHER_CTX_free( cipher_ctx    );
+  EVP_CIPHER_CTX_free( hp_cipher_ctx );
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
