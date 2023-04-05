@@ -52,6 +52,7 @@
      TPU_PUB_CNT        is the number of txns ingested by the QUIC server
      TPU_PUB_SZ         is the number of txn bytes ingested by the QUIC server
      TPU_CONN_LIVE_CNT  is the number of currently open QUIC conns
+     TPU_CONN_SEQ       is the sequence number of the last QUIC conn opened
 
    As such, the cnc app region must be at least 64B in size.
 
@@ -63,6 +64,7 @@
 #define FD_QUIC_CNC_DIAG_TPU_PUB_CNT       (3UL) /* ", frequently */
 #define FD_QUIC_CNC_DIAG_TPU_PUB_SZ        (4UL) /* ", frequently */
 #define FD_QUIC_CNC_DIAG_TPU_CONN_LIVE_CNT (5UL) /* ", frequently */
+#define FD_QUIC_CNC_DIAG_TPU_CONN_SEQ      (6UL) /* ", frequently */
 
 /* fd_quic_tpu_msg_ctx_t is the message context of a txn being received
    by the QUIC tile over the TPU protocol. It is used to detect dcache

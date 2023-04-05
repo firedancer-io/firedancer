@@ -381,13 +381,14 @@ int main( int     argc,
       FD_COMPILER_MFENCE();
       /* FIXME: add RX_FSEQ / TX_FSEQ / RX_CNC / OTHER TX_CNC stats to
          monitoring, more pretty printing, etc */
-      ulong pub_cnt   = tx_cnc_diag[ FD_QUIC_CNC_DIAG_TPU_PUB_CNT  ];
-      ulong pub_sz    = tx_cnc_diag[ FD_QUIC_CNC_DIAG_TPU_PUB_SZ   ];
+      ulong pub_cnt       = tx_cnc_diag[ FD_QUIC_CNC_DIAG_TPU_PUB_CNT       ];
+      ulong pub_sz        = tx_cnc_diag[ FD_QUIC_CNC_DIAG_TPU_PUB_SZ        ];
+      ulong conn_live_cnt = tx_cnc_diag[ FD_QUIC_CNC_DIAG_TPU_CONN_LIVE_CNT ];
+      ulong conn_seq      = tx_cnc_diag[ FD_QUIC_CNC_DIAG_TPU_CONN_SEQ      ];
       FD_COMPILER_MFENCE();
-      //FD_LOG_NOTICE(( "monitor\n\t"
-      //                "tx: pub_cnt %20lu pub_sz %20lu",
-      //                pub_cnt, pub_sz ));
-      (void)pub_sz; (void)pub_cnt;
+      FD_LOG_NOTICE(( "monitor\n\t"
+                      "tx_seq %14lu tx_tot_sz %16lu conn_cnt: %8lu conn_seq %8lu",
+                      pub_cnt, pub_sz, conn_live_cnt, conn_seq ));
       next += (long)1e9;
     }
     FD_YIELD();

@@ -60,6 +60,7 @@ struct fd_quic_tpu_ctx {
   /* meta */
 
   ulong   cnc_diag_tpu_conn_live_cnt;
+  ulong   cnc_diag_tpu_conn_seq;
 };
 typedef struct fd_quic_tpu_ctx fd_quic_tpu_ctx_t;
 
@@ -83,6 +84,7 @@ fd_tpu_conn_create( fd_quic_conn_t * conn,
   conn->local_conn_id = ++conn_seq;
 
   fd_quic_tpu_ctx_t * ctx = (fd_quic_tpu_ctx_t *)_ctx;
+  ctx->cnc_diag_tpu_conn_seq = conn_seq;
   ctx->cnc_diag_tpu_conn_live_cnt++;
 }
 
@@ -235,7 +237,6 @@ fd_quic_tile( fd_cnc_t *         cnc,
   ulong * cnc_diag;
   ulong   cnc_diag_tpu_pub_cnt;
   ulong   cnc_diag_tpu_pub_sz;
-  ulong   cnc_diag_tpu_conn_live_cnt;
 
   /* out frag stream state */
   ulong   depth;  /* ==fd_mcache_depth( mcache ), depth of the mcache / positive integer power of 2 */
@@ -283,9 +284,8 @@ fd_quic_tile( fd_cnc_t *         cnc,
 
     cnc_diag = (ulong *)fd_cnc_app_laddr( cnc );
 
-    cnc_diag_tpu_pub_cnt       = 0UL;
-    cnc_diag_tpu_pub_sz        = 0UL;
-    cnc_diag_tpu_conn_live_cnt = 0UL;
+    cnc_diag_tpu_pub_cnt = 0UL;
+    cnc_diag_tpu_pub_sz  = 0UL;
 
     /* out frag stream init */
 
@@ -389,7 +389,8 @@ fd_quic_tile( fd_cnc_t *         cnc,
       cnc_diag[ FD_QUIC_CNC_DIAG_CHUNK_IDX         ]  = chunk;
       cnc_diag[ FD_QUIC_CNC_DIAG_TPU_PUB_CNT       ] += cnc_diag_tpu_pub_cnt;
       cnc_diag[ FD_QUIC_CNC_DIAG_TPU_PUB_SZ        ] += cnc_diag_tpu_pub_sz;
-      cnc_diag[ FD_QUIC_CNC_DIAG_TPU_CONN_LIVE_CNT ]  = cnc_diag_tpu_conn_live_cnt;
+      cnc_diag[ FD_QUIC_CNC_DIAG_TPU_CONN_LIVE_CNT ]  = quic_ctx.cnc_diag_tpu_conn_live_cnt;
+      cnc_diag[ FD_QUIC_CNC_DIAG_TPU_CONN_SEQ      ]  = quic_ctx.cnc_diag_tpu_conn_seq;
       FD_COMPILER_MFENCE();
       cnc_diag_tpu_pub_cnt = 0UL;
       cnc_diag_tpu_pub_sz  = 0UL;
@@ -412,8 +413,7 @@ fd_quic_tile( fd_cnc_t *         cnc,
     fd_quic_service( quic );
 
     /* Update locals */
-    chunk                      = quic_ctx.chunk;
-    cnc_diag_tpu_conn_live_cnt = quic_ctx.cnc_diag_tpu_conn_live_cnt;
+    chunk = quic_ctx.chunk;
 
     /* Publish completed messages */
     ulong pub_cnt = pubq_cnt( msg_pubq );
