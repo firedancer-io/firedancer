@@ -1333,7 +1333,7 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
 
     /* now we have decrypted packet number */
     pkt_number = fd_quic_parse_bits( dec_hdr + pn_offset, 0, 8u * pkt_number_sz );
-    DEBUG( FD_LOG_DEBUG(( "pkt_number: %lu", (ulong)pkt_number )); )
+    DEBUG( FD_LOG_DEBUG(( "initial pkt_number: %lu", (ulong)pkt_number )); )
 
     /* packet number space */
     uint pn_space = fd_quic_enc_level_to_pn_space( enc_level );
@@ -1537,9 +1537,7 @@ fd_quic_handle_v1_handshake(
     /* now we have decrypted packet number */
     /* TODO packet number processing */
     pkt_number = fd_quic_parse_bits( dec_hdr + pn_offset, 0, 8u * pkt_number_sz );
-    DEBUG(
-      printf( "pkt_number: %lu\n", (ulong)pkt_number );
-    )
+    DEBUG( FD_LOG_DEBUG(( "handshake pkt_number: %lu\n", (ulong)pkt_number )); )
 
     /* packet number space */
     uint pn_space = fd_quic_enc_level_to_pn_space( enc_level );
@@ -1745,7 +1743,7 @@ fd_quic_handle_v1_one_rtt( fd_quic_t * quic, fd_quic_conn_t * conn, fd_quic_pkt_
     /* now we have decrypted packet number */
     /* TODO packet number processing */
     pkt_number = fd_quic_parse_bits( dec_hdr + pn_offset, 0, 8u * pkt_number_sz );
-    DEBUG( FD_LOG_DEBUG(( "pkt_number: %lu", pkt_number )); fd_log_flush(); )
+    DEBUG( FD_LOG_DEBUG(( "one_rtt pkt_number: %lu", pkt_number )); fd_log_flush(); )
 
     /* packet number space */
     uint pn_space = fd_quic_enc_level_to_pn_space( enc_level );
@@ -2321,7 +2319,7 @@ fd_quic_process_packet( fd_quic_t *   quic,
     /* find connection id */
     fd_quic_conn_entry_t * entry = fd_quic_conn_map_query( state->conn_map, &dst_conn_id );
     if( !entry ) {
-      DEBUG( printf( "%s : one_rtt failed: no connection found\n", __func__ ); )
+      DEBUG( FD_LOG_DEBUG(( "one_rtt failed: no connection found" )); )
       /* silently ignore */
       return;
     }
@@ -5462,9 +5460,8 @@ fd_quic_frame_handle_new_conn_id_frame(
   (void)data;
   (void)p;
   (void)p_sz;
-  DEBUG(
-    printf( "%s:%d  new_conn_id requested\n", __func__, (int)(__LINE__) ); fflush( stdout );
-    )
+
+  DEBUG( FD_LOG_DEBUG(( "new_conn_id requested" )); )
   return 0;
 }
 
