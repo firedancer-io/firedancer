@@ -44,9 +44,14 @@ struct __attribute__((aligned(FD_GLOBAL_CTX_ALIGN))) fd_global_ctx {
   unsigned char              solana_stake_program[32];
   unsigned char              solana_system_program[32];
   unsigned char              solana_vote_program[32];
+  unsigned char              solana_bpf_loader_deprecated_program[32];
   unsigned char              solana_bpf_loader_program[32];
+  unsigned char              solana_bpf_loader_upgradable_program[32];
   unsigned char              solana_ed25519_sig_verify_program[32];
   unsigned char              solana_keccak_secp_256k_program[32];
+  unsigned char              solana_compute_budget_program[32];
+  unsigned char              solana_zk_token_proof_program[32];
+  unsigned char              solana_address_lookup_table_program[32];
 
   // This state needs to be commited to funk so that we can roll it back?
   ulong                      current_slot;
