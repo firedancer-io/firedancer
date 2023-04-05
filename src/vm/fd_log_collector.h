@@ -16,7 +16,7 @@ fd_vm_log_collector_init( fd_vm_log_collector_t * log_collector );
 
 void
 fd_vm_log_collector_log( fd_vm_log_collector_t *  log_collector, 
-                         uchar *                  msg, 
+                         char *                   msg, 
                          ulong                    msg_len );
 
 #endif /* HEADER_fd_src_ballet_runtime_vm_fd_log_collector_h */

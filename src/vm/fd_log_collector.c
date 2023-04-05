@@ -8,7 +8,7 @@ fd_vm_log_collector_init( fd_vm_log_collector_t * log_collector ) {
 
 void
 fd_vm_log_collector_log( fd_vm_log_collector_t *  log_collector, 
-                         uchar *                  msg, 
+                         char *                   msg, 
                          ulong                    msg_len ) {
   ulong buf_used = log_collector->buf_used;
   ulong buf_remaining = FD_VM_LOG_COLLECTOR_BYTES_LIMIT - buf_used;
