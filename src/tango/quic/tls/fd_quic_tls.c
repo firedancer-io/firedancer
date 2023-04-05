@@ -175,6 +175,9 @@ fd_quic_tls_delete( fd_quic_tls_t * self ) {
     if( hs_used[j] ) fd_quic_tls_hs_delete( hs + j );
   }
 
+  if( self->ssl_ctx )
+    SSL_CTX_free( self->ssl_ctx );
+
   return self;
 }
 

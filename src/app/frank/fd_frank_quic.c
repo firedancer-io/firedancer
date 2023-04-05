@@ -124,7 +124,7 @@ fd_frank_quic_task( int     argc,
 
   ulong idle_timeout_ms = fd_pod_query_ulong( quic_cfg_pod, "idle_timeout_ms", 0 );
   if( FD_UNLIKELY( !idle_timeout_ms ) ) FD_LOG_ERR(( "%s.quic_cfg.idle_timeout_ms not set", cfg_path ));
-  quic_cfg->idle_timeout = idle_timeout_ms * 1000;
+  quic_cfg->idle_timeout = idle_timeout_ms * 1000000UL;
 
   /* Attach to XSK */
 

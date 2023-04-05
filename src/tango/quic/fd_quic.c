@@ -419,7 +419,7 @@ fd_quic_join( fd_quic_t * quic ) {
   fd_quic_transport_params_t * tp = &state->transport_params;
 
   memset( tp, 0, sizeof(fd_quic_transport_params_t) );
-  ulong idle_timeout_ms = (config->idle_timeout + 1000UL - 1UL) / 1000;
+  ulong idle_timeout_ms = (config->idle_timeout + 1000000UL - 1UL) / 1000000UL;
   FD_QUIC_TRANSPORT_PARAM_SET( tp, max_idle_timeout,                    idle_timeout_ms        );
   FD_QUIC_TRANSPORT_PARAM_SET( tp, max_udp_payload_size,                FD_QUIC_MAX_PAYLOAD_SZ ); /* TODO */
   FD_QUIC_TRANSPORT_PARAM_SET( tp, initial_max_data,                    tot_initial_max_data   );
