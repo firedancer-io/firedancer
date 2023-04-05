@@ -135,7 +135,7 @@ main( int     argc,
     task_argv[0] = (char *)tile_name[ tile_idx ];
     task_argv[1] = (char *)pod_gaddr;
     task_argv[2] = (char *)cfg_path;
-    if( FD_UNLIKELY( !fd_tile_exec_new( tile_idx, task, 0, task_argv ) ) )
+    if( FD_UNLIKELY( !fd_tile_exec_new( tile_idx, task, sizeof(task_argv)/sizeof(task_argv[0]), task_argv ) ) )
       FD_LOG_ERR(( "fd_tile_exec_new failed" ));
 
     if( FD_UNLIKELY( fd_cnc_wait( tile_cnc[ tile_idx ], FD_CNC_SIGNAL_BOOT, (long)5e9, NULL )!=FD_CNC_SIGNAL_RUN ) )
