@@ -1,4 +1,5 @@
 #include "../fd_quic.h"
+#include "test_helpers.c"
 
 #include "fd_pcap.h"
 
@@ -67,35 +68,6 @@ void my_handshake_complete( fd_quic_conn_t * conn,
 ulong test_clock( void * ctx ) {
   (void)ctx;
   return gettime();
-}
-
-static void
-init_quic( fd_quic_t *  quic,
-           char const * hostname,
-           uint         ip_addr,
-           uint         udp_port ) {
-
-  FD_LOG_NOTICE(( "Configuring QUIC \"%s\"", hostname ));
-
-  fd_quic_config_t * quic_config = fd_quic_get_config( quic );
-
-  strcpy ( quic_config->cert_file, "cert.pem" );
-  strcpy ( quic_config->key_file,  "key.pem"  );
-  strncpy( quic_config->sni,       hostname, FD_QUIC_SNI_LEN );
-
-  quic_config->net.ip_addr         = ip_addr;
-  quic_config->net.listen_udp_port = (ushort)udp_port;
-
-  quic_config->net.ephem_udp_port.lo = 4219;
-  quic_config->net.ephem_udp_port.hi = 4220;
-
-  fd_quic_callbacks_t * quic_cb = fd_quic_get_callbacks( quic );
-
-  quic_cb->conn_final     = my_conn_final;
-  quic_cb->stream_receive = my_stream_receive_cb;
-
-  quic_cb->now     = test_clock;
-  quic_cb->now_ctx = NULL;
 }
 
 int

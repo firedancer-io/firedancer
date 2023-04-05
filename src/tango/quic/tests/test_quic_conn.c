@@ -4,6 +4,7 @@
 #include <stdlib.h>
 
 #include "fd_pcap.h"
+#include "test_helpers.c"
 
 #define BUF_SZ (1<<20)
 
@@ -169,66 +170,6 @@ free_all_streams() {
   }
 }
 
-void
-write_shb( FILE * file ) {
-  pcap_shb_t shb[1] = {{ 0x0A0D0D0A, sizeof( pcap_shb_t ), 0x1A2B3C4D, 1, 0, (ulong)-1, sizeof( pcap_shb_t ) }};
-  ulong rc = fwrite( shb, sizeof(shb), 1, file );
-  if( rc != 1 ) {
-    abort();
-  }
-}
-
-void
-write_idb( FILE * file ) {
-  pcap_idb_t idb[1] = {{ 0x00000001, sizeof( pcap_idb_t ), 1, 0, 0, sizeof( pcap_idb_t ) }};
-  ulong rc = fwrite( idb, sizeof(idb), 1, file );
-  if( rc != 1 ) {
-    abort();
-  }
-}
-
-void
-write_epb( FILE * file, uchar * buf, uint buf_sz, ulong ts ) {
-  if( buf_sz == 0 ) return;
-
-  uint ts_lo = (uint)ts;
-  uint ts_hi = (uint)( ts >> 32u );
-
-  uint align_sz = ( ( buf_sz - 1u ) | 0x03u ) + 1u;
-  uint tot_len  = align_sz + (uint)sizeof( pcap_epb_t ) + 4;
-  pcap_epb_t epb[1] = {{
-    0x00000006,
-    tot_len,
-    0, /* intf id */
-    ts_hi,
-    ts_lo,
-    buf_sz,
-    buf_sz }};
-
-  ulong rc = fwrite( epb, sizeof( epb ), 1, file );
-  if( rc != 1 ) {
-    abort();
-  }
-
-  rc = fwrite( buf, buf_sz, 1, file );
-  if( rc != 1 ) {
-    abort();
-  }
-
-  if( align_sz > buf_sz ) {
-    /* write padding */
-    uchar pad[4] = {0};
-    fwrite( pad, align_sz - buf_sz, 1, file );
-  }
-
-  rc = fwrite( &tot_len, 4, 1, file );
-  if( rc != 1 ) {
-    abort();
-  }
-
-}
-
-
 extern uchar pkt_full[];
 extern ulong pkt_full_sz;
 
@@ -340,19 +281,19 @@ my_cb_conn_final( fd_quic_conn_t * conn,
 
   fd_quic_conn_t ** ppconn = (fd_quic_conn_t**)fd_quic_conn_get_context( conn );
   if( ppconn ) {
-    printf( "my_cb_conn_final %p SUCCESS\n", (void*)*ppconn ); fflush( stdout );
+    FD_LOG_NOTICE(( "my_cb_conn_final %p SUCCESS", (void*)*ppconn ));
     *ppconn = NULL;
   } else {
-    printf( "my_cb_conn_final FAIL\n" ); fflush( stdout );
+    FD_LOG_WARNING(( "my_cb_conn_final FAIL" ));
   }
 }
 
-void my_connection_new( fd_quic_conn_t * conn, void * vp_context ) {
-  (void)conn;
+void
+my_connection_new( fd_quic_conn_t * conn,
+                   void *           vp_context ) {
   (void)vp_context;
 
   FD_LOG_NOTICE(( "server handshake complete" ));
-  fd_log_flush();
 
   server_complete = 1;
   server_conn = conn;
@@ -360,8 +301,9 @@ void my_connection_new( fd_quic_conn_t * conn, void * vp_context ) {
   fd_quic_conn_set_context( conn, &server_conn );
 }
 
-void my_handshake_complete( fd_quic_conn_t * conn, void * vp_context ) {
-  (void)conn;
+void
+my_handshake_complete( fd_quic_conn_t * conn,
+                       void *           vp_context ) {
   (void)vp_context;
 
   FD_LOG_NOTICE(( "client handshake complete" ));
@@ -470,6 +412,9 @@ main( int argc, char ** argv ) {
 
   fd_quic_config_t * client_config = fd_quic_get_config( client_quic );
 
+  client_config->link.src_mac_addr[ 0 ] = 0x01;
+  client_config->link.dst_mac_addr[ 0 ] = 0x02;
+
   client_config->net.ip_addr           = 0xc01a1a1au;
   client_config->net.ephem_udp_port.lo = 4435;
   client_config->net.ephem_udp_port.hi = 4440;
@@ -477,6 +422,8 @@ main( int argc, char ** argv ) {
   strcpy( client_config->cert_file,   "cert.pem"   );
   strcpy( client_config->key_file,    "key.pem"    );
   strcpy( client_config->keylog_file, "keylog.log" );
+
+  client_config->idle_timeout = 5e6;
 
   fd_quic_callbacks_t * client_cb = fd_quic_get_callbacks( client_quic );
 
@@ -490,11 +437,16 @@ main( int argc, char ** argv ) {
 
   fd_quic_config_t * server_config = fd_quic_get_config( server_quic );
 
+  server_config->link.src_mac_addr[ 0 ] = 0x02;
+  server_config->link.dst_mac_addr[ 0 ] = 0x01;
+
   server_config->net.ip_addr         = 0x0a000001u;
   server_config->net.listen_udp_port = 2001;
 
   strcpy( server_config->cert_file, "cert.pem" );
   strcpy( server_config->key_file,  "key.pem"  );
+
+  server_config->idle_timeout = 5e6;
 
   fd_quic_callbacks_t * server_cb = fd_quic_get_callbacks( server_quic );
 
