@@ -18,6 +18,10 @@
 #include <fcntl.h>   /* for keylog open(2)  */
 #include <unistd.h>  /* for keylog close(2) */
 
+#define CONN_FMT "%02x%02x%02x%02x%02x%02x%02x%02x"
+#define CONN(CONN_ID) (CONN_ID)->conn_id[0], (CONN_ID)->conn_id[1], (CONN_ID)->conn_id[2], (CONN_ID)->conn_id[3],  \
+                      (CONN_ID)->conn_id[4], (CONN_ID)->conn_id[5], (CONN_ID)->conn_id[6], (CONN_ID)->conn_id[7]
+
 
 /* Declare priority queue for time based processing */
 #define PRQ_NAME      service_queue
@@ -447,8 +451,8 @@ fd_quic_join( fd_quic_t * quic ) {
   FD_QUIC_TRANSPORT_PARAM_SET( tp, initial_max_stream_data_uni,         limits->rx_buf_sz      );
   FD_QUIC_TRANSPORT_PARAM_SET( tp, initial_max_streams_bidi,            limits->stream_cnt     );
   FD_QUIC_TRANSPORT_PARAM_SET( tp, initial_max_streams_uni,             limits->stream_cnt     );
-  FD_QUIC_TRANSPORT_PARAM_SET( tp, ack_delay_exponent,                  3                      ); /* TODO */
-  FD_QUIC_TRANSPORT_PARAM_SET( tp, max_ack_delay,                       25                     ); /* TODO */
+  FD_QUIC_TRANSPORT_PARAM_SET( tp, ack_delay_exponent,                  0                      ); /* TODO */
+  FD_QUIC_TRANSPORT_PARAM_SET( tp, max_ack_delay,                       10                     ); /* TODO */
   FD_QUIC_TRANSPORT_PARAM_SET( tp, disable_active_migration,            1                      );
   FD_QUIC_TRANSPORT_PARAM_SET( tp, active_connection_id_limit,          limits->conn_id_cnt    ); /* TODO */
 
@@ -581,6 +585,10 @@ fd_quic_tx_enc_level( fd_quic_conn_t * conn ) {
      not necessary until 0-rtt is supported */
   for( uint k = 0; k < 4; ++k ) {
     fd_quic_ack_t * cur_ack_head = conn->acks_tx[k];
+    /* skip sent */
+    while( cur_ack_head && cur_ack_head->flags & FD_QUIC_ACK_FLAGS_SENT ) {
+      cur_ack_head = cur_ack_head->next;
+    }
     /* do we have any in the chain that are mandatory? */
     if( cur_ack_head                                      &&
         !( cur_ack_head->flags & FD_QUIC_ACK_FLAGS_SENT ) &&
@@ -969,6 +977,7 @@ struct fd_quic_pkt {
   uint               enc_level;   /* encryption level */
   uint               datagram_sz; /* length of the original datagram */
   uint               ack_flag;    /* ORed together: 0-don't ack  1-ack  2-cancel ack */
+  uint ping;
 # define ACK_FLAG_NOT_RQD 0
 # define ACK_FLAG_RQD     1
 # define ACK_FLAG_CANCEL  2
@@ -1889,7 +1898,8 @@ fd_quic_ack_pkt( fd_quic_t * quic, fd_quic_conn_t * conn, fd_quic_pkt_t * pkt ) 
     pkt->ack_flag = 0;
     if( enc_level != fd_quic_enc_level_initial_id &&
         enc_level != fd_quic_enc_level_handshake_id ) {
-      ack_time = now + conn->peer_max_ack_delay; /* TODO subtract rtt? */
+      ulong peer_max_ack_delay = fd_ulong_max( 1, conn->peer_max_ack_delay );
+      ack_time = now + peer_max_ack_delay; /* TODO subtract rtt? */
     }
   } else {
     /* not ack-eliciting */
@@ -1923,24 +1933,23 @@ fd_quic_ack_pkt( fd_quic_t * quic, fd_quic_conn_t * conn, fd_quic_pkt_t * pkt ) 
   /* if there exists a last unsent ack, and it refers to the prior packet,
      extend it
      range.offset_hi refers the the last offset + 1 */
-  fd_quic_ack_t * head_ack = *acks_tx;
-  if( pkt_number > 0u && head_ack && head_ack->pkt_number.offset_hi == pkt_number &&
-      ( head_ack->flags & FD_QUIC_ACK_FLAGS_SENT ) == 0u ) {
-    head_ack->pkt_number.offset_hi++;
+  fd_quic_ack_t * tail_ack = *acks_tx_end;
+  if( pkt_number > 0u && tail_ack && tail_ack->pkt_number.offset_hi == pkt_number &&
+      ( tail_ack->flags & FD_QUIC_ACK_FLAGS_SENT ) == 0u ) {
+    tail_ack->pkt_number.offset_hi++;
 
     /* if the calculated ack time is sooner than this ack, update
        and reschedule service */
-    if( ack_time < head_ack->tx_time ) {
-      head_ack->tx_time = ack_time;
+    if( ack_time < tail_ack->tx_time ) {
+      tail_ack->tx_time = ack_time;
     } else {
-      ack_time = head_ack->tx_time;
+      ack_time = tail_ack->tx_time;
     }
 
-    /* TODO may be able to avoid this call sometimes */
     fd_quic_reschedule_conn( conn, ack_time );
 
     /* promote to mandatory, if necessary */
-    head_ack->flags = ack_mandatory ? FD_QUIC_ACK_FLAGS_MANDATORY : head_ack->flags;
+    tail_ack->flags = (uchar)( tail_ack->flags | ( ack_mandatory ? FD_QUIC_ACK_FLAGS_MANDATORY : 0 ) );
 
     return;
   }
@@ -3180,9 +3189,16 @@ fd_quic_conn_tx( fd_quic_t * quic, fd_quic_conn_t * conn ) {
 
     /* if we're sending at a particular enc level always include the unsent acks we can
        regardless of the ack_time */
-    fd_quic_ack_t * cur_ack_head = conn->acks_tx[enc_level];
-    if( cur_ack_head && !( cur_ack_head->flags & FD_QUIC_ACK_FLAGS_SENT ) ) {
-      ack_head = cur_ack_head;
+    fd_quic_ack_t * tmp_ack = conn->acks_tx[enc_level];
+    while( tmp_ack ) {
+      if( tmp_ack->flags & FD_QUIC_ACK_FLAGS_SENT ) {
+        tmp_ack = tmp_ack->next;
+      } else {
+        break;
+      }
+    }
+    if( tmp_ack && !( tmp_ack->flags & FD_QUIC_ACK_FLAGS_SENT ) ) {
+      ack_head = tmp_ack;
     }
 
     /* if we have acks, add them */
@@ -3211,35 +3227,41 @@ fd_quic_conn_tx( fd_quic_t * quic, fd_quic_conn_t * conn ) {
         tmp_ack_ptr = tmp_ack_ptr->next;
       }
 #endif
+      while( ack_head ) {
+        if( !(ack_head->flags & FD_QUIC_ACK_FLAGS_SENT ) ) {
 
-      /* put ack frame */
-      frame.ack.type            = 0x02u; /* type 0x02 is the base ack, 0x03 indicates ECN */
-      frame.ack.largest_ack     = ack_head->pkt_number.offset_hi - 1u;
-      frame.ack.ack_delay       = fd_quic_now( quic ) - ack_head->pkt_rcvd;
-      frame.ack.ack_range_count = 0; /* no fragments */
-      frame.ack.first_ack_range = ack_head->pkt_number.offset_hi - ack_head->pkt_number.offset_lo - 1u;
+          /* put ack frame */
+          frame.ack.type            = 0x02u; /* type 0x02 is the base ack, 0x03 indicates ECN */
+          frame.ack.largest_ack     = ack_head->pkt_number.offset_hi - 1u;
+          frame.ack.ack_delay       = fd_quic_now( quic ) - ack_head->pkt_rcvd;
+          frame.ack.ack_range_count = 0; /* no fragments */
+          frame.ack.first_ack_range = ack_head->pkt_number.offset_hi - ack_head->pkt_number.offset_lo - 1u;
 
-      /* calc size of ack frame */
-      frame_sz  = fd_quic_encode_footprint_ack_frame( &frame.ack );
+          /* calc size of ack frame */
+          frame_sz  = fd_quic_encode_footprint_ack_frame( &frame.ack );
 
-      if( payload_ptr + frame_sz < payload_end ) {
-        frame_sz = fd_quic_encode_ack_frame( payload_ptr,
-                                             (ulong)( payload_end - payload_ptr ),
-                                             &frame.ack );
-        if( FD_UNLIKELY( frame_sz == FD_QUIC_PARSE_FAIL ) ) {
-          /* shouldn't happen */
-          FD_LOG_WARNING(( "failed to encode ack" ));
-        } else {
-          payload_ptr  += frame_sz;
-          tot_frame_sz += frame_sz;
+          if( payload_ptr + frame_sz < payload_end ) {
+            frame_sz = fd_quic_encode_ack_frame( payload_ptr,
+                (ulong)( payload_end - payload_ptr ),
+                &frame.ack );
+            if( FD_UNLIKELY( frame_sz == FD_QUIC_PARSE_FAIL ) ) {
+              /* shouldn't happen */
+              FD_LOG_WARNING(( "failed to encode ack" ));
+            } else {
+              payload_ptr  += frame_sz;
+              tot_frame_sz += frame_sz;
 
-          /* must add acks to packet metadata */
-          ack_head->tx_pkt_number = pkt_number;
-          pkt_meta->flags         |= FD_QUIC_PKT_META_FLAGS_ACK;
+              /* must add acks to packet metadata */
+              ack_head->tx_pkt_number = pkt_number;
+              pkt_meta->flags         |= FD_QUIC_PKT_META_FLAGS_ACK;
 
-          /* ack frames don't really expire, but we still want to reclaim the pkt_meta */
-          pkt_meta->expiry = fd_ulong_min( pkt_meta->expiry, now + (ulong)1e9 );
+              /* ack frames don't really expire, but we still want to reclaim the pkt_meta */
+              pkt_meta->expiry = fd_ulong_min( pkt_meta->expiry, now + (ulong)1e9 );
+            }
+          }
         }
+
+        ack_head = ack_head->next;
       }
     }
 
@@ -4451,6 +4473,7 @@ fd_quic_frame_handle_ping_frame(
 
   /* ack-eliciting */
   context.pkt->ack_flag |= ACK_FLAG_RQD;
+  context.pkt->ping = 1;
 
   return 0;
 }
@@ -5248,12 +5271,12 @@ fd_quic_frame_handle_stream_frame(
   /* or provide in API */
 
   /* TODO if fin bit set, store the final size */
-  /* TODO fin bit logic - must allow max_stream_id to be increased for type */
-
-  /* TODO could allow user to cancel ack for this packet */
 
   /* determine whether any of these bytes were already received
      or whether these bytes are out of order */
+
+  /* get connection */
+  fd_quic_conn_t * conn = stream->conn;
 
   ulong exp_offset = stream->rx_tot_data; /* we expect the next byte */
 
@@ -5279,9 +5302,6 @@ fd_quic_frame_handle_stream_frame(
         exp_offset,
         data->fin_opt
     );
-
-    /* get connection */
-    fd_quic_conn_t * conn = stream->conn;
 
     /* need pn_space */
     uint pn_space = fd_quic_enc_level_to_pn_space( fd_quic_enc_level_appdata_id );
@@ -5331,6 +5351,17 @@ fd_quic_frame_handle_stream_frame(
          in a reorder buffer. */
       /* for now, we cancel the ack */
       context.pkt->ack_flag |= ACK_FLAG_CANCEL;
+    } else if( offset == exp_offset && data->length == 0 && data->fin_opt ) {
+      /* fin stream in zero-length packet */
+      if( ~( stream->state & FD_QUIC_STREAM_STATE_RX_FIN ) ) {
+        stream->state |= FD_QUIC_STREAM_STATE_RX_FIN;
+        if( stream->state & FD_QUIC_STREAM_STATE_TX_FIN ||
+            stream->stream_id & ( FD_QUIC_TYPE_UNIDIR << 1u ) ) {
+          printf( "freeing stream\n" ); fflush( stdout );
+          fd_quic_stream_free( context.quic, conn, stream, FD_QUIC_NOTIFY_END );
+          return data_sz;
+        }
+      }
     }
   }
 
