@@ -5357,7 +5357,6 @@ fd_quic_frame_handle_stream_frame(
         stream->state |= FD_QUIC_STREAM_STATE_RX_FIN;
         if( stream->state & FD_QUIC_STREAM_STATE_TX_FIN ||
             stream->stream_id & ( FD_QUIC_TYPE_UNIDIR << 1u ) ) {
-          FD_LOG_DEBUG(( "freeing stream" ));
           fd_quic_stream_free( context.quic, conn, stream, FD_QUIC_NOTIFY_END );
           return data_sz;
         }
