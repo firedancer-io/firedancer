@@ -17,6 +17,25 @@ void write_builtin_bogus_account( fd_global_ctx_t *global, const unsigned char *
   fd_acc_mgr_write_structured_account( global->acc_mgr, global->funk_txn, global->current_slot, (fd_pubkey_t *) pubkey, &account );
 }
 
+/* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/runtime/src/inline_spl_token.rs#L74 */
+/* TODO: move this somewhere more appropiate */
+void write_inline_spl_native_mint_program_account( fd_global_ctx_t* global ) {
+  /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/runtime/src/inline_spl_token.rs#L86-L90 */
+    ulong data[] = {
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 9, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+  fd_solana_account_t account = {
+    .lamports = 1000000000,
+    .rent_epoch = 1,
+    .data_len = sizeof(data),
+    .data = (unsigned char *) data,
+    .executable = (uchar) 0
+  };
+  fd_memcpy( account.owner.key, global->solana_spl_token, 32 );
+  fd_acc_mgr_write_structured_account( global->acc_mgr, global->funk_txn, global->current_slot, (fd_pubkey_t *) global->solana_spl_native_mint, &account );
+}
+
 void fd_builtin_programs_init( fd_global_ctx_t* global ) {
 
   /* List of BuiltIn's created during genesis:
@@ -52,4 +71,7 @@ void fd_builtin_programs_init( fd_global_ctx_t* global ) {
   /* Precompiles have empty account data */
   write_builtin_bogus_account( global, global->solana_keccak_secp_256k_program, NULL, 0 );
   write_builtin_bogus_account( global, global->solana_ed25519_sig_verify_program, NULL, 0 );
+
+  /* Inline SPL token mint program ("inlined to avoid an external dependency on the spl-token crate") */
+  write_inline_spl_native_mint_program_account( global );
 }

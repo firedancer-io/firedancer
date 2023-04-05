@@ -254,6 +254,9 @@ fd_global_ctx_new        ( void * mem ) {
   fd_base58_decode_32( "ZkTokenProof1111111111111111111111111111111",  (unsigned char *) self->solana_zk_token_proof_program);
   fd_base58_decode_32( "AddressLookupTab1e1111111111111111111111111",  (unsigned char *) self->solana_address_lookup_table_program);
 
+  fd_base58_decode_32( "So11111111111111111111111111111111111111112",  (unsigned char *) self->solana_spl_native_mint);
+  fd_base58_decode_32( "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",  (unsigned char *) self->solana_spl_token);
+
   FD_COMPILER_MFENCE();
   self->magic = FD_GLOBAL_CTX_MAGIC;
   FD_COMPILER_MFENCE();
