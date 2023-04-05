@@ -4,6 +4,7 @@
 #include <stdlib.h>
 
 #include "fd_pcap.h"
+#include "test_helpers.c"
 
 #define BUF_SZ (1<<20)
 
@@ -50,6 +51,14 @@ void
 free_stream_meta( my_stream_meta_t * meta ) {
   meta->next  = meta_free;
   meta_free = meta;
+}
+
+void
+destroy_stream_meta() {
+  my_stream_meta_t * meta;
+  while( (meta = get_stream_meta()) ) {
+    free( meta );
+  }
 }
 
 my_stream_meta_t * stream_avail = NULL;
@@ -114,66 +123,6 @@ populate_streams( ulong sz, fd_quic_conn_t * conn ) {
     free_stream( meta );
   }
 }
-
-void
-write_shb( FILE * file ) {
-  pcap_shb_t shb[1] = {{ 0x0A0D0D0A, sizeof( pcap_shb_t ), 0x1A2B3C4D, 1, 0, (ulong)-1, sizeof( pcap_shb_t ) }};
-  ulong rc = fwrite( shb, sizeof(shb), 1, file );
-  if( rc != 1 ) {
-    abort();
-  }
-}
-
-void
-write_idb( FILE * file ) {
-  pcap_idb_t idb[1] = {{ 0x00000001, sizeof( pcap_idb_t ), 1, 0, 0, sizeof( pcap_idb_t ) }};
-  ulong rc = fwrite( idb, sizeof(idb), 1, file );
-  if( rc != 1 ) {
-    abort();
-  }
-}
-
-void
-write_epb( FILE * file, uchar * buf, uint buf_sz, ulong ts ) {
-  if( buf_sz == 0 ) return;
-
-  uint ts_lo = (uint)ts;
-  uint ts_hi = (uint)( ts >> 32u );
-
-  uint align_sz = ( ( buf_sz - 1u ) | 0x03u ) + 1u;
-  uint tot_len  = align_sz + (uint)sizeof( pcap_epb_t ) + 4;
-  pcap_epb_t epb[1] = {{
-    0x00000006,
-    tot_len,
-    0, /* intf id */
-    ts_hi,
-    ts_lo,
-    buf_sz,
-    buf_sz }};
-
-  ulong rc = fwrite( epb, sizeof( epb ), 1, file );
-  if( rc != 1 ) {
-    abort();
-  }
-
-  rc = fwrite( buf, buf_sz, 1, file );
-  if( rc != 1 ) {
-    abort();
-  }
-
-  if( align_sz > buf_sz ) {
-    /* write padding */
-    uchar pad[4] = {0};
-    fwrite( pad, align_sz - buf_sz, 1, file );
-  }
-
-  rc = fwrite( &tot_len, 4, 1, file );
-  if( rc != 1 ) {
-    abort();
-  }
-
-}
-
 
 extern uchar pkt_full[];
 extern ulong pkt_full_sz;
@@ -341,33 +290,11 @@ ulong test_clock( void * ctx ) {
 }
 
 static void
-init_quic( fd_quic_t *  quic,
-           char const * hostname,
-           uint         ip_addr,
-           uint         udp_port ) {
-
-  FD_LOG_NOTICE(( "Configuring QUIC \"%s\"", hostname ));
-
-  fd_quic_config_t * quic_config = fd_quic_get_config( quic );
-
-  strcpy ( quic_config->cert_file,   "cert.pem" );
-  strcpy ( quic_config->key_file,    "key.pem"  );
-  strncpy( quic_config->sni,         hostname, FD_QUIC_SNI_LEN );
-  strcpy ( quic_config->keylog_file, "keylog.log" );
-
-  quic_config->net.ip_addr         = ip_addr;
-  quic_config->net.listen_udp_port = (ushort)udp_port;
-
-  quic_config->net.ephem_udp_port.lo = 4219;
-  quic_config->net.ephem_udp_port.hi = 4220;
-
+quic_set_callbacks( fd_quic_t * quic ) {
   fd_quic_callbacks_t * quic_cb = fd_quic_get_callbacks( quic );
 
   quic_cb->stream_receive = my_stream_receive_cb;
   quic_cb->stream_notify  = my_stream_notify_cb;
-
-  quic_cb->now     = test_clock;
-  quic_cb->now_ctx = NULL;
 }
 
 int
@@ -425,6 +352,9 @@ main( int argc, char ** argv ) {
 
   init_quic( server_quic, "server_host", 0x0a000001u, 4434 );
   init_quic( client_quic, "client_host", 0xc01a1a1au, 2001 );
+
+  quic_set_callbacks( server_quic );
+  quic_set_callbacks( client_quic );
 
   server_quic->config.role = FD_QUIC_ROLE_SERVER;
   client_quic->config.role = FD_QUIC_ROLE_CLIENT;
@@ -590,8 +520,10 @@ main( int argc, char ** argv ) {
     fd_quic_service( server_quic );
   }
 
-  fd_quic_delete( server_quic );
-  fd_quic_delete( client_quic );
+  destroy_stream_meta();
+
+  fd_quic_delete( fd_quic_leave( server_quic ) );
+  fd_quic_delete( fd_quic_leave( client_quic ) );
 
   if( fail ) FD_LOG_ERR(( "fail" ));
   FD_LOG_NOTICE(( "pass" ));

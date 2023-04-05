@@ -212,9 +212,10 @@ fd_quic_config_from_env( int  *             pargc,
 
   if( FD_UNLIKELY( !cfg ) ) return NULL;
 
-  char const * cert_file   = fd_env_strip_cmdline_cstr ( pargc, pargv, "--ssl-cert", "QUIC_TLS_CERT", NULL );
-  char const * key_file    = fd_env_strip_cmdline_cstr ( pargc, pargv, "--ssl-key",  "QUIC_TLS_KEY",  NULL );
-  char const * keylog_file = fd_env_strip_cmdline_cstr ( pargc, pargv, NULL,         "SSLKEYLOGFILE", NULL );
+  char const * cert_file       = fd_env_strip_cmdline_cstr ( pargc, pargv, "--ssl-cert",     "QUIC_TLS_CERT", NULL  );
+  char const * key_file        = fd_env_strip_cmdline_cstr ( pargc, pargv, "--ssl-key",      "QUIC_TLS_KEY",  NULL  );
+  char const * keylog_file     = fd_env_strip_cmdline_cstr ( pargc, pargv, NULL,             "SSLKEYLOGFILE", NULL  );
+  ulong        idle_timeout_ms = fd_env_strip_cmdline_ulong( pargc, pargv, "--idle-timeout", NULL,            100UL );
 
   if( FD_UNLIKELY( !cert_file ) ) {
     FD_LOG_WARNING(( "Missing --ssl-cert" ));
@@ -233,6 +234,8 @@ fd_quic_config_from_env( int  *             pargc,
   } else {
     cfg->keylog_file[0]='\0';
   }
+
+  cfg->idle_timeout = idle_timeout_ms * (ulong)1e6;
 
   return cfg;
 }
@@ -294,11 +297,27 @@ fd_quic_join( fd_quic_t * quic ) {
   if( FD_UNLIKELY( !config->role                ) ) { FD_LOG_WARNING(( "cfg.role not set"           )); return NULL; }
   if( FD_UNLIKELY( !config->cert_file[0]        ) ) { FD_LOG_WARNING(( "no cfg.cert_file"           )); return NULL; }
   if( FD_UNLIKELY( !config->key_file [0]        ) ) { FD_LOG_WARNING(( "no cfg.key_file"            )); return NULL; }
-  if( FD_UNLIKELY( !config->net.listen_udp_port ) ) { FD_LOG_WARNING(( "no cfg.net.listen_udp_port" )); return NULL; }
   if( FD_UNLIKELY( !config->net.ip_addr         ) ) { FD_LOG_WARNING(( "no cfg.net.ip_addr"         )); return NULL; }
   if( FD_UNLIKELY( fd_ulong_load_6( config->link.src_mac_addr )==0 ) ) { FD_LOG_WARNING(( "no cfg.link.src_mac_addr" )); return NULL; }
   if( FD_UNLIKELY( fd_ulong_load_6( config->link.dst_mac_addr )==0 ) ) { FD_LOG_WARNING(( "no cfg.link.dst_mac_addr" )); return NULL; }
   if( FD_UNLIKELY( !config->idle_timeout        ) ) { FD_LOG_WARNING(( "zero cfg.idle_timeout"      )); return NULL; }
+
+  switch( config->role ) {
+  case FD_QUIC_ROLE_SERVER:
+    if( FD_UNLIKELY( !config->net.listen_udp_port ) ) { FD_LOG_WARNING(( "no cfg.net.listen_udp_port" )); return NULL; }
+    break;
+  case FD_QUIC_ROLE_CLIENT:
+    if( FD_UNLIKELY( !config->net.ephem_udp_port.lo
+                  || !config->net.ephem_udp_port.hi
+                  || config->net.ephem_udp_port.lo > config->net.ephem_udp_port.hi ) ) {
+      FD_LOG_WARNING(( "invalid cfg.net.ephem_udp_port" ));
+      return NULL;
+    }
+    break;
+  default:
+    FD_LOG_WARNING(( "invalid cfg.role" ));
+    return NULL;
+  }
 
   /* Derive memory layout */
 

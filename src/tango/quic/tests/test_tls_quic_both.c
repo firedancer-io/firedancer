@@ -15,12 +15,12 @@ uchar test_tp[] = "\x00\x39\x00\x39\x01\x04\x80\x00\xea\x60\x04\x04\x80\x10\x00\
                   "\x0e\x01\x08\x0f\x08\xec\x73\x1b\x41\xa0\xd5\xc6\xfe";
 
 struct fd_hs_data {
-  int                 enc_level;
-  int                 sz;
-  struct fd_hs_data * next;
+  OSSL_ENCRYPTION_LEVEL enc_level;
+  int                   sz;
+  struct fd_hs_data *   next;
 
   // data starts here
-  uchar               raw[];
+  uchar                 raw[];
 };
 typedef struct fd_hs_data fd_hs_data_t;
 
@@ -40,7 +40,9 @@ struct fd_quic_tls {
 typedef struct fd_quic_tls fd_quic_tls_t;
 
 fd_hs_data_t *
-fd_hs_data_new( int enc_level, void const * data, ulong sz ) {
+fd_hs_data_new( OSSL_ENCRYPTION_LEVEL enc_level,
+                void const * data,
+                ulong        sz ) {
   uchar *        block   = malloc( sizeof( fd_hs_data_t  ) + sz );
   fd_hs_data_t * self    = (fd_hs_data_t*)block;
   uchar *        payload = self->raw;
@@ -141,20 +143,17 @@ int fd_quic_ssl_set_encryption_secrets(
   (void)secret_len;
 
   struct fd_quic_tls * ctx = SSL_get_app_data( ssl );
-  ctx->sec_level = level;
+  ctx->sec_level = (int)level;
 
   return 1;
 }
 
 int fd_quic_ssl_add_handshake_data( SSL *                 ssl,
                                     OSSL_ENCRYPTION_LEVEL level,
-                                    uchar const *       data,
-                                    ulong                len ) {
-  printf( "In %s\n", __func__ );
-  for( ulong j = 0; j < len; ++j ) {
-    printf( "%2.2x ", data[j] );
-  }
-  printf( "\n" );
+                                    uchar const *         data,
+                                    ulong                 len ) {
+
+  FD_LOG_HEXDUMP_INFO(( "fd_quic_ssl_add_handshake_data", data, len ));
 
   struct fd_quic_tls * ctx = SSL_get_app_data( ssl );
 
@@ -487,6 +486,9 @@ main( int     argc,
   SSL_free( ssl_server );
   //SSL_CTX_free(ctx_client);
   SSL_CTX_free(ctx);
+
+  free( tls_client );
+  free( tls_server );
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

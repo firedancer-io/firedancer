@@ -1,3 +1,6 @@
+#ifndef HEADER_fd_src_tango_quic_tests_fd_pcap_h
+#define HEADER_fd_src_tango_quic_tests_fd_pcap_h
+
 // section header block
 //                        1                   2                   3
 //     0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
@@ -137,3 +140,5 @@ struct __attribute__(( __packed__ )) pcap_dsb {
   // foot
 };
 typedef struct pcap_dsb pcap_dsb_t;
+
+#endif /* HEADER_fd_src_tango_quic_tests_fd_pcap_h */

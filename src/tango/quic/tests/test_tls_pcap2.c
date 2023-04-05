@@ -355,16 +355,8 @@ main( int     argc,
     enc_header[pn_offset + j] ^= mask[1+j];
   }
 
-  printf( "header:  " );
-  for( ulong j = 0; j < sizeof( packet_header ); ++j ) {
-    printf( "%2.2x ", packet_header[j] );
-  }
-  printf( "\n" );
-  printf( "encoded: " );
-  for( ulong j = 0; j < sizeof( packet_header ); ++j ) {
-    printf( "%2.2x ", enc_header[j] );
-  }
-  printf( "\n" );
+  FD_LOG_HEXDUMP_INFO(( "header",  packet_header, sizeof(packet_header) ));
+  FD_LOG_HEXDUMP_INFO(( "encoded", enc_header,    sizeof(packet_header) ));
 
   // FD_TEST( 1==EVP_DecryptInit_ex( cipher_ctx, NULL, NULL, NULL, Iv ) );
 
@@ -382,6 +374,8 @@ main( int     argc,
 
   // then we can start handling the frames
 
+  EVP_CIPHER_CTX_free( cipher_ctx    );
+  EVP_CIPHER_CTX_free( hp_cipher_ctx );
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
