@@ -114,7 +114,8 @@
         { "name": "lamports_per_uint8_year", "type": "ulong" },
         { "name": "exemption_threshold", "type": "double" },
         { "name": "burn_percent", "type": "unsigned char" }
-      ]
+      ],
+      "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/rent.rs#L11"
     },
     {
       "name": "rent_collector",

@@ -107,6 +107,7 @@ typedef struct fd_inflation fd_inflation_t;
 #define FD_INFLATION_FOOTPRINT sizeof(fd_inflation_t)
 #define FD_INFLATION_ALIGN (8UL)
 
+/* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/rent.rs#L11 */
 struct fd_rent {
   unsigned long lamports_per_uint8_year;
   double        exemption_threshold;
