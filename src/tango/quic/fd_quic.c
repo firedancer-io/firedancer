@@ -2321,7 +2321,7 @@ fd_quic_process_packet( fd_quic_t *   quic,
     /* find connection id */
     fd_quic_conn_entry_t * entry = fd_quic_conn_map_query( state->conn_map, &dst_conn_id );
     if( !entry ) {
-      DEBUG( printf( "%s : one_rtt failed: no connection found\n", __func__ ); )
+      DEBUG( FD_LOG_DEBUG(( "one_rtt failed: no connection found" )); )
       /* silently ignore */
       return;
     }
