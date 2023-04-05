@@ -195,6 +195,18 @@ mkdir -pv "$CONF_DIR" || exit $?
   dumpvar RUN_ARGS
   dumpvar MON_ARGS
   dumpvar MAIN_CNC
+  dumpvar IFACE
+  dumpvar LISTEN_ADDRS
+  dumpvar SRC_MAC_ADDR
+  dumpvar DST_MAC_ADDR
+  dumpvar QUIC_LISTEN_PORT
+  dumpvar QUIC_CONN_CNT
+  dumpvar QUIC_CONN_ID_CNT
+  dumpvar QUIC_STREAM_CNT
+  dumpvar QUIC_HANDSHAKE_CNT
+  dumpvar QUIC_MAX_INFLIGHT_PKTS
+  dumpvar QUIC_TX_BUF_SZ
+  dumpvar QUIC_RX_BUF_SZ
 ) > "$CONF" || exit $?
 
 #######################################################################
