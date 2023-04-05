@@ -1333,7 +1333,7 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
 
     /* now we have decrypted packet number */
     pkt_number = fd_quic_parse_bits( dec_hdr + pn_offset, 0, 8u * pkt_number_sz );
-    DEBUG( FD_LOG_DEBUG(( "pkt_number: %lu", (ulong)pkt_number )); )
+    DEBUG( FD_LOG_DEBUG(( "initial pkt_number: %lu", (ulong)pkt_number )); )
 
     /* packet number space */
     uint pn_space = fd_quic_enc_level_to_pn_space( enc_level );
@@ -1537,9 +1537,7 @@ fd_quic_handle_v1_handshake(
     /* now we have decrypted packet number */
     /* TODO packet number processing */
     pkt_number = fd_quic_parse_bits( dec_hdr + pn_offset, 0, 8u * pkt_number_sz );
-    DEBUG(
-      printf( "pkt_number: %lu\n", (ulong)pkt_number );
-    )
+    DEBUG( FD_LOG_DEBUG(( "handshake pkt_number: %lu\n", (ulong)pkt_number )); )
 
     /* packet number space */
     uint pn_space = fd_quic_enc_level_to_pn_space( enc_level );
@@ -1745,7 +1743,7 @@ fd_quic_handle_v1_one_rtt( fd_quic_t * quic, fd_quic_conn_t * conn, fd_quic_pkt_
     /* now we have decrypted packet number */
     /* TODO packet number processing */
     pkt_number = fd_quic_parse_bits( dec_hdr + pn_offset, 0, 8u * pkt_number_sz );
-    DEBUG( FD_LOG_DEBUG(( "pkt_number: %lu", pkt_number )); fd_log_flush(); )
+    DEBUG( FD_LOG_DEBUG(( "one_rtt pkt_number: %lu", pkt_number )); fd_log_flush(); )
 
     /* packet number space */
     uint pn_space = fd_quic_enc_level_to_pn_space( enc_level );

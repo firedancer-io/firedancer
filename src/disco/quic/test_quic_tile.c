@@ -155,7 +155,7 @@ rx_tile_main( int     argc,
 
     /* Print txn sig to user */
 
-    FD_LOG_NOTICE(( "Received txn no=%lu sig=%s", ++txn_idx, txn_sig_cstr ));
+    FD_LOG_DEBUG(( "Received txn no=%lu sig=%s", ++txn_idx, txn_sig_cstr ));
   }
 
   fd_cnc_signal( cnc, FD_CNC_SIGNAL_BOOT );
