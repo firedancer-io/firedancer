@@ -1415,8 +1415,7 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
   DEBUG( FD_LOG_DEBUG(( "new connection success" )); )
 
   /* insert into service queue */
-  fd_quic_event_t event[1] = {{ .timeout = 0, .conn = conn }};
-  service_queue_insert( state->service_queue, event );
+  fd_quic_reschedule_conn( conn, conn->last_activity + 1UL );
 
   /* return number of bytes consumed */
   return tot_sz;
@@ -1832,9 +1831,13 @@ fd_quic_reschedule_conn( fd_quic_conn_t * conn,
   fd_quic_t *       quic  = conn->quic;
   fd_quic_state_t * state = fd_quic_get_state( quic );
 
-  /* set new timeout */
-  /* only brings it in - never pushes it out */
-  if( timeout < conn->next_service_time ) {
+  /* scheduled? */
+  if( conn->in_service ) {
+    /* in the queue, but already scheduled sooner */
+    if( timeout >= conn->sched_service_time ) {
+      return;
+    }
+
     /* find conn in events, then remove, update, insert */
     fd_quic_event_t * event     = NULL;
     ulong             event_idx = 0;
@@ -1848,26 +1851,24 @@ fd_quic_reschedule_conn( fd_quic_conn_t * conn,
       }
     }
 
-    /* this shouldn't happen, unless the connection is dead */
-    if( FD_UNLIKELY( !event ) ) {
-      /* TODO could do a sanity check here that the state is a dead one */
-      return;
+    if( FD_LIKELY( event ) ) {
+      /* remove key */
+      service_queue_remove( state->service_queue, event_idx );
+
+      /* TODO can use a priority queue key-reduce operation, which may be done more
+         quickly than remove, insert */
     }
-
-    /* copy event before removing it */
-    fd_quic_event_t lcl_event = *event;
-
-    /* remove */
-    service_queue_remove( state->service_queue, event_idx );
-
-    /* update */
-    lcl_event.timeout = timeout;
-
-    /* insert */
-    service_queue_insert( state->service_queue, &lcl_event );
-
-    conn->next_service_time = timeout;
   }
+
+  timeout = fd_ulong_min( timeout, conn->sched_service_time );
+  timeout = fd_ulong_max( timeout, fd_quic_now(quic) + 1UL );
+
+  /* insert key */
+  fd_quic_event_t event[1] = {{ .timeout = timeout, .conn = conn }};
+  service_queue_insert( state->service_queue, event );
+
+  conn->next_service_time = conn->sched_service_time - timeout;
+  conn->in_service        = 1;
 }
 
 
@@ -2689,6 +2690,15 @@ fd_quic_service( fd_quic_t * quic ) {
 
     fd_quic_conn_t * conn = event->conn;
 
+    /* unset "in service queue" */
+    conn->in_service = 0;
+
+    if( conn->state == FD_QUIC_CONN_STATE_INVALID ) {
+      /* connection shouldn't have been scheduled,
+         and is now removed, so just continue */
+      continue;
+    }
+
     if( FD_UNLIKELY( now > conn->last_activity + conn->idle_timeout ) ) {
       /* rfc9000 10.1 Idle Timeout
          "... the connection is silently closed and its state is discarded
@@ -2696,11 +2706,9 @@ fd_quic_service( fd_quic_t * quic ) {
          max_idle_timeout value advertised by both endpoints." */
       conn->state = FD_QUIC_CONN_STATE_DEAD;
     } else {
-      fd_quic_conn_service( quic, conn, now );
+      conn->next_service_time = now + quic->config.service_interval;
 
-      if( conn->next_service_time <= now ) {
-        conn->next_service_time = now + quic->config.service_interval;
-      }
+      fd_quic_conn_service( quic, conn, now );
     }
 
     /* dead? don't reinsert, just clean up */
@@ -2715,11 +2723,13 @@ fd_quic_service( fd_quic_t * quic ) {
         break;
 
       default:
-        if( conn->next_service_time <= now ) {
-          conn->next_service_time = now+1ul;
+        if( !conn->in_service ) {
+          if( conn->next_service_time < now ) {
+            conn->next_service_time = now + quic->config.service_interval;
+          }
+
+          fd_quic_reschedule_conn( conn, conn->next_service_time );
         }
-        event->timeout = conn->next_service_time;
-        service_queue_insert( state->service_queue, event );
     }
   }
 }
@@ -4191,8 +4201,7 @@ fd_quic_connect( fd_quic_t *  quic,
   }
 
   /* insert into service queue */
-  fd_quic_event_t event[1] = {{ .timeout = 0, .conn = conn }};
-  service_queue_insert( state->service_queue, event );
+  fd_quic_reschedule_conn( conn, fd_quic_now( quic ) + 1UL );
 
   /* everything initialized */
   return conn;
@@ -4272,6 +4281,7 @@ fd_quic_conn_create( fd_quic_t *               quic,
   conn->established         = 0;
   conn->version             = version;
   conn->next_service_time   = 0;
+  conn->sched_service_time  = 0;
   fd_memset( &conn->our_conn_id[0], 0, sizeof( conn->our_conn_id ) );
   conn->host                = (fd_quic_net_endpoint_t){
     .ip_addr  = config->net.ip_addr,
