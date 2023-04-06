@@ -568,21 +568,22 @@ fd_quic_tx_enc_level( fd_quic_conn_t * conn ) {
       return ~0u;
 
       /* TODO consider this optimization... but we want to ack all handshakes, even if there is stream_data */
-    //case FD_QUIC_CONN_STATE_ACTIVE:
-    //  {
-    //    /* optimization for case where we have stream data to send */
+    case FD_QUIC_CONN_STATE_ACTIVE:
+      {
+        /* optimization for case where we have stream data to send */
 
-    //    /* find stream data to send */
-    //    if( conn->send_streams && conn->send_streams->upd_pkt_number == app_pkt_number ) {
-    //      return fd_quic_enc_level_appdata_id;
-    //    }
-    //  }
+        /* find stream data to send */
+        if( conn->send_streams && conn->send_streams->upd_pkt_number == app_pkt_number ) {
+          return fd_quic_enc_level_appdata_id;
+        }
+      }
   }
 
   /* Check for acks to send */
 
   /* TODO replace enc_level with pn_space for ack index
      not necessary until 0-rtt is supported */
+  /* use "pending" aand "sent" lists for acks to speed up this check */
   for( uint k = 0; k < 4; ++k ) {
     fd_quic_ack_t * cur_ack_head = conn->acks_tx[k];
     /* skip sent */
@@ -1012,6 +1013,9 @@ fd_quic_ack_enc_level( fd_quic_conn_t * conn, uint enc_level ) {
       pkt_meta = pool->sent[j].head;
     }
   }
+
+  /* discard handshake data with lower enc_level */
+  /* TODO */
 }
 
 /* fd_quic_handle_v1_initial handles an "Initial"-type packet.
@@ -3312,6 +3316,11 @@ fd_quic_conn_tx( fd_quic_t * quic, fd_quic_conn_t * conn ) {
         /* are we the client initial packet? */
         initial_pkt = offset == 0 && !conn->server;
 
+        ulong tx_crypto_offset = conn->tx_crypto_offset[enc_level];
+
+        data_sz = 0;
+        (void)data;
+
         while( hs_data ) {
           /* skip data we've sent */
           if( hs_data->offset + hs_data->data_sz > offset ) {
@@ -3326,13 +3335,13 @@ fd_quic_conn_tx( fd_quic_t * quic, fd_quic_conn_t * conn ) {
             hs_offset = offset - hs_data->offset;
 
             /* handshake data to send */
-            data    = hs_data->data    + hs_offset;
-            data_sz = hs_data->data_sz - hs_offset;
+            uchar const * cur_data    = hs_data->data    + hs_offset;
+            ulong         cur_data_sz = hs_data->data_sz - hs_offset;
 
             /* build crypto frame */
-            frame.crypto.offset      = conn->tx_crypto_offset[enc_level];
-            frame.crypto.length      = data_sz;
-            frame.crypto.crypto_data = data;
+            frame.crypto.offset      = tx_crypto_offset;
+            frame.crypto.length      = cur_data_sz;
+            frame.crypto.crypto_data = cur_data;
 
             /* calc size of crypto frame, including */
             frame_sz = fd_quic_encode_footprint_crypto_frame( &frame.crypto );
@@ -3343,12 +3352,12 @@ fd_quic_conn_tx( fd_quic_t * quic, fd_quic_conn_t * conn ) {
               over = frame_sz - (ulong)( payload_end - payload_ptr );
             }
 
-            if( FD_UNLIKELY( over >= data_sz ) ) {
+            if( FD_UNLIKELY( over >= cur_data_sz ) ) {
               break;
             }
 
-            data_sz -= over;
-            frame.crypto.length = data_sz;
+            cur_data_sz -= over;
+            frame.crypto.length = cur_data_sz;
 
             /* output */
             frame_sz = fd_quic_encode_crypto_frame( payload_ptr,
@@ -3372,12 +3381,13 @@ fd_quic_conn_tx( fd_quic_t * quic, fd_quic_conn_t * conn ) {
             pkt_meta->expiry          = fd_ulong_min( pkt_meta->expiry, now + 3u * conn->rtt );
 
             /* move to next hs_data */
-            offset       += data_sz;
+            offset           += cur_data_sz;
+            data_sz          += cur_data_sz;
+            tx_crypto_offset += cur_data_sz;
 
             /* TODO load more hs_data into a crypto frame, if available
                currently tricky, because encode_crypto_frame copies payload */
 
-            break;
           } else {
             hs_data = fd_quic_tls_get_next_hs_data( conn->tls_hs, hs_data );
           }

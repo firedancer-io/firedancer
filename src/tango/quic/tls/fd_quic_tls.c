@@ -11,8 +11,8 @@
 int
 fd_quic_ssl_add_handshake_data( SSL *                 ssl,
                                 OSSL_ENCRYPTION_LEVEL enc_level,
-                                uchar const *       data,
-                                ulong                data_sz );
+                                uchar const *         data,
+                                ulong                 data_sz );
 
 int
 fd_quic_ssl_flush_flight( SSL * ssl );
@@ -218,6 +218,7 @@ fd_quic_tls_hs_new( fd_quic_tls_t * quic_tls,
   self->is_server = is_server;
   self->is_flush  = 0;
   self->context   = context;
+  self->state     = FD_QUIC_TLS_HS_STATE_NEED_INPUT;
 
   /* initialize handshake data */
 
@@ -303,6 +304,8 @@ void
 fd_quic_tls_hs_delete( fd_quic_tls_hs_t * self ) {
   if( !self ) return;
 
+  self->state = FD_QUIC_TLS_HS_STATE_DEAD;
+
   fd_quic_tls_t * quic_tls = self->quic_tls;
 
   // find index into array
@@ -324,51 +327,78 @@ int
 fd_quic_tls_provide_data( fd_quic_tls_hs_t *    self,
                           OSSL_ENCRYPTION_LEVEL enc_level,
                           uchar const *         data,
-                          ulong                data_sz ) {
+                          ulong                 data_sz ) {
+  switch( self->state ) {
+    case FD_QUIC_TLS_HS_STATE_DEAD:
+    case FD_QUIC_TLS_HS_STATE_COMPLETE:
+      return FD_QUIC_TLS_SUCCESS;
+
+    default:
+      break;
+  }
 
   if( FD_UNLIKELY( 1!=SSL_provide_quic_data( self->ssl, enc_level, data, data_sz ) ) ) {
     FD_LOG_WARNING(( "SSL_provide_quic_data failed: %s", fd_quic_tls_strerror() ));
     return FD_QUIC_TLS_FAILED;
   }
 
+  /* needs a call to fd_quic_tls_process */
+  self->state = FD_QUIC_TLS_HS_STATE_NEED_SERVICE;
+
   return FD_QUIC_TLS_SUCCESS;
 }
 
 int
 fd_quic_tls_process( fd_quic_tls_hs_t * self ) {
+  if( self->state != FD_QUIC_TLS_HS_STATE_NEED_SERVICE ) return FD_QUIC_TLS_SUCCESS;
+
   int   ssl_rc = 0;
   SSL * ssl    = self->ssl;
   if( !self->is_hs_complete ) {
-    ssl_rc = SSL_do_handshake( self->ssl );
-    switch( ssl_rc ) {
-      case 0: // failed
-        // according to the API rc==0 means failure
-        // but can this occur without any error?
-        {
-          int err = SSL_get_error( ssl, (int)ssl_rc );
-          FD_LOG_WARNING(( "OpenSSL error: %d %s", err, fd_quic_tls_strerror() ));
-          self->err_ssl_rc  = (int)ssl_rc;
-          self->err_ssl_err = err;
-          self->err_line    = __LINE__;
-          return FD_QUIC_TLS_FAILED;
-        }
-      case 1: // completed
-        self->is_hs_complete = 1;
-        self->quic_tls->handshake_complete_cb( self, self->context );
-        return FD_QUIC_TLS_SUCCESS;
-      default:
-        {
-          int err = SSL_get_error( ssl, (int)ssl_rc );
-          if( FD_LIKELY( err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE ) ) {
-            // WANT_READ and WANT_WRITE are expected conditions
-            return FD_QUIC_TLS_SUCCESS;
+    uint cnt = 0;
+    while(1) {
+      cnt++;
+      ssl_rc = SSL_do_handshake( self->ssl );
+      switch( ssl_rc ) {
+        case 0: // failed
+          // according to the API rc==0 means failure
+          // but can this occur without any error?
+          {
+            int err = SSL_get_error( ssl, (int)ssl_rc );
+            FD_LOG_WARNING(( "OpenSSL error: %d %s", err, fd_quic_tls_strerror() ));
+            self->err_ssl_rc  = (int)ssl_rc;
+            self->err_ssl_err = err;
+            self->err_line    = __LINE__;
+            self->state       = FD_QUIC_TLS_HS_STATE_DEAD;
+            return FD_QUIC_TLS_FAILED;
           }
-          FD_LOG_WARNING(( "OpenSSL error: %d %s", err, fd_quic_tls_strerror() ));
-          self->err_ssl_rc  = (int)ssl_rc;
-          self->err_ssl_err = err;
-          self->err_line    = __LINE__;
-          return FD_QUIC_TLS_FAILED;
-        }
+        case 1: // completed
+          self->is_hs_complete = 1;
+          self->quic_tls->handshake_complete_cb( self, self->context );
+          self->state = FD_QUIC_TLS_HS_STATE_COMPLETE;
+          /* free handshake data */
+          return FD_QUIC_TLS_SUCCESS;
+        default:
+          {
+            int err = SSL_get_error( ssl, (int)ssl_rc );
+            /* WANT_READ and WANT_WRITE are expected conditions */
+            if( FD_LIKELY( err == SSL_ERROR_WANT_READ ) ) {
+              /* set state such that we don't do extra work until
+                 provided with more data */
+              self->state = FD_QUIC_TLS_HS_STATE_NEED_INPUT;
+              return FD_QUIC_TLS_SUCCESS;
+            }
+            if( FD_LIKELY( err == SSL_ERROR_WANT_WRITE ) ) {
+              break;
+            }
+            FD_LOG_WARNING(( "OpenSSL error: %d %s", err, fd_quic_tls_strerror() ));
+            self->err_ssl_rc  = (int)ssl_rc;
+            self->err_ssl_err = err;
+            self->err_line    = __LINE__;
+            self->state       = FD_QUIC_TLS_HS_STATE_DEAD;
+            return FD_QUIC_TLS_FAILED;
+          }
+      }
     }
   } else {
     // handle post-handshake messages
@@ -714,6 +744,9 @@ fd_quic_create_context( fd_quic_tls_t * quic_tls,
       return NULL;
     }
   }
+
+  /* set verification */
+  //SSL_CTX_set_verify( ctx, SSL_VERIFY_PEER, NULL );
 
   /* solana actual: "solana-tpu" */
   ERR_clear_error();
