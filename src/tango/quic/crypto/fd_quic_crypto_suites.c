@@ -1,5 +1,6 @@
 #include "fd_quic_crypto_suites.h"
 #include "../fd_quic.h"
+
 #include <openssl/err.h>
 #include <openssl/rand.h>
 #include <limits.h>
@@ -12,6 +13,12 @@ uchar FD_QUIC_CRYPTO_V1_INITIAL_SALT[ 20UL ] = {
     0x4d, 0x17, 0x9a, 0xe6, 0xa4, 0xc8, 0x0c, 0xad,
     0xcc, 0xbb, 0x7f, 0x0a };
 
+/* Helpers */
+
+#define FD_QUIC_HASH_SZ_sha256 (32UL)
+#define FD_QUIC_HASH_SZ_sha384 (48UL)
+#define FD_QUIC_HASH_SZ_sha512 (64UL)
+
 void
 fd_quic_crypto_ctx_init( fd_quic_crypto_ctx_t * ctx ) {
   ctx->CIPHER_AES_128_GCM       = EVP_aes_128_gcm();
@@ -23,19 +30,17 @@ fd_quic_crypto_ctx_init( fd_quic_crypto_ctx_t * ctx ) {
   ctx->CIPHER_AES_256_ECB       = EVP_aes_256_ecb();
   ctx->CIPHER_CHACHA20          = EVP_chacha20();
 
-  ctx->HASH_SHA256              = EVP_sha256();
-  ctx->HASH_SHA384              = EVP_sha384();
-
   /* initialize suites map */
 #define EACH( ID, SUITE, MAJ, MIN, PKT, HP, HASHFN, KEY_SZ, IV_SZ, ... ) \
-  ctx->suites[ ID ].id         = ID;                     \
-  ctx->suites[ ID ].major      = MAJ;                    \
-  ctx->suites[ ID ].minor      = MIN;                    \
-  ctx->suites[ ID ].key_sz     = KEY_SZ;                 \
-  ctx->suites[ ID ].iv_sz      = IV_SZ;                  \
-  ctx->suites[ ID ].pkt_cipher = ctx->CIPHER_##PKT;      \
-  ctx->suites[ ID ].hp_cipher  = ctx->CIPHER_##HP;       \
-  ctx->suites[ ID ].hash       = ctx->HASH_##HASHFN;
+  ctx->suites[ ID ].id         = ID;                       \
+  ctx->suites[ ID ].major      = MAJ;                      \
+  ctx->suites[ ID ].minor      = MIN;                      \
+  ctx->suites[ ID ].key_sz     = KEY_SZ;                   \
+  ctx->suites[ ID ].iv_sz      = IV_SZ;                    \
+  ctx->suites[ ID ].pkt_cipher = ctx->CIPHER_##PKT;        \
+  ctx->suites[ ID ].hp_cipher  = ctx->CIPHER_##HP;         \
+  ctx->suites[ ID ].hmac_fn    = fd_hmac_##HASHFN;         \
+  ctx->suites[ ID ].hash_sz    = FD_QUIC_HASH_SZ_##HASHFN;
   FD_QUIC_CRYPTO_SUITE_LIST( EACH, )
 #undef EACH
 }
@@ -48,116 +53,46 @@ fd_quic_crypto_ctx_fini( fd_quic_crypto_ctx_t * ctx ) {
   (void)ctx;
 }
 
-int
-fd_quic_hkdf_extract( uchar *        output,  ulong output_sz,
-                      EVP_MD const * md,
-                      uchar const *  salt,    ulong salt_sz,
-                      uchar const *  conn_id, ulong conn_id_sz ) {
-  /* fetch hash size */
-  int i_hash_sz = EVP_MD_size( md );
-
-  /* avoid overflow issues */
-  if( FD_UNLIKELY( ( salt_sz    > INT_MAX ) |
-                   ( conn_id_sz > INT_MAX ) |
-                   ( output_sz  > INT_MAX ) |
-                   ( i_hash_sz  < 0 ) )     ) {
-    return FD_QUIC_FAILED;
-  }
-
-  ulong hash_sz = (ulong)i_hash_sz;
-
-  /* ensure buffer space for call to HMAC_Final */
-  if( FD_UNLIKELY( output_sz < hash_sz ) ) {
-    FD_LOG_ERR(( "fd_quic_hkdf_extract: output size to small for result" ));
-    return FD_QUIC_FAILED;
-  }
-
-  HMAC_CTX * hash_ctx = HMAC_CTX_new();
-  if( FD_UNLIKELY( !hash_ctx ) ) {
-    FD_LOG_ERR(( "openssl error: HMAC_CTX_new returned NULL" ));
-    return FD_QUIC_FAILED;
-  }
-
-  if( FD_UNLIKELY( HMAC_Init_ex( hash_ctx, salt, (int)salt_sz, md, NULL ) != 1 ) ) {
-    FD_LOG_ERR(( "openssl error: HMAC_Init_ex failed" ));
-    HMAC_CTX_free( hash_ctx );
-    return FD_QUIC_FAILED;
-  }
-
-  /* this may be necessary for some hash functions */
-  if( FD_UNLIKELY( !HMAC_Init_ex( hash_ctx, NULL, 0, NULL, NULL ) ) ) {
-    FD_LOG_ERR(( "openssl error: HMAC_Init_ex failed" ));
-    HMAC_CTX_free( hash_ctx );
-    return FD_QUIC_FAILED;
-  }
-
-  if( FD_UNLIKELY( !HMAC_Update( hash_ctx, conn_id, conn_id_sz ) ) ) {
-    FD_LOG_ERR(( "openssl error: HMAC_Update failed" ));
-    HMAC_CTX_free( hash_ctx );
-    return FD_QUIC_FAILED;
-  }
-
-  uint final_output_sz = (uint)output_sz;
-  if( FD_UNLIKELY( !HMAC_Final( hash_ctx, output, &final_output_sz ) ) ) {
-    FD_LOG_ERR(( "openssl error: HMAC_Final failed" ));
-    HMAC_CTX_free( hash_ctx );
-    return FD_QUIC_FAILED;
-  }
-
-  HMAC_CTX_free( hash_ctx );
-
-  return FD_QUIC_SUCCESS;
+void *
+fd_quic_hkdf_extract( void *       output,
+                      void const * salt,    ulong salt_sz,
+                      void const * conn_id, ulong conn_id_sz,
+                      fd_hmac_fn_t hmac ) {
+  return hmac( conn_id, conn_id_sz, salt, salt_sz, output );
 }
 
+void *
+fd_quic_hkdf_expand_label( uchar *       output,  ulong output_sz,
+                           uchar const * secret,  ulong secret_sz,
+                           uchar const * label,   ulong label_sz,
+                           fd_hmac_fn_t  hmac,
+                           ulong         hash_sz ) {
 
-int
-fd_quic_hkdf_expand_label( uchar *        output,  ulong output_sz,
-                           EVP_MD const * md,
-                           uchar const *  secret,  ulong secret_sz,
-                           uchar const *  label,   ulong label_sz ) {
-  uchar temp[FD_QUIC_CRYPTO_HASH_SZ_BOUND] = {0};
-
-  /* fetch hash size */
-  int i_hash_sz = EVP_MD_size( md );
+  uchar temp[ FD_QUIC_CRYPTO_HASH_SZ_BOUND ] = {0};
 
   /* avoid overflow issues */
   if( FD_UNLIKELY( ( output_sz  > ( 1u<<16u )                ) |
                    ( secret_sz  > INT_MAX                    ) |
-                   ( label_sz   > FD_QUIC_CRYPTO_LABEL_BOUND ) |
-                   ( i_hash_sz  < 0                          ) ) ) {
-    return FD_QUIC_FAILED;
+                   ( label_sz   > FD_QUIC_CRYPTO_LABEL_BOUND ) ) ) {
+    return NULL;
   }
-
-  ulong hash_sz = (ulong)i_hash_sz;
 
   if( FD_UNLIKELY( output_sz > hash_sz ) ) {
-    FD_LOG_ERR(( "fd_quic_hkdf_expand_label: output_sz is larger than hash size"  ));
-    return FD_QUIC_FAILED;
+    FD_LOG_WARNING(( "fd_quic_hkdf_expand_label: output_sz (%lu) is larger than hash size (%lu)", output_sz, hash_sz ));
+    return NULL;
   }
 
-  if( FD_UNLIKELY( output_sz > sizeof( temp ) ) ) {
-    FD_LOG_ERR(( "fd_quic_hkdf_expand_label: output_sz is larger than output buffer" ));
-    return FD_QUIC_FAILED;
-  }
-
-  HMAC_CTX * hash_ctx = HMAC_CTX_new();
-  if( FD_UNLIKELY( !hash_ctx ) ) {
-    FD_LOG_ERR(( "HMAC_CTX_new returned NULL"  ));
-    return FD_QUIC_FAILED;
-  }
-
-  if( FD_UNLIKELY( HMAC_Init_ex( hash_ctx, secret, (int)secret_sz, md, NULL ) != 1 ) ) {
-    FD_LOG_ERR(( "HMAC_Init_ex returned error"  ));
-    HMAC_CTX_free( hash_ctx );
-    return FD_QUIC_FAILED;
+  if( FD_UNLIKELY( hash_sz > FD_QUIC_CRYPTO_HASH_SZ_BOUND ) ) {
+    FD_LOG_WARNING(( "fd_quic_hkdf_expand_label: hash_sz is larger than output buffer" ));
+    return NULL;
   }
 
   /* expand */
-  uchar   HKDF_PREFIX[6] = "tls13 ";
-  ulong  HKDF_PREFIX_SZ = sizeof( HKDF_PREFIX );
+  uchar HKDF_PREFIX[6] = "tls13 ";
+  ulong HKDF_PREFIX_SZ = sizeof( HKDF_PREFIX );
 
   /* format label */
-  uchar label_data[FD_QUIC_CRYPTO_LABEL_BOUND];
+  uchar label_data[ FD_QUIC_CRYPTO_LABEL_BOUND ];
   /* label data is:
        output size:          2 bytes
        size of prefix+label: 1 byte
@@ -165,17 +100,18 @@ fd_quic_hkdf_expand_label( uchar *        output,  ulong output_sz,
        const 0x01:           1 byte */
   ulong label_data_sz = 3 + HKDF_PREFIX_SZ + label_sz + 1 + 1;
   if( FD_UNLIKELY( label_data_sz > sizeof( label_data ) ) ) {
-    FD_LOG_ERR(( "fd_quic_hkdf_expand_label: label data size larger than allowed"  ));
-    HMAC_CTX_free( hash_ctx );
-    return FD_QUIC_FAILED;
+    FD_LOG_WARNING(( "fd_quic_hkdf_expand_label: label data size larger than allowed"  ));
+    return NULL;
   }
 
-  label_data[0] = (uchar)( output_sz >> 8u );
-  label_data[1] = (uchar)( output_sz & 0xffu );
-  label_data[2] = (uchar)( HKDF_PREFIX_SZ + label_sz );
-  fd_memcpy( label_data + 3, HKDF_PREFIX, HKDF_PREFIX_SZ );
-  fd_memcpy( label_data + 3 + HKDF_PREFIX_SZ, label, label_sz );
-  label_data[3 + HKDF_PREFIX_SZ + label_sz] = 0x00u;
+  label_data[ 0 ] = (uchar)( output_sz >> 8u           );
+  label_data[ 1 ] = (uchar)( output_sz & 0xffu         );
+  label_data[ 2 ] = (uchar)( HKDF_PREFIX_SZ + label_sz );
+
+  fd_memcpy( label_data+3,                HKDF_PREFIX, HKDF_PREFIX_SZ );
+  fd_memcpy( label_data+3+HKDF_PREFIX_SZ, label,       label_sz       );
+
+  label_data[ 3+HKDF_PREFIX_SZ+label_sz ] = 0x00u;
 
   // This is the first stage of HKDF-expand from https://www.rfc-editor.org/rfc/rfc5869
   // only one stage is required to achieve the desired length
@@ -184,31 +120,9 @@ fd_quic_hkdf_expand_label( uchar *        output,  ulong output_sz,
 
   // hash compute
 
-  // this seems to do nothing for sha256, but  possibly it is necessary for some hash functions
-  if( FD_UNLIKELY( !HMAC_Init_ex( hash_ctx, NULL, 0, NULL, NULL ) ) ) {
-    FD_LOG_ERR(( "HMAC_Init_ex( hash_ctx, NULL, 0, NULL, NULL ) failed"  ));
-    HMAC_CTX_free( hash_ctx );
-    return FD_QUIC_FAILED;
-  }
-
-  if( FD_UNLIKELY( !HMAC_Update( hash_ctx, label_data, label_data_sz ) ) ) {
-    FD_LOG_ERR(( "HMAC_Update failed"  ));
-    HMAC_CTX_free( hash_ctx );
-    return FD_QUIC_FAILED;
-  }
-
-  uint hmac_output_sz = 0;
-  if( FD_UNLIKELY( !HMAC_Final( hash_ctx, temp, &hmac_output_sz ) ) ) {
-    FD_LOG_ERR(( "HMAC_Final failed"  ));
-    HMAC_CTX_free( hash_ctx );
-    return FD_QUIC_FAILED;
-  }
-
+  hmac( label_data, label_data_sz, secret, secret_sz, temp );
   fd_memcpy( output, temp, output_sz );
-
-  HMAC_CTX_free( hash_ctx );
-
-  return FD_QUIC_SUCCESS;
+  return output;
 }
 
 
@@ -218,14 +132,12 @@ fd_quic_gen_initial_secret(
     uchar const *              initial_salt,
     ulong                      initial_salt_sz,
     uchar const *              conn_id,
-    ulong                      conn_id_sz,
-    EVP_MD const *             md ) {
+    ulong                      conn_id_sz ) {
   if( FD_UNLIKELY(
-      fd_quic_hkdf_extract( secrets->initial_secret, sizeof( secrets->initial_secret ),
-                            md,
-                            initial_salt, initial_salt_sz,
-                            conn_id, conn_id_sz )
-      != FD_QUIC_SUCCESS ) ) {
+      !fd_quic_hkdf_extract( secrets->initial_secret,
+                             initial_salt,            initial_salt_sz,
+                             conn_id,                 conn_id_sz,
+                             fd_hmac_sha256 ) ) ) {
     FD_LOG_WARNING(( "fd_quic_hkdf_extract failed" ));
     return FD_QUIC_FAILED;
   }
@@ -238,7 +150,8 @@ int
 fd_quic_gen_secrets(
     fd_quic_crypto_secrets_t * secrets,
     int                        enc_level,
-    EVP_MD const *             md ) {
+    fd_hmac_fn_t               hmac_fn,
+    ulong                      hash_sz ) {
   uchar * client_secret = secrets->secret[enc_level][0];
   uchar * server_secret = secrets->secret[enc_level][1];
 
@@ -247,23 +160,25 @@ fd_quic_gen_secrets(
     secrets->secret_sz[enc_level][1] = FD_QUIC_INITIAL_SECRET_SZ;
   }
 
-  uchar client_secret_sz = secrets->secret_sz[enc_level][0];
-  uchar server_secret_sz = secrets->secret_sz[enc_level][1];
+  uchar client_secret_sz = secrets->secret_sz[ enc_level ][0];
+  uchar server_secret_sz = secrets->secret_sz[ enc_level ][1];
 
   char const client_in[] = FD_QUIC_CRYPTO_LABEL_CLIENT_IN;
-  if( fd_quic_hkdf_expand_label( client_secret, client_secret_sz,
-                                 md,
-                                 secrets->initial_secret, sizeof( secrets->initial_secret ),
-                                 (uchar*)client_in, strlen( client_in ) ) != FD_QUIC_SUCCESS ) {
+  if( FD_UNLIKELY( !fd_quic_hkdf_expand_label(
+      client_secret,           client_secret_sz,
+      secrets->initial_secret, sizeof( secrets->initial_secret ),
+      (uchar*)client_in,       strlen( client_in ),
+      hmac_fn,                 hash_sz ) ) ) {
     FD_LOG_ERR(( "fd_quic_hkdf_expand_label failed" ));
     return FD_QUIC_FAILED;
   }
 
   char const server_in[] = FD_QUIC_CRYPTO_LABEL_SERVER_IN;
-  if( fd_quic_hkdf_expand_label( server_secret, server_secret_sz,
-                                 md,
-                                 secrets->initial_secret, sizeof( secrets->initial_secret ),
-                                 (uchar*)server_in, strlen( server_in ) ) != FD_QUIC_SUCCESS ) {
+  if( FD_UNLIKELY( !fd_quic_hkdf_expand_label(
+      server_secret,           server_secret_sz,
+      secrets->initial_secret, sizeof( secrets->initial_secret ),
+      (uchar*)server_in,       strlen( server_in ),
+      hmac_fn,                 hash_sz ) ) ) {
     FD_LOG_ERR(( "fd_quic_hkdf_expand_label failed" ));
     return FD_QUIC_FAILED;
   }
@@ -291,15 +206,17 @@ int
 fd_quic_gen_keys(
     fd_quic_crypto_keys_t *  keys,
     fd_quic_crypto_suite_t * suite,
-    EVP_MD const *           md,
     uchar const *            secret,
     ulong                    secret_sz ) {
-  ulong key_sz = suite->key_sz;
-  ulong iv_sz  = suite->iv_sz;
+
+  fd_hmac_fn_t hmac_fn = suite->hmac_fn;
+  ulong        hash_sz = suite->hash_sz;
+  ulong        key_sz  = suite->key_sz;
+  ulong        iv_sz   = suite->iv_sz;
 
   if( key_sz > sizeof( keys->pkt_key ) ||
-      key_sz > sizeof( keys->hp_key ) ||
-      iv_sz > sizeof( keys->iv ) ) {
+      key_sz > sizeof( keys->hp_key  ) ||
+      iv_sz  > sizeof( keys->iv      ) ) {
     return FD_QUIC_FAILED;
   }
 
@@ -307,11 +224,12 @@ fd_quic_gen_keys(
 
   /* output length passed with "quic hp" and "quic key" must be the key size from
      the current cipher */
-  if( fd_quic_hkdf_expand_label( keys->pkt_key, key_sz,
-                                 md,
-                                 secret, secret_sz,
-                                 (uchar*)FD_QUIC_CRYPTO_LABEL_QUIC_KEY,
-                                 FD_QUIC_CRYPTO_LABEL_QUIC_KEY_SZ ) != FD_QUIC_SUCCESS ) {
+  if( FD_UNLIKELY( !fd_quic_hkdf_expand_label(
+      keys->pkt_key, key_sz,
+      secret, secret_sz,
+      (uchar*)FD_QUIC_CRYPTO_LABEL_QUIC_KEY,
+      FD_QUIC_CRYPTO_LABEL_QUIC_KEY_SZ,
+      hmac_fn, hash_sz ) ) ) {
     return FD_QUIC_FAILED;
   }
   keys->pkt_key_sz = key_sz;
@@ -320,21 +238,23 @@ fd_quic_gen_keys(
 
   /* output length passed with "quic hp" and "quic key" must be the key size from
      the current cipher */
-  if( fd_quic_hkdf_expand_label( keys->hp_key, key_sz,
-                                 md,
-                                 secret, secret_sz,
-                                 (uchar*)FD_QUIC_CRYPTO_LABEL_QUIC_HP,
-                                 FD_QUIC_CRYPTO_LABEL_QUIC_HP_SZ ) != FD_QUIC_SUCCESS ) {
+  if( FD_UNLIKELY( !fd_quic_hkdf_expand_label(
+      keys->hp_key, key_sz,
+      secret, secret_sz,
+      (uchar*)FD_QUIC_CRYPTO_LABEL_QUIC_HP,
+      FD_QUIC_CRYPTO_LABEL_QUIC_HP_SZ,
+      hmac_fn, hash_sz ) ) ) {
     return FD_QUIC_FAILED;
   }
   keys->hp_key_sz = key_sz;
 
   /* quic iv */
-  if( fd_quic_hkdf_expand_label( keys->iv, iv_sz,
-                                 md,
-                                 secret, secret_sz,
-                                 (uchar*)FD_QUIC_CRYPTO_LABEL_QUIC_IV,
-                                 FD_QUIC_CRYPTO_LABEL_QUIC_IV_SZ ) != FD_QUIC_SUCCESS ) {
+  if( FD_UNLIKELY( !fd_quic_hkdf_expand_label(
+      keys->iv, iv_sz,
+      secret, secret_sz,
+      (uchar*)FD_QUIC_CRYPTO_LABEL_QUIC_IV,
+      FD_QUIC_CRYPTO_LABEL_QUIC_IV_SZ,
+      hmac_fn, hash_sz ) ) ) {
     return FD_QUIC_FAILED;
   }
   keys->iv_sz = iv_sz;

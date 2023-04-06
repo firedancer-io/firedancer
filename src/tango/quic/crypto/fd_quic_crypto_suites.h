@@ -3,6 +3,7 @@
 
 #include <openssl/ssl.h>
 #include "../fd_quic_common.h"
+#include "../../../ballet/hmac/fd_hmac.h"
 
 /* Defines the crypto suites used by QUIC v1.
 
@@ -32,10 +33,10 @@
 
     id,  suite name,                   major, minor, pkt cipher,        hp cipher,   hash,   key sz, iv sz */
 #define FD_QUIC_CRYPTO_SUITE_LIST( X, ... ) \
-  X( 0, TLS_AES_128_GCM_SHA256,        0x13,  0x01,  AES_128_GCM,       AES_128_ECB, SHA256, 16,     12, __VA_ARGS__ ) \
-  X( 1, TLS_AES_256_GCM_SHA384,        0x13,  0x02,  AES_256_GCM,       AES_256_ECB, SHA384, 32,     12, __VA_ARGS__ ) \
-  X( 2, TLS_AES_128_CCM_SHA256,        0x13,  0x04,  AES_128_CCM,       AES_128_ECB, SHA256, 16,     12, __VA_ARGS__ ) \
-  X( 3, TLS_CHACHA20_POLY1305_SHA256,  0x13,  0x03,  CHACHA20_POLY1305, CHACHA20,    SHA256, 32,     12, __VA_ARGS__ ) \
+  X( 0, TLS_AES_128_GCM_SHA256,        0x13,  0x01,  AES_128_GCM,       AES_128_ECB, sha256, 16,     12, __VA_ARGS__ ) \
+  X( 1, TLS_AES_256_GCM_SHA384,        0x13,  0x02,  AES_256_GCM,       AES_256_ECB, sha384, 32,     12, __VA_ARGS__ ) \
+  X( 2, TLS_AES_128_CCM_SHA256,        0x13,  0x04,  AES_128_CCM,       AES_128_ECB, sha256, 16,     12, __VA_ARGS__ ) \
+  X( 3, TLS_CHACHA20_POLY1305_SHA256,  0x13,  0x03,  CHACHA20_POLY1305, CHACHA20,    sha256, 32,     12, __VA_ARGS__ ) \
 
 
 #define FD_QUIC_ENC_LEVEL_LIST( X, ... ) \
@@ -70,7 +71,8 @@ struct fd_quic_crypto_suite {
 
   EVP_CIPHER const * pkt_cipher;  /* not owned */
   EVP_CIPHER const * hp_cipher;   /* not owned */
-  EVP_MD     const * hash;        /* not owned */
+  fd_hmac_fn_t       hmac_fn;     /* not owned */
+  ulong              hash_sz;
 };
 
 struct fd_quic_crypto_keys {
@@ -103,8 +105,8 @@ struct fd_quic_crypto_ctx {
   EVP_CIPHER const * CIPHER_CHACHA20;
 
   /* hash functions */
-  EVP_MD const * HASH_SHA256;
-  EVP_MD const * HASH_SHA384;
+  fd_hmac_fn_t hmac_fn;
+  ulong        hmac_out_sz;
 
   /* count +1 for each suite */
   fd_quic_crypto_suite_t suites[0
@@ -227,17 +229,17 @@ fd_quic_crypto_ctx_fini( fd_quic_crypto_ctx_t * ctx );
 
    args
      output        a pointer to a buffer to receive the output data
+                   must fit the size of the hash function used
      output_sz     the capacity of the output buffer in bytes
-     md            a pointer to an EVP_MD initialized for the purpose
      salt          a pointer to the salt used - see rfc
      salt_sz       the size of the salt used.
      conn_id       a pointer to the raw connection id used
      conn_id_sz    the size of the connection id */
-int
-fd_quic_hkdf_extract( uchar *        output,  ulong output_sz,
-                      EVP_MD const * md,
-                      uchar const *  salt,    ulong salt_sz,
-                      uchar const *  conn_id, ulong conn_id_sz );
+void *
+fd_quic_hkdf_extract( void *       output,
+                      void const * salt,    ulong salt_sz,
+                      void const * conn_id, ulong conn_id_sz,
+                      fd_hmac_fn_t hmac_fn );
 
 /* fd_quic_hkdf_expand_label
 
@@ -252,11 +254,12 @@ fd_quic_hkdf_extract( uchar *        output,  ulong output_sz,
      label         a pointer to the label used - see rfc
      label_sz      the size of the label used */
 
-int
-fd_quic_hkdf_expand_label( uchar *        output,  ulong output_sz,
-                           EVP_MD const * md,
-                           uchar const *  secret,  ulong secret_sz,
-                           uchar const *  label,   ulong label_sz );
+void *
+fd_quic_hkdf_expand_label( uchar *       output,  ulong output_sz,
+                           uchar const * secret,  ulong secret_sz,
+                           uchar const * label,   ulong label_sz,
+                           fd_hmac_fn_t  hmac,
+                           ulong         hash_sz );
 
 /* fd_quic_gen_initial_secret generates the initial secret according to spec
 
@@ -269,16 +272,14 @@ fd_quic_hkdf_expand_label( uchar *        output,  ulong output_sz,
      initial_salt      the salt used to generate the secrets
      initial_salt_sz   the size of the salt used
      conn_id           the raw connection id required to generate the secrets
-     conn_id_sz        the size of the raw connection id
-     md                a pointer to the EVP_MD initialized for the purpose */
+     conn_id_sz        the size of the raw connection id */
 int
 fd_quic_gen_initial_secret(
     fd_quic_crypto_secrets_t * secrets,
     uchar const *              initial_salt,
     ulong                      initial_salt_sz,
     uchar const *              conn_id,
-    ulong                      conn_id_sz,
-    EVP_MD const *             md );
+    ulong                      conn_id_sz );
 
 /* fd_quic_gen_secrets generate secrets according to the aforementioned RFCs
 
@@ -294,7 +295,8 @@ int
 fd_quic_gen_secrets(
     fd_quic_crypto_secrets_t * secrets,
     int                        enc_level,
-    EVP_MD const *             md );
+    fd_hmac_fn_t               hmac_fn,
+    ulong                      hash_sz );
 
 
 void
@@ -320,7 +322,6 @@ int
 fd_quic_gen_keys(
     fd_quic_crypto_keys_t *  keys,
     fd_quic_crypto_suite_t * suite,
-    EVP_MD const *           md,
     uchar const *            secret,
     ulong                    secret_sz );
 

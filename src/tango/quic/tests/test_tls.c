@@ -114,115 +114,6 @@ uchar packet_header[] = { 0xc3, 0x00, 0x00, 0x00, 0x01, 0x08, 0x83, 0x94,
 // packet number is 2
 uchar packet_number[12] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2 };
 
-#if 0
-void
-fd_quic_hkdf_extract( uchar *        output,  ulong output_sz,
-                      EVP_MD const * md,
-                      uchar const *  salt,    ulong salt_sz,
-                      uchar const *  conn_id, ulong conn_id_sz ) {
-  ulong hash_sz = EVP_MD_size( md );
-
-  if( output_sz < hash_sz ) {
-    fprintf( stderr, "fd_quic_hkdf_extract: output size to small for result\n" );
-    exit(1);
-  }
-
-  HMAC_CTX * hash_ctx = HMAC_CTX_new();
-  if( !hash_ctx ) {
-    fprintf( stderr, "HMAC_CTX_new returned NULL\n" );
-    exit(1);
-  }
-
-  if( HMAC_Init_ex( hash_ctx, salt, salt_sz, md, NULL ) != 1 ) {
-    fprintf( stderr, "HMAC_Init_ex returned error\n" );
-    exit(1);
-  }
-
-  // this may be necessary for some hash functions
-  if( !HMAC_Init_ex( hash_ctx, NULL, 0, NULL, NULL ) ) {
-    fprintf( stderr, "HMAC_Init_ex( hash_ctx, NULL, 0, NULL, NULL ) failed\n" );
-    exit(1);
-  }
-
-  if( !HMAC_Update( hash_ctx, conn_id, conn_id_sz ) ) {
-    fprintf( stderr, "HMAC_Update failed\n" );
-    exit(1);
-  }
-
-  uint final_output_sz = output_sz;
-  if( !HMAC_Final( hash_ctx, output, &final_output_sz ) ) {
-    fprintf( stderr, "HMAC_Final failed\n" );
-    exit(1);
-  }
-
-  HMAC_CTX_free( hash_ctx );
-}
-
-void
-fd_quic_hkdf_expand_label( uchar *        output,  ulong output_sz,
-                           EVP_MD const * md,
-                           uchar const *  secret,  ulong secret_sz,
-                           uchar const *  label,   ulong label_sz,
-                           uchar const *  context, ulong context_sz ) {
-  HMAC_CTX * hash_ctx = HMAC_CTX_new();
-  if( !hash_ctx ) {
-    fprintf( stderr, "HMAC_CTX_new returned NULL\n" );
-    exit(1);
-  }
-
-  if( HMAC_Init_ex( hash_ctx, secret, secret_sz, md, NULL ) != 1 ) {
-    fprintf( stderr, "HMAC_Init_ex returned error\n" );
-    exit(1);
-  }
-
-  // expand
-  uchar   HKDF_PREFIX[6] = "tls13 ";
-  ulong  HKDF_PREFIX_SZ = sizeof( HKDF_PREFIX );
-
-  // format label
-  uchar label_data[64]; // MAX 64 - according to msquic
-  label_data[0] = output_sz >> 8u;
-  label_data[1] = output_sz & 0xffu;
-  label_data[2] = HKDF_PREFIX_SZ + label_sz;
-  fd_memcpy( label_data + 3, HKDF_PREFIX, HKDF_PREFIX_SZ );
-  fd_memcpy( label_data + 3 + HKDF_PREFIX_SZ, label, label_sz );
-  label_data[3 + HKDF_PREFIX_SZ + label_sz] = 0;
-
-  ulong label_data_sz = 3 + HKDF_PREFIX_SZ + label_sz + 1;
-
-  // This is the first stage of HKDF-expand from https://www.rfc-editor.org/rfc/rfc5869
-  // only one stage is required to achive the desired length
-  // so we just do it here
-  label_data[label_data_sz] = 0x01u;
-  label_data_sz++;
-
-  // hash compute
-
-  // is this necessary??
-  //   - possibly it is for some hash functions
-  if( !HMAC_Init_ex( hash_ctx, NULL, 0, NULL, NULL ) ) {
-    fprintf( stderr, "HMAC_Init_ex( hash_ctx, NULL, 0, NULL, NULL ) failed\n" );
-    exit(1);
-  }
-
-  if( !HMAC_Update( hash_ctx, label_data, label_data_sz ) ) {
-    fprintf( stderr, "HMAC_Update failed\n" );
-    exit(1);
-  }
-
-  uchar temp[64] = {}; // TODO ensure this is big enough
-  uint hmac_output_sz = 0;
-  if( !HMAC_Final( hash_ctx, temp, &hmac_output_sz ) ) {
-    fprintf( stderr, "HMAC_Final failed\n" );
-    exit(1);
-  }
-
-  fd_memcpy( output, temp, output_sz );
-
-  HMAC_CTX_free( hash_ctx );
-}
-#endif
-
 void
 test_secret_gen( uchar const * expected_output,
                  uchar const * secret,
@@ -232,21 +123,17 @@ test_secret_gen( uchar const * expected_output,
   uchar new_secret[64] = {0};
   ulong label_sz = strlen( label );
 
-  EVP_MD const *md = EVP_sha256(); // or 384 or 512
-
   fd_quic_hkdf_expand_label( new_secret, output_sz,
-                             md,
                              secret, secret_sz,
-                             (uchar*)label, label_sz );
+                             (uchar*)label, label_sz,
+                             fd_hmac_sha256, 32UL );
 
-  printf( "secret for %s: ", label );
-  for( ulong j = 0; j < output_sz; ++j ) {
-    printf( "%2.2x ", new_secret[j] );
-  }
+  char hexdump_label_buf[ 128 ];
+  snprintf( hexdump_label_buf, 128UL, "secret for %s", label );
+  FD_LOG_HEXDUMP_NOTICE(( hexdump_label_buf, new_secret, output_sz ));
 
   FD_TEST( 0==memcmp( new_secret, expected_output, output_sz ) );
 }
-
 
 int
 main( int     argc,

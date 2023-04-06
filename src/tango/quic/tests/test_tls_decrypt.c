@@ -8,6 +8,8 @@
 #include <openssl/ssl.h>
 #include <openssl/err.h>
 
+#include "../crypto/fd_quic_crypto_suites.h"
+#include "../../../ballet/hmac/fd_hmac.h"
 #include "../../../util/fd_util.h"
 
 // example from rfc9001:
@@ -67,81 +69,6 @@ uchar initial_salt[] = { 0x38, 0x76, 0x2c, 0xf7, 0xf5, 0x59, 0x34, 0xb3,
 ulong initial_salt_sz = sizeof( initial_salt );
 
 void
-fd_quic_hkdf_extract( uchar *        output,  ulong output_sz,
-                      EVP_MD const * md,
-                      uchar const *  salt,    ulong salt_sz,
-                      uchar const *  conn_id, ulong conn_id_sz ) {
-  int hash_sz_s = EVP_MD_size( md );
-  FD_TEST( hash_sz_s>=0 );
-  ulong hash_sz = (ulong)hash_sz_s;
-
-  FD_TEST( hash_sz<=output_sz );
-
-  HMAC_CTX * hash_ctx = HMAC_CTX_new();
-  FD_TEST( hash_ctx );
-
-  FD_TEST( 1==HMAC_Init_ex( hash_ctx, salt, (int)salt_sz, md, NULL ) );
-
-  // this may be necessary for some hash functions
-  FD_TEST( 1==HMAC_Init_ex( hash_ctx, NULL, 0, NULL, NULL ) );
-
-  FD_TEST( 1==HMAC_Update( hash_ctx, conn_id, conn_id_sz ) );
-
-  uint final_output_sz = (uint)output_sz;
-  FD_TEST( 1==HMAC_Final( hash_ctx, output, &final_output_sz ) );
-
-  HMAC_CTX_free( hash_ctx );
-}
-
-void
-fd_quic_hkdf_expand_label( uchar *        output,  ulong output_sz,
-                           EVP_MD const * md,
-                           uchar const *  secret,  ulong secret_sz,
-                           uchar const *  label,   ulong label_sz ) {
-  HMAC_CTX * hash_ctx = HMAC_CTX_new();
-  FD_TEST( hash_ctx );
-
-  FD_TEST( 1==HMAC_Init_ex( hash_ctx, secret, (int)secret_sz, md, NULL ) );
-
-  // expand
-  uchar   HKDF_PREFIX[6] = "tls13 ";
-  ulong  HKDF_PREFIX_SZ = sizeof( HKDF_PREFIX );
-
-  // format label
-  uchar label_data[64]; // MAX 64 - according to msquic
-  label_data[0] = (uchar)( output_sz >> 8u           );
-  label_data[1] = (uchar)( output_sz & 0xffu         );
-  label_data[2] = (uchar)( HKDF_PREFIX_SZ + label_sz );
-  fd_memcpy( label_data + 3, HKDF_PREFIX, HKDF_PREFIX_SZ );
-  fd_memcpy( label_data + 3 + HKDF_PREFIX_SZ, label, label_sz );
-  label_data[3 + HKDF_PREFIX_SZ + label_sz] = 0;
-
-  ulong label_data_sz = 3 + HKDF_PREFIX_SZ + label_sz + 1;
-
-  // This is the first stage of HKDF-expand from https://www.rfc-editor.org/rfc/rfc5869
-  // only one stage is required to achive the desired length
-  // so we just do it here
-  label_data[label_data_sz] = 0x01u;
-  label_data_sz++;
-
-  // hash compute
-
-  // is this necessary??
-  //   - possibly it is for some hash functions
-  FD_TEST( 1==HMAC_Init_ex( hash_ctx, NULL, 0, NULL, NULL ) );
-
-  FD_TEST( 1==HMAC_Update( hash_ctx, label_data, label_data_sz ) );
-
-  uchar temp[64] = {0}; // TODO ensure this is big enough
-  uint hmac_output_sz = 0;
-  FD_TEST( 1==HMAC_Final( hash_ctx, temp, &hmac_output_sz ) );
-
-  fd_memcpy( output, temp, output_sz );
-
-  HMAC_CTX_free( hash_ctx );
-}
-
-void
 test_secret_gen( uchar const * expected_output,
                  uchar const * secret,
                  ulong         secret_sz,
@@ -150,12 +77,10 @@ test_secret_gen( uchar const * expected_output,
   uchar new_secret[64] = {0};
   ulong label_sz = strlen( label );
 
-  EVP_MD const *md = EVP_sha256(); // or 384 or 512
-
   fd_quic_hkdf_expand_label( new_secret, output_sz,
-                             md,
                              secret, secret_sz,
-                             (uchar*)label, label_sz );
+                             (uchar*)label, label_sz,
+                             fd_hmac_sha256, 32UL );
 
   char hexdump_label_buf[ 128 ];
   snprintf( hexdump_label_buf, 128UL, "secret for %s", label );
@@ -201,7 +126,7 @@ main( int     argc,
   // Connection ID field of the first Initial packet sent by the client;
 
   // sha256 size in octets is 32
-  uchar  initial_secret[32] = {0};
+  uchar initial_secret[32] = {0};
   ulong initial_secret_sz  = sizeof( initial_secret );
 
   // expected value from rfc9001:
@@ -212,14 +137,10 @@ main( int     argc,
     0x35, 0x95, 0x22, 0x15, 0x96, 0xae, 0x2a, 0xe9,
     0xfb, 0x81, 0x15, 0xc1, 0xe9, 0xed, 0x0a, 0x44 };
 
-  // From msquic:
-
-  const EVP_MD *md = EVP_sha256(); // or 384 or 512
-
-  fd_quic_hkdf_extract( initial_secret, initial_secret_sz,
-                        md,
-                        initial_salt, initial_salt_sz,
-                        test_dst_conn_id, sizeof( test_dst_conn_id ) );
+  fd_quic_hkdf_extract( initial_secret,
+                        initial_salt,     initial_salt_sz,
+                        test_dst_conn_id, sizeof( test_dst_conn_id ),
+                        fd_hmac_sha256 );
 
   FD_LOG_HEXDUMP_NOTICE(( "initial secret", initial_secret, initial_secret_sz ));
 
