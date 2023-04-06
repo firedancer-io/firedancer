@@ -77,10 +77,51 @@ struct fd_quic_stream {
        and update this value */
   ulong upd_pkt_number;
 
+  /* doubly linked list with sentinel */
   struct fd_quic_stream * next;
+  struct fd_quic_stream * prev;
 
   /* TODO need a timeout on this data */
 };
+
+#define FD_QUIC_STREAM_LIST_LINK( LHS, RHS ) \
+  do {                                                         \
+    (LHS)->next = (RHS);                                       \
+    (RHS)->prev = (LHS);                                       \
+  } while(0)
+
+/* set up linked list sentinel
+   sentinel just points to itself, at first */
+#define FD_QUIC_STREAM_LIST_SENTINEL( stream )                 \
+  do {                                                         \
+    FD_QUIC_STREAM_LIST_LINK( stream, stream );                \
+  } while(0)
+
+/* insert new_stream after stream in list */
+#define FD_QUIC_STREAM_LIST_INSERT_AFTER( stream, new_stream ) \
+  do {                                                         \
+    fd_quic_stream_t * stream_next = (stream)->next;           \
+    FD_QUIC_STREAM_LIST_LINK( stream,     new_stream );        \
+    FD_QUIC_STREAM_LIST_LINK( new_stream, stream_next );       \
+  } while(0)
+
+/* insert new_stream before stream in list */
+#define FD_QUIC_STREAM_LIST_INSERT_BEFORE( stream, new_stream ) \
+  do {                                                          \
+    fd_quic_stream_t * stream_prev = (stream)->prev;            \
+    FD_QUIC_STREAM_LIST_LINK( new_stream,  stream     );        \
+    FD_QUIC_STREAM_LIST_LINK( stream_prev, new_stream );        \
+  } while(0)
+
+/* remove stream from list */
+#define FD_QUIC_STREAM_LIST_REMOVE( stream )                    \
+  do {                                                          \
+    fd_quic_stream_t * stream_prev = (stream)->prev;            \
+    fd_quic_stream_t * stream_next = (stream)->next;            \
+    FD_QUIC_STREAM_LIST_LINK( stream_prev, stream_next     );   \
+    (stream)->next = (stream)->prev = NULL;                     \
+  } while(0)
+
 
 
 /* stream map for use in fd_map_dynamic map */
