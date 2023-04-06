@@ -9,8 +9,8 @@ fd_cstr_to_ip4_addr( char const * s,
   strncpy( _s, s, 15 );
   _s[ 15 ] = '\0';
 
-  char *tok[ 4 ];
-  if( FD_UNLIKELY( fd_cstr_tokenize( tok, 4UL, _s, '.' )!=4UL ) )
+  char *tok[ 5 ];
+  if( FD_UNLIKELY( fd_cstr_tokenize( tok, 5UL, _s, '.' )!=4UL ) )
     return 0;
 
   uchar x[ 4 ];
