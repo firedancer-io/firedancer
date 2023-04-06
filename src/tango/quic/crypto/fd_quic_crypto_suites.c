@@ -276,6 +276,8 @@ void
 fd_quic_free_keys( fd_quic_crypto_keys_t * keys ) {
   if( keys->pkt_cipher_ctx ) EVP_CIPHER_CTX_free( keys->pkt_cipher_ctx );
   if( keys->hp_cipher_ctx  ) EVP_CIPHER_CTX_free( keys->hp_cipher_ctx  );
+  keys->pkt_cipher_ctx = NULL;
+  keys->hp_cipher_ctx  = NULL;
 }
 
 
