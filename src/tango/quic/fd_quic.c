@@ -1227,8 +1227,7 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
       if( FD_UNLIKELY( FD_QUIC_SUCCESS!=fd_quic_gen_initial_secret(
               &conn->secrets,
               initial_salt,         initial_salt_sz,
-              orig_conn_id.conn_id, conn_id->sz,
-              suite->hash ) ) ) {
+              orig_conn_id.conn_id, conn_id->sz ) ) ) {
         DEBUG( FD_LOG_DEBUG(( "fd_quic_gen_initial_secret failed" )); )
         conn->state = FD_QUIC_CONN_STATE_DEAD;
         return FD_QUIC_PARSE_FAIL;
@@ -1237,7 +1236,7 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
       if( FD_UNLIKELY( FD_QUIC_SUCCESS!=fd_quic_gen_secrets(
               &conn->secrets,
               (int)enc_level, /* generate initial secrets */
-              suite->hash ) ) ) {
+              suite->hmac_fn, suite->hash_sz ) ) ) {
         DEBUG( FD_LOG_DEBUG(( "fd_quic_gen_secrets failed" )); )
         conn->state = FD_QUIC_CONN_STATE_DEAD;
         return FD_QUIC_PARSE_FAIL;
@@ -1247,9 +1246,8 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
       if( FD_UNLIKELY( FD_QUIC_SUCCESS!=fd_quic_gen_keys(
               &conn->keys[enc_level][0],
               suite,
-              suite->hash,
-              conn->secrets.secret[enc_level][0],
-              conn->secrets.secret_sz[enc_level][0] ) ) ) {
+              conn->secrets.secret   [ enc_level ][0],
+              conn->secrets.secret_sz[ enc_level ][0] ) ) ) {
         DEBUG( FD_LOG_DEBUG(( "fd_quic_gen_keys failed" )); )
         conn->state = FD_QUIC_CONN_STATE_DEAD;
         return FD_QUIC_PARSE_FAIL;
@@ -1258,9 +1256,8 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
       if( FD_UNLIKELY( FD_QUIC_SUCCESS!=fd_quic_gen_keys(
               &conn->keys[enc_level][1],
               suite,
-              suite->hash,
-              conn->secrets.secret[enc_level][1],
-              conn->secrets.secret_sz[enc_level][1] ) ) ) {
+              conn->secrets.secret   [ enc_level ][1],
+              conn->secrets.secret_sz[ enc_level ][1] ) ) ) {
         DEBUG( FD_LOG_DEBUG(( "fd_quic_gen_keys failed" )); )
         conn->state = FD_QUIC_CONN_STATE_DEAD;
         return FD_QUIC_PARSE_FAIL;
@@ -2464,9 +2461,8 @@ fd_quic_tls_cb_secret( fd_quic_tls_hs_t *           hs,
     /* gen keys */
     if( fd_quic_gen_keys( &conn->keys[enc_level][0],
                           suite,
-                          suite->hash,
-                          conn->secrets.secret[enc_level][0],
-                          conn->secrets.secret_sz[enc_level][0] )
+                          conn->secrets.secret   [ enc_level ][0],
+                          conn->secrets.secret_sz[ enc_level ][0] )
           != FD_QUIC_SUCCESS ) {
       /* set state to DEAD to reclaim connection */
       conn->state = FD_QUIC_CONN_STATE_DEAD;
@@ -2474,12 +2470,11 @@ fd_quic_tls_cb_secret( fd_quic_tls_hs_t *           hs,
     }
 
     /* gen initial keys */
-    if( fd_quic_gen_keys( &conn->keys[enc_level][1],
-                          suite,
-                          suite->hash,
-                          conn->secrets.secret[enc_level][1],
-                          conn->secrets.secret_sz[enc_level][1] )
-          != FD_QUIC_SUCCESS ) {
+    if( FD_UNLIKELY(
+        fd_quic_gen_keys( &conn->keys[enc_level][1],
+        suite,
+        conn->secrets.secret   [ enc_level ][1],
+        conn->secrets.secret_sz[ enc_level ][1] ) ) != FD_QUIC_SUCCESS ) {
       /* set state to DEAD to reclaim connection */
       conn->state = FD_QUIC_CONN_STATE_DEAD;
       FD_LOG_WARNING(( "fd_quic_gen_keys failed on server" ));
@@ -4147,39 +4142,40 @@ fd_quic_connect( fd_quic_t *  quic,
   uchar const * initial_salt    = FD_QUIC_CRYPTO_V1_INITIAL_SALT;
   ulong         initial_salt_sz = FD_QUIC_CRYPTO_V1_INITIAL_SALT_SZ;
 
-  if( fd_quic_gen_initial_secret( &conn->secrets,
-                                  initial_salt,     initial_salt_sz,
-                                  peer_conn_id.conn_id, peer_conn_id.sz,
-                                  suite->hash ) != FD_QUIC_SUCCESS ) {
+  if( FD_UNLIKELY( fd_quic_gen_initial_secret(
+      &conn->secrets,
+      initial_salt,         initial_salt_sz,
+      peer_conn_id.conn_id, peer_conn_id.sz )
+      != FD_QUIC_SUCCESS ) ) {
     DEBUG( FD_LOG_DEBUG(( "fd_quic_gen_initial_secret failed" )); )
     goto fail_tls_hs;
   }
 
   if( fd_quic_gen_secrets( &conn->secrets,
                            fd_quic_enc_level_initial_id, /* generate initial secrets */
-                           suite->hash ) != FD_QUIC_SUCCESS ) {
+                           suite->hmac_fn, suite->hash_sz ) != FD_QUIC_SUCCESS ) {
     DEBUG( FD_LOG_DEBUG(( "fd_quic_gen_secrets failed" )); )
     goto fail_tls_hs;
   }
 
   /* gen initial keys */
-  if( fd_quic_gen_keys( &conn->keys[ fd_quic_enc_level_initial_id ][ 0 ],
-                        suite,
-                        suite->hash,
-                        conn->secrets.secret   [ fd_quic_enc_level_initial_id ][ 0 ],
-                        conn->secrets.secret_sz[ fd_quic_enc_level_initial_id ][ 0 ] )
-        != FD_QUIC_SUCCESS ) {
+  if( FD_UNLIKELY( fd_quic_gen_keys(
+      &conn->keys[ fd_quic_enc_level_initial_id ][ 0 ],
+      suite,
+      conn->secrets.secret   [ fd_quic_enc_level_initial_id ][ 0 ],
+      conn->secrets.secret_sz[ fd_quic_enc_level_initial_id ][ 0 ] )
+      != FD_QUIC_SUCCESS ) ) {
     DEBUG( FD_LOG_DEBUG(( "fd_quic_gen_keys failed" )); )
     goto fail_tls_hs;
   }
 
   /* gen initial keys */
-  if( fd_quic_gen_keys( &conn->keys[ fd_quic_enc_level_initial_id ][ 1 ],
-                        suite,
-                        suite->hash,
-                        conn->secrets.secret   [ fd_quic_enc_level_initial_id ][ 1 ],
-                        conn->secrets.secret_sz[ fd_quic_enc_level_initial_id ][ 1 ] )
-        != FD_QUIC_SUCCESS ) {
+  if( FD_UNLIKELY( fd_quic_gen_keys(
+      &conn->keys[ fd_quic_enc_level_initial_id ][ 1 ],
+      suite,
+      conn->secrets.secret   [ fd_quic_enc_level_initial_id ][ 1 ],
+      conn->secrets.secret_sz[ fd_quic_enc_level_initial_id ][ 1 ] )
+      != FD_QUIC_SUCCESS ) ) {
     DEBUG( FD_LOG_DEBUG(( "fd_quic_gen_keys failed" )); )
     goto fail_tls_hs;
   }
