@@ -183,6 +183,11 @@ struct fd_quic_tls_hs {
   int             is_server;
   int             is_flush;
   int             is_hs_complete;
+  int             state;
+# define FD_QUIC_TLS_HS_STATE_DEAD         0
+# define FD_QUIC_TLS_HS_STATE_NEED_INPUT   1
+# define FD_QUIC_TLS_HS_STATE_NEED_SERVICE 2
+# define FD_QUIC_TLS_HS_STATE_COMPLETE     3
 
   /* user defined context supplied in callbacks */
   void *          context;

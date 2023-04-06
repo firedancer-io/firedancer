@@ -267,7 +267,14 @@ fd_xsk_aio_service( fd_xsk_aio_t * xsk_aio ) {
     ulong enq_rc = fd_xsk_rx_enqueue2( xsk, meta, rx_avail );
     if( FD_UNLIKELY( enq_rc < rx_avail ) ) {
       /* this should not be possible */
-      FD_LOG_WARNING(( "frames lost trying to replenish rx ring" ));
+      FD_LOG_WARNING(( "frames lost trying to replenish rx ring enq_rc(%lu) < rx_avail(%lu)",
+           enq_rc, rx_avail ));
+      ulong j = enq_rc;
+      while( rx_avail > j ) {
+        ulong enq_rc = fd_xsk_rx_enqueue2( xsk, meta + j, rx_avail - j );
+        j += enq_rc;
+      }
+      FD_LOG_WARNING(( "retried successfully" ));
     }
   }
 
