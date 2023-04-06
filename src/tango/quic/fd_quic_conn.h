@@ -82,6 +82,8 @@ struct fd_quic_conn {
   uint               version;             /* QUIC version of the connection */
 
   ulong              next_service_time;   /* time service should be called next */
+  ulong              sched_service_time;  /* time service is scheduled for, if in_service=1 */
+  int                in_service;          /* whether the conn is in the service queue */
 
   /* we can have multiple connection ids */
   fd_quic_conn_id_t  our_conn_id[ FD_QUIC_MAX_CONN_ID_PER_CONN ];
@@ -132,10 +134,10 @@ struct fd_quic_conn {
   fd_quic_crypto_suite_t * suites[4];
 
   ulong                    tot_num_streams;
-  fd_quic_stream_t **      streams;         /* array of stream pointers */
-  fd_quic_stream_t *       send_streams;    /* list of streams needing action */
-  fd_quic_stream_t *       unused_streams;  /* list of unused streams */
-  fd_quic_stream_map_t *   stream_map;      /* map stream_id -> stream */
+  fd_quic_stream_t **      streams;           /* array of stream pointers */
+  fd_quic_stream_t         send_streams[1];   /* sentinel of list of streams needing action */
+  fd_quic_stream_t         unused_streams[1]; /* sentinel of list of unused streams */
+  fd_quic_stream_map_t *   stream_map;        /* map stream_id -> stream */
 
   /* packet number info
      each encryption level maps to a packet number space
