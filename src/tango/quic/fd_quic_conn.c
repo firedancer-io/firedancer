@@ -162,21 +162,21 @@ fd_quic_conn_new( void *                   mem,
 
   /* Initialize streams */
 
+  FD_QUIC_STREAM_LIST_SENTINEL( conn->send_streams );
+  FD_QUIC_STREAM_LIST_SENTINEL( conn->unused_streams );
+
+  fd_quic_stream_t * unused_streams = conn->unused_streams;
+
   ulong stream_laddr = (ulong)mem + layout.stream_off;
   for( ulong j=0; j < layout.stream_cnt; j++ ) {
     fd_quic_stream_t * stream = fd_quic_stream_new(
         (void *)stream_laddr, conn, limits->tx_buf_sz, limits->rx_buf_sz );
     if( FD_UNLIKELY( !stream ) ) return NULL;
 
-    conn->streams[j]       = stream;
-    conn->streams[j]->next = NULL;
+    conn->streams[j] = stream;
 
     /* insert into unused list */
-    if( j==0 ) {
-      conn->unused_streams = conn->streams[j];
-    } else {
-      conn->streams[j-1]->next = conn->streams[j];
-    }
+    FD_QUIC_STREAM_LIST_INSERT_BEFORE( unused_streams, stream );
 
     stream_laddr += layout.stream_footprint;
   }
