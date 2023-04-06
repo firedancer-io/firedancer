@@ -26,6 +26,15 @@
 
 #define FD_SHA384_HASH_SZ    (48UL)
 
+/* FD_SHA512_{LG_BLOCK_SZ,BLOCK_SZ} describe the size of a SHA512
+   hash block in byte.  BLOCK_SZ==2^LG_BLOCK_SZ==128. */
+
+#define FD_SHA512_LG_BLOCK_SZ (7)
+#define FD_SHA512_BLOCK_SZ    (128UL) /* == 2^FD_SHA512_LG_BLOCK_SZ, explicit to workaround compiler limitations */
+
+#define FD_SHA384_LG_BLOCK_SZ FD_SHA512_LG_BLOCK_SZ
+#define FD_SHA384_BLOCK_SZ    FD_SHA512_BLOCK_SZ
+
 /* A fd_sha512_t should be treated as an opaque handle of a sha512
    calculation state.  (It technically isn't here facilitate compile
    time declarations of fd_sha512_t memory.) */
