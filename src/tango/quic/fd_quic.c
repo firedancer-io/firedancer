@@ -575,7 +575,7 @@ fd_quic_tx_enc_level( fd_quic_conn_t * conn ) {
         /* find stream data to send */
         fd_quic_stream_t * sentinel = conn->send_streams;
         fd_quic_stream_t * stream   = sentinel->next;
-        if( stream != sentinel && stream->upd_pkt_number == app_pkt_number ) {
+        if( !stream->sentinel && stream->upd_pkt_number == app_pkt_number ) {
           return fd_quic_enc_level_appdata_id;
         }
       }
@@ -631,7 +631,7 @@ fd_quic_tx_enc_level( fd_quic_conn_t * conn ) {
   /* find stream data to send */
   fd_quic_stream_t * sentinel = conn->send_streams;
   fd_quic_stream_t * stream   = sentinel->next;
-  if( stream != sentinel && stream->upd_pkt_number == app_pkt_number ) {
+  if( !stream->sentinel && stream->upd_pkt_number == app_pkt_number ) {
     return fd_quic_enc_level_appdata_id;
   }
 
@@ -1556,7 +1556,7 @@ fd_quic_handle_v1_handshake(
 
     /* packet number must be greater than the last processed
        on a new connection, the minimum allowed is set to zero */
-    if( FD_UNLIKELY( pkt_number < conn->exp_pkt_number[pn_space] ) ) {
+    if( FD_UNLIKELY( pkt_number < conn->exp_pkt_number[enc_level] ) ) {
       DEBUG(
           printf( "%s - packet number less than expected. Discarding\n", __func__ );
           )
@@ -3536,7 +3536,7 @@ fd_quic_conn_tx( fd_quic_t * quic, fd_quic_conn_t * conn ) {
                2. appends max_stream_data frames as necessary */
           fd_quic_stream_t * sentinel   = conn->send_streams;
           fd_quic_stream_t * cur_stream = sentinel->next;
-          while( cur_stream != sentinel ) {
+          while( !cur_stream->sentinel ) {
             fd_quic_stream_t * nxt_stream = cur_stream->next;
 
             if( cur_stream->upd_pkt_number == pkt_number ) {
@@ -3792,7 +3792,8 @@ fd_quic_conn_tx( fd_quic_t * quic, fd_quic_conn_t * conn ) {
       conn->tx_tot_data   += data_sz;
 
       /* sent everything, may need to remove from action list */
-      if( stream->tx_buf.head == stream->tx_sent ) {
+      if( stream->tx_buf.head == stream->tx_sent
+          && stream->flags ) {
         /* remove from sent */
         stream->flags &= ~FD_QUIC_STREAM_FLAGS_UNSENT;
         if( last_byte ) {
@@ -3801,7 +3802,7 @@ fd_quic_conn_tx( fd_quic_t * quic, fd_quic_conn_t * conn ) {
         if( stream->flags == 0 ) {
           fd_quic_stream_t * sentinel   = conn->send_streams;
           fd_quic_stream_t * cur_stream = sentinel->next;
-          if( cur_stream != sentinel ) {
+          if( !cur_stream->sentinel ) {
             /* remove from list */
             FD_QUIC_STREAM_LIST_REMOVE( cur_stream );
           }
@@ -4182,28 +4183,15 @@ fd_quic_connect( fd_quic_t *  quic,
     goto fail_tls_hs;
   }
 
-  /* insert into service queue */
-  fd_quic_reschedule_conn( conn, fd_quic_now( quic ) + 1UL );
-
   /* everything initialized */
   return conn;
-
-  fd_quic_conn_entry_t * entry;
 
 fail_tls_hs:
   /* shut down tls_hs */
   fd_quic_tls_hs_delete( tls_hs );
 
 fail_conn:
-  /* remove entry from map */
-  entry = fd_quic_conn_map_query( state->conn_map, &our_conn_id );
-  if( FD_LIKELY( entry ) )
-    fd_quic_conn_map_remove( state->conn_map, entry );
-
-  /* add to free list */
-  conn->next   = state->conns;
-  state->conns = conn;
-  conn->state  = FD_QUIC_CONN_STATE_INVALID;
+  conn->state  = FD_QUIC_CONN_STATE_DEAD;
 
   return NULL;
 }
@@ -4256,6 +4244,9 @@ fd_quic_conn_create( fd_quic_t *               quic,
     FD_LOG_WARNING(( "conn %p not free, this is a bug", (void *)conn ));
     return NULL;
   }
+
+  /* immediately schedule it */
+  fd_quic_reschedule_conn( conn, fd_quic_now( quic ) );
 
   /* initialize connection members */
   conn->quic                = quic;
@@ -4338,6 +4329,7 @@ fd_quic_conn_create( fd_quic_t *               quic,
   for( ulong j = 0; j < tot_num_streams; ++j ) {
     /* insert into unused list */
     FD_QUIC_STREAM_LIST_INSERT_BEFORE( conn->unused_streams, conn->streams[j] );
+    conn->streams[j]->flags = 0;
   }
 
   /* initialize packet metadata */
@@ -4416,7 +4408,7 @@ fd_quic_conn_create( fd_quic_t *               quic,
   conn->idle_timeout  = config->idle_timeout;
   conn->last_activity = fd_quic_now( quic );
 
-  /* return number of bytes consumed */
+  /* return connection */
   return conn;
 }
 
@@ -4604,18 +4596,18 @@ fd_quic_pkt_meta_retry( fd_quic_t *          quic,
 
       ulong tot_num_streams = conn->tot_num_streams;
       for( ulong j = 0u; j < tot_num_streams; ++j ) {
-        fd_quic_stream_t * cur_stream = conn->streams[j];
+        fd_quic_stream_t * stream = conn->streams[j];
 
         /* was this stream sent on the given packet number */
-        if( cur_stream->upd_pkt_number == pkt_number ) {
+        if( stream->upd_pkt_number == pkt_number ) {
           /* if flags==0, the stream is not in the send list */
-          if( cur_stream->flags == 0 ) {
+          if( stream->flags == 0 ) {
             /* insert */
-            FD_QUIC_STREAM_LIST_INSERT_BEFORE( conn->send_streams, cur_stream );
+            FD_QUIC_STREAM_LIST_INSERT_BEFORE( conn->send_streams, stream );
           }
 
-          cur_stream->flags         |= FD_QUIC_STREAM_FLAGS_MAX_STREAM_DATA;
-          cur_stream->upd_pkt_number = next_pkt_number;
+          stream->flags         |= FD_QUIC_STREAM_FLAGS_MAX_STREAM_DATA;
+          stream->upd_pkt_number = next_pkt_number;
         }
       }
     }
@@ -4720,10 +4712,12 @@ fd_quic_reclaim_pkt_meta( fd_quic_conn_t *     conn,
 
     if( FD_LIKELY( stream_entry ) ) {
       stream = stream_entry->stream;
-      stream->flags &= ~FD_QUIC_STREAM_FLAGS_MAX_STREAM_DATA;
-      if( stream->flags == 0 ) {
-        /* remove from list */
-        FD_QUIC_STREAM_LIST_REMOVE( stream );
+      if( FD_LIKELY( stream->flags & FD_QUIC_STREAM_FLAGS_MAX_STREAM_DATA ) ) {
+        stream->flags &= ~FD_QUIC_STREAM_FLAGS_MAX_STREAM_DATA;
+        if( stream->flags == 0 ) {
+          /* remove from list */
+          FD_QUIC_STREAM_LIST_REMOVE( stream );
+        }
       }
     }
   }
@@ -4834,12 +4828,14 @@ fd_quic_reclaim_pkt_meta( fd_quic_conn_t *     conn,
 #else
     fd_quic_stream_t * sentinel = conn->send_streams;
     fd_quic_stream_t * stream   = sentinel->next;
-    while( stream != sentinel ) {
+    while( !stream->sentinel ) {
       if( stream->upd_pkt_number == pkt_number ) {
-        stream->flags &= ~FD_QUIC_STREAM_FLAGS_MAX_STREAM_DATA;
-        if( stream->flags == 0 ) {
-          /* stream must be in send_streams, so remove */
-          FD_QUIC_STREAM_LIST_REMOVE( stream );
+        if( stream->flags & FD_QUIC_STREAM_FLAGS_MAX_STREAM_DATA ) {
+          stream->flags &= ~FD_QUIC_STREAM_FLAGS_MAX_STREAM_DATA;
+          if( stream->flags == 0 ) {
+            /* stream must be in send_streams, so remove */
+            FD_QUIC_STREAM_LIST_REMOVE( stream );
+          }
         }
       }
 
@@ -5103,11 +5099,10 @@ fd_quic_stream_free( fd_quic_t * quic, fd_quic_conn_t * conn, fd_quic_stream_t *
   if( stream->flags ) {
     FD_QUIC_STREAM_LIST_REMOVE( stream );
   }
+  stream->flags = 0;
 
   /* insert into unused list */
   FD_QUIC_STREAM_LIST_INSERT_AFTER( conn->unused_streams, stream );
-
-  stream->flags = 0;
 }
 
 static ulong
@@ -5144,7 +5139,7 @@ fd_quic_frame_handle_stream_frame(
 
     stream = sentinel->next;
 
-    if( FD_LIKELY( stream != sentinel ) ) {
+    if( FD_LIKELY( !stream->sentinel ) ) {
       fd_quic_stream_init( stream );
 
       ulong max_stream_id = context.conn->max_streams[type];

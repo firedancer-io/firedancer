@@ -50,6 +50,8 @@ struct fd_quic_stream {
 # define FD_QUIC_STREAM_FLAGS_MAX_STREAM_DATA (1u<<2u)
 # define FD_QUIC_STREAM_FLAGS_UNSENT          (1u<<3u)
 
+  uint sentinel; /* does this stream represent a sentinel? */
+
   /* send and receive state
      mask made up of the following:
        FD_QUIC_STREAM_STATE_TX_FIN      TX is finished (no more TX)
@@ -95,6 +97,7 @@ struct fd_quic_stream {
 #define FD_QUIC_STREAM_LIST_SENTINEL( stream )                 \
   do {                                                         \
     FD_QUIC_STREAM_LIST_LINK( stream, stream );                \
+    stream->sentinel = 1;                                      \
   } while(0)
 
 /* insert new_stream after stream in list */
