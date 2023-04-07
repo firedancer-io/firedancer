@@ -15,5 +15,15 @@ $(call make-unit-test,test_quic_tls_decrypt,test_tls_decrypt,fd_quic fd_ballet f
 $(call make-unit-test,test_quic_tls_pcap,test_tls_pcap,fd_quic fd_ballet fd_util)
 $(call make-unit-test,test_quic_tls_pcap2,test_tls_pcap2,fd_quic fd_ballet fd_util)
 $(call make-unit-test,test_quic_tls_both,test_tls_quic_both,fd_quic fd_util)
+
+$(make run-unit-test,test_quic_hs)
+$(make run-unit-test,test_quic_streams)
+$(make run-unit-test,test_quic_conn)
+$(make run-unit-test,test_quic_server)
+$(make run-unit-test,test_quic_client_flood)
+$(make run-unit-test,test_quic_bw)
+$(make run-unit-test,test_quic_handshake)
+$(make run-unit-test,test_quic_crypto)
+$(make run-unit-test,test_quic_frames)
 endif
 endif
