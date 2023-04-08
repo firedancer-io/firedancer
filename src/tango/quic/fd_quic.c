@@ -1790,6 +1790,7 @@ fd_quic_handle_v1_one_rtt( fd_quic_t * quic, fd_quic_conn_t * conn, fd_quic_pkt_
                                 &conn->keys[enc_level][!server] ) != FD_QUIC_SUCCESS ) {
       /* remove connection from map, and insert into free list */
       DEBUG( FD_LOG_DEBUG(( "fd_quic_crypto_decrypt failed" )); )
+
       return FD_QUIC_PARSE_FAIL;
     }
   }
@@ -4407,6 +4408,8 @@ fd_quic_conn_create( fd_quic_t *               quic,
   /* idle timeout */
   conn->idle_timeout  = config->idle_timeout;
   conn->last_activity = fd_quic_now( quic );
+
+  fd_memset( conn->exp_pkt_number, 0, sizeof( conn->exp_pkt_number ) );
 
   /* return connection */
   return conn;
