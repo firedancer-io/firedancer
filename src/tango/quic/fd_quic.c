@@ -261,6 +261,7 @@ fd_quic_set_aio_net_tx( fd_quic_t *      quic,
   memcpy( &quic->join.aio_tx, aio_tx, sizeof(fd_aio_t) );
 }
 
+
 /* initialize everything that mutates during runtime */
 static void
 fd_quic_stream_init( fd_quic_stream_t * stream ) {
@@ -581,12 +582,15 @@ fd_quic_tx_enc_level( fd_quic_conn_t * conn ) {
       }
   }
 
+  /* get peer_enc_level */
+  uint peer_enc_level = conn->peer_enc_level;
+
   /* Check for acks to send */
 
   /* TODO replace enc_level with pn_space for ack index
      not necessary until 0-rtt is supported */
   /* use "pending" aand "sent" lists for acks to speed up this check */
-  for( uint k = 0; k < 4; ++k ) {
+  for( uint k = peer_enc_level; k < 4; ++k ) {
     fd_quic_ack_t * cur_ack_head = conn->acks_tx[k];
     /* skip sent */
     while( cur_ack_head && cur_ack_head->flags & FD_QUIC_ACK_FLAGS_SENT ) {
@@ -603,7 +607,7 @@ fd_quic_tx_enc_level( fd_quic_conn_t * conn ) {
   /* Check for handshake data to send */
   fd_quic_tls_hs_data_t * hs_data   = NULL;
 
-  for( uint i = 0; i < 4 && i < enc_level; ++i ) {
+  for( uint i = peer_enc_level; i < 4 && i < enc_level; ++i ) {
     if( enc_level == ~0u || enc_level == i ) {
       hs_data = fd_quic_tls_get_hs_data( conn->tls_hs, (int)i );
       if( hs_data ) {
@@ -639,6 +643,7 @@ fd_quic_tx_enc_level( fd_quic_conn_t * conn ) {
     enc_level = fd_quic_enc_level_appdata_id;
   }
 
+  /* nothing to send */
   return ~0u;
 }
 
@@ -1745,8 +1750,11 @@ fd_quic_handle_v1_one_rtt( fd_quic_t * quic, fd_quic_conn_t * conn, fd_quic_pkt_
     /* TODO should we avoid looking at the packet number here
        since the packet integrity is checked in fd_quic_crypto_decrypt? */
 
+    /* get first byte for future use */
+    uint first = (uint)dec_hdr[0];
+
     /* number of bytes in the packet header */
-    pkt_number_sz = ( (uint)dec_hdr[0] & 0x03u ) + 1u;
+    pkt_number_sz = ( first & 0x03u ) + 1u;
     tot_sz        = cur_sz; /* total including header and payload */
 
     /* now we have decrypted packet number */
@@ -1772,8 +1780,11 @@ fd_quic_handle_v1_one_rtt( fd_quic_t * quic, fd_quic_conn_t * conn, fd_quic_pkt_
     /* since the packet number is greater than the highest last seen,
        do spin bit processing */
     /* TODO by spec 1 in 16 connections should have this disabled */
-    uint spin_bit = (uint)dec_hdr[0] & (1u << 2u);
+    uint spin_bit = first & (1u << 6u);
     conn->spin_bit = (uchar)( spin_bit ^ ( (uint)conn->server ^ 1u ) );
+
+    /* fetch key phase after decrypting header */
+    uint key_phase = ( first >> 2u ) & 1u;
 
     /* set packet number on the context */
     pkt->pkt_number = pkt_number;
@@ -1781,13 +1792,56 @@ fd_quic_handle_v1_one_rtt( fd_quic_t * quic, fd_quic_conn_t * conn, fd_quic_pkt_
     /* NOTE from rfc9002 s3
       It is permitted for some packet numbers to never be used, leaving intentional gaps. */
 
+    /* is current packet in the current key phase? */
+    int current_key_phase = conn->key_phase == key_phase;
+
+    /* is this a new request to change key_phase? */
+    if( !current_key_phase && !conn->key_phase_upd ) {
+      /* generate new secrets */
+      if( fd_quic_gen_new_secrets( &conn->secrets, suite->hmac_fn, suite->hash_sz ) != FD_QUIC_SUCCESS ) {
+        FD_LOG_WARNING(( "Unable to generate new secrets for key update. "
+              "Aborting connection" ));
+        fd_quic_conn_error( conn, FD_QUIC_CONN_REASON_INTERNAL_ERROR );
+        return FD_QUIC_PARSE_FAIL;
+      }
+
+      /* generate new keys */
+      if( FD_UNLIKELY( fd_quic_gen_new_keys( &conn->new_keys[0],
+                                             suite,
+                                             conn->secrets.new_secret[0],
+                                             conn->secrets.secret_sz[enc_level][0],
+                                             suite->hmac_fn, suite->hash_sz )
+            != FD_QUIC_SUCCESS ) ) {
+        /* set state to DEAD to reclaim connection */
+        FD_LOG_WARNING(( "fd_quic_gen_keys failed on client" ));
+        fd_quic_conn_error( conn, FD_QUIC_CONN_REASON_INTERNAL_ERROR );
+        return FD_QUIC_PARSE_FAIL;
+      }
+      if( FD_UNLIKELY( fd_quic_gen_new_keys( &conn->new_keys[1],
+                                             suite,
+                                             conn->secrets.new_secret[1],
+                                             conn->secrets.secret_sz[enc_level][1],
+                                             suite->hmac_fn, suite->hash_sz )
+            != FD_QUIC_SUCCESS ) ) {
+        /* set state to DEAD to reclaim connection */
+        FD_LOG_WARNING(( "fd_quic_gen_keys failed on server" ));
+        fd_quic_conn_error( conn, FD_QUIC_CONN_REASON_INTERNAL_ERROR );
+        return FD_QUIC_PARSE_FAIL;
+      }
+
+      conn->key_phase_upd = 1;
+    }
+
+    fd_quic_crypto_keys_t * keys = current_key_phase ? &conn->keys[enc_level][!server]
+                                                     : &conn->new_keys[!server];
+
     /* this decrypts the header and payload */
     if( fd_quic_crypto_decrypt( crypt_scratch, &crypt_scratch_sz,
                                 cur_ptr, tot_sz,
                                 pn_offset,
                                 pkt_number,
                                 suite,
-                                &conn->keys[enc_level][!server] ) != FD_QUIC_SUCCESS ) {
+                                keys ) != FD_QUIC_SUCCESS ) {
       /* remove connection from map, and insert into free list */
       DEBUG( FD_LOG_DEBUG(( "fd_quic_crypto_decrypt failed" )); )
 
@@ -2435,19 +2489,6 @@ fd_quic_tls_cb_secret( fd_quic_tls_hs_t *           hs,
   crypto_secret->secret_sz[enc_level][0] = secret_sz;
   crypto_secret->secret_sz[enc_level][1] = secret_sz;
 
-  // DEBUG(
-  //     printf( "%s read  secret - enc_level: %d  secret: ", conn->server ? "SERVER" : "CLIENT", enc_level );
-  //     for( ulong j = 0; j < secret_sz; ++j ) {
-  //       printf( "%2.2x", (uint)secret->read_secret[j] );
-  //     }
-  //     printf( "\n" );
-  //     printf( "%s write secret - enc_level: %d  secret: ", conn->server ? "SERVER" : "CLIENT", enc_level );
-  //     for( ulong j = 0; j < secret_sz; ++j ) {
-  //       printf( "%2.2x", (uint)secret->write_secret[j] );
-  //     }
-  //     printf( "\n" );
-  //   )
-
   fd_memcpy( &crypto_secret->secret[enc_level][!server][0], secret->read_secret,  secret_sz );
   fd_memcpy( &crypto_secret->secret[enc_level][ server][0], secret->write_secret, secret_sz );
 
@@ -2455,11 +2496,6 @@ fd_quic_tls_cb_secret( fd_quic_tls_hs_t *           hs,
   uchar major = (uchar)( suite_id >> 8u );
   uchar minor = (uchar)( suite_id );
   int suite_idx = fd_quic_crypto_lookup_suite( major, minor );
-
-  //DEBUG(
-  //    printf( "suite: maj min: %u %u  suite_id: %x  suite_idx: %u\n",
-  //      (uint)major, (uint)minor, (uint)suite_id, (uint)suite_idx );
-  //    )
 
   if( suite_idx >= 0 ) {
     fd_quic_crypto_suite_t * suite = conn->suites[enc_level] = &state->crypto_ctx->suites[ suite_idx ];
@@ -2875,9 +2911,10 @@ typedef struct fd_quic_pkt_hdr fd_quic_pkt_hdr_t;
 /* populate the fd_quic_pkt_hdr_t */
 void
 fd_quic_pkt_hdr_populate( fd_quic_pkt_hdr_t * pkt_hdr,
-                          uint            enc_level,
-                          ulong            pkt_number,
-                          fd_quic_conn_t *    conn ) {
+                          uint                enc_level,
+                          ulong               pkt_number,
+                          fd_quic_conn_t *    conn,
+                          uchar               key_phase ) {
   pkt_hdr->enc_level = enc_level;
 
   /* current peer endpoint */
@@ -2948,12 +2985,12 @@ fd_quic_pkt_hdr_populate( fd_quic_pkt_hdr_t * pkt_hdr,
       /* one_rtt has a short header */
       pkt_hdr->quic_pkt.one_rtt.hdr_form         = 0;
       pkt_hdr->quic_pkt.one_rtt.fixed_bit        = 1;
-      pkt_hdr->quic_pkt.one_rtt.spin_bit         = sb;     /* should either match or flip for client/server */
-                                                           /* randomized for disabled spin bit */
-      pkt_hdr->quic_pkt.one_rtt.reserved0        = 0;      /* must be set to zero by rfc9000 17.2 */
-      pkt_hdr->quic_pkt.one_rtt.key_phase        = 0;      /* flipped on key change */
-      pkt_hdr->quic_pkt.one_rtt.pkt_number_len   = 3;      /* indicates 4-byte packet number TODO vary? */
-      pkt_hdr->quic_pkt.one_rtt.pkt_num_bits     = 4 * 8;  /* actual number of bits to encode */
+      pkt_hdr->quic_pkt.one_rtt.spin_bit         = sb;         /* should either match or flip for client/server */
+                                                               /* randomized for disabled spin bit */
+      pkt_hdr->quic_pkt.one_rtt.reserved0        = 0;          /* must be set to zero by rfc9000 17.2 */
+      pkt_hdr->quic_pkt.one_rtt.key_phase        = key_phase;  /* flipped on key change */
+      pkt_hdr->quic_pkt.one_rtt.pkt_number_len   = 3;          /* indicates 4-byte packet number TODO vary? */
+      pkt_hdr->quic_pkt.one_rtt.pkt_num_bits     = 4 * 8;      /* actual number of bits to encode */
 
       /* destination */
       fd_memcpy( pkt_hdr->quic_pkt.one_rtt.dst_conn_id,
@@ -3075,6 +3112,63 @@ fd_quic_conn_tx( fd_quic_t * quic, fd_quic_conn_t * conn ) {
     fd_quic_max_streams_frame_t  max_streams;
   } frame;
 
+  /* choose enc_level to tx at */
+  uint enc_level = fd_quic_tx_enc_level( conn );
+
+  /* this test section is close to what we actually need
+     just need to choose the packet number at which to start a
+     key update, and store it on conn */
+
+  // /* TESTING */
+  // static ulong nxt_key_upd = 10000000;
+  // if( enc_level == 3 && conn->pkt_number[2] >= nxt_key_upd ) {
+  //   printf( "conn->pkt_number[2]=%lu  enc_level=%u\n", conn->pkt_number[2], enc_level );
+  //   fflush( stdout );
+
+  //   fd_quic_crypto_suite_t * suite = conn->suites[enc_level];
+  //   conn->key_phase_upd = 1;
+
+  //   if( fd_quic_gen_new_secrets( &conn->secrets, suite->hash ) != FD_QUIC_SUCCESS ) {
+  //     printf( "fd_quic_gen_new_secrets failed\n" );
+  //     conn->key_phase_upd = 0;
+  //   }
+
+  //   /* generate new keys */
+  //   if( FD_UNLIKELY( fd_quic_gen_new_keys( &conn->new_keys[0],
+  //                                          suite,
+  //                                          suite->hash,
+  //                                          conn->secrets.new_secret[0],
+  //                                          conn->secrets.secret_sz[enc_level][0] )
+  //         != FD_QUIC_SUCCESS ) ) {
+  //     printf( "fd_quic_gen_new_secrets failed\n" );
+  //     conn->key_phase_upd = 0;
+  //   }
+  //   if( FD_UNLIKELY( fd_quic_gen_new_keys( &conn->new_keys[1],
+  //                                          suite,
+  //                                          suite->hash,
+  //                                          conn->secrets.new_secret[1],
+  //                                          conn->secrets.secret_sz[enc_level][1] )
+  //         != FD_QUIC_SUCCESS ) ) {
+  //     printf( "fd_quic_gen_new_secrets failed\n" );
+  //     conn->key_phase_upd = 0;
+  //   }
+
+  //   nxt_key_upd = conn->pkt_number[2] + 100000;
+  // }
+
+  /* nothing to send? */
+  if( enc_level == ~0u ) return;
+
+  int key_phase_upd = (int)conn->key_phase_upd;
+  int key_phase     = (int)conn->key_phase;
+  int key_phase_tx  = (int)key_phase ^ key_phase_upd;
+
+  /* key phase flags to set on every relevant pkt_meta */
+  uint key_phase_flags = fd_uint_if( enc_level == fd_quic_enc_level_appdata_id,
+                                        ( fd_uint_if( key_phase_upd, FD_QUIC_PKT_META_FLAGS_KEY_UPDATE, 0 ) |
+                                          fd_uint_if( key_phase_tx,  FD_QUIC_PKT_META_FLAGS_KEY_PHASE,  0 ) ),
+                                        0 );
+
   while(1) {
     ulong              frame_sz     = 0;
     ulong              tot_frame_sz = 0;
@@ -3085,10 +3179,9 @@ fd_quic_conn_tx( fd_quic_t * quic, fd_quic_conn_t * conn ) {
     int                last_byte    = 0;
 
     /* choose enc_level to tx at */
-    uint enc_level = fd_quic_tx_enc_level( conn );
+    uint nxt_enc_level = fd_quic_tx_enc_level( conn );
 
-    /* nothing to send? */
-    if( enc_level == ~0u ) break;
+    if( nxt_enc_level != enc_level ) break;
 
     /* do we have space for pkt_meta? */
     pkt_meta = fd_quic_pkt_meta_allocate( &conn->pkt_meta_pool );
@@ -3159,7 +3252,7 @@ fd_quic_conn_tx( fd_quic_t * quic, fd_quic_conn_t * conn ) {
        crypt_scratch is reused */
 
     /* populate the quic packet header */
-    fd_quic_pkt_hdr_populate( &pkt_hdr, enc_level, pkt_number, conn );
+    fd_quic_pkt_hdr_populate( &pkt_hdr, enc_level, pkt_number, conn, (uchar)key_phase_tx );
 
     ulong initial_hdr_sz = fd_quic_pkt_hdr_footprint( &pkt_hdr, enc_level );
 
@@ -3731,19 +3824,25 @@ fd_quic_conn_tx( fd_quic_t * quic, fd_quic_conn_t * conn ) {
 
     (void)act_hdr_sz;
 #else
-    ulong  quic_pkt_sz    = (ulong)( payload_ptr - cur_ptr );
-    ulong  cipher_text_sz = conn->tx_sz;
+    ulong   quic_pkt_sz    = (ulong)( payload_ptr - cur_ptr );
+    ulong   cipher_text_sz = conn->tx_sz;
     uchar * hdr            = cur_ptr;
-    ulong  hdr_sz         = act_hdr_sz;
+    ulong   hdr_sz         = act_hdr_sz;
     uchar * pay            = hdr + hdr_sz;
-    ulong  pay_sz         = quic_pkt_sz - hdr_sz;
+    ulong   pay_sz         = quic_pkt_sz - hdr_sz;
 
     fd_quic_crypto_suite_t * suite = conn->suites[enc_level];
 
     int server = conn->server;
 
+    fd_quic_crypto_keys_t * hp_keys  = &conn->keys[enc_level][server];
+    fd_quic_crypto_keys_t * pkt_keys = key_phase_upd ? &conn->new_keys[server]
+                                                     : &conn->keys[enc_level][server];
+
+    pkt_meta->flags |= key_phase_flags;
+
     if( FD_UNLIKELY( fd_quic_crypto_encrypt( conn->tx_ptr, &cipher_text_sz, hdr, hdr_sz,
-          pay, pay_sz, suite, &conn->keys[enc_level][server]  ) != FD_QUIC_SUCCESS ) ) {
+          pay, pay_sz, suite, pkt_keys, hp_keys ) != FD_QUIC_SUCCESS ) ) {
       FD_LOG_ERR(( "fd_quic_crypto_encrypt failed" ));
       goto fd_quic_conn_tx_abort;
     }
@@ -4359,7 +4458,11 @@ fd_quic_conn_create( fd_quic_t *               quic,
 
   fd_memset( &conn->secrets, 0, sizeof( conn->secrets ) );
   fd_memset( &conn->keys, 0, sizeof( conn->keys ) );
+  fd_memset( &conn->new_keys, 0, sizeof( conn->new_keys ) );
   /* suites initialized above */
+
+  conn->key_phase            = 0;
+  conn->key_phase_upd        = 0;
 
   conn->state                = FD_QUIC_CONN_STATE_HANDSHAKE;
   conn->reason               = 0;
@@ -4678,6 +4781,40 @@ fd_quic_reclaim_pkt_meta( fd_quic_conn_t *     conn,
 
   uint  flags      = pkt_meta->flags;
   ulong pkt_number = pkt_meta->pkt_number;
+
+  if( FD_UNLIKELY( flags & FD_QUIC_PKT_META_FLAGS_KEY_UPDATE ) ) {
+    /* what key phase was used for packet? */
+    uint pkt_meta_key_phase = !!( flags & FD_QUIC_PKT_META_FLAGS_KEY_UPDATE );
+
+    if( pkt_meta_key_phase != conn->key_phase ) {
+      /* key update was acknowledged
+         free old keys, and replace with new ones */
+      fd_quic_free_pkt_keys( &conn->keys[enc_level][0] );
+      fd_quic_free_pkt_keys( &conn->keys[enc_level][1] );
+
+      /* TODO improve this code */
+#     define COPY_KEY(SERVER,KEY)                         \
+        fd_memcpy( &conn->keys[enc_level][SERVER].KEY[0], \
+                   &conn->new_keys[SERVER].KEY[0],        \
+                   sizeof( conn->keys[enc_level][0].KEY ) )
+      COPY_KEY(0,pkt_key);
+      COPY_KEY(0,iv);
+      COPY_KEY(1,pkt_key);
+      COPY_KEY(1,iv);
+      conn->keys[enc_level][0].pkt_cipher_ctx = conn->new_keys[0].pkt_cipher_ctx;
+      conn->keys[enc_level][1].pkt_cipher_ctx = conn->new_keys[1].pkt_cipher_ctx;
+#     undef COPY_KEY
+
+      /* finally zero out new_keys */
+      fd_memset( &conn->new_keys[0], 0, sizeof( fd_quic_crypto_keys_t ) );
+      fd_memset( &conn->new_keys[1], 0, sizeof( fd_quic_crypto_keys_t ) );
+
+      conn->key_phase     = pkt_meta_key_phase; /* switch to new key phase */
+      conn->key_phase_upd = 0;                  /* no longer updating */
+
+      /* TODO still need to add code to initiate key update */
+    }
+  }
 
   if( flags & FD_QUIC_PKT_META_FLAGS_HS_DATA ) {
     /* hs_data is being acked
@@ -5413,7 +5550,11 @@ fd_quic_frame_handle_data_blocked_frame(
   (void)data;
   (void)p;
   (void)p_sz;
-  return FD_QUIC_PARSE_FAIL;
+  /* Since we do not do runtime allocations, we will not attempt
+     to find more memory in the case of DATA_BLOCKED
+     We return 0 (bytes consumed), since this frame does not
+     require any additional bytes from the packet */
+  return 0;
 }
 
 static ulong
@@ -5426,7 +5567,11 @@ fd_quic_frame_handle_stream_data_blocked_frame(
   (void)data;
   (void)p;
   (void)p_sz;
-  return FD_QUIC_PARSE_FAIL;
+  /* Since we do not do runtime allocations, we will not attempt
+     to find more memory in the case of STREAM_DATA_BLOCKED
+     We return 0 (bytes consumed), since this frame does not
+     require any additional bytes from the packet */
+  return 0;
 }
 
 static ulong
@@ -5439,7 +5584,12 @@ fd_quic_frame_handle_streams_blocked_frame(
   (void)data;
   (void)p;
   (void)p_sz;
-  return FD_QUIC_PARSE_FAIL;
+  /* TODO STREAMS_BLOCKED should be sent by client when it wants
+     to use a new stream, but is unable to due to the max_streams
+     value
+     We can support this in the future, but the solana-tpu client
+     does not currently use it */
+  return 0;
 }
 
 static ulong

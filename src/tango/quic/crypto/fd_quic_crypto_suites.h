@@ -153,6 +153,8 @@ enum {
 #define FD_QUIC_CRYPTO_LABEL_QUIC_IV  "quic iv"
 #define FD_QUIC_CRYPTO_LABEL_QUIC_HP  "quic hp"
 
+#define FD_QUIC_CRYPTO_LABEL_KEY_UPDATE "quic ku"
+
 /* initial salt */
 #define FD_QUIC_CRYPTO_V1_INITIAL_SALT_SZ   (20UL)
 extern uchar FD_QUIC_CRYPTO_V1_INITIAL_SALT[ 20UL ];
@@ -184,6 +186,10 @@ struct fd_quic_crypto_secrets {
   /* secret[enc_level][is_peer][0..FD_QUIC_MAX_SECRET_SZ] */
   uchar secret   [FD_QUIC_NUM_ENC_LEVELS][2][FD_QUIC_MAX_SECRET_SZ];
   uchar secret_sz[FD_QUIC_NUM_ENC_LEVELS][2];
+
+  /* new secret for switching keys during key update */
+  uchar new_secret   [2][FD_QUIC_MAX_SECRET_SZ];
+  uchar new_secret_sz[2];
 };
 
 /* fd_quic_crypto_rand retrieves cryptographic quality random bytes
@@ -297,8 +303,27 @@ fd_quic_gen_secrets(
     ulong                      hash_sz );
 
 
+/* generate new secrets
+
+   Used during key update to generate new secrets from the
+   existing secrets
+
+   see rfc9001 section 6, rfc8446 section 7.2 */
+int
+fd_quic_gen_new_secrets(
+    fd_quic_crypto_secrets_t * secrets,
+    fd_hmac_fn_t               hmac_fn,
+    ulong                      hash_sz );
+
+
+/* free the cipher ctx for the pkt keys and the hp keys */
 void
 fd_quic_free_keys( fd_quic_crypto_keys_t * keys );
+
+
+/* free the cipher ctx for only the pkt keys */
+void
+fd_quic_free_pkt_keys( fd_quic_crypto_keys_t * keys );
 
 
 /* fd_quic_gen_keys
@@ -321,6 +346,20 @@ fd_quic_gen_keys(
     fd_quic_crypto_suite_t * suite,
     uchar const *            secret,
     ulong                    secret_sz );
+
+
+/* generates packet key and iv key
+   used by key update
+
+   TODO this overlaps with fd_quic_gen_keys, split into gen_hp_keys and gen_pkt_keys */
+int
+fd_quic_gen_new_keys(
+    fd_quic_crypto_keys_t *  keys,
+    fd_quic_crypto_suite_t * suite,
+    uchar const *            secret,
+    ulong                    secret_sz,
+    fd_hmac_fn_t             hmac_fn,
+    ulong                    hash_sz );
 
 /* encrypt a packet according to rfc9001 packet protection and header protection
 
@@ -351,7 +390,8 @@ fd_quic_crypto_encrypt(
     uchar const *            pkt,
     ulong                    pkt_sz,
     fd_quic_crypto_suite_t * suite,
-    fd_quic_crypto_keys_t *  keys );
+    fd_quic_crypto_keys_t *  pkt_keys,
+    fd_quic_crypto_keys_t *  hp_keys );
 
 
 /* decrypt a quic protected packet

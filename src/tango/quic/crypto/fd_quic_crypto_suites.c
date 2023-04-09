@@ -185,12 +185,67 @@ fd_quic_gen_secrets(
 }
 
 
+/* generate new secrets
+
+   Used during key update to generate new secrets from the
+   existing secrets
+
+   see rfc9001 section 6, rfc8446 section 7.2 */
+int
+fd_quic_gen_new_secrets(
+    fd_quic_crypto_secrets_t * secrets,
+    fd_hmac_fn_t               hmac_fn,
+    ulong                      hash_sz ) {
+  /* Defined as:
+     application_traffic_secret_N+1 =
+           HKDF-Expand-Label(application_traffic_secret_N,
+                             "traffic upd", "", Hash.length) */
+  uint enc_level = fd_quic_enc_level_appdata_id;
+  uchar * client_secret = secrets->new_secret[0];
+  uchar * server_secret = secrets->new_secret[1];
+
+  uchar * old_client_secret = secrets->secret[enc_level][0];
+  uchar * old_server_secret = secrets->secret[enc_level][1];
+
+  uchar client_secret_sz = secrets->secret_sz[enc_level][0];
+  uchar server_secret_sz = secrets->secret_sz[enc_level][1];
+
+  char const key_update[] = FD_QUIC_CRYPTO_LABEL_KEY_UPDATE;
+  if( FD_UNLIKELY( !fd_quic_hkdf_expand_label(
+      client_secret,      client_secret_sz,
+      old_client_secret,  client_secret_sz,
+      (uchar*)key_update, strlen( key_update ),
+      hmac_fn,            hash_sz ) ) ) {
+    FD_LOG_WARNING(( "fd_quic_hkdf_expand_label failed" ));
+    return FD_QUIC_FAILED;
+  }
+
+  if( FD_UNLIKELY( !fd_quic_hkdf_expand_label(
+      server_secret,      server_secret_sz,
+      old_server_secret,  server_secret_sz,
+      (uchar*)key_update, strlen( key_update ),
+      hmac_fn,            hash_sz ) ) ) {
+    FD_LOG_WARNING(( "fd_quic_hkdf_expand_label failed" ));
+    return FD_QUIC_FAILED;
+  }
+
+  return FD_QUIC_SUCCESS;
+}
+
+
 void
 fd_quic_free_keys( fd_quic_crypto_keys_t * keys ) {
   if( keys->pkt_cipher_ctx ) EVP_CIPHER_CTX_free( keys->pkt_cipher_ctx );
   if( keys->hp_cipher_ctx  ) EVP_CIPHER_CTX_free( keys->hp_cipher_ctx  );
   keys->pkt_cipher_ctx = NULL;
   keys->hp_cipher_ctx  = NULL;
+}
+
+
+void
+fd_quic_free_pkt_keys( fd_quic_crypto_keys_t * keys ) {
+  if( keys->pkt_cipher_ctx ) EVP_CIPHER_CTX_free( keys->pkt_cipher_ctx );
+  keys->pkt_cipher_ctx = NULL;
 }
 
 
@@ -209,8 +264,8 @@ fd_quic_gen_keys(
   ulong        iv_sz   = suite->iv_sz;
 
   if( key_sz > sizeof( keys->pkt_key ) ||
-      key_sz > sizeof( keys->hp_key  ) ||
-      iv_sz  > sizeof( keys->iv      ) ) {
+      key_sz > sizeof( keys->hp_key )  ||
+      iv_sz  > sizeof( keys->iv ) ) {
     return FD_QUIC_FAILED;
   }
 
@@ -289,6 +344,70 @@ fd_quic_gen_keys(
 }
 
 
+/* generates packet key and iv key
+   used by key update
+
+   TODO this overlaps with fd_quic_gen_keys, split into gen_hp_keys and gen_pkt_keys */
+int
+fd_quic_gen_new_keys(
+    fd_quic_crypto_keys_t *  keys,
+    fd_quic_crypto_suite_t * suite,
+    uchar const *            secret,
+    ulong                    secret_sz,
+    fd_hmac_fn_t             hmac_fn,
+    ulong                    hash_sz ) {
+  ulong key_sz = suite->key_sz;
+  ulong iv_sz  = suite->iv_sz;
+
+  if( key_sz > sizeof( keys->pkt_key ) ||
+      iv_sz  > sizeof( keys->iv ) ) {
+    return FD_QUIC_FAILED;
+  }
+
+  /* quic key */
+
+  /* output length passed with "quic key" must be the key size from
+     the current cipher */
+  if( FD_UNLIKELY( !fd_quic_hkdf_expand_label( keys->pkt_key, key_sz,
+      secret, secret_sz,
+      (uchar*)FD_QUIC_CRYPTO_LABEL_QUIC_KEY,
+      FD_QUIC_CRYPTO_LABEL_QUIC_KEY_SZ,
+      hmac_fn, hash_sz ) ) ) {
+    return FD_QUIC_FAILED;
+  }
+  keys->pkt_key_sz = key_sz;
+
+  /* quic iv */
+  if( FD_UNLIKELY( !fd_quic_hkdf_expand_label( keys->iv, iv_sz,
+      secret, secret_sz,
+      (uchar*)FD_QUIC_CRYPTO_LABEL_QUIC_IV,
+      FD_QUIC_CRYPTO_LABEL_QUIC_IV_SZ,
+      hmac_fn, hash_sz ) ) ) {
+    return FD_QUIC_FAILED;
+  }
+  keys->iv_sz = iv_sz;
+
+  /* initialize the cipher context */
+  EVP_CIPHER_CTX * pkt_cipher_ctx = EVP_CIPHER_CTX_new();
+  if( FD_UNLIKELY( !pkt_cipher_ctx ) ) {
+    FD_LOG_ERR(( "fd_quic_crypto_encrypt: Error creating cipher ctx" ));
+  }
+
+  if( FD_UNLIKELY( EVP_CipherInit_ex( pkt_cipher_ctx, suite->pkt_cipher, NULL, NULL, NULL, 1 /* encryption */ ) != 1 ) ) {
+    FD_LOG_ERR(( "fd_quic_crypto_encrypt: EVP_CipherInit_ex failed" ));
+  }
+
+  if( FD_UNLIKELY( EVP_CIPHER_CTX_ctrl( pkt_cipher_ctx, EVP_CTRL_AEAD_SET_IVLEN, FD_QUIC_NONCE_SZ, NULL ) != 1 ) ) {
+    FD_LOG_ERR(( "fd_quic_crypto_encrypt: EVP_CIPHER_CTX_ctrl failed" ));
+  }
+
+  keys->pkt_cipher_ctx = pkt_cipher_ctx;
+  keys->hp_cipher_ctx  = NULL;
+
+  return FD_QUIC_SUCCESS;
+}
+
+
 /* encrypt a packet
 
    uses the keys in keys to encrypt the packet "pkt" with header "hdr"
@@ -319,13 +438,14 @@ fd_quic_gen_keys(
 int
 fd_quic_crypto_encrypt(
     uchar *                  out,
-    ulong *                 out_sz,
+    ulong *                  out_sz,
     uchar const *            hdr,
-    ulong                   hdr_sz,
+    ulong                    hdr_sz,
     uchar const *            pkt,
-    ulong                   pkt_sz,
+    ulong                    pkt_sz,
     fd_quic_crypto_suite_t * suite,
-    fd_quic_crypto_keys_t *  keys ) {
+    fd_quic_crypto_keys_t *  pkt_keys,
+    fd_quic_crypto_keys_t *  hp_keys ) {
   /* ensure we have enough space in the output buffer
      most space used by cipher:
        header bytes (just XORed)
@@ -361,9 +481,9 @@ fd_quic_crypto_encrypt(
   ulong pkt_number_sz = ( first & 0x03u ) + 1;
   uchar const * pkt_number = out + hdr_sz - pkt_number_sz;
 
-  EVP_CIPHER_CTX * cipher_ctx = keys->pkt_cipher_ctx;
-  if( FD_UNLIKELY( !cipher_ctx ) ) {
-    FD_LOG_ERR(( "fd_quic_crypto_encrypt: Error creating cipher ctx" ));
+  EVP_CIPHER_CTX * pkt_cipher_ctx = pkt_keys->pkt_cipher_ctx;
+  if( FD_UNLIKELY( !pkt_cipher_ctx ) ) {
+    FD_LOG_ERR(( "fd_quic_crypto_encrypt: no cipher ctx" ));
     return FD_QUIC_FAILED;
   }
 
@@ -371,7 +491,7 @@ fd_quic_crypto_encrypt(
   // packet number is 1-4 bytes, so only XOR last pkt_number_sz bytes
   uchar nonce[FD_QUIC_NONCE_SZ] = {0};
   ulong nonce_tmp = FD_QUIC_NONCE_SZ - pkt_number_sz;
-  uchar const * quic_iv = keys->iv;
+  uchar const * quic_iv = pkt_keys->iv;
   fd_memcpy( nonce, quic_iv, nonce_tmp );
   for( ulong k = 0; k < pkt_number_sz; ++k ) {
     ulong j = nonce_tmp + k;
@@ -381,13 +501,13 @@ fd_quic_crypto_encrypt(
   // Initial packets cipher uses AEAD_AES_128_GCM with keys derived from the Destination Connection ID field of the
   // first Initial packet sent by the client; see rfc9001 Section 5.2.
 
-  if( FD_UNLIKELY( EVP_EncryptInit_ex( cipher_ctx, suite->pkt_cipher, NULL, keys->pkt_key, nonce ) != 1 ) ) {
+  if( FD_UNLIKELY( EVP_EncryptInit_ex( pkt_cipher_ctx, suite->pkt_cipher, NULL, pkt_keys->pkt_key, nonce ) != 1 ) ) {
     FD_LOG_ERR(( "fd_quic_crypto_encrypt: EVP_EncryptInit_ex failed" ));
   }
 
   /* auth data added with NULL output - still require out length */
   int tmp = 0;
-  if( FD_UNLIKELY( EVP_EncryptUpdate( cipher_ctx, NULL, &tmp, hdr, (int)hdr_sz ) != 1 ) ) {
+  if( FD_UNLIKELY( EVP_EncryptUpdate( pkt_cipher_ctx, NULL, &tmp, hdr, (int)hdr_sz ) != 1 ) ) {
     FD_LOG_ERR(( "fd_quic_crypto_encrypt: EVP_EncryptUpdate failed auth_data" ));
   }
 
@@ -419,18 +539,18 @@ fd_quic_crypto_encrypt(
   uchar * cipher_text = out + hdr_sz;
   ulong offset = 0;
   int cipher_text_sz = 0;
-  if( FD_UNLIKELY( EVP_EncryptUpdate( cipher_ctx, cipher_text, &cipher_text_sz, pkt, (int)pkt_sz ) != 1 ) ) {
+  if( FD_UNLIKELY( EVP_EncryptUpdate( pkt_cipher_ctx, cipher_text, &cipher_text_sz, pkt, (int)pkt_sz ) != 1 ) ) {
     FD_LOG_ERR(( "fd_quic_crypto_encrypt: EVP_EncryptUpdate failed" ));
   }
 
   offset = (ulong)cipher_text_sz;
-  if( FD_UNLIKELY( EVP_EncryptFinal( cipher_ctx, cipher_text + offset, &cipher_text_sz ) != 1 ) ) {
+  if( FD_UNLIKELY( EVP_EncryptFinal( pkt_cipher_ctx, cipher_text + offset, &cipher_text_sz ) != 1 ) ) {
     FD_LOG_ERR(( "fd_quic_crypto_encrypt: EVP_EncryptFinal failed" ));
   }
 
   offset += (ulong)cipher_text_sz;
 
-  if( FD_UNLIKELY( EVP_CIPHER_CTX_ctrl( cipher_ctx, EVP_CTRL_AEAD_GET_TAG, FD_QUIC_CRYPTO_TAG_SZ, cipher_text + offset ) != 1 ) ) {
+  if( FD_UNLIKELY( EVP_CIPHER_CTX_ctrl( pkt_cipher_ctx, EVP_CTRL_AEAD_GET_TAG, FD_QUIC_CRYPTO_TAG_SZ, cipher_text + offset ) != 1 ) ) {
     FD_LOG_ERR(( "fd_quic_crypto_encrypt: EVP_CTRL_AEAD_GET_TAG failed" ));
     return FD_QUIC_FAILED;
   }
@@ -443,9 +563,9 @@ fd_quic_crypto_encrypt(
 
   /* Header protection */
 
-  EVP_CIPHER_CTX * hp_cipher_ctx = keys->hp_cipher_ctx;
+  EVP_CIPHER_CTX * hp_cipher_ctx = hp_keys->hp_cipher_ctx;
   if( FD_UNLIKELY( !hp_cipher_ctx ) ) {
-    FD_LOG_ERR(( "fd_quic_crypto_encrypt: Error creating cipher ctx" ));
+    FD_LOG_ERR(( "fd_quic_crypto_encrypt: no hp cipher ctx" ));
     return FD_QUIC_FAILED;
   }
 
