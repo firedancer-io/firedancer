@@ -20,22 +20,22 @@ void write_slot_hashes( fd_global_ctx_t* global, fd_slot_hashes_t* slot_hashes )
   fd_sysvar_set( global, global->sysvar_owner, global->sysvar_slot_hashes, enc, sz, global->current_slot );
 }
 
-void fd_sysvar_slot_hashes_init( fd_global_ctx_t* global ) {
-  fd_slot_hashes_t slot_hashes;
-  memset( &slot_hashes, 0, sizeof(fd_slot_hashes_t) );  
-  write_slot_hashes( global, &slot_hashes );
-} 
+//void fd_sysvar_slot_hashes_init( fd_global_ctx_t* global ) {
+//  fd_slot_hashes_t slot_hashes;
+//  memset( &slot_hashes, 0, sizeof(fd_slot_hashes_t) );  
+//  write_slot_hashes( global, &slot_hashes );
+//} 
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/slot_hashes.rs#L34 */
-void fd_sysvar_slot_hashes_update( fd_global_ctx_t* global, ulong slot, fd_hash_t* hash ) {
+void fd_sysvar_slot_hashes_update( fd_global_ctx_t* global ) {
   fd_slot_hashes_t slot_hashes;
   fd_sysvar_slot_hashes_read( global, &slot_hashes );
 
   uchar found = 0;
   for ( ulong i = 0; i < slot_hashes.hashes.cnt; i++ ) {
     fd_slot_hash_t* slot_hash = &slot_hashes.hashes.elems[i];
-    if ( slot_hash->slot == slot ) {
-      memcpy( &slot_hash->hash, hash, sizeof(fd_hash_t) );
+    if ( slot_hash->slot == global->current_slot ) {
+      memcpy( &slot_hash->hash, &global->banks_hash, sizeof(fd_hash_t) );
       found = 1; 
     }
   }
@@ -43,10 +43,10 @@ void fd_sysvar_slot_hashes_update( fd_global_ctx_t* global, ulong slot, fd_hash_
   if ( !found ) {
     /* TODO: handle case where current_slot > slot_hashes_max_entries */
     fd_slot_hash_t slot_hash = {
-      .hash = *hash,
-      .slot = slot,
+      .hash = global->banks_hash,
+      .slot = global->current_slot - 1,
     };
-    fd_vec_fd_slot_hash_t_push( &slot_hashes.hashes, slot_hash );
+    fd_vec_fd_slot_hash_t_push_front( &slot_hashes.hashes, slot_hash );
   }
 
   write_slot_hashes( global, &slot_hashes );
@@ -58,17 +58,18 @@ void fd_sysvar_slot_hashes_read( fd_global_ctx_t* global, fd_slot_hashes_t* resu
   fd_account_meta_t metadata;
   int               read_result = fd_acc_mgr_get_metadata( global->acc_mgr, global->funk_txn, (fd_pubkey_t *) global->sysvar_slot_hashes, &metadata );
   if ( read_result != FD_ACC_MGR_SUCCESS ) {
-    FD_LOG_NOTICE(( "failed to read account metadata: %d", read_result ));
+    // Initialize the database... 
+    memset(result, 0, sizeof(*result));
+    fd_vec_fd_slot_hash_t_new(&result->hashes);
     return;
   }
 
-  FD_LOG_INFO(( "SysvarS1otHashes111111111111111111111111111 at slot %lu: " FD_LOG_HEX16_FMT, global->current_slot, FD_LOG_HEX16_FMT_ARGS(     metadata.hash    ) ));
+//  FD_LOG_INFO(( "SysvarS1otHashes111111111111111111111111111 at slot %lu: " FD_LOG_HEX16_FMT, global->current_slot, FD_LOG_HEX16_FMT_ARGS(     metadata.hash    ) ));
 
   unsigned char *raw_acc_data = fd_alloca( 1, metadata.dlen );
   read_result = fd_acc_mgr_get_account_data( global->acc_mgr, global->funk_txn, (fd_pubkey_t *) global->sysvar_slot_hashes, raw_acc_data, metadata.hlen, metadata.dlen );
   if ( read_result != FD_ACC_MGR_SUCCESS ) {
-    FD_LOG_NOTICE(( "failed to read account data: %d", read_result ));
-    return;
+    FD_LOG_ERR(( "failed to read account data: %d", read_result ));
   }
 
   void* input = (void *)raw_acc_data;

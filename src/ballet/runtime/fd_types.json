@@ -697,13 +697,23 @@
       "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/sysvar/fees.rs#L21"
     },
     {
+      "name": "config_keys_pair",
+      "type": "struct",
+      "fields": [
+        { "name": "key", "type": "pubkey" },
+        { "name": "value", "type": "unsigned char" }
+      ]
+    },
+    {
       "name": "stake_config",
       "type": "struct",
       "fields": [
+        { "name": "config_keys", "type": "vector", "element": "config_keys_pair", "modifier": "compact" },
         { "name": "warmup_cooldown_rate", "type": "double" },
         { "name": "slash_penalty", "type": "uchar" }
       ],
-      "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/config.rs#L14"
+      "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/config.rs#L14",
+      "comment2": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/config/src/lib.rs#L18"
     }
   ]
 }

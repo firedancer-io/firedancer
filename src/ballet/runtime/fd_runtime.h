@@ -6,7 +6,6 @@
 #include "fd_executor.h"
 #include "../poh/fd_poh.h"
 #include "program/fd_builtin_programs.h"
-#include "program/fd_stake_program.h"
 
 #define FD_RUNTIME_EXECUTE_SUCCESS                               ( 0 )  /* Slot executed successfully */
 #define FD_RUNTIME_EXECUTE_GENERIC_ERR                          ( -1 ) /* The Slot execute returned an error */
@@ -66,6 +65,8 @@ struct __attribute__((aligned(FD_GLOBAL_CTX_ALIGN))) fd_global_ctx {
   fd_funk_xactionid_t*       funk_txn;
   ushort                     funk_txn_index;
   uchar                      block_hash[FD_SHA256_HASH_SZ];
+  fd_hash_t                  banks_hash;
+
   // TODO: should we instead remember which slot the poh is valid for?
   uchar                      poh_booted;
   fd_clock_timestamp_votes_t timestamp_votes;

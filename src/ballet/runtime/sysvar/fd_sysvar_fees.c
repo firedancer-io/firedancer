@@ -36,7 +36,7 @@ void fd_sysvar_fees_init( fd_global_ctx_t* global ) {
   /* TODO: handle non-default case */
   fd_sysvar_fees_t fees = {
     {
-      .lamports_per_signature = 5000,
+      .lamports_per_signature = 0,
     }
   };
   write_fees( global, &fees );

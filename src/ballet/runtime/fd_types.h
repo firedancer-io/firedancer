@@ -747,10 +747,20 @@ typedef struct fd_sysvar_fees fd_sysvar_fees_t;
 #define FD_SYSVAR_FEES_FOOTPRINT sizeof(fd_sysvar_fees_t)
 #define FD_SYSVAR_FEES_ALIGN (8UL)
 
+struct fd_config_keys_pair {
+  fd_pubkey_t   key;
+  unsigned char value;
+};
+typedef struct fd_config_keys_pair fd_config_keys_pair_t;
+#define FD_CONFIG_KEYS_PAIR_FOOTPRINT sizeof(fd_config_keys_pair_t)
+#define FD_CONFIG_KEYS_PAIR_ALIGN (8UL)
+
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/config.rs#L14 */
 struct fd_stake_config {
-  double        warmup_cooldown_rate;
-  unsigned char slash_penalty;
+  ushort                 config_keys_len;
+  fd_config_keys_pair_t* config_keys;
+  double                 warmup_cooldown_rate;
+  unsigned char          slash_penalty;
 };
 typedef struct fd_stake_config fd_stake_config_t;
 #define FD_STAKE_CONFIG_FOOTPRINT sizeof(fd_stake_config_t)
@@ -1083,6 +1093,11 @@ void fd_sysvar_fees_decode(fd_sysvar_fees_t* self, void const** data, void const
 void fd_sysvar_fees_encode(fd_sysvar_fees_t* self, void const** data);
 void fd_sysvar_fees_destroy(fd_sysvar_fees_t* self, fd_free_fun_t freef, void* freef_arg);
 ulong fd_sysvar_fees_size(fd_sysvar_fees_t* self);
+
+void fd_config_keys_pair_decode(fd_config_keys_pair_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
+void fd_config_keys_pair_encode(fd_config_keys_pair_t* self, void const** data);
+void fd_config_keys_pair_destroy(fd_config_keys_pair_t* self, fd_free_fun_t freef, void* freef_arg);
+ulong fd_config_keys_pair_size(fd_config_keys_pair_t* self);
 
 void fd_stake_config_decode(fd_stake_config_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
 void fd_stake_config_encode(fd_stake_config_t* self, void const** data);

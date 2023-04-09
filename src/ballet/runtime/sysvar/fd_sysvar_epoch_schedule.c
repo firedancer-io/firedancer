@@ -36,10 +36,10 @@ void fd_sysvar_epoch_schedule_init( fd_global_ctx_t* global ) {
   /* TODO: handle non-default case */
   fd_epoch_schedule_t epoch_schedule = {
     .slots_per_epoch = 432000,
-    .leader_schedule_slot_offset = 432000,
-    .first_normal_epoch = 14,
-    .first_normal_slot = 524256,
-    .warmup = 1
+    .leader_schedule_slot_offset = 432000
+//    .first_normal_epoch = 14,
+//    .first_normal_slot = 524256,
+//    .warmup = 1
   };
   write_epoch_schedule( global, &epoch_schedule );
 }

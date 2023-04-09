@@ -2295,21 +2295,62 @@ void fd_sysvar_fees_encode(fd_sysvar_fees_t* self, void const** data) {
   fd_fee_calculator_encode(&self->fee_calculator, data);
 }
 
+void fd_config_keys_pair_decode(fd_config_keys_pair_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
+  fd_pubkey_decode(&self->key, data, dataend, allocf, allocf_arg);
+  fd_bincode_uint8_decode(&self->value, data, dataend);
+}
+void fd_config_keys_pair_destroy(fd_config_keys_pair_t* self, fd_free_fun_t freef, void* freef_arg) {
+  fd_pubkey_destroy(&self->key, freef, freef_arg);
+}
+
+ulong fd_config_keys_pair_size(fd_config_keys_pair_t* self) {
+  ulong size = 0;
+  size += fd_pubkey_size(&self->key);
+  size += sizeof(char);
+  return size;
+}
+
+void fd_config_keys_pair_encode(fd_config_keys_pair_t* self, void const** data) {
+  fd_pubkey_encode(&self->key, data);
+  fd_bincode_uint8_encode(&self->value, data);
+}
+
 void fd_stake_config_decode(fd_stake_config_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
+  fd_decode_short_u16(&self->config_keys_len, data, dataend);
+  if (self->config_keys_len != 0) {
+    self->config_keys = (fd_config_keys_pair_t*)(*allocf)(allocf_arg, FD_CONFIG_KEYS_PAIR_ALIGN, FD_CONFIG_KEYS_PAIR_FOOTPRINT*self->config_keys_len);
+    for (ulong i = 0; i < self->config_keys_len; ++i)
+      fd_config_keys_pair_decode(self->config_keys + i, data, dataend, allocf, allocf_arg);
+  } else
+    self->config_keys = NULL;
   fd_bincode_double_decode(&self->warmup_cooldown_rate, data, dataend);
   fd_bincode_uint8_decode(&self->slash_penalty, data, dataend);
 }
 void fd_stake_config_destroy(fd_stake_config_t* self, fd_free_fun_t freef, void* freef_arg) {
+  if (NULL != self->config_keys) {
+    for (ulong i = 0; i < self->config_keys_len; ++i)
+      fd_config_keys_pair_destroy(self->config_keys + i,  freef, freef_arg);
+    freef(freef_arg, self->config_keys);
+    self->config_keys = NULL;
+  }
 }
 
 ulong fd_stake_config_size(fd_stake_config_t* self) {
   ulong size = 0;
+  size += sizeof(ulong);
+  for (ulong i = 0; i < self->config_keys_len; ++i)
+    size += fd_config_keys_pair_size(self->config_keys + i);
   size += sizeof(double);
   size += sizeof(char);
   return size;
 }
 
 void fd_stake_config_encode(fd_stake_config_t* self, void const** data) {
+  fd_encode_short_u16(&self->config_keys_len, (void **) data);
+  if (self->config_keys_len != 0) {
+    for (ulong i = 0; i < self->config_keys_len; ++i)
+      fd_config_keys_pair_encode(self->config_keys + i, data);
+  }
   fd_bincode_double_encode(&self->warmup_cooldown_rate, data);
   fd_bincode_uint8_encode(&self->slash_penalty, data);
 }

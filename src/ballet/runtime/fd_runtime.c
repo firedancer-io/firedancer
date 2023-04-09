@@ -1,7 +1,10 @@
 #include "fd_runtime.h"
+#include "fd_hashes.h"
 #include "sysvar/fd_sysvar_clock.h"
 #include "sysvar/fd_sysvar.h"
 #include "../base58/fd_base58.h"
+
+#include "program/fd_stake_program_config.h"
 
 #ifdef _DISABLE_OPTIMIZATION
 #pragma GCC optimize ("O0")
@@ -21,7 +24,7 @@ fd_runtime_boot_slot_zero( fd_global_ctx_t *global ) {
   fd_sysvar_recent_hashes_init(global );
   fd_sysvar_clock_init( global );
   fd_sysvar_slot_history_init( global );
-  fd_sysvar_slot_hashes_init( global );
+//  fd_sysvar_slot_hashes_init( global );
   fd_sysvar_epoch_schedule_init( global );
   fd_sysvar_fees_init( global );
   fd_sysvar_rent_init( global );
@@ -79,7 +82,12 @@ fd_runtime_block_execute( fd_global_ctx_t *global, fd_slot_blocks_t *slot_data )
 
   // TODO: move all these out to a fd_sysvar_update() call...
   fd_sysvar_clock_update( global);
-  fd_sysvar_recent_hashes_update ( global, global->current_slot);
+  fd_sysvar_recent_hashes_update ( global );
+  // It has to go into the current txn previous info but is not in slot 0
+  if (global -> current_slot != 0) 
+    fd_sysvar_slot_hashes_update( global );
+
+  ulong signature_cnt = 0;
 
   blob = slot_data->first_blob;
   while (NULL != blob) {
@@ -90,6 +98,10 @@ fd_runtime_block_execute( fd_global_ctx_t *global, fd_slot_blocks_t *slot_data )
       for ( ulong txn_idx = 0; txn_idx < micro_block->txn_max_cnt; txn_idx++ ) {
         fd_txn_t*      txn_descriptor = (fd_txn_t *)&micro_block->txn_tbl[ txn_idx ];
         fd_rawtxn_b_t* txn_raw   = (fd_rawtxn_b_t *)&micro_block->raw_tbl[ txn_idx ];
+
+        // needed for block hashes
+        signature_cnt += txn_descriptor->signature_cnt;
+
         // TODO: fork and commit a new funk_txn for each txn and properly
         // cancel if it fails
         fd_execute_txn( &global->executor, txn_descriptor, txn_raw );
@@ -104,7 +116,17 @@ fd_runtime_block_execute( fd_global_ctx_t *global, fd_slot_blocks_t *slot_data )
   } // while (NULL != blob)
 
   fd_sysvar_slot_history_update( global );
-  /* TODO: generate this slot's bank hash and call fd_sysvar_slot_hash_update */
+
+  // Time to make the donuts...
+
+  ulong dirty = global->acc_mgr->keys.cnt;
+  FD_LOG_WARNING(("slot %ld   dirty %ld", global->current_slot, dirty));
+  if (dirty > 0) {
+    fd_hash_bank( &global->banks_hash, (fd_hash_t *) global->block_hash, signature_cnt, global->acc_mgr->keys.elems, dirty, &global->banks_hash );
+
+    fd_dirty_dup_delete_all (global->acc_mgr->shmap);
+    fd_pubkey_hash_vector_clear(&global->acc_mgr->keys);
+  }
 
   return FD_RUNTIME_EXECUTE_SUCCESS;
 }

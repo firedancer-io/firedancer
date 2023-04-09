@@ -5,6 +5,27 @@
 #include "../txn/fd_txn.h"
 #include "../../funk/fd_funk.h"
 #include "fd_banks_solana.h"
+#include "fd_hashes.h"
+
+static fd_pubkey_t fd_dirty_map_empty = {0};
+
+typedef struct fd_dirty_map_entry {
+  fd_pubkey_t      key;
+  uint             hash;
+  ulong            index;
+} fd_dirty_map_entry_t;
+
+#define MAP_NAME              fd_dirty_dup
+#define MAP_KEY_T             fd_pubkey_t
+#define MAP_KEY_NULL          fd_dirty_map_empty
+#define MAP_KEY_INVAL(k)      (memcmp( (k.key), fd_dirty_map_empty.key, sizeof(MAP_KEY_T) ) == 0)
+#define MAP_KEY_EQUAL(k0,k1)  (memcmp( (k0.key), (k1.key), sizeof(MAP_KEY_T) ) == 0)
+#define MAP_KEY_EQUAL_IS_SLOW (1)
+#define MAP_KEY_HASH(k)       ((uint)fd_hash( 0UL, (k.key), sizeof(MAP_KEY_T) ))
+#define MAP_T                 fd_dirty_map_entry_t
+#include "../../util/tmpl/fd_map_dynamic.c"
+
+#define LG_SLOT_CNT 9
 
 FD_PROTOTYPES_BEGIN
 
@@ -14,17 +35,27 @@ FD_PROTOTYPES_BEGIN
 #define FD_ACC_MGR_ERR_READ_FAILED     (-3)
 #define FD_ACC_MGR_ERR_WRONG_MAGIC     (-4)
 
-struct fd_acc_mgr {
-    fd_funk_t* funk;
+#define VECT_NAME fd_pubkey_hash_vector
+#define VECT_ELEMENT fd_pubkey_hash_pair_t
+#include "../../funk/fd_vector.h"
+#undef VECT_NAME
+#undef VECT_ELEMENT
+
+struct __attribute__((aligned(8UL))) fd_acc_mgr {
+  fd_funk_t*                                   funk;
+  void *                                       shmap;
+  fd_dirty_map_entry_t *                       dup;
+  fd_pubkey_hash_vector_t                      keys;
+  unsigned char  __attribute__((aligned(8UL))) data[];
 };
 typedef struct fd_acc_mgr fd_acc_mgr_t;
 
-#define FD_ACC_MGR_FOOTPRINT (sizeof( fd_acc_mgr_t ))
+#define FD_ACC_MGR_FOOTPRINT (sizeof( fd_acc_mgr_t ) + fd_dirty_dup_footprint(LG_SLOT_CNT)  )
 #define FD_ACC_MGR_ALIGN (8UL)
 
-void* fd_acc_mgr_new( void* mem,
+void* fd_acc_mgr_new( void*      mem,
                       fd_funk_t* funk,
-                      ulong footprint );
+                      ulong      footprint );
 
 fd_acc_mgr_t* fd_acc_mgr_join( void* mem );
 
@@ -42,7 +73,7 @@ typedef ulong fd_acc_lamports_t;
 int fd_acc_mgr_write_account_data( fd_acc_mgr_t* acc_mgr, struct fd_funk_xactionid const*, fd_pubkey_t* pubkey, ulong offset, uchar* data, ulong data_len );
 
 /* Fetches the account data for the account with the given public key.
-   
+
    TODO: nicer API so users of this method don't have to make two db calls, one to determine the
          size of the buffer and the other to actually read the data.
     */

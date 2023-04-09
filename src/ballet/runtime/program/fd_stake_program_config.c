@@ -1,4 +1,4 @@
-#include "fd_stake_program.h"
+#include "fd_stake_program_config.h"
 
 void write_stake_config( fd_global_ctx_t* global, fd_stake_config_t* stake_config) {
   ulong          sz = fd_stake_config_size( stake_config );
@@ -10,7 +10,7 @@ void write_stake_config( fd_global_ctx_t* global, fd_stake_config_t* stake_confi
   fd_solana_account_t account = {
     .lamports = 960480,
     .rent_epoch = 0,
-    .data_len = sz,
+    .data_len = (ulong) ((uchar *) ptr- (uchar *) enc),
     .data = enc,
     .executable = (uchar) 0
   };

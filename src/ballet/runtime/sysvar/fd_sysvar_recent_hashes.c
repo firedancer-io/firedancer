@@ -47,8 +47,8 @@ void fd_sysvar_recent_hashes_init( fd_global_ctx_t* global ) {
   fd_sysvar_set(global, global->sysvar_owner, global->sysvar_recent_block_hashes, enc, sz, global->current_slot );
 }
 
-void fd_sysvar_recent_hashes_update(fd_global_ctx_t* global, ulong slot) {
-  if (slot == 0)  // we already set this... as part of boot
+void fd_sysvar_recent_hashes_update(fd_global_ctx_t* global ) {
+  if (global->current_slot == 0)  // we already set this... as part of boot
     return; 
 
   /* Read the recent hashes sysvar from the account */
@@ -93,5 +93,5 @@ void fd_sysvar_recent_hashes_update(fd_global_ctx_t* global, ulong slot) {
 
   fd_recent_block_hashes_destroy(&a, global->freef, global->allocf_arg);
 
-  fd_sysvar_set(global, global->sysvar_owner, global->sysvar_recent_block_hashes, enc, sz, slot);
+  fd_sysvar_set(global, global->sysvar_owner, global->sysvar_recent_block_hashes, enc, sz, global->current_slot);
 }
