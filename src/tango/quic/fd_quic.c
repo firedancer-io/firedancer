@@ -2716,16 +2716,18 @@ fd_quic_service( fd_quic_t * quic ) {
   ulong now = fd_quic_now( quic );
 
   /* service events */
+  fd_quic_conn_t * conn = NULL;
   while( service_queue_cnt( state->service_queue ) ) {
     fd_quic_event_t * event = &state->service_queue[0];
+
+    /* copy before removing event */
+    conn = event->conn;
 
     ulong service_time = event->timeout;
     if( now < service_time ) break;
 
     /* remove event, later reinserted at new time */
     service_queue_remove_min( state->service_queue );
-
-    fd_quic_conn_t * conn = event->conn;
 
     /* unset "in service queue" */
     conn->in_service = 0;
@@ -2743,9 +2745,7 @@ fd_quic_service( fd_quic_t * quic ) {
          max_idle_timeout value advertised by both endpoints." */
       conn->state = FD_QUIC_CONN_STATE_DEAD;
     } else {
-      conn->next_service_time = now + quic->config.service_interval;
-
-      fd_quic_conn_service( quic, conn, now );
+      fd_quic_conn_service( quic, conn, now + quic->config.service_interval );
     }
 
     /* dead? don't reinsert, just clean up */
@@ -5819,3 +5819,4 @@ fd_quic_conn_get_pkt_meta_free_count( fd_quic_conn_t * conn ) {
   }
   return cnt;
 }
+
