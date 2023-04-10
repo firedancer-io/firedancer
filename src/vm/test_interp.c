@@ -49,6 +49,8 @@ test_program_success( char *                test_case_name,
   dt += fd_log_wallclock(); 
   if (expected_result != ctx.register_file[0]) {
     FD_LOG_WARNING(( "RET: %lu 0x%lx", ctx.register_file[0], ctx.register_file[0] ));
+    FD_LOG_WARNING(( "PC: %lu 0x%lx", ctx.program_counter, ctx.program_counter ));
+    FD_LOG_WARNING(( "x: %lu 0x%x", ctx.program_counter, FD_BPF_OP_JLE_IMM ));
   }
   FD_TEST( ctx.register_file[0]==expected_result );
   FD_LOG_NOTICE(( "Instr counter: %lu", ctx.instruction_counter ));
@@ -549,6 +551,35 @@ main( int     argc,
     FD_BPF_INSTR(FD_BPF_OP_MOV_IMM,   FD_R0,  0,      0, 2),
     FD_BPF_INSTR(FD_BPF_OP_EXIT,      0,      0,      0, 0),
   );
+  
+  TEST_PROGRAM_SUCCESS("jge-imm", 0x1, 8,
+    FD_BPF_INSTR(FD_BPF_OP_MOV_IMM,   FD_R0,  0,      0, 0),
+    FD_BPF_INSTR(FD_BPF_OP_MOV_IMM,   FD_R1,  0,      0, 4),
+    
+    FD_BPF_INSTR(FD_BPF_OP_JGE_IMM,   FD_R1,  0,     +2, 6),
+    FD_BPF_INSTR(FD_BPF_OP_JGE_IMM,   FD_R1,  0,     +1, 5),
+    FD_BPF_INSTR(FD_BPF_OP_JGE_IMM,   FD_R1,  0,     +1, 4),
+
+    FD_BPF_INSTR(FD_BPF_OP_EXIT,      0,      0,      0, 0),
+    FD_BPF_INSTR(FD_BPF_OP_MOV_IMM,   FD_R0,  0,      0, 1),
+    FD_BPF_INSTR(FD_BPF_OP_EXIT,      0,      0,      0, 0),
+  );
+  
+  TEST_PROGRAM_SUCCESS("jge-reg", 0x1, 11,
+    FD_BPF_INSTR(FD_BPF_OP_MOV_IMM,   FD_R0,  0,      0, 0),
+    FD_BPF_INSTR(FD_BPF_OP_MOV_IMM,   FD_R1,  0,      0, 4),
+    FD_BPF_INSTR(FD_BPF_OP_MOV_IMM,   FD_R2,  0,      0, 6),
+    FD_BPF_INSTR(FD_BPF_OP_MOV_IMM,   FD_R3,  0,      0, 4),
+    FD_BPF_INSTR(FD_BPF_OP_MOV_IMM,   FD_R4,  0,      0, 5),
+    
+    FD_BPF_INSTR(FD_BPF_OP_JGE_REG,   FD_R1,  FD_R2, +2, 0),
+    FD_BPF_INSTR(FD_BPF_OP_JGE_REG,   FD_R1,  FD_R4, +1, 0),
+    FD_BPF_INSTR(FD_BPF_OP_JGE_REG,   FD_R1,  FD_R3, +1, 0),
+
+    FD_BPF_INSTR(FD_BPF_OP_EXIT,      0,      0,      0, 0),
+    FD_BPF_INSTR(FD_BPF_OP_MOV_IMM,   FD_R0,  0,      0, 1),
+    FD_BPF_INSTR(FD_BPF_OP_EXIT,      0,      0,      0, 0),
+  );
 
   TEST_PROGRAM_SUCCESS("jgt-imm", 0x1, 8,
     FD_BPF_INSTR(FD_BPF_OP_MOV_IMM,   FD_R0,  0,      0, 0),
@@ -572,6 +603,122 @@ main( int     argc,
     FD_BPF_INSTR(FD_BPF_OP_JGT_REG,   FD_R1,  FD_R2, +2, 0),
     FD_BPF_INSTR(FD_BPF_OP_JGT_REG,   FD_R1,  FD_R1, +1, 0),
     FD_BPF_INSTR(FD_BPF_OP_JGT_REG,   FD_R1,  FD_R3, +1, 0),
+
+    FD_BPF_INSTR(FD_BPF_OP_EXIT,      0,      0,      0, 0),
+    FD_BPF_INSTR(FD_BPF_OP_MOV_IMM,   FD_R0,  0,      0, 1),
+    FD_BPF_INSTR(FD_BPF_OP_EXIT,      0,      0,      0, 0),
+  );
+  
+  TEST_PROGRAM_SUCCESS("jle-imm", 0x1, 8,
+    FD_BPF_INSTR(FD_BPF_OP_MOV_IMM,   FD_R0,  0,      0, 0),
+    FD_BPF_INSTR(FD_BPF_OP_MOV_IMM,   FD_R1,  0,      0, 7),
+    
+    FD_BPF_INSTR(FD_BPF_OP_JLE_IMM,   FD_R1,  0,     +2, 6),
+    FD_BPF_INSTR(FD_BPF_OP_JLE_IMM,   FD_R1,  0,     +2, 8),
+    FD_BPF_INSTR(FD_BPF_OP_JLE_IMM,   FD_R1,  0,     +1, 4),
+
+    FD_BPF_INSTR(FD_BPF_OP_EXIT,      0,      0,      0, 0),
+    FD_BPF_INSTR(FD_BPF_OP_MOV_IMM,   FD_R0,  0,      0, 1),
+    FD_BPF_INSTR(FD_BPF_OP_EXIT,      0,      0,      0, 0),
+  );
+  
+  TEST_PROGRAM_SUCCESS("jle-reg", 0x1, 11,
+    FD_BPF_INSTR(FD_BPF_OP_MOV_IMM,   FD_R0,  0,      0, 0),
+    FD_BPF_INSTR(FD_BPF_OP_MOV_IMM,   FD_R1,  0,      0, 10),
+    FD_BPF_INSTR(FD_BPF_OP_MOV_IMM,   FD_R2,  0,      0, 7),
+    FD_BPF_INSTR(FD_BPF_OP_MOV_IMM,   FD_R3,  0,      0, 11),
+    FD_BPF_INSTR(FD_BPF_OP_MOV_IMM,   FD_R4,  0,      0, 5),
+    
+    FD_BPF_INSTR(FD_BPF_OP_JLE_REG,   FD_R1,  FD_R2, +2, 0),
+    FD_BPF_INSTR(FD_BPF_OP_JLE_REG,   FD_R1,  FD_R4, +1, 0),
+    FD_BPF_INSTR(FD_BPF_OP_JLE_REG,   FD_R1,  FD_R3, +1, 0),
+
+    FD_BPF_INSTR(FD_BPF_OP_EXIT,      0,      0,      0, 0),
+    FD_BPF_INSTR(FD_BPF_OP_MOV_IMM,   FD_R0,  0,      0, 1),
+    FD_BPF_INSTR(FD_BPF_OP_EXIT,      0,      0,      0, 0),
+  );
+  
+  TEST_PROGRAM_SUCCESS("jlt-imm", 0x1, 8,
+    FD_BPF_INSTR(FD_BPF_OP_MOV_IMM,   FD_R0,  0,      0, 0),
+    FD_BPF_INSTR(FD_BPF_OP_MOV_IMM,   FD_R1,  0,      0, 7),
+    
+    FD_BPF_INSTR(FD_BPF_OP_JLT_IMM,   FD_R1,  0,     +2, 6),
+    FD_BPF_INSTR(FD_BPF_OP_JLT_IMM,   FD_R1,  0,     +2, 8),
+    FD_BPF_INSTR(FD_BPF_OP_JLT_IMM,   FD_R1,  0,     +1, 4),
+
+    FD_BPF_INSTR(FD_BPF_OP_EXIT,      0,      0,      0, 0),
+    FD_BPF_INSTR(FD_BPF_OP_MOV_IMM,   FD_R0,  0,      0, 1),
+    FD_BPF_INSTR(FD_BPF_OP_EXIT,      0,      0,      0, 0),
+  );
+  
+  TEST_PROGRAM_SUCCESS("jlt-reg", 0x1, 11,
+    FD_BPF_INSTR(FD_BPF_OP_MOV_IMM,   FD_R0,  0,      0, 0),
+    FD_BPF_INSTR(FD_BPF_OP_MOV_IMM,   FD_R1,  0,      0, 10),
+    FD_BPF_INSTR(FD_BPF_OP_MOV_IMM,   FD_R2,  0,      0, 7),
+    FD_BPF_INSTR(FD_BPF_OP_MOV_IMM,   FD_R3,  0,      0, 11),
+    FD_BPF_INSTR(FD_BPF_OP_MOV_IMM,   FD_R4,  0,      0, 5),
+    
+    FD_BPF_INSTR(FD_BPF_OP_JLT_REG,   FD_R1,  FD_R2, +2, 0),
+    FD_BPF_INSTR(FD_BPF_OP_JLT_REG,   FD_R1,  FD_R4, +1, 0),
+    FD_BPF_INSTR(FD_BPF_OP_JLT_REG,   FD_R1,  FD_R3, +1, 0),
+
+    FD_BPF_INSTR(FD_BPF_OP_EXIT,      0,      0,      0, 0),
+    FD_BPF_INSTR(FD_BPF_OP_MOV_IMM,   FD_R0,  0,      0, 1),
+    FD_BPF_INSTR(FD_BPF_OP_EXIT,      0,      0,      0, 0),
+  );
+  
+  TEST_PROGRAM_SUCCESS("jne-imm", 0x1, 8,
+    FD_BPF_INSTR(FD_BPF_OP_MOV_IMM,   FD_R0,  0,      0, 0),
+    FD_BPF_INSTR(FD_BPF_OP_MOV_IMM,   FD_R1,  0,      0, 7),
+    
+    FD_BPF_INSTR(FD_BPF_OP_JNE_IMM,   FD_R1,  0,     +2, 7),
+    FD_BPF_INSTR(FD_BPF_OP_JNE_IMM,   FD_R1,  0,     +2, 10),
+    FD_BPF_INSTR(FD_BPF_OP_JNE_IMM,   FD_R1,  0,     +1, 7),
+
+    FD_BPF_INSTR(FD_BPF_OP_EXIT,      0,      0,      0, 0),
+    FD_BPF_INSTR(FD_BPF_OP_MOV_IMM,   FD_R0,  0,      0, 1),
+    FD_BPF_INSTR(FD_BPF_OP_EXIT,      0,      0,      0, 0),
+  );
+  
+  TEST_PROGRAM_SUCCESS("jne-reg", 0x1, 11,
+    FD_BPF_INSTR(FD_BPF_OP_MOV_IMM,   FD_R0,  0,      0, 0),
+    FD_BPF_INSTR(FD_BPF_OP_MOV_IMM,   FD_R1,  0,      0, 10),
+    FD_BPF_INSTR(FD_BPF_OP_MOV_IMM,   FD_R2,  0,      0, 10),
+    FD_BPF_INSTR(FD_BPF_OP_MOV_IMM,   FD_R3,  0,      0, 24),
+    FD_BPF_INSTR(FD_BPF_OP_MOV_IMM,   FD_R4,  0,      0, 10),
+    
+    FD_BPF_INSTR(FD_BPF_OP_JNE_REG,   FD_R1,  FD_R2, +2, 0),
+    FD_BPF_INSTR(FD_BPF_OP_JNE_REG,   FD_R1,  FD_R4, +1, 0),
+    FD_BPF_INSTR(FD_BPF_OP_JNE_REG,   FD_R1,  FD_R3, +1, 0),
+
+    FD_BPF_INSTR(FD_BPF_OP_EXIT,      0,      0,      0, 0),
+    FD_BPF_INSTR(FD_BPF_OP_MOV_IMM,   FD_R0,  0,      0, 1),
+    FD_BPF_INSTR(FD_BPF_OP_EXIT,      0,      0,      0, 0),
+  );
+  
+  TEST_PROGRAM_SUCCESS("jset-imm", 0x1, 8,
+    FD_BPF_INSTR(FD_BPF_OP_MOV_IMM,   FD_R0,  0,      0, 0),
+    FD_BPF_INSTR(FD_BPF_OP_MOV_IMM,   FD_R1,  0,      0, 0x8),
+    
+    FD_BPF_INSTR(FD_BPF_OP_JSET_IMM,   FD_R1,  0,     +2, 0x7),
+    FD_BPF_INSTR(FD_BPF_OP_JSET_IMM,   FD_R1,  0,     +2, 0x9),
+    FD_BPF_INSTR(FD_BPF_OP_JSET_IMM,   FD_R1,  0,     +1, 0x10),
+
+    FD_BPF_INSTR(FD_BPF_OP_EXIT,      0,      0,      0, 0),
+    FD_BPF_INSTR(FD_BPF_OP_MOV_IMM,   FD_R0,  0,      0, 1),
+    FD_BPF_INSTR(FD_BPF_OP_EXIT,      0,      0,      0, 0),
+  );
+
+  TEST_PROGRAM_SUCCESS("jset-reg", 0x1, 11,
+    FD_BPF_INSTR(FD_BPF_OP_MOV_IMM,   FD_R0,  0,      0, 0),
+    FD_BPF_INSTR(FD_BPF_OP_MOV_IMM,   FD_R1,  0,      0, 0x8),
+    FD_BPF_INSTR(FD_BPF_OP_MOV_IMM,   FD_R2,  0,      0, 0x7),
+    FD_BPF_INSTR(FD_BPF_OP_MOV_IMM,   FD_R3,  0,      0, 0x9),
+    FD_BPF_INSTR(FD_BPF_OP_MOV_IMM,   FD_R4,  0,      0, 0x0),
+    
+    FD_BPF_INSTR(FD_BPF_OP_JSET_REG,   FD_R1,  FD_R2, +2, 0),
+    FD_BPF_INSTR(FD_BPF_OP_JSET_REG,   FD_R1,  FD_R4, +1, 0),
+    FD_BPF_INSTR(FD_BPF_OP_JSET_REG,   FD_R1,  FD_R3, +1, 0),
 
     FD_BPF_INSTR(FD_BPF_OP_EXIT,      0,      0,      0, 0),
     FD_BPF_INSTR(FD_BPF_OP_MOV_IMM,   FD_R0,  0,      0, 1),
