@@ -140,6 +140,8 @@ main( int     argc,
   ulong        tag       = fd_env_strip_cmdline_ulong( &argc, &argv, "--tag",       NULL,          1234UL );
   ulong        tile_cnt  = fd_tile_cnt();
 
+  fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, (uint)tile_cnt, 0UL ) );
+
   fd_wksp_t * wksp;
   if( name ) {
     FD_LOG_NOTICE(( "Attaching to --wksp %s", name ));
@@ -192,6 +194,31 @@ main( int     argc,
     FD_TEST( fd_alloc_is_empty( alloc ) );
   } while(0);
 
+  FD_LOG_NOTICE(( "Testing max_expand" ));
+  do {
+
+    /* BIT_PATTERN uses the lower 13 bits of r (uniform random) to
+       generate uniform random length string of 0s or 1s bits starting a
+       uniform random offset and going for a uniform random length
+       cyclic and fillin the rest of the bits with a uniform bit
+       pattern.  (Stress stuff near 0 and ULONG_MAX and other tricky
+       edge cases preferentially.) */
+
+#   define BIT_PATTERN (fd_ulong_rotate_left( fd_rng_ulong( rng ) >> (int)(r&63UL), (int)((r>>6)&63UL) ) ^ (-((r>>12)&1UL)))
+    for( ulong iter=0UL; iter<1000000UL;  iter++ ) {
+      ulong r      = fd_rng_ulong( rng );
+      ulong max    = BIT_PATTERN; r >>= 13;
+      ulong delta  = BIT_PATTERN; r >>= 13;     if( delta  ) delta = 1UL;
+      ulong needed = BIT_PATTERN; r >>= 13;
+      ulong t0     = max + delta;               if( t0<max ) t0 = ULONG_MAX;
+      ulong t1     = max + (max>>2) + (max>>4); if( t1<max ) t1 = ULONG_MAX;
+      ulong new_max_exp = fd_ulong_max( fd_ulong_max( t0, t1 ), needed );
+      FD_TEST( fd_alloc_max_expand( max, delta, needed )==new_max_exp );
+    }
+#   undef BIT_PATTERN
+
+  } while(0);
+
   FD_LOG_NOTICE(( "Running torture test with --alloc-cnt %lu, --align-max %lu, --sz-max %lu on %lu tile(s)",
                   alloc_cnt, align_max, sz_max, tile_cnt ));
 
@@ -225,6 +252,8 @@ main( int     argc,
   fd_wksp_free_laddr( shmem );
   if( name ) fd_wksp_detach( wksp );
   else       fd_wksp_delete_anonymous( wksp );
+
+  fd_rng_delete( fd_rng_leave( rng ) );
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
