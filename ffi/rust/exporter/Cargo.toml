@@ -1,0 +1,19 @@
+[package]
+name = "firedancer-exporter"
+version = "0.1.0"
+edition = "2021"
+authors = ["Firedancer Contributors <firedancer-devs@jumptrading.com>"]
+description = "Firedancer Prometheus exporter"
+license = "Apache-2.0"
+
+[dependencies]
+anyhow = { version = "1.0.58" }
+clap = { version = "4.2.1", features = ["derive"] }
+env_logger = "0.10.0"
+firedancer-sys = { path = "../firedancer-sys", version = "=0.1.0" }
+firedancer = { path = "../firedancer", version = "=0.1.0" }
+hyper = { version = "0.14.25", features = ["server", "tcp", "http1"] }
+log = "0.4.17"
+prometheus = "0.13.3"
+tokio = { version = "1.27.0", features = ["macros", "rt"] }
+cstr = "0.2.11"

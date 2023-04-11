@@ -60,11 +60,11 @@
    tile startup (as such that they can be accumulated over multiple
    runs).  Clearing is up to monitoring scripts. */
 
-#define FD_QUIC_CNC_DIAG_CHUNK_IDX         (2UL) /* On 1st cache line of app region, updated by producer, frequently */
-#define FD_QUIC_CNC_DIAG_TPU_PUB_CNT       (3UL) /* ", frequently */
-#define FD_QUIC_CNC_DIAG_TPU_PUB_SZ        (4UL) /* ", frequently */
-#define FD_QUIC_CNC_DIAG_TPU_CONN_LIVE_CNT (5UL) /* ", frequently */
-#define FD_QUIC_CNC_DIAG_TPU_CONN_SEQ      (6UL) /* ", frequently */
+#define FD_QUIC_CNC_DIAG_CHUNK_IDX         ( 6UL) /* On 1st cache line of app region, updated by producer, frequently */
+#define FD_QUIC_CNC_DIAG_TPU_PUB_CNT       ( 7UL) /* ", frequently */
+#define FD_QUIC_CNC_DIAG_TPU_PUB_SZ        ( 8UL) /* ", frequently */
+#define FD_QUIC_CNC_DIAG_TPU_CONN_LIVE_CNT ( 9UL) /* ", frequently */
+#define FD_QUIC_CNC_DIAG_TPU_CONN_SEQ      (10UL) /* ", frequently */
 
 /* fd_quic_tpu_msg_ctx_t is the message context of a txn being received
    by the QUIC tile over the TPU protocol. It is used to detect dcache

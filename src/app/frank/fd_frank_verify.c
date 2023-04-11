@@ -396,8 +396,8 @@ fd_frank_verify_task( int     argc,
     int err = fd_ed25519_verify( msg, msg_sz, sig, public_key, sha );
     if (err) {
       sigvfy_fail_cnt ++;
-      FD_LOG_WARNING(( "fd_ed25519_verify failed for mcache[%lu], fail/pass: %lu/%lu",
-        vin_seq_found, sigvfy_fail_cnt, sigvfy_pass_cnt ));
+      //FD_LOG_WARNING(( "fd_ed25519_verify failed for mcache[%lu], fail/pass: %lu/%lu",
+      //  vin_seq_found, sigvfy_fail_cnt, sigvfy_pass_cnt ));
       now = fd_tickcount();
       continue;
     }

@@ -9,10 +9,11 @@
 #include "../../ballet/base58/fd_base58.h"
 #include "../../ballet/txn/fd_txn.h"
 
-FD_STATIC_ASSERT( FD_QUIC_CNC_DIAG_CHUNK_IDX        ==2UL, unit_test );
-FD_STATIC_ASSERT( FD_QUIC_CNC_DIAG_TPU_PUB_CNT      ==3UL, unit_test );
-FD_STATIC_ASSERT( FD_QUIC_CNC_DIAG_TPU_PUB_SZ       ==4UL, unit_test );
-FD_STATIC_ASSERT( FD_QUIC_CNC_DIAG_TPU_CONN_LIVE_CNT==5UL, uint_test );
+FD_STATIC_ASSERT( FD_QUIC_CNC_DIAG_CHUNK_IDX        == 6UL, unit_test );
+FD_STATIC_ASSERT( FD_QUIC_CNC_DIAG_TPU_PUB_CNT      == 7UL, unit_test );
+FD_STATIC_ASSERT( FD_QUIC_CNC_DIAG_TPU_PUB_SZ       == 8UL, unit_test );
+FD_STATIC_ASSERT( FD_QUIC_CNC_DIAG_TPU_CONN_LIVE_CNT== 9UL, uint_test );
+FD_STATIC_ASSERT( FD_QUIC_CNC_DIAG_TPU_CONN_SEQ     ==10UL, unit_test );
 
 FD_STATIC_ASSERT( FD_QUIC_TILE_SCRATCH_ALIGN==128UL, unit_test );
 

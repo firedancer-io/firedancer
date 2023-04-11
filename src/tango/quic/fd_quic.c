@@ -1752,7 +1752,7 @@ fd_quic_handle_v1_one_rtt( fd_quic_t * quic, fd_quic_conn_t * conn, fd_quic_pkt_
     /* now we have decrypted packet number */
     /* TODO packet number processing */
     pkt_number = fd_quic_parse_bits( dec_hdr + pn_offset, 0, 8u * pkt_number_sz );
-    DEBUG( FD_LOG_DEBUG(( "one_rtt pkt_number: %lu", pkt_number )); fd_log_flush(); )
+    DEBUG( FD_LOG_DEBUG(( "one_rtt pkt_number: %lu", pkt_number )); )
 
     /* packet number space */
     uint pn_space = fd_quic_enc_level_to_pn_space( enc_level );
@@ -1763,7 +1763,7 @@ fd_quic_handle_v1_one_rtt( fd_quic_t * quic, fd_quic_conn_t * conn, fd_quic_pkt_
     /* packet number must be greater than the last processed
        on a new connection, the minimum allowed is set to zero */
     if( FD_UNLIKELY( pkt_number < conn->exp_pkt_number[pn_space] ) ) {
-      DEBUG( FD_LOG_DEBUG(( "packet number less than expected. Discarding" )); fd_log_flush(); )
+      DEBUG( FD_LOG_DEBUG(( "packet number less than expected. Discarding" )); )
 
       /* packet already processed or abandoned, simply discard */
       return tot_sz; /* return bytes to allow for more packets to be processed */
