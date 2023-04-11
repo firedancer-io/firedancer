@@ -336,6 +336,11 @@ struct __attribute__((aligned(16UL))) fd_quic_join {
 };
 typedef struct fd_quic_join fd_quic_join_t;
 
+/* FD_QUIC_MAGIC is used to signal the layout of shared memory region
+   of an fd_quic_t. */
+
+#define FD_QUIC_MAGIC (0xdadf8cfa01cc5460UL)
+
 /* fd_quic_t is the publicly exported memory layout of a QUIC memory
    region.  fd_quic_t should not be statically allocated.  Instead, use
    fd_quic_footprint() and fd_quic_join(). */
