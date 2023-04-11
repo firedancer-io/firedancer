@@ -15,7 +15,7 @@
 FD_FN_CONST static inline ulong
 fd_quic_chunk_idx( ulong chunk0,
                    ulong chunk ) {
-  return (chunk-chunk0) / FD_DCACHE_SLOT_FOOTPRINT( FD_TPU_MTU );
+  return (chunk-chunk0) / FD_DCACHE_SLOT_FOOTPRINT( FD_TPU_DCACHE_MTU );
 }
 
 /* fd_quic_dcache_msg_ctx returns a pointer to the TPU/QUIC message
@@ -128,7 +128,7 @@ fd_tpu_stream_create( fd_quic_stream_t * stream,
 
   /* TODO How can we prevent override of not yet received metas? */
 
-  chunk = fd_dcache_compact_next( chunk, FD_TPU_MTU, chunk0, wmark );
+  chunk = fd_dcache_compact_next( chunk, FD_TPU_DCACHE_MTU, chunk0, wmark );
 
   fd_quic_tpu_msg_ctx_t * msg_ctx = fd_quic_dcache_msg_ctx( dcache_app, chunk0, chunk );
   msg_ctx->conn_id   = conn_id;
@@ -257,7 +257,10 @@ fd_quic_tile( fd_cnc_t *         cnc,
   /* housekeeping state */
   ulong async_min; /* minimum number of ticks between processing a housekeeping event, positive integer power of 2 */
 
-  ulong mtu = FD_TPU_MTU;
+  ulong mtu = FD_TPU_DCACHE_MTU;
+
+  /* txn parser */
+  fd_txn_parse_counters_t txn_parse_counters = {0};
 
   do {
 
@@ -424,8 +427,49 @@ fd_quic_tile( fd_cnc_t *         cnc,
       if( FD_UNLIKELY( msg->stream_id != ULONG_MAX ) )
         continue;  /* overrun */
 
+      /* Get byte slice backing serialized txn data */
+
+      uchar * txn    = msg->data;
+      ulong   txn_sz = msg->sz;
+
+      /* At this point dcache only contains raw payload of txn.
+         Beyond end of txn, but within bounds of msg layout, add a trailer
+         describing the txn layout.
+
+         [ payload      ] (txn_sz bytes)
+         [ pad-align 2B ] (? bytes)
+         [ fd_txn_t     ] (? bytes)
+         [ payload_sz   ] (2B) */
+
+      /* Ensure sufficient space to store trailer */
+
+      void * txn_t = (void *)( fd_ulong_align_up( (ulong)msg->data + txn_sz, 2UL ) );
+      if( FD_UNLIKELY( (mtu - ((ulong)txn_t - (ulong)msg->data)) < (FD_TXN_MAX_SZ+2UL) ) ) {
+        FD_LOG_WARNING(( "dcache entry too small" ));
+        continue;
+      }
+
+      /* Parse transaction */
+
+      ulong txn_t_sz = fd_txn_parse( txn, txn_sz, txn_t, &txn_parse_counters );
+      if( txn_t_sz==0 ) {
+        FD_LOG_DEBUG(( "fd_txn_parse(sz=%lu) failed", txn_sz ));
+        continue; /* invalid txn (terminate conn?) */
+      }
+
+      /* Write payload_sz */
+
+      ushort * payload_sz = (ushort *)( (ulong)txn_t + txn_t_sz );
+      *payload_sz = (ushort)txn_sz;
+
+      /* End of message */
+
+      void * msg_end = (void *)( (ulong)payload_sz + 2UL );
+
+      /* Create mcache entry */
+
       ulong chunk  = fd_laddr_to_chunk( base, msg->data );
-      ulong sz     = msg->sz;
+      ulong sz     = (ulong)msg_end - (ulong)msg->data;
       ulong sig    = 42UL; /* TODO */
       ulong ctl    = fd_frag_meta_ctl( tx_idx, 1 /* som */, 1 /* eom */, 0 /* err */ );
       ulong tsorig = msg->tsorig;
