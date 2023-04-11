@@ -385,6 +385,7 @@ static inline BMTREE_(commit_t) *    /* Returns mem as a bmtree_commit_t *, comm
 BMTREE_(commit_init)( void * mem ) { /* Assumed unused with required alignment and footprint */
   BMTREE_(commit_t) * state = (BMTREE_(commit_t) *)mem;
   state->leaf_cnt = 0UL;
+  fd_memset(state->node_buf, 0, sizeof(state->node_buf));
   return state;
 }
 
