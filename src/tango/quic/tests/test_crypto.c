@@ -253,7 +253,15 @@ main( int     argc,
   uchar const * hdr    = packet_header;
   ulong         hdr_sz = sizeof( packet_header );
 
-  FD_TEST( fd_quic_crypto_encrypt( cipher_text, &cipher_text_sz, hdr, hdr_sz, pkt, pkt_sz, suite, &client_keys  )==FD_QUIC_SUCCESS );
+  FD_TEST( fd_quic_crypto_encrypt( cipher_text,
+                                   &cipher_text_sz,
+                                   hdr,
+                                   hdr_sz,
+                                   pkt,
+                                   pkt_sz,
+                                   suite,
+                                   &client_keys,
+                                   &client_keys  )==FD_QUIC_SUCCESS );
 
   FD_LOG_NOTICE(( "fd_quic_crypto_encrypt output %ld bytes", (long int)cipher_text_sz ));
 

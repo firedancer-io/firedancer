@@ -338,7 +338,7 @@ pipe_aio_receive( void * vp_ctx, fd_aio_pkt_info_t const * batch, ulong batch_sz
 #endif
 
   /* forward */
-  if( rand_256() < 231 ) {
+  if( rand_256() < 256 ) {
     return fd_aio_send( pipe->aio, batch, batch_sz, opt_batch_idx );
   } else {
     if( opt_batch_idx ) {
@@ -350,7 +350,7 @@ pipe_aio_receive( void * vp_ctx, fd_aio_pkt_info_t const * batch, ulong batch_sz
 
 
 /* global "clock" */
-ulong now = 123;
+ulong now = (ulong)1e18;
 
 ulong test_clock( void * ctx ) {
   (void)ctx;
@@ -382,9 +382,9 @@ main( int argc, char ** argv ) {
     .conn_id_sparsity = 4.0,
     .handshake_cnt    = 10,
     .stream_cnt       = 10,
-    .inflight_pkt_cnt = 100,
-    .tx_buf_sz        = 1<<20,
-    .rx_buf_sz        = 1<<20
+    .inflight_pkt_cnt = 1024,
+    .tx_buf_sz        = 1<<14,
+    .rx_buf_sz        = 1<<14
   };
 
   ulong quic_footprint = fd_quic_footprint( &quic_limits );
@@ -419,6 +419,11 @@ main( int argc, char ** argv ) {
   client_config->net.ephem_udp_port.lo = 4435;
   client_config->net.ephem_udp_port.hi = 4440;
 
+  client_config->net.listen_udp_port  = 2002;
+  client_config->link.src_mac_addr[0] = 0x01;
+  client_config->link.dst_mac_addr[0] = 0x02;
+  client_config->idle_timeout         = (ulong)1e8;
+
   strcpy( client_config->cert_file,   "cert.pem"   );
   strcpy( client_config->key_file,    "key.pem"    );
   strcpy( client_config->keylog_file, "keylog.log" );
@@ -442,6 +447,10 @@ main( int argc, char ** argv ) {
 
   server_config->net.ip_addr         = 0x0a000001u;
   server_config->net.listen_udp_port = 2001;
+
+  server_config->link.src_mac_addr[0] = 0x01;
+  server_config->link.dst_mac_addr[0] = 0x02;
+  server_config->idle_timeout         = (ulong)1e8;
 
   strcpy( server_config->cert_file, "cert.pem" );
   strcpy( server_config->key_file,  "key.pem"  );
@@ -580,6 +589,8 @@ main( int argc, char ** argv ) {
           if( !client_quic ) {
             FD_LOG_ERR(( "fd_quic_connect failed" ));
           }
+
+          fd_quic_conn_set_context( client_conn, &client_conn );
 
           state = 2;
         }

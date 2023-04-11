@@ -16,8 +16,7 @@ enum {
   FD_QUIC_CONN_STATE_PEER_CLOSE,         /* peer requested close */
   FD_QUIC_CONN_STATE_ABORT,              /* connection terminating due to error */
   FD_QUIC_CONN_STATE_CLOSE_PENDING,      /* connection is closing */
-  FD_QUIC_CONN_STATE_DEAD,               /* connection about to be freed */
-  FD_QUIC_CONN_STATE_FREED,              /* connection on free list */
+  FD_QUIC_CONN_STATE_DEAD                /* connection about to be freed */
 };
 
 enum {
@@ -129,8 +128,12 @@ struct fd_quic_conn {
 
   /* secret members */
   fd_quic_crypto_secrets_t secrets;
-  fd_quic_crypto_keys_t    keys[4][2]; /* a set of keys for each of the encoding levels, and for client/server */
+  fd_quic_crypto_keys_t    keys[4][2];  /* a set of keys for each of the encoding levels, and for client/server */
+  fd_quic_crypto_keys_t    new_keys[2]; /* a set of keys for use during key update */
   fd_quic_crypto_suite_t * suites[4];
+  uint                     key_phase;   /* current key phase - represents the current phase of the
+                                           value of keys */
+  uint                     key_phase_upd; /* set to 1 if we're undertaking a key update */
 
   ulong                    tot_num_streams;
   fd_quic_stream_t **      streams;           /* array of stream pointers */
