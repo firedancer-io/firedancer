@@ -19,8 +19,8 @@
 #include <unistd.h>  /* for keylog close(2) */
 
 #define CONN_FMT "%02x%02x%02x%02x%02x%02x%02x%02x"
-#define CONN(CONN_ID) (CONN_ID)->conn_id[0], (CONN_ID)->conn_id[1], (CONN_ID)->conn_id[2], (CONN_ID)->conn_id[3],  \
-                      (CONN_ID)->conn_id[4], (CONN_ID)->conn_id[5], (CONN_ID)->conn_id[6], (CONN_ID)->conn_id[7]
+#define CONN_ID(CONN_ID) (CONN_ID)->conn_id[0], (CONN_ID)->conn_id[1], (CONN_ID)->conn_id[2], (CONN_ID)->conn_id[3],  \
+                         (CONN_ID)->conn_id[4], (CONN_ID)->conn_id[5], (CONN_ID)->conn_id[6], (CONN_ID)->conn_id[7]
 
 
 /* Declare priority queue for time based processing */
@@ -1791,6 +1791,8 @@ fd_quic_handle_v1_one_rtt( fd_quic_t * quic, fd_quic_conn_t * conn, fd_quic_pkt_
 
     /* is this a new request to change key_phase? */
     if( !current_key_phase && !conn->key_phase_upd ) {
+      FD_LOG_DEBUG(( "key update started" ));
+
       /* generate new secrets */
       if( fd_quic_gen_new_secrets( &conn->secrets, suite->hmac_fn, suite->hash_sz ) != FD_QUIC_SUCCESS ) {
         FD_LOG_WARNING(( "Unable to generate new secrets for key update. "
@@ -1838,7 +1840,6 @@ fd_quic_handle_v1_one_rtt( fd_quic_t * quic, fd_quic_conn_t * conn, fd_quic_pkt_
                                 keys ) != FD_QUIC_SUCCESS ) {
       /* remove connection from map, and insert into free list */
       DEBUG( FD_LOG_DEBUG(( "fd_quic_crypto_decrypt failed" )); )
-
       return FD_QUIC_PARSE_FAIL;
     }
   }
@@ -4229,7 +4230,7 @@ fd_quic_connect( fd_quic_t *  quic,
   }
 
   conn->next_service_time = fd_quic_now( quic );
-  fd_quic_reschedule_conn( conn, fd_quic_now( quic ) );
+  fd_quic_reschedule_conn( conn, conn->next_service_time );
 
   /* everything initialized */
   return conn;
@@ -4743,7 +4744,7 @@ fd_quic_reclaim_pkt_meta( fd_quic_conn_t *     conn,
 
   if( FD_UNLIKELY( flags & FD_QUIC_PKT_META_FLAGS_KEY_UPDATE ) ) {
     /* what key phase was used for packet? */
-    uint pkt_meta_key_phase = !!( flags & FD_QUIC_PKT_META_FLAGS_KEY_UPDATE );
+    uint pkt_meta_key_phase = !!( flags & FD_QUIC_PKT_META_FLAGS_KEY_PHASE );
 
     if( pkt_meta_key_phase != conn->key_phase ) {
       /* key update was acknowledged
@@ -4768,8 +4769,22 @@ fd_quic_reclaim_pkt_meta( fd_quic_conn_t *     conn,
       fd_memset( &conn->new_keys[0], 0, sizeof( fd_quic_crypto_keys_t ) );
       fd_memset( &conn->new_keys[1], 0, sizeof( fd_quic_crypto_keys_t ) );
 
+      /* copy secrets */
+      fd_memcpy( &conn->secrets.secret[enc_level][0][0],
+                 &conn->secrets.new_secret[0][0],
+                 sizeof( conn->secrets.new_secret[0] ) );
+      fd_memcpy( &conn->secrets.secret[enc_level][1][0],
+                 &conn->secrets.new_secret[1][0],
+                 sizeof( conn->secrets.new_secret[1] ) );
+
+      /* zero out new_secret */
+      fd_memset( &conn->secrets.new_secret[0][0], 0, sizeof( conn->secrets.new_secret[0] ) );
+      fd_memset( &conn->secrets.new_secret[1][0], 0, sizeof( conn->secrets.new_secret[1] ) );
+
       conn->key_phase     = pkt_meta_key_phase; /* switch to new key phase */
       conn->key_phase_upd = 0;                  /* no longer updating */
+
+      FD_LOG_DEBUG(( "key update completed" ));
 
       /* TODO still need to add code to initiate key update */
     }
