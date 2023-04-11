@@ -249,6 +249,11 @@ fd_quic_get_callbacks( fd_quic_t * quic ) {
   return &quic->join.cb;
 }
 
+FD_QUIC_API FD_FN_CONST fd_quic_metrics_t const *
+fd_quic_get_metrics( fd_quic_t const * quic ) {
+  return &quic->metrics;
+}
+
 FD_QUIC_API fd_aio_t *
 fd_quic_get_aio_net_rx( fd_quic_t * quic,
                         fd_aio_t *  aio ) {
@@ -2387,23 +2392,26 @@ fd_quic_process_packet( fd_quic_t *   quic,
 int
 fd_quic_aio_cb_receive( void *                    context,
                         fd_aio_pkt_info_t const * batch,
-                        ulong                     batch_sz,
+                        ulong                     batch_cnt,
                         ulong *                   opt_batch_idx ) {
   fd_quic_t * quic = (fd_quic_t*)context;
 
   /* this aio interface is configured as one-packet per buffer
      so batch[0] refers to one buffer
      as such, we simply forward each individual packet to a handling function */
-  for( ulong j = 0; j < batch_sz; ++j ) {
-    fd_quic_process_packet( quic, batch[j].buf, batch[j].buf_sz );
+  for( ulong j = 0; j < batch_cnt; ++j ) {
+    fd_quic_process_packet( quic, batch[ j ].buf, batch[ j ].buf_sz );
+    quic->metrics.net_rx_byte_cnt += batch[ j ].buf_sz;
   }
 
   /* the assumption here at present is that any packet that could not be processed
      is simply dropped
      hence, all packets were consumed */
   if( FD_LIKELY( opt_batch_idx ) ) {
-    *opt_batch_idx = batch_sz;
+    *opt_batch_idx = batch_cnt;
   }
+
+  quic->metrics.net_rx_pkt_cnt += batch_cnt;
 
   return FD_AIO_SUCCESS;
 }
@@ -5784,5 +5792,27 @@ fd_quic_conn_get_pkt_meta_free_count( fd_quic_conn_t * conn ) {
     pkt_meta = pkt_meta->next;
   }
   return cnt;
+}
+
+
+int
+fd_quic_aio_send( fd_quic_t *               quic,
+                  fd_aio_pkt_info_t const * batch,
+                  ulong                     batch_cnt,
+                  ulong *                   opt_batch_idx ) {
+
+  ulong _opt_batch_idx;
+  int rc = fd_aio_send( &quic->join.aio_tx, batch, batch_cnt, &_opt_batch_idx );
+
+  ulong tx_pkt_cnt;
+  if( FD_LIKELY( rc==FD_AIO_SUCCESS ) ) {
+    tx_pkt_cnt = batch_cnt;
+  } else {
+    tx_pkt_cnt = _opt_batch_idx;
+    if( opt_batch_idx ) *opt_batch_idx = _opt_batch_idx;
+  }
+
+  quic->metrics.net_tx_pkt_cnt += tx_pkt_cnt;
+  return rc;
 }
 
