@@ -21,7 +21,7 @@ impl PodIter {
         }
         let csz = fd_ulong_svw_dec_sz(pod);
         PodIter {
-            cursor: pod.offset((csz*3) as isize),
+            cursor: pod.offset((csz * 3) as isize),
             stop: pod.offset(fd_ulong_svw_dec_fixed(pod, csz) as isize),
         }
     }
