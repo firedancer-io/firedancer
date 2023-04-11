@@ -16,8 +16,7 @@ enum {
   FD_QUIC_CONN_STATE_PEER_CLOSE,         /* peer requested close */
   FD_QUIC_CONN_STATE_ABORT,              /* connection terminating due to error */
   FD_QUIC_CONN_STATE_CLOSE_PENDING,      /* connection is closing */
-  FD_QUIC_CONN_STATE_DEAD,               /* connection about to be freed */
-  FD_QUIC_CONN_STATE_FREED,              /* connection on free list */
+  FD_QUIC_CONN_STATE_DEAD                /* connection about to be freed */
 };
 
 enum {

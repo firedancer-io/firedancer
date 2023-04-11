@@ -218,7 +218,7 @@ fd_quic_tls_hs_new( fd_quic_tls_t * quic_tls,
   self->is_server = is_server;
   self->is_flush  = 0;
   self->context   = context;
-  self->state     = FD_QUIC_TLS_HS_STATE_NEED_INPUT;
+  self->state     = is_server ? FD_QUIC_TLS_HS_STATE_NEED_INPUT : FD_QUIC_TLS_HS_STATE_NEED_SERVICE;
 
   /* initialize handshake data */
 
@@ -443,8 +443,8 @@ fd_quic_tls_process( fd_quic_tls_hs_t * self ) {
 int
 fd_quic_ssl_add_handshake_data( SSL *                 ssl,
                                 OSSL_ENCRYPTION_LEVEL enc_level,
-                                uchar const *       data,
-                                ulong                data_sz ) {
+                                uchar const *         data,
+                                ulong                 data_sz ) {
   uint buf_sz = FD_QUIC_TLS_HS_DATA_SZ;
   if( data_sz > buf_sz ) {
     return 0;
@@ -562,6 +562,8 @@ fd_quic_ssl_client_hello( SSL *  ssl,
   (void)arg;
 
 #if 1
+  static uint cnt = 0;
+  printf( "fd_quic_ssl_client_hello  cnt: %u\n", ++cnt ); fflush( stdout );
 
   fd_quic_tls_hs_t * hs = SSL_get_app_data( ssl );
 

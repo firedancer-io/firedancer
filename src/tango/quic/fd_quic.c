@@ -1439,7 +1439,6 @@ fd_quic_handle_v1_handshake(
   (void)conn;
   (void)cur_ptr;
   (void)cur_sz;
-  DEBUG( FD_LOG_DEBUG(( "START" )); )
 
   if( !conn ) {
     /* this can happen */
@@ -1551,7 +1550,6 @@ fd_quic_handle_v1_handshake(
     /* now we have decrypted packet number */
     /* TODO packet number processing */
     pkt_number = fd_quic_parse_bits( dec_hdr + pn_offset, 0, 8u * pkt_number_sz );
-    DEBUG( FD_LOG_DEBUG(( "handshake pkt_number: %lu\n", (ulong)pkt_number )); )
 
     /* packet number space */
     uint pn_space = fd_quic_enc_level_to_pn_space( enc_level );
@@ -1562,10 +1560,6 @@ fd_quic_handle_v1_handshake(
     /* packet number must be greater than the last processed
        on a new connection, the minimum allowed is set to zero */
     if( FD_UNLIKELY( pkt_number < conn->exp_pkt_number[enc_level] ) ) {
-      DEBUG(
-          printf( "%s - packet number less than expected. Discarding\n", __func__ );
-          )
-
       /* packet already processed or abandoned, simply discard */
       return tot_sz; /* return bytes to allow for more packets to be processed */
     }
@@ -1922,7 +1916,7 @@ fd_quic_reschedule_conn( fd_quic_conn_t * conn,
   fd_quic_event_t event[1] = {{ .timeout = timeout, .conn = conn }};
   service_queue_insert( state->service_queue, event );
 
-  conn->next_service_time = conn->sched_service_time - timeout;
+  conn->next_service_time = timeout;
   conn->in_service        = 1;
 }
 
@@ -2255,7 +2249,6 @@ fd_quic_process_packet( fd_quic_t *   quic,
 
   /* check version, tot_len, protocol, checksum? */
   if( ( pkt.ipv4->version != 4 ) | ( pkt.ipv4->protocol != FD_IP4_HDR_PROTOCOL_UDP ) ) {
-    DEBUG( printf( "failed: version=%u protocol=%u\n", pkt.ipv4->version, pkt.ipv4->protocol ); )
     return;
   }
 
@@ -2274,15 +2267,6 @@ fd_quic_process_packet( fd_quic_t *   quic,
   cur_sz  -= rc;
 
   /* cur_ptr[0..cur_sz-1] should be payload */
-
-  /* debugging */
-  //DEBUG(
-  //    printf( "fd_quic_process_packet: received packet with headers:\n" );
-  //    fd_quic_dump_struct_eth( pkt.eth );
-  //    fd_quic_dump_struct_ipv4( pkt.ipv4 );
-  //    fd_quic_dump_struct_udp( pkt.udp );
-  //    printf( "\n" ); )
-  /* end debugging */
 
   /* filter */
   /*   check dst eth address, ip address? probably not necessary */
@@ -2385,7 +2369,6 @@ fd_quic_process_packet( fd_quic_t *   quic,
     /* find connection id */
     fd_quic_conn_entry_t * entry = fd_quic_conn_map_query( state->conn_map, &dst_conn_id );
     if( !entry ) {
-      DEBUG( FD_LOG_DEBUG(( "one_rtt failed: no connection found" )); )
       /* silently ignore */
       return;
     }
@@ -2617,25 +2600,6 @@ fd_quic_frame_handle_crypto_frame( void *                   vp_context,
   /* copy the context locally */
   fd_quic_frame_context_t context = *(fd_quic_frame_context_t*)vp_context;
 
-  //DEBUG(
-  //  printf( "CRYPTO\n" );
-  //  fd_quic_dump_struct_crypto_frame( crypto );
-  //
-  //  printf( "enc_level: %d\n", (int)context.pkt->enc_level );
-  //  )
-
-  // DEBUG(
-  //     printf( "%s : %s calling fd_quic_tls_provide_data with %ld bytes, enc_level: %d\n",
-  //       __func__,
-  //       ( context.conn->server ? "SERVER" : "CLIENT" ),
-  //       (long)crypto->length,
-  //       (int)context.pkt->enc_level );
-  //     for( ulong j = 0; j < crypto->length; ++j ) {
-  //       printf( "%2.2x ", crypto->crypto_data[j] );
-  //     }
-  //     printf( "\n" );
-  //   )
-
   /* determine whether any of the data was already provided */
   fd_quic_conn_t * conn      = context.conn;
   uint             enc_level = context.pkt->enc_level;
@@ -2745,7 +2709,7 @@ fd_quic_service( fd_quic_t * quic ) {
          max_idle_timeout value advertised by both endpoints." */
       conn->state = FD_QUIC_CONN_STATE_DEAD;
     } else {
-      fd_quic_conn_service( quic, conn, now + quic->config.service_interval );
+      fd_quic_conn_service( quic, conn, now );
     }
 
     /* dead? don't reinsert, just clean up */
@@ -2755,7 +2719,7 @@ fd_quic_service( fd_quic_t * quic ) {
         fd_quic_conn_free( quic, conn );
         break;
 
-      case FD_QUIC_CONN_STATE_FREED:
+      case FD_QUIC_CONN_STATE_INVALID:
         /* skip entirely */
         break;
 
@@ -2789,20 +2753,6 @@ fd_quic_tx_buffered( fd_quic_t *      quic,
 
   /* nothing to do */
   if( FD_UNLIKELY( payload_sz<=0L ) ) return 0U;
-
-  //DEBUG(
-  //    {
-  //      printf( "fd_quic_tx_buffered:\n" );
-  //      uchar const * end_ptr = conn->tx_ptr;
-  //      uchar const * cur_ptr = conn->tx_buf;
-  //      while( cur_ptr < end_ptr ) {
-  //        printf( "%2.2x ", (uint)*cur_ptr );
-  //        cur_ptr++;
-  //      }
-  //      printf( "\n" );
-  //      fflush( stdout );
-  //    }
-  //  )
 
   fd_quic_config_t * config = &quic->config;
 
@@ -3420,8 +3370,6 @@ fd_quic_conn_tx( fd_quic_t * quic, fd_quic_conn_t * conn ) {
         /* are we the client initial packet? */
         initial_pkt = offset == 0 && !conn->server;
 
-        ulong tx_crypto_offset = conn->tx_crypto_offset[enc_level];
-
         data_sz = 0;
         (void)data;
 
@@ -3443,7 +3391,7 @@ fd_quic_conn_tx( fd_quic_t * quic, fd_quic_conn_t * conn ) {
             ulong         cur_data_sz = hs_data->data_sz - hs_offset;
 
             /* build crypto frame */
-            frame.crypto.offset      = tx_crypto_offset;
+            frame.crypto.offset      = offset;
             frame.crypto.length      = cur_data_sz;
             frame.crypto.crypto_data = cur_data;
 
@@ -3487,7 +3435,6 @@ fd_quic_conn_tx( fd_quic_t * quic, fd_quic_conn_t * conn ) {
             /* move to next hs_data */
             offset           += cur_data_sz;
             data_sz          += cur_data_sz;
-            tx_crypto_offset += cur_data_sz;
 
             /* TODO load more hs_data into a crypto frame, if available
                currently tricky, because encode_crypto_frame copies payload */
@@ -3875,11 +3822,6 @@ fd_quic_conn_tx( fd_quic_t * quic, fd_quic_conn_t * conn ) {
     /* did we send handshake data? */
     if( pkt_meta->flags & FD_QUIC_PKT_META_FLAGS_HS_DATA ) {
       conn->hs_sent_bytes[enc_level] += data_sz;
-
-      /* bump offset */
-      conn->tx_crypto_offset[enc_level] += data_sz;
-
-      /* TODO is hs_sent_bytes the same as tx_crypto_offset? */
     }
 
     /* did we send stream data? */
@@ -4007,7 +3949,7 @@ fd_quic_conn_service( fd_quic_t * quic, fd_quic_conn_t * conn, ulong now ) {
         break;
 
     case FD_QUIC_CONN_STATE_DEAD:
-    case FD_QUIC_CONN_STATE_FREED:
+    case FD_QUIC_CONN_STATE_INVALID:
       /* fall thru */
     default:
       return;
@@ -4026,6 +3968,8 @@ fd_quic_conn_free( fd_quic_t *      quic,
     FD_LOG_WARNING(( "double free detected" ));
     return;
   }
+
+  conn->state = FD_QUIC_CONN_STATE_INVALID;
 
   fd_quic_state_t * state = fd_quic_get_state( quic );
 
@@ -4060,6 +4004,7 @@ fd_quic_conn_free( fd_quic_t *      quic,
       fd_quic_stream_map_t * stream_entry = fd_quic_stream_map_query( conn->stream_map, stream->stream_id, NULL );
       if( stream_entry ) {
         /* fd_quic_stream_free calls fd_quic_stream_map_remove */
+        /* TODO we seem to be freeing more streams than expected here */
         fd_quic_stream_free( quic, conn, stream_entry->stream, FD_QUIC_NOTIFY_ABORT );
       }
     }
@@ -4283,6 +4228,9 @@ fd_quic_connect( fd_quic_t *  quic,
     goto fail_tls_hs;
   }
 
+  conn->next_service_time = fd_quic_now( quic );
+  fd_quic_reschedule_conn( conn, fd_quic_now( quic ) );
+
   /* everything initialized */
   return conn;
 
@@ -4345,6 +4293,9 @@ fd_quic_conn_create( fd_quic_t *               quic,
     return NULL;
   }
 
+  conn->next_service_time   = 0;
+  conn->sched_service_time  = 0;
+
   /* immediately schedule it */
   fd_quic_reschedule_conn( conn, fd_quic_now( quic ) );
 
@@ -4353,8 +4304,6 @@ fd_quic_conn_create( fd_quic_t *               quic,
   conn->server              = server;
   conn->established         = 0;
   conn->version             = version;
-  conn->next_service_time   = 0;
-  conn->sched_service_time  = 0;
   fd_memset( &conn->our_conn_id[0], 0, sizeof( conn->our_conn_id ) );
   conn->host                = (fd_quic_net_endpoint_t){
     .ip_addr  = config->net.ip_addr,
@@ -4451,7 +4400,6 @@ fd_quic_conn_create( fd_quic_t *               quic,
   fd_memset( conn->pkt_number, 0, sizeof( conn->pkt_number ) );
 
   /* crypto offset for first packet always starts at 0 */
-  fd_memset( conn->tx_crypto_offset, 0, sizeof( conn->tx_crypto_offset ) );
   fd_memset( conn->rx_crypto_offset, 0, sizeof( conn->rx_crypto_offset ) );
 
   fd_memset( conn->hs_sent_bytes, 0, sizeof( conn->hs_sent_bytes ) );
@@ -4607,6 +4555,7 @@ fd_quic_pkt_meta_retry( fd_quic_t *          quic,
       /* TODO this only checks the head of each enc_level
          assuming that pkt_meta is in time order. It IS
          is time order, but not expiry time. */
+#if 0
       fd_quic_pkt_meta_t * pkt_meta = pool->sent[j].head;
       if( !pkt_meta ) continue;
 
@@ -4614,6 +4563,17 @@ fd_quic_pkt_meta_retry( fd_quic_t *          quic,
         enc_level = j;
         expiry    = pkt_meta->expiry;
       }
+#else
+      fd_quic_pkt_meta_t * pkt_meta = pool->sent[j].head;
+      while( pkt_meta ) {
+        if( enc_level == ~0u || pkt_meta->expiry < expiry ) {
+          enc_level = j;
+          expiry    = pkt_meta->expiry;
+        }
+        pkt_meta = pkt_meta->next;
+      }
+      if( enc_level != ~0u ) break;
+#endif
     }
 
     if( enc_level == ~0u ) return;
@@ -4643,9 +4603,7 @@ fd_quic_pkt_meta_retry( fd_quic_t *          quic,
       /* reset offset to beginning of retried range if necessary */
       ulong offset = pkt_meta->range.offset_lo;
       if( offset < conn->hs_sent_bytes[enc_level] ) {
-        ulong diff = conn->hs_sent_bytes[enc_level] - offset;
         conn->hs_sent_bytes[enc_level] = offset;
-        conn->tx_crypto_offset[enc_level] -= diff;
         /* TODO might need to have a member "hs_ackd_bytes" so we don't
            try to resend bytes that were acked (and may have been discarded) */
         /* TODO do we need to set upd_pkt_number etc? */
@@ -4705,7 +4663,8 @@ fd_quic_pkt_meta_retry( fd_quic_t *          quic,
         fd_quic_stream_t * stream = conn->streams[j];
 
         /* was this stream sent on the given packet number */
-        if( stream->upd_pkt_number == pkt_number ) {
+        if( stream->stream_id != FD_QUIC_STREAM_ID_UNUSED &&
+            stream->upd_pkt_number == pkt_number ) {
           /* if flags==0, the stream is not in the send list */
           if( stream->flags == 0 ) {
             /* insert */
@@ -5790,14 +5749,6 @@ fd_quic_conn_close( fd_quic_conn_t * conn, uint app_reason ) {
 
     default:
       {
-        fd_quic_pkt_meta_t * pkt_meta = NULL;
-        pkt_meta = fd_quic_pkt_meta_allocate( &conn->pkt_meta_pool );
-
-
-        if( pkt_meta ) {
-          fd_quic_pkt_meta_deallocate( &conn->pkt_meta_pool, pkt_meta );
-        }
-
         conn->state      = FD_QUIC_CONN_STATE_CLOSE_PENDING;
         conn->app_reason = app_reason;
       }
