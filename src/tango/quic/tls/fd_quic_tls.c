@@ -512,7 +512,7 @@ fd_quic_ssl_add_handshake_data( SSL *                 ssl,
 
   /* copy data into buffer, and update metadata in hs_data */
   fd_memcpy( buf, data, data_sz );
-  hs_data->enc_level    = enc_level;
+  hs_data->enc_level    = (OSSL_ENCRYPTION_LEVEL)enc_level;
   hs_data->data         = buf;
   hs_data->data_sz      = (uint)data_sz;
   hs_data->free_data_sz = free_data_sz;
