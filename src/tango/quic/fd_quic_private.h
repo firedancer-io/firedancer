@@ -14,11 +14,6 @@
 #define DEBUG(...)
 #endif
 
-/* FD_QUIC_MAGIC is used to signal the layout of shared memory region
-   of an fd_quic_t. */
-
-#define FD_QUIC_MAGIC (0xdadf8cfa01cc5460UL)
-
 
 enum {
   FD_QUIC_TYPE_INGRESS = 1 << 0,
