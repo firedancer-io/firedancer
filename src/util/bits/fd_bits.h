@@ -134,7 +134,7 @@ FD_FN_CONST static inline int fd_ushort_popcnt( ushort x ) { return __builtin_po
 FD_FN_CONST static inline int fd_uint_popcnt  ( uint   x ) { return __builtin_popcount (       x ); }
 FD_FN_CONST static inline int fd_ulong_popcnt ( ulong  x ) { return __builtin_popcountl(       x ); }
 
-#if FD_HAS_INT128 
+#if FD_HAS_INT128
 FD_FN_CONST static inline int
 fd_uint128_popcnt( uint128 x ) {
   return  __builtin_popcountl( (ulong) x ) + __builtin_popcountl( (ulong)(x>>64) );
