@@ -562,9 +562,6 @@ fd_quic_ssl_client_hello( SSL *  ssl,
   (void)arg;
 
 #if 1
-  static uint cnt = 0;
-  printf( "fd_quic_ssl_client_hello  cnt: %u\n", ++cnt ); fflush( stdout );
-
   fd_quic_tls_hs_t * hs = SSL_get_app_data( ssl );
 
   /* TODO does the user need client hello? */
