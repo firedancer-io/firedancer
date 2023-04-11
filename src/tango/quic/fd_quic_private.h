@@ -249,6 +249,14 @@ fd_quic_reclaim_pkt_meta( fd_quic_conn_t *     conn,
                           fd_quic_pkt_meta_t * pkt_meta,
                           uint                 enc_level );
 
+/* fd_quic_aio_send queues a batch of packets to the network for tx.
+   (Packets including Ethernet and IP headers) */
+
+int
+fd_quic_aio_send( fd_quic_t *               quic,
+                  fd_aio_pkt_info_t const * batch,
+                  ulong                     batch_cnt,
+                  ulong *                   opt_batch_idx );
 
 FD_PROTOTYPES_END
 
