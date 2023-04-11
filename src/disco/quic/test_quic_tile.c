@@ -7,7 +7,6 @@
 #include "../../util/net/fd_eth.h"
 #include "../../util/net/fd_ip4.h"
 #include "../../ballet/base58/fd_base58.h"
-#include "../../ballet/txn/fd_txn.h"
 
 FD_STATIC_ASSERT( FD_QUIC_CNC_DIAG_CHUNK_IDX        ==2UL, unit_test );
 FD_STATIC_ASSERT( FD_QUIC_CNC_DIAG_TPU_PUB_CNT      ==3UL, unit_test );
@@ -117,24 +116,34 @@ rx_tile_main( int     argc,
       /* TODO make QUIC tile respect backpressure instead? */
     }
 
-    /* Process the received txn */
+    /* Speculatively process the received txn
+       while gracefully handling potential data race */
 
-    uchar const * p = (uchar const *)fd_chunk_to_laddr_const( wksp, chunk );
+    void const * p = (uchar const *)fd_chunk_to_laddr_const( wksp, chunk );
     (void)ctl; (void)sig; (void)tsorig; (void)tspub;
 
-    static FD_TLS fd_txn_parse_counters_t txn_parse_counters = {0};
-    uchar __attribute__((aligned(alignof(fd_txn_t)))) txn_buf[ FD_TXN_MAX_SZ ];
-    fd_txn_t * txn = NULL;
-    if( FD_LIKELY( fd_txn_parse( p, sz, txn_buf, &txn_parse_counters ) ) )
-      txn = (fd_txn_t *)txn_buf;
+    ulong p_end = (ulong)p+sz;
 
-    char txn_sig_cstr[ FD_BASE58_ENCODED_32_SZ ];
-    txn_sig_cstr[ 0 ] = '\0';
+    /* Assume that the dcache entry is:
+         Payload ....... (payload_sz bytes)
+         0 or 1 byte of padding (since alignof(fd_txn) is 2)
+         fd_txn ....... (size computed by fd_txn_footprint)
+         payload_sz  (2B)
+      mline->sz includes all three fields and the padding */
 
-    if( FD_LIKELY( txn ) ) {
-      uchar const * txn_sig = fd_txn_get_signatures( txn, p )[0];
-      fd_base58_encode_32( txn_sig, NULL, txn_sig_cstr );
-    }
+    ulong payload_sz = *(ushort *)( (ulong)p + sz - sizeof(ushort) );
+    if( FD_UNLIKELY( payload_sz>FD_TPU_MTU ) )
+      continue; /* Memory corruption, likely overrun */
+
+    fd_txn_t         const * txn     = (fd_txn_t const *)( (ulong)p + fd_ulong_align_up( payload_sz, 2UL ) );
+    fd_ed25519_sig_t const * txn_sig = fd_txn_get_signatures( txn, p );
+    if( FD_UNLIKELY( (ulong)txn_sig<(ulong)p || (ulong)txn_sig+FD_ED25519_SIG_SZ>p_end ) )
+      continue; /* Memory corruption, likely overrun */
+
+    /* Copy first signature of txn */
+
+    uchar txn_sig0[ FD_ED25519_SIG_SZ ];
+    memcpy( txn_sig0, txn_sig[ 0 ], FD_ED25519_SIG_SZ );
 
     /* Check that we weren't overrun while processing */
 
@@ -143,18 +152,16 @@ rx_tile_main( int     argc,
       continue;
 
     /* Wind up for the next iteration */
+
     seq = fd_seq_inc( seq, 1UL );
-
-    /* Check for corruption */
-
-    if( FD_UNLIKELY( !txn ) ) {
-      FD_LOG_WARNING(( "Received invalid txn from QUIC" ));
-      continue;
-    }
 
     /* Print txn sig to user */
 
-    FD_LOG_NOTICE(( "Received txn no=%lu sig=%s", ++txn_idx, txn_sig_cstr ));
+    char txn_sig_cstr[ FD_BASE58_ENCODED_64_SZ ];
+    txn_sig_cstr[ 0 ] = '\0';
+    fd_base58_encode_64( txn_sig0, NULL, txn_sig_cstr );
+
+    FD_LOG_DEBUG(( "Received txn no=%lu sig=%s", ++txn_idx, txn_sig_cstr ));
   }
 
   fd_cnc_signal( cnc, FD_CNC_SIGNAL_BOOT );
