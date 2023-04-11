@@ -310,6 +310,15 @@ struct fd_quic_callbacks {
 };
 typedef struct fd_quic_callbacks fd_quic_callbacks_t;
 
+/* fd_quic metrics ****************************************************/
+
+struct fd_quic_metrics {
+  ulong net_rx_pkt_cnt;  /* number of IP packets received */
+  ulong net_rx_byte_cnt; /* number of bytes received (including IP, UDP, QUIC headers) */
+  ulong net_tx_pkt_cnt;  /* number of IP packets sent */
+};
+typedef struct fd_quic_metrics fd_quic_metrics_t;
+
 /* fd_quic_t memory layout ********************************************/
 
 /* fd_quic_join_t contains externally provided objects that are
@@ -332,10 +341,11 @@ typedef struct fd_quic_join fd_quic_join_t;
    fd_quic_footprint() and fd_quic_join(). */
 
 struct fd_quic {
-  ulong            magic;   /* ==FD_QUIC_MAGIC */
-  fd_quic_limits_t limits;
-  fd_quic_config_t config;
-  fd_quic_join_t   join;
+  ulong             magic;   /* ==FD_QUIC_MAGIC */
+  fd_quic_limits_t  limits;
+  fd_quic_config_t  config;
+  fd_quic_join_t    join;
+  fd_quic_metrics_t metrics;
 
   /* ... variable length structures follow ... */
 };
@@ -410,6 +420,14 @@ fd_quic_config_from_env( int  *   pargc,
 
 FD_QUIC_API FD_FN_CONST fd_quic_callbacks_t *
 fd_quic_get_callbacks( fd_quic_t * quic );
+
+/* fd_quic_get_metrics returns a pointer to the metrics struct of the
+   given QUIC in the caller's local address space.  The lifetime of the
+   returned pointer is valid for the lifetime of the fd_quic_t, with or
+   without an active join. */
+
+FD_QUIC_API FD_FN_CONST fd_quic_metrics_t const *
+fd_quic_get_metrics( fd_quic_t const * quic );
 
 /* fd_quic_get_aio_net_rx configures the given aio to receive data into
    quic instance.  aio should be deleted before lifetime of quic ends.
