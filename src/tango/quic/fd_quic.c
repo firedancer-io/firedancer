@@ -528,8 +528,7 @@ fd_quic_conn_error( fd_quic_conn_t * conn, uint reason ) {
   conn->reason = reason;
 
   /* set connection to be serviced ASAP */
-  fd_quic_t * quic = conn->quic;
-  fd_quic_reschedule_conn( conn, fd_quic_now( quic ) + 1u );
+  fd_quic_reschedule_conn( conn, 0 );
 }
 
 /* returns the enc level we should use for the next tx quic packet
@@ -1425,7 +1424,7 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
   DEBUG( FD_LOG_DEBUG(( "new connection success" )); )
 
   /* insert into service queue */
-  fd_quic_reschedule_conn( conn, conn->last_activity + 1UL );
+  fd_quic_reschedule_conn( conn, 0 );
 
   /* return number of bytes consumed */
   return tot_sz;
@@ -1880,11 +1879,59 @@ fd_quic_handle_v1_one_rtt( fd_quic_t * quic, fd_quic_conn_t * conn, fd_quic_pkt_
 
 
 void
+fd_quic_schedule_conn( fd_quic_conn_t * conn ) {
+
+  fd_quic_t *       quic    = conn->quic;
+  fd_quic_state_t * state   = fd_quic_get_state( quic );
+
+  ulong             timeout = conn->next_service_time;
+
+  /* scheduled? */
+  if( conn->in_service ) {
+    printf( "unexpectedly in service\n" );
+
+    /* find conn in events, then remove, update, insert */
+    fd_quic_event_t * event     = NULL;
+    ulong             event_idx = 0;
+    ulong             cnt   = service_queue_cnt( state->service_queue );
+    for( ulong j = 0; j < cnt; ++j ) {
+      fd_quic_event_t * cur_event = state->service_queue + j;
+      if( cur_event->conn == conn ) {
+        event     = cur_event;
+        event_idx = j;
+        break;
+      }
+    }
+
+    if( FD_LIKELY( event ) ) {
+      /* remove key */
+      service_queue_remove( state->service_queue, event_idx );
+
+      /* TODO can use a priority queue key-reduce operation, which may be done more
+         quickly than remove, insert */
+    }
+  }
+
+  timeout = fd_ulong_max( timeout, fd_quic_now(quic) + 1UL );
+
+  /* insert key */
+  fd_quic_event_t event[1] = {{ .timeout = timeout, .conn = conn }};
+  service_queue_insert( state->service_queue, event );
+
+  conn->sched_service_time = timeout;
+  conn->next_service_time  = timeout;
+  conn->in_service         = 1;
+}
+
+
+void
 fd_quic_reschedule_conn( fd_quic_conn_t * conn,
                          ulong            timeout ) {
-
   fd_quic_t *       quic  = conn->quic;
   fd_quic_state_t * state = fd_quic_get_state( quic );
+
+  timeout = fd_ulong_min( timeout, conn->next_service_time );
+  timeout = fd_ulong_max( timeout, fd_quic_now(quic) + 1UL );
 
   /* scheduled? */
   if( conn->in_service ) {
@@ -1913,17 +1960,13 @@ fd_quic_reschedule_conn( fd_quic_conn_t * conn,
       /* TODO can use a priority queue key-reduce operation, which may be done more
          quickly than remove, insert */
     }
+
+    fd_quic_schedule_conn( conn );
+
+    return;
   }
 
-  timeout = fd_ulong_min( timeout, conn->sched_service_time );
-  timeout = fd_ulong_max( timeout, fd_quic_now(quic) + 1UL );
-
-  /* insert key */
-  fd_quic_event_t event[1] = {{ .timeout = timeout, .conn = conn }};
-  service_queue_insert( state->service_queue, event );
-
   conn->next_service_time = timeout;
-  conn->in_service        = 1;
 }
 
 
@@ -2699,6 +2742,9 @@ fd_quic_service( fd_quic_t * quic ) {
     ulong service_time = event->timeout;
     if( now < service_time ) break;
 
+    /* set an initial next_service_time */
+    conn->next_service_time = now + quic->config.service_interval;
+
     /* remove event, later reinserted at new time */
     service_queue_remove_min( state->service_queue );
 
@@ -2734,11 +2780,7 @@ fd_quic_service( fd_quic_t * quic ) {
 
       default:
         if( !conn->in_service ) {
-          if( conn->next_service_time < now ) {
-            conn->next_service_time = now + quic->config.service_interval;
-          }
-
-          fd_quic_reschedule_conn( conn, conn->next_service_time );
+          fd_quic_schedule_conn( conn );
         }
     }
   }
@@ -3909,7 +3951,7 @@ fd_quic_conn_service( fd_quic_t * quic, fd_quic_conn_t * conn, ulong now ) {
           if( process_rc == FD_QUIC_TLS_FAILED ) {
             /* mark as DEAD, and allow it to be cleaned up */
             conn->state             = FD_QUIC_CONN_STATE_DEAD;
-            fd_quic_reschedule_conn( conn, now + 1u );
+            fd_quic_reschedule_conn( conn, 0 );
             return;
           }
 
@@ -4237,8 +4279,7 @@ fd_quic_connect( fd_quic_t *  quic,
     goto fail_tls_hs;
   }
 
-  conn->next_service_time = fd_quic_now( quic );
-  fd_quic_reschedule_conn( conn, conn->next_service_time );
+  fd_quic_reschedule_conn( conn, 0 );
 
   /* everything initialized */
   return conn;
@@ -4302,11 +4343,11 @@ fd_quic_conn_create( fd_quic_t *               quic,
     return NULL;
   }
 
-  conn->next_service_time   = 0;
-  conn->sched_service_time  = 0;
+  conn->next_service_time   = fd_quic_now( quic );
+  conn->sched_service_time  = ~0UL;
 
   /* immediately schedule it */
-  fd_quic_reschedule_conn( conn, fd_quic_now( quic ) );
+  fd_quic_schedule_conn( conn );
 
   /* initialize connection members */
   conn->quic                = quic;
@@ -4725,7 +4766,7 @@ fd_quic_pkt_meta_retry( fd_quic_t *          quic,
     }
 
     /* reschedule to ensure the data gets processed */
-    fd_quic_reschedule_conn( conn, now + 1u );
+    fd_quic_reschedule_conn( conn, 0 );
 
     /* free pkt_meta */
 
@@ -4915,7 +4956,7 @@ fd_quic_reclaim_pkt_meta( fd_quic_conn_t *     conn,
 
           /* if we have data to send, reschedule */
           if( fd_quic_buffer_used( &stream->tx_buf ) ) {
-            fd_quic_reschedule_conn( conn, fd_quic_now( conn->quic ) + 1ul );
+            fd_quic_reschedule_conn( conn, 0 );
           } else {
             /* if no data to send, check whether fin bits are set */
             uint state_mask = FD_QUIC_STREAM_STATE_TX_FIN | FD_QUIC_STREAM_STATE_RX_FIN;
@@ -5396,8 +5437,7 @@ fd_quic_frame_handle_stream_frame(
 
     /* ensure we ack the packet, and send any max data or max stream data
        frames */
-    fd_quic_t * quic = context.quic;
-    fd_quic_reschedule_conn( context.conn, fd_quic_now( quic ) + 1 );
+    fd_quic_reschedule_conn( context.conn, 0 );
 
     /* should we reclaim the stream */
     if( data->fin_opt ) {
@@ -5668,7 +5708,7 @@ fd_quic_frame_handle_conn_close_frame(
   }
 
   context.conn->upd_pkt_number = context.conn->pkt_number[enc_level];
-  fd_quic_reschedule_conn( context.conn, fd_quic_now( context.conn->quic ) + 1u );
+  fd_quic_reschedule_conn( context.conn, 0 );
 }
 
 static ulong
@@ -5778,8 +5818,7 @@ fd_quic_conn_close( fd_quic_conn_t * conn, uint app_reason ) {
   }
 
   /* set connection to be serviced ASAP */
-  fd_quic_t * quic = conn->quic;
-  fd_quic_reschedule_conn( conn, fd_quic_now( quic ) + 1u );
+  fd_quic_reschedule_conn( conn, 0 );
 }
 
 
