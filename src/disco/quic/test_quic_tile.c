@@ -24,7 +24,6 @@ struct test_cfg {
   fd_xsk_aio_t * xsk_aio;
 
   fd_cnc_t *         tx_cnc;
-  ulong              tx_mtu;
   fd_frag_meta_t *   tx_mcache;
   uchar *            tx_dcache;
   long               tx_lazy;
@@ -206,7 +205,6 @@ int main( int     argc,
   ulong cpu_idx = fd_tile_cpu_id( fd_tile_idx() );
   if( cpu_idx>fd_shmem_cpu_cnt() ) cpu_idx = 0UL;
 
-  ulong        tx_mtu       =       fd_env_strip_cmdline_ulong ( &argc, &argv, "--tx-mtu",         NULL, FD_TPU_MTU                   );
   ulong        tx_depth     =       fd_env_strip_cmdline_ulong ( &argc, &argv, "--tx-depth",       NULL, 32768UL                      );
   char const * _page_sz     =       fd_env_strip_cmdline_cstr  ( &argc, &argv, "--page-sz",        NULL, "gigantic"                   );
   ulong        page_cnt     =       fd_env_strip_cmdline_ulong ( &argc, &argv, "--page-cnt",       NULL, 1UL                          );
@@ -272,8 +270,6 @@ int main( int     argc,
                              64UL, 0UL, hb0 ) );
   FD_TEST( cfg->tx_cnc );
 
-  cfg->tx_mtu  = tx_mtu;
-
   FD_LOG_NOTICE(( "Creating tx mcache (--tx-depth %lu, app_sz 0, seq0 %lu)", tx_depth, seq0 ));
   cfg->tx_mcache = fd_mcache_join( fd_mcache_new( fd_wksp_alloc_laddr( cfg->wksp,
                                                                        fd_mcache_align(), fd_mcache_footprint( tx_depth, 0UL ),
@@ -281,9 +277,9 @@ int main( int     argc,
                                                   tx_depth, 0UL, seq0 ) );
   FD_TEST( cfg->tx_mcache );
 
-  FD_LOG_NOTICE(( "Creating tx dcache (--tx-mtu %lu, burst 1, compact 1, app_sz 0)", tx_mtu ));
+  FD_LOG_NOTICE(( "Creating tx dcache (--tx-mtu %lu, burst 1, compact 1, app_sz 0)", FD_TPU_DCACHE_MTU ));
   ulong tx_app_sz  = fd_quic_dcache_app_footprint( tx_depth );
-  ulong tx_data_sz = fd_dcache_req_data_sz( tx_mtu, tx_depth, 1UL, 1 ); FD_TEST( tx_data_sz );
+  ulong tx_data_sz = fd_dcache_req_data_sz( FD_TPU_DCACHE_MTU, tx_depth, 1UL, 1 ); FD_TEST( tx_data_sz );
   cfg->tx_dcache = fd_dcache_join( fd_dcache_new( fd_wksp_alloc_laddr( cfg->wksp,
                                                                        fd_dcache_align(), fd_dcache_footprint( tx_data_sz, tx_app_sz ),
                                                                        1UL ),

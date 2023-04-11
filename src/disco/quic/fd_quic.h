@@ -39,11 +39,15 @@
 #include "../fd_disco_base.h"
 #include "../../tango/quic/fd_quic.h"
 #include "../../tango/xdp/fd_xdp.h"
+#include "../../ballet/txn/fd_txn.h"
 
 #if FD_HAS_HOSTED
 
 /* FD_TPU_MTU is the max serialized byte size of a txn sent over TPU. */
 #define FD_TPU_MTU (1232UL)
+
+/* FD_TPU_DCACHE_MTU is the max size of a dcache entry */
+#define FD_TPU_DCACHE_MTU (FD_TPU_MTU + FD_TXN_MAX_SZ + 2UL)
 
 /* An fd_quic_tile will use the cnc application region to accumulate
    the following tile specific counters:
@@ -83,7 +87,7 @@
 struct __attribute__((aligned(32UL))) fd_quic_tpu_msg_ctx {
   ulong   conn_id;
   ulong   stream_id;  /* ULONG_MAX marks completed msg */
-  uchar * data;
+  uchar * data;       /* Points to first byte of dcache entry */
   uint    sz;
   uint    tsorig;
 };
