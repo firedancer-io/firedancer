@@ -1,8 +1,6 @@
 #ifndef HEADER_fd_src_tango_quic_fd_quic_h
 #define HEADER_fd_src_tango_quic_fd_quic_h
 
-#if FD_HAS_HOSTED && FD_HAS_OPENSSL
-
 /* fd_quic_t is an implementation of QUIC -- an encrypted, multiplexing
    transport layer network protocol.
 
@@ -565,8 +563,6 @@ FD_PROTOTYPES_END
 
 #include "fd_quic_conn.h"
 #include "fd_quic_stream.h"
-
-#endif /* FD_HAS_HOSTED && FD_HAS_OPENSSL */
 
 #endif /* HEADER_fd_src_tango_quic_fd_quic_h */
 

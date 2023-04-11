@@ -8,8 +8,8 @@
 #include "crypto/fd_quic_crypto_suites.h"
 #include "tls/fd_quic_tls.h"
 
-#if 1
-#define DEBUG(...) __VA_ARGS__ fd_log_flush();
+#if 0
+#define DEBUG(...) __VA_ARGS__
 #else
 #define DEBUG(...)
 #endif
