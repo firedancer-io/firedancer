@@ -19,8 +19,8 @@
 #include <unistd.h>  /* for keylog close(2) */
 
 #define CONN_FMT "%02x%02x%02x%02x%02x%02x%02x%02x"
-#define CONN(CONN_ID) (CONN_ID)->conn_id[0], (CONN_ID)->conn_id[1], (CONN_ID)->conn_id[2], (CONN_ID)->conn_id[3],  \
-                      (CONN_ID)->conn_id[4], (CONN_ID)->conn_id[5], (CONN_ID)->conn_id[6], (CONN_ID)->conn_id[7]
+#define CONN_ID(CONN_ID) (CONN_ID)->conn_id[0], (CONN_ID)->conn_id[1], (CONN_ID)->conn_id[2], (CONN_ID)->conn_id[3],  \
+                         (CONN_ID)->conn_id[4], (CONN_ID)->conn_id[5], (CONN_ID)->conn_id[6], (CONN_ID)->conn_id[7]
 
 
 /* Declare priority queue for time based processing */
@@ -1838,7 +1838,6 @@ fd_quic_handle_v1_one_rtt( fd_quic_t * quic, fd_quic_conn_t * conn, fd_quic_pkt_
                                 keys ) != FD_QUIC_SUCCESS ) {
       /* remove connection from map, and insert into free list */
       DEBUG( FD_LOG_DEBUG(( "fd_quic_crypto_decrypt failed" )); )
-
       return FD_QUIC_PARSE_FAIL;
     }
   }
@@ -4229,7 +4228,7 @@ fd_quic_connect( fd_quic_t *  quic,
   }
 
   conn->next_service_time = fd_quic_now( quic );
-  fd_quic_reschedule_conn( conn, fd_quic_now( quic ) );
+  fd_quic_reschedule_conn( conn, conn->next_service_time );
 
   /* everything initialized */
   return conn;
