@@ -1,3 +1,4 @@
+#define FD_UNALIGNED_ACCESS_STYLE 0
 #include "fd_base58.h"
 
 #if FD_HAS_AVX
