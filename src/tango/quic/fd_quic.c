@@ -1791,6 +1791,8 @@ fd_quic_handle_v1_one_rtt( fd_quic_t * quic, fd_quic_conn_t * conn, fd_quic_pkt_
 
     /* is this a new request to change key_phase? */
     if( !current_key_phase && !conn->key_phase_upd ) {
+      FD_LOG_DEBUG(( "key update started" ));
+
       /* generate new secrets */
       if( fd_quic_gen_new_secrets( &conn->secrets, suite->hmac_fn, suite->hash_sz ) != FD_QUIC_SUCCESS ) {
         FD_LOG_WARNING(( "Unable to generate new secrets for key update. "
@@ -4742,7 +4744,7 @@ fd_quic_reclaim_pkt_meta( fd_quic_conn_t *     conn,
 
   if( FD_UNLIKELY( flags & FD_QUIC_PKT_META_FLAGS_KEY_UPDATE ) ) {
     /* what key phase was used for packet? */
-    uint pkt_meta_key_phase = !!( flags & FD_QUIC_PKT_META_FLAGS_KEY_UPDATE );
+    uint pkt_meta_key_phase = !!( flags & FD_QUIC_PKT_META_FLAGS_KEY_PHASE );
 
     if( pkt_meta_key_phase != conn->key_phase ) {
       /* key update was acknowledged
@@ -4767,8 +4769,22 @@ fd_quic_reclaim_pkt_meta( fd_quic_conn_t *     conn,
       fd_memset( &conn->new_keys[0], 0, sizeof( fd_quic_crypto_keys_t ) );
       fd_memset( &conn->new_keys[1], 0, sizeof( fd_quic_crypto_keys_t ) );
 
+      /* copy secrets */
+      fd_memcpy( &conn->secrets.secret[enc_level][0][0],
+                 &conn->secrets.new_secret[0][0],
+                 sizeof( conn->secrets.new_secret[0] ) );
+      fd_memcpy( &conn->secrets.secret[enc_level][1][0],
+                 &conn->secrets.new_secret[1][0],
+                 sizeof( conn->secrets.new_secret[1] ) );
+
+      /* zero out new_secret */
+      fd_memset( &conn->secrets.new_secret[0][0], 0, sizeof( conn->secrets.new_secret[0] ) );
+      fd_memset( &conn->secrets.new_secret[1][0], 0, sizeof( conn->secrets.new_secret[1] ) );
+
       conn->key_phase     = pkt_meta_key_phase; /* switch to new key phase */
       conn->key_phase_upd = 0;                  /* no longer updating */
+
+      FD_LOG_DEBUG(( "key update completed" ));
 
       /* TODO still need to add code to initiate key update */
     }
