@@ -18,7 +18,7 @@ case "$OS" in
     ID=macos
     ;;
   Linux)
-    MAKE=( make -j --output-target=sync )
+    MAKE=( make -j )
     # Load distro information
     if [[ -f /etc/os-release ]]; then
       source /etc/os-release
