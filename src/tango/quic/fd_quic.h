@@ -313,9 +313,15 @@ typedef struct fd_quic_callbacks fd_quic_callbacks_t;
 /* fd_quic metrics ****************************************************/
 
 struct fd_quic_metrics {
-  ulong net_rx_pkt_cnt;  /* number of IP packets received */
-  ulong net_rx_byte_cnt; /* number of bytes received (including IP, UDP, QUIC headers) */
-  ulong net_tx_pkt_cnt;  /* number of IP packets sent */
+  ulong net_rx_pkt_cnt;        /* number of IP packets received */
+  ulong net_rx_byte_cnt;       /* number of bytes received (including IP, UDP, QUIC headers) */
+  ulong net_tx_pkt_cnt;        /* number of IP packets sent */
+  long  conn_active_cnt;       /* number of active conns */
+  ulong conn_created_cnt;      /* number of conns created */
+  ulong conn_closed_cnt;       /* number of conns gracefully closed */
+  ulong conn_aborted_cnt;      /* number of conns aborted */
+  ulong conn_err_no_slots_cnt; /* number of conns that failed to create due to lack of slots */
+  ulong conn_err_tls_fail_cnt; /* number of conns that aborted due to TLS failure */
 };
 typedef struct fd_quic_metrics fd_quic_metrics_t;
 

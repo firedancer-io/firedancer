@@ -58,10 +58,7 @@ struct __attribute__((aligned(16UL))) fd_quic_state_private {
   /* Various internal state */
 
   fd_quic_conn_t *       conns;          /* free list of unused connections */
-  ulong                  conn_cnt;       /* current number of connections */
-
   fd_quic_conn_map_t *   conn_map;       /* map connection ids -> connection */
-
   fd_quic_event_t *      service_queue;  /* priority queue of connections by service time */
 
   /* crypto members */

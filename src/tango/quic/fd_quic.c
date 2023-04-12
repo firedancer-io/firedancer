@@ -365,8 +365,6 @@ fd_quic_join( fd_quic_t * quic ) {
     last = conn;
   }
 
-  state->conn_cnt = 0;
-
   /* State: Initialize conn ID map */
 
   ulong  conn_map_laddr = (ulong)quic + layout.conn_map_off;
@@ -765,7 +763,8 @@ fd_quic_leave( fd_quic_t * quic ) {
   fd_quic_conn_map_delete( state->conn_map );
   state->conn_map = NULL;
 
-  state->conn_cnt = 0;
+  /* Reset conn free list */
+
   state->conns    = NULL;
 
   /* Clear join-lifetime memory regions */
@@ -1097,11 +1096,12 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
         return FD_QUIC_PARSE_FAIL;
       }
 
-      /* Check current number of connections */
+      /* Early check: Is conn free? */
 
-      if( state->conn_cnt == quic->limits.conn_cnt ) {
-        DEBUG( FD_LOG_DEBUG(( "fd_quic_handle_v1_initial: new connection would exceed max_concur_conns" )); )
-          return FD_QUIC_PARSE_FAIL; /* FIXME better error code? */
+      if( !state->conns ) {
+        DEBUG( FD_LOG_DEBUG(( "ignoring conn request: no free conn slots" )); )
+        quic->metrics.conn_err_no_slots_cnt++;
+        return FD_QUIC_PARSE_FAIL; /* FIXME better error code? */
       }
 
       /* Pick a new conn ID for ourselves, which the peer will address us
@@ -2893,6 +2893,8 @@ fd_quic_tx_buffered( fd_quic_t *      quic,
   conn->tx_ptr = conn->tx_buf;
   conn->tx_sz  = sizeof( conn->tx_buf );
 
+  quic->metrics.net_tx_pkt_cnt += aio_rc==FD_AIO_SUCCESS;
+
   return FD_QUIC_SUCCESS; /* success */
 }
 
@@ -3950,8 +3952,9 @@ fd_quic_conn_service( fd_quic_t * quic, fd_quic_conn_t * conn, ulong now ) {
           int process_rc = fd_quic_tls_process( conn->tls_hs );
           if( process_rc == FD_QUIC_TLS_FAILED ) {
             /* mark as DEAD, and allow it to be cleaned up */
-            conn->state             = FD_QUIC_CONN_STATE_DEAD;
+            conn->state = FD_QUIC_CONN_STATE_DEAD;
             fd_quic_reschedule_conn( conn, 0 );
+            quic->metrics.conn_err_tls_fail_cnt++;
             return;
           }
 
@@ -3981,6 +3984,7 @@ fd_quic_conn_service( fd_quic_t * quic, fd_quic_conn_t * conn, ulong now ) {
 
         /* this will make the service call free the connection */
         conn->state = FD_QUIC_CONN_STATE_DEAD; /* TODO need draining state wait for 3 * TPO */
+        quic->metrics.conn_closed_cnt++;
 
         break;
 
@@ -3990,6 +3994,7 @@ fd_quic_conn_service( fd_quic_t * quic, fd_quic_conn_t * conn, ulong now ) {
 
         /* this will make the service call free the connection */
         conn->state = FD_QUIC_CONN_STATE_DEAD;
+        quic->metrics.conn_aborted_cnt++;
 
         break;
 
@@ -4092,6 +4097,8 @@ fd_quic_conn_free( fd_quic_t *      quic,
       conn->acks_tx[j] = conn->acks_tx_end[j] = NULL;
     }
   }
+
+  quic->metrics.conn_active_cnt--;
 }
 
 fd_quic_conn_id_t
@@ -4307,16 +4314,11 @@ fd_quic_conn_create( fd_quic_t *               quic,
   fd_quic_config_t * config = &quic->config;
   fd_quic_state_t *  state  = fd_quic_get_state( quic );
 
-  /* check current number of connections */
-  if( state->conn_cnt == quic->limits.conn_cnt ) {
-    DEBUG( FD_LOG_DEBUG(( "new conn would exceed max_concur_conns" )); )
-    return NULL;
-  }
-
   /* fetch top of connection free list */
   fd_quic_conn_t * conn = state->conns;
-  if( conn == NULL ) { /* no free connections */
-    DEBUG( FD_LOG_DEBUG(( "no conns in free list" )); )
+  if( FD_UNLIKELY( !conn ) ) {
+    DEBUG( FD_LOG_DEBUG(( "fd_quic_conn_create failed: no free conn slots" )); )
+    quic->metrics.conn_err_no_slots_cnt++;
     return NULL;
   }
 
@@ -4327,6 +4329,7 @@ fd_quic_conn_create( fd_quic_t *               quic,
   /* if insert failed (should be impossible) fail, and do not remove connection
      from free list */
   if( FD_UNLIKELY( insert_entry == NULL ) ) {
+    FD_LOG_WARNING(( "fd_quic_conn_create failed: failed to register new conn ID" ));
     return NULL;
   }
 
@@ -4511,6 +4514,10 @@ fd_quic_conn_create( fd_quic_t *               quic,
   conn->last_activity = fd_quic_now( quic );
 
   fd_memset( conn->exp_pkt_number, 0, sizeof( conn->exp_pkt_number ) );
+
+  /* update metrics */
+  quic->metrics.conn_active_cnt++;
+  quic->metrics.conn_created_cnt++;
 
   /* return connection */
   return conn;
@@ -5831,27 +5838,5 @@ fd_quic_conn_get_pkt_meta_free_count( fd_quic_conn_t * conn ) {
     pkt_meta = pkt_meta->next;
   }
   return cnt;
-}
-
-
-int
-fd_quic_aio_send( fd_quic_t *               quic,
-                  fd_aio_pkt_info_t const * batch,
-                  ulong                     batch_cnt,
-                  ulong *                   opt_batch_idx ) {
-
-  ulong _opt_batch_idx;
-  int rc = fd_aio_send( &quic->join.aio_tx, batch, batch_cnt, &_opt_batch_idx );
-
-  ulong tx_pkt_cnt;
-  if( FD_LIKELY( rc==FD_AIO_SUCCESS ) ) {
-    tx_pkt_cnt = batch_cnt;
-  } else {
-    tx_pkt_cnt = _opt_batch_idx;
-    if( opt_batch_idx ) *opt_batch_idx = _opt_batch_idx;
-  }
-
-  quic->metrics.net_tx_pkt_cnt += tx_pkt_cnt;
-  return rc;
 }
 
