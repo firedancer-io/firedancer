@@ -14,12 +14,13 @@ fn main() {
     let dir = Path::new(&dir_env);
     let firedancer_dir = dir.join("firedancer");
     let machine = "linux_clang_x86_64_ffi_rust".to_string();
-    let objdir = firedancer_dir.join("build").join("linux/clang/x86_64");
+    let build_dir = firedancer_dir.join("build/linux/clang/x86_64");
 
     // Build the Firedancer sources
     Command::new("make")
         .arg("-j")
         .arg("lib")
+        .arg("include")
         .current_dir(&firedancer_dir)
         .env("MACHINE", machine)
         .output()
@@ -28,14 +29,16 @@ fn main() {
     // Link against the Firedancer sources
     println!(
         "cargo:rustc-link-search=all={}",
-        objdir
+        build_dir
             .join("lib")
             .to_str()
             .expect("failed to convert path to string")
     );
     println!(
         "cargo:rerun-if-changed={}",
-        objdir.to_str().expect("failed to convert path to string")
+        build_dir
+            .to_str()
+            .expect("failed to convert path to string")
     );
     println!("cargo:rustc-link-lib=static=fd_util");
     println!("cargo:rustc-link-lib=static=fd_tango");
