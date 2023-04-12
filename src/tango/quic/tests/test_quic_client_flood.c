@@ -196,6 +196,7 @@ run_quic_client(
   uint           dst_ip,
   ushort         dst_port) {
 
+
   fd_quic_callbacks_t * client_cb = fd_quic_get_callbacks( quic );
   client_cb->conn_hs_complete = my_handshake_complete;
   client_cb->conn_final       = my_connection_closed;
@@ -208,6 +209,8 @@ run_quic_client(
   fd_aio_t _quic_aio[1];
   fd_xsk_aio_set_rx     ( xsk_aio, fd_quic_get_aio_net_rx( quic, _quic_aio ) );
   fd_quic_set_aio_net_tx( quic,    fd_xsk_aio_get_tx     ( xsk_aio )         );
+
+  FD_TEST( fd_quic_join( quic ) );
 
   /* make a connection from client to the server */
   client_conn = fd_quic_connect( quic, dst_ip, dst_port, NULL );
@@ -328,35 +331,39 @@ main( int argc, char ** argv ) {
   ulong cpu_idx = fd_tile_cpu_id( fd_tile_idx() );
   if( cpu_idx>=fd_shmem_cpu_cnt() ) cpu_idx = 0UL;
 
-  char const * _page_sz       = fd_env_strip_cmdline_cstr  ( &argc, &argv, "--page-sz",        NULL, "gigantic"                 );
-  ulong        page_cnt       = fd_env_strip_cmdline_ulong ( &argc, &argv, "--page-cnt",       NULL, 1UL                        );
-  ulong        numa_idx       = fd_env_strip_cmdline_ulong ( &argc, &argv, "--numa-idx",       NULL, fd_shmem_numa_idx(cpu_idx) );
-  char const * iface          = fd_env_strip_cmdline_cstr  ( &argc, &argv, "--iface",          NULL, NULL                       );
-  uint         ifqueue        = fd_env_strip_cmdline_uint  ( &argc, &argv, "--ifqueue",        NULL, 0U                         );
-  char const * _src_mac       = fd_env_strip_cmdline_cstr  ( &argc, &argv, "--src-mac",        NULL, NULL                       );
-  char const * _src_ip        = fd_env_strip_cmdline_cstr  ( &argc, &argv, "--src-ip",         NULL, NULL                       );
-  ushort       src_port       = fd_env_strip_cmdline_ushort( &argc, &argv, "--src-port",       NULL, 0U                         );
-  char const * _dst_mac       = fd_env_strip_cmdline_cstr  ( &argc, &argv, "--dst-mac",        NULL, NULL                       );
-  char const * _dst_ip        = fd_env_strip_cmdline_cstr  ( &argc, &argv, "--dst-ip",         NULL, NULL                       );
-  ushort       dst_port       = fd_env_strip_cmdline_ushort( &argc, &argv, "--dst-port",       NULL, 0U                         );
-  char const * app_name       = fd_env_strip_cmdline_cstr  ( &argc, &argv, "--app-name",       NULL, "test_quic"                );
-  ulong        xdp_mtu        = fd_env_strip_cmdline_ulong ( &argc, &argv, "--xdp-mtu",        NULL, 2048UL                     );
-  ulong        xdp_depth      = fd_env_strip_cmdline_ulong ( &argc, &argv, "--xdp-depth",      NULL, 1024UL                     );
+  char const * _page_sz  = fd_env_strip_cmdline_cstr  ( &argc, &argv, "--page-sz",        NULL, "gigantic"                 );
+  ulong        page_cnt  = fd_env_strip_cmdline_ulong ( &argc, &argv, "--page-cnt",       NULL, 1UL                        );
+  ulong        numa_idx  = fd_env_strip_cmdline_ulong ( &argc, &argv, "--numa-idx",       NULL, fd_shmem_numa_idx(cpu_idx) );
+  ulong        xdp_mtu   = fd_env_strip_cmdline_ulong ( &argc, &argv, "--xdp-mtu",        NULL, 2048UL                       );
+  ulong        xdp_depth = fd_env_strip_cmdline_ulong ( &argc, &argv, "--xdp-depth",      NULL, 1024UL                       );
+  char const * iface     = fd_env_strip_cmdline_cstr  ( &argc, &argv, "--iface",          NULL, NULL                         );
+  uint         ifqueue   = fd_env_strip_cmdline_uint  ( &argc, &argv, "--ifqueue",        NULL, 0U                           );
+  char const * _src_ip   = fd_env_strip_cmdline_cstr  ( &argc, &argv, "--src-ip",         NULL, NULL                       );
+  char const * _dst_ip   = fd_env_strip_cmdline_cstr  ( &argc, &argv, "--dst-ip",         NULL, NULL                       );
+  uint         src_port  = fd_env_strip_cmdline_uint  ( &argc, &argv, "--src-port",       NULL, 8080U                        );
+  uint         dst_port  = fd_env_strip_cmdline_uint  ( &argc, &argv, "--dst-port",       NULL, 9001U                        );
+  char const * _hwaddr   = fd_env_strip_cmdline_cstr  ( &argc, &argv, "--hwaddr",         NULL, NULL                         );
+  char const * _gateway  = fd_env_strip_cmdline_cstr  ( &argc, &argv, "--gateway",        NULL, NULL                         );
+  char const * bpf_dir   = fd_env_strip_cmdline_cstr  ( &argc, &argv, "--bpf-dir",        NULL, "test_quic"                  );
 
   ulong page_sz = fd_cstr_to_shmem_page_sz( _page_sz );
   if( FD_UNLIKELY( !page_sz ) ) FD_LOG_ERR(( "unsupported --page-sz" ));
 
-  if( FD_UNLIKELY( !_src_mac ) ) FD_LOG_ERR(( "missing --src-mac"  ));
   if( FD_UNLIKELY( !_src_ip  ) ) FD_LOG_ERR(( "missing --src-ip"   ));
   if( FD_UNLIKELY( !src_port ) ) FD_LOG_ERR(( "missing --src-port" ));
-  if( FD_UNLIKELY( !_dst_mac ) ) FD_LOG_ERR(( "missing --dst-mac"  ));
   if( FD_UNLIKELY( !_dst_ip  ) ) FD_LOG_ERR(( "missing --dst-ip"   ));
   if( FD_UNLIKELY( !dst_port ) ) FD_LOG_ERR(( "missing --dst-port" ));
 
-  uchar src_mac[6];
-  if( FD_UNLIKELY( !fd_cstr_to_mac_addr( _src_mac, src_mac ) ) ) FD_LOG_ERR(( "invalid --src-mac" ));
-  uchar dst_mac[6];
-  if( FD_UNLIKELY( !fd_cstr_to_mac_addr( _dst_mac, dst_mac ) ) ) FD_LOG_ERR(( "invalid --dst-mac" ));
+  if( FD_UNLIKELY( !_hwaddr  ) ) FD_LOG_ERR(( "missing --hwaddr" ));
+  uchar hwaddr[ 6 ]={0};
+  if( FD_UNLIKELY( !fd_cstr_to_mac_addr( _hwaddr,  hwaddr  ) ) )
+    FD_LOG_ERR(( "invalid hwaddr \"%s\"",  _hwaddr  ));
+
+  if( FD_UNLIKELY( !_gateway ) ) FD_LOG_ERR(( "missing --gateway" ));
+  uchar gateway[ 6 ]={0};
+  if( FD_UNLIKELY( !fd_cstr_to_mac_addr( _gateway, gateway ) ) )
+    FD_LOG_ERR(( "invalid gateway \"%s\"", _gateway ));
+
   uint src_ip;
   if( FD_UNLIKELY( !fd_cstr_to_ip4_addr( _src_ip, &src_ip  ) ) ) FD_LOG_ERR(( "invalid --src-ip" ));
   uint dst_ip;
@@ -375,28 +382,23 @@ main( int argc, char ** argv ) {
   FD_LOG_NOTICE(( "QUIC footprint: %lu bytes", quic_footprint ));
 
   FD_LOG_NOTICE(( "Creating client QUIC" ));
-  fd_quic_t * server_quic = fd_quic_new(
-      fd_wksp_alloc_laddr( wksp, fd_quic_align(), fd_quic_footprint( &quic_limits ), 1UL ),
-      &quic_limits );
-  FD_TEST( server_quic );
-
-  fd_quic_config_t * server_cfg = fd_quic_get_config( server_quic );
-
-  strcpy( server_cfg->cert_file, "cert.pem" );
-  strcpy( server_cfg->key_file,  "key.pem"  );
-
-  memcpy( server_cfg->link.dst_mac_addr, dst_mac, 6UL );
-  memcpy( server_cfg->link.src_mac_addr, src_mac, 6UL );
-
-  server_cfg->net.ip_addr           = src_ip;
-  server_cfg->net.ephem_udp_port.lo = src_port;
-  server_cfg->net.ephem_udp_port.hi = (ushort)(src_port + 1);
-
-  FD_LOG_NOTICE(( "Creating client QUIC" ));
   fd_quic_t * quic = fd_quic_new(
       fd_wksp_alloc_laddr( wksp, fd_quic_align(), fd_quic_footprint( &quic_limits ), 1UL ),
       &quic_limits );
   FD_TEST( quic );
+
+  fd_quic_config_t * client_cfg = fd_quic_get_config( quic );
+
+  client_cfg->role = FD_QUIC_ROLE_CLIENT;
+
+  FD_TEST( fd_quic_config_from_env( &argc, &argv, client_cfg ) );
+
+  memcpy( client_cfg->link.dst_mac_addr, gateway, 6UL );
+  memcpy( client_cfg->link.src_mac_addr, hwaddr,  6UL );
+
+  client_cfg->net.ip_addr           = src_ip;
+  client_cfg->net.ephem_udp_port.lo = (ushort)src_port;
+  client_cfg->net.ephem_udp_port.hi = (ushort)(src_port + 1);
 
   /* create a new XSK instance */
   ulong xsk_sz   = fd_xsk_footprint( xdp_mtu, xdp_depth, xdp_depth, xdp_depth, xdp_depth );
@@ -406,7 +408,7 @@ main( int argc, char ** argv ) {
   FD_TEST( fd_xsk_new( xsk_mem, xdp_mtu, xdp_depth, xdp_depth, xdp_depth, xdp_depth ) );
 
   FD_LOG_NOTICE(( "Binding XSK (--iface %s, --ifqueue %u)", iface, ifqueue ));
-  FD_TEST( fd_xsk_bind( xsk_mem, app_name, iface, ifqueue ) );
+  FD_TEST( fd_xsk_bind( xsk_mem, bpf_dir, iface, ifqueue ) );
 
   FD_LOG_NOTICE(( "Joining XSK" ));
   fd_xsk_t * xsk = fd_xsk_join( xsk_mem );
@@ -422,11 +424,11 @@ main( int argc, char ** argv ) {
 
   /* add udp port to xdp map */
   uint proto = 1;
-  FD_TEST( 0==fd_xdp_listen_udp_port( app_name, src_ip, src_port, proto ) );
+  FD_TEST( 0==fd_xdp_listen_udp_port( bpf_dir, src_ip, src_port, proto ) );
 
   /* loop continually, so that if the connection dies we try again */
   while (1) {
-    run_quic_client( quic, xsk_aio, dst_ip, dst_port );
+    run_quic_client( quic, xsk_aio, dst_ip, (ushort)dst_port );
   }
 
   fd_quic_delete( quic );

@@ -221,17 +221,22 @@ fd_quic_config_from_env( int  *             pargc,
   char const * keylog_file     = fd_env_strip_cmdline_cstr ( pargc, pargv, NULL,             "SSLKEYLOGFILE", NULL  );
   ulong        idle_timeout_ms = fd_env_strip_cmdline_ulong( pargc, pargv, "--idle-timeout", NULL,            100UL );
 
-  if( FD_UNLIKELY( !cert_file ) ) {
-    FD_LOG_WARNING(( "Missing --ssl-cert" ));
-    return NULL;
-  }
-  if( FD_UNLIKELY( !key_file ) ) {
-    FD_LOG_WARNING(( "Missing --ssl-key" ));
-    return NULL;
-  }
+  if( cfg->role == FD_QUIC_ROLE_SERVER ) {
+    if( FD_UNLIKELY( !cert_file ) ) {
+      FD_LOG_WARNING(( "Missing --ssl-cert" ));
+      return NULL;
+    }
+    if( FD_UNLIKELY( !key_file ) ) {
+      FD_LOG_WARNING(( "Missing --ssl-key" ));
+      return NULL;
+    }
 
-  strncpy( cfg->cert_file, cert_file, FD_QUIC_CERT_PATH_LEN );
-  strncpy( cfg->key_file,  key_file,  FD_QUIC_CERT_PATH_LEN );
+    strncpy( cfg->cert_file, cert_file, FD_QUIC_CERT_PATH_LEN );
+    strncpy( cfg->key_file,  key_file,  FD_QUIC_CERT_PATH_LEN );
+  } else {
+    cfg->cert_file[ 0 ]='\0';
+    cfg->key_file [ 0 ]='\0';
+  }
 
   if( keylog_file ) {
     strncpy( cfg->keylog_file, keylog_file, FD_QUIC_CERT_PATH_LEN );
@@ -305,8 +310,6 @@ fd_quic_join( fd_quic_t * quic ) {
   fd_quic_config_t       * config = &quic->config;
 
   if( FD_UNLIKELY( !config->role                ) ) { FD_LOG_WARNING(( "cfg.role not set"           )); return NULL; }
-  if( FD_UNLIKELY( !config->cert_file[0]        ) ) { FD_LOG_WARNING(( "no cfg.cert_file"           )); return NULL; }
-  if( FD_UNLIKELY( !config->key_file [0]        ) ) { FD_LOG_WARNING(( "no cfg.key_file"            )); return NULL; }
   if( FD_UNLIKELY( !config->net.ip_addr         ) ) { FD_LOG_WARNING(( "no cfg.net.ip_addr"         )); return NULL; }
   if( FD_UNLIKELY( fd_ulong_load_6( config->link.src_mac_addr )==0 ) ) { FD_LOG_WARNING(( "no cfg.link.src_mac_addr" )); return NULL; }
   if( FD_UNLIKELY( fd_ulong_load_6( config->link.dst_mac_addr )==0 ) ) { FD_LOG_WARNING(( "no cfg.link.dst_mac_addr" )); return NULL; }
@@ -314,6 +317,8 @@ fd_quic_join( fd_quic_t * quic ) {
 
   switch( config->role ) {
   case FD_QUIC_ROLE_SERVER:
+    if( FD_UNLIKELY( !config->cert_file[0]        ) ) { FD_LOG_WARNING(( "no cfg.cert_file"           )); return NULL; }
+    if( FD_UNLIKELY( !config->key_file [0]        ) ) { FD_LOG_WARNING(( "no cfg.key_file"            )); return NULL; }
     if( FD_UNLIKELY( !config->net.listen_udp_port ) ) { FD_LOG_WARNING(( "no cfg.net.listen_udp_port" )); return NULL; }
     break;
   case FD_QUIC_ROLE_CLIENT:
@@ -5385,6 +5390,7 @@ fd_quic_frame_handle_stream_frame(
       /* remove from head of unused streams list */
       FD_QUIC_STREAM_LIST_REMOVE( stream );
 
+      context.quic->metrics.stream_opened_cnt++;
       fd_quic_cb_stream_new( context.quic, stream, bidir ? FD_QUIC_TYPE_BIDIR : FD_QUIC_TYPE_UNIDIR );
     } else {
       /* no free streams - concurrent max should handle this */

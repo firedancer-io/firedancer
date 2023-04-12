@@ -155,6 +155,7 @@ impl FrankSpy {
         let mut quic_conn_active_cnt_vec = Vec::<Metric>::with_capacity(self.quic.len());
         let mut quic_conn_created_cnt_vec = Vec::<Metric>::with_capacity(self.quic.len());
         let mut quic_conn_closed_cnt_vec = Vec::<Metric>::with_capacity(4 * self.quic.len());
+        let mut quic_stream_opened_new_cnt_vec = Vec::<Metric>::with_capacity(self.quic.len());
 
         for quic in &self.quic {
             let cnc_diag = unsafe { fd_cnc_app_laddr_const(quic.cnc) } as *const u64;
@@ -241,6 +242,12 @@ impl FrankSpy {
                 (*quic.quic).metrics.conn_err_tls_fail_cnt as f64
             }));
             quic_conn_closed_cnt_vec.push(m);
+
+            let mut m = Metric::new();
+            m.set_counter(new_counter(
+                unsafe { (*quic.quic).metrics.stream_opened_cnt } as f64
+            ));
+            quic_stream_opened_new_cnt_vec.push(m);
         }
 
         let mut quic_seq = MetricFamily::new();
@@ -306,6 +313,13 @@ impl FrankSpy {
         quic_conn_closed_cnt.set_field_type(MetricType::COUNTER);
         quic_conn_closed_cnt.set_metric(quic_conn_closed_cnt_vec.into());
         mf.push(quic_conn_closed_cnt);
+
+        let mut quic_stream_opened_cnt = MetricFamily::new();
+        quic_stream_opened_cnt.set_name("firedancer_quic_opened_streams_total".to_string());
+        quic_stream_opened_cnt.set_help("Number of QUIC streams opened".to_string());
+        quic_stream_opened_cnt.set_field_type(MetricType::COUNTER);
+        quic_stream_opened_cnt.set_metric(quic_stream_opened_new_cnt_vec.into());
+        mf.push(quic_stream_opened_cnt);
     }
 }
 

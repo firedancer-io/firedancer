@@ -147,7 +147,10 @@ fd_quic_tls_new( void *              mem,
   fd_memset( used_handshakes, 0, (ulong)self->max_concur_handshakes );
 
   // create ssl context
-  self->ssl_ctx = fd_quic_create_context( self, cfg->cert_file, cfg->key_file );
+  self->ssl_ctx = fd_quic_create_context(
+    self,
+    cfg->cert_file[ 0 ]!='\0' ? cfg->cert_file : NULL,
+    cfg->key_file [ 0 ]!='\0' ? cfg->key_file  : NULL );
   if( FD_UNLIKELY( !self->ssl_ctx ) ) {
     FD_LOG_WARNING(( "fd_quic_create_context failed" ));
     return NULL;

@@ -322,6 +322,8 @@ struct fd_quic_metrics {
   ulong conn_aborted_cnt;      /* number of conns aborted */
   ulong conn_err_no_slots_cnt; /* number of conns that failed to create due to lack of slots */
   ulong conn_err_tls_fail_cnt; /* number of conns that aborted due to TLS failure */
+  ulong stream_opened_cnt;
+  ulong stream_closed_cnt;
 };
 typedef struct fd_quic_metrics fd_quic_metrics_t;
 
