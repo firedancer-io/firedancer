@@ -92,6 +92,13 @@
 /* FD_QUIC_DEFAULT_SPARSITY: default fd_quic_limits_t->conn_id_sparsity */
 #define FD_QUIC_DEFAULT_SPARSITY (2.5)
 
+/* FD_QUIC_STREAM_TYPE_* indicate stream type (two least significant
+   bits of a stream ID) */
+#define FD_QUIC_STREAM_TYPE_BIDI_CLIENT 0
+#define FD_QUIC_STREAM_TYPE_BIDI_SERVER 1
+#define FD_QUIC_STREAM_TYPE_UNI_CLIENT  2
+#define FD_QUIC_STREAM_TYPE_UNI_SERVER  3
+
 /* FD_QUIC_NOTIFY_* indicate stream notification types.
    ...END:   Stream lifetime has ended, no more callbacks will be
              generated for it.  Stream will be freed after event
@@ -312,18 +319,33 @@ typedef struct fd_quic_callbacks fd_quic_callbacks_t;
 
 /* fd_quic metrics ****************************************************/
 
+/* TODO: evaluate performance impact of metrics */
+
 struct fd_quic_metrics {
-  ulong net_rx_pkt_cnt;        /* number of IP packets received */
-  ulong net_rx_byte_cnt;       /* number of bytes received (including IP, UDP, QUIC headers) */
-  ulong net_tx_pkt_cnt;        /* number of IP packets sent */
+  /* Network metrics */
+  ulong net_rx_pkt_cnt;  /* number of IP packets received */
+  ulong net_rx_byte_cnt; /* total bytes received (including IP, UDP, QUIC headers) */
+  ulong net_tx_pkt_cnt;  /* number of IP packets sent */
+
+  /* Conn metrics */
   long  conn_active_cnt;       /* number of active conns */
   ulong conn_created_cnt;      /* number of conns created */
   ulong conn_closed_cnt;       /* number of conns gracefully closed */
   ulong conn_aborted_cnt;      /* number of conns aborted */
   ulong conn_err_no_slots_cnt; /* number of conns that failed to create due to lack of slots */
   ulong conn_err_tls_fail_cnt; /* number of conns that aborted due to TLS failure */
-  ulong stream_opened_cnt;
-  ulong stream_closed_cnt;
+
+  /* Handshake metrics */
+  //ulong hs_created_cnt;        /* number of handshake flows created */
+  //ulong hs_err_alloc_fail_cnt; /* number of handshakes dropped due to alloc fail */
+
+  /* Stream metrics */
+  ulong stream_opened_cnt  [ 4 ]; /* number of streams opened (per type) */
+  ulong stream_closed_cnt  [ 4 ]; /* number of streams closed (per type) */
+    /* TODO differentiate between FIN (graceful) and STOP_SENDING/RESET_STREAM (forcibly)? */
+  int   stream_active_cnt  [ 4 ]; /* number of active streams (per type) */
+  ulong stream_rx_event_cnt;      /* number of stream RX events */
+  ulong stream_rx_byte_cnt;       /* total stream payload bytes received */
 };
 typedef struct fd_quic_metrics fd_quic_metrics_t;
 

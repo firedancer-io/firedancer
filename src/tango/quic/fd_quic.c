@@ -810,6 +810,8 @@ fd_quic_conn_new_stream( fd_quic_conn_t * conn,
                          int              dirtype ) {
   dirtype &= 1;
 
+  fd_quic_t * quic = conn->quic;
+
   uint server = (uint)conn->server;
   uint type   = server + ( (uint)dirtype << 1u );
 
@@ -874,6 +876,10 @@ fd_quic_conn_new_stream( fd_quic_conn_t * conn,
   }
 
   entry->stream = stream;
+
+  /* update metrics */
+  quic->metrics.stream_opened_cnt[ next_stream_id&0x3 ]++;
+  quic->metrics.stream_active_cnt[ next_stream_id&0x3 ]++;
 
   return stream;
 }
@@ -974,6 +980,8 @@ fd_quic_stream_fin( fd_quic_stream_t * stream ) {
   /* set the last byte */
   fd_quic_buffer_t * tx_buf = &stream->tx_buf;
   stream->tx_last_byte = tx_buf->tail - 1; /* want last byte index */
+
+  /* TODO update metrics */
 }
 
 /* packet processing */
@@ -5390,7 +5398,6 @@ fd_quic_frame_handle_stream_frame(
       /* remove from head of unused streams list */
       FD_QUIC_STREAM_LIST_REMOVE( stream );
 
-      context.quic->metrics.stream_opened_cnt++;
       fd_quic_cb_stream_new( context.quic, stream, bidir ? FD_QUIC_TYPE_BIDIR : FD_QUIC_TYPE_UNIDIR );
     } else {
       /* no free streams - concurrent max should handle this */

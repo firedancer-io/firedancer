@@ -26,6 +26,12 @@ use firedancer_sys::tango::{
     fd_cnc_app_sz,
     fd_cnc_join,
     fd_cnc_leave,
+    quic::{
+        FD_QUIC_STREAM_TYPE_BIDI_CLIENT,
+        FD_QUIC_STREAM_TYPE_BIDI_SERVER,
+        FD_QUIC_STREAM_TYPE_UNI_CLIENT,
+        FD_QUIC_STREAM_TYPE_UNI_SERVER,
+    }
 };
 use firedancer_sys::util::{
     fd_pod_cnt_subpod,
@@ -155,7 +161,11 @@ impl FrankSpy {
         let mut quic_conn_active_cnt_vec = Vec::<Metric>::with_capacity(self.quic.len());
         let mut quic_conn_created_cnt_vec = Vec::<Metric>::with_capacity(self.quic.len());
         let mut quic_conn_closed_cnt_vec = Vec::<Metric>::with_capacity(4 * self.quic.len());
-        let mut quic_stream_opened_new_cnt_vec = Vec::<Metric>::with_capacity(self.quic.len());
+        let mut quic_stream_opened_cnt_vec = Vec::<Metric>::with_capacity(4 * self.quic.len());
+        let mut quic_stream_closed_cnt_vec = Vec::<Metric>::with_capacity(4 * self.quic.len());
+        let mut quic_stream_active_cnt_vec = Vec::<Metric>::with_capacity(4 * self.quic.len());
+        let mut quic_stream_rx_event_cnt_vec = Vec::<Metric>::with_capacity(self.quic.len());
+        let mut quic_stream_rx_byte_cnt_vec = Vec::<Metric>::with_capacity(self.quic.len());
 
         for quic in &self.quic {
             let cnc_diag = unsafe { fd_cnc_app_laddr_const(quic.cnc) } as *const u64;
@@ -244,10 +254,102 @@ impl FrankSpy {
             quic_conn_closed_cnt_vec.push(m);
 
             let mut m = Metric::new();
+            m.set_label(label_pairs!("tile" => &quic.name, "stream_type" => "bidi_client"));
             m.set_counter(new_counter(
-                unsafe { (*quic.quic).metrics.stream_opened_cnt } as f64
+                unsafe { (*quic.quic).metrics.stream_opened_cnt[ FD_QUIC_STREAM_TYPE_BIDI_CLIENT as usize ] } as f64
             ));
-            quic_stream_opened_new_cnt_vec.push(m);
+            quic_stream_opened_cnt_vec.push(m);
+
+            let mut m = Metric::new();
+            m.set_label(label_pairs!("tile" => &quic.name, "stream_type" => "bidi_server"));
+            m.set_counter(new_counter(
+                unsafe { (*quic.quic).metrics.stream_opened_cnt[ FD_QUIC_STREAM_TYPE_BIDI_SERVER as usize ] } as f64
+            ));
+            quic_stream_opened_cnt_vec.push(m);
+
+            let mut m = Metric::new();
+            m.set_label(label_pairs!("tile" => &quic.name, "stream_type" => "uni_client"));
+            m.set_counter(new_counter(
+                unsafe { (*quic.quic).metrics.stream_opened_cnt[ FD_QUIC_STREAM_TYPE_UNI_CLIENT as usize ] } as f64
+            ));
+            quic_stream_opened_cnt_vec.push(m);
+
+            let mut m = Metric::new();
+            m.set_label(label_pairs!("tile" => &quic.name, "stream_type" => "uni_server"));
+            m.set_counter(new_counter(
+                unsafe { (*quic.quic).metrics.stream_opened_cnt[ FD_QUIC_STREAM_TYPE_UNI_SERVER as usize ] } as f64
+            ));
+            quic_stream_opened_cnt_vec.push(m);
+
+            let mut m = Metric::new();
+            m.set_label(label_pairs!("tile" => &quic.name, "stream_type" => "bidi_client"));
+            m.set_counter(new_counter(
+                unsafe { (*quic.quic).metrics.stream_closed_cnt[ FD_QUIC_STREAM_TYPE_BIDI_CLIENT as usize ] } as f64
+            ));
+            quic_stream_closed_cnt_vec.push(m);
+
+            let mut m = Metric::new();
+            m.set_label(label_pairs!("tile" => &quic.name, "stream_type" => "bidi_server"));
+            m.set_counter(new_counter(
+                unsafe { (*quic.quic).metrics.stream_closed_cnt[ FD_QUIC_STREAM_TYPE_BIDI_SERVER as usize ] } as f64
+            ));
+            quic_stream_closed_cnt_vec.push(m);
+
+            let mut m = Metric::new();
+            m.set_label(label_pairs!("tile" => &quic.name, "stream_type" => "uni_client"));
+            m.set_counter(new_counter(
+                unsafe { (*quic.quic).metrics.stream_closed_cnt[ FD_QUIC_STREAM_TYPE_UNI_CLIENT as usize ] } as f64
+            ));
+            quic_stream_closed_cnt_vec.push(m);
+
+            let mut m = Metric::new();
+            m.set_label(label_pairs!("tile" => &quic.name, "stream_type" => "uni_server"));
+            m.set_counter(new_counter(
+                unsafe { (*quic.quic).metrics.stream_closed_cnt[ FD_QUIC_STREAM_TYPE_UNI_SERVER as usize ] } as f64
+            ));
+            quic_stream_closed_cnt_vec.push(m);
+
+            let mut m = Metric::new();
+            m.set_label(label_pairs!("tile" => &quic.name, "stream_type" => "bidi_client"));
+            m.set_counter(new_counter(
+                unsafe { (*quic.quic).metrics.stream_active_cnt[ FD_QUIC_STREAM_TYPE_BIDI_CLIENT as usize ] } as f64
+            ));
+            quic_stream_active_cnt_vec.push(m);
+
+            let mut m = Metric::new();
+            m.set_label(label_pairs!("tile" => &quic.name, "stream_type" => "bidi_server"));
+            m.set_counter(new_counter(
+                unsafe { (*quic.quic).metrics.stream_active_cnt[ FD_QUIC_STREAM_TYPE_BIDI_SERVER as usize ] } as f64
+            ));
+            quic_stream_active_cnt_vec.push(m);
+
+            let mut m = Metric::new();
+            m.set_label(label_pairs!("tile" => &quic.name, "stream_type" => "uni_client"));
+            m.set_counter(new_counter(
+                unsafe { (*quic.quic).metrics.stream_active_cnt[ FD_QUIC_STREAM_TYPE_UNI_CLIENT as usize ] } as f64
+            ));
+            quic_stream_active_cnt_vec.push(m);
+
+            let mut m = Metric::new();
+            m.set_label(label_pairs!("tile" => &quic.name, "stream_type" => "uni_server"));
+            m.set_counter(new_counter(
+                unsafe { (*quic.quic).metrics.stream_active_cnt[ FD_QUIC_STREAM_TYPE_UNI_SERVER as usize ] } as f64
+            ));
+            quic_stream_active_cnt_vec.push(m);
+
+            let mut m = Metric::new();
+            m.set_label(label_pairs!("tile" => &quic.name));
+            m.set_counter(new_counter(
+                unsafe { (*quic.quic).metrics.stream_rx_event_cnt } as f64
+            ));
+            quic_stream_rx_event_cnt_vec.push(m);
+
+            let mut m = Metric::new();
+            m.set_label(label_pairs!("tile" => &quic.name));
+            m.set_counter(new_counter(
+                unsafe { (*quic.quic).metrics.stream_rx_byte_cnt } as f64
+            ));
+            quic_stream_rx_byte_cnt_vec.push(m);
         }
 
         let mut quic_seq = MetricFamily::new();
@@ -318,8 +420,36 @@ impl FrankSpy {
         quic_stream_opened_cnt.set_name("firedancer_quic_opened_streams_total".to_string());
         quic_stream_opened_cnt.set_help("Number of QUIC streams opened".to_string());
         quic_stream_opened_cnt.set_field_type(MetricType::COUNTER);
-        quic_stream_opened_cnt.set_metric(quic_stream_opened_new_cnt_vec.into());
+        quic_stream_opened_cnt.set_metric(quic_stream_opened_cnt_vec.into());
         mf.push(quic_stream_opened_cnt);
+
+        let mut quic_stream_closed_cnt = MetricFamily::new();
+        quic_stream_closed_cnt.set_name("firedancer_quic_closed_streams_total".to_string());
+        quic_stream_closed_cnt.set_help("Number of QUIC streams closed".to_string());
+        quic_stream_closed_cnt.set_field_type(MetricType::COUNTER);
+        quic_stream_closed_cnt.set_metric(quic_stream_closed_cnt_vec.into());
+        mf.push(quic_stream_closed_cnt);
+
+        let mut quic_stream_active_cnt = MetricFamily::new();
+        quic_stream_active_cnt.set_name("firedancer_quic_active_streams".to_string());
+        quic_stream_active_cnt.set_help("Number of active QUIC streams".to_string());
+        quic_stream_active_cnt.set_field_type(MetricType::GAUGE);
+        quic_stream_active_cnt.set_metric(quic_stream_active_cnt_vec.into());
+        mf.push(quic_stream_active_cnt);
+
+        let mut quic_stream_closed_cnt = MetricFamily::new();
+        quic_stream_closed_cnt.set_name("firedancer_quic_stream_rx_events_total".to_string());
+        quic_stream_closed_cnt.set_help("Number of QUIC stream receive events".to_string());
+        quic_stream_closed_cnt.set_field_type(MetricType::COUNTER);
+        quic_stream_closed_cnt.set_metric(quic_stream_rx_event_cnt_vec.into());
+        mf.push(quic_stream_closed_cnt);
+
+        let mut quic_stream_closed_cnt = MetricFamily::new();
+        quic_stream_closed_cnt.set_name("firedancer_quic_stream_rx_bytes_total".to_string());
+        quic_stream_closed_cnt.set_help("Number of bytes received via QUIC streams".to_string());
+        quic_stream_closed_cnt.set_field_type(MetricType::COUNTER);
+        quic_stream_closed_cnt.set_metric(quic_stream_rx_byte_cnt_vec.into());
+        mf.push(quic_stream_closed_cnt);
     }
 }
 
