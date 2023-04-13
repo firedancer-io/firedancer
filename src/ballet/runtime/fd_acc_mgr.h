@@ -25,7 +25,7 @@ typedef struct fd_dirty_map_entry {
 #define MAP_T                 fd_dirty_map_entry_t
 #include "../../util/tmpl/fd_map_dynamic.c"
 
-#define LG_SLOT_CNT 9
+#define LG_SLOT_CNT 15
 
 FD_PROTOTYPES_BEGIN
 
