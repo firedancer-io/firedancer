@@ -1,7 +1,7 @@
 #ifndef HEADER_fd_src_tango_xdp_fd_xsk_h
 #define HEADER_fd_src_tango_xdp_fd_xsk_h
 
-#if defined(__linux__) && FD_HAS_LIBBPF
+#if defined(__linux__)
 
 /* fd_xsk manages an XSK file descriptor and provides RX/TX buffers.
 
