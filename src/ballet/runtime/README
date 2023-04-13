@@ -16,9 +16,14 @@ building our debugging version of solana with all our log messages
   cd solana
   git checkout debug
 
-# Inside jump, we use podman instead of docker...
+# grab a certificate (I had to go grab this off a linux box)
 
   cp /etc/pki/tls/cert.pem .
+
+# Inside jump, we use podman instead of docker...
+
+  podman build -t solana-builder2 -f Dockerfile -v `pwd`:/solana:rw  .
+ or
   podman build --no-cache -t solana-builder2 -f Dockerfile -v `pwd`:/solana:rw  .
 
 # to rebuild after changing solana
