@@ -15,21 +15,27 @@ struct my_stream_meta {
   my_stream_meta_t * next;
 };
 
-my_stream_meta_t * meta_free;
+/* points to start of meta array */
+static my_stream_meta_t * meta_arr  = NULL;
+
+/* points to next free meta */
+static my_stream_meta_t * meta_free = NULL;
 
 /* populate meta_free with free stream meta */
-void
+static void
 populate_stream_meta( ulong sz ) {
   my_stream_meta_t * prev = NULL;
 
+  meta_arr = calloc( sz, sizeof(my_stream_meta_t) );
+
   for( ulong j = 0; j < sz; ++j ) {
-    my_stream_meta_t * meta = (my_stream_meta_t*)malloc( sizeof( my_stream_meta_t ) );
+    my_stream_meta_t * meta = &meta_arr[ j ];
     meta->stream = NULL;
     meta->next   = NULL;
     if( !prev ) {
-      meta_free = meta;
+      meta_free  = meta;
     } else {
-      prev->next  = meta;
+      prev->next = meta;
     }
 
     prev = meta;
@@ -37,7 +43,7 @@ populate_stream_meta( ulong sz ) {
 }
 
 /* get free stream meta */
-my_stream_meta_t *
+static my_stream_meta_t *
 get_stream_meta( void ) {
   my_stream_meta_t * meta = meta_free;
   if( meta ) {
@@ -47,29 +53,10 @@ get_stream_meta( void ) {
   return meta;
 }
 
-/* push stream meta into front of free list */
-void
-free_stream_meta( my_stream_meta_t * meta ) {
-  meta->next  = meta_free;
-  meta_free = meta;
-}
-
 my_stream_meta_t * stream_avail = NULL;
 
-/* get count of free streams */
-uint
-get_free_count( void ) {
-  uint count = 0u;
-  my_stream_meta_t * cur = stream_avail;
-  while( cur ) {
-    count ++;
-    cur = cur->next;
-  }
-  return count;
-}
-
 /* get free stream */
-my_stream_meta_t *
+static my_stream_meta_t *
 get_stream( void ) {
   my_stream_meta_t * meta = stream_avail;
   if( meta ) {
@@ -80,14 +67,15 @@ get_stream( void ) {
 }
 
 /* push stream meta into front of free list */
-void
+static void
 free_stream( my_stream_meta_t * meta ) {
   meta->next   = stream_avail;
   stream_avail = meta;
 }
 
-void
-populate_streams( ulong sz, fd_quic_conn_t * conn ) {
+static void
+populate_streams( ulong            sz,
+                  fd_quic_conn_t * conn ) {
   for( ulong j = 0; j < sz; ++j ) {
     /* get free stream meta */
     my_stream_meta_t * meta = get_stream_meta();
@@ -95,6 +83,7 @@ populate_streams( ulong sz, fd_quic_conn_t * conn ) {
     /* obtain stream */
     fd_quic_stream_t * stream =
       fd_quic_conn_new_stream( conn, FD_QUIC_TYPE_UNIDIR );
+    FD_TEST( stream );
 
     /* set context on stream to meta */
     /* stream here is null */
@@ -167,8 +156,6 @@ void my_handshake_complete( fd_quic_conn_t * conn, void * vp_context ) {
   (void)vp_context;
 
   FD_LOG_INFO(( "client handshake complete" ));
-  fd_log_flush();
-
   client_complete = 1;
 }
 
@@ -178,9 +165,8 @@ void my_connection_closed( fd_quic_conn_t * conn, void * vp_context ) {
   (void)vp_context;
 
   FD_LOG_INFO(( "client conn closed" ));
-  fd_log_flush();
-
-  client_conn = NULL;
+  client_conn     = NULL;
+  client_complete = 1;
 }
 
 ulong
@@ -196,99 +182,119 @@ run_quic_client(
   uint           dst_ip,
   ushort         dst_port) {
 
-
-  fd_quic_callbacks_t * client_cb = fd_quic_get_callbacks( quic );
-  client_cb->conn_hs_complete = my_handshake_complete;
-  client_cb->conn_final       = my_connection_closed;
-  client_cb->stream_receive   = my_stream_receive_cb;
-  client_cb->stream_notify    = my_stream_notify_cb;
-  client_cb->now              = test_clock;
-  client_cb->now_ctx          = NULL;
-
-  /* use XSK XDP AIO for QUIC ingress/egress */
-  fd_aio_t _quic_aio[1];
-  fd_xsk_aio_set_rx     ( xsk_aio, fd_quic_get_aio_net_rx( quic, _quic_aio ) );
-  fd_quic_set_aio_net_tx( quic,    fd_xsk_aio_get_tx     ( xsk_aio )         );
-
-  FD_TEST( fd_quic_join( quic ) );
-
-  /* make a connection from client to the server */
-  client_conn = fd_quic_connect( quic, dst_ip, dst_port, NULL );
-
-  /* do general processing */
-  while ( !client_complete ) {
-    fd_quic_service( quic );
-    fd_xsk_aio_service( xsk_aio );
-  }
-  FD_LOG_NOTICE(( "Client handshake complete" ));
-
-  /* populate free streams */
-  populate_stream_meta( quic->limits.stream_cnt              );
-  populate_streams    ( quic->limits.stream_cnt, client_conn );
-
-  /* create and sign fake ref message txns */
-  /* generate a message for every possible message size, using code from fd_frank_verify_synth_load */
-  fd_rng_t _rng[ 1 ];
-  uint seed = (uint)fd_tile_id();
-  fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, seed, 0UL ) );
-  if( FD_UNLIKELY( !rng ) ) FD_LOG_ERR(( "fd_rng_join failed" ));
-
-  fd_sha512_t _sha[1];
-  fd_sha512_t * sha = fd_sha512_join( fd_sha512_new( _sha ) );
-  if( FD_UNLIKELY( !sha ) ) FD_LOG_ERR(( "fd_sha512 join failed" ));
-
-  #define MSG_SZ_MIN (0UL)
-  #define MSG_SZ_MAX (1232UL-64UL-32UL)
-  #define MSG_SIZE_RANGE (MSG_SZ_MAX - MSG_SZ_MIN + 1UL)
-
-  ulong ref_msg_mem_footprint = 0UL;
-  for( ulong msg_sz=MSG_SZ_MIN; msg_sz<=MSG_SZ_MAX; msg_sz++ ) ref_msg_mem_footprint += fd_ulong_align_up( msg_sz + 96UL, 128UL );
-  uchar * ref_msg_mem = fd_alloca( 128UL, ref_msg_mem_footprint );
-  if( FD_UNLIKELY( !ref_msg_mem ) ) FD_LOG_ERR(( "fd_alloc failed" ));
-
-  uchar * ref_msg[ MSG_SZ_MAX - MSG_SZ_MIN + 1UL ];
-  for( ulong msg_sz=MSG_SZ_MIN; msg_sz<=MSG_SZ_MAX; msg_sz++ ) {
-    /* ref_msg[i] is a pointer to the message with size i */
-    ref_msg[ msg_sz - MSG_SZ_MIN ] = ref_msg_mem;
-    uchar * public_key = ref_msg_mem;
-    uchar * sig        = public_key  + 32UL;
-    uchar * msg        = sig         + 64UL;
-    ref_msg_mem += fd_ulong_align_up( msg_sz + 96UL, 128UL );
-
-    /* Generate a public_key / private_key pair for this message */
-    ulong private_key[4]; for( ulong i=0UL; i<4UL; i++ ) private_key[i] = fd_rng_ulong( rng );
-    fd_ed25519_public_from_private( public_key, private_key, sha );
-
-    /* Make a random message */
-    for( ulong b=0UL; b<msg_sz; b++ ) msg[b] = fd_rng_uchar( rng );
-
-    /* Sign it */
-    fd_ed25519_sign( sig, msg, msg_sz, public_key, private_key, sha );
-  }
-
-  /* Sanity check the ref messages verify */
-  for( ulong msg_sz=MSG_SZ_MIN; msg_sz<=MSG_SZ_MAX; msg_sz++ ) {
-    uchar * public_key = ref_msg[ msg_sz - MSG_SZ_MIN ];
-    uchar * sig        = public_key + 32UL;
-    uchar * msg        = sig        + 64UL;
-    FD_TEST( fd_ed25519_verify( msg, msg_sz, sig, public_key, sha )==FD_ED25519_SUCCESS );
-  }
-
-  /* Create the QUIC batches, each with a single message in. */
+# define MSG_SZ_MIN (0UL)
+# define MSG_SZ_MAX (1232UL-64UL-32UL)
+# define MSG_SIZE_RANGE (MSG_SZ_MAX - MSG_SZ_MIN + 1UL)
   fd_aio_pkt_info_t batches[MSG_SIZE_RANGE][1];
-  for( ulong msg_sz=MSG_SZ_MIN; msg_sz<=MSG_SZ_MAX; msg_sz++ ) {
-    batches[msg_sz - MSG_SZ_MIN]->buf = ref_msg[ msg_sz - MSG_SZ_MIN ];
-    batches[msg_sz - MSG_SZ_MIN]->buf_sz = (ushort)msg_sz;
-  }
+
+  do {
+    /* Reset locals */
+    meta_arr        = NULL;
+    meta_free       = NULL;
+    stream_avail    = NULL;
+    client_conn     = NULL;
+    client_complete = 0;
+
+    fd_quic_callbacks_t * client_cb = fd_quic_get_callbacks( quic );
+    client_cb->conn_hs_complete = my_handshake_complete;
+    client_cb->conn_final       = my_connection_closed;
+    client_cb->stream_receive   = my_stream_receive_cb;
+    client_cb->stream_notify    = my_stream_notify_cb;
+    client_cb->now              = test_clock;
+    client_cb->now_ctx          = NULL;
+
+    /* use XSK XDP AIO for QUIC ingress/egress */
+    fd_aio_t _quic_aio[1];
+    fd_xsk_aio_set_rx     ( xsk_aio, fd_quic_get_aio_net_rx( quic, _quic_aio ) );
+    fd_quic_set_aio_net_tx( quic,    fd_xsk_aio_get_tx     ( xsk_aio )         );
+
+    FD_TEST( fd_quic_join( quic ) );
+
+    FD_LOG_NOTICE(( "Starting QUIC client" ));
+
+    /* make a connection from client to the server */
+    client_conn = fd_quic_connect( quic, dst_ip, dst_port, NULL );
+
+    /* do general processing */
+    while ( !client_complete ) {
+      fd_quic_service( quic );
+      fd_xsk_aio_service( xsk_aio );
+    }
+
+    if( !client_conn ) {
+      FD_LOG_WARNING(( "QUIC handshake failed" ));
+      break;
+    }
+    FD_LOG_NOTICE(( "QUIC handshake complete" ));
+
+    FD_TEST( client_conn->state == FD_QUIC_CONN_STATE_ACTIVE );
+
+    /* populate free streams */
+    populate_stream_meta( quic->limits.stream_cnt              );
+    populate_streams    ( quic->limits.stream_cnt, client_conn );
+
+    /* create and sign fake ref message txns */
+    /* generate a message for every possible message size, using code from fd_frank_verify_synth_load */
+    fd_rng_t _rng[ 1 ];
+    uint seed = (uint)fd_tile_id();
+    fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, seed, 0UL ) );
+    if( FD_UNLIKELY( !rng ) ) FD_LOG_ERR(( "fd_rng_join failed" ));
+
+    fd_sha512_t _sha[1];
+    fd_sha512_t * sha = fd_sha512_join( fd_sha512_new( _sha ) );
+    if( FD_UNLIKELY( !sha ) ) FD_LOG_ERR(( "fd_sha512 join failed" ));
+
+    ulong ref_msg_mem_footprint = 0UL;
+    for( ulong msg_sz=MSG_SZ_MIN; msg_sz<=MSG_SZ_MAX; msg_sz++ ) ref_msg_mem_footprint += fd_ulong_align_up( msg_sz + 96UL, 128UL );
+    uchar * ref_msg_mem = fd_alloca( 128UL, ref_msg_mem_footprint );
+    if( FD_UNLIKELY( !ref_msg_mem ) ) FD_LOG_ERR(( "fd_alloc failed" ));
+
+    uchar * ref_msg[ MSG_SZ_MAX - MSG_SZ_MIN + 1UL ];
+    for( ulong msg_sz=MSG_SZ_MIN; msg_sz<=MSG_SZ_MAX; msg_sz++ ) {
+      /* ref_msg[i] is a pointer to the message with size i */
+      ref_msg[ msg_sz - MSG_SZ_MIN ] = ref_msg_mem;
+      uchar * public_key = ref_msg_mem;
+      uchar * sig        = public_key  + 32UL;
+      uchar * msg        = sig         + 64UL;
+      ref_msg_mem += fd_ulong_align_up( msg_sz + 96UL, 128UL );
+
+      /* Generate a public_key / private_key pair for this message */
+      ulong private_key[4]; for( ulong i=0UL; i<4UL; i++ ) private_key[i] = fd_rng_ulong( rng );
+      fd_ed25519_public_from_private( public_key, private_key, sha );
+
+      /* Make a random message */
+      for( ulong b=0UL; b<msg_sz; b++ ) msg[b] = fd_rng_uchar( rng );
+
+      /* Sign it */
+      fd_ed25519_sign( sig, msg, msg_sz, public_key, private_key, sha );
+    }
+
+    /* Sanity check the ref messages verify */
+    for( ulong msg_sz=MSG_SZ_MIN; msg_sz<=MSG_SZ_MAX; msg_sz++ ) {
+      uchar * public_key = ref_msg[ msg_sz - MSG_SZ_MIN ];
+      uchar * sig        = public_key + 32UL;
+      uchar * msg        = sig        + 64UL;
+      FD_TEST( fd_ed25519_verify( msg, msg_sz, sig, public_key, sha )==FD_ED25519_SUCCESS );
+    }
+
+    /* Create the QUIC batches, each with a single message in. */
+    for( ulong msg_sz=MSG_SZ_MIN; msg_sz<=MSG_SZ_MAX; msg_sz++ ) {
+      batches[msg_sz - MSG_SZ_MIN]->buf = ref_msg[ msg_sz - MSG_SZ_MIN ];
+      batches[msg_sz - MSG_SZ_MIN]->buf_sz = (ushort)msg_sz;
+    }
+
+    fd_sha512_delete ( fd_sha512_leave( sha    ) );
+    fd_rng_delete    ( fd_rng_leave   ( rng    ) );
+  } while(0);
 
   /* Continually send data while we have a valid connection */
   for ( ulong msg_sz=MSG_SZ_MIN; msg_sz<=MSG_SZ_MAX; msg_sz++ ) {
-    fd_quic_service( quic );
-    fd_xsk_aio_service( xsk_aio );
-
     if ( !client_conn ) {
       break;
     }
+
+    fd_quic_service( quic );
+    fd_xsk_aio_service( xsk_aio );
 
     /* obtain an free stream */
     my_stream_meta_t * meta = get_stream();
@@ -316,12 +322,22 @@ run_quic_client(
     }
   }
 
-  /* close the connections */
-  fd_quic_conn_close( client_conn, 0 );
-  fd_sha512_delete ( fd_sha512_leave( sha    ) );
-  fd_rng_delete    ( fd_rng_leave   ( rng    ) );
+  do {
+    if( meta_arr ) {
+      free( meta_arr );
+      meta_arr = NULL;
+    }
 
-  fd_quic_leave( quic );
+    /* close the connections */
+    if( client_conn ) {
+      fd_quic_conn_close( client_conn, 0 );
+      client_conn = NULL;
+    }
+
+    fd_quic_leave( quic );
+
+    FD_LOG_NOTICE(( "Finished QUIC client" ));
+  } while(0);
 }
 
 int
