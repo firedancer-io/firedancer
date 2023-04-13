@@ -1,9 +1,8 @@
-#ifndef HEADER_FD_BANKS_SOLANA
-#define HEADER_FD_BANKS_SOLANA
+#ifndef HEADER_FD_RUNTIME_TYPES
+#define HEADER_FD_RUNTIME_TYPES
 
 #include "../../util/encoders/fd_bincode.h"
-typedef char* (*fd_alloc_fun_t)(void *arg, ulong align, ulong len);
-typedef void  (*fd_free_fun_t) (void *arg, void *ptr);
+#include "fd_types_custom.h"
 #define FD_ACCOUNT_META_MAGIC 9823
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/fee_calculator.rs#L9 */
@@ -23,13 +22,6 @@ typedef struct fd_hash_age fd_hash_age_t;
 #define FD_HASH_AGE_FOOTPRINT sizeof(fd_hash_age_t)
 #define FD_HASH_AGE_ALIGN (8UL)
 
-struct fd_hash {
-  unsigned char hash[32];
-};
-typedef struct fd_hash fd_hash_t;
-#define FD_HASH_FOOTPRINT sizeof(fd_hash_t)
-#define FD_HASH_ALIGN (8UL)
-
 struct fd_hash_hash_age_pair {
   fd_hash_t     key;
   fd_hash_age_t val;
@@ -48,13 +40,6 @@ struct fd_block_hash_queue {
 typedef struct fd_block_hash_queue fd_block_hash_queue_t;
 #define FD_BLOCK_HASH_QUEUE_FOOTPRINT sizeof(fd_block_hash_queue_t)
 #define FD_BLOCK_HASH_QUEUE_ALIGN (8UL)
-
-struct fd_pubkey {
-  unsigned char key[32];
-};
-typedef struct fd_pubkey fd_pubkey_t;
-#define FD_PUBKEY_FOOTPRINT sizeof(fd_pubkey_t)
-#define FD_PUBKEY_ALIGN (8UL)
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/epoch_schedule.rs#L26 */
 struct fd_epoch_schedule {
@@ -192,7 +177,7 @@ typedef struct fd_solana_account_fd_hash fd_solana_account_fd_hash_t;
 #define FD_SOLANA_ACCOUNT_FD_HASH_FOOTPRINT sizeof(fd_solana_account_fd_hash_t)
 #define FD_SOLANA_ACCOUNT_FD_HASH_ALIGN (8UL)
 
-struct __attribute__((packed)) fd_solana_account_hdr {
+struct __attribute__((packed, aligned(8UL))) fd_solana_account_hdr {
   fd_solana_account_stored_meta_t meta;
   fd_solana_account_meta_t        info;
   fd_solana_account_fd_hash_t     hash;
@@ -779,11 +764,6 @@ void fd_hash_age_encode(fd_hash_age_t* self, void const** data);
 void fd_hash_age_destroy(fd_hash_age_t* self, fd_free_fun_t freef, void* freef_arg);
 ulong fd_hash_age_size(fd_hash_age_t* self);
 
-void fd_hash_decode(fd_hash_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
-void fd_hash_encode(fd_hash_t* self, void const** data);
-void fd_hash_destroy(fd_hash_t* self, fd_free_fun_t freef, void* freef_arg);
-ulong fd_hash_size(fd_hash_t* self);
-
 void fd_hash_hash_age_pair_decode(fd_hash_hash_age_pair_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
 void fd_hash_hash_age_pair_encode(fd_hash_hash_age_pair_t* self, void const** data);
 void fd_hash_hash_age_pair_destroy(fd_hash_hash_age_pair_t* self, fd_free_fun_t freef, void* freef_arg);
@@ -793,11 +773,6 @@ void fd_block_hash_queue_decode(fd_block_hash_queue_t* self, void const** data, 
 void fd_block_hash_queue_encode(fd_block_hash_queue_t* self, void const** data);
 void fd_block_hash_queue_destroy(fd_block_hash_queue_t* self, fd_free_fun_t freef, void* freef_arg);
 ulong fd_block_hash_queue_size(fd_block_hash_queue_t* self);
-
-void fd_pubkey_decode(fd_pubkey_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
-void fd_pubkey_encode(fd_pubkey_t* self, void const** data);
-void fd_pubkey_destroy(fd_pubkey_t* self, fd_free_fun_t freef, void* freef_arg);
-ulong fd_pubkey_size(fd_pubkey_t* self);
 
 void fd_epoch_schedule_decode(fd_epoch_schedule_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
 void fd_epoch_schedule_encode(fd_epoch_schedule_t* self, void const** data);
@@ -1106,4 +1081,4 @@ ulong fd_stake_config_size(fd_stake_config_t* self);
 
 FD_PROTOTYPES_END
 
-#endif // HEADER_FD_BANKS_SOLANA
+#endif // HEADER_FD_RUNTIME_TYPES

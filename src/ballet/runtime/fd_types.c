@@ -39,22 +39,6 @@ void fd_hash_age_encode(fd_hash_age_t* self, void const** data) {
   fd_bincode_uint64_encode(&self->timestamp, data);
 }
 
-void fd_hash_decode(fd_hash_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
-  fd_bincode_bytes_decode(&self->hash[0], sizeof(self->hash), data, dataend);
-}
-void fd_hash_destroy(fd_hash_t* self, fd_free_fun_t freef, void* freef_arg) {
-}
-
-ulong fd_hash_size(fd_hash_t* self) {
-  ulong size = 0;
-  size += sizeof(char) * 32;
-  return size;
-}
-
-void fd_hash_encode(fd_hash_t* self, void const** data) {
-  fd_bincode_bytes_encode(&self->hash[0], sizeof(self->hash), data);
-}
-
 void fd_hash_hash_age_pair_decode(fd_hash_hash_age_pair_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
   fd_hash_decode(&self->key, data, dataend, allocf, allocf_arg);
   fd_hash_age_decode(&self->val, data, dataend, allocf, allocf_arg);
@@ -133,22 +117,6 @@ void fd_block_hash_queue_encode(fd_block_hash_queue_t* self, void const** data) 
       fd_hash_hash_age_pair_encode(self->ages + i, data);
   }
   fd_bincode_uint64_encode(&self->max_age, data);
-}
-
-void fd_pubkey_decode(fd_pubkey_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
-  fd_bincode_bytes_decode(&self->key[0], sizeof(self->key), data, dataend);
-}
-void fd_pubkey_destroy(fd_pubkey_t* self, fd_free_fun_t freef, void* freef_arg) {
-}
-
-ulong fd_pubkey_size(fd_pubkey_t* self) {
-  ulong size = 0;
-  size += sizeof(char) * 32;
-  return size;
-}
-
-void fd_pubkey_encode(fd_pubkey_t* self, void const** data) {
-  fd_bincode_bytes_encode(&self->key[0], sizeof(self->key), data);
 }
 
 void fd_epoch_schedule_decode(fd_epoch_schedule_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {

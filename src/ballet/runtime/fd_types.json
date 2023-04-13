@@ -1,10 +1,9 @@
 {
   "namespace": "fd",
-  "name": "fd_banks_solana",
+  "name": "fd_runtime_types",
   "extra_header": [
       "#include \"../../util/encoders/fd_bincode.h\"",
-      "typedef char* (*fd_alloc_fun_t)(void *arg, ulong align, ulong len);",
-      "typedef void  (*fd_free_fun_t) (void *arg, void *ptr);",
+      "#include \"fd_types_custom.h\"",
       "#define FD_ACCOUNT_META_MAGIC 9823"
   ],
   "entries": [
@@ -26,13 +25,6 @@
       ]
     },
     {
-      "name": "hash",
-      "type": "struct",
-      "fields": [
-        { "name": "hash", "type": "unsigned char[32]" }
-      ]
-    },
-    {
       "name": "hash_hash_age_pair",
       "type": "struct",
       "fields": [
@@ -48,13 +40,6 @@
         { "name": "last_hash", "type": "option", "element": "hash" },
         { "name": "ages", "type": "vector", "element": "hash_hash_age_pair" },
         { "name": "max_age", "type": "ulong" }
-      ]
-    },
-    {
-      "name": "pubkey",
-      "type": "struct",
-      "fields": [
-        { "name": "key", "type": "unsigned char[32]" }
       ]
     },
     {
@@ -195,7 +180,7 @@
     },
     {
       "name": "solana_account_hdr",
-      "attribute": "((packed))",
+      "attribute": "((packed, aligned(8UL)))",
       "type": "struct",
       "fields": [
         { "name": "meta", "type": "solana_account_stored_meta" },
