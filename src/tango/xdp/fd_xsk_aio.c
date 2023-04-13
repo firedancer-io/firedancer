@@ -1,11 +1,11 @@
-#if !defined(__linux__) || !FD_HAS_LIBBPF
+#if !defined(__linux__)
 #error "fd_xsk_aio requires Linux operating system with XDP support"
 #endif
 
 #include "../../util/fd_util.h"
 #include "fd_xsk_aio_private.h"
 
-/* Forward declaration */
+/* Forward declarations */
 static int
 fd_xsk_aio_send( void *                    ctx,
                  fd_aio_pkt_info_t const * batch,
@@ -62,7 +62,7 @@ fd_xsk_aio_new( void * mem,
   fd_xsk_aio_t * xsk_aio = (fd_xsk_aio_t *)mem;
 
   /* Assumes alignment of `fd_xsk_aio_t` matches alignment of
-     `fd_xsk_frame_meta_t` and `fd_aio_buf_t`. */
+     `fd_xsk_frame_meta_t` and `fd_aio_pkt_info_t`. */
 
   ulong meta_off     =                    sizeof(fd_xsk_aio_t       );
   ulong pkt_off      = meta_off + pkt_cnt*sizeof(fd_xsk_frame_meta_t);
@@ -142,15 +142,15 @@ fd_xsk_aio_join( void *     shxsk_aio,
 
   /* Setup local TX */
 
-  fd_aio_new( &xsk_aio->tx, xsk_aio, fd_xsk_aio_send );
-
-  /* Set up RX callback (local address) */
-
-  fd_aio_t * rx = fd_aio_join( fd_aio_new( &xsk_aio->rx, xsk_aio, fd_xsk_aio_send ) );
-  if( FD_UNLIKELY( !rx ) ) {
-    FD_LOG_WARNING(( "Failed to join rx aio" ));
+  fd_aio_t * tx = fd_aio_join( fd_aio_new( &xsk_aio->tx, xsk_aio, fd_xsk_aio_send ) );
+  if( FD_UNLIKELY( !tx ) ) {
+    FD_LOG_WARNING(( "Failed to join local tx aio" ));
     return NULL;
   }
+
+  /* Reset RX callback (laddr pointers to external object) */
+
+  memset( &xsk_aio->rx, 0, sizeof(fd_aio_t) );
 
   /* Enqueue frames to RX ring for receive (via fill ring) */
 
@@ -259,7 +259,8 @@ fd_xsk_aio_service( fd_xsk_aio_t * xsk_aio ) {
       };
     }
 
-    fd_aio_send( ingress, pkt, rx_avail, NULL );
+    if( FD_LIKELY( ingress->send_func ) )
+      fd_aio_send( ingress, pkt, rx_avail, NULL );
     /* TODO frames may not all be processed at this point
        we should count them, and possibly buffer them */
 

@@ -345,7 +345,7 @@ static inline long   fd_rng_long_roll  ( fd_rng_t * rng, long   n ) { return (lo
    probability (~2^-32).  Deterministic slot consumption is possible by
    truncating the maximum number of tosses.  Practically a fast O(1). */
 
-static inline ulong
+FD_FN_UNUSED static ulong /* Work around -Winline */
 fd_rng_coin_tosses( fd_rng_t * rng ) {
   ulong cnt = 1UL;
   ulong u;

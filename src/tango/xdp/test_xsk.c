@@ -23,9 +23,9 @@ static uchar _xsk[ 262144UL ] __attribute__((aligned(FD_XSK_ALIGN)));
 #define TEST_XSK_RING_DEPTH (8UL)
 
 struct test_xsk_ring_desc {
-  ulong flags;
-  ulong prod;
-  ulong cons;
+  uint flags;
+  uint prod;
+  uint cons;
   union {
     struct xdp_desc packets   [ TEST_XSK_RING_DEPTH ];
     ulong           frame_idxs[ TEST_XSK_RING_DEPTH ];
