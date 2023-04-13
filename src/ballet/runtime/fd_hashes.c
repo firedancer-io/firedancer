@@ -2,6 +2,7 @@
 #include "../blake3/fd_blake3.h"
 #include "../sha256/fd_sha256.h"
 #include <assert.h>
+#include <stdio.h>
 #include "../base58/fd_base58.h"
 
 #define SORT_NAME sort_pubkey_hash_pair
@@ -160,25 +161,30 @@ fd_hash_bank( fd_hash_t *parent_hash, fd_hash_t *last_block_hash, ulong signatur
       encoded_hash, encoded_parent, encoded_account_delta, signature_count, encoded_last_block_hash));
 }
 
-// NOTE: will not work on big endian platforms
 void
-fd_hash_account( fd_solana_account_t const * account, ulong slot, fd_pubkey_t const * pubkey, fd_hash_t * hash ) {
-  if( account->lamports==0 ) {
+fd_hash_meta( fd_account_meta_t const * m, ulong slot, fd_pubkey_t const * pubkey, uchar *data, fd_hash_t * hash ) {
+  if( m->info.lamports==0 ) {
     fd_memset(hash->hash, 0, sizeof(fd_hash_t));
     return;
   }
 
   fd_blake3_t sha;
   fd_blake3_init( &sha );
-  fd_blake3_append( &sha, (uchar const *) &account->lamports, sizeof( ulong ) );
+  fd_blake3_append( &sha, (uchar const *) &m->info.lamports, sizeof( ulong ) );
   fd_blake3_append( &sha, (uchar const *) &slot, sizeof( ulong ) );
-  fd_blake3_append( &sha, (uchar const *) &account->rent_epoch, sizeof( ulong ) );
-  fd_blake3_append( &sha, (uchar const *) account->data, account->data_len );
+  fd_blake3_append( &sha, (uchar const *) &m->info.rent_epoch, sizeof( ulong ) );
+  fd_blake3_append( &sha, (uchar const *) data, m->dlen );
+
+#if 0
+  for (unsigned i = 0; i < m->dlen; i++)
+    printf("%ld, ", (ulong) data[i]);
+  printf("\n");
+#endif
  
-  uchar executable = account->executable & 0x1;
+  uchar executable = m->info.executable & 0x1;
   fd_blake3_append( &sha, (uchar const *) &executable, sizeof( uchar ));
 
-  fd_blake3_append( &sha, (uchar const *) account->owner.key, 32 );
+  fd_blake3_append( &sha, (uchar const *) m->info.owner, 32 );
   fd_blake3_append( &sha, (uchar const *) pubkey->key, 32 );
 
   fd_blake3_fini( &sha, hash->hash );

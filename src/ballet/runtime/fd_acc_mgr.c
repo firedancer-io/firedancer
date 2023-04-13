@@ -126,7 +126,7 @@ int fd_acc_mgr_get_lamports( fd_acc_mgr_t* acc_mgr, struct fd_funk_xactionid con
   return FD_ACC_MGR_SUCCESS;
 }
 
-int fd_acc_mgr_set_lamports( fd_acc_mgr_t* acc_mgr, struct fd_funk_xactionid const* txn, fd_pubkey_t * pubkey, fd_acc_lamports_t lamports ) {
+int fd_acc_mgr_set_lamports( fd_acc_mgr_t* acc_mgr, struct fd_funk_xactionid const* txn, ulong slot, fd_pubkey_t * pubkey, fd_acc_lamports_t lamports ) {
   /* Read the current metadata from Funk */
   fd_account_meta_t metadata;
   int               read_result = fd_acc_mgr_get_metadata( acc_mgr, txn, pubkey, &metadata );
@@ -137,6 +137,7 @@ int fd_acc_mgr_set_lamports( fd_acc_mgr_t* acc_mgr, struct fd_funk_xactionid con
 
   /* Overwrite the lamports value and write back */
   metadata.info.lamports = lamports;
+
   /* Bet we have to update the hash of the account.. and track the dirty pubkeys.. */
   int write_result = fd_acc_mgr_write_account_data( acc_mgr, txn, pubkey, 0, (uchar*)&metadata, sizeof(metadata) );
   if ( FD_UNLIKELY( write_result != FD_ACC_MGR_SUCCESS ) ) {
@@ -144,6 +145,7 @@ int fd_acc_mgr_set_lamports( fd_acc_mgr_t* acc_mgr, struct fd_funk_xactionid con
     return write_result;
   }
 
+  fd_acc_mgr_update_hash( acc_mgr, &metadata, txn,  slot, pubkey, NULL, 0);
   return FD_ACC_MGR_SUCCESS;
 }
 
@@ -163,24 +165,9 @@ int fd_acc_mgr_write_structured_account( fd_acc_mgr_t* acc_mgr, struct fd_funk_x
 
   m->slot = slot;
 
-  fd_hash_account( account, slot, (fd_pubkey_t const *)  pubkey, (fd_hash_t *) m->hash);
+  fd_hash_meta( m, slot, (fd_pubkey_t const *)  pubkey, account->data, (fd_hash_t *) m->hash);
 
-  fd_dirty_map_entry_t * me = fd_dirty_dup_query(acc_mgr->dup, *((fd_pubkey_t *) pubkey), NULL);
-
-  if (me == NULL) {
-    fd_pubkey_hash_pair_t e;
-    fd_memcpy(e.pubkey.key, pubkey, sizeof(e.pubkey.key));
-    fd_memcpy(e.hash.hash, m->hash, sizeof(e.hash.hash));
-
-    ulong idx = acc_mgr->keys.cnt;
-    fd_pubkey_hash_vector_push(&acc_mgr->keys, e);
-
-    me = fd_dirty_dup_insert (acc_mgr->dup, *((fd_pubkey_t *) pubkey));
-    me->index = idx;
-  } else {
-    FD_LOG_WARNING(( "dup" ));
-    fd_memcpy(acc_mgr->keys.elems[me->index].hash.hash, m->hash, sizeof(m->hash));
-  }
+  fd_acc_mgr_dirty_pubkey ( acc_mgr, (fd_pubkey_t *) pubkey, (fd_hash_t *) m->hash );
 
   char encoded_hash[50];
   fd_base58_encode_32((uchar *) m->hash, 0, encoded_hash);
@@ -188,9 +175,6 @@ int fd_acc_mgr_write_structured_account( fd_acc_mgr_t* acc_mgr, struct fd_funk_x
   fd_base58_encode_32((uchar *) pubkey, 0, encoded_pubkey);
 
   FD_LOG_WARNING(( "fd_acc_mgr_write_structured_account: slot=%ld, pubkey=%s  hash=%s   dlen=%ld", slot, encoded_pubkey, encoded_hash, m->dlen ));
-
-  if (strcmp(encoded_pubkey, "Stake11111111111111111111111111111111111111") == 0)
-    printf("hi mom");
 
   fd_memcpy(&data[sizeof(fd_account_meta_t)], account->data, account->data_len);
 
@@ -213,11 +197,72 @@ int fd_acc_mgr_write_append_vec_account( fd_acc_mgr_t* acc_mgr, struct fd_funk_x
   fd_memcpy(&m->info, &hdr->info, sizeof(m->info));
 
   m->slot = slot;
-  fd_memset(m->hash, 0, sizeof(m->hash));
 
-  fd_memcpy(&data[sizeof(fd_account_meta_t)], &hdr[1], hdr->meta.data_len);
+  fd_hash_meta(m, slot, (fd_pubkey_t *) &hdr->meta.pubkey, (uchar *) &hdr[1], (fd_hash_t *) m->hash);
+
+  fd_acc_mgr_dirty_pubkey ( acc_mgr, (fd_pubkey_t *) &hdr->meta.pubkey, (fd_hash_t *) m->hash );
+
+  fd_memcpy(&data[sizeof(fd_account_meta_t)], (uchar *) &hdr[1], hdr->meta.data_len);
 
   int ret = fd_acc_mgr_write_account_data(acc_mgr, txn, (fd_pubkey_t *) &hdr->meta.pubkey, 0, (uchar *) data, dlen);
   free(data);
   return ret;
+}
+
+void fd_acc_mgr_dirty_pubkey ( fd_acc_mgr_t* acc_mgr, fd_pubkey_t* pubkey, fd_hash_t *hash) {
+  fd_dirty_map_entry_t * me = fd_dirty_dup_query(acc_mgr->dup, *((fd_pubkey_t *) pubkey), NULL);
+
+  if (me == NULL) {
+    fd_pubkey_hash_pair_t e;
+    fd_memcpy(e.pubkey.key, pubkey, sizeof(e.pubkey.key));
+    fd_memcpy(e.hash.hash, hash, sizeof(e.hash.hash));
+
+    ulong idx = acc_mgr->keys.cnt;
+    fd_pubkey_hash_vector_push(&acc_mgr->keys, e);
+
+    me = fd_dirty_dup_insert (acc_mgr->dup, *((fd_pubkey_t *) pubkey));
+    me->index = idx;
+  } else 
+    fd_memcpy(acc_mgr->keys.elems[me->index].hash.hash, hash, sizeof(*hash));
+}
+
+int fd_acc_mgr_update_hash ( fd_acc_mgr_t* acc_mgr, fd_account_meta_t * m, struct fd_funk_xactionid const* txn, ulong slot, fd_pubkey_t * pubkey, uchar *data, ulong dlen ) {
+  fd_account_meta_t metadata;
+
+  if (NULL == m) {
+    int               read_result = fd_acc_mgr_get_metadata( acc_mgr, txn, pubkey, &metadata );
+    if ( FD_UNLIKELY( read_result != FD_ACC_MGR_SUCCESS ) ) 
+      return read_result;
+    m = &metadata;
+  }
+
+  if (dlen != 0)
+    m->dlen = dlen;
+
+  m->slot = slot;
+
+  if (NULL == data) {
+    uchar *           account_data = (uchar *) fd_alloca(8UL,  m->dlen);
+    int               read_result = fd_acc_mgr_get_account_data( acc_mgr, txn, pubkey, account_data, sizeof(fd_account_meta_t), m->dlen);
+    if ( FD_UNLIKELY( read_result != FD_ACC_MGR_SUCCESS ) ) 
+      return read_result;
+    data = account_data;
+  }
+
+  fd_hash_t hash;
+
+  fd_hash_meta(m, slot, pubkey, data, (fd_hash_t *) &hash);
+
+  char buf[50];
+  fd_base58_encode_32((uchar *) &hash, NULL, buf);
+
+  if (memcmp(&hash, m->hash, sizeof(hash))) {
+    int write_result = fd_acc_mgr_write_account_data( acc_mgr, txn, pubkey, 0, (uchar*)m, sizeof(metadata) );
+    if ( FD_UNLIKELY( write_result != FD_ACC_MGR_SUCCESS ) ) 
+      return write_result;
+
+    fd_acc_mgr_dirty_pubkey( acc_mgr, pubkey, &hash);
+  }
+
+  return 0;
 }

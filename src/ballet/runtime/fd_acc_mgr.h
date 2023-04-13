@@ -53,6 +53,8 @@ typedef struct fd_acc_mgr fd_acc_mgr_t;
 #define FD_ACC_MGR_FOOTPRINT (sizeof( fd_acc_mgr_t ) + fd_dirty_dup_footprint(LG_SLOT_CNT)  )
 #define FD_ACC_MGR_ALIGN (8UL)
 
+typedef struct fd_global_ctx fd_global_ctx_t;
+
 void* fd_acc_mgr_new( void*      mem,
                       fd_funk_t* funk,
                       ulong      footprint );
@@ -86,11 +88,15 @@ int fd_acc_mgr_get_metadata( fd_acc_mgr_t* acc_mgr, struct fd_funk_xactionid con
 int fd_acc_mgr_get_lamports( fd_acc_mgr_t* acc_mgr, struct fd_funk_xactionid const* txn, fd_pubkey_t* pubkey, fd_acc_lamports_t* result );
 
 /* Sets the lamport balance for the account with the given public key. */
-int fd_acc_mgr_set_lamports( fd_acc_mgr_t* acc_mgr, struct fd_funk_xactionid const*, fd_pubkey_t* pubkey, fd_acc_lamports_t lamports );
+int fd_acc_mgr_set_lamports( fd_acc_mgr_t* acc_mgr, struct fd_funk_xactionid const*, ulong slot, fd_pubkey_t* pubkey, fd_acc_lamports_t lamports );
 
 int fd_acc_mgr_write_structured_account( fd_acc_mgr_t* acc_mgr, struct fd_funk_xactionid const* txn, ulong slot, fd_pubkey_t*, fd_solana_account_t *);
 
 int fd_acc_mgr_write_append_vec_account( fd_acc_mgr_t* acc_mgr, struct fd_funk_xactionid const* txn, ulong slot, fd_solana_account_hdr_t *);
+
+void fd_acc_mgr_dirty_pubkey ( fd_acc_mgr_t* acc_mgr, fd_pubkey_t* pubkey, fd_hash_t *hash);
+
+int fd_acc_mgr_update_hash ( fd_acc_mgr_t* acc_mgr, fd_account_meta_t * m, struct fd_funk_xactionid const* txn, ulong slot, fd_pubkey_t * pubkey, uchar *data, ulong dlen );
 
 FD_PROTOTYPES_END
 

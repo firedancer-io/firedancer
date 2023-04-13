@@ -2,6 +2,7 @@
 #include "../fd_executor.h"
 #include "../../../ballet/txn/fd_compact_u16.h"
 #include "../fd_runtime.h"
+#include "../../base58/fd_base58.h"
 
 int fd_executor_vote_program_execute_instruction(
     instruction_ctx_t ctx
@@ -106,12 +107,21 @@ int fd_executor_vote_program_execute_instruction(
       }
 
       /* Write the new state back to the database */
-      ulong encoded_vote_state_size = fd_vote_state_size( &vote_state );
+      /* Add 4 to the size, for discriminant */
+      ulong encoded_vote_state_size = fd_vote_state_size( &vote_state ) + 4;
 
-      /* Write the new account data. Write at offset (dlen + 4) to preserve VoteStateVersions enum discriminant */
+      if (encoded_vote_state_size < 3731)
+        encoded_vote_state_size = 3731;
+
+      /* Encode and write the new account data. */
       uchar* encoded_vote_state = (uchar *)(ctx.global->allocf)( ctx.global->allocf_arg, 8UL, encoded_vote_state_size );
-      void* encode_vote_state_dest = encoded_vote_state;
-      fd_vote_state_encode( &vote_state, (const void **)(&encode_vote_state_dest) );
+      fd_memset(encoded_vote_state, 0, encoded_vote_state_size);
+
+
+      void* encoded_vote_state_vp = (void*)encoded_vote_state;
+      const void ** encode_vote_state_dest = (const void **)(&encoded_vote_state_vp);
+      fd_bincode_uint32_encode( &discrimant, encode_vote_state_dest );
+      fd_vote_state_encode( &vote_state, encode_vote_state_dest );
 
       /* TEST: decode the result again, and check that it is correct (encoding-decoding flow works end-to-end) */
       // fd_vote_state_t check_vote_state;
@@ -119,12 +129,20 @@ int fd_executor_vote_program_execute_instruction(
       // void *check_vote_state_dataend = ((uchar *)check_vote_state_input) + encoded_vote_state_size;
       // fd_vote_state_decode(&check_vote_state, (const void**)&check_vote_state_input, check_vote_state_dataend, ctx.global->allocf, ctx.global->allocf_arg);
 
-      /* TODO: write back max(previous size, new size). Maybe move this abstraction into the accounts manager. */
-      int write_result = fd_acc_mgr_write_account_data( ctx.global->acc_mgr, ctx.global->funk_txn, vote_acc, (ulong)(metadata.hlen + 4), (uchar*)encoded_vote_state, encoded_vote_state_size );
+      fd_solana_account_t structured_account;
+      structured_account.data = encoded_vote_state;
+      structured_account.data_len = encoded_vote_state_size;
+      structured_account.executable = 0;
+      structured_account.rent_epoch = 0;
+      memcpy( &structured_account.owner, ctx.global->solana_vote_program, sizeof(fd_pubkey_t) );
+
+      int write_result = fd_acc_mgr_write_structured_account( ctx.global->acc_mgr, ctx.global->funk_txn, ctx.global->current_slot, vote_acc, &structured_account );
       if ( write_result != FD_ACC_MGR_SUCCESS ) {
         FD_LOG_WARNING(( "failed to write account data" ));
         return write_result;
       }
+
+      fd_acc_mgr_update_hash ( ctx.global->acc_mgr, &metadata, ctx.global->funk_txn, ctx.global->current_slot, vote_acc, (uchar*)encoded_vote_state, encoded_vote_state_size);
 
       /* Record this timestamp vote */
       if ( vote_state_update.timestamp != NULL ) {

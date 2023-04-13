@@ -68,6 +68,18 @@ def do_option_header(n, f):
           print("  " + f["element"] + "* " + f["name"] + ";", file=header)
       else:
           print("  " + n + "_" + f["element"] + "_t* " + f["name"] + ";", file=header)
+
+def do_array_header(n, f):
+    print("  ulong " + f["name"] + "_len;", file=header)
+
+    if f["element"] == "unsigned char" or f["element"] == "uchar":
+        print("  " + f["element"] + "* " + f["name"] + ";", file=header)
+    elif f["element"] == "ulong" or f["element"] == "unsigned long":
+        print("  " + f["element"] + "* " + f["name"] + ";", file=header)
+    elif f["element"] == "uint" or f["element"] == "unsigned int":
+        print("  " + f["element"] + "* " + f["name"] + ";", file=header)
+    else:
+        print("  " + n + "_" + f["element"] + "_t* " + f["name"] + ";", file=header)
     
 fields_header = {
     "char" :              lambda n, f: print("  char " + f["name"] + ";",              file=header),
@@ -84,7 +96,8 @@ fields_header = {
     "ushort" :            lambda n, f: print("  ushort " + f["name"] + ";",            file=header),
     "vector" :            lambda n, f: do_vector_header(n, f),
     "vector_dynamic":     lambda n, f: do_vector_dynamic_header(n, f),
-    "option" :            lambda n, f: do_option_header(n, f)
+    "array":              lambda n, f: do_array_header(n, f),
+    "option" :            lambda n, f: do_option_header(n, f),
 }
 
 def do_vector_body_decode(n, f):
@@ -147,6 +160,34 @@ def do_vector_dynamic_body_decode(n, f):
 
     print("  }", file=body)
 
+def do_array_body_decode(n, f):
+
+    el = n + "_" + f["element"]
+    el = el.upper()
+
+    length = f["length"]
+
+    if f["element"] == "unsigned char" or f["element"] == "uchar":
+        print("    self->" + f["name"] + " = (unsigned char*)(*allocf)(allocf_arg, 8, " + length + ");", file=body)
+    elif f["element"] == "ulong" or f["element"] == "unsigned long":
+        print("    self->" + f["name"] + " = (ulong*)(*allocf)(allocf_arg, 8UL, sizeof(ulong)*" + length + ");", file=body)
+        print("    for (ulong i = 0; i < " + length + "; ++i)", file=body)
+    elif f["element"] == "uint" or f["element"] == "unsigned int":
+        print("    self->" + f["name"] + " = (uint*)(*allocf)(allocf_arg, 8UL, sizeof(ulong)*" + length + ");", file=body)
+        print("    for (ulong i = 0; i < " + length + "; ++i)", file=body)
+    else:
+        print("    self->" + f["name"] + " = (" + n + "_" + f["element"] + "_t*)(*allocf)(allocf_arg, " + el + "_ALIGN, " + el + "_FOOTPRINT*" + length + ");", file=body)
+        print("    for (ulong i = 0; i < " + length + "; ++i)", file=body)
+
+    if f["element"] == "unsigned char" or f["element"] == "uchar":
+        print("fd_bincode_bytes_decode(self->" + f["name"] + ", " + length + ", data, dataend);", file=body)
+    elif f["element"] == "ulong" or f["element"] == "unsigned long":
+        print("fd_bincode_uint64_decode(self->" + f["name"] + " + i, data, dataend);", file=body)
+    elif f["element"] == "uint" or f["element"] == "unsigned int":
+        print("fd_bincode_uint32_decode(self->" + f["name"] + " + i, data, dataend);", file=body)
+    else:
+        print("      " + n + "_" + f["element"] + "_decode(self->" + f["name"] + " + i, data, dataend, allocf, allocf_arg);", file=body)
+
 def do_option_body_decode(n, f):
     print("  if (fd_bincode_option_decode(data, dataend)) {", file=body)
     if f["element"] == "ulong" or f["element"] == "unsigned long":
@@ -191,6 +232,7 @@ fields_body_decode = {
     "ushort" :            lambda n, f: print("fd_bincode_uint16_decode(&self->" + f["name"] + ", data, dataend);", file=body),
     "vector" :            lambda n, f: do_vector_body_decode(n, f),
     "vector_dynamic":     lambda n, f: do_vector_dynamic_body_decode(n, f),
+    "array":              lambda n, f: do_array_body_decode(n, f),
     "option" :            lambda n, f: do_option_body_decode(n, f)
 }
 # encode
@@ -246,6 +288,26 @@ def do_vector_dynamic_body_encode(n, f):
     else:
         print("      " + n + "_" + f["element"] + "_encode(&self->" + f["name"] + ".elems[i], data);", file=body)
 
+def do_array_body_encode(n, f):
+    length = f["length"]
+
+    if f["element"] == "unsigned char" or f["element"] == "uchar":
+        pass
+    elif f["element"] == "ulong" or f["element"] == "unsigned long":
+        print("    for (ulong i = 0; i < " + length + "; ++i)", file=body)
+    elif f["element"] == "uint" or f["element"] == "unsigned int":
+        print("    for (ulong i = 0; i < " + length + "; ++i)", file=body)
+    else:
+        print("    for (ulong i = 0; i < " + length + "; ++i)", file=body)
+
+    if f["element"] == "unsigned char" or f["element"] == "uchar":
+        print("fd_bincode_bytes_encode(self->" + f["name"] + ", " + length + ", data);", file=body)
+    elif f["element"] == "ulong" or f["element"] == "unsigned long":
+        print("fd_bincode_uint64_encode(self->" + f["name"] + " + i, data);", file=body)
+    elif f["element"] == "uint" or f["element"] == "unsigned int":
+        print("fd_bincode_uint32_encode(self->" + f["name"] + " + i, data);", file=body)
+    else:
+        print("      " + n + "_" + f["element"] + "_encode(self->" + f["name"] + " + i, data);", file=body)
 
 def do_option_body_encode(n, f):
     print("  if (self->" + f["name"] + "!= NULL) {", file=body)
@@ -286,6 +348,7 @@ fields_body_encode = {
     "ushort" :            lambda n, f: print("fd_bincode_uint16_encode(&self->" + f["name"] + ", data);", file=body),
     "vector" :            lambda n, f: do_vector_body_encode(n, f),
     "vector_dynamic" :    lambda n, f: do_vector_dynamic_body_encode(n, f),
+    "array" :             lambda n, f: do_array_body_encode(n, f),
     "option" :            lambda n, f: do_option_body_encode(n, f)
 }
 
@@ -314,6 +377,19 @@ def do_vector_dynamic_body_size(n, f):
     else:
         print("    for (ulong i = 0; i < self->" + f["name"] + ".cnt; ++i)", file=body)
         print("      size += " + n + "_" + f["element"] + "_size(&self->" + f["name"] + ".elems[i]);", file=body)
+
+def do_array_body_size(n, f):
+    length = f["length"]
+
+    if f["element"] == "unsigned char" or f["element"] == "uchar":
+        print("    size += " + length + ";", file=body)
+    elif f["element"] == "ulong" or f["element"] == "unsigned long":
+        print("    size += " + length + " * sizeof(ulong);", file=body)
+    elif f["element"] == "uint" or f["element"] == "unsigned int":
+        print("    size += " + length + " * sizeof(uint);", file=body)
+    else:
+        print("    for (ulong i = 0; i < " + length + "; ++i)", file=body)
+        print("      size += " + n + "_" + f["element"] + "_size(self->" + f["name"] + " + i);", file=body)
 
 def do_option_body_size(n, f):
     print("  size += sizeof(char);", file=body)
@@ -347,6 +423,7 @@ fields_body_size = {
     "ushort" :            lambda n, f: print("size += sizeof(ushort);", file=body),
     "vector" :            lambda n, f: do_vector_body_size(n, f),
     "vector_dynamic" :    lambda n, f: do_vector_dynamic_body_size(n, f),
+    "array" :             lambda n, f: do_array_body_size(n, f),
     "option" :            lambda n, f: do_option_body_size(n, f)
 }
 
@@ -370,6 +447,23 @@ def do_vector_body_destroy(n, f):
 
 def do_vector_dynamic_body_destroy(n, f):
     print(vector_dynamic_prefix(namespace, f) + "_destroy(&self->" + f["name"] + ");", file=body)
+
+def do_array_body_destroy(n, f):
+    length = f["length"]
+
+    print("if (NULL != self->" + f["name"] + ") {", file=body)
+    if f["element"] == "unsigned char" or f["element"] == "uchar":
+        pass
+    elif f["element"] == "ulong" or f["element"] == "unsigned long":
+        pass
+    elif f["element"] == "uint" or f["element"] == "unsigned int":
+        pass
+    else:
+        print("for (ulong i = 0; i < " + length + "; ++i)", file=body)
+        print("    " + n + "_" + f["element"] + "_destroy(self->" + f["name"] + " + i,  freef, freef_arg);", file=body)
+    print("freef(freef_arg, self->" + f["name"] + ");", file=body)
+    print("self->" + f["name"] + " = NULL;", file=body)
+    print("}", file=body)
 
 def do_option_body_destroy(n, f):
     print("if (NULL != self->" + f["name"] + ") {", file=body)
@@ -402,6 +496,7 @@ fields_body_destroy = {
     "ushort" :            lambda n, f: do_pass(),
     "vector" :            lambda n, f: do_vector_body_destroy(n, f),
     "vector_dynamic" :    lambda n, f: do_vector_dynamic_body_destroy(n, f),
+    "array" :             lambda n, f: do_array_body_destroy(n, f),
     "option" :            lambda n, f: do_option_body_destroy(n, f)
 }
 

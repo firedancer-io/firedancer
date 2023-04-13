@@ -561,6 +561,17 @@ typedef struct fd_vote_block_timestamp fd_vote_block_timestamp_t;
 #define FD_VOTE_BLOCK_TIMESTAMP_FOOTPRINT sizeof(fd_vote_block_timestamp_t)
 #define FD_VOTE_BLOCK_TIMESTAMP_ALIGN (8UL)
 
+/* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L268 */
+struct fd_vote_prior_voters {
+  ulong                  buf_len;
+  fd_vote_prior_voter_t* buf;
+  unsigned long          idx;
+  unsigned char          is_empty;
+};
+typedef struct fd_vote_prior_voters fd_vote_prior_voters_t;
+#define FD_VOTE_PRIOR_VOTERS_FOOTPRINT sizeof(fd_vote_prior_voters_t)
+#define FD_VOTE_PRIOR_VOTERS_ALIGN (8UL)
+
 #define VECT_NAME fd_vec_fd_vote_lockout_t
 #define VECT_ELEMENT fd_vote_lockout_t
 #include "../../funk/fd_vector.h"
@@ -582,8 +593,7 @@ struct fd_vote_state {
   unsigned long*                         saved_root_slot;
   ulong                                  authorized_voters_len;
   fd_vote_historical_authorized_voter_t* authorized_voters;
-  ulong                                  prior_voters_len;
-  fd_vote_prior_voter_t*                 prior_voters;
+  fd_vote_prior_voters_t                 prior_voters;
   fd_vec_fd_vote_epoch_credits_t_t       epoch_credits;
   fd_vote_block_timestamp_t              latest_timestamp;
 };
@@ -998,6 +1008,11 @@ void fd_vote_block_timestamp_decode(fd_vote_block_timestamp_t* self, void const*
 void fd_vote_block_timestamp_encode(fd_vote_block_timestamp_t* self, void const** data);
 void fd_vote_block_timestamp_destroy(fd_vote_block_timestamp_t* self, fd_free_fun_t freef, void* freef_arg);
 ulong fd_vote_block_timestamp_size(fd_vote_block_timestamp_t* self);
+
+void fd_vote_prior_voters_decode(fd_vote_prior_voters_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
+void fd_vote_prior_voters_encode(fd_vote_prior_voters_t* self, void const** data);
+void fd_vote_prior_voters_destroy(fd_vote_prior_voters_t* self, fd_free_fun_t freef, void* freef_arg);
+ulong fd_vote_prior_voters_size(fd_vote_prior_voters_t* self);
 
 void fd_vote_state_decode(fd_vote_state_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
 void fd_vote_state_encode(fd_vote_state_t* self, void const** data);

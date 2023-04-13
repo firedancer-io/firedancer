@@ -33,7 +33,7 @@
 
 
 // --ledger /home/jsiegel/repos/solana/test-ledger --db /home/jsiegel/funk --cmd accounts --accounts /home/jsiegel/repos/solana/test-ledger/accounts/ --pages 15 --index-max 120000000 --start-slot 0 --end-slot 1 --start-id 0 --end-id 1
-// --ledger /home/jsiegel/repos/solana/test-ledger --db /home/jsiegel/funk --cmd replay --accounts /home/jsiegel/repos/solana/test-ledger/accounts/ --pages 15 --index-max 120000000 --start-slot 0 --end-slot 2
+// --ledger /home/jsiegel/repos/solana/test-ledger --db /home/jsiegel/funk --cmd replay --accounts /home/jsiegel/repos/solana/test-ledger/accounts/ --pages 15 --index-max 120000000 --start-slot 0 --end-slot 6
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -218,9 +218,10 @@ int ingest(global_state_t *state) {
               break;
           }
 
-          if (fd_acc_mgr_write_append_vec_account( state->global->acc_mgr, state->global->funk_txn,  slot, hdr) != FD_ACC_MGR_SUCCESS) {
+          if (fd_acc_mgr_write_append_vec_account( state->global->acc_mgr, state->global->funk_txn,  slot, hdr) != FD_ACC_MGR_SUCCESS) 
             FD_LOG_ERR(("writing failed: accounts %ld", accounts));
-          }
+
+#if 0
           read_result = fd_acc_mgr_get_metadata( state->global->acc_mgr, state->global->funk_txn, (fd_pubkey_t *) &hdr->meta.pubkey, &metadata );
           if ( FD_UNLIKELY( read_result != FD_ACC_MGR_SUCCESS ) )
             FD_LOG_ERR(("wtf"));
@@ -260,6 +261,7 @@ int ingest(global_state_t *state) {
                          ));
           }
           state->global->freef( state->global->allocf_arg, account_data );
+#endif
         } while (0);
 
 #if 0
@@ -297,7 +299,7 @@ int ingest(global_state_t *state) {
 void print_file(global_state_t *state, const char *file) {
   char  buf[1000];
   char *p = (char *) &file[strlen(file) - 1];
-  ulong slot = 0;
+//  ulong slot = 0;
 //  ulong id = 0;
 
   while ((p > file) && *p != '/')
@@ -313,7 +315,7 @@ void print_file(global_state_t *state, const char *file) {
     *p++ = '\0';
 //    id = (ulong) atol(p);
   }
-  slot = (ulong) atol(buf);
+//  slot = (ulong) atol(buf);
 
   struct stat s;
 
@@ -347,34 +349,21 @@ void print_file(global_state_t *state, const char *file) {
     fd_memset(owner, 0, sizeof(owner));
     fd_base58_encode_32((uchar *) hdr->info.owner, 0, owner);
 
-    fd_solana_account_t account = {
-      .lamports = hdr->info.lamports,
-      .rent_epoch = hdr->info.rent_epoch,
-      .data_len = hdr->meta.data_len,
-      .data = b + sizeof(*hdr),
-      .executable = (uchar) hdr->info.executable
-    };
-    fd_memcpy( account.owner.key, hdr->info.owner, 32 );
-
-    uchar hash[32];
-    fd_hash_account( &account, slot, (fd_pubkey_t const *)  &hdr->meta.pubkey, (fd_hash_t *) hash );
-
     char encoded_hash[50];
-    fd_base58_encode_32((uchar *) hash, 0, encoded_hash);
+    fd_base58_encode_32((uchar *) hdr->hash.value, 0, encoded_hash);
 
 //    printf("owner: %48s pubkey: %48s hash: %48s file: %s size: %lu\n", owner, pubkey, encoded_hash, file, hdr->meta.data_len);
 
     printf("%s owner: %s hash: %48s file: %s size: %lu\n", pubkey, owner, encoded_hash, file, hdr->meta.data_len);
 
-    fd_account_meta_t result;
-    fd_acc_mgr_get_metadata(state->global->acc_mgr, fd_funk_root(state->global->acc_mgr->funk), (fd_pubkey_t *) hdr->meta.pubkey, &result);
-
-
-    if (memcmp(result.hash, hash, sizeof(hash))) {
-      uchar *           account_data = (uchar *) fd_alloca(8UL,  hdr->meta.data_len);
-      fd_acc_mgr_get_account_data( state->global->acc_mgr, fd_funk_root(state->global->acc_mgr->funk), (fd_pubkey_t *) &hdr->meta.pubkey, account_data, sizeof(fd_account_meta_t), hdr->meta.data_len);
-      printf("Hmm.. bad dog\n");
-    }
+//    fd_account_meta_t result;
+//    fd_acc_mgr_get_metadata(state->global->acc_mgr, fd_funk_root(state->global->acc_mgr->funk), (fd_pubkey_t *) hdr->meta.pubkey, &result);
+//
+//    if (memcmp(result.hash, hash, sizeof(hash))) {
+//      uchar *           account_data = (uchar *) fd_alloca(8UL,  hdr->meta.data_len);
+//      fd_acc_mgr_get_account_data( state->global->acc_mgr, fd_funk_root(state->global->acc_mgr->funk), (fd_pubkey_t *) &hdr->meta.pubkey, account_data, sizeof(fd_account_meta_t), hdr->meta.data_len);
+//      printf("Hmm.. bad dog\n");
+//    }
 
     const void *   o = &b[sizeof(*hdr)];
     unsigned char *outend = &(((unsigned char *) o)[hdr->meta.data_len]);

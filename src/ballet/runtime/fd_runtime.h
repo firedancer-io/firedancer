@@ -67,9 +67,14 @@ struct __attribute__((aligned(FD_GLOBAL_CTX_ALIGN))) fd_global_ctx {
   uchar                      block_hash[FD_SHA256_HASH_SZ];
   fd_hash_t                  banks_hash;
 
+  fd_pubkey_t                collector_id;
+  ulong                      collected;
+
   // TODO: should we instead remember which slot the poh is valid for?
-  uchar                      poh_booted;
   fd_clock_timestamp_votes_t timestamp_votes;
+
+  uchar                      poh_booted;
+  uchar                      collector_set;
 };
 typedef struct fd_global_ctx fd_global_ctx_t;
 
@@ -87,6 +92,10 @@ void              fd_runtime_boot_slot_zero( fd_global_ctx_t *global );
 int               fd_runtime_block_execute ( fd_global_ctx_t *global, fd_slot_blocks_t *slot_data );
 int               fd_runtime_block_verify  ( fd_global_ctx_t *global, fd_slot_blocks_t *slot_data );
 int               fd_runtime_block_eval    ( fd_global_ctx_t *global, fd_slot_blocks_t *slot_data );
+
+ulong             fd_runtime_calculate_fee ( fd_global_ctx_t *global, fd_txn_t * txn_descriptor, fd_rawtxn_b_t* txn_raw );
+void              fd_runtime_freeze        ( fd_global_ctx_t *global );
+
 
 FD_PROTOTYPES_END
 

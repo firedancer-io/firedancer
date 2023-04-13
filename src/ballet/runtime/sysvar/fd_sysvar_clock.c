@@ -2,6 +2,10 @@
 #include "../fd_types.h"
 #include "fd_sysvar.h"
 
+#ifdef _DISABLE_OPTIMIZATION
+#pragma GCC optimize ("O0")
+#endif
+
 const ulong ns_in_s = 1000000000;
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/clock.rs#L10 */
@@ -88,7 +92,9 @@ long estimate_timestamp( fd_global_ctx_t* global, uint128 ns_per_slot ) {
   }
 
   /* TODO: actually take the stake-weighted median. For now, just take the first vote */
-  return global->timestamp_votes.votes.elems[0].timestamp + (long)( ns_per_slot * ( global->current_slot - global->timestamp_votes.votes.elems[0].slot ) );
+  ulong slots = global->current_slot - global->timestamp_votes.votes.elems[0].slot;
+  ulong ns_correction = ((ulong)ns_per_slot) * slots;
+  return global->timestamp_votes.votes.elems[0].timestamp  + (long) ((ns_correction / 1000000000)) ;
 }
 
 void fd_sysvar_clock_update( fd_global_ctx_t* global ) {

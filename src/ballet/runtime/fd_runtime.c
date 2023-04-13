@@ -102,8 +102,6 @@ fd_runtime_block_execute( fd_global_ctx_t *global, fd_slot_blocks_t *slot_data )
         // needed for block hashes
         signature_cnt += txn_descriptor->signature_cnt;
 
-        // TODO: fork and commit a new funk_txn for each txn and properly
-        // cancel if it fails
         fd_execute_txn( &global->executor, txn_descriptor, txn_raw );
       }
       fd_microblock_leave(micro_block);
@@ -230,6 +228,26 @@ fd_runtime_block_eval( fd_global_ctx_t *global, fd_slot_blocks_t *slot_data ) {
   }
 
   return ret;
+}
+
+ulong
+fd_runtime_calculate_fee( FD_FN_UNUSED fd_global_ctx_t *global, FD_FN_UNUSED fd_txn_t * txn_descriptor, FD_FN_UNUSED fd_rawtxn_b_t* txn_raw ) {
+  // solana/runtime/src/bank.rs::calculate_fee(....)
+//  return 10000;
+
+  // TODO: implement fee distribution to the collector ... and then charge us the correct amount
+  return 5000;
+}
+
+void
+fd_runtime_freeze( FD_FN_UNUSED fd_global_ctx_t *global ) {
+
+  // solana/runtime/src/bank.rs::freeze(....)
+  //self.collect_rent_eagerly();
+  //self.collect_fees();
+  //self.distribute_rent();
+  //self.update_slot_history();
+  //self.run_incinerator();
 }
 
 void *

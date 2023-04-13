@@ -58,30 +58,87 @@ fd_executor_lookup_native_program( fd_global_ctx_t* global,  fd_pubkey_t *pubkey
 
 void
 fd_execute_txn( fd_executor_t* executor, fd_txn_t * txn_descriptor, fd_rawtxn_b_t* txn_raw ) {
-    fd_pubkey_t *tx_accs   = (fd_pubkey_t *)((uchar *)txn_raw->raw + txn_descriptor->acct_addr_off);
+  fd_pubkey_t *tx_accs   = (fd_pubkey_t *)((uchar *)txn_raw->raw + txn_descriptor->acct_addr_off);
 
-    /* TODO: track compute budget used within execution */
-    /* TODO: store stack of instructions to detect reentrancy */
+  fd_global_ctx_t *global = executor->global;
+  
+  ulong fee = fd_runtime_calculate_fee ( global, txn_descriptor, txn_raw );
 
-    /* TODO: execute within a transaction context, which can be reverted */
+  fd_acc_lamports_t lamps;
+  int ret = fd_acc_mgr_get_lamports ( global->acc_mgr, global->funk_txn, &tx_accs[0], &lamps);
+  if (ret != FD_ACC_MGR_SUCCESS) {
+    // TODO: The fee payer does not seem to exist?!  what now?
+    return;
+  }
 
-    for ( ushort i = 0; i < txn_descriptor->instr_cnt; ++i ) {
-        fd_txn_instr_t * instr = &txn_descriptor->instr[i];
-        instruction_ctx_t ctx = {
-            .global         = executor->global,
-            .instr          = instr,
-            .txn_descriptor = txn_descriptor,
-            .txn_raw        = txn_raw,
-        };
+  if (fee > lamps) {
+    // TODO: Not enough lamports to pay for this txn...
+    //
+    // (Should this be lamps + whatever is required to keep the payer rent exempt?)
+    FD_LOG_WARNING(( "Not enough lamps" ));
+    return;
+  }
 
-        /* TODO: allow instructions to be failed, and the transaction to be reverted */
-        execute_instruction_func_t exec_instr_func = fd_executor_lookup_native_program( executor->global, &tx_accs[instr->program_id] );
-        int exec_result = exec_instr_func( ctx );
-        if ( FD_UNLIKELY( exec_result != FD_EXECUTOR_INSTR_SUCCESS ) ) {
-          FD_LOG_ERR(( "instruction executed unsuccessfully: error code %d", exec_result ));
-          /* TODO: revert transaction context */
-        }
+  // TODO:  HORRIBLE hack until we implement the schedule leader stuff...  
+  //
+  // The VERY first txn (at slot 2) happens to be a vote made by the very first schedule leader..
+  if (!global->collector_set) {
+    fd_memcpy(global->collector_id.key, tx_accs[0].key, sizeof(fd_pubkey_t));
+    global->collector_set = 1;
+  }
 
-        /* TODO: sanity before/after checks: total lamports unchanged etc */
+  // TODO: I BELIEVE we charge for the fee BEFORE we create the funk_txn fork
+  // since we collect reguardless of the success of the txn execution...
+  ret = fd_acc_mgr_set_lamports ( global->acc_mgr, global->funk_txn, global->current_slot, &tx_accs[0], lamps - fee);
+  if (ret != FD_ACC_MGR_SUCCESS) {
+    // TODO: Wait! wait! what?!
+    FD_LOG_ERR(( "lamport update failed" ));
+    return;
+  }
+  global->collected += fee;
+
+  /* TODO: track compute budget used within execution */
+  /* TODO: store stack of instructions to detect reentrancy */
+
+  /* TODO: execute within a transaction context, which can be reverted */
+
+//
+//  fd_funk_xactionid_t* ptxn = global->funk_txn;
+//  fd_funk_xactionid_t local_funk_txn;
+//  global->funk_txn = &local_funk_txn;
+//
+//  ulong *p = (ulong *) &global->funk_txn->id[0];
+//  p[0] = fd_rng_ulong( global->rng );
+//  p[1] = fd_rng_ulong( global->rng );
+//  p[2] = fd_rng_ulong( global->rng );
+//  p[3] = fd_rng_ulong( global->rng );
+//
+//  if (fd_funk_fork(global->funk, ptxn, global->funk_txn) == 0)
+//    FD_LOG_ERR(("fd_funk_fork failed"));
+
+  for ( ushort i = 0; i < txn_descriptor->instr_cnt; ++i ) {
+    fd_txn_instr_t * instr = &txn_descriptor->instr[i];
+    instruction_ctx_t ctx = {
+      .global         = executor->global,
+      .instr          = instr,
+      .txn_descriptor = txn_descriptor,
+      .txn_raw        = txn_raw,
+    };
+
+    /* TODO: allow instructions to be failed, and the transaction to be reverted */
+    execute_instruction_func_t exec_instr_func = fd_executor_lookup_native_program( executor->global, &tx_accs[instr->program_id] );
+    int exec_result = exec_instr_func( ctx );
+    if ( FD_UNLIKELY( exec_result != FD_EXECUTOR_INSTR_SUCCESS ) ) {
+      FD_LOG_ERR(( "instruction executed unsuccessfully: error code %d", exec_result ));
+      /* TODO: revert transaction context */
     }
+
+    /* TODO: sanity before/after checks: total lamports unchanged etc */
+  }
+
+  // if err
+  //             fd_funk_cancel(global->funk, global->funk_txn);
+  // else
+//  fd_funk_commit(global->funk, global->funk_txn);
+//  global->funk_txn = ptxn;
 }

@@ -548,6 +548,16 @@
       ]
     },
     {
+      "name": "vote_prior_voters",
+      "type": "struct",
+      "fields": [
+        { "name": "buf", "type": "array", "element": "vote_prior_voter", "length": "32" },
+        { "name": "idx", "type": "ulong" },
+        { "name": "is_empty", "type": "uchar" }
+      ],
+      "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L268"
+    },
+    {
       "name": "vote_state",
       "type": "struct",
       "fields": [
@@ -557,7 +567,7 @@
           { "name": "votes", "type": "vector_dynamic", "element": "vote_lockout" },
           { "name": "saved_root_slot", "type": "option", "element": "ulong" },
           { "name": "authorized_voters", "type": "vector", "element": "vote_historical_authorized_voter" },
-          { "name": "prior_voters", "type": "vector", "element": "vote_prior_voter" },
+          { "name": "prior_voters", "type": "vote_prior_voters" },
           { "name": "epoch_credits", "type": "vector_dynamic", "element": "vote_epoch_credits" },
           { "name": "latest_timestamp", "type": "vote_block_timestamp" }
       ],
