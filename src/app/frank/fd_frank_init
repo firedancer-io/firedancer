@@ -147,9 +147,11 @@ for addr in "${LISTEN_ADDRS[@]}"; do
   "$BUILD"/bin/fd_xdp_ctl listen-udp-port $APP $addr $QUIC_LISTEN_PORT tpu-quic || exit $?
 done
 SRC_MAC_ADDR="$(cat /sys/class/net/$IFACE/address)" || exit $?
-DST_MAC_ADDR="$(arp -i bond0 -n -a _gateway | head -n1 | awk '{print $4}')" || exit $?
-if [[ ! "$DST_MAC_ADDR" =~ ^[0-9a-f]{2}:[0-9a-f]{2}:[0-9a-f]{2}:[0-9a-f]{2}:[0-9a-f]{2}:[0-9a-f]{2}$ ]]; then
-  echo "Failed to parse gateway MAC address from arp output: $DST_MAC_ADDR" >&2; exit 1
+if [[ -z "$DST_MAC_ADDR" ]]; then
+  DST_MAC_ADDR="$(arp -i bond0 -n -a _gateway | head -n1 | awk '{print $4}')" || exit $?
+  if [[ ! "$DST_MAC_ADDR" =~ ^[0-9a-f]{2}:[0-9a-f]{2}:[0-9a-f]{2}:[0-9a-f]{2}:[0-9a-f]{2}:[0-9a-f]{2}$ ]]; then
+    echo "Failed to parse gateway MAC address from arp output: $DST_MAC_ADDR" >&2; exit 1
+  fi
 fi
 
 # For now, let each QUIC publish to one verifyin
