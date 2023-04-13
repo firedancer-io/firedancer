@@ -547,7 +547,7 @@ fd_alloc_is_empty( fd_alloc_t * join );
      while( ... still appending ... ) {
 
        if( FD_UNLIKELY( foo_cnt==foo_max ) ) {
-         foo_max = fd_alloc_max_expand( foo_max, foo_delta, foo_cnt+1UL );
+         foo_max = fd_alloc_max_expand( foo_max, foo_delta, foo_cnt + foo_delta );
          foo     = (foo_t *)realloc( foo, foo_max*sizeof(foo_t) );
        }
 
