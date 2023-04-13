@@ -133,7 +133,7 @@ void fd_sysvar_clock_update( fd_global_ctx_t* global ) {
   long timestamp_estimate         = estimate_timestamp( global, ns_per_slot( global->genesis_block.ticks_per_slot ) );
   long bounded_timestamp_estimate = bound_timestamp_estimate( global, timestamp_estimate, clock.epoch_start_timestamp );
   if ( timestamp_estimate != bounded_timestamp_estimate ) {
-    FD_LOG_NOTICE(( "corrected timestamp_estimate %ld to %ld", timestamp_estimate, bounded_timestamp_estimate ));
+    FD_LOG_INFO(( "corrected timestamp_estimate %ld to %ld", timestamp_estimate, bounded_timestamp_estimate ));
   }
   clock.slot                      = global->current_slot;
   clock.unix_timestamp            = bounded_timestamp_estimate;
