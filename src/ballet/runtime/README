@@ -1,0 +1,45 @@
+
+# building dev on mac
+
+  brew install gh
+  gh auth login
+
+  brew install podman
+  podman machine init
+  podman machine start
+
+# notes to myself to help with debugging
+
+building our debugging version of solana with all our log messages
+
+  git clone https://github.com/firedancer-io/solana.git
+  cd solana
+  git checkout debug
+
+# Inside jump, we use podman instead of docker...
+
+  cp /etc/pki/tls/cert.pem .
+  podman build --no-cache -t solana-builder2 -f Dockerfile -v `pwd`:/solana:rw  .
+
+# to rebuild after changing solana
+
+  podman run --mount=type=bind,target=/solana,source=`pwd` -t solana-builder2 bash -c 'cd /solana; . ~/.cargo/env && ./cargo nightly -Z unstable-options build'
+
+# to run
+
+  ./target/debug/solana-test-validator --reset
+
+Find specific account values at a slot...
+
+  grep hash_account_data ~/repos/solana/test-ledger/validator.log | grep 'slot: 4 '
+
+grep 'bank frozen:' ~/repos/solana/test-ledger/validator.log | grep 'solana_runtime::bank'
+
+  less -p'bank frozen: 4 ' ~/repos/solana/test-ledger/validator.log
+
+If you hate the colorization and also want to use less..
+
+   sed -r "s/\x1B\[(([0-9]+)(;[0-9]+)*)?[m,K,H,f,J]//g" ~/repos/solana/test-ledger/validator.log > q
+   less -p'bank frozen: 4 ' q
+
+
