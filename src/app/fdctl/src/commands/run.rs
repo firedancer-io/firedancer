@@ -61,6 +61,7 @@ impl RunCli {
                 check_resource("run", &run_binary, RLIMIT_NICE, 40, "call `setpriority(2)` to increase thread priorities"),
                 check_file_cap("run", &run_binary, CAP_NET_RAW, "call `bind(2)` to bind to a socket with `SOCK_RAW`"),
                 check_file_cap("run", &run_binary, CAP_SYS_ADMIN, "initialize XDP by calling `bpf_obj_get`"),
+                check_file_cap("run", &run_binary, CAP_SETPCAP, "drop capabilities from the thread bounding set with `PR_CAPBSET_DROP`"),
             ].into_iter().flatten().collect()
         ].into_iter().flatten().collect()
     }
@@ -125,11 +126,17 @@ pub(crate) fn run(args: RunCli, config: &mut Config) {
         ("QUIC_RX_BUF_SZ", quic.rx_buf_size.to_string()),
     ];
 
+    let sandbox = if config.development.sandbox {
+        ""
+    } else {
+        "--no-sandbox"
+    };
+
     let mut run = run_builder!(
         cwd = None,
         env = Some(&env),
         cmd = "{prefix_gdb} {netns_arg} --pod {pod} --log-app {name} --log-thread main \
-               --tile-cpus {affinity}",
+               --tile-cpus {affinity} {sandbox}",
     );
 
     set_affinity_zero();

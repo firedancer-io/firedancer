@@ -48,6 +48,7 @@ macro_rules! capabilities {
 }
 
 capabilities!(
+    CapSetpcap(8),
     CapNetAdmin(12),
     CapNetRaw(13),
     CapSysAdmin(21),

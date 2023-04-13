@@ -12,6 +12,7 @@
 #include <sys/mman.h>
 
 #include "fd_tile.h"
+#include "../sandbox/fd_sandbox_util_private.h"
 
 /* Operating system shims ********************************************/
 
@@ -266,6 +267,8 @@ fd_tile_private_manager( void * _args ) {
   ulong  idx      = args->idx;
   void * stack    = args->stack;
   ulong  stack_sz = args->stack_sz;
+
+  fd_sandbox_tile_boot_hook();
 
   if( FD_UNLIKELY( !( (id ==fd_log_thread_id()                                       ) &
                       (idx==(id-fd_tile_private_id0)                                 ) &
@@ -528,27 +531,31 @@ fd_tile_private_cpus_parse( char const * cstr,
 static fd_tile_private_cpu_config_t fd_tile_private_cpu_config_save[1];
 
 void
-fd_tile_private_boot( int *    pargc,
-                      char *** pargv ) {
-  FD_LOG_INFO(( "fd_tile: boot" ));
-
+fd_tile_private_count_boot( int *    pargc,
+                            char *** pargv ) {
   /* Extract the tile configuration from the command line */
-
   char const * cpus = fd_env_strip_cmdline_cstr( pargc, pargv, "--tile-cpus", "FD_TILE_CPUS", NULL );
   if( !cpus ) FD_LOG_INFO(( "fd_tile: --tile-cpus not specified" ));
   else        FD_LOG_INFO(( "fd_tile: --tile-cpus \"%s\"", cpus ));
-  ushort tile_to_cpu[ FD_TILE_MAX ];
-  ulong  tile_cnt = fd_tile_private_cpus_parse( cpus, tile_to_cpu );
+  ulong  tile_cnt = fd_tile_private_cpus_parse( cpus, fd_tile_private_cpu_id );
 
   if( FD_UNLIKELY( !tile_cnt ) ) {
     FD_LOG_INFO(( "fd_tile: no cpus specified; treating thread group as single tile running on O/S assigned cpu(s)" ));
-    tile_to_cpu[0] = (ushort)65535;
+    fd_tile_private_cpu_id[0] = (ushort)65535;
     tile_cnt       = 1UL;
   }
 
   fd_tile_private_id0 = fd_log_thread_id();
   fd_tile_private_id1 = fd_tile_private_id0 + tile_cnt;
   fd_tile_private_cnt = tile_cnt;
+}
+
+void
+fd_tile_private_boot( int *    pargc,
+                      char *** pargv ) {
+  (void) pargc;
+  (void) pargv;
+  FD_LOG_INFO(( "fd_tile: boot" ));
 
   ulong app_id  = fd_log_app_id();
   ulong host_id = fd_log_host_id();
@@ -558,9 +565,9 @@ fd_tile_private_boot( int *    pargc,
      in this inherit the appropriate scheduler priorities and affinities
      from the thread group launcher. */
 
-  for( ulong tile_idx=1UL; tile_idx<tile_cnt; tile_idx++ ) {
+  for( ulong tile_idx=1UL; tile_idx<fd_tile_private_cnt; tile_idx++ ) {
 
-    ulong cpu_idx = (ulong)tile_to_cpu[ tile_idx ];
+    ulong cpu_idx = (ulong)fd_tile_private_cpu_id[ tile_idx ];
     int   fixed   = (cpu_idx<65535UL);
 
     if( fixed ) FD_LOG_INFO(( "fd tile: booting tile %lu on cpu %lu:%lu",   tile_idx, host_id, cpu_idx ));
@@ -672,7 +679,7 @@ fd_tile_private_boot( int *    pargc,
 
   /* And now we "boot" tile 0 */
 
-  ulong cpu_idx = (ulong)tile_to_cpu[ 0UL ];
+  ulong cpu_idx = (ulong)fd_tile_private_cpu_id[ 0UL ];
   int   fixed   = (cpu_idx<65535UL);
   if( fixed ) FD_LOG_INFO(( "fd tile: booting tile %lu on cpu %lu:%lu",   0UL, host_id, cpu_idx ));
   else        FD_LOG_INFO(( "fd tile: booting tile %lu on cpu %lu:float", 0UL, host_id ));
@@ -732,8 +739,6 @@ fd_tile_private_boot( int *    pargc,
 
   FD_LOG_INFO(( "fd_tile: boot tile %lu success (thread %lu:%lu in thread group %lu:%lu/%lu)",
                 fd_tile_private_idx, app_id, fd_tile_private_id, app_id, fd_tile_private_id0, fd_tile_private_cnt ));
-
-  fd_memcpy( fd_tile_private_cpu_id, tile_to_cpu, fd_tile_private_cnt*sizeof(ushort) );
 
   FD_LOG_INFO(( "fd_tile: boot success" ));
 }

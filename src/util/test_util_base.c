@@ -6,13 +6,20 @@
 #endif
 #include <stdint.h>
 
-FD_STATIC_ASSERT( !(FD_HAS_THREADS && !FD_HAS_ATOMIC), devenv );
-FD_STATIC_ASSERT( !(FD_HAS_THREADS && !FD_HAS_HOSTED), devenv );
+#define IMPLIES( a, b ) (!(a && !b))
 
-FD_STATIC_ASSERT( !(FD_HAS_SSE   && !FD_HAS_X86), devenv );
-FD_STATIC_ASSERT( !(FD_HAS_AVX   && !FD_HAS_SSE), devenv );
-FD_STATIC_ASSERT( !(FD_HAS_SHANI && !FD_HAS_AVX), devenv );
-FD_STATIC_ASSERT( !(FD_HAS_GFNI  && !FD_HAS_AVX), devenv );
+FD_STATIC_ASSERT( IMPLIES( FD_HAS_SSE, FD_HAS_X86   ), devenv );
+FD_STATIC_ASSERT( IMPLIES( FD_HAS_AVX, FD_HAS_SSE   ), devenv );
+FD_STATIC_ASSERT( IMPLIES( FD_HAS_SHANI, FD_HAS_AVX ), devenv );
+FD_STATIC_ASSERT( IMPLIES( FD_HAS_GFNI, FD_HAS_AVX  ), devenv );
+
+FD_STATIC_ASSERT( IMPLIES( FD_HAS_THREADS, FD_HAS_ATOMIC ), devenv );
+FD_STATIC_ASSERT( IMPLIES( FD_HAS_THREADS, FD_HAS_HOSTED ), devenv );
+
+FD_STATIC_ASSERT( IMPLIES( FD_HAS_SANDBOX_LINUX, !FD_HAS_SANDBOX_UNSUPPORTED ), devenv );
+FD_STATIC_ASSERT( IMPLIES( FD_HAS_SANDBOX_UNSUPPORTED, !FD_HAS_SANDBOX_LINUX ), devenv );
+
+#undef IMPLIES
 
 /* Test size_t <> ulong, uintptr_t <> ulong, intptr_t <> long (which
    then further imply sizeof and alignof return a ulong and that

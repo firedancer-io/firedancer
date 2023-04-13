@@ -3,6 +3,7 @@
 #endif
 
 #include "fd_util.h"
+#include "sandbox/fd_sandbox_util_private.h"
 
 void
 fd_boot( int *    pargc,
@@ -14,7 +15,19 @@ fd_boot( int *    pargc,
   fd_linux_private_boot( pargc, pargv );
 # endif
   fd_shmem_private_boot( pargc, pargv );
+  fd_tile_private_count_boot   ( pargc, pargv );
   fd_tile_private_boot ( pargc, pargv ); /* The caller is now tile 0 */
+}
+
+void
+fd_boot_secure( int *    pargc,
+                char *** pargv ) {
+  fd_sandbox_proc_boot_hook   ( pargc, pargv );
+  fd_log_private_boot          ( pargc, pargv );
+  fd_shmem_private_boot        ( pargc, pargv );
+  fd_tile_private_count_boot   ( pargc, pargv );
+  /* The caller is now free to initialize resources.
+     Tiles will be spawned when calling fd_sandbox. */
 }
 
 void

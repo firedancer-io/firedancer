@@ -8,6 +8,7 @@
 
 #include "../../disco/fd_disco.h"
 #include "../../ballet/fd_ballet.h" /* FIXME: CONSIDER HAVING THIS IN DISCO_BASE */
+#include "../../util/sandbox/fd_sandbox.h"
 
 /* FD_FRANK_CNC_DIAG_* are FD_CNC_DIAG_* style diagnostics and thus the
    same considerations apply.  Further they are harmonized with the

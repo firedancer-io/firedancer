@@ -169,6 +169,19 @@
 #define FD_HAS_GFNI 0
 #endif
 
+/* FD_HAS_SANDBOX_LINUX indicates the target supports Linux sandboxing. */
+#ifndef FD_HAS_SANDBOX_LINUX
+#define FD_HAS_SANDBOX_LINUX 0
+#endif
+
+/* FD_HAS_SANDBOX_UNSUPPORTED indicates the target does not support a
+   strong sandbox implementation. This setup is not supported for
+   production usage. The operator will have to acknowledge the inexistant
+   security guarantees. */
+#ifndef FD_HAS_SANDBOX_UNSUPPORTED
+#define FD_HAS_SANDBOX_UNSUPPORTED 0
+#endif
+
 /* Base development environment ***************************************/
 
 /* The functionality provided by these vanilla headers are always

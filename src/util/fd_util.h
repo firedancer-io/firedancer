@@ -275,6 +275,13 @@ void
 fd_boot( int *    pargc,
          char *** pargv );
 
+/* The same as `fd_boot` except that it does not boot tiles/threads
+   until initialization is done. Tiles/threads are booted on the call
+   to `fd_sandbox`, indicating the end of the initialization sequence. */
+void
+fd_boot_secure( int *    pargc,
+                char *** pargv );
+
 void
 fd_halt( void );
 

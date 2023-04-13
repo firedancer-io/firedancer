@@ -5,6 +5,8 @@ include config/with-gcc.mk
 include config/with-debug.mk
 include config/with-brutality.mk
 include config/with-optimization.mk
+include config/with-hosted.mk
+include config/with-sandbox-linux.mk
 
 # Turn on POSIX style logging in this target to facilitate
 # cross-platform development

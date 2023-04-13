@@ -317,7 +317,7 @@ snap( ulong             tile_cnt,     /* Number of tiles to snapshot */
 int
 main( int     argc,
       char ** argv ) {
-  fd_boot( &argc, &argv );
+  fd_boot_secure( &argc, &argv );
 
   /* Parse command line arguments */
 
@@ -407,6 +407,8 @@ main( int     argc,
       tile_idx++;
     }
   } while(0);
+
+  fd_sandbox( &argc, &argv );
   
   /* Setup local objects used by this app */
 

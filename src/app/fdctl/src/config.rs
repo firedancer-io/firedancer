@@ -249,6 +249,7 @@ config_struct!(DedupConfig {
 
 config_struct!(DevelopmentConfig {
     {
+        sandbox: bool,
         sudo: bool
     }
     netns: NetNsConfig

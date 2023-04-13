@@ -38,7 +38,7 @@ fd_frank_signal_trap( int sig ) {
 int
 main( int     argc,
       char ** argv ) {
-  fd_boot( &argc, &argv );
+  fd_boot_secure( &argc, &argv );
   fd_tempo_tick_per_ns( NULL ); /* eat calibration cost at deterministic place */
 
   FD_LOG_NOTICE(( "app init" ));
@@ -62,7 +62,7 @@ main( int     argc,
   FD_LOG_NOTICE(( "%lu verify found", verify_cnt ));
 
   ulong tile_cnt = 3UL + verify_cnt;
-  if( FD_UNLIKELY( fd_tile_cnt()<tile_cnt ) ) FD_LOG_ERR(( "at least %lu tiles required for this config", tile_cnt ));
+  if( FD_UNLIKELY( fd_tile_cnt()<tile_cnt ) ) FD_LOG_ERR(( "at least %lu tiles required for this config - %lu available", tile_cnt, fd_tile_cnt()));
   if( FD_UNLIKELY( fd_tile_cnt()>tile_cnt ) ) FD_LOG_WARNING(( "only %lu tiles required for this config", tile_cnt ));
 
   /* Join all IPC objects needed by main */
@@ -112,6 +112,8 @@ main( int     argc,
     }
 
   } while(0);
+
+  fd_sandbox( &argc, &argv );
 
   /* Boot all the tiles that main controls */
 

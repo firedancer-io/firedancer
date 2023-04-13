@@ -11,6 +11,7 @@ FD_IMPORT_CSTR( fd_shmem_ctl_help, "src/util/shmem/fd_shmem_ctl_help" );
 int
 main( int     argc,
       char ** argv ) {
+  umask( (mode_t)0 ); /* So mode setting gets respected */
   fd_boot( &argc, &argv );
 # define SHIFT(n) argv+=(n),argc-=(n)
 
@@ -18,8 +19,6 @@ main( int     argc,
   char const * bin = argv[0];
   SHIFT(1);
   
-  umask( (mode_t)0 ); /* So mode setting gets respected */
-
   int cnt = 0;
   while( argc ) {
     char const * cmd = argv[0];

@@ -158,6 +158,10 @@ int fd_tile_exec_done( fd_tile_exec_t const * exec );
 /* These functions are for fd_tile internal use only. */
 
 void
+fd_tile_private_count_boot( int *    pargc,
+                            char *** pargv);
+
+void
 fd_tile_private_boot( int *    pargc,
                       char *** pargv );
 
