@@ -107,6 +107,11 @@ union __attribute__((aligned(FD_FUNK_TXN_ID_ALIGN))) fd_funk_txn_id {
 
 typedef union fd_funk_txn_id fd_funk_txn_id_t;
 
+/* A fd_funk_t * is an opaque handle of a local join to a funk instance */
+
+struct fd_funk_private;
+typedef struct fd_funk_private fd_funk_t;
+
 FD_PROTOTYPES_BEGIN
 
 /* fd_funk_rec_key_hash provides a family of hashes that hash the key
