@@ -23,6 +23,7 @@ fd_vm_sbpf_interp_translate_vm_to_host( fd_vm_sbpf_exec_context_t * ctx,
 
   switch( mem_region ) {
     case FD_MEM_MAP_PROGRAM_REGION_START:
+      /* Read-only program binary blob memory region */
       if( write ) {
         return FD_VM_MEM_MAP_ERR_ACC_VIO;
       }
@@ -32,13 +33,19 @@ fd_vm_sbpf_interp_translate_vm_to_host( fd_vm_sbpf_exec_context_t * ctx,
       *host_addr = &ctx->read_only[start_addr];
       break;
     case FD_MEM_MAP_STACK_REGION_START:
+      /* Stack memory region */
+      /* TODO: needs more of the runtime to actually implement */
+      return FD_VM_MEM_MAP_ERR_ACC_VIO;
+      break;
     case FD_MEM_MAP_HEAP_REGION_START:
+      /* Heap memory region */
       if( end_addr >= FD_VM_HEAP_SZ ) {
         return FD_VM_MEM_MAP_ERR_ACC_VIO;
       }
       *host_addr = &ctx->heap[start_addr];
       break;
     case FD_MEM_MAP_INPUT_REGION_START:
+      /* Program input memory region */
       if( end_addr >= ctx->input_sz ) {
         return FD_VM_MEM_MAP_ERR_ACC_VIO;
       }
@@ -143,8 +150,8 @@ fd_vm_mem_map_write_ushort( fd_vm_sbpf_exec_context_t * ctx,
 
 static ulong 
 fd_vm_mem_map_write_uint( fd_vm_sbpf_exec_context_t * ctx,
-                          ulong              vm_addr,
-                          uint             val ) {
+                          ulong                       vm_addr,
+                          uint                        val ) {
   void * vm_mem;
   ulong translation_res = fd_vm_sbpf_interp_translate_vm_to_host(ctx, 1, vm_addr, sizeof(uint), &vm_mem);
   if( translation_res != FD_VM_MEM_MAP_SUCCESS) {
@@ -157,9 +164,9 @@ fd_vm_mem_map_write_uint( fd_vm_sbpf_exec_context_t * ctx,
 }
 
 static ulong 
-fd_vm_mem_map_write_ulong( fd_vm_sbpf_exec_context_t * ctx,
-                          ulong              vm_addr,
-                          ulong             val ) {
+fd_vm_mem_map_write_ulong( fd_vm_sbpf_exec_context_t *  ctx,
+                          ulong                         vm_addr,
+                          ulong                         val ) {
   void * vm_mem;
   ulong translation_res = fd_vm_sbpf_interp_translate_vm_to_host(ctx, 1, vm_addr, sizeof(ulong), &vm_mem);
   if( translation_res != FD_VM_MEM_MAP_SUCCESS) {
@@ -191,9 +198,8 @@ fd_vm_sbpf_interp_instrs( fd_vm_sbpf_exec_context_t * ctx ) {
   
   ulong cond_fault = 0;
 
-#define ALIGNED_JMP_TAB_ID interp
-#define ALIGNED_JMP_TAB_ALIGNMENT 32
-#include "fd_aligned_jump_tab.c"
+#define FD_JMP_TAB_ID interp
+#include "fd_jump_tab.c"
   
   fd_vm_sbpf_instr_t instr;
   ulong dst_reg;
@@ -211,15 +217,15 @@ fd_vm_sbpf_interp_instrs( fd_vm_sbpf_exec_context_t * ctx ) {
 
   goto *(locs[instr.opcode.raw]);
 
-AJT_START;
+FD_JMP_TAB_START;
 #include "fd_sbpf_interp_dispatch_tab.c"
-AJT_END;
+FD_JMP_TAB_END;
 
   ctx->program_counter = (ulong) pc;
   ctx->instruction_counter = ic;
 
-#include "fd_aligned_jump_tab_teardown.c"
-#undef ALIGNED_JMP_TAB_ALIGNMENT
+#include "fd_jump_tab_teardown.c"
+#undef FD_JMP_TAB_ID
 
   return;
 }
@@ -349,7 +355,6 @@ fd_vm_sbpf_interp_validate( fd_vm_sbpf_exec_context_t * ctx ) {
         }
         break;
       case FD_INVALID:
-        // FD_LOG_WARNING(( "INVALID OPCODE: %u", instr.opcode.raw)); 
         return FD_VM_SBPF_VALIDATE_ERR_INVALID_OPCODE;
     }
     
