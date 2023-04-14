@@ -1,7 +1,4 @@
 #include "fd_alloc.h"
-
-#if FD_HAS_HOSTED && FD_HAS_X86 /* This limitation is inherited from wksp */
-
 #include "fd_alloc_cfg.h"
 
 /* Note: this will still compile on platforms without FD_HAS_ATOMIC.  It
@@ -139,15 +136,31 @@ typedef struct fd_alloc_superblock fd_alloc_superblock_t;
 
 /* fd_alloc ***********************************************************/
 
+/* FD_ALLOC_MAGIC is an ideally unique number that specifies the precise
+   memory layout of a fd_alloc */
+
+#if FD_HAS_X86 /* Technically platforms with 16B compare-exchange */
+
+#define FD_ALLOC_MAGIC (0xF17EDA2C37A110C1UL) /* FIRE DANCER ALLOC version 1 */
+
 #define VOFF_NAME      fd_alloc_vgaddr
 #define VOFF_TYPE      uint128
 #define VOFF_VER_WIDTH 64
 #include "../tmpl/fd_voff.c"
 
-/* FD_ALLOC_MAGIC is an ideally unique number that specifies the precise
-   memory layout of a fd_wksp. */
+#else /* Platforms without 16B compare-exchange */
 
 #define FD_ALLOC_MAGIC (0xF17EDA2C37A110C0UL) /* FIRE DANCER ALLOC version 0 */
+
+/* TODO: Overaligning superblocks on these targets to get a wider
+   version width */
+
+#define VOFF_NAME      fd_alloc_vgaddr
+#define VOFF_TYPE      ulong
+#define VOFF_VER_WIDTH 4
+#include "../tmpl/fd_voff.c"
+
+#endif
 
 struct __attribute__((aligned(FD_ALLOC_ALIGN))) fd_alloc {
   ulong magic;    /* ==FD_ALLOC_MAGIC */
@@ -1433,5 +1446,3 @@ fd_alloc_fprintf( fd_alloc_t * join,
 }
 
 #undef TRAP
-
-#endif /* FD_HAS_HOSTED && FD_HAS_X86 */

@@ -1,6 +1,31 @@
-#if !FD_HAS_HOSTED
-#error "Implement logging support for this build target"
+#ifndef FD_LOG_STYLE
+#ifdef FD_HAS_HOSTED
+#define FD_LOG_STYLE 0
+#else
+#error "Define FD_LOG_STYLE for this platform"
 #endif
+#endif
+
+#if FD_LOG_STYLE==0 /* POSIX style */
+
+/* FIXME: SANITIZE VARIOUS USER SET STRINGS */
+
+#define _GNU_SOURCE
+
+#include "fd_log.h"
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <stdarg.h>
+#include <ctype.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <signal.h>
+#include <sched.h>
+#include <time.h>
+#include <syscall.h>
+#include <execinfo.h>
 
 /* TEXT_* are quick-and-dirty color terminal hacks.  Probably should
    do something more robust longer term. */
@@ -49,25 +74,6 @@
 #ifndef FD_LOG_FFLUSH_LOG_FILE
 #define FD_LOG_FFLUSH_LOG_FILE 0
 #endif
-
-/* FIXME: SANITIZE VARIOUS USER SET STRINGS */
-
-#define _GNU_SOURCE
-
-#include "fd_log.h"
-
-#include <stdio.h>
-#include <stdlib.h>
-#include <stdarg.h>
-#include <ctype.h>
-#include <errno.h>
-#include <fcntl.h>
-#include <unistd.h>
-#include <signal.h>
-#include <sched.h>
-#include <time.h>
-#include <syscall.h>
-#include <execinfo.h>
 
 /* APPLICATION LOGICAL ID APIS ****************************************/
 
@@ -1143,7 +1149,8 @@ fd_log_private_boot( int  *   pargc,
 
   FD_LOG_INFO(( "fd_log: --log-path          %s",  fd_log_private_path    ));
   FD_LOG_INFO(( "fd_log: --log-dedup         %i",  fd_log_private_dedup   ));
-  FD_LOG_INFO(( "fd_log: --log-backtrace     %i",  log_backtrace          ));
+  FD_LOG_INFO(( "fd_log: --log-colorize      %i",  fd_log_colorize()      ));
+  FD_LOG_INFO(( "fd_log: --log-level-logfile %i",  fd_log_level_logfile() ));
   FD_LOG_INFO(( "fd_log: --log-level-logfile %i",  fd_log_level_logfile() ));
   FD_LOG_INFO(( "fd_log: --log-level-stderr  %i",  fd_log_level_stderr()  ));
   FD_LOG_INFO(( "fd_log: --log-level-flush   %i",  fd_log_level_flush()   ));
@@ -1216,3 +1223,6 @@ fd_log_private_halt( void ) {
 //FD_LOG_INFO(( "fd_log: halt success" )); /* Log not online anymore */
 }
 
+#else
+#error "Unknown FD_LOG_STYLE"
+#endif

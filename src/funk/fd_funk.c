@@ -1,7 +1,5 @@
 #include "fd_funk.h"
 
-#if FD_HAS_HOSTED && FD_HAS_X86
-
 ulong
 fd_funk_align( void ) {
   return alignof(fd_funk_t);
@@ -124,6 +122,7 @@ fd_funk_new( void * shmem,
   funk->funk_gaddr = fd_wksp_gaddr_fast( wksp, funk );
   funk->wksp_tag   = wksp_tag;
   funk->seed       = seed;
+  funk->cycle_tag  = 3UL; /* various verify functions use tags 0-2 */
 
   funk->txn_max         = txn_max;
   funk->txn_map_gaddr   = fd_wksp_gaddr_fast( wksp, txn_map ); /* Note that this persists the join until delete */
@@ -249,6 +248,8 @@ fd_funk_verify( fd_funk_t * funk ) {
 
   ulong seed = funk->seed; /* seed can be anything */
 
+  TEST( funk->cycle_tag>2UL );
+
   /* Test transaction map */
 
   ulong txn_max = funk->txn_max;
@@ -338,4 +339,3 @@ fd_funk_verify( fd_funk_t * funk ) {
   return FD_FUNK_SUCCESS;
 }
 
-#endif /* FD_HAS_HOSTED && FD_HAS_X86 */

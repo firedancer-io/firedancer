@@ -1,10 +1,9 @@
 #include "fd_wksp_private.h"
 
-#if FD_HAS_HOSTED && FD_HAS_X86
+#if FD_HAS_HOSTED
 
 #include <errno.h>
 #include <signal.h>
-#include <xmmintrin.h>
 
 /* Private APIs **********************************************/
 
@@ -125,7 +124,17 @@ fd_wksp_private_lock( fd_wksp_t * wksp ) {
 
           ulong                    part_cnt = wksp->part_cnt;
           fd_wksp_private_part_t * part     = wksp->part;
-          
+
+          if( !part_cnt ) { /* In middle of reset */
+            FD_COMPILER_MFENCE();
+            FD_VOLATILE( part[0] ) = fd_wksp_private_part( 0UL, wksp->gaddr_lo );
+            FD_VOLATILE( part[1] ) = fd_wksp_private_part( 1UL, wksp->gaddr_hi );
+            FD_COMPILER_MFENCE();
+            FD_VOLATILE( wksp->part_cnt ) = 1UL;
+            FD_COMPILER_MFENCE();
+            return; /* We have the lock and the partitioning is reset. */
+          }
+
           /* Merging any adjacent inactive partitions that might have
              been left when the owner was killed.  Leading adjacent
              inactive partionings will become holes.  (FIXME: MERGE
@@ -1097,26 +1106,16 @@ fd_wksp_reset( fd_wksp_t * wksp ) {
   fd_wksp_private_lock( wksp );
 
   /* Free partition 0 and expand it cover the entire data region to make
-     all other partitions holes atomically.  Could be done as two
-     separate writes ala:
-
-       FD_COMPILER_MFENCE();
-       FD_VOLATILE( wksp->part[0] ) = fd_wksp_private_part( 0UL, wksp->gaddr_lo );
-       FD_COMPILER_MFENCE();
-       FD_VOLATILE( wksp->part[1] ) = fd_wksp_private_part( 1UL, wksp->gaddr_hi );
-       FD_COMPILER_MFENCE();
-
-     but it becomes theoretically possible for the caller to be killed
-     after the first write such that the effect would only to free
-     partition 0.  Doing both writes concurrently makes the entire
-     operation atomic.  See note in fd_wksp_new and fd_wksp_free why the
-     part[1] is marked as active. */
+     all other partitions holes.  See note in fd_wksp_new and
+     fd_wksp_free why the part[1] is marked as active. */
 
   FD_COMPILER_MFENCE();
-  _mm_store_si128( (__m128i *)wksp->part, _mm_set_epi64x( (long)fd_wksp_private_part( 1UL, wksp->gaddr_hi ),
-                                                          (long)fd_wksp_private_part( 0UL, wksp->gaddr_lo ) ) );
+  FD_VOLATILE( wksp->part_cnt ) = 0UL; /* Mark as in middle of reset in case we get killed in middle of resetting */
   FD_COMPILER_MFENCE();
-  FD_VOLATILE( wksp->part_cnt ) = 1UL; /* Trim off all holes */
+  FD_VOLATILE( wksp->part[0] ) = fd_wksp_private_part( 0UL, wksp->gaddr_lo );
+  FD_VOLATILE( wksp->part[1] ) = fd_wksp_private_part( 1UL, wksp->gaddr_hi );
+  FD_COMPILER_MFENCE();
+  FD_VOLATILE( wksp->part_cnt ) = 1UL; /* Reset is done */
   FD_COMPILER_MFENCE();
 
   fd_wksp_private_unlock( wksp );
