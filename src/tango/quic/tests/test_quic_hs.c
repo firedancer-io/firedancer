@@ -191,6 +191,8 @@ main( int argc, char ** argv ) {
   init_quic( server_quic, "server_host", 0x0a000001u, 4434 );
   init_quic( client_quic, "client_host", 0xc01a1a1au, 2001 );
 
+  strcpy( client_quic->config.keylog_file, "test_quic_hs.keylog" );
+
   server_quic->config.role = FD_QUIC_ROLE_SERVER;
   client_quic->config.role = FD_QUIC_ROLE_CLIENT;
 
