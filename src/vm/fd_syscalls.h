@@ -15,6 +15,12 @@
     ulong arg0, ulong arg1, ulong arg2, ulong arg3, ulong arg4, \
     ulong * ret_val )
 
+struct fd_vm_syscall_bytes_slice {
+  ulong addr;
+  ulong len;
+};
+typedef struct fd_vm_syscall_bytes_slice fd_vm_syscall_bytes_slice_t;
+
 FD_PROTOTYPES_BEGIN
 
 void fd_vm_syscall_register_all( fd_vm_sbpf_exec_context_t * ctx );

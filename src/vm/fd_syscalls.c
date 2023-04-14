@@ -61,11 +61,6 @@ fd_vm_syscall_sol_panic(
   return FD_VM_SYSCALL_ERR_UNIMPLEMENTED;
 }
 
-struct fd_vm_syscall_bytes_slice {
-  ulong addr;
-  ulong len;
-};
-typedef struct fd_vm_syscall_bytes_slice fd_vm_syscall_bytes_slice_t;
 
 ulong
 fd_vm_syscall_sol_sha256(
@@ -313,6 +308,7 @@ fd_vm_syscall_sol_memcpy(
     FD_FN_UNUSED ulong arg4,
     ulong * ret
 ) {
+  
   /* Check for overlap */
   if (src_vm_addr <= (dst_vm_addr + n) && dst_vm_addr <= (src_vm_addr + n)) {
     return FD_VM_SYSCALL_ERR_MEM_OVERLAP;

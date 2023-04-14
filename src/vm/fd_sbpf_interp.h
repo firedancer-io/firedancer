@@ -72,6 +72,7 @@ struct fd_vm_sbpf_exec_context {
   ulong                 program_counter;
   ulong                 instruction_counter;
   fd_vm_log_collector_t log_collector;
+  ulong                 compute_budget;
 
   uchar *       read_only;
   ulong         read_only_sz;
