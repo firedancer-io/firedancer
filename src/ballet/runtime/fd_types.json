@@ -577,9 +577,9 @@
       "name": "vote_state_update",
       "type": "struct",
       "fields": [
-        { "name": "lockouts", "type": "vector", "element": "vote_lockout" },
+        { "name": "lockouts", "type": "vector", "element": "vote_lockout", "comment": "The proposed tower" },
         { "name": "proposed_root", "type": "option", "element": "ulong" },
-        { "name": "hash", "type": "hash" },
+        { "name": "hash", "type": "hash", "comment": "signature of the bank's state at the last slot" },
         { "name": "timestamp", "type": "option", "element": "ulong" }
       ],
       "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L185"

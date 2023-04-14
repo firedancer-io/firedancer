@@ -97,6 +97,9 @@ typedef struct instruction_ctx instruction_ctx_t;
    The executor will execute instructions designated for a given native program by invoking a function of this type. */
 typedef int(*execute_instruction_func_t) ( instruction_ctx_t ctx );
 
+execute_instruction_func_t
+fd_executor_lookup_native_program( fd_global_ctx_t* global,  fd_pubkey_t *pubkey ) ;
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_ballet_runtime_fd_executor_h */

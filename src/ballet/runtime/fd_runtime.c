@@ -6,6 +6,9 @@
 
 #include "program/fd_stake_program_config.h"
 
+#include "program/fd_system_program.h"
+#include "program/fd_vote_program.h"
+
 #ifdef _DISABLE_OPTIMIZATION
 #pragma GCC optimize ("O0")
 #endif
@@ -114,6 +117,9 @@ fd_runtime_block_execute( fd_global_ctx_t *global, fd_slot_blocks_t *slot_data )
   } // while (NULL != blob)
 
   fd_sysvar_slot_history_update( global );
+
+  // this slot is frozen... and cannot change anymore...
+  fd_runtime_freeze( global );
 
   // Time to make the donuts...
 
@@ -232,19 +238,44 @@ fd_runtime_block_eval( fd_global_ctx_t *global, fd_slot_blocks_t *slot_data ) {
 
 ulong
 fd_runtime_calculate_fee( FD_FN_UNUSED fd_global_ctx_t *global, FD_FN_UNUSED fd_txn_t * txn_descriptor, FD_FN_UNUSED fd_rawtxn_b_t* txn_raw ) {
-  // solana/runtime/src/bank.rs::calculate_fee(....)
-//  return 10000;
-
+// https://github.com/firedancer-io/solana/blob/08a1ef5d785fe58af442b791df6c4e83fe2e7c74/runtime/src/bank.rs#L4443
   // TODO: implement fee distribution to the collector ... and then charge us the correct amount
-  return 5000;
+
+  fd_pubkey_t *tx_accs   = (fd_pubkey_t *)((uchar *)txn_raw->raw + txn_descriptor->acct_addr_off);
+
+  for ( ushort i = 0; i < txn_descriptor->instr_cnt; ++i ) {
+    fd_txn_instr_t * instr = &txn_descriptor->instr[i];
+    execute_instruction_func_t exec_instr_func = fd_executor_lookup_native_program( global, &tx_accs[instr->program_id] );
+    if (exec_instr_func == fd_executor_system_program_execute_instruction)
+      return 5000;
+    else
+      return 10000;
+  }
+
+  return 10000;
 }
 
 void
-fd_runtime_freeze( FD_FN_UNUSED fd_global_ctx_t *global ) {
-
+fd_runtime_freeze( fd_global_ctx_t *global ) {
   // solana/runtime/src/bank.rs::freeze(....)
   //self.collect_rent_eagerly();
   //self.collect_fees();
+
+  // Look at collect_fees... I think this was where I saw the fee payout..
+  if (global->collector_set && global->collected) {
+    fd_acc_lamports_t lamps;
+    int ret = fd_acc_mgr_get_lamports ( global->acc_mgr, global->funk_txn, &global->collector_id, &lamps);
+    if (ret != FD_ACC_MGR_SUCCESS) 
+      FD_LOG_ERR(( "The collector_id is wrong?!" ));
+
+    // TODO: half get burned?!
+    ret = fd_acc_mgr_set_lamports ( global->acc_mgr, global->funk_txn, global->current_slot, &global->collector_id, lamps + (global->collected/2));
+    if (ret != FD_ACC_MGR_SUCCESS) 
+      FD_LOG_ERR(( "lamport update failed" ));
+
+    global->collected = 0;
+  }
+  
   //self.distribute_rent();
   //self.update_slot_history();
   //self.run_incinerator();
