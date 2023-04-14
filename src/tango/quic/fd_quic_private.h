@@ -22,7 +22,8 @@ enum {
   FD_QUIC_TRANSPORT_PARAMS_RAW_SZ = 1200,
 };
 
-#define FD_QUIC_PKT_NUM_UNUSED (~0ul)
+#define FD_QUIC_PKT_NUM_UNUSED  (~0ul)
+#define FD_QUIC_PKT_NUM_PENDING (~1ul)
 
 /* events for time based processing */
 struct fd_quic_event {
