@@ -91,6 +91,8 @@ fd_quic_pkt_meta_remove( fd_quic_pkt_meta_list_t * list,
     /* not head, make pkt_meta_prior point to next */
     pkt_meta_prior->next = pkt_meta_next;
   }
+
+  pkt_meta->next = NULL;
 }
 
 
