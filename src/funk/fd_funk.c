@@ -15,7 +15,8 @@ fd_funk_footprint( void ) {
 void *
 fd_funk_new( void * shmem,
              ulong  wksp_tag,
-             ulong  seed ) {
+             ulong  seed,
+             ulong  txn_max ) {
   fd_funk_t * funk = (fd_funk_t *)shmem;
 
   if( FD_UNLIKELY( !funk ) ) {
@@ -39,11 +40,42 @@ fd_funk_new( void * shmem,
     return NULL;
   }
 
+  if( txn_max>FD_FUNK_TXN_IDX_NULL ) { /* See note in fd_funk.h about this limit */
+    FD_LOG_WARNING(( "txn_max too large for index compression" ));
+    return NULL;
+  }
+
+  void * txn_shmem = fd_wksp_alloc_laddr( wksp, fd_funk_txn_map_align(), fd_funk_txn_map_footprint( txn_max ), wksp_tag );
+  if( FD_UNLIKELY( !txn_shmem ) ) {
+    FD_LOG_WARNING(( "txn_max too large for workspace" ));
+    return NULL;
+  }
+
+  void * txn_shmap = fd_funk_txn_map_new( txn_shmem, txn_max, seed );
+  if( FD_UNLIKELY( !txn_shmap ) ) {
+    FD_LOG_WARNING(( "fd_funk_txn_map_new failed" ));
+    fd_wksp_free_laddr( txn_shmem );
+    return NULL;
+  }
+
+  fd_funk_txn_t * txn_map = fd_funk_txn_map_join( txn_shmap );
+  if( FD_UNLIKELY( !txn_shmap ) ) {
+    FD_LOG_WARNING(( "fd_funk_txn_map_join failed" ));
+    fd_wksp_free_laddr( fd_funk_txn_map_delete( txn_shmap ) );
+    return NULL;
+  }
+
   fd_memset( funk, 0, fd_funk_footprint() );
 
   funk->funk_gaddr = fd_wksp_gaddr_fast( wksp, funk );
   funk->wksp_tag   = wksp_tag;
   funk->seed       = seed;
+
+  funk->txn_max         = txn_max;
+  funk->txn_map_gaddr   = fd_wksp_gaddr_fast( wksp, txn_map );
+  funk->child_head_cidx = fd_funk_txn_cidx( FD_FUNK_TXN_IDX_NULL );
+  funk->child_tail_cidx = fd_funk_txn_cidx( FD_FUNK_TXN_IDX_NULL );
+  fd_funk_txn_id_set_root( funk->last_publish );
 
   FD_COMPILER_MFENCE();
   FD_VOLATILE( funk->magic ) = FD_FUNK_MAGIC;
@@ -116,6 +148,8 @@ fd_funk_delete( void * shfunk ) {
     return NULL;
   }
 
+  fd_wksp_free_laddr( fd_funk_txn_map_delete( fd_funk_txn_map_leave( fd_funk_txn_map( funk, wksp ) ) ) );
+
   FD_COMPILER_MFENCE();
   FD_VOLATILE( funk->magic ) = 0UL;
   FD_COMPILER_MFENCE();
@@ -132,6 +166,8 @@ fd_funk_verify( fd_funk_t * funk ) {
 
   TEST( funk );
 
+  /* Test metadata */
+
   TEST( funk->magic==FD_FUNK_MAGIC );
 
   ulong funk_gaddr = funk->funk_gaddr;
@@ -141,9 +177,35 @@ fd_funk_verify( fd_funk_t * funk ) {
   TEST( fd_wksp_laddr_fast( wksp, funk_gaddr )==(void *)funk );
   TEST( fd_wksp_gaddr_fast( wksp, funk       )==funk_gaddr   );
 
-  ulong wksp_tag = fd_funk_wksp_tag( funk ); TEST( (0UL<wksp_tag) && (wksp_tag<=FD_WKSP_ALLOC_TAG_MAX) );
-  
-  /* seed can be anything from funk's POV */
+  ulong wksp_tag = fd_funk_wksp_tag( funk );
+  TEST( (0UL<wksp_tag) && (wksp_tag<=FD_WKSP_ALLOC_TAG_MAX) );
+
+  ulong seed = funk->seed; /* seed can be anything */
+
+  /* Test transaction map */
+
+  ulong txn_max = funk->txn_max;
+  TEST( txn_max<=FD_FUNK_TXN_IDX_NULL );
+
+  ulong txn_map_gaddr = funk->txn_map_gaddr;
+  TEST( txn_map_gaddr );
+  TEST( fd_wksp_tag( wksp, txn_map_gaddr )==wksp_tag );
+  fd_funk_txn_t * txn_map = fd_funk_txn_map( funk, wksp );
+  TEST( txn_map );
+  TEST( txn_max==fd_funk_txn_map_key_max( txn_map ) );
+  TEST( seed   ==fd_funk_txn_map_seed   ( txn_map ) );
+
+  ulong child_head_idx = fd_funk_txn_idx( funk->child_head_cidx );
+  if( !txn_max ) TEST( fd_funk_txn_idx_is_null( child_head_idx ) );
+
+  ulong child_tail_idx = fd_funk_txn_idx( funk->child_tail_cidx );
+  if( !txn_max ) TEST( fd_funk_txn_idx_is_null( child_tail_idx ) );
+
+  fd_funk_txn_id_t * last_publish = funk->last_publish;
+  TEST( last_publish ); /* Practically guaranteed */
+  /* (*last_publish) can be anything except immediately after creation */
+
+  TEST( !fd_funk_txn_verify( txn_map, last_publish, child_head_idx, child_tail_idx ) );
 
 # undef TEST
 
