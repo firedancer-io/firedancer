@@ -841,6 +841,11 @@ MAP_(verify)( MAP_T const * join ) {
 
   MAP_TEST( cnt==free_cnt );
 
+  for( ulong ele_idx=0UL; ele_idx<key_cnt; ele_idx++ ) {
+    if( MAP_(private_unbox_tag)( join[ele_idx].MAP_NEXT ) ) continue;
+    MAP_TEST( MAP_(query_const)( join, &join[ele_idx].MAP_KEY, NULL )==&join[ele_idx] );
+  }
+
 # undef MAP_TEST
 
   return 0;
