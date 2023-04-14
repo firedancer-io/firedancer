@@ -962,8 +962,8 @@ fd_quic_stream_send( fd_quic_stream_t *  stream,
     return FD_QUIC_SEND_ERR_AGAIN;
   }
 
-  /* attempt to send */
-  fd_quic_conn_tx( conn->quic, conn );
+  /* schedule send */
+  fd_quic_reschedule_conn( conn, 0 );
 
   return (int)buffers_queued;
 }
@@ -3650,7 +3650,11 @@ fd_quic_conn_tx( fd_quic_t * quic, fd_quic_conn_t * conn ) {
               uint stream_flags_mask = FD_QUIC_STREAM_FLAGS_UNSENT
                                      | FD_QUIC_STREAM_FLAGS_TX_FIN;
               if( cur_stream->flags & stream_flags_mask ) {
-                stream = cur_stream;
+                if( stream ) {
+                  cur_stream->upd_pkt_number = conn->pkt_number[pn_space];
+                } else {
+                  stream = cur_stream;
+                }
               }
 
               if( cur_stream->flags & FD_QUIC_STREAM_FLAGS_MAX_STREAM_DATA ) {

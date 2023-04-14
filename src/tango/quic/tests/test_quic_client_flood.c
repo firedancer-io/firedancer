@@ -189,7 +189,7 @@ run_quic_client(
     fd_xsk_aio_service( xsk_aio );
 
     /* obtain a free stream */
-    while(1) {
+    for( ulong j = 0; j < 32; ++j ) {
 
       if( cur_stream ) {
         int rc = fd_quic_stream_send( cur_stream, batches[msg_sz - MSG_SZ_MIN], 1 /* batch_sz */, 1 /* fin */ ); /* fin: close stream after sending. last byte of transmission */
