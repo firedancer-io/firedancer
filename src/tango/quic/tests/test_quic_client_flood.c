@@ -9,125 +9,18 @@
 #include "../../../util/net/fd_eth.h"
 #include "../../../util/net/fd_ip4.h"
 
-typedef struct my_stream_meta my_stream_meta_t;
-struct my_stream_meta {
-  fd_quic_stream_t * stream;
-  my_stream_meta_t * next;
-};
-
-/* points to start of meta array */
-static my_stream_meta_t * meta_arr  = NULL;
-
-/* points to next free meta */
-static my_stream_meta_t * meta_free = NULL;
-
-/* populate meta_free with free stream meta */
-static void
-populate_stream_meta( ulong sz ) {
-  my_stream_meta_t * prev = NULL;
-
-  meta_arr = calloc( sz, sizeof(my_stream_meta_t) );
-
-  for( ulong j = 0; j < sz; ++j ) {
-    my_stream_meta_t * meta = &meta_arr[ j ];
-    meta->stream = NULL;
-    meta->next   = NULL;
-    if( !prev ) {
-      meta_free  = meta;
-    } else {
-      prev->next = meta;
-    }
-
-    prev = meta;
-  }
-}
-
-/* get free stream meta */
-static my_stream_meta_t *
-get_stream_meta( void ) {
-  my_stream_meta_t * meta = meta_free;
-  if( meta ) {
-    meta_free  = meta->next;
-    meta->next = NULL;
-  }
-  return meta;
-}
-
-my_stream_meta_t * stream_avail = NULL;
-
-/* get free stream */
-static my_stream_meta_t *
-get_stream( void ) {
-  my_stream_meta_t * meta = stream_avail;
-  if( meta ) {
-    stream_avail = meta->next;
-    meta->next   = NULL;
-  }
-  return meta;
-}
-
-/* push stream meta into front of free list */
-static void
-free_stream( my_stream_meta_t * meta ) {
-  meta->next   = stream_avail;
-  stream_avail = meta;
-}
-
-static void
-populate_streams( ulong            sz,
-                  fd_quic_conn_t * conn ) {
-  for( ulong j = 0; j < sz; ++j ) {
-    /* get free stream meta */
-    my_stream_meta_t * meta = get_stream_meta();
-
-    /* obtain stream */
-    fd_quic_stream_t * stream =
-      fd_quic_conn_new_stream( conn, FD_QUIC_TYPE_UNIDIR );
-    FD_TEST( stream );
-
-    /* set context on stream to meta */
-    /* stream here is null */
-    fd_quic_stream_set_context( stream, meta );
-
-    /* populate meta */
-    meta->stream = stream;
-
-    /* insert into avail list */
-    free_stream( meta );
-  }
-}
-
 extern uchar pkt_full[];
 extern ulong pkt_full_sz;
 
+fd_quic_stream_t * cur_stream = NULL;
+
 void
 my_stream_notify_cb( fd_quic_stream_t * stream, void * ctx, int type ) {
-  (void)stream;
-  my_stream_meta_t * meta = (my_stream_meta_t*)ctx;
-  switch( type ) {
-    case FD_QUIC_NOTIFY_END:
-      FD_LOG_DEBUG(( "stream end" ));
-
-      FD_TEST( !stream->conn->server );
-
-      /* obtain new stream */
-      fd_quic_stream_t * new_stream =
-        fd_quic_conn_new_stream( stream->conn, FD_QUIC_TYPE_UNIDIR );
-      FD_TEST( new_stream );
-
-      /* set context on stream to meta */
-      fd_quic_stream_set_context( new_stream, meta );
-
-      /* populate meta */
-      meta->stream = new_stream;
-
-      /* return meta */
-      free_stream( meta );
-      break;
-
-    default:
-      FD_LOG_INFO(( "stream notify: %#x", type ));
-      break;
+  (void)ctx;
+  (void)type;
+  FD_LOG_DEBUG(( "notify_cb" ));
+  if( cur_stream == stream ) {
+    cur_stream = NULL;
   }
 }
 
@@ -182,16 +75,13 @@ run_quic_client(
   uint           dst_ip,
   ushort         dst_port) {
 
-# define MSG_SZ_MIN (0UL)
+# define MSG_SZ_MIN (1UL)
 # define MSG_SZ_MAX (1232UL-64UL-32UL)
 # define MSG_SIZE_RANGE (MSG_SZ_MAX - MSG_SZ_MIN + 1UL)
   fd_aio_pkt_info_t batches[MSG_SIZE_RANGE][1];
 
   do {
     /* Reset locals */
-    meta_arr        = NULL;
-    meta_free       = NULL;
-    stream_avail    = NULL;
     client_conn     = NULL;
     client_complete = 0;
 
@@ -228,10 +118,6 @@ run_quic_client(
     FD_LOG_NOTICE(( "QUIC handshake complete" ));
 
     FD_TEST( client_conn->state == FD_QUIC_CONN_STATE_ACTIVE );
-
-    /* populate free streams */
-    populate_stream_meta( quic->limits.stream_cnt              );
-    populate_streams    ( quic->limits.stream_cnt, client_conn );
 
     /* create and sign fake ref message txns */
     /* generate a message for every possible message size, using code from fd_frank_verify_synth_load */
@@ -287,8 +173,14 @@ run_quic_client(
     fd_rng_delete    ( fd_rng_leave   ( rng    ) );
   } while(0);
 
+  ulong sent   = 0;
+  long  t0     = fd_log_wallclock();
+  ulong msg_sz = MSG_SZ_MIN;
+
+  cur_stream = NULL;
+
   /* Continually send data while we have a valid connection */
-  for ( ulong msg_sz=MSG_SZ_MIN; msg_sz<=MSG_SZ_MAX; msg_sz++ ) {
+  while(1) {
     if ( !client_conn ) {
       break;
     }
@@ -296,38 +188,49 @@ run_quic_client(
     fd_quic_service( quic );
     fd_xsk_aio_service( xsk_aio );
 
-    /* obtain an free stream */
-    my_stream_meta_t * meta = get_stream();
+    /* obtain a free stream */
+    while(1) {
 
-    if( meta ) {
-      fd_quic_stream_t * stream = meta->stream;
+      if( cur_stream ) {
+        int rc = fd_quic_stream_send( cur_stream, batches[msg_sz - MSG_SZ_MIN], 1 /* batch_sz */, 1 /* fin */ ); /* fin: close stream after sending. last byte of transmission */
+        FD_LOG_DEBUG(( "fd_quic_stream_send returned %d", rc ));
 
-      int rc = fd_quic_stream_send( stream, batches[msg_sz - MSG_SZ_MIN], 1 /* batch_sz */, 1 /* fin */ ); /* fin: close stream after sending. last byte of transmission */
-      FD_LOG_DEBUG(( "fd_quic_stream_send returned %d", rc ));
+        if( rc == 1 ) {
+          sent++;
+          /* successful - stream will begin closing */
+          /* stream and meta will be recycled when quic notifies the stream
+             is closed via my_stream_notify_cb */
 
-      if( rc == 1 ) {
-        /* successful - stream will begin closing */
-        /* stream and meta will be recycled when quic notifies the stream
-           is closed via my_stream_notify_cb */
+          msg_sz++;
+          if ( msg_sz == MSG_SZ_MAX ) {
+            msg_sz = MSG_SZ_MIN;
+          }
+          cur_stream = NULL;
+        } else {
+          /* did not send, did not start finalize, so stream is still available */
+          break;
+        }
       } else {
-        /* did not send, did not start finalize, so stream is still available */
-        free_stream( meta );
+        if( client_conn ) {
+          cur_stream = fd_quic_conn_new_stream( client_conn, FD_QUIC_TYPE_UNIDIR );
+        }
+        break;
       }
-    } else {
-      FD_LOG_ERR(( "unable to send. no streams available" ));
+
+      if( client_conn && !cur_stream ) {
+        cur_stream = fd_quic_conn_new_stream( client_conn, FD_QUIC_TYPE_UNIDIR );
+      }
     }
 
-    if ( msg_sz == MSG_SZ_MAX ) {
-      msg_sz = MSG_SZ_MIN;
+    long t1 = fd_log_wallclock();
+    if( t1 >= t0 ) {
+      printf( "streams: %lu  cur_stream: %p\n", sent, (void*)cur_stream ); fflush( stdout );
+      sent = 0;
+      t0 = t1 + (long)1e9;
     }
   }
 
   do {
-    if( meta_arr ) {
-      free( meta_arr );
-      meta_arr = NULL;
-    }
-
     /* close the connections */
     if( client_conn ) {
       fd_quic_conn_close( client_conn, 0 );
@@ -347,15 +250,15 @@ main( int argc, char ** argv ) {
   ulong cpu_idx = fd_tile_cpu_id( fd_tile_idx() );
   if( cpu_idx>=fd_shmem_cpu_cnt() ) cpu_idx = 0UL;
 
-  char const * _page_sz  = fd_env_strip_cmdline_cstr  ( &argc, &argv, "--page-sz",        NULL, "gigantic"                 );
-  ulong        page_cnt  = fd_env_strip_cmdline_ulong ( &argc, &argv, "--page-cnt",       NULL, 1UL                        );
-  ulong        numa_idx  = fd_env_strip_cmdline_ulong ( &argc, &argv, "--numa-idx",       NULL, fd_shmem_numa_idx(cpu_idx) );
+  char const * _page_sz  = fd_env_strip_cmdline_cstr  ( &argc, &argv, "--page-sz",        NULL, "gigantic"                   );
+  ulong        page_cnt  = fd_env_strip_cmdline_ulong ( &argc, &argv, "--page-cnt",       NULL, 1UL                          );
+  ulong        numa_idx  = fd_env_strip_cmdline_ulong ( &argc, &argv, "--numa-idx",       NULL, fd_shmem_numa_idx(cpu_idx)   );
   ulong        xdp_mtu   = fd_env_strip_cmdline_ulong ( &argc, &argv, "--xdp-mtu",        NULL, 2048UL                       );
   ulong        xdp_depth = fd_env_strip_cmdline_ulong ( &argc, &argv, "--xdp-depth",      NULL, 1024UL                       );
   char const * iface     = fd_env_strip_cmdline_cstr  ( &argc, &argv, "--iface",          NULL, NULL                         );
   uint         ifqueue   = fd_env_strip_cmdline_uint  ( &argc, &argv, "--ifqueue",        NULL, 0U                           );
-  char const * _src_ip   = fd_env_strip_cmdline_cstr  ( &argc, &argv, "--src-ip",         NULL, NULL                       );
-  char const * _dst_ip   = fd_env_strip_cmdline_cstr  ( &argc, &argv, "--dst-ip",         NULL, NULL                       );
+  char const * _src_ip   = fd_env_strip_cmdline_cstr  ( &argc, &argv, "--src-ip",         NULL, NULL                         );
+  char const * _dst_ip   = fd_env_strip_cmdline_cstr  ( &argc, &argv, "--dst-ip",         NULL, NULL                         );
   uint         src_port  = fd_env_strip_cmdline_uint  ( &argc, &argv, "--src-port",       NULL, 8080U                        );
   uint         dst_port  = fd_env_strip_cmdline_uint  ( &argc, &argv, "--dst-port",       NULL, 9001U                        );
   char const * _hwaddr   = fd_env_strip_cmdline_cstr  ( &argc, &argv, "--hwaddr",         NULL, NULL                         );
