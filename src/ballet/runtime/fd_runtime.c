@@ -124,9 +124,11 @@ fd_runtime_block_execute( fd_global_ctx_t *global, fd_slot_blocks_t *slot_data )
   // Time to make the donuts...
 
   ulong dirty = global->acc_mgr->keys.cnt;
-  FD_LOG_WARNING(("slot %ld   dirty %ld", global->current_slot, dirty));
+  if (FD_UNLIKELY(global->log_level > 2)) 
+    FD_LOG_WARNING(("slot %ld   dirty %ld", global->current_slot, dirty));
   if (dirty > 0) {
-    fd_hash_bank( &global->banks_hash, (fd_hash_t *) global->block_hash, signature_cnt, global->acc_mgr->keys.elems, dirty, &global->banks_hash );
+    global->signature_cnt = signature_cnt;
+    fd_hash_bank( global, &global->banks_hash );
 
     fd_dirty_dup_delete_all (global->acc_mgr->shmap);
     fd_pubkey_hash_vector_clear(&global->acc_mgr->keys);

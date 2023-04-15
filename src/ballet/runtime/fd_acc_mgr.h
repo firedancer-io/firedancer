@@ -42,7 +42,7 @@ FD_PROTOTYPES_BEGIN
 #undef VECT_ELEMENT
 
 struct __attribute__((aligned(8UL))) fd_acc_mgr {
-  fd_funk_t*                                   funk;
+  fd_global_ctx_t*                             global;
   void *                                       shmap;
   fd_dirty_map_entry_t *                       dup;
   fd_pubkey_hash_vector_t                      keys;
@@ -56,7 +56,7 @@ typedef struct fd_acc_mgr fd_acc_mgr_t;
 typedef struct fd_global_ctx fd_global_ctx_t;
 
 void* fd_acc_mgr_new( void*      mem,
-                      fd_funk_t* funk,
+                      fd_global_ctx_t* global,
                       ulong      footprint );
 
 fd_acc_mgr_t* fd_acc_mgr_join( void* mem );

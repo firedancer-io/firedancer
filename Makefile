@@ -57,3 +57,7 @@ include $(addprefix config/with-,$(addsuffix .mk,$(EXTRAS)))
 include config/everything.mk
 include config/coverage.mk
 
+# can this go here or should it be in config/everything.mk
+run-runtime-test:
+	src/ballet/runtime/run_ledger_tests.sh 
+

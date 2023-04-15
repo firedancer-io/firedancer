@@ -4,6 +4,7 @@
 #include <assert.h>
 #include <stdio.h>
 #include "../base58/fd_base58.h"
+#include "fd_runtime.h"
 
 #define SORT_NAME sort_pubkey_hash_pair
 #define SORT_KEY_T fd_pubkey_hash_pair_t
@@ -14,7 +15,7 @@
 #define FD_ACCOUNT_DELTAS_MAX_MERKLE_HEIGHT (16UL)
 
 void 
-fd_hash_account_deltas( fd_pubkey_hash_pair_t * pairs, ulong pairs_len, fd_hash_t * hash ) {
+fd_hash_account_deltas(fd_global_ctx_t *global, fd_pubkey_hash_pair_t * pairs, ulong pairs_len, fd_hash_t * hash ) {
   fd_sha256_t shas[FD_ACCOUNT_DELTAS_MAX_MERKLE_HEIGHT];
   uchar num_hashes[FD_ACCOUNT_DELTAS_MAX_MERKLE_HEIGHT+1];
 
@@ -28,15 +29,17 @@ fd_hash_account_deltas( fd_pubkey_hash_pair_t * pairs, ulong pairs_len, fd_hash_
 
   if( pairs_len == 0 ) {
     fd_sha256_fini( &shas[0], hash->hash );
-#ifdef _VERBOSE    
+    if (FD_UNLIKELY(global->log_level > 5)) {
       FD_LOG_NOTICE(( "M"
         "\n\t\t" FD_LOG_HEX16_FMT "  " FD_LOG_HEX16_FMT,
         FD_LOG_HEX16_FMT_ARGS(     hash->hash    ), FD_LOG_HEX16_FMT_ARGS(     hash->hash+16 ))); 
-#endif
+    }
     return;
   }
 
-  FD_LOG_NOTICE(( "W %ld", pairs_len));
+  if (FD_UNLIKELY(global->log_level > 2)) 
+    FD_LOG_NOTICE(( "W %ld", pairs_len));
+
   for( ulong i = 0; i < pairs_len; ++i ) {
     char encoded_pubkey[50];
     fd_base58_encode_32((uchar *) pairs[i].pubkey.key, 0, encoded_pubkey);
@@ -44,19 +47,18 @@ fd_hash_account_deltas( fd_pubkey_hash_pair_t * pairs, ulong pairs_len, fd_hash_
     char encoded_hash[50];
     fd_base58_encode_32((uchar *) pairs[i].hash.hash, 0, encoded_hash);
 
-    FD_LOG_NOTICE(( "X { \"key\":%ld, \"pubkey\":\"%s\", \"hash\":\"%s\" },", i, encoded_pubkey, encoded_hash));
+    if (FD_UNLIKELY(global->log_level > 2)) 
+      FD_LOG_NOTICE(( "X { \"key\":%ld, \"pubkey\":\"%s\", \"hash\":\"%s\" },", i, encoded_pubkey, encoded_hash));
 
     fd_sha256_append( &shas[0] , (uchar const *) pairs[i].hash.hash, sizeof( fd_hash_t ) );
     num_hashes[0]++;
     
     for( ulong j = 0; j < FD_ACCOUNT_DELTAS_MAX_MERKLE_HEIGHT; ++j ) {
-#ifdef _VERBOSE    
-      FD_LOG_NOTICE(( "Z %lu %lu %lu", i, j, shas[j].buf_used ));
-#endif
+      if (FD_UNLIKELY(global->log_level > 5)) 
+        FD_LOG_NOTICE(( "Z %lu %lu %lu", i, j, shas[j].buf_used ));
       if (num_hashes[j] == FD_ACCOUNT_DELTAS_MERKLE_FANOUT) {
-#ifdef _VERBOSE    
-        FD_LOG_NOTICE(( "Y %lu %lu %u", i, j, num_hashes[j] ));
-#endif
+        if (FD_UNLIKELY(global->log_level > 5)) 
+          FD_LOG_NOTICE(( "Y %lu %lu %u", i, j, num_hashes[j] ));
         num_hashes[j] = 0;
         num_hashes[j+1]++;
         fd_hash_t sub_hash;
@@ -130,35 +132,36 @@ fd_hash_account_deltas( fd_pubkey_hash_pair_t * pairs, ulong pairs_len, fd_hash_
 }
 
 void
-fd_hash_bank( fd_hash_t *parent_hash, fd_hash_t *last_block_hash, ulong signature_count, fd_pubkey_hash_pair_t * pairs, ulong pairs_len, fd_hash_t * hash ) {
-  fd_hash_t account_deltas_hash;
-  fd_hash_t old_parent_hash = *parent_hash;
+fd_hash_bank( fd_global_ctx_t *global, fd_hash_t * hash ) {
+  global->prev_banks_hash = global->banks_hash;
 
-  fd_hash_account_deltas( pairs, pairs_len, &account_deltas_hash );
+  fd_hash_account_deltas( global, global->acc_mgr->keys.elems, global->acc_mgr->keys.cnt, &global->account_delta_hash );
 
   fd_sha256_t sha;
   fd_sha256_init( &sha );
-  fd_sha256_append( &sha, (uchar const *) parent_hash, sizeof( fd_hash_t ) );
-  fd_sha256_append( &sha, (uchar const *) account_deltas_hash.hash, sizeof( fd_hash_t  ) );
-  fd_sha256_append( &sha, (uchar const *) &signature_count, sizeof( ulong ) );
-  fd_sha256_append( &sha, (uchar const *) last_block_hash, sizeof( fd_hash_t ) );
+  fd_sha256_append( &sha, (uchar const *) global->banks_hash.hash, sizeof( fd_hash_t ) );
+  fd_sha256_append( &sha, (uchar const *) global->account_delta_hash.hash, sizeof( fd_hash_t  ) );
+  fd_sha256_append( &sha, (uchar const *) &global->signature_cnt, sizeof( ulong ) );
+  fd_sha256_append( &sha, (uchar const *) global->block_hash, sizeof( fd_hash_t ) );
 
   fd_sha256_fini( &sha, hash->hash );
 
-  char encoded_hash[50];
-  fd_base58_encode_32((uchar *) hash->hash, 0, encoded_hash);
+  if (global->log_level > 0) {
+    char encoded_hash[50];
+    fd_base58_encode_32((uchar *) hash->hash, 0, encoded_hash);
 
-  char encoded_parent[50];
-  fd_base58_encode_32((uchar *) old_parent_hash.hash, 0, encoded_parent);
+    char encoded_parent[50];
+    fd_base58_encode_32((uchar *) global->prev_banks_hash.hash, 0, encoded_parent);
 
-  char encoded_account_delta[50];
-  fd_base58_encode_32((uchar *) account_deltas_hash.hash, 0, encoded_account_delta);
+    char encoded_account_delta[50];
+    fd_base58_encode_32((uchar *) global->account_delta_hash.hash, 0, encoded_account_delta);
 
-  char encoded_last_block_hash[50];
-  fd_base58_encode_32((uchar *) last_block_hash, 0, encoded_last_block_hash);
+    char encoded_last_block_hash[50];
+    fd_base58_encode_32((uchar *) global->block_hash, 0, encoded_last_block_hash);
 
-  FD_LOG_NOTICE(( "hash: %s,  parent_hash: %s,  accounts_delta: %s,  signature_count: %ld,  last_blockhash: %s",
-      encoded_hash, encoded_parent, encoded_account_delta, signature_count, encoded_last_block_hash));
+    FD_LOG_NOTICE(( "hash: %s,  parent_hash: %s,  accounts_delta: %s,  signature_count: %ld,  last_blockhash: %s",
+        encoded_hash, encoded_parent, encoded_account_delta, global->signature_cnt, encoded_last_block_hash));
+  }
 }
 
 void

@@ -66,6 +66,9 @@ struct __attribute__((aligned(FD_GLOBAL_CTX_ALIGN))) fd_global_ctx {
   ushort                     funk_txn_index;
   uchar                      block_hash[FD_SHA256_HASH_SZ];
   fd_hash_t                  banks_hash;
+  ulong                      signature_cnt;
+  fd_hash_t                  account_delta_hash;
+  fd_hash_t                  prev_banks_hash;
 
   fd_pubkey_t                collector_id;
   ulong                      collected;
@@ -75,6 +78,7 @@ struct __attribute__((aligned(FD_GLOBAL_CTX_ALIGN))) fd_global_ctx {
 
   uchar                      poh_booted;
   uchar                      collector_set;
+  uchar                      log_level;
 };
 typedef struct fd_global_ctx fd_global_ctx_t;
 

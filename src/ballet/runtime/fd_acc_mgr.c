@@ -1,6 +1,7 @@
 #include "fd_acc_mgr.h"
 #include "../base58/fd_base58.h"
 #include "fd_hashes.h"
+#include "fd_runtime.h"
 #include <stdio.h>
 
 #ifdef _DISABLE_OPTIMIZATION
@@ -8,7 +9,7 @@
 #endif
 
 void* fd_acc_mgr_new( void*      mem,
-                      fd_funk_t* funk,
+                      fd_global_ctx_t* global,
                       ulong      footprint ) {
   if( FD_UNLIKELY( !mem ) ) {
     FD_LOG_WARNING(( "NULL mem" ));
@@ -18,7 +19,7 @@ void* fd_acc_mgr_new( void*      mem,
   fd_memset( mem, 0, footprint );
 
   fd_acc_mgr_t* acc_mgr = (fd_acc_mgr_t*)mem;
-  acc_mgr->funk         = funk;
+  acc_mgr->global         = global;
 
   acc_mgr->shmap = fd_dirty_dup_new ( acc_mgr->data, LG_SLOT_CNT );
 
@@ -62,7 +63,7 @@ fd_funk_recordid_t funk_id( fd_pubkey_t* pubkey ) {
 int fd_acc_mgr_get_account_data( fd_acc_mgr_t* acc_mgr, struct fd_funk_xactionid const* txn, fd_pubkey_t* pubkey, uchar* result, ulong offset, ulong bytes ) {
   fd_funk_recordid_t id = funk_id(pubkey);
   void*              buffer = NULL;
-  long               read = fd_funk_read( acc_mgr->funk, txn, &id, (const void**)&buffer, offset, bytes );
+  long               read = fd_funk_read( acc_mgr->global->funk, txn, &id, (const void**)&buffer, offset, bytes );
   if ( FD_UNLIKELY( read == -1 )) {
 //    FD_LOG_WARNING(( "attempt to read data for unknown account" ));
     return FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
@@ -103,7 +104,7 @@ int fd_acc_mgr_write_account_data( fd_acc_mgr_t* acc_mgr, struct fd_funk_xaction
 
   /* Write the account data */
   fd_funk_recordid_t id = funk_id( pubkey );
-  if ( FD_UNLIKELY( fd_funk_write( acc_mgr->funk, txn, &id, data, offset, data_len ) != (long)data_len ) ) {
+  if ( FD_UNLIKELY( fd_funk_write( acc_mgr->global->funk, txn, &id, data, offset, data_len ) != (long)data_len ) ) {
     FD_LOG_WARNING(( "failed to write account data" ));
     return FD_ACC_MGR_ERR_WRITE_FAILED;
   }
@@ -118,7 +119,9 @@ int fd_acc_mgr_get_lamports( fd_acc_mgr_t* acc_mgr, struct fd_funk_xactionid con
     char buf[50];
     fd_base58_encode_32((uchar *) pubkey, NULL, buf);
 
-    FD_LOG_WARNING(( "failed to read account metadata: %s", buf ));
+    if (FD_UNLIKELY(acc_mgr->global->log_level > 2)) 
+      FD_LOG_WARNING(( "failed to read account metadata: %s", buf ));
+
     return read_result;
   }
 
@@ -174,7 +177,8 @@ int fd_acc_mgr_write_structured_account( fd_acc_mgr_t* acc_mgr, struct fd_funk_x
   char encoded_pubkey[50];
   fd_base58_encode_32((uchar *) pubkey, 0, encoded_pubkey);
 
-  FD_LOG_WARNING(( "fd_acc_mgr_write_structured_account: slot=%ld, pubkey=%s  hash=%s   dlen=%ld", slot, encoded_pubkey, encoded_hash, m->dlen ));
+  if (FD_UNLIKELY(acc_mgr->global->log_level > 2)) 
+    FD_LOG_WARNING(( "fd_acc_mgr_write_structured_account: slot=%ld, pubkey=%s  hash=%s   dlen=%ld", slot, encoded_pubkey, encoded_hash, m->dlen ));
 
   fd_memcpy(&data[sizeof(fd_account_meta_t)], account->data, account->data_len);
 

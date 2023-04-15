@@ -26,3 +26,4 @@ opt/
 *.swp
 *.swo
 
+test-ledger*

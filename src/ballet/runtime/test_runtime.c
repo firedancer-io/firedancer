@@ -33,7 +33,9 @@
 
 
 // --ledger /home/jsiegel/repos/solana/test-ledger --db /home/jsiegel/funk --cmd accounts --accounts /home/jsiegel/repos/solana/test-ledger/accounts/ --pages 15 --index-max 120000000 --start-slot 0 --end-slot 1 --start-id 0 --end-id 1
-// --ledger /home/jsiegel/repos/solana/test-ledger --db /home/jsiegel/funk --cmd replay --accounts /home/jsiegel/repos/solana/test-ledger/accounts/ --pages 15 --index-max 120000000 --start-slot 0 --end-slot 6
+// --ledger /home/jsiegel/repos/solana/test-ledger --db /home/jsiegel/funk --cmd replay --accounts /home/jsiegel/repos/solana/test-ledger/accounts/ --pages 15 --index-max 120000000 --start-slot 0 --end-slot 6 --log_level 3
+
+// --ledger /home/jsiegel/repos/solana/test-ledger --db /home/jsiegel/funk --cmd replay --accounts /home/jsiegel/repos/solana/test-ledger/accounts/ --pages 15 --index-max 120000000 --start-slot 0 --end-slot 25  --confirm_hash AsHedZaZkabNtB8XBiKWQkKwaeLy2y4Hrqm6MkQALT5h --confirm_parent CvgPeR54qpVRZGBuiQztGXecxSXREPfTF8wALujK4WdE --confirm_account_delta 7PL6JZgcNy5vkPSc6JsMHET9dvpvsFMWR734VtCG29xN  --confirm_signature 2  --confirm_last_block G4YL2SieHDGNZGjiwBsJESK7jMDfazg33ievuCwbkjrv
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -985,8 +987,16 @@ int main(int argc, char **argv) {
   state.cmd                 = fd_env_strip_cmdline_cstr ( &argc, &argv, "--cmd",          NULL, NULL);
   state.txn_exe_opt         = fd_env_strip_cmdline_cstr ( &argc, &argv, "--txn-exe",      NULL, NULL);
   state.pages_opt           = fd_env_strip_cmdline_cstr ( &argc, &argv, "--pages",        NULL, NULL);
-  const char *index_max_opt = fd_env_strip_cmdline_cstr ( &argc, &argv, "--index-max",    NULL, NULL);
-  const char *validate_db   = fd_env_strip_cmdline_cstr ( &argc, &argv, "--validate",     NULL, NULL);
+
+  const char *index_max_opt           = fd_env_strip_cmdline_cstr ( &argc, &argv, "--index-max",    NULL, NULL);
+  const char *validate_db             = fd_env_strip_cmdline_cstr ( &argc, &argv, "--validate",     NULL, NULL);
+  const char *log_level               = fd_env_strip_cmdline_cstr ( &argc, &argv, "--log_level",     NULL, NULL);
+
+  const char *confirm_hash            = fd_env_strip_cmdline_cstr ( &argc, &argv, "--confirm_hash",          NULL, NULL);
+  const char *confirm_parent          = fd_env_strip_cmdline_cstr ( &argc, &argv, "--confirm_parent",        NULL, NULL);
+  const char *confirm_account_delta   = fd_env_strip_cmdline_cstr ( &argc, &argv, "--confirm_account_delta", NULL, NULL);
+  const char *confirm_signature       = fd_env_strip_cmdline_cstr ( &argc, &argv, "--confirm_signature",     NULL, NULL);
+  const char *confirm_last_block      = fd_env_strip_cmdline_cstr ( &argc, &argv, "--confirm_last_block",    NULL, NULL);
 
   if ((NULL == state.ledger) || (NULL == state.db)) {
     usage(argv[0]);
@@ -1028,6 +1038,9 @@ int main(int argc, char **argv) {
 
   state.global = (fd_global_ctx_t *) local_allocf(allocf_arg, FD_GLOBAL_CTX_ALIGN, FD_GLOBAL_CTX_FOOTPRINT);
   fd_global_ctx_new(state.global);
+
+  if (NULL != log_level)
+    state.global->log_level = (uchar) atoi(log_level);
 
   state.global->wksp = wksp;
   state.global->allocf = local_allocf;
@@ -1103,7 +1116,7 @@ int main(int argc, char **argv) {
 
   /* Initialize the account manager */
   void *fd_acc_mgr_raw = state.global->allocf(state.global->allocf_arg, FD_ACC_MGR_ALIGN, FD_ACC_MGR_FOOTPRINT);
-  state.global->acc_mgr = fd_acc_mgr_join(fd_acc_mgr_new(fd_acc_mgr_raw, state.global->funk, FD_ACC_MGR_FOOTPRINT));
+  state.global->acc_mgr = fd_acc_mgr_join(fd_acc_mgr_new(fd_acc_mgr_raw, state.global, FD_ACC_MGR_FOOTPRINT));
 
   fd_vec_fd_clock_timestamp_vote_t_new( &state.global->timestamp_votes.votes );
 
@@ -1156,8 +1169,37 @@ int main(int argc, char **argv) {
     FD_LOG_WARNING(("setting the start_slot to %ld since that is the first slot we see in the rocksdb", state.start_slot));
   }
 
-  if (strcmp(state.cmd, "replay") == 0)
+  if (strcmp(state.cmd, "replay") == 0) {
     replay(&state);
+
+    if (NULL != confirm_hash) {
+      uchar h[32];
+      fd_base58_decode_32( confirm_hash,  h);
+      FD_TEST(memcmp(h, state.global->banks_hash.uc, sizeof(h)) == 0);
+    }
+
+    if (NULL != confirm_parent) {
+      uchar h[32];
+      fd_base58_decode_32( confirm_parent,  h);
+      FD_TEST(memcmp(h, state.global->prev_banks_hash.uc, sizeof(h)) == 0);
+    }
+
+    if (NULL != confirm_account_delta) {
+      uchar h[32];
+      fd_base58_decode_32( confirm_account_delta,  h);
+      FD_TEST(memcmp(h, state.global->account_delta_hash.uc, sizeof(h)) == 0);
+    }
+
+    if (NULL != confirm_signature) 
+      FD_TEST((ulong) atoi(confirm_signature) == state.global->signature_cnt);
+
+    if (NULL != confirm_last_block) {
+      uchar h[32];
+      fd_base58_decode_32( confirm_last_block,  h);
+      FD_TEST(memcmp(h, state.global->block_hash, sizeof(h)) == 0);
+    }
+
+  }
   if (strcmp(state.cmd, "manifest") == 0)
     manifest(&state);
   if (strcmp(state.cmd, "ingest") == 0)
