@@ -91,16 +91,18 @@ fetch () {
   fetch_repo elfutils git://sourceware.org/git/elfutils.git
   fetch_repo libbpf https://github.com/libbpf/libbpf
   fetch_repo openssl https://github.com/quictls/openssl
+  fetch_repo libseccomp https://github.com/seccomp/libseccomp.git
 
   checkout_repo zlib "v1.2.13"
   checkout_repo zstd "v1.5.4"
   checkout_repo elfutils "elfutils-0.189"
   checkout_repo libbpf "v1.1.0"
   checkout_repo openssl "OpenSSL_1_1_1t-quic1"
+  checkout_repo libseccomp "release-2.5"
 }
 
 check_fedora_pkgs () {
-  local REQUIRED_RPMS=( perl autoconf gettext-devel automake flex bison )
+  local REQUIRED_RPMS=( perl autoconf gettext-devel automake flex bison gperf )
 
   echo "[~] Checking for required RPM packages"
 
@@ -326,12 +328,38 @@ install_openssl () {
   echo "[~] Installed all dependencies"
 }
 
+install_libseccomp () {
+  if pkg-config --exists libseccomp; then
+    echo "[~] libseccomp already installed at $(pkg-config --path libseccomp), skipping installation"
+    return 0
+  fi
+
+  cd ./opt/git/libseccomp
+
+  echo "[+] Configuring libseccomp"
+  ./autogen.sh
+  ./configure \
+    --prefix="$PREFIX"
+  echo "[+] Configured libseccomp"
+
+  echo "[+] Building libseccomp"
+  make -j --output-sync=target
+  echo "[+] Successfully built libseccomp"
+
+  echo "[+] Installing libseccomp to $PREFIX"
+  make install
+  echo "[+] Successfully installed libseccomp"
+
+  echo "[~] Installed all dependencies"
+}
+
 install () {
-  ( install_zlib     )
-  ( install_zstd     )
-  ( install_elfutils )
-  ( install_libbpf   )
-  ( install_openssl  )
+  ( install_zlib       )
+  ( install_zstd       )
+  ( install_elfutils   )
+  ( install_libbpf     )
+  ( install_openssl    )
+  ( install_libseccomp )
 
   echo "[~] Done! To wire up $(pwd)/opt with make, run:"
   echo "    source activate-opt"
