@@ -54,7 +54,6 @@
 #include "../../util/alloc/fd_alloc.h"
 #include "../base58/fd_base58.h"
 #include "../poh/fd_poh.h"
-#include "../bmtree/fd_bmtree.h"
 #include "../sha256/fd_sha256.h"
 #include "sysvar/fd_sysvar_clock.h"
 #include "sysvar/fd_sysvar.h"
@@ -1046,6 +1045,7 @@ int main(int argc, char **argv) {
   state.global->allocf = local_allocf;
   state.global->freef = local_freef;
   state.global->allocf_arg = allocf_arg;
+  state.global->alloc = allocf_arg;
 
   ulong index_max = 1000000;    // Maximum size (count) of master index
 

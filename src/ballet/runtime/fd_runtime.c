@@ -87,7 +87,7 @@ fd_runtime_block_execute( fd_global_ctx_t *global, fd_slot_blocks_t *slot_data )
   fd_sysvar_clock_update( global);
   fd_sysvar_recent_hashes_update ( global );
   // It has to go into the current txn previous info but is not in slot 0
-  if (global -> current_slot != 0) 
+  if (global->current_slot != 0)
     fd_sysvar_slot_hashes_update( global );
 
   ulong signature_cnt = 0;
@@ -124,7 +124,7 @@ fd_runtime_block_execute( fd_global_ctx_t *global, fd_slot_blocks_t *slot_data )
   // Time to make the donuts...
 
   ulong dirty = global->acc_mgr->keys.cnt;
-  if (FD_UNLIKELY(global->log_level > 2)) 
+  if (FD_UNLIKELY(global->log_level > 2))
     FD_LOG_WARNING(("slot %ld   dirty %ld", global->current_slot, dirty));
   if (dirty > 0) {
     global->signature_cnt = signature_cnt;
@@ -157,7 +157,7 @@ fd_runtime_block_verify( fd_global_ctx_t *global, fd_slot_blocks_t *slot_data ) 
         if (micro_block->hdr.hash_cnt > 0)
           fd_poh_append(&global->poh, micro_block->hdr.hash_cnt - 1);
         uchar outhash[32];
-        fd_microblock_mixin(micro_block, outhash);
+        fd_microblock_batched_mixin(micro_block, outhash, global->alloc);
         fd_poh_mixin(&global->poh, outhash);
       } else
         fd_poh_append(&global->poh, micro_block->hdr.hash_cnt);
@@ -223,7 +223,7 @@ fd_runtime_block_eval( fd_global_ctx_t *global, fd_slot_blocks_t *slot_data ) {
   // verify threads complete successfully..
 
   int ret = fd_runtime_block_verify( global, slot_data );
-  if ( FD_RUNTIME_EXECUTE_SUCCESS == ret ) 
+  if ( FD_RUNTIME_EXECUTE_SUCCESS == ret )
     ret = fd_runtime_block_execute( global, slot_data );
 
   if (FD_RUNTIME_EXECUTE_SUCCESS != ret ) {
@@ -241,12 +241,12 @@ fd_runtime_block_eval( fd_global_ctx_t *global, fd_slot_blocks_t *slot_data ) {
 ulong
 fd_runtime_calculate_fee( FD_FN_UNUSED fd_global_ctx_t *global, FD_FN_UNUSED fd_txn_t * txn_descriptor, FD_FN_UNUSED fd_rawtxn_b_t* txn_raw ) {
 // https://github.com/firedancer-io/solana/blob/08a1ef5d785fe58af442b791df6c4e83fe2e7c74/runtime/src/bank.rs#L4443
-  // TODO: implement fee distribution to the collector ... and then charge us the correct amount
+// TODO: implement fee distribution to the collector ... and then charge us the correct amount
 
   fd_pubkey_t *tx_accs   = (fd_pubkey_t *)((uchar *)txn_raw->raw + txn_descriptor->acct_addr_off);
 
   for ( ushort i = 0; i < txn_descriptor->instr_cnt; ++i ) {
-    fd_txn_instr_t * instr = &txn_descriptor->instr[i];
+    fd_txn_instr_t *           instr = &txn_descriptor->instr[i];
     execute_instruction_func_t exec_instr_func = fd_executor_lookup_native_program( global, &tx_accs[instr->program_id] );
     if (exec_instr_func == fd_executor_system_program_execute_instruction)
       return 5000;
@@ -266,18 +266,18 @@ fd_runtime_freeze( fd_global_ctx_t *global ) {
   // Look at collect_fees... I think this was where I saw the fee payout..
   if (global->collector_set && global->collected) {
     fd_acc_lamports_t lamps;
-    int ret = fd_acc_mgr_get_lamports ( global->acc_mgr, global->funk_txn, &global->collector_id, &lamps);
-    if (ret != FD_ACC_MGR_SUCCESS) 
+    int               ret = fd_acc_mgr_get_lamports ( global->acc_mgr, global->funk_txn, &global->collector_id, &lamps);
+    if (ret != FD_ACC_MGR_SUCCESS)
       FD_LOG_ERR(( "The collector_id is wrong?!" ));
 
     // TODO: half get burned?!
     ret = fd_acc_mgr_set_lamports ( global->acc_mgr, global->funk_txn, global->current_slot, &global->collector_id, lamps + (global->collected/2));
-    if (ret != FD_ACC_MGR_SUCCESS) 
+    if (ret != FD_ACC_MGR_SUCCESS)
       FD_LOG_ERR(( "lamport update failed" ));
 
     global->collected = 0;
   }
-  
+
   //self.distribute_rent();
   //self.update_slot_history();
   //self.run_incinerator();
