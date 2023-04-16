@@ -22,8 +22,9 @@ main( int     argc,
   ulong        page_cnt = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt",  NULL,             1UL );
   ulong        near_cpu = fd_env_strip_cmdline_ulong( &argc, &argv, "--near-cpu",  NULL, fd_log_cpu_id() );
   ulong        wksp_tag = fd_env_strip_cmdline_ulong( &argc, &argv, "--wksp-tag",  NULL,          1234UL );
-  ulong        txn_max  = fd_env_strip_cmdline_ulong( &argc, &argv, "--txn-max",   NULL,            32UL );
   ulong        seed     = fd_env_strip_cmdline_ulong( &argc, &argv, "--seed",      NULL,          5678UL );
+  ulong        txn_max  = fd_env_strip_cmdline_ulong( &argc, &argv, "--txn-max",   NULL,            32UL );
+  ulong        rec_max  = fd_env_strip_cmdline_ulong( &argc, &argv, "--rec-max",   NULL,            32UL );
   ulong        iter_max = fd_env_strip_cmdline_ulong( &argc, &argv, "--iter-max",  NULL,       1048576UL );
   int          verbose  = fd_env_strip_cmdline_int  ( &argc, &argv, "--verbose",   NULL,               0 );
 
@@ -41,15 +42,14 @@ main( int     argc,
 
   if( FD_UNLIKELY( !wksp ) ) FD_LOG_ERR(( "Unable to attach to wksp" ));
 
-  FD_LOG_NOTICE(( "Testing with --wksp-tag %lu --txn-max %lu --seed %lu --iter-max %lu --verbose %i",
-                  wksp_tag, txn_max, seed, iter_max, verbose ));
+  FD_LOG_NOTICE(( "Testing with --wksp-tag %lu --seed %lu --txn-max %lu --rxn-max %lu --iter-max %lu --verbose %i",
+                  wksp_tag, seed, txn_max, rec_max, iter_max, verbose ));
 
   fd_funk_t * funk = fd_funk_join( fd_funk_new( fd_wksp_alloc_laddr( wksp, fd_funk_align(), fd_funk_footprint(), wksp_tag ),
-                                                wksp_tag, seed, txn_max ) );
+                                                wksp_tag, seed, txn_max, rec_max ) );
   if( FD_UNLIKELY( !funk ) ) FD_LOG_ERR(( "Unable to create funk" ));
   
-  fd_funk_txn_t * map = fd_funk_txn_map( funk, wksp ); FD_TEST( map );
-  FD_TEST( fd_wksp_tag( wksp, fd_wksp_gaddr_fast( wksp, map ) )==wksp_tag );
+  fd_funk_txn_t * map = fd_funk_txn_map( funk, wksp );
 
   fd_funk_txn_xid_t const * last_publish = fd_funk_last_publish( funk );
 

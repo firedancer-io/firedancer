@@ -16,7 +16,8 @@ void *
 fd_funk_new( void * shmem,
              ulong  wksp_tag,
              ulong  seed,
-             ulong  txn_max ) {
+             ulong  txn_max,
+             ulong  rec_max ) {
   fd_funk_t * funk = (fd_funk_t *)shmem;
 
   if( FD_UNLIKELY( !funk ) ) {
@@ -65,6 +66,29 @@ fd_funk_new( void * shmem,
     return NULL;
   }
 
+  void * rec_shmem = fd_wksp_alloc_laddr( wksp, fd_funk_rec_map_align(), fd_funk_rec_map_footprint( rec_max ), wksp_tag );
+  if( FD_UNLIKELY( !rec_shmem ) ) {
+    FD_LOG_WARNING(( "rec_max too large for workspace" ));
+    fd_wksp_free_laddr( fd_funk_txn_map_delete( fd_funk_txn_map_leave( txn_map ) ) );
+    return NULL;
+  }
+
+  void * rec_shmap = fd_funk_rec_map_new( rec_shmem, rec_max, seed );
+  if( FD_UNLIKELY( !rec_shmap ) ) {
+    FD_LOG_WARNING(( "fd_funk_rec_map_new failed" ));
+    fd_wksp_free_laddr( rec_shmem );
+    fd_wksp_free_laddr( fd_funk_txn_map_delete( fd_funk_txn_map_leave( txn_map ) ) );
+    return NULL;
+  }
+
+  fd_funk_rec_t * rec_map = fd_funk_rec_map_join( rec_shmap );
+  if( FD_UNLIKELY( !rec_shmap ) ) {
+    FD_LOG_WARNING(( "fd_funk_rec_map_join failed" ));
+    fd_wksp_free_laddr( fd_funk_rec_map_delete( rec_shmap ) );
+    fd_wksp_free_laddr( fd_funk_txn_map_delete( fd_funk_txn_map_leave( txn_map ) ) );
+    return NULL;
+  }
+
   fd_memset( funk, 0, fd_funk_footprint() );
 
   funk->funk_gaddr = fd_wksp_gaddr_fast( wksp, funk );
@@ -72,10 +96,13 @@ fd_funk_new( void * shmem,
   funk->seed       = seed;
 
   funk->txn_max         = txn_max;
-  funk->txn_map_gaddr   = fd_wksp_gaddr_fast( wksp, txn_map );
+  funk->txn_map_gaddr   = fd_wksp_gaddr_fast( wksp, txn_map ); /* Note that this persists the join until delete */
   funk->child_head_cidx = fd_funk_txn_cidx( FD_FUNK_TXN_IDX_NULL );
   funk->child_tail_cidx = fd_funk_txn_cidx( FD_FUNK_TXN_IDX_NULL );
   fd_funk_txn_xid_set_root( funk->last_publish );
+
+  funk->rec_max       = rec_max;
+  funk->rec_map_gaddr = fd_wksp_gaddr_fast( wksp, rec_map ); /* Note that this persists the join until delete */
 
   FD_COMPILER_MFENCE();
   FD_VOLATILE( funk->magic ) = FD_FUNK_MAGIC;
@@ -148,6 +175,7 @@ fd_funk_delete( void * shfunk ) {
     return NULL;
   }
 
+  fd_wksp_free_laddr( fd_funk_rec_map_delete( fd_funk_rec_map_leave( fd_funk_rec_map( funk, wksp ) ) ) );
   fd_wksp_free_laddr( fd_funk_txn_map_delete( fd_funk_txn_map_leave( fd_funk_txn_map( funk, wksp ) ) ) );
 
   FD_COMPILER_MFENCE();
@@ -206,6 +234,21 @@ fd_funk_verify( fd_funk_t * funk ) {
   /* (*last_publish) can be anything except immediately after creation */
 
   TEST( !fd_funk_txn_verify( funk ) );
+
+  /* Test record map */
+
+  ulong rec_max = funk->rec_max;
+  TEST( rec_max<=FD_FUNK_TXN_IDX_NULL );
+
+  ulong rec_map_gaddr = funk->rec_map_gaddr;
+  TEST( rec_map_gaddr );
+  TEST( fd_wksp_tag( wksp, rec_map_gaddr )==wksp_tag );
+  fd_funk_rec_t * rec_map = fd_funk_rec_map( funk, wksp );
+  TEST( rec_map );
+  TEST( rec_max==fd_funk_rec_map_key_max( rec_map ) );
+  TEST( seed   ==fd_funk_rec_map_seed   ( rec_map ) );
+
+  TEST( !fd_funk_rec_verify( funk ) );
 
 # undef TEST
 
