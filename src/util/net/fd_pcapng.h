@@ -101,8 +101,8 @@ fd_pcapng_fwrite_idb( uint                         link_type,
 /* fd_pcapng_fwrite_pkt writes an EPB (Enhanced Packet Block) containing
    an ethernet frame at time ts (in nanos). Same semantics as fwrite
    (returns the number of packets written, which should be 1 on success
-   and 0 on failure). Current section's IDB
-   tsresol==FD_PCAPNG_TSRESOL_NS (initialized accordingly by
+   and 0 on failure). Current section's IDB tsresol==
+   FD_PCAPNG_TSRESOL_NS (initialized accordingly by
    fd_pcapng_idb_defaults).  queue is the RX queue index on which this
    packet was received on (-1 if unknown). */
 
