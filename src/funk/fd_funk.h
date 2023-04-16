@@ -2,7 +2,8 @@
 #define HEADER_fd_src_funk_fd_funk_h
 
 //#include "fd_funk_base.h" /* Includes ../util/fd_util.h */
-#include "fd_funk_txn.h"  /* Includes fd_funk_base.h */
+//#include "fd_funk_txn.h"  /* Includes fd_funk_base.h */
+#include "fd_funk_rec.h"    /* Includes fd_funk_txn.h */
 
 #if FD_HAS_HOSTED && FD_HAS_X86
 
@@ -83,6 +84,25 @@ struct __attribute__((aligned(FD_FUNK_ALIGN))) fd_funk_private {
 
   fd_funk_txn_xid_t last_publish[1]; /* Root transaction immediately after construction */
 
+  /* The funk record map stores the details about all the records in the
+     last published transaction.  This is a fd_map_giant and more
+     details are given in fd_funk_txn.h
+
+     rec_max is the maximum number of records that can exist in this
+     funk.
+
+     rec_map_gaddr is the wksp gaddr of the fd_funk_rec_map_t used by
+     this funk.  Since this is a fd_map_giant under the hood and those
+     are relocatable, it is possible to move this around within the wksp
+     backing the funk if necessary.  Such can be helpful if needing to
+     do offline rebuilding, resizing, serialization, deserialization,
+     etc. */
+
+  ulong rec_max;
+  ulong rec_map_gaddr; /* Non-zero wksp gaddr with tag wksp_tag
+                          seed   ==fd_funk_rec_map_seed   (rec_map)
+                          rec_max==fd_funk_rec_map_key_max(rec_map) */
+
   /* Padding to FD_FUNK_ALIGN here */
 };
 
@@ -116,7 +136,8 @@ void *
 fd_funk_new( void * shmem,
              ulong  wksp_tag,
              ulong  seed,
-             ulong  txn_max );
+             ulong  txn_max,
+             ulong  rec_max );
 
 /* fd_funk_join joins the caller to a funk instance.  shfunk points to
    the first byte of the memory region backing the funk in the caller's
@@ -219,6 +240,21 @@ FD_FN_CONST static inline fd_funk_txn_xid_t const * fd_funk_last_publish( fd_fun
 FD_FN_PURE static inline int
 fd_funk_last_publish_is_frozen( fd_funk_t const * funk ) {
   return fd_funk_txn_idx( funk->child_head_cidx )!=FD_FUNK_TXN_IDX_NULL;
+}
+
+/* fd_funk_rec_max returns maximum number of records that can be held
+   in the funk.  This includes both records of the last published
+   transaction and records for transactions that are in-flight. */
+
+FD_FN_PURE static inline ulong fd_funk_rec_max( fd_funk_t * funk ) { return funk->rec_max; }
+
+/* fd_funk_rec_map returns a pointer in the caller's address space to
+   the funk's record map. */
+
+FD_FN_PURE static inline fd_funk_rec_t * /* Lifetime is that of the local join */
+fd_funk_rec_map( fd_funk_t * funk,       /* Assumes current local join */
+                 fd_wksp_t * wksp ) {    /* Assumes wksp == fd_funk_wksp( funk ) */
+  return (fd_funk_rec_t *)fd_wksp_laddr_fast( wksp, funk->rec_map_gaddr );
 }
 
 /* Operations */
