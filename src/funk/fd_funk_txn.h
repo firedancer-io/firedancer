@@ -416,13 +416,11 @@ fd_funk_txn_merge( fd_funk_t *     funk,
 /* fd_funk_txn_verify verifies a transaction map.  Returns
    FD_FUNK_SUCCESS if the transaction map appears intact and
    FD_FUNK_ERR_INVAL if not (logs details).  Meant to be called as part
-   of fd_funk_verify. */
+   of fd_funk_verify.  As such, it assumes funk is non-NULL and
+   fd_funk_{wksp,txn_map} have already been verified to work. */
 
 int
-fd_funk_txn_verify( fd_funk_txn_t *           map,
-                    fd_funk_txn_xid_t const * last_publish,
-                    ulong                     funk_child_head_idx,
-                    ulong                     funk_child_tail_idx );
+fd_funk_txn_verify( fd_funk_t * funk );
 
 FD_PROTOTYPES_END
 

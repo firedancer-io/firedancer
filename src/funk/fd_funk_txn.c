@@ -618,18 +618,20 @@ fd_funk_txn_merge( fd_funk_t *     funk,
 }
 
 int
-fd_funk_txn_verify( fd_funk_txn_t *           map,
-                    fd_funk_txn_xid_t const * last_publish,
-                    ulong                     funk_child_head_idx,
-                    ulong                     funk_child_tail_idx ) {
+fd_funk_txn_verify( fd_funk_t * funk ) {
+  fd_wksp_t *     wksp = fd_funk_wksp( funk );          /* Previously verified */
+  fd_funk_txn_t * map  = fd_funk_txn_map( funk, wksp ); /* Previously verified */
+
+  ulong funk_child_head_idx = fd_funk_txn_idx( funk->child_head_cidx ); /* Previously verified */
+  ulong funk_child_tail_idx = fd_funk_txn_idx( funk->child_tail_cidx ); /* Previously verified */
+
+  fd_funk_txn_xid_t const * last_publish = funk->last_publish; /* Previously verified */
 
 # define TEST(c) do {                                                                           \
     if( FD_UNLIKELY( !(c) ) ) { FD_LOG_WARNING(( "FAIL: %s", #c )); return FD_FUNK_ERR_INVAL; } \
   } while(0)
 
 # define IS_VALID( idx ) ((idx==FD_FUNK_TXN_IDX_NULL) || ((idx<txn_max) && (!fd_funk_txn_xid_eq( &map[idx].xid, last_publish ))))
-
-  TEST( map );
 
   TEST( !fd_funk_txn_map_verify( map ) );
 

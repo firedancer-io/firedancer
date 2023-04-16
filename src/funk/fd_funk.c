@@ -205,7 +205,7 @@ fd_funk_verify( fd_funk_t * funk ) {
   TEST( last_publish ); /* Practically guaranteed */
   /* (*last_publish) can be anything except immediately after creation */
 
-  TEST( !fd_funk_txn_verify( txn_map, last_publish, child_head_idx, child_tail_idx ) );
+  TEST( !fd_funk_txn_verify( funk ) );
 
 # undef TEST
 
