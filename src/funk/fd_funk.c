@@ -75,7 +75,7 @@ fd_funk_new( void * shmem,
   funk->txn_map_gaddr   = fd_wksp_gaddr_fast( wksp, txn_map );
   funk->child_head_cidx = fd_funk_txn_cidx( FD_FUNK_TXN_IDX_NULL );
   funk->child_tail_cidx = fd_funk_txn_cidx( FD_FUNK_TXN_IDX_NULL );
-  fd_funk_txn_id_set_root( funk->last_publish );
+  fd_funk_txn_xid_set_root( funk->last_publish );
 
   FD_COMPILER_MFENCE();
   FD_VOLATILE( funk->magic ) = FD_FUNK_MAGIC;
@@ -201,7 +201,7 @@ fd_funk_verify( fd_funk_t * funk ) {
   ulong child_tail_idx = fd_funk_txn_idx( funk->child_tail_cidx );
   if( !txn_max ) TEST( fd_funk_txn_idx_is_null( child_tail_idx ) );
 
-  fd_funk_txn_id_t * last_publish = funk->last_publish;
+  fd_funk_txn_xid_t * last_publish = funk->last_publish;
   TEST( last_publish ); /* Practically guaranteed */
   /* (*last_publish) can be anything except immediately after creation */
 

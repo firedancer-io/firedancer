@@ -15,11 +15,11 @@ FD_STATIC_ASSERT( FD_FUNK_REC_KEY_FOOTPRINT==sizeof (fd_funk_rec_key_t), unit_te
 
 FD_STATIC_ASSERT( FD_FUNK_REC_VAL_MAX      ==(10UL<<20),                 unit_test );
 
-FD_STATIC_ASSERT( FD_FUNK_TXN_ID_ALIGN     ==32UL,                       unit_test );
-FD_STATIC_ASSERT( FD_FUNK_TXN_ID_FOOTPRINT ==32UL,                       unit_test );
+FD_STATIC_ASSERT( FD_FUNK_TXN_XID_ALIGN    ==32UL,                       unit_test );
+FD_STATIC_ASSERT( FD_FUNK_TXN_XID_FOOTPRINT==32UL,                       unit_test );
 
-FD_STATIC_ASSERT( FD_FUNK_TXN_ID_ALIGN     ==alignof(fd_funk_txn_id_t),  unit_test );
-FD_STATIC_ASSERT( FD_FUNK_TXN_ID_FOOTPRINT ==sizeof (fd_funk_txn_id_t),  unit_test );
+FD_STATIC_ASSERT( FD_FUNK_TXN_XID_ALIGN    ==alignof(fd_funk_txn_xid_t), unit_test );
+FD_STATIC_ASSERT( FD_FUNK_TXN_XID_FOOTPRINT==sizeof (fd_funk_txn_xid_t), unit_test );
 
 static fd_funk_rec_key_t *
 fd_funk_rec_key_set_unique( fd_funk_rec_key_t * key ) {
@@ -36,8 +36,8 @@ fd_funk_rec_key_set_unique( fd_funk_rec_key_t * key ) {
   return key;
 }
 
-static fd_funk_txn_id_t *
-fd_funk_txn_id_set_unique( fd_funk_txn_id_t * xid ) {
+static fd_funk_txn_xid_t *
+fd_funk_txn_xid_set_unique( fd_funk_txn_xid_t * xid ) {
   static FD_TLS ulong tag = 0UL;
   xid->ul[0] = fd_log_app_id();
   xid->ul[1] = fd_log_thread_id();
@@ -79,44 +79,44 @@ main( int     argc,
     FD_TEST( fd_funk_rec_key_eq( b, a )==1 ); FD_TEST( fd_funk_rec_key_eq( b, b )==1 );
   }
 
-  fd_funk_txn_id_t z[1];
-  FD_TEST( fd_funk_txn_id_set_root( z )==z );
-  FD_TEST( fd_funk_txn_id_eq_root ( z )==1 );
+  fd_funk_txn_xid_t z[1];
+  FD_TEST( fd_funk_txn_xid_set_root( z )==z );
+  FD_TEST( fd_funk_txn_xid_eq_root ( z )==1 );
   FD_TEST( !(z->ul[0] | z->ul[1] | z->ul[2] | z->ul[3]) );
 
   for( ulong rem=1000000UL; rem; rem-- ) {
-    fd_funk_txn_id_t a[1]; fd_funk_txn_id_set_unique( a );
-    fd_funk_txn_id_t b[1]; fd_funk_txn_id_set_unique( b );
+    fd_funk_txn_xid_t a[1]; fd_funk_txn_xid_set_unique( a );
+    fd_funk_txn_xid_t b[1]; fd_funk_txn_xid_set_unique( b );
 
-    ulong hash = fd_funk_txn_id_hash( a, 1234UL ); FD_COMPILER_FORGET( hash );
-    /**/  hash = fd_funk_txn_id_hash( b, 1234UL ); FD_COMPILER_FORGET( hash );
+    ulong hash = fd_funk_txn_xid_hash( a, 1234UL ); FD_COMPILER_FORGET( hash );
+    /**/  hash = fd_funk_txn_xid_hash( b, 1234UL ); FD_COMPILER_FORGET( hash );
 
-    FD_TEST( fd_funk_txn_id_eq_root( a )==0 );
-    FD_TEST( fd_funk_txn_id_eq_root( b )==0 );
-    FD_TEST( fd_funk_txn_id_eq_root( z )==1 );
-    FD_TEST( fd_funk_txn_id_eq( a, a )==1 ); FD_TEST( fd_funk_txn_id_eq( a, b )==0 ); FD_TEST( fd_funk_txn_id_eq( a, z )==0 );
-    FD_TEST( fd_funk_txn_id_eq( b, a )==0 ); FD_TEST( fd_funk_txn_id_eq( b, b )==1 ); FD_TEST( fd_funk_txn_id_eq( b, z )==0 );
-    FD_TEST( fd_funk_txn_id_eq( z, a )==0 ); FD_TEST( fd_funk_txn_id_eq( z, b )==0 ); FD_TEST( fd_funk_txn_id_eq( z, z )==1 );
+    FD_TEST( fd_funk_txn_xid_eq_root( a )==0 );
+    FD_TEST( fd_funk_txn_xid_eq_root( b )==0 );
+    FD_TEST( fd_funk_txn_xid_eq_root( z )==1 );
+    FD_TEST( fd_funk_txn_xid_eq( a, a )==1 ); FD_TEST( fd_funk_txn_xid_eq( a, b )==0 ); FD_TEST( fd_funk_txn_xid_eq( a, z )==0 );
+    FD_TEST( fd_funk_txn_xid_eq( b, a )==0 ); FD_TEST( fd_funk_txn_xid_eq( b, b )==1 ); FD_TEST( fd_funk_txn_xid_eq( b, z )==0 );
+    FD_TEST( fd_funk_txn_xid_eq( z, a )==0 ); FD_TEST( fd_funk_txn_xid_eq( z, b )==0 ); FD_TEST( fd_funk_txn_xid_eq( z, z )==1 );
     FD_TEST( !(z->ul[0] | z->ul[1] | z->ul[2] | z->ul[3]) );
 
-    FD_TEST( fd_funk_txn_id_copy( b, a )==b );
+    FD_TEST( fd_funk_txn_xid_copy( b, a )==b );
 
-    FD_TEST( fd_funk_txn_id_eq_root( a )==0 );
-    FD_TEST( fd_funk_txn_id_eq_root( b )==0 );
-    FD_TEST( fd_funk_txn_id_eq_root( z )==1 );
-    FD_TEST( fd_funk_txn_id_eq( a, a )==1 ); FD_TEST( fd_funk_txn_id_eq( a, b )==1 ); FD_TEST( fd_funk_txn_id_eq( a, z )==0 );
-    FD_TEST( fd_funk_txn_id_eq( b, a )==1 ); FD_TEST( fd_funk_txn_id_eq( b, b )==1 ); FD_TEST( fd_funk_txn_id_eq( b, z )==0 );
-    FD_TEST( fd_funk_txn_id_eq( z, a )==0 ); FD_TEST( fd_funk_txn_id_eq( z, b )==0 ); FD_TEST( fd_funk_txn_id_eq( z, z )==1 );
+    FD_TEST( fd_funk_txn_xid_eq_root( a )==0 );
+    FD_TEST( fd_funk_txn_xid_eq_root( b )==0 );
+    FD_TEST( fd_funk_txn_xid_eq_root( z )==1 );
+    FD_TEST( fd_funk_txn_xid_eq( a, a )==1 ); FD_TEST( fd_funk_txn_xid_eq( a, b )==1 ); FD_TEST( fd_funk_txn_xid_eq( a, z )==0 );
+    FD_TEST( fd_funk_txn_xid_eq( b, a )==1 ); FD_TEST( fd_funk_txn_xid_eq( b, b )==1 ); FD_TEST( fd_funk_txn_xid_eq( b, z )==0 );
+    FD_TEST( fd_funk_txn_xid_eq( z, a )==0 ); FD_TEST( fd_funk_txn_xid_eq( z, b )==0 ); FD_TEST( fd_funk_txn_xid_eq( z, z )==1 );
     FD_TEST( !(z->ul[0] | z->ul[1] | z->ul[2] | z->ul[3]) );
 
-    FD_TEST( fd_funk_txn_id_copy( a, z )==a );
+    FD_TEST( fd_funk_txn_xid_copy( a, z )==a );
 
-    FD_TEST( fd_funk_txn_id_eq_root( a )==1 );
-    FD_TEST( fd_funk_txn_id_eq_root( b )==0 );
-    FD_TEST( fd_funk_txn_id_eq_root( z )==1 );
-    FD_TEST( fd_funk_txn_id_eq( a, a )==1 ); FD_TEST( fd_funk_txn_id_eq( a, b )==0 ); FD_TEST( fd_funk_txn_id_eq( a, z )==1 );
-    FD_TEST( fd_funk_txn_id_eq( b, a )==0 ); FD_TEST( fd_funk_txn_id_eq( b, b )==1 ); FD_TEST( fd_funk_txn_id_eq( b, z )==0 );
-    FD_TEST( fd_funk_txn_id_eq( z, a )==1 ); FD_TEST( fd_funk_txn_id_eq( z, b )==0 ); FD_TEST( fd_funk_txn_id_eq( z, z )==1 );
+    FD_TEST( fd_funk_txn_xid_eq_root( a )==1 );
+    FD_TEST( fd_funk_txn_xid_eq_root( b )==0 );
+    FD_TEST( fd_funk_txn_xid_eq_root( z )==1 );
+    FD_TEST( fd_funk_txn_xid_eq( a, a )==1 ); FD_TEST( fd_funk_txn_xid_eq( a, b )==0 ); FD_TEST( fd_funk_txn_xid_eq( a, z )==1 );
+    FD_TEST( fd_funk_txn_xid_eq( b, a )==0 ); FD_TEST( fd_funk_txn_xid_eq( b, b )==1 ); FD_TEST( fd_funk_txn_xid_eq( b, z )==0 );
+    FD_TEST( fd_funk_txn_xid_eq( z, a )==1 ); FD_TEST( fd_funk_txn_xid_eq( z, b )==0 ); FD_TEST( fd_funk_txn_xid_eq( z, z )==1 );
     FD_TEST( !(z->ul[0] | z->ul[1] | z->ul[2] | z->ul[3]) );
   }
 

@@ -79,9 +79,9 @@ struct __attribute__((aligned(FD_FUNK_ALIGN))) fd_funk_private {
   uint  child_head_cidx; /* After decompression, in [0,txn_max) or FD_FUNK_TXN_IDX_NULL, FD_FUNK_TXN_IDX_NULL if txn_max 0 */
   uint  child_tail_cidx; /* " */
 
-  /* Padding to FD_FUNK_TXN_ID_ALIGN here */
+  /* Padding to FD_FUNK_TXN_XID_ALIGN here */
 
-  fd_funk_txn_id_t last_publish[1]; /* Root transaction immediately after construction */
+  fd_funk_txn_xid_t last_publish[1]; /* Root transaction immediately after construction */
 
   /* Padding to FD_FUNK_ALIGN here */
 };
@@ -210,7 +210,7 @@ fd_funk_last_publish_child_tail( fd_funk_t *     funk,   /* Assumes current loca
    lifetime of the current local join.  The value at this pointer will
    be constant until the next transaction is published. */
 
-FD_FN_CONST static inline fd_funk_txn_id_t const * fd_funk_last_publish( fd_funk_t * funk ) { return funk->last_publish; }
+FD_FN_CONST static inline fd_funk_txn_xid_t const * fd_funk_last_publish( fd_funk_t * funk ) { return funk->last_publish; }
 
 /* fd_funk_is_frozen returns 1 if the records of the last published
    transaction are frozen (i.e. the funk has children) and 0 otherwise
