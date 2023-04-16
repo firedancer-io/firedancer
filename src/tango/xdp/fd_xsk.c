@@ -478,7 +478,8 @@ fd_xsk_init( fd_xsk_t * xsk ) {
   struct sockaddr_xdp sa = {
     .sxdp_family   = PF_XDP,
     .sxdp_ifindex  = xsk->if_idx,
-    .sxdp_queue_id = xsk->if_queue_id
+    .sxdp_queue_id = xsk->if_queue_id,
+    .sxdp_flags    = XDP_USE_NEED_WAKEUP
   };
 
   if( FD_UNLIKELY( 0!=bind( xsk->xsk_fd, (void *)&sa, sizeof(struct sockaddr_xdp) ) ) ) {
