@@ -3,7 +3,7 @@
 #if FD_HAS_HOSTED && FD_HAS_X86
 
 FD_STATIC_ASSERT( FD_FUNK_ALIGN    ==128UL,                unit-test );
-FD_STATIC_ASSERT( FD_FUNK_FOOTPRINT==128UL,                unit-test );
+FD_STATIC_ASSERT( FD_FUNK_FOOTPRINT==256UL,                unit-test );
 
 FD_STATIC_ASSERT( FD_FUNK_ALIGN    ==alignof(fd_funk_t),   unit-test );
 FD_STATIC_ASSERT( FD_FUNK_FOOTPRINT==sizeof (fd_funk_t),   unit-test );
@@ -73,15 +73,22 @@ main( int     argc,
   FD_TEST( !fd_funk_last_publish_child_head( funk, txn_map ) );
   FD_TEST( !fd_funk_last_publish_child_tail( funk, txn_map ) );
 
+  fd_funk_txn_xid_t const * root = fd_funk_root( funk );
+  FD_TEST( root );
+  FD_TEST( fd_funk_txn_xid_eq_root( root ) );
+
   fd_funk_txn_xid_t const * last_publish = fd_funk_last_publish( funk );
   FD_TEST( last_publish );
   FD_TEST( fd_funk_txn_xid_eq_root( last_publish ) );
 
-  FD_TEST( !fd_funk_last_publish_is_frozen ( funk ) );
-  FD_TEST( !fd_funk_last_publish_descendant( funk ) );
+  FD_TEST( !fd_funk_last_publish_is_frozen ( funk          ) );
+  FD_TEST( !fd_funk_last_publish_descendant( funk, txn_map ) );
 
   fd_funk_rec_t * rec_map = fd_funk_rec_map( funk, wksp ); FD_TEST( rec_map );
   FD_TEST( fd_wksp_tag( wksp, fd_wksp_gaddr_fast( wksp, rec_map ) )==wksp_tag );
+
+  FD_TEST( !fd_funk_last_publish_rec_head( funk, rec_map ) );
+  FD_TEST( !fd_funk_last_publish_rec_tail( funk, rec_map ) );
 
   FD_TEST( !fd_funk_verify( funk ) );
 

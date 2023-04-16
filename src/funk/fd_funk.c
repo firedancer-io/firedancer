@@ -60,7 +60,7 @@ fd_funk_new( void * shmem,
   }
 
   fd_funk_txn_t * txn_map = fd_funk_txn_map_join( txn_shmap );
-  if( FD_UNLIKELY( !txn_shmap ) ) {
+  if( FD_UNLIKELY( !txn_map ) ) {
     FD_LOG_WARNING(( "fd_funk_txn_map_join failed" ));
     fd_wksp_free_laddr( fd_funk_txn_map_delete( txn_shmap ) );
     return NULL;
@@ -82,7 +82,7 @@ fd_funk_new( void * shmem,
   }
 
   fd_funk_rec_t * rec_map = fd_funk_rec_map_join( rec_shmap );
-  if( FD_UNLIKELY( !rec_shmap ) ) {
+  if( FD_UNLIKELY( !rec_map ) ) {
     FD_LOG_WARNING(( "fd_funk_rec_map_join failed" ));
     fd_wksp_free_laddr( fd_funk_rec_map_delete( rec_shmap ) );
     fd_wksp_free_laddr( fd_funk_txn_map_delete( fd_funk_txn_map_leave( txn_map ) ) );
@@ -99,10 +99,14 @@ fd_funk_new( void * shmem,
   funk->txn_map_gaddr   = fd_wksp_gaddr_fast( wksp, txn_map ); /* Note that this persists the join until delete */
   funk->child_head_cidx = fd_funk_txn_cidx( FD_FUNK_TXN_IDX_NULL );
   funk->child_tail_cidx = fd_funk_txn_cidx( FD_FUNK_TXN_IDX_NULL );
+
+  fd_funk_txn_xid_set_root( funk->root         );
   fd_funk_txn_xid_set_root( funk->last_publish );
 
   funk->rec_max       = rec_max;
   funk->rec_map_gaddr = fd_wksp_gaddr_fast( wksp, rec_map ); /* Note that this persists the join until delete */
+  funk->rec_head_idx  = FD_FUNK_REC_IDX_NULL;
+  funk->rec_tail_idx  = FD_FUNK_REC_IDX_NULL;
 
   FD_COMPILER_MFENCE();
   FD_VOLATILE( funk->magic ) = FD_FUNK_MAGIC;
@@ -224,14 +228,31 @@ fd_funk_verify( fd_funk_t * funk ) {
   TEST( seed   ==fd_funk_txn_map_seed   ( txn_map ) );
 
   ulong child_head_idx = fd_funk_txn_idx( funk->child_head_cidx );
-  if( !txn_max ) TEST( fd_funk_txn_idx_is_null( child_head_idx ) );
-
   ulong child_tail_idx = fd_funk_txn_idx( funk->child_tail_cidx );
+
+  int null_child_head = fd_funk_txn_idx_is_null( child_head_idx );
+  int null_child_tail = fd_funk_txn_idx_is_null( child_tail_idx );
+
+  if( !txn_max ) TEST( null_child_head & null_child_tail );
+  else {
+    if( null_child_head ) TEST( null_child_tail );
+    else                  TEST( child_head_idx<txn_max );
+
+    if( null_child_tail ) TEST( null_child_head );
+    else                  TEST( child_tail_idx<txn_max );
+  }
+
   if( !txn_max ) TEST( fd_funk_txn_idx_is_null( child_tail_idx ) );
+
+  fd_funk_txn_xid_t const * root = fd_funk_root( funk );
+  TEST( root ); /* Practically guaranteed */
+  TEST( fd_funk_txn_xid_eq_root( root ) );
 
   fd_funk_txn_xid_t * last_publish = funk->last_publish;
   TEST( last_publish ); /* Practically guaranteed */
-  /* (*last_publish) can be anything except immediately after creation */
+  /* (*last_publish) only be root at creation and anything but root
+     post creation.  But we don't which situation applies here so this
+     could be anything. */
 
   TEST( !fd_funk_txn_verify( funk ) );
 
@@ -247,6 +268,23 @@ fd_funk_verify( fd_funk_t * funk ) {
   TEST( rec_map );
   TEST( rec_max==fd_funk_rec_map_key_max( rec_map ) );
   TEST( seed   ==fd_funk_rec_map_seed   ( rec_map ) );
+
+  ulong rec_head_idx = funk->rec_head_idx;
+  ulong rec_tail_idx = funk->rec_tail_idx;
+
+  int null_rec_head = fd_funk_rec_idx_is_null( rec_head_idx );
+  int null_rec_tail = fd_funk_rec_idx_is_null( rec_tail_idx );
+
+  if( !rec_max ) TEST( null_rec_head & null_rec_tail );
+  else {
+    if( null_rec_head ) TEST( null_rec_tail );
+    else                TEST( rec_head_idx<rec_max );
+
+    if( null_rec_tail ) TEST( null_rec_head );
+    else                TEST( rec_tail_idx<rec_max );
+  }
+
+  if( !rec_max ) TEST( fd_funk_rec_idx_is_null( rec_tail_idx ) );
 
   TEST( !fd_funk_rec_verify( funk ) );
 

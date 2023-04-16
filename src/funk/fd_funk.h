@@ -17,7 +17,7 @@
    compile time declarations.  */
 
 #define FD_FUNK_ALIGN     (128UL)
-#define FD_FUNK_FOOTPRINT (128UL)
+#define FD_FUNK_FOOTPRINT (256UL)
 
 /* The details of a fd_funk_private are exposed here to facilitate
    inlining various operations. */
@@ -82,11 +82,13 @@ struct __attribute__((aligned(FD_FUNK_ALIGN))) fd_funk_private {
 
   /* Padding to FD_FUNK_TXN_XID_ALIGN here */
 
-  fd_funk_txn_xid_t last_publish[1]; /* Root transaction immediately after construction */
+  fd_funk_txn_xid_t root[1];         /* Always equal to the root transaction */
+  fd_funk_txn_xid_t last_publish[1]; /* Root transaction immediately after construction, not root thereafter */
 
-  /* The funk record map stores the details about all the records in the
-     last published transaction.  This is a fd_map_giant and more
-     details are given in fd_funk_txn.h
+  /* The funk record map stores the details about all the records in
+     the funk, including all those in the last published transaction and
+     all those getting updated in an in-preparation transcation.  This
+     is a fd_map_giant and more details are given in fd_funk_txn.h
 
      rec_max is the maximum number of records that can exist in this
      funk.
@@ -102,6 +104,8 @@ struct __attribute__((aligned(FD_FUNK_ALIGN))) fd_funk_private {
   ulong rec_map_gaddr; /* Non-zero wksp gaddr with tag wksp_tag
                           seed   ==fd_funk_rec_map_seed   (rec_map)
                           rec_max==fd_funk_rec_map_key_max(rec_map) */
+  ulong rec_head_idx;  /* Record map index of the first record, FD_FUNK_REC_IDX_NULL if none (from oldest to youngest) */
+  ulong rec_tail_idx;  /* "                       last          " */
 
   /* Padding to FD_FUNK_ALIGN here */
 };
@@ -207,7 +211,9 @@ fd_funk_txn_map( fd_funk_t * funk,       /* Assumes current local join */
 
 /* fd_funk_last_publish_child_{head,tail} returns a pointer in the
    caller's address space to {oldest,young} child of funk, NULL if the
-   funk is childless. */
+   funk is childless.  All pointers are in the caller's address space.
+   These are all a fast O(1) but not fortified against memory data
+   corruption. */
 
 FD_FN_PURE static inline fd_funk_txn_t *                 /* Lifetime as described in fd_funk_txn_query */
 fd_funk_last_publish_child_head( fd_funk_t *     funk,   /* Assumes current local join */
@@ -224,6 +230,14 @@ fd_funk_last_publish_child_tail( fd_funk_t *     funk,   /* Assumes current loca
   if( fd_funk_txn_idx_is_null( idx ) ) return NULL; /* TODO: Consider branchless? */
   return map + idx;
 }
+
+/* fd_funk_root returns a pointer in the caller's address space to the
+   transaction id of the root transaction.  Assumes funk is a current
+   local join.  Lifetime of the returned pointer is the lifetime of the
+   current local join.  The value at this pointer will always be the
+   root transaction id. */
+
+FD_FN_CONST static inline fd_funk_txn_xid_t const * fd_funk_root( fd_funk_t * funk ) { return funk->root; }
 
 /* fd_funk_last_publish returns a pointer in the caller's address space
    to transaction id of the last published transaction.  Assumes funk is
@@ -257,6 +271,29 @@ fd_funk_rec_map( fd_funk_t * funk,       /* Assumes current local join */
   return (fd_funk_rec_t *)fd_wksp_laddr_fast( wksp, funk->rec_map_gaddr );
 }
 
+/* fd_funk_last_publish_rec_{head,tail} returns a pointer in the
+   caller's address space to {oldest,young} record (by creation) of all
+   records in the last published transaction, NULL if the last published
+   transaction has no records.  All pointers are in the caller's address
+   space.  These are all a fast O(1) but not fortified against memory
+   data corruption. */
+
+FD_FN_PURE static inline fd_funk_rec_t const *                   /* Lifetime as described in fd_funk_rec_query */
+fd_funk_last_publish_rec_head( fd_funk_t const *     funk,       /* Assumes current local join */
+                               fd_funk_rec_t const * rec_map ) { /* Assumes == fd_funk_rec_map( funk, fd_funk_wksp( funk ) ) */
+  ulong rec_head_idx = funk->rec_head_idx;
+  if( fd_funk_rec_idx_is_null( rec_head_idx ) ) return NULL; /* TODO: consider branchless */
+  return rec_map + rec_head_idx;
+}
+
+FD_FN_PURE static inline fd_funk_rec_t const *                   /* Lifetime as described in fd_funk_rec_query */
+fd_funk_last_publish_rec_tail( fd_funk_t const *     funk,       /* Assumes current local join */
+                               fd_funk_rec_t const * rec_map ) { /* Assumes == fd_funk_rec_map( funk, fd_funk_wksp( funk ) ) */
+  ulong rec_tail_idx = funk->rec_tail_idx;
+  if( fd_funk_rec_idx_is_null( rec_tail_idx ) ) return NULL; /* TODO: consider branchless */
+  return rec_map + rec_tail_idx;
+}
+
 /* Operations */
 
 /* fd_funk_descendant returns the funk's youngest descendant that has no
@@ -270,11 +307,11 @@ fd_funk_rec_map( fd_funk_t * funk,       /* Assumes current local join */
    described in fd_funk_txn_query. */
 
 FD_FN_PURE static inline fd_funk_txn_t *
-fd_funk_last_publish_descendant( fd_funk_t * funk ) {
+fd_funk_last_publish_descendant( fd_funk_t *     funk,
+                                 fd_funk_txn_t * txn_map ) { /* Assumes == fd_funk_txn_map( funk, fd_funk_wksp( funk ) ) */
   ulong child_idx = fd_funk_txn_idx( funk->child_head_cidx );
   if( fd_funk_txn_idx_is_null( child_idx ) ) return NULL;
-  fd_funk_txn_t * map = fd_funk_txn_map( funk, fd_funk_wksp( funk ) );
-  return fd_funk_txn_descendant( map + child_idx, map );
+  return fd_funk_txn_descendant( txn_map + child_idx, txn_map );
 }
 
 /* Misc */

@@ -15,16 +15,6 @@
 
 #define FD_FUNK_TXN_IDX_NULL ((ulong)UINT_MAX)
 
-/* fd_funk_txn_{cidx,idx} convert between an index and a compressed index. */
-
-static inline uint  fd_funk_txn_cidx( ulong idx ) { return (uint) idx; }
-static inline ulong fd_funk_txn_idx ( uint  idx ) { return (ulong)idx; }
-
-/* fd_funk_txn_idx_is_null returns 1 if idx is FD_FUNK_TXN_IDX_NULL and
-   0 otherwise. */
-
-static inline int fd_funk_txn_idx_is_null( ulong idx ) { return idx==FD_FUNK_TXN_IDX_NULL; }
-
 /* A fd_funk_txn_t is an opaque handle of a in-preparation funk
    transaction.  The details are exposed here to facilitate inlining
    various operations. */
@@ -47,9 +37,8 @@ struct fd_funk_txn_private {
   uint   stack_cidx;        /* Internal use by funk */
   ulong  tag;               /* Internal use by funk */
 
-  /* Stuff to handle tracking changes between this transaction and its
-     parent transaction goes here */
-
+  ulong  rec_head_idx;      /* Record map index of the first record, FD_FUNK_REC_IDX_NULL if none (from oldest to youngest) */
+  ulong  rec_tail_idx;      /* "                       last          " */
 };
 
 typedef struct fd_funk_txn_private fd_funk_txn_t;
@@ -69,6 +58,16 @@ typedef struct fd_funk_txn_private fd_funk_txn_t;
 #include "../util/tmpl/fd_map_giant.c"
 
 FD_PROTOTYPES_BEGIN
+
+/* fd_funk_txn_{cidx,idx} convert between an index and a compressed index. */
+
+static inline uint  fd_funk_txn_cidx( ulong idx ) { return (uint) idx; }
+static inline ulong fd_funk_txn_idx ( uint  idx ) { return (ulong)idx; }
+
+/* fd_funk_txn_idx_is_null returns 1 if idx is FD_FUNK_TXN_IDX_NULL and
+   0 otherwise. */
+
+static inline int fd_funk_txn_idx_is_null( ulong idx ) { return idx==FD_FUNK_TXN_IDX_NULL; }
 
 /* Accessors */
 
@@ -110,14 +109,14 @@ fd_funk_txn_query( fd_funk_txn_xid_t const * xid,
   return fd_funk_txn_map_query( map, xid, NULL );
 }
 
-/* fd_funk_txn_id returns a pointer in the local address space of the ID
-   of an in-preparation transaction.  Assumes txn points to an
+/* fd_funk_txn_xid returns a pointer in the local address space of the
+   ID of an in-preparation transaction.  Assumes txn points to an
    in-preparation transaction in the caller's address space.  The
    lifetime of the returned pointer is the same as the txn's pointer
    lifetime.  The value at the pointer will be stable for the lifetime
    of the returned pointer. */
 
-FD_FN_CONST static inline fd_funk_txn_xid_t const * fd_funk_txn_id( fd_funk_txn_t const * txn ) { return &txn->xid; }
+FD_FN_CONST static inline fd_funk_txn_xid_t const * fd_funk_txn_xid( fd_funk_txn_t const * txn ) { return &txn->xid; }
 
 /* fd_funk_txn_{parent,child_head,child_tail,sibling_prev,sibling_next}
    return a pointer in the caller's address space to the corresponding
@@ -180,7 +179,7 @@ fd_funk_txn_is_frozen( fd_funk_txn_t const * txn ) {
    address space. */
 
 FD_FN_PURE static inline int
-fd_funk_txn_is_only_child( fd_funk_txn_t * txn ) {
+fd_funk_txn_is_only_child( fd_funk_txn_t const * txn ) {
   return ( fd_funk_txn_idx_is_null( fd_funk_txn_idx( txn->sibling_prev_cidx ) ) ) &
          ( fd_funk_txn_idx_is_null( fd_funk_txn_idx( txn->sibling_next_cidx ) ) );
 }
@@ -270,11 +269,12 @@ fd_funk_txn_descendant( fd_funk_txn_t * txn,
    to by parent.  A NULL parent means the transaction should be a child
    of funk.  xid points to transaction id that should be used for the
    transaction.  This id must be unique over all in-prepraration
-   transactions and the last published transaction.  It is strongly
-   recommended to use globally unique ids when possible.  Returns a
-   pointer in the caller's address space to the in-preparation
-   transaction on success and NULL on failure.  The lifetime of the
-   returned pointer is as described in fd_funk_txn_query.
+   transactions, the root transaction and the last published
+   transaction.  It is strongly recommended to use globally unique ids
+   when possible.  Returns a pointer in the caller's address space to
+   the in-preparation transaction on success and NULL on failure.  The
+   lifetime of the returned pointer is as described in
+   fd_funk_txn_query.
 
    At start of preparation, the records in the txn are a clone of the
    records in its parent transaction.  The funk records can be modified
@@ -335,7 +335,6 @@ ulong
 fd_funk_txn_cancel( fd_funk_t *     funk,
                     fd_funk_txn_t * txn,
                     int             verbose );
-
 
 ulong
 fd_funk_txn_cancel_siblings( fd_funk_t *     funk,
