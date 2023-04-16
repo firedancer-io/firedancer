@@ -83,29 +83,29 @@ typedef union fd_funk_rec_key fd_funk_rec_key_t;
 
 #define FD_FUNK_REC_VAL_MAX (10UL<<20) /* 10 MiB */
 
-/* FD_FUNK_TXN_ID_{ALIGN,FOOTPRINT} describe the alignment and footprint
-   of a fd_funk_txn_id_t.  ALIGN is a positive integer power of 2.
-   FOOTPRINT is a multiple of ALIGN.  These are provided to facilitate
-   compile time declarations. */
+/* FD_FUNK_TXN_XID_{ALIGN,FOOTPRINT} describe the alignment and
+   footprint of a fd_funk_txn_xid_t.  ALIGN is a positive integer power
+   of 2.  FOOTPRINT is a multiple of ALIGN.  These are provided to
+   facilitate compile time declarations. */
 
-#define FD_FUNK_TXN_ID_ALIGN     (32UL)
-#define FD_FUNK_TXN_ID_FOOTPRINT (32UL)
+#define FD_FUNK_TXN_XID_ALIGN     (32UL)
+#define FD_FUNK_TXN_XID_FOOTPRINT (32UL)
 
-/* A fd_funk_txn_id_t identifies a funk transaction.  Compact binary
+/* A fd_funk_txn_xid_t identifies a funk transaction.  Compact binary
    identifiers are encouraged but a cstr can be used so long as it has
-   strlen(cstr)<FD_FUNK_TXN_ID_FOOTPRINT and characters c[i] for i in
+   strlen(cstr)<FD_FUNK_TXN_XID_FOOTPRINT and characters c[i] for i in
    [strlen(cstr),FD_FUNK_TXN_KEY_FOOTPRINT) zero.  (Also, if encoding a
    cstr in a transaction id, recommend using first byte to encode the
    strlen for accelerating cstr operations even further but this is more
    up to the application.) */
 
-union __attribute__((aligned(FD_FUNK_TXN_ID_ALIGN))) fd_funk_txn_id {
-  char  c [ FD_FUNK_TXN_ID_FOOTPRINT ];
-  uchar uc[ FD_FUNK_TXN_ID_FOOTPRINT ];
-  ulong ul[ FD_FUNK_TXN_ID_FOOTPRINT / sizeof(ulong) ];
+union __attribute__((aligned(FD_FUNK_TXN_XID_ALIGN))) fd_funk_txn_xid {
+  char  c [ FD_FUNK_TXN_XID_FOOTPRINT ];
+  uchar uc[ FD_FUNK_TXN_XID_FOOTPRINT ];
+  ulong ul[ FD_FUNK_TXN_XID_FOOTPRINT / sizeof(ulong) ];
 };
 
-typedef union fd_funk_txn_id fd_funk_txn_id_t;
+typedef union fd_funk_txn_xid fd_funk_txn_xid_t;
 
 /* A fd_funk_t * is an opaque handle of a local join to a funk instance */
 
@@ -157,7 +157,7 @@ fd_funk_rec_key_copy( fd_funk_rec_key_t *       kd,
   return kd;
 }
 
-/* fd_funk_txn_id_hash provides a family of hashes that hash the id
+/* fd_funk_txn_xid_hash provides a family of hashes that hash the xid
    pointed to by x to a uniform quasi-random 64-bit integer.  seed
    selects the particular hash function to use and can be an arbitrary
    64-bit value.  Returns the hash.  The hash functions are high quality
@@ -165,53 +165,53 @@ fd_funk_rec_key_copy( fd_funk_rec_key_t *       kd,
    address space and valid. */
    
 FD_FN_UNUSED FD_FN_PURE static ulong /* Work around -Winline */
-fd_funk_txn_id_hash( fd_funk_txn_id_t const * x,
-                     ulong                    seed ) {
+fd_funk_txn_xid_hash( fd_funk_txn_xid_t const * x,
+                      ulong                     seed ) {
   return ( fd_ulong_hash( seed ^ (1UL<<0) ^ x->ul[0] ) ^ fd_ulong_hash( seed ^ (1UL<<1) ^ x->ul[1] ) ) ^
          ( fd_ulong_hash( seed ^ (1UL<<2) ^ x->ul[2] ) ^ fd_ulong_hash( seed ^ (1UL<<3) ^ x->ul[3] ) ); /* tons of ILP */
 }
 
-/* fd_funk_txn_id_eq returns 1 if transaction id pointed to by xa and xb
-   are equal and 0 otherwise.  Assumes xa and xb are in the caller's
+/* fd_funk_txn_xid_eq returns 1 if transaction id pointed to by xa and
+   xb are equal and 0 otherwise.  Assumes xa and xb are in the caller's
    address space and valid. */
 
 FD_FN_PURE static inline int
-fd_funk_txn_id_eq( fd_funk_txn_id_t const * xa,
-                   fd_funk_txn_id_t const * xb ) {
+fd_funk_txn_xid_eq( fd_funk_txn_xid_t const * xa,
+                    fd_funk_txn_xid_t const * xb ) {
   ulong const * a = xa->ul;
   ulong const * b = xb->ul;
   return !( (a[0]^b[0]) | (a[1]^b[1]) | (a[2]^b[2]) | (a[3]^b[3]) );
 }
 
-/* fd_funk_txn_id_copy copies the transaction id pointed to by xs into
+/* fd_funk_txn_xid_copy copies the transaction id pointed to by xs into
    the transaction id pointed to by xd and returns xd.  Assumes xd and
    xs are in the caller's address space and valid. */
 
-static inline fd_funk_txn_id_t *
-fd_funk_txn_id_copy( fd_funk_txn_id_t *       xd,
-                     fd_funk_txn_id_t const * xs ) {
+static inline fd_funk_txn_xid_t *
+fd_funk_txn_xid_copy( fd_funk_txn_xid_t *       xd,
+                      fd_funk_txn_xid_t const * xs ) {
   ulong *       d = xd->ul;
   ulong const * s = xs->ul;
   d[0] = s[0]; d[1] = s[1]; d[2] = s[2]; d[3] = s[3];
   return xd;
 }
 
-/* fd_funk_txn_id_eq_root returns 1 if transaction id pointed to by x is
-   the root transaction.  Assumes x is in the caller's address space and
-   valid. */
+/* fd_funk_txn_xid_eq_root returns 1 if transaction id pointed to by x
+   is the root transaction.  Assumes x is in the caller's address space
+   and valid. */
 
 FD_FN_PURE static inline int
-fd_funk_txn_id_eq_root( fd_funk_txn_id_t const * x ) {
+fd_funk_txn_xid_eq_root( fd_funk_txn_xid_t const * x ) {
   ulong const * a = x->ul;
   return !(a[0] | a[1] | a[2] | a[3]);
 }
 
-/* fd_funk_txn_id_set_root sets transaction id pointed to by x to the
+/* fd_funk_txn_xid_set_root sets transaction id pointed to by x to the
    root transaction and returns x.  Assumes x is in the caller's address
    space and valid. */
 
-static inline fd_funk_txn_id_t *
-fd_funk_txn_id_set_root( fd_funk_txn_id_t * x ) {
+static inline fd_funk_txn_xid_t *
+fd_funk_txn_xid_set_root( fd_funk_txn_xid_t * x ) {
   ulong * a = x->ul;
   a[0] = 0UL; a[1] = 0UL; a[2] = 0UL; a[3] = 0UL;
   return x;

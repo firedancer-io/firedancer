@@ -6,11 +6,11 @@
 
 #define MAP_NAME              fd_funk_txn_map
 #define MAP_T                 fd_funk_txn_t
-#define MAP_KEY_T             fd_funk_txn_id_t
-#define MAP_KEY               id
-#define MAP_KEY_EQ(k0,k1)     fd_funk_txn_id_eq((k0),(k1))
-#define MAP_KEY_HASH(k0,seed) fd_funk_txn_id_hash((k0),(seed))
-#define MAP_KEY_COPY(kd,ks)   fd_funk_txn_id_copy((kd),(ks))
+#define MAP_KEY_T             fd_funk_txn_xid_t
+#define MAP_KEY               xid
+#define MAP_KEY_EQ(k0,k1)     fd_funk_txn_xid_eq((k0),(k1))
+#define MAP_KEY_HASH(k0,seed) fd_funk_txn_xid_hash((k0),(seed))
+#define MAP_KEY_COPY(kd,ks)   fd_funk_txn_xid_copy((kd),(ks))
 #define MAP_NEXT              map_next
 #define MAP_MAGIC             (0xf173da2ce7172db0UL) /* Firedancer trn db version 0 */
 #define MAP_IMPL_STYLE        2
@@ -66,11 +66,11 @@ fd_funk_txn_cycle_tag( void ) {
       FD_LOG_CRIT(( "memory corruption detected (bad_idx)" )); \
   } while(0)
 
-#define ASSERT_IN_PREP( txn_idx ) do {                                           \
-    if( FD_UNLIKELY( txn_idx>=txn_max ) )                                        \
-      FD_LOG_CRIT(( "memory corruption detected (bad_idx)" ));                   \
-    if( FD_UNLIKELY( !fd_funk_txn_map_query( map, &map[ txn_idx ].id, NULL ) ) ) \
-      FD_LOG_CRIT(( "memory corruption detected (not in prep)" ));               \
+#define ASSERT_IN_PREP( txn_idx ) do {                                            \
+    if( FD_UNLIKELY( txn_idx>=txn_max ) )                                         \
+      FD_LOG_CRIT(( "memory corruption detected (bad_idx)" ));                    \
+    if( FD_UNLIKELY( !fd_funk_txn_map_query( map, &map[ txn_idx ].xid, NULL ) ) ) \
+      FD_LOG_CRIT(( "memory corruption detected (not in prep)" ));                \
   } while(0)
 
 #define ASSERT_UNTAGGED( txn_idx ) do {                      \
@@ -79,10 +79,10 @@ fd_funk_txn_cycle_tag( void ) {
   } while(0)
 
 fd_funk_txn_t *
-fd_funk_txn_prepare( fd_funk_t *              funk,
-                     fd_funk_txn_t *          parent,
-                     fd_funk_txn_id_t const * id,
-                     int                      verbose ) {
+fd_funk_txn_prepare( fd_funk_t *               funk,
+                     fd_funk_txn_t *           parent,
+                     fd_funk_txn_xid_t const * xid,
+                     int                       verbose ) {
 
   if( FD_UNLIKELY( !funk ) ) {
     if( FD_UNLIKELY( verbose ) ) FD_LOG_WARNING(( "NULL funk" ));
@@ -118,7 +118,7 @@ fd_funk_txn_prepare( fd_funk_t *              funk,
       return NULL;
     }
 
-    if( FD_UNLIKELY( !fd_funk_txn_map_query( map, &parent->id, NULL ) ) ) {
+    if( FD_UNLIKELY( !fd_funk_txn_map_query( map, &parent->xid, NULL ) ) ) {
       if( FD_UNLIKELY( verbose ) ) FD_LOG_WARNING(( "parent is not in preparation" ));
       return NULL;
     }
@@ -128,24 +128,24 @@ fd_funk_txn_prepare( fd_funk_t *              funk,
 
   }
 
-  if( FD_UNLIKELY( !id ) ) {
-    if( FD_UNLIKELY( verbose ) ) FD_LOG_WARNING(( "NULL id" ));
+  if( FD_UNLIKELY( !xid ) ) {
+    if( FD_UNLIKELY( verbose ) ) FD_LOG_WARNING(( "NULL xid" ));
     return NULL;
   }
 
-  if( FD_UNLIKELY( fd_funk_txn_id_eq( id, funk->last_publish ) ) ) {
-    if( FD_UNLIKELY( verbose ) ) FD_LOG_WARNING(( "id is the last published" ));
+  if( FD_UNLIKELY( fd_funk_txn_xid_eq( xid, funk->last_publish ) ) ) {
+    if( FD_UNLIKELY( verbose ) ) FD_LOG_WARNING(( "xid is the last published" ));
     return NULL;
   }
 
-  if( FD_UNLIKELY( fd_funk_txn_map_query( map, id, NULL ) ) ) {
+  if( FD_UNLIKELY( fd_funk_txn_map_query( map, xid, NULL ) ) ) {
     if( FD_UNLIKELY( verbose ) ) FD_LOG_WARNING(( "id already a transaction" ));
     return NULL;
   }
 
   /* Get a new transaction from the map */
 
-  fd_funk_txn_t * txn     = fd_funk_txn_map_insert( map, id );
+  fd_funk_txn_t * txn     = fd_funk_txn_map_insert( map, xid );
   ulong           txn_idx = (ulong)(txn - map);
   ASSERT_IN_MAP( txn_idx );
 
@@ -222,7 +222,7 @@ fd_funk_txn_cancel_childless( fd_funk_t *     funk,
     map[ sibling_next_idx ].sibling_prev_cidx = fd_funk_txn_cidx( sibling_prev_idx );
   }
 
-  fd_funk_txn_map_remove( map, &map[ txn_idx ].id );
+  fd_funk_txn_map_remove( map, &map[ txn_idx ].xid );
 }
 
 /* fd_funk_txn_cancel_family cancels a transaction and all its
@@ -296,7 +296,7 @@ fd_funk_txn_cancel( fd_funk_t *     funk,
     return 0UL;
   }
 
-  if( FD_UNLIKELY( !fd_funk_txn_map_query( map, &txn->id, NULL ) ) ) {
+  if( FD_UNLIKELY( !fd_funk_txn_map_query( map, &txn->xid, NULL ) ) ) {
     if( FD_UNLIKELY( verbose ) ) FD_LOG_WARNING(( "txn is not in preparation" ));
     return 0UL;
   }
@@ -431,7 +431,7 @@ fd_funk_txn_cancel_children( fd_funk_t *     funk,
       return 0UL;
     }
 
-    if( FD_UNLIKELY( !fd_funk_txn_map_query( map, &txn->id, NULL ) ) ) {
+    if( FD_UNLIKELY( !fd_funk_txn_map_query( map, &txn->xid, NULL ) ) ) {
       if( FD_UNLIKELY( verbose ) ) FD_LOG_WARNING(( "txn is not in preparation" ));
       return 0UL;
     }
@@ -486,9 +486,9 @@ fd_funk_txn_publish_funk_child( fd_funk_t *     funk,
 
   /* Remove the mapping */
 
-  fd_funk_txn_id_copy( funk->last_publish, &map[ txn_idx ].id );
+  fd_funk_txn_xid_copy( funk->last_publish, &map[ txn_idx ].xid );
 
-  fd_funk_txn_map_remove( map, &map[ txn_idx ].id );
+  fd_funk_txn_map_remove( map, &map[ txn_idx ].xid );
 
   return FD_FUNK_SUCCESS;
 }
@@ -514,7 +514,7 @@ fd_funk_txn_publish( fd_funk_t *     funk,
     return 0UL;
   }
 
-  if( FD_UNLIKELY( !fd_funk_txn_map_query( map, &txn->id, NULL ) ) ) {
+  if( FD_UNLIKELY( !fd_funk_txn_map_query( map, &txn->xid, NULL ) ) ) {
     if( FD_UNLIKELY( verbose ) ) FD_LOG_WARNING(( "txn is not in preparation" ));
     return 0UL;
   }
@@ -612,22 +612,22 @@ fd_funk_txn_merge( fd_funk_t *     funk,
   parent->child_head_cidx   = fd_funk_txn_cidx( FD_FUNK_TXN_IDX_NULL );
   parent->child_tail_cidx   = fd_funk_txn_cidx( FD_FUNK_TXN_IDX_NULL );
 
-  fd_funk_txn_map_remove( map, &txn->id );
+  fd_funk_txn_map_remove( map, &txn->xid );
 
   return FD_FUNK_SUCCESS;
 }
 
 int
-fd_funk_txn_verify( fd_funk_txn_t *          map,
-                    fd_funk_txn_id_t const * last_publish,
-                    ulong                    funk_child_head_idx,
-                    ulong                    funk_child_tail_idx ) {
+fd_funk_txn_verify( fd_funk_txn_t *           map,
+                    fd_funk_txn_xid_t const * last_publish,
+                    ulong                     funk_child_head_idx,
+                    ulong                     funk_child_tail_idx ) {
 
 # define TEST(c) do {                                                                           \
     if( FD_UNLIKELY( !(c) ) ) { FD_LOG_WARNING(( "FAIL: %s", #c )); return FD_FUNK_ERR_INVAL; } \
   } while(0)
 
-# define IS_VALID( idx ) ((idx==FD_FUNK_TXN_IDX_NULL) || ((idx<txn_max) && (!fd_funk_txn_id_eq( &map[idx].id, last_publish ))))
+# define IS_VALID( idx ) ((idx==FD_FUNK_TXN_IDX_NULL) || ((idx<txn_max) && (!fd_funk_txn_xid_eq( &map[idx].xid, last_publish ))))
 
   TEST( map );
 

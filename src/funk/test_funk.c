@@ -71,9 +71,9 @@ main( int     argc,
   FD_TEST( !fd_funk_last_publish_child_head( funk, map ) );
   FD_TEST( !fd_funk_last_publish_child_tail( funk, map ) );
 
-  fd_funk_txn_id_t const * last_publish = fd_funk_last_publish( funk );
+  fd_funk_txn_xid_t const * last_publish = fd_funk_last_publish( funk );
   FD_TEST( last_publish );
-  FD_TEST( fd_funk_txn_id_eq_root( last_publish ) );
+  FD_TEST( fd_funk_txn_xid_eq_root( last_publish ) );
 
   FD_TEST( !fd_funk_last_publish_is_frozen ( funk ) );
   FD_TEST( !fd_funk_last_publish_descendant( funk ) );
