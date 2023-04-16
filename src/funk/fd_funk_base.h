@@ -254,7 +254,7 @@ fd_funk_xid_key_pair_hash( fd_funk_xid_key_pair_t const * p,
    and pb are equal and 0 otherwise.  Assumes pa and pb are in the
    caller's address space and valid. */
 
-FD_FN_PURE static inline int
+FD_FN_UNUSED FD_FN_PURE static int /* Work around -Winline */
 fd_funk_xid_key_pair_eq( fd_funk_xid_key_pair_t const * pa,
                          fd_funk_xid_key_pair_t const * pb ) {
   return fd_funk_txn_xid_eq( pa->xid, pb->xid ) & fd_funk_rec_key_eq( pa->key, pb->key );

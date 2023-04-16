@@ -38,7 +38,8 @@
    further and abort with FD_LOG_CRIT to minimize the blast radius of
    possible corruption and give the user as much details (stack trace
    and core) to diagnose the source of the issue.  This handling is
-   isolated to the below macros and thus easy to modify or disable.
+   mostly isolated to the below macros and thus easy to modify or
+   disable.
 
    The corruption detection works by ensuring all map indices are in
    bounds and then applying a unique tag during various map traversals
@@ -66,11 +67,11 @@ fd_funk_txn_cycle_tag( void ) {
       FD_LOG_CRIT(( "memory corruption detected (bad_idx)" )); \
   } while(0)
 
-#define ASSERT_IN_PREP( txn_idx ) do {                                            \
-    if( FD_UNLIKELY( txn_idx>=txn_max ) )                                         \
-      FD_LOG_CRIT(( "memory corruption detected (bad_idx)" ));                    \
-    if( FD_UNLIKELY( !fd_funk_txn_map_query( map, &map[ txn_idx ].xid, NULL ) ) ) \
-      FD_LOG_CRIT(( "memory corruption detected (not in prep)" ));                \
+#define ASSERT_IN_PREP( txn_idx ) do {                                                           \
+    if( FD_UNLIKELY( txn_idx>=txn_max ) )                                                        \
+      FD_LOG_CRIT(( "memory corruption detected (bad_idx)" ));                                   \
+    if( FD_UNLIKELY( !fd_funk_txn_map_query( map, fd_funk_txn_xid( &map[ txn_idx ] ), NULL ) ) ) \
+      FD_LOG_CRIT(( "memory corruption detected (not in prep)" ));                               \
   } while(0)
 
 #define ASSERT_UNTAGGED( txn_idx ) do {                      \
@@ -96,7 +97,7 @@ fd_funk_txn_prepare( fd_funk_t *               funk,
     return NULL;
   }
 
-  ulong txn_max = fd_funk_txn_map_key_max( map );
+  ulong txn_max = funk->txn_max;
 
   ulong  parent_idx;
   uint * _child_head_cidx;
@@ -118,7 +119,7 @@ fd_funk_txn_prepare( fd_funk_t *               funk,
       return NULL;
     }
 
-    if( FD_UNLIKELY( !fd_funk_txn_map_query( map, &parent->xid, NULL ) ) ) {
+    if( FD_UNLIKELY( !fd_funk_txn_map_query( map, fd_funk_txn_xid( parent ), NULL ) ) ) {
       if( FD_UNLIKELY( verbose ) ) FD_LOG_WARNING(( "parent is not in preparation" ));
       return NULL;
     }
@@ -130,6 +131,11 @@ fd_funk_txn_prepare( fd_funk_t *               funk,
 
   if( FD_UNLIKELY( !xid ) ) {
     if( FD_UNLIKELY( verbose ) ) FD_LOG_WARNING(( "NULL xid" ));
+    return NULL;
+  }
+
+  if( FD_UNLIKELY( fd_funk_txn_xid_eq_root( xid ) ) ) {
+    if( FD_UNLIKELY( verbose ) ) FD_LOG_WARNING(( "xid is the root" ));
     return NULL;
   }
 
@@ -164,7 +170,8 @@ fd_funk_txn_prepare( fd_funk_t *               funk,
   txn->stack_cidx        = fd_funk_txn_cidx( FD_FUNK_TXN_IDX_NULL );
   txn->tag               = 0UL;
 
-  /* Other dirty record tracking operations go here */
+  txn->rec_head_idx = FD_FUNK_REC_IDX_NULL;
+  txn->rec_tail_idx = FD_FUNK_REC_IDX_NULL;
 
   /* TODO: consider branchless impl */
   if( FD_LIKELY( first_born ) ) *_child_head_cidx                         = fd_funk_txn_cidx( txn_idx ); /* opt for non-compete */
@@ -187,7 +194,31 @@ fd_funk_txn_cancel_childless( fd_funk_t *     funk,
                               ulong           txn_max,
                               ulong           txn_idx ) {
 
-  /* Other cancel operations go here */
+  /* Remove all records used by this transaction.  Note that we don't
+     need to bother doing all the individual removal operations as we
+     are removing the whole list.  We do reset the record transaction
+     idx with NULL though we can detect cycles as soon as possible
+     and abort. */
+
+  fd_funk_rec_t * rec_map = fd_funk_rec_map( funk, fd_funk_wksp( funk ) );
+  ulong           rec_max = funk->rec_max;
+
+  ulong rec_idx = map[ txn_idx ].rec_head_idx;
+  while( !fd_funk_rec_idx_is_null( rec_idx ) ) {
+
+    if( FD_UNLIKELY( rec_idx>=rec_max ) ) FD_LOG_CRIT(( "memory corruption detected (bad idx)" ));
+    if( FD_UNLIKELY( fd_funk_txn_idx( rec_map[ rec_idx ].txn_cidx )!=txn_idx ) )
+      FD_LOG_CRIT(( "memory corruption detected (cycle or bad idx)" ));
+
+    ulong next_idx = rec_map[ rec_idx ].next_idx;
+    rec_map[ rec_idx ].txn_cidx = fd_funk_txn_cidx( FD_FUNK_TXN_IDX_NULL );
+
+    /* Release all resources used for the key val here */
+
+    fd_funk_rec_map_remove( rec_map, fd_funk_rec_pair( &rec_map[ rec_idx ] ) );
+
+    rec_idx = next_idx;
+  }
 
   /* Leave the family */
 
@@ -222,7 +253,7 @@ fd_funk_txn_cancel_childless( fd_funk_t *     funk,
     map[ sibling_next_idx ].sibling_prev_cidx = fd_funk_txn_cidx( sibling_prev_idx );
   }
 
-  fd_funk_txn_map_remove( map, &map[ txn_idx ].xid );
+  fd_funk_txn_map_remove( map, fd_funk_txn_xid( &map[ txn_idx ] ) );
 }
 
 /* fd_funk_txn_cancel_family cancels a transaction and all its
@@ -287,7 +318,7 @@ fd_funk_txn_cancel( fd_funk_t *     funk,
 
   fd_funk_txn_t * map = fd_funk_txn_map( funk, fd_funk_wksp( funk ) );
 
-  ulong txn_max = fd_funk_txn_map_key_max( map );
+  ulong txn_max = funk->txn_max;
 
   ulong txn_idx = (ulong)(txn - map);
 
@@ -296,7 +327,7 @@ fd_funk_txn_cancel( fd_funk_t *     funk,
     return 0UL;
   }
 
-  if( FD_UNLIKELY( !fd_funk_txn_map_query( map, &txn->xid, NULL ) ) ) {
+  if( FD_UNLIKELY( !fd_funk_txn_map_query( map, fd_funk_txn_xid( txn ), NULL ) ) ) {
     if( FD_UNLIKELY( verbose ) ) FD_LOG_WARNING(( "txn is not in preparation" ));
     return 0UL;
   }
@@ -392,7 +423,7 @@ fd_funk_txn_cancel_siblings( fd_funk_t *     funk,
 
   fd_funk_txn_t * map = fd_funk_txn_map( funk, fd_funk_wksp( funk ) );
 
-  ulong txn_max = fd_funk_txn_map_key_max( map );
+  ulong txn_max = funk->txn_max;
 
   ulong txn_idx = (ulong)(txn - map);
 
@@ -418,7 +449,7 @@ fd_funk_txn_cancel_children( fd_funk_t *     funk,
 
   fd_funk_txn_t * map = fd_funk_txn_map( funk, fd_funk_wksp( funk ) );
 
-  ulong txn_max = fd_funk_txn_map_key_max( map );
+  ulong txn_max = funk->txn_max;
 
   ulong oldest_idx;
 
@@ -431,7 +462,7 @@ fd_funk_txn_cancel_children( fd_funk_t *     funk,
       return 0UL;
     }
 
-    if( FD_UNLIKELY( !fd_funk_txn_map_query( map, &txn->xid, NULL ) ) ) {
+    if( FD_UNLIKELY( !fd_funk_txn_map_query( map, fd_funk_txn_xid( txn ), NULL ) ) ) {
       if( FD_UNLIKELY( verbose ) ) FD_LOG_WARNING(( "txn is not in preparation" ));
       return 0UL;
     }
@@ -446,7 +477,8 @@ fd_funk_txn_cancel_children( fd_funk_t *     funk,
 /* fd_funk_txn_publish_funk_child publishes a transaction that is known
    to be a child of funk.  Callers have already validated our input
    arguments.  Returns FD_FUNK_SUCCESS on success and an FD_FUNK_ERR_*
-   code on failure. */
+   code on failure.  (There are currently no failure cases but the
+   plumbing is there if value handling requires it at some point.) */
 
 static int
 fd_funk_txn_publish_funk_child( fd_funk_t *     funk,
@@ -455,9 +487,105 @@ fd_funk_txn_publish_funk_child( fd_funk_t *     funk,
                                 ulong           tag,
                                 ulong           txn_idx ) {
 
-  /* Publish txn here.  If fail, preserve txn and return an error code. */
+  /* Apply all records (xid,key) in this transaction to (root,key).
+     Notes we don't need to to do all the individual removal pointer
+     updates as we are removing the whole list.  Likewise, we
+     temporarily repurpose txn_cidx as a loop detector for additional
+     corruption protection.  */
 
-  /* At this point, txn has been committed to permanent storage */
+  fd_funk_txn_xid_t const * root = fd_funk_root( funk );
+
+  fd_funk_rec_t * rec_map = fd_funk_rec_map( funk, fd_funk_wksp( funk ) ); /* Guarantee we can insert at least 1 as per contract */
+
+  ulong rec_max = funk->rec_max;
+  ulong rec_idx = map[ txn_idx ].rec_head_idx;
+  while( !fd_funk_rec_idx_is_null( rec_idx ) ) {
+
+    /* Validate rec_idx */
+
+    if( FD_UNLIKELY( rec_idx>=rec_max ) ) FD_LOG_CRIT(( "memory corruption detected (bad idx)" ));
+    if( FD_UNLIKELY( fd_funk_txn_idx( rec_map[ rec_idx ].txn_cidx )!=txn_idx ) )
+      FD_LOG_CRIT(( "memory corruption detected (cycle or bad idx)" ));
+    rec_map[ rec_idx ].txn_cidx = fd_funk_txn_cidx( FD_FUNK_TXN_IDX_NULL );
+
+    ulong next_idx = rec_map[ rec_idx ].next_idx;
+
+    /* See if (root,key) already exists */
+
+    fd_funk_xid_key_pair_t pair[1]; fd_funk_xid_key_pair_init( pair, root, fd_funk_rec_key( &rec_map[ rec_idx ] ) );
+    fd_funk_rec_t * root_rec = fd_funk_rec_map_query( rec_map, pair, NULL );
+
+    if( FD_UNLIKELY( rec_map[ rec_idx ].flags & FD_FUNK_REC_FLAG_ERASE ) ) { /* Erase a published key */
+
+      /* Note that we only set the erase flag if there is was ancestor
+         to this transaction with the key in it.  So if we don't find a
+         record, we have a memory corruption problem. */
+
+      if( FD_UNLIKELY( !root_rec ) ) FD_LOG_CRIT(( "memory corruption detected (bad ancestor)" ));
+
+      /* Unmap (xid,key).  Note that value metadata already previously
+         freed when we set erase. */
+
+      fd_funk_rec_map_remove( rec_map, fd_funk_rec_pair( &rec_map[ rec_idx ] ) );
+
+      /* Erase (root,key) */
+
+      /* Free root_rec val resources here */
+
+      ulong prev_idx = root_rec->prev_idx;
+      ulong next_idx = root_rec->next_idx;
+
+      if( FD_UNLIKELY( fd_funk_rec_idx_is_null( prev_idx ) ) ) funk->rec_head_idx           = next_idx;
+      else                                                     rec_map[ prev_idx ].next_idx = next_idx;
+
+      if( FD_UNLIKELY( fd_funk_rec_idx_is_null( next_idx ) ) ) funk->rec_tail_idx           = prev_idx;
+      else                                                     rec_map[ next_idx ].prev_idx = prev_idx;
+
+      fd_funk_rec_map_remove( rec_map, pair );
+
+    } else {
+
+      /* Stash value metadata in stack temporaries here */
+
+      /* Unmap (xid,key).  Note this strictly frees 1 more resource from
+         the rec_map, guaranting at least 1 record free in the record
+         map below */
+
+      fd_funk_rec_map_remove( rec_map, fd_funk_rec_pair( &rec_map[ rec_idx ] ) );
+
+      if( FD_UNLIKELY( !root_rec ) ) { /* Create a published key */
+
+        root_rec = fd_funk_rec_map_insert( rec_map, pair ); /* Guaranteed to succeed at this point */
+
+        ulong root_rec_idx  = (ulong)(root_rec - rec_map);
+        ulong root_prev_idx = funk->rec_tail_idx;
+
+        root_rec->prev_idx = root_prev_idx;
+        root_rec->next_idx = FD_FUNK_REC_IDX_NULL;
+        root_rec->txn_cidx = fd_funk_txn_cidx( FD_FUNK_TXN_IDX_NULL );
+        root_rec->tag      = 0UL;
+
+        if( fd_funk_rec_idx_is_null( root_prev_idx ) ) funk->rec_head_idx                = root_rec_idx;
+        else                                           rec_map[ root_prev_idx ].next_idx = root_rec_idx;
+
+        funk->rec_tail_idx = root_rec_idx;
+
+      } else { /* Update a published key */
+
+        /* Free root_rec value resources here. */
+
+      }
+
+      /* Unstash value metadata from stack temporaries into root_rec here */
+
+    }
+
+    /* Advance to the next record */
+
+    rec_idx = next_idx;
+  }
+
+  /* At this point, txn been successfully applied */
 
   /* Cancel all competing transaction histories */
 
@@ -486,9 +614,9 @@ fd_funk_txn_publish_funk_child( fd_funk_t *     funk,
 
   /* Remove the mapping */
 
-  fd_funk_txn_xid_copy( funk->last_publish, &map[ txn_idx ].xid );
+  fd_funk_txn_xid_copy( funk->last_publish, fd_funk_txn_xid( &map[ txn_idx ] ) );
 
-  fd_funk_txn_map_remove( map, &map[ txn_idx ].xid );
+  fd_funk_txn_map_remove( map, fd_funk_txn_xid( &map[ txn_idx ] ) );
 
   return FD_FUNK_SUCCESS;
 }
@@ -503,9 +631,11 @@ fd_funk_txn_publish( fd_funk_t *     funk,
     return 0UL;
   }
 
-  fd_funk_txn_t * map = fd_funk_txn_map( funk, fd_funk_wksp( funk ) );
+  fd_wksp_t * wksp = fd_funk_wksp( funk );
 
-  ulong txn_max = fd_funk_txn_map_key_max( map );
+  fd_funk_txn_t * map = fd_funk_txn_map( funk, wksp );
+
+  ulong txn_max = funk->txn_max;
 
   ulong txn_idx = (ulong)(txn - map);
 
@@ -514,18 +644,17 @@ fd_funk_txn_publish( fd_funk_t *     funk,
     return 0UL;
   }
 
-  if( FD_UNLIKELY( !fd_funk_txn_map_query( map, &txn->xid, NULL ) ) ) {
+  if( FD_UNLIKELY( !fd_funk_txn_map_query( map, fd_funk_txn_xid( txn ), NULL ) ) ) {
     if( FD_UNLIKELY( verbose ) ) FD_LOG_WARNING(( "txn is not in preparation" ));
     return 0UL;
   }
 
   ulong tag = fd_funk_txn_cycle_tag();
 
-  map[ txn_idx ].tag = tag;
-
   ulong publish_stack_idx = FD_FUNK_TXN_IDX_NULL;
 
   for(;;) {
+    map[ txn_idx ].tag = tag;
 
     /* At this point, txn_idx is a transaction that needs to be
        published and has been tagged.  If txn is a child of funk, we are
@@ -539,10 +668,9 @@ fd_funk_txn_publish( fd_funk_t *     funk,
 
     ASSERT_IN_PREP ( parent_idx );
     ASSERT_UNTAGGED( parent_idx );
-    map[ parent_idx ].tag = tag;
 
-    map[ txn_idx ].stack_cidx  = fd_funk_txn_cidx( publish_stack_idx );
-    publish_stack_idx          = txn_idx;
+    map[ txn_idx ].stack_cidx = fd_funk_txn_cidx( publish_stack_idx );
+    publish_stack_idx         = txn_idx;
 
     txn_idx = parent_idx;
   }
@@ -612,15 +740,16 @@ fd_funk_txn_merge( fd_funk_t *     funk,
   parent->child_head_cidx   = fd_funk_txn_cidx( FD_FUNK_TXN_IDX_NULL );
   parent->child_tail_cidx   = fd_funk_txn_cidx( FD_FUNK_TXN_IDX_NULL );
 
-  fd_funk_txn_map_remove( map, &txn->xid );
+  fd_funk_txn_map_remove( map, fd_funk_txn_xid( txn ) );
 
   return FD_FUNK_SUCCESS;
 }
 
 int
 fd_funk_txn_verify( fd_funk_t * funk ) {
-  fd_wksp_t *     wksp = fd_funk_wksp( funk );          /* Previously verified */
-  fd_funk_txn_t * map  = fd_funk_txn_map( funk, wksp ); /* Previously verified */
+  fd_wksp_t *     wksp    = fd_funk_wksp( funk );          /* Previously verified */
+  fd_funk_txn_t * map     = fd_funk_txn_map( funk, wksp ); /* Previously verified */
+  ulong           txn_max = funk->txn_max;                 /* Previously verified */
 
   ulong funk_child_head_idx = fd_funk_txn_idx( funk->child_head_cidx ); /* Previously verified */
   ulong funk_child_tail_idx = fd_funk_txn_idx( funk->child_tail_cidx ); /* Previously verified */
@@ -631,11 +760,11 @@ fd_funk_txn_verify( fd_funk_t * funk ) {
     if( FD_UNLIKELY( !(c) ) ) { FD_LOG_WARNING(( "FAIL: %s", #c )); return FD_FUNK_ERR_INVAL; } \
   } while(0)
 
-# define IS_VALID( idx ) ((idx==FD_FUNK_TXN_IDX_NULL) || ((idx<txn_max) && (!fd_funk_txn_xid_eq( &map[idx].xid, last_publish ))))
+# define IS_VALID( idx ) ( (idx==FD_FUNK_TXN_IDX_NULL) || \
+                           ((idx<txn_max) && (!fd_funk_txn_xid_eq( fd_funk_txn_xid( &map[idx] ), last_publish ))) )
 
   TEST( !fd_funk_txn_map_verify( map ) );
 
-  ulong txn_max  =           fd_funk_txn_map_key_max( map );
   ulong free_cnt = txn_max - fd_funk_txn_map_key_cnt( map );
 
   /* Tag all transactions as not visited yet */
@@ -666,7 +795,9 @@ fd_funk_txn_verify( fd_funk_t * funk ) {
       stack_idx                   = child_idx;
       prep_cnt++;
 
-      child_idx = fd_funk_txn_idx( map[ child_idx ].sibling_next_cidx );
+      ulong next_idx = fd_funk_txn_idx( map[ child_idx ].sibling_next_cidx );
+      if( !fd_funk_txn_idx_is_null( next_idx ) ) TEST( fd_funk_txn_idx( map[ next_idx ].sibling_prev_cidx )==child_idx );
+      child_idx = next_idx;
     }
 
     while( !fd_funk_txn_idx_is_null( stack_idx ) ) {
@@ -693,7 +824,9 @@ fd_funk_txn_verify( fd_funk_t * funk ) {
         stack_idx                   = child_idx;
         prep_cnt++;
 
-        child_idx = fd_funk_txn_idx( map[ child_idx ].sibling_next_cidx );
+        ulong next_idx = fd_funk_txn_idx( map[ child_idx ].sibling_next_cidx );
+        if( !fd_funk_txn_idx_is_null( next_idx ) ) TEST( fd_funk_txn_idx( map[ next_idx ].sibling_prev_cidx )==child_idx );
+        child_idx = next_idx;
       }
     }
 
@@ -725,7 +858,9 @@ fd_funk_txn_verify( fd_funk_t * funk ) {
       stack_idx                   = child_idx;
       prep_cnt++;
 
-      child_idx = fd_funk_txn_idx( map[ child_idx ].sibling_prev_cidx );
+      ulong prev_idx = fd_funk_txn_idx( map[ child_idx ].sibling_prev_cidx );
+      if( !fd_funk_txn_idx_is_null( prev_idx ) ) TEST( fd_funk_txn_idx( map[ prev_idx ].sibling_next_cidx )==child_idx );
+      child_idx = prev_idx;
     }
 
     while( !fd_funk_txn_idx_is_null( stack_idx ) ) {
@@ -752,7 +887,9 @@ fd_funk_txn_verify( fd_funk_t * funk ) {
         stack_idx                   = child_idx;
         prep_cnt++;
 
-        child_idx = fd_funk_txn_idx( map[ child_idx ].sibling_prev_cidx );
+        ulong prev_idx = fd_funk_txn_idx( map[ child_idx ].sibling_prev_cidx );
+        if( !fd_funk_txn_idx_is_null( prev_idx ) ) TEST( fd_funk_txn_idx( map[ prev_idx ].sibling_next_cidx )==child_idx );
+        child_idx = prev_idx;
       }
     }
   } while(0);
