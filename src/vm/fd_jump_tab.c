@@ -1,72 +1,62 @@
 #include "../util/fd_util_base.h"
 
-/* Aligned Jump Table */
+/* Jump Table */
 
-#ifndef ALIGNED_JMP_TAB_ID
-#error "Define ALIGNED_JMP_TAB_ID"
+#ifndef JMP_TAB_ID
+#error "Define FD_JMP_TAB_ID"
 #endif
 
-#ifndef ALIGNED_JMP_TAB_ALIGNMENT
-#error "Define ALIGNED_JMP_TAB_ALIGNMENT"
-#endif
+#define __JT_ID JMP_TAB_ID
 
-#define __AJT_ID ALIGNED_JMP_TAB_ID
+#define __JT_LABEL(prefix, id) prefix##_##id
+#define JT_BASE_LABEL(id)    __JT_LABEL(base, id)
+#define JT_BREAK_LABEL(id)   __JT_LABEL(break, id)
+#define JT_RET_LABEL(id)     __JT_LABEL(ret, id)
+#define JT_CASE_LABEL(val, id)     __JT_LABEL(case_##val, id)
 
-#define __AJT_LABEL(prefix, id) prefix##_##id
-#define AJT_BASE_LABEL(id)    __AJT_LABEL(base, id)
-#define AJT_BREAK_LABEL(id)   __AJT_LABEL(break, id)
-#define AJT_RET_LABEL(id)     __AJT_LABEL(ret, id)
-#define AJT_CASE_LABEL(val, id)     __AJT_LABEL(case_##val, id)
+#define JT_BREAK_LOC JT_BREAK_LABEL(__JT_ID)
+#define JT_RET_LOC JT_RET_LABEL(__JT_ID)
+#define JT_CASE_LOC(val) JT_CASE_LABEL(val, __JT_ID)
+#define JT_BASE_LOC JT_BASE_LABEL(__JT_ID)
 
-#define AJT_BREAK_LOC AJT_BREAK_LABEL(__AJT_ID)
-#define AJT_RET_LOC AJT_RET_LABEL(__AJT_ID)
-#define AJT_CASE_LOC(val) AJT_CASE_LABEL(val, __AJT_ID)
-#define AJT_BASE_LOC AJT_BASE_LABEL(__AJT_ID)
-
-#define __AJT_GOTO(idx, base_lbl, alignment) goto *(&&base_lbl + (idx * alignment))
-#define AJT_GOTO(idx) __AJT_GOTO( \
+#define __JT_GOTO(idx, base_lbl, alignment) goto *(&&base_lbl + (idx * alignment))
+#define JT_GOTO(idx) __JT_GOTO( \
     idx, \
-    AJT_BASE_LABEL(__AJT_ID), \
-    ALIGNED_JMP_TAB_ALIGNMENT \
+    JT_BASE_LABEL(__JT_ID), \
 )
 
-#define __AJT_START_IMPL(base_lbl, ret_lbl, alignment) \
-goto ret_lbl; \
-// base_lbl:
-#define __AJT_START(base_lbl, ret_lbl, alignment) __AJT_START_IMPL(base_lbl, ret_lbl, alignment)
-#define AJT_START __AJT_START( \
-    AJT_BASE_LABEL(__AJT_ID), \
-    AJT_RET_LABEL(__AJT_ID), \
-    ALIGNED_JMP_TAB_ALIGNMENT \
+#define __JT_START_IMPL(base_lbl, ret_lbl, alignment) \
+goto ret_lbl;
+#define __JT_START(base_lbl, ret_lbl, alignment) __JT_START_IMPL(base_lbl, ret_lbl, alignment)
+#define JT_START __JT_START( \
+    JT_BASE_LABEL(__JT_ID), \
+    JT_RET_LABEL(__JT_ID), \
 )
 
-#define __AJT_CASE_END_IMPL \
+#define __JT_CASE_END_IMPL \
   ic++; \
   instr = ctx->instrs[++pc]; \
   goto *(locs[instr.opcode.raw]);
-//  goto *(&&AJT_BASE_LOC + locs[instr.opcode.raw]);
-#define __AJT_CASE_END __AJT_CASE_END_IMPL
-#define AJT_CASE_END __AJT_CASE_END
+#define __JT_CASE_END __JT_CASE_END_IMPL
+#define JT_CASE_END __JT_CASE_END
 
-#define __AJT_CASE_IMPL(case_lbl, break_lbl, alignment) \
+#define __JT_CASE_IMPL(case_lbl, break_lbl, alignment) \
 case_lbl: \
   dst_reg = instr.dst_reg; \
   src_reg = instr.src_reg; \
   imm = instr.imm;
-#define __AJT_CASE(case_lbl, break_lbl, alignment) __AJT_CASE_IMPL(case_lbl, break_lbl, alignment)
-#define AJT_CASE(val) __AJT_CASE( \
-    AJT_CASE_LABEL(val, __AJT_ID), \
-    AJT_BREAK_LABEL(__AJT_ID), \
-    ALIGNED_JMP_TAB_ALIGNMENT \
+#define __JT_CASE(case_lbl, break_lbl, alignment) __JT_CASE_IMPL(case_lbl, break_lbl, alignment)
+#define JT_CASE(val) __JT_CASE( \
+    JT_CASE_LABEL(val, __JT_ID), \
+    JT_BREAK_LABEL(__JT_ID), \
 )
 
 
-#define __AJT_END_IMPL(ret_lbl, break_lbl, alignment) \
+#define __JT_END_IMPL(ret_lbl, break_lbl, alignment) \
 ret_lbl:
-#define __AJT_END(ret_lbl, break_lbl, alignment) __AJT_END_IMPL(ret_lbl, break_lbl, alignment)
-#define AJT_END __AJT_END( \
-    AJT_RET_LABEL(__AJT_ID), \
-    AJT_BREAK_LABEL(__AJT_ID), \
-    ALIGNED_JMP_TAB_ALIGNMENT \
+#define __JT_END(ret_lbl, break_lbl, alignment) __JT_END_IMPL(ret_lbl, break_lbl, alignment)
+#define JT_END __JT_END( \
+    JT_RET_LABEL(__JT_ID), \
+    JT_BREAK_LABEL(__JT_ID), \
 )
 

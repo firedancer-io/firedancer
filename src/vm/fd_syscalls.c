@@ -27,6 +27,7 @@ void fd_vm_syscall_register_all( fd_vm_sbpf_exec_context_t * ctx ) {
   fd_vm_sbpf_interp_register_syscall( ctx, "sol_memcmp_", fd_vm_syscall_sol_memcmp );
   fd_vm_sbpf_interp_register_syscall( ctx, "sol_memset_", fd_vm_syscall_sol_memset );
   fd_vm_sbpf_interp_register_syscall( ctx, "sol_memmove_", fd_vm_syscall_sol_memmove );
+  
   fd_vm_sbpf_interp_register_syscall( ctx, "sol_invoke_signed_c", fd_vm_syscall_sol_invoke_signed_c );
   fd_vm_sbpf_interp_register_syscall( ctx, "sol_invoke_signed_rust", fd_vm_syscall_sol_invoke_signed_rust );
   fd_vm_sbpf_interp_register_syscall( ctx, "sol_alloc_free_", fd_vm_syscall_sol_alloc_free );

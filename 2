@@ -78,9 +78,9 @@ fd_vm_mem_map_read_uchar( fd_vm_sbpf_exec_context_t * ctx,
  * access. Sets the value pointed to by `val` on success.
  */
 static ulong 
-fd_vm_mem_map_read_ushort( fd_vm_sbpf_exec_context_t *  ctx,
-                           ulong                        vm_addr,
-                           ushort *                     val ) {
+fd_vm_mem_map_read_ushort( fd_vm_sbpf_exec_context_t * ctx,
+                          ulong              vm_addr,
+                          ushort *            val ) {
   void * vm_mem;
   ulong translation_res = fd_vm_sbpf_interp_translate_vm_to_host(ctx, 0, vm_addr, sizeof(ushort), &vm_mem);
   if( translation_res != FD_VM_MEM_MAP_SUCCESS ) {

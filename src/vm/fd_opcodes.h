@@ -1,45 +1,9 @@
-#ifndef HEADER_fd_src_ballet_runtime_vm_fd_opcodes_h
-#define HEADER_fd_src_ballet_runtime_vm_fd_opcodes_h
+#ifndef HEADER_fd_src_vm_fd_opcodes_h
+#define HEADER_fd_src_vm_fd_opcodes_h
 
 #include "../util/fd_util.h"
 
-struct fd_vm_sbpf_opcode_any {
-  uchar op_class  : 3;
-  uchar _unknown  : 5;
-};
-typedef struct fd_vm_sbpf_opcode_any fd_vm_sbpf_opcode_any_t;
-
-struct fd_vm_sbpf_opcode_normal {
-  uchar op_class  : 3;
-  uchar op_src    : 1;
-  uchar op_mode   : 4;
-};
-typedef struct fd_vm_sbpf_opcode_normal fd_vm_sbpf_opcode_normal_t;
-
-struct fd_vm_sbpf_opcode_mem {
-  uchar op_class       : 3;
-  uchar op_size        : 2;
-  uchar op_addr_mode   : 3;
-};
-typedef struct fd_vm_sbpf_opcode_mem fd_vm_sbpf_opcode_mem_t;
-
-union fd_vm_sbpf_opcode {
-  uchar raw;
-  fd_vm_sbpf_opcode_any_t any;
-  fd_vm_sbpf_opcode_normal_t normal;
-  fd_vm_sbpf_opcode_mem_t mem;
-};
-typedef union fd_vm_sbpf_opcode fd_vm_sbpf_opcode_t;
-
-struct fd_vm_sbpf_instr {
-  fd_vm_sbpf_opcode_t opcode;
-  uchar dst_reg : 4;
-  uchar src_reg : 4;
-  short offset;
-  uint imm;
-};
-typedef struct fd_vm_sbpf_instr fd_vm_sbpf_instr_t;
-
+/* Register shortcut macros */
 #define FD_R0   (0)
 #define FD_R1   (1)
 #define FD_R2   (2)
@@ -52,9 +16,13 @@ typedef struct fd_vm_sbpf_instr fd_vm_sbpf_instr_t;
 #define FD_R9   (9)
 #define FD_R10  (10)
 
+/* Instruction creation macro. Takes an opcode, destination and source register (or zero), an offset,
+   and an immediate value. */
 #define FD_BPF_INSTR(op, dst, src, off, val) {.opcode = {.raw = op }, .dst_reg = dst, .src_reg = src, .offset = off, .imm = val}
 
-/* Classes */
+/* Opcode related macros. The following are many macros used for the construction of BPF opcodes */
+
+/* Opcode classes */
 #define FD_BPF_OPCODE_CLASS_LD    (0b000)
 #define FD_BPF_OPCODE_CLASS_LDX   (0b001)
 #define FD_BPF_OPCODE_CLASS_ST    (0b010)
@@ -118,9 +86,13 @@ typedef struct fd_vm_sbpf_instr fd_vm_sbpf_instr_t;
 #define FD_BPF_OPCODE_ADDR_MODE_MSH   (0b101) /* classic BPF only */
 #define FD_BPF_OPCODE_ADDR_MODE_XADD  (0b110) /* eBPF only */
 
+/* Instruction opcode definition macros */
+/* Normal instruction opcode definition macro */
 #define FD_BPF_DEFINE_NORM_INSTR(cls,mode,src) ((cls) | (mode << 4) | (src << 3))
+/* Memory access instruction opcode definition macro */
 #define FD_BPF_DEFINE_MEM_INSTR(cls,addr_mode,sz) ((cls) | (addr_mode << 5) | (sz << 3))
 
+/* Instruction opcode constants */
 static const uchar FD_BPF_OP_ADD_IMM =   FD_BPF_DEFINE_NORM_INSTR(FD_BPF_OPCODE_CLASS_ALU,   FD_BPF_OPCODE_ALU_OP_MODE_ADD,    FD_BPF_OPCODE_SOURCE_MODE_IMM);
 static const uchar FD_BPF_OP_ADD_REG =   FD_BPF_DEFINE_NORM_INSTR(FD_BPF_OPCODE_CLASS_ALU,   FD_BPF_OPCODE_ALU_OP_MODE_ADD,    FD_BPF_OPCODE_SOURCE_MODE_REG);
 static const uchar FD_BPF_OP_SUB_IMM =   FD_BPF_DEFINE_NORM_INSTR(FD_BPF_OPCODE_CLASS_ALU,   FD_BPF_OPCODE_ALU_OP_MODE_SUB,    FD_BPF_OPCODE_SOURCE_MODE_IMM);
@@ -245,4 +217,4 @@ static const uchar FD_BPF_OP_STXQ =  FD_BPF_DEFINE_MEM_INSTR(FD_BPF_OPCODE_CLASS
 
 static const uchar FD_BPF_OP_ADDL_IMM = (0b00000000);
 
-#endif // HEADER_fd_src_ballet_runtime_vm_fd_opcodes_h
+#endif // HEADER_fd_src_vm_fd_opcodes_h

@@ -1,6 +1,7 @@
 #ifndef HEADER_fd_src_vm_fd_sbpf_interp_h
 #define HEADER_fd_src_vm_fd_sbpf_interp_h
 
+#include "fd_instr.h"
 #include "fd_opcodes.h"
 #include "fd_mem_map.h"
 #include "fd_stack.h"

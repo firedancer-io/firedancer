@@ -25,19 +25,25 @@ FD_PROTOTYPES_BEGIN
 
 void fd_vm_syscall_register_all( fd_vm_sbpf_exec_context_t * ctx );
 
+/* Syscall function declarations */
+
+/* Exceptional syscalls */
 FD_VM_SYSCALL_DECL(abort);
 FD_VM_SYSCALL_DECL(sol_panic);
 
+/* Logging syscalls */
 FD_VM_SYSCALL_DECL(sol_log);
 FD_VM_SYSCALL_DECL(sol_log_64);
 FD_VM_SYSCALL_DECL(sol_log_compute_units);
 FD_VM_SYSCALL_DECL(sol_log_pubkey);
 FD_VM_SYSCALL_DECL(sol_log_data);
 
+/* Program syscalls */
 FD_VM_SYSCALL_DECL(sol_create_program_address);
 FD_VM_SYSCALL_DECL(sol_try_find_program_address);
 FD_VM_SYSCALL_DECL(sol_get_processed_sibling_instruction);
 
+/* Crypto syscalls */
 FD_VM_SYSCALL_DECL(sol_sha256);
 FD_VM_SYSCALL_DECL(sol_keccak256);
 FD_VM_SYSCALL_DECL(sol_blake3);
@@ -48,10 +54,13 @@ FD_VM_SYSCALL_DECL(sol_curve_multiscalar_mul);
 FD_VM_SYSCALL_DECL(sol_curve_pairing_map);
 FD_VM_SYSCALL_DECL(sol_alt_bn128_group_op);
 
+/* Memory syscalls */
 FD_VM_SYSCALL_DECL(sol_memcpy);
 FD_VM_SYSCALL_DECL(sol_memcmp);
 FD_VM_SYSCALL_DECL(sol_memset);
 FD_VM_SYSCALL_DECL(sol_memmove);
+
+/* CPI syscalls */
 FD_VM_SYSCALL_DECL(sol_invoke_signed_c);
 FD_VM_SYSCALL_DECL(sol_invoke_signed_rust);
 FD_VM_SYSCALL_DECL(sol_alloc_free);
@@ -59,6 +68,7 @@ FD_VM_SYSCALL_DECL(sol_set_return_data);
 FD_VM_SYSCALL_DECL(sol_get_return_data);
 FD_VM_SYSCALL_DECL(sol_get_stack_height);
 
+/* Sysvar syscalls */
 FD_VM_SYSCALL_DECL(sol_get_clock_sysvar);
 FD_VM_SYSCALL_DECL(sol_get_epoch_schedule_sysvar);
 FD_VM_SYSCALL_DECL(sol_get_fees_sysvar);
