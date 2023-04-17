@@ -37,9 +37,6 @@
 #define MAP_QUERY_OPT         1
 #include "../../util/tmpl/fd_map_dynamic.c"
 
-/* Is this a TODO? */
-#define QUIC_DISABLE_CRYPTO 0
-
 /* Construction API ***************************************************/
 
 FD_QUIC_API FD_FN_CONST ulong
@@ -58,6 +55,8 @@ struct fd_quic_layout {
 };
 typedef struct fd_quic_layout fd_quic_layout_t;
 
+/* fd_quic_footprint_ext returns footprint of QUIC memory region given
+   limits. Also writes byte offsets to given layout struct. */
 static ulong
 fd_quic_footprint_ext( fd_quic_limits_t const * limits,
                        fd_quic_layout_t *       layout ) {
@@ -135,7 +134,7 @@ fd_quic_footprint( fd_quic_limits_t const * limits ) {
   return fd_quic_footprint_ext( limits, &layout );
 }
 
-FD_QUIC_API fd_quic_t *
+FD_QUIC_API void *
 fd_quic_new( void * mem,
              fd_quic_limits_t const * limits ) {
 
@@ -183,11 +182,6 @@ fd_quic_new( void * mem,
   FD_COMPILER_MFENCE();
 
   return quic;
-}
-
-FD_QUIC_API FD_FN_CONST fd_quic_config_t *
-fd_quic_get_config( fd_quic_t * quic ) {
-  return &quic->config;
 }
 
 FD_QUIC_API fd_quic_limits_t *
@@ -248,26 +242,22 @@ fd_quic_config_from_env( int  *             pargc,
   return cfg;
 }
 
-FD_QUIC_API FD_FN_CONST fd_quic_callbacks_t *
-fd_quic_get_callbacks( fd_quic_t * quic ) {
-  return &quic->join.cb;
-}
-
-FD_QUIC_API FD_FN_CONST fd_quic_metrics_t const *
-fd_quic_get_metrics( fd_quic_t const * quic ) {
-  return &quic->metrics;
-}
-
-FD_QUIC_API fd_aio_t *
-fd_quic_get_aio_net_rx( fd_quic_t * quic,
-                        fd_aio_t *  aio ) {
-  return fd_aio_join( fd_aio_new( aio, quic, fd_quic_aio_cb_receive ) );
+FD_QUIC_API fd_aio_t const *
+fd_quic_get_aio_net_rx( fd_quic_t * quic ) {
+  fd_aio_new( &quic->aio_rx, quic, fd_quic_aio_cb_receive );
+  return &quic->aio_rx;
 }
 
 FD_QUIC_API void
 fd_quic_set_aio_net_tx( fd_quic_t *      quic,
                         fd_aio_t const * aio_tx ) {
-  memcpy( &quic->join.aio_tx, aio_tx, sizeof(fd_aio_t) );
+
+  if( aio_tx ) {
+    /* TODO unclear if memcpy violates fd_aio semantics (breaks downcasting) */
+    memcpy( &quic->aio_tx, aio_tx, sizeof(fd_aio_t) );
+  } else {
+    memset( &quic->aio_tx, 0,      sizeof(fd_aio_t) );
+  }
 }
 
 
@@ -300,10 +290,28 @@ fd_quic_stream_init( fd_quic_stream_t * stream ) {
 }
 
 FD_QUIC_API fd_quic_t *
-fd_quic_join( fd_quic_t * quic ) {
+fd_quic_join( void * shquic ) {
 
-  if( FD_UNLIKELY( !quic                        ) ) { FD_LOG_WARNING(( "no quic"   )); return NULL; }
-  if( FD_UNLIKELY( quic->magic != FD_QUIC_MAGIC ) ) { FD_LOG_WARNING(( "bad magic" )); return NULL; }
+  if( FD_UNLIKELY( !shquic ) ) {
+    FD_LOG_WARNING(( "null shquic" ));
+    return NULL;
+  }
+  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)shquic, FD_QUIC_ALIGN ) ) ) {
+    FD_LOG_WARNING(( "misaligned quic" ));
+    return NULL;
+  }
+
+  fd_quic_t * quic = (fd_quic_t *)shquic;
+  if( FD_UNLIKELY( quic->magic != FD_QUIC_MAGIC ) ) {
+    FD_LOG_WARNING(( "bad magic" ));
+    return NULL;
+  }
+
+  return quic;
+}
+
+FD_QUIC_API fd_quic_t *
+fd_quic_init( fd_quic_t * quic ) {
 
   fd_quic_limits_t const * limits = &quic->limits;
   fd_quic_config_t       * config = &quic->config;
@@ -405,7 +413,7 @@ fd_quic_join( fd_quic_t * quic ) {
 
   /* Check TX AIO */
 
-  if( FD_UNLIKELY( !quic->join.aio_tx.send_func ) ) {
+  if( FD_UNLIKELY( !quic->aio_tx.send_func ) ) {
     FD_LOG_WARNING(( "NULL aio_tx" ));
     return NULL;
   }
@@ -759,8 +767,8 @@ fd_quic_leave( fd_quic_t * quic ) {
 
   /* Clear join-lifetime memory regions */
 
-  memset( &quic->join, 0, sizeof( fd_quic_join_t  ) );
-  memset( state,       0, sizeof( fd_quic_state_t ) );
+  memset( &quic->cb, 0, sizeof( fd_quic_callbacks_t  ) );
+  memset( state,     0, sizeof( fd_quic_state_t      ) );
 
   return quic;
 }
@@ -943,7 +951,7 @@ fd_quic_stream_send( fd_quic_stream_t *  stream,
   }
 
   if( batch_sz>0 && buffers_queued==0 ) {
-    return FD_QUIC_SEND_ERR_AGAIN;
+    return 0;
   }
 
   /* schedule send */
@@ -2879,7 +2887,7 @@ fd_quic_tx_buffered( fd_quic_t *      quic,
   cur_sz  -= (ulong)payload_sz;
 
   fd_aio_pkt_info_t aio_buf = { .buf = conn->crypt_scratch, .buf_sz = (ushort)( cur_ptr - conn->crypt_scratch ) };
-  int aio_rc = fd_aio_send( &quic->join.aio_tx, &aio_buf, 1, NULL );
+  int aio_rc = fd_aio_send( &quic->aio_tx, &aio_buf, 1, NULL );
   if( aio_rc == FD_AIO_ERR_AGAIN ) {
     /* transient condition - try later */
     return FD_QUIC_FAILED;
@@ -3816,7 +3824,7 @@ fd_quic_conn_tx( fd_quic_t * quic, fd_quic_conn_t * conn ) {
        encrypt into tx_ptr,tx_ptr+tx_sz */
 
     /* TODO encrypt */
-#if QUIC_DISABLE_CRYPTO
+#if FD_QUIC_DISABLE_CRYPTO
     ulong quic_pkt_sz = (ulong)( payload_ptr - cur_ptr );
     fd_memcpy( conn->tx_ptr, cur_ptr, quic_pkt_sz );
     fd_memset( conn->tx_ptr + quic_pkt_sz, 0, 16 );
@@ -4058,6 +4066,7 @@ fd_quic_conn_free( fd_quic_t *      quic,
   }
 
   /* find conn in events, then remove */
+  /* FIXME O(n) scales badly with number of conns (#266) */
   ulong             event_idx = 0;
   ulong             cnt   = service_queue_cnt( state->service_queue );
   for( ulong j = 0; j < cnt; ++j ) {
