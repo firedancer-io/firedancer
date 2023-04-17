@@ -59,17 +59,13 @@ main( int     argc,
         FD_LOG_ERR(( "%i: %s: fd_wksp_laddr( \"%s\", %lu ) failed\n\tDo %s help for help", cnt, cmd, _wksp, gaddr, bin ));
       }
 
-      fd_quic_t * quic = fd_quic_new( shmem, &limits );
-      if( FD_UNLIKELY( !quic ) ) {
+      void * shquic = fd_quic_new( shmem, &limits );
+      if( FD_UNLIKELY( !shquic ) ) {
         fd_wksp_free( wksp, gaddr );
         fd_wksp_detach( wksp );
         FD_LOG_ERR(( "%i: %s: fd_quic_new failed\n\tDo %s help for help",
                      cnt, cmd, bin ));
       }
-
-      fd_quic_config_t * quic_cfg = fd_quic_get_config( quic );
-      if( FD_UNLIKELY( !quic_cfg ) ) FD_LOG_ERR(( "failed to access quic_cfg" ));
-      quic_cfg->role = FD_QUIC_ROLE_SERVER;
 
       char buf[ FD_WKSP_CSTR_MAX ];
       printf( "%s\n", fd_wksp_cstr( wksp, gaddr, buf ) );

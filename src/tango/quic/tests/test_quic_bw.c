@@ -121,8 +121,8 @@ main( int argc, char ** argv ) {
   server_quic->config.role = FD_QUIC_ROLE_SERVER;
   client_quic->config.role = FD_QUIC_ROLE_CLIENT;
 
-  server_quic->join.cb.conn_new         = my_connection_new;
-  client_quic->join.cb.conn_hs_complete = my_handshake_complete;
+  server_quic->cb.conn_new         = my_connection_new;
+  client_quic->cb.conn_hs_complete = my_handshake_complete;
 
   /* make use aio to point quic directly at quic */
   fd_aio_t _aio[2];

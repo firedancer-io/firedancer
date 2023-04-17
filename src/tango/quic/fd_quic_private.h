@@ -2,18 +2,26 @@
 #define HEADER_fd_src_tango_quic_fd_quic_private_h
 
 #include "fd_quic.h"
+#include "templ/fd_quic_transport_params.h"
 #include "fd_quic_conn_map.h"
 #include "fd_quic_stream.h"
 #include "fd_quic_pkt_meta.h"
 #include "crypto/fd_quic_crypto_suites.h"
 #include "tls/fd_quic_tls.h"
 
+/* DEBUG: set to 1 to enable aggressive verbose logging */
 #if 0
 #define DEBUG(...) __VA_ARGS__
 #else
 #define DEBUG(...)
 #endif
 
+/* FD_QUIC_DISABLE_CRYPTO: set to 1 to disable packet protection and
+   encryption.  Only intended for testing.
+   FIXME not fully implemented (#256) */
+#ifndef FD_QUIC_DISABLE_CRYPTO
+#define FD_QUIC_DISABLE_CRYPTO 0
+#endif
 
 enum {
   FD_QUIC_TYPE_INGRESS = 1 << 0,
@@ -24,6 +32,11 @@ enum {
 
 #define FD_QUIC_PKT_NUM_UNUSED  (~0ul)
 #define FD_QUIC_PKT_NUM_PENDING (~1ul)
+
+/* FD_QUIC_MAGIC is used to signal the layout of shared memory region
+   of an fd_quic_t. */
+
+#define FD_QUIC_MAGIC (0xdadf8cfa01cc5460UL)
 
 /* events for time based processing */
 struct fd_quic_event {
@@ -87,6 +100,11 @@ FD_PROTOTYPES_BEGIN
 FD_FN_CONST static inline fd_quic_state_t *
 fd_quic_get_state( fd_quic_t * quic ) {
   return (fd_quic_state_t *)( (ulong)quic + FD_QUIC_STATE_OFF );
+}
+
+FD_FN_CONST static inline fd_quic_state_t const *
+fd_quic_get_state_const( fd_quic_t const * quic ) {
+  return (fd_quic_state_t const *)( (ulong)quic + FD_QUIC_STATE_OFF );
 }
 
 /* fd_quic_conn_service is called periodically to perform pending
@@ -176,36 +194,36 @@ fd_quic_tls_cb_alpn_select( SSL * ssl,
 
 static inline ulong
 fd_quic_now( fd_quic_t * quic ) {
-  return quic->join.cb.now( quic->join.cb.now_ctx );
+  return quic->cb.now( quic->cb.now_ctx );
 }
 
 static inline void
 fd_quic_cb_conn_new( fd_quic_t *      quic,
                      fd_quic_conn_t * conn ) {
-  if( FD_UNLIKELY( !quic->join.cb.conn_new ) ) return;
-  quic->join.cb.conn_new( conn, quic->join.cb.quic_ctx );
+  if( FD_UNLIKELY( !quic->cb.conn_new ) ) return;
+  quic->cb.conn_new( conn, quic->cb.quic_ctx );
 }
 
 static inline void
 fd_quic_cb_conn_hs_complete( fd_quic_t *      quic,
                              fd_quic_conn_t * conn ) {
-  if( FD_UNLIKELY( !quic->join.cb.conn_hs_complete ) ) return;
-  quic->join.cb.conn_hs_complete( conn, quic->join.cb.quic_ctx );
+  if( FD_UNLIKELY( !quic->cb.conn_hs_complete ) ) return;
+  quic->cb.conn_hs_complete( conn, quic->cb.quic_ctx );
 }
 
 static inline void
 fd_quic_cb_conn_final( fd_quic_t *      quic,
                        fd_quic_conn_t * conn ) {
-  if( FD_UNLIKELY( !quic->join.cb.conn_final ) ) return;
-  quic->join.cb.conn_final( conn, quic->join.cb.quic_ctx );
+  if( FD_UNLIKELY( !quic->cb.conn_final ) ) return;
+  quic->cb.conn_final( conn, quic->cb.quic_ctx );
 }
 
 static inline void
 fd_quic_cb_stream_new( fd_quic_t *        quic,
                        fd_quic_stream_t * stream,
                        int                stream_type ) {
-  if( FD_UNLIKELY( !quic->join.cb.stream_new ) ) return;
-  quic->join.cb.stream_new( stream, quic->join.cb.quic_ctx, stream_type );
+  if( FD_UNLIKELY( !quic->cb.stream_new ) ) return;
+  quic->cb.stream_new( stream, quic->cb.quic_ctx, stream_type );
 
   /* update metrics */
   ulong stream_id = stream->stream_id;
@@ -221,8 +239,8 @@ fd_quic_cb_stream_receive( fd_quic_t *        quic,
                            ulong              data_sz,
                            ulong              offset,
                            int                fin ) {
-  if( FD_UNLIKELY( !quic->join.cb.stream_receive ) ) return;
-  quic->join.cb.stream_receive( stream, stream_ctx, data, data_sz, offset, fin );
+  if( FD_UNLIKELY( !quic->cb.stream_receive ) ) return;
+  quic->cb.stream_receive( stream, stream_ctx, data, data_sz, offset, fin );
 
   /* update metrics */
   quic->metrics.stream_rx_event_cnt++;
@@ -234,8 +252,8 @@ fd_quic_cb_stream_notify( fd_quic_t *        quic,
                           fd_quic_stream_t * stream,
                           void *             stream_ctx,
                           int                event ) {
-  if( FD_UNLIKELY( !quic->join.cb.stream_notify ) ) return;
-  quic->join.cb.stream_notify( stream, stream_ctx, event );
+  if( FD_UNLIKELY( !quic->cb.stream_notify ) ) return;
+  quic->cb.stream_notify( stream, stream_ctx, event );
 
   /* update metrics */
   ulong stream_id = stream->stream_id;
@@ -255,15 +273,6 @@ void
 fd_quic_reclaim_pkt_meta( fd_quic_conn_t *     conn,
                           fd_quic_pkt_meta_t * pkt_meta,
                           uint                 enc_level );
-
-/* fd_quic_aio_send queues a batch of packets to the network for tx.
-   (Packets including Ethernet and IP headers) */
-
-int
-fd_quic_aio_send( fd_quic_t *               quic,
-                  fd_aio_pkt_info_t const * batch,
-                  ulong                     batch_cnt,
-                  ulong *                   opt_batch_idx );
 
 FD_PROTOTYPES_END
 

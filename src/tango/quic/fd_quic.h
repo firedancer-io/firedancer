@@ -18,14 +18,72 @@
 
    This implementation aims to be compliant to RFC 9000 and RFC 9001:
    - https://datatracker.ietf.org/doc/html/rfc9000
-   - https://datatracker.ietf.org/doc/html/rfc9001 */
+   - https://datatracker.ietf.org/doc/html/rfc9001
+
+   ### Memory Management
+
+   fd_quic is almost entirely pre-allocated (with the exception of
+   OpenSSL objects).  Currently, a QUIC object reserves space for a
+   number of connection slots, with uniform stream, reassembly, and ACK
+   buffers.
+
+   ### Memory Layout
+
+   fd_quic_t is the publicly exported memory layout of a QUIC object.
+   The private memory region of a QUIC object extends beyond the end of
+   this struct.  fd_quic_t is not intended to be allocated directly,
+   refer to the below for details.
+
+   ### Lifecycle
+
+   The below state diagram shows the lifecycle of an fd_quic_t.
+
+      ┌───────────┐  new   ┌───────────┐ join  ┌──────────┐
+      │           ├───────►│           ├──────►│          │
+      │ allocated │        │ formatted │       │  joined  │
+      │           │◄───────┤           │◄──────┤          │
+      └───────────┘ delete └───────────┘ leave └───▲───┬──┘
+                                                   │   │ set config
+                                                   │   │ set callbacks
+                                              fini │   │ init
+                                                ┌──┴───▼──┐
+                                            ┌───│         │
+                                    service │   │  ready  │
+                                            └──►│         │
+                                                └─────────┘
+
+   ### Lifecycle: Allocation & Formatting
+
+   A QUIC object resides in a contiguous pre-allocated memory region.
+   (Usually, in a Firedancer workspace)  The footprint and internal
+   layout depends on the pre-configured fd_quic_limits_t parameters.
+   These limits are constant throughout the lifetime of an fd_quic_t.
+
+   Use fd_quic_{align,footprint} to determine size and alignment of the
+   memory region to be used.  Use fd_quic_new to format such a memory
+   region and to obtain an opaque handle.  In the formatted state, the
+   fd_quic_t is position-independent (may be mapped at different virtual
+   addresses).  This is useful for separating allocation and runtime use
+   into different steps.
+
+   ### Lifecycle: Joining
+
+   Given an opaque handle, fd_quic_join runs basic coherence checks and
+   returns a typed pointer to the object.  The object is not modified
+   by this operation.  Each object may have multiple active joins, but
+   only one of them may write.  (Typically, a single join is used for
+   service, and secondary joins for read-only monitoring)
+
+   ### Lifecycle: Usage
+
+   fd_quic_init initializes an fd_quic_t for use.  On success, the QUIC
+   becomes ready to serve from the thread that init was called from (it
+   is invalid to service QUIC from another thread). */
 
 /* TODO provide fd_quic on non-hosted targets */
 
 #include "../aio/fd_aio.h"
 #include "../../util/fd_util.h"
-
-#include "templ/fd_quic_transport_params.h"
 
 /* FD_QUIC_API marks public API declarations.  No-op for now. */
 #define FD_QUIC_API
@@ -69,22 +127,10 @@
    send failure.
    ...INVAL_STREAM: Not allowed to send for stream ID (e.g. not open)
    ...INVAL_CONN:   Connection not in valid state for sending
-   ...AGAIN:        Blocked from sending, try again later
    ...FIN:          Not allowed to send, stream finished */
 #define FD_QUIC_SEND_ERR_INVAL_STREAM (-1)
 #define FD_QUIC_SEND_ERR_INVAL_CONN   (-2)
-#define FD_QUIC_SEND_ERR_AGAIN        (-3)
-#define FD_QUIC_SEND_ERR_STREAM_FIN   (-4)
-
-/* fd_quic_t is the main handle for a QUIC client/server.
-
-   fd_quic_t contains the following structures in a single continuous
-   memory region (usually in an fd_wksp):
-
-   - fd_quic_limits_t    describing its memory layout
-   - fd_quic_config_t    various config params that don't change memory layout
-   - fd_quic_conn_t[]    pre-allocated list of active conns
-   - fd_quic_stream_t[]  pre-allocated list of active streams */
+#define FD_QUIC_SEND_ERR_STREAM_FIN   (-3)
 
 /* FD_QUIC_MIN_CONN_ID_CNT: min permitted conn ID count per conn */
 #define FD_QUIC_MIN_CONN_ID_CNT (4UL)
@@ -237,16 +283,15 @@ typedef void
 (* fd_quic_cb_conn_new_t)( fd_quic_conn_t * conn,
                            void *           quic_ctx );
 
-/* fd_quic_cb_conn_handshake_complete_t: client completed handshakes
-   TODO how does this differ from conn_new?
-   TODO invoked for client too? */
+/* fd_quic_cb_conn_handshake_complete_t: client completed a handshake
+   of a conn it created. */
 typedef void
 (* fd_quic_cb_conn_handshake_complete_t)( fd_quic_conn_t * conn,
                                           void *           quic_ctx );
 
-/* fd_quic_cb_conn_final_t: lifetime of conn is about to end
-   TODO add note regarding lifetime of pointers to same conn object
-   TODO will conn be deallocated immediately after callback? */
+/* fd_quic_cb_conn_final_t: Conn termination notification.  The conn
+   object is freed immediately after returning.  User should destroy any
+   remaining references to conn in this callback. */
 typedef void
 (* fd_quic_cb_conn_final_t)( fd_quic_conn_t * conn,
                              void *           quic_ctx );
@@ -351,38 +396,18 @@ typedef struct fd_quic_metrics fd_quic_metrics_t;
 
 /* fd_quic_t memory layout ********************************************/
 
-/* fd_quic_join_t contains externally provided objects that are
-   required to join an fd_quic_t. */
-
-struct __attribute__((aligned(16UL))) fd_quic_join {
-  /* User-provided callbacks */
-
-  fd_quic_callbacks_t cb;
-
-  /* fd_aio I/O abstraction */
-
-  fd_aio_t aio_tx; /* owned externally, used by fd_quic_t
-                      to send tx data to net driver */
-};
-typedef struct fd_quic_join fd_quic_join_t;
-
-/* FD_QUIC_MAGIC is used to signal the layout of shared memory region
-   of an fd_quic_t. */
-
-#define FD_QUIC_MAGIC (0xdadf8cfa01cc5460UL)
-
-/* fd_quic_t is the publicly exported memory layout of a QUIC memory
-   region.  fd_quic_t should not be statically allocated.  Instead, use
-   fd_quic_footprint() and fd_quic_join(). */
-
 struct fd_quic {
-  ulong             magic;   /* ==FD_QUIC_MAGIC */
-  fd_quic_limits_t  limits;
-  fd_quic_config_t  config;
-  fd_quic_join_t    join;
-  fd_quic_metrics_t metrics;
+  ulong magic; /* ==FD_QUIC_MAGIC */
 
-  /* ... variable length structures follow ... */
+  fd_quic_limits_t    limits;  /* position-independent, persistent,    read only */
+  fd_quic_config_t    config;  /* position-independent, persistent,    writable pre init */
+  fd_quic_callbacks_t cb;      /* position-dependent,   reset on join, writable pre init  */
+  fd_quic_metrics_t   metrics; /* position-independent, persistent,    read only */
+
+  fd_aio_t aio_rx; /* local AIO */
+  fd_aio_t aio_tx; /* remote AIO */
+
+  /* ... private variable-length structures follow ... */
 };
 typedef struct fd_quic fd_quic_t;
 
@@ -394,7 +419,7 @@ ulong
 fd_quic_conn_get_pkt_meta_free_count( fd_quic_conn_t * conn );
 
 
-/* Construction API ***************************************************/
+/* Object lifecycle ***************************************************/
 
 /* fd_quic_{align,footprint} return the required alignment and footprint
    of a memory region suitable for use as an fd_quic_t.  align returns
@@ -415,20 +440,43 @@ fd_quic_footprint( fd_quic_limits_t const * limits );
    temporary reference, identical to the one given to fd_quic_footprint
    used to figure out the required footprint. */
 
-FD_QUIC_API fd_quic_t *
+FD_QUIC_API void *
 fd_quic_new( void *                   mem,
              fd_quic_limits_t const * limits );
 
-/* fd_quic_get_config returns the config struct in the caller's local
-   address space.  Used to configure a QUIC object before a join. Only
-   caller may modify the config object (fd_quic_t functions won't).
-   Writes to the returned config persist for the lifetime of the quic
-   object.  Assumes given quic is a valid fd_quic_t without an active
-   join (U.B. otherwise).  The lifetime of the returned pointer is the
-   same as the given quic. */
+/* fd_quic_join joins the caller to the fd_quic.  shquic points to the
+   first byte of the memory region backing the QUIC in the caller's
+   address space.
 
-FD_QUIC_API FD_FN_CONST fd_quic_config_t *
-fd_quic_get_config( fd_quic_t * quic );
+   Returns a pointer in the local address space to the public fd_quic_t
+   region on success (do not assume this to be just a cast of shquic)
+   and NULL on failure (logs details).  Reasons for failure are that
+   shquic is obviously not a pointer to a correctly formatted QUIC
+   object.  Every successful join should have a matching leave.  The
+   lifetime of the join is until the matching leave or the thread group
+   is terminated. */
+
+FD_QUIC_API fd_quic_t *
+fd_quic_join( void * shquic );
+
+/* fd_quic_leave leaves a current local join and frees all dynamically
+   managed resources (heap allocs, OS handles).  Returns the given quic
+   on success and NULL on failure (logs details).  Reasons for failure
+   include quic is NULL, no active join, or OpenSSL error. */
+
+FD_QUIC_API fd_quic_t *
+fd_quic_leave( fd_quic_t * quic );
+
+/* fd_quic_delete unformats a memory region used as an fd_quic_t.
+   Assumes nobody is joined to the region.  Returns the given quic
+   pointer on success and NULL if used obviously in error (e.g. quic is
+   obviously not an fd_quic_t ... logs details).  The ownership of the
+   memory region is transferred ot the caller. */
+
+FD_QUIC_API void *
+fd_quic_delete( fd_quic_t * quic );
+
+/* Configuration ******************************************************/
 
 /* fd_quic_{limits,config}_from_env populates the given QUIC limits or
    config from command-line args and env vars.  If parg{c,v} are non-
@@ -447,81 +495,54 @@ fd_quic_config_from_env( int  *   pargc,
                          char *** pargv,
                          fd_quic_config_t * config );
 
-/* fd_quic_get_callbacks returns the callback struct in the caller's
-   local address space.  Used to configure a QUIC object before a join.
-   Cleared on next leave.  Assumes given quic is a valid fd_quic_t
-   without an active join (U.B. otherwise).  The lifetime of the
-   returned pointer is the same as the given QUIC. */
+/* fd_quic_get_aio_net_rx returns this QUIC's aio base class.  Valid
+   for lifetime of QUIC.  While pointer to aio can be obtained before
+   init, calls to aio may only be dispatched by the thread with
+   exclusive access to QUIC that owns it. */
 
-FD_QUIC_API FD_FN_CONST fd_quic_callbacks_t *
-fd_quic_get_callbacks( fd_quic_t * quic );
-
-/* fd_quic_get_metrics returns a pointer to the metrics struct of the
-   given QUIC in the caller's local address space.  The lifetime of the
-   returned pointer is valid for the lifetime of the fd_quic_t, with or
-   without an active join. */
-
-FD_QUIC_API FD_FN_CONST fd_quic_metrics_t const *
-fd_quic_get_metrics( fd_quic_t const * quic );
-
-/* fd_quic_get_aio_net_rx configures the given aio to receive data into
-   quic instance.  aio should be deleted before lifetime of quic ends.
-   Returns given aio on success. */
-
-FD_QUIC_API fd_aio_t *
-fd_quic_get_aio_net_rx( fd_quic_t * quic,
-                        fd_aio_t *  aio );
+FD_QUIC_API fd_aio_t const *
+fd_quic_get_aio_net_rx( fd_quic_t * quic );
 
 /* fd_quic_set_aio_net_tx sets the fd_aio_t used by the fd_quic_t to
-   send tx data to the network driver.  Cleared on leave.
-
-   The given aio will handle  */
+   send tx data to the network driver.  Cleared on fini. */
 
 FD_QUIC_API void
 fd_quic_set_aio_net_tx( fd_quic_t *      quic,
                         fd_aio_t const * aio_tx );
 
-/* fd_quic_join joins the caller to the QUIC such that it is ready to
-   serve.  There may only be one active join at a time.  Returns the
-   given quic on success and NULL on failure (logs details).  Performs
-   various heap allocations and file system accesses such reading certs,
-   as required by OpenSSL.  Reasons for failure include invalid config
-   or OpenSSL error. */
+/* Initialization *****************************************************/
+
+/* fd_quic_init initializes the QUIC such that it is ready to serve.
+   permits the calling thread exclusive access during which no other
+   thread may write to the QUIC.  Exclusive rights get released when the
+   thread exits or calls fd_quic_fini.
+
+   Requires valid configuration and external objects (aio, callbacks).
+   Returns given quic on success and NULL on failure (logs details).
+   Performs various heap allocations and file system accesses such
+   reading certs.  Reasons for failure include invalid config or
+   OpenSSL error. */
 
 FD_QUIC_API fd_quic_t *
-fd_quic_join( fd_quic_t * quic );
+fd_quic_init( fd_quic_t * quic );
 
-/* fd_quic_leave leaves a current local join and frees all dynamically
-   managed resources (heap allocs, OS handles).  Returns the given quic
-   on success and NULL on failure (logs details).  Reasons for failure
-   include quic is NULL, no active join, or OpenSSL error. */
+/* fd_quic_fini releases exclusive access over a QUIC.  Zero-initializes
+   references to external objects (aio, callbacks).  Frees any heap
+   allocs made by fd_quic_init. */
 
-FD_QUIC_API fd_quic_t *
-fd_quic_leave( fd_quic_t * quic );
+FD_QUIC_API void
+fd_quic_fini( fd_quic_t * quic );
 
-/* fd_quic_reset clears all join-related memory.  Used to recover from
-   unclean shutdowns.  Assumes nobody is joined to quic.  Returns quic. */
-
-FD_QUIC_API fd_quic_t *
-fd_quic_reset( fd_quic_t * quic );
-
-/* fd_quic_delete unformats a memory region used as an fd_quic_t.
-   Assumes nobody is joined to the region.  Returns the given quic
-   pointer on success and NULL if used obviously in error (e.g. quic is
-   obviously not an fd_quic_t ... logs details).  The ownership of the
-   memory region is transferred ot the caller. */
-
-FD_QUIC_API void *
-fd_quic_delete( fd_quic_t * quic );
+/* NOTE: Calling any of the below requires valid initialization from
+   this thread group. */
 
 /* Connection API *****************************************************/
 
 /* fd_quic_connect initiates a new client connection to a remote QUIC
-   server.  On success, returns a conn object to manage it.  On failure,
-   returns NULL.  Reasons for failure include quic not a valid join or
-   out of free conns.
-
-   TODO who is responsible for freeing the returned conn object?
+   server.  On success, returns a pointer to the conn object managed by
+   QUIC.  On failure, returns NULL.  Reasons for failure include quic
+   not a valid join or out of free conns.  Lifetime of returned conn is
+   until conn_final callback.
 
    args
      dst_ip_addr   destination ip address
@@ -529,14 +550,15 @@ fd_quic_delete( fd_quic_t * quic );
      sni           server name indication cstr, max 253 chars, nullable */
 
 FD_QUIC_API fd_quic_conn_t *
-fd_quic_connect( fd_quic_t *  quic,
+fd_quic_connect( fd_quic_t *  quic,  /* requires exclusive access */
                  uint         dst_ip_addr,
                  ushort       dst_udp_port,
                  char const * sni );
 
-/* fd_quic_conn_close initiates a shutdown of the conn.  The given
-   reason code is returned to the peer via a CONNECTION_CLOSE frame, if
-   possible. */
+/* fd_quic_conn_close asynchronously initiates a shutdown of the conn.
+   The given reason code is returned to the peer via a CONNECTION_CLOSE
+   frame, if possible.  Causes conn_final callback to be issued
+   eventually. */
 
 FD_QUIC_API void
 fd_quic_conn_close( fd_quic_conn_t * conn,
@@ -572,7 +594,6 @@ fd_quic_conn_new_stream( fd_quic_conn_t * conn,
                          int              type );
 
 /* fd_quic_stream_send sends a vector of buffers on a stream in order.
-   Each buf in batch must be at most FD_QUIC_MAX_TX_BUF bytes.
 
    Use fd_quic_conn_new_stream to create a new stream for sending
    or use the new stream callback to obtain a stream for replying.
