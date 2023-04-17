@@ -177,6 +177,9 @@ void
 fd_quic_tls_cb_secret( fd_quic_tls_hs_t *           hs,
                        void *                       context,
                        fd_quic_tls_secret_t const * secret );
+void
+fd_quic_tls_cb_keylog( fd_quic_tls_hs_t * hs,
+                       char const *       line );
 
 void
 fd_quic_tls_cb_handshake_complete( fd_quic_tls_hs_t * hs,

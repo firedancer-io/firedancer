@@ -8,16 +8,14 @@
 #include "templ/fd_quic_transport_params.h"
 #include "fd_quic_pkt_meta.h"
 
-enum {
-  FD_QUIC_CONN_STATE_INVALID,            /* dead object / freed */
-  FD_QUIC_CONN_STATE_HANDSHAKE,          /* currently doing handshaking with peer */
-  FD_QUIC_CONN_STATE_HANDSHAKE_COMPLETE, /* handshake complete, confirming with peer */
-  FD_QUIC_CONN_STATE_ACTIVE,             /* connection established - data may be transferred */
-  FD_QUIC_CONN_STATE_PEER_CLOSE,         /* peer requested close */
-  FD_QUIC_CONN_STATE_ABORT,              /* connection terminating due to error */
-  FD_QUIC_CONN_STATE_CLOSE_PENDING,      /* connection is closing */
-  FD_QUIC_CONN_STATE_DEAD                /* connection about to be freed */
-};
+#define FD_QUIC_CONN_STATE_INVALID            0 /* dead object / freed */
+#define FD_QUIC_CONN_STATE_HANDSHAKE          1 /* currently doing handshaking with peer */
+#define FD_QUIC_CONN_STATE_HANDSHAKE_COMPLETE 2 /* handshake complete, confirming with peer */
+#define FD_QUIC_CONN_STATE_ACTIVE             3 /* connection established - data may be transferred */
+#define FD_QUIC_CONN_STATE_PEER_CLOSE         4 /* peer requested close */
+#define FD_QUIC_CONN_STATE_ABORT              5 /* connection terminating due to error */
+#define FD_QUIC_CONN_STATE_CLOSE_PENDING      6 /* connection is closing */
+#define FD_QUIC_CONN_STATE_DEAD               7 /* connection about to be freed */
 
 enum {
   FD_QUIC_CONN_REASON_NO_ERROR                     = 0x00,    /* No error */
