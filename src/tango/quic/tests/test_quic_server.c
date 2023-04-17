@@ -32,7 +32,6 @@ main( int argc, char ** argv ) {
   char const * iface        = fd_env_strip_cmdline_cstr  ( &argc, &argv, "--iface",        NULL, NULL                       );
   uint         ifqueue      = fd_env_strip_cmdline_uint  ( &argc, &argv, "--ifqueue",      NULL, 0U                         );
   char const * _src_mac     = fd_env_strip_cmdline_cstr  ( &argc, &argv, "--src-mac",      NULL, NULL                       );
-  char const * _dst_mac     = fd_env_strip_cmdline_cstr  ( &argc, &argv, "--dst-mac",      NULL, NULL                       );
   char const * _listen_ip   = fd_env_strip_cmdline_cstr  ( &argc, &argv, "--listen-ip",    NULL, NULL                       );
   ushort       listen_port  = fd_env_strip_cmdline_ushort( &argc, &argv, "--listen-port",  NULL, 0U                         );
   ulong        xsk_frame_sz = fd_env_strip_cmdline_ulong ( &argc, &argv, "--xsk-frame-sz", NULL, 2048UL                     );
@@ -44,14 +43,11 @@ main( int argc, char ** argv ) {
   if( FD_UNLIKELY( !page_sz ) ) FD_LOG_ERR(( "unsupported --page-sz" ));
 
   if( FD_UNLIKELY( !_src_mac    ) ) FD_LOG_ERR(( "missing --src-mac"     ));
-  if( FD_UNLIKELY( !_dst_mac    ) ) FD_LOG_ERR(( "missing --dst-mac"     ));
   if( FD_UNLIKELY( !_listen_ip  ) ) FD_LOG_ERR(( "missing --listen-ip"   ));
   if( FD_UNLIKELY( !listen_port ) ) FD_LOG_ERR(( "missing --listen-port" ));
 
   uchar src_mac[6];
   if( FD_UNLIKELY( !fd_cstr_to_mac_addr( _src_mac, src_mac ) ) ) FD_LOG_ERR(( "invalid --src-mac" ));
-  uchar dst_mac[6];
-  if( FD_UNLIKELY( !fd_cstr_to_mac_addr( _dst_mac, dst_mac ) ) ) FD_LOG_ERR(( "invalid --dst-mac" ));
   uint listen_ip = 0;
   if( FD_UNLIKELY( !fd_cstr_to_ip4_addr( _listen_ip, &listen_ip ) ) ) FD_LOG_ERR(( "invalid --listen-ip" ));
 
@@ -92,7 +88,6 @@ main( int argc, char ** argv ) {
   fd_quic_config_from_env( &argc, &argv, quic_config );
 
   memcpy( quic_config->link.src_mac_addr, src_mac, 6UL );
-  memcpy( quic_config->link.dst_mac_addr, dst_mac, 6UL );
 
   quic_config->net.ip_addr         = listen_ip;
   quic_config->net.listen_udp_port = listen_port;
