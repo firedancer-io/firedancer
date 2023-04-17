@@ -15,8 +15,7 @@
 
 static void usage(const char* progname) {
   fprintf(stderr, "USAGE: %s\n", progname);
-  fprintf(stderr, " --cmd unpack --snapshotfile <file>               unpack snapshot file\n");
-  fprintf(stderr, " --cmd upload --ledger <dir> --funk_db <db>       \n");
+  fprintf(stderr, " --cmd ingest --snapshotfile <file>               ingest snapshot file\n");
 }
 
 struct SnapshotParser {
@@ -24,13 +23,21 @@ struct SnapshotParser {
   char* tmpstart_;
   char* tmpcur_;
   char* tmpend_;
+    
+  void * allocf_arg_;
+  struct fd_deserializable_versioned_bank* bank_;
+  struct fd_solana_accounts_db_fields* accounts_;
 };
 
-void SnapshotParser_init(struct SnapshotParser* self) {
+void SnapshotParser_init(struct SnapshotParser* self, void * allocf_arg) {
   TarReadStream_init(&self->tarreader_);
   size_t tmpsize = 1<<30;
   self->tmpstart_ = self->tmpcur_ = (char*)malloc(tmpsize);
   self->tmpend_ = self->tmpstart_ + tmpsize;
+
+  self->allocf_arg_ = allocf_arg; 
+  self->bank_ = NULL;
+  self->accounts_ = NULL;
 }
 
 void SnapshotParser_destroy(struct SnapshotParser* self) {
@@ -68,22 +75,20 @@ void SnapshotParser_parsefd_solana_accounts(struct SnapshotParser* self, const v
   }
 }
 
-static
-char* SnapshotParser_allocTemp(FD_FN_UNUSED void* arg, unsigned long align, unsigned long len) {
-  char * ptr = malloc(fd_ulong_align_up(sizeof(char *) + len, align));
-  char * ret = (char *) fd_ulong_align_up( (ulong) (ptr + sizeof(char *)), align );
-  *((char **)(ret - sizeof(char *))) = ptr;
-  return ret;
+static char* SnapshotParser_allocTemp(FD_FN_UNUSED void* arg, unsigned long align, unsigned long sz) {
+  return fd_alloc_malloc((fd_alloc_t*)arg, align, sz);
 }
 
 void SnapshotParser_parseSnapshots(struct SnapshotParser* self, const void* data, size_t datalen) {
-  struct fd_deserializable_versioned_bank* bank = (struct fd_deserializable_versioned_bank*)
-    SnapshotParser_allocTemp(self, FD_DESERIALIZABLE_VERSIONED_BANK_ALIGN, FD_DESERIALIZABLE_VERSIONED_BANK_FOOTPRINT);
-  fd_deserializable_versioned_bank_decode(bank, &data, &datalen, SnapshotParser_allocTemp, self);
+  const void * dataend = (const char*)data + datalen;
+  
+  self->bank_ = (struct fd_deserializable_versioned_bank*)
+    SnapshotParser_allocTemp(self->allocf_arg_, FD_DESERIALIZABLE_VERSIONED_BANK_ALIGN, FD_DESERIALIZABLE_VERSIONED_BANK_FOOTPRINT);
+  fd_deserializable_versioned_bank_decode(self->bank_, &data, dataend, SnapshotParser_allocTemp, self->allocf_arg_);
 
-  struct fd_solana_accounts_db_fields* accounts = (struct fd_solana_accounts_db_fields*)
-    SnapshotParser_allocTemp(self, FD_SOLANA_ACCOUNTS_DB_FIELDS_ALIGN, FD_SOLANA_ACCOUNTS_DB_FIELDS_FOOTPRINT);
-  fd_solana_accounts_db_fields_decode(accounts, &data, &datalen, SnapshotParser_allocTemp, self);
+  self->accounts_ = (struct fd_solana_accounts_db_fields*)
+    SnapshotParser_allocTemp(self->allocf_arg_, FD_SOLANA_ACCOUNTS_DB_FIELDS_ALIGN, FD_SOLANA_ACCOUNTS_DB_FIELDS_FOOTPRINT);
+  fd_solana_accounts_db_fields_decode(self->accounts_, &data, dataend, SnapshotParser_allocTemp, self->allocf_arg_);
 }
 
 void SnapshotParser_tarEntry(void* arg, const char* name, const void* data, size_t datalen) {
@@ -167,14 +172,21 @@ static void decompressFile(const char* fname, decompressCallback cb, void* arg) 
   close(fin);
 }
 
-void uploadLedger(FD_FN_UNUSED const char *ledger, FD_FN_UNUSED const char *db) {
-  
-}
-
 int main(int argc, char** argv) {
-  const char* cmd = fd_env_strip_cmdline_cstr(&argc, &argv, "--cmd", NULL, NULL);
+  fd_boot( &argc, &argv );
 
-  if (strcmp(cmd, "unpack") == 0) {
+  const char* cmd = fd_env_strip_cmdline_cstr(&argc, &argv, "--cmd", NULL, NULL);
+  if (cmd == NULL) {
+    usage(argv[0]);
+    return 1;
+  }
+
+  fd_wksp_t* wksp = fd_wksp_new_anonymous( FD_SHMEM_GIGANTIC_PAGE_SZ, 15, 2, "wksp", 0UL );
+  void * shmem = fd_wksp_alloc_laddr( wksp, fd_alloc_align(), fd_alloc_footprint(), 1 );
+  void * shalloc = fd_alloc_new ( shmem, 1 );
+  void * allocf_arg = fd_alloc_join( shalloc, 0UL );
+
+  if (strcmp(cmd, "ingest") == 0) {
     const char* snapshotfile = fd_env_strip_cmdline_cstr(&argc, &argv, "--snapshotfile", NULL, NULL);
     if (snapshotfile == NULL) {
       usage(argv[0]);
@@ -182,17 +194,15 @@ int main(int argc, char** argv) {
     }
 
     struct SnapshotParser parser;
-    SnapshotParser_init(&parser);
+    SnapshotParser_init(&parser, allocf_arg);
     decompressFile(snapshotfile, SnapshotParser_moreData, &parser);
     SnapshotParser_destroy(&parser);
   }
 
-  if (strcmp(cmd, "upload") == 0) {
-      const char* ledger = fd_env_strip_cmdline_cstr(&argc, &argv, "--ledger", NULL, NULL);
-      const char* db = fd_env_strip_cmdline_cstr(&argc, &argv, "--funk-db", NULL, NULL);
+  fd_wksp_free_laddr( shmem );
+  fd_wksp_delete_anonymous( wksp );
 
-      uploadLedger(ledger, db);
-  }
-  
+  fd_log_flush();
+  fd_halt();
   return 0;
 }
