@@ -50,8 +50,8 @@ fd_frank_quic_task( int     argc,
   if( FD_UNLIKELY( !dcache ) ) FD_LOG_ERR(( "fd_dcache_join failed" ));
 
   FD_LOG_INFO(( "loading %s.quic.%s.quic", cfg_path, quic_name ));
-  fd_quic_t * quic = (fd_quic_t *)fd_wksp_pod_map( quic_pod, "quic" );
-  if( FD_UNLIKELY( !quic ) ) FD_LOG_ERR(( "fd_wksp_pod_map quic failed" ));
+  fd_quic_t * quic = fd_quic_join( fd_wksp_pod_map( quic_pod, "quic" ) );
+  if( FD_UNLIKELY( !quic ) ) FD_LOG_ERR(( "fd_quic_join failed" ));
 
   FD_LOG_INFO(( "loading %s.quic.%s.xsk", cfg_path, quic_name ));
   fd_xsk_t * xsk = fd_xsk_join( fd_wksp_pod_map( quic_pod, "xsk") );
@@ -87,8 +87,7 @@ fd_frank_quic_task( int     argc,
 
   /* Configure QUIC server */
 
-  fd_quic_config_t * quic_cfg = fd_quic_get_config( quic );
-  if( FD_UNLIKELY( !quic_cfg ) ) FD_LOG_ERR(( "failed to configure QUIC" ));
+  fd_quic_config_t * quic_cfg = &quic->config;
 
   char const * cert_file = fd_pod_query_cstr( quic_cfg_pod, "cert_file", NULL );
   if( FD_UNLIKELY( !cert_file ) ) FD_LOG_ERR(( "%s.quic_cfg.cert_file not set", cfg_path ));
@@ -128,10 +127,8 @@ fd_frank_quic_task( int     argc,
 
   /* Attach to XSK */
 
-  fd_aio_t _rx[1];
-  fd_quic_get_aio_net_rx( quic, _rx );
-  fd_xsk_aio_set_rx( xsk_aio, _rx );
-  fd_quic_set_aio_net_tx( quic, fd_xsk_aio_get_tx( xsk_aio ) );
+  fd_xsk_aio_set_rx     ( xsk_aio, fd_quic_get_aio_net_rx( quic    ) );
+  fd_quic_set_aio_net_tx( quic,    fd_xsk_aio_get_tx     ( xsk_aio ) );
 
   /* Start serving */
 

@@ -5,7 +5,7 @@
 #if FD_HAS_FRANK
 
 /**********************************************************************/
-/* This app scrapes periodically scrapes metrics from each QUIC tile, and writes these to 
+/* This app scrapes periodically scrapes metrics from each QUIC tile, and writes these to
    a file in the Prometheus metric format. */
 
 #include <stdio.h>
@@ -55,7 +55,7 @@ snap( ulong             tile_cnt,     /* Number of QUIC tiles to snapshot */
 
   for( ulong tile_idx=0UL; tile_idx<tile_cnt; tile_idx++ ) {
     snap_t * snap = &snap_cur[ tile_idx ];
-    
+
     fd_frag_meta_t const * mcache = tile_mcache[ tile_idx ];
     if( FD_LIKELY( mcache ) ) {
       ulong const * seq = (ulong const *)fd_mcache_seq_laddr_const( mcache );
@@ -97,7 +97,7 @@ snap( ulong             tile_cnt,     /* Number of QUIC tiles to snapshot */
       snap->quic_stream_rx_events_total           = quic->metrics.stream_rx_event_cnt;
       snap->quic_stream_rx_bytes_total            = quic->metrics.stream_rx_byte_cnt;
     }
-    
+
   }
 }
 
@@ -161,16 +161,14 @@ main( int     argc,
       tile_cnc [ tile_idx ] = fd_cnc_join( fd_wksp_pod_map( quic_pod, "cnc" ) );
       if( FD_UNLIKELY( !tile_cnc[tile_idx] ) ) FD_LOG_ERR(( "fd_cnc_join failed" ));
       if( FD_UNLIKELY( fd_cnc_app_sz( tile_cnc[ tile_idx ] )<64UL ) ) FD_LOG_ERR(( "cnc app sz should be at least 64 bytes" ));
-      
+
       FD_LOG_INFO(( "joining %s.quic.%s.mcache", cfg_path, quic_name ));
       tile_mcache[ tile_idx ] = fd_mcache_join( fd_wksp_pod_map( quic_pod, "mcache" ) );
       if( FD_UNLIKELY( !tile_mcache[ tile_idx ] ) ) FD_LOG_ERR(( "fd_mcache_join failed" ));
-      FD_LOG_INFO(( "joining %s.quic.%s.quic", cfg_path, quic_name ));
 
-      tile_quic[ tile_idx ] = fd_wksp_pod_map( quic_pod, "quic" ) ;
-      if( FD_UNLIKELY( !tile_quic[ tile_idx ] ) ) { FD_LOG_ERR(( "no quic" )); }
-      if( FD_UNLIKELY( tile_quic[ tile_idx ]->magic != FD_QUIC_MAGIC ) ) { FD_LOG_ERR(( "bad magic" )); }
-      /* TODO: use fd_quic_join once that has been made pure */
+      FD_LOG_INFO(( "joining %s.quic.%s.quic", cfg_path, quic_name ));
+      tile_quic[ tile_idx ] = fd_quic_join( fd_wksp_pod_map( quic_pod, "quic" ) );
+      if( FD_UNLIKELY( !tile_quic[ tile_idx ] ) ) { FD_LOG_ERR(( "fd_quic_join failed" )); }
 
       tile_idx++;
     }
@@ -233,13 +231,13 @@ main( int     argc,
       fprintf( out_file, "# TYPE firedancer_quic_tpu_publish_bytes_total counter\n" );
       for( ulong tile_idx=0UL; tile_idx<tile_cnt; tile_idx++ ) {
         fprintf( out_file, "firedancer_quic_tpu_publish_bytes_total{tile=\"%s\"} %lu\n", tile_name[ tile_idx ], snap_cur[ tile_idx ].quic_tpu_publish_bytes_total );
-      }  
+      }
 
       fprintf( out_file, "# HELP firedancer_quic_net_rx_packets_total Number of packets received by QUIC tile\n" );
       fprintf( out_file, "# TYPE firedancer_quic_net_rx_packets_total counter\n" );
       for( ulong tile_idx=0UL; tile_idx<tile_cnt; tile_idx++ ) {
         fprintf( out_file, "firedancer_quic_net_rx_packets_total{tile=\"%s\"} %lu\n", tile_name[ tile_idx ], snap_cur[ tile_idx ].quic_net_rx_packets_total );
-      }    
+      }
 
       fprintf( out_file, "# HELP firedancer_quic_net_tx_packets_total Number of packets sent by QUIC tile\n" );
       fprintf( out_file, "# TYPE firedancer_quic_net_tx_packets_total counter\n" );

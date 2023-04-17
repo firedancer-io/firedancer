@@ -1,20 +1,11 @@
 #include "../fd_quic.h"
-#include "test_helpers.c"
-
-#include "fd_pcap.h"
-
-ulong
-gettime( void ) {
-  return (ulong)fd_log_wallclock();
-}
-
-uchar fail = 0;
+#include "fd_quic_test_helpers.h"
 
 uchar conn_final_cnt = 0;
 
 ulong rx_tot_sz = 0;
 
-void
+static void
 my_conn_final( fd_quic_conn_t * conn,
                void *           quic_ctx ) {
   (void)conn;
@@ -22,7 +13,7 @@ my_conn_final( fd_quic_conn_t * conn,
   conn_final_cnt++;
 }
 
-void
+static void
 my_stream_receive_cb( fd_quic_stream_t * stream,
                       void *             ctx,
                       uchar const *      data,
@@ -65,14 +56,12 @@ void my_handshake_complete( fd_quic_conn_t * conn,
   client_complete = 1;
 }
 
-ulong test_clock( void * ctx ) {
-  (void)ctx;
-  return gettime();
-}
-
 int
-main( int argc, char ** argv ) {
-  fd_boot( &argc, &argv );
+main( int     argc,
+      char ** argv ) {
+
+  fd_boot          ( &argc, &argv );
+  fd_quic_test_boot( &argc, &argv );
 
   ulong cpu_idx = fd_tile_cpu_id( fd_tile_idx() );
   if( cpu_idx>fd_shmem_cpu_cnt() ) cpu_idx = 0UL;
@@ -104,37 +93,29 @@ main( int argc, char ** argv ) {
   FD_LOG_NOTICE(( "QUIC footprint: %lu bytes", quic_footprint ));
 
   FD_LOG_NOTICE(( "Creating server QUIC" ));
-  fd_quic_t * server_quic = fd_quic_new(
-      fd_wksp_alloc_laddr( wksp, fd_quic_align(), fd_quic_footprint( &quic_limits ), 1UL ),
-      &quic_limits );
+  fd_quic_t * server_quic = fd_quic_new_anonymous( wksp, &quic_limits, FD_QUIC_ROLE_SERVER );
   FD_TEST( server_quic );
 
   FD_LOG_NOTICE(( "Creating client QUIC" ));
-  fd_quic_t * client_quic = fd_quic_new(
-      fd_wksp_alloc_laddr( wksp, fd_quic_align(), fd_quic_footprint( &quic_limits ), 1UL ),
-      &quic_limits );
+  fd_quic_t * client_quic = fd_quic_new_anonymous( wksp, &quic_limits, FD_QUIC_ROLE_CLIENT );
   FD_TEST( client_quic );
-
-  init_quic( server_quic, "server_host", 0x0a000001u, 4434 );
-  init_quic( client_quic, "client_host", 0xc01a1a1au, 2001 );
 
   server_quic->config.role = FD_QUIC_ROLE_SERVER;
   client_quic->config.role = FD_QUIC_ROLE_CLIENT;
 
-  server_quic->join.cb.conn_new         = my_connection_new;
-  client_quic->join.cb.conn_hs_complete = my_handshake_complete;
+  server_quic->cb.conn_new         = my_connection_new;
+  server_quic->cb.conn_final       = my_conn_final;
+  server_quic->cb.stream_receive   = my_stream_receive_cb;
 
-  /* make use aio to point quic directly at quic */
-  fd_aio_t _aio[2];
-  fd_aio_t const * aio_n2q = fd_quic_get_aio_net_rx( server_quic, &_aio[ 0 ] );
-  fd_aio_t const * aio_q2n = fd_quic_get_aio_net_rx( client_quic, &_aio[ 1 ] );
+  client_quic->cb.conn_hs_complete = my_handshake_complete;
 
-  fd_quic_set_aio_net_tx( server_quic, aio_q2n );
-  fd_quic_set_aio_net_tx( client_quic, aio_n2q );
+  FD_LOG_NOTICE(( "Creating virtual pair" ));
+  fd_quic_virtual_pair_t vp;
+  fd_quic_virtual_pair_init( &vp, server_quic, client_quic );
 
-  FD_LOG_NOTICE(( "Joining QUICs" ));
-  FD_TEST( fd_quic_join( server_quic ) );
-  FD_TEST( fd_quic_join( client_quic ) );
+  FD_LOG_NOTICE(( "Initializing QUICs" ));
+  FD_TEST( fd_quic_init( server_quic ) );
+  FD_TEST( fd_quic_init( client_quic ) );
 
   /* make a connection from client to server */
   fd_quic_conn_t * client_conn = fd_quic_connect(
@@ -166,6 +147,8 @@ main( int argc, char ** argv ) {
     }
   }
 
+  FD_LOG_DEBUG(( "client_conn->state: %d", client_conn->state ));
+
   for( ulong j = 0; j < 20; j++ ) {
     ulong ct = fd_quic_get_next_wakeup( client_quic );
     ulong st = fd_quic_get_next_wakeup( server_quic );
@@ -180,6 +163,9 @@ main( int argc, char ** argv ) {
     fd_quic_service( server_quic );
   }
 
+  FD_LOG_DEBUG(( "client_conn->state: %d", client_conn->state ));
+
+  FD_TEST( client_conn->state == FD_QUIC_CONN_STATE_ACTIVE );
   FD_TEST( conn_final_cnt==0 );
 
   /* try sending */
@@ -194,11 +180,11 @@ main( int argc, char ** argv ) {
   FD_LOG_INFO(( "fd_quic_stream_send returned %d", rc ));
 
   ulong tot     = 0;
-  ulong last_ts = gettime();
-  ulong rprt_ts = gettime() + (ulong)1e9;
+  long last_ts = fd_log_wallclock();
+  long rprt_ts = fd_log_wallclock() + (long)1e9;
 
-  ulong start_ts = gettime();
-  ulong end_ts   = start_ts + (ulong)10e9; /* ten seconds */
+  long start_ts = fd_log_wallclock();
+  long end_ts   = start_ts + (long)10e9; /* ten seconds */
   while(1) {
     fd_quic_service( client_quic );
     fd_quic_service( server_quic );
@@ -208,15 +194,15 @@ main( int argc, char ** argv ) {
       tot += buf_sz;
     }
 
-    ulong t = gettime();
+    long t = fd_log_wallclock();
     if( t >= rprt_ts ) {
-      ulong dt = t - last_ts;
+      long dt = t - last_ts;
       float bps = (float)tot / (float)dt;
       FD_LOG_NOTICE(( "bw: %f  dt: %f  bytes: %f", (double)bps, (double)dt, (double)tot ));
 
       tot     = 0;
       last_ts = t;
-      rprt_ts = t + (ulong)1e9;
+      rprt_ts = t + (long)1e9;
 
       if( t > end_ts ) break;
     }
@@ -247,11 +233,11 @@ main( int argc, char ** argv ) {
   FD_TEST( conn_final_cnt==2 );
 
   FD_LOG_NOTICE(( "Cleaning up" ));
-  fd_wksp_free_laddr( fd_quic_delete( fd_quic_leave( server_quic ) ) );
-  fd_wksp_free_laddr( fd_quic_delete( fd_quic_leave( client_quic ) ) );
+  fd_quic_virtual_pair_fini( &vp );
+  fd_wksp_free_laddr( fd_quic_delete( fd_quic_leave( fd_quic_fini( server_quic ) ) ) );
+  fd_wksp_free_laddr( fd_quic_delete( fd_quic_leave( fd_quic_fini( client_quic ) ) ) );
   fd_wksp_delete_anonymous( wksp );
 
-  if( fail ) FD_LOG_ERR(( "fail" ));
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
   return 0;

@@ -212,7 +212,7 @@ fd_tpu_stream_notify( fd_quic_stream_t * stream,
 
   /* Add to local publish queue */
 
-  fd_quic_tpu_ctx_t * ctx = fd_quic_get_callbacks( quic )->quic_ctx; /* TODO ugly */
+  fd_quic_tpu_ctx_t * ctx = quic->cb.quic_ctx; /* TODO ugly */
   pubq_push( ctx->pubq, msg_ctx );
 }
 
@@ -338,7 +338,7 @@ fd_quic_tile( fd_cnc_t *         cnc,
     /* quic server init */
 
     if( FD_UNLIKELY( !quic    ) ) { FD_LOG_WARNING(( "NULL quic"          ) ); return 1; }
-    fd_quic_callbacks_t * quic_cb = fd_quic_get_callbacks( quic );
+    fd_quic_callbacks_t * quic_cb = &quic->cb;
     if( FD_UNLIKELY( !quic_cb ) ) { FD_LOG_WARNING(( "NULL quic callbacks") ); return 1; }
 
     quic_cb->conn_new         = fd_tpu_conn_create;
@@ -361,7 +361,7 @@ fd_quic_tile( fd_cnc_t *         cnc,
 
     quic_cb->quic_ctx = &quic_ctx;
 
-    if( FD_UNLIKELY( !fd_quic_join( quic ) ) ) { FD_LOG_WARNING(( "fd_quic_join failed" )); return 1; }
+    if( FD_UNLIKELY( !fd_quic_init( quic ) ) ) { FD_LOG_WARNING(( "fd_quic_init failed" )); return 1; }
 
     /* housekeeping init */
 

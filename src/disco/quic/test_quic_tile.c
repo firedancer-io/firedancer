@@ -341,7 +341,7 @@ int main( int     argc,
   FD_TEST( cfg->tx_quic );
 
   FD_LOG_NOTICE(( "Configuring QUIC "));
-  fd_quic_config_t * quic_cfg = fd_quic_get_config( cfg->tx_quic );
+  fd_quic_config_t * quic_cfg = &cfg->tx_quic->config;
   FD_TEST( quic_cfg );
 
   FD_TEST( fd_quic_config_from_env( &argc, &argv, quic_cfg ) );
@@ -355,9 +355,8 @@ int main( int     argc,
   memcpy( quic_cfg->link.src_mac_addr, hwaddr,  6UL );
   memcpy( quic_cfg->link.dst_mac_addr, gateway, 6UL );
 
-  fd_aio_t _aio_rx[1];
   fd_quic_set_aio_net_tx( cfg->tx_quic, fd_xsk_aio_get_tx     ( cfg->xsk_aio ) );
-  fd_xsk_aio_set_rx     ( cfg->xsk_aio, fd_quic_get_aio_net_rx( cfg->tx_quic, _aio_rx ) );
+  fd_xsk_aio_set_rx     ( cfg->xsk_aio, fd_quic_get_aio_net_rx( cfg->tx_quic ) );
 
   FD_LOG_NOTICE(( "Booting" ));
 
@@ -418,7 +417,7 @@ int main( int     argc,
   FD_TEST( 0==fd_xdp_release_udp_port( bpf_dir, (uint)listen_addr, udp_port ) );
 
   fd_wksp_free_laddr( (void *)cfg->tx_quic_cfg                                );
-  fd_wksp_free_laddr( fd_quic_delete   (    (fd_quic_t *)( cfg->tx_quic   ) ) );
+  fd_wksp_free_laddr( fd_quic_delete   ( fd_quic_leave   ( cfg->tx_quic   ) ) );
   fd_wksp_free_laddr( fd_xsk_aio_delete( fd_xsk_aio_leave( cfg->xsk_aio   ) ) );
   fd_wksp_free_laddr( fd_xsk_delete    ( fd_xsk_leave    ( cfg->xsk       ) ) );
   fd_wksp_free_laddr( fd_fseq_delete   ( fd_fseq_leave   ( cfg->rx_fseq   ) ) );
