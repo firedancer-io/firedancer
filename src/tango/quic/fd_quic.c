@@ -4155,11 +4155,7 @@ fd_quic_conn_free( fd_quic_t *      quic,
       if( stream_entry ) {
         /* fd_quic_stream_free calls fd_quic_stream_map_remove */
         /* TODO we seem to be freeing more streams than expected here */
-        if( stream_entry->stream ) {
-          fd_quic_stream_free( quic, conn, stream_entry->stream, FD_QUIC_NOTIFY_ABORT );
-        }
-        stream_entry->stream_id = FD_QUIC_STREAM_ID_UNUSED;
-        stream_entry->stream    = NULL;
+        fd_quic_stream_free( quic, conn, stream_entry->stream, FD_QUIC_NOTIFY_ABORT );
       }
     }
   }
@@ -5485,7 +5481,12 @@ fd_quic_frame_handle_stream_frame(
       if( FD_UNLIKELY( !entry ) ) {
         /* stream map is sized to allow all concurrent streams with extra space for efficiency
            so this should never happen */
-        FD_LOG_ERR(( "no space in stream map" ));
+        FD_LOG_WARNING(( "no space in stream map" ));
+
+        /* abort connection */
+        fd_quic_conn_error( stream->conn, FD_QUIC_CONN_REASON_INTERNAL_ERROR );
+
+        return FD_QUIC_PARSE_FAIL;
       }
 
       entry->stream = stream;
