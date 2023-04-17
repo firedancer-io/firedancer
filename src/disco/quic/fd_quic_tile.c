@@ -15,7 +15,7 @@
 FD_FN_CONST static inline ulong
 fd_quic_chunk_idx( ulong chunk0,
                    ulong chunk ) {
-  return (chunk-chunk0) / FD_DCACHE_SLOT_FOOTPRINT( FD_TPU_DCACHE_MTU );
+  return ((chunk-chunk0)*FD_CHUNK_FOOTPRINT) / fd_ulong_align_up( FD_TPU_DCACHE_MTU, FD_CHUNK_FOOTPRINT );
 }
 
 /* fd_quic_dcache_msg_ctx returns a pointer to the TPU/QUIC message
@@ -177,6 +177,7 @@ fd_tpu_stream_receive( fd_quic_stream_t * stream,
   fd_quic_tpu_msg_ctx_t * msg_ctx = (fd_quic_tpu_msg_ctx_t *)stream_ctx;
   if( FD_UNLIKELY( msg_ctx->conn_id != conn_id || msg_ctx->stream_id != stream_id ) ) {
     //fd_quic_stream_close( stream, 0x03 ); /* FIXME fd_quic_stream_close not implemented */
+    FD_LOG_WARNING(( "dcache overflow while demuxing %lu!=%lu %lu!=%lu", conn_id, msg_ctx->conn_id, stream_id, msg_ctx->stream_id ));
     return;  /* overrun */
   }
 
@@ -431,6 +432,8 @@ fd_quic_tile( fd_cnc_t *         cnc,
 
       uchar * txn    = msg->data;
       ulong   txn_sz = msg->sz;
+
+      FD_TEST( txn_sz<=1232UL );
 
       /* At this point dcache only contains raw payload of txn.
          Beyond end of txn, but within bounds of msg layout, add a trailer
