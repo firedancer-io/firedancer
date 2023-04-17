@@ -49,6 +49,8 @@
    integers. */
 
 #define FD_FUNK_SUCCESS   (0)  /* Success */
+
+
 #define FD_FUNK_ERR_INVAL (-1) /* E.g. Failed due to invalid inputs passed by caller */
 #define FD_FUNK_ERR_KEY   (-2) /* E.g. Failed due to record key not found */
 #define FD_FUNK_ERR_TXN   (-3) /* E.g. Failed due to transaction txn not found */

@@ -360,7 +360,7 @@ fd_funk_txn_cancel_children( fd_funk_t *     funk,
    unpublished.  Otherwise, the transaction's siblings and their
    descendants are cancelled.
 
-   As such, it is possible in a funk implementation (e.g. permantent
+   As such, it is possible in a funk implementation (e.g. permanent
    storage I/O errors) for fd_funk_txn_publish to only publish some of
    the ancestors.  Partial publication will only happen on error.  On
    such a failure, no information is lost about the transaction that
@@ -385,6 +385,31 @@ ulong
 fd_funk_txn_publish( fd_funk_t *     funk,
                      fd_funk_txn_t * txn,
                      int             verbose );
+
+/* fd_funk_txn_merge merges a child transaction into its parent. The
+   intention is to support gathering small, short-term transactions
+   into a large transaction. Strictly speaking, this API isn't
+   required, but a long chain of small children can be more
+   efficiently and conveniently managed as a single large transaction
+   if the intention is to publish all of them at once. Recall that
+   child transactions can be cancelled due to an error without
+   affecting the parent transaction, which allows robust, incremental
+   assembly of a very big transaction.
+
+   The given transaction must have no children and must be the sole
+   child of its parent.
+
+   Returns FD_FUNK_SUCCESS on success or an error code on failure.
+
+   Assumes funk is a current local join.  Reasons for failure include
+   NULL funk or txn does not point to an in-preparation funk
+   transaction.  If verbose is non-zero, these will FD_LOG_WARNING level
+   details about the reason for failure. */
+
+int
+fd_funk_txn_merge( fd_funk_t *     funk,
+                   fd_funk_txn_t * txn,
+                   int             verbose );
 
 /* Misc */
 
