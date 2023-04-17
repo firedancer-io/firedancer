@@ -9,7 +9,8 @@ static int
 fd_aio_pcapng_send( void *                    ctx,
                     fd_aio_pkt_info_t const * batch,
                     ulong                     batch_cnt,
-                    ulong *                   opt_batch_idx ) {
+                    ulong *                   opt_batch_idx,
+                    int                       flush ) {
 
   long ts = fd_log_wallclock(); /* TODO allow custom clock */
 
@@ -22,7 +23,7 @@ fd_aio_pcapng_send( void *                    ctx,
     }
   }
 
-  return fd_aio_send( mitm->dst, batch, batch_cnt, opt_batch_idx );
+  return fd_aio_send( mitm->dst, batch, batch_cnt, opt_batch_idx, flush );
 }
 
 FD_FN_CONST fd_aio_t const *
