@@ -569,6 +569,55 @@ fd_funk_txn_publish( fd_funk_t *     funk,
 }
 
 int
+fd_funk_txn_merge( fd_funk_t *     funk,
+                   fd_funk_txn_t * txn,
+                   int             verbose ) {
+  if( FD_UNLIKELY( !funk ) ) {
+    if( FD_UNLIKELY( verbose ) ) FD_LOG_WARNING(( "NULL funk" ));
+    return FD_FUNK_ERR_INVAL;
+  }
+
+  fd_funk_txn_t * map = fd_funk_txn_map( funk, fd_funk_wksp( funk ) );
+
+  ulong txn_max = fd_funk_txn_map_key_max( map );
+
+  ulong txn_idx = (ulong)(txn - map);
+
+  ASSERT_IN_PREP(txn_idx);
+  
+  if( FD_UNLIKELY(!( fd_funk_txn_idx_is_null( fd_funk_txn_idx( txn->sibling_prev_cidx ) ) &
+                     fd_funk_txn_idx_is_null( fd_funk_txn_idx( txn->sibling_next_cidx ) ) ) ) ) {
+    if( FD_UNLIKELY( verbose ) ) FD_LOG_WARNING(( "txn must be an only child" ));
+    return FD_FUNK_ERR_INVAL;
+  }
+
+  if( FD_UNLIKELY(!( fd_funk_txn_idx_is_null( fd_funk_txn_idx( txn->child_head_cidx ) ) &
+                     fd_funk_txn_idx_is_null( fd_funk_txn_idx( txn->child_tail_cidx ) ) ) ) ) {
+    if( FD_UNLIKELY( verbose ) ) FD_LOG_WARNING(( "txn must not have children" ));
+    return FD_FUNK_ERR_INVAL;
+  }
+
+  ulong parent_idx = fd_funk_txn_idx( txn->parent_cidx );
+  if( FD_UNLIKELY( fd_funk_txn_idx_is_null( parent_idx ) ) ) {
+    if( FD_UNLIKELY( verbose ) ) FD_LOG_WARNING(( "txn must not have an unpublished parent" ));
+    return FD_FUNK_ERR_INVAL;
+  }
+
+  ASSERT_IN_PREP(parent_idx);
+
+  /* Merge updated records from child into parent. Clean up child transaction. */
+
+  /* Erase the child. This is easy because we know it is an only child. */
+  fd_funk_txn_t * parent = map + parent_idx;
+  parent->child_head_cidx   = fd_funk_txn_cidx( FD_FUNK_TXN_IDX_NULL );
+  parent->child_tail_cidx   = fd_funk_txn_cidx( FD_FUNK_TXN_IDX_NULL );
+
+  fd_funk_txn_map_remove( map, &txn->id );
+
+  return FD_FUNK_SUCCESS;
+}
+
+int
 fd_funk_txn_verify( fd_funk_txn_t *          map,
                     fd_funk_txn_id_t const * last_publish,
                     ulong                    funk_child_head_idx,

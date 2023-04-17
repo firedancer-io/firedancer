@@ -96,7 +96,7 @@ main( int     argc,
     }
 
     case 2: { /* look up never seen id (always fail) */
-      fd_funk_txn_id_t id[1]; fd_funk_txn_id_set_unique( &recent_id[ recent_cursor ] );
+      fd_funk_txn_id_t id[1]; fd_funk_txn_id_set_unique( id );
       fd_funk_txn_t * txn = fd_funk_txn_query( id, map );
       FD_TEST( !txn );
       break;
@@ -185,7 +185,7 @@ main( int     argc,
     }
 
     case 11: { /* cancel a never seen id (should always be 0) */
-      fd_funk_txn_id_t id[1]; fd_funk_txn_id_set_unique( &recent_id[ recent_cursor ] );
+      fd_funk_txn_id_t id[1]; fd_funk_txn_id_set_unique( id );
       fd_funk_txn_t * txn = fd_funk_txn_query( id, map );
       FD_TEST( !txn );
       FD_TEST( fd_funk_txn_cancel( funk, txn, verbose )==0UL );
