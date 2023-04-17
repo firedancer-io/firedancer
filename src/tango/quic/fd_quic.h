@@ -338,6 +338,14 @@ typedef void
                                  ulong              offset,
                                  int                fin );
 
+/* fd_quic_cb_tls_keylog_t is called when a new encryption secret
+   becomes available.  line is a cstr containing the secret in NSS key
+   log format (intended for tests only). */
+
+typedef void
+(* fd_quic_cb_tls_keylog_t)( void *       quic_ctx,
+                             char const * line );
+
 /* fd_quic_callbacks_t defines the set of user-provided callbacks that
    are invoked by the QUIC library.  Resets on leave. */
 
@@ -353,6 +361,7 @@ struct fd_quic_callbacks {
   fd_quic_cb_stream_new_t              stream_new;        /* non-NULL, with stream_ctx */
   fd_quic_cb_stream_notify_t           stream_notify;     /* non-NULL, with stream_ctx */
   fd_quic_cb_stream_receive_t          stream_receive;    /* non-NULL, with stream_ctx */
+  fd_quic_cb_tls_keylog_t              tls_keylog;        /* nullable, with quic_ctx   */
 
   /* Clock source */
 
@@ -464,7 +473,7 @@ fd_quic_join( void * shquic );
    on success and NULL on failure (logs details).  Reasons for failure
    include quic is NULL, no active join, or OpenSSL error. */
 
-FD_QUIC_API fd_quic_t *
+FD_QUIC_API void *
 fd_quic_leave( fd_quic_t * quic );
 
 /* fd_quic_delete unformats a memory region used as an fd_quic_t.
@@ -528,9 +537,9 @@ fd_quic_init( fd_quic_t * quic );
 
 /* fd_quic_fini releases exclusive access over a QUIC.  Zero-initializes
    references to external objects (aio, callbacks).  Frees any heap
-   allocs made by fd_quic_init. */
+   allocs made by fd_quic_init.  Returns quic. */
 
-FD_QUIC_API void
+FD_QUIC_API fd_quic_t *
 fd_quic_fini( fd_quic_t * quic );
 
 /* NOTE: Calling any of the below requires valid initialization from

@@ -1,10 +1,8 @@
 #include "../fd_quic.h"
+#include "fd_quic_test_helpers.h"
 
 #include <stdio.h>
 #include <stdlib.h>
-
-#include "fd_pcap.h"
-#include "test_helpers.c"
 
 #define BUF_SZ (1<<20)
 
@@ -15,21 +13,6 @@ int client_complete = 0;
 /* server connection received in callback */
 fd_quic_conn_t * server_conn = NULL;
 fd_quic_conn_t * client_conn = NULL;
-
-/* this is slow */
-int
-rand_256() {
-  static uint  j     = 56u;
-  static ulong rnd64 = 0u;
-  j = (j+8)&63u;
-
-  if( j == 0 ) {
-    fd_quic_crypto_rand( (void*)&rnd64, 8u );
-  }
-
-  return ( rnd64 >> j ) & 255u;
-}
-
 
 typedef struct my_stream_meta my_stream_meta_t;
 struct my_stream_meta {
@@ -120,7 +103,6 @@ free_stream( my_stream_meta_t * meta ) {
   stream_avail = meta;
 
   FD_LOG_DEBUG(( "freed stream. count: %u", get_free_count() ));
-  fd_log_flush();
 }
 
 void
@@ -173,20 +155,6 @@ free_all_streams() {
 extern uchar pkt_full[];
 extern ulong pkt_full_sz;
 
-ulong
-aio_cb( void * context, fd_aio_pkt_info_t * batch, ulong batch_sz ) {
-  (void)context;
-
-  FD_LOG_DEBUG(( "aio_cb callback" ));
-  for( ulong j = 0; j < batch_sz; ++j ) {
-    FD_LOG_DEBUG(( "batch %d", (int)j ));
-    FD_LOG_HEXDUMP_DEBUG(( "batch data", batch[ j ].buf, batch[ j ].buf_sz ));
-  }
-  fd_log_flush();
-
-  return batch_sz; /* consumed all */
-}
-
 uchar fail = 0;
 
 void
@@ -196,14 +164,11 @@ my_stream_notify_cb( fd_quic_stream_t * stream, void * ctx, int type ) {
   switch( type ) {
     case FD_QUIC_NOTIFY_END:
       FD_LOG_DEBUG(( "reclaiming stream" ));
-      fd_log_flush();
 
       if( stream->conn->server ) {
         FD_LOG_DEBUG(( "SERVER" ));
-        fd_log_flush();
       } else {
         FD_LOG_DEBUG(( "CLIENT" ));
-        fd_log_flush();
 
         if( client_conn && state == 0 ) {
           /* obtain new stream */
@@ -225,7 +190,6 @@ my_stream_notify_cb( fd_quic_stream_t * stream, void * ctx, int type ) {
 
     default:
       FD_LOG_DEBUG(( "NOTIFY: %#x", type ));
-      fd_log_flush();
       break;
   }
 }
@@ -307,47 +271,11 @@ my_handshake_complete( fd_quic_conn_t * conn,
   (void)vp_context;
 
   FD_LOG_NOTICE(( "client handshake complete" ));
-  fd_log_flush();
 
   client_complete = 1;
 
   fd_quic_conn_set_context( conn, &client_conn );
 }
-
-
-/* pcap aio pipe */
-struct aio_pipe {
-  fd_aio_t const * aio;
-  FILE *           file;
-};
-typedef struct aio_pipe aio_pipe_t;
-
-
-int
-pipe_aio_receive( void * vp_ctx, fd_aio_pkt_info_t const * batch, ulong batch_sz, ulong * opt_batch_idx ) {
-  static ulong ts = 0;
-  ts += 100000ul;
-
-  aio_pipe_t * pipe = (aio_pipe_t*)vp_ctx;
-
-#if 1
-  for( unsigned j = 0; j < batch_sz; ++j ) {
-    write_epb( pipe->file, batch[j].buf, (unsigned)batch[j].buf_sz, ts );
-  }
-  fflush( pipe->file );
-#endif
-
-  /* forward */
-  if( rand_256() < 256 ) {
-    return fd_aio_send( pipe->aio, batch, batch_sz, opt_batch_idx );
-  } else {
-    if( opt_batch_idx ) {
-      *opt_batch_idx = batch_sz;
-    }
-    return FD_AIO_SUCCESS;
-  }
-}
-
 
 /* global "clock" */
 ulong now = (ulong)1e18;
@@ -359,7 +287,9 @@ ulong test_clock( void * ctx ) {
 
 int
 main( int argc, char ** argv ) {
-  fd_boot( &argc, &argv );
+
+  fd_boot          ( &argc, &argv );
+  fd_quic_test_boot( &argc, &argv );
 
   ulong cpu_idx = fd_tile_cpu_id( fd_tile_idx() );
   if( cpu_idx>fd_shmem_cpu_cnt() ) cpu_idx = 0UL;
@@ -367,7 +297,6 @@ main( int argc, char ** argv ) {
   char const * _page_sz  = fd_env_strip_cmdline_cstr ( &argc, &argv, "--page-sz",   NULL, "gigantic"                   );
   ulong        page_cnt  = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt",  NULL, 2UL                          );
   ulong        numa_idx  = fd_env_strip_cmdline_ulong( &argc, &argv, "--numa-idx",  NULL, fd_shmem_numa_idx( cpu_idx ) );
-  char const * _pcap     = fd_env_strip_cmdline_cstr ( &argc, &argv, "--pcap",      NULL, "test_quic_hs.pcapng"        );
 
   ulong page_sz = fd_cstr_to_shmem_page_sz( _page_sz );
   if( FD_UNLIKELY( !page_sz ) ) FD_LOG_ERR(( "unsupported --page-sz" ));
@@ -403,96 +332,33 @@ main( int argc, char ** argv ) {
       &quic_limits );
   FD_TEST( client_quic );
 
-  FD_LOG_NOTICE(( "Writing to pcap: %s", _pcap ));
-  FILE * pcap = fopen( _pcap, "wb" );
-  FD_TEST( pcap );
+  fd_quic_config_t * client_config = &client_quic->config;
 
-  write_shb( pcap );
-  write_idb( pcap );
-
-  fd_quic_config_t * client_config = fd_quic_get_config( client_quic );
-
-  client_config->link.src_mac_addr[ 0 ] = 0x01;
-  client_config->link.dst_mac_addr[ 0 ] = 0x02;
-
-  client_config->net.ip_addr           = 0xc01a1a1au;
-  client_config->net.ephem_udp_port.lo = 4435;
-  client_config->net.ephem_udp_port.hi = 4440;
-
-  client_config->net.listen_udp_port  = 2002;
-  client_config->link.src_mac_addr[0] = 0x01;
-  client_config->link.dst_mac_addr[0] = 0x02;
   client_config->idle_timeout         = (ulong)1e8;
-
-  strcpy( client_config->cert_file,   "cert.pem"   );
-  strcpy( client_config->key_file,    "key.pem"    );
-  strcpy( client_config->keylog_file, "keylog.log" );
 
   client_config->idle_timeout = 5e6;
 
-  fd_quic_callbacks_t * client_cb = fd_quic_get_callbacks( client_quic );
+  client_quic->cb.conn_hs_complete = my_handshake_complete;
+  client_quic->cb.stream_receive   = my_stream_receive_cb;
+  client_quic->cb.stream_notify    = my_stream_notify_cb;
+  client_quic->cb.conn_final       = my_cb_conn_final;
 
-  client_cb->conn_hs_complete = my_handshake_complete;
-  client_cb->stream_receive   = my_stream_receive_cb;
-  client_cb->stream_notify    = my_stream_notify_cb;
-  client_cb->conn_final       = my_cb_conn_final;
+  client_quic->cb.now     = test_clock;
+  client_quic->cb.now_ctx = NULL;
 
-  client_cb->now     = test_clock;
-  client_cb->now_ctx = NULL;
+  fd_quic_config_t * server_config = &server_quic->config;
 
-  fd_quic_config_t * server_config = fd_quic_get_config( server_quic );
-
-  server_config->link.src_mac_addr[ 0 ] = 0x02;
-  server_config->link.dst_mac_addr[ 0 ] = 0x01;
-
-  server_config->net.ip_addr         = 0x0a000001u;
-  server_config->net.listen_udp_port = 2001;
-
-  server_config->link.src_mac_addr[0] = 0x01;
-  server_config->link.dst_mac_addr[0] = 0x02;
   server_config->idle_timeout         = (ulong)1e8;
-
-  strcpy( server_config->cert_file, "cert.pem" );
-  strcpy( server_config->key_file,  "key.pem"  );
 
   server_config->idle_timeout = 5e6;
 
-  fd_quic_callbacks_t * server_cb = fd_quic_get_callbacks( server_quic );
+  server_quic->cb.conn_new       = my_connection_new;
+  server_quic->cb.stream_receive = my_stream_receive_cb;
+  server_quic->cb.stream_notify  = my_stream_notify_cb;
+  server_quic->cb.conn_final     = my_cb_conn_final;
 
-  server_cb->conn_new       = my_connection_new;
-  server_cb->stream_receive = my_stream_receive_cb;
-  server_cb->stream_notify  = my_stream_notify_cb;
-  server_cb->conn_final     = my_cb_conn_final;
-
-  server_cb->now     = test_clock;
-  server_cb->now_ctx = NULL;
-
-  /* make use aio to point quic directly at quic */
-  fd_aio_t _aio[2];
-  fd_aio_t const * aio_n2q = fd_quic_get_aio_net_rx( server_quic, &_aio[ 0 ] );
-  fd_aio_t const * aio_q2n = fd_quic_get_aio_net_rx( client_quic, &_aio[ 1 ] );
-
-#if 0
-  fd_quic_set_aio_net_out( server_quic, aio_q2n );
-  fd_quic_set_aio_net_out( client_quic, aio_n2q );
-#else
-  /* create a pipe for catching data as it passes thru */
-  aio_pipe_t pipe[2] = { { aio_n2q, pcap }, { aio_q2n, pcap } };
-
-  fd_aio_t * aio[2];
-  uchar aio_mem[2][128] = {0};
-
-  if( fd_aio_footprint() > sizeof( aio_mem[0] ) ) {
-    FD_LOG_WARNING(( "aio footprint: %lu", fd_aio_footprint() ));
-    FD_LOG_ERR(( "fd_aio_footprint returned value larger than reserved memory" ));
-  }
-
-  aio[0] = fd_aio_join( fd_aio_new( aio_mem[0], &pipe[0], pipe_aio_receive ) );
-  aio[1] = fd_aio_join( fd_aio_new( aio_mem[1], &pipe[1], pipe_aio_receive ) );
-
-  fd_quic_set_aio_net_tx( server_quic, aio[1] );
-  fd_quic_set_aio_net_tx( client_quic, aio[0] );
-#endif
+  server_quic->cb.now     = test_clock;
+  server_quic->cb.now_ctx = NULL;
 
   server_quic->config.role = FD_QUIC_ROLE_SERVER;
   client_quic->config.role = FD_QUIC_ROLE_CLIENT;
@@ -563,11 +429,9 @@ main( int argc, char ** argv ) {
             free_stream( meta );
 
             FD_LOG_WARNING(( "send failed" ));
-            fd_log_flush();
           }
         } else {
           FD_LOG_WARNING(( "unable to send - no streams available" ));
-          fd_log_flush();
         }
         break;
 
@@ -616,7 +480,6 @@ main( int argc, char ** argv ) {
 
   FD_LOG_INFO(( "client_conn: %p", (void*)client_conn ));
   FD_LOG_INFO(( "server_conn: %p", (void*)server_conn ));
-  fd_log_flush();
 
   /* give server connection a chance to close */
   for( int j = 0; j < 1000; ++j ) {
@@ -634,15 +497,13 @@ main( int argc, char ** argv ) {
 
   FD_LOG_INFO(( "client_conn: %p", (void*)client_conn ));
   FD_LOG_INFO(( "server_conn: %p", (void*)server_conn ));
-  fd_log_flush();
 
-  fd_quic_delete( server_quic );
-  fd_quic_delete( client_quic );
+  fd_wksp_free_laddr( fd_quic_delete( fd_quic_leave( server_quic ) ) );
+  fd_wksp_free_laddr( fd_quic_delete( fd_quic_leave( client_quic ) ) );
 
-  if( fail ) FD_LOG_ERR(( "fail" ));
   FD_LOG_NOTICE(( "pass" ));
+  fd_quic_test_halt();
   fd_halt();
   return 0;
 }
-
 

@@ -85,20 +85,18 @@ run_quic_client(
     client_conn     = NULL;
     client_complete = 0;
 
-    fd_quic_callbacks_t * client_cb = fd_quic_get_callbacks( quic );
-    client_cb->conn_hs_complete = my_handshake_complete;
-    client_cb->conn_final       = my_connection_closed;
-    client_cb->stream_receive   = my_stream_receive_cb;
-    client_cb->stream_notify    = my_stream_notify_cb;
-    client_cb->now              = test_clock;
-    client_cb->now_ctx          = NULL;
+    quic->cb.conn_hs_complete = my_handshake_complete;
+    quic->cb.conn_final       = my_connection_closed;
+    quic->cb.stream_receive   = my_stream_receive_cb;
+    quic->cb.stream_notify    = my_stream_notify_cb;
+    quic->cb.now              = test_clock;
+    quic->cb.now_ctx          = NULL;
 
     /* use XSK XDP AIO for QUIC ingress/egress */
-    fd_aio_t _quic_aio[1];
-    fd_xsk_aio_set_rx     ( xsk_aio, fd_quic_get_aio_net_rx( quic, _quic_aio ) );
-    fd_quic_set_aio_net_tx( quic,    fd_xsk_aio_get_tx     ( xsk_aio )         );
+    fd_xsk_aio_set_rx     ( xsk_aio, fd_quic_get_aio_net_rx( quic    ) );
+    fd_quic_set_aio_net_tx( quic,    fd_xsk_aio_get_tx     ( xsk_aio ) );
 
-    FD_TEST( fd_quic_join( quic ) );
+    FD_TEST( fd_quic_init( quic ) );
 
     FD_LOG_NOTICE(( "Starting QUIC client" ));
 
@@ -237,7 +235,7 @@ run_quic_client(
       client_conn = NULL;
     }
 
-    fd_quic_leave( quic );
+    fd_quic_fini( quic );
 
     FD_LOG_NOTICE(( "Finished QUIC client" ));
   } while(0);
@@ -306,7 +304,7 @@ main( int argc, char ** argv ) {
       &quic_limits );
   FD_TEST( quic );
 
-  fd_quic_config_t * client_cfg = fd_quic_get_config( quic );
+  fd_quic_config_t * client_cfg = &quic->config;
 
   client_cfg->role = FD_QUIC_ROLE_CLIENT;
 
@@ -334,11 +332,10 @@ main( int argc, char ** argv ) {
   FD_TEST( xsk );
 
   FD_LOG_NOTICE(( "Creating fd_xsk_aio" ));
-  void * xsk_aio_mem =
-    fd_wksp_alloc_laddr( wksp,fd_xsk_aio_align(), fd_xsk_aio_footprint( xdp_depth, xdp_depth ), 1UL );
-  FD_TEST( fd_xsk_aio_new( xsk_aio_mem, xdp_depth, xdp_depth ) );
-
-  fd_xsk_aio_t * xsk_aio = fd_xsk_aio_join( xsk_aio_mem, xsk );
+  fd_xsk_aio_t * xsk_aio = fd_xsk_aio_join( fd_xsk_aio_new(
+        fd_wksp_alloc_laddr( wksp,fd_xsk_aio_align(), fd_xsk_aio_footprint( xdp_depth, xdp_depth ), 1UL ),
+        xdp_depth, xdp_depth ),
+      xsk );
   FD_TEST( xsk_aio );
 
   /* add udp port to xdp map */
@@ -350,10 +347,9 @@ main( int argc, char ** argv ) {
     run_quic_client( quic, xsk_aio, dst_ip, (ushort)dst_port );
   }
 
-  fd_quic_delete( quic );
-
-  fd_wksp_free_laddr( xsk_aio_mem );
-  fd_wksp_free_laddr( xsk_mem     );
+  fd_wksp_free_laddr( fd_quic_delete   ( fd_quic_leave   ( quic    ) ) );
+  fd_wksp_free_laddr( fd_xsk_aio_delete( fd_xsk_aio_leave( xsk_aio ) ) );
+  fd_wksp_free_laddr( fd_xsk_delete    ( fd_xsk_leave    ( xsk     ) ) );
 
   fd_wksp_delete_anonymous( wksp );
 

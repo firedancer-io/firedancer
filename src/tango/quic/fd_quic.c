@@ -310,6 +310,11 @@ fd_quic_join( void * shquic ) {
   return quic;
 }
 
+FD_QUIC_API void *
+fd_quic_leave( fd_quic_t * quic ) {
+  return (void *)quic;
+}
+
 FD_QUIC_API fd_quic_t *
 fd_quic_init( fd_quic_t * quic ) {
 
@@ -351,7 +356,6 @@ fd_quic_init( fd_quic_t * quic ) {
   fd_quic_state_t * state = fd_quic_get_state( quic );
   memset( state, 0, sizeof(fd_quic_state_t) );
 
-  /* TODO should this be in join? */
   /* State: initialize each connection, and add to free list */
 
   ulong conn_laddr = (ulong)quic + layout.conns_off;
@@ -430,6 +434,7 @@ fd_quic_init( fd_quic_t * quic ) {
     .alert_cb              = fd_quic_tls_cb_alert,
     .secret_cb             = fd_quic_tls_cb_secret,
     .handshake_complete_cb = fd_quic_tls_cb_handshake_complete,
+    .keylog_cb             = fd_quic_tls_cb_keylog,
 
     /* set up alpn */
     .alpns                 = (uchar const *)config->alpns,
@@ -712,7 +717,7 @@ fd_quic_handle_v1_frame( fd_quic_t *      quic,
 }
 
 fd_quic_t *
-fd_quic_leave( fd_quic_t * quic ) {
+fd_quic_fini( fd_quic_t * quic ) {
 
   if( FD_UNLIKELY( !quic ) ) {
     FD_LOG_WARNING(("NULL quic"));
@@ -2649,6 +2654,16 @@ fd_quic_tls_cb_handshake_complete( fd_quic_tls_hs_t * hs,
     default:
       FD_LOG_WARNING(( "%s : handshake in unexpected state: %u", __func__, (uint)conn->state ));
   }
+}
+
+void
+fd_quic_tls_cb_keylog( fd_quic_tls_hs_t * hs,
+                       char const *       line ) {
+
+  fd_quic_conn_t * conn = (fd_quic_conn_t *)hs->context;
+  fd_quic_t *      quic = conn->quic;
+
+  quic->cb.tls_keylog( quic->cb.quic_ctx, line );
 }
 
 static ulong

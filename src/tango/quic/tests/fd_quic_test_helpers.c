@@ -58,6 +58,14 @@ fd_quic_test_cb_stream_receive( fd_quic_stream_t * stream,
                  stream->stream_id, quic_ctx, data, data_sz, offset, fin ));
 }
 
+static void
+fd_quic_test_cb_tls_keylog( void *       quic_ctx,
+                            char const * line ) {
+  (void)quic_ctx;
+  if( test_pcap )
+    fd_pcapng_fwrite_tls_key_log( (uchar const *)line, (uint)strlen( line ), test_pcap );
+}
+
 static ulong
 fd_quic_test_now( void * context ) {
   (void)context;
@@ -72,6 +80,7 @@ fd_quic_test_boot( int *    pargc,
   char const * _pcap = fd_env_strip_cmdline_cstr( pargc, pargv, "--pcap", NULL, NULL );
 
   if( _pcap ) {
+    FD_LOG_NOTICE(( "Logging to --pcap %s", _pcap ));
     test_pcap = fopen( _pcap, "ab" );
     FD_TEST( test_pcap );
   }
@@ -118,8 +127,8 @@ fd_quic_new_anonymous( fd_wksp_t *              wksp,
   config->net.ephem_udp_port.hi = 10100;
 
   /* Default settings */
-  config->idle_timeout     = (ulong)1e6; /* 1ms */
-  config->service_interval = (ulong)1e6; /* 1ms */
+  config->idle_timeout     = (ulong)100e6; /* 10ms */
+  config->service_interval = (ulong) 10e6; /* 10ms */
   strcpy( config->cert_file, "cert.pem" );
   strcpy( config->key_file,  "key.pem"  );
   strcpy( config->sni,       "local"    );
@@ -131,6 +140,7 @@ fd_quic_new_anonymous( fd_wksp_t *              wksp,
   quic->cb.stream_new       = fd_quic_test_cb_stream_new;
   quic->cb.stream_notify    = fd_quic_test_cb_stream_notify;
   quic->cb.stream_receive   = fd_quic_test_cb_stream_receive;
+  quic->cb.tls_keylog       = fd_quic_test_cb_tls_keylog;
   quic->cb.now              = fd_quic_test_now;
   quic->cb.now_ctx          = NULL;
 
