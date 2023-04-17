@@ -97,7 +97,9 @@ int
 pipe_aio_receive( void *                    vp_ctx,
                   fd_aio_pkt_info_t const * batch,
                   ulong                     batch_sz,
-                  ulong *                   opt_batch_idx ) {
+                  ulong *                   opt_batch_idx,
+                  int                       flush ) {
+  (void)flush;
   static ulong ts = 0;
   ts += 100000ul;
 
@@ -111,7 +113,7 @@ pipe_aio_receive( void *                    vp_ctx,
 #endif
 
   /* forward */
-  return fd_aio_send( pipe->aio, batch, batch_sz, opt_batch_idx );
+  return fd_aio_send( pipe->aio, batch, batch_sz, opt_batch_idx, 1 );
 }
 
 

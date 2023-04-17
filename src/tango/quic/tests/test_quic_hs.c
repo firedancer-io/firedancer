@@ -6,22 +6,6 @@
 #include "fd_pcap.h"
 #include "test_helpers.c"
 
-ulong
-aio_cb( void *              context,
-        fd_aio_pkt_info_t * batch,
-        ulong               batch_sz ) {
-  (void)context;
-
-  FD_LOG_DEBUG(( "aio_cb callback" ));
-  for( ulong j = 0; j < batch_sz; ++j ) {
-    FD_LOG_DEBUG(( "batch %d", (int)j ));
-    FD_LOG_HEXDUMP_DEBUG(( "batch data", batch[ j ].buf, batch[ j ].buf_sz ));
-  }
-  fd_log_flush();
-
-  return batch_sz; /* consumed all */
-}
-
 uchar fail = 0;
 
 void
@@ -103,7 +87,7 @@ typedef struct aio_pipe aio_pipe_t;
 
 
 int
-pipe_aio_receive( void * vp_ctx, fd_aio_pkt_info_t const * batch, ulong batch_sz, ulong * opt_batch_idx ) {
+pipe_aio_receive( void * vp_ctx, fd_aio_pkt_info_t const * batch, ulong batch_sz, ulong * opt_batch_idx, int flush ) {
   static ulong ts = 0;
   ts += 100000ul;
 
@@ -120,7 +104,7 @@ pipe_aio_receive( void * vp_ctx, fd_aio_pkt_info_t const * batch, ulong batch_sz
   char thread_name[ 32UL ]={0};
   strncpy( thread_name, fd_log_thread(), 31UL );
   fd_log_thread_set( pipe->recv_name );
-  int rc = fd_aio_send( pipe->aio, batch, batch_sz, opt_batch_idx );
+  int rc = fd_aio_send( pipe->aio, batch, batch_sz, opt_batch_idx, flush );
   fd_log_thread_set( thread_name );
   return rc;
 }

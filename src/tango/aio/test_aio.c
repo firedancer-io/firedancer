@@ -21,7 +21,9 @@ static int
 test_aio_send_func( void *                    ctx,
                     fd_aio_pkt_info_t const * batch,
                     ulong                     batch_cnt,
-                    ulong *                   opt_batch_idx ) {
+                    ulong *                   opt_batch_idx,
+                    int                       flush ) {
+  (void)flush;
   FD_TEST( ctx          ==send_expected.ctx           );
   FD_TEST( batch        ==send_expected.batch         );
   FD_TEST( batch_cnt    ==send_expected.batch_cnt     );
@@ -70,7 +72,7 @@ main( int     argc,
   send_expected.opt_batch_idx = &batch_idx;
   send_retval                 = FD_AIO_ERR_INVAL;
 
-  FD_TEST( fd_aio_send( aio, batch, 1UL, &batch_idx )==FD_AIO_ERR_INVAL );
+  FD_TEST( fd_aio_send( aio, batch, 1UL, &batch_idx, 1 )==FD_AIO_ERR_INVAL );
 
   FD_TEST( fd_aio_leave ( aio   )==shaio        );
   FD_TEST( fd_aio_delete( shaio )==(void *)_aio );

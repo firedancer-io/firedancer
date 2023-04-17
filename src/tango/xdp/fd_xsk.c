@@ -701,7 +701,8 @@ fd_xsk_rx_enqueue2( fd_xsk_t *            xsk,
 ulong
 fd_xsk_tx_enqueue( fd_xsk_t *            xsk,
                    fd_xsk_frame_meta_t * meta,
-                   ulong                 count ) {
+                   ulong                 count,
+                   int                   flush ) {
   /* to submit frames for tx, we enqueue onto the tx ring */
 
   /* tx ring */
@@ -746,13 +747,16 @@ fd_xsk_tx_enqueue( fd_xsk_t *            xsk,
   /* ensure data is visible before producer index */
   FD_RELEASE();
 
-  /* update producer */
-                tx->cached_prod   = prod;
-  FD_VOLATILE( *tx->prod        ) = prod;
+  tx->cached_prod = prod;
 
-  /* XDP tells us whether we need to specifically wake up the driver/hw */
-  if( fd_xsk_tx_need_wakeup( xsk ) ) {
-    sendto( xsk->xsk_fd, NULL, 0, MSG_DONTWAIT, NULL, 0 );
+  if( flush ) {
+    /* update producer */
+    FD_VOLATILE( *tx->prod ) = prod;
+
+    /* XDP tells us whether we need to specifically wake up the driver/hw */
+    if( fd_xsk_tx_need_wakeup( xsk ) ) {
+      sendto( xsk->xsk_fd, NULL, 0, MSG_DONTWAIT, NULL, 0 );
+    }
   }
 
   return sz;

@@ -324,7 +324,7 @@ typedef struct aio_pipe aio_pipe_t;
 
 
 int
-pipe_aio_receive( void * vp_ctx, fd_aio_pkt_info_t const * batch, ulong batch_sz, ulong * opt_batch_idx ) {
+pipe_aio_receive( void * vp_ctx, fd_aio_pkt_info_t const * batch, ulong batch_sz, ulong * opt_batch_idx, int flush ) {
   static ulong ts = 0;
   ts += 100000ul;
 
@@ -339,7 +339,7 @@ pipe_aio_receive( void * vp_ctx, fd_aio_pkt_info_t const * batch, ulong batch_sz
 
   /* forward */
   if( rand_256() < 256 ) {
-    return fd_aio_send( pipe->aio, batch, batch_sz, opt_batch_idx );
+    return fd_aio_send( pipe->aio, batch, batch_sz, opt_batch_idx, flush );
   } else {
     if( opt_batch_idx ) {
       *opt_batch_idx = batch_sz;
