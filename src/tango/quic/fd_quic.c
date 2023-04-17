@@ -4156,11 +4156,15 @@ fd_quic_conn_free( fd_quic_t *      quic,
   for( ulong j = 0; j < tot_num_streams; ++j ) {
     fd_quic_stream_t * stream = conn->streams[j];
     if( stream->stream_id != FD_QUIC_STREAM_ID_UNUSED ) {
-      fd_quic_stream_map_t * stream_entry = &conn->stream_map[j];
+      fd_quic_stream_map_t * stream_entry = fd_quic_stream_map_query( conn->stream_map, stream->stream_id, NULL );
       if( stream_entry ) {
         /* fd_quic_stream_free calls fd_quic_stream_map_remove */
         /* TODO we seem to be freeing more streams than expected here */
-        fd_quic_stream_free( quic, conn, stream_entry->stream, FD_QUIC_NOTIFY_ABORT );
+        if( stream_entry->stream ) {
+          fd_quic_stream_free( quic, conn, stream_entry->stream, FD_QUIC_NOTIFY_ABORT );
+        } else {
+          fd_quic_stream_map_remove( conn->stream_map, stream_entry );
+        }
       }
     }
   }
