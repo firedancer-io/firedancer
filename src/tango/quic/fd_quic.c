@@ -228,7 +228,6 @@ fd_quic_config_from_env( int  *             pargc,
     strncpy( cfg->key_file,  key_file,  FD_QUIC_CERT_PATH_LEN );
   } else {
     cfg->cert_file[ 0 ]='\0';
-    cfg->key_file [ 0 ]='\0';
   }
 
   if( keylog_file ) {
@@ -2448,7 +2447,10 @@ int
 fd_quic_aio_cb_receive( void *                    context,
                         fd_aio_pkt_info_t const * batch,
                         ulong                     batch_cnt,
-                        ulong *                   opt_batch_idx ) {
+                        ulong *                   opt_batch_idx,
+                        int                       flush ) {
+  (void)flush;
+
   fd_quic_t * quic = (fd_quic_t*)context;
 
   /* this aio interface is configured as one-packet per buffer
@@ -2818,14 +2820,23 @@ fd_quic_service( fd_quic_t * quic ) {
    returns 0 if successful, or 1 otherwise */
 uint
 fd_quic_tx_buffered( fd_quic_t *      quic,
-                     fd_quic_conn_t * conn ) {
+                     fd_quic_conn_t * conn,
+                     int              flush ) {
 
   /* TODO leave space at front of tx_buf for header
           then encode directly into it to avoid 1 copy */
   long payload_sz = conn->tx_ptr - conn->tx_buf;
 
   /* nothing to do */
-  if( FD_UNLIKELY( payload_sz<=0L ) ) return 0U;
+  if( FD_UNLIKELY( payload_sz<=0L ) ) {
+    if( flush ) {
+      /* send empty batch to flush tx */
+      fd_aio_pkt_info_t aio_buf = { .buf = NULL, .buf_sz = 0 };
+      int aio_rc = fd_aio_send( &quic->aio_tx, &aio_buf, 0, NULL, 1 );
+      (void)aio_rc; /* don't care about result */
+    }
+    return 0u;
+  }
 
   fd_quic_config_t * config = &quic->config;
 
@@ -2902,7 +2913,7 @@ fd_quic_tx_buffered( fd_quic_t *      quic,
   cur_sz  -= (ulong)payload_sz;
 
   fd_aio_pkt_info_t aio_buf = { .buf = conn->crypt_scratch, .buf_sz = (ushort)( cur_ptr - conn->crypt_scratch ) };
-  int aio_rc = fd_aio_send( &quic->aio_tx, &aio_buf, 1, NULL );
+  int aio_rc = fd_aio_send( &quic->aio_tx, &aio_buf, 1, NULL, flush );
   if( aio_rc == FD_AIO_ERR_AGAIN ) {
     /* transient condition - try later */
     return FD_QUIC_FAILED;
@@ -3182,7 +3193,9 @@ fd_quic_conn_tx( fd_quic_t * quic, fd_quic_conn_t * conn ) {
   // }
 
   /* nothing to send? */
-  if( enc_level == ~0u ) return;
+  if( enc_level == ~0u ) {
+    return;
+  }
 
   uint closing    = 0; /* are we closing? */
   uint peer_close = 0; /* did peer request close? */
@@ -3291,7 +3304,7 @@ fd_quic_conn_tx( fd_quic_t * quic, fd_quic_conn_t * conn ) {
       fd_quic_pkt_meta_deallocate( &conn->pkt_meta_pool, pkt_meta );
 
       /* try to free space */
-      fd_quic_tx_buffered( quic, conn );
+      fd_quic_tx_buffered( quic, conn, 0 );
 
       /* we have lots of space, so try again */
       if( conn->tx_buf == conn->tx_ptr ) {
@@ -3816,7 +3829,7 @@ fd_quic_conn_tx( fd_quic_t * quic, fd_quic_conn_t * conn ) {
       }
 
       /* try to free space */
-      fd_quic_tx_buffered( quic, conn );
+      fd_quic_tx_buffered( quic, conn, 0 );
 
       /* we have lots of space, so try again */
       if( conn->tx_buf == conn->tx_ptr ) {
@@ -3988,7 +4001,7 @@ fd_quic_conn_tx( fd_quic_t * quic, fd_quic_conn_t * conn ) {
     if( enc_level == fd_quic_enc_level_appdata_id ) {
       /* short header must be last in datagram
          so send in packet immediately */
-      fd_quic_tx_buffered( quic, conn );
+      fd_quic_tx_buffered( quic, conn, 0 );
 
       if( conn->tx_ptr == conn->tx_buf ) {
         enc_level = fd_quic_tx_enc_level( conn );
@@ -4003,7 +4016,7 @@ fd_quic_conn_tx( fd_quic_t * quic, fd_quic_conn_t * conn ) {
   }
 
   /* try to send? */
-  fd_quic_tx_buffered( quic, conn );
+  fd_quic_tx_buffered( quic, conn, 1 );
 
   /* reschedule based on expiry */
   fd_quic_reschedule_conn( conn, expiry );
