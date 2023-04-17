@@ -344,9 +344,10 @@ int main( int     argc,
   fd_quic_config_t * quic_cfg = &cfg->tx_quic->config;
   FD_TEST( quic_cfg );
 
-  FD_TEST( fd_quic_config_from_env( &argc, &argv, quic_cfg ) );
-
+  /* must set role first */
   quic_cfg->role = FD_QUIC_ROLE_SERVER;
+
+  FD_TEST( fd_quic_config_from_env( &argc, &argv, quic_cfg ) );
 
   strcpy( quic_cfg->sni, "test_quic_tile" );
   quic_cfg->net.ip_addr         = (uint)listen_addr;

@@ -228,7 +228,6 @@ fd_quic_config_from_env( int  *             pargc,
     strncpy( cfg->key_file,  key_file,  FD_QUIC_CERT_PATH_LEN );
   } else {
     cfg->cert_file[ 0 ]='\0';
-    cfg->key_file [ 0 ]='\0';
   }
 
   if( keylog_file ) {
@@ -2448,7 +2447,10 @@ int
 fd_quic_aio_cb_receive( void *                    context,
                         fd_aio_pkt_info_t const * batch,
                         ulong                     batch_cnt,
-                        ulong *                   opt_batch_idx ) {
+                        ulong *                   opt_batch_idx,
+                        int                       flush ) {
+  (void)flush;
+
   fd_quic_t * quic = (fd_quic_t*)context;
 
   /* this aio interface is configured as one-packet per buffer
@@ -2818,14 +2820,23 @@ fd_quic_service( fd_quic_t * quic ) {
    returns 0 if successful, or 1 otherwise */
 uint
 fd_quic_tx_buffered( fd_quic_t *      quic,
-                     fd_quic_conn_t * conn ) {
+                     fd_quic_conn_t * conn,
+                     int              flush ) {
 
   /* TODO leave space at front of tx_buf for header
           then encode directly into it to avoid 1 copy */
   long payload_sz = conn->tx_ptr - conn->tx_buf;
 
   /* nothing to do */
-  if( FD_UNLIKELY( payload_sz<=0L ) ) return 0U;
+  if( FD_UNLIKELY( payload_sz<=0L ) ) {
+    if( flush ) {
+      /* send empty batch to flush tx */
+      fd_aio_pkt_info_t aio_buf = { .buf = NULL, .buf_sz = 0 };
+      int aio_rc = fd_aio_send( &quic->aio_tx, &aio_buf, 0, NULL, 1 );
+      (void)aio_rc; /* don't care about result */
+    }
+    return 0u;
+  }
 
   fd_quic_config_t * config = &quic->config;
 
@@ -2902,7 +2913,7 @@ fd_quic_tx_buffered( fd_quic_t *      quic,
   cur_sz  -= (ulong)payload_sz;
 
   fd_aio_pkt_info_t aio_buf = { .buf = conn->crypt_scratch, .buf_sz = (ushort)( cur_ptr - conn->crypt_scratch ) };
-  int aio_rc = fd_aio_send( &quic->aio_tx, &aio_buf, 1, NULL );
+  int aio_rc = fd_aio_send( &quic->aio_tx, &aio_buf, 1, NULL, flush );
   if( aio_rc == FD_AIO_ERR_AGAIN ) {
     /* transient condition - try later */
     return FD_QUIC_FAILED;
@@ -3182,7 +3193,9 @@ fd_quic_conn_tx( fd_quic_t * quic, fd_quic_conn_t * conn ) {
   // }
 
   /* nothing to send? */
-  if( enc_level == ~0u ) return;
+  if( enc_level == ~0u ) {
+    return;
+  }
 
   uint closing    = 0; /* are we closing? */
   uint peer_close = 0; /* did peer request close? */
@@ -3287,10 +3300,22 @@ fd_quic_conn_tx( fd_quic_t * quic, fd_quic_conn_t * conn ) {
        try tx to free space */
     ulong min_rqd = FD_QUIC_CRYPTO_TAG_SZ + FD_QUIC_CRYPTO_SAMPLE_SZ + 3;
     if( initial_hdr_sz + min_rqd > cur_sz ) {
+      /* deallocate packet metadata */
+      fd_quic_pkt_meta_deallocate( &conn->pkt_meta_pool, pkt_meta );
+
+      /* try to free space */
+      fd_quic_tx_buffered( quic, conn, 0 );
+
+      /* we have lots of space, so try again */
+      if( conn->tx_buf == conn->tx_ptr ) {
+        enc_level = fd_quic_tx_enc_level( conn );
+        continue;
+      }
+
       /* reschedule, since some data was unable to be sent */
+      /* TODO might want to add a backoff here */
       fd_quic_reschedule_conn( conn, 0 );
 
-      fd_quic_pkt_meta_deallocate( &conn->pkt_meta_pool, pkt_meta );
       break;
     }
 
@@ -3787,6 +3812,32 @@ fd_quic_conn_tx( fd_quic_t * quic, fd_quic_conn_t * conn ) {
       }
     }
 
+    /* did we add any frames? */
+
+    if( !pkt_meta->flags ) {
+      /* free pkt_meta */
+      fd_quic_pkt_meta_deallocate( &conn->pkt_meta_pool, pkt_meta );
+
+      /* we have data to add, but none was added, presumably due
+         so space in the datagram */
+      ulong free_bytes = (ulong)( payload_ptr - payload_end );
+      /* sanity check */
+      if( free_bytes > 64 ) {
+        /* we should have been able to fit data into 64 bytes
+           so stop trying here */
+        break;
+      }
+
+      /* try to free space */
+      fd_quic_tx_buffered( quic, conn, 0 );
+
+      /* we have lots of space, so try again */
+      if( conn->tx_buf == conn->tx_ptr ) {
+        enc_level = fd_quic_tx_enc_level( conn );
+        continue;
+      }
+    }
+
     /* first initial frame is padded to FD_QUIC_MIN_INITIAL_PKT_SZ
        all short quic packets are padded so 16 bytes of sample are available */
     uint base_pkt_len = (uint)tot_frame_sz + fd_quic_pkt_hdr_pkt_number_len( &pkt_hdr, enc_level ) +
@@ -3889,15 +3940,10 @@ fd_quic_conn_tx( fd_quic_t * quic, fd_quic_conn_t * conn ) {
     conn->tx_sz  -= cipher_text_sz;
 #endif
 
-    /* TODO if there is space, we can coalesce instead of sending immediately */
-
     /* update packet metadata with summary info */
     pkt_meta->pkt_number = pkt_number;
     pkt_meta->pn_space   = (uchar)pn_space;
     pkt_meta->enc_level  = (uchar)enc_level;
-
-    /* add to sent list */
-    fd_quic_pkt_meta_push_back( &conn->pkt_meta_pool.sent[enc_level], pkt_meta );
 
     /* update ack metadata */
     fd_quic_ack_t * cur_ack = conn->acks_tx[enc_level];
@@ -3946,11 +3992,22 @@ fd_quic_conn_tx( fd_quic_t * quic, fd_quic_conn_t * conn ) {
     /* track min expiry for rescheduling later */
     expiry = fd_ulong_min( expiry, pkt_meta->expiry );
 
+    /* add to sent list */
+    fd_quic_pkt_meta_push_back( &conn->pkt_meta_pool.sent[enc_level], pkt_meta );
+
     /* clear pkt_meta for next loop */
     pkt_meta = NULL;
 
     if( enc_level == fd_quic_enc_level_appdata_id ) {
-      /* short header must be last in datagram */
+      /* short header must be last in datagram
+         so send in packet immediately */
+      fd_quic_tx_buffered( quic, conn, 0 );
+
+      if( conn->tx_ptr == conn->tx_buf ) {
+        enc_level = fd_quic_tx_enc_level( conn );
+        continue;
+      }
+
       break;
     }
 
@@ -3959,13 +4016,10 @@ fd_quic_conn_tx( fd_quic_t * quic, fd_quic_conn_t * conn ) {
   }
 
   /* try to send? */
-  fd_quic_tx_buffered( quic, conn );
+  fd_quic_tx_buffered( quic, conn, 1 );
 
   /* reschedule based on expiry */
   fd_quic_reschedule_conn( conn, expiry );
-
-  return;
-
 }
 
 void
@@ -4097,12 +4151,11 @@ fd_quic_conn_free( fd_quic_t *      quic,
   for( ulong j = 0; j < tot_num_streams; ++j ) {
     fd_quic_stream_t * stream = conn->streams[j];
     if( stream->stream_id != FD_QUIC_STREAM_ID_UNUSED ) {
-      fd_quic_stream_map_t * stream_entry = fd_quic_stream_map_query( conn->stream_map, stream->stream_id, NULL );
+      fd_quic_stream_map_t * stream_entry = &conn->stream_map[j];
       if( stream_entry ) {
         /* fd_quic_stream_free calls fd_quic_stream_map_remove */
         /* TODO we seem to be freeing more streams than expected here */
         fd_quic_stream_free( quic, conn, stream_entry->stream, FD_QUIC_NOTIFY_ABORT );
-        fd_quic_stream_map_remove( conn->stream_map, stream_entry );
       }
     }
   }
@@ -5428,7 +5481,12 @@ fd_quic_frame_handle_stream_frame(
       if( FD_UNLIKELY( !entry ) ) {
         /* stream map is sized to allow all concurrent streams with extra space for efficiency
            so this should never happen */
-        FD_LOG_ERR(( "no space in stream map" ));
+        FD_LOG_WARNING(( "no space in stream map" ));
+
+        /* abort connection */
+        fd_quic_conn_error( stream->conn, FD_QUIC_CONN_REASON_INTERNAL_ERROR );
+
+        return FD_QUIC_PARSE_FAIL;
       }
 
       entry->stream = stream;
