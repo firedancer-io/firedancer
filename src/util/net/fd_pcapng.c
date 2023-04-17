@@ -72,7 +72,9 @@ fd_pcapng_idb_defaults( fd_pcapng_idb_opts_t * opt,
     }                                                                  \
     *(ushort *)( buf+cursor ) = ( (ushort)(t) ); cursor+=2UL;          \
     *(ushort *)( buf+cursor ) = ( (ushort)_sz ); cursor+=2UL;          \
-    fd_memcpy  ( buf+cursor, (v), _sz ); cursor+=_sz_align;            \
+    fd_memcpy  ( buf+cursor, (v), _sz );                               \
+    fd_memset  ( buf+cursor+_sz, 0, _sz_align-_sz );                   \
+    cursor+=_sz_align;                                                 \
   } while(0);
 
 /* FD_PCAPNG_FWRITE_BLOCK_TERM terminates a block buffer being
@@ -103,7 +105,7 @@ fd_pcapng_fwrite_shb( fd_pcapng_shb_opts_t const * opt,
     /* block_sz set later */
     .byte_order_magic = FD_PCAPNG_BYTE_ORDER_MAGIC,
     .version_major    = (ushort)1,
-    .version_minor    = (ushort)1,
+    .version_minor    = (ushort)0,
     .section_sz       = ULONG_MAX
   };
 
@@ -142,16 +144,16 @@ fd_pcapng_fwrite_idb( uint                         link_type,
   if( opt ) {
 
     if( opt->name[0] )
-      FD_PCAPNG_FWRITE_OPT( FD_PCAPNG_IDB_OPT_NAME,      strnlen( opt->name, 16UL ),     opt->name     );
+      FD_PCAPNG_FWRITE_OPT( FD_PCAPNG_IDB_OPT_NAME,      strnlen( opt->name, 16UL ),     opt->name      );
     if( fd_uint_load_4( opt->ip4_addr ) )
-      FD_PCAPNG_FWRITE_OPT( FD_PCAPNG_IDB_OPT_IPV4_ADDR, 4UL,                            opt->ip4_addr );
+      FD_PCAPNG_FWRITE_OPT( FD_PCAPNG_IDB_OPT_IPV4_ADDR, 4UL,                            opt->ip4_addr  );
     if( fd_ulong_load_6( opt->mac_addr ) )
-      FD_PCAPNG_FWRITE_OPT( FD_PCAPNG_IDB_OPT_MAC_ADDR,  6UL,                            opt->mac_addr );
+      FD_PCAPNG_FWRITE_OPT( FD_PCAPNG_IDB_OPT_MAC_ADDR,  6UL,                            opt->mac_addr  );
 
-  /**/FD_PCAPNG_FWRITE_OPT( FD_PCAPNG_IDB_OPT_TSRESOL,   1UL,                            &opt->tsresol );
+  /**/FD_PCAPNG_FWRITE_OPT( FD_PCAPNG_IDB_OPT_TSRESOL,   1UL,                            &opt->tsresol  );
 
     if( opt->hardware[0] )
-      FD_PCAPNG_FWRITE_OPT( FD_PCAPNG_IDB_OPT_HARDWARE,  strnlen( opt->hardware, 64UL ),  opt->name    );
+      FD_PCAPNG_FWRITE_OPT( FD_PCAPNG_IDB_OPT_HARDWARE,  strnlen( opt->hardware, 64UL ),  opt->hardware );
 
   }
   FD_PCAPNG_FWRITE_OPT( 0, 0, NULL );
@@ -168,13 +170,10 @@ fd_pcapng_fwrite_pkt( long         ts,
                       void *       _file ) {
 
   FILE * file = (FILE *)_file;
-
-  uchar buf[ FD_PCAPNG_BLOCK_SZ ];
-
-  fd_pcapng_epb_t * block = (fd_pcapng_epb_t *)buf;
+  FD_TEST( fd_ulong_is_aligned( (ulong)ftell( file ), 4UL ) );
 
   ulong cursor = sizeof(fd_pcapng_epb_t);
-  *block = (fd_pcapng_epb_t) {
+  fd_pcapng_epb_t block = {
     .block_type = FD_PCAPNG_BLOCK_TYPE_EPB,
     /* block_sz set later */
     .if_idx     = 0U,
@@ -184,31 +183,32 @@ fd_pcapng_fwrite_pkt( long         ts,
     .orig_len   = (uint)payload_sz
   };
 
-  /* Write header */
-
-  if( FD_UNLIKELY( 1UL!=fwrite( buf, cursor, 1UL, file ) ) )
-    return 0UL;
-
-  /* Write payload */
-
-  cursor+=payload_sz;
-  if( FD_UNLIKELY( 1UL!=fwrite( payload, payload_sz, 1UL, file ) ) )
-    return 0UL;
-
-  /* Align and write padding */
-
   ulong payload_sz_align = fd_ulong_align_up( payload_sz, 4UL );
-  uchar pad[4] = {0};
+  uchar pad[8UL]={0};
   ulong pad_sz = payload_sz_align-payload_sz;
-  cursor += pad_sz;
-  if( FD_UNLIKELY( 1UL!=fwrite( pad, pad_sz, 1UL, file ) ) )
+  cursor+=payload_sz_align;
+
+  /* Empty option list */
+  cursor+=4UL;
+
+  /* Trailer */
+  block.block_sz = (uint)cursor+4U;
+
+  /* write header */
+  if( FD_UNLIKELY( 1UL!=fwrite( &block,  sizeof(fd_pcapng_epb_t), 1UL, file ) ) )
     return 0UL;
-
-  /* Don't write option list, instead skip to block trailer */
-
-  ulong block_sz  = payload_sz_align+4UL;
-  block->block_sz = (uint)block_sz;
-  if( FD_UNLIKELY( 1UL!=fwrite( &block->block_sz, 4UL, 1UL, file ) ) )
+  /* copy payload */
+  if( FD_UNLIKELY( 1UL!=fwrite( payload, payload_sz,              1UL, file ) ) )
+    return 0UL;
+  /* align */
+  if( pad_sz )
+    if( FD_UNLIKELY( 1UL!=fwrite( pad, pad_sz, 1UL, file ) ) )
+      return 0UL;
+  /* empty options */
+  if( FD_UNLIKELY( 1UL!=fwrite( pad, 4UL,    1UL, file ) ) )
+    return 0UL;
+  /* write length trailer */
+  if( FD_UNLIKELY( 1UL!=fwrite( &block.block_sz, 4UL, 1UL, file ) ) )
     return 0UL;
 
   return 1UL;
@@ -219,42 +219,43 @@ fd_pcapng_fwrite_tls_key_log( uchar const * log,
                               uint          log_sz,
                               void *        _file ) {
 
-  uchar buf[ FD_PCAPNG_BLOCK_SZ ];
-
   FILE * file = (FILE *)_file;
-
-  fd_pcapng_dsb_t * block = (fd_pcapng_dsb_t *)buf;
+  FD_TEST( fd_ulong_is_aligned( (ulong)ftell( file ), 4UL ) );
 
   ulong cursor = sizeof(fd_pcapng_dsb_t);
-  *block = (fd_pcapng_dsb_t) {
+  fd_pcapng_dsb_t block = {
     .block_type  = FD_PCAPNG_BLOCK_TYPE_DSB,
     /* block_sz set later */
     .secret_type = FD_PCAPNG_SECRET_TYPE_TLS,
     .secret_sz   = log_sz
   };
 
-  FD_PCAPNG_FWRITE_OPT( 0, 0, NULL );
-
   uint log_sz_align = fd_uint_align_up( log_sz, 4UL );
+  uchar pad[8] = {0};
+  ulong pad_sz = log_sz_align-log_sz;
+  cursor+=log_sz_align;
+
+  /* end of options block */
+  cursor+=4UL;
 
   /* derive size ahead of time */
-  uint   block_sz = (uint)cursor + log_sz_align + 4U;
-  block->block_sz = block_sz;
+  block.block_sz = (uint)cursor + 4U;
 
   /* write header */
-  if( FD_UNLIKELY( 1UL!=fwrite( buf, cursor, 1UL, file ) ) )
+  if( FD_UNLIKELY( 1UL!=fwrite( &block, sizeof(fd_pcapng_dsb_t), 1UL, file ) ) )
     return 0UL;
-
   /* copy log */
   if( FD_UNLIKELY( 1UL!=fwrite( log, log_sz, 1UL, file ) ) )
     return 0UL;
-
   /* align */
-  if( FD_UNLIKELY( 0!=fseek( file, log_sz_align-log_sz, SEEK_CUR ) ) )
+  if( pad_sz )
+    if( FD_UNLIKELY( 1UL!=fwrite( pad, pad_sz, 1UL, file ) ) )
+      return 0UL;
+  /* empty options */
+  if( FD_UNLIKELY( 1UL!=fwrite( pad, 4UL,    1UL, file ) ) )
     return 0UL;
-
   /* write length trailer */
-  if( FD_UNLIKELY( 1UL!=fwrite( &block_sz, sizeof(uint), 1, file ) ) )
+  if( FD_UNLIKELY( 1UL!=fwrite( &block.block_sz, sizeof(uint), 1, file ) ) )
     return 0UL;
 
   return 1UL;
