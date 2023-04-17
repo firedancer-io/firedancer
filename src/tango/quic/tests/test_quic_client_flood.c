@@ -73,7 +73,8 @@ run_quic_client(
   fd_quic_t *    quic,
   fd_xsk_aio_t * xsk_aio,
   uint           dst_ip,
-  ushort         dst_port) {
+  ushort         dst_port,
+  uint           batch_sz ) {
 
 # define MSG_SZ_MIN (1UL)
 # define MSG_SZ_MAX (1232UL-64UL-32UL)
@@ -187,7 +188,7 @@ run_quic_client(
     fd_xsk_aio_service( xsk_aio );
 
     /* obtain a free stream */
-    for( ulong j = 0; j < 32; ++j ) {
+    for( ulong j = 0; j < batch_sz; ++j ) {
 
       if( cur_stream ) {
         int rc = fd_quic_stream_send( cur_stream, batches[msg_sz - MSG_SZ_MIN], 1 /* batch_sz */, 1 /* fin */ ); /* fin: close stream after sending. last byte of transmission */
@@ -262,6 +263,7 @@ main( int argc, char ** argv ) {
   char const * _hwaddr   = fd_env_strip_cmdline_cstr  ( &argc, &argv, "--hwaddr",         NULL, NULL                         );
   char const * _gateway  = fd_env_strip_cmdline_cstr  ( &argc, &argv, "--gateway",        NULL, NULL                         );
   char const * bpf_dir   = fd_env_strip_cmdline_cstr  ( &argc, &argv, "--bpf-dir",        NULL, "test_quic"                  );
+  uint         batch     = fd_env_strip_cmdline_uint  ( &argc, &argv, "--batch",          NULL, 16U                          );
 
   ulong page_sz = fd_cstr_to_shmem_page_sz( _page_sz );
   if( FD_UNLIKELY( !page_sz ) ) FD_LOG_ERR(( "unsupported --page-sz" ));
@@ -344,7 +346,7 @@ main( int argc, char ** argv ) {
 
   /* loop continually, so that if the connection dies we try again */
   while (1) {
-    run_quic_client( quic, xsk_aio, dst_ip, (ushort)dst_port );
+    run_quic_client( quic, xsk_aio, dst_ip, (ushort)dst_port, batch );
   }
 
   fd_wksp_free_laddr( fd_quic_delete   ( fd_quic_leave   ( quic    ) ) );

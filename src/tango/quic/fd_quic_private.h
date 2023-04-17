@@ -154,7 +154,8 @@ int
 fd_quic_aio_cb_receive( void *                    context,
                         fd_aio_pkt_info_t const * batch,
                         ulong                     batch_sz,
-                        ulong *                   opt_batch_idx );
+                        ulong *                   opt_batch_idx,
+                        int                       flush );
 
 /* declare callbacks from quic-tls into quic */
 int
