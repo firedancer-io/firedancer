@@ -599,7 +599,7 @@ fd_funk_txn_merge( fd_funk_t *     funk,
 
   ulong parent_idx = fd_funk_txn_idx( txn->parent_cidx );
   if( FD_UNLIKELY( fd_funk_txn_idx_is_null( parent_idx ) ) ) {
-    if( FD_UNLIKELY( verbose ) ) FD_LOG_WARNING(( "txn must not have an unpublished parent" ));
+    if( FD_UNLIKELY( verbose ) ) FD_LOG_WARNING(( "txn must have an unpublished parent" ));
     return FD_FUNK_ERR_INVAL;
   }
 
