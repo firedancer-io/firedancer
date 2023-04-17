@@ -18,54 +18,9 @@
 #include "../../xdp/fd_xsk_aio.h"
 #include "../../xdp/fd_xdp_redirect_user.h"
 
+#include "test_helpers.c"
+
 #define BUF_SZ (1<<20)
-
-
-void
-write_shb( FILE * file ) {
-  pcap_shb_t shb[1] = {{ 0x0A0D0D0A, sizeof( pcap_shb_t ), 0x1A2B3C4D, 1, 0, (ulong)-1, sizeof( pcap_shb_t ) }};
-  FD_TEST( fwrite( shb, sizeof(shb), 1, file )==1 );
-}
-
-void
-write_idb( FILE * file ) {
-  pcap_idb_t idb[1] = {{ 0x00000001, sizeof( pcap_idb_t ), 1, 0, 0, sizeof( pcap_idb_t ) }};
-  FD_TEST( fwrite( idb, sizeof(idb), 1, file )==1 );
-}
-
-void
-write_epb( FILE *  file,
-           uchar * buf,
-           uint    buf_sz,
-           ulong   ts ) {
-
-  if( buf_sz == 0 ) return;
-
-  uint ts_lo = (uint)ts;
-  uint ts_hi = (uint)( ts >> 32u );
-
-  uint align_sz = ( ( buf_sz - 1u ) | 0x03u ) + 1u;
-  uint tot_len  = align_sz + (uint)sizeof( pcap_epb_t ) + 4;
-  pcap_epb_t epb[1] = {{
-    0x00000006,
-    tot_len,
-    0, /* intf id */
-    ts_hi,
-    ts_lo,
-    buf_sz,
-    buf_sz }};
-
-  FD_TEST( fwrite( epb, sizeof( epb ), 1, file )==1 );
-  FD_TEST( fwrite( buf, buf_sz,        1, file )==1 );
-
-  if( align_sz > buf_sz ) {
-    /* write padding */
-    uchar pad[4] = {0};
-    FD_TEST( fwrite( pad, align_sz - buf_sz, 1, file )==1 );
-  }
-
-  FD_TEST( fwrite( &tot_len, 4, 1, file )==1 );
-}
 
 ulong
 aio_cb( void *              context,
@@ -142,7 +97,9 @@ int
 pipe_aio_receive( void *                    vp_ctx,
                   fd_aio_pkt_info_t const * batch,
                   ulong                     batch_sz,
-                  ulong *                   opt_batch_idx ) {
+                  ulong *                   opt_batch_idx,
+                  int                       flush ) {
+  (void)flush;
   static ulong ts = 0;
   ts += 100000ul;
 
@@ -156,7 +113,7 @@ pipe_aio_receive( void *                    vp_ctx,
 #endif
 
   /* forward */
-  return fd_aio_send( pipe->aio, batch, batch_sz, opt_batch_idx );
+  return fd_aio_send( pipe->aio, batch, batch_sz, opt_batch_idx, 1 );
 }
 
 

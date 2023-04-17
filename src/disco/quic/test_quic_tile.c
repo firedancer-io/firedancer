@@ -8,10 +8,11 @@
 #include "../../util/net/fd_ip4.h"
 #include "../../ballet/base58/fd_base58.h"
 
-FD_STATIC_ASSERT( FD_QUIC_CNC_DIAG_CHUNK_IDX        ==2UL, unit_test );
-FD_STATIC_ASSERT( FD_QUIC_CNC_DIAG_TPU_PUB_CNT      ==3UL, unit_test );
-FD_STATIC_ASSERT( FD_QUIC_CNC_DIAG_TPU_PUB_SZ       ==4UL, unit_test );
-FD_STATIC_ASSERT( FD_QUIC_CNC_DIAG_TPU_CONN_LIVE_CNT==5UL, uint_test );
+FD_STATIC_ASSERT( FD_QUIC_CNC_DIAG_CHUNK_IDX        == 6UL, unit_test );
+FD_STATIC_ASSERT( FD_QUIC_CNC_DIAG_TPU_PUB_CNT      == 7UL, unit_test );
+FD_STATIC_ASSERT( FD_QUIC_CNC_DIAG_TPU_PUB_SZ       == 8UL, unit_test );
+FD_STATIC_ASSERT( FD_QUIC_CNC_DIAG_TPU_CONN_LIVE_CNT== 9UL, uint_test );
+FD_STATIC_ASSERT( FD_QUIC_CNC_DIAG_TPU_CONN_SEQ     ==10UL, unit_test );
 
 FD_STATIC_ASSERT( FD_QUIC_TILE_SCRATCH_ALIGN==128UL, unit_test );
 
@@ -94,11 +95,11 @@ rx_tile_main( int     argc,
       fd_cnc_heartbeat( cnc, fd_tickcount() );
 
       /* Receive command-and-control signals */
-      //ulong s = fd_cnc_signal_query( cnc );
-      //if( FD_UNLIKELY( s!=FD_CNC_SIGNAL_RUN ) ) {
-      //  if( FD_UNLIKELY( s!=FD_CNC_SIGNAL_HALT ) ) FD_LOG_ERR(( "Unexpected signal" ));
-      //  break;
-      //}
+      ulong s = fd_cnc_signal_query( cnc );
+      if( FD_UNLIKELY( s!=FD_CNC_SIGNAL_RUN ) ) {
+        if( FD_UNLIKELY( s!=FD_CNC_SIGNAL_HALT ) ) FD_LOG_ERR(( "Unexpected signal %#lx", s ));
+        break;
+      }
 
       /* Reload housekeeping timer */
       async_rem = fd_tempo_async_reload( rng, async_min );
@@ -226,9 +227,7 @@ int main( int     argc,
   uint         udp_port     =       fd_env_strip_cmdline_uint  ( &argc, &argv, "--port",           NULL, 8080U                        );
   char const * _hwaddr      =       fd_env_strip_cmdline_cstr  ( &argc, &argv, "--hwaddr",         NULL, NULL                         );
   char const * _gateway     =       fd_env_strip_cmdline_cstr  ( &argc, &argv, "--gateway",        NULL, NULL                         );
-  ulong        idle_timeout_ms =    fd_env_strip_cmdline_ulong ( &argc, &argv, "--idle-timeout",   NULL, 100UL                        );
-
-  char const * app_name = "test_quic";
+  char const * bpf_dir      =       fd_env_strip_cmdline_cstr  ( &argc, &argv, "--bpf-dir",        NULL, "test_quic"                  );
 
   ulong page_sz = fd_cstr_to_shmem_page_sz( _page_sz );
   if( FD_UNLIKELY( !page_sz ) )
@@ -316,11 +315,11 @@ int main( int     argc,
   FD_TEST( shxsk );
 
   FD_LOG_NOTICE(( "Binding xsk (iface %s ifqueue %u)", iface, ifqueue ));
-  FD_TEST( fd_xsk_bind( shxsk, app_name, iface, ifqueue ) );
+  FD_TEST( fd_xsk_bind( shxsk, bpf_dir, iface, ifqueue ) );
 
   FD_LOG_NOTICE(( "Listening on " FD_IP4_ADDR_FMT ":%u",
                   FD_IP4_ADDR_FMT_ARGS( listen_addr ), udp_port ));
-  FD_TEST( 0==fd_xdp_listen_udp_port( app_name, listen_addr, udp_port, 0U ) );
+  FD_TEST( 0==fd_xdp_listen_udp_port( bpf_dir, listen_addr, udp_port, 0U ) );
 
   FD_LOG_NOTICE(( "Joining xsk" ));
   cfg->xsk = fd_xsk_join( shxsk );
@@ -345,9 +344,10 @@ int main( int     argc,
   fd_quic_config_t * quic_cfg = fd_quic_get_config( cfg->tx_quic );
   FD_TEST( quic_cfg );
 
-  FD_TEST( fd_quic_config_from_env( &argc, &argv, quic_cfg ) );
-
+  /* must set role first */
   quic_cfg->role = FD_QUIC_ROLE_SERVER;
+
+  FD_TEST( fd_quic_config_from_env( &argc, &argv, quic_cfg ) );
 
   strcpy( quic_cfg->sni, "test_quic_tile" );
   quic_cfg->net.ip_addr         = (uint)listen_addr;
@@ -355,8 +355,6 @@ int main( int     argc,
 
   memcpy( quic_cfg->link.src_mac_addr, hwaddr,  6UL );
   memcpy( quic_cfg->link.dst_mac_addr, gateway, 6UL );
-
-  quic_cfg->idle_timeout = idle_timeout_ms * (ulong)1e6;
 
   fd_aio_t _aio_rx[1];
   fd_quic_set_aio_net_tx( cfg->tx_quic, fd_xsk_aio_get_tx     ( cfg->xsk_aio ) );
@@ -388,13 +386,14 @@ int main( int     argc,
       FD_COMPILER_MFENCE();
       /* FIXME: add RX_FSEQ / TX_FSEQ / RX_CNC / OTHER TX_CNC stats to
          monitoring, more pretty printing, etc */
-      ulong pub_cnt   = tx_cnc_diag[ FD_QUIC_CNC_DIAG_TPU_PUB_CNT  ];
-      ulong pub_sz    = tx_cnc_diag[ FD_QUIC_CNC_DIAG_TPU_PUB_SZ   ];
+      ulong pub_cnt       = tx_cnc_diag[ FD_QUIC_CNC_DIAG_TPU_PUB_CNT       ];
+      ulong pub_sz        = tx_cnc_diag[ FD_QUIC_CNC_DIAG_TPU_PUB_SZ        ];
+      ulong conn_live_cnt = tx_cnc_diag[ FD_QUIC_CNC_DIAG_TPU_CONN_LIVE_CNT ];
+      ulong conn_seq      = tx_cnc_diag[ FD_QUIC_CNC_DIAG_TPU_CONN_SEQ      ];
       FD_COMPILER_MFENCE();
-      //FD_LOG_NOTICE(( "monitor\n\t"
-      //                "tx: pub_cnt %20lu pub_sz %20lu",
-      //                pub_cnt, pub_sz ));
-      (void)pub_sz; (void)pub_cnt;
+      FD_LOG_NOTICE(( "monitor\n\t"
+                      "tx_seq %14lu tx_tot_sz %16lu conn_cnt: %8lu conn_seq %8lu",
+                      pub_cnt, pub_sz, conn_live_cnt, conn_seq ));
       next += (long)1e9;
     }
     FD_YIELD();
@@ -417,7 +416,7 @@ int main( int     argc,
 
   FD_LOG_NOTICE(( "Cleaning up" ));
 
-  FD_TEST( 0==fd_xdp_release_udp_port( app_name, (uint)listen_addr, udp_port ) );
+  FD_TEST( 0==fd_xdp_release_udp_port( bpf_dir, (uint)listen_addr, udp_port ) );
 
   fd_wksp_free_laddr( (void *)cfg->tx_quic_cfg                                );
   fd_wksp_free_laddr( fd_quic_delete   (    (fd_quic_t *)( cfg->tx_quic   ) ) );

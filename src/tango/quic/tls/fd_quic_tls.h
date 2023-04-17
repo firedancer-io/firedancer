@@ -74,13 +74,6 @@
    must be a multiple of FD_QUIC_TLS_HS_DATA_ALIGN */
 #define FD_QUIC_TLS_HS_DATA_SZ  (1u<<14u)
 
-/* forward decls */
-typedef struct fd_quic_tls_cfg     fd_quic_tls_cfg_t;
-typedef struct fd_quic_tls         fd_quic_tls_t;
-typedef struct fd_quic_tls_hs      fd_quic_tls_hs_t;
-typedef struct fd_quic_tls_secret  fd_quic_tls_secret_t;
-typedef struct fd_quic_tls_hs_data fd_quic_tls_hs_data_t;
-
 /* callback function prototypes */
 typedef int
 (* fd_quic_tls_cb_client_hello_t)( fd_quic_tls_hs_t * hs,
@@ -237,7 +230,7 @@ struct fd_quic_tls_hs {
 ulong
 fd_quic_tls_align( void );
 
-ulong 
+ulong
 fd_quic_tls_footprint( ulong handshake_cnt );
 
 /* fd_quic_tls_new formats an unused memory region for use as an

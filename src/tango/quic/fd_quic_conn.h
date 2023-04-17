@@ -5,7 +5,6 @@
 #include "fd_quic_stream.h"
 #include "fd_quic_conn_id.h"
 #include "crypto/fd_quic_crypto_suites.h"
-#include "tls/fd_quic_tls.h"
 #include "templ/fd_quic_transport_params.h"
 #include "fd_quic_pkt_meta.h"
 

@@ -9,7 +9,7 @@
 #include "tls/fd_quic_tls.h"
 
 #if 0
-#define DEBUG(...) __VA_ARGS__ fd_log_flush();
+#define DEBUG(...) __VA_ARGS__
 #else
 #define DEBUG(...)
 #endif
@@ -22,7 +22,8 @@ enum {
   FD_QUIC_TRANSPORT_PARAMS_RAW_SZ = 1200,
 };
 
-#define FD_QUIC_PKT_NUM_UNUSED (~0ul)
+#define FD_QUIC_PKT_NUM_UNUSED  (~0ul)
+#define FD_QUIC_PKT_NUM_PENDING (~1ul)
 
 /* events for time based processing */
 struct fd_quic_event {
@@ -135,7 +136,8 @@ int
 fd_quic_aio_cb_receive( void *                    context,
                         fd_aio_pkt_info_t const * batch,
                         ulong                     batch_sz,
-                        ulong *                   opt_batch_idx );
+                        ulong *                   opt_batch_idx,
+                        int                       flush );
 
 /* declare callbacks from quic-tls into quic */
 int
@@ -205,6 +207,11 @@ fd_quic_cb_stream_new( fd_quic_t *        quic,
                        int                stream_type ) {
   if( FD_UNLIKELY( !quic->join.cb.stream_new ) ) return;
   quic->join.cb.stream_new( stream, quic->join.cb.quic_ctx, stream_type );
+
+  /* update metrics */
+  ulong stream_id = stream->stream_id;
+  quic->metrics.stream_opened_cnt[ stream_id&0x3 ]++;
+  quic->metrics.stream_active_cnt[ stream_id&0x3 ]++;
 }
 
 static inline void
@@ -217,6 +224,10 @@ fd_quic_cb_stream_receive( fd_quic_t *        quic,
                            int                fin ) {
   if( FD_UNLIKELY( !quic->join.cb.stream_receive ) ) return;
   quic->join.cb.stream_receive( stream, stream_ctx, data, data_sz, offset, fin );
+
+  /* update metrics */
+  quic->metrics.stream_rx_event_cnt++;
+  quic->metrics.stream_rx_byte_cnt += data_sz;
 }
 
 static inline void
@@ -226,6 +237,11 @@ fd_quic_cb_stream_notify( fd_quic_t *        quic,
                           int                event ) {
   if( FD_UNLIKELY( !quic->join.cb.stream_notify ) ) return;
   quic->join.cb.stream_notify( stream, stream_ctx, event );
+
+  /* update metrics */
+  ulong stream_id = stream->stream_id;
+  quic->metrics.stream_closed_cnt[ stream_id&0x3 ]++;
+  quic->metrics.stream_active_cnt[ stream_id&0x3 ]--;
 }
 
 

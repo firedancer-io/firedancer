@@ -20,7 +20,7 @@ CONF=tmp/$APP.cfg
 CONF_DIR=tmp/$APP
 
 WKSP=$APP.wksp
-WKSP_PAGE_CNT=4
+WKSP_PAGE_CNT=32
 WKSP_PAGE_SZ=gigantic
 WKSP_PERM=0600
 
@@ -52,11 +52,11 @@ PACK_CU_LIMIT=12000001
 QUIC_LISTEN_PORT=9001
 QUIC_CONN_CNT=128
 QUIC_CONN_ID_CNT=16
-QUIC_STREAM_CNT=2
+QUIC_STREAM_CNT=64
 QUIC_HANDSHAKE_CNT=256
-QUIC_MAX_INFLIGHT_PKTS=64
+QUIC_MAX_INFLIGHT_PKTS=1024
 QUIC_TX_BUF_SZ=4096
-QUIC_RX_BUF_SZ=4096
+QUIC_RX_BUF_SZ=8192
 
 export QUIC_CONN_CNT
 export QUIC_CONN_ID_CNT
@@ -147,9 +147,11 @@ for addr in "${LISTEN_ADDRS[@]}"; do
   "$BUILD"/bin/fd_xdp_ctl listen-udp-port $APP $addr $QUIC_LISTEN_PORT tpu-quic || exit $?
 done
 SRC_MAC_ADDR="$(cat /sys/class/net/$IFACE/address)" || exit $?
-DST_MAC_ADDR="$(arp -i bond0 -n -a _gateway | head -n1 | awk '{print $4}')" || exit $?
-if [[ ! "$DST_MAC_ADDR" =~ ^[0-9a-f]{2}:[0-9a-f]{2}:[0-9a-f]{2}:[0-9a-f]{2}:[0-9a-f]{2}:[0-9a-f]{2}$ ]]; then
-  echo "Failed to parse gateway MAC address from arp output: $DST_MAC_ADDR" >&2; exit 1
+if [[ -z "$DST_MAC_ADDR" ]]; then
+  DST_MAC_ADDR="$(arp -i bond0 -n -a _gateway | head -n1 | awk '{print $4}')" || exit $?
+  if [[ ! "$DST_MAC_ADDR" =~ ^[0-9a-f]{2}:[0-9a-f]{2}:[0-9a-f]{2}:[0-9a-f]{2}:[0-9a-f]{2}:[0-9a-f]{2}$ ]]; then
+    echo "Failed to parse gateway MAC address from arp output: $DST_MAC_ADDR" >&2; exit 1
+  fi
 fi
 
 # For now, let each QUIC publish to one verifyin
@@ -195,6 +197,18 @@ mkdir -pv "$CONF_DIR" || exit $?
   dumpvar RUN_ARGS
   dumpvar MON_ARGS
   dumpvar MAIN_CNC
+  dumpvar IFACE
+  dumpvar LISTEN_ADDRS
+  dumpvar SRC_MAC_ADDR
+  dumpvar DST_MAC_ADDR
+  dumpvar QUIC_LISTEN_PORT
+  dumpvar QUIC_CONN_CNT
+  dumpvar QUIC_CONN_ID_CNT
+  dumpvar QUIC_STREAM_CNT
+  dumpvar QUIC_HANDSHAKE_CNT
+  dumpvar QUIC_MAX_INFLIGHT_PKTS
+  dumpvar QUIC_TX_BUF_SZ
+  dumpvar QUIC_RX_BUF_SZ
 ) > "$CONF" || exit $?
 
 #######################################################################

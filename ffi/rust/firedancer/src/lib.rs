@@ -1,6 +1,10 @@
 #![allow(clippy::missing_safety_doc)]
 
+pub mod log;
+#[cfg(feature = "frankendancer")]
 pub mod pack_rx;
+pub mod pod;
+pub mod wksp;
 
 use firedancer_sys::util;
 use std::ffi::c_int;

@@ -117,21 +117,22 @@ ulong pkt_number = 2;
 
 
 void
-test_secret_gen( uchar const * expected_output, uchar const * secret, ulong secret_sz, char const * label, ulong output_sz ) {
+test_secret_gen( uchar const * expected_output,
+                 uchar const * secret,
+                 ulong         secret_sz,
+                 char const *  label,
+                 ulong         output_sz ) {
   uchar new_secret[64] = {0};
   ulong label_sz = strlen( label );
 
-  EVP_MD const *md = EVP_sha256(); /* or 384 or 512 */
-
   fd_quic_hkdf_expand_label( new_secret, output_sz,
-                             md,
                              secret, secret_sz,
-                             (uchar*)label, label_sz );
+                             (uchar*)label, label_sz,
+                             fd_hmac_sha256, 32UL );
 
-  printf( "secret for %s: ", label );
-  for( ulong j = 0; j < output_sz; ++j ) {
-    printf( "%2.2x ", new_secret[j] );
-  }
+  char hexdump_label_buf[ 128 ];
+  snprintf( hexdump_label_buf, 128UL, "secret for %s", label );
+  FD_LOG_HEXDUMP_NOTICE(( hexdump_label_buf, new_secret, output_sz ));
 
   FD_TEST( 0==memcmp( new_secret, expected_output, output_sz ) );
 }
@@ -195,16 +196,17 @@ main( int     argc,
   /* initial secrets always use sha256 */
   /*   other encryption levels (in later packets) will use hash function from cipher suite */
   /*   selected thru TLS */
-  if( fd_quic_gen_initial_secret( &secrets,
-                                  initial_salt,     initial_salt_sz,
-                                  test_dst_conn_id, sizeof( test_dst_conn_id ),
-                                  crypto_ctx.HASH_SHA256 ) != FD_QUIC_SUCCESS ) {
+  if( FD_UNLIKELY( fd_quic_gen_initial_secret(
+      &secrets,
+      initial_salt,     initial_salt_sz,
+      test_dst_conn_id, sizeof( test_dst_conn_id ) )
+      != FD_QUIC_SUCCESS ) ) {
     FD_LOG_ERR(( "fd_quic_gen_initial_secret failed" ));
   }
 
   if( fd_quic_gen_secrets( &secrets,
                            fd_quic_enc_level_initial_id,
-                           crypto_ctx.HASH_SHA256 ) != FD_QUIC_SUCCESS ) {
+                           fd_hmac_sha256, 32UL ) != FD_QUIC_SUCCESS ) {
     FD_LOG_ERR(( "fd_quic_gen_secrets failed" ));
   }
 
@@ -212,9 +214,17 @@ main( int     argc,
   FD_TEST( 0==memcmp( secrets.initial_secret, expected_initial_secret, sizeof( expected_initial_secret ) ) );
   FD_LOG_NOTICE(( "fd_quic_gen_secrets: initial_secret PASSED" ));
 
+  FD_LOG_DEBUG(( "client initial secret: "
+                 FD_LOG_HEX16_FMT FD_LOG_HEX16_FMT,
+                 FD_LOG_HEX16_FMT_ARGS( secrets.secret[0][0]    ),
+                 FD_LOG_HEX16_FMT_ARGS( secrets.secret[0][0]+16 ) ));
   FD_TEST( 0==memcmp( secrets.secret[0][0], expected_client_initial_secret, sizeof( expected_client_initial_secret ) ) );
   FD_LOG_NOTICE(( "fd_quic_gen_secrets: client_initial_secret PASSED" ));
 
+  FD_LOG_DEBUG(( "server initial secret: "
+                 FD_LOG_HEX16_FMT FD_LOG_HEX16_FMT,
+                 FD_LOG_HEX16_FMT_ARGS( secrets.secret[0][1]    ),
+                 FD_LOG_HEX16_FMT_ARGS( secrets.secret[0][1]+16 ) ));
   FD_TEST( 0==memcmp( secrets.secret[0][1], expected_server_initial_secret, sizeof( expected_server_initial_secret ) ) );
   FD_LOG_NOTICE(( "fd_quic_gen_secrets: server_initial_secret PASSED" ));
 
@@ -222,7 +232,6 @@ main( int     argc,
   if( fd_quic_gen_keys(
         &client_keys,
         suite,
-        suite->hash,
         expected_client_initial_secret,
         expected_client_initial_secret_sz )
           != FD_QUIC_SUCCESS ) {
@@ -256,19 +265,8 @@ main( int     argc,
 
   FD_LOG_NOTICE(( "fd_quic_crypto_encrypt output %ld bytes", (long int)cipher_text_sz ));
 
-  printf( "plain_text: " );
-  for( ulong j = 0; j < sizeof( test_client_initial ); ++j ) {
-    printf( "%2.2x ", test_client_initial[j] );
-  }
-  printf( "\n" );
-  printf( "\n" );
-
-  printf( "cipher_text: " );
-  for( ulong j = 0; j < (ulong)cipher_text_sz; ++j ) {
-    printf( "%2.2x ", cipher_text[j] );
-  }
-  printf( "\n" );
-
+  FD_LOG_HEXDUMP_INFO(( "plain_text",  test_client_initial, sizeof(test_client_initial) ));
+  FD_LOG_HEXDUMP_INFO(( "cipher_text", cipher_text,         cipher_text_sz              ));
 
   uchar revert[4096];
   ulong revert_sz = sizeof( revert );
@@ -293,13 +291,7 @@ main( int     argc,
     FD_LOG_ERR(( "fd_quic_crypto_decrypt failed" ));
   }
 
-  printf( "\nreverted: " );
-  for( ulong j = 0; j < revert_sz; ++j ) {
-    printf( "%2.2x ", revert[j] );
-  }
-  printf( "\n" );
-
-  fflush( stdout );
+  FD_LOG_HEXDUMP_INFO(( "reverted", revert, revert_sz ));
 
   if( revert_sz != hdr_sz + sizeof( test_client_initial ) ) {
     FD_LOG_ERR(( "decrypted plain text size doesn't match original plain text size: %u != %u",
@@ -310,6 +302,9 @@ main( int     argc,
   FD_TEST( 0==memcmp( revert + hdr_sz, test_client_initial, sizeof( test_client_initial ) ) );
 
   FD_LOG_NOTICE(( "decrypted packet matches original packet" ));
+
+  fd_quic_free_keys( &client_keys );
+  fd_quic_crypto_ctx_fini( &crypto_ctx );
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

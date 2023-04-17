@@ -1,17 +1,8 @@
-// TODO fix this
-typedef struct fd_quic fd_quic_t;
-
 #include "../fd_quic_common.h"
 #include "../fd_quic_types.h"
 #include "../templ/fd_quic_parse_util.h"
-#include <stdio.h>
-
-#define FD_DEBUG(...) \
-  fprintf( stderr, __VA_ARGS__ )
-
 
 #include "../fd_quic_types.h"
-
 #include "../fd_quic_proto.h"
 
 /* define empty functions for handlers */
@@ -95,11 +86,7 @@ test_crypto_frame( void ) {
   rc = fd_quic_encode_crypto_frame( buf, sizeof( buf ), crypto_frame );
   FD_TEST( rc!=FD_QUIC_PARSE_FAIL );
 
-  FD_LOG_NOTICE(( "encoded:" ));
-  for( ulong j = 0; j < rc; ++j ) {
-    // TODO print to log
-    fprintf( stderr, "%2.2x ", (unsigned)buf[j] );
-  }
+  FD_LOG_HEXDUMP_NOTICE(( "encoded", buf, rc ));
 }
 
 int

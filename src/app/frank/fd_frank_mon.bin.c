@@ -332,7 +332,7 @@ printf_link( snap_t *      snap_prv,
              long          dt ) {
   snap_t * prv = &snap_prv[ src_tile_idx ];
   snap_t * cur = &snap_cur[ src_tile_idx ];
-  printf( " %5s->%-5s", tile_name[ src_tile_idx ], tile_name[ dst_tile_idx ] );
+  printf( " %6s->%-5s", tile_name[ src_tile_idx ], tile_name[ dst_tile_idx ] );
   ulong cur_raw_cnt = cur->cnc_diag_ha_filt_cnt + cur->fseq_diag_tot_cnt;
   ulong cur_raw_sz  = cur->cnc_diag_ha_filt_sz  + cur->fseq_diag_tot_sz;
   ulong prv_raw_cnt = prv->cnc_diag_ha_filt_cnt + prv->fseq_diag_tot_cnt;

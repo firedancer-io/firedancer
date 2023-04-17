@@ -168,6 +168,11 @@ int main( int     argc,
   };
   udp_dsts_fd = (int)bpf( BPF_MAP_CREATE, &attr, sizeof(union bpf_attr) );
   if( FD_UNLIKELY( udp_dsts_fd<0 ) ) {
+    if( FD_UNLIKELY( errno==EPERM ) ) {
+      FD_LOG_WARNING(( "skip: insufficient perms" ));
+      fd_halt();
+      return 0;
+    }
     FD_LOG_WARNING(( "bpf_map_create(BPF_MAP_TYPE_HASH,\"fd_xdp_udp_dsts\",8U,4U,%u) failed (%d-%s)",
                      FD_XDP_UDP_MAP_CNT, errno, strerror( errno ) ));
     return -1;

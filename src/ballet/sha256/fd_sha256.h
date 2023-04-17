@@ -21,6 +21,12 @@
 #define FD_SHA256_LG_HASH_SZ (5)
 #define FD_SHA256_HASH_SZ    (32UL) /* == 2^FD_SHA256_LG_HASH_SZ, explicit to workaround compiler limitations */
 
+/* FD_SHA256_{LG_BLOCK_SZ,BLOCK_SZ} describe the size of a SHA256
+   hash block in byte.  BLOCK_SZ==2^LG_BLOCK_SZ==64. */
+
+#define FD_SHA256_LG_BLOCK_SZ (6)
+#define FD_SHA256_BLOCK_SZ    (64UL) /* == 2^FD_SHA256_LG_BLOCK_SZ, explicit to workaround compiler limitations */
+
 /* A fd_sha256_t should be treated as an opaque handle of a sha256
    calculation state.  (It technically isn't here facilitate compile
    time declarations of fd_sha256_t memory.) */
@@ -31,8 +37,8 @@
    internal buffer used by the sha256 computation object.  This is for
    internal use only.  BUF_MAX==2^LG_BUF_MAX==2*FD_SHA256_HASH_SZ==64. */
 
-#define FD_SHA256_PRIVATE_LG_BUF_MAX (6)
-#define FD_SHA256_PRIVATE_BUF_MAX    (64UL) /* == 2^FD_SHA256_PRIVATE_LG_BUF_MAX, explicit to workaround compiler limitations */
+#define FD_SHA256_PRIVATE_LG_BUF_MAX FD_SHA256_LG_BLOCK_SZ
+#define FD_SHA256_PRIVATE_BUF_MAX    FD_SHA256_BLOCK_SZ
 
 struct __attribute__((aligned(FD_SHA256_ALIGN))) fd_sha256_private {
 

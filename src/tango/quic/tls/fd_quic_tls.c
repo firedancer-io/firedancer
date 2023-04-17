@@ -147,7 +147,10 @@ fd_quic_tls_new( void *              mem,
   fd_memset( used_handshakes, 0, (ulong)self->max_concur_handshakes );
 
   // create ssl context
-  self->ssl_ctx = fd_quic_create_context( self, cfg->cert_file, cfg->key_file );
+  self->ssl_ctx = fd_quic_create_context(
+    self,
+    cfg->cert_file[ 0 ]!='\0' ? cfg->cert_file : NULL,
+    cfg->key_file [ 0 ]!='\0' ? cfg->key_file  : NULL );
   if( FD_UNLIKELY( !self->ssl_ctx ) ) {
     FD_LOG_WARNING(( "fd_quic_create_context failed" ));
     return NULL;
@@ -174,6 +177,9 @@ fd_quic_tls_delete( fd_quic_tls_t * self ) {
   for( ulong j = 0; j < hs_sz; ++j ) {
     if( hs_used[j] ) fd_quic_tls_hs_delete( hs + j );
   }
+
+  if( self->ssl_ctx )
+    SSL_CTX_free( self->ssl_ctx );
 
   return self;
 }
@@ -510,7 +516,7 @@ fd_quic_ssl_add_handshake_data( SSL *                 ssl,
 
   /* copy data into buffer, and update metadata in hs_data */
   fd_memcpy( buf, data, data_sz );
-  hs_data->enc_level    = enc_level;
+  hs_data->enc_level    = (OSSL_ENCRYPTION_LEVEL)enc_level;
   hs_data->data         = buf;
   hs_data->data_sz      = (uint)data_sz;
   hs_data->free_data_sz = free_data_sz;
