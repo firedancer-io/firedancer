@@ -226,7 +226,6 @@ int main( int     argc,
   char const * _listen_addr =       fd_env_strip_cmdline_cstr  ( &argc, &argv, "--listen",         NULL, NULL                         );
   uint         udp_port     =       fd_env_strip_cmdline_uint  ( &argc, &argv, "--port",           NULL, 8080U                        );
   char const * _hwaddr      =       fd_env_strip_cmdline_cstr  ( &argc, &argv, "--hwaddr",         NULL, NULL                         );
-  char const * _gateway     =       fd_env_strip_cmdline_cstr  ( &argc, &argv, "--gateway",        NULL, NULL                         );
   char const * bpf_dir      =       fd_env_strip_cmdline_cstr  ( &argc, &argv, "--bpf-dir",        NULL, "test_quic"                  );
 
   ulong page_sz = fd_cstr_to_shmem_page_sz( _page_sz );
@@ -252,11 +251,6 @@ int main( int     argc,
   uchar hwaddr[ 6 ]={0};
   if( FD_UNLIKELY( !fd_cstr_to_mac_addr( _hwaddr,  hwaddr  ) ) )
     FD_LOG_ERR(( "invalid hwaddr \"%s\"",  _hwaddr  ));
-
-  if( FD_UNLIKELY( !_gateway ) ) FD_LOG_ERR(( "missing --gateway" ));
-  uchar gateway[ 6 ]={0};
-  if( FD_UNLIKELY( !fd_cstr_to_mac_addr( _gateway, gateway ) ) )
-    FD_LOG_ERR(( "invalid gateway \"%s\"", _gateway ));
 
   fd_quic_limits_t quic_limits = {0};
   if( FD_UNLIKELY( !fd_quic_limits_from_env( &argc, &argv, &quic_limits  ) ) )
@@ -354,7 +348,6 @@ int main( int     argc,
   quic_cfg->net.listen_udp_port = (ushort)udp_port;
 
   memcpy( quic_cfg->link.src_mac_addr, hwaddr,  6UL );
-  memcpy( quic_cfg->link.dst_mac_addr, gateway, 6UL );
 
   fd_quic_set_aio_net_tx( cfg->tx_quic, fd_xsk_aio_get_tx     ( cfg->xsk_aio ) );
   fd_xsk_aio_set_rx     ( cfg->xsk_aio, fd_quic_get_aio_net_rx( cfg->tx_quic ) );

@@ -147,12 +147,6 @@ for addr in "${LISTEN_ADDRS[@]}"; do
   "$BUILD"/bin/fd_xdp_ctl listen-udp-port $APP $addr $QUIC_LISTEN_PORT tpu-quic || exit $?
 done
 SRC_MAC_ADDR="$(cat /sys/class/net/$IFACE/address)" || exit $?
-if [[ -z "$DST_MAC_ADDR" ]]; then
-  DST_MAC_ADDR="$(arp -i bond0 -n -a _gateway | head -n1 | awk '{print $4}')" || exit $?
-  if [[ ! "$DST_MAC_ADDR" =~ ^[0-9a-f]{2}:[0-9a-f]{2}:[0-9a-f]{2}:[0-9a-f]{2}:[0-9a-f]{2}:[0-9a-f]{2}$ ]]; then
-    echo "Failed to parse gateway MAC address from arp output: $DST_MAC_ADDR" >&2; exit 1
-  fi
-fi
 
 # For now, let each QUIC publish to one verifyin
 # TODO manage XSK queue <-> QUIC tile core mapping
@@ -200,7 +194,6 @@ mkdir -pv "$CONF_DIR" || exit $?
   dumpvar IFACE
   dumpvar LISTEN_ADDRS
   dumpvar SRC_MAC_ADDR
-  dumpvar DST_MAC_ADDR
   dumpvar QUIC_LISTEN_PORT
   dumpvar QUIC_CONN_CNT
   dumpvar QUIC_CONN_ID_CNT
@@ -229,7 +222,6 @@ echo "Generating certs"
   insert "$POD" cstr   $APP.quic_cfg.ip_addr         "${LISTEN_ADDRS[0]}"                \
   insert "$POD" ushort $APP.quic_cfg.listen_port     $QUIC_LISTEN_PORT                   \
   insert "$POD" cstr   $APP.quic_cfg.src_mac_addr    "$SRC_MAC_ADDR"                     \
-  insert "$POD" cstr   $APP.quic_cfg.dst_mac_addr    "$DST_MAC_ADDR"                     \
   insert "$POD" ulong  $APP.quic_cfg.idle_timeout_ms "1000"                              \
   || exit $?
 

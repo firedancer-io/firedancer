@@ -88,6 +88,7 @@ fd_frank_quic_task( int     argc,
   /* Configure QUIC server */
 
   fd_quic_config_t * quic_cfg = &quic->config;
+  quic_cfg->role = FD_QUIC_ROLE_SERVER;
 
   char const * cert_file = fd_pod_query_cstr( quic_cfg_pod, "cert_file", NULL );
   if( FD_UNLIKELY( !cert_file ) ) FD_LOG_ERR(( "%s.quic_cfg.cert_file not set", cfg_path ));
@@ -110,12 +111,6 @@ fd_frank_quic_task( int     argc,
   if( FD_UNLIKELY( !src_mac_addr_cstr ) ) FD_LOG_ERR(( "%s.quic_cfg.src_mac_addr not set", cfg_path ));
   if( FD_UNLIKELY( !fd_cstr_to_mac_addr( src_mac_addr_cstr, quic_cfg->link.src_mac_addr ) ) )
     FD_LOG_ERR(( "%s.quic_cfg.src_mac_addr is invalid (\"%s\")", cfg_path, src_mac_addr_cstr ));
-
-  /* TODO implement ARP */
-  char const * dst_mac_addr_cstr = fd_pod_query_cstr( quic_cfg_pod, "dst_mac_addr", NULL );
-  if( FD_UNLIKELY( !dst_mac_addr_cstr ) ) FD_LOG_ERR(( "%s.quic_cfg.dst_mac_addr not set", cfg_path ));
-  if( FD_UNLIKELY( !fd_cstr_to_mac_addr( dst_mac_addr_cstr, quic_cfg->link.dst_mac_addr ) ) )
-    FD_LOG_ERR(( "%s.quic_cfg.dst_mac_addr is invalid (\"%s\")", cfg_path, dst_mac_addr_cstr ));
 
   ushort listen_port = fd_pod_query_ushort( quic_cfg_pod, "listen_port", 0 );
   if( FD_UNLIKELY( !listen_port ) ) FD_LOG_ERR(( "%s.quic_cfg.listen_port not set", cfg_path ));
