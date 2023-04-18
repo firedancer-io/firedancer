@@ -479,7 +479,7 @@ fd_xsk_init( fd_xsk_t * xsk ) {
     .sxdp_family   = PF_XDP,
     .sxdp_ifindex  = xsk->if_idx,
     .sxdp_queue_id = xsk->if_queue_id,
-    .sxdp_flags    = XDP_USE_NEED_WAKEUP
+    .sxdp_flags    = XDP_USE_NEED_WAKEUP | XDP_COPY
   };
 
   if( FD_UNLIKELY( 0!=bind( xsk->xsk_fd, (void *)&sa, sizeof(struct sockaddr_xdp) ) ) ) {
@@ -487,6 +487,7 @@ fd_xsk_init( fd_xsk_t * xsk ) {
                      xsk->if_name_cstr, xsk->if_queue_id, strerror( errno ) ));
     return -1;
   }
+  FD_LOG_INFO(( "xsk bind() success" ));
 
   /* XSK successfully configured.  Traffic will arrive in XSK after
      configuring an XDP program to forward packets via XDP_REDIRECT.
@@ -755,7 +756,9 @@ fd_xsk_tx_enqueue( fd_xsk_t *            xsk,
 
     /* XDP tells us whether we need to specifically wake up the driver/hw */
     if( fd_xsk_tx_need_wakeup( xsk ) ) {
-      sendto( xsk->xsk_fd, NULL, 0, MSG_DONTWAIT, NULL, 0 );
+      if( FD_UNLIKELY( -1==sendto( xsk->xsk_fd, NULL, 0, MSG_DONTWAIT, NULL, 0 ) ) ) {
+        FD_LOG_WARNING(( "xsk sendto failed (%d-%s)", errno, strerror( errno ) ));
+      }
     }
   }
 
