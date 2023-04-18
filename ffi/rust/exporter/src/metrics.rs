@@ -13,7 +13,7 @@ use firedancer_sys::tango::{
     fd_mcache_seq_query,
     quic::{
         fd_quic_t,
-        FD_QUIC_MAGIC,
+        fd_quic_join,
     },
 };
 use firedancer_sys::disco::quic::{
@@ -105,8 +105,7 @@ impl FrankSpy {
                     fd_mcache_join(fd_wksp_pod_map(quic_pod, cstr!("mcache").as_ptr()));
 
                 fd_log_info!("mapping quic.{}.quic", quic_name_str);
-                let quic = fd_wksp_pod_map(quic_pod, cstr!("quic").as_ptr()) as *const fd_quic_t;
-                assert!((*quic).magic == FD_QUIC_MAGIC as u64);
+                let quic = fd_quic_join(fd_wksp_pod_map(quic_pod, cstr!("quic").as_ptr()));
 
                 FrankQuicSpy {
                     name: quic_name.to_str().unwrap().to_string(),
