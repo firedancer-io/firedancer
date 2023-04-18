@@ -757,7 +757,9 @@ fd_xsk_tx_enqueue( fd_xsk_t *            xsk,
     /* XDP tells us whether we need to specifically wake up the driver/hw */
     if( fd_xsk_tx_need_wakeup( xsk ) ) {
       if( FD_UNLIKELY( -1==sendto( xsk->xsk_fd, NULL, 0, MSG_DONTWAIT, NULL, 0 ) ) ) {
-        FD_LOG_WARNING(( "xsk sendto failed (%d-%s)", errno, strerror( errno ) ));
+        if( FD_UNLIKELY( errno!=EAGAIN ) ) {
+          FD_LOG_WARNING(( "xsk sendto failed (%d-%s)", errno, strerror( errno ) ));
+        }
       }
     }
   }
