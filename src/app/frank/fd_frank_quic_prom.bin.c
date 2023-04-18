@@ -112,12 +112,12 @@ main( int     argc,
 
   /* Parse command line arguments */
 
-  char const * pod_gaddr =       fd_env_strip_cmdline_cstr  ( &argc, &argv, "--pod",      NULL, NULL                 );
-  char const * cfg_path  =       fd_env_strip_cmdline_cstr  ( &argc, &argv, "--cfg",      NULL, NULL                 );
-  char const * out_path  =       fd_env_strip_cmdline_cstr  ( &argc, &argv, "--out",      NULL, NULL                 );
+  char const * pod_gaddr =       fd_env_strip_cmdline_cstr  ( &argc, &argv, "--pod", NULL, NULL );
+  char const * cfg_path  =       fd_env_strip_cmdline_cstr  ( &argc, &argv, "--cfg", NULL, NULL );
+  char const * out_path  =       fd_env_strip_cmdline_cstr  ( &argc, &argv, "--out", NULL, NULL );
 
-  if( FD_UNLIKELY( !pod_gaddr   ) ) FD_LOG_ERR(( "--pod not specified"                  ));
-  if( FD_UNLIKELY( !cfg_path    ) ) FD_LOG_ERR(( "--cfg not specified"                  ));
+  if( FD_UNLIKELY( !pod_gaddr   ) ) FD_LOG_ERR(( "--pod not specified" ));
+  if( FD_UNLIKELY( !cfg_path    ) ) FD_LOG_ERR(( "--cfg not specified" ));
 
   FILE * out_file;
   if( FD_UNLIKELY( !out_path ) ) {
@@ -189,6 +189,10 @@ main( int     argc,
 
   snap( tile_cnt, snap_cur, tile_cnc, tile_mcache, tile_quic );
   long now; long toc; fd_tempo_observe_pair( &now, &toc );
+
+  /* Write CGI header */
+
+  fprintf( out_file, "Content-Type: text/plain; version=0.0.4\n\n" );
 
   /* Write the snapshot out to a file using the Promethesus metrics format */
   fprintf( out_file, "# HELP firedancer_quic_seq publish mcache sequence number of QUIC tile\n" );
