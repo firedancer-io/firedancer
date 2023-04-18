@@ -55,7 +55,7 @@ fd_quic_test_cb_stream_receive( fd_quic_stream_t * stream,
                                 ulong              offset,
                                 int                fin ) {
   FD_LOG_DEBUG(( "cb_stream_receive(stream=%lu, quic_ctx=%p, data=%p, data_sz=%lu, offset=%lu, fin=%d)",
-                 stream->stream_id, quic_ctx, data, data_sz, offset, fin ));
+                 stream->stream_id, quic_ctx, (void const *)data, data_sz, offset, fin ));
 }
 
 static void
