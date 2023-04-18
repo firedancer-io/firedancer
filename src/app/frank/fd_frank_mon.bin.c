@@ -401,13 +401,12 @@ main( int     argc,
   uchar const * verify_pods = fd_pod_query_subpod( cfg_pod, "verify" );
   ulong verify_cnt = fd_pod_cnt_subpod( verify_pods );
   FD_LOG_INFO(( "%lu verify found", verify_cnt ));
-  ulong tile_cnt = 3UL + verify_cnt + verifyin_cnt;
+  ulong tile_cnt = 2UL + verify_cnt + verifyin_cnt;
 
   /* Tile indices */
 
   ulong tile_main_idx    = 0UL;
-  ulong tile_pack_idx    = tile_main_idx +1UL;
-  ulong tile_dedup_idx   = tile_pack_idx +1UL;
+  ulong tile_dedup_idx   = tile_main_idx +1UL;
   ulong tile_verify_idx0 = tile_dedup_idx+1UL;
   ulong tile_verify_idx1 = tile_verify_idx0 + verify_cnt;
   ulong tile_quic_idx0   = tile_verify_idx1;
@@ -431,19 +430,6 @@ main( int     argc,
     if( FD_UNLIKELY( fd_cnc_app_sz( tile_cnc[ tile_idx ] )<64UL ) ) FD_LOG_ERR(( "cnc app sz should be at least 64 bytes" ));
     tile_mcache[ tile_idx ] = NULL; /* main has no mcache */
     tile_fseq  [ tile_idx ] = NULL; /* main has no fseq */
-    tile_idx++;
-
-    tile_name[ tile_idx ] = "pack";
-    FD_LOG_INFO(( "joining %s.pack.cnc", cfg_path ));
-    tile_cnc[ tile_idx ] = fd_cnc_join( fd_wksp_pod_map( cfg_pod, "pack.cnc" ) );
-    if( FD_UNLIKELY( !tile_cnc[ tile_idx ] ) ) FD_LOG_ERR(( "fd_cnc_join failed" ));
-    if( FD_UNLIKELY( fd_cnc_app_sz( tile_cnc[ tile_idx ] )<64UL ) ) FD_LOG_ERR(( "cnc app sz should be at least 64 bytes" ));
-    FD_LOG_INFO(( "joining %s.pack.out-mcache", cfg_path ));
-    tile_mcache[ tile_idx ] = fd_mcache_join( fd_wksp_pod_map( cfg_pod, "pack.out-mcache" ) );
-    if( FD_UNLIKELY( !tile_mcache[ tile_idx ] ) ) FD_LOG_ERR(( "fd_mcache_join failed" ));
-    FD_LOG_INFO(( "joining %s.dedup.fseq", cfg_path ));
-    tile_fseq[ tile_idx ] = fd_fseq_join( fd_wksp_pod_map( cfg_pod, "pack.return-fseq" ) );
-    if( FD_UNLIKELY( !tile_fseq[ tile_idx ] ) ) FD_LOG_ERR(( "fd_fseq_join failed" ));
     tile_idx++;
 
     tile_name[ tile_idx ] = "dedup";
@@ -585,7 +571,6 @@ main( int     argc,
     for( ulong tile_idx=tile_verify_idx0; tile_idx<tile_verify_idx1; tile_idx++ ) {
       printf_link( snap_prv, snap_cur, tile_name, tile_idx, tile_dedup_idx, dt );
     }
-    printf_link( snap_prv, snap_cur, tile_name, tile_dedup_idx, tile_pack_idx, dt );
     printf( TEXT_NEWLINE );
 
     /* Switch to alternate screen and erase junk below

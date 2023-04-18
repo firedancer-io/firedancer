@@ -68,7 +68,7 @@ main( int     argc,
   ulong quic_cnt = fd_pod_cnt_subpod( quic_pods );
   FD_LOG_NOTICE(( "%lu quic found", quic_cnt ));
 
-  ulong tile_cnt = 3UL + verify_cnt + quic_cnt;
+  ulong tile_cnt = 2UL + verify_cnt + quic_cnt;
   if( FD_UNLIKELY( fd_tile_cnt()<tile_cnt ) ) FD_LOG_ERR(( "at least %lu tiles required for this config", tile_cnt ));
   if( FD_UNLIKELY( fd_tile_cnt()>tile_cnt ) ) FD_LOG_WARNING(( "only %lu tiles required for this config", tile_cnt ));
 
@@ -86,13 +86,6 @@ main( int     argc,
     FD_LOG_NOTICE(( "joining %s.main.cnc", cfg_path ));
     tile_name[ tile_idx ] = "main";
     tile_cnc [ tile_idx ] = fd_cnc_join( fd_wksp_pod_map( cfg_pod, "main.cnc" ) );
-    if( FD_UNLIKELY( !tile_cnc[ tile_idx ] ) ) FD_LOG_ERR(( "fd_cnc_join failed" ));
-    if( FD_UNLIKELY( fd_cnc_app_sz( tile_cnc[ tile_idx ] )<64UL ) ) FD_LOG_ERR(( "cnc app sz should be at least 64 bytes" ));
-    tile_idx++;
-
-    FD_LOG_NOTICE(( "joining %s.pack.cnc", cfg_path ));
-    tile_name[ tile_idx ] = "pack";
-    tile_cnc [ tile_idx ] = fd_cnc_join( fd_wksp_pod_map( cfg_pod, "pack.cnc" ) );
     if( FD_UNLIKELY( !tile_cnc[ tile_idx ] ) ) FD_LOG_ERR(( "fd_cnc_join failed" ));
     if( FD_UNLIKELY( fd_cnc_app_sz( tile_cnc[ tile_idx ] )<64UL ) ) FD_LOG_ERR(( "cnc app sz should be at least 64 bytes" ));
     tile_idx++;
@@ -138,8 +131,7 @@ main( int     argc,
   /* Boot all the tiles that main controls */
 
   ulong tile_main_idx    = 0UL;
-  ulong tile_pack_idx    = tile_main_idx +1UL;
-  ulong tile_dedup_idx   = tile_pack_idx +1UL;
+  ulong tile_dedup_idx   = tile_main_idx +1UL;
   ulong tile_verify_idx0 = tile_dedup_idx+1UL;
   ulong tile_verify_idx1 = tile_verify_idx0 + verify_cnt;
   ulong tile_quic_idx0   = tile_verify_idx1;
@@ -154,8 +146,7 @@ main( int     argc,
     fd_tile_task_t task;
     switch( tile_idx ) {
     case 0UL: task = main;                 break;
-    case 1UL: task = fd_frank_pack_task;   break;
-    case 2UL: task = fd_frank_dedup_task;  break;
+    case 1UL: task = fd_frank_dedup_task;  break;
     default:
       if( tile_idx<tile_quic_idx0 )
               task = fd_frank_verify_task;
