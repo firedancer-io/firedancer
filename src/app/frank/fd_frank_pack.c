@@ -241,7 +241,7 @@ fd_frank_pack_task( int     argc,
     fd_txn_t const * txn     = (fd_txn_t const *)( dcache_entry + fd_ulong_align_up( payload_sz, 2UL ) );
     fd_memcpy( slot->payload, payload, payload_sz                                                     );
 
-    if( FD_UNLIKELY( !fd_txn_parse( payload, payload_sz, TXN(slot), NULL ) ) ) {
+    if( FD_UNLIKELY( payload_sz>FD_MTU || !fd_txn_parse( payload, payload_sz, TXN(slot), NULL ) ) ) {
       FD_LOG_NOTICE(( "Re-parsing transaction failed. Ignoring transaction." ));
       fd_pack_cancel_insert( pack, slot );
       accum_ovrnr_cnt++;
