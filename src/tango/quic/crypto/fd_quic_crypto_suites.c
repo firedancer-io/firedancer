@@ -372,21 +372,21 @@ fd_quic_gen_new_keys(
 
   /* output length passed with "quic key" must be the key size from
      the current cipher */
-  if( fd_quic_hkdf_expand_label( keys->pkt_key, key_sz,
-                                 secret, secret_sz,
-                                 (uchar*)FD_QUIC_CRYPTO_LABEL_QUIC_KEY,
-                                 FD_QUIC_CRYPTO_LABEL_QUIC_KEY_SZ,
-                                 hmac_fn, hash_sz ) != FD_QUIC_SUCCESS ) {
+  if( FD_UNLIKELY( !fd_quic_hkdf_expand_label( keys->pkt_key, key_sz,
+      secret, secret_sz,
+      (uchar*)FD_QUIC_CRYPTO_LABEL_QUIC_KEY,
+      FD_QUIC_CRYPTO_LABEL_QUIC_KEY_SZ,
+      hmac_fn, hash_sz ) ) ) {
     return FD_QUIC_FAILED;
   }
   keys->pkt_key_sz = key_sz;
 
   /* quic iv */
-  if( fd_quic_hkdf_expand_label( keys->iv, iv_sz,
-                                 secret, secret_sz,
-                                 (uchar*)FD_QUIC_CRYPTO_LABEL_QUIC_IV,
-                                 FD_QUIC_CRYPTO_LABEL_QUIC_IV_SZ,
-                                 hmac_fn, hash_sz ) != FD_QUIC_SUCCESS ) {
+  if( FD_UNLIKELY( !fd_quic_hkdf_expand_label( keys->iv, iv_sz,
+      secret, secret_sz,
+      (uchar*)FD_QUIC_CRYPTO_LABEL_QUIC_IV,
+      FD_QUIC_CRYPTO_LABEL_QUIC_IV_SZ,
+      hmac_fn, hash_sz ) ) ) {
     return FD_QUIC_FAILED;
   }
   keys->iv_sz = iv_sz;
