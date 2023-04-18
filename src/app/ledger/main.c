@@ -12,6 +12,7 @@
 #include "tar.h"
 #include "../../ballet/runtime/fd_banks_solana.h"
 #include "../../ballet/runtime/fd_hashes.h"
+#include "../../funk/fd_funk.h"
 
 static void usage(const char* progname) {
   fprintf(stderr, "USAGE: %s\n", progname);
@@ -25,17 +26,19 @@ struct SnapshotParser {
   char* tmpend_;
     
   void * allocf_arg_;
+  fd_funk_t* funk_;
   struct fd_deserializable_versioned_bank* bank_;
   struct fd_solana_accounts_db_fields* accounts_;
 };
 
-void SnapshotParser_init(struct SnapshotParser* self, void * allocf_arg) {
+void SnapshotParser_init(struct SnapshotParser* self, void * allocf_arg, fd_funk_t* funk) {
   TarReadStream_init(&self->tarreader_);
   size_t tmpsize = 1<<30;
   self->tmpstart_ = self->tmpcur_ = (char*)malloc(tmpsize);
   self->tmpend_ = self->tmpstart_ + tmpsize;
 
-  self->allocf_arg_ = allocf_arg; 
+  self->allocf_arg_ = allocf_arg;
+  self->funk_ = funk;
   self->bank_ = NULL;
   self->accounts_ = NULL;
 }
@@ -49,46 +52,35 @@ void SnapshotParser_parsefd_solana_accounts(struct SnapshotParser* self, const v
   (void)self;
   
   while (datalen) {
-    size_t roundedlen;
-    
-#define EAT_SLICE(_target_, _len_)         \
-    roundedlen = (_len_+7UL)&~7UL;         \
-    if (roundedlen > datalen) return;      \
-    memcpy(_target_, data, _len_);         \
-    data = (const char*)data + roundedlen; \
-    datalen -= roundedlen;
-
-    struct fd_solana_account_stored_meta meta;
-    EAT_SLICE(&meta, sizeof(meta));
-    struct fd_solana_account_meta account_meta;
-    EAT_SLICE(&account_meta, sizeof(account_meta));
-    struct fd_solana_account_fd_hash hash;
-    EAT_SLICE(&hash, sizeof(hash));
-
-    // Skip data for now
-    roundedlen = (meta.data_len+7UL)&~7UL;
-    if (roundedlen > datalen) return;
+    fd_solana_account_hdr_t hdr;
+    size_t roundedlen = (sizeof(hdr)+7UL)&~7UL;
+    if (roundedlen > datalen)
+      return;
+    memcpy(&hdr, data, sizeof(hdr));
     data = (const char*)data + roundedlen;
     datalen -= roundedlen;
 
-#undef EAT_SLICE
-  }
-}
+    // fd_account_meta_t metadata;
+    // int read_result = fd_acc_mgr_get_metadata( state->global->acc_mgr, state->global->funk_txn, (fd_pubkey_t *) &hdr.meta.pubkey, &metadata );
 
-static char* SnapshotParser_allocTemp(FD_FN_UNUSED void* arg, unsigned long align, unsigned long sz) {
-  return fd_alloc_malloc((fd_alloc_t*)arg, align, sz);
+    roundedlen = (hdr.meta.data_len+7UL)&~7UL;
+    if (roundedlen > datalen)
+      return;
+    data = (const char*)data + roundedlen;
+    datalen -= roundedlen;
+  }
 }
 
 void SnapshotParser_parseSnapshots(struct SnapshotParser* self, const void* data, size_t datalen) {
   const void * dataend = (const char*)data + datalen;
   
   self->bank_ = (struct fd_deserializable_versioned_bank*)
-    SnapshotParser_allocTemp(self->allocf_arg_, FD_DESERIALIZABLE_VERSIONED_BANK_ALIGN, FD_DESERIALIZABLE_VERSIONED_BANK_FOOTPRINT);
-  fd_deserializable_versioned_bank_decode(self->bank_, &data, dataend, SnapshotParser_allocTemp, self->allocf_arg_);
+    fd_alloc_malloc(self->allocf_arg_, FD_DESERIALIZABLE_VERSIONED_BANK_ALIGN, FD_DESERIALIZABLE_VERSIONED_BANK_FOOTPRINT);
+  fd_deserializable_versioned_bank_decode(self->bank_, &data, dataend, (fd_alloc_fun_t)fd_alloc_malloc, self->allocf_arg_);
 
   self->accounts_ = (struct fd_solana_accounts_db_fields*)
-    SnapshotParser_allocTemp(self->allocf_arg_, FD_SOLANA_ACCOUNTS_DB_FIELDS_ALIGN, FD_SOLANA_ACCOUNTS_DB_FIELDS_FOOTPRINT);
-  fd_solana_accounts_db_fields_decode(self->accounts_, &data, dataend, SnapshotParser_allocTemp, self->allocf_arg_);
+    fd_alloc_malloc(self->allocf_arg_, FD_SOLANA_ACCOUNTS_DB_FIELDS_ALIGN, FD_SOLANA_ACCOUNTS_DB_FIELDS_FOOTPRINT);
+  fd_solana_accounts_db_fields_decode(self->accounts_, &data, dataend, (fd_alloc_fun_t)fd_alloc_malloc, self->allocf_arg_);
 }
 
 void SnapshotParser_tarEntry(void* arg, const char* name, const void* data, size_t datalen) {
@@ -192,11 +184,20 @@ int main(int argc, char** argv) {
       usage(argv[0]);
       return 1;
     }
+    const char* funkfile = fd_env_strip_cmdline_cstr(&argc, &argv, "--funkfile", NULL, "funkdb");
+
+    unlink(funkfile);
+    ulong index_max = 100000000; // Maximum size (count) of master index
+    ulong xactions_max = 10;     // Maximum size (count) of transaction index
+    ulong cache_max = 10000;     // Maximum number of cache entries
+    fd_funk_t* funk = fd_funk_new(funkfile, wksp, 1, index_max, xactions_max, cache_max);
 
     struct SnapshotParser parser;
-    SnapshotParser_init(&parser, allocf_arg);
+    SnapshotParser_init(&parser, allocf_arg, funk);
     decompressFile(snapshotfile, SnapshotParser_moreData, &parser);
     SnapshotParser_destroy(&parser);
+
+    fd_funk_delete(funk);
   }
 
   fd_wksp_free_laddr( shmem );
