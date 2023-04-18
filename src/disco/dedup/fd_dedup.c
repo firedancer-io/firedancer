@@ -43,7 +43,7 @@ typedef struct fd_dedup_tile_in fd_dedup_tile_in_t;
 static inline void
 fd_dedup_tile_in_update( fd_dedup_tile_in_t * in,
                          ulong                exposed_cnt ) {
-  
+
   /* Technically we don't need to use fd_fseq_query here as *in_fseq
      is not volatile from the dedup's point of view.  But we are
      paranoid, it won't affect performance in this case and it is
@@ -213,7 +213,7 @@ fd_dedup_tile( fd_cnc_t *              cnc,
     _tcache_sync   = fd_tcache_oldest_laddr( tcache );
     _tcache_ring   = fd_tcache_ring_laddr  ( tcache );
     _tcache_map    = fd_tcache_map_laddr   ( tcache );
-    
+
     FD_COMPILER_MFENCE();
     tcache_sync = FD_VOLATILE_CONST( *_tcache_sync );
     FD_COMPILER_MFENCE();
@@ -469,11 +469,9 @@ fd_dedup_tile( fd_cnc_t *              cnc,
     if( FD_UNLIKELY( cr_avail<=cr_filt ) ) {
       cnc_diag_backp_cnt += (ulong)!cnc_diag_in_backp;
       cnc_diag_in_backp   = 1UL;
-      FD_SPIN_PAUSE();
-      now = fd_tickcount();
-      continue;
+    } else {
+      cnc_diag_in_backp = 0UL;
     }
-    cnc_diag_in_backp = 0UL;
 
     /* Select which in to poll next (randomized round robin) */
 
