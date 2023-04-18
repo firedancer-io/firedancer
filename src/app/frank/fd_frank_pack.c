@@ -240,7 +240,16 @@ fd_frank_pack_task( int     argc,
     uchar    const * payload = dcache_entry;
     fd_txn_t const * txn     = (fd_txn_t const *)( dcache_entry + fd_ulong_align_up( payload_sz, 2UL ) );
     fd_memcpy( slot->payload, payload, payload_sz                                                     );
-    fd_memcpy( TXN(slot),     txn,     fd_txn_footprint( txn->instr_cnt, txn->addr_table_lookup_cnt ) );
+
+    if( FD_UNLIKELY( !fd_txn_parse( payload, payload_sz, TXN(slot), NULL ) ) ) {
+      FD_LOG_NOTICE(( "Re-parsing transaction failed. Ignoring transaction." ));
+      fd_pack_cancel_insert( pack, slot );
+      accum_ovrnr_cnt++;
+      seq = seq_found;
+      continue;
+    }
+    (void)txn;
+
     slot->payload_sz = payload_sz;
     slot->mline_sig  = mline_sig;
 
