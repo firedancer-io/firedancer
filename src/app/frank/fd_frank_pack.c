@@ -221,58 +221,66 @@ fd_frank_pack_task( int     argc,
 
     now = fd_tickcount();
 
-    /* At this point, we have started receiving frag seq with details in
-       mline at time now.  Speculatively processs it here. */
-
-    /* Speculative pack operations */
-    fd_txn_p_t * slot          = fd_pack_prepare_insert( pack );
-
     ulong         sz           = (ulong)mline->sz;
-    uchar const * dcache_entry = fd_chunk_to_laddr_const( wksp, mline->chunk );
-    ulong         mline_sig    = mline->sig;
-    /* Assume that the dcache entry is:
+    if( 0 ) {
+      /* At this point, we have started receiving frag seq with details in
+         mline at time now.  Speculatively processs it here. */
+
+      /* Speculative pack operations */
+      fd_txn_p_t * slot          = fd_pack_prepare_insert( pack );
+
+      ulong         sz           = (ulong)mline->sz;
+      uchar const * dcache_entry = fd_chunk_to_laddr_const( wksp, mline->chunk );
+      ulong         mline_sig    = mline->sig;
+      /* Assume that the dcache entry is:
          Payload ....... (payload_sz bytes)
          0 or 1 byte of padding (since alignof(fd_txn) is 2)
          fd_txn ....... (size computed by fd_txn_footprint)
          payload_sz  (2B)
-      mline->sz includes all three fields and the padding */
-    ulong payload_sz = *(ushort*)(dcache_entry + sz - sizeof(ushort));
-    uchar    const * payload = dcache_entry;
-    fd_txn_t const * txn     = (fd_txn_t const *)( dcache_entry + fd_ulong_align_up( payload_sz, 2UL ) );
-    fd_memcpy( slot->payload, payload, payload_sz                                                     );
+         mline->sz includes all three fields and the padding */
+      ulong payload_sz = *(ushort*)(dcache_entry + sz - sizeof(ushort));
+      uchar    const * payload = dcache_entry;
+      fd_txn_t const * txn     = (fd_txn_t const *)( dcache_entry + fd_ulong_align_up( payload_sz, 2UL ) );
+      fd_memcpy( slot->payload, payload, payload_sz                                                     );
 
-    if( FD_UNLIKELY( payload_sz>FD_MTU || !fd_txn_parse( payload, payload_sz, TXN(slot), NULL ) ) ) {
-      FD_LOG_NOTICE(( "Re-parsing transaction failed. Ignoring transaction." ));
-      fd_pack_cancel_insert( pack, slot );
-      accum_ovrnr_cnt++;
-      seq = seq_found;
-      continue;
-    }
-    (void)txn;
+      if( FD_UNLIKELY( payload_sz>FD_MTU || !fd_txn_parse( payload, payload_sz, TXN(slot), NULL ) ) ) {
+        FD_LOG_NOTICE(( "Re-parsing transaction failed. Ignoring transaction." ));
+        fd_pack_cancel_insert( pack, slot );
+        accum_ovrnr_cnt++;
+        seq = seq_found;
+        continue;
+      }
+      (void)txn;
 
-    slot->payload_sz = payload_sz;
-    slot->mline_sig  = mline_sig;
+      slot->payload_sz = payload_sz;
+      slot->mline_sig  = mline_sig;
 
 #if DETAILED_LOGGING
-    FD_LOG_NOTICE(( "Pack got a packet. Payload size: %lu, txn footprint: %lu", payload_sz,
-          fd_txn_footprint( txn->instr_cnt, txn->addr_table_lookup_cnt )
-        ));
+      FD_LOG_NOTICE(( "Pack got a packet. Payload size: %lu, txn footprint: %lu", payload_sz,
+            fd_txn_footprint( txn->instr_cnt, txn->addr_table_lookup_cnt )
+            ));
 #endif
 
-    /* Check that we weren't overrun while processing */
-    seq_found = fd_frag_meta_seq_query( mline );
-    if( FD_UNLIKELY( fd_seq_ne( seq_found, seq ) ) ) {
-      fd_pack_cancel_insert( pack, slot );
-      accum_ovrnr_cnt++;
-      seq = seq_found;
-      continue;
+      /* Check that we weren't overrun while processing */
+      seq_found = fd_frag_meta_seq_query( mline );
+      if( FD_UNLIKELY( fd_seq_ne( seq_found, seq ) ) ) {
+        fd_pack_cancel_insert( pack, slot );
+        accum_ovrnr_cnt++;
+        seq = seq_found;
+        continue;
+      }
+
+      /* Non-speculative pack operations */
+      accum_pub_cnt++;
+      accum_pub_sz += sz;
+
+      fd_pack_insert_transaction( pack, slot );
     }
-
-    /* Non-speculative pack operations */
-    accum_pub_cnt++;
-    accum_pub_sz += sz;
-
-    fd_pack_insert_transaction( pack, slot );
+    else {
+      /* Non-speculative pack operations */
+      accum_pub_cnt++;
+      accum_pub_sz += sz;
+    }
 
     /* Wind up for the next iteration */
     seq   = fd_seq_inc( seq, 1UL );
