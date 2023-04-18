@@ -214,6 +214,10 @@ fd_tpu_stream_notify( fd_quic_stream_t * stream,
   /* Add to local publish queue */
 
   fd_quic_tpu_ctx_t * ctx = quic->cb.quic_ctx; /* TODO ugly */
+  if( FD_UNLIKELY( pubq_full( ctx->pubq ) ) ) {
+    FD_LOG_WARNING(( "pubq full, dropping" ));
+    return;
+  }
   pubq_push( ctx->pubq, msg_ctx );
 }
 
