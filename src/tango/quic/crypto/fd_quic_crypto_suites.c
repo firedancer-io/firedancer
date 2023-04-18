@@ -72,6 +72,8 @@ fd_quic_hkdf_expand_label( uchar *       output,  ulong output_sz,
   if( FD_UNLIKELY( ( output_sz  > ( 1u<<16u )                ) |
                    ( secret_sz  > INT_MAX                    ) |
                    ( label_sz   > FD_QUIC_CRYPTO_LABEL_BOUND ) ) ) {
+    FD_LOG_WARNING(( "fd_quic_hkdf_expand_label: invalid params (output_sz=%lu secret_sz=%lu label_sz=%lu)",
+                     output_sz, secret_sz, label_sz ));
     return NULL;
   }
 
@@ -167,7 +169,7 @@ fd_quic_gen_secrets(
       secrets->initial_secret, sizeof( secrets->initial_secret ),
       (uchar*)client_in,       strlen( client_in ),
       hmac_fn,                 hash_sz ) ) ) {
-    FD_LOG_ERR(( "fd_quic_hkdf_expand_label failed" ));
+    FD_LOG_WARNING(( "fd_quic_hkdf_expand_label failed" ));
     return FD_QUIC_FAILED;
   }
 
@@ -177,7 +179,7 @@ fd_quic_gen_secrets(
       secrets->initial_secret, sizeof( secrets->initial_secret ),
       (uchar*)server_in,       strlen( server_in ),
       hmac_fn,                 hash_sz ) ) ) {
-    FD_LOG_ERR(( "fd_quic_hkdf_expand_label failed" ));
+    FD_LOG_WARNING(( "fd_quic_hkdf_expand_label failed" ));
     return FD_QUIC_FAILED;
   }
 
