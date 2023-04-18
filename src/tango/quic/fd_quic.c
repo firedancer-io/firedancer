@@ -4392,6 +4392,10 @@ fd_quic_connect( fd_quic_t *  quic,
 
   fd_quic_reschedule_conn( conn, 0 );
 
+  /* set "called_conn_new" to indicate we should call conn_final
+     upon teardown */
+  conn->called_conn_new = 1;
+
   /* everything initialized */
   return conn;
 
@@ -4462,6 +4466,7 @@ fd_quic_conn_create( fd_quic_t *               quic,
   conn->server              = server;
   conn->established         = 0;
   conn->version             = version;
+  conn->called_conn_new     = 0;
   fd_memset( &conn->our_conn_id[0], 0, sizeof( conn->our_conn_id ) );
   conn->host                = (fd_quic_net_endpoint_t){
     .ip_addr  = config->net.ip_addr,

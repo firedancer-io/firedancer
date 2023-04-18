@@ -368,6 +368,7 @@ int main( int     argc,
   long now  = fd_log_wallclock();
   long next = now;
   long done = now + duration;
+  long last_pub_cnt = 0;
   for(;;) {
     long now = fd_log_wallclock();
     if( FD_UNLIKELY( (now-done) >= 0L ) ) {
@@ -382,11 +383,13 @@ int main( int     argc,
       ulong pub_sz        = tx_cnc_diag[ FD_QUIC_CNC_DIAG_TPU_PUB_SZ        ];
       ulong conn_live_cnt = tx_cnc_diag[ FD_QUIC_CNC_DIAG_TPU_CONN_LIVE_CNT ];
       ulong conn_seq      = tx_cnc_diag[ FD_QUIC_CNC_DIAG_TPU_CONN_SEQ      ];
+      long  tps           = (long)pub_cnt - last_pub_cnt;
       FD_COMPILER_MFENCE();
       FD_LOG_NOTICE(( "monitor\n\t"
-                      "tx_seq %14lu tx_tot_sz %16lu conn_cnt: %8lu conn_seq %8lu",
-                      pub_cnt, pub_sz, conn_live_cnt, conn_seq ));
+                      "tx_seq: %14lu  tx_tot_sz: %16lu  conn_cnt: %8lu  conn_seq: %8lu  tps: %8ld",
+                      pub_cnt, pub_sz, conn_live_cnt, conn_seq, tps ));
       next += (long)1e9;
+      last_pub_cnt = (long)pub_cnt;
     }
     FD_YIELD();
   }

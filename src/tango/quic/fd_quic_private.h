@@ -205,8 +205,12 @@ fd_quic_now( fd_quic_t * quic ) {
 static inline void
 fd_quic_cb_conn_new( fd_quic_t *      quic,
                      fd_quic_conn_t * conn ) {
-  if( FD_UNLIKELY( !quic->cb.conn_new ) ) return;
+  if( FD_UNLIKELY( !quic->cb.conn_new || conn->called_conn_new ) ) {
+    return;
+  }
+
   quic->cb.conn_new( conn, quic->cb.quic_ctx );
+  conn->called_conn_new = 1;
 }
 
 static inline void
@@ -219,7 +223,7 @@ fd_quic_cb_conn_hs_complete( fd_quic_t *      quic,
 static inline void
 fd_quic_cb_conn_final( fd_quic_t *      quic,
                        fd_quic_conn_t * conn ) {
-  if( FD_UNLIKELY( !quic->cb.conn_final ) ) return;
+  if( FD_UNLIKELY( !quic->cb.conn_final || !conn->called_conn_new ) ) return;
   quic->cb.conn_final( conn, quic->cb.quic_ctx );
 }
 
