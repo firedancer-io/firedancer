@@ -9,6 +9,8 @@
    a file in the Prometheus metric format. */
 
 #include <stdio.h>
+#include <errno.h>
+#include <unistd.h>
 
 /**********************************************************************/
 
@@ -113,17 +115,19 @@ main( int     argc,
   char const * pod_gaddr =       fd_env_strip_cmdline_cstr  ( &argc, &argv, "--pod",      NULL, NULL                 );
   char const * cfg_path  =       fd_env_strip_cmdline_cstr  ( &argc, &argv, "--cfg",      NULL, NULL                 );
   char const * out_path  =       fd_env_strip_cmdline_cstr  ( &argc, &argv, "--out",      NULL, NULL                 );
-  long         dt_min    = (long)fd_env_strip_cmdline_double( &argc, &argv, "--dt-min",   NULL,   66666667.          );
-  long         dt_max    = (long)fd_env_strip_cmdline_double( &argc, &argv, "--dt-max",   NULL, 1333333333.          );
-  long         duration  = (long)fd_env_strip_cmdline_double( &argc, &argv, "--duration", NULL,          0.          );
-  uint         seed      =       fd_env_strip_cmdline_uint  ( &argc, &argv, "--seed",     NULL, (uint)fd_tickcount() );
 
   if( FD_UNLIKELY( !pod_gaddr   ) ) FD_LOG_ERR(( "--pod not specified"                  ));
   if( FD_UNLIKELY( !cfg_path    ) ) FD_LOG_ERR(( "--cfg not specified"                  ));
-  if( FD_UNLIKELY( !out_path    ) ) FD_LOG_ERR(( "--out not specified"                  ));
-  if( FD_UNLIKELY( dt_min<0L    ) ) FD_LOG_ERR(( "--dt-min should be positive"          ));
-  if( FD_UNLIKELY( dt_max<dt_min) ) FD_LOG_ERR(( "--dt-max should be at least --dt-min" ));
-  if( FD_UNLIKELY( duration<0L  ) ) FD_LOG_ERR(( "--duration should be non-negative"    ));
+
+  FILE * out_file;
+  if( FD_UNLIKELY( !out_path ) ) {
+    out_file = fdopen( dup( STDOUT_FILENO ), "w" );
+  } else {
+    out_file = fopen( out_path , "w" );
+  }
+  if( FD_UNLIKELY( !out_file ) ) {
+    FD_LOG_ERR(( "Failed to open output file (%d-%s)", errno, strerror( errno ) ));
+  }
 
   /* Load up the configuration */
 
@@ -174,10 +178,6 @@ main( int     argc,
     }
   } while(0);
 
-  /* Setup local objects used by this app */
-  fd_rng_t _rng[1];
-  fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, seed, 0UL ) );
-
   snap_t * snap_prv = (snap_t *)fd_alloca( alignof(snap_t), sizeof(snap_t)*2UL*tile_cnt );
   if( FD_UNLIKELY( !snap_prv ) ) FD_LOG_ERR(( "fd_alloca failed" )); /* Paranoia */
   snap_t * snap_cur = snap_prv + tile_cnt;
@@ -187,135 +187,102 @@ main( int     argc,
   snap( tile_cnt, snap_prv, tile_cnc, tile_mcache, tile_quic );
   long then; long tic; fd_tempo_observe_pair( &then, &tic );
 
-  /* Monitor for duration ns.  Note that for duration==0, this
-     will still do exactly one pretty print. */
+  snap( tile_cnt, snap_cur, tile_cnc, tile_mcache, tile_quic );
+  long now; long toc; fd_tempo_observe_pair( &now, &toc );
 
-  FD_LOG_NOTICE(( "monitoring --dt-min %li ns, --dt-max %li ns, --duration %li ns, --seed %u", dt_min, dt_max, duration, seed ));
+  /* Write the snapshot out to a file using the Promethesus metrics format */
+  fprintf( out_file, "# HELP firedancer_quic_seq publish mcache sequence number of QUIC tile\n" );
+  fprintf( out_file, "# TYPE firedancer_quic_seq gauge\n" );
+  for( ulong tile_idx=0UL; tile_idx<tile_cnt; tile_idx++ ) {
+    fprintf( out_file, "firedancer_quic_seq{tile=\"%s\"} %lu\n", tile_name[ tile_idx ], snap_cur[ tile_idx ].quic_seq );
+  }
 
-  long stop = then + duration;
-  for(;;) {
+  fprintf( out_file, "# HELP firedancer_quic_chunk_idx publish dcache chunk index of QUIC tile\n" );
+  fprintf( out_file, "# TYPE firedancer_quic_chunk_idx gauge\n" );
+  for( ulong tile_idx=0UL; tile_idx<tile_cnt; tile_idx++ ) {
+    fprintf( out_file, "firedancer_quic_chunk_idx{tile=\"%s\"} %lu\n", tile_name[ tile_idx ], snap_cur[ tile_idx ].quic_chunk_idx );
+  }
 
-    /* Wait a somewhat randomized amount and then make a diagnostic
-       snapshot */
+  fprintf( out_file, "# HELP firedancer_quic_tpu_publish_txns_total Number of TPU txns published by QUIC tile\n" );
+  fprintf( out_file, "# TYPE firedancer_quic_tpu_publish_txns_total counter\n" );
+  for( ulong tile_idx=0UL; tile_idx<tile_cnt; tile_idx++ ) {
+    fprintf( out_file, "firedancer_quic_tpu_publish_txns_total{tile=\"%s\"} %lu\n", tile_name[ tile_idx ], snap_cur[ tile_idx ].quic_tpu_publish_txns_total );
+  }
 
-    fd_log_wait_until( then + dt_min + (long)fd_rng_ulong_roll( rng, 1UL+(ulong)(dt_max-dt_min) ) );
+  fprintf( out_file, "# HELP firedancer_quic_tpu_publish_bytes_total Cumulative byte size of TPU txns published by QUIC tile\n" );
+  fprintf( out_file, "# TYPE firedancer_quic_tpu_publish_bytes_total counter\n" );
+  for( ulong tile_idx=0UL; tile_idx<tile_cnt; tile_idx++ ) {
+    fprintf( out_file, "firedancer_quic_tpu_publish_bytes_total{tile=\"%s\"} %lu\n", tile_name[ tile_idx ], snap_cur[ tile_idx ].quic_tpu_publish_bytes_total );
+  }
 
-    snap( tile_cnt, snap_cur, tile_cnc, tile_mcache, tile_quic );
-    long now; long toc; fd_tempo_observe_pair( &now, &toc );
+  fprintf( out_file, "# HELP firedancer_quic_net_rx_packets_total Number of packets received by QUIC tile\n" );
+  fprintf( out_file, "# TYPE firedancer_quic_net_rx_packets_total counter\n" );
+  for( ulong tile_idx=0UL; tile_idx<tile_cnt; tile_idx++ ) {
+    fprintf( out_file, "firedancer_quic_net_rx_packets_total{tile=\"%s\"} %lu\n", tile_name[ tile_idx ], snap_cur[ tile_idx ].quic_net_rx_packets_total );
+  }
 
-    /* Write the snapshot out to a file using the Promethesus metrics format */
-      FILE * out_file = fopen ( out_path , "w" );
-      if ( !out_file ) {
-        FD_LOG_ERR(( "opening out_file failed" ));
-      }
+  fprintf( out_file, "# HELP firedancer_quic_net_tx_packets_total Number of packets sent by QUIC tile\n" );
+  fprintf( out_file, "# TYPE firedancer_quic_net_tx_packets_total counter\n" );
+  for( ulong tile_idx=0UL; tile_idx<tile_cnt; tile_idx++ ) {
+    fprintf( out_file, "firedancer_quic_net_tx_packets_total{tile=\"%s\"} %lu\n", tile_name[ tile_idx ], snap_cur[ tile_idx ].quic_net_tx_packets_total );
+  }
 
-      fprintf( out_file, "# HELP firedancer_quic_seq publish mcache sequence number of QUIC tile\n" );
-      fprintf( out_file, "# TYPE firedancer_quic_seq gauge\n" );
-      for( ulong tile_idx=0UL; tile_idx<tile_cnt; tile_idx++ ) {
-        fprintf( out_file, "firedancer_quic_seq{tile=\"%s\"} %lu\n", tile_name[ tile_idx ], snap_cur[ tile_idx ].quic_seq );
-      }
+  fprintf( out_file, "# HELP firedancer_quic_active_conns Number of active QUIC connections\n" );
+  fprintf( out_file, "# TYPE firedancer_quic_active_conns gauge\n" );
+  for( ulong tile_idx=0UL; tile_idx<tile_cnt; tile_idx++ ) {
+    fprintf( out_file, "firedancer_quic_active_conns{tile=\"%s\"} %ld\n", tile_name[ tile_idx ], snap_cur[ tile_idx ].quic_active_conns );
+  }
 
-      fprintf( out_file, "# HELP firedancer_quic_chunk_idx publish dcache chunk index of QUIC tile\n" );
-      fprintf( out_file, "# TYPE firedancer_quic_chunk_idx gauge\n" );
-      for( ulong tile_idx=0UL; tile_idx<tile_cnt; tile_idx++ ) {
-        fprintf( out_file, "firedancer_quic_chunk_idx{tile=\"%s\"} %lu\n", tile_name[ tile_idx ], snap_cur[ tile_idx ].quic_chunk_idx );
-      }
+  fprintf( out_file, "# HELP firedancer_quic_created_conns_total Number of QUIC connections created\n" );
+  fprintf( out_file, "# TYPE firedancer_quic_created_conns_total counter\n" );
+  for( ulong tile_idx=0UL; tile_idx<tile_cnt; tile_idx++ ) {
+    fprintf( out_file, "firedancer_quic_created_conns_total{tile=\"%s\"} %lu\n", tile_name[ tile_idx ], snap_cur[ tile_idx ].quic_created_conns_total );
+  }
 
-      fprintf( out_file, "# HELP firedancer_quic_tpu_publish_txns_total Number of TPU txns published by QUIC tile\n" );
-      fprintf( out_file, "# TYPE firedancer_quic_tpu_publish_txns_total counter\n" );
-      for( ulong tile_idx=0UL; tile_idx<tile_cnt; tile_idx++ ) {
-        fprintf( out_file, "firedancer_quic_tpu_publish_txns_total{tile=\"%s\"} %lu\n", tile_name[ tile_idx ], snap_cur[ tile_idx ].quic_tpu_publish_txns_total );
-      }
+  fprintf( out_file, "# HELP firedancer_quic_closed_conns_total Number of QUIC connections closed\n" );
+  fprintf( out_file, "# TYPE firedancer_quic_closed_conns_total counter\n" );
+  for( ulong tile_idx=0UL; tile_idx<tile_cnt; tile_idx++ ) {
+    fprintf( out_file, "firedancer_quic_closed_conns_total{tile=\"%s\",reason=\"graceful\"} %lu\n", tile_name[ tile_idx ], snap_cur[ tile_idx ].quic_closed_conns_total_graceful );
+    fprintf( out_file, "firedancer_quic_closed_conns_total{tile=\"%s\",reason=\"aborted\"} %lu\n", tile_name[ tile_idx ], snap_cur[ tile_idx ].quic_closed_conns_total_aborted );
+    fprintf( out_file, "firedancer_quic_closed_conns_total{tile=\"%s\",reason=\"no_free_slots\"} %lu\n", tile_name[ tile_idx ], snap_cur[ tile_idx ].quic_closed_conns_total_no_free_slots );
+    fprintf( out_file, "firedancer_quic_closed_conns_total{tile=\"%s\",reason=\"no_free_slots\"} %lu\n", tile_name[ tile_idx ], snap_cur[ tile_idx ].quic_closed_conns_total_tls_fail );
+  }
 
-      fprintf( out_file, "# HELP firedancer_quic_tpu_publish_bytes_total Cumulative byte size of TPU txns published by QUIC tile\n" );
-      fprintf( out_file, "# TYPE firedancer_quic_tpu_publish_bytes_total counter\n" );
-      for( ulong tile_idx=0UL; tile_idx<tile_cnt; tile_idx++ ) {
-        fprintf( out_file, "firedancer_quic_tpu_publish_bytes_total{tile=\"%s\"} %lu\n", tile_name[ tile_idx ], snap_cur[ tile_idx ].quic_tpu_publish_bytes_total );
-      }
+  fprintf( out_file, "# HELP firedancer_quic_opened_streams_total Number of QUIC streams opened\n" );
+  fprintf( out_file, "# TYPE firedancer_quic_opened_streams_total counter\n" );
+  for( ulong tile_idx=0UL; tile_idx<tile_cnt; tile_idx++ ) {
+    fprintf( out_file, "firedancer_quic_opened_streams_total{tile=\"%s\",reason=\"bidi_client\"} %lu\n", tile_name[ tile_idx ], snap_cur[ tile_idx ].quic_opened_streams_total_bidi_client );
+    fprintf( out_file, "firedancer_quic_opened_streams_total{tile=\"%s\",reason=\"bidi_server\"} %lu\n", tile_name[ tile_idx ], snap_cur[ tile_idx ].quic_opened_streams_total_bidi_server );
+    fprintf( out_file, "firedancer_quic_opened_streams_total{tile=\"%s\",reason=\"uni_client\"} %lu\n", tile_name[ tile_idx ], snap_cur[ tile_idx ].quic_opened_streams_total_uni_client );
+    fprintf( out_file, "firedancer_quic_opened_streams_total{tile=\"%s\",reason=\"uni_server\"} %lu\n", tile_name[ tile_idx ], snap_cur[ tile_idx ].quic_opened_streams_total_uni_server );
+  }
 
-      fprintf( out_file, "# HELP firedancer_quic_net_rx_packets_total Number of packets received by QUIC tile\n" );
-      fprintf( out_file, "# TYPE firedancer_quic_net_rx_packets_total counter\n" );
-      for( ulong tile_idx=0UL; tile_idx<tile_cnt; tile_idx++ ) {
-        fprintf( out_file, "firedancer_quic_net_rx_packets_total{tile=\"%s\"} %lu\n", tile_name[ tile_idx ], snap_cur[ tile_idx ].quic_net_rx_packets_total );
-      }
+  fprintf( out_file, "# HELP firedancer_quic_active_streams Number of active QUIC streams\n" );
+  fprintf( out_file, "# TYPE firedancer_quic_active_streams gauge\n" );
+  for( ulong tile_idx=0UL; tile_idx<tile_cnt; tile_idx++ ) {
+    fprintf( out_file, "firedancer_quic_active_streams{tile=\"%s\",reason=\"bidi_client\"} %d\n", tile_name[ tile_idx ], snap_cur[ tile_idx ].quic_active_streams_bidi_client );
+    fprintf( out_file, "firedancer_quic_active_streams{tile=\"%s\",reason=\"bidi_server\"} %d\n", tile_name[ tile_idx ], snap_cur[ tile_idx ].quic_active_streams_bidi_server );
+    fprintf( out_file, "firedancer_quic_active_streams{tile=\"%s\",reason=\"uni_client\"} %d\n", tile_name[ tile_idx ], snap_cur[ tile_idx ].quic_active_streams_uni_client );
+    fprintf( out_file, "firedancer_quic_active_streams{tile=\"%s\",reason=\"uni_server\"} %d\n", tile_name[ tile_idx ], snap_cur[ tile_idx ].quic_active_streams_uni_server );
+  }
 
-      fprintf( out_file, "# HELP firedancer_quic_net_tx_packets_total Number of packets sent by QUIC tile\n" );
-      fprintf( out_file, "# TYPE firedancer_quic_net_tx_packets_total counter\n" );
-      for( ulong tile_idx=0UL; tile_idx<tile_cnt; tile_idx++ ) {
-        fprintf( out_file, "firedancer_quic_net_tx_packets_total{tile=\"%s\"} %lu\n", tile_name[ tile_idx ], snap_cur[ tile_idx ].quic_net_tx_packets_total );
-      }
+  fprintf( out_file, "# HELP firedancer_quic_stream_rx_events_total Number of QUIC stream receive events\n" );
+  fprintf( out_file, "# TYPE firedancer_quic_stream_rx_events_total counter\n" );
+  for( ulong tile_idx=0UL; tile_idx<tile_cnt; tile_idx++ ) {
+    fprintf( out_file, "firedancer_quic_stream_rx_events_total{tile=\"%s\"} %lu\n", tile_name[ tile_idx ], snap_cur[ tile_idx ].quic_stream_rx_events_total );
+  }
 
-      fprintf( out_file, "# HELP firedancer_quic_active_conns Number of active QUIC connections\n" );
-      fprintf( out_file, "# TYPE firedancer_quic_active_conns gauge\n" );
-      for( ulong tile_idx=0UL; tile_idx<tile_cnt; tile_idx++ ) {
-        fprintf( out_file, "firedancer_quic_active_conns{tile=\"%s\"} %ld\n", tile_name[ tile_idx ], snap_cur[ tile_idx ].quic_active_conns );
-      }
-
-      fprintf( out_file, "# HELP firedancer_quic_created_conns_total Number of QUIC connections created\n" );
-      fprintf( out_file, "# TYPE firedancer_quic_created_conns_total counter\n" );
-      for( ulong tile_idx=0UL; tile_idx<tile_cnt; tile_idx++ ) {
-        fprintf( out_file, "firedancer_quic_created_conns_total{tile=\"%s\"} %lu\n", tile_name[ tile_idx ], snap_cur[ tile_idx ].quic_created_conns_total );
-      }
-
-      fprintf( out_file, "# HELP firedancer_quic_closed_conns_total Number of QUIC connections closed\n" );
-      fprintf( out_file, "# TYPE firedancer_quic_closed_conns_total counter\n" );
-      for( ulong tile_idx=0UL; tile_idx<tile_cnt; tile_idx++ ) {
-        fprintf( out_file, "firedancer_quic_closed_conns_total{tile=\"%s\",reason=\"graceful\"} %lu\n", tile_name[ tile_idx ], snap_cur[ tile_idx ].quic_closed_conns_total_graceful );
-        fprintf( out_file, "firedancer_quic_closed_conns_total{tile=\"%s\",reason=\"aborted\"} %lu\n", tile_name[ tile_idx ], snap_cur[ tile_idx ].quic_closed_conns_total_aborted );
-        fprintf( out_file, "firedancer_quic_closed_conns_total{tile=\"%s\",reason=\"no_free_slots\"} %lu\n", tile_name[ tile_idx ], snap_cur[ tile_idx ].quic_closed_conns_total_no_free_slots );
-        fprintf( out_file, "firedancer_quic_closed_conns_total{tile=\"%s\",reason=\"no_free_slots\"} %lu\n", tile_name[ tile_idx ], snap_cur[ tile_idx ].quic_closed_conns_total_tls_fail );
-      }
-
-      fprintf( out_file, "# HELP firedancer_quic_opened_streams_total Number of QUIC streams opened\n" );
-      fprintf( out_file, "# TYPE firedancer_quic_opened_streams_total counter\n" );
-      for( ulong tile_idx=0UL; tile_idx<tile_cnt; tile_idx++ ) {
-        fprintf( out_file, "firedancer_quic_opened_streams_total{tile=\"%s\",reason=\"bidi_client\"} %lu\n", tile_name[ tile_idx ], snap_cur[ tile_idx ].quic_opened_streams_total_bidi_client );
-        fprintf( out_file, "firedancer_quic_opened_streams_total{tile=\"%s\",reason=\"bidi_server\"} %lu\n", tile_name[ tile_idx ], snap_cur[ tile_idx ].quic_opened_streams_total_bidi_server );
-        fprintf( out_file, "firedancer_quic_opened_streams_total{tile=\"%s\",reason=\"uni_client\"} %lu\n", tile_name[ tile_idx ], snap_cur[ tile_idx ].quic_opened_streams_total_uni_client );
-        fprintf( out_file, "firedancer_quic_opened_streams_total{tile=\"%s\",reason=\"uni_server\"} %lu\n", tile_name[ tile_idx ], snap_cur[ tile_idx ].quic_opened_streams_total_uni_server );
-      }
-
-      fprintf( out_file, "# HELP firedancer_quic_active_streams Number of active QUIC streams\n" );
-      fprintf( out_file, "# TYPE firedancer_quic_active_streams gauge\n" );
-      for( ulong tile_idx=0UL; tile_idx<tile_cnt; tile_idx++ ) {
-        fprintf( out_file, "firedancer_quic_active_streams{tile=\"%s\",reason=\"bidi_client\"} %d\n", tile_name[ tile_idx ], snap_cur[ tile_idx ].quic_active_streams_bidi_client );
-        fprintf( out_file, "firedancer_quic_active_streams{tile=\"%s\",reason=\"bidi_server\"} %d\n", tile_name[ tile_idx ], snap_cur[ tile_idx ].quic_active_streams_bidi_server );
-        fprintf( out_file, "firedancer_quic_active_streams{tile=\"%s\",reason=\"uni_client\"} %d\n", tile_name[ tile_idx ], snap_cur[ tile_idx ].quic_active_streams_uni_client );
-        fprintf( out_file, "firedancer_quic_active_streams{tile=\"%s\",reason=\"uni_server\"} %d\n", tile_name[ tile_idx ], snap_cur[ tile_idx ].quic_active_streams_uni_server );
-      }
-
-      fprintf( out_file, "# HELP firedancer_quic_stream_rx_events_total Number of QUIC stream receive events\n" );
-      fprintf( out_file, "# TYPE firedancer_quic_stream_rx_events_total counter\n" );
-      for( ulong tile_idx=0UL; tile_idx<tile_cnt; tile_idx++ ) {
-        fprintf( out_file, "firedancer_quic_stream_rx_events_total{tile=\"%s\"} %lu\n", tile_name[ tile_idx ], snap_cur[ tile_idx ].quic_stream_rx_events_total );
-      }
-
-      fprintf( out_file, "# HELP firedancer_quic_stream_rx_bytes_total Number of bytes received via QUIC streams\n" );
-      fprintf( out_file, "# TYPE firedancer_quic_stream_rx_bytes_total counter\n" );
-      for( ulong tile_idx=0UL; tile_idx<tile_cnt; tile_idx++ ) {
-        fprintf( out_file, "firedancer_quic_stream_rx_bytes_total{tile=\"%s\"} %lu\n", tile_name[ tile_idx ], snap_cur[ tile_idx ].quic_stream_rx_bytes_total );
-      }
-
-      fclose (out_file);
-
-
-    /* Stop once we've been monitoring for duration ns */
-
-    if( FD_UNLIKELY( (now-stop)>=0L ) ) break;
-
-    /* Still more monitoring to do ... wind up for the next iteration by
-       swaping the two snap arrays. */
-
-    then = now; tic = toc;
-    snap_t * tmp = snap_prv; snap_prv = snap_cur; snap_cur = tmp;
+  fprintf( out_file, "# HELP firedancer_quic_stream_rx_bytes_total Number of bytes received via QUIC streams\n" );
+  fprintf( out_file, "# TYPE firedancer_quic_stream_rx_bytes_total counter\n" );
+  for( ulong tile_idx=0UL; tile_idx<tile_cnt; tile_idx++ ) {
+    fprintf( out_file, "firedancer_quic_stream_rx_bytes_total{tile=\"%s\"} %lu\n", tile_name[ tile_idx ], snap_cur[ tile_idx ].quic_stream_rx_bytes_total );
   }
 
   /* Monitoring done ... clean up */
 
   FD_LOG_NOTICE(( "cleaning up" ));
-  fd_rng_delete( fd_rng_leave( rng ) );
   for( ulong tile_idx=tile_cnt; tile_idx; tile_idx-- ) {
-    if( FD_LIKELY( tile_quic  [ tile_idx-1UL ] ) ) fd_wksp_pod_unmap( tile_quic[ tile_idx-1UL ] );
+    if( FD_LIKELY( tile_quic  [ tile_idx-1UL ] ) ) fd_wksp_pod_unmap( fd_quic_leave  ( tile_quic  [ tile_idx-1UL ] ) );
     if( FD_LIKELY( tile_mcache[ tile_idx-1UL ] ) ) fd_wksp_pod_unmap( fd_mcache_leave( tile_mcache[ tile_idx-1UL ] ) );
     if( FD_LIKELY( tile_cnc   [ tile_idx-1UL ] ) ) fd_wksp_pod_unmap( fd_cnc_leave   ( tile_cnc   [ tile_idx-1UL ] ) );
   }
