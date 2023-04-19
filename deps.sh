@@ -115,7 +115,7 @@ fetch () {
 }
 
 check_fedora_pkgs () {
-  local REQUIRED_RPMS=( perl autoconf gettext-devel automake flex bison gperf )
+  local REQUIRED_RPMS=( perl autoconf gettext-devel automake flex bison )
 
   echo "[~] Checking for required RPM packages"
 
