@@ -111,13 +111,13 @@ def reverse_bits(i, l):
 
 svals = {}
 sbar = {}
-for j in range(6):
-    for x in range(64):
+for j in range(8):
+    for x in range(256):
         if j == 0:
             svals[ 0, x ] = GF(x)
         else:
             svals[ j, x ] = svals[ j-1, x ] * svals[ j-1, x ^ (1<<(j-1)) ]
-    for x in range(64):
+    for x in range(256):
         sbar[ j, x ] = svals[ j, x ] / svals[ j, 1<<j ]
 
 
@@ -190,11 +190,11 @@ print_macro("FD_REEDSOL_PRIVATE_IFFT_BUTTERFLY", ["inout0", "inout1", "c"], [
 
 
 
-for N in (32, 16, 8, 4):
+for N in (128, 64, 32, 16, 8, 4):
     inputs = [f"in{j:02}" for j in range(N)]
     macro_lines = [ ]
 
-    current_vars = [ (0,0,i) for i in range(32) ]
+    current_vars = [ (0,0,i) for i in range(N) ]
 
     butterflies = op_ifft(N, 0, 0, 0)
     const_to_cidx = {}
@@ -206,7 +206,7 @@ for N in (32, 16, 8, 4):
     for k,v in const_to_cidx.items():
         consts_array[v] = k
 
-    for shift in range(0, 33, N):
+    for shift in range(0, 64+N+1, N):
         shift_specific = [ f'{(int(sbar[ c[0], c[1]^shift ])):3}' for c in consts_array ]
         print(f"#define FD_REEDSOL_IFFT_CONSTANTS_{N}_{shift:<2} " + ', '.join(shift_specific), file=outf)
 
@@ -233,8 +233,8 @@ for N in (32, 16, 8, 4):
     for k,v in const_to_cidx.items():
         consts_array[v] = k
 
-    for shift in range(0, 33, N):
-        shift_specific = [ f'{int(sbar[ c[0], c[1]^shift ]):3}' for c in consts_array ]
+    for shift in range(0, max(N,64)+N+1, N):
+        shift_specific = [ f'{int(sbar[ c[0], (c[1]^shift)&0xFF ]):3}' for c in consts_array ]
         print(f"#define FD_REEDSOL_FFT_CONSTANTS_{N}_{shift:<2} " + ', '.join(shift_specific), file=outf)
 
 

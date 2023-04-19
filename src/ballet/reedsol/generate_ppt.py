@@ -125,13 +125,13 @@ def reverse_bits(i, l):
 
 svals = {}
 sbar = {}
-for j in range(6):
-    for x in range(64):
+for j in range(7):
+    for x in range(128):
         if j == 0:
             svals[ 0, x ] = GF(x)
         else:
             svals[ j, x ] = svals[ j-1, x ] * svals[ j-1, x ^ (1<<(j-1)) ]
-    for x in range(64):
+    for x in range(128):
         sbar[ j, x ] = svals[ j, x ] / svals[ j, 1<<j ]
 
 def m_fft( lg_h, beta ):
@@ -297,8 +297,8 @@ print_macro("GF_MUL22", ["inout0", "inout1", "c00", "c01", "c10", "c11"], [
     "inout0 = temp;"
     ])
 
-for N in (16, 32):
-    for k in range(1,N):
+for mink,maxk, N in ((1,16,16), (17,32,32), (33,64,64), (65,69,128)):
+    for k in range(mink, maxk):
         inputs = [f"in{j:02}" for j in range(N)]
 
         macro_lines = [ ]
@@ -342,31 +342,31 @@ for N in (16, 32):
         print_macro(f"FD_REEDSOL_PPT_IMPL_{N}_{k}", inputs, macro_lines)
 
 
-
-        first_bytes = GF([0]*1 + [1] +[0]*30)
-        scratch_first_bytes = GF([0]*32)
-        for op in operations:
-            if op[0] == "IFFT":
-                n, shift = op[1:]
-                first_bytes[shift:shift+n] = ifft_matrix(int(np.log2(n)), shift) @ GF(first_bytes[shift:shift+n])
-            if op[0] == "FFT":
-                n, shift = op[1:]
-                first_bytes[shift:shift+n] = fft_matrix(int(np.log2(n)), shift) @ GF(first_bytes[shift:shift+n])
-            if op[0] == "COPY_SCRATCH":
-                src, dest = op[1:]
-                scratch_first_bytes[dest] = first_bytes[src]
-            if op[0] == "SCALE":
-                srcdest, const = op[1:]
-                first_bytes[srcdest] = first_bytes[srcdest] * const
-            if op[0] == "MM22":
-                srcdest0, srcdest1, matr = op[1:]
-                first_bytes[srcdest0], first_bytes[srcdest1] = matr @ GF(np.array([[first_bytes[srcdest0]], [first_bytes[srcdest1]]]))
-            if op[0] == "MULACC":
-                dest, src, const = op[1:]
-                first_bytes[dest] += first_bytes[src] * const
-            if op[0] == "MULACC_SCRATCH":
-                dest, src_scratch, const = op[1:]
-                first_bytes[dest] += scratch_first_bytes[src_scratch] * const
+        if False: #debug
+            first_bytes = GF([0]*1 + [1] +[0]*30)
+            scratch_first_bytes = GF([0]*32)
+            for op in operations:
+                if op[0] == "IFFT":
+                    n, shift = op[1:]
+                    first_bytes[shift:shift+n] = ifft_matrix(int(np.log2(n)), shift) @ GF(first_bytes[shift:shift+n])
+                if op[0] == "FFT":
+                    n, shift = op[1:]
+                    first_bytes[shift:shift+n] = fft_matrix(int(np.log2(n)), shift) @ GF(first_bytes[shift:shift+n])
+                if op[0] == "COPY_SCRATCH":
+                    src, dest = op[1:]
+                    scratch_first_bytes[dest] = first_bytes[src]
+                if op[0] == "SCALE":
+                    srcdest, const = op[1:]
+                    first_bytes[srcdest] = first_bytes[srcdest] * const
+                if op[0] == "MM22":
+                    srcdest0, srcdest1, matr = op[1:]
+                    first_bytes[srcdest0], first_bytes[srcdest1] = matr @ GF(np.array([[first_bytes[srcdest0]], [first_bytes[srcdest1]]]))
+                if op[0] == "MULACC":
+                    dest, src, const = op[1:]
+                    first_bytes[dest] += first_bytes[src] * const
+                if op[0] == "MULACC_SCRATCH":
+                    dest, src_scratch, const = op[1:]
+                    first_bytes[dest] += scratch_first_bytes[src_scratch] * const
 
 
 
