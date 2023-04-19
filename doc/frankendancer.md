@@ -4,19 +4,16 @@ Frankendancer
 The following guide walks through a demo of a Firedancer/Solana Labs-hybrid
 block producer.
 
-This first incarnation of Frankendancer is called "Frank".
-
 Prerequisites
 -------------
 
 Operating Firedancer requires the following steps:
 - [build.md](./build.md): Building the Firedancer source code
 - [system.md](./system.md): Configuring your system for Firedancer
+- [system_xdp.md](./system_xdp.md): Configuring networking
 
 Changelog
 ---------
-
-TODO Everything below is outdated:
 
 ## Changes
 
