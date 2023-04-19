@@ -6,26 +6,26 @@ Commands are:
 help
 - Prints this message
 
-init [WKSP] [PERM] [USER] [GROUP]
+init [BPF_DIR] [PERM] [USER] [GROUP]
 - Prepare an XDP environment by pinning the XDP redirect
-  program and associated eBPF maps in /sys/fs/bpf/[WKSP].
+  program and associated eBPF maps in /sys/fs/bpf/[BPF_DIR].
   All kernel OS resources allocated by fd_xdp_ctl will be
-  local to their [WKSP], allowing for multiple installations
+  local to their [BPF_DIR], allowing for multiple installations
   on the same machine.
 - /sys/fs/bpf must be a valid bpffs mount.
 - Creates the following files:
-  /sys/fs/bpf/[WKSP]/udp_dsts  eBPF map of UDP/IP listen addrs
+  /sys/fs/bpf/[BPF_DIR]/udp_dsts  eBPF map of UDP/IP listen addrs
 - Must be re-run after each reboot.
 - Requires CAP_SYS_ADMIN, see capabilities(7).
-- /sys/fs/bpf and /sys/fs/bpf/[WKSP] are updated with
+- /sys/fs/bpf and /sys/fs/bpf/[BPF_DIR] are updated with
   permission bits in [PERM] and set to owner [USER]:[GROUP].
   Empty strings for [USER] are [GROUP] use current user
   defaults.  A typical use case is
   'init firedancer 0700 $(whoami) ""'
 
-fini [WKSP]
+fini [BPF_DIR]
 - Destroy all kernel resources installed by fd_xdp_ctl app
-  [WKSP] including any XDP programs and eBPF maps.
+  [BPF_DIR] including any XDP programs and eBPF maps.
 - Requires CAP_SYS_ADMIN, see capabilities(7).
 
 hook-iface [BPF_DIR] [IFACE] [XDP_MODE]
