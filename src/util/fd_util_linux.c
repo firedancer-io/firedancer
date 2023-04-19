@@ -57,7 +57,8 @@ fd_linux_check_kernel( void ) {
     return;
   }
 
-  if( FD_UNLIKELY( w<FD_LINUX_VERSION_MIN_W || x<FD_LINUX_VERSION_MIN_X ) )
+  if( FD_UNLIKELY( w< FD_LINUX_VERSION_MIN_W ||
+                  (w==FD_LINUX_VERSION_MIN_W && x<FD_LINUX_VERSION_MIN_X ) ) )
     FD_LOG_WARNING(( "fd_util: Linux %u.%u is too old (min supported %u.%u)",
                      w, x, FD_LINUX_VERSION_MIN_W, FD_LINUX_VERSION_MIN_X ));
 }
