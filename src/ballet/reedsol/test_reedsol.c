@@ -1,3 +1,4 @@
+#include <stdio.h>
 #include "fd_reedsol.h"
 #include "../../util/fd_util.h"
 
@@ -18,8 +19,8 @@ static uchar const * invlog_tbl  = fd_reedsol_generic_constants + 256UL*sizeof(s
 static uchar const * matrix_32_32= fd_reedsol_generic_constants + 256UL*sizeof(short) + 1024UL*sizeof(uchar); /* Row major order, 32x32 */
 
 #define SHRED_SZ (1024UL)
-uchar data_shreds[ SHRED_SZ * 32UL ];
-uchar parity_shreds[ SHRED_SZ * 32UL ];
+uchar data_shreds[ SHRED_SZ * FD_REEDSOL_DATA_SHREDS_MAX ];
+uchar parity_shreds[ SHRED_SZ * FD_REEDSOL_PARITY_SHREDS_MAX ];
 
 FD_STATIC_ASSERT( sizeof(fd_reedsol_t) == FD_REEDSOL_FOOTPRINT, reedsol_footprint );
 
@@ -167,6 +168,8 @@ basic_tests( void ) {
 
 typedef uchar linear_chunk_t[ 32UL ];
 
+#define LINEAR_MAX_DIM (128UL)
+
 /* FFT, PPT, and even Reed-Solomon encoding are all linear functions on
    each byte of the chunk. */
 typedef void linear_func_t( linear_chunk_t *, linear_chunk_t * );
@@ -178,11 +181,11 @@ test_linearity( linear_func_t to_test,
                 ulong         test_cnt,
                 ulong         chunk_sz ) {
   /* If these fail, the test is wrong */
-  FD_TEST( input_cnt <= FD_REEDSOL_DATA_SHREDS_MAX && output_cnt <= FD_REEDSOL_PARITY_SHREDS_MAX );
+  FD_TEST( input_cnt <= LINEAR_MAX_DIM && output_cnt <= LINEAR_MAX_DIM );
   FD_TEST( chunk_sz <= 32UL );
 
-  linear_chunk_t  inputs[ FD_REEDSOL_DATA_SHREDS_MAX ];
-  linear_chunk_t outputs[ FD_REEDSOL_PARITY_SHREDS_MAX ];
+  linear_chunk_t  inputs[ LINEAR_MAX_DIM ];
+  linear_chunk_t outputs[ LINEAR_MAX_DIM ];
 
   /* For a linear function, f(0) = 0 */
   for( ulong i=0UL; i<input_cnt; i++ ) fd_memset( inputs[ i ], 0, chunk_sz );
@@ -193,8 +196,8 @@ test_linearity( linear_func_t to_test,
      output is a function of the c^th column of the input alone, and
      these functions are all the same. */
   for( ulong k=0UL; k<test_cnt; k++ ) {
-    linear_chunk_t  inputs2[ FD_REEDSOL_DATA_SHREDS_MAX ];
-    linear_chunk_t outputs2[ FD_REEDSOL_PARITY_SHREDS_MAX ];
+    linear_chunk_t  inputs2[ LINEAR_MAX_DIM ];
+    linear_chunk_t outputs2[ LINEAR_MAX_DIM ];
     /* Initialize randomly */
     for( ulong i=0UL; i<input_cnt; i++ ) for( ulong col=0UL; col<chunk_sz; col++ ) inputs[ i ][ col ] = fd_rng_uchar( rng );
     to_test( inputs, outputs );
@@ -213,10 +216,10 @@ test_linearity( linear_func_t to_test,
 
   /* f(a + b) = f(a) + f(b) */
   for( ulong k=0UL; k<test_cnt; k++ ) {
-    linear_chunk_t  inputsA[ FD_REEDSOL_DATA_SHREDS_MAX ];
-    linear_chunk_t outputsA[ FD_REEDSOL_PARITY_SHREDS_MAX ];
-    linear_chunk_t  inputsB[ FD_REEDSOL_DATA_SHREDS_MAX ];
-    linear_chunk_t outputsB[ FD_REEDSOL_PARITY_SHREDS_MAX ];
+    linear_chunk_t  inputsA[ LINEAR_MAX_DIM ];
+    linear_chunk_t outputsA[ LINEAR_MAX_DIM ];
+    linear_chunk_t  inputsB[ LINEAR_MAX_DIM ];
+    linear_chunk_t outputsB[ LINEAR_MAX_DIM ];
 
     for( ulong i=0UL; i<input_cnt; i++ ) for( ulong col=0UL; col<chunk_sz; col++ ) {
       inputsA[ i ][ col ] = fd_rng_uchar( rng );
@@ -234,8 +237,8 @@ test_linearity( linear_func_t to_test,
 
   /* f( lambda * x ) = lambda * f(x) */
   for( ulong k=0UL; k<test_cnt; k++ ) {
-    linear_chunk_t  inputs2[ FD_REEDSOL_DATA_SHREDS_MAX ];
-    linear_chunk_t outputs2[ FD_REEDSOL_PARITY_SHREDS_MAX ];
+    linear_chunk_t  inputs2[ LINEAR_MAX_DIM ];
+    linear_chunk_t outputs2[ LINEAR_MAX_DIM ];
     uchar col_scalars[ 32UL ];
 
     for( ulong i=0UL; i<chunk_sz; i++ ) col_scalars[ i ] = fd_rng_uchar( rng );
@@ -252,11 +255,13 @@ test_linearity( linear_func_t to_test,
 
 
 
-#define REPEAT_32(m, SEP, offset, binary) REPEAT_16(m, SEP, offset, binary##0) SEP() REPEAT_16(m, SEP, (offset)+16UL, binary##1)
-#define REPEAT_16(m, SEP, offset, binary) REPEAT_8( m, SEP, offset, binary##0) SEP() REPEAT_8( m, SEP, (offset)+ 8UL, binary##1)
-#define REPEAT_8( m, SEP, offset, binary) REPEAT_4( m, SEP, offset, binary##0) SEP() REPEAT_4( m, SEP, (offset)+ 4UL, binary##1)
-#define REPEAT_4( m, SEP, offset, binary) REPEAT_2( m, SEP, offset, binary##0) SEP() REPEAT_2( m, SEP, (offset)+ 2UL, binary##1)
-#define REPEAT_2( m, SEP, offset, binary) m(offset, binary##0) SEP() m((offset)+1UL, binary##1)
+#define REPEAT_128(m, SEP, offset, binary) REPEAT_64(m, SEP, offset, binary##0) SEP() REPEAT_64(m, SEP, (offset)+64UL, binary##1)
+#define REPEAT_64( m, SEP, offset, binary) REPEAT_32(m, SEP, offset, binary##0) SEP() REPEAT_32(m, SEP, (offset)+32UL, binary##1)
+#define REPEAT_32( m, SEP, offset, binary) REPEAT_16(m, SEP, offset, binary##0) SEP() REPEAT_16(m, SEP, (offset)+16UL, binary##1)
+#define REPEAT_16( m, SEP, offset, binary) REPEAT_8( m, SEP, offset, binary##0) SEP() REPEAT_8( m, SEP, (offset)+ 8UL, binary##1)
+#define REPEAT_8(  m, SEP, offset, binary) REPEAT_4( m, SEP, offset, binary##0) SEP() REPEAT_4( m, SEP, (offset)+ 4UL, binary##1)
+#define REPEAT_4(  m, SEP, offset, binary) REPEAT_2( m, SEP, offset, binary##0) SEP() REPEAT_2( m, SEP, (offset)+ 2UL, binary##1)
+#define REPEAT_2(  m, SEP, offset, binary) m(offset, binary##0) SEP() m((offset)+1UL, binary##1)
 
 
 #define LOAD_VAR(offset, binary) gf_t v##binary = gf_ldu( inputs[offset] );
@@ -314,22 +319,29 @@ wrapped_encode_generic( linear_chunk_t * inputs, linear_chunk_t * outputs ) {
 }
 
 
-WRAP_FFT(4) WRAP_FFT(8) WRAP_FFT(16) WRAP_FFT(32)
+WRAP_FFT(4) WRAP_FFT(8) WRAP_FFT(16) WRAP_FFT(32) WRAP_FFT(64) WRAP_FFT(128)
 
 WRAP_PPT(16,  1) WRAP_PPT(16,  2) WRAP_PPT(16,  3) WRAP_PPT(16,  4)
 WRAP_PPT(16,  5) WRAP_PPT(16,  6) WRAP_PPT(16,  7) WRAP_PPT(16,  8)
 WRAP_PPT(16,  9) WRAP_PPT(16, 10) WRAP_PPT(16, 11) WRAP_PPT(16, 12)
 WRAP_PPT(16, 13) WRAP_PPT(16, 14) WRAP_PPT(16, 15)
 
-WRAP_PPT(32,  1) WRAP_PPT(32,  2) WRAP_PPT(32,  3) WRAP_PPT(32,  4)
-WRAP_PPT(32,  5) WRAP_PPT(32,  6) WRAP_PPT(32,  7) WRAP_PPT(32,  8)
-WRAP_PPT(32,  9) WRAP_PPT(32, 10) WRAP_PPT(32, 11) WRAP_PPT(32, 12)
-WRAP_PPT(32, 13) WRAP_PPT(32, 14) WRAP_PPT(32, 15) WRAP_PPT(32, 16)
 WRAP_PPT(32, 17) WRAP_PPT(32, 18) WRAP_PPT(32, 19) WRAP_PPT(32, 20)
 WRAP_PPT(32, 21) WRAP_PPT(32, 22) WRAP_PPT(32, 23) WRAP_PPT(32, 24)
 WRAP_PPT(32, 25) WRAP_PPT(32, 26) WRAP_PPT(32, 27) WRAP_PPT(32, 28)
 WRAP_PPT(32, 29) WRAP_PPT(32, 30) WRAP_PPT(32, 31)
 
+
+WRAP_PPT(64, 33) WRAP_PPT(64, 34) WRAP_PPT(64, 35) WRAP_PPT(64, 36)
+WRAP_PPT(64, 37) WRAP_PPT(64, 38) WRAP_PPT(64, 39) WRAP_PPT(64, 40)
+WRAP_PPT(64, 41) WRAP_PPT(64, 42) WRAP_PPT(64, 43) WRAP_PPT(64, 44)
+WRAP_PPT(64, 45) WRAP_PPT(64, 46) WRAP_PPT(64, 47) WRAP_PPT(64, 48)
+WRAP_PPT(64, 49) WRAP_PPT(64, 50) WRAP_PPT(64, 51) WRAP_PPT(64, 52)
+WRAP_PPT(64, 53) WRAP_PPT(64, 54) WRAP_PPT(64, 55) WRAP_PPT(64, 56)
+WRAP_PPT(64, 57) WRAP_PPT(64, 58) WRAP_PPT(64, 59) WRAP_PPT(64, 60)
+WRAP_PPT(64, 61) WRAP_PPT(64, 62) WRAP_PPT(64, 63)
+
+WRAP_PPT(128, 65) WRAP_PPT(128, 66) WRAP_PPT(128, 67)
 
 static void
 test_linearity_all( fd_rng_t * rng ) {
@@ -345,6 +357,12 @@ test_linearity_all( fd_rng_t * rng ) {
   test_linearity( wrapped_ifft_16, 16UL, 16UL, rng, TC, CW ); test_linearity( wrapped_ifft_16_shift, 16UL, 16UL, rng, TC, CW );
   test_linearity( wrapped_fft_32,  32UL, 32UL, rng, TC, CW ); test_linearity( wrapped_fft_32_shift,  32UL, 32UL, rng, TC, CW );
   test_linearity( wrapped_ifft_32, 32UL, 32UL, rng, TC, CW ); test_linearity( wrapped_ifft_32_shift, 32UL, 32UL, rng, TC, CW );
+  test_linearity( wrapped_fft_64,  64UL, 64UL, rng, TC, CW ); test_linearity( wrapped_fft_64_shift,  64UL, 64UL, rng, TC, CW );
+  test_linearity( wrapped_ifft_64, 64UL, 64UL, rng, TC, CW ); test_linearity( wrapped_ifft_64_shift, 64UL, 64UL, rng, TC, CW );
+  test_linearity( wrapped_fft_128,        128UL, 128UL, rng, TC, CW );
+  test_linearity( wrapped_fft_128_shift,  128UL, 128UL, rng, TC, CW );
+  test_linearity( wrapped_ifft_128,       128UL, 128UL, rng, TC, CW );
+  test_linearity( wrapped_ifft_128_shift, 128UL, 128UL, rng, TC, CW );
 
   FD_LOG_NOTICE(( "Testing linearity of PPT 16" ));
   test_linearity( wrapped_ppt_16_1,  16UL, 16UL, rng, TC, CW ); test_linearity( wrapped_ppt_16_2,  16UL, 16UL, rng, TC, CW );
@@ -358,14 +376,6 @@ test_linearity_all( fd_rng_t * rng ) {
 
   TC /= 2UL;
   FD_LOG_NOTICE(( "Testing linearity of PPT 32" ));
-  test_linearity( wrapped_ppt_32_1,  32UL, 32UL, rng, TC, CW ); test_linearity( wrapped_ppt_32_2,  32UL, 32UL, rng, TC, CW );
-  test_linearity( wrapped_ppt_32_3,  32UL, 32UL, rng, TC, CW ); test_linearity( wrapped_ppt_32_4,  32UL, 32UL, rng, TC, CW );
-  test_linearity( wrapped_ppt_32_5,  32UL, 32UL, rng, TC, CW ); test_linearity( wrapped_ppt_32_6,  32UL, 32UL, rng, TC, CW );
-  test_linearity( wrapped_ppt_32_7,  32UL, 32UL, rng, TC, CW ); test_linearity( wrapped_ppt_32_8,  32UL, 32UL, rng, TC, CW );
-  test_linearity( wrapped_ppt_32_9,  32UL, 32UL, rng, TC, CW ); test_linearity( wrapped_ppt_32_10, 32UL, 32UL, rng, TC, CW );
-  test_linearity( wrapped_ppt_32_11, 32UL, 32UL, rng, TC, CW ); test_linearity( wrapped_ppt_32_12, 32UL, 32UL, rng, TC, CW );
-  test_linearity( wrapped_ppt_32_13, 32UL, 32UL, rng, TC, CW ); test_linearity( wrapped_ppt_32_14, 32UL, 32UL, rng, TC, CW );
-  test_linearity( wrapped_ppt_32_15, 32UL, 32UL, rng, TC, CW ); test_linearity( wrapped_ppt_32_16, 32UL, 32UL, rng, TC, CW );
   test_linearity( wrapped_ppt_32_17, 32UL, 32UL, rng, TC, CW ); test_linearity( wrapped_ppt_32_18, 32UL, 32UL, rng, TC, CW );
   test_linearity( wrapped_ppt_32_19, 32UL, 32UL, rng, TC, CW ); test_linearity( wrapped_ppt_32_20, 32UL, 32UL, rng, TC, CW );
   test_linearity( wrapped_ppt_32_21, 32UL, 32UL, rng, TC, CW ); test_linearity( wrapped_ppt_32_22, 32UL, 32UL, rng, TC, CW );
@@ -374,6 +384,30 @@ test_linearity_all( fd_rng_t * rng ) {
   test_linearity( wrapped_ppt_32_27, 32UL, 32UL, rng, TC, CW ); test_linearity( wrapped_ppt_32_28, 32UL, 32UL, rng, TC, CW );
   test_linearity( wrapped_ppt_32_29, 32UL, 32UL, rng, TC, CW ); test_linearity( wrapped_ppt_32_30, 32UL, 32UL, rng, TC, CW );
   test_linearity( wrapped_ppt_32_31, 32UL, 32UL, rng, TC, CW );
+
+  TC /= 2UL;
+  FD_LOG_NOTICE(( "Testing linearity of PPT 64" ));
+  test_linearity( wrapped_ppt_64_33, 64UL, 64UL, rng, TC, CW ); test_linearity( wrapped_ppt_64_34, 64UL, 64UL, rng, TC, CW );
+  test_linearity( wrapped_ppt_64_35, 64UL, 64UL, rng, TC, CW ); test_linearity( wrapped_ppt_64_36, 64UL, 64UL, rng, TC, CW );
+  test_linearity( wrapped_ppt_64_37, 64UL, 64UL, rng, TC, CW ); test_linearity( wrapped_ppt_64_38, 64UL, 64UL, rng, TC, CW );
+  test_linearity( wrapped_ppt_64_39, 64UL, 64UL, rng, TC, CW ); test_linearity( wrapped_ppt_64_40, 64UL, 64UL, rng, TC, CW );
+  test_linearity( wrapped_ppt_64_41, 64UL, 64UL, rng, TC, CW ); test_linearity( wrapped_ppt_64_42, 64UL, 64UL, rng, TC, CW );
+  test_linearity( wrapped_ppt_64_43, 64UL, 64UL, rng, TC, CW ); test_linearity( wrapped_ppt_64_44, 64UL, 64UL, rng, TC, CW );
+  test_linearity( wrapped_ppt_64_45, 64UL, 64UL, rng, TC, CW ); test_linearity( wrapped_ppt_64_46, 64UL, 64UL, rng, TC, CW );
+  test_linearity( wrapped_ppt_64_47, 64UL, 64UL, rng, TC, CW ); test_linearity( wrapped_ppt_64_48, 64UL, 64UL, rng, TC, CW );
+  test_linearity( wrapped_ppt_64_49, 64UL, 64UL, rng, TC, CW ); test_linearity( wrapped_ppt_64_50, 64UL, 64UL, rng, TC, CW );
+  test_linearity( wrapped_ppt_64_51, 64UL, 64UL, rng, TC, CW ); test_linearity( wrapped_ppt_64_52, 64UL, 64UL, rng, TC, CW );
+  test_linearity( wrapped_ppt_64_53, 64UL, 64UL, rng, TC, CW ); test_linearity( wrapped_ppt_64_54, 64UL, 64UL, rng, TC, CW );
+  test_linearity( wrapped_ppt_64_55, 64UL, 64UL, rng, TC, CW ); test_linearity( wrapped_ppt_64_56, 64UL, 64UL, rng, TC, CW );
+  test_linearity( wrapped_ppt_64_57, 64UL, 64UL, rng, TC, CW ); test_linearity( wrapped_ppt_64_58, 64UL, 64UL, rng, TC, CW );
+  test_linearity( wrapped_ppt_64_59, 64UL, 64UL, rng, TC, CW ); test_linearity( wrapped_ppt_64_60, 64UL, 64UL, rng, TC, CW );
+  test_linearity( wrapped_ppt_64_61, 64UL, 64UL, rng, TC, CW ); test_linearity( wrapped_ppt_64_62, 64UL, 64UL, rng, TC, CW );
+  test_linearity( wrapped_ppt_64_63, 64UL, 64UL, rng, TC, CW );
+
+
+  test_linearity( wrapped_ppt_128_65, 128UL, 128UL, rng, TC, CW );
+  test_linearity( wrapped_ppt_128_66, 128UL, 128UL, rng, TC, CW );
+  test_linearity( wrapped_ppt_128_67, 128UL, 128UL, rng, TC, CW );
 
   FD_LOG_NOTICE(( "Testing linearity of reedsol_encode" ));
   for( wrapped_data_shred_cnt=1UL; wrapped_data_shred_cnt<=FD_REEDSOL_DATA_SHREDS_MAX; wrapped_data_shred_cnt++ )
@@ -494,11 +528,9 @@ test_encode_vs_ref( fd_rng_t * rng ) {
   uchar * r[ FD_REEDSOL_PARITY_SHREDS_MAX ];
 
   ulong const stride = 71UL; /* Prime >= 64 */
-  for( ulong i=0UL; i<32UL; i++ ) {
-    d[ i ] = data_shreds   + stride*i;
-    p[ i ] = parity_shreds + stride*i;
-    r[ i ] = parity_shreds + stride*(i+FD_REEDSOL_PARITY_SHREDS_MAX);
-  }
+  for( ulong i=0UL; i<FD_REEDSOL_DATA_SHREDS_MAX; i++ )    d[ i ] = data_shreds   + stride*i;
+  for( ulong i=0UL; i<FD_REEDSOL_PARITY_SHREDS_MAX; i++ )  p[ i ] = parity_shreds + stride*i;
+  for( ulong i=0UL; i<FD_REEDSOL_PARITY_SHREDS_MAX; i++ )  r[ i ] = parity_shreds + stride*(i+FD_REEDSOL_PARITY_SHREDS_MAX);
 
   for( ulong d_cnt=1UL; d_cnt<=FD_REEDSOL_DATA_SHREDS_MAX; d_cnt++ ) {
     for( ulong p_cnt=1UL; p_cnt<=FD_REEDSOL_PARITY_SHREDS_MAX; p_cnt++ ) {
@@ -563,21 +595,25 @@ battery_performance_base( fd_rng_t *    rng ) {
 }
 
 char output[ FD_REEDSOL_DATA_SHREDS_MAX * FD_REEDSOL_PARITY_SHREDS_MAX * 8UL ];
+long loop_times[ FD_REEDSOL_DATA_SHREDS_MAX+1UL ][ FD_REEDSOL_PARITY_SHREDS_MAX+1UL ];
 
 static void
-battery_performance_generic( fd_rng_t *    rng ) {
-  ulong const test_count = 5000UL;
+battery_performance_generic( fd_rng_t *    rng,
+                             ulong         max_data_shreds,
+                             ulong         max_parity_shreds,
+                             ulong         test_count ) {
 
   uchar * d[ FD_REEDSOL_DATA_SHREDS_MAX   ];
   uchar * p[ FD_REEDSOL_PARITY_SHREDS_MAX ];
-  for( ulong i=0UL; i<32UL; i++ ) { d[ i ] = data_shreds + SHRED_SZ*i; p[ i ] = parity_shreds + SHRED_SZ*i; }
+  for( ulong i=0UL; i<max_data_shreds; i++ )    d[ i ] = data_shreds + SHRED_SZ*i;
+  for( ulong i=0UL; i<max_parity_shreds; i++ )  p[ i ] = parity_shreds + SHRED_SZ*i;
 
-  for( ulong j=0UL; j<SHRED_SZ*32UL; j++ ) FD_VOLATILE( data_shreds[ j ] ) = fd_rng_uchar( rng );
+  for( ulong j=0UL; j<SHRED_SZ*max_data_shreds; j++ )
+    FD_VOLATILE( data_shreds[ j ] ) = fd_rng_uchar( rng );
 
-  long loop_times[ FD_REEDSOL_DATA_SHREDS_MAX+1UL ][ FD_REEDSOL_PARITY_SHREDS_MAX+1UL ];
 
-  for( ulong d_cnt=1UL; d_cnt<=FD_REEDSOL_DATA_SHREDS_MAX; d_cnt++ ) {
-    for( ulong p_cnt=1UL; p_cnt<=FD_REEDSOL_PARITY_SHREDS_MAX; p_cnt++ ) {
+  for( ulong d_cnt=1UL; d_cnt<=max_data_shreds; d_cnt++ ) {
+    for( ulong p_cnt=1UL; p_cnt<=max_parity_shreds; p_cnt++ ) {
       /* Warm up instruction cache */
       fd_reedsol_t * rs = fd_reedsol_encode_init( mem, SHRED_SZ );
       for( ulong i=0UL; i<d_cnt; i++ ) fd_reedsol_encode_add_data_shred(   rs, d[ i ] );
@@ -607,12 +643,12 @@ battery_performance_generic( fd_rng_t *    rng ) {
 
   char * str = fd_cstr_init( output );
   str = fd_cstr_append_cstr( str, "Performance in Gbps of parity data produced\nD\\P " );
-  for( ulong p_cnt=1UL; p_cnt<=FD_REEDSOL_PARITY_SHREDS_MAX; p_cnt++ ) str = fd_cstr_append_printf( str, "%5lu ", p_cnt );
+  for( ulong p_cnt=1UL; p_cnt<=max_parity_shreds; p_cnt++ ) str = fd_cstr_append_printf( str, "%5lu ", p_cnt );
   str = fd_cstr_append_char( str, '\n' );
 
-  for( ulong d_cnt=1UL; d_cnt<=FD_REEDSOL_DATA_SHREDS_MAX; d_cnt++ ) {
+  for( ulong d_cnt=1UL; d_cnt<=max_data_shreds; d_cnt++ ) {
     str = fd_cstr_append_printf( str, "%3lu ", d_cnt );
-    for( ulong p_cnt=1UL; p_cnt<=FD_REEDSOL_PARITY_SHREDS_MAX; p_cnt++ ) {
+    for( ulong p_cnt=1UL; p_cnt<=max_parity_shreds; p_cnt++ ) {
       str = fd_cstr_append_printf( str, "%5.1f ", (double)(test_count*p_cnt*SHRED_SZ*8UL) / (double)loop_times[ d_cnt ][ p_cnt ]);
     }
     str = fd_cstr_append_char( str, '\n' );
@@ -620,7 +656,7 @@ battery_performance_generic( fd_rng_t *    rng ) {
   fd_cstr_fini( str );
 
 
-  FD_LOG_NOTICE(( "%s", output ));
+  printf( "%s", output );
 }
 
 int
@@ -633,7 +669,7 @@ main( int     argc,
 
   basic_tests();
   battery_performance_base( rng );
-  battery_performance_generic( rng );
+  battery_performance_generic( rng, 32UL, 32UL, 5000UL );
   test_encode_vs_ref( rng );
   test_linearity_all( rng );
   test_fft_all();
