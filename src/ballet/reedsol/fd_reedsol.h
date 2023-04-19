@@ -27,14 +27,14 @@
 /* FD_REEDSOL_{DATA, PARITY}_SHREDS_MAX describe the inclusive maximum
    number of data and parity shreds that this implementation supports.
    These limits are not mathematical limits, but limits based on current
-   Solana needs and performance.  It is common for both shred counts to
-   be at their maximum values. */
-#define FD_REEDSOL_DATA_SHREDS_MAX   (32UL)
-#define FD_REEDSOL_PARITY_SHREDS_MAX (32UL)
+   Solana needs and performance.  The common case for both shred counts
+   to be set to 32. */
+#define FD_REEDSOL_DATA_SHREDS_MAX   (67UL)
+#define FD_REEDSOL_PARITY_SHREDS_MAX (67UL)
 
 
 #define FD_REEDSOL_ALIGN     (128UL)
-#define FD_REEDSOL_FOOTPRINT (1664UL)
+#define FD_REEDSOL_FOOTPRINT (2176UL)
 
 struct __attribute__((aligned(FD_REEDSOL_ALIGN))) fd_reedsol_private {
   uchar scratch[ 1024 ]; /* Used for the ultra high performance implementation */
