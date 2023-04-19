@@ -63,7 +63,7 @@ fd_xsk_aio_new( void * mem,
   fd_xsk_aio_t * xsk_aio = (fd_xsk_aio_t *)mem;
 
   /* Assumes alignment of `fd_xsk_aio_t` matches alignment of
-     `fd_xsk_frame_meta_t` and `fd_qio_pkt_info_t`. */
+     `fd_xsk_frame_meta_t` and `fd_aio_pkt_info_t`. */
 
   ulong meta_off     =                    sizeof(fd_xsk_aio_t       );
   ulong pkt_off      = meta_off + pkt_cnt*sizeof(fd_xsk_frame_meta_t);

@@ -56,8 +56,7 @@ SUFFIX(fd_base58_encode)( uchar const * bytes,
   /* Convert N to 32-bit limbs:
      X = sum_i binary[i] * 2^(32*(BINARY_SZ-1-i)) */
   uint binary[ BINARY_SZ ];
-  uint const * bytes_as_uint = (uint const *)bytes;
-  for( ulong i=0UL; i<BINARY_SZ; i++ ) binary[ i ] = fd_uint_bswap( bytes_as_uint[ i ] );
+  for( ulong i=0UL; i<BINARY_SZ; i++ ) binary[ i ] = fd_uint_bswap( fd_uint_load_4( &bytes[ i*sizeof(uint) ] ) );
 
   ulong R1div = 656356768UL; /* = 58^5 */
 
