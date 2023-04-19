@@ -54,16 +54,22 @@ fd_hash_account_deltas(fd_global_ctx_t *global, fd_pubkey_hash_pair_t * pairs, u
     num_hashes[0]++;
     
     for( ulong j = 0; j < FD_ACCOUNT_DELTAS_MAX_MERKLE_HEIGHT; ++j ) {
-      if (FD_UNLIKELY(global->log_level > 5)) 
+      if (FD_UNLIKELY(global->log_level > 5)) { 
         FD_LOG_NOTICE(( "Z %lu %lu %lu", i, j, shas[j].buf_used ));
+      }
       if (num_hashes[j] == FD_ACCOUNT_DELTAS_MERKLE_FANOUT) {
-        if (FD_UNLIKELY(global->log_level > 5)) 
-          FD_LOG_NOTICE(( "Y %lu %lu %u", i, j, num_hashes[j] ));
+        if (FD_UNLIKELY(global->log_level > 5)) { 
+          FD_LOG_NOTICE(( "Y %lu %lu %u %u", i, j, num_hashes[j], num_hashes[j+1] ));
+        }
         num_hashes[j] = 0;
         num_hashes[j+1]++;
         fd_hash_t sub_hash;
         fd_sha256_fini( &shas[j], &sub_hash );
         fd_sha256_init( &shas[j] );
+        if (FD_UNLIKELY(global->log_level > 5)) { 
+          fd_base58_encode_32((uchar *) sub_hash.hash, 0, encoded_hash);
+          FD_LOG_NOTICE(( "V %lu %lu %s", i, j, encoded_hash ));
+        }
         fd_sha256_append( &shas[j+1], (uchar const *) sub_hash.hash, sizeof( fd_hash_t ) );
       } else {
         break;
@@ -79,11 +85,17 @@ fd_hash_account_deltas(fd_global_ctx_t *global, fd_pubkey_hash_pair_t * pairs, u
       break;
     }
   }
+  if (FD_UNLIKELY(global->log_level > 5)) { 
+    FD_LOG_NOTICE(( "H %lu", height));
+  }
 
   for( ulong i = 0; i < height; ++i ) {
-#ifdef _VERBOSE    
+//#ifdef _VERBOSE    
     FD_LOG_NOTICE(( "S %lu %u", i, num_hashes[i] ));
-#endif
+//#endif
+    if( num_hashes[i]==0 ) {
+      continue;
+    }
     // At level i, finalize and append to i + 1
     //fd_hash_t sub_hash;
     fd_sha256_fini( &shas[i], hash );
@@ -122,6 +134,11 @@ fd_hash_account_deltas(fd_global_ctx_t *global, fd_pubkey_hash_pair_t * pairs, u
         num_hashes[j+1]++;
         fd_hash_t sub_hash;
         fd_sha256_fini( &shas[j], &sub_hash );
+        if (FD_UNLIKELY(global->log_level > 5)) { 
+          char encoded_hash[50];
+          fd_base58_encode_32((uchar *) sub_hash.hash, 0, encoded_hash);
+          FD_LOG_NOTICE(( "L %lu %lu %s", i, j, encoded_hash ));
+        }
         fd_sha256_append( &shas[j+1], (uchar const *) sub_hash.hash, sizeof( fd_hash_t ) );
       }
     }

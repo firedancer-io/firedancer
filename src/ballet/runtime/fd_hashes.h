@@ -13,6 +13,8 @@ typedef struct fd_global_ctx fd_global_ctx_t;
 
 FD_PROTOTYPES_BEGIN
 
+void fd_hash_account_deltas(fd_global_ctx_t *global, fd_pubkey_hash_pair_t * pairs, ulong pairs_len, fd_hash_t * hash );
+
 void fd_hash_bank( fd_global_ctx_t *global, fd_hash_t * hash );
 void fd_hash_meta( fd_account_meta_t const * account, ulong slot, fd_pubkey_t const * pubkey, uchar *data, fd_hash_t * hash );
 

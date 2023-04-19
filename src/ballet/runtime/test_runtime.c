@@ -1,4 +1,4 @@
-// sudo /home/jsiegel/repos/firedancer-private/build/linux/gcc/x86_64/bin/fd_shmem_cfg init 0777 jsiegel ""
+// sudo /home/jsiegel/repos/firedancer-private/bu   ild/linux/gcc/x86_64/bin/fd_shmem_cfg init 0777 jsiegel ""
 // sudo /home/jsiegel/repos/firedancer-private/build/linux/gcc/x86_64/bin/fd_shmem_cfg alloc 64 gigantic 0
 // sudo /home/jsiegel/repos/firedancer-private/build/linux/gcc/x86_64/bin/fd_shmem_cfg alloc 512 huge 0
 
@@ -13,7 +13,7 @@
 
 // run --ledger /home/jsiegel/test-ledger --db /home/jsiegel/test-ledger/funk --cmd replay --start-slot 0 --end-slot 200 --index-max 120000000 --pages 15
 
-// --ledger /home/jsiegel/test-ledger --db /home/jsiegel/funk --cmd validate --accounts /home/jsiegel/test-ledger/accounts/ --pages 15 --index-max 120000000 --manifest /home/jsiegel/test-ledger/200/snapshots/200/200 --start-slot 200
+// --ledger /home/jsiegel/test-ledger --db /ho   me/jsiegel/funk --cmd validate --accounts /home/jsiegel/test-ledger/accounts/ --pages 15 --index-max 120000000 --manifest /home/jsiegel/test-ledger/200/snapshots/200/200 --start-slot 200
 // --ledger /home/jsiegel/repos/firedancer-testbins/test-ledger --db /home/jsiegel/funk --cmd validate --accounts /home/jsiegel/repos/firedancer-testbins/test-ledger/accounts/ --pages 15 --index-max 120000000 --manifest /home/jsiegel/repos/firedancer-testbins/test-ledger/200/snapshots/200/200 --start-slot 200
 
 // --ledger /home/jsiegel/test-ledger --db /home/jsiegel/funk --cmd validate --accounts /home/jsiegel/test-ledger/accounts/ --pages 15 --index-max 120000000 --manifest /home/jsiegel/test-ledger/100/snapshots/100/100 --start-slot 100
@@ -144,6 +144,10 @@ static void usage(const char* progname) {
 // pub const INCREMENTAL_SNAPSHOT_ARCHIVE_FILENAME_REGEX: &str = r"^incremental-snapshot-(?P<base>[[:digit:]]+)-(?P<slot>[[:digit:]]+)-(?P<hash>[[:alnum:]]+)\.(?P<ext>tar|tar\.bz2|tar\.zst|tar\.gz|tar\.lz4)$";
 
 
+#define SORT_NAME sort_pubkey_hash_pair
+#define SORT_KEY_T fd_pubkey_hash_pair_t
+#define SORT_BEFORE(a,b) ((memcmp(&a, &b, 32) < 0))
+#include "../../util/tmpl/fd_sort.c"
 
 int ingest(global_state_t *state) {
   if (NULL == state->accounts)  {
@@ -216,13 +220,14 @@ int ingest(global_state_t *state) {
           fd_account_meta_t metadata;
           int               read_result = fd_acc_mgr_get_metadata( state->global->acc_mgr, state->global->funk_txn, (fd_pubkey_t *) &hdr->meta.pubkey, &metadata );
           if ( FD_UNLIKELY( read_result == FD_ACC_MGR_SUCCESS ) ) {
-            if (metadata.slot > slot)
+            if (metadata.slot > slot) {
               break;
+            }
           }
 
-          if (fd_acc_mgr_write_append_vec_account( state->global->acc_mgr, state->global->funk_txn,  slot, hdr) != FD_ACC_MGR_SUCCESS) 
+          if (fd_acc_mgr_write_append_vec_account( state->global->acc_mgr, state->global->funk_txn,  slot, hdr) != FD_ACC_MGR_SUCCESS) {
             FD_LOG_ERR(("writing failed: accounts %ld", accounts));
-
+          }
 #if 0
           read_result = fd_acc_mgr_get_metadata( state->global->acc_mgr, state->global->funk_txn, (fd_pubkey_t *) &hdr->meta.pubkey, &metadata );
           if ( FD_UNLIKELY( read_result != FD_ACC_MGR_SUCCESS ) )
@@ -293,6 +298,73 @@ int ingest(global_state_t *state) {
   closedir(dir);
   regfree(&reg);
 
+  if (fd_funk_commit(state->global->funk, state->global->funk_txn) == 0) {
+    FD_LOG_ERR(( "FAIL (db commit failed)" ));
+  }
+
+  fd_funk_index_iter_t* iter = (fd_funk_index_iter_t*)fd_alloca(fd_funk_iter_align, fd_funk_iter_footprint);
+  fd_funk_iter_init(state->global->funk, iter);
+
+  ulong num_iter_accounts = 0;
+  fd_funk_recordid_t const * record_id;
+  while ((record_id = fd_funk_iter_next(state->global->funk, iter)) != NULL) {
+    num_iter_accounts++;
+  }
+
+  ulong num_pairs = 0;
+  fd_pubkey_hash_pair_t * pairs = (fd_pubkey_hash_pair_t *) state->global->allocf(state->global->allocf_arg , 8UL, num_iter_accounts*sizeof(fd_pubkey_hash_pair_t));
+  fd_funk_iter_init(state->global->funk, iter);
+  while ((record_id = fd_funk_iter_next(state->global->funk, iter)) != NULL) {
+    char record_id_58[FD_BASE58_ENCODED_32_SZ];
+    fd_base58_encode_32((uchar const *)record_id, NULL, record_id_58);
+
+    FD_LOG_NOTICE(("RECORD ID: %s", record_id_58));
+          
+    fd_account_meta_t metadata;
+    int read_result = fd_acc_mgr_get_metadata( state->global->acc_mgr, state->global->funk_txn, (fd_pubkey_t *) record_id, &metadata );
+    if ( FD_UNLIKELY( read_result != FD_ACC_MGR_SUCCESS ) ) {
+      FD_LOG_ERR(("bad read from acc mgr"));
+    }
+    if ((metadata.magic != FD_ACCOUNT_META_MAGIC) || (metadata.hlen != sizeof(metadata))) {
+      FD_LOG_ERR(("invalid magic on metadata"));
+    }
+    
+    char account_hash_58[FD_BASE58_ENCODED_32_SZ];
+    fd_base58_encode_32((uchar const *) metadata.hash, NULL, account_hash_58);
+
+    FD_LOG_NOTICE(("INFO: slot: %lu, lamports: %lu, hash: %s", metadata.slot, metadata.info.lamports, account_hash_58));
+    
+    uchar * account_data = (uchar *) state->global->allocf(state->global->allocf_arg , 8UL, metadata.dlen);
+    read_result = fd_acc_mgr_get_account_data( state->global->acc_mgr, state->global->funk_txn, (fd_pubkey_t *) record_id, account_data, sizeof(fd_account_meta_t), metadata.dlen);
+    if ( FD_UNLIKELY( read_result != FD_ACC_MGR_SUCCESS ) ) {
+      FD_LOG_ERR(("wtf3"));
+    }
+
+    fd_memcpy(pairs[num_pairs].pubkey.key, record_id, 32);
+    fd_memcpy(pairs[num_pairs].hash.hash, metadata.hash, 32);
+    num_pairs++;
+  }
+ 
+  sort_pubkey_hash_pair_inplace( pairs, num_pairs );
+
+  for (ulong i = 0; i < num_pairs; i++) {
+    char record_id_58[FD_BASE58_ENCODED_32_SZ];
+    fd_base58_encode_32((uchar const *)pairs[i].pubkey.key, NULL, record_id_58);
+    
+    char account_hash_58[FD_BASE58_ENCODED_32_SZ];
+    fd_base58_encode_32((uchar const *)pairs[i].hash.hash, NULL, account_hash_58);
+
+    FD_LOG_NOTICE(("IDX: %lu, PUB: %50s HSH: %50s", i, record_id_58, account_hash_58));
+  }
+
+  fd_hash_t accounts_hash;
+  fd_hash_account_deltas(state->global, pairs, num_pairs, &accounts_hash);
+    
+  char accounts_hash_58[FD_BASE58_ENCODED_32_SZ];
+  fd_base58_encode_32((uchar const *)accounts_hash.hash, NULL, accounts_hash_58);
+
+  FD_LOG_WARNING(("accounts_hash %s", accounts_hash_58));
+  FD_LOG_WARNING(("num_iter_accounts %ld", num_iter_accounts));
   FD_LOG_WARNING(("files %ld  accounts %ld  odd %ld", files, accounts, odd));
 
   return 0;
