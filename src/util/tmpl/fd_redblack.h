@@ -74,6 +74,7 @@
     my_node_t * my_rb_insert(my_node_t * pool, my_node_t ** root, my_node_t * x);
     my_node_t * my_rb_delete(my_node_t * pool, my_node_t ** root, my_node_t * z);
     my_node_t * my_rb_find(my_node_t * pool, my_node_t * root, my_node_t * key);
+    ulong my_rb_size(my_node_t * pool, my_node_t * root);
 
     void my_rb_verify(my_node_t * pool, my_node_t * root);
 
@@ -117,6 +118,8 @@
 #define REDBLK_BLACK 1
 #define REDBLK_RED 2
 
+#ifndef REDBLK_MEMBER_DECLARED
+#define REDBLK_MEMBER_DECLARED 1
 /* Structure which must be part of every node type. Always include
    this member declaration:
       redblack_member_t redblack;
@@ -128,6 +131,7 @@ struct redblack_member {
     int color;
 };
 typedef struct redblack_member redblack_member_t;
+#endif
 
 /* Namespace macros */
 #define REDBLK_(n) FD_EXPAND_THEN_CONCAT3(REDBLK_NAME,_,n)
@@ -345,6 +349,13 @@ REDBLK_T * REDBLK_(delete)(REDBLK_T * pool, REDBLK_T ** root, REDBLK_T * z);
   A NULL is returned if the find fails.
 */
 REDBLK_T * REDBLK_(find)(REDBLK_T * pool, REDBLK_T * root, REDBLK_T * key);
+
+/*
+  E.g. ulong my_rb_size(my_node_t * pool, my_node_t * root);
+
+  Count the number of nodes in a tree.
+*/
+ulong REDBLK_(size)(REDBLK_T * pool, REDBLK_T * root);
 
 /*
   E.g. void my_rb_verify(my_node_t * pool, my_node_t * root);

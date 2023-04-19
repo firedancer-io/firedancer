@@ -390,10 +390,21 @@ typedef struct fd_bank_hash_info fd_bank_hash_info_t;
 #define FD_BANK_HASH_INFO_FOOTPRINT sizeof(fd_bank_hash_info_t)
 #define FD_BANK_HASH_INFO_ALIGN (8UL)
 
+typedef struct fd_serializable_account_storage_entry_t_mapnode fd_serializable_account_storage_entry_t_mapnode_t;
+#define REDBLK_T fd_serializable_account_storage_entry_t_mapnode_t
+#define REDBLK_NAME fd_serializable_account_storage_entry_t_map
+#include "../../util/tmpl/fd_redblack.h"
+#undef REDBLK_T
+#undef REDBLK_NAME
+struct fd_serializable_account_storage_entry_t_mapnode {
+  fd_serializable_account_storage_entry_t elem;
+  redblack_member_t                       redblack;
+};
+typedef struct fd_serializable_account_storage_entry_t_mapnode fd_serializable_account_storage_entry_t_mapnode_t;
 struct fd_slot_account_pair {
-  unsigned long                            slot;
-  ulong                                    accounts_len;
-  fd_serializable_account_storage_entry_t* accounts;
+  unsigned long                                      slot;
+  fd_serializable_account_storage_entry_t_mapnode_t* accounts_pool;
+  fd_serializable_account_storage_entry_t_mapnode_t* accounts_root;
 };
 typedef struct fd_slot_account_pair fd_slot_account_pair_t;
 #define FD_SLOT_ACCOUNT_PAIR_FOOTPRINT sizeof(fd_slot_account_pair_t)
@@ -407,16 +418,27 @@ typedef struct fd_slot_map_pair fd_slot_map_pair_t;
 #define FD_SLOT_MAP_PAIR_FOOTPRINT sizeof(fd_slot_map_pair_t)
 #define FD_SLOT_MAP_PAIR_ALIGN (8UL)
 
+typedef struct fd_slot_account_pair_t_mapnode fd_slot_account_pair_t_mapnode_t;
+#define REDBLK_T fd_slot_account_pair_t_mapnode_t
+#define REDBLK_NAME fd_slot_account_pair_t_map
+#include "../../util/tmpl/fd_redblack.h"
+#undef REDBLK_T
+#undef REDBLK_NAME
+struct fd_slot_account_pair_t_mapnode {
+  fd_slot_account_pair_t elem;
+  redblack_member_t      redblack;
+};
+typedef struct fd_slot_account_pair_t_mapnode fd_slot_account_pair_t_mapnode_t;
 struct fd_solana_accounts_db_fields {
-  ulong                   storages_len;
-  fd_slot_account_pair_t* storages;
-  unsigned long           version;
-  unsigned long           slot;
-  fd_bank_hash_info_t     bank_hash_info;
-  ulong                   historical_roots_len;
-  unsigned long*          historical_roots;
-  ulong                   historical_roots_with_hash_len;
-  fd_slot_map_pair_t*     historical_roots_with_hash;
+  fd_slot_account_pair_t_mapnode_t* storages_pool;
+  fd_slot_account_pair_t_mapnode_t* storages_root;
+  unsigned long                     version;
+  unsigned long                     slot;
+  fd_bank_hash_info_t               bank_hash_info;
+  ulong                             historical_roots_len;
+  unsigned long*                    historical_roots;
+  ulong                             historical_roots_with_hash_len;
+  fd_slot_map_pair_t*               historical_roots_with_hash;
 };
 typedef struct fd_solana_accounts_db_fields fd_solana_accounts_db_fields_t;
 #define FD_SOLANA_ACCOUNTS_DB_FIELDS_FOOTPRINT sizeof(fd_solana_accounts_db_fields_t)

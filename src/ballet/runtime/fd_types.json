@@ -388,7 +388,7 @@
       "type": "struct",
       "fields": [
         { "name": "slot", "type": "ulong" },
-        { "name": "accounts", "type": "vector", "element": "serializable_account_storage_entry" }
+        { "name": "accounts", "type": "map", "element": "serializable_account_storage_entry", "key": "id" }
       ]
     },
     {
@@ -403,7 +403,7 @@
       "name": "solana_accounts_db_fields",
       "type": "struct",
       "fields": [
-        { "name": "storages", "type": "vector", "element": "slot_account_pair" },
+        { "name": "storages", "type": "map", "element": "slot_account_pair", "key": "slot" },
         { "name": "version", "type": "ulong" },
         { "name": "slot", "type": "ulong" },
         { "name": "bank_hash_info", "type": "bank_hash_info" },

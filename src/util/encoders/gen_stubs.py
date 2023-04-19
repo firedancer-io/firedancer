@@ -53,7 +53,7 @@ def vector_dynamic_elem_type(n, f):
   elif f["element"] == "uint" or f["element"] == "unsigned int":
       return "uint"
   else:
-      return namespace + "_" + f["element"] + "_t"
+      return n + "_" + f["element"] + "_t"
   
 def vector_dynamic_prefix(n, f):
     return n + "_vec_" + vector_dynamic_elem_type(n, f)
@@ -61,6 +61,12 @@ def vector_dynamic_prefix(n, f):
 def do_vector_dynamic_header(n, f):
     print("  " + vector_dynamic_prefix(n, f) + "_t " + f["name"] + ";", file=header)
 
+def do_map_header(n, f):
+    element_type = vector_dynamic_elem_type(n, f)
+    nodename = element_type + "_mapnode_t"
+    print("  " + nodename + "* " + f["name"] + "_pool;", file=header)
+    print("  " + nodename + "* " + f["name"] + "_root;", file=header)
+  
 def do_option_header(n, f):
       if f["element"] == "ulong" or f["element"] == "unsigned long":
           print("  " + f["element"] + "* " + f["name"] + ";", file=header)
@@ -98,6 +104,7 @@ fields_header = {
     "vector_dynamic":     lambda n, f: do_vector_dynamic_header(n, f),
     "array":              lambda n, f: do_array_header(n, f),
     "option" :            lambda n, f: do_option_header(n, f),
+    "map" :               lambda n, f: do_map_header(n, f),
 }
 
 def do_vector_body_decode(n, f):
@@ -158,6 +165,27 @@ def do_vector_dynamic_body_decode(n, f):
         print("    " + n + "_" + f["element"] + "_decode(&elem, data, dataend, allocf, allocf_arg);", file=body)
     print("    " + vector_dynamic_prefix(n, f) + "_push(&self->" + f["name"] + ", elem);", file=body)
 
+    print("  }", file=body)
+
+def do_map_body_decode(n, f):
+    element_type = vector_dynamic_elem_type(n, f)
+    mapname = element_type + "_map"
+    nodename = element_type + "_mapnode_t"
+    
+    if "modifier" in f and f["modifier"] == "compact":
+        print("  ushort " + f["name"] + "_len;", file=body)
+        print("  fd_decode_short_u16(&" + f["name"] + "_len, data, dataend);", file=body)
+    else:
+        print("  ulong " + f["name"] + "_len;", file=body)
+        print("  fd_bincode_uint64_decode(&" + f["name"] + "_len, data, dataend);", file=body)
+
+    print("  void* " + f["name"] + "_mem = (*allocf)(allocf_arg, " + mapname + "_pool_align(), " + mapname + "_pool_footprint(" + f["name"] + "_len+1));", file=body)
+    print("  self->" + f["name"] + "_pool = " + mapname + "_pool_join(" + mapname + "_pool_new(" + f["name"] + "_mem, " + f["name"] + "_len+1));", file=body)
+    print("  self->" + f["name"] + "_root = NULL;", file=body)
+    print("  for (ulong i = 0; i < " + f["name"] + "_len; ++i) {", file=body)
+    print("    " + nodename + "* node = " + mapname + "_pool_allocate(self->" + f["name"] + "_pool);", file=body); 
+    print("    " + n + "_" + f["element"] + "_decode(&node->elem, data, dataend, allocf, allocf_arg);", file=body)
+    print("    " + mapname + "_insert(self->" + f["name"] + "_pool, &self->" + f["name"] + "_root, node);", file=body)
     print("  }", file=body)
 
 def do_array_body_decode(n, f):
@@ -233,7 +261,8 @@ fields_body_decode = {
     "vector" :            lambda n, f: do_vector_body_decode(n, f),
     "vector_dynamic":     lambda n, f: do_vector_dynamic_body_decode(n, f),
     "array":              lambda n, f: do_array_body_decode(n, f),
-    "option" :            lambda n, f: do_option_body_decode(n, f)
+    "option" :            lambda n, f: do_option_body_decode(n, f),
+    "map" :               lambda n, f: do_map_body_decode(n, f),
 }
 # encode
 
@@ -288,6 +317,21 @@ def do_vector_dynamic_body_encode(n, f):
     else:
         print("      " + n + "_" + f["element"] + "_encode(&self->" + f["name"] + ".elems[i], data);", file=body)
 
+def do_map_body_encode(n, f):
+    element_type = vector_dynamic_elem_type(n, f)
+    mapname = element_type + "_map"
+    nodename = element_type + "_mapnode_t"
+    
+    if "modifier" in f and f["modifier"] == "compact":
+        print("  ushort " + f["name"] + "_len = (ushort)" + mapname + "_size(self->" + f["name"] + "_pool, self->" + f["name"] + "_root);", file=body)
+        print("  fd_encode_short_u16(&" + f["name"] + "_len, data);", file=body)
+    else:
+        print("  ulong " + f["name"] + "_len = " + mapname + "_size(self->" + f["name"] + "_pool, self->" + f["name"] + "_root);", file=body)
+        print("  fd_bincode_uint64_encode(&" + f["name"] + "_len, data);", file=body)
+    print("  for ( " + nodename + "* n = " + mapname + "_minimum(self->" + f["name"] + "_pool, self->" + f["name"] + "_root); n; n = " + mapname + "_successor(self->" + f["name"] + "_pool, n) ) {", file=body);
+    print("      " + n + "_" + f["element"] + "_encode(&n->elem, data);", file=body)
+    print("  }", file=body)
+        
 def do_array_body_encode(n, f):
     length = f["length"]
 
@@ -349,7 +393,8 @@ fields_body_encode = {
     "vector" :            lambda n, f: do_vector_body_encode(n, f),
     "vector_dynamic" :    lambda n, f: do_vector_dynamic_body_encode(n, f),
     "array" :             lambda n, f: do_array_body_encode(n, f),
-    "option" :            lambda n, f: do_option_body_encode(n, f)
+    "option" :            lambda n, f: do_option_body_encode(n, f),
+    "map" :               lambda n, f: do_map_body_encode(n, f),
 }
 
 # size
@@ -378,6 +423,19 @@ def do_vector_dynamic_body_size(n, f):
         print("    for (ulong i = 0; i < self->" + f["name"] + ".cnt; ++i)", file=body)
         print("      size += " + n + "_" + f["element"] + "_size(&self->" + f["name"] + ".elems[i]);", file=body)
 
+def do_map_body_size(n, f):
+    element_type = vector_dynamic_elem_type(n, f)
+    mapname = element_type + "_map"
+    nodename = element_type + "_mapnode_t"
+    
+    if "modifier" in f and f["modifier"] == "compact":
+        print("  size += sizeof(ushort);", file=body)
+    else:
+        print("  size += sizeof(ulong);", file=body)
+    print("  for ( " + nodename + "* n = " + mapname + "_minimum(self->" + f["name"] + "_pool, self->" + f["name"] + "_root); n; n = " + mapname + "_successor(self->" + f["name"] + "_pool, n) ) {", file=body);
+    print("      size += " + n + "_" + f["element"] + "_size(&n->elem);", file=body)
+    print("  }", file=body)
+        
 def do_array_body_size(n, f):
     length = f["length"]
 
@@ -424,7 +482,8 @@ fields_body_size = {
     "vector" :            lambda n, f: do_vector_body_size(n, f),
     "vector_dynamic" :    lambda n, f: do_vector_dynamic_body_size(n, f),
     "array" :             lambda n, f: do_array_body_size(n, f),
-    "option" :            lambda n, f: do_option_body_size(n, f)
+    "option" :            lambda n, f: do_option_body_size(n, f),
+    "map" :               lambda n, f: do_map_body_size(n, f),
 }
 
 #
@@ -439,15 +498,27 @@ def do_vector_body_destroy(n, f):
         pass
     else:
         print("for (ulong i = 0; i < self->" + f["name"] + "_len; ++i)", file=body)
-        print("    " + n + "_" + f["element"] + "_destroy(self->" + f["name"] + " + i,  freef, freef_arg);", file=body)
+        print("    " + n + "_" + f["element"] + "_destroy(self->" + f["name"] + " + i, freef, freef_arg);", file=body)
     print("freef(freef_arg, self->" + f["name"] + ");", file=body)
     print("self->" + f["name"] + " = NULL;", file=body)
     print("}", file=body)
 
 
 def do_vector_dynamic_body_destroy(n, f):
-    print(vector_dynamic_prefix(namespace, f) + "_destroy(&self->" + f["name"] + ");", file=body)
+    print(vector_dynamic_prefix(n, f) + "_destroy(&self->" + f["name"] + ");", file=body)
 
+def do_map_body_destroy(n, f):
+    element_type = vector_dynamic_elem_type(n, f)
+    mapname = element_type + "_map"
+    nodename = element_type + "_mapnode_t"
+    
+    print("  for ( " + nodename + "* n = " + mapname + "_minimum(self->" + f["name"] + "_pool, self->" + f["name"] + "_root); n; n = " + mapname + "_successor(self->" + f["name"] + "_pool, n) ) {", file=body);
+    print("      " + n + "_" + f["element"] + "_destroy(&n->elem, freef, freef_arg);", file=body)
+    print("  }", file=body)
+    print("  freef(freef_arg, " + mapname + "_pool_delete(" + mapname + "_pool_leave(self->" + f["name"] + "_pool)));", file=body)
+    print("  self->" + f["name"] + "_pool = NULL;", file=body)
+    print("  self->" + f["name"] + "_root = NULL;", file=body)
+        
 def do_array_body_destroy(n, f):
     length = f["length"]
 
@@ -497,7 +568,8 @@ fields_body_destroy = {
     "vector" :            lambda n, f: do_vector_body_destroy(n, f),
     "vector_dynamic" :    lambda n, f: do_vector_dynamic_body_destroy(n, f),
     "array" :             lambda n, f: do_array_body_destroy(n, f),
-    "option" :            lambda n, f: do_option_body_destroy(n, f)
+    "option" :            lambda n, f: do_option_body_destroy(n, f),
+    "map" :               lambda n, f: do_map_body_destroy(n, f),
 }
 
 # Map different names for the same times into how firedancer knows them
@@ -511,6 +583,8 @@ for entry in entries:
 
 # Generate one instance of the fd_vector.h template for each unique element type.
 vector_dynamic_element_types = set()
+
+map_element_types = dict()
 
 for entry in entries:
     # Create the dynamic vector types needed for this entry
@@ -527,6 +601,27 @@ for entry in entries:
             print("#undef VECT_ELEMENT\n", file=header)
 
             vector_dynamic_element_types.add(element_type)
+
+        if f["type"] == "map":
+          element_type = vector_dynamic_elem_type(namespace, f)
+          if element_type in map_element_types:
+              continue
+          
+          mapname = element_type + "_map"
+          nodename = element_type + "_mapnode"
+          print(f"typedef struct {nodename} {nodename}_t;", file=header)
+          print(f"#define REDBLK_T {nodename}_t", file=header)
+          print(f"#define REDBLK_NAME {mapname}", file=header)
+          print(f"#include \"../../util/tmpl/fd_redblack.h\"", file=header)
+          print(f"#undef REDBLK_T", file=header)
+          print(f"#undef REDBLK_NAME", file=header)
+          print(f"struct {nodename} {{", file=header)
+          print(f"    {element_type} elem;", file=header)
+          print(f"    redblack_member_t redblack;", file=header)
+          print(f"}};", file=header)
+          print(f"typedef struct {nodename} {nodename}_t;", file=header)
+
+          map_element_types[element_type] = f["key"]
 
     if "comment" in entry:
       print("/* " + entry["comment"] + " */", file=header)
@@ -599,6 +694,16 @@ for entry in entries:
     print("}", file=body)
     print("", file=body)
 
+for (element_type,key) in map_element_types.items():
+    mapname = element_type + "_map"
+    nodename = element_type + "_mapnode_t"
+    print(f"#define REDBLK_T {nodename}", file=body)
+    print(f"#define REDBLK_NAME {mapname}", file=body)
+    print(f"#include \"../../util/tmpl/fd_redblack.c\"", file=body)
+    print(f"long {mapname}_compare({nodename} * left, {nodename} * right) {{", file=body)
+    print(f"  return (long)(left->elem.{key} - right->elem.{key});", file=body)
+    print(f"}}", file=body)
+    
 print("FD_PROTOTYPES_END", file=header)
 print("", file=header)
 print("#endif // HEADER_" + json_object["name"].upper(), file=header)

@@ -780,6 +780,22 @@ REDBLK_T * REDBLK_(find)(REDBLK_T * pool, REDBLK_T * root, REDBLK_T * key) {
 }
 
 /*
+  E.g. ulong my_rb_size(my_node_t * pool, my_node_t * root);
+
+  Count the number of nodes in a tree.
+*/
+ulong REDBLK_(size)(REDBLK_T * pool, REDBLK_T * root) {
+#ifndef REDBLK_UNSAFE
+  REDBLK_POOL_(validate_node)(pool, root);
+#endif
+ if (!root || root == &pool[REDBLK_NIL])
+   return 0;
+ return 1 +
+        REDBLK_(size)(pool, &pool[root->redblack.left]) +
+        REDBLK_(size)(pool, &pool[root->redblack.right]);
+}
+
+/*
   Recursive implementation of the verify function
 */
 void REDBLK_(verify_private)(REDBLK_T * pool, REDBLK_T * node, REDBLK_T * parent, ulong curblkcnt, ulong correctblkcnt) {
