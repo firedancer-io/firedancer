@@ -2338,3 +2338,20 @@ void fd_stake_config_encode(fd_stake_config_t* self, void const** data) {
   fd_bincode_uint8_encode(&self->slash_penalty, data);
 }
 
+void fd_firedancer_banks_decode(fd_firedancer_banks_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
+  fd_deserializable_versioned_bank_decode(&self->solana_bank, data, dataend, allocf, allocf_arg);
+}
+void fd_firedancer_banks_destroy(fd_firedancer_banks_t* self, fd_free_fun_t freef, void* freef_arg) {
+  fd_deserializable_versioned_bank_destroy(&self->solana_bank, freef, freef_arg);
+}
+
+ulong fd_firedancer_banks_size(fd_firedancer_banks_t* self) {
+  ulong size = 0;
+  size += fd_deserializable_versioned_bank_size(&self->solana_bank);
+  return size;
+}
+
+void fd_firedancer_banks_encode(fd_firedancer_banks_t* self, void const** data) {
+  fd_deserializable_versioned_bank_encode(&self->solana_bank, data);
+}
+

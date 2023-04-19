@@ -9,7 +9,7 @@ void write_epoch_schedule( fd_global_ctx_t* global, fd_epoch_schedule_t* epoch_s
   void const *ptr = (void const *) enc;
   fd_epoch_schedule_encode( epoch_schedule, &ptr );
 
-  fd_sysvar_set( global, global->sysvar_owner, global->sysvar_epoch_schedule, enc, sz, global->current_slot );
+  fd_sysvar_set( global, global->sysvar_owner, global->sysvar_epoch_schedule, enc, sz, global->bank.solana_bank.slot );
 }
 
 void fd_sysvar_epoch_schedule_read( fd_global_ctx_t* global, fd_epoch_schedule_t* result ) {

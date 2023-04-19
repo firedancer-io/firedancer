@@ -59,7 +59,8 @@ struct __attribute__((aligned(FD_GLOBAL_CTX_ALIGN))) fd_global_ctx {
   unsigned char              solana_spl_token[32];
 
   // This state needs to be commited to funk so that we can roll it back?
-  ulong                      current_slot;
+  fd_firedancer_banks_t      bank;
+
   fd_poh_state_t             poh;
   fd_funk_xactionid_t        funk_txn_tower[32];
   fd_funk_xactionid_t*       funk_txn;
@@ -72,6 +73,9 @@ struct __attribute__((aligned(FD_GLOBAL_CTX_ALIGN))) fd_global_ctx {
 
   fd_pubkey_t                collector_id;
   ulong                      collected;
+
+  fd_fee_rate_governor_t     fee_rate_governor;
+  fd_recent_block_hashes_t   recent_block_hashes;
 
   // TODO: should we instead remember which slot the poh is valid for?
   fd_clock_timestamp_votes_t timestamp_votes;
@@ -92,6 +96,7 @@ fd_global_ctx_t * fd_global_ctx_join       ( void * );
 void *            fd_global_ctx_leave      ( fd_global_ctx_t *  );
 void *            fd_global_ctx_delete     ( void *  );
 
+ulong             fd_runtime_txn_lamports_per_signature( fd_global_ctx_t *global, fd_txn_t * txn_descriptor, fd_rawtxn_b_t* txn_raw );
 void              fd_runtime_boot_slot_zero( fd_global_ctx_t *global );
 int               fd_runtime_block_execute ( fd_global_ctx_t *global, fd_slot_blocks_t *slot_data );
 int               fd_runtime_block_verify  ( fd_global_ctx_t *global, fd_slot_blocks_t *slot_data );

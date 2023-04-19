@@ -761,6 +761,13 @@ typedef struct fd_stake_config fd_stake_config_t;
 #define FD_STAKE_CONFIG_FOOTPRINT sizeof(fd_stake_config_t)
 #define FD_STAKE_CONFIG_ALIGN (8UL)
 
+struct fd_firedancer_banks {
+  fd_deserializable_versioned_bank_t solana_bank;
+};
+typedef struct fd_firedancer_banks fd_firedancer_banks_t;
+#define FD_FIREDANCER_BANKS_FOOTPRINT sizeof(fd_firedancer_banks_t)
+#define FD_FIREDANCER_BANKS_ALIGN (8UL)
+
 
 FD_PROTOTYPES_BEGIN
 
@@ -1093,6 +1100,11 @@ void fd_stake_config_decode(fd_stake_config_t* self, void const** data, void con
 void fd_stake_config_encode(fd_stake_config_t* self, void const** data);
 void fd_stake_config_destroy(fd_stake_config_t* self, fd_free_fun_t freef, void* freef_arg);
 ulong fd_stake_config_size(fd_stake_config_t* self);
+
+void fd_firedancer_banks_decode(fd_firedancer_banks_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
+void fd_firedancer_banks_encode(fd_firedancer_banks_t* self, void const** data);
+void fd_firedancer_banks_destroy(fd_firedancer_banks_t* self, fd_free_fun_t freef, void* freef_arg);
+ulong fd_firedancer_banks_size(fd_firedancer_banks_t* self);
 
 FD_PROTOTYPES_END
 

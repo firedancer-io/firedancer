@@ -136,20 +136,20 @@ int fd_executor_vote_program_execute_instruction(
       structured_account.rent_epoch = 0;
       memcpy( &structured_account.owner, ctx.global->solana_vote_program, sizeof(fd_pubkey_t) );
 
-      int write_result = fd_acc_mgr_write_structured_account( ctx.global->acc_mgr, ctx.global->funk_txn, ctx.global->current_slot, vote_acc, &structured_account );
+      int write_result = fd_acc_mgr_write_structured_account( ctx.global->acc_mgr, ctx.global->funk_txn, ctx.global->bank.solana_bank.slot, vote_acc, &structured_account );
       if ( write_result != FD_ACC_MGR_SUCCESS ) {
         FD_LOG_WARNING(( "failed to write account data" ));
         return write_result;
       }
 
-      fd_acc_mgr_update_hash ( ctx.global->acc_mgr, &metadata, ctx.global->funk_txn, ctx.global->current_slot, vote_acc, (uchar*)encoded_vote_state, encoded_vote_state_size);
+      fd_acc_mgr_update_hash ( ctx.global->acc_mgr, &metadata, ctx.global->funk_txn, ctx.global->bank.solana_bank.slot, vote_acc, (uchar*)encoded_vote_state, encoded_vote_state_size);
 
       /* Record this timestamp vote */
       if ( vote_state_update.timestamp != NULL ) {
         uchar found = 0;
         for ( ulong i = 0; i < ctx.global->timestamp_votes.votes.cnt; i++ ) {
           if ( memcmp( &ctx.global->timestamp_votes.votes.elems[i].pubkey, vote_acc, sizeof(fd_pubkey_t) ) == 0 ) {
-            ctx.global->timestamp_votes.votes.elems[i].slot      = ctx.global->current_slot;
+            ctx.global->timestamp_votes.votes.elems[i].slot      = ctx.global->bank.solana_bank.slot;
             ctx.global->timestamp_votes.votes.elems[i].timestamp = (long)*vote_state_update.timestamp;
             found = 1;
           }
@@ -158,7 +158,7 @@ int fd_executor_vote_program_execute_instruction(
           fd_clock_timestamp_vote_t timestamp_vote = {
             .pubkey    = *vote_acc,
             .timestamp = (long)*vote_state_update.timestamp,
-            .slot      = ctx.global->current_slot,
+            .slot      = ctx.global->bank.solana_bank.slot,
           };
           fd_vec_fd_clock_timestamp_vote_t_push( &ctx.global->timestamp_votes.votes, timestamp_vote );
         }

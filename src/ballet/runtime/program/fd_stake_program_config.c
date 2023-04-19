@@ -15,7 +15,7 @@ void write_stake_config( fd_global_ctx_t* global, fd_stake_config_t* stake_confi
     .executable = (uchar) 0
   };
   fd_memcpy( account.owner.key, global->solana_config_program, 32 );
-  fd_acc_mgr_write_structured_account( global->acc_mgr, global->funk_txn, global->current_slot, (fd_pubkey_t *) global->solana_stake_program_config, &account );
+  fd_acc_mgr_write_structured_account( global->acc_mgr, global->funk_txn, global->bank.solana_bank.slot, (fd_pubkey_t *) global->solana_stake_program_config, &account );
 }
 
 void fd_stake_program_config_init( fd_global_ctx_t* global ) {
