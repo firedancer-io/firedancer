@@ -716,6 +716,16 @@
       "fields": [
         { "name": "solana_bank", "type": "deserializable_versioned_bank" }
       ]
+    },
+    {
+      "name": "vote",
+      "type": "struct",
+      "fields": [
+        { "name": "slots", "type": "vector", "element": "ulong" },
+        { "name": "hash", "type": "hash" },
+        { "name": "timestamp", "type": "option", "element": "ulong" }
+      ],
+      "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L133"
     }
   ]
 }

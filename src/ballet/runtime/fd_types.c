@@ -2355,3 +2355,56 @@ void fd_firedancer_banks_encode(fd_firedancer_banks_t* self, void const** data) 
   fd_deserializable_versioned_bank_encode(&self->solana_bank, data);
 }
 
+void fd_vote_decode(fd_vote_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
+  fd_bincode_uint64_decode(&self->slots_len, data, dataend);
+  if (self->slots_len != 0) {
+    self->slots = (ulong*)(*allocf)(allocf_arg, 8UL, sizeof(ulong)*self->slots_len);
+    for (ulong i = 0; i < self->slots_len; ++i)
+      fd_bincode_uint64_decode(self->slots + i, data, dataend);
+  } else
+    self->slots = NULL;
+  fd_hash_decode(&self->hash, data, dataend, allocf, allocf_arg);
+  if (fd_bincode_option_decode(data, dataend)) {
+    self->timestamp = (ulong*)(*allocf)(allocf_arg, 8, sizeof(ulong));
+    fd_bincode_uint64_decode(self->timestamp, data, dataend);
+  } else
+    self->timestamp = NULL;
+}
+void fd_vote_destroy(fd_vote_t* self, fd_free_fun_t freef, void* freef_arg) {
+  if (NULL != self->slots) {
+    freef(freef_arg, self->slots);
+    self->slots = NULL;
+  }
+  fd_hash_destroy(&self->hash, freef, freef_arg);
+  if (NULL != self->timestamp) {
+    freef(freef_arg, self->timestamp);
+    self->timestamp = NULL;
+  }
+}
+
+ulong fd_vote_size(fd_vote_t* self) {
+  ulong size = 0;
+  size += sizeof(ulong);
+  size += self->slots_len * sizeof(ulong);
+  size += fd_hash_size(&self->hash);
+  size += sizeof(char);
+  if (NULL !=  self->timestamp) {
+    size += sizeof(ulong);
+  }
+  return size;
+}
+
+void fd_vote_encode(fd_vote_t* self, void const** data) {
+  fd_bincode_uint64_encode(&self->slots_len, data);
+  if (self->slots_len != 0) {
+    for (ulong i = 0; i < self->slots_len; ++i)
+      fd_bincode_uint64_encode(self->slots + i, data);
+  }
+  fd_hash_encode(&self->hash, data);
+  if (self->timestamp!= NULL) {
+    fd_bincode_option_encode(1, data);
+    fd_bincode_uint64_encode(self->timestamp, data);
+  } else
+    fd_bincode_option_encode(0, data);
+}
+

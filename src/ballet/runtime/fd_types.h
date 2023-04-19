@@ -768,6 +768,17 @@ typedef struct fd_firedancer_banks fd_firedancer_banks_t;
 #define FD_FIREDANCER_BANKS_FOOTPRINT sizeof(fd_firedancer_banks_t)
 #define FD_FIREDANCER_BANKS_ALIGN (8UL)
 
+/* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L133 */
+struct fd_vote {
+  ulong          slots_len;
+  unsigned long* slots;
+  fd_hash_t      hash;
+  unsigned long* timestamp;
+};
+typedef struct fd_vote fd_vote_t;
+#define FD_VOTE_FOOTPRINT sizeof(fd_vote_t)
+#define FD_VOTE_ALIGN (8UL)
+
 
 FD_PROTOTYPES_BEGIN
 
@@ -1105,6 +1116,11 @@ void fd_firedancer_banks_decode(fd_firedancer_banks_t* self, void const** data, 
 void fd_firedancer_banks_encode(fd_firedancer_banks_t* self, void const** data);
 void fd_firedancer_banks_destroy(fd_firedancer_banks_t* self, fd_free_fun_t freef, void* freef_arg);
 ulong fd_firedancer_banks_size(fd_firedancer_banks_t* self);
+
+void fd_vote_decode(fd_vote_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
+void fd_vote_encode(fd_vote_t* self, void const** data);
+void fd_vote_destroy(fd_vote_t* self, fd_free_fun_t freef, void* freef_arg);
+ulong fd_vote_size(fd_vote_t* self);
 
 FD_PROTOTYPES_END
 

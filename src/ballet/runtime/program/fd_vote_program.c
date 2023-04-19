@@ -21,7 +21,78 @@ int fd_executor_vote_program_execute_instruction(
 
     FD_LOG_INFO(( "decoded vote program discriminant: %d", discrimant ));
 
-    if ( discrimant == 8 ) {
+    if ( discrimant == 2 ) {
+      /* VoteInstruction::Vote instruction
+         https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_instruction.rs#L39-L46
+       */
+      FD_LOG_INFO(( "executing VoteInstruction::Vote instruction" ));
+
+      /* Check that the accounts are correct */
+      uchar * instr_acc_idxs = ((uchar *)ctx.txn_raw->raw + ctx.instr->acct_off);
+      fd_pubkey_t * txn_accs = (fd_pubkey_t *)((uchar *)ctx.txn_raw->raw + ctx.txn_descriptor->acct_addr_off);
+      fd_pubkey_t * vote_acc = &txn_accs[instr_acc_idxs[0]];
+
+      /* Ensure that keyed account 1 is the slot hashes sysvar */
+      if ( memcmp( &txn_accs[instr_acc_idxs[1]], ctx.global->sysvar_slot_hashes, sizeof(fd_pubkey_t) ) != 0 ) {
+        return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+      }
+
+      /* Ensure that keyed account 2 is the clock sysvar */
+      if ( memcmp( &txn_accs[instr_acc_idxs[2]], ctx.global->sysvar_clock, sizeof(fd_pubkey_t) ) != 0 ) {
+        return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+      }
+
+      /* Decode the vote instruction */
+      fd_vote_t vote;
+      fd_vote_decode(&vote, input_ptr, dataend, ctx.global->allocf, ctx.global->allocf_arg);
+
+      /* Read vote account state stored in the vote account data */
+      fd_account_meta_t metadata;
+      int read_result = fd_acc_mgr_get_metadata( ctx.global->acc_mgr, ctx.global->funk_txn, vote_acc, &metadata );
+      if ( FD_UNLIKELY( read_result != FD_ACC_MGR_SUCCESS ) ) {
+        FD_LOG_WARNING(( "failed to read account metadata" ));
+        return read_result;
+      }
+      uchar *vota_acc_data = (uchar *)(ctx.global->allocf)(ctx.global->allocf_arg, 8UL, metadata.dlen);
+      read_result = fd_acc_mgr_get_account_data( ctx.global->acc_mgr, ctx.global->funk_txn, vote_acc, (uchar*)vota_acc_data, sizeof(fd_account_meta_t), metadata.dlen );
+      if ( read_result != FD_ACC_MGR_SUCCESS ) {
+        FD_LOG_WARNING(( "failed to read account data" ));
+        return read_result;
+      }
+
+      /* The vote account data structure is versioned, so we decode the VoteStateVersions enum
+         https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/vote_state_versions.rs#L4
+       */
+      input     = (void *)vota_acc_data;
+      input_ptr = (const void **)&input;
+      dataend   = (void*)&vota_acc_data[metadata.dlen];
+
+      /* Decode the disciminant */
+      discrimant  = 0;
+      fd_bincode_uint32_decode( &discrimant, input_ptr, dataend );
+      if ( discrimant != 1 ) {
+          /* TODO: support legacy V0_23_5 vote state layout */
+          FD_LOG_ERR(( "unsupported vote account state version: discrimant: %d", discrimant ));
+          return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+      }
+
+      /* Decode the current vote state */
+      fd_vote_state_t vote_state;
+      fd_vote_state_decode(&vote_state, input_ptr, dataend, ctx.global->allocf, ctx.global->allocf_arg);
+
+      /* Check that the vote state account is initialized */
+      if ( vote_state.authorized_voters_len == 0 ) {
+        return FD_EXECUTOR_INSTR_ERR_UNINITIALIZED_ACCOUNT;
+      }
+
+      /* Check that the vote slots aren't empty */
+      if ( vote.slots_len == 0 ) {        
+        /* TODO: propagate custom error code FD_VOTE_EMPTY_SLOTS */
+        return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
+      }
+
+
+    } else if ( discrimant == 8 ) {
       /* VoteInstruction::UpdateVoteState instruction
          https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_processor.rs#L174
        */
