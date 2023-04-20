@@ -50,8 +50,27 @@ void SnapshotParser_destroy(struct SnapshotParser* self) {
   free(self->tmpstart_);
 }
 
-void SnapshotParser_parsefd_solana_accounts(struct SnapshotParser* self, const void* data, size_t datalen) {
-  (void)self;
+void SnapshotParser_parsefd_solana_accounts(struct SnapshotParser* self, const char* name, const void* data, size_t datalen) {
+  ulong id, slot;
+  if (sscanf(name, "accounts/%lu.%lu", &slot, &id) != 2)
+    return;
+
+  fd_slot_account_pair_t_mapnode_t key1;
+  key1.elem.slot = slot;
+  fd_slot_account_pair_t_mapnode_t* node1 = fd_slot_account_pair_t_map_find(
+    self->accounts_->storages_pool, self->accounts_->storages_root, &key1);
+  if (node1 == NULL)
+    return;
+
+  fd_serializable_account_storage_entry_t_mapnode_t key2;
+  key2.elem.id = id;
+  fd_serializable_account_storage_entry_t_mapnode_t* node2 = fd_serializable_account_storage_entry_t_map_find(
+    node1->elem.accounts_pool, node1->elem.accounts_root, &key2);
+  if (node2 == NULL)
+    return;
+
+  if (node2->elem.accounts_current_len < datalen)
+    datalen = node2->elem.accounts_current_len;
   
   while (datalen) {
     fd_solana_account_hdr_t hdr;
@@ -62,8 +81,16 @@ void SnapshotParser_parsefd_solana_accounts(struct SnapshotParser* self, const v
     data = (const char*)data + roundedlen;
     datalen -= roundedlen;
 
-    // fd_account_meta_t metadata;
-    // int read_result = fd_acc_mgr_get_metadata( state->global->acc_mgr, state->global->funk_txn, (fd_pubkey_t *) &hdr.meta.pubkey, &metadata );
+    do {
+      fd_account_meta_t metadata;
+      int read_result = fd_acc_mgr_get_metadata( self->global_->acc_mgr, self->global_->funk_txn, (fd_pubkey_t*) &hdr.meta.pubkey, &metadata );
+      if ( FD_UNLIKELY( read_result == FD_ACC_MGR_SUCCESS ) ) {
+        if (metadata.slot > slot)
+          break;
+      }
+      if (fd_acc_mgr_write_append_vec_account( self->global_->acc_mgr, self->global_->funk_txn, slot, &hdr) != FD_ACC_MGR_SUCCESS) 
+        FD_LOG_ERR(("writing failed account"));
+    } while (0);
 
     roundedlen = (hdr.meta.data_len+7UL)&~7UL;
     if (roundedlen > datalen)
@@ -90,7 +117,7 @@ void SnapshotParser_tarEntry(void* arg, const char* name, const void* data, size
   if (datalen == 0)
     return;
   if (strncmp(name, "accounts/", sizeof("accounts/")-1) == 0)
-    SnapshotParser_parsefd_solana_accounts((struct SnapshotParser*)arg, data, datalen);
+    SnapshotParser_parsefd_solana_accounts((struct SnapshotParser*)arg, name, data, datalen);
   if (strncmp(name, "snapshots/", sizeof("snapshots/")-1) == 0 &&
       strcmp(name, "snapshots/status_cache") != 0)
     SnapshotParser_parseSnapshots((struct SnapshotParser*)arg, data, datalen);
@@ -206,6 +233,9 @@ int main(int argc, char** argv) {
     ulong cache_max = 10000;     // Maximum number of cache entries
     fd_funk_t* funk = fd_funk_new(funkfile, wksp, 2, index_max, xactions_max, cache_max);
     global->funk = funk;
+    fd_funk_xactionid_t xid;
+    global->funk_txn = &xid;
+    xid = *fd_funk_root(global->funk);
 
     struct SnapshotParser parser;
     SnapshotParser_init(&parser, global);
