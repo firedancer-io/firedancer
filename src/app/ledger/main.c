@@ -73,26 +73,23 @@ void SnapshotParser_parsefd_solana_accounts(struct SnapshotParser* self, const c
     datalen = node2->elem.accounts_current_len;
   
   while (datalen) {
-    fd_solana_account_hdr_t hdr;
-    size_t roundedlen = (sizeof(hdr)+7UL)&~7UL;
+    size_t roundedlen = (sizeof(fd_solana_account_hdr_t)+7UL)&~7UL;
     if (roundedlen > datalen)
       return;
-    memcpy(&hdr, data, sizeof(hdr));
-    data = (const char*)data + roundedlen;
-    datalen -= roundedlen;
+    fd_solana_account_hdr_t* hdr = (fd_solana_account_hdr_t*)data;
 
     do {
       fd_account_meta_t metadata;
-      int read_result = fd_acc_mgr_get_metadata( self->global_->acc_mgr, self->global_->funk_txn, (fd_pubkey_t*) &hdr.meta.pubkey, &metadata );
+      int read_result = fd_acc_mgr_get_metadata( self->global_->acc_mgr, self->global_->funk_txn, (fd_pubkey_t*) &hdr->meta.pubkey, &metadata );
       if ( FD_UNLIKELY( read_result == FD_ACC_MGR_SUCCESS ) ) {
         if (metadata.slot > slot)
           break;
       }
-      if (fd_acc_mgr_write_append_vec_account( self->global_->acc_mgr, self->global_->funk_txn, slot, &hdr) != FD_ACC_MGR_SUCCESS) 
+      if (fd_acc_mgr_write_append_vec_account( self->global_->acc_mgr, self->global_->funk_txn, slot, hdr) != FD_ACC_MGR_SUCCESS) 
         FD_LOG_ERR(("writing failed account"));
     } while (0);
 
-    roundedlen = (hdr.meta.data_len+7UL)&~7UL;
+    roundedlen = (sizeof(fd_solana_account_hdr_t)+hdr->meta.data_len+7UL)&~7UL;
     if (roundedlen > datalen)
       return;
     data = (const char*)data + roundedlen;
@@ -203,7 +200,7 @@ int main(int argc, char** argv) {
     return 1;
   }
 
-  fd_wksp_t* wksp = fd_wksp_new_anonymous( FD_SHMEM_GIGANTIC_PAGE_SZ, 15, 2, "wksp", 0UL );
+  fd_wksp_t* wksp = fd_wksp_new_anonymous( FD_SHMEM_GIGANTIC_PAGE_SZ, 18, 2, "wksp", 0UL );
 
   void * alloc_shmem = fd_wksp_alloc_laddr( wksp, fd_alloc_align(), fd_alloc_footprint(), 1 );
   void * allocf_arg = fd_alloc_join( fd_alloc_new ( alloc_shmem, 1 ), 0UL );
@@ -228,7 +225,7 @@ int main(int argc, char** argv) {
     const char* funkfile = fd_env_strip_cmdline_cstr(&argc, &argv, "--funkfile", NULL, "funkdb");
 
     unlink(funkfile);
-    ulong index_max = 100000000; // Maximum size (count) of master index
+    ulong index_max = 150000000; // Maximum size (count) of master index
     ulong xactions_max = 10;     // Maximum size (count) of transaction index
     ulong cache_max = 10000;     // Maximum number of cache entries
     fd_funk_t* funk = fd_funk_new(funkfile, wksp, 2, index_max, xactions_max, cache_max);
