@@ -64,12 +64,12 @@ int transfer(
     FD_LOG_DEBUG(("transfer: receiver balance before transfer: %lu", receiver_lamports));
 
     /* Execute the transfer */
-    int write_result = fd_acc_mgr_set_lamports( ctx.global->acc_mgr, ctx.global->funk_txn, ctx.global->current_slot , sender, sender_lamports - requested_lamports );
+    int write_result = fd_acc_mgr_set_lamports( ctx.global->acc_mgr, ctx.global->funk_txn, ctx.global->bank.solana_bank.slot , sender, sender_lamports - requested_lamports );
     if ( FD_UNLIKELY( write_result != FD_ACC_MGR_SUCCESS ) ) {
       FD_LOG_WARNING(( "failed to set sender lamports" ));
       return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
     }
-    write_result = fd_acc_mgr_set_lamports( ctx.global->acc_mgr, ctx.global->funk_txn, ctx.global->current_slot, receiver, receiver_lamports + requested_lamports );
+    write_result = fd_acc_mgr_set_lamports( ctx.global->acc_mgr, ctx.global->funk_txn, ctx.global->bank.solana_bank.slot, receiver, receiver_lamports + requested_lamports );
     if ( FD_UNLIKELY( write_result != FD_ACC_MGR_SUCCESS ) ) {
       FD_LOG_WARNING(( "failed to set receiver lamports" ));
       return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;

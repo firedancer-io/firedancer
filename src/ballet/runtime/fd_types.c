@@ -84,7 +84,7 @@ void fd_block_hash_queue_destroy(fd_block_hash_queue_t* self, fd_free_fun_t free
   }
   if (NULL != self->ages) {
     for (ulong i = 0; i < self->ages_len; ++i)
-      fd_hash_hash_age_pair_destroy(self->ages + i,  freef, freef_arg);
+      fd_hash_hash_age_pair_destroy(self->ages + i, freef, freef_arg);
     freef(freef_arg, self->ages);
     self->ages = NULL;
   }
@@ -206,7 +206,7 @@ void fd_hard_forks_decode(fd_hard_forks_t* self, void const** data, void const* 
 void fd_hard_forks_destroy(fd_hard_forks_t* self, fd_free_fun_t freef, void* freef_arg) {
   if (NULL != self->hard_forks) {
     for (ulong i = 0; i < self->hard_forks_len; ++i)
-      fd_slot_pair_destroy(self->hard_forks + i,  freef, freef_arg);
+      fd_slot_pair_destroy(self->hard_forks + i, freef, freef_arg);
     freef(freef_arg, self->hard_forks);
     self->hard_forks = NULL;
   }
@@ -362,7 +362,7 @@ void fd_stake_history_decode(fd_stake_history_t* self, void const** data, void c
 void fd_stake_history_destroy(fd_stake_history_t* self, fd_free_fun_t freef, void* freef_arg) {
   if (NULL != self->entries) {
     for (ulong i = 0; i < self->entries_len; ++i)
-      fd_stake_history_epochentry_pair_destroy(self->entries + i,  freef, freef_arg);
+      fd_stake_history_epochentry_pair_destroy(self->entries + i, freef, freef_arg);
     freef(freef_arg, self->entries);
     self->entries = NULL;
   }
@@ -462,7 +462,7 @@ void fd_vote_accounts_decode(fd_vote_accounts_t* self, void const** data, void c
 void fd_vote_accounts_destroy(fd_vote_accounts_t* self, fd_free_fun_t freef, void* freef_arg) {
   if (NULL != self->vote_accounts) {
     for (ulong i = 0; i < self->vote_accounts_len; ++i)
-      fd_vote_accounts_pair_destroy(self->vote_accounts + i,  freef, freef_arg);
+      fd_vote_accounts_pair_destroy(self->vote_accounts + i, freef, freef_arg);
     freef(freef_arg, self->vote_accounts);
     self->vote_accounts = NULL;
   }
@@ -551,7 +551,7 @@ void fd_stakes_delegation_destroy(fd_stakes_delegation_t* self, fd_free_fun_t fr
   fd_vote_accounts_destroy(&self->vote_accounts, freef, freef_arg);
   if (NULL != self->stake_delegations) {
     for (ulong i = 0; i < self->stake_delegations_len; ++i)
-      fd_delegation_pair_destroy(self->stake_delegations + i,  freef, freef_arg);
+      fd_delegation_pair_destroy(self->stake_delegations + i, freef, freef_arg);
     freef(freef_arg, self->stake_delegations);
     self->stake_delegations = NULL;
   }
@@ -625,7 +625,7 @@ void fd_node_vote_accounts_decode(fd_node_vote_accounts_t* self, void const** da
 void fd_node_vote_accounts_destroy(fd_node_vote_accounts_t* self, fd_free_fun_t freef, void* freef_arg) {
   if (NULL != self->vote_accounts) {
     for (ulong i = 0; i < self->vote_accounts_len; ++i)
-      fd_pubkey_destroy(self->vote_accounts + i,  freef, freef_arg);
+      fd_pubkey_destroy(self->vote_accounts + i, freef, freef_arg);
     freef(freef_arg, self->vote_accounts);
     self->vote_accounts = NULL;
   }
@@ -713,13 +713,13 @@ void fd_epoch_stakes_destroy(fd_epoch_stakes_t* self, fd_free_fun_t freef, void*
   fd_stakes_delegation_destroy(&self->stakes, freef, freef_arg);
   if (NULL != self->node_id_to_vote_accounts) {
     for (ulong i = 0; i < self->node_id_to_vote_accounts_len; ++i)
-      fd_pubkey_node_vote_accounts_pair_destroy(self->node_id_to_vote_accounts + i,  freef, freef_arg);
+      fd_pubkey_node_vote_accounts_pair_destroy(self->node_id_to_vote_accounts + i, freef, freef_arg);
     freef(freef_arg, self->node_id_to_vote_accounts);
     self->node_id_to_vote_accounts = NULL;
   }
   if (NULL != self->epoch_authorized_voters) {
     for (ulong i = 0; i < self->epoch_authorized_voters_len; ++i)
-      fd_pubkey_pubkey_pair_destroy(self->epoch_authorized_voters + i,  freef, freef_arg);
+      fd_pubkey_pubkey_pair_destroy(self->epoch_authorized_voters + i, freef, freef_arg);
     freef(freef_arg, self->epoch_authorized_voters);
     self->epoch_authorized_voters = NULL;
   }
@@ -819,19 +819,19 @@ void fd_unused_accounts_decode(fd_unused_accounts_t* self, void const** data, vo
 void fd_unused_accounts_destroy(fd_unused_accounts_t* self, fd_free_fun_t freef, void* freef_arg) {
   if (NULL != self->unused1) {
     for (ulong i = 0; i < self->unused1_len; ++i)
-      fd_pubkey_destroy(self->unused1 + i,  freef, freef_arg);
+      fd_pubkey_destroy(self->unused1 + i, freef, freef_arg);
     freef(freef_arg, self->unused1);
     self->unused1 = NULL;
   }
   if (NULL != self->unused2) {
     for (ulong i = 0; i < self->unused2_len; ++i)
-      fd_pubkey_destroy(self->unused2 + i,  freef, freef_arg);
+      fd_pubkey_destroy(self->unused2 + i, freef, freef_arg);
     freef(freef_arg, self->unused2);
     self->unused2 = NULL;
   }
   if (NULL != self->unused3) {
     for (ulong i = 0; i < self->unused3_len; ++i)
-      fd_pubkey_u64_pair_destroy(self->unused3 + i,  freef, freef_arg);
+      fd_pubkey_u64_pair_destroy(self->unused3 + i, freef, freef_arg);
     freef(freef_arg, self->unused3);
     self->unused3 = NULL;
   }
@@ -923,7 +923,7 @@ void fd_deserializable_versioned_bank_destroy(fd_deserializable_versioned_bank_t
   fd_block_hash_queue_destroy(&self->blockhash_queue, freef, freef_arg);
   if (NULL != self->ancestors) {
     for (ulong i = 0; i < self->ancestors_len; ++i)
-      fd_slot_pair_destroy(self->ancestors + i,  freef, freef_arg);
+      fd_slot_pair_destroy(self->ancestors + i, freef, freef_arg);
     freef(freef_arg, self->ancestors);
     self->ancestors = NULL;
   }
@@ -944,7 +944,7 @@ void fd_deserializable_versioned_bank_destroy(fd_deserializable_versioned_bank_t
   fd_unused_accounts_destroy(&self->unused_accounts, freef, freef_arg);
   if (NULL != self->epoch_stakes) {
     for (ulong i = 0; i < self->epoch_stakes_len; ++i)
-      fd_epoch_epoch_stakes_pair_destroy(self->epoch_stakes + i,  freef, freef_arg);
+      fd_epoch_epoch_stakes_pair_destroy(self->epoch_stakes + i, freef, freef_arg);
     freef(freef_arg, self->epoch_stakes);
     self->epoch_stakes = NULL;
   }
@@ -1115,38 +1115,42 @@ void fd_bank_hash_info_encode(fd_bank_hash_info_t* self, void const** data) {
 
 void fd_slot_account_pair_decode(fd_slot_account_pair_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
   fd_bincode_uint64_decode(&self->slot, data, dataend);
-  fd_bincode_uint64_decode(&self->accounts_len, data, dataend);
-  if (self->accounts_len != 0) {
-    self->accounts = (fd_serializable_account_storage_entry_t*)(*allocf)(allocf_arg, FD_SERIALIZABLE_ACCOUNT_STORAGE_ENTRY_ALIGN, FD_SERIALIZABLE_ACCOUNT_STORAGE_ENTRY_FOOTPRINT*self->accounts_len);
-    for (ulong i = 0; i < self->accounts_len; ++i)
-      fd_serializable_account_storage_entry_decode(self->accounts + i, data, dataend, allocf, allocf_arg);
-  } else
-    self->accounts = NULL;
+  ulong accounts_len;
+  fd_bincode_uint64_decode(&accounts_len, data, dataend);
+  void* accounts_mem = (*allocf)(allocf_arg, fd_serializable_account_storage_entry_t_map_pool_align(), fd_serializable_account_storage_entry_t_map_pool_footprint(accounts_len+1));
+  self->accounts_pool = fd_serializable_account_storage_entry_t_map_pool_join(fd_serializable_account_storage_entry_t_map_pool_new(accounts_mem, accounts_len+1));
+  self->accounts_root = NULL;
+  for (ulong i = 0; i < accounts_len; ++i) {
+    fd_serializable_account_storage_entry_t_mapnode_t* node = fd_serializable_account_storage_entry_t_map_pool_allocate(self->accounts_pool);
+    fd_serializable_account_storage_entry_decode(&node->elem, data, dataend, allocf, allocf_arg);
+    fd_serializable_account_storage_entry_t_map_insert(self->accounts_pool, &self->accounts_root, node);
+  }
 }
 void fd_slot_account_pair_destroy(fd_slot_account_pair_t* self, fd_free_fun_t freef, void* freef_arg) {
-  if (NULL != self->accounts) {
-    for (ulong i = 0; i < self->accounts_len; ++i)
-      fd_serializable_account_storage_entry_destroy(self->accounts + i,  freef, freef_arg);
-    freef(freef_arg, self->accounts);
-    self->accounts = NULL;
+  for ( fd_serializable_account_storage_entry_t_mapnode_t* n = fd_serializable_account_storage_entry_t_map_minimum(self->accounts_pool, self->accounts_root); n; n = fd_serializable_account_storage_entry_t_map_successor(self->accounts_pool, n) ) {
+    fd_serializable_account_storage_entry_destroy(&n->elem, freef, freef_arg);
   }
+  freef(freef_arg, fd_serializable_account_storage_entry_t_map_pool_delete(fd_serializable_account_storage_entry_t_map_pool_leave(self->accounts_pool)));
+  self->accounts_pool = NULL;
+  self->accounts_root = NULL;
 }
 
 ulong fd_slot_account_pair_size(fd_slot_account_pair_t* self) {
   ulong size = 0;
   size += sizeof(ulong);
   size += sizeof(ulong);
-  for (ulong i = 0; i < self->accounts_len; ++i)
-    size += fd_serializable_account_storage_entry_size(self->accounts + i);
+  for ( fd_serializable_account_storage_entry_t_mapnode_t* n = fd_serializable_account_storage_entry_t_map_minimum(self->accounts_pool, self->accounts_root); n; n = fd_serializable_account_storage_entry_t_map_successor(self->accounts_pool, n) ) {
+    size += fd_serializable_account_storage_entry_size(&n->elem);
+  }
   return size;
 }
 
 void fd_slot_account_pair_encode(fd_slot_account_pair_t* self, void const** data) {
   fd_bincode_uint64_encode(&self->slot, data);
-  fd_bincode_uint64_encode(&self->accounts_len, data);
-  if (self->accounts_len != 0) {
-    for (ulong i = 0; i < self->accounts_len; ++i)
-      fd_serializable_account_storage_entry_encode(self->accounts + i, data);
+  ulong accounts_len = fd_serializable_account_storage_entry_t_map_size(self->accounts_pool, self->accounts_root);
+  fd_bincode_uint64_encode(&accounts_len, data);
+  for ( fd_serializable_account_storage_entry_t_mapnode_t* n = fd_serializable_account_storage_entry_t_map_minimum(self->accounts_pool, self->accounts_root); n; n = fd_serializable_account_storage_entry_t_map_successor(self->accounts_pool, n) ) {
+    fd_serializable_account_storage_entry_encode(&n->elem, data);
   }
 }
 
@@ -1171,13 +1175,16 @@ void fd_slot_map_pair_encode(fd_slot_map_pair_t* self, void const** data) {
 }
 
 void fd_solana_accounts_db_fields_decode(fd_solana_accounts_db_fields_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
-  fd_bincode_uint64_decode(&self->storages_len, data, dataend);
-  if (self->storages_len != 0) {
-    self->storages = (fd_slot_account_pair_t*)(*allocf)(allocf_arg, FD_SLOT_ACCOUNT_PAIR_ALIGN, FD_SLOT_ACCOUNT_PAIR_FOOTPRINT*self->storages_len);
-    for (ulong i = 0; i < self->storages_len; ++i)
-      fd_slot_account_pair_decode(self->storages + i, data, dataend, allocf, allocf_arg);
-  } else
-    self->storages = NULL;
+  ulong storages_len;
+  fd_bincode_uint64_decode(&storages_len, data, dataend);
+  void* storages_mem = (*allocf)(allocf_arg, fd_slot_account_pair_t_map_pool_align(), fd_slot_account_pair_t_map_pool_footprint(storages_len+1));
+  self->storages_pool = fd_slot_account_pair_t_map_pool_join(fd_slot_account_pair_t_map_pool_new(storages_mem, storages_len+1));
+  self->storages_root = NULL;
+  for (ulong i = 0; i < storages_len; ++i) {
+    fd_slot_account_pair_t_mapnode_t* node = fd_slot_account_pair_t_map_pool_allocate(self->storages_pool);
+    fd_slot_account_pair_decode(&node->elem, data, dataend, allocf, allocf_arg);
+    fd_slot_account_pair_t_map_insert(self->storages_pool, &self->storages_root, node);
+  }
   fd_bincode_uint64_decode(&self->version, data, dataend);
   fd_bincode_uint64_decode(&self->slot, data, dataend);
   fd_bank_hash_info_decode(&self->bank_hash_info, data, dataend, allocf, allocf_arg);
@@ -1197,12 +1204,12 @@ void fd_solana_accounts_db_fields_decode(fd_solana_accounts_db_fields_t* self, v
     self->historical_roots_with_hash = NULL;
 }
 void fd_solana_accounts_db_fields_destroy(fd_solana_accounts_db_fields_t* self, fd_free_fun_t freef, void* freef_arg) {
-  if (NULL != self->storages) {
-    for (ulong i = 0; i < self->storages_len; ++i)
-      fd_slot_account_pair_destroy(self->storages + i,  freef, freef_arg);
-    freef(freef_arg, self->storages);
-    self->storages = NULL;
+  for ( fd_slot_account_pair_t_mapnode_t* n = fd_slot_account_pair_t_map_minimum(self->storages_pool, self->storages_root); n; n = fd_slot_account_pair_t_map_successor(self->storages_pool, n) ) {
+    fd_slot_account_pair_destroy(&n->elem, freef, freef_arg);
   }
+  freef(freef_arg, fd_slot_account_pair_t_map_pool_delete(fd_slot_account_pair_t_map_pool_leave(self->storages_pool)));
+  self->storages_pool = NULL;
+  self->storages_root = NULL;
   fd_bank_hash_info_destroy(&self->bank_hash_info, freef, freef_arg);
   if (NULL != self->historical_roots) {
     freef(freef_arg, self->historical_roots);
@@ -1210,7 +1217,7 @@ void fd_solana_accounts_db_fields_destroy(fd_solana_accounts_db_fields_t* self, 
   }
   if (NULL != self->historical_roots_with_hash) {
     for (ulong i = 0; i < self->historical_roots_with_hash_len; ++i)
-      fd_slot_map_pair_destroy(self->historical_roots_with_hash + i,  freef, freef_arg);
+      fd_slot_map_pair_destroy(self->historical_roots_with_hash + i, freef, freef_arg);
     freef(freef_arg, self->historical_roots_with_hash);
     self->historical_roots_with_hash = NULL;
   }
@@ -1219,8 +1226,9 @@ void fd_solana_accounts_db_fields_destroy(fd_solana_accounts_db_fields_t* self, 
 ulong fd_solana_accounts_db_fields_size(fd_solana_accounts_db_fields_t* self) {
   ulong size = 0;
   size += sizeof(ulong);
-  for (ulong i = 0; i < self->storages_len; ++i)
-    size += fd_slot_account_pair_size(self->storages + i);
+  for ( fd_slot_account_pair_t_mapnode_t* n = fd_slot_account_pair_t_map_minimum(self->storages_pool, self->storages_root); n; n = fd_slot_account_pair_t_map_successor(self->storages_pool, n) ) {
+    size += fd_slot_account_pair_size(&n->elem);
+  }
   size += sizeof(ulong);
   size += sizeof(ulong);
   size += fd_bank_hash_info_size(&self->bank_hash_info);
@@ -1233,10 +1241,10 @@ ulong fd_solana_accounts_db_fields_size(fd_solana_accounts_db_fields_t* self) {
 }
 
 void fd_solana_accounts_db_fields_encode(fd_solana_accounts_db_fields_t* self, void const** data) {
-  fd_bincode_uint64_encode(&self->storages_len, data);
-  if (self->storages_len != 0) {
-    for (ulong i = 0; i < self->storages_len; ++i)
-      fd_slot_account_pair_encode(self->storages + i, data);
+  ulong storages_len = fd_slot_account_pair_t_map_size(self->storages_pool, self->storages_root);
+  fd_bincode_uint64_encode(&storages_len, data);
+  for ( fd_slot_account_pair_t_mapnode_t* n = fd_slot_account_pair_t_map_minimum(self->storages_pool, self->storages_root); n; n = fd_slot_account_pair_t_map_successor(self->storages_pool, n) ) {
+    fd_slot_account_pair_encode(&n->elem, data);
   }
   fd_bincode_uint64_encode(&self->version, data);
   fd_bincode_uint64_encode(&self->slot, data);
@@ -1412,19 +1420,19 @@ void fd_genesis_solana_decode(fd_genesis_solana_t* self, void const** data, void
 void fd_genesis_solana_destroy(fd_genesis_solana_t* self, fd_free_fun_t freef, void* freef_arg) {
   if (NULL != self->accounts) {
     for (ulong i = 0; i < self->accounts_len; ++i)
-      fd_pubkey_account_pair_destroy(self->accounts + i,  freef, freef_arg);
+      fd_pubkey_account_pair_destroy(self->accounts + i, freef, freef_arg);
     freef(freef_arg, self->accounts);
     self->accounts = NULL;
   }
   if (NULL != self->native_instruction_processors) {
     for (ulong i = 0; i < self->native_instruction_processors_len; ++i)
-      fd_string_pubkey_pair_destroy(self->native_instruction_processors + i,  freef, freef_arg);
+      fd_string_pubkey_pair_destroy(self->native_instruction_processors + i, freef, freef_arg);
     freef(freef_arg, self->native_instruction_processors);
     self->native_instruction_processors = NULL;
   }
   if (NULL != self->rewards_pools) {
     for (ulong i = 0; i < self->rewards_pools_len; ++i)
-      fd_pubkey_account_pair_destroy(self->rewards_pools + i,  freef, freef_arg);
+      fd_pubkey_account_pair_destroy(self->rewards_pools + i, freef, freef_arg);
     freef(freef_arg, self->rewards_pools);
     self->rewards_pools = NULL;
   }
@@ -1768,7 +1776,7 @@ void fd_vote_state_destroy(fd_vote_state_t* self, fd_free_fun_t freef, void* fre
   }
   if (NULL != self->authorized_voters) {
     for (ulong i = 0; i < self->authorized_voters_len; ++i)
-      fd_vote_historical_authorized_voter_destroy(self->authorized_voters + i,  freef, freef_arg);
+      fd_vote_historical_authorized_voter_destroy(self->authorized_voters + i, freef, freef_arg);
     freef(freef_arg, self->authorized_voters);
     self->authorized_voters = NULL;
   }
@@ -1847,7 +1855,7 @@ void fd_vote_state_update_decode(fd_vote_state_update_t* self, void const** data
 void fd_vote_state_update_destroy(fd_vote_state_update_t* self, fd_free_fun_t freef, void* freef_arg) {
   if (NULL != self->lockouts) {
     for (ulong i = 0; i < self->lockouts_len; ++i)
-      fd_vote_lockout_destroy(self->lockouts + i,  freef, freef_arg);
+      fd_vote_lockout_destroy(self->lockouts + i, freef, freef_arg);
     freef(freef_arg, self->lockouts);
     self->lockouts = NULL;
   }
@@ -1917,7 +1925,7 @@ void fd_compact_vote_state_update_decode(fd_compact_vote_state_update_t* self, v
 void fd_compact_vote_state_update_destroy(fd_compact_vote_state_update_t* self, fd_free_fun_t freef, void* freef_arg) {
   if (NULL != self->lockouts) {
     for (ulong i = 0; i < self->lockouts_len; ++i)
-      fd_compact_vote_lockout_destroy(self->lockouts + i,  freef, freef_arg);
+      fd_compact_vote_lockout_destroy(self->lockouts + i, freef, freef_arg);
     freef(freef_arg, self->lockouts);
     self->lockouts = NULL;
   }
@@ -2312,7 +2320,7 @@ void fd_stake_config_decode(fd_stake_config_t* self, void const** data, void con
 void fd_stake_config_destroy(fd_stake_config_t* self, fd_free_fun_t freef, void* freef_arg) {
   if (NULL != self->config_keys) {
     for (ulong i = 0; i < self->config_keys_len; ++i)
-      fd_config_keys_pair_destroy(self->config_keys + i,  freef, freef_arg);
+      fd_config_keys_pair_destroy(self->config_keys + i, freef, freef_arg);
     freef(freef_arg, self->config_keys);
     self->config_keys = NULL;
   }
@@ -2338,3 +2346,81 @@ void fd_stake_config_encode(fd_stake_config_t* self, void const** data) {
   fd_bincode_uint8_encode(&self->slash_penalty, data);
 }
 
+void fd_firedancer_banks_decode(fd_firedancer_banks_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
+  fd_deserializable_versioned_bank_decode(&self->solana_bank, data, dataend, allocf, allocf_arg);
+}
+void fd_firedancer_banks_destroy(fd_firedancer_banks_t* self, fd_free_fun_t freef, void* freef_arg) {
+  fd_deserializable_versioned_bank_destroy(&self->solana_bank, freef, freef_arg);
+}
+
+ulong fd_firedancer_banks_size(fd_firedancer_banks_t* self) {
+  ulong size = 0;
+  size += fd_deserializable_versioned_bank_size(&self->solana_bank);
+  return size;
+}
+
+void fd_firedancer_banks_encode(fd_firedancer_banks_t* self, void const** data) {
+  fd_deserializable_versioned_bank_encode(&self->solana_bank, data);
+}
+
+void fd_vote_decode(fd_vote_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
+  fd_vec_ulong_new(&self->slots);
+  ulong slots_len;
+  fd_bincode_uint64_decode(&slots_len, data, dataend);
+  for (ulong i = 0; i < slots_len; ++i) {
+    ulong elem;
+    fd_bincode_uint64_decode(&elem, data, dataend);
+    fd_vec_ulong_push(&self->slots, elem);
+  }
+  fd_hash_decode(&self->hash, data, dataend, allocf, allocf_arg);
+  if (fd_bincode_option_decode(data, dataend)) {
+    self->timestamp = (ulong*)(*allocf)(allocf_arg, 8, sizeof(ulong));
+    fd_bincode_uint64_decode(self->timestamp, data, dataend);
+  } else
+    self->timestamp = NULL;
+}
+void fd_vote_destroy(fd_vote_t* self, fd_free_fun_t freef, void* freef_arg) {
+  fd_vec_ulong_destroy(&self->slots);
+  fd_hash_destroy(&self->hash, freef, freef_arg);
+  if (NULL != self->timestamp) {
+    freef(freef_arg, self->timestamp);
+    self->timestamp = NULL;
+  }
+}
+
+ulong fd_vote_size(fd_vote_t* self) {
+  ulong size = 0;
+  size += sizeof(ulong);
+  size += self->slots.cnt * sizeof(ulong);
+  size += fd_hash_size(&self->hash);
+  size += sizeof(char);
+  if (NULL !=  self->timestamp) {
+    size += sizeof(ulong);
+  }
+  return size;
+}
+
+void fd_vote_encode(fd_vote_t* self, void const** data) {
+  fd_bincode_uint64_encode(&self->slots.cnt, data);
+  for (ulong i = 0; i < self->slots.cnt; ++i)
+    fd_bincode_uint64_encode(&self->slots.elems[i], data);
+  fd_hash_encode(&self->hash, data);
+  if (self->timestamp!= NULL) {
+    fd_bincode_option_encode(1, data);
+    fd_bincode_uint64_encode(self->timestamp, data);
+  } else
+    fd_bincode_option_encode(0, data);
+}
+
+#define REDBLK_T fd_serializable_account_storage_entry_t_mapnode_t
+#define REDBLK_NAME fd_serializable_account_storage_entry_t_map
+#include "../../util/tmpl/fd_redblack.c"
+long fd_serializable_account_storage_entry_t_map_compare(fd_serializable_account_storage_entry_t_mapnode_t * left, fd_serializable_account_storage_entry_t_mapnode_t * right) {
+  return (long)(left->elem.id - right->elem.id);
+}
+#define REDBLK_T fd_slot_account_pair_t_mapnode_t
+#define REDBLK_NAME fd_slot_account_pair_t_map
+#include "../../util/tmpl/fd_redblack.c"
+long fd_slot_account_pair_t_map_compare(fd_slot_account_pair_t_mapnode_t * left, fd_slot_account_pair_t_mapnode_t * right) {
+  return (long)(left->elem.slot - right->elem.slot);
+}

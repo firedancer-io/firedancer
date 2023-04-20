@@ -16,6 +16,8 @@ fi
 
 # we could ALWAYS run it with logging except when I run this from the command line, I want less noise...
 
+set -x
+
 build/linux/gcc/x86_64/unit-test/test_runtime --ledger test-ledger-4 --db /tmp/funk$$ --cmd replay --accounts test-ledger-4/accounts/ --pages 15 --index-max 120000000 --start-slot 0 --end-slot 25  --confirm_hash AsHedZaZkabNtB8XBiKWQkKwaeLy2y4Hrqm6MkQALT5h --confirm_parent CvgPeR54qpVRZGBuiQztGXecxSXREPfTF8wALujK4WdE --confirm_account_delta 7PL6JZgcNy5vkPSc6JsMHET9dvpvsFMWR734VtCG29xN  --confirm_signature 2  --confirm_last_block G4YL2SieHDGNZGjiwBsJESK7jMDfazg33ievuCwbkjrv
 
 status=$?

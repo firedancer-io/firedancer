@@ -3,6 +3,7 @@
 #include "../../../ballet/txn/fd_compact_u16.h"
 #include "../fd_runtime.h"
 #include "../../base58/fd_base58.h"
+#include "../sysvar/fd_sysvar.h"
 
 int fd_executor_vote_program_execute_instruction(
     instruction_ctx_t ctx
@@ -21,7 +22,172 @@ int fd_executor_vote_program_execute_instruction(
 
     FD_LOG_INFO(( "decoded vote program discriminant: %d", discrimant ));
 
-    if ( discrimant == 8 ) {
+    if ( discrimant == 2 ) {
+      /* VoteInstruction::Vote instruction
+         https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_instruction.rs#L39-L46
+       */
+      FD_LOG_INFO(( "executing VoteInstruction::Vote instruction" ));
+
+      /* Check that the accounts are correct */
+      uchar * instr_acc_idxs = ((uchar *)ctx.txn_raw->raw + ctx.instr->acct_off);
+      fd_pubkey_t * txn_accs = (fd_pubkey_t *)((uchar *)ctx.txn_raw->raw + ctx.txn_descriptor->acct_addr_off);
+      fd_pubkey_t * vote_acc = &txn_accs[instr_acc_idxs[0]];
+
+      /* Ensure that keyed account 1 is the slot hashes sysvar */
+      if ( memcmp( &txn_accs[instr_acc_idxs[1]], ctx.global->sysvar_slot_hashes, sizeof(fd_pubkey_t) ) != 0 ) {
+        return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+      }
+
+      /* Ensure that keyed account 2 is the clock sysvar */
+      if ( memcmp( &txn_accs[instr_acc_idxs[2]], ctx.global->sysvar_clock, sizeof(fd_pubkey_t) ) != 0 ) {
+        return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+      }
+
+      /* Decode the vote instruction */
+      fd_vote_t vote;
+      fd_vote_decode(&vote, input_ptr, dataend, ctx.global->allocf, ctx.global->allocf_arg);
+
+      /* Read vote account state stored in the vote account data */
+      fd_account_meta_t metadata;
+      int read_result = fd_acc_mgr_get_metadata( ctx.global->acc_mgr, ctx.global->funk_txn, vote_acc, &metadata );
+      if ( FD_UNLIKELY( read_result != FD_ACC_MGR_SUCCESS ) ) {
+        FD_LOG_WARNING(( "failed to read account metadata" ));
+        return read_result;
+      }
+      uchar *vota_acc_data = (uchar *)(ctx.global->allocf)(ctx.global->allocf_arg, 8UL, metadata.dlen);
+      read_result = fd_acc_mgr_get_account_data( ctx.global->acc_mgr, ctx.global->funk_txn, vote_acc, (uchar*)vota_acc_data, sizeof(fd_account_meta_t), metadata.dlen );
+      if ( read_result != FD_ACC_MGR_SUCCESS ) {
+        FD_LOG_WARNING(( "failed to read account data" ));
+        return read_result;
+      }
+
+      /* The vote account data structure is versioned, so we decode the VoteStateVersions enum
+         https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/vote_state_versions.rs#L4
+       */
+      input     = (void *)vota_acc_data;
+      input_ptr = (const void **)&input;
+      dataend   = (void*)&vota_acc_data[metadata.dlen];
+
+      /* Decode the disciminant */
+      discrimant  = 0;
+      fd_bincode_uint32_decode( &discrimant, input_ptr, dataend );
+      if ( discrimant != 1 ) {
+          /* TODO: support legacy V0_23_5 vote state layout */
+          FD_LOG_ERR(( "unsupported vote account state version: discrimant: %d", discrimant ));
+          return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+      }
+
+      /* Decode the current vote state */
+      fd_vote_state_t vote_state;
+      fd_vote_state_decode(&vote_state, input_ptr, dataend, ctx.global->allocf, ctx.global->allocf_arg);
+
+      /* Check that the vote state account is initialized */
+      if ( vote_state.authorized_voters_len == 0 ) {
+        return FD_EXECUTOR_INSTR_ERR_UNINITIALIZED_ACCOUNT;
+      }
+
+      /* Get the current authorized voter for the current epoch */
+      /* TODO: handle epoch rollover */
+      fd_pubkey_t authorized_voter = vote_state.authorized_voters->pubkey;
+
+      /* Check that the authorized voter for this epoch has signed the vote transaction
+         https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L1265
+       */
+      uchar authorized_voter_signed = 0;
+      for ( ulong i = 0; i < ctx.instr->acct_cnt; i++ ) {
+        if ( instr_acc_idxs[i] < ctx.txn_descriptor->signature_cnt ) {
+          fd_pubkey_t * signer = &txn_accs[instr_acc_idxs[0]];
+          if ( !memcmp( signer, &authorized_voter, sizeof(fd_pubkey_t) ) ) {
+            authorized_voter_signed = 1;
+            break;
+          }
+        }
+      }
+      if ( !authorized_voter_signed ) {
+        return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
+      }
+
+      /* Process the vote
+         https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L902
+       */
+      
+      /* Check that the vote slots aren't empty */
+      if ( vote.slots.cnt == 0 ) {        
+        /* TODO: propagate custom error code FD_VOTE_EMPTY_SLOTS */
+        return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
+      }
+
+      /* Filter out vote slots older than the earliest slot present in the slot hashes history.
+         https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L912-L926
+       */
+      fd_slot_hashes_t slot_hashes;
+      fd_sysvar_slot_hashes_read( ctx.global, &slot_hashes );
+
+      ulong earliest_slot_in_history = 0;
+      if ( slot_hashes.hashes.cnt > 0 ) {
+        earliest_slot_in_history = slot_hashes.hashes.elems[ slot_hashes.hashes.cnt - 1 ].slot;
+      }
+
+      fd_vec_ulong_t vote_slots;
+      fd_vec_ulong_new( &vote_slots );
+      for ( ulong i = 0; i < vote.slots.cnt; i++ ) {
+        if ( vote.slots.elems[i] >= earliest_slot_in_history ) {
+          fd_vec_ulong_push( &vote_slots, vote.slots.elems[i] );
+        }
+      } 
+
+      if ( vote_slots.cnt == 0 ) {
+        /* TODO: propagate custom error code FD_VOTE_VOTES_TOO_OLD_ALL_FILTERED */
+        return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
+      }
+
+      /* Check the vote slots are valid:
+         - The vote tower contains at least one slot that is newer than the last slot we have currently voted on.
+         - Each slot in the vote tower is present in the slot hashes.
+         - The vote's hash matches the slot hashes entry for the newest slot in the vote tower.
+
+         https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L658
+       */
+      ulong vote_idx = 0;
+      ulong slot_hash_idx = slot_hashes.hashes.cnt;
+      while ( vote_idx < vote_slots.cnt && slot_hash_idx > 0 ) {
+
+        /* Skip to the smallest vote slot that is newer than the last slot we previously voted on.  */
+        if ( ( vote_state.votes.cnt > 0 ) && ( vote_slots.elems[ vote_idx ] <= vote_state.votes.elems[ vote_state.votes.cnt - 1 ].slot ) ) {
+          vote_idx += 1;
+          continue;
+        }
+
+        /* Find the corresponding slot hash entry for that slot. */
+        if ( vote_slots.elems[ vote_idx ] != slot_hashes.hashes.elems[ slot_hash_idx - 1 ].slot ) {
+          slot_hash_idx -= 1;
+          continue;
+        }
+
+        /* When we have found a hash for that slot, move on to the next proposed slot. */
+        vote_idx      += 1;
+        slot_hash_idx -= 1;
+
+     }
+
+     if ( slot_hash_idx == slot_hashes.hashes.cnt ) {
+      /* There was no proposed vote slot newer than the last slot we previously voted on. */
+      /* TODO: propagate custom error code FD_VOTE_VOTE_TOO_OLD */
+      return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
+     }
+     if ( vote_idx == vote_slots.cnt ) {
+      /* The vote contained a slot which wasn't present in slot hashes. */
+      /* TODO: propagate custom error code FD_VOTE_SLOTS_MISMATCH */
+      return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
+     }
+     if ( memcmp( &slot_hashes.hashes.elems[ slot_hash_idx ].hash, &vote.hash, sizeof(fd_hash_t) ) != 0 ) {
+      /* The newest slot in the vote tower has a different hash in slot history. */
+      /* TODO: propagate custom error code FD_VOTE_SLOT_HASH_MISMATCH */
+      return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
+     }
+
+
+    } else if ( discrimant == 8 ) {
       /* VoteInstruction::UpdateVoteState instruction
          https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_processor.rs#L174
        */
@@ -136,20 +302,20 @@ int fd_executor_vote_program_execute_instruction(
       structured_account.rent_epoch = 0;
       memcpy( &structured_account.owner, ctx.global->solana_vote_program, sizeof(fd_pubkey_t) );
 
-      int write_result = fd_acc_mgr_write_structured_account( ctx.global->acc_mgr, ctx.global->funk_txn, ctx.global->current_slot, vote_acc, &structured_account );
+      int write_result = fd_acc_mgr_write_structured_account( ctx.global->acc_mgr, ctx.global->funk_txn, ctx.global->bank.solana_bank.slot, vote_acc, &structured_account );
       if ( write_result != FD_ACC_MGR_SUCCESS ) {
         FD_LOG_WARNING(( "failed to write account data" ));
         return write_result;
       }
 
-      fd_acc_mgr_update_hash ( ctx.global->acc_mgr, &metadata, ctx.global->funk_txn, ctx.global->current_slot, vote_acc, (uchar*)encoded_vote_state, encoded_vote_state_size);
+      fd_acc_mgr_update_hash ( ctx.global->acc_mgr, &metadata, ctx.global->funk_txn, ctx.global->bank.solana_bank.slot, vote_acc, (uchar*)encoded_vote_state, encoded_vote_state_size);
 
       /* Record this timestamp vote */
       if ( vote_state_update.timestamp != NULL ) {
         uchar found = 0;
         for ( ulong i = 0; i < ctx.global->timestamp_votes.votes.cnt; i++ ) {
           if ( memcmp( &ctx.global->timestamp_votes.votes.elems[i].pubkey, vote_acc, sizeof(fd_pubkey_t) ) == 0 ) {
-            ctx.global->timestamp_votes.votes.elems[i].slot      = ctx.global->current_slot;
+            ctx.global->timestamp_votes.votes.elems[i].slot      = ctx.global->bank.solana_bank.slot;
             ctx.global->timestamp_votes.votes.elems[i].timestamp = (long)*vote_state_update.timestamp;
             found = 1;
           }
@@ -158,7 +324,7 @@ int fd_executor_vote_program_execute_instruction(
           fd_clock_timestamp_vote_t timestamp_vote = {
             .pubkey    = *vote_acc,
             .timestamp = (long)*vote_state_update.timestamp,
-            .slot      = ctx.global->current_slot,
+            .slot      = ctx.global->bank.solana_bank.slot,
           };
           fd_vec_fd_clock_timestamp_vote_t_push( &ctx.global->timestamp_votes.votes, timestamp_vote );
         }

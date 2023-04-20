@@ -390,10 +390,21 @@ typedef struct fd_bank_hash_info fd_bank_hash_info_t;
 #define FD_BANK_HASH_INFO_FOOTPRINT sizeof(fd_bank_hash_info_t)
 #define FD_BANK_HASH_INFO_ALIGN (8UL)
 
+typedef struct fd_serializable_account_storage_entry_t_mapnode fd_serializable_account_storage_entry_t_mapnode_t;
+#define REDBLK_T fd_serializable_account_storage_entry_t_mapnode_t
+#define REDBLK_NAME fd_serializable_account_storage_entry_t_map
+#include "../../util/tmpl/fd_redblack.h"
+#undef REDBLK_T
+#undef REDBLK_NAME
+struct fd_serializable_account_storage_entry_t_mapnode {
+  fd_serializable_account_storage_entry_t elem;
+  redblack_member_t                       redblack;
+};
+typedef struct fd_serializable_account_storage_entry_t_mapnode fd_serializable_account_storage_entry_t_mapnode_t;
 struct fd_slot_account_pair {
-  unsigned long                            slot;
-  ulong                                    accounts_len;
-  fd_serializable_account_storage_entry_t* accounts;
+  unsigned long                                      slot;
+  fd_serializable_account_storage_entry_t_mapnode_t* accounts_pool;
+  fd_serializable_account_storage_entry_t_mapnode_t* accounts_root;
 };
 typedef struct fd_slot_account_pair fd_slot_account_pair_t;
 #define FD_SLOT_ACCOUNT_PAIR_FOOTPRINT sizeof(fd_slot_account_pair_t)
@@ -407,16 +418,27 @@ typedef struct fd_slot_map_pair fd_slot_map_pair_t;
 #define FD_SLOT_MAP_PAIR_FOOTPRINT sizeof(fd_slot_map_pair_t)
 #define FD_SLOT_MAP_PAIR_ALIGN (8UL)
 
+typedef struct fd_slot_account_pair_t_mapnode fd_slot_account_pair_t_mapnode_t;
+#define REDBLK_T fd_slot_account_pair_t_mapnode_t
+#define REDBLK_NAME fd_slot_account_pair_t_map
+#include "../../util/tmpl/fd_redblack.h"
+#undef REDBLK_T
+#undef REDBLK_NAME
+struct fd_slot_account_pair_t_mapnode {
+  fd_slot_account_pair_t elem;
+  redblack_member_t      redblack;
+};
+typedef struct fd_slot_account_pair_t_mapnode fd_slot_account_pair_t_mapnode_t;
 struct fd_solana_accounts_db_fields {
-  ulong                   storages_len;
-  fd_slot_account_pair_t* storages;
-  unsigned long           version;
-  unsigned long           slot;
-  fd_bank_hash_info_t     bank_hash_info;
-  ulong                   historical_roots_len;
-  unsigned long*          historical_roots;
-  ulong                   historical_roots_with_hash_len;
-  fd_slot_map_pair_t*     historical_roots_with_hash;
+  fd_slot_account_pair_t_mapnode_t* storages_pool;
+  fd_slot_account_pair_t_mapnode_t* storages_root;
+  unsigned long                     version;
+  unsigned long                     slot;
+  fd_bank_hash_info_t               bank_hash_info;
+  ulong                             historical_roots_len;
+  unsigned long*                    historical_roots;
+  ulong                             historical_roots_with_hash_len;
+  fd_slot_map_pair_t*               historical_roots_with_hash;
 };
 typedef struct fd_solana_accounts_db_fields fd_solana_accounts_db_fields_t;
 #define FD_SOLANA_ACCOUNTS_DB_FIELDS_FOOTPRINT sizeof(fd_solana_accounts_db_fields_t)
@@ -761,6 +783,29 @@ typedef struct fd_stake_config fd_stake_config_t;
 #define FD_STAKE_CONFIG_FOOTPRINT sizeof(fd_stake_config_t)
 #define FD_STAKE_CONFIG_ALIGN (8UL)
 
+struct fd_firedancer_banks {
+  fd_deserializable_versioned_bank_t solana_bank;
+};
+typedef struct fd_firedancer_banks fd_firedancer_banks_t;
+#define FD_FIREDANCER_BANKS_FOOTPRINT sizeof(fd_firedancer_banks_t)
+#define FD_FIREDANCER_BANKS_ALIGN (8UL)
+
+#define VECT_NAME fd_vec_ulong
+#define VECT_ELEMENT ulong
+#include "../../funk/fd_vector.h"
+#undef VECT_NAME
+#undef VECT_ELEMENT
+
+/* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L133 */
+struct fd_vote {
+  fd_vec_ulong_t slots;
+  fd_hash_t      hash;
+  unsigned long* timestamp;
+};
+typedef struct fd_vote fd_vote_t;
+#define FD_VOTE_FOOTPRINT sizeof(fd_vote_t)
+#define FD_VOTE_ALIGN (8UL)
+
 
 FD_PROTOTYPES_BEGIN
 
@@ -1093,6 +1138,16 @@ void fd_stake_config_decode(fd_stake_config_t* self, void const** data, void con
 void fd_stake_config_encode(fd_stake_config_t* self, void const** data);
 void fd_stake_config_destroy(fd_stake_config_t* self, fd_free_fun_t freef, void* freef_arg);
 ulong fd_stake_config_size(fd_stake_config_t* self);
+
+void fd_firedancer_banks_decode(fd_firedancer_banks_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
+void fd_firedancer_banks_encode(fd_firedancer_banks_t* self, void const** data);
+void fd_firedancer_banks_destroy(fd_firedancer_banks_t* self, fd_free_fun_t freef, void* freef_arg);
+ulong fd_firedancer_banks_size(fd_firedancer_banks_t* self);
+
+void fd_vote_decode(fd_vote_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
+void fd_vote_encode(fd_vote_t* self, void const** data);
+void fd_vote_destroy(fd_vote_t* self, fd_free_fun_t freef, void* freef_arg);
+ulong fd_vote_size(fd_vote_t* self);
 
 FD_PROTOTYPES_END
 

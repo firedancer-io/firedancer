@@ -64,6 +64,22 @@ fd_execute_txn( fd_executor_t* executor, fd_txn_t * txn_descriptor, fd_rawtxn_b_
   
   ulong fee = fd_runtime_calculate_fee ( global, txn_descriptor, txn_raw );
 
+  // TODO: we are just assuming the fee payer is account 0... FIX this..
+
+  /// Returns true if the account at the specified index is not invoked as a
+  /// program or, if invoked, is passed to a program.
+  //    pub fn is_non_loader_key(&self, key_index: usize) -> bool { 
+  //      !self.is_invoked(key_index) || self.is_key_passed_to_program(key_index)
+  //    }
+
+  //    let fee_payer = (0..message.account_keys().len()).find_map(|i| {
+  //            if let Some((k, a)) = &accounts.get(i) {
+  //                if message.is_non_loader_key(i) {
+  //                    return Some((k, a));
+  //                }
+  //            }
+  //      }
+
   fd_acc_lamports_t lamps;
   int ret = fd_acc_mgr_get_lamports ( global->acc_mgr, global->funk_txn, &tx_accs[0], &lamps);
   if (ret != FD_ACC_MGR_SUCCESS) {
@@ -89,7 +105,7 @@ fd_execute_txn( fd_executor_t* executor, fd_txn_t * txn_descriptor, fd_rawtxn_b_
 
   // TODO: I BELIEVE we charge for the fee BEFORE we create the funk_txn fork
   // since we collect reguardless of the success of the txn execution...
-  ret = fd_acc_mgr_set_lamports ( global->acc_mgr, global->funk_txn, global->current_slot, &tx_accs[0], lamps - fee);
+  ret = fd_acc_mgr_set_lamports ( global->acc_mgr, global->funk_txn, global->bank.solana_bank.slot, &tx_accs[0], lamps - fee);
   if (ret != FD_ACC_MGR_SUCCESS) {
     // TODO: Wait! wait! what?!
     FD_LOG_ERR(( "lamport update failed" ));

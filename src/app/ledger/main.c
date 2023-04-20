@@ -12,11 +12,13 @@
 #include "tar.h"
 #include "../../ballet/runtime/fd_banks_solana.h"
 #include "../../ballet/runtime/fd_hashes.h"
+#include "../../funk/fd_funk.h"
+#include "../../ballet/runtime/fd_types.h"
+#include "../../ballet/runtime/fd_runtime.h"
 
 static void usage(const char* progname) {
   fprintf(stderr, "USAGE: %s\n", progname);
-  fprintf(stderr, " --cmd unpack --snapshotfile <file>               unpack snapshot file\n");
-  fprintf(stderr, " --cmd upload --ledger <dir> --funk_db <db>       \n");
+  fprintf(stderr, " --cmd ingest --snapshotfile <file>               ingest snapshot file\n");
 }
 
 struct SnapshotParser {
@@ -24,13 +26,23 @@ struct SnapshotParser {
   char* tmpstart_;
   char* tmpcur_;
   char* tmpend_;
+    
+  fd_global_ctx_t* global_;
+  
+  struct fd_deserializable_versioned_bank* bank_;
+  struct fd_solana_accounts_db_fields* accounts_;
 };
 
-void SnapshotParser_init(struct SnapshotParser* self) {
+void SnapshotParser_init(struct SnapshotParser* self, fd_global_ctx_t* global) {
   TarReadStream_init(&self->tarreader_);
   size_t tmpsize = 1<<30;
   self->tmpstart_ = self->tmpcur_ = (char*)malloc(tmpsize);
   self->tmpend_ = self->tmpstart_ + tmpsize;
+
+  self->global_ = global;
+  
+  self->bank_ = NULL;
+  self->accounts_ = NULL;
 }
 
 void SnapshotParser_destroy(struct SnapshotParser* self) {
@@ -38,59 +50,74 @@ void SnapshotParser_destroy(struct SnapshotParser* self) {
   free(self->tmpstart_);
 }
 
-void SnapshotParser_parsefd_solana_accounts(struct SnapshotParser* self, const void* data, size_t datalen) {
-  (void)self;
+void SnapshotParser_parsefd_solana_accounts(struct SnapshotParser* self, const char* name, const void* data, size_t datalen) {
+  ulong id, slot;
+  if (sscanf(name, "accounts/%lu.%lu", &slot, &id) != 2)
+    return;
+
+  fd_slot_account_pair_t_mapnode_t key1;
+  key1.elem.slot = slot;
+  fd_slot_account_pair_t_mapnode_t* node1 = fd_slot_account_pair_t_map_find(
+    self->accounts_->storages_pool, self->accounts_->storages_root, &key1);
+  if (node1 == NULL)
+    return;
+
+  fd_serializable_account_storage_entry_t_mapnode_t key2;
+  key2.elem.id = id;
+  fd_serializable_account_storage_entry_t_mapnode_t* node2 = fd_serializable_account_storage_entry_t_map_find(
+    node1->elem.accounts_pool, node1->elem.accounts_root, &key2);
+  if (node2 == NULL)
+    return;
+
+  if (node2->elem.accounts_current_len < datalen)
+    datalen = node2->elem.accounts_current_len;
   
   while (datalen) {
-    size_t roundedlen;
-    
-#define EAT_SLICE(_target_, _len_)         \
-    roundedlen = (_len_+7UL)&~7UL;         \
-    if (roundedlen > datalen) return;      \
-    memcpy(_target_, data, _len_);         \
-    data = (const char*)data + roundedlen; \
-    datalen -= roundedlen;
-
-    struct fd_solana_account_stored_meta meta;
-    EAT_SLICE(&meta, sizeof(meta));
-    struct fd_solana_account_meta account_meta;
-    EAT_SLICE(&account_meta, sizeof(account_meta));
-    struct fd_solana_account_fd_hash hash;
-    EAT_SLICE(&hash, sizeof(hash));
-
-    // Skip data for now
-    roundedlen = (meta.data_len+7UL)&~7UL;
-    if (roundedlen > datalen) return;
+    fd_solana_account_hdr_t hdr;
+    size_t roundedlen = (sizeof(hdr)+7UL)&~7UL;
+    if (roundedlen > datalen)
+      return;
+    memcpy(&hdr, data, sizeof(hdr));
     data = (const char*)data + roundedlen;
     datalen -= roundedlen;
 
-#undef EAT_SLICE
+    do {
+      fd_account_meta_t metadata;
+      int read_result = fd_acc_mgr_get_metadata( self->global_->acc_mgr, self->global_->funk_txn, (fd_pubkey_t*) &hdr.meta.pubkey, &metadata );
+      if ( FD_UNLIKELY( read_result == FD_ACC_MGR_SUCCESS ) ) {
+        if (metadata.slot > slot)
+          break;
+      }
+      if (fd_acc_mgr_write_append_vec_account( self->global_->acc_mgr, self->global_->funk_txn, slot, &hdr) != FD_ACC_MGR_SUCCESS) 
+        FD_LOG_ERR(("writing failed account"));
+    } while (0);
+
+    roundedlen = (hdr.meta.data_len+7UL)&~7UL;
+    if (roundedlen > datalen)
+      return;
+    data = (const char*)data + roundedlen;
+    datalen -= roundedlen;
   }
 }
 
-static
-char* SnapshotParser_allocTemp(FD_FN_UNUSED void* arg, unsigned long align, unsigned long len) {
-  char * ptr = malloc(fd_ulong_align_up(sizeof(char *) + len, align));
-  char * ret = (char *) fd_ulong_align_up( (ulong) (ptr + sizeof(char *)), align );
-  *((char **)(ret - sizeof(char *))) = ptr;
-  return ret;
-}
-
 void SnapshotParser_parseSnapshots(struct SnapshotParser* self, const void* data, size_t datalen) {
-  struct fd_deserializable_versioned_bank* bank = (struct fd_deserializable_versioned_bank*)
-    SnapshotParser_allocTemp(self, FD_DESERIALIZABLE_VERSIONED_BANK_ALIGN, FD_DESERIALIZABLE_VERSIONED_BANK_FOOTPRINT);
-  fd_deserializable_versioned_bank_decode(bank, &data, &datalen, SnapshotParser_allocTemp, self);
+  const void * dataend = (const char*)data + datalen;
+  fd_global_ctx_t* global = self->global_;
+    
+  self->bank_ = (struct fd_deserializable_versioned_bank*)
+    global->allocf(global->allocf_arg, FD_DESERIALIZABLE_VERSIONED_BANK_ALIGN, FD_DESERIALIZABLE_VERSIONED_BANK_FOOTPRINT);
+  fd_deserializable_versioned_bank_decode(self->bank_, &data, dataend, global->allocf, global->allocf_arg);
 
-  struct fd_solana_accounts_db_fields* accounts = (struct fd_solana_accounts_db_fields*)
-    SnapshotParser_allocTemp(self, FD_SOLANA_ACCOUNTS_DB_FIELDS_ALIGN, FD_SOLANA_ACCOUNTS_DB_FIELDS_FOOTPRINT);
-  fd_solana_accounts_db_fields_decode(accounts, &data, &datalen, SnapshotParser_allocTemp, self);
+  self->accounts_ = (struct fd_solana_accounts_db_fields*)
+    global->allocf(global->allocf_arg, FD_SOLANA_ACCOUNTS_DB_FIELDS_ALIGN, FD_SOLANA_ACCOUNTS_DB_FIELDS_FOOTPRINT);
+  fd_solana_accounts_db_fields_decode(self->accounts_, &data, dataend, global->allocf, global->allocf_arg);
 }
 
 void SnapshotParser_tarEntry(void* arg, const char* name, const void* data, size_t datalen) {
   if (datalen == 0)
     return;
   if (strncmp(name, "accounts/", sizeof("accounts/")-1) == 0)
-    SnapshotParser_parsefd_solana_accounts((struct SnapshotParser*)arg, data, datalen);
+    SnapshotParser_parsefd_solana_accounts((struct SnapshotParser*)arg, name, data, datalen);
   if (strncmp(name, "snapshots/", sizeof("snapshots/")-1) == 0 &&
       strcmp(name, "snapshots/status_cache") != 0)
     SnapshotParser_parseSnapshots((struct SnapshotParser*)arg, data, datalen);
@@ -167,32 +194,69 @@ static void decompressFile(const char* fname, decompressCallback cb, void* arg) 
   close(fin);
 }
 
-void uploadLedger(FD_FN_UNUSED const char *ledger, FD_FN_UNUSED const char *db) {
-  
-}
-
 int main(int argc, char** argv) {
-  const char* cmd = fd_env_strip_cmdline_cstr(&argc, &argv, "--cmd", NULL, NULL);
+  fd_boot( &argc, &argv );
 
-  if (strcmp(cmd, "unpack") == 0) {
+  const char* cmd = fd_env_strip_cmdline_cstr(&argc, &argv, "--cmd", NULL, NULL);
+  if (cmd == NULL) {
+    usage(argv[0]);
+    return 1;
+  }
+
+  fd_wksp_t* wksp = fd_wksp_new_anonymous( FD_SHMEM_GIGANTIC_PAGE_SZ, 15, 2, "wksp", 0UL );
+
+  void * alloc_shmem = fd_wksp_alloc_laddr( wksp, fd_alloc_align(), fd_alloc_footprint(), 1 );
+  void * allocf_arg = fd_alloc_join( fd_alloc_new ( alloc_shmem, 1 ), 0UL );
+
+  void * global_raw = fd_alloc_malloc(allocf_arg, FD_GLOBAL_CTX_ALIGN, FD_GLOBAL_CTX_FOOTPRINT);
+  fd_global_ctx_t * global = fd_global_ctx_join(fd_global_ctx_new(global_raw));
+  global->wksp = wksp;
+  global->allocf = (fd_alloc_fun_t)fd_alloc_malloc;
+  global->freef = (fd_free_fun_t)fd_alloc_free;
+  global->allocf_arg = allocf_arg;
+  global->alloc = allocf_arg;
+
+  void* fd_acc_mgr_raw = global->allocf(global->allocf_arg, FD_ACC_MGR_ALIGN, FD_ACC_MGR_FOOTPRINT);
+  global->acc_mgr = fd_acc_mgr_join(fd_acc_mgr_new(fd_acc_mgr_raw, global, FD_ACC_MGR_FOOTPRINT));
+
+  if (strcmp(cmd, "ingest") == 0) {
     const char* snapshotfile = fd_env_strip_cmdline_cstr(&argc, &argv, "--snapshotfile", NULL, NULL);
     if (snapshotfile == NULL) {
       usage(argv[0]);
       return 1;
     }
+    const char* funkfile = fd_env_strip_cmdline_cstr(&argc, &argv, "--funkfile", NULL, "funkdb");
+
+    unlink(funkfile);
+    ulong index_max = 100000000; // Maximum size (count) of master index
+    ulong xactions_max = 10;     // Maximum size (count) of transaction index
+    ulong cache_max = 10000;     // Maximum number of cache entries
+    fd_funk_t* funk = fd_funk_new(funkfile, wksp, 2, index_max, xactions_max, cache_max);
+    global->funk = funk;
+    fd_funk_xactionid_t xid;
+    global->funk_txn = &xid;
+    xid = *fd_funk_root(global->funk);
 
     struct SnapshotParser parser;
-    SnapshotParser_init(&parser);
+    SnapshotParser_init(&parser, global);
     decompressFile(snapshotfile, SnapshotParser_moreData, &parser);
     SnapshotParser_destroy(&parser);
+
+    fd_funk_delete(funk);
   }
 
-  if (strcmp(cmd, "upload") == 0) {
-      const char* ledger = fd_env_strip_cmdline_cstr(&argc, &argv, "--ledger", NULL, NULL);
-      const char* db = fd_env_strip_cmdline_cstr(&argc, &argv, "--funk-db", NULL, NULL);
+  fd_acc_mgr_delete( fd_acc_mgr_leave( global->acc_mgr ) );
+  global->freef(global->allocf_arg, fd_acc_mgr_raw);
 
-      uploadLedger(ledger, db);
-  }
+  fd_global_ctx_delete( fd_global_ctx_leave( global ) );
+  global->freef(global->allocf_arg, global_raw);
   
+  fd_alloc_delete( fd_alloc_leave( allocf_arg ) );
+  fd_wksp_free_laddr( alloc_shmem );
+  
+  fd_wksp_delete_anonymous( wksp );
+
+  fd_log_flush();
+  fd_halt();
   return 0;
 }

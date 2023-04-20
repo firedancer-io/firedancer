@@ -165,6 +165,10 @@
 #include <x86intrin.h>
 #endif
 
+#ifdef _DISABLE_OPTIMIZATION
+#pragma GCC optimize ("O0")
+#endif
+
 #ifndef BMTREE_NAME
 #error "Define BMTREE_NAME"
 #endif

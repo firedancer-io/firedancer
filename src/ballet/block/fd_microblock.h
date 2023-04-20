@@ -4,6 +4,7 @@
 #include "../fd_ballet_base.h"
 #include "../sha256/fd_sha256.h"
 #include "../txn/fd_txn.h"
+#include "../../util/alloc/fd_alloc.h"
 
 /* Each Solana block is made up of 64 microblocks.
 
@@ -160,9 +161,9 @@ fd_microblock_delete( void * shblock );
    guaranteed to be less or equal than `buf_sz`.  Returns 0 on failure.
    Reasons for failure include invalid data or unexpected EOF.` */
 ulong
-fd_microblock_deserialize( fd_microblock_t * block,
-                           uchar const *     buf,
-                           ulong             buf_sz,
+fd_microblock_deserialize( fd_microblock_t *         block,
+                           uchar const *             buf,
+                           ulong                     buf_sz,
                            fd_txn_parse_counters_t * counters_opt );
 
 /* fd_microblock_skip: Scans a microblock from `buf`.
@@ -189,6 +190,22 @@ fd_microblock_skip(uchar const *     buf,
 void
 fd_microblock_mixin( fd_microblock_t const * block,
                      uchar *                 out_hash );
+
+/* fd_microblock_matched_mixin: Calculates the PoH mixin hash using sha256 batch API.
+
+   Computes the root of a 32-byte binary Merkle tree of a vector with
+   each element containing the first Ed25519 signature of each txn.
+
+   For microblocks that do not contain transactions, a single append
+   instead of a mixin should be applied to PoH.
+
+   U.B. if this microblock contains a txn with zero signatures (illegal txn).
+   U.B. if this microblock's `hdr.txn_cnt` is zero. */
+
+void
+fd_microblock_batched_mixin( fd_microblock_t const * block,
+                             uchar *                 out_hash,
+                             fd_alloc_t *            alloc );
 
 FD_PROTOTYPES_END
 

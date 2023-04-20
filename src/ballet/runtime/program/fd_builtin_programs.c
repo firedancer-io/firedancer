@@ -14,7 +14,7 @@ void write_builtin_bogus_account( fd_global_ctx_t *global, const unsigned char *
   };
   fd_memcpy( account.owner.key, global->solana_native_loader, 32 );
 
-  fd_acc_mgr_write_structured_account( global->acc_mgr, global->funk_txn, global->current_slot, (fd_pubkey_t *) pubkey, &account );
+  fd_acc_mgr_write_structured_account( global->acc_mgr, global->funk_txn, global->bank.solana_bank.slot, (fd_pubkey_t *) pubkey, &account );
 }
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/runtime/src/inline_spl_token.rs#L74 */
@@ -33,7 +33,7 @@ void write_inline_spl_native_mint_program_account( fd_global_ctx_t* global ) {
     .executable = (uchar) 0
   };
   fd_memcpy( account.owner.key, global->solana_spl_token, 32 );
-  fd_acc_mgr_write_structured_account( global->acc_mgr, global->funk_txn, global->current_slot, (fd_pubkey_t *) global->solana_spl_native_mint, &account );
+  fd_acc_mgr_write_structured_account( global->acc_mgr, global->funk_txn, global->bank.solana_bank.slot, (fd_pubkey_t *) global->solana_spl_native_mint, &account );
 }
 
 void fd_builtin_programs_init( fd_global_ctx_t* global ) {

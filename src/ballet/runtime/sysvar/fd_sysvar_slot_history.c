@@ -25,7 +25,7 @@ void write_history( fd_global_ctx_t* global, fd_slot_history_t* history ) {
   void const *ptr = (void const *) enc;
   fd_slot_history_encode( history, &ptr );
 
-  fd_sysvar_set( global, global->sysvar_owner, global->sysvar_slot_history, enc, sz, global->current_slot );
+  fd_sysvar_set( global, global->sysvar_owner, global->sysvar_slot_history, enc, sz, global->bank.solana_bank.slot );
 }
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/slot_history.rs#L16 */
@@ -56,8 +56,8 @@ void fd_sysvar_slot_history_update( fd_global_ctx_t* global ) {
   /* TODO: handle case where current_slot > max_entries */
 
   /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/slot_history.rs#L48 */
-  set( &history, global->current_slot );
-  history.next_slot = global->current_slot + 1;
+  set( &history, global->bank.solana_bank.slot );
+  history.next_slot = global->bank.solana_bank.slot + 1;
 
   write_history( global, &history );
   fd_slot_history_destroy( &history, global->freef, global->allocf_arg );
@@ -74,7 +74,7 @@ void fd_sysvar_slot_history_read( fd_global_ctx_t* global, fd_slot_history_t* re
 
   char encoded_hash[50];
   fd_base58_encode_32((uchar *) metadata.hash, 0, encoded_hash);
-  FD_LOG_INFO(( "slot history sysvar hash at slot %lu: %48s", global->current_slot, encoded_hash ));
+  FD_LOG_INFO(( "slot history sysvar hash at slot %lu: %48s", global->bank.solana_bank.slot, encoded_hash ));
 
   unsigned char *raw_acc_data = fd_alloca( 1, metadata.dlen );
   read_result = fd_acc_mgr_get_account_data( global->acc_mgr, global->funk_txn, (fd_pubkey_t *) global->sysvar_slot_history, raw_acc_data, metadata.hlen, metadata.dlen );

@@ -54,7 +54,6 @@
 #include "../../util/alloc/fd_alloc.h"
 #include "../base58/fd_base58.h"
 #include "../poh/fd_poh.h"
-#include "../bmtree/fd_bmtree.h"
 #include "../sha256/fd_sha256.h"
 #include "sysvar/fd_sysvar_clock.h"
 #include "sysvar/fd_sysvar.h"
@@ -842,7 +841,7 @@ int replay(global_state_t *state) {
 
     fd_slot_blocks_t *slot_data = fd_rocksdb_get_microblocks(&state->rocks_db, &m, state->global->allocf, state->global->allocf_arg);
 
-    state->global->current_slot = slot;
+    state->global->bank.solana_bank.slot = slot;
 
     FD_TEST (fd_runtime_block_eval( state->global, slot_data) == FD_RUNTIME_EXECUTE_SUCCESS);
 
@@ -918,7 +917,7 @@ int replay(global_state_t *state) {
 //     do {
 //       fd_slot_blocks_t *slot_data = fd_rocksdb_get_microblocks(&state->rocks_db, &m, state->global->allocf, state->global->allocf_arg);
 // 
-//       state->global->current_slot = slot;
+//       state->global->bank.solana_bank.slot = slot;
 // 
 //       if (NULL == slot_data) {
 //         FD_LOG_WARNING(("fd_rocksdb_get_microblocks returned NULL for slot %ld", slot));
@@ -1128,6 +1127,7 @@ int main(int argc, char **argv) {
   state.global->allocf = local_allocf;
   state.global->freef = local_freef;
   state.global->allocf_arg = allocf_arg;
+  state.global->alloc = allocf_arg;
 
   ulong index_max = 1000000;    // Maximum size (count) of master index
 
@@ -1161,9 +1161,6 @@ int main(int argc, char **argv) {
   char genesis[128];
   sprintf(genesis, "%s/genesis.bin", state.ledger);
 
-  char db_name[128];
-  sprintf(db_name, "%s/rocksdb", state.ledger);
-
   {
     struct stat sbuf;
     stat(genesis, &sbuf);
@@ -1175,20 +1172,16 @@ int main(int argc, char **argv) {
     ssize_t n = read(fd, buf, (ulong) sbuf.st_size);
     close(fd);
 
-    // TODO: Richie? . review?
-    fd_sha256_t sha;
-    fd_sha256_init( &sha );
-    fd_sha256_append( &sha, buf, (ulong) n );
-    fd_sha256_fini( &sha, state.global->genesis_hash );
-
-    //DDaHhm7PCCf6a2s2YxvD5mBcp2NfDkiWr61sBW4nuN7
-    char hash[100];
-    fd_base58_encode_32((uchar *) state.global->genesis_hash, NULL, hash);
-
     void *data = buf;
     void *dataend = &buf[n];
     fd_memset(&state.global->genesis_block, 0, sizeof(state.global->genesis_block));
     fd_genesis_solana_decode(&state.global->genesis_block, ( void const** )&data, dataend, state.global->allocf, state.global->allocf_arg);
+
+    // The hash is generated from the raw data... don't mess with this..
+    fd_sha256_t sha;
+    fd_sha256_init( &sha );
+    fd_sha256_append( &sha, buf, (ulong) n );
+    fd_sha256_fini( &sha, state.global->genesis_hash );
 
     free(buf);
   }
@@ -1225,6 +1218,9 @@ int main(int argc, char **argv) {
 //  fd_funk_validate(state.funk);
 
   // Initialize the rocksdb
+  char db_name[128];
+  sprintf(db_name, "%s/rocksdb", state.ledger);
+
   char *err = fd_rocksdb_init(&state.rocks_db, db_name);
 
   if (err != NULL) {

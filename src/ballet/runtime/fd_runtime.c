@@ -22,6 +22,8 @@
 void
 fd_runtime_boot_slot_zero( fd_global_ctx_t *global ) {
   fd_memcpy(global->poh.state, global->genesis_hash, sizeof(global->genesis_hash));
+
+  fd_memcpy(&global->fee_rate_governor, &global->genesis_block.fee_rate_governor, sizeof(global->genesis_block.fee_rate_governor));
   global->poh_booted = 1;
 
   fd_sysvar_recent_hashes_init(global );
@@ -87,7 +89,7 @@ fd_runtime_block_execute( fd_global_ctx_t *global, fd_slot_blocks_t *slot_data )
   fd_sysvar_clock_update( global);
   fd_sysvar_recent_hashes_update ( global );
   // It has to go into the current txn previous info but is not in slot 0
-  if (global -> current_slot != 0) 
+  if (global->bank.solana_bank.slot != 0)
     fd_sysvar_slot_hashes_update( global );
 
   ulong signature_cnt = 0;
@@ -124,8 +126,8 @@ fd_runtime_block_execute( fd_global_ctx_t *global, fd_slot_blocks_t *slot_data )
   // Time to make the donuts...
 
   ulong dirty = global->acc_mgr->keys.cnt;
-  if (FD_UNLIKELY(global->log_level > 2)) 
-    FD_LOG_WARNING(("slot %ld   dirty %ld", global->current_slot, dirty));
+  if (FD_UNLIKELY(global->log_level > 2))
+    FD_LOG_WARNING(("slot %ld   dirty %ld", global->bank.solana_bank.slot, dirty));
   if (dirty > 0) {
     global->signature_cnt = signature_cnt;
     fd_hash_bank( global, &global->banks_hash );
@@ -142,7 +144,7 @@ fd_runtime_block_execute( fd_global_ctx_t *global, fd_slot_blocks_t *slot_data )
 int
 fd_runtime_block_verify( fd_global_ctx_t *global, fd_slot_blocks_t *slot_data ) {
   if (NULL == slot_data) {
-    FD_LOG_WARNING(("NULL slot passed to fd_runtime_block_execute at slot %ld", global->current_slot));
+    FD_LOG_WARNING(("NULL slot passed to fd_runtime_block_execute at slot %ld", global->bank.solana_bank.slot));
     return FD_RUNTIME_EXECUTE_GENERIC_ERR;
   }
 
@@ -157,7 +159,7 @@ fd_runtime_block_verify( fd_global_ctx_t *global, fd_slot_blocks_t *slot_data ) 
         if (micro_block->hdr.hash_cnt > 0)
           fd_poh_append(&global->poh, micro_block->hdr.hash_cnt - 1);
         uchar outhash[32];
-        fd_microblock_mixin(micro_block, outhash);
+        fd_microblock_batched_mixin(micro_block, outhash, global->alloc);
         fd_poh_mixin(&global->poh, outhash);
       } else
         fd_poh_append(&global->poh, micro_block->hdr.hash_cnt);
@@ -165,7 +167,7 @@ fd_runtime_block_verify( fd_global_ctx_t *global, fd_slot_blocks_t *slot_data ) 
         if (global->poh_booted) {
           // TODO should this log and return?  instead of knocking the
           // whole system over via a _ERR?
-          FD_LOG_ERR(( "poh missmatch at slot: %ld", global->current_slot));
+          FD_LOG_ERR(( "poh missmatch at slot: %ld", global->bank.solana_bank.slot));
         } else {
           fd_memcpy(global->poh.state, micro_block->hdr.hash, sizeof(global->poh.state));
           global->poh_booted = 1;
@@ -186,12 +188,12 @@ fd_runtime_block_verify( fd_global_ctx_t *global, fd_slot_blocks_t *slot_data ) 
 int
 fd_runtime_block_eval( fd_global_ctx_t *global, fd_slot_blocks_t *slot_data ) {
   if (NULL == slot_data) {
-    FD_LOG_WARNING(("NULL slot passed to fd_runtime_block_execute at slot %ld", global->current_slot));
+    FD_LOG_WARNING(("NULL slot passed to fd_runtime_block_execute at slot %ld", global->bank.solana_bank.slot));
     return FD_RUNTIME_EXECUTE_GENERIC_ERR;
   }
   uchar *blob = slot_data->last_blob;
   if (NULL == blob) {
-    FD_LOG_WARNING(("empty slot passed to fd_runtime_block_execute at slot %ld", global->current_slot));
+    FD_LOG_WARNING(("empty slot passed to fd_runtime_block_execute at slot %ld", global->bank.solana_bank.slot));
     return FD_RUNTIME_EXECUTE_GENERIC_ERR;
   }
 
@@ -223,7 +225,7 @@ fd_runtime_block_eval( fd_global_ctx_t *global, fd_slot_blocks_t *slot_data ) {
   // verify threads complete successfully..
 
   int ret = fd_runtime_block_verify( global, slot_data );
-  if ( FD_RUNTIME_EXECUTE_SUCCESS == ret ) 
+  if ( FD_RUNTIME_EXECUTE_SUCCESS == ret )
     ret = fd_runtime_block_execute( global, slot_data );
 
   if (FD_RUNTIME_EXECUTE_SUCCESS != ret ) {
@@ -239,14 +241,36 @@ fd_runtime_block_eval( fd_global_ctx_t *global, fd_slot_blocks_t *slot_data ) {
 }
 
 ulong
-fd_runtime_calculate_fee( FD_FN_UNUSED fd_global_ctx_t *global, FD_FN_UNUSED fd_txn_t * txn_descriptor, FD_FN_UNUSED fd_rawtxn_b_t* txn_raw ) {
+fd_runtime_txn_lamports_per_signature( fd_global_ctx_t *global, FD_FN_UNUSED fd_txn_t * txn_descriptor, FD_FN_UNUSED fd_rawtxn_b_t* txn_raw ) {
+  //   lamports_per_signature = (transaction has a DurableNonce, use the lamports_per_signature from that nonce instead of looking up the recent_block_hash and using the lamports_per_signature associated with that hash
+//                        let TransactionExecutionDetails {
+//                            status,
+//                            log_messages,
+//                            inner_instructions,
+//                            durable_nonce_fee,
+//                            ..
+//                        } = details;
+//                        let lamports_per_signature = match durable_nonce_fee {
+//                            Some(DurableNonceFee::Valid(lamports_per_signature)) => {
+//                                Some(lamports_per_signature)
+//                            }
+//                            Some(DurableNonceFee::Invalid) => None,
+//                            None => bank.get_lamports_per_signature_for_blockhash(
+//                                transaction.message().recent_blockhash(),
+//                            ),
+//                        }
+  return global->fee_rate_governor.target_lamports_per_signature / 2;
+}
+
+ulong
+fd_runtime_calculate_fee( fd_global_ctx_t *global, fd_txn_t * txn_descriptor, fd_rawtxn_b_t* txn_raw ) {
 // https://github.com/firedancer-io/solana/blob/08a1ef5d785fe58af442b791df6c4e83fe2e7c74/runtime/src/bank.rs#L4443
-  // TODO: implement fee distribution to the collector ... and then charge us the correct amount
+// TODO: implement fee distribution to the collector ... and then charge us the correct amount
 
   fd_pubkey_t *tx_accs   = (fd_pubkey_t *)((uchar *)txn_raw->raw + txn_descriptor->acct_addr_off);
 
   for ( ushort i = 0; i < txn_descriptor->instr_cnt; ++i ) {
-    fd_txn_instr_t * instr = &txn_descriptor->instr[i];
+    fd_txn_instr_t *           instr = &txn_descriptor->instr[i];
     execute_instruction_func_t exec_instr_func = fd_executor_lookup_native_program( global, &tx_accs[instr->program_id] );
     if (exec_instr_func == fd_executor_system_program_execute_instruction)
       return 5000;
@@ -255,6 +279,91 @@ fd_runtime_calculate_fee( FD_FN_UNUSED fd_global_ctx_t *global, FD_FN_UNUSED fd_
   }
 
   return 10000;
+
+  // Pseudo code:
+  //   lamports_per_signature = (transaction has a DurableNonce, use the lamports_per_signature from that nonce instead of looking up the recent_block_hash and using the lamports_per_signature associated with that hash
+//                        let TransactionExecutionDetails {
+//                            status,
+//                            log_messages,
+//                            inner_instructions,
+//                            durable_nonce_fee,
+//                            ..
+//                        } = details;
+//                        let lamports_per_signature = match durable_nonce_fee {
+//                            Some(DurableNonceFee::Valid(lamports_per_signature)) => {
+//                                Some(lamports_per_signature)
+//                            }
+//                            Some(DurableNonceFee::Invalid) => None,
+//                            None => bank.get_lamports_per_signature_for_blockhash(
+//                                transaction.message().recent_blockhash(),
+//                            ),
+//                        }
+
+//    pub fn calculate_fee(
+//        lamports_per_signature: u64,
+//        fee_structure: &FeeStructure,
+//    ) -> u64 {
+//            // Fee based on compute units and signatures
+//            const BASE_CONGESTION: f64 = 5_000.0;
+//            let current_congestion = BASE_CONGESTION.max(lamports_per_signature as f64);
+//            let congestion_multiplier = if lamports_per_signature == 0 {
+//                0.0 // test only
+//            } else {
+//                BASE_CONGESTION / current_congestion
+//            };
+//
+//            let mut compute_budget = ComputeBudget::default();
+//            let prioritization_fee_details = compute_budget
+//                .process_instructions(
+//                    message.program_instructions_iter(),
+//                    false,
+//                    false,
+//                    true
+//                )
+//                .unwrap_or_default();
+//            let prioritization_fee = prioritization_fee_details.get_fee();
+//            let signature_fee = Self::get_num_signatures_in_message(message)
+//                .saturating_mul(fee_structure.lamports_per_signature);
+//            let write_lock_fee = Self::get_num_write_locks_in_message(message)
+//                .saturating_mul(fee_structure.lamports_per_write_lock);
+//            let compute_fee = fee_structure
+//                .compute_fee_bins
+//                .iter()
+//                .find(|bin| compute_budget.compute_unit_limit <= bin.limit)
+//                .map(|bin| bin.fee)
+//                .unwrap_or_else(|| {
+//                    fee_structure
+//                        .compute_fee_bins
+//                        .last()
+//                        .map(|bin| bin.fee)
+//                        .unwrap_or_default()
+//                });
+//
+//            ((prioritization_fee
+//                .saturating_add(signature_fee)
+//                .saturating_add(write_lock_fee)
+//                .saturating_add(compute_fee) as f64)
+//                * congestion_multiplier)
+//                .round() as u64
+//
+
+//calculate_fee lamports: 5000 tx_wide_compute_cap: true support_set_: true   bt:    0: solana_runtime::bank::Bank::calculate_fee
+//                 at /solana/runtime/src/bank.rs:4450:18
+//       1: solana_runtime::bank::Bank::get_fee_for_message_with_lamports_per_signature
+//                 at /solana/runtime/src/bank.rs:3390:9
+//       2: solana_rpc::transaction_status_service::TransactionStatusService::write_transaction_status_batch
+//                 at /solana/rpc/src/transaction_status_service.rs:114:35
+//
+//calculate_fee lamports: 5000 tx_wide_compute_cap: true support_set_: true   bt:    0: solana_runtime::bank::Bank::calculate_fee
+//                 at /solana/runtime/src/bank.rs:4450:18
+//       1: solana_runtime::bank::Bank::filter_program_errors_and_collect_fee::{{closure}}
+//                 at /solana/runtime/src/bank.rs:4533:27
+//
+//calculate_fee lamports: 5000 tx_wide_compute_cap: true support_set_: true   bt:    0: solana_runtime::bank::Bank::calculate_fee
+//                 at /solana/runtime/src/bank.rs:4450:18
+//       1: solana_runtime::accounts::Accounts::load_accounts::{{closure}}
+//                 at /solana/runtime/src/accounts.rs:570:25
+
 }
 
 void
@@ -266,18 +375,18 @@ fd_runtime_freeze( fd_global_ctx_t *global ) {
   // Look at collect_fees... I think this was where I saw the fee payout..
   if (global->collector_set && global->collected) {
     fd_acc_lamports_t lamps;
-    int ret = fd_acc_mgr_get_lamports ( global->acc_mgr, global->funk_txn, &global->collector_id, &lamps);
-    if (ret != FD_ACC_MGR_SUCCESS) 
+    int               ret = fd_acc_mgr_get_lamports ( global->acc_mgr, global->funk_txn, &global->collector_id, &lamps);
+    if (ret != FD_ACC_MGR_SUCCESS)
       FD_LOG_ERR(( "The collector_id is wrong?!" ));
 
     // TODO: half get burned?!
-    ret = fd_acc_mgr_set_lamports ( global->acc_mgr, global->funk_txn, global->current_slot, &global->collector_id, lamps + (global->collected/2));
-    if (ret != FD_ACC_MGR_SUCCESS) 
+    ret = fd_acc_mgr_set_lamports ( global->acc_mgr, global->funk_txn, global->bank.solana_bank.slot, &global->collector_id, lamps + (global->collected/2));
+    if (ret != FD_ACC_MGR_SUCCESS)
       FD_LOG_ERR(( "lamport update failed" ));
 
     global->collected = 0;
   }
-  
+
   //self.distribute_rent();
   //self.update_slot_history();
   //self.run_incinerator();
