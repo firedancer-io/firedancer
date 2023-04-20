@@ -204,7 +204,7 @@ int fd_acc_mgr_write_append_vec_account( fd_acc_mgr_t* acc_mgr, struct fd_funk_x
 
   fd_hash_meta(m, slot, (fd_pubkey_t *) &hdr->meta.pubkey, (uchar *) &hdr[1], (fd_hash_t *) m->hash);
 
-  fd_acc_mgr_dirty_pubkey ( acc_mgr, (fd_pubkey_t *) &hdr->meta.pubkey, (fd_hash_t *) m->hash );
+//  fd_acc_mgr_dirty_pubkey ( acc_mgr, (fd_pubkey_t *) &hdr->meta.pubkey, (fd_hash_t *) m->hash );
 
   fd_memcpy(&data[sizeof(fd_account_meta_t)], (uchar *) &hdr[1], hdr->meta.data_len);
 

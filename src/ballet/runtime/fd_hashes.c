@@ -85,14 +85,11 @@ fd_hash_account_deltas(fd_global_ctx_t *global, fd_pubkey_hash_pair_t * pairs, u
       break;
     }
   }
-  if (FD_UNLIKELY(global->log_level > 5)) { 
-    FD_LOG_NOTICE(( "H %lu", height));
-  }
 
   for( ulong i = 0; i < height; ++i ) {
-//#ifdef _VERBOSE    
+#ifdef _VERBOSE    
     FD_LOG_NOTICE(( "S %lu %u", i, num_hashes[i] ));
-//#endif
+#endif
     if( num_hashes[i]==0 ) {
       continue;
     }

@@ -165,12 +165,12 @@ int ingest(global_state_t *state) {
 
   DIR *dir = opendir(state->accounts);
 
-  struct dirent * ent;
 
   ulong files = 0;
   ulong accounts = 0;
   ulong odd = 0;
-
+#if 1
+  struct dirent * ent;
   while ( NULL != (ent = readdir(dir)) ) {
     if ( regexec(&reg, ent->d_name, 0, NULL, 0) == 0 )  {
       struct stat s;
@@ -294,6 +294,7 @@ int ingest(global_state_t *state) {
       state->global->freef(state->global->allocf_arg, r);
     }
   }
+#endif
 
   closedir(dir);
   regfree(&reg);
@@ -311,14 +312,20 @@ int ingest(global_state_t *state) {
     num_iter_accounts++;
   }
 
+  uchar account_data[16*1024*1024];
+  FD_LOG_NOTICE(( "NIA %lu", num_iter_accounts ));
   ulong num_pairs = 0;
   fd_pubkey_hash_pair_t * pairs = (fd_pubkey_hash_pair_t *) state->global->allocf(state->global->allocf_arg , 8UL, num_iter_accounts*sizeof(fd_pubkey_hash_pair_t));
   fd_funk_iter_init(state->global->funk, iter);
   while ((record_id = fd_funk_iter_next(state->global->funk, iter)) != NULL) {
-    char record_id_58[FD_BASE58_ENCODED_32_SZ];
-    fd_base58_encode_32((uchar const *)record_id, NULL, record_id_58);
+    //char record_id_58[FD_BASE58_ENCODED_32_SZ];
+    //fd_base58_encode_32((uchar const *)record_id, NULL, record_id_58);
 
-    FD_LOG_NOTICE(("RECORD ID: %s", record_id_58));
+    if (num_pairs % 1000000 == 0) {
+      FD_LOG_NOTICE(( "PAIRS: %lu", num_pairs ));
+    }
+
+    //FD_LOG_NOTICE(("RECORD ID: %s", record_id_58));
           
     fd_account_meta_t metadata;
     int read_result = fd_acc_mgr_get_metadata( state->global->acc_mgr, state->global->funk_txn, (fd_pubkey_t *) record_id, &metadata );
@@ -329,16 +336,17 @@ int ingest(global_state_t *state) {
       FD_LOG_ERR(("invalid magic on metadata"));
     }
     
-    char account_hash_58[FD_BASE58_ENCODED_32_SZ];
-    fd_base58_encode_32((uchar const *) metadata.hash, NULL, account_hash_58);
+    // char account_hash_58[FD_BASE58_ENCODED_32_SZ];
+    // fd_base58_encode_32((uchar const *) metadata.hash, NULL, account_hash_58);
 
-    FD_LOG_NOTICE(("INFO: slot: %lu, lamports: %lu, hash: %s", metadata.slot, metadata.info.lamports, account_hash_58));
+    // FD_LOG_NOTICE(("INFO: slot: %lu, lamports: %lu, hash: %s", metadata.slot, metadata.info.lamports, account_hash_58));
     
-    uchar * account_data = (uchar *) state->global->allocf(state->global->allocf_arg , 8UL, metadata.dlen);
+    //uchar * account_data = (uchar *) state->global->allocf(state->global->allocf_arg , 8UL, metadata.dlen);
     read_result = fd_acc_mgr_get_account_data( state->global->acc_mgr, state->global->funk_txn, (fd_pubkey_t *) record_id, account_data, sizeof(fd_account_meta_t), metadata.dlen);
     if ( FD_UNLIKELY( read_result != FD_ACC_MGR_SUCCESS ) ) {
       FD_LOG_ERR(("wtf3"));
     }
+    //state->global->freef(state->global->allocf_arg, account_data);
 
     fd_memcpy(pairs[num_pairs].pubkey.key, record_id, 32);
     fd_memcpy(pairs[num_pairs].hash.hash, metadata.hash, 32);
@@ -347,6 +355,7 @@ int ingest(global_state_t *state) {
  
   sort_pubkey_hash_pair_inplace( pairs, num_pairs );
 
+  /*
   for (ulong i = 0; i < num_pairs; i++) {
     char record_id_58[FD_BASE58_ENCODED_32_SZ];
     fd_base58_encode_32((uchar const *)pairs[i].pubkey.key, NULL, record_id_58);
@@ -354,8 +363,9 @@ int ingest(global_state_t *state) {
     char account_hash_58[FD_BASE58_ENCODED_32_SZ];
     fd_base58_encode_32((uchar const *)pairs[i].hash.hash, NULL, account_hash_58);
 
-    FD_LOG_NOTICE(("IDX: %lu, PUB: %50s HSH: %50s", i, record_id_58, account_hash_58));
+    //FD_LOG_NOTICE(("IDX: %lu, PUB: %50s HSH: %50s", i, record_id_58, account_hash_58));
   }
+  */
 
   fd_hash_t accounts_hash;
   fd_hash_account_deltas(state->global, pairs, num_pairs, &accounts_hash);
