@@ -141,6 +141,51 @@ int fd_executor_vote_program_execute_instruction(
         return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
       }
 
+      /* Check the vote slots are valid:
+         - The vote tower contains at least one slot that is newer than the last slot we have currently voted on.
+         - Each slot in the vote tower is present in the slot hashes.
+         - The vote's hash matches the slot hashes entry for the newest slot in the vote tower.
+
+         https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L658
+       */
+      ulong vote_idx = 0;
+      ulong slot_hash_idx = slot_hashes.hashes.cnt;
+      while ( vote_idx < vote_slots.cnt && slot_hash_idx > 0 ) {
+
+        /* Skip to the smallest vote slot that is newer than the last slot we previously voted on.  */
+        if ( ( vote_state.votes.cnt > 0 ) && ( vote_slots.elems[ vote_idx ] <= vote_state.votes.elems[ vote_state.votes.cnt - 1 ].slot ) ) {
+          vote_idx += 1;
+          continue;
+        }
+
+        /* Find the corresponding slot hash entry for that slot. */
+        if ( vote_slots.elems[ vote_idx ] != slot_hashes.hashes.elems[ slot_hash_idx - 1 ].slot ) {
+          slot_hash_idx -= 1;
+          continue;
+        }
+
+        /* When we have found a hash for that slot, move on to the next proposed slot. */
+        vote_idx      += 1;
+        slot_hash_idx -= 1;
+
+     }
+
+     if ( slot_hash_idx == slot_hashes.hashes.cnt ) {
+      /* There was no proposed vote slot newer than the last slot we previously voted on. */
+      /* TODO: propagate custom error code FD_VOTE_VOTE_TOO_OLD */
+      return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
+     }
+     if ( vote_idx == vote_slots.cnt ) {
+      /* The vote contained a slot which wasn't present in slot hashes. */
+      /* TODO: propagate custom error code FD_VOTE_SLOTS_MISMATCH */
+      return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
+     }
+     if ( memcmp( &slot_hashes.hashes.elems[ slot_hash_idx ].hash, &vote.hash, sizeof(fd_hash_t) ) != 0 ) {
+      /* The newest slot in the vote tower has a different hash in slot history. */
+      /* TODO: propagate custom error code FD_VOTE_SLOT_HASH_MISMATCH */
+      return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
+     }
+
 
     } else if ( discrimant == 8 ) {
       /* VoteInstruction::UpdateVoteState instruction
