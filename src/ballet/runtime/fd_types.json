@@ -721,7 +721,7 @@
       "name": "vote",
       "type": "struct",
       "fields": [
-        { "name": "slots", "type": "vector", "element": "ulong" },
+        { "name": "slots", "type": "vector_dynamic", "element": "ulong" },
         { "name": "hash", "type": "hash" },
         { "name": "timestamp", "type": "option", "element": "ulong" }
       ],

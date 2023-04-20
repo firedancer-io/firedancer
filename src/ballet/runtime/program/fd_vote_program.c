@@ -3,6 +3,7 @@
 #include "../../../ballet/txn/fd_compact_u16.h"
 #include "../fd_runtime.h"
 #include "../../base58/fd_base58.h"
+#include "../sysvar/fd_sysvar.h"
 
 int fd_executor_vote_program_execute_instruction(
     instruction_ctx_t ctx
@@ -85,9 +86,58 @@ int fd_executor_vote_program_execute_instruction(
         return FD_EXECUTOR_INSTR_ERR_UNINITIALIZED_ACCOUNT;
       }
 
+      /* Get the current authorized voter for the current epoch */
+      /* TODO: handle epoch rollover */
+      fd_pubkey_t authorized_voter = vote_state.authorized_voters->pubkey;
+
+      /* Check that the authorized voter for this epoch has signed the vote transaction
+         https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L1265
+       */
+      uchar authorized_voter_signed = 0;
+      for ( ulong i = 0; i < ctx.instr->acct_cnt; i++ ) {
+        if ( instr_acc_idxs[i] < ctx.txn_descriptor->signature_cnt ) {
+          fd_pubkey_t * signer = &txn_accs[instr_acc_idxs[0]];
+          if ( !memcmp( signer, &authorized_voter, sizeof(fd_pubkey_t) ) ) {
+            authorized_voter_signed = 1;
+            break;
+          }
+        }
+      }
+      if ( !authorized_voter_signed ) {
+        return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
+      }
+
+      /* Process the vote
+         https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L902
+       */
+      
       /* Check that the vote slots aren't empty */
-      if ( vote.slots_len == 0 ) {        
+      if ( vote.slots.cnt == 0 ) {        
         /* TODO: propagate custom error code FD_VOTE_EMPTY_SLOTS */
+        return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
+      }
+
+      /* Filter out vote slots older than the earliest slot present in the slot hashes history.
+         https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L912-L926
+       */
+      fd_slot_hashes_t slot_hashes;
+      fd_sysvar_slot_hashes_read( ctx.global, &slot_hashes );
+
+      ulong earliest_slot_in_history = 0;
+      if ( slot_hashes.hashes.cnt > 0 ) {
+        earliest_slot_in_history = slot_hashes.hashes.elems[ slot_hashes.hashes.cnt - 1 ].slot;
+      }
+
+      fd_vec_ulong_t vote_slots;
+      fd_vec_ulong_new( &vote_slots );
+      for ( ulong i = 0; i < vote.slots.cnt; i++ ) {
+        if ( vote.slots.elems[i] >= earliest_slot_in_history ) {
+          fd_vec_ulong_push( &vote_slots, vote.slots.elems[i] );
+        }
+      } 
+
+      if ( vote_slots.cnt == 0 ) {
+        /* TODO: propagate custom error code FD_VOTE_VOTES_TOO_OLD_ALL_FILTERED */
         return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
       }
 

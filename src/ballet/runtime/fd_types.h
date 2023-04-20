@@ -790,10 +790,15 @@ typedef struct fd_firedancer_banks fd_firedancer_banks_t;
 #define FD_FIREDANCER_BANKS_FOOTPRINT sizeof(fd_firedancer_banks_t)
 #define FD_FIREDANCER_BANKS_ALIGN (8UL)
 
+#define VECT_NAME fd_vec_ulong
+#define VECT_ELEMENT ulong
+#include "../../funk/fd_vector.h"
+#undef VECT_NAME
+#undef VECT_ELEMENT
+
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L133 */
 struct fd_vote {
-  ulong          slots_len;
-  unsigned long* slots;
+  fd_vec_ulong_t slots;
   fd_hash_t      hash;
   unsigned long* timestamp;
 };
