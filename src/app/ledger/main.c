@@ -9,7 +9,7 @@
 #include <errno.h>
 #include <zstd.h>      // presumes zstd library is installed
 #include "../../util/fd_util.h"
-#include "tar.h"
+#include "../../util/archive/fd_tar.h"
 #include "../../ballet/runtime/fd_banks_solana.h"
 #include "../../ballet/runtime/fd_hashes.h"
 #include "../../funk/fd_funk.h"
@@ -22,7 +22,7 @@ static void usage(const char* progname) {
 }
 
 struct SnapshotParser {
-  struct TarReadStream                      tarreader_;
+  struct fd_tar_stream                      tarreader_;
   char*                                     tmpstart_;
   char*                                     tmpcur_;
   char*                                     tmpend_;
@@ -33,7 +33,7 @@ struct SnapshotParser {
 };
 
 void SnapshotParser_init(struct SnapshotParser* self, fd_global_ctx_t* global) {
-  TarReadStream_init(&self->tarreader_, global->allocf, global->allocf_arg, global->freef);
+  fd_tar_stream_init(&self->tarreader_, global->allocf, global->allocf_arg, global->freef);
   size_t tmpsize = 1<<30;
   self->tmpstart_ = self->tmpcur_ = (char*)malloc(tmpsize);
   self->tmpend_ = self->tmpstart_ + tmpsize;
@@ -44,7 +44,7 @@ void SnapshotParser_init(struct SnapshotParser* self, fd_global_ctx_t* global) {
 }
 
 void SnapshotParser_destroy(struct SnapshotParser* self) {
-  TarReadStream_destroy(&self->tarreader_);
+  fd_tar_stream_delete(&self->tarreader_);
   free(self->tmpstart_);
 }
 
@@ -118,7 +118,7 @@ void SnapshotParser_tarEntry(void* arg, const char* name, const void* data, size
 // Return non-zero on end of tarball
 int SnapshotParser_moreData(void* arg, const void* data, size_t datalen) {
   struct SnapshotParser* self = (struct SnapshotParser*)arg;
-  return TarReadStream_moreData(&self->tarreader_, data, datalen, SnapshotParser_tarEntry, self);
+  return fd_tar_stream_moreData(&self->tarreader_, data, datalen, SnapshotParser_tarEntry, self);
 }
 
 typedef int (*decompressCallback)(void* arg, const void* data, size_t datalen);
