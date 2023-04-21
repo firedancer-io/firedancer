@@ -9,7 +9,7 @@
 #include <errno.h>
 #include <zstd.h>      // presumes zstd library is installed
 #include "../../util/fd_util.h"
-#include "tar.h"
+#include "../../util/archive/fd_tar.h"
 #include "../../ballet/runtime/fd_banks_solana.h"
 #include "../../ballet/runtime/fd_hashes.h"
 #include "../../funk/fd_funk.h"
@@ -22,31 +22,29 @@ static void usage(const char* progname) {
 }
 
 struct SnapshotParser {
-  struct TarReadStream tarreader_;
-  char* tmpstart_;
-  char* tmpcur_;
-  char* tmpend_;
-    
-  fd_global_ctx_t* global_;
-  
-  struct fd_deserializable_versioned_bank* bank_;
-  struct fd_solana_accounts_db_fields* accounts_;
+  struct fd_tar_stream                      tarreader_;
+  char*                                     tmpstart_;
+  char*                                     tmpcur_;
+  char*                                     tmpend_;
+
+  fd_global_ctx_t*                          global_;
+
+  fd_solana_manifest_t                     *manifest_;
 };
 
 void SnapshotParser_init(struct SnapshotParser* self, fd_global_ctx_t* global) {
-  TarReadStream_init(&self->tarreader_);
+  fd_tar_stream_init(&self->tarreader_, global->allocf, global->allocf_arg, global->freef);
   size_t tmpsize = 1<<30;
   self->tmpstart_ = self->tmpcur_ = (char*)malloc(tmpsize);
   self->tmpend_ = self->tmpstart_ + tmpsize;
 
   self->global_ = global;
-  
-  self->bank_ = NULL;
-  self->accounts_ = NULL;
+
+  self->manifest_ = NULL;
 }
 
 void SnapshotParser_destroy(struct SnapshotParser* self) {
-  TarReadStream_destroy(&self->tarreader_);
+  fd_tar_stream_delete(&self->tarreader_);
   free(self->tmpstart_);
 }
 
@@ -58,7 +56,7 @@ void SnapshotParser_parsefd_solana_accounts(struct SnapshotParser* self, const c
   fd_slot_account_pair_t_mapnode_t key1;
   key1.elem.slot = slot;
   fd_slot_account_pair_t_mapnode_t* node1 = fd_slot_account_pair_t_map_find(
-    self->accounts_->storages_pool, self->accounts_->storages_root, &key1);
+    self->manifest_->accounts_db.storages_pool, self->manifest_->accounts_db.storages_root, &key1);
   if (node1 == NULL)
     return;
 
@@ -71,28 +69,25 @@ void SnapshotParser_parsefd_solana_accounts(struct SnapshotParser* self, const c
 
   if (node2->elem.accounts_current_len < datalen)
     datalen = node2->elem.accounts_current_len;
-  
+
   while (datalen) {
-    fd_solana_account_hdr_t hdr;
-    size_t roundedlen = (sizeof(hdr)+7UL)&~7UL;
+    size_t roundedlen = (sizeof(fd_solana_account_hdr_t)+7UL)&~7UL;
     if (roundedlen > datalen)
       return;
-    memcpy(&hdr, data, sizeof(hdr));
-    data = (const char*)data + roundedlen;
-    datalen -= roundedlen;
+    fd_solana_account_hdr_t* hdr = (fd_solana_account_hdr_t*)data;
 
     do {
       fd_account_meta_t metadata;
-      int read_result = fd_acc_mgr_get_metadata( self->global_->acc_mgr, self->global_->funk_txn, (fd_pubkey_t*) &hdr.meta.pubkey, &metadata );
+      int               read_result = fd_acc_mgr_get_metadata( self->global_->acc_mgr, self->global_->funk_txn, (fd_pubkey_t*) &hdr->meta.pubkey, &metadata );
       if ( FD_UNLIKELY( read_result == FD_ACC_MGR_SUCCESS ) ) {
         if (metadata.slot > slot)
           break;
       }
-      if (fd_acc_mgr_write_append_vec_account( self->global_->acc_mgr, self->global_->funk_txn, slot, &hdr) != FD_ACC_MGR_SUCCESS) 
+      if (fd_acc_mgr_write_append_vec_account( self->global_->acc_mgr, self->global_->funk_txn, slot, hdr) != FD_ACC_MGR_SUCCESS)
         FD_LOG_ERR(("writing failed account"));
     } while (0);
 
-    roundedlen = (hdr.meta.data_len+7UL)&~7UL;
+    roundedlen = (sizeof(fd_solana_account_hdr_t)+hdr->meta.data_len+7UL)&~7UL;
     if (roundedlen > datalen)
       return;
     data = (const char*)data + roundedlen;
@@ -101,16 +96,13 @@ void SnapshotParser_parsefd_solana_accounts(struct SnapshotParser* self, const c
 }
 
 void SnapshotParser_parseSnapshots(struct SnapshotParser* self, const void* data, size_t datalen) {
-  const void * dataend = (const char*)data + datalen;
+  const void *     dataend = (const char*)data + datalen;
   fd_global_ctx_t* global = self->global_;
-    
-  self->bank_ = (struct fd_deserializable_versioned_bank*)
-    global->allocf(global->allocf_arg, FD_DESERIALIZABLE_VERSIONED_BANK_ALIGN, FD_DESERIALIZABLE_VERSIONED_BANK_FOOTPRINT);
-  fd_deserializable_versioned_bank_decode(self->bank_, &data, dataend, global->allocf, global->allocf_arg);
 
-  self->accounts_ = (struct fd_solana_accounts_db_fields*)
-    global->allocf(global->allocf_arg, FD_SOLANA_ACCOUNTS_DB_FIELDS_ALIGN, FD_SOLANA_ACCOUNTS_DB_FIELDS_FOOTPRINT);
-  fd_solana_accounts_db_fields_decode(self->accounts_, &data, dataend, global->allocf, global->allocf_arg);
+  self->manifest_ = (fd_solana_manifest_t*)
+                    global->allocf(global->allocf_arg, FD_SOLANA_MANIFEST_ALIGN, FD_SOLANA_MANIFEST_FOOTPRINT);
+  fd_solana_manifest_decode(self->manifest_, &data, dataend, global->allocf, global->allocf_arg);
+//  FD_LOG_WARNING(( "manifest account entries", self->manifest_.accounts_db.));
 }
 
 void SnapshotParser_tarEntry(void* arg, const char* name, const void* data, size_t datalen) {
@@ -126,7 +118,7 @@ void SnapshotParser_tarEntry(void* arg, const char* name, const void* data, size
 // Return non-zero on end of tarball
 int SnapshotParser_moreData(void* arg, const void* data, size_t datalen) {
   struct SnapshotParser* self = (struct SnapshotParser*)arg;
-  return TarReadStream_moreData(&self->tarreader_, data, datalen, SnapshotParser_tarEntry, self);
+  return fd_tar_stream_moreData(&self->tarreader_, data, datalen, SnapshotParser_tarEntry, self);
 }
 
 typedef int (*decompressCallback)(void* arg, const void* data, size_t datalen);
@@ -136,9 +128,9 @@ static void decompressFile(const char* fname, decompressCallback cb, void* arg) 
     FD_LOG_ERR(( "unable to read file %s: %s", fname, strerror(errno) ));
   }
   size_t const buffInSize = ZSTD_DStreamInSize();
-  void*  buffIn = alloca(buffInSize);
+  void*        buffIn = alloca(buffInSize);
   size_t const buffOutSize = ZSTD_DStreamOutSize();  /* Guarantee to successfully flush at least one complete compressed block in all circumstances. */
-  void* buffOut = alloca(buffOutSize);
+  void*        buffOut = alloca(buffOutSize);
 
   ZSTD_DCtx* const dctx = ZSTD_createDCtx();
   if (dctx == NULL) {
@@ -152,7 +144,7 @@ static void decompressFile(const char* fname, decompressCallback cb, void* arg) 
    * and doesn't consume input after the frame.
    */
   ssize_t readRet;
-  size_t lastRet = 0;
+  size_t  lastRet = 0;
   while ( (readRet = read(fin, buffIn, buffInSize)) ) {
     if (readRet == -1) {
       FD_LOG_ERR(( "unable to read file %s: %s", fname, strerror(errno) ));
@@ -203,12 +195,12 @@ int main(int argc, char** argv) {
     return 1;
   }
 
-  fd_wksp_t* wksp = fd_wksp_new_anonymous( FD_SHMEM_GIGANTIC_PAGE_SZ, 15, 2, "wksp", 0UL );
+  fd_wksp_t* wksp = fd_wksp_new_anonymous( FD_SHMEM_GIGANTIC_PAGE_SZ, 45, 2, "wksp", 0UL );
 
   void * alloc_shmem = fd_wksp_alloc_laddr( wksp, fd_alloc_align(), fd_alloc_footprint(), 1 );
   void * allocf_arg = fd_alloc_join( fd_alloc_new ( alloc_shmem, 1 ), 0UL );
 
-  void * global_raw = fd_alloc_malloc(allocf_arg, FD_GLOBAL_CTX_ALIGN, FD_GLOBAL_CTX_FOOTPRINT);
+  void *            global_raw = fd_alloc_malloc(allocf_arg, FD_GLOBAL_CTX_ALIGN, FD_GLOBAL_CTX_FOOTPRINT);
   fd_global_ctx_t * global = fd_global_ctx_join(fd_global_ctx_new(global_raw));
   global->wksp = wksp;
   global->allocf = (fd_alloc_fun_t)fd_alloc_malloc;
@@ -228,9 +220,9 @@ int main(int argc, char** argv) {
     const char* funkfile = fd_env_strip_cmdline_cstr(&argc, &argv, "--funkfile", NULL, "funkdb");
 
     unlink(funkfile);
-    ulong index_max = 100000000; // Maximum size (count) of master index
-    ulong xactions_max = 10;     // Maximum size (count) of transaction index
-    ulong cache_max = 10000;     // Maximum number of cache entries
+    ulong      index_max = 350000000; // Maximum size (count) of master index
+    ulong      xactions_max = 10; // Maximum size (count) of transaction index
+    ulong      cache_max = 10000; // Maximum number of cache entries
     fd_funk_t* funk = fd_funk_new(funkfile, wksp, 2, index_max, xactions_max, cache_max);
     global->funk = funk;
     fd_funk_xactionid_t xid;
@@ -242,6 +234,8 @@ int main(int argc, char** argv) {
     decompressFile(snapshotfile, SnapshotParser_moreData, &parser);
     SnapshotParser_destroy(&parser);
 
+    FD_LOG_INFO(("imported %lu accounts", fd_funk_num_records(funk)));
+    
     fd_funk_delete(funk);
   }
 
@@ -250,10 +244,10 @@ int main(int argc, char** argv) {
 
   fd_global_ctx_delete( fd_global_ctx_leave( global ) );
   global->freef(global->allocf_arg, global_raw);
-  
+
   fd_alloc_delete( fd_alloc_leave( allocf_arg ) );
   fd_wksp_free_laddr( alloc_shmem );
-  
+
   fd_wksp_delete_anonymous( wksp );
 
   fd_log_flush();

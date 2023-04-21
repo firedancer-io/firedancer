@@ -55,9 +55,9 @@ typedef struct fd_acc_mgr fd_acc_mgr_t;
 
 typedef struct fd_global_ctx fd_global_ctx_t;
 
-void* fd_acc_mgr_new( void*      mem,
+void* fd_acc_mgr_new( void*            mem,
                       fd_global_ctx_t* global,
-                      ulong      footprint );
+                      ulong            footprint );
 
 fd_acc_mgr_t* fd_acc_mgr_join( void* mem );
 
@@ -69,10 +69,9 @@ void* fd_acc_mgr_delete( void* mem );
 typedef ulong fd_acc_lamports_t;
 
 /* Writes account data to the database, starting at the given offset.
-
-   TODO: make this automatically update the metadata (hash, dlen etc)
  */
-int fd_acc_mgr_write_account_data( fd_acc_mgr_t* acc_mgr, struct fd_funk_xactionid const*, fd_pubkey_t* pubkey, ulong offset, uchar* data, ulong data_len );
+int fd_acc_mgr_write_account_data( fd_acc_mgr_t* acc_mgr, struct fd_funk_xactionid const* txn, fd_pubkey_t* pubkey,
+                                   struct iovec const * const iov, ulong iovcnt, ulong offset );
 
 /* Fetches the account data for the account with the given public key.
 

@@ -503,3 +503,58 @@ fd_global_ctx_delete     ( void * mem ) {
 
   return mem;
 }
+
+void
+fd_global_process_genesis_config     ( fd_global_ctx_t *global  ) 
+{
+  // Bootstrap validator collects fees until `new_from_parent` is called.
+
+  // fd_fee_rate_governor_copy_to(&global->bank.solana_bank.fee_rate_governor, &global->genesis_block.fee_rate_governor, global->allocf, global->allocf_arg);
+  global->bank.solana_bank.fee_rate_governor = global->genesis_block.fee_rate_governor;
+
+  // global->bank.solana_bank.fee_calculator = self.fee_rate_governor.create_fee_calculator();
+  global->bank.solana_bank.fee_calculator.lamports_per_signature = 10000;
+
+  //  // highest staked node is the first collector
+  //  self.collector_id = self
+  //    .stakes_cache
+  //    .stakes()
+  //    .highest_staked_node()
+  //    .unwrap_or_default();
+
+//  self.blockhash_queue.write().unwrap().genesis_hash(
+//    &genesis_config.hash(),
+//      self.fee_rate_governor.lamports_per_signature,
+//    );
+//
+
+  fd_poh_config_t *poh = &global->genesis_block.poh_config;
+
+  if (poh->hashes_per_tick) {
+    global->bank.solana_bank.hashes_per_tick = (ulong*)(*global->allocf)(global->allocf_arg, 8, sizeof(ulong));
+    *global->bank.solana_bank.hashes_per_tick = *poh->hashes_per_tick;
+  }
+  global->bank.solana_bank.ticks_per_slot = global->genesis_block.ticks_per_slot;
+  global->bank.solana_bank.genesis_creation_time = global->genesis_block.creation_time;
+
+  uint128 target_tick_duration = ((uint128) poh->target_tick_duration.seconds * 1000000000UL + (uint128) poh->target_tick_duration.nanoseconds);
+  global->bank.solana_bank.ns_per_slot = target_tick_duration * global->bank.solana_bank.ticks_per_slot;
+
+#define SECONDS_PER_YEAR ((double) (365.25 * 24.0 * 60.0 * 60.0))
+
+  global->bank.solana_bank.slots_per_year = SECONDS_PER_YEAR * (1000000000.0 / (double) target_tick_duration) / (double) global->bank.solana_bank.ticks_per_slot;
+
+  global->bank.solana_bank.genesis_creation_time = global->genesis_block.creation_time;
+  global->bank.solana_bank.max_tick_height = global->bank.solana_bank.ticks_per_slot * (global->bank.solana_bank.slot + 1);
+
+  global->bank.solana_bank.epoch_schedule = global->genesis_block.epoch_schedule;
+  global->bank.solana_bank.inflation = global->genesis_block.inflation;
+
+//  self.rent_collector = RentCollector::new(
+//    self.epoch,
+//      *self.epoch_schedule(),
+//      self.slots_per_year,
+//      genesis_config.rent,
+//    );
+
+}

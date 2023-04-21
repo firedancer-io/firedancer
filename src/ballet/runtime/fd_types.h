@@ -444,6 +444,15 @@ typedef struct fd_solana_accounts_db_fields fd_solana_accounts_db_fields_t;
 #define FD_SOLANA_ACCOUNTS_DB_FIELDS_FOOTPRINT sizeof(fd_solana_accounts_db_fields_t)
 #define FD_SOLANA_ACCOUNTS_DB_FIELDS_ALIGN (8UL)
 
+struct fd_solana_manifest {
+  fd_deserializable_versioned_bank_t bank;
+  fd_solana_accounts_db_fields_t     accounts_db;
+  unsigned long                      lamports_per_signature;
+};
+typedef struct fd_solana_manifest fd_solana_manifest_t;
+#define FD_SOLANA_MANIFEST_FOOTPRINT sizeof(fd_solana_manifest_t)
+#define FD_SOLANA_MANIFEST_ALIGN (8UL)
+
 struct fd_rust_duration {
   unsigned long seconds;
   uint          nanoseconds;
@@ -812,341 +821,415 @@ FD_PROTOTYPES_BEGIN
 void fd_fee_calculator_decode(fd_fee_calculator_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
 void fd_fee_calculator_encode(fd_fee_calculator_t* self, void const** data);
 void fd_fee_calculator_destroy(fd_fee_calculator_t* self, fd_free_fun_t freef, void* freef_arg);
+void fd_fee_calculator_copy_to(fd_fee_calculator_t* to, fd_fee_calculator_t* from, fd_alloc_fun_t freef, void* allocf_arg);
 ulong fd_fee_calculator_size(fd_fee_calculator_t* self);
 
 void fd_hash_age_decode(fd_hash_age_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
 void fd_hash_age_encode(fd_hash_age_t* self, void const** data);
 void fd_hash_age_destroy(fd_hash_age_t* self, fd_free_fun_t freef, void* freef_arg);
+void fd_hash_age_copy_to(fd_hash_age_t* to, fd_hash_age_t* from, fd_alloc_fun_t freef, void* allocf_arg);
 ulong fd_hash_age_size(fd_hash_age_t* self);
 
 void fd_hash_hash_age_pair_decode(fd_hash_hash_age_pair_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
 void fd_hash_hash_age_pair_encode(fd_hash_hash_age_pair_t* self, void const** data);
 void fd_hash_hash_age_pair_destroy(fd_hash_hash_age_pair_t* self, fd_free_fun_t freef, void* freef_arg);
+void fd_hash_hash_age_pair_copy_to(fd_hash_hash_age_pair_t* to, fd_hash_hash_age_pair_t* from, fd_alloc_fun_t freef, void* allocf_arg);
 ulong fd_hash_hash_age_pair_size(fd_hash_hash_age_pair_t* self);
 
 void fd_block_hash_queue_decode(fd_block_hash_queue_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
 void fd_block_hash_queue_encode(fd_block_hash_queue_t* self, void const** data);
 void fd_block_hash_queue_destroy(fd_block_hash_queue_t* self, fd_free_fun_t freef, void* freef_arg);
+void fd_block_hash_queue_copy_to(fd_block_hash_queue_t* to, fd_block_hash_queue_t* from, fd_alloc_fun_t freef, void* allocf_arg);
 ulong fd_block_hash_queue_size(fd_block_hash_queue_t* self);
 
 void fd_epoch_schedule_decode(fd_epoch_schedule_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
 void fd_epoch_schedule_encode(fd_epoch_schedule_t* self, void const** data);
 void fd_epoch_schedule_destroy(fd_epoch_schedule_t* self, fd_free_fun_t freef, void* freef_arg);
+void fd_epoch_schedule_copy_to(fd_epoch_schedule_t* to, fd_epoch_schedule_t* from, fd_alloc_fun_t freef, void* allocf_arg);
 ulong fd_epoch_schedule_size(fd_epoch_schedule_t* self);
 
 void fd_fee_rate_governor_decode(fd_fee_rate_governor_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
 void fd_fee_rate_governor_encode(fd_fee_rate_governor_t* self, void const** data);
 void fd_fee_rate_governor_destroy(fd_fee_rate_governor_t* self, fd_free_fun_t freef, void* freef_arg);
+void fd_fee_rate_governor_copy_to(fd_fee_rate_governor_t* to, fd_fee_rate_governor_t* from, fd_alloc_fun_t freef, void* allocf_arg);
 ulong fd_fee_rate_governor_size(fd_fee_rate_governor_t* self);
 
 void fd_slot_pair_decode(fd_slot_pair_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
 void fd_slot_pair_encode(fd_slot_pair_t* self, void const** data);
 void fd_slot_pair_destroy(fd_slot_pair_t* self, fd_free_fun_t freef, void* freef_arg);
+void fd_slot_pair_copy_to(fd_slot_pair_t* to, fd_slot_pair_t* from, fd_alloc_fun_t freef, void* allocf_arg);
 ulong fd_slot_pair_size(fd_slot_pair_t* self);
 
 void fd_hard_forks_decode(fd_hard_forks_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
 void fd_hard_forks_encode(fd_hard_forks_t* self, void const** data);
 void fd_hard_forks_destroy(fd_hard_forks_t* self, fd_free_fun_t freef, void* freef_arg);
+void fd_hard_forks_copy_to(fd_hard_forks_t* to, fd_hard_forks_t* from, fd_alloc_fun_t freef, void* allocf_arg);
 ulong fd_hard_forks_size(fd_hard_forks_t* self);
 
 void fd_inflation_decode(fd_inflation_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
 void fd_inflation_encode(fd_inflation_t* self, void const** data);
 void fd_inflation_destroy(fd_inflation_t* self, fd_free_fun_t freef, void* freef_arg);
+void fd_inflation_copy_to(fd_inflation_t* to, fd_inflation_t* from, fd_alloc_fun_t freef, void* allocf_arg);
 ulong fd_inflation_size(fd_inflation_t* self);
 
 void fd_rent_decode(fd_rent_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
 void fd_rent_encode(fd_rent_t* self, void const** data);
 void fd_rent_destroy(fd_rent_t* self, fd_free_fun_t freef, void* freef_arg);
+void fd_rent_copy_to(fd_rent_t* to, fd_rent_t* from, fd_alloc_fun_t freef, void* allocf_arg);
 ulong fd_rent_size(fd_rent_t* self);
 
 void fd_rent_collector_decode(fd_rent_collector_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
 void fd_rent_collector_encode(fd_rent_collector_t* self, void const** data);
 void fd_rent_collector_destroy(fd_rent_collector_t* self, fd_free_fun_t freef, void* freef_arg);
+void fd_rent_collector_copy_to(fd_rent_collector_t* to, fd_rent_collector_t* from, fd_alloc_fun_t freef, void* allocf_arg);
 ulong fd_rent_collector_size(fd_rent_collector_t* self);
 
 void fd_stake_history_entry_decode(fd_stake_history_entry_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
 void fd_stake_history_entry_encode(fd_stake_history_entry_t* self, void const** data);
 void fd_stake_history_entry_destroy(fd_stake_history_entry_t* self, fd_free_fun_t freef, void* freef_arg);
+void fd_stake_history_entry_copy_to(fd_stake_history_entry_t* to, fd_stake_history_entry_t* from, fd_alloc_fun_t freef, void* allocf_arg);
 ulong fd_stake_history_entry_size(fd_stake_history_entry_t* self);
 
 void fd_stake_history_epochentry_pair_decode(fd_stake_history_epochentry_pair_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
 void fd_stake_history_epochentry_pair_encode(fd_stake_history_epochentry_pair_t* self, void const** data);
 void fd_stake_history_epochentry_pair_destroy(fd_stake_history_epochentry_pair_t* self, fd_free_fun_t freef, void* freef_arg);
+void fd_stake_history_epochentry_pair_copy_to(fd_stake_history_epochentry_pair_t* to, fd_stake_history_epochentry_pair_t* from, fd_alloc_fun_t freef, void* allocf_arg);
 ulong fd_stake_history_epochentry_pair_size(fd_stake_history_epochentry_pair_t* self);
 
 void fd_stake_history_decode(fd_stake_history_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
 void fd_stake_history_encode(fd_stake_history_t* self, void const** data);
 void fd_stake_history_destroy(fd_stake_history_t* self, fd_free_fun_t freef, void* freef_arg);
+void fd_stake_history_copy_to(fd_stake_history_t* to, fd_stake_history_t* from, fd_alloc_fun_t freef, void* allocf_arg);
 ulong fd_stake_history_size(fd_stake_history_t* self);
 
 void fd_solana_account_decode(fd_solana_account_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
 void fd_solana_account_encode(fd_solana_account_t* self, void const** data);
 void fd_solana_account_destroy(fd_solana_account_t* self, fd_free_fun_t freef, void* freef_arg);
+void fd_solana_account_copy_to(fd_solana_account_t* to, fd_solana_account_t* from, fd_alloc_fun_t freef, void* allocf_arg);
 ulong fd_solana_account_size(fd_solana_account_t* self);
 
 void fd_vote_accounts_pair_decode(fd_vote_accounts_pair_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
 void fd_vote_accounts_pair_encode(fd_vote_accounts_pair_t* self, void const** data);
 void fd_vote_accounts_pair_destroy(fd_vote_accounts_pair_t* self, fd_free_fun_t freef, void* freef_arg);
+void fd_vote_accounts_pair_copy_to(fd_vote_accounts_pair_t* to, fd_vote_accounts_pair_t* from, fd_alloc_fun_t freef, void* allocf_arg);
 ulong fd_vote_accounts_pair_size(fd_vote_accounts_pair_t* self);
 
 void fd_vote_accounts_decode(fd_vote_accounts_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
 void fd_vote_accounts_encode(fd_vote_accounts_t* self, void const** data);
 void fd_vote_accounts_destroy(fd_vote_accounts_t* self, fd_free_fun_t freef, void* freef_arg);
+void fd_vote_accounts_copy_to(fd_vote_accounts_t* to, fd_vote_accounts_t* from, fd_alloc_fun_t freef, void* allocf_arg);
 ulong fd_vote_accounts_size(fd_vote_accounts_t* self);
 
 void fd_delegation_decode(fd_delegation_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
 void fd_delegation_encode(fd_delegation_t* self, void const** data);
 void fd_delegation_destroy(fd_delegation_t* self, fd_free_fun_t freef, void* freef_arg);
+void fd_delegation_copy_to(fd_delegation_t* to, fd_delegation_t* from, fd_alloc_fun_t freef, void* allocf_arg);
 ulong fd_delegation_size(fd_delegation_t* self);
 
 void fd_delegation_pair_decode(fd_delegation_pair_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
 void fd_delegation_pair_encode(fd_delegation_pair_t* self, void const** data);
 void fd_delegation_pair_destroy(fd_delegation_pair_t* self, fd_free_fun_t freef, void* freef_arg);
+void fd_delegation_pair_copy_to(fd_delegation_pair_t* to, fd_delegation_pair_t* from, fd_alloc_fun_t freef, void* allocf_arg);
 ulong fd_delegation_pair_size(fd_delegation_pair_t* self);
 
 void fd_stakes_delegation_decode(fd_stakes_delegation_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
 void fd_stakes_delegation_encode(fd_stakes_delegation_t* self, void const** data);
 void fd_stakes_delegation_destroy(fd_stakes_delegation_t* self, fd_free_fun_t freef, void* freef_arg);
+void fd_stakes_delegation_copy_to(fd_stakes_delegation_t* to, fd_stakes_delegation_t* from, fd_alloc_fun_t freef, void* allocf_arg);
 ulong fd_stakes_delegation_size(fd_stakes_delegation_t* self);
 
 void fd_bank_incremental_snapshot_persistence_decode(fd_bank_incremental_snapshot_persistence_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
 void fd_bank_incremental_snapshot_persistence_encode(fd_bank_incremental_snapshot_persistence_t* self, void const** data);
 void fd_bank_incremental_snapshot_persistence_destroy(fd_bank_incremental_snapshot_persistence_t* self, fd_free_fun_t freef, void* freef_arg);
+void fd_bank_incremental_snapshot_persistence_copy_to(fd_bank_incremental_snapshot_persistence_t* to, fd_bank_incremental_snapshot_persistence_t* from, fd_alloc_fun_t freef, void* allocf_arg);
 ulong fd_bank_incremental_snapshot_persistence_size(fd_bank_incremental_snapshot_persistence_t* self);
 
 void fd_node_vote_accounts_decode(fd_node_vote_accounts_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
 void fd_node_vote_accounts_encode(fd_node_vote_accounts_t* self, void const** data);
 void fd_node_vote_accounts_destroy(fd_node_vote_accounts_t* self, fd_free_fun_t freef, void* freef_arg);
+void fd_node_vote_accounts_copy_to(fd_node_vote_accounts_t* to, fd_node_vote_accounts_t* from, fd_alloc_fun_t freef, void* allocf_arg);
 ulong fd_node_vote_accounts_size(fd_node_vote_accounts_t* self);
 
 void fd_pubkey_node_vote_accounts_pair_decode(fd_pubkey_node_vote_accounts_pair_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
 void fd_pubkey_node_vote_accounts_pair_encode(fd_pubkey_node_vote_accounts_pair_t* self, void const** data);
 void fd_pubkey_node_vote_accounts_pair_destroy(fd_pubkey_node_vote_accounts_pair_t* self, fd_free_fun_t freef, void* freef_arg);
+void fd_pubkey_node_vote_accounts_pair_copy_to(fd_pubkey_node_vote_accounts_pair_t* to, fd_pubkey_node_vote_accounts_pair_t* from, fd_alloc_fun_t freef, void* allocf_arg);
 ulong fd_pubkey_node_vote_accounts_pair_size(fd_pubkey_node_vote_accounts_pair_t* self);
 
 void fd_pubkey_pubkey_pair_decode(fd_pubkey_pubkey_pair_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
 void fd_pubkey_pubkey_pair_encode(fd_pubkey_pubkey_pair_t* self, void const** data);
 void fd_pubkey_pubkey_pair_destroy(fd_pubkey_pubkey_pair_t* self, fd_free_fun_t freef, void* freef_arg);
+void fd_pubkey_pubkey_pair_copy_to(fd_pubkey_pubkey_pair_t* to, fd_pubkey_pubkey_pair_t* from, fd_alloc_fun_t freef, void* allocf_arg);
 ulong fd_pubkey_pubkey_pair_size(fd_pubkey_pubkey_pair_t* self);
 
 void fd_epoch_stakes_decode(fd_epoch_stakes_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
 void fd_epoch_stakes_encode(fd_epoch_stakes_t* self, void const** data);
 void fd_epoch_stakes_destroy(fd_epoch_stakes_t* self, fd_free_fun_t freef, void* freef_arg);
+void fd_epoch_stakes_copy_to(fd_epoch_stakes_t* to, fd_epoch_stakes_t* from, fd_alloc_fun_t freef, void* allocf_arg);
 ulong fd_epoch_stakes_size(fd_epoch_stakes_t* self);
 
 void fd_epoch_epoch_stakes_pair_decode(fd_epoch_epoch_stakes_pair_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
 void fd_epoch_epoch_stakes_pair_encode(fd_epoch_epoch_stakes_pair_t* self, void const** data);
 void fd_epoch_epoch_stakes_pair_destroy(fd_epoch_epoch_stakes_pair_t* self, fd_free_fun_t freef, void* freef_arg);
+void fd_epoch_epoch_stakes_pair_copy_to(fd_epoch_epoch_stakes_pair_t* to, fd_epoch_epoch_stakes_pair_t* from, fd_alloc_fun_t freef, void* allocf_arg);
 ulong fd_epoch_epoch_stakes_pair_size(fd_epoch_epoch_stakes_pair_t* self);
 
 void fd_pubkey_u64_pair_decode(fd_pubkey_u64_pair_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
 void fd_pubkey_u64_pair_encode(fd_pubkey_u64_pair_t* self, void const** data);
 void fd_pubkey_u64_pair_destroy(fd_pubkey_u64_pair_t* self, fd_free_fun_t freef, void* freef_arg);
+void fd_pubkey_u64_pair_copy_to(fd_pubkey_u64_pair_t* to, fd_pubkey_u64_pair_t* from, fd_alloc_fun_t freef, void* allocf_arg);
 ulong fd_pubkey_u64_pair_size(fd_pubkey_u64_pair_t* self);
 
 void fd_unused_accounts_decode(fd_unused_accounts_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
 void fd_unused_accounts_encode(fd_unused_accounts_t* self, void const** data);
 void fd_unused_accounts_destroy(fd_unused_accounts_t* self, fd_free_fun_t freef, void* freef_arg);
+void fd_unused_accounts_copy_to(fd_unused_accounts_t* to, fd_unused_accounts_t* from, fd_alloc_fun_t freef, void* allocf_arg);
 ulong fd_unused_accounts_size(fd_unused_accounts_t* self);
 
 void fd_deserializable_versioned_bank_decode(fd_deserializable_versioned_bank_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
 void fd_deserializable_versioned_bank_encode(fd_deserializable_versioned_bank_t* self, void const** data);
 void fd_deserializable_versioned_bank_destroy(fd_deserializable_versioned_bank_t* self, fd_free_fun_t freef, void* freef_arg);
+void fd_deserializable_versioned_bank_copy_to(fd_deserializable_versioned_bank_t* to, fd_deserializable_versioned_bank_t* from, fd_alloc_fun_t freef, void* allocf_arg);
 ulong fd_deserializable_versioned_bank_size(fd_deserializable_versioned_bank_t* self);
 
 void fd_serializable_account_storage_entry_decode(fd_serializable_account_storage_entry_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
 void fd_serializable_account_storage_entry_encode(fd_serializable_account_storage_entry_t* self, void const** data);
 void fd_serializable_account_storage_entry_destroy(fd_serializable_account_storage_entry_t* self, fd_free_fun_t freef, void* freef_arg);
+void fd_serializable_account_storage_entry_copy_to(fd_serializable_account_storage_entry_t* to, fd_serializable_account_storage_entry_t* from, fd_alloc_fun_t freef, void* allocf_arg);
 ulong fd_serializable_account_storage_entry_size(fd_serializable_account_storage_entry_t* self);
 
 void fd_bank_hash_stats_decode(fd_bank_hash_stats_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
 void fd_bank_hash_stats_encode(fd_bank_hash_stats_t* self, void const** data);
 void fd_bank_hash_stats_destroy(fd_bank_hash_stats_t* self, fd_free_fun_t freef, void* freef_arg);
+void fd_bank_hash_stats_copy_to(fd_bank_hash_stats_t* to, fd_bank_hash_stats_t* from, fd_alloc_fun_t freef, void* allocf_arg);
 ulong fd_bank_hash_stats_size(fd_bank_hash_stats_t* self);
 
 void fd_bank_hash_info_decode(fd_bank_hash_info_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
 void fd_bank_hash_info_encode(fd_bank_hash_info_t* self, void const** data);
 void fd_bank_hash_info_destroy(fd_bank_hash_info_t* self, fd_free_fun_t freef, void* freef_arg);
+void fd_bank_hash_info_copy_to(fd_bank_hash_info_t* to, fd_bank_hash_info_t* from, fd_alloc_fun_t freef, void* allocf_arg);
 ulong fd_bank_hash_info_size(fd_bank_hash_info_t* self);
 
 void fd_slot_account_pair_decode(fd_slot_account_pair_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
 void fd_slot_account_pair_encode(fd_slot_account_pair_t* self, void const** data);
 void fd_slot_account_pair_destroy(fd_slot_account_pair_t* self, fd_free_fun_t freef, void* freef_arg);
+void fd_slot_account_pair_copy_to(fd_slot_account_pair_t* to, fd_slot_account_pair_t* from, fd_alloc_fun_t freef, void* allocf_arg);
 ulong fd_slot_account_pair_size(fd_slot_account_pair_t* self);
 
 void fd_slot_map_pair_decode(fd_slot_map_pair_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
 void fd_slot_map_pair_encode(fd_slot_map_pair_t* self, void const** data);
 void fd_slot_map_pair_destroy(fd_slot_map_pair_t* self, fd_free_fun_t freef, void* freef_arg);
+void fd_slot_map_pair_copy_to(fd_slot_map_pair_t* to, fd_slot_map_pair_t* from, fd_alloc_fun_t freef, void* allocf_arg);
 ulong fd_slot_map_pair_size(fd_slot_map_pair_t* self);
 
 void fd_solana_accounts_db_fields_decode(fd_solana_accounts_db_fields_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
 void fd_solana_accounts_db_fields_encode(fd_solana_accounts_db_fields_t* self, void const** data);
 void fd_solana_accounts_db_fields_destroy(fd_solana_accounts_db_fields_t* self, fd_free_fun_t freef, void* freef_arg);
+void fd_solana_accounts_db_fields_copy_to(fd_solana_accounts_db_fields_t* to, fd_solana_accounts_db_fields_t* from, fd_alloc_fun_t freef, void* allocf_arg);
 ulong fd_solana_accounts_db_fields_size(fd_solana_accounts_db_fields_t* self);
+
+void fd_solana_manifest_decode(fd_solana_manifest_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
+void fd_solana_manifest_encode(fd_solana_manifest_t* self, void const** data);
+void fd_solana_manifest_destroy(fd_solana_manifest_t* self, fd_free_fun_t freef, void* freef_arg);
+void fd_solana_manifest_copy_to(fd_solana_manifest_t* to, fd_solana_manifest_t* from, fd_alloc_fun_t freef, void* allocf_arg);
+ulong fd_solana_manifest_size(fd_solana_manifest_t* self);
 
 void fd_rust_duration_decode(fd_rust_duration_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
 void fd_rust_duration_encode(fd_rust_duration_t* self, void const** data);
 void fd_rust_duration_destroy(fd_rust_duration_t* self, fd_free_fun_t freef, void* freef_arg);
+void fd_rust_duration_copy_to(fd_rust_duration_t* to, fd_rust_duration_t* from, fd_alloc_fun_t freef, void* allocf_arg);
 ulong fd_rust_duration_size(fd_rust_duration_t* self);
 
 void fd_poh_config_decode(fd_poh_config_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
 void fd_poh_config_encode(fd_poh_config_t* self, void const** data);
 void fd_poh_config_destroy(fd_poh_config_t* self, fd_free_fun_t freef, void* freef_arg);
+void fd_poh_config_copy_to(fd_poh_config_t* to, fd_poh_config_t* from, fd_alloc_fun_t freef, void* allocf_arg);
 ulong fd_poh_config_size(fd_poh_config_t* self);
 
 void fd_string_pubkey_pair_decode(fd_string_pubkey_pair_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
 void fd_string_pubkey_pair_encode(fd_string_pubkey_pair_t* self, void const** data);
 void fd_string_pubkey_pair_destroy(fd_string_pubkey_pair_t* self, fd_free_fun_t freef, void* freef_arg);
+void fd_string_pubkey_pair_copy_to(fd_string_pubkey_pair_t* to, fd_string_pubkey_pair_t* from, fd_alloc_fun_t freef, void* allocf_arg);
 ulong fd_string_pubkey_pair_size(fd_string_pubkey_pair_t* self);
 
 void fd_pubkey_account_pair_decode(fd_pubkey_account_pair_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
 void fd_pubkey_account_pair_encode(fd_pubkey_account_pair_t* self, void const** data);
 void fd_pubkey_account_pair_destroy(fd_pubkey_account_pair_t* self, fd_free_fun_t freef, void* freef_arg);
+void fd_pubkey_account_pair_copy_to(fd_pubkey_account_pair_t* to, fd_pubkey_account_pair_t* from, fd_alloc_fun_t freef, void* allocf_arg);
 ulong fd_pubkey_account_pair_size(fd_pubkey_account_pair_t* self);
 
 void fd_genesis_solana_decode(fd_genesis_solana_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
 void fd_genesis_solana_encode(fd_genesis_solana_t* self, void const** data);
 void fd_genesis_solana_destroy(fd_genesis_solana_t* self, fd_free_fun_t freef, void* freef_arg);
+void fd_genesis_solana_copy_to(fd_genesis_solana_t* to, fd_genesis_solana_t* from, fd_alloc_fun_t freef, void* allocf_arg);
 ulong fd_genesis_solana_size(fd_genesis_solana_t* self);
 
 void fd_secp256k1_signature_offsets_decode(fd_secp256k1_signature_offsets_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
 void fd_secp256k1_signature_offsets_encode(fd_secp256k1_signature_offsets_t* self, void const** data);
 void fd_secp256k1_signature_offsets_destroy(fd_secp256k1_signature_offsets_t* self, fd_free_fun_t freef, void* freef_arg);
+void fd_secp256k1_signature_offsets_copy_to(fd_secp256k1_signature_offsets_t* to, fd_secp256k1_signature_offsets_t* from, fd_alloc_fun_t freef, void* allocf_arg);
 ulong fd_secp256k1_signature_offsets_size(fd_secp256k1_signature_offsets_t* self);
 
 void fd_sol_sysvar_clock_decode(fd_sol_sysvar_clock_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
 void fd_sol_sysvar_clock_encode(fd_sol_sysvar_clock_t* self, void const** data);
 void fd_sol_sysvar_clock_destroy(fd_sol_sysvar_clock_t* self, fd_free_fun_t freef, void* freef_arg);
+void fd_sol_sysvar_clock_copy_to(fd_sol_sysvar_clock_t* to, fd_sol_sysvar_clock_t* from, fd_alloc_fun_t freef, void* allocf_arg);
 ulong fd_sol_sysvar_clock_size(fd_sol_sysvar_clock_t* self);
 
 void fd_vote_lockout_decode(fd_vote_lockout_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
 void fd_vote_lockout_encode(fd_vote_lockout_t* self, void const** data);
 void fd_vote_lockout_destroy(fd_vote_lockout_t* self, fd_free_fun_t freef, void* freef_arg);
+void fd_vote_lockout_copy_to(fd_vote_lockout_t* to, fd_vote_lockout_t* from, fd_alloc_fun_t freef, void* allocf_arg);
 ulong fd_vote_lockout_size(fd_vote_lockout_t* self);
 
 void fd_compact_vote_lockout_decode(fd_compact_vote_lockout_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
 void fd_compact_vote_lockout_encode(fd_compact_vote_lockout_t* self, void const** data);
 void fd_compact_vote_lockout_destroy(fd_compact_vote_lockout_t* self, fd_free_fun_t freef, void* freef_arg);
+void fd_compact_vote_lockout_copy_to(fd_compact_vote_lockout_t* to, fd_compact_vote_lockout_t* from, fd_alloc_fun_t freef, void* allocf_arg);
 ulong fd_compact_vote_lockout_size(fd_compact_vote_lockout_t* self);
 
 void fd_vote_authorized_voter_decode(fd_vote_authorized_voter_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
 void fd_vote_authorized_voter_encode(fd_vote_authorized_voter_t* self, void const** data);
 void fd_vote_authorized_voter_destroy(fd_vote_authorized_voter_t* self, fd_free_fun_t freef, void* freef_arg);
+void fd_vote_authorized_voter_copy_to(fd_vote_authorized_voter_t* to, fd_vote_authorized_voter_t* from, fd_alloc_fun_t freef, void* allocf_arg);
 ulong fd_vote_authorized_voter_size(fd_vote_authorized_voter_t* self);
 
 void fd_vote_prior_voter_decode(fd_vote_prior_voter_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
 void fd_vote_prior_voter_encode(fd_vote_prior_voter_t* self, void const** data);
 void fd_vote_prior_voter_destroy(fd_vote_prior_voter_t* self, fd_free_fun_t freef, void* freef_arg);
+void fd_vote_prior_voter_copy_to(fd_vote_prior_voter_t* to, fd_vote_prior_voter_t* from, fd_alloc_fun_t freef, void* allocf_arg);
 ulong fd_vote_prior_voter_size(fd_vote_prior_voter_t* self);
 
 void fd_vote_epoch_credits_decode(fd_vote_epoch_credits_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
 void fd_vote_epoch_credits_encode(fd_vote_epoch_credits_t* self, void const** data);
 void fd_vote_epoch_credits_destroy(fd_vote_epoch_credits_t* self, fd_free_fun_t freef, void* freef_arg);
+void fd_vote_epoch_credits_copy_to(fd_vote_epoch_credits_t* to, fd_vote_epoch_credits_t* from, fd_alloc_fun_t freef, void* allocf_arg);
 ulong fd_vote_epoch_credits_size(fd_vote_epoch_credits_t* self);
 
 void fd_vote_historical_authorized_voter_decode(fd_vote_historical_authorized_voter_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
 void fd_vote_historical_authorized_voter_encode(fd_vote_historical_authorized_voter_t* self, void const** data);
 void fd_vote_historical_authorized_voter_destroy(fd_vote_historical_authorized_voter_t* self, fd_free_fun_t freef, void* freef_arg);
+void fd_vote_historical_authorized_voter_copy_to(fd_vote_historical_authorized_voter_t* to, fd_vote_historical_authorized_voter_t* from, fd_alloc_fun_t freef, void* allocf_arg);
 ulong fd_vote_historical_authorized_voter_size(fd_vote_historical_authorized_voter_t* self);
 
 void fd_vote_block_timestamp_decode(fd_vote_block_timestamp_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
 void fd_vote_block_timestamp_encode(fd_vote_block_timestamp_t* self, void const** data);
 void fd_vote_block_timestamp_destroy(fd_vote_block_timestamp_t* self, fd_free_fun_t freef, void* freef_arg);
+void fd_vote_block_timestamp_copy_to(fd_vote_block_timestamp_t* to, fd_vote_block_timestamp_t* from, fd_alloc_fun_t freef, void* allocf_arg);
 ulong fd_vote_block_timestamp_size(fd_vote_block_timestamp_t* self);
 
 void fd_vote_prior_voters_decode(fd_vote_prior_voters_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
 void fd_vote_prior_voters_encode(fd_vote_prior_voters_t* self, void const** data);
 void fd_vote_prior_voters_destroy(fd_vote_prior_voters_t* self, fd_free_fun_t freef, void* freef_arg);
+void fd_vote_prior_voters_copy_to(fd_vote_prior_voters_t* to, fd_vote_prior_voters_t* from, fd_alloc_fun_t freef, void* allocf_arg);
 ulong fd_vote_prior_voters_size(fd_vote_prior_voters_t* self);
 
 void fd_vote_state_decode(fd_vote_state_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
 void fd_vote_state_encode(fd_vote_state_t* self, void const** data);
 void fd_vote_state_destroy(fd_vote_state_t* self, fd_free_fun_t freef, void* freef_arg);
+void fd_vote_state_copy_to(fd_vote_state_t* to, fd_vote_state_t* from, fd_alloc_fun_t freef, void* allocf_arg);
 ulong fd_vote_state_size(fd_vote_state_t* self);
 
 void fd_vote_state_update_decode(fd_vote_state_update_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
 void fd_vote_state_update_encode(fd_vote_state_update_t* self, void const** data);
 void fd_vote_state_update_destroy(fd_vote_state_update_t* self, fd_free_fun_t freef, void* freef_arg);
+void fd_vote_state_update_copy_to(fd_vote_state_update_t* to, fd_vote_state_update_t* from, fd_alloc_fun_t freef, void* allocf_arg);
 ulong fd_vote_state_update_size(fd_vote_state_update_t* self);
 
 void fd_compact_vote_state_update_decode(fd_compact_vote_state_update_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
 void fd_compact_vote_state_update_encode(fd_compact_vote_state_update_t* self, void const** data);
 void fd_compact_vote_state_update_destroy(fd_compact_vote_state_update_t* self, fd_free_fun_t freef, void* freef_arg);
+void fd_compact_vote_state_update_copy_to(fd_compact_vote_state_update_t* to, fd_compact_vote_state_update_t* from, fd_alloc_fun_t freef, void* allocf_arg);
 ulong fd_compact_vote_state_update_size(fd_compact_vote_state_update_t* self);
 
 void fd_slot_history_inner_decode(fd_slot_history_inner_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
 void fd_slot_history_inner_encode(fd_slot_history_inner_t* self, void const** data);
 void fd_slot_history_inner_destroy(fd_slot_history_inner_t* self, fd_free_fun_t freef, void* freef_arg);
+void fd_slot_history_inner_copy_to(fd_slot_history_inner_t* to, fd_slot_history_inner_t* from, fd_alloc_fun_t freef, void* allocf_arg);
 ulong fd_slot_history_inner_size(fd_slot_history_inner_t* self);
 
 void fd_slot_history_bitvec_decode(fd_slot_history_bitvec_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
 void fd_slot_history_bitvec_encode(fd_slot_history_bitvec_t* self, void const** data);
 void fd_slot_history_bitvec_destroy(fd_slot_history_bitvec_t* self, fd_free_fun_t freef, void* freef_arg);
+void fd_slot_history_bitvec_copy_to(fd_slot_history_bitvec_t* to, fd_slot_history_bitvec_t* from, fd_alloc_fun_t freef, void* allocf_arg);
 ulong fd_slot_history_bitvec_size(fd_slot_history_bitvec_t* self);
 
 void fd_slot_history_decode(fd_slot_history_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
 void fd_slot_history_encode(fd_slot_history_t* self, void const** data);
 void fd_slot_history_destroy(fd_slot_history_t* self, fd_free_fun_t freef, void* freef_arg);
+void fd_slot_history_copy_to(fd_slot_history_t* to, fd_slot_history_t* from, fd_alloc_fun_t freef, void* allocf_arg);
 ulong fd_slot_history_size(fd_slot_history_t* self);
 
 void fd_slot_hash_decode(fd_slot_hash_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
 void fd_slot_hash_encode(fd_slot_hash_t* self, void const** data);
 void fd_slot_hash_destroy(fd_slot_hash_t* self, fd_free_fun_t freef, void* freef_arg);
+void fd_slot_hash_copy_to(fd_slot_hash_t* to, fd_slot_hash_t* from, fd_alloc_fun_t freef, void* allocf_arg);
 ulong fd_slot_hash_size(fd_slot_hash_t* self);
 
 void fd_slot_hashes_decode(fd_slot_hashes_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
 void fd_slot_hashes_encode(fd_slot_hashes_t* self, void const** data);
 void fd_slot_hashes_destroy(fd_slot_hashes_t* self, fd_free_fun_t freef, void* freef_arg);
+void fd_slot_hashes_copy_to(fd_slot_hashes_t* to, fd_slot_hashes_t* from, fd_alloc_fun_t freef, void* allocf_arg);
 ulong fd_slot_hashes_size(fd_slot_hashes_t* self);
 
 void fd_block_block_hash_entry_decode(fd_block_block_hash_entry_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
 void fd_block_block_hash_entry_encode(fd_block_block_hash_entry_t* self, void const** data);
 void fd_block_block_hash_entry_destroy(fd_block_block_hash_entry_t* self, fd_free_fun_t freef, void* freef_arg);
+void fd_block_block_hash_entry_copy_to(fd_block_block_hash_entry_t* to, fd_block_block_hash_entry_t* from, fd_alloc_fun_t freef, void* allocf_arg);
 ulong fd_block_block_hash_entry_size(fd_block_block_hash_entry_t* self);
 
 void fd_recent_block_hashes_decode(fd_recent_block_hashes_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
 void fd_recent_block_hashes_encode(fd_recent_block_hashes_t* self, void const** data);
 void fd_recent_block_hashes_destroy(fd_recent_block_hashes_t* self, fd_free_fun_t freef, void* freef_arg);
+void fd_recent_block_hashes_copy_to(fd_recent_block_hashes_t* to, fd_recent_block_hashes_t* from, fd_alloc_fun_t freef, void* allocf_arg);
 ulong fd_recent_block_hashes_size(fd_recent_block_hashes_t* self);
 
 void fd_slot_meta_decode(fd_slot_meta_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
 void fd_slot_meta_encode(fd_slot_meta_t* self, void const** data);
 void fd_slot_meta_destroy(fd_slot_meta_t* self, fd_free_fun_t freef, void* freef_arg);
+void fd_slot_meta_copy_to(fd_slot_meta_t* to, fd_slot_meta_t* from, fd_alloc_fun_t freef, void* allocf_arg);
 ulong fd_slot_meta_size(fd_slot_meta_t* self);
 
 void fd_clock_timestamp_vote_decode(fd_clock_timestamp_vote_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
 void fd_clock_timestamp_vote_encode(fd_clock_timestamp_vote_t* self, void const** data);
 void fd_clock_timestamp_vote_destroy(fd_clock_timestamp_vote_t* self, fd_free_fun_t freef, void* freef_arg);
+void fd_clock_timestamp_vote_copy_to(fd_clock_timestamp_vote_t* to, fd_clock_timestamp_vote_t* from, fd_alloc_fun_t freef, void* allocf_arg);
 ulong fd_clock_timestamp_vote_size(fd_clock_timestamp_vote_t* self);
 
 void fd_clock_timestamp_votes_decode(fd_clock_timestamp_votes_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
 void fd_clock_timestamp_votes_encode(fd_clock_timestamp_votes_t* self, void const** data);
 void fd_clock_timestamp_votes_destroy(fd_clock_timestamp_votes_t* self, fd_free_fun_t freef, void* freef_arg);
+void fd_clock_timestamp_votes_copy_to(fd_clock_timestamp_votes_t* to, fd_clock_timestamp_votes_t* from, fd_alloc_fun_t freef, void* allocf_arg);
 ulong fd_clock_timestamp_votes_size(fd_clock_timestamp_votes_t* self);
 
 void fd_sysvar_fees_decode(fd_sysvar_fees_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
 void fd_sysvar_fees_encode(fd_sysvar_fees_t* self, void const** data);
 void fd_sysvar_fees_destroy(fd_sysvar_fees_t* self, fd_free_fun_t freef, void* freef_arg);
+void fd_sysvar_fees_copy_to(fd_sysvar_fees_t* to, fd_sysvar_fees_t* from, fd_alloc_fun_t freef, void* allocf_arg);
 ulong fd_sysvar_fees_size(fd_sysvar_fees_t* self);
 
 void fd_config_keys_pair_decode(fd_config_keys_pair_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
 void fd_config_keys_pair_encode(fd_config_keys_pair_t* self, void const** data);
 void fd_config_keys_pair_destroy(fd_config_keys_pair_t* self, fd_free_fun_t freef, void* freef_arg);
+void fd_config_keys_pair_copy_to(fd_config_keys_pair_t* to, fd_config_keys_pair_t* from, fd_alloc_fun_t freef, void* allocf_arg);
 ulong fd_config_keys_pair_size(fd_config_keys_pair_t* self);
 
 void fd_stake_config_decode(fd_stake_config_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
 void fd_stake_config_encode(fd_stake_config_t* self, void const** data);
 void fd_stake_config_destroy(fd_stake_config_t* self, fd_free_fun_t freef, void* freef_arg);
+void fd_stake_config_copy_to(fd_stake_config_t* to, fd_stake_config_t* from, fd_alloc_fun_t freef, void* allocf_arg);
 ulong fd_stake_config_size(fd_stake_config_t* self);
 
 void fd_firedancer_banks_decode(fd_firedancer_banks_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
 void fd_firedancer_banks_encode(fd_firedancer_banks_t* self, void const** data);
 void fd_firedancer_banks_destroy(fd_firedancer_banks_t* self, fd_free_fun_t freef, void* freef_arg);
+void fd_firedancer_banks_copy_to(fd_firedancer_banks_t* to, fd_firedancer_banks_t* from, fd_alloc_fun_t freef, void* allocf_arg);
 ulong fd_firedancer_banks_size(fd_firedancer_banks_t* self);
 
 void fd_vote_decode(fd_vote_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
 void fd_vote_encode(fd_vote_t* self, void const** data);
 void fd_vote_destroy(fd_vote_t* self, fd_free_fun_t freef, void* freef_arg);
+void fd_vote_copy_to(fd_vote_t* to, fd_vote_t* from, fd_alloc_fun_t freef, void* allocf_arg);
 ulong fd_vote_size(fd_vote_t* self);
 
 FD_PROTOTYPES_END
