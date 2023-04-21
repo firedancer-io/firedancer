@@ -2,5 +2,4 @@
 members = [
     "firedancer-sys",
     "firedancer",
-    "exporter"
 ]
