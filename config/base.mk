@@ -26,6 +26,12 @@ LLVM_PROFDATA?=llvm-profdata
 # lcov
 GENHTML=genhtml
 
+# FD_HAS_MAIN: Target supports linking objects with main function.
+# If set to 0, programs and unit tests will not be built. This is
+# useful for some build configs where a library with a main symbol is
+# linked in (e.g. fuzz targets)
+FD_HAS_MAIN:=1
+
 ### eBPF compiler configuration
 
 # Clang is the only supported eBPF compiler for now
@@ -39,3 +45,4 @@ EBPF_CPPFLAGS+=-I./opt/include -target bpf -O2
 # which is not supported for the eBPF target -- the kernel verifier
 # provides such safety features.
 EBPF_CPPFLAGS+=-fno-stack-protector
+

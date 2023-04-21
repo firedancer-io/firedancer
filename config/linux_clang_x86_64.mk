@@ -1,4 +1,4 @@
-BUILDDIR:=linux/clang/x86_64
+BUILDDIR?=linux/clang/x86_64
 
 include config/base.mk
 include config/with-linux.mk

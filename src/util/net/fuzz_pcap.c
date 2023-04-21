@@ -26,7 +26,7 @@ int
 LLVMFuzzerTestOneInput( uchar const * data,
                         ulong         size ) {
 
-  FILE * file = fmemopen( data, size, "r+b" );
+  FILE * file = fmemopen( (void *)data, size, "r+b" );
   FD_TEST( file );
 
   /* Open "pcap". */
