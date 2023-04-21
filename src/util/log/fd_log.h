@@ -500,13 +500,17 @@ fd_log_flush( void );
    no validation of there inputs so the values may not behave like the
    caller things (e.g. stderr<logfile will be treated as
    stderr==logfile, flush<stderr will be treated as flush==stderr,
-   core<4 will be treated as 4). */
+   core<4 will be treated as 4).  colorize returns the colorization mode
+   of the ephemeral log.  Currently, zero indicates no colorization of
+   the ephmeral log and non-zero indicates to colorize it. */
 
-int fd_log_level_logfile( void );
-int fd_log_level_stderr ( void );
-int fd_log_level_flush  ( void );
-int fd_log_level_core   ( void );
+int fd_log_colorize( void );
+int fd_log_level_logfile ( void );
+int fd_log_level_stderr  ( void );
+int fd_log_level_flush   ( void );
+int fd_log_level_core    ( void );
 
+void fd_log_colorize_set     ( int mode  );
 void fd_log_level_logfile_set( int level );
 void fd_log_level_stderr_set ( int level );
 void fd_log_level_flush_set  ( int level );
