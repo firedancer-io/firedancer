@@ -682,6 +682,7 @@ int manifest(global_state_t *state) {
   return 0;
 }
 
+#if 0
 void
 fd_sim_txn(global_state_t *state, FD_FN_UNUSED fd_executor_t* executor, fd_txn_t * txn, fd_rawtxn_b_t* txn_raw, struct fd_funk_xactionid const* funk_txn ) {
 
@@ -728,6 +729,7 @@ fd_sim_txn(global_state_t *state, FD_FN_UNUSED fd_executor_t* executor, fd_txn_t
     }
   }
 }
+#endif
 
 int replay(global_state_t *state) {
   if (0 == state->start_slot)

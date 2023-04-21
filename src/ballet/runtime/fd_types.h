@@ -444,6 +444,15 @@ typedef struct fd_solana_accounts_db_fields fd_solana_accounts_db_fields_t;
 #define FD_SOLANA_ACCOUNTS_DB_FIELDS_FOOTPRINT sizeof(fd_solana_accounts_db_fields_t)
 #define FD_SOLANA_ACCOUNTS_DB_FIELDS_ALIGN (8UL)
 
+struct fd_solana_manifest {
+  fd_deserializable_versioned_bank_t bank;
+  fd_solana_accounts_db_fields_t     accounts_db;
+  unsigned long                      lamports_per_signature;
+};
+typedef struct fd_solana_manifest fd_solana_manifest_t;
+#define FD_SOLANA_MANIFEST_FOOTPRINT sizeof(fd_solana_manifest_t)
+#define FD_SOLANA_MANIFEST_ALIGN (8UL)
+
 struct fd_rust_duration {
   unsigned long seconds;
   uint          nanoseconds;
@@ -1018,6 +1027,12 @@ void fd_solana_accounts_db_fields_encode(fd_solana_accounts_db_fields_t* self, v
 void fd_solana_accounts_db_fields_destroy(fd_solana_accounts_db_fields_t* self, fd_free_fun_t freef, void* freef_arg);
 void fd_solana_accounts_db_fields_copy_to(fd_solana_accounts_db_fields_t* to, fd_solana_accounts_db_fields_t* from, fd_alloc_fun_t freef, void* allocf_arg);
 ulong fd_solana_accounts_db_fields_size(fd_solana_accounts_db_fields_t* self);
+
+void fd_solana_manifest_decode(fd_solana_manifest_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
+void fd_solana_manifest_encode(fd_solana_manifest_t* self, void const** data);
+void fd_solana_manifest_destroy(fd_solana_manifest_t* self, fd_free_fun_t freef, void* freef_arg);
+void fd_solana_manifest_copy_to(fd_solana_manifest_t* to, fd_solana_manifest_t* from, fd_alloc_fun_t freef, void* allocf_arg);
+ulong fd_solana_manifest_size(fd_solana_manifest_t* self);
 
 void fd_rust_duration_decode(fd_rust_duration_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
 void fd_rust_duration_encode(fd_rust_duration_t* self, void const** data);

@@ -15,7 +15,7 @@ void fd_bincode_uint128_decode(uint128* self, void const** data, void const* dat
   }
 
 #if FD_HAS_INT128 && FD_HAS_SSE
-  *self = (uint128) _mm_loadu_si128((void const *) ptr);
+  *(__m128i_u*)self = _mm_loadu_si128((void const *) ptr);
 #else
   memcpy(self, ptr, sizeof(uint128));
 #endif

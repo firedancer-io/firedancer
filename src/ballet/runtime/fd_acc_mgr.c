@@ -8,9 +8,9 @@
 #pragma GCC optimize ("O0")
 #endif
 
-void* fd_acc_mgr_new( void*      mem,
+void* fd_acc_mgr_new( void*            mem,
                       fd_global_ctx_t* global,
-                      ulong      footprint ) {
+                      ulong            footprint ) {
   if( FD_UNLIKELY( !mem ) ) {
     FD_LOG_WARNING(( "NULL mem" ));
     return NULL;
@@ -95,7 +95,8 @@ int fd_acc_mgr_get_metadata( fd_acc_mgr_t* acc_mgr, struct fd_funk_xactionid con
   return FD_ACC_MGR_SUCCESS;
 }
 
-int fd_acc_mgr_write_account_data( fd_acc_mgr_t* acc_mgr, struct fd_funk_xactionid const* txn, fd_pubkey_t* pubkey, ulong offset, uchar* data, ulong data_len ) {
+int fd_acc_mgr_write_account_data( fd_acc_mgr_t* acc_mgr, struct fd_funk_xactionid const* txn, fd_pubkey_t* pubkey,
+                                   struct iovec const * const iov, ulong iovcnt, ulong offset ) {
 #ifdef _VWRITE
   char buf[50];
   fd_base58_encode_32((uchar *) pubkey, NULL, buf);
@@ -104,7 +105,7 @@ int fd_acc_mgr_write_account_data( fd_acc_mgr_t* acc_mgr, struct fd_funk_xaction
 
   /* Write the account data */
   fd_funk_recordid_t id = funk_id( pubkey );
-  if ( FD_UNLIKELY( fd_funk_write( acc_mgr->global->funk, txn, &id, data, offset, data_len ) != (long)data_len ) ) {
+  if ( FD_UNLIKELY( fd_funk_writev( acc_mgr->global->funk, txn, &id, iov, iovcnt, offset ) == -1 ) ) {
     FD_LOG_WARNING(( "failed to write account data" ));
     return FD_ACC_MGR_ERR_WRITE_FAILED;
   }
@@ -119,7 +120,7 @@ int fd_acc_mgr_get_lamports( fd_acc_mgr_t* acc_mgr, struct fd_funk_xactionid con
     char buf[50];
     fd_base58_encode_32((uchar *) pubkey, NULL, buf);
 
-    if (FD_UNLIKELY(acc_mgr->global->log_level > 2)) 
+    if (FD_UNLIKELY(acc_mgr->global->log_level > 2))
       FD_LOG_WARNING(( "failed to read account metadata: %s", buf ));
 
     return read_result;
@@ -142,7 +143,10 @@ int fd_acc_mgr_set_lamports( fd_acc_mgr_t* acc_mgr, struct fd_funk_xactionid con
   metadata.info.lamports = lamports;
 
   /* Bet we have to update the hash of the account.. and track the dirty pubkeys.. */
-  int write_result = fd_acc_mgr_write_account_data( acc_mgr, txn, pubkey, 0, (uchar*)&metadata, sizeof(metadata) );
+  struct iovec vec[1];
+  vec[0].iov_base = &metadata;
+  vec[0].iov_len = sizeof(metadata);
+  int write_result = fd_acc_mgr_write_account_data( acc_mgr, txn, pubkey, vec, 1, 0 );
   if ( FD_UNLIKELY( write_result != FD_ACC_MGR_SUCCESS ) ) {
     FD_LOG_WARNING(( "failed to write account metadata" ));
     return write_result;
@@ -153,63 +157,55 @@ int fd_acc_mgr_set_lamports( fd_acc_mgr_t* acc_mgr, struct fd_funk_xactionid con
 }
 
 int fd_acc_mgr_write_structured_account( fd_acc_mgr_t* acc_mgr, struct fd_funk_xactionid const* txn, ulong slot, fd_pubkey_t* pubkey, fd_solana_account_t * account) {
-  ulong              dlen =  sizeof(fd_account_meta_t) + account->data_len;
-  uchar *            data = fd_alloca(8UL, dlen);
-  fd_account_meta_t *m = (fd_account_meta_t *) data;
+  fd_account_meta_t m;
+  fd_account_meta_init(&m);
+  m.dlen = account->data_len;
 
-  fd_account_meta_init(m);
-  m->dlen = account->data_len;
+  m.info.lamports = account->lamports;
+  m.info.rent_epoch = account->rent_epoch;
+  memcpy(m.info.owner, account->owner.key, sizeof(account->owner.key));
+  m.info.executable = (char) account->executable;
+  fd_memset(m.info.padding, 0, sizeof(m.info.padding));
 
-  m->info.lamports = account->lamports;
-  m->info.rent_epoch = account->rent_epoch;
-  memcpy(m->info.owner, account->owner.key, sizeof(account->owner.key));
-  m->info.executable = (char) account->executable;
-  fd_memset(m->info.padding, 0, sizeof(m->info.padding));
+  m.slot = slot;
 
-  m->slot = slot;
+  fd_hash_meta( &m, slot, (fd_pubkey_t const *)  pubkey, account->data, (fd_hash_t *) m.hash);
 
-  fd_hash_meta( m, slot, (fd_pubkey_t const *)  pubkey, account->data, (fd_hash_t *) m->hash);
-
-  fd_acc_mgr_dirty_pubkey ( acc_mgr, (fd_pubkey_t *) pubkey, (fd_hash_t *) m->hash );
+  fd_acc_mgr_dirty_pubkey ( acc_mgr, (fd_pubkey_t *) pubkey, (fd_hash_t *) m.hash );
 
   char encoded_hash[50];
-  fd_base58_encode_32((uchar *) m->hash, 0, encoded_hash);
+  fd_base58_encode_32((uchar *) m.hash, 0, encoded_hash);
   char encoded_pubkey[50];
   fd_base58_encode_32((uchar *) pubkey, 0, encoded_pubkey);
 
-  if (FD_UNLIKELY(acc_mgr->global->log_level > 2)) 
-    FD_LOG_WARNING(( "fd_acc_mgr_write_structured_account: slot=%ld, pubkey=%s  hash=%s   dlen=%ld", slot, encoded_pubkey, encoded_hash, m->dlen ));
+  if (FD_UNLIKELY(acc_mgr->global->log_level > 2))
+    FD_LOG_WARNING(( "fd_acc_mgr_write_structured_account: slot=%ld, pubkey=%s  hash=%s   dlen=%ld", slot, encoded_pubkey, encoded_hash, m.dlen ));
 
-  fd_memcpy(&data[sizeof(fd_account_meta_t)], account->data, account->data_len);
-
-  return fd_acc_mgr_write_account_data(acc_mgr, txn, pubkey, 0, (uchar *) data, dlen);
+  struct iovec vec[2];
+  vec[0].iov_base = &m;
+  vec[0].iov_len = sizeof(m);
+  vec[1].iov_base = account->data;
+  vec[1].iov_len = account->data_len;
+  return fd_acc_mgr_write_account_data(acc_mgr, txn, pubkey, vec, 2, 0);
 }
 
 int fd_acc_mgr_write_append_vec_account( fd_acc_mgr_t* acc_mgr, struct fd_funk_xactionid const* txn, ulong slot, fd_solana_account_hdr_t * hdr) {
-  ulong dlen =  sizeof(fd_account_meta_t) + hdr->meta.data_len;
+  fd_account_meta_t m;
+  fd_account_meta_init(&m);
+  m.dlen = hdr->meta.data_len;
 
-  // TODO: Switch this all over to using alexs new writev interface and get rid of malloc
-  //
-  // fd_alloca was failing in odd way
+  fd_memcpy(&m.info, &hdr->info, sizeof(m.info));
 
-  uchar *            data = aligned_alloc(8UL, dlen);
-  fd_account_meta_t *m = (fd_account_meta_t *) data;
+  m.slot = slot;
 
-  fd_account_meta_init(m);
-  m->dlen = hdr->meta.data_len;
+  fd_memcpy( m.hash, hdr->hash.value, sizeof(m.hash));
 
-  fd_memcpy(&m->info, &hdr->info, sizeof(m->info));
-
-  m->slot = slot;
-
-  fd_memcpy( m->hash, hdr->hash.value, sizeof(m->hash));
-
-  fd_acc_mgr_dirty_pubkey ( acc_mgr, (fd_pubkey_t *) &hdr->meta.pubkey, (fd_hash_t *) m->hash );
-
-  fd_memcpy(&data[sizeof(fd_account_meta_t)], (uchar *) &hdr[1], hdr->meta.data_len);
-
-  int ret = fd_acc_mgr_write_account_data(acc_mgr, txn, (fd_pubkey_t *) &hdr->meta.pubkey, 0, (uchar *) data, dlen);
-  free(data);
+  struct iovec vec[2];
+  vec[0].iov_base = &m;
+  vec[0].iov_len = sizeof(m);
+  vec[1].iov_base = &hdr[1];
+  vec[1].iov_len = hdr->meta.data_len;
+  int ret = fd_acc_mgr_write_account_data(acc_mgr, txn, (fd_pubkey_t *) &hdr->meta.pubkey, vec, 2, 0);
   return ret;
 }
 
@@ -226,7 +222,7 @@ void fd_acc_mgr_dirty_pubkey ( fd_acc_mgr_t* acc_mgr, fd_pubkey_t* pubkey, fd_ha
 
     me = fd_dirty_dup_insert (acc_mgr->dup, *((fd_pubkey_t *) pubkey));
     me->index = idx;
-  } else 
+  } else
     fd_memcpy(acc_mgr->keys.elems[me->index].hash.hash, hash, sizeof(*hash));
 }
 
@@ -235,7 +231,7 @@ int fd_acc_mgr_update_hash ( fd_acc_mgr_t* acc_mgr, fd_account_meta_t * m, struc
 
   if (NULL == m) {
     int               read_result = fd_acc_mgr_get_metadata( acc_mgr, txn, pubkey, &metadata );
-    if ( FD_UNLIKELY( read_result != FD_ACC_MGR_SUCCESS ) ) 
+    if ( FD_UNLIKELY( read_result != FD_ACC_MGR_SUCCESS ) )
       return read_result;
     m = &metadata;
   }
@@ -248,7 +244,7 @@ int fd_acc_mgr_update_hash ( fd_acc_mgr_t* acc_mgr, fd_account_meta_t * m, struc
   if (NULL == data) {
     uchar *           account_data = (uchar *) fd_alloca(8UL,  m->dlen);
     int               read_result = fd_acc_mgr_get_account_data( acc_mgr, txn, pubkey, account_data, sizeof(fd_account_meta_t), m->dlen);
-    if ( FD_UNLIKELY( read_result != FD_ACC_MGR_SUCCESS ) ) 
+    if ( FD_UNLIKELY( read_result != FD_ACC_MGR_SUCCESS ) )
       return read_result;
     data = account_data;
   }
@@ -261,8 +257,11 @@ int fd_acc_mgr_update_hash ( fd_acc_mgr_t* acc_mgr, fd_account_meta_t * m, struc
   fd_base58_encode_32((uchar *) &hash, NULL, buf);
 
   if (memcmp(&hash, m->hash, sizeof(hash))) {
-    int write_result = fd_acc_mgr_write_account_data( acc_mgr, txn, pubkey, 0, (uchar*)m, sizeof(metadata) );
-    if ( FD_UNLIKELY( write_result != FD_ACC_MGR_SUCCESS ) ) 
+    struct iovec vec[1];
+    vec[0].iov_base = m;
+    vec[0].iov_len = sizeof(metadata);
+    int write_result = fd_acc_mgr_write_account_data( acc_mgr, txn, pubkey, vec, 1, 0 );
+    if ( FD_UNLIKELY( write_result != FD_ACC_MGR_SUCCESS ) )
       return write_result;
 
     fd_acc_mgr_dirty_pubkey( acc_mgr, pubkey, &hash);

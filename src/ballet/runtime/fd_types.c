@@ -1506,6 +1506,37 @@ void fd_solana_accounts_db_fields_encode(fd_solana_accounts_db_fields_t* self, v
   }
 }
 
+void fd_solana_manifest_decode(fd_solana_manifest_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
+  fd_deserializable_versioned_bank_decode(&self->bank, data, dataend, allocf, allocf_arg);
+  fd_solana_accounts_db_fields_decode(&self->accounts_db, data, dataend, allocf, allocf_arg);
+  fd_bincode_uint64_decode(&self->lamports_per_signature, data, dataend);
+}
+void fd_solana_manifest_destroy(fd_solana_manifest_t* self, fd_free_fun_t freef, void* freef_arg) {
+  fd_deserializable_versioned_bank_destroy(&self->bank, freef, freef_arg);
+  fd_solana_accounts_db_fields_destroy(&self->accounts_db, freef, freef_arg);
+}
+
+void fd_solana_manifest_copy_to(fd_solana_manifest_t* to, fd_solana_manifest_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
+  unsigned char *enc = fd_alloca( 1, fd_solana_manifest_size(from) );
+  void const *   ptr = (void const *) enc;
+  fd_solana_manifest_encode( from, &ptr );
+  void *input = (void *) enc;
+  fd_solana_manifest_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
+}
+ulong fd_solana_manifest_size(fd_solana_manifest_t* self) {
+  ulong size = 0;
+  size += fd_deserializable_versioned_bank_size(&self->bank);
+  size += fd_solana_accounts_db_fields_size(&self->accounts_db);
+  size += sizeof(ulong);
+  return size;
+}
+
+void fd_solana_manifest_encode(fd_solana_manifest_t* self, void const** data) {
+  fd_deserializable_versioned_bank_encode(&self->bank, data);
+  fd_solana_accounts_db_fields_encode(&self->accounts_db, data);
+  fd_bincode_uint64_encode(&self->lamports_per_signature, data);
+}
+
 void fd_rust_duration_decode(fd_rust_duration_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
   fd_bincode_uint64_decode(&self->seconds, data, dataend);
   fd_bincode_uint32_decode(&self->nanoseconds, data, dataend);

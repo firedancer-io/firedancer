@@ -412,6 +412,15 @@
       ]
     },
     {
+      "name": "solana_manifest",
+      "type": "struct",
+      "fields": [
+        { "name": "bank",                     "type": "deserializable_versioned_bank" },
+        { "name": "accounts_db",              "type": "solana_accounts_db_fields" },
+        { "name": "lamports_per_signature",   "type": "ulong" }
+      ]
+    },
+    {
       "name": "rust_duration",
       "type": "struct",
       "fields": [

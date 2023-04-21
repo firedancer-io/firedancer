@@ -15,10 +15,13 @@ typedef unsigned char bool;
 
 #define TarReadStream_initBufSize (1<<16)
 
-void TarReadStream_init(struct TarReadStream* self) {
+void TarReadStream_init(struct TarReadStream* self, fd_alloc_fun_t allocf, void* allocf_arg, fd_free_fun_t freef) {
+  self->allocf_ = allocf;
+  self->allocf_arg_ = allocf_arg;
+  self->freef_ = freef;
   self->totalsize_ = 0;
   self->cursize_ = 0;
-  self->buf_ = malloc(TarReadStream_initBufSize);
+  self->buf_ = (*allocf)(allocf_arg, 64, TarReadStream_initBufSize);
   self->bufmax_ = TarReadStream_initBufSize;
 }
 
@@ -75,8 +78,8 @@ int TarReadStream_moreData(struct TarReadStream* self, const void* data, size_t 
         continue;
       }
       if (self->roundedsize_ > self->bufmax_) {
-        free(self->buf_);
-        self->buf_ = malloc(self->bufmax_ = self->roundedsize_);
+        (*self->freef_)(self->allocf_arg_, self->buf_);
+        self->buf_ = (*self->allocf_)(self->allocf_arg_, 64, (self->bufmax_ = self->roundedsize_));
       }
 
     } else {
@@ -97,5 +100,5 @@ int TarReadStream_moreData(struct TarReadStream* self, const void* data, size_t 
 }
 
 void TarReadStream_destroy(struct TarReadStream* self) {
-  free(self->buf_);
+  (*self->freef_)(self->allocf_arg_, self->buf_);
 }
