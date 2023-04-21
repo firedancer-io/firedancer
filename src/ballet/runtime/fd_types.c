@@ -6,6 +6,13 @@ void fd_fee_calculator_decode(fd_fee_calculator_t* self, void const** data, void
 void fd_fee_calculator_destroy(fd_fee_calculator_t* self, fd_free_fun_t freef, void* freef_arg) {
 }
 
+void fd_fee_calculator_copy_to(fd_fee_calculator_t* to, fd_fee_calculator_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
+  unsigned char *enc = fd_alloca( 1, fd_fee_calculator_size(from) );
+  void const *   ptr = (void const *) enc;
+  fd_fee_calculator_encode( from, &ptr );
+  void *input = (void *) enc;
+  fd_fee_calculator_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
+}
 ulong fd_fee_calculator_size(fd_fee_calculator_t* self) {
   ulong size = 0;
   size += sizeof(ulong);
@@ -25,6 +32,13 @@ void fd_hash_age_destroy(fd_hash_age_t* self, fd_free_fun_t freef, void* freef_a
   fd_fee_calculator_destroy(&self->fee_calculator, freef, freef_arg);
 }
 
+void fd_hash_age_copy_to(fd_hash_age_t* to, fd_hash_age_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
+  unsigned char *enc = fd_alloca( 1, fd_hash_age_size(from) );
+  void const *   ptr = (void const *) enc;
+  fd_hash_age_encode( from, &ptr );
+  void *input = (void *) enc;
+  fd_hash_age_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
+}
 ulong fd_hash_age_size(fd_hash_age_t* self) {
   ulong size = 0;
   size += fd_fee_calculator_size(&self->fee_calculator);
@@ -48,6 +62,13 @@ void fd_hash_hash_age_pair_destroy(fd_hash_hash_age_pair_t* self, fd_free_fun_t 
   fd_hash_age_destroy(&self->val, freef, freef_arg);
 }
 
+void fd_hash_hash_age_pair_copy_to(fd_hash_hash_age_pair_t* to, fd_hash_hash_age_pair_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
+  unsigned char *enc = fd_alloca( 1, fd_hash_hash_age_pair_size(from) );
+  void const *   ptr = (void const *) enc;
+  fd_hash_hash_age_pair_encode( from, &ptr );
+  void *input = (void *) enc;
+  fd_hash_hash_age_pair_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
+}
 ulong fd_hash_hash_age_pair_size(fd_hash_hash_age_pair_t* self) {
   ulong size = 0;
   size += fd_hash_size(&self->key);
@@ -90,6 +111,13 @@ void fd_block_hash_queue_destroy(fd_block_hash_queue_t* self, fd_free_fun_t free
   }
 }
 
+void fd_block_hash_queue_copy_to(fd_block_hash_queue_t* to, fd_block_hash_queue_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
+  unsigned char *enc = fd_alloca( 1, fd_block_hash_queue_size(from) );
+  void const *   ptr = (void const *) enc;
+  fd_block_hash_queue_encode( from, &ptr );
+  void *input = (void *) enc;
+  fd_block_hash_queue_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
+}
 ulong fd_block_hash_queue_size(fd_block_hash_queue_t* self) {
   ulong size = 0;
   size += sizeof(ulong);
@@ -129,6 +157,13 @@ void fd_epoch_schedule_decode(fd_epoch_schedule_t* self, void const** data, void
 void fd_epoch_schedule_destroy(fd_epoch_schedule_t* self, fd_free_fun_t freef, void* freef_arg) {
 }
 
+void fd_epoch_schedule_copy_to(fd_epoch_schedule_t* to, fd_epoch_schedule_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
+  unsigned char *enc = fd_alloca( 1, fd_epoch_schedule_size(from) );
+  void const *   ptr = (void const *) enc;
+  fd_epoch_schedule_encode( from, &ptr );
+  void *input = (void *) enc;
+  fd_epoch_schedule_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
+}
 ulong fd_epoch_schedule_size(fd_epoch_schedule_t* self) {
   ulong size = 0;
   size += sizeof(ulong);
@@ -157,6 +192,13 @@ void fd_fee_rate_governor_decode(fd_fee_rate_governor_t* self, void const** data
 void fd_fee_rate_governor_destroy(fd_fee_rate_governor_t* self, fd_free_fun_t freef, void* freef_arg) {
 }
 
+void fd_fee_rate_governor_copy_to(fd_fee_rate_governor_t* to, fd_fee_rate_governor_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
+  unsigned char *enc = fd_alloca( 1, fd_fee_rate_governor_size(from) );
+  void const *   ptr = (void const *) enc;
+  fd_fee_rate_governor_encode( from, &ptr );
+  void *input = (void *) enc;
+  fd_fee_rate_governor_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
+}
 ulong fd_fee_rate_governor_size(fd_fee_rate_governor_t* self) {
   ulong size = 0;
   size += sizeof(ulong);
@@ -182,6 +224,13 @@ void fd_slot_pair_decode(fd_slot_pair_t* self, void const** data, void const* da
 void fd_slot_pair_destroy(fd_slot_pair_t* self, fd_free_fun_t freef, void* freef_arg) {
 }
 
+void fd_slot_pair_copy_to(fd_slot_pair_t* to, fd_slot_pair_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
+  unsigned char *enc = fd_alloca( 1, fd_slot_pair_size(from) );
+  void const *   ptr = (void const *) enc;
+  fd_slot_pair_encode( from, &ptr );
+  void *input = (void *) enc;
+  fd_slot_pair_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
+}
 ulong fd_slot_pair_size(fd_slot_pair_t* self) {
   ulong size = 0;
   size += sizeof(ulong);
@@ -212,6 +261,13 @@ void fd_hard_forks_destroy(fd_hard_forks_t* self, fd_free_fun_t freef, void* fre
   }
 }
 
+void fd_hard_forks_copy_to(fd_hard_forks_t* to, fd_hard_forks_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
+  unsigned char *enc = fd_alloca( 1, fd_hard_forks_size(from) );
+  void const *   ptr = (void const *) enc;
+  fd_hard_forks_encode( from, &ptr );
+  void *input = (void *) enc;
+  fd_hard_forks_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
+}
 ulong fd_hard_forks_size(fd_hard_forks_t* self) {
   ulong size = 0;
   size += sizeof(ulong);
@@ -239,6 +295,13 @@ void fd_inflation_decode(fd_inflation_t* self, void const** data, void const* da
 void fd_inflation_destroy(fd_inflation_t* self, fd_free_fun_t freef, void* freef_arg) {
 }
 
+void fd_inflation_copy_to(fd_inflation_t* to, fd_inflation_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
+  unsigned char *enc = fd_alloca( 1, fd_inflation_size(from) );
+  void const *   ptr = (void const *) enc;
+  fd_inflation_encode( from, &ptr );
+  void *input = (void *) enc;
+  fd_inflation_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
+}
 ulong fd_inflation_size(fd_inflation_t* self) {
   ulong size = 0;
   size += sizeof(double);
@@ -267,6 +330,13 @@ void fd_rent_decode(fd_rent_t* self, void const** data, void const* dataend, fd_
 void fd_rent_destroy(fd_rent_t* self, fd_free_fun_t freef, void* freef_arg) {
 }
 
+void fd_rent_copy_to(fd_rent_t* to, fd_rent_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
+  unsigned char *enc = fd_alloca( 1, fd_rent_size(from) );
+  void const *   ptr = (void const *) enc;
+  fd_rent_encode( from, &ptr );
+  void *input = (void *) enc;
+  fd_rent_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
+}
 ulong fd_rent_size(fd_rent_t* self) {
   ulong size = 0;
   size += sizeof(ulong);
@@ -292,6 +362,13 @@ void fd_rent_collector_destroy(fd_rent_collector_t* self, fd_free_fun_t freef, v
   fd_rent_destroy(&self->rent, freef, freef_arg);
 }
 
+void fd_rent_collector_copy_to(fd_rent_collector_t* to, fd_rent_collector_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
+  unsigned char *enc = fd_alloca( 1, fd_rent_collector_size(from) );
+  void const *   ptr = (void const *) enc;
+  fd_rent_collector_encode( from, &ptr );
+  void *input = (void *) enc;
+  fd_rent_collector_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
+}
 ulong fd_rent_collector_size(fd_rent_collector_t* self) {
   ulong size = 0;
   size += sizeof(ulong);
@@ -316,6 +393,13 @@ void fd_stake_history_entry_decode(fd_stake_history_entry_t* self, void const** 
 void fd_stake_history_entry_destroy(fd_stake_history_entry_t* self, fd_free_fun_t freef, void* freef_arg) {
 }
 
+void fd_stake_history_entry_copy_to(fd_stake_history_entry_t* to, fd_stake_history_entry_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
+  unsigned char *enc = fd_alloca( 1, fd_stake_history_entry_size(from) );
+  void const *   ptr = (void const *) enc;
+  fd_stake_history_entry_encode( from, &ptr );
+  void *input = (void *) enc;
+  fd_stake_history_entry_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
+}
 ulong fd_stake_history_entry_size(fd_stake_history_entry_t* self) {
   ulong size = 0;
   size += sizeof(ulong);
@@ -338,6 +422,13 @@ void fd_stake_history_epochentry_pair_destroy(fd_stake_history_epochentry_pair_t
   fd_stake_history_entry_destroy(&self->entry, freef, freef_arg);
 }
 
+void fd_stake_history_epochentry_pair_copy_to(fd_stake_history_epochentry_pair_t* to, fd_stake_history_epochentry_pair_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
+  unsigned char *enc = fd_alloca( 1, fd_stake_history_epochentry_pair_size(from) );
+  void const *   ptr = (void const *) enc;
+  fd_stake_history_epochentry_pair_encode( from, &ptr );
+  void *input = (void *) enc;
+  fd_stake_history_epochentry_pair_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
+}
 ulong fd_stake_history_epochentry_pair_size(fd_stake_history_epochentry_pair_t* self) {
   ulong size = 0;
   size += sizeof(ulong);
@@ -368,6 +459,13 @@ void fd_stake_history_destroy(fd_stake_history_t* self, fd_free_fun_t freef, voi
   }
 }
 
+void fd_stake_history_copy_to(fd_stake_history_t* to, fd_stake_history_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
+  unsigned char *enc = fd_alloca( 1, fd_stake_history_size(from) );
+  void const *   ptr = (void const *) enc;
+  fd_stake_history_encode( from, &ptr );
+  void *input = (void *) enc;
+  fd_stake_history_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
+}
 ulong fd_stake_history_size(fd_stake_history_t* self) {
   ulong size = 0;
   size += sizeof(ulong);
@@ -404,6 +502,13 @@ void fd_solana_account_destroy(fd_solana_account_t* self, fd_free_fun_t freef, v
   fd_pubkey_destroy(&self->owner, freef, freef_arg);
 }
 
+void fd_solana_account_copy_to(fd_solana_account_t* to, fd_solana_account_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
+  unsigned char *enc = fd_alloca( 1, fd_solana_account_size(from) );
+  void const *   ptr = (void const *) enc;
+  fd_solana_account_encode( from, &ptr );
+  void *input = (void *) enc;
+  fd_solana_account_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
+}
 ulong fd_solana_account_size(fd_solana_account_t* self) {
   ulong size = 0;
   size += sizeof(ulong);
@@ -436,6 +541,13 @@ void fd_vote_accounts_pair_destroy(fd_vote_accounts_pair_t* self, fd_free_fun_t 
   fd_solana_account_destroy(&self->value, freef, freef_arg);
 }
 
+void fd_vote_accounts_pair_copy_to(fd_vote_accounts_pair_t* to, fd_vote_accounts_pair_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
+  unsigned char *enc = fd_alloca( 1, fd_vote_accounts_pair_size(from) );
+  void const *   ptr = (void const *) enc;
+  fd_vote_accounts_pair_encode( from, &ptr );
+  void *input = (void *) enc;
+  fd_vote_accounts_pair_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
+}
 ulong fd_vote_accounts_pair_size(fd_vote_accounts_pair_t* self) {
   ulong size = 0;
   size += fd_pubkey_size(&self->key);
@@ -468,6 +580,13 @@ void fd_vote_accounts_destroy(fd_vote_accounts_t* self, fd_free_fun_t freef, voi
   }
 }
 
+void fd_vote_accounts_copy_to(fd_vote_accounts_t* to, fd_vote_accounts_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
+  unsigned char *enc = fd_alloca( 1, fd_vote_accounts_size(from) );
+  void const *   ptr = (void const *) enc;
+  fd_vote_accounts_encode( from, &ptr );
+  void *input = (void *) enc;
+  fd_vote_accounts_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
+}
 ulong fd_vote_accounts_size(fd_vote_accounts_t* self) {
   ulong size = 0;
   size += sizeof(ulong);
@@ -495,6 +614,13 @@ void fd_delegation_destroy(fd_delegation_t* self, fd_free_fun_t freef, void* fre
   fd_pubkey_destroy(&self->voter_pubkey, freef, freef_arg);
 }
 
+void fd_delegation_copy_to(fd_delegation_t* to, fd_delegation_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
+  unsigned char *enc = fd_alloca( 1, fd_delegation_size(from) );
+  void const *   ptr = (void const *) enc;
+  fd_delegation_encode( from, &ptr );
+  void *input = (void *) enc;
+  fd_delegation_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
+}
 ulong fd_delegation_size(fd_delegation_t* self) {
   ulong size = 0;
   size += fd_pubkey_size(&self->voter_pubkey);
@@ -522,6 +648,13 @@ void fd_delegation_pair_destroy(fd_delegation_pair_t* self, fd_free_fun_t freef,
   fd_delegation_destroy(&self->value, freef, freef_arg);
 }
 
+void fd_delegation_pair_copy_to(fd_delegation_pair_t* to, fd_delegation_pair_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
+  unsigned char *enc = fd_alloca( 1, fd_delegation_pair_size(from) );
+  void const *   ptr = (void const *) enc;
+  fd_delegation_pair_encode( from, &ptr );
+  void *input = (void *) enc;
+  fd_delegation_pair_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
+}
 ulong fd_delegation_pair_size(fd_delegation_pair_t* self) {
   ulong size = 0;
   size += fd_pubkey_size(&self->key);
@@ -558,6 +691,13 @@ void fd_stakes_delegation_destroy(fd_stakes_delegation_t* self, fd_free_fun_t fr
   fd_stake_history_destroy(&self->stake_history, freef, freef_arg);
 }
 
+void fd_stakes_delegation_copy_to(fd_stakes_delegation_t* to, fd_stakes_delegation_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
+  unsigned char *enc = fd_alloca( 1, fd_stakes_delegation_size(from) );
+  void const *   ptr = (void const *) enc;
+  fd_stakes_delegation_encode( from, &ptr );
+  void *input = (void *) enc;
+  fd_stakes_delegation_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
+}
 ulong fd_stakes_delegation_size(fd_stakes_delegation_t* self) {
   ulong size = 0;
   size += fd_vote_accounts_size(&self->vote_accounts);
@@ -594,6 +734,13 @@ void fd_bank_incremental_snapshot_persistence_destroy(fd_bank_incremental_snapsh
   fd_hash_destroy(&self->incremental_hash, freef, freef_arg);
 }
 
+void fd_bank_incremental_snapshot_persistence_copy_to(fd_bank_incremental_snapshot_persistence_t* to, fd_bank_incremental_snapshot_persistence_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
+  unsigned char *enc = fd_alloca( 1, fd_bank_incremental_snapshot_persistence_size(from) );
+  void const *   ptr = (void const *) enc;
+  fd_bank_incremental_snapshot_persistence_encode( from, &ptr );
+  void *input = (void *) enc;
+  fd_bank_incremental_snapshot_persistence_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
+}
 ulong fd_bank_incremental_snapshot_persistence_size(fd_bank_incremental_snapshot_persistence_t* self) {
   ulong size = 0;
   size += sizeof(ulong);
@@ -631,6 +778,13 @@ void fd_node_vote_accounts_destroy(fd_node_vote_accounts_t* self, fd_free_fun_t 
   }
 }
 
+void fd_node_vote_accounts_copy_to(fd_node_vote_accounts_t* to, fd_node_vote_accounts_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
+  unsigned char *enc = fd_alloca( 1, fd_node_vote_accounts_size(from) );
+  void const *   ptr = (void const *) enc;
+  fd_node_vote_accounts_encode( from, &ptr );
+  void *input = (void *) enc;
+  fd_node_vote_accounts_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
+}
 ulong fd_node_vote_accounts_size(fd_node_vote_accounts_t* self) {
   ulong size = 0;
   size += sizeof(ulong);
@@ -658,6 +812,13 @@ void fd_pubkey_node_vote_accounts_pair_destroy(fd_pubkey_node_vote_accounts_pair
   fd_node_vote_accounts_destroy(&self->value, freef, freef_arg);
 }
 
+void fd_pubkey_node_vote_accounts_pair_copy_to(fd_pubkey_node_vote_accounts_pair_t* to, fd_pubkey_node_vote_accounts_pair_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
+  unsigned char *enc = fd_alloca( 1, fd_pubkey_node_vote_accounts_pair_size(from) );
+  void const *   ptr = (void const *) enc;
+  fd_pubkey_node_vote_accounts_pair_encode( from, &ptr );
+  void *input = (void *) enc;
+  fd_pubkey_node_vote_accounts_pair_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
+}
 ulong fd_pubkey_node_vote_accounts_pair_size(fd_pubkey_node_vote_accounts_pair_t* self) {
   ulong size = 0;
   size += fd_pubkey_size(&self->key);
@@ -679,6 +840,13 @@ void fd_pubkey_pubkey_pair_destroy(fd_pubkey_pubkey_pair_t* self, fd_free_fun_t 
   fd_pubkey_destroy(&self->value, freef, freef_arg);
 }
 
+void fd_pubkey_pubkey_pair_copy_to(fd_pubkey_pubkey_pair_t* to, fd_pubkey_pubkey_pair_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
+  unsigned char *enc = fd_alloca( 1, fd_pubkey_pubkey_pair_size(from) );
+  void const *   ptr = (void const *) enc;
+  fd_pubkey_pubkey_pair_encode( from, &ptr );
+  void *input = (void *) enc;
+  fd_pubkey_pubkey_pair_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
+}
 ulong fd_pubkey_pubkey_pair_size(fd_pubkey_pubkey_pair_t* self) {
   ulong size = 0;
   size += fd_pubkey_size(&self->key);
@@ -725,6 +893,13 @@ void fd_epoch_stakes_destroy(fd_epoch_stakes_t* self, fd_free_fun_t freef, void*
   }
 }
 
+void fd_epoch_stakes_copy_to(fd_epoch_stakes_t* to, fd_epoch_stakes_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
+  unsigned char *enc = fd_alloca( 1, fd_epoch_stakes_size(from) );
+  void const *   ptr = (void const *) enc;
+  fd_epoch_stakes_encode( from, &ptr );
+  void *input = (void *) enc;
+  fd_epoch_stakes_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
+}
 ulong fd_epoch_stakes_size(fd_epoch_stakes_t* self) {
   ulong size = 0;
   size += fd_stakes_delegation_size(&self->stakes);
@@ -761,6 +936,13 @@ void fd_epoch_epoch_stakes_pair_destroy(fd_epoch_epoch_stakes_pair_t* self, fd_f
   fd_epoch_stakes_destroy(&self->value, freef, freef_arg);
 }
 
+void fd_epoch_epoch_stakes_pair_copy_to(fd_epoch_epoch_stakes_pair_t* to, fd_epoch_epoch_stakes_pair_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
+  unsigned char *enc = fd_alloca( 1, fd_epoch_epoch_stakes_pair_size(from) );
+  void const *   ptr = (void const *) enc;
+  fd_epoch_epoch_stakes_pair_encode( from, &ptr );
+  void *input = (void *) enc;
+  fd_epoch_epoch_stakes_pair_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
+}
 ulong fd_epoch_epoch_stakes_pair_size(fd_epoch_epoch_stakes_pair_t* self) {
   ulong size = 0;
   size += sizeof(ulong);
@@ -781,6 +963,13 @@ void fd_pubkey_u64_pair_destroy(fd_pubkey_u64_pair_t* self, fd_free_fun_t freef,
   fd_pubkey_destroy(&self->_0, freef, freef_arg);
 }
 
+void fd_pubkey_u64_pair_copy_to(fd_pubkey_u64_pair_t* to, fd_pubkey_u64_pair_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
+  unsigned char *enc = fd_alloca( 1, fd_pubkey_u64_pair_size(from) );
+  void const *   ptr = (void const *) enc;
+  fd_pubkey_u64_pair_encode( from, &ptr );
+  void *input = (void *) enc;
+  fd_pubkey_u64_pair_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
+}
 ulong fd_pubkey_u64_pair_size(fd_pubkey_u64_pair_t* self) {
   ulong size = 0;
   size += fd_pubkey_size(&self->_0);
@@ -837,6 +1026,13 @@ void fd_unused_accounts_destroy(fd_unused_accounts_t* self, fd_free_fun_t freef,
   }
 }
 
+void fd_unused_accounts_copy_to(fd_unused_accounts_t* to, fd_unused_accounts_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
+  unsigned char *enc = fd_alloca( 1, fd_unused_accounts_size(from) );
+  void const *   ptr = (void const *) enc;
+  fd_unused_accounts_encode( from, &ptr );
+  void *input = (void *) enc;
+  fd_unused_accounts_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
+}
 ulong fd_unused_accounts_size(fd_unused_accounts_t* self) {
   ulong size = 0;
   size += sizeof(ulong);
@@ -950,6 +1146,13 @@ void fd_deserializable_versioned_bank_destroy(fd_deserializable_versioned_bank_t
   }
 }
 
+void fd_deserializable_versioned_bank_copy_to(fd_deserializable_versioned_bank_t* to, fd_deserializable_versioned_bank_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
+  unsigned char *enc = fd_alloca( 1, fd_deserializable_versioned_bank_size(from) );
+  void const *   ptr = (void const *) enc;
+  fd_deserializable_versioned_bank_encode( from, &ptr );
+  void *input = (void *) enc;
+  fd_deserializable_versioned_bank_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
+}
 ulong fd_deserializable_versioned_bank_size(fd_deserializable_versioned_bank_t* self) {
   ulong size = 0;
   size += fd_block_hash_queue_size(&self->blockhash_queue);
@@ -1048,6 +1251,13 @@ void fd_serializable_account_storage_entry_decode(fd_serializable_account_storag
 void fd_serializable_account_storage_entry_destroy(fd_serializable_account_storage_entry_t* self, fd_free_fun_t freef, void* freef_arg) {
 }
 
+void fd_serializable_account_storage_entry_copy_to(fd_serializable_account_storage_entry_t* to, fd_serializable_account_storage_entry_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
+  unsigned char *enc = fd_alloca( 1, fd_serializable_account_storage_entry_size(from) );
+  void const *   ptr = (void const *) enc;
+  fd_serializable_account_storage_entry_encode( from, &ptr );
+  void *input = (void *) enc;
+  fd_serializable_account_storage_entry_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
+}
 ulong fd_serializable_account_storage_entry_size(fd_serializable_account_storage_entry_t* self) {
   ulong size = 0;
   size += sizeof(ulong);
@@ -1070,6 +1280,13 @@ void fd_bank_hash_stats_decode(fd_bank_hash_stats_t* self, void const** data, vo
 void fd_bank_hash_stats_destroy(fd_bank_hash_stats_t* self, fd_free_fun_t freef, void* freef_arg) {
 }
 
+void fd_bank_hash_stats_copy_to(fd_bank_hash_stats_t* to, fd_bank_hash_stats_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
+  unsigned char *enc = fd_alloca( 1, fd_bank_hash_stats_size(from) );
+  void const *   ptr = (void const *) enc;
+  fd_bank_hash_stats_encode( from, &ptr );
+  void *input = (void *) enc;
+  fd_bank_hash_stats_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
+}
 ulong fd_bank_hash_stats_size(fd_bank_hash_stats_t* self) {
   ulong size = 0;
   size += sizeof(ulong);
@@ -1099,6 +1316,13 @@ void fd_bank_hash_info_destroy(fd_bank_hash_info_t* self, fd_free_fun_t freef, v
   fd_bank_hash_stats_destroy(&self->stats, freef, freef_arg);
 }
 
+void fd_bank_hash_info_copy_to(fd_bank_hash_info_t* to, fd_bank_hash_info_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
+  unsigned char *enc = fd_alloca( 1, fd_bank_hash_info_size(from) );
+  void const *   ptr = (void const *) enc;
+  fd_bank_hash_info_encode( from, &ptr );
+  void *input = (void *) enc;
+  fd_bank_hash_info_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
+}
 ulong fd_bank_hash_info_size(fd_bank_hash_info_t* self) {
   ulong size = 0;
   size += fd_hash_size(&self->hash);
@@ -1135,6 +1359,13 @@ void fd_slot_account_pair_destroy(fd_slot_account_pair_t* self, fd_free_fun_t fr
   self->accounts_root = NULL;
 }
 
+void fd_slot_account_pair_copy_to(fd_slot_account_pair_t* to, fd_slot_account_pair_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
+  unsigned char *enc = fd_alloca( 1, fd_slot_account_pair_size(from) );
+  void const *   ptr = (void const *) enc;
+  fd_slot_account_pair_encode( from, &ptr );
+  void *input = (void *) enc;
+  fd_slot_account_pair_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
+}
 ulong fd_slot_account_pair_size(fd_slot_account_pair_t* self) {
   ulong size = 0;
   size += sizeof(ulong);
@@ -1162,6 +1393,13 @@ void fd_slot_map_pair_destroy(fd_slot_map_pair_t* self, fd_free_fun_t freef, voi
   fd_hash_destroy(&self->hash, freef, freef_arg);
 }
 
+void fd_slot_map_pair_copy_to(fd_slot_map_pair_t* to, fd_slot_map_pair_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
+  unsigned char *enc = fd_alloca( 1, fd_slot_map_pair_size(from) );
+  void const *   ptr = (void const *) enc;
+  fd_slot_map_pair_encode( from, &ptr );
+  void *input = (void *) enc;
+  fd_slot_map_pair_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
+}
 ulong fd_slot_map_pair_size(fd_slot_map_pair_t* self) {
   ulong size = 0;
   size += sizeof(ulong);
@@ -1223,6 +1461,13 @@ void fd_solana_accounts_db_fields_destroy(fd_solana_accounts_db_fields_t* self, 
   }
 }
 
+void fd_solana_accounts_db_fields_copy_to(fd_solana_accounts_db_fields_t* to, fd_solana_accounts_db_fields_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
+  unsigned char *enc = fd_alloca( 1, fd_solana_accounts_db_fields_size(from) );
+  void const *   ptr = (void const *) enc;
+  fd_solana_accounts_db_fields_encode( from, &ptr );
+  void *input = (void *) enc;
+  fd_solana_accounts_db_fields_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
+}
 ulong fd_solana_accounts_db_fields_size(fd_solana_accounts_db_fields_t* self) {
   ulong size = 0;
   size += sizeof(ulong);
@@ -1268,6 +1513,13 @@ void fd_rust_duration_decode(fd_rust_duration_t* self, void const** data, void c
 void fd_rust_duration_destroy(fd_rust_duration_t* self, fd_free_fun_t freef, void* freef_arg) {
 }
 
+void fd_rust_duration_copy_to(fd_rust_duration_t* to, fd_rust_duration_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
+  unsigned char *enc = fd_alloca( 1, fd_rust_duration_size(from) );
+  void const *   ptr = (void const *) enc;
+  fd_rust_duration_encode( from, &ptr );
+  void *input = (void *) enc;
+  fd_rust_duration_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
+}
 ulong fd_rust_duration_size(fd_rust_duration_t* self) {
   ulong size = 0;
   size += sizeof(ulong);
@@ -1305,6 +1557,13 @@ void fd_poh_config_destroy(fd_poh_config_t* self, fd_free_fun_t freef, void* fre
   }
 }
 
+void fd_poh_config_copy_to(fd_poh_config_t* to, fd_poh_config_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
+  unsigned char *enc = fd_alloca( 1, fd_poh_config_size(from) );
+  void const *   ptr = (void const *) enc;
+  fd_poh_config_encode( from, &ptr );
+  void *input = (void *) enc;
+  fd_poh_config_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
+}
 ulong fd_poh_config_size(fd_poh_config_t* self) {
   ulong size = 0;
   size += fd_rust_duration_size(&self->target_tick_duration);
@@ -1349,6 +1608,13 @@ void fd_string_pubkey_pair_destroy(fd_string_pubkey_pair_t* self, fd_free_fun_t 
   fd_pubkey_destroy(&self->pubkey, freef, freef_arg);
 }
 
+void fd_string_pubkey_pair_copy_to(fd_string_pubkey_pair_t* to, fd_string_pubkey_pair_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
+  unsigned char *enc = fd_alloca( 1, fd_string_pubkey_pair_size(from) );
+  void const *   ptr = (void const *) enc;
+  fd_string_pubkey_pair_encode( from, &ptr );
+  void *input = (void *) enc;
+  fd_string_pubkey_pair_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
+}
 ulong fd_string_pubkey_pair_size(fd_string_pubkey_pair_t* self) {
   ulong size = 0;
   size += sizeof(ulong) + strlen(self->string);
@@ -1372,6 +1638,13 @@ void fd_pubkey_account_pair_destroy(fd_pubkey_account_pair_t* self, fd_free_fun_
   fd_solana_account_destroy(&self->account, freef, freef_arg);
 }
 
+void fd_pubkey_account_pair_copy_to(fd_pubkey_account_pair_t* to, fd_pubkey_account_pair_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
+  unsigned char *enc = fd_alloca( 1, fd_pubkey_account_pair_size(from) );
+  void const *   ptr = (void const *) enc;
+  fd_pubkey_account_pair_encode( from, &ptr );
+  void *input = (void *) enc;
+  fd_pubkey_account_pair_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
+}
 ulong fd_pubkey_account_pair_size(fd_pubkey_account_pair_t* self) {
   ulong size = 0;
   size += fd_pubkey_size(&self->key);
@@ -1443,6 +1716,13 @@ void fd_genesis_solana_destroy(fd_genesis_solana_t* self, fd_free_fun_t freef, v
   fd_epoch_schedule_destroy(&self->epoch_schedule, freef, freef_arg);
 }
 
+void fd_genesis_solana_copy_to(fd_genesis_solana_t* to, fd_genesis_solana_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
+  unsigned char *enc = fd_alloca( 1, fd_genesis_solana_size(from) );
+  void const *   ptr = (void const *) enc;
+  fd_genesis_solana_encode( from, &ptr );
+  void *input = (void *) enc;
+  fd_genesis_solana_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
+}
 ulong fd_genesis_solana_size(fd_genesis_solana_t* self) {
   ulong size = 0;
   size += sizeof(ulong);
@@ -1507,6 +1787,13 @@ void fd_secp256k1_signature_offsets_decode(fd_secp256k1_signature_offsets_t* sel
 void fd_secp256k1_signature_offsets_destroy(fd_secp256k1_signature_offsets_t* self, fd_free_fun_t freef, void* freef_arg) {
 }
 
+void fd_secp256k1_signature_offsets_copy_to(fd_secp256k1_signature_offsets_t* to, fd_secp256k1_signature_offsets_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
+  unsigned char *enc = fd_alloca( 1, fd_secp256k1_signature_offsets_size(from) );
+  void const *   ptr = (void const *) enc;
+  fd_secp256k1_signature_offsets_encode( from, &ptr );
+  void *input = (void *) enc;
+  fd_secp256k1_signature_offsets_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
+}
 ulong fd_secp256k1_signature_offsets_size(fd_secp256k1_signature_offsets_t* self) {
   ulong size = 0;
   size += sizeof(ushort);
@@ -1539,6 +1826,13 @@ void fd_sol_sysvar_clock_decode(fd_sol_sysvar_clock_t* self, void const** data, 
 void fd_sol_sysvar_clock_destroy(fd_sol_sysvar_clock_t* self, fd_free_fun_t freef, void* freef_arg) {
 }
 
+void fd_sol_sysvar_clock_copy_to(fd_sol_sysvar_clock_t* to, fd_sol_sysvar_clock_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
+  unsigned char *enc = fd_alloca( 1, fd_sol_sysvar_clock_size(from) );
+  void const *   ptr = (void const *) enc;
+  fd_sol_sysvar_clock_encode( from, &ptr );
+  void *input = (void *) enc;
+  fd_sol_sysvar_clock_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
+}
 ulong fd_sol_sysvar_clock_size(fd_sol_sysvar_clock_t* self) {
   ulong size = 0;
   size += sizeof(ulong);
@@ -1564,6 +1858,13 @@ void fd_vote_lockout_decode(fd_vote_lockout_t* self, void const** data, void con
 void fd_vote_lockout_destroy(fd_vote_lockout_t* self, fd_free_fun_t freef, void* freef_arg) {
 }
 
+void fd_vote_lockout_copy_to(fd_vote_lockout_t* to, fd_vote_lockout_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
+  unsigned char *enc = fd_alloca( 1, fd_vote_lockout_size(from) );
+  void const *   ptr = (void const *) enc;
+  fd_vote_lockout_encode( from, &ptr );
+  void *input = (void *) enc;
+  fd_vote_lockout_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
+}
 ulong fd_vote_lockout_size(fd_vote_lockout_t* self) {
   ulong size = 0;
   size += sizeof(ulong);
@@ -1583,6 +1884,13 @@ void fd_compact_vote_lockout_decode(fd_compact_vote_lockout_t* self, void const*
 void fd_compact_vote_lockout_destroy(fd_compact_vote_lockout_t* self, fd_free_fun_t freef, void* freef_arg) {
 }
 
+void fd_compact_vote_lockout_copy_to(fd_compact_vote_lockout_t* to, fd_compact_vote_lockout_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
+  unsigned char *enc = fd_alloca( 1, fd_compact_vote_lockout_size(from) );
+  void const *   ptr = (void const *) enc;
+  fd_compact_vote_lockout_encode( from, &ptr );
+  void *input = (void *) enc;
+  fd_compact_vote_lockout_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
+}
 ulong fd_compact_vote_lockout_size(fd_compact_vote_lockout_t* self) {
   ulong size = 0;
   size += sizeof(ulong);
@@ -1603,6 +1911,13 @@ void fd_vote_authorized_voter_destroy(fd_vote_authorized_voter_t* self, fd_free_
   fd_pubkey_destroy(&self->pubkey, freef, freef_arg);
 }
 
+void fd_vote_authorized_voter_copy_to(fd_vote_authorized_voter_t* to, fd_vote_authorized_voter_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
+  unsigned char *enc = fd_alloca( 1, fd_vote_authorized_voter_size(from) );
+  void const *   ptr = (void const *) enc;
+  fd_vote_authorized_voter_encode( from, &ptr );
+  void *input = (void *) enc;
+  fd_vote_authorized_voter_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
+}
 ulong fd_vote_authorized_voter_size(fd_vote_authorized_voter_t* self) {
   ulong size = 0;
   size += sizeof(ulong);
@@ -1624,6 +1939,13 @@ void fd_vote_prior_voter_destroy(fd_vote_prior_voter_t* self, fd_free_fun_t free
   fd_pubkey_destroy(&self->pubkey, freef, freef_arg);
 }
 
+void fd_vote_prior_voter_copy_to(fd_vote_prior_voter_t* to, fd_vote_prior_voter_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
+  unsigned char *enc = fd_alloca( 1, fd_vote_prior_voter_size(from) );
+  void const *   ptr = (void const *) enc;
+  fd_vote_prior_voter_encode( from, &ptr );
+  void *input = (void *) enc;
+  fd_vote_prior_voter_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
+}
 ulong fd_vote_prior_voter_size(fd_vote_prior_voter_t* self) {
   ulong size = 0;
   size += fd_pubkey_size(&self->pubkey);
@@ -1646,6 +1968,13 @@ void fd_vote_epoch_credits_decode(fd_vote_epoch_credits_t* self, void const** da
 void fd_vote_epoch_credits_destroy(fd_vote_epoch_credits_t* self, fd_free_fun_t freef, void* freef_arg) {
 }
 
+void fd_vote_epoch_credits_copy_to(fd_vote_epoch_credits_t* to, fd_vote_epoch_credits_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
+  unsigned char *enc = fd_alloca( 1, fd_vote_epoch_credits_size(from) );
+  void const *   ptr = (void const *) enc;
+  fd_vote_epoch_credits_encode( from, &ptr );
+  void *input = (void *) enc;
+  fd_vote_epoch_credits_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
+}
 ulong fd_vote_epoch_credits_size(fd_vote_epoch_credits_t* self) {
   ulong size = 0;
   size += sizeof(ulong);
@@ -1668,6 +1997,13 @@ void fd_vote_historical_authorized_voter_destroy(fd_vote_historical_authorized_v
   fd_pubkey_destroy(&self->pubkey, freef, freef_arg);
 }
 
+void fd_vote_historical_authorized_voter_copy_to(fd_vote_historical_authorized_voter_t* to, fd_vote_historical_authorized_voter_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
+  unsigned char *enc = fd_alloca( 1, fd_vote_historical_authorized_voter_size(from) );
+  void const *   ptr = (void const *) enc;
+  fd_vote_historical_authorized_voter_encode( from, &ptr );
+  void *input = (void *) enc;
+  fd_vote_historical_authorized_voter_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
+}
 ulong fd_vote_historical_authorized_voter_size(fd_vote_historical_authorized_voter_t* self) {
   ulong size = 0;
   size += sizeof(ulong);
@@ -1687,6 +2023,13 @@ void fd_vote_block_timestamp_decode(fd_vote_block_timestamp_t* self, void const*
 void fd_vote_block_timestamp_destroy(fd_vote_block_timestamp_t* self, fd_free_fun_t freef, void* freef_arg) {
 }
 
+void fd_vote_block_timestamp_copy_to(fd_vote_block_timestamp_t* to, fd_vote_block_timestamp_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
+  unsigned char *enc = fd_alloca( 1, fd_vote_block_timestamp_size(from) );
+  void const *   ptr = (void const *) enc;
+  fd_vote_block_timestamp_encode( from, &ptr );
+  void *input = (void *) enc;
+  fd_vote_block_timestamp_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
+}
 ulong fd_vote_block_timestamp_size(fd_vote_block_timestamp_t* self) {
   ulong size = 0;
   size += sizeof(ulong);
@@ -1715,6 +2058,13 @@ void fd_vote_prior_voters_destroy(fd_vote_prior_voters_t* self, fd_free_fun_t fr
   }
 }
 
+void fd_vote_prior_voters_copy_to(fd_vote_prior_voters_t* to, fd_vote_prior_voters_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
+  unsigned char *enc = fd_alloca( 1, fd_vote_prior_voters_size(from) );
+  void const *   ptr = (void const *) enc;
+  fd_vote_prior_voters_encode( from, &ptr );
+  void *input = (void *) enc;
+  fd_vote_prior_voters_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
+}
 ulong fd_vote_prior_voters_size(fd_vote_prior_voters_t* self) {
   ulong size = 0;
   for (ulong i = 0; i < 32; ++i)
@@ -1785,6 +2135,13 @@ void fd_vote_state_destroy(fd_vote_state_t* self, fd_free_fun_t freef, void* fre
   fd_vote_block_timestamp_destroy(&self->latest_timestamp, freef, freef_arg);
 }
 
+void fd_vote_state_copy_to(fd_vote_state_t* to, fd_vote_state_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
+  unsigned char *enc = fd_alloca( 1, fd_vote_state_size(from) );
+  void const *   ptr = (void const *) enc;
+  fd_vote_state_encode( from, &ptr );
+  void *input = (void *) enc;
+  fd_vote_state_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
+}
 ulong fd_vote_state_size(fd_vote_state_t* self) {
   ulong size = 0;
   size += fd_pubkey_size(&self->voting_node);
@@ -1870,6 +2227,13 @@ void fd_vote_state_update_destroy(fd_vote_state_update_t* self, fd_free_fun_t fr
   }
 }
 
+void fd_vote_state_update_copy_to(fd_vote_state_update_t* to, fd_vote_state_update_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
+  unsigned char *enc = fd_alloca( 1, fd_vote_state_update_size(from) );
+  void const *   ptr = (void const *) enc;
+  fd_vote_state_update_encode( from, &ptr );
+  void *input = (void *) enc;
+  fd_vote_state_update_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
+}
 ulong fd_vote_state_update_size(fd_vote_state_update_t* self) {
   ulong size = 0;
   size += sizeof(ulong);
@@ -1936,6 +2300,13 @@ void fd_compact_vote_state_update_destroy(fd_compact_vote_state_update_t* self, 
   }
 }
 
+void fd_compact_vote_state_update_copy_to(fd_compact_vote_state_update_t* to, fd_compact_vote_state_update_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
+  unsigned char *enc = fd_alloca( 1, fd_compact_vote_state_update_size(from) );
+  void const *   ptr = (void const *) enc;
+  fd_compact_vote_state_update_encode( from, &ptr );
+  void *input = (void *) enc;
+  fd_compact_vote_state_update_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
+}
 ulong fd_compact_vote_state_update_size(fd_compact_vote_state_update_t* self) {
   ulong size = 0;
   size += sizeof(ulong);
@@ -1981,6 +2352,13 @@ void fd_slot_history_inner_destroy(fd_slot_history_inner_t* self, fd_free_fun_t 
   }
 }
 
+void fd_slot_history_inner_copy_to(fd_slot_history_inner_t* to, fd_slot_history_inner_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
+  unsigned char *enc = fd_alloca( 1, fd_slot_history_inner_size(from) );
+  void const *   ptr = (void const *) enc;
+  fd_slot_history_inner_encode( from, &ptr );
+  void *input = (void *) enc;
+  fd_slot_history_inner_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
+}
 ulong fd_slot_history_inner_size(fd_slot_history_inner_t* self) {
   ulong size = 0;
   size += sizeof(ulong);
@@ -2012,6 +2390,13 @@ void fd_slot_history_bitvec_destroy(fd_slot_history_bitvec_t* self, fd_free_fun_
   }
 }
 
+void fd_slot_history_bitvec_copy_to(fd_slot_history_bitvec_t* to, fd_slot_history_bitvec_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
+  unsigned char *enc = fd_alloca( 1, fd_slot_history_bitvec_size(from) );
+  void const *   ptr = (void const *) enc;
+  fd_slot_history_bitvec_encode( from, &ptr );
+  void *input = (void *) enc;
+  fd_slot_history_bitvec_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
+}
 ulong fd_slot_history_bitvec_size(fd_slot_history_bitvec_t* self) {
   ulong size = 0;
   size += sizeof(char);
@@ -2039,6 +2424,13 @@ void fd_slot_history_destroy(fd_slot_history_t* self, fd_free_fun_t freef, void*
   fd_slot_history_bitvec_destroy(&self->bits, freef, freef_arg);
 }
 
+void fd_slot_history_copy_to(fd_slot_history_t* to, fd_slot_history_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
+  unsigned char *enc = fd_alloca( 1, fd_slot_history_size(from) );
+  void const *   ptr = (void const *) enc;
+  fd_slot_history_encode( from, &ptr );
+  void *input = (void *) enc;
+  fd_slot_history_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
+}
 ulong fd_slot_history_size(fd_slot_history_t* self) {
   ulong size = 0;
   size += fd_slot_history_bitvec_size(&self->bits);
@@ -2059,6 +2451,13 @@ void fd_slot_hash_destroy(fd_slot_hash_t* self, fd_free_fun_t freef, void* freef
   fd_hash_destroy(&self->hash, freef, freef_arg);
 }
 
+void fd_slot_hash_copy_to(fd_slot_hash_t* to, fd_slot_hash_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
+  unsigned char *enc = fd_alloca( 1, fd_slot_hash_size(from) );
+  void const *   ptr = (void const *) enc;
+  fd_slot_hash_encode( from, &ptr );
+  void *input = (void *) enc;
+  fd_slot_hash_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
+}
 ulong fd_slot_hash_size(fd_slot_hash_t* self) {
   ulong size = 0;
   size += sizeof(ulong);
@@ -2085,6 +2484,13 @@ void fd_slot_hashes_destroy(fd_slot_hashes_t* self, fd_free_fun_t freef, void* f
   fd_vec_fd_slot_hash_t_destroy(&self->hashes);
 }
 
+void fd_slot_hashes_copy_to(fd_slot_hashes_t* to, fd_slot_hashes_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
+  unsigned char *enc = fd_alloca( 1, fd_slot_hashes_size(from) );
+  void const *   ptr = (void const *) enc;
+  fd_slot_hashes_encode( from, &ptr );
+  void *input = (void *) enc;
+  fd_slot_hashes_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
+}
 ulong fd_slot_hashes_size(fd_slot_hashes_t* self) {
   ulong size = 0;
   size += sizeof(ulong);
@@ -2108,6 +2514,13 @@ void fd_block_block_hash_entry_destroy(fd_block_block_hash_entry_t* self, fd_fre
   fd_fee_calculator_destroy(&self->fee_calculator, freef, freef_arg);
 }
 
+void fd_block_block_hash_entry_copy_to(fd_block_block_hash_entry_t* to, fd_block_block_hash_entry_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
+  unsigned char *enc = fd_alloca( 1, fd_block_block_hash_entry_size(from) );
+  void const *   ptr = (void const *) enc;
+  fd_block_block_hash_entry_encode( from, &ptr );
+  void *input = (void *) enc;
+  fd_block_block_hash_entry_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
+}
 ulong fd_block_block_hash_entry_size(fd_block_block_hash_entry_t* self) {
   ulong size = 0;
   size += fd_hash_size(&self->blockhash);
@@ -2134,6 +2547,13 @@ void fd_recent_block_hashes_destroy(fd_recent_block_hashes_t* self, fd_free_fun_
   fd_vec_fd_block_block_hash_entry_t_destroy(&self->hashes);
 }
 
+void fd_recent_block_hashes_copy_to(fd_recent_block_hashes_t* to, fd_recent_block_hashes_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
+  unsigned char *enc = fd_alloca( 1, fd_recent_block_hashes_size(from) );
+  void const *   ptr = (void const *) enc;
+  fd_recent_block_hashes_encode( from, &ptr );
+  void *input = (void *) enc;
+  fd_recent_block_hashes_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
+}
 ulong fd_recent_block_hashes_size(fd_recent_block_hashes_t* self) {
   ulong size = 0;
   size += sizeof(ulong);
@@ -2182,6 +2602,13 @@ void fd_slot_meta_destroy(fd_slot_meta_t* self, fd_free_fun_t freef, void* freef
   }
 }
 
+void fd_slot_meta_copy_to(fd_slot_meta_t* to, fd_slot_meta_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
+  unsigned char *enc = fd_alloca( 1, fd_slot_meta_size(from) );
+  void const *   ptr = (void const *) enc;
+  fd_slot_meta_encode( from, &ptr );
+  void *input = (void *) enc;
+  fd_slot_meta_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
+}
 ulong fd_slot_meta_size(fd_slot_meta_t* self) {
   ulong size = 0;
   size += sizeof(ulong);
@@ -2227,6 +2654,13 @@ void fd_clock_timestamp_vote_destroy(fd_clock_timestamp_vote_t* self, fd_free_fu
   fd_pubkey_destroy(&self->pubkey, freef, freef_arg);
 }
 
+void fd_clock_timestamp_vote_copy_to(fd_clock_timestamp_vote_t* to, fd_clock_timestamp_vote_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
+  unsigned char *enc = fd_alloca( 1, fd_clock_timestamp_vote_size(from) );
+  void const *   ptr = (void const *) enc;
+  fd_clock_timestamp_vote_encode( from, &ptr );
+  void *input = (void *) enc;
+  fd_clock_timestamp_vote_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
+}
 ulong fd_clock_timestamp_vote_size(fd_clock_timestamp_vote_t* self) {
   ulong size = 0;
   size += fd_pubkey_size(&self->pubkey);
@@ -2255,6 +2689,13 @@ void fd_clock_timestamp_votes_destroy(fd_clock_timestamp_votes_t* self, fd_free_
   fd_vec_fd_clock_timestamp_vote_t_destroy(&self->votes);
 }
 
+void fd_clock_timestamp_votes_copy_to(fd_clock_timestamp_votes_t* to, fd_clock_timestamp_votes_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
+  unsigned char *enc = fd_alloca( 1, fd_clock_timestamp_votes_size(from) );
+  void const *   ptr = (void const *) enc;
+  fd_clock_timestamp_votes_encode( from, &ptr );
+  void *input = (void *) enc;
+  fd_clock_timestamp_votes_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
+}
 ulong fd_clock_timestamp_votes_size(fd_clock_timestamp_votes_t* self) {
   ulong size = 0;
   size += sizeof(ulong);
@@ -2276,6 +2717,13 @@ void fd_sysvar_fees_destroy(fd_sysvar_fees_t* self, fd_free_fun_t freef, void* f
   fd_fee_calculator_destroy(&self->fee_calculator, freef, freef_arg);
 }
 
+void fd_sysvar_fees_copy_to(fd_sysvar_fees_t* to, fd_sysvar_fees_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
+  unsigned char *enc = fd_alloca( 1, fd_sysvar_fees_size(from) );
+  void const *   ptr = (void const *) enc;
+  fd_sysvar_fees_encode( from, &ptr );
+  void *input = (void *) enc;
+  fd_sysvar_fees_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
+}
 ulong fd_sysvar_fees_size(fd_sysvar_fees_t* self) {
   ulong size = 0;
   size += fd_fee_calculator_size(&self->fee_calculator);
@@ -2294,6 +2742,13 @@ void fd_config_keys_pair_destroy(fd_config_keys_pair_t* self, fd_free_fun_t free
   fd_pubkey_destroy(&self->key, freef, freef_arg);
 }
 
+void fd_config_keys_pair_copy_to(fd_config_keys_pair_t* to, fd_config_keys_pair_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
+  unsigned char *enc = fd_alloca( 1, fd_config_keys_pair_size(from) );
+  void const *   ptr = (void const *) enc;
+  fd_config_keys_pair_encode( from, &ptr );
+  void *input = (void *) enc;
+  fd_config_keys_pair_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
+}
 ulong fd_config_keys_pair_size(fd_config_keys_pair_t* self) {
   ulong size = 0;
   size += fd_pubkey_size(&self->key);
@@ -2326,6 +2781,13 @@ void fd_stake_config_destroy(fd_stake_config_t* self, fd_free_fun_t freef, void*
   }
 }
 
+void fd_stake_config_copy_to(fd_stake_config_t* to, fd_stake_config_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
+  unsigned char *enc = fd_alloca( 1, fd_stake_config_size(from) );
+  void const *   ptr = (void const *) enc;
+  fd_stake_config_encode( from, &ptr );
+  void *input = (void *) enc;
+  fd_stake_config_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
+}
 ulong fd_stake_config_size(fd_stake_config_t* self) {
   ulong size = 0;
   size += sizeof(ulong);
@@ -2353,6 +2815,13 @@ void fd_firedancer_banks_destroy(fd_firedancer_banks_t* self, fd_free_fun_t free
   fd_deserializable_versioned_bank_destroy(&self->solana_bank, freef, freef_arg);
 }
 
+void fd_firedancer_banks_copy_to(fd_firedancer_banks_t* to, fd_firedancer_banks_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
+  unsigned char *enc = fd_alloca( 1, fd_firedancer_banks_size(from) );
+  void const *   ptr = (void const *) enc;
+  fd_firedancer_banks_encode( from, &ptr );
+  void *input = (void *) enc;
+  fd_firedancer_banks_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
+}
 ulong fd_firedancer_banks_size(fd_firedancer_banks_t* self) {
   ulong size = 0;
   size += fd_deserializable_versioned_bank_size(&self->solana_bank);
@@ -2388,6 +2857,13 @@ void fd_vote_destroy(fd_vote_t* self, fd_free_fun_t freef, void* freef_arg) {
   }
 }
 
+void fd_vote_copy_to(fd_vote_t* to, fd_vote_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
+  unsigned char *enc = fd_alloca( 1, fd_vote_size(from) );
+  void const *   ptr = (void const *) enc;
+  fd_vote_encode( from, &ptr );
+  void *input = (void *) enc;
+  fd_vote_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
+}
 ulong fd_vote_size(fd_vote_t* self) {
   ulong size = 0;
   size += sizeof(ulong);

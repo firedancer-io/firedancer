@@ -657,6 +657,7 @@ for entry in entries:
     print("void " + n + "_decode(" + n + "_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);", file=header)
     print("void " + n + "_encode(" + n + "_t* self, void const** data);", file=header)
     print("void " + n + "_destroy(" + n + "_t* self, fd_free_fun_t freef, void* freef_arg);", file=header)
+    print("void " + n + "_copy_to(" + n + "_t* to, " + n + "_t* from, fd_alloc_fun_t freef, void* allocf_arg);", file=header)
     print("ulong " + n + "_size(" + n + "_t* self);", file=header)
     print("", file=header)
 
@@ -675,6 +676,14 @@ for entry in entries:
             print("  " + namespace + "_" + f["type"] + "_destroy(&self->" + f["name"] + ", freef, freef_arg);", file=body)
     print("}", file=body)
     print("", file=body)
+    print("void " + n + "_copy_to(" + n + "_t* to, " + n + "_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {", file=body)
+
+    print("  unsigned char *enc = fd_alloca( 1, " + n + "_size(from) );", file=body)
+    print("  void const *ptr = (void const *) enc;", file=body)
+    print("  " + n + "_encode( from, &ptr );", file=body)
+    print("  void *input = (void *) enc;", file=body)
+    print("  " + n + "_decode( to, (const void **) &input, ptr, allocf, allocf_arg );", file=body)
+    print("}", file=body)
     print("ulong " + n + "_size(" + n + "_t* self) {", file=body)
     print("  ulong size = 0;", file=body)
     for f in entry["fields"]:
