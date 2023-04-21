@@ -258,13 +258,13 @@ FD_PROTOTYPES_BEGIN
 /* Internal use only */
 
 void
-fd_sha256_private_batch_avx( ulong                batch_cnt,    /* In [1,FD_SHA256_PRIVATE_BATCH_MAX] */
-                             void const * const * batch_data,   /* Indexed [0,FD_SHA256_PRIVATE_BATCH_MAX), aligned 32,
-                                                                   only [0,batch_cnt) used, essentially a msg_t const * const * */
-                             ulong const *        batch_sz,     /* Indexed [0,FD_SHA256_PRIVATE_BATCH_MAX), aligned 32,
-                                                                   only [0,batch_cnt) used */
-                             void * const *       batch_hash ); /* Indexed [0,FD_SHA256_PRIVATE_BATCH_MAX), aligned 32,
-                                                                   only [0,batch_cnt) used */
+fd_sha256_private_batch_avx( ulong          batch_cnt,    /* In [1,FD_SHA256_PRIVATE_BATCH_MAX] */
+                             void const *   batch_data,   /* Indexed [0,FD_SHA256_PRIVATE_BATCH_MAX), aligned 32,
+                                                             only [0,batch_cnt) used, essentially a msg_t const * const * */
+                             ulong const *  batch_sz,     /* Indexed [0,FD_SHA256_PRIVATE_BATCH_MAX), aligned 32,
+                                                             only [0,batch_cnt) used */
+                             void * const * batch_hash ); /* Indexed [0,FD_SHA256_PRIVATE_BATCH_MAX), aligned 32,
+                                                             only [0,batch_cnt) used */
 
 FD_FN_CONST static inline ulong fd_sha256_batch_align    ( void ) { return alignof(fd_sha256_batch_t); }
 FD_FN_CONST static inline ulong fd_sha256_batch_footprint( void ) { return sizeof (fd_sha256_batch_t); }

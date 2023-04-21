@@ -3,14 +3,15 @@
 #include "../../util/simd/fd_sse.h"
 
 void
-fd_sha512_private_batch_avx( ulong                batch_cnt,
-                             void const * const * _batch_data,
-                             ulong const *        batch_sz,
-                             void * const *       _batch_hash ) {
+fd_sha512_private_batch_avx( ulong          batch_cnt,
+                             void const *   _batch_data,
+                             ulong const *  batch_sz,
+                             void * const * _batch_hash ) {
 
   if( FD_UNLIKELY( batch_cnt<2UL ) ) {
+    void const * const * batch_data = (void const * const *)_batch_data;
     for( ulong batch_idx=0UL; batch_idx<batch_cnt; batch_idx++ )
-      fd_sha512_hash( _batch_data[ batch_idx ], batch_sz[ batch_idx ], _batch_hash[ batch_idx ] );
+      fd_sha512_hash( batch_data[ batch_idx ], batch_sz[ batch_idx ], _batch_hash[ batch_idx ] );
     return;
   }
 
@@ -18,12 +19,12 @@ fd_sha512_private_batch_avx( ulong                batch_cnt,
      (a messaging terminator byte and the big endian uint128 with the
      message size in bits) and enough zero padding to make the message
      an integer number of blocks long.  We compute the 1 or 2 tail
-     blocks of each message here.  We can then process complete blocks
-     of the original messages in place and, in a second pass via the
-     same code, handle the tail blocks.  FIXME: This code could probably
-     be SIMD optimized slightly more (this is where all the really
-     performance suboptimally designed parts of SHA live so it is just
-     inherently gross).  The main optimization would probably be to
+     blocks of each message here.  We then process complete blocks of
+     the original messages in place, switching to processing these tail
+     blocks in the same pass toward the end.  TODO: This code could
+     probably be SIMD optimized slightly more (this is where all the
+     really performance suboptimally designed parts of SHA live so it is
+     just inherently gross).  The main optimization would probably be to
      allow tailing reading to use a faster memcpy and then maybe some
      vectorization of the bswap. */
 
