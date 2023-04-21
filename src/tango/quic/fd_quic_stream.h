@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_quic_stream_h
-#define HEADER_fd_quic_stream_h
+#ifndef HEADER_fd_src_tango_quic_fd_quic_stream_h
+#define HEADER_fd_src_tango_quic_fd_quic_stream_h
 
 #include "fd_quic_common.h"
 #include "../../util/fd_util.h"
@@ -205,5 +205,5 @@ fd_quic_stream_get_context( fd_quic_stream_t * stream );
 
 FD_PROTOTYPES_END
 
-#endif
+#endif /* HEADER_fd_src_tango_quic_fd_quic_stream_h */
 

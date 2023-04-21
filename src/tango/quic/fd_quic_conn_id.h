@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_quic_conn_id_h
-#define HEADER_fd_quic_conn_id_h
+#ifndef HEADER_fd_src_tango_quic_fd_quic_conn_id_h
+#define HEADER_fd_src_tango_quic_fd_quic_conn_id_h
 
 #include "../../util/fd_util_base.h"
 #include <string.h>
@@ -71,5 +71,5 @@ struct fd_quic_endpoint {
 };
 typedef struct fd_quic_endpoint fd_quic_endpoint_t;
 
-#endif
+#endif /* HEADER_fd_src_tango_quic_fd_quic_conn_id_h */
 
