@@ -254,6 +254,9 @@ FD_PROTOTYPES_BEGIN
        will be whatever the OS assigned to the booter (equivalent to
        "--tile-cpus f").
 
+       Strides for a range of cores can be specified with a '/' or
+       (taskset style) with a ':'.
+
        If tile 0 is not a floating tile, recommend using
        "taskset -c [cpu for tile 0]" or equivalent at thread group launch
        to have the OS place the booter on the correct cpu from the start. */
