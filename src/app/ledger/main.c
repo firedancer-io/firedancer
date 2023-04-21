@@ -234,6 +234,8 @@ int main(int argc, char** argv) {
     decompressFile(snapshotfile, SnapshotParser_moreData, &parser);
     SnapshotParser_destroy(&parser);
 
+    FD_LOG_INFO(("imported %lu accounts", fd_funk_num_records(funk)));
+    
     fd_funk_delete(funk);
   }
 
