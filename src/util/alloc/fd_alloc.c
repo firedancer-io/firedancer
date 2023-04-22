@@ -174,7 +174,7 @@ struct __attribute__((aligned(FD_ALLOC_ALIGN))) fd_alloc {
      operations from different cgroups are unlikely to create false
      sharing. */
 
-  ulong active_slot[ FD_ALLOC_SIZECLASS_CNT*FD_ALLOC_JOIN_CGROUP_CNT ] __attribute__((aligned(128UL)));
+  ulong active_slot[ FD_ALLOC_SIZECLASS_CNT*(FD_ALLOC_JOIN_CGROUP_HINT_MAX+1UL) ] __attribute__((aligned(128UL)));
 
   /* Padding to 128 byte alignment here */
 
@@ -421,26 +421,12 @@ fd_alloc_hdr_store_large( void * laddr,
 
 /* Misc ***************************************************************/
 
-/* fd_alloc_private_join packs a local pointer to an fd_alloc (alloc)
-   and cgroup_idx into an opaque join handle.  It exploits that enough
-   least significant bits of alloc are going to be zero to hold the
-   index.  fd_alloc_private_join_{alloc,cgroup_idx} unpack an opaque
-   join handle back into {alloc,hash}. */
-
-FD_FN_CONST static inline fd_alloc_t *
-fd_alloc_private_join( fd_alloc_t * alloc,
-                       ulong        cgroup_idx ) { /* In [0,FD_ALLOC_JOIN_CGROUP_CNT) */
-  return (fd_alloc_t *)(((ulong)alloc) | cgroup_idx);
-}
+/* fd_alloc_private_join_alloc returns the local address of the alloc
+   for a join. */
 
 FD_FN_CONST fd_alloc_t *
 fd_alloc_private_join_alloc( fd_alloc_t * join ) {
-  return (fd_alloc_t *)(((ulong)join) & ~(FD_ALLOC_JOIN_CGROUP_CNT-1UL));
-}
-
-FD_FN_CONST ulong /* In [0,FD_ALLOC_JOIN_CGROUP_CNT) */
-fd_alloc_private_join_cgroup_idx( fd_alloc_t * join ) {
-  return ((ulong)join) & (FD_ALLOC_JOIN_CGROUP_CNT-1UL);
+  return (fd_alloc_t *)(((ulong)join) & ~FD_ALLOC_JOIN_CGROUP_HINT_MAX);
 }
 
 /* Constructors *******************************************************/
@@ -497,7 +483,7 @@ fd_alloc_new( void * shmem,
 
 fd_alloc_t *
 fd_alloc_join( void * shalloc,
-               ulong  cgroup_idx ) {
+               ulong  cgroup_hint ) {
   fd_alloc_t * alloc = (fd_alloc_t *)shalloc;
 
   if( FD_UNLIKELY( !alloc ) ) {
@@ -515,12 +501,7 @@ fd_alloc_join( void * shalloc,
     return NULL;
   }
 
-  if( FD_UNLIKELY( cgroup_idx>=FD_ALLOC_JOIN_CGROUP_CNT ) ) {
-    FD_LOG_WARNING(( "bad cgroup_idx" ));
-    return NULL;
-  }
-
-  return fd_alloc_private_join( alloc, cgroup_idx );
+  return fd_alloc_join_cgroup_hint_set( alloc, cgroup_hint );
 }
 
 void *
@@ -654,7 +635,7 @@ fd_alloc_malloc_at_least( fd_alloc_t * join,
      to use for this sizeclass and join. */
 
   ulong sizeclass = fd_alloc_preferred_sizeclass( footprint );
-  ulong cgroup    = fd_alloc_preferred_sizeclass_cgroup( sizeclass, fd_alloc_private_join_cgroup_idx( join ) );
+  ulong cgroup    = fd_alloc_preferred_sizeclass_cgroup( sizeclass, fd_alloc_join_cgroup_hint( join ) );
 
   ulong * active_slot = alloc->active_slot + sizeclass + FD_ALLOC_SIZECLASS_CNT*cgroup;
 
@@ -929,7 +910,7 @@ fd_alloc_free( fd_alloc_t * join,
 
     fd_wksp_t * wksp = fd_alloc_private_wksp( alloc );
 
-    ulong   cgroup      = fd_alloc_preferred_sizeclass_cgroup( sizeclass, fd_alloc_private_join_cgroup_idx( join ) );
+    ulong   cgroup      = fd_alloc_preferred_sizeclass_cgroup( sizeclass, fd_alloc_join_cgroup_hint( join ) );
     ulong * active_slot = alloc->active_slot + sizeclass + FD_ALLOC_SIZECLASS_CNT*cgroup;
 
     ulong displaced_superblock_gaddr = fd_alloc_private_active_slot_replace( active_slot, fd_wksp_gaddr_fast( wksp, superblock ) );
@@ -1268,12 +1249,12 @@ fd_alloc_fprintf( fd_alloc_t * join,
   ctr[4] = 0UL; /* wksp partitions used for large alloc */
   ctr[5] = 0UL; /* wksp bytes used for large alloc */
 
-  fd_alloc_t * alloc      = fd_alloc_private_join_alloc     ( join );
-  ulong        cgroup_idx = fd_alloc_private_join_cgroup_idx( join );
+  fd_alloc_t * alloc       = fd_alloc_private_join_alloc( join );
+  ulong        cgroup_hint = fd_alloc_join_cgroup_hint  ( join );
 
   if( FD_UNLIKELY( !alloc ) ) { /* NULL join passed */
 
-    TRAP( fprintf( stream, "alloc: gaddr -, join_cgroup_idx %lu, magic 0x0 (bad)\n", cgroup_idx ) );
+    TRAP( fprintf( stream, "alloc: gaddr -, join_cgroup_hint %lu, magic 0x0 (bad)\n", cgroup_hint ) );
     ctr[0]++;
 
   } else { /* Normal join */
@@ -1287,8 +1268,8 @@ fd_alloc_fprintf( fd_alloc_t * join,
 
     /* Print the summary header */
 
-    TRAP( fprintf( stream, "alloc: gaddr %s:%lu, join_cgroup_idx %lu, magic 0x%lx (%s)\n",
-                   wksp->name, fd_wksp_gaddr_fast( wksp, alloc ), cgroup_idx,
+    TRAP( fprintf( stream, "alloc: gaddr %s:%lu, join_cgroup_hint %lu, magic 0x%lx (%s)\n",
+                   wksp->name, fd_wksp_gaddr_fast( wksp, alloc ), cgroup_hint,
                    alloc->magic, alloc->magic==FD_ALLOC_MAGIC ? "good" : "bad" ) );
     if( FD_UNLIKELY( alloc->magic!=FD_ALLOC_MAGIC ) ) ctr[0]++;
 

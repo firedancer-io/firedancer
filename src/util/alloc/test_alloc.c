@@ -5,7 +5,7 @@
 FD_STATIC_ASSERT( FD_ALLOC_ALIGN               == 4096UL, unit_test );
 FD_STATIC_ASSERT( FD_ALLOC_FOOTPRINT           ==20480UL, unit_test );
 FD_STATIC_ASSERT( FD_ALLOC_MALLOC_ALIGN_DEFAULT==   16UL, unit_test );
-FD_STATIC_ASSERT( FD_ALLOC_JOIN_CGROUP_CNT     ==   16UL, unit_test );
+FD_STATIC_ASSERT( FD_ALLOC_JOIN_CGROUP_HINT_MAX==   15UL, unit_test );
 
 /* This is a torture test for same thread allocation */
 /* FIXME: IDEALLY SHOULD ADD TORTURE TEST FOR MALLOC / FREE PAIRS SPLIT
@@ -31,7 +31,10 @@ test_main( int     argc,
 
   fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, (uint)tile_idx, 0UL ) );
 
-  fd_alloc_t * alloc = fd_alloc_join( shalloc, tile_idx & (FD_ALLOC_JOIN_CGROUP_CNT-1UL) );
+  fd_alloc_t * alloc = fd_alloc_join( shalloc, tile_idx );
+
+  FD_TEST( fd_alloc_join_cgroup_hint( alloc )==(tile_idx & FD_ALLOC_JOIN_CGROUP_HINT_MAX) );
+  FD_TEST( fd_alloc_join_cgroup_hint( fd_alloc_join_cgroup_hint_set( alloc, 1UL ) )==1UL  );
 
 # define OUTSTANDING_MAX 128UL
   ulong   sz [ OUTSTANDING_MAX ];
