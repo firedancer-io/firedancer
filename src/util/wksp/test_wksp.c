@@ -99,7 +99,8 @@ test_main( int     argc,
       
       /* Allocate it */
 
-      mem[j] = (uchar *)fd_wksp_laddr( wksp, fd_wksp_alloc( wksp, align, sz[j], tag[j] ) );
+      ulong max;
+      mem[j] = (uchar *)fd_wksp_laddr( wksp, fd_wksp_alloc_at_least( wksp, align, sz[j], tag[j], &max ) );
 
       align = fd_ulong_max( fd_ulong_if( !align, FD_WKSP_ALLOC_ALIGN_DEFAULT, align ), FD_WKSP_ALLOC_ALIGN_MIN );
       FD_TEST( fd_ulong_is_aligned( (ulong)mem[j], align ) );
@@ -110,6 +111,8 @@ test_main( int     argc,
       FD_TEST( sz[j] ? !!gaddr : !gaddr );
 
       FD_TEST( fd_wksp_tag( wksp, gaddr )==(sz[j] ? tag[j] : 0UL) );
+
+      FD_TEST( mem[j] ? (max>=sz[j]) : (!max) );
 
       /* Fill it with a bit pattern unique to this allocation */
 
