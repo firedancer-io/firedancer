@@ -68,7 +68,8 @@ test_main( int     argc,
 
       /* Allocate it */
 
-      mem[j] = (uchar *)fd_alloc_malloc( alloc, align, sz[j] );
+      ulong max;
+      mem[j] = (uchar *)fd_alloc_malloc_at_least( alloc, align, sz[j], &max );
 
       /* Check if the value is sane */
 
@@ -81,6 +82,8 @@ test_main( int     argc,
       if( !align ) align = FD_ALLOC_MALLOC_ALIGN_DEFAULT;
       if( !fd_ulong_is_aligned( (ulong)mem[j], align ) )
         FD_LOG_ERR(( "On tile %lu, alloc(%lu,%lu) failed, got %lx (misaligned)", tile_idx, align, sz[j], (ulong)mem[j] ));
+
+      FD_TEST( mem[j] ? (max>=sz[j]) : (!max) );
 
       /* Fill it with a bit pattern unique to this allocation */
 

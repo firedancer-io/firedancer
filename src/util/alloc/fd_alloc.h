@@ -245,9 +245,10 @@ fd_alloc_delete( void * shalloc );
 FD_FN_PURE fd_wksp_t * fd_alloc_wksp( fd_alloc_t * join ); // NULL indicates NULL join
 FD_FN_PURE ulong       fd_alloc_tag ( fd_alloc_t * join ); // In [0,FD_WKSP_ALLOC_TAG_MAX].  0 indicates NULL join
 
-/* fd_alloc_malloc allocates sz bytes with alignment align from the wksp
-   backing the fd_alloc.  join is a current local join to the fd_alloc.
-   align should be an integer power of 2 or 0.
+/* fd_alloc_malloc_at_least allocates at least sz bytes with alignment
+   of at least align from the wksp backing the fd_alloc.  join is a
+   current local join to the fd_alloc.  align should be an integer power
+   of 2 or 0.
 
    An align of 0 indicates to use FD_ALLOC_MALLOC_DEFAULT_ALIGN for the
    request alignment.  This will be large enough such that
@@ -283,12 +284,30 @@ FD_FN_PURE ulong       fd_alloc_tag ( fd_alloc_t * join ); // In [0,FD_WKSP_ALLO
    Returns NULL on failure (silent to support HPC usage) or when sz is
    0.  Reasons for failure include NULL join, invalid align, sz overflow
    (sz+align>~2^64), no memory available for request (e.g. workspace has
-   insufficient room or is too fragmented). */
+   insufficient room or is too fragmented).
+
+   On return, *max will contain the number actual number of bytes
+   available at the returned gaddr.  On success, this will be at least
+   sz and it is not guaranteed to be a multiple of align.  On failure,
+   *max will be zero.
+
+   fd_alloc_malloc is a simple wrapper around fd_alloc_malloc_at_least
+   for use when applications do not care about the actual size of their
+   allocation. */
 
 void *
+fd_alloc_malloc_at_least( fd_alloc_t * join,
+                          ulong        align,
+                          ulong        sz,
+                          ulong *      max );
+
+static inline void *
 fd_alloc_malloc( fd_alloc_t * join,
                  ulong        align,
-                 ulong        sz );
+                 ulong        sz ) {
+  ulong max[1];
+  return fd_alloc_malloc_at_least( join, align, sz, max );
+}
 
 /* fd_alloc_free frees the outstanding allocation whose first byte is
    pointed to by laddr in the caller's local address space.  join is a
