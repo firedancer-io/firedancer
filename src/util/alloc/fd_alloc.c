@@ -601,9 +601,12 @@ fd_alloc_tag( fd_alloc_t * join ) {
 }
 
 void *
-fd_alloc_malloc( fd_alloc_t * join,
-                 ulong        align,
-                 ulong        sz ) {
+fd_alloc_malloc_at_least( fd_alloc_t * join,
+                          ulong        align,
+                          ulong        sz,
+                          ulong *      max ) {
+
+  if( FD_UNLIKELY( !max ) ) return NULL;
 
   /* Handle default align, NULL alloc, 0 size, non-power-of-two align
      and unreasonably large sz.  footprint has room for fd_alloc_hdr_t,
@@ -619,21 +622,31 @@ fd_alloc_malloc( fd_alloc_t * join,
 
   ulong footprint = sz + sizeof(fd_alloc_hdr_t) + align - 1UL;
 
-  if( FD_UNLIKELY( (!alloc) | (!fd_ulong_is_pow2( align )) | (!sz) | (footprint<=sz) ) ) return NULL;
+  if( FD_UNLIKELY( (!alloc) | (!fd_ulong_is_pow2( align )) | (!sz) | (footprint<=sz) ) ) {
+    *max = 0UL;
+    return NULL;
+  }
 
   fd_wksp_t * wksp = fd_alloc_private_wksp( alloc );
 
   /* At this point, alloc is non-NULL and backed by wksp, align is a
      power-of-2, footprint is a reasonable non-zero value.  If the
      footprint is large, just allocate the memory directly, prepend the
-     appropriate header and return. */
+     appropriate header and return.  TODO: consider clearing alignment
+     padding for better alloc parameter recovery in diagnostics here? */
 
   if( FD_UNLIKELY( footprint > FD_ALLOC_FOOTPRINT_SMALL_THRESH ) ) {
-    void * laddr = fd_wksp_alloc_laddr( wksp, 1UL, footprint, alloc->tag );
-    if( FD_UNLIKELY( !laddr ) ) return NULL;
-    /* FIXME: clear align zero padding for better alloc parameter
-       recovery in diagnostcs here? */
-    return fd_alloc_hdr_store_large( (void *)fd_ulong_align_up( (ulong)laddr + sizeof(fd_alloc_hdr_t), align ), 0 /* !sb */ );
+
+    ulong wksp_max;
+    ulong wksp_gaddr = fd_wksp_alloc_at_least( wksp, 1UL, footprint, alloc->tag, &wksp_max );
+    if( FD_UNLIKELY( !wksp_gaddr ) ) {
+      *max = 0UL;
+      return NULL;
+    }
+
+    ulong alloc_gaddr = fd_ulong_align_up( wksp_gaddr + sizeof(fd_alloc_hdr_t), align );
+    *max = wksp_max - (alloc_gaddr - wksp_gaddr);
+    return fd_alloc_hdr_store_large( fd_wksp_laddr_fast( wksp, alloc_gaddr ), 0 /* !sb */ );
   }
 
   /* At this point, the footprint is small.  Determine the preferred
@@ -648,8 +661,7 @@ fd_alloc_malloc( fd_alloc_t * join,
   /* Try to get exclusive access to the preferred active superblock.
      Note that all all active superblocks have at least one free block.
 
-     FIXME: Would doing something test-and_test-and-set like be better?
-     E.g.:
+     TODO: consider doing something test-and_test-and-set?  E.g.:
        superblock_gaddr = FD_VOLATILE_CONST( *active_slot );
        if( FD_LIKELY( superblock_gaddr ) ) superblock_gaddr = fd_alloc_replace_active( active_slot, 0UL );
      This would avoid an atomic operation if there currently isn't an
@@ -691,18 +703,30 @@ fd_alloc_malloc( fd_alloc_t * join,
 
         ulong wksp_footprint = superblock_footprint + sizeof(fd_alloc_hdr_t) + FD_ALLOC_SUPERBLOCK_ALIGN - 1UL;
         ulong wksp_gaddr     = fd_wksp_alloc( wksp, 1UL, wksp_footprint, alloc->tag );
-        if( FD_UNLIKELY( !wksp_gaddr ) ) return NULL;
+        if( FD_UNLIKELY( !wksp_gaddr ) ) {
+          *max = 0UL;
+          return NULL;
+        }
         superblock_gaddr = fd_ulong_align_up( wksp_gaddr + sizeof(fd_alloc_hdr_t), FD_ALLOC_SUPERBLOCK_ALIGN );
         superblock       = (fd_alloc_superblock_t *)
           fd_alloc_hdr_store_large( fd_wksp_laddr_fast( wksp, superblock_gaddr ), 1 /* sb */ );
 
       } else {
 
-        /* FIXME: Consider having user facing API wrap an internal API
-           so that recursive calls don't have to do redundant error
-           trapping? */
+        /* TODO: consider having user facing API wrap an internal API so
+           that recursive calls don't have to do redundant error
+           trapping?
+
+           TODO: consider using at_least semantics to adapt the actual
+           size of the superblock to the location it is stored
+           (currently should be irrelevant as the sizeclasses are
+           designed to tightly nest). */
+
         superblock = fd_alloc_malloc( join, FD_ALLOC_SUPERBLOCK_ALIGN, superblock_footprint );
-        if( FD_UNLIKELY( !superblock ) ) return NULL;
+        if( FD_UNLIKELY( !superblock ) ) {
+          *max = 0UL;
+          return NULL;
+        }
         superblock_gaddr = fd_wksp_gaddr_fast( wksp, superblock );
 
       }
@@ -800,16 +824,16 @@ fd_alloc_malloc( fd_alloc_t * join,
   //}
 
   /* Carve the requested allocation out of the newly allocated block,
-     prepend the allocation header for use by free and return. */
+     prepend the allocation header for use by free and return.  TODO:
+     considering clearing alignment padding for better alloc parameter
+     recovery in diagnostics here? */
 
-  /* FIXME: clear align zero padding for better alloc parameter recovery
-     in diagnostcs here? */
-  return fd_alloc_hdr_store( (void *)fd_ulong_align_up( (ulong)superblock
-                                                      + sizeof(fd_alloc_superblock_t)
-                                                      + block_idx*(ulong)fd_alloc_sizeclass_cfg[ sizeclass ].block_footprint
-                                                      + sizeof(fd_alloc_hdr_t),
-                                                      align ),
-                             superblock, block_idx, sizeclass );
+  ulong block_footprint = (ulong)fd_alloc_sizeclass_cfg[ sizeclass ].block_footprint;
+  ulong block_laddr     = (ulong)superblock + sizeof(fd_alloc_superblock_t) + block_idx*block_footprint;
+  ulong alloc_laddr     = fd_ulong_align_up( block_laddr + sizeof(fd_alloc_hdr_t), align );
+
+  *max = block_footprint - (alloc_laddr - block_laddr);
+  return fd_alloc_hdr_store( (void *)alloc_laddr, superblock, block_idx, sizeclass );
 }
 
 void
