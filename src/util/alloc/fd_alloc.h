@@ -141,11 +141,10 @@
 
 #define FD_ALLOC_MALLOC_ALIGN_DEFAULT (16UL)
 
-/* FD_ALLOC_JOIN_CGROUP_CNT is the number of concurrency groups
-   supported by the allocator.  This is an integer power of 2 of at most
-   FD_ALLOC_ALIGN. */
+/* FD_ALLOC_JOIN_CGROUP_HINT_MAX is maximum value for a cgroup hint.
+   This is an integer power of 2 minus 1 of at most FD_ALLOC_ALIGN. */
 
-#define FD_ALLOC_JOIN_CGROUP_CNT (16UL)
+#define FD_ALLOC_JOIN_CGROUP_HINT_MAX (15UL)
 
 /* A "fd_alloc_t *" is an opaque handle of an fd_alloc. */
 
@@ -183,31 +182,31 @@ fd_alloc_new( void * shmem,
    first byte of the memory region backing the alloc in the caller's
    address space.  Returns an opaque handle of the join on success
    (IMPORTANT! THIS IS NOT JUST A CAST OF SHALLOC) and NULL on failure
-   (NULL shalloc, misaligned shalloc, bad magic, cgroup_idx not in
-   [0,FD_ALLOC_JOIN_CGROUP_CNT) ... logs details).  Every successful
-   join should have a matching leave.  The lifetime of the join is until
-   the matching leave or the thread group is terminated (joins are local
-   to a thread group).
+   (NULL shalloc, misaligned shalloc, bad magic, ... logs details).
+   Every successful join should have a matching leave.  The lifetime of
+   the join is until the matching leave or the thread group is
+   terminated (joins are local to a thread group).
 
-   cgroup_idx is a concurrency hint used to optimize parallel and
+   cgroup_hint is a concurrency hint used to optimize parallel and
    persistent use cases. Ideally each thread (regardless of thread
-   group) should join the allocator with a different cgroup_idx system
+   group) should join the allocator with a different cgroup_hint system
    wide (note that joins are practically free).  And if using a fd_alloc
    in a persistent way, logical streams of execution would ideally
-   preserve the cgroup_idx address starts and stops of that stream for
+   preserve the cgroup_hint address starts and stops of that stream for
    the most optimal affinity behaviors.  0 is fine in single threaded
    use cases and 0 and/or collisions are fine in more general cases
    though concurrent performance might be reduced due to additional
-   contention between threads that share the same cgroup_idx.
+   contention between threads that share the same cgroup_hint.  If
+   cgroup_hint is not in [0,FD_ALLOC_JOIN_CGROUP_HINT_MAX], it will be
+   wrapped to be in that range.
 
-   TL;DR A cgroup_idx of 0 is often a practical choice single threaded.
-   A cgroup_idx of fd_tile_idx()%FD_ALLOC_JOIN_CGROUP_CNT or a uniform
-   random value in [0,FD_ALLOC_JOIN_CGROUP_CNT) is often a practical
+   TL;DR A cgroup_hint of 0 is often a practical choice single threaded.
+   A cgroup_hint of fd_tile_idx() or just uniform random 64-bit value
    choice in more general situations. */
 
 fd_alloc_t *
 fd_alloc_join( void * shalloc,
-               ulong  cgroup_idx );
+               ulong  cgroup_hint );
 
 /* fd_alloc_leave leaves an existing join.  Returns the underlying
    shalloc (IMPORTANT! THIS IS NOT A SIMPLE CAST OF JOIN) on success and
@@ -232,6 +231,27 @@ fd_alloc_leave( fd_alloc_t * join );
 
 void *
 fd_alloc_delete( void * shalloc );
+
+/* fd_alloc_join_cgroup_hint returns the cgroup_hint of the current
+   join.  Assumes join is a current local join.  The return will be in
+   [0,FD_ALLOC_JOIN_CGROUP_HINT_MAX].
+
+   fd_alloc_join_cgroup_hint_set returns join with the cgroup_hint
+   updated to provided cgroup_hint.  If cgroup hint is not in
+   [0,FD_ALLOC_JOIN_CGROUP_HINT_MAX], it will be wrapped into this
+   range.  Assumes join is a current local join.  The return value is
+   not a new join. */
+
+FD_FN_CONST static inline ulong
+fd_alloc_join_cgroup_hint( fd_alloc_t * join ) {
+  return ((ulong)join) & FD_ALLOC_JOIN_CGROUP_HINT_MAX;
+}
+
+FD_FN_CONST static inline fd_alloc_t *
+fd_alloc_join_cgroup_hint_set( fd_alloc_t * join,
+                               ulong        cgroup_hint ) {
+  return (fd_alloc_t *)((((ulong)join) & (~FD_ALLOC_JOIN_CGROUP_HINT_MAX)) | (cgroup_hint & FD_ALLOC_JOIN_CGROUP_HINT_MAX));
+}
 
 /* fd_alloc_wksp returns a pointer to a local wksp join of the wksp
    backing the fd_alloc with the current local join.  Caller should not
