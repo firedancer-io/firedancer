@@ -12,6 +12,10 @@ fd_funk_footprint( void ) {
   return sizeof(fd_funk_t);
 }
 
+/* TODO: Consider letter user just passing a join of alloc to use,
+   inferring the backing wksp and cgroup_hint from that and then
+   allocating exclusively from that? */
+
 void *
 fd_funk_new( void * shmem,
              ulong  wksp_tag,
@@ -89,6 +93,32 @@ fd_funk_new( void * shmem,
     return NULL;
   }
 
+  void * alloc_shmem = fd_wksp_alloc_laddr( wksp, fd_alloc_align(), fd_alloc_footprint(), wksp_tag );
+  if( FD_UNLIKELY( !alloc_shmem ) ) {
+    FD_LOG_WARNING(( "fd_alloc too large for workspace" ));
+    fd_wksp_free_laddr( fd_funk_rec_map_delete( fd_funk_rec_map_leave( rec_map ) ) );
+    fd_wksp_free_laddr( fd_funk_txn_map_delete( fd_funk_txn_map_leave( txn_map ) ) );
+    return NULL;
+  }
+
+  void * alloc_shalloc = fd_alloc_new( alloc_shmem, wksp_tag );
+  if( FD_UNLIKELY( !alloc_shalloc ) ) {
+    FD_LOG_WARNING(( "fd_allow_new failed" ));
+    fd_wksp_free_laddr( alloc_shalloc );
+    fd_wksp_free_laddr( fd_funk_rec_map_delete( fd_funk_rec_map_leave( rec_map ) ) );
+    fd_wksp_free_laddr( fd_funk_txn_map_delete( fd_funk_txn_map_leave( txn_map ) ) );
+    return NULL;
+  }
+
+  fd_alloc_t * alloc = fd_alloc_join( alloc_shalloc, 0UL ); /* TODO: Consider letting user pass the cgroup hint? */
+  if( FD_UNLIKELY( !alloc ) ) {
+    FD_LOG_WARNING(( "fd_alloc_join failed" ));
+    fd_wksp_free_laddr( fd_alloc_delete( alloc_shalloc ) );
+    fd_wksp_free_laddr( fd_funk_rec_map_delete( fd_funk_rec_map_leave( rec_map ) ) );
+    fd_wksp_free_laddr( fd_funk_txn_map_delete( fd_funk_txn_map_leave( txn_map ) ) );
+    return NULL;
+  }
+
   fd_memset( funk, 0, fd_funk_footprint() );
 
   funk->funk_gaddr = fd_wksp_gaddr_fast( wksp, funk );
@@ -107,6 +137,8 @@ fd_funk_new( void * shmem,
   funk->rec_map_gaddr = fd_wksp_gaddr_fast( wksp, rec_map ); /* Note that this persists the join until delete */
   funk->rec_head_idx  = FD_FUNK_REC_IDX_NULL;
   funk->rec_tail_idx  = FD_FUNK_REC_IDX_NULL;
+
+  funk->alloc_gaddr = fd_wksp_gaddr_fast( wksp, alloc ); /* Note that this persists the join until delete */
 
   FD_COMPILER_MFENCE();
   FD_VOLATILE( funk->magic ) = FD_FUNK_MAGIC;
@@ -179,6 +211,9 @@ fd_funk_delete( void * shfunk ) {
     return NULL;
   }
 
+  /* Free all value resources here */
+
+  fd_wksp_free_laddr( fd_alloc_delete       ( fd_alloc_leave       ( fd_funk_alloc  ( funk, wksp ) ) ) );
   fd_wksp_free_laddr( fd_funk_rec_map_delete( fd_funk_rec_map_leave( fd_funk_rec_map( funk, wksp ) ) ) );
   fd_wksp_free_laddr( fd_funk_txn_map_delete( fd_funk_txn_map_leave( fd_funk_txn_map( funk, wksp ) ) ) );
 
@@ -287,6 +322,16 @@ fd_funk_verify( fd_funk_t * funk ) {
   if( !rec_max ) TEST( fd_funk_rec_idx_is_null( rec_tail_idx ) );
 
   TEST( !fd_funk_rec_verify( funk ) );
+
+  /* Test values */
+
+  ulong alloc_gaddr = funk->alloc_gaddr;
+  TEST( alloc_gaddr );
+  TEST( fd_wksp_tag( wksp, alloc_gaddr )==wksp_tag );
+  fd_alloc_t * alloc = fd_funk_alloc( funk, wksp );
+  TEST( alloc );
+
+  TEST( !fd_funk_val_verify( funk ) );
 
 # undef TEST
 

@@ -3,13 +3,8 @@
 
 //#include "fd_funk_base.h" /* Includes ../util/fd_util.h */
 //#include "fd_funk_txn.h"  /* Includes fd_funk_base.h */
-#include "fd_funk_rec.h"    /* Includes fd_funk_txn.h */
-
-#if FD_HAS_HOSTED && FD_HAS_X86
-
-/* The HOSTED and X86 requirement is inherited from wksp (which
-   currently requires these).  There is very little in here that
-   actually requires HOSTED or X86 capabilities though. */
+//#include "fd_funk_rec.h"  /* Includes fd_funk_txn.h */
+#include "fd_funk_val.h"    /* Includes fd_funk_rec.h */
 
 /* FD_FUNK_{ALIGN,FOOTPRINT} describe the alignment and footprint needed
    for a funk.  ALIGN should be a positive integer power of 2.
@@ -106,6 +101,18 @@ struct __attribute__((aligned(FD_FUNK_ALIGN))) fd_funk_private {
                           rec_max==fd_funk_rec_map_key_max(rec_map) */
   ulong rec_head_idx;  /* Record map index of the first record, FD_FUNK_REC_IDX_NULL if none (from oldest to youngest) */
   ulong rec_tail_idx;  /* "                       last          " */
+
+  /* The funk alloc is used for allocating wksp resources for record
+     values.  This is a fd_alloc and more details are given in
+     fd_funk_val.h.  Allocations from this allocator will be tagged with
+     wksp_tag and operations on this allocator will use concurrency
+     group 0.
+
+     TODO: Consider letter user just passing a join of alloc (and maybe
+     the cgroup_idx to give the funk), inferring the wksp, cgroup from
+     that and allocating exclusively from that? */
+
+  ulong alloc_gaddr; /* Non-zero wksp gaddr with tag wksp tag */
 
   /* Padding to FD_FUNK_ALIGN here */
 };
@@ -294,6 +301,15 @@ fd_funk_last_publish_rec_tail( fd_funk_t const *     funk,       /* Assumes curr
   return rec_map + rec_tail_idx;
 }
 
+/* fd_funk_alloc returns a pointer in the caller's address space to
+   the funk's allocator. */
+
+FD_FN_PURE static inline fd_alloc_t *  /* Lifetime is that of the local join */
+fd_funk_alloc( fd_funk_t * funk,       /* Assumes current local join */
+               fd_wksp_t * wksp ) {    /* Assumes wksp == fd_funk_wksp( funk ) */
+  return (fd_alloc_t *)fd_wksp_laddr_fast( wksp, funk->alloc_gaddr );
+}
+
 /* Operations */
 
 /* fd_funk_descendant returns the funk's youngest descendant that has no
@@ -325,7 +341,5 @@ int
 fd_funk_verify( fd_funk_t * funk );
 
 FD_PROTOTYPES_END
-
-#endif /* FD_HAS_HOSTED && FD_HAS_X86 */
 
 #endif /* HEADER_fd_src_funk_fd_funk_h */
