@@ -65,14 +65,12 @@ fd_quic_footprint_ext( fd_quic_limits_t const * limits,
   ulong  conn_cnt         = limits->conn_cnt;
   ulong  conn_id_cnt      = limits->conn_id_cnt;
   double conn_id_sparsity = limits->conn_id_sparsity;
-  ulong  stream_cnt       = limits->stream_cnt;
   ulong  handshake_cnt    = limits->handshake_cnt;
   ulong  inflight_pkt_cnt = limits->inflight_pkt_cnt;
   ulong  tx_buf_sz        = limits->tx_buf_sz;
   ulong  rx_buf_sz        = limits->rx_buf_sz;
 
   if( FD_UNLIKELY( conn_cnt        ==0UL ) ) return 0UL;
-  if( FD_UNLIKELY( stream_cnt      ==0UL ) ) return 0UL;
   if( FD_UNLIKELY( handshake_cnt   ==0UL ) ) return 0UL;
   if( FD_UNLIKELY( inflight_pkt_cnt==0UL ) ) return 0UL;
   if( FD_UNLIKELY( tx_buf_sz       ==0UL ) ) return 0UL;
@@ -193,11 +191,16 @@ fd_quic_limits_from_env( int  *   pargc,
 
   limits->conn_cnt         = fd_env_strip_cmdline_ulong( pargc, pargv, "--quic-conns",         "QUIC_CONN_CNT",        1024UL );
   limits->conn_id_cnt      = fd_env_strip_cmdline_ulong( pargc, pargv, "--quic-conn-ids",      "QUIC_CONN_ID_CNT",       16UL );
-  limits->stream_cnt       = fd_env_strip_cmdline_uint ( pargc, pargv, "--quic-streams",       "QUIC_STREAM_CNT",         2UL );
+  ulong stream_cnt         = fd_env_strip_cmdline_uint ( pargc, pargv, "--quic-streams",       "QUIC_STREAM_CNT",         2UL );
   limits->handshake_cnt    = fd_env_strip_cmdline_uint ( pargc, pargv, "--quic-handshakes",    "QUIC_HANDSHAKE_CNT",    256UL );
   limits->inflight_pkt_cnt = fd_env_strip_cmdline_ulong( pargc, pargv, "--quic-inflight-pkts", "QUIC_MAX_INFLIGHT_PKTS", 64UL );
   limits->tx_buf_sz        = fd_env_strip_cmdline_ulong( pargc, pargv, "--quic-tx-buf-sz",     "QUIC_TX_BUF_SZ",    1UL<<15UL );
   limits->rx_buf_sz        = fd_env_strip_cmdline_ulong( pargc, pargv, "--quic-rx-buf-sz",     "QUIC_RX_BUF_SZ",    1UL<<15UL );
+
+  limits->stream_cnt[ FD_QUIC_STREAM_TYPE_BIDI_CLIENT ] = 0UL;
+  limits->stream_cnt[ FD_QUIC_STREAM_TYPE_BIDI_SERVER ] = 0UL;
+  limits->stream_cnt[ FD_QUIC_STREAM_TYPE_UNI_CLIENT  ] = stream_cnt;
+  limits->stream_cnt[ FD_QUIC_STREAM_TYPE_UNI_SERVER  ] = 0UL;
 
   return limits;
 }
@@ -456,24 +459,31 @@ fd_quic_init( fd_quic_t * quic ) {
 
   /* total data that may be sent on the connection is rx_buf_sz per stream,
      four types of stream */
-  ulong tot_initial_max_data = limits->rx_buf_sz * limits->stream_cnt * 4u;
+  ulong tot_initial_max_data = limits->rx_buf_sz * (
+    limits->stream_cnt[ FD_QUIC_STREAM_TYPE_BIDI_CLIENT ] +
+    limits->stream_cnt[ FD_QUIC_STREAM_TYPE_BIDI_SERVER ] +
+    limits->stream_cnt[ FD_QUIC_STREAM_TYPE_UNI_CLIENT  ] +
+    limits->stream_cnt[ FD_QUIC_STREAM_TYPE_UNI_SERVER  ] );
 
   fd_quic_transport_params_t * tp = &state->transport_params;
 
+  ulong initial_max_streams_bidi = limits->stream_cnt[ config->role==FD_QUIC_ROLE_SERVER ? FD_QUIC_STREAM_TYPE_BIDI_CLIENT : FD_QUIC_STREAM_TYPE_BIDI_SERVER ];
+  ulong initial_max_streams_uni  = limits->stream_cnt[ config->role==FD_QUIC_ROLE_SERVER ? FD_QUIC_STREAM_TYPE_UNI_CLIENT  : FD_QUIC_STREAM_TYPE_UNI_SERVER  ];
+
   memset( tp, 0, sizeof(fd_quic_transport_params_t) );
   ulong idle_timeout_ms = (config->idle_timeout + 1000000UL - 1UL) / 1000000UL;
-  FD_QUIC_TRANSPORT_PARAM_SET( tp, max_idle_timeout,                    idle_timeout_ms        );
-  FD_QUIC_TRANSPORT_PARAM_SET( tp, max_udp_payload_size,                FD_QUIC_MAX_PAYLOAD_SZ ); /* TODO */
-  FD_QUIC_TRANSPORT_PARAM_SET( tp, initial_max_data,                    tot_initial_max_data   );
-  FD_QUIC_TRANSPORT_PARAM_SET( tp, initial_max_stream_data_bidi_local,  limits->rx_buf_sz      );
-  FD_QUIC_TRANSPORT_PARAM_SET( tp, initial_max_stream_data_bidi_remote, limits->rx_buf_sz      );
-  FD_QUIC_TRANSPORT_PARAM_SET( tp, initial_max_stream_data_uni,         limits->rx_buf_sz      );
-  FD_QUIC_TRANSPORT_PARAM_SET( tp, initial_max_streams_bidi,            limits->stream_cnt     );
-  FD_QUIC_TRANSPORT_PARAM_SET( tp, initial_max_streams_uni,             limits->stream_cnt     );
-  FD_QUIC_TRANSPORT_PARAM_SET( tp, ack_delay_exponent,                  0                      ); /* TODO */
-  FD_QUIC_TRANSPORT_PARAM_SET( tp, max_ack_delay,                       10                     ); /* TODO */
-  FD_QUIC_TRANSPORT_PARAM_SET( tp, disable_active_migration,            1                      );
-  FD_QUIC_TRANSPORT_PARAM_SET( tp, active_connection_id_limit,          limits->conn_id_cnt    ); /* TODO */
+  FD_QUIC_TRANSPORT_PARAM_SET( tp, max_idle_timeout,                    idle_timeout_ms          );
+  FD_QUIC_TRANSPORT_PARAM_SET( tp, max_udp_payload_size,                FD_QUIC_MAX_PAYLOAD_SZ   ); /* TODO */
+  FD_QUIC_TRANSPORT_PARAM_SET( tp, initial_max_data,                    tot_initial_max_data     );
+  FD_QUIC_TRANSPORT_PARAM_SET( tp, initial_max_stream_data_bidi_local,  limits->rx_buf_sz        );
+  FD_QUIC_TRANSPORT_PARAM_SET( tp, initial_max_stream_data_bidi_remote, limits->rx_buf_sz        );
+  FD_QUIC_TRANSPORT_PARAM_SET( tp, initial_max_stream_data_uni,         limits->rx_buf_sz        );
+  FD_QUIC_TRANSPORT_PARAM_SET( tp, initial_max_streams_bidi,            initial_max_streams_bidi );
+  FD_QUIC_TRANSPORT_PARAM_SET( tp, initial_max_streams_uni,             initial_max_streams_uni  );
+  FD_QUIC_TRANSPORT_PARAM_SET( tp, ack_delay_exponent,                  0                        ); /* TODO */
+  FD_QUIC_TRANSPORT_PARAM_SET( tp, max_ack_delay,                       10                       ); /* TODO */
+  FD_QUIC_TRANSPORT_PARAM_SET( tp, disable_active_migration,            1                        );
+  FD_QUIC_TRANSPORT_PARAM_SET( tp, active_connection_id_limit,          limits->conn_id_cnt      ); /* TODO */
 
   /* Initialize next ephemeral udp port */
   state->next_ephem_udp_port = config->net.ephem_udp_port.lo;
@@ -812,7 +822,11 @@ fd_quic_conn_new_stream( fd_quic_conn_t * conn,
   uint type   = server + ( (uint)dirtype << 1u );
 
   ulong next_stream_id  = conn->next_stream_id[type];
-  uint  stream_cnt      = (uint)conn->quic->limits.stream_cnt;
+  uint  stream_cnt = (uint)(
+      conn->quic->limits.stream_cnt[ 0x00 ] +
+      conn->quic->limits.stream_cnt[ 0x01 ] +
+      conn->quic->limits.stream_cnt[ 0x02 ] +
+      conn->quic->limits.stream_cnt[ 0x03 ] );
   uint  cur_num_streams = (uint)conn->num_streams[type];
 
   /* have we maxed out our max stream id?? */
@@ -2622,7 +2636,7 @@ fd_quic_tls_cb_handshake_complete( fd_quic_tls_hs_t * hs,
         conn->tx_initial_max_stream_data_bidi_local  = peer_tp->initial_max_stream_data_bidi_local;
         conn->tx_initial_max_stream_data_bidi_remote = peer_tp->initial_max_stream_data_bidi_remote;
 
-	fd_quic_state_t * state = fd_quic_get_state( conn->quic );
+	      fd_quic_state_t * state = fd_quic_get_state( conn->quic );
         fd_quic_transport_params_t * our_tp = &state->transport_params;
         conn->rx_max_data                            = our_tp->initial_max_data;
         conn->rx_initial_max_stream_data_uni         = our_tp->initial_max_stream_data_uni;
@@ -2641,7 +2655,11 @@ fd_quic_tls_cb_handshake_complete( fd_quic_tls_hs_t * hs,
 
         /* max streams
            set the initial max allowed by the peer */
-        uint stream_cnt = (uint)conn->quic->limits.stream_cnt;
+        uint stream_cnt = (uint)(
+            conn->quic->limits.stream_cnt[ 0x00 ] +
+            conn->quic->limits.stream_cnt[ 0x01 ] +
+            conn->quic->limits.stream_cnt[ 0x02 ] +
+            conn->quic->limits.stream_cnt[ 0x03 ] );
         if( conn->server ) {
           /* 0x01 server-initiated, bidirectional */
           conn->max_streams[0x01] = fd_uint_min( stream_cnt, (uint)peer_tp->initial_max_streams_bidi );
@@ -4492,17 +4510,17 @@ fd_quic_conn_create( fd_quic_t *               quic,
   if( server ) {
     /* we are the server, so start client-initiated at our max-concurrent,
        and server-initiated at 0 peer will advertise its configured maximum */
-    conn->max_streams[ 0x00 ] = quic->limits.stream_cnt;  /* 0x00 Client-Initiated, Bidirectional */
-    conn->max_streams[ 0x01 ] = 0;                        /* 0x01 Server-Initiated, Bidirectional */
-    conn->max_streams[ 0x02 ] = quic->limits.stream_cnt;  /* 0x02 Client-Initiated, Unidirectional */
-    conn->max_streams[ 0x03 ] = 0;                        /* 0x03 Server-Initiated, Unidirectional */
+    conn->max_streams[ 0x00 ] = quic->limits.stream_cnt[ 0x00 ];  /* 0x00 Client-Initiated, Bidirectional */
+    conn->max_streams[ 0x01 ] = 0;                                /* 0x01 Server-Initiated, Bidirectional */
+    conn->max_streams[ 0x02 ] = quic->limits.stream_cnt[ 0x02 ];  /* 0x02 Client-Initiated, Unidirectional */
+    conn->max_streams[ 0x03 ] = 0;                                /* 0x03 Server-Initiated, Unidirectional */
   } else {
      /* we are the client, so start server-initiated at our max-concurrent,
         and client-initiated at 0 peer will advertise its configured maximum */
-    conn->max_streams[ 0x00 ] = 0;                        /* 0x00 Client-Initiated, Bidirectional */
-    conn->max_streams[ 0x01 ] = quic->limits.stream_cnt;  /* 0x01 Server-Initiated, Bidirectional */
-    conn->max_streams[ 0x02 ] = 0;                        /* 0x02 Client-Initiated, Unidirectional */
-    conn->max_streams[ 0x03 ] = quic->limits.stream_cnt;  /* 0x03 Server-Initiated, Unidirectional */
+    conn->max_streams[ 0x00 ] = 0;                                /* 0x00 Client-Initiated, Bidirectional */
+    conn->max_streams[ 0x01 ] = quic->limits.stream_cnt[ 0x01 ];  /* 0x01 Server-Initiated, Bidirectional */
+    conn->max_streams[ 0x02 ] = 0;                                /* 0x02 Client-Initiated, Unidirectional */
+    conn->max_streams[ 0x03 ] = quic->limits.stream_cnt[ 0x03 ];  /* 0x03 Server-Initiated, Unidirectional */
   }
 
   /* conn->streams initialized inside fd_quic_conn_new */
@@ -4529,7 +4547,11 @@ fd_quic_conn_create( fd_quic_t *               quic,
   conn->next_stream_id[3] = 3;
 
   /* start at our max, peer is allowed to lower */
-  conn->max_concur_streams = (uint)quic->limits.stream_cnt * 4u;
+  conn->max_concur_streams = (uint)(
+      quic->limits.stream_cnt[ 0 ] +
+      quic->limits.stream_cnt[ 1 ] +
+      quic->limits.stream_cnt[ 2 ] +
+      quic->limits.stream_cnt[ 3 ] );
 
   /* array: current number of streams by type is zero */
   fd_memset( &conn->num_streams, 0, sizeof( conn->num_streams ) );
