@@ -2,6 +2,8 @@
 
 #if FD_HAS_HOSTED && FD_HAS_X86
 
+FD_STATIC_ASSERT( FD_FUNK_REC_VAL_MAX==(10UL<<20), unit_test );
+
 int
 main( int     argc,
       char ** argv ) {

@@ -15,8 +15,6 @@ FD_STATIC_ASSERT( FD_FUNK_REC_KEY_FOOTPRINT     ==64UL,                         
 FD_STATIC_ASSERT( FD_FUNK_REC_KEY_ALIGN         ==alignof(fd_funk_rec_key_t),      unit_test );
 FD_STATIC_ASSERT( FD_FUNK_REC_KEY_FOOTPRINT     ==sizeof (fd_funk_rec_key_t),      unit_test );
 
-FD_STATIC_ASSERT( FD_FUNK_REC_VAL_MAX           ==(10UL<<20),                      unit_test );
-
 FD_STATIC_ASSERT( FD_FUNK_TXN_XID_ALIGN         ==32UL,                            unit_test );
 FD_STATIC_ASSERT( FD_FUNK_TXN_XID_FOOTPRINT     ==32UL,                            unit_test );
 
