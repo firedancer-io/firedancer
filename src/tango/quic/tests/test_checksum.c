@@ -43,6 +43,8 @@ main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
 
+  if( FD_UNLIKELY( argc>1 ) ) FD_LOG_ERR(( "unrecognized argument: %s", argv[ 1 ] ));
+
   test( pkt0 );
   test( pkt1 );
   test( pkt2 );

@@ -95,6 +95,8 @@ main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
 
+  if( FD_UNLIKELY( argc>1 ) ) FD_LOG_ERR(( "unrecognized argument: %s", argv[ 1 ] ));
+
   //   initial_secret = HKDF-Extract(initial_salt,
   //                                 client_dst_connection_id)
   //
