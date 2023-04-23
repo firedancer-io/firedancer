@@ -319,6 +319,8 @@ main( int argc, char ** argv ) {
   client_cfg->net.ephem_udp_port.lo = (ushort)src_port;
   client_cfg->net.ephem_udp_port.hi = (ushort)(src_port + 1);
 
+  if( FD_UNLIKELY( argc>1 ) ) FD_LOG_ERR(( "unrecognized argument: %s", argv[ 1 ] ));
+
   /* create a new XSK instance */
   ulong xsk_sz   = fd_xsk_footprint( xdp_mtu, xdp_depth, xdp_depth, xdp_depth, xdp_depth );
 
