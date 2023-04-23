@@ -1,10 +1,7 @@
 #include "../fd_quic.h"
 #include "fd_quic_test_helpers.h"
 
-#include <stdio.h>
 #include <stdlib.h>
-
-#define BUF_SZ (1<<20)
 
 int state           = 0;
 int server_complete = 0;
@@ -321,21 +318,14 @@ main( int argc, char ** argv ) {
   FD_LOG_NOTICE(( "QUIC footprint: %lu bytes", quic_footprint ));
 
   FD_LOG_NOTICE(( "Creating server QUIC" ));
-  fd_quic_t * server_quic = fd_quic_new(
-      fd_wksp_alloc_laddr( wksp, fd_quic_align(), fd_quic_footprint( &quic_limits ), 1UL ),
-      &quic_limits );
+  fd_quic_t * server_quic = fd_quic_new_anonymous( wksp, &quic_limits, FD_QUIC_ROLE_SERVER );
   FD_TEST( server_quic );
 
   FD_LOG_NOTICE(( "Creating client QUIC" ));
-  fd_quic_t * client_quic = fd_quic_new(
-      fd_wksp_alloc_laddr( wksp, fd_quic_align(), fd_quic_footprint( &quic_limits ), 1UL ),
-      &quic_limits );
+  fd_quic_t * client_quic = fd_quic_new_anonymous( wksp, &quic_limits, FD_QUIC_ROLE_CLIENT );
   FD_TEST( client_quic );
 
   fd_quic_config_t * client_config = &client_quic->config;
-
-  client_config->idle_timeout         = (ulong)1e8;
-
   client_config->idle_timeout = 5e6;
 
   client_quic->cb.conn_hs_complete = my_handshake_complete;
@@ -347,9 +337,6 @@ main( int argc, char ** argv ) {
   client_quic->cb.now_ctx = NULL;
 
   fd_quic_config_t * server_config = &server_quic->config;
-
-  server_config->idle_timeout         = (ulong)1e8;
-
   server_config->idle_timeout = 5e6;
 
   server_quic->cb.conn_new       = my_connection_new;
@@ -360,11 +347,13 @@ main( int argc, char ** argv ) {
   server_quic->cb.now     = test_clock;
   server_quic->cb.now_ctx = NULL;
 
-  server_quic->config.role = FD_QUIC_ROLE_SERVER;
-  client_quic->config.role = FD_QUIC_ROLE_CLIENT;
+  FD_LOG_NOTICE(( "Creating virtual pair" ));
+  fd_quic_virtual_pair_t vp;
+  fd_quic_virtual_pair_init( &vp, server_quic, client_quic );
 
-  FD_TEST( fd_quic_join( client_quic ) );
-  FD_TEST( fd_quic_join( server_quic ) );
+  FD_LOG_NOTICE(( "Initializing QUICs" ));
+  FD_TEST( fd_quic_init( client_quic ) );
+  FD_TEST( fd_quic_init( server_quic ) );
 
   uint k = 1;
 
@@ -498,8 +487,11 @@ main( int argc, char ** argv ) {
   FD_LOG_INFO(( "client_conn: %p", (void*)client_conn ));
   FD_LOG_INFO(( "server_conn: %p", (void*)server_conn ));
 
+  FD_LOG_NOTICE(( "Cleaning up" ));
+  fd_quic_virtual_pair_fini( &vp );
   fd_wksp_free_laddr( fd_quic_delete( fd_quic_leave( server_quic ) ) );
   fd_wksp_free_laddr( fd_quic_delete( fd_quic_leave( client_quic ) ) );
+  fd_wksp_delete_anonymous( wksp );
 
   FD_LOG_NOTICE(( "pass" ));
   fd_quic_test_halt();
