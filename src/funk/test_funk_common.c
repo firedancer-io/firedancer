@@ -1,80 +1,7 @@
-/* "Mini-funk" implementation for reference and testing purposes */
-
+#include "test_funk_common.h"
 #include <stdlib.h>
 
-struct txn;
-typedef struct txn txn_t;
-
-struct rec;
-typedef struct rec rec_t;
-
-struct rec {
-  txn_t * txn;
-  ulong   key;
-  rec_t * prev;
-  rec_t * next;
-  rec_t * map_prev;
-  rec_t * map_next;
-  int     erase;
-};
-
-struct txn {
-  ulong   xid;
-  txn_t * parent;
-  txn_t * child_head;
-  txn_t * child_tail;
-  txn_t * sibling_prev;
-  txn_t * sibling_next;
-  txn_t * map_prev;
-  txn_t * map_next;
-  rec_t * rec_head;
-  rec_t * rec_tail;
-};
-
-struct funk {
-  ulong   last_publish;
-  txn_t * child_head;
-  txn_t * child_tail;
-  txn_t * txn_map_head;
-  txn_t * txn_map_tail;
-  ulong   txn_cnt;
-  rec_t * rec_head;
-  rec_t * rec_tail;
-  rec_t * rec_map_head;
-  rec_t * rec_map_tail;
-  ulong   rec_cnt;
-};
-
-typedef struct funk funk_t;
-
-FD_FN_PURE static rec_t * rec_query( funk_t * funk, txn_t * txn, ulong key );
-
-static rec_t * rec_leave( funk_t * funk, rec_t * rec );
-static void    rec_unmap( funk_t * funk, rec_t * rec );
-
-FD_FN_PURE static int txn_is_frozen( txn_t * txn ) { return !!txn->child_head; }
-
-FD_FN_PURE static int txn_is_only_child( txn_t * txn ) { return !txn->sibling_prev && !txn->sibling_next; }
-
-FD_FN_PURE static txn_t *
-txn_ancestor( txn_t * txn ) {
-  for(;;) {
-    if( !txn_is_only_child( txn ) ) break;
-    if( !txn->parent ) return NULL;
-    txn = txn->parent;
-  }
-  return txn;
-}
-
-FD_FN_PURE static txn_t *
-txn_descendant( txn_t * txn ) {
-  if( !txn_is_only_child( txn ) ) return NULL;
-  for(;;) {
-    if( !txn->child_head || !txn_is_only_child( txn->child_head ) ) break;
-    txn = txn->child_head;
-  }
-  return txn;
-}
+/* Mini internals *****************************************************/
 
 static void
 txn_unmap( funk_t * funk,
@@ -111,11 +38,49 @@ txn_leave( funk_t * funk,
   return txn;
 }
 
-static txn_t *
+static rec_t *
+rec_leave( funk_t * funk,
+           rec_t *  rec ) {
+  rec_t ** _head = rec->txn ? &rec->txn->rec_head : &funk->rec_head;
+  rec_t ** _tail = rec->txn ? &rec->txn->rec_tail : &funk->rec_tail;
+
+  rec_t * prev = rec->prev;
+  rec_t * next = rec->next;
+
+  if( prev ) prev->next = next;
+  else       *_head     = next;
+
+  if( next ) next->prev = prev;
+  else       *_tail     = prev;
+
+  return rec;
+}
+
+static void
+rec_unmap( funk_t * funk,
+           rec_t *  rec ) {
+
+  rec_t * map_prev = rec->map_prev;
+  rec_t * map_next = rec->map_next;
+
+  if( map_prev ) map_prev->map_next = map_next;
+  else           funk->rec_map_head = map_next;
+
+  if( map_next ) map_next->map_prev = map_prev;
+  else           funk->rec_map_tail = map_prev;
+
+  funk->rec_cnt--;
+  free( rec );
+}
+
+/* Mini txn implementation ********************************************/
+
+txn_t *
 txn_prepare( funk_t * funk,
              txn_t *  parent,
              ulong    xid ) {
-  //FD_LOG_NOTICE(( "prepare %lu (parent %lu)", xid, parent ? parent->xid : 0UL ));
+
+//FD_LOG_NOTICE(( "prepare %lu (parent %lu)", xid, parent ? parent->xid : 0UL ));
 
   txn_t * txn = (txn_t *)malloc( sizeof(txn_t) );
   if( !txn ) FD_LOG_ERR(( "insufficient memory for unit test" ));
@@ -157,12 +122,11 @@ txn_prepare( funk_t * funk,
   return txn;
 }
 
-static txn_t * txn_cancel_children( funk_t * funk, txn_t * txn );
-
-static void
+void
 txn_cancel( funk_t * funk,
             txn_t *  txn ) {
-  //FD_LOG_NOTICE(( "cancel %lu", txn->xid ));
+
+//FD_LOG_NOTICE(( "cancel %lu", txn->xid ));
 
   rec_t * rec = txn->rec_head;
   while( rec ) {
@@ -174,37 +138,14 @@ txn_cancel( funk_t * funk,
   txn_unmap( funk, txn_leave( funk, txn_cancel_children( funk, txn ) ) );
 }
 
-static txn_t *
-txn_cancel_children( funk_t * funk,
-                     txn_t *  txn ) {
-  txn_t * child = txn ? txn->child_head : funk->child_head;
-  while( child ) {
-    txn_t * next = child->sibling_next;
-    txn_cancel( funk, child );
-    child = next;
-  }
-  return txn;
-}
-
-static txn_t *
-txn_cancel_siblings( funk_t * funk,
-                     txn_t *  txn ) {
-  txn_t * child = txn->parent ? txn->parent->child_head : funk->child_head;
-  while( child ) {
-    txn_t * next = child->sibling_next;
-    if( child!=txn ) txn_cancel( funk, child );
-    child = next;
-  }
-  return txn;
-}
-
-static ulong
+ulong
 txn_publish( funk_t * funk,
              txn_t *  txn,
              ulong    cnt ) {
+
   if( txn->parent ) cnt = txn_publish( funk, txn->parent, cnt );
 
-  //FD_LOG_NOTICE(( "publish %lu", txn->xid ));
+//FD_LOG_NOTICE(( "publish %lu", txn->xid ));
 
   rec_t * rec = txn->rec_head;
   while( rec ) {
@@ -254,7 +195,9 @@ txn_publish( funk_t * funk,
   return cnt + 1UL;
 }
 
-static rec_t *
+/* Mini rec implementation ********************************************/
+
+rec_t *
 rec_query( funk_t * funk,
            txn_t *  txn,
            ulong    key ) {
@@ -263,7 +206,7 @@ rec_query( funk_t * funk,
   return rec;
 }
 
-FD_FN_PURE static rec_t *
+rec_t *
 rec_query_global( funk_t * funk,
                   txn_t *  txn,
                   ulong    key ) {
@@ -275,11 +218,12 @@ rec_query_global( funk_t * funk,
   return rec_query( funk, txn, key );
 }
 
-static rec_t *
+rec_t *
 rec_insert( funk_t * funk,
             txn_t *  txn,
             ulong    key ) {
-  //FD_LOG_NOTICE(( "insert (%lu,%lu)", txn ? txn->xid : 0UL, key ));
+
+//FD_LOG_NOTICE(( "insert (%lu,%lu)", txn ? txn->xid : 0UL, key ));
 
   rec_t * rec = rec_query( funk, txn, key );
   if( rec ) {
@@ -328,47 +272,12 @@ rec_insert( funk_t * funk,
   return rec;
 }
 
-static rec_t *
-rec_leave( funk_t * funk,
-           rec_t *  rec ) {
-  rec_t ** _head = rec->txn ? &rec->txn->rec_head : &funk->rec_head;
-  rec_t ** _tail = rec->txn ? &rec->txn->rec_tail : &funk->rec_tail;
-
-  rec_t * prev = rec->prev;
-  rec_t * next = rec->next;
-
-  if( prev ) prev->next = next;
-  else       *_head     = next;
-
-  if( next ) next->prev = prev;
-  else       *_tail     = prev;
-
-  return rec;
-}
-
-static void
-rec_unmap( funk_t * funk,
-           rec_t *  rec ) {
-
-  rec_t * map_prev = rec->map_prev;
-  rec_t * map_next = rec->map_next;
-
-  if( map_prev ) map_prev->map_next = map_next;
-  else           funk->rec_map_head = map_next;
-
-  if( map_next ) map_next->map_prev = map_prev;
-  else           funk->rec_map_tail = map_prev;
-
-  funk->rec_cnt--;
-  free( rec );
-}
-
-static void
+void
 rec_remove( funk_t * funk,
             rec_t *  rec,
             int      erase ) {
 
-  //FD_LOG_NOTICE(( "remove (%lu,%lu) erase=%i", rec->txn ? rec->txn->xid : 0UL, rec->key, erase ));
+//FD_LOG_NOTICE(( "remove (%lu,%lu) erase=%i", rec->txn ? rec->txn->xid : 0UL, rec->key, erase ));
 
   if( !rec->txn ) {
     if( !erase     ) FD_LOG_ERR(( "never get here unless user error" ));
@@ -381,7 +290,7 @@ rec_remove( funk_t * funk,
         rec_t * match = rec_query( funk, txn->parent, rec->key );
         if( match ) {
           if( match->erase ) break; /* Already marked for erase in a recent ancestor so we can remove immediately */
-          //FD_LOG_NOTICE(( "erases (%lu,%lu)", match->txn ? match->txn->xid : 0UL, rec->key ));
+        //FD_LOG_NOTICE(( "erases (%lu,%lu)", match->txn ? match->txn->xid : 0UL, rec->key ));
           rec->erase = 1;
           return;
         }
@@ -393,7 +302,9 @@ rec_remove( funk_t * funk,
   rec_unmap( funk, rec_leave( funk, rec ) );
 }
 
-static funk_t *
+/* Mini funk implementation *******************************************/
+
+funk_t *
 funk_new( void ) {
   funk_t * funk = (funk_t *)malloc( sizeof(funk_t) );
   if( !funk ) FD_LOG_ERR(( "insufficient memory for unit test" ));
@@ -414,7 +325,7 @@ funk_new( void ) {
   return funk;
 }
 
-static void
+void
 funk_delete( funk_t * funk ) {
   txn_cancel_children( funk, NULL );
   rec_t * rec = funk->rec_map_head;
@@ -426,42 +337,15 @@ funk_delete( funk_t * funk ) {
   free( funk );
 }
 
-static int funk_is_frozen( funk_t * funk ) { return !!funk->child_head; }
+/* Testing utility implementations ************************************/
 
-FD_FN_PURE static txn_t *
-funk_descendant( funk_t * funk ) {
-  return funk->child_head ? txn_descendant( funk->child_head ) : NULL;
-}
-
-static fd_funk_txn_xid_t *
-xid_set( fd_funk_txn_xid_t * xid,
-         ulong               _xid ) {
-  xid->ul[0] = _xid; xid->ul[1] = _xid+_xid; xid->ul[2] = _xid*_xid; xid->ul[3] = -_xid;
-  return xid;
-}
-
-static int
-xid_eq( fd_funk_txn_xid_t const * xid,
-         ulong                    _xid ) {
-  fd_funk_txn_xid_t tmp[1];
-  return fd_funk_txn_xid_eq( xid, xid_set( tmp, _xid ) );
-}
-
-static ulong
-unique_xid( void ) {
+ulong
+xid_unique( void ) {
   static ulong xid = 0UL;
   return ++xid;
 }
 
-static fd_funk_rec_key_t *
-key_set( fd_funk_rec_key_t * key,
-         ulong               _key ) {
-  key->ul[0] = _key; key->ul[1] = _key+_key; key->ul[2] = _key*_key; key->ul[3] = -_key;
-  key->ul[4] = _key; key->ul[5] = _key+_key; key->ul[6] = _key*_key; key->ul[7] = -_key;
-  return key;
-}
-
-static int
+int
 key_eq( fd_funk_rec_key_t const * key,
          ulong                    _key ) {
   fd_funk_rec_key_t tmp[1];

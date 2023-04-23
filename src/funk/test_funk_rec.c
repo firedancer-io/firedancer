@@ -9,7 +9,7 @@ FD_STATIC_ASSERT( FD_FUNK_REC_FLAG_ERASE==1UL, unit_test );
 
 FD_STATIC_ASSERT( FD_FUNK_REC_IDX_NULL==ULONG_MAX, unit_test );
 
-#include "test_funk_common.c"
+#include "test_funk_common.h"
 
 int
 main( int     argc,
@@ -463,7 +463,7 @@ main( int     argc,
         tparent = NULL;
       }
 
-      ulong rxid = unique_xid();
+      ulong rxid = xid_unique();
       txn_prepare( ref, rparent, rxid );
       FD_TEST( fd_funk_txn_prepare( tst, tparent, xid_set( txid, rxid ), verbose ) );
 
