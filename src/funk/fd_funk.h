@@ -1,10 +1,16 @@
 #ifndef HEADER_fd_src_funk_fd_funk_h
 #define HEADER_fd_src_funk_fd_funk_h
 
+#if FD_HAS_HOSTED && FD_HAS_X86
+
 //#include "fd_funk_base.h" /* Includes ../util/fd_util.h */
 //#include "fd_funk_txn.h"  /* Includes fd_funk_base.h */
 //#include "fd_funk_rec.h"  /* Includes fd_funk_txn.h */
 #include "fd_funk_val.h"    /* Includes fd_funk_rec.h */
+
+/* The HOSTED and X86 requirement is inherited from wksp (which
+   currently requires these).  There is very little in here that
+   actually requires HOSTED or X86 capabilities though. */
 
 /* FD_FUNK_{ALIGN,FOOTPRINT} describe the alignment and footprint needed
    for a funk.  ALIGN should be a positive integer power of 2.
@@ -341,5 +347,9 @@ int
 fd_funk_verify( fd_funk_t * funk );
 
 FD_PROTOTYPES_END
+
+#else /* Target does not have funk support */
+#include "fd_funk_base.h"
+#endif
 
 #endif /* HEADER_fd_src_funk_fd_funk_h */

@@ -8,7 +8,7 @@
 
 /* FD_FUNK_REC_{ALIGN,FOOTPRINT} describe the alignment and footprint of
    a fd_funk_rec_t.  ALIGN will be an power of 2, footprint will be a
-   multiple of align.  These are provided to faciliate compile time
+   multiple of align.  These are provided to facilitate compile time
    declarations. */
 
 #define FD_FUNK_REC_ALIGN     (32UL)
