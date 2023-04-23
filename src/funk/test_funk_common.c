@@ -157,7 +157,7 @@ txn_publish( funk_t * funk,
 
       if( !root_rec ) FD_LOG_ERR(( "never get here unless memory corruption" )); /* should have key in the records */
 
-      rec_unmap( funk, rec ); /* Unmap the record (don't bother leaving b/c we are unmapping everything */
+      rec_unmap( funk, rec ); /* Unmap the record (don't bother leaving b/c we are unmapping everything) */
 
       rec_unmap( funk, rec_leave( funk, root_rec ) ); /* Unmap root rec */
 
@@ -175,7 +175,9 @@ txn_publish( funk_t * funk,
 
     } else { /* key published and not erasing, update published key */
 
-      rec_unmap( funk, rec ); /* Unmap the record (don't bother leaving b/c we are unmapping everything */
+      root_rec->val = rec->val;
+
+      rec_unmap( funk, rec ); /* Unmap the record (don't bother leaving b/c we are unmapping everything) */
 
     }
 
@@ -241,6 +243,7 @@ rec_insert( funk_t * funk,
 
   rec->key   = key;
   rec->erase = 0;
+  rec->val   = 0U;
 
   rec_t * prev = funk->rec_map_tail;
 
