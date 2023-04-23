@@ -6,6 +6,14 @@
 
 #include "fd_funk_txn.h" /* Includes fd_funk_base.h */
 
+/* FD_FUNK_REC_{ALIGN,FOOTPRINT} describe the alignment and footprint of
+   a fd_funk_rec_t.  ALIGN will be an power of 2, footprint will be a
+   multiple of align.  These are provided to faciliate compile time
+   declarations. */
+
+#define FD_FUNK_REC_ALIGN     (32UL)
+#define FD_FUNK_REC_FOOTPRINT (160UL)
+
 /* FD_FUNK_REC_FLAG_* are flags that can be bit-ored together to specify
    how records are to be interpreted.
 
@@ -33,15 +41,27 @@ struct fd_funk_rec {
   fd_funk_xid_key_pair_t pair;     /* Transaction id and record key pair */
   ulong                  map_next; /* Internal use by map */
 
-  /* These fields are managed by funk */
+  /* These fields are managed by funk.  TODO: Consider using record
+     index compression here (much more debatable than in txn itself). */
 
-  ulong prev_idx; /* Record map index of previous record */
-  ulong next_idx; /* Record map index of next record */
-  uint  txn_cidx; /* Compressed transaction map index (or compressed FD_FUNK_TXN_IDX if this is in the last published) */
-  uint  tag;      /* Internal use only */
-  ulong flags;    /* Flags that indicate how to interpret a record */
+  ulong prev_idx;  /* Record map index of previous record */
+  ulong next_idx;  /* Record map index of next record */
+  uint  txn_cidx;  /* Compressed transaction map index (or compressed FD_FUNK_TXN_IDX if this is in the last published) */
+  uint  tag;       /* Internal use only */
+  ulong flags;     /* Flags that indicate how to interpret a record */
 
-  /* Record val metadata goes here */
+  /* Note: use of uint here requires FD_FUNK_REC_VAL_MAX to be at most
+     UINT_MAX. */
+
+  uint  val_sz;    /* Num bytes in record value, in [0,val_max] */
+  uint  val_max;   /* Max byte  in record value, in [0,FD_FUNK_REC_VAL_MAX], 0 if erase flag set or val_gaddr is 0 */
+  ulong val_gaddr; /* Wksp gaddr on record value if any, 0 if erase flag set or val_max is 0
+                      If non-zero, the region [val_gaddr,val_gaddr+val_max) will be a current fd_alloc allocation (such that it is
+                      has tag wksp_tag) and the owner of the region will be the record.  IMPORTANT! HAS NO GUARANTEED ALIGNMENT! */
+
+  /* Padding to FD_FUNK_REC_ALIGN here (TODO: consider using self index
+     in the structures to accelerate indexing computations if padding
+     permits as this structure is currently has 8 bytes of padding) */
 };
 
 typedef struct fd_funk_rec fd_funk_rec_t;
@@ -273,6 +293,10 @@ FD_FN_PURE fd_funk_rec_t *
 fd_funk_rec_modify( fd_funk_t *           funk,
                     fd_funk_rec_t const * rec );
 
+/* TODO: Consider instead doing something like: modify_init, modify_fini and
+   preventing forking the txn if records are being modified instead of
+   the long laundry list of lifetime constraints? */
+
 /* fd_funk_rec_insert inserts a new record whose key will be the same
    as the record key pointed to by key to the in-preparation transaction
    pointed to by txn.  If txn is NULL, the record will be inserted into
@@ -406,16 +430,5 @@ int
 fd_funk_rec_verify( fd_funk_t * funk );
 
 FD_PROTOTYPES_END
-
-/* TODO: Consider instead doing something like: modify_init, modify_fini and
-   preventing forking the txn if records are being modified instead of
-   the long laundry list of lifetime constraints? */
-
-/* TODO: Consider using index compression here (much more debatable than
-   in txn itself) */
-
-/* TODO: Consider using self index in the structures to accelerate index
-   computations if padding permits and structures aren't powers of 2 in
-   size. */
 
 #endif /* HEADER_fd_src_funk_fd_funk_rec_h */

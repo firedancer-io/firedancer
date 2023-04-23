@@ -50,7 +50,7 @@ fd_funk_rec_query_global( fd_funk_t *               funk,
 
   fd_funk_rec_t * rec_map = fd_funk_rec_map( funk, wksp );
 
-  if( txn ) { /* Query txn and its in-preparation ancestors */
+  if( txn ) { /* Query txn and its in-prep ancestors */
 
     fd_funk_txn_t * txn_map = fd_funk_txn_map( funk, wksp );
 
@@ -88,7 +88,7 @@ fd_funk_rec_query_global_const( fd_funk_t *               funk,
 
   fd_funk_rec_t * rec_map = fd_funk_rec_map( funk, wksp );
 
-  if( txn ) { /* Query txn and its in-preparation ancestors */
+  if( txn ) { /* Query txn and its in-prep ancestors */
 
     fd_funk_txn_t * txn_map = fd_funk_txn_map( funk, wksp );
 
@@ -140,7 +140,7 @@ fd_funk_rec_test( fd_funk_t *           funk,
 
     if( FD_UNLIKELY( fd_funk_last_publish_is_frozen( funk ) ) ) return FD_FUNK_ERR_FROZEN;
 
-  } else { /* Rec in in-preparation */
+  } else { /* Rec in in-prep */
 
     fd_funk_txn_t * txn_map = fd_funk_txn_map( funk, wksp );
     ulong           txn_max = funk->txn_max;
@@ -242,7 +242,7 @@ fd_funk_rec_insert( fd_funk_t *               funk,
       return NULL;
     }
 
-  } else { /* Modifying in-preparation */
+  } else { /* Modifying in-prep */
 
     fd_funk_txn_t * txn_map = fd_funk_txn_map( funk, wksp );
   
@@ -272,12 +272,30 @@ fd_funk_rec_insert( fd_funk_t *               funk,
     fd_funk_rec_t * rec = fd_funk_rec_map_query( rec_map, pair, NULL );
 
     if( FD_UNLIKELY( rec ) ) { /* Already a record present */
+
+      /* If this record has erase set, it is supposed to erase its
+         closest ancestor record on publish.  At the time it was marked
+         erase, any updates it had to the ancestor record value were
+         flushed.  Thus clearing the erase flag will reset the record to
+         the way it was when it was first inserted into this
+         transaction.
+
+         Otherwise, the user is trying insert a record update on top of
+         a pre-existing of record update.  We fail with ERR_KEY to
+         prevent accidentally discarding any previous updates
+         unintentionally.
+
+         In both cases, it is straightforward to tweak these to have
+         alternative behaviors as might be convenient for users. */
+
       if( FD_UNLIKELY( rec->flags & FD_FUNK_REC_FLAG_ERASE ) ) {
-        rec->flags &= ~FD_FUNK_REC_FLAG_ERASE; /* Undo any previous erase (note the val was already removed on erase) */
+        rec->flags &= ~FD_FUNK_REC_FLAG_ERASE;
         return rec;
       }
+
       fd_int_store_if( !!opt_err, opt_err, FD_FUNK_ERR_KEY );
       return NULL;
+
     }
 
   }
@@ -307,7 +325,7 @@ fd_funk_rec_insert( fd_funk_t *               funk,
 
   *_rec_tail_idx = rec_idx;
 
-  /* Val management stuff here */
+  fd_funk_val_init( rec );
 
   fd_int_store_if( !!opt_err, opt_err, FD_FUNK_SUCCESS );
   return rec;
@@ -356,7 +374,7 @@ fd_funk_rec_remove( fd_funk_t *     funk,
     _rec_head_idx = &funk->rec_head_idx;
     _rec_tail_idx = &funk->rec_tail_idx;
 
-  } else { /* Removing from in-preparation transaction */
+  } else { /* Removing from in-prep transaction */
 
     fd_funk_txn_t * txn_map = fd_funk_txn_map( funk, wksp );
     ulong           txn_max = funk->txn_max;
@@ -366,9 +384,11 @@ fd_funk_rec_remove( fd_funk_t *     funk,
     if( FD_UNLIKELY( fd_funk_txn_is_frozen( &txn_map[ txn_idx ] ) ) ) return FD_FUNK_ERR_FROZEN;
 
     if( FD_UNLIKELY( erase ) ) {
-      if( FD_UNLIKELY( rec->flags & FD_FUNK_REC_FLAG_ERASE ) ) return FD_FUNK_SUCCESS; /* Already marked for erase */
 
-      /* Release value resources here */
+      /* If this was already marked for erase, we are done (we already
+         flushed the value when it was first marked for erase) */
+
+      if( FD_UNLIKELY( rec->flags & FD_FUNK_REC_FLAG_ERASE ) ) return FD_FUNK_SUCCESS;
 
       /* Query our ancestors to see if we need to keep this record
          around or if we can just remove it immediately.  Though this is
@@ -382,10 +402,9 @@ fd_funk_rec_remove( fd_funk_t *     funk,
       ulong cur_idx = txn_idx;
       for(;;) {
 
-        /* At this point, transaction cur_idx is an in-progress
-           transaction.  Tag it for cycle detection and see if
-           transaction cur_idx's parent has a record for this and react
-           accordingly. */
+        /* At this point, transaction cur_idx is an in-prep transaction.
+           Tag it for cycle detection and see if transaction cur_idx's
+           parent has a record for this and react accordingly. */
 
         txn_map[ cur_idx ].tag = tag;
 
@@ -396,22 +415,50 @@ fd_funk_rec_remove( fd_funk_t *     funk,
           if( FD_UNLIKELY( !erase_rec ) ) break; /* No ancestor has this record, can free immediately, opt no flicker */
 
           /* Record is available in last published ... this remove
-             erases that record on publish of this txn */
+             should erase the published record when if and when this txn
+             is published.  We should never see a published record as
+             flagged for erasure. */
+
           if( FD_UNLIKELY( erase_rec->flags & FD_FUNK_REC_FLAG_ERASE ) ) FD_LOG_CRIT(( "memory corruption detected (bad flags)" ));
+
           rec->flags |= FD_FUNK_REC_FLAG_ERASE;
+          fd_funk_val_flush( rec, fd_funk_alloc( funk, wksp ), wksp ); /* TODO: consider testing wksp_gaddr has wksp_tag? */
           return FD_FUNK_SUCCESS;
 
         }
 
-        if( FD_UNLIKELY( parent_idx>=txn_max )            ) FD_LOG_CRIT(( "memory corruption detected (bad idx)" ));
+        if( FD_UNLIKELY( parent_idx>=txn_max            ) ) FD_LOG_CRIT(( "memory corruption detected (bad idx)" ));
         if( FD_UNLIKELY( txn_map[ parent_idx ].tag==tag ) ) FD_LOG_CRIT(( "memory corruption detected (cycle)" ));
 
         fd_funk_rec_t const * erase_rec = fd_funk_rec_query( funk, &txn_map[ parent_idx ], fd_funk_rec_key( rec ) );
         if( FD_LIKELY( erase_rec ) ) { /* Opt for shallow */
-          /* Record is available in in-progress ancestor ... this remove
-             erases that record on publish of this txn */
-          if( erase_rec->flags & FD_FUNK_REC_FLAG_ERASE ) break; /* Already marked for erase, can free this record */
+
+          /* Record is available in an in-prep ancestor ... this remove
+             erases that record on publish of this txn (which also
+             implies an earlier publish of that ancestor).
+
+             If that ancestor record itself was already marked as
+             erasing a record, we can just free this record.
+
+             (Note, there are some exotic circumstances that can
+             generate such naturally but they are pretty gross.  For
+             example distant ancestor has this record, unpublished
+             ancestor has marked it for erase, user reused the record's
+             key in this txn, and has some proposed updates to the
+             record's val that the user then decides to discard.  It is
+             arguable that cases should be disallowed.  More generally,
+             it is a good practice to only erase on records that don't
+             have any proposed updates in them to avoid cases like
+             this.) */
+
+          if( erase_rec->flags & FD_FUNK_REC_FLAG_ERASE ) break;
+
+          /* Otherwise, we mark this record as erasing that record and
+             discard any changes we might have made already in this
+             record. */
+
           rec->flags |= FD_FUNK_REC_FLAG_ERASE;
+          fd_funk_val_flush( rec, fd_funk_alloc( funk, wksp ), wksp ); /* TODO: consider testing wksp_gaddr has wksp_tag? */
           return FD_FUNK_SUCCESS;
         }
 
@@ -430,7 +477,10 @@ fd_funk_rec_remove( fd_funk_t *     funk,
     _rec_tail_idx = &txn_map[ txn_idx ].rec_tail_idx;
   }
 
-  /* Remove the record from its list */
+  /* Flush the value, remove the record from its list, and unmap the
+     record */
+
+  fd_funk_val_flush( rec, fd_funk_alloc( funk, wksp ), wksp ); /* TODO: consider testing wksp_gaddr has wksp_tag? */
 
   ulong prev_idx = rec->prev_idx;
   ulong next_idx = rec->next_idx;
@@ -448,9 +498,8 @@ fd_funk_rec_remove( fd_funk_t *     funk,
   if( next_null ) *_rec_tail_idx               = prev_idx;
   else            rec_map[ next_idx ].prev_idx = prev_idx;
 
-  /* Val management stuff here */
-
   fd_funk_rec_map_remove( rec_map, fd_funk_rec_pair( rec ) );
+
   return FD_FUNK_SUCCESS;
 }
 
@@ -478,8 +527,7 @@ fd_funk_rec_verify( fd_funk_t * funk ) {
     fd_funk_rec_t * rec = fd_funk_rec_map_iter_ele( rec_map, iter );
 
     /* Make sure every record either links up with the last published
-       transaction or an in-preparation transaction and the flags are
-       sane. */
+       transaction or an in-prep transaction and the flags are sane. */
 
     fd_funk_txn_xid_t const * txn_xid = fd_funk_rec_xid( rec );
     ulong                     txn_idx = fd_funk_txn_idx( rec->txn_cidx );
@@ -489,7 +537,7 @@ fd_funk_rec_verify( fd_funk_t * funk ) {
       TEST( fd_funk_txn_xid_eq_root( txn_xid ) );
       TEST( !(rec->flags & FD_FUNK_REC_FLAG_ERASE) );
 
-    } else { /* This is a record from an in-progress transaction */
+    } else { /* This is a record from an in-prep transaction */
 
       TEST( txn_idx<txn_max );
       fd_funk_txn_t const * txn = fd_funk_txn_map_query_const( txn_map, txn_xid, NULL );
