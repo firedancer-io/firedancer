@@ -113,6 +113,9 @@
             (ulong)( tmp_len * 8 ) ));                                 \
       return FD_QUIC_PARSE_FAIL;                                       \
     }                                                                  \
+    if( FD_UNLIKELY( cur_byte + tmp_len > sz )) {                      \
+      return FD_QUIC_PARSE_FAIL;                                       \
+    }                                                                  \
     for( ulong j=0; j<tmp_len; ++j ) {                                 \
       out->NAME[j] = buf[cur_byte+j];                                  \
     }                                                                  \
@@ -136,6 +139,9 @@
             (ulong)BITS_MAX,                                           \
             (ulong)out->LEN_NAME,                                      \
             (ulong)( tmp_len * 8 ) ));                                 \
+      return FD_QUIC_PARSE_FAIL;                                       \
+    }                                                                  \
+    if( FD_UNLIKELY( cur_byte + tmp_len > sz )) {                      \
       return FD_QUIC_PARSE_FAIL;                                       \
     }                                                                  \
     out->NAME = &buf[cur_byte];                                        \
