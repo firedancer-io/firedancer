@@ -92,6 +92,8 @@ main( int argc, char ** argv ) {
   quic_config->net.ip_addr         = listen_ip;
   quic_config->net.listen_udp_port = listen_port;
 
+  if( FD_UNLIKELY( argc>1 ) ) FD_LOG_ERR(( "unrecognized argument: %s", argv[ 1 ] ));
+
   ulong xsk_sz   = fd_xsk_footprint( xsk_frame_sz, xsk_rx_depth, xsk_rx_depth, xsk_tx_depth, xsk_tx_depth );
 
   FD_LOG_NOTICE(( "Creating XSK" ));
