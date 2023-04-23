@@ -80,11 +80,6 @@ union __attribute__((aligned(FD_FUNK_REC_KEY_ALIGN))) fd_funk_rec_key {
 
 typedef union fd_funk_rec_key fd_funk_rec_key_t;
 
-/* FD_FUNK_REC_VAL_MAX is the maximum size of a record value.  The
-   current value is aligned with Solana usages. */
-
-#define FD_FUNK_REC_VAL_MAX (10UL<<20) /* 10 MiB */
-
 /* FD_FUNK_TXN_XID_{ALIGN,FOOTPRINT} describe the alignment and
    footprint of a fd_funk_txn_xid_t.  ALIGN is a positive integer power
    of 2.  FOOTPRINT is a multiple of ALIGN.  These are provided to
