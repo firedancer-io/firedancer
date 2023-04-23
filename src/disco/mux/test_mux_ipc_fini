@@ -9,8 +9,7 @@ fi
 FD_LOG_PATH=""
 export FD_LOG_PATH
 
-$BIN/fd_wksp_ctl delete $WKSP || exit $?
+"$BIN"/fd_wksp_ctl delete "$WKSP" || exit $?
 rm tmp/test_mux_ipc.conf
 
 echo pass
-

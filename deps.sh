@@ -91,23 +91,21 @@ fetch () {
   fetch_repo elfutils git://sourceware.org/git/elfutils.git
   fetch_repo libbpf https://github.com/libbpf/libbpf
   fetch_repo openssl https://github.com/quictls/openssl
-  fetch_repo libseccomp https://github.com/seccomp/libseccomp.git
 
   checkout_repo zlib "v1.2.13"
   checkout_repo zstd "v1.5.4"
   checkout_repo elfutils "elfutils-0.189"
   checkout_repo libbpf "v1.1.0"
   checkout_repo openssl "OpenSSL_1_1_1t-quic1"
-  checkout_repo libseccomp "release-2.5"
 }
 
 check_fedora_pkgs () {
-  local REQUIRED_RPMS=( perl autoconf gettext-devel automake flex bison gperf )
+  local REQUIRED_RPMS=( perl autoconf gettext-devel automake flex bison )
 
   echo "[~] Checking for required RPM packages"
 
   local MISSING_RPMS=( )
-  for rpm in ${REQUIRED_RPMS[@]}; do
+  for rpm in "${REQUIRED_RPMS[@]}"; do
     if ! rpm -q "$rpm" >/dev/null; then
       MISSING_RPMS+=( "$rpm" )
     fi
@@ -120,7 +118,7 @@ check_fedora_pkgs () {
 
   echo "[!] Found missing packages"
   echo "[?] This is fixed by the following command:"
-  echo "        ${SUDO}dnf install -y ${MISSING_RPMS[@]}"
+  echo "        ${SUDO}dnf install -y ${MISSING_RPMS[*]}"
   read -r -p "[?] Install missing packages with superuser privileges? (y/N) " choice
   case "$choice" in
     y|Y)
@@ -140,7 +138,7 @@ check_debian_pkgs () {
   echo "[~] Checking for required DEB packages"
 
   local MISSING_DEBS=( )
-  for deb in ${REQUIRED_DEBS[@]}; do
+  for deb in "${REQUIRED_DEBS[@]}"; do
     if ! dpkg -s "$deb" >/dev/null 2>/dev/null; then
       MISSING_DEBS+=( "$deb" )
     fi
@@ -153,7 +151,7 @@ check_debian_pkgs () {
 
   echo "[!] Found missing packages"
   echo "[?] This is fixed by the following command:"
-  echo "        ${SUDO}apt-get install -y ${MISSING_DEBS[@]}"
+  echo "        ${SUDO}apt-get install -y ${MISSING_DEBS[*]}"
   read -r -p "[?] Install missing packages with superuser privileges? (y/N) " choice
   case "$choice" in
     y|Y)
@@ -173,7 +171,7 @@ check_alpine_pkgs () {
   echo "[~] Checking for required APK packages"
 
   local MISSING_APKS=( )
-  for deb in ${REQUIRED_APKS[@]}; do
+  for deb in "${REQUIRED_APKS[@]}"; do
     if ! apk info -e "$deb" >/dev/null; then
       MISSING_APKS+=( "$deb" )
     fi
@@ -186,7 +184,7 @@ check_alpine_pkgs () {
 
   echo "[!] Found missing packages"
   echo "[?] This is fixed by the following command:"
-  echo "        ${SUDO}apk add ${MISSING_APKS[@]}"
+  echo "        ${SUDO}apk add ${MISSING_APKS[*]}"
   read -r -p "[?] Install missing packages with superuser privileges? (y/N) " choice
   case "$choice" in
     y|Y)
@@ -328,38 +326,12 @@ install_openssl () {
   echo "[~] Installed all dependencies"
 }
 
-install_libseccomp () {
-  if pkg-config --exists libseccomp; then
-    echo "[~] libseccomp already installed at $(pkg-config --path libseccomp), skipping installation"
-    return 0
-  fi
-
-  cd ./opt/git/libseccomp
-
-  echo "[+] Configuring libseccomp"
-  ./autogen.sh
-  ./configure \
-    --prefix="$PREFIX"
-  echo "[+] Configured libseccomp"
-
-  echo "[+] Building libseccomp"
-  make -j --output-sync=target
-  echo "[+] Successfully built libseccomp"
-
-  echo "[+] Installing libseccomp to $PREFIX"
-  make install
-  echo "[+] Successfully installed libseccomp"
-
-  echo "[~] Installed all dependencies"
-}
-
 install () {
-  ( install_zlib       )
-  ( install_zstd       )
-  ( install_elfutils   )
-  ( install_libbpf     )
-  ( install_openssl    )
-  ( install_libseccomp )
+  ( install_zlib     )
+  ( install_zstd     )
+  ( install_elfutils )
+  ( install_libbpf   )
+  ( install_openssl  )
 
   echo "[~] Done! To wire up $(pwd)/opt with make, run:"
   echo "    source activate-opt"

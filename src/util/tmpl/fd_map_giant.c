@@ -453,7 +453,7 @@ MAP_(iter_done)( MAP_T const * join,
 FD_FN_PURE static inline MAP_(iter_t)
 MAP_(iter_next)( MAP_T const * join,
                  MAP_(iter_t)  ele_rem ) {
-  for( ; ele_rem; ele_rem-- ) if( !MAP_(private_unbox_tag)( join[ ele_rem-1UL ].MAP_NEXT ) ) break;
+  for( ele_rem--; ele_rem; ele_rem-- ) if( !MAP_(private_unbox_tag)( join[ ele_rem-1UL ].MAP_NEXT ) ) break;
   return ele_rem;
 }
 
