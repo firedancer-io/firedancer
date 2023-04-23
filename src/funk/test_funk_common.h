@@ -19,6 +19,7 @@ struct rec {
   rec_t * map_prev;
   rec_t * map_next;
   int     erase;
+  uint    val;
 };
 
 struct txn {

@@ -340,7 +340,25 @@ fd_funk_rec_modify( fd_funk_t *           funk,
    will be updated whenever the record value modified.
 
    This is a reasonably fast O(1) and fortified against memory
-   corruption. */
+   corruption.
+
+   Note that when a record is newly created, it is initially created
+   with a NULL value.  If intending to modify the value in the most
+   recent ancestor version of the record, a record can be loaded with
+   the data via:
+
+     fd_funk_val_copy( rec, fd_funk_val_const( orig_rec ), fd_funk_val_sz( orig_rec ), 0UL, alloc, wksp, NULL );
+
+     // Note: could use fd_funk_val_max( orig_rec ) or some other
+     // intelligence about planned changes via sz_est instead of 0UL
+
+   This is O(orig_rec) size.  If the caller doesn't have the
+   original record lying around, it can be found via:
+
+     fd_funk_rec_t const * orig_rec = fd_funk_rec_query_global( funk, txn_parent, key );
+
+   This is O(ancestor depth to orig rec) and accounts for that the
+   previous version of the record might not be in txn's parent. */
 
 fd_funk_rec_t const *
 fd_funk_rec_insert( fd_funk_t *               funk,
