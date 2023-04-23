@@ -62,10 +62,10 @@ main( int     argc,
   for( ulong iter=0UL; iter<iter_max; iter++ ) {
     if( !(iter & 16383UL) ) FD_LOG_NOTICE(( "Iter %7lu (txn_cnt %3lu rec_cnt %3lu)", iter, ref->txn_cnt, ref->rec_cnt ));
 
-    //if( !ref->txn_cnt ) {
-    //  FD_LOG_NOTICE(( "***************************************************************" ));
-    //  for( rec_t * rrec=ref->rec_head; rrec; rrec=rrec->next ) FD_LOG_NOTICE(( "has %lu", rrec->key ));
-    //
+  //if( !ref->txn_cnt ) {
+  //  FD_LOG_NOTICE(( "***************************************************************" ));
+  //  for( rec_t * rrec=ref->rec_head; rrec; rrec=rrec->next ) FD_LOG_NOTICE(( "has %lu", rrec->key ));
+  //}
 
     FD_TEST( !fd_funk_verify( tst ) );
 

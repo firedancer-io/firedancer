@@ -7,6 +7,14 @@
 
 #include "fd_funk_base.h"
 
+/* FD_FUNK_TXN_{ALIGN,FOOTPRINT} describe the alignment and footprint of
+   a fd_funk_txn_t.  ALIGN will be an power of 2, footprint will be a
+   multiple of align.  These are provided to facilitate compile time
+   declarations. */
+
+#define FD_FUNK_TXN_ALIGN     (32UL)
+#define FD_FUNK_TXN_FOOTPRINT (96UL)
+
 /* FD_FUNK_TXN_IDX_NULL gives the map transaction idx value used to
    represent NULL.  It also is the maximum value for txn_max in a funk
    to support index compression.  (E.g. could use ushort / USHORT_MAX
