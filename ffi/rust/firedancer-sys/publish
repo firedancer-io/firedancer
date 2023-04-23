@@ -2,7 +2,7 @@
 set -eu
 
 # Abort if our local tree is unclean
-if [ ! $(git status --porcelain | wc -l) -eq "0" ]; then
+if [ ! "$(git status --porcelain | wc -l)" -eq "0" ]; then
     echo "Current checkout unclean: commit or stash changes before publishing"
     exit 1
 fi
@@ -12,7 +12,7 @@ fi
 # point to the current HEAD.
 CRATE_VERSION=$(awk '/version/ { gsub(/"/, "", $3); print $3; exit}' Cargo.toml)
 GIT_TAG=firedancer-sys-$CRATE_VERSION
-if [ -z "$( git tag --list $GIT_TAG )" ]; then
+if [ -z "$( git tag --list "$GIT_TAG" )" ]; then
   echo "Current checkout has incorrect tag: expecting $GIT_TAG"
   exit 1
 fi
