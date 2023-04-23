@@ -13,6 +13,22 @@
 
 FD_PROTOTYPES_BEGIN
 
+static inline void
+fd_funk_val_init( fd_funk_rec_t * rec ) { /* Assumed a mapped record */
+  rec->val_sz    = 0U;
+  rec->val_max   = 0U;
+  rec->val_gaddr = 0UL;
+}
+
+static inline void
+fd_funk_val_flush( fd_funk_rec_t * rec,     /* Assumed a mapped record */
+                   fd_alloc_t *    alloc,   /* ==fd_funk_alloc( funk, wksp ) */
+                   fd_wksp_t *     wksp ) { /* ==fd_funk_wksp( funk ) */
+  ulong val_gaddr = rec->val_gaddr;
+  fd_funk_val_init( rec );
+  if( val_gaddr ) fd_alloc_free( alloc, fd_wksp_laddr_fast( wksp, val_gaddr ) );
+}
+
 /* Misc */
 
 /* fd_funk_val_verify verifies the record values.  Returns

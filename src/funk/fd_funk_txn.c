@@ -200,7 +200,9 @@ fd_funk_txn_cancel_childless( fd_funk_t *     funk,
      idx with NULL though we can detect cycles as soon as possible
      and abort. */
 
-  fd_funk_rec_t * rec_map = fd_funk_rec_map( funk, fd_funk_wksp( funk ) );
+  fd_wksp_t *     wksp    = fd_funk_wksp   ( funk );
+  fd_alloc_t *    alloc   = fd_funk_alloc  ( funk, wksp );
+  fd_funk_rec_t * rec_map = fd_funk_rec_map( funk, wksp );
   ulong           rec_max = funk->rec_max;
 
   ulong rec_idx = map[ txn_idx ].rec_head_idx;
@@ -213,7 +215,7 @@ fd_funk_txn_cancel_childless( fd_funk_t *     funk,
     ulong next_idx = rec_map[ rec_idx ].next_idx;
     rec_map[ rec_idx ].txn_cidx = fd_funk_txn_cidx( FD_FUNK_TXN_IDX_NULL );
 
-    /* Release all resources used for the key val here */
+    fd_funk_val_flush( &rec_map[ rec_idx ], alloc, wksp );
 
     fd_funk_rec_map_remove( rec_map, fd_funk_rec_pair( &rec_map[ rec_idx ] ) );
 
@@ -474,6 +476,187 @@ fd_funk_txn_cancel_children( fd_funk_t *     funk,
   return fd_funk_txn_cancel_sibling_list( funk, map, txn_max, fd_funk_txn_cycle_tag(), oldest_idx, FD_FUNK_TXN_IDX_NULL );
 }
 
+/* fd_funk_txn_update applies the record updates in transaction txn_idx
+   to another transaction or the parent transaction.  Callers have
+   already validated our input arguments.
+
+   On entry, the head/tail of the destination records are at
+   *_dst_rec_head_idx / *_dst_rec_tail_idx.  All transactions on this
+   list will have transaction id dst_xid and vice versa.  That is, this
+   is the record list the last published transaction or txn_idx's
+   in-prep parent transaction.
+
+   On exit, the head/tail of the updated records is at
+   *_dst_rec_head_idx / *_dst_rec_tail_idx.  As before, all transactions
+   on this list will have transaction id dst_xid and vice versa.
+   Transaction txn_idx will have an _empty_ record list.
+
+   Updates in the transaction txn_idx are processed from oldest to
+   youngest.  If an update erases an existing record in dest, the record
+   to erase is removed from the destination records without perturbing
+   the order of remaining destination records.  If an update is to
+   update an existing record, the destination record value is updated
+   and the order of the destination records is unchanged.  If an update
+   is to create a new record, the record is appended to the list of
+   existing values as youngest without changing the order of existing
+   values.  If an update erases a record in an in-prep parent, the
+   erasure will be moved into the parent as the youngest without
+   changing the order of existing values. */
+
+static void
+fd_funk_txn_update( ulong *                   _dst_rec_head_idx, /* Pointer to the dst list head */
+                    ulong *                   _dst_rec_tail_idx, /* Pointer to the dst list tail */
+                    fd_funk_txn_xid_t const * dst_xid,           /* Merge of dst records */
+                    int                       dst_root,          /* ==fd_funk_txn_xid_eq_root( dst_xid ) */
+                    ulong                     txn_idx,           /* Transaction index of the records to merge */
+                    ulong                     rec_max,           /* ==funk->rec_max */
+                    fd_funk_txn_t *           txn_map,           /* ==fd_funk_rec_map( funk, wksp ) */
+                    fd_funk_rec_t *           rec_map,           /* ==fd_funk_rec_map( funk, wksp ) */
+                    fd_alloc_t *              alloc,             /* ==fd_funk_alloc( funk, wksp ) */
+                    fd_wksp_t *               wksp ) {           /* ==fd_funk_wksp( funk ) */
+
+  /* We don't need to to do all the individual removal pointer updates
+     as we are removing the whole list from txn_idx.  Likewise, we
+     temporarily repurpose txn_cidx as a loop detector for additional
+     corruption protection.  */
+
+  ulong rec_idx = txn_map[ txn_idx ].rec_head_idx;
+  while( !fd_funk_rec_idx_is_null( rec_idx ) ) {
+
+    /* Validate rec_idx */
+
+    if( FD_UNLIKELY( rec_idx>=rec_max ) ) FD_LOG_CRIT(( "memory corruption detected (bad idx)" ));
+    if( FD_UNLIKELY( fd_funk_txn_idx( rec_map[ rec_idx ].txn_cidx )!=txn_idx ) )
+      FD_LOG_CRIT(( "memory corruption detected (cycle or bad idx)" ));
+    rec_map[ rec_idx ].txn_cidx = fd_funk_txn_cidx( FD_FUNK_TXN_IDX_NULL );
+
+    ulong next_idx = rec_map[ rec_idx ].next_idx;
+
+    /* See if (dst_xid,key) already exists */
+
+    fd_funk_xid_key_pair_t dst_pair[1]; fd_funk_xid_key_pair_init( dst_pair, dst_xid, fd_funk_rec_key( &rec_map[ rec_idx ] ) );
+    fd_funk_rec_t * dst_rec = fd_funk_rec_map_query( rec_map, dst_pair, NULL );
+
+    if( FD_UNLIKELY( rec_map[ rec_idx ].flags & FD_FUNK_REC_FLAG_ERASE ) ) { /* Erase a published key */
+
+      if( FD_UNLIKELY( !dst_rec ) ) {
+
+        /* Note that we only set the erase flag if there is was ancestor
+           to this transaction with the key in it.  So if are merging
+           into the last published transaction and we didn't find a
+           record there, we have a memory corruption problem. */
+
+        if( FD_UNLIKELY( dst_root ) ) FD_LOG_CRIT(( "memory corruption detected (bad ancestor)" ));
+
+        /* Otherwise, txn is an erase of this record from one of
+           dst's ancestors.  So we move the erase from (src_xid,key) and
+           to (dst_xid,key).  We need to do this by a map remove / map
+           insert to keep map queries working correctly.  Note that
+           value metadata was flushed when erase was first set on
+           (src_xid,key). */
+
+        fd_funk_rec_map_remove( rec_map, fd_funk_rec_pair( &rec_map[ rec_idx ] ) );
+
+        dst_rec = fd_funk_rec_map_insert( rec_map, dst_pair ); /* Guaranteed to succeed at this point due to above remove */
+
+        ulong dst_rec_idx  = (ulong)(dst_rec - rec_map);
+
+        ulong dst_prev_idx = *_dst_rec_tail_idx;
+
+        dst_rec->prev_idx = dst_prev_idx;
+        dst_rec->next_idx = FD_FUNK_REC_IDX_NULL;
+        dst_rec->txn_cidx = fd_funk_txn_cidx( FD_FUNK_TXN_IDX_NULL );
+        dst_rec->tag      = 0UL;
+
+        if( fd_funk_rec_idx_is_null( dst_prev_idx ) ) *_dst_rec_head_idx               = dst_rec_idx;
+        else                                          rec_map[ dst_prev_idx ].next_idx = dst_rec_idx;
+
+        *_dst_rec_tail_idx = dst_rec_idx;
+
+        fd_funk_val_init( dst_rec );
+        dst_rec->flags |= FD_FUNK_REC_FLAG_ERASE;
+
+      } else {
+
+        /* The erase in rec_idx erases this transaction.  Unmap
+           (src_xid,key) (note that value was flushed when erase was
+           first set), flush dst xid's value, remove dst it from the dst
+           sequence and unmap (dst_xid,key) */
+
+        fd_funk_rec_map_remove( rec_map, fd_funk_rec_pair( &rec_map[ rec_idx ] ) );
+
+        fd_funk_val_flush( dst_rec, alloc, wksp );
+
+        ulong prev_idx = dst_rec->prev_idx;
+        ulong next_idx = dst_rec->next_idx;
+
+        if( FD_UNLIKELY( fd_funk_rec_idx_is_null( prev_idx ) ) ) *_dst_rec_head_idx           = next_idx;
+        else                                                     rec_map[ prev_idx ].next_idx = next_idx;
+
+        if( FD_UNLIKELY( fd_funk_rec_idx_is_null( next_idx ) ) ) *_dst_rec_tail_idx           = prev_idx;
+        else                                                     rec_map[ next_idx ].prev_idx = prev_idx;
+
+        fd_funk_rec_map_remove( rec_map, dst_pair );
+
+      }
+
+    } else {
+
+      /* At this point, we are either creating a new record or updating
+         an existing one.  In either case, we are going to be keeping
+         around the src's value for later use and for speed, we do this
+         zero-copy / in-place.  So we stash record value in stack
+         temporaries and unmap (xid,key).  Note this strictly frees 1
+         record from the rec_map, guaranting at least 1 record free in
+         the record map below.  Note that we can't just reuse rec_idx in
+         the update case because that could break map queries. */
+
+      ulong val_sz    = (ulong)rec_map[ rec_idx ].val_sz;
+      ulong val_max   = (ulong)rec_map[ rec_idx ].val_max;
+      ulong val_gaddr = rec_map[ rec_idx ].val_gaddr;
+
+      fd_funk_rec_map_remove( rec_map, fd_funk_rec_pair( &rec_map[ rec_idx ] ) );
+
+      if( FD_UNLIKELY( !dst_rec ) ) { /* Create a published key */
+
+        dst_rec = fd_funk_rec_map_insert( rec_map, dst_pair ); /* Guaranteed to succeed at this point due to above remove */
+
+        ulong dst_rec_idx  = (ulong)(dst_rec - rec_map);
+        ulong dst_prev_idx = *_dst_rec_tail_idx;
+
+        dst_rec->prev_idx = dst_prev_idx;
+        dst_rec->next_idx = FD_FUNK_REC_IDX_NULL;
+        dst_rec->txn_cidx = fd_funk_txn_cidx( FD_FUNK_TXN_IDX_NULL );
+        dst_rec->tag      = 0UL;
+
+        if( fd_funk_rec_idx_is_null( dst_prev_idx ) ) *_dst_rec_head_idx               = dst_rec_idx;
+        else                                          rec_map[ dst_prev_idx ].next_idx = dst_rec_idx;
+
+        *_dst_rec_tail_idx = dst_rec_idx;
+
+      } else { /* Update a published key */
+
+        fd_funk_val_flush( dst_rec, alloc, wksp ); /* Free up any preexisting value resources */
+
+      }
+
+      /* Unstash value metadata from stack temporaries into dst_rec */
+
+      dst_rec->val_sz    = (uint)val_sz;
+      dst_rec->val_max   = (uint)val_max;
+      dst_rec->val_gaddr = val_gaddr;
+
+    }
+
+    /* Advance to the next record */
+
+    rec_idx = next_idx;
+  }
+
+  txn_map[ txn_idx ].rec_head_idx = FD_FUNK_REC_IDX_NULL;
+  txn_map[ txn_idx ].rec_tail_idx = FD_FUNK_REC_IDX_NULL;
+}
+
 /* fd_funk_txn_publish_funk_child publishes a transaction that is known
    to be a child of funk.  Callers have already validated our input
    arguments.  Returns FD_FUNK_SUCCESS on success and an FD_FUNK_ERR_*
@@ -487,105 +670,11 @@ fd_funk_txn_publish_funk_child( fd_funk_t *     funk,
                                 ulong           tag,
                                 ulong           txn_idx ) {
 
-  /* Apply all records (xid,key) in this transaction to (root,key).
-     Notes we don't need to to do all the individual removal pointer
-     updates as we are removing the whole list.  Likewise, we
-     temporarily repurpose txn_cidx as a loop detector for additional
-     corruption protection.  */
+  /* Apply the updates in txn to the last published transactions */
 
-  fd_funk_txn_xid_t const * root = fd_funk_root( funk );
-
-  fd_funk_rec_t * rec_map = fd_funk_rec_map( funk, fd_funk_wksp( funk ) ); /* Guarantee we can insert at least 1 as per contract */
-
-  ulong rec_max = funk->rec_max;
-  ulong rec_idx = map[ txn_idx ].rec_head_idx;
-  while( !fd_funk_rec_idx_is_null( rec_idx ) ) {
-
-    /* Validate rec_idx */
-
-    if( FD_UNLIKELY( rec_idx>=rec_max ) ) FD_LOG_CRIT(( "memory corruption detected (bad idx)" ));
-    if( FD_UNLIKELY( fd_funk_txn_idx( rec_map[ rec_idx ].txn_cidx )!=txn_idx ) )
-      FD_LOG_CRIT(( "memory corruption detected (cycle or bad idx)" ));
-    rec_map[ rec_idx ].txn_cidx = fd_funk_txn_cidx( FD_FUNK_TXN_IDX_NULL );
-
-    ulong next_idx = rec_map[ rec_idx ].next_idx;
-
-    /* See if (root,key) already exists */
-
-    fd_funk_xid_key_pair_t pair[1]; fd_funk_xid_key_pair_init( pair, root, fd_funk_rec_key( &rec_map[ rec_idx ] ) );
-    fd_funk_rec_t * root_rec = fd_funk_rec_map_query( rec_map, pair, NULL );
-
-    if( FD_UNLIKELY( rec_map[ rec_idx ].flags & FD_FUNK_REC_FLAG_ERASE ) ) { /* Erase a published key */
-
-      /* Note that we only set the erase flag if there is was ancestor
-         to this transaction with the key in it.  So if we don't find a
-         record, we have a memory corruption problem. */
-
-      if( FD_UNLIKELY( !root_rec ) ) FD_LOG_CRIT(( "memory corruption detected (bad ancestor)" ));
-
-      /* Unmap (xid,key).  Note that value metadata already previously
-         freed when we set erase. */
-
-      fd_funk_rec_map_remove( rec_map, fd_funk_rec_pair( &rec_map[ rec_idx ] ) );
-
-      /* Erase (root,key) */
-
-      /* Free root_rec val resources here */
-
-      ulong prev_idx = root_rec->prev_idx;
-      ulong next_idx = root_rec->next_idx;
-
-      if( FD_UNLIKELY( fd_funk_rec_idx_is_null( prev_idx ) ) ) funk->rec_head_idx           = next_idx;
-      else                                                     rec_map[ prev_idx ].next_idx = next_idx;
-
-      if( FD_UNLIKELY( fd_funk_rec_idx_is_null( next_idx ) ) ) funk->rec_tail_idx           = prev_idx;
-      else                                                     rec_map[ next_idx ].prev_idx = prev_idx;
-
-      fd_funk_rec_map_remove( rec_map, pair );
-
-    } else {
-
-      /* Stash value metadata in stack temporaries here */
-
-      /* Unmap (xid,key).  Note this strictly frees 1 more resource from
-         the rec_map, guaranting at least 1 record free in the record
-         map below */
-
-      fd_funk_rec_map_remove( rec_map, fd_funk_rec_pair( &rec_map[ rec_idx ] ) );
-
-      if( FD_UNLIKELY( !root_rec ) ) { /* Create a published key */
-
-        root_rec = fd_funk_rec_map_insert( rec_map, pair ); /* Guaranteed to succeed at this point */
-
-        ulong root_rec_idx  = (ulong)(root_rec - rec_map);
-        ulong root_prev_idx = funk->rec_tail_idx;
-
-        root_rec->prev_idx = root_prev_idx;
-        root_rec->next_idx = FD_FUNK_REC_IDX_NULL;
-        root_rec->txn_cidx = fd_funk_txn_cidx( FD_FUNK_TXN_IDX_NULL );
-        root_rec->tag      = 0UL;
-
-        if( fd_funk_rec_idx_is_null( root_prev_idx ) ) funk->rec_head_idx                = root_rec_idx;
-        else                                           rec_map[ root_prev_idx ].next_idx = root_rec_idx;
-
-        funk->rec_tail_idx = root_rec_idx;
-
-      } else { /* Update a published key */
-
-        /* Free root_rec value resources here. */
-
-      }
-
-      /* Unstash value metadata from stack temporaries into root_rec here */
-
-    }
-
-    /* Advance to the next record */
-
-    rec_idx = next_idx;
-  }
-
-  /* At this point, txn been successfully applied */
+  fd_wksp_t * wksp = fd_funk_wksp( funk );
+  fd_funk_txn_update( &funk->rec_head_idx, &funk->rec_tail_idx, fd_funk_root( funk ), 1 /* root */,
+                      txn_idx, funk->rec_max, map, fd_funk_rec_map( funk, wksp ), fd_funk_alloc( funk, wksp ), wksp );
 
   /* Cancel all competing transaction histories */
 
@@ -705,23 +794,23 @@ fd_funk_txn_merge( fd_funk_t *     funk,
     return FD_FUNK_ERR_INVAL;
   }
 
-  fd_funk_txn_t * map = fd_funk_txn_map( funk, fd_funk_wksp( funk ) );
+  fd_wksp_t * wksp = fd_funk_wksp( funk );
+
+  fd_funk_txn_t * map = fd_funk_txn_map( funk, wksp );
 
   ulong txn_max = fd_funk_txn_map_key_max( map );
 
   ulong txn_idx = (ulong)(txn - map);
 
-  ASSERT_IN_PREP(txn_idx);
-  
-  if( FD_UNLIKELY(!( fd_funk_txn_idx_is_null( fd_funk_txn_idx( txn->sibling_prev_cidx ) ) &
-                     fd_funk_txn_idx_is_null( fd_funk_txn_idx( txn->sibling_next_cidx ) ) ) ) ) {
-    if( FD_UNLIKELY( verbose ) ) FD_LOG_WARNING(( "txn must be an only child" ));
+  ASSERT_IN_PREP( txn_idx );
+
+  if( FD_UNLIKELY( fd_funk_txn_is_frozen( txn ) ) ) {
+    if( FD_UNLIKELY( verbose ) ) FD_LOG_WARNING(( "txn must not have children" ));
     return FD_FUNK_ERR_INVAL;
   }
-
-  if( FD_UNLIKELY(!( fd_funk_txn_idx_is_null( fd_funk_txn_idx( txn->child_head_cidx ) ) &
-                     fd_funk_txn_idx_is_null( fd_funk_txn_idx( txn->child_tail_cidx ) ) ) ) ) {
-    if( FD_UNLIKELY( verbose ) ) FD_LOG_WARNING(( "txn must not have children" ));
+  
+  if( FD_UNLIKELY( !fd_funk_txn_is_only_child( txn ) ) ) {
+    if( FD_UNLIKELY( verbose ) ) FD_LOG_WARNING(( "txn must be an only child" ));
     return FD_FUNK_ERR_INVAL;
   }
 
@@ -731,14 +820,20 @@ fd_funk_txn_merge( fd_funk_t *     funk,
     return FD_FUNK_ERR_INVAL;
   }
 
-  ASSERT_IN_PREP(parent_idx);
+  ASSERT_IN_PREP( parent_idx );
 
-  /* Merge updated records from child into parent. Clean up child transaction. */
+  /* Merge records from child into parent */
 
-  /* Erase the child. This is easy because we know it is an only child. */
+  fd_funk_txn_update( &map[ parent_idx ].rec_head_idx, &map[ parent_idx ].rec_tail_idx, &map[ parent_idx ].xid, 0 /* not root */,
+                      txn_idx, funk->rec_max, map, fd_funk_rec_map( funk, wksp ), fd_funk_alloc( funk, wksp ), wksp );
+
+  /* At this point, the record list for the child is empty.  Erase the
+     child.  This is easy because we know it is an only child. */
+
   fd_funk_txn_t * parent = map + parent_idx;
-  parent->child_head_cidx   = fd_funk_txn_cidx( FD_FUNK_TXN_IDX_NULL );
-  parent->child_tail_cidx   = fd_funk_txn_cidx( FD_FUNK_TXN_IDX_NULL );
+
+  parent->child_head_cidx = fd_funk_txn_cidx( FD_FUNK_TXN_IDX_NULL );
+  parent->child_tail_cidx = fd_funk_txn_cidx( FD_FUNK_TXN_IDX_NULL );
 
   fd_funk_txn_map_remove( map, fd_funk_txn_xid( txn ) );
 
