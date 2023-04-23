@@ -87,7 +87,7 @@ main( int argc, char ** argv ) {
     .conn_id_cnt      = 4,
     .conn_id_sparsity = 4.0,
     .handshake_cnt    = 10,
-    .stream_cnt       = 2,
+    .stream_cnt       = {0, 0, 2, 0},
     .inflight_pkt_cnt = 100,
     .tx_buf_sz        = 1<<16,
     .rx_buf_sz        = 1<<16

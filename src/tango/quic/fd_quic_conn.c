@@ -40,18 +40,18 @@ static ulong
 fd_quic_conn_footprint_ext( fd_quic_limits_t const * limits,
                             fd_quic_conn_layout_t *  layout ) {
 
-  ulong  stream_per_type_cnt = limits->stream_cnt;
   ulong  tx_buf_sz           = limits->tx_buf_sz;
   ulong  rx_buf_sz           = limits->rx_buf_sz;
   double stream_sparsity     = limits->stream_sparsity;
   ulong  inflight_pkt_cnt    = limits->inflight_pkt_cnt;
 
-  /* TODO stream_cnt in limits is a factor of 4 off stream_cnt in layout
-     one should have a different name */
-  ulong   stream_cnt = 4 * stream_per_type_cnt;
+  ulong  stream_cnt = (
+    limits->stream_cnt[ FD_QUIC_STREAM_TYPE_BIDI_CLIENT ] +
+    limits->stream_cnt[ FD_QUIC_STREAM_TYPE_BIDI_SERVER ] +
+    limits->stream_cnt[ FD_QUIC_STREAM_TYPE_UNI_CLIENT  ] +
+    limits->stream_cnt[ FD_QUIC_STREAM_TYPE_UNI_SERVER  ] );
   layout->stream_cnt = stream_cnt;
 
-  if( FD_UNLIKELY( stream_per_type_cnt==0UL ) ) return 0UL;
   if( FD_UNLIKELY( stream_cnt         ==0UL ) ) return 0UL;
   if( FD_UNLIKELY( tx_buf_sz          ==0UL ) ) return 0UL;
   if( FD_UNLIKELY( rx_buf_sz          ==0UL ) ) return 0UL;

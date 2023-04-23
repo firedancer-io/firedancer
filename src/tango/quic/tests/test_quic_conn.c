@@ -310,7 +310,7 @@ main( int argc, char ** argv ) {
     .conn_id_cnt      = 10,
     .conn_id_sparsity = 4.0,
     .handshake_cnt    = 10,
-    .stream_cnt       = 10,
+    .stream_cnt       = { 0, 0, 10, 0 },
     .inflight_pkt_cnt = 1024,
     .tx_buf_sz        = 1<<14,
     .rx_buf_sz        = 1<<14
@@ -369,7 +369,7 @@ main( int argc, char ** argv ) {
   uint k = 1;
 
   /* populate free streams */
-  populate_stream_meta( quic_limits.stream_cnt );
+  populate_stream_meta( quic_limits.stream_cnt[ FD_QUIC_STREAM_TYPE_UNI_CLIENT ] );
 
   char buf[512] = "Hello world!\x00-   ";
   fd_aio_pkt_info_t batch[1] = {{ buf, sizeof( buf ) }};
@@ -467,7 +467,7 @@ main( int argc, char ** argv ) {
 
           state = 0;
 
-          populate_streams( quic_limits.stream_cnt, client_conn );
+          populate_streams( quic_limits.stream_cnt[ FD_QUIC_STREAM_TYPE_UNI_CLIENT ], client_conn );
         }
 
         break;
