@@ -467,7 +467,7 @@ main( int     argc,
       txn_prepare( ref, rparent, rxid );
       FD_TEST( fd_funk_txn_prepare( tst, tparent, xid_set( txid, rxid ), verbose ) );
 
-    } else if( op>=1UL ) { /* cancel (same rate as publish) */
+    } else if( op>=2UL ) { /* Cancel (same rate as publish and merge) */
 
       if( FD_UNLIKELY( !ref->txn_cnt ) ) continue;
 
@@ -479,7 +479,21 @@ main( int     argc,
       ulong cnt = ref->txn_cnt; txn_cancel( ref, rtxn ); cnt -= ref->txn_cnt;
       FD_TEST( fd_funk_txn_cancel( tst, ttxn, verbose )==cnt );
 
-    } else { /* publish (same rate as cancel) */
+    } else if( op>=1UL ) { /* Merge (same rate as cancel and publish) */
+
+      if( FD_UNLIKELY( !ref->txn_cnt ) ) continue;
+
+      ulong idx = fd_rng_ulong_roll( rng, ref->txn_cnt );
+
+      txn_t *         rtxn = ref->txn_map_head; for( ulong rem=idx; rem; rem-- ) rtxn = rtxn->map_next;
+      fd_funk_txn_t * ttxn = fd_funk_txn_query( xid_set( txid, rtxn->xid ), txn_map );
+
+      if( !rtxn->parent || !txn_is_only_child( rtxn ) || txn_is_frozen( rtxn ) ) continue;
+
+      txn_merge( ref, rtxn );
+      FD_TEST( !fd_funk_txn_merge( tst, ttxn, verbose ) );
+
+    } else { /* Publish (same rate as merge and cancel) */
 
       if( FD_UNLIKELY( !ref->txn_cnt ) ) continue;
 

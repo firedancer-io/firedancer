@@ -197,6 +197,68 @@ txn_publish( funk_t * funk,
   return cnt + 1UL;
 }
 
+void
+txn_merge( funk_t * funk,
+           txn_t *  txn ) { /* Note: txn is a childless only child of an unpublished transaction */
+
+  txn_t * dst_txn = txn->parent;
+
+//FD_LOG_NOTICE(( "merge %lu into %lu", txn->xid, dst_txn->xid ));
+
+  rec_t * rec = txn->rec_head;
+  while( rec ) {
+    rec_t * next = rec->next;
+
+    rec_t * dst_rec = rec_query( funk, dst_txn, rec->key );
+
+    if( rec->erase ) {
+
+      if( !dst_rec ) { /* This erases a version of the record one of dst's ancestors, add the erase to dst */
+
+        rec_t * prev = dst_txn->rec_tail;
+
+        rec->txn  = dst_txn;
+        rec->prev = prev;
+        rec->next = NULL;
+
+        if( prev ) prev->next        = rec;
+        else       dst_txn->rec_head = rec;
+        dst_txn->rec_tail = rec;
+
+      } else { /* This erases a dst's version record */
+
+        rec_unmap( funk, rec ); /* Unmap the record (don't bother leaving b/c we are unmapping everything) */
+
+        rec_unmap( funk, rec_leave( funk, dst_rec ) ); /* Unmap dst rec */
+
+      }
+
+    } else if( !dst_rec ) { /* Record not in dst and not erasing, add record in dst */
+
+      rec_t * prev = dst_txn->rec_tail;
+
+      rec->txn  = dst_txn;
+      rec->prev = prev;
+      rec->next = NULL;
+
+      if( prev ) prev->next        = rec;
+      else       dst_txn->rec_head = rec;
+      dst_txn->rec_tail = rec;
+
+    } else { /* Record in dst and not erasing, update record in dst */
+
+      dst_rec->val = rec->val;
+
+      rec_unmap( funk, rec ); /* Unmap the record (don't bother leaving b/c we are unmapping everything) */
+
+    }
+
+    rec = next;
+  }
+
+  txn_unmap( funk, txn_leave( funk, txn ) );
+}
+
 /* Mini rec implementation ********************************************/
 
 rec_t *
