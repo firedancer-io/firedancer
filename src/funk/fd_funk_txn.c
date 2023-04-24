@@ -506,8 +506,8 @@ fd_funk_txn_cancel_children( fd_funk_t *     funk,
 static void
 fd_funk_txn_update( ulong *                   _dst_rec_head_idx, /* Pointer to the dst list head */
                     ulong *                   _dst_rec_tail_idx, /* Pointer to the dst list tail */
-                    fd_funk_txn_xid_t const * dst_xid,           /* Merge of dst records */
-                    int                       dst_root,          /* ==fd_funk_txn_xid_eq_root( dst_xid ) */
+                    ulong                     dst_txn_idx,       /* Transaction index of the merge destination */
+                    fd_funk_txn_xid_t const * dst_xid,           /* dst xid */
                     ulong                     txn_idx,           /* Transaction index of the records to merge */
                     ulong                     rec_max,           /* ==funk->rec_max */
                     fd_funk_txn_t *           txn_map,           /* ==fd_funk_rec_map( funk, wksp ) */
@@ -546,7 +546,7 @@ fd_funk_txn_update( ulong *                   _dst_rec_head_idx, /* Pointer to t
            into the last published transaction and we didn't find a
            record there, we have a memory corruption problem. */
 
-        if( FD_UNLIKELY( dst_root ) ) FD_LOG_CRIT(( "memory corruption detected (bad ancestor)" ));
+        if( FD_UNLIKELY( fd_funk_txn_idx_is_null( dst_txn_idx ) ) ) FD_LOG_CRIT(( "memory corruption detected (bad ancestor)" ));
 
         /* Otherwise, txn is an erase of this record from one of
            dst's ancestors.  So we move the erase from (src_xid,key) and
@@ -565,8 +565,8 @@ fd_funk_txn_update( ulong *                   _dst_rec_head_idx, /* Pointer to t
 
         dst_rec->prev_idx = dst_prev_idx;
         dst_rec->next_idx = FD_FUNK_REC_IDX_NULL;
-        dst_rec->txn_cidx = fd_funk_txn_cidx( FD_FUNK_TXN_IDX_NULL );
-        dst_rec->tag      = 0UL;
+        dst_rec->txn_cidx = fd_funk_txn_cidx( dst_txn_idx );
+        dst_rec->tag      = 0U;
 
         if( fd_funk_rec_idx_is_null( dst_prev_idx ) ) *_dst_rec_head_idx               = dst_rec_idx;
         else                                          rec_map[ dst_prev_idx ].next_idx = dst_rec_idx;
@@ -626,8 +626,8 @@ fd_funk_txn_update( ulong *                   _dst_rec_head_idx, /* Pointer to t
 
         dst_rec->prev_idx = dst_prev_idx;
         dst_rec->next_idx = FD_FUNK_REC_IDX_NULL;
-        dst_rec->txn_cidx = fd_funk_txn_cidx( FD_FUNK_TXN_IDX_NULL );
-        dst_rec->tag      = 0UL;
+        dst_rec->txn_cidx = fd_funk_txn_cidx( dst_txn_idx );
+        dst_rec->tag      = 0U;
 
         if( fd_funk_rec_idx_is_null( dst_prev_idx ) ) *_dst_rec_head_idx               = dst_rec_idx;
         else                                          rec_map[ dst_prev_idx ].next_idx = dst_rec_idx;
@@ -673,7 +673,7 @@ fd_funk_txn_publish_funk_child( fd_funk_t *     funk,
   /* Apply the updates in txn to the last published transactions */
 
   fd_wksp_t * wksp = fd_funk_wksp( funk );
-  fd_funk_txn_update( &funk->rec_head_idx, &funk->rec_tail_idx, fd_funk_root( funk ), 1 /* root */,
+  fd_funk_txn_update( &funk->rec_head_idx, &funk->rec_tail_idx, FD_FUNK_TXN_IDX_NULL, fd_funk_root( funk ),
                       txn_idx, funk->rec_max, map, fd_funk_rec_map( funk, wksp ), fd_funk_alloc( funk, wksp ), wksp );
 
   /* Cancel all competing transaction histories */
@@ -824,7 +824,7 @@ fd_funk_txn_merge( fd_funk_t *     funk,
 
   /* Merge records from child into parent */
 
-  fd_funk_txn_update( &map[ parent_idx ].rec_head_idx, &map[ parent_idx ].rec_tail_idx, &map[ parent_idx ].xid, 0 /* not root */,
+  fd_funk_txn_update( &map[ parent_idx ].rec_head_idx, &map[ parent_idx ].rec_tail_idx, parent_idx, &map[ parent_idx ].xid,
                       txn_idx, funk->rec_max, map, fd_funk_rec_map( funk, wksp ), fd_funk_alloc( funk, wksp ), wksp );
 
   /* At this point, the record list for the child is empty.  Erase the
