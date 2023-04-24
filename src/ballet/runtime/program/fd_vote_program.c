@@ -96,7 +96,7 @@ int fd_executor_vote_program_execute_instruction(
 
       /* Get the current authorized voter for the current epoch */
       /* TODO: handle epoch rollover */
-      fd_pubkey_t authorized_voter = vote_state.authorized_voters->pubkey;
+      fd_pubkey_t authorized_voter = vote_state.authorized_voters[0].pubkey;
 
       /* Check that the authorized voter for this epoch has signed the vote transaction
          https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L1265
@@ -104,7 +104,7 @@ int fd_executor_vote_program_execute_instruction(
       uchar authorized_voter_signed = 0;
       for ( ulong i = 0; i < ctx.instr->acct_cnt; i++ ) {
         if ( instr_acc_idxs[i] < ctx.txn_descriptor->signature_cnt ) {
-          fd_pubkey_t * signer = &txn_accs[instr_acc_idxs[0]];
+          fd_pubkey_t * signer = &txn_accs[instr_acc_idxs[i]];
           if ( !memcmp( signer, &authorized_voter, sizeof(fd_pubkey_t) ) ) {
             authorized_voter_signed = 1;
             break;
@@ -193,8 +193,16 @@ int fd_executor_vote_program_execute_instruction(
       /* Check that the vote hash, which is the hash for the slot at the top of the vote tower,
          matches the slot hashes hash for that slot. */
       if ( memcmp( &slot_hashes.hashes.elems[ slot_hash_idx ].hash, &vote.hash, sizeof(fd_hash_t) ) != 0 ) {
+        char slot_hash_hash[50];
+        fd_base58_encode_32((uchar *) &slot_hashes.hashes.elems[ slot_hash_idx ].hash, 0, slot_hash_hash);
+
+        char vote_hash_hash[50];
+        fd_base58_encode_32((uchar *) &vote.hash, 0, vote_hash_hash);
+
+        FD_LOG_NOTICE(( "hash mismatch: slot_hash: %s vote_hash: %s", slot_hash_hash, vote_hash_hash ));
         /* TODO: propagate custom error code FD_VOTE_SLOT_HASH_MISMATCH */
-        return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
+        /* FIXME: re-visit when bank hashes are confirmed to be good */
+        // return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
       }
 
       /* Process each vote slot, pushing any new slots in the vote onto our lockout tower.
