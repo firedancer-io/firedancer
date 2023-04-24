@@ -531,6 +531,16 @@
       ]
     },
     {
+      "name": "vote_prior_voter_0_23_5",
+      "type": "struct",
+      "fields": [
+          { "name": "pubkey", "type": "pubkey" },
+          { "name": "epoch_start", "type": "ulong" },
+          { "name": "epoch_end", "type": "ulong" },
+          { "name": "slot", "type": "ulong" }
+      ]
+    },
+    {
       "name": "vote_epoch_credits",
       "type": "struct",
       "fields": [
@@ -567,6 +577,33 @@
       "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L268"
     },
     {
+      "name": "vote_prior_voters_0_23_5",
+      "type": "struct",
+      "fields": [
+        { "name": "buf", "type": "array", "element": "vote_prior_voter_0_23_5", "length": "32" },
+        { "name": "idx", "type": "ulong" },
+        { "name": "is_empty", "type": "uchar" }
+      ],
+      "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L268"
+    },
+    {
+      "name": "vote_state_0_23_5",
+      "type": "struct",
+      "fields": [
+          { "name": "voting_node", "type": "pubkey" },
+          { "name": "authorized_voter", "type": "pubkey" },
+          { "name": "authorized_voter_epoch", "type": "ulong" },
+          { "name": "prior_voters", "type": "vote_prior_voters_0_23_5" },
+          { "name": "authorized_withdrawer", "type": "pubkey" },
+          { "name": "commission", "type": "uchar" },
+          { "name": "votes", "type": "vector_dynamic", "element": "vote_lockout" },
+          { "name": "saved_root_slot", "type": "option", "element": "ulong" },
+          { "name": "epoch_credits", "type": "vector_dynamic", "element": "vote_epoch_credits" },          
+          { "name": "latest_timestamp", "type": "vote_block_timestamp" }
+      ],
+      "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/vote_state_0_23_5.rs#L6"
+    },
+    {
       "name": "vote_state",
       "type": "struct",
       "fields": [
@@ -581,6 +618,15 @@
           { "name": "latest_timestamp", "type": "vote_block_timestamp" }
       ],
       "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L310"
+    },
+    {
+      "name": "vote_state_versioned",
+      "type": "enum",
+      "variants": [
+        { "name": "v0_23_5", "type": "vote_state_0_23_5" },
+        { "name": "current", "type": "vote_state" }
+      ],
+      "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/vote_state_versions.rs#L4"
     },
     {
       "name": "vote_state_update",
@@ -735,6 +781,93 @@
         { "name": "timestamp", "type": "option", "element": "ulong" }
       ],
       "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L133"
+    },
+    {
+      "name": "vote_init",
+      "type": "struct",
+      "fields": [
+        { "name": "node_pubkey", "type": "pubkey" },
+        { "name": "authorized_voter", "type": "pubkey" },
+        { "name": "authorized_withdrawer", "type": "pubkey" },
+        { "name": "commission", "type": "uchar" }
+      ],
+      "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L230"
+    },
+    {
+      "name": "vote_authorize",
+      "type": "enum",
+      "variants": [
+        { "name": "voter" },
+        { "name": "withdrawer" }
+      ],
+      "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L238"
+    },
+    {
+      "name": "vote_authorize_pubkey",
+      "type": "struct",
+      "fields": [
+        { "name": "pubkey", "type": "pubkey" },
+        { "name": "vote_authorize", "type": "vote_authorize" }
+      ],
+      "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_instruction.rs#L37"
+    },
+    {
+      "name": "vote_switch",
+      "type": "struct",
+      "fields": [
+        { "name": "vote", "type": "vote" },
+        { "name": "hash", "type": "hash" }
+      ],
+      "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_instruction.rs#L78"
+    },
+    {
+      "name": "update_vote_state_switch",
+      "type": "struct",
+      "fields": [
+        { "name": "vote_state_update", "type": "vote_state_update" },
+        { "name": "hash", "type": "hash" }
+      ],
+      "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_instruction.rs#L104"
+    },
+    {
+      "name": "vote_authorize_with_seed_args",
+      "type": "struct",
+      "fields": [
+        { "name": "authorization_type", "type": "vote_authorize" },
+        { "name": "current_authority_derived_key_owner", "type": "pubkey" },
+        { "name": "current_authority_derived_key_seed", "type": "char*" },
+        { "name": "new_authority", "type": "pubkey" } 
+      ],
+      "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L244"
+    },
+    {
+      "name": "vote_authorize_checked_with_seed_args",
+      "type": "struct",
+      "fields": [
+        { "name": "authorization_type", "type": "vote_authorize" },
+        { "name": "current_authority_derived_key_owner", "type": "pubkey" },
+        { "name": "current_authority_derived_key_seed", "type": "char*" }
+      ],
+      "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L252"
+    },
+    {
+      "name": "vote_instruction",
+      "type": "enum",
+      "variants": [
+        { "name": "initialize_account", "type": "vote_init" },
+        { "name": "authorize", "type": "vote_authorize_pubkey" },
+        { "name": "vote", "type": "vote" },
+        { "name": "withdraw", "type": "ulong" },
+        { "name": "update_validator_identity" },
+        { "name": "update_commission", "type": "uchar" },
+        { "name": "vote_switch", "type": "vote_switch" },
+        { "name": "authorize_checked", "type": "vote_authorize" },
+        { "name": "update_vote_state", "type": "vote_state_update" },
+        { "name": "update_vote_state_switch", "type": "update_vote_state_switch" },
+        { "name": "authorize_with_seed", "type": "vote_authorize_with_seed_args" },
+        { "name": "authorize_checked_with_seed", "type": "vote_authorize_checked_with_seed_args" }
+      ],
+      "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_instruction.rs#L21"
     }
   ]
 }

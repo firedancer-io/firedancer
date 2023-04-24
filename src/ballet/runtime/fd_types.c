@@ -1991,6 +1991,39 @@ void fd_vote_prior_voter_encode(fd_vote_prior_voter_t* self, void const** data) 
   fd_bincode_uint64_encode(&self->epoch_end, data);
 }
 
+void fd_vote_prior_voter_0_23_5_decode(fd_vote_prior_voter_0_23_5_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
+  fd_pubkey_decode(&self->pubkey, data, dataend, allocf, allocf_arg);
+  fd_bincode_uint64_decode(&self->epoch_start, data, dataend);
+  fd_bincode_uint64_decode(&self->epoch_end, data, dataend);
+  fd_bincode_uint64_decode(&self->slot, data, dataend);
+}
+void fd_vote_prior_voter_0_23_5_destroy(fd_vote_prior_voter_0_23_5_t* self, fd_free_fun_t freef, void* freef_arg) {
+  fd_pubkey_destroy(&self->pubkey, freef, freef_arg);
+}
+
+void fd_vote_prior_voter_0_23_5_copy_to(fd_vote_prior_voter_0_23_5_t* to, fd_vote_prior_voter_0_23_5_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
+  unsigned char *enc = fd_alloca( 1, fd_vote_prior_voter_0_23_5_size(from) );
+  void const *   ptr = (void const *) enc;
+  fd_vote_prior_voter_0_23_5_encode( from, &ptr );
+  void *input = (void *) enc;
+  fd_vote_prior_voter_0_23_5_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
+}
+ulong fd_vote_prior_voter_0_23_5_size(fd_vote_prior_voter_0_23_5_t* self) {
+  ulong size = 0;
+  size += fd_pubkey_size(&self->pubkey);
+  size += sizeof(ulong);
+  size += sizeof(ulong);
+  size += sizeof(ulong);
+  return size;
+}
+
+void fd_vote_prior_voter_0_23_5_encode(fd_vote_prior_voter_0_23_5_t* self, void const** data) {
+  fd_pubkey_encode(&self->pubkey, data);
+  fd_bincode_uint64_encode(&self->epoch_start, data);
+  fd_bincode_uint64_encode(&self->epoch_end, data);
+  fd_bincode_uint64_encode(&self->slot, data);
+}
+
 void fd_vote_epoch_credits_decode(fd_vote_epoch_credits_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
   fd_bincode_uint64_decode(&self->epoch, data, dataend);
   fd_bincode_uint64_decode(&self->credits, data, dataend);
@@ -2112,6 +2145,139 @@ void fd_vote_prior_voters_encode(fd_vote_prior_voters_t* self, void const** data
   fd_bincode_uint8_encode(&self->is_empty, data);
 }
 
+void fd_vote_prior_voters_0_23_5_decode(fd_vote_prior_voters_0_23_5_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
+  self->buf = (fd_vote_prior_voter_0_23_5_t*)(*allocf)(allocf_arg, FD_VOTE_PRIOR_VOTER_0_23_5_ALIGN, FD_VOTE_PRIOR_VOTER_0_23_5_FOOTPRINT*32);
+  for (ulong i = 0; i < 32; ++i)
+    fd_vote_prior_voter_0_23_5_decode(self->buf + i, data, dataend, allocf, allocf_arg);
+  fd_bincode_uint64_decode(&self->idx, data, dataend);
+  fd_bincode_uint8_decode(&self->is_empty, data, dataend);
+}
+void fd_vote_prior_voters_0_23_5_destroy(fd_vote_prior_voters_0_23_5_t* self, fd_free_fun_t freef, void* freef_arg) {
+  if (NULL != self->buf) {
+    for (ulong i = 0; i < 32; ++i)
+      fd_vote_prior_voter_0_23_5_destroy(self->buf + i,  freef, freef_arg);
+    freef(freef_arg, self->buf);
+    self->buf = NULL;
+  }
+}
+
+void fd_vote_prior_voters_0_23_5_copy_to(fd_vote_prior_voters_0_23_5_t* to, fd_vote_prior_voters_0_23_5_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
+  unsigned char *enc = fd_alloca( 1, fd_vote_prior_voters_0_23_5_size(from) );
+  void const *   ptr = (void const *) enc;
+  fd_vote_prior_voters_0_23_5_encode( from, &ptr );
+  void *input = (void *) enc;
+  fd_vote_prior_voters_0_23_5_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
+}
+ulong fd_vote_prior_voters_0_23_5_size(fd_vote_prior_voters_0_23_5_t* self) {
+  ulong size = 0;
+  for (ulong i = 0; i < 32; ++i)
+    size += fd_vote_prior_voter_0_23_5_size(self->buf + i);
+  size += sizeof(ulong);
+  size += sizeof(char);
+  return size;
+}
+
+void fd_vote_prior_voters_0_23_5_encode(fd_vote_prior_voters_0_23_5_t* self, void const** data) {
+  for (ulong i = 0; i < 32; ++i)
+    fd_vote_prior_voter_0_23_5_encode(self->buf + i, data);
+  fd_bincode_uint64_encode(&self->idx, data);
+  fd_bincode_uint8_encode(&self->is_empty, data);
+}
+
+void fd_vote_state_0_23_5_decode(fd_vote_state_0_23_5_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
+  fd_pubkey_decode(&self->voting_node, data, dataend, allocf, allocf_arg);
+  fd_pubkey_decode(&self->authorized_voter, data, dataend, allocf, allocf_arg);
+  fd_bincode_uint64_decode(&self->authorized_voter_epoch, data, dataend);
+  fd_vote_prior_voters_0_23_5_decode(&self->prior_voters, data, dataend, allocf, allocf_arg);
+  fd_pubkey_decode(&self->authorized_withdrawer, data, dataend, allocf, allocf_arg);
+  fd_bincode_uint8_decode(&self->commission, data, dataend);
+  fd_vec_fd_vote_lockout_t_new(&self->votes);
+  ulong votes_len;
+  fd_bincode_uint64_decode(&votes_len, data, dataend);
+  for (ulong i = 0; i < votes_len; ++i) {
+    fd_vote_lockout_t elem;
+    fd_vote_lockout_decode(&elem, data, dataend, allocf, allocf_arg);
+    fd_vec_fd_vote_lockout_t_push(&self->votes, elem);
+  }
+  if (fd_bincode_option_decode(data, dataend)) {
+    self->saved_root_slot = (ulong*)(*allocf)(allocf_arg, 8, sizeof(ulong));
+    fd_bincode_uint64_decode(self->saved_root_slot, data, dataend);
+  } else
+    self->saved_root_slot = NULL;
+  fd_vec_fd_vote_epoch_credits_t_new(&self->epoch_credits);
+  ulong epoch_credits_len;
+  fd_bincode_uint64_decode(&epoch_credits_len, data, dataend);
+  for (ulong i = 0; i < epoch_credits_len; ++i) {
+    fd_vote_epoch_credits_t elem;
+    fd_vote_epoch_credits_decode(&elem, data, dataend, allocf, allocf_arg);
+    fd_vec_fd_vote_epoch_credits_t_push(&self->epoch_credits, elem);
+  }
+  fd_vote_block_timestamp_decode(&self->latest_timestamp, data, dataend, allocf, allocf_arg);
+}
+void fd_vote_state_0_23_5_destroy(fd_vote_state_0_23_5_t* self, fd_free_fun_t freef, void* freef_arg) {
+  fd_pubkey_destroy(&self->voting_node, freef, freef_arg);
+  fd_pubkey_destroy(&self->authorized_voter, freef, freef_arg);
+  fd_vote_prior_voters_0_23_5_destroy(&self->prior_voters, freef, freef_arg);
+  fd_pubkey_destroy(&self->authorized_withdrawer, freef, freef_arg);
+  fd_vec_fd_vote_lockout_t_destroy(&self->votes);
+  if (NULL != self->saved_root_slot) {
+    freef(freef_arg, self->saved_root_slot);
+    self->saved_root_slot = NULL;
+  }
+  fd_vec_fd_vote_epoch_credits_t_destroy(&self->epoch_credits);
+  fd_vote_block_timestamp_destroy(&self->latest_timestamp, freef, freef_arg);
+}
+
+void fd_vote_state_0_23_5_copy_to(fd_vote_state_0_23_5_t* to, fd_vote_state_0_23_5_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
+  unsigned char *enc = fd_alloca( 1, fd_vote_state_0_23_5_size(from) );
+  void const *   ptr = (void const *) enc;
+  fd_vote_state_0_23_5_encode( from, &ptr );
+  void *input = (void *) enc;
+  fd_vote_state_0_23_5_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
+}
+ulong fd_vote_state_0_23_5_size(fd_vote_state_0_23_5_t* self) {
+  ulong size = 0;
+  size += fd_pubkey_size(&self->voting_node);
+  size += fd_pubkey_size(&self->authorized_voter);
+  size += sizeof(ulong);
+  size += fd_vote_prior_voters_0_23_5_size(&self->prior_voters);
+  size += fd_pubkey_size(&self->authorized_withdrawer);
+  size += sizeof(char);
+  size += sizeof(ulong);
+  for (ulong i = 0; i < self->votes.cnt; ++i)
+    size += fd_vote_lockout_size(&self->votes.elems[i]);
+  size += sizeof(char);
+  if (NULL !=  self->saved_root_slot) {
+    size += sizeof(ulong);
+  }
+  size += sizeof(ulong);
+  for (ulong i = 0; i < self->epoch_credits.cnt; ++i)
+    size += fd_vote_epoch_credits_size(&self->epoch_credits.elems[i]);
+  size += fd_vote_block_timestamp_size(&self->latest_timestamp);
+  return size;
+}
+
+void fd_vote_state_0_23_5_encode(fd_vote_state_0_23_5_t* self, void const** data) {
+  fd_pubkey_encode(&self->voting_node, data);
+  fd_pubkey_encode(&self->authorized_voter, data);
+  fd_bincode_uint64_encode(&self->authorized_voter_epoch, data);
+  fd_vote_prior_voters_0_23_5_encode(&self->prior_voters, data);
+  fd_pubkey_encode(&self->authorized_withdrawer, data);
+  fd_bincode_uint8_encode(&self->commission, data);
+  fd_bincode_uint64_encode(&self->votes.cnt, data);
+  for (ulong i = 0; i < self->votes.cnt; ++i)
+    fd_vote_lockout_encode(&self->votes.elems[i], data);
+  if (self->saved_root_slot!= NULL) {
+    fd_bincode_option_encode(1, data);
+    fd_bincode_uint64_encode(self->saved_root_slot, data);
+  } else
+    fd_bincode_option_encode(0, data);
+  fd_bincode_uint64_encode(&self->epoch_credits.cnt, data);
+  for (ulong i = 0; i < self->epoch_credits.cnt; ++i)
+    fd_vote_epoch_credits_encode(&self->epoch_credits.elems[i], data);
+  fd_vote_block_timestamp_encode(&self->latest_timestamp, data);
+}
+
 void fd_vote_state_decode(fd_vote_state_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
   fd_pubkey_decode(&self->voting_node, data, dataend, allocf, allocf_arg);
   fd_pubkey_decode(&self->authorized_withdrawer, data, dataend, allocf, allocf_arg);
@@ -2218,6 +2384,68 @@ void fd_vote_state_encode(fd_vote_state_t* self, void const** data) {
   for (ulong i = 0; i < self->epoch_credits.cnt; ++i)
     fd_vote_epoch_credits_encode(&self->epoch_credits.elems[i], data);
   fd_vote_block_timestamp_encode(&self->latest_timestamp, data);
+}
+
+uchar fd_vote_state_versioned_is_v0_23_5(fd_vote_state_versioned_t* self) {
+  return self->discriminant == 0;
+}
+uchar fd_vote_state_versioned_is_current(fd_vote_state_versioned_t* self) {
+  return self->discriminant == 1;
+}
+void fd_vote_state_versioned_inner_decode(fd_vote_state_versioned_inner_t* self, uint discriminant, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
+  if (discriminant == 0) {
+    fd_vote_state_0_23_5_decode(&self->v0_23_5, data, dataend, allocf, allocf_arg);
+  }
+  if (discriminant == 1) {
+    fd_vote_state_decode(&self->current, data, dataend, allocf, allocf_arg);
+  }
+}
+void fd_vote_state_versioned_decode(fd_vote_state_versioned_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
+  fd_bincode_uint32_decode(&self->discriminant, data, dataend);
+  fd_vote_state_versioned_inner_decode(&self->inner, self->discriminant, data, dataend, allocf, allocf_arg);
+}
+void fd_vote_state_versioned_inner_destroy(fd_vote_state_versioned_inner_t* self, uint discriminant, fd_free_fun_t freef, void* freef_arg) {
+  if (discriminant == 0) {
+    fd_vote_state_0_23_5_destroy(&self->v0_23_5, freef, freef_arg);
+  }
+  if (discriminant == 1) {
+    fd_vote_state_destroy(&self->current, freef, freef_arg);
+  }
+}
+void fd_vote_state_versioned_destroy(fd_vote_state_versioned_t* self, fd_free_fun_t freef, void* freef_arg) {
+  fd_vote_state_versioned_inner_destroy(&self->inner, self->discriminant, freef, freef_arg);
+}
+
+void fd_vote_state_versioned_copy_to(fd_vote_state_versioned_t* to, fd_vote_state_versioned_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
+  unsigned char *enc = fd_alloca( 1, fd_vote_state_versioned_size(from) );
+  void const *   ptr = (void const *) enc;
+  fd_vote_state_versioned_encode( from, &ptr );
+  void *input = (void *) enc;
+  fd_vote_state_versioned_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
+}
+ulong fd_vote_state_versioned_size(fd_vote_state_versioned_t* self) {
+  ulong size = 0;
+  size += sizeof(uint);
+  if (self->discriminant == 0) {
+    size += fd_vote_state_0_23_5_size(&self->inner.v0_23_5);
+  }
+  if (self->discriminant == 1) {
+    size += fd_vote_state_size(&self->inner.current);
+  }
+  return size;
+}
+
+void fd_vote_state_versioned_inner_encode(fd_vote_state_versioned_inner_t* self, uint discriminant, void const** data) {
+  if (discriminant == 0) {
+    fd_vote_state_0_23_5_encode(&self->v0_23_5, data);
+  }
+  if (discriminant == 1) {
+    fd_vote_state_encode(&self->current, data);
+  }
+}
+void fd_vote_state_versioned_encode(fd_vote_state_versioned_t* self, void const** data) {
+  fd_bincode_uint32_encode(&self->discriminant, data);
+  fd_vote_state_versioned_inner_encode(&self->inner, self->discriminant, data);
 }
 
 void fd_vote_state_update_decode(fd_vote_state_update_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
@@ -2917,6 +3145,447 @@ void fd_vote_encode(fd_vote_t* self, void const** data) {
     fd_bincode_uint64_encode(self->timestamp, data);
   } else
     fd_bincode_option_encode(0, data);
+}
+
+void fd_vote_init_decode(fd_vote_init_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
+  fd_pubkey_decode(&self->node_pubkey, data, dataend, allocf, allocf_arg);
+  fd_pubkey_decode(&self->authorized_voter, data, dataend, allocf, allocf_arg);
+  fd_pubkey_decode(&self->authorized_withdrawer, data, dataend, allocf, allocf_arg);
+  fd_bincode_uint8_decode(&self->commission, data, dataend);
+}
+void fd_vote_init_destroy(fd_vote_init_t* self, fd_free_fun_t freef, void* freef_arg) {
+  fd_pubkey_destroy(&self->node_pubkey, freef, freef_arg);
+  fd_pubkey_destroy(&self->authorized_voter, freef, freef_arg);
+  fd_pubkey_destroy(&self->authorized_withdrawer, freef, freef_arg);
+}
+
+void fd_vote_init_copy_to(fd_vote_init_t* to, fd_vote_init_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
+  unsigned char *enc = fd_alloca( 1, fd_vote_init_size(from) );
+  void const *   ptr = (void const *) enc;
+  fd_vote_init_encode( from, &ptr );
+  void *input = (void *) enc;
+  fd_vote_init_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
+}
+ulong fd_vote_init_size(fd_vote_init_t* self) {
+  ulong size = 0;
+  size += fd_pubkey_size(&self->node_pubkey);
+  size += fd_pubkey_size(&self->authorized_voter);
+  size += fd_pubkey_size(&self->authorized_withdrawer);
+  size += sizeof(char);
+  return size;
+}
+
+void fd_vote_init_encode(fd_vote_init_t* self, void const** data) {
+  fd_pubkey_encode(&self->node_pubkey, data);
+  fd_pubkey_encode(&self->authorized_voter, data);
+  fd_pubkey_encode(&self->authorized_withdrawer, data);
+  fd_bincode_uint8_encode(&self->commission, data);
+}
+
+uchar fd_vote_authorize_is_voter(fd_vote_authorize_t* self) {
+  return self->discriminant == 0;
+}
+uchar fd_vote_authorize_is_withdrawer(fd_vote_authorize_t* self) {
+  return self->discriminant == 1;
+}
+void fd_vote_authorize_inner_decode(fd_vote_authorize_inner_t* self, uint discriminant, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
+}
+void fd_vote_authorize_decode(fd_vote_authorize_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
+  fd_bincode_uint32_decode(&self->discriminant, data, dataend);
+  fd_vote_authorize_inner_decode(&self->inner, self->discriminant, data, dataend, allocf, allocf_arg);
+}
+void fd_vote_authorize_inner_destroy(fd_vote_authorize_inner_t* self, uint discriminant, fd_free_fun_t freef, void* freef_arg) {
+}
+void fd_vote_authorize_destroy(fd_vote_authorize_t* self, fd_free_fun_t freef, void* freef_arg) {
+  fd_vote_authorize_inner_destroy(&self->inner, self->discriminant, freef, freef_arg);
+}
+
+void fd_vote_authorize_copy_to(fd_vote_authorize_t* to, fd_vote_authorize_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
+  unsigned char *enc = fd_alloca( 1, fd_vote_authorize_size(from) );
+  void const *   ptr = (void const *) enc;
+  fd_vote_authorize_encode( from, &ptr );
+  void *input = (void *) enc;
+  fd_vote_authorize_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
+}
+ulong fd_vote_authorize_size(fd_vote_authorize_t* self) {
+  ulong size = 0;
+  size += sizeof(uint);
+  return size;
+}
+
+void fd_vote_authorize_inner_encode(fd_vote_authorize_inner_t* self, uint discriminant, void const** data) {
+}
+void fd_vote_authorize_encode(fd_vote_authorize_t* self, void const** data) {
+  fd_bincode_uint32_encode(&self->discriminant, data);
+  fd_vote_authorize_inner_encode(&self->inner, self->discriminant, data);
+}
+
+void fd_vote_authorize_pubkey_decode(fd_vote_authorize_pubkey_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
+  fd_pubkey_decode(&self->pubkey, data, dataend, allocf, allocf_arg);
+  fd_vote_authorize_decode(&self->vote_authorize, data, dataend, allocf, allocf_arg);
+}
+void fd_vote_authorize_pubkey_destroy(fd_vote_authorize_pubkey_t* self, fd_free_fun_t freef, void* freef_arg) {
+  fd_pubkey_destroy(&self->pubkey, freef, freef_arg);
+  fd_vote_authorize_destroy(&self->vote_authorize, freef, freef_arg);
+}
+
+void fd_vote_authorize_pubkey_copy_to(fd_vote_authorize_pubkey_t* to, fd_vote_authorize_pubkey_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
+  unsigned char *enc = fd_alloca( 1, fd_vote_authorize_pubkey_size(from) );
+  void const *   ptr = (void const *) enc;
+  fd_vote_authorize_pubkey_encode( from, &ptr );
+  void *input = (void *) enc;
+  fd_vote_authorize_pubkey_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
+}
+ulong fd_vote_authorize_pubkey_size(fd_vote_authorize_pubkey_t* self) {
+  ulong size = 0;
+  size += fd_pubkey_size(&self->pubkey);
+  size += fd_vote_authorize_size(&self->vote_authorize);
+  return size;
+}
+
+void fd_vote_authorize_pubkey_encode(fd_vote_authorize_pubkey_t* self, void const** data) {
+  fd_pubkey_encode(&self->pubkey, data);
+  fd_vote_authorize_encode(&self->vote_authorize, data);
+}
+
+void fd_vote_switch_decode(fd_vote_switch_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
+  fd_vote_decode(&self->vote, data, dataend, allocf, allocf_arg);
+  fd_hash_decode(&self->hash, data, dataend, allocf, allocf_arg);
+}
+void fd_vote_switch_destroy(fd_vote_switch_t* self, fd_free_fun_t freef, void* freef_arg) {
+  fd_vote_destroy(&self->vote, freef, freef_arg);
+  fd_hash_destroy(&self->hash, freef, freef_arg);
+}
+
+void fd_vote_switch_copy_to(fd_vote_switch_t* to, fd_vote_switch_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
+  unsigned char *enc = fd_alloca( 1, fd_vote_switch_size(from) );
+  void const *   ptr = (void const *) enc;
+  fd_vote_switch_encode( from, &ptr );
+  void *input = (void *) enc;
+  fd_vote_switch_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
+}
+ulong fd_vote_switch_size(fd_vote_switch_t* self) {
+  ulong size = 0;
+  size += fd_vote_size(&self->vote);
+  size += fd_hash_size(&self->hash);
+  return size;
+}
+
+void fd_vote_switch_encode(fd_vote_switch_t* self, void const** data) {
+  fd_vote_encode(&self->vote, data);
+  fd_hash_encode(&self->hash, data);
+}
+
+void fd_update_vote_state_switch_decode(fd_update_vote_state_switch_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
+  fd_vote_state_update_decode(&self->vote_state_update, data, dataend, allocf, allocf_arg);
+  fd_hash_decode(&self->hash, data, dataend, allocf, allocf_arg);
+}
+void fd_update_vote_state_switch_destroy(fd_update_vote_state_switch_t* self, fd_free_fun_t freef, void* freef_arg) {
+  fd_vote_state_update_destroy(&self->vote_state_update, freef, freef_arg);
+  fd_hash_destroy(&self->hash, freef, freef_arg);
+}
+
+void fd_update_vote_state_switch_copy_to(fd_update_vote_state_switch_t* to, fd_update_vote_state_switch_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
+  unsigned char *enc = fd_alloca( 1, fd_update_vote_state_switch_size(from) );
+  void const *   ptr = (void const *) enc;
+  fd_update_vote_state_switch_encode( from, &ptr );
+  void *input = (void *) enc;
+  fd_update_vote_state_switch_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
+}
+ulong fd_update_vote_state_switch_size(fd_update_vote_state_switch_t* self) {
+  ulong size = 0;
+  size += fd_vote_state_update_size(&self->vote_state_update);
+  size += fd_hash_size(&self->hash);
+  return size;
+}
+
+void fd_update_vote_state_switch_encode(fd_update_vote_state_switch_t* self, void const** data) {
+  fd_vote_state_update_encode(&self->vote_state_update, data);
+  fd_hash_encode(&self->hash, data);
+}
+
+void fd_vote_authorize_with_seed_args_decode(fd_vote_authorize_with_seed_args_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
+  fd_vote_authorize_decode(&self->authorization_type, data, dataend, allocf, allocf_arg);
+  fd_pubkey_decode(&self->current_authority_derived_key_owner, data, dataend, allocf, allocf_arg);
+  ulong slen;
+  fd_bincode_uint64_decode(&slen, data, dataend);
+  self->current_authority_derived_key_seed = (char*)(*allocf)(allocf_arg, 1, slen + 1);
+  fd_bincode_bytes_decode((uchar *) self->current_authority_derived_key_seed, slen, data, dataend);
+  self->current_authority_derived_key_seed[slen] = '\0';
+  fd_pubkey_decode(&self->new_authority, data, dataend, allocf, allocf_arg);
+}
+void fd_vote_authorize_with_seed_args_destroy(fd_vote_authorize_with_seed_args_t* self, fd_free_fun_t freef, void* freef_arg) {
+  fd_vote_authorize_destroy(&self->authorization_type, freef, freef_arg);
+  fd_pubkey_destroy(&self->current_authority_derived_key_owner, freef, freef_arg);
+  if (NULL != self->current_authority_derived_key_seed) {
+    freef(freef_arg, self->current_authority_derived_key_seed);
+    self->current_authority_derived_key_seed = NULL;
+  }
+  fd_pubkey_destroy(&self->new_authority, freef, freef_arg);
+}
+
+void fd_vote_authorize_with_seed_args_copy_to(fd_vote_authorize_with_seed_args_t* to, fd_vote_authorize_with_seed_args_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
+  unsigned char *enc = fd_alloca( 1, fd_vote_authorize_with_seed_args_size(from) );
+  void const *   ptr = (void const *) enc;
+  fd_vote_authorize_with_seed_args_encode( from, &ptr );
+  void *input = (void *) enc;
+  fd_vote_authorize_with_seed_args_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
+}
+ulong fd_vote_authorize_with_seed_args_size(fd_vote_authorize_with_seed_args_t* self) {
+  ulong size = 0;
+  size += fd_vote_authorize_size(&self->authorization_type);
+  size += fd_pubkey_size(&self->current_authority_derived_key_owner);
+  size += sizeof(ulong) + strlen(self->current_authority_derived_key_seed);
+  size += fd_pubkey_size(&self->new_authority);
+  return size;
+}
+
+void fd_vote_authorize_with_seed_args_encode(fd_vote_authorize_with_seed_args_t* self, void const** data) {
+  fd_vote_authorize_encode(&self->authorization_type, data);
+  fd_pubkey_encode(&self->current_authority_derived_key_owner, data);
+  ulong slen = strlen((char *) self->current_authority_derived_key_seed);
+  fd_bincode_uint64_encode(&slen, data);
+  fd_bincode_bytes_encode((uchar *) self->current_authority_derived_key_seed, slen, data);
+  fd_pubkey_encode(&self->new_authority, data);
+}
+
+void fd_vote_authorize_checked_with_seed_args_decode(fd_vote_authorize_checked_with_seed_args_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
+  fd_vote_authorize_decode(&self->authorization_type, data, dataend, allocf, allocf_arg);
+  fd_pubkey_decode(&self->current_authority_derived_key_owner, data, dataend, allocf, allocf_arg);
+  ulong slen;
+  fd_bincode_uint64_decode(&slen, data, dataend);
+  self->current_authority_derived_key_seed = (char*)(*allocf)(allocf_arg, 1, slen + 1);
+  fd_bincode_bytes_decode((uchar *) self->current_authority_derived_key_seed, slen, data, dataend);
+  self->current_authority_derived_key_seed[slen] = '\0';
+}
+void fd_vote_authorize_checked_with_seed_args_destroy(fd_vote_authorize_checked_with_seed_args_t* self, fd_free_fun_t freef, void* freef_arg) {
+  fd_vote_authorize_destroy(&self->authorization_type, freef, freef_arg);
+  fd_pubkey_destroy(&self->current_authority_derived_key_owner, freef, freef_arg);
+  if (NULL != self->current_authority_derived_key_seed) {
+    freef(freef_arg, self->current_authority_derived_key_seed);
+    self->current_authority_derived_key_seed = NULL;
+  }
+}
+
+void fd_vote_authorize_checked_with_seed_args_copy_to(fd_vote_authorize_checked_with_seed_args_t* to, fd_vote_authorize_checked_with_seed_args_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
+  unsigned char *enc = fd_alloca( 1, fd_vote_authorize_checked_with_seed_args_size(from) );
+  void const *   ptr = (void const *) enc;
+  fd_vote_authorize_checked_with_seed_args_encode( from, &ptr );
+  void *input = (void *) enc;
+  fd_vote_authorize_checked_with_seed_args_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
+}
+ulong fd_vote_authorize_checked_with_seed_args_size(fd_vote_authorize_checked_with_seed_args_t* self) {
+  ulong size = 0;
+  size += fd_vote_authorize_size(&self->authorization_type);
+  size += fd_pubkey_size(&self->current_authority_derived_key_owner);
+  size += sizeof(ulong) + strlen(self->current_authority_derived_key_seed);
+  return size;
+}
+
+void fd_vote_authorize_checked_with_seed_args_encode(fd_vote_authorize_checked_with_seed_args_t* self, void const** data) {
+  fd_vote_authorize_encode(&self->authorization_type, data);
+  fd_pubkey_encode(&self->current_authority_derived_key_owner, data);
+  ulong slen = strlen((char *) self->current_authority_derived_key_seed);
+  fd_bincode_uint64_encode(&slen, data);
+  fd_bincode_bytes_encode((uchar *) self->current_authority_derived_key_seed, slen, data);
+}
+
+uchar fd_vote_instruction_is_initialize_account(fd_vote_instruction_t* self) {
+  return self->discriminant == 0;
+}
+uchar fd_vote_instruction_is_authorize(fd_vote_instruction_t* self) {
+  return self->discriminant == 1;
+}
+uchar fd_vote_instruction_is_vote(fd_vote_instruction_t* self) {
+  return self->discriminant == 2;
+}
+uchar fd_vote_instruction_is_withdraw(fd_vote_instruction_t* self) {
+  return self->discriminant == 3;
+}
+uchar fd_vote_instruction_is_update_validator_identity(fd_vote_instruction_t* self) {
+  return self->discriminant == 4;
+}
+uchar fd_vote_instruction_is_update_commission(fd_vote_instruction_t* self) {
+  return self->discriminant == 5;
+}
+uchar fd_vote_instruction_is_vote_switch(fd_vote_instruction_t* self) {
+  return self->discriminant == 6;
+}
+uchar fd_vote_instruction_is_authorize_checked(fd_vote_instruction_t* self) {
+  return self->discriminant == 7;
+}
+uchar fd_vote_instruction_is_update_vote_state(fd_vote_instruction_t* self) {
+  return self->discriminant == 8;
+}
+uchar fd_vote_instruction_is_update_vote_state_switch(fd_vote_instruction_t* self) {
+  return self->discriminant == 9;
+}
+uchar fd_vote_instruction_is_authorize_with_seed(fd_vote_instruction_t* self) {
+  return self->discriminant == 10;
+}
+uchar fd_vote_instruction_is_authorize_checked_with_seed(fd_vote_instruction_t* self) {
+  return self->discriminant == 11;
+}
+void fd_vote_instruction_inner_decode(fd_vote_instruction_inner_t* self, uint discriminant, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
+  if (discriminant == 0) {
+    fd_vote_init_decode(&self->initialize_account, data, dataend, allocf, allocf_arg);
+  }
+  if (discriminant == 1) {
+    fd_vote_authorize_pubkey_decode(&self->authorize, data, dataend, allocf, allocf_arg);
+  }
+  if (discriminant == 2) {
+    fd_vote_decode(&self->vote, data, dataend, allocf, allocf_arg);
+  }
+  if (discriminant == 3) {
+    fd_bincode_uint64_decode(&self->withdraw, data, dataend);
+  }
+  if (discriminant == 5) {
+    fd_bincode_uint8_decode(&self->update_commission, data, dataend);
+  }
+  if (discriminant == 6) {
+    fd_vote_switch_decode(&self->vote_switch, data, dataend, allocf, allocf_arg);
+  }
+  if (discriminant == 7) {
+    fd_vote_authorize_decode(&self->authorize_checked, data, dataend, allocf, allocf_arg);
+  }
+  if (discriminant == 8) {
+    fd_vote_state_update_decode(&self->update_vote_state, data, dataend, allocf, allocf_arg);
+  }
+  if (discriminant == 9) {
+    fd_update_vote_state_switch_decode(&self->update_vote_state_switch, data, dataend, allocf, allocf_arg);
+  }
+  if (discriminant == 10) {
+    fd_vote_authorize_with_seed_args_decode(&self->authorize_with_seed, data, dataend, allocf, allocf_arg);
+  }
+  if (discriminant == 11) {
+    fd_vote_authorize_checked_with_seed_args_decode(&self->authorize_checked_with_seed, data, dataend, allocf, allocf_arg);
+  }
+}
+void fd_vote_instruction_decode(fd_vote_instruction_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
+  fd_bincode_uint32_decode(&self->discriminant, data, dataend);
+  fd_vote_instruction_inner_decode(&self->inner, self->discriminant, data, dataend, allocf, allocf_arg);
+}
+void fd_vote_instruction_inner_destroy(fd_vote_instruction_inner_t* self, uint discriminant, fd_free_fun_t freef, void* freef_arg) {
+  if (discriminant == 0) {
+    fd_vote_init_destroy(&self->initialize_account, freef, freef_arg);
+  }
+  if (discriminant == 1) {
+    fd_vote_authorize_pubkey_destroy(&self->authorize, freef, freef_arg);
+  }
+  if (discriminant == 2) {
+    fd_vote_destroy(&self->vote, freef, freef_arg);
+  }
+  if (discriminant == 3) {
+  }
+  if (discriminant == 5) {
+  }
+  if (discriminant == 6) {
+    fd_vote_switch_destroy(&self->vote_switch, freef, freef_arg);
+  }
+  if (discriminant == 7) {
+    fd_vote_authorize_destroy(&self->authorize_checked, freef, freef_arg);
+  }
+  if (discriminant == 8) {
+    fd_vote_state_update_destroy(&self->update_vote_state, freef, freef_arg);
+  }
+  if (discriminant == 9) {
+    fd_update_vote_state_switch_destroy(&self->update_vote_state_switch, freef, freef_arg);
+  }
+  if (discriminant == 10) {
+    fd_vote_authorize_with_seed_args_destroy(&self->authorize_with_seed, freef, freef_arg);
+  }
+  if (discriminant == 11) {
+    fd_vote_authorize_checked_with_seed_args_destroy(&self->authorize_checked_with_seed, freef, freef_arg);
+  }
+}
+void fd_vote_instruction_destroy(fd_vote_instruction_t* self, fd_free_fun_t freef, void* freef_arg) {
+  fd_vote_instruction_inner_destroy(&self->inner, self->discriminant, freef, freef_arg);
+}
+
+void fd_vote_instruction_copy_to(fd_vote_instruction_t* to, fd_vote_instruction_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
+  unsigned char *enc = fd_alloca( 1, fd_vote_instruction_size(from) );
+  void const *   ptr = (void const *) enc;
+  fd_vote_instruction_encode( from, &ptr );
+  void *input = (void *) enc;
+  fd_vote_instruction_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
+}
+ulong fd_vote_instruction_size(fd_vote_instruction_t* self) {
+  ulong size = 0;
+  size += sizeof(uint);
+  if (self->discriminant == 0) {
+    size += fd_vote_init_size(&self->inner.initialize_account);
+  }
+  if (self->discriminant == 1) {
+    size += fd_vote_authorize_pubkey_size(&self->inner.authorize);
+  }
+  if (self->discriminant == 2) {
+    size += fd_vote_size(&self->inner.vote);
+  }
+  if (self->discriminant == 3) {
+    size += sizeof(ulong);
+  }
+  if (self->discriminant == 5) {
+    size += sizeof(char);
+  }
+  if (self->discriminant == 6) {
+    size += fd_vote_switch_size(&self->inner.vote_switch);
+  }
+  if (self->discriminant == 7) {
+    size += fd_vote_authorize_size(&self->inner.authorize_checked);
+  }
+  if (self->discriminant == 8) {
+    size += fd_vote_state_update_size(&self->inner.update_vote_state);
+  }
+  if (self->discriminant == 9) {
+    size += fd_update_vote_state_switch_size(&self->inner.update_vote_state_switch);
+  }
+  if (self->discriminant == 10) {
+    size += fd_vote_authorize_with_seed_args_size(&self->inner.authorize_with_seed);
+  }
+  if (self->discriminant == 11) {
+    size += fd_vote_authorize_checked_with_seed_args_size(&self->inner.authorize_checked_with_seed);
+  }
+  return size;
+}
+
+void fd_vote_instruction_inner_encode(fd_vote_instruction_inner_t* self, uint discriminant, void const** data) {
+  if (discriminant == 0) {
+    fd_vote_init_encode(&self->initialize_account, data);
+  }
+  if (discriminant == 1) {
+    fd_vote_authorize_pubkey_encode(&self->authorize, data);
+  }
+  if (discriminant == 2) {
+    fd_vote_encode(&self->vote, data);
+  }
+  if (discriminant == 3) {
+    fd_bincode_uint64_encode(&self->withdraw, data);
+  }
+  if (discriminant == 5) {
+    fd_bincode_uint8_encode(&self->update_commission, data);
+  }
+  if (discriminant == 6) {
+    fd_vote_switch_encode(&self->vote_switch, data);
+  }
+  if (discriminant == 7) {
+    fd_vote_authorize_encode(&self->authorize_checked, data);
+  }
+  if (discriminant == 8) {
+    fd_vote_state_update_encode(&self->update_vote_state, data);
+  }
+  if (discriminant == 9) {
+    fd_update_vote_state_switch_encode(&self->update_vote_state_switch, data);
+  }
+  if (discriminant == 10) {
+    fd_vote_authorize_with_seed_args_encode(&self->authorize_with_seed, data);
+  }
+  if (discriminant == 11) {
+    fd_vote_authorize_checked_with_seed_args_encode(&self->authorize_checked_with_seed, data);
+  }
+}
+void fd_vote_instruction_encode(fd_vote_instruction_t* self, void const** data) {
+  fd_bincode_uint32_encode(&self->discriminant, data);
+  fd_vote_instruction_inner_encode(&self->inner, self->discriminant, data);
 }
 
 #define REDBLK_T fd_serializable_account_storage_entry_t_mapnode_t
