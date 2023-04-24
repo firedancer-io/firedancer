@@ -158,56 +158,10 @@ int accounts_hash(global_state_t *state) {
   fd_funk_iter_init(state->global->funk, iter);
 
   ulong zero_accounts = 0;
-  ulong zero_accounts2 = 0;
 
   ulong num_iter_accounts = fd_funk_num_records(state->global->funk);
   fd_funk_recordid_t const * record_id;
   
-  fd_funk_recordid_t record_id2;
-  memset(record_id2.id, 0, 64);
- 
-  /*
-  {
-    fd_base58_decode_32("GUWvRYZY1A3biwwBT4MyTbETE6EvVFSGrJzmkPKnvirC", (uchar*) &record_id2);
-    fd_account_meta_t metadata;
-    int read_result = fd_acc_mgr_get_metadata( state->global->acc_mgr, state->global->funk_txn, (fd_pubkey_t *) &record_id2.id, &metadata );
-    if ( FD_UNLIKELY( read_result != FD_ACC_MGR_SUCCESS ) ) {
-      FD_LOG_ERR(("bad read from acc mgr"));
-    }
-    if ((metadata.magic != FD_ACCOUNT_META_MAGIC) || (metadata.hlen != sizeof(metadata))) {
-      FD_LOG_ERR(("invalid magic on metadata"));
-    }
-    FD_LOG_NOTICE(( "ACC: magic %u hlen %u dlen %lu slot %lu lamports %lu rent_epoch %lu exec %x", 
-          metadata.magic,
-          metadata.hlen,
-          metadata.dlen,
-          metadata.slot,
-          metadata.info.lamports,
-          metadata.info.rent_epoch,
-          metadata.info.executable));
-  }
-  
-  {
-    fd_base58_decode_32("2T1aRXuA72o19Wrne1HZCZkhLGgt44h9mVML7UiMfscj", (uchar*) &record_id2);
-    fd_account_meta_t metadata;
-    int read_result = fd_acc_mgr_get_metadata( state->global->acc_mgr, state->global->funk_txn, (fd_pubkey_t *) &record_id2.id, &metadata );
-    if ( FD_UNLIKELY( read_result != FD_ACC_MGR_SUCCESS ) ) {
-      FD_LOG_ERR(("bad read from acc mgr"));
-    }
-    if ((metadata.magic != FD_ACCOUNT_META_MAGIC) || (metadata.hlen != sizeof(metadata))) {
-      FD_LOG_ERR(("invalid magic on metadata"));
-    }
-    FD_LOG_NOTICE(( "ACC: magic %u hlen %u dlen %lu slot %lu lamports %lu rent_epoch %lu exec %x", 
-          metadata.magic,
-          metadata.hlen,
-          metadata.dlen,
-          metadata.slot,
-          metadata.info.lamports,
-          metadata.info.rent_epoch,
-          metadata.info.executable));
-  }
-*/
-
   FD_LOG_NOTICE(( "NIA %lu", num_iter_accounts ));
   ulong num_pairs = 0;
   fd_pubkey_hash_pair_t * pairs = (fd_pubkey_hash_pair_t *) state->global->allocf(state->global->allocf_arg , 8UL, num_iter_accounts*sizeof(fd_pubkey_hash_pair_t));
@@ -225,17 +179,6 @@ int accounts_hash(global_state_t *state) {
       FD_LOG_ERR(("invalid magic on metadata"));
     }
     
-    if (metadata.info.lamports == 0) {
-      zero_accounts2++;
-      char key[FD_BASE58_ENCODED_32_SZ];
-      fd_base58_encode_32((uchar const *)record_id, NULL, key);
-      char hash[FD_BASE58_ENCODED_32_SZ];
-      fd_base58_encode_32((uchar const *)metadata.hash, NULL, hash);
-      
-//      printf("ZERO %s %s\n", key, hash); 
-
-    }
-    
     if ((metadata.info.lamports == 0) | ((metadata.info.executable & ~1) != 0)) {
       zero_accounts++;
       continue;
@@ -246,23 +189,8 @@ int accounts_hash(global_state_t *state) {
     fd_memcpy(pairs[num_pairs].hash.hash, metadata.hash, 32);
     num_pairs++;
   }
-  FD_LOG_NOTICE(( "HASHING ACCOUNTS" ));
   
-  sort_pubkey_hash_pair_inplace( pairs, num_pairs );
-
-  FILE* out = fopen("/dev/shm/dump2.dat", "w");
-  for (ulong i = 0; i < num_pairs; i++) {
-    char key[FD_BASE58_ENCODED_32_SZ];
-    fd_base58_encode_32((uchar const *)pairs[i].pubkey.key, NULL, key);
-    char hash[FD_BASE58_ENCODED_32_SZ];
-    fd_base58_encode_32((uchar const *)pairs[i].hash.hash, NULL, hash);
-    
-    fprintf(out, "%s %s\n", key, hash); 
-  }
-
-  fclose(out);
-  
-  FD_LOG_WARNING(("num_iter_accounts %ld %lu %lu", num_iter_accounts, zero_accounts, zero_accounts2));
+  FD_LOG_WARNING(("num_iter_accounts %ld zero_accounts %lu", num_iter_accounts, zero_accounts));
   FD_LOG_NOTICE(( "HASHING ACCOUNTS" ));
   fd_hash_t accounts_hash;
   fd_hash_account_deltas(state->global, pairs, num_pairs, &accounts_hash);
@@ -1313,21 +1241,21 @@ int main(int argc, char **argv) {
 
   fd_vec_fd_clock_timestamp_vote_t_new( &state.global->timestamp_votes.votes );
 
-  /*
-  FD_LOG_WARNING(("loading genesis account into funk db"));
+  if (strcmp(state.cmd, "accounts_hash") != 0) {
+    FD_LOG_WARNING(("loading genesis account into funk db"));
 
-  for (ulong i = 0; i < state.global->genesis_block.accounts_len; i++) {
-    fd_pubkey_account_pair_t *a = &state.global->genesis_block.accounts[i];
+    for (ulong i = 0; i < state.global->genesis_block.accounts_len; i++) {
+      fd_pubkey_account_pair_t *a = &state.global->genesis_block.accounts[i];
 
-    char pubkey[50];
+      char pubkey[50];
 
-    fd_base58_encode_32((uchar *) state.global->genesis_block.accounts[i].key.key, NULL, pubkey);
+      fd_base58_encode_32((uchar *) state.global->genesis_block.accounts[i].key.key, NULL, pubkey);
 
-    FD_LOG_NOTICE(( "GEN_KEY: %lu %s", i, pubkey));
+      FD_LOG_NOTICE(( "GEN_KEY: %lu %s", i, pubkey));
 
-    fd_acc_mgr_write_structured_account(state.global->acc_mgr, state.global->funk_txn, 0, &a->key, &a->account);
+      fd_acc_mgr_write_structured_account(state.global->acc_mgr, state.global->funk_txn, 0, &a->key, &a->account);
+    }
   }
-  */
 
   for (ulong i = 0; i < state.global->genesis_block.native_instruction_processors_len; i++) {
     fd_string_pubkey_pair_t * ins = &state.global->genesis_block.native_instruction_processors[i];
