@@ -7,6 +7,8 @@ SHMEM_PATH="${FD_SHMEM_PATH:-/mnt/.fd}"
 
 ALL_TYPES="gigantic huge normal"
 
+# Disabling SC2128, more context here -> https://stackoverflow.com/questions/35006457/choosing-between-0-and-bash-source
+#shellcheck disable=SC2128
 BIN=$(dirname -- "$BASH_SOURCE")
 NUMA_CNT=`$BIN/fd_shmem_ctl numa-cnt --log-path "" 2> /dev/null`
 
@@ -262,7 +264,7 @@ if [ $# -lt 1 ]; then
   exit 1
 fi
 
-while [ $# -gt 0 ]; do 
+while [ $# -gt 0 ]; do
 
   OP=$1
   shift 1

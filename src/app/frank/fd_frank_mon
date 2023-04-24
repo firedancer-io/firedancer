@@ -11,7 +11,7 @@ APP=$1
 shift 1
 
 CONF=tmp/$APP.cfg
-. $CONF || exit $?
+. "$CONF" || exit $?
 
-$BUILD/bin/fd_frank_mon.bin $MON_ARGS $*
+"$BUILD"/bin/fd_frank_mon.bin $MON_ARGS "$@"
 
