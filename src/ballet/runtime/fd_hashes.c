@@ -41,14 +41,15 @@ fd_hash_account_deltas(fd_global_ctx_t *global, fd_pubkey_hash_pair_t * pairs, u
     FD_LOG_NOTICE(( "W %ld", pairs_len));
 
   for( ulong i = 0; i < pairs_len; ++i ) {
-    char encoded_pubkey[50];
-    fd_base58_encode_32((uchar *) pairs[i].pubkey.key, 0, encoded_pubkey);
 
-    char encoded_hash[50];
-    fd_base58_encode_32((uchar *) pairs[i].hash.hash, 0, encoded_hash);
+    if (FD_UNLIKELY(global->log_level > 2)) {
+      char encoded_pubkey[50];
+      fd_base58_encode_32((uchar *) pairs[i].pubkey.key, 0, encoded_pubkey);
 
-    if (FD_UNLIKELY(global->log_level > 2)) 
+      char encoded_hash[50];
+      fd_base58_encode_32((uchar *) pairs[i].hash.hash, 0, encoded_hash);
       FD_LOG_NOTICE(( "X { \"key\":%ld, \"pubkey\":\"%s\", \"hash\":\"%s\" },", i, encoded_pubkey, encoded_hash));
+    }
 
     fd_sha256_append( &shas[0] , (uchar const *) pairs[i].hash.hash, sizeof( fd_hash_t ) );
     num_hashes[0]++;
@@ -67,6 +68,7 @@ fd_hash_account_deltas(fd_global_ctx_t *global, fd_pubkey_hash_pair_t * pairs, u
         fd_sha256_fini( &shas[j], &sub_hash );
         fd_sha256_init( &shas[j] );
         if (FD_UNLIKELY(global->log_level > 5)) { 
+          char encoded_hash[50];
           fd_base58_encode_32((uchar *) sub_hash.hash, 0, encoded_hash);
           FD_LOG_NOTICE(( "V %lu %lu %s", i, j, encoded_hash ));
         }
