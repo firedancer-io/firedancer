@@ -574,12 +574,17 @@ fields_body_destroy = {
 
 # Map different names for the same times into how firedancer knows them
 for entry in entries:
-    for f in entry["fields"]:
-        if f["type"] in type_map:
-            f["type"] = type_map[f["type"]]
-        if "element" in f:
-            if f["element"] in type_map:
-                f["element"] = type_map[f["element"]]
+    if "fields" in entry:
+      for f in entry["fields"]:
+          if f["type"] in type_map:
+              f["type"] = type_map[f["type"]]
+          if "element" in f:
+              if f["element"] in type_map:
+                  f["element"] = type_map[f["element"]]
+    if "variants" in entry:
+      for v in entry["variants"]:
+          if "type" in v and v["type"] in type_map:
+              v["type"] = type_map[v["type"]]
 
 # Generate one instance of the fd_vector.h template for each unique element type.
 vector_dynamic_element_types = set()
@@ -588,42 +593,43 @@ map_element_types = dict()
 
 for entry in entries:
     # Create the dynamic vector types needed for this entry
-    for f in entry["fields"]:
-        if f["type"] == "vector_dynamic":
+    if "fields" in entry:
+      for f in entry["fields"]:
+          if f["type"] == "vector_dynamic":
+              element_type = vector_dynamic_elem_type(namespace, f)
+              if element_type in vector_dynamic_element_types:
+                  continue
+
+              print("#define VECT_NAME " + vector_dynamic_prefix(namespace, f), file=header)
+              print("#define VECT_ELEMENT " + element_type, file=header)
+              print("#include \"../../funk/fd_vector.h\"", file=header)
+              print("#undef VECT_NAME", file=header)
+              print("#undef VECT_ELEMENT\n", file=header)
+
+              vector_dynamic_element_types.add(element_type)
+
+          if f["type"] == "map":
             element_type = vector_dynamic_elem_type(namespace, f)
-            if element_type in vector_dynamic_element_types:
+            if element_type in map_element_types:
                 continue
+            
+            mapname = element_type + "_map"
+            nodename = element_type + "_mapnode"
+            print(f"typedef struct {nodename} {nodename}_t;", file=header)
+            print(f"#define REDBLK_T {nodename}_t", file=header)
+            print(f"#define REDBLK_NAME {mapname}", file=header)
+            print(f"#include \"../../util/tmpl/fd_redblack.h\"", file=header)
+            print(f"#undef REDBLK_T", file=header)
+            print(f"#undef REDBLK_NAME", file=header)
+            print(f"struct {nodename} {{", file=header)
+            print(f"    {element_type} elem;", file=header)
+            print(f"    redblack_member_t redblack;", file=header)
+            print(f"}};", file=header)
+            print(f"typedef struct {nodename} {nodename}_t;", file=header)
 
-            print("#define VECT_NAME " + vector_dynamic_prefix(namespace, f), file=header)
-            print("#define VECT_ELEMENT " + element_type, file=header)
-            print("#include \"../../funk/fd_vector.h\"", file=header)
-            print("#undef VECT_NAME", file=header)
-            print("#undef VECT_ELEMENT\n", file=header)
+            map_element_types[element_type] = f["key"]
 
-            vector_dynamic_element_types.add(element_type)
-
-        if f["type"] == "map":
-          element_type = vector_dynamic_elem_type(namespace, f)
-          if element_type in map_element_types:
-              continue
-          
-          mapname = element_type + "_map"
-          nodename = element_type + "_mapnode"
-          print(f"typedef struct {nodename} {nodename}_t;", file=header)
-          print(f"#define REDBLK_T {nodename}_t", file=header)
-          print(f"#define REDBLK_NAME {mapname}", file=header)
-          print(f"#include \"../../util/tmpl/fd_redblack.h\"", file=header)
-          print(f"#undef REDBLK_T", file=header)
-          print(f"#undef REDBLK_NAME", file=header)
-          print(f"struct {nodename} {{", file=header)
-          print(f"    {element_type} elem;", file=header)
-          print(f"    redblack_member_t redblack;", file=header)
-          print(f"}};", file=header)
-          print(f"typedef struct {nodename} {nodename}_t;", file=header)
-
-          map_element_types[element_type] = f["key"]
-
-    if "comment" in entry:
+    if "comment" in entry and "type" in entry and entry["type"] != "enum":
       print("/* " + entry["comment"] + " */", file=header)
 
     n = namespace + "_" + entry["name"]
@@ -632,16 +638,45 @@ for entry in entries:
         a = "__attribute__" + entry["attribute"] + " "
     else:
         a = ""
-    print("struct "+ a + n + " {", file=header);
-    for f in entry["fields"]:
-        if f["type"] in fields_header:
-            fields_header[f["type"]](namespace, f)
-        else:
-            print("  " + namespace + "_" + f["type"] + "_t " + f["name"] + ";", file=header)
 
-    print("};", file=header)
-    print("typedef struct " + n + " " + n + "_t;", file=header);
-    print("#define " + n.upper() + "_FOOTPRINT sizeof(" + n+"_t)", file=header);
+    if "type" in entry and entry["type"] == "struct":
+      print("struct "+ a + n + " {", file=header)
+      for f in entry["fields"]:
+          if f["type"] in fields_header:
+              fields_header[f["type"]](namespace, f)
+          else:
+               print("  " + namespace + "_" + f["type"] + "_t " + f["name"] + ";", file=header)
+
+      print("};", file=header)
+      print("typedef struct " + n + " " + n + "_t;", file=header)
+
+    elif "type" in entry and entry["type"] == "enum":
+      print("union "+ a + n + "_inner {", file=header)
+      
+      for v in entry["variants"]:
+          empty = True
+          if "type" in v:
+            empty = False
+            if v["type"] in fields_header:
+                fields_header[v["type"]](namespace, v)
+            else:
+                print("  " + namespace + "_" + v["type"] + "_t " + v["name"] + ";", file=header)
+      if empty:
+          print("  uchar nonempty; /* Hack to support enums with no inner structures */ ", file=header)
+
+      print("};", file=header)
+      print("typedef union " + n + "_inner " + n + "_inner_t;\n", file=header)
+
+      if "comment" in entry:
+        print("/* " + entry["comment"] + " */", file=header)
+
+      print("struct "+ a + n + " {", file=header)
+      print("  uint discriminant;", file=header)
+      print("  " + n + "_inner_t inner;", file=header)
+      print("};", file=header)
+      print("typedef struct " + n + " " + n + "_t;", file=header)
+
+    print("#define " + n.upper() + "_FOOTPRINT sizeof(" + n+"_t)", file=header)
     print("#define " + n.upper() + "_ALIGN (8UL)", file=header)
     print("", file=header)
 
@@ -661,20 +696,64 @@ for entry in entries:
     print("ulong " + n + "_size(" + n + "_t* self);", file=header)
     print("", file=header)
 
-    print("void " + n + "_decode(" + n + "_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {", file=body)
-    for f in entry["fields"]:
-        if f["type"] in fields_body_decode:
-            fields_body_decode[f["type"]](namespace, f)
-        else:
-            print("  " + namespace + "_" + f["type"] + "_decode(&self->" + f["name"] + ", data, dataend, allocf, allocf_arg);", file=body)
-    print("}", file=body)
-    print("void " + n + "_destroy(" + n + "_t* self, fd_free_fun_t freef, void* freef_arg) {", file=body)
-    for f in entry["fields"]:
-        if f["type"] in fields_body_destroy:
-            fields_body_destroy[f["type"]](namespace, f)
-        else:
-            print("  " + namespace + "_" + f["type"] + "_destroy(&self->" + f["name"] + ", freef, freef_arg);", file=body)
-    print("}", file=body)
+    if entry["type"] == "enum":
+        for i, v in enumerate(entry["variants"]):
+            print("uchar " + n + "_is_"+ v["name"] + "(" + n + "_t* self);", file=header)
+            print("uchar " + n + "_is_"+ v["name"] + "(" + n + "_t* self) {", file=body)
+            print("  return self->discriminant == " + str(i) + ";", file=body)
+            print("}", file=body)
+        print("", file=header)
+
+    if entry["type"] == "enum":
+        print("void " + n + "_inner_decode(" + n + "_inner_t* self, uint discriminant, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {", file=body)
+        for i, v in enumerate(entry["variants"]):
+            if "type" in v:
+              print("  if (discriminant == "+ str(i) +") {", file=body)
+              if v["type"] in fields_body_decode:
+                  fields_body_decode[v["type"]](namespace, v)
+              else:
+                  print("  " + namespace + "_" + v["type"] + "_decode(&self->" + v["name"] + ", data, dataend, allocf, allocf_arg);", file=body)
+              print("   }", file=body)
+
+        print("}", file=body)
+
+        print("void " + n + "_decode(" + n + "_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {", file=body)
+        print("  fd_bincode_uint32_decode(&self->discriminant, data, dataend);", file=body)
+        print("  " + namespace + "_" + entry["name"] + "_inner_decode(&self->inner" + ", self->discriminant, data, dataend, allocf, allocf_arg);", file=body)
+        print("}", file=body)
+    else:
+      print("void " + n + "_decode(" + n + "_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {", file=body)
+      for f in entry["fields"]:
+          if f["type"] in fields_body_decode:
+              fields_body_decode[f["type"]](namespace, f)
+          else:
+              print("  " + namespace + "_" + f["type"] + "_decode(&self->" + f["name"] + ", data, dataend, allocf, allocf_arg);", file=body)
+      print("}", file=body)
+      
+    
+    if entry["type"] == "enum":
+      print("void " + n + "_inner_destroy(" + n + "_inner_t* self, uint discriminant, fd_free_fun_t freef, void* freef_arg) {", file=body)
+      for i, v in enumerate(entry["variants"]):
+          if "type" in v:
+            print("  if (discriminant == "+ str(i) +") {", file=body)
+            if v["type"] in fields_body_destroy:
+                 fields_body_destroy[v["type"]](namespace, v)
+            else:
+                print("  " + namespace + "_" + v["type"] + "_destroy(&self->" + v["name"] + ", freef, freef_arg);", file=body)
+            print("   }", file=body)
+      print("}", file=body)
+
+      print("void " + n + "_destroy(" + n + "_t* self, fd_free_fun_t freef, void* freef_arg) {", file=body)
+      print("  " + namespace + "_" + entry["name"] + "_inner_destroy(&self->inner" + ", self->discriminant, freef, freef_arg);", file=body)
+      print("}", file=body)
+    else:
+      print("void " + n + "_destroy(" + n + "_t* self, fd_free_fun_t freef, void* freef_arg) {", file=body)
+      for f in entry["fields"]:
+          if f["type"] in fields_body_destroy:
+              fields_body_destroy[f["type"]](namespace, f)
+          else:
+              print("  " + namespace + "_" + f["type"] + "_destroy(&self->" + f["name"] + ", freef, freef_arg);", file=body)
+      print("}", file=body)
     print("", file=body)
     print("void " + n + "_copy_to(" + n + "_t* to, " + n + "_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {", file=body)
 
@@ -685,22 +764,55 @@ for entry in entries:
     print("  " + n + "_decode( to, (const void **) &input, ptr, allocf, allocf_arg );", file=body)
     print("}", file=body)
     print("ulong " + n + "_size(" + n + "_t* self) {", file=body)
-    print("  ulong size = 0;", file=body)
-    for f in entry["fields"]:
-        if f["type"] in fields_body_size:
-            fields_body_size[f["type"]](namespace, f)
-        else:
-            print("  size += " + namespace + "_" + f["type"] + "_size(&self->" + f["name"] + ");", file=body)
+    
+    if entry["type"] == "enum":
+      print("  ulong size = 0;", file=body)
+      print("  size += sizeof(uint);", file=body)
+      for i, v in enumerate(entry["variants"]):
+          if "type" in v:
+            print("  if (self->discriminant == "+ str(i) +") {", file=body)
+            if v["type"] in fields_body_size:
+                 fields_body_size[v["type"]](namespace, v)
+            else:
+                print("  size += " + namespace + "_" + v["type"] + "_size(&self->inner." + v["name"] + ");", file=body)
+            print("   }", file=body)
+
+    else:
+      print("  ulong size = 0;", file=body)
+      for f in entry["fields"]:
+          if f["type"] in fields_body_size:
+              fields_body_size[f["type"]](namespace, f)
+          else:
+              print("  size += " + namespace + "_" + f["type"] + "_size(&self->" + f["name"] + ");", file=body)
+
     print("  return size;", file=body)
     print("}", file=body)
     print("", file=body)
-    print("void " + n + "_encode(" + n + "_t* self, void const** data) {", file=body)
-    for f in entry["fields"]:
-        if f["type"] in fields_body_encode:
-            fields_body_encode[f["type"]](namespace, f)
-        else:
-            print("  " + namespace + "_" + f["type"] + "_encode(&self->" + f["name"] + ", data);", file=body)
-    print("}", file=body)
+    if entry["type"] == "enum":
+        print("void " + n + "_inner_encode(" + n + "_inner_t* self, uint discriminant, void const** data) {", file=body)
+        for i, v in enumerate(entry["variants"]):
+            if "type" in v:
+              print("  if (discriminant == "+ str(i) +") {", file=body)
+              if v["type"] in fields_body_encode:
+                  fields_body_encode[v["type"]](namespace, v)
+              else:
+                  print("  " + namespace + "_" + v["type"] + "_encode(&self->" + v["name"] + ", data);", file=body)
+              print("   }", file=body)
+        print("}", file=body)
+
+        print("void " + n + "_encode(" + n + "_t* self, void const** data) {", file=body)
+        print("  fd_bincode_uint32_encode(&self->discriminant, data);", file=body)
+        print("  " + namespace + "_" + entry["name"] + "_inner_encode(&self->inner" + ", self->discriminant, data);", file=body)
+        print("}", file=body)
+    else:
+      print("void " + n + "_encode(" + n + "_t* self, void const** data) {", file=body)
+      if "fields" in entry:
+        for f in entry["fields"]:
+            if f["type"] in fields_body_encode:
+                fields_body_encode[f["type"]](namespace, f)
+            else:
+                print("  " + namespace + "_" + f["type"] + "_encode(&self->" + f["name"] + ", data);", file=body)
+      print("}", file=body)
     print("", file=body)
 
 for (element_type,key) in map_element_types.items():
