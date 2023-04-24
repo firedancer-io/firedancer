@@ -1,6 +1,144 @@
 #ifndef HEADER_fd_src_funk_fd_funk_h
 #define HEADER_fd_src_funk_fd_funk_h
 
+/* Funk is a hybrid of a database and version control system designed
+   for ultra high performance blockchain applications.
+
+   The data model is a flat table of records.  A record is a xid/key-val
+   pair and records are fast O(1) indexable by their xid/key.  xid is
+   short for "transaction id" and xids have a compile time fixed size
+   (e.g. 32-bytes).  keys also have a compile time fixed size (e.g.
+   64-bytes).  Record values can vary in length from zero to a compile
+   time maximum size (e.g. 10 MiB) inclusive.  The xid of all zeros is
+   reserved for the "root" transaction described below.  Outside this,
+   there are no restrictions on what a record xid, key or val can be.
+   Individual records can be created, updated, and deleted arbitrarily.
+   They are just binary data as far as funk is concerned.
+
+   The maximum number of records is practically only limited by the size
+   of the workspace memory backing it.  At present, each record requires
+   160 bytes of metadata (this includes records that are published and
+   records that are in the process of being updated).  In other words,
+   about 15 GiB record metadata per hundred million records.  The
+   maximum number of records that can be held by a funk instance is set
+   when that it was created (given the persistent and relocatable
+   properties described below though, it is straightforward to resize
+   this).
+
+   The transaction model is richer than what is found in a regular
+   database.  A transaction is a xid-"updates to parent transaction"
+   pair and transactions are fast O(1) indexable by xid.  There is no
+   limitation on the number of updates in a transaction.  Updates to the
+   record value are represented as the complete value record to make it
+   trivial to apply cryptographic operations like hashing to all updated
+   values in a transaction with file I/O, operating system calls, memory
+   data marshalling overhead, etc.
+
+   Like records, the maximum number of transactions in preparation is
+   practically only limited by the size of the workspace memory backing
+   it.  At present, a transaction requires 96 bytes of memory.  As such,
+   it is practical to track a large number of forks during an extended
+   period of time of consensus failure in a block chain application
+   without using much workspace memory at all.  The maximum number of
+   transactions that can be in preparation at any given time by a funk
+   instance is set when that it was created (as before, given the
+   persistent and relocatable properties described below, it is
+   straightforward to resize this).
+
+   That is, a transaction is a compact representation of the entire
+   history of _all_ the database records up to that transaction.  We can
+   trace a transaction's ancestors back to the "root" give the complete
+   history of all database records up to that transaction.  The “root”
+   transaction is the ancestor of all transactions.  The transaction
+   history is linear from the root transaction until the "last
+   published" transaction and cannot be modified.
+
+   To start "preparing" a new transaction, we pick the new transaction's
+   xid (ideally unique among all transactions thus far) and fork off a
+   "parent" transaction.  This operation virtually clones all database
+   records in the parent transaction, even if the parent itself has not
+   yet been "published".  Given the above, the parent transaction can be
+   the last published transaction or another in-preparation transaction.
+
+   Record creates, reads, writes, erases take place within the context
+   of a transaction, effectively isolating them to a private view of the
+   world.  If a transaction is "cancelled", the changes to a record are
+   harmlessly discarded.  Records in a transaction that has children
+   cannot be changed ("frozen").
+
+   As such, it is not possible to modify the records in transactions
+   strictly before the last published transaction.  However, it is
+   possible to modify the records of the last published transaction if
+   there no transactions in preparation.  This is useful, for example,
+   loading up a transaction from a checkpointed state on startup.  A
+   common idiom at start of a block though is to fork the potential
+   transaction of that block from its parent (freezing its parent) and
+   then fork a child of the the potential transaction that will hold
+   updates to the block that are incrementally "merged" into the
+   potential transaction as block processing progresses.
+
+   Critically, in-preparation transactions form a tree of dependent and
+   competing histories.  This model matches blockchains, where
+   speculative work can proceed on several blocks at once long before
+   the blocks are finalized.  When a transaction is published, all its
+   ancestors are also published, any competiting histories are
+   cancelled, leaving only a linear history up to the published
+   transaction.  There is no practical limitation on the complexity of
+   this tree.
+
+   Funk tolerates applications crashing or being killed.  On a clean
+   process termination, the state of the database will correspond to the
+   last published transactions and all in-preperation transactions as
+   they were at termination.  Extensive memory integrity checkers are
+   provided to help with resuming / recovering if a code is killed
+   uncleanly / crashes / etc in the middle of funk operations.  Hardware
+   failures (or abrupt power loss) are not handled.  These latter
+   scenarios require hardware solutions such redundant disk arrays and
+   uninterruptible power supplies and/or background methods for writing
+   published records to permanent storage described below.
+
+   Under the hood, the database state is stored in NUMA and TLB
+   optimized shared memory (i.e. fd_wksp) such that various database
+   operations can be used concurrently by multiple threads distributed
+   arbitrarily over multiple processes zero copy.
+
+   Database operations are at algorithmic minimums with reasonably high
+   performance implementations.  Most are fast O(1) time and all are
+   small O(1) space (e.g. in complex transaction tree operations, there
+   is no use of dynamic allocation to hold temporaries and no use of
+   recursion to bound stack utilization at trivial levels).  Further,
+   there are no explicit operating system calls and, given a well
+   optimized workspace (i.e. the wksp pages fit within a core's TLBs) no
+   implicit operating system calls.  Critical operations (e.g. those
+   that actually might impact transaction history) are fortified against
+   memory corruption (e.g. robust against DoS attack by corrupting
+   transaction metadata to create loops in transaction trees or going
+   out of bounds in memory).  Outside of record values, all memory used
+   is preallocated.  And record values are O(1) lockfree concurrent
+   allocated via fd_alloc using the same wksp as funk (the
+   implementation is structured in layers that are straightforard to
+   retarget for particular applications as might be necessary).
+
+   The shared memory used by a funk instance is within a workspace such
+   that it is also persistent and remotely inspectable.  For example, a
+   process attached to a funk instance can be terminated and a new
+   process can resume exactly where the original process left off
+   instantly (e.g. no file I/O).  Or a real-time monitor could
+   visualizing the ongoing activity in a database non-invasively (e.g.
+   forks in flight, records updated by forks, etc).  Or an auxiliary
+   process could be lazily and non-invasively writing all published
+   records to permanent storage in the background in parallel with
+   on-going operations.
+
+   The records are further stored in the workspace memory relocatably.
+   For example, workspace memory could just be committed to a persistent
+   memory as is (or backed by NVMe or such directly), copied to a
+   different host, and processes on the new host could resume (indeed,
+   though it wouldn't be space efficient, the shared memory region is
+   usable as is as an on-disk checkpoint file).  Or the workspace could
+   be resized and what not to handle large needs than when the database
+   was initially created and it all "just works". */
+
 #if FD_HAS_HOSTED && FD_HAS_X86
 
 //#include "fd_funk_base.h" /* Includes ../util/fd_util.h */
