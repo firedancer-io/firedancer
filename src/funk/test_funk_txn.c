@@ -6,6 +6,12 @@
 
 #if FD_HAS_HOSTED && FD_HAS_X86
 
+FD_STATIC_ASSERT( FD_FUNK_TXN_ALIGN    ==32UL, unit_test );
+FD_STATIC_ASSERT( FD_FUNK_TXN_FOOTPRINT==96UL, unit_test );
+
+FD_STATIC_ASSERT( FD_FUNK_TXN_ALIGN    ==alignof(fd_funk_txn_t), unit_test );
+FD_STATIC_ASSERT( FD_FUNK_TXN_FOOTPRINT==sizeof (fd_funk_txn_t), unit_test );
+
 FD_STATIC_ASSERT( FD_FUNK_TXN_IDX_NULL==(ulong)UINT_MAX, unit_test );
 
 static fd_funk_txn_xid_t *

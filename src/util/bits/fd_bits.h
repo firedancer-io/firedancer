@@ -531,7 +531,9 @@ FD_FN_PURE static inline ulong  fd_ulong_load_7_fast ( void const * p ) { ulong 
 
 #define FD_STORE( T, dst, val ) (__extension__({           \
     T * _fd_store_tmp = (T *)fd_type_pun( (void *)(dst) ); \
-    *_fd_store_tmp = (val); _fd_store_tmp;                 \
+    *_fd_store_tmp = (val);                                \
+    FD_COMPILER_MFENCE();                                  \
+    _fd_store_tmp;                                         \
   }))
 
 FD_FN_PURE static inline uchar  fd_uchar_load_1      ( void const * p ) { FD_COMPILER_FORGET( p ) ; return (        *(uchar  const *)p); }
