@@ -3,6 +3,7 @@
 
 typedef char* (*fd_alloc_fun_t)(void *arg, ulong align, ulong len);
 typedef void  (*fd_free_fun_t) (void *arg, void *ptr);
+typedef void (*fd_walk_fun_t)(void *arg, const char* name, int type, const char *type_name, int level);
 
 #define FD_HASH_FOOTPRINT (32UL)
 #define FD_HASH_ALIGN (8UL)
@@ -42,6 +43,11 @@ void fd_hash_encode(fd_hash_t* self, void const** data) {
   fd_bincode_bytes_encode(&self->hash[0], sizeof(self->hash), data);
 }
 
+static inline
+void fd_hash_walk(FD_FN_UNUSED fd_hash_t* self, FD_FN_UNUSED fd_walk_fun_t fun, FD_FN_UNUSED const char *name, FD_FN_UNUSED int level) {
+  fun(self->hash, name, 35, name, level);
+}
+
 #define fd_hash_check_zero(_x)           (!((_x)->ul[0] | (_x)->ul[1] | (_x)->ul[2] | (_x)->ul[3]))
 #define fd_hash_set_zero(_x)             {((_x)->ul[0] = 0); ((_x)->ul[1] = 0); ((_x)->ul[2] = 0); ((_x)->ul[3] = 0);}
 
@@ -51,6 +57,7 @@ void fd_hash_encode(fd_hash_t* self, void const** data) {
 #define fd_pubkey_size(_x)               fd_hash_size(_x)
 #define fd_pubkey_check_zero(_x)         fd_hash_check_zero(_x)
 #define fd_pubkey_set_zero(_x)           fd_hash_set_zero(_x)
+#define fd_pubkey_walk(_x, _y, _z, _l)   fd_hash_walk(_x, _y, _z, _l)
 
 FD_PROTOTYPES_END
 

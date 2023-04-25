@@ -8,6 +8,8 @@
 
 #include "program/fd_system_program.h"
 #include "program/fd_vote_program.h"
+#include <stdio.h>
+#include <ctype.h>
 
 #ifdef _DISABLE_OPTIMIZATION
 #pragma GCC optimize ("O0")
@@ -559,4 +561,58 @@ fd_global_process_genesis_config     ( fd_global_ctx_t *global  )
 //      genesis_config.rent,
 //    );
 
+}
+
+void fd_printer_walker(void *arg, const char* name, int type, const char *type_name, int level) {
+  if (NULL == arg)
+    return;
+  while (level-- > 0)
+    printf("  ");
+  switch (type) {
+    case 1:
+    case 9:
+      if (isprint(*((char *) arg)))
+        printf("\"%s\": \"%c\",  // %s\n", name, *((char *) arg), type_name);
+      else
+        printf("\"%s\": \"%d\",  // %s\n", name, *((char *) arg), type_name);
+      break;
+    case 2:
+    case 3:
+    case 4:
+      printf("\"%s\": \"%s\",  // %s\n", name, ((char *) arg), type_name);
+      break;
+    case 5:
+      printf("\"%s\": \"%f\",  // %s\n", name, *((double *) arg), type_name);
+      break;
+    case 6:
+      printf("\"%s\": \"%ld\",  // %s\n", name, *((long *) arg), type_name);
+      break;
+    case 7:
+      printf("\"%s\": \"%d\",  // %s\n", name, *((uint *) arg), type_name);
+      break;
+    case 8:
+      printf("\"%s\": \"%llx\",  // %s\n", name, (unsigned long long) *((uint128 *) arg), type_name);
+      break;
+    case 11:
+      printf("\"%s\": \"%ld\",  // %s\n", name, *((ulong *) arg), type_name);
+      break;
+    case 12:
+      printf("\"%s\": \"%d\",  // %s\n", name, *((ushort *) arg), type_name);
+      break;
+    case 32:
+      printf("\"%s\": {\n", name);
+      break;
+    case 33:
+      printf("},\n");
+      break;
+    case 35: {
+      char buf[50];
+      fd_base58_encode_32((uchar *) arg, NULL, buf);
+      printf("\"%s\": \"%s\",\n", name, buf);
+      break;
+    }
+  default: 
+    printf("arg: %ld  name: %s  type: %d   type_name: %s\n", (ulong) arg, name, type, type_name);
+    break;
+  }
 }

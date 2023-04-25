@@ -6,6 +6,11 @@ void fd_fee_calculator_decode(fd_fee_calculator_t* self, void const** data, void
 void fd_fee_calculator_destroy(fd_fee_calculator_t* self, fd_free_fun_t freef, void* freef_arg) {
 }
 
+void fd_fee_calculator_walk(fd_fee_calculator_t* self, fd_walk_fun_t fun, const char *name, int level) {
+  fun(self, name, 32, "fd_fee_calculator", level++);
+  fun(&self->lamports_per_signature, "lamports_per_signature", 11, "ulong", level + 1);
+  fun(self, name, 33, "fd_fee_calculator", --level);
+}
 void fd_fee_calculator_copy_to(fd_fee_calculator_t* to, fd_fee_calculator_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
   unsigned char *enc = fd_alloca( 1, fd_fee_calculator_size(from) );
   void const *   ptr = (void const *) enc;
@@ -32,6 +37,13 @@ void fd_hash_age_destroy(fd_hash_age_t* self, fd_free_fun_t freef, void* freef_a
   fd_fee_calculator_destroy(&self->fee_calculator, freef, freef_arg);
 }
 
+void fd_hash_age_walk(fd_hash_age_t* self, fd_walk_fun_t fun, const char *name, int level) {
+  fun(self, name, 32, "fd_hash_age", level++);
+  fd_fee_calculator_walk(&self->fee_calculator, fun, "fee_calculator", level + 1);
+  fun(&self->hash_index, "hash_index", 11, "ulong", level + 1);
+  fun(&self->timestamp, "timestamp", 11, "ulong", level + 1);
+  fun(self, name, 33, "fd_hash_age", --level);
+}
 void fd_hash_age_copy_to(fd_hash_age_t* to, fd_hash_age_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
   unsigned char *enc = fd_alloca( 1, fd_hash_age_size(from) );
   void const *   ptr = (void const *) enc;
@@ -62,6 +74,12 @@ void fd_hash_hash_age_pair_destroy(fd_hash_hash_age_pair_t* self, fd_free_fun_t 
   fd_hash_age_destroy(&self->val, freef, freef_arg);
 }
 
+void fd_hash_hash_age_pair_walk(fd_hash_hash_age_pair_t* self, fd_walk_fun_t fun, const char *name, int level) {
+  fun(self, name, 32, "fd_hash_hash_age_pair", level++);
+  fd_hash_walk(&self->key, fun, "key", level + 1);
+  fd_hash_age_walk(&self->val, fun, "val", level + 1);
+  fun(self, name, 33, "fd_hash_hash_age_pair", --level);
+}
 void fd_hash_hash_age_pair_copy_to(fd_hash_hash_age_pair_t* to, fd_hash_hash_age_pair_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
   unsigned char *enc = fd_alloca( 1, fd_hash_hash_age_pair_size(from) );
   void const *   ptr = (void const *) enc;
@@ -111,6 +129,19 @@ void fd_block_hash_queue_destroy(fd_block_hash_queue_t* self, fd_free_fun_t free
   }
 }
 
+void fd_block_hash_queue_walk(fd_block_hash_queue_t* self, fd_walk_fun_t fun, const char *name, int level) {
+  fun(self, name, 32, "fd_block_hash_queue", level++);
+  fun(&self->last_hash_index, "last_hash_index", 11, "ulong", level + 1);
+  // fun(&self->last_hash, "last_hash", 16, "option", level + 1);
+  if (self->ages_len != 0) {
+    fun(NULL, NULL, 30, "ages", level++);
+    for (ulong i = 0; i < self->ages_len; ++i)
+      fd_hash_hash_age_pair_walk(self->ages + i, fun, "hash_hash_age_pair", level + 1);
+    fun(NULL, NULL, 31, "ages", --level);
+  }
+  fun(&self->max_age, "max_age", 11, "ulong", level + 1);
+  fun(self, name, 33, "fd_block_hash_queue", --level);
+}
 void fd_block_hash_queue_copy_to(fd_block_hash_queue_t* to, fd_block_hash_queue_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
   unsigned char *enc = fd_alloca( 1, fd_block_hash_queue_size(from) );
   void const *   ptr = (void const *) enc;
@@ -157,6 +188,15 @@ void fd_epoch_schedule_decode(fd_epoch_schedule_t* self, void const** data, void
 void fd_epoch_schedule_destroy(fd_epoch_schedule_t* self, fd_free_fun_t freef, void* freef_arg) {
 }
 
+void fd_epoch_schedule_walk(fd_epoch_schedule_t* self, fd_walk_fun_t fun, const char *name, int level) {
+  fun(self, name, 32, "fd_epoch_schedule", level++);
+  fun(&self->slots_per_epoch, "slots_per_epoch", 11, "ulong", level + 1);
+  fun(&self->leader_schedule_slot_offset, "leader_schedule_slot_offset", 11, "ulong", level + 1);
+  fun(&self->warmup, "warmup", 9, "uchar", level + 1);
+  fun(&self->first_normal_epoch, "first_normal_epoch", 11, "ulong", level + 1);
+  fun(&self->first_normal_slot, "first_normal_slot", 11, "ulong", level + 1);
+  fun(self, name, 33, "fd_epoch_schedule", --level);
+}
 void fd_epoch_schedule_copy_to(fd_epoch_schedule_t* to, fd_epoch_schedule_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
   unsigned char *enc = fd_alloca( 1, fd_epoch_schedule_size(from) );
   void const *   ptr = (void const *) enc;
@@ -192,6 +232,15 @@ void fd_fee_rate_governor_decode(fd_fee_rate_governor_t* self, void const** data
 void fd_fee_rate_governor_destroy(fd_fee_rate_governor_t* self, fd_free_fun_t freef, void* freef_arg) {
 }
 
+void fd_fee_rate_governor_walk(fd_fee_rate_governor_t* self, fd_walk_fun_t fun, const char *name, int level) {
+  fun(self, name, 32, "fd_fee_rate_governor", level++);
+  fun(&self->target_lamports_per_signature, "target_lamports_per_signature", 11, "ulong", level + 1);
+  fun(&self->target_signatures_per_slot, "target_signatures_per_slot", 11, "ulong", level + 1);
+  fun(&self->min_lamports_per_signature, "min_lamports_per_signature", 11, "ulong", level + 1);
+  fun(&self->max_lamports_per_signature, "max_lamports_per_signature", 11, "ulong", level + 1);
+  fun(&self->burn_percent, "burn_percent", 9, "uchar", level + 1);
+  fun(self, name, 33, "fd_fee_rate_governor", --level);
+}
 void fd_fee_rate_governor_copy_to(fd_fee_rate_governor_t* to, fd_fee_rate_governor_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
   unsigned char *enc = fd_alloca( 1, fd_fee_rate_governor_size(from) );
   void const *   ptr = (void const *) enc;
@@ -224,6 +273,12 @@ void fd_slot_pair_decode(fd_slot_pair_t* self, void const** data, void const* da
 void fd_slot_pair_destroy(fd_slot_pair_t* self, fd_free_fun_t freef, void* freef_arg) {
 }
 
+void fd_slot_pair_walk(fd_slot_pair_t* self, fd_walk_fun_t fun, const char *name, int level) {
+  fun(self, name, 32, "fd_slot_pair", level++);
+  fun(&self->slot, "slot", 11, "ulong", level + 1);
+  fun(&self->val, "val", 11, "ulong", level + 1);
+  fun(self, name, 33, "fd_slot_pair", --level);
+}
 void fd_slot_pair_copy_to(fd_slot_pair_t* to, fd_slot_pair_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
   unsigned char *enc = fd_alloca( 1, fd_slot_pair_size(from) );
   void const *   ptr = (void const *) enc;
@@ -261,6 +316,16 @@ void fd_hard_forks_destroy(fd_hard_forks_t* self, fd_free_fun_t freef, void* fre
   }
 }
 
+void fd_hard_forks_walk(fd_hard_forks_t* self, fd_walk_fun_t fun, const char *name, int level) {
+  fun(self, name, 32, "fd_hard_forks", level++);
+  if (self->hard_forks_len != 0) {
+    fun(NULL, NULL, 30, "hard_forks", level++);
+    for (ulong i = 0; i < self->hard_forks_len; ++i)
+      fd_slot_pair_walk(self->hard_forks + i, fun, "slot_pair", level + 1);
+    fun(NULL, NULL, 31, "hard_forks", --level);
+  }
+  fun(self, name, 33, "fd_hard_forks", --level);
+}
 void fd_hard_forks_copy_to(fd_hard_forks_t* to, fd_hard_forks_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
   unsigned char *enc = fd_alloca( 1, fd_hard_forks_size(from) );
   void const *   ptr = (void const *) enc;
@@ -295,6 +360,16 @@ void fd_inflation_decode(fd_inflation_t* self, void const** data, void const* da
 void fd_inflation_destroy(fd_inflation_t* self, fd_free_fun_t freef, void* freef_arg) {
 }
 
+void fd_inflation_walk(fd_inflation_t* self, fd_walk_fun_t fun, const char *name, int level) {
+  fun(self, name, 32, "fd_inflation", level++);
+  fun(&self->initial, "initial", 5, "double", level + 1);
+  fun(&self->terminal, "terminal", 5, "double", level + 1);
+  fun(&self->taper, "taper", 5, "double", level + 1);
+  fun(&self->foundation, "foundation", 5, "double", level + 1);
+  fun(&self->foundation_term, "foundation_term", 5, "double", level + 1);
+  fun(&self->__unused, "__unused", 5, "double", level + 1);
+  fun(self, name, 33, "fd_inflation", --level);
+}
 void fd_inflation_copy_to(fd_inflation_t* to, fd_inflation_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
   unsigned char *enc = fd_alloca( 1, fd_inflation_size(from) );
   void const *   ptr = (void const *) enc;
@@ -330,6 +405,13 @@ void fd_rent_decode(fd_rent_t* self, void const** data, void const* dataend, fd_
 void fd_rent_destroy(fd_rent_t* self, fd_free_fun_t freef, void* freef_arg) {
 }
 
+void fd_rent_walk(fd_rent_t* self, fd_walk_fun_t fun, const char *name, int level) {
+  fun(self, name, 32, "fd_rent", level++);
+  fun(&self->lamports_per_uint8_year, "lamports_per_uint8_year", 11, "ulong", level + 1);
+  fun(&self->exemption_threshold, "exemption_threshold", 5, "double", level + 1);
+  fun(&self->burn_percent, "burn_percent", 9, "uchar", level + 1);
+  fun(self, name, 33, "fd_rent", --level);
+}
 void fd_rent_copy_to(fd_rent_t* to, fd_rent_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
   unsigned char *enc = fd_alloca( 1, fd_rent_size(from) );
   void const *   ptr = (void const *) enc;
@@ -362,6 +444,14 @@ void fd_rent_collector_destroy(fd_rent_collector_t* self, fd_free_fun_t freef, v
   fd_rent_destroy(&self->rent, freef, freef_arg);
 }
 
+void fd_rent_collector_walk(fd_rent_collector_t* self, fd_walk_fun_t fun, const char *name, int level) {
+  fun(self, name, 32, "fd_rent_collector", level++);
+  fun(&self->epoch, "epoch", 11, "ulong", level + 1);
+  fd_epoch_schedule_walk(&self->epoch_schedule, fun, "epoch_schedule", level + 1);
+  fun(&self->slots_per_year, "slots_per_year", 5, "double", level + 1);
+  fd_rent_walk(&self->rent, fun, "rent", level + 1);
+  fun(self, name, 33, "fd_rent_collector", --level);
+}
 void fd_rent_collector_copy_to(fd_rent_collector_t* to, fd_rent_collector_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
   unsigned char *enc = fd_alloca( 1, fd_rent_collector_size(from) );
   void const *   ptr = (void const *) enc;
@@ -393,6 +483,13 @@ void fd_stake_history_entry_decode(fd_stake_history_entry_t* self, void const** 
 void fd_stake_history_entry_destroy(fd_stake_history_entry_t* self, fd_free_fun_t freef, void* freef_arg) {
 }
 
+void fd_stake_history_entry_walk(fd_stake_history_entry_t* self, fd_walk_fun_t fun, const char *name, int level) {
+  fun(self, name, 32, "fd_stake_history_entry", level++);
+  fun(&self->effective, "effective", 11, "ulong", level + 1);
+  fun(&self->activating, "activating", 11, "ulong", level + 1);
+  fun(&self->deactivating, "deactivating", 11, "ulong", level + 1);
+  fun(self, name, 33, "fd_stake_history_entry", --level);
+}
 void fd_stake_history_entry_copy_to(fd_stake_history_entry_t* to, fd_stake_history_entry_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
   unsigned char *enc = fd_alloca( 1, fd_stake_history_entry_size(from) );
   void const *   ptr = (void const *) enc;
@@ -422,6 +519,12 @@ void fd_stake_history_epochentry_pair_destroy(fd_stake_history_epochentry_pair_t
   fd_stake_history_entry_destroy(&self->entry, freef, freef_arg);
 }
 
+void fd_stake_history_epochentry_pair_walk(fd_stake_history_epochentry_pair_t* self, fd_walk_fun_t fun, const char *name, int level) {
+  fun(self, name, 32, "fd_stake_history_epochentry_pair", level++);
+  fun(&self->epoch, "epoch", 11, "ulong", level + 1);
+  fd_stake_history_entry_walk(&self->entry, fun, "entry", level + 1);
+  fun(self, name, 33, "fd_stake_history_epochentry_pair", --level);
+}
 void fd_stake_history_epochentry_pair_copy_to(fd_stake_history_epochentry_pair_t* to, fd_stake_history_epochentry_pair_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
   unsigned char *enc = fd_alloca( 1, fd_stake_history_epochentry_pair_size(from) );
   void const *   ptr = (void const *) enc;
@@ -459,6 +562,16 @@ void fd_stake_history_destroy(fd_stake_history_t* self, fd_free_fun_t freef, voi
   }
 }
 
+void fd_stake_history_walk(fd_stake_history_t* self, fd_walk_fun_t fun, const char *name, int level) {
+  fun(self, name, 32, "fd_stake_history", level++);
+  if (self->entries_len != 0) {
+    fun(NULL, NULL, 30, "entries", level++);
+    for (ulong i = 0; i < self->entries_len; ++i)
+      fd_stake_history_epochentry_pair_walk(self->entries + i, fun, "stake_history_epochentry_pair", level + 1);
+    fun(NULL, NULL, 31, "entries", --level);
+  }
+  fun(self, name, 33, "fd_stake_history", --level);
+}
 void fd_stake_history_copy_to(fd_stake_history_t* to, fd_stake_history_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
   unsigned char *enc = fd_alloca( 1, fd_stake_history_size(from) );
   void const *   ptr = (void const *) enc;
@@ -502,6 +615,15 @@ void fd_solana_account_destroy(fd_solana_account_t* self, fd_free_fun_t freef, v
   fd_pubkey_destroy(&self->owner, freef, freef_arg);
 }
 
+void fd_solana_account_walk(fd_solana_account_t* self, fd_walk_fun_t fun, const char *name, int level) {
+  fun(self, name, 32, "fd_solana_account", level++);
+  fun(&self->lamports, "lamports", 11, "ulong", level + 1);
+  fun(self->data, "data", 2, "unsigned char", level + 1);
+  fd_pubkey_walk(&self->owner, fun, "owner", level + 1);
+  fun(&self->executable, "executable", 9, "uchar", level + 1);
+  fun(&self->rent_epoch, "rent_epoch", 11, "ulong", level + 1);
+  fun(self, name, 33, "fd_solana_account", --level);
+}
 void fd_solana_account_copy_to(fd_solana_account_t* to, fd_solana_account_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
   unsigned char *enc = fd_alloca( 1, fd_solana_account_size(from) );
   void const *   ptr = (void const *) enc;
@@ -541,6 +663,13 @@ void fd_vote_accounts_pair_destroy(fd_vote_accounts_pair_t* self, fd_free_fun_t 
   fd_solana_account_destroy(&self->value, freef, freef_arg);
 }
 
+void fd_vote_accounts_pair_walk(fd_vote_accounts_pair_t* self, fd_walk_fun_t fun, const char *name, int level) {
+  fun(self, name, 32, "fd_vote_accounts_pair", level++);
+  fd_pubkey_walk(&self->key, fun, "key", level + 1);
+  fun(&self->stake, "stake", 11, "ulong", level + 1);
+  fd_solana_account_walk(&self->value, fun, "value", level + 1);
+  fun(self, name, 33, "fd_vote_accounts_pair", --level);
+}
 void fd_vote_accounts_pair_copy_to(fd_vote_accounts_pair_t* to, fd_vote_accounts_pair_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
   unsigned char *enc = fd_alloca( 1, fd_vote_accounts_pair_size(from) );
   void const *   ptr = (void const *) enc;
@@ -580,6 +709,16 @@ void fd_vote_accounts_destroy(fd_vote_accounts_t* self, fd_free_fun_t freef, voi
   }
 }
 
+void fd_vote_accounts_walk(fd_vote_accounts_t* self, fd_walk_fun_t fun, const char *name, int level) {
+  fun(self, name, 32, "fd_vote_accounts", level++);
+  if (self->vote_accounts_len != 0) {
+    fun(NULL, NULL, 30, "vote_accounts", level++);
+    for (ulong i = 0; i < self->vote_accounts_len; ++i)
+      fd_vote_accounts_pair_walk(self->vote_accounts + i, fun, "vote_accounts_pair", level + 1);
+    fun(NULL, NULL, 31, "vote_accounts", --level);
+  }
+  fun(self, name, 33, "fd_vote_accounts", --level);
+}
 void fd_vote_accounts_copy_to(fd_vote_accounts_t* to, fd_vote_accounts_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
   unsigned char *enc = fd_alloca( 1, fd_vote_accounts_size(from) );
   void const *   ptr = (void const *) enc;
@@ -614,6 +753,15 @@ void fd_delegation_destroy(fd_delegation_t* self, fd_free_fun_t freef, void* fre
   fd_pubkey_destroy(&self->voter_pubkey, freef, freef_arg);
 }
 
+void fd_delegation_walk(fd_delegation_t* self, fd_walk_fun_t fun, const char *name, int level) {
+  fun(self, name, 32, "fd_delegation", level++);
+  fd_pubkey_walk(&self->voter_pubkey, fun, "voter_pubkey", level + 1);
+  fun(&self->stake, "stake", 11, "ulong", level + 1);
+  fun(&self->activation_epoch, "activation_epoch", 11, "ulong", level + 1);
+  fun(&self->deactivation_epoch, "deactivation_epoch", 11, "ulong", level + 1);
+  fun(&self->warmup_cooldown_rate, "warmup_cooldown_rate", 5, "double", level + 1);
+  fun(self, name, 33, "fd_delegation", --level);
+}
 void fd_delegation_copy_to(fd_delegation_t* to, fd_delegation_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
   unsigned char *enc = fd_alloca( 1, fd_delegation_size(from) );
   void const *   ptr = (void const *) enc;
@@ -648,6 +796,12 @@ void fd_delegation_pair_destroy(fd_delegation_pair_t* self, fd_free_fun_t freef,
   fd_delegation_destroy(&self->value, freef, freef_arg);
 }
 
+void fd_delegation_pair_walk(fd_delegation_pair_t* self, fd_walk_fun_t fun, const char *name, int level) {
+  fun(self, name, 32, "fd_delegation_pair", level++);
+  fd_pubkey_walk(&self->key, fun, "key", level + 1);
+  fd_delegation_walk(&self->value, fun, "value", level + 1);
+  fun(self, name, 33, "fd_delegation_pair", --level);
+}
 void fd_delegation_pair_copy_to(fd_delegation_pair_t* to, fd_delegation_pair_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
   unsigned char *enc = fd_alloca( 1, fd_delegation_pair_size(from) );
   void const *   ptr = (void const *) enc;
@@ -691,6 +845,20 @@ void fd_stakes_delegation_destroy(fd_stakes_delegation_t* self, fd_free_fun_t fr
   fd_stake_history_destroy(&self->stake_history, freef, freef_arg);
 }
 
+void fd_stakes_delegation_walk(fd_stakes_delegation_t* self, fd_walk_fun_t fun, const char *name, int level) {
+  fun(self, name, 32, "fd_stakes_delegation", level++);
+  fd_vote_accounts_walk(&self->vote_accounts, fun, "vote_accounts", level + 1);
+  if (self->stake_delegations_len != 0) {
+    fun(NULL, NULL, 30, "stake_delegations", level++);
+    for (ulong i = 0; i < self->stake_delegations_len; ++i)
+      fd_delegation_pair_walk(self->stake_delegations + i, fun, "delegation_pair", level + 1);
+    fun(NULL, NULL, 31, "stake_delegations", --level);
+  }
+  fun(&self->unused, "unused", 11, "ulong", level + 1);
+  fun(&self->epoch, "epoch", 11, "ulong", level + 1);
+  fd_stake_history_walk(&self->stake_history, fun, "stake_history", level + 1);
+  fun(self, name, 33, "fd_stakes_delegation", --level);
+}
 void fd_stakes_delegation_copy_to(fd_stakes_delegation_t* to, fd_stakes_delegation_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
   unsigned char *enc = fd_alloca( 1, fd_stakes_delegation_size(from) );
   void const *   ptr = (void const *) enc;
@@ -734,6 +902,15 @@ void fd_bank_incremental_snapshot_persistence_destroy(fd_bank_incremental_snapsh
   fd_hash_destroy(&self->incremental_hash, freef, freef_arg);
 }
 
+void fd_bank_incremental_snapshot_persistence_walk(fd_bank_incremental_snapshot_persistence_t* self, fd_walk_fun_t fun, const char *name, int level) {
+  fun(self, name, 32, "fd_bank_incremental_snapshot_persistence", level++);
+  fun(&self->full_slot, "full_slot", 11, "ulong", level + 1);
+  fd_hash_walk(&self->full_hash, fun, "full_hash", level + 1);
+  fun(&self->full_capitalization, "full_capitalization", 11, "ulong", level + 1);
+  fd_hash_walk(&self->incremental_hash, fun, "incremental_hash", level + 1);
+  fun(&self->incremental_capitalization, "incremental_capitalization", 11, "ulong", level + 1);
+  fun(self, name, 33, "fd_bank_incremental_snapshot_persistence", --level);
+}
 void fd_bank_incremental_snapshot_persistence_copy_to(fd_bank_incremental_snapshot_persistence_t* to, fd_bank_incremental_snapshot_persistence_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
   unsigned char *enc = fd_alloca( 1, fd_bank_incremental_snapshot_persistence_size(from) );
   void const *   ptr = (void const *) enc;
@@ -778,6 +955,17 @@ void fd_node_vote_accounts_destroy(fd_node_vote_accounts_t* self, fd_free_fun_t 
   }
 }
 
+void fd_node_vote_accounts_walk(fd_node_vote_accounts_t* self, fd_walk_fun_t fun, const char *name, int level) {
+  fun(self, name, 32, "fd_node_vote_accounts", level++);
+  if (self->vote_accounts_len != 0) {
+    fun(NULL, NULL, 30, "vote_accounts", level++);
+    for (ulong i = 0; i < self->vote_accounts_len; ++i)
+      fd_pubkey_walk(self->vote_accounts + i, fun, "pubkey", level + 1);
+    fun(NULL, NULL, 31, "vote_accounts", --level);
+  }
+  fun(&self->total_stake, "total_stake", 11, "ulong", level + 1);
+  fun(self, name, 33, "fd_node_vote_accounts", --level);
+}
 void fd_node_vote_accounts_copy_to(fd_node_vote_accounts_t* to, fd_node_vote_accounts_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
   unsigned char *enc = fd_alloca( 1, fd_node_vote_accounts_size(from) );
   void const *   ptr = (void const *) enc;
@@ -812,6 +1000,12 @@ void fd_pubkey_node_vote_accounts_pair_destroy(fd_pubkey_node_vote_accounts_pair
   fd_node_vote_accounts_destroy(&self->value, freef, freef_arg);
 }
 
+void fd_pubkey_node_vote_accounts_pair_walk(fd_pubkey_node_vote_accounts_pair_t* self, fd_walk_fun_t fun, const char *name, int level) {
+  fun(self, name, 32, "fd_pubkey_node_vote_accounts_pair", level++);
+  fd_pubkey_walk(&self->key, fun, "key", level + 1);
+  fd_node_vote_accounts_walk(&self->value, fun, "value", level + 1);
+  fun(self, name, 33, "fd_pubkey_node_vote_accounts_pair", --level);
+}
 void fd_pubkey_node_vote_accounts_pair_copy_to(fd_pubkey_node_vote_accounts_pair_t* to, fd_pubkey_node_vote_accounts_pair_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
   unsigned char *enc = fd_alloca( 1, fd_pubkey_node_vote_accounts_pair_size(from) );
   void const *   ptr = (void const *) enc;
@@ -840,6 +1034,12 @@ void fd_pubkey_pubkey_pair_destroy(fd_pubkey_pubkey_pair_t* self, fd_free_fun_t 
   fd_pubkey_destroy(&self->value, freef, freef_arg);
 }
 
+void fd_pubkey_pubkey_pair_walk(fd_pubkey_pubkey_pair_t* self, fd_walk_fun_t fun, const char *name, int level) {
+  fun(self, name, 32, "fd_pubkey_pubkey_pair", level++);
+  fd_pubkey_walk(&self->key, fun, "key", level + 1);
+  fd_pubkey_walk(&self->value, fun, "value", level + 1);
+  fun(self, name, 33, "fd_pubkey_pubkey_pair", --level);
+}
 void fd_pubkey_pubkey_pair_copy_to(fd_pubkey_pubkey_pair_t* to, fd_pubkey_pubkey_pair_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
   unsigned char *enc = fd_alloca( 1, fd_pubkey_pubkey_pair_size(from) );
   void const *   ptr = (void const *) enc;
@@ -893,6 +1093,24 @@ void fd_epoch_stakes_destroy(fd_epoch_stakes_t* self, fd_free_fun_t freef, void*
   }
 }
 
+void fd_epoch_stakes_walk(fd_epoch_stakes_t* self, fd_walk_fun_t fun, const char *name, int level) {
+  fun(self, name, 32, "fd_epoch_stakes", level++);
+  fd_stakes_delegation_walk(&self->stakes, fun, "stakes", level + 1);
+  fun(&self->total_stake, "total_stake", 11, "ulong", level + 1);
+  if (self->node_id_to_vote_accounts_len != 0) {
+    fun(NULL, NULL, 30, "node_id_to_vote_accounts", level++);
+    for (ulong i = 0; i < self->node_id_to_vote_accounts_len; ++i)
+      fd_pubkey_node_vote_accounts_pair_walk(self->node_id_to_vote_accounts + i, fun, "pubkey_node_vote_accounts_pair", level + 1);
+    fun(NULL, NULL, 31, "node_id_to_vote_accounts", --level);
+  }
+  if (self->epoch_authorized_voters_len != 0) {
+    fun(NULL, NULL, 30, "epoch_authorized_voters", level++);
+    for (ulong i = 0; i < self->epoch_authorized_voters_len; ++i)
+      fd_pubkey_pubkey_pair_walk(self->epoch_authorized_voters + i, fun, "pubkey_pubkey_pair", level + 1);
+    fun(NULL, NULL, 31, "epoch_authorized_voters", --level);
+  }
+  fun(self, name, 33, "fd_epoch_stakes", --level);
+}
 void fd_epoch_stakes_copy_to(fd_epoch_stakes_t* to, fd_epoch_stakes_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
   unsigned char *enc = fd_alloca( 1, fd_epoch_stakes_size(from) );
   void const *   ptr = (void const *) enc;
@@ -936,6 +1154,12 @@ void fd_epoch_epoch_stakes_pair_destroy(fd_epoch_epoch_stakes_pair_t* self, fd_f
   fd_epoch_stakes_destroy(&self->value, freef, freef_arg);
 }
 
+void fd_epoch_epoch_stakes_pair_walk(fd_epoch_epoch_stakes_pair_t* self, fd_walk_fun_t fun, const char *name, int level) {
+  fun(self, name, 32, "fd_epoch_epoch_stakes_pair", level++);
+  fun(&self->key, "key", 11, "ulong", level + 1);
+  fd_epoch_stakes_walk(&self->value, fun, "value", level + 1);
+  fun(self, name, 33, "fd_epoch_epoch_stakes_pair", --level);
+}
 void fd_epoch_epoch_stakes_pair_copy_to(fd_epoch_epoch_stakes_pair_t* to, fd_epoch_epoch_stakes_pair_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
   unsigned char *enc = fd_alloca( 1, fd_epoch_epoch_stakes_pair_size(from) );
   void const *   ptr = (void const *) enc;
@@ -963,6 +1187,12 @@ void fd_pubkey_u64_pair_destroy(fd_pubkey_u64_pair_t* self, fd_free_fun_t freef,
   fd_pubkey_destroy(&self->_0, freef, freef_arg);
 }
 
+void fd_pubkey_u64_pair_walk(fd_pubkey_u64_pair_t* self, fd_walk_fun_t fun, const char *name, int level) {
+  fun(self, name, 32, "fd_pubkey_u64_pair", level++);
+  fd_pubkey_walk(&self->_0, fun, "_0", level + 1);
+  fun(&self->_1, "_1", 11, "ulong", level + 1);
+  fun(self, name, 33, "fd_pubkey_u64_pair", --level);
+}
 void fd_pubkey_u64_pair_copy_to(fd_pubkey_u64_pair_t* to, fd_pubkey_u64_pair_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
   unsigned char *enc = fd_alloca( 1, fd_pubkey_u64_pair_size(from) );
   void const *   ptr = (void const *) enc;
@@ -1026,6 +1256,28 @@ void fd_unused_accounts_destroy(fd_unused_accounts_t* self, fd_free_fun_t freef,
   }
 }
 
+void fd_unused_accounts_walk(fd_unused_accounts_t* self, fd_walk_fun_t fun, const char *name, int level) {
+  fun(self, name, 32, "fd_unused_accounts", level++);
+  if (self->unused1_len != 0) {
+    fun(NULL, NULL, 30, "unused1", level++);
+    for (ulong i = 0; i < self->unused1_len; ++i)
+      fd_pubkey_walk(self->unused1 + i, fun, "pubkey", level + 1);
+    fun(NULL, NULL, 31, "unused1", --level);
+  }
+  if (self->unused2_len != 0) {
+    fun(NULL, NULL, 30, "unused2", level++);
+    for (ulong i = 0; i < self->unused2_len; ++i)
+      fd_pubkey_walk(self->unused2 + i, fun, "pubkey", level + 1);
+    fun(NULL, NULL, 31, "unused2", --level);
+  }
+  if (self->unused3_len != 0) {
+    fun(NULL, NULL, 30, "unused3", level++);
+    for (ulong i = 0; i < self->unused3_len; ++i)
+      fd_pubkey_u64_pair_walk(self->unused3 + i, fun, "pubkey_u64_pair", level + 1);
+    fun(NULL, NULL, 31, "unused3", --level);
+  }
+  fun(self, name, 33, "fd_unused_accounts", --level);
+}
 void fd_unused_accounts_copy_to(fd_unused_accounts_t* to, fd_unused_accounts_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
   unsigned char *enc = fd_alloca( 1, fd_unused_accounts_size(from) );
   void const *   ptr = (void const *) enc;
@@ -1146,6 +1398,52 @@ void fd_deserializable_versioned_bank_destroy(fd_deserializable_versioned_bank_t
   }
 }
 
+void fd_deserializable_versioned_bank_walk(fd_deserializable_versioned_bank_t* self, fd_walk_fun_t fun, const char *name, int level) {
+  fun(self, name, 32, "fd_deserializable_versioned_bank", level++);
+  fd_block_hash_queue_walk(&self->blockhash_queue, fun, "blockhash_queue", level + 1);
+  if (self->ancestors_len != 0) {
+    fun(NULL, NULL, 30, "ancestors", level++);
+    for (ulong i = 0; i < self->ancestors_len; ++i)
+      fd_slot_pair_walk(self->ancestors + i, fun, "slot_pair", level + 1);
+    fun(NULL, NULL, 31, "ancestors", --level);
+  }
+  fd_hash_walk(&self->hash, fun, "hash", level + 1);
+  fd_hash_walk(&self->parent_hash, fun, "parent_hash", level + 1);
+  fun(&self->parent_slot, "parent_slot", 11, "ulong", level + 1);
+  fd_hard_forks_walk(&self->hard_forks, fun, "hard_forks", level + 1);
+  fun(&self->transaction_count, "transaction_count", 11, "ulong", level + 1);
+  fun(&self->tick_height, "tick_height", 11, "ulong", level + 1);
+  fun(&self->signature_count, "signature_count", 11, "ulong", level + 1);
+  fun(&self->capitalization, "capitalization", 11, "ulong", level + 1);
+  fun(&self->max_tick_height, "max_tick_height", 11, "ulong", level + 1);
+  fun(self->hashes_per_tick, "hashes_per_tick", 11, "ulong", level + 1);
+  fun(&self->ticks_per_slot, "ticks_per_slot", 11, "ulong", level + 1);
+  fun(&self->ns_per_slot, "ns_per_slot", 8, "uint128", level + 1);
+  fun(&self->genesis_creation_time, "genesis_creation_time", 11, "ulong", level + 1);
+  fun(&self->slots_per_year, "slots_per_year", 5, "double", level + 1);
+  fun(&self->accounts_data_len, "accounts_data_len", 11, "ulong", level + 1);
+  fun(&self->slot, "slot", 11, "ulong", level + 1);
+  fun(&self->epoch, "epoch", 11, "ulong", level + 1);
+  fun(&self->block_height, "block_height", 11, "ulong", level + 1);
+  fd_pubkey_walk(&self->collector_id, fun, "collector_id", level + 1);
+  fun(&self->collector_fees, "collector_fees", 11, "ulong", level + 1);
+  fd_fee_calculator_walk(&self->fee_calculator, fun, "fee_calculator", level + 1);
+  fd_fee_rate_governor_walk(&self->fee_rate_governor, fun, "fee_rate_governor", level + 1);
+  fun(&self->collected_rent, "collected_rent", 11, "ulong", level + 1);
+  fd_rent_collector_walk(&self->rent_collector, fun, "rent_collector", level + 1);
+  fd_epoch_schedule_walk(&self->epoch_schedule, fun, "epoch_schedule", level + 1);
+  fd_inflation_walk(&self->inflation, fun, "inflation", level + 1);
+  fd_stakes_delegation_walk(&self->stakes, fun, "stakes", level + 1);
+  fd_unused_accounts_walk(&self->unused_accounts, fun, "unused_accounts", level + 1);
+  if (self->epoch_stakes_len != 0) {
+    fun(NULL, NULL, 30, "epoch_stakes", level++);
+    for (ulong i = 0; i < self->epoch_stakes_len; ++i)
+      fd_epoch_epoch_stakes_pair_walk(self->epoch_stakes + i, fun, "epoch_epoch_stakes_pair", level + 1);
+    fun(NULL, NULL, 31, "epoch_stakes", --level);
+  }
+  fun(&self->is_delta, "is_delta", 1, "char", level + 1);
+  fun(self, name, 33, "fd_deserializable_versioned_bank", --level);
+}
 void fd_deserializable_versioned_bank_copy_to(fd_deserializable_versioned_bank_t* to, fd_deserializable_versioned_bank_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
   unsigned char *enc = fd_alloca( 1, fd_deserializable_versioned_bank_size(from) );
   void const *   ptr = (void const *) enc;
@@ -1251,6 +1549,12 @@ void fd_serializable_account_storage_entry_decode(fd_serializable_account_storag
 void fd_serializable_account_storage_entry_destroy(fd_serializable_account_storage_entry_t* self, fd_free_fun_t freef, void* freef_arg) {
 }
 
+void fd_serializable_account_storage_entry_walk(fd_serializable_account_storage_entry_t* self, fd_walk_fun_t fun, const char *name, int level) {
+  fun(self, name, 32, "fd_serializable_account_storage_entry", level++);
+  fun(&self->id, "id", 11, "ulong", level + 1);
+  fun(&self->accounts_current_len, "accounts_current_len", 11, "ulong", level + 1);
+  fun(self, name, 33, "fd_serializable_account_storage_entry", --level);
+}
 void fd_serializable_account_storage_entry_copy_to(fd_serializable_account_storage_entry_t* to, fd_serializable_account_storage_entry_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
   unsigned char *enc = fd_alloca( 1, fd_serializable_account_storage_entry_size(from) );
   void const *   ptr = (void const *) enc;
@@ -1280,6 +1584,15 @@ void fd_bank_hash_stats_decode(fd_bank_hash_stats_t* self, void const** data, vo
 void fd_bank_hash_stats_destroy(fd_bank_hash_stats_t* self, fd_free_fun_t freef, void* freef_arg) {
 }
 
+void fd_bank_hash_stats_walk(fd_bank_hash_stats_t* self, fd_walk_fun_t fun, const char *name, int level) {
+  fun(self, name, 32, "fd_bank_hash_stats", level++);
+  fun(&self->num_updated_accounts, "num_updated_accounts", 11, "ulong", level + 1);
+  fun(&self->num_removed_accounts, "num_removed_accounts", 11, "ulong", level + 1);
+  fun(&self->num_lamports_stored, "num_lamports_stored", 11, "ulong", level + 1);
+  fun(&self->total_data_len, "total_data_len", 11, "ulong", level + 1);
+  fun(&self->num_executable_accounts, "num_executable_accounts", 11, "ulong", level + 1);
+  fun(self, name, 33, "fd_bank_hash_stats", --level);
+}
 void fd_bank_hash_stats_copy_to(fd_bank_hash_stats_t* to, fd_bank_hash_stats_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
   unsigned char *enc = fd_alloca( 1, fd_bank_hash_stats_size(from) );
   void const *   ptr = (void const *) enc;
@@ -1316,6 +1629,13 @@ void fd_bank_hash_info_destroy(fd_bank_hash_info_t* self, fd_free_fun_t freef, v
   fd_bank_hash_stats_destroy(&self->stats, freef, freef_arg);
 }
 
+void fd_bank_hash_info_walk(fd_bank_hash_info_t* self, fd_walk_fun_t fun, const char *name, int level) {
+  fun(self, name, 32, "fd_bank_hash_info", level++);
+  fd_hash_walk(&self->hash, fun, "hash", level + 1);
+  fd_hash_walk(&self->snapshot_hash, fun, "snapshot_hash", level + 1);
+  fd_bank_hash_stats_walk(&self->stats, fun, "stats", level + 1);
+  fun(self, name, 33, "fd_bank_hash_info", --level);
+}
 void fd_bank_hash_info_copy_to(fd_bank_hash_info_t* to, fd_bank_hash_info_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
   unsigned char *enc = fd_alloca( 1, fd_bank_hash_info_size(from) );
   void const *   ptr = (void const *) enc;
@@ -1359,6 +1679,12 @@ void fd_slot_account_pair_destroy(fd_slot_account_pair_t* self, fd_free_fun_t fr
   self->accounts_root = NULL;
 }
 
+void fd_slot_account_pair_walk(fd_slot_account_pair_t* self, fd_walk_fun_t fun, const char *name, int level) {
+  fun(self, name, 32, "fd_slot_account_pair", level++);
+  fun(&self->slot, "slot", 11, "ulong", level + 1);
+  //fun(&self->accounts, "accounts", 17, "map");
+  fun(self, name, 33, "fd_slot_account_pair", --level);
+}
 void fd_slot_account_pair_copy_to(fd_slot_account_pair_t* to, fd_slot_account_pair_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
   unsigned char *enc = fd_alloca( 1, fd_slot_account_pair_size(from) );
   void const *   ptr = (void const *) enc;
@@ -1393,6 +1719,12 @@ void fd_slot_map_pair_destroy(fd_slot_map_pair_t* self, fd_free_fun_t freef, voi
   fd_hash_destroy(&self->hash, freef, freef_arg);
 }
 
+void fd_slot_map_pair_walk(fd_slot_map_pair_t* self, fd_walk_fun_t fun, const char *name, int level) {
+  fun(self, name, 32, "fd_slot_map_pair", level++);
+  fun(&self->slot, "slot", 11, "ulong", level + 1);
+  fd_hash_walk(&self->hash, fun, "hash", level + 1);
+  fun(self, name, 33, "fd_slot_map_pair", --level);
+}
 void fd_slot_map_pair_copy_to(fd_slot_map_pair_t* to, fd_slot_map_pair_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
   unsigned char *enc = fd_alloca( 1, fd_slot_map_pair_size(from) );
   void const *   ptr = (void const *) enc;
@@ -1461,6 +1793,26 @@ void fd_solana_accounts_db_fields_destroy(fd_solana_accounts_db_fields_t* self, 
   }
 }
 
+void fd_solana_accounts_db_fields_walk(fd_solana_accounts_db_fields_t* self, fd_walk_fun_t fun, const char *name, int level) {
+  fun(self, name, 32, "fd_solana_accounts_db_fields", level++);
+  //fun(&self->storages, "storages", 17, "map");
+  fun(&self->version, "version", 11, "ulong", level + 1);
+  fun(&self->slot, "slot", 11, "ulong", level + 1);
+  fd_bank_hash_info_walk(&self->bank_hash_info, fun, "bank_hash_info", level + 1);
+  if (self->historical_roots_len != 0) {
+    fun(NULL, NULL, 30, "historical_roots", level++);
+    for (ulong i = 0; i < self->historical_roots_len; ++i)
+      fun(self->historical_roots + i, "historical_roots", 11, "ulong", level + 1);
+    fun(NULL, NULL, 31, "historical_roots", --level);
+  }
+  if (self->historical_roots_with_hash_len != 0) {
+    fun(NULL, NULL, 30, "historical_roots_with_hash", level++);
+    for (ulong i = 0; i < self->historical_roots_with_hash_len; ++i)
+      fd_slot_map_pair_walk(self->historical_roots_with_hash + i, fun, "slot_map_pair", level + 1);
+    fun(NULL, NULL, 31, "historical_roots_with_hash", --level);
+  }
+  fun(self, name, 33, "fd_solana_accounts_db_fields", --level);
+}
 void fd_solana_accounts_db_fields_copy_to(fd_solana_accounts_db_fields_t* to, fd_solana_accounts_db_fields_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
   unsigned char *enc = fd_alloca( 1, fd_solana_accounts_db_fields_size(from) );
   void const *   ptr = (void const *) enc;
@@ -1516,6 +1868,13 @@ void fd_solana_manifest_destroy(fd_solana_manifest_t* self, fd_free_fun_t freef,
   fd_solana_accounts_db_fields_destroy(&self->accounts_db, freef, freef_arg);
 }
 
+void fd_solana_manifest_walk(fd_solana_manifest_t* self, fd_walk_fun_t fun, const char *name, int level) {
+  fun(self, name, 32, "fd_solana_manifest", level++);
+  fd_deserializable_versioned_bank_walk(&self->bank, fun, "bank", level + 1);
+  fd_solana_accounts_db_fields_walk(&self->accounts_db, fun, "accounts_db", level + 1);
+  fun(&self->lamports_per_signature, "lamports_per_signature", 11, "ulong", level + 1);
+  fun(self, name, 33, "fd_solana_manifest", --level);
+}
 void fd_solana_manifest_copy_to(fd_solana_manifest_t* to, fd_solana_manifest_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
   unsigned char *enc = fd_alloca( 1, fd_solana_manifest_size(from) );
   void const *   ptr = (void const *) enc;
@@ -1544,6 +1903,12 @@ void fd_rust_duration_decode(fd_rust_duration_t* self, void const** data, void c
 void fd_rust_duration_destroy(fd_rust_duration_t* self, fd_free_fun_t freef, void* freef_arg) {
 }
 
+void fd_rust_duration_walk(fd_rust_duration_t* self, fd_walk_fun_t fun, const char *name, int level) {
+  fun(self, name, 32, "fd_rust_duration", level++);
+  fun(&self->seconds, "seconds", 11, "ulong", level + 1);
+  fun(&self->nanoseconds, "nanoseconds", 7, "uint", level + 1);
+  fun(self, name, 33, "fd_rust_duration", --level);
+}
 void fd_rust_duration_copy_to(fd_rust_duration_t* to, fd_rust_duration_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
   unsigned char *enc = fd_alloca( 1, fd_rust_duration_size(from) );
   void const *   ptr = (void const *) enc;
@@ -1588,6 +1953,13 @@ void fd_poh_config_destroy(fd_poh_config_t* self, fd_free_fun_t freef, void* fre
   }
 }
 
+void fd_poh_config_walk(fd_poh_config_t* self, fd_walk_fun_t fun, const char *name, int level) {
+  fun(self, name, 32, "fd_poh_config", level++);
+  fd_rust_duration_walk(&self->target_tick_duration, fun, "target_tick_duration", level + 1);
+  fun(self->target_tick_count, "target_tick_count", 11, "ulong", level + 1);
+  fun(self->hashes_per_tick, "hashes_per_tick", 11, "ulong", level + 1);
+  fun(self, name, 33, "fd_poh_config", --level);
+}
 void fd_poh_config_copy_to(fd_poh_config_t* to, fd_poh_config_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
   unsigned char *enc = fd_alloca( 1, fd_poh_config_size(from) );
   void const *   ptr = (void const *) enc;
@@ -1639,6 +2011,12 @@ void fd_string_pubkey_pair_destroy(fd_string_pubkey_pair_t* self, fd_free_fun_t 
   fd_pubkey_destroy(&self->pubkey, freef, freef_arg);
 }
 
+void fd_string_pubkey_pair_walk(fd_string_pubkey_pair_t* self, fd_walk_fun_t fun, const char *name, int level) {
+  fun(self, name, 32, "fd_string_pubkey_pair", level++);
+  fun(self->string, "string", 2, "char*", level + 1);
+  fd_pubkey_walk(&self->pubkey, fun, "pubkey", level + 1);
+  fun(self, name, 33, "fd_string_pubkey_pair", --level);
+}
 void fd_string_pubkey_pair_copy_to(fd_string_pubkey_pair_t* to, fd_string_pubkey_pair_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
   unsigned char *enc = fd_alloca( 1, fd_string_pubkey_pair_size(from) );
   void const *   ptr = (void const *) enc;
@@ -1669,6 +2047,12 @@ void fd_pubkey_account_pair_destroy(fd_pubkey_account_pair_t* self, fd_free_fun_
   fd_solana_account_destroy(&self->account, freef, freef_arg);
 }
 
+void fd_pubkey_account_pair_walk(fd_pubkey_account_pair_t* self, fd_walk_fun_t fun, const char *name, int level) {
+  fun(self, name, 32, "fd_pubkey_account_pair", level++);
+  fd_pubkey_walk(&self->key, fun, "key", level + 1);
+  fd_solana_account_walk(&self->account, fun, "account", level + 1);
+  fun(self, name, 33, "fd_pubkey_account_pair", --level);
+}
 void fd_pubkey_account_pair_copy_to(fd_pubkey_account_pair_t* to, fd_pubkey_account_pair_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
   unsigned char *enc = fd_alloca( 1, fd_pubkey_account_pair_size(from) );
   void const *   ptr = (void const *) enc;
@@ -1747,6 +2131,38 @@ void fd_genesis_solana_destroy(fd_genesis_solana_t* self, fd_free_fun_t freef, v
   fd_epoch_schedule_destroy(&self->epoch_schedule, freef, freef_arg);
 }
 
+void fd_genesis_solana_walk(fd_genesis_solana_t* self, fd_walk_fun_t fun, const char *name, int level) {
+  fun(self, name, 32, "fd_genesis_solana", level++);
+  fun(&self->creation_time, "creation_time", 11, "ulong", level + 1);
+  if (self->accounts_len != 0) {
+    fun(NULL, NULL, 30, "accounts", level++);
+    for (ulong i = 0; i < self->accounts_len; ++i)
+      fd_pubkey_account_pair_walk(self->accounts + i, fun, "pubkey_account_pair", level + 1);
+    fun(NULL, NULL, 31, "accounts", --level);
+  }
+  if (self->native_instruction_processors_len != 0) {
+    fun(NULL, NULL, 30, "native_instruction_processors", level++);
+    for (ulong i = 0; i < self->native_instruction_processors_len; ++i)
+      fd_string_pubkey_pair_walk(self->native_instruction_processors + i, fun, "string_pubkey_pair", level + 1);
+    fun(NULL, NULL, 31, "native_instruction_processors", --level);
+  }
+  if (self->rewards_pools_len != 0) {
+    fun(NULL, NULL, 30, "rewards_pools", level++);
+    for (ulong i = 0; i < self->rewards_pools_len; ++i)
+      fd_pubkey_account_pair_walk(self->rewards_pools + i, fun, "pubkey_account_pair", level + 1);
+    fun(NULL, NULL, 31, "rewards_pools", --level);
+  }
+  fun(&self->ticks_per_slot, "ticks_per_slot", 11, "ulong", level + 1);
+  fun(&self->unused, "unused", 11, "ulong", level + 1);
+  fd_poh_config_walk(&self->poh_config, fun, "poh_config", level + 1);
+  fun(&self->__backwards_compat_with_v0_23, "__backwards_compat_with_v0_23", 11, "ulong", level + 1);
+  fd_fee_rate_governor_walk(&self->fee_rate_governor, fun, "fee_rate_governor", level + 1);
+  fd_rent_walk(&self->rent, fun, "rent", level + 1);
+  fd_inflation_walk(&self->inflation, fun, "inflation", level + 1);
+  fd_epoch_schedule_walk(&self->epoch_schedule, fun, "epoch_schedule", level + 1);
+  fun(&self->cluster_type, "cluster_type", 7, "uint", level + 1);
+  fun(self, name, 33, "fd_genesis_solana", --level);
+}
 void fd_genesis_solana_copy_to(fd_genesis_solana_t* to, fd_genesis_solana_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
   unsigned char *enc = fd_alloca( 1, fd_genesis_solana_size(from) );
   void const *   ptr = (void const *) enc;
@@ -1818,6 +2234,17 @@ void fd_secp256k1_signature_offsets_decode(fd_secp256k1_signature_offsets_t* sel
 void fd_secp256k1_signature_offsets_destroy(fd_secp256k1_signature_offsets_t* self, fd_free_fun_t freef, void* freef_arg) {
 }
 
+void fd_secp256k1_signature_offsets_walk(fd_secp256k1_signature_offsets_t* self, fd_walk_fun_t fun, const char *name, int level) {
+  fun(self, name, 32, "fd_secp256k1_signature_offsets", level++);
+  fun(&self->signature_offset, "signature_offset", 12, "ushort", level + 1);
+  fun(&self->signature_instruction_index, "signature_instruction_index", 9, "uchar", level + 1);
+  fun(&self->eth_address_offset, "eth_address_offset", 12, "ushort", level + 1);
+  fun(&self->eth_address_instruction_index, "eth_address_instruction_index", 9, "uchar", level + 1);
+  fun(&self->message_data_offset, "message_data_offset", 12, "ushort", level + 1);
+  fun(&self->message_data_size, "message_data_size", 12, "ushort", level + 1);
+  fun(&self->message_instruction_index, "message_instruction_index", 9, "uchar", level + 1);
+  fun(self, name, 33, "fd_secp256k1_signature_offsets", --level);
+}
 void fd_secp256k1_signature_offsets_copy_to(fd_secp256k1_signature_offsets_t* to, fd_secp256k1_signature_offsets_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
   unsigned char *enc = fd_alloca( 1, fd_secp256k1_signature_offsets_size(from) );
   void const *   ptr = (void const *) enc;
@@ -1857,6 +2284,15 @@ void fd_sol_sysvar_clock_decode(fd_sol_sysvar_clock_t* self, void const** data, 
 void fd_sol_sysvar_clock_destroy(fd_sol_sysvar_clock_t* self, fd_free_fun_t freef, void* freef_arg) {
 }
 
+void fd_sol_sysvar_clock_walk(fd_sol_sysvar_clock_t* self, fd_walk_fun_t fun, const char *name, int level) {
+  fun(self, name, 32, "fd_sol_sysvar_clock", level++);
+  fun(&self->slot, "slot", 11, "ulong", level + 1);
+  fun(&self->epoch_start_timestamp, "epoch_start_timestamp", 6, "long", level + 1);
+  fun(&self->epoch, "epoch", 11, "ulong", level + 1);
+  fun(&self->leader_schedule_epoch, "leader_schedule_epoch", 11, "ulong", level + 1);
+  fun(&self->unix_timestamp, "unix_timestamp", 6, "long", level + 1);
+  fun(self, name, 33, "fd_sol_sysvar_clock", --level);
+}
 void fd_sol_sysvar_clock_copy_to(fd_sol_sysvar_clock_t* to, fd_sol_sysvar_clock_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
   unsigned char *enc = fd_alloca( 1, fd_sol_sysvar_clock_size(from) );
   void const *   ptr = (void const *) enc;
@@ -1889,6 +2325,12 @@ void fd_vote_lockout_decode(fd_vote_lockout_t* self, void const** data, void con
 void fd_vote_lockout_destroy(fd_vote_lockout_t* self, fd_free_fun_t freef, void* freef_arg) {
 }
 
+void fd_vote_lockout_walk(fd_vote_lockout_t* self, fd_walk_fun_t fun, const char *name, int level) {
+  fun(self, name, 32, "fd_vote_lockout", level++);
+  fun(&self->slot, "slot", 11, "ulong", level + 1);
+  fun(&self->confirmation_count, "confirmation_count", 7, "uint", level + 1);
+  fun(self, name, 33, "fd_vote_lockout", --level);
+}
 void fd_vote_lockout_copy_to(fd_vote_lockout_t* to, fd_vote_lockout_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
   unsigned char *enc = fd_alloca( 1, fd_vote_lockout_size(from) );
   void const *   ptr = (void const *) enc;
@@ -1915,6 +2357,12 @@ void fd_compact_vote_lockout_decode(fd_compact_vote_lockout_t* self, void const*
 void fd_compact_vote_lockout_destroy(fd_compact_vote_lockout_t* self, fd_free_fun_t freef, void* freef_arg) {
 }
 
+void fd_compact_vote_lockout_walk(fd_compact_vote_lockout_t* self, fd_walk_fun_t fun, const char *name, int level) {
+  fun(self, name, 32, "fd_compact_vote_lockout", level++);
+  fun(&self->slot, "slot", 11, "ulong", level + 1);
+  fun(&self->confirmation_count, "confirmation_count", 9, "uchar", level + 1);
+  fun(self, name, 33, "fd_compact_vote_lockout", --level);
+}
 void fd_compact_vote_lockout_copy_to(fd_compact_vote_lockout_t* to, fd_compact_vote_lockout_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
   unsigned char *enc = fd_alloca( 1, fd_compact_vote_lockout_size(from) );
   void const *   ptr = (void const *) enc;
@@ -1942,6 +2390,12 @@ void fd_vote_authorized_voter_destroy(fd_vote_authorized_voter_t* self, fd_free_
   fd_pubkey_destroy(&self->pubkey, freef, freef_arg);
 }
 
+void fd_vote_authorized_voter_walk(fd_vote_authorized_voter_t* self, fd_walk_fun_t fun, const char *name, int level) {
+  fun(self, name, 32, "fd_vote_authorized_voter", level++);
+  fun(&self->epoch, "epoch", 11, "ulong", level + 1);
+  fd_pubkey_walk(&self->pubkey, fun, "pubkey", level + 1);
+  fun(self, name, 33, "fd_vote_authorized_voter", --level);
+}
 void fd_vote_authorized_voter_copy_to(fd_vote_authorized_voter_t* to, fd_vote_authorized_voter_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
   unsigned char *enc = fd_alloca( 1, fd_vote_authorized_voter_size(from) );
   void const *   ptr = (void const *) enc;
@@ -1970,6 +2424,13 @@ void fd_vote_prior_voter_destroy(fd_vote_prior_voter_t* self, fd_free_fun_t free
   fd_pubkey_destroy(&self->pubkey, freef, freef_arg);
 }
 
+void fd_vote_prior_voter_walk(fd_vote_prior_voter_t* self, fd_walk_fun_t fun, const char *name, int level) {
+  fun(self, name, 32, "fd_vote_prior_voter", level++);
+  fd_pubkey_walk(&self->pubkey, fun, "pubkey", level + 1);
+  fun(&self->epoch_start, "epoch_start", 11, "ulong", level + 1);
+  fun(&self->epoch_end, "epoch_end", 11, "ulong", level + 1);
+  fun(self, name, 33, "fd_vote_prior_voter", --level);
+}
 void fd_vote_prior_voter_copy_to(fd_vote_prior_voter_t* to, fd_vote_prior_voter_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
   unsigned char *enc = fd_alloca( 1, fd_vote_prior_voter_size(from) );
   void const *   ptr = (void const *) enc;
@@ -2001,6 +2462,14 @@ void fd_vote_prior_voter_0_23_5_destroy(fd_vote_prior_voter_0_23_5_t* self, fd_f
   fd_pubkey_destroy(&self->pubkey, freef, freef_arg);
 }
 
+void fd_vote_prior_voter_0_23_5_walk(fd_vote_prior_voter_0_23_5_t* self, fd_walk_fun_t fun, const char *name, int level) {
+  fun(self, name, 32, "fd_vote_prior_voter_0_23_5", level++);
+  fd_pubkey_walk(&self->pubkey, fun, "pubkey", level + 1);
+  fun(&self->epoch_start, "epoch_start", 11, "ulong", level + 1);
+  fun(&self->epoch_end, "epoch_end", 11, "ulong", level + 1);
+  fun(&self->slot, "slot", 11, "ulong", level + 1);
+  fun(self, name, 33, "fd_vote_prior_voter_0_23_5", --level);
+}
 void fd_vote_prior_voter_0_23_5_copy_to(fd_vote_prior_voter_0_23_5_t* to, fd_vote_prior_voter_0_23_5_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
   unsigned char *enc = fd_alloca( 1, fd_vote_prior_voter_0_23_5_size(from) );
   void const *   ptr = (void const *) enc;
@@ -2032,6 +2501,13 @@ void fd_vote_epoch_credits_decode(fd_vote_epoch_credits_t* self, void const** da
 void fd_vote_epoch_credits_destroy(fd_vote_epoch_credits_t* self, fd_free_fun_t freef, void* freef_arg) {
 }
 
+void fd_vote_epoch_credits_walk(fd_vote_epoch_credits_t* self, fd_walk_fun_t fun, const char *name, int level) {
+  fun(self, name, 32, "fd_vote_epoch_credits", level++);
+  fun(&self->epoch, "epoch", 11, "ulong", level + 1);
+  fun(&self->credits, "credits", 11, "ulong", level + 1);
+  fun(&self->prev_credits, "prev_credits", 11, "ulong", level + 1);
+  fun(self, name, 33, "fd_vote_epoch_credits", --level);
+}
 void fd_vote_epoch_credits_copy_to(fd_vote_epoch_credits_t* to, fd_vote_epoch_credits_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
   unsigned char *enc = fd_alloca( 1, fd_vote_epoch_credits_size(from) );
   void const *   ptr = (void const *) enc;
@@ -2061,6 +2537,12 @@ void fd_vote_historical_authorized_voter_destroy(fd_vote_historical_authorized_v
   fd_pubkey_destroy(&self->pubkey, freef, freef_arg);
 }
 
+void fd_vote_historical_authorized_voter_walk(fd_vote_historical_authorized_voter_t* self, fd_walk_fun_t fun, const char *name, int level) {
+  fun(self, name, 32, "fd_vote_historical_authorized_voter", level++);
+  fun(&self->epoch, "epoch", 11, "ulong", level + 1);
+  fd_pubkey_walk(&self->pubkey, fun, "pubkey", level + 1);
+  fun(self, name, 33, "fd_vote_historical_authorized_voter", --level);
+}
 void fd_vote_historical_authorized_voter_copy_to(fd_vote_historical_authorized_voter_t* to, fd_vote_historical_authorized_voter_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
   unsigned char *enc = fd_alloca( 1, fd_vote_historical_authorized_voter_size(from) );
   void const *   ptr = (void const *) enc;
@@ -2087,6 +2569,12 @@ void fd_vote_block_timestamp_decode(fd_vote_block_timestamp_t* self, void const*
 void fd_vote_block_timestamp_destroy(fd_vote_block_timestamp_t* self, fd_free_fun_t freef, void* freef_arg) {
 }
 
+void fd_vote_block_timestamp_walk(fd_vote_block_timestamp_t* self, fd_walk_fun_t fun, const char *name, int level) {
+  fun(self, name, 32, "fd_vote_block_timestamp", level++);
+  fun(&self->slot, "slot", 11, "ulong", level + 1);
+  fun(&self->timestamp, "timestamp", 11, "ulong", level + 1);
+  fun(self, name, 33, "fd_vote_block_timestamp", --level);
+}
 void fd_vote_block_timestamp_copy_to(fd_vote_block_timestamp_t* to, fd_vote_block_timestamp_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
   unsigned char *enc = fd_alloca( 1, fd_vote_block_timestamp_size(from) );
   void const *   ptr = (void const *) enc;
@@ -2122,6 +2610,13 @@ void fd_vote_prior_voters_destroy(fd_vote_prior_voters_t* self, fd_free_fun_t fr
   }
 }
 
+void fd_vote_prior_voters_walk(fd_vote_prior_voters_t* self, fd_walk_fun_t fun, const char *name, int level) {
+  fun(self, name, 32, "fd_vote_prior_voters", level++);
+  //  fun(&self->buf, "buf", 15, "array");
+  fun(&self->idx, "idx", 11, "ulong", level + 1);
+  fun(&self->is_empty, "is_empty", 9, "uchar", level + 1);
+  fun(self, name, 33, "fd_vote_prior_voters", --level);
+}
 void fd_vote_prior_voters_copy_to(fd_vote_prior_voters_t* to, fd_vote_prior_voters_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
   unsigned char *enc = fd_alloca( 1, fd_vote_prior_voters_size(from) );
   void const *   ptr = (void const *) enc;
@@ -2161,6 +2656,13 @@ void fd_vote_prior_voters_0_23_5_destroy(fd_vote_prior_voters_0_23_5_t* self, fd
   }
 }
 
+void fd_vote_prior_voters_0_23_5_walk(fd_vote_prior_voters_0_23_5_t* self, fd_walk_fun_t fun, const char *name, int level) {
+  fun(self, name, 32, "fd_vote_prior_voters_0_23_5", level++);
+  //  fun(&self->buf, "buf", 15, "array");
+  fun(&self->idx, "idx", 11, "ulong", level + 1);
+  fun(&self->is_empty, "is_empty", 9, "uchar", level + 1);
+  fun(self, name, 33, "fd_vote_prior_voters_0_23_5", --level);
+}
 void fd_vote_prior_voters_0_23_5_copy_to(fd_vote_prior_voters_0_23_5_t* to, fd_vote_prior_voters_0_23_5_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
   unsigned char *enc = fd_alloca( 1, fd_vote_prior_voters_0_23_5_size(from) );
   void const *   ptr = (void const *) enc;
@@ -2228,6 +2730,26 @@ void fd_vote_state_0_23_5_destroy(fd_vote_state_0_23_5_t* self, fd_free_fun_t fr
   fd_vote_block_timestamp_destroy(&self->latest_timestamp, freef, freef_arg);
 }
 
+void fd_vote_state_0_23_5_walk(fd_vote_state_0_23_5_t* self, fd_walk_fun_t fun, const char *name, int level) {
+  fun(self, name, 32, "fd_vote_state_0_23_5", level++);
+  fd_pubkey_walk(&self->voting_node, fun, "voting_node", level + 1);
+  fd_pubkey_walk(&self->authorized_voter, fun, "authorized_voter", level + 1);
+  fun(&self->authorized_voter_epoch, "authorized_voter_epoch", 11, "ulong", level + 1);
+  fd_vote_prior_voters_0_23_5_walk(&self->prior_voters, fun, "prior_voters", level + 1);
+  fd_pubkey_walk(&self->authorized_withdrawer, fun, "authorized_withdrawer", level + 1);
+  fun(&self->commission, "commission", 9, "uchar", level + 1);
+  fun(NULL, NULL, 30, "votes", level++);
+  for (ulong i = 0; i < self->votes.cnt; ++i)
+    fd_vote_lockout_walk(&self->votes.elems[i], fun, "votes", level + 1);
+  fun(NULL, NULL, 31, "votes", --level);
+  fun(self->saved_root_slot, "saved_root_slot", 11, "ulong", level + 1);
+  fun(NULL, NULL, 30, "epoch_credits", level++);
+  for (ulong i = 0; i < self->epoch_credits.cnt; ++i)
+    fd_vote_epoch_credits_walk(&self->epoch_credits.elems[i], fun, "epoch_credits", level + 1);
+  fun(NULL, NULL, 31, "epoch_credits", --level);
+  fd_vote_block_timestamp_walk(&self->latest_timestamp, fun, "latest_timestamp", level + 1);
+  fun(self, name, 33, "fd_vote_state_0_23_5", --level);
+}
 void fd_vote_state_0_23_5_copy_to(fd_vote_state_0_23_5_t* to, fd_vote_state_0_23_5_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
   unsigned char *enc = fd_alloca( 1, fd_vote_state_0_23_5_size(from) );
   void const *   ptr = (void const *) enc;
@@ -2328,6 +2850,28 @@ void fd_vote_state_destroy(fd_vote_state_t* self, fd_free_fun_t freef, void* fre
   fd_vote_block_timestamp_destroy(&self->latest_timestamp, freef, freef_arg);
 }
 
+void fd_vote_state_walk(fd_vote_state_t* self, fd_walk_fun_t fun, const char *name, int level) {
+  fun(self, name, 32, "fd_vote_state", level++);
+  fd_pubkey_walk(&self->voting_node, fun, "voting_node", level + 1);
+  fd_pubkey_walk(&self->authorized_withdrawer, fun, "authorized_withdrawer", level + 1);
+  fun(&self->commission, "commission", 9, "uchar", level + 1);
+  fun(NULL, NULL, 30, "votes", level++);
+  for (ulong i = 0; i < self->votes.cnt; ++i)
+    fd_vote_lockout_walk(&self->votes.elems[i], fun, "votes", level + 1);
+  fun(NULL, NULL, 31, "votes", --level);
+  fun(self->saved_root_slot, "saved_root_slot", 11, "ulong", level + 1);
+  fun(NULL, NULL, 30, "authorized_voters", level++);
+  for (ulong i = 0; i < self->authorized_voters.cnt; ++i)
+    fd_vote_historical_authorized_voter_walk(&self->authorized_voters.elems[i], fun, "authorized_voters", level + 1);
+  fun(NULL, NULL, 31, "authorized_voters", --level);
+  fd_vote_prior_voters_walk(&self->prior_voters, fun, "prior_voters", level + 1);
+  fun(NULL, NULL, 30, "epoch_credits", level++);
+  for (ulong i = 0; i < self->epoch_credits.cnt; ++i)
+    fd_vote_epoch_credits_walk(&self->epoch_credits.elems[i], fun, "epoch_credits", level + 1);
+  fun(NULL, NULL, 31, "epoch_credits", --level);
+  fd_vote_block_timestamp_walk(&self->latest_timestamp, fun, "latest_timestamp", level + 1);
+  fun(self, name, 33, "fd_vote_state", --level);
+}
 void fd_vote_state_copy_to(fd_vote_state_t* to, fd_vote_state_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
   unsigned char *enc = fd_alloca( 1, fd_vote_state_size(from) );
   void const *   ptr = (void const *) enc;
@@ -2410,6 +2954,11 @@ void fd_vote_state_versioned_destroy(fd_vote_state_versioned_t* self, fd_free_fu
   fd_vote_state_versioned_inner_destroy(&self->inner, self->discriminant, freef, freef_arg);
 }
 
+void fd_vote_state_versioned_walk(fd_vote_state_versioned_t* self, fd_walk_fun_t fun, const char *name, int level) {
+  fun(self, name, 32, "fd_vote_state_versioned", level++);
+  // enum fd_vote_block_timestamp_walk(&self->latest_timestamp, fun, "latest_timestamp", level + 1);
+  fun(self, name, 33, "fd_vote_state_versioned", --level);
+}
 void fd_vote_state_versioned_copy_to(fd_vote_state_versioned_t* to, fd_vote_state_versioned_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
   unsigned char *enc = fd_alloca( 1, fd_vote_state_versioned_size(from) );
   void const *   ptr = (void const *) enc;
@@ -2480,6 +3029,19 @@ void fd_vote_state_update_destroy(fd_vote_state_update_t* self, fd_free_fun_t fr
   }
 }
 
+void fd_vote_state_update_walk(fd_vote_state_update_t* self, fd_walk_fun_t fun, const char *name, int level) {
+  fun(self, name, 32, "fd_vote_state_update", level++);
+  if (self->lockouts_len != 0) {
+    fun(NULL, NULL, 30, "lockouts", level++);
+    for (ulong i = 0; i < self->lockouts_len; ++i)
+      fd_vote_lockout_walk(self->lockouts + i, fun, "vote_lockout", level + 1);
+    fun(NULL, NULL, 31, "lockouts", --level);
+  }
+  fun(self->proposed_root, "proposed_root", 11, "ulong", level + 1);
+  fd_hash_walk(&self->hash, fun, "hash", level + 1);
+  fun(self->timestamp, "timestamp", 11, "ulong", level + 1);
+  fun(self, name, 33, "fd_vote_state_update", --level);
+}
 void fd_vote_state_update_copy_to(fd_vote_state_update_t* to, fd_vote_state_update_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
   unsigned char *enc = fd_alloca( 1, fd_vote_state_update_size(from) );
   void const *   ptr = (void const *) enc;
@@ -2553,6 +3115,19 @@ void fd_compact_vote_state_update_destroy(fd_compact_vote_state_update_t* self, 
   }
 }
 
+void fd_compact_vote_state_update_walk(fd_compact_vote_state_update_t* self, fd_walk_fun_t fun, const char *name, int level) {
+  fun(self, name, 32, "fd_compact_vote_state_update", level++);
+  fun(&self->proposed_root, "proposed_root", 11, "ulong", level + 1);
+  if (self->lockouts_len != 0) {
+    fun(NULL, NULL, 30, "lockouts", level++);
+    for (ulong i = 0; i < self->lockouts_len; ++i)
+      fd_compact_vote_lockout_walk(self->lockouts + i, fun, "compact_vote_lockout", level + 1);
+    fun(NULL, NULL, 31, "lockouts", --level);
+  }
+  fd_hash_walk(&self->hash, fun, "hash", level + 1);
+  fun(self->timestamp, "timestamp", 11, "ulong", level + 1);
+  fun(self, name, 33, "fd_compact_vote_state_update", --level);
+}
 void fd_compact_vote_state_update_copy_to(fd_compact_vote_state_update_t* to, fd_compact_vote_state_update_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
   unsigned char *enc = fd_alloca( 1, fd_compact_vote_state_update_size(from) );
   void const *   ptr = (void const *) enc;
@@ -2605,6 +3180,16 @@ void fd_slot_history_inner_destroy(fd_slot_history_inner_t* self, fd_free_fun_t 
   }
 }
 
+void fd_slot_history_inner_walk(fd_slot_history_inner_t* self, fd_walk_fun_t fun, const char *name, int level) {
+  fun(self, name, 32, "fd_slot_history_inner", level++);
+  if (self->blocks_len != 0) {
+    fun(NULL, NULL, 30, "blocks", level++);
+    for (ulong i = 0; i < self->blocks_len; ++i)
+      fun(self->blocks + i, "blocks", 11, "ulong", level + 1);
+    fun(NULL, NULL, 31, "blocks", --level);
+  }
+  fun(self, name, 33, "fd_slot_history_inner", --level);
+}
 void fd_slot_history_inner_copy_to(fd_slot_history_inner_t* to, fd_slot_history_inner_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
   unsigned char *enc = fd_alloca( 1, fd_slot_history_inner_size(from) );
   void const *   ptr = (void const *) enc;
@@ -2643,6 +3228,12 @@ void fd_slot_history_bitvec_destroy(fd_slot_history_bitvec_t* self, fd_free_fun_
   }
 }
 
+void fd_slot_history_bitvec_walk(fd_slot_history_bitvec_t* self, fd_walk_fun_t fun, const char *name, int level) {
+  fun(self, name, 32, "fd_slot_history_bitvec", level++);
+  // fun(&self->bits, "bits", 16, "option", level + 1);
+  fun(&self->len, "len", 11, "ulong", level + 1);
+  fun(self, name, 33, "fd_slot_history_bitvec", --level);
+}
 void fd_slot_history_bitvec_copy_to(fd_slot_history_bitvec_t* to, fd_slot_history_bitvec_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
   unsigned char *enc = fd_alloca( 1, fd_slot_history_bitvec_size(from) );
   void const *   ptr = (void const *) enc;
@@ -2677,6 +3268,12 @@ void fd_slot_history_destroy(fd_slot_history_t* self, fd_free_fun_t freef, void*
   fd_slot_history_bitvec_destroy(&self->bits, freef, freef_arg);
 }
 
+void fd_slot_history_walk(fd_slot_history_t* self, fd_walk_fun_t fun, const char *name, int level) {
+  fun(self, name, 32, "fd_slot_history", level++);
+  fd_slot_history_bitvec_walk(&self->bits, fun, "bits", level + 1);
+  fun(&self->next_slot, "next_slot", 11, "ulong", level + 1);
+  fun(self, name, 33, "fd_slot_history", --level);
+}
 void fd_slot_history_copy_to(fd_slot_history_t* to, fd_slot_history_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
   unsigned char *enc = fd_alloca( 1, fd_slot_history_size(from) );
   void const *   ptr = (void const *) enc;
@@ -2704,6 +3301,12 @@ void fd_slot_hash_destroy(fd_slot_hash_t* self, fd_free_fun_t freef, void* freef
   fd_hash_destroy(&self->hash, freef, freef_arg);
 }
 
+void fd_slot_hash_walk(fd_slot_hash_t* self, fd_walk_fun_t fun, const char *name, int level) {
+  fun(self, name, 32, "fd_slot_hash", level++);
+  fun(&self->slot, "slot", 11, "ulong", level + 1);
+  fd_hash_walk(&self->hash, fun, "hash", level + 1);
+  fun(self, name, 33, "fd_slot_hash", --level);
+}
 void fd_slot_hash_copy_to(fd_slot_hash_t* to, fd_slot_hash_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
   unsigned char *enc = fd_alloca( 1, fd_slot_hash_size(from) );
   void const *   ptr = (void const *) enc;
@@ -2737,6 +3340,14 @@ void fd_slot_hashes_destroy(fd_slot_hashes_t* self, fd_free_fun_t freef, void* f
   fd_vec_fd_slot_hash_t_destroy(&self->hashes);
 }
 
+void fd_slot_hashes_walk(fd_slot_hashes_t* self, fd_walk_fun_t fun, const char *name, int level) {
+  fun(self, name, 32, "fd_slot_hashes", level++);
+  fun(NULL, NULL, 30, "hashes", level++);
+  for (ulong i = 0; i < self->hashes.cnt; ++i)
+    fd_slot_hash_walk(&self->hashes.elems[i], fun, "hashes", level + 1);
+  fun(NULL, NULL, 31, "hashes", --level);
+  fun(self, name, 33, "fd_slot_hashes", --level);
+}
 void fd_slot_hashes_copy_to(fd_slot_hashes_t* to, fd_slot_hashes_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
   unsigned char *enc = fd_alloca( 1, fd_slot_hashes_size(from) );
   void const *   ptr = (void const *) enc;
@@ -2767,6 +3378,12 @@ void fd_block_block_hash_entry_destroy(fd_block_block_hash_entry_t* self, fd_fre
   fd_fee_calculator_destroy(&self->fee_calculator, freef, freef_arg);
 }
 
+void fd_block_block_hash_entry_walk(fd_block_block_hash_entry_t* self, fd_walk_fun_t fun, const char *name, int level) {
+  fun(self, name, 32, "fd_block_block_hash_entry", level++);
+  fd_hash_walk(&self->blockhash, fun, "blockhash", level + 1);
+  fd_fee_calculator_walk(&self->fee_calculator, fun, "fee_calculator", level + 1);
+  fun(self, name, 33, "fd_block_block_hash_entry", --level);
+}
 void fd_block_block_hash_entry_copy_to(fd_block_block_hash_entry_t* to, fd_block_block_hash_entry_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
   unsigned char *enc = fd_alloca( 1, fd_block_block_hash_entry_size(from) );
   void const *   ptr = (void const *) enc;
@@ -2800,6 +3417,14 @@ void fd_recent_block_hashes_destroy(fd_recent_block_hashes_t* self, fd_free_fun_
   fd_vec_fd_block_block_hash_entry_t_destroy(&self->hashes);
 }
 
+void fd_recent_block_hashes_walk(fd_recent_block_hashes_t* self, fd_walk_fun_t fun, const char *name, int level) {
+  fun(self, name, 32, "fd_recent_block_hashes", level++);
+  fun(NULL, NULL, 30, "hashes", level++);
+  for (ulong i = 0; i < self->hashes.cnt; ++i)
+    fd_block_block_hash_entry_walk(&self->hashes.elems[i], fun, "hashes", level + 1);
+  fun(NULL, NULL, 31, "hashes", --level);
+  fun(self, name, 33, "fd_recent_block_hashes", --level);
+}
 void fd_recent_block_hashes_copy_to(fd_recent_block_hashes_t* to, fd_recent_block_hashes_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
   unsigned char *enc = fd_alloca( 1, fd_recent_block_hashes_size(from) );
   void const *   ptr = (void const *) enc;
@@ -2855,6 +3480,29 @@ void fd_slot_meta_destroy(fd_slot_meta_t* self, fd_free_fun_t freef, void* freef
   }
 }
 
+void fd_slot_meta_walk(fd_slot_meta_t* self, fd_walk_fun_t fun, const char *name, int level) {
+  fun(self, name, 32, "fd_slot_meta", level++);
+  fun(&self->slot, "slot", 11, "ulong", level + 1);
+  fun(&self->consumed, "consumed", 11, "ulong", level + 1);
+  fun(&self->received, "received", 11, "ulong", level + 1);
+  fun(&self->first_shred_timestamp, "first_shred_timestamp", 11, "ulong", level + 1);
+  fun(&self->last_index, "last_index", 11, "ulong", level + 1);
+  fun(&self->parent_slot, "parent_slot", 11, "ulong", level + 1);
+  if (self->next_slot_len != 0) {
+    fun(NULL, NULL, 30, "next_slot", level++);
+    for (ulong i = 0; i < self->next_slot_len; ++i)
+      fun(self->next_slot + i, "next_slot", 11, "ulong", level + 1);
+    fun(NULL, NULL, 31, "next_slot", --level);
+  }
+  fun(&self->is_connected, "is_connected", 9, "uchar", level + 1);
+  if (self->entry_end_indexes_len != 0) {
+    fun(NULL, NULL, 30, "entry_end_indexes", level++);
+    for (ulong i = 0; i < self->entry_end_indexes_len; ++i)
+      fun(self->entry_end_indexes + i, "entry_end_indexes", 7, "uint", level + 1);
+    fun(NULL, NULL, 31, "entry_end_indexes", --level);
+  }
+  fun(self, name, 33, "fd_slot_meta", --level);
+}
 void fd_slot_meta_copy_to(fd_slot_meta_t* to, fd_slot_meta_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
   unsigned char *enc = fd_alloca( 1, fd_slot_meta_size(from) );
   void const *   ptr = (void const *) enc;
@@ -2907,6 +3555,13 @@ void fd_clock_timestamp_vote_destroy(fd_clock_timestamp_vote_t* self, fd_free_fu
   fd_pubkey_destroy(&self->pubkey, freef, freef_arg);
 }
 
+void fd_clock_timestamp_vote_walk(fd_clock_timestamp_vote_t* self, fd_walk_fun_t fun, const char *name, int level) {
+  fun(self, name, 32, "fd_clock_timestamp_vote", level++);
+  fd_pubkey_walk(&self->pubkey, fun, "pubkey", level + 1);
+  fun(&self->timestamp, "timestamp", 6, "long", level + 1);
+  fun(&self->slot, "slot", 11, "ulong", level + 1);
+  fun(self, name, 33, "fd_clock_timestamp_vote", --level);
+}
 void fd_clock_timestamp_vote_copy_to(fd_clock_timestamp_vote_t* to, fd_clock_timestamp_vote_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
   unsigned char *enc = fd_alloca( 1, fd_clock_timestamp_vote_size(from) );
   void const *   ptr = (void const *) enc;
@@ -2942,6 +3597,14 @@ void fd_clock_timestamp_votes_destroy(fd_clock_timestamp_votes_t* self, fd_free_
   fd_vec_fd_clock_timestamp_vote_t_destroy(&self->votes);
 }
 
+void fd_clock_timestamp_votes_walk(fd_clock_timestamp_votes_t* self, fd_walk_fun_t fun, const char *name, int level) {
+  fun(self, name, 32, "fd_clock_timestamp_votes", level++);
+  fun(NULL, NULL, 30, "votes", level++);
+  for (ulong i = 0; i < self->votes.cnt; ++i)
+    fd_clock_timestamp_vote_walk(&self->votes.elems[i], fun, "votes", level + 1);
+  fun(NULL, NULL, 31, "votes", --level);
+  fun(self, name, 33, "fd_clock_timestamp_votes", --level);
+}
 void fd_clock_timestamp_votes_copy_to(fd_clock_timestamp_votes_t* to, fd_clock_timestamp_votes_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
   unsigned char *enc = fd_alloca( 1, fd_clock_timestamp_votes_size(from) );
   void const *   ptr = (void const *) enc;
@@ -2970,6 +3633,11 @@ void fd_sysvar_fees_destroy(fd_sysvar_fees_t* self, fd_free_fun_t freef, void* f
   fd_fee_calculator_destroy(&self->fee_calculator, freef, freef_arg);
 }
 
+void fd_sysvar_fees_walk(fd_sysvar_fees_t* self, fd_walk_fun_t fun, const char *name, int level) {
+  fun(self, name, 32, "fd_sysvar_fees", level++);
+  fd_fee_calculator_walk(&self->fee_calculator, fun, "fee_calculator", level + 1);
+  fun(self, name, 33, "fd_sysvar_fees", --level);
+}
 void fd_sysvar_fees_copy_to(fd_sysvar_fees_t* to, fd_sysvar_fees_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
   unsigned char *enc = fd_alloca( 1, fd_sysvar_fees_size(from) );
   void const *   ptr = (void const *) enc;
@@ -2995,6 +3663,12 @@ void fd_config_keys_pair_destroy(fd_config_keys_pair_t* self, fd_free_fun_t free
   fd_pubkey_destroy(&self->key, freef, freef_arg);
 }
 
+void fd_config_keys_pair_walk(fd_config_keys_pair_t* self, fd_walk_fun_t fun, const char *name, int level) {
+  fun(self, name, 32, "fd_config_keys_pair", level++);
+  fd_pubkey_walk(&self->key, fun, "key", level + 1);
+  fun(&self->value, "value", 9, "uchar", level + 1);
+  fun(self, name, 33, "fd_config_keys_pair", --level);
+}
 void fd_config_keys_pair_copy_to(fd_config_keys_pair_t* to, fd_config_keys_pair_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
   unsigned char *enc = fd_alloca( 1, fd_config_keys_pair_size(from) );
   void const *   ptr = (void const *) enc;
@@ -3034,6 +3708,18 @@ void fd_stake_config_destroy(fd_stake_config_t* self, fd_free_fun_t freef, void*
   }
 }
 
+void fd_stake_config_walk(fd_stake_config_t* self, fd_walk_fun_t fun, const char *name, int level) {
+  fun(self, name, 32, "fd_stake_config", level++);
+  if (self->config_keys_len != 0) {
+    fun(NULL, NULL, 30, "config_keys", level++);
+    for (ulong i = 0; i < self->config_keys_len; ++i)
+      fd_config_keys_pair_walk(self->config_keys + i, fun, "config_keys_pair", level + 1);
+    fun(NULL, NULL, 31, "config_keys", --level);
+  }
+  fun(&self->warmup_cooldown_rate, "warmup_cooldown_rate", 5, "double", level + 1);
+  fun(&self->slash_penalty, "slash_penalty", 9, "uchar", level + 1);
+  fun(self, name, 33, "fd_stake_config", --level);
+}
 void fd_stake_config_copy_to(fd_stake_config_t* to, fd_stake_config_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
   unsigned char *enc = fd_alloca( 1, fd_stake_config_size(from) );
   void const *   ptr = (void const *) enc;
@@ -3068,6 +3754,11 @@ void fd_firedancer_banks_destroy(fd_firedancer_banks_t* self, fd_free_fun_t free
   fd_deserializable_versioned_bank_destroy(&self->solana_bank, freef, freef_arg);
 }
 
+void fd_firedancer_banks_walk(fd_firedancer_banks_t* self, fd_walk_fun_t fun, const char *name, int level) {
+  fun(self, name, 32, "fd_firedancer_banks", level++);
+  fd_deserializable_versioned_bank_walk(&self->solana_bank, fun, "solana_bank", level + 1);
+  fun(self, name, 33, "fd_firedancer_banks", --level);
+}
 void fd_firedancer_banks_copy_to(fd_firedancer_banks_t* to, fd_firedancer_banks_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
   unsigned char *enc = fd_alloca( 1, fd_firedancer_banks_size(from) );
   void const *   ptr = (void const *) enc;
@@ -3110,6 +3801,16 @@ void fd_vote_destroy(fd_vote_t* self, fd_free_fun_t freef, void* freef_arg) {
   }
 }
 
+void fd_vote_walk(fd_vote_t* self, fd_walk_fun_t fun, const char *name, int level) {
+  fun(self, name, 32, "fd_vote", level++);
+  fun(NULL, NULL, 30, "slots", level++);
+  for (ulong i = 0; i < self->slots.cnt; ++i)
+    ; //fd_bincode_uint64_walk(&self->slots.elems[i], data);
+  fun(NULL, NULL, 31, "slots", --level);
+  fd_hash_walk(&self->hash, fun, "hash", level + 1);
+  fun(self->timestamp, "timestamp", 11, "ulong", level + 1);
+  fun(self, name, 33, "fd_vote", --level);
+}
 void fd_vote_copy_to(fd_vote_t* to, fd_vote_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
   unsigned char *enc = fd_alloca( 1, fd_vote_size(from) );
   void const *   ptr = (void const *) enc;
@@ -3153,6 +3854,14 @@ void fd_vote_init_destroy(fd_vote_init_t* self, fd_free_fun_t freef, void* freef
   fd_pubkey_destroy(&self->authorized_withdrawer, freef, freef_arg);
 }
 
+void fd_vote_init_walk(fd_vote_init_t* self, fd_walk_fun_t fun, const char *name, int level) {
+  fun(self, name, 32, "fd_vote_init", level++);
+  fd_pubkey_walk(&self->node_pubkey, fun, "node_pubkey", level + 1);
+  fd_pubkey_walk(&self->authorized_voter, fun, "authorized_voter", level + 1);
+  fd_pubkey_walk(&self->authorized_withdrawer, fun, "authorized_withdrawer", level + 1);
+  fun(&self->commission, "commission", 9, "uchar", level + 1);
+  fun(self, name, 33, "fd_vote_init", --level);
+}
 void fd_vote_init_copy_to(fd_vote_init_t* to, fd_vote_init_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
   unsigned char *enc = fd_alloca( 1, fd_vote_init_size(from) );
   void const *   ptr = (void const *) enc;
@@ -3194,6 +3903,11 @@ void fd_vote_authorize_destroy(fd_vote_authorize_t* self, fd_free_fun_t freef, v
   fd_vote_authorize_inner_destroy(&self->inner, self->discriminant, freef, freef_arg);
 }
 
+void fd_vote_authorize_walk(fd_vote_authorize_t* self, fd_walk_fun_t fun, const char *name, int level) {
+  fun(self, name, 32, "fd_vote_authorize", level++);
+  // enum fd_unsigned char_walk(&self->commission, fun, "commission", level + 1);
+  fun(self, name, 33, "fd_vote_authorize", --level);
+}
 void fd_vote_authorize_copy_to(fd_vote_authorize_t* to, fd_vote_authorize_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
   unsigned char *enc = fd_alloca( 1, fd_vote_authorize_size(from) );
   void const *   ptr = (void const *) enc;
@@ -3223,6 +3937,12 @@ void fd_vote_authorize_pubkey_destroy(fd_vote_authorize_pubkey_t* self, fd_free_
   fd_vote_authorize_destroy(&self->vote_authorize, freef, freef_arg);
 }
 
+void fd_vote_authorize_pubkey_walk(fd_vote_authorize_pubkey_t* self, fd_walk_fun_t fun, const char *name, int level) {
+  fun(self, name, 32, "fd_vote_authorize_pubkey", level++);
+  fd_pubkey_walk(&self->pubkey, fun, "pubkey", level + 1);
+  fd_vote_authorize_walk(&self->vote_authorize, fun, "vote_authorize", level + 1);
+  fun(self, name, 33, "fd_vote_authorize_pubkey", --level);
+}
 void fd_vote_authorize_pubkey_copy_to(fd_vote_authorize_pubkey_t* to, fd_vote_authorize_pubkey_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
   unsigned char *enc = fd_alloca( 1, fd_vote_authorize_pubkey_size(from) );
   void const *   ptr = (void const *) enc;
@@ -3251,6 +3971,12 @@ void fd_vote_switch_destroy(fd_vote_switch_t* self, fd_free_fun_t freef, void* f
   fd_hash_destroy(&self->hash, freef, freef_arg);
 }
 
+void fd_vote_switch_walk(fd_vote_switch_t* self, fd_walk_fun_t fun, const char *name, int level) {
+  fun(self, name, 32, "fd_vote_switch", level++);
+  fd_vote_walk(&self->vote, fun, "vote", level + 1);
+  fd_hash_walk(&self->hash, fun, "hash", level + 1);
+  fun(self, name, 33, "fd_vote_switch", --level);
+}
 void fd_vote_switch_copy_to(fd_vote_switch_t* to, fd_vote_switch_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
   unsigned char *enc = fd_alloca( 1, fd_vote_switch_size(from) );
   void const *   ptr = (void const *) enc;
@@ -3279,6 +4005,12 @@ void fd_update_vote_state_switch_destroy(fd_update_vote_state_switch_t* self, fd
   fd_hash_destroy(&self->hash, freef, freef_arg);
 }
 
+void fd_update_vote_state_switch_walk(fd_update_vote_state_switch_t* self, fd_walk_fun_t fun, const char *name, int level) {
+  fun(self, name, 32, "fd_update_vote_state_switch", level++);
+  fd_vote_state_update_walk(&self->vote_state_update, fun, "vote_state_update", level + 1);
+  fd_hash_walk(&self->hash, fun, "hash", level + 1);
+  fun(self, name, 33, "fd_update_vote_state_switch", --level);
+}
 void fd_update_vote_state_switch_copy_to(fd_update_vote_state_switch_t* to, fd_update_vote_state_switch_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
   unsigned char *enc = fd_alloca( 1, fd_update_vote_state_switch_size(from) );
   void const *   ptr = (void const *) enc;
@@ -3318,6 +4050,14 @@ void fd_vote_authorize_with_seed_args_destroy(fd_vote_authorize_with_seed_args_t
   fd_pubkey_destroy(&self->new_authority, freef, freef_arg);
 }
 
+void fd_vote_authorize_with_seed_args_walk(fd_vote_authorize_with_seed_args_t* self, fd_walk_fun_t fun, const char *name, int level) {
+  fun(self, name, 32, "fd_vote_authorize_with_seed_args", level++);
+  fd_vote_authorize_walk(&self->authorization_type, fun, "authorization_type", level + 1);
+  fd_pubkey_walk(&self->current_authority_derived_key_owner, fun, "current_authority_derived_key_owner", level + 1);
+  fun(self->current_authority_derived_key_seed, "current_authority_derived_key_seed", 2, "char*", level + 1);
+  fd_pubkey_walk(&self->new_authority, fun, "new_authority", level + 1);
+  fun(self, name, 33, "fd_vote_authorize_with_seed_args", --level);
+}
 void fd_vote_authorize_with_seed_args_copy_to(fd_vote_authorize_with_seed_args_t* to, fd_vote_authorize_with_seed_args_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
   unsigned char *enc = fd_alloca( 1, fd_vote_authorize_with_seed_args_size(from) );
   void const *   ptr = (void const *) enc;
@@ -3361,6 +4101,13 @@ void fd_vote_authorize_checked_with_seed_args_destroy(fd_vote_authorize_checked_
   }
 }
 
+void fd_vote_authorize_checked_with_seed_args_walk(fd_vote_authorize_checked_with_seed_args_t* self, fd_walk_fun_t fun, const char *name, int level) {
+  fun(self, name, 32, "fd_vote_authorize_checked_with_seed_args", level++);
+  fd_vote_authorize_walk(&self->authorization_type, fun, "authorization_type", level + 1);
+  fd_pubkey_walk(&self->current_authority_derived_key_owner, fun, "current_authority_derived_key_owner", level + 1);
+  fun(self->current_authority_derived_key_seed, "current_authority_derived_key_seed", 2, "char*", level + 1);
+  fun(self, name, 33, "fd_vote_authorize_checked_with_seed_args", --level);
+}
 void fd_vote_authorize_checked_with_seed_args_copy_to(fd_vote_authorize_checked_with_seed_args_t* to, fd_vote_authorize_checked_with_seed_args_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
   unsigned char *enc = fd_alloca( 1, fd_vote_authorize_checked_with_seed_args_size(from) );
   void const *   ptr = (void const *) enc;
@@ -3496,6 +4243,11 @@ void fd_vote_instruction_destroy(fd_vote_instruction_t* self, fd_free_fun_t free
   fd_vote_instruction_inner_destroy(&self->inner, self->discriminant, freef, freef_arg);
 }
 
+void fd_vote_instruction_walk(fd_vote_instruction_t* self, fd_walk_fun_t fun, const char *name, int level) {
+  fun(self, name, 32, "fd_vote_instruction", level++);
+  // enum fd_char*_walk(&self->current_authority_derived_key_seed, fun, "current_authority_derived_key_seed", level + 1);
+  fun(self, name, 33, "fd_vote_instruction", --level);
+}
 void fd_vote_instruction_copy_to(fd_vote_instruction_t* to, fd_vote_instruction_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
   unsigned char *enc = fd_alloca( 1, fd_vote_instruction_size(from) );
   void const *   ptr = (void const *) enc;
@@ -3591,6 +4343,13 @@ void fd_system_program_instruction_create_account_destroy(fd_system_program_inst
   fd_pubkey_destroy(&self->owner, freef, freef_arg);
 }
 
+void fd_system_program_instruction_create_account_walk(fd_system_program_instruction_create_account_t* self, fd_walk_fun_t fun, const char *name, int level) {
+  fun(self, name, 32, "fd_system_program_instruction_create_account", level++);
+  fun(&self->lamports, "lamports", 11, "ulong", level + 1);
+  fun(&self->space, "space", 11, "ulong", level + 1);
+  fd_pubkey_walk(&self->owner, fun, "owner", level + 1);
+  fun(self, name, 33, "fd_system_program_instruction_create_account", --level);
+}
 void fd_system_program_instruction_create_account_copy_to(fd_system_program_instruction_create_account_t* to, fd_system_program_instruction_create_account_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
   unsigned char *enc = fd_alloca( 1, fd_system_program_instruction_create_account_size(from) );
   void const *   ptr = (void const *) enc;
@@ -3632,6 +4391,15 @@ void fd_system_program_instruction_create_account_with_seed_destroy(fd_system_pr
   fd_pubkey_destroy(&self->owner, freef, freef_arg);
 }
 
+void fd_system_program_instruction_create_account_with_seed_walk(fd_system_program_instruction_create_account_with_seed_t* self, fd_walk_fun_t fun, const char *name, int level) {
+  fun(self, name, 32, "fd_system_program_instruction_create_account_with_seed", level++);
+  fd_pubkey_walk(&self->base, fun, "base", level + 1);
+  fun(self->seed, "seed", 2, "char*", level + 1);
+  fun(&self->lamports, "lamports", 11, "ulong", level + 1);
+  fun(&self->space, "space", 11, "ulong", level + 1);
+  fd_pubkey_walk(&self->owner, fun, "owner", level + 1);
+  fun(self, name, 33, "fd_system_program_instruction_create_account_with_seed", --level);
+}
 void fd_system_program_instruction_create_account_with_seed_copy_to(fd_system_program_instruction_create_account_with_seed_t* to, fd_system_program_instruction_create_account_with_seed_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
   unsigned char *enc = fd_alloca( 1, fd_system_program_instruction_create_account_with_seed_size(from) );
   void const *   ptr = (void const *) enc;
@@ -3678,6 +4446,14 @@ void fd_system_program_instruction_allocate_with_seed_destroy(fd_system_program_
   fd_pubkey_destroy(&self->owner, freef, freef_arg);
 }
 
+void fd_system_program_instruction_allocate_with_seed_walk(fd_system_program_instruction_allocate_with_seed_t* self, fd_walk_fun_t fun, const char *name, int level) {
+  fun(self, name, 32, "fd_system_program_instruction_allocate_with_seed", level++);
+  fd_pubkey_walk(&self->base, fun, "base", level + 1);
+  fun(self->seed, "seed", 2, "char*", level + 1);
+  fun(&self->space, "space", 11, "ulong", level + 1);
+  fd_pubkey_walk(&self->owner, fun, "owner", level + 1);
+  fun(self, name, 33, "fd_system_program_instruction_allocate_with_seed", --level);
+}
 void fd_system_program_instruction_allocate_with_seed_copy_to(fd_system_program_instruction_allocate_with_seed_t* to, fd_system_program_instruction_allocate_with_seed_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
   unsigned char *enc = fd_alloca( 1, fd_system_program_instruction_allocate_with_seed_size(from) );
   void const *   ptr = (void const *) enc;
@@ -3721,6 +4497,13 @@ void fd_system_program_instruction_assign_with_seed_destroy(fd_system_program_in
   fd_pubkey_destroy(&self->owner, freef, freef_arg);
 }
 
+void fd_system_program_instruction_assign_with_seed_walk(fd_system_program_instruction_assign_with_seed_t* self, fd_walk_fun_t fun, const char *name, int level) {
+  fun(self, name, 32, "fd_system_program_instruction_assign_with_seed", level++);
+  fd_pubkey_walk(&self->base, fun, "base", level + 1);
+  fun(self->seed, "seed", 2, "char*", level + 1);
+  fd_pubkey_walk(&self->owner, fun, "owner", level + 1);
+  fun(self, name, 33, "fd_system_program_instruction_assign_with_seed", --level);
+}
 void fd_system_program_instruction_assign_with_seed_copy_to(fd_system_program_instruction_assign_with_seed_t* to, fd_system_program_instruction_assign_with_seed_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
   unsigned char *enc = fd_alloca( 1, fd_system_program_instruction_assign_with_seed_size(from) );
   void const *   ptr = (void const *) enc;
@@ -3761,6 +4544,13 @@ void fd_system_program_instruction_transfer_with_seed_destroy(fd_system_program_
   fd_pubkey_destroy(&self->from_owner, freef, freef_arg);
 }
 
+void fd_system_program_instruction_transfer_with_seed_walk(fd_system_program_instruction_transfer_with_seed_t* self, fd_walk_fun_t fun, const char *name, int level) {
+  fun(self, name, 32, "fd_system_program_instruction_transfer_with_seed", level++);
+  fun(&self->lamports, "lamports", 11, "ulong", level + 1);
+  fun(self->from_seed, "from_seed", 2, "char*", level + 1);
+  fd_pubkey_walk(&self->from_owner, fun, "from_owner", level + 1);
+  fun(self, name, 33, "fd_system_program_instruction_transfer_with_seed", --level);
+}
 void fd_system_program_instruction_transfer_with_seed_copy_to(fd_system_program_instruction_transfer_with_seed_t* to, fd_system_program_instruction_transfer_with_seed_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
   unsigned char *enc = fd_alloca( 1, fd_system_program_instruction_transfer_with_seed_size(from) );
   void const *   ptr = (void const *) enc;
@@ -3898,6 +4688,11 @@ void fd_system_program_instruction_destroy(fd_system_program_instruction_t* self
   fd_system_program_instruction_inner_destroy(&self->inner, self->discriminant, freef, freef_arg);
 }
 
+void fd_system_program_instruction_walk(fd_system_program_instruction_t* self, fd_walk_fun_t fun, const char *name, int level) {
+  fun(self, name, 32, "fd_system_program_instruction", level++);
+  // enum fd_pubkey_walk(&self->from_owner, fun, "from_owner", level + 1);
+  fun(self, name, 33, "fd_system_program_instruction", --level);
+}
 void fd_system_program_instruction_copy_to(fd_system_program_instruction_t* to, fd_system_program_instruction_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
   unsigned char *enc = fd_alloca( 1, fd_system_program_instruction_size(from) );
   void const *   ptr = (void const *) enc;
@@ -4023,6 +4818,11 @@ void fd_system_error_destroy(fd_system_error_t* self, fd_free_fun_t freef, void*
   fd_system_error_inner_destroy(&self->inner, self->discriminant, freef, freef_arg);
 }
 
+void fd_system_error_walk(fd_system_error_t* self, fd_walk_fun_t fun, const char *name, int level) {
+  fun(self, name, 32, "fd_system_error", level++);
+  // enum fd_pubkey_walk(&self->from_owner, fun, "from_owner", level + 1);
+  fun(self, name, 33, "fd_system_error", --level);
+}
 void fd_system_error_copy_to(fd_system_error_t* to, fd_system_error_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
   unsigned char *enc = fd_alloca( 1, fd_system_error_size(from) );
   void const *   ptr = (void const *) enc;

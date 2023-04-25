@@ -4,6 +4,8 @@
 
 //  --ledger /dev/shm/mainnet-ledger --db /dev/shm/funk --cmd replay --start-slot 179138256 --end-slot 179138258  --txn-exe sim  --index-max 120000000 --pages 15
 
+//  --ledger /dev/shm/mainnet-ledger --db /dev/shm/funk --cmd manifest --manifest /home/jsiegel/mainnet-ledger/snapshot/tmp-snapshot-archive-JfVTLu/snapshots/179248368/179248368
+
 //  --ledger /dev/shm/mainnet-ledger --db /dev/shm/funk --cmd replay --start-slot 179138205 --end-slot 279138205  --txn-exe sim  --index-max 120000000 --pages 15
 //  --ledger /dev/shm/mainnet-ledger --db /dev/shm/funk --cmd ingest --start-slot 179138205 --end-slot 279138205 --manifest /dev/shm/mainnet-ledger/snapshot/tmp-snapshot-archive-JfVTLu/snapshots/179248368/179248368
 // run --ledger /home/jsiegel/mainnet-ledger --db /home/jsiegel/funk --cmd ingest --accounts /home/jsiegel/mainnet-ledger/accounts --pages 15 --index-max 120000000
@@ -632,25 +634,17 @@ int manifest(global_state_t *state) {
   unsigned char *outend = &b[n];
   const void *   o = b;
 
-  FD_LOG_WARNING(("deserializing version bank"));
+  FD_LOG_WARNING(("deserializing solana manifest"));
 
-  struct fd_deserializable_versioned_bank a;
+  fd_solana_manifest_t a;
   memset(&a, 0, sizeof(a));
-  fd_deserializable_versioned_bank_decode(&a, &o, outend, state->global->allocf, state->global->allocf_arg);
+  fd_solana_manifest_decode(&a, &o, outend, state->global->allocf, state->global->allocf_arg);
 
-  for (ulong i = 0; i < a.ancestors_len; i++) {
-    FD_LOG_WARNING(("QQQ %lu %lu", a.ancestors[i].slot, a.ancestors[i].val ));
-  }
-
-  FD_LOG_WARNING(("deserializing accounts"));
-  struct fd_solana_accounts_db_fields db;
-  memset(&db, 0, sizeof(b));
-  fd_solana_accounts_db_fields_decode(&db, &o, outend, state->global->allocf, state->global->allocf_arg);
+  fd_deserializable_versioned_bank_walk(&a.bank, fd_printer_walker, "hi", 0);
 
   FD_LOG_WARNING(("cleaning up"));
 
-  fd_deserializable_versioned_bank_destroy(&a, state->global->freef, state->global->allocf_arg);
-  fd_solana_accounts_db_fields_destroy(&db, state->global->freef, state->global->allocf_arg);
+  fd_solana_manifest_destroy(&a, state->global->freef, state->global->allocf_arg);
   state->global->freef(state->global->allocf_arg, b);
 
   return 0;
