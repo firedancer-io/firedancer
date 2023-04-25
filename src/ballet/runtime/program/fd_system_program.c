@@ -92,16 +92,16 @@ int fd_executor_system_program_execute_instruction(
     const void** input_ptr = (const void **)&input;
     void* dataend          = (void*)&data[ctx.instr->data_sz];
 
-    uint discrimant  = 0;
-    fd_bincode_uint32_decode( &discrimant, input_ptr, dataend );
-    if ( discrimant != 2 ) { /* transfer instruction */
+    fd_system_program_instruction_t instruction;
+    fd_system_program_instruction_decode( &instruction, input_ptr, dataend, ctx.global->allocf, ctx.global->allocf_arg );
+
+    if ( !fd_system_program_instruction_is_transfer( &instruction ) ) { /* transfer instruction */
         /* TODO: support other instruction types */
-        FD_LOG_ERR(( "unsupported system program instruction: discrimant: %d", discrimant ));
+        FD_LOG_ERR(( "unsupported system program instruction: discrimant: %d", instruction.discriminant ));
         return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
     }
 
-    ulong requested_lamports = 0;
-    fd_bincode_uint64_decode( &requested_lamports, input_ptr, dataend );
+    ulong requested_lamports = instruction.inner.transfer;
 
     return transfer( requested_lamports, ctx );
 }
