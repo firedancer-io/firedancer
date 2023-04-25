@@ -684,7 +684,7 @@ int manifest(global_state_t *state) {
 
 #if 0
 void
-fd_sim_txn(global_state_t *state, FD_FN_UNUSED fd_executor_t* executor, fd_txn_t * txn, fd_rawtxn_b_t* txn_raw, struct fd_funk_xactionid const* funk_txn ) {
+fd_sim_txn(global_state_t *state, FD_FN_UNUSED fd_executor_t* executor, fd_txn_t * txn, fd_rawtxn_b_t* txn_raw, fd_funk_txn_t* funk_txn ) {
 
 /*      The order of these addresses is important, because it determines the
      "permission flags" for the account in this transaction.
@@ -722,7 +722,7 @@ fd_sim_txn(global_state_t *state, FD_FN_UNUSED fd_executor_t* executor, fd_txn_t
     }
     if ((what == 0) | (what == 2)) {
       metadata.info.lamports++;
-      int write_result = fd_acc_mgr_write_account_data( state->global->acc_mgr, funk_txn, addr, 0,  (uchar*)&metadata, sizeof(metadata) );
+      int write_result = fd_acc_mgr_write_account_data( state->global->acc_mgr, funk_txn, addr, (uchar*)&metadata, sizeof(metadata), NULL, 0 );
       if ( FD_UNLIKELY( write_result != FD_ACC_MGR_SUCCESS ) ) {
         FD_LOG_ERR(("wtf"));
       }

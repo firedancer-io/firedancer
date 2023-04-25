@@ -52,32 +52,33 @@ void* fd_acc_mgr_delete( void* mem ) {
   return mem;
 }
 
-fd_funk_recordid_t funk_id( fd_pubkey_t* pubkey ) {
-  fd_funk_recordid_t id;
+fd_funk_rec_key_t funk_id( fd_pubkey_t* pubkey ) {
+  fd_funk_rec_key_t id;
   fd_memset( &id, 0, sizeof(id) );
-  fd_memcpy( id.id, pubkey, sizeof(fd_pubkey_t) );
+  fd_memcpy( id.c, pubkey, sizeof(fd_pubkey_t) );
 
   return id;
 }
 
-int fd_acc_mgr_get_account_data( fd_acc_mgr_t* acc_mgr, struct fd_funk_xactionid const* txn, fd_pubkey_t* pubkey, uchar* result, ulong offset, ulong bytes ) {
-  fd_funk_recordid_t id = funk_id(pubkey);
-  void*              buffer = NULL;
-  long               read = fd_funk_read( acc_mgr->global->funk, txn, &id, (const void**)&buffer, offset, bytes );
-  if ( FD_UNLIKELY( read == -1 )) {
-//    FD_LOG_WARNING(( "attempt to read data for unknown account" ));
-    return FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
-  } else if ( FD_UNLIKELY( (ulong)read != bytes ) ) {
+int fd_acc_mgr_get_account_data( fd_acc_mgr_t* acc_mgr, fd_funk_txn_t* txn, fd_pubkey_t* pubkey, uchar* result, ulong offset, ulong bytes ) {
+  fd_funk_rec_key_t id = funk_id(pubkey);
+  fd_funk_t * funk = acc_mgr->global->funk;
+  fd_wksp_t * wksp = fd_funk_wksp( funk );
+  fd_funk_rec_t const * rec = fd_funk_rec_query_global(funk, txn, &id);
+  if ( FD_UNLIKELY( rec == NULL ) ) {
     FD_LOG_WARNING(( "read account data failed" ));
     return FD_ACC_MGR_ERR_READ_FAILED;
   }
-
-  fd_memcpy(result, buffer, (ulong) read);
-
+  ulong sz = fd_funk_val_sz( rec );
+  if ( FD_UNLIKELY( offset >= sz ) ) {
+    FD_LOG_WARNING(( "not enough account data" ));
+    return FD_ACC_MGR_ERR_READ_FAILED;
+  }
+  fd_memcpy(result, ((const char*) fd_funk_val_const( rec, wksp )) + offset, fd_ulong_min ( bytes, sz - offset ) );
   return FD_ACC_MGR_SUCCESS;
 }
 
-int fd_acc_mgr_get_metadata( fd_acc_mgr_t* acc_mgr, struct fd_funk_xactionid const* txn, fd_pubkey_t* pubkey, fd_account_meta_t *result ) {
+int fd_acc_mgr_get_metadata( fd_acc_mgr_t* acc_mgr, fd_funk_txn_t* txn, fd_pubkey_t* pubkey, fd_account_meta_t *result ) {
   int read_result = fd_acc_mgr_get_account_data( acc_mgr, txn, pubkey, (uchar*)result, 0, sizeof(fd_account_meta_t) );
   if ( read_result != FD_ACC_MGR_SUCCESS ) {
     //FD_LOG_WARNING(( "failed to read account data" ));
@@ -95,25 +96,40 @@ int fd_acc_mgr_get_metadata( fd_acc_mgr_t* acc_mgr, struct fd_funk_xactionid con
   return FD_ACC_MGR_SUCCESS;
 }
 
-int fd_acc_mgr_write_account_data( fd_acc_mgr_t* acc_mgr, struct fd_funk_xactionid const* txn, fd_pubkey_t* pubkey,
-                                   struct iovec const * const iov, ulong iovcnt, ulong offset ) {
+
+int fd_acc_mgr_write_account_data( fd_acc_mgr_t* acc_mgr, fd_funk_txn_t* txn, fd_pubkey_t* pubkey,
+                                   const void* data, ulong sz, const void* data2, ulong sz2 ) {
 #ifdef _VWRITE
   char buf[50];
   fd_base58_encode_32((uchar *) pubkey, NULL, buf);
   FD_LOG_WARNING(( "fd_acc_mgr_write_account to %s", buf ));
 #endif
 
-  /* Write the account data */
-  fd_funk_recordid_t id = funk_id( pubkey );
-  if ( FD_UNLIKELY( fd_funk_writev( acc_mgr->global->funk, txn, &id, iov, iovcnt, offset ) == -1 ) ) {
-    FD_LOG_WARNING(( "failed to write account data" ));
-    return FD_ACC_MGR_ERR_WRITE_FAILED;
+  fd_funk_rec_key_t id = funk_id( pubkey );
+  fd_funk_t * funk = acc_mgr->global->funk;
+  fd_funk_rec_t const * rec_orig = fd_funk_rec_query_global(funk, txn, &id);
+
+  fd_funk_rec_t const * rec_con;
+  if ( ( rec_con = fd_funk_rec_query(funk, txn, &id) ) == NULL ) {
+    int err;
+    if ( FD_UNLIKELY( ( rec_con = fd_funk_rec_insert(funk, txn, &id, &err) ) == NULL ) ) {
+      FD_LOG_WARNING(( "failed to write account data, error %d", err ));
+      return FD_ACC_MGR_ERR_WRITE_FAILED;
+    }
   }
+  fd_funk_rec_t * rec = fd_funk_rec_modify(funk, rec_con);
+  
+  fd_wksp_t * wksp = fd_funk_wksp( funk );
+  if (rec_orig != NULL && rec != rec_orig && fd_funk_val_sz(rec_orig) > sz+sz2)
+    rec = fd_funk_val_copy( rec, fd_funk_val_const( rec_orig, wksp ), fd_funk_val_sz( rec_orig ), 0UL, fd_funk_alloc( funk, wksp ), wksp, NULL );
+  
+  fd_funk_val_write( rec, 0UL, sz, data, wksp );
+  fd_funk_val_write( rec, sz, sz2, data2, wksp );
 
   return FD_ACC_MGR_SUCCESS;
 }
 
-int fd_acc_mgr_get_lamports( fd_acc_mgr_t* acc_mgr, struct fd_funk_xactionid const* txn, fd_pubkey_t * pubkey, fd_acc_lamports_t* result ) {
+int fd_acc_mgr_get_lamports( fd_acc_mgr_t* acc_mgr, fd_funk_txn_t* txn, fd_pubkey_t * pubkey, fd_acc_lamports_t* result ) {
   fd_account_meta_t metadata;
   int               read_result = fd_acc_mgr_get_metadata( acc_mgr, txn, pubkey, &metadata );
   if ( FD_UNLIKELY( read_result != FD_ACC_MGR_SUCCESS ) ) {
@@ -130,7 +146,7 @@ int fd_acc_mgr_get_lamports( fd_acc_mgr_t* acc_mgr, struct fd_funk_xactionid con
   return FD_ACC_MGR_SUCCESS;
 }
 
-int fd_acc_mgr_set_lamports( fd_acc_mgr_t* acc_mgr, struct fd_funk_xactionid const* txn, ulong slot, fd_pubkey_t * pubkey, fd_acc_lamports_t lamports ) {
+int fd_acc_mgr_set_lamports( fd_acc_mgr_t* acc_mgr, fd_funk_txn_t* txn, ulong slot, fd_pubkey_t * pubkey, fd_acc_lamports_t lamports ) {
   /* Read the current metadata from Funk */
   fd_account_meta_t metadata;
   int               read_result = fd_acc_mgr_get_metadata( acc_mgr, txn, pubkey, &metadata );
@@ -143,10 +159,7 @@ int fd_acc_mgr_set_lamports( fd_acc_mgr_t* acc_mgr, struct fd_funk_xactionid con
   metadata.info.lamports = lamports;
 
   /* Bet we have to update the hash of the account.. and track the dirty pubkeys.. */
-  struct iovec vec[1];
-  vec[0].iov_base = &metadata;
-  vec[0].iov_len = sizeof(metadata);
-  int write_result = fd_acc_mgr_write_account_data( acc_mgr, txn, pubkey, vec, 1, 0 );
+  int write_result = fd_acc_mgr_write_account_data( acc_mgr, txn, pubkey, &metadata, sizeof(metadata), NULL, 0 );
   if ( FD_UNLIKELY( write_result != FD_ACC_MGR_SUCCESS ) ) {
     FD_LOG_WARNING(( "failed to write account metadata" ));
     return write_result;
@@ -156,7 +169,7 @@ int fd_acc_mgr_set_lamports( fd_acc_mgr_t* acc_mgr, struct fd_funk_xactionid con
   return FD_ACC_MGR_SUCCESS;
 }
 
-int fd_acc_mgr_write_structured_account( fd_acc_mgr_t* acc_mgr, struct fd_funk_xactionid const* txn, ulong slot, fd_pubkey_t* pubkey, fd_solana_account_t * account) {
+int fd_acc_mgr_write_structured_account( fd_acc_mgr_t* acc_mgr, fd_funk_txn_t* txn, ulong slot, fd_pubkey_t* pubkey, fd_solana_account_t * account) {
   fd_account_meta_t m;
   fd_account_meta_init(&m);
   m.dlen = account->data_len;
@@ -181,15 +194,10 @@ int fd_acc_mgr_write_structured_account( fd_acc_mgr_t* acc_mgr, struct fd_funk_x
   if (FD_UNLIKELY(acc_mgr->global->log_level > 2))
     FD_LOG_WARNING(( "fd_acc_mgr_write_structured_account: slot=%ld, pubkey=%s  hash=%s   dlen=%ld", slot, encoded_pubkey, encoded_hash, m.dlen ));
 
-  struct iovec vec[2];
-  vec[0].iov_base = &m;
-  vec[0].iov_len = sizeof(m);
-  vec[1].iov_base = account->data;
-  vec[1].iov_len = account->data_len;
-  return fd_acc_mgr_write_account_data(acc_mgr, txn, pubkey, vec, 2, 0);
+  return fd_acc_mgr_write_account_data(acc_mgr, txn, pubkey, &m, sizeof(m), account->data, account->data_len);
 }
 
-int fd_acc_mgr_write_append_vec_account( fd_acc_mgr_t* acc_mgr, struct fd_funk_xactionid const* txn, ulong slot, fd_solana_account_hdr_t * hdr) {
+int fd_acc_mgr_write_append_vec_account( fd_acc_mgr_t* acc_mgr, fd_funk_txn_t* txn, ulong slot, fd_solana_account_hdr_t * hdr) {
   fd_account_meta_t m;
   fd_account_meta_init(&m);
   m.dlen = hdr->meta.data_len;
@@ -200,12 +208,7 @@ int fd_acc_mgr_write_append_vec_account( fd_acc_mgr_t* acc_mgr, struct fd_funk_x
 
   fd_memcpy( m.hash, hdr->hash.value, sizeof(m.hash));
 
-  struct iovec vec[2];
-  vec[0].iov_base = &m;
-  vec[0].iov_len = sizeof(m);
-  vec[1].iov_base = &hdr[1];
-  vec[1].iov_len = hdr->meta.data_len;
-  int ret = fd_acc_mgr_write_account_data(acc_mgr, txn, (fd_pubkey_t *) &hdr->meta.pubkey, vec, 2, 0);
+  int ret = fd_acc_mgr_write_account_data(acc_mgr, txn, (fd_pubkey_t *) &hdr->meta.pubkey, &m, sizeof(m), &hdr[1], hdr->meta.data_len);
   return ret;
 }
 
@@ -226,7 +229,7 @@ void fd_acc_mgr_dirty_pubkey ( fd_acc_mgr_t* acc_mgr, fd_pubkey_t* pubkey, fd_ha
     fd_memcpy(acc_mgr->keys.elems[me->index].hash.hash, hash, sizeof(*hash));
 }
 
-int fd_acc_mgr_update_hash ( fd_acc_mgr_t* acc_mgr, fd_account_meta_t * m, struct fd_funk_xactionid const* txn, ulong slot, fd_pubkey_t * pubkey, uchar *data, ulong dlen ) {
+int fd_acc_mgr_update_hash ( fd_acc_mgr_t* acc_mgr, fd_account_meta_t * m, fd_funk_txn_t* txn, ulong slot, fd_pubkey_t * pubkey, uchar *data, ulong dlen ) {
   fd_account_meta_t metadata;
 
   if (NULL == m) {
@@ -257,10 +260,7 @@ int fd_acc_mgr_update_hash ( fd_acc_mgr_t* acc_mgr, fd_account_meta_t * m, struc
   fd_base58_encode_32((uchar *) &hash, NULL, buf);
 
   if (memcmp(&hash, m->hash, sizeof(hash))) {
-    struct iovec vec[1];
-    vec[0].iov_base = m;
-    vec[0].iov_len = sizeof(metadata);
-    int write_result = fd_acc_mgr_write_account_data( acc_mgr, txn, pubkey, vec, 1, 0 );
+    int write_result = fd_acc_mgr_write_account_data( acc_mgr, txn, pubkey, m, sizeof(metadata), NULL, 0 );
     if ( FD_UNLIKELY( write_result != FD_ACC_MGR_SUCCESS ) )
       return write_result;
 

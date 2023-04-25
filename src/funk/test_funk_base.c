@@ -45,6 +45,7 @@ fd_funk_rec_key_set_unique( fd_funk_rec_key_t * key ) {
 
 static fd_funk_txn_xid_t *
 fd_funk_txn_xid_set_unique( fd_funk_txn_xid_t * xid ) {
+  xid->ul[0] = fd_log_app_id();
   xid->ul[1] = fd_log_thread_id();
   xid->ul[2] = ++unique_tag;
 # if FD_HAS_X86

@@ -602,7 +602,7 @@ for entry in entries:
 
               print("#define VECT_NAME " + vector_dynamic_prefix(namespace, f), file=header)
               print("#define VECT_ELEMENT " + element_type, file=header)
-              print("#include \"../../funk/fd_vector.h\"", file=header)
+              print("#include \"fd_vector.h\"", file=header)
               print("#undef VECT_NAME", file=header)
               print("#undef VECT_ELEMENT\n", file=header)
 

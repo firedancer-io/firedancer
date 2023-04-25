@@ -626,13 +626,13 @@ typedef struct fd_vote_prior_voters_0_23_5 fd_vote_prior_voters_0_23_5_t;
 
 #define VECT_NAME fd_vec_fd_vote_lockout_t
 #define VECT_ELEMENT fd_vote_lockout_t
-#include "../../funk/fd_vector.h"
+#include "fd_vector.h"
 #undef VECT_NAME
 #undef VECT_ELEMENT
 
 #define VECT_NAME fd_vec_fd_vote_epoch_credits_t
 #define VECT_ELEMENT fd_vote_epoch_credits_t
-#include "../../funk/fd_vector.h"
+#include "fd_vector.h"
 #undef VECT_NAME
 #undef VECT_ELEMENT
 
@@ -744,7 +744,7 @@ typedef struct fd_slot_hash fd_slot_hash_t;
 
 #define VECT_NAME fd_vec_fd_slot_hash_t
 #define VECT_ELEMENT fd_slot_hash_t
-#include "../../funk/fd_vector.h"
+#include "fd_vector.h"
 #undef VECT_NAME
 #undef VECT_ELEMENT
 
@@ -766,7 +766,7 @@ typedef struct fd_block_block_hash_entry fd_block_block_hash_entry_t;
 
 #define VECT_NAME fd_vec_fd_block_block_hash_entry_t
 #define VECT_ELEMENT fd_block_block_hash_entry_t
-#include "../../funk/fd_vector.h"
+#include "fd_vector.h"
 #undef VECT_NAME
 #undef VECT_ELEMENT
 
@@ -806,7 +806,7 @@ typedef struct fd_clock_timestamp_vote fd_clock_timestamp_vote_t;
 
 #define VECT_NAME fd_vec_fd_clock_timestamp_vote_t
 #define VECT_ELEMENT fd_clock_timestamp_vote_t
-#include "../../funk/fd_vector.h"
+#include "fd_vector.h"
 #undef VECT_NAME
 #undef VECT_ELEMENT
 
@@ -854,7 +854,7 @@ typedef struct fd_firedancer_banks fd_firedancer_banks_t;
 
 #define VECT_NAME fd_vec_ulong
 #define VECT_ELEMENT ulong
-#include "../../funk/fd_vector.h"
+#include "fd_vector.h"
 #undef VECT_NAME
 #undef VECT_ELEMENT
 

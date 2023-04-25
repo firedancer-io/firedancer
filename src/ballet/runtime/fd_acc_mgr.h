@@ -37,7 +37,7 @@ FD_PROTOTYPES_BEGIN
 
 #define VECT_NAME fd_pubkey_hash_vector
 #define VECT_ELEMENT fd_pubkey_hash_pair_t
-#include "../../funk/fd_vector.h"
+#include "fd_vector.h"
 #undef VECT_NAME
 #undef VECT_ELEMENT
 
@@ -70,32 +70,32 @@ typedef ulong fd_acc_lamports_t;
 
 /* Writes account data to the database, starting at the given offset.
  */
-int fd_acc_mgr_write_account_data( fd_acc_mgr_t* acc_mgr, struct fd_funk_xactionid const* txn, fd_pubkey_t* pubkey,
-                                   struct iovec const * const iov, ulong iovcnt, ulong offset );
+int fd_acc_mgr_write_account_data( fd_acc_mgr_t* acc_mgr, fd_funk_txn_t* txn, fd_pubkey_t* pubkey,
+                                   const void* data, ulong sz, const void* data2, ulong sz2 );
 
 /* Fetches the account data for the account with the given public key.
 
    TODO: nicer API so users of this method don't have to make two db calls, one to determine the
          size of the buffer and the other to actually read the data.
     */
-int fd_acc_mgr_get_account_data( fd_acc_mgr_t* acc_mgr, struct fd_funk_xactionid const* txn, fd_pubkey_t* pubkey, uchar* result, ulong offset, ulong bytes );
+int fd_acc_mgr_get_account_data( fd_acc_mgr_t* acc_mgr, fd_funk_txn_t* txn, fd_pubkey_t* pubkey, uchar* result, ulong offset, ulong bytes );
 
 /* Fetches the account metadata for the account with the given public key. */
-int fd_acc_mgr_get_metadata( fd_acc_mgr_t* acc_mgr, struct fd_funk_xactionid const* txn, fd_pubkey_t* pubkey, fd_account_meta_t *result );
+int fd_acc_mgr_get_metadata( fd_acc_mgr_t* acc_mgr, fd_funk_txn_t* txn, fd_pubkey_t* pubkey, fd_account_meta_t *result );
 
 /* Fetches the lamport balance for the account with the given public key. */
-int fd_acc_mgr_get_lamports( fd_acc_mgr_t* acc_mgr, struct fd_funk_xactionid const* txn, fd_pubkey_t* pubkey, fd_acc_lamports_t* result );
+int fd_acc_mgr_get_lamports( fd_acc_mgr_t* acc_mgr, fd_funk_txn_t* txn, fd_pubkey_t* pubkey, fd_acc_lamports_t* result );
 
 /* Sets the lamport balance for the account with the given public key. */
-int fd_acc_mgr_set_lamports( fd_acc_mgr_t* acc_mgr, struct fd_funk_xactionid const*, ulong slot, fd_pubkey_t* pubkey, fd_acc_lamports_t lamports );
+int fd_acc_mgr_set_lamports( fd_acc_mgr_t* acc_mgr, fd_funk_txn_t*, ulong slot, fd_pubkey_t* pubkey, fd_acc_lamports_t lamports );
 
-int fd_acc_mgr_write_structured_account( fd_acc_mgr_t* acc_mgr, struct fd_funk_xactionid const* txn, ulong slot, fd_pubkey_t*, fd_solana_account_t *);
+int fd_acc_mgr_write_structured_account( fd_acc_mgr_t* acc_mgr, fd_funk_txn_t* txn, ulong slot, fd_pubkey_t*, fd_solana_account_t *);
 
-int fd_acc_mgr_write_append_vec_account( fd_acc_mgr_t* acc_mgr, struct fd_funk_xactionid const* txn, ulong slot, fd_solana_account_hdr_t *);
+int fd_acc_mgr_write_append_vec_account( fd_acc_mgr_t* acc_mgr, fd_funk_txn_t* txn, ulong slot, fd_solana_account_hdr_t *);
 
 void fd_acc_mgr_dirty_pubkey ( fd_acc_mgr_t* acc_mgr, fd_pubkey_t* pubkey, fd_hash_t *hash);
 
-int fd_acc_mgr_update_hash ( fd_acc_mgr_t* acc_mgr, fd_account_meta_t * m, struct fd_funk_xactionid const* txn, ulong slot, fd_pubkey_t * pubkey, uchar *data, ulong dlen );
+int fd_acc_mgr_update_hash ( fd_acc_mgr_t* acc_mgr, fd_account_meta_t * m, fd_funk_txn_t* txn, ulong slot, fd_pubkey_t * pubkey, uchar *data, ulong dlen );
 
 FD_PROTOTYPES_END
 
