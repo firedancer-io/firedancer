@@ -271,7 +271,7 @@ int fd_executor_vote_program_execute_instruction(
         char vote_hash_hash[50];
         fd_base58_encode_32((uchar *) &vote->hash, 0, vote_hash_hash);
 
-        FD_LOG_NOTICE(( "hash mismatch: slot_hash: %s vote_hash: %s", slot_hash_hash, vote_hash_hash ));
+        FD_LOG_INFO(( "hash mismatch: slot_hash: %s vote_hash: %s", slot_hash_hash, vote_hash_hash ));
         /* TODO: propagate custom error code FD_VOTE_SLOT_HASH_MISMATCH */
         /* FIXME: re-visit when bank hashes are confirmed to be good */
         // return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
