@@ -13,6 +13,10 @@
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L35 */
 #define MAX_LOCKOUT_HISTORY ( 31 )
 
+/* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L369
+   TODO: support different values of MAX_LOCKOUT_HISTORY */
+#define VOTE_ACCOUNT_SIZE ( 3731 )
+
 void record_timestamp_vote(
   fd_global_ctx_t* global,
   fd_pubkey_t* vote_acc,
@@ -74,13 +78,13 @@ int get_and_verify_versioned_vote_state(
     fd_vote_state_t* vote_state = &result->inner.current;
 
     /* Check that the vote state account is initialized */
-    if ( vote_state->authorized_voters_len == 0 ) {
+    if ( vote_state->authorized_voters.cnt == 0 ) {
       return FD_EXECUTOR_INSTR_ERR_UNINITIALIZED_ACCOUNT;
     }
 
     /* Get the current authorized voter for the current epoch */
     /* TODO: handle epoch rollover */
-    fd_pubkey_t authorized_voter = vote_state->authorized_voters[0].pubkey;
+    fd_pubkey_t authorized_voter = vote_state->authorized_voters.elems[0].pubkey;
 
     /* Check that the authorized voter for this epoch has signed the vote transaction
         https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L1265
@@ -109,8 +113,8 @@ int write_vote_state(
 ) {
     ulong encoded_vote_state_versioned_size = fd_vote_state_versioned_size( vote_state_versioned );
 
-    if (encoded_vote_state_versioned_size < 3731)
-      encoded_vote_state_versioned_size = 3731;
+    if (encoded_vote_state_versioned_size < VOTE_ACCOUNT_SIZE)
+      encoded_vote_state_versioned_size = VOTE_ACCOUNT_SIZE;
 
     /* Encode and write the new account data. */
     fd_account_meta_t metadata;
@@ -156,7 +160,139 @@ int fd_executor_vote_program_execute_instruction(
     fd_vote_instruction_t instruction;
     fd_vote_instruction_decode( &instruction, input_ptr, dataend, ctx.global->allocf, ctx.global->allocf_arg );
 
-    if ( fd_vote_instruction_is_vote( &instruction ) ) {
+    if ( fd_vote_instruction_is_initialize_account( &instruction ) ) {
+      /* VoteInstruction::InitializeAccount instruction
+         https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_instruction.rs#L22-L29
+       */
+
+      FD_LOG_INFO(( "executing VoteInstruction::InitializeAccount instruction" ));
+      fd_vote_init_t* init_account_params = &instruction.inner.initialize_account;
+
+      /* Check that the accounts are correct
+         https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_processor.rs#L72-L81 */
+      uchar * instr_acc_idxs = ((uchar *)ctx.txn_raw->raw + ctx.instr->acct_off);
+      fd_pubkey_t * txn_accs = (fd_pubkey_t *)((uchar *)ctx.txn_raw->raw + ctx.txn_descriptor->acct_addr_off);
+      fd_pubkey_t * vote_acc = &txn_accs[instr_acc_idxs[0]];
+
+      /* Check that account at index 1 is the rent sysvar */
+      if ( memcmp( &txn_accs[instr_acc_idxs[1]], ctx.global->sysvar_rent, sizeof(fd_pubkey_t) ) != 0 ) {
+        return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+      }
+
+      /* TODO: verify account at index 0 is rent exempt */
+
+      /* Check that account at index 2 is the clock sysvar */
+      if ( memcmp( &txn_accs[instr_acc_idxs[2]], ctx.global->sysvar_clock, sizeof(fd_pubkey_t) ) != 0 ) {
+        return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+      }
+      fd_sol_sysvar_clock_t clock;
+      fd_sysvar_clock_read( ctx.global, &clock ); 
+
+      /* Initialize the account
+         https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L1334 */
+      
+      /* Check that the vote account is the correct size
+         https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L1340-L1342 */
+      fd_account_meta_t metadata;
+      int read_result = fd_acc_mgr_get_metadata( ctx.global->acc_mgr, ctx.global->funk_txn, vote_acc, &metadata );
+      if ( FD_UNLIKELY( read_result != FD_ACC_MGR_SUCCESS ) ) {
+        FD_LOG_WARNING(( "failed to read account metadata" ));
+        return read_result;
+      }
+      if ( metadata.dlen != VOTE_ACCOUNT_SIZE ) {
+        FD_LOG_WARNING(( "vote account size incorrect. expected %d got %lu", VOTE_ACCOUNT_SIZE, metadata.dlen ));
+        return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
+      }
+
+      /* Check, for both the current and V0_23_5 versions of the vote account state, that the vote account is uninitialized. */
+      uchar *vota_acc_data = (uchar *)(ctx.global->allocf)(ctx.global->allocf_arg, 8UL, metadata.dlen);
+      read_result = fd_acc_mgr_get_account_data( ctx.global->acc_mgr, ctx.global->funk_txn, vote_acc, (uchar*)vota_acc_data, sizeof(fd_account_meta_t), metadata.dlen );
+      if ( read_result != FD_ACC_MGR_SUCCESS ) {
+        FD_LOG_WARNING(( "failed to read account data" ));
+        return read_result;
+      }
+
+      /* Check that the account does not already contain an initialized vote state
+         https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L1345-L1347
+         https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/vote_state_versions.rs#L54 */
+      void* input            = (void *)vota_acc_data;
+      const void** input_ptr = (const void **)&input;
+      void* dataend          = (void*)&vota_acc_data[metadata.dlen];
+      fd_vote_state_versioned_t stored_vote_state_versioned;
+      fd_vote_state_versioned_decode( &stored_vote_state_versioned, input_ptr, dataend, ctx.global->allocf, ctx.global->allocf_arg );
+      uchar uninitialized_vote_state = 0;
+      if ( fd_vote_state_versioned_is_v0_23_5( &stored_vote_state_versioned ) ) {
+        fd_vote_state_0_23_5_t* vote_state_0_25_5 = &stored_vote_state_versioned.inner.v0_23_5;
+
+        fd_pubkey_t empty_pubkey;
+        memset( &empty_pubkey, 0, sizeof(empty_pubkey) );
+
+        if ( memcmp( &vote_state_0_25_5->authorized_voter, &empty_pubkey, sizeof(fd_pubkey_t) ) == 0 ) {
+          uninitialized_vote_state = 1;
+        }
+      } else if ( fd_vote_state_versioned_is_current( &stored_vote_state_versioned ) ) {
+        fd_vote_state_t* vote_state = &stored_vote_state_versioned.inner.current;
+
+        if ( vote_state->authorized_voters.cnt == 0 ) {
+          uninitialized_vote_state = 1;
+        }
+      }
+      if ( !uninitialized_vote_state ) {
+        return FD_EXECUTOR_INSTR_ERR_ACC_ALREADY_INITIALIZED;
+      }
+      fd_vote_state_versioned_destroy( &stored_vote_state_versioned, ctx.global->freef, ctx.global->allocf_arg );
+
+      /* Check that the init_account_params.node_pubkey has signed the transaction
+         https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L1349-L1350 */
+      /* TODO: factor signature check out */
+      uchar node_pubkey_signed = 0;
+      for ( ulong i = 0; i < ctx.instr->acct_cnt; i++ ) {
+        if ( instr_acc_idxs[i] < ctx.txn_descriptor->signature_cnt ) {
+          fd_pubkey_t * signer = &txn_accs[instr_acc_idxs[i]];
+          if ( !memcmp( signer, &init_account_params->node_pubkey, sizeof(fd_pubkey_t) ) ) {
+            node_pubkey_signed = 1;
+            break;
+          }
+        }
+      }
+      if ( !node_pubkey_signed ) {
+        return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
+      }
+
+      /* Create a new vote account state structure */
+      /* TODO: create constructors in fd_types */
+      fd_vote_state_versioned_t vote_state_versioned;
+      memset( &vote_state_versioned, 0, sizeof(fd_vote_state_versioned_t) );
+      vote_state_versioned.discriminant = 1;
+      fd_vote_state_t* vote_state = &vote_state_versioned.inner.current;
+      fd_vote_prior_voters_t prior_voters = {
+        .buf = fd_alloca( 1UL, 32 * sizeof( fd_vote_prior_voter_t ) ),
+        .buf_len = 0,
+        .idx = 31,
+        .is_empty = 1,
+      };
+      vote_state->prior_voters = prior_voters;
+
+      /* Initialize the vote account fields:
+         https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L343 */
+      vote_state->voting_node = init_account_params->node_pubkey;
+      fd_vote_historical_authorized_voter_t authorized_voter = {
+        .epoch  = clock.epoch,
+        .pubkey = init_account_params->authorized_voter,
+      };
+      fd_vec_fd_vote_historical_authorized_voter_t_push( &vote_state->authorized_voters, authorized_voter );
+      vote_state->authorized_withdrawer = init_account_params->authorized_withdrawer;
+      vote_state->commission = init_account_params->commission;
+
+      /* Write the new vote account back to the database */
+      int result = write_vote_state( ctx, vote_acc, &vote_state_versioned );
+      if ( result != FD_EXECUTOR_INSTR_SUCCESS ) {
+        FD_LOG_WARNING(( "failed to write versioned vote state: %d", result ));
+        return result;
+      }
+
+      fd_vote_state_versioned_destroy( &vote_state_versioned, ctx.global->freef, ctx.global->allocf_arg );
+    } else if ( fd_vote_instruction_is_vote( &instruction ) ) {
       /* VoteInstruction::Vote instruction
          https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_instruction.rs#L39-L46
        */
@@ -178,7 +314,7 @@ int fd_executor_vote_program_execute_instruction(
         return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
       }
 
-      /* Read the vote state */
+      /* Read the vote account state from the database */
       fd_vote_state_versioned_t vote_state_versioned;
       int result = get_and_verify_versioned_vote_state( ctx, instr_acc_idxs, txn_accs, vote_acc, &vote_state_versioned );
       if ( result != FD_EXECUTOR_INSTR_SUCCESS ) {

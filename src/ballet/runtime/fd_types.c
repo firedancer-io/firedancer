@@ -2295,13 +2295,14 @@ void fd_vote_state_decode(fd_vote_state_t* self, void const** data, void const* 
     fd_bincode_uint64_decode(self->saved_root_slot, data, dataend);
   } else
     self->saved_root_slot = NULL;
-  fd_bincode_uint64_decode(&self->authorized_voters_len, data, dataend);
-  if (self->authorized_voters_len != 0) {
-    self->authorized_voters = (fd_vote_historical_authorized_voter_t*)(*allocf)(allocf_arg, FD_VOTE_HISTORICAL_AUTHORIZED_VOTER_ALIGN, FD_VOTE_HISTORICAL_AUTHORIZED_VOTER_FOOTPRINT*self->authorized_voters_len);
-    for (ulong i = 0; i < self->authorized_voters_len; ++i)
-      fd_vote_historical_authorized_voter_decode(self->authorized_voters + i, data, dataend, allocf, allocf_arg);
-  } else
-    self->authorized_voters = NULL;
+  fd_vec_fd_vote_historical_authorized_voter_t_new(&self->authorized_voters);
+  ulong authorized_voters_len;
+  fd_bincode_uint64_decode(&authorized_voters_len, data, dataend);
+  for (ulong i = 0; i < authorized_voters_len; ++i) {
+    fd_vote_historical_authorized_voter_t elem;
+    fd_vote_historical_authorized_voter_decode(&elem, data, dataend, allocf, allocf_arg);
+    fd_vec_fd_vote_historical_authorized_voter_t_push(&self->authorized_voters, elem);
+  }
   fd_vote_prior_voters_decode(&self->prior_voters, data, dataend, allocf, allocf_arg);
   fd_vec_fd_vote_epoch_credits_t_new(&self->epoch_credits);
   ulong epoch_credits_len;
@@ -2321,12 +2322,7 @@ void fd_vote_state_destroy(fd_vote_state_t* self, fd_free_fun_t freef, void* fre
     freef(freef_arg, self->saved_root_slot);
     self->saved_root_slot = NULL;
   }
-  if (NULL != self->authorized_voters) {
-    for (ulong i = 0; i < self->authorized_voters_len; ++i)
-      fd_vote_historical_authorized_voter_destroy(self->authorized_voters + i, freef, freef_arg);
-    freef(freef_arg, self->authorized_voters);
-    self->authorized_voters = NULL;
-  }
+  fd_vec_fd_vote_historical_authorized_voter_t_destroy(&self->authorized_voters);
   fd_vote_prior_voters_destroy(&self->prior_voters, freef, freef_arg);
   fd_vec_fd_vote_epoch_credits_t_destroy(&self->epoch_credits);
   fd_vote_block_timestamp_destroy(&self->latest_timestamp, freef, freef_arg);
@@ -2352,8 +2348,8 @@ ulong fd_vote_state_size(fd_vote_state_t* self) {
     size += sizeof(ulong);
   }
   size += sizeof(ulong);
-  for (ulong i = 0; i < self->authorized_voters_len; ++i)
-    size += fd_vote_historical_authorized_voter_size(self->authorized_voters + i);
+  for (ulong i = 0; i < self->authorized_voters.cnt; ++i)
+    size += fd_vote_historical_authorized_voter_size(&self->authorized_voters.elems[i]);
   size += fd_vote_prior_voters_size(&self->prior_voters);
   size += sizeof(ulong);
   for (ulong i = 0; i < self->epoch_credits.cnt; ++i)
@@ -2374,11 +2370,9 @@ void fd_vote_state_encode(fd_vote_state_t* self, void const** data) {
     fd_bincode_uint64_encode(self->saved_root_slot, data);
   } else
     fd_bincode_option_encode(0, data);
-  fd_bincode_uint64_encode(&self->authorized_voters_len, data);
-  if (self->authorized_voters_len != 0) {
-    for (ulong i = 0; i < self->authorized_voters_len; ++i)
-      fd_vote_historical_authorized_voter_encode(self->authorized_voters + i, data);
-  }
+  fd_bincode_uint64_encode(&self->authorized_voters.cnt, data);
+  for (ulong i = 0; i < self->authorized_voters.cnt; ++i)
+    fd_vote_historical_authorized_voter_encode(&self->authorized_voters.elems[i], data);
   fd_vote_prior_voters_encode(&self->prior_voters, data);
   fd_bincode_uint64_encode(&self->epoch_credits.cnt, data);
   for (ulong i = 0; i < self->epoch_credits.cnt; ++i)

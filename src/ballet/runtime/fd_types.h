@@ -653,18 +653,23 @@ typedef struct fd_vote_state_0_23_5 fd_vote_state_0_23_5_t;
 #define FD_VOTE_STATE_0_23_5_FOOTPRINT sizeof(fd_vote_state_0_23_5_t)
 #define FD_VOTE_STATE_0_23_5_ALIGN (8UL)
 
+#define VECT_NAME fd_vec_fd_vote_historical_authorized_voter_t
+#define VECT_ELEMENT fd_vote_historical_authorized_voter_t
+#include "../../funk/fd_vector.h"
+#undef VECT_NAME
+#undef VECT_ELEMENT
+
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L310 */
 struct fd_vote_state {
-  fd_pubkey_t                            voting_node;
-  fd_pubkey_t                            authorized_withdrawer;
-  unsigned char                          commission;
-  fd_vec_fd_vote_lockout_t_t             votes;
-  unsigned long*                         saved_root_slot;
-  ulong                                  authorized_voters_len;
-  fd_vote_historical_authorized_voter_t* authorized_voters;
-  fd_vote_prior_voters_t                 prior_voters;
-  fd_vec_fd_vote_epoch_credits_t_t       epoch_credits;
-  fd_vote_block_timestamp_t              latest_timestamp;
+  fd_pubkey_t                                    voting_node;
+  fd_pubkey_t                                    authorized_withdrawer;
+  unsigned char                                  commission;
+  fd_vec_fd_vote_lockout_t_t                     votes;
+  unsigned long*                                 saved_root_slot;
+  fd_vec_fd_vote_historical_authorized_voter_t_t authorized_voters;
+  fd_vote_prior_voters_t                         prior_voters;
+  fd_vec_fd_vote_epoch_credits_t_t               epoch_credits;
+  fd_vote_block_timestamp_t                      latest_timestamp;
 };
 typedef struct fd_vote_state fd_vote_state_t;
 #define FD_VOTE_STATE_FOOTPRINT sizeof(fd_vote_state_t)
