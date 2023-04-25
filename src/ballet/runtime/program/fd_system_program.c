@@ -14,17 +14,19 @@ int transfer(
     fd_pubkey_t * receiver = &txn_accs[instr_acc_idxs[1]];
 
     /* Check sender has signed the transaction */
-    uchar sender_is_signer = 0; /* TODO: bool representation? */
-    for ( uchar i = 0; i < ctx.txn_descriptor->signature_cnt; i++ ) {
+    uchar sender_is_signer = 0;
+    for ( ulong i = 0; i < ctx.instr->acct_cnt; i++ ) {
+      if ( instr_acc_idxs[i] < ctx.txn_descriptor->signature_cnt ) {
         fd_pubkey_t * signer = &txn_accs[instr_acc_idxs[i]];
-        if ( !memcmp( sender, signer, sizeof(fd_pubkey_t) ) ) {
-            sender_is_signer = 1;
-            break;
+        if ( memcmp( signer, sender, sizeof(fd_pubkey_t) ) == 0 ) {
+          sender_is_signer = 1;
+          break;
         }
+      }
     }
-    if ( FD_UNLIKELY( !sender_is_signer ) ) {
-        FD_LOG_ERR( ( " sender has not authorized transfer " ) );
-        return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
+    if ( !sender_is_signer ) {
+      FD_LOG_WARNING( ( " sender has not authorized transfer " ) );
+      return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
     }
 
     /* Check sender account has enough balance to execute this transaction */
