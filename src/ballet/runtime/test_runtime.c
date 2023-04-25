@@ -991,13 +991,14 @@ int main(int argc, char **argv) {
   }
 
   fd_wksp_t *wksp = NULL;
-
-  if( !state.name ) {
-    FD_LOG_ERR(( "--wksp flag is mandatory" ));
+  if ( state.name ) {
+    FD_LOG_NOTICE(( "Attaching to --wksp %s", state.name ));
+    wksp = fd_wksp_attach( state.name );
+  } else {
+    FD_LOG_NOTICE(( "--wksp not specified, using an anonymous local workspace" ));
+    wksp = fd_wksp_new_anonymous( FD_SHMEM_GIGANTIC_PAGE_SZ, 20, 0, "wksp", 0UL );
   }
-  FD_LOG_NOTICE(( "Attaching to --wksp %s", state.name ));
-  wksp = fd_wksp_attach( state.name );
-  if( FD_UNLIKELY( !wksp ) )
+  if ( FD_UNLIKELY( !wksp ) )
     FD_LOG_ERR(( "Unable to attach to wksp" ));
 
   if( !state.gaddr ) {
@@ -1180,7 +1181,10 @@ int main(int argc, char **argv) {
   // The memory management model is odd...  how do I know how to destroy this
   fd_rocksdb_destroy(&state.rocks_db);
 
-  fd_wksp_detach( state.global->wksp );
+  if( state.name )
+    fd_wksp_detach( state.global->wksp );
+  else
+    fd_wksp_delete_anonymous( state.global->wksp );
   
   FD_LOG_NOTICE(( "pass" ));
 
