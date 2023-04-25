@@ -3990,6 +3990,65 @@ void fd_system_program_instruction_encode(fd_system_program_instruction_t* self,
   fd_system_program_instruction_inner_encode(&self->inner, self->discriminant, data);
 }
 
+uchar fd_system_error_is_account_already_in_use(fd_system_error_t* self) {
+  return self->discriminant == 0;
+}
+uchar fd_system_error_is_result_with_negative_lamports(fd_system_error_t* self) {
+  return self->discriminant == 1;
+}
+uchar fd_system_error_is_invalid_program_id(fd_system_error_t* self) {
+  return self->discriminant == 2;
+}
+uchar fd_system_error_is_invalid_account_data_length(fd_system_error_t* self) {
+  return self->discriminant == 3;
+}
+uchar fd_system_error_is_max_seed_length_exceeded(fd_system_error_t* self) {
+  return self->discriminant == 4;
+}
+uchar fd_system_error_is_address_with_seed_mismatch(fd_system_error_t* self) {
+  return self->discriminant == 5;
+}
+uchar fd_system_error_is_nonce_no_recent_blockhashes(fd_system_error_t* self) {
+  return self->discriminant == 6;
+}
+uchar fd_system_error_is_nonce_blockhash_not_expired(fd_system_error_t* self) {
+  return self->discriminant == 7;
+}
+uchar fd_system_error_is_nonce_unexpected_blockhash_value(fd_system_error_t* self) {
+  return self->discriminant == 8;
+}
+void fd_system_error_inner_decode(fd_system_error_inner_t* self, uint discriminant, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
+}
+void fd_system_error_decode(fd_system_error_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
+  fd_bincode_uint32_decode(&self->discriminant, data, dataend);
+  fd_system_error_inner_decode(&self->inner, self->discriminant, data, dataend, allocf, allocf_arg);
+}
+void fd_system_error_inner_destroy(fd_system_error_inner_t* self, uint discriminant, fd_free_fun_t freef, void* freef_arg) {
+}
+void fd_system_error_destroy(fd_system_error_t* self, fd_free_fun_t freef, void* freef_arg) {
+  fd_system_error_inner_destroy(&self->inner, self->discriminant, freef, freef_arg);
+}
+
+void fd_system_error_copy_to(fd_system_error_t* to, fd_system_error_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
+  unsigned char *enc = fd_alloca( 1, fd_system_error_size(from) );
+  void const *   ptr = (void const *) enc;
+  fd_system_error_encode( from, &ptr );
+  void *input = (void *) enc;
+  fd_system_error_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
+}
+ulong fd_system_error_size(fd_system_error_t* self) {
+  ulong size = 0;
+  size += sizeof(uint);
+  return size;
+}
+
+void fd_system_error_inner_encode(fd_system_error_inner_t* self, uint discriminant, void const** data) {
+}
+void fd_system_error_encode(fd_system_error_t* self, void const** data) {
+  fd_bincode_uint32_encode(&self->discriminant, data);
+  fd_system_error_inner_encode(&self->inner, self->discriminant, data);
+}
+
 #define REDBLK_T fd_serializable_account_storage_entry_t_mapnode_t
 #define REDBLK_NAME fd_serializable_account_storage_entry_t_map
 #include "../../util/tmpl/fd_redblack.c"

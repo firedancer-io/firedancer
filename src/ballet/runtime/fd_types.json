@@ -941,6 +941,22 @@
         { "name": "upgrade_nonce_account" }
       ],
       "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/system_instruction.rs#L152"
+    },
+    {
+      "name": "system_error",
+      "type": "enum",
+      "variants": [
+        { "name": "account_already_in_use" },
+        { "name": "result_with_negative_lamports" },
+        { "name": "invalid_program_id" },
+        { "name": "invalid_account_data_length" },
+        { "name": "max_seed_length_exceeded" },
+        { "name": "address_with_seed_mismatch" },
+        { "name": "nonce_no_recent_blockhashes" },
+        { "name": "nonce_blockhash_not_expired" },
+        { "name": "nonce_unexpected_blockhash_value" }
+      ],
+      "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/system_instruction.rs#L16"
     }
   ]
 }

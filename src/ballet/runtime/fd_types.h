@@ -1042,6 +1042,20 @@ typedef struct fd_system_program_instruction fd_system_program_instruction_t;
 #define FD_SYSTEM_PROGRAM_INSTRUCTION_FOOTPRINT sizeof(fd_system_program_instruction_t)
 #define FD_SYSTEM_PROGRAM_INSTRUCTION_ALIGN (8UL)
 
+union fd_system_error_inner {
+  uchar nonempty; /* Hack to support enums with no inner structures */
+};
+typedef union fd_system_error_inner fd_system_error_inner_t;
+
+/* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/system_instruction.rs#L16 */
+struct fd_system_error {
+  uint                    discriminant;
+  fd_system_error_inner_t inner;
+};
+typedef struct fd_system_error fd_system_error_t;
+#define FD_SYSTEM_ERROR_FOOTPRINT sizeof(fd_system_error_t)
+#define FD_SYSTEM_ERROR_ALIGN (8UL)
+
 
 FD_PROTOTYPES_BEGIN
 
@@ -1599,6 +1613,22 @@ uchar fd_system_program_instruction_is_allocate_with_seed(fd_system_program_inst
 uchar fd_system_program_instruction_is_assign_with_seed(fd_system_program_instruction_t* self);
 uchar fd_system_program_instruction_is_transfer_with_seed(fd_system_program_instruction_t* self);
 uchar fd_system_program_instruction_is_upgrade_nonce_account(fd_system_program_instruction_t* self);
+
+void fd_system_error_decode(fd_system_error_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
+void fd_system_error_encode(fd_system_error_t* self, void const** data);
+void fd_system_error_destroy(fd_system_error_t* self, fd_free_fun_t freef, void* freef_arg);
+void fd_system_error_copy_to(fd_system_error_t* to, fd_system_error_t* from, fd_alloc_fun_t freef, void* allocf_arg);
+ulong fd_system_error_size(fd_system_error_t* self);
+
+uchar fd_system_error_is_account_already_in_use(fd_system_error_t* self);
+uchar fd_system_error_is_result_with_negative_lamports(fd_system_error_t* self);
+uchar fd_system_error_is_invalid_program_id(fd_system_error_t* self);
+uchar fd_system_error_is_invalid_account_data_length(fd_system_error_t* self);
+uchar fd_system_error_is_max_seed_length_exceeded(fd_system_error_t* self);
+uchar fd_system_error_is_address_with_seed_mismatch(fd_system_error_t* self);
+uchar fd_system_error_is_nonce_no_recent_blockhashes(fd_system_error_t* self);
+uchar fd_system_error_is_nonce_blockhash_not_expired(fd_system_error_t* self);
+uchar fd_system_error_is_nonce_unexpected_blockhash_value(fd_system_error_t* self);
 
 FD_PROTOTYPES_END
 
