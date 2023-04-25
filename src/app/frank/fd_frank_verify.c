@@ -2,36 +2,50 @@
 
 #if FD_HAS_FRANK
 
+#include <stdio.h>
+
 int
 fd_frank_verify_task( int     argc,
                       char ** argv ) {
   (void)argc;
   fd_log_thread_set( argv[0] );
-  char const * verify_name = argv[0];
-  FD_LOG_INFO(( "verify.%s init", verify_name ));
+  char const * task_group_pod_path = argv[0];
+  char const * task_instance_id = argv[1];
+  
+
+
+  FD_LOG_INFO(( "%s.%s init", task_group_pod_path, task_instance_id ));
   
   /* Parse "command line" arguments */
 
-  char const * pod_gaddr = argv[1];
-  char const * cfg_path  = argv[2];
+  char const * pod_gaddr = argv[2];
+  char const * cfg_path  = argv[3];
 
   /* Load up the configuration for this frank instance */
 
-  FD_LOG_INFO(( "using configuration in pod %s at path %s", pod_gaddr, cfg_path ));
+  FD_LOG_NOTICE(( "using configuration in pod %s at path %s", pod_gaddr, cfg_path ));
+  
   uchar const * pod     = fd_wksp_pod_attach( pod_gaddr );
   uchar const * cfg_pod = fd_pod_query_subpod( pod, cfg_path );
   if( FD_UNLIKELY( !cfg_pod ) ) FD_LOG_ERR(( "path not found" ));
 
-  uchar const * verify_pods = fd_pod_query_subpod( cfg_pod, "verify" );
-  if( FD_UNLIKELY( !verify_pods ) ) FD_LOG_ERR(( "%s.verify path not found", cfg_path ));
+  uchar const * task_group_pod = fd_pod_query_subpod( pod, task_group_pod_path );
+  if( FD_UNLIKELY( !task_group_pod ) ) FD_LOG_ERR(( "path not found" ));
 
-  uchar const * verify_pod = fd_pod_query_subpod( verify_pods, verify_name );
-  if( FD_UNLIKELY( !verify_pod ) ) FD_LOG_ERR(( "%s.verify.%s path not found", cfg_path, verify_name ));
+  uchar const * this_task_pod = fd_pod_query_subpod( task_group_pod, task_instance_id );
+  if( FD_UNLIKELY( !this_task_pod ) ) FD_LOG_ERR(( "path not found" ));
+
+
+  uchar const * verify_pods = fd_pod_query_subpod( pod, task_group_pod_path );
+  if( FD_UNLIKELY( !verify_pods ) ) FD_LOG_ERR(( "%s path not found", task_group_pod_path ));
+
+  uchar const * verify_pod = fd_pod_query_subpod( verify_pods, task_instance_id );
+  if( FD_UNLIKELY( !verify_pod ) ) FD_LOG_ERR(( "%s.%s path not found", verify_pods, task_instance_id ));
 
   /* Join the IPC objects needed this tile instance */
 
-  FD_LOG_INFO(( "joining %s.verify.%s.cnc", cfg_path, verify_name ));
-  fd_cnc_t * cnc = fd_cnc_join( fd_wksp_pod_map( verify_pod, "cnc" ) );
+  FD_LOG_INFO(( "joining %s.verify.%s.cnc", cfg_path, task_group_pod_path ));
+  fd_cnc_t * cnc = fd_cnc_join( fd_wksp_pod_map( this_task_pod, "cnc" ) );
   if( FD_UNLIKELY( !cnc ) ) FD_LOG_ERR(( "fd_cnc_join failed" ));
   if( FD_UNLIKELY( fd_cnc_signal_query( cnc )!=FD_CNC_SIGNAL_BOOT ) ) FD_LOG_ERR(( "cnc not in boot state" ));
   ulong * cnc_diag = (ulong *)fd_cnc_app_laddr( cnc );
@@ -47,14 +61,14 @@ fd_frank_verify_task( int     argc,
   FD_VOLATILE( cnc_diag[ FD_FRANK_CNC_DIAG_SV_FILT_SZ  ] ) = 0UL;
   FD_COMPILER_MFENCE();
 
-  FD_LOG_INFO(( "joining %s.verify.%s.mcache", cfg_path, verify_name ));
+  FD_LOG_INFO(( "joining %s.verify.%s.mcache", cfg_path, task_group_pod_path ));
   fd_frag_meta_t * mcache = fd_mcache_join( fd_wksp_pod_map( verify_pod, "mcache" ) );
   if( FD_UNLIKELY( !mcache ) ) FD_LOG_ERR(( "fd_mcache_join failed" ));
   ulong   depth = fd_mcache_depth( mcache );
   ulong * sync  = fd_mcache_seq_laddr( mcache );
   ulong   seq   = fd_mcache_seq_query( sync );
 
-  FD_LOG_INFO(( "joining %s.verify.%s.dcache", cfg_path, verify_name ));
+  FD_LOG_INFO(( "joining %s.verify.%s.dcache", cfg_path, task_group_pod_path ));
   uchar * dcache = fd_dcache_join( fd_wksp_pod_map( verify_pod, "dcache" ) );
   if( FD_UNLIKELY( !dcache ) ) FD_LOG_ERR(( "fd_dcache_join failed" ));
   fd_wksp_t * wksp = fd_wksp_containing( dcache ); /* chunks are referenced relative to the containing workspace */
@@ -63,7 +77,7 @@ fd_frank_verify_task( int     argc,
   ulong   wmark  = fd_dcache_compact_wmark ( wksp, dcache, 1542UL ); /* FIXME: MTU? SAFETY CHECK THE FOOTPRINT? */
   ulong   chunk  = chunk0;
 
-  FD_LOG_INFO(( "joining %s.verify.%s.fseq", cfg_path, verify_name ));
+  FD_LOG_INFO(( "joining %s.verify.%s.fseq", cfg_path, task_group_pod_path ));
   ulong * fseq = fd_fseq_join( fd_wksp_pod_map( verify_pod, "fseq" ) );
   if( FD_UNLIKELY( !fseq ) ) FD_LOG_ERR(( "fd_fseq_join failed" ));
   ulong * fseq_diag = (ulong *)fd_fseq_app_laddr( fseq );
@@ -77,10 +91,10 @@ fd_frank_verify_task( int     argc,
   ulong cr_resume = fd_pod_query_ulong( verify_pod, "cr_resume", 0UL );
   ulong cr_refill = fd_pod_query_ulong( verify_pod, "cr_refill", 0UL );
   long  lazy      = fd_pod_query_long ( verify_pod, "lazy",      0L  );
-  FD_LOG_INFO(( "%s.verify.%s.cr_max    %lu", cfg_path, verify_name, cr_max    ));
-  FD_LOG_INFO(( "%s.verify.%s.cr_resume %lu", cfg_path, verify_name, cr_resume ));
-  FD_LOG_INFO(( "%s.verify.%s.cr_refill %lu", cfg_path, verify_name, cr_refill ));
-  FD_LOG_INFO(( "%s.verify.%s.lazy      %li", cfg_path, verify_name, lazy      ));
+  FD_LOG_INFO(( "%s.verify.%s.cr_max    %lu", cfg_path, task_group_pod_path, cr_max    ));
+  FD_LOG_INFO(( "%s.verify.%s.cr_resume %lu", cfg_path, task_group_pod_path, cr_resume ));
+  FD_LOG_INFO(( "%s.verify.%s.cr_refill %lu", cfg_path, task_group_pod_path, cr_refill ));
+  FD_LOG_INFO(( "%s.verify.%s.lazy      %li", cfg_path, task_group_pod_path, lazy      ));
 
   fd_fctl_t * fctl = fd_fctl_cfg_done( fd_fctl_cfg_rx_add( fd_fctl_join( fd_fctl_new( fd_alloca( FD_FCTL_ALIGN,
                                                                                                  fd_fctl_footprint( 1UL ) ),
@@ -99,7 +113,7 @@ fd_frank_verify_task( int     argc,
   if( FD_UNLIKELY( !async_min ) ) FD_LOG_ERR(( "bad lazy" ));
 
   uint seed = fd_pod_query_uint( verify_pod, "seed", (uint)fd_tile_id() ); /* use app tile_id as default */
-  FD_LOG_INFO(( "creating rng (%s.verify.%s.seed %u)", cfg_path, verify_name, seed ));
+  FD_LOG_INFO(( "creating rng (%s.verify.%s.seed %u)", cfg_path, task_group_pod_path, seed ));
   fd_rng_t _rng[ 1 ];
   fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, seed, 0UL ) );
   if( FD_UNLIKELY( !rng ) ) FD_LOG_ERR(( "fd_rng_join failed" ));
@@ -126,7 +140,7 @@ fd_frank_verify_task( int     argc,
 
   /* Start verifying */
 
-  FD_LOG_INFO(( "verify.%s run", verify_name ));
+  FD_LOG_INFO(( "verify.%s run", task_group_pod_path ));
 
   long now  = fd_tickcount();
   long then = now;            /* Do housekeeping on first iteration of run loop */
@@ -202,7 +216,7 @@ fd_frank_verify_task( int     argc,
   /* Clean up */
 
   fd_cnc_signal( cnc, FD_CNC_SIGNAL_BOOT );
-  FD_LOG_INFO(( "verify.%s fini", verify_name ));
+  FD_LOG_INFO(( "verify.%s fini", task_group_pod_path ));
   fd_sha512_delete ( fd_sha512_leave( sha    ) );
   fd_tcache_delete ( fd_tcache_leave( tcache ) );
   fd_rng_delete    ( fd_rng_leave   ( rng    ) );

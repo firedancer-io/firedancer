@@ -11,6 +11,8 @@
 #include <stdio.h>
 #include <signal.h>
 
+#define MAX_TASK_POD_KEY_LEN 1024
+
 static fd_cnc_t * fd_frank_main_cnc = NULL;
 
 static void
@@ -50,10 +52,23 @@ list_groups( const uchar * groups_pod ) {
   }
 }
 
-uint
-min_tile_cnt( const uchar * grp_path, uint task_count ) {
-  uint min_tile = fd_pod_query_uint( grp_path, "additional-tiles", 0);
-  return task_count + min_tile;
+static ulong
+find_task_count( const uchar * group_tasks_pod ) {
+  ulong sum = 0;
+
+  for( fd_pod_iter_t task_iter = fd_pod_iter_init( group_tasks_pod );
+       !fd_pod_iter_done( task_iter ); 
+       task_iter = fd_pod_iter_next( task_iter ) ) {
+        fd_pod_info_t task_type_info = fd_pod_iter_info( task_iter );
+        /* Skip if node is not a subpod */
+        if( FD_UNLIKELY( task_type_info.val_type!=FD_POD_VAL_TYPE_SUBPOD ) ) continue;
+
+        /* Find how many tasks there are for this task type */
+        uchar const * tasks_pod = fd_pod_query_subpod(group_tasks_pod, task_type_info.key);
+        sum += fd_pod_cnt_subpod( tasks_pod );
+  } /* all groups */  
+
+  return sum;
 }
 
 int
@@ -80,7 +95,7 @@ main( int     argc,
   uchar const * all_groups_pod = fd_pod_query_subpod( cfg_pod, "grp" );
   if( FD_UNLIKELY( !all_groups_pod ) ) FD_LOG_ERR(( "path not found" ));
   ulong group_cnt = fd_pod_cnt_subpod( all_groups_pod );
-  FD_LOG_NOTICE(( "found %lu group(s)", group_cnt ));
+  FD_LOG_NOTICE(( "found %lu task group(s) in config", group_cnt ));
 
   /* Find the the pod for the group we are attempting to launch. */
   uchar const * group_pod = fd_pod_query_subpod( all_groups_pod, grp_name );
@@ -89,8 +104,12 @@ main( int     argc,
     list_groups( all_groups_pod );
     FD_LOG_ERR(( "'%s' is an invalid group", grp_name ));
   };
+
+  /* Find out how many tasks are going to be launched */
   
-  // /* Todo(marcus-jump) find the minimum tile count for this group. */
+  /* Todo(marcus-jump): ensure that the required shmem is mapped */
+
+  // /* Todo(marcus-jump): find the minimum tile count for this group. */
   // uint tile_req_cnt = min_tile_cnt( "group_pod", );
   // if ( fd_tile_cnt() < tile_req_cnt ) {
   //   FD_LOG_ERR(( "not enough tiles available - available=%lu min_required=%lu", fd_tile_cnt(), tile_req_cnt ));
@@ -101,8 +120,24 @@ main( int     argc,
   uchar const * all_tasks_pod = fd_pod_query_subpod( group_pod, "task" );
   if( FD_UNLIKELY( !all_tasks_pod ) ) FD_LOG_ERR(( "path not found" ));
 
-  ulong next_tile_idx = 1UL;
-  (void) next_tile_idx;
+  ulong tasks_cnt = find_task_count(all_tasks_pod);
+
+  // Todo: Can store fewer entries
+  char * task_type_paths = fd_alloca( alignof(char *), MAX_TASK_POD_KEY_LEN * tasks_cnt );
+  if( FD_UNLIKELY( !task_type_paths ) ) FD_LOG_ERR(( "fd_alloca failed" ));
+
+  /* Have a referance handy to all tasks's CNC */
+  fd_cnc_t ** tile_cnc = fd_alloca( alignof(fd_cnc_t *), sizeof(fd_cnc_t *)*tasks_cnt );
+  if( FD_UNLIKELY( !tile_cnc ) ) FD_LOG_ERR(( "fd_alloca failed" ));  
+
+  /* The main tile's (this thread) CNC will be the first in this list */
+  fd_cnc_t * cnc = tile_cnc[ 0 ] = fd_cnc_join( fd_wksp_pod_map( group_pod, "main.cnc" ) );
+  if( FD_UNLIKELY( !cnc ) ) FD_LOG_ERR(( "fd_cnc_join failed" ));
+  if( FD_UNLIKELY( fd_cnc_app_sz( cnc ) < 64UL ) ) FD_LOG_ERR(( "cnc app sz should be at least 64 bytes" ));
+
+
+  ulong tile_idx = 1UL;
+  (void) tile_idx;
 
   /* For each type fo task, launch all of the specified tasks. */
   for( fd_pod_iter_t task_type_iter = fd_pod_iter_init( all_tasks_pod ); !fd_pod_iter_done( task_type_iter ); task_type_iter = fd_pod_iter_next( task_type_iter ) ) {
@@ -114,14 +149,55 @@ main( int     argc,
     uchar const * task_type_pod = fd_pod_query_subpod( all_tasks_pod, task_type );
     if( FD_UNLIKELY( !task_type_pod ) ) FD_LOG_ERR(( "path not found" ));
 
-    for( fd_pod_iter_t iter = fd_pod_iter_init( task_type_pod ); !fd_pod_iter_done( iter ); iter = fd_pod_iter_next( iter ) ) {
-      fd_pod_info_t task_info = fd_pod_iter_info( iter );
+    fd_tile_task_t task;
+
+    if      ( FD_UNLIKELY( !strcmp(task_type, "pack"   ) ) )
+      task = fd_frank_pack_task;
+    else if ( FD_UNLIKELY( !strcmp(task_type, "dedup"  ) ) )
+      task = fd_frank_dedup_task;
+    else if ( FD_UNLIKELY( !strcmp(task_type, "verify" ) ) )
+      task = fd_frank_verify_task;
+    else {
+      FD_LOG_ERR(( "unknown task type '%s'", task_type ));
+    }
+
+    /* Todo: Sandbox the process */
+
+    /* Launch each instance of that pod. */
+    for( fd_pod_iter_t instance_iter = fd_pod_iter_init( task_type_pod ); !fd_pod_iter_done( instance_iter ); instance_iter = fd_pod_iter_next( instance_iter ) ) {
+      fd_pod_info_t task_info = fd_pod_iter_info( instance_iter );
       if( FD_UNLIKELY( task_info.val_type!=FD_POD_VAL_TYPE_SUBPOD ) ) continue;
       FD_LOG_NOTICE(( "launching task: %s:%s", task_type, task_info.key ));
 
-      // Prepare all
+      uchar const * task_instance = fd_pod_query_subpod( task_type_pod, task_info.key );
+      if( FD_UNLIKELY( !task_instance ) ) FD_LOG_ERR(( "path not found" ));
+
+      tile_cnc[ tile_idx ] = fd_cnc_join( fd_wksp_pod_map( task_instance, "cnc" ) );
+
+
+      char * task_type_path = task_type_paths + (tile_idx * MAX_TASK_POD_KEY_LEN);
+
+      int written = snprintf(task_type_path, MAX_TASK_POD_KEY_LEN, "%s.grp.%s.task.%s", cfg_path, grp_name, task_type_info.key);
+      if (written+1 > MAX_TASK_POD_KEY_LEN) {
+        FD_LOG_ERR(( "would have overran task type path" ));
+      }
+
+
+      
+      char * task_argv[4];
+      task_argv[0] = (char *)task_type_path;
+      task_argv[1] = (char *)task_info.key;
+      task_argv[2] = (char *)pod_gaddr;
+      task_argv[3] = (char *)cfg_path;
+
+      if( FD_UNLIKELY( !fd_tile_exec_new( tile_idx, task, 0, task_argv ) ) )
+        FD_LOG_ERR(( "fd_tile_exec_new failed" ));
+      
+      if( FD_UNLIKELY( fd_cnc_wait( tile_cnc[ tile_idx ], FD_CNC_SIGNAL_BOOT, (long)5e9, NULL )!=FD_CNC_SIGNAL_RUN ) )
+        FD_LOG_ERR(( "tile failed to boot in a timely fashion" ));
+
+      tile_idx++;
     }
-    // 
   }
 
   /* Configure normal kill and ctrl-c to do a clean shutdown */
@@ -130,6 +206,15 @@ main( int     argc,
   fd_frank_signal_trap( SIGTERM );
   fd_frank_signal_trap( SIGINT  );
 
+  FD_LOG_INFO(( "main run" ));
+  fd_cnc_signal( cnc, FD_CNC_SIGNAL_RUN );
+  for(;;) {
+    /* Send diagnostic info */
+    fd_cnc_heartbeat( cnc, fd_tickcount() );
+    /* Receive command-and-control signals */
+    if( FD_UNLIKELY( fd_cnc_signal_query( cnc )==FD_CNC_SIGNAL_HALT ) ) break;
+    FD_YIELD(); /* not SPIN_PAUSE as this tile is meant to float and be low resource utilization */
+  }
 
   fd_halt();
   return 0;
