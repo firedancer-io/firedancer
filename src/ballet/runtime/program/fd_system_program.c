@@ -3,10 +3,15 @@
 #include "../fd_acc_mgr.h"
 #include "../fd_runtime.h"
 
+/* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/system_instruction.rs#L139 */
+#define MAX_PERMITTED_DATA_LENGTH ( 10 * 1024 * 1024 )
+
 int transfer(
     ulong requested_lamports,
     instruction_ctx_t ctx
 ) {
+    /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/runtime/src/system_instruction_processor.rs#L327 */
+
     /* Pull out sender (acc idx 0) and recipient (acc idx 1) */
     uchar * instr_acc_idxs = ((uchar *)ctx.txn_raw->raw + ctx.instr->acct_off);
     fd_pubkey_t * txn_accs = (fd_pubkey_t *)((uchar *)ctx.txn_raw->raw + ctx.txn_descriptor->acct_addr_off);
@@ -85,6 +90,72 @@ int transfer(
     return FD_EXECUTOR_INSTR_SUCCESS;
 }
 
+/* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/runtime/src/system_instruction_processor.rs#L277 */
+int create_account(
+    ulong lamports,
+    ulong space,
+    fd_pubkey_t* owner,
+    instruction_ctx_t ctx
+) {
+    /* Account 0: funding account
+       Account 1: new account
+     */
+    uchar * instr_acc_idxs = ((uchar *)ctx.txn_raw->raw + ctx.instr->acct_off);
+    fd_pubkey_t * txn_accs = (fd_pubkey_t *)((uchar *)ctx.txn_raw->raw + ctx.txn_descriptor->acct_addr_off);
+    fd_pubkey_t * new      = &txn_accs[instr_acc_idxs[1]];
+
+    /* Check to see if the account is already in use */
+    fd_account_meta_t metadata;
+    long read_result = fd_acc_mgr_get_metadata( ctx.global->acc_mgr, ctx.global->funk_txn, new, &metadata );
+    if ( read_result != FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) {
+      FD_LOG_WARNING(( "account already exists" ));
+      /* TODO: propagate SystemError::AccountAlreadyInUse enum variant */
+      return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
+    }
+
+    /* Check to see if the new account pubkey has signed */
+    uchar new_signed = 0;
+    for ( ulong i = 0; i < ctx.instr->acct_cnt; i++ ) {
+      if ( instr_acc_idxs[i] < ctx.txn_descriptor->signature_cnt ) {
+        fd_pubkey_t * signer = &txn_accs[instr_acc_idxs[i]];
+        if ( !memcmp( signer, new, sizeof(fd_pubkey_t) ) ) {
+          new_signed = 1;
+          break;
+        }
+      }
+    }
+    if ( !new_signed ) {
+      return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
+    }
+
+    /* Check that we are not exceeding the MAX_PERMITTED_DATA_LENGTH account size */
+    if ( space > MAX_PERMITTED_DATA_LENGTH ) {
+      FD_LOG_WARNING(( "MAX_PERMITTED_DATA_LENGTH exceeded" ));
+      /* TODO: propagate SystemError::InvalidAccountDataLength enum variant */
+      return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
+    }
+
+    /* Initialize the account with all zeroed data and the correct owner */
+
+    unsigned char *data = fd_alloca( 1, space );
+    memset( data, 0, space );
+    fd_solana_account_t account = {
+      .lamports = lamports,
+      .data_len = space,
+      .data = data,
+      .owner = *owner,
+      .executable = 0,
+      .rent_epoch = 0, /* TODO */
+    };
+    int write_result = fd_acc_mgr_write_structured_account(ctx.global->acc_mgr, ctx.global->funk_txn, 0, new, &account);
+    if ( write_result != FD_ACC_MGR_SUCCESS ) {
+      FD_LOG_NOTICE(( "failed to create account: %d", write_result ));
+      return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
+    }
+
+    return FD_EXECUTOR_INSTR_SUCCESS;
+}
+
 int fd_executor_system_program_execute_instruction(
     instruction_ctx_t ctx
 ) {
@@ -97,15 +168,33 @@ int fd_executor_system_program_execute_instruction(
     fd_system_program_instruction_t instruction;
     fd_system_program_instruction_decode( &instruction, input_ptr, dataend, ctx.global->allocf, ctx.global->allocf_arg );
 
-    if ( !fd_system_program_instruction_is_transfer( &instruction ) ) { /* transfer instruction */
-        /* TODO: support other instruction types */
-        FD_LOG_ERR(( "unsupported system program instruction: discrimant: %d", instruction.discriminant ));
-        return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+    if ( fd_system_program_instruction_is_transfer( &instruction ) ) {
+
+      ulong requested_lamports = instruction.inner.transfer;
+      int result = transfer( requested_lamports, ctx );
+      if ( result != FD_EXECUTOR_INSTR_SUCCESS ) {
+        FD_LOG_WARNING(( "failed to execute transfer instruction" ));
+        return result;
+      }
+
+    } else if ( fd_system_program_instruction_is_create_account( &instruction ) ) {
+      
+      fd_system_program_instruction_create_account_t* params = &instruction.inner.create_account;
+      int result = create_account( params->lamports, params->space, &params->owner, ctx );
+      if ( result != FD_EXECUTOR_INSTR_SUCCESS ) {
+        FD_LOG_WARNING(( "failed to execute create account instruction" ));
+        return result;
+      }
+
+    } else {
+      /* TODO: support other instruction types */
+      FD_LOG_ERR(( "unsupported system program instruction: discrimant: %d", instruction.discriminant ));
+      return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
     }
 
-    ulong requested_lamports = instruction.inner.transfer;
+    fd_system_program_instruction_destroy( &instruction, ctx.global->freef, ctx.global->allocf_arg );
 
-    return transfer( requested_lamports, ctx );
+    return FD_EXECUTOR_INSTR_SUCCESS;
 }
 
 
