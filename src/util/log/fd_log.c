@@ -2,6 +2,19 @@
 #error "Implement logging support for this build target"
 #endif
 
+/* TEXT_* are quick-and-dirty color terminal hacks.  Probably should
+   do something more robust longer term. */
+
+#define TEXT_NORMAL    "\033[0m"
+#define TEXT_BOLD      "\033[1m"
+#define TEXT_UNDERLINE "\033[4m"
+#define TEXT_BLINK     "\033[5m"
+
+#define TEXT_BLUE      "\033[34m"
+#define TEXT_GREEN     "\033[32m"
+#define TEXT_YELLOW    "\033[93m"
+#define TEXT_RED       "\033[31m"
+
 /* If FD_LOG_FLUSH_{STDOUT,STDERR,LOG_FILE} are non-zero, fd_log_boot
    will not change the buffering modes for stdout (typically line
    buffered), stderr (typically unbuffered) and log_file (typically
@@ -449,16 +462,19 @@ fd_log_flush( void ) {
 # endif
 }
 
+static int fd_log_private_colorize;      /* 0 outside boot/halt, init at boot */
 static int fd_log_private_level_logfile; /* 0 outside boot/halt, init at boot */
 static int fd_log_private_level_stderr;  /* 0 outside boot/halt, init at boot */
 static int fd_log_private_level_flush;   /* 0 outside boot/halt, init at boot */
 static int fd_log_private_level_core;    /* 0 outside boot/halt, init at boot */
 
+int fd_log_colorize     ( void ) { return FD_VOLATILE_CONST( fd_log_private_colorize      ); }
 int fd_log_level_logfile( void ) { return FD_VOLATILE_CONST( fd_log_private_level_logfile ); }
 int fd_log_level_stderr ( void ) { return FD_VOLATILE_CONST( fd_log_private_level_stderr  ); }
 int fd_log_level_flush  ( void ) { return FD_VOLATILE_CONST( fd_log_private_level_flush   ); }
 int fd_log_level_core   ( void ) { return FD_VOLATILE_CONST( fd_log_private_level_core    ); }
 
+void fd_log_colorize_set     ( int mode  ) { FD_VOLATILE( fd_log_private_colorize      ) = mode;  }
 void fd_log_level_logfile_set( int level ) { FD_VOLATILE( fd_log_private_level_logfile ) = level; }
 void fd_log_level_stderr_set ( int level ) { FD_VOLATILE( fd_log_private_level_stderr  ) = level; }
 void fd_log_level_flush_set  ( int level ) { FD_VOLATILE( fd_log_private_level_flush   ) = level; }
@@ -581,17 +597,6 @@ fd_log_private_1( int          level,
                   char const * func,
                   char const * msg ) {
 
-  static char const * level_str[] = {
-    /* 0 */ "DEBUG  ",
-    /* 1 */ "INFO   ",
-    /* 2 */ "NOTICE ",
-    /* 3 */ "WARNING",
-    /* 4 */ "ERR    ",
-    /* 5 */ "CRIT   ",
-    /* 6 */ "ALERT  ",
-    /* 7 */ "EMERG  "
-  };
-
   if( level<fd_log_level_logfile() ) return;
 
   /* These are thread init so we call them regardless of permanent log
@@ -696,13 +701,35 @@ fd_log_private_1( int          level,
   char now_cstr[ FD_LOG_WALLCLOCK_CSTR_BUF_SZ ];
   fd_log_wallclock_cstr( now, now_cstr );
 
+  static char const * level_cstr[] = {
+    /* 0 */ "DEBUG  ",
+    /* 1 */ "INFO   ",
+    /* 2 */ "NOTICE ",
+    /* 3 */ "WARNING",
+    /* 4 */ "ERR    ",
+    /* 5 */ "CRIT   ",
+    /* 6 */ "ALERT  ",
+    /* 7 */ "EMERG  "
+  };
+
   if( to_logfile ) fprintf( log_file, "%s %s %6lu:%-6lu %s:%s:%-4s %s:%s:%-4s %s(%i)[%s]: %s\n",
-                            level_str[level], now_cstr, fd_log_group_id(),tid, fd_log_user(),fd_log_host(),cpu,
+                            level_cstr[level], now_cstr, fd_log_group_id(),tid, fd_log_user(),fd_log_host(),cpu,
                             fd_log_app(),fd_log_group(),thread, file,line,func, msg );
 
   if( to_stderr ) {
+    static char const * color_level_cstr[] = {
+      /* 0 */ TEXT_NORMAL                                  "DEBUG  ",
+      /* 1 */ TEXT_BLUE                                    "INFO   " TEXT_NORMAL,
+      /* 2 */ TEXT_GREEN                                   "NOTICE " TEXT_NORMAL,
+      /* 3 */ TEXT_YELLOW                                  "WARNING" TEXT_NORMAL,
+      /* 4 */ TEXT_RED                                     "ERR    " TEXT_NORMAL,
+      /* 5 */ TEXT_RED TEXT_BOLD                           "CRIT   " TEXT_NORMAL,
+      /* 6 */ TEXT_RED TEXT_BOLD TEXT_UNDERLINE            "ALERT  " TEXT_NORMAL,
+      /* 7 */ TEXT_RED TEXT_BOLD TEXT_UNDERLINE TEXT_BLINK "EMERG  " TEXT_NORMAL
+    };
     char * now_short_cstr = now_cstr+5; now_short_cstr[21] = '\0'; /* Lop off the year, ns resolution and timezone */
-    fprintf( stderr, "%s %s %-6lu %-4s %-4s %s(%i): %s\n", level_str[level], now_short_cstr, tid,cpu,thread, file, line, msg );
+    fprintf( stderr, "%s %s %-6lu %-4s %-4s %s(%i): %s\n", fd_log_private_colorize ? color_level_cstr[level] : level_cstr[level],
+             now_short_cstr, tid,cpu,thread, file, line, msg );
   }
 
   if( level<fd_log_level_flush() ) return;
@@ -985,6 +1012,20 @@ fd_log_private_boot( int  *   pargc,
 
   fd_log_private_dedup = fd_env_strip_cmdline_int( pargc, pargv, "--log-dedup", "FD_LOG_DEDUP", 1 );
 
+  int colorize = 0;
+  do {
+    char const * cstr = fd_env_strip_cmdline_cstr( pargc, pargv, "--log-colorize", "FD_LOG_COLORIZE", NULL );
+    if( cstr ) { colorize = fd_cstr_to_int( cstr ); break; }
+
+    cstr = fd_env_strip_cmdline_cstr( NULL, NULL, NULL, "COLORTERM", NULL );
+    if( cstr && !strcmp( cstr, "truecolor" ) ) { colorize = 1; break; }
+
+    cstr = fd_env_strip_cmdline_cstr( NULL, NULL, NULL, "TERM", NULL );
+    if( cstr && !strcmp( cstr, "xterm-256color" ) ) { colorize = 1; break; }
+
+  } while(0);
+  fd_log_colorize_set( colorize );
+
   fd_log_level_logfile_set( fd_env_strip_cmdline_int( pargc, pargv, "--log-level-logfile", "FD_LOG_LEVEL_LOGFILE", 1 ) );
   fd_log_level_stderr_set ( fd_env_strip_cmdline_int( pargc, pargv, "--log-level-stderr",  "FD_LOG_LEVEL_STDERR",  2 ) );
   fd_log_level_flush_set  ( fd_env_strip_cmdline_int( pargc, pargv, "--log-level-flush",   "FD_LOG_LEVEL_FLUSH",   3 ) );
@@ -1147,6 +1188,7 @@ fd_log_private_halt( void ) {
   fd_log_private_level_flush    = 0;
   fd_log_private_level_stderr   = 0;
   fd_log_private_level_logfile  = 0;
+  fd_log_private_colorize       = 0;
 
   fd_log_private_user[0]        = '\0';
   fd_log_private_tid_init       = 0;

@@ -446,7 +446,7 @@ fd_tile_private_cpus_parse( char const * cstr,
       cpu1 = fd_cstr_to_ulong( p );
       p++; while( isdigit( (int)p[0] ) ) p++; /* FIXME: USE STRTOUL ENDPTR FOR CORRECT HANDLING OF NON-BASE-10 */
       while( isspace( (int)p[0] ) ) p++;
-      if( p[0]=='/' ) {
+      if( p[0]=='/' || p[0]==':' ) {
         p++;
         while( isspace( (int)p[0] ) ) p++;
         if( FD_UNLIKELY( !isdigit( (int)p[0] ) ) ) FD_LOG_ERR(( "fd_tile: malformed --tile-cpus (stride not an int)" ));

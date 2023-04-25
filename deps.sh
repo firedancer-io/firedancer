@@ -105,7 +105,7 @@ check_fedora_pkgs () {
   echo "[~] Checking for required RPM packages"
 
   local MISSING_RPMS=( )
-  for rpm in ${REQUIRED_RPMS[@]}; do
+  for rpm in "${REQUIRED_RPMS[@]}"; do
     if ! rpm -q "$rpm" >/dev/null; then
       MISSING_RPMS+=( "$rpm" )
     fi
@@ -118,7 +118,7 @@ check_fedora_pkgs () {
 
   echo "[!] Found missing packages"
   echo "[?] This is fixed by the following command:"
-  echo "        ${SUDO}dnf install -y ${MISSING_RPMS[@]}"
+  echo "        ${SUDO}dnf install -y ${MISSING_RPMS[*]}"
   read -r -p "[?] Install missing packages with superuser privileges? (y/N) " choice
   case "$choice" in
     y|Y)
@@ -138,7 +138,7 @@ check_debian_pkgs () {
   echo "[~] Checking for required DEB packages"
 
   local MISSING_DEBS=( )
-  for deb in ${REQUIRED_DEBS[@]}; do
+  for deb in "${REQUIRED_DEBS[@]}"; do
     if ! dpkg -s "$deb" >/dev/null 2>/dev/null; then
       MISSING_DEBS+=( "$deb" )
     fi
@@ -151,7 +151,7 @@ check_debian_pkgs () {
 
   echo "[!] Found missing packages"
   echo "[?] This is fixed by the following command:"
-  echo "        ${SUDO}apt-get install -y ${MISSING_DEBS[@]}"
+  echo "        ${SUDO}apt-get install -y ${MISSING_DEBS[*]}"
   read -r -p "[?] Install missing packages with superuser privileges? (y/N) " choice
   case "$choice" in
     y|Y)
@@ -171,7 +171,7 @@ check_alpine_pkgs () {
   echo "[~] Checking for required APK packages"
 
   local MISSING_APKS=( )
-  for deb in ${REQUIRED_APKS[@]}; do
+  for deb in "${REQUIRED_APKS[@]}"; do
     if ! apk info -e "$deb" >/dev/null; then
       MISSING_APKS+=( "$deb" )
     fi
@@ -184,7 +184,7 @@ check_alpine_pkgs () {
 
   echo "[!] Found missing packages"
   echo "[?] This is fixed by the following command:"
-  echo "        ${SUDO}apk add ${MISSING_APKS[@]}"
+  echo "        ${SUDO}apk add ${MISSING_APKS[*]}"
   read -r -p "[?] Install missing packages with superuser privileges? (y/N) " choice
   case "$choice" in
     y|Y)
