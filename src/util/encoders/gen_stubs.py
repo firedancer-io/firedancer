@@ -653,8 +653,8 @@ for entry in entries:
     elif "type" in entry and entry["type"] == "enum":
       print("union "+ a + n + "_inner {", file=header)
       
+      empty = True
       for v in entry["variants"]:
-          empty = True
           if "type" in v:
             empty = False
             if v["type"] in fields_header:
