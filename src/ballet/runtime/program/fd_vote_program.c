@@ -13,6 +13,137 @@
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L35 */
 #define MAX_LOCKOUT_HISTORY ( 31 )
 
+void record_timestamp_vote(
+  fd_global_ctx_t* global,
+  fd_pubkey_t* vote_acc,
+  ulong timestamp
+) {
+    uchar found = 0;
+    for ( ulong i = 0; i < global->timestamp_votes.votes.cnt; i++ ) {
+      if ( memcmp( &global->timestamp_votes.votes.elems[i].pubkey, vote_acc, sizeof(fd_pubkey_t) ) == 0 ) {
+        global->timestamp_votes.votes.elems[i].slot      = global->bank.solana_bank.slot;
+        global->timestamp_votes.votes.elems[i].timestamp = (long)timestamp;
+        found = 1;
+      }
+    } 
+    if ( !found ) {
+      fd_clock_timestamp_vote_t timestamp_vote = {
+        .pubkey    = *vote_acc,
+        .timestamp = (long)timestamp,
+        .slot      = global->bank.solana_bank.slot,
+      };
+      fd_vec_fd_clock_timestamp_vote_t_push( &global->timestamp_votes.votes, timestamp_vote );
+    }
+}
+
+int get_and_verify_versioned_vote_state(
+    instruction_ctx_t ctx,
+    uchar* instr_acc_idxs,
+    fd_pubkey_t* txn_accs,
+    fd_pubkey_t * vote_acc,
+    fd_vote_state_versioned_t* result
+) {
+    /* Read the data from the vote account */
+    fd_account_meta_t metadata;
+    int read_result = fd_acc_mgr_get_metadata( ctx.global->acc_mgr, ctx.global->funk_txn, vote_acc, &metadata );
+    if ( FD_UNLIKELY( read_result != FD_ACC_MGR_SUCCESS ) ) {
+      FD_LOG_WARNING(( "failed to read account metadata" ));
+      return read_result;
+    }
+
+    uchar *vota_acc_data = (uchar *)(ctx.global->allocf)(ctx.global->allocf_arg, 8UL, metadata.dlen);
+    read_result = fd_acc_mgr_get_account_data( ctx.global->acc_mgr, ctx.global->funk_txn, vote_acc, (uchar*)vota_acc_data, sizeof(fd_account_meta_t), metadata.dlen );
+    if ( read_result != FD_ACC_MGR_SUCCESS ) {
+      FD_LOG_WARNING(( "failed to read account data" ));
+      return read_result;
+    }
+
+    /* The vote account data structure is versioned, so we decode the VoteStateVersions enum
+        https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/vote_state_versions.rs#L4
+    */
+    void* input            = (void *)vota_acc_data;
+    const void** input_ptr = (const void **)&input;
+    void* dataend          = (void*)&vota_acc_data[metadata.dlen];
+    fd_vote_state_versioned_decode( result, input_ptr, dataend, ctx.global->allocf, ctx.global->allocf_arg );
+
+    if ( fd_vote_state_versioned_is_v0_23_5( result ) ) {
+      /* TODO: support legacy V0_23_5 vote state layout */
+      FD_LOG_ERR(( "unsupported vote account state version V0_23_5" ));
+      return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+    }
+    fd_vote_state_t* vote_state = &result->inner.current;
+
+    /* Check that the vote state account is initialized */
+    if ( vote_state->authorized_voters_len == 0 ) {
+      return FD_EXECUTOR_INSTR_ERR_UNINITIALIZED_ACCOUNT;
+    }
+
+    /* Get the current authorized voter for the current epoch */
+    /* TODO: handle epoch rollover */
+    fd_pubkey_t authorized_voter = vote_state->authorized_voters[0].pubkey;
+
+    /* Check that the authorized voter for this epoch has signed the vote transaction
+        https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L1265
+    */
+    uchar authorized_voter_signed = 0;
+    for ( ulong i = 0; i < ctx.instr->acct_cnt; i++ ) {
+      if ( instr_acc_idxs[i] < ctx.txn_descriptor->signature_cnt ) {
+        fd_pubkey_t * signer = &txn_accs[instr_acc_idxs[i]];
+        if ( !memcmp( signer, &authorized_voter, sizeof(fd_pubkey_t) ) ) {
+          authorized_voter_signed = 1;
+          break;
+        }
+      }
+    }
+    if ( !authorized_voter_signed ) {
+      return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
+    }
+
+    return FD_EXECUTOR_INSTR_SUCCESS;
+}
+
+int write_vote_state(
+    instruction_ctx_t ctx,
+    fd_pubkey_t* vote_acc,
+    fd_vote_state_versioned_t* vote_state_versioned
+) {
+    ulong encoded_vote_state_versioned_size = fd_vote_state_versioned_size( vote_state_versioned );
+
+    if (encoded_vote_state_versioned_size < 3731)
+      encoded_vote_state_versioned_size = 3731;
+
+    /* Encode and write the new account data. */
+    fd_account_meta_t metadata;
+    int read_result = fd_acc_mgr_get_metadata( ctx.global->acc_mgr, ctx.global->funk_txn, vote_acc, &metadata );
+    if ( FD_UNLIKELY( read_result != FD_ACC_MGR_SUCCESS ) ) {
+      FD_LOG_WARNING(( "failed to read account metadata" ));
+      return read_result;
+    }
+
+    uchar* encoded_vote_state_versioned = (uchar *)(ctx.global->allocf)( ctx.global->allocf_arg, 8UL, encoded_vote_state_versioned_size );
+    fd_memset(encoded_vote_state_versioned, 0, encoded_vote_state_versioned_size);
+
+    void* encoded_vote_state_versioned_vp = (void*)encoded_vote_state_versioned;
+    const void ** encode_vote_state_versioned_dest = (const void **)(&encoded_vote_state_versioned_vp);
+    fd_vote_state_versioned_encode( vote_state_versioned, encode_vote_state_versioned_dest );
+
+    fd_solana_account_t structured_account;
+    structured_account.data = encoded_vote_state_versioned;
+    structured_account.data_len = encoded_vote_state_versioned_size;
+    structured_account.executable = 0;
+    structured_account.rent_epoch = 0;
+    memcpy( &structured_account.owner, ctx.global->solana_vote_program, sizeof(fd_pubkey_t) );
+
+    int write_result = fd_acc_mgr_write_structured_account( ctx.global->acc_mgr, ctx.global->funk_txn, ctx.global->bank.solana_bank.slot, vote_acc, &structured_account );
+    if ( write_result != FD_ACC_MGR_SUCCESS ) {
+      FD_LOG_WARNING(( "failed to write account data" ));
+      return write_result;
+    }
+    fd_acc_mgr_update_hash ( ctx.global->acc_mgr, &metadata, ctx.global->funk_txn, ctx.global->bank.solana_bank.slot, vote_acc, (uchar*)encoded_vote_state_versioned, encoded_vote_state_versioned_size);
+
+    return FD_EXECUTOR_INSTR_SUCCESS;
+}
+
 int fd_executor_vote_program_execute_instruction(
     instruction_ctx_t ctx
 ) {
@@ -47,60 +178,14 @@ int fd_executor_vote_program_execute_instruction(
         return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
       }
 
-      /* Read vote account state stored in the vote account data */
-      fd_account_meta_t metadata;
-      int read_result = fd_acc_mgr_get_metadata( ctx.global->acc_mgr, ctx.global->funk_txn, vote_acc, &metadata );
-      if ( FD_UNLIKELY( read_result != FD_ACC_MGR_SUCCESS ) ) {
-        FD_LOG_WARNING(( "failed to read account metadata" ));
-        return read_result;
-      }
-      uchar *vota_acc_data = (uchar *)(ctx.global->allocf)(ctx.global->allocf_arg, 8UL, metadata.dlen);
-      read_result = fd_acc_mgr_get_account_data( ctx.global->acc_mgr, ctx.global->funk_txn, vote_acc, (uchar*)vota_acc_data, sizeof(fd_account_meta_t), metadata.dlen );
-      if ( read_result != FD_ACC_MGR_SUCCESS ) {
-        FD_LOG_WARNING(( "failed to read account data" ));
-        return read_result;
-      }
-
-      /* The vote account data structure is versioned, so we decode the VoteStateVersions enum
-         https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/vote_state_versions.rs#L4
-       */
-      input     = (void *)vota_acc_data;
-      input_ptr = (const void **)&input;
+      /* Read the vote state */
       fd_vote_state_versioned_t vote_state_versioned;
-      fd_vote_state_versioned_decode( &vote_state_versioned, input_ptr, (void*)&vota_acc_data[metadata.dlen], ctx.global->allocf, ctx.global->allocf_arg );
-
-      if ( fd_vote_state_versioned_is_v0_23_5( &vote_state_versioned ) ) {
-          /* TODO: support legacy V0_23_5 vote state layout */
-          FD_LOG_ERR(( "unsupported vote account state version V0_23_5" ));
-          return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+      int result = get_and_verify_versioned_vote_state( ctx, instr_acc_idxs, txn_accs, vote_acc, &vote_state_versioned );
+      if ( result != FD_EXECUTOR_INSTR_SUCCESS ) {
+        FD_LOG_WARNING(( "failed to get and verify versioned vote state: %d", result ));
+        return result;
       }
-      fd_vote_state_t * vote_state = &vote_state_versioned.inner.current;
-
-      /* Check that the vote state account is initialized */
-      if ( vote_state->authorized_voters_len == 0 ) {
-        return FD_EXECUTOR_INSTR_ERR_UNINITIALIZED_ACCOUNT;
-      }
-
-      /* Get the current authorized voter for the current epoch */
-      /* TODO: handle epoch rollover */
-      fd_pubkey_t authorized_voter = vote_state->authorized_voters[0].pubkey;
-
-      /* Check that the authorized voter for this epoch has signed the vote transaction
-         https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L1265
-       */
-      uchar authorized_voter_signed = 0;
-      for ( ulong i = 0; i < ctx.instr->acct_cnt; i++ ) {
-        if ( instr_acc_idxs[i] < ctx.txn_descriptor->signature_cnt ) {
-          fd_pubkey_t * signer = &txn_accs[instr_acc_idxs[i]];
-          if ( !memcmp( signer, &authorized_voter, sizeof(fd_pubkey_t) ) ) {
-            authorized_voter_signed = 1;
-            break;
-          }
-        }
-      }
-      if ( !authorized_voter_signed ) {
-        return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
-      }
+      fd_vote_state_t* vote_state = &vote_state_versioned.inner.current;
 
       /* Process the vote
          https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L902
@@ -292,52 +377,15 @@ int fd_executor_vote_program_execute_instruction(
       }
 
       /* Write the new state back to the database */
-      ulong encoded_vote_state_versioned_size = fd_vote_state_versioned_size( &vote_state_versioned );
-
-      if (encoded_vote_state_versioned_size < 3731)
-        encoded_vote_state_versioned_size = 3731;
-
-      /* Encode and write the new account data. */
-      uchar* encoded_vote_state_versioned = (uchar *)(ctx.global->allocf)( ctx.global->allocf_arg, 8UL, encoded_vote_state_versioned_size );
-      fd_memset(encoded_vote_state_versioned, 0, encoded_vote_state_versioned_size);
-
-      void* encoded_vote_state_versioned_vp = (void*)encoded_vote_state_versioned;
-      const void ** encode_vote_state_versioned_dest = (const void **)(&encoded_vote_state_versioned_vp);
-      fd_vote_state_versioned_encode( &vote_state_versioned, encode_vote_state_versioned_dest );
-
-      fd_solana_account_t structured_account;
-      structured_account.data = encoded_vote_state_versioned;
-      structured_account.data_len = encoded_vote_state_versioned_size;
-      structured_account.executable = 0;
-      structured_account.rent_epoch = 0;
-      memcpy( &structured_account.owner, ctx.global->solana_vote_program, sizeof(fd_pubkey_t) );
-
-      int write_result = fd_acc_mgr_write_structured_account( ctx.global->acc_mgr, ctx.global->funk_txn, ctx.global->bank.solana_bank.slot, vote_acc, &structured_account );
-      if ( write_result != FD_ACC_MGR_SUCCESS ) {
-        FD_LOG_WARNING(( "failed to write account data" ));
-        return write_result;
+      result = write_vote_state( ctx, vote_acc, &vote_state_versioned );
+      if ( result != FD_EXECUTOR_INSTR_SUCCESS ) {
+        FD_LOG_WARNING(( "failed to write versioned vote state: %d", result ));
+        return result;
       }
 
-      fd_acc_mgr_update_hash ( ctx.global->acc_mgr, &metadata, ctx.global->funk_txn, ctx.global->bank.solana_bank.slot, vote_acc, (uchar*)encoded_vote_state_versioned, encoded_vote_state_versioned_size);
-
-      /* Record this timestamp vote */
+      /* Record the timestamp vote */
       if ( vote->timestamp != NULL ) {
-        uchar found = 0;
-        for ( ulong i = 0; i < ctx.global->timestamp_votes.votes.cnt; i++ ) {
-          if ( memcmp( &ctx.global->timestamp_votes.votes.elems[i].pubkey, vote_acc, sizeof(fd_pubkey_t) ) == 0 ) {
-            ctx.global->timestamp_votes.votes.elems[i].slot      = ctx.global->bank.solana_bank.slot;
-            ctx.global->timestamp_votes.votes.elems[i].timestamp = (long)*vote->timestamp;
-            found = 1;
-          }
-        } 
-        if ( !found ) {
-          fd_clock_timestamp_vote_t timestamp_vote = {
-            .pubkey    = *vote_acc,
-            .timestamp = (long)*vote->timestamp,
-            .slot      = ctx.global->bank.solana_bank.slot,
-          };
-          fd_vec_fd_clock_timestamp_vote_t_push( &ctx.global->timestamp_votes.votes, timestamp_vote );
-        }
+        record_timestamp_vote( ctx.global, vote_acc, *vote->timestamp );
       }
 
       fd_vote_state_versioned_destroy( &vote_state_versioned, ctx.global->freef, ctx.global->allocf_arg );
@@ -353,34 +401,14 @@ int fd_executor_vote_program_execute_instruction(
       fd_pubkey_t * txn_accs = (fd_pubkey_t *)((uchar *)ctx.txn_raw->raw + ctx.txn_descriptor->acct_addr_off);
       fd_pubkey_t * vote_acc = &txn_accs[instr_acc_idxs[0]];
 
-      fd_account_meta_t metadata;
-      int read_result = fd_acc_mgr_get_metadata( ctx.global->acc_mgr, ctx.global->funk_txn, vote_acc, &metadata );
-      if ( FD_UNLIKELY( read_result != FD_ACC_MGR_SUCCESS ) ) {
-        FD_LOG_WARNING(( "failed to read account metadata" ));
-        return read_result;
-      }
-      uchar *vota_acc_data = (uchar *)(ctx.global->allocf)(ctx.global->allocf_arg, 8UL, metadata.dlen);
-      read_result = fd_acc_mgr_get_account_data( ctx.global->acc_mgr, ctx.global->funk_txn, vote_acc, (uchar*)vota_acc_data, sizeof(fd_account_meta_t), metadata.dlen );
-      if ( read_result != FD_ACC_MGR_SUCCESS ) {
-        FD_LOG_WARNING(( "failed to read account data" ));
-        return read_result;
-      }
-
-      /* The vote account data structure is versioned, so we decode the VoteStateVersions enum
-         https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/vote_state_versions.rs#L4
-       */
-      input     = (void *)vota_acc_data;
-      input_ptr = (const void **)&input;
-
+      /* Read the vote state */
       fd_vote_state_versioned_t vote_state_versioned;
-      fd_vote_state_versioned_decode( &vote_state_versioned, input_ptr, (void*)&vota_acc_data[metadata.dlen], ctx.global->allocf, ctx.global->allocf_arg );
-
-      if ( fd_vote_state_versioned_is_v0_23_5( &vote_state_versioned ) ) {
-          /* TODO: support legacy V0_23_5 vote state layout */
-          FD_LOG_ERR(( "unsupported vote account state version V0_23_5" ));
-          return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+      int result = get_and_verify_versioned_vote_state( ctx, instr_acc_idxs, txn_accs, vote_acc, &vote_state_versioned );
+      if ( result != FD_EXECUTOR_INSTR_SUCCESS ) {
+        FD_LOG_WARNING(( "failed to get and verify versioned vote state: %d", result ));
+        return result;
       }
-      fd_vote_state_t * vote_state = &vote_state_versioned.inner.current;
+      fd_vote_state_t* vote_state = &vote_state_versioned.inner.current;
 
       /* Execute the extremely thin minimal slice of the vote state update logic necessary to validate our test ledger, lifted from
          https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L886-L898
@@ -420,52 +448,14 @@ int fd_executor_vote_program_execute_instruction(
       }
 
       /* Write the new state back to the database */
-      ulong encoded_vote_state_versioned_size = fd_vote_state_versioned_size( &vote_state_versioned );
-
-      if (encoded_vote_state_versioned_size < 3731)
-        encoded_vote_state_versioned_size = 3731;
-
-      /* Encode and write the new account data. */
-      uchar* encoded_vote_state_versioned = (uchar *)(ctx.global->allocf)( ctx.global->allocf_arg, 8UL, encoded_vote_state_versioned_size );
-      fd_memset(encoded_vote_state_versioned, 0, encoded_vote_state_versioned_size);
-
-      void* encoded_vote_state_versioned_vp = (void*)encoded_vote_state_versioned;
-      const void ** encode_vote_state_versioned_dest = (const void **)(&encoded_vote_state_versioned_vp);
-      fd_vote_state_versioned_encode( &vote_state_versioned, encode_vote_state_versioned_dest );
-
-      fd_solana_account_t structured_account;
-      structured_account.data = encoded_vote_state_versioned;
-      structured_account.data_len = encoded_vote_state_versioned_size;
-      structured_account.executable = 0;
-      structured_account.rent_epoch = 0;
-      memcpy( &structured_account.owner, ctx.global->solana_vote_program, sizeof(fd_pubkey_t) );
-
-      int write_result = fd_acc_mgr_write_structured_account( ctx.global->acc_mgr, ctx.global->funk_txn, ctx.global->bank.solana_bank.slot, vote_acc, &structured_account );
-      if ( write_result != FD_ACC_MGR_SUCCESS ) {
-        FD_LOG_WARNING(( "failed to write account data" ));
-        return write_result;
+      result = write_vote_state( ctx, vote_acc, &vote_state_versioned );
+      if ( result != FD_EXECUTOR_INSTR_SUCCESS ) {
+        FD_LOG_WARNING(( "failed to write versioned vote state: %d", result ));
+        return result;
       }
 
-      fd_acc_mgr_update_hash ( ctx.global->acc_mgr, &metadata, ctx.global->funk_txn, ctx.global->bank.solana_bank.slot, vote_acc, (uchar*)encoded_vote_state_versioned, encoded_vote_state_versioned_size);
-
-      /* Record this timestamp vote */
       if ( vote_state_update->timestamp != NULL ) {
-        uchar found = 0;
-        for ( ulong i = 0; i < ctx.global->timestamp_votes.votes.cnt; i++ ) {
-          if ( memcmp( &ctx.global->timestamp_votes.votes.elems[i].pubkey, vote_acc, sizeof(fd_pubkey_t) ) == 0 ) {
-            ctx.global->timestamp_votes.votes.elems[i].slot      = ctx.global->bank.solana_bank.slot;
-            ctx.global->timestamp_votes.votes.elems[i].timestamp = (long)*vote_state_update->timestamp;
-            found = 1;
-          }
-        } 
-        if ( !found ) {
-          fd_clock_timestamp_vote_t timestamp_vote = {
-            .pubkey    = *vote_acc,
-            .timestamp = (long)*vote_state_update->timestamp,
-            .slot      = ctx.global->bank.solana_bank.slot,
-          };
-          fd_vec_fd_clock_timestamp_vote_t_push( &ctx.global->timestamp_votes.votes, timestamp_vote );
-        }
+        record_timestamp_vote( ctx.global, vote_acc, *vote_state_update->timestamp );
       }
 
       fd_vote_state_versioned_destroy( &vote_state_versioned, ctx.global->freef, ctx.global->allocf_arg );
