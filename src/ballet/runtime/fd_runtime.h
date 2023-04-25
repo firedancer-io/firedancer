@@ -28,7 +28,6 @@ struct __attribute__((aligned(FD_GLOBAL_CTX_ALIGN))) fd_global_ctx {
 
   fd_wksp_t *                wksp;
   fd_funk_t*                 funk;
-  fd_alloc_t *               alloc;
   fd_executor_t              executor;  // Amusingly, it is just a pointer to this...
   fd_rng_t*                  rng;
 

@@ -159,7 +159,7 @@ fd_runtime_block_verify( fd_global_ctx_t *global, fd_slot_blocks_t *slot_data ) 
         if (micro_block->hdr.hash_cnt > 0)
           fd_poh_append(&global->poh, micro_block->hdr.hash_cnt - 1);
         uchar outhash[32];
-        fd_microblock_batched_mixin(micro_block, outhash, global->alloc);
+        fd_microblock_batched_mixin(micro_block, outhash, global->allocf_arg);
         fd_poh_mixin(&global->poh, outhash);
       } else
         fd_poh_append(&global->poh, micro_block->hdr.hash_cnt);
