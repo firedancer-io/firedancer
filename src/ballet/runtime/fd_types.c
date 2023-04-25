@@ -3588,6 +3588,408 @@ void fd_vote_instruction_encode(fd_vote_instruction_t* self, void const** data) 
   fd_vote_instruction_inner_encode(&self->inner, self->discriminant, data);
 }
 
+void fd_system_program_instruction_create_account_decode(fd_system_program_instruction_create_account_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
+  fd_bincode_uint64_decode(&self->lamports, data, dataend);
+  fd_bincode_uint64_decode(&self->space, data, dataend);
+  fd_pubkey_decode(&self->owner, data, dataend, allocf, allocf_arg);
+}
+void fd_system_program_instruction_create_account_destroy(fd_system_program_instruction_create_account_t* self, fd_free_fun_t freef, void* freef_arg) {
+  fd_pubkey_destroy(&self->owner, freef, freef_arg);
+}
+
+void fd_system_program_instruction_create_account_copy_to(fd_system_program_instruction_create_account_t* to, fd_system_program_instruction_create_account_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
+  unsigned char *enc = fd_alloca( 1, fd_system_program_instruction_create_account_size(from) );
+  void const *   ptr = (void const *) enc;
+  fd_system_program_instruction_create_account_encode( from, &ptr );
+  void *input = (void *) enc;
+  fd_system_program_instruction_create_account_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
+}
+ulong fd_system_program_instruction_create_account_size(fd_system_program_instruction_create_account_t* self) {
+  ulong size = 0;
+  size += sizeof(ulong);
+  size += sizeof(ulong);
+  size += fd_pubkey_size(&self->owner);
+  return size;
+}
+
+void fd_system_program_instruction_create_account_encode(fd_system_program_instruction_create_account_t* self, void const** data) {
+  fd_bincode_uint64_encode(&self->lamports, data);
+  fd_bincode_uint64_encode(&self->space, data);
+  fd_pubkey_encode(&self->owner, data);
+}
+
+void fd_system_program_instruction_create_account_with_seed_decode(fd_system_program_instruction_create_account_with_seed_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
+  fd_pubkey_decode(&self->base, data, dataend, allocf, allocf_arg);
+  ulong slen;
+  fd_bincode_uint64_decode(&slen, data, dataend);
+  self->seed = (char*)(*allocf)(allocf_arg, 1, slen + 1);
+  fd_bincode_bytes_decode((uchar *) self->seed, slen, data, dataend);
+  self->seed[slen] = '\0';
+  fd_bincode_uint64_decode(&self->lamports, data, dataend);
+  fd_bincode_uint64_decode(&self->space, data, dataend);
+  fd_pubkey_decode(&self->owner, data, dataend, allocf, allocf_arg);
+}
+void fd_system_program_instruction_create_account_with_seed_destroy(fd_system_program_instruction_create_account_with_seed_t* self, fd_free_fun_t freef, void* freef_arg) {
+  fd_pubkey_destroy(&self->base, freef, freef_arg);
+  if (NULL != self->seed) {
+    freef(freef_arg, self->seed);
+    self->seed = NULL;
+  }
+  fd_pubkey_destroy(&self->owner, freef, freef_arg);
+}
+
+void fd_system_program_instruction_create_account_with_seed_copy_to(fd_system_program_instruction_create_account_with_seed_t* to, fd_system_program_instruction_create_account_with_seed_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
+  unsigned char *enc = fd_alloca( 1, fd_system_program_instruction_create_account_with_seed_size(from) );
+  void const *   ptr = (void const *) enc;
+  fd_system_program_instruction_create_account_with_seed_encode( from, &ptr );
+  void *input = (void *) enc;
+  fd_system_program_instruction_create_account_with_seed_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
+}
+ulong fd_system_program_instruction_create_account_with_seed_size(fd_system_program_instruction_create_account_with_seed_t* self) {
+  ulong size = 0;
+  size += fd_pubkey_size(&self->base);
+  size += sizeof(ulong) + strlen(self->seed);
+  size += sizeof(ulong);
+  size += sizeof(ulong);
+  size += fd_pubkey_size(&self->owner);
+  return size;
+}
+
+void fd_system_program_instruction_create_account_with_seed_encode(fd_system_program_instruction_create_account_with_seed_t* self, void const** data) {
+  fd_pubkey_encode(&self->base, data);
+  ulong slen = strlen((char *) self->seed);
+  fd_bincode_uint64_encode(&slen, data);
+  fd_bincode_bytes_encode((uchar *) self->seed, slen, data);
+  fd_bincode_uint64_encode(&self->lamports, data);
+  fd_bincode_uint64_encode(&self->space, data);
+  fd_pubkey_encode(&self->owner, data);
+}
+
+void fd_system_program_instruction_allocate_with_seed_decode(fd_system_program_instruction_allocate_with_seed_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
+  fd_pubkey_decode(&self->base, data, dataend, allocf, allocf_arg);
+  ulong slen;
+  fd_bincode_uint64_decode(&slen, data, dataend);
+  self->seed = (char*)(*allocf)(allocf_arg, 1, slen + 1);
+  fd_bincode_bytes_decode((uchar *) self->seed, slen, data, dataend);
+  self->seed[slen] = '\0';
+  fd_bincode_uint64_decode(&self->space, data, dataend);
+  fd_pubkey_decode(&self->owner, data, dataend, allocf, allocf_arg);
+}
+void fd_system_program_instruction_allocate_with_seed_destroy(fd_system_program_instruction_allocate_with_seed_t* self, fd_free_fun_t freef, void* freef_arg) {
+  fd_pubkey_destroy(&self->base, freef, freef_arg);
+  if (NULL != self->seed) {
+    freef(freef_arg, self->seed);
+    self->seed = NULL;
+  }
+  fd_pubkey_destroy(&self->owner, freef, freef_arg);
+}
+
+void fd_system_program_instruction_allocate_with_seed_copy_to(fd_system_program_instruction_allocate_with_seed_t* to, fd_system_program_instruction_allocate_with_seed_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
+  unsigned char *enc = fd_alloca( 1, fd_system_program_instruction_allocate_with_seed_size(from) );
+  void const *   ptr = (void const *) enc;
+  fd_system_program_instruction_allocate_with_seed_encode( from, &ptr );
+  void *input = (void *) enc;
+  fd_system_program_instruction_allocate_with_seed_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
+}
+ulong fd_system_program_instruction_allocate_with_seed_size(fd_system_program_instruction_allocate_with_seed_t* self) {
+  ulong size = 0;
+  size += fd_pubkey_size(&self->base);
+  size += sizeof(ulong) + strlen(self->seed);
+  size += sizeof(ulong);
+  size += fd_pubkey_size(&self->owner);
+  return size;
+}
+
+void fd_system_program_instruction_allocate_with_seed_encode(fd_system_program_instruction_allocate_with_seed_t* self, void const** data) {
+  fd_pubkey_encode(&self->base, data);
+  ulong slen = strlen((char *) self->seed);
+  fd_bincode_uint64_encode(&slen, data);
+  fd_bincode_bytes_encode((uchar *) self->seed, slen, data);
+  fd_bincode_uint64_encode(&self->space, data);
+  fd_pubkey_encode(&self->owner, data);
+}
+
+void fd_system_program_instruction_assign_with_seed_decode(fd_system_program_instruction_assign_with_seed_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
+  fd_pubkey_decode(&self->base, data, dataend, allocf, allocf_arg);
+  ulong slen;
+  fd_bincode_uint64_decode(&slen, data, dataend);
+  self->seed = (char*)(*allocf)(allocf_arg, 1, slen + 1);
+  fd_bincode_bytes_decode((uchar *) self->seed, slen, data, dataend);
+  self->seed[slen] = '\0';
+  fd_pubkey_decode(&self->owner, data, dataend, allocf, allocf_arg);
+}
+void fd_system_program_instruction_assign_with_seed_destroy(fd_system_program_instruction_assign_with_seed_t* self, fd_free_fun_t freef, void* freef_arg) {
+  fd_pubkey_destroy(&self->base, freef, freef_arg);
+  if (NULL != self->seed) {
+    freef(freef_arg, self->seed);
+    self->seed = NULL;
+  }
+  fd_pubkey_destroy(&self->owner, freef, freef_arg);
+}
+
+void fd_system_program_instruction_assign_with_seed_copy_to(fd_system_program_instruction_assign_with_seed_t* to, fd_system_program_instruction_assign_with_seed_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
+  unsigned char *enc = fd_alloca( 1, fd_system_program_instruction_assign_with_seed_size(from) );
+  void const *   ptr = (void const *) enc;
+  fd_system_program_instruction_assign_with_seed_encode( from, &ptr );
+  void *input = (void *) enc;
+  fd_system_program_instruction_assign_with_seed_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
+}
+ulong fd_system_program_instruction_assign_with_seed_size(fd_system_program_instruction_assign_with_seed_t* self) {
+  ulong size = 0;
+  size += fd_pubkey_size(&self->base);
+  size += sizeof(ulong) + strlen(self->seed);
+  size += fd_pubkey_size(&self->owner);
+  return size;
+}
+
+void fd_system_program_instruction_assign_with_seed_encode(fd_system_program_instruction_assign_with_seed_t* self, void const** data) {
+  fd_pubkey_encode(&self->base, data);
+  ulong slen = strlen((char *) self->seed);
+  fd_bincode_uint64_encode(&slen, data);
+  fd_bincode_bytes_encode((uchar *) self->seed, slen, data);
+  fd_pubkey_encode(&self->owner, data);
+}
+
+void fd_system_program_instruction_transfer_with_seed_decode(fd_system_program_instruction_transfer_with_seed_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
+  fd_bincode_uint64_decode(&self->lamports, data, dataend);
+  ulong slen;
+  fd_bincode_uint64_decode(&slen, data, dataend);
+  self->from_seed = (char*)(*allocf)(allocf_arg, 1, slen + 1);
+  fd_bincode_bytes_decode((uchar *) self->from_seed, slen, data, dataend);
+  self->from_seed[slen] = '\0';
+  fd_pubkey_decode(&self->from_owner, data, dataend, allocf, allocf_arg);
+}
+void fd_system_program_instruction_transfer_with_seed_destroy(fd_system_program_instruction_transfer_with_seed_t* self, fd_free_fun_t freef, void* freef_arg) {
+  if (NULL != self->from_seed) {
+    freef(freef_arg, self->from_seed);
+    self->from_seed = NULL;
+  }
+  fd_pubkey_destroy(&self->from_owner, freef, freef_arg);
+}
+
+void fd_system_program_instruction_transfer_with_seed_copy_to(fd_system_program_instruction_transfer_with_seed_t* to, fd_system_program_instruction_transfer_with_seed_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
+  unsigned char *enc = fd_alloca( 1, fd_system_program_instruction_transfer_with_seed_size(from) );
+  void const *   ptr = (void const *) enc;
+  fd_system_program_instruction_transfer_with_seed_encode( from, &ptr );
+  void *input = (void *) enc;
+  fd_system_program_instruction_transfer_with_seed_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
+}
+ulong fd_system_program_instruction_transfer_with_seed_size(fd_system_program_instruction_transfer_with_seed_t* self) {
+  ulong size = 0;
+  size += sizeof(ulong);
+  size += sizeof(ulong) + strlen(self->from_seed);
+  size += fd_pubkey_size(&self->from_owner);
+  return size;
+}
+
+void fd_system_program_instruction_transfer_with_seed_encode(fd_system_program_instruction_transfer_with_seed_t* self, void const** data) {
+  fd_bincode_uint64_encode(&self->lamports, data);
+  ulong slen = strlen((char *) self->from_seed);
+  fd_bincode_uint64_encode(&slen, data);
+  fd_bincode_bytes_encode((uchar *) self->from_seed, slen, data);
+  fd_pubkey_encode(&self->from_owner, data);
+}
+
+uchar fd_system_program_instruction_is_create_account(fd_system_program_instruction_t* self) {
+  return self->discriminant == 0;
+}
+uchar fd_system_program_instruction_is_assign(fd_system_program_instruction_t* self) {
+  return self->discriminant == 1;
+}
+uchar fd_system_program_instruction_is_transfer(fd_system_program_instruction_t* self) {
+  return self->discriminant == 2;
+}
+uchar fd_system_program_instruction_is_create_account_with_seed(fd_system_program_instruction_t* self) {
+  return self->discriminant == 3;
+}
+uchar fd_system_program_instruction_is_advance_nonce_account(fd_system_program_instruction_t* self) {
+  return self->discriminant == 4;
+}
+uchar fd_system_program_instruction_is_withdraw_nonce_account(fd_system_program_instruction_t* self) {
+  return self->discriminant == 5;
+}
+uchar fd_system_program_instruction_is_initialize_nonce_account(fd_system_program_instruction_t* self) {
+  return self->discriminant == 6;
+}
+uchar fd_system_program_instruction_is_authorize_nonce_account(fd_system_program_instruction_t* self) {
+  return self->discriminant == 7;
+}
+uchar fd_system_program_instruction_is_allocate(fd_system_program_instruction_t* self) {
+  return self->discriminant == 8;
+}
+uchar fd_system_program_instruction_is_allocate_with_seed(fd_system_program_instruction_t* self) {
+  return self->discriminant == 9;
+}
+uchar fd_system_program_instruction_is_assign_with_seed(fd_system_program_instruction_t* self) {
+  return self->discriminant == 10;
+}
+uchar fd_system_program_instruction_is_transfer_with_seed(fd_system_program_instruction_t* self) {
+  return self->discriminant == 11;
+}
+uchar fd_system_program_instruction_is_upgrade_nonce_account(fd_system_program_instruction_t* self) {
+  return self->discriminant == 12;
+}
+void fd_system_program_instruction_inner_decode(fd_system_program_instruction_inner_t* self, uint discriminant, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
+  if (discriminant == 0) {
+    fd_system_program_instruction_create_account_decode(&self->create_account, data, dataend, allocf, allocf_arg);
+  }
+  if (discriminant == 1) {
+    fd_pubkey_decode(&self->assign, data, dataend, allocf, allocf_arg);
+  }
+  if (discriminant == 2) {
+    fd_bincode_uint64_decode(&self->transfer, data, dataend);
+  }
+  if (discriminant == 3) {
+    fd_system_program_instruction_create_account_with_seed_decode(&self->create_account_with_seed, data, dataend, allocf, allocf_arg);
+  }
+  if (discriminant == 5) {
+    fd_bincode_uint64_decode(&self->withdraw_nonce_account, data, dataend);
+  }
+  if (discriminant == 6) {
+    fd_pubkey_decode(&self->initialize_nonce_account, data, dataend, allocf, allocf_arg);
+  }
+  if (discriminant == 7) {
+    fd_pubkey_decode(&self->authorize_nonce_account, data, dataend, allocf, allocf_arg);
+  }
+  if (discriminant == 8) {
+    fd_bincode_uint64_decode(&self->allocate, data, dataend);
+  }
+  if (discriminant == 9) {
+    fd_system_program_instruction_allocate_with_seed_decode(&self->allocate_with_seed, data, dataend, allocf, allocf_arg);
+  }
+  if (discriminant == 10) {
+    fd_system_program_instruction_assign_with_seed_decode(&self->assign_with_seed, data, dataend, allocf, allocf_arg);
+  }
+  if (discriminant == 11) {
+    fd_system_program_instruction_transfer_with_seed_decode(&self->transfer_with_seed, data, dataend, allocf, allocf_arg);
+  }
+}
+void fd_system_program_instruction_decode(fd_system_program_instruction_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
+  fd_bincode_uint32_decode(&self->discriminant, data, dataend);
+  fd_system_program_instruction_inner_decode(&self->inner, self->discriminant, data, dataend, allocf, allocf_arg);
+}
+void fd_system_program_instruction_inner_destroy(fd_system_program_instruction_inner_t* self, uint discriminant, fd_free_fun_t freef, void* freef_arg) {
+  if (discriminant == 0) {
+    fd_system_program_instruction_create_account_destroy(&self->create_account, freef, freef_arg);
+  }
+  if (discriminant == 1) {
+    fd_pubkey_destroy(&self->assign, freef, freef_arg);
+  }
+  if (discriminant == 2) {
+  }
+  if (discriminant == 3) {
+    fd_system_program_instruction_create_account_with_seed_destroy(&self->create_account_with_seed, freef, freef_arg);
+  }
+  if (discriminant == 5) {
+  }
+  if (discriminant == 6) {
+    fd_pubkey_destroy(&self->initialize_nonce_account, freef, freef_arg);
+  }
+  if (discriminant == 7) {
+    fd_pubkey_destroy(&self->authorize_nonce_account, freef, freef_arg);
+  }
+  if (discriminant == 8) {
+  }
+  if (discriminant == 9) {
+    fd_system_program_instruction_allocate_with_seed_destroy(&self->allocate_with_seed, freef, freef_arg);
+  }
+  if (discriminant == 10) {
+    fd_system_program_instruction_assign_with_seed_destroy(&self->assign_with_seed, freef, freef_arg);
+  }
+  if (discriminant == 11) {
+    fd_system_program_instruction_transfer_with_seed_destroy(&self->transfer_with_seed, freef, freef_arg);
+  }
+}
+void fd_system_program_instruction_destroy(fd_system_program_instruction_t* self, fd_free_fun_t freef, void* freef_arg) {
+  fd_system_program_instruction_inner_destroy(&self->inner, self->discriminant, freef, freef_arg);
+}
+
+void fd_system_program_instruction_copy_to(fd_system_program_instruction_t* to, fd_system_program_instruction_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
+  unsigned char *enc = fd_alloca( 1, fd_system_program_instruction_size(from) );
+  void const *   ptr = (void const *) enc;
+  fd_system_program_instruction_encode( from, &ptr );
+  void *input = (void *) enc;
+  fd_system_program_instruction_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
+}
+ulong fd_system_program_instruction_size(fd_system_program_instruction_t* self) {
+  ulong size = 0;
+  size += sizeof(uint);
+  if (self->discriminant == 0) {
+    size += fd_system_program_instruction_create_account_size(&self->inner.create_account);
+  }
+  if (self->discriminant == 1) {
+    size += fd_pubkey_size(&self->inner.assign);
+  }
+  if (self->discriminant == 2) {
+    size += sizeof(ulong);
+  }
+  if (self->discriminant == 3) {
+    size += fd_system_program_instruction_create_account_with_seed_size(&self->inner.create_account_with_seed);
+  }
+  if (self->discriminant == 5) {
+    size += sizeof(ulong);
+  }
+  if (self->discriminant == 6) {
+    size += fd_pubkey_size(&self->inner.initialize_nonce_account);
+  }
+  if (self->discriminant == 7) {
+    size += fd_pubkey_size(&self->inner.authorize_nonce_account);
+  }
+  if (self->discriminant == 8) {
+    size += sizeof(ulong);
+  }
+  if (self->discriminant == 9) {
+    size += fd_system_program_instruction_allocate_with_seed_size(&self->inner.allocate_with_seed);
+  }
+  if (self->discriminant == 10) {
+    size += fd_system_program_instruction_assign_with_seed_size(&self->inner.assign_with_seed);
+  }
+  if (self->discriminant == 11) {
+    size += fd_system_program_instruction_transfer_with_seed_size(&self->inner.transfer_with_seed);
+  }
+  return size;
+}
+
+void fd_system_program_instruction_inner_encode(fd_system_program_instruction_inner_t* self, uint discriminant, void const** data) {
+  if (discriminant == 0) {
+    fd_system_program_instruction_create_account_encode(&self->create_account, data);
+  }
+  if (discriminant == 1) {
+    fd_pubkey_encode(&self->assign, data);
+  }
+  if (discriminant == 2) {
+    fd_bincode_uint64_encode(&self->transfer, data);
+  }
+  if (discriminant == 3) {
+    fd_system_program_instruction_create_account_with_seed_encode(&self->create_account_with_seed, data);
+  }
+  if (discriminant == 5) {
+    fd_bincode_uint64_encode(&self->withdraw_nonce_account, data);
+  }
+  if (discriminant == 6) {
+    fd_pubkey_encode(&self->initialize_nonce_account, data);
+  }
+  if (discriminant == 7) {
+    fd_pubkey_encode(&self->authorize_nonce_account, data);
+  }
+  if (discriminant == 8) {
+    fd_bincode_uint64_encode(&self->allocate, data);
+  }
+  if (discriminant == 9) {
+    fd_system_program_instruction_allocate_with_seed_encode(&self->allocate_with_seed, data);
+  }
+  if (discriminant == 10) {
+    fd_system_program_instruction_assign_with_seed_encode(&self->assign_with_seed, data);
+  }
+  if (discriminant == 11) {
+    fd_system_program_instruction_transfer_with_seed_encode(&self->transfer_with_seed, data);
+  }
+}
+void fd_system_program_instruction_encode(fd_system_program_instruction_t* self, void const** data) {
+  fd_bincode_uint32_encode(&self->discriminant, data);
+  fd_system_program_instruction_inner_encode(&self->inner, self->discriminant, data);
+}
+
 #define REDBLK_T fd_serializable_account_storage_entry_t_mapnode_t
 #define REDBLK_NAME fd_serializable_account_storage_entry_t_map
 #include "../../util/tmpl/fd_redblack.c"

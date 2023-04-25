@@ -868,6 +868,79 @@
         { "name": "authorize_checked_with_seed", "type": "vote_authorize_checked_with_seed_args" }
       ],
       "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_instruction.rs#L21"
+    },
+    {
+      "name": "system_program_instruction_create_account",
+      "type": "struct",
+      "fields": [
+        { "name": "lamports", "type": "ulong" },
+        { "name": "space", "type": "ulong" },
+        { "name": "owner", "type": "pubkey" }
+      ],
+      "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/system_instruction.rs#L158"
+    },
+    {
+      "name": "system_program_instruction_create_account_with_seed",
+      "type": "struct",
+      "fields": [
+        { "name": "base", "type": "pubkey" },
+        { "name": "seed", "type": "char*" },
+        { "name": "lamports", "type": "ulong" },
+        { "name": "space", "type": "ulong" },
+        { "name": "owner", "type": "pubkey" }
+      ],
+      "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/system_instruction.rs#L193"
+    },
+    {
+      "name": "system_program_instruction_allocate_with_seed",
+      "type": "struct",
+      "fields": [
+        { "name": "base", "type": "pubkey" },
+        { "name": "seed", "type": "char*" },
+        { "name": "space", "type": "ulong" },
+        { "name": "owner", "type": "pubkey" }
+      ],
+      "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/system_instruction.rs#L269"
+    },
+    {
+      "name": "system_program_instruction_assign_with_seed",
+      "type": "struct",
+      "fields": [
+        { "name": "base", "type": "pubkey" },
+        { "name": "seed", "type": "char*" },
+        { "name": "owner", "type": "pubkey" }
+      ],
+      "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/system_instruction.rs#L288"
+    },
+    {
+      "name": "system_program_instruction_transfer_with_seed",
+      "type": "struct",
+      "fields": [
+        { "name": "lamports", "type": "ulong" },
+        { "name": "from_seed", "type": "char*" },
+        { "name": "from_owner", "type": "pubkey" }
+      ],
+      "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/system_instruction.rs#L288"
+    },
+    {
+      "name": "system_program_instruction",
+      "type": "enum",
+      "variants": [
+        { "name": "create_account", "type": "system_program_instruction_create_account" },
+        { "name": "assign", "type": "pubkey" },
+        { "name": "transfer", "type": "ulong" },
+        { "name": "create_account_with_seed", "type": "system_program_instruction_create_account_with_seed" },
+        { "name": "advance_nonce_account" },
+        { "name": "withdraw_nonce_account", "type": "ulong" },
+        { "name": "initialize_nonce_account", "type": "pubkey" },
+        { "name": "authorize_nonce_account", "type": "pubkey" },
+        { "name": "allocate", "type": "ulong" },
+        { "name": "allocate_with_seed", "type": "system_program_instruction_allocate_with_seed" },
+        { "name": "assign_with_seed", "type": "system_program_instruction_assign_with_seed" },
+        { "name": "transfer_with_seed", "type": "system_program_instruction_transfer_with_seed" },
+        { "name": "upgrade_nonce_account" }
+      ],
+      "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/system_instruction.rs#L152"
     }
   ]
 }

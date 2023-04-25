@@ -965,6 +965,83 @@ typedef struct fd_vote_instruction fd_vote_instruction_t;
 #define FD_VOTE_INSTRUCTION_FOOTPRINT sizeof(fd_vote_instruction_t)
 #define FD_VOTE_INSTRUCTION_ALIGN (8UL)
 
+/* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/system_instruction.rs#L158 */
+struct fd_system_program_instruction_create_account {
+  unsigned long lamports;
+  unsigned long space;
+  fd_pubkey_t   owner;
+};
+typedef struct fd_system_program_instruction_create_account fd_system_program_instruction_create_account_t;
+#define FD_SYSTEM_PROGRAM_INSTRUCTION_CREATE_ACCOUNT_FOOTPRINT sizeof(fd_system_program_instruction_create_account_t)
+#define FD_SYSTEM_PROGRAM_INSTRUCTION_CREATE_ACCOUNT_ALIGN (8UL)
+
+/* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/system_instruction.rs#L193 */
+struct fd_system_program_instruction_create_account_with_seed {
+  fd_pubkey_t   base;
+  char*         seed;
+  unsigned long lamports;
+  unsigned long space;
+  fd_pubkey_t   owner;
+};
+typedef struct fd_system_program_instruction_create_account_with_seed fd_system_program_instruction_create_account_with_seed_t;
+#define FD_SYSTEM_PROGRAM_INSTRUCTION_CREATE_ACCOUNT_WITH_SEED_FOOTPRINT sizeof(fd_system_program_instruction_create_account_with_seed_t)
+#define FD_SYSTEM_PROGRAM_INSTRUCTION_CREATE_ACCOUNT_WITH_SEED_ALIGN (8UL)
+
+/* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/system_instruction.rs#L269 */
+struct fd_system_program_instruction_allocate_with_seed {
+  fd_pubkey_t   base;
+  char*         seed;
+  unsigned long space;
+  fd_pubkey_t   owner;
+};
+typedef struct fd_system_program_instruction_allocate_with_seed fd_system_program_instruction_allocate_with_seed_t;
+#define FD_SYSTEM_PROGRAM_INSTRUCTION_ALLOCATE_WITH_SEED_FOOTPRINT sizeof(fd_system_program_instruction_allocate_with_seed_t)
+#define FD_SYSTEM_PROGRAM_INSTRUCTION_ALLOCATE_WITH_SEED_ALIGN (8UL)
+
+/* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/system_instruction.rs#L288 */
+struct fd_system_program_instruction_assign_with_seed {
+  fd_pubkey_t base;
+  char*       seed;
+  fd_pubkey_t owner;
+};
+typedef struct fd_system_program_instruction_assign_with_seed fd_system_program_instruction_assign_with_seed_t;
+#define FD_SYSTEM_PROGRAM_INSTRUCTION_ASSIGN_WITH_SEED_FOOTPRINT sizeof(fd_system_program_instruction_assign_with_seed_t)
+#define FD_SYSTEM_PROGRAM_INSTRUCTION_ASSIGN_WITH_SEED_ALIGN (8UL)
+
+/* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/system_instruction.rs#L288 */
+struct fd_system_program_instruction_transfer_with_seed {
+  unsigned long lamports;
+  char*         from_seed;
+  fd_pubkey_t   from_owner;
+};
+typedef struct fd_system_program_instruction_transfer_with_seed fd_system_program_instruction_transfer_with_seed_t;
+#define FD_SYSTEM_PROGRAM_INSTRUCTION_TRANSFER_WITH_SEED_FOOTPRINT sizeof(fd_system_program_instruction_transfer_with_seed_t)
+#define FD_SYSTEM_PROGRAM_INSTRUCTION_TRANSFER_WITH_SEED_ALIGN (8UL)
+
+union fd_system_program_instruction_inner {
+  fd_system_program_instruction_create_account_t           create_account;
+  fd_pubkey_t                                              assign;
+  unsigned long                                            transfer;
+  fd_system_program_instruction_create_account_with_seed_t create_account_with_seed;
+  unsigned long                                            withdraw_nonce_account;
+  fd_pubkey_t                                              initialize_nonce_account;
+  fd_pubkey_t                                              authorize_nonce_account;
+  unsigned long                                            allocate;
+  fd_system_program_instruction_allocate_with_seed_t       allocate_with_seed;
+  fd_system_program_instruction_assign_with_seed_t         assign_with_seed;
+  fd_system_program_instruction_transfer_with_seed_t       transfer_with_seed;
+};
+typedef union fd_system_program_instruction_inner fd_system_program_instruction_inner_t;
+
+/* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/system_instruction.rs#L152 */
+struct fd_system_program_instruction {
+  uint                                  discriminant;
+  fd_system_program_instruction_inner_t inner;
+};
+typedef struct fd_system_program_instruction fd_system_program_instruction_t;
+#define FD_SYSTEM_PROGRAM_INSTRUCTION_FOOTPRINT sizeof(fd_system_program_instruction_t)
+#define FD_SYSTEM_PROGRAM_INSTRUCTION_ALIGN (8UL)
+
 
 FD_PROTOTYPES_BEGIN
 
@@ -1472,6 +1549,56 @@ uchar fd_vote_instruction_is_update_vote_state(fd_vote_instruction_t* self);
 uchar fd_vote_instruction_is_update_vote_state_switch(fd_vote_instruction_t* self);
 uchar fd_vote_instruction_is_authorize_with_seed(fd_vote_instruction_t* self);
 uchar fd_vote_instruction_is_authorize_checked_with_seed(fd_vote_instruction_t* self);
+
+void fd_system_program_instruction_create_account_decode(fd_system_program_instruction_create_account_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
+void fd_system_program_instruction_create_account_encode(fd_system_program_instruction_create_account_t* self, void const** data);
+void fd_system_program_instruction_create_account_destroy(fd_system_program_instruction_create_account_t* self, fd_free_fun_t freef, void* freef_arg);
+void fd_system_program_instruction_create_account_copy_to(fd_system_program_instruction_create_account_t* to, fd_system_program_instruction_create_account_t* from, fd_alloc_fun_t freef, void* allocf_arg);
+ulong fd_system_program_instruction_create_account_size(fd_system_program_instruction_create_account_t* self);
+
+void fd_system_program_instruction_create_account_with_seed_decode(fd_system_program_instruction_create_account_with_seed_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
+void fd_system_program_instruction_create_account_with_seed_encode(fd_system_program_instruction_create_account_with_seed_t* self, void const** data);
+void fd_system_program_instruction_create_account_with_seed_destroy(fd_system_program_instruction_create_account_with_seed_t* self, fd_free_fun_t freef, void* freef_arg);
+void fd_system_program_instruction_create_account_with_seed_copy_to(fd_system_program_instruction_create_account_with_seed_t* to, fd_system_program_instruction_create_account_with_seed_t* from, fd_alloc_fun_t freef, void* allocf_arg);
+ulong fd_system_program_instruction_create_account_with_seed_size(fd_system_program_instruction_create_account_with_seed_t* self);
+
+void fd_system_program_instruction_allocate_with_seed_decode(fd_system_program_instruction_allocate_with_seed_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
+void fd_system_program_instruction_allocate_with_seed_encode(fd_system_program_instruction_allocate_with_seed_t* self, void const** data);
+void fd_system_program_instruction_allocate_with_seed_destroy(fd_system_program_instruction_allocate_with_seed_t* self, fd_free_fun_t freef, void* freef_arg);
+void fd_system_program_instruction_allocate_with_seed_copy_to(fd_system_program_instruction_allocate_with_seed_t* to, fd_system_program_instruction_allocate_with_seed_t* from, fd_alloc_fun_t freef, void* allocf_arg);
+ulong fd_system_program_instruction_allocate_with_seed_size(fd_system_program_instruction_allocate_with_seed_t* self);
+
+void fd_system_program_instruction_assign_with_seed_decode(fd_system_program_instruction_assign_with_seed_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
+void fd_system_program_instruction_assign_with_seed_encode(fd_system_program_instruction_assign_with_seed_t* self, void const** data);
+void fd_system_program_instruction_assign_with_seed_destroy(fd_system_program_instruction_assign_with_seed_t* self, fd_free_fun_t freef, void* freef_arg);
+void fd_system_program_instruction_assign_with_seed_copy_to(fd_system_program_instruction_assign_with_seed_t* to, fd_system_program_instruction_assign_with_seed_t* from, fd_alloc_fun_t freef, void* allocf_arg);
+ulong fd_system_program_instruction_assign_with_seed_size(fd_system_program_instruction_assign_with_seed_t* self);
+
+void fd_system_program_instruction_transfer_with_seed_decode(fd_system_program_instruction_transfer_with_seed_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
+void fd_system_program_instruction_transfer_with_seed_encode(fd_system_program_instruction_transfer_with_seed_t* self, void const** data);
+void fd_system_program_instruction_transfer_with_seed_destroy(fd_system_program_instruction_transfer_with_seed_t* self, fd_free_fun_t freef, void* freef_arg);
+void fd_system_program_instruction_transfer_with_seed_copy_to(fd_system_program_instruction_transfer_with_seed_t* to, fd_system_program_instruction_transfer_with_seed_t* from, fd_alloc_fun_t freef, void* allocf_arg);
+ulong fd_system_program_instruction_transfer_with_seed_size(fd_system_program_instruction_transfer_with_seed_t* self);
+
+void fd_system_program_instruction_decode(fd_system_program_instruction_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
+void fd_system_program_instruction_encode(fd_system_program_instruction_t* self, void const** data);
+void fd_system_program_instruction_destroy(fd_system_program_instruction_t* self, fd_free_fun_t freef, void* freef_arg);
+void fd_system_program_instruction_copy_to(fd_system_program_instruction_t* to, fd_system_program_instruction_t* from, fd_alloc_fun_t freef, void* allocf_arg);
+ulong fd_system_program_instruction_size(fd_system_program_instruction_t* self);
+
+uchar fd_system_program_instruction_is_create_account(fd_system_program_instruction_t* self);
+uchar fd_system_program_instruction_is_assign(fd_system_program_instruction_t* self);
+uchar fd_system_program_instruction_is_transfer(fd_system_program_instruction_t* self);
+uchar fd_system_program_instruction_is_create_account_with_seed(fd_system_program_instruction_t* self);
+uchar fd_system_program_instruction_is_advance_nonce_account(fd_system_program_instruction_t* self);
+uchar fd_system_program_instruction_is_withdraw_nonce_account(fd_system_program_instruction_t* self);
+uchar fd_system_program_instruction_is_initialize_nonce_account(fd_system_program_instruction_t* self);
+uchar fd_system_program_instruction_is_authorize_nonce_account(fd_system_program_instruction_t* self);
+uchar fd_system_program_instruction_is_allocate(fd_system_program_instruction_t* self);
+uchar fd_system_program_instruction_is_allocate_with_seed(fd_system_program_instruction_t* self);
+uchar fd_system_program_instruction_is_assign_with_seed(fd_system_program_instruction_t* self);
+uchar fd_system_program_instruction_is_transfer_with_seed(fd_system_program_instruction_t* self);
+uchar fd_system_program_instruction_is_upgrade_nonce_account(fd_system_program_instruction_t* self);
 
 FD_PROTOTYPES_END
 
