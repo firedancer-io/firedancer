@@ -519,6 +519,11 @@ fd_funk_rec_write_prepare( fd_funk_t *               funk,
     if ( txn == fd_funk_rec_txn( rec_con,  fd_funk_txn_map( funk, wksp ) ) ) {
       /* The record is already in the right transaction */
       rec = fd_funk_rec_modify( funk, rec_con );
+      if ( !rec ) {
+        fd_int_store_if( !!opt_err, opt_err, FD_FUNK_ERR_FROZEN );
+        return NULL;
+      }
+
     } else {
       /* Copy the record into the transaction */
       fd_funk_rec_t * rec_new = fd_funk_rec_modify( funk, fd_funk_rec_insert( funk, txn, key, opt_err ) );
