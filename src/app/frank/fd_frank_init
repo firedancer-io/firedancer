@@ -53,7 +53,7 @@ $BUILD/bin/fd_pod_ctl                      \
 
 CNC=`$BUILD/bin/fd_tango_ctl new-cnc $WKSP 0 tic $CNC_APP_SZ` || exit $?
 $BUILD/bin/fd_pod_ctl                 \
-  insert $POD cstr $APP.grp.pack.task.pack.cnc $CNC \
+  insert $POD cstr $APP.grp.pack.task.pack.v0.cnc $CNC \
   || exit $?
 
 CNC=`$BUILD/bin/fd_tango_ctl new-cnc $WKSP 1 tic $CNC_APP_SZ` || exit $?
@@ -62,10 +62,10 @@ MCACHE=`$BUILD/bin/fd_tango_ctl new-mcache $WKSP $DEDUP_DEPTH 0 0` || exit $?
 FSEQ=`$BUILD/bin/fd_tango_ctl new-fseq $WKSP 0` || exit $?
 # Use defaults for cr_max, lazy, seed
 $BUILD/bin/fd_pod_ctl                        \
-  insert $POD cstr $APP.grp.dedup.task.dedup.cnc    $CNC    \
-  insert $POD cstr $APP.grp.dedup.task.dedup.tcache $TCACHE \
-  insert $POD cstr $APP.grp.dedup.task.dedup.mcache $MCACHE \
-  insert $POD cstr $APP.grp.dedup.task.dedup.fseq   $FSEQ   \
+  insert $POD cstr $APP.grp.dedup.task.dedup.v0.cnc    $CNC    \
+  insert $POD cstr $APP.grp.dedup.task.dedup.v0.tcache $TCACHE \
+  insert $POD cstr $APP.grp.dedup.task.dedup.v0.mcache $MCACHE \
+  insert $POD cstr $APP.grp.dedup.task.dedup.v0.fseq   $FSEQ   \
   || exit $?
 
 

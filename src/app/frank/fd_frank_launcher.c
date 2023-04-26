@@ -123,7 +123,10 @@ main( int     argc,
   ulong tasks_cnt = find_task_count(all_tasks_pod);
 
   // Todo: Can store fewer entries
-  char * task_type_paths = fd_alloca( alignof(char *), MAX_TASK_POD_KEY_LEN * tasks_cnt );
+  char * task_type_paths = fd_alloca(
+    alignof(char *), 
+    MAX_TASK_POD_KEY_LEN * (tasks_cnt+1) );
+
   if( FD_UNLIKELY( !task_type_paths ) ) FD_LOG_ERR(( "fd_alloca failed" ));
 
   /* Have a referance handy to all tasks's CNC */
@@ -131,7 +134,7 @@ main( int     argc,
   if( FD_UNLIKELY( !tile_cnc ) ) FD_LOG_ERR(( "fd_alloca failed" ));  
 
   /* The main tile's (this thread) CNC will be the first in this list */
-  fd_cnc_t * cnc = tile_cnc[ 0 ] = fd_cnc_join( fd_wksp_pod_map( group_pod, "main.cnc" ) );
+  fd_cnc_t * cnc = tile_cnc[ 0 ] = fd_cnc_join( fd_wksp_pod_map( group_pod, "cnc" ) );
   if( FD_UNLIKELY( !cnc ) ) FD_LOG_ERR(( "fd_cnc_join failed" ));
   if( FD_UNLIKELY( fd_cnc_app_sz( cnc ) < 64UL ) ) FD_LOG_ERR(( "cnc app sz should be at least 64 bytes" ));
 
@@ -161,6 +164,8 @@ main( int     argc,
       FD_LOG_ERR(( "unknown task type '%s'", task_type ));
     }
 
+    FD_LOG_NOTICE(( "attempting to launch %lu task(s) of type %s", fd_pod_cnt_subpod( task_type_pod ), task_type ));
+
     /* Todo: Sandbox the process */
 
     /* Launch each instance of that pod. */
@@ -178,12 +183,10 @@ main( int     argc,
       char * task_type_path = task_type_paths + (tile_idx * MAX_TASK_POD_KEY_LEN);
 
       int written = snprintf(task_type_path, MAX_TASK_POD_KEY_LEN, "%s.grp.%s.task.%s", cfg_path, grp_name, task_type_info.key);
-      if (written+1 > MAX_TASK_POD_KEY_LEN) {
+      if ( written+1 > MAX_TASK_POD_KEY_LEN ) {
         FD_LOG_ERR(( "would have overran task type path" ));
       }
 
-
-      
       char * task_argv[4];
       task_argv[0] = (char *)task_type_path;
       task_argv[1] = (char *)task_info.key;
@@ -202,7 +205,7 @@ main( int     argc,
 
   /* Configure normal kill and ctrl-c to do a clean shutdown */
 
-  // FD_VOLATILE( fd_frank_main_cnc ) = cnc;
+  FD_VOLATILE( fd_frank_main_cnc ) = cnc;
   fd_frank_signal_trap( SIGTERM );
   fd_frank_signal_trap( SIGINT  );
 
@@ -216,6 +219,31 @@ main( int     argc,
     FD_YIELD(); /* not SPIN_PAUSE as this tile is meant to float and be low resource utilization */
   }
 
+  fd_cnc_signal( cnc, FD_CNC_SIGNAL_BOOT );
+  FD_LOG_INFO(( "main fini" ));
+
+  FD_LOG_NOTICE(( "app fini" ));
+
+  FD_LOG_NOTICE(( "shutting down %lu tasks", tasks_cnt ));
+  for( ulong tile_idx=tasks_cnt; tile_idx>=1UL; tile_idx-- ) {
+    FD_LOG_NOTICE(( "halting tile %s", task_type_paths + (tile_idx * MAX_TASK_POD_KEY_LEN) ));
+
+    /* Note: could do this in parallel too but doing reverse
+       one-at-a-time for symmetry with boot */
+
+    if( FD_UNLIKELY( fd_cnc_open( tile_cnc[ tile_idx ] ) ) ) FD_LOG_ERR(( "fd_cnc_open failed for tile %lu", tile_idx ));
+    fd_cnc_signal( tile_cnc[ tile_idx ], FD_CNC_SIGNAL_HALT );
+    fd_cnc_close ( tile_cnc[ tile_idx ] );
+
+    int ret;
+    if( FD_UNLIKELY( fd_tile_exec_delete( fd_tile_exec( tile_idx ), &ret ) ) ) FD_LOG_ERR(( "fd_tile_exec_delete failed" ));
+    if( FD_UNLIKELY( ret ) ) FD_LOG_ERR(( "unexpected ret (%i)", ret ));
+  }
+
+  /* Clean up */
+  
+  for( ulong tile_idx=tasks_cnt+1; tile_idx; tile_idx-- ) fd_wksp_pod_unmap( fd_cnc_leave( tile_cnc[ tile_idx-1UL ] ) );
+  fd_wksp_pod_detach( pod );
   fd_halt();
   return 0;
 }
