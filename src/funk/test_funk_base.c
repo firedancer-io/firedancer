@@ -99,8 +99,8 @@ main( int     argc,
   FD_TEST( !(z->ul[0] | z->ul[1] | z->ul[2] | z->ul[3]) );
 
   for( ulong rem=1000000UL; rem; rem-- ) {
-    fd_funk_txn_xid_t a[1]; fd_funk_txn_xid_set_unique( a );
-    fd_funk_txn_xid_t b[1]; fd_funk_txn_xid_set_unique( b );
+    fd_funk_txn_xid_t a[1]={0}; fd_funk_txn_xid_set_unique( a );
+    fd_funk_txn_xid_t b[1]={0}; fd_funk_txn_xid_set_unique( b );
 
     ulong hash = fd_funk_txn_xid_hash( a, 1234UL ); FD_COMPILER_FORGET( hash );
     /**/  hash = fd_funk_txn_xid_hash( b, 1234UL ); FD_COMPILER_FORGET( hash );
