@@ -319,6 +319,8 @@ fd_funk_rec_insert( fd_funk_t *               funk,
   rec->txn_cidx = fd_funk_txn_cidx( txn_idx );
   rec->tag      = 0U;
   rec->flags    = 0UL;
+  rec->persist_pos = FD_FUNK_REC_IDX_NULL;
+  rec->persist_alloc_sz = FD_FUNK_REC_IDX_NULL;
 
   if( first_born ) *_rec_head_idx                   = rec_idx;
   else             rec_map[ rec_prev_idx ].next_idx = rec_idx;

@@ -59,6 +59,9 @@ struct fd_funk_rec {
                       If non-zero, the region [val_gaddr,val_gaddr+val_max) will be a current fd_alloc allocation (such that it is
                       has tag wksp_tag) and the owner of the region will be the record.  IMPORTANT! HAS NO GUARANTEED ALIGNMENT! */
 
+  ulong persist_pos; /* Position in persistence file. FD_FUNK_REC_IDX_NULL if not persisted. */
+  ulong persist_alloc_sz; /* Allocatioon size in persistence file. FD_FUNK_REC_IDX_NULL if not persisted. */
+    
   /* Padding to FD_FUNK_REC_ALIGN here (TODO: consider using self index
      in the structures to accelerate indexing computations if padding
      permits as this structure is currently has 8 bytes of padding) */

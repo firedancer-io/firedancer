@@ -258,6 +258,8 @@ struct __attribute__((aligned(FD_FUNK_ALIGN))) fd_funk_private {
 
   ulong alloc_gaddr; /* Non-zero wksp gaddr with tag wksp tag */
 
+  int persistfd;
+
   /* Padding to FD_FUNK_ALIGN here */
 };
 
@@ -324,6 +326,16 @@ fd_funk_leave( fd_funk_t * funk );
 
 void *
 fd_funk_delete( void * shfunk );
+
+/* Open a persistent store file and recover database content. Future
+   updates are persisted back to this file. An error code may be returned. */
+
+int
+fd_funk_persist_open( fd_funk_t * funk, const char * filename );
+
+/* Close the persistent store file. */
+void
+fd_funk_persist_close( fd_funk_t * funk );
 
 /* Accessors */
 
