@@ -10,12 +10,15 @@ jobs:
     runs-on: [self-hosted, Linux, X64]
     defaults:
       run:
-        shell: nix-shell --pure --keep MACHINE --keep EXTRAS --run "bash --noprofile --norc -eo pipefail {0}"
+        shell: bash --noprofile --norc -eo pipefail -c "set -ex; source /home/runner/firedancer-opts/activate-opt && chmod +x {0} && {0}"
     env:
       MACHINE: linux_clang_x86_64
       EXTRAS: libbpf llvm-cov
     steps:
       - uses: actions/checkout@v3
+
+      - name: Copy prebuilt deps
+        run: "cp -r /home/runner/firedancer-opts/opt . && ls -lah opt"
 
       - name: Build everything
         run: make -j

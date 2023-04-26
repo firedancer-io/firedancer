@@ -190,26 +190,45 @@ int main(int argc, char** argv) {
   fd_boot( &argc, &argv );
 
   const char* cmd = fd_env_strip_cmdline_cstr(&argc, &argv, "--cmd", NULL, NULL);
-  if (cmd == NULL) {
+  const char* wkspname = fd_env_strip_cmdline_cstr(&argc, &argv, "--wksp", NULL, NULL);
+  if (cmd == NULL || wkspname == NULL) {
     usage(argv[0]);
     return 1;
   }
 
-  fd_wksp_t* wksp = fd_wksp_new_anonymous( FD_SHMEM_GIGANTIC_PAGE_SZ, 45, 2, "wksp", 0UL );
+  fd_wksp_t* wksp = fd_wksp_attach(wkspname);
+  if (wksp == NULL)
+    FD_LOG_ERR(( "failed to attach to workspace %s", wkspname ));
 
-  void * alloc_shmem = fd_wksp_alloc_laddr( wksp, fd_alloc_align(), fd_alloc_footprint(), 1 );
-  void * allocf_arg = fd_alloc_join( fd_alloc_new ( alloc_shmem, 1 ), 0UL );
+  void* shmem = fd_wksp_alloc_laddr( wksp, fd_funk_align(), fd_funk_footprint(), 1 );
+  if (shmem == NULL)
+    FD_LOG_ERR(( "failed to allocate a funky" ));
+  ulong index_max = 350000000; // Maximum size (count) of master index
+  ulong xactions_max = 10; // Maximum size (count) of transaction index
+  char hostname[64];
+  gethostname(hostname, sizeof(hostname));
+  ulong hashseed = fd_hash(0, hostname, strnlen(hostname, sizeof(hostname)));
+  fd_funk_t* funk = fd_funk_join(fd_funk_new(shmem, 1, hashseed, xactions_max, index_max));
+  if (funk == NULL) {
+    fd_wksp_free_laddr(shmem);
+    FD_LOG_ERR(( "failed to allocate a funky" ));
+  }
 
-  void *            global_raw = fd_alloc_malloc(allocf_arg, FD_GLOBAL_CTX_ALIGN, FD_GLOBAL_CTX_FOOTPRINT);
-  fd_global_ctx_t * global = fd_global_ctx_join(fd_global_ctx_new(global_raw));
+  FD_LOG_WARNING(( "funky at global address %lu", fd_wksp_gaddr_fast( wksp, shmem ) ));
+
+  char global_mem[FD_GLOBAL_CTX_FOOTPRINT] __attribute__((aligned(FD_GLOBAL_CTX_ALIGN)));
+  memset(global_mem, 0, sizeof(global_mem));
+  fd_global_ctx_t * global = fd_global_ctx_join( fd_global_ctx_new( global_mem ) );
+  
   global->wksp = wksp;
+  global->funk = funk;
   global->allocf = (fd_alloc_fun_t)fd_alloc_malloc;
   global->freef = (fd_free_fun_t)fd_alloc_free;
-  global->allocf_arg = allocf_arg;
-  global->alloc = allocf_arg;
+  global->allocf_arg = fd_wksp_laddr_fast( wksp, funk->alloc_gaddr );
 
-  void* fd_acc_mgr_raw = global->allocf(global->allocf_arg, FD_ACC_MGR_ALIGN, FD_ACC_MGR_FOOTPRINT);
-  global->acc_mgr = fd_acc_mgr_join(fd_acc_mgr_new(fd_acc_mgr_raw, global, FD_ACC_MGR_FOOTPRINT));
+  char acc_mgr_mem[FD_ACC_MGR_FOOTPRINT] __attribute__((aligned(FD_ACC_MGR_ALIGN)));
+  memset(acc_mgr_mem, 0, sizeof(acc_mgr_mem));
+  global->acc_mgr = fd_acc_mgr_join( fd_acc_mgr_new( acc_mgr_mem, global, FD_ACC_MGR_FOOTPRINT ) );
 
   if (strcmp(cmd, "ingest") == 0) {
     const char* snapshotfile = fd_env_strip_cmdline_cstr(&argc, &argv, "--snapshotfile", NULL, NULL);
@@ -217,38 +236,16 @@ int main(int argc, char** argv) {
       usage(argv[0]);
       return 1;
     }
-    const char* funkfile = fd_env_strip_cmdline_cstr(&argc, &argv, "--funkfile", NULL, "funkdb");
-
-    unlink(funkfile);
-    ulong      index_max = 350000000; // Maximum size (count) of master index
-    ulong      xactions_max = 10; // Maximum size (count) of transaction index
-    ulong      cache_max = 10000; // Maximum number of cache entries
-    fd_funk_t* funk = fd_funk_new(funkfile, wksp, 2, index_max, xactions_max, cache_max);
-    global->funk = funk;
-    fd_funk_xactionid_t xid;
-    global->funk_txn = &xid;
-    xid = *fd_funk_root(global->funk);
 
     struct SnapshotParser parser;
     SnapshotParser_init(&parser, global);
     decompressFile(snapshotfile, SnapshotParser_moreData, &parser);
     SnapshotParser_destroy(&parser);
-
-    FD_LOG_INFO(("imported %lu accounts", fd_funk_num_records(funk)));
-    
-    fd_funk_delete(funk);
   }
 
   fd_acc_mgr_delete( fd_acc_mgr_leave( global->acc_mgr ) );
-  global->freef(global->allocf_arg, fd_acc_mgr_raw);
 
   fd_global_ctx_delete( fd_global_ctx_leave( global ) );
-  global->freef(global->allocf_arg, global_raw);
-
-  fd_alloc_delete( fd_alloc_leave( allocf_arg ) );
-  fd_wksp_free_laddr( alloc_shmem );
-
-  fd_wksp_delete_anonymous( wksp );
 
   fd_log_flush();
   fd_halt();

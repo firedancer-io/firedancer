@@ -23,6 +23,9 @@ main( int     argc,
   FD_LOG_WARNING(( "Test WARNING      (notice+flush log and stderr)"           ));
 
   /* Info about the calling thread */
+
+  int cmode = fd_log_colorize();
+  FD_LOG_NOTICE(( "fd_log_colorize      %i",  cmode                  ));
   FD_LOG_NOTICE(( "fd_log_level_logfile %i",  fd_log_level_logfile() ));
   FD_LOG_NOTICE(( "fd_log_level_stderr  %i",  fd_log_level_stderr()  ));
   FD_LOG_NOTICE(( "fd_log_level_flush   %i",  fd_log_level_flush()   ));
@@ -39,6 +42,13 @@ main( int     argc,
   FD_LOG_NOTICE(( "fd_log_cpu           %s",  fd_log_cpu()           ));
   FD_LOG_NOTICE(( "fd_log_group         %s",  fd_log_group()         ));
   FD_LOG_NOTICE(( "fd_log_user          %s",  fd_log_user()          ));
+
+  if( cmode ) {
+    fd_log_colorize_set( 0 );
+    FD_LOG_NOTICE(( "disabled colorize" ));
+    fd_log_colorize_set( cmode );
+    FD_LOG_NOTICE(( "reenabled colorize" ));
+  }
 
   FD_LOG_NOTICE( ( "Testing hexdump logging API: " ) );
 

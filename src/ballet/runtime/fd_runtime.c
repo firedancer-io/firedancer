@@ -159,7 +159,7 @@ fd_runtime_block_verify( fd_global_ctx_t *global, fd_slot_blocks_t *slot_data ) 
         if (micro_block->hdr.hash_cnt > 0)
           fd_poh_append(&global->poh, micro_block->hdr.hash_cnt - 1);
         uchar outhash[32];
-        fd_microblock_batched_mixin(micro_block, outhash, global->alloc);
+        fd_microblock_batched_mixin(micro_block, outhash, global->allocf_arg);
         fd_poh_mixin(&global->poh, outhash);
       } else
         fd_poh_append(&global->poh, micro_block->hdr.hash_cnt);
@@ -197,24 +197,23 @@ fd_runtime_block_eval( fd_global_ctx_t *global, fd_slot_blocks_t *slot_data ) {
     return FD_RUNTIME_EXECUTE_GENERIC_ERR;
   }
 
-  // this makes my head hurt... need some sleep...
-  struct fd_funk_xactionid*  parent_txn = global->funk_txn;
+#if 0
+  fd_funk_txn_t* parent_txn = global->funk_txn;
+  fd_funk_txn_xid_t xid;
+  xid.ul[0] = fd_rng_ulong( global->rng );
+  xid.ul[1] = fd_rng_ulong( global->rng );
+  xid.ul[2] = fd_rng_ulong( global->rng );
+  xid.ul[3] = fd_rng_ulong( global->rng );
+  fd_funk_txn_t * txn = fd_funk_txn_prepare( global->funk, parent_txn, &xid, 0 );
+    
   global->funk_txn_index = (global->funk_txn_index + 1) & 31;
-  global->funk_txn = &global->funk_txn_tower[global->funk_txn_index];
-
-  // Reasonable to let the compiler figure this out?
-  if ( memcmp(global->funk_txn, fd_funk_root(global->funk), sizeof(fd_funk_xactionid_t) ) )
-    if (fd_funk_commit(global->funk, global->funk_txn) == 0)
-      FD_LOG_ERR(("fd_funk_commit failed"));
-
-  ulong *p = (ulong *) &global->funk_txn->id[0];
-  p[0] = fd_rng_ulong( global->rng );
-  p[1] = fd_rng_ulong( global->rng );
-  p[2] = fd_rng_ulong( global->rng );
-  p[3] = fd_rng_ulong( global->rng );
-
-  if (fd_funk_fork(global->funk, parent_txn, global->funk_txn) == 0)
-    FD_LOG_ERR(("fd_funk_fork failed"));
+  fd_funk_txn_t * old_txn = global->funk_txn_tower[global->funk_txn_index];
+  if (old_txn != NULL )
+    fd_funk_txn_publish( global->funk, old_txn, 0 );
+  global->funk_txn_tower[global->funk_txn_index] = global->funk_txn = txn;
+#else
+  global->funk_txn = NULL;
+#endif
 
   // This is simple now but really we need to execute block_verify in
   // its own thread/tile and IT needs to parallelize the
@@ -231,10 +230,13 @@ fd_runtime_block_eval( fd_global_ctx_t *global, fd_slot_blocks_t *slot_data ) {
   if (FD_RUNTIME_EXECUTE_SUCCESS != ret ) {
     // Not exactly sure what I am supposed to do if execute fails to
     // this point...  is this a "log and fall over?"
-    fd_funk_cancel(global->funk, global->funk_txn);
+    /*
+    fd_funk_cancel(global->funk, global->funk_txn, 0);
     *global->funk_txn = *fd_funk_root(global->funk);
     global->funk_txn_index = (global->funk_txn_index - 1) & 31;
     global->funk_txn = &global->funk_txn_tower[global->funk_txn_index];
+    */
+    FD_LOG_ERR(( "need to rollback" ));
   }
 
   return ret;

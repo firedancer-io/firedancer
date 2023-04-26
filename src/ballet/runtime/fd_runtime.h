@@ -28,7 +28,6 @@ struct __attribute__((aligned(FD_GLOBAL_CTX_ALIGN))) fd_global_ctx {
 
   fd_wksp_t *                wksp;
   fd_funk_t*                 funk;
-  fd_alloc_t *               alloc;
   fd_executor_t              executor;  // Amusingly, it is just a pointer to this...
   fd_rng_t*                  rng;
 
@@ -62,8 +61,8 @@ struct __attribute__((aligned(FD_GLOBAL_CTX_ALIGN))) fd_global_ctx {
   fd_firedancer_banks_t      bank;
 
   fd_poh_state_t             poh;
-  fd_funk_xactionid_t        funk_txn_tower[32];
-  fd_funk_xactionid_t*       funk_txn;
+  fd_funk_txn_t*             funk_txn_tower[32];
+  fd_funk_txn_t*             funk_txn;
   ushort                     funk_txn_index;
   uchar                      block_hash[FD_SHA256_HASH_SZ];
   fd_hash_t                  banks_hash;
