@@ -57,7 +57,7 @@ ulong MAP_POOL_(max_for_footprint)( ulong footprint );
   available for allocation to start. There must be enough memory for
   the required footprint.
 */
-void * MAP_POOL_(new)( void * shmem, ulong  max );
+void * MAP_POOL_(new)( void * shmem, ulong max );
 /*
   E.g. my_element_t * my_pool_join( void * shmem );
 
