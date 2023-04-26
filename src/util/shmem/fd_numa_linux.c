@@ -46,6 +46,10 @@ fd_numa_node_cnt( void ) {
   char const * path = "/sys/devices/system/node";
   DIR *        dir  = opendir( path );
   if( FD_UNLIKELY( !dir ) ) {
+    if( FD_LIKELY( errno==ENOENT ) ) {
+      FD_LOG_WARNING(( "/sys/devices/system/node does not exist. Disabling NUMA" ));
+      return 1UL;
+    }
     FD_LOG_WARNING(( "opendir( \"%s\" ) failed (%i-%s)", path, errno, strerror( errno ) ));
     return 0UL;
   }
@@ -117,8 +121,8 @@ fd_numa_node_idx( ulong cpu_idx ) {
     FD_LOG_WARNING(( "closedir( \"%s\" ) failed (%i-%s); attempting to continue", path, errno, strerror( errno ) ));
 
   if( FD_UNLIKELY( node_idx<0 ) ) {
-    FD_LOG_WARNING(( "No numa node found in \"%s\"", path ));
-    return ULONG_MAX;
+    FD_LOG_DEBUG(( "Unknown NUMA node for \"%s\", defaulting to zero", path ));
+    return 0UL;
   }
 
   return (ulong)node_idx;

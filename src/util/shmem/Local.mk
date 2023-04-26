@@ -7,6 +7,8 @@ $(call add-test-scripts,test_shmem_ctl)
 
 ifdef FD_HAS_HOSTED
 $(call add-objs,fd_numa_linux,fd_util)
+$(call make-unit-test,test_numa_linux,test_numa_linux,fd_util)
+$(call run-unit-test,test_numa_linux)
 else
 $(call add-objs,fd_numa_stub,fd_util)
 endif
