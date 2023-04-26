@@ -73,14 +73,6 @@ fd_cstr_to_ulong_seq( char const * cstr,      /* String to parse, NULL returns 0
                                                  the leading portion of the seq.  Any remaining elements of seq are untouched. */
                       ulong        seq_max ); /* Maximum sequence length */
 
-/* fd_cstr_to_ip4_addr parses an IPv4 address matching format
-   %u.%u.%u.%u  On success returns the numerical representation of the
-   address in [0;UINT_MAX). On fail returns ULONG_MAX. */
-
-#if FD_HAS_HOSTED
-FD_FN_PURE ulong fd_cstr_to_ip4_addr( char const * s );
-#endif
-
 /* fd_cstr_hash hashes the cstr pointed to by key to a ulong.
    fd_cstr_hash_append updates the hash value (it will be as though the
    fd_cstr_hash was called on the string concatentation of the all the

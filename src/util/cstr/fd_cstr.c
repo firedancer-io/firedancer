@@ -92,27 +92,6 @@ fd_cstr_to_ulong_seq( char const * cstr,
   return seq_cnt;
 }
 
-#if FD_HAS_HOSTED
-/* TODO: Provide a non-hosted implementation */
-ulong
-fd_cstr_to_ip4_addr( char const * s ) {
-  int  n=0;
-  uint x[4];
-
-  int res = sscanf( s, "%u.%u.%u.%u%n", &x[0], &x[1], &x[2], &x[3], &n );
-
-  if( FD_UNLIKELY( res!=4
-                || n<0 || s[n]!='\0'
-                || x[0]>UCHAR_MAX
-                || x[1]>UCHAR_MAX
-                || x[2]>UCHAR_MAX
-                || x[3]>UCHAR_MAX ) )
-    return ULONG_MAX;
-
-  return ( x[0] | (x[1]<<8) | (x[2]<<16) | (x[3]<<24) );
-}
-#endif /* FD_HAS_HOSTED */
-
 int
 fd_cstr_casecmp( char const * a,
                  char const * b ) {
