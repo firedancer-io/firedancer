@@ -48,11 +48,12 @@ void fd_sysvar_slot_hashes_update( fd_global_ctx_t* global ) {
       .slot = global->bank.solana_bank.slot - 1,  // parent_slot
     };
 
-    char buf[50];
-    fd_base58_encode_32((uchar *) slot_hash.hash.key, NULL, buf);
+    if (FD_UNLIKELY(global->log_level > 2))  {
+      char buf[50];
+      fd_base58_encode_32((uchar *) slot_hash.hash.key, NULL, buf);
 
-    if (FD_UNLIKELY(global->log_level > 2)) 
-      FD_LOG_WARNING(( "fd_sysvar_slot_hash_update:  slot %ld,  hash %s", slot_hash.slot, buf));
+      FD_LOG_WARNING(( "fd_sysvar_slot_hash_update:  slot %ld,  hash %s", slot_hash.slot, buf)); 
+    }
 
     fd_vec_fd_slot_hash_t_push_front( &slot_hashes.hashes, slot_hash );
   }

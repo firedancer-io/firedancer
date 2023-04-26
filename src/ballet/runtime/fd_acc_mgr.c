@@ -61,12 +61,15 @@ fd_funk_rec_key_t funk_id( fd_pubkey_t* pubkey ) {
 }
 
 int fd_acc_mgr_get_account_data( fd_acc_mgr_t* acc_mgr, fd_funk_txn_t* txn, fd_pubkey_t* pubkey, uchar* result, ulong offset, ulong bytes ) {
-  fd_funk_rec_key_t id = funk_id(pubkey);
-  fd_funk_t * funk = acc_mgr->global->funk;
-  fd_wksp_t * wksp = fd_funk_wksp( funk );
+  fd_funk_rec_key_t     id = funk_id(pubkey);
+  fd_funk_t *           funk = acc_mgr->global->funk;
+  fd_wksp_t *           wksp = fd_funk_wksp( funk );
   fd_funk_rec_t const * rec = fd_funk_rec_query_global(funk, txn, &id);
   if ( FD_UNLIKELY( rec == NULL ) ) {
-    FD_LOG_WARNING(( "read account data failed" ));
+    char buf[50];
+    fd_base58_encode_32((uchar *) pubkey, NULL, buf);
+
+    FD_LOG_WARNING(( "read account data failed: %s", buf ));
     return FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
   }
   ulong sz = fd_funk_val_sz( rec );
@@ -214,13 +217,14 @@ int fd_acc_mgr_write_structured_account( fd_acc_mgr_t* acc_mgr, fd_funk_txn_t* t
 
   fd_acc_mgr_dirty_pubkey ( acc_mgr, (fd_pubkey_t *) pubkey, (fd_hash_t *) m.hash );
 
-  char encoded_hash[50];
-  fd_base58_encode_32((uchar *) m.hash, 0, encoded_hash);
-  char encoded_pubkey[50];
-  fd_base58_encode_32((uchar *) pubkey, 0, encoded_pubkey);
+  if (FD_UNLIKELY(acc_mgr->global->log_level > 2)) {
+    char encoded_hash[50];
+    fd_base58_encode_32((uchar *) m.hash, 0, encoded_hash);
+    char encoded_pubkey[50];
+    fd_base58_encode_32((uchar *) pubkey, 0, encoded_pubkey);
 
-  if (FD_UNLIKELY(acc_mgr->global->log_level > 2))
     FD_LOG_WARNING(( "fd_acc_mgr_write_structured_account: slot=%ld, pubkey=%s  hash=%s   dlen=%ld", slot, encoded_pubkey, encoded_hash, m.dlen ));
+  }
 
   return fd_acc_mgr_write_account_data(acc_mgr, txn, pubkey, &m, sizeof(m), account->data, account->data_len);
 }
@@ -253,8 +257,25 @@ void fd_acc_mgr_dirty_pubkey ( fd_acc_mgr_t* acc_mgr, fd_pubkey_t* pubkey, fd_ha
 
     me = fd_dirty_dup_insert (acc_mgr->dup, *((fd_pubkey_t *) pubkey));
     me->index = idx;
-  } else
+
+    if (FD_UNLIKELY(acc_mgr->global->log_level > 2)) {
+      char buf[50];
+      fd_base58_encode_32((uchar *) pubkey, NULL, buf);
+      char buf2[50];
+      fd_base58_encode_32((uchar *) e.hash.hash, NULL, buf2);
+
+      FD_LOG_WARNING(( "new dirty entry for pubkey %s, hash set to %s, index %ld", buf, buf2, idx ));
+    }
+  } else {
     fd_memcpy(acc_mgr->keys.elems[me->index].hash.hash, hash, sizeof(*hash));
+
+    if (FD_UNLIKELY(acc_mgr->global->log_level > 2)) {
+      char buf[50];
+      fd_base58_encode_32((uchar *) pubkey, NULL, buf);
+      char buf2[50];
+      fd_base58_encode_32((uchar *) hash, NULL, buf2);                                                                                                                                                                                                                FD_LOG_WARNING(( "replacing dirty entry for pubkey %s, hash set to %s, index %ld", buf, buf2, me->index ));
+    }
+  }
 }
 
 int fd_acc_mgr_update_hash ( fd_acc_mgr_t* acc_mgr, fd_account_meta_t * m, fd_funk_txn_t* txn, ulong slot, fd_pubkey_t * pubkey, uchar *data, ulong dlen ) {
