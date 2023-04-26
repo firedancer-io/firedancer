@@ -1,10 +1,11 @@
 #ifndef HEADER_fd_src_ballet_elf_fd_elf64_h
 #define HEADER_fd_src_ballet_elf_fd_elf64_h
 
+/* Struct definitions for ELF64 file type. */
+
 #include "fd_elf.h"
 
-#define FD_ELF64_R_SYM(i)  ((ulong)(i) >> 32)
-#define FD_ELF64_R_TYPE(i) ((ulong)(i) & 0xFFFFFFFF)
+/* fd_elf64_ehdr: ELF file header  */
 
 struct __attribute__((packed)) fd_elf64_ehdr_ {
   uchar  e_ident[ FD_ELF_EI_NIDENT ];
@@ -24,6 +25,8 @@ struct __attribute__((packed)) fd_elf64_ehdr_ {
 };
 typedef struct fd_elf64_ehdr_ fd_elf64_ehdr;
 
+/* fd_elf64_phdr: Segment header */
+
 struct __attribute__((packed)) fd_elf64_phdr_ {
   uint  p_type;
   uint  p_flags;
@@ -36,15 +39,7 @@ struct __attribute__((packed)) fd_elf64_phdr_ {
 };
 typedef struct fd_elf64_phdr_ fd_elf64_phdr;
 
-#define FD_ELF_SHT_NULL      0
-#define FD_ELF_SHT_PROGBITS  1
-#define FD_ELF_SHT_SYMTAB    2
-#define FD_ELF_SHT_STRTAB    3
-#define FD_ELF_SHT_RELA      4
-#define FD_ELF_SHT_HASH      5
-#define FD_ELF_SHT_DYNAMIC   6
-#define FD_ELF_SHT_REL       9
-#define FD_ELF_SHT_DYNSYM   11
+/* fd_elf64_shdr: Section header */
 
 struct __attribute__((packed)) fd_elf64_shdr_ {
   uint  sh_name;
@@ -60,6 +55,8 @@ struct __attribute__((packed)) fd_elf64_shdr_ {
 };
 typedef struct fd_elf64_shdr_ fd_elf64_shdr;
 
+/* fd_elf64_sym: Symbol */
+
 struct __attribute__((packed)) fd_elf64_sym_ {
   uint   st_name;
   uchar  st_info;
@@ -70,18 +67,24 @@ struct __attribute__((packed)) fd_elf64_sym_ {
 };
 typedef struct fd_elf64_sym_ fd_elf64_sym;
 
+/* fd_elf64_rel: Relocation (implicit addend) */
+
 struct __attribute__((packed)) fd_elf64_rel_ {
   ulong r_offset;
   ulong r_info;
 };
 typedef struct fd_elf64_rel_ fd_elf64_rel;
 
+/* fd_elf64_rela: Relocation with addend */
+
 struct __attribute__((packed)) fd_elf64_rela_ {
   ulong r_offset;
-  ulong r_info;
+  ulong r_info;    /* see FD_ELF64_R_{SYM,TYPE} */
   long  r_addend;
 };
 typedef struct fd_elf64_rela_ fd_elf64_rela;
+
+/* fd_elf64_dyn: Dynamic section entry */
 
 struct __attribute__((packed)) fd_elf64_dyn_ {
   long d_tag;

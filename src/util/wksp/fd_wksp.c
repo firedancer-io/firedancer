@@ -654,29 +654,41 @@ fd_wksp_gaddr( fd_wksp_t * wksp,
 }
 
 ulong
-fd_wksp_alloc( fd_wksp_t * wksp,
-               ulong       align,
-               ulong       sz,
-               ulong       tag ) {
+fd_wksp_alloc_at_least( fd_wksp_t * wksp,
+                        ulong       align,
+                        ulong       sz,
+                        ulong       tag,
+                        ulong *     max ) {
+
+  if( FD_UNLIKELY( !max ) ) {
+    FD_LOG_WARNING(( "NULL max" ));
+    return 0UL;
+  }
 
   if( FD_UNLIKELY( !wksp ) ) {
     FD_LOG_WARNING(( "NULL wksp" ));
+    *max = 0UL;
     return 0UL;
   }
 
   align = fd_ulong_if( !align, FD_WKSP_ALLOC_ALIGN_DEFAULT, align );
   if( FD_UNLIKELY( !fd_ulong_is_pow2( align ) ) ) {
     FD_LOG_WARNING(( "bad align" ));
+    *max = 0UL;
     return 0UL;
   }
   align = fd_ulong_max( align, FD_WKSP_ALLOC_ALIGN_MIN );
 
   if( FD_UNLIKELY( !((1UL<=tag) & (tag<=FD_WKSP_ALLOC_TAG_MAX)) ) ) {
     FD_LOG_WARNING(( "bad tag" ));
+    *max = 0UL;
     return 0UL;
   }
 
-  if( FD_UNLIKELY( !sz ) ) return 0UL;
+  if( FD_UNLIKELY( !sz ) ) {
+    *max = 0UL;
+    return 0UL;
+  }
 
   fd_wksp_private_lock( wksp );
 
@@ -700,7 +712,7 @@ fd_wksp_alloc( fd_wksp_t * wksp,
          in the literature).  Split off any leading blocks of partition
          i that would otherwise be lost from request alignment. */
 
-      if( lo<r0 ) {
+      if( FD_UNLIKELY( lo<r0 ) ) { /* Opt for align<=FD_WKSP_ALLOC_ALIGN_MIN */
 
         /* If we don't have enough free storage to split this partition,
            we use the whole partition for this request (potentially
@@ -708,12 +720,13 @@ fd_wksp_alloc( fd_wksp_t * wksp,
            ... this has at least a chance of surviving).  FIXME:
            CONSIDER EXPLORING MORE RANGES? LOGGING A WARNING? */
 
-        if( fd_wksp_private_make_hole( wksp, i+1UL ) ) {
+        if( FD_UNLIKELY( fd_wksp_private_make_hole( wksp, i+1UL ) ) ) {
           FD_COMPILER_MFENCE();
           FD_VOLATILE( part[i] ) = fd_wksp_private_part( tag, lo );
           FD_COMPILER_MFENCE();
-          fd_wksp_private_unlock( wksp ); /* Inside the partition but free can handle that */
-          return r0;
+          fd_wksp_private_unlock( wksp );
+          *max = hi - r0;
+          return r0; /* Inside the partition but free can handle that */
         }
 
         /* We have a hole at partition i+1 such that
@@ -737,15 +750,16 @@ fd_wksp_alloc( fd_wksp_t * wksp,
          but might be larger than necessary.  Split off trailing blocks
          of the partition that would otherwise be lost. */
 
-      if( r1<hi ) {
+      if( FD_LIKELY( r1<hi ) ) { /* Opt for splitting final free partition */
 
         /* The splitting logic here is identical to the above */
 
-        if( fd_wksp_private_make_hole( wksp, i+1UL ) ) {
+        if( FD_UNLIKELY( fd_wksp_private_make_hole( wksp, i+1UL ) ) ) {
           FD_COMPILER_MFENCE();
           FD_VOLATILE( part[i] ) = fd_wksp_private_part( tag, lo );
           FD_COMPILER_MFENCE();
           fd_wksp_private_unlock( wksp );
+          *max = hi - lo;
           return lo;
         }
 
@@ -756,6 +770,8 @@ fd_wksp_alloc( fd_wksp_t * wksp,
         /* At this point, partition i+1 holds the blocks trimmed off to
            pack the request tightly and partition i is where the request
            will actually end up. */
+
+        hi = r1;
       }
 
       /* Partition i is as tight as possible for the request. */
@@ -764,6 +780,7 @@ fd_wksp_alloc( fd_wksp_t * wksp,
       FD_VOLATILE( part[i] ) = fd_wksp_private_part( tag, lo );
       FD_COMPILER_MFENCE();
       fd_wksp_private_unlock( wksp );
+      *max = hi - lo;
       return lo;
     }
 
@@ -771,8 +788,10 @@ fd_wksp_alloc( fd_wksp_t * wksp,
   }
 
   /* No partition can handle this request right now.  Fail. */
+
   fd_wksp_private_unlock( wksp );
   FD_LOG_WARNING(( "No usable workspace free space available" ));
+  *max = 0UL;
   return 0UL;
 }
 
