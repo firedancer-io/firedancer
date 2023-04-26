@@ -30,3 +30,8 @@ EBPF_CC:=clang
 EBPF_CPPFLAGS:=-target bpf -O2 -g
 EBPF_CFLAGS:=-std=c17
 
+# FD_HAS_MAIN: Target supports linking objects with main function.
+# If set to 0, programs and unit tests will not be built. This is
+# useful for some build configs where a library with a main symbol is
+# linked in (e.g. fuzz targets)
+FD_HAS_MAIN:=1
