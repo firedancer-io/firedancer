@@ -436,6 +436,32 @@ fd_funk_rec_remove( fd_funk_t *     funk,
                     fd_funk_rec_t * rec,
                     int             erase );
 
+/* fd_funk_rec_write_prepare combines several operations into one
+   convenient package. There are 3 basic cases:
+   
+   1. If the given record key already exists in the transaction, the
+   record is returned in modifiable form. This is equivalent to
+   fd_funk_rec_query combined with fd_funk_rec_modify.
+
+   2. If the record key is entirely new (not present in the
+   transaction or any of its ancestors), a new record is inserted and
+   returned in modifiable form. This is equivalent to
+   fd_funk_rec_insert combined with fd_funk_rec_modify.
+
+   3. Otherwise, the record is copied from the ancestor transaction
+   into the given transaction. This is returned in modifiable
+   form. This is equivalent to fd_funk_rec_query_global,
+   fd_funk_rec_insert, fd_funk_val_copy, and fd_funk_rec_modify.
+
+   In all cases, the record is grown to min_val_size if it is less
+   than this size, padding with zeros if necessary. */
+fd_funk_rec_t *
+fd_funk_rec_write_prepare( fd_funk_t *               funk,
+                           fd_funk_txn_t *           txn,
+                           fd_funk_rec_key_t const * key,
+                           ulong                     min_val_size,
+                           int *                     opt_err );
+
 /* Misc */
 
 /* fd_funk_rec_verify verifies the record map.  Returns FD_FUNK_SUCCESS
