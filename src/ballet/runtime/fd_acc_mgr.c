@@ -67,10 +67,10 @@ int fd_acc_mgr_get_account_data( fd_acc_mgr_t* acc_mgr, fd_funk_txn_t* txn, fd_p
   fd_funk_rec_t const * rec = fd_funk_rec_query_global(funk, txn, &id);
   if ( FD_UNLIKELY( rec == NULL ) ) {
     FD_LOG_WARNING(( "read account data failed" ));
-    return FD_ACC_MGR_ERR_READ_FAILED;
+    return FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
   }
   ulong sz = fd_funk_val_sz( rec );
-  if ( FD_UNLIKELY( offset >= sz ) ) {
+  if ( FD_UNLIKELY( offset > sz ) ) {
     FD_LOG_WARNING(( "not enough account data" ));
     return FD_ACC_MGR_ERR_READ_FAILED;
   }
@@ -105,26 +105,54 @@ int fd_acc_mgr_write_account_data( fd_acc_mgr_t* acc_mgr, fd_funk_txn_t* txn, fd
   FD_LOG_WARNING(( "fd_acc_mgr_write_account to %s", buf ));
 #endif
 
-  fd_funk_rec_key_t id = funk_id( pubkey );
-  fd_funk_t * funk = acc_mgr->global->funk;
-  fd_funk_rec_t const * rec_orig = fd_funk_rec_query_global(funk, txn, &id);
+  fd_funk_t            *funk     = acc_mgr->global->funk;
+  fd_wksp_t            *wksp     = fd_funk_wksp( funk );
+  fd_funk_rec_key_t     id       = funk_id( pubkey );
+  fd_funk_rec_t const  *rec_con  = NULL;
+  fd_funk_rec_t        *rec      = NULL;
 
-  fd_funk_rec_t const * rec_con;
-  if ( ( rec_con = fd_funk_rec_query(funk, txn, &id) ) == NULL ) {
+  fd_funk_rec_t const *rec_orig  = fd_funk_rec_query_global(funk, txn, &id);
+
+  if ( (NULL == rec_orig) || (NULL == ( rec_con = fd_funk_rec_query(funk, txn, &id) ) ) ) {
     int err;
     if ( FD_UNLIKELY( ( rec_con = fd_funk_rec_insert(funk, txn, &id, &err) ) == NULL ) ) {
       FD_LOG_WARNING(( "failed to write account data, error %d", err ));
       return FD_ACC_MGR_ERR_WRITE_FAILED;
     }
+    rec = fd_funk_rec_modify(funk, rec_con);
+    if (NULL == rec) {
+      FD_LOG_WARNING(( "fd_funk_rec_modify failed" ));
+      return FD_ACC_MGR_ERR_WRITE_FAILED;
+    }
+
+    if (NULL == rec_orig) {
+      int opt_err = 0;
+      rec = fd_funk_val_truncate(rec, sz+sz2, fd_funk_alloc( funk, wksp ), wksp, &opt_err);
+      if (0 != opt_err) {
+        FD_LOG_WARNING(( "fd_funk_val_truncate, error %d", opt_err ));
+        return FD_ACC_MGR_ERR_WRITE_FAILED;
+      }
+    } else
+      rec = fd_funk_val_copy( rec, fd_funk_val_const( rec_orig, wksp ), fd_funk_val_sz( rec_orig ), sz+sz2, fd_funk_alloc( funk, wksp ), wksp, NULL );
+  } else {
+    if (fd_funk_val_sz( rec_orig ) < (sz + sz2) ) {
+      int opt_err = 0;
+      rec = fd_funk_val_truncate(rec, sz+sz2, fd_funk_alloc( funk, wksp ), wksp, &opt_err);
+      if (0 != opt_err) {
+        FD_LOG_WARNING(( "fd_funk_val_truncate, error %d", opt_err ));
+        return FD_ACC_MGR_ERR_WRITE_FAILED;
+      }
+    }
   }
-  fd_funk_rec_t * rec = fd_funk_rec_modify(funk, rec_con);
-  
-  fd_wksp_t * wksp = fd_funk_wksp( funk );
-  if (rec_orig != NULL && rec != rec_orig && fd_funk_val_sz(rec_orig) > sz+sz2)
-    rec = fd_funk_val_copy( rec, fd_funk_val_const( rec_orig, wksp ), fd_funk_val_sz( rec_orig ), 0UL, fd_funk_alloc( funk, wksp ), wksp, NULL );
-  
-  fd_funk_val_write( rec, 0UL, sz, data, wksp );
-  fd_funk_val_write( rec, sz, sz2, data2, wksp );
+
+  if (rec != fd_funk_val_write( rec, 0UL, sz, data, wksp )) {
+    FD_LOG_WARNING(( "failed to write account data" ));
+    return FD_ACC_MGR_ERR_WRITE_FAILED;
+  }
+  if ((data2 != NULL) && (rec != fd_funk_val_write( rec, sz, sz2, data2, wksp ))) {
+    FD_LOG_WARNING(( "failed to write account data" ));
+    return FD_ACC_MGR_ERR_WRITE_FAILED;
+  }
 
   return FD_ACC_MGR_SUCCESS;
 }
@@ -133,11 +161,11 @@ int fd_acc_mgr_get_lamports( fd_acc_mgr_t* acc_mgr, fd_funk_txn_t* txn, fd_pubke
   fd_account_meta_t metadata;
   int               read_result = fd_acc_mgr_get_metadata( acc_mgr, txn, pubkey, &metadata );
   if ( FD_UNLIKELY( read_result != FD_ACC_MGR_SUCCESS ) ) {
-    char buf[50];
-    fd_base58_encode_32((uchar *) pubkey, NULL, buf);
-
-    if (FD_UNLIKELY(acc_mgr->global->log_level > 2))
+    if (FD_UNLIKELY(acc_mgr->global->log_level > 2)) {
+      char buf[50];
+      fd_base58_encode_32((uchar *) pubkey, NULL, buf);
       FD_LOG_WARNING(( "failed to read account metadata: %s", buf ));
+    }
 
     return read_result;
   }

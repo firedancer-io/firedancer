@@ -197,6 +197,7 @@ fd_runtime_block_eval( fd_global_ctx_t *global, fd_slot_blocks_t *slot_data ) {
     return FD_RUNTIME_EXECUTE_GENERIC_ERR;
   }
 
+#if 0
   fd_funk_txn_t* parent_txn = global->funk_txn;
   fd_funk_txn_xid_t xid;
   xid.ul[0] = fd_rng_ulong( global->rng );
@@ -210,6 +211,9 @@ fd_runtime_block_eval( fd_global_ctx_t *global, fd_slot_blocks_t *slot_data ) {
   if (old_txn != NULL )
     fd_funk_txn_publish( global->funk, old_txn, 0 );
   global->funk_txn_tower[global->funk_txn_index] = global->funk_txn = txn;
+#else
+  global->funk_txn = NULL;
+#endif
 
   // This is simple now but really we need to execute block_verify in
   // its own thread/tile and IT needs to parallelize the
