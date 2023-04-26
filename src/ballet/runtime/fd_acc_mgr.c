@@ -135,20 +135,9 @@ int fd_acc_mgr_write_account_data( fd_acc_mgr_t* acc_mgr, fd_funk_txn_t* txn, fd
         FD_LOG_WARNING(( "fd_funk_val_truncate, error %d", opt_err ));
         return FD_ACC_MGR_ERR_WRITE_FAILED;
       }
-    } else {
+    } else 
       if (rec_orig != rec)
         rec = fd_funk_val_copy( rec, fd_funk_val_const( rec_orig, wksp ), fd_funk_val_sz( rec_orig ), sz+sz2, fd_funk_alloc( funk, wksp ), wksp, NULL );
-      else {
-        if (fd_funk_val_sz( rec_orig ) < (sz + sz2) ) {
-          int opt_err = 0;
-          rec = fd_funk_val_truncate(rec, sz+sz2, fd_funk_alloc( funk, wksp ), wksp, &opt_err);
-          if (0 != opt_err) {
-            FD_LOG_WARNING(( "fd_funk_val_truncate, error %d", opt_err ));
-            return FD_ACC_MGR_ERR_WRITE_FAILED;
-          }
-        }
-      }
-    }
   } else {
     rec = fd_funk_rec_modify(funk, rec_con);
     if (NULL == rec) {
@@ -156,17 +145,18 @@ int fd_acc_mgr_write_account_data( fd_acc_mgr_t* acc_mgr, fd_funk_txn_t* txn, fd
       return FD_ACC_MGR_ERR_WRITE_FAILED;
     }
 
-    if (fd_funk_val_sz( rec) < (sz + sz2) ) {
-      int opt_err = 0;
-      rec = fd_funk_val_truncate(rec, sz+sz2, fd_funk_alloc( funk, wksp ), wksp, &opt_err);
-      if (0 != opt_err) {
-        FD_LOG_WARNING(( "fd_funk_val_truncate, error %d", opt_err ));
-        return FD_ACC_MGR_ERR_WRITE_FAILED;
-      }
+  }
+
+  if ( fd_funk_val_sz( rec ) < (sz + sz2) ) {
+    int opt_err = 0;
+    rec = fd_funk_val_truncate(rec, sz+sz2, fd_funk_alloc( funk, wksp ), wksp, &opt_err);
+    if (0 != opt_err) {
+      FD_LOG_WARNING(( "fd_funk_val_truncate, error %d", opt_err ));
+      return FD_ACC_MGR_ERR_WRITE_FAILED;
     }
   }
 
-  if (rec != fd_funk_val_write( rec, 0UL, sz, data, wksp )) {
+  if ( rec != fd_funk_val_write( rec, 0UL, sz, data, wksp ) ) {
     FD_LOG_WARNING(( "failed to write account data" ));
     return FD_ACC_MGR_ERR_WRITE_FAILED;
   }
