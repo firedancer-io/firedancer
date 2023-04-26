@@ -115,6 +115,15 @@ fd_ip4_hdr_check_fast( fd_ip4_hdr_t const * hdr ) {
   return (ushort)~c;
 }
 
+/* fd_cstr_to_ip4_addr parses an IPv4 address matching format
+   %u.%u.%u.%u  On success stores address to out and returns 1. On fail
+   returns 0.  The given address is returned in host byte order such
+   that "1.0.0.0" => 0x01000000. */
+
+int
+fd_cstr_to_ip4_addr( char const * s,
+                     uint *       addr );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_util_net_fd_ip4_h */
