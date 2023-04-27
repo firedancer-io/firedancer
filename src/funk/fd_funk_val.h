@@ -122,7 +122,7 @@ fd_funk_val_write( fd_funk_rec_t *   rec,     /* Assumed in caller's address spa
   ulong d1 = d0 + sz;
 
   if( FD_UNLIKELY( (!rec) | (end<off) | (!data) | (d1<d0) | (!wksp) ) || /* NULL rec, off+sz wrapped, NULL data w sz!=0, data wrapped, NULL wksp */
-      FD_UNLIKELY( end > (ulong)rec->val_sz                         ) ) return NULL; /* too large (covers marked ERASE case too) */
+      FD_UNLIKELY( end > (ulong)rec->val_max                         ) ) return NULL; /* too large (covers marked ERASE case too) */
 
   ulong v0 = (ulong)fd_wksp_laddr_fast( wksp, rec->val_gaddr + off );
   ulong v1 = v0 + sz;
@@ -130,6 +130,9 @@ fd_funk_val_write( fd_funk_rec_t *   rec,     /* Assumed in caller's address spa
   if( FD_UNLIKELY( !((d1<=v0) | (d0>=v1)) ) ) return NULL; /* data overlaps with val */
 
   fd_memcpy( (void *)v0, data, sz );
+
+  if ( FD_UNLIKELY( end > (ulong)rec->val_sz ) )
+    rec->val_sz = (uint)end;
 
   return rec;
 }
