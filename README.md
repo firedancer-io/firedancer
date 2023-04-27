@@ -1,8 +1,32 @@
-Getting started
-===============
+# Firedancer
 
-Host setup
-----------
+### *A C Implementation of the Solana Consensus Node - by [Jump Crypto](https://jumpcrypto.com/)*
+
+## Quick-Start
+
+```sh
+# ubuntu
+sudo apt install build-essential clang
+
+# general
+git clone https://github.com/firedancer-io/firedancer.git
+cd firedancer
+source ./deps.sh
+
+make -j
+make -j unit-test
+make run-unit-test
+```
+
+Manage expectations:
+* early development stage
+* implementation targets multi-cpu/NUMA machines
+
+
+## Getting started
+
+### Host setup
+
 
 The below describes building Firedancer from scratch and running it
 optimized on a stock GCP `n2-standard-80` instance with a stock GCP
@@ -123,8 +147,8 @@ the necessary `sudo` access.
   coexist simultaneously (the `""` will be use default group of
   `[USER]`).
 
-Running
--------
+## Running
+
 
 TODO
 
