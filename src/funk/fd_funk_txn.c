@@ -1,4 +1,5 @@
 #include "fd_funk.h"
+#include "fd_funk_persist.h"
 
 #if FD_HAS_HOSTED && FD_HAS_X86
 
@@ -504,7 +505,8 @@ fd_funk_txn_cancel_children( fd_funk_t *     funk,
    changing the order of existing values. */
 
 static void
-fd_funk_txn_update( ulong *                   _dst_rec_head_idx, /* Pointer to the dst list head */
+fd_funk_txn_update( fd_funk_t *               funk,
+                    ulong *                   _dst_rec_head_idx, /* Pointer to the dst list head */
                     ulong *                   _dst_rec_tail_idx, /* Pointer to the dst list tail */
                     ulong                     dst_txn_idx,       /* Transaction index of the merge destination */
                     fd_funk_txn_xid_t const * dst_xid,           /* dst xid */
@@ -563,10 +565,12 @@ fd_funk_txn_update( ulong *                   _dst_rec_head_idx, /* Pointer to t
 
         ulong dst_prev_idx = *_dst_rec_tail_idx;
 
-        dst_rec->prev_idx = dst_prev_idx;
-        dst_rec->next_idx = FD_FUNK_REC_IDX_NULL;
-        dst_rec->txn_cidx = fd_funk_txn_cidx( dst_txn_idx );
-        dst_rec->tag      = 0U;
+        dst_rec->prev_idx         = dst_prev_idx;
+        dst_rec->next_idx         = FD_FUNK_REC_IDX_NULL;
+        dst_rec->txn_cidx         = fd_funk_txn_cidx( dst_txn_idx );
+        dst_rec->tag              = 0U;
+        dst_rec->persist_pos      = FD_FUNK_REC_IDX_NULL;
+        dst_rec->persist_alloc_sz = FD_FUNK_REC_IDX_NULL;
 
         if( fd_funk_rec_idx_is_null( dst_prev_idx ) ) *_dst_rec_head_idx               = dst_rec_idx;
         else                                          rec_map[ dst_prev_idx ].next_idx = dst_rec_idx;
@@ -584,6 +588,12 @@ fd_funk_txn_update( ulong *                   _dst_rec_head_idx, /* Pointer to t
            sequence and unmap (dst_xid,key) */
 
         fd_funk_rec_map_remove( rec_map, fd_funk_rec_pair( &rec_map[ rec_idx ] ) );
+
+        if ( FD_LIKELY( fd_funk_txn_idx_is_null( dst_txn_idx ) ) ) {
+          int err = fd_funk_rec_persist_erase_unsafe( funk, dst_rec );
+          if ( err != FD_FUNK_SUCCESS )
+            FD_LOG_ERR(( "failed to update persistence file, code %s", fd_funk_strerror( err ) ));
+        }
 
         fd_funk_val_flush( dst_rec, alloc, wksp );
 
@@ -624,10 +634,12 @@ fd_funk_txn_update( ulong *                   _dst_rec_head_idx, /* Pointer to t
         ulong dst_rec_idx  = (ulong)(dst_rec - rec_map);
         ulong dst_prev_idx = *_dst_rec_tail_idx;
 
-        dst_rec->prev_idx = dst_prev_idx;
-        dst_rec->next_idx = FD_FUNK_REC_IDX_NULL;
-        dst_rec->txn_cidx = fd_funk_txn_cidx( dst_txn_idx );
-        dst_rec->tag      = 0U;
+        dst_rec->prev_idx         = dst_prev_idx;
+        dst_rec->next_idx         = FD_FUNK_REC_IDX_NULL;
+        dst_rec->txn_cidx         = fd_funk_txn_cidx( dst_txn_idx );
+        dst_rec->tag              = 0U;
+        dst_rec->persist_pos      = FD_FUNK_REC_IDX_NULL;
+        dst_rec->persist_alloc_sz = FD_FUNK_REC_IDX_NULL;
 
         if( fd_funk_rec_idx_is_null( dst_prev_idx ) ) *_dst_rec_head_idx               = dst_rec_idx;
         else                                          rec_map[ dst_prev_idx ].next_idx = dst_rec_idx;
@@ -646,6 +658,11 @@ fd_funk_txn_update( ulong *                   _dst_rec_head_idx, /* Pointer to t
       dst_rec->val_max   = (uint)val_max;
       dst_rec->val_gaddr = val_gaddr;
 
+      if ( FD_LIKELY( fd_funk_txn_idx_is_null( dst_txn_idx ) ) ) {
+        int err = fd_funk_rec_persist_unsafe( funk, dst_rec );
+        if ( err != FD_FUNK_SUCCESS )
+          FD_LOG_ERR(( "failed to update persistence file, code %s", fd_funk_strerror( err ) ));
+      }
     }
 
     /* Advance to the next record */
@@ -673,7 +690,7 @@ fd_funk_txn_publish_funk_child( fd_funk_t *     funk,
   /* Apply the updates in txn to the last published transactions */
 
   fd_wksp_t * wksp = fd_funk_wksp( funk );
-  fd_funk_txn_update( &funk->rec_head_idx, &funk->rec_tail_idx, FD_FUNK_TXN_IDX_NULL, fd_funk_root( funk ),
+  fd_funk_txn_update( funk, &funk->rec_head_idx, &funk->rec_tail_idx, FD_FUNK_TXN_IDX_NULL, fd_funk_root( funk ),
                       txn_idx, funk->rec_max, map, fd_funk_rec_map( funk, wksp ), fd_funk_alloc( funk, wksp ), wksp );
 
   /* Cancel all competing transaction histories */
@@ -824,7 +841,7 @@ fd_funk_txn_merge( fd_funk_t *     funk,
 
   /* Merge records from child into parent */
 
-  fd_funk_txn_update( &map[ parent_idx ].rec_head_idx, &map[ parent_idx ].rec_tail_idx, parent_idx, &map[ parent_idx ].xid,
+  fd_funk_txn_update( funk, &map[ parent_idx ].rec_head_idx, &map[ parent_idx ].rec_tail_idx, parent_idx, &map[ parent_idx ].xid,
                       txn_idx, funk->rec_max, map, fd_funk_rec_map( funk, wksp ), fd_funk_alloc( funk, wksp ), wksp );
 
   /* At this point, the record list for the child is empty.  Erase the
