@@ -505,6 +505,52 @@ fd_funk_rec_remove( fd_funk_t *     funk,
   return FD_FUNK_SUCCESS;
 }
 
+fd_funk_rec_t *
+fd_funk_rec_write_prepare( fd_funk_t *               funk,
+                           fd_funk_txn_t *           txn,
+                           fd_funk_rec_key_t const * key,
+                           ulong                     min_val_size,
+                           int *                     opt_err ) {
+  
+  fd_wksp_t * wksp = fd_funk_wksp( funk );
+  
+  fd_funk_rec_t * rec = NULL;
+  fd_funk_rec_t const * rec_con = fd_funk_rec_query_global( funk, txn, key );
+  if ( rec_con ) {
+    /* We have an incarnation of the record */
+    if ( txn == fd_funk_rec_txn( rec_con,  fd_funk_txn_map( funk, wksp ) ) ) {
+      /* The record is already in the right transaction */
+      rec = fd_funk_rec_modify( funk, rec_con );
+      if ( !rec ) {
+        fd_int_store_if( !!opt_err, opt_err, FD_FUNK_ERR_FROZEN );
+        return NULL;
+      }
+
+    } else {
+      /* Copy the record into the transaction */
+      rec = fd_funk_rec_modify( funk, fd_funk_rec_insert( funk, txn, key, opt_err ) );
+      if ( !rec )
+        return NULL;
+      rec = fd_funk_val_copy( rec, fd_funk_val_const(rec_con, wksp), fd_funk_val_sz(rec_con), 
+        fd_ulong_max( fd_funk_val_sz(rec_con), min_val_size ), fd_funk_alloc( funk, wksp ), wksp, opt_err );
+      if ( !rec )
+        return NULL;
+    }
+
+  } else {
+    /* Create a new record */
+    rec = fd_funk_rec_modify( funk, fd_funk_rec_insert( funk, txn, key, opt_err ) );
+    if ( !rec )
+      return NULL;
+  }
+
+  /* Grow the record to the right size */
+  if ( fd_funk_val_sz( rec ) < min_val_size )
+    rec = fd_funk_val_truncate( rec, min_val_size, fd_funk_alloc( funk, wksp ), wksp, opt_err );
+
+  return rec;
+}
+
 int
 fd_funk_rec_verify( fd_funk_t * funk ) {
   fd_wksp_t *     wksp    = fd_funk_wksp( funk );          /* Previously verified */
