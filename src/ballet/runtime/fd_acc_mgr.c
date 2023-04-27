@@ -111,49 +111,12 @@ int fd_acc_mgr_write_account_data( fd_acc_mgr_t* acc_mgr, fd_funk_txn_t* txn, fd
   fd_funk_t            *funk     = acc_mgr->global->funk;
   fd_wksp_t            *wksp     = fd_funk_wksp( funk );
   fd_funk_rec_key_t     id       = funk_id( pubkey );
-  fd_funk_rec_t const  *rec_con  = NULL;
-  fd_funk_rec_t        *rec      = NULL;
+  int opt_err;
 
-  fd_funk_rec_t const *rec_orig  = fd_funk_rec_query_global(funk, txn, &id);
-
-  if ( (NULL == rec_orig) || (NULL == ( rec_con = fd_funk_rec_query(funk, txn, &id) ) ) ) {
-    int err;
-    if ( FD_UNLIKELY( ( rec_con = fd_funk_rec_insert(funk, txn, &id, &err) ) == NULL ) ) {
-      FD_LOG_WARNING(( "failed to write account data, error %d", err ));
-      return FD_ACC_MGR_ERR_WRITE_FAILED;
-    }
-    rec = fd_funk_rec_modify(funk, rec_con);
-    if (NULL == rec) {
-      FD_LOG_WARNING(( "fd_funk_rec_modify failed" ));
-      return FD_ACC_MGR_ERR_WRITE_FAILED;
-    }
-
-    if (NULL == rec_orig) {
-      int opt_err = 0;
-      rec = fd_funk_val_truncate(rec, sz+sz2, fd_funk_alloc( funk, wksp ), wksp, &opt_err);
-      if (0 != opt_err) {
-        FD_LOG_WARNING(( "fd_funk_val_truncate, error %d", opt_err ));
-        return FD_ACC_MGR_ERR_WRITE_FAILED;
-      }
-    } else 
-      if (rec_orig != rec)
-        rec = fd_funk_val_copy( rec, fd_funk_val_const( rec_orig, wksp ), fd_funk_val_sz( rec_orig ), sz+sz2, fd_funk_alloc( funk, wksp ), wksp, NULL );
-  } else {
-    rec = fd_funk_rec_modify(funk, rec_con);
-    if (NULL == rec) {
-      FD_LOG_WARNING(( "fd_funk_rec_modify failed" ));
-      return FD_ACC_MGR_ERR_WRITE_FAILED;
-    }
-
-  }
-
-  if ( fd_funk_val_sz( rec ) < (sz + sz2) ) {
-    int opt_err = 0;
-    rec = fd_funk_val_truncate(rec, sz+sz2, fd_funk_alloc( funk, wksp ), wksp, &opt_err);
-    if (0 != opt_err) {
-      FD_LOG_WARNING(( "fd_funk_val_truncate, error %d", opt_err ));
-      return FD_ACC_MGR_ERR_WRITE_FAILED;
-    }
+  fd_funk_rec_t *rec = fd_funk_rec_write_prepare(funk, txn, &id, sz + sz2, &opt_err);
+  if (NULL == rec) {
+    FD_LOG_WARNING(("fd_acc_mgr_write_account_data: %s", fd_funk_strerror(opt_err)));
+    return FD_ACC_MGR_ERR_WRITE_FAILED;
   }
 
   if ( rec != fd_funk_val_write( rec, 0UL, sz, data, wksp ) ) {
