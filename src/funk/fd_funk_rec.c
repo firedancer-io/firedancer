@@ -526,15 +526,13 @@ fd_funk_rec_write_prepare( fd_funk_t *               funk,
 
     } else {
       /* Copy the record into the transaction */
-      fd_funk_rec_t * rec_new = fd_funk_rec_modify( funk, fd_funk_rec_insert( funk, txn, key, opt_err ) );
-      if ( !rec_new )
+      rec = fd_funk_rec_modify( funk, fd_funk_rec_insert( funk, txn, key, opt_err ) );
+      if ( !rec )
         return NULL;
-      rec_new = fd_funk_val_copy( rec_new, fd_funk_val( rec, wksp ), fd_funk_val_sz( rec ),
-                                  fd_ulong_max( fd_funk_val_sz( rec ), min_val_size ),
-                                  fd_funk_alloc( funk, wksp ), wksp, opt_err );
-      if ( !rec_new )
+      rec = fd_funk_val_copy( rec, fd_funk_val_const(rec_con, wksp), fd_funk_val_sz(rec_con), 
+        fd_ulong_max( fd_funk_val_sz(rec_con), min_val_size ), fd_funk_alloc( funk, wksp ), wksp, opt_err );
+      if ( !rec )
         return NULL;
-      rec = rec_new;
     }
 
   } else {
