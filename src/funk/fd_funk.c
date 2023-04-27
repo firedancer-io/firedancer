@@ -172,7 +172,7 @@ fd_funk_join( void * shfunk ) {
     return NULL;
   }
 
-  funk->persistfd = -1; /* Process specific */
+  funk->persist_fd = -1; /* Process specific */
   
   return funk;
 }
