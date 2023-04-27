@@ -44,6 +44,21 @@ struct __attribute__((packed)) fd_funk_persist_walog_head {
        fd_funk_persist_erase_head follow. */
 };
 
+typedef struct fd_funk_persist_free_entry fd_funk_persist_free_entry_t;
+#define REDBLK_T fd_funk_persist_free_entry_t
+#define REDBLK_NAME fd_funk_persist_free_map
+#include "../util/tmpl/fd_redblack.h"
+struct fd_funk_persist_free_entry {
+    ulong alloc_sz;
+    ulong pos;
+    redblack_member_t redblack;
+};
+#include "../util/tmpl/fd_redblack.c"
+
+long fd_funk_persist_free_map_compare(fd_funk_persist_free_entry_t* left, fd_funk_persist_free_entry_t* right) {
+  return (long)(left->alloc_sz - right->alloc_sz);
+}
+
 /* Allocate a chunk of disk space. Returns the position on the disk
    and the actual size of the allocation. Returns ULONG_MAX on failure. */
 ulong
@@ -52,7 +67,22 @@ fd_funk_persist_alloc( fd_funk_t * funk, ulong needed, ulong * actual );
 /* Remember that a chunk of disk space is free. Takes the position and
    size of the allocation. */
 void
-fd_funk_persist_remember_free( fd_funk_t * funk, ulong pos, ulong alloc_sz );
+fd_funk_persist_remember_free( fd_funk_t * funk, ulong pos, ulong alloc_sz ) {
+  fd_wksp_t * wksp = fd_funk_wksp( funk );
+  fd_funk_persist_free_entry_t * pool = (fd_funk_persist_free_entry_t *)
+    fd_wksp_laddr_fast( wksp, funk->persist_frees_gaddr );
+  fd_funk_persist_free_entry_t * node = fd_funk_persist_free_map_pool_allocate( pool );
+  if ( node == NULL ) {
+    FD_LOG_WARNING(( "too many free spaces in persistence file" ));
+    return;
+  }
+  node->pos = pos;
+  node->alloc_sz = alloc_sz;
+  fd_funk_persist_free_entry_t * root = (funk->persist_frees_root == -1 ? NULL :
+                                         pool + funk->persist_frees_root);
+  fd_funk_persist_free_map_insert(pool, &root, node);
+  funk->persist_frees_root = root - pool;
+}
 
 /* Free a chunk of disk space. Takes the position and size of the
    allocation. */
@@ -109,7 +139,7 @@ fd_funk_persist_recover_record( fd_funk_t * funk, ulong pos,
 
 int
 fd_funk_persist_open( fd_funk_t * funk, const char * filename ) {
-  funk->persist_fd = open(filename, O_CREAT, 0600);
+  funk->persist_fd = open(filename, O_CREAT|O_RDWR, 0600);
   if ( funk->persist_fd == -1 ) {
     FD_LOG_ERR(( "failed to open %s: %s", filename, strerror(errno) ));
     return FD_FUNK_ERR_SYS;
@@ -122,8 +152,21 @@ fd_funk_persist_open( fd_funk_t * funk, const char * filename ) {
   funk->persist_size = (ulong)statbuf.st_size;
   return FD_FUNK_SUCCESS;
 
-  /* Allocate a 10MB temp buffer */
   fd_wksp_t * wksp = fd_funk_wksp( funk );
+  if ( funk->persist_frees_gaddr == 0 ) {
+    ulong max = fd_ulong_min ( funk->rec_max + 1, 1000000 );
+    void * mem = fd_wksp_alloc_laddr(wksp, fd_funk_persist_free_map_pool_align(),
+                                     fd_funk_persist_free_map_pool_footprint(max), funk->wksp_tag );
+    if ( mem == NULL ) {
+      FD_LOG_ERR(( "failed to allocate free list" ));
+      return FD_FUNK_ERR_MEM;
+    }
+    fd_funk_persist_free_entry_t * pool = fd_funk_persist_free_map_pool_join( fd_funk_persist_free_map_pool_new( mem, max ) );
+    funk->persist_frees_gaddr = fd_wksp_gaddr_fast( wksp, pool );
+    funk->persist_frees_root = -1;
+  }
+
+  /* Allocate a 10MB temp buffer */
   fd_alloc_t * alloc = fd_funk_alloc( funk, wksp );
   ulong tmp_max = 10UL<<20;
   uchar * tmp = (uchar *)fd_alloc_malloc_at_least( alloc, 1UL, tmp_max, &tmp_max );

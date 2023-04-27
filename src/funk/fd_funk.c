@@ -140,6 +140,11 @@ fd_funk_new( void * shmem,
 
   funk->alloc_gaddr = fd_wksp_gaddr_fast( wksp, alloc ); /* Note that this persists the join until delete */
 
+  funk->persist_fd = -1; /* Process specific */
+  funk->persist_size = 0;
+  funk->persist_frees_gaddr = 0;
+  funk->persist_frees_root = -1;
+
   FD_COMPILER_MFENCE();
   FD_VOLATILE( funk->magic ) = FD_FUNK_MAGIC;
   FD_COMPILER_MFENCE();

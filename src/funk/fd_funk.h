@@ -262,6 +262,8 @@ struct __attribute__((aligned(FD_FUNK_ALIGN))) fd_funk_private {
   
   int persist_fd;
   ulong persist_size;
+  ulong persist_frees_gaddr;
+  long persist_frees_root;
 
   /* Padding to FD_FUNK_ALIGN here */
 };
