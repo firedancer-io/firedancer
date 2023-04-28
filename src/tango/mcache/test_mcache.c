@@ -180,19 +180,8 @@ main( int     argc,
 
     FD_TEST( fd_seq_gt( next, fd_mcache_query( mcache, depth, next ) ) );
 
-#   if FD_HAS_X86
     fd_mcache_publish( mcache, depth, next, 0UL, 1UL, 2UL, 3UL, 4UL, 5UL );
     /* FIXME: TEST SSE AND AVX VARIANTS AS WELL */
-#   else
-    fd_frag_meta_t * meta = &mcache[ fd_mcache_line_idx( next, depth ) ];
-    meta->seq    = next;        /* Not atomically correct but doesn't matter here */
-    meta->sig    =         0UL;
-    meta->chunk  = (uint)  1UL;
-    meta->sz     = (ushort)2UL;
-    meta->ctl    = (ushort)3UL;
-    meta->tsorig = (uint)  4UL;
-    meta->tspub  = (uint)  5UL;
-#   endif
 
     FD_TEST( fd_seq_eq( next, fd_mcache_query( mcache, depth, next ) ) );
     ulong evict = fd_seq_dec( next, depth );
