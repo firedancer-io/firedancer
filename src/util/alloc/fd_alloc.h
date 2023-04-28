@@ -121,8 +121,6 @@
 
 #include "../wksp/fd_wksp.h"
 
-#if FD_HAS_HOSTED && FD_HAS_X86 /* This limitation is inherited from wksp */
-
 /* FD_ALLOC_{ALIGN,FOOTPRINT} give the required alignment and footprint
    needed for a wksp allocation to be suitable as a fd_alloc.  ALIGN is
    an integer pointer of 2 and FOOTPRINT is an integer multiple of
@@ -618,8 +616,6 @@ fd_alloc_max_expand( ulong max,
 }
 
 FD_PROTOTYPES_END
-
-#endif
 
 #endif /* HEADER_fd_src_util_alloc_fd_alloc_h */
 
