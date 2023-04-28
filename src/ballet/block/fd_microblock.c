@@ -3,6 +3,7 @@
 #include "../bmtree/fd_bmtree.h"
 #include "../bmtree/fd_wbmtree.h"
 #include "../pack/fd_pack.h"
+#include "../base58/fd_base58.h"
 
 #if !FD_HAS_ALLOCA
 #error "This file requires FD_HAS_ALLOCA"
@@ -270,6 +271,11 @@ fd_microblock_batched_mixin( fd_microblock_t const * block,
     for ( ulong j = 0; j < txn->signature_cnt; j++ ) {
       l->data = (uchar *) &sigs[j];
       l->data_len = sizeof(fd_ed25519_sig_t);
+
+      char signature[90];
+      fd_base58_encode_64((uchar *) &sigs[j], NULL, signature);
+      FD_LOG_NOTICE(( "poh: signature: %s", signature ));
+
       l++;
     }
   }
