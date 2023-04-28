@@ -110,11 +110,12 @@ fd_shmem_numa_validate( void const * mem,
 /* SHMEM REGION CREATION AND DESTRUCTION ******************************/
 
 int
-fd_shmem_create( char const * name,
-                 ulong        page_sz,
-                 ulong        page_cnt,
-                 ulong        cpu_idx,
-                 ulong        mode ) {
+fd_shmem_create_multi( char const *  name,
+                       ulong         page_sz,
+                       ulong         sub_cnt,
+                       ulong const * _sub_page_cnt,
+                       ulong const * _sub_cpu_idx,
+                       ulong         mode ) {
 
   /* Check input args */
 
@@ -122,17 +123,37 @@ fd_shmem_create( char const * name,
 
   if( FD_UNLIKELY( !fd_shmem_is_page_sz( page_sz ) ) ) { FD_LOG_WARNING(( "bad page_sz (%lu)", page_sz )); return EINVAL; }
 
-  if( FD_UNLIKELY( !((1UL<=page_cnt) & (page_cnt<=(((ulong)LONG_MAX)/page_sz))) ) ) {
-    FD_LOG_WARNING(( "bad page_cnt (%lu)", page_cnt ));
+  if( FD_UNLIKELY( !sub_cnt       ) ) { FD_LOG_WARNING(( "zero sub_cnt"      )); return EINVAL; }
+  if( FD_UNLIKELY( !_sub_page_cnt ) ) { FD_LOG_WARNING(( "NULL sub_page_cnt" )); return EINVAL; }
+  if( FD_UNLIKELY( !_sub_cpu_idx  ) ) { FD_LOG_WARNING(( "NULL sub_cpu_idx"  )); return EINVAL; }
+
+  ulong cpu_cnt = fd_shmem_cpu_cnt();
+
+  ulong page_cnt = 0UL;
+  for( ulong sub_idx=0UL; sub_idx<sub_cnt; sub_idx++ ) {
+    ulong sub_page_cnt = _sub_page_cnt[ sub_idx ];
+    if( FD_UNLIKELY( !sub_page_cnt ) ) continue; /* Skip over empty subregions */
+
+    page_cnt += sub_page_cnt;
+    if( FD_UNLIKELY( page_cnt<sub_page_cnt ) ) {
+      FD_LOG_WARNING(( "sub[%lu] sub page_cnt overflow (page_cnt %lu, sub_page_cnt %lu)",
+                       sub_idx, page_cnt-sub_page_cnt, sub_page_cnt ));
+      return EINVAL;
+    }
+
+    ulong sub_cpu_idx = _sub_cpu_idx[ sub_idx ];
+    if( FD_UNLIKELY( sub_cpu_idx>=cpu_cnt ) ) {
+      FD_LOG_WARNING(( "sub[%lu] bad cpu_idx (%lu)", sub_idx, sub_cpu_idx ));
+      return EINVAL;
+    }
+  }
+
+  if( FD_UNLIKELY( !((1UL<=page_cnt) & (page_cnt<=(((ulong)LONG_MAX)/page_sz))) ) ) { /* LONG_MAX from off_t */
+    FD_LOG_WARNING(( "bad total page_cnt (%lu)", page_cnt ));
     return EINVAL;
   }
 
-  if( FD_UNLIKELY( !(cpu_idx<fd_shmem_cpu_cnt()) ) ) { FD_LOG_WARNING(( "bad cpu_idx (%lu)", cpu_idx )); return EINVAL; }
-
   if( FD_UNLIKELY( mode!=(ulong)(mode_t)mode ) ) { FD_LOG_WARNING(( "bad mode (0%03lo)", mode )); return EINVAL; }
-
-  ulong sz       = page_cnt*page_sz;
-  ulong numa_idx = fd_shmem_numa_idx( cpu_idx );
 
   /* We use the FD_SHMEM_LOCK in create just to be safe given some
      thread safety ambiguities in the documentation for some of the
@@ -141,34 +162,21 @@ fd_shmem_create( char const * name,
   FD_SHMEM_LOCK;
 
   int err;
+
 # define ERROR( cleanup ) do { err = errno; goto cleanup; } while(0)
 
   int    orig_mempolicy;
   ulong  orig_nodemask[ (FD_SHMEM_NUMA_MAX+63UL)/64UL ];
-  ulong  nodemask[ (FD_SHMEM_NUMA_MAX+63UL)/64UL ];
   char   path[ FD_SHMEM_PRIVATE_PATH_BUF_MAX ];
   int    fd;
   void * shmem;
 
-  /* Save this thread's numa node mempolicy and then set it to bind
-     newly created memory to the numa idx corresponding to logical cpu
-     cpu_idx.  This should force page allocation to be on the desired
-     numa node even if triggered preemptively in the ftruncate / mmap
-     because the user thread group has configured things like
-     mlockall(MCL_FUTURE).  Theoretically, the fd_numa_mbind below
-     should do it without this but the Linux kernel tends to view
-     requests to move pages between numa nodes after allocation as for
-     entertainment purposes only. */
+  ulong  sz = page_cnt*page_sz;
+
+  /* Save this thread's numa node mempolicy */
 
   if( FD_UNLIKELY( fd_numa_get_mempolicy( &orig_mempolicy, orig_nodemask, FD_SHMEM_NUMA_MAX, NULL, 0UL ) ) ) {
     FD_LOG_WARNING(( "fd_numa_get_mempolicy failed (%i-%s)", errno, strerror( errno ) ));
-    ERROR( done );
-  }
-
-  fd_memset( nodemask, 0, 8UL*((FD_SHMEM_NUMA_MAX+63UL)/64UL) );
-  nodemask[ numa_idx >> 6 ] = 1UL << (numa_idx & 63UL);
-  if( FD_UNLIKELY( fd_numa_set_mempolicy( MPOL_BIND | MPOL_F_STATIC_NODES, nodemask, FD_SHMEM_NUMA_MAX ) ) ) {
-    FD_LOG_WARNING(( "fd_numa_set_mempolicy failed (%i-%s)", errno, strerror( errno ) ));
     ERROR( done );
   }
 
@@ -209,56 +217,96 @@ fd_shmem_create( char const * name,
     ERROR( unmap );
   }
 
-  /* If a mempolicy has been set and the numa_idx node does not have
-     sufficient pages to back the mapping, touching the memory will
-     trigger a a SIGBUS when it touches the first part of the mapping
-     for which there are no pages.  Unfortunately, mmap will only error
-     if there are insufficient pages across all NUMA nodes (even if
-     using mlockall( MCL_FUTURE ) or passing MAP_POPULATE), so we need
-     to check that the mapping can be backed without handling signals.
+  /* For each subregion */
 
-     So we mlock the region to force the region to be backed by pages
-     now.  The region should be backed by page_sz pages (thanks to the
-     hugetlbfs configuration) and should be on the correct NUMA node
-     (thanks to the mempolicy above).  Specifically, mlock will error
-     with ENOMEM if there were insufficient pages available.  mlock
-     guarantees that if it succeeds, the mapping has been fully backed
-     by pages and these pages will remain resident in DRAM at least
-     until the mapping is closed.  We can then proceed as usual without
-     the risk of meeting SIGBUS or its friends. */
+  uchar * sub_shmem = (uchar *)shmem;
+  for( ulong sub_idx=0UL; sub_idx<sub_cnt; sub_idx++ ) {
+    ulong sub_page_cnt = _sub_page_cnt[ sub_idx ];
+    if( FD_UNLIKELY( !sub_page_cnt ) ) continue; /* Skip over empty sub-regions */
 
-  if( FD_UNLIKELY( fd_numa_mlock( shmem, sz ) ) ) {
-    FD_LOG_WARNING(( "fd_numa_mlock(\"%s\",%lu KiB) failed (%i-%s)", path, sz>>10, errno, strerror( errno ) ));
-    ERROR( unmap );
+    ulong sub_sz       = sub_page_cnt*page_sz;
+    ulong sub_cpu_idx  = _sub_cpu_idx[ sub_idx ];
+    ulong sub_numa_idx = fd_shmem_numa_idx( sub_cpu_idx );
+
+    ulong nodemask[ (FD_SHMEM_NUMA_MAX+63UL)/64UL ];
+
+    /* Set the mempolicy to bind newly allocated memory to the numa idx
+       corresponding to logical cpu cpu_idx.  This should force page
+       allocation to be on the desired numa node, keeping our fingers
+       crossed that even the ftruncate / mmap above did not trigger
+       this; it doesn't seem too, even when the user's thread group has
+       configued things like mlockall(MCL_CURRENT | MCL_FUTURE ).
+       Theoretically, the fd_numa_mbind below should do it without this
+       but the Linux kernel tends to view requests to move pages between
+       numa nodes after allocation as for entertainment purposes only. */
+
+    fd_memset( nodemask, 0, 8UL*((FD_SHMEM_NUMA_MAX+63UL)/64UL) );
+    nodemask[ sub_numa_idx >> 6 ] = 1UL << (sub_numa_idx & 63UL);
+
+    if( FD_UNLIKELY( fd_numa_set_mempolicy( MPOL_BIND | MPOL_F_STATIC_NODES, nodemask, FD_SHMEM_NUMA_MAX ) ) ) {
+      FD_LOG_WARNING(( "fd_numa_set_mempolicy failed (%i-%s)", errno, strerror( errno ) ));
+      ERROR( unmap );
+    }
+
+    /* If a mempolicy has been set and the numa_idx node does not have
+       sufficient pages to back the mapping, touching the memory will
+       trigger a SIGBUS when it touches the first part of the mapping
+       for which there are no pages.  Unfortunately, mmap will only
+       error if there are insufficient pages across all NUMA nodes (even
+       if using mlockall( MCL_FUTURE ) or passing MAP_POPULATE), so we
+       need to check that the mapping can be backed without handling
+       signals.
+
+       So we mlock the subregion to force the region to be backed by
+       pages now.  The subregion should be backed by page_sz pages
+       (thanks to the hugetlbfs configuration) and should be on the
+       correct NUMA node (thanks to the mempolicy above).  Specifically,
+       mlock will error with ENOMEM if there were insufficient pages
+       available.  mlock guarantees that if it succeeds, the mapping has
+       been fully backed by pages and these pages will remain resident
+       in DRAM at least until the mapping is closed.  We can then
+       proceed as usual without the risk of meeting SIGBUS or its
+       friends. */
+
+    if( FD_UNLIKELY( fd_numa_mlock( sub_shmem, sub_sz ) ) ) {
+      FD_LOG_WARNING(( "sub[%lu]: fd_numa_mlock(\"%s\",%lu KiB) failed (%i-%s)",
+                       sub_idx, path, sub_sz>>10, errno, strerror( errno ) ));
+      ERROR( unmap );
+    }
+
+    /* At this point all pages in this subregion should be allocated on
+       the right NUMA node and resident in DRAM.  But in the spirit of
+       not trusting Linux to get this right robustly, we continue with
+       touching pages from cpu_idx. */
+
+    /* FIXME: NUMA TOUCH HERE (ALSO WOULD A LOCAL TOUCH WORK GIVEN THE
+       MEMPOLICY DONE ABOVE?) */
+
+    /* fd_numa_mbind the memory subregion to this numa node to nominally
+       stay put after we unmap it.  We recompute the nodemask to be on
+       the safe side in case set mempolicy above clobbered it. */
+
+    fd_memset( nodemask, 0, 8UL*((FD_SHMEM_NUMA_MAX+63UL)/64UL) );
+    nodemask[ sub_numa_idx >> 6 ] = 1UL << (sub_numa_idx & 63UL);
+
+    if( FD_UNLIKELY( fd_numa_mbind( sub_shmem, sub_sz, MPOL_BIND, nodemask, FD_SHMEM_NUMA_MAX, MPOL_MF_MOVE|MPOL_MF_STRICT ) ) ) {
+      FD_LOG_WARNING(( "sub[%lu]: fd_numa_mbind(\"%s\",%lu KiB,MPOL_BIND,1UL<<%lu,MPOL_MF_MOVE|MPOL_MF_STRICT) failed (%i-%s)",
+                       sub_idx, path, sub_sz>>10, sub_numa_idx, errno, strerror( errno ) ));
+      ERROR( unmap );
+    }
+
+    /* And since the fd_numa_mbind still often will ignore requests, we
+       double check that the pages are in the right place. */
+
+    int warn = fd_shmem_numa_validate( sub_shmem, page_sz, sub_page_cnt, sub_numa_idx ); /* logs details */
+    if( FD_UNLIKELY( warn ) )
+      FD_LOG_WARNING(( "sub[%lu]: mmap(NULL,%lu KiB,PROT_READ|PROT_WRITE,MAP_SHARED,\"%s\",0) numa binding failed (%i-%s)",
+                       sub_idx, sub_sz>>10, path, warn, strerror( warn ) ));
+
+    sub_shmem += sub_sz;
   }
 
-  /* At this point all pages should be allocated on the right NUMA node
-     and resident in DRAM.  But in the spirit of not trusting Linux to
-     get this right robustly, we continue with touching pages from
-     cpu_idx. */
-
-  /* FIXME: NUMA TOUCH HERE (ALSO WOULD A LOCAL TOUCH WORK GIVEN THE
-     MEMPOLICY DONE ABOVE?) */
-
-  /* fd_numa_mbind the memory region to this numa node to nominally stay
-     put after we unmap it. */
-
-  /* Just in case set_mempolicy clobbered it */
-  fd_memset( nodemask, 0, 8UL*((FD_SHMEM_NUMA_MAX+63UL)/64UL) );
-  nodemask[ numa_idx >> 6 ] = 1UL << (numa_idx & 63UL);
-  if( FD_UNLIKELY( fd_numa_mbind( shmem, sz, MPOL_BIND, nodemask, FD_SHMEM_NUMA_MAX, MPOL_MF_MOVE | MPOL_MF_STRICT ) ) ) {
-    FD_LOG_WARNING(( "fd_numa_mbind(\"%s\",%lu KiB,MPOL_BIND,1UL<<%lu,MPOL_MF_MOVE|MPOL_MF_STRICT) failed (%i-%s)",
-                     path, sz>>10, numa_idx, errno, strerror( errno ) ));
-    ERROR( unmap );
-  }
-
-  /* And since the fd_numa_mbind still often will ignore requests, we
-     double check that the pages are in the right place. */
-
-  err = fd_shmem_numa_validate( shmem, page_sz, page_cnt, cpu_idx ); /* logs details */
-  if( FD_UNLIKELY( err ) )
-    FD_LOG_WARNING(( "mmap(NULL,%lu KiB,PROT_READ|PROT_WRITE,MAP_SHARED,\"%s\",0) numa binding failed (%i-%s)",
-                     sz>>10, path, err, strerror( err ) ));
+  err = 0;
 
 # undef ERROR
 
