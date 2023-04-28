@@ -183,7 +183,7 @@ fd_runtime_block_verify( fd_global_ctx_t *global, fd_slot_blocks_t *slot_data ) 
 
       char end_hash[50];
       fd_base58_encode_32((uchar *) global->poh.state, NULL, end_hash);
-      FD_LOG_NOTICE(( "poh: end_hash: %s", end_hash ));
+      FD_LOG_INFO(( "poh: end_hash: %s", end_hash ));
 
       if (memcmp(micro_block->hdr.hash, global->poh.state, sizeof(global->poh.state))) {
         if (global->poh_booted) {

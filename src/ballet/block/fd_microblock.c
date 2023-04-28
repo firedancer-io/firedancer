@@ -274,7 +274,7 @@ fd_microblock_batched_mixin( fd_microblock_t const * block,
 
       char signature[90];
       fd_base58_encode_64((uchar *) &sigs[j], NULL, signature);
-      FD_LOG_NOTICE(( "poh: signature: %s", signature ));
+      FD_LOG_INFO(( "poh: signature: %s", signature ));
 
       l++;
     }
