@@ -1,7 +1,5 @@
 #include "fd_wksp_private.h"
 
-#if FD_HAS_HOSTED && FD_HAS_X86
-
 uchar const *
 fd_wksp_pod_attach( char const * gaddr ) {
   if( FD_UNLIKELY( !gaddr ) ) FD_LOG_ERR(( "NULL gaddr" ));
@@ -46,6 +44,4 @@ fd_wksp_pod_unmap( void * obj ) {
 
   fd_wksp_unmap( obj ); /* logs details */
 }
-
-#endif
 
