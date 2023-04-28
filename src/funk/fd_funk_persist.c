@@ -62,7 +62,43 @@ long fd_funk_persist_free_map_compare(fd_funk_persist_free_entry_t* left, fd_fun
 /* Allocate a chunk of disk space. Returns the position on the disk
    and the actual size of the allocation. Returns ULONG_MAX on failure. */
 ulong
-fd_funk_persist_alloc( fd_funk_t * funk, ulong needed, ulong * actual );
+fd_funk_persist_alloc( fd_funk_t * funk, ulong needed, ulong * actual ) {
+  /* Avoid micro allocations and make sure that regions align with
+     disk block boundaries */
+  needed = fd_ulong_align_up( needed, 128U );
+
+  if ( funk->persist_frees_root != -1 ) {
+    fd_wksp_t * wksp = fd_funk_wksp( funk );
+    fd_funk_persist_free_entry_t * pool = (fd_funk_persist_free_entry_t *)
+      fd_wksp_laddr_fast( wksp, funk->persist_frees_gaddr );
+    fd_funk_persist_free_entry_t * root = pool + funk->persist_frees_root;
+    
+    /* Find the best fit from the existing free blocks */
+    fd_funk_persist_free_entry_t key;
+    key.alloc_sz = needed;
+    fd_funk_persist_free_entry_t * node = fd_funk_persist_free_map_nearby(pool, root, &key);
+    if ( node && node->alloc_sz < needed )
+      node = fd_funk_persist_free_map_successor(pool, node);
+    if ( node && node->alloc_sz < needed )
+      FD_LOG_CRIT(( "corrupt fd_funk_persist_free_map" ));
+    
+    /* See if we found a good fit without too much slop */
+    if ( node && node->alloc_sz <= needed + (needed>>2) ) { /* 25% slop */
+      *actual = node->alloc_sz;
+      ulong pos = node->pos;
+      node = fd_funk_persist_free_map_delete(pool, &root, node);
+      funk->persist_frees_root = (root == NULL ? -1 : root - pool);
+      fd_funk_persist_free_map_pool_release(pool, node);
+      return pos;
+    }
+  }
+
+  /* Allocate off the end */
+  ulong pos = funk->persist_size;
+  funk->persist_size += needed;
+  *actual = needed;
+  return pos;
+}
 
 /* Remember that a chunk of disk space is free. Takes the position and
    size of the allocation. */
