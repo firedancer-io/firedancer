@@ -858,7 +858,19 @@ fd_hash_memcpy( ulong                    seed,
                 void const * FD_RESTRICT s,
                 ulong                    sz );
 
-#if FD_HAS_X86
+#ifndef FD_TICKCOUNT_STYLE
+#if FD_HAS_X86 /* Use RTDSC */
+#define FD_TICKCOUNT_STYLE 1
+#else /* Use portable fallback */
+#define FD_TICKCOUNT_STYLE 0
+#endif
+#endif
+
+#if FD_TICKCOUNT_STYLE==0 /* Portable fallback (slow).  Ticks at 1 ns / tick */
+
+#define fd_tickcount() fd_log_wallclock() /* TODO: fix ugly pre-log usage */
+
+#elif FD_TICKCOUNT_STYLE==1 /* RTDSC (fast) */
 
 /* fd_tickcount:  Reads the hardware invariant tickcounter ("RDTSC").
    This monotonically increases at an approximately constant rate
@@ -894,6 +906,8 @@ fd_hash_memcpy( ulong                    seed,
 
 #define fd_tickcount() ((long)__builtin_ia32_rdtsc())
 
+#else
+#error "Unknown FD_TICKCOUNT_STYLE"
 #endif
 
 #if FD_HAS_HOSTED
