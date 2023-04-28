@@ -1,4 +1,5 @@
 #include "fd_funk.h"
+#include <unistd.h>
 
 #if FD_HAS_HOSTED && FD_HAS_X86
 
@@ -188,6 +189,11 @@ fd_funk_leave( fd_funk_t * funk ) {
   if( FD_UNLIKELY( !funk ) ) {
     FD_LOG_WARNING(( "NULL funk" ));
     return NULL;
+  }
+
+  if (funk->persist_fd != -1) {
+    close(funk->persist_fd);
+    funk->persist_fd = -1;
   }
 
   return (void *)funk;

@@ -61,7 +61,7 @@ long fd_funk_persist_free_map_compare(fd_funk_persist_free_entry_t* left, fd_fun
 
 /* Allocate a chunk of disk space. Returns the position on the disk
    and the actual size of the allocation. Returns ULONG_MAX on failure. */
-ulong
+static ulong
 fd_funk_persist_alloc( fd_funk_t * funk, ulong needed, ulong * actual ) {
   /* Avoid micro allocations and make sure that regions align with
      disk block boundaries */
@@ -102,7 +102,7 @@ fd_funk_persist_alloc( fd_funk_t * funk, ulong needed, ulong * actual ) {
 
 /* Remember that a chunk of disk space is free. Takes the position and
    size of the allocation. */
-void
+static void
 fd_funk_persist_remember_free( fd_funk_t * funk, ulong pos, ulong alloc_sz ) {
   fd_wksp_t * wksp = fd_funk_wksp( funk );
   fd_funk_persist_free_entry_t * pool = (fd_funk_persist_free_entry_t *)
@@ -122,7 +122,7 @@ fd_funk_persist_remember_free( fd_funk_t * funk, ulong pos, ulong alloc_sz ) {
 
 /* Free a chunk of disk space. Takes the position and size of the
    allocation. */
-void
+static void
 fd_funk_persist_free( fd_funk_t * funk, ulong pos, ulong alloc_sz ) {
   struct fd_funk_persist_free_head head;
   head.type = FD_FUNK_PERSIST_FREE_TYPE;
@@ -186,7 +186,6 @@ fd_funk_persist_open( fd_funk_t * funk, const char * filename ) {
     return FD_FUNK_ERR_SYS;
   }
   funk->persist_size = (ulong)statbuf.st_size;
-  return FD_FUNK_SUCCESS;
 
   fd_wksp_t * wksp = fd_funk_wksp( funk );
   if ( funk->persist_frees_gaddr == 0 ) {
@@ -222,14 +221,14 @@ fd_funk_persist_open( fd_funk_t * funk, const char * filename ) {
     ulong new_tmp_max = 0;
     while ( tmpptr < tmpend ) {
 
-      if ( tmpptr + sizeof(struct fd_funk_persist_free_head) <= tmpend &&
-           ((struct fd_funk_persist_free_head *)tmpptr)->type == FD_FUNK_PERSIST_FREE_TYPE ) {
+      if ( FD_UNLIKELY( tmpptr + sizeof(struct fd_funk_persist_free_head) <= tmpend &&
+                        ((struct fd_funk_persist_free_head *)tmpptr)->type == FD_FUNK_PERSIST_FREE_TYPE ) ) {
         struct fd_funk_persist_free_head * head = (struct fd_funk_persist_free_head *)tmpptr;
         fd_funk_persist_remember_free( funk, pos, head->alloc_sz );
         tmpptr += head->alloc_sz;
 
-      } else if ( tmpptr + sizeof(struct fd_funk_persist_record_head) <= tmpend &&
-                  ((struct fd_funk_persist_record_head *)tmpptr)->type == FD_FUNK_PERSIST_RECORD_TYPE ) {
+      } else if ( FD_LIKELY( tmpptr + sizeof(struct fd_funk_persist_record_head) <= tmpend &&
+                             ((struct fd_funk_persist_record_head *)tmpptr)->type == FD_FUNK_PERSIST_RECORD_TYPE ) ) {
         struct fd_funk_persist_record_head * head = (struct fd_funk_persist_record_head *)tmpptr;
         if ( tmpptr + sizeof(struct fd_funk_persist_record_head) + head->val_sz <= tmpend ) {
           fd_funk_persist_recover_record( funk, pos + (ulong)(tmpptr - tmp), head,
@@ -272,6 +271,7 @@ fd_funk_persist_open( fd_funk_t * funk, const char * filename ) {
   /* The logical size might be bigger than the actual size if the last
      record had some padding that was never actually used. */
   funk->persist_size = pos;
+  return FD_FUNK_SUCCESS;
 }
 
 void
