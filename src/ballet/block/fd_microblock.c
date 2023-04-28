@@ -274,11 +274,11 @@ fd_microblock_batched_mixin( fd_microblock_t const * block,
     }
   }
 
-  fd_alloc_free(alloc, commit);
-  fd_alloc_free(alloc, leafs);
-  fd_alloc_free(alloc, mbuf);
-
   fd_wbmtree32_append(tree, leafs, leaf_cnt, mbuf);
   uchar *root = fd_wbmtree32_fini(tree);
   memcpy( out_hash, root, 32UL );
+
+  fd_alloc_free(alloc, commit);
+  fd_alloc_free(alloc, leafs);
+  fd_alloc_free(alloc, mbuf);
 }

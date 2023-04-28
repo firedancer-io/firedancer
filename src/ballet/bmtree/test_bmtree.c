@@ -1,6 +1,7 @@
 #include "../fd_ballet.h"
 #include "fd_wbmtree.h"
 #include "../../util/simd/fd_avx.h"
+#include "../base58/fd_base58.h"
 #include <stdio.h>
 
 FD_STATIC_ASSERT( FD_BMTREE20_HASH_SZ         ==  20UL, unit_test );
@@ -216,6 +217,35 @@ main( int     argc,
 
   local_freef(mem);
   local_freef(cbuf);
+
+  char * sigs[] = { "3gHmkVTtVpPinzNGZE9C3Fjsao5T74yrENzkeJCwGUu2GZEhydvPQjWbtiwhPGnevkpfsyMHvTDNMpGf2YjPQNxa", 
+                    "KwpKjWrwxnV9H5ejWZ7WzX7h86xmAZEfQRFQHnsdKCdYAGXaeaVotkso9gM1tWSTk92asQF2Sy4ai8H3W3VeRxm",
+                    "naDHRgKqqVDFvZb2RG7aVoHNZxGd1aY2HsDjEEYvfxQgjuEz5KeuKE6b2My2HNsxH2orpQB626sgAeMjgUN474a"
+  };
+  ulong              sigs_cnt = sizeof(sigs) / sizeof(sigs[0]);;
+  fd_bmtree32_node_t sigs_leaf[ sigs_cnt ];
+
+  tree = fd_bmtree32_commit_init( _tree );
+  FD_TEST( fd_bmtree32_commit_leaf_cnt( tree )==0UL );
+
+  for (ulong i = 0; i < sigs_cnt; i++) {
+    char buf[64];
+    fd_base58_decode_64( sigs[i],  (unsigned char *) buf);
+    fd_bmtree32_hash_leaf( sigs_leaf + i, buf, sizeof(buf) );
+    FD_TEST( fd_bmtree32_commit_append( tree, sigs_leaf + i, 1 )==tree );
+  }
+
+  //FD_TEST( fd_bmtree32_commit_append( tree, sigs_leaf, sigs_cnt )==tree );
+
+  root = fd_bmtree32_commit_fini( tree );
+
+  char encoded_root[50];
+  fd_base58_encode_32((uchar *) root, NULL, encoded_root);
+
+  FD_LOG_NOTICE(( "%s", encoded_root ));
+
+// mixin: 679cSmvKtaU7N5GFKNAheibmUq6vyNEAaz4gvKKez4WQ
+// markle_tree: MerkleTree { leaf_count: 3, nodes: [679cSmvKtaU7N5GFKNAheibmUq6vyNEAaz4gvKKez4WQ, HMUgEFKS2o74gvJJ9k5xDnci3cfV2woNdMTARYdc4SLW, 7v8SHXjZaR5kmbFFeFyp71EHNTYf1UZT18ZkJnce2oZw, 9eovxaBahfaRnXo16mAGNxWBF9G1VyeZT3GYxebDdmQy, 4agJvx37ochKYNeEX3NZF7dKWKhpA1X2dhVMfUoyzHR1, AgVm6NDMgVdjGhTbKE8LdukfpTdUVXS8sFQ25jGP8tr9] }
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
