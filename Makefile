@@ -21,9 +21,9 @@
 # The environment variable EXTRAS allows enabling optional build
 # features in config/with-*.mk.  For example:
 #
-#  make -j EXTRAS="libbpf debug"
+#  make -j EXTRAS="debug"
 #
-# would enable the "with-libbpf.mk" and "with-debug.mk" configs.
+# would enable the "with-debug.mk" config.
 #
 # Build binaries, unit tests, libraries, headers, other build artifacts
 # will be in the directory specified by that file.  As such, builds for
