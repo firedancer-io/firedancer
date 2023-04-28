@@ -133,20 +133,36 @@ main( int     argc,
       char const * name     =                           argv[0];
       ulong        page_cnt = fd_cstr_to_ulong        ( argv[1] );
       ulong        page_sz  = fd_cstr_to_shmem_page_sz( argv[2] );
-      ulong        cpu_idx  = fd_cstr_to_ulong        ( argv[3] );
+      char const * seq      =                           argv[3];
       ulong        mode     = fd_cstr_to_ulong_octal  ( argv[4] );
 
       /* Create the shared memory region for the workspace */
 
-      if( FD_UNLIKELY( fd_shmem_create( name, page_sz, page_cnt, cpu_idx, mode ) ) ) /* logs details */
-        FD_LOG_ERR(( "%i: %s %s %lu %s %lu 0%03lo: fd_shmem_create failed\n\t"
-                     "Do %s help for help", cnt, cmd, name, page_cnt, argv[2], cpu_idx, mode, bin ));
+      ulong sub_page_cnt[ 512 ];
+      ulong sub_cpu_idx [ 512 ];
+      ulong sub_cnt = fd_cstr_to_ulong_seq( seq, sub_cpu_idx, 512UL );
+
+      if( FD_UNLIKELY( !sub_cnt ) )
+        FD_LOG_ERR(( "%i: %s %s %lu %s %s 0%03lo: empty or invalid cpu sequence\n\t"
+                     "Do %s help for help", cnt, cmd, name, page_cnt, argv[2], seq, mode, bin ));
+
+      if( FD_UNLIKELY( sub_cnt>512UL ) )
+        FD_LOG_ERR(( "%i: %s %s %lu %s %s 0%03lo: sequence too long, increase limit in fd_wksp_ctl.c\n\t"
+                     "Do %s help for help", cnt, cmd, name, page_cnt, argv[2], seq, mode, bin ));
+
+      ulong sub_page_min = page_cnt / sub_cnt;
+      ulong sub_page_rem = page_cnt % sub_cnt;
+      for( ulong sub_idx=0UL; sub_idx<sub_cnt; sub_idx++ ) sub_page_cnt[ sub_idx ] = sub_page_min + (ulong)(sub_idx<sub_page_rem);
+
+      if( FD_UNLIKELY( fd_shmem_create_multi( name, page_sz, sub_cnt, sub_page_cnt, sub_cpu_idx, mode ) ) ) /* logs details */
+        FD_LOG_ERR(( "%i: %s %s %lu %s %s 0%03lo: fd_shmem_create_multi failed\n\t"
+                     "Do %s help for help", cnt, cmd, name, page_cnt, argv[2], seq, mode, bin ));
 
       ulong sz = page_cnt*page_sz; /* Safe as create succeeded */
       if( FD_UNLIKELY( !((fd_wksp_align()<=page_sz) & (fd_wksp_footprint( sz )==sz)) ) ) { /* paranoid checks */
         fd_shmem_unlink( name, page_sz ); /* logs details */
-        FD_LOG_ERR(( "%i: %s %s %lu %s %lu 0%03lo: internal error\n\t"
-                     "Do %s help for help", cnt, cmd, name, page_cnt, argv[2], cpu_idx, mode, bin ));
+        FD_LOG_ERR(( "%i: %s %s %lu %s %s 0%03lo: internal error\n\t"
+                     "Do %s help for help", cnt, cmd, name, page_cnt, argv[2], seq, mode, bin ));
       }
 
       /* Join the region */
@@ -155,15 +171,15 @@ main( int     argc,
       void * shmem = fd_shmem_join( name, FD_SHMEM_JOIN_MODE_READ_WRITE, NULL, NULL, info );
       if( FD_UNLIKELY( !shmem ) ) {
         fd_shmem_unlink( name, page_sz ); /* logs details */
-        FD_LOG_ERR(( "%i: %s %s %lu %s %lu 0%03lo: fd_shmem_join failed\n\t"
-                     "Do %s help for help", cnt, cmd, name, page_cnt, argv[2], cpu_idx, mode, bin ));
+        FD_LOG_ERR(( "%i: %s %s %lu %s %s 0%03lo: fd_shmem_join failed\n\t"
+                     "Do %s help for help", cnt, cmd, name, page_cnt, argv[2], seq, mode, bin ));
       }
 
       if( FD_UNLIKELY( ((info->page_sz!=page_sz) | (info->page_cnt!=page_cnt)) ) ) { /* paranoid checks */
         fd_shmem_unlink( name, page_sz ); /* logs details */
         fd_shmem_leave( shmem, NULL, NULL ); /* logs details */ /* after the unlink as per unix file semantics */
-        FD_LOG_ERR(( "%i: %s %s %lu %s %lu 0%03lo: multiple regions with same name but different sizes detected\n\t"
-                     "Do %s help for help", cnt, cmd, name, page_cnt, argv[2], cpu_idx, mode, bin ));
+        FD_LOG_ERR(( "%i: %s %s %lu %s %s 0%03lo: multiple regions with same name but different sizes detected\n\t"
+                     "Do %s help for help", cnt, cmd, name, page_cnt, argv[2], seq, mode, bin ));
       }
 
       /* Format the region as a workspace */
@@ -171,14 +187,14 @@ main( int     argc,
       if( FD_UNLIKELY( !fd_wksp_new( shmem, name, sz, 0UL ) ) ) {
         fd_shmem_unlink( name, page_sz ); /* logs details */
         fd_shmem_leave( shmem, NULL, NULL ); /* logs details */ /* after the unlink as per unix file semantics */
-        FD_LOG_ERR(( "%i: %s %s %lu %s %lu 0%03lo: fd_wksp_new failed\n\t"
-                     "Do %s help for help", cnt, cmd, name, page_cnt, argv[2], cpu_idx, mode, bin ));
+        FD_LOG_ERR(( "%i: %s %s %lu %s %s 0%03lo: fd_wksp_new failed\n\t"
+                     "Do %s help for help", cnt, cmd, name, page_cnt, argv[2], seq, mode, bin ));
       }
 
       /* Leave the region */
 
       fd_shmem_leave( shmem, NULL, NULL ); /* logs details */
-      FD_LOG_NOTICE(( "%i: %s %s %lu %s %lu 0%03lo: success", cnt, cmd, name, page_cnt, argv[2], cpu_idx, mode ));
+      FD_LOG_NOTICE(( "%i: %s %s %lu %s %s 0%03lo: success", cnt, cmd, name, page_cnt, argv[2], seq, mode ));
       SHIFT(5);
 
     } else if( !strcmp( cmd, "delete" ) ) {
