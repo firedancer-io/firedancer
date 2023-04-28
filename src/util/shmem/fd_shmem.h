@@ -9,8 +9,6 @@
 
 #include "../log/fd_log.h"
 
-#if FD_HAS_HOSTED && FD_HAS_X86
-
 /* FD_SHMEM_JOIN_MAX gives the maximum number of unique fd shmem regions
    that can be in mapped concurrently into the thread group's local
    address space.  Should be positive.  Powers of two minus 1 have good
@@ -483,13 +481,7 @@ fd_cstr_to_shmem_page_sz( char const * cstr );
 FD_FN_CONST char const *
 fd_shmem_page_sz_to_cstr( ulong page_sz );
 
-FD_PROTOTYPES_END
-
-#endif /* FD_HAS_HOSTED && FD_HAS_X86 */
-
 /* These functions are for fd_shmem internal use only. */
-
-FD_PROTOTYPES_BEGIN
 
 void
 fd_shmem_private_boot( int *    pargc,

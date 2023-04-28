@@ -1,10 +1,10 @@
-#if FD_HAS_THREADS && FD_HAS_X86 /* THREADS implies HOSTED */
+#if FD_HAS_THREADS /* THREADS implies HOSTED */
 #define _GNU_SOURCE
 #endif
 
 #include "fd_shmem_private.h"
 
-#if FD_HAS_HOSTED && FD_HAS_X86
+#if FD_HAS_HOSTED
 
 #include <ctype.h>
 #include <errno.h>
@@ -672,7 +672,7 @@ fd_shmem_private_halt( void ) {
   FD_LOG_INFO(( "fd_shmem: halt success" ));
 }
 
-#else /* unhosted or not x86 */
+#else /* unhosted */
 
 void
 fd_shmem_private_boot( int *    pargc,
