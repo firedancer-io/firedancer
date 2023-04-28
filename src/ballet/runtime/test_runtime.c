@@ -4,6 +4,8 @@
 
 //  --ledger /dev/shm/mainnet-ledger --db /dev/shm/funk --cmd replay --start-slot 179138256 --end-slot 179138258  --txn-exe sim  --index-max 120000000 --pages 15
 
+// --ledger /home/jsiegel/multi-node-cluster-ledger --db /dev/shm/funk --cmd replay --start-slot 0 --end-slot 280   --index-max 120000000 --pages 15
+
 //  --ledger /dev/shm/mainnet-ledger --db /dev/shm/funk --cmd manifest --manifest /home/jsiegel/mainnet-ledger/snapshot/tmp-snapshot-archive-JfVTLu/snapshots/179248368/179248368
 
 //  --ledger /dev/shm/mainnet-ledger --db /dev/shm/funk --cmd replay --start-slot 179138205 --end-slot 279138205  --txn-exe sim  --index-max 120000000 --pages 15

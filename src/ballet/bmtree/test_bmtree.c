@@ -232,17 +232,40 @@ main( int     argc,
     char buf[64];
     fd_base58_decode_64( sigs[i],  (unsigned char *) buf);
     fd_bmtree32_hash_leaf( sigs_leaf + i, buf, sizeof(buf) );
-    FD_TEST( fd_bmtree32_commit_append( tree, sigs_leaf + i, 1 )==tree );
   }
 
-  //FD_TEST( fd_bmtree32_commit_append( tree, sigs_leaf, sigs_cnt )==tree );
+  FD_TEST( fd_bmtree32_commit_append( tree, sigs_leaf, sigs_cnt )==tree );
 
   root = fd_bmtree32_commit_fini( tree );
+
+  mem = local_allocf(128UL, fd_wbmtree32_footprint(sigs_cnt));
+  wide_bmtree = fd_wbmtree32_init(mem, sigs_cnt);
+
+  // This is annoying.. that we are booting off a different format... lets revisit this..
+  leaf2 = (fd_wbmtree32_leaf_t *)local_allocf(128UL, sizeof(fd_wbmtree32_leaf_t) * sigs_cnt);
+  tsize = 0;
+  for (ulong i = 0; i < sigs_cnt; i++) {
+    unsigned char *buf = fd_alloca(1UL, 64UL);
+    fd_base58_decode_64( sigs[i],  (unsigned char *) buf);
+
+    leaf2[i].data = buf;;
+    leaf2[i].data_len = 64;
+    tsize += leaf2[i].data_len + 1;
+  }
+
+  cbuf = local_allocf(1UL, tsize);
+  fd_wbmtree32_append(wide_bmtree, leaf2, sigs_cnt, cbuf);
+  root2 = fd_wbmtree32_fini(wide_bmtree);
 
   char encoded_root[50];
   fd_base58_encode_32((uchar *) root, NULL, encoded_root);
 
-  FD_LOG_NOTICE(( "%s", encoded_root ));
+  char encoded_root2[50];
+  fd_base58_encode_32((uchar *) root2, NULL, encoded_root2);
+
+//  FD_LOG_NOTICE(( "%s %s", encoded_root, encoded_root2 ));
+
+  FD_TEST (( strcmp(encoded_root, encoded_root2) == 0 ));
 
 // mixin: 679cSmvKtaU7N5GFKNAheibmUq6vyNEAaz4gvKKez4WQ
 // markle_tree: MerkleTree { leaf_count: 3, nodes: [679cSmvKtaU7N5GFKNAheibmUq6vyNEAaz4gvKKez4WQ, HMUgEFKS2o74gvJJ9k5xDnci3cfV2woNdMTARYdc4SLW, 7v8SHXjZaR5kmbFFeFyp71EHNTYf1UZT18ZkJnce2oZw, 9eovxaBahfaRnXo16mAGNxWBF9G1VyeZT3GYxebDdmQy, 4agJvx37ochKYNeEX3NZF7dKWKhpA1X2dhVMfUoyzHR1, AgVm6NDMgVdjGhTbKE8LdukfpTdUVXS8sFQ25jGP8tr9] }
