@@ -47,7 +47,7 @@ main( int     argc,
   fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
 
   int ctr = 0;
-  for( long iter=0; iter<10000000; iter++ ) {
+  for( long iter=0; iter<10000000L; iter++ ) {
     if( !ctr ) { FD_LOG_NOTICE(( "Completed %li iterations", iter )); ctr = 1000000; }
     ctr--;
 
@@ -67,6 +67,60 @@ main( int     argc,
     double d  =        fd_rng_double_c0( rng ); fd_cstr_printf( buf, 128UL, NULL, "%.21e",         d  ); FD_TEST( fd_cstr_to_double( buf )==d   );
 #   endif
   }
+
+  do {
+
+    ulong seq[14];
+    static ulong const ref[14] = { 1UL,2UL,3UL,4UL,5UL,6UL,7UL,8UL,9UL,10UL,12UL,14UL,16UL,18UL };
+
+    /* Length */
+
+    memset( seq, 0, 14UL*sizeof(ulong) ); FD_TEST( fd_cstr_to_ulong_seq( "1,2-9,10-19/2",             NULL, 0UL )==14UL ); /* traditional style stride */
+    memset( seq, 0, 14UL*sizeof(ulong) ); FD_TEST( fd_cstr_to_ulong_seq( "1,2-9,10-19:2",             NULL, 0UL )==14UL ); /* taskset style stride */
+    memset( seq, 0, 14UL*sizeof(ulong) ); FD_TEST( fd_cstr_to_ulong_seq( " 1 , 2 - 9 , 10 - 19 / 2 ", NULL, 0UL )==14UL ); /* with lots of whitespace */
+    memset( seq, 0, 14UL*sizeof(ulong) ); FD_TEST( fd_cstr_to_ulong_seq( NULL,                        NULL, 0UL )== 0UL ); /* NULL cstr */
+    memset( seq, 0, 14UL*sizeof(ulong) ); FD_TEST( fd_cstr_to_ulong_seq( " x , 2 - 9 , 10 - 19 : 2 ", NULL, 0UL )== 0UL ); /* bad range start */
+    memset( seq, 0, 14UL*sizeof(ulong) ); FD_TEST( fd_cstr_to_ulong_seq( " 1 x 2 - 9 , 10 - 19 : 2 ", NULL, 0UL )== 0UL ); /* bad range delim */
+    memset( seq, 0, 14UL*sizeof(ulong) ); FD_TEST( fd_cstr_to_ulong_seq( " 1 , 2 - x , 10 - 19 : 2 ", NULL, 0UL )== 0UL ); /* bad range end */
+    memset( seq, 0, 14UL*sizeof(ulong) ); FD_TEST( fd_cstr_to_ulong_seq( " 1 , 2 - 9 , 10 - 19 : x ", NULL, 0UL )== 0UL ); /* bad stride */
+    memset( seq, 0, 14UL*sizeof(ulong) ); FD_TEST( fd_cstr_to_ulong_seq( " 1 , 2 - 1 , 10 - 19 : 2 ", NULL, 0UL )== 0UL ); /* bad range */
+    memset( seq, 0, 14UL*sizeof(ulong) ); FD_TEST( fd_cstr_to_ulong_seq( " 1 , 2 - 9 , 10 - 19 : 0 ", NULL, 0UL )== 0UL ); /* inval stride */
+    memset( seq, 0, 14UL*sizeof(ulong) ); FD_TEST( fd_cstr_to_ulong_seq( "-2 - -1",                   NULL, 0UL )== 2UL ); /* exact end at ulong max */
+    memset( seq, 0, 14UL*sizeof(ulong) ); FD_TEST( fd_cstr_to_ulong_seq( "-4 - -1/2",                 NULL, 0UL )== 2UL ); /* inexact end at ulong max */
+
+    /* Normal */
+
+    memset( seq, 0, 14UL*sizeof(ulong) ); FD_TEST( fd_cstr_to_ulong_seq( "1",                         seq, 14UL )== 1UL && seq[0]==1UL );
+    memset( seq, 0, 14UL*sizeof(ulong) ); FD_TEST( fd_cstr_to_ulong_seq( "1,2-9,10-19/2",             seq, 14UL )==14UL && !memcmp( seq, ref, 14UL*sizeof(ulong) ) );
+    memset( seq, 0, 14UL*sizeof(ulong) ); FD_TEST( fd_cstr_to_ulong_seq( "1,2-9,10-19:2",             seq, 14UL )==14UL && !memcmp( seq, ref, 14UL*sizeof(ulong) ) );
+    memset( seq, 0, 14UL*sizeof(ulong) ); FD_TEST( fd_cstr_to_ulong_seq( " 1 , 2 - 9 , 10 - 19 / 2 ", seq, 14UL )==14UL && !memcmp( seq, ref, 14UL*sizeof(ulong) ) );
+    memset( seq, 0, 14UL*sizeof(ulong) ); FD_TEST( fd_cstr_to_ulong_seq( NULL,                        seq, 14UL )== 0UL );
+    memset( seq, 0, 14UL*sizeof(ulong) ); FD_TEST( fd_cstr_to_ulong_seq( " x , 2 - 9 , 10 - 19 : 2 ", seq, 14UL )== 0UL );
+    memset( seq, 0, 14UL*sizeof(ulong) ); FD_TEST( fd_cstr_to_ulong_seq( " 1 x 2 - 9 , 10 - 19 : 2 ", seq, 14UL )== 0UL );
+    memset( seq, 0, 14UL*sizeof(ulong) ); FD_TEST( fd_cstr_to_ulong_seq( " 1 , 2 - x , 10 - 19 : 2 ", seq, 14UL )== 0UL );
+    memset( seq, 0, 14UL*sizeof(ulong) ); FD_TEST( fd_cstr_to_ulong_seq( " 1 , 2 - 9 , 10 - 19 : x ", seq, 14UL )== 0UL );
+    memset( seq, 0, 14UL*sizeof(ulong) ); FD_TEST( fd_cstr_to_ulong_seq( " 1 , 2 - 1 , 10 - 19 : 2 ", seq, 14UL )== 0UL );
+    memset( seq, 0, 14UL*sizeof(ulong) ); FD_TEST( fd_cstr_to_ulong_seq( " 1 , 2 - 9 , 10 - 19 : 0 ", seq, 14UL )== 0UL );
+    memset( seq, 0, 14UL*sizeof(ulong) ); FD_TEST( fd_cstr_to_ulong_seq( "-2 - -1",                   seq, 14UL )== 2UL && seq[0]==-2UL && seq[1]==-1UL );
+    memset( seq, 0, 14UL*sizeof(ulong) ); FD_TEST( fd_cstr_to_ulong_seq( "-4 - -1/2",                 seq, 14UL )== 2UL );
+
+    /* Truncated */
+
+    memset( seq, 0, 14UL*sizeof(ulong) ); FD_TEST( fd_cstr_to_ulong_seq( "1",                         seq,  3UL )== 1UL && seq[0]==1UL );
+    memset( seq, 0, 14UL*sizeof(ulong) ); FD_TEST( fd_cstr_to_ulong_seq( "1,2-9,10-19/2",             seq,  3UL )==14UL && !memcmp( seq, ref, 3UL*sizeof(ulong) ) );
+    memset( seq, 0, 14UL*sizeof(ulong) ); FD_TEST( fd_cstr_to_ulong_seq( "1,2-9,10-19:2",             seq,  3UL )==14UL && !memcmp( seq, ref, 3UL*sizeof(ulong) ) );
+    memset( seq, 0, 14UL*sizeof(ulong) ); FD_TEST( fd_cstr_to_ulong_seq( " 1 , 2 - 9 , 10 - 19 / 2 ", seq,  3UL )==14UL && !memcmp( seq, ref, 3UL*sizeof(ulong) ) );
+    memset( seq, 0, 14UL*sizeof(ulong) ); FD_TEST( fd_cstr_to_ulong_seq( NULL,                        seq,  3UL )== 0UL );
+    memset( seq, 0, 14UL*sizeof(ulong) ); FD_TEST( fd_cstr_to_ulong_seq( " x , 2 - 9 , 10 - 19 : 2 ", seq,  3UL )== 0UL );
+    memset( seq, 0, 14UL*sizeof(ulong) ); FD_TEST( fd_cstr_to_ulong_seq( " 1 x 2 - 9 , 10 - 19 : 2 ", seq,  3UL )== 0UL );
+    memset( seq, 0, 14UL*sizeof(ulong) ); FD_TEST( fd_cstr_to_ulong_seq( " 1 , 2 - x , 10 - 19 : 2 ", seq,  3UL )== 0UL );
+    memset( seq, 0, 14UL*sizeof(ulong) ); FD_TEST( fd_cstr_to_ulong_seq( " 1 , 2 - 9 , 10 - 19 : x ", seq,  3UL )== 0UL );
+    memset( seq, 0, 14UL*sizeof(ulong) ); FD_TEST( fd_cstr_to_ulong_seq( " 1 , 2 - 1 , 10 - 19 : 2 ", seq,  3UL )== 0UL );
+    memset( seq, 0, 14UL*sizeof(ulong) ); FD_TEST( fd_cstr_to_ulong_seq( " 1 , 2 - 9 , 10 - 19 : 0 ", seq,  3UL )== 0UL );
+    memset( seq, 0, 14UL*sizeof(ulong) ); FD_TEST( fd_cstr_to_ulong_seq( "-2 - -1",                   seq,  3UL )== 2UL && seq[0]==-2UL && seq[1]==-1UL );
+    memset( seq, 0, 14UL*sizeof(ulong) ); FD_TEST( fd_cstr_to_ulong_seq( "-4 - -1/2",                 seq,  3UL )== 2UL );
+
+  } while(0);
 
   char const * text = "The quick brown fox jumps over the lazy dog.";
   ulong        sz   = strlen( text );

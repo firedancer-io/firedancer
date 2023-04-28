@@ -53,6 +53,26 @@ FD_FN_PURE  double       fd_cstr_to_double( char const * s );
 
 FD_FN_PURE ulong fd_cstr_to_ulong_octal( char const * s );
 
+/* fd_cstr_to_ulong_seq populates seq (which has room for seq max items)
+   with the sequenced specified by the given cstr.  Sequences are a
+   comma separated list of ranges (e.g. "R0,R1,R2").  The ranges
+   themselves can be themselves be individual integers (e.g. "5") or a
+   simple range (e.g. "4-8", includes both endpoints, stop should be at
+   least start), a range with a skip (e.g. "1-10/3" or "1-10:3", stop
+   should be at least start and stride should be positive).  Ignores
+   internal whitespace.  Robust against overflow / wrapping of ranges
+   against ULONG_MAX.  Items may appear in multiple times and sequences
+   can have an arbitrary order.  Caller promises seq is non-NULL if max
+   is non-zero.  Returns 0 on NULL or malformed cstr or empty sequence
+   (seq contents might have been arbitrarily clobbered on a malformed
+   cstr). */
+
+ulong                                         /* Actual sequence length, if greater than seq_max returned sequence truncated. */
+fd_cstr_to_ulong_seq( char const * cstr,      /* String to parse, NULL returns 0 */
+                      ulong *      seq,       /* Indexed [0,max), elements [0,min(actual sequence length,seq_max)) populated with
+                                                 the leading portion of the seq.  Any remaining elements of seq are untouched. */
+                      ulong        seq_max ); /* Maximum sequence length */
+
 /* fd_cstr_to_ip4_addr parses an IPv4 address matching format
    %u.%u.%u.%u  On success returns the numerical representation of the
    address in [0;UINT_MAX). On fail returns ULONG_MAX. */
