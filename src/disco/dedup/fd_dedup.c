@@ -1,7 +1,5 @@
 #include "fd_dedup.h"
 
-#if FD_HAS_HOSTED && FD_HAS_X86
-
 /* A fd_dedup_tile_in has all the state needed for deduping frags from
    an in.  It fits on exactly one cache line. */
 
@@ -586,4 +584,3 @@ fd_dedup_tile( fd_cnc_t *              cnc,
 
 #undef SCRATCH_ALLOC
 
-#endif

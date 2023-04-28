@@ -10,8 +10,6 @@
 
 #include "../fd_disco_base.h"
 
-#if FD_HAS_HOSTED && FD_HAS_X86
-
 /* Beyond the standard FD_CNC_SIGNAL_HALT, FD_MUX_CNC_SIGNAL_ACK can be
    raised by a cnc thread with an open command session while the mux is
    in the RUN state.  The mux will transition from ACK->RUN the next
@@ -219,8 +217,6 @@ fd_mux_tile( fd_cnc_t *              cnc,       /* Local join to the mux's comma
              void *                  scratch ); /* Tile scratch memory */
 
 FD_PROTOTYPES_END
-
-#endif
 
 #endif /* HEADER_fd_src_disco_mux_fd_mux_h */
 

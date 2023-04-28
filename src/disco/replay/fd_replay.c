@@ -1,7 +1,5 @@
 #include "fd_replay.h"
 
-#if FD_HAS_HOSTED && FD_HAS_X86
-
 #include "../../util/net/fd_pcap.h"
 #include <stdio.h>
 #include <errno.h>
@@ -325,4 +323,3 @@ fd_replay_tile( fd_cnc_t *       cnc,
 
 #undef SCRATCH_ALLOC
 
-#endif
