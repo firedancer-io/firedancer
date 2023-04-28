@@ -5,7 +5,7 @@
 #include <stdio.h>
 #include <errno.h>
 #include <sys/stat.h>
-
+ 
 FD_IMPORT_CSTR( fd_shmem_ctl_help, "src/util/shmem/fd_shmem_ctl_help" );
 
 int
@@ -78,14 +78,30 @@ main( int     argc,
       char const * name     =                           argv[0];
       ulong        page_cnt = fd_cstr_to_ulong        ( argv[1] );
       ulong        page_sz  = fd_cstr_to_shmem_page_sz( argv[2] );
-      ulong        cpu_idx  = fd_cstr_to_ulong        ( argv[3] );
+      char const * seq      =                           argv[3];
       ulong        mode     = fd_cstr_to_ulong_octal  ( argv[4] );
 
-      if( FD_UNLIKELY( fd_shmem_create( name, page_sz, page_cnt, cpu_idx, mode ) ) )
-        FD_LOG_ERR(( "%i: %s %s %lu %s %lu 0%03lo: FAIL\n\t"
-                     "Do %s help for help", cnt, cmd, name, page_cnt, argv[2], cpu_idx, mode, bin ));
+      ulong sub_page_cnt[ 512 ];
+      ulong sub_cpu_idx [ 512 ];
+      ulong sub_cnt = fd_cstr_to_ulong_seq( seq, sub_cpu_idx, 512UL );
 
-      FD_LOG_NOTICE(( "%i: %s %s %lu %s %lu 0%03lo: success", cnt, cmd, name, page_cnt, argv[2], cpu_idx, mode ));
+      if( FD_UNLIKELY( !sub_cnt ) )
+        FD_LOG_ERR(( "%i: %s %s %lu %s %s 0%03lo: empty or invalid cpu sequence\n\t"
+                     "Do %s help for help", cnt, cmd, name, page_cnt, argv[2], seq, mode, bin ));
+
+      if( FD_UNLIKELY( sub_cnt>512UL ) )
+        FD_LOG_ERR(( "%i: %s %s %lu %s %s 0%03lo: sequence too long, increase limit in fd_shmem_ctl.c\n\t"
+                     "Do %s help for help", cnt, cmd, name, page_cnt, argv[2], seq, mode, bin ));
+
+      ulong sub_page_min = page_cnt / sub_cnt;
+      ulong sub_page_rem = page_cnt % sub_cnt;
+      for( ulong sub_idx=0UL; sub_idx<sub_cnt; sub_idx++ ) sub_page_cnt[ sub_idx ] = sub_page_min + (ulong)(sub_idx<sub_page_rem);
+
+      if( FD_UNLIKELY( fd_shmem_create_multi( name, page_sz, sub_cnt, sub_page_cnt, sub_cpu_idx, mode ) ) )
+        FD_LOG_ERR(( "%i: %s %s %lu %s %s 0%03lo: FAIL\n\t"
+                     "Do %s help for help", cnt, cmd, name, page_cnt, argv[2], seq, mode, bin ));
+
+      FD_LOG_NOTICE(( "%i: %s %s %lu %s %s 0%03lo: success", cnt, cmd, name, page_cnt, argv[2], seq, mode ));
       SHIFT(5);
 
     } else if( !strcmp( cmd, "unlink" ) ) {
