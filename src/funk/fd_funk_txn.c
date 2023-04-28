@@ -1,7 +1,5 @@
 #include "fd_funk.h"
 
-#if FD_HAS_HOSTED && FD_HAS_X86
-
 /* Provide the actual transaction map implementation */
 
 #define MAP_NAME              fd_funk_txn_map
@@ -47,20 +45,6 @@
    encountered earlier in the traversal (and thus will create a
    cycle/infinite loop) in the shortest possible algorithm overhead to
    detect such a cycle. */
-
-/* fd_funk_txn_cycle_tag returns a unique tag to use for this detection.
-   It is straightforward to comment out this protection if desired.
-
-   TODO: consider stashing something akin to this in funk, fd_map_giant
-   and/or using increment (or atomic increment if want to consider
-   concurrent traversals) instead of a tickcount?  Note that the only
-   x86 specific code in here currently is this tickcount call.  Tag
-   reuse risk for the below at practical clock rates is several decades. */
-
-static inline ulong
-fd_funk_txn_cycle_tag( void ) {
-  return ((ulong)fd_tickcount())<<2; /* Note that verify uses lower 2 bits for its tags */
-}
 
 #define ASSERT_IN_MAP( txn_idx ) do {                          \
     if( FD_UNLIKELY( txn_idx>=txn_max ) )                      \
@@ -334,7 +318,7 @@ fd_funk_txn_cancel( fd_funk_t *     funk,
     return 0UL;
   }
 
-  return fd_funk_txn_cancel_family( funk, map, txn_max, fd_funk_txn_cycle_tag(), txn_idx );
+  return fd_funk_txn_cancel_family( funk, map, txn_max, funk->cycle_tag++, txn_idx );
 }
 
 /* fd_funk_txn_oldest_sibling returns the index of the oldest sibling
@@ -436,7 +420,7 @@ fd_funk_txn_cancel_siblings( fd_funk_t *     funk,
   
   ulong oldest_idx = fd_funk_txn_oldest_sibling( funk, map, txn_max, txn_idx );
 
-  return fd_funk_txn_cancel_sibling_list( funk, map, txn_max, fd_funk_txn_cycle_tag(), oldest_idx, txn_idx );
+  return fd_funk_txn_cancel_sibling_list( funk, map, txn_max, funk->cycle_tag++, oldest_idx, txn_idx );
 }
 
 ulong
@@ -473,7 +457,7 @@ fd_funk_txn_cancel_children( fd_funk_t *     funk,
 
   }
   
-  return fd_funk_txn_cancel_sibling_list( funk, map, txn_max, fd_funk_txn_cycle_tag(), oldest_idx, FD_FUNK_TXN_IDX_NULL );
+  return fd_funk_txn_cancel_sibling_list( funk, map, txn_max, funk->cycle_tag++, oldest_idx, FD_FUNK_TXN_IDX_NULL );
 }
 
 /* fd_funk_txn_update applies the record updates in transaction txn_idx
@@ -738,7 +722,7 @@ fd_funk_txn_publish( fd_funk_t *     funk,
     return 0UL;
   }
 
-  ulong tag = fd_funk_txn_cycle_tag();
+  ulong tag = funk->cycle_tag++;
 
   ulong publish_stack_idx = FD_FUNK_TXN_IDX_NULL;
 
@@ -774,7 +758,7 @@ fd_funk_txn_publish( fd_funk_t *     funk,
        each publish as txn and its sibligns we potentially visited in a
        previous iteration of this loop. */
 
-    if( FD_UNLIKELY( fd_funk_txn_publish_funk_child( funk, map, txn_max, fd_funk_txn_cycle_tag(), txn_idx ) ) ) break;
+    if( FD_UNLIKELY( fd_funk_txn_publish_funk_child( funk, map, txn_max, funk->cycle_tag++, txn_idx ) ) ) break;
     publish_cnt++;
 
     txn_idx = publish_stack_idx;
@@ -1003,4 +987,3 @@ fd_funk_txn_verify( fd_funk_t * funk ) {
 #undef ASSERT_IN_PREP
 #undef ASSERT_IN_MAP
 
-#endif /* FD_HAS_HOSTED && FD_HAS_X86 */
