@@ -156,35 +156,15 @@ fd_runtime_block_verify( fd_global_ctx_t *global, fd_slot_blocks_t *slot_data ) 
     uchar *blob_ptr = blob + FD_BLOB_DATA_START;
     uint   cnt = *((uint *) (blob + 8));
     while (cnt > 0) {
-      /* hashing 1 microblock */
-      char start_hash[50];
-      fd_base58_encode_32((uchar *) global->poh.state, NULL, start_hash);
-      FD_LOG_INFO(( "poh: start_hash: %s", start_hash ));
-
       fd_microblock_t * micro_block = fd_microblock_join( blob_ptr );
       if (micro_block->txn_max_cnt > 0) {
-        /* if the microblock is non-empty */
         if (micro_block->hdr.hash_cnt > 0)
-          /* recursively hash entry hash_cnt - 1 times */
-          FD_LOG_INFO(( "poh: cnt: %d", cnt ));
-          FD_LOG_INFO(( "poh: num_hashes: %lu", micro_block->hdr.hash_cnt ));
           fd_poh_append(&global->poh, micro_block->hdr.hash_cnt - 1);
-        /* add the mixin */
         uchar outhash[32];
         fd_microblock_batched_mixin(micro_block, outhash, global->allocf_arg);
-
-        char mixin[50];
-        fd_base58_encode_32((uchar *) outhash, NULL, mixin);
-        FD_LOG_INFO(( "poh: mixin: %s", mixin ));
-
         fd_poh_mixin(&global->poh, outhash);
       } else
         fd_poh_append(&global->poh, micro_block->hdr.hash_cnt);
-
-      char end_hash[50];
-      fd_base58_encode_32((uchar *) global->poh.state, NULL, end_hash);
-      FD_LOG_INFO(( "poh: end_hash: %s", end_hash ));
-
       if (memcmp(micro_block->hdr.hash, global->poh.state, sizeof(global->poh.state))) {
         if (global->poh_booted) {
           // TODO should this log and return?  instead of knocking the
