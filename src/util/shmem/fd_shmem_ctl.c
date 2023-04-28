@@ -1,6 +1,6 @@
 #include "../fd_util.h"
 
-#if FD_HAS_HOSTED && FD_HAS_X86
+#if FD_HAS_HOSTED
 
 #include <stdio.h>
 #include <errno.h>
