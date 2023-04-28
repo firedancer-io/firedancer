@@ -261,12 +261,13 @@ int fd_executor_vote_program_execute_instruction(
 
       /* Create a new vote account state structure */
       /* TODO: create constructors in fd_types */
-      fd_vote_state_versioned_t vote_state_versioned;
-      memset( &vote_state_versioned, 0, sizeof(fd_vote_state_versioned_t) );
-      vote_state_versioned.discriminant = 1;
-      fd_vote_state_t* vote_state = &vote_state_versioned.inner.current;
+      fd_vote_state_versioned_t* vote_state_versioned = (fd_vote_state_versioned_t*) fd_alloca( 1UL, sizeof(fd_vote_state_versioned_t) );
+      memset( vote_state_versioned, 0, sizeof(fd_vote_state_versioned_t) );
+      vote_state_versioned->discriminant = 1;
+      fd_vote_state_t* vote_state = &vote_state_versioned->inner.current;
+      fd_vote_prior_voter_t* prior_voters_buf = (fd_vote_prior_voter_t*)(*ctx.global->allocf)(ctx.global->allocf_arg, FD_VOTE_PRIOR_VOTER_ALIGN, FD_VOTE_PRIOR_VOTER_FOOTPRINT*32);
       fd_vote_prior_voters_t prior_voters = {
-        .buf = fd_alloca( 1UL, 32 * sizeof( fd_vote_prior_voter_t ) ),
+        .buf = prior_voters_buf,
         .buf_len = 0,
         .idx = 31,
         .is_empty = 1,
@@ -280,18 +281,19 @@ int fd_executor_vote_program_execute_instruction(
         .epoch  = clock.epoch,
         .pubkey = init_account_params->authorized_voter,
       };
+      fd_vec_fd_vote_historical_authorized_voter_t_new( &vote_state->authorized_voters );
       fd_vec_fd_vote_historical_authorized_voter_t_push( &vote_state->authorized_voters, authorized_voter );
       vote_state->authorized_withdrawer = init_account_params->authorized_withdrawer;
       vote_state->commission = init_account_params->commission;
 
       /* Write the new vote account back to the database */
-      int result = write_vote_state( ctx, vote_acc, &vote_state_versioned );
+      int result = write_vote_state( ctx, vote_acc, vote_state_versioned );
       if ( result != FD_EXECUTOR_INSTR_SUCCESS ) {
         FD_LOG_WARNING(( "failed to write versioned vote state: %d", result ));
         return result;
       }
 
-      fd_vote_state_versioned_destroy( &vote_state_versioned, ctx.global->freef, ctx.global->allocf_arg );
+      fd_vote_state_versioned_destroy( vote_state_versioned, ctx.global->freef, ctx.global->allocf_arg );
     } else if ( fd_vote_instruction_is_vote( &instruction ) ) {
       /* VoteInstruction::Vote instruction
          https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_instruction.rs#L39-L46
@@ -443,7 +445,8 @@ int fd_executor_vote_program_execute_instruction(
         if ( vote_state->votes.cnt == MAX_LOCKOUT_HISTORY ) {
 
           /* Update the root slot to be the oldest lockout. */
-          vote_state->saved_root_slot = &vote_state->votes.elems[0].slot;
+          vote_state->saved_root_slot = fd_alloca( 1UL, sizeof(ulong) );
+          *vote_state->saved_root_slot = vote_state->votes.elems[0].slot;
 
           /* Give this validator a credit for committing to a slot. */
           if ( vote_state->epoch_credits.cnt == 0 ) {

@@ -34,7 +34,7 @@ void VECT_(push_front)(struct VECT_NAME* self, const VECT_ELEMENT elem) {
     self->max <<= 1;
     self->elems = (VECT_ELEMENT*)realloc(self->elems, sizeof(VECT_ELEMENT)*self->max);
   }
-  memcpy(&self->elems[1], &self->elems[0], sizeof(VECT_ELEMENT)*self->cnt++);
+  memmove(&self->elems[1], &self->elems[0], sizeof(VECT_ELEMENT)*self->cnt++);
   self->elems[0] = elem;
 }
 
