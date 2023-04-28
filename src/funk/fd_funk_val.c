@@ -1,7 +1,5 @@
 #include "fd_funk.h"
 
-#if FD_HAS_HOSTED && FD_HAS_X86
-
 fd_funk_rec_t *
 fd_funk_val_copy( fd_funk_rec_t * rec,
                   void const *    data,
@@ -309,4 +307,3 @@ fd_funk_val_verify( fd_funk_t * funk ) {
   return FD_FUNK_SUCCESS;
 }
 
-#endif /* FD_HAS_HOSTED && FD_HAS_X86 */

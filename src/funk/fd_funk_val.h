@@ -107,7 +107,7 @@ fd_funk_val_read( fd_funk_rec_t const * rec,     /* Assumes pointer in caller's 
    completely, [data,data+sz) overlaps with [off,off+sz).  Assumes no
    concurrent operatons on rec or data. */
 
-static inline fd_funk_rec_t *                 /* Returns rec on success, NULL on failure */
+FD_FN_UNUSED static fd_funk_rec_t *           /* Returns rec on success, NULL on failure */ /* Workaround -Winline */
 fd_funk_val_write( fd_funk_rec_t *   rec,     /* Assumed in caller's address space to live funk record (NULL returns NULL) */
                    ulong             off,     /* First byte of record to write, in [0,val_sz], NULL if too large */
                    ulong             sz,      /* Number of bytes to write, 0 is a no-op, in [0,val_sz-off], NULL if too large */
