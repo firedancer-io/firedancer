@@ -6,10 +6,12 @@
 
 #if FD_HAS_FRANK
 
-// todo(marcus-jump): add sandboxing once it lands in main
-
 #include <stdio.h>
 #include <signal.h>
+
+#ifdef FD_HAS_SANDBOX
+#include "../../util/sandbox/fd_sandbox.h"
+#endif /* FD_HAS_SANDBOX */
 
 #define MAX_TASK_POD_KEY_LEN 1024
 
@@ -154,6 +156,11 @@ main( int     argc,
 
     fd_tile_task_t task;
 
+    #ifdef FD_HAS_SANDBOX
+    fd_sandbox_profile_t profile;
+    fd_sandbox_profile_init( &profile );
+    #endif /* FD_HAS_SANDBOX */
+
     if      ( FD_UNLIKELY( !strcmp(task_type, "pack"   ) ) )
       task = fd_frank_pack_task;
     else if ( FD_UNLIKELY( !strcmp(task_type, "dedup"  ) ) )
@@ -164,9 +171,11 @@ main( int     argc,
       FD_LOG_ERR(( "unknown task type '%s'", task_type ));
     }
 
-    FD_LOG_NOTICE(( "attempting to launch %lu task(s) of type %s", fd_pod_cnt_subpod( task_type_pod ), task_type ));
+    #ifdef FD_HAS_SANDBOX
+    fd_sandbox(&profile);
+    #endif /* FD_HAS_SANDBOX */
 
-    /* Todo: Sandbox the process */
+    FD_LOG_NOTICE(( "attempting to launch %lu task(s) of type %s", fd_pod_cnt_subpod( task_type_pod ), task_type ));
 
     /* Launch each instance of that pod. */
     for( fd_pod_iter_t instance_iter = fd_pod_iter_init( task_type_pod ); !fd_pod_iter_done( instance_iter ); instance_iter = fd_pod_iter_next( instance_iter ) ) {
@@ -178,7 +187,6 @@ main( int     argc,
       if( FD_UNLIKELY( !task_instance ) ) FD_LOG_ERR(( "path not found" ));
 
       tile_cnc[ tile_idx ] = fd_cnc_join( fd_wksp_pod_map( task_instance, "cnc" ) );
-
 
       char * task_type_path = task_type_paths + (tile_idx * MAX_TASK_POD_KEY_LEN);
 

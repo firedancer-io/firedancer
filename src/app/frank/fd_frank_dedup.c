@@ -11,8 +11,10 @@ fd_frank_dedup_task( int     argc,
 
   /* Parse "command line" arguments */
 
-  char const * pod_gaddr = argv[1];
-  char const * cfg_path  = argv[2];
+  char const * task_group_pod_path = argv[0];
+  char const * task_instance_id = argv[1];
+  char const * pod_gaddr = argv[2];
+  char const * cfg_path  = argv[3];
 
   /* Load up the configuration for this frank instance */
 
@@ -21,13 +23,19 @@ fd_frank_dedup_task( int     argc,
   uchar const * cfg_pod = fd_pod_query_subpod( pod, cfg_path );
   if( FD_UNLIKELY( !cfg_pod ) ) FD_LOG_ERR(( "path not found" ));
 
+  uchar const * task_group_pod = fd_pod_query_subpod( pod, task_group_pod_path );
+  if( FD_UNLIKELY( !task_group_pod ) ) FD_LOG_ERR(( "path not found" ));
+
+  uchar const * dedup_pod = fd_pod_query_subpod( task_group_pod, task_instance_id );
+  if( FD_UNLIKELY( !dedup_pod ) ) FD_LOG_ERR(( "%s.%s path not found", task_group_pod, task_instance_id ));
+
   FD_LOG_INFO(( "joining %s.dedup.cnc", cfg_path ));
-  fd_cnc_t * cnc = fd_cnc_join( fd_wksp_pod_map( cfg_pod, "dedup.cnc" ) );
+  fd_cnc_t * cnc = fd_cnc_join( fd_wksp_pod_map( dedup_pod, "cnc" ) );
   if( FD_UNLIKELY( !cnc ) ) FD_LOG_ERR(( "fd_cnc_join failed" ));
   if( FD_UNLIKELY( fd_cnc_signal_query( cnc )!=FD_CNC_SIGNAL_BOOT ) ) FD_LOG_ERR(( "cnc not in boot state" ));
   /* FIXME: CNC DIAG REGION? */
 
-  uchar const * verify_pods = fd_pod_query_subpod( cfg_pod, "verify" );
+  uchar const * verify_pods = fd_pod_query_subpod( cfg_pod, "grp.verify.task.verify" );
   ulong in_cnt = fd_pod_cnt_subpod( verify_pods );
   FD_LOG_INFO(( "%lu verify found", in_cnt ));
 
@@ -59,25 +67,25 @@ fd_frank_dedup_task( int     argc,
   }
 
   FD_LOG_INFO(( "joining %s.dedup.tcache", cfg_path ));
-  fd_tcache_t * tcache = fd_tcache_join( fd_wksp_pod_map( cfg_pod, "dedup.tcache" ) );
+  fd_tcache_t * tcache = fd_tcache_join( fd_wksp_pod_map( cfg_pod, "grp.dedup.task.dedup.v0.tcache" ) );
   if( FD_UNLIKELY( !tcache ) ) FD_LOG_ERR(( "fd_tcache_join failed" ));
 
   FD_LOG_INFO(( "joining %s.dedup.mcache", cfg_path ));
-  fd_frag_meta_t * mcache = fd_mcache_join( fd_wksp_pod_map( cfg_pod, "dedup.mcache" ) );
+  fd_frag_meta_t * mcache = fd_mcache_join( fd_wksp_pod_map( cfg_pod, "grp.dedup.task.dedup.v0.mcache" ) );
   if( FD_UNLIKELY( !mcache ) ) FD_LOG_ERR(( "fd_mcache_join failed" ));
 
   FD_LOG_INFO(( "joining %s.dedup.fseq", cfg_path ));
-  ulong * out_fseq = fd_fseq_join( fd_wksp_pod_map( cfg_pod, "dedup.fseq" ) );
+  ulong * out_fseq = fd_fseq_join( fd_wksp_pod_map( cfg_pod, "grp.dedup.task.dedup.v0.fseq" ) );
   if( FD_UNLIKELY( !out_fseq ) ) FD_LOG_ERR(( "fd_fseq_join failed" ));
 
   /* Setup local objects used by this tile */
 
-  ulong cr_max = fd_pod_query_ulong( cfg_pod, "dedup.cr_max", 0UL ); /*  0  <> pick reasonable default */
-  long  lazy   = fd_pod_query_long ( cfg_pod, "dedup.lazy",   0L  ); /* <=0 <> pick reasonable default */
+  ulong cr_max = fd_pod_query_ulong( cfg_pod, "grp.dedup.task.dedup.v0.cr_max", 0UL ); /*  0  <> pick reasonable default */
+  long  lazy   = fd_pod_query_long ( cfg_pod, "grp.dedup.task.dedup.v0.lazy",   0L  ); /* <=0 <> pick reasonable default */
   FD_LOG_INFO(( "configuring flow control (%s.dedup.cr_max %lu %s.dedup.lazy %li)", cfg_path, cr_max, cfg_path, lazy ));
 
-  uint seed = fd_pod_query_uint( cfg_pod, "dedup.seed", (uint)fd_tile_id() ); /* use app tile_id as default */
-  FD_LOG_INFO(( "creating rng (%s.dedup.seed %u)", cfg_path, seed ));
+  uint seed = fd_pod_query_uint( cfg_pod, "grp.dedup.task.dedup.v0.seed", (uint)fd_tile_id() ); /* use app tile_id as default */
+  FD_LOG_INFO(( "creating rng (%s.grp.dedup.task.dedup.v0.seed %u)", cfg_path, seed ));
   fd_rng_t _rng[ 1 ];
   fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, seed, 0UL ) );
   if( FD_UNLIKELY( !rng ) ) FD_LOG_ERR(( "fd_rng_join failed" ));

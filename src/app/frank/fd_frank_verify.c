@@ -9,17 +9,15 @@ fd_frank_verify_task( int     argc,
                       char ** argv ) {
   (void)argc;
   fd_log_thread_set( argv[0] );
-  char const * task_group_pod_path = argv[0];
-  char const * task_instance_id = argv[1];
-  
-
-
-  FD_LOG_INFO(( "%s.%s init", task_group_pod_path, task_instance_id ));
   
   /* Parse "command line" arguments */
 
+  char const * task_group_pod_path = argv[0];
+  char const * task_instance_id = argv[1];
   char const * pod_gaddr = argv[2];
   char const * cfg_path  = argv[3];
+
+  printf( "log\n%s\n%s\n%s\n%s\n", task_group_pod_path, task_instance_id, pod_gaddr, cfg_path );
 
   /* Load up the configuration for this frank instance */
 
@@ -32,20 +30,13 @@ fd_frank_verify_task( int     argc,
   uchar const * task_group_pod = fd_pod_query_subpod( pod, task_group_pod_path );
   if( FD_UNLIKELY( !task_group_pod ) ) FD_LOG_ERR(( "path not found" ));
 
-  uchar const * this_task_pod = fd_pod_query_subpod( task_group_pod, task_instance_id );
-  if( FD_UNLIKELY( !this_task_pod ) ) FD_LOG_ERR(( "path not found" ));
-
-
-  uchar const * verify_pods = fd_pod_query_subpod( pod, task_group_pod_path );
-  if( FD_UNLIKELY( !verify_pods ) ) FD_LOG_ERR(( "%s path not found", task_group_pod_path ));
-
-  uchar const * verify_pod = fd_pod_query_subpod( verify_pods, task_instance_id );
-  if( FD_UNLIKELY( !verify_pod ) ) FD_LOG_ERR(( "%s.%s path not found", verify_pods, task_instance_id ));
+  uchar const * verify_pod = fd_pod_query_subpod( task_group_pod, task_instance_id );
+  if( FD_UNLIKELY( !verify_pod ) ) FD_LOG_ERR(( "%s.%s path not found", task_group_pod, task_instance_id ));
 
   /* Join the IPC objects needed this tile instance */
 
   FD_LOG_INFO(( "joining %s.verify.%s.cnc", cfg_path, task_group_pod_path ));
-  fd_cnc_t * cnc = fd_cnc_join( fd_wksp_pod_map( this_task_pod, "cnc" ) );
+  fd_cnc_t * cnc = fd_cnc_join( fd_wksp_pod_map( verify_pod, "cnc" ) );
   if( FD_UNLIKELY( !cnc ) ) FD_LOG_ERR(( "fd_cnc_join failed" ));
   if( FD_UNLIKELY( fd_cnc_signal_query( cnc )!=FD_CNC_SIGNAL_BOOT ) ) FD_LOG_ERR(( "cnc not in boot state" ));
   ulong * cnc_diag = (ulong *)fd_cnc_app_laddr( cnc );

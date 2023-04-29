@@ -11,8 +11,10 @@ fd_frank_pack_task( int     argc,
 
   /* Parse "command line" arguments */
 
-  char const * pod_gaddr = argv[1];
-  char const * cfg_path  = argv[2];
+  char const * task_group_pod_path = argv[0];
+  char const * task_instance_id = argv[1];
+  char const * pod_gaddr = argv[2];
+  char const * cfg_path  = argv[3];
 
   /* Load up the configuration for this frank instance */
 
@@ -23,14 +25,19 @@ fd_frank_pack_task( int     argc,
 
   /* Join the IPC objects needed this tile instance */
 
-  FD_LOG_INFO(( "joining %s.pack.cnc", cfg_path ));
-  fd_cnc_t * cnc = fd_cnc_join( fd_wksp_pod_map( cfg_pod, "pack.cnc" ) );
+  uchar const * task_group_pod = fd_pod_query_subpod( pod, task_group_pod_path );
+  if( FD_UNLIKELY( !task_group_pod ) ) FD_LOG_ERR(( "path not found" ));
+  uchar const * pack_pod = fd_pod_query_subpod( task_group_pod, task_instance_id );
+  if( FD_UNLIKELY( !pack_pod ) ) FD_LOG_ERR(( "path not found" ));
+
+  FD_LOG_INFO(( "joining %s.pack.%s.cnc", cfg_path, task_group_pod ));
+  fd_cnc_t * cnc = fd_cnc_join( fd_wksp_pod_map( pack_pod, "cnc" ) );
   if( FD_UNLIKELY( !cnc ) ) FD_LOG_ERR(( "fd_cnc_join failed" ));
   if( FD_UNLIKELY( fd_cnc_signal_query( cnc )!=FD_CNC_SIGNAL_BOOT ) ) FD_LOG_ERR(( "cnc not in boot state" ));
   /* FIXME: CNC DIAG REGION? */
 
   FD_LOG_INFO(( "joining %s.dedup.mcache", cfg_path ));
-  fd_frag_meta_t const * mcache = fd_mcache_join( fd_wksp_pod_map( cfg_pod, "dedup.mcache" ) );
+  fd_frag_meta_t const * mcache = fd_mcache_join( fd_wksp_pod_map( cfg_pod, "grp.dedup.task.dedup.v0.mcache" ) );
   if( FD_UNLIKELY( !mcache ) ) FD_LOG_ERR(( "fd_mcache_join failed" ));
   ulong         depth = fd_mcache_depth( mcache );
   ulong const * sync  = fd_mcache_seq_laddr_const( mcache );
@@ -46,7 +53,7 @@ fd_frank_pack_task( int     argc,
   if( FD_UNLIKELY( !wksp ) ) FD_LOG_ERR(( "fd_wksp_containing failed" ));
 
   FD_LOG_INFO(( "joining %s.dedup.fseq", cfg_path ));
-  ulong * fseq = fd_fseq_join( fd_wksp_pod_map( cfg_pod, "dedup.fseq" ) );
+  ulong * fseq = fd_fseq_join( fd_wksp_pod_map( cfg_pod, "grp.dedup.task.dedup.v0.fseq" ) );
   if( FD_UNLIKELY( !fseq ) ) FD_LOG_ERR(( "fd_fseq_join failed" ));
   /* Hook up to this pack's flow control diagnostics (will be stored in
      the pack's fseq) */
