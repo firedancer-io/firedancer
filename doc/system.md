@@ -44,15 +44,12 @@ the necessary `sudo` access.
   used to tell if the new user limits have taken effect.  E.g., as a
   regular user, the following would indicate that the changes are in
   effect:
+
     ```
-    $ ulimit -a
-    ... snip ...
+    $ ulimit -e -l -r
     scheduling priority             (-e) 40
-    ... snip ...
     max locked memory       (kbytes, -l) unlimited
-    ... snip ...
     real-time priority              (-r) unlimited
-    ... snip ...
     ```
 
 - Reserve host resources for application usage.  E.g.:
