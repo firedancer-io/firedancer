@@ -226,7 +226,8 @@
         { "name": "activation_epoch", "type": "ulong" },
         { "name": "deactivation_epoch", "type": "ulong" },
         { "name": "warmup_cooldown_rate", "type": "double" }
-      ]
+      ],
+      "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/state.rs#L303"
     },
     {
       "name": "delegation_pair",
@@ -1065,6 +1066,54 @@
         { "name": "set_lockup_checked", "type": "lockup_checked_args" }
       ],
       "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/instruction.rs#L58"
+    },
+    {
+      "name": "stake_authorized",
+      "type": "struct",
+      "fields": [
+        { "name": "staker", "type": "pubkey" },
+        { "name": "withdrawer", "type": "pubkey" }
+      ],
+      "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/state.rs#L169"
+    },
+    {
+      "name": "stake_state_meta",
+      "type": "struct",
+      "fields": [
+        { "name": "rent_exempt_reserve", "type": "ulong" },
+        { "name": "authorized", "type": "stake_authorized" },
+        { "name": "lockup", "type": "stake_lockup" }
+      ],
+      "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/state.rs#L248"
+    },
+    {
+      "name": "stake",
+      "type": "struct",
+      "fields": [
+        { "name": "delegation", "type": "delegation" },
+        { "name": "credits_observed", "type": "ulong" }
+      ],
+      "commment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/state.rs#L539"
+    },
+    {
+      "name": "stake_state_stake",
+      "type": "struct",
+      "fields": [
+        { "name": "meta", "type": "stake_state_meta" },
+        { "name": "stake", "type": "stake" }
+      ],
+      "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/state.rs#L25"
+    },
+    {
+      "name": "stake_state",
+      "type": "enum",
+      "variants": [
+        { "name": "uninitialized" },
+        { "name": "initialized", "type": "stake_state_meta" },
+        { "name": "stake", "type": "stake_state_stake" },
+        { "name": "rewards_pool" }
+      ],
+      "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/state.rs#L22"
     }
   ]
 }

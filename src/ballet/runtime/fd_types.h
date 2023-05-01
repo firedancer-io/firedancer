@@ -215,6 +215,7 @@ typedef struct fd_vote_accounts fd_vote_accounts_t;
 #define FD_VOTE_ACCOUNTS_FOOTPRINT sizeof(fd_vote_accounts_t)
 #define FD_VOTE_ACCOUNTS_ALIGN (8UL)
 
+/* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/state.rs#L303 */
 struct fd_delegation {
   fd_pubkey_t   voter_pubkey;
   unsigned long stake;
@@ -1175,6 +1176,57 @@ typedef struct fd_stake_instruction fd_stake_instruction_t;
 #define FD_STAKE_INSTRUCTION_FOOTPRINT sizeof(fd_stake_instruction_t)
 #define FD_STAKE_INSTRUCTION_ALIGN (8UL)
 
+/* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/state.rs#L169 */
+struct fd_stake_authorized {
+  fd_pubkey_t staker;
+  fd_pubkey_t withdrawer;
+};
+typedef struct fd_stake_authorized fd_stake_authorized_t;
+#define FD_STAKE_AUTHORIZED_FOOTPRINT sizeof(fd_stake_authorized_t)
+#define FD_STAKE_AUTHORIZED_ALIGN (8UL)
+
+/* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/state.rs#L248 */
+struct fd_stake_state_meta {
+  unsigned long         rent_exempt_reserve;
+  fd_stake_authorized_t authorized;
+  fd_stake_lockup_t     lockup;
+};
+typedef struct fd_stake_state_meta fd_stake_state_meta_t;
+#define FD_STAKE_STATE_META_FOOTPRINT sizeof(fd_stake_state_meta_t)
+#define FD_STAKE_STATE_META_ALIGN (8UL)
+
+struct fd_stake {
+  fd_delegation_t delegation;
+  unsigned long   credits_observed;
+};
+typedef struct fd_stake fd_stake_t;
+#define FD_STAKE_FOOTPRINT sizeof(fd_stake_t)
+#define FD_STAKE_ALIGN (8UL)
+
+/* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/state.rs#L25 */
+struct fd_stake_state_stake {
+  fd_stake_state_meta_t meta;
+  fd_stake_t            stake;
+};
+typedef struct fd_stake_state_stake fd_stake_state_stake_t;
+#define FD_STAKE_STATE_STAKE_FOOTPRINT sizeof(fd_stake_state_stake_t)
+#define FD_STAKE_STATE_STAKE_ALIGN (8UL)
+
+union fd_stake_state_inner {
+  fd_stake_state_meta_t  initialized;
+  fd_stake_state_stake_t stake;
+};
+typedef union fd_stake_state_inner fd_stake_state_inner_t;
+
+/* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/state.rs#L22 */
+struct fd_stake_state {
+  uint                   discriminant;
+  fd_stake_state_inner_t inner;
+};
+typedef struct fd_stake_state fd_stake_state_t;
+#define FD_STAKE_STATE_FOOTPRINT sizeof(fd_stake_state_t)
+#define FD_STAKE_STATE_ALIGN (8UL)
+
 
 FD_PROTOTYPES_BEGIN
 
@@ -1923,6 +1975,46 @@ uchar fd_stake_instruction_is_initialize_checked(fd_stake_instruction_t* self);
 uchar fd_stake_instruction_is_authorize_checked(fd_stake_instruction_t* self);
 uchar fd_stake_instruction_is_authorize_checked_with_seed(fd_stake_instruction_t* self);
 uchar fd_stake_instruction_is_set_lockup_checked(fd_stake_instruction_t* self);
+
+void fd_stake_authorized_decode(fd_stake_authorized_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
+void fd_stake_authorized_encode(fd_stake_authorized_t* self, void const** data);
+void fd_stake_authorized_destroy(fd_stake_authorized_t* self, fd_free_fun_t freef, void* freef_arg);
+void fd_stake_authorized_copy_to(fd_stake_authorized_t* to, fd_stake_authorized_t* from, fd_alloc_fun_t freef, void* allocf_arg);
+void fd_stake_authorized_walk(fd_stake_authorized_t* self, fd_walk_fun_t fun, const char *name, int level);
+ulong fd_stake_authorized_size(fd_stake_authorized_t* self);
+
+void fd_stake_state_meta_decode(fd_stake_state_meta_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
+void fd_stake_state_meta_encode(fd_stake_state_meta_t* self, void const** data);
+void fd_stake_state_meta_destroy(fd_stake_state_meta_t* self, fd_free_fun_t freef, void* freef_arg);
+void fd_stake_state_meta_copy_to(fd_stake_state_meta_t* to, fd_stake_state_meta_t* from, fd_alloc_fun_t freef, void* allocf_arg);
+void fd_stake_state_meta_walk(fd_stake_state_meta_t* self, fd_walk_fun_t fun, const char *name, int level);
+ulong fd_stake_state_meta_size(fd_stake_state_meta_t* self);
+
+void fd_stake_decode(fd_stake_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
+void fd_stake_encode(fd_stake_t* self, void const** data);
+void fd_stake_destroy(fd_stake_t* self, fd_free_fun_t freef, void* freef_arg);
+void fd_stake_copy_to(fd_stake_t* to, fd_stake_t* from, fd_alloc_fun_t freef, void* allocf_arg);
+void fd_stake_walk(fd_stake_t* self, fd_walk_fun_t fun, const char *name, int level);
+ulong fd_stake_size(fd_stake_t* self);
+
+void fd_stake_state_stake_decode(fd_stake_state_stake_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
+void fd_stake_state_stake_encode(fd_stake_state_stake_t* self, void const** data);
+void fd_stake_state_stake_destroy(fd_stake_state_stake_t* self, fd_free_fun_t freef, void* freef_arg);
+void fd_stake_state_stake_copy_to(fd_stake_state_stake_t* to, fd_stake_state_stake_t* from, fd_alloc_fun_t freef, void* allocf_arg);
+void fd_stake_state_stake_walk(fd_stake_state_stake_t* self, fd_walk_fun_t fun, const char *name, int level);
+ulong fd_stake_state_stake_size(fd_stake_state_stake_t* self);
+
+void fd_stake_state_decode(fd_stake_state_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
+void fd_stake_state_encode(fd_stake_state_t* self, void const** data);
+void fd_stake_state_destroy(fd_stake_state_t* self, fd_free_fun_t freef, void* freef_arg);
+void fd_stake_state_copy_to(fd_stake_state_t* to, fd_stake_state_t* from, fd_alloc_fun_t freef, void* allocf_arg);
+void fd_stake_state_walk(fd_stake_state_t* self, fd_walk_fun_t fun, const char *name, int level);
+ulong fd_stake_state_size(fd_stake_state_t* self);
+
+uchar fd_stake_state_is_uninitialized(fd_stake_state_t* self);
+uchar fd_stake_state_is_initialized(fd_stake_state_t* self);
+uchar fd_stake_state_is_stake(fd_stake_state_t* self);
+uchar fd_stake_state_is_rewards_pool(fd_stake_state_t* self);
 
 FD_PROTOTYPES_END
 

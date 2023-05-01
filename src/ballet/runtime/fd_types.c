@@ -5648,6 +5648,236 @@ void fd_stake_instruction_encode(fd_stake_instruction_t* self, void const** data
   fd_stake_instruction_inner_encode(&self->inner, self->discriminant, data);
 }
 
+void fd_stake_authorized_decode(fd_stake_authorized_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
+  fd_pubkey_decode(&self->staker, data, dataend, allocf, allocf_arg);
+  fd_pubkey_decode(&self->withdrawer, data, dataend, allocf, allocf_arg);
+}
+void fd_stake_authorized_destroy(fd_stake_authorized_t* self, fd_free_fun_t freef, void* freef_arg) {
+  fd_pubkey_destroy(&self->staker, freef, freef_arg);
+  fd_pubkey_destroy(&self->withdrawer, freef, freef_arg);
+}
+
+void fd_stake_authorized_walk(fd_stake_authorized_t* self, fd_walk_fun_t fun, const char *name, int level) {
+  fun(self, name, 32, "fd_stake_authorized", level++);
+  fd_pubkey_walk(&self->staker, fun, "staker", level + 1);
+  fd_pubkey_walk(&self->withdrawer, fun, "withdrawer", level + 1);
+  fun(self, name, 33, "fd_stake_authorized", --level);
+}
+void fd_stake_authorized_copy_to(fd_stake_authorized_t* to, fd_stake_authorized_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
+  unsigned char *enc = fd_alloca( 1, fd_stake_authorized_size(from) );
+  void const *   ptr = (void const *) enc;
+  fd_stake_authorized_encode( from, &ptr );
+  void *input = (void *) enc;
+  fd_stake_authorized_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
+}
+ulong fd_stake_authorized_size(fd_stake_authorized_t* self) {
+  ulong size = 0;
+  size += fd_pubkey_size(&self->staker);
+  size += fd_pubkey_size(&self->withdrawer);
+  return size;
+}
+
+void fd_stake_authorized_encode(fd_stake_authorized_t* self, void const** data) {
+  fd_pubkey_encode(&self->staker, data);
+  fd_pubkey_encode(&self->withdrawer, data);
+}
+
+void fd_stake_state_meta_decode(fd_stake_state_meta_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
+  fd_bincode_uint64_decode(&self->rent_exempt_reserve, data, dataend);
+  fd_stake_authorized_decode(&self->authorized, data, dataend, allocf, allocf_arg);
+  fd_stake_lockup_decode(&self->lockup, data, dataend, allocf, allocf_arg);
+}
+void fd_stake_state_meta_destroy(fd_stake_state_meta_t* self, fd_free_fun_t freef, void* freef_arg) {
+  fd_stake_authorized_destroy(&self->authorized, freef, freef_arg);
+  fd_stake_lockup_destroy(&self->lockup, freef, freef_arg);
+}
+
+void fd_stake_state_meta_walk(fd_stake_state_meta_t* self, fd_walk_fun_t fun, const char *name, int level) {
+  fun(self, name, 32, "fd_stake_state_meta", level++);
+  fun(&self->rent_exempt_reserve, "rent_exempt_reserve", 11, "ulong", level + 1);
+  fd_stake_authorized_walk(&self->authorized, fun, "authorized", level + 1);
+  fd_stake_lockup_walk(&self->lockup, fun, "lockup", level + 1);
+  fun(self, name, 33, "fd_stake_state_meta", --level);
+}
+void fd_stake_state_meta_copy_to(fd_stake_state_meta_t* to, fd_stake_state_meta_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
+  unsigned char *enc = fd_alloca( 1, fd_stake_state_meta_size(from) );
+  void const *   ptr = (void const *) enc;
+  fd_stake_state_meta_encode( from, &ptr );
+  void *input = (void *) enc;
+  fd_stake_state_meta_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
+}
+ulong fd_stake_state_meta_size(fd_stake_state_meta_t* self) {
+  ulong size = 0;
+  size += sizeof(ulong);
+  size += fd_stake_authorized_size(&self->authorized);
+  size += fd_stake_lockup_size(&self->lockup);
+  return size;
+}
+
+void fd_stake_state_meta_encode(fd_stake_state_meta_t* self, void const** data) {
+  fd_bincode_uint64_encode(&self->rent_exempt_reserve, data);
+  fd_stake_authorized_encode(&self->authorized, data);
+  fd_stake_lockup_encode(&self->lockup, data);
+}
+
+void fd_stake_decode(fd_stake_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
+  fd_delegation_decode(&self->delegation, data, dataend, allocf, allocf_arg);
+  fd_bincode_uint64_decode(&self->credits_observed, data, dataend);
+}
+void fd_stake_destroy(fd_stake_t* self, fd_free_fun_t freef, void* freef_arg) {
+  fd_delegation_destroy(&self->delegation, freef, freef_arg);
+}
+
+void fd_stake_walk(fd_stake_t* self, fd_walk_fun_t fun, const char *name, int level) {
+  fun(self, name, 32, "fd_stake", level++);
+  fd_delegation_walk(&self->delegation, fun, "delegation", level + 1);
+  fun(&self->credits_observed, "credits_observed", 11, "ulong", level + 1);
+  fun(self, name, 33, "fd_stake", --level);
+}
+void fd_stake_copy_to(fd_stake_t* to, fd_stake_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
+  unsigned char *enc = fd_alloca( 1, fd_stake_size(from) );
+  void const *   ptr = (void const *) enc;
+  fd_stake_encode( from, &ptr );
+  void *input = (void *) enc;
+  fd_stake_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
+}
+ulong fd_stake_size(fd_stake_t* self) {
+  ulong size = 0;
+  size += fd_delegation_size(&self->delegation);
+  size += sizeof(ulong);
+  return size;
+}
+
+void fd_stake_encode(fd_stake_t* self, void const** data) {
+  fd_delegation_encode(&self->delegation, data);
+  fd_bincode_uint64_encode(&self->credits_observed, data);
+}
+
+void fd_stake_state_stake_decode(fd_stake_state_stake_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
+  fd_stake_state_meta_decode(&self->meta, data, dataend, allocf, allocf_arg);
+  fd_stake_decode(&self->stake, data, dataend, allocf, allocf_arg);
+}
+void fd_stake_state_stake_destroy(fd_stake_state_stake_t* self, fd_free_fun_t freef, void* freef_arg) {
+  fd_stake_state_meta_destroy(&self->meta, freef, freef_arg);
+  fd_stake_destroy(&self->stake, freef, freef_arg);
+}
+
+void fd_stake_state_stake_walk(fd_stake_state_stake_t* self, fd_walk_fun_t fun, const char *name, int level) {
+  fun(self, name, 32, "fd_stake_state_stake", level++);
+  fd_stake_state_meta_walk(&self->meta, fun, "meta", level + 1);
+  fd_stake_walk(&self->stake, fun, "stake", level + 1);
+  fun(self, name, 33, "fd_stake_state_stake", --level);
+}
+void fd_stake_state_stake_copy_to(fd_stake_state_stake_t* to, fd_stake_state_stake_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
+  unsigned char *enc = fd_alloca( 1, fd_stake_state_stake_size(from) );
+  void const *   ptr = (void const *) enc;
+  fd_stake_state_stake_encode( from, &ptr );
+  void *input = (void *) enc;
+  fd_stake_state_stake_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
+}
+ulong fd_stake_state_stake_size(fd_stake_state_stake_t* self) {
+  ulong size = 0;
+  size += fd_stake_state_meta_size(&self->meta);
+  size += fd_stake_size(&self->stake);
+  return size;
+}
+
+void fd_stake_state_stake_encode(fd_stake_state_stake_t* self, void const** data) {
+  fd_stake_state_meta_encode(&self->meta, data);
+  fd_stake_encode(&self->stake, data);
+}
+
+uchar fd_stake_state_is_uninitialized(fd_stake_state_t* self) {
+  return self->discriminant == 0;
+}
+uchar fd_stake_state_is_initialized(fd_stake_state_t* self) {
+  return self->discriminant == 1;
+}
+uchar fd_stake_state_is_stake(fd_stake_state_t* self) {
+  return self->discriminant == 2;
+}
+uchar fd_stake_state_is_rewards_pool(fd_stake_state_t* self) {
+  return self->discriminant == 3;
+}
+void fd_stake_state_inner_decode(fd_stake_state_inner_t* self, uint discriminant, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
+  switch (discriminant) {
+  case 1: {
+    fd_stake_state_meta_decode(&self->initialized, data, dataend, allocf, allocf_arg);
+    break;
+  }
+  case 2: {
+    fd_stake_state_stake_decode(&self->stake, data, dataend, allocf, allocf_arg);
+    break;
+  }
+  default: FD_LOG_ERR(( "unhandled type"));
+  }
+}
+void fd_stake_state_decode(fd_stake_state_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
+  fd_bincode_uint32_decode(&self->discriminant, data, dataend);
+  fd_stake_state_inner_decode(&self->inner, self->discriminant, data, dataend, allocf, allocf_arg);
+}
+void fd_stake_state_inner_destroy(fd_stake_state_inner_t* self, uint discriminant, fd_free_fun_t freef, void* freef_arg) {
+  switch (discriminant) {
+  case 1: {
+    fd_stake_state_meta_destroy(&self->initialized, freef, freef_arg);
+    break;
+  }
+  case 2: {
+    fd_stake_state_stake_destroy(&self->stake, freef, freef_arg);
+    break;
+  }
+  default: break; // FD_LOG_ERR(( "unhandled type"));
+  }
+}
+void fd_stake_state_destroy(fd_stake_state_t* self, fd_free_fun_t freef, void* freef_arg) {
+  fd_stake_state_inner_destroy(&self->inner, self->discriminant, freef, freef_arg);
+}
+
+void fd_stake_state_walk(fd_stake_state_t* self, fd_walk_fun_t fun, const char *name, int level) {
+  fun(self, name, 32, "fd_stake_state", level++);
+  // enum fd_stake_walk(&self->stake, fun, "stake", level + 1);
+  fun(self, name, 33, "fd_stake_state", --level);
+}
+void fd_stake_state_copy_to(fd_stake_state_t* to, fd_stake_state_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
+  unsigned char *enc = fd_alloca( 1, fd_stake_state_size(from) );
+  void const *   ptr = (void const *) enc;
+  fd_stake_state_encode( from, &ptr );
+  void *input = (void *) enc;
+  fd_stake_state_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
+}
+ulong fd_stake_state_size(fd_stake_state_t* self) {
+  ulong size = 0;
+  size += sizeof(uint);
+  switch (self->discriminant) {
+  case 1: {
+    size += fd_stake_state_meta_size(&self->inner.initialized);
+    break;
+  }
+  case 2: {
+    size += fd_stake_state_stake_size(&self->inner.stake);
+    break;
+  }
+  }
+  return size;
+}
+
+void fd_stake_state_inner_encode(fd_stake_state_inner_t* self, uint discriminant, void const** data) {
+  switch (discriminant) {
+  case 1: {
+    fd_stake_state_meta_encode(&self->initialized, data);
+    break;
+  }
+  case 2: {
+    fd_stake_state_stake_encode(&self->stake, data);
+    break;
+  }
+  }
+}
+void fd_stake_state_encode(fd_stake_state_t* self, void const** data) {
+  fd_bincode_uint32_encode(&self->discriminant, data);
+  fd_stake_state_inner_encode(&self->inner, self->discriminant, data);
+}
+
 #define REDBLK_T fd_serializable_account_storage_entry_t_mapnode_t
 #define REDBLK_NAME fd_serializable_account_storage_entry_t_map
 #include "../../util/tmpl/fd_redblack.c"
