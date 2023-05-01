@@ -4853,6 +4853,603 @@ void fd_system_error_encode(fd_system_error_t* self, void const** data) {
   fd_system_error_inner_encode(&self->inner, self->discriminant, data);
 }
 
+void fd_stake_authorized_decode(fd_stake_authorized_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
+  fd_pubkey_decode(&self->staker, data, dataend, allocf, allocf_arg);
+  fd_pubkey_decode(&self->withdrawer, data, dataend, allocf, allocf_arg);
+}
+void fd_stake_authorized_destroy(fd_stake_authorized_t* self, fd_free_fun_t freef, void* freef_arg) {
+  fd_pubkey_destroy(&self->staker, freef, freef_arg);
+  fd_pubkey_destroy(&self->withdrawer, freef, freef_arg);
+}
+
+void fd_stake_authorized_walk(fd_stake_authorized_t* self, fd_walk_fun_t fun, const char *name, int level) {
+  fun(self, name, 32, "fd_stake_authorized", level++);
+  fd_pubkey_walk(&self->staker, fun, "staker", level + 1);
+  fd_pubkey_walk(&self->withdrawer, fun, "withdrawer", level + 1);
+  fun(self, name, 33, "fd_stake_authorized", --level);
+}
+void fd_stake_authorized_copy_to(fd_stake_authorized_t* to, fd_stake_authorized_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
+  unsigned char *enc = fd_alloca( 1, fd_stake_authorized_size(from) );
+  void const *   ptr = (void const *) enc;
+  fd_stake_authorized_encode( from, &ptr );
+  void *input = (void *) enc;
+  fd_stake_authorized_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
+}
+ulong fd_stake_authorized_size(fd_stake_authorized_t* self) {
+  ulong size = 0;
+  size += fd_pubkey_size(&self->staker);
+  size += fd_pubkey_size(&self->withdrawer);
+  return size;
+}
+
+void fd_stake_authorized_encode(fd_stake_authorized_t* self, void const** data) {
+  fd_pubkey_encode(&self->staker, data);
+  fd_pubkey_encode(&self->withdrawer, data);
+}
+
+void fd_stake_lockup_decode(fd_stake_lockup_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
+  fd_bincode_uint64_decode(&self->unix_timestamp, data, dataend);
+  fd_bincode_uint64_decode(&self->epoch, data, dataend);
+  fd_pubkey_decode(&self->custodian, data, dataend, allocf, allocf_arg);
+}
+void fd_stake_lockup_destroy(fd_stake_lockup_t* self, fd_free_fun_t freef, void* freef_arg) {
+  fd_pubkey_destroy(&self->custodian, freef, freef_arg);
+}
+
+void fd_stake_lockup_walk(fd_stake_lockup_t* self, fd_walk_fun_t fun, const char *name, int level) {
+  fun(self, name, 32, "fd_stake_lockup", level++);
+  fun(&self->unix_timestamp, "unix_timestamp", 11, "ulong", level + 1);
+  fun(&self->epoch, "epoch", 11, "ulong", level + 1);
+  fd_pubkey_walk(&self->custodian, fun, "custodian", level + 1);
+  fun(self, name, 33, "fd_stake_lockup", --level);
+}
+void fd_stake_lockup_copy_to(fd_stake_lockup_t* to, fd_stake_lockup_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
+  unsigned char *enc = fd_alloca( 1, fd_stake_lockup_size(from) );
+  void const *   ptr = (void const *) enc;
+  fd_stake_lockup_encode( from, &ptr );
+  void *input = (void *) enc;
+  fd_stake_lockup_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
+}
+ulong fd_stake_lockup_size(fd_stake_lockup_t* self) {
+  ulong size = 0;
+  size += sizeof(ulong);
+  size += sizeof(ulong);
+  size += fd_pubkey_size(&self->custodian);
+  return size;
+}
+
+void fd_stake_lockup_encode(fd_stake_lockup_t* self, void const** data) {
+  fd_bincode_uint64_encode(&self->unix_timestamp, data);
+  fd_bincode_uint64_encode(&self->epoch, data);
+  fd_pubkey_encode(&self->custodian, data);
+}
+
+void fd_stake_instruction_initialize_decode(fd_stake_instruction_initialize_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
+  fd_stake_authorized_decode(&self->authorized, data, dataend, allocf, allocf_arg);
+  fd_pubkey_decode(&self->lockup, data, dataend, allocf, allocf_arg);
+}
+void fd_stake_instruction_initialize_destroy(fd_stake_instruction_initialize_t* self, fd_free_fun_t freef, void* freef_arg) {
+  fd_stake_authorized_destroy(&self->authorized, freef, freef_arg);
+  fd_pubkey_destroy(&self->lockup, freef, freef_arg);
+}
+
+void fd_stake_instruction_initialize_walk(fd_stake_instruction_initialize_t* self, fd_walk_fun_t fun, const char *name, int level) {
+  fun(self, name, 32, "fd_stake_instruction_initialize", level++);
+  fd_stake_authorized_walk(&self->authorized, fun, "authorized", level + 1);
+  fd_pubkey_walk(&self->lockup, fun, "lockup", level + 1);
+  fun(self, name, 33, "fd_stake_instruction_initialize", --level);
+}
+void fd_stake_instruction_initialize_copy_to(fd_stake_instruction_initialize_t* to, fd_stake_instruction_initialize_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
+  unsigned char *enc = fd_alloca( 1, fd_stake_instruction_initialize_size(from) );
+  void const *   ptr = (void const *) enc;
+  fd_stake_instruction_initialize_encode( from, &ptr );
+  void *input = (void *) enc;
+  fd_stake_instruction_initialize_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
+}
+ulong fd_stake_instruction_initialize_size(fd_stake_instruction_initialize_t* self) {
+  ulong size = 0;
+  size += fd_stake_authorized_size(&self->authorized);
+  size += fd_pubkey_size(&self->lockup);
+  return size;
+}
+
+void fd_stake_instruction_initialize_encode(fd_stake_instruction_initialize_t* self, void const** data) {
+  fd_stake_authorized_encode(&self->authorized, data);
+  fd_pubkey_encode(&self->lockup, data);
+}
+
+uchar fd_stake_authorize_is_staker(fd_stake_authorize_t* self) {
+  return self->discriminant == 0;
+}
+uchar fd_stake_authorize_is_withdrawer(fd_stake_authorize_t* self) {
+  return self->discriminant == 1;
+}
+void fd_stake_authorize_inner_decode(fd_stake_authorize_inner_t* self, uint discriminant, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
+}
+void fd_stake_authorize_decode(fd_stake_authorize_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
+  fd_bincode_uint32_decode(&self->discriminant, data, dataend);
+  fd_stake_authorize_inner_decode(&self->inner, self->discriminant, data, dataend, allocf, allocf_arg);
+}
+void fd_stake_authorize_inner_destroy(fd_stake_authorize_inner_t* self, uint discriminant, fd_free_fun_t freef, void* freef_arg) {
+}
+void fd_stake_authorize_destroy(fd_stake_authorize_t* self, fd_free_fun_t freef, void* freef_arg) {
+  fd_stake_authorize_inner_destroy(&self->inner, self->discriminant, freef, freef_arg);
+}
+
+void fd_stake_authorize_walk(fd_stake_authorize_t* self, fd_walk_fun_t fun, const char *name, int level) {
+  fun(self, name, 32, "fd_stake_authorize", level++);
+  // enum fd_pubkey_walk(&self->lockup, fun, "lockup", level + 1);
+  fun(self, name, 33, "fd_stake_authorize", --level);
+}
+void fd_stake_authorize_copy_to(fd_stake_authorize_t* to, fd_stake_authorize_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
+  unsigned char *enc = fd_alloca( 1, fd_stake_authorize_size(from) );
+  void const *   ptr = (void const *) enc;
+  fd_stake_authorize_encode( from, &ptr );
+  void *input = (void *) enc;
+  fd_stake_authorize_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
+}
+ulong fd_stake_authorize_size(fd_stake_authorize_t* self) {
+  ulong size = 0;
+  size += sizeof(uint);
+  return size;
+}
+
+void fd_stake_authorize_inner_encode(fd_stake_authorize_inner_t* self, uint discriminant, void const** data) {
+}
+void fd_stake_authorize_encode(fd_stake_authorize_t* self, void const** data) {
+  fd_bincode_uint32_encode(&self->discriminant, data);
+  fd_stake_authorize_inner_encode(&self->inner, self->discriminant, data);
+}
+
+void fd_stake_instruction_authorize_decode(fd_stake_instruction_authorize_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
+  fd_pubkey_decode(&self->pubkey, data, dataend, allocf, allocf_arg);
+  fd_stake_authorize_decode(&self->stake_authorize, data, dataend, allocf, allocf_arg);
+}
+void fd_stake_instruction_authorize_destroy(fd_stake_instruction_authorize_t* self, fd_free_fun_t freef, void* freef_arg) {
+  fd_pubkey_destroy(&self->pubkey, freef, freef_arg);
+  fd_stake_authorize_destroy(&self->stake_authorize, freef, freef_arg);
+}
+
+void fd_stake_instruction_authorize_walk(fd_stake_instruction_authorize_t* self, fd_walk_fun_t fun, const char *name, int level) {
+  fun(self, name, 32, "fd_stake_instruction_authorize", level++);
+  fd_pubkey_walk(&self->pubkey, fun, "pubkey", level + 1);
+  fd_stake_authorize_walk(&self->stake_authorize, fun, "stake_authorize", level + 1);
+  fun(self, name, 33, "fd_stake_instruction_authorize", --level);
+}
+void fd_stake_instruction_authorize_copy_to(fd_stake_instruction_authorize_t* to, fd_stake_instruction_authorize_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
+  unsigned char *enc = fd_alloca( 1, fd_stake_instruction_authorize_size(from) );
+  void const *   ptr = (void const *) enc;
+  fd_stake_instruction_authorize_encode( from, &ptr );
+  void *input = (void *) enc;
+  fd_stake_instruction_authorize_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
+}
+ulong fd_stake_instruction_authorize_size(fd_stake_instruction_authorize_t* self) {
+  ulong size = 0;
+  size += fd_pubkey_size(&self->pubkey);
+  size += fd_stake_authorize_size(&self->stake_authorize);
+  return size;
+}
+
+void fd_stake_instruction_authorize_encode(fd_stake_instruction_authorize_t* self, void const** data) {
+  fd_pubkey_encode(&self->pubkey, data);
+  fd_stake_authorize_encode(&self->stake_authorize, data);
+}
+
+void fd_lockup_args_decode(fd_lockup_args_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
+  if (fd_bincode_option_decode(data, dataend)) {
+    self->unix_timestamp = (ulong*)(*allocf)(allocf_arg, 8, sizeof(ulong));
+    fd_bincode_uint64_decode(self->unix_timestamp, data, dataend);
+  } else
+    self->unix_timestamp = NULL;
+  if (fd_bincode_option_decode(data, dataend)) {
+    self->epoch = (ulong*)(*allocf)(allocf_arg, 8, sizeof(ulong));
+    fd_bincode_uint64_decode(self->epoch, data, dataend);
+  } else
+    self->epoch = NULL;
+  if (fd_bincode_option_decode(data, dataend)) {
+    self->custodian = (fd_pubkey_t*)(*allocf)(allocf_arg, FD_PUBKEY_ALIGN, FD_PUBKEY_FOOTPRINT);
+    fd_pubkey_decode(self->custodian, data, dataend, allocf, allocf_arg);
+  } else
+    self->custodian = NULL;
+}
+void fd_lockup_args_destroy(fd_lockup_args_t* self, fd_free_fun_t freef, void* freef_arg) {
+  if (NULL != self->unix_timestamp) {
+    freef(freef_arg, self->unix_timestamp);
+    self->unix_timestamp = NULL;
+  }
+  if (NULL != self->epoch) {
+    freef(freef_arg, self->epoch);
+    self->epoch = NULL;
+  }
+  if (NULL != self->custodian) {
+    fd_pubkey_destroy(self->custodian,  freef, freef_arg);
+    freef(freef_arg, self->custodian);
+    self->custodian = NULL;
+  }
+}
+
+void fd_lockup_args_walk(fd_lockup_args_t* self, fd_walk_fun_t fun, const char *name, int level) {
+  fun(self, name, 32, "fd_lockup_args", level++);
+  fun(self->unix_timestamp, "unix_timestamp", 11, "ulong", level + 1);
+  fun(self->epoch, "epoch", 11, "ulong", level + 1);
+  // fun(&self->custodian, "custodian", 16, "option", level + 1);
+  fun(self, name, 33, "fd_lockup_args", --level);
+}
+void fd_lockup_args_copy_to(fd_lockup_args_t* to, fd_lockup_args_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
+  unsigned char *enc = fd_alloca( 1, fd_lockup_args_size(from) );
+  void const *   ptr = (void const *) enc;
+  fd_lockup_args_encode( from, &ptr );
+  void *input = (void *) enc;
+  fd_lockup_args_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
+}
+ulong fd_lockup_args_size(fd_lockup_args_t* self) {
+  ulong size = 0;
+  size += sizeof(char);
+  if (NULL !=  self->unix_timestamp) {
+    size += sizeof(ulong);
+  }
+  size += sizeof(char);
+  if (NULL !=  self->epoch) {
+    size += sizeof(ulong);
+  }
+  size += sizeof(char);
+  if (NULL !=  self->custodian) {
+    size += fd_pubkey_size(self->custodian);
+  }
+  return size;
+}
+
+void fd_lockup_args_encode(fd_lockup_args_t* self, void const** data) {
+  if (self->unix_timestamp!= NULL) {
+    fd_bincode_option_encode(1, data);
+    fd_bincode_uint64_encode(self->unix_timestamp, data);
+  } else
+    fd_bincode_option_encode(0, data);
+  if (self->epoch!= NULL) {
+    fd_bincode_option_encode(1, data);
+    fd_bincode_uint64_encode(self->epoch, data);
+  } else
+    fd_bincode_option_encode(0, data);
+  if (self->custodian!= NULL) {
+    fd_bincode_option_encode(1, data);
+    fd_pubkey_encode(self->custodian, data);
+  } else
+    fd_bincode_option_encode(0, data);
+}
+
+void fd_authorize_with_seed_args_decode(fd_authorize_with_seed_args_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
+  fd_pubkey_decode(&self->new_authorized_pubkey, data, dataend, allocf, allocf_arg);
+  fd_stake_authorize_decode(&self->stake_authorize, data, dataend, allocf, allocf_arg);
+  ulong slen;
+  fd_bincode_uint64_decode(&slen, data, dataend);
+  self->authority_seed = (char*)(*allocf)(allocf_arg, 1, slen + 1);
+  fd_bincode_bytes_decode((uchar *) self->authority_seed, slen, data, dataend);
+  self->authority_seed[slen] = '\0';
+  fd_pubkey_decode(&self->authority_owner, data, dataend, allocf, allocf_arg);
+}
+void fd_authorize_with_seed_args_destroy(fd_authorize_with_seed_args_t* self, fd_free_fun_t freef, void* freef_arg) {
+  fd_pubkey_destroy(&self->new_authorized_pubkey, freef, freef_arg);
+  fd_stake_authorize_destroy(&self->stake_authorize, freef, freef_arg);
+  if (NULL != self->authority_seed) {
+    freef(freef_arg, self->authority_seed);
+    self->authority_seed = NULL;
+  }
+  fd_pubkey_destroy(&self->authority_owner, freef, freef_arg);
+}
+
+void fd_authorize_with_seed_args_walk(fd_authorize_with_seed_args_t* self, fd_walk_fun_t fun, const char *name, int level) {
+  fun(self, name, 32, "fd_authorize_with_seed_args", level++);
+  fd_pubkey_walk(&self->new_authorized_pubkey, fun, "new_authorized_pubkey", level + 1);
+  fd_stake_authorize_walk(&self->stake_authorize, fun, "stake_authorize", level + 1);
+  fun(self->authority_seed, "authority_seed", 2, "char*", level + 1);
+  fd_pubkey_walk(&self->authority_owner, fun, "authority_owner", level + 1);
+  fun(self, name, 33, "fd_authorize_with_seed_args", --level);
+}
+void fd_authorize_with_seed_args_copy_to(fd_authorize_with_seed_args_t* to, fd_authorize_with_seed_args_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
+  unsigned char *enc = fd_alloca( 1, fd_authorize_with_seed_args_size(from) );
+  void const *   ptr = (void const *) enc;
+  fd_authorize_with_seed_args_encode( from, &ptr );
+  void *input = (void *) enc;
+  fd_authorize_with_seed_args_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
+}
+ulong fd_authorize_with_seed_args_size(fd_authorize_with_seed_args_t* self) {
+  ulong size = 0;
+  size += fd_pubkey_size(&self->new_authorized_pubkey);
+  size += fd_stake_authorize_size(&self->stake_authorize);
+  size += sizeof(ulong) + strlen(self->authority_seed);
+  size += fd_pubkey_size(&self->authority_owner);
+  return size;
+}
+
+void fd_authorize_with_seed_args_encode(fd_authorize_with_seed_args_t* self, void const** data) {
+  fd_pubkey_encode(&self->new_authorized_pubkey, data);
+  fd_stake_authorize_encode(&self->stake_authorize, data);
+  ulong slen = strlen((char *) self->authority_seed);
+  fd_bincode_uint64_encode(&slen, data);
+  fd_bincode_bytes_encode((uchar *) self->authority_seed, slen, data);
+  fd_pubkey_encode(&self->authority_owner, data);
+}
+
+void fd_authorize_checked_with_seed_args_decode(fd_authorize_checked_with_seed_args_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
+  fd_stake_authorize_decode(&self->stake_authorize, data, dataend, allocf, allocf_arg);
+  ulong slen;
+  fd_bincode_uint64_decode(&slen, data, dataend);
+  self->authority_seed = (char*)(*allocf)(allocf_arg, 1, slen + 1);
+  fd_bincode_bytes_decode((uchar *) self->authority_seed, slen, data, dataend);
+  self->authority_seed[slen] = '\0';
+  fd_pubkey_decode(&self->authority_owner, data, dataend, allocf, allocf_arg);
+}
+void fd_authorize_checked_with_seed_args_destroy(fd_authorize_checked_with_seed_args_t* self, fd_free_fun_t freef, void* freef_arg) {
+  fd_stake_authorize_destroy(&self->stake_authorize, freef, freef_arg);
+  if (NULL != self->authority_seed) {
+    freef(freef_arg, self->authority_seed);
+    self->authority_seed = NULL;
+  }
+  fd_pubkey_destroy(&self->authority_owner, freef, freef_arg);
+}
+
+void fd_authorize_checked_with_seed_args_walk(fd_authorize_checked_with_seed_args_t* self, fd_walk_fun_t fun, const char *name, int level) {
+  fun(self, name, 32, "fd_authorize_checked_with_seed_args", level++);
+  fd_stake_authorize_walk(&self->stake_authorize, fun, "stake_authorize", level + 1);
+  fun(self->authority_seed, "authority_seed", 2, "char*", level + 1);
+  fd_pubkey_walk(&self->authority_owner, fun, "authority_owner", level + 1);
+  fun(self, name, 33, "fd_authorize_checked_with_seed_args", --level);
+}
+void fd_authorize_checked_with_seed_args_copy_to(fd_authorize_checked_with_seed_args_t* to, fd_authorize_checked_with_seed_args_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
+  unsigned char *enc = fd_alloca( 1, fd_authorize_checked_with_seed_args_size(from) );
+  void const *   ptr = (void const *) enc;
+  fd_authorize_checked_with_seed_args_encode( from, &ptr );
+  void *input = (void *) enc;
+  fd_authorize_checked_with_seed_args_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
+}
+ulong fd_authorize_checked_with_seed_args_size(fd_authorize_checked_with_seed_args_t* self) {
+  ulong size = 0;
+  size += fd_stake_authorize_size(&self->stake_authorize);
+  size += sizeof(ulong) + strlen(self->authority_seed);
+  size += fd_pubkey_size(&self->authority_owner);
+  return size;
+}
+
+void fd_authorize_checked_with_seed_args_encode(fd_authorize_checked_with_seed_args_t* self, void const** data) {
+  fd_stake_authorize_encode(&self->stake_authorize, data);
+  ulong slen = strlen((char *) self->authority_seed);
+  fd_bincode_uint64_encode(&slen, data);
+  fd_bincode_bytes_encode((uchar *) self->authority_seed, slen, data);
+  fd_pubkey_encode(&self->authority_owner, data);
+}
+
+void fd_lockup_checked_args_decode(fd_lockup_checked_args_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
+  if (fd_bincode_option_decode(data, dataend)) {
+    self->unix_timestamp = (ulong*)(*allocf)(allocf_arg, 8, sizeof(ulong));
+    fd_bincode_uint64_decode(self->unix_timestamp, data, dataend);
+  } else
+    self->unix_timestamp = NULL;
+  if (fd_bincode_option_decode(data, dataend)) {
+    self->epoch = (ulong*)(*allocf)(allocf_arg, 8, sizeof(ulong));
+    fd_bincode_uint64_decode(self->epoch, data, dataend);
+  } else
+    self->epoch = NULL;
+}
+void fd_lockup_checked_args_destroy(fd_lockup_checked_args_t* self, fd_free_fun_t freef, void* freef_arg) {
+  if (NULL != self->unix_timestamp) {
+    freef(freef_arg, self->unix_timestamp);
+    self->unix_timestamp = NULL;
+  }
+  if (NULL != self->epoch) {
+    freef(freef_arg, self->epoch);
+    self->epoch = NULL;
+  }
+}
+
+void fd_lockup_checked_args_walk(fd_lockup_checked_args_t* self, fd_walk_fun_t fun, const char *name, int level) {
+  fun(self, name, 32, "fd_lockup_checked_args", level++);
+  fun(self->unix_timestamp, "unix_timestamp", 11, "ulong", level + 1);
+  fun(self->epoch, "epoch", 11, "ulong", level + 1);
+  fun(self, name, 33, "fd_lockup_checked_args", --level);
+}
+void fd_lockup_checked_args_copy_to(fd_lockup_checked_args_t* to, fd_lockup_checked_args_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
+  unsigned char *enc = fd_alloca( 1, fd_lockup_checked_args_size(from) );
+  void const *   ptr = (void const *) enc;
+  fd_lockup_checked_args_encode( from, &ptr );
+  void *input = (void *) enc;
+  fd_lockup_checked_args_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
+}
+ulong fd_lockup_checked_args_size(fd_lockup_checked_args_t* self) {
+  ulong size = 0;
+  size += sizeof(char);
+  if (NULL !=  self->unix_timestamp) {
+    size += sizeof(ulong);
+  }
+  size += sizeof(char);
+  if (NULL !=  self->epoch) {
+    size += sizeof(ulong);
+  }
+  return size;
+}
+
+void fd_lockup_checked_args_encode(fd_lockup_checked_args_t* self, void const** data) {
+  if (self->unix_timestamp!= NULL) {
+    fd_bincode_option_encode(1, data);
+    fd_bincode_uint64_encode(self->unix_timestamp, data);
+  } else
+    fd_bincode_option_encode(0, data);
+  if (self->epoch!= NULL) {
+    fd_bincode_option_encode(1, data);
+    fd_bincode_uint64_encode(self->epoch, data);
+  } else
+    fd_bincode_option_encode(0, data);
+}
+
+uchar fd_stake_instruction_is_initialize(fd_stake_instruction_t* self) {
+  return self->discriminant == 0;
+}
+uchar fd_stake_instruction_is_authorize(fd_stake_instruction_t* self) {
+  return self->discriminant == 1;
+}
+uchar fd_stake_instruction_is_delegate_stake(fd_stake_instruction_t* self) {
+  return self->discriminant == 2;
+}
+uchar fd_stake_instruction_is_split(fd_stake_instruction_t* self) {
+  return self->discriminant == 3;
+}
+uchar fd_stake_instruction_is_withdraw(fd_stake_instruction_t* self) {
+  return self->discriminant == 4;
+}
+uchar fd_stake_instruction_is_deactivate(fd_stake_instruction_t* self) {
+  return self->discriminant == 5;
+}
+uchar fd_stake_instruction_is_set_lockup(fd_stake_instruction_t* self) {
+  return self->discriminant == 6;
+}
+uchar fd_stake_instruction_is_merge(fd_stake_instruction_t* self) {
+  return self->discriminant == 7;
+}
+uchar fd_stake_instruction_is_authorize_with_seed(fd_stake_instruction_t* self) {
+  return self->discriminant == 8;
+}
+uchar fd_stake_instruction_is_initialize_checked(fd_stake_instruction_t* self) {
+  return self->discriminant == 9;
+}
+uchar fd_stake_instruction_is_authorize_checked(fd_stake_instruction_t* self) {
+  return self->discriminant == 10;
+}
+uchar fd_stake_instruction_is_authorize_checked_with_seed(fd_stake_instruction_t* self) {
+  return self->discriminant == 11;
+}
+uchar fd_stake_instruction_is_set_lockup_checked(fd_stake_instruction_t* self) {
+  return self->discriminant == 12;
+}
+void fd_stake_instruction_inner_decode(fd_stake_instruction_inner_t* self, uint discriminant, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
+  if (discriminant == 0) {
+    fd_stake_instruction_initialize_decode(&self->initialize, data, dataend, allocf, allocf_arg);
+  }
+  if (discriminant == 1) {
+    fd_stake_instruction_authorize_decode(&self->authorize, data, dataend, allocf, allocf_arg);
+  }
+  if (discriminant == 3) {
+    fd_bincode_uint64_decode(&self->split, data, dataend);
+  }
+  if (discriminant == 4) {
+    fd_bincode_uint64_decode(&self->withdraw, data, dataend);
+  }
+  if (discriminant == 8) {
+    fd_authorize_with_seed_args_decode(&self->authorize_with_seed, data, dataend, allocf, allocf_arg);
+  }
+  if (discriminant == 10) {
+    fd_stake_authorize_decode(&self->authorize_checked, data, dataend, allocf, allocf_arg);
+  }
+  if (discriminant == 11) {
+    fd_authorize_checked_with_seed_args_decode(&self->authorize_checked_with_seed, data, dataend, allocf, allocf_arg);
+  }
+  if (discriminant == 12) {
+    fd_lockup_checked_args_decode(&self->set_lockup_checked, data, dataend, allocf, allocf_arg);
+  }
+}
+void fd_stake_instruction_decode(fd_stake_instruction_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
+  fd_bincode_uint32_decode(&self->discriminant, data, dataend);
+  fd_stake_instruction_inner_decode(&self->inner, self->discriminant, data, dataend, allocf, allocf_arg);
+}
+void fd_stake_instruction_inner_destroy(fd_stake_instruction_inner_t* self, uint discriminant, fd_free_fun_t freef, void* freef_arg) {
+  if (discriminant == 0) {
+    fd_stake_instruction_initialize_destroy(&self->initialize, freef, freef_arg);
+  }
+  if (discriminant == 1) {
+    fd_stake_instruction_authorize_destroy(&self->authorize, freef, freef_arg);
+  }
+  if (discriminant == 3) {
+  }
+  if (discriminant == 4) {
+  }
+  if (discriminant == 8) {
+    fd_authorize_with_seed_args_destroy(&self->authorize_with_seed, freef, freef_arg);
+  }
+  if (discriminant == 10) {
+    fd_stake_authorize_destroy(&self->authorize_checked, freef, freef_arg);
+  }
+  if (discriminant == 11) {
+    fd_authorize_checked_with_seed_args_destroy(&self->authorize_checked_with_seed, freef, freef_arg);
+  }
+  if (discriminant == 12) {
+    fd_lockup_checked_args_destroy(&self->set_lockup_checked, freef, freef_arg);
+  }
+}
+void fd_stake_instruction_destroy(fd_stake_instruction_t* self, fd_free_fun_t freef, void* freef_arg) {
+  fd_stake_instruction_inner_destroy(&self->inner, self->discriminant, freef, freef_arg);
+}
+
+void fd_stake_instruction_walk(fd_stake_instruction_t* self, fd_walk_fun_t fun, const char *name, int level) {
+  fun(self, name, 32, "fd_stake_instruction", level++);
+  // enum fd_option_walk(&self->epoch, fun, "epoch", level + 1);
+  fun(self, name, 33, "fd_stake_instruction", --level);
+}
+void fd_stake_instruction_copy_to(fd_stake_instruction_t* to, fd_stake_instruction_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
+  unsigned char *enc = fd_alloca( 1, fd_stake_instruction_size(from) );
+  void const *   ptr = (void const *) enc;
+  fd_stake_instruction_encode( from, &ptr );
+  void *input = (void *) enc;
+  fd_stake_instruction_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
+}
+ulong fd_stake_instruction_size(fd_stake_instruction_t* self) {
+  ulong size = 0;
+  size += sizeof(uint);
+  if (self->discriminant == 0) {
+    size += fd_stake_instruction_initialize_size(&self->inner.initialize);
+  }
+  if (self->discriminant == 1) {
+    size += fd_stake_instruction_authorize_size(&self->inner.authorize);
+  }
+  if (self->discriminant == 3) {
+    size += sizeof(ulong);
+  }
+  if (self->discriminant == 4) {
+    size += sizeof(ulong);
+  }
+  if (self->discriminant == 8) {
+    size += fd_authorize_with_seed_args_size(&self->inner.authorize_with_seed);
+  }
+  if (self->discriminant == 10) {
+    size += fd_stake_authorize_size(&self->inner.authorize_checked);
+  }
+  if (self->discriminant == 11) {
+    size += fd_authorize_checked_with_seed_args_size(&self->inner.authorize_checked_with_seed);
+  }
+  if (self->discriminant == 12) {
+    size += fd_lockup_checked_args_size(&self->inner.set_lockup_checked);
+  }
+  return size;
+}
+
+void fd_stake_instruction_inner_encode(fd_stake_instruction_inner_t* self, uint discriminant, void const** data) {
+  if (discriminant == 0) {
+    fd_stake_instruction_initialize_encode(&self->initialize, data);
+  }
+  if (discriminant == 1) {
+    fd_stake_instruction_authorize_encode(&self->authorize, data);
+  }
+  if (discriminant == 3) {
+    fd_bincode_uint64_encode(&self->split, data);
+  }
+  if (discriminant == 4) {
+    fd_bincode_uint64_encode(&self->withdraw, data);
+  }
+  if (discriminant == 8) {
+    fd_authorize_with_seed_args_encode(&self->authorize_with_seed, data);
+  }
+  if (discriminant == 10) {
+    fd_stake_authorize_encode(&self->authorize_checked, data);
+  }
+  if (discriminant == 11) {
+    fd_authorize_checked_with_seed_args_encode(&self->authorize_checked_with_seed, data);
+  }
+  if (discriminant == 12) {
+    fd_lockup_checked_args_encode(&self->set_lockup_checked, data);
+  }
+}
+void fd_stake_instruction_encode(fd_stake_instruction_t* self, void const** data) {
+  fd_bincode_uint32_encode(&self->discriminant, data);
+  fd_stake_instruction_inner_encode(&self->inner, self->discriminant, data);
+}
+
 #define REDBLK_T fd_serializable_account_storage_entry_t_mapnode_t
 #define REDBLK_NAME fd_serializable_account_storage_entry_t_map
 #include "../../util/tmpl/fd_redblack.c"

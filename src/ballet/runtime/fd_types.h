@@ -1063,6 +1063,118 @@ typedef struct fd_system_error fd_system_error_t;
 #define FD_SYSTEM_ERROR_FOOTPRINT sizeof(fd_system_error_t)
 #define FD_SYSTEM_ERROR_ALIGN (8UL)
 
+/* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/state.rs#L169 */
+struct fd_stake_authorized {
+  fd_pubkey_t staker;
+  fd_pubkey_t withdrawer;
+};
+typedef struct fd_stake_authorized fd_stake_authorized_t;
+#define FD_STAKE_AUTHORIZED_FOOTPRINT sizeof(fd_stake_authorized_t)
+#define FD_STAKE_AUTHORIZED_ALIGN (8UL)
+
+/* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/state.rs#L135 */
+struct fd_stake_lockup {
+  unsigned long unix_timestamp;
+  unsigned long epoch;
+  fd_pubkey_t   custodian;
+};
+typedef struct fd_stake_lockup fd_stake_lockup_t;
+#define FD_STAKE_LOCKUP_FOOTPRINT sizeof(fd_stake_lockup_t)
+#define FD_STAKE_LOCKUP_ALIGN (8UL)
+
+/* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/instruction.rs#L68 */
+struct fd_stake_instruction_initialize {
+  fd_stake_authorized_t authorized;
+  fd_pubkey_t           lockup;
+};
+typedef struct fd_stake_instruction_initialize fd_stake_instruction_initialize_t;
+#define FD_STAKE_INSTRUCTION_INITIALIZE_FOOTPRINT sizeof(fd_stake_instruction_initialize_t)
+#define FD_STAKE_INSTRUCTION_INITIALIZE_ALIGN (8UL)
+
+union fd_stake_authorize_inner {
+  uchar nonempty; /* Hack to support enums with no inner structures */
+};
+typedef union fd_stake_authorize_inner fd_stake_authorize_inner_t;
+
+/* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/state.rs#L117 */
+struct fd_stake_authorize {
+  uint                       discriminant;
+  fd_stake_authorize_inner_t inner;
+};
+typedef struct fd_stake_authorize fd_stake_authorize_t;
+#define FD_STAKE_AUTHORIZE_FOOTPRINT sizeof(fd_stake_authorize_t)
+#define FD_STAKE_AUTHORIZE_ALIGN (8UL)
+
+/* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/instruction.rs#L78 */
+struct fd_stake_instruction_authorize {
+  fd_pubkey_t          pubkey;
+  fd_stake_authorize_t stake_authorize;
+};
+typedef struct fd_stake_instruction_authorize fd_stake_instruction_authorize_t;
+#define FD_STAKE_INSTRUCTION_AUTHORIZE_FOOTPRINT sizeof(fd_stake_instruction_authorize_t)
+#define FD_STAKE_INSTRUCTION_AUTHORIZE_ALIGN (8UL)
+
+/* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/instruction.rs#L228 */
+struct fd_lockup_args {
+  unsigned long* unix_timestamp;
+  unsigned long* epoch;
+  fd_pubkey_t*   custodian;
+};
+typedef struct fd_lockup_args fd_lockup_args_t;
+#define FD_LOCKUP_ARGS_FOOTPRINT sizeof(fd_lockup_args_t)
+#define FD_LOCKUP_ARGS_ALIGN (8UL)
+
+/* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/instruction.rs#L241 */
+struct fd_authorize_with_seed_args {
+  fd_pubkey_t          new_authorized_pubkey;
+  fd_stake_authorize_t stake_authorize;
+  char*                authority_seed;
+  fd_pubkey_t          authority_owner;
+};
+typedef struct fd_authorize_with_seed_args fd_authorize_with_seed_args_t;
+#define FD_AUTHORIZE_WITH_SEED_ARGS_FOOTPRINT sizeof(fd_authorize_with_seed_args_t)
+#define FD_AUTHORIZE_WITH_SEED_ARGS_ALIGN (8UL)
+
+/* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/instruction.rs#L249 */
+struct fd_authorize_checked_with_seed_args {
+  fd_stake_authorize_t stake_authorize;
+  char*                authority_seed;
+  fd_pubkey_t          authority_owner;
+};
+typedef struct fd_authorize_checked_with_seed_args fd_authorize_checked_with_seed_args_t;
+#define FD_AUTHORIZE_CHECKED_WITH_SEED_ARGS_FOOTPRINT sizeof(fd_authorize_checked_with_seed_args_t)
+#define FD_AUTHORIZE_CHECKED_WITH_SEED_ARGS_ALIGN (8UL)
+
+/* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/instruction.rs#L235 */
+struct fd_lockup_checked_args {
+  unsigned long* unix_timestamp;
+  unsigned long* epoch;
+};
+typedef struct fd_lockup_checked_args fd_lockup_checked_args_t;
+#define FD_LOCKUP_CHECKED_ARGS_FOOTPRINT sizeof(fd_lockup_checked_args_t)
+#define FD_LOCKUP_CHECKED_ARGS_ALIGN (8UL)
+
+union fd_stake_instruction_inner {
+  fd_stake_instruction_initialize_t     initialize;
+  fd_stake_instruction_authorize_t      authorize;
+  unsigned long                         split;
+  unsigned long                         withdraw;
+  fd_authorize_with_seed_args_t         authorize_with_seed;
+  fd_stake_authorize_t                  authorize_checked;
+  fd_authorize_checked_with_seed_args_t authorize_checked_with_seed;
+  fd_lockup_checked_args_t              set_lockup_checked;
+};
+typedef union fd_stake_instruction_inner fd_stake_instruction_inner_t;
+
+/* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/instruction.rs#L58 */
+struct fd_stake_instruction {
+  uint                         discriminant;
+  fd_stake_instruction_inner_t inner;
+};
+typedef struct fd_stake_instruction fd_stake_instruction_t;
+#define FD_STAKE_INSTRUCTION_FOOTPRINT sizeof(fd_stake_instruction_t)
+#define FD_STAKE_INSTRUCTION_ALIGN (8UL)
+
 
 FD_PROTOTYPES_BEGIN
 
@@ -1724,6 +1836,93 @@ uchar fd_system_error_is_address_with_seed_mismatch(fd_system_error_t* self);
 uchar fd_system_error_is_nonce_no_recent_blockhashes(fd_system_error_t* self);
 uchar fd_system_error_is_nonce_blockhash_not_expired(fd_system_error_t* self);
 uchar fd_system_error_is_nonce_unexpected_blockhash_value(fd_system_error_t* self);
+
+void fd_stake_authorized_decode(fd_stake_authorized_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
+void fd_stake_authorized_encode(fd_stake_authorized_t* self, void const** data);
+void fd_stake_authorized_destroy(fd_stake_authorized_t* self, fd_free_fun_t freef, void* freef_arg);
+void fd_stake_authorized_copy_to(fd_stake_authorized_t* to, fd_stake_authorized_t* from, fd_alloc_fun_t freef, void* allocf_arg);
+void fd_stake_authorized_walk(fd_stake_authorized_t* self, fd_walk_fun_t fun, const char *name, int level);
+ulong fd_stake_authorized_size(fd_stake_authorized_t* self);
+
+void fd_stake_lockup_decode(fd_stake_lockup_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
+void fd_stake_lockup_encode(fd_stake_lockup_t* self, void const** data);
+void fd_stake_lockup_destroy(fd_stake_lockup_t* self, fd_free_fun_t freef, void* freef_arg);
+void fd_stake_lockup_copy_to(fd_stake_lockup_t* to, fd_stake_lockup_t* from, fd_alloc_fun_t freef, void* allocf_arg);
+void fd_stake_lockup_walk(fd_stake_lockup_t* self, fd_walk_fun_t fun, const char *name, int level);
+ulong fd_stake_lockup_size(fd_stake_lockup_t* self);
+
+void fd_stake_instruction_initialize_decode(fd_stake_instruction_initialize_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
+void fd_stake_instruction_initialize_encode(fd_stake_instruction_initialize_t* self, void const** data);
+void fd_stake_instruction_initialize_destroy(fd_stake_instruction_initialize_t* self, fd_free_fun_t freef, void* freef_arg);
+void fd_stake_instruction_initialize_copy_to(fd_stake_instruction_initialize_t* to, fd_stake_instruction_initialize_t* from, fd_alloc_fun_t freef, void* allocf_arg);
+void fd_stake_instruction_initialize_walk(fd_stake_instruction_initialize_t* self, fd_walk_fun_t fun, const char *name, int level);
+ulong fd_stake_instruction_initialize_size(fd_stake_instruction_initialize_t* self);
+
+void fd_stake_authorize_decode(fd_stake_authorize_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
+void fd_stake_authorize_encode(fd_stake_authorize_t* self, void const** data);
+void fd_stake_authorize_destroy(fd_stake_authorize_t* self, fd_free_fun_t freef, void* freef_arg);
+void fd_stake_authorize_copy_to(fd_stake_authorize_t* to, fd_stake_authorize_t* from, fd_alloc_fun_t freef, void* allocf_arg);
+void fd_stake_authorize_walk(fd_stake_authorize_t* self, fd_walk_fun_t fun, const char *name, int level);
+ulong fd_stake_authorize_size(fd_stake_authorize_t* self);
+
+uchar fd_stake_authorize_is_staker(fd_stake_authorize_t* self);
+uchar fd_stake_authorize_is_withdrawer(fd_stake_authorize_t* self);
+
+void fd_stake_instruction_authorize_decode(fd_stake_instruction_authorize_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
+void fd_stake_instruction_authorize_encode(fd_stake_instruction_authorize_t* self, void const** data);
+void fd_stake_instruction_authorize_destroy(fd_stake_instruction_authorize_t* self, fd_free_fun_t freef, void* freef_arg);
+void fd_stake_instruction_authorize_copy_to(fd_stake_instruction_authorize_t* to, fd_stake_instruction_authorize_t* from, fd_alloc_fun_t freef, void* allocf_arg);
+void fd_stake_instruction_authorize_walk(fd_stake_instruction_authorize_t* self, fd_walk_fun_t fun, const char *name, int level);
+ulong fd_stake_instruction_authorize_size(fd_stake_instruction_authorize_t* self);
+
+void fd_lockup_args_decode(fd_lockup_args_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
+void fd_lockup_args_encode(fd_lockup_args_t* self, void const** data);
+void fd_lockup_args_destroy(fd_lockup_args_t* self, fd_free_fun_t freef, void* freef_arg);
+void fd_lockup_args_copy_to(fd_lockup_args_t* to, fd_lockup_args_t* from, fd_alloc_fun_t freef, void* allocf_arg);
+void fd_lockup_args_walk(fd_lockup_args_t* self, fd_walk_fun_t fun, const char *name, int level);
+ulong fd_lockup_args_size(fd_lockup_args_t* self);
+
+void fd_authorize_with_seed_args_decode(fd_authorize_with_seed_args_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
+void fd_authorize_with_seed_args_encode(fd_authorize_with_seed_args_t* self, void const** data);
+void fd_authorize_with_seed_args_destroy(fd_authorize_with_seed_args_t* self, fd_free_fun_t freef, void* freef_arg);
+void fd_authorize_with_seed_args_copy_to(fd_authorize_with_seed_args_t* to, fd_authorize_with_seed_args_t* from, fd_alloc_fun_t freef, void* allocf_arg);
+void fd_authorize_with_seed_args_walk(fd_authorize_with_seed_args_t* self, fd_walk_fun_t fun, const char *name, int level);
+ulong fd_authorize_with_seed_args_size(fd_authorize_with_seed_args_t* self);
+
+void fd_authorize_checked_with_seed_args_decode(fd_authorize_checked_with_seed_args_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
+void fd_authorize_checked_with_seed_args_encode(fd_authorize_checked_with_seed_args_t* self, void const** data);
+void fd_authorize_checked_with_seed_args_destroy(fd_authorize_checked_with_seed_args_t* self, fd_free_fun_t freef, void* freef_arg);
+void fd_authorize_checked_with_seed_args_copy_to(fd_authorize_checked_with_seed_args_t* to, fd_authorize_checked_with_seed_args_t* from, fd_alloc_fun_t freef, void* allocf_arg);
+void fd_authorize_checked_with_seed_args_walk(fd_authorize_checked_with_seed_args_t* self, fd_walk_fun_t fun, const char *name, int level);
+ulong fd_authorize_checked_with_seed_args_size(fd_authorize_checked_with_seed_args_t* self);
+
+void fd_lockup_checked_args_decode(fd_lockup_checked_args_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
+void fd_lockup_checked_args_encode(fd_lockup_checked_args_t* self, void const** data);
+void fd_lockup_checked_args_destroy(fd_lockup_checked_args_t* self, fd_free_fun_t freef, void* freef_arg);
+void fd_lockup_checked_args_copy_to(fd_lockup_checked_args_t* to, fd_lockup_checked_args_t* from, fd_alloc_fun_t freef, void* allocf_arg);
+void fd_lockup_checked_args_walk(fd_lockup_checked_args_t* self, fd_walk_fun_t fun, const char *name, int level);
+ulong fd_lockup_checked_args_size(fd_lockup_checked_args_t* self);
+
+void fd_stake_instruction_decode(fd_stake_instruction_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
+void fd_stake_instruction_encode(fd_stake_instruction_t* self, void const** data);
+void fd_stake_instruction_destroy(fd_stake_instruction_t* self, fd_free_fun_t freef, void* freef_arg);
+void fd_stake_instruction_copy_to(fd_stake_instruction_t* to, fd_stake_instruction_t* from, fd_alloc_fun_t freef, void* allocf_arg);
+void fd_stake_instruction_walk(fd_stake_instruction_t* self, fd_walk_fun_t fun, const char *name, int level);
+ulong fd_stake_instruction_size(fd_stake_instruction_t* self);
+
+uchar fd_stake_instruction_is_initialize(fd_stake_instruction_t* self);
+uchar fd_stake_instruction_is_authorize(fd_stake_instruction_t* self);
+uchar fd_stake_instruction_is_delegate_stake(fd_stake_instruction_t* self);
+uchar fd_stake_instruction_is_split(fd_stake_instruction_t* self);
+uchar fd_stake_instruction_is_withdraw(fd_stake_instruction_t* self);
+uchar fd_stake_instruction_is_deactivate(fd_stake_instruction_t* self);
+uchar fd_stake_instruction_is_set_lockup(fd_stake_instruction_t* self);
+uchar fd_stake_instruction_is_merge(fd_stake_instruction_t* self);
+uchar fd_stake_instruction_is_authorize_with_seed(fd_stake_instruction_t* self);
+uchar fd_stake_instruction_is_initialize_checked(fd_stake_instruction_t* self);
+uchar fd_stake_instruction_is_authorize_checked(fd_stake_instruction_t* self);
+uchar fd_stake_instruction_is_authorize_checked_with_seed(fd_stake_instruction_t* self);
+uchar fd_stake_instruction_is_set_lockup_checked(fd_stake_instruction_t* self);
 
 FD_PROTOTYPES_END
 

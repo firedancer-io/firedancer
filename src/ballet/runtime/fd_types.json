@@ -959,6 +959,112 @@
         { "name": "nonce_unexpected_blockhash_value" }
       ],
       "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/system_instruction.rs#L16"
+    },
+    {
+      "name": "stake_authorized",
+      "type": "struct",
+      "fields": [
+        { "name": "staker", "type": "pubkey" },
+        { "name": "withdrawer", "type": "pubkey" }
+      ],
+      "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/state.rs#L169"
+    },
+    {
+      "name": "stake_lockup",
+      "type": "struct",
+      "fields": [
+        { "name": "unix_timestamp", "type": "ulong" },
+        { "name": "epoch", "type": "ulong" },
+        { "name": "custodian", "type": "pubkey" }
+      ],
+      "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/state.rs#L135"
+    },
+    {
+      "name": "stake_instruction_initialize",
+      "type": "struct",
+      "fields": [
+        { "name": "authorized", "type": "stake_authorized" },
+        { "name": "lockup", "type": "pubkey" }
+      ],
+      "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/instruction.rs#L68"
+    },
+    {
+      "name": "stake_authorize",
+      "type": "enum",
+      "variants": [
+        { "name": "staker" },
+        { "name": "withdrawer" }
+      ],
+      "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/state.rs#L117"
+    },
+    {
+      "name": "stake_instruction_authorize",
+      "type": "struct",
+      "fields": [
+        { "name": "pubkey", "type": "pubkey" },
+        { "name": "stake_authorize", "type": "stake_authorize" }
+      ],
+      "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/instruction.rs#L78"
+    },
+    {
+      "name": "lockup_args",
+      "type": "struct",
+      "fields": [
+        { "name": "unix_timestamp", "type": "option", "element": "ulong" },
+        { "name": "epoch", "type": "option", "element": "ulong" },
+        { "name": "custodian", "type": "option", "element": "pubkey" }
+      ],
+      "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/instruction.rs#L228"
+    },
+    {
+      "name": "authorize_with_seed_args",
+      "type": "struct",
+      "fields": [
+        { "name": "new_authorized_pubkey", "type": "pubkey" },
+        { "name": "stake_authorize", "type": "stake_authorize" },
+        { "name": "authority_seed", "type": "char*" },
+        { "name": "authority_owner", "type": "pubkey" }
+      ],
+      "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/instruction.rs#L241"
+    },
+    {
+      "name": "authorize_checked_with_seed_args",
+      "type": "struct",
+      "fields": [
+        { "name": "stake_authorize", "type": "stake_authorize" },
+        { "name": "authority_seed", "type": "char*" },
+        { "name": "authority_owner", "type": "pubkey" }
+      ],
+      "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/instruction.rs#L249"
+    },
+    {
+      "name": "lockup_checked_args",
+      "type": "struct",
+      "fields": [
+        { "name": "unix_timestamp", "type": "option", "element": "ulong" },
+        { "name": "epoch", "type": "option", "element": "ulong" }
+      ],
+      "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/instruction.rs#L235"
+    },
+    {
+      "name": "stake_instruction",
+      "type": "enum",
+      "variants": [
+        { "name": "initialize", "type": "stake_instruction_initialize" },
+        { "name": "authorize", "type": "stake_instruction_authorize" },
+        { "name": "delegate_stake" },
+        { "name": "split", "type": "ulong" },
+        { "name": "withdraw", "type": "ulong" },
+        { "name": "deactivate" },
+        { "name": "set_lockup" },
+        { "name": "merge" },
+        { "name": "authorize_with_seed", "type": "authorize_with_seed_args" },
+        { "name": "initialize_checked" },
+        { "name": "authorize_checked", "type": "stake_authorize" },
+        { "name": "authorize_checked_with_seed", "type": "authorize_checked_with_seed_args" },
+        { "name": "set_lockup_checked", "type": "lockup_checked_args" }
+      ],
+      "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/instruction.rs#L58"
     }
   ]
 }
