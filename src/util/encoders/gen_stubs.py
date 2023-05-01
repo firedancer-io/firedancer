@@ -828,16 +828,21 @@ for entry in entries:
 
     if entry["type"] == "enum":
         print("void " + n + "_inner_decode(" + n + "_inner_t* self, uint discriminant, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {", file=body)
+        print("  switch (discriminant) {", file=body)
+        
         for i, v in enumerate(entry["variants"]):
             if "type" in v:
-              print("  if (discriminant == "+ str(i) +") {", file=body)
+              print("  case "+ str(i) +": {", file=body)
               if v["type"] in fields_body_decode:
                   fields_body_decode[v["type"]](namespace, v)
               else:
                   print("  " + namespace + "_" + v["type"] + "_decode(&self->" + v["name"] + ", data, dataend, allocf, allocf_arg);", file=body)
+              print("   break;", file=body)
               print("   }", file=body)
 
-        print("}", file=body)
+        print("default: FD_LOG_ERR(( \"unhandled type\"));", file=body);
+
+        print("}}", file=body)
 
         print("void " + n + "_decode(" + n + "_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {", file=body)
         print("  fd_bincode_uint32_decode(&self->discriminant, data, dataend);", file=body)
@@ -855,15 +860,18 @@ for entry in entries:
     
     if entry["type"] == "enum":
       print("void " + n + "_inner_destroy(" + n + "_inner_t* self, uint discriminant, fd_free_fun_t freef, void* freef_arg) {", file=body)
+      print("  switch (discriminant) {", file=body)
       for i, v in enumerate(entry["variants"]):
           if "type" in v:
-            print("  if (discriminant == "+ str(i) +") {", file=body)
+            print("  case "+ str(i) +": {", file=body)
             if v["type"] in fields_body_destroy:
                  fields_body_destroy[v["type"]](namespace, v)
             else:
                 print("  " + namespace + "_" + v["type"] + "_destroy(&self->" + v["name"] + ", freef, freef_arg);", file=body)
+            print("   break;", file=body)
             print("   }", file=body)
-      print("}", file=body)
+      print("default: break; // FD_LOG_ERR(( \"unhandled type\"));", file=body);
+      print("}}", file=body)
 
       print("void " + n + "_destroy(" + n + "_t* self, fd_free_fun_t freef, void* freef_arg) {", file=body)
       print("  " + namespace + "_" + entry["name"] + "_inner_destroy(&self->inner" + ", self->discriminant, freef, freef_arg);", file=body)
@@ -906,14 +914,16 @@ for entry in entries:
     if entry["type"] == "enum":
       print("  ulong size = 0;", file=body)
       print("  size += sizeof(uint);", file=body)
+      print("  switch (self->discriminant) {", file=body)
       for i, v in enumerate(entry["variants"]):
           if "type" in v:
-            print("  if (self->discriminant == "+ str(i) +") {", file=body)
+            print("  case "+ str(i) +": {", file=body)
             if v["type"] in fields_body_size:
                  fields_body_size[v["type"]](namespace, v)
             else:
                 print("  size += " + namespace + "_" + v["type"] + "_size(&self->inner." + v["name"] + ");", file=body)
-            print("   }", file=body)
+            print("  break; }", file=body)
+      print("  }", file=body)
 
     else:
       print("  ulong size = 0;", file=body)
@@ -928,14 +938,16 @@ for entry in entries:
     print("", file=body)
     if entry["type"] == "enum":
         print("void " + n + "_inner_encode(" + n + "_inner_t* self, uint discriminant, void const** data) {", file=body)
+        print("  switch (discriminant) {", file=body)
         for i, v in enumerate(entry["variants"]):
             if "type" in v:
-              print("  if (discriminant == "+ str(i) +") {", file=body)
+              print("  case "+ str(i) +": {", file=body)
               if v["type"] in fields_body_encode:
                   fields_body_encode[v["type"]](namespace, v)
               else:
                   print("  " + namespace + "_" + v["type"] + "_encode(&self->" + v["name"] + ", data);", file=body)
-              print("   }", file=body)
+              print("  break; }", file=body)
+        print("}", file=body)
         print("}", file=body)
 
         print("void " + n + "_encode(" + n + "_t* self, void const** data) {", file=body)

@@ -2931,11 +2931,16 @@ uchar fd_vote_state_versioned_is_current(fd_vote_state_versioned_t* self) {
   return self->discriminant == 1;
 }
 void fd_vote_state_versioned_inner_decode(fd_vote_state_versioned_inner_t* self, uint discriminant, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
-  if (discriminant == 0) {
+  switch (discriminant) {
+  case 0: {
     fd_vote_state_0_23_5_decode(&self->v0_23_5, data, dataend, allocf, allocf_arg);
+    break;
   }
-  if (discriminant == 1) {
+  case 1: {
     fd_vote_state_decode(&self->current, data, dataend, allocf, allocf_arg);
+    break;
+  }
+  default: FD_LOG_ERR(( "unhandled type"));
   }
 }
 void fd_vote_state_versioned_decode(fd_vote_state_versioned_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
@@ -2943,11 +2948,16 @@ void fd_vote_state_versioned_decode(fd_vote_state_versioned_t* self, void const*
   fd_vote_state_versioned_inner_decode(&self->inner, self->discriminant, data, dataend, allocf, allocf_arg);
 }
 void fd_vote_state_versioned_inner_destroy(fd_vote_state_versioned_inner_t* self, uint discriminant, fd_free_fun_t freef, void* freef_arg) {
-  if (discriminant == 0) {
+  switch (discriminant) {
+  case 0: {
     fd_vote_state_0_23_5_destroy(&self->v0_23_5, freef, freef_arg);
+    break;
   }
-  if (discriminant == 1) {
+  case 1: {
     fd_vote_state_destroy(&self->current, freef, freef_arg);
+    break;
+  }
+  default: break; // FD_LOG_ERR(( "unhandled type"));
   }
 }
 void fd_vote_state_versioned_destroy(fd_vote_state_versioned_t* self, fd_free_fun_t freef, void* freef_arg) {
@@ -2969,21 +2979,29 @@ void fd_vote_state_versioned_copy_to(fd_vote_state_versioned_t* to, fd_vote_stat
 ulong fd_vote_state_versioned_size(fd_vote_state_versioned_t* self) {
   ulong size = 0;
   size += sizeof(uint);
-  if (self->discriminant == 0) {
+  switch (self->discriminant) {
+  case 0: {
     size += fd_vote_state_0_23_5_size(&self->inner.v0_23_5);
+    break;
   }
-  if (self->discriminant == 1) {
+  case 1: {
     size += fd_vote_state_size(&self->inner.current);
+    break;
+  }
   }
   return size;
 }
 
 void fd_vote_state_versioned_inner_encode(fd_vote_state_versioned_inner_t* self, uint discriminant, void const** data) {
-  if (discriminant == 0) {
+  switch (discriminant) {
+  case 0: {
     fd_vote_state_0_23_5_encode(&self->v0_23_5, data);
+    break;
   }
-  if (discriminant == 1) {
+  case 1: {
     fd_vote_state_encode(&self->current, data);
+    break;
+  }
   }
 }
 void fd_vote_state_versioned_encode(fd_vote_state_versioned_t* self, void const** data) {
@@ -3902,12 +3920,18 @@ uchar fd_vote_authorize_is_withdrawer(fd_vote_authorize_t* self) {
   return self->discriminant == 1;
 }
 void fd_vote_authorize_inner_decode(fd_vote_authorize_inner_t* self, uint discriminant, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
+  switch (discriminant) {
+  default: FD_LOG_ERR(( "unhandled type"));
+  }
 }
 void fd_vote_authorize_decode(fd_vote_authorize_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
   fd_bincode_uint32_decode(&self->discriminant, data, dataend);
   fd_vote_authorize_inner_decode(&self->inner, self->discriminant, data, dataend, allocf, allocf_arg);
 }
 void fd_vote_authorize_inner_destroy(fd_vote_authorize_inner_t* self, uint discriminant, fd_free_fun_t freef, void* freef_arg) {
+  switch (discriminant) {
+  default: break; // FD_LOG_ERR(( "unhandled type"));
+  }
 }
 void fd_vote_authorize_destroy(fd_vote_authorize_t* self, fd_free_fun_t freef, void* freef_arg) {
   fd_vote_authorize_inner_destroy(&self->inner, self->discriminant, freef, freef_arg);
@@ -3928,10 +3952,14 @@ void fd_vote_authorize_copy_to(fd_vote_authorize_t* to, fd_vote_authorize_t* fro
 ulong fd_vote_authorize_size(fd_vote_authorize_t* self) {
   ulong size = 0;
   size += sizeof(uint);
+  switch (self->discriminant) {
+  }
   return size;
 }
 
 void fd_vote_authorize_inner_encode(fd_vote_authorize_inner_t* self, uint discriminant, void const** data) {
+  switch (discriminant) {
+  }
 }
 void fd_vote_authorize_encode(fd_vote_authorize_t* self, void const** data) {
   fd_bincode_uint32_encode(&self->discriminant, data);
@@ -4178,38 +4206,52 @@ uchar fd_vote_instruction_is_authorize_checked_with_seed(fd_vote_instruction_t* 
   return self->discriminant == 11;
 }
 void fd_vote_instruction_inner_decode(fd_vote_instruction_inner_t* self, uint discriminant, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
-  if (discriminant == 0) {
+  switch (discriminant) {
+  case 0: {
     fd_vote_init_decode(&self->initialize_account, data, dataend, allocf, allocf_arg);
+    break;
   }
-  if (discriminant == 1) {
+  case 1: {
     fd_vote_authorize_pubkey_decode(&self->authorize, data, dataend, allocf, allocf_arg);
+    break;
   }
-  if (discriminant == 2) {
+  case 2: {
     fd_vote_decode(&self->vote, data, dataend, allocf, allocf_arg);
+    break;
   }
-  if (discriminant == 3) {
+  case 3: {
     fd_bincode_uint64_decode(&self->withdraw, data, dataend);
+    break;
   }
-  if (discriminant == 5) {
+  case 5: {
     fd_bincode_uint8_decode(&self->update_commission, data, dataend);
+    break;
   }
-  if (discriminant == 6) {
+  case 6: {
     fd_vote_switch_decode(&self->vote_switch, data, dataend, allocf, allocf_arg);
+    break;
   }
-  if (discriminant == 7) {
+  case 7: {
     fd_vote_authorize_decode(&self->authorize_checked, data, dataend, allocf, allocf_arg);
+    break;
   }
-  if (discriminant == 8) {
+  case 8: {
     fd_vote_state_update_decode(&self->update_vote_state, data, dataend, allocf, allocf_arg);
+    break;
   }
-  if (discriminant == 9) {
+  case 9: {
     fd_update_vote_state_switch_decode(&self->update_vote_state_switch, data, dataend, allocf, allocf_arg);
+    break;
   }
-  if (discriminant == 10) {
+  case 10: {
     fd_vote_authorize_with_seed_args_decode(&self->authorize_with_seed, data, dataend, allocf, allocf_arg);
+    break;
   }
-  if (discriminant == 11) {
+  case 11: {
     fd_vote_authorize_checked_with_seed_args_decode(&self->authorize_checked_with_seed, data, dataend, allocf, allocf_arg);
+    break;
+  }
+  default: FD_LOG_ERR(( "unhandled type"));
   }
 }
 void fd_vote_instruction_decode(fd_vote_instruction_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
@@ -4217,36 +4259,50 @@ void fd_vote_instruction_decode(fd_vote_instruction_t* self, void const** data, 
   fd_vote_instruction_inner_decode(&self->inner, self->discriminant, data, dataend, allocf, allocf_arg);
 }
 void fd_vote_instruction_inner_destroy(fd_vote_instruction_inner_t* self, uint discriminant, fd_free_fun_t freef, void* freef_arg) {
-  if (discriminant == 0) {
+  switch (discriminant) {
+  case 0: {
     fd_vote_init_destroy(&self->initialize_account, freef, freef_arg);
+    break;
   }
-  if (discriminant == 1) {
+  case 1: {
     fd_vote_authorize_pubkey_destroy(&self->authorize, freef, freef_arg);
+    break;
   }
-  if (discriminant == 2) {
+  case 2: {
     fd_vote_destroy(&self->vote, freef, freef_arg);
+    break;
   }
-  if (discriminant == 3) {
+  case 3: {
+    break;
   }
-  if (discriminant == 5) {
+  case 5: {
+    break;
   }
-  if (discriminant == 6) {
+  case 6: {
     fd_vote_switch_destroy(&self->vote_switch, freef, freef_arg);
+    break;
   }
-  if (discriminant == 7) {
+  case 7: {
     fd_vote_authorize_destroy(&self->authorize_checked, freef, freef_arg);
+    break;
   }
-  if (discriminant == 8) {
+  case 8: {
     fd_vote_state_update_destroy(&self->update_vote_state, freef, freef_arg);
+    break;
   }
-  if (discriminant == 9) {
+  case 9: {
     fd_update_vote_state_switch_destroy(&self->update_vote_state_switch, freef, freef_arg);
+    break;
   }
-  if (discriminant == 10) {
+  case 10: {
     fd_vote_authorize_with_seed_args_destroy(&self->authorize_with_seed, freef, freef_arg);
+    break;
   }
-  if (discriminant == 11) {
+  case 11: {
     fd_vote_authorize_checked_with_seed_args_destroy(&self->authorize_checked_with_seed, freef, freef_arg);
+    break;
+  }
+  default: break; // FD_LOG_ERR(( "unhandled type"));
   }
 }
 void fd_vote_instruction_destroy(fd_vote_instruction_t* self, fd_free_fun_t freef, void* freef_arg) {
@@ -4268,75 +4324,101 @@ void fd_vote_instruction_copy_to(fd_vote_instruction_t* to, fd_vote_instruction_
 ulong fd_vote_instruction_size(fd_vote_instruction_t* self) {
   ulong size = 0;
   size += sizeof(uint);
-  if (self->discriminant == 0) {
+  switch (self->discriminant) {
+  case 0: {
     size += fd_vote_init_size(&self->inner.initialize_account);
+    break;
   }
-  if (self->discriminant == 1) {
+  case 1: {
     size += fd_vote_authorize_pubkey_size(&self->inner.authorize);
+    break;
   }
-  if (self->discriminant == 2) {
+  case 2: {
     size += fd_vote_size(&self->inner.vote);
+    break;
   }
-  if (self->discriminant == 3) {
+  case 3: {
     size += sizeof(ulong);
+    break;
   }
-  if (self->discriminant == 5) {
+  case 5: {
     size += sizeof(char);
+    break;
   }
-  if (self->discriminant == 6) {
+  case 6: {
     size += fd_vote_switch_size(&self->inner.vote_switch);
+    break;
   }
-  if (self->discriminant == 7) {
+  case 7: {
     size += fd_vote_authorize_size(&self->inner.authorize_checked);
+    break;
   }
-  if (self->discriminant == 8) {
+  case 8: {
     size += fd_vote_state_update_size(&self->inner.update_vote_state);
+    break;
   }
-  if (self->discriminant == 9) {
+  case 9: {
     size += fd_update_vote_state_switch_size(&self->inner.update_vote_state_switch);
+    break;
   }
-  if (self->discriminant == 10) {
+  case 10: {
     size += fd_vote_authorize_with_seed_args_size(&self->inner.authorize_with_seed);
+    break;
   }
-  if (self->discriminant == 11) {
+  case 11: {
     size += fd_vote_authorize_checked_with_seed_args_size(&self->inner.authorize_checked_with_seed);
+    break;
+  }
   }
   return size;
 }
 
 void fd_vote_instruction_inner_encode(fd_vote_instruction_inner_t* self, uint discriminant, void const** data) {
-  if (discriminant == 0) {
+  switch (discriminant) {
+  case 0: {
     fd_vote_init_encode(&self->initialize_account, data);
+    break;
   }
-  if (discriminant == 1) {
+  case 1: {
     fd_vote_authorize_pubkey_encode(&self->authorize, data);
+    break;
   }
-  if (discriminant == 2) {
+  case 2: {
     fd_vote_encode(&self->vote, data);
+    break;
   }
-  if (discriminant == 3) {
+  case 3: {
     fd_bincode_uint64_encode(&self->withdraw, data);
+    break;
   }
-  if (discriminant == 5) {
+  case 5: {
     fd_bincode_uint8_encode(&self->update_commission, data);
+    break;
   }
-  if (discriminant == 6) {
+  case 6: {
     fd_vote_switch_encode(&self->vote_switch, data);
+    break;
   }
-  if (discriminant == 7) {
+  case 7: {
     fd_vote_authorize_encode(&self->authorize_checked, data);
+    break;
   }
-  if (discriminant == 8) {
+  case 8: {
     fd_vote_state_update_encode(&self->update_vote_state, data);
+    break;
   }
-  if (discriminant == 9) {
+  case 9: {
     fd_update_vote_state_switch_encode(&self->update_vote_state_switch, data);
+    break;
   }
-  if (discriminant == 10) {
+  case 10: {
     fd_vote_authorize_with_seed_args_encode(&self->authorize_with_seed, data);
+    break;
   }
-  if (discriminant == 11) {
+  case 11: {
     fd_vote_authorize_checked_with_seed_args_encode(&self->authorize_checked_with_seed, data);
+    break;
+  }
   }
 }
 void fd_vote_instruction_encode(fd_vote_instruction_t* self, void const** data) {
@@ -4624,38 +4706,52 @@ uchar fd_system_program_instruction_is_upgrade_nonce_account(fd_system_program_i
   return self->discriminant == 12;
 }
 void fd_system_program_instruction_inner_decode(fd_system_program_instruction_inner_t* self, uint discriminant, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
-  if (discriminant == 0) {
+  switch (discriminant) {
+  case 0: {
     fd_system_program_instruction_create_account_decode(&self->create_account, data, dataend, allocf, allocf_arg);
+    break;
   }
-  if (discriminant == 1) {
+  case 1: {
     fd_pubkey_decode(&self->assign, data, dataend, allocf, allocf_arg);
+    break;
   }
-  if (discriminant == 2) {
+  case 2: {
     fd_bincode_uint64_decode(&self->transfer, data, dataend);
+    break;
   }
-  if (discriminant == 3) {
+  case 3: {
     fd_system_program_instruction_create_account_with_seed_decode(&self->create_account_with_seed, data, dataend, allocf, allocf_arg);
+    break;
   }
-  if (discriminant == 5) {
+  case 5: {
     fd_bincode_uint64_decode(&self->withdraw_nonce_account, data, dataend);
+    break;
   }
-  if (discriminant == 6) {
+  case 6: {
     fd_pubkey_decode(&self->initialize_nonce_account, data, dataend, allocf, allocf_arg);
+    break;
   }
-  if (discriminant == 7) {
+  case 7: {
     fd_pubkey_decode(&self->authorize_nonce_account, data, dataend, allocf, allocf_arg);
+    break;
   }
-  if (discriminant == 8) {
+  case 8: {
     fd_bincode_uint64_decode(&self->allocate, data, dataend);
+    break;
   }
-  if (discriminant == 9) {
+  case 9: {
     fd_system_program_instruction_allocate_with_seed_decode(&self->allocate_with_seed, data, dataend, allocf, allocf_arg);
+    break;
   }
-  if (discriminant == 10) {
+  case 10: {
     fd_system_program_instruction_assign_with_seed_decode(&self->assign_with_seed, data, dataend, allocf, allocf_arg);
+    break;
   }
-  if (discriminant == 11) {
+  case 11: {
     fd_system_program_instruction_transfer_with_seed_decode(&self->transfer_with_seed, data, dataend, allocf, allocf_arg);
+    break;
+  }
+  default: FD_LOG_ERR(( "unhandled type"));
   }
 }
 void fd_system_program_instruction_decode(fd_system_program_instruction_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
@@ -4663,35 +4759,49 @@ void fd_system_program_instruction_decode(fd_system_program_instruction_t* self,
   fd_system_program_instruction_inner_decode(&self->inner, self->discriminant, data, dataend, allocf, allocf_arg);
 }
 void fd_system_program_instruction_inner_destroy(fd_system_program_instruction_inner_t* self, uint discriminant, fd_free_fun_t freef, void* freef_arg) {
-  if (discriminant == 0) {
+  switch (discriminant) {
+  case 0: {
     fd_system_program_instruction_create_account_destroy(&self->create_account, freef, freef_arg);
+    break;
   }
-  if (discriminant == 1) {
+  case 1: {
     fd_pubkey_destroy(&self->assign, freef, freef_arg);
+    break;
   }
-  if (discriminant == 2) {
+  case 2: {
+    break;
   }
-  if (discriminant == 3) {
+  case 3: {
     fd_system_program_instruction_create_account_with_seed_destroy(&self->create_account_with_seed, freef, freef_arg);
+    break;
   }
-  if (discriminant == 5) {
+  case 5: {
+    break;
   }
-  if (discriminant == 6) {
+  case 6: {
     fd_pubkey_destroy(&self->initialize_nonce_account, freef, freef_arg);
+    break;
   }
-  if (discriminant == 7) {
+  case 7: {
     fd_pubkey_destroy(&self->authorize_nonce_account, freef, freef_arg);
+    break;
   }
-  if (discriminant == 8) {
+  case 8: {
+    break;
   }
-  if (discriminant == 9) {
+  case 9: {
     fd_system_program_instruction_allocate_with_seed_destroy(&self->allocate_with_seed, freef, freef_arg);
+    break;
   }
-  if (discriminant == 10) {
+  case 10: {
     fd_system_program_instruction_assign_with_seed_destroy(&self->assign_with_seed, freef, freef_arg);
+    break;
   }
-  if (discriminant == 11) {
+  case 11: {
     fd_system_program_instruction_transfer_with_seed_destroy(&self->transfer_with_seed, freef, freef_arg);
+    break;
+  }
+  default: break; // FD_LOG_ERR(( "unhandled type"));
   }
 }
 void fd_system_program_instruction_destroy(fd_system_program_instruction_t* self, fd_free_fun_t freef, void* freef_arg) {
@@ -4713,75 +4823,101 @@ void fd_system_program_instruction_copy_to(fd_system_program_instruction_t* to, 
 ulong fd_system_program_instruction_size(fd_system_program_instruction_t* self) {
   ulong size = 0;
   size += sizeof(uint);
-  if (self->discriminant == 0) {
+  switch (self->discriminant) {
+  case 0: {
     size += fd_system_program_instruction_create_account_size(&self->inner.create_account);
+    break;
   }
-  if (self->discriminant == 1) {
+  case 1: {
     size += fd_pubkey_size(&self->inner.assign);
+    break;
   }
-  if (self->discriminant == 2) {
+  case 2: {
     size += sizeof(ulong);
+    break;
   }
-  if (self->discriminant == 3) {
+  case 3: {
     size += fd_system_program_instruction_create_account_with_seed_size(&self->inner.create_account_with_seed);
+    break;
   }
-  if (self->discriminant == 5) {
+  case 5: {
     size += sizeof(ulong);
+    break;
   }
-  if (self->discriminant == 6) {
+  case 6: {
     size += fd_pubkey_size(&self->inner.initialize_nonce_account);
+    break;
   }
-  if (self->discriminant == 7) {
+  case 7: {
     size += fd_pubkey_size(&self->inner.authorize_nonce_account);
+    break;
   }
-  if (self->discriminant == 8) {
+  case 8: {
     size += sizeof(ulong);
+    break;
   }
-  if (self->discriminant == 9) {
+  case 9: {
     size += fd_system_program_instruction_allocate_with_seed_size(&self->inner.allocate_with_seed);
+    break;
   }
-  if (self->discriminant == 10) {
+  case 10: {
     size += fd_system_program_instruction_assign_with_seed_size(&self->inner.assign_with_seed);
+    break;
   }
-  if (self->discriminant == 11) {
+  case 11: {
     size += fd_system_program_instruction_transfer_with_seed_size(&self->inner.transfer_with_seed);
+    break;
+  }
   }
   return size;
 }
 
 void fd_system_program_instruction_inner_encode(fd_system_program_instruction_inner_t* self, uint discriminant, void const** data) {
-  if (discriminant == 0) {
+  switch (discriminant) {
+  case 0: {
     fd_system_program_instruction_create_account_encode(&self->create_account, data);
+    break;
   }
-  if (discriminant == 1) {
+  case 1: {
     fd_pubkey_encode(&self->assign, data);
+    break;
   }
-  if (discriminant == 2) {
+  case 2: {
     fd_bincode_uint64_encode(&self->transfer, data);
+    break;
   }
-  if (discriminant == 3) {
+  case 3: {
     fd_system_program_instruction_create_account_with_seed_encode(&self->create_account_with_seed, data);
+    break;
   }
-  if (discriminant == 5) {
+  case 5: {
     fd_bincode_uint64_encode(&self->withdraw_nonce_account, data);
+    break;
   }
-  if (discriminant == 6) {
+  case 6: {
     fd_pubkey_encode(&self->initialize_nonce_account, data);
+    break;
   }
-  if (discriminant == 7) {
+  case 7: {
     fd_pubkey_encode(&self->authorize_nonce_account, data);
+    break;
   }
-  if (discriminant == 8) {
+  case 8: {
     fd_bincode_uint64_encode(&self->allocate, data);
+    break;
   }
-  if (discriminant == 9) {
+  case 9: {
     fd_system_program_instruction_allocate_with_seed_encode(&self->allocate_with_seed, data);
+    break;
   }
-  if (discriminant == 10) {
+  case 10: {
     fd_system_program_instruction_assign_with_seed_encode(&self->assign_with_seed, data);
+    break;
   }
-  if (discriminant == 11) {
+  case 11: {
     fd_system_program_instruction_transfer_with_seed_encode(&self->transfer_with_seed, data);
+    break;
+  }
   }
 }
 void fd_system_program_instruction_encode(fd_system_program_instruction_t* self, void const** data) {
@@ -4817,12 +4953,18 @@ uchar fd_system_error_is_nonce_unexpected_blockhash_value(fd_system_error_t* sel
   return self->discriminant == 8;
 }
 void fd_system_error_inner_decode(fd_system_error_inner_t* self, uint discriminant, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
+  switch (discriminant) {
+  default: FD_LOG_ERR(( "unhandled type"));
+  }
 }
 void fd_system_error_decode(fd_system_error_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
   fd_bincode_uint32_decode(&self->discriminant, data, dataend);
   fd_system_error_inner_decode(&self->inner, self->discriminant, data, dataend, allocf, allocf_arg);
 }
 void fd_system_error_inner_destroy(fd_system_error_inner_t* self, uint discriminant, fd_free_fun_t freef, void* freef_arg) {
+  switch (discriminant) {
+  default: break; // FD_LOG_ERR(( "unhandled type"));
+  }
 }
 void fd_system_error_destroy(fd_system_error_t* self, fd_free_fun_t freef, void* freef_arg) {
   fd_system_error_inner_destroy(&self->inner, self->discriminant, freef, freef_arg);
@@ -4843,10 +4985,14 @@ void fd_system_error_copy_to(fd_system_error_t* to, fd_system_error_t* from, fd_
 ulong fd_system_error_size(fd_system_error_t* self) {
   ulong size = 0;
   size += sizeof(uint);
+  switch (self->discriminant) {
+  }
   return size;
 }
 
 void fd_system_error_inner_encode(fd_system_error_inner_t* self, uint discriminant, void const** data) {
+  switch (discriminant) {
+  }
 }
 void fd_system_error_encode(fd_system_error_t* self, void const** data) {
   fd_bincode_uint32_encode(&self->discriminant, data);
@@ -4965,12 +5111,18 @@ uchar fd_stake_authorize_is_withdrawer(fd_stake_authorize_t* self) {
   return self->discriminant == 1;
 }
 void fd_stake_authorize_inner_decode(fd_stake_authorize_inner_t* self, uint discriminant, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
+  switch (discriminant) {
+  default: FD_LOG_ERR(( "unhandled type"));
+  }
 }
 void fd_stake_authorize_decode(fd_stake_authorize_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
   fd_bincode_uint32_decode(&self->discriminant, data, dataend);
   fd_stake_authorize_inner_decode(&self->inner, self->discriminant, data, dataend, allocf, allocf_arg);
 }
 void fd_stake_authorize_inner_destroy(fd_stake_authorize_inner_t* self, uint discriminant, fd_free_fun_t freef, void* freef_arg) {
+  switch (discriminant) {
+  default: break; // FD_LOG_ERR(( "unhandled type"));
+  }
 }
 void fd_stake_authorize_destroy(fd_stake_authorize_t* self, fd_free_fun_t freef, void* freef_arg) {
   fd_stake_authorize_inner_destroy(&self->inner, self->discriminant, freef, freef_arg);
@@ -4991,10 +5143,14 @@ void fd_stake_authorize_copy_to(fd_stake_authorize_t* to, fd_stake_authorize_t* 
 ulong fd_stake_authorize_size(fd_stake_authorize_t* self) {
   ulong size = 0;
   size += sizeof(uint);
+  switch (self->discriminant) {
+  }
   return size;
 }
 
 void fd_stake_authorize_inner_encode(fd_stake_authorize_inner_t* self, uint discriminant, void const** data) {
+  switch (discriminant) {
+  }
 }
 void fd_stake_authorize_encode(fd_stake_authorize_t* self, void const** data) {
   fd_bincode_uint32_encode(&self->discriminant, data);
@@ -5320,29 +5476,40 @@ uchar fd_stake_instruction_is_set_lockup_checked(fd_stake_instruction_t* self) {
   return self->discriminant == 12;
 }
 void fd_stake_instruction_inner_decode(fd_stake_instruction_inner_t* self, uint discriminant, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
-  if (discriminant == 0) {
+  switch (discriminant) {
+  case 0: {
     fd_stake_instruction_initialize_decode(&self->initialize, data, dataend, allocf, allocf_arg);
+    break;
   }
-  if (discriminant == 1) {
+  case 1: {
     fd_stake_instruction_authorize_decode(&self->authorize, data, dataend, allocf, allocf_arg);
+    break;
   }
-  if (discriminant == 3) {
+  case 3: {
     fd_bincode_uint64_decode(&self->split, data, dataend);
+    break;
   }
-  if (discriminant == 4) {
+  case 4: {
     fd_bincode_uint64_decode(&self->withdraw, data, dataend);
+    break;
   }
-  if (discriminant == 8) {
+  case 8: {
     fd_authorize_with_seed_args_decode(&self->authorize_with_seed, data, dataend, allocf, allocf_arg);
+    break;
   }
-  if (discriminant == 10) {
+  case 10: {
     fd_stake_authorize_decode(&self->authorize_checked, data, dataend, allocf, allocf_arg);
+    break;
   }
-  if (discriminant == 11) {
+  case 11: {
     fd_authorize_checked_with_seed_args_decode(&self->authorize_checked_with_seed, data, dataend, allocf, allocf_arg);
+    break;
   }
-  if (discriminant == 12) {
+  case 12: {
     fd_lockup_checked_args_decode(&self->set_lockup_checked, data, dataend, allocf, allocf_arg);
+    break;
+  }
+  default: FD_LOG_ERR(( "unhandled type"));
   }
 }
 void fd_stake_instruction_decode(fd_stake_instruction_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
@@ -5350,27 +5517,38 @@ void fd_stake_instruction_decode(fd_stake_instruction_t* self, void const** data
   fd_stake_instruction_inner_decode(&self->inner, self->discriminant, data, dataend, allocf, allocf_arg);
 }
 void fd_stake_instruction_inner_destroy(fd_stake_instruction_inner_t* self, uint discriminant, fd_free_fun_t freef, void* freef_arg) {
-  if (discriminant == 0) {
+  switch (discriminant) {
+  case 0: {
     fd_stake_instruction_initialize_destroy(&self->initialize, freef, freef_arg);
+    break;
   }
-  if (discriminant == 1) {
+  case 1: {
     fd_stake_instruction_authorize_destroy(&self->authorize, freef, freef_arg);
+    break;
   }
-  if (discriminant == 3) {
+  case 3: {
+    break;
   }
-  if (discriminant == 4) {
+  case 4: {
+    break;
   }
-  if (discriminant == 8) {
+  case 8: {
     fd_authorize_with_seed_args_destroy(&self->authorize_with_seed, freef, freef_arg);
+    break;
   }
-  if (discriminant == 10) {
+  case 10: {
     fd_stake_authorize_destroy(&self->authorize_checked, freef, freef_arg);
+    break;
   }
-  if (discriminant == 11) {
+  case 11: {
     fd_authorize_checked_with_seed_args_destroy(&self->authorize_checked_with_seed, freef, freef_arg);
+    break;
   }
-  if (discriminant == 12) {
+  case 12: {
     fd_lockup_checked_args_destroy(&self->set_lockup_checked, freef, freef_arg);
+    break;
+  }
+  default: break; // FD_LOG_ERR(( "unhandled type"));
   }
 }
 void fd_stake_instruction_destroy(fd_stake_instruction_t* self, fd_free_fun_t freef, void* freef_arg) {
@@ -5392,57 +5570,77 @@ void fd_stake_instruction_copy_to(fd_stake_instruction_t* to, fd_stake_instructi
 ulong fd_stake_instruction_size(fd_stake_instruction_t* self) {
   ulong size = 0;
   size += sizeof(uint);
-  if (self->discriminant == 0) {
+  switch (self->discriminant) {
+  case 0: {
     size += fd_stake_instruction_initialize_size(&self->inner.initialize);
+    break;
   }
-  if (self->discriminant == 1) {
+  case 1: {
     size += fd_stake_instruction_authorize_size(&self->inner.authorize);
+    break;
   }
-  if (self->discriminant == 3) {
+  case 3: {
     size += sizeof(ulong);
+    break;
   }
-  if (self->discriminant == 4) {
+  case 4: {
     size += sizeof(ulong);
+    break;
   }
-  if (self->discriminant == 8) {
+  case 8: {
     size += fd_authorize_with_seed_args_size(&self->inner.authorize_with_seed);
+    break;
   }
-  if (self->discriminant == 10) {
+  case 10: {
     size += fd_stake_authorize_size(&self->inner.authorize_checked);
+    break;
   }
-  if (self->discriminant == 11) {
+  case 11: {
     size += fd_authorize_checked_with_seed_args_size(&self->inner.authorize_checked_with_seed);
+    break;
   }
-  if (self->discriminant == 12) {
+  case 12: {
     size += fd_lockup_checked_args_size(&self->inner.set_lockup_checked);
+    break;
+  }
   }
   return size;
 }
 
 void fd_stake_instruction_inner_encode(fd_stake_instruction_inner_t* self, uint discriminant, void const** data) {
-  if (discriminant == 0) {
+  switch (discriminant) {
+  case 0: {
     fd_stake_instruction_initialize_encode(&self->initialize, data);
+    break;
   }
-  if (discriminant == 1) {
+  case 1: {
     fd_stake_instruction_authorize_encode(&self->authorize, data);
+    break;
   }
-  if (discriminant == 3) {
+  case 3: {
     fd_bincode_uint64_encode(&self->split, data);
+    break;
   }
-  if (discriminant == 4) {
+  case 4: {
     fd_bincode_uint64_encode(&self->withdraw, data);
+    break;
   }
-  if (discriminant == 8) {
+  case 8: {
     fd_authorize_with_seed_args_encode(&self->authorize_with_seed, data);
+    break;
   }
-  if (discriminant == 10) {
+  case 10: {
     fd_stake_authorize_encode(&self->authorize_checked, data);
+    break;
   }
-  if (discriminant == 11) {
+  case 11: {
     fd_authorize_checked_with_seed_args_encode(&self->authorize_checked_with_seed, data);
+    break;
   }
-  if (discriminant == 12) {
+  case 12: {
     fd_lockup_checked_args_encode(&self->set_lockup_checked, data);
+    break;
+  }
   }
 }
 void fd_stake_instruction_encode(fd_stake_instruction_t* self, void const** data) {
