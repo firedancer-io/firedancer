@@ -249,6 +249,18 @@ fd_runtime_block_eval( fd_global_ctx_t *global, fd_slot_blocks_t *slot_data ) {
 }
 
 ulong
+fd_runtime_lamports_per_signature( fd_global_ctx_t *global ) {
+  // https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/fee_calculator.rs#L110
+  return global->bank.solana_bank.fee_rate_governor.target_lamports_per_signature / 2;
+}
+
+ulong
+fd_runtime_lamports_per_signature_for_blockhash( fd_global_ctx_t *global, FD_FN_UNUSED fd_hash_t *blockhash ) {
+  // https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/fee_calculator.rs#L110
+  return global->bank.solana_bank.fee_rate_governor.target_lamports_per_signature / 2;
+}
+
+ulong
 fd_runtime_txn_lamports_per_signature( fd_global_ctx_t *global, FD_FN_UNUSED fd_txn_t * txn_descriptor, FD_FN_UNUSED fd_rawtxn_b_t* txn_raw ) {
   //   lamports_per_signature = (transaction has a DurableNonce, use the lamports_per_signature from that nonce instead of looking up the recent_block_hash and using the lamports_per_signature associated with that hash
 //                        let TransactionExecutionDetails {
@@ -267,7 +279,8 @@ fd_runtime_txn_lamports_per_signature( fd_global_ctx_t *global, FD_FN_UNUSED fd_
 //                                transaction.message().recent_blockhash(),
 //                            ),
 //                        }
-  return global->bank.solana_bank.fee_rate_governor.target_lamports_per_signature / 2;
+
+  return fd_runtime_lamports_per_signature_for_blockhash( global, NULL );
 }
 
 ulong
@@ -275,51 +288,12 @@ fd_runtime_calculate_fee( fd_global_ctx_t *global, fd_txn_t * txn_descriptor, fd
 // https://github.com/firedancer-io/solana/blob/08a1ef5d785fe58af442b791df6c4e83fe2e7c74/runtime/src/bank.rs#L4443
 // TODO: implement fee distribution to the collector ... and then charge us the correct amount
 
-  fd_pubkey_t *tx_accs   = (fd_pubkey_t *)((uchar *)txn_raw->raw + txn_descriptor->acct_addr_off);
+  ulong lamports_per_signature = fd_runtime_txn_lamports_per_signature(global, txn_descriptor, txn_raw);
+  
+  double BASE_CONGESTION = 5000.0;
+  double current_congestion = (BASE_CONGESTION > lamports_per_signature) ? BASE_CONGESTION : (double)lamports_per_signature;
+  double congestion_multiplier = (lamports_per_signature == 0) ? 0.0 : (BASE_CONGESTION / current_congestion);
 
-  for ( ushort i = 0; i < txn_descriptor->instr_cnt; ++i ) {
-    fd_txn_instr_t *           instr = &txn_descriptor->instr[i];
-    execute_instruction_func_t exec_instr_func = fd_executor_lookup_native_program( global, &tx_accs[instr->program_id] );
-    if (exec_instr_func == fd_executor_system_program_execute_instruction)
-      return 5000;
-    else
-      return 10000;
-  }
-
-  return 10000;
-
-  // Pseudo code:
-  //   lamports_per_signature = (transaction has a DurableNonce, use the lamports_per_signature from that nonce instead of looking up the recent_block_hash and using the lamports_per_signature associated with that hash
-//                        let TransactionExecutionDetails {
-//                            status,
-//                            log_messages,
-//                            inner_instructions,
-//                            durable_nonce_fee,
-//                            ..
-//                        } = details;
-//                        let lamports_per_signature = match durable_nonce_fee {
-//                            Some(DurableNonceFee::Valid(lamports_per_signature)) => {
-//                                Some(lamports_per_signature)
-//                            }
-//                            Some(DurableNonceFee::Invalid) => None,
-//                            None => bank.get_lamports_per_signature_for_blockhash(
-//                                transaction.message().recent_blockhash(),
-//                            ),
-//                        }
-
-//    pub fn calculate_fee(
-//        lamports_per_signature: u64,
-//        fee_structure: &FeeStructure,
-//    ) -> u64 {
-//            // Fee based on compute units and signatures
-//            const BASE_CONGESTION: f64 = 5_000.0;
-//            let current_congestion = BASE_CONGESTION.max(lamports_per_signature as f64);
-//            let congestion_multiplier = if lamports_per_signature == 0 {
-//                0.0 // test only
-//            } else {
-//                BASE_CONGESTION / current_congestion
-//            };
-//
 //            let mut compute_budget = ComputeBudget::default();
 //            let prioritization_fee_details = compute_budget
 //                .process_instructions(
@@ -330,10 +304,18 @@ fd_runtime_calculate_fee( fd_global_ctx_t *global, fd_txn_t * txn_descriptor, fd
 //                )
 //                .unwrap_or_default();
 //            let prioritization_fee = prioritization_fee_details.get_fee();
-//            let signature_fee = Self::get_num_signatures_in_message(message)
-//                .saturating_mul(fee_structure.lamports_per_signature);
+  double prioritization_fee = 0;
+
+  double signature_fee = (double)lamports_per_signature * txn_descriptor->signature_cnt;
+
+// TODO: as far as I can tell, this is always 0
+//
 //            let write_lock_fee = Self::get_num_write_locks_in_message(message)
 //                .saturating_mul(fee_structure.lamports_per_write_lock);
+  double write_lock_fee = 0;
+
+// TODO: the fee_structure bin is static and default.. 
+//
 //            let compute_fee = fee_structure
 //                .compute_fee_bins
 //                .iter()
@@ -346,32 +328,9 @@ fd_runtime_calculate_fee( fd_global_ctx_t *global, fd_txn_t * txn_descriptor, fd
 //                        .map(|bin| bin.fee)
 //                        .unwrap_or_default()
 //                });
-//
-//            ((prioritization_fee
-//                .saturating_add(signature_fee)
-//                .saturating_add(write_lock_fee)
-//                .saturating_add(compute_fee) as f64)
-//                * congestion_multiplier)
-//                .round() as u64
-//
+  double compute_fee = 0;
 
-//calculate_fee lamports: 5000 tx_wide_compute_cap: true support_set_: true   bt:    0: solana_runtime::bank::Bank::calculate_fee
-//                 at /solana/runtime/src/bank.rs:4450:18
-//       1: solana_runtime::bank::Bank::get_fee_for_message_with_lamports_per_signature
-//                 at /solana/runtime/src/bank.rs:3390:9
-//       2: solana_rpc::transaction_status_service::TransactionStatusService::write_transaction_status_batch
-//                 at /solana/rpc/src/transaction_status_service.rs:114:35
-//
-//calculate_fee lamports: 5000 tx_wide_compute_cap: true support_set_: true   bt:    0: solana_runtime::bank::Bank::calculate_fee
-//                 at /solana/runtime/src/bank.rs:4450:18
-//       1: solana_runtime::bank::Bank::filter_program_errors_and_collect_fee::{{closure}}
-//                 at /solana/runtime/src/bank.rs:4533:27
-//
-//calculate_fee lamports: 5000 tx_wide_compute_cap: true support_set_: true   bt:    0: solana_runtime::bank::Bank::calculate_fee
-//                 at /solana/runtime/src/bank.rs:4450:18
-//       1: solana_runtime::accounts::Accounts::load_accounts::{{closure}}
-//                 at /solana/runtime/src/accounts.rs:570:25
-
+  return (ulong) ((prioritization_fee + signature_fee + write_lock_fee + compute_fee) * congestion_multiplier);
 }
 
 void
