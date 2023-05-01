@@ -133,7 +133,7 @@ int fd_executor_stake_program_execute_instruction(
       return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
     }
 
-    /* TODO: Check that the stake account has enough balance
+    /* Check that the stake account has enough balance
        https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/stake/src/stake_state.rs#L445-L456 */
     fd_acc_lamports_t lamports;
     read_result = fd_acc_mgr_get_lamports( ctx.global->acc_mgr, ctx.global->funk_txn, stake_acc, &lamports );
