@@ -78,6 +78,12 @@ struct recordvalue {
       assert(fd_funk_rec_persist(funk, rec_) == FD_FUNK_SUCCESS);
     }
 
+    void erase_data(fd_funk_t * funk) {
+      assert(fd_funk_rec_persist_erase(funk, rec_) == FD_FUNK_SUCCESS);
+      assert(fd_funk_rec_remove(funk, rec_, 1) == FD_FUNK_SUCCESS);
+      rec_ = NULL;
+    }
+
     void verify(fd_funk_t * funk, const recordkey& key) {
       auto* rec = fd_funk_rec_query_const(funk, NULL, &key.id_);
       if (rec_ == NULL) // After rebuild
@@ -105,6 +111,15 @@ struct TestHarness {
       val.write_data(funk_, key);
     }
 
+    void random_erase() {
+      auto it = map_.begin();
+      auto n = fd_rng_ulong_roll(rng_, map_.size());
+      for (size_t i = 0; i < n; ++i)
+        ++it;
+      it->second.erase_data(funk_);
+      map_.erase(it);
+    }
+
     void verify() {
       assert(fd_funk_verify(funk_) == FD_FUNK_SUCCESS);
       assert(fd_funk_rec_size(funk_, fd_funk_wksp(funk_)) == map_.size());
@@ -112,7 +127,7 @@ struct TestHarness {
         val.verify(funk_, key);
     }
 
-    void erase_records() {
+    void teardown() {
       for ( auto& [_,val] : map_)
         val.rec_ = NULL;
     }
@@ -140,10 +155,10 @@ int main(int argc, char **argv) {
     void * shfunk = fd_funk_new( shmem, wksp_tag, seed, txn_max, rec_max );
     harness.funk_ = fd_funk_join( shfunk );
     assert(fd_funk_persist_open( harness.funk_, backfile) == FD_FUNK_SUCCESS);
-    harness.verify();
   };
   unlink(backfile);
   buildup();
+  harness.verify();
 
   for (int i = 0; i < 100; ++i)
     harness.random_insert();
@@ -153,13 +168,20 @@ int main(int argc, char **argv) {
     fd_funk_delete( fd_funk_leave( harness.funk_ ) );
     harness.funk_ = NULL;
     fd_wksp_free_laddr( shmem );
-    harness.erase_records();
+    harness.teardown();
   };
   teardown();
-
   buildup();
-  teardown();
+  harness.verify();
 
+  for (int i = 0; i < 50; ++i)
+    harness.random_erase();
+  harness.verify();
+  teardown();
+  buildup();
+  harness.verify();
+
+  teardown();
   fd_wksp_detach(wksp);
   unlink(backfile);
 
