@@ -1,4 +1,4 @@
-#include "fd_stake_program_config.h"
+#include "fd_stake_program.h"
 
 void write_stake_config( fd_global_ctx_t* global, fd_stake_config_t* stake_config) {
   ulong          sz = fd_stake_config_size( stake_config );
@@ -19,9 +19,6 @@ void write_stake_config( fd_global_ctx_t* global, fd_stake_config_t* stake_confi
 }
 
 void fd_stake_program_config_init( fd_global_ctx_t* global ) {
-
-  /* this is supposed to be 0.25? */
-
   /* Defaults taken from
      https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/config.rs#L8-L11 */
   fd_stake_config_t stake_config = {

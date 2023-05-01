@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_src_ballet_runtime_program_fd_stake_program_config_h
-#define HEADER_fd_src_ballet_runtime_program_fd_stake_program_config_h
+#ifndef HEADER_fd_src_ballet_runtime_program_fd_stake_program_h
+#define HEADER_fd_src_ballet_runtime_program_fd_stake_program_h
 
 #include "../../fd_ballet_base.h"
 #include "../fd_executor.h"
@@ -14,4 +14,4 @@ void fd_stake_program_config_init( fd_global_ctx_t* global );
 
 FD_PROTOTYPES_END
 
-#endif /* HEADER_fd_src_ballet_runtime_program_fd_stake_program_config_h */
+#endif /* HEADER_fd_src_ballet_runtime_program_fd_stake_program_h */

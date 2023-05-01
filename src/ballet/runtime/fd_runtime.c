@@ -4,7 +4,7 @@
 #include "sysvar/fd_sysvar.h"
 #include "../base58/fd_base58.h"
 
-#include "program/fd_stake_program_config.h"
+#include "program/fd_stake_program.h"
 
 #include "program/fd_system_program.h"
 #include "program/fd_vote_program.h"
