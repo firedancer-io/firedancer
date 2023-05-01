@@ -2,6 +2,9 @@
 #include "../fd_types.h"
 #include "fd_sysvar.h"
 
+/* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/rent.rs#L36 */
+#define ACCOUNT_STORAGE_OVERHEAD ( 128 )
+
 void write_rent( fd_global_ctx_t* global, fd_rent_t* rent ) {
   ulong          sz = fd_rent_size( rent );
   unsigned char *enc = fd_alloca( 1, sz );
@@ -43,3 +46,11 @@ void fd_sysvar_rent_init( fd_global_ctx_t* global ) {
 }
 
 /* TODO: handle update */
+
+ulong fd_rent_exempt_minimum_balance( fd_global_ctx_t* global, ulong data_len ) {
+  fd_rent_t rent;
+  fd_sysvar_rent_read( global, &rent );
+
+  /* https://github.com/solana-labs/solana/blob/792fafe0c25ac06868e3ac80a2b13f1a5b4a1ef8/sdk/program/src/rent.rs#L72 */
+  return (data_len + ACCOUNT_STORAGE_OVERHEAD) * ((ulong) ((double)rent.lamports_per_uint8_year * rent.exemption_threshold));
+}
