@@ -1068,15 +1068,6 @@
       "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/instruction.rs#L58"
     },
     {
-      "name": "stake_authorized",
-      "type": "struct",
-      "fields": [
-        { "name": "staker", "type": "pubkey" },
-        { "name": "withdrawer", "type": "pubkey" }
-      ],
-      "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/state.rs#L169"
-    },
-    {
       "name": "stake_state_meta",
       "type": "struct",
       "fields": [

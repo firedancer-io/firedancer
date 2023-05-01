@@ -1176,15 +1176,6 @@ typedef struct fd_stake_instruction fd_stake_instruction_t;
 #define FD_STAKE_INSTRUCTION_FOOTPRINT sizeof(fd_stake_instruction_t)
 #define FD_STAKE_INSTRUCTION_ALIGN (8UL)
 
-/* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/state.rs#L169 */
-struct fd_stake_authorized {
-  fd_pubkey_t staker;
-  fd_pubkey_t withdrawer;
-};
-typedef struct fd_stake_authorized fd_stake_authorized_t;
-#define FD_STAKE_AUTHORIZED_FOOTPRINT sizeof(fd_stake_authorized_t)
-#define FD_STAKE_AUTHORIZED_ALIGN (8UL)
-
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/state.rs#L248 */
 struct fd_stake_state_meta {
   unsigned long         rent_exempt_reserve;
@@ -1975,13 +1966,6 @@ uchar fd_stake_instruction_is_initialize_checked(fd_stake_instruction_t* self);
 uchar fd_stake_instruction_is_authorize_checked(fd_stake_instruction_t* self);
 uchar fd_stake_instruction_is_authorize_checked_with_seed(fd_stake_instruction_t* self);
 uchar fd_stake_instruction_is_set_lockup_checked(fd_stake_instruction_t* self);
-
-void fd_stake_authorized_decode(fd_stake_authorized_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
-void fd_stake_authorized_encode(fd_stake_authorized_t* self, void const** data);
-void fd_stake_authorized_destroy(fd_stake_authorized_t* self, fd_free_fun_t freef, void* freef_arg);
-void fd_stake_authorized_copy_to(fd_stake_authorized_t* to, fd_stake_authorized_t* from, fd_alloc_fun_t freef, void* allocf_arg);
-void fd_stake_authorized_walk(fd_stake_authorized_t* self, fd_walk_fun_t fun, const char *name, int level);
-ulong fd_stake_authorized_size(fd_stake_authorized_t* self);
 
 void fd_stake_state_meta_decode(fd_stake_state_meta_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
 void fd_stake_state_meta_encode(fd_stake_state_meta_t* self, void const** data);

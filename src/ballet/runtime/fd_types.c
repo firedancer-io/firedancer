@@ -5648,40 +5648,6 @@ void fd_stake_instruction_encode(fd_stake_instruction_t* self, void const** data
   fd_stake_instruction_inner_encode(&self->inner, self->discriminant, data);
 }
 
-void fd_stake_authorized_decode(fd_stake_authorized_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
-  fd_pubkey_decode(&self->staker, data, dataend, allocf, allocf_arg);
-  fd_pubkey_decode(&self->withdrawer, data, dataend, allocf, allocf_arg);
-}
-void fd_stake_authorized_destroy(fd_stake_authorized_t* self, fd_free_fun_t freef, void* freef_arg) {
-  fd_pubkey_destroy(&self->staker, freef, freef_arg);
-  fd_pubkey_destroy(&self->withdrawer, freef, freef_arg);
-}
-
-void fd_stake_authorized_walk(fd_stake_authorized_t* self, fd_walk_fun_t fun, const char *name, int level) {
-  fun(self, name, 32, "fd_stake_authorized", level++);
-  fd_pubkey_walk(&self->staker, fun, "staker", level + 1);
-  fd_pubkey_walk(&self->withdrawer, fun, "withdrawer", level + 1);
-  fun(self, name, 33, "fd_stake_authorized", --level);
-}
-void fd_stake_authorized_copy_to(fd_stake_authorized_t* to, fd_stake_authorized_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
-  unsigned char *enc = fd_alloca( 1, fd_stake_authorized_size(from) );
-  void const *   ptr = (void const *) enc;
-  fd_stake_authorized_encode( from, &ptr );
-  void *input = (void *) enc;
-  fd_stake_authorized_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
-}
-ulong fd_stake_authorized_size(fd_stake_authorized_t* self) {
-  ulong size = 0;
-  size += fd_pubkey_size(&self->staker);
-  size += fd_pubkey_size(&self->withdrawer);
-  return size;
-}
-
-void fd_stake_authorized_encode(fd_stake_authorized_t* self, void const** data) {
-  fd_pubkey_encode(&self->staker, data);
-  fd_pubkey_encode(&self->withdrawer, data);
-}
-
 void fd_stake_state_meta_decode(fd_stake_state_meta_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
   fd_bincode_uint64_decode(&self->rent_exempt_reserve, data, dataend);
   fd_stake_authorized_decode(&self->authorized, data, dataend, allocf, allocf_arg);
