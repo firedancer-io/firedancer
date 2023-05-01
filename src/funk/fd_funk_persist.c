@@ -224,7 +224,7 @@ fd_funk_persist_open( fd_funk_t * funk, const char * filename ) {
       if ( FD_UNLIKELY( tmpptr + sizeof(struct fd_funk_persist_free_head) <= tmpend &&
                         ((struct fd_funk_persist_free_head *)tmpptr)->type == FD_FUNK_PERSIST_FREE_TYPE ) ) {
         struct fd_funk_persist_free_head * head = (struct fd_funk_persist_free_head *)tmpptr;
-        fd_funk_persist_remember_free( funk, pos, head->alloc_sz );
+        fd_funk_persist_remember_free( funk, pos + (ulong)(tmpptr - tmp), head->alloc_sz );
         tmpptr += head->alloc_sz;
 
       } else if ( FD_LIKELY( tmpptr + sizeof(struct fd_funk_persist_record_head) <= tmpend &&
@@ -441,6 +441,7 @@ fd_funk_persist_verify( fd_funk_t * funk ) {
       TEST( head.type == FD_FUNK_PERSIST_RECORD_TYPE );
       TEST( head.alloc_sz == rec->persist_alloc_sz );
       TEST( memcmp( head.key, &rec->pair.key, sizeof(head.key) ) == 0 );
+      TEST( head.val_sz == rec->val_sz );
     }
   }
 
