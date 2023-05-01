@@ -44,6 +44,7 @@ struct __attribute__((packed)) fd_funk_persist_walog_head {
        fd_funk_persist_erase_head follow. */
 };
 
+/* Map of free spaces on disk sorted by size */
 typedef struct fd_funk_persist_free_entry fd_funk_persist_free_entry_t;
 #define REDBLK_T fd_funk_persist_free_entry_t
 #define REDBLK_NAME fd_funk_persist_free_map
@@ -60,7 +61,7 @@ long fd_funk_persist_free_map_compare(fd_funk_persist_free_entry_t* left, fd_fun
 }
 
 /* Allocate a chunk of disk space. Returns the position on the disk
-   and the actual size of the allocation. Returns ULONG_MAX on failure. */
+   and the actual size of the allocation. */
 static ulong
 fd_funk_persist_alloc( fd_funk_t * funk, ulong needed, ulong * actual ) {
   /* Avoid micro allocations and make sure that regions align with
@@ -83,9 +84,10 @@ fd_funk_persist_alloc( fd_funk_t * funk, ulong needed, ulong * actual ) {
       FD_LOG_CRIT(( "corrupt fd_funk_persist_free_map" ));
     
     /* See if we found a good fit without too much slop */
-    if ( node && node->alloc_sz <= needed + (needed>>2) ) { /* 25% slop */
+    if ( node && node->alloc_sz <= needed + (needed>>2) ) { /* max 25% slop */
       *actual = node->alloc_sz;
       ulong pos = node->pos;
+      /* release the node */
       node = fd_funk_persist_free_map_delete(pool, &root, node);
       funk->persist_frees_root = (root == NULL ? -1 : root - pool);
       fd_funk_persist_free_map_pool_release(pool, node);
@@ -107,6 +109,7 @@ fd_funk_persist_remember_free( fd_funk_t * funk, ulong pos, ulong alloc_sz ) {
   fd_wksp_t * wksp = fd_funk_wksp( funk );
   fd_funk_persist_free_entry_t * pool = (fd_funk_persist_free_entry_t *)
     fd_wksp_laddr_fast( wksp, funk->persist_frees_gaddr );
+  /* create the free list node */
   fd_funk_persist_free_entry_t * node = fd_funk_persist_free_map_pool_allocate( pool );
   if ( node == NULL ) {
     FD_LOG_WARNING(( "too many free spaces in persistence file" ));
@@ -114,6 +117,7 @@ fd_funk_persist_remember_free( fd_funk_t * funk, ulong pos, ulong alloc_sz ) {
   }
   node->pos = pos;
   node->alloc_sz = alloc_sz;
+  /* add it to the map */
   fd_funk_persist_free_entry_t * root = (funk->persist_frees_root == -1 ? NULL :
                                          pool + funk->persist_frees_root);
   fd_funk_persist_free_map_insert(pool, &root, node);
@@ -124,23 +128,28 @@ fd_funk_persist_remember_free( fd_funk_t * funk, ulong pos, ulong alloc_sz ) {
    allocation. */
 static void
 fd_funk_persist_free( fd_funk_t * funk, ulong pos, ulong alloc_sz ) {
+  /* write the free space header */
   struct fd_funk_persist_free_head head;
   head.type = FD_FUNK_PERSIST_FREE_TYPE;
   head.alloc_sz = alloc_sz;
   if ( pwrite( funk->persist_fd, &head, sizeof(head), (long)pos ) != (long)sizeof(head) )
     FD_LOG_ERR(( "failed to update persistence file: %s", strerror(errno) ));
+  /* add it to the map */
   fd_funk_persist_remember_free( funk, pos, alloc_sz );
 }
 
+/* Process a record found during persistence recovery */
 static void
 fd_funk_persist_recover_record( fd_funk_t * funk, ulong pos,
                                 struct fd_funk_persist_record_head * head,
                                 const uchar * value ) {
+  /* See if we already saw the key */
   int err = 0;
   fd_funk_rec_key_t key;
   fd_memcpy(&key, head->key, sizeof(key));
   fd_funk_rec_t const * rec_con = fd_funk_rec_query(funk, NULL, &key);
   if ( FD_LIKELY ( !rec_con ) ) {
+    /* New key */
     rec_con = fd_funk_rec_insert(funk, NULL, &key, &err);
     if ( !rec_con ) {
       FD_LOG_ERR(( "failed to recover record, code %s", fd_funk_strerror( err ) ));
@@ -157,6 +166,7 @@ fd_funk_persist_recover_record( fd_funk_t * funk, ulong pos,
     /* Delete the previous incarnation */
     fd_funk_persist_free( funk, rec_con->persist_pos, rec_con->persist_alloc_sz );
   }
+  /* Update the record in memory */
   fd_funk_rec_t * rec = fd_funk_rec_modify(funk, rec_con);
   if ( !rec ) {
     FD_LOG_ERR(( "failed to recover record, code %s", fd_funk_strerror( FD_FUNK_ERR_FROZEN ) ));
@@ -169,12 +179,17 @@ fd_funk_persist_recover_record( fd_funk_t * funk, ulong pos,
     FD_LOG_ERR(( "failed to recover record, code %s", fd_funk_strerror( err ) ));
     return;
   }
+  /* Remember where we found the data */
   rec->persist_alloc_sz = head->alloc_sz;
   rec->persist_pos = pos;
 }
 
+/* Recover the state of the database by reading a persistence
+   file. The database typically is empty to start with. Future updates
+   are written back to the file. */
 int
 fd_funk_persist_open( fd_funk_t * funk, const char * filename ) {
+  /* Open the file */
   funk->persist_fd = open(filename, O_CREAT|O_RDWR, 0600);
   if ( funk->persist_fd == -1 ) {
     FD_LOG_ERR(( "failed to open %s: %s", filename, strerror(errno) ));
@@ -187,6 +202,7 @@ fd_funk_persist_open( fd_funk_t * funk, const char * filename ) {
   }
   funk->persist_size = (ulong)statbuf.st_size;
 
+  /* Allocate the map of free disk space */
   fd_wksp_t * wksp = fd_funk_wksp( funk );
   if ( funk->persist_frees_gaddr == 0 ) {
     ulong max = fd_ulong_min ( funk->rec_max + 1, 1000000 );
@@ -208,27 +224,33 @@ fd_funk_persist_open( fd_funk_t * funk, const char * filename ) {
   if ( tmp == NULL )
     FD_LOG_ERR(( "failed to allocate temp buffer" ));
 
+  /* Loop through the file */
   ulong pos = 0;
   while ( pos < funk->persist_size ) {
+    /* Read a big chunk */
     long res = pread( funk->persist_fd, tmp, tmp_max, (long)pos );
     if ( res == -1) {
       FD_LOG_ERR(( "failed to open %s: %s", filename, strerror(errno) ));
       return FD_FUNK_ERR_SYS;
     }
 
+    /* Loop through the chunk */
     const uchar* tmpptr = tmp;
     const uchar* tmpend = tmp + res;
     ulong new_tmp_max = 0;
     while ( tmpptr < tmpend ) {
 
+      /* Use magic numbers to determine the type of the next header */
       if ( FD_UNLIKELY( tmpptr + sizeof(struct fd_funk_persist_free_head) <= tmpend &&
                         ((struct fd_funk_persist_free_head *)tmpptr)->type == FD_FUNK_PERSIST_FREE_TYPE ) ) {
+        /* Free space */
         struct fd_funk_persist_free_head * head = (struct fd_funk_persist_free_head *)tmpptr;
         fd_funk_persist_remember_free( funk, pos + (ulong)(tmpptr - tmp), head->alloc_sz );
         tmpptr += head->alloc_sz;
 
       } else if ( FD_LIKELY( tmpptr + sizeof(struct fd_funk_persist_record_head) <= tmpend &&
                              ((struct fd_funk_persist_record_head *)tmpptr)->type == FD_FUNK_PERSIST_RECORD_TYPE ) ) {
+        /* Ordinary record (published) */
         struct fd_funk_persist_record_head * head = (struct fd_funk_persist_record_head *)tmpptr;
         if ( tmpptr + sizeof(struct fd_funk_persist_record_head) + head->val_sz <= tmpend ) {
           fd_funk_persist_recover_record( funk, pos + (ulong)(tmpptr - tmp), head,
@@ -247,7 +269,7 @@ fd_funk_persist_open( fd_funk_t * funk, const char * filename ) {
         break;
     }
 
-    /* Update the current position */
+    /* Update the current position based on how much data was processed */
     pos += (ulong)(tmpptr - tmp);
 
     if ( new_tmp_max ) {
@@ -259,7 +281,7 @@ fd_funk_persist_open( fd_funk_t * funk, const char * filename ) {
         FD_LOG_ERR(( "failed to allocate temp buffer" ));
 
     } else if (tmpptr == tmp) {
-      /* We are stalled. Database must be corrupt. */
+      /* We are unable to make progress. Database must be corrupt. */
       FD_LOG_ERR(( "corrupt persistence file" ));
       break;
     }
@@ -274,12 +296,15 @@ fd_funk_persist_open( fd_funk_t * funk, const char * filename ) {
   return FD_FUNK_SUCCESS;
 }
 
+/* Close the persistence file */
 void
 fd_funk_persist_close( fd_funk_t * funk ) {
   close(funk->persist_fd);
   funk->persist_fd = -1;
 }
 
+/* Update the disk representation of a record from the in-memory
+   content. Unpublished records are ignored. */
 int
 fd_funk_rec_persist( fd_funk_t *     funk,
                      fd_funk_rec_t * rec ) {
@@ -301,17 +326,19 @@ fd_funk_rec_persist( fd_funk_t *     funk,
 
   return fd_funk_rec_persist_unsafe( funk, rec );
 }
-  
+
+/* Version of fd_funk_rec_persist that skip argument checking */
 int
 fd_funk_rec_persist_unsafe( fd_funk_t *     funk,
                             fd_funk_rec_t * rec ) {
 
   if ( funk->persist_fd == -1 ||
        !fd_funk_txn_idx_is_null( fd_funk_txn_idx( rec->txn_cidx ) ) ) {
-    /* Not useful in this case */
+    /* Not useful in this case. We only save published records. */
     return FD_FUNK_SUCCESS;
   }
-  
+
+  /* Start building the header */
   struct fd_funk_persist_record_head head;
   head.type = FD_FUNK_PERSIST_RECORD_TYPE;
   fd_memcpy( head.key, &rec->pair.key, sizeof(head.key) );
@@ -347,6 +374,7 @@ fd_funk_rec_persist_unsafe( fd_funk_t *     funk,
       return FD_FUNK_ERR_SYS;
     }
   } else {
+    /* Naked header */
     if ( pwritev( funk->persist_fd, iov, 1, (long)pos ) != (long)iov[0].iov_len ) {
       FD_LOG_ERR(( "failed to write persistence file: %s", strerror(errno) ));
       return FD_FUNK_ERR_SYS;
@@ -367,6 +395,8 @@ fd_funk_rec_persist_unsafe( fd_funk_t *     funk,
   return FD_FUNK_SUCCESS;
 }
 
+/* Remove the on-disk data associated with a record. The space can be
+   reused after. */
 int
 fd_funk_rec_persist_erase( fd_funk_t *     funk,
                            fd_funk_rec_t * rec ) {
@@ -388,14 +418,15 @@ fd_funk_rec_persist_erase( fd_funk_t *     funk,
 
   return fd_funk_rec_persist_erase_unsafe( funk, rec );
 }
-  
+
+/* Version of fd_funk_rec_persist_erase that skips argument checking */
 int
 fd_funk_rec_persist_erase_unsafe( fd_funk_t *     funk,
                                   fd_funk_rec_t * rec ) {
   if ( funk->persist_fd == -1 ||
        !fd_funk_txn_idx_is_null( fd_funk_txn_idx( rec->txn_cidx ) ) ||
        rec->persist_pos == FD_FUNK_REC_IDX_NULL ) {
-    /* Not useful in this case */
+    /* Not useful in this case. There is nothing to erase. */
     return FD_FUNK_SUCCESS;
   }
 
@@ -407,6 +438,7 @@ fd_funk_rec_persist_erase_unsafe( fd_funk_t *     funk,
   return FD_FUNK_SUCCESS;
 }
 
+/* Verify the integrity of the persistence layer */
 int
 fd_funk_persist_verify( fd_funk_t * funk ) {
 # define TEST(c) do {                                                   \

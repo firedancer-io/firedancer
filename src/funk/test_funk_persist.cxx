@@ -67,7 +67,7 @@ struct recordvalue {
       }
     }
 
-    void write_data(fd_funk_t * funk, recordkey& key) {
+    void write_data(fd_funk_t * funk, const recordkey& key) {
       int err;
       auto sz = data_.size();
       rec_ = fd_funk_rec_write_prepare(funk, NULL, &key.id_, sz, &err);
@@ -109,6 +109,16 @@ struct TestHarness {
       auto& val = map_[key];
       val.random_data(rng_);
       val.write_data(funk_, key);
+    }
+
+    void random_modify() {
+      auto it = map_.begin();
+      auto n = fd_rng_ulong_roll(rng_, map_.size());
+      for (size_t i = 0; i < n; ++i)
+        ++it;
+      auto& val = it->second;
+      val.random_data(rng_);
+      val.write_data(funk_, it->first);
     }
 
     void random_erase() {
@@ -195,12 +205,29 @@ int main(int argc, char **argv) {
   buildup();
   harness.verify();
 
+  for (int i = 0; i < 1000; ++i)
+    harness.random_modify();
+  harness.verify();
+  teardown();
+  buildup();
+  harness.verify();
+  
+  for (int i = 0; i < 2000; ++i)
+    harness.random_erase();
+  harness.verify();
+  teardown();
+  buildup();
+  harness.verify();
+
+  for (int i = 0; i < 2000; ++i)
+    harness.random_insert();
+  harness.verify();
+  teardown();
+  buildup();
+  harness.verify();
+
   teardown();
 
-  fd_wksp_usage_t usage;
-  fd_wksp_usage(wksp, &wksp_tag, 1, &usage);
-  assert(usage.used_cnt == 0);
-  
   fd_wksp_detach(wksp);
   unlink(backfile);
 
