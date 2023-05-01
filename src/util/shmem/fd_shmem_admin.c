@@ -438,7 +438,7 @@ fd_shmem_acquire( ulong page_sz,
     ERROR( unmap );
   }
 
-  err = fd_shmem_numa_validate( mem, page_sz, page_cnt, numa_idx ); /* logs details */
+  err = fd_shmem_numa_validate( mem, page_sz, page_cnt, cpu_idx ); /* logs details */
   if( FD_UNLIKELY( err ) )
     FD_LOG_WARNING(( "mmap(NULL,%lu KiB,PROT_READ|PROT_WRITE,%x,-1,0) numa binding failed (%i-%s)",
                      sz>>10, flags, err, strerror( err ) ));
