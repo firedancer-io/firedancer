@@ -389,8 +389,13 @@ int fd_executor_vote_program_execute_instruction(
       /* Check that there does exist a proposed vote slot newer than the last slot we previously voted on:
          if so, we would have made some progress through the slot hashes. */
       if ( slot_hash_idx == slot_hashes.hashes.cnt ) {
+        ulong previously_voted_on = vote_state->votes.elems[ vote_state->votes.cnt - 1 ].slot;
+        ulong most_recent_proposed_vote_slot = vote->slots.elems[ vote->slots.cnt - 1 ];
+        FD_LOG_NOTICE(( "vote instruction too old (%lu <= %lu): discarding", most_recent_proposed_vote_slot, previously_voted_on ));
+        
         /* TODO: propagate custom error code FD_VOTE_VOTE_TOO_OLD */
-        return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
+        /* TODO: return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR and properly handle failed transactions */
+        return FD_EXECUTOR_INSTR_SUCCESS;
       }
 
       /* Check that for each slot in the vote tower, we found a slot in the slot hashes:
