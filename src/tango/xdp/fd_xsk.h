@@ -385,5 +385,5 @@ fd_xsk_get_params( fd_xsk_t const * xsk );
 
 FD_PROTOTYPES_END
 
-#endif /* defined(__linux__) && FD_HAS_LIBBPF */
+#endif /* defined(__linux__) */
 #endif /* HEADER_fd_src_tango_xdp_fd_xsk_h */

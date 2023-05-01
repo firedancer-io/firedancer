@@ -397,8 +397,6 @@ main( int     argc,
     }
   } while(0);
 
-# if FD_HAS_X86
-
   /* Test fd_tickcount (FIXME: TEST MORE THAN MONOTONICITY?) */
 
   long tic = fd_tickcount();
@@ -407,8 +405,6 @@ main( int     argc,
     FD_TEST( (toc - tic) > 0L );
     tic = toc;
   }
-
-# endif
 
   /* Test FD_IMPORT */
 

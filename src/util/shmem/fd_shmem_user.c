@@ -1,10 +1,10 @@
-#if FD_HAS_HOSTED && FD_HAS_X86
+#if FD_HAS_HOSTED
 #define _GNU_SOURCE
 #endif
 
 #include "fd_shmem_private.h"
 
-#if FD_HAS_HOSTED && FD_HAS_X86
+#if FD_HAS_HOSTED
 
 #include <errno.h>
 #include <unistd.h>

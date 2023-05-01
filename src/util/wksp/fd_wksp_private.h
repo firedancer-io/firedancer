@@ -3,8 +3,6 @@
 
 #include "fd_wksp.h"
 
-#if FD_HAS_HOSTED && FD_HAS_X86
-
 /* FD_WKSP_MAGIC is an ideally unique number that specifies the precise
    memory layout of a fd_wksp. */
 
@@ -34,7 +32,8 @@ struct __attribute__((aligned(FD_WKSP_ALLOC_ALIGN_MIN))) fd_wksp_private {
   ulong owner;    /* ULONG_MAX if no process is operating on this workspace or pid of the process currently operating on this
                      workspace.  If pid is dead, the workspace is recoverable */
   ulong part_cnt; /* Number of partitions in the workspace.  0<part_cnt<=part_max.
-                     partition i is completely described by ( part[i].active, part[i].lo, part[i+1].hi ) */
+                     partition i is completely described by ( part[i].active, part[i].lo, part[i+1].hi ).
+                     Will be briefly 0 during a reset to aid in recoverability. */
   ulong part_max; /* Maximum number of partitions of the workspace.  Positive.  This will typically be large enough to accommodate
                      a worst case partitioning of the workspace. */
   ulong gaddr_lo; /* (Convenience==part[0       ].off), data region covers bytes [gaddr_lo,gaddr_hi) relative to wksp */
@@ -131,7 +130,5 @@ fd_wksp_private_unlock( fd_wksp_t * wksp ) {
 }
 
 FD_PROTOTYPES_END
-
-#endif
 
 #endif /* HEADER_fd_src_util_wksp_fd_wksp_private_h */
