@@ -1076,7 +1076,7 @@ int main(int argc, char **argv) {
     free(buf);
   }
 
-  fd_vec_fd_clock_timestamp_vote_t_new( &state.global->timestamp_votes.votes );
+  fd_vec_fd_clock_timestamp_vote_t_new( &state.global->bank.timestamp_votes.votes );
 
   FD_LOG_WARNING(("loading genesis account into funk db"));
 
@@ -1170,9 +1170,7 @@ int main(int argc, char **argv) {
   if (strcmp(state.cmd, "accounts") == 0)
     slot_dump(&state);
 
-  fd_acc_mgr_delete(fd_acc_mgr_leave(state.global->acc_mgr));
-
-  fd_genesis_solana_destroy(&state.global->genesis_block, state.global->freef, state.global->allocf_arg);
+  fd_global_ctx_delete(fd_global_ctx_leave(state.global));
 
   // The memory management model is odd...  how do I know how to destroy this
   fd_rocksdb_destroy(&state.rocks_db);

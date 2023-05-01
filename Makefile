@@ -58,6 +58,10 @@ include config/everything.mk
 include config/coverage.mk
 
 # can this go here or should it be in config/everything.mk
+
+#  export LSAN_OPTIONS="suppressions=`pwd`/lsan-suppressed.cc"
+#  export EXTRAS="asan"
+
 run-runtime-test:
 	src/ballet/runtime/run_ledger_tests.sh 
 

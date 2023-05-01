@@ -25,7 +25,7 @@ void
 fd_runtime_boot_slot_zero( fd_global_ctx_t *global ) {
   fd_memcpy(global->poh.state, global->genesis_hash, sizeof(global->genesis_hash));
 
-  fd_memcpy(&global->fee_rate_governor, &global->genesis_block.fee_rate_governor, sizeof(global->genesis_block.fee_rate_governor));
+  fd_memcpy(&global->bank.solana_bank.fee_rate_governor, &global->genesis_block.fee_rate_governor, sizeof(global->genesis_block.fee_rate_governor));
   global->poh_booted = 1;
 
   fd_sysvar_recent_hashes_init(global );
@@ -267,7 +267,7 @@ fd_runtime_txn_lamports_per_signature( fd_global_ctx_t *global, FD_FN_UNUSED fd_
 //                                transaction.message().recent_blockhash(),
 //                            ),
 //                        }
-  return global->fee_rate_governor.target_lamports_per_signature / 2;
+  return global->bank.solana_bank.fee_rate_governor.target_lamports_per_signature / 2;
 }
 
 ulong
@@ -504,6 +504,10 @@ fd_global_ctx_delete     ( void * mem ) {
     FD_LOG_WARNING(( "bad magic" ));
     return NULL;
   }
+
+  fd_acc_mgr_delete(fd_acc_mgr_leave(hdr->acc_mgr));
+  fd_genesis_solana_destroy(&hdr->genesis_block, hdr->freef, hdr->allocf_arg);
+  fd_firedancer_banks_destroy(&hdr->bank, hdr->freef, hdr->allocf_arg);
 
   FD_COMPILER_MFENCE();
   FD_VOLATILE( hdr->magic ) = 0UL;

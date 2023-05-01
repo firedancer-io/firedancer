@@ -116,14 +116,14 @@ long estimate_timestamp( fd_global_ctx_t* global, uint128 ns_per_slot ) {
   /* TODO: bound the estimate to ensure it stays within a certain range of the expected PoH clock:
   https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/runtime/src/stake_weighted_timestamp.rs#L13 */
 
-  if ( global->timestamp_votes.votes.cnt == 0 ) {
+  if ( global->bank.timestamp_votes.votes.cnt == 0 ) {
     return timestamp_from_genesis( &global->genesis_block, global->bank.solana_bank.slot );
   }
 
   /* TODO: actually take the stake-weighted median. For now, just take the first vote */
-  ulong slots = global->bank.solana_bank.slot - global->timestamp_votes.votes.elems[0].slot;
+  ulong slots = global->bank.solana_bank.slot - global->bank.timestamp_votes.votes.elems[0].slot;
   uint128 ns_correction = ns_per_slot * slots;
-  return global->timestamp_votes.votes.elems[0].timestamp  + (long) (ns_correction / NS_IN_S) ;
+  return global->bank.timestamp_votes.votes.elems[0].timestamp  + (long) (ns_correction / NS_IN_S) ;
 }
 
 void fd_sysvar_clock_update( fd_global_ctx_t* global ) {

@@ -73,12 +73,6 @@ struct __attribute__((aligned(FD_GLOBAL_CTX_ALIGN))) fd_global_ctx {
   fd_pubkey_t                collector_id;
   ulong                      collected;
 
-  fd_fee_rate_governor_t     fee_rate_governor;
-  fd_recent_block_hashes_t   recent_block_hashes;
-
-  // TODO: should we instead remember which slot the poh is valid for?
-  fd_clock_timestamp_votes_t timestamp_votes;
-
   uchar                      poh_booted;
   uchar                      collector_set;
   uchar                      log_level;

@@ -30,18 +30,18 @@ void fd_sysvar_recent_hashes_init( fd_global_ctx_t* global ) {
   fd_block_block_hash_entry_t s;
   memset(&s, 0, sizeof(s));
 
-  fd_vec_fd_block_block_hash_entry_t_new(&global->recent_block_hashes.hashes);
+  fd_vec_fd_block_block_hash_entry_t_new(&global->bank.recent_block_hashes.hashes);
 
   fd_memcpy(s.blockhash.hash, global->genesis_hash, sizeof(global->genesis_hash));
-  fd_vec_fd_block_block_hash_entry_t_push_front(&global->recent_block_hashes.hashes, s);
+  fd_vec_fd_block_block_hash_entry_t_push_front(&global->bank.recent_block_hashes.hashes, s);
 
-  ulong sz = fd_recent_block_hashes_size(&global->recent_block_hashes);
+  ulong sz = fd_recent_block_hashes_size(&global->bank.recent_block_hashes);
   if (sz < 6008)
     sz = 6008;
   unsigned char *enc = fd_alloca(1, sz);
   memset(enc, 0, sz);
   void const *ptr = (void const *) enc;
-  fd_recent_block_hashes_encode(&global->recent_block_hashes, &ptr);
+  fd_recent_block_hashes_encode(&global->bank.recent_block_hashes, &ptr);
 
   fd_sysvar_set(global, global->sysvar_owner, global->sysvar_recent_block_hashes, enc, sz, global->bank.solana_bank.slot );
 }
@@ -56,18 +56,18 @@ void fd_sysvar_recent_hashes_update(fd_global_ctx_t* global ) {
   s.fee_calculator.lamports_per_signature = fd_runtime_txn_lamports_per_signature(global, NULL, NULL);
   fd_memcpy(s.blockhash.hash, global->block_hash, sizeof(global->block_hash));
 
-  while (global->recent_block_hashes.hashes.cnt >= 150)
-    fd_vec_fd_block_block_hash_entry_t_pop_unsafe(&global->recent_block_hashes.hashes);
+  while (global->bank.recent_block_hashes.hashes.cnt >= 150)
+    fd_vec_fd_block_block_hash_entry_t_pop_unsafe(&global->bank.recent_block_hashes.hashes);
 
-  fd_vec_fd_block_block_hash_entry_t_push_front(&global->recent_block_hashes.hashes, s);
+  fd_vec_fd_block_block_hash_entry_t_push_front(&global->bank.recent_block_hashes.hashes, s);
 
-  ulong sz = fd_recent_block_hashes_size(&global->recent_block_hashes);
+  ulong sz = fd_recent_block_hashes_size(&global->bank.recent_block_hashes);
   if (sz < 6008)
     sz = 6008;
   unsigned char *enc = fd_alloca(1, sz);
   memset(enc, 0, sz);
   void const *ptr = (void const *) enc;
-  fd_recent_block_hashes_encode(&global->recent_block_hashes, &ptr);
+  fd_recent_block_hashes_encode(&global->bank.recent_block_hashes, &ptr);
 
   fd_sysvar_set(global, global->sysvar_owner, global->sysvar_recent_block_hashes, enc, sz, global->bank.solana_bank.slot);
 }

@@ -23,10 +23,10 @@ void record_timestamp_vote(
   ulong timestamp
 ) {
     uchar found = 0;
-    for ( ulong i = 0; i < global->timestamp_votes.votes.cnt; i++ ) {
-      if ( memcmp( &global->timestamp_votes.votes.elems[i].pubkey, vote_acc, sizeof(fd_pubkey_t) ) == 0 ) {
-        global->timestamp_votes.votes.elems[i].slot      = global->bank.solana_bank.slot;
-        global->timestamp_votes.votes.elems[i].timestamp = (long)timestamp;
+    for ( ulong i = 0; i < global->bank.timestamp_votes.votes.cnt; i++ ) {
+      if ( memcmp( &global->bank.timestamp_votes.votes.elems[i].pubkey, vote_acc, sizeof(fd_pubkey_t) ) == 0 ) {
+        global->bank.timestamp_votes.votes.elems[i].slot      = global->bank.solana_bank.slot;
+        global->bank.timestamp_votes.votes.elems[i].timestamp = (long)timestamp;
         found = 1;
       }
     } 
@@ -36,7 +36,7 @@ void record_timestamp_vote(
         .timestamp = (long)timestamp,
         .slot      = global->bank.solana_bank.slot,
       };
-      fd_vec_fd_clock_timestamp_vote_t_push( &global->timestamp_votes.votes, timestamp_vote );
+      fd_vec_fd_clock_timestamp_vote_t_push( &global->bank.timestamp_votes.votes, timestamp_vote );
     }
 }
 

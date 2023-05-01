@@ -46,6 +46,7 @@ void* fd_acc_mgr_leave( fd_acc_mgr_t* acc_mgr ) {
 void* fd_acc_mgr_delete( void* mem ) {
   fd_acc_mgr_t* acc_mgr = (fd_acc_mgr_t*)mem;
 
+  fd_pubkey_hash_vector_destroy(&acc_mgr->keys);
   fd_dirty_dup_delete ( acc_mgr->shmap );
   acc_mgr->shmap = NULL;
 
