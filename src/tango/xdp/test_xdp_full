@@ -1,0 +1,11 @@
+#!/bin/bash
+
+. tmp/test_xdp.conf
+FD_LOG_PATH=""
+export FD_LOG_PATH
+
+$UNIT_TEST/test_xdp_echo_aio \
+  --netns "$NETNS0" \
+  --cnc "$CNC" \
+  --xsk "$XSK0" \
+  --xsk-aio "$XSK_AIO0"

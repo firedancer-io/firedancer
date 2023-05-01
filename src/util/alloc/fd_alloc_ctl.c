@@ -1,7 +1,7 @@
 #include "../fd_util.h"
 #include "../wksp/fd_wksp_private.h"
 
-#if FD_HAS_HOSTED && FD_HAS_X86
+#if FD_HAS_HOSTED
 
 #include <stdio.h>
 

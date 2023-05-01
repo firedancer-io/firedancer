@@ -19,7 +19,6 @@ pkgs.mkShell {
     llvm_15
 
     # C dependencies
-    libbpf
     pkg-config
     quictls
     rocksdb

@@ -1,7 +1,5 @@
 #include "fd_funk.h"
 
-#if FD_HAS_HOSTED && FD_HAS_X86
-
 /* Provide the actual record map implementation */
 
 #define MAP_NAME              fd_funk_rec_map
@@ -397,7 +395,7 @@ fd_funk_rec_remove( fd_funk_t *     funk,
          number of records by flickering insert / remove-with-erase in
          an in-preparaton transaction with lots unique keys. */
 
-      ulong tag = ((ulong)fd_tickcount()) << 2; /* TODO: Use fd_funk_txn_cycle_tag from fd_funk_txn.c */
+      ulong tag = funk->cycle_tag++;
 
       ulong cur_idx = txn_idx;
       for(;;) {
@@ -526,15 +524,13 @@ fd_funk_rec_write_prepare( fd_funk_t *               funk,
 
     } else {
       /* Copy the record into the transaction */
-      fd_funk_rec_t * rec_new = fd_funk_rec_modify( funk, fd_funk_rec_insert( funk, txn, key, opt_err ) );
-      if ( !rec_new )
+      rec = fd_funk_rec_modify( funk, fd_funk_rec_insert( funk, txn, key, opt_err ) );
+      if ( !rec )
         return NULL;
-      rec_new = fd_funk_val_copy( rec_new, fd_funk_val( rec, wksp ), fd_funk_val_sz( rec ),
-                                  fd_ulong_max( fd_funk_val_sz( rec ), min_val_size ),
-                                  fd_funk_alloc( funk, wksp ), wksp, opt_err );
-      if ( !rec_new )
+      rec = fd_funk_val_copy( rec, fd_funk_val_const(rec_con, wksp), fd_funk_val_sz(rec_con), 
+        fd_ulong_max( fd_funk_val_sz(rec_con), min_val_size ), fd_funk_alloc( funk, wksp ), wksp, opt_err );
+      if ( !rec )
         return NULL;
-      rec = rec_new;
     }
 
   } else {
@@ -683,4 +679,3 @@ fd_funk_rec_verify( fd_funk_t * funk ) {
   return FD_FUNK_SUCCESS;
 }
 
-#endif /* FD_HAS_HOSTED && FD_HAS_X86 */

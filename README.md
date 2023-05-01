@@ -44,7 +44,6 @@ the necessary `sudo` access.
   and then only use external dependencies that are trivially installable
   on recent stock Linux distributions.  Current packages used include:
     - pkg-config
-    - libbpf v1.1.0
     - xdp-tools
 
 - Configure the host for high performance by allowing users to lock

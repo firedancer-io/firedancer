@@ -3,8 +3,6 @@
 
 #include "fd_shmem.h"
 
-#if FD_HAS_HOSTED && FD_HAS_X86
-
 #if FD_HAS_THREADS
 #include <pthread.h>
 #endif
@@ -143,7 +141,5 @@ fd_shmem_private_path( char const * name,    /* Valid name */
 }
 
 FD_PROTOTYPES_END
-
-#endif
 
 #endif /* HEADER_fd_src_util_shmem_fd_shmem_private_h */

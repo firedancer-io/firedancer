@@ -1,15 +1,17 @@
-#if !defined(__linux__) || !FD_HAS_LIBBPF
+#if !defined(__linux__)
 #error "fd_xdp_redirect_user requires Linux operating system with XDP support"
 #endif
 
+#define _DEFAULT_SOURCE
 #include "fd_xdp_redirect_user.h"
 #include "fd_xdp_redirect_prog.h"
+#include "../../ballet/ebpf/fd_ebpf.h"
 #include "../../util/fd_util.h"
 
-#define _DEFAULT_SOURCE
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <stdio.h>
 #include <unistd.h>
 #include <linux/if_xdp.h>
 #include <linux/if_link.h>
@@ -17,8 +19,6 @@
 #include <sys/stat.h>
 #include <sys/socket.h>
 #include <sys/types.h>
-#include <bpf/bpf.h>
-#include <bpf/libbpf.h>
 
 /* fd_xdp_validate_name_cstr: Validates whether the path component cstr
    s is well-formed and fits into the buffer of sz bufsz.  Returns 0 on
@@ -47,27 +47,53 @@ fd_xdp_validate_name_cstr( char const * s,
   return 0;
 }
 
+static void
+fd_xdp_reperm( char const * path,
+               uint         mode,
+               int          uid,
+               int          gid,
+               int          is_dir ) {
+
+  if( FD_UNLIKELY( 0!=chown( path, (uint)uid, (uint)gid ) ) ) {
+    FD_LOG_WARNING(( "chown(%s,%u,%u) failed (%d-%s)",
+                     path, uid, gid, errno, strerror( errno ) ));
+    return;
+  }
+
+  mode &= fd_uint_if( is_dir, 0777, 0666 );
+  if( FD_UNLIKELY( 0!=chmod( path, mode ) ) ) {
+    FD_LOG_WARNING(( "chown(%s,%u,%u) failed (%d-%s)",
+                     path, uid, gid, errno, strerror( errno ) ));
+    return;
+  }
+}
+
 
 int
-fd_xdp_init( char const * app_name ) {
+fd_xdp_init( char const * app_name,
+             uint         mode,
+             int          uid,
+             int          gid ) {
   /* Validate arguments */
 
   if( FD_UNLIKELY( 0!=fd_xdp_validate_name_cstr( app_name, NAME_MAX, "app_name" ) ) )
     return -1;
 
+  fd_xdp_reperm( "/sys/fs/bpf", mode, uid, gid, 1 );
+
   /* Create UDP dsts map */
 
-  struct bpf_map_create_opts map_create_opts = { .sz = sizeof(struct bpf_map_create_opts) };
-  int udp_dsts_map_fd = bpf_map_create(
-      /* map_type    */ BPF_MAP_TYPE_HASH,
-      /* map_name    */ "firedancer_udp_dsts",
-      /* key_size    */ 8U,
-      /* value_size  */ 4U,
-      /* max_entries */ FD_XDP_UDP_MAP_CNT,
-      /* opts        */ &map_create_opts );
+  union bpf_attr attr = {
+    .map_type    = BPF_MAP_TYPE_HASH,
+    .map_name    = "fd_xdp_udp_dsts",
+    .key_size    = 8U,
+    .value_size  = 4U,
+    .max_entries = FD_XDP_UDP_MAP_CNT,
+  };
+  int udp_dsts_map_fd = (int)bpf( BPF_MAP_CREATE, &attr, sizeof(union bpf_attr) );
   if( FD_UNLIKELY( udp_dsts_map_fd<0 ) ) {
-    FD_LOG_WARNING(( "bpf_map_create(BPF_MAP_TYPE_HASH,\"firedancer_udp_dsts\",8U,4U,%u,%p) failed (%d-%s)",
-                     FD_XDP_UDP_MAP_CNT, (void *)&map_create_opts, errno, strerror( errno ) ));
+    FD_LOG_WARNING(( "bpf_map_create(BPF_MAP_TYPE_HASH,\"fd_xdp_udp_dsts\",8U,4U,%u) failed (%d-%s)",
+                     FD_XDP_UDP_MAP_CNT, errno, strerror( errno ) ));
     return -1;
   }
 
@@ -76,20 +102,26 @@ fd_xdp_init( char const * app_name ) {
   char path[ PATH_MAX ];
   snprintf( path, PATH_MAX, "/sys/fs/bpf/%s", app_name );
 
-  if( FD_UNLIKELY( 0!=mkdir( path, 0777UL ) && errno!=EEXIST ) ) {
+  if( FD_UNLIKELY( 0!=mkdir( path, mode ) && errno!=EEXIST ) ) {
     FD_LOG_WARNING(( "mkdir(%s) failed (%d-%s)",
                      path, errno, strerror( errno ) ));
     close( udp_dsts_map_fd );
     return -1;
   }
 
+  fd_xdp_reperm( path, mode, uid, gid, 1 );
+
   snprintf( path, PATH_MAX, "/sys/fs/bpf/%s/udp_dsts", app_name );
-  if( FD_UNLIKELY( 0!=bpf_obj_pin( udp_dsts_map_fd, path ) ) ) {
+  if( FD_UNLIKELY( 0!=fd_bpf_obj_pin( udp_dsts_map_fd, path ) ) ) {
     FD_LOG_WARNING(( "bpf_obj_pin(%u,%s) failed (%d-%s)",
                      udp_dsts_map_fd, path, errno, strerror( errno ) ));
     close( udp_dsts_map_fd );
     return -1;
   }
+
+  fd_xdp_reperm( path, mode, uid, gid, 0 );
+
+  FD_LOG_NOTICE(( "Activated XDP environment at /sys/fs/bpf/%s", app_name ));
 
   close( udp_dsts_map_fd );
   return 0;
@@ -158,14 +190,16 @@ fd_xdp_fini( char const * app_name ) {
   return 0;
 }
 
+#define EBPF_KERN_LOG_BUFSZ (32768UL)
+char ebpf_kern_log[ EBPF_KERN_LOG_BUFSZ ];
 
 int
 fd_xdp_hook_iface( char const * app_name,
                    char const * ifname,
                    uint         xdp_mode,
-                   int          priority,
                    void const * prog_elf,
                    ulong        prog_elf_sz ) {
+
   /* Validate arguments */
 
   if( FD_UNLIKELY( 0!=fd_xdp_validate_name_cstr( app_name, NAME_MAX, "app_name" ) ) )
@@ -181,6 +215,19 @@ fd_xdp_hook_iface( char const * app_name,
     FD_LOG_WARNING(( "zero prog_elf_sz" ));
     return -1;
   }
+  if( FD_UNLIKELY( (xdp_mode & ~(uint)(XDP_FLAGS_SKB_MODE|XDP_FLAGS_DRV_MODE|XDP_FLAGS_HW_MODE) ) ) ) {
+    FD_LOG_WARNING(( "unsupported xdp_mode %#x", xdp_mode ));
+    return -1;
+  }
+
+  /* Create mutable copy of ELF */
+
+  uchar elf_copy[ 2048UL ];
+  if( FD_UNLIKELY( prog_elf_sz>2048UL ) ) {
+    FD_LOG_WARNING(( "ELF too large: %lu bytes", prog_elf_sz ));
+    return -1;
+  }
+  fd_memcpy( elf_copy, prog_elf, prog_elf_sz );
 
   /* Find interface */
 
@@ -191,140 +238,145 @@ fd_xdp_hook_iface( char const * app_name,
     return -1;
   }
 
-  /* Find pinned UDP dsts map fd */
+  /* Find uid, gid, mode of install dir */
 
   char path[ PATH_MAX ];
+
+  snprintf( path, PATH_MAX, "/sys/fs/bpf/%s", app_name );
+
+  struct stat install_stat = {0};
+  if( FD_UNLIKELY( 0!=stat( path, &install_stat ) ) ) {
+    FD_LOG_WARNING(( "stat(%s) failed (%d-%s)", path, errno, strerror( errno ) ));
+    return -1;
+  }
+
+  /* Create dirs */
+
+  snprintf( path, PATH_MAX, "/sys/fs/bpf/%s/%s", app_name, ifname );
+  int rc = mkdir( path, install_stat.st_mode & 0777 );
+  if( FD_UNLIKELY( rc!=0 && errno!=EEXIST ) ) {
+    FD_LOG_WARNING(( "mkdir(%s) failed (%d-%s)",
+                     path, errno, strerror( errno ) ));
+    return -1;
+  }
+
+  fd_xdp_reperm( path, install_stat.st_mode, (int)install_stat.st_uid, (int)install_stat.st_gid, 1 );
+
+  /* Find UDP dsts map fd */
+
   snprintf( path, PATH_MAX, "/sys/fs/bpf/%s/udp_dsts", app_name );
 
-  int udp_dsts_map_fd = bpf_obj_get( path );
+  int udp_dsts_map_fd = fd_bpf_obj_get( path );
   if( FD_UNLIKELY( udp_dsts_map_fd<0 ) ) {
     FD_LOG_WARNING(( "bpf_obj_get(%s) failed (%d-%s)",
                      path, errno, strerror( errno ) ));
     return -1;
   }
 
-  /* Load and relocate eBPF object file.
-     Create eBPF maps as implied by BTF data. */
+  /* Create and pin XSK map to BPF FS */
 
-  struct bpf_object_open_opts open_opts = {
-    .sz          = sizeof(struct bpf_object_open_opts),
-    .object_name = "fd_xdp_redirect_prog",
+  union bpf_attr attr = {
+    .map_type    = BPF_MAP_TYPE_XSKMAP,
+    .key_size    = 4U,
+    .value_size  = 4U,
+    .max_entries = FD_XDP_XSKS_MAP_CNT,
+    .map_name    = "fd_xdp_xsks"
   };
-
-  struct bpf_object * obj = bpf_object__open_mem( prog_elf, prog_elf_sz, &open_opts );
-  if( FD_UNLIKELY( !obj ) ) {
-    FD_LOG_WARNING(( "bpf_object__open_mem(%p,%lu) failed (%d-%s)",
-                     prog_elf, prog_elf_sz, errno, strerror( errno ) ));
-    close( udp_dsts_map_fd );
+  int xsks_fd = (int)bpf( BPF_MAP_CREATE, &attr, sizeof(union bpf_attr) );
+  if( FD_UNLIKELY( xsks_fd<0 ) ) {
+    FD_LOG_WARNING(( "Failed to create XSKMAP (%d-%s)",
+                     errno, strerror( errno ) ));
     return -1;
   }
-
-  /* Load XDP program from object file */
-
-  struct bpf_program * prog = bpf_object__find_program_by_name( obj, "firedancer_redirect" );
-  if( FD_UNLIKELY( !prog ) ) {
-    FD_LOG_WARNING(( "bpf_object__find_program_by_name(%p,\"firedancer_redirect\") failed (%d-%s)",
-                     (void *)obj, errno, strerror( errno ) ));
-    bpf_object__close( obj );
-    close( udp_dsts_map_fd );
-    return -1;
-  }
-
-  /* Load UDP dsts map from object file.
-     Replace previously created map with shared pinned map (kinda ugly) */
-
-  struct bpf_map * udp_dsts_map = bpf_object__find_map_by_name( obj, "firedancer_udp_dsts" );
-  if( FD_UNLIKELY( !udp_dsts_map ) ) {
-    FD_LOG_WARNING(( "bpf_object__find_map_by_name(%p,\"firedancer_udp_dsts\") failed (%d-%s)",
-                     (void *)obj, errno, strerror( errno ) ));
-    bpf_object__close( obj );
-    close( udp_dsts_map_fd );
-    return -1;
-  }
-
-  if( FD_UNLIKELY( 0!=bpf_map__reuse_fd( udp_dsts_map, udp_dsts_map_fd ) ) ) {
-    FD_LOG_WARNING(( "bpf_map__reuse_fd(%p,%u) failed (%d-%s)",
-                     (void *)udp_dsts_map, udp_dsts_map_fd, errno, strerror( errno ) ));
-    bpf_object__close( obj );
-    close( udp_dsts_map_fd );
-    return -1;
-  }
-
-  close( udp_dsts_map_fd );
-
-  /* Load XSK map from object file. */
-
-  struct bpf_map * xsks_map = bpf_object__find_map_by_name( obj, "firedancer_xsks" );
-  if( FD_UNLIKELY( !xsks_map ) ) {
-    FD_LOG_WARNING(( "bpf_object__find_map_by_name(%p,\"firedancer_xsks\") failed (%d-%s)",
-                     (void *)obj, errno, strerror( errno ) ));
-    bpf_object__close( obj );
-    return -1;
-  }
-
-  /* Load eBPF object into kernel. */
-
-  if( FD_UNLIKELY( 0!=bpf_object__load( obj ) ) ) {
-    FD_LOG_WARNING(( "bpf_object__load(%p) failed (%d-%s)",
-                     (void *)obj, errno, strerror( errno ) ));
-    bpf_object__close( obj );
-    return -1;
-  }
-
-  /* Attach program to interface */
-
-  /* TODO: Set XDP program priority */
-  (void)priority;
-
-  struct bpf_link * link = bpf_program__attach_xdp( prog, (int)ifidx );
-  if( FD_UNLIKELY( !link ) ) {
-    FD_LOG_WARNING(( "bpf_program__attach_xdp(%p, %u) failed (%d-%s)",
-                     (void *)obj, xdp_mode, errno, strerror( errno ) ));
-    bpf_object__close( obj );
-    return -1;
-  }
-
-  /* Pin program to BPF FS */
-
-  snprintf( path, PATH_MAX, "/sys/fs/bpf/%s/%s", app_name, ifname );
-  if( FD_UNLIKELY( 0!=mkdir( path, 0777UL ) && errno!=EEXIST ) ) {
-    FD_LOG_WARNING(( "mkdir(%s) failed (%d-%s)",
-                     path, errno, strerror( errno ) ));
-    bpf_object__close( obj );
-    return -1;
-  }
-
-  snprintf( path, PATH_MAX, "/sys/fs/bpf/%s/%s/xdp_prog", app_name, ifname );
-  if( FD_UNLIKELY( 0!=bpf_program__pin( prog, path ) ) ) {
-    FD_LOG_WARNING(( "bpf_program__pin(%p,%s) failed (%d-%s)",
-                     (void *)prog, path, errno, strerror( errno ) ));
-    bpf_object__close( obj );
-    return -1;
-  }
-
-  /* Pin XSK map to BPF FS */
 
   snprintf( path, PATH_MAX, "/sys/fs/bpf/%s/%s/xsks", app_name, ifname );
-  if( FD_UNLIKELY( 0!=bpf_map__pin( xsks_map, path ) ) ) {
-    FD_LOG_WARNING(( "bpf_map__pin(%p,%s) failed (%d-%s)",
-                     (void *)xsks_map, path, errno, strerror( errno ) ));
-    bpf_object__close( obj );
+  if( FD_UNLIKELY( 0!=fd_bpf_obj_pin( xsks_fd, path ) ) ) {
+    FD_LOG_WARNING(( "bpf_obj_pin(xsks_fd,%s) failed (%d-%s)",
+                     path, errno, strerror( errno ) ));
     return -1;
   }
 
-  /* Pin program link to BPF FS */
+  fd_xdp_reperm( path, install_stat.st_mode, (int)install_stat.st_uid, (int)install_stat.st_gid, 0 );
+
+  /* Link BPF bytecode */
+
+  fd_ebpf_sym_t syms[ 2 ] = {
+    { .name = "fd_xdp_udp_dsts", .value = (uint)udp_dsts_map_fd },
+    { .name = "fd_xdp_xsks",     .value = (uint)xsks_fd         }
+  };
+  fd_ebpf_link_opts_t opts = {
+    .section = "xdp",
+    .sym     = syms,
+    .sym_cnt = 2UL
+  };
+  fd_ebpf_link_opts_t * res =
+    fd_ebpf_static_link( &opts, elf_copy, prog_elf_sz );
+
+  if( FD_UNLIKELY( !res ) ) {
+    FD_LOG_WARNING(( "Failed to link eBPF bytecode" ));
+    return -1;
+  }
+
+  /* Load eBPF program into kernel */
+
+  attr = (union bpf_attr) {
+    .prog_type = BPF_PROG_TYPE_XDP,
+    .insn_cnt  = (uint) ( res->bpf_sz / 8UL ),
+    .insns     = (ulong)( res->bpf ),
+    .license   = (ulong)"Apache-2.0",
+    /* Verifier logs */
+    .log_level = 6,
+    .log_size  = EBPF_KERN_LOG_BUFSZ,
+    .log_buf   = (ulong)ebpf_kern_log
+  };
+  int prog_fd = (int)bpf( BPF_PROG_LOAD, &attr, sizeof(union bpf_attr) );
+  if( FD_UNLIKELY( prog_fd<0 ) ) {
+    FD_LOG_WARNING(( "bpf(BPF_PROG_LOAD, insns=%p, insn_cnt=%lu) failed (%d-%s)",
+                     (void *)res->bpf, res->bpf_sz / 8UL, errno, strerror( errno ) ));
+    if( errno==EACCES ) {
+      FD_LOG_NOTICE(( "eBPF verifier log:\n%s", ebpf_kern_log ));
+    }
+    return -1;
+  }
+
+  /* Pin eBPF program */
+
+  snprintf( path, PATH_MAX, "/sys/fs/bpf/%s/%s/xdp_prog", app_name, ifname );
+  if( FD_UNLIKELY( 0!=fd_bpf_obj_pin( prog_fd, path ) ) ) {
+    FD_LOG_WARNING(( "bpf_obj_pin(prog_fd,%s) failed (%d-%s)",
+                     path, errno, strerror( errno ) ));
+    return -1;
+  }
+
+  fd_xdp_reperm( path, install_stat.st_mode, (int)install_stat.st_uid, (int)install_stat.st_gid, 0 );
+
+  /* Install program to device */
+
+  attr = (union bpf_attr) {
+    .link_create = {
+      .prog_fd        = (uint)prog_fd,
+      .target_ifindex = ifidx,
+      .attach_type    = BPF_XDP,
+      .flags          = xdp_mode
+    }
+  };
+  int prog_link_fd = (int)bpf( BPF_LINK_CREATE, &attr, sizeof(union bpf_attr) );
+  if( FD_UNLIKELY( !prog_link_fd ) ) {
+    FD_LOG_WARNING(( "BPF_LINK_CREATE failed (%d-%s)",
+                     errno, strerror( errno ) ));
+    return -1;
+  }
+
+  /* Pin program link */
 
   snprintf( path, PATH_MAX, "/sys/fs/bpf/%s/%s/xdp_link", app_name, ifname );
-  if( FD_UNLIKELY( 0!=bpf_link__pin( link, path ) ) ) {
-    FD_LOG_WARNING(( "bpf_link__pin(%p,%s) failed (%d-%s)",
-                     (void *)link, path, errno, strerror( errno ) ));
-    bpf_object__close( obj );
+  if( FD_UNLIKELY( 0!=fd_bpf_obj_pin( prog_link_fd, path ) ) ) {
+    FD_LOG_WARNING(( "Failed to pin XDP link (%d-%s)",
+                     errno, strerror( errno ) ));
     return -1;
   }
 
-  /* Release temporary resources */
-
-  bpf_object__close( obj );
+  fd_xdp_reperm( path, install_stat.st_mode, (int)install_stat.st_uid, (int)install_stat.st_gid, 0 );
 
   return 0;
 }
@@ -400,7 +452,7 @@ fd_xdp_get_udp_dsts_map( char const * app_name ) {
   char path[ PATH_MAX ];
   snprintf( path, PATH_MAX, "/sys/fs/bpf/%s/udp_dsts", app_name );
 
-  int udp_dsts_fd = bpf_obj_get( path );
+  int udp_dsts_fd = fd_bpf_obj_get( path );
   if( FD_UNLIKELY( udp_dsts_fd<0 ) ) {
     FD_LOG_WARNING(( "bpf_obj_get(%s) failed (%d-%s)", path, errno, strerror( errno ) ));
     return -1;
@@ -430,7 +482,7 @@ fd_xdp_listen_udp_port( char const * app_name,
   ulong key   = fd_xdp_udp_dst_key( ip4_dst_addr, udp_dst_port );
   uint  value = proto;
 
-  if( FD_UNLIKELY( 0!=bpf_map_update_elem( udp_dsts_fd, &key, &value, 0UL ) ) ) {
+  if( FD_UNLIKELY( 0!=fd_bpf_map_update_elem( udp_dsts_fd, &key, &value, 0UL ) ) ) {
     FD_LOG_WARNING(( "bpf_map_update_elem(fd=%d,key=%#lx,value=%#x,flags=0) failed (%d-%s)",
                      udp_dsts_fd, key, value, errno, strerror( errno ) ));
     close( udp_dsts_fd );
@@ -462,9 +514,64 @@ fd_xdp_release_udp_port( char const * app_name,
 
   ulong key = fd_xdp_udp_dst_key( ip4_dst_addr, udp_dst_port );
 
-  if( FD_UNLIKELY( 0!=bpf_map_delete_elem( udp_dsts_fd, &key ) ) ) {
+  if( FD_UNLIKELY( 0!=fd_bpf_map_delete_elem( udp_dsts_fd, &key ) ) ) {
+    /* TODO: Gracefully handle error where given key does not exist.
+             In that case, should return 0 here as per method description. */
+
     FD_LOG_WARNING(( "bpf_map_delete_elem(fd=%d,key=%#lx) failed (%d-%s)",
                      udp_dsts_fd, key, errno, strerror( errno ) ));
+    close( udp_dsts_fd );
+    return -1;
+  }
+
+  /* Clean up */
+
+  close( udp_dsts_fd );
+  return 0;
+}
+
+int
+fd_xdp_clear_listeners( char const * app_name ) {
+  /* Validate arguments */
+
+  if( FD_UNLIKELY( 0!=fd_xdp_validate_name_cstr( app_name, NAME_MAX, "app_name" ) ) )
+    return -1;
+
+  /* Open map */
+
+  int udp_dsts_fd = fd_xdp_get_udp_dsts_map( app_name );
+  if( FD_UNLIKELY( udp_dsts_fd<0 ) ) return -1;
+
+  /* First pass: Iterate keys in map and delete each element */
+
+  ulong key = 0UL; /* FIXME: This fails if the key is zero, i.e. 0.0.0.0:0 */
+  ulong next_key;
+  for(;;) {
+    /* Get next element */
+
+    int res = fd_bpf_map_get_next_key( udp_dsts_fd, &key, &next_key );
+    if( FD_UNLIKELY( res!=0 ) ) {
+      if( FD_LIKELY( errno==ENOENT ) )
+        break;
+      FD_LOG_WARNING(( "bpf_map_get_next_key(%#lx) failed (%d-%s)",
+                       key, errno, strerror( errno ) ));
+      close( udp_dsts_fd );
+      return -1;
+    }
+
+    /* Delete element ignoring errors */
+
+    if( FD_UNLIKELY( 0!=fd_bpf_map_delete_elem( udp_dsts_fd, &next_key ) ) )
+      FD_LOG_WARNING(( "bpf_map_delete_elem(%#lx) failed (%d-%s)",
+                       next_key, errno, strerror( errno ) ));
+  }
+
+  /* Second pass: Check whether all keys have been deleted */
+
+  key = 0UL;
+  if( FD_UNLIKELY( 0==fd_bpf_map_get_next_key( udp_dsts_fd, &key, &next_key )
+                || errno!=ENOENT ) ) {
+    FD_LOG_WARNING(( "Failed to clear map of all entries" ));
     close( udp_dsts_fd );
     return -1;
   }
@@ -482,7 +589,7 @@ fd_xdp_get_xsks_map( char const * app_name,
   char path[ PATH_MAX ];
   snprintf( path, PATH_MAX, "/sys/fs/bpf/%s/%s/xsks", app_name, ifname );
 
-  int xsks_fd = bpf_obj_get( path );
+  int xsks_fd = fd_bpf_obj_get( path );
   if( FD_UNLIKELY( xsks_fd<0 ) ) {
     FD_LOG_WARNING(( "bpf_obj_get(%s) failed (%d-%s)", path, errno, strerror( errno ) ));
     return -1;
@@ -498,12 +605,15 @@ fd_xsk_activate( fd_xsk_t * xsk ) {
 
   uint key   = fd_xsk_ifqueue( xsk );
   int  value = fd_xsk_fd     ( xsk );
-  if( FD_UNLIKELY( 0!=bpf_map_update_elem( xsks_fd, &key, &value, 0UL ) ) ) {
-    FD_LOG_WARNING(( "bpf_map_update_elem(fd=%d,key=%u,value=%#x,flags=0) failed (%d-%s)",
-                     xsks_fd, key, value, errno, strerror( errno ) ));
+  if( FD_UNLIKELY( 0!=fd_bpf_map_update_elem( xsks_fd, &key, &value, BPF_ANY ) ) ) {
+    FD_LOG_WARNING(( "bpf_map_update_elem(fd=%d,key=%u,value=%#x,flags=%#x) failed (%d-%s)",
+                     xsks_fd, key, value, BPF_ANY, errno, strerror( errno ) ));
     close( xsks_fd );
     return -1;
   }
+
+  FD_LOG_NOTICE(( "Attached to XDP instance %s on interface %s queue %u",
+                  fd_xsk_app_name( xsk ), fd_xsk_ifname( xsk ), fd_xsk_ifqueue( xsk ) ));
 
   close( xsks_fd );
   return 0;
@@ -515,12 +625,15 @@ fd_xsk_deactivate( fd_xsk_t * xsk ) {
   if( FD_UNLIKELY( xsks_fd<0 ) ) return -1;
 
   uint key = fd_xsk_ifqueue( xsk );
-  if( FD_UNLIKELY( 0!=bpf_map_delete_elem( xsks_fd, &key ) ) ) {
+  if( FD_UNLIKELY( 0!=fd_bpf_map_delete_elem( xsks_fd, &key ) ) ) {
     FD_LOG_WARNING(( "bpf_map_delete_elem(fd=%d,key=%u) failed (%d-%s)",
                      xsks_fd, key, errno, strerror( errno ) ));
     close( xsks_fd );
     return -1;
   }
+
+  FD_LOG_NOTICE(( "Detached from %s XDP instance on interface %s queue %u",
+                  fd_xsk_app_name( xsk ), fd_xsk_ifname( xsk ), fd_xsk_ifqueue( xsk ) ));
 
   close( xsks_fd );
   return 0;
