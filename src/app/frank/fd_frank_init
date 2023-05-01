@@ -57,6 +57,7 @@ CNC=`$BUILD/bin/fd_tango_ctl new-cnc $WKSP 0 tic $CNC_APP_SZ` || exit $?
 $BUILD/bin/fd_pod_ctl                        \
   insert $POD uint $APP.grp.pack.additional_tiles 0 \
   insert $POD cstr $APP.grp.pack.cnc $CNC \
+  insert $POD cstr $APP.grp.pack.cmdline "" \
   || exit $?
 CNC=`$BUILD/bin/fd_tango_ctl new-cnc $WKSP 0 tic $CNC_APP_SZ` || exit $?
 $BUILD/bin/fd_pod_ctl                 \
@@ -69,6 +70,7 @@ CNC=`$BUILD/bin/fd_tango_ctl new-cnc $WKSP 0 tic $CNC_APP_SZ` || exit $?
 $BUILD/bin/fd_pod_ctl                        \
   insert $POD uint $APP.grp.dedup.additional_tiles 0 \
   insert $POD cstr $APP.grp.dedup.cnc $CNC \
+  insert $POD cstr $APP.grp.dedup.cmdline "" \
   || exit $?
 CNC=`$BUILD/bin/fd_tango_ctl new-cnc $WKSP 1 tic $CNC_APP_SZ` || exit $?
 TCACHE=`$BUILD/bin/fd_tango_ctl new-tcache $WKSP $DEDUP_TCACHE_DEPTH $DEDUP_TCACHE_MAP_CNT` || exit $?
@@ -88,6 +90,7 @@ CNC=`$BUILD/bin/fd_tango_ctl new-cnc $WKSP 0 tic $CNC_APP_SZ` || exit $?
 $BUILD/bin/fd_pod_ctl                        \
   insert $POD uint $APP.grp.verify.additional_tiles 0 \
   insert $POD cstr $APP.grp.verify.cnc $CNC \
+  insert $POD cstr $APP.grp.verify.cmdline "--task-group verify --pod frank.wksp:4190208 --cfg frank --log-app frank --log-thread verify --tile-cpus f,1-12" \
   || exit $?
 
 for((verify_idx=0;verify_idx<VERIFY_CNT;verify_idx++)); do

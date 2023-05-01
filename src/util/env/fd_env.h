@@ -7,7 +7,7 @@
 
 FD_PROTOTYPES_BEGIN
 
-/* fd_env_strip_cmdline_ulong first searches the environment for
+/* fd_env_strip_cmdline_* first searches the environment for
    "[env_key]=[val]" and then C-style command line arguments
    sequentially for "[key] [val]", converts any found "[val]" to a ulong
    and returns last found val.  If there are no such val found, returns
@@ -56,6 +56,35 @@ FD_ENV_STRIP_CMDLINE_DECL( double,       double );
 /* FIXME: ADD COVERAGE FOR INT128/UINT128? */
 
 #undef FD_ENV_STRIP_CMDLINE_DECL
+
+
+/* fd_env_cmdline_* does the same as fd_env_strip_cmdline_* without stipping
+   the entry. */
+#define FD_ENV_CMDLINE_DECL( T, what )               \
+T                                                    \
+fd_env_cmdline_##what( int        *   pargc,         \
+                       char       *** pargv,         \
+                       char const *   key,           \
+                       char const *   env_key,       \
+                       T              def )
+
+FD_ENV_CMDLINE_DECL( char const *, cstr   );
+FD_ENV_CMDLINE_DECL( char,         char   );
+FD_ENV_CMDLINE_DECL( schar,        schar  );
+FD_ENV_CMDLINE_DECL( short,        short  );
+FD_ENV_CMDLINE_DECL( int,          int    );
+FD_ENV_CMDLINE_DECL( long,         long   );
+FD_ENV_CMDLINE_DECL( uchar,        uchar  );
+FD_ENV_CMDLINE_DECL( ushort,       ushort );
+FD_ENV_CMDLINE_DECL( uint,         uint   );
+FD_ENV_CMDLINE_DECL( ulong,        ulong  );
+FD_ENV_CMDLINE_DECL( float,        float  );
+#if FD_HAS_DOUBLE
+FD_ENV_CMDLINE_DECL( double,       double );
+#endif
+/* FIXME: ADD COVERAGE FOR INT128/UINT128? */
+
+#undef FD_ENV_CMDLINE_DECL
 
 FD_PROTOTYPES_END
 

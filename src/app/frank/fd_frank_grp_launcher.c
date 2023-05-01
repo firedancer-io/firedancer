@@ -74,18 +74,20 @@ find_task_count( const uchar * group_tasks_pod ) {
 }
 
 int
-main( int     argc,
-      char ** argv ) {
-  fd_boot( &argc, &argv );
-  fd_tempo_tick_per_ns( NULL ); /* eat calibration cost at deterministic place */
+launch_group( int     argc,
+              char ** argv ) {
+
+  for (int i=0; i<argc; i++) {
+    printf("taskarg: %s\n", argv[i]);
+  }
 
   char const * pod_gaddr = fd_env_strip_cmdline_cstr( &argc, &argv, "--pod", NULL, NULL );
   char const * cfg_path  = fd_env_strip_cmdline_cstr( &argc, &argv, "--cfg", NULL, NULL );
-  char const * grp_name  = fd_env_strip_cmdline_cstr( &argc, &argv, "--grp", NULL, NULL );
+  char const * grp_name  = fd_env_strip_cmdline_cstr( &argc, &argv, "--task-group", NULL, NULL );
 
   if( FD_UNLIKELY( !pod_gaddr ) ) FD_LOG_ERR(( "--pod not specified" ));
   if( FD_UNLIKELY( !cfg_path  ) ) FD_LOG_ERR(( "--cfg not specified" ));
-  if( FD_UNLIKELY( !grp_name  ) ) FD_LOG_ERR(( "--grp not specified" ));
+  if( FD_UNLIKELY( !grp_name  ) ) FD_LOG_ERR(( "--task-group not specified" ));
 
   /* Load up the configuration for this frank instance */
 
@@ -254,6 +256,134 @@ main( int     argc,
   fd_wksp_pod_detach( pod );
   fd_halt();
   return 0;
+}
+
+#include <unistd.h> // fork
+#include <sys/wait.h> // waitpid
+#include <errno.h>
+
+ulong fd_join_char_arrays( char *  dst, 
+                                    ulong   dst_sz, 
+                                    char    sep, 
+                                    int     argc, 
+                                    char ** argv ) {
+  char * head = dst;
+
+  for (uint i = 0; i < (uint) argc; i++) {
+    ulong written = (ulong) (head - dst);
+    /* ensure it does not overflow */
+    ulong arglen = strnlen( argv[i], 1024 );
+    if ( FD_UNLIKELY( ( arglen == 1024 ) ) )                FD_LOG_ERR(( "argument too long (>1024)" ));
+    if ( FD_UNLIKELY( ( written + arglen + 1 ) > dst_sz ) ) FD_LOG_ERR(( "buffer would overrun"      )); /* `+ 1` to account for the separator */
+    printf("arg: %s\n", argv[i]);
+    fd_memcpy( head, argv[i], arglen );
+    head[ arglen ] = sep;
+    head += arglen + 1; /* `+ 1` to skip over the separator */
+  }
+
+  /* replace the last sep by \00 */
+  head = '\00';
+  return (ulong) (head - dst);
+}
+
+int
+main( int   argc,
+      char ** argv ) {
+  fd_boot( &argc, &argv );
+  fd_tempo_tick_per_ns( NULL ); /* eat calibration cost at deterministic place */
+
+  char const * task_group_name = fd_env_cmdline_cstr( &argc, &argv, "--task-group", NULL, NULL );
+  if( FD_LIKELY( task_group_name ) ) {
+    /* run the task group */
+    printf("launching group\n");
+    return launch_group(argc, argv);
+  }
+    
+  /* since there's no task group group specified, run the launcher */
+
+  char const * pod_gaddr = fd_env_cmdline_cstr( &argc, &argv, "--pod", NULL, NULL );
+  char const * cfg_path  = fd_env_cmdline_cstr( &argc, &argv, "--cfg", NULL, NULL );
+
+
+    for (int i=0; i<argc; i++) {
+    printf("runnerargs: %s\n", argv[i]);
+  }
+
+  printf("pid: %d\n", getpid());
+  if( FD_UNLIKELY( !pod_gaddr ) ) FD_LOG_ERR(( "--pod not specified" ));
+  if( FD_UNLIKELY( !cfg_path  ) ) FD_LOG_ERR(( "--cfg not specified" ));
+
+  uchar const * pod     = fd_wksp_pod_attach( pod_gaddr );
+  uchar const * cfg_pod = fd_pod_query_subpod( pod, cfg_path );
+  if( FD_UNLIKELY( !cfg_pod ) ) FD_LOG_ERR(( "path not found" ));
+
+
+  uchar const * all_groups_pod = fd_pod_query_subpod( cfg_pod, "grp" );
+  if( FD_UNLIKELY( !all_groups_pod ) ) FD_LOG_ERR(( "path not found" ));
+  
+
+  for( fd_pod_iter_t tg_iter = fd_pod_iter_init( all_groups_pod ); !fd_pod_iter_done( tg_iter ); tg_iter = fd_pod_iter_next( tg_iter ) ) {
+    fd_pod_info_t group_info = fd_pod_iter_info( tg_iter );
+    if( FD_UNLIKELY( group_info.val_type!=FD_POD_VAL_TYPE_SUBPOD ) ) continue;
+
+    char const * tg_name = group_info.key;
+
+    // skip all but verify for dev purposes
+    if ( strcmp("verify", tg_name )) continue;
+
+    // find cmdline
+    char const * cmdline = fd_pod_query_cstr( group_info.val, "cmdline", NULL );
+
+    if ( FD_UNLIKELY( !cmdline ) ) {
+      FD_LOG_WARNING(( "cmdline for task group '%s' is not set in config",  tg_name ));
+    } else if ( FD_UNLIKELY( !cmdline ) ) {
+      FD_LOG_WARNING(( "cmdline for task group '%s' is set and empty",  tg_name ));
+    }
+
+    int verify_pid = fork();
+
+    if ( !verify_pid ) {
+      // running child
+      // clean up parent's resources
+      // fd_wksp_pod_detach( pod );
+      // fd_halt();
+
+      //char * tg_cmdline = fd_alloca( alignof(char*), 2048);
+      //fd_join_char_arrays(tg_cmdline, 2048, ' ', (ulong)(argc-1), argv+1);
+
+      // printf("cmdline: %s\n", tg_cmdline);
+
+      char *args[] = {
+        "somebin",
+        "--task-group", "verify",
+        "--pod", "frank.wksp:4190208",
+        "--cfg", "frank",
+        "--log-app", "frank",
+        "--log-thread", "verify-mon",
+        "--tile-cpus", "f,1-12",
+        NULL
+      };
+
+      execv(argv[0], args);
+      FD_LOG_ERR(( "execv: %s", strerror( errno ) ));
+    }
+
+    // wait for this tg to be successfully started before moving forward
+
+  }
+
+  int status;
+  wait(&status);
+
+
+  // Wait for the "verify" cnc to be running
+  //if( FD_UNLIKELY( fd_cnc_wait( tile_cnc[ tile_idx ], FD_CNC_SIGNAL_BOOT, (long)5e9, NULL )!=FD_CNC_SIGNAL_RUN ) )
+  // FD_LOG_ERR(( "tile failed to boot in a timely fashion" ));
+
+  // Launch the "dedup" group
+
+  // Launch the "pack" group
+  printf("yay\n");
 }
 
 #else
