@@ -181,7 +181,26 @@ int main(int argc, char **argv) {
   buildup();
   harness.verify();
 
+  for (int i = 0; i < 10000; ++i)
+    harness.random_insert();
+  harness.verify();
   teardown();
+  buildup();
+  harness.verify();
+  
+  for (int i = 0; i < 5000; ++i)
+    harness.random_erase();
+  harness.verify();
+  teardown();
+  buildup();
+  harness.verify();
+
+  teardown();
+
+  fd_wksp_usage_t usage;
+  fd_wksp_usage(wksp, &wksp_tag, 1, &usage);
+  assert(usage.used_cnt == 0);
+  
   fd_wksp_detach(wksp);
   unlink(backfile);
 

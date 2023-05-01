@@ -406,3 +406,45 @@ fd_funk_rec_persist_erase_unsafe( fd_funk_t *     funk,
 
   return FD_FUNK_SUCCESS;
 }
+
+int
+fd_funk_persist_verify( fd_funk_t * funk ) {
+# define TEST(c) do {                                                   \
+    if( FD_UNLIKELY( !(c) ) ) { FD_LOG_WARNING(( "FAIL: %s", #c )); return FD_FUNK_ERR_INVAL; } \
+  } while(0)
+
+  fd_wksp_t * wksp = fd_funk_wksp( funk );
+  fd_funk_persist_free_entry_t * pool = (fd_funk_persist_free_entry_t *)
+    fd_wksp_laddr_fast( wksp, funk->persist_frees_gaddr );
+  fd_funk_persist_free_entry_t * root = (funk->persist_frees_root == -1 ? NULL :
+                                         pool + funk->persist_frees_root);
+  fd_funk_persist_free_map_verify(pool, root);
+
+  for ( fd_funk_persist_free_entry_t * n = fd_funk_persist_free_map_minimum(pool, root);
+        n; n = fd_funk_persist_free_map_successor(pool, n) ) {
+    struct fd_funk_persist_free_head head;
+    long r = pread( funk->persist_fd, &head, sizeof(head), (long)n->pos );
+    TEST( r == (long)sizeof(head) );
+    TEST( head.type == FD_FUNK_PERSIST_FREE_TYPE );
+    TEST( head.alloc_sz == n->alloc_sz );
+  }
+  
+  fd_funk_rec_t * rec_map  = fd_funk_rec_map( funk, wksp ); /* Previously verified */
+  for( fd_funk_rec_map_iter_t iter = fd_funk_rec_map_iter_init( rec_map );
+       !fd_funk_rec_map_iter_done( rec_map, iter );
+       iter = fd_funk_rec_map_iter_next( rec_map, iter ) ) {
+    fd_funk_rec_t * rec = fd_funk_rec_map_iter_ele( rec_map, iter );
+    if ( rec->persist_pos != FD_FUNK_REC_IDX_NULL ) {
+      struct fd_funk_persist_record_head head;
+      long r = pread( funk->persist_fd, &head, sizeof(head), (long)rec->persist_pos );
+      TEST( r == (long)sizeof(head) );
+      TEST( head.type == FD_FUNK_PERSIST_RECORD_TYPE );
+      TEST( head.alloc_sz == rec->persist_alloc_sz );
+      TEST( memcmp( head.key, &rec->pair.key, sizeof(head.key) ) == 0 );
+    }
+  }
+
+  return FD_FUNK_SUCCESS;
+
+#undef TEST
+}

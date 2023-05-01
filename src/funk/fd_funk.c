@@ -350,6 +350,9 @@ fd_funk_verify( fd_funk_t * funk ) {
 
   TEST( !fd_funk_val_verify( funk ) );
 
+  if ( funk->persist_frees_gaddr != 0 )
+    TEST( !fd_funk_persist_verify( funk ) );
+
 # undef TEST
 
   return FD_FUNK_SUCCESS;
