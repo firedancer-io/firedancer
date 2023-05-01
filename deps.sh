@@ -9,8 +9,24 @@ cd "$(dirname "${BASH_SOURCE[0]}")"
 # shellcheck source=./activate-opt
 source activate-opt
 
-# Load distro information
-source /etc/os-release || echo "[!] Failed to get OS info from /etc/os-release"
+# Load OS information
+OS="$(uname -s)"
+case "$OS" in
+  Darwin)
+    MAKE=( make -j )
+    ID=macos
+    ;;
+  Linux)
+    MAKE=( make -j )
+    # Load distro information
+    if [[ -f /etc/os-release ]]; then
+      source /etc/os-release
+    fi
+    ;;
+  *)
+    echo "[!] Unsupported OS $OS"
+    ;;
+esac
 
 # Figure out how to escalate privileges
 SUDO=""
@@ -61,24 +77,21 @@ nuke () {
   exit 0
 }
 
-fetch_repo () {
+checkout_repo () {
   # Skip if dir already exists
   if [[ -d ./opt/git/"$1" ]]; then
     echo "[~] Skipping $1 fetch as \"$(pwd)/opt/git/$1\" already exists"
-    echo
-    return 0
+  else
+    echo "[+] Cloning $1 from $2"
+    git -c advice.detachedHead=false clone "$2" "./opt/git/$1" --branch "$3" --depth=1
   fi
-
-  echo "[+] Cloning $1 from $2"
-  git clone "$2" "./opt/git/$1"
   echo
-}
 
-checkout_repo () {
-  echo "[~] Checking out $1 $2"
+  echo "[~] Checking out $1 $3"
   (
     cd ./opt/git/"$1"
-    git -c advice.detachedHead=false checkout "$2"
+    git fetch origin "$3" --depth=1
+    git -c advice.detachedHead=false checkout "$3"
   )
   echo
 }
@@ -86,17 +99,9 @@ checkout_repo () {
 fetch () {
   mkdir -pv ./opt/git
 
-  fetch_repo zlib https://github.com/madler/zlib
-  fetch_repo zstd https://github.com/facebook/zstd
-  fetch_repo elfutils git://sourceware.org/git/elfutils.git
-  fetch_repo libbpf https://github.com/libbpf/libbpf
-  fetch_repo openssl https://github.com/quictls/openssl
-
-  checkout_repo zlib "v1.2.13"
-  checkout_repo zstd "v1.5.4"
-  checkout_repo elfutils "elfutils-0.189"
-  checkout_repo libbpf "v1.1.0"
-  checkout_repo openssl "OpenSSL_1_1_1t-quic1"
+  checkout_repo zlib    https://github.com/madler/zlib     "v1.2.13"
+  checkout_repo zstd    https://github.com/facebook/zstd   "v1.5.4"
+  checkout_repo openssl https://github.com/quictls/openssl "OpenSSL_1_1_1t-quic1"
 }
 
 check_fedora_pkgs () {
@@ -111,7 +116,7 @@ check_fedora_pkgs () {
     fi
   done
 
-  if [[ ${#MISSING_RPMS[@]} -eq 0 ]]; then
+  if [[ "${#MISSING_RPMS[@]}" -eq 0 ]]; then
     echo "[~] OK: RPM packages required for build are installed"
     return 0
   fi
@@ -133,7 +138,7 @@ check_fedora_pkgs () {
 }
 
 check_debian_pkgs () {
-  local REQUIRED_DEBS=( perl autoconf gettext automake autopoint flex bison build-essential pkg-config )
+  local REQUIRED_DEBS=( perl autoconf gettext automake autopoint flex bison build-essential pkg-config gcc-multilib )
 
   echo "[~] Checking for required DEB packages"
 
@@ -198,6 +203,39 @@ check_alpine_pkgs () {
   esac
 }
 
+check_macos_pkgs () {
+  local REQUIRED_FORMULAE=( perl autoconf gettext automake flex bison pkg-config )
+
+  echo "[~] Checking for required brew formulae"
+
+  local MISSING_FORMULAE=( )
+  for formula in "${REQUIRED_FORMULAE[@]}"; do
+    if [[ ! -d "/usr/local/Cellar/$formula" ]]; then
+      MISSING_FORMULAE+=( "$formula" )
+    fi
+  done
+
+  if [[ ${#MISSING_FORMULAE[@]} -eq 0 ]]; then
+    echo "[~] OK: brew formulae required for build are installed"
+    return 0
+  fi
+
+  echo "[!] Found missing formulae"
+  echo "[?] This is fixed by the following command:"
+  echo "        brew install ${MISSING_FORMULAE[*]}"
+  read -r -p "[?] Install missing formulae with brew? (y/N) " choice
+  case "$choice" in
+    y|Y)
+      echo "[+] Installing missing formulae"
+      brew install "${MISSING_FORMULAE[@]}"
+      echo "[+] Installed missing formulae"
+      ;;
+    *)
+      echo "[-] Skipping formula install"
+      ;;
+  esac
+}
+
 check () {
   DISTRO="${ID_LIKE:-${ID:-}}"
   case "$DISTRO" in
@@ -209,6 +247,9 @@ check () {
       ;;
     alpine)
       check_alpine_pkgs
+      ;;
+    macos)
+      check_macos_pkgs
       ;;
     *)
       echo "Unsupported distro $DISTRO. Your mileage may vary."
@@ -230,7 +271,7 @@ install_zlib () {
   echo "[+] Configured zlib"
 
   echo "[+] Building zlib"
-  make -j --output-sync=target libz.a
+  "${MAKE[@]}" libz.a
   echo "[+] Successfully built zlib"
 
   echo "[+] Installing zlib to $PREFIX"
@@ -247,58 +288,8 @@ install_zstd () {
   cd ./opt/git/zstd/lib
 
   echo "[+] Installing zstd to $PREFIX"
-  make -j DESTDIR="$PREFIX" PREFIX="" install-pc install-static install-includes
+  "${MAKE[@]}" DESTDIR="$PREFIX" PREFIX="" install-pc install-static install-includes
   echo "[+] Successfully installed zstd"
-}
-
-install_elfutils () {
-  if pkg-config --exists libelf; then
-    echo "[~] libelf already installed at $(pkg-config --path libelf), skipping installation"
-    return 0
-  fi
-
-  cd ./opt/git/elfutils
-
-  echo "[+] Generating elfutils configure script"
-  autoreconf -i -f
-  echo "[+] Generated elfutils configure script"
-
-  echo "[+] Configuring elfutils"
-  ./configure \
-    --prefix="$PREFIX" \
-    --enable-maintainer-mode \
-    --disable-debuginfod \
-    --disable-libdebuginfod \
-    --without-curl \
-    --without-microhttpd \
-    --without-sqlite3 \
-    --without-libarchive \
-    --without-tests
-  echo "[+] Configured elfutils"
-
-  echo "[+] Building elfutils"
-  make -j --output-sync=target
-  echo "[+] Successfully built elfutils"
-
-  echo "[+] Installing elfutils to $PREFIX"
-  make install -j
-  echo "[+] Successfully installed elfutils"
-}
-
-install_libbpf () {
-  if pkg-config --exists libbpf; then
-    echo "[~] libbpf already installed at $(pkg-config --path libbpf), skipping installation"
-    return 0
-  fi
-
-  cd ./opt/git/libbpf
-  git apply ../../../contrib/libbpf-fix-pedantic-compile.patch
-
-  cd src
-
-  echo "[+] Installing libbpf to $PREFIX"
-  make -j install PREFIX="$PREFIX" LIBDIR="$PREFIX/lib"
-  echo "[+] Successfully installed libbpf"
 }
 
 install_openssl () {
@@ -316,7 +307,7 @@ install_openssl () {
   echo "[+] Configured OpenSSL"
 
   echo "[+] Building OpenSSL"
-  make -j --output-sync=target
+  "${MAKE[@]}"
   echo "[+] Successfully built OpenSSL"
 
   echo "[+] Installing OpenSSL to $PREFIX"
@@ -327,11 +318,9 @@ install_openssl () {
 }
 
 install () {
-  ( install_zlib     )
-  ( install_zstd     )
-  ( install_elfutils )
-  ( install_libbpf   )
-  ( install_openssl  )
+  ( install_zlib    )
+  ( install_zstd    )
+  ( install_openssl )
 
   echo "[~] Done! To wire up $(pwd)/opt with make, run:"
   echo "    source activate-opt"

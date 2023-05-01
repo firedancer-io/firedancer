@@ -80,7 +80,7 @@ fd_tile_private_cpu_restore( fd_tile_private_cpu_config_t * save ) {
     FD_LOG_WARNING(( "fd_tile: setpriority failed (%i-%s); attempting to continue", errno, strerror( errno ) ));
 }
 
-#if FD_HAS_X86
+#if FD_HAS_X86 /* TODO: Make stacks for non-x86 that support pthread set stack and huge page like structures */
 
 #define FD_TILE_PRIVATE_STACK_PAGE_SZ  FD_SHMEM_HUGE_PAGE_SZ
 #define FD_TILE_PRIVATE_STACK_PAGE_CNT (4UL)

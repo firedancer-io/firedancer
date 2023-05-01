@@ -1,12 +1,16 @@
+#ifndef FD_ENV_STYLE
+#if FD_HAS_HOSTED /* Use POSIX */
+#define FD_ENV_STYLE 0
+#else
+#error "Define FD_ENV_STYLE for this build target"
+#endif
+#endif
+
+#if FD_ENV_STYLE==0
+
 #include "fd_env.h"
 
-#if FD_HAS_HOSTED
 #include <stdlib.h>
-char const * fd_env_get( char const * key ) { return getenv( key ); }
-#else
-/* Work around -Wsuggest-attribute=const */
-char const * fd_env_get( char const * key ) { key = NULL; return FD_VOLATILE_CONST( key ); }
-#endif
 
 #define FD_ENV_STRIP_CMDLINE_IMPL( T, what )                                   \
 T                                                                              \
@@ -19,7 +23,7 @@ fd_env_strip_cmdline_##what( int        *   pargc,                             \
   int arg;                                                                     \
                                                                                \
   if( env_key ) {                                                              \
-    char const * cstr = fd_env_get( env_key );                                 \
+    char const * cstr = getenv( env_key );                                     \
     if( cstr ) val = fd_cstr_to_##what( cstr );                                \
   }                                                                            \
                                                                                \
@@ -50,4 +54,8 @@ FD_ENV_STRIP_CMDLINE_IMPL( double,       double )
 #endif
 
 #undef FD_ENV_STRIP_CMDLINE_IMPL
+
+#else
+#error "Unknown FD_ENV_STYLE"
+#endif
 

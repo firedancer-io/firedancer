@@ -25,6 +25,14 @@
 #define FD_ACQUIRE FD_COMPILER_MFENCE
 #define FD_RELEASE FD_COMPILER_MFENCE
 
+/* Set to 1 to trace packet events to debug log */
+
+#if 0
+#define TRACE_PACKET(...) FD_LOG_DEBUG(( __VA_ARGS__ ))
+#else
+#define TRACE_PACKET(...)
+#endif
+
 ulong
 fd_xsk_align( void ) {
   return FD_XSK_ALIGN;
@@ -309,12 +317,13 @@ fd_xsk_mmap_ring( fd_ring_desc_t * ring,
           cleared on join */
   fd_memset( ring, 0, sizeof(fd_ring_desc_t) );
 
-  ring->mem   = res;
-  ring->depth = (uint)depth;
-  ring->ptr   = (void *)( (ulong)res + ring_offset->desc     );
-  ring->flags = (uint *)( (ulong)res + ring_offset->flags    );
-  ring->prod  = (uint *)( (ulong)res + ring_offset->producer );
-  ring->cons  = (uint *)( (ulong)res + ring_offset->consumer );
+  ring->mem    = res;
+  ring->map_sz = map_sz;
+  ring->depth  = (uint)depth;
+  ring->ptr    = (void *)( (ulong)res + ring_offset->desc     );
+  ring->flags  = (uint *)( (ulong)res + ring_offset->flags    );
+  ring->prod   = (uint *)( (ulong)res + ring_offset->producer );
+  ring->cons   = (uint *)( (ulong)res + ring_offset->consumer );
 
   return 0;
 }
@@ -449,7 +458,7 @@ fd_xsk_init( fd_xsk_t * xsk ) {
 
   xsk->xsk_fd = socket( AF_XDP, SOCK_RAW, 0 );
   if( FD_UNLIKELY( xsk->xsk_fd<0 ) ) {
-    FD_LOG_WARNING(( "Failed to create XSK: %s", strerror( errno ) ));
+    FD_LOG_WARNING(( "Failed to create XSK (%d-%s)", errno, strerror( errno ) ));
     return -1;
   }
 
@@ -469,7 +478,8 @@ fd_xsk_init( fd_xsk_t * xsk ) {
   struct sockaddr_xdp sa = {
     .sxdp_family   = PF_XDP,
     .sxdp_ifindex  = xsk->if_idx,
-    .sxdp_queue_id = xsk->if_queue_id
+    .sxdp_queue_id = xsk->if_queue_id,
+    .sxdp_flags    = XDP_USE_NEED_WAKEUP | XDP_COPY
   };
 
   if( FD_UNLIKELY( 0!=bind( xsk->xsk_fd, (void *)&sa, sizeof(struct sockaddr_xdp) ) ) ) {
@@ -477,6 +487,7 @@ fd_xsk_init( fd_xsk_t * xsk ) {
                      xsk->if_name_cstr, xsk->if_queue_id, strerror( errno ) ));
     return -1;
   }
+  FD_LOG_INFO(( "xsk bind() success" ));
 
   /* XSK successfully configured.  Traffic will arrive in XSK after
      configuring an XDP program to forward packets via XDP_REDIRECT.
@@ -601,6 +612,9 @@ fd_xsk_rx_enqueue( fd_xsk_t * xsk,
   uint prod = fill->cached_prod;
   uint cons = fill->cached_cons;
 
+  /* assuming frame sizes are powers of 2 */
+  ulong frame_mask = xsk->params.frame_sz - 1UL;
+
   /* ring capacity */
   uint cap  = fill->depth;
 
@@ -618,7 +632,7 @@ fd_xsk_rx_enqueue( fd_xsk_t * xsk,
   uint    mask = fill->depth - 1U;
   for( ulong j = 0; j < sz; ++j ) {
     uint k = prod & mask;
-    ring[k] = offset[j];
+    ring[k] = offset[j] & ~frame_mask;
 
     prod++;
   }
@@ -668,7 +682,7 @@ fd_xsk_rx_enqueue2( fd_xsk_t *            xsk,
   uint    mask = fill->depth - 1;
   for( ulong j = 0; j < sz; ++j ) {
     uint k = prod & mask;
-    ring[k] = meta[j].off & frame_mask;
+    ring[k] = meta[j].off & ~frame_mask;
 
     prod++;
   }
@@ -719,6 +733,8 @@ fd_xsk_tx_enqueue( fd_xsk_t *            xsk,
   /* set ring[j] to the specified indices */
   struct xdp_desc * ring = tx->packet_ring;
   uint   mask            = tx->depth - 1;
+
+  TRACE_PACKET( "tx packets ring=%p seq=%u cnt=%u", (void *)ring, prod, sz );
   for( ulong j = 0; j < sz; ++j ) {
     ulong k = prod & mask;
     ring[k].addr    = meta[j].off;
@@ -731,14 +747,19 @@ fd_xsk_tx_enqueue( fd_xsk_t *            xsk,
   /* ensure data is visible before producer index */
   FD_RELEASE();
 
-  /* update producer */
-                tx->cached_prod   = prod;
-  FD_VOLATILE( *tx->prod        ) = prod;
+  tx->cached_prod = prod;
 
-  /* XDP tells us whether we need to specifically wake up the driver/hw */
-  if( fd_xsk_tx_need_wakeup( xsk ) ) {
-    sendto( xsk->xsk_fd, NULL, 0, MSG_DONTWAIT, NULL, 0 );
-  }
+    /* update producer */
+    FD_VOLATILE( *tx->prod ) = prod;
+
+    /* XDP tells us whether we need to specifically wake up the driver/hw */
+    if( fd_xsk_tx_need_wakeup( xsk ) ) {
+      if( FD_UNLIKELY( -1==sendto( xsk->xsk_fd, NULL, 0, MSG_DONTWAIT, NULL, 0 ) ) ) {
+        if( FD_UNLIKELY( errno!=EAGAIN ) ) {
+          FD_LOG_WARNING(( "xsk sendto failed (%d-%s)", errno, strerror( errno ) ));
+        }
+      }
+    }
 
   return sz;
 }
@@ -770,6 +791,8 @@ fd_xsk_rx_complete( fd_xsk_t *            xsk,
 
   uint              mask = rx->depth - 1;
   struct xdp_desc * ring = rx->packet_ring;
+
+  TRACE_PACKET( "rx packets ring=%p seq=%u cnt=%lu", (void *)ring, cons, sz );
   for( ulong j = 0; j < sz; ++j ) {
     ulong k = cons & mask;
     batch[j].off   = ring[k].addr;

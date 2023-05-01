@@ -1,7 +1,5 @@
 #include "fd_funk.h"
 
-#if FD_HAS_HOSTED && FD_HAS_X86
-
 /* Provide the actual record map implementation */
 
 #define MAP_NAME              fd_funk_rec_map
@@ -397,7 +395,7 @@ fd_funk_rec_remove( fd_funk_t *     funk,
          number of records by flickering insert / remove-with-erase in
          an in-preparaton transaction with lots unique keys. */
 
-      ulong tag = ((ulong)fd_tickcount()) << 2; /* TODO: Use fd_funk_txn_cycle_tag from fd_funk_txn.c */
+      ulong tag = funk->cycle_tag++;
 
       ulong cur_idx = txn_idx;
       for(;;) {
@@ -681,4 +679,3 @@ fd_funk_rec_verify( fd_funk_t * funk ) {
   return FD_FUNK_SUCCESS;
 }
 
-#endif /* FD_HAS_HOSTED && FD_HAS_X86 */

@@ -57,8 +57,6 @@ fd_tempo_wallclock_model( double * opt_tau ) {
   return t0;
 }
 
-#if FD_HAS_X86
-
 double
 fd_tempo_tickcount_model( double * opt_tau ) {
   static double t0;
@@ -151,9 +149,6 @@ fd_tempo_tick_per_ns( double * opt_sigma ) {
 }
 
 #endif
-#endif
-
-#if FD_HAS_X86
 
 long
 fd_tempo_observe_pair( long * opt_now,
@@ -239,7 +234,6 @@ fd_tempo_observe_pair( long * opt_now,
   if( opt_tic ) opt_tic[0] = best_tc - (best_jt>>1); /* Use lower and upper bound midpoint (could be improved statistically) */
   return best_jt;
 }
-#endif
 
 ulong
 fd_tempo_async_min( long  lazy,
