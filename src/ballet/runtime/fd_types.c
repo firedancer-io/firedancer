@@ -3921,6 +3921,12 @@ uchar fd_vote_authorize_is_withdrawer(fd_vote_authorize_t* self) {
 }
 void fd_vote_authorize_inner_decode(fd_vote_authorize_inner_t* self, uint discriminant, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
   switch (discriminant) {
+  case 0: {
+    break;
+  }
+  case 1: {
+    break;
+  }
   default: FD_LOG_ERR(( "unhandled type"));
   }
 }
@@ -3930,6 +3936,12 @@ void fd_vote_authorize_decode(fd_vote_authorize_t* self, void const** data, void
 }
 void fd_vote_authorize_inner_destroy(fd_vote_authorize_inner_t* self, uint discriminant, fd_free_fun_t freef, void* freef_arg) {
   switch (discriminant) {
+  case 0: {
+    break;
+  }
+  case 1: {
+    break;
+  }
   default: break; // FD_LOG_ERR(( "unhandled type"));
   }
 }
@@ -4223,6 +4235,9 @@ void fd_vote_instruction_inner_decode(fd_vote_instruction_inner_t* self, uint di
     fd_bincode_uint64_decode(&self->withdraw, data, dataend);
     break;
   }
+  case 4: {
+    break;
+  }
   case 5: {
     fd_bincode_uint8_decode(&self->update_commission, data, dataend);
     break;
@@ -4273,6 +4288,9 @@ void fd_vote_instruction_inner_destroy(fd_vote_instruction_inner_t* self, uint d
     break;
   }
   case 3: {
+    break;
+  }
+  case 4: {
     break;
   }
   case 5: {
@@ -4723,6 +4741,9 @@ void fd_system_program_instruction_inner_decode(fd_system_program_instruction_in
     fd_system_program_instruction_create_account_with_seed_decode(&self->create_account_with_seed, data, dataend, allocf, allocf_arg);
     break;
   }
+  case 4: {
+    break;
+  }
   case 5: {
     fd_bincode_uint64_decode(&self->withdraw_nonce_account, data, dataend);
     break;
@@ -4751,6 +4772,9 @@ void fd_system_program_instruction_inner_decode(fd_system_program_instruction_in
     fd_system_program_instruction_transfer_with_seed_decode(&self->transfer_with_seed, data, dataend, allocf, allocf_arg);
     break;
   }
+  case 12: {
+    break;
+  }
   default: FD_LOG_ERR(( "unhandled type"));
   }
 }
@@ -4773,6 +4797,9 @@ void fd_system_program_instruction_inner_destroy(fd_system_program_instruction_i
   }
   case 3: {
     fd_system_program_instruction_create_account_with_seed_destroy(&self->create_account_with_seed, freef, freef_arg);
+    break;
+  }
+  case 4: {
     break;
   }
   case 5: {
@@ -4799,6 +4826,9 @@ void fd_system_program_instruction_inner_destroy(fd_system_program_instruction_i
   }
   case 11: {
     fd_system_program_instruction_transfer_with_seed_destroy(&self->transfer_with_seed, freef, freef_arg);
+    break;
+  }
+  case 12: {
     break;
   }
   default: break; // FD_LOG_ERR(( "unhandled type"));
@@ -4954,6 +4984,33 @@ uchar fd_system_error_is_nonce_unexpected_blockhash_value(fd_system_error_t* sel
 }
 void fd_system_error_inner_decode(fd_system_error_inner_t* self, uint discriminant, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
   switch (discriminant) {
+  case 0: {
+    break;
+  }
+  case 1: {
+    break;
+  }
+  case 2: {
+    break;
+  }
+  case 3: {
+    break;
+  }
+  case 4: {
+    break;
+  }
+  case 5: {
+    break;
+  }
+  case 6: {
+    break;
+  }
+  case 7: {
+    break;
+  }
+  case 8: {
+    break;
+  }
   default: FD_LOG_ERR(( "unhandled type"));
   }
 }
@@ -4963,6 +5020,33 @@ void fd_system_error_decode(fd_system_error_t* self, void const** data, void con
 }
 void fd_system_error_inner_destroy(fd_system_error_inner_t* self, uint discriminant, fd_free_fun_t freef, void* freef_arg) {
   switch (discriminant) {
+  case 0: {
+    break;
+  }
+  case 1: {
+    break;
+  }
+  case 2: {
+    break;
+  }
+  case 3: {
+    break;
+  }
+  case 4: {
+    break;
+  }
+  case 5: {
+    break;
+  }
+  case 6: {
+    break;
+  }
+  case 7: {
+    break;
+  }
+  case 8: {
+    break;
+  }
   default: break; // FD_LOG_ERR(( "unhandled type"));
   }
 }
@@ -5112,6 +5196,12 @@ uchar fd_stake_authorize_is_withdrawer(fd_stake_authorize_t* self) {
 }
 void fd_stake_authorize_inner_decode(fd_stake_authorize_inner_t* self, uint discriminant, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
   switch (discriminant) {
+  case 0: {
+    break;
+  }
+  case 1: {
+    break;
+  }
   default: FD_LOG_ERR(( "unhandled type"));
   }
 }
@@ -5121,6 +5211,12 @@ void fd_stake_authorize_decode(fd_stake_authorize_t* self, void const** data, vo
 }
 void fd_stake_authorize_inner_destroy(fd_stake_authorize_inner_t* self, uint discriminant, fd_free_fun_t freef, void* freef_arg) {
   switch (discriminant) {
+  case 0: {
+    break;
+  }
+  case 1: {
+    break;
+  }
   default: break; // FD_LOG_ERR(( "unhandled type"));
   }
 }
@@ -5485,6 +5581,9 @@ void fd_stake_instruction_inner_decode(fd_stake_instruction_inner_t* self, uint 
     fd_stake_instruction_authorize_decode(&self->authorize, data, dataend, allocf, allocf_arg);
     break;
   }
+  case 2: {
+    break;
+  }
   case 3: {
     fd_bincode_uint64_decode(&self->split, data, dataend);
     break;
@@ -5493,8 +5592,20 @@ void fd_stake_instruction_inner_decode(fd_stake_instruction_inner_t* self, uint 
     fd_bincode_uint64_decode(&self->withdraw, data, dataend);
     break;
   }
+  case 5: {
+    break;
+  }
+  case 6: {
+    break;
+  }
+  case 7: {
+    break;
+  }
   case 8: {
     fd_authorize_with_seed_args_decode(&self->authorize_with_seed, data, dataend, allocf, allocf_arg);
+    break;
+  }
+  case 9: {
     break;
   }
   case 10: {
@@ -5526,14 +5637,29 @@ void fd_stake_instruction_inner_destroy(fd_stake_instruction_inner_t* self, uint
     fd_stake_instruction_authorize_destroy(&self->authorize, freef, freef_arg);
     break;
   }
+  case 2: {
+    break;
+  }
   case 3: {
     break;
   }
   case 4: {
     break;
   }
+  case 5: {
+    break;
+  }
+  case 6: {
+    break;
+  }
+  case 7: {
+    break;
+  }
   case 8: {
     fd_authorize_with_seed_args_destroy(&self->authorize_with_seed, freef, freef_arg);
+    break;
+  }
+  case 9: {
     break;
   }
   case 10: {
@@ -5767,12 +5893,18 @@ uchar fd_stake_state_is_rewards_pool(fd_stake_state_t* self) {
 }
 void fd_stake_state_inner_decode(fd_stake_state_inner_t* self, uint discriminant, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
   switch (discriminant) {
+  case 0: {
+    break;
+  }
   case 1: {
     fd_stake_state_meta_decode(&self->initialized, data, dataend, allocf, allocf_arg);
     break;
   }
   case 2: {
     fd_stake_state_stake_decode(&self->stake, data, dataend, allocf, allocf_arg);
+    break;
+  }
+  case 3: {
     break;
   }
   default: FD_LOG_ERR(( "unhandled type"));
@@ -5784,12 +5916,18 @@ void fd_stake_state_decode(fd_stake_state_t* self, void const** data, void const
 }
 void fd_stake_state_inner_destroy(fd_stake_state_inner_t* self, uint discriminant, fd_free_fun_t freef, void* freef_arg) {
   switch (discriminant) {
+  case 0: {
+    break;
+  }
   case 1: {
     fd_stake_state_meta_destroy(&self->initialized, freef, freef_arg);
     break;
   }
   case 2: {
     fd_stake_state_stake_destroy(&self->stake, freef, freef_arg);
+    break;
+  }
+  case 3: {
     break;
   }
   default: break; // FD_LOG_ERR(( "unhandled type"));

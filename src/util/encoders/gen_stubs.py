@@ -831,14 +831,14 @@ for entry in entries:
         print("  switch (discriminant) {", file=body)
         
         for i, v in enumerate(entry["variants"]):
+            print("  case "+ str(i) +": {", file=body)
             if "type" in v:
-              print("  case "+ str(i) +": {", file=body)
               if v["type"] in fields_body_decode:
                   fields_body_decode[v["type"]](namespace, v)
               else:
                   print("  " + namespace + "_" + v["type"] + "_decode(&self->" + v["name"] + ", data, dataend, allocf, allocf_arg);", file=body)
-              print("   break;", file=body)
-              print("   }", file=body)
+            print("   break;", file=body)
+            print("   }", file=body)
 
         print("default: FD_LOG_ERR(( \"unhandled type\"));", file=body);
 
@@ -862,15 +862,15 @@ for entry in entries:
       print("void " + n + "_inner_destroy(" + n + "_inner_t* self, uint discriminant, fd_free_fun_t freef, void* freef_arg) {", file=body)
       print("  switch (discriminant) {", file=body)
       for i, v in enumerate(entry["variants"]):
-          if "type" in v:
-            print("  case "+ str(i) +": {", file=body)
+        print("  case "+ str(i) +": {", file=body)
+        if "type" in v:
             if v["type"] in fields_body_destroy:
                  fields_body_destroy[v["type"]](namespace, v)
             else:
                 print("  " + namespace + "_" + v["type"] + "_destroy(&self->" + v["name"] + ", freef, freef_arg);", file=body)
-            print("   break;", file=body)
-            print("   }", file=body)
-      print("default: break; // FD_LOG_ERR(( \"unhandled type\"));", file=body);
+        print("   break;", file=body)
+        print("   }", file=body)
+      print("default: break; // FD_LOG_ERR(( \"unhandled type\"));", file=body)
       print("}}", file=body)
 
       print("void " + n + "_destroy(" + n + "_t* self, fd_free_fun_t freef, void* freef_arg) {", file=body)
