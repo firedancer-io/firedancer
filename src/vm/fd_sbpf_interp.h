@@ -48,17 +48,32 @@ typedef struct fd_vm_sbpf_syscall_map fd_vm_sbpf_syscall_map_t;
 #define MAP_LG_SLOT_CNT 6
 #include "../util/tmpl/fd_map.c"
 
+/* Definition of the map of local calls used in sBPF programs */
+struct fd_vm_sbpf_local_call_map {
+  uint key;
+  uint hash;
+
+  ulong offset;
+};
+typedef struct fd_vm_sbpf_local_call_map fd_vm_sbpf_local_call_map_t;
+#define MAP_NAME        fd_vm_sbpf_local_call_map
+#define MAP_T           fd_vm_sbpf_local_call_map_t
+#define MAP_LG_SLOT_CNT 10
+#include "../util/tmpl/fd_map.c"
+
 /* Account specific info passed to a program as input during sBPF execution */
 struct fd_vm_sbpf_exec_account_info {
-  fd_pubkey_t * pubkey;         /* The pubkey for this account. */
-  ulong *       lamports;       /* The balance of this account. */
+  fd_pubkey_t   pubkey;         /* The pubkey for this account. */
+  ulong         lamports;       /* The balance of this account. */
   ulong         data_len;       /* The length of the data in this account. */
   uchar *       data;           /* The data in this account. */
-  fd_pubkey_t * owner;          /* The pubkey of the owner of this account. */
+  fd_pubkey_t   owner;          /* The pubkey of the owner of this account. */
   ulong         rent_epoch;     /* The most recent rent epoch for this account. */
   uint          is_signer;      /* Is this account a signer? */
   uint          is_writable;    /* Is this account writable? */
   uint          is_executable;  /* Is this account executable? */ 
+  uint          is_duplicate;
+  uchar         index_of_origin;
 };
 typedef struct fd_vm_sbpf_exec_account_info fd_vm_sbpf_exec_account_info_t;
 
@@ -77,10 +92,11 @@ typedef struct fd_vm_sbpf_exec_params fd_vm_sbpf_exec_params_t;
    and after contract execution. */
 struct fd_vm_sbpf_exec_context {
   /* Read-only VM parameters: */
-  long                      entrypoint;   /* The initial program counter to start at */
-  fd_vm_sbpf_syscall_map_t  syscall_map;  /* The map of syscalls that can be called into */
-  fd_vm_sbpf_instr_t *      instrs;       /* The program instructions */
-  ulong                     instrs_sz;    /* The number of program instructions */
+  long                        entrypoint;     /* The initial program counter to start at */
+  fd_vm_sbpf_syscall_map_t    syscall_map;    /* The map of syscalls that can be called into */
+  fd_vm_sbpf_local_call_map_t local_call_map; /* The map of local calls that can be called into */
+  fd_vm_sbpf_instr_t *        instrs;         /* The program instructions */
+  ulong                       instrs_sz;      /* The number of program instructions */
   
   /* Writable VM parameters: */
   ulong                 register_file[11];    /* The sBPF register storage */
@@ -98,8 +114,13 @@ struct fd_vm_sbpf_exec_context {
   uchar         heap[FD_VM_HEAP_SZ];  /* The heap memory allocated by the bump allocator syscall */ 
 };
 
+ulong fd_vm_serialize_input_params( fd_vm_sbpf_exec_params_t * params, uchar * buf, ulong buf_sz );
+
 /* Registers a syscall by name to an execution context. */
 void fd_vm_sbpf_interp_register_syscall( fd_vm_sbpf_exec_context_t * ctx, char const * name, fd_vm_sbpf_syscall_fn_ptr_t fn_ptr ); 
+
+/* Registers a local call by name to an execution context. */
+void fd_vm_sbpf_interp_register_local_call( fd_vm_sbpf_exec_context_t * ctx, char const * name, ulong offset ); 
 
 /* Runs the sBPF program from the context until completion or a fault occurs. Returns success
    or an error/fault code. */

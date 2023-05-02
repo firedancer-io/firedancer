@@ -1,5 +1,5 @@
 #include "fd_sbpf_interp.h"
-#include "fd_murmur3.h"
+#include "../ballet/fd_ballet.h"
 
 #define FD_MEM_MAP_PROGRAM_REGION_START   (0x100000000UL)
 #define FD_MEM_MAP_STACK_REGION_START     (0x200000000UL)
@@ -8,6 +8,79 @@
 #define FD_MEM_MAP_REGION_SZ              (0x0FFFFFFFFUL)
 #define FD_MEM_MAP_REGION_MASK            (~FD_MEM_MAP_REGION_SZ)
 #define FD_MEM_MAP_REGION_VIRT_ADDR_BITS  (32)
+
+ulong 
+fd_vm_serialize_input_params( fd_vm_sbpf_exec_params_t * params, 
+                              uchar * buf, 
+                              FD_FN_UNUSED ulong buf_sz ) {
+  ulong idx = 0;
+  
+  // FIXME handle duplicate accounts
+  
+  FD_STORE( ulong, buf+idx, params->accounts_len );
+  idx += sizeof(ulong);
+  
+  for( ulong i = 0; i < params->accounts_len; i++ ) {
+    fd_vm_sbpf_exec_account_info_t account_info = params->accounts[i];
+    if( account_info.is_duplicate ) {
+      FD_STORE( uchar, buf+idx, account_info.index_of_origin );
+      idx += sizeof(uchar);
+      continue;
+    }
+
+    FD_STORE( uchar, buf+idx, 0xFF );
+    idx += sizeof(uchar);
+    FD_STORE( uchar, buf+idx, account_info.is_signer );
+    idx += sizeof(uchar);
+    FD_STORE( uchar, buf+idx, account_info.is_writable );
+    idx += sizeof(uchar);
+   
+    /*
+    buf[idx++] = 0;
+    buf[idx++] = 0;
+    buf[idx++] = 0;
+    buf[idx++] = 0;
+    */
+
+    fd_memcpy( buf + idx, account_info.pubkey, sizeof(fd_pubkey_t) );
+    idx += sizeof(fd_pubkey_t);
+  
+    FD_STORE( ulong, buf+idx, account_info.lamports );
+    idx += sizeof(ulong);
+
+    FD_STORE( ulong, buf+idx, account_info.data_len );
+    idx += sizeof(ulong);
+
+    fd_memcpy( buf + idx, account_info.data, account_info.data_len );
+    idx += account_info.data_len;
+    
+    fd_memcpy( buf + idx, account_info.owner, sizeof(fd_pubkey_t) );
+    idx += sizeof(fd_pubkey_t);
+
+    // TODO: ADD PADDING!
+    FD_STORE( uchar, buf+idx, account_info.is_executable );
+    idx += sizeof(uchar);
+    
+    FD_STORE( ulong, buf+idx, account_info.rent_epoch );
+    idx += sizeof(ulong);
+
+    FD_LOG_NOTICE(( "SER A: idx: %lu", idx));
+  }
+
+  FD_STORE( ulong, buf+idx, params->data_len );
+  idx += sizeof(ulong);
+  FD_LOG_NOTICE(( "SER B: idx: %lu", idx));
+
+  fd_memcpy( buf + idx, params->data, params->data_len );
+  idx += params->data_len;
+  FD_LOG_NOTICE(( "SER C: idx: %lu", idx));
+
+  fd_memcpy( buf + idx, params->program_id, sizeof(fd_pubkey_t) );
+  idx += sizeof(fd_pubkey_t);
+
+  return idx;
+}
+
 
 ulong
 fd_vm_sbpf_interp_translate_vm_to_host( fd_vm_sbpf_exec_context_t * ctx,
@@ -211,6 +284,17 @@ fd_vm_sbpf_interp_register_syscall( fd_vm_sbpf_exec_context_t * ctx,
   syscall_entry->syscall_fn_ptr = fn_ptr;
 }
 
+void 
+fd_vm_sbpf_interp_register_local_call( fd_vm_sbpf_exec_context_t * ctx, 
+                                       char const *                name,
+                                       ulong                       offset) {
+  ulong name_len = strlen(name);
+  uint local_call_hash = fd_murmur3_hash_cstr_to_uint(name, name_len, 0);
+
+  fd_vm_sbpf_local_call_map_t * local_call_entry = fd_vm_sbpf_local_call_map_insert(&ctx->local_call_map, local_call_hash);
+  local_call_entry->offset = offset;
+}
+
 ulong
 fd_vm_sbpf_interp_instrs( fd_vm_sbpf_exec_context_t * ctx ) {
   long pc = ctx->entrypoint;
@@ -221,6 +305,14 @@ fd_vm_sbpf_interp_instrs( fd_vm_sbpf_exec_context_t * ctx ) {
   ulong cond_fault = 0;
 
 #define JMP_TAB_ID interp
+#define JMP_TAB_PRE_CASE_CODE \
+  dst_reg = instr.dst_reg; \
+  src_reg = instr.src_reg; \
+  imm = instr.imm;
+#define JMP_TAB_POST_CASE_CODE \
+  ic++; \
+  instr = ctx->instrs[++pc]; \
+  goto *(locs[instr.opcode.raw]);
 #include "fd_jump_tab.c"
   
   fd_vm_sbpf_instr_t instr;
@@ -299,7 +391,7 @@ uchar const FD_OPCODE_VALIDATION_MAP[256] = {
   /* 0x80 */ FD_INVALID,    /* 0x81 */ FD_INVALID,    /* 0x82 */ FD_INVALID,    /* 0x83 */ FD_INVALID,   
   /* 0x84 */ FD_VALID,      /* 0x85 */ FD_CHECK_CALL, /* 0x86 */ FD_INVALID,    /* 0x87 */ FD_VALID,   
   /* 0x88 */ FD_INVALID,    /* 0x89 */ FD_INVALID,    /* 0x8a */ FD_INVALID,    /* 0x8b */ FD_INVALID,   
-  /* 0x8c */ FD_INVALID,    /* 0x8d */ FD_INVALID,    /* 0x8e */ FD_INVALID,    /* 0x8f */ FD_INVALID,   
+  /* 0x8c */ FD_INVALID,    /* 0x8d */ FD_VALID,      /* 0x8e */ FD_INVALID,    /* 0x8f */ FD_INVALID,   
   /* 0x90 */ FD_INVALID,    /* 0x91 */ FD_INVALID,    /* 0x92 */ FD_INVALID,    /* 0x93 */ FD_INVALID,   
   /* 0x94 */ FD_VALID,      /* 0x95 */ FD_VALID,      /* 0x96 */ FD_INVALID,    /* 0x97 */ FD_VALID,   
   /* 0x98 */ FD_INVALID,    /* 0x99 */ FD_INVALID,    /* 0x9a */ FD_INVALID,    /* 0x9b */ FD_INVALID,   
@@ -374,20 +466,25 @@ fd_vm_sbpf_interp_validate( fd_vm_sbpf_exec_context_t * ctx ) {
         break;
       case FD_CHECK_CALL:
         // TODO: CHECK CALL!
-        if (fd_vm_sbpf_syscall_map_query(&ctx->syscall_map, instr.imm, NULL) == NULL) {
+        if (instr.imm >= ctx->instrs_sz
+            && fd_vm_sbpf_syscall_map_query(&ctx->syscall_map, instr.imm, NULL) == NULL
+            && fd_vm_sbpf_local_call_map_query(&ctx->local_call_map, instr.imm, NULL) == NULL) {
+          FD_LOG_WARNING(( "CALL IMM: %x", instr.imm ));
           return FD_VM_SBPF_VALIDATE_ERR_NO_SUCH_EXT_CALL;
         }
         break;
       case FD_INVALID:
+        FD_LOG_WARNING(("INVAL OPCODE %x %lu, %lu", instr.opcode.raw, i, ctx->instrs_sz));
         return FD_VM_SBPF_VALIDATE_ERR_INVALID_OPCODE;
     }
     
     if (instr.src_reg > 10) {
       return FD_VM_SBPF_VALIDATE_ERR_INVALID_SRC_REG; 
     }
-    
+   
     int is_invalid_dst_reg = instr.dst_reg > ((validation_code == FD_CHECK_ST) ? 10 : 9);
     if (is_invalid_dst_reg) {
+      FD_LOG_WARNING(( "INVAL DST: %x %lu %u %lu",instr.opcode.raw, i, instr.dst_reg, ctx->instrs_sz));
       return FD_VM_SBPF_VALIDATE_ERR_INVALID_DST_REG; 
     }
   }

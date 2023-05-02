@@ -1,9 +1,20 @@
 #include "../util/fd_util_base.h"
 
-/* Jump Table */
+/* Jump table template 
+ * 
+ * In order to 
+ */
 
 #ifndef JMP_TAB_ID
-#error "Define FD_JMP_TAB_ID"
+#error "Define JMP_TAB_ID"
+#endif
+
+#ifndef JMP_TAB_PRE_CASE_CODE
+#error "Define JMP_TAB_PRE_CASE_CODE"
+#endif
+
+#ifndef JMP_TAB_POST_CASE_CODE
+#error "Define JMP_TAB_POST_CASE_CODE"
 #endif
 
 #define __JT_ID JMP_TAB_ID
@@ -33,22 +44,20 @@ goto ret_lbl;
     JT_RET_LABEL(__JT_ID), \
 )
 
-#define __JT_CASE_END_IMPL \
-  ic++; \
-  instr = ctx->instrs[++pc]; \
-  goto *(locs[instr.opcode.raw]);
-#define __JT_CASE_END __JT_CASE_END_IMPL
-#define JT_CASE_END __JT_CASE_END
+#define __JT_CASE_END_IMPL(post_case_code) \
+post_case_code
+#define __JT_CASE_END(post_case_code) __JT_CASE_END_IMPL(post_case_code)
+#define JT_CASE_END __JT_CASE_END( \
+  JMP_TAB_POST_CASE_CODE \
+)
 
-#define __JT_CASE_IMPL(case_lbl, break_lbl, alignment) \
+#define __JT_CASE_IMPL(case_lbl, pre_case_code) \
 case_lbl: \
-  dst_reg = instr.dst_reg; \
-  src_reg = instr.src_reg; \
-  imm = instr.imm;
-#define __JT_CASE(case_lbl, break_lbl, alignment) __JT_CASE_IMPL(case_lbl, break_lbl, alignment)
+  pre_case_code
+#define __JT_CASE(case_lbl, pre_case_code) __JT_CASE_IMPL(case_lbl, pre_case_code)
 #define JT_CASE(val) __JT_CASE( \
     JT_CASE_LABEL(val, __JT_ID), \
-    JT_BREAK_LABEL(__JT_ID), \
+    JMP_TAB_PRE_CASE_CODE \
 )
 
 

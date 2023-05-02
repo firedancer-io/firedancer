@@ -1,8 +1,8 @@
 #include "fd_vm.h"
-#include "fd_murmur3.h"
 #include "fd_opcodes.h"
 #include "fd_sbpf_interp.h"
 #include "../util/fd_util.h"
+#include "../ballet/base58/fd_base58.h"
 #include <string.h>
 #include <stdio.h>
 #include <immintrin.h>
@@ -29,15 +29,6 @@ test_program_success( char *                test_case_name,
 
   fd_vm_sbpf_interp_register_syscall( &ctx, "accumulator", accumulator_syscall );
 
-  /*
-  char str[1024];
-  fd_memset(str, 0, 1024);
-  int x = 0;
-  for( ulong i = 0; i < instrs_sz; i++ ) {
-    x += sprintf(&str[x], "%016llx\n", _bswap64(*((long*)&instrs[i])));
-  }
-  FD_LOG_NOTICE(( "Code: \n%s", str ));
-  */
   ulong validation_res = fd_vm_sbpf_interp_validate( &ctx ); 
   if (validation_res != 0) {
     FD_LOG_WARNING(( "VAL_RES: %lu", validation_res ));
@@ -57,11 +48,6 @@ test_program_success( char *                test_case_name,
   FD_LOG_NOTICE(( "Time: %ldns", dt ));
   FD_LOG_NOTICE(( "Time/Instr: %f ns", (double)dt / (double)ctx.instruction_counter ));
   FD_LOG_NOTICE(( "Mega Instr/Sec: %f", 1000.0 * ((double)ctx.instruction_counter / (double) dt)));
-  /*
-  for( ulong i = 0; i < 11; i++ ) {
-    FD_LOG_WARNING(( "REG %lu: %lu", i, ctx.register_file[i] ));
-  }
-  */
 }
 
 #define TEST_PROGRAM_SUCCESS(test_case_name, expected_result, instrs_sz, ...) { \
@@ -69,6 +55,31 @@ test_program_success( char *                test_case_name,
   test_program_success(test_case_name, expected_result, instrs_sz, instrs_var); \
 }
 
+static void
+test_input_params_diff( fd_vm_sbpf_exec_params_t * params, 
+                        uchar const * expected_bytes, 
+                        ulong expected_bytes_len ) {
+  ulong buf_size = 65536;
+  uchar buf[buf_size];
+  
+  ulong len = fd_vm_serialize_input_params( params, buf, buf_size );
+  ulong min_len = (len < expected_bytes_len) ? len : expected_bytes_len;
+
+  if( len != expected_bytes_len ) { 
+    FD_LOG_WARNING(( "Mismatch in bytes content of params: actual: %lu, expected: %lu", 
+          len, expected_bytes_len ));
+  }
+
+  for( ulong i = 0; i < min_len; i++ ) {
+    if( buf[i] != expected_bytes[i] ) {
+      FD_LOG_WARNING(( "Input parameters differ at byte %lu: actual: %x, expected: %x", i, buf[i], 
+            expected_bytes[i] ));
+      FD_TEST( buf[i] == expected_bytes[i] );
+    }
+  }
+  
+  FD_TEST( len == expected_bytes_len );
+}
 
 static void
 generate_random_alu_instrs( fd_rng_t * rng, fd_vm_sbpf_instr_t * instrs, ulong instrs_sz ) {
@@ -152,13 +163,148 @@ generate_random_alu64_instrs( fd_rng_t * rng, fd_vm_sbpf_instr_t * instrs, ulong
   instrs[instrs_sz-1].opcode.raw = FD_BPF_OP_EXIT;
 }
 
+FD_IMPORT_BINARY( input_param_1, "src/vm/test_input_param_1.bin" );
+
+static void
+test_input_params_1() {
+  ulong expected_bytes_len = 641;
+  uchar const * expected_bytes = input_param_1;
+
+  fd_vm_sbpf_exec_account_info_t account_infos[8];
+  memset(account_infos, 0, sizeof(account_infos));
+
+  {
+    fd_vm_sbpf_exec_account_info_t * account_info = &account_infos[0];
+    fd_base58_decode_32( "6pQhYqaECP9Sa4oaXss2fLYRVVs7cFcWQHZbwHMbjgfp", account_info->pubkey );
+    fd_base58_decode_32( "BPFLoader2111111111111111111111111111111111", account_info->owner );
+    account_info->is_signer = 0;
+    account_info->is_writable = 0;
+    account_info->is_executable = 0;
+    account_info->lamports = 1;
+    account_info->rent_epoch = 100;
+
+    account_info->data_len = 5;
+    uchar account_data[] = { 0x01, 0x02, 0x03, 0x04, 0x05 };
+    account_info->data = malloc(5);
+    fd_memcpy( account_info->data, account_data, 5);
+  }
+  
+  {
+    fd_vm_sbpf_exec_account_info_t * account_info = &account_infos[1];
+    account_info->is_duplicate = 1;
+    account_info->index_of_origin = 0;
+  }
+
+  {
+    fd_vm_sbpf_exec_account_info_t * account_info = &account_infos[2];
+    fd_base58_decode_32( "5dw2RiM3VcYYwQbvif2wvtUNPHX5j6RKfg7E7nwcjuEj", account_info->pubkey );
+    fd_base58_decode_32( "BPFLoader2111111111111111111111111111111111", account_info->owner );
+    account_info->is_signer = 0;
+    account_info->is_writable = 0;
+    account_info->is_executable = 1;
+    account_info->lamports = 2;
+    account_info->rent_epoch = 200;
+
+    account_info->data_len = 9;
+    uchar account_data[] = { 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10, 0x11, 0x12, 0x13 };
+    account_info->data = malloc(9);
+    fd_memcpy( account_info->data, account_data, 9);
+  }
+  
+  {
+    fd_vm_sbpf_exec_account_info_t * account_info = &account_infos[3];
+    fd_base58_decode_32( "CjBG1SGWx3CqVmhQwfdi8WBs2Vrj6G3q9pDDhpwdbUtj", account_info->pubkey );
+    fd_base58_decode_32( "BPFLoader2111111111111111111111111111111111", account_info->owner );
+    account_info->is_signer = 0;
+    account_info->is_writable = 0;
+    account_info->is_executable = 0;
+    account_info->lamports = 3;
+    account_info->rent_epoch = 3100;
+
+    account_info->data_len = 0;
+    uchar account_data[] = {};
+    account_info->data = malloc(0);
+    fd_memcpy( account_info->data, account_data, 0);
+  }
+  
+  {
+    fd_vm_sbpf_exec_account_info_t * account_info = &account_infos[4];
+    fd_base58_decode_32( "GzsgerRWY6RmZAqHQvzsA9jdMgevzaDXu9fb3CHe3nks", account_info->pubkey );
+    fd_base58_decode_32( "BPFLoader2111111111111111111111111111111111", account_info->owner );
+    account_info->is_signer = 0;
+    account_info->is_writable = 1;
+    account_info->is_executable = 0;
+    account_info->lamports = 4;
+    account_info->rent_epoch = 100;
+
+    account_info->data_len = 5;
+    uchar account_data[] = { 0x01, 0x02, 0x03, 0x04, 0x05 };
+    account_info->data = malloc(5);
+    fd_memcpy( account_info->data, account_data, 5);
+  }
+  
+  {
+    fd_vm_sbpf_exec_account_info_t * account_info = &account_infos[5];
+    account_info->is_duplicate = 1;
+    account_info->index_of_origin = 4;
+  }
+  
+  {
+    fd_vm_sbpf_exec_account_info_t * account_info = &account_infos[6];
+    fd_base58_decode_32( "5oNfRTeEezVxgjNe8b1hnJsr8wiAkhYYUDty7zLxKANL", account_info->pubkey );
+    fd_base58_decode_32( "BPFLoader2111111111111111111111111111111111", account_info->owner );
+    account_info->is_signer = 0;
+    account_info->is_writable = 1;
+    account_info->is_executable = 1;
+    account_info->lamports = 5;
+    account_info->rent_epoch = 200;
+
+    account_info->data_len = 9;
+    uchar account_data[] = { 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10, 0x11, 0x12, 0x13 };
+    account_info->data = malloc(9);
+    fd_memcpy( account_info->data, account_data, 9);
+  }
+  
+  {
+    fd_vm_sbpf_exec_account_info_t * account_info = &account_infos[7];
+    fd_base58_decode_32( "4RZb6jbUTRRtZcGFb3Wrqehdjz69NX8xsUY7i5upps6u", account_info->pubkey );
+    fd_base58_decode_32( "BPFLoader2111111111111111111111111111111111", account_info->owner );
+    account_info->is_signer = 0;
+    account_info->is_writable = 1;
+    account_info->is_executable = 0;
+    account_info->lamports = 6;
+    account_info->rent_epoch = 3100;
+
+    account_info->data_len = 0;
+    uchar account_data[] = {};
+    account_info->data = malloc(0);
+    fd_memcpy( account_info->data, account_data, 0);
+  }
+
+  fd_pubkey_t program_id;
+  fd_base58_decode_32( "AZBkttuNfLzUaSNUK77Q6rJRENDo3UFztiKY7AhEjzMP", program_id);
+  fd_vm_sbpf_exec_params_t params = {
+    .accounts = account_infos,
+    .accounts_len = 8,
+    .data_len = 11,
+    .program_id = &program_id
+  };
+
+  uchar data[11] = { 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b };
+  params.data = data;
+
+  test_input_params_diff( &params, expected_bytes, expected_bytes_len );
+}
+
 int
 main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
-  
+
+  test_input_params_1();
+
   fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
-  
+
   TEST_PROGRAM_SUCCESS("add", 0x3, 5,
     FD_BPF_INSTR(FD_BPF_OP_MOV_IMM,   FD_R0,  0,      0, 0),
     FD_BPF_INSTR(FD_BPF_OP_MOV_IMM,   FD_R1,  0,      0, 2),
@@ -829,7 +975,7 @@ main( int     argc,
     FD_BPF_INSTR(FD_BPF_OP_MOV64_IMM, FD_R3,  0,      0, 3),
     FD_BPF_INSTR(FD_BPF_OP_MOV64_IMM, FD_R4,  0,      0, 4),
     FD_BPF_INSTR(FD_BPF_OP_MOV64_IMM, FD_R5,  0,      0, 5),
-    FD_BPF_INSTR(FD_BPF_OP_CALL,      0,      0,      0, 0x7e6bb1fb),
+    FD_BPF_INSTR(FD_BPF_OP_CALL_IMM,      0,      0,      0, 0x7e6bb1fb),
 
     FD_BPF_INSTR(FD_BPF_OP_EXIT,      0,      0,      0, 0),
   );
@@ -855,4 +1001,3 @@ main( int     argc,
   fd_halt();
   return 0;
 }
-
