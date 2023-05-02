@@ -35,6 +35,25 @@ void fd_stake_program_config_init( fd_global_ctx_t* global ) {
   write_stake_config( global, &stake_config );
 }
 
+void read_stake_state( fd_global_ctx_t* global, fd_pubkey_t* stake_acc, fd_stake_state_t* result ) {
+  fd_account_meta_t metadata;
+  int               read_result = fd_acc_mgr_get_metadata( global->acc_mgr, global->funk_txn, stake_acc, &metadata );
+  if ( read_result != FD_ACC_MGR_SUCCESS ) {
+    FD_LOG_NOTICE(( "failed to read account metadata: %d", read_result ));
+    return;
+  }
+
+  unsigned char *raw_acc_data = fd_alloca( 1, metadata.dlen );
+  read_result = fd_acc_mgr_get_account_data( global->acc_mgr, global->funk_txn, stake_acc, raw_acc_data, metadata.hlen, metadata.dlen );
+  if ( read_result != FD_ACC_MGR_SUCCESS ) {
+    FD_LOG_NOTICE(( "failed to read account data: %d", read_result ));
+    return;
+  }
+
+  void* input = (void *)raw_acc_data;
+  fd_stake_state_decode( result, (const void **)&input, raw_acc_data + metadata.dlen, global->allocf, global->allocf_arg );
+}
+
 int write_stake_state(
     instruction_ctx_t ctx,
     fd_pubkey_t* stake_acc,
@@ -83,6 +102,9 @@ int fd_executor_stake_program_execute_instruction(
 
   fd_stake_instruction_t instruction;
   fd_stake_instruction_decode( &instruction, input_ptr, dataend, ctx.global->allocf, ctx.global->allocf_arg );
+
+  /* TODO: check that the instruction account 0 owner is the stake program ID
+     https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/stake/src/stake_instruction.rs#L37 */
 
   if ( fd_stake_instruction_is_initialize( &instruction ) ) {
     /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/stake/src/stake_instruction.rs#L43 */
@@ -163,6 +185,74 @@ int fd_executor_stake_program_execute_instruction(
     }
 
   } else if ( fd_stake_instruction_is_delegate_stake( &instruction ) ) {
+    /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/stake/src/stake_instruction.rs#L126 */
+
+    /* Check that the instruction accounts are correct
+      https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/stake/src/stake_instruction.rs#L127-L142 */
+    uchar* instr_acc_idxs = ((uchar *)ctx.txn_raw->raw + ctx.instr->acct_off);
+    fd_pubkey_t* txn_accs = (fd_pubkey_t *)((uchar *)ctx.txn_raw->raw + ctx.txn_descriptor->acct_addr_off);
+    fd_pubkey_t* stake_acc         = &txn_accs[instr_acc_idxs[0]];
+
+    /* Check that the Instruction Account 2 is the Clock Sysvar account */
+    if ( memcmp( &txn_accs[instr_acc_idxs[2]], ctx.global->sysvar_clock, sizeof(fd_pubkey_t) ) != 0 ) {
+      return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+    }
+
+    /* Check that the Instruction Account 3 is the Stake History Sysvar account */
+    if ( memcmp( &txn_accs[instr_acc_idxs[3]], ctx.global->sysvar_stake_history, sizeof(fd_pubkey_t) ) != 0 ) {
+      return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+    }
+
+    /* Check that Instruction Account 4 is the Stake Config Program account */
+    if ( memcmp( &txn_accs[instr_acc_idxs[4]], ctx.global->solana_stake_program_config, sizeof(fd_pubkey_t) ) != 0 ) {
+      return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+    }
+
+    /* Check that Instruction Account 1 is owned by the vote program
+       https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/stake/src/stake_state.rs#L540 */
+    fd_pubkey_t vote_acc_owner;
+    fd_acc_mgr_get_owner( ctx.global->acc_mgr, ctx.global->funk_txn, &txn_accs[instr_acc_idxs[1]], &vote_acc_owner ); 
+    if ( memcmp( &vote_acc_owner, ctx.global->solana_vote_program, sizeof(fd_pubkey_t) ) != 0 ) {
+      return FD_EXECUTOR_INSTR_ERR_INCORRECT_PROGRAM_ID;
+    }
+
+    /* Read the current State State from the Stake account */
+    fd_stake_state_t stake_state;
+    read_stake_state( ctx.global, stake_acc, &stake_state );
+
+    /* Require the Stake State to be either Initialized or Stake
+       https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/stake/src/stake_state.rs#L573 */
+    if ( !( fd_stake_state_is_initialized( &stake_state ) || fd_stake_state_is_stake( &stake_state ) ) ) {
+      return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
+    }
+
+    fd_stake_state_meta_t* meta = NULL;
+    if ( fd_stake_state_is_initialized( &stake_state ) ) {
+      meta = &stake_state.inner.initialized;
+    } else if ( fd_stake_state_is_stake( &stake_state ) ) {
+      meta = &stake_state.inner.stake.meta;
+    }
+
+    /* Check that the authorized staker for this Stake account has signed the transaction
+       https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/stake/src/stake_state.rs#L546 */
+    uchar authorized_staker_signed = 0;
+    for ( ulong i = 0; i < ctx.instr->acct_cnt; i++ ) {
+      if ( instr_acc_idxs[i] < ctx.txn_descriptor->signature_cnt ) {
+        fd_pubkey_t * signer = &txn_accs[instr_acc_idxs[i]];
+        if ( !memcmp( signer, &meta->authorized.staker, sizeof(fd_pubkey_t) ) ) {
+          authorized_staker_signed = 1;
+          break;
+        }
+      }
+    }
+    if ( !authorized_staker_signed ) {
+      return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
+    }
+
+    /* Ensire that we leave enough balance in the account such that the Stake account is rent exempt
+       https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/stake/src/stake_state.rs#L837 */
+
+
     FD_LOG_NOTICE(( "StakeInstruction::DelegateStake not implemented yet" ));
     /* TODO */
   } else {
