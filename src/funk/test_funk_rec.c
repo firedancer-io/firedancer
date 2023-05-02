@@ -1,6 +1,6 @@
 #include "fd_funk.h"
 
-#if FD_HAS_HOSTED && FD_HAS_X86
+#if FD_HAS_HOSTED
 
 FD_STATIC_ASSERT( FD_FUNK_REC_ALIGN    == 32UL, unit_test );
 FD_STATIC_ASSERT( FD_FUNK_REC_FOOTPRINT==160UL, unit_test );
@@ -526,7 +526,7 @@ int
 main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
-  FD_LOG_WARNING(( "skip: unit test requires FD_HAS_HOSTED and FD_HAS_X86 capabilities" ));
+  FD_LOG_WARNING(( "skip: unit test requires FD_HAS_HOSTED capabilities" ));
   fd_halt();
   return 0;
 }

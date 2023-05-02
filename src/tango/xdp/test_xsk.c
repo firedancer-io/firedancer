@@ -214,30 +214,30 @@ test_xsk( void ) {
   FD_TEST( fd_xsk_rx_enqueue( xsk, NULL, 0UL )==0UL );
 
   {
-    ulong offsets[ 3UL ] = { 0UL, 1UL, 2UL };
+    ulong offsets[ 3UL ] = { 0UL*2048UL, 1UL*2048UL, 2UL*2048UL };
     FD_TEST( fd_xsk_rx_enqueue( xsk, offsets, 3UL )==3UL );
     FD_TEST( test_xsk_ring_fr.prod==3UL );
   }
   {
-    ulong offsets[ 6UL ] = { 3UL, 4UL, 5UL, 6UL, 7UL, 8UL };
+    ulong offsets[ 6UL ] = { 3UL*2048UL, 4UL*2048UL, 5UL*2048UL, 6UL*2048UL, 7UL*2048UL, 8UL*2048UL };
     FD_TEST( fd_xsk_rx_enqueue( xsk, offsets, 6UL )==5UL );
     FD_TEST( test_xsk_ring_fr.prod==8UL );
   }
 
   for( ulong i=0UL; i<8UL; i++ )
-    FD_TEST( test_xsk_ring_fr.frame_idxs[ i ]==i );
+    FD_TEST( test_xsk_ring_fr.frame_idxs[ i ]==i*2048UL );
 
   test_xsk_ring_fr.cons = 1UL;
 
   {
-    ulong offsets[ 3UL ] = { 8UL, 9UL, 10UL };
+    ulong offsets[ 3UL ] = { 8UL*2048UL, 9UL*2048UL, 10UL*2048UL };
     FD_TEST( fd_xsk_rx_enqueue( xsk, offsets, 3UL )==1UL );
     FD_TEST( test_xsk_ring_fr.prod==9UL );
   }
 
-  FD_TEST  ( test_xsk_ring_fr.frame_idxs[ 0UL ]==8UL );
+  FD_TEST  ( test_xsk_ring_fr.frame_idxs[ 0UL ]==8UL*2048UL );
   for( ulong i=1UL; i<8UL; i++ )
-    FD_TEST( test_xsk_ring_fr.frame_idxs[ i   ]==i   );
+    FD_TEST( test_xsk_ring_fr.frame_idxs[ i   ]==i*2048UL   );
 
   /* Reset fill ring */
 
@@ -250,34 +250,34 @@ test_xsk( void ) {
 
   {
     fd_xsk_frame_meta_t metas[ 3UL ] =
-      { {.off=0UL}, {.off=1UL}, {.off=2UL} };
+      { {.off=0UL*2048UL}, {.off=1U*2048UL}, {.off=2UL*2048UL} };
     FD_TEST( fd_xsk_rx_enqueue2( xsk, metas, 3UL )==3UL );
     FD_TEST( test_xsk_ring_fr.prod==3UL );
   }
   {
     fd_xsk_frame_meta_t metas[ 6UL ] =
-      { {.off=3UL}, {.off=4UL}, {.off=5UL}, {.off=6UL}, {.off=7UL},
-        {.off=8UL} };
+      { {.off=3UL*2048UL}, {.off=4UL*2048UL}, {.off=5UL*2048UL}, {.off=6UL*2048UL}, {.off=7UL*2048UL},
+        {.off=8UL*2048UL} };
     FD_TEST( fd_xsk_rx_enqueue2( xsk, metas, 6UL )==5UL );
     FD_TEST( test_xsk_ring_fr.prod==8UL );
     FD_TEST( fd_xsk_rx_enqueue2( xsk, metas, 6UL )==0UL );
   }
 
   for( ulong i=0UL; i<8UL; i++ )
-    FD_TEST( test_xsk_ring_fr.frame_idxs[ i ]==i );
+    FD_TEST( test_xsk_ring_fr.frame_idxs[ i ]==i*2048UL );
 
   test_xsk_ring_fr.cons = 1UL;
 
   {
     fd_xsk_frame_meta_t metas[ 3UL ] =
-      { {.off=8UL}, {.off=9UL}, {.off=10UL} };
+      { {.off=8UL*2048UL}, {.off=9UL*2048UL}, {.off=10UL*2048UL} };
     FD_TEST( fd_xsk_rx_enqueue2( xsk, metas, 3UL )==1UL );
     FD_TEST( test_xsk_ring_fr.prod==9UL );
   }
 
-  FD_TEST  ( test_xsk_ring_fr.frame_idxs[ 0UL ]==8UL );
+  FD_TEST  ( test_xsk_ring_fr.frame_idxs[ 0UL ]==8UL*2048UL );
   for( ulong i=1UL; i<8UL; i++ )
-    FD_TEST( test_xsk_ring_fr.frame_idxs[ i   ]==i   );
+    FD_TEST( test_xsk_ring_fr.frame_idxs[ i   ]==i  *2048UL );
 
   /* Test fd_xsk_tx_enqueue */
 
@@ -590,22 +590,6 @@ test_xsk_aio( void ) {
   for( uint i=0U; i<8U; i++ )
     FD_TEST( xsk_aio->tx_stack[i]==i*2048U );
 
-  /* Receive packets without fd_aio_t rx connected */
-
-  FD_TEST( _rx_call_cnt==0UL );
-
-  test_xsk_ring_fr.cons = 4U;
-  for( uint i=0U; i<4U; i++ )
-    test_xsk_ring_rx.packets[i] =
-      (struct xdp_desc) { .addr=i*2048U, .len=3U };
-  test_xsk_ring_rx.prod = 4U;
-
-  fd_xsk_aio_service( xsk_aio );
-
-  FD_TEST( _rx_call_cnt==0UL );
-  FD_TEST( test_xsk_ring_rx.cons== 4U );
-  FD_TEST( test_xsk_ring_fr.prod==12U );
-
   /* Connect fd_aio_t rx */
 
   fd_aio_t * rx = fd_aio_new( &_rx, NULL, test_xsk_aio_rx );
@@ -617,6 +601,20 @@ test_xsk_aio( void ) {
 
   FD_TEST( _rx_call_cnt==0UL );
 
+  test_xsk_ring_fr.cons = 4U;
+  for( uint i=0U; i<4U; i++ )
+    test_xsk_ring_rx.packets[i] =
+      (struct xdp_desc) { .addr=i*2048U, .len=3U };
+  test_xsk_ring_rx.prod = 4U;
+
+  fd_xsk_aio_service( xsk_aio );
+
+  FD_TEST( _rx_call_cnt==1UL );
+  FD_TEST( test_xsk_ring_rx.cons== 4U );
+  FD_TEST( test_xsk_ring_fr.prod==12U );
+
+  /* Receive packets */
+
   test_xsk_ring_fr.cons = 10U;
   for( uint i=4U; i<10U; i++ )
     test_xsk_ring_rx.packets[i%8UL] =
@@ -625,7 +623,7 @@ test_xsk_aio( void ) {
 
   fd_xsk_aio_service( xsk_aio );
 
-  FD_TEST( _rx_call_cnt==1UL );
+  FD_TEST( _rx_call_cnt==2UL );
   FD_TEST( test_xsk_ring_rx.cons==10U );
   FD_TEST( test_xsk_ring_fr.prod==18U );
 

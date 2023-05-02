@@ -4,7 +4,7 @@
    fd_funk_txn_cancel_children (implicitly tested under the hood but the
    user wrappers aren't), coverage of fd_funk_txn_merge. */
 
-#if FD_HAS_HOSTED && FD_HAS_X86
+#if FD_HAS_HOSTED
 
 FD_STATIC_ASSERT( FD_FUNK_TXN_ALIGN    ==32UL, unit_test );
 FD_STATIC_ASSERT( FD_FUNK_TXN_FOOTPRINT==96UL, unit_test );
@@ -20,7 +20,11 @@ fd_funk_txn_xid_set_unique( fd_funk_txn_xid_t * xid ) {
   xid->ul[0] = fd_log_app_id();
   xid->ul[1] = fd_log_thread_id();
   xid->ul[2] = ++tag;
+# if FD_HAS_X86
   xid->ul[3] = (ulong)fd_tickcount();
+# else
+  xid->ul[3] = 0UL;
+# endif
   return xid;
 }
 
@@ -327,7 +331,7 @@ int
 main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
-  FD_LOG_WARNING(( "skip: unit test requires FD_HAS_HOSTED and FD_HAS_X86 capabilities" ));
+  FD_LOG_WARNING(( "skip: unit test requires FD_HAS_HOSTED capabilities" ));
   fd_halt();
   return 0;
 }

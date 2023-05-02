@@ -4,8 +4,6 @@
 #include "../pod/fd_pod.h"
 #include "../shmem/fd_shmem.h"
 
-#if FD_HAS_HOSTED && FD_HAS_X86
-
 /* API for creating NUMA-aware and TLB-efficient workspaces used for
    complex inter-thread and inter-process shared memory communication
    patterns.  fd must be booted to use the APIs in this module.
@@ -745,7 +743,5 @@ fd_wksp_usage( fd_wksp_t *       wksp,
                fd_wksp_usage_t * usage );
 
 FD_PROTOTYPES_END
-
-#endif
 
 #endif /* HEADER_fd_src_util_wksp_fd_wksp_h */

@@ -1,6 +1,6 @@
 #include "../fd_util.h"
 
-#if FD_HAS_HOSTED && FD_HAS_X86
+#if FD_HAS_HOSTED
 
 #include <ctype.h> /* For isalnum */
 #include <errno.h>
@@ -429,7 +429,7 @@ int
 main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
-  FD_LOG_WARNING(( "skip: unit test requires FD_HAS_HOSTED and FD_HAS_X86 capabilities" ));
+  FD_LOG_WARNING(( "skip: unit test requires FD_HAS_HOSTED capabilities" ));
   fd_halt();
   return 0;
 }

@@ -15,39 +15,18 @@ char const * ref_fxp10[4] = { /* f=0 */ "0.\n0.\n+0.\n-0.\n1.\n1.\n+1.\n-1.\n 9.
                               /* f=9 */ "0.000000000\n0.000000000\n+0.000000000\n-0.000000000\n0.000000001\n0.000000001\n+0.000000001\n-0.000000001\n0.000000009\n0.000000009\n+0.000000009\n-0.000000009\n0.000000010\n0.000000010\n+0.000000010\n-0.000000010\n0.000000099\n0.000000099\n+0.000000099\n-0.000000099\n0.000000100\n0.000000100\n+0.000000100\n-0.000000100\n0.000000999\n0.000000999\n+0.000000999\n-0.000000999\n0.000001000\n0.000001000\n+0.000001000\n-0.000001000\n0.000009999\n0.000009999\n+0.000009999\n-0.000009999\n0.000010000\n0.000010000\n+0.000010000\n-0.000010000\n0.000099999\n0.000099999\n+0.000099999\n-0.000099999\n0.000100000\n0.000100000\n+0.000100000\n-0.000100000\n0.000999999\n0.000999999\n+0.000999999\n-0.000999999\n0.001000000\n0.001000000\n+0.001000000\n-0.001000000\n0.009999999\n0.009999999\n+0.009999999\n-0.009999999\n0.010000000\n0.010000000\n+0.010000000\n-0.010000000\n0.099999999\n0.099999999\n+0.099999999\n-0.099999999\n0.100000000\n0.100000000\n+0.100000000\n-0.100000000\n0.999999999\n0.999999999\n+0.999999999\n-0.999999999\n1.000000000\n1.000000000\n+1.000000000\n-1.000000000\n 9.999999999\n09.999999999\n +9.999999999\n -9.999999999\n10.000000000\n10.000000000\n+10.000000000\n-10.000000000\n 99.999999999\n099.999999999\n +99.999999999\n -99.999999999\n100.000000000\n100.000000000\n+100.000000000\n-100.000000000\n 999.999999999\n0999.999999999\n +999.999999999\n -999.999999999\n1000.000000000\n1000.000000000\n+1000.000000000\n-1000.000000000\n 9999.999999999\n09999.999999999\n +9999.999999999\n -9999.999999999\n10000.000000000\n10000.000000000\n+10000.000000000\n-10000.000000000\n 99999.999999999\n099999.999999999\n +99999.999999999\n -99999.999999999\n100000.000000000\n100000.000000000\n+100000.000000000\n-100000.000000000\n 999999.999999999\n0999999.999999999\n +999999.999999999\n -999999.999999999\n1000000.000000000\n1000000.000000000\n+1000000.000000000\n-1000000.000000000\n 9999999.999999999\n09999999.999999999\n +9999999.999999999\n -9999999.999999999\n10000000.000000000\n10000000.000000000\n+10000000.000000000\n-10000000.000000000\n 99999999.999999999\n099999999.999999999\n +99999999.999999999\n -99999999.999999999\n100000000.000000000\n100000000.000000000\n+100000000.000000000\n-100000000.000000000\n 999999999.999999999\n0999999999.999999999\n +999999999.999999999\n -999999999.999999999\n1000000000.000000000\n1000000000.000000000\n+1000000000.000000000\n-1000000000.000000000\n 9999999999.999999999\n09999999999.999999999\n +9999999999.999999999\n -9999999999.999999999\n10000000000.000000000\n10000000000.000000000\n+10000000000.000000000\n-10000000000.000000000\n 18446744073.709551614\n018446744073.709551614\n +18446744073.709551614\n -18446744073.709551614\n 18446744073.709551615\n018446744073.709551615\n +18446744073.709551615\n -18446744073.709551615\n"
 };
 
-static void
-test_cstr_to_ip4_addr( void ) {
-# if FD_HAS_HOSTED
-  FD_TEST( fd_cstr_to_ip4_addr( ""                           )==ULONG_MAX  );
-  FD_TEST( fd_cstr_to_ip4_addr( "0"                          )==ULONG_MAX  );
-  FD_TEST( fd_cstr_to_ip4_addr( "0.0"                        )==ULONG_MAX  );
-  FD_TEST( fd_cstr_to_ip4_addr( "0.0.0"                      )==ULONG_MAX  );
-  FD_TEST( fd_cstr_to_ip4_addr( "0.0.0.0"                    )==0x00000000 );
-  FD_TEST( fd_cstr_to_ip4_addr( "0.0.0.0."                   )==ULONG_MAX  );
-  FD_TEST( fd_cstr_to_ip4_addr( "127.0.0.1"                  )==0x0100007f );
-  FD_TEST( fd_cstr_to_ip4_addr( "255.255.255.255"            )==0xffffffff );
-  FD_TEST( fd_cstr_to_ip4_addr( "256.255.255.255"            )==ULONG_MAX  );
-  FD_TEST( fd_cstr_to_ip4_addr( "255.256.255.255"            )==ULONG_MAX  );
-  FD_TEST( fd_cstr_to_ip4_addr( "255.255.256.255"            )==ULONG_MAX  );
-  FD_TEST( fd_cstr_to_ip4_addr( "255.255.255.256"            )==ULONG_MAX  );
-  FD_TEST( fd_cstr_to_ip4_addr( "36893488147419103232.0.0.0" )==ULONG_MAX  );
-# endif
-}
-
 int
 main( int     argc,
       char ** argv ) {
 
   fd_boot( &argc, &argv );
 
-  test_cstr_to_ip4_addr();
-
   /* FIXME: MORE EXPLICT TESTS OF FD_CSTR_PRINTF */
 
   fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
 
   int ctr = 0;
-  for( long iter=0; iter<10000000; iter++ ) {
+  for( long iter=0; iter<10000000L; iter++ ) {
     if( !ctr ) { FD_LOG_NOTICE(( "Completed %li iterations", iter )); ctr = 1000000; }
     ctr--;
 
@@ -67,6 +46,60 @@ main( int     argc,
     double d  =        fd_rng_double_c0( rng ); fd_cstr_printf( buf, 128UL, NULL, "%.21e",         d  ); FD_TEST( fd_cstr_to_double( buf )==d   );
 #   endif
   }
+
+  do {
+
+    ulong seq[14];
+    static ulong const ref[14] = { 1UL,2UL,3UL,4UL,5UL,6UL,7UL,8UL,9UL,10UL,12UL,14UL,16UL,18UL };
+
+    /* Length */
+
+    memset( seq, 0, 14UL*sizeof(ulong) ); FD_TEST( fd_cstr_to_ulong_seq( "1,2-9,10-19/2",             NULL, 0UL )==14UL ); /* traditional style stride */
+    memset( seq, 0, 14UL*sizeof(ulong) ); FD_TEST( fd_cstr_to_ulong_seq( "1,2-9,10-19:2",             NULL, 0UL )==14UL ); /* taskset style stride */
+    memset( seq, 0, 14UL*sizeof(ulong) ); FD_TEST( fd_cstr_to_ulong_seq( " 1 , 2 - 9 , 10 - 19 / 2 ", NULL, 0UL )==14UL ); /* with lots of whitespace */
+    memset( seq, 0, 14UL*sizeof(ulong) ); FD_TEST( fd_cstr_to_ulong_seq( NULL,                        NULL, 0UL )== 0UL ); /* NULL cstr */
+    memset( seq, 0, 14UL*sizeof(ulong) ); FD_TEST( fd_cstr_to_ulong_seq( " x , 2 - 9 , 10 - 19 : 2 ", NULL, 0UL )== 0UL ); /* bad range start */
+    memset( seq, 0, 14UL*sizeof(ulong) ); FD_TEST( fd_cstr_to_ulong_seq( " 1 x 2 - 9 , 10 - 19 : 2 ", NULL, 0UL )== 0UL ); /* bad range delim */
+    memset( seq, 0, 14UL*sizeof(ulong) ); FD_TEST( fd_cstr_to_ulong_seq( " 1 , 2 - x , 10 - 19 : 2 ", NULL, 0UL )== 0UL ); /* bad range end */
+    memset( seq, 0, 14UL*sizeof(ulong) ); FD_TEST( fd_cstr_to_ulong_seq( " 1 , 2 - 9 , 10 - 19 : x ", NULL, 0UL )== 0UL ); /* bad stride */
+    memset( seq, 0, 14UL*sizeof(ulong) ); FD_TEST( fd_cstr_to_ulong_seq( " 1 , 2 - 1 , 10 - 19 : 2 ", NULL, 0UL )== 0UL ); /* bad range */
+    memset( seq, 0, 14UL*sizeof(ulong) ); FD_TEST( fd_cstr_to_ulong_seq( " 1 , 2 - 9 , 10 - 19 : 0 ", NULL, 0UL )== 0UL ); /* inval stride */
+    memset( seq, 0, 14UL*sizeof(ulong) ); FD_TEST( fd_cstr_to_ulong_seq( "-2 - -1",                   NULL, 0UL )== 2UL ); /* exact end at ulong max */
+    memset( seq, 0, 14UL*sizeof(ulong) ); FD_TEST( fd_cstr_to_ulong_seq( "-4 - -1/2",                 NULL, 0UL )== 2UL ); /* inexact end at ulong max */
+
+    /* Normal */
+
+    memset( seq, 0, 14UL*sizeof(ulong) ); FD_TEST( fd_cstr_to_ulong_seq( "1",                         seq, 14UL )== 1UL && seq[0]==1UL );
+    memset( seq, 0, 14UL*sizeof(ulong) ); FD_TEST( fd_cstr_to_ulong_seq( "1,2-9,10-19/2",             seq, 14UL )==14UL && !memcmp( seq, ref, 14UL*sizeof(ulong) ) );
+    memset( seq, 0, 14UL*sizeof(ulong) ); FD_TEST( fd_cstr_to_ulong_seq( "1,2-9,10-19:2",             seq, 14UL )==14UL && !memcmp( seq, ref, 14UL*sizeof(ulong) ) );
+    memset( seq, 0, 14UL*sizeof(ulong) ); FD_TEST( fd_cstr_to_ulong_seq( " 1 , 2 - 9 , 10 - 19 / 2 ", seq, 14UL )==14UL && !memcmp( seq, ref, 14UL*sizeof(ulong) ) );
+    memset( seq, 0, 14UL*sizeof(ulong) ); FD_TEST( fd_cstr_to_ulong_seq( NULL,                        seq, 14UL )== 0UL );
+    memset( seq, 0, 14UL*sizeof(ulong) ); FD_TEST( fd_cstr_to_ulong_seq( " x , 2 - 9 , 10 - 19 : 2 ", seq, 14UL )== 0UL );
+    memset( seq, 0, 14UL*sizeof(ulong) ); FD_TEST( fd_cstr_to_ulong_seq( " 1 x 2 - 9 , 10 - 19 : 2 ", seq, 14UL )== 0UL );
+    memset( seq, 0, 14UL*sizeof(ulong) ); FD_TEST( fd_cstr_to_ulong_seq( " 1 , 2 - x , 10 - 19 : 2 ", seq, 14UL )== 0UL );
+    memset( seq, 0, 14UL*sizeof(ulong) ); FD_TEST( fd_cstr_to_ulong_seq( " 1 , 2 - 9 , 10 - 19 : x ", seq, 14UL )== 0UL );
+    memset( seq, 0, 14UL*sizeof(ulong) ); FD_TEST( fd_cstr_to_ulong_seq( " 1 , 2 - 1 , 10 - 19 : 2 ", seq, 14UL )== 0UL );
+    memset( seq, 0, 14UL*sizeof(ulong) ); FD_TEST( fd_cstr_to_ulong_seq( " 1 , 2 - 9 , 10 - 19 : 0 ", seq, 14UL )== 0UL );
+    memset( seq, 0, 14UL*sizeof(ulong) ); FD_TEST( fd_cstr_to_ulong_seq( "-2 - -1",                   seq, 14UL )== 2UL && seq[0]==-2UL && seq[1]==-1UL );
+    memset( seq, 0, 14UL*sizeof(ulong) ); FD_TEST( fd_cstr_to_ulong_seq( "-4 - -1/2",                 seq, 14UL )== 2UL );
+
+    /* Truncated */
+
+    memset( seq, 0, 14UL*sizeof(ulong) ); FD_TEST( fd_cstr_to_ulong_seq( "1",                         seq,  3UL )== 1UL && seq[0]==1UL );
+    memset( seq, 0, 14UL*sizeof(ulong) ); FD_TEST( fd_cstr_to_ulong_seq( "1,2-9,10-19/2",             seq,  3UL )==14UL && !memcmp( seq, ref, 3UL*sizeof(ulong) ) );
+    memset( seq, 0, 14UL*sizeof(ulong) ); FD_TEST( fd_cstr_to_ulong_seq( "1,2-9,10-19:2",             seq,  3UL )==14UL && !memcmp( seq, ref, 3UL*sizeof(ulong) ) );
+    memset( seq, 0, 14UL*sizeof(ulong) ); FD_TEST( fd_cstr_to_ulong_seq( " 1 , 2 - 9 , 10 - 19 / 2 ", seq,  3UL )==14UL && !memcmp( seq, ref, 3UL*sizeof(ulong) ) );
+    memset( seq, 0, 14UL*sizeof(ulong) ); FD_TEST( fd_cstr_to_ulong_seq( NULL,                        seq,  3UL )== 0UL );
+    memset( seq, 0, 14UL*sizeof(ulong) ); FD_TEST( fd_cstr_to_ulong_seq( " x , 2 - 9 , 10 - 19 : 2 ", seq,  3UL )== 0UL );
+    memset( seq, 0, 14UL*sizeof(ulong) ); FD_TEST( fd_cstr_to_ulong_seq( " 1 x 2 - 9 , 10 - 19 : 2 ", seq,  3UL )== 0UL );
+    memset( seq, 0, 14UL*sizeof(ulong) ); FD_TEST( fd_cstr_to_ulong_seq( " 1 , 2 - x , 10 - 19 : 2 ", seq,  3UL )== 0UL );
+    memset( seq, 0, 14UL*sizeof(ulong) ); FD_TEST( fd_cstr_to_ulong_seq( " 1 , 2 - 9 , 10 - 19 : x ", seq,  3UL )== 0UL );
+    memset( seq, 0, 14UL*sizeof(ulong) ); FD_TEST( fd_cstr_to_ulong_seq( " 1 , 2 - 1 , 10 - 19 : 2 ", seq,  3UL )== 0UL );
+    memset( seq, 0, 14UL*sizeof(ulong) ); FD_TEST( fd_cstr_to_ulong_seq( " 1 , 2 - 9 , 10 - 19 : 0 ", seq,  3UL )== 0UL );
+    memset( seq, 0, 14UL*sizeof(ulong) ); FD_TEST( fd_cstr_to_ulong_seq( "-2 - -1",                   seq,  3UL )== 2UL && seq[0]==-2UL && seq[1]==-1UL );
+    memset( seq, 0, 14UL*sizeof(ulong) ); FD_TEST( fd_cstr_to_ulong_seq( "-4 - -1/2",                 seq,  3UL )== 2UL );
+
+  } while(0);
 
   char const * text = "The quick brown fox jumps over the lazy dog.";
   ulong        sz   = strlen( text );

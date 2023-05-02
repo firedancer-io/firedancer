@@ -285,8 +285,6 @@ fd_mcache_line_idx( ulong seq,
 
 #endif
 
-#if FD_HAS_X86
-
 /* fd_mcache_publish inserts the metadata for frag seq into the given
    depth entry mcache in a way compatible with FD_MCACHE_WAIT and
    FD_MCACHE_WAIT_SSE (but not FD_MCACHE_WAIT_AVX ... see FD_MCACHE_WAIT
@@ -725,8 +723,6 @@ fd_mcache_publish_avx( fd_frag_meta_t * mcache,   /* Assumed a current local joi
     (seq_diff)  = _fd_mcache_wait_seq_diff;                                                                            \
     (poll_max)  = _fd_mcache_wait_poll_max;                                                                            \
   } while(0)
-
-#endif
 
 #endif
 

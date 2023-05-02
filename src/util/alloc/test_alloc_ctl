@@ -75,12 +75,11 @@ echo Testing query
 
 echo Testing alloc
 
-"$BIN"/fd_alloc_ctl malloc                     && fail alloc $?
-"$BIN"/fd_alloc_ctl malloc "$ALLOC"            && fail alloc $?
-"$BIN"/fd_alloc_ctl malloc bad/name  0  1  1   && fail alloc $?
-"$BIN"/fd_alloc_ctl malloc "$ALLOC"   -1  1  1 && fail alloc $?
-"$BIN"/fd_alloc_ctl malloc "$ALLOC"    0 -1  1 && fail alloc $?
-"$BIN"/fd_alloc_ctl malloc "$ALLOC"    0  1 -1 && fail alloc $?
+"$BIN"/fd_alloc_ctl malloc                   && fail alloc $?
+"$BIN"/fd_alloc_ctl malloc "$ALLOC"          && fail alloc $?
+"$BIN"/fd_alloc_ctl malloc bad/name  0  1  1 && fail alloc $?
+"$BIN"/fd_alloc_ctl malloc "$ALLOC"  0 -1  1 && fail alloc $?
+"$BIN"/fd_alloc_ctl malloc "$ALLOC"  0  1 -1 && fail alloc $?
 
 GADDR0=$("$BIN"/fd_alloc_ctl malloc "$ALLOC" 3 0  8 || fail alloc $?)
 GADDR1=$("$BIN"/fd_alloc_ctl malloc "$ALLOC" 5 1  9 || fail alloc $?)

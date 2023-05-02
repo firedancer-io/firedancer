@@ -102,6 +102,6 @@ fd_xsk_aio_service( fd_xsk_aio_t * xsk_aio );
 
 FD_PROTOTYPES_END
 
-#endif /* defined(__linux__) && FD_HAS_LIBBPF */
+#endif /* defined(__linux__) */
 #endif /* HEADER_fd_src_tango_xdp_fd_xsk_aio_h */
 
