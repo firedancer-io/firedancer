@@ -9,7 +9,7 @@ include config/with-threads.mk
 
 CPPFLAGS+=-fsanitize=fuzzer-no-link,address -fomit-frame-pointer \
       -march=native -DFD_HAS_INT128=1 -DFD_HAS_DOUBLE=1 -DFD_HAS_ALLOCA=1 -DFD_HAS_X86=1
-LDFLAGS+=-fsanitize=fuzzer,address -lnuma
+LDFLAGS+=-fsanitize=fuzzer,address
 
 FD_HAS_INT128:=1
 FD_HAS_DOUBLE:=1
