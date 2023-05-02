@@ -69,7 +69,6 @@ fd_env_cmdline_##what( int        *   pargc,                                   \
                                                                                \
   if( key && pargc && pargv ) {                                                \
     for( arg=0; arg<(*pargc); arg++ ) {                                        \
-    printf("progarg: %s\n", (*pargv)[arg] );\
       if( !strcmp( key, (*pargv)[arg] ) )                                      \
         return fd_cstr_to_##what( (*pargv)[++arg] );                           \
     }                                                                          \

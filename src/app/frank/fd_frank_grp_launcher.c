@@ -6,6 +6,8 @@
 
 #if FD_HAS_FRANK
 
+#define MAX_CMDLINE_LEN 1024UL
+
 #include <stdio.h>
 #include <signal.h>
 
@@ -133,7 +135,7 @@ launch_group( int     argc,
 
   if( FD_UNLIKELY( !task_type_paths ) ) FD_LOG_ERR(( "fd_alloca failed" ));
 
-  /* Have a referance handy to all tasks's CNC */
+  /* Have a reference handy to all tasks's CNC */
   fd_cnc_t ** tile_cnc = fd_alloca( alignof(fd_cnc_t *), sizeof(fd_cnc_t *)*tasks_cnt );
   if( FD_UNLIKELY( !tile_cnc ) ) FD_LOG_ERR(( "fd_alloca failed" ));  
 
@@ -282,9 +284,47 @@ ulong fd_join_char_arrays( char *  dst,
   }
 
   /* replace the last sep by \00 */
-  head = '\00';
+  head = 0;
   return (ulong) (head - dst);
 }
+
+// /* fd_cstr_to_table takes a cstr `line` and turns naively replaces spaces with line terminators.
+//    While doing so, it adds a pointer to the string heads into `dst_table`.
+//    It returns the number of words found or -1 on error.
+// */
+// long fd_cstr_to_table( char ** dst_table,
+//                         long dst_max_sz,
+//                         char * line, 
+//                         long n ) {
+//   char * head = line;
+//   long words_found = 0;
+//   for ( uint i=0; i<n; i++ ) {
+//     switch ( line[ i ] ) {
+//     case ' ': /* found space */
+//       line[ i ] = 0;
+//       dst_table[ words_found++ ] = head;
+//       head = line + i + 1;
+//       if ( FD_UNLIKELY( words_found >= dst_max_sz ) ) {
+//         /* the next entry won't fit the dst_table */
+//         goto fail;
+//       }
+//       break;
+
+//     case 0: /* line is terminated */
+//       dst_table[ words_found++ ] = head;
+//       dst_table[words_found] = 0; /* null-terminate the table */
+//       return words_found;
+//     }
+//   }
+
+//   /* reaching here means that there was no null in line
+//      proactively invalidate the destination buffer. */
+
+//   fail:
+//   fd_memcpy(line, '\00', (ulong)n);
+//   dst_table[0] = NULL;
+//   return -1;
+// }
 
 int
 main( int   argc,
@@ -304,12 +344,6 @@ main( int   argc,
   char const * pod_gaddr = fd_env_cmdline_cstr( &argc, &argv, "--pod", NULL, NULL );
   char const * cfg_path  = fd_env_cmdline_cstr( &argc, &argv, "--cfg", NULL, NULL );
 
-
-    for (int i=0; i<argc; i++) {
-    printf("runnerargs: %s\n", argv[i]);
-  }
-
-  printf("pid: %d\n", getpid());
   if( FD_UNLIKELY( !pod_gaddr ) ) FD_LOG_ERR(( "--pod not specified" ));
   if( FD_UNLIKELY( !cfg_path  ) ) FD_LOG_ERR(( "--cfg not specified" ));
 
@@ -317,59 +351,91 @@ main( int   argc,
   uchar const * cfg_pod = fd_pod_query_subpod( pod, cfg_path );
   if( FD_UNLIKELY( !cfg_pod ) ) FD_LOG_ERR(( "path not found" ));
 
-
   uchar const * all_groups_pod = fd_pod_query_subpod( cfg_pod, "grp" );
   if( FD_UNLIKELY( !all_groups_pod ) ) FD_LOG_ERR(( "path not found" ));
-  
 
+  /* reference to CNCs
+     [0] is this thread's CNC
+     [n] is group n-1's CNC */
+  ulong group_cnt = fd_pod_cnt_subpod( all_groups_pod );
+  fd_cnc_t ** tg_cnc = fd_alloca( alignof(fd_cnc_t *), sizeof(fd_cnc_t *)*group_cnt );
+  if( FD_UNLIKELY( !tg_cnc ) ) FD_LOG_ERR(( "fd_alloca failed" )); 
+
+  FD_LOG_NOTICE(( "attempting to launch the following groups..." ));
+  list_groups(all_groups_pod);
+
+
+  /* The main tile's (this thread) CNC will be the first in this list */
+  fd_cnc_t * cnc = tg_cnc[ 0 ] = fd_cnc_join( fd_wksp_pod_map( cfg_pod, "main.cnc" ) );
+  if( FD_UNLIKELY( !cnc ) ) FD_LOG_ERR(( "fd_cnc_join failed" ));
+  if( FD_UNLIKELY( fd_cnc_app_sz( cnc ) < 64UL ) ) FD_LOG_ERR(( "cnc app sz should be at least 64 bytes" ));
+
+  char * child_arg_buf = fd_alloca( alignof( char* ), MAX_CMDLINE_LEN );
+  char ** child_argv = fd_alloca( alignof( char** ), 1024UL );
+  uint group_no = 0;
   for( fd_pod_iter_t tg_iter = fd_pod_iter_init( all_groups_pod ); !fd_pod_iter_done( tg_iter ); tg_iter = fd_pod_iter_next( tg_iter ) ) {
     fd_pod_info_t group_info = fd_pod_iter_info( tg_iter );
     if( FD_UNLIKELY( group_info.val_type!=FD_POD_VAL_TYPE_SUBPOD ) ) continue;
 
     char const * tg_name = group_info.key;
 
-    // skip all but verify for dev purposes
-    if ( strcmp("verify", tg_name )) continue;
-
-    // find cmdline
-    char const * cmdline = fd_pod_query_cstr( group_info.val, "cmdline", NULL );
-
-    if ( FD_UNLIKELY( !cmdline ) ) {
-      FD_LOG_WARNING(( "cmdline for task group '%s' is not set in config",  tg_name ));
-    } else if ( FD_UNLIKELY( !cmdline ) ) {
-      FD_LOG_WARNING(( "cmdline for task group '%s' is set and empty",  tg_name ));
-    }
-
     int verify_pid = fork();
 
     if ( !verify_pid ) {
-      // running child
+      /* running child */
+
+      /* find cmdline */
+      char const * cmdline = fd_pod_query_cstr( group_info.val, "cmdline", NULL );
+
+      if ( FD_UNLIKELY( !cmdline ) ) {
+        FD_LOG_WARNING(( "cmdline for task group '%s' is not set in config",  tg_name ));
+      } else if ( FD_UNLIKELY( !cmdline ) ) {
+        FD_LOG_WARNING(( "cmdline for task group '%s' is set and empty",  tg_name ));
+      }
+
+      /* turn cmdline in a structure suitable for execv* */
+      ulong cmdlinelen = strlen( cmdline );
+      if ( MAX_CMDLINE_LEN < cmdlinelen+1 ) {
+        FD_LOG_ERR(( "cmdline longer than %lu", MAX_CMDLINE_LEN ));
+      }
+      fd_memcpy(child_arg_buf, cmdline, cmdlinelen+1 );
+
+      /* reserve the first entry for the invocation name */
+      child_argv[0] = argv[0];
+
+      ulong c_argc = fd_cstr_tokenize (
+        child_argv + 1,
+        1023UL - 1, /* accounting for array null terminator */
+        child_arg_buf,
+        ' '
+      );
+
+      c_argc += 1; /* accounting */
+      child_argv[c_argc] = NULL;
+
       // clean up parent's resources
-      // fd_wksp_pod_detach( pod );
-      // fd_halt();
+      fd_wksp_pod_detach( pod );
+      fd_halt();
 
-      //char * tg_cmdline = fd_alloca( alignof(char*), 2048);
-      //fd_join_char_arrays(tg_cmdline, 2048, ' ', (ulong)(argc-1), argv+1);
-
-      // printf("cmdline: %s\n", tg_cmdline);
-
-      char *args[] = {
-        "somebin",
-        "--task-group", "verify",
-        "--pod", "frank.wksp:4190208",
-        "--cfg", "frank",
-        "--log-app", "frank",
-        "--log-thread", "verify-mon",
-        "--tile-cpus", "f,1-12",
-        NULL
-      };
-
-      execv(argv[0], args);
+      execv(argv[0], child_argv);
       FD_LOG_ERR(( "execv: %s", strerror( errno ) ));
     }
 
-    // wait for this tg to be successfully started before moving forward
+    fd_cnc_t * child_cnc = tg_cnc[group_no+1] = fd_cnc_join( fd_wksp_pod_map( group_info.val, "cnc" ) );
+    if( FD_UNLIKELY( !child_cnc ) ) FD_LOG_ERR(( "fd_cnc_join failed" ));
+    if( FD_UNLIKELY( fd_cnc_app_sz( child_cnc ) < 64UL ) ) FD_LOG_ERR(( "cnc app sz should be at least 64 bytes" ));
 
+    
+    /* wait for this tg to be successfully started before moving forward 
+       If it times-out: fail. */
+
+    if( FD_UNLIKELY( fd_cnc_wait( child_cnc, FD_CNC_SIGNAL_BOOT, (long)5e9, NULL )!=FD_CNC_SIGNAL_RUN ) )
+      FD_LOG_ERR(( "task group failed to boot in a timely fashion" ));
+    else
+      FD_LOG_NOTICE(( "task group %s started", tg_name ));
+    // todo: cleanup
+    
+    group_no++;
   }
 
   int status;
