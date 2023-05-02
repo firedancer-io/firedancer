@@ -15,8 +15,6 @@ fd_vm_serialize_input_params( fd_vm_sbpf_exec_params_t * params,
                               FD_FN_UNUSED ulong buf_sz ) {
   ulong idx = 0;
   
-  // FIXME handle duplicate accounts
-  
   FD_STORE( ulong, buf+idx, params->accounts_len );
   idx += sizeof(ulong);
   
@@ -34,13 +32,6 @@ fd_vm_serialize_input_params( fd_vm_sbpf_exec_params_t * params,
     idx += sizeof(uchar);
     FD_STORE( uchar, buf+idx, account_info.is_writable );
     idx += sizeof(uchar);
-   
-    /*
-    buf[idx++] = 0;
-    buf[idx++] = 0;
-    buf[idx++] = 0;
-    buf[idx++] = 0;
-    */
 
     fd_memcpy( buf + idx, account_info.pubkey, sizeof(fd_pubkey_t) );
     idx += sizeof(fd_pubkey_t);
@@ -57,23 +48,18 @@ fd_vm_serialize_input_params( fd_vm_sbpf_exec_params_t * params,
     fd_memcpy( buf + idx, account_info.owner, sizeof(fd_pubkey_t) );
     idx += sizeof(fd_pubkey_t);
 
-    // TODO: ADD PADDING!
     FD_STORE( uchar, buf+idx, account_info.is_executable );
     idx += sizeof(uchar);
     
     FD_STORE( ulong, buf+idx, account_info.rent_epoch );
     idx += sizeof(ulong);
-
-    FD_LOG_NOTICE(( "SER A: idx: %lu", idx));
   }
 
   FD_STORE( ulong, buf+idx, params->data_len );
   idx += sizeof(ulong);
-  FD_LOG_NOTICE(( "SER B: idx: %lu", idx));
 
   fd_memcpy( buf + idx, params->data, params->data_len );
   idx += params->data_len;
-  FD_LOG_NOTICE(( "SER C: idx: %lu", idx));
 
   fd_memcpy( buf + idx, params->program_id, sizeof(fd_pubkey_t) );
   idx += sizeof(fd_pubkey_t);
