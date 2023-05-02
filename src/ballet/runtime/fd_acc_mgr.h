@@ -86,6 +86,9 @@ int fd_acc_mgr_get_metadata( fd_acc_mgr_t* acc_mgr, fd_funk_txn_t* txn, fd_pubke
 /* Fetches the lamport balance for the account with the given public key. */
 int fd_acc_mgr_get_lamports( fd_acc_mgr_t* acc_mgr, fd_funk_txn_t* txn, fd_pubkey_t* pubkey, fd_acc_lamports_t* result );
 
+/* Fetches the owner of the account with the given public key */
+int fd_acc_mgr_get_owner( fd_acc_mgr_t* acc_mgr, fd_funk_txn_t* txn, fd_pubkey_t * pubkey, fd_pubkey_t* result );
+
 /* Sets the lamport balance for the account with the given public key. */
 int fd_acc_mgr_set_lamports( fd_acc_mgr_t* acc_mgr, fd_funk_txn_t*, ulong slot, fd_pubkey_t* pubkey, fd_acc_lamports_t lamports );
 

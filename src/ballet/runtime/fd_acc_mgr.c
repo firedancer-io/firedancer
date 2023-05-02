@@ -149,6 +149,24 @@ int fd_acc_mgr_get_lamports( fd_acc_mgr_t* acc_mgr, fd_funk_txn_t* txn, fd_pubke
   return FD_ACC_MGR_SUCCESS;
 }
 
+int fd_acc_mgr_get_owner( fd_acc_mgr_t* acc_mgr, fd_funk_txn_t* txn, fd_pubkey_t * pubkey, fd_pubkey_t* result ) {
+  fd_account_meta_t metadata;
+  int               read_result = fd_acc_mgr_get_metadata( acc_mgr, txn, pubkey, &metadata );
+  if ( FD_UNLIKELY( read_result != FD_ACC_MGR_SUCCESS ) ) {
+    if (FD_UNLIKELY(acc_mgr->global->log_level > 2)) {
+      char buf[50];
+      fd_base58_encode_32((uchar *) pubkey, NULL, buf);
+      FD_LOG_WARNING(( "failed to read account metadata: %s", buf ));
+    }
+
+    return read_result;
+  }
+
+  fd_memcpy( result, &metadata.info.owner, sizeof(fd_pubkey_t) );
+
+  return FD_ACC_MGR_SUCCESS;
+}
+
 int fd_acc_mgr_set_lamports( fd_acc_mgr_t* acc_mgr, fd_funk_txn_t* txn, ulong slot, fd_pubkey_t * pubkey, fd_acc_lamports_t lamports ) {
   /* Read the current metadata from Funk */
   fd_account_meta_t metadata;
