@@ -824,7 +824,11 @@ for entry in entries:
             print("uchar " + n + "_is_"+ v["name"] + "(" + n + "_t* self) {", file=body)
             print("  return self->discriminant == " + str(i) + ";", file=body)
             print("}", file=body)
-        print("", file=header)
+        print("enum {", file=header)
+
+        for i, v in enumerate(entry["variants"]):
+            print( n + "_enum_"+ v["name"] + " = " + str(i) + ",", file=header)
+        print("}; ", file=header)
 
     if entry["type"] == "enum":
         print("void " + n + "_inner_decode(" + n + "_inner_t* self, uint discriminant, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {", file=body)

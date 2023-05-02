@@ -330,7 +330,11 @@ fd_runtime_calculate_fee( fd_global_ctx_t *global, fd_txn_t * txn_descriptor, fd
 //                });
   double compute_fee = 0;
 
-  return (ulong) ((prioritization_fee + signature_fee + write_lock_fee + compute_fee) * congestion_multiplier);
+  double fee = (prioritization_fee + signature_fee + write_lock_fee + compute_fee) * congestion_multiplier;
+  if (fee >= ULONG_MAX)
+    return ULONG_MAX;
+  else
+    return (ulong) fee;
 }
 
 void
