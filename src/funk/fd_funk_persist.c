@@ -438,6 +438,134 @@ fd_funk_rec_persist_erase_unsafe( fd_funk_t *     funk,
   return FD_FUNK_SUCCESS;
 }
 
+/* Create a write-ahead log entry for a transaction */
+int
+fd_funk_txn_persist_writeahead( fd_funk_t *     funk,
+                                fd_funk_txn_t * map,
+                                ulong           txn_idx,
+                                ulong *         wa_pos,
+                                ulong *         wa_alloc) {
+  *wa_pos = FD_FUNK_REC_IDX_NULL;
+  *wa_alloc = FD_FUNK_REC_IDX_NULL;
+  if ( funk->persist_fd == -1 ||
+       fd_funk_txn_idx_is_null( txn_idx ) ) {
+    /* Not useful in this case. Persistence isn't turned on. */
+    return FD_FUNK_SUCCESS;
+  }
+
+  /* Compute the data size of the log entry */
+  ulong data_sz = 0;
+  ulong rec_idx = map[ txn_idx ].rec_head_idx;
+  fd_wksp_t * wksp = fd_funk_wksp( funk );
+  fd_funk_rec_t * rec_map = fd_funk_rec_map( funk, wksp );
+  while( !fd_funk_rec_idx_is_null( rec_idx ) ) {
+
+    if ( FD_UNLIKELY( rec_map[ rec_idx ].flags & FD_FUNK_REC_FLAG_ERASE ) ) /* Erase a published key */
+      data_sz += sizeof(struct fd_funk_persist_erase_head);
+    else
+      data_sz += sizeof(struct fd_funk_persist_record_head) + rec_map[ rec_idx ].val_sz;
+
+    rec_idx = rec_map[ rec_idx ].next_idx;
+  }
+
+  /* Allocate space for the log entry */
+  *wa_pos = fd_funk_persist_alloc( funk, sizeof(struct fd_funk_persist_walog_head) + data_sz, wa_alloc );
+
+  /* Make the space as free initially in case we crash during this operation */
+  {
+    struct fd_funk_persist_free_head head;
+    head.type = FD_FUNK_PERSIST_FREE_TYPE;
+    head.alloc_sz = *wa_alloc;
+    if ( pwrite( funk->persist_fd, &head, sizeof(head), (long)*wa_pos ) != (long)sizeof(head) ) {
+      FD_LOG_WARNING(( "failed to update persistence file: %s", strerror(errno) ));
+      return FD_FUNK_ERR_SYS;
+    }
+  }
+
+  /* Fill in the data */
+  ulong pos = *wa_pos + sizeof(struct fd_funk_persist_walog_head);
+  rec_idx = map[ txn_idx ].rec_head_idx;
+  while( !fd_funk_rec_idx_is_null( rec_idx ) ) {
+    fd_funk_rec_t * rec = &rec_map[ rec_idx ];
+
+    if ( FD_UNLIKELY( rec_map[ rec_idx ].flags & FD_FUNK_REC_FLAG_ERASE ) ) { /* Erase a published key */
+
+      struct fd_funk_persist_erase_head head;
+      head.type = FD_FUNK_PERSIST_ERASE_TYPE;
+      fd_memcpy( head.key, &rec->pair.key, sizeof(head.key) );
+      head.alloc_sz = FD_FUNK_REC_IDX_NULL;
+      
+      if ( pwrite( funk->persist_fd, &head, sizeof(head), (long)pos ) != (long)sizeof(head) ) {
+        FD_LOG_WARNING(( "failed to update persistence file: %s", strerror(errno) ));
+        return FD_FUNK_ERR_SYS;
+      }
+      
+      pos += sizeof(struct fd_funk_persist_erase_head);
+      
+    } else {
+      /* Start building the header */
+      struct fd_funk_persist_record_head head;
+      head.type = FD_FUNK_PERSIST_RECORD_TYPE;
+      fd_memcpy( head.key, &rec->pair.key, sizeof(head.key) );
+      head.val_sz = rec->val_sz;
+      head.alloc_sz = FD_FUNK_REC_IDX_NULL;
+      
+      /* Write the data */
+      struct iovec iov[2];
+      iov[0].iov_base = &head;
+      iov[0].iov_len = sizeof(head);
+      if ( rec->val_sz ) {
+        fd_wksp_t * wksp = fd_funk_wksp( funk );
+        iov[1].iov_base = fd_wksp_laddr_fast( wksp, rec->val_gaddr );
+        iov[1].iov_len = rec->val_sz;
+        if ( pwritev( funk->persist_fd, iov, 2, (long)pos ) != (long)(iov[0].iov_len + iov[1].iov_len) ) {
+          FD_LOG_WARNING(( "failed to write persistence file: %s", strerror(errno) ));
+          return FD_FUNK_ERR_SYS;
+        }
+      } else {
+        /* Naked header */
+        if ( pwritev( funk->persist_fd, iov, 1, (long)pos ) != (long)iov[0].iov_len ) {
+          FD_LOG_WARNING(( "failed to write persistence file: %s", strerror(errno) ));
+          return FD_FUNK_ERR_SYS;
+        }
+      }
+      
+      pos += sizeof(struct fd_funk_persist_record_head) + rec->val_sz;
+    }
+
+    rec_idx = rec->next_idx;
+  }
+  
+  /* The data is written. Write the final header. */
+  {
+    struct fd_funk_persist_walog_head head;
+    head.type = FD_FUNK_PERSIST_WALOG_TYPE;
+    head.alloc_sz = *wa_alloc;
+    fd_memcpy(head.xid, &map[ txn_idx ].xid, sizeof(head.xid));
+    head.used_sz = data_sz;
+    if ( pwrite( funk->persist_fd, &head, sizeof(head), (long)*wa_pos ) != (long)sizeof(head) ) {
+      FD_LOG_WARNING(( "failed to update persistence file: %s", strerror(errno) ));
+      return FD_FUNK_ERR_SYS;
+    }
+  }
+
+  return FD_FUNK_SUCCESS;
+}
+
+void
+fd_funk_txn_persist_writeahead_erase( fd_funk_t * funk,
+                                      ulong       wa_pos,
+                                      ulong       wa_alloc) {
+  if ( funk->persist_fd == -1 ||
+       wa_pos == FD_FUNK_REC_IDX_NULL ||
+       wa_alloc == FD_FUNK_REC_IDX_NULL ) {
+    /* Not useful in this case. Nothing to erase. */
+    return;
+  }
+  /* Mark the entry as free space */
+  fd_funk_persist_free( funk, wa_pos, wa_alloc );
+}
+
 /* Verify the integrity of the persistence layer */
 int
 fd_funk_persist_verify( fd_funk_t * funk ) {

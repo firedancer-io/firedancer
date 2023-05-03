@@ -671,12 +671,23 @@ fd_funk_txn_publish_funk_child( fd_funk_t *     funk,
                                 ulong           tag,
                                 ulong           txn_idx ) {
 
+  /* Write the write-ahead log */
+  
+  ulong wa_pos, wa_alloc;
+  int err = fd_funk_txn_persist_writeahead( funk, map, txn_idx, &wa_pos, &wa_alloc );
+  if ( err )
+    return err;
+
   /* Apply the updates in txn to the last published transactions */
 
   fd_wksp_t * wksp = fd_funk_wksp( funk );
   fd_funk_txn_update( funk, &funk->rec_head_idx, &funk->rec_tail_idx, FD_FUNK_TXN_IDX_NULL, fd_funk_root( funk ),
                       txn_idx, funk->rec_max, map, fd_funk_rec_map( funk, wksp ), fd_funk_alloc( funk, wksp ), wksp );
 
+  /* Erase the write-ahead log */
+
+  fd_funk_txn_persist_writeahead_erase( funk, wa_pos, wa_alloc );
+  
   /* Cancel all competing transaction histories */
 
   ulong oldest_idx = fd_funk_txn_oldest_sibling( funk, map, txn_max, txn_idx );
