@@ -31,6 +31,9 @@ FD_PROTOTYPES_BEGIN
 /* Entry-point for the Solana Vote Program */
 int fd_executor_vote_program_execute_instruction( instruction_ctx_t ctx ) ;
 
-FD_PROTOTYPES_BEGIN
+/* Number of credits owned to the given vote account from the mining pool. */
+void fd_vote_acc_credits( fd_global_ctx_t* global, fd_pubkey_t* vote_acc, ulong* result ) ;
+
+FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_ballet_runtime_program_fd_vote_program_h */

@@ -40,6 +40,37 @@ void record_timestamp_vote(
     }
 }
 
+int read_vote_state(
+  fd_global_ctx_t* global,
+  fd_pubkey_t * vote_acc,
+  fd_vote_state_versioned_t* result
+) {
+    /* Read the data from the vote account */
+    fd_account_meta_t metadata;
+    int read_result = fd_acc_mgr_get_metadata( global->acc_mgr, global->funk_txn, vote_acc, &metadata );
+    if ( FD_UNLIKELY( read_result != FD_ACC_MGR_SUCCESS ) ) {
+      FD_LOG_WARNING(( "failed to read account metadata" ));
+      return read_result;
+    }
+
+    uchar *vota_acc_data = (uchar *)(global->allocf)(global->allocf_arg, 8UL, metadata.dlen);
+    read_result = fd_acc_mgr_get_account_data( global->acc_mgr, global->funk_txn, vote_acc, (uchar*)vota_acc_data, sizeof(fd_account_meta_t), metadata.dlen );
+    if ( read_result != FD_ACC_MGR_SUCCESS ) {
+      FD_LOG_WARNING(( "failed to read account data" ));
+      return read_result;
+    }
+
+    /* The vote account data structure is versioned, so we decode the VoteStateVersions enum
+        https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/vote_state_versions.rs#L4
+    */
+    void* input            = (void *)vota_acc_data;
+    const void** input_ptr = (const void **)&input;
+    void* dataend          = (void*)&vota_acc_data[metadata.dlen];
+    fd_vote_state_versioned_decode( result, input_ptr, dataend, global->allocf, global->allocf_arg );
+
+    return FD_ACC_MGR_SUCCESS;
+}
+
 int get_and_verify_versioned_vote_state(
     instruction_ctx_t ctx,
     uchar* instr_acc_idxs,
@@ -47,9 +78,15 @@ int get_and_verify_versioned_vote_state(
     fd_pubkey_t * vote_acc,
     fd_vote_state_versioned_t* result
 ) {
+    int read_result = read_vote_state( ctx.global, vote_acc, result );
+    if ( FD_UNLIKELY( read_result != FD_ACC_MGR_SUCCESS ) ) {
+      FD_LOG_WARNING(( "failed to read account data" ));
+      return read_result;
+    }
+
     /* Read the data from the vote account */
     fd_account_meta_t metadata;
-    int read_result = fd_acc_mgr_get_metadata( ctx.global->acc_mgr, ctx.global->funk_txn, vote_acc, &metadata );
+    read_result = fd_acc_mgr_get_metadata( ctx.global->acc_mgr, ctx.global->funk_txn, vote_acc, &metadata );
     if ( FD_UNLIKELY( read_result != FD_ACC_MGR_SUCCESS ) ) {
       FD_LOG_WARNING(( "failed to read account metadata" ));
       return read_result;
@@ -612,4 +649,25 @@ int fd_executor_vote_program_execute_instruction(
     fd_vote_instruction_destroy( &instruction, ctx.global->freef, ctx.global->allocf_arg );
 
     return FD_EXECUTOR_INSTR_SUCCESS;
+}
+
+/* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L1041 */
+void fd_vote_acc_credits( fd_global_ctx_t* global, fd_pubkey_t* vote_acc, ulong* result ) {
+
+  fd_vote_state_versioned_t versioned;
+  read_vote_state( global, vote_acc, &versioned );
+
+  if ( fd_vote_state_versioned_is_current( &versioned ) ) {
+    fd_vote_state_t* state = &versioned.inner.current;
+    if ( state->epoch_credits.cnt == 0 ) {
+      *result = 0;
+    } else {
+      *result = state->epoch_credits.elems[ state->epoch_credits.cnt - 1 ].credits;
+    }
+  } else {
+    /* TODO: conversion function from old vote state to current */
+    FD_LOG_ERR(( "legacy v0_23_5 vote state not supported yet" ));
+  }
+
+  fd_vote_state_versioned_destroy( &versioned, global->freef, global->allocf_arg );
 }
