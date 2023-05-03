@@ -1,4 +1,5 @@
 #include "fd_stake_program.h"
+#include "fd_vote_program.h"
 #include "../sysvar/fd_sysvar.h"
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/stake/src/stake_state.rs#L441 */
@@ -21,8 +22,27 @@ void write_stake_config( fd_global_ctx_t* global, fd_stake_config_t* stake_confi
     .data = enc,
     .executable = (uchar) 0
   };
-  fd_memcpy( account.owner.key, global->solana_config_program, 32 );
+  fd_memcpy( account.owner.key, global->solana_config_program, sizeof(fd_pubkey_t) );
   fd_acc_mgr_write_structured_account( global->acc_mgr, global->funk_txn, global->bank.solana_bank.slot, (fd_pubkey_t *) global->solana_stake_program_config, &account );
+}
+
+void read_stake_config( fd_global_ctx_t* global, fd_stake_config_t* result ) {
+  fd_account_meta_t metadata;
+  int               read_result = fd_acc_mgr_get_metadata( global->acc_mgr, global->funk_txn, (fd_pubkey_t *) global->solana_stake_program_config, &metadata );
+  if ( read_result != FD_ACC_MGR_SUCCESS ) {
+    FD_LOG_NOTICE(( "failed to read account metadata: %d", read_result ));
+    return;
+  }
+
+  unsigned char *raw_acc_data = fd_alloca( 1, metadata.dlen );
+  read_result = fd_acc_mgr_get_account_data( global->acc_mgr, global->funk_txn, (fd_pubkey_t *) global->solana_stake_program_config, raw_acc_data, metadata.hlen, metadata.dlen );
+  if ( read_result != FD_ACC_MGR_SUCCESS ) {
+    FD_LOG_NOTICE(( "failed to read account data: %d", read_result ));
+    return;
+  }
+
+  void* input = (void *)raw_acc_data;
+  fd_stake_config_decode( result, (const void **)&input, raw_acc_data + metadata.dlen, global->allocf, global->allocf_arg );
 }
 
 void fd_stake_program_config_init( fd_global_ctx_t* global ) {
@@ -55,19 +75,19 @@ void read_stake_state( fd_global_ctx_t* global, fd_pubkey_t* stake_acc, fd_stake
 }
 
 int write_stake_state(
-    instruction_ctx_t ctx,
+    fd_global_ctx_t* global,
     fd_pubkey_t* stake_acc,
     fd_stake_state_t* stake_state
 ) {
     fd_account_meta_t metadata;
-    int read_result = fd_acc_mgr_get_metadata( ctx.global->acc_mgr, ctx.global->funk_txn, stake_acc, &metadata );
+    int read_result = fd_acc_mgr_get_metadata( global->acc_mgr, global->funk_txn, stake_acc, &metadata );
     if ( FD_UNLIKELY( read_result != FD_ACC_MGR_SUCCESS ) ) {
       FD_LOG_WARNING(( "failed to read account metadata" ));
       return read_result;
     }
 
     ulong encoded_stake_state_size = fd_stake_state_size( stake_state );
-    uchar* encoded_stake_state = (uchar *)(ctx.global->allocf)( ctx.global->allocf_arg, 8UL, encoded_stake_state_size );
+    uchar* encoded_stake_state = (uchar *)(global->allocf)( global->allocf_arg, 8UL, encoded_stake_state_size );
     fd_memset( encoded_stake_state, 0, encoded_stake_state_size );
 
     void* encoded_stake_state_vp = (void*)encoded_stake_state;
@@ -79,14 +99,14 @@ int write_stake_state(
     structured_account.data_len = encoded_stake_state_size;
     structured_account.executable = 0;
     structured_account.rent_epoch = 0;
-    memcpy( &structured_account.owner, ctx.global->solana_stake_program, sizeof(fd_pubkey_t) );
+    memcpy( &structured_account.owner, global->solana_stake_program, sizeof(fd_pubkey_t) );
 
-    int write_result = fd_acc_mgr_write_structured_account( ctx.global->acc_mgr, ctx.global->funk_txn, ctx.global->bank.solana_bank.slot, stake_acc, &structured_account );
+    int write_result = fd_acc_mgr_write_structured_account( global->acc_mgr, global->funk_txn, global->bank.solana_bank.slot, stake_acc, &structured_account );
     if ( write_result != FD_ACC_MGR_SUCCESS ) {
       FD_LOG_WARNING(( "failed to write account data" ));
       return write_result;
     }
-    fd_acc_mgr_update_hash ( ctx.global->acc_mgr, &metadata, ctx.global->funk_txn, ctx.global->bank.solana_bank.slot, stake_acc, (uchar*)encoded_stake_state, encoded_stake_state_size);
+    fd_acc_mgr_update_hash ( global->acc_mgr, &metadata, global->funk_txn, global->bank.solana_bank.slot, stake_acc, (uchar*)encoded_stake_state, encoded_stake_state_size);
 
     return FD_EXECUTOR_INSTR_SUCCESS;
 }
@@ -178,7 +198,7 @@ int fd_executor_stake_program_execute_instruction(
     fd_memcpy( &stake_state_meta->lockup, &initialize_instruction->lockup, sizeof(fd_pubkey_t) );
 
     /* Write the initialized Stake account to the database */
-    int result = write_stake_state( ctx, stake_acc, &stake_state );
+    int result = write_stake_state( ctx.global, stake_acc, &stake_state );
     if ( result != FD_EXECUTOR_INSTR_SUCCESS ) {
       FD_LOG_WARNING(( "failed to write stake account state: %d", result ));
       return result;
@@ -197,6 +217,8 @@ int fd_executor_stake_program_execute_instruction(
     if ( memcmp( &txn_accs[instr_acc_idxs[2]], ctx.global->sysvar_clock, sizeof(fd_pubkey_t) ) != 0 ) {
       return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
     }
+    fd_sol_sysvar_clock_t clock;
+    fd_sysvar_clock_read( ctx.global, &clock );
 
     /* Check that the Instruction Account 3 is the Stake History Sysvar account */
     if ( memcmp( &txn_accs[instr_acc_idxs[3]], ctx.global->sysvar_stake_history, sizeof(fd_pubkey_t) ) != 0 ) {
@@ -207,11 +229,14 @@ int fd_executor_stake_program_execute_instruction(
     if ( memcmp( &txn_accs[instr_acc_idxs[4]], ctx.global->solana_stake_program_config, sizeof(fd_pubkey_t) ) != 0 ) {
       return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
     }
+    fd_stake_config_t stake_config;
+    read_stake_config( ctx.global, &stake_config );
 
     /* Check that Instruction Account 1 is owned by the vote program
        https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/stake/src/stake_state.rs#L540 */
+    fd_pubkey_t* vote_acc = &txn_accs[instr_acc_idxs[1]];
     fd_pubkey_t vote_acc_owner;
-    fd_acc_mgr_get_owner( ctx.global->acc_mgr, ctx.global->funk_txn, &txn_accs[instr_acc_idxs[1]], &vote_acc_owner ); 
+    fd_acc_mgr_get_owner( ctx.global->acc_mgr, ctx.global->funk_txn, vote_acc, &vote_acc_owner ); 
     if ( memcmp( &vote_acc_owner, ctx.global->solana_vote_program, sizeof(fd_pubkey_t) ) != 0 ) {
       return FD_EXECUTOR_INSTR_ERR_INCORRECT_PROGRAM_ID;
     }
@@ -251,10 +276,40 @@ int fd_executor_stake_program_execute_instruction(
 
     /* Ensire that we leave enough balance in the account such that the Stake account is rent exempt
        https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/stake/src/stake_state.rs#L837 */
+    ulong stake_amount = 0;
+    fd_acc_lamports_t lamports;
+    int read_result = fd_acc_mgr_get_lamports( ctx.global->acc_mgr, ctx.global->funk_txn, stake_acc, &lamports );
+    if ( read_result != FD_ACC_MGR_SUCCESS ) {
+      FD_LOG_WARNING(( "failed to read stake account data" ));
+      return read_result;
+    }
+    if ( lamports > meta->rent_exempt_reserve ) {
+      stake_amount = lamports - meta->rent_exempt_reserve;
+    }
 
+    if ( fd_stake_state_is_initialized( &stake_state ) ) {
+      /* Create the new stake state
+         https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/stake/src/stake_state.rs#L549 */
+      stake_state.discriminant = 2;
+      fd_stake_state_stake_t* stake_state_stake = &stake_state.inner.stake;
+      fd_memcpy( &stake_state_stake->meta, meta, FD_STAKE_STATE_META_FOOTPRINT );
+      stake_state_stake->stake.delegation.activation_epoch = clock.epoch;
+      stake_state_stake->stake.delegation.activation_epoch = ULONG_MAX;
+      stake_state_stake->stake.delegation.stake = stake_amount;
+      fd_memcpy( &stake_state_stake->stake.delegation.voter_pubkey, vote_acc, sizeof(fd_pubkey_t) );
+      stake_state_stake->stake.delegation.warmup_cooldown_rate = stake_config.warmup_cooldown_rate;
+      
+      ulong credits = 0;
+      fd_vote_acc_credits( ctx.global, vote_acc, &credits );
+      stake_state_stake->stake.credits_observed = credits;
+    }
 
-    FD_LOG_NOTICE(( "StakeInstruction::DelegateStake not implemented yet" ));
-    /* TODO */
+    /* Write the stake state back to the database */
+    int result = write_stake_state( ctx.global, stake_acc, &stake_state );
+    if ( result != FD_EXECUTOR_INSTR_SUCCESS ) {
+      FD_LOG_WARNING(( "failed to write stake account state: %d", result ));
+      return result;
+    }
   } else {
     FD_LOG_NOTICE(( "unsupported StakeInstruction instruction: discriminant %d", instruction.discriminant ));
     return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
