@@ -157,8 +157,7 @@ fd_funk_persist_recover_record( fd_funk_t * funk, ulong pos,
     }
   } else {
     /* We have duplicate record keys, indicating we crashed during an
-       update. Use the version that has the larger allocation size since
-       this must be more recent. */
+       update. The larger allocation must be more recent. */
     if ( rec_con->persist_alloc_sz >= head->alloc_sz ) {
       fd_funk_persist_free( funk, pos, head->alloc_sz );
       return;
@@ -182,6 +181,100 @@ fd_funk_persist_recover_record( fd_funk_t * funk, ulong pos,
   /* Remember where we found the data */
   rec->persist_alloc_sz = head->alloc_sz;
   rec->persist_pos = pos;
+}
+
+/* Process a record found in a write-ahead log during persistence recovery */
+static void
+fd_funk_persist_recover_walog_record( fd_funk_t * funk,
+                                      struct fd_funk_persist_record_head * head,
+                                      const uchar * value ) {
+  fd_funk_rec_key_t key;
+  fd_memcpy(&key, head->key, sizeof(key));
+  fd_funk_rec_t const * rec_con = fd_funk_rec_query( funk, NULL, &key );
+  int err;
+  if ( !rec_con ) {
+    rec_con = fd_funk_rec_insert( funk, NULL, &key, &err );
+    if ( !rec_con ) {
+      FD_LOG_ERR(( "failed to recover record, code %s", fd_funk_strerror( err ) ));
+      return;
+    }
+  }
+  fd_funk_rec_t * rec = fd_funk_rec_modify( funk, rec_con );
+  if ( !rec ) {
+    FD_LOG_ERR(( "failed to recover record, code %s", fd_funk_strerror( FD_FUNK_ERR_FROZEN ) ));
+    return;
+  }
+  fd_wksp_t * wksp = fd_funk_wksp(funk);
+  fd_funk_rec_t * rec2 = fd_funk_val_copy(rec, value, head->val_sz, head->val_sz, fd_funk_alloc(funk, wksp), wksp, &err);
+  if ( !rec2 ) {
+    FD_LOG_ERR(( "failed to recover record, code %s", fd_funk_strerror( err ) ));
+    return;
+  }
+  err = fd_funk_rec_persist_unsafe( funk, rec );
+  if ( err ) {
+    FD_LOG_ERR(( "failed to recover record, code %s", fd_funk_strerror( err ) ));
+    return;
+  }
+}
+
+/* Process an erase found in a write-ahead log during persistence recovery */
+static void
+fd_funk_persist_recover_walog_erase( fd_funk_t * funk,
+                                     struct fd_funk_persist_erase_head * head ) {
+  fd_funk_rec_key_t key;
+  fd_memcpy(&key, head->key, sizeof(key));
+  fd_funk_rec_t const * rec_con = fd_funk_rec_query( funk, NULL, &key );
+  if ( !rec_con ) {
+    /* Already erased */
+    return;
+  }
+  fd_funk_rec_t * rec = fd_funk_rec_modify( funk, rec_con );
+  if ( !rec ) {
+    FD_LOG_ERR(( "failed to recover erase, code %s", fd_funk_strerror( FD_FUNK_ERR_FROZEN ) ));
+    return;
+  }
+  int err = fd_funk_rec_persist_erase_unsafe( funk, rec );
+  if ( err ) {
+    FD_LOG_ERR(( "failed to recover erase, code %s", fd_funk_strerror( err ) ));
+    return;
+  }
+  fd_funk_rec_remove( funk, rec, 1 );
+}
+
+/* Process a write-ahead log found during persistence recovery */
+static void
+fd_funk_persist_recover_walog( fd_funk_t * funk, struct fd_funk_persist_walog_head * wahead ) {
+  FD_LOG_WARNING(( "recovering write-ahead log of size %lu", wahead->used_sz ));
+  const uchar* tmpptr = (const uchar*)(wahead + 1);
+  const uchar* tmpend = tmpptr + wahead->used_sz;
+  while ( tmpptr < tmpend ) {
+
+    /* Use magic numbers to determine the type of the next header */
+    if ( FD_LIKELY( tmpptr + sizeof(struct fd_funk_persist_record_head) <= tmpend &&
+                    ((struct fd_funk_persist_record_head *)tmpptr)->type == FD_FUNK_PERSIST_RECORD_TYPE ) ) {
+      /* Ordinary record */
+      struct fd_funk_persist_record_head * head = (struct fd_funk_persist_record_head *)tmpptr;
+      if ( tmpptr + sizeof(struct fd_funk_persist_record_head) + head->val_sz <= tmpend ) {
+        fd_funk_persist_recover_walog_record( funk, head, tmpptr + sizeof(struct fd_funk_persist_record_head) );
+        tmpptr += sizeof(struct fd_funk_persist_record_head) + head->val_sz;
+      } else {
+        /* Incomplete record */
+        FD_LOG_ERR(( "corrupt write-ahead log" ));
+        break;
+      }
+      
+    } else if ( FD_LIKELY( tmpptr + sizeof(struct fd_funk_persist_erase_head) <= tmpend &&
+                           ((struct fd_funk_persist_erase_head *)tmpptr)->type == FD_FUNK_PERSIST_ERASE_TYPE ) ) {
+      struct fd_funk_persist_erase_head * head = (struct fd_funk_persist_erase_head *)tmpptr;
+      fd_funk_persist_recover_walog_erase( funk, head );
+      tmpptr += sizeof(struct fd_funk_persist_erase_head);
+      
+    } else {
+      /* Bad magic number */
+      FD_LOG_ERR(( "corrupt write-ahead log" ));
+      break;
+    }
+  }
 }
 
 /* Recover the state of the database by reading a persistence
@@ -224,13 +317,21 @@ fd_funk_persist_open( fd_funk_t * funk, const char * filename ) {
   if ( tmp == NULL )
     FD_LOG_ERR(( "failed to allocate temp buffer" ));
 
+  /* List of write-ahead logs. We remember up to 16 just to be safe
+     even though there should be no more than 1 in practice. */
+  static const unsigned MAX_WALOGS = 16;
+  struct {
+      ulong pos, sz;
+  } walogs[MAX_WALOGS];
+  unsigned num_walogs = 0;
+
   /* Loop through the file */
   ulong pos = 0;
   while ( pos < funk->persist_size ) {
     /* Read a big chunk */
     long res = pread( funk->persist_fd, tmp, tmp_max, (long)pos );
     if ( res == -1) {
-      FD_LOG_ERR(( "failed to open %s: %s", filename, strerror(errno) ));
+      FD_LOG_ERR(( "failed to read %s: %s", filename, strerror(errno) ));
       return FD_FUNK_ERR_SYS;
     }
 
@@ -264,6 +365,26 @@ fd_funk_persist_open( fd_funk_t * funk, const char * filename ) {
           break;
         }
 
+      } else if ( FD_LIKELY( tmpptr + sizeof(struct fd_funk_persist_walog_head) <= tmpend &&
+                             ((struct fd_funk_persist_walog_head *)tmpptr)->type == FD_FUNK_PERSIST_WALOG_TYPE ) ) {
+        /* Write-ahead log */
+        struct fd_funk_persist_walog_head * head = (struct fd_funk_persist_walog_head *)tmpptr;
+        if ( tmpptr + sizeof(struct fd_funk_persist_walog_head) + head->used_sz <= tmpend ) {
+          /* Save write-ahead logs until after we have recovered all regular records */
+          if (num_walogs < MAX_WALOGS) {
+            walogs[num_walogs].pos = pos + (ulong)(tmpptr - tmp);
+            walogs[num_walogs].sz = sizeof(struct fd_funk_persist_walog_head) + head->used_sz;
+            ++num_walogs;
+          }
+          tmpptr += head->alloc_sz;
+        } else {
+          /* Incomplete write-ahead log */
+          if ( sizeof(struct fd_funk_persist_walog_head) + head->used_sz > tmp_max )
+            /* Need a bigger buffer */
+            new_tmp_max = sizeof(struct fd_funk_persist_walog_head) + head->used_sz;
+          break;
+        }
+
       } else
         /* Corrupt or incomplete entry */
         break;
@@ -285,6 +406,19 @@ fd_funk_persist_open( fd_funk_t * funk, const char * filename ) {
       FD_LOG_ERR(( "corrupt persistence file" ));
       break;
     }
+  }
+
+  /* Recover write-ahead logs */
+  for (unsigned i = 0; i < num_walogs; ++i) {
+    long res = pread( funk->persist_fd, tmp, walogs[i].sz, (long)walogs[i].pos );
+    if ( res != (long)walogs[i].sz) {
+      FD_LOG_ERR(( "failed to read %s: %s", filename, strerror(errno) ));
+      return FD_FUNK_ERR_SYS;
+    }
+    struct fd_funk_persist_walog_head * head = (struct fd_funk_persist_walog_head *)tmp;
+    fd_funk_persist_recover_walog( funk, head );
+    /* Recovery complete. Delete the log. */
+    fd_funk_persist_free( funk, walogs[i].pos, head->alloc_sz );
   }
   
   /* Free the temp buffer */
