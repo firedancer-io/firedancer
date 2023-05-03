@@ -1,3 +1,49 @@
+/*
+  The on-disk data structure is very simple. Under normal conditions,
+  it is just a series of entries where each entry is either a "free
+  space" or a record. Free space entries are prefixed with a
+  fd_funk_persist_free_head header. Ordinary records have a
+  fd_funk_persist_record_head header. In either case, there is no
+  padding or realignment between entries.
+
+  Both types of entries have an alloc_sz value, which is the total size
+  of the entry, including header. The next entry is always exactly
+  alloc_sz away (starting at the prior header). In the case of a
+  record, alloc_sz may be larger than is strictly necessary for the
+  content (which has length val_sz). This padding can be consumed if
+  the record grows.
+
+  The current set of free spaces is kept in memory, sorted by
+  alloc_sz. When new space is needed, the code looks for a free space
+  which is big enough but not more the 25% too large. If such a space
+  can't be found, the file is extended to provide the required
+  space. Allocations are never split or recombined. The assumption is
+  that entries are allocated with a typical set of sizes, so keeping a
+  free space at its current size make sense. This approach makes the
+  code simple and robust at the potential cost of wasted disk space,
+  but disk space is free.
+
+  When a transaction is published, the first thing that happens is a
+  "write-ahead log" is written. This is a compact list of record
+  updates and erasures in the transaction. If the application crashes
+  in the middle of a commit, the write-ahead log allows for
+  transactionally safe recovery. The transaction will either happen
+  entirely or be completely ignored. A write-ahead log has a
+  fd_funk_persist_walog_head header. It contains a nested list of
+  records (fd_funk_persist_record_head) or erasures
+  (fd_funk_persist_erase_head).
+
+  To start using persistance, call fd_funk_persist_open with a file
+  name. This will recover any records found in the file. Future
+  transactions are then automatically written to the file.
+
+  If transactions aren't being used (the root transaction is being
+  updated directly), the persistence layer must be explicitly notified
+  when a record should be persisted. Use fd_funk_rec_persist to write
+  the current version of a record to disk. Use
+  fd_funk_rec_persist_erase to erase the on-disk representation.
+*/
+
 #include "fd_funk.h"
 #include "fd_funk_persist.h"
 #include <sys/types.h>
@@ -714,6 +760,9 @@ fd_funk_persist_verify( fd_funk_t * funk ) {
                                          pool + funk->persist_frees_root);
   fd_funk_persist_free_map_verify(pool, root);
 
+  ulong tot_used = 0;
+  ulong tot_free = 0;
+
   for ( fd_funk_persist_free_entry_t * n = fd_funk_persist_free_map_minimum(pool, root);
         n; n = fd_funk_persist_free_map_successor(pool, n) ) {
     struct fd_funk_persist_free_head head;
@@ -721,6 +770,7 @@ fd_funk_persist_verify( fd_funk_t * funk ) {
     TEST( r == (long)sizeof(head) );
     TEST( head.type == FD_FUNK_PERSIST_FREE_TYPE );
     TEST( head.alloc_sz == n->alloc_sz );
+    tot_free += n->alloc_sz;
   }
   
   fd_funk_rec_t * rec_map  = fd_funk_rec_map( funk, wksp ); /* Previously verified */
@@ -736,8 +786,11 @@ fd_funk_persist_verify( fd_funk_t * funk ) {
       TEST( head.alloc_sz == rec->persist_alloc_sz );
       TEST( memcmp( head.key, &rec->pair.key, sizeof(head.key) ) == 0 );
       TEST( head.val_sz == rec->val_sz );
+      tot_used += rec->persist_alloc_sz ;
     }
   }
+
+  TEST( tot_used + tot_free == funk->persist_size );
 
   return FD_FUNK_SUCCESS;
 
