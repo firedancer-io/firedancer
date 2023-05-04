@@ -330,6 +330,7 @@ fd_dedup_tile( fd_cnc_t *              cnc,
   fd_cnc_signal( cnc, FD_CNC_SIGNAL_RUN );
   long then = fd_tickcount();
   long now  = then;
+  pid_t pid = getpid();
   for(;;) {
 
     /* Do housekeeping at a low rate in the background */
@@ -382,7 +383,7 @@ fd_dedup_tile( fd_cnc_t *              cnc,
            correct the usual case where individual diagnostic counters
            aren't used by multiple writers spread over different threads
            of execution. */
-        fd_cnc_heartbeat( cnc, now );
+        fd_cnc_heartbeat( cnc, now, pid );
         FD_COMPILER_MFENCE();
         cnc_diag[ FD_CNC_DIAG_IN_BACKP  ]  = cnc_diag_in_backp;
         cnc_diag[ FD_CNC_DIAG_BACKP_CNT ] += cnc_diag_backp_cnt;

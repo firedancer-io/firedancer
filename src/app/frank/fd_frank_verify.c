@@ -136,6 +136,7 @@ fd_frank_verify_task( int     argc,
   long now  = fd_tickcount();
   long then = now;            /* Do housekeeping on first iteration of run loop */
   fd_cnc_signal( cnc, FD_CNC_SIGNAL_RUN );
+  pid_t pid = getpid();
   for(;;) {
 
     /* Do housekeeping at a low rate in the background */
@@ -149,7 +150,7 @@ fd_frank_verify_task( int     argc,
       FD_COMPILER_MFENCE();
 
       /* Send diagnostic info */
-      fd_cnc_heartbeat( cnc, now );
+      fd_cnc_heartbeat( cnc, now, pid );
       FD_COMPILER_MFENCE();
       FD_VOLATILE( cnc_diag[ FD_FRANK_CNC_DIAG_HA_FILT_CNT ] ) = FD_VOLATILE_CONST( cnc_diag[ FD_FRANK_CNC_DIAG_HA_FILT_CNT ] ) + accum_ha_filt_cnt;
       FD_VOLATILE( cnc_diag[ FD_FRANK_CNC_DIAG_HA_FILT_SZ  ] ) = FD_VOLATILE_CONST( cnc_diag[ FD_FRANK_CNC_DIAG_HA_FILT_SZ  ] ) + accum_ha_filt_sz;

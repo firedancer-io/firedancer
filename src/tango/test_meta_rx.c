@@ -62,6 +62,7 @@ main( int     argc,
   long  then = fd_log_wallclock();
   ulong iter = 0UL;
 
+  pid_t pid = getpid();
   fd_cnc_signal( cnc, FD_CNC_SIGNAL_RUN );
   for(;;) {
 
@@ -110,7 +111,7 @@ main( int     argc,
 
       /* Send monitoring info */
       long now = fd_log_wallclock();
-      fd_cnc_heartbeat( cnc, now );
+      fd_cnc_heartbeat( cnc, now, pid );
 
       long dt = now - then;
       if( FD_UNLIKELY( dt > (long)1e9 ) ) {

@@ -87,6 +87,7 @@ rx_tile_main( int     argc,
   ulong async_rem = 1UL; /* Do housekeeping on first iteration */
 
   fd_cnc_signal( cnc, FD_CNC_SIGNAL_RUN );
+  pid_t pid = getpid();
   for(;;) {
 
     /* Wait for frag seq while doing housekeeping in the background */
@@ -108,7 +109,7 @@ rx_tile_main( int     argc,
       fd_fctl_rx_cr_return( fseq, seq );
 
       /* Send diagnostic info */
-      fd_cnc_heartbeat( cnc, fd_tickcount() );
+      fd_cnc_heartbeat( cnc, fd_tickcount(), pid );
 
       /* Receive command-and-control signals */
       ulong s = fd_cnc_signal_query( cnc );

@@ -67,21 +67,21 @@ fd_frank_dedup_task( int     argc,
   }
 
   FD_LOG_INFO(( "joining %s.dedup.tcache", cfg_path ));
-  fd_tcache_t * tcache = fd_tcache_join( fd_wksp_pod_map( cfg_pod, "grp.dedup.task.dedup.v0.tcache" ) );
+  fd_tcache_t * tcache = fd_tcache_join( fd_wksp_pod_map( cfg_pod, "grp.dedup.task.dedup.d0.tcache" ) );
   if( FD_UNLIKELY( !tcache ) ) FD_LOG_ERR(( "fd_tcache_join failed" ));
 
   FD_LOG_INFO(( "joining %s.dedup.mcache", cfg_path ));
-  fd_frag_meta_t * mcache = fd_mcache_join( fd_wksp_pod_map( cfg_pod, "grp.dedup.task.dedup.v0.mcache" ) );
+  fd_frag_meta_t * mcache = fd_mcache_join( fd_wksp_pod_map( cfg_pod, "grp.dedup.task.dedup.d0.mcache" ) );
   if( FD_UNLIKELY( !mcache ) ) FD_LOG_ERR(( "fd_mcache_join failed" ));
 
   FD_LOG_INFO(( "joining %s.dedup.fseq", cfg_path ));
-  ulong * out_fseq = fd_fseq_join( fd_wksp_pod_map( cfg_pod, "grp.dedup.task.dedup.v0.fseq" ) );
+  ulong * out_fseq = fd_fseq_join( fd_wksp_pod_map( cfg_pod, "grp.dedup.task.dedup.d0.fseq" ) );
   if( FD_UNLIKELY( !out_fseq ) ) FD_LOG_ERR(( "fd_fseq_join failed" ));
 
   /* Setup local objects used by this tile */
 
-  ulong cr_max = fd_pod_query_ulong( cfg_pod, "grp.dedup.task.dedup.v0.cr_max", 0UL ); /*  0  <> pick reasonable default */
-  long  lazy   = fd_pod_query_long ( cfg_pod, "grp.dedup.task.dedup.v0.lazy",   0L  ); /* <=0 <> pick reasonable default */
+  ulong cr_max = fd_pod_query_ulong( cfg_pod, "grp.dedup.task.dedup.d0.cr_max", 0UL ); /*  0  <> pick reasonable default */
+  long  lazy   = fd_pod_query_long ( cfg_pod, "grp.dedup.task.dedup.d0.lazy",   0L  ); /* <=0 <> pick reasonable default */
   FD_LOG_INFO(( "configuring flow control (%s.dedup.cr_max %lu %s.dedup.lazy %li)", cfg_path, cr_max, cfg_path, lazy ));
 
   uint seed = fd_pod_query_uint( cfg_pod, "grp.dedup.task.dedup.v0.seed", (uint)fd_tile_id() ); /* use app tile_id as default */

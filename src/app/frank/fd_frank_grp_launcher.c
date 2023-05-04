@@ -7,6 +7,10 @@
 #if FD_HAS_FRANK
 
 #define MAX_CMDLINE_LEN 1024UL
+#define MAX_TASK_GROUP_NAME_LEN 1024UL
+
+#define MAX_STALE_NS (long)10e9
+#define SHUTDOWN_GRACE_NS (long)5e9
 
 #include <stdio.h>
 #include <signal.h>
@@ -25,11 +29,12 @@ fd_frank_sigaction( int         sig,
                     void *      context ) {
   (void)info;
   (void)context;
+  printf("trap!\n");
   /* FIXME: add support to fd_log for robust logging inside a signal
      handler (i.e. make sure that behavior of calling a log when the
      interrupted thread might be in the middle of preparing a log
      message is well defined) */
-  FD_LOG_NOTICE(( "received POSIX signal %i; sending halt to main", sig ));
+  FD_LOG_NOTICE(( "received POSIX signal %i; sending halt to main @ %p", sig, (void*)fd_frank_main_cnc ));
   if( FD_UNLIKELY( fd_cnc_open( fd_frank_main_cnc ) ) ) { /* logs details */
     FD_LOG_WARNING(( "unable to send halt (fd_cnc_open failed); shutdown will be unclean" ));
     raise( sig ); /* fall back on default handler so thread still terminates */
@@ -78,10 +83,6 @@ find_task_count( const uchar * group_tasks_pod ) {
 int
 launch_group( int     argc,
               char ** argv ) {
-
-  for (int i=0; i<argc; i++) {
-    printf("taskarg: %s\n", argv[i]);
-  }
 
   char const * pod_gaddr = fd_env_strip_cmdline_cstr( &argc, &argv, "--pod", NULL, NULL );
   char const * cfg_path  = fd_env_strip_cmdline_cstr( &argc, &argv, "--cfg", NULL, NULL );
@@ -165,11 +166,11 @@ launch_group( int     argc,
     fd_sandbox_profile_init( &profile );
     #endif /* FD_HAS_SANDBOX */
 
-    if      ( FD_UNLIKELY( !strcmp(task_type, "pack"   ) ) )
+    if      ( FD_UNLIKELY( !strcmp( task_type, "pack"   ) ) )
       task = fd_frank_pack_task;
-    else if ( FD_UNLIKELY( !strcmp(task_type, "dedup"  ) ) )
+    else if ( FD_UNLIKELY( !strcmp( task_type, "dedup"  ) ) )
       task = fd_frank_dedup_task;
-    else if ( FD_UNLIKELY( !strcmp(task_type, "verify" ) ) )
+    else if ( FD_UNLIKELY( !strcmp( task_type, "verify" ) ) )
       task = fd_frank_verify_task;
     else {
       FD_LOG_ERR(( "unknown task type '%s'", task_type ));
@@ -223,11 +224,31 @@ launch_group( int     argc,
 
   FD_LOG_INFO(( "main run" ));
   fd_cnc_signal( cnc, FD_CNC_SIGNAL_RUN );
-  for(;;) {
+  pid_t pid = getpid();
+
+  //double ns_per_tic = 1./fd_tempo_tick_per_ns( NULL );
+//  long then = fd_tickcount();
+  for (;;) { /* shutdown loop */
+    // long now = fd_tickcount();
+
+    // if ( (double)(now - then) * ns_per_tic < 1e9 ) {
+    //   FD_YIELD();
+    //   continue;
+    // }
+    // then = now;
+
+    /* Check on top level tasks */
+    for(ulong task_id=0UL; task_id <tasks_cnt; task_id++) {
+
+    }
+
     /* Send diagnostic info */
-    fd_cnc_heartbeat( cnc, fd_tickcount() );
+    fd_cnc_heartbeat( cnc, fd_tickcount(), pid );
     /* Receive command-and-control signals */
-    if( FD_UNLIKELY( fd_cnc_signal_query( cnc )==FD_CNC_SIGNAL_HALT ) ) break;
+    if( FD_UNLIKELY( fd_cnc_signal_query( cnc )==FD_CNC_SIGNAL_HALT ) ) {
+      FD_LOG_NOTICE(( "CNC entered HALT state" ));
+      break;
+    }
     FD_YIELD(); /* not SPIN_PAUSE as this tile is meant to float and be low resource utilization */
   }
 
@@ -236,13 +257,12 @@ launch_group( int     argc,
 
   FD_LOG_NOTICE(( "app fini" ));
 
-  FD_LOG_NOTICE(( "shutting down %lu tasks", tasks_cnt ));
+  FD_LOG_NOTICE(( "shutting down %lu task(s)", tasks_cnt ));
   for( ulong tile_idx=tasks_cnt; tile_idx>=1UL; tile_idx-- ) {
-    FD_LOG_NOTICE(( "halting tile %s", task_type_paths + (tile_idx * MAX_TASK_POD_KEY_LEN) ));
-
     /* Note: could do this in parallel too but doing reverse
        one-at-a-time for symmetry with boot */
 
+    FD_LOG_WARNING(( "about to end tile %lu", tile_idx ));
     if( FD_UNLIKELY( fd_cnc_open( tile_cnc[ tile_idx ] ) ) ) FD_LOG_ERR(( "fd_cnc_open failed for tile %lu", tile_idx ));
     fd_cnc_signal( tile_cnc[ tile_idx ], FD_CNC_SIGNAL_HALT );
     fd_cnc_close ( tile_cnc[ tile_idx ] );
@@ -338,6 +358,7 @@ main( int   argc,
     printf("launching group\n");
     return launch_group(argc, argv);
   }
+  fd_log_thread_set( "launcher" );
     
   /* since there's no task group group specified, run the launcher */
 
@@ -357,32 +378,46 @@ main( int   argc,
   /* reference to CNCs
      [0] is this thread's CNC
      [n] is group n-1's CNC */
-  ulong group_cnt = fd_pod_cnt_subpod( all_groups_pod );
-  fd_cnc_t ** tg_cnc = fd_alloca( alignof(fd_cnc_t *), sizeof(fd_cnc_t *)*group_cnt );
-  if( FD_UNLIKELY( !tg_cnc ) ) FD_LOG_ERR(( "fd_alloca failed" )); 
+  const ulong group_cnt = fd_pod_cnt_subpod( all_groups_pod );
+  char const ** tg_names = fd_alloca( alignof(char const *), sizeof(char const *)*group_cnt );
+  fd_cnc_t **   tg_cnc =    fd_alloca( alignof(fd_cnc_t *), sizeof(fd_cnc_t *)*group_cnt );
 
-  FD_LOG_NOTICE(( "attempting to launch the following groups..." ));
-  list_groups(all_groups_pod);
-
+  if( FD_UNLIKELY( !tg_cnc ) ) FD_LOG_ERR(( "fd_alloca failed" ));
+  if( FD_UNLIKELY( !tg_names ) ) FD_LOG_ERR(( "fd_alloca failed" ));
 
   /* The main tile's (this thread) CNC will be the first in this list */
   fd_cnc_t * cnc = tg_cnc[ 0 ] = fd_cnc_join( fd_wksp_pod_map( cfg_pod, "main.cnc" ) );
   if( FD_UNLIKELY( !cnc ) ) FD_LOG_ERR(( "fd_cnc_join failed" ));
   if( FD_UNLIKELY( fd_cnc_app_sz( cnc ) < 64UL ) ) FD_LOG_ERR(( "cnc app sz should be at least 64 bytes" ));
 
+  /* make sure that the launcher can boot */
+  if( FD_UNLIKELY( fd_cnc_signal_query( cnc )!=FD_CNC_SIGNAL_BOOT ) ) {
+    FD_LOG_ERR(( "launcher CNC is not in BOOT state... aborting." ));
+  }
+
+  FD_LOG_NOTICE(( "attempting to launch the following groups..." ));
+  list_groups(all_groups_pod);
+
   char * child_arg_buf = fd_alloca( alignof( char* ), MAX_CMDLINE_LEN );
-  char ** child_argv = fd_alloca( alignof( char** ), 1024UL );
+  const char ** child_argv = fd_alloca( alignof( char** ), 1024UL );
+
+  pid_t * tg_pids = fd_alloca( alignof( pid_t ), group_cnt );
+
   uint group_no = 0;
   for( fd_pod_iter_t tg_iter = fd_pod_iter_init( all_groups_pod ); !fd_pod_iter_done( tg_iter ); tg_iter = fd_pod_iter_next( tg_iter ) ) {
     fd_pod_info_t group_info = fd_pod_iter_info( tg_iter );
     if( FD_UNLIKELY( group_info.val_type!=FD_POD_VAL_TYPE_SUBPOD ) ) continue;
 
-    char const * tg_name = group_info.key;
+    char const * tg_name = tg_names[group_no] = group_info.key;
 
-    int verify_pid = fork();
+    int this_tg_pid = fork();
 
-    if ( !verify_pid ) {
+    if ( !this_tg_pid ) {
       /* running child */
+
+      /* Leave the parent's process group to prevent signals destined to it from making it
+         to the child. This has the advantage of letting us control the leaving order. */
+      setpgid( 0, 0 );
 
       /* find cmdline */
       char const * cmdline = fd_pod_query_cstr( group_info.val, "cmdline", NULL );
@@ -402,22 +437,25 @@ main( int   argc,
 
       /* reserve the first entry for the invocation name */
       child_argv[0] = argv[0];
+      /* reserve the 2nd and 3rd entres for the tg name */
+      child_argv[1] = "--task-group";
+      child_argv[2] = tg_name;
 
       ulong c_argc = fd_cstr_tokenize (
-        child_argv + 1,
-        1023UL - 1, /* accounting for array null terminator */
+        (char **)child_argv + 3, /* accounting for the reserved argv[0:2] */
+        1023UL - 3, /* accounting for array null terminator */
         child_arg_buf,
         ' '
       );
 
-      c_argc += 1; /* accounting */
+      c_argc += 3; /* accounting for the reselved slots */
       child_argv[c_argc] = NULL;
 
       // clean up parent's resources
       fd_wksp_pod_detach( pod );
       fd_halt();
 
-      execv(argv[0], child_argv);
+      execv(argv[0], (char**)child_argv);
       FD_LOG_ERR(( "execv: %s", strerror( errno ) ));
     }
 
@@ -430,26 +468,141 @@ main( int   argc,
        If it times-out: fail. */
 
     if( FD_UNLIKELY( fd_cnc_wait( child_cnc, FD_CNC_SIGNAL_BOOT, (long)5e9, NULL )!=FD_CNC_SIGNAL_RUN ) )
-      FD_LOG_ERR(( "task group failed to boot in a timely fashion" ));
+      FD_LOG_ERR(( "task group failed to boot in a timely fashion name=%s", tg_name ));
     else
-      FD_LOG_NOTICE(( "task group %s started", tg_name ));
+      FD_LOG_NOTICE(( "task group started name=%s pid=%d", tg_name, this_tg_pid ));
     // todo: cleanup
     
+    /* track the child pid */
+    tg_pids[group_no] = this_tg_pid;
     group_no++;
   }
 
-  int status;
-  wait(&status);
+  /* all tgs have been launched */
+  fd_cnc_signal( cnc, FD_CNC_SIGNAL_RUN );
+  FD_LOG_NOTICE(( "launched %lu task(s)", group_cnt ));
 
+  // todo: sandbox
 
-  // Wait for the "verify" cnc to be running
-  //if( FD_UNLIKELY( fd_cnc_wait( tile_cnc[ tile_idx ], FD_CNC_SIGNAL_BOOT, (long)5e9, NULL )!=FD_CNC_SIGNAL_RUN ) )
-  // FD_LOG_ERR(( "tile failed to boot in a timely fashion" ));
+  /* Configure normal kill and ctrl-c to do a clean shutdown */
+  FD_VOLATILE( fd_frank_main_cnc ) = cnc;
+  fd_frank_signal_trap( SIGTERM );
+  fd_frank_signal_trap( SIGINT  );
 
-  // Launch the "dedup" group
+  double ns_per_tic = 1./fd_tempo_tick_per_ns( NULL );
+  pid_t pid = getpid();
+  for(;;) {
 
-  // Launch the "pack" group
-  printf("yay\n");
+    /* Send diagnostic info */
+    fd_cnc_heartbeat( cnc, fd_tickcount(), pid );
+    /* Receive command-and-control signals */
+    if( FD_UNLIKELY( fd_cnc_signal_query( cnc )==FD_CNC_SIGNAL_HALT ) ) {
+      FD_LOG_NOTICE(( "CNC entered HALT state" ));
+      break;
+    }
+
+    /* Check that all task groups haven't timed out */
+    fd_cnc_t * ccnc;
+
+    int done = 0;
+    long now; long tic; fd_tempo_observe_pair( &now, &tic );
+    for ( ulong tg_idx = 1UL; tg_idx < group_cnt; tg_idx++ ) {
+      ccnc = tg_cnc[tg_idx];
+      long last_heartbeat = fd_cnc_heartbeat_query( ccnc );
+
+      double stale_ns = (double)(tic - last_heartbeat) * ns_per_tic;
+
+      if (stale_ns > MAX_STALE_NS) {
+        FD_LOG_NOTICE(( "CNC @ %lu is stale", tg_idx ));
+        done = 1;
+        break;
+      }
+    }
+    if ( done ) break;
+
+    FD_YIELD(); /* not SPIN_PAUSE as this tile is meant to float and be low resource utilization */
+  }
+  FD_LOG_NOTICE(( "leaving launcher main loop" ));
+  fd_cnc_signal( cnc, FD_CNC_SIGNAL_BOOT );
+
+  for( ulong tg_idx=0UL; tg_idx< group_cnt; tg_idx++ ) {
+    FD_LOG_NOTICE(( "halting task group %s", tg_names[tg_idx] ));
+
+    /* Note: could do this in parallel too but doing reverse
+       one-at-a-time for symmetry with boot */
+
+    fd_cnc_t * ccnc = (tg_cnc+1)[ tg_idx ];
+    if( FD_UNLIKELY( fd_cnc_open( ccnc ) ) ) FD_LOG_ERR(( "fd_cnc_open failed for task %s", tg_names[tg_idx] ));
+
+    ulong tg_sig = fd_cnc_signal_query( ccnc );
+    if ( tg_sig == FD_CNC_SIGNAL_RUN ) 
+      fd_cnc_signal( ccnc, FD_CNC_SIGNAL_HALT );
+    else {
+      char signamebuf[ FD_CNC_SIGNAL_CSTR_BUF_MAX ];
+      fd_cnc_signal_cstr ( tg_sig, signamebuf );
+      FD_LOG_WARNING(( "attempting to halt task not in run state task=%s state=%s", tg_names[tg_idx], signamebuf ));
+    }
+    fd_cnc_close ( ccnc );
+  }
+
+  // Improvement: could wait for all children to quit
+
+  long then = fd_tickcount();
+  for (;;) { /* shutdown loop */
+    long now = fd_tickcount();
+
+    /* call waitpid WNOHANG on each children
+       - if they all have exited, launcher can exit too
+       - if there remains one alive beyond the shutdown grace, it needs to die
+     */
+
+    ulong remaining = group_cnt;
+    for (ulong i = 0; i < group_cnt; i++) {
+      pid_t target = tg_pids[i];
+
+      if ( !target ) { // already observed as exited
+        remaining--;
+        continue;
+      }
+
+      int status;
+      pid_t res = waitpid(target, &status, WNOHANG);
+
+      if (res) {
+        remaining--;
+        tg_pids[i] = 0;
+      }
+    }
+
+    if ( !remaining ) {
+      break;
+    }
+
+    if ( (double)(now - then) * ns_per_tic > SHUTDOWN_GRACE_NS ) {
+      FD_LOG_WARNING(( "sending SIGKILL to %lu task groups", remaining ));
+      for (ulong i = 0; i < group_cnt; i++) {
+        pid_t target = tg_pids[i];
+
+        if ( !target ) { // already observed as exited
+          remaining--;
+          continue;
+        }
+
+        FD_LOG_WARNING(( "killing pid=%d group=%s", target, tg_names[i] ));
+        kill(target, SIGKILL);
+        break;
+      }
+    }
+
+    FD_YIELD();
+  } /* shutdown loop */
+  
+  /* Clean up */
+  
+  for( ulong cnc_idx=group_cnt+1; cnc_idx; cnc_idx-- ) fd_wksp_pod_unmap( fd_cnc_leave( tg_cnc[ cnc_idx-1UL ] ) );
+  fd_wksp_pod_detach( pod );
+  fd_halt();
+  return 0;
 }
 
 #else

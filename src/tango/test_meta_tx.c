@@ -93,6 +93,7 @@ main( int     argc,
   long  diag_last     = now;
   ulong diag_iter     = 0UL;
 
+  pid_t pid = getpid();
   fd_cnc_signal( cnc, FD_CNC_SIGNAL_RUN );
   for(;;) {
 
@@ -104,7 +105,7 @@ main( int     argc,
       fd_mcache_seq_update( sync, seq );
 
       /* Send diagnostic info */
-      fd_cnc_heartbeat( cnc, now );
+      fd_cnc_heartbeat( cnc, now, pid );
 
       long dt = now - diag_last;
       if( FD_UNLIKELY( dt>=diag_interval ) ) {

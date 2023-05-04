@@ -48,6 +48,8 @@ app_main( int     argc,
   FD_TEST( (ulong)app==(ulong)app_const );
   FD_TEST( fd_ulong_is_aligned( (ulong)app, FD_CNC_APP_ALIGN ) );
 
+  pid_t pid = getpid();
+  
   /* Signal we are doing booting and start running */
 
   fd_cnc_signal( cnc, FD_CNC_SIGNAL_RUN );
@@ -59,7 +61,7 @@ app_main( int     argc,
     /* Sporadically heartbeat and check if we have a signal to process */
 
     long now = fd_log_wallclock();
-    fd_cnc_heartbeat( cnc, now );
+    fd_cnc_heartbeat( cnc, now, pid );
     ulong signal = fd_cnc_signal_query( cnc );
     if( FD_UNLIKELY( signal!=FD_CNC_SIGNAL_RUN ) ) {
       if     ( signal==FD_CNC_SIGNAL_HALT ) break; /* Got HALT signal ... exit run loop */

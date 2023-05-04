@@ -37,7 +37,7 @@ fd_frank_pack_task( int     argc,
   /* FIXME: CNC DIAG REGION? */
 
   FD_LOG_INFO(( "joining %s.dedup.mcache", cfg_path ));
-  fd_frag_meta_t const * mcache = fd_mcache_join( fd_wksp_pod_map( cfg_pod, "grp.dedup.task.dedup.v0.mcache" ) );
+  fd_frag_meta_t const * mcache = fd_mcache_join( fd_wksp_pod_map( cfg_pod, "grp.dedup.task.dedup.d0.mcache" ) );
   if( FD_UNLIKELY( !mcache ) ) FD_LOG_ERR(( "fd_mcache_join failed" ));
   ulong         depth = fd_mcache_depth( mcache );
   ulong const * sync  = fd_mcache_seq_laddr_const( mcache );
@@ -53,7 +53,7 @@ fd_frank_pack_task( int     argc,
   if( FD_UNLIKELY( !wksp ) ) FD_LOG_ERR(( "fd_wksp_containing failed" ));
 
   FD_LOG_INFO(( "joining %s.dedup.fseq", cfg_path ));
-  ulong * fseq = fd_fseq_join( fd_wksp_pod_map( cfg_pod, "grp.dedup.task.dedup.v0.fseq" ) );
+  ulong * fseq = fd_fseq_join( fd_wksp_pod_map( cfg_pod, "grp.dedup.task.dedup.d0.fseq" ) );
   if( FD_UNLIKELY( !fseq ) ) FD_LOG_ERR(( "fd_fseq_join failed" ));
   /* Hook up to this pack's flow control diagnostics (will be stored in
      the pack's fseq) */
@@ -92,6 +92,7 @@ fd_frank_pack_task( int     argc,
   long now  = fd_tickcount();
   long then = now;            /* Do housekeeping on first iteration of run loop */
   fd_cnc_signal( cnc, FD_CNC_SIGNAL_RUN );
+  pid_t pid = getpid();
   for(;;) {
 
     /* Do housekeeping at a low rate in the background */
@@ -102,7 +103,7 @@ fd_frank_pack_task( int     argc,
       fd_fctl_rx_cr_return( fseq, seq );
 
       /* Send diagnostic info */
-      fd_cnc_heartbeat( cnc, now );
+      fd_cnc_heartbeat( cnc, now, pid );
       FD_COMPILER_MFENCE();
       fseq_diag[ FD_FSEQ_DIAG_PUB_CNT   ] += accum_pub_cnt;
       fseq_diag[ FD_FSEQ_DIAG_PUB_SZ    ] += accum_pub_sz;

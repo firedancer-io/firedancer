@@ -1,6 +1,8 @@
 #ifndef HEADER_fd_src_tango_cnc_fd_cnc_h
 #define HEADER_fd_src_tango_cnc_fd_cnc_h
 
+#include <unistd.h> /* for pid_t */
+
 #include "../fd_tango_base.h"
 
 /* A fd_cnc_t provides APIs for out-of-band low bandwidth
@@ -154,6 +156,7 @@ struct __attribute__((aligned(FD_CNC_ALIGN))) fd_cnc_private {
   long  heartbeat;
   ulong lock;
   ulong signal;
+  pid_t pid;
   /* Padding to FD_CNC_APP_ALIGN here */
   /* app_sz bytes here */
   /* Padding to FD_CNC_ALIGN here */
@@ -274,9 +277,11 @@ fd_cnc_heartbeat_query( fd_cnc_t const * cnc ) {
 
 static inline void
 fd_cnc_heartbeat( fd_cnc_t * cnc,
-                  long       now ) {
+                  long       now, 
+                  pid_t      pid) {
   FD_COMPILER_MFENCE();
   FD_VOLATILE( cnc->heartbeat ) = now;
+  FD_VOLATILE( cnc->pid ) = pid;
   FD_COMPILER_MFENCE();
 }
 
@@ -341,6 +346,19 @@ fd_cnc_signal( fd_cnc_t * cnc,
   FD_COMPILER_MFENCE();
   FD_VOLATILE( cnc->signal ) = s;
   FD_COMPILER_MFENCE();
+}
+
+/* fd_cnc_pid_query returns the value of the cnc's pid
+   as of some point in time between when this was called and when this
+   returned.  Assumes cnc is a current local join.  This acts as a
+   compiler memory fence. */
+
+static inline pid_t
+fd_cnc_pid_query( fd_cnc_t const * cnc ) {
+  FD_COMPILER_MFENCE();
+  pid_t then = FD_VOLATILE_CONST( cnc->pid );
+  FD_COMPILER_MFENCE();
+  return then;
 }
 
 /* fd_cnc_open opens a new command session to an app thread.  Returns 0

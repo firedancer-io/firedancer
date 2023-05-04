@@ -4,6 +4,7 @@
 
 #include <stdio.h>
 #include <signal.h>
+#include <unistd.h>
 
 static fd_cnc_t * fd_frank_main_cnc = NULL;
 
@@ -168,9 +169,10 @@ main( int     argc,
 
   FD_LOG_INFO(( "main run" ));
   fd_cnc_signal( cnc, FD_CNC_SIGNAL_RUN );
+  pid_t pid = getpid();
   for(;;) {
     /* Send diagnostic info */
-    fd_cnc_heartbeat( cnc, fd_tickcount() );
+    fd_cnc_heartbeat( cnc, fd_tickcount(), pid );
     /* Receive command-and-control signals */
     if( FD_UNLIKELY( fd_cnc_signal_query( cnc )==FD_CNC_SIGNAL_HALT ) ) break;
     FD_YIELD(); /* not SPIN_PAUSE as this tile is meant to float and be low resource utilization */

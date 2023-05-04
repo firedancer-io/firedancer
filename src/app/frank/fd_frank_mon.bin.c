@@ -1,4 +1,5 @@
 #include "fd_frank.h"
+#include "../../util/tilegroup/fd_tilegroup.h"
 
 #if FD_HAS_FRANK
 
@@ -50,6 +51,17 @@ printf_stale( long age,
     return;
   }
   printf( TEXT_GREEN "         -" TEXT_NORMAL );
+}
+
+/* printf_pid will print to stdout whether or not a heartbeat was
+   detected.  Will be exactly 5 char wide and color coded. */
+
+static void
+printf_pid( long pid_now,
+            long pid_then ) {
+  if      ( FD_UNLIKELY( !pid_now ) )            printf( TEXT_BLUE "%05ld" TEXT_NORMAL, pid_now  );
+  else if ( FD_LIKELY ( pid_now == pid_then ) )  printf( TEXT_GREEN "%05ld" TEXT_NORMAL, pid_now );
+  else                                           printf( TEXT_RED "%05ld" TEXT_NORMAL, pid_now   );
 }
 
 /* printf_heart will print to stdout whether or not a heartbeat was
@@ -232,6 +244,7 @@ struct snap {
 
   long  cnc_heartbeat;
   ulong cnc_signal;
+  pid_t cnc_pid;
 
   ulong cnc_diag_in_backp;
   ulong cnc_diag_backp_cnt;
@@ -271,6 +284,8 @@ snap( ulong             tile_cnt,     /* Number of tiles to snapshot */
     if( FD_LIKELY( cnc ) ) {
       snap->cnc_heartbeat = fd_cnc_heartbeat_query( cnc );
       snap->cnc_signal    = fd_cnc_signal_query   ( cnc );
+      snap->cnc_pid       = fd_cnc_pid_query      ( cnc );
+
       ulong const * cnc_diag = (ulong const *)fd_cnc_app_laddr_const( cnc );
       FD_COMPILER_MFENCE();
       snap->cnc_diag_in_backp    = cnc_diag[ FD_FRANK_CNC_DIAG_IN_BACKP    ];
@@ -314,6 +329,108 @@ snap( ulong             tile_cnt,     /* Number of tiles to snapshot */
   }
 }
 
+ulong
+fd_taskgroup_cnt_grp_tiles( uchar const * tg_pod ) {
+  ulong cnt = 1; /* floating monitor tile */
+
+  uchar const * tasks_pod = fd_pod_query_subpod( tg_pod, "task" );
+  if( FD_UNLIKELY( !tasks_pod ) ) {
+    FD_LOG_ERR(( "`.task` subpod not found... is `tg_pod` a taskgroup pod?" ));
+  };
+
+  /* for each task kind */
+  for( fd_pod_iter_t iter = fd_pod_iter_init( tasks_pod ); !fd_pod_iter_done( iter ); iter = fd_pod_iter_next( iter ) ) {
+    fd_pod_info_t info = fd_pod_iter_info( iter );
+    if( FD_UNLIKELY( info.val_type!=FD_POD_VAL_TYPE_SUBPOD ) ) {
+      FD_LOG_ERR(( "expected for child of `.task` to be a pod" ));
+    }
+      
+    cnt += fd_pod_cnt_subpod( info.val );
+  } /* for each task kind */
+
+  return cnt;
+}
+
+static void
+fd_taskgroup_collect_cncs( fd_cnc_t ** dst,
+                           char const ** dst_name,
+                           fd_frag_meta_t ** dst_mcache,
+                           ulong ** dst_fseq,
+                           ulong dst_sz,
+                           uchar const * all_grps_pod ) {
+
+  ulong pos = 0;
+  /* for each task group */
+  for( fd_pod_iter_t iter = fd_pod_iter_init( all_grps_pod ); !fd_pod_iter_done( iter ); iter = fd_pod_iter_next( iter ) ) {
+    fd_pod_info_t info = fd_pod_iter_info( iter );
+    FD_LOG_NOTICE(( "info: %s", info.key ));
+    if( FD_UNLIKELY( info.val_type!=FD_POD_VAL_TYPE_SUBPOD ) ) {
+      FD_LOG_ERR(( "expected for child of `.grp` to be  a pod" ));
+    }
+
+    /* add this task group's cnc */
+    if( pos >= dst_sz ) {
+      FD_LOG_ERR(( "adding a next entry would overrun the destination buffer" ));
+    }
+    dst[ pos ] = fd_cnc_join( fd_wksp_pod_map( info.val, "cnc" ) );
+    if( FD_UNLIKELY( !dst[ pos ] ) ) FD_LOG_ERR(( "fd_cnc_join failed" ));
+    if( FD_UNLIKELY( fd_cnc_app_sz( dst[ pos ] )<64UL ) ) FD_LOG_ERR(( "cnc app sz should be at least 64 bytes" ));
+    dst_name [ pos ] = info.key;
+    dst_mcache[ pos ] = NULL;
+    dst_fseq[ pos ] = NULL;
+
+    pos++;
+
+
+    uchar const * task_kind_pod = fd_pod_query_subpod( info.val, "task" );
+
+    /* for each task kind */
+    for( fd_pod_iter_t task_kind_iter = fd_pod_iter_init( task_kind_pod ); !fd_pod_iter_done( task_kind_iter ); task_kind_iter = fd_pod_iter_next( task_kind_iter ) ) {
+      fd_pod_info_t task_kind_info = fd_pod_iter_info( task_kind_iter );
+      char const * task_kind_name = task_kind_info.key;
+      if( FD_UNLIKELY( task_kind_info.val_type!=FD_POD_VAL_TYPE_SUBPOD ) ) {
+        FD_LOG_ERR(( "expected for child of `.task` to be a pod : %s", task_kind_info.key ));
+      }
+
+      int has_mcache = !strcmp( "dedup", task_kind_name ) || !strcmp( "verify", task_kind_name );
+      int has_fseq = !strcmp( "", task_kind_name);
+
+      /* for each task */
+      for( fd_pod_iter_t task_iter = fd_pod_iter_init( task_kind_info.val ); !fd_pod_iter_done( task_iter ); task_iter = fd_pod_iter_next( task_iter ) ) {
+        fd_pod_info_t task_info = fd_pod_iter_info( task_iter );
+        FD_LOG_NOTICE(( "info_task: %s", task_info.key ));
+
+        if( FD_UNLIKELY( task_info.val_type!=FD_POD_VAL_TYPE_SUBPOD ) ) {
+          FD_LOG_ERR(( "expected for child of `.task.{task_kind}` to be a pod" ));
+        }
+
+        if( pos >= dst_sz ) {
+          FD_LOG_ERR(( "adding a next entry would overrun the destination buffer" ));
+        }
+        dst[ pos ] = fd_cnc_join( fd_wksp_pod_map( task_info.val, "cnc" ) );
+        if( FD_UNLIKELY( !dst[ pos ] ) ) FD_LOG_ERR(( "fd_cnc_join failed" ));
+        if( FD_UNLIKELY( fd_cnc_app_sz( dst[ pos ] )<64UL ) ) FD_LOG_ERR(( "cnc app sz should be at least 64 bytes" ));
+        dst_name[ pos ] = task_info.key;
+
+        if( has_mcache ) {
+          dst_mcache[ pos ] = fd_mcache_join( fd_wksp_pod_map( task_info.val, "mcache" ) );
+        } else {
+          dst_mcache[ pos ] = NULL;
+        }
+
+        if( has_fseq ) {
+          dst_fseq[ pos ] = fd_fseq_join( fd_wksp_pod_map( task_info.val, "fseq" ) );
+        } else {
+          dst_fseq[ pos ] = NULL;
+        }
+
+        pos++;
+
+      } /* for each task */
+    } /* for each task kind */
+  } /* for each task group */
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -342,10 +459,19 @@ main( int     argc,
   uchar const * cfg_pod = fd_pod_query_subpod( pod, cfg_path );
   if( FD_UNLIKELY( !cfg_pod ) ) FD_LOG_ERR(( "path not found" ));
 
-  uchar const * verify_pods = fd_pod_query_subpod( cfg_pod, "verify" );
-  ulong verify_cnt = fd_pod_cnt_subpod( verify_pods );
-  FD_LOG_INFO(( "%lu verify found", verify_cnt ));
-  ulong tile_cnt = 3UL + verify_cnt;
+
+  // NEW
+  /* There exists a launcher tile and many tiles launched by it.
+     Every task group has it's own floating tile along with other subtask tiles. */
+
+  /* compute tile count */
+  uchar const * grps_pod = fd_pod_query_subpod( cfg_pod, "grp" );
+  if( FD_UNLIKELY( !cfg_pod ) ) FD_LOG_ERR(( "grp pod not found" ));
+
+  ulong tile_cnt = fd_taskgroup_cnt_all_tiles(grps_pod); /* launcher tile */
+  tile_cnt++; /* account for the launcher's tile */
+
+  FD_LOG_NOTICE(( "tile_cnt: %lu", tile_cnt ));
 
   /* Join all IPC objects for this frank instance */
 
@@ -354,61 +480,82 @@ main( int     argc,
   fd_frag_meta_t ** tile_mcache = fd_alloca( alignof(fd_frag_meta_t *), sizeof(fd_frag_meta_t *)*tile_cnt );
   ulong **          tile_fseq   = fd_alloca( alignof(ulong *         ), sizeof(ulong *         )*tile_cnt );
   if( FD_UNLIKELY( (!tile_name) | (!tile_cnc) | (!tile_mcache) | (!tile_fseq) ) ) FD_LOG_ERR(( "fd_alloca failed" )); /* paranoia */
-  
-  do {
-    ulong tile_idx = 0UL;
 
-    tile_name[ tile_idx ] = "main";
-    FD_LOG_INFO(( "joining %s.main.cnc", cfg_path ));
-    tile_cnc[ tile_idx ] = fd_cnc_join( fd_wksp_pod_map( cfg_pod, "main.cnc" ) );
-    if( FD_UNLIKELY( !tile_cnc[ tile_idx ] ) ) FD_LOG_ERR(( "fd_cnc_join failed" ));
-    if( FD_UNLIKELY( fd_cnc_app_sz( tile_cnc[ tile_idx ] )<64UL ) ) FD_LOG_ERR(( "cnc app sz should be at least 64 bytes" ));
-    tile_mcache[ tile_idx ] = NULL; /* main has no mcache */
-    tile_fseq  [ tile_idx ] = NULL; /* main has no fseq */
-    tile_idx++;
+  /* join the launcher's CNC */
+  tile_name[ 0UL ] = "lnchr";
+  FD_LOG_INFO(( "joining %s.main.cnc", cfg_path ));
+  tile_cnc[ 0UL ] = fd_cnc_join( fd_wksp_pod_map( cfg_pod, "main.cnc" ) );
+  tile_mcache[ 0UL ] = NULL;
+  tile_fseq[ 0UL ] = NULL;
 
-    tile_name[ tile_idx ] = "pack";
-    FD_LOG_INFO(( "joining %s.pack.cnc", cfg_path ));
-    tile_cnc[ tile_idx ] = fd_cnc_join( fd_wksp_pod_map( cfg_pod, "pack.cnc" ) );
-    if( FD_UNLIKELY( !tile_cnc[ tile_idx ] ) ) FD_LOG_ERR(( "fd_cnc_join failed" ));
-    if( FD_UNLIKELY( fd_cnc_app_sz( tile_cnc[ tile_idx ] )<64UL ) ) FD_LOG_ERR(( "cnc app sz should be at least 64 bytes" ));
-    tile_mcache[ tile_idx ] = NULL; /* pack has no mcache */
-    tile_fseq  [ tile_idx ] = NULL; /* pack has no fseq */
-    tile_idx++;
+  fd_taskgroup_collect_cncs(
+    tile_cnc+1,
+    tile_name+1,
+    tile_mcache+1,
+    tile_fseq+1,
+    tile_cnt-1,
+    grps_pod
+  );
 
-    tile_name[ tile_idx ] = "dedup";
-    FD_LOG_INFO(( "joining %s.dedup.cnc", cfg_path ));
-    tile_cnc[ tile_idx ] = fd_cnc_join( fd_wksp_pod_map( cfg_pod, "dedup.cnc" ) );
-    if( FD_UNLIKELY( !tile_cnc[ tile_idx ] ) ) FD_LOG_ERR(( "fd_cnc_join failed" ));
-    if( FD_UNLIKELY( fd_cnc_app_sz( tile_cnc[ tile_idx ] )<64UL ) ) FD_LOG_ERR(( "cnc app sz should be at least 64 bytes" ));
-    FD_LOG_INFO(( "joining %s.dedup.mcache", cfg_path ));
-    tile_mcache[ tile_idx ] = fd_mcache_join( fd_wksp_pod_map( cfg_pod, "dedup.mcache" ) );
-    if( FD_UNLIKELY( !tile_mcache[ tile_idx ] ) ) FD_LOG_ERR(( "fd_mcache_join failed" ));
-    FD_LOG_INFO(( "joining %s.dedup.fseq", cfg_path ));
-    tile_fseq[ tile_idx ] = fd_fseq_join( fd_wksp_pod_map( cfg_pod, "dedup.fseq" ) );
-    if( FD_UNLIKELY( !tile_fseq[ tile_idx ] ) ) FD_LOG_ERR(( "fd_fseq_join failed" ));
-    tile_idx++;
+  for (ulong i=0; i< tile_cnt; i++) {
+    FD_LOG_NOTICE(( "%lu %p\n", i, (void*)tile_cnc[i] ));
+  }
 
-    for( fd_pod_iter_t iter = fd_pod_iter_init( verify_pods ); !fd_pod_iter_done( iter ); iter = fd_pod_iter_next( iter ) ) {
-      fd_pod_info_t info = fd_pod_iter_info( iter );
-      if( FD_UNLIKELY( info.val_type!=FD_POD_VAL_TYPE_SUBPOD ) ) continue;
-      char const  * verify_name =                info.key;
-      uchar const * verify_pod  = (uchar const *)info.val;
+  // do {
+  //   ulong tile_idx = 0UL;
 
-      FD_LOG_INFO(( "joining %s.verify.%s.cnc", cfg_path, verify_name ));
-      tile_name[ tile_idx ] = verify_name;
-      tile_cnc [ tile_idx ] = fd_cnc_join( fd_wksp_pod_map( verify_pod, "cnc" ) );
-      if( FD_UNLIKELY( !tile_cnc[tile_idx] ) ) FD_LOG_ERR(( "fd_cnc_join failed" ));
-      if( FD_UNLIKELY( fd_cnc_app_sz( tile_cnc[ tile_idx ] )<64UL ) ) FD_LOG_ERR(( "cnc app sz should be at least 64 bytes" ));
-      FD_LOG_INFO(( "joining %s.verify.%s.mcache", cfg_path, verify_name ));
-      tile_mcache[ tile_idx ] = fd_mcache_join( fd_wksp_pod_map( verify_pod, "mcache" ) );
-      if( FD_UNLIKELY( !tile_mcache[ tile_idx ] ) ) FD_LOG_ERR(( "fd_mcache_join failed" ));
-      FD_LOG_INFO(( "joining %s.verify.%s.fseq", cfg_path, verify_name ));
-      tile_fseq[ tile_idx ] = fd_fseq_join( fd_wksp_pod_map( verify_pod, "fseq" ) );
-      if( FD_UNLIKELY( !tile_fseq[ tile_idx ] ) ) FD_LOG_ERR(( "fd_fseq_join failed" ));
-      tile_idx++;
-    }
-  } while(0);
+  //   tile_name[ tile_idx ] = "lnchr";
+  //   FD_LOG_INFO(( "joining %s.main.cnc", cfg_path ));
+  //   tile_cnc[ tile_idx ] = fd_cnc_join( fd_wksp_pod_map( cfg_pod, "main.cnc" ) );
+  //   if( FD_UNLIKELY( !tile_cnc[ tile_idx ] ) ) FD_LOG_ERR(( "fd_cnc_join failed" ));
+  //   if( FD_UNLIKELY( fd_cnc_app_sz( tile_cnc[ tile_idx ] )<64UL ) ) FD_LOG_ERR(( "cnc app sz should be at least 64 bytes" ));
+  //   tile_mcache[ tile_idx ] = NULL; /* main has no mcache */
+  //   tile_fseq  [ tile_idx ] = NULL; /* main has no fseq */
+  //   tile_idx++;
+
+  //   tile_name[ tile_idx ] = "pack";
+  //   FD_LOG_INFO(( "joining %s.grp.pack.cnc", cfg_path ));
+  //   tile_cnc[ tile_idx ] = fd_cnc_join( fd_wksp_pod_map( cfg_pod, "grp.pack.cnc" ) );
+  //   if( FD_UNLIKELY( !tile_cnc[ tile_idx ] ) ) FD_LOG_ERR(( "fd_cnc_join failed" ));
+  //   if( FD_UNLIKELY( fd_cnc_app_sz( tile_cnc[ tile_idx ] )<64UL ) ) FD_LOG_ERR(( "cnc app sz should be at least 64 bytes" ));
+  //   tile_mcache[ tile_idx ] = NULL; /* pack has no mcache */
+  //   tile_fseq  [ tile_idx ] = NULL; /* pack has no fseq */
+  //   tile_idx++;
+
+  //   tile_name[ tile_idx ] = "dedup";
+  //   FD_LOG_INFO(( "joining %s.grp.dedup.cnc", cfg_path ));
+  //   tile_cnc[ tile_idx ] = fd_cnc_join( fd_wksp_pod_map( cfg_pod, "grp.dedup.cnc" ) );
+  //   if( FD_UNLIKELY( !tile_cnc[ tile_idx ] ) ) FD_LOG_ERR(( "fd_cnc_join failed" ));
+  //   if( FD_UNLIKELY( fd_cnc_app_sz( tile_cnc[ tile_idx ] )<64UL ) ) FD_LOG_ERR(( "cnc app sz should be at least 64 bytes" ));
+  //   // Todo: add task cnc
+  //   FD_LOG_INFO(( "joining %s.grp.dedup.task.dedup.v0.mcache", cfg_path ));
+  //   tile_mcache[ tile_idx ] = fd_mcache_join( fd_wksp_pod_map( cfg_pod, "grp.dedup.task.dedup.v0.mcache" ) );
+  //   if( FD_UNLIKELY( !tile_mcache[ tile_idx ] ) ) FD_LOG_ERR(( "fd_mcache_join failed" ));
+  //   FD_LOG_INFO(( "joining %s.grp.dedup.task.dedup.v0.fseq", cfg_path ));
+  //   tile_fseq[ tile_idx ] = fd_fseq_join( fd_wksp_pod_map( cfg_pod, "grp.dedup.task.dedup.v0.fseq" ) );
+  //   if( FD_UNLIKELY( !tile_fseq[ tile_idx ] ) ) FD_LOG_ERR(( "fd_fseq_join failed" ));
+  //   tile_idx++;
+
+  //   for( fd_pod_iter_t iter = fd_pod_iter_init( verify_pods ); !fd_pod_iter_done( iter ); iter = fd_pod_iter_next( iter ) ) {
+  //     fd_pod_info_t info = fd_pod_iter_info( iter );
+  //     if( FD_UNLIKELY( info.val_type!=FD_POD_VAL_TYPE_SUBPOD ) ) continue;
+  //     char const  * verify_name =                info.key;
+  //     uchar const * verify_pod  = (uchar const *)info.val;
+
+  //     FD_LOG_INFO(( "joining %s.verify.%s.cnc", cfg_path, verify_name ));
+  //     tile_name[ tile_idx ] = verify_name;
+  //     tile_cnc [ tile_idx ] = fd_cnc_join( fd_wksp_pod_map( verify_pod, "cnc" ) );
+  //     if( FD_UNLIKELY( !tile_cnc[tile_idx] ) ) FD_LOG_ERR(( "fd_cnc_join failed" ));
+  //     if( FD_UNLIKELY( fd_cnc_app_sz( tile_cnc[ tile_idx ] )<64UL ) ) FD_LOG_ERR(( "cnc app sz should be at least 64 bytes" ));
+  //     FD_LOG_INFO(( "joining %s.verify.%s.mcache", cfg_path, verify_name ));
+  //     tile_mcache[ tile_idx ] = fd_mcache_join( fd_wksp_pod_map( verify_pod, "mcache" ) );
+  //     if( FD_UNLIKELY( !tile_mcache[ tile_idx ] ) ) FD_LOG_ERR(( "fd_mcache_join failed" ));
+  //     FD_LOG_INFO(( "joining %s.verify.%s.fseq", cfg_path, verify_name ));
+  //     tile_fseq[ tile_idx ] = fd_fseq_join( fd_wksp_pod_map( verify_pod, "fseq" ) );
+  //     if( FD_UNLIKELY( !tile_fseq[ tile_idx ] ) ) FD_LOG_ERR(( "fd_fseq_join failed" ));
+  //     tile_idx++;
+  //   }
+  // } while(0);
   
   /* Setup local objects used by this app */
 
@@ -451,14 +598,15 @@ main( int     argc,
 
     char now_cstr[ FD_LOG_WALLCLOCK_CSTR_BUF_SZ ];
     printf( "snapshot for %s\n", fd_log_wallclock_cstr( now, now_cstr ) );
-    printf( "  tile |      stale | heart |        sig | in backp |           backp cnt |         sv_filt cnt |                    tx seq |                    rx seq\n" );
-    printf( "-------+------------+-------+------------+----------+---------------------+---------------------+---------------------------+---------------------------\n" );
+    printf( "  tile |      stale |  pid  | heart |        sig | in backp |           backp cnt |         sv_filt cnt |                    tx seq |                    rx seq\n" );
+    printf( "-------+------------+-------+-------+------------+----------+---------------------+---------------------+---------------------------+---------------------------\n" );
     for( ulong tile_idx=0UL; tile_idx<tile_cnt; tile_idx++ ) {
       snap_t * prv = &snap_prv[ tile_idx ];
       snap_t * cur = &snap_cur[ tile_idx ];
       printf( " %5s", tile_name[ tile_idx ] );
       if( FD_LIKELY( cur->pmap & 1UL ) ) {
         printf( " | " ); printf_stale   ( (long)(0.5+ns_per_tic*(double)(toc - cur->cnc_heartbeat)), dt_min );
+        printf( " | " ); printf_pid     ( cur->cnc_pid,              prv->cnc_pid              );
         printf( " | " ); printf_heart   ( cur->cnc_heartbeat,        prv->cnc_heartbeat        );
         printf( " | " ); printf_sig     ( cur->cnc_signal,           prv->cnc_signal           );
         printf( " | " ); printf_err_bool( cur->cnc_diag_in_backp,    prv->cnc_diag_in_backp    );

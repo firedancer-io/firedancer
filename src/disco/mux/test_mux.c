@@ -120,6 +120,7 @@ tx_tile_main( int     argc,
   } while( FD_UNLIKELY( !burst_rem ) );
 
   fd_cnc_signal( cnc, FD_CNC_SIGNAL_RUN );
+  pid_t pid = getpid();
   for(;;) {
 
     /* Do housekeeping at a low rate in the background */
@@ -130,7 +131,7 @@ tx_tile_main( int     argc,
       fd_mcache_seq_update( sync, seq );
 
       /* Send diagnostic info */
-      fd_cnc_heartbeat( cnc, now );
+      fd_cnc_heartbeat( cnc, now, pid );
 
       long dt = now - diag_last;
       if( FD_UNLIKELY( dt>=diag_interval ) ) {
@@ -324,6 +325,7 @@ rx_tile_main( int     argc,
   ulong iter = 0UL;
 
   fd_cnc_signal( cnc, FD_CNC_SIGNAL_RUN );
+  pid_t pid = getpid();
   for(;;) {
 
     /* Wait for frag seq while doing housekeeping in the background */
@@ -346,7 +348,7 @@ rx_tile_main( int     argc,
 
       /* Send diagnostic info */
       long now = fd_log_wallclock();
-      fd_cnc_heartbeat( cnc, now );
+      fd_cnc_heartbeat( cnc, now, pid );
 
       long dt = now - then;
       if( FD_UNLIKELY( dt > (long)1e9 ) ) {
