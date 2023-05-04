@@ -4,7 +4,8 @@
   space" or a record. Free space entries are prefixed with a
   fd_funk_persist_free_head header. Ordinary records have a
   fd_funk_persist_record_head header. In either case, there is no
-  padding or realignment between entries.
+  padding or realignment between entries, although the allocation size
+  is always rounded up to the nearest multiple of 128.
 
   Both types of entries have an alloc_sz value, which is the total size
   of the entry, including header. The next entry is always exactly
@@ -41,7 +42,9 @@
   updated directly), the persistence layer must be explicitly notified
   when a record should be persisted. Use fd_funk_rec_persist to write
   the current version of a record to disk. Use
-  fd_funk_rec_persist_erase to erase the on-disk representation.
+  fd_funk_rec_persist_erase to erase the on-disk representation. These
+  APIs are reasonably robust against crashes but don't provide any
+  transactional guarantee.
 */
 
 #include "fd_funk.h"
@@ -67,11 +70,11 @@ struct __attribute__((packed)) fd_funk_persist_record_head {
     uint type;                           /* FD_FUNK_PERSIST_RECORD_TYPE */
     ulong alloc_sz;                      /* Actual allocation size, including header */
     char key[sizeof(fd_funk_rec_key_t)]; /* Record identifier */
-    uint val_sz;                         /* Num bytes in record value, in [0,val_max] */
+    uint val_sz;                         /* Num bytes in record value */
     /* Record data follows */
 };
 
-/* On-disk header for a record erasure */
+/* On-disk header for a record erasure or removal */
 struct __attribute__((packed)) fd_funk_persist_erase_head {
 #define FD_FUNK_PERSIST_ERASE_TYPE 127491733
     uint type;                           /* FD_FUNK_PERSIST_ERASE_TYPE */
@@ -90,7 +93,8 @@ struct __attribute__((packed)) fd_funk_persist_walog_head {
        fd_funk_persist_erase_head follow. */
 };
 
-/* Map of free spaces on disk sorted by size */
+/* Map of free spaces on disk sorted by size. We use fancy red-black
+   pointers to save memory. */
 struct fd_funk_persist_free_entry {
     ulong alloc_sz;
     ulong pos;
@@ -114,6 +118,8 @@ typedef struct fd_funk_persist_free_entry fd_funk_persist_free_entry_t;
 #define REDBLK_NEXTFREE u.nf
 #include "../util/tmpl/fd_redblack.c"
 
+/* Compare the allocation size of two free list entries. Needed by
+   redblack. */
 long fd_funk_persist_free_map_compare(fd_funk_persist_free_entry_t* left, fd_funk_persist_free_entry_t* right) {
   return (long)(left->alloc_sz - right->alloc_sz);
 }
@@ -126,6 +132,7 @@ fd_funk_persist_alloc( fd_funk_t * funk, ulong needed, ulong * actual ) {
      disk block boundaries */
   needed = fd_ulong_align_up( needed, 128U );
 
+  /* Check if the free list is empty */
   if ( funk->persist_frees_root != -1 ) {
     fd_wksp_t * wksp = fd_funk_wksp( funk );
     fd_funk_persist_free_entry_t * pool = (fd_funk_persist_free_entry_t *)
@@ -145,7 +152,7 @@ fd_funk_persist_alloc( fd_funk_t * funk, ulong needed, ulong * actual ) {
     if ( node && node->alloc_sz <= needed + (needed>>2) ) { /* max 25% slop */
       *actual = node->alloc_sz;
       ulong pos = node->pos;
-      /* release the node */
+      /* release the free list node */
       node = fd_funk_persist_free_map_remove(pool, &root, node);
       funk->persist_frees_root = (root == NULL ? -1 : root - pool);
       fd_funk_persist_free_map_release(pool, node);
@@ -153,7 +160,9 @@ fd_funk_persist_alloc( fd_funk_t * funk, ulong needed, ulong * actual ) {
     }
   }
 
-  /* Allocate off the end */
+  /* Allocate off the end of the file. Note that the physical length of
+     the file might be less than persist_size if the final record
+     doesn't completely consume all its space. */
   ulong pos = funk->persist_size;
   funk->persist_size += needed;
   *actual = needed;
@@ -175,7 +184,7 @@ fd_funk_persist_remember_free( fd_funk_t * funk, ulong pos, ulong alloc_sz ) {
   }
   node->pos = pos;
   node->alloc_sz = alloc_sz;
-  /* add it to the map */
+  /* add it to the map. persist_frees_root in the index of the root node. */
   fd_funk_persist_free_entry_t * root = (funk->persist_frees_root == -1 ? NULL :
                                          pool + funk->persist_frees_root);
   fd_funk_persist_free_map_insert(pool, &root, node);
@@ -246,6 +255,7 @@ static void
 fd_funk_persist_recover_walog_record( fd_funk_t * funk,
                                       struct fd_funk_persist_record_head * head,
                                       const uchar * value ) {
+  /* get/create the record */
   fd_funk_rec_key_t key;
   fd_memcpy(&key, head->key, sizeof(key));
   fd_funk_rec_t const * rec_con = fd_funk_rec_query( funk, NULL, &key );
@@ -257,6 +267,7 @@ fd_funk_persist_recover_walog_record( fd_funk_t * funk,
       return;
     }
   }
+  /* write the data to the record */
   fd_funk_rec_t * rec = fd_funk_rec_modify( funk, rec_con );
   if ( !rec ) {
     FD_LOG_ERR(( "failed to recover record, code %s", fd_funk_strerror( FD_FUNK_ERR_FROZEN ) ));
@@ -268,6 +279,7 @@ fd_funk_persist_recover_walog_record( fd_funk_t * funk,
     FD_LOG_ERR(( "failed to recover record, code %s", fd_funk_strerror( err ) ));
     return;
   }
+  /* update the record in the file */
   err = fd_funk_rec_persist_unsafe( funk, rec );
   if ( err ) {
     FD_LOG_ERR(( "failed to recover record, code %s", fd_funk_strerror( err ) ));

@@ -254,11 +254,10 @@ struct __attribute__((aligned(FD_FUNK_ALIGN))) fd_funk_private {
   ulong alloc_gaddr; /* Non-zero wksp gaddr with tag wksp tag */
 
   /* File descriptor of the persistence file, -1 if one isn't open */
-  
   int persist_fd;
-  ulong persist_size;
-  ulong persist_frees_gaddr;
-  long persist_frees_root;
+  ulong persist_size;        /* Logical size of persistence file */
+  ulong persist_frees_gaddr; /* Address of free list tree */
+  long persist_frees_root;   /* Index of root of free list tree */
 
   /* Padding to FD_FUNK_ALIGN here */
 };
