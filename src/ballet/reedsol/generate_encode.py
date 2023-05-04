@@ -8,10 +8,11 @@ def cprint(string):
         indent += 1
 
 
-def make_dispatch(min_data_shreds, max_data_shreds, max_parity_shreds):
+
+def make_encode(min_data_shreds, max_data_shreds, max_parity_shreds):
     n = 2**(max_data_shreds - 1).bit_length()
     global outf
-    with open(f'fd_reedsol_internal_{n}.c', 'wt') as outf:
+    with open(f'fd_reedsol_encode_{n}.c', 'wt') as outf:
         cprint('#include "../../util/fd_util.h"')
         cprint('#include "fd_reedsol_internal.h"')
         cprint('#if FD_HAS_GFNI')
@@ -23,6 +24,7 @@ def make_dispatch(min_data_shreds, max_data_shreds, max_parity_shreds):
         cprint('#endif')
         cprint('#include "fd_reedsol_fft.h"')
         cprint('#include "fd_reedsol_ppt.h"')
+
 
         fn_name = f'void fd_reedsol_encode_{n}('
         cprint(fn_name + " ulong                 shred_sz,")
@@ -100,7 +102,7 @@ def make_dispatch(min_data_shreds, max_data_shreds, max_parity_shreds):
         cprint("}")
 
 
-make_dispatch( 1, 16, 68)
-make_dispatch(17, 32, 68)
-make_dispatch(33, 64, 68)
-make_dispatch(65, 68, 68)
+make_encode( 1, 16, 68)
+make_encode(17, 32, 68)
+make_encode(33, 64, 68)
+make_encode(65, 68, 68)

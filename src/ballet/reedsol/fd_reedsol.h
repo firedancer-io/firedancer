@@ -16,13 +16,11 @@
    Solana also calls parity shreds "code" shreds, but due to the naming
    collision with executable code, we have opted for "parity."  This
    mathematical structure thus forces each shred to be of identical size
-   but doesn't otherwise impose any size restrictions. */
+   but doesn't otherwise impose any size restrictions.*/
+
 
 #include "../../util/fd_util.h"
 
-// TODO: Define decode API
-//#define SET_NAME reedsol_shred_set
-//#include "../../util/tmpl/fd_smallset.c"
 
 /* FD_REEDSOL_{DATA, PARITY}_SHREDS_MAX describe the inclusive maximum
    number of data and parity shreds that this implementation supports.
@@ -34,7 +32,14 @@
 
 
 #define FD_REEDSOL_ALIGN     (128UL)
-#define FD_REEDSOL_FOOTPRINT (2176UL)
+#define FD_REEDSOL_FOOTPRINT (2304UL)
+
+/* Return values for the recover operation, which is the only part that
+   can fail for non-bug reasons.  Their meaning is documented with
+   fd_reedsol_recover_fini. */
+#define FD_REEDSOL_OK (0)
+#define FD_REEDSOL_ERR_INCONSISTENT (-1)
+#define FD_REEDSOL_ERR_INSUFFICIENT (-2)
 
 struct __attribute__((aligned(FD_REEDSOL_ALIGN))) fd_reedsol_private {
   uchar scratch[ 1024 ]; /* Used for the ultra high performance implementation */
@@ -48,14 +53,23 @@ struct __attribute__((aligned(FD_REEDSOL_ALIGN))) fd_reedsol_private {
   ulong data_shred_cnt;
   ulong parity_shred_cnt;
 
-  /* {data, parity}_shred: pointers to the first byte of each shred */
-  uchar * data_shred[   FD_REEDSOL_DATA_SHREDS_MAX   ];
-  uchar * parity_shred[ FD_REEDSOL_PARITY_SHREDS_MAX ];
+  union {
+    struct {
+      /* {data, parity}_shred: pointers to the 1st byte of each shred */
+      uchar const * data_shred[   FD_REEDSOL_DATA_SHREDS_MAX   ];
+      uchar *     parity_shred[ FD_REEDSOL_PARITY_SHREDS_MAX ];
+    } encode;
+    struct {
+      uchar * shred[ FD_REEDSOL_DATA_SHREDS_MAX + FD_REEDSOL_PARITY_SHREDS_MAX ];
 
-  /* {data, parity}_shred_valid: whether the shred at the corresponding
-     index contains valid data.  Used only for decoding operations. */
-  //fd_reedsol_shred_set_t data_shred_valid;
-  //fd_reedsol_shred_set_t parity_shred_valid;
+      /* erased: whether the shred at the corresponding
+         index is an erasure (i.e. wasn't received or was corrupted).
+         Used only for decoding operations. */
+      /* TODO: Is this the right data type? Should it use a fd_smallset
+         instead? */
+      uchar erased[ FD_REEDSOL_DATA_SHREDS_MAX + FD_REEDSOL_PARITY_SHREDS_MAX ];
+    } recover;
+  };
 };
 
 typedef struct fd_reedsol_private fd_reedsol_t;
@@ -100,12 +114,7 @@ fd_reedsol_encode_init( void * mem, ulong shred_sz ) {
 
 static inline fd_reedsol_t *
 fd_reedsol_encode_add_data_shred( fd_reedsol_t * rs, void const * ptr ) {
-  /* The argument is const to make it clear that an encoding operation
-     won't write to the shred, but we store them in the struct as
-     non-const so that the same struct can be used for encoding and
-     decoding operations, in which the data shreds actually are
-     writeable. */
-  rs->data_shred[ rs->data_shred_cnt++ ] = (uchar *)ptr;
+  rs->encode.data_shred[ rs->data_shred_cnt++ ] = (uchar const*)ptr;
   return rs;
 }
 
@@ -122,7 +131,7 @@ fd_reedsol_encode_add_data_shred( fd_reedsol_t * rs, void const * ptr ) {
 
 static inline fd_reedsol_t *
 fd_reedsol_encode_add_parity_shred( fd_reedsol_t * rs, void * ptr ) {
-  rs->parity_shred[ rs->parity_shred_cnt++ ] = (uchar *)ptr;
+  rs->encode.parity_shred[ rs->parity_shred_cnt++ ] = (uchar *)ptr;
   return rs;
 }
 
@@ -144,8 +153,136 @@ fd_reedsol_encode_cancel( fd_reedsol_t * rs ) {
    have any read or write interest in any of the provided shreds. */
 void fd_reedsol_encode_fini( fd_reedsol_t * rs );
 
+/* fd_reedsol_recover_init: starts a Reed-Solomon recover/decode
+   operation that will recover shreds of size shred_sz.  mem is assumed
+   to be a piece of memory that meets the alignment and size constraints
+   specified above.  Takes a write interest in mem that persists until
+   the operation is canceled or finalized.  shred_sz must be >= 32.
+   Returns mem. */
+static inline fd_reedsol_t *
+fd_reedsol_recover_init( void * mem, ulong shred_sz ) {
+  /* TODO: This is the same as encode_init.  Should I merge them? */
+  fd_reedsol_t * rs = (fd_reedsol_t *)mem;
 
-/* FIXME: Add decode API */
+  rs->shred_sz = shred_sz;
+  rs->data_shred_cnt   = 0UL;
+  rs->parity_shred_cnt = 0UL;
+
+  return rs;
+}
+
+/* fd_reedsol_recover_add_rcvd_shred adds the shred consisting of the of
+   memory [ptr, ptr+shred_sz) to the in-process Reed-Solomon recover
+   operation as a source of data.  Takes a read interest in the shred
+   that persists for the lifetime of the operation (i.e. until finalized
+   or cancelled).  Received shreds have no alignment restrictions and
+   can overlap with each other (if necessary, but there's no known use
+   case for doing so), but should not overlap with any erased shreds in
+   the same recovery operation.
+
+   The shred is treated as a data shred if is_data_shred is non-zero and
+   as a parity shred if not.  Data shreds and parity shreds are mostly
+   treated identically in the recover operation, but having the right
+   number of data shreds is important for validating the shreds are
+   correct.
+
+   Note: The order in which shreds are added (using this function and
+   fd_reedsol_recover_add_erased_shred) is very important for recovery.
+   Shreds must be added in the natural index order or the recover
+   operation will almost certainly fail.  In particular, all data shreds
+   must be added before any parity shreds are added. */
+static inline fd_reedsol_t *
+fd_reedsol_recover_add_rcvd_shred( fd_reedsol_t * rs, int is_data_shred, void const * ptr ) {
+#if FD_REEDSOL_HANDHOLDING
+  // assert is_data_shred==1 implies rs->parity_shred_cnt==0
+  // data_shred_cnt, parity_shred_cnt won't go over the max
+ #endif
+  /* For performance reasons, we need to store all the shred pointers in
+     one flat array, which means the array needs to be non-const.  The
+     const in the function signature signals that this operation won't
+     modify the shred. */
+  rs->recover.shred[  rs->data_shred_cnt + rs->parity_shred_cnt ] = (void *)ptr;
+  rs->recover.erased[ rs->data_shred_cnt + rs->parity_shred_cnt ] = (uchar)0;
+  rs->data_shred_cnt += !!is_data_shred;
+  rs->parity_shred_cnt += !is_data_shred;
+  return rs;
+}
+
+/* fd_reedsol_recover_add_erased_shred adds the block of memory [ptr,
+   ptr+shred_sz) to the in-process Reed-Solomon recover operation as the
+   destination for a shred that will be recovered.  Takes a write
+   interest in the shred that persists for the lifetime of the operation
+   (i.e. until finalized or cancelled).  Erased shreds have no alignment
+   restrictions but should not overlap with any other shreds in the same
+   recover operation.  The contents of the the block of memory are
+   ignored and will be overwritten by the time the operation is
+   finished.
+
+   The shred is treated as a data shred if is_data_shred is non-zero and
+   as a parity shred if not.  Data shreds and parity shreds are mostly
+   treated identically in the recover operation, but having the right
+   number of data shreds is important for validating the shreds are
+   correct.
+
+   Note: The order in which shreds are added (using this function and
+   fd_reedsol_recover_add_rcvd_shred) is very important for recovery.
+   Shreds must be added in the natural index order or the recover
+   operation will almost certainly fail.  In particular, all data shreds
+   must be added before any parity shreds are added. */
+static inline fd_reedsol_t *
+fd_reedsol_recover_add_erased_shred( fd_reedsol_t * rs, int is_data_shred, void * ptr ) {
+#if FD_REEDSOL_HANDHOLDING
+  // assert is_data_shred==1 implies rs->parity_shred_cnt==0
+  // data_shred_cnt, parity_shred_cnt won't go over the max
+ #endif
+  rs->recover.shred[  rs->data_shred_cnt + rs->parity_shred_cnt ] = ptr;
+  rs->recover.erased[ rs->data_shred_cnt + rs->parity_shred_cnt ] = (uchar)1;
+  rs->data_shred_cnt += !!is_data_shred;
+  rs->parity_shred_cnt += !is_data_shred;
+  return rs;
+}
+
+
+/* fd_reedsol_recover_cancel cancels an in-progress encoding operation.
+   Releases any read or write interests in any shreds that were added to
+   the operation.  Upon return, the contents of the erased shreds are
+   undefined. */
+static inline void
+fd_reedsol_recover_cancel( fd_reedsol_t * rs ) {
+  rs->data_shred_cnt   = 0UL;
+  rs->parity_shred_cnt = 0UL;
+}
+
+
+/* fd_reedsol_recover_fini finishes the in-progress recover operation.
+   If successful, upon return, any erased shreds will be filled with the
+   correct data as recovered by the Reed-Solomon recovery algorithm.
+
+   If the recover operation fails with FD_REEDSOL_ERR_{INCONSISTENT,
+   INSUFFICIENT} , the contents of any erased shreds are undefined.
+
+   Upon return, this will no longer have any read or write interest in
+   any of the provided shreds.
+
+   Returns one of:
+   FD_REEDSOL_OK if the recover operation was successful
+   FD_REEDSOL_ERR_INCONSISTENT if the shreds are not consistent with
+     having come from a Reed-Solomon encoding with the provided number
+     of data shreds
+   FD_REEDSOL_ERR_INSUFFICIENT if there's not enough un-erased data to
+     recover data_shred_cnt data shreds.  There must be at least one
+     un-erased shred (data or parity) for each data shred in the
+     operation.
+
+
+   It's worth pointing out that the recovery process differs from
+   typical network coding theory by making no effort to correct data
+   corruption.  The shred signature verification process should detect
+   any data corruption, and any shred that fails signature verification
+   can be treated as an erasure.  This prevents the network from forking
+   if the leader (maliciously) creates data shreds from one version of
+   the block and parity shreds from another version of the block. */
+int fd_reedsol_recover_fini( fd_reedsol_t * rs );
 
 #endif /* HEADER_fd_src_ballet_reedsol_fd_reedsol_h */
 

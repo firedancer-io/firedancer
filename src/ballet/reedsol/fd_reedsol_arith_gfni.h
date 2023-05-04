@@ -17,7 +17,8 @@ FD_IMPORT_BINARY( fd_reedsol_arith_consts_gfni_mul,    "src/ballet/reedsol/const
 extern uchar const fd_reedsol_arith_consts_gfni_mul[]  __attribute__((aligned(128)));
 #endif
 
-#define GF_ADD( a, b ) wb_xor( a, b )
+#define GF_ADD wb_xor
+#define GF_OR  wb_or
 
 /* Older versions of GCC have a bug that cause them to think
    _mm256_gf2p8affine_epi64_epi8 is a symmetric in the first two arguments
@@ -33,6 +34,7 @@ extern uchar const fd_reedsol_arith_consts_gfni_mul[]  __attribute__((aligned(12
 #if FD_USING_CLANG || (GCC_VERSION >= 100000)
 /* c is known at compile time, so this is not a runtime branch */
 #define GF_MUL( a, c ) ((c==0) ? wb_zero() : ( (c==1) ? (a) : _mm256_gf2p8affine_epi64_epi8( a, wb_ld( fd_reedsol_arith_consts_gfni_mul + 32*(c) ), 0 ) ))
+#define GF_MUL_VAR( a, c ) (_mm256_gf2p8affine_epi64_epi8( a, wb_ld( fd_reedsol_arith_consts_gfni_mul + 32*(c) ), 0 ) )
 
 #else
 
@@ -44,8 +46,18 @@ extern uchar const fd_reedsol_arith_consts_gfni_mul[]  __attribute__((aligned(12
             [vec]"x" (a) );                                                    \
       (c==0) ? wb_zero() : ( (c==1) ? (a) : product ); }))
 
+
+#define GF_MUL_VAR( a, c )  (__extension__({                                   \
+      wb_t product;                                                            \
+      __asm__( "vgf2p8affineqb $0x0, %[cons], %[vec], %[out]"                  \
+          : [out]"=x"(product)                                                 \
+          : [cons]"xm"( wb_ld( fd_reedsol_arith_consts_gfni_mul + 32*(c) ) ),  \
+            [vec]"x" (a) );                                                    \
+      (product); }))
+
 #endif
 
+#define GF_ANY( x ) (0 != _mm256_movemask_epi8( wb_ne( (x), wb_zero() ) ) )
 
 
 #endif /*HEADER_fd_src_ballet_reedsol_fd_reedsol_arith_gfni_h */
