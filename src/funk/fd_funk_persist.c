@@ -495,8 +495,33 @@ fd_funk_persist_close( fd_funk_t * funk ) {
   funk->persist_fd = -1;
 }
 
+/* Private API called from fd_funk_new */
+void
+fd_funk_persist_new( fd_funk_t * funk ) {
+  funk->persist_fd = -1; /* Process specific */
+  funk->persist_size = 0;
+  funk->persist_frees_gaddr = 0;
+  funk->persist_frees_root = -1;
+}
+
+/* Private API called from fd_funk_join */
+void
+fd_funk_persist_join( fd_funk_t * funk ) {
+  funk->persist_fd = -1; /* Process specific */
+}
+
+/* Private API called from fd_funk_leave */
 void
 fd_funk_persist_leave( fd_funk_t * funk ) {
+  if (funk->persist_fd != -1) {
+    close(funk->persist_fd);
+    funk->persist_fd = -1;
+  }
+}
+
+/* Private API called from fd_funk_delete */
+void
+fd_funk_persist_delete( fd_funk_t * funk ) {
   if ( funk->persist_frees_gaddr != 0 ) {
     fd_wksp_t * wksp = fd_funk_wksp( funk );
     fd_funk_persist_free_entry_t * pool = (fd_funk_persist_free_entry_t *)
