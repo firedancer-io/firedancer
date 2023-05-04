@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <time.h>
 #include <limits.h>
+#include <assert.h>
 #include "../fd_util.h"
 
 #define MIN INT_MIN
@@ -154,7 +155,7 @@ rbnode *tree_find(rbtree *rbt, int key)
 
 int tree_check(rbtree *rbt)
 {
-  rb_verify(pool, rbt);
+  assert(!rb_verify(pool, rbt));
   return 1;
 }
 

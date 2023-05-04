@@ -1,5 +1,6 @@
 #include "../fd_util.h"
 #include <stdlib.h>
+#include <assert.h>
 
 struct my_rb_node {
     ulong key;
@@ -59,7 +60,7 @@ main( int     argc,
     if (my_rb_acquire(pool) != NULL)
       FD_LOG_ERR(("did not get NULL as expected"));
 
-    my_rb_verify(pool, root);
+    assert(!my_rb_verify(pool, root));
 
     for (ulong i = 0; i <= max+1; ++i) {
       my_rb_node_t key;
@@ -104,7 +105,7 @@ main( int     argc,
     if (my_rb_acquire(pool) != NULL)
       FD_LOG_ERR(("did not get NULL as expected"));
 
-    my_rb_verify(pool, root);
+    assert(!my_rb_verify(pool, root));
     
     node = my_rb_minimum(pool, root);
     if (node->key != 1 || node->val != node->key*17UL)
@@ -161,7 +162,7 @@ main( int     argc,
     if (root != NULL)
       FD_LOG_ERR(("final root wrong"));
     
-    my_rb_verify(pool, root);
+    assert(!my_rb_verify(pool, root));
   }
 
   free(list);
@@ -183,7 +184,7 @@ main( int     argc,
       my_rb_insert(pool, &root, node);
     }
 
-    my_rb_verify(pool, root);
+    assert(!my_rb_verify(pool, root));
 
     // Move the pool somewhere else
     fd_memcpy(scratch2, scratch, SCRATCH_FOOTPRINT);
@@ -192,7 +193,7 @@ main( int     argc,
       FD_LOG_ERR(("footprint confusion"));
 
     my_rb_node_t * root2 = my_rb_node(pool2, my_rb_idx(pool, root));
-    my_rb_verify(pool2, root2);
+    assert(!my_rb_verify(pool2, root2));
 
     for (ulong i = 0; i <= max/2+1; ++i) {
       my_rb_node_t key;

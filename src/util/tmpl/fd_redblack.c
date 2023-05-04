@@ -69,7 +69,7 @@
      my_rb_node_t * my_rb_find(my_rb_node_t * pool, my_rb_node_t * root, my_rb_node_t * key);
      my_rb_node_t * my_rb_nearby(my_rb_node_t * pool, my_rb_node_t * root, my_rb_node_t * key);
      ulong my_rb_size(my_rb_node_t * pool, my_rb_node_t * root);
-     void my_rb_verify(my_rb_node_t * pool, my_rb_node_t * root);
+     int my_rb_verify(my_rb_node_t * pool, my_rb_node_t * root);
      long my_rb_compare(my_rb_node_t * left, my_rb_node_t * right);
 
    The specific usage and semantics of these methods is given below.
@@ -372,13 +372,13 @@ REDBLK_T * REDBLK_(nearby)(REDBLK_T * pool, REDBLK_T * root, REDBLK_T * key);
 ulong REDBLK_(size)(REDBLK_T * pool, REDBLK_T * root);
 
 /*
-  E.g. void my_rb_verify(my_node_t * pool, my_node_t * root);
+  E.g. int my_rb_verify(my_node_t * pool, my_node_t * root);
 
   Verify the integrity of the tree data structure. Useful for
-  debugging memory corruption. FD_LOG_ERR is called if an error is
-  detected.
+  debugging memory corruption. A non-zero result is returned if an error
+  is detected.
 */
-void REDBLK_(verify)(REDBLK_T * pool, REDBLK_T * root);
+int REDBLK_(verify)(REDBLK_T * pool, REDBLK_T * root);
 
 /*
   E.g. long my_rb_compare(my_node_t * left, my_node_t * right);
@@ -991,56 +991,52 @@ ulong REDBLK_(size)(REDBLK_T * pool, REDBLK_T * root) {
 /*
   Recursive implementation of the verify function
 */
-void REDBLK_(verify_private)(REDBLK_T * pool, REDBLK_T * node, REDBLK_T * parent, ulong curblkcnt, ulong correctblkcnt) {
+int REDBLK_(verify_private)(REDBLK_T * pool, REDBLK_T * node, REDBLK_T * parent, ulong curblkcnt, ulong correctblkcnt) {
+# define REDBLK_TEST(c) do {                                                        \
+    if( FD_UNLIKELY( !(c) ) ) { FD_LOG_WARNING(( "FAIL: %s", #c )); return -1; } \
+  } while(0)
+
   if (!node || node == &pool[REDBLK_NIL]) {
-    if (curblkcnt != correctblkcnt)
-      FD_LOG_ERR(("incorrect black count"));
-    return;
+    REDBLK_TEST(curblkcnt == correctblkcnt);
+    return 0;
   }
 
 #ifndef REDBLK_UNSAFE
   REDBLK_(validate_element)(pool, node);
 #endif
   
-  if (&pool[node->REDBLK_PARENT] != parent)
-    FD_LOG_ERR(("incorrect parent"));
+  REDBLK_TEST(&pool[node->REDBLK_PARENT] == parent);
 
   if (node->REDBLK_COLOR == REDBLK_BLACK)
     ++curblkcnt;
-  else if (node->REDBLK_COLOR == REDBLK_RED) {
-    if (parent->REDBLK_COLOR == REDBLK_RED)
-      FD_LOG_ERR(("child of red must be black"));
-  } else
-    FD_LOG_ERR(("invalid color"));
+  else {
+    REDBLK_TEST(node->REDBLK_COLOR == REDBLK_RED);
+    REDBLK_TEST(parent->REDBLK_COLOR == REDBLK_BLACK);
+  }
   
-  if (node->REDBLK_LEFT != REDBLK_NIL) {
-    if (REDBLK_(compare)(&pool[node->REDBLK_LEFT], node) > 0)
-      FD_LOG_ERR(("misordered node"));
-  }
-  if (node->REDBLK_RIGHT != REDBLK_NIL) {
-    if (REDBLK_(compare)(node, &pool[node->REDBLK_RIGHT]) > 0)
-      FD_LOG_ERR(("misordered node"));
-  }
+  if (node->REDBLK_LEFT != REDBLK_NIL)
+    REDBLK_TEST(REDBLK_(compare)(&pool[node->REDBLK_LEFT], node) <= 0);
+  if (node->REDBLK_RIGHT != REDBLK_NIL)
+    REDBLK_TEST(REDBLK_(compare)(node, &pool[node->REDBLK_RIGHT]) <= 0);
 
-  REDBLK_(verify_private)(pool, &pool[node->REDBLK_LEFT], node, curblkcnt, correctblkcnt);
-  REDBLK_(verify_private)(pool, &pool[node->REDBLK_RIGHT], node, curblkcnt, correctblkcnt);
+  int err = REDBLK_(verify_private)(pool, &pool[node->REDBLK_LEFT], node, curblkcnt, correctblkcnt);
+  if (err) return err;
+  return REDBLK_(verify_private)(pool, &pool[node->REDBLK_RIGHT], node, curblkcnt, correctblkcnt);
 }
 
 /*
   Verify the integrity of the tree data structure. Useful for
-  debugging memory corruption. FD_LOG_ERR is called if an error is
-  detected.
+  debugging memory corruption. A non-zero result is returned if an error
+  is detected.
 */
-void REDBLK_(verify)(REDBLK_T * pool, REDBLK_T * root) {
-  if (pool[REDBLK_NIL].REDBLK_LEFT != REDBLK_NIL ||
-      pool[REDBLK_NIL].REDBLK_RIGHT != REDBLK_NIL ||
-      pool[REDBLK_NIL].REDBLK_COLOR != REDBLK_BLACK)
-    FD_LOG_ERR(("corrupted NIL"));
+int REDBLK_(verify)(REDBLK_T * pool, REDBLK_T * root) {
+  REDBLK_TEST(pool[REDBLK_NIL].REDBLK_LEFT == REDBLK_NIL &&
+       pool[REDBLK_NIL].REDBLK_RIGHT == REDBLK_NIL &&
+       pool[REDBLK_NIL].REDBLK_COLOR == REDBLK_BLACK);
 
   if (!root || root == &pool[REDBLK_NIL])
-    return; // Trivially correct
-  if (root->REDBLK_COLOR != REDBLK_BLACK)
-    FD_LOG_ERR(("root must be black"));
+    return 0; // Trivially correct
+  REDBLK_TEST(root->REDBLK_COLOR == REDBLK_BLACK);
 
   // Compute the correct number of black nodes on a path
   ulong blkcnt = 0;
@@ -1051,7 +1047,9 @@ void REDBLK_(verify)(REDBLK_T * pool, REDBLK_T * root) {
     node = &pool[node->REDBLK_LEFT];
   }
   // Recursive check
-  REDBLK_(verify_private)(pool, root, &pool[REDBLK_NIL], 0, blkcnt);
+  return REDBLK_(verify_private)(pool, root, &pool[REDBLK_NIL], 0, blkcnt);
+
+#undef REDBLK_TEST
 }
 
 #undef REDBLK_FREE
