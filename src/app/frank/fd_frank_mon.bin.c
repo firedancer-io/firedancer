@@ -11,11 +11,12 @@
 /* TEXT_* are quick-and-dirty color terminal hacks.  Probably should
    do something more robust longer term. */
 
-#define TEXT_NORMAL "\033[0m"
-#define TEXT_BLUE   "\033[34m"
-#define TEXT_GREEN  "\033[32m"
-#define TEXT_YELLOW "\033[93m"
-#define TEXT_RED    "\033[31m"
+#define TEXT_NORMAL  "\033[0m"
+#define TEXT_BLUE    "\033[34m"
+#define TEXT_GREEN   "\033[32m"
+#define TEXT_YELLOW  "\033[93m"
+#define TEXT_RED     "\033[31m"
+#define TEXT_MAGENTA "\033[95m"
 
 /* printf_age prints _dt in ns as an age to stdout, will be exactly 10
    char wide.  Since pretty printing this value will often require
@@ -354,6 +355,7 @@ fd_taskgroup_cnt_grp_tiles( uchar const * tg_pod ) {
 static void
 fd_taskgroup_collect_cncs( fd_cnc_t ** dst,
                            char const ** dst_name,
+                           char const ** dst_task_kind,
                            fd_frag_meta_t ** dst_mcache,
                            ulong ** dst_fseq,
                            ulong dst_sz,
@@ -375,12 +377,11 @@ fd_taskgroup_collect_cncs( fd_cnc_t ** dst,
     dst[ pos ] = fd_cnc_join( fd_wksp_pod_map( info.val, "cnc" ) );
     if( FD_UNLIKELY( !dst[ pos ] ) ) FD_LOG_ERR(( "fd_cnc_join failed" ));
     if( FD_UNLIKELY( fd_cnc_app_sz( dst[ pos ] )<64UL ) ) FD_LOG_ERR(( "cnc app sz should be at least 64 bytes" ));
-    dst_name [ pos ] = info.key;
+    dst_name[ pos ] = info.key;
+    dst_task_kind[ pos ] = "mon";
     dst_mcache[ pos ] = NULL;
     dst_fseq[ pos ] = NULL;
-
     pos++;
-
 
     uchar const * task_kind_pod = fd_pod_query_subpod( info.val, "task" );
 
@@ -393,7 +394,7 @@ fd_taskgroup_collect_cncs( fd_cnc_t ** dst,
       }
 
       int has_mcache = !strcmp( "dedup", task_kind_name ) || !strcmp( "verify", task_kind_name );
-      int has_fseq = !strcmp( "", task_kind_name);
+      int has_fseq = !strcmp( "dedup", task_kind_name) || !strcmp( "verify", task_kind_name );
 
       /* for each task */
       for( fd_pod_iter_t task_iter = fd_pod_iter_init( task_kind_info.val ); !fd_pod_iter_done( task_iter ); task_iter = fd_pod_iter_next( task_iter ) ) {
@@ -411,6 +412,7 @@ fd_taskgroup_collect_cncs( fd_cnc_t ** dst,
         if( FD_UNLIKELY( !dst[ pos ] ) ) FD_LOG_ERR(( "fd_cnc_join failed" ));
         if( FD_UNLIKELY( fd_cnc_app_sz( dst[ pos ] )<64UL ) ) FD_LOG_ERR(( "cnc app sz should be at least 64 bytes" ));
         dst_name[ pos ] = task_info.key;
+        dst_task_kind[ pos ] = task_kind_info.key;
 
         if( has_mcache ) {
           dst_mcache[ pos ] = fd_mcache_join( fd_wksp_pod_map( task_info.val, "mcache" ) );
@@ -431,6 +433,43 @@ fd_taskgroup_collect_cncs( fd_cnc_t ** dst,
   } /* for each task group */
 }
 
+static void
+print_tile_name ( char const * tile_task_kind,
+                  char const * tile_name ) {
+  char const * color = TEXT_NORMAL;
+  if ( FD_UNLIKELY( !strcmp( "mon", tile_task_kind ) )) {
+    color = TEXT_MAGENTA;
+  }
+  printf( "%s%6s%s", color, tile_name, TEXT_NORMAL );
+}
+static void
+print_link( long    dt,
+            snap_t * cur,
+            snap_t * prv ) {
+  ulong cur_raw_cnt = cur->cnc_diag_ha_filt_cnt + cur->fseq_diag_tot_cnt;
+  ulong cur_raw_sz  = cur->cnc_diag_ha_filt_sz  + cur->fseq_diag_tot_sz;
+  ulong prv_raw_cnt = prv->cnc_diag_ha_filt_cnt + prv->fseq_diag_tot_cnt;
+  ulong prv_raw_sz  = prv->cnc_diag_ha_filt_sz  + prv->fseq_diag_tot_sz;
+
+  printf( " | " ); printf_rate( 1e9, 0., cur_raw_cnt,             prv_raw_cnt,             dt );
+  printf( " | " ); printf_rate( 8e9, 0., cur_raw_sz,              prv_raw_sz,              dt ); /* Assumes sz incl framing */
+  printf( " | " ); printf_rate( 1e9, 0., cur->fseq_diag_tot_cnt,  prv->fseq_diag_tot_cnt,  dt );
+  printf( " | " ); printf_rate( 8e9, 0., cur->fseq_diag_tot_sz,   prv->fseq_diag_tot_sz,   dt ); /* Assumes sz incl framing */
+
+  printf( " | " ); printf_pct ( cur->fseq_diag_tot_cnt,  prv->fseq_diag_tot_cnt, 0.,
+                                cur_raw_cnt,             prv_raw_cnt,            DBL_MIN );
+  printf( " | " ); printf_pct ( cur->fseq_diag_tot_sz,   prv->fseq_diag_tot_sz,  0.,
+                                cur_raw_sz,              prv_raw_sz,             DBL_MIN ); /* Assumes sz incl framing */
+  printf( " | " ); printf_pct ( cur->fseq_diag_filt_cnt, prv->fseq_diag_filt_cnt, 0.,
+                                cur->fseq_diag_tot_cnt,  prv->fseq_diag_tot_cnt,  DBL_MIN );
+  printf( " | " ); printf_pct ( cur->fseq_diag_filt_sz,  prv->fseq_diag_filt_sz, 0.,
+                                cur->fseq_diag_tot_sz,   prv->fseq_diag_tot_sz,  DBL_MIN ); /* Assumes sz incl framing */
+
+  printf( " | " ); printf_err_cnt( cur->fseq_diag_ovrnp_cnt, prv->fseq_diag_ovrnp_cnt );
+  printf( " | " ); printf_err_cnt( cur->fseq_diag_ovrnr_cnt, prv->fseq_diag_ovrnr_cnt );
+  printf( " | " ); printf_err_cnt( cur->fseq_diag_slow_cnt,  prv->fseq_diag_slow_cnt  );
+  printf( "\n" );
+}
 int
 main( int     argc,
       char ** argv ) {
@@ -475,14 +514,16 @@ main( int     argc,
 
   /* Join all IPC objects for this frank instance */
 
-  char const **     tile_name   = fd_alloca( alignof(char const *    ), sizeof(char const *    )*tile_cnt );
-  fd_cnc_t **       tile_cnc    = fd_alloca( alignof(fd_cnc_t *      ), sizeof(fd_cnc_t *      )*tile_cnt );
-  fd_frag_meta_t ** tile_mcache = fd_alloca( alignof(fd_frag_meta_t *), sizeof(fd_frag_meta_t *)*tile_cnt );
-  ulong **          tile_fseq   = fd_alloca( alignof(ulong *         ), sizeof(ulong *         )*tile_cnt );
+  char const **     tile_name      = fd_alloca( alignof(char const *    ), sizeof(char const *    )*tile_cnt );
+  char const **     tile_task_kind = fd_alloca( alignof(char const *    ), sizeof(char const *    )*tile_cnt );
+  fd_cnc_t **       tile_cnc       = fd_alloca( alignof(fd_cnc_t *      ), sizeof(fd_cnc_t *      )*tile_cnt );
+  fd_frag_meta_t ** tile_mcache    = fd_alloca( alignof(fd_frag_meta_t *), sizeof(fd_frag_meta_t *)*tile_cnt );
+  ulong **          tile_fseq      = fd_alloca( alignof(ulong *         ), sizeof(ulong *         )*tile_cnt );
   if( FD_UNLIKELY( (!tile_name) | (!tile_cnc) | (!tile_mcache) | (!tile_fseq) ) ) FD_LOG_ERR(( "fd_alloca failed" )); /* paranoia */
 
   /* join the launcher's CNC */
   tile_name[ 0UL ] = "lnchr";
+  tile_task_kind[ 0UL ] = "mon";
   FD_LOG_INFO(( "joining %s.main.cnc", cfg_path ));
   tile_cnc[ 0UL ] = fd_cnc_join( fd_wksp_pod_map( cfg_pod, "main.cnc" ) );
   tile_mcache[ 0UL ] = NULL;
@@ -491,14 +532,40 @@ main( int     argc,
   fd_taskgroup_collect_cncs(
     tile_cnc+1,
     tile_name+1,
+    tile_task_kind+1,
     tile_mcache+1,
     tile_fseq+1,
     tile_cnt-1,
     grps_pod
   );
 
+  /* find the dedup tile by idx */
+  ulong d0_idx = ULONG_MAX;
   for (ulong i=0; i< tile_cnt; i++) {
-    FD_LOG_NOTICE(( "%lu %p\n", i, (void*)tile_cnc[i] ));
+    if( !strcmp( "d0", tile_name[i] ) ) {
+      d0_idx = i;
+      break;
+    }
+  }
+  if ( d0_idx == ULONG_MAX ) {
+    FD_LOG_ERR(( "could not find the d0 tile" ));
+  }
+
+  /* find the pack tile by idx */
+  ulong p0_idx = ULONG_MAX;
+  for (ulong i=0; i< tile_cnt; i++) {
+    if( !strcmp( "p0", tile_name[i] ) ) {
+      p0_idx = i;
+      break;
+    }
+  }
+  if ( p0_idx == ULONG_MAX ) {
+    FD_LOG_ERR(( "could not find the d0 tile" ));
+  }
+
+  for (ulong i=0; i< tile_cnt; i++) {
+    FD_LOG_NOTICE(( "fseq:   %p\n", (void*)tile_fseq[i] ));
+    FD_LOG_NOTICE(( "mcache: %p\n", (void*)tile_mcache[i] ));
   }
 
   // do {
@@ -603,7 +670,8 @@ main( int     argc,
     for( ulong tile_idx=0UL; tile_idx<tile_cnt; tile_idx++ ) {
       snap_t * prv = &snap_prv[ tile_idx ];
       snap_t * cur = &snap_cur[ tile_idx ];
-      printf( " %5s", tile_name[ tile_idx ] );
+      print_tile_name( tile_task_kind[ tile_idx ], tile_name[ tile_idx ] );
+      
       if( FD_LIKELY( cur->pmap & 1UL ) ) {
         printf( " | " ); printf_stale   ( (long)(0.5+ns_per_tic*(double)(toc - cur->cnc_heartbeat)), dt_min );
         printf( " | " ); printf_pid     ( cur->cnc_pid,              prv->cnc_pid              );
@@ -630,35 +698,30 @@ main( int     argc,
     printf( "\n" );
     printf( "         link |  tot TPS |  tot bps | uniq TPS | uniq bps |   ha tr%% | uniq bw%% | filt tr%% | filt bw%% |           ovrnp cnt |           ovrnr cnt |            slow cnt\n" );
     printf( "--------------+----------+----------+---------+----------+----------+----------+-----------+----------+---------------------+---------------------+---------------------\n" );
-    for( ulong tile_idx=2UL; tile_idx<tile_cnt; tile_idx++ ) {
-      snap_t * prv = &snap_prv[ tile_idx ];
-      snap_t * cur = &snap_cur[ tile_idx ];
-      if( tile_idx==2UL ) printf( " %5s->%-5s", tile_name[ 2        ], tile_name[ 1 ] );
-      else                printf( " %5s->%-5s", tile_name[ tile_idx ], tile_name[ 2 ] );
-      long dt = now-then;
-      ulong cur_raw_cnt = cur->cnc_diag_ha_filt_cnt + cur->fseq_diag_tot_cnt;
-      ulong cur_raw_sz  = cur->cnc_diag_ha_filt_sz  + cur->fseq_diag_tot_sz;
-      ulong prv_raw_cnt = prv->cnc_diag_ha_filt_cnt + prv->fseq_diag_tot_cnt;
-      ulong prv_raw_sz  = prv->cnc_diag_ha_filt_sz  + prv->fseq_diag_tot_sz;
+    long dt = now-then;
 
-      printf( " | " ); printf_rate( 1e9, 0., cur_raw_cnt,             prv_raw_cnt,             dt );
-      printf( " | " ); printf_rate( 8e9, 0., cur_raw_sz,              prv_raw_sz,              dt ); /* Assumes sz incl framing */
-      printf( " | " ); printf_rate( 1e9, 0., cur->fseq_diag_tot_cnt,  prv->fseq_diag_tot_cnt,  dt );
-      printf( " | " ); printf_rate( 8e9, 0., cur->fseq_diag_tot_sz,   prv->fseq_diag_tot_sz,   dt ); /* Assumes sz incl framing */
+    /* dedup -> pack (fseq lives under dedup) */
+    {
+      /* find the d0 tile */
 
-      printf( " | " ); printf_pct ( cur->fseq_diag_tot_cnt,  prv->fseq_diag_tot_cnt, 0.,
-                                    cur_raw_cnt,             prv_raw_cnt,            DBL_MIN );
-      printf( " | " ); printf_pct ( cur->fseq_diag_tot_sz,   prv->fseq_diag_tot_sz,  0.,
-                                    cur_raw_sz,              prv_raw_sz,             DBL_MIN ); /* Assumes sz incl framing */
-      printf( " | " ); printf_pct ( cur->fseq_diag_filt_cnt, prv->fseq_diag_filt_cnt, 0.,
-                                    cur->fseq_diag_tot_cnt,  prv->fseq_diag_tot_cnt,  DBL_MIN );
-      printf( " | " ); printf_pct ( cur->fseq_diag_filt_sz,  prv->fseq_diag_filt_sz, 0.,
-                                    cur->fseq_diag_tot_sz,   prv->fseq_diag_tot_sz,  DBL_MIN ); /* Assumes sz incl framing */
+      snap_t * prv = &snap_prv[ d0_idx ];
+      snap_t * cur = &snap_cur[ d0_idx ];
+      printf( " %5s->%-5s", tile_name[ d0_idx ], tile_name[ p0_idx ] );
+      print_link( dt, cur, prv );
+    }
 
-      printf( " | " ); printf_err_cnt( cur->fseq_diag_ovrnp_cnt, prv->fseq_diag_ovrnp_cnt );
-      printf( " | " ); printf_err_cnt( cur->fseq_diag_ovrnr_cnt, prv->fseq_diag_ovrnr_cnt );
-      printf( " | " ); printf_err_cnt( cur->fseq_diag_slow_cnt,  prv->fseq_diag_slow_cnt  );
-      printf( "\n" );
+    /* verify -> dedup */
+    {
+      snap_t * prv = &snap_prv[ d0_idx ];
+      snap_t * cur = &snap_cur[ d0_idx ];
+      for ( ulong tile_idx=0; tile_idx< tile_cnt; tile_idx++) {
+        if ( !strcmp( "verify", tile_task_kind[ tile_idx ] ) ) {
+          prv = &snap_prv[ tile_idx ];
+          cur = &snap_cur[ tile_idx ];
+          printf( " %5s->%-5s", tile_name[ tile_idx ], tile_name[ 2 ] );
+          print_link( dt, cur, prv );
+        }
+      }
     }
     printf( "\n" );
 
