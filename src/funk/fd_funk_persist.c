@@ -91,15 +91,27 @@ struct __attribute__((packed)) fd_funk_persist_walog_head {
 };
 
 /* Map of free spaces on disk sorted by size */
-typedef struct fd_funk_persist_free_entry fd_funk_persist_free_entry_t;
-#define REDBLK_T fd_funk_persist_free_entry_t
-#define REDBLK_NAME fd_funk_persist_free_map
-#include "../util/tmpl/fd_redblack.h"
 struct fd_funk_persist_free_entry {
     ulong alloc_sz;
     ulong pos;
-    redblack_member_t redblack;
+    union {
+        struct {
+            uint parent;
+            uint left;
+            uint right;
+            int color;
+        } rb;
+        ulong nf;
+    } u;
 };
+typedef struct fd_funk_persist_free_entry fd_funk_persist_free_entry_t;
+#define REDBLK_T fd_funk_persist_free_entry_t
+#define REDBLK_NAME fd_funk_persist_free_map
+#define REDBLK_PARENT u.rb.parent
+#define REDBLK_LEFT u.rb.left
+#define REDBLK_RIGHT u.rb.right
+#define REDBLK_COLOR u.rb.color
+#define REDBLK_NEXTFREE u.nf
 #include "../util/tmpl/fd_redblack.c"
 
 long fd_funk_persist_free_map_compare(fd_funk_persist_free_entry_t* left, fd_funk_persist_free_entry_t* right) {
@@ -134,9 +146,9 @@ fd_funk_persist_alloc( fd_funk_t * funk, ulong needed, ulong * actual ) {
       *actual = node->alloc_sz;
       ulong pos = node->pos;
       /* release the node */
-      node = fd_funk_persist_free_map_delete(pool, &root, node);
+      node = fd_funk_persist_free_map_remove(pool, &root, node);
       funk->persist_frees_root = (root == NULL ? -1 : root - pool);
-      fd_funk_persist_free_map_pool_release(pool, node);
+      fd_funk_persist_free_map_release(pool, node);
       return pos;
     }
   }
@@ -156,7 +168,7 @@ fd_funk_persist_remember_free( fd_funk_t * funk, ulong pos, ulong alloc_sz ) {
   fd_funk_persist_free_entry_t * pool = (fd_funk_persist_free_entry_t *)
     fd_wksp_laddr_fast( wksp, funk->persist_frees_gaddr );
   /* create the free list node */
-  fd_funk_persist_free_entry_t * node = fd_funk_persist_free_map_pool_allocate( pool );
+  fd_funk_persist_free_entry_t * node = fd_funk_persist_free_map_acquire( pool );
   if ( node == NULL ) {
     FD_LOG_WARNING(( "too many free spaces in persistence file" ));
     return;
@@ -345,13 +357,13 @@ fd_funk_persist_open( fd_funk_t * funk, const char * filename ) {
   fd_wksp_t * wksp = fd_funk_wksp( funk );
   if ( funk->persist_frees_gaddr == 0 ) {
     ulong max = fd_ulong_min ( funk->rec_max + 1, 1000000 );
-    void * mem = fd_wksp_alloc_laddr(wksp, fd_funk_persist_free_map_pool_align(),
-                                     fd_funk_persist_free_map_pool_footprint(max), funk->wksp_tag );
+    void * mem = fd_wksp_alloc_laddr(wksp, fd_funk_persist_free_map_align(),
+                                     fd_funk_persist_free_map_footprint(max), funk->wksp_tag );
     if ( mem == NULL ) {
       FD_LOG_ERR(( "failed to allocate free list" ));
       return FD_FUNK_ERR_MEM;
     }
-    fd_funk_persist_free_entry_t * pool = fd_funk_persist_free_map_pool_join( fd_funk_persist_free_map_pool_new( mem, max ) );
+    fd_funk_persist_free_entry_t * pool = fd_funk_persist_free_map_join( fd_funk_persist_free_map_new( mem, max ) );
     funk->persist_frees_gaddr = fd_wksp_gaddr_fast( wksp, pool );
     funk->persist_frees_root = -1;
   }
@@ -481,6 +493,17 @@ void
 fd_funk_persist_close( fd_funk_t * funk ) {
   close(funk->persist_fd);
   funk->persist_fd = -1;
+}
+
+void
+fd_funk_persist_leave( fd_funk_t * funk ) {
+  if ( funk->persist_frees_gaddr != 0 ) {
+    fd_wksp_t * wksp = fd_funk_wksp( funk );
+    fd_funk_persist_free_entry_t * pool = (fd_funk_persist_free_entry_t *)
+      fd_wksp_laddr_fast( wksp, funk->persist_frees_gaddr );
+    fd_wksp_free_laddr( fd_funk_persist_free_map_delete( fd_funk_persist_free_map_leave( pool ) ) );
+    funk->persist_frees_gaddr = 0;
+  }
 }
 
 /* Update the disk representation of a record from the in-memory
@@ -758,7 +781,8 @@ fd_funk_persist_verify( fd_funk_t * funk ) {
     fd_wksp_laddr_fast( wksp, funk->persist_frees_gaddr );
   fd_funk_persist_free_entry_t * root = (funk->persist_frees_root == -1 ? NULL :
                                          pool + funk->persist_frees_root);
-  fd_funk_persist_free_map_verify(pool, root);
+  int err = fd_funk_persist_free_map_verify(pool, root);
+  if (err) return err;
 
   ulong tot_used = 0;
   ulong tot_free = 0;
