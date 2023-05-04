@@ -36,6 +36,13 @@ static uchar const fd_reedsol_arith_scale4[ 256UL ] = {
   /* c is known at compile time, so this is not a runtime branch */                                                \
   (c==0) ? wb_zero() : ( (c==1) ? a : wb_xor( p0, p1 ) ); } ))
 
+#define GF_MUL_VAR( a, c ) (__extension__({                                                                        \
+  wb_t lo = wb_and( a, wb_bcast( 0x0F ) );                                                                         \
+  wb_t hi = wb_shr( a, 4 );                                                                                        \
+  wb_t p0 = _mm256_shuffle_epi8( wb_ld( fd_reedsol_arith_consts_avx_mul + 32*c ), lo );                            \
+  wb_t p1 = _mm256_shuffle_epi8( wb_ld( fd_reedsol_arith_consts_avx_mul + 32*fd_reedsol_arith_scale4[ c ] ), hi ); \
+  wb_xor( p0, p1 ); } ))
 
+#define GF_ANY( x ) (0 != _mm256_movemask_epi8( wb_ne( (x), wb_zero() ) ) )
 
 #endif /*HEADER_fd_src_ballet_reedsol_fd_reedsol_arith_avx2_h */

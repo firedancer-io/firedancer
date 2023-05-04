@@ -22,12 +22,16 @@ static FD_FN_UNUSED short const * gf_arith_log_tbl     = (short const *)fd_reeds
 static FD_FN_UNUSED uchar const * gf_arith_invlog_tbl  = fd_reedsol_arith_consts_generic_mul + 256UL*sizeof(short) + 512UL*sizeof(uchar); /* Indexed [-512, 512) */
 
 #define GF_ADD( a, b ) ((a)^(b))
+#define GF_OR(  a, b ) ((a)|(b))
 
 /* c is known at compile time, so this is not a runtime branch.
    Exposing log_tbl at compile time would let the compiler remove a
    branch, but we don't care too much about performance in this case. */
 #define GF_MUL( a, c ) ((c==0) ? 0UL : ( (c==1) ? (a) : (ulong)gf_arith_invlog_tbl[ gf_arith_log_tbl[ a ] + gf_arith_log_tbl[ c ] ] ))
 
+#define GF_MUL_VAR( a, c ) ((ulong)gf_arith_invlog_tbl[ gf_arith_log_tbl[ a ] + gf_arith_log_tbl[ c ] ] )
+
+#define GF_ANY( x ) (!!(x))
 
 
 #endif /*HEADER_fd_src_ballet_reedsol_fd_reedsol_arith_none_h */
