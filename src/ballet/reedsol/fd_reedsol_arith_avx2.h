@@ -26,7 +26,8 @@ static uchar const fd_reedsol_arith_scale4[ 256UL ] = {
   95, 111, 127,  15,  31,  47,  63, 156, 140, 188, 172, 220, 204, 252, 236,  28,  12,  60,  44,  92,  76, 124, 108, 129, 145, 161, 177, 193, 209, 225, 241,   1,  17,  33,  49,  65,  81,
   97, 113, 166, 182, 134, 150, 230, 246, 198, 214,  38,  54,   6,  22, 102, 118,  70,  86, 187, 171, 155, 139, 251, 235, 219, 203,  59,  43,  27,  11, 123, 107,  91,  75 }; /* Needs to be available at compile time, not link time, to allow the optimizer to use it */
 
-#define GF_ADD( a, b ) wb_xor( a, b )
+#define GF_ADD wb_xor
+#define GF_OR  wb_or
 #define GF_MUL( a, c ) (__extension__({                                                                 \
   wb_t lo = wb_and( a, wb_bcast( 0x0F ) );                                                              \
   wb_t hi = wb_shru( a, 4 );                                                                            \
@@ -35,6 +36,13 @@ static uchar const fd_reedsol_arith_scale4[ 256UL ] = {
   /* c is known at compile time, so this is not a runtime branch */                                     \
   (c==0) ? wb_zero() : ( (c==1) ? a : wb_xor( p0, p1 ) ); } ))
 
+#define GF_MUL_VAR( a, c ) (__extension__({                                                                 \
+  wb_t lo = wb_and( a, wb_bcast( 0x0F ) );                                                              \
+  wb_t hi = wb_shru( a, 4 );                                                                            \
+  wb_t p0 = _mm256_shuffle_epi8( wb_ld( fd_reedsol_arith_consts_avx_mul + 32*c ), lo );                            \
+  wb_t p1 = _mm256_shuffle_epi8( wb_ld( fd_reedsol_arith_consts_avx_mul + 32*fd_reedsol_arith_scale4[ c ] ), hi ); \
+  wb_xor( p0, p1 ); } ))
 
+#define GF_ANY( x ) (0 != _mm256_movemask_epi8( wb_ne( (x), wb_zero() ) ) )
 
 #endif /*HEADER_fd_src_ballet_reedsol_fd_reedsol_arith_avx2_h */

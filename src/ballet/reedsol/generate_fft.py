@@ -190,7 +190,7 @@ print_macro("FD_REEDSOL_PRIVATE_IFFT_BUTTERFLY", ["inout0", "inout1", "c"], [
 
 
 
-for N in (128, 64, 32, 16, 8, 4):
+for N in (256, 128, 64, 32, 16, 8, 4):
     inputs = [f"in{j:02}" for j in range(N)]
     macro_lines = [ ]
 
@@ -206,7 +206,7 @@ for N in (128, 64, 32, 16, 8, 4):
     for k,v in const_to_cidx.items():
         consts_array[v] = k
 
-    for shift in range(0, 64+N+1, N):
+    for shift in range(0, 67*2, N):
         shift_specific = [ f'{(int(sbar[ c[0], c[1]^shift ])):3}' for c in consts_array ]
         print(f"#define FD_REEDSOL_IFFT_CONSTANTS_{N}_{shift:<2} " + ', '.join(shift_specific), file=outf)
 
@@ -233,7 +233,7 @@ for N in (128, 64, 32, 16, 8, 4):
     for k,v in const_to_cidx.items():
         consts_array[v] = k
 
-    for shift in range(0, max(N,64)+N+1, N):
+    for shift in range(0, 67*2, N):
         shift_specific = [ f'{int(sbar[ c[0], (c[1]^shift)&0xFF ]):3}' for c in consts_array ]
         print(f"#define FD_REEDSOL_FFT_CONSTANTS_{N}_{shift:<2} " + ', '.join(shift_specific), file=outf)
 

@@ -12,6 +12,7 @@
 #include "fd_reedsol_fft.h"
 #include "fd_reedsol_ppt.h"
 
+#include "fd_reedsol_pi.h"
 
 FD_IMPORT_BINARY( fd_reedsol_generic_constants, "src/ballet/reedsol/constants/generic_constants.bin" );
 static short const * log_tbl     = (short const *)fd_reedsol_generic_constants; /* Indexed [0, 256) */
@@ -21,6 +22,7 @@ static uchar const * matrix_32_32= fd_reedsol_generic_constants + 256UL*sizeof(s
 #define SHRED_SZ (1024UL)
 uchar data_shreds[ SHRED_SZ * FD_REEDSOL_DATA_SHREDS_MAX ];
 uchar parity_shreds[ SHRED_SZ * FD_REEDSOL_PARITY_SHREDS_MAX ];
+uchar recovered_shreds[ SHRED_SZ * FD_REEDSOL_PARITY_SHREDS_MAX ];
 
 FD_STATIC_ASSERT( sizeof(fd_reedsol_t) == FD_REEDSOL_FOOTPRINT, reedsol_footprint );
 
@@ -128,6 +130,9 @@ static void
 basic_tests( void ) {
   uchar * d[ 32UL ];
   uchar * p[ 32UL ];
+
+  fd_memset( data_shreds, 0, SHRED_SZ*32UL );
+
   for( ulong i=0UL; i<32UL; i++ ) { d[ i ] = data_shreds + SHRED_SZ*i; p[ i ] = parity_shreds + SHRED_SZ*i; }
 
   fd_reedsol_t * rs = fd_reedsol_encode_init( mem, SHRED_SZ );
@@ -659,6 +664,308 @@ battery_performance_generic( fd_rng_t *    rng,
   printf( "%s", output );
 }
 
+static inline uchar
+pi_ref( uchar x, uchar * erasures, ulong erasures_cnt ) {
+  uchar prod = 1;
+  for( ulong i=0UL; i<erasures_cnt; i++ ) prod = gfmul( prod, x ^ erasures[ i ] );
+  return prod;
+}
+static inline uchar
+pi_prime_inv_ref( uchar x, uchar * erasures, ulong erasures_cnt ) {
+  uchar prod = 1;
+  for( ulong i=0UL; i<erasures_cnt; i++ ) if( erasures[i] != x ) prod = gfmul( prod, x ^ erasures[ i ] );
+  return gfinv( prod );
+}
+
+typedef void gen_pi_fn_t( uchar const *, uchar * );
+
+static void
+test_pi( gen_pi_fn_t fn,
+         ulong       N,
+         fd_rng_t *  rng ) {
+  FD_LOG_NOTICE(( "Testing Pi %lu", N ));
+#define MAX_N 256UL
+  FD_TEST( N<=MAX_N ); /* Update the test if this fails */
+  uchar in[  MAX_N ] W_ATTR;
+  uchar out[ MAX_N ] W_ATTR;
+
+  uchar erasures[ MAX_N ];
+  /* erasures = [ i ] */
+  for( ulong i=0; i<N; i++ ) {
+    fd_memset( in, 0, N );
+    erasures[ 0 ] = (uchar)i;
+    in[ i ] = (uchar)1;
+
+    fn( in, out );
+
+    for( ulong j=0UL; j<N; j++ ) {
+      if( j==i ) FD_TEST( out[ j ] == pi_prime_inv_ref( (uchar)j, erasures, 1UL ) );
+      else       FD_TEST( out[ j ] == pi_ref(           (uchar)j, erasures, 1UL ) );
+    }
+  }
+
+  /* erausres = [ i, j ] */
+  for( ulong i=0UL; i<N; i++ ) for( ulong j=i+1UL; j<N; j++ ) {
+    fd_memset( in, 0, N );
+    in [ i ] = in[ j ] = (uchar)1;
+    erasures[ 0 ] = (uchar)i;
+    erasures[ 1 ] = (uchar)j;
+
+    fn( in, out );
+
+    for( ulong k=0UL; k<N; k++ ) {
+      if( k==i || k==j ) FD_TEST( out[ k ] == pi_prime_inv_ref( (uchar)k, erasures, 2UL ) );
+      else               FD_TEST( out[ k ] == pi_ref(           (uchar)k, erasures, 2UL ) );
+    }
+  }
+
+  for( ulong rep=0UL; rep<1000UL; rep++ ) {
+    fd_memset( in, 0, N );
+    ulong erasure_cnt = 0UL;
+    for( ulong i=0UL; i<N; i++ ) {
+      /* Vary probability with rep */
+      if( (fd_rng_uint( rng ) & 0xFF) < (rep & 0xFF ) ) {
+        erasures[ erasure_cnt++ ] = (uchar)i;
+        in[ i ] = (uchar)1;
+      }
+    }
+
+    fn( in, out );
+
+    ulong j=0UL;
+    for( ulong i=0UL; i<N; i++ ) {
+      if( j<erasure_cnt && i==erasures[ j ] ) { FD_TEST( out[ i ] == pi_prime_inv_ref( (uchar)i, erasures, erasure_cnt ) ); j++; }
+      else                                      FD_TEST( out[ i ] == pi_ref(           (uchar)i, erasures, erasure_cnt ) );
+    }
+  }
+#undef MAX_N
+
+}
+static void
+test_pi_all( fd_rng_t * rng ) {
+  test_pi( fd_reedsol_gen_pi_16,   16UL, rng );
+  test_pi( fd_reedsol_gen_pi_32,   32UL, rng );
+  test_pi( fd_reedsol_gen_pi_64,   64UL, rng );
+  test_pi( fd_reedsol_gen_pi_128, 128UL, rng );
+  test_pi( fd_reedsol_gen_pi_256, 256UL, rng );
+}
+
+static void
+test_recover( fd_rng_t * rng ) {
+  uchar * d[ FD_REEDSOL_DATA_SHREDS_MAX   ];
+  uchar * p[ FD_REEDSOL_PARITY_SHREDS_MAX ];
+  uchar * r[ FD_REEDSOL_PARITY_SHREDS_MAX+1UL ];
+  for( ulong i=0UL; i<FD_REEDSOL_DATA_SHREDS_MAX;   i++ )  d[ i ] = data_shreds + SHRED_SZ*i;
+  for( ulong i=0UL; i<FD_REEDSOL_PARITY_SHREDS_MAX; i++ )  p[ i ] = parity_shreds + SHRED_SZ*i;
+  for( ulong i=0UL; i<FD_REEDSOL_PARITY_SHREDS_MAX; i++ )  r[ i ] = recovered_shreds + SHRED_SZ*i;
+
+  /* Fill with random data */
+  for( ulong i=0UL; i<FD_REEDSOL_DATA_SHREDS_MAX; i++ ) for( ulong j=0UL; j<SHRED_SZ; j++ ) d[ i ][ j ] = fd_rng_uchar( rng );
+
+  for( ulong d_cnt=1UL; d_cnt<=FD_REEDSOL_DATA_SHREDS_MAX; d_cnt++ ) {
+    for( ulong p_cnt=1UL; p_cnt<=FD_REEDSOL_PARITY_SHREDS_MAX; p_cnt++ ) {
+
+      fd_reedsol_t * rs = fd_reedsol_encode_init( mem, SHRED_SZ );
+      for( ulong i=0UL; i<d_cnt; i++ ) fd_reedsol_encode_add_data_shred(   rs, d[ i ] );
+      for( ulong i=0UL; i<p_cnt; i++ ) fd_reedsol_encode_add_parity_shred( rs, p[ i ] );
+      fd_reedsol_encode_fini( rs );
+
+      for( ulong e_cnt=0UL; e_cnt<=p_cnt+1UL; e_cnt++ ) {
+        /* Use reservoir sampling to select exactly e_cnt of the shreds
+           to erased */
+        uchar * erased_truth[ FD_REEDSOL_PARITY_SHREDS_MAX+1UL ];
+        ulong erased_cnt = 0UL;
+        rs = fd_reedsol_recover_init( mem, SHRED_SZ );
+        for( ulong i=0UL; i<d_cnt; i++ ) {
+          /* Erase with probability:
+             (e_cnt - erased_cnt)/(d_cnt + p_cnt - i) */
+          if( fd_rng_ulong_roll( rng, d_cnt+p_cnt-i ) < (e_cnt-erased_cnt) ) {
+            erased_truth[ erased_cnt ] = d[ i ];
+            fd_reedsol_recover_add_erased_shred(    rs, 1, r[ erased_cnt++ ] );
+          } else fd_reedsol_recover_add_rcvd_shred( rs, 1, d[ i ] );
+        }
+        for( ulong i=0UL; i<p_cnt; i++ ) {
+          if( fd_rng_ulong_roll( rng, p_cnt-i ) < (e_cnt-erased_cnt) ) {
+            erased_truth[ erased_cnt ] = p[ i ];
+            fd_reedsol_recover_add_erased_shred(    rs, 0, r[ erased_cnt++ ] );
+          } else fd_reedsol_recover_add_rcvd_shred( rs, 0, p[ i ] );
+        }
+
+        FD_TEST( erased_cnt==e_cnt ); /* If this fails, the test is wrong. */
+        int retval = fd_reedsol_recover_fini( rs );
+
+        if( FD_UNLIKELY( e_cnt>p_cnt ) ) { FD_TEST( retval==FD_REEDSOL_ERR_INSUFFICIENT ); continue; }
+
+        FD_TEST( FD_REEDSOL_OK==retval );
+
+        for( ulong i=0UL; i<e_cnt; i++ ) FD_TEST( 0==memcmp( erased_truth[ i ], r[ i ], SHRED_SZ ) );
+      }
+
+      /* Corrupt one shred and make sure it gets caught */
+      for( ulong corrupt_idx=0UL; corrupt_idx<d_cnt+p_cnt; corrupt_idx++ ) {
+        ulong byte_idx = fd_rng_ulong_roll( rng, SHRED_SZ );
+        if( corrupt_idx<d_cnt )  d[ corrupt_idx       ][ byte_idx ] ^= (uchar)1;
+        else                     p[ corrupt_idx-d_cnt ][ byte_idx ] ^= (uchar)1;
+
+        rs = fd_reedsol_recover_init( mem, SHRED_SZ );
+        for( ulong i=0UL; i<d_cnt; i++ ) fd_reedsol_recover_add_rcvd_shred( rs, 1, d[ i ] );
+        for( ulong i=0UL; i<p_cnt; i++ ) fd_reedsol_recover_add_rcvd_shred( rs, 0, p[ i ] );
+
+        FD_TEST( FD_REEDSOL_ERR_INCONSISTENT==fd_reedsol_recover_fini( rs ) );
+
+        if( corrupt_idx<d_cnt )  d[ corrupt_idx       ][ byte_idx ] ^= (uchar)1;
+        else                     p[ corrupt_idx-d_cnt ][ byte_idx ] ^= (uchar)1;
+      }
+    }
+  }
+}
+
+static void
+test_recover_performance( fd_rng_t *    rng ) {
+  ulong const test_count = 90000UL;
+
+  uchar * d[ FD_REEDSOL_DATA_SHREDS_MAX   ];
+  uchar * p[ FD_REEDSOL_PARITY_SHREDS_MAX ];
+  uchar * r[ FD_REEDSOL_PARITY_SHREDS_MAX ];
+  for( ulong i=0UL; i<32UL; i++ ) {
+    d[ i ] = data_shreds + SHRED_SZ*i;
+    p[ i ] = parity_shreds + SHRED_SZ*i;
+    r[ i ] = recovered_shreds + SHRED_SZ*i;
+  }
+
+  for( ulong j=0UL; j<SHRED_SZ*32UL; j++ ) data_shreds[ j ] = fd_rng_uchar( rng );
+
+  /* Produce parity data */
+  fd_reedsol_t * rs = fd_reedsol_encode_init( mem, SHRED_SZ );
+  for( ulong i=0UL; i<32UL; i++ ) fd_reedsol_encode_add_parity_shred( fd_reedsol_encode_add_data_shred( rs, d[ i ] ), p[ i ] );
+  fd_reedsol_encode_fini( rs );
+
+  /* Warm up instruction cache */
+  rs = fd_reedsol_recover_init( mem, SHRED_SZ );
+  for( ulong i=0UL; i<32UL; i++ ) fd_reedsol_recover_add_rcvd_shred( rs, 1, d[ i ] );
+  for( ulong i=0UL; i<32UL; i++ ) fd_reedsol_recover_add_rcvd_shred( rs, 0, p[ i ] );
+  FD_TEST( FD_REEDSOL_OK==fd_reedsol_recover_fini( rs ) );
+
+  rs = fd_reedsol_recover_init( mem, SHRED_SZ );
+  for( ulong i=0UL; i<32UL; i++ ) fd_reedsol_recover_add_rcvd_shred( rs, 1, d[ i ] );
+  for( ulong i=0UL; i<32UL; i++ ) fd_reedsol_recover_add_rcvd_shred( rs, 0, p[ i ] );
+  fd_reedsol_recover_fini( rs );
+
+  /* Measure recover */
+  long recover = -fd_log_wallclock();
+
+  for( ulong i=0UL; i<test_count; i++ ) {
+    rs = fd_reedsol_recover_init( mem, SHRED_SZ );
+    for( ulong i=0UL; i<32UL; i++ ) fd_reedsol_recover_add_rcvd_shred( rs, 1, d[ i ] );
+    for( ulong i=0UL; i<32UL; i++ ) fd_reedsol_recover_add_rcvd_shred( rs, 0, p[ i ] );
+    fd_reedsol_recover_fini( rs );
+  }
+
+  recover += fd_log_wallclock();
+
+
+  FD_LOG_NOTICE(( "average time per recover (no erasures) call %f ns ( %f GiB/s, %f Gbps )",
+                  (double)(recover        )/(double)test_count,
+                  (double)(test_count * 64UL * SHRED_SZ) / ((double)(recover)*1.0737),
+                  (double)(test_count * 64UL * SHRED_SZ * 8UL) / ((double)(recover))
+        ));
+
+  /* Test when just parity has been erased */
+
+  /* Warm up instruction cache */
+  rs = fd_reedsol_recover_init( mem, SHRED_SZ );
+  for( ulong i=0UL; i<32UL; i++ ) fd_reedsol_recover_add_rcvd_shred( rs, 1, d[ i ] );
+  for( ulong i=0UL; i<32UL; i++ ) fd_reedsol_recover_add_erased_shred( rs, 0, r[ i ] );
+  FD_TEST( FD_REEDSOL_OK==fd_reedsol_recover_fini( rs ) );
+
+  rs = fd_reedsol_recover_init( mem, SHRED_SZ );
+  for( ulong i=0UL; i<32UL; i++ ) fd_reedsol_recover_add_rcvd_shred( rs, 1, d[ i ] );
+  for( ulong i=0UL; i<32UL; i++ ) fd_reedsol_recover_add_erased_shred( rs, 0, r[ i ] );
+  fd_reedsol_recover_fini( rs );
+
+  /* Measure recover */
+  recover = -fd_log_wallclock();
+
+  for( ulong i=0UL; i<test_count; i++ ) {
+    rs = fd_reedsol_recover_init( mem, SHRED_SZ );
+    for( ulong i=0UL; i<32UL; i++ ) fd_reedsol_recover_add_rcvd_shred( rs, 1, d[ i ] );
+    for( ulong i=0UL; i<32UL; i++ ) fd_reedsol_recover_add_erased_shred( rs, 0, r[ i ] );
+    fd_reedsol_recover_fini( rs );
+  }
+
+  recover += fd_log_wallclock();
+
+
+  FD_LOG_NOTICE(( "average time per recover (parity erased) call %f ns ( %f GiB/s, %f Gbps )",
+                  (double)(recover        )/(double)test_count,
+                  (double)(test_count * 64UL * SHRED_SZ) / ((double)(recover)*1.0737),
+                  (double)(test_count * 64UL * SHRED_SZ * 8UL) / ((double)(recover))
+        ));
+
+  /* Test when just data has been erased */
+
+  /* Warm up instruction cache */
+  rs = fd_reedsol_recover_init( mem, SHRED_SZ );
+  for( ulong i=0UL; i<32UL; i++ ) fd_reedsol_recover_add_erased_shred( rs, 1, r[ i ] );
+  for( ulong i=0UL; i<32UL; i++ ) fd_reedsol_recover_add_rcvd_shred( rs, 0, p[ i ] );
+  FD_TEST( FD_REEDSOL_OK==fd_reedsol_recover_fini( rs ) );
+
+  rs = fd_reedsol_recover_init( mem, SHRED_SZ );
+  for( ulong i=0UL; i<32UL; i++ ) fd_reedsol_recover_add_erased_shred( rs, 1, r[ i ] );
+  for( ulong i=0UL; i<32UL; i++ ) fd_reedsol_recover_add_rcvd_shred( rs, 0, p[ i ] );
+  fd_reedsol_recover_fini( rs );
+
+  /* Measure recover */
+  recover = -fd_log_wallclock();
+
+  for( ulong i=0UL; i<test_count; i++ ) {
+    rs = fd_reedsol_recover_init( mem, SHRED_SZ );
+    for( ulong i=0UL; i<32UL; i++ ) fd_reedsol_recover_add_erased_shred( rs, 1, r[ i ] );
+    for( ulong i=0UL; i<32UL; i++ ) fd_reedsol_recover_add_rcvd_shred( rs, 0, p[ i ] );
+    fd_reedsol_recover_fini( rs );
+  }
+
+  recover += fd_log_wallclock();
+
+
+  FD_LOG_NOTICE(( "average time per recover (data erased) call %f ns ( %f GiB/s, %f Gbps )",
+                  (double)(recover        )/(double)test_count,
+                  (double)(test_count * 64UL * SHRED_SZ) / ((double)(recover)*1.0737),
+                  (double)(test_count * 64UL * SHRED_SZ * 8UL) / ((double)(recover))
+        ));
+
+  /* Test when even shreds have been erased */
+  /* Warm up instruction cache */
+  rs = fd_reedsol_recover_init( mem, SHRED_SZ );
+  for( ulong i=0UL; i<32UL; i+=2UL ) { fd_reedsol_recover_add_erased_shred( rs, 1, r[ i/2UL ] );      fd_reedsol_recover_add_rcvd_shred( rs, 1, d[ i+1UL ] ); }
+  for( ulong i=0UL; i<32UL; i+=2UL ) { fd_reedsol_recover_add_erased_shred( rs, 0, r[ 16UL+i/2UL ] ); fd_reedsol_recover_add_rcvd_shred( rs, 0, p[ i+1UL ] ); }
+  FD_TEST( FD_REEDSOL_OK==fd_reedsol_recover_fini( rs ) );
+
+  rs = fd_reedsol_recover_init( mem, SHRED_SZ );
+  for( ulong i=0UL; i<32UL; i+=2UL ) { fd_reedsol_recover_add_erased_shred( rs, 1, r[ i/2UL ] );      fd_reedsol_recover_add_rcvd_shred( rs, 1, d[ i+1UL ] ); }
+  for( ulong i=0UL; i<32UL; i+=2UL ) { fd_reedsol_recover_add_erased_shred( rs, 0, r[ 16UL+i/2UL ] ); fd_reedsol_recover_add_rcvd_shred( rs, 0, p[ i+1UL ] ); }
+  fd_reedsol_recover_fini( rs );
+
+  /* Measure recover */
+  recover = -fd_log_wallclock();
+
+  for( ulong i=0UL; i<test_count; i++ ) {
+    rs = fd_reedsol_recover_init( mem, SHRED_SZ );
+    for( ulong i=0UL; i<32UL; i+=2UL ) { fd_reedsol_recover_add_erased_shred( rs, 1, r[ i/2UL ] );      fd_reedsol_recover_add_rcvd_shred( rs, 1, d[ i+1UL ] ); }
+    for( ulong i=0UL; i<32UL; i+=2UL ) { fd_reedsol_recover_add_erased_shred( rs, 0, r[ 16UL+i/2UL ] ); fd_reedsol_recover_add_rcvd_shred( rs, 0, p[ i+1UL ] ); }
+    fd_reedsol_recover_fini( rs );
+  }
+
+  recover += fd_log_wallclock();
+
+
+  FD_LOG_NOTICE(( "average time per recover (even erased) call %f ns ( %f GiB/s, %f Gbps )",
+                  (double)(recover        )/(double)test_count,
+                  (double)(test_count * 64UL * SHRED_SZ) / ((double)(recover)*1.0737),
+                  (double)(test_count * 64UL * SHRED_SZ * 8UL) / ((double)(recover))
+        ));
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -671,6 +978,9 @@ main( int     argc,
   battery_performance_base( rng );
   battery_performance_generic( rng, 32UL, 32UL, 5000UL );
   test_encode_vs_ref( rng );
+  test_recover( rng );
+  test_recover_performance( rng );
+  test_pi_all( rng );
   test_linearity_all( rng );
   test_fft_all();
 
