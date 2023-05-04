@@ -8,6 +8,7 @@ $(call make-unit-test,test_funk_val,test_funk_val test_funk_common,fd_funk fd_ut
 $(call make-unit-test,test_funk,test_funk,fd_funk fd_util)
 $(call make-unit-test,test_funk_persist,test_funk_persist,fd_funk fd_util)
 $(call make-unit-test,test_funk_persist2,test_funk_persist2,fd_funk fd_util)
+$(call make-unit-test,test_funk_persist3,test_funk_persist3,fd_funk fd_util)
 $(call run-unit-test,test_funk_base,)
 $(call run-unit-test,test_funk_txn,)
 $(call run-unit-test,test_funk_rec,)
