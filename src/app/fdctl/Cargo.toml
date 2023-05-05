@@ -1,0 +1,17 @@
+[package]
+name = "fdctl"
+version = "0.1.0"
+edition = "2021"
+authors = ["Firedancer Contributors <firedancer-devs@jumptrading.com>"]
+description = "Control binary for Firedancer"
+license = "Apache-2.0"
+
+[dependencies]
+clap = { version = "4.2.7", features = ["derive"] }
+env_logger = "0.10.0"
+libc = "0.2.144"
+log = "0.4.17"
+paste = "1.0.12"
+regex = "1.8.1"
+serde = { version = "1.0.162", features = ["derive"] }
+toml = "0.7.3"
