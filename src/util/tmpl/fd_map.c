@@ -300,14 +300,6 @@ MAP_(new)( void *  shmem ) {
   for( ulong slot_idx=0UL; slot_idx<MAP_SLOT_CNT; slot_idx++ ) map[ slot_idx ].MAP_KEY = (MAP_KEY_NULL);
   return map;
 }
-
-static inline void *
-MAP_(delete_all)( void * shmem) {
-  MAP_T * map = (MAP_T *)shmem;
-  for( ulong slot_idx=0UL; slot_idx<MAP_SLOT_CNT; slot_idx++ ) map[ slot_idx ].MAP_KEY = (MAP_KEY_NULL);
-  return map;
-}
-
 static inline MAP_T * MAP_(join)  ( void *  shmap ) { return (MAP_T *)shmap; }
 static inline void *  MAP_(leave) ( MAP_T * map   ) { return map; }
 static inline void *  MAP_(delete)( void *  shmap ) { return shmap; }

@@ -1,419 +1,621 @@
+/* Declares a family of functions implementing a single-threaded
+   fixed-capacity red-black tree designed for high performance
+   contexts.
+
+   A red-black tree is a type of self-balanced binary tree where the
+   nodes are kept in sorted order. Queries, insertions, and deletions
+   are O(log n) cost where n is the size of the tree. The implicit
+   sorting makes in-order traversal very fast, something a hash table
+   cannot do.
+
+   Tree nodes are allocated from a pool before insertion. After
+   removal, they are returned to the pool. The pool is the result of
+   the join operation.
+   
+   Multiple trees can coexist in the same pool, provided the total
+   size of all the trees does not exceed the pool size. This is
+   convenient for removing nodes from one tree and inserting them into
+   another without copying the key or value.
+   
+   Example usage:
+
+     struct my_rb_node {
+         ulong key;
+         ulong val;
+         ulong redblack_parent;
+         ulong redblack_left;
+         ulong redblack_right;
+         int redblack_color;
+     };
+     typedef struct my_rb_node my_rb_node_t;
+     #define REDBLK_T my_rb_node_t
+     #define REDBLK_NAME my_rb
+     #include "fd_redblack.c"
+
+   Note the order of declations and includes. REDBLK_T and REDBLK_NAME
+   need to be defined before including this template. REDBLK_T is the
+   node or element type. It must include the following fields:
+
+     ulong redblack_parent;
+     ulong redblack_left;
+     ulong redblack_right;
+     int redblack_color;
+
+   which are used by the redblack tree. Everything else in the node
+   type is up to the application.
+
+   This example creates the following API for use in the local compilation unit:
+
+     ulong my_rb_max_for_footprint( ulong footprint );
+     ulong my_rb_align( void );
+     ulong my_rb_footprint( ulong max );
+     void * my_rb_new( void * shmem, ulong max );
+     my_rb_node_t * my_rb_join( void * shpool );
+     void * my_rb_leave( my_rb_node_t * pool );
+     void * my_rb_delete( void * shpool );
+     ulong my_rb_max( my_rb_node_t const * pool );
+     ulong my_rb_free( my_rb_node_t const * pool );
+     ulong my_rb_idx( my_rb_node_t const * pool, my_rb_node_t const * node );
+     my_rb_node_t * my_rb_node( my_rb_node_t * pool, ulong idx );
+     my_rb_node_t * my_rb_acquire( my_rb_node_t * pool );
+     void my_rb_release( my_rb_node_t * pool, my_rb_node_t * node );
+     void my_rb_release_tree( my_rb_node_t * pool, my_rb_node_t * root );
+     my_rb_node_t * my_rb_minimum(my_rb_node_t * pool, my_rb_node_t * root);
+     my_rb_node_t * my_rb_maximum(my_rb_node_t * pool, my_rb_node_t * root);
+     my_rb_node_t * my_rb_successor(my_rb_node_t * pool, my_rb_node_t * node);
+     my_rb_node_t * my_rb_predecessor(my_rb_node_t * pool, my_rb_node_t * node);
+     my_rb_node_t * my_rb_insert(my_rb_node_t * pool, my_rb_node_t ** root, my_rb_node_t * x);
+     my_rb_node_t * my_rb_remove(my_rb_node_t * pool, my_rb_node_t ** root, my_rb_node_t * z);
+     my_rb_node_t * my_rb_find(my_rb_node_t * pool, my_rb_node_t * root, my_rb_node_t * key);
+     my_rb_node_t * my_rb_nearby(my_rb_node_t * pool, my_rb_node_t * root, my_rb_node_t * key);
+     ulong my_rb_size(my_rb_node_t * pool, my_rb_node_t * root);
+     int my_rb_verify(my_rb_node_t * pool, my_rb_node_t * root);
+     long my_rb_compare(my_rb_node_t * left, my_rb_node_t * right);
+
+   The specific usage and semantics of these methods is given below.
+
+   A sample application is as follows:
+
+     my_node_t* pool = my_rb_join( my_rb_new( shmem, 20 ) );
+     my_node_t* root = NULL;
+     for (ulong i = 0; i < 10; ++i) {
+       my_node_t * n = my_rb_acquire( pool );
+       n->key = 123 + i;
+       n->value = 456 + i;
+       my_rb_insert( pool, &root, n );
+     }
+     for (ulong i = 0; i < 10; ++i) {
+       my_node_t k;
+       k.key = 123 + i;
+       my_node_t * n = my_rb_find( pool, root, &k );
+       printf("key=%lu value=%lu\n", n->key, n->value);
+       n = my_rb_remove( pool, &root, n );
+       my_rb_release( pool, n );
+     }
+     my_rb_delete( my_rb_leave( pool ) );
+
+   The aplication must provided the compare implementation. It must
+   return a negative number, zero, or positive depending on whether
+   the left is less than, equal to, or greater than right. For
+   example:
+
+     long my_rb_compare(my_node_t* left, my_node_t* right) {
+       return (long)(left->key - right->key);
+     }
+
+*/
+
+#ifndef REDBLK_NAME
+#define "Define REDBLK_NAME"
+#endif
+
+#ifndef REDBLK_T
+#define "Define REDBLK_T"
+#endif
+
+/* 0 - local use only
+   1 - library header declaration
+   2 - library implementation */
+#ifndef REDBLK_IMPL_STYLE
+#define REDBLK_IMPL_STYLE 0
+#endif
+
+/* Constructors and verification logs detail on failure (rest only needs
+   fd_bits.h, consider making logging a compile time option). */
+
 #include "../log/fd_log.h"
 
+/* Namespace macro */
 #define REDBLK_(n) FD_EXPAND_THEN_CONCAT3(REDBLK_NAME,_,n)
-#define REDBLK_POOL_(n) FD_EXPAND_THEN_CONCAT3(REDBLK_NAME,_pool_,n)
 
-#ifndef REDBLK_MAGIC
-#define REDBLK_MAGIC 3693906804964735521UL
-#endif
+#if REDBLK_IMPL_STYLE==0 || REDBLK_IMPL_STYLE==1 /* need structures and inlines */
 
-#define REDBLK_NIL 0U /* all leafs are sentinels. this is always entry zero in the pool */
-
-struct REDBLK_POOL_(private) {
-  ulong magic;    /* REDBLK_MAGIC */
-  ulong max;      /* Arbitrary */
-  uint free;      /* head of free list */
-};
-
-typedef struct REDBLK_POOL_(private) REDBLK_POOL_(private_t);
+FD_PROTOTYPES_BEGIN
 
 /*
-  Get the private metadata from a join pointer.
+  E.g. ulong my_rb_max_for_footprint( ulong footprint );
+
+  Return the maximum number of nodes that will fit into a pool with
+  the given footprint.
 */
-static inline REDBLK_POOL_(private_t) *
-  REDBLK_POOL_(private)( REDBLK_T * join ) {
-  return (REDBLK_POOL_(private_t) *)(((ulong)join) - sizeof(REDBLK_POOL_(private_t)));
-}
+ulong REDBLK_(max_for_footprint)( ulong footprint );
 
 /*
-  Get the private metadata from a join pointer as a const.
+  E.g. ulong my_rb_align( void );
+
+  Return the pool alignment.
 */
-static inline REDBLK_POOL_(private_t) const *
-  REDBLK_POOL_(private_const)( REDBLK_T const * join ) {
-  return (REDBLK_POOL_(private_t) const *)(((ulong)join) - sizeof(REDBLK_POOL_(private_t)));
-}
+ulong REDBLK_(align)( void );
 
 /*
-  E.g. ulong my_rb_pool_align( void );
+  E.g. ulong my_rb_footprint( ulong max );
 
-  Return the byte alignment required by a node pool.
+  Return the minimum memory footprint needed for a pool with the given
+  number of nodes.
 */
-ulong REDBLK_POOL_(align)( void ) {
-  return fd_ulong_max( alignof(REDBLK_T), 128UL );
-}
+ulong REDBLK_(footprint)( ulong max );
 
 /*
-  Get the footprint of the private metadata.
+  E.g. void * my_rb_new( void * shmem, ulong max );
+
+  Initialize an allocation pool.
 */
-static inline ulong REDBLK_POOL_(private_meta_footprint)( void ) {
-  return fd_ulong_align_up( sizeof(REDBLK_POOL_(private_t)), REDBLK_POOL_(align)() );
-}
+void * REDBLK_(new)( void * shmem, ulong max );
 
 /*
-  E.g. ulong my_rb_pool_footprint( ulong max );
+  E.g. my_rb_node_t * my_rb_join( void * shpool );
 
-  Return the number of bytes of memory required by a pool with the
-  given maximum number of nodes.
+  Join an allocation pool.
 */
-ulong REDBLK_POOL_(footprint)( ulong max ) {
-  ulong align          = REDBLK_POOL_(align)();
-  ulong meta_footprint = REDBLK_POOL_(private_meta_footprint)(); /* Multiple of align */
-  ulong data_footprint = fd_ulong_align_up( sizeof(REDBLK_T)*max, align );
-  ulong thresh         = (ULONG_MAX - align - meta_footprint + 1UL) / sizeof(REDBLK_T);
-  return fd_ulong_if( max > thresh, 0UL, meta_footprint + data_footprint );
-}
+REDBLK_T * REDBLK_(join)( void * shpool );
 
 /*
-  E.g. ulong my_rb_pool_max_for_footprint( ulong footprint );
+  E.g. void * my_rb_leave( my_rb_node_t * pool );
 
-  Return the recommended maximum number of nodes for a given memory
-  footprint.
+  Leave an allocation pool.
 */
-ulong REDBLK_POOL_(max_for_footprint)( ulong footprint ) {
-  ulong meta_footprint = REDBLK_POOL_(private_meta_footprint)(); /* Multiple of align */
-  return (footprint - meta_footprint) / sizeof(REDBLK_T);
-}
+void * REDBLK_(leave)( REDBLK_T * pool );
 
 /*
-  E.g. void * my_rb_pool_new( void * shmem, ulong max );
+  E.g. void * my_rb_delete( void * shpool );
 
-  Initialize memory for a node pool for a given maximum number of
-  nodes. All nodes in the pool will be uninitialized and available for
-  allocation to start. There must be enough memory for the required
-  footprint.
+  Delete an allocation pool.
 */
-void * REDBLK_POOL_(new)( void * shmem, ulong  max ) {
-  if( FD_UNLIKELY( !shmem ) ) return NULL;
+void * REDBLK_(delete)( void * shpool );
 
-  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)shmem, REDBLK_POOL_(align)() ) ) ) return NULL;
+/*
+  E.g. ulong my_rb_max( my_rb_node_t const * pool );
 
-  if( FD_UNLIKELY( !REDBLK_POOL_(footprint)( max ) ) ) return NULL;
+  Return the max value given when new was called.
+*/
+ulong REDBLK_(max)( REDBLK_T const * pool );
 
-  /* Initialize the sentinel */
-  REDBLK_T * join = (REDBLK_T *)(((ulong)shmem) + REDBLK_POOL_(private_meta_footprint)());
-  join[REDBLK_NIL].redblack.left = REDBLK_NIL;
-  join[REDBLK_NIL].redblack.right = REDBLK_NIL;
-  join[REDBLK_NIL].redblack.parent = REDBLK_NIL;
-  join[REDBLK_NIL].redblack.color = REDBLK_BLACK;
+/*
+  E.g. ulong my_rb_free( my_rb_node_t const * pool );
+
+  Return the number of available nodes in the free pool.
+*/
+ulong REDBLK_(free)( REDBLK_T const * pool );
+
+/*
+  E.g. ulong my_rb_idx( my_rb_node_t const * pool, my_rb_node_t const * node );
+
+  Return the logical index of the node in a pool. Useful when
+  relocating a pool in memory.
+  */
+ulong REDBLK_(idx)( REDBLK_T const * pool, REDBLK_T const * node );
+
+/*
+  E.g. my_rb_node_t * my_rb_node( my_rb_node_t * pool, ulong idx );
+
+  Return the node at a logical index in a pool. Useful when relocating
+  a pool in memory.
+*/
+REDBLK_T * REDBLK_(node)( REDBLK_T * pool, ulong idx );
+
+/*
+  E.g. my_rb_node_t * my_rb_acquire( my_rb_node_t * pool );
+
+  Acquire a node from the free pool. The result requires
+  initialization before insertion. For example:
+
+    my_node_t * n = my_rb_acquire( pool );
+    n->key = 123 + i;
+    n->value = 456 + i;
+    my_rb_insert( pool, &root, n );
+*/
+REDBLK_T * REDBLK_(acquire)( REDBLK_T * pool );
+
+/*
+  E.g. void my_rb_release( my_rb_node_t * pool, my_rb_node_t * node );
+
+  Return a node to the free pool. It must be removed from the tree
+  first. For example:
+
+    my_node_t * n = my_rb_find( pool, root, &k );
+    n = my_rb_remove( pool, &root, n );
+    my_rb_release( pool, n );
   
-  /* Build free list */
-  uint last = REDBLK_NIL;
-  for (uint i = 1; i < max; ++i) {
-    join[i].redblack.left = last;
-    join[i].redblack.right = REDBLK_NIL;
-    join[i].redblack.parent = REDBLK_NIL;
-    join[i].redblack.color = REDBLK_FREE;
-    last = i;
-  }
-
-  /* Init metadata */
-  REDBLK_POOL_(private_t) * meta = REDBLK_POOL_(private)( join );
-  meta->magic = REDBLK_MAGIC;
-  meta->max = max;
-  meta->free = last;
-  return shmem;
-}
-
-/*
-  E.g. my_node_t * my_rb_pool_join( void * shmem );
-
-  Attach to a node pool which is already formatted (possibly in shared
-  memory). The resulting pointer represents the pool. Only a single
-  thread can join a pool at one time. Concurrent access is not supported.
 */
-REDBLK_T * REDBLK_POOL_(join)( void * shmem ) {
-  if( FD_UNLIKELY( !shmem ) ) return NULL;
-
-  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)shmem, REDBLK_POOL_(align)() ) ) ) return NULL;
-
-  REDBLK_T * join = (REDBLK_T *)(((ulong)shmem) + REDBLK_POOL_(private_meta_footprint)());
-  REDBLK_POOL_(private_t) * meta = REDBLK_POOL_(private)( join );
-  if ( meta->magic != REDBLK_MAGIC ) {
-    FD_LOG_WARNING(("invalid pool pointer"));
-    return NULL;
-  }
-  
-  return join;
-}
+void REDBLK_(release)( REDBLK_T * pool, REDBLK_T * node );
 
 /*
-  E.g. void * my_rb_pool_leave( my_node_t * join );
-
-  Detach from a node pool. This will not call any "destructors" on the
-  nodes. If applications require additional memory management, they
-  must solve this problem.
-*/
-void * REDBLK_POOL_(leave)( REDBLK_T * join ) {
-
-  if( FD_UNLIKELY( !join ) ) return NULL;
-
-  return (void *)(((ulong)join) - REDBLK_POOL_(private_meta_footprint)());
-}
-
-/*
-  E.g. void * my_rb_pool_delete( void * shmem );
-
-  Mark a pool as deleted.
-*/
-void * REDBLK_POOL_(delete)( void * shmem ) {
-
-  if( FD_UNLIKELY( !shmem ) ) return NULL;
-
-  REDBLK_T * join = (REDBLK_T *)(((ulong)shmem) + REDBLK_POOL_(private_meta_footprint)());
-  REDBLK_POOL_(private_t) * meta = REDBLK_POOL_(private)( join );
-  meta->magic = 0;
-
-  return shmem;
-}
-
-/*
-  E.g. ulong my_rb_pool_max( my_node_t const * join );
-
-  Return the maximum number of nodes that the pool was configured with.
-*/
-ulong REDBLK_POOL_(max)( REDBLK_T const * join ) {
-  REDBLK_POOL_(private_t) const * meta = REDBLK_POOL_(private_const)( join );
-#ifndef REDBLK_UNSAFE
-  if ( FD_UNLIKELY(meta->magic != REDBLK_MAGIC) )
-    FD_LOG_ERR(("invalid argument"));
-#endif
-  return meta->max;
-}
-
-/*
-  E.g. my_node_t * my_rb_pool_allocate( my_node_t * join );
-
-  Allocate a node out of a pool. Returns NULL if the pool is fully
-  utilized. The application must initialize any values in the node after
-  allocation but before insertion. For example:
-
-    my_node_t * n = my_rb_pool_allocate( join );
-    n->key = 123;
-    n->value = 456;
-    my_rb_insert( &root, n );
-
-  The "redblack" member is considered private and should not be touched
-  by the application.
-*/
-REDBLK_T * REDBLK_POOL_(allocate)( REDBLK_T * join ) {
-  REDBLK_POOL_(private_t) * meta = REDBLK_POOL_(private)( join );
-#ifndef REDBLK_UNSAFE
-  if ( FD_UNLIKELY(meta->magic != REDBLK_MAGIC) )
-    FD_LOG_ERR(("invalid argument"));
-#endif
-  REDBLK_T * node = &join[meta->free];
-  if (node == &join[REDBLK_NIL])
-    return NULL;
-#ifndef REDBLK_UNSAFE
-  if ( FD_UNLIKELY(node->redblack.color != REDBLK_FREE) )
-    FD_LOG_ERR(("tree corruption"));
-#endif
-  node->redblack.color = REDBLK_NEW;
-  meta->free = node->redblack.left;
-  return node;
-}
-
-#ifndef REDBLK_UNSAFE
-/*
-  Verify that a node is valid for a pool
-*/
-void REDBLK_POOL_(validate_node)( REDBLK_T * join, REDBLK_T * node ) {
-  if ( FD_UNLIKELY(node == NULL) )
-    return;
-  REDBLK_POOL_(private_t) * meta = REDBLK_POOL_(private)( join );
-  ulong index = (ulong)(node - join);
-  if ( FD_UNLIKELY(meta->magic != REDBLK_MAGIC || index >= meta->max ||
-                   node != join + index || node->redblack.color == REDBLK_FREE) )
-    FD_LOG_ERR(("invalid node pointer"));
-}
-#endif
-
-/*
-  E.g. void my_rb_pool_release( my_node_t * join, my_node_t * node);
-
-  Release a node back into the pool for later allocation. Typically,
-  this is done after a deletion. For example:
- 
-    my_node_t * n = my_rb_find( root, &k );
-    n = my_rb_delete( &root, n );
-    my_rb_pool_release( pool, n );
-
-  Delete and release are separate steps to allow an application to
-  perform final cleanup on the node in between.
-*/
-void REDBLK_POOL_(release)( REDBLK_T * join, REDBLK_T * node ) {
-  REDBLK_POOL_(private_t) * meta = REDBLK_POOL_(private)( join );
-#ifndef REDBLK_UNSAFE
-  REDBLK_POOL_(validate_node)(join, node);
-#endif
-  node->redblack.left = meta->free;
-  node->redblack.right = REDBLK_NIL;
-  node->redblack.parent = REDBLK_NIL;
-  node->redblack.color = REDBLK_FREE;
-  meta->free = (uint)(node - join);
-}
-
-/*
-  E.g. void my_rb_pool_release_tree( my_node_t * join, my_node_t * root );
+  E.g. void my_rb_release_tree( my_node_t * pool, my_node_t * root );
 
   Recursively release all nodes in a tree to a pool. The root argument
   is invalid after this method is called.
 */
-void REDBLK_POOL_(release_tree)( REDBLK_T * pool, REDBLK_T * node ) {
-  if (!node || node == &pool[REDBLK_NIL])
-    return;
-  
-  REDBLK_T * left = &pool[node->redblack.left];
-  REDBLK_T * right = &pool[node->redblack.right];
-  
-  REDBLK_POOL_(private_t) * meta = REDBLK_POOL_(private)( pool );
-#ifndef REDBLK_UNSAFE
-  REDBLK_POOL_(validate_node)(pool, node);
-#endif
-  node->redblack.left = meta->free;
-  node->redblack.right = REDBLK_NIL;
-  node->redblack.parent = REDBLK_NIL;
-  node->redblack.color = REDBLK_FREE;
-  meta->free = (uint)(node - pool);
-
-  REDBLK_POOL_(release_tree)(pool, left);
-  REDBLK_POOL_(release_tree)(pool, right);
-}
-
-/*
-  E.g. long my_rb_pool_local_to_global( my_node_t * join, my_node_t * root );
-
-  Convert a local root pointer to a global address which can be stored
-  in shared memory. This allows a pool to be relocated. Use
-  global_to_local to convert back.
-*/
-long REDBLK_POOL_(local_to_global)( REDBLK_T * join, REDBLK_T * root ) {
-  return (root == NULL ? -1 : (root - join));
-}
-
-/*
-  E.g. my_node_t * my_rb_pool_global_to_local( my_node_t * join, long root );
-
-  Convert a global address to a local root pointer. This allows a pool
-  to be relocated.
-*/
-REDBLK_T * REDBLK_POOL_(global_to_local)( REDBLK_T * join, long root ) {
-  return (root == -1 ? NULL : join + root);
-}
+void REDBLK_(release_tree)( REDBLK_T * pool, REDBLK_T * root );
 
 /*
   E.g. my_node_t * my_rb_minimum(my_node_t * pool, my_node_t * root);
 
   Return the node in a tree that has the smallest key (leftmost).
 */
-REDBLK_T * REDBLK_(minimum)(REDBLK_T * pool, REDBLK_T * node) {
-  if (!node || node == &pool[REDBLK_NIL])
-    return NULL;
-#ifndef REDBLK_UNSAFE
-  REDBLK_POOL_(validate_node)(pool, node);
-#endif
-  while (node->redblack.left != REDBLK_NIL) {
-    node = &pool[node->redblack.left];
-  }
-  return node;
-}
-
+REDBLK_T * REDBLK_(minimum)(REDBLK_T * pool, REDBLK_T * root);
 /*
-  E.g. my_node_t * my_rb_maximum(my_node_t * pool, my_node_t * node);
+  E.g. my_node_t * my_rb_maximum(my_node_t * pool, my_node_t * root);
 
   Return the node in a tree that has the largest key (rightmost).
 */
-REDBLK_T * REDBLK_(maximum)(REDBLK_T * pool, REDBLK_T * node) {
-  if (!node || node == &pool[REDBLK_NIL])
-    return NULL;
-#ifndef REDBLK_UNSAFE
-  REDBLK_POOL_(validate_node)(pool, node);
-#endif
-  while (node->redblack.right != REDBLK_NIL) {
-    node = &pool[node->redblack.right];
-  }
-  return node;
-}
-
+REDBLK_T * REDBLK_(maximum)(REDBLK_T * pool, REDBLK_T * root);
 /*
   E.g. my_node_t * my_rb_successor(my_node_t * pool, my_node_t * node);
 
   Return the next node which is larger than the given node. To iterate
   across the entire tree, do the following:
 
-    for ( my_node_t* n = my_rb_minimum(root); n; n = my_rb_successor(n) ) {
+    for ( my_node_t* n = my_rb_minimum(pool, root); n; n = my_rb_successor(pool, n) ) {
       printf("key=%lu value=%lu\n", n->key, n->value);
     }
 
   To iterate safely while also deleting, do:
 
     my_node_t* nn;
-    for ( my_node_t* n = my_rb_minimum(root); n; n = nn ) {
-      nn = my_rb_successor(n);
+    for ( my_node_t* n = my_rb_minimum(pool, root); n; n = nn ) {
+      nn = my_rb_successor(pool, n);
       // Possibly delete n
     }
 */
-REDBLK_T * REDBLK_(successor)(REDBLK_T * pool, REDBLK_T * x) {
-#ifndef REDBLK_UNSAFE
-  REDBLK_POOL_(validate_node)(pool, x);
-#endif
-
-  // if the right subtree is not null,
-  // the successor is the leftmost node in the
-  // right subtree
-  if (x->redblack.right != REDBLK_NIL) {
-    return REDBLK_(minimum)(pool, &pool[x->redblack.right]);
-  }
-
-  // else it is the lowest ancestor of x whose
-  // left child is also an ancestor of x.
-  for (;;) {
-    if (x->redblack.parent == REDBLK_NIL)
-      return NULL;
-    REDBLK_T * y = &pool[x->redblack.parent];
-    if (x == &pool[y->redblack.left])
-      return y;
-    x = y;
-  }
-}
-
+REDBLK_T * REDBLK_(successor)(REDBLK_T * pool, REDBLK_T * node);
 /*
   E.g. my_node_t * my_rb_predecessor(my_node_t * pool, my_node_t * node);
 
   Return the previous node which is smaller than the given node. To iterate
   across the entire tree backwards, do the following:
 
-    for ( my_node_t* n = my_rb_maximum(root); n; n = my_rb_predecessor(n) ) {
+    for ( my_node_t* n = my_rb_maximum(pool, root); n; n = my_rb_predecessor(pool, n) ) {
       printf("key=%lu value=%lu\n", n->key, n->value);
     }
 
   To iterate safely while also deleting, do:
 
     my_node_t* nn;
-    for ( my_node_t* n = my_rb_maximum(root); n; n = nn ) {
-      nn = my_rb_predecessor(n);
+    for ( my_node_t* n = my_rb_maximum(pool, root); n; n = nn ) {
+      nn = my_rb_predecessor(pool, n);
       // Possibly delete n
     }
 */
+REDBLK_T * REDBLK_(predecessor)(REDBLK_T * pool, REDBLK_T * node);
+/*
+  E.g. my_node_t * my_rb_insert(my_node_t * pool, my_node_t ** root, my_node_t * x);
+
+  Insert a node into a tree. Typically, the node must be allocated
+  from a pool first. The application must initialize any values in the
+  node after allocation but before insertion. For example:
+
+    my_node_t * n = my_rb_acquire( pool );
+    n->key = 123;
+    n->value = 456;
+    n = my_rb_insert( pool, &root, n );
+
+  The inserted node is returned.
+*/
+REDBLK_T * REDBLK_(insert)(REDBLK_T * pool, REDBLK_T ** root, REDBLK_T * x);
+/*
+  E.g. my_node_t * my_rb_remove(my_node_t * pool, my_node_t ** root, my_node_t * z);
+
+  Remove a node from a tree. The node must be a member of the tree,
+  usually the result of a find operation. The node is typically
+  released to the pool afterwards. For example:
+ 
+    my_node_t * n = my_rb_find( pool, root, &k );
+    n = my_rb_remove( pool, &root, n );
+    my_rb_pool_release( pool, n );
+
+  Remove and release are separate steps to allow an application to
+  perform final cleanup on the node in between. You can insert a node
+  into a different tree after deletion if both trees share a pool. For
+  example:
+
+    n = my_rb_remove( pool, &root, n );
+    my_rb_insert( pool, &root2, n );
+*/
+REDBLK_T * REDBLK_(remove)(REDBLK_T * pool, REDBLK_T ** root, REDBLK_T * z);
+/*
+  E.g. my_node_t * my_rb_find(my_node_t * pool, my_node_t * root, my_node_t * key);
+
+  Search for a key in the tree. In this special case, the key can be a
+  temporary instance of the node type rather than a properly
+  allocated node. For example:
+
+    my_node_t k;
+    k.key = 123 + i;
+    my_node_t * n = my_rb_find( pool, root, &k );
+    printf("key=%lu value=%lu\n", n->key, n->value);
+
+  A NULL is returned if the find fails.
+*/
+REDBLK_T * REDBLK_(find)(REDBLK_T * pool, REDBLK_T * root, REDBLK_T * key);
+/*
+  E.g. my_node_t * my_rb_nearby(my_node_t * pool, my_node_t * root, my_node_t * key);
+
+  Search for a key in the tree. If the key can't be found, a nearby
+  approximation is returned instead. This is either the greatest node
+  less than the key, or the least node greater than the key. In this
+  special case, the key can be a temporary instance of the node type
+  rather than a properly allocated node. For example:
+
+    my_node_t k;
+    k.key = 123 + i;
+    my_node_t * n = my_rb_nearby( pool, root, &k );
+    printf("key=%lu value=%lu\n", n->key, n->value);
+
+  A NULL is returned if the search fails.
+*/
+REDBLK_T * REDBLK_(nearby)(REDBLK_T * pool, REDBLK_T * root, REDBLK_T * key);
+/*
+  E.g. ulong my_rb_size(my_node_t * pool, my_node_t * root);
+
+  Count the number of nodes in a tree.
+*/
+ulong REDBLK_(size)(REDBLK_T * pool, REDBLK_T * root);
+
+/*
+  E.g. int my_rb_verify(my_node_t * pool, my_node_t * root);
+
+  Verify the integrity of the tree data structure. Useful for
+  debugging memory corruption. A non-zero result is returned if an error
+  is detected.
+*/
+int REDBLK_(verify)(REDBLK_T * pool, REDBLK_T * root);
+
+/*
+  E.g. long my_rb_compare(my_node_t * left, my_node_t * right);
+  
+  Defined by application to implement key comparison. Returns a
+  negative number, zero, or positive depending on whether the left is
+  less than, equal to, or greater than right. For example:
+
+    long my_rb_compare(my_node_t* left, my_node_t* right) {
+      return (long)(left->key - right->key);
+    }
+*/
+long REDBLK_(compare)(REDBLK_T * left, REDBLK_T * right);
+
+FD_PROTOTYPES_END
+
+#endif /* REDBLK_IMPL_STYLE==0 || REDBLK_IMPL_STYLE==1 */
+
+#if REDBLK_IMPL_STYLE==0 || REDBLK_IMPL_STYLE==2 /* need implementations */
+
+/* Tree node colors */
+#define REDBLK_FREE -1
+#define REDBLK_NEW 0
+#define REDBLK_BLACK 1
+#define REDBLK_RED 2
+
+#ifndef REDBLK_PARENT
+#define REDBLK_PARENT redblack_parent
+#endif
+#ifndef REDBLK_LEFT
+#define REDBLK_LEFT redblack_left
+#endif
+#ifndef REDBLK_RIGHT
+#define REDBLK_RIGHT redblack_right
+#endif
+#ifndef REDBLK_COLOR
+#define REDBLK_COLOR redblack_color
+#endif
+
+#define POOL_NAME FD_EXPAND_THEN_CONCAT2(REDBLK_NAME,_pool)
+#define POOL_T REDBLK_T
+#define POOL_SENTINEL 1
+#ifdef REDBLK_NEXTFREE
+#define POOL_NEXT REDBLK_NEXTFREE
+#else
+#define POOL_NEXT REDBLK_RIGHT
+#endif
+#include "fd_pool.c"
+#undef MAP_POOL_NAME
+#undef MAP_POOL_T
+
+#define REDBLK_POOL_(n) FD_EXPAND_THEN_CONCAT3(REDBLK_NAME,_pool_,n)
+
+#define REDBLK_NIL 0UL /* Must be same as pool sentinel */
+
+ulong REDBLK_(max_for_footprint)( ulong footprint ) {
+  return REDBLK_POOL_(max_for_footprint)(footprint) - 1; /* Allow for sentinel */
+}
+
+ulong REDBLK_(align)( void ) {
+  return REDBLK_POOL_(align)();
+}
+
+ulong REDBLK_(footprint)( ulong max ) {
+  return REDBLK_POOL_(footprint)(max + 1); /* Allow for sentinel */
+}
+
+void * REDBLK_(new)( void * shmem, ulong max ) {
+  void * shmem2 = REDBLK_POOL_(new)(shmem, max + 1); /* Allow for sentinel */
+  if ( FD_UNLIKELY( shmem2 == NULL ) )
+    return NULL;
+  /* Initialize sentinel */
+  REDBLK_T * pool = REDBLK_POOL_(join)(shmem2);
+  if ( FD_UNLIKELY( pool == NULL ) )
+    return NULL;
+  REDBLK_T * node = REDBLK_POOL_(ele_sentinel)(pool);
+  node->REDBLK_LEFT = REDBLK_NIL;
+  node->REDBLK_RIGHT = REDBLK_NIL;
+  node->REDBLK_PARENT = REDBLK_NIL;
+  node->REDBLK_COLOR = REDBLK_BLACK;
+  return shmem2;
+}
+
+REDBLK_T * REDBLK_(join)( void * shpool ) {
+  return REDBLK_POOL_(join)(shpool);
+}
+
+void * REDBLK_(leave)( REDBLK_T * pool ) {
+  return REDBLK_POOL_(leave)(pool);
+}
+
+void * REDBLK_(delete)( void * shpool ) {
+  return REDBLK_POOL_(delete)(shpool);
+}
+
+ulong REDBLK_(max)( REDBLK_T const * pool ) {
+  return REDBLK_POOL_(max)(pool) - 1; /* Allow for sentinel */
+}
+
+ulong REDBLK_(free)( REDBLK_T const * pool ) {
+  return REDBLK_POOL_(free)(pool);
+}
+
+ulong REDBLK_(idx)( REDBLK_T const * pool, REDBLK_T const * node ) {
+  return REDBLK_POOL_(idx)(pool, node);
+}
+
+REDBLK_T * REDBLK_(node)( REDBLK_T * pool, ulong idx ) {
+  return REDBLK_POOL_(ele)(pool, idx);
+}
+
+REDBLK_T * REDBLK_(acquire)( REDBLK_T * pool ) {
+  if ( REDBLK_POOL_(free)( pool ) == 0 )
+    return NULL;
+  REDBLK_T * node = REDBLK_POOL_(ele_acquire)(pool);
+  node->REDBLK_COLOR = REDBLK_NEW;
+  return node;
+}
+
+#ifndef REDBLK_UNSAFE
+void REDBLK_(validate_element)( REDBLK_T * pool, REDBLK_T * node ) {
+  if ( !REDBLK_POOL_(ele_test)( pool, node ) )
+    FD_LOG_ERR(( "invalid redblack node" ));
+  if ( node && node->REDBLK_COLOR == REDBLK_FREE )
+    FD_LOG_ERR(( "invalid redblack node" ));
+}
+#endif
+
+void REDBLK_(release)( REDBLK_T * pool, REDBLK_T * node ) {
+#ifndef REDBLK_UNSAFE
+  REDBLK_(validate_element)(pool, node);
+#endif
+
+  node->REDBLK_COLOR = REDBLK_FREE;
+  REDBLK_POOL_(ele_release)(pool, node);
+}
+
+/*
+  Recursively release all nodes in a tree to a pool. The root argument
+  is invalid after this method is called.
+*/
+void REDBLK_(release_tree)( REDBLK_T * pool, REDBLK_T * node ) {
+  if (!node || node == &pool[REDBLK_NIL])
+    return;
+
+#ifndef REDBLK_UNSAFE
+  REDBLK_(validate_element)(pool, node);
+#endif
+  
+  REDBLK_T * left = &pool[node->REDBLK_LEFT];
+  REDBLK_T * right = &pool[node->REDBLK_RIGHT];
+  
+  REDBLK_(release)(pool, node);
+
+  REDBLK_(release_tree)(pool, left);
+  REDBLK_(release_tree)(pool, right);
+}
+
+/*
+  Return the node in a tree that has the smallest key (leftmost).
+*/
+REDBLK_T * REDBLK_(minimum)(REDBLK_T * pool, REDBLK_T * node) {
+  if (!node || node == &pool[REDBLK_NIL])
+    return NULL;
+#ifndef REDBLK_UNSAFE
+  REDBLK_(validate_element)(pool, node);
+#endif
+  while (node->REDBLK_LEFT != REDBLK_NIL) {
+    node = &pool[node->REDBLK_LEFT];
+  }
+  return node;
+}
+
+/*
+  Return the node in a tree that has the largest key (rightmost).
+*/
+REDBLK_T * REDBLK_(maximum)(REDBLK_T * pool, REDBLK_T * node) {
+  if (!node || node == &pool[REDBLK_NIL])
+    return NULL;
+#ifndef REDBLK_UNSAFE
+  REDBLK_(validate_element)(pool, node);
+#endif
+  while (node->REDBLK_RIGHT != REDBLK_NIL) {
+    node = &pool[node->REDBLK_RIGHT];
+  }
+  return node;
+}
+
+/*
+  Return the next node which is larger than the given node.
+*/
+REDBLK_T * REDBLK_(successor)(REDBLK_T * pool, REDBLK_T * x) {
+#ifndef REDBLK_UNSAFE
+  REDBLK_(validate_element)(pool, x);
+#endif
+
+  // if the right subtree is not null,
+  // the successor is the leftmost node in the
+  // right subtree
+  if (x->REDBLK_RIGHT != REDBLK_NIL) {
+    return REDBLK_(minimum)(pool, &pool[x->REDBLK_RIGHT]);
+  }
+
+  // else it is the lowest ancestor of x whose
+  // left child is also an ancestor of x.
+  for (;;) {
+    if (x->REDBLK_PARENT == REDBLK_NIL)
+      return NULL;
+    REDBLK_T * y = &pool[x->REDBLK_PARENT];
+    if (x == &pool[y->REDBLK_LEFT])
+      return y;
+    x = y;
+  }
+}
+
+/*
+  Return the previous node which is smaller than the given node.
+*/
 REDBLK_T * REDBLK_(predecessor)(REDBLK_T * pool, REDBLK_T * x) {
 #ifndef REDBLK_UNSAFE
-  REDBLK_POOL_(validate_node)(pool, x);
+  REDBLK_(validate_element)(pool, x);
 #endif
 
   // if the left subtree is not null,
   // the predecessor is the rightmost node in the 
   // left subtree
-  if (x->redblack.left != REDBLK_NIL) {
-    return REDBLK_(maximum)(pool, &pool[x->redblack.left]);
+  if (x->REDBLK_LEFT != REDBLK_NIL) {
+    return REDBLK_(maximum)(pool, &pool[x->REDBLK_LEFT]);
   }
 
   // else it is the lowest ancestor of x whose
   // right child is also an ancestor of x.
   for (;;) {
-    if (x->redblack.parent == REDBLK_NIL)
+    if (x->REDBLK_PARENT == REDBLK_NIL)
       return NULL;
-    REDBLK_T * y = &pool[x->redblack.parent];
-    if (x == &pool[y->redblack.right])
+    REDBLK_T * y = &pool[x->REDBLK_PARENT];
+    if (x == &pool[y->REDBLK_RIGHT])
       return y;
     x = y;
   }
@@ -423,60 +625,60 @@ REDBLK_T * REDBLK_(predecessor)(REDBLK_T * pool, REDBLK_T * x) {
   Perform a left rotation around a node
 */
 static void REDBLK_(rotateLeft)(REDBLK_T * pool, REDBLK_T ** root, REDBLK_T * x) {
-  REDBLK_T * y = &pool[x->redblack.right];
+  REDBLK_T * y = &pool[x->REDBLK_RIGHT];
 
-  /* establish x->redblack.right link */
-  x->redblack.right = y->redblack.left;
-  if (y->redblack.left != REDBLK_NIL)
-    pool[y->redblack.left].redblack.parent = (uint)(x - pool);
+  /* establish x->REDBLK_RIGHT link */
+  x->REDBLK_RIGHT = y->REDBLK_LEFT;
+  if (y->REDBLK_LEFT != REDBLK_NIL)
+    pool[y->REDBLK_LEFT].REDBLK_PARENT = (uint)(x - pool);
 
-  /* establish y->redblack.parent link */
+  /* establish y->REDBLK_PARENT link */
   if (y != &pool[REDBLK_NIL])
-    y->redblack.parent = x->redblack.parent;
-  if (x->redblack.parent) {
-    REDBLK_T * p = &pool[x->redblack.parent];
-    if (x == &pool[p->redblack.left])
-      p->redblack.left = (uint)(y - pool);
+    y->REDBLK_PARENT = x->REDBLK_PARENT;
+  if (x->REDBLK_PARENT) {
+    REDBLK_T * p = &pool[x->REDBLK_PARENT];
+    if (x == &pool[p->REDBLK_LEFT])
+      p->REDBLK_LEFT = (uint)(y - pool);
     else
-      p->redblack.right = (uint)(y - pool);
+      p->REDBLK_RIGHT = (uint)(y - pool);
   } else {
     *root = y;
   }
 
   /* link x and y */
-  y->redblack.left = (uint)(x - pool);
+  y->REDBLK_LEFT = (uint)(x - pool);
   if (x != &pool[REDBLK_NIL])
-    x->redblack.parent = (uint)(y - pool);
+    x->REDBLK_PARENT = (uint)(y - pool);
 }
 
 /*
   Perform a right rotation around a node
 */
 static void REDBLK_(rotateRight)(REDBLK_T * pool, REDBLK_T ** root, REDBLK_T * x) {
-  REDBLK_T * y = &pool[x->redblack.left];
+  REDBLK_T * y = &pool[x->REDBLK_LEFT];
 
-  /* establish x->redblack.left link */
-  x->redblack.left = y->redblack.right;
-  if (y->redblack.right != REDBLK_NIL)
-    pool[y->redblack.right].redblack.parent = (uint)(x - pool);
+  /* establish x->REDBLK_LEFT link */
+  x->REDBLK_LEFT = y->REDBLK_RIGHT;
+  if (y->REDBLK_RIGHT != REDBLK_NIL)
+    pool[y->REDBLK_RIGHT].REDBLK_PARENT = (uint)(x - pool);
 
-  /* establish y->redblack.parent link */
+  /* establish y->REDBLK_PARENT link */
   if (y != &pool[REDBLK_NIL])
-    y->redblack.parent = x->redblack.parent;
-  if (x->redblack.parent) {
-    REDBLK_T * p = &pool[x->redblack.parent];
-    if (x == &pool[p->redblack.right])
-      p->redblack.right = (uint)(y - pool);
+    y->REDBLK_PARENT = x->REDBLK_PARENT;
+  if (x->REDBLK_PARENT) {
+    REDBLK_T * p = &pool[x->REDBLK_PARENT];
+    if (x == &pool[p->REDBLK_RIGHT])
+      p->REDBLK_RIGHT = (uint)(y - pool);
     else
-      p->redblack.left = (uint)(y - pool);
+      p->REDBLK_LEFT = (uint)(y - pool);
   } else {
     *root = y;
   }
 
   /* link x and y */
-  y->redblack.right = (uint)(x - pool);
+  y->REDBLK_RIGHT = (uint)(x - pool);
   if (x != &pool[REDBLK_NIL])
-    x->redblack.parent = (uint)(y - pool);
+    x->REDBLK_PARENT = (uint)(y - pool);
 }
 
 /*
@@ -485,83 +687,72 @@ static void REDBLK_(rotateRight)(REDBLK_T * pool, REDBLK_T ** root, REDBLK_T * x
 static void REDBLK_(insertFixup)(REDBLK_T * pool, REDBLK_T ** root, REDBLK_T * x) {
   /* check Red-Black properties */
   REDBLK_T * p;
-  while (x != *root && (p = &pool[x->redblack.parent])->redblack.color == REDBLK_RED) {
+  while (x != *root && (p = &pool[x->REDBLK_PARENT])->REDBLK_COLOR == REDBLK_RED) {
     /* we have a violation */
-    REDBLK_T * gp = &pool[p->redblack.parent];
-    if (x->redblack.parent == gp->redblack.left) {
-      REDBLK_T * y = &pool[gp->redblack.right];
-      if (y->redblack.color == REDBLK_RED) {
+    REDBLK_T * gp = &pool[p->REDBLK_PARENT];
+    if (x->REDBLK_PARENT == gp->REDBLK_LEFT) {
+      REDBLK_T * y = &pool[gp->REDBLK_RIGHT];
+      if (y->REDBLK_COLOR == REDBLK_RED) {
 
         /* uncle is REDBLK_RED */
-        p->redblack.color = REDBLK_BLACK;
-        y->redblack.color = REDBLK_BLACK;
-        gp->redblack.color = REDBLK_RED;
+        p->REDBLK_COLOR = REDBLK_BLACK;
+        y->REDBLK_COLOR = REDBLK_BLACK;
+        gp->REDBLK_COLOR = REDBLK_RED;
         x = gp;
       } else {
 
         /* uncle is REDBLK_BLACK */
-        if (x == &pool[p->redblack.right]) {
+        if (x == &pool[p->REDBLK_RIGHT]) {
           /* make x a left child */
           x = p;
           REDBLK_(rotateLeft)(pool, root, x);
-          p = &pool[x->redblack.parent];
-          gp = &pool[p->redblack.parent];
+          p = &pool[x->REDBLK_PARENT];
+          gp = &pool[p->REDBLK_PARENT];
         }
 
         /* recolor and rotate */
-        p->redblack.color = REDBLK_BLACK;
-        gp->redblack.color = REDBLK_RED;
+        p->REDBLK_COLOR = REDBLK_BLACK;
+        gp->REDBLK_COLOR = REDBLK_RED;
         REDBLK_(rotateRight)(pool, root, gp);
       }
       
     } else {
       /* mirror image of above code */
-      REDBLK_T * y = &pool[gp->redblack.left];
-      if (y->redblack.color == REDBLK_RED) {
+      REDBLK_T * y = &pool[gp->REDBLK_LEFT];
+      if (y->REDBLK_COLOR == REDBLK_RED) {
 
         /* uncle is REDBLK_RED */
-        p->redblack.color = REDBLK_BLACK;
-        y->redblack.color = REDBLK_BLACK;
-        gp->redblack.color = REDBLK_RED;
+        p->REDBLK_COLOR = REDBLK_BLACK;
+        y->REDBLK_COLOR = REDBLK_BLACK;
+        gp->REDBLK_COLOR = REDBLK_RED;
         x = gp;
       } else {
 
         /* uncle is REDBLK_BLACK */
-        if (x == &pool[p->redblack.left]) {
+        if (x == &pool[p->REDBLK_LEFT]) {
           x = p;
           REDBLK_(rotateRight)(pool, root, x);
-          p = &pool[x->redblack.parent];
-          gp = &pool[p->redblack.parent];
+          p = &pool[x->REDBLK_PARENT];
+          gp = &pool[p->REDBLK_PARENT];
         }
-        p->redblack.color = REDBLK_BLACK;
-        gp->redblack.color = REDBLK_RED;
+        p->REDBLK_COLOR = REDBLK_BLACK;
+        gp->REDBLK_COLOR = REDBLK_RED;
         REDBLK_(rotateLeft)(pool, root, gp);
       }
     }
   }
 
-  (*root)->redblack.color = REDBLK_BLACK;
+  (*root)->REDBLK_COLOR = REDBLK_BLACK;
 }
 
 /*
-  E.g. my_node_t * my_rb_insert(my_node_t * pool, my_node_t ** root, my_node_t * x);
-
   Insert a node into a tree. Typically, the node must be allocated
-  from a pool first. The application must initialize any values in the
-  node after allocation but before insertion. For example:
-
-    my_node_t * n = my_rb_pool_allocate( join );
-    n->key = 123;
-    n->value = 456;
-    n = my_rb_insert( &root, n );
-
-  The inserted node is returned. The redblack member is considered
-  private and should not be touched by the application.
+  from a pool first.
 */
 REDBLK_T * REDBLK_(insert)(REDBLK_T * pool, REDBLK_T ** root, REDBLK_T * x) {
 #ifndef REDBLK_UNSAFE
-  REDBLK_POOL_(validate_node)(pool, *root);
-  REDBLK_POOL_(validate_node)(pool, x);
+  REDBLK_(validate_element)(pool, *root);
+  REDBLK_(validate_element)(pool, x);
 #endif
 
   REDBLK_T * current;
@@ -574,25 +765,23 @@ REDBLK_T * REDBLK_(insert)(REDBLK_T * pool, REDBLK_T ** root, REDBLK_T * x) {
   parent = &pool[REDBLK_NIL];
   while (current != &pool[REDBLK_NIL]) {
     long c = REDBLK_(compare)(x, current);
-    if (c == 0)
-      FD_LOG_ERR(("duplicate key"));
     parent = current;
-    current = (c < 0 ? &pool[current->redblack.left] : &pool[current->redblack.right]);
+    current = (c < 0 ? &pool[current->REDBLK_LEFT] : &pool[current->REDBLK_RIGHT]);
   }
 
   /* setup new node */
-  x->redblack.parent = (uint)(parent - pool);
-  x->redblack.left = REDBLK_NIL;
-  x->redblack.right = REDBLK_NIL;
-  x->redblack.color = REDBLK_RED;
+  x->REDBLK_PARENT = (uint)(parent - pool);
+  x->REDBLK_LEFT = REDBLK_NIL;
+  x->REDBLK_RIGHT = REDBLK_NIL;
+  x->REDBLK_COLOR = REDBLK_RED;
 
   /* insert node in tree */
   if (parent != &pool[REDBLK_NIL]) {
     long c = REDBLK_(compare)(x, parent);
     if (c < 0)
-      parent->redblack.left = (uint)(x - pool);
+      parent->REDBLK_LEFT = (uint)(x - pool);
     else
-      parent->redblack.right = (uint)(x - pool);
+      parent->REDBLK_RIGHT = (uint)(x - pool);
   } else {
     *root = x;
   }
@@ -605,92 +794,78 @@ REDBLK_T * REDBLK_(insert)(REDBLK_T * pool, REDBLK_T ** root, REDBLK_T * x) {
   Restore tree invariants after a delete
 */
 static void REDBLK_(deleteFixup)(REDBLK_T * pool, REDBLK_T ** root, REDBLK_T * x) {
-  while (x != *root && x->redblack.color == REDBLK_BLACK) {
-    REDBLK_T * p = &pool[x->redblack.parent];
-    if (x == &pool[p->redblack.left]) {
-      REDBLK_T * w = &pool[p->redblack.right];
-      if (w->redblack.color == REDBLK_RED) {
-        w->redblack.color = REDBLK_BLACK;
-        p->redblack.color = REDBLK_RED;
+  while (x != *root && x->REDBLK_COLOR == REDBLK_BLACK) {
+    REDBLK_T * p = &pool[x->REDBLK_PARENT];
+    if (x == &pool[p->REDBLK_LEFT]) {
+      REDBLK_T * w = &pool[p->REDBLK_RIGHT];
+      if (w->REDBLK_COLOR == REDBLK_RED) {
+        w->REDBLK_COLOR = REDBLK_BLACK;
+        p->REDBLK_COLOR = REDBLK_RED;
         REDBLK_(rotateLeft)(pool, root, p);
-        p = &pool[x->redblack.parent];
-        w = &pool[p->redblack.right];
+        p = &pool[x->REDBLK_PARENT];
+        w = &pool[p->REDBLK_RIGHT];
       }
-      if (pool[w->redblack.left].redblack.color == REDBLK_BLACK &&
-         pool[w->redblack.right].redblack.color == REDBLK_BLACK) {
-        w->redblack.color = REDBLK_RED;
+      if (pool[w->REDBLK_LEFT].REDBLK_COLOR == REDBLK_BLACK &&
+         pool[w->REDBLK_RIGHT].REDBLK_COLOR == REDBLK_BLACK) {
+        w->REDBLK_COLOR = REDBLK_RED;
         x = p;
       } else {
-        if (pool[w->redblack.right].redblack.color == REDBLK_BLACK) {
-          pool[w->redblack.left].redblack.color = REDBLK_BLACK;
-          w->redblack.color = REDBLK_RED;
+        if (pool[w->REDBLK_RIGHT].REDBLK_COLOR == REDBLK_BLACK) {
+          pool[w->REDBLK_LEFT].REDBLK_COLOR = REDBLK_BLACK;
+          w->REDBLK_COLOR = REDBLK_RED;
           REDBLK_(rotateRight)(pool, root, w);
-          p = &pool[x->redblack.parent];
-          w = &pool[p->redblack.right];
+          p = &pool[x->REDBLK_PARENT];
+          w = &pool[p->REDBLK_RIGHT];
         }
-        w->redblack.color = p->redblack.color;
-        p->redblack.color = REDBLK_BLACK;
-        pool[w->redblack.right].redblack.color = REDBLK_BLACK;
+        w->REDBLK_COLOR = p->REDBLK_COLOR;
+        p->REDBLK_COLOR = REDBLK_BLACK;
+        pool[w->REDBLK_RIGHT].REDBLK_COLOR = REDBLK_BLACK;
         REDBLK_(rotateLeft)(pool, root, p);
         x = *root;
       }
       
     } else {
-      REDBLK_T * w = &pool[p->redblack.left];
-      if (w->redblack.color == REDBLK_RED) {
-        w->redblack.color = REDBLK_BLACK;
-        p->redblack.color = REDBLK_RED;
+      REDBLK_T * w = &pool[p->REDBLK_LEFT];
+      if (w->REDBLK_COLOR == REDBLK_RED) {
+        w->REDBLK_COLOR = REDBLK_BLACK;
+        p->REDBLK_COLOR = REDBLK_RED;
         REDBLK_(rotateRight)(pool, root, p);
-        p = &pool[x->redblack.parent];
-        w = &pool[p->redblack.left];
+        p = &pool[x->REDBLK_PARENT];
+        w = &pool[p->REDBLK_LEFT];
       }
-      if (pool[w->redblack.right].redblack.color == REDBLK_BLACK &&
-          pool[w->redblack.left].redblack.color == REDBLK_BLACK) {
-        w->redblack.color = REDBLK_RED;
+      if (pool[w->REDBLK_RIGHT].REDBLK_COLOR == REDBLK_BLACK &&
+          pool[w->REDBLK_LEFT].REDBLK_COLOR == REDBLK_BLACK) {
+        w->REDBLK_COLOR = REDBLK_RED;
         x = p;
       } else {
-        if (pool[w->redblack.left].redblack.color == REDBLK_BLACK) {
-          pool[w->redblack.right].redblack.color = REDBLK_BLACK;
-          w->redblack.color = REDBLK_RED;
+        if (pool[w->REDBLK_LEFT].REDBLK_COLOR == REDBLK_BLACK) {
+          pool[w->REDBLK_RIGHT].REDBLK_COLOR = REDBLK_BLACK;
+          w->REDBLK_COLOR = REDBLK_RED;
           REDBLK_(rotateLeft)(pool, root, w);
-          p = &pool[x->redblack.parent];
-          w = &pool[p->redblack.left];
+          p = &pool[x->REDBLK_PARENT];
+          w = &pool[p->REDBLK_LEFT];
         }
-        w->redblack.color = p->redblack.color;
-        p->redblack.color = REDBLK_BLACK;
-        pool[w->redblack.left].redblack.color = REDBLK_BLACK;
+        w->REDBLK_COLOR = p->REDBLK_COLOR;
+        p->REDBLK_COLOR = REDBLK_BLACK;
+        pool[w->REDBLK_LEFT].REDBLK_COLOR = REDBLK_BLACK;
         REDBLK_(rotateRight)(pool, root, p);
         x = *root;
       }
     }
   }
   
-  x->redblack.color = REDBLK_BLACK;
+  x->REDBLK_COLOR = REDBLK_BLACK;
 }
 
 /*
-  E.g. my_node_t * my_rb_delete(my_node_t * pool, my_node_t ** root, my_node_t * z);
-
   Remove a node from a tree. The node must be a member of the tree,
   usually the result of a find operation. The node is typically
-  released to the pool afterwards. For example:
- 
-    my_node_t * n = my_rb_find( root, &k );
-    n = my_rb_delete( &root, n );
-    my_rb_pool_release( pool, n );
-
-  Delete and release are separate steps to allow an application to
-  perform final cleanup on the node in between. You can insert a node
-  into a different tree after deletion if both trees share a pool. For
-  example:
-
-    n = my_rb_delete( &root, n );
-    my_rb_insert( &root2, n );
+  released to the pool afterwards.
 */
-REDBLK_T * REDBLK_(delete)(REDBLK_T * pool, REDBLK_T ** root, REDBLK_T * z) {
+REDBLK_T * REDBLK_(remove)(REDBLK_T * pool, REDBLK_T ** root, REDBLK_T * z) {
 #ifndef REDBLK_UNSAFE
-  REDBLK_POOL_(validate_node)(pool, *root);
-  REDBLK_POOL_(validate_node)(pool, z);
+  REDBLK_(validate_element)(pool, *root);
+  REDBLK_(validate_element)(pool, z);
 #endif
 
   REDBLK_T * x;
@@ -699,172 +874,196 @@ REDBLK_T * REDBLK_(delete)(REDBLK_T * pool, REDBLK_T ** root, REDBLK_T * z) {
   if (!z || z == &pool[REDBLK_NIL])
     return NULL;
 
-  if (z->redblack.left == REDBLK_NIL || z->redblack.right == REDBLK_NIL) {
+  if (z->REDBLK_LEFT == REDBLK_NIL || z->REDBLK_RIGHT == REDBLK_NIL) {
     /* y has a REDBLK_NIL node as a child */
     y = z;
   } else {
     /* find tree successor with a REDBLK_NIL node as a child */
-    y = &pool[z->redblack.right];
-    while (y->redblack.left != REDBLK_NIL)
-      y = &pool[y->redblack.left];
+    y = &pool[z->REDBLK_RIGHT];
+    while (y->REDBLK_LEFT != REDBLK_NIL)
+      y = &pool[y->REDBLK_LEFT];
   }
 
   /* x is y's only child */
-  if (y->redblack.left != REDBLK_NIL)
-    x = &pool[y->redblack.left];
+  if (y->REDBLK_LEFT != REDBLK_NIL)
+    x = &pool[y->REDBLK_LEFT];
   else
-    x = &pool[y->redblack.right];
+    x = &pool[y->REDBLK_RIGHT];
 
   /* remove y from the parent chain */
-  x->redblack.parent = y->redblack.parent;
-  if (y->redblack.parent)
-    if (y == &pool[pool[y->redblack.parent].redblack.left])
-      pool[y->redblack.parent].redblack.left = (uint)(x - pool);
+  x->REDBLK_PARENT = y->REDBLK_PARENT;
+  if (y->REDBLK_PARENT)
+    if (y == &pool[pool[y->REDBLK_PARENT].REDBLK_LEFT])
+      pool[y->REDBLK_PARENT].REDBLK_LEFT = (uint)(x - pool);
     else
-      pool[y->redblack.parent].redblack.right = (uint)(x - pool);
+      pool[y->REDBLK_PARENT].REDBLK_RIGHT = (uint)(x - pool);
   else
     *root = x;
 
-  if (y->redblack.color == REDBLK_BLACK)
+  if (y->REDBLK_COLOR == REDBLK_BLACK)
     REDBLK_(deleteFixup)(pool, root, x);
 
   if (y != z) {
     /* we got rid of y instead of z. Oops! Replace z with y in the
      * tree so we don't lose y's key/value. */
-    y->redblack = z->redblack;
+    y->REDBLK_PARENT = z->REDBLK_PARENT;
+    y->REDBLK_LEFT = z->REDBLK_LEFT;
+    y->REDBLK_RIGHT = z->REDBLK_RIGHT;
+    y->REDBLK_COLOR = z->REDBLK_COLOR;
     if (z == *root)
       *root = y;
-    else if (&pool[pool[y->redblack.parent].redblack.left] == z)
-      pool[y->redblack.parent].redblack.left = (uint)(y - pool);
+    else if (&pool[pool[y->REDBLK_PARENT].REDBLK_LEFT] == z)
+      pool[y->REDBLK_PARENT].REDBLK_LEFT = (uint)(y - pool);
     else
-      pool[y->redblack.parent].redblack.right = (uint)(y - pool);
-    pool[y->redblack.left].redblack.parent = (uint)(y - pool);
-    pool[y->redblack.right].redblack.parent = (uint)(y - pool);
+      pool[y->REDBLK_PARENT].REDBLK_RIGHT = (uint)(y - pool);
+    pool[y->REDBLK_LEFT].REDBLK_PARENT = (uint)(y - pool);
+    pool[y->REDBLK_RIGHT].REDBLK_PARENT = (uint)(y - pool);
   }
 
   if (*root == &pool[REDBLK_NIL])
     *root = NULL;
-  z->redblack.color = REDBLK_NEW;
+  z->REDBLK_COLOR = REDBLK_NEW;
   return z;
 }
 
 /*
-  E.g. my_node_t * my_rb_find(my_node_t * pool, my_node_t * root, my_node_t * key);
-
   Search for a key in the tree. In this special case, the key can be a
   temporary instance of the node type rather than a properly
-  allocated node. For example:
-
-    my_node_t k;
-    k.key = 123 + i;
-    my_node_t * n = my_rb_find( root, &k );
-    printf("key=%lu value=%lu\n", n->key, n->value);
-
-  A NULL is returned if the find fails.
+  allocated node.
 */
 REDBLK_T * REDBLK_(find)(REDBLK_T * pool, REDBLK_T * root, REDBLK_T * key) {
 #ifndef REDBLK_UNSAFE
-  REDBLK_POOL_(validate_node)(pool, root);
+  REDBLK_(validate_element)(pool, root);
 #endif
 
   REDBLK_T * current = root;
-  if (current == NULL)
+  if (current == NULL || current == &pool[REDBLK_NIL])
     return NULL;
   while (current != &pool[REDBLK_NIL]) {
     long c = REDBLK_(compare)(key, current);
     if (c == 0)
       return current;
-    current = (c < 0 ? &pool[current->redblack.left] : &pool[current->redblack.right]);
+    current = (c < 0 ? &pool[current->REDBLK_LEFT] : &pool[current->REDBLK_RIGHT]);
   }
   return NULL;
 }
 
 /*
-  E.g. ulong my_rb_size(my_node_t * pool, my_node_t * root);
+  Search for a key in the tree. If the key can't be found, a nearby
+  approximation is returned instead. This is either the greatest node
+  less than the key, or the least node greater than the key. In this
+  special case, the key can be a temporary instance of the node type
+  rather than a properly allocated node.
+*/
+REDBLK_T * REDBLK_(nearby)(REDBLK_T * pool, REDBLK_T * root, REDBLK_T * key) {
+#ifndef REDBLK_UNSAFE
+  REDBLK_(validate_element)(pool, root);
+#endif
 
+  REDBLK_T * current = root;
+  if (current == NULL || current == &pool[REDBLK_NIL])
+    return NULL;
+  REDBLK_T * result = current;
+  while (current != &pool[REDBLK_NIL]) {
+    result = current; /* Return the last non-NIL node that was touched */
+    long c = REDBLK_(compare)(key, current);
+    if (c == 0)
+      return current;
+    current = (c < 0 ? &pool[current->REDBLK_LEFT] : &pool[current->REDBLK_RIGHT]);
+  }
+  return result;
+}
+
+/*
   Count the number of nodes in a tree.
 */
 ulong REDBLK_(size)(REDBLK_T * pool, REDBLK_T * root) {
 #ifndef REDBLK_UNSAFE
-  REDBLK_POOL_(validate_node)(pool, root);
+  REDBLK_(validate_element)(pool, root);
 #endif
  if (!root || root == &pool[REDBLK_NIL])
    return 0;
  return 1 +
-        REDBLK_(size)(pool, &pool[root->redblack.left]) +
-        REDBLK_(size)(pool, &pool[root->redblack.right]);
+        REDBLK_(size)(pool, &pool[root->REDBLK_LEFT]) +
+        REDBLK_(size)(pool, &pool[root->REDBLK_RIGHT]);
 }
 
 /*
   Recursive implementation of the verify function
 */
-void REDBLK_(verify_private)(REDBLK_T * pool, REDBLK_T * node, REDBLK_T * parent, ulong curblkcnt, ulong correctblkcnt) {
+int REDBLK_(verify_private)(REDBLK_T * pool, REDBLK_T * node, REDBLK_T * parent, ulong curblkcnt, ulong correctblkcnt) {
+# define REDBLK_TEST(c) do {                                                        \
+    if( FD_UNLIKELY( !(c) ) ) { FD_LOG_WARNING(( "FAIL: %s", #c )); return -1; } \
+  } while(0)
+
   if (!node || node == &pool[REDBLK_NIL]) {
-    if (curblkcnt != correctblkcnt)
-      FD_LOG_ERR(("incorrect black count"));
-    return;
+    REDBLK_TEST(curblkcnt == correctblkcnt);
+    return 0;
   }
 
 #ifndef REDBLK_UNSAFE
-  REDBLK_POOL_(validate_node)(pool, node);
+  REDBLK_(validate_element)(pool, node);
 #endif
   
-  if (&pool[node->redblack.parent] != parent)
-    FD_LOG_ERR(("incorrect parent"));
+  REDBLK_TEST(&pool[node->REDBLK_PARENT] == parent);
 
-  if (node->redblack.color == REDBLK_BLACK)
+  if (node->REDBLK_COLOR == REDBLK_BLACK)
     ++curblkcnt;
-  else if (node->redblack.color == REDBLK_RED) {
-    if (parent->redblack.color == REDBLK_RED)
-      FD_LOG_ERR(("child of red must be black"));
-  } else
-    FD_LOG_ERR(("invalid color"));
+  else {
+    REDBLK_TEST(node->REDBLK_COLOR == REDBLK_RED);
+    REDBLK_TEST(parent->REDBLK_COLOR == REDBLK_BLACK);
+  }
   
-  if (node->redblack.left != REDBLK_NIL) {
-    if (REDBLK_(compare)(&pool[node->redblack.left], node) > 0)
-      FD_LOG_ERR(("misordered node"));
-  }
-  if (node->redblack.right != REDBLK_NIL) {
-    if (REDBLK_(compare)(node, &pool[node->redblack.right]) > 0)
-      FD_LOG_ERR(("misordered node"));
-  }
+  if (node->REDBLK_LEFT != REDBLK_NIL)
+    REDBLK_TEST(REDBLK_(compare)(&pool[node->REDBLK_LEFT], node) <= 0);
+  if (node->REDBLK_RIGHT != REDBLK_NIL)
+    REDBLK_TEST(REDBLK_(compare)(node, &pool[node->REDBLK_RIGHT]) <= 0);
 
-  REDBLK_(verify_private)(pool, &pool[node->redblack.left], node, curblkcnt, correctblkcnt);
-  REDBLK_(verify_private)(pool, &pool[node->redblack.right], node, curblkcnt, correctblkcnt);
+  int err = REDBLK_(verify_private)(pool, &pool[node->REDBLK_LEFT], node, curblkcnt, correctblkcnt);
+  if (err) return err;
+  return REDBLK_(verify_private)(pool, &pool[node->REDBLK_RIGHT], node, curblkcnt, correctblkcnt);
 }
 
 /*
-  E.g. void my_rb_verify(my_node_t * pool, my_node_t * root);
-
   Verify the integrity of the tree data structure. Useful for
-  debugging memory corruption. FD_LOG_ERR is called if an error is
-  detected.
+  debugging memory corruption. A non-zero result is returned if an error
+  is detected.
 */
-void REDBLK_(verify)(REDBLK_T * pool, REDBLK_T * root) {
-  if (pool[REDBLK_NIL].redblack.left != REDBLK_NIL ||
-      pool[REDBLK_NIL].redblack.right != REDBLK_NIL ||
-      pool[REDBLK_NIL].redblack.color != REDBLK_BLACK)
-    FD_LOG_ERR(("corrupted NIL"));
+int REDBLK_(verify)(REDBLK_T * pool, REDBLK_T * root) {
+  REDBLK_TEST(pool[REDBLK_NIL].REDBLK_LEFT == REDBLK_NIL &&
+       pool[REDBLK_NIL].REDBLK_RIGHT == REDBLK_NIL &&
+       pool[REDBLK_NIL].REDBLK_COLOR == REDBLK_BLACK);
 
   if (!root || root == &pool[REDBLK_NIL])
-    return; // Trivially correct
-  if (root->redblack.color != REDBLK_BLACK)
-    FD_LOG_ERR(("root must be black"));
+    return 0; // Trivially correct
+  REDBLK_TEST(root->REDBLK_COLOR == REDBLK_BLACK);
 
   // Compute the correct number of black nodes on a path
   ulong blkcnt = 0;
   REDBLK_T * node = root;
   while (node != &pool[REDBLK_NIL]) {
-    if (node->redblack.color == REDBLK_BLACK)
+    if (node->REDBLK_COLOR == REDBLK_BLACK)
       ++blkcnt;
-    node = &pool[node->redblack.left];
+    node = &pool[node->REDBLK_LEFT];
   }
   // Recursive check
-  REDBLK_(verify_private)(pool, root, &pool[REDBLK_NIL], 0, blkcnt);
+  return REDBLK_(verify_private)(pool, root, &pool[REDBLK_NIL], 0, blkcnt);
+
+#undef REDBLK_TEST
 }
 
-#undef REDBLK_
+#undef REDBLK_FREE
+#undef REDBLK_NEW
+#undef REDBLK_BLACK
+#undef REDBLK_RED
 #undef REDBLK_POOL_
+#undef REDBLK_PARENT
+#undef REDBLK_LEFT
+#undef REDBLK_RIGHT
+#undef REDBLK_COLOR
+
+#endif /* REDBLK_IMPL_STYLE==0 || REDBLK_IMPL_STYLE==2 */
+
+#undef REDBLK_
 #undef REDBLK_T
-#undef REDBLK_NAME
-#undef REDBLK_NIL
+#undef REDBLK_IMPL_STYLE

@@ -325,23 +325,7 @@ MAP_(new)( void *  shmem,
   map->lg_slot_cnt = lg_slot_cnt;
 
   MAP_T * slot = map->slot; FD_COMPILER_FORGET( slot );
-
-  for( ulong slot_idx=0UL; slot_idx<slot_cnt; slot_idx++ ) 
-    slot[ slot_idx ].MAP_KEY = (MAP_KEY_NULL);
-
-  return map;
-}
-
-static inline void *
-MAP_(delete_all)( void * shmem) {
-  MAP_(private_t) * map = (MAP_(private_t) *)shmem;
-
-  ulong slot_cnt  = 1UL<<map->lg_slot_cnt;
-
-  MAP_T * slot = map->slot; FD_COMPILER_FORGET( slot );
-
-  for( ulong slot_idx=0UL; slot_idx<slot_cnt; slot_idx++ ) 
-    slot[ slot_idx ].MAP_KEY = (MAP_KEY_NULL);
+  for( ulong slot_idx=0UL; slot_idx<slot_cnt; slot_idx++ ) slot[ slot_idx ].MAP_KEY = (MAP_KEY_NULL);
 
   return map;
 }
