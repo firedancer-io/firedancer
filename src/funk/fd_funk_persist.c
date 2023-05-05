@@ -279,7 +279,8 @@ fd_funk_persist_recover_walog_record( fd_funk_t * funk,
     FD_LOG_ERR(( "failed to recover record, code %s", fd_funk_strerror( err ) ));
     return;
   }
-  /* update the record in the file */
+  /* update the record in the file. we need an ordinary record
+     instead of one found in the write-ahead log. */
   err = fd_funk_rec_persist_unsafe( funk, rec );
   if ( err ) {
     FD_LOG_ERR(( "failed to recover record, code %s", fd_funk_strerror( err ) ));
@@ -291,6 +292,7 @@ fd_funk_persist_recover_walog_record( fd_funk_t * funk,
 static void
 fd_funk_persist_recover_walog_erase( fd_funk_t * funk,
                                      struct fd_funk_persist_erase_head * head ) {
+  /* find the record */
   fd_funk_rec_key_t key;
   fd_memcpy(&key, head->key, sizeof(key));
   fd_funk_rec_t const * rec_con = fd_funk_rec_query( funk, NULL, &key );
@@ -303,17 +305,22 @@ fd_funk_persist_recover_walog_erase( fd_funk_t * funk,
     FD_LOG_ERR(( "failed to recover erase, code %s", fd_funk_strerror( FD_FUNK_ERR_FROZEN ) ));
     return;
   }
+  /* erase the on-disk version */
   int err = fd_funk_rec_persist_erase_unsafe( funk, rec );
   if ( err ) {
     FD_LOG_ERR(( "failed to recover erase, code %s", fd_funk_strerror( err ) ));
     return;
   }
+  /* erase the in-memory version */
   fd_funk_rec_remove( funk, rec, 1 );
 }
 
 /* Process a write-ahead log found during persistence recovery */
 static void
 fd_funk_persist_recover_walog( fd_funk_t * funk, struct fd_funk_persist_walog_head * wahead ) {
+  /* Loop through the contents. In this case, we don't use the
+     alloc_sz fields because the data is fully compacted, and we can
+     rely on val_sz. */
   FD_LOG_WARNING(( "recovering write-ahead log of size %lu", wahead->used_sz ));
   const uchar* tmpptr = (const uchar*)(wahead + 1);
   const uchar* tmpend = tmpptr + wahead->used_sz;
@@ -358,6 +365,8 @@ fd_funk_persist_open( fd_funk_t * funk, const char * filename ) {
     FD_LOG_ERR(( "failed to open %s: %s", filename, strerror(errno) ));
     return FD_FUNK_ERR_SYS;
   }
+  /* Get the physical size of the file. The "logical" size may be
+     slightly larger if the final record has unused padding. */
   struct stat statbuf;
   if ( fstat( funk->persist_fd, &statbuf ) == -1) {
     FD_LOG_ERR(( "failed to open %s: %s", filename, strerror(errno) ));
@@ -368,7 +377,9 @@ fd_funk_persist_open( fd_funk_t * funk, const char * filename ) {
   /* Allocate the map of free disk space */
   fd_wksp_t * wksp = fd_funk_wksp( funk );
   if ( funk->persist_frees_gaddr == 0 ) {
-    ulong max = fd_ulong_min ( funk->rec_max + 1, 1000000 );
+    /* Pessimisticaly estimate the maximum number of free spaces. If
+       the pool runs out, we will be forced to throw away spaces. */
+    ulong max = fd_ulong_min ( funk->rec_max, 1000000 );
     void * mem = fd_wksp_alloc_laddr(wksp, fd_funk_persist_free_map_align(),
                                      fd_funk_persist_free_map_footprint(max), funk->wksp_tag );
     if ( mem == NULL ) {
