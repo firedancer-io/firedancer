@@ -821,7 +821,7 @@ void fd_delegation_pair_encode(fd_delegation_pair_t* self, void const** data) {
   fd_delegation_encode(&self->value, data);
 }
 
-void fd_stakes_delegation_decode(fd_stakes_delegation_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
+void fd_stakes_decode(fd_stakes_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
   fd_vote_accounts_decode(&self->vote_accounts, data, dataend, allocf, allocf_arg);
   fd_bincode_uint64_decode(&self->stake_delegations_len, data, dataend);
   if (self->stake_delegations_len != 0) {
@@ -834,7 +834,7 @@ void fd_stakes_delegation_decode(fd_stakes_delegation_t* self, void const** data
   fd_bincode_uint64_decode(&self->epoch, data, dataend);
   fd_stake_history_decode(&self->stake_history, data, dataend, allocf, allocf_arg);
 }
-void fd_stakes_delegation_destroy(fd_stakes_delegation_t* self, fd_free_fun_t freef, void* freef_arg) {
+void fd_stakes_destroy(fd_stakes_t* self, fd_free_fun_t freef, void* freef_arg) {
   fd_vote_accounts_destroy(&self->vote_accounts, freef, freef_arg);
   if (NULL != self->stake_delegations) {
     for (ulong i = 0; i < self->stake_delegations_len; ++i)
@@ -845,8 +845,8 @@ void fd_stakes_delegation_destroy(fd_stakes_delegation_t* self, fd_free_fun_t fr
   fd_stake_history_destroy(&self->stake_history, freef, freef_arg);
 }
 
-void fd_stakes_delegation_walk(fd_stakes_delegation_t* self, fd_walk_fun_t fun, const char *name, int level) {
-  fun(self, name, 32, "fd_stakes_delegation", level++);
+void fd_stakes_walk(fd_stakes_t* self, fd_walk_fun_t fun, const char *name, int level) {
+  fun(self, name, 32, "fd_stakes", level++);
   fd_vote_accounts_walk(&self->vote_accounts, fun, "vote_accounts", level + 1);
   if (self->stake_delegations_len != 0) {
     fun(NULL, NULL, 30, "stake_delegations", level++);
@@ -857,16 +857,16 @@ void fd_stakes_delegation_walk(fd_stakes_delegation_t* self, fd_walk_fun_t fun, 
   fun(&self->unused, "unused", 11, "ulong", level + 1);
   fun(&self->epoch, "epoch", 11, "ulong", level + 1);
   fd_stake_history_walk(&self->stake_history, fun, "stake_history", level + 1);
-  fun(self, name, 33, "fd_stakes_delegation", --level);
+  fun(self, name, 33, "fd_stakes", --level);
 }
-void fd_stakes_delegation_copy_to(fd_stakes_delegation_t* to, fd_stakes_delegation_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
-  unsigned char *enc = fd_alloca( 1, fd_stakes_delegation_size(from) );
+void fd_stakes_copy_to(fd_stakes_t* to, fd_stakes_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
+  unsigned char *enc = fd_alloca( 1, fd_stakes_size(from) );
   void const *   ptr = (void const *) enc;
-  fd_stakes_delegation_encode( from, &ptr );
+  fd_stakes_encode( from, &ptr );
   void *input = (void *) enc;
-  fd_stakes_delegation_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
+  fd_stakes_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
 }
-ulong fd_stakes_delegation_size(fd_stakes_delegation_t* self) {
+ulong fd_stakes_size(fd_stakes_t* self) {
   ulong size = 0;
   size += fd_vote_accounts_size(&self->vote_accounts);
   size += sizeof(ulong);
@@ -878,7 +878,7 @@ ulong fd_stakes_delegation_size(fd_stakes_delegation_t* self) {
   return size;
 }
 
-void fd_stakes_delegation_encode(fd_stakes_delegation_t* self, void const** data) {
+void fd_stakes_encode(fd_stakes_t* self, void const** data) {
   fd_vote_accounts_encode(&self->vote_accounts, data);
   fd_bincode_uint64_encode(&self->stake_delegations_len, data);
   if (self->stake_delegations_len != 0) {
@@ -1060,7 +1060,7 @@ void fd_pubkey_pubkey_pair_encode(fd_pubkey_pubkey_pair_t* self, void const** da
 }
 
 void fd_epoch_stakes_decode(fd_epoch_stakes_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
-  fd_stakes_delegation_decode(&self->stakes, data, dataend, allocf, allocf_arg);
+  fd_stakes_decode(&self->stakes, data, dataend, allocf, allocf_arg);
   fd_bincode_uint64_decode(&self->total_stake, data, dataend);
   fd_bincode_uint64_decode(&self->node_id_to_vote_accounts_len, data, dataend);
   if (self->node_id_to_vote_accounts_len != 0) {
@@ -1078,7 +1078,7 @@ void fd_epoch_stakes_decode(fd_epoch_stakes_t* self, void const** data, void con
     self->epoch_authorized_voters = NULL;
 }
 void fd_epoch_stakes_destroy(fd_epoch_stakes_t* self, fd_free_fun_t freef, void* freef_arg) {
-  fd_stakes_delegation_destroy(&self->stakes, freef, freef_arg);
+  fd_stakes_destroy(&self->stakes, freef, freef_arg);
   if (NULL != self->node_id_to_vote_accounts) {
     for (ulong i = 0; i < self->node_id_to_vote_accounts_len; ++i)
       fd_pubkey_node_vote_accounts_pair_destroy(self->node_id_to_vote_accounts + i, freef, freef_arg);
@@ -1095,7 +1095,7 @@ void fd_epoch_stakes_destroy(fd_epoch_stakes_t* self, fd_free_fun_t freef, void*
 
 void fd_epoch_stakes_walk(fd_epoch_stakes_t* self, fd_walk_fun_t fun, const char *name, int level) {
   fun(self, name, 32, "fd_epoch_stakes", level++);
-  fd_stakes_delegation_walk(&self->stakes, fun, "stakes", level + 1);
+  fd_stakes_walk(&self->stakes, fun, "stakes", level + 1);
   fun(&self->total_stake, "total_stake", 11, "ulong", level + 1);
   if (self->node_id_to_vote_accounts_len != 0) {
     fun(NULL, NULL, 30, "node_id_to_vote_accounts", level++);
@@ -1120,7 +1120,7 @@ void fd_epoch_stakes_copy_to(fd_epoch_stakes_t* to, fd_epoch_stakes_t* from, fd_
 }
 ulong fd_epoch_stakes_size(fd_epoch_stakes_t* self) {
   ulong size = 0;
-  size += fd_stakes_delegation_size(&self->stakes);
+  size += fd_stakes_size(&self->stakes);
   size += sizeof(ulong);
   size += sizeof(ulong);
   for (ulong i = 0; i < self->node_id_to_vote_accounts_len; ++i)
@@ -1132,7 +1132,7 @@ ulong fd_epoch_stakes_size(fd_epoch_stakes_t* self) {
 }
 
 void fd_epoch_stakes_encode(fd_epoch_stakes_t* self, void const** data) {
-  fd_stakes_delegation_encode(&self->stakes, data);
+  fd_stakes_encode(&self->stakes, data);
   fd_bincode_uint64_encode(&self->total_stake, data);
   fd_bincode_uint64_encode(&self->node_id_to_vote_accounts_len, data);
   if (self->node_id_to_vote_accounts_len != 0) {
@@ -1356,7 +1356,7 @@ void fd_deserializable_versioned_bank_decode(fd_deserializable_versioned_bank_t*
   fd_rent_collector_decode(&self->rent_collector, data, dataend, allocf, allocf_arg);
   fd_epoch_schedule_decode(&self->epoch_schedule, data, dataend, allocf, allocf_arg);
   fd_inflation_decode(&self->inflation, data, dataend, allocf, allocf_arg);
-  fd_stakes_delegation_decode(&self->stakes, data, dataend, allocf, allocf_arg);
+  fd_stakes_decode(&self->stakes, data, dataend, allocf, allocf_arg);
   fd_unused_accounts_decode(&self->unused_accounts, data, dataend, allocf, allocf_arg);
   fd_bincode_uint64_decode(&self->epoch_stakes_len, data, dataend);
   if (self->epoch_stakes_len != 0) {
@@ -1388,7 +1388,7 @@ void fd_deserializable_versioned_bank_destroy(fd_deserializable_versioned_bank_t
   fd_rent_collector_destroy(&self->rent_collector, freef, freef_arg);
   fd_epoch_schedule_destroy(&self->epoch_schedule, freef, freef_arg);
   fd_inflation_destroy(&self->inflation, freef, freef_arg);
-  fd_stakes_delegation_destroy(&self->stakes, freef, freef_arg);
+  fd_stakes_destroy(&self->stakes, freef, freef_arg);
   fd_unused_accounts_destroy(&self->unused_accounts, freef, freef_arg);
   if (NULL != self->epoch_stakes) {
     for (ulong i = 0; i < self->epoch_stakes_len; ++i)
@@ -1433,7 +1433,7 @@ void fd_deserializable_versioned_bank_walk(fd_deserializable_versioned_bank_t* s
   fd_rent_collector_walk(&self->rent_collector, fun, "rent_collector", level + 1);
   fd_epoch_schedule_walk(&self->epoch_schedule, fun, "epoch_schedule", level + 1);
   fd_inflation_walk(&self->inflation, fun, "inflation", level + 1);
-  fd_stakes_delegation_walk(&self->stakes, fun, "stakes", level + 1);
+  fd_stakes_walk(&self->stakes, fun, "stakes", level + 1);
   fd_unused_accounts_walk(&self->unused_accounts, fun, "unused_accounts", level + 1);
   if (self->epoch_stakes_len != 0) {
     fun(NULL, NULL, 30, "epoch_stakes", level++);
@@ -1486,7 +1486,7 @@ ulong fd_deserializable_versioned_bank_size(fd_deserializable_versioned_bank_t* 
   size += fd_rent_collector_size(&self->rent_collector);
   size += fd_epoch_schedule_size(&self->epoch_schedule);
   size += fd_inflation_size(&self->inflation);
-  size += fd_stakes_delegation_size(&self->stakes);
+  size += fd_stakes_size(&self->stakes);
   size += fd_unused_accounts_size(&self->unused_accounts);
   size += sizeof(ulong);
   for (ulong i = 0; i < self->epoch_stakes_len; ++i)
@@ -1532,7 +1532,7 @@ void fd_deserializable_versioned_bank_encode(fd_deserializable_versioned_bank_t*
   fd_rent_collector_encode(&self->rent_collector, data);
   fd_epoch_schedule_encode(&self->epoch_schedule, data);
   fd_inflation_encode(&self->inflation, data);
-  fd_stakes_delegation_encode(&self->stakes, data);
+  fd_stakes_encode(&self->stakes, data);
   fd_unused_accounts_encode(&self->unused_accounts, data);
   fd_bincode_uint64_encode(&self->epoch_stakes_len, data);
   if (self->epoch_stakes_len != 0) {

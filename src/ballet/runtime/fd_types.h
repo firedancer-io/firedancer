@@ -235,7 +235,7 @@ typedef struct fd_delegation_pair fd_delegation_pair_t;
 #define FD_DELEGATION_PAIR_FOOTPRINT sizeof(fd_delegation_pair_t)
 #define FD_DELEGATION_PAIR_ALIGN (8UL)
 
-struct fd_stakes_delegation {
+struct fd_stakes {
   fd_vote_accounts_t    vote_accounts;
   ulong                 stake_delegations_len;
   fd_delegation_pair_t* stake_delegations;
@@ -243,9 +243,9 @@ struct fd_stakes_delegation {
   unsigned long         epoch;
   fd_stake_history_t    stake_history;
 };
-typedef struct fd_stakes_delegation fd_stakes_delegation_t;
-#define FD_STAKES_DELEGATION_FOOTPRINT sizeof(fd_stakes_delegation_t)
-#define FD_STAKES_DELEGATION_ALIGN (8UL)
+typedef struct fd_stakes fd_stakes_t;
+#define FD_STAKES_FOOTPRINT sizeof(fd_stakes_t)
+#define FD_STAKES_ALIGN (8UL)
 
 struct fd_bank_incremental_snapshot_persistence {
   unsigned long full_slot;
@@ -284,7 +284,7 @@ typedef struct fd_pubkey_pubkey_pair fd_pubkey_pubkey_pair_t;
 #define FD_PUBKEY_PUBKEY_PAIR_ALIGN (8UL)
 
 struct fd_epoch_stakes {
-  fd_stakes_delegation_t               stakes;
+  fd_stakes_t                          stakes;
   unsigned long                        total_stake;
   ulong                                node_id_to_vote_accounts_len;
   fd_pubkey_node_vote_accounts_pair_t* node_id_to_vote_accounts;
@@ -354,7 +354,7 @@ struct fd_deserializable_versioned_bank {
   fd_rent_collector_t           rent_collector;
   fd_epoch_schedule_t           epoch_schedule;
   fd_inflation_t                inflation;
-  fd_stakes_delegation_t        stakes;
+  fd_stakes_t                   stakes;
   fd_unused_accounts_t          unused_accounts;
   ulong                         epoch_stakes_len;
   fd_epoch_epoch_stakes_pair_t* epoch_stakes;
@@ -1355,12 +1355,12 @@ void fd_delegation_pair_copy_to(fd_delegation_pair_t* to, fd_delegation_pair_t* 
 void fd_delegation_pair_walk(fd_delegation_pair_t* self, fd_walk_fun_t fun, const char *name, int level);
 ulong fd_delegation_pair_size(fd_delegation_pair_t* self);
 
-void fd_stakes_delegation_decode(fd_stakes_delegation_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
-void fd_stakes_delegation_encode(fd_stakes_delegation_t* self, void const** data);
-void fd_stakes_delegation_destroy(fd_stakes_delegation_t* self, fd_free_fun_t freef, void* freef_arg);
-void fd_stakes_delegation_copy_to(fd_stakes_delegation_t* to, fd_stakes_delegation_t* from, fd_alloc_fun_t freef, void* allocf_arg);
-void fd_stakes_delegation_walk(fd_stakes_delegation_t* self, fd_walk_fun_t fun, const char *name, int level);
-ulong fd_stakes_delegation_size(fd_stakes_delegation_t* self);
+void fd_stakes_decode(fd_stakes_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
+void fd_stakes_encode(fd_stakes_t* self, void const** data);
+void fd_stakes_destroy(fd_stakes_t* self, fd_free_fun_t freef, void* freef_arg);
+void fd_stakes_copy_to(fd_stakes_t* to, fd_stakes_t* from, fd_alloc_fun_t freef, void* allocf_arg);
+void fd_stakes_walk(fd_stakes_t* self, fd_walk_fun_t fun, const char *name, int level);
+ulong fd_stakes_size(fd_stakes_t* self);
 
 void fd_bank_incremental_snapshot_persistence_decode(fd_bank_incremental_snapshot_persistence_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
 void fd_bank_incremental_snapshot_persistence_encode(fd_bank_incremental_snapshot_persistence_t* self, void const** data);

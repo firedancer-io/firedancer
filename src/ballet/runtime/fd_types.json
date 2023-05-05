@@ -238,7 +238,7 @@
       ]
     },
     {
-      "name": "stakes_delegation",
+      "name": "stakes",
       "type": "struct",
       "fields": [
         { "name": "vote_accounts", "type": "vote_accounts" },
@@ -287,7 +287,7 @@
       "name": "epoch_stakes",
       "type": "struct",
       "fields": [
-        { "name": "stakes", "type": "stakes_delegation" },
+        { "name": "stakes", "type": "stakes" },
         { "name": "total_stake", "type": "ulong" },
         { "name": "node_id_to_vote_accounts", "type": "vector", "element": "pubkey_node_vote_accounts_pair" },
         { "name": "epoch_authorized_voters", "type": "vector", "element": "pubkey_pubkey_pair" }
@@ -350,7 +350,7 @@
         { "name": "rent_collector",        "type": "rent_collector" },
         { "name": "epoch_schedule",        "type": "epoch_schedule" },
         { "name": "inflation",             "type": "inflation" },
-        { "name": "stakes",                "type": "stakes_delegation" },
+        { "name": "stakes",                "type": "stakes" },
         { "name": "unused_accounts",       "type": "unused_accounts" },
         { "name": "epoch_stakes",          "type": "vector", "element": "epoch_epoch_stakes_pair" },
         { "name": "is_delta",              "type": "char" }
