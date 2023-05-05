@@ -378,7 +378,8 @@ fd_funk_persist_open( fd_funk_t * funk, const char * filename ) {
   fd_wksp_t * wksp = fd_funk_wksp( funk );
   if ( funk->persist_frees_gaddr == 0 ) {
     /* Pessimisticaly estimate the maximum number of free spaces. If
-       the pool runs out, we will be forced to throw away spaces. */
+       the pool runs out, we will be forced to throw away spaces and
+       leak disk space. */
     ulong max = fd_ulong_min ( funk->rec_max, 1000000 );
     void * mem = fd_wksp_alloc_laddr(wksp, fd_funk_persist_free_map_align(),
                                      fd_funk_persist_free_map_footprint(max), funk->wksp_tag );
@@ -491,6 +492,7 @@ fd_funk_persist_open( fd_funk_t * funk, const char * filename ) {
 
   /* Recover write-ahead logs */
   for (unsigned i = 0; i < num_walogs; ++i) {
+    /* Read the log. tmp is guaranteed to be big enough here. */
     long res = pread( funk->persist_fd, tmp, walogs[i].sz, (long)walogs[i].pos );
     if ( res != (long)walogs[i].sz) {
       FD_LOG_ERR(( "failed to read %s: %s", filename, strerror(errno) ));
@@ -578,7 +580,7 @@ fd_funk_rec_persist( fd_funk_t *     funk,
   return fd_funk_rec_persist_unsafe( funk, rec );
 }
 
-/* Version of fd_funk_rec_persist that skip argument checking */
+/* Version of fd_funk_rec_persist that skips argument checking */
 int
 fd_funk_rec_persist_unsafe( fd_funk_t *     funk,
                             fd_funk_rec_t * rec ) {
@@ -641,6 +643,7 @@ fd_funk_rec_persist_unsafe( fd_funk_t *     funk,
     fd_funk_persist_free( funk, rec->persist_pos, rec->persist_alloc_sz );
   }
 
+  /* Remember where we put the data */
   rec->persist_pos = pos;
   rec->persist_alloc_sz = head.alloc_sz;
   return FD_FUNK_SUCCESS;
@@ -721,6 +724,8 @@ fd_funk_txn_persist_writeahead( fd_funk_t *     funk,
 
   /* Allocate space for the log entry */
   *wa_pos = fd_funk_persist_alloc( funk, sizeof(struct fd_funk_persist_walog_head) + data_sz, wa_alloc );
+  if ( *wa_pos == ULONG_MAX )
+    return FD_FUNK_ERR_SYS;
 
   /* Make the space as free initially in case we crash during this operation */
   {
@@ -739,12 +744,12 @@ fd_funk_txn_persist_writeahead( fd_funk_t *     funk,
   while( !fd_funk_rec_idx_is_null( rec_idx ) ) {
     fd_funk_rec_t * rec = &rec_map[ rec_idx ];
 
-    if ( FD_UNLIKELY( rec_map[ rec_idx ].flags & FD_FUNK_REC_FLAG_ERASE ) ) { /* Erase a published key */
+    if ( FD_UNLIKELY( rec->flags & FD_FUNK_REC_FLAG_ERASE ) ) { /* Erase a published key */
 
       struct fd_funk_persist_erase_head head;
       head.type = FD_FUNK_PERSIST_ERASE_TYPE;
       fd_memcpy( head.key, &rec->pair.key, sizeof(head.key) );
-      head.alloc_sz = FD_FUNK_REC_IDX_NULL;
+      head.alloc_sz = FD_FUNK_REC_IDX_NULL; /* unused */
       
       if ( pwrite( funk->persist_fd, &head, sizeof(head), (long)pos ) != (long)sizeof(head) ) {
         FD_LOG_WARNING(( "failed to update persistence file: %s", strerror(errno) ));
@@ -759,7 +764,7 @@ fd_funk_txn_persist_writeahead( fd_funk_t *     funk,
       head.type = FD_FUNK_PERSIST_RECORD_TYPE;
       fd_memcpy( head.key, &rec->pair.key, sizeof(head.key) );
       head.val_sz = rec->val_sz;
-      head.alloc_sz = FD_FUNK_REC_IDX_NULL;
+      head.alloc_sz = FD_FUNK_REC_IDX_NULL; /* unused */
       
       /* Write the data */
       struct iovec iov[2];
