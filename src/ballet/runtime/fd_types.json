@@ -354,7 +354,8 @@
         { "name": "unused_accounts",       "type": "unused_accounts" },
         { "name": "epoch_stakes",          "type": "vector", "element": "epoch_epoch_stakes_pair" },
         { "name": "is_delta",              "type": "char" }
-      ]
+      ],
+      "comment": "https://github.com/solana-labs/solana/blob/88aeaa82a856fc807234e7da0b31b89f2dc0e091/runtime/src/bank.rs#L967"
     },
     {
       "name": "serializable_account_storage_entry",

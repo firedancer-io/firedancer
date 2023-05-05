@@ -323,6 +323,7 @@ typedef struct fd_unused_accounts fd_unused_accounts_t;
 #define FD_UNUSED_ACCOUNTS_FOOTPRINT sizeof(fd_unused_accounts_t)
 #define FD_UNUSED_ACCOUNTS_ALIGN (8UL)
 
+/* https://github.com/solana-labs/solana/blob/88aeaa82a856fc807234e7da0b31b89f2dc0e091/runtime/src/bank.rs#L967 */
 struct fd_deserializable_versioned_bank {
   fd_block_hash_queue_t         blockhash_queue;
   ulong                         ancestors_len;
