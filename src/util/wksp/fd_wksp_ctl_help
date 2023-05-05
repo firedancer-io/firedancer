@@ -9,10 +9,11 @@ help
 tag val
 - Sets the tag for subsequent wksp allocations to val.  Default is 1.
 
-new wksp page_cnt page_sz cpu_idx mode
-- Create a workspace named wksp from page_cnt page_sz pages near logical
-  cpu_idx.  The region will have the unix permissions specified by mode
-  (assumed octal).
+new wksp page_cnt page_sz cpu_idx_seq mode
+- Create a workspace named wksp from page_cnt page_sz pages distributed
+  over numa nodes near cpu_idx_seq.  The region will have the unix
+  permissions specified by mode (assumed octal).  See fd_shmem_ctl help
+  for more details how the pages will be distributed over numa nodes.
 
 delete wksp
 - Delete a workspace named wksp.  If multiple shmem regions exist with

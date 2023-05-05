@@ -4,8 +4,6 @@
 #include "../pod/fd_pod.h"
 #include "../shmem/fd_shmem.h"
 
-#if FD_HAS_HOSTED && FD_HAS_X86
-
 /* API for creating NUMA-aware and TLB-efficient workspaces used for
    complex inter-thread and inter-process shared memory communication
    patterns.  fd must be booted to use the APIs in this module.
@@ -455,14 +453,22 @@ fd_wksp_gaddr( fd_wksp_t * wksp,
 static inline ulong  fd_wksp_gaddr_fast( fd_wksp_t const * wksp, void const * laddr ) { return (ulong)laddr - (ulong)wksp; }
 static inline void * fd_wksp_laddr_fast( fd_wksp_t const * wksp, ulong        gaddr ) { return (void *)((ulong)wksp + gaddr); }
 
-/* fd_wksp_alloc allocates sz bytes from wksp with alignment of at least
-   align (align must be a non-negative integer power-of-two or 0, which
-   indicates to use the default alignment FD_WKSP_ALLOC_ALIGN_DEFAULT
-   ... allocations smaller than FD_WKSP_ALLOC_ALIGN_MIN will be rounded
-   up to FD_WKSP_ALLOC_ALIGN_MIN).  The allocation will be tagged with a
-   value in [1,FD_WKSP_ALLOC_TAG_MAX].  Returns the fd_wksp global
-   address of the join on success and "NULL" (0UL) on failure (logs
-   details).  A zero sz returns "NULL" (silent).
+/* fd_wksp_alloc_at_least allocates at least sz bytes from wksp with
+   alignment of at least align (align must be a non-negative integer
+   power-of-two or 0, which indicates to use the default alignment
+   FD_WKSP_ALLOC_ALIGN_DEFAULT ... allocations smaller than
+   FD_WKSP_ALLOC_ALIGN_MIN will be rounded up to
+   FD_WKSP_ALLOC_ALIGN_MIN).  The allocation will be tagged with a value
+   in [1,FD_WKSP_ALLOC_TAG_MAX].  Returns the fd_wksp global address of
+   the join on success and "NULL" (0UL) on failure (logs details).  A
+   zero sz returns "NULL" (silent).  On return, *max will contain the
+   number actual number of bytes available at the returned gaddr.  On
+   success, this will be at least sz and it is not guaranteed to be a
+   multiple of align.  On failure, *max will be zero.
+
+   fd_wksp_alloc is a simple wrapper around fd_wksp_alloc_at_least for
+   use when applications do not care about the actual size of their
+   allocation.
 
    Note that fd_wksp_alloc / fd_wksp_free are neither algorithmically
    optimal nor HPC implementations.  Instead, they are designed to be
@@ -544,10 +550,20 @@ static inline void * fd_wksp_laddr_fast( fd_wksp_t const * wksp, ulong        ga
    FD_WKSP_ALLOC_ALIGN_MIN. */
 
 ulong
+fd_wksp_alloc_at_least( fd_wksp_t * wksp,
+                        ulong       align,
+                        ulong       sz,
+                        ulong       tag,
+                        ulong *     max );
+
+static inline ulong
 fd_wksp_alloc( fd_wksp_t * wksp,
                ulong       align,
                ulong       sz,
-               ulong       tag );
+               ulong       tag ) {
+  ulong max[1];
+  return fd_wksp_alloc_at_least( wksp, align, sz, tag, max );
+}
 
 /* fd_wksp_free frees a wksp allocation.  gaddr is a global address that
    points to any byte in the allocation to free (i.e. can point to
@@ -727,7 +743,5 @@ fd_wksp_usage( fd_wksp_t *       wksp,
                fd_wksp_usage_t * usage );
 
 FD_PROTOTYPES_END
-
-#endif
 
 #endif /* HEADER_fd_src_util_wksp_fd_wksp_h */

@@ -61,7 +61,7 @@ main( int     argc,
   FD_LOG_NOTICE(( "id  %lu", fd_tile_id () )); FD_TEST( fd_tile_id()==fd_tile_id0() );
   FD_LOG_NOTICE(( "idx %lu", fd_tile_idx() )); FD_TEST( fd_tile_idx()==0UL );
 
-# if FD_HAS_HOSTED && FD_HAS_X86 /* FIXME: MAKE SOME NUMA FUNCTIONALITY HERE MORE GENERIC */
+# if FD_HAS_HOSTED
   ulong cpu_cnt = fd_shmem_cpu_cnt();
 
   ulong cpu_seen = 0UL;

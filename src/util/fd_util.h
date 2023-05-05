@@ -11,10 +11,11 @@
 //#include "log/fd_log.h"           /* includes env/fd_env.h */
 //#include "shmem/fd_shmem.h"       /* includes log/fd_log.h sanitize/fd_sanitize.h  */
 //#include "wksp/fd_wksp.h"         /* includes shmem/fd_shmem.h pod/fd_pod.h */
+//#include "scratch/fd_scratch.h"   /* includes log/fd_log.h */
+//#include "tile/fd_tile.h"         /* includes shmem/fd_shmem.h */
 #include "math/fd_stat.h"           /* includes bits/fd_bits.h */
 #include "rng/fd_rng.h"             /* includes bits/fd_bits.h */
-#include "scratch/fd_scratch.h"     /* includes log/fd_log.h */
-#include "tile/fd_tile.h"           /* includes shmem/fd_shmem.h */
+#include "tpool/fd_tpool.h"         /* includes tile/fd_tile.h and scratch/fd_scratch.h */
 #include "alloc/fd_alloc.h"         /* includes wksp/fd_wksp.h */
 
 /* Additional fd_util APIs that are not included by default */
@@ -177,19 +178,28 @@ FD_PROTOTYPES_BEGIN
        If that is not available, falls back to "[user]".  This string
        might be truncated and sanitized as needed for logging.
 
+     --log-colorize      [int] / FD_LOG_COLORIZE=[int]      / default system
      --log-level-logfile [int] / FD_LOG_LEVEL_LOGFILE=[int] / default 1 ... >=INFO
      --log-level-stderr  [int] / FD_LOG_LEVEL_STDERR=[int]  / default 2 ... >=NOTICE
      --log-level-flush   [int] / FD_LOG_LEVEL_FLUSH=[int]   / default 3 ... >=WARNING
      --log-level-core    [int] / FD_LOG_LEVEL_CORE=[int]    / default 5 ... >=CRIT
 
-       These configure the behaviors of the logger.  logfile is the
-       minimal level for which the logger should write detailed messages
-       to the permanent log file (if there is one).  stderr is the
-       minimal level for which the logger should write summarized
-       messages to the ephemeral log stream.  flush is the minimal level
-       at which the logger should try to immediately flush out messages.
-       core is the level at which an abortive log message should attempt
-       to write out a core and do a backtrace.
+       These configure the behaviors of the logger.
+
+       A non-zero colorize indicates stderr log messages should be
+       colorized.  default is disabled unless either
+       COLORTERM==truecolor or TERM==xterm-256color in the environment.
+       (This can also be enabled / disabled on the fly by the program
+       itself.) Note that the permanent log is _never_ colorized to aid
+       in robust log file message archiving.
+
+       logfile is the minimal level for which the logger should write
+       detailed messages to the permanent log file (if there is one).
+       stderr is the minimal level for which the logger should write
+       summarized messages to the ephemeral log stream.  flush is the
+       minimal level at which the logger should try to immediately flush
+       out messages.  core is the level at which an abortive log message
+       should attempt to write out a core and do a backtrace.
 
          0 - DEBUG
          1 - INFO
@@ -252,6 +262,9 @@ FD_PROTOTYPES_BEGIN
        thread group will be assumed to be single threaded and the cpu
        will be whatever the OS assigned to the booter (equivalent to
        "--tile-cpus f").
+
+       Strides for a range of cores can be specified with a '/' or
+       (taskset style) with a ':'.
 
        If tile 0 is not a floating tile, recommend using
        "taskset -c [cpu for tile 0]" or equivalent at thread group launch

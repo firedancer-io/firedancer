@@ -1,12 +1,12 @@
 #!/bin/bash
 
-ISOLCPUS=`cat /sys/devices/system/cpu/isolated`
+ISOLCPUS=$(cat /sys/devices/system/cpu/isolated)
 
 if [ "$ISOLCPUS" = "" ]; then
 
         # No CPU isolation is setup ... just do a normal parallel make
 
-        make -j $*
+        make -j "$@"
 
 else
 
@@ -32,7 +32,7 @@ else
 
         NP=$(nproc --all)
         NP_OS=$(nproc)
-        chrt -r 1 taskset -c $ISOLCPUS make -j$((NP-NP_OS)) $*
+        chrt -r 1 taskset -c "$ISOLCPUS" make -j$((NP-NP_OS)) "$@"
 
 fi
 

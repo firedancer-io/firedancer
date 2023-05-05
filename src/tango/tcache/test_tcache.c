@@ -1,6 +1,6 @@
 #include "../fd_tango.h"
 
-#if FD_HAS_HOSTED && FD_HAS_X86
+#if FD_HAS_HOSTED
 
 FD_STATIC_ASSERT( FD_TCACHE_ALIGN==128UL,              unit_test );
 FD_STATIC_ASSERT( FD_TCACHE_FOOTPRINT(1UL,4UL)==128UL, unit_test );
@@ -254,7 +254,7 @@ int
 main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
-  FD_LOG_WARNING(( "skip: unit test requires FD_HAS_HOSTED and FD_HAS_X86 capabilities" ));
+  FD_LOG_WARNING(( "skip: unit test requires FD_HAS_HOSTED capabilities" ));
   fd_halt();
   return 0;
 }

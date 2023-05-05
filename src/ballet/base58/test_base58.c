@@ -495,7 +495,7 @@ test_encode_basic##name( void ) {                                               
 static inline void                                                                             \
 test_encode_bounds##name( void ) {                                                             \
   char  buf  [ FD_BASE58_ENCODED_##n##_SZ ];                                                   \
-  uchar bytes[ n ];                                                                            \
+  uchar bytes[ n ]; /* force unaligned */                                                      \
   battery_encode_bounds( fd_base58_encode_##name, n, FD_BASE58_ENCODED_##n##_SZ, buf, bytes ); \
 }                                                                                              \
                                                                                                \
@@ -505,8 +505,8 @@ test_decode_fail##name( void ) {                                                
 }                                                                                              \
                                                                                                \
 static inline void                                                                             \
-test_sample##name( void ) {                                                                 \
-  battery_sample##n( fd_base58_encode_##name, fd_base58_decode_##name );                    \
+test_sample##name( void ) {                                                                    \
+  battery_sample##n( fd_base58_encode_##name, fd_base58_decode_##name );                       \
 }                                                                                              \
                                                                                                \
 static inline void                                                                             \

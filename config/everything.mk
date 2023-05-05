@@ -2,7 +2,7 @@ MAKEFLAGS += --no-builtin-rules
 MAKEFLAGS += --no-builtin-variables
 .SUFFIXES:
 .SUFFIXES: .h .hxx .c .cxx .o .a .d .S .i
-.PHONY: all bin include lib unit-test help clean distclean asm ppp show-deps
+.PHONY: all bin include lib unit-test fuzz-test run-unit-test help clean distclean asm ppp show-deps
 .SECONDARY:
 .SECONDEXPANSION:
 
@@ -38,10 +38,10 @@ help:
 	# Explicit goals are: all bin include lib unit-test help clean distclean asm ppp
 	# "make all" is equivalent to "make bin include lib unit-test"
 	# "make bin" makes all binaries for the current platform
-	# "make ebpf-bin" makes all eBPF binaries
 	# "make include" makes all include files for the current platform
 	# "make lib" makes all libraries for the current platform
 	# "make unit-test" makes all unit-tests for the current platform
+	# "make fuzz-test" makes all fuzz-tests for the current platform (requires fuzzing profile)
 	# "make run-unit-test" runs all unit-tests for the current platform. NOTE: this will not (re)build the test executables
 	# "make help" prints this message
 	# "make clean" removes editor temp files and the current platform build
@@ -143,12 +143,15 @@ $(1): $(OBJDIR)/$(1)/$(2)
 
 endef
 
+ifeq "$(FD_HAS_MAIN)" "1"
 add-scripts = $(foreach script,$(1),$(eval $(call _add-script,bin,$(script))))
 add-test-scripts = $(foreach script,$(1),$(eval $(call _add-script,unit-test,$(script))))
+endif
 
 ##############################
 # Usage: $(call make-bin,name,objs,libs)
 # Usage: $(call make-unit-test,name,objs,libs)
+# Usage: $(call make-fuzz-test,name,objs,libs)
 # Usage: $(call run-unit-test,name,args)
 
 # Note: The library arguments require customization of each target
@@ -186,31 +189,17 @@ run-$(3): run-$(1)
 
 endef
 
+ifeq "$(FD_HAS_MAIN)" "1"
 make-bin       = $(eval $(call _make-exe,$(1),$(2),$(3),bin))
 make-unit-test = $(eval $(call _make-exe,$(1),$(2),$(3),unit-test))
+make-fuzz-test =
 run-unit-test = $(eval $(call _run-unit-test,$(1),$(2),unit-test))
-
-##############################
-# Usage: $(call make-ebpf-bin,obj)
-
-# TODO support depfiles
-
-EBPF_BINDIR:=$(BASEDIR)/ebpf/clang/bin
-
-define _make-ebpf-bin
-
-$(EBPF_BINDIR)/$(1).o: $(MKPATH)$(1).c
-	#######################################################################
-	# Creating ebpf-bin $$@ from $$^
-	#######################################################################
-	$(MKDIR) $$(dir $$@) && \
-$(EBPF_CC) $(EBPF_CPPFLAGS) $(EBPF_CFLAGS) -c $$< -o $$@
-
-ebpf-bin: $(EBPF_BINDIR)/$(1).o
-
-endef
-
-make-ebpf-bin = $(eval $(call _make-ebpf-bin,$(1)))
+else
+make-bin =
+make-unit-test =
+make-fuzz-test = $(eval $(call _make-exe,$(1),$(2),$(3),fuzz-test))
+run-unit-test =
+endif
 
 ##############################
 ## GENERIC RULES
