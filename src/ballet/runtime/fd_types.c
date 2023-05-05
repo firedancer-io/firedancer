@@ -3767,11 +3767,13 @@ void fd_stake_config_encode(fd_stake_config_t* self, void const** data) {
 
 void fd_firedancer_banks_decode(fd_firedancer_banks_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
   fd_deserializable_versioned_bank_decode(&self->solana_bank, data, dataend, allocf, allocf_arg);
+  fd_stakes_decode(&self->stakes, data, dataend, allocf, allocf_arg);
   fd_recent_block_hashes_decode(&self->recent_block_hashes, data, dataend, allocf, allocf_arg);
   fd_clock_timestamp_votes_decode(&self->timestamp_votes, data, dataend, allocf, allocf_arg);
 }
 void fd_firedancer_banks_destroy(fd_firedancer_banks_t* self, fd_free_fun_t freef, void* freef_arg) {
   fd_deserializable_versioned_bank_destroy(&self->solana_bank, freef, freef_arg);
+  fd_stakes_destroy(&self->stakes, freef, freef_arg);
   fd_recent_block_hashes_destroy(&self->recent_block_hashes, freef, freef_arg);
   fd_clock_timestamp_votes_destroy(&self->timestamp_votes, freef, freef_arg);
 }
@@ -3779,6 +3781,7 @@ void fd_firedancer_banks_destroy(fd_firedancer_banks_t* self, fd_free_fun_t free
 void fd_firedancer_banks_walk(fd_firedancer_banks_t* self, fd_walk_fun_t fun, const char *name, int level) {
   fun(self, name, 32, "fd_firedancer_banks", level++);
   fd_deserializable_versioned_bank_walk(&self->solana_bank, fun, "solana_bank", level + 1);
+  fd_stakes_walk(&self->stakes, fun, "stakes", level + 1);
   fd_recent_block_hashes_walk(&self->recent_block_hashes, fun, "recent_block_hashes", level + 1);
   fd_clock_timestamp_votes_walk(&self->timestamp_votes, fun, "timestamp_votes", level + 1);
   fun(self, name, 33, "fd_firedancer_banks", --level);
@@ -3793,6 +3796,7 @@ void fd_firedancer_banks_copy_to(fd_firedancer_banks_t* to, fd_firedancer_banks_
 ulong fd_firedancer_banks_size(fd_firedancer_banks_t* self) {
   ulong size = 0;
   size += fd_deserializable_versioned_bank_size(&self->solana_bank);
+  size += fd_stakes_size(&self->stakes);
   size += fd_recent_block_hashes_size(&self->recent_block_hashes);
   size += fd_clock_timestamp_votes_size(&self->timestamp_votes);
   return size;
@@ -3800,6 +3804,7 @@ ulong fd_firedancer_banks_size(fd_firedancer_banks_t* self) {
 
 void fd_firedancer_banks_encode(fd_firedancer_banks_t* self, void const** data) {
   fd_deserializable_versioned_bank_encode(&self->solana_bank, data);
+  fd_stakes_encode(&self->stakes, data);
   fd_recent_block_hashes_encode(&self->recent_block_hashes, data);
   fd_clock_timestamp_votes_encode(&self->timestamp_votes, data);
 }

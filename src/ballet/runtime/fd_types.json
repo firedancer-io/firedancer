@@ -772,6 +772,7 @@
       "type": "struct",
       "fields": [
         { "name": "solana_bank", "type": "deserializable_versioned_bank" },
+        { "name": "stakes", "type": "stakes" },
         { "name": "recent_block_hashes", "type": "recent_block_hashes" },
         { "name": "timestamp_votes", "type": "clock_timestamp_votes" }
       ]

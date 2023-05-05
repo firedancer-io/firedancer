@@ -854,6 +854,7 @@ typedef struct fd_stake_config fd_stake_config_t;
 
 struct fd_firedancer_banks {
   fd_deserializable_versioned_bank_t solana_bank;
+  fd_stakes_t                        stakes;
   fd_recent_block_hashes_t           recent_block_hashes;
   fd_clock_timestamp_votes_t         timestamp_votes;
 };
