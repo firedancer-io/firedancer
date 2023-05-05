@@ -127,3 +127,34 @@ void get_epoch_and_slot_idx( fd_global_ctx_t* global, ulong slot, ulong* res_epo
     *res_idx = slot_idx;
   }
 }
+
+/* https://github.com/solana-labs/solana/blob/88aeaa82a856fc807234e7da0b31b89f2dc0e091/sdk/program/src/epoch_schedule.rs#L170 */
+ulong get_first_slot_in_epoch( fd_global_ctx_t* global, ulong epoch ) {
+  fd_epoch_schedule_t epoch_schedule;
+  fd_sysvar_epoch_schedule_read( global, &epoch_schedule );
+
+  if ( FD_UNLIKELY( epoch < epoch_schedule.first_normal_epoch ) ) {
+    return fd_ulong_sat_mul(
+      fd_ulong_sat_sub(
+        saturating_pow(
+          2,
+          epoch ),
+        1 ),
+      MINIMUM_SLOTS_PER_EPOCH );
+  } else {
+    return fd_ulong_sat_add(
+      fd_ulong_sat_mul(
+        fd_ulong_sat_sub(
+          epoch,
+          epoch_schedule.first_normal_epoch ),
+        epoch_schedule.slots_per_epoch ),
+      epoch_schedule.first_normal_slot );
+  }
+}
+
+/* https://github.com/solana-labs/solana/blob/88aeaa82a856fc807234e7da0b31b89f2dc0e091/sdk/program/src/epoch_schedule.rs#L183 */
+ulong get_last_slot_in_epoch( fd_global_ctx_t* global, ulong epoch ) {
+  ulong first_slot_in_epoch = get_first_slot_in_epoch( global, epoch );
+  ulong slots_in_epoch = get_slots_in_epoch( global, epoch );
+  return fd_ulong_sat_sub( fd_ulong_sat_add( first_slot_in_epoch, slots_in_epoch ), 1 );
+}
