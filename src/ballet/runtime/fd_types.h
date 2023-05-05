@@ -395,14 +395,17 @@ typedef struct fd_bank_hash_info fd_bank_hash_info_t;
 typedef struct fd_serializable_account_storage_entry_t_mapnode fd_serializable_account_storage_entry_t_mapnode_t;
 #define REDBLK_T fd_serializable_account_storage_entry_t_mapnode_t
 #define REDBLK_NAME fd_serializable_account_storage_entry_t_map
-#include "../../util/tmpl/fd_redblack.h"
+#define REDBLK_IMPL_STYLE 1
+#include "../../util/tmpl/fd_redblack.c"
 #undef REDBLK_T
 #undef REDBLK_NAME
 struct fd_serializable_account_storage_entry_t_mapnode {
   fd_serializable_account_storage_entry_t elem;
-  redblack_member_t                       redblack;
+  ulong                                   redblack_parent;
+  ulong                                   redblack_left;
+  ulong                                   redblack_right;
+  int                                     redblack_color;
 };
-typedef struct fd_serializable_account_storage_entry_t_mapnode fd_serializable_account_storage_entry_t_mapnode_t;
 struct fd_slot_account_pair {
   unsigned long                                      slot;
   fd_serializable_account_storage_entry_t_mapnode_t* accounts_pool;
@@ -423,14 +426,17 @@ typedef struct fd_slot_map_pair fd_slot_map_pair_t;
 typedef struct fd_slot_account_pair_t_mapnode fd_slot_account_pair_t_mapnode_t;
 #define REDBLK_T fd_slot_account_pair_t_mapnode_t
 #define REDBLK_NAME fd_slot_account_pair_t_map
-#include "../../util/tmpl/fd_redblack.h"
+#define REDBLK_IMPL_STYLE 1
+#include "../../util/tmpl/fd_redblack.c"
 #undef REDBLK_T
 #undef REDBLK_NAME
 struct fd_slot_account_pair_t_mapnode {
   fd_slot_account_pair_t elem;
-  redblack_member_t      redblack;
+  ulong                  redblack_parent;
+  ulong                  redblack_left;
+  ulong                  redblack_right;
+  int                    redblack_color;
 };
-typedef struct fd_slot_account_pair_t_mapnode fd_slot_account_pair_t_mapnode_t;
 struct fd_solana_accounts_db_fields {
   fd_slot_account_pair_t_mapnode_t* storages_pool;
   fd_slot_account_pair_t_mapnode_t* storages_root;
