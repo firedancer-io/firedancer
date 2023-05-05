@@ -1,0 +1,52 @@
+{
+    "configurations": [
+        {
+            "name": "gdb",
+            "type": "cppdbg",
+            "request": "launch",
+            "preLaunchTask": "fdctl configure init",
+            "program": "${workspaceFolder}/target/debug/fdctl",
+            "args": ["run"],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "environment": [
+                {
+                    "name": "FIREDANCER_CONFIG_TOML",
+                    "value": "${workspaceFolder}/src/app/fdctl/config/gcp-n2-standard-16.toml"
+                },
+                {
+                    "name": "FIREDANCER_BINARY_DIR",
+                    "value": "${workspaceFolder}/build/linux/gcc/x86_64/bin/"
+                },
+            ],
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "miDebuggerPath": "${workspaceFolder}/build/linux/gcc/x86_64/bin/gdb_launcher",
+            "setupCommands": [
+                {   "description":"In this mode GDB will be attached to both processes after a call to fork() or vfork().",
+                    "text": "-gdb-set detach-on-fork on",
+                    "ignoreFailures": false
+                },
+                {   "description": "The new process is debugged after a fork. The parent process runs unimpeded.",
+                    "text": "-gdb-set follow-fork-mode child",
+                    "ignoreFailures": false
+                },
+                {   "description": "Needed to get binary capabilities to thread through correctly in the debugger.",
+                    "text": "-gdb-set startup-with-shell off",
+                    "ignoreFailures": false
+                },
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                },
+                {
+                    "description": "Set Disassembly Flavor to Intel",
+                    "text": "-gdb-set disassembly-flavor intel",
+                    "ignoreFailures": true
+                }
+            ],
+        }
+    ],
+    "version": "2.0.0"
+}

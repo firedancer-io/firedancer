@@ -1,0 +1,224 @@
+# Name of this Firedancer instance. This name serves as a unique token so that multiple Firedancer
+# instances can run side by side without conflicting when they need to share a system or kernel
+# namespace. When starting a Firedancer instance, it will potentially load, reset, or overwrite
+# any state created by a prior, or currently running instance with the same name.
+name = "fd1"
+
+# The user to permission data and run Firedancer as. If empty, will default to the terminal user
+# running the command. If running as sudo, the terminal user is not root but the user which invoked
+# sudo.
+user = ""
+
+# Absolute directory path to place scratch files used during setup and operation. Firedancer does
+# not read or write many files when it is run except for `key.pem` and `cert.pem` files to
+# initialize SSL. Information about the running process is also placed here in a `config.cfg` file
+# so monitoring and debugging tools can find it and connect automatically.
+#
+# In future, Firedancer will also page the Solana accounts database to disk in this directory but
+# this is not currently needed, as the Solana Labs validator still manages the accounts database.
+#
+# Two substitutions will be performed on this string. If "{user}" is present it will be replaced
+# with the user running Firedancer, as above, and "{name}" will be replaced with the name of
+# the Firedancer instance.
+scratch_directory = "/home/{user}/.firedancer/{name}"
+
+# CPU cores in Firedancer are carefully managed. Where a typical program lets the operating system
+# scheduler determine which threads to run on which cores and for how long, Firedancer overrides
+# most of this behavior by pinning threads to CPU cores.
+#
+# Consider a validator node needing to do six essential pieces of work:
+# 
+#  1. quic      Receive client transactions on a network device
+#  2. verify    Verify the signature of the transaction, dropping invalid ones
+#  3. dedup     Drop duplicated or repeatedly sent transactions
+#  4. pack      Decide which transactions to execute, ordering them by profitability
+#  5. bank      Run the transactions in order and update accounting
+#  6. shred     Sign outgoing messages and forward to other validators
+#
+# This is a data pipeline. When we model the flow of a transaction through the system, it's a simple
+# linear sequence, and could run nicely on six CPU cores, one for each stage,
+#   
+#   1 -> 2 -> 3 -> 4 -> 5 -> 6
+#
+# Transactions can largely be processed indepdendently, except for deduplication. With that in mind,
+# if we had ten CPU cores, we could make our pipeline faster by parallelizing it as follows,
+#
+#   1 -> 2 --> 3 --> 4 --> 5 -> 6
+#           |          |
+#   1 -> 2 -+          +-> 5 -> 6
+#
+# The problem of deciding which cores to use, and what work to run on each core we call layout.
+# Layout is system dependent and the highest throughput layout will vary depending on the specific
+# hardware available.
+#
+# Pinning and layout is accomplished with help from a primitive we call a tile. A tile is a thread
+# which you can dispatch work to. Tiles may either be pinned to a specific core, or float between
+# unassigned cores (the OS scheduler will assign). While a tile could receive and handle arbitrary
+# new work requests over its lifetime, acting like a worker thread in a thread pool, in practice
+# most tiles are dispatched just one piece of work at startup, one of the six described above, which
+# they run forever.
+#
+# The concurrency model is that each tile runs exclusively on its own thread, and communicates
+# with other tiles via. message passing. The message passing primitives are built on top of
+# shared memory, but tiles do not otherwise communicate via. shared memory. These message queues
+# between tiles are all fixed size, and when a producer outruns a downstream consumer and fills the
+# outgoing buffer transactions will be dropped.
+#
+# A full Firedancer layout spins up these six tasks onto a variety of tiles and connects them
+# together with queues so that data can flow in and out of the system with maximum throughput and
+# minimal overruns.
+[layout]
+    # Logical CPU cores to run Firedancer tiles on. Can be specified as a single core like "0", a
+    # range like "0-10", or a range with stride like "0-10/2". Stride is useful when CPU cores
+    # should be skipped due to hyperthreading.
+    #
+    # It is suggested to use all available CPU cores for Firedancer, so that the Solana network can
+    # run as fast as possible.
+    affinity = "0-15"
+
+    # How many verify tiles to run. Currently this also configures the number of QUIC tiles to run.
+    # QUIC and verify tiles are connected 1:1.
+    verify_tile_count = 4
+
+# All memory that will be used in Firedancer is pre-allocated in two kinds of pages: huge and
+# gigantic. Huge pages are 2MB and gigantic pages are 1GB. This is done to prevent TLB misses
+# which can have a high performance cost. There are three important steps in this configuration,
+#
+#  1. At boot time or soon after, the kernel is told to allocate a certain number of both huge and
+#     gigantic pages to a special pool so that they are reserved for later use by privileged
+#     programs.
+#
+#  2. At configuration time, one (psuedo) filesystem of type hugetlbfs for each of huge and
+#     gigantic pages is mounted on a local directory. Any file created within these filesystems
+#     will be backed by in-memory pages of the desired size.
+#
+#  3. At Firedancer initialization time, Firedancer creates a "workspace" file in one of these
+#     mounts. The workspace is a single mapped memory region within which the program lays out
+#     and initializes all of the data structures it will need in advance. Most Firedancer
+#     allocations occur at initialization time, and this memory is fully managed by special
+#     purpose allocators.
+#
+# The layout of the mounts looks as follows,
+#
+#  /mnt/.fd                     [Mount parent directory specified below]
+#  +-- .gigantic                [Files created in this mount use 1GB pages]
+#      +-- firedancer1.wksp
+#  +-- .huge                    [Files created in this mount use 4MB pages]
+#      +-- scratch1.wksp
+#      +-- scratch2.wksp
+[shmem]
+    # The absolute path to a directory in the filesystem. Firedancer will mount the hugetlbfs
+    # filesystems for huge and gigantic pages inside this directory. This directory should be
+    # writable by the Firedancer user.
+    path = "/mnt/.fd"
+
+    # How many gigantic pages the kernel should pre-allocate for privileged programs. This should be
+    # at least as many as will be needed by the Firedancer instance. If the kernel has less pages
+    # than needed `fdctl configure` will attempt to raise it to meet this requirement.
+    kernel_gigantic_pages = 2
+
+    # How many huge pages the kernel should pre-allocate for privileged programs. Same as above.
+    kernel_huge_pages = 512
+
+    # Which mount to create the Firedancer workspace inside. Must be either "gigantic" or "huge". It
+    # is strongly recommended to create the workspace on "gigantic" pages to reduce TLB misses.
+    workspace_page_size = "gigantic"
+
+    # How many of these pages should be used when creating a Firedancer workspace. Two gigantic
+    # pages would mean that the workspace is 2GB in size.
+    workspace_page_count = 2
+
+# Because of how Firedancer uses UDP and XDP together, we do not receive packets when binding to the
+# loopback interface. This can make local developement difficult. Network namespaces are one
+# solution, they allow us to create a pair of virtual interfaces on the machine which can route
+# to each other.
+#
+# If this configuration is enabled, `fdctl configure` will create two network namespaces and a link
+# between them to send packets back and forth. When this option is enabled, the interface to bind to
+# in the QUIC configuration below must be one of the virtual interfaces. Firedancer will be launched
+# by `fdctl` within that namespace.
+#
+# This is a development only configuration, network namespaces are not suitable for production use
+# due to performance overhead.
+[netns]
+    # If enabled, `fdctl configure` will ensure the network namespaces are configured properly, can
+    # route to each other, and that running Firedancer will run it inside one of the namespaces.
+    enabled = true
+
+    # Name of the first network namespace.
+    interface0 = "veth_test_xdp_0"
+    # MAC address of the first network namespace.
+    interface0_mac = "52:F1:7E:DA:2C:E0"
+    # IP address of the first network namespace.
+    interface0_addr = "198.18.0.1"
+
+    # Name of the second network namespace.
+    interface1 = "veth_test_xdp_1"
+    # MAC address of the second network namespace.
+    interface1_mac = "52:F1:7E:DA:2C:E1"
+    # IP address of the second network namespace.
+    interface1_addr = "198.18.0.2"
+
+# Tiles are described in detail in the layout section above. While the layout configuration
+# determines how many of each tile to place on which CPU core to create a functioning system, below
+# is the individual settings that can change behavior of the tiles.
+[tiles]
+    # QUIC tiles are responsible for implementing the QUIC protocol, including binding and
+    # listening to network devices on the system to receive transactions from clients, and
+    # forwarding well formed (but not necessarily valid) transactions to verify tiles.
+    [tiles.quic]
+        # Which interface to bind to. If developing under a network namespace with [netns] enabled,
+        # this should be one of the two virtual namespaces that was created.
+        interface = "veth_test_xdp_0"
+        # Which port to listen on.
+        listen_port = 9001
+        connection_count = 32
+        connection_id_count = 16
+        stream_count = 64
+        handshake_count = 64
+        max_inflight_packets = 1024
+        tx_buf_size = 4096
+        rx_buf_size = 8192
+        xdp_mode = "skb"
+        xdp_frame_size = 2048
+        xdp_rx_depth = 4096
+        xdp_tx_depth = 4096
+        xdp_aio_depth = 4096
+
+    # Verify tiles perform initial verification of incoming transactions, making sure that they have
+    # a valid signature.
+    [tiles.verify]
+        # The maximum number of messages in-flight between a QUIC tile and associated verify tile,
+        # after which additional messages begin being dropped.
+        # TODO: ... Should this really be configurable?
+        depth = 16384
+        # The maximum size of a message from a QUIC tile to a verify tile.
+        # TODO: NOT CONFIGURATION.
+        mtu = 4804
+
+    # The pack tile takes incoming transactions that have been verified by the verify tile and
+    # attempts to order them in an optimal way to generate the most fees per compute resource
+    # used to execute them.
+    [tiles.pack]
+        # If you have a lot of memory we can increase this to potentially 
+        prq_size = 4096
+        # CU and variance management
+        cu_est_table_size = 1024
+        # How the EMA of expected value and variance decays over time
+        cu_est_history = 1000
+        cu_est_default = 200000
+        # Rename CUs per second. 
+        # TODO: Remove this. Shouldn't be needed or configured.
+        bank_count = 4
+        cu_limit = 12000001
+
+    # All transactions entering into the validator are deduplicated after the signature is
+    # verified, to ensure the same transaction is not repeated multiple times.
+    [tiles.dedup]
+        # The size of the cache that stores unique signatures we have seen to deduplicate. This is
+        # the maximum number of signatures that can be remembered before we will let a duplicate
+        # through.
+        tcache_depth = 4194302
+
+        # Internal configuration relating to how we lookup signatures in the cache.
+        tcache_map_count = 0

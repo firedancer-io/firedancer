@@ -1,0 +1,92 @@
+{
+    "tasks": [
+        {
+            "label": "fdctl configure init",
+            "type": "process",
+            "command": "${workspaceFolder}/target/debug/fdctl",
+            "args": [
+                "configure",
+                "init"
+            ],
+            "dependsOn": [
+                "cargo build",
+                "make"
+            ],
+            "dependsOrder": "parallel",
+            "problemMatcher": [],
+            "presentation": {
+                "echo": true,
+                "reveal": "silent",
+                "focus": false,
+                "panel": "shared",
+                "showReuseMessage": false,
+                "clear": false
+            }
+        },
+        {
+            "label": "cargo build",
+            "type": "shell",
+            "command": "sudo setcap 'cap_sys_admin,cap_sys_nice,cap_net_raw+ep' ${workspaceFolder}/target/debug/fdctl",
+            "dependsOn": "pre cargo build",
+            "presentation": {
+                "echo": true,
+                "reveal": "silent",
+                "focus": false,
+                "panel": "shared",
+                "showReuseMessage": false,
+                "clear": false
+            }
+        },
+        {
+            "label": "pre cargo build",
+            "type": "cargo",
+            "command": "build",
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "hide": true,
+            "presentation": {
+                "echo": true,
+                "reveal": "silent",
+                "focus": false,
+                "panel": "shared",
+                "showReuseMessage": false,
+                "clear": false
+            }
+        },
+        {
+            "label": "make",
+            "type": "shell",
+            "command": "sudo setcap 'cap_sys_admin,cap_sys_nice,cap_net_raw+ep' ${workspaceFolder}/build/linux/gcc/x86_64/bin/fd_frank_run.bin && sudo setcap 'cap_sys_admin,cap_sys_nice,cap_net_raw+ep' ${workspaceFolder}/build/linux/gcc/x86_64/bin/gdb_launcher",
+            "dependsOn": "pre make",
+            "presentation": {
+                "echo": true,
+                "reveal": "silent",
+                "focus": false,
+                "panel": "shared",
+                "showReuseMessage": false,
+                "clear": false
+            }
+        },
+        {
+            "label": "pre make",
+            "type": "shell",
+            "command": "make -j",
+            "group": {
+                "kind": "build",
+                "isDefault": false
+            },
+            "problemMatcher": "$gcc",
+            "hide": true,
+            "presentation": {
+                "echo": true,
+                "reveal": "silent",
+                "focus": false,
+                "panel": "shared",
+                "showReuseMessage": false,
+                "clear": false
+            }
+        }
+    ]
+}
