@@ -9,6 +9,7 @@
 #define FD_VM_STACK_OP_SUCCESS            (0)
 #define FD_VM_STACK_OP_ERR_POP_EMPTY      (1)
 #define FD_VM_STACK_OP_ERR_PUSH_OVERFLOW  (2)
+#define FD_VM_STACK_OP_ERR_POP_UNDERFLOW  (3)
 
 struct fd_vm_shadow_stack {
   ulong ret_instr_ptr;
@@ -26,8 +27,8 @@ typedef struct fd_vm_stack fd_vm_stack_t;
 
 fd_vm_stack_t * fd_vm_stack_init( fd_vm_stack_t * stack );
 
-ulong fd_vm_stack_push( fd_vm_stack_t * stack, ulong saved_regs[4] );
+ulong fd_vm_stack_push( fd_vm_stack_t * stack, ulong ret_instr_ptr, ulong saved_regs[4] );
 
-ulong fd_vm_stack_pop( fd_vm_stack_t * stack, ulong saved_regs[4] );
+ulong fd_vm_stack_pop( fd_vm_stack_t * stack, ulong * ret_instr_ptr, ulong saved_regs[4] );
 
 #endif // HEADER_fd_src_ballet_runtime_vm_fd_call_stack_h

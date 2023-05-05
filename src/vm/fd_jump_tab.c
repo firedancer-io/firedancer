@@ -60,7 +60,6 @@ case_lbl: \
     JMP_TAB_PRE_CASE_CODE \
 )
 
-
 #define __JT_END_IMPL(ret_lbl, break_lbl, alignment) \
 ret_lbl:
 #define __JT_END(ret_lbl, break_lbl, alignment) __JT_END_IMPL(ret_lbl, break_lbl, alignment)

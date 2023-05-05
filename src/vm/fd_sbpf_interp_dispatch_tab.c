@@ -233,8 +233,13 @@ JT_CASE_END
   register_file[dst_reg] = (uint)(~((uint)register_file[dst_reg])); 
 JT_CASE_END
 /* 0x85 */ JT_CASE(0x85) // FD_BPF_OP_CALL_IMM
-  fd_vm_sbpf_syscall_map_t * syscall_entry_imm = fd_vm_sbpf_syscall_map_query(&ctx->syscall_map, imm, NULL);
-  cond_fault = syscall_entry_imm->syscall_fn_ptr(ctx, register_file[1], register_file[2], register_file[3], register_file[4], register_file[5], &register_file[0]);
+  if (imm < ctx->instrs_sz ) {
+    cond_fault = 0;
+    pc = imm;
+  } else {
+    fd_vm_sbpf_syscall_map_t * syscall_entry_imm = fd_vm_sbpf_syscall_map_query(&ctx->syscall_map, imm, NULL);
+    cond_fault = syscall_entry_imm->syscall_fn_ptr(ctx, register_file[1], register_file[2], register_file[3], register_file[4], register_file[5], &register_file[0]);
+  }
   goto *((cond_fault == 0) ? &&fallthrough_0x85 : &&JT_RET_LOC);
 fallthrough_0x85:
 JT_CASE_END
@@ -243,7 +248,7 @@ JT_CASE_END
 JT_CASE_END
 /* 0x8d */ JT_CASE(0x8d) // FD_BPF_OP_CALL_REG
   // TODO: fix
-  fd_vm_sbpf_syscall_map_t * syscall_entry_reg = fd_vm_sbpf_syscall_map_query(&ctx->syscall_map, register_file[src_reg], NULL);
+  fd_vm_sbpf_syscall_map_t * syscall_entry_reg = fd_vm_sbpf_syscall_map_query(&ctx->syscall_map, register_file[imm], NULL);
   cond_fault = syscall_entry_reg->syscall_fn_ptr(ctx, register_file[1], register_file[2], register_file[3], register_file[4], register_file[5], &register_file[0]);
   goto *((cond_fault == 0) ? &&fallthrough_0x8d : &&JT_RET_LOC);
 fallthrough_0x8d:

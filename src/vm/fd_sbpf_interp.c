@@ -326,6 +326,67 @@ JT_END;
 
 #include "fd_jump_tab_teardown.c"
 #undef JMP_TAB_ID
+#undef JMP_TAB_PRE_CASE_CODE
+#undef JMP_TAB_POST_CASE_CODE
+
+  // FIXME: Actual errors!
+  return 0;
+}
+
+ulong
+fd_vm_sbpf_interp_instrs_trace( fd_vm_sbpf_exec_context_t * ctx, 
+                                fd_vm_sbpf_trace_entry_t * trace,
+                                FD_FN_UNUSED ulong trace_sz, ulong * trace_used ) {
+  long pc = ctx->entrypoint;
+  ulong ic = ctx->instruction_counter;
+  ulong * register_file = ctx->register_file;
+  fd_memset(register_file, 0, sizeof(register_file));
+  
+  ulong cond_fault = 0;
+
+  *trace_used = 0;
+
+#define JMP_TAB_ID interp_trace
+#define JMP_TAB_PRE_CASE_CODE \
+  FD_LOG_NOTICE(( "TU1: %lu, OP: %x, PC %lu IC %lu IMM %x", *trace_used, instr.opcode.raw, pc, ic, instr.imm)); \
+  dst_reg = instr.dst_reg; \
+  src_reg = instr.src_reg; \
+  imm = instr.imm;
+#define JMP_TAB_POST_CASE_CODE \
+  fd_memcpy( trace[*trace_used].register_file, register_file, 11*sizeof(ulong)); \
+  trace[*trace_used].pc = pc; \
+  trace[*trace_used++].ic = ic; \
+  ic++; \
+  instr = ctx->instrs[++pc]; \
+  goto *(locs[instr.opcode.raw]);
+#include "fd_jump_tab.c"
+  
+  fd_vm_sbpf_instr_t instr;
+  ulong dst_reg;
+  ulong src_reg;
+  ulong imm; 
+
+  static const void * locs[222] = {
+#include "fd_sbpf_interp_locs.c"  
+  };
+
+  instr = ctx->instrs[pc];
+  dst_reg = instr.dst_reg;
+  src_reg = instr.src_reg;
+  imm = instr.imm;
+
+  goto *(locs[instr.opcode.raw]);
+
+JT_START;
+#include "fd_sbpf_interp_dispatch_tab.c"
+JT_END;
+
+  ctx->program_counter = (ulong) pc;
+  ctx->instruction_counter = ic;
+
+  FD_LOG_NOTICE(( "TU: %lu", *trace_used ));
+#include "fd_jump_tab_teardown.c"
+#undef JMP_TAB_ID
 
   // FIXME: Actual errors!
   return 0;

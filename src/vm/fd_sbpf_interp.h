@@ -114,6 +114,13 @@ struct fd_vm_sbpf_exec_context {
   uchar         heap[FD_VM_HEAP_SZ];  /* The heap memory allocated by the bump allocator syscall */ 
 };
 
+struct fd_vm_sbpf_trace_entry { 
+  ulong pc;
+  ulong ic;
+  ulong register_file[11];
+};
+typedef struct fd_vm_sbpf_trace_entry fd_vm_sbpf_trace_entry_t;
+
 ulong fd_vm_serialize_input_params( fd_vm_sbpf_exec_params_t * params, uchar * buf, ulong buf_sz );
 
 /* Registers a syscall by name to an execution context. */
@@ -125,6 +132,7 @@ void fd_vm_sbpf_interp_register_local_call( fd_vm_sbpf_exec_context_t * ctx, cha
 /* Runs the sBPF program from the context until completion or a fault occurs. Returns success
    or an error/fault code. */
 ulong fd_vm_sbpf_interp_instrs( fd_vm_sbpf_exec_context_t * ctx );
+ulong fd_vm_sbpf_interp_instrs_trace( fd_vm_sbpf_exec_context_t * ctx, fd_vm_sbpf_trace_entry_t * trace, ulong trace_sz, ulong * trace_used );
 
 /* Validates the sBPF program from the given context. Returns success or an error code. */ 
 ulong fd_vm_sbpf_interp_validate( fd_vm_sbpf_exec_context_t * ctx );
