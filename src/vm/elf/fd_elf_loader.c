@@ -88,6 +88,8 @@ fd_elf_relocate_sbpf_program( uchar const *                       elf_obj_conten
   FD_LOG_NOTICE(( "e_shstrndx %d", elf_hdr->e_shstrndx ));
   fd_elf64_section_hdr_t const section_str_section_hdr = section_hdrs[elf_hdr->e_shstrndx];
 
+  relocated_program->entrypoint = elf_hdr->e_entry / sizeof(fd_vm_sbpf_instr_t);
+  FD_LOG_NOTICE(( "ENTRYPOINT: %lu %lu ", relocated_program->entrypoint, elf_hdr->e_entry / sizeof(fd_vm_sbpf_instr_t) )); 
   ulong text_section_found = 0; 
   ulong text_section_idx = 0;
 
@@ -103,7 +105,7 @@ fd_elf_relocate_sbpf_program( uchar const *                       elf_obj_conten
     fd_elf64_section_hdr_t const section_hdr = section_hdrs[i];
 
     char * section_name = (char *)(elf_obj_content + section_str_section_hdr.sh_offset + section_hdr.sh_name);
-    FD_LOG_NOTICE(( "SECTION: %s", section_name ));
+    FD_LOG_NOTICE(( "SECTION: %s, OFFSET: %lu", section_name, section_hdr.sh_offset ));
     
     if( strncmp(section_name, ELF_SECTION_TEXT, 5)==0 ) {
       // .text section
@@ -157,7 +159,7 @@ fd_elf_relocate_sbpf_program( uchar const *                       elf_obj_conten
 
     fd_elf64_sym_tab_ent_t sym_tab_ent = sym_tab[rel_sym];
 
-    FD_LOG_NOTICE(( "RELOC: %lu, info: %lx, off: %lx, sym: %lx, type: %lx", i, reloc.r_info, reloc.r_offset, rel_sym, rel_type ));
+    // FD_LOG_NOTICE(( "RELOC: %lu, info: %lx, off: %lx, sym: %lx, type: %lx", i, reloc.r_info, reloc.r_offset, rel_sym, rel_type ));
     switch( rel_type ) {
       case R_BPF_64_RELATIVE: 
       {
@@ -165,13 +167,13 @@ fd_elf_relocate_sbpf_program( uchar const *                       elf_obj_conten
         if ( reloc.r_offset >= text_section_hdr.sh_offset && reloc.r_offset < text_section_hdr.sh_offset + text_section_hdr.sh_size ) {
           // We are in the .text section.
           fd_vm_sbpf_instr_t * instr = (fd_vm_sbpf_instr_t *)(elf_obj_content + reloc.r_offset);
-          FD_LOG_NOTICE(( "RELOC INSTR %x", instr->opcode.raw ));
+          // FD_LOG_NOTICE(( "RELOC INSTR %x", instr->opcode.raw ));
           if (instr->opcode.raw != FD_BPF_OP_LDQ) {
             return 1;
           }
         
           ulong ldq_imm = *(ulong *)(elf_obj_content + instr->imm);
-          FD_LOG_NOTICE(( "RELOC REL %x %lx", instr->imm, ldq_imm ));
+          // FD_LOG_NOTICE(( "RELOC REL %x %lx", instr->imm, ldq_imm ));
           
 
           fd_vm_sbpf_instr_t * addl_imm_instr = instr + 1;
@@ -179,10 +181,10 @@ fd_elf_relocate_sbpf_program( uchar const *                       elf_obj_conten
           addl_imm_instr->imm = ldq_imm >> 32;
         } else {
           ulong imm_offset = (*(ulong *)(elf_obj_content + reloc.r_offset)) >> 32;
-          FD_LOG_NOTICE(( "RELOC QQQ %lx", imm_offset ));
+          // FD_LOG_NOTICE(( "RELOC QQQ %lx", imm_offset ));
 
           ulong imm_value = (*(ulong *)(elf_obj_content + imm_offset));
-          FD_LOG_NOTICE(( "RELOC RRR %lx", imm_value ));
+          // FD_LOG_NOTICE(( "RELOC RRR %lx", imm_value ));
           ulong * reloc_addr = (ulong *)(elf_obj_content + reloc.r_offset);
           
           *reloc_addr = imm_value;
@@ -219,13 +221,13 @@ fd_elf_relocate_sbpf_program( uchar const *                       elf_obj_conten
               return 1;
           }
         } else {
-          FD_LOG_NOTICE(( "RELOC CALL NOT -1: imm: %u", instr->imm ));
+          // FD_LOG_NOTICE(( "RELOC CALL NOT -1: imm: %u", instr->imm ));
         }
-        FD_LOG_NOTICE(( "RELOC CALL INSTR %x %x", instr->opcode.raw, instr->imm ));
+        // FD_LOG_NOTICE(( "RELOC CALL INSTR %x %x", instr->opcode.raw, instr->imm ));
         break;
       }
       default:
-        FD_LOG_NOTICE(( "UNKNOWN RELOC TYPE %lx", rel_type ));
+        // FD_LOG_NOTICE(( "UNKNOWN RELOC TYPE %lx", rel_type ));
         return 1;
     }
   }

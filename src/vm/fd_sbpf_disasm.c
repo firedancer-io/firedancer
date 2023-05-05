@@ -82,7 +82,7 @@ fd_sbpf_disassemble_instr_jmp( fd_vm_sbpf_instr_t instr,
                              ulong pc,
                              char const * suffix,
                              char * out, 
-                             FD_FN_UNUSED ulong out_sz ) { 
+                             ulong out_sz ) { 
   ulong consumed = 0;
   char * op_name;
   switch (instr.opcode.normal.op_mode) {
@@ -135,10 +135,10 @@ fd_sbpf_disassemble_instr_jmp( fd_vm_sbpf_instr_t instr,
   if( FD_UNLIKELY( instr.opcode.normal.op_mode == FD_BPF_OPCODE_JMP_OP_MODE_CALL ) ) {
     switch ( instr.opcode.normal.op_src ) {
       case FD_BPF_OPCODE_SOURCE_MODE_IMM:
-        consumed += sprintf(out, "%s%s function_%ld", op_name, suffix, (long)((long)pc+(int)instr.imm+1L));
+        consumed += snprintf(out, out_sz, "%s%s function_%ld", op_name, suffix, (long)((long)pc+(int)instr.imm+1L));
         break;
       case FD_BPF_OPCODE_SOURCE_MODE_REG:
-        consumed += sprintf(out, "%sx%s r%d", op_name, suffix, instr.imm);
+        consumed += snprintf(out, out_sz, "%sx%s r%d", op_name, suffix, instr.imm);
         break;
       default: 
         return 0;
@@ -147,21 +147,21 @@ fd_sbpf_disassemble_instr_jmp( fd_vm_sbpf_instr_t instr,
   }
   
   if( FD_UNLIKELY( instr.opcode.normal.op_mode == FD_BPF_OPCODE_JMP_OP_MODE_EXIT ) ) {
-    consumed += sprintf(out, "%s%s", op_name, suffix);
+    consumed += snprintf(out, out_sz, "%s%s", op_name, suffix);
     return consumed;
   }
   
   if( FD_UNLIKELY( instr.opcode.normal.op_mode == FD_BPF_OPCODE_JMP_OP_MODE_JA ) ) {
-    consumed += sprintf(out, "%s%s lbb_%ld", op_name, suffix, pc+instr.offset+1);
+    consumed += snprintf(out, out_sz, "%s%s lbb_%ld", op_name, suffix, pc+instr.offset+1);
     return consumed;
   }
   
   switch ( instr.opcode.normal.op_src ) {
     case FD_BPF_OPCODE_SOURCE_MODE_IMM:
-      consumed += sprintf(out, "%s%s r%d, %d, lbb_%ld", op_name, suffix, instr.dst_reg, instr.imm, pc+instr.offset+1);
+      consumed += snprintf(out, out_sz, "%s%s r%d, %d, lbb_%ld", op_name, suffix, instr.dst_reg, instr.imm, pc+instr.offset+1);
       break;
     case FD_BPF_OPCODE_SOURCE_MODE_REG:
-      consumed += sprintf(out, "%s%s r%d, r%d, lbb_%ld", op_name, suffix, instr.dst_reg, instr.src_reg, pc+instr.offset+1);
+      consumed += snprintf(out, out_sz, "%s%s r%d, r%d, lbb_%ld", op_name, suffix, instr.dst_reg, instr.src_reg, pc+instr.offset+1);
       break;
     default: 
       return 0;
@@ -171,9 +171,9 @@ fd_sbpf_disassemble_instr_jmp( fd_vm_sbpf_instr_t instr,
 }
 
 static ulong 
-fd_sbpf_disassemble_instr_ldx( fd_vm_sbpf_instr_t instr, 
+fd_sbpf_disassemble_instr_ldx( fd_vm_sbpf_instr_t instr,
                                char * out, 
-                               FD_FN_UNUSED ulong out_sz ) { 
+                               ulong out_sz ) { 
 
   ulong consumed = 0;
   char * op_name;
@@ -193,9 +193,9 @@ fd_sbpf_disassemble_instr_ldx( fd_vm_sbpf_instr_t instr,
   }
   
   if( instr.offset < 0 ) {
-    consumed += sprintf(out, "%s r%d, [r%d-0x%x]", op_name, instr.dst_reg, instr.src_reg, -instr.offset);
+    consumed += snprintf(out, out_sz, "%s r%d, [r%d-0x%x]", op_name, instr.dst_reg, instr.src_reg, -instr.offset);
   } else {
-    consumed += sprintf(out, "%s r%d, [r%d+0x%x]", op_name, instr.dst_reg, instr.src_reg, instr.offset);
+    consumed += snprintf(out, out_sz, "%s r%d, [r%d+0x%x]", op_name, instr.dst_reg, instr.src_reg, instr.offset);
   }
 
   return consumed;
@@ -204,7 +204,7 @@ fd_sbpf_disassemble_instr_ldx( fd_vm_sbpf_instr_t instr,
 static ulong 
 fd_sbpf_disassemble_instr_stx( fd_vm_sbpf_instr_t instr, 
                                char * out, 
-                               FD_FN_UNUSED ulong out_sz ) { 
+                               ulong out_sz ) { 
 
   ulong consumed = 0;
   char * op_name;
@@ -224,9 +224,9 @@ fd_sbpf_disassemble_instr_stx( fd_vm_sbpf_instr_t instr,
   }
     
   if( instr.offset < 0 ) {
-    consumed += sprintf(out, "%s [r%d-0x%x], r%d", op_name, instr.dst_reg, -instr.offset, instr.src_reg);
+    consumed += snprintf(out, out_sz, "%s [r%d-0x%x], r%d", op_name, instr.dst_reg, -instr.offset, instr.src_reg);
   } else {
-    consumed += sprintf(out, "%s [r%d+0x%x], r%d", op_name, instr.dst_reg, instr.offset, instr.src_reg);
+    consumed += snprintf(out, out_sz, "%s [r%d+0x%x], r%d", op_name, instr.dst_reg, instr.offset, instr.src_reg);
   }
 
   return consumed;
@@ -234,13 +234,13 @@ fd_sbpf_disassemble_instr_stx( fd_vm_sbpf_instr_t instr,
 
 static ulong 
 fd_sbpf_disassemble_instr( fd_vm_sbpf_instr_t const * instr, 
-                          ulong pc,
-                          char * out, 
-                         FD_FN_UNUSED ulong out_sz ) { 
+                           ulong pc,
+                           char * out, 
+                           ulong out_sz ) { 
   ulong consumed = 0;
   switch( instr->opcode.any.op_class ) {
     case FD_BPF_OPCODE_CLASS_LD:
-      consumed += sprintf(out, "lddw r%d, 0x%lx %x %x", instr->dst_reg, (ulong)((ulong)instr[0].imm | (ulong)((ulong)instr[1].imm << 32UL)), instr[0].imm, instr[1].imm);
+      consumed += snprintf(out, out_sz, "lddw r%d, 0x%lx %x %x", instr->dst_reg, (ulong)((ulong)instr[0].imm | (ulong)((ulong)instr[1].imm << 32UL)), instr[0].imm, instr[1].imm);
       break;
     case FD_BPF_OPCODE_CLASS_LDX:
       consumed += fd_sbpf_disassemble_instr_ldx( *instr, out, out_sz );
@@ -272,8 +272,12 @@ char *
 fd_sbpf_disassemble_program( fd_vm_sbpf_instr_t const *  instrs, 
                                   ulong                 instrs_sz, 
                                   char *                out, 
-                                  FD_FN_UNUSED ulong                 out_sz ) {
-  out += sprintf(out, "function_0:\n");
+                                  ulong                 out_sz ) {
+  ulong out_rem = out_sz;
+  ulong nwritten = snprintf(out, out_rem, "function_0:\n");
+  out_rem -= nwritten;
+  out += nwritten;
+
   ulong label_pcs[65536];
   ulong num_label_pcs = 0;
   
@@ -304,14 +308,9 @@ fd_sbpf_disassemble_program( fd_vm_sbpf_instr_t const *  instrs,
     for( ulong j = 0; j < num_label_pcs; j++ ) {
       if( label_pcs[j] == i ) {
         label_found = 1;
-        //fd_vm_sbpf_instr_t prev_instr = instrs[i-1];
-
-        //if( prev_instr.opcode.normal.op_mode == FD_BPF_OPCODE_JMP_OP_MODE_EXIT ) {
-        //  out += sprintf(out, "\nfunction_%lu:\n", i+1);
-         
-        //} else {
-          out += sprintf(out, "lbb_%lu:\n", i);
-        //}
+        nwritten = snprintf(out, out_rem, "lbb_%lu:\n", i);
+        out_rem -= nwritten;
+        out += nwritten;
         break;
       }
     }
@@ -319,21 +318,27 @@ fd_sbpf_disassemble_program( fd_vm_sbpf_instr_t const *  instrs,
     if( !label_found ) {
       for( ulong j = 0; j < num_func_pcs; j++ ) {
         if( func_pcs[j] == i ) {
-          out += sprintf(out, "\nfunction_%lu:\n", i);
+          nwritten = snprintf(out, out_rem, "\nfunction_%lu:\n", i);
+          out_rem -= nwritten;
+          out += nwritten;
           break;
         }
       }
     }
 
-    fd_memset(out, ' ',  4);
-    out += 4;
-    
+    nwritten = snprintf(out, out_rem, "    ");
+    out_rem -= nwritten;
+    out += nwritten;
+
     fd_vm_sbpf_instr_t const * instr = &instrs[i];
 
-    out += fd_sbpf_disassemble_instr(instr, i, out, out_sz);
+    nwritten = fd_sbpf_disassemble_instr(instr, i, out, out_rem);
+    out_rem -= nwritten; 
+    out += nwritten;
 
-    *out = '\n';
-    out++;
+    nwritten = snprintf(out, out_rem, "\n");
+    out_rem -= nwritten;
+    out += nwritten;
 
     if( instr->opcode.raw == FD_BPF_OP_LDQ ) {
       i++;
@@ -348,7 +353,9 @@ fd_sbpf_disassemble_program( fd_vm_sbpf_instr_t const *  instrs,
     }
     
     if( !next_label_found && ( instr->opcode.raw == FD_BPF_OP_JA ) ) {
-      out += sprintf(out, "\nfunction_%lu:\n", i+1);
+      nwritten = snprintf(out, out_rem, "\nfunction_%lu:\n", i+1);
+      out_rem -= nwritten;
+      out += nwritten;
     }
   }
 
