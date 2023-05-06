@@ -15,8 +15,6 @@ UNWINDSET += fd_quic_decode_initial.3:64
 PROOF_SOURCES += $(PROOFDIR)/$(HARNESS_FILE).c
 PROJECT_SOURCES = $(SRCDIR)/tango/quic/fd_quic_proto.c
 
-CBMC_FLAG_CONVERSION_CHECK =
-
 # If this proof is found to consume huge amounts of RAM, you can set the
 # EXPENSIVE variable. With new enough versions of the proof tools, this will
 # restrict the number of EXPENSIVE CBMC jobs running at once. See the
