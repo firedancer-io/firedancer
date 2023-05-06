@@ -23,7 +23,7 @@ typedef struct fd_vm_syscall_bytes_slice fd_vm_syscall_bytes_slice_t;
 
 FD_PROTOTYPES_BEGIN
 
-void fd_vm_syscall_register_all( fd_vm_sbpf_exec_context_t * ctx );
+void fd_vm_syscall_register_all( fd_sbpf_syscalls_t * syscalls );
 
 /* Syscall function declarations */
 
