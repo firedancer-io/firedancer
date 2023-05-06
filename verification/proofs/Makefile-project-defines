@@ -30,4 +30,4 @@ EXPORT_FILE_LOCAL_SYMBOLS =
 # INCLUDES =
 
 # Preprocessor definitions -D...
-# DEFINES =
+DEFINES += -D__STDC_VERSION__=201710L # Bypass C17 check made by fd_util_base.h
