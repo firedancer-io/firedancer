@@ -95,7 +95,7 @@ FD_TEMPL_DEF_STRUCT_BEGIN(initial)
 
   FD_TEMPL_MBR_ELEM          ( token_len,        uchar                   )
   FD_TEMPL_MBR_ELEM_VAR_RAW  ( token,            0,8192, token_len       )
-  FD_TEMPL_MBR_ELEM_VARINT   ( len,              uint                    )
+  FD_TEMPL_MBR_ELEM_VARINT   ( len,              ulong                   )
   FD_TEMPL_MBR_ELEM_PKTNUM   ( pkt_num,          ulong                   )
 
   // CRYPTO frames, etc, may start here
@@ -131,7 +131,7 @@ FD_TEMPL_DEF_STRUCT_BEGIN(zero_rtt)
   FD_TEMPL_MBR_ELEM          ( src_conn_id_len,  uchar                  )
   FD_TEMPL_MBR_ELEM_VAR      ( src_conn_id,      0,160, src_conn_id_len )
 
-  FD_TEMPL_MBR_ELEM_VARINT   ( len,              uint                   )
+  FD_TEMPL_MBR_ELEM_VARINT   ( len,              ulong                  )
   FD_TEMPL_MBR_ELEM_VARINT   ( pkt_num,          ulong                  )
 
   // payload starts here
@@ -168,7 +168,7 @@ FD_TEMPL_DEF_STRUCT_BEGIN(handshake)
   FD_TEMPL_MBR_ELEM          ( src_conn_id_len,  uchar                  )
   FD_TEMPL_MBR_ELEM_VAR      ( src_conn_id,      0,160, src_conn_id_len )
 
-  FD_TEMPL_MBR_ELEM_VARINT   ( len,              uint                   )
+  FD_TEMPL_MBR_ELEM_VARINT   ( len,              ulong                  )
   FD_TEMPL_MBR_ELEM_PKTNUM   ( pkt_num,          ulong                  )
 
   // payload starts here
