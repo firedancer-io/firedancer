@@ -1,7 +1,7 @@
 
 # Absolute path to the root of the source tree.
 #
-SRCDIR ?= $(abspath $(PROOF_ROOT)/../..)
+SRCDIR ?= $(abspath $(PROOF_ROOT)/../../src)
 
 
 # How to invoke litani.
