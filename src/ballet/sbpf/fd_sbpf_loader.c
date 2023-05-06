@@ -4,6 +4,8 @@
 
 #include <stdio.h>
 
+#include "fd_sbpf_maps.c"
+
 /* Error handling *****************************************************/
 
 /* Thread local storage last error value */
@@ -58,6 +60,9 @@ fd_sbpf_program_footprint( void ) {
 
 fd_sbpf_program_t *
 fd_sbpf_program_new( void * mem ) {
+
+  if( FD_UNLIKELY( !mem ) ) return NULL;
+
   ulong laddr = (ulong)mem;
   laddr+=FD_LAYOUT_INIT;
   memset( (void *)laddr, 0, sizeof(fd_sbpf_program_info_t) );

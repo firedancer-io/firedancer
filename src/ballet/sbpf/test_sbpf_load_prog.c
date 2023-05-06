@@ -6,6 +6,8 @@
 #include <stdlib.h>
 #include <sys/stat.h>
 
+#include "fd_sbpf_maps.c"
+
 
 uint const _syscalls[] = {
   0xb6fc1a11, 0x686093bb, 0x207559bd, 0x5c2a3178, 0x52ba5096,

@@ -11,7 +11,6 @@
 
 #include "../../util/fd_util_base.h"
 #include "../elf/fd_elf64.h"
-#include "fd_sbpf_maps.h"
 
 /* FD_SBPF_PHNDX_UNDEF: placeholder for undefined program header index */
 #define FD_SBPF_PHNDX_UNDEF (ULONG_MAX)
@@ -22,6 +21,28 @@
 #define FD_SBPF_ERR_INVALID_ELF (1)
 
 /* Program struct *****************************************************/
+
+/* fd_sbpf_calldests_t is a map type used to resolve sBPF call targets.
+   This is required because loaded sBPF bytecode does not directly call
+   relative addresses, but instead calls the Murmur3 hash of the
+   destination program counter.  This hash is not trivially reversible
+   thus we store all Murmur3(PC) => PC mappings in this map. */
+
+struct __attribute__((aligned(16UL))) fd_sbpf_calldests {
+  ulong key;  /* hash of PC */
+  /* FIXME salt map key with an add-rotate-xor */
+  ulong pc;
+};
+typedef struct fd_sbpf_calldests fd_sbpf_calldests_t;
+
+/* fd_sbpf_syscalls_t maps syscall IDs => local function pointers. */
+
+struct __attribute__((aligned(16UL))) fd_sbpf_syscalls {
+  uint         key;       /* Murmur3-32 hash of function name */
+  ulong        func_ptr;  /* Function pointer */
+  char const * name;
+};
+typedef struct fd_sbpf_syscalls fd_sbpf_syscalls_t;
 
 struct __attribute__((aligned(32UL))) fd_sbpf_program_info {
   /* rodata segment to be mapped into VM memory */
