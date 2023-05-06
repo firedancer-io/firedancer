@@ -1,0 +1,8 @@
+# -*- mode: makefile -*-
+# The first line sets the emacs major mode to Makefile
+
+################################################################
+# Use this file to define project-specific targets and definitions for
+# unit testing or continuous integration that may depend on targets
+# defined in Makefile.common
+################################################################
