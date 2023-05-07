@@ -28,6 +28,71 @@ static uchar const frame[] = {
   0x00, 0x00, 0x00, 0x00
 };
 
+static void
+test_cstr_to_mac_addr( void ) {
+
+  uchar mac[ 6 ]={0};
+# define MAC_OK(str,num) FD_TEST( fd_ulong_bswap( fd_ulong_load_6( fd_cstr_to_mac_addr( str, mac ) )>>16UL ) )
+# define MAC_FAIL(str)   FD_TEST( !fd_cstr_to_mac_addr( str, mac ) );
+
+  MAC_OK( "01:34:56:78:9a:bc", 0x013456789abc );
+  MAC_OK( "12:34:56:78:9a:bc", 0x123456789abc );
+  MAC_OK( "12:34:56:78:9a:Bc", 0x123456789abc );
+
+  /* Test invalid char and truncated string */
+
+  for( ulong i=0UL; i<15UL; i++ ) {
+    char str[ 18UL ]="12:34:56:78:9a:bc";
+    for( int j=1; j<'0'; j++ ) {
+      str[ i ] = (char)j;
+      MAC_FAIL( str );
+    }
+    for( int j='\0'; j<'0'; j++ ) {
+      str[ i ] = (char)j;
+      MAC_FAIL( str );
+    }
+    for( int j=';'; j<'A'; j++ ) {
+      str[ i ] = (char)j;
+      MAC_FAIL( str );
+    }
+    for( int j='G'; j<'a'; j++ ) {
+      str[ i ] = (char)j;
+      MAC_FAIL( str );
+    }
+    for( int j='g'; j<0xff; j++ ) {
+      str[ i ] = (char)j;
+      MAC_FAIL( str );
+    }
+  }
+
+  /* Test invalid separator */
+
+  MAC_FAIL( "12034:56:78:9a:bc" );
+  MAC_FAIL( "12:34056:78:9a:bc" );
+  MAC_FAIL( "12:34:56078:9a:bc" );
+  MAC_FAIL( "12:34:56:7809a:bc" );
+  MAC_FAIL( "12:34:56:78:9a0bc" );
+
+  /* Test unexpected separator */
+
+  MAC_FAIL( ":2:34:56:78:9a:bc" );
+  MAC_FAIL( "1::34:56:78:9a:bc" );
+  MAC_FAIL( "12::4:56:78:9a:bc" );
+  MAC_FAIL( "12:3::56:78:9a:bc" );
+  MAC_FAIL( "12:34::6:78:9a:bc" );
+  MAC_FAIL( "12:34:5::78:9a:bc" );
+  MAC_FAIL( "12:34:56::8:9a:bc" );
+  MAC_FAIL( "12:34:56:7::9a:bc" );
+  MAC_FAIL( "12:34:56:78::a:bc" );
+  MAC_FAIL( "12:34:56:78:9::bc" );
+  MAC_FAIL( "12:34:56:78:9a::c" );
+  MAC_FAIL( "12:34:56:78:9a:b:" );
+
+  /* Test trailing string */
+
+  MAC_FAIL( "12:34:56:78:9a:bcd" );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -87,7 +152,9 @@ main( int     argc,
   FD_TEST( fd_vlan_tag( tag, (ushort)1234, FD_ETH_HDR_TYPE_IP )==tag );
   FD_TEST( fd_ushort_bswap( tag->net_vid  )==(ushort)1234 );
   FD_TEST( fd_ushort_bswap( tag->net_type )==FD_ETH_HDR_TYPE_IP );
-  
+
+  test_cstr_to_mac_addr();
+
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
   return 0;

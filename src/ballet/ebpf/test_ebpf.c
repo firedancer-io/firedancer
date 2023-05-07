@@ -2,7 +2,7 @@
 #include "fd_ebpf.h"
 #include "../../util/fd_util.h"
 
-FD_IMPORT_BINARY( test_prog, "src/tango/xdp/fd_xdp_redirect_prog.o" );
+FD_IMPORT_BINARY( test_prog, "build/ebpf/clang/bin/fd_xdp_redirect_prog.o" );
 
 static uchar prog_buf[ 2048UL ];
 

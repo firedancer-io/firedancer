@@ -155,6 +155,10 @@
 #define FD_HAS_AVX 0
 #endif
 
+#ifndef FD_USE_ATTR_WEAK
+#define FD_USE_ATTR_WEAK 0
+#endif
+
 /* Base development environment ***************************************/
 
 /* The functionality provided by these vanilla headers are always
@@ -397,6 +401,7 @@ __extension__ typedef unsigned __int128 uint128;
    "pseudo-include".)  Another reminder that make clean and fast builds
    are our friend. */
 
+#if defined(__ELF__)
 #define FD_IMPORT( name, path, type, align, footer )         \
   __asm__( ".section .rodata,\"a\",@progbits\n"              \
            ".type " #name ",@object\n"                       \
@@ -416,6 +421,24 @@ __extension__ typedef unsigned __int128 uint128;
            ".previous\n" );                                  \
   extern type  const name[] __attribute__((aligned(align))); \
   extern ulong const name##_sz
+#elif defined(__MACH__)
+/* TODO support proper alignment – mach as takes 2^n */
+#define FD_IMPORT( name, path, type, align, footer ) \
+  __asm__( ".section __DATA,__const\n"                       \
+           ".globl _" #name "\n"                              \
+           ".align 8, 0x00\n"                                \
+           "_" #name ":\n"                                       \
+           ".incbin \"" path "\"\n"                          \
+           footer "\n"                                       \
+           "_fd_import_" #name "_sz = . - _" #name "\n"       \
+           ".globl _" #name "_sz\n"                           \
+           ".align 8\n"                                      \
+           "_" #name "_sz:\n"                                \
+           ".quad _fd_import_" #name "_sz\n"                 \
+           ".previous\n" );                                  \
+  extern type  const name[] __attribute__((aligned(align))); \
+  extern ulong const name##_sz
+#endif
 
 /* FD_IMPORT_{BINARY,CSTR} are common cases for FD_IMPORT.
 
@@ -499,6 +522,18 @@ fd_type_pun_const( void const * p ) {
    own portability issues.) */
 
 #define FD_FN_UNUSED __attribute__((unused))
+
+#if FD_USE_ATTR_WEAK
+#define FD_STATIC_INLINE __attribute__((weak))
+#else
+#define FD_STATIC_INLINE static inline
+#endif
+
+#if FD_USE_ATTR_WEAK
+#define FD_STATIC_INLINE_COMPLEX __attribute__((weak))
+#else
+#define FD_STATIC_INLINE_COMPLEX FD_FN_UNUSED static
+#endif
 
 /* FD_COMPILER_FORGET(var):  Tells the compiler that it shouldn't use
    any knowledge it has about the provided register-compatible variable
@@ -906,8 +941,15 @@ fd_hash_memcpy( ulong                    seed,
 
 #define fd_tickcount() ((long)__builtin_ia32_rdtsc())
 
-#else
-#error "Unknown FD_TICKCOUNT_STYLE"
+#elif FD_HAS_ARM
+
+static inline long
+fd_tickcount( void ) {
+  ulong val;
+  __asm__ volatile("mrs %0, cntvct_el0" : "=r" (val));
+  return (long)val;
+}
+
 #endif
 
 #if FD_HAS_HOSTED

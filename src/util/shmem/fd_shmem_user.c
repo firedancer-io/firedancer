@@ -161,6 +161,9 @@ fd_shmem_join( char const *               name,
     return NULL;
   }
 
+  /* There doesn't seem to be a way to get superpages when mapping a file into memory
+     in macOS at this time, so skip this alignment check. */
+#ifndef __APPLE__
   if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)shmem, page_sz ) ) ) {
     if( FD_UNLIKELY( munmap( shmem, sz ) ) )
       FD_LOG_WARNING(( "munmap(\"%s\",%lu KiB) failed (%i-%s); attempting to continue", path, sz>>10, errno, strerror( errno ) ));
@@ -173,6 +176,7 @@ fd_shmem_join( char const *               name,
                      path, fd_shmem_private_base ));
     return NULL;
   }
+#endif
 
   /* Lock this region in DRAM to prevent it going to swap and (try) to
      keep the virtual to physical DRAM mapping fixed for the join
@@ -185,8 +189,12 @@ fd_shmem_join( char const *               name,
     FD_LOG_WARNING(( "fd_numa_mlock(\"%s\",%lu KiB) failed (%i-%s); attempting to continue",
                      path, sz>>10, errno, strerror( errno ) ));
 
+  /* TODO: MADV_DONTDUMP not supported by macOS at this time, so only do this for Linux at the moment.
+     Change this if future releases support this flag. */
+#ifdef __linux__
   if( FD_UNLIKELY( madvise( shmem, sz, MADV_DONTDUMP ) ) )
     FD_LOG_WARNING(( "madvise(\"%s\",%lu KiB) failed (%i-%s); attempting to continue", path, sz>>10, errno, strerror( errno ) ));
+#endif
 
   /* We have mapped the region.  Try to complete the join.  Note:
      map_query above and map_insert could be combined to improve

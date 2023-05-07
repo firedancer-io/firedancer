@@ -1,6 +1,49 @@
-# Frankendancer Frank
+Frankendancer
+=============
 
-## Architecture
+The following guide walks through a demo of a Firedancer QUIC server.
+
+Prerequisites
+-------------
+
+Operating Firedancer requires the following steps:
+- [build.md](./build.md): Building the Firedancer source code
+- [system.md](./system.md): Configuring your system for Firedancer
+- [system_xdp.md](./system_xdp.md): Configuring networking
+
+Usage
+-----
+
+### Initialization
+
+```
+# Replace with CPU affinity
+AFFINITY=0-32
+
+# Replace with your interface name
+IFACE=eno12409
+
+# Number of sigverify / QUIC tiles
+TILE_CNT=2
+
+sudo ./build/linux/gcc/x86_64/bin/fd_frank_init frank $AFFINITY $IFACE $TILE_CNT ./build/linux/gcc/x86_64
+```
+
+### Running
+
+```bash
+sudo ./build/linux/gcc/x86_64/bin/fd_frank_run frank $AFFINITY
+```
+
+### Run Firedancer monitor
+
+The `fd_frank_mon` tool displays sequence numbers, rates (tps, bandwidth), backpressure, overruns.
+
+```bash
+sudo ./build/linux/gcc/x86_64/bin/fd_frank_mon frank --duration 1e12 --dt-min 1e8 --dt-max 1e8
+```
+
+## Tango Architecture
 
 ```
                     from external facing NICs
@@ -77,7 +120,7 @@
 - Use of named wksp allows dynamic inspection, monitoring, debugging of
   live operations / non-invasive capture of components inputs / etc
   (standard UNIX permissions model).
-  
+
 - Similarly, support for hotswapping individual components live (e.g.
   adding / removing ingress tiles on the fly to deal with load changes,
   failed hardware, etc) is possible long term under this model.
@@ -114,9 +157,7 @@
   multiple cores if useful in addition to the horizontal support already
   implemented for additional compute bandwidth.
 
-## Configuration
-
-### Pod layout for low level configuration
+## Pod layout for low level configuration
 
 ```
 [path to this frank instance's config] {
@@ -164,7 +205,7 @@
   }
 
   dedup {
-  
+
     # Runs on logical tile 2 and largely spins (ideally on a dedicated
     # core near NUMA node for IPC structures used by this tile)
 
@@ -191,7 +232,7 @@
     # verify_cnt pods in this pod
 
     [verify_idx name] {
-    
+
       # Runs on logical tile 3+verify_idx and largely spins (ideally on
       # a dedicated core near NUMA node for NIC and IPC structures).
       #

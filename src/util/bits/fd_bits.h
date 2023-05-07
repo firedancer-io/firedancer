@@ -248,17 +248,17 @@ fd_uint128_pow2_up( uint128 x ) {
 */
 
 #define FD_SRC_UTIL_BITS_FD_BITS_IMPL(T,UT,w)                                                                                    \
-FD_FN_CONST static inline T    fd_##T##_if          ( int c, T t, T f ) { return c ? t : f;      /* cmov */ }                    \
-/*       */ static inline void fd_##T##_store_if    ( int c, T * p, T v ) { T _[ 1 ]; *( c ? p : _ ) = v; /* cmov */           } \
-FD_FN_CONST static inline UT   fd_##T##_abs         ( T x             ) { UT m = (UT)(x >> (w-1)); return (UT)((((UT)x)+m)^m); } \
-FD_FN_CONST static inline T    fd_##T##_min         ( T x, T y        ) { return (x<=y) ? x : y; /* cmov */ }                    \
-FD_FN_CONST static inline T    fd_##T##_max         ( T x, T y        ) { return (x>=y) ? x : y; /* cmov */ }                    \
-FD_FN_CONST static inline T    fd_##T##_shift_left  ( T x, int n      ) { return (T)fd_##UT##_shift_left  ( (UT)x, n ); }        \
-FD_FN_CONST static inline T    fd_##T##_shift_right ( T x, int n      ) { return (T)(x >> ((n>(w-1)) ? (w-1) : n)); /* cmov */ } \
-FD_FN_CONST static inline T    fd_##T##_rotate_left ( T x, int n      ) { return (T)fd_##UT##_rotate_left ( (UT)x, n ); }        \
-FD_FN_CONST static inline T    fd_##T##_rotate_right( T x, int n      ) { return (T)fd_##UT##_rotate_right( (UT)x, n ); }        \
-FD_FN_CONST static inline UT   fd_##T##_zz_enc      ( T x             ) { return (UT)(((UT)(x>>(w-1))) ^ (((UT)x)<<1)); }        \
-FD_FN_CONST static inline T    fd_##T##_zz_dec      ( UT x            ) { return (T)((x>>1) ^ (-(x & (UT)1))); }
+FD_FN_CONST FD_STATIC_INLINE T    fd_##T##_if          ( int c, T t, T f ) { return c ? t : f;      /* cmov */ }                    \
+/*       */ static inline    void fd_##T##_store_if    ( int c, T * p, T v ) { T _[ 1 ]; *( c ? p : _ ) = v; /* cmov */           } \
+FD_FN_CONST static inline    UT   fd_##T##_abs         ( T x             ) { UT m = (UT)(x >> (w-1)); return (UT)((((UT)x)+m)^m); } \
+FD_FN_CONST static inline    T    fd_##T##_min         ( T x, T y        ) { return (x<=y) ? x : y; /* cmov */ }                    \
+FD_FN_CONST static inline    T    fd_##T##_max         ( T x, T y        ) { return (x>=y) ? x : y; /* cmov */ }                    \
+FD_FN_CONST static inline    T    fd_##T##_shift_left  ( T x, int n      ) { return (T)fd_##UT##_shift_left  ( (UT)x, n ); }        \
+FD_FN_CONST static inline    T    fd_##T##_shift_right ( T x, int n      ) { return (T)(x >> ((n>(w-1)) ? (w-1) : n)); /* cmov */ } \
+FD_FN_CONST static inline    T    fd_##T##_rotate_left ( T x, int n      ) { return (T)fd_##UT##_rotate_left ( (UT)x, n ); }        \
+FD_FN_CONST static inline    T    fd_##T##_rotate_right( T x, int n      ) { return (T)fd_##UT##_rotate_right( (UT)x, n ); }        \
+FD_FN_CONST static inline    UT   fd_##T##_zz_enc      ( T x             ) { return (UT)(((UT)(x>>(w-1))) ^ (((UT)x)<<1)); }        \
+FD_FN_CONST static inline    T    fd_##T##_zz_dec      ( UT x            ) { return (T)((x>>1) ^ (-(x & (UT)1))); }
 
 FD_SRC_UTIL_BITS_FD_BITS_IMPL(schar, uchar,    8)
 FD_SRC_UTIL_BITS_FD_BITS_IMPL(short, ushort,  16)

@@ -13,6 +13,7 @@ pub use crate::generated::{
 };
 pub use crate::generated::{
     fd_fseq_align,
+    fd_fseq_app_laddr,
     fd_fseq_delete,
     fd_fseq_footprint,
     fd_fseq_join,
@@ -24,10 +25,6 @@ use std::sync::atomic::{
     compiler_fence,
     Ordering,
 };
-
-pub unsafe fn fd_fseq_app_laddr(fseq: *mut u64) -> *mut c_void {
-    fseq.add(2) as *mut c_void
-}
 
 pub unsafe fn fd_fseq_app_laddr_const(fseq: *const u64) -> *const c_void {
     fseq.add(2) as *const c_void

@@ -43,7 +43,7 @@
      aio.recv = my_cb_receive;
      aio.ctx   quic;
 
-     fd_aio_pkt_info_t batch[10] = {{ .data = data, .data_sz = data_sz }};
+     fd_aio_pkt_info_t batch[10] = {{ .buf = data, .buf_sz = data_sz }};
 
      fd_aio_pkt_info_t cur_batch    = batch;
      ulong         cur_batch_sz = 10;
@@ -185,14 +185,15 @@ typedef int
 (*fd_aio_send_func_t)( void *                    ctx,
                        fd_aio_pkt_info_t const * batch,
                        ulong                     batch_cnt,
-                       ulong *                   opt_batch_idx );
+                       ulong *                   opt_batch_idx,
+                       int                       flush );
 
 /* An fd_aio_t * is an opaque handle of an AIO instance.  (It
    technically isn't here to facilitate inlining of fd_aio operations.) */
 
 struct fd_aio_private {
-  void *             ctx;       /* AIO specific context */
-  fd_aio_send_func_t send_func; /* Send_func for specific AIO */
+  void *                ctx;       /* AIO specific context */
+  fd_aio_send_func_t    send_func; /* Send_func for specific AIO */
 
   /* FIXME: probably AIO specific functionality state follows here as
      per FIXME above (this might also clean up some of the ctx messiness
@@ -243,8 +244,9 @@ static inline int
 fd_aio_send( fd_aio_t const *          aio,
              fd_aio_pkt_info_t const * batch,
              ulong                     batch_cnt,
-             ulong *                   opt_batch_idx ) {
-  return aio->send_func( aio->ctx, batch, batch_cnt, opt_batch_idx );
+             ulong *                   opt_batch_idx,
+             int                       flush ) {
+  return aio->send_func( aio->ctx, batch, batch_cnt, opt_batch_idx, flush );
 }
 
 /* fd_aio_strerror converts an FD_AIO_SUCCESS / FD_AIO_ERR_* code into

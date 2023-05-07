@@ -359,11 +359,10 @@ PRQ_(private_fill_hole)( PRQ_T * heap,
      we need bubble the hole up to find where to reinsert the last
      event.  Otherwise, we need to bubble down.  Branch prob here is not
      obvious and probably application dependent. */
-#if PRQ_EXPLICIT_TIMEOUT
-  if( hole && PRQ_TIMEOUT_AFTER( heap[ (hole-1UL)>>1 ].PRQ_TIMEOUT, heap[ cnt ].PRQ_TIMEOUT ) )
-#else
-  if( hole && PRQ_AFTER        ( heap[ (hole-1UL)>>1 ]            , heap[ cnt ]             ) )
-#endif
+
+  PRQ_TMP_LD( tmp_parent, heap+(((hole?hole:1UL)-1UL)>>1) );
+  PRQ_TMP_LD( tmp_last,   heap+cnt                        );
+  if( hole && PRQ_TMP_AFTER( tmp_parent, tmp_last ) )
     PRQ_(private_fill_hole_up)( heap, hole, &heap[cnt] );
   else
     PRQ_(private_fill_hole_dn)( heap, hole, cnt );

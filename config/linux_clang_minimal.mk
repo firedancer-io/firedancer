@@ -1,10 +1,13 @@
 BUILDDIR:=linux/clang/minimal
 
 include config/base.mk
+include config/with-linux.mk
 include config/with-clang.mk
 include config/with-debug.mk
 include config/with-brutality.mk
 include config/with-optimization.mk
+include config/with-hosted.mk
+include config/with-openssl.mk
 
 # Turn on POSIX style logging in this target to facilitate
 # cross-platform development
