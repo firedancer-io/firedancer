@@ -10,8 +10,6 @@
 #include <errno.h>
 #include <unistd.h>
 #include <fcntl.h>
-#include <sys/mman.h>
-#include <sys/stat.h>
 
 char  fd_shmem_private_base[ FD_SHMEM_PRIVATE_BASE_MAX ]; /* ""  at thread group start, initialized at boot */
 ulong fd_shmem_private_base_len;                          /* 0UL at ",                  initialized at boot */
@@ -36,114 +34,6 @@ ulong
 fd_shmem_cpu_idx( ulong numa_idx ) {
   if( FD_UNLIKELY( numa_idx>=fd_shmem_private_numa_cnt ) ) return ULONG_MAX;
   return (ulong)fd_shmem_private_cpu_idx[ numa_idx ];
-}
-
-/* SHMEM REGION CREATION AND DESTRUCTION ******************************/
-
-int
-fd_shmem_unlink( char const * name,
-                 ulong        page_sz ) {
-  char path[ FD_SHMEM_PRIVATE_PATH_BUF_MAX ];
-
-  /* Check input args */
-
-  if( FD_UNLIKELY( !fd_shmem_name_len( name ) ) ) { FD_LOG_WARNING(( "bad name (%s)", name ? name : "NULL" )); return EINVAL; }
-
-  if( FD_UNLIKELY( !fd_shmem_is_page_sz( page_sz ) ) ) { FD_LOG_WARNING(( "bad page_sz (%lu)", page_sz )); return EINVAL; }
-
-  /* Unlink the name */
-
-  if( FD_UNLIKELY( unlink( fd_shmem_private_path( name, page_sz, path ) ) ) ) {
-    FD_LOG_WARNING(( "unlink(\"%s\") failed (%i-%s)", path, errno, strerror( errno ) ));
-    return errno;
-  }
-
-  return 0;
-}
-
-int
-fd_shmem_info( char const *      name,
-               ulong             page_sz,
-               fd_shmem_info_t * opt_info ) {
-
-  if( FD_UNLIKELY( !fd_shmem_name_len( name ) ) ) { FD_LOG_WARNING(( "bad name (%s)", name ? name : "NULL" )); return EINVAL; }
-
-  if( !page_sz ) {
-    if( !fd_shmem_info( name, FD_SHMEM_GIGANTIC_PAGE_SZ, opt_info ) ) return 0;
-    if( !fd_shmem_info( name, FD_SHMEM_HUGE_PAGE_SZ,     opt_info ) ) return 0;
-    if( !fd_shmem_info( name, FD_SHMEM_NORMAL_PAGE_SZ,   opt_info ) ) return 0;
-    return ENOENT;
-  }
-
-  if( FD_UNLIKELY( !fd_shmem_is_page_sz( page_sz ) ) ) { FD_LOG_WARNING(( "bad page_sz (%lu)", page_sz )); return EINVAL; }
-
-  char path[ FD_SHMEM_PRIVATE_PATH_BUF_MAX ];
-  int  fd = open( fd_shmem_private_path( name, page_sz, path ), O_RDONLY, (mode_t)0 );
-  if( FD_UNLIKELY( fd==-1 ) ) return errno; /* no logging here as this might be an existence check */
-
-  struct stat stat[1];
-  if( FD_UNLIKELY( fstat( fd, stat ) ) ) {
-    FD_LOG_WARNING(( "fstat failed (%i-%s)", errno, strerror( errno ) ));
-    int err = errno;
-    if( FD_UNLIKELY( close( fd ) ) )
-      FD_LOG_WARNING(( "close(\"%s\") failed (%i-%s); attempting to continue", path, errno, strerror( errno ) ));
-    return err;
-  }
-
-  ulong sz = (ulong)stat->st_size;
-  if( FD_UNLIKELY( !fd_ulong_is_aligned( sz, page_sz ) ) ) {
-    FD_LOG_WARNING(( "\"%s\" size (%lu) not a page size (%lu) multiple\n\t"
-                     "This thread group's hugetlbfs mount path (--shmem-path / FD_SHMEM_PATH):\n\t"
-                     "\t%s\n\t"
-                     "has probably been corrupted and needs to be redone.\n\t"
-                     "See 'bin/fd_shmem_cfg help' for more information.",
-                     path, sz, page_sz, fd_shmem_private_base ));
-    if( FD_UNLIKELY( close( fd ) ) )
-      FD_LOG_WARNING(( "close(\"%s\") failed (%i-%s); attempting to continue", path, errno, strerror( errno ) ));
-    return EFAULT;
-  }
-  ulong page_cnt = sz / page_sz;
-
-  if( FD_UNLIKELY( close( fd ) ) )
-    FD_LOG_WARNING(( "close(\"%s\") failed (%i-%s); attempting to continue", path, errno, strerror( errno ) ));
-
-  if( opt_info ) {
-    opt_info->page_sz  = page_sz;
-    opt_info->page_cnt = page_cnt;
-  }
-  return 0;
-}
-
-/* RAW PAGE ALLOCATION APIS *******************************************/
-
-void
-fd_shmem_release( void * mem,
-                  ulong  page_sz,
-                  ulong  page_cnt ) {
-  if( FD_UNLIKELY( !mem ) ) {
-    FD_LOG_WARNING(( "NULL mem" ));
-    return;
-  }
-
-  if( FD_UNLIKELY( !fd_shmem_is_page_sz( page_sz ) ) ) {
-    FD_LOG_WARNING(( "bad page_sz (%lu)", page_sz ));
-    return;
-  }
-
-  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)mem, page_sz ) ) ) {
-    FD_LOG_WARNING(( "misaligned mem" ));
-    return;
-  }
-
-  if( FD_UNLIKELY( !((1UL<=page_cnt) & (page_cnt<=(((ulong)LONG_MAX)/page_sz))) ) ) {
-    FD_LOG_WARNING(( "bad page_cnt (%lu)", page_cnt ));
-    return;
-  }
-
-  ulong sz = page_sz*page_cnt;
-
-  if( FD_UNLIKELY( munmap( mem, sz ) ) )
-    FD_LOG_WARNING(( "munmap(anon,%lu KiB) failed (%i-%s); attempting to continue", sz>>10, errno, strerror( errno ) ));
 }
 
 /* SHMEM PARSING APIS *************************************************/

@@ -22,6 +22,7 @@ use std::path::Path;
 use std::os::unix::fs::MetadataExt;
 use std::os::unix::fs::PermissionsExt;
 use std::process::{Command, Stdio};
+use std::os::unix::process::CommandExt;
 
 use log::*;
 
@@ -61,6 +62,9 @@ enum ConfigureCommand {
 struct Run {
     #[command(subcommand)]
     subprocess: Option<Subprocess>,
+
+    #[arg(long)]
+    interface: String,
 }
 
 #[derive(Debug, Subcommand)]
@@ -146,12 +150,12 @@ fn clean_workspaces() {
     }
 }
 
-fn initialize_workspace(bindir: &Path) -> FrankEnvironment {
+fn initialize_workspace(bindir: &Path, interface: &str) -> FrankEnvironment {
     let frank_init = format!("{}/fd_frank_init", bindir.display());
     let status = Command::new(frank_init)
-                      .args(["frank1", "0-8", "4", bindir.parent().unwrap().as_os_str().to_str().unwrap()])
-                      .status()
-                      .unwrap();
+                    .args(["frank1", "0-8", interface, "4", bindir.parent().unwrap().as_os_str().to_str().unwrap()])
+                    .status()
+                    .unwrap();
     assert!(status.success());
 
     let cfg = fs::read_to_string("./tmp/frank1.cfg").unwrap();
@@ -202,7 +206,7 @@ fn main() {
         CliCommand::Run(run) => {
             clean_workspaces();
             verify_configuration();
-            let env = initialize_workspace(&args.binary_dir);
+            let env = initialize_workspace(&args.binary_dir, &run.interface);
             // set_pod_value(&args.binary_dir, &env.pod, "uint", "frank1.pack.cu-limit", "12000001");
 
             let mut run_args = env.run_args.split_whitespace().map(|x| x.into()).collect::<Vec<String>>();

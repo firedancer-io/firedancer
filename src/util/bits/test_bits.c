@@ -568,6 +568,8 @@ main( int     argc,
 
       ulong z = x; fd_ulong_store_if( c, &z, y ); FD_TEST( z==(c ? y : x) );
 
+      FD_TEST( fd_ptr_if( c, (uchar *)x, (uchar *)y )==(uchar *)(c ? x : y) );
+
       int n = (int)(uint)y;
       int s = n & 127;
       FD_TEST( fd_ulong_shift_left  ( x, s )==((s>63) ? 0UL : (ulong)(x<<s)) );
