@@ -18,15 +18,18 @@ test_program_success( char *                test_case_name,
                       fd_vm_sbpf_instr_t *  instrs ) {
   FD_LOG_NOTICE(( "Test program: %s", test_case_name ));
 
+  fd_sbpf_syscalls_t syscalls;
+
   fd_vm_sbpf_exec_context_t ctx = {
     .entrypoint = 0,
     .program_counter = 0,
     .instruction_counter = 0,
     .instrs = instrs,
     .instrs_sz = instrs_sz,
+    .syscall_map = &syscalls,
   };
 
-  fd_vm_sbpf_interp_register_syscall( &ctx, "accumulator", accumulator_syscall );
+  fd_vm_sbpf_interp_register_syscall( ctx.syscall_map, "accumulator", accumulator_syscall );
 
   ulong validation_res = fd_vm_sbpf_interp_validate( &ctx );
   if (validation_res != 0) {
