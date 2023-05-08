@@ -1661,11 +1661,11 @@ void fd_slot_account_pair_decode(fd_slot_account_pair_t* self, void const** data
   fd_bincode_uint64_decode(&self->slot, data, dataend);
   ulong accounts_len;
   fd_bincode_uint64_decode(&accounts_len, data, dataend);
-  void* accounts_mem = (*allocf)(allocf_arg, fd_serializable_account_storage_entry_t_map_pool_align(), fd_serializable_account_storage_entry_t_map_pool_footprint(accounts_len+1));
-  self->accounts_pool = fd_serializable_account_storage_entry_t_map_pool_join(fd_serializable_account_storage_entry_t_map_pool_new(accounts_mem, accounts_len+1));
+  void* accounts_mem = (*allocf)(allocf_arg, fd_serializable_account_storage_entry_t_map_align(), fd_serializable_account_storage_entry_t_map_footprint(accounts_len));
+  self->accounts_pool = fd_serializable_account_storage_entry_t_map_join(fd_serializable_account_storage_entry_t_map_new(accounts_mem, accounts_len));
   self->accounts_root = NULL;
   for (ulong i = 0; i < accounts_len; ++i) {
-    fd_serializable_account_storage_entry_t_mapnode_t* node = fd_serializable_account_storage_entry_t_map_pool_allocate(self->accounts_pool);
+    fd_serializable_account_storage_entry_t_mapnode_t* node = fd_serializable_account_storage_entry_t_map_acquire(self->accounts_pool);
     fd_serializable_account_storage_entry_decode(&node->elem, data, dataend, allocf, allocf_arg);
     fd_serializable_account_storage_entry_t_map_insert(self->accounts_pool, &self->accounts_root, node);
   }
@@ -1674,7 +1674,7 @@ void fd_slot_account_pair_destroy(fd_slot_account_pair_t* self, fd_free_fun_t fr
   for ( fd_serializable_account_storage_entry_t_mapnode_t* n = fd_serializable_account_storage_entry_t_map_minimum(self->accounts_pool, self->accounts_root); n; n = fd_serializable_account_storage_entry_t_map_successor(self->accounts_pool, n) ) {
     fd_serializable_account_storage_entry_destroy(&n->elem, freef, freef_arg);
   }
-  freef(freef_arg, fd_serializable_account_storage_entry_t_map_pool_delete(fd_serializable_account_storage_entry_t_map_pool_leave(self->accounts_pool)));
+  freef(freef_arg, fd_serializable_account_storage_entry_t_map_delete(fd_serializable_account_storage_entry_t_map_leave(self->accounts_pool)));
   self->accounts_pool = NULL;
   self->accounts_root = NULL;
 }
@@ -1747,11 +1747,11 @@ void fd_slot_map_pair_encode(fd_slot_map_pair_t* self, void const** data) {
 void fd_solana_accounts_db_fields_decode(fd_solana_accounts_db_fields_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
   ulong storages_len;
   fd_bincode_uint64_decode(&storages_len, data, dataend);
-  void* storages_mem = (*allocf)(allocf_arg, fd_slot_account_pair_t_map_pool_align(), fd_slot_account_pair_t_map_pool_footprint(storages_len+1));
-  self->storages_pool = fd_slot_account_pair_t_map_pool_join(fd_slot_account_pair_t_map_pool_new(storages_mem, storages_len+1));
+  void* storages_mem = (*allocf)(allocf_arg, fd_slot_account_pair_t_map_align(), fd_slot_account_pair_t_map_footprint(storages_len));
+  self->storages_pool = fd_slot_account_pair_t_map_join(fd_slot_account_pair_t_map_new(storages_mem, storages_len));
   self->storages_root = NULL;
   for (ulong i = 0; i < storages_len; ++i) {
-    fd_slot_account_pair_t_mapnode_t* node = fd_slot_account_pair_t_map_pool_allocate(self->storages_pool);
+    fd_slot_account_pair_t_mapnode_t* node = fd_slot_account_pair_t_map_acquire(self->storages_pool);
     fd_slot_account_pair_decode(&node->elem, data, dataend, allocf, allocf_arg);
     fd_slot_account_pair_t_map_insert(self->storages_pool, &self->storages_root, node);
   }
@@ -1777,7 +1777,7 @@ void fd_solana_accounts_db_fields_destroy(fd_solana_accounts_db_fields_t* self, 
   for ( fd_slot_account_pair_t_mapnode_t* n = fd_slot_account_pair_t_map_minimum(self->storages_pool, self->storages_root); n; n = fd_slot_account_pair_t_map_successor(self->storages_pool, n) ) {
     fd_slot_account_pair_destroy(&n->elem, freef, freef_arg);
   }
-  freef(freef_arg, fd_slot_account_pair_t_map_pool_delete(fd_slot_account_pair_t_map_pool_leave(self->storages_pool)));
+  freef(freef_arg, fd_slot_account_pair_t_map_delete(fd_slot_account_pair_t_map_leave(self->storages_pool)));
   self->storages_pool = NULL;
   self->storages_root = NULL;
   fd_bank_hash_info_destroy(&self->bank_hash_info, freef, freef_arg);
@@ -5989,13 +5989,19 @@ void fd_stake_state_encode(fd_stake_state_t* self, void const** data) {
 
 #define REDBLK_T fd_serializable_account_storage_entry_t_mapnode_t
 #define REDBLK_NAME fd_serializable_account_storage_entry_t_map
+#define REDBLK_IMPL_STYLE 2
 #include "../../util/tmpl/fd_redblack.c"
+#undef REDBLK_T
+#undef REDBLK_NAME
 long fd_serializable_account_storage_entry_t_map_compare(fd_serializable_account_storage_entry_t_mapnode_t * left, fd_serializable_account_storage_entry_t_mapnode_t * right) {
   return (long)(left->elem.id - right->elem.id);
 }
 #define REDBLK_T fd_slot_account_pair_t_mapnode_t
 #define REDBLK_NAME fd_slot_account_pair_t_map
+#define REDBLK_IMPL_STYLE 2
 #include "../../util/tmpl/fd_redblack.c"
+#undef REDBLK_T
+#undef REDBLK_NAME
 long fd_slot_account_pair_t_map_compare(fd_slot_account_pair_t_mapnode_t * left, fd_slot_account_pair_t_mapnode_t * right) {
   return (long)(left->elem.slot - right->elem.slot);
 }

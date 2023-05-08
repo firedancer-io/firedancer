@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <time.h>
 #include <limits.h>
+#include <assert.h>
 #include "../fd_util.h"
 
 #define MIN INT_MIN
@@ -13,15 +14,26 @@ int mu_tests= 0, mu_fails = 0;
 
 int permutation_error = 0;
 
+struct rbnode_struct {
+    int key;
+    union {
+        struct {
+            uint parent;
+            uint left;
+            uint right;
+            int color;
+        } rb;
+        ulong nf;
+    } u;
+};
 typedef struct rbnode_struct rbnode;
 #define REDBLK_T rbnode
 #define REDBLK_NAME rb
-#include "fd_redblack.h"
-
-struct rbnode_struct {
-    int key;
-    redblack_member_t redblack;
-};
+#define REDBLK_PARENT u.rb.parent
+#define REDBLK_LEFT u.rb.left
+#define REDBLK_RIGHT u.rb.right
+#define REDBLK_COLOR u.rb.color
+#define REDBLK_NEXTFREE u.nf
 #include "fd_redblack.c"
 
 typedef rbnode rbtree;
@@ -63,14 +75,19 @@ static int unit_test_min();
     FD_LOG_WARNING(("#%03d %s ", ++mu_tests, _s));    \
     if (_c) {                                         \
       FD_LOG_INFO(("PASSED"));                        \
+      if (correct_free != rb_free(pool))              \
+        FD_LOG_WARNING(("INCORRECT FREES"));          \
     } else {                                          \
       FD_LOG_WARNING(("FAILED"));                     \
       mu_fails++;                                     \
     }                                                 \
+    correct_free = rb_free(pool);                     \
   } while (0)
 
 void all_tests()
 {
+  ulong correct_free = rb_free(pool);
+  
   mu_test("unit_test_create", unit_test_create());
 
   mu_test("unit_test_find", unit_test_find());
@@ -96,19 +113,19 @@ int main(int argc, char **argv)
   fd_boot( &argc, &argv );
 
 #define SCRATCH_ALIGN     (128UL)
-#define SCRATCH_FOOTPRINT (1UL<<16)
+#define SCRATCH_FOOTPRINT (1UL<<17)
   uchar scratch[ SCRATCH_FOOTPRINT ] __attribute__((aligned(SCRATCH_ALIGN)));
 
-  ulong max = rb_pool_max_for_footprint(SCRATCH_FOOTPRINT);
-  if (rb_pool_footprint(max) > SCRATCH_FOOTPRINT)
+  ulong max = rb_max_for_footprint(SCRATCH_FOOTPRINT);
+  if (rb_footprint(max) > SCRATCH_FOOTPRINT)
     FD_LOG_ERR(("footprint confusion"));
-  pool = rb_pool_join( rb_pool_new( scratch, max ) );
-  if (rb_pool_max(pool) != max)
+  pool = rb_join( rb_new( scratch, max ) );
+  if (rb_max(pool) != max)
     FD_LOG_ERR(("footprint confusion"));
 
   all_tests();
 
-  (void) rb_pool_delete( rb_pool_leave( pool ));
+  (void) rb_delete( rb_leave( pool ));
 
   if (mu_fails) {
     FD_LOG_ERR(( "*** %d/%d TESTS FAILED ***", mu_fails, mu_tests ));
@@ -126,7 +143,7 @@ rbtree *tree_create()
 }
 
 void tree_destroy(rbtree *rbt) {
-  rb_pool_release_tree(pool, rbt);
+  rb_release_tree(pool, rbt);
 }
 
 rbnode *tree_find(rbtree *rbt, int key)
@@ -138,7 +155,7 @@ rbnode *tree_find(rbtree *rbt, int key)
 
 int tree_check(rbtree *rbt)
 {
-  rb_verify(pool, rbt);
+  assert(!rb_verify(pool, rbt));
   return 1;
 }
 
@@ -152,7 +169,7 @@ rbnode *tree_insert(rbtree **rbt, int key)
     return NULL;
   }
 
-  data = rb_pool_allocate(pool);
+  data = rb_acquire(pool);
   data->key = key;
   if ((node = rb_insert(pool, rbt, data)) == NULL) {
     FD_LOG_WARNING(("tree_insert: insert %d failed", key));
@@ -174,8 +191,8 @@ int tree_delete(rbtree **rbt, int key)
     return 0;
   }
 
-  rb_delete(pool, rbt, node);
-  rb_pool_release(pool, node);
+  rb_remove(pool, rbt, node);
+  rb_release(pool, node);
 
   if (rb_find(pool, *rbt, &key2) != NULL) {
     FD_LOG_WARNING(("tree_delete: delete %d failed", key));
@@ -282,7 +299,7 @@ rbtree *make_black_tree()
 
   n = strlen(c);
   for (i = 0; i < n; i++) {
-    if ((node = tree_find(rbt, c[i])) == NULL || node->redblack.color != REDBLK_BLACK)
+    if ((node = tree_find(rbt, c[i])) == NULL || node->u.rb.color != 1 /*REDBLK_BLACK*/)
       goto err;
   }
 
@@ -294,9 +311,9 @@ rbtree *make_black_tree()
   ng = tree_find(rbt, 'G');
   nh = tree_find(rbt, 'H');
   ni = tree_find(rbt, 'I');
-  if (nf->redblack.left + pool != nd || nf->redblack.right + pool != nh || \
-      nd->redblack.left + pool != nb || nd->redblack.right + pool != ne || \
-      nh->redblack.left + pool != ng || nh->redblack.right + pool != ni) {
+  if (nf->u.rb.left + pool != nd || nf->u.rb.right + pool != nh || \
+      nd->u.rb.left + pool != nb || nd->u.rb.right + pool != ne || \
+      nh->u.rb.left + pool != ng || nh->u.rb.right + pool != ni) {
     goto err;
   }
 

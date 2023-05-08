@@ -134,7 +134,7 @@ fd_runtime_block_execute( fd_global_ctx_t *global, fd_slot_blocks_t *slot_data )
     global->signature_cnt = signature_cnt;
     fd_hash_bank( global, &global->banks_hash );
 
-    fd_dirty_dup_delete_all (global->acc_mgr->shmap);
+    fd_dirty_dup_delete_all(global->acc_mgr->shmap);
     fd_pubkey_hash_vector_clear(&global->acc_mgr->keys);
   }
 

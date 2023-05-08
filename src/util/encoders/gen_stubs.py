@@ -179,11 +179,11 @@ def do_map_body_decode(n, f):
         print("  ulong " + f["name"] + "_len;", file=body)
         print("  fd_bincode_uint64_decode(&" + f["name"] + "_len, data, dataend);", file=body)
 
-    print("  void* " + f["name"] + "_mem = (*allocf)(allocf_arg, " + mapname + "_pool_align(), " + mapname + "_pool_footprint(" + f["name"] + "_len+1));", file=body)
-    print("  self->" + f["name"] + "_pool = " + mapname + "_pool_join(" + mapname + "_pool_new(" + f["name"] + "_mem, " + f["name"] + "_len+1));", file=body)
+    print("  void* " + f["name"] + "_mem = (*allocf)(allocf_arg, " + mapname + "_align(), " + mapname + "_footprint(" + f["name"] + "_len));", file=body)
+    print("  self->" + f["name"] + "_pool = " + mapname + "_join(" + mapname + "_new(" + f["name"] + "_mem, " + f["name"] + "_len));", file=body)
     print("  self->" + f["name"] + "_root = NULL;", file=body)
     print("  for (ulong i = 0; i < " + f["name"] + "_len; ++i) {", file=body)
-    print("    " + nodename + "* node = " + mapname + "_pool_allocate(self->" + f["name"] + "_pool);", file=body); 
+    print("    " + nodename + "* node = " + mapname + "_acquire(self->" + f["name"] + "_pool);", file=body); 
     print("    " + n + "_" + f["element"] + "_decode(&node->elem, data, dataend, allocf, allocf_arg);", file=body)
     print("    " + mapname + "_insert(self->" + f["name"] + "_pool, &self->" + f["name"] + "_root, node);", file=body)
     print("  }", file=body)
@@ -515,7 +515,7 @@ def do_map_body_destroy(n, f):
     print("  for ( " + nodename + "* n = " + mapname + "_minimum(self->" + f["name"] + "_pool, self->" + f["name"] + "_root); n; n = " + mapname + "_successor(self->" + f["name"] + "_pool, n) ) {", file=body);
     print("      " + n + "_" + f["element"] + "_destroy(&n->elem, freef, freef_arg);", file=body)
     print("  }", file=body)
-    print("  freef(freef_arg, " + mapname + "_pool_delete(" + mapname + "_pool_leave(self->" + f["name"] + "_pool)));", file=body)
+    print("  freef(freef_arg, " + mapname + "_delete(" + mapname + "_leave(self->" + f["name"] + "_pool)));", file=body)
     print("  self->" + f["name"] + "_pool = NULL;", file=body)
     print("  self->" + f["name"] + "_root = NULL;", file=body)
         
@@ -601,12 +601,12 @@ def do_map_body_walk(n, f):
 #    nodename = element_type + "_mapnode_t"
 #    
 #    if "modifier" in f and f["modifier"] == "compact":
-#        print("  ushort " + f["name"] + "_len = (ushort)" + mapname + "_size(self->" + f["name"] + "_pool, self->" + f["name"] + "_root);", file=body)
+#        print("  ushort " + f["name"] + "_len = (ushort)" + mapname + "_size(self->" + f["name"] + ", self->" + f["name"] + "_root);", file=body)
 #        print("  fd_walk_short_u16(&" + f["name"] + "_len, data);", file=body)
 #    else:
-#        print("  ulong " + f["name"] + "_len = " + mapname + "_size(self->" + f["name"] + "_pool, self->" + f["name"] + "_root);", file=body)
+#        print("  ulong " + f["name"] + "_len = " + mapname + "_size(self->" + f["name"] + ", self->" + f["name"] + "_root);", file=body)
 #        print("  fd_bincode_uint64_walk(&" + f["name"] + "_len, data);", file=body)
-#    print("  for ( " + nodename + "* n = " + mapname + "_minimum(self->" + f["name"] + "_pool, self->" + f["name"] + "_root); n; n = " + mapname + "_successor(self->" + f["name"] + "_pool, n) ) {", file=body);
+#    print("  for ( " + nodename + "* n = " + mapname + "_minimum(self->" + f["name"] + ", self->" + f["name"] + "_root); n; n = " + mapname + "_successor(self->" + f["name"] + ", n) ) {", file=body);
 #    print("      " + n + "_" + f["element"] + "_walk(&n->elem, data);", file=body)
 #    print("  }", file=body)
         
@@ -739,14 +739,17 @@ for entry in entries:
             print(f"typedef struct {nodename} {nodename}_t;", file=header)
             print(f"#define REDBLK_T {nodename}_t", file=header)
             print(f"#define REDBLK_NAME {mapname}", file=header)
-            print(f"#include \"../../util/tmpl/fd_redblack.h\"", file=header)
+            print(f"#define REDBLK_IMPL_STYLE 1", file=header)
+            print(f"#include \"../../util/tmpl/fd_redblack.c\"", file=header)
             print(f"#undef REDBLK_T", file=header)
             print(f"#undef REDBLK_NAME", file=header)
             print(f"struct {nodename} {{", file=header)
             print(f"    {element_type} elem;", file=header)
-            print(f"    redblack_member_t redblack;", file=header)
+            print(f"    ulong redblack_parent;", file=header)
+            print(f"    ulong redblack_left;", file=header)
+            print(f"    ulong redblack_right;", file=header)
+            print(f"    int redblack_color;", file=header)
             print(f"}};", file=header)
-            print(f"typedef struct {nodename} {nodename}_t;", file=header)
 
             map_element_types[element_type] = f["key"]
 
@@ -974,7 +977,10 @@ for (element_type,key) in map_element_types.items():
     nodename = element_type + "_mapnode_t"
     print(f"#define REDBLK_T {nodename}", file=body)
     print(f"#define REDBLK_NAME {mapname}", file=body)
+    print(f"#define REDBLK_IMPL_STYLE 2", file=body)
     print(f"#include \"../../util/tmpl/fd_redblack.c\"", file=body)
+    print(f"#undef REDBLK_T", file=body)
+    print(f"#undef REDBLK_NAME", file=body)
     print(f"long {mapname}_compare({nodename} * left, {nodename} * right) {{", file=body)
     print(f"  return (long)(left->elem.{key} - right->elem.{key});", file=body)
     print(f"}}", file=body)
