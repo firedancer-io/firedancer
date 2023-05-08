@@ -13,6 +13,7 @@ UNWINDSET += fd_quic_decode_initial.1:64
 UNWINDSET += fd_quic_decode_initial.3:64
 
 PROOF_SOURCES += $(PROOFDIR)/$(HARNESS_FILE).c
+PROOF_SOURCES += $(PROOF_STUB)/fd_log.c
 PROJECT_SOURCES = $(SRCDIR)/tango/quic/fd_quic_proto.c
 
 # If this proof is found to consume huge amounts of RAM, you can set the
