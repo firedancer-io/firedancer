@@ -8,7 +8,7 @@
 #include "fd_log_collector.h"
 #include "../ballet/sbpf/fd_sbpf_loader.h"
 
-#define FD_VM_HEAP_SZ (32*1024)
+#define FD_VM_HEAP_SZ (64*1024)
 
 /* sBPF instruction validation error codes */
 
@@ -23,6 +23,14 @@
 #define FD_VM_SBPF_VALIDATE_ERR_INCOMPLETE_LDQ    (8UL)  /* The program ends with an FD_BPF_INSTR_LDQ. */
 #define FD_VM_SBPF_VALIDATE_ERR_LDQ_NO_ADDL_IMM   (9UL)  /* An FD_BPF_INSTR_LDQ did not have an FD_BPF_ADDL_IMM after it. */
 #define FD_VM_SBPF_VALIDATE_ERR_NO_SUCH_EXT_CALL  (10UL) /* An FD_BPF_INSTR_CALL had an immediate but no function was registered for that immediate. */
+
+#define FD_MEM_MAP_PROGRAM_REGION_START   (0x100000000UL)
+#define FD_MEM_MAP_STACK_REGION_START     (0x200000000UL)
+#define FD_MEM_MAP_HEAP_REGION_START      (0x300000000UL)
+#define FD_MEM_MAP_INPUT_REGION_START     (0x400000000UL)
+#define FD_MEM_MAP_REGION_SZ              (0x0FFFFFFFFUL)
+#define FD_MEM_MAP_REGION_MASK            (~FD_MEM_MAP_REGION_SZ)
+#define FD_MEM_MAP_REGION_VIRT_ADDR_BITS  (32)
 
 typedef uchar fd_pubkey_t[32];
 

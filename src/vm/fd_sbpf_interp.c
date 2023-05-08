@@ -2,13 +2,6 @@
 #include "../ballet/murmur3/fd_murmur3.h"
 #include "../ballet/sbpf/fd_sbpf_maps.c"
 
-#define FD_MEM_MAP_PROGRAM_REGION_START   (0x100000000UL)
-#define FD_MEM_MAP_STACK_REGION_START     (0x200000000UL)
-#define FD_MEM_MAP_HEAP_REGION_START      (0x300000000UL)
-#define FD_MEM_MAP_INPUT_REGION_START     (0x400000000UL)
-#define FD_MEM_MAP_REGION_SZ              (0x0FFFFFFFFUL)
-#define FD_MEM_MAP_REGION_MASK            (~FD_MEM_MAP_REGION_SZ)
-#define FD_MEM_MAP_REGION_VIRT_ADDR_BITS  (32)
 
 ulong
 fd_vm_serialize_input_params( fd_vm_sbpf_exec_params_t * params,
@@ -93,7 +86,12 @@ fd_vm_sbpf_interp_translate_vm_to_host( fd_vm_sbpf_exec_context_t * ctx,
     case FD_MEM_MAP_STACK_REGION_START:
       /* Stack memory region */
       /* TODO: needs more of the runtime to actually implement */
-      return FD_VM_MEM_MAP_ERR_ACC_VIO;
+      if( end_addr >= (FD_VM_STACK_MAX_DEPTH * FD_VM_STACK_FRAME_SZ) ) {
+        return FD_VM_MEM_MAP_ERR_ACC_VIO;
+      }
+    
+      *host_addr = &ctx->stack.data[start_addr];
+
       break;
     case FD_MEM_MAP_HEAP_REGION_START:
       /* Heap memory region */
@@ -122,14 +120,15 @@ fd_vm_sbpf_interp_translate_vm_to_host( fd_vm_sbpf_exec_context_t * ctx,
 static ulong
 fd_vm_mem_map_read_uchar( fd_vm_sbpf_exec_context_t * ctx,
                           ulong                       vm_addr,
-                          uchar *                     val ) {
+                          ulong *                     val ) {
   void * vm_mem;
   ulong translation_res = fd_vm_sbpf_interp_translate_vm_to_host(ctx, 0, vm_addr, sizeof(uchar), &vm_mem);
   if( translation_res != FD_VM_MEM_MAP_SUCCESS ) {
     return translation_res;
   }
 
-  *val = *(uchar *)vm_mem;
+  
+  *val = (*(uchar *)vm_mem) & 0xFFUL;
 
   return FD_VM_MEM_MAP_SUCCESS;
 }
@@ -140,14 +139,14 @@ fd_vm_mem_map_read_uchar( fd_vm_sbpf_exec_context_t * ctx,
 static ulong
 fd_vm_mem_map_read_ushort( fd_vm_sbpf_exec_context_t *  ctx,
                            ulong                        vm_addr,
-                           ushort *                     val ) {
+                           ulong *                      val ) {
   void * vm_mem;
   ulong translation_res = fd_vm_sbpf_interp_translate_vm_to_host(ctx, 0, vm_addr, sizeof(ushort), &vm_mem);
   if( translation_res != FD_VM_MEM_MAP_SUCCESS ) {
     return translation_res;
   }
 
-  *val = *(ushort *)vm_mem;
+  *val = (*(ushort *)vm_mem) & 0xFFFFUL;
 
   return FD_VM_MEM_MAP_SUCCESS;
 }
@@ -158,14 +157,14 @@ fd_vm_mem_map_read_ushort( fd_vm_sbpf_exec_context_t *  ctx,
 static ulong
 fd_vm_mem_map_read_uint( fd_vm_sbpf_exec_context_t *  ctx,
                          ulong                        vm_addr,
-                         uint *                       val ) {
+                         ulong *                      val ) {
   void * vm_mem;
   ulong translation_res = fd_vm_sbpf_interp_translate_vm_to_host(ctx, 0, vm_addr, sizeof(uint), &vm_mem);
   if( translation_res != FD_VM_MEM_MAP_SUCCESS ) {
     return translation_res;
   }
 
-  *val = *(uint *)vm_mem;
+  *val = (*(uint *)vm_mem) & 0xFFFFFFFFUL;
 
   return FD_VM_MEM_MAP_SUCCESS;
 }
@@ -340,14 +339,14 @@ fd_vm_sbpf_interp_instrs_trace( fd_vm_sbpf_exec_context_t * ctx,
 
 #define JMP_TAB_ID interp_trace
 #define JMP_TAB_PRE_CASE_CODE \
-  FD_LOG_NOTICE(( "TU1: %lu, OP: %x, PC %lu IC %lu IMM %x", *trace_used, instr.opcode.raw, pc, ic, instr.imm)); \
+  fd_memcpy( trace[*trace_used].register_file, register_file, 11*sizeof(ulong)); \
+  trace[*trace_used].pc = pc; \
+  trace[*trace_used].ic = ic; \
+  (*trace_used)++; \
   dst_reg = instr.dst_reg; \
   src_reg = instr.src_reg; \
   imm = instr.imm;
 #define JMP_TAB_POST_CASE_CODE \
-  fd_memcpy( trace[*trace_used].register_file, register_file, 11*sizeof(ulong)); \
-  trace[*trace_used].pc = pc; \
-  trace[*trace_used++].ic = ic; \
   ic++; \
   instr = ctx->instrs[++pc]; \
   goto *(locs[instr.opcode.raw]);
@@ -376,7 +375,6 @@ JT_END;
   ctx->program_counter = (ulong) pc;
   ctx->instruction_counter = ic;
 
-  FD_LOG_NOTICE(( "TU: %lu", *trace_used ));
 #include "fd_jump_tab_teardown.c"
 #undef JMP_TAB_ID
 

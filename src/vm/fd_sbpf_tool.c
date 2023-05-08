@@ -106,7 +106,7 @@ int cmd_disasm( char const * bin_path ) {
     .instrs_sz           = tool_prog.info->text_cnt,
   };
 
-  int res = fd_sbpf_disassemble_program( ctx.instrs, ctx.instrs_sz, tool_prog.syscalls, stdout );
+  uint res = fd_sbpf_disassemble_program( ctx.instrs, ctx.instrs_sz, tool_prog.syscalls, tool_prog.info->calldests, stdout );
   printf( "\n" );
 
   fd_sbpf_tool_prog_free( &tool_prog );
@@ -124,13 +124,25 @@ int cmd_trace( char const * bin_path ) {
   ulong trace_used = 0;
   fd_vm_sbpf_trace_entry_t * trace = (fd_vm_sbpf_trace_entry_t *) malloc(trace_sz * sizeof(fd_vm_sbpf_trace_entry_t));
 
+  uchar input[65536];
+  fd_memset( input, 0, 65536 );
+  input[0x00] = 0x01;
+  input[0x08] = 0xFF;
+  input[0x0a] = 0x01;
   fd_vm_sbpf_exec_context_t ctx = {
     .entrypoint          = (long)tool_prog.info->entry_pc,
     .program_counter     = 0,
     .instruction_counter = 0,
     .instrs              = (fd_vm_sbpf_instr_t const *)fd_type_pun_const( tool_prog.info->text ),
     .instrs_sz           = tool_prog.info->text_cnt,
+    .syscall_map         = tool_prog.syscalls,
+    .local_call_map      = tool_prog.info->calldests,
+    .input               = input,
+    .input_sz            = 65536
   };
+
+  ctx.register_file[1] = FD_MEM_MAP_INPUT_REGION_START;
+  ctx.register_file[10] = FD_MEM_MAP_STACK_REGION_START + 0x1000;
 
   ulong interp_res = fd_vm_sbpf_interp_instrs_trace( &ctx, trace, trace_sz, &trace_used );
   if( interp_res != 0 ) {
@@ -141,7 +153,7 @@ int cmd_trace( char const * bin_path ) {
 
   for( ulong i = 0; i < trace_used; i++ ) {
     fd_vm_sbpf_trace_entry_t trace_ent = trace[i];
-    printf( "%4lu [%016lX, %016lX, %016lX, %016lX, %016lX, %016lX, %016lX, %016lX, %016lX, %016lX, %016lX] %lu:\n",
+    fprintf(stdout, "%5lu [%016lX, %016lX, %016lX, %016lX, %016lX, %016lX, %016lX, %016lX, %016lX, %016lX, %016lX] %5lu: ",
         trace_ent.ic,
         trace_ent.register_file[0],
         trace_ent.register_file[1],
@@ -154,9 +166,13 @@ int cmd_trace( char const * bin_path ) {
         trace_ent.register_file[8],
         trace_ent.register_file[9],
         trace_ent.register_file[10],
-        trace_ent.pc
+        trace_ent.pc+29 /* FIXME: THIS OFFSET IS FOR TESTING ONLY */
       );
+    fd_sbpf_disassemble_instr(&ctx.instrs[trace[i].pc], trace[i].pc, ctx.syscall_map, ctx.local_call_map, stdout);
+  
+    fprintf(stdout, "\n");
   }
+
 
   return 0;
 }

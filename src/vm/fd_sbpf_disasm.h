@@ -8,9 +8,17 @@
 FD_PROTOTYPES_BEGIN
 
 int
+fd_sbpf_disassemble_instr( fd_vm_sbpf_instr_t const * instr,
+                           ulong                      pc,
+                           fd_sbpf_syscalls_t *       syscalls,
+                           fd_sbpf_calldests_t *      calldests,
+                           void *                     out );
+
+int
 fd_sbpf_disassemble_program( fd_vm_sbpf_instr_t const * instrs,
                              ulong                      instrs_cnt,
                              fd_sbpf_syscalls_t *       syscalls,
+                             fd_sbpf_calldests_t *      calldests,
                              void *                     out_file );
 
 FD_PROTOTYPES_END

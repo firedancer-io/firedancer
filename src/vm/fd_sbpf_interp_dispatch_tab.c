@@ -13,7 +13,7 @@ JT_CASE_END
   pc += instr.offset;
 JT_CASE_END
 /* 0x07 */ JT_CASE(0x07) // FD_BPF_OP_ADD64_IMM
-  register_file[dst_reg] += imm;
+  register_file[dst_reg] += (int)imm;
 JT_CASE_END
 /* 0x0c */ JT_CASE(0x0c) // FD_BPF_OP_ADD_REG
   register_file[dst_reg] = (uint)((uint)register_file[dst_reg] + (uint)register_file[src_reg]);
@@ -128,8 +128,7 @@ JT_CASE_END
 
 /* 0x60 - 0x6f */
 /* 0x61 */ JT_CASE(0x61) // FD_BPF_OP_LDXW
-  ulong * reg_ptr0 = &register_file[dst_reg];
-  cond_fault = fd_vm_mem_map_read_uint( ctx, (ulong)((long)register_file[src_reg] + instr.offset), (uint *)reg_ptr0 );
+  cond_fault = fd_vm_mem_map_read_uint( ctx, (ulong)((long)register_file[src_reg] + instr.offset), &register_file[dst_reg] );
   goto *((cond_fault == 0) ? &&fallthrough_0x61 : &&JT_RET_LOC);
 fallthrough_0x61:
 JT_CASE_END
@@ -153,8 +152,7 @@ JT_CASE_END
   register_file[dst_reg] <<= imm;
 JT_CASE_END
 /* 0x69 */ JT_CASE(0x69) // FD_BPF_OP_LDXH
-  ulong * reg_ptr1 = &register_file[dst_reg];
-  cond_fault = fd_vm_mem_map_read_ushort( ctx, (ulong)((long)register_file[src_reg] + instr.offset), (ushort *)reg_ptr1 );
+  cond_fault = fd_vm_mem_map_read_ushort( ctx, (ulong)((long)register_file[src_reg] + instr.offset), &register_file[dst_reg] );
   goto *((cond_fault == 0) ? &&fallthrough_0x69 : &&JT_RET_LOC);
 fallthrough_0x69:
 JT_CASE_END
@@ -180,7 +178,7 @@ JT_CASE_END
 
 /* 0x70 - 0x7f */
 /* 0x71 */ JT_CASE(0x71) // FD_BPF_OP_LDXB
-  cond_fault = fd_vm_mem_map_read_uchar( ctx, (ulong)((long)register_file[src_reg] + instr.offset), (uchar *)&register_file[dst_reg] );
+  cond_fault = fd_vm_mem_map_read_uchar( ctx, (ulong)((long)register_file[src_reg] + instr.offset), &register_file[dst_reg] );
   goto *((cond_fault == 0) ? &&fallthrough_0x71 : &&JT_RET_LOC);
 fallthrough_0x71:
 JT_CASE_END
@@ -230,7 +228,7 @@ JT_CASE_END
 
 /* 0x80 - 0x8f */
 /* 0x84 */ JT_CASE(0x84) // FD_BPF_OP_NEG
-  register_file[dst_reg] = (uint)(~((uint)register_file[dst_reg]));
+  register_file[dst_reg] = (uint)(-((int)register_file[dst_reg]));
 JT_CASE_END
 /* 0x85 */ JT_CASE(0x85) // FD_BPF_OP_CALL_IMM
   if (imm < ctx->instrs_sz ) {
@@ -238,16 +236,30 @@ JT_CASE_END
     pc = imm;
   } else {
     fd_sbpf_syscalls_t * syscall_entry_imm = fd_sbpf_syscalls_query( ctx->syscall_map, imm, NULL );
-    cond_fault = ((fd_vm_sbpf_syscall_fn_ptr_t)( syscall_entry_imm->func_ptr ))(ctx, register_file[1], register_file[2], register_file[3], register_file[4], register_file[5], &register_file[0]);
+    fd_sbpf_calldests_t * calldest_entry_imm = fd_sbpf_calldests_query( ctx->local_call_map, imm, NULL );
+    if( syscall_entry_imm==NULL ) {
+      if( calldest_entry_imm!=NULL ) {
+        // FIXME: DO STACK STUFF correctly: move this r10 manipulation in the fd_vm_stack_t or on success.
+        register_file[10] += 0x2000;
+        // FIXME: stack overflow fault.
+        fd_vm_stack_push( &ctx->stack, pc, &register_file[6] );
+        pc = calldest_entry_imm->pc-1;
+      } else {
+        // TODO: real error for nonexistent func
+        cond_fault = 1;
+      }
+    } else {
+      cond_fault = ((fd_vm_sbpf_syscall_fn_ptr_t)( syscall_entry_imm->func_ptr ))(ctx, register_file[1], register_file[2], register_file[3], register_file[4], register_file[5], &register_file[0]);
+    }
   }
   goto *((cond_fault == 0) ? &&fallthrough_0x85 : &&JT_RET_LOC);
 fallthrough_0x85:
 JT_CASE_END
 /* 0x87 */ JT_CASE(0x87) // FD_BPF_OP_NEG64
-  register_file[dst_reg] = ~register_file[dst_reg];
+  register_file[dst_reg] = -(long)register_file[dst_reg];
 JT_CASE_END
 /* 0x8d */ JT_CASE(0x8d) // FD_BPF_OP_CALL_REG
-  // TODO: fix
+  // FIXME: Add support for calling local funcs
   fd_sbpf_syscalls_t * syscall_entry_imm = fd_sbpf_syscalls_query( ctx->syscall_map, register_file[imm], NULL );
   cond_fault = ((fd_vm_sbpf_syscall_fn_ptr_t)( syscall_entry_imm->func_ptr ))(ctx, register_file[1], register_file[2], register_file[3], register_file[4], register_file[5], &register_file[0]);
   goto *((cond_fault == 0) ? &&fallthrough_0x8d : &&JT_RET_LOC);
@@ -259,7 +271,12 @@ JT_CASE_END
   register_file[dst_reg] = ((uint)imm==0) ? (uint)register_file[dst_reg] : (uint)((uint)register_file[dst_reg] % (uint)imm);
 JT_CASE_END
 /* 0x95 */ JT_CASE(0x95) // FD_BPF_OP_EXIT
-  goto JT_RET_LOC;
+  register_file[10] -= 0x2000;
+  // FIXME: stack underflow fault.
+  if( ctx->stack.frames_used==0 ) {
+    goto JT_RET_LOC;
+  }
+  fd_vm_stack_pop( &ctx->stack, &pc, &register_file[6] );
 JT_CASE_END
 /* 0x97 */ JT_CASE(0x97) // FD_BPF_OP_MOD64_IMM
   register_file[dst_reg] = (imm==0) ? register_file[dst_reg] : register_file[dst_reg] % imm;

@@ -799,14 +799,14 @@ fd_sbpf_hash_calls( fd_sbpf_elf_t * prog,
   uchar * ptr      = bin + shtext->sh_offset;
   ulong   insn_cnt = shtext->sh_type!=FD_ELF_SHT_NULL ? shtext->sh_size / 8UL : 0UL;
 
-  for( ulong i=0; i<insn_cnt; i++ ) {
+  for( ulong i=0; i<insn_cnt; i++, ptr+=8UL ) {
     ulong insn = FD_LOAD( ulong, ptr );
 
     /* Check for call instruction.  If immediate is UINT_MAX, assume
        that compiler generated a relocation instead. */
     ulong opc  = insn & 0xFF;
-    ulong imm  = insn >> 32UL;
-    if( (opc!=0x85) | (imm==UINT_MAX) )
+    int imm  = (int)(insn >> 32UL);
+    if( (opc!=0x85) | (imm==-1) )
       continue;
 
     /* Mark function call destination */
@@ -820,8 +820,6 @@ fd_sbpf_hash_calls( fd_sbpf_elf_t * prog,
 
     /* Replace immediate with hash */
     FD_STORE( uint, ptr+4UL, hash );
-
-    ptr += 8UL;
   }
 
   return 0;

@@ -27,8 +27,8 @@ typedef struct fd_vm_stack fd_vm_stack_t;
 
 fd_vm_stack_t * fd_vm_stack_init( fd_vm_stack_t * stack );
 
-ulong fd_vm_stack_push( fd_vm_stack_t * stack, ulong ret_instr_ptr, ulong saved_regs[4] );
+ulong fd_vm_stack_push( fd_vm_stack_t * stack, long ret_instr_ptr, ulong saved_regs[4] );
 
-ulong fd_vm_stack_pop( fd_vm_stack_t * stack, ulong * ret_instr_ptr, ulong saved_regs[4] );
+ulong fd_vm_stack_pop( fd_vm_stack_t * stack, long * ret_instr_ptr, ulong saved_regs[4] );
 
 #endif // HEADER_fd_src_ballet_runtime_vm_fd_call_stack_h
