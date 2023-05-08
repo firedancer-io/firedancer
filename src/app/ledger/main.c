@@ -19,6 +19,9 @@
 static void usage(const char* progname) {
   fprintf(stderr, "USAGE: %s\n", progname);
   fprintf(stderr, " --cmd ingest --snapshotfile <file>               ingest snapshot file\n");
+  fprintf(stderr, " --wksp <name>                                    workspace name\n");
+  fprintf(stderr, " --indexmax <count>                               size of funky account map\n");
+  fprintf(stderr, " --txnmax <count>                                 size of funky transaction map\n");
 }
 
 struct SnapshotParser {
@@ -200,52 +203,52 @@ int main(int argc, char** argv) {
   if (wksp == NULL)
     FD_LOG_ERR(( "failed to attach to workspace %s", wkspname ));
 
-  void* shmem = fd_wksp_alloc_laddr( wksp, fd_funk_align(), fd_funk_footprint(), 1 );
-  if (shmem == NULL)
-    FD_LOG_ERR(( "failed to allocate a funky" ));
-  ulong index_max = 350000000; // Maximum size (count) of master index
-  ulong xactions_max = 10; // Maximum size (count) of transaction index
-  char hostname[64];
-  gethostname(hostname, sizeof(hostname));
-  ulong hashseed = fd_hash(0, hostname, strnlen(hostname, sizeof(hostname)));
-  fd_funk_t* funk = fd_funk_join(fd_funk_new(shmem, 1, hashseed, xactions_max, index_max));
-  if (funk == NULL) {
-    fd_wksp_free_laddr(shmem);
-    FD_LOG_ERR(( "failed to allocate a funky" ));
-  }
-
-  FD_LOG_WARNING(( "funky at global address %lu", fd_wksp_gaddr_fast( wksp, shmem ) ));
-
-  char global_mem[FD_GLOBAL_CTX_FOOTPRINT] __attribute__((aligned(FD_GLOBAL_CTX_ALIGN)));
-  memset(global_mem, 0, sizeof(global_mem));
-  fd_global_ctx_t * global = fd_global_ctx_join( fd_global_ctx_new( global_mem ) );
-  
-  global->wksp = wksp;
-  global->funk = funk;
-  global->allocf = (fd_alloc_fun_t)fd_alloc_malloc;
-  global->freef = (fd_free_fun_t)fd_alloc_free;
-  global->allocf_arg = fd_wksp_laddr_fast( wksp, funk->alloc_gaddr );
-
-  char acc_mgr_mem[FD_ACC_MGR_FOOTPRINT] __attribute__((aligned(FD_ACC_MGR_ALIGN)));
-  memset(acc_mgr_mem, 0, sizeof(acc_mgr_mem));
-  global->acc_mgr = fd_acc_mgr_join( fd_acc_mgr_new( acc_mgr_mem, global, FD_ACC_MGR_FOOTPRINT ) );
-
   if (strcmp(cmd, "ingest") == 0) {
     const char* snapshotfile = fd_env_strip_cmdline_cstr(&argc, &argv, "--snapshotfile", NULL, NULL);
     if (snapshotfile == NULL) {
       usage(argv[0]);
       return 1;
     }
+    ulong index_max = fd_env_strip_cmdline_ulong(&argc, &argv, "--indexmax", NULL, 350000000);
+    ulong xactions_max = fd_env_strip_cmdline_ulong(&argc, &argv, "--txnmax", NULL, 100);
+
+    void* shmem = fd_wksp_alloc_laddr( wksp, fd_funk_align(), fd_funk_footprint(), 1 );
+    if (shmem == NULL)
+      FD_LOG_ERR(( "failed to allocate a funky" ));
+    char hostname[64];
+    gethostname(hostname, sizeof(hostname));
+    ulong hashseed = fd_hash(0, hostname, strnlen(hostname, sizeof(hostname)));
+    fd_funk_t* funk = fd_funk_join(fd_funk_new(shmem, 1, hashseed, xactions_max, index_max));
+    if (funk == NULL) {
+      fd_wksp_free_laddr(shmem);
+      FD_LOG_ERR(( "failed to allocate a funky" ));
+    }
+
+    FD_LOG_WARNING(( "funky at global address %lu", fd_wksp_gaddr_fast( wksp, shmem ) ));
+
+    char global_mem[FD_GLOBAL_CTX_FOOTPRINT] __attribute__((aligned(FD_GLOBAL_CTX_ALIGN)));
+    memset(global_mem, 0, sizeof(global_mem));
+    fd_global_ctx_t * global = fd_global_ctx_join( fd_global_ctx_new( global_mem ) );
+  
+    global->wksp = wksp;
+    global->funk = funk;
+    global->allocf = (fd_alloc_fun_t)fd_alloc_malloc;
+    global->freef = (fd_free_fun_t)fd_alloc_free;
+    global->allocf_arg = fd_wksp_laddr_fast( wksp, funk->alloc_gaddr );
+
+    char acc_mgr_mem[FD_ACC_MGR_FOOTPRINT] __attribute__((aligned(FD_ACC_MGR_ALIGN)));
+    memset(acc_mgr_mem, 0, sizeof(acc_mgr_mem));
+    global->acc_mgr = fd_acc_mgr_join( fd_acc_mgr_new( acc_mgr_mem, global, FD_ACC_MGR_FOOTPRINT ) );
 
     struct SnapshotParser parser;
     SnapshotParser_init(&parser, global);
     decompressFile(snapshotfile, SnapshotParser_moreData, &parser);
     SnapshotParser_destroy(&parser);
+
+    fd_acc_mgr_delete( fd_acc_mgr_leave( global->acc_mgr ) );
+    
+    fd_global_ctx_delete( fd_global_ctx_leave( global ) );
   }
-
-  fd_acc_mgr_delete( fd_acc_mgr_leave( global->acc_mgr ) );
-
-  fd_global_ctx_delete( fd_global_ctx_leave( global ) );
 
   fd_log_flush();
   fd_halt();
