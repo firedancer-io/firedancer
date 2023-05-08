@@ -297,8 +297,6 @@ int main(int argc, char** argv) {
       FD_LOG_ERR(( "unknown snapshot compression suffix" ));
     SnapshotParser_destroy(&parser);
 
-    fd_acc_mgr_delete( fd_acc_mgr_leave( global->acc_mgr ) );
-    
     fd_global_ctx_delete( fd_global_ctx_leave( global ) );
   }
 
