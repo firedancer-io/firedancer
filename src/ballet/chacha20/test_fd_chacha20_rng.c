@@ -9,8 +9,9 @@
 #define TEST_NONCE_SIZE FD_CHACHA20_NONCE_SIZE
 
 /* Test fd_chacha20_rng_get_uint32 function */
-void test_fd_chacha20_rng_get_uint32()
+void test_fd_chacha20_generate_random_number()
 {
+  // uint where we store the generated random number
   fd_chacha20_rng_t result;
 
   // Test vector
@@ -20,19 +21,17 @@ void test_fd_chacha20_rng_get_uint32()
   // Expected test vector result value
   fd_chacha20_rng_t expected_value = 2194474613;
 
-  /* Initialize the random number generator */
-  assert(fd_chacha20_rng_init(key, nonce) == 0);
-
-  assert(fd_chacha20_rng_get_uint32(&result) == 0);
-  assert(result == expected_value);
+  assert(fd_chacha20_generate_random_number(key, nonce, &result) == 0);
 
   /* Print random number */
-  printf("%u\n", result);
+  printf("Random number generated: %u\n", result);
+
+  assert(result == expected_value);
 }
 
 int main()
 {
-  test_fd_chacha20_rng_get_uint32();
+  test_fd_chacha20_generate_random_number();
 
   printf("All fd_chacha20_rng tests passed!\n");
 
