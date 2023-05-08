@@ -236,8 +236,8 @@ JT_CASE_END
     pc = imm;
   } else {
     fd_sbpf_syscalls_t * syscall_entry_imm = fd_sbpf_syscalls_query( ctx->syscall_map, imm, NULL );
-    fd_sbpf_calldests_t * calldest_entry_imm = fd_sbpf_calldests_query( ctx->local_call_map, imm, NULL );
     if( syscall_entry_imm==NULL ) {
+      fd_sbpf_calldests_t * calldest_entry_imm = fd_sbpf_calldests_query( ctx->local_call_map, imm, NULL );
       if( calldest_entry_imm!=NULL ) {
         // FIXME: DO STACK STUFF correctly: move this r10 manipulation in the fd_vm_stack_t or on success.
         register_file[10] += 0x2000;
@@ -259,9 +259,22 @@ JT_CASE_END
   register_file[dst_reg] = -(long)register_file[dst_reg];
 JT_CASE_END
 /* 0x8d */ JT_CASE(0x8d) // FD_BPF_OP_CALL_REG
-  // FIXME: Add support for calling local funcs
-  fd_sbpf_syscalls_t * syscall_entry_imm = fd_sbpf_syscalls_query( ctx->syscall_map, register_file[imm], NULL );
-  cond_fault = ((fd_vm_sbpf_syscall_fn_ptr_t)( syscall_entry_imm->func_ptr ))(ctx, register_file[1], register_file[2], register_file[3], register_file[4], register_file[5], &register_file[0]);
+  fd_sbpf_syscalls_t * syscall_entry_reg = fd_sbpf_syscalls_query( ctx->syscall_map, register_file[imm], NULL );
+  if( syscall_entry_reg==NULL ) {
+    fd_sbpf_calldests_t * calldest_entry_reg = fd_sbpf_calldests_query( ctx->local_call_map, register_file[imm], NULL );
+    if( calldest_entry_reg!=NULL ) {
+      // FIXME: DO STACK STUFF correctly: move this r10 manipulation in the fd_vm_stack_t or on success.
+      register_file[10] += 0x2000;
+      // FIXME: stack overflow fault.
+      fd_vm_stack_push( &ctx->stack, pc, &register_file[6] );
+      pc = calldest_entry_reg->pc-1;
+    } else {
+      // TODO: real error for nonexistent func
+      cond_fault = 1;
+    }
+  } else {
+    cond_fault = ((fd_vm_sbpf_syscall_fn_ptr_t)( syscall_entry_reg->func_ptr ))(ctx, register_file[1], register_file[2], register_file[3], register_file[4], register_file[5], &register_file[0]);
+  }
   goto *((cond_fault == 0) ? &&fallthrough_0x8d : &&JT_RET_LOC);
 fallthrough_0x8d:
 JT_CASE_END
