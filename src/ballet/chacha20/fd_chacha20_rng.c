@@ -1,9 +1,7 @@
 #include <openssl/evp.h>
 #include "fd_chacha20_rng.h"
 
-static EVP_CIPHER_CTX *ctx = NULL;
-
-int fd_chacha20_rng_init(unsigned char *key, unsigned char *nonce)
+int fd_chacha20_rng_init(EVP_CIPHER_CTX *ctx, unsigned char *key, unsigned char *nonce)
 {
   // Initialize the ChaCha20 context with the key and nonce
   if (!(ctx = EVP_CIPHER_CTX_new()) ||

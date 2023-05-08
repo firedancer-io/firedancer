@@ -23,9 +23,7 @@ void test_fd_chacha20_rng_get_uint32()
   /* Initialize the random number generator */
   assert(fd_chacha20_rng_init(key, nonce) == 0);
 
-  /* Generate two random numbers and make sure they are different */
   assert(fd_chacha20_rng_get_uint32(&result) == 0);
-
   assert(result == expected_value);
 
   /* Print random number */
