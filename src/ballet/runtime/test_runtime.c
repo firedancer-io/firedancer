@@ -2,6 +2,9 @@
 // sudo /home/jsiegel/repos/firedancer-private/build/linux/gcc/x86_64/bin/fd_shmem_cfg alloc 64 gigantic 0
 // sudo /home/jsiegel/repos/firedancer-private/build/linux/gcc/x86_64/bin/fd_shmem_cfg alloc 512 huge 0
 
+// /home/jsiegel/repos/firedancer-private/build/linux/gcc/x86_64/bin/fd_wksp_ctl new test_wksp 32 gigantic 0 0777
+// /home/jsiegel/repos/firedancer-private/build/linux/gcc/x86_64/bin/fd_wksp_ctl query test_wksp
+
 //  --ledger /dev/shm/mainnet-ledger --db /dev/shm/funk --cmd replay --start-slot 179138256 --end-slot 179138258  --txn-exe sim  --index-max 120000000 --pages 15
 
 // --ledger /home/jsiegel/multi-node-cluster-ledger --db /dev/shm/funk --cmd replay --start-slot 0 --end-slot 280   --index-max 120000000 --pages 15
