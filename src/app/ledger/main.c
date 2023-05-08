@@ -8,6 +8,7 @@
 #include <fcntl.h>
 #include <errno.h>
 #include <zstd.h>      // presumes zstd library is installed
+#include <bzlib.h>     // presumes bz2 library is installed
 #include "../../util/fd_util.h"
 #include "../../util/archive/fd_tar.h"
 #include "../../ballet/runtime/fd_banks_solana.h"
@@ -125,7 +126,7 @@ int SnapshotParser_moreData(void* arg, const void* data, size_t datalen) {
 }
 
 typedef int (*decompressCallback)(void* arg, const void* data, size_t datalen);
-static void decompressFile(const char* fname, decompressCallback cb, void* arg) {
+static void decompressZSTD(const char* fname, decompressCallback cb, void* arg) {
   int const fin = open(fname, O_RDONLY);
   if (fin == -1) {
     FD_LOG_ERR(( "unable to read file %s: %s", fname, strerror(errno) ));
@@ -178,6 +179,60 @@ static void decompressFile(const char* fname, decompressCallback cb, void* arg) 
 
   done:
   ZSTD_freeDCtx(dctx);
+  close(fin);
+}
+
+static void decompressBZ2(const char* fname, decompressCallback cb, void* arg) {
+  int const fin = open(fname, O_RDONLY);
+  if (fin == -1) {
+    FD_LOG_ERR(( "unable to read file %s: %s", fname, strerror(errno) ));
+  }
+  
+  bz_stream bStream;
+  bStream.next_in = NULL;
+  bStream.avail_in = 0;
+  bStream.bzalloc = NULL;
+  bStream.bzfree = NULL;
+  bStream.opaque = NULL;
+  int bReturn = BZ2_bzDecompressInit(&bStream, 0, 0);
+  if (bReturn != BZ_OK)
+    FD_LOG_ERR(( "Error occurred during BZIP initialization.  BZIP error code: %d", bReturn ));
+
+  size_t const buffInMax = 128<<10;
+  void*        buffIn = alloca(buffInMax);
+  size_t       buffInSize = 0;
+  size_t const buffOutMax = 512<<10;
+  void*        buffOut = alloca(buffOutMax);
+
+  for (;;) {
+    ssize_t r = read(fin, (char*)buffIn + buffInSize, buffInMax - buffInSize);
+    if (r < 0) {
+      FD_LOG_ERR(( "unable to read file %s: %s", fname, strerror(errno) ));
+      break;
+    }
+    buffInSize += (size_t)r;
+
+    bStream.next_in = buffIn;
+    bStream.avail_in = (uint)buffInSize;
+    bStream.next_out = buffOut;
+    bStream.avail_out = (uint)buffOutMax;
+
+    bReturn = BZ2_bzDecompress(&bStream);
+    if (bReturn != BZ_OK && bReturn != BZ_STREAM_END) {
+      FD_LOG_ERR(( "Error occurred during BZIP decompression.  BZIP error code: %d", bReturn ));
+      break;
+    }
+    if ((*cb)(arg, buffOut, buffOutMax - bStream.avail_out))
+      break;
+    if (bReturn == BZ_STREAM_END && r == 0)
+      break;
+
+    if (bStream.avail_in)
+      memmove(buffIn, (char*)buffIn + buffInSize - bStream.avail_in, bStream.avail_in);
+    buffInSize = bStream.avail_in;
+  }
+
+  BZ2_bzDecompressEnd(&bStream);
   close(fin);
 }
 
@@ -234,7 +289,12 @@ int main(int argc, char** argv) {
 
     struct SnapshotParser parser;
     SnapshotParser_init(&parser, global);
-    decompressFile(snapshotfile, SnapshotParser_moreData, &parser);
+    if (strcmp(snapshotfile + strlen(snapshotfile) - 4, ".zst") == 0)
+      decompressZSTD(snapshotfile, SnapshotParser_moreData, &parser);
+    else if (strcmp(snapshotfile + strlen(snapshotfile) - 4, ".bz2") == 0)
+      decompressBZ2(snapshotfile, SnapshotParser_moreData, &parser);
+    else
+      FD_LOG_ERR(( "unknown snapshot compression suffix" ));
     SnapshotParser_destroy(&parser);
 
     fd_acc_mgr_delete( fd_acc_mgr_leave( global->acc_mgr ) );
