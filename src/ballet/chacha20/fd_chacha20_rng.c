@@ -10,7 +10,7 @@ int fd_chacha20_rng_init(EVP_CIPHER_CTX *ctx, const unsigned char *key, const un
   }
 
   // Initialize the ChaCha20 context with the key and nonce
-  if (!EVP_EncryptInit_ex(ctx, EVP_chacha20(), NULL, key, nonce))
+  if (EVP_EncryptInit_ex(ctx, EVP_chacha20(), NULL, key, nonce) == 0)
   {
     fprintf(stderr, "Error: EVP_EncryptInit_ex()\n");
     return 1;
@@ -26,7 +26,7 @@ int fd_chacha20_rng_generate(EVP_CIPHER_CTX *ctx, fd_chacha20_rng_t *random_numb
 
   // Generate a random 32-bit number
   // We pass NULL as plaintext to generate random numbers solely based on chacha20 internal state
-  if (!EVP_EncryptUpdate(ctx, buf, &outlen, NULL, 0))
+  if (EVP_EncryptUpdate(ctx, buf, &outlen, NULL, 0) == 0)
   {
     fprintf(stderr, "Error: EVP_EncryptUpdate()\n");
     return 1;
@@ -43,16 +43,18 @@ int fd_chacha20_generate_random_number(const unsigned char *key, const unsigned 
   EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
 
   // Set chacha20 cipher context using key and nonce
-  if (!fd_chacha20_rng_init(ctx, key, nonce))
+  if (fd_chacha20_rng_init(ctx, key, nonce) != 0)
   {
     fprintf(stderr, "Error: fd_chacha20_rng_init()\n");
+    EVP_CIPHER_CTX_free(ctx);
     return 1;
   }
 
   // Generates random number using chacha20 cipher context
-  if (!fd_chacha20_rng_generate(ctx, random_number))
+  if (fd_chacha20_rng_generate(ctx, random_number) != 0)
   {
     fprintf(stderr, "Error: fd_chacha20_rng_generate()\n");
+    EVP_CIPHER_CTX_free(ctx);
     return 1;
   }
 
