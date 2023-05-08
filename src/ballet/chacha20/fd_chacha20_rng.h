@@ -1,9 +1,7 @@
 #ifndef HEADER_fd_src_ballet_chacha20_fd_chacha20_h
 #define HEADER_fd_src_ballet_chacha20_fd_chacha20_h
 
-#include <openssl/evp.h>
-
-typedef unsigned int fd_chacha20_rng_t;
+typedef uint32_t fd_chacha20_rng_t;
 
 #define FD_CHACHA20_KEY_SIZE 32   // 32 bytes, 256 bits
 #define FD_CHACHA20_NONCE_SIZE 12 // 12 bytes, 96 bits

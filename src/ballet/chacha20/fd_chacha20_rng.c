@@ -1,4 +1,5 @@
-#include "fd_chacha20.h"
+#include <openssl/evp.h>
+#include "fd_chacha20_rng.h"
 
 static EVP_CIPHER_CTX *ctx = NULL;
 
