@@ -67,10 +67,11 @@ int fd_acc_mgr_get_account_data( fd_acc_mgr_t* acc_mgr, fd_funk_txn_t* txn, fd_p
   fd_wksp_t *           wksp = fd_funk_wksp( funk );
   fd_funk_rec_t const * rec = fd_funk_rec_query_global(funk, txn, &id);
   if ( FD_UNLIKELY( rec == NULL ) ) {
+    /*
     char buf[50];
     fd_base58_encode_32((uchar *) pubkey, NULL, buf);
-
     FD_LOG_WARNING(( "read account data failed: %s", buf ));
+    */
     return FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
   }
   ulong sz = fd_funk_val_sz( rec );
