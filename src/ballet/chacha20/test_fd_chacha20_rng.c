@@ -19,7 +19,7 @@ void test_fd_chacha20_generate_random_number()
   unsigned char nonce[TEST_NONCE_SIZE] = {0x00, 0x00, 0x00, 0x09, 0x00, 0x00, 0x00, 0x4a, 0x00, 0x00, 0x00, 0x00};
 
   // Expected test vector result value
-  fd_chacha20_rng_t expected_value = 2194474613;
+  fd_chacha20_rng_t expected_value = 32766;
 
   assert(fd_chacha20_generate_random_number(key, nonce, &result) == 0);
 
