@@ -27,7 +27,7 @@ You can run all of the proofs by doing the following:
 
 ```
 $ cd proofs
-$ ./run-cbmc-proofs.py
+$ ./run-cbmc-proofs.py [--no-coverage]
 ```
 
 there will then be a report located at `proofs/output/latest/html/index.html`
@@ -36,7 +36,11 @@ You can also run each test individually:
 
 ```
 $ cd proofs/quic/fd_quic_decode_initial
-$ make
+$ make report
+$ # or make report-no-coverage
 ```
 
 And a report will be at `report/html/index.html` in that directory
+
+Running reports without coverage is supposed to be faster and is better when you're
+still dealing with assertion violations
