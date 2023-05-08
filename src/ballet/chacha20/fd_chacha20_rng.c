@@ -25,8 +25,7 @@ int fd_chacha20_rng_generate(EVP_CIPHER_CTX *ctx, fd_chacha20_rng_t *random_numb
   int outlen;
 
   // Generate a random 32-bit number
-  // We pass NULL as plaintext to generate random numbers solely based on chacha20 internal state
-  if (EVP_EncryptUpdate(ctx, buf, &outlen, NULL, 0) == 0)
+  if (EVP_EncryptUpdate(ctx, buf, &outlen, buf, sizeof(buf)) == 0)
   {
     fprintf(stderr, "Error: EVP_EncryptUpdate()\n");
     return 1;
