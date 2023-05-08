@@ -1,5 +1,7 @@
 #![allow(non_upper_case_globals)]
 #![allow(non_camel_case_types)]
+#![allow(clippy::missing_safety_doc)]
+#![allow(clippy::too_many_arguments)]
 
 #[allow(dead_code)]
 mod generated {

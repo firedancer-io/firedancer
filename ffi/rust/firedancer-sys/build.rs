@@ -52,9 +52,5 @@ fn main() {
 }
 
 fn get_builddir(machine: &str) -> String {
-    machine
-        .splitn(3, "_")
-        .into_iter()
-        .collect::<Vec<&str>>()
-        .join("/")
+    machine.splitn(3, '_').collect::<Vec<&str>>().join("/")
 }
