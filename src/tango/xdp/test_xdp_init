@@ -98,11 +98,8 @@ ip link add dev "$IFACE0"       \
             numtxqueues 1       \
   || exit $?
 
-ip netns exec "$IFACE0" ip link set dev "$IFACE0" arp off address "$IFACE0_MAC" || exit $?
-ip netns exec "$IFACE1" ip link set dev "$IFACE1" arp off address "$IFACE1_MAC" || exit $?
-
-ip netns exec "$IFACE0" arp -v -i "$IFACE0" -Ds "$IFACE0_ADDR" "$IFACE0" || exit $?
-ip netns exec "$IFACE1" arp -v -i "$IFACE1" -Ds "$IFACE1_ADDR" "$IFACE1" || exit $?
+ip netns exec "$IFACE0" ip link set dev "$IFACE0" address "$IFACE0_MAC" || exit $?
+ip netns exec "$IFACE1" ip link set dev "$IFACE1" address "$IFACE1_MAC" || exit $?
 
 ip netns exec "$IFACE0" ip address add "$IFACE0_ADDR"/30 dev "$IFACE0" scope link || exit $?
 ip netns exec "$IFACE1" ip address add "$IFACE1_ADDR"/30 dev "$IFACE1" scope link || exit $?
@@ -120,8 +117,8 @@ rm -rvf /sys/fs/bpf/"$WKSP"
 
 "$BIN/fd_xdp_ctl" unhook-iface --netns "$NETNS0" "$WKSP" "$IFACE0" # Okay if this fails
 "$BIN/fd_xdp_ctl" unhook-iface --netns "$NETNS1" "$WKSP" "$IFACE1" # Okay if this fails
-"$BIN/fd_xdp_ctl"   hook-iface --netns "$NETNS0" "$WKSP" "$IFACE0" drv || exit $?
-"$BIN/fd_xdp_ctl"   hook-iface --netns "$NETNS1" "$WKSP" "$IFACE1" drv || exit $?
+#"$BIN/fd_xdp_ctl"   hook-iface --netns "$NETNS0" "$WKSP" "$IFACE0" drv || exit $?
+#"$BIN/fd_xdp_ctl"   hook-iface --netns "$NETNS1" "$WKSP" "$IFACE1" drv || exit $?
 
 # Show XDP program status (xdp-tools)
 

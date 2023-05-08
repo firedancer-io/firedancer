@@ -28,7 +28,7 @@ POD_SZ=16384
 
 CNC_APP_SZ=4032
 
-VERIFY_DEPTH=2097152
+VERIFY_DEPTH=8192
 VERIFY_MTU=4804
 QUIC_DCACHE_APP_SZ=$(( $VERIFY_DEPTH * 32 ))
 
@@ -139,14 +139,14 @@ done
 "$BUILD"/bin/fd_xdp_ctl unhook-iface $APP $IFACE # okay if this fails
 sleep 1  # work around race condition -- ugly hack
 "$BUILD"/bin/fd_xdp_ctl hook-iface $APP $IFACE $XDP_MODE || exit $?
-LISTEN_ADDRS=( $( ip address show dev $IFACE scope global up | sed -n -E 's/\s+inet ([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+)\/.*/\1/p' ) ) || exit $?
+LISTEN_ADDRS=( $( ip address show dev $IFACE | sed -n -E 's/\s+inet ([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+)\/.*/\1/p' ) ) || exit $?
 if ! (( ${#LISTEN_ADDRS[@]} )); then
   echo "Found no IP addresses on $IFACE" >&2; exit 1
 fi
 for addr in "${LISTEN_ADDRS[@]}"; do
   "$BUILD"/bin/fd_xdp_ctl listen-udp-port $APP $addr $QUIC_LISTEN_PORT tpu-quic || exit $?
 done
-SRC_MAC_ADDR="$(cat /sys/class/net/$IFACE/address)" || exit $?
+SRC_MAC_ADDR="$(ip address show dev veth_test_xdp_0 | grep "link/ether" | awk '{print $2}')" || exit $?
 
 # For now, let each QUIC publish to one verifyin
 # TODO manage XSK queue <-> QUIC tile core mapping
