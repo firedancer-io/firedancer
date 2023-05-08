@@ -43,21 +43,18 @@ int fd_chacha20_generate_random_number(const unsigned char *key, const unsigned 
   EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
 
   // Set chacha20 cipher context using key and nonce
-  if (!fd_chacha20_rng_init(*ctx, *key, *nonce))
+  if (!fd_chacha20_rng_init(ctx, key, nonce))
   {
     fprintf(stderr, "Error: fd_chacha20_rng_init()\n");
     return 1;
   }
 
   // Generates random number using chacha20 cipher context
-  if (!fd_chacha20_rng_generate(*ctx, *random_number))
+  if (!fd_chacha20_rng_generate(ctx, random_number))
   {
     fprintf(stderr, "Error: fd_chacha20_rng_generate()\n");
     return 1;
   }
-
-  // Print random number generated
-  printf("Random number generated: %u\n", random_number);
 
   // Free cipher context from memory
   EVP_CIPHER_CTX_free(ctx);
