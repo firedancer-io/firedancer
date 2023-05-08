@@ -2,9 +2,9 @@
 
 static const char tbl[64] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
-char * fd_base64_encode(uchar * data, ulong data_len, char * out, ulong out_len, ulong * out_len_used) {
+char * fd_base64_encode(uchar const * data, ulong data_len, char * out, ulong out_len, ulong * out_len_used) {
   *out_len_used = 4 * ((data_len + 2) / 3);
-  
+
   if (*out_len_used > out_len) {
     return NULL;
   }
