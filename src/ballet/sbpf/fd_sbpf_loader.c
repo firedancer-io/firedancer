@@ -158,6 +158,9 @@ struct fd_sbpf_elf {
 };
 typedef struct fd_sbpf_elf fd_sbpf_elf_t;
 
+/* FD_SBPF_PHNDX_UNDEF: placeholder for undefined program header index */
+#define FD_SBPF_PHNDX_UNDEF (ULONG_MAX)
+
 /* FD_SBPF_MM_{...}_ADDR are hardcoded virtual addresses of segments
    in the sBPF virtual machine. */
 
@@ -1056,4 +1059,9 @@ fd_sbpf_program_load( fd_sbpf_program_t *  prog,
 #undef ERR
 #undef FAIL
 #undef REQUIRE
+
+/* Extern inlines */
+
+extern FD_FN_CONST inline fd_sbpf_program_info_t const *
+fd_sbpf_program_get_info( fd_sbpf_program_t const * program );
 

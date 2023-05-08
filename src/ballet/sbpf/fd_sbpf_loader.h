@@ -12,9 +12,6 @@
 #include "../../util/fd_util_base.h"
 #include "../elf/fd_elf64.h"
 
-/* FD_SBPF_PHNDX_UNDEF: placeholder for undefined program header index */
-#define FD_SBPF_PHNDX_UNDEF (ULONG_MAX)
-
 /* Error types ********************************************************/
 
 /* FIXME make error types more specific */
@@ -112,9 +109,9 @@ fd_sbpf_program_load( fd_sbpf_program_t *  prog,
                       ulong                bin_sz,
                       fd_sbpf_syscalls_t * syscalls );
 
-static inline fd_sbpf_program_info_t *
-fd_sbpf_program_get_info( fd_sbpf_program_t * program ) {
-  return (fd_sbpf_program_info_t *) program;
+FD_FN_CONST inline fd_sbpf_program_info_t const *
+fd_sbpf_program_get_info( fd_sbpf_program_t const * program ) {
+  return (fd_sbpf_program_info_t const *) program;
 }
 
 void *

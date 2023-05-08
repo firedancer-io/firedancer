@@ -7,6 +7,7 @@
 #include "firedancer/src/util/fd_util.h"
 #include "firedancer/src/tango/fd_tango.h"
 #include "firedancer/src/ballet/fd_ballet.h"
+#include "firedancer/src/ballet/sbpf/fd_sbpf_loader.h"
 #include "firedancer/src/ballet/shred/fd_shred.h"
 #include "firedancer/src/ballet/txn/fd_txn.h"
 #include "firedancer/src/disco/fd_disco.h"
