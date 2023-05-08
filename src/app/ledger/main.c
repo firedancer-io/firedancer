@@ -147,7 +147,6 @@ static void decompressFile(const char* fname, decompressCallback cb, void* arg) 
    * and doesn't consume input after the frame.
    */
   ssize_t readRet;
-  size_t  lastRet = 0;
   while ( (readRet = read(fin, buffIn, buffInSize)) ) {
     if (readRet == -1) {
       FD_LOG_ERR(( "unable to read file %s: %s", fname, strerror(errno) ));
@@ -167,24 +166,17 @@ static void decompressFile(const char* fname, decompressCallback cb, void* arg) 
        * state, for instance if the last decompression call returned an
        * error.
        */
-      size_t const ret = ZSTD_decompressStream(dctx, &output , &input);
-      if ((*cb)(arg, buffOut, output.pos)) {
-        lastRet = 0;
-        break;
+      size_t const ret = ZSTD_decompressStream(dctx, &output, &input);
+      if (ZSTD_isError(ret)) {
+        FD_LOG_ERR(( "bz2 decompression failed: %s", ZSTD_getErrorName( ret ) ));
+        goto done;
       }
-      lastRet = ret;
+      if ((*cb)(arg, buffOut, output.pos))
+        goto done;
     }
   }
 
-
-  if (lastRet != 0) {
-    /* The last return value from ZSTD_decompressStream did not end on a
-     * frame, but we reached the end of the file! We assume this is an
-     * error, and the input was truncated.
-     */
-    FD_LOG_ERR(( "EOF before end of stream: %zu", lastRet ));
-  }
-
+  done:
   ZSTD_freeDCtx(dctx);
   close(fin);
 }
