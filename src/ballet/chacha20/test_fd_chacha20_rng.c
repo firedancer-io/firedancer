@@ -19,19 +19,19 @@ void test_fd_chacha20_generate_random_number()
   // Expected test vector result value
   fd_chacha20_rng_t expected_value = 2194474613;
 
-  assert(fd_chacha20_generate_random_number(key, nonce, &result) == 0);
+  FD_TEST(fd_chacha20_generate_random_number(key, nonce, &result) != 0);
 
   /* Print random number */
-  printf("Random number generated: %u\n", result);
+  FD_LOG_NOTICE("Random number generated: %u\n", result);
 
-  assert(result == expected_value);
+  FD_TEST(result == expected_value);
 }
 
 int main()
 {
   test_fd_chacha20_generate_random_number();
 
-  printf("All fd_chacha20_rng tests passed!\n");
+  FD_LOG_NOTICE("All fd_chacha20_rng tests passed!\n");
 
   return 0;
 }
