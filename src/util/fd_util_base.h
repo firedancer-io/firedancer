@@ -862,7 +862,7 @@ fd_memset( void  * d,
 #define FD_USE_ARCH_MEMEQ 1
 #endif
 
-#if FD_HAS_X86 && FD_USE_ARCH_MEMEQ && defined(__GCC_ASM_FLAG_OUTPUTS__)
+#if FD_HAS_X86 && FD_USE_ARCH_MEMEQ && defined(__GCC_ASM_FLAG_OUTPUTS__) && __STDC_VERSION__>=199901L
 
 FD_FN_PURE static inline int
 fd_memeq( void const * s0,
@@ -874,7 +874,9 @@ fd_memeq( void const * s0,
   int r;
   __asm__( "test %3, %3;"
            "repe cmpsb"
-         : "=@cce" (r), "+S" (s0), "+D" (s1), "+c" (sz) :: );
+         : "=@cce" (r), "+S" (s0), "+D" (s1), "+c" (sz)
+         : "m" (*(char const (*)[sz]) s0), "m" (*(char const (*)[sz]) s1)
+         : "cc" );
   return r;
 }
 
