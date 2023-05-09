@@ -67,6 +67,8 @@ fd_wbmtree32_leave      ( fd_wbmtree32_t* hdr ) {
 void
 fd_wbmtree32_append    ( fd_wbmtree32_t * bmt, fd_wbmtree32_leaf_t const * leaf, ulong leaf_cnt, uchar *mbuf  )
 {
+  FD_TEST ((bmt->leaf_cnt + leaf_cnt) <= bmt->leaf_cnt_max);
+
   fd_wbmtree32_node_t *n = &((fd_wbmtree32_node_t *)bmt->data)[bmt->leaf_cnt];
   for (ulong i = 0; i < leaf_cnt; i++) {
     mbuf[0] = (uchar) 0;
@@ -78,11 +80,15 @@ fd_wbmtree32_append    ( fd_wbmtree32_t * bmt, fd_wbmtree32_leaf_t const * leaf,
   }
   fd_sha256_batch_fini(&bmt->sha256_batch);
   bmt->leaf_cnt += leaf_cnt;
+
+  FD_TEST (leaf_cnt <= bmt->leaf_cnt_max);
 }
 
 uchar *
 fd_wbmtree32_fini      ( fd_wbmtree32_t * bmt)
 {
+  FD_TEST ( bmt->leaf_cnt <= bmt->leaf_cnt_max );
+
   fd_wbmtree32_node_t *this = (fd_wbmtree32_node_t *)bmt->data;
   fd_wbmtree32_node_t *that = &((fd_wbmtree32_node_t *)bmt->data)[bmt->leaf_cnt + (bmt->leaf_cnt & 1)];
 
@@ -100,8 +106,12 @@ fd_wbmtree32_fini      ( fd_wbmtree32_t * bmt)
       ulong hi = i / 2; // Half of i .. ie, where is this going?
       fd_sha256_batch_add(&bmt->sha256_batch, d, 65, &that[hi].hash[(hi & 1) ? 0 : 1]);
     }
+    // This leaves the batch object unusable...
     fd_sha256_batch_fini(&bmt->sha256_batch);
     bmt->leaf_cnt /= 2;
+
+    // start over
+    FD_TEST (fd_sha256_batch_init(&bmt->sha256_batch) == &bmt->sha256_batch);;
 
     fd_wbmtree32_node_t * a = that;
     that = this;

@@ -1,253 +1,484 @@
-/******
+#ifndef HEADER_fd_src_funk_fd_funk_h
+#define HEADER_fd_src_funk_fd_funk_h
 
-Funky is a specialized database-like thing designed for blockchain
-applications. Updates are grouped into transactions, which are written
-atomically to disk. Even if the application crashes at the worst
-possible time, funky will recover to a clean transactional
-boundary. The state of the database will correspond to the last
-committed transaction, or the following transaction if one was in
-progress. Transactions will not get corrupted or partially applied.
+/* Funk is a hybrid of a database and version control system designed
+   for ultra high performance blockchain applications.
 
-Funky tolerates applications crashing or being killed. Hardware
-failures (or abrupt power loss) are not handled. These latter
-scenarios require hardware solutions such a redundant disk arrays and
-uninterruptible power supplies. Funky assumes that once a “write”
-system call returns, the kernel guarantees that it will be completed
-even if there is a bad crash. The kernel does not forget about
-writes. Funky also assumes that writes to a single disk block are
-effectively atomic. A block is either written or it is not.
+   The data model is a flat table of records.  A record is a xid/key-val
+   pair and records are fast O(1) indexable by their xid/key.  xid is
+   short for "transaction id" and xids have a compile time fixed size
+   (e.g. 32-bytes).  keys also have a compile time fixed size (e.g.
+   64-bytes).  Record values can vary in length from zero to a compile
+   time maximum size (e.g. 10 MiB) inclusive.  The xid of all zeros is
+   reserved for the "root" transaction described below.  Outside this,
+   there are no restrictions on what a record xid, key or val can be.
+   Individual records can be created, updated, and deleted arbitrarily.
+   They are just binary data as far as funk is concerned.
 
-The data model is a flat table of records indexed by a 64-byte
-key. Individual records can be created, updated, and deleted
-arbitrarily. They can vary in length up to 10 MB. There are no
-restrictions on record content or keys. They are just binary data as
-far as funky is concerned. The total number of records can be very,
-very large. The main limitation is the amount of memory available for
-the master index (a hash table). At present, each record uses 128
-bytes of memory, regardless of whether that record is active. In other
-words, about 12 GB per hundred million records. The data content of
-records is dynamically cached and typically needs less space.
+   The maximum number of records is practically only limited by the size
+   of the workspace memory backing it.  At present, each record requires
+   160 bytes of metadata (this includes records that are published and
+   records that are in the process of being updated).  In other words,
+   about 15 GiB record metadata per hundred million records.  The
+   maximum number of records that can be held by a funk instance is set
+   when that it was created (given the persistent and relocatable
+   properties described below though, it is straightforward to resize
+   this).
 
-The transaction model is richer than what is found in a regular
-database. A transaction represents a “virtual state” of the
-database. Reads and writes take place within the context of a
-transaction, effectively isolating them to a private view of the
-world. If a transaction is cancelled, that state is harmlessly
-discarded.
+   The transaction model is richer than what is found in a regular
+   database.  A transaction is a xid-"updates to parent transaction"
+   pair and transactions are fast O(1) indexable by xid.  There is no
+   limitation on the number of updates in a transaction.  Updates to the
+   record value are represented as the complete value record to make it
+   trivial to apply cryptographic operations like hashing to all updated
+   values in a transaction with file I/O, operating system calls, memory
+   data marshalling overhead, etc.
 
-To start a new transaction, you fork off an existing one. This
-operation virtually clones the state of all records. The child
-inherits all updates from the parent, even if the parent is not
-committed yet. A special transaction known as the “root” is the
-ancestor of all transactions. The root represents all committed data
-and cannot be cancelled or undone. You can always fork off the
-root. Once a child is forked, the parent is “frozen,” and further
-updates to the parent are forbidden. It can only be committed or
-cancelled at that point.
+   Like records, the maximum number of transactions in preparation is
+   practically only limited by the size of the workspace memory backing
+   it.  At present, a transaction requires 96 bytes of memory.  As such,
+   it is practical to track a large number of forks during an extended
+   period of time of consensus failure in a block chain application
+   without using much workspace memory at all.  The maximum number of
+   transactions that can be in preparation at any given time by a funk
+   instance is set when that it was created (as before, given the
+   persistent and relocatable properties described below, it is
+   straightforward to resize this).
 
-Transactions form a tree of dependent and competing updates. This
-model matches blockchains, where speculative work can proceed on
-several blocks at once long before the blocks are finalized. When a
-transaction is committed, all its ancestors are also committed, and
-their updates are applied to the root. Commits and cancels can cut off
-branches of the transaction tree. In the end, only a single, ordered
-chain of transactions can be committed. Transactions that can no
-longer meet this requirement (e.g., because another path was chosen)
-are called “orphans,” and attempts to commit them will
-fail. Cancelling a transaction in the middle of a chain will also
-create orphans. Funky eventually garbage collects them if the
-application does not cancel them.
+   That is, a transaction is a compact representation of the entire
+   history of _all_ the database records up to that transaction.  We can
+   trace a transaction's ancestors back to the "root" give the complete
+   history of all database records up to that transaction.  The “root”
+   transaction is the ancestor of all transactions.  The transaction
+   history is linear from the root transaction until the "last
+   published" transaction and cannot be modified.
 
-You can read and write the root transaction directly, but in this
-case, the guarantees are weaker. You do not get transactional
-consistency because there is no explicit commit. Updates are made
-permanent immediately. Funky only guarantees that if there is a crash,
-the database will recover to a non-corrupted state as far as the
-internal data structures are concerned. 
+   To start "preparing" a new transaction, we pick the new transaction's
+   xid (ideally unique among all transactions thus far) and fork off a
+   "parent" transaction.  This operation virtually clones all database
+   records in the parent transaction, even if the parent itself has not
+   yet been "published".  Given the above, the parent transaction can be
+   the last published transaction or another in-preparation transaction.
 
-Behind the scenes, funky stores all data in a single backing file,
-which grows as needed. This is effectively a file system within a file
-system. There is no need for huge directories or many file
-descriptors. Funky fails cleanly if there is no more disk space.
+   Record creates, reads, writes, erases take place within the context
+   of a transaction, effectively isolating them to a private view of the
+   world.  If a transaction is "cancelled", the changes to a record are
+   harmlessly discarded.  Records in a transaction that has children
+   cannot be changed ("frozen").
 
-Memory is allocated out of a workspace. The amount of memory needed
-can be tuned using several parameters such as the maximum size of the
-master index.
+   As such, it is not possible to modify the records in transactions
+   strictly before the last published transaction.  However, it is
+   possible to modify the records of the last published transaction if
+   there no transactions in preparation.  This is useful, for example,
+   loading up a transaction from a checkpointed state on startup.  A
+   common idiom at start of a block though is to fork the potential
+   transaction of that block from its parent (freezing its parent) and
+   then fork a child of the the potential transaction that will hold
+   updates to the block that are incrementally "merged" into the
+   potential transaction as block processing progresses.
 
-******/
+   Critically, in-preparation transactions form a tree of dependent and
+   competing histories.  This model matches blockchains, where
+   speculative work can proceed on several blocks at once long before
+   the blocks are finalized.  When a transaction is published, all its
+   ancestors are also published, any competiting histories are
+   cancelled, leaving only a linear history up to the published
+   transaction.  There is no practical limitation on the complexity of
+   this tree.
 
-#ifndef HEADER_fd_src_ledger_funk_h
-#define HEADER_fd_src_ledger_funk_h 1
+   Funk tolerates applications crashing or being killed.  On a clean
+   process termination, the state of the database will correspond to the
+   last published transactions and all in-preperation transactions as
+   they were at termination.  Extensive memory integrity checkers are
+   provided to help with resuming / recovering if a code is killed
+   uncleanly / crashes / etc in the middle of funk operations.  Hardware
+   failures (or abrupt power loss) are not handled.  These latter
+   scenarios require hardware solutions such redundant disk arrays and
+   uninterruptible power supplies and/or background methods for writing
+   published records to permanent storage described below.
 
-#define __USE_MISC 1 /* Needed for pwritev */
-#include <sys/uio.h>
-#undef __USE_MISC
+   Under the hood, the database state is stored in NUMA and TLB
+   optimized shared memory (i.e. fd_wksp) such that various database
+   operations can be used concurrently by multiple threads distributed
+   arbitrarily over multiple processes zero copy.
 
-// Maximum size of a record
-#define FD_FUNK_MAX_ENTRY_SIZE (10U<<20) /* 10 MB */
+   Database operations are at algorithmic minimums with reasonably high
+   performance implementations.  Most are fast O(1) time and all are
+   small O(1) space (e.g. in complex transaction tree operations, there
+   is no use of dynamic allocation to hold temporaries and no use of
+   recursion to bound stack utilization at trivial levels).  Further,
+   there are no explicit operating system calls and, given a well
+   optimized workspace (i.e. the wksp pages fit within a core's TLBs) no
+   implicit operating system calls.  Critical operations (e.g. those
+   that actually might impact transaction history) are fortified against
+   memory corruption (e.g. robust against DoS attack by corrupting
+   transaction metadata to create loops in transaction trees or going
+   out of bounds in memory).  Outside of record values, all memory used
+   is preallocated.  And record values are O(1) lockfree concurrent
+   allocated via fd_alloc using the same wksp as funk (the
+   implementation is structured in layers that are straightforard to
+   retarget for particular applications as might be necessary).
 
-struct fd_funk;
-typedef struct fd_funk fd_funk_t;
+   The shared memory used by a funk instance is within a workspace such
+   that it is also persistent and remotely inspectable.  For example, a
+   process attached to a funk instance can be terminated and a new
+   process can resume exactly where the original process left off
+   instantly (e.g. no file I/O).  Or a real-time monitor could
+   visualizing the ongoing activity in a database non-invasively (e.g.
+   forks in flight, records updated by forks, etc).  Or an auxiliary
+   process could be lazily and non-invasively writing all published
+   records to permanent storage in the background in parallel with
+   on-going operations.
 
-FD_FN_CONST ulong fd_funk_align(void);
+   The records are further stored in the workspace memory relocatably.
+   For example, workspace memory could just be committed to a persistent
+   memory as is (or backed by NVMe or such directly), copied to a
+   different host, and processes on the new host could resume (indeed,
+   though it wouldn't be space efficient, the shared memory region is
+   usable as is as an on-disk checkpoint file).  Or the workspace could
+   be resized and what not to handle large needs than when the database
+   was initially created and it all "just works". */
 
-// Construct a storage instance. The file argument is the backing
-// file for permanent or finalized data as well as write-ahead
-// logs. This file is created if it doesn't exist. Storage uses only
-// one "real" file. All memory needed is allocated out of the given
-// workspace.
-fd_funk_t* fd_funk_new(char const* backingfile,
-                       fd_wksp_t* wksp,    // Workspace to allocate out of
-                       ulong alloc_tag,    // Tag for workspace allocations
-                       ulong index_max,    // Maximum size (count) of master index
-                       ulong xactions_max, // Maximum size (count) of transaction index
-                       ulong cache_max);   // Maximum number of cache entries
+//#include "fd_funk_base.h" /* Includes ../util/fd_util.h */
+//#include "fd_funk_txn.h"  /* Includes fd_funk_base.h */
+//#include "fd_funk_rec.h"  /* Includes fd_funk_txn.h */
+#include "fd_funk_val.h"    /* Includes fd_funk_rec.h */
 
-// Delete a storage instance. Flushes updates, cancels transactions,
-// and closes the backing file. Committed transactions remain in the
-// backing file.
-void* fd_funk_delete(fd_funk_t* store);
+/* FD_FUNK_{ALIGN,FOOTPRINT} describe the alignment and footprint needed
+   for a funk.  ALIGN should be a positive integer power of 2.
+   FOOTPRINT is multiple of ALIGN.  These are provided to facilitate
+   compile time declarations.  */
 
-// Identifies a "record" in the storage layer. ASCII text
-// isn't necessary. Compact binary identifiers are encouraged.
-#define FD_FUNK_RECORDID_FOOTPRINT (64UL)
-#define FD_FUNK_RECORDID_ALIGN (8UL)
-struct fd_funk_recordid {
-    uchar id[FD_FUNK_RECORDID_FOOTPRINT];
-} __attribute__ ((aligned(FD_FUNK_RECORDID_ALIGN)));
-typedef struct fd_funk_recordid fd_funk_recordid_t;
+#define FD_FUNK_ALIGN     (128UL)
+#define FD_FUNK_FOOTPRINT (256UL)
 
-// Identifies an ongoing transaction. A transaction represents a
-// virtual state of all the records in the storage. Reads and writes
-// must operate within the context of a specific transaction, and
-// changes are isolated to that transaction. The intention is to
-// eventually commit the transaction, at which point the root
-// transaction is updated. Transactions can also be discarded, erasing
-// all pending updates. Competing/parallel transactions are allowed.
-#define FD_FUNK_XACTIONID_FOOTPRINT (32UL)
-#define FD_FUNK_XACTIONID_ALIGN (8UL)
-struct fd_funk_xactionid {
-    uchar id[FD_FUNK_XACTIONID_FOOTPRINT];
-} __attribute__ ((aligned(FD_FUNK_XACTIONID_ALIGN)));
-typedef struct fd_funk_xactionid fd_funk_xactionid_t;
+/* The details of a fd_funk_private are exposed here to facilitate
+   inlining various operations. */
 
-// Root or null transaction id. Used to initiate the transaction
-// chain. Corresponds to all finalized data. Writes to the root
-// transaction are immediately finalized and cannot be undone. Reads
-// only return finalized data.
-// The lifetime of this pointer is the same as the store.
-fd_funk_xactionid_t const* fd_funk_root(fd_funk_t* store);
+#define FD_FUNK_MAGIC (0xf17eda2ce7fc2c00UL) /* firedancer funk version 0 */
 
-// Initiate a new transaction by forking the state of an existing
-// transaction (or the root). Updates to the parent are forbidden
-// after this call. The child id must not conflict with an existing
-// transaction id. The parent id must refer to root, the last
-// committed transaction, or an uncommitted transaction. A non-zero
-// result indicates success.
-int fd_funk_fork(fd_funk_t* store,
-                 fd_funk_xactionid_t const* parent,
-                 fd_funk_xactionid_t const* child);
+struct __attribute__((aligned(FD_FUNK_ALIGN))) fd_funk_private {
 
-// Commit all updates in the given transaction to final storage (the
-// root transaction). All parent transactions in the chain are also
-// finalized (but not children of the given transaction). Competing
-// forked transactions are discarded. This call is safe in the
-// presence of crashes. A non-zero result indicates success.
-int fd_funk_commit(fd_funk_t* store,
-                   fd_funk_xactionid_t const* id);
+  /* Metadata */
 
-// Discard all updates in the given transaction and its children.
-void fd_funk_cancel(fd_funk_t* store,
-                    fd_funk_xactionid_t const* id);
+  ulong magic;      /* ==FD_FUNK_MAGIC */
+  ulong funk_gaddr; /* wksp gaddr of this in the backing wksp, non-zero gaddr */
+  ulong wksp_tag;   /* Tag to use for wksp allocations, in [1,FD_WKSP_ALLOC_TAG_MAX] */
+  ulong seed;       /* Seed for various hashing function used under the hood, arbitrary */
+  ulong cycle_tag;  /* Next cycle_tag to use, used internally for various data integrity checks */
 
-// Combine a list of transactions with the same parent into a single
-// transaction. Updates are applied in the specified order if there is
-// a conflict. This API is meant to support parallel transaction
-// construction.
-void fd_funk_merge(fd_funk_t* store,
-                   fd_funk_xactionid_t const* destid,
-                   ulong source_cnt,
-                   fd_funk_xactionid_t const* const* source_ids);
+  /* The funk transaction map stores the details about transactions
+     in preparation and their relationships to each other.  This is a
+     fd_map_giant and more details are given in fd_funk_txn.h
 
-// Return true if the transaction is still open.
-int fd_funk_isopen(fd_funk_t* store,
-                   fd_funk_xactionid_t const* id);
+     txn_max is the maximum number of transactions that can be in
+     preparation.  Due to the use of compressed map indices to reduce
+     workspace memory footprint required, txn_max is at most
+     FD_FUNK_TXN_IDX_NULL (currently ~4B).  This should be more than
+     ample for anticipated uses cases ... e.g. every single validator in
+     a pool of tens of thousands Solana validator had its own fork and
+     with no consensus ever being achieved, a funk with txn_max at the
+     limits of a compressed index will be chug along for days to weeks
+     before running out of indexing space.  But if ever needing to
+     support more, it is straightforward to change the code to not use
+     index compression.  Then, a funk (with a planet sized workspace
+     backing it) would survive a similar scenario for millons of years.
+     Presumably, if such a situation arose, in the weeks to eons while
+     there was consensus, somebody would notice and care enough to
+     intervene (if not it is probably irrelevant to the real world
+     anyway).
 
-// Update a record in the storage. Records are implicitly created/extended
-// as necessary. Gaps are zero filled. Returns amount of data written
-// on success, -1 on failure.
-long fd_funk_writev(fd_funk_t* store,
-                    fd_funk_xactionid_t const* xid,
-                    fd_funk_recordid_t const* recordid,
-                    struct iovec const * const iov,
-                    ulong iovcnt,
-                    ulong offset);
+     txn_map_gaddr is the wksp gaddr of the fd_funk_txn_map_t used by
+     this funk.  Since this is a fd_map_giant under the hood and those
+     are relocatable, it is possible to move this around within the wksp
+     backing the funk if necessary.  Such can be helpful if needing to
+     do offline rebuilding, resizing, serialization, deserialization,
+     etc.
 
-// Simplified version of fd_funk_writev
-long fd_funk_write(fd_funk_t* store,
-                   fd_funk_xactionid_t const* xid,
-                   fd_funk_recordid_t const* recordid,
-                   const void* data,
-                   ulong offset,
-                   ulong data_sz);
+     child_{head,tail}_cidx are compressed txn map indices.  After
+     decompression, they give the txn map index of the {oldest,youngest}
+     child of funk (i.e. an in-preparation transaction whose parent
+     transaction id is last_publish).  FD_FUNK_TXN_IDX_NULL indicates
+     the funk is childless.  Thus, if head/tail is FD_FUNK_TXN_IDX_NULL,
+     tail/head will be too.  Records in a childless funk can be
+     modified.  Will be FD_FUNK_TXN_IDX_NULL if txn_max is zero.
 
-// Read a record. The amount of data actually read is returned, which
-// may be less then data_sz if the record is shorter than expected. A -1
-// is returned if an identifier is invalid. *data is updated to point
-// to an internal cache which may become invalid after the next operation.
-long fd_funk_read(fd_funk_t* store,
-                  fd_funk_xactionid_t const* xid,
-                  fd_funk_recordid_t const* recordid,
-                  const void** data,
-                  ulong offset,
-                  ulong data_sz);
+     last_publish is the ID of the last published transaction.  It will
+     be the root transaction if no transactions have been published.
+     Will be the root transaction immediately after construction. */
 
-// Truncate a record to the given length
-void fd_funk_truncate(fd_funk_t* store,
-                      fd_funk_xactionid_t const* xid,
-                      fd_funk_recordid_t const* recordid,
-                      ulong record_sz);
+  ulong txn_max;         /* In [0,FD_FUNK_TXN_IDX_NULL] */
+  ulong txn_map_gaddr;   /* Non-zero wksp gaddr with tag wksp_tag
+                            seed   ==fd_funk_txn_map_seed   (txn_map)
+                            txn_max==fd_funk_txn_map_key_max(txn_map) */
+  uint  child_head_cidx; /* After decompression, in [0,txn_max) or FD_FUNK_TXN_IDX_NULL, FD_FUNK_TXN_IDX_NULL if txn_max 0 */
+  uint  child_tail_cidx; /* " */
 
-// Delete a record. Note that deletion isn't permanent until the
-// transaction is committed.
-void fd_funk_delete_record(fd_funk_t* store,
-                           fd_funk_xactionid_t const* xid,
-                           fd_funk_recordid_t const* recordid);
+  /* Padding to FD_FUNK_TXN_XID_ALIGN here */
 
-// Returns the number of active records in the root transaction
-ulong fd_funk_num_records(fd_funk_t* store);
+  fd_funk_txn_xid_t root[1];         /* Always equal to the root transaction */
+  fd_funk_txn_xid_t last_publish[1]; /* Root transaction immediately after construction, not root thereafter */
 
-// Returns the number of active transactions
-ulong fd_funk_num_xactions(fd_funk_t* store);
+  /* The funk record map stores the details about all the records in
+     the funk, including all those in the last published transaction and
+     all those getting updated in an in-preparation transcation.  This
+     is a fd_map_giant and more details are given in fd_funk_txn.h
 
-// Returns true if the record is in the hot cache.
-int fd_funk_cache_query(fd_funk_t* store,
-                        fd_funk_xactionid_t const* xid,
-                        fd_funk_recordid_t const* recordid,
-                        ulong offset,
-                        ulong data_sz);
+     rec_max is the maximum number of records that can exist in this
+     funk.
 
-// Loads the record into the hot cache.
-void fd_funk_cache_hint(fd_funk_t* store,
-                        fd_funk_xactionid_t const* xid,
-                        fd_funk_recordid_t const* recordid,
-                        ulong offset,
-                        ulong data_sz);
+     rec_map_gaddr is the wksp gaddr of the fd_funk_rec_map_t used by
+     this funk.  Since this is a fd_map_giant under the hood and those
+     are relocatable, it is possible to move this around within the wksp
+     backing the funk if necessary.  Such can be helpful if needing to
+     do offline rebuilding, resizing, serialization, deserialization,
+     etc. */
 
-// Methods for iterating across all records in the root
-// transaction. Start by calling fd_funk_iter_init to initialize an
-// iterator. fd_funk_iter_next returns the next id or NULL if there are none left.
-struct fd_funk_index_iter;
-typedef struct fd_funk_index_iter fd_funk_index_iter_t;
-static const ulong fd_funk_iter_align = 8;
-static const ulong fd_funk_iter_footprint = 8;
-void fd_funk_iter_init(fd_funk_t* store,
-                       fd_funk_index_iter_t* iter);
-fd_funk_recordid_t const* fd_funk_iter_next(fd_funk_t* store,
-                                            fd_funk_index_iter_t* iter);
+  ulong rec_max;
+  ulong rec_map_gaddr; /* Non-zero wksp gaddr with tag wksp_tag
+                          seed   ==fd_funk_rec_map_seed   (rec_map)
+                          rec_max==fd_funk_rec_map_key_max(rec_map) */
+  ulong rec_head_idx;  /* Record map index of the first record, FD_FUNK_REC_IDX_NULL if none (from oldest to youngest) */
+  ulong rec_tail_idx;  /* "                       last          " */
 
-// Validate the entire data structure. Log an error and aborts if
-// corruption is detected. Intended for testing, not production.
-void fd_funk_validate(fd_funk_t* store);
+  /* The funk alloc is used for allocating wksp resources for record
+     values.  This is a fd_alloc and more details are given in
+     fd_funk_val.h.  Allocations from this allocator will be tagged with
+     wksp_tag and operations on this allocator will use concurrency
+     group 0.
 
-#endif /* HEADER_fd_src_ledger_funk_h */
+     TODO: Consider letter user just passing a join of alloc (and maybe
+     the cgroup_idx to give the funk), inferring the wksp, cgroup from
+     that and allocating exclusively from that? */
+
+  ulong alloc_gaddr; /* Non-zero wksp gaddr with tag wksp tag */
+
+  /* Padding to FD_FUNK_ALIGN here */
+};
+
+FD_PROTOTYPES_BEGIN
+
+/* Constructors */
+
+/* fd_funk_{align,footprint} return FD_FUNK_{ALIGN,FOOTPRINT}. */
+
+FD_FN_CONST ulong
+fd_funk_align( void );
+
+FD_FN_CONST ulong
+fd_funk_footprint( void );
+
+/* fd_wksp_new formats an unused wksp allocation with the appropriate
+   alignment and footprint as a funk.  Caller is not joined on return.
+   Returns shmem on success and NULL on failure (shmem NULL, shmem
+   misaligned, wksp_tag not in [1,FD_WKSP_ALLOC_TAG_MAX], shmem is not
+   backed by a wksp ...  logs details).  A workspace can be used by
+   multiple funk concurrently.  They will dynamically share the
+   underlying workspace (along with any other non-funk usage) but will
+   otherwise act as completely separate non-conflicting funks.  To help
+   with various diagnostics, garbage collection and what not, all
+   allocations to the underlying wksp are tagged with the given tag (in
+   [1,FD_WKSP_ALLOC_TAG_MAX]).  Ideally, the tag used here should be
+   distinct from all other tags used by this workspace but this is not
+   required. */
+
+void *
+fd_funk_new( void * shmem,
+             ulong  wksp_tag,
+             ulong  seed,
+             ulong  txn_max,
+             ulong  rec_max );
+
+/* fd_funk_join joins the caller to a funk instance.  shfunk points to
+   the first byte of the memory region backing the funk in the caller's
+   address space.  Returns an opaque handle of the join on success
+   (IMPORTANT! DO NOT ASSUME THIS IS A CAST OF SHFUNK) and NULL on
+   failure (NULL shfunk, misaligned shfunk, shfunk is not backed by a
+   wksp, bad magic, ... logs details).  Every successful join should
+   have a matching leave.  The lifetime of the join is until the
+   matching leave or the thread group is terminated (joins are local to
+   a thread group). */
+
+fd_funk_t *
+fd_funk_join( void * shfunk );
+
+/* fd_funk_leave leaves an existing join.  Returns the underlying
+   shfunk (IMPORTANT! DO NOT ASSUME THIS IS A CAST OF FUNK) on success
+   and NULL on failure.  Reasons for failure include funk is NULL (logs
+   details). */
+
+void *
+fd_funk_leave( fd_funk_t * funk );
+
+/* fd_funk_delete unformats a wksp allocation used as a funk
+   (additionally frees all wksp allocations used by that funk).  Assumes
+   nobody is or will be joined to the funk.  Returns shmem on success
+   and NULL on failure (logs details).  Reasons for failure include
+   shfunk is NULL, misaligned shfunk, shfunk is not backed by a
+   workspace, etc. */
+
+void *
+fd_funk_delete( void * shfunk );
+
+/* Accessors */
+
+/* fd_funk_wksp returns the local join to the wksp backing the funk.
+   The lifetime of the returned pointer is at least as long as the
+   lifetime of the local join.  Assumes funk is a current local join. */
+
+FD_FN_PURE static inline fd_wksp_t * fd_funk_wksp( fd_funk_t * funk ) { return (fd_wksp_t *)(((ulong)funk) - funk->funk_gaddr); }
+
+/* fd_funk_wksp_tag returns the workspace allocation tag used by the
+   funk for its wksp allocations.  Will be in [1,FD_WKSP_ALLOC_TAG_MAX].
+   Assumes funk is a current local join. */
+
+FD_FN_PURE static inline ulong fd_funk_wksp_tag( fd_funk_t * funk ) { return funk->wksp_tag; }
+
+/* fd_funk_seed returns the hash seed used by the funk for various hash
+   functions.  Arbitrary value.  Assumes funk is a current local join.
+   TODO: consider renaming hash_seed? */
+
+FD_FN_PURE static inline ulong fd_funk_seed( fd_funk_t * funk ) { return funk->seed; }
+
+/* fd_funk_txn_max returns maximum number of in-preparations the funk
+   can support.  Assumes funk is a current local join.  Return in
+   [0,FD_FUNK_TXN_IDX_NULL]. */
+
+FD_FN_PURE static inline ulong fd_funk_txn_max( fd_funk_t * funk ) { return funk->txn_max; }
+
+/* fd_funk_txn_map returns a pointer in the caller's address space to
+   the funk's transaction map. */
+
+FD_FN_PURE static inline fd_funk_txn_t * /* Lifetime is that of the local join */
+fd_funk_txn_map( fd_funk_t * funk,       /* Assumes current local join */
+                 fd_wksp_t * wksp ) {    /* Assumes wksp == fd_funk_wksp( funk ) */
+  return (fd_funk_txn_t *)fd_wksp_laddr_fast( wksp, funk->txn_map_gaddr );
+}
+
+/* fd_funk_last_publish_child_{head,tail} returns a pointer in the
+   caller's address space to {oldest,young} child of funk, NULL if the
+   funk is childless.  All pointers are in the caller's address space.
+   These are all a fast O(1) but not fortified against memory data
+   corruption. */
+
+FD_FN_PURE static inline fd_funk_txn_t *                 /* Lifetime as described in fd_funk_txn_query */
+fd_funk_last_publish_child_head( fd_funk_t *     funk,   /* Assumes current local join */
+                                 fd_funk_txn_t * map ) { /* Assumes map == fd_funk_txn_map( funk, fd_funk_wksp( funk ) ) */
+  ulong idx = fd_funk_txn_idx( funk->child_head_cidx );
+  if( fd_funk_txn_idx_is_null( idx ) ) return NULL; /* TODO: Consider branchless? */
+  return map + idx;
+}
+
+FD_FN_PURE static inline fd_funk_txn_t *                 /* Lifetime as described in fd_funk_txn_query */
+fd_funk_last_publish_child_tail( fd_funk_t *     funk,   /* Assumes current local join */
+                                 fd_funk_txn_t * map ) { /* Assumes map == fd_funk_txn_map( funk, fd_funk_wksp( funk ) ) */
+  ulong idx = fd_funk_txn_idx( funk->child_tail_cidx );
+  if( fd_funk_txn_idx_is_null( idx ) ) return NULL; /* TODO: Consider branchless? */
+  return map + idx;
+}
+
+/* fd_funk_root returns a pointer in the caller's address space to the
+   transaction id of the root transaction.  Assumes funk is a current
+   local join.  Lifetime of the returned pointer is the lifetime of the
+   current local join.  The value at this pointer will always be the
+   root transaction id. */
+
+FD_FN_CONST static inline fd_funk_txn_xid_t const * fd_funk_root( fd_funk_t * funk ) { return funk->root; }
+
+/* fd_funk_last_publish returns a pointer in the caller's address space
+   to transaction id of the last published transaction.  Assumes funk is
+   a current local join.  Lifetime of the returned pointer is the
+   lifetime of the current local join.  The value at this pointer will
+   be constant until the next transaction is published. */
+
+FD_FN_CONST static inline fd_funk_txn_xid_t const * fd_funk_last_publish( fd_funk_t * funk ) { return funk->last_publish; }
+
+/* fd_funk_is_frozen returns 1 if the records of the last published
+   transaction are frozen (i.e. the funk has children) and 0 otherwise
+   (i.e. the funk is childless).  Assumes funk is a current local join. */
+
+FD_FN_PURE static inline int
+fd_funk_last_publish_is_frozen( fd_funk_t const * funk ) {
+  return fd_funk_txn_idx( funk->child_head_cidx )!=FD_FUNK_TXN_IDX_NULL;
+}
+
+/* fd_funk_rec_max returns maximum number of records that can be held
+   in the funk.  This includes both records of the last published
+   transaction and records for transactions that are in-flight. */
+
+FD_FN_PURE static inline ulong fd_funk_rec_max( fd_funk_t * funk ) { return funk->rec_max; }
+
+/* fd_funk_rec_map returns a pointer in the caller's address space to
+   the funk's record map. */
+
+FD_FN_PURE static inline fd_funk_rec_t * /* Lifetime is that of the local join */
+fd_funk_rec_map( fd_funk_t * funk,       /* Assumes current local join */
+                 fd_wksp_t * wksp ) {    /* Assumes wksp == fd_funk_wksp( funk ) */
+  return (fd_funk_rec_t *)fd_wksp_laddr_fast( wksp, funk->rec_map_gaddr );
+}
+
+/* fd_funk_last_publish_rec_{head,tail} returns a pointer in the
+   caller's address space to {oldest,young} record (by creation) of all
+   records in the last published transaction, NULL if the last published
+   transaction has no records.  All pointers are in the caller's address
+   space.  These are all a fast O(1) but not fortified against memory
+   data corruption. */
+
+FD_FN_PURE static inline fd_funk_rec_t const *                   /* Lifetime as described in fd_funk_rec_query */
+fd_funk_last_publish_rec_head( fd_funk_t const *     funk,       /* Assumes current local join */
+                               fd_funk_rec_t const * rec_map ) { /* Assumes == fd_funk_rec_map( funk, fd_funk_wksp( funk ) ) */
+  ulong rec_head_idx = funk->rec_head_idx;
+  if( fd_funk_rec_idx_is_null( rec_head_idx ) ) return NULL; /* TODO: consider branchless */
+  return rec_map + rec_head_idx;
+}
+
+FD_FN_PURE static inline fd_funk_rec_t const *                   /* Lifetime as described in fd_funk_rec_query */
+fd_funk_last_publish_rec_tail( fd_funk_t const *     funk,       /* Assumes current local join */
+                               fd_funk_rec_t const * rec_map ) { /* Assumes == fd_funk_rec_map( funk, fd_funk_wksp( funk ) ) */
+  ulong rec_tail_idx = funk->rec_tail_idx;
+  if( fd_funk_rec_idx_is_null( rec_tail_idx ) ) return NULL; /* TODO: consider branchless */
+  return rec_map + rec_tail_idx;
+}
+
+/* fd_funk_alloc returns a pointer in the caller's address space to
+   the funk's allocator. */
+
+FD_FN_PURE static inline fd_alloc_t *  /* Lifetime is that of the local join */
+fd_funk_alloc( fd_funk_t * funk,       /* Assumes current local join */
+               fd_wksp_t * wksp ) {    /* Assumes wksp == fd_funk_wksp( funk ) */
+  return (fd_alloc_t *)fd_wksp_laddr_fast( wksp, funk->alloc_gaddr );
+}
+
+/* Operations */
+
+/* fd_funk_descendant returns the funk's youngest descendant that has no
+   globally competiting transaction history currently or NULL if funk
+   has no children or all of the children of funk are in competition.
+   That is, this is as far as fd_funk_txn_publish can publish before it
+   needs to start canceling competiting transaction histories.  This is
+   O(length of descendant history) and this is not fortified against
+   transaction map data corruption.  Assumes funk is a current local
+   join.  The returned pointer lifetime and address space is as
+   described in fd_funk_txn_query. */
+
+FD_FN_PURE static inline fd_funk_txn_t *
+fd_funk_last_publish_descendant( fd_funk_t *     funk,
+                                 fd_funk_txn_t * txn_map ) { /* Assumes == fd_funk_txn_map( funk, fd_funk_wksp( funk ) ) */
+  ulong child_idx = fd_funk_txn_idx( funk->child_head_cidx );
+  if( fd_funk_txn_idx_is_null( child_idx ) ) return NULL;
+  return fd_funk_txn_descendant( txn_map + child_idx, txn_map );
+}
+
+/* Misc */
+
+/* fd_funk_verify verifies the integrity of funk.  Returns
+   FD_FUNK_SUCCESS if funk appears to be intact and FD_FUNK_ERR_INVAL
+   otherwise (logs details).  Assumes funk is a current local join (NULL
+   returns FD_FUNK_ERR_INVAL and logs details.) */
+
+int
+fd_funk_verify( fd_funk_t * funk );
+
+FD_PROTOTYPES_END
+
+#endif /* HEADER_fd_src_funk_fd_funk_h */

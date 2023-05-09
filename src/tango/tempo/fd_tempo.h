@@ -7,8 +7,6 @@
 
 FD_PROTOTYPES_BEGIN
 
-#if FD_HAS_DOUBLE
-
 /* fd_tempo_wallclock_model returns an estimate of t0, the minimum cost
    of fd_log_wallclock() in ticks.  If opt_tau is non_NULL, on return,
    *opt_tau will contain an estimate of typical jitter associated with
@@ -24,8 +22,6 @@ FD_PROTOTYPES_BEGIN
 
 double
 fd_tempo_wallclock_model( double * opt_tau );
-
-#if FD_HAS_X86
 
 /* fd_tempo_tickcount_model does the same as fd_tempo_wallclock model
    for fd_tickcount().  The model parameter units will be in ticks
@@ -63,11 +59,6 @@ fd_tempo_tickcount_model( double * opt_tau );
 double
 fd_tempo_tick_per_ns( double * opt_sigma );
 
-#endif
-#endif
-
-#if FD_HAS_X86
-
 /* fd_tempo_observe_pair observes the fd_log_wallclock() and
    fd_tickcount() at the "same time".  More precisely, it alternately
    observes both a few times and estimates from the "best" wallclock
@@ -95,8 +86,6 @@ fd_tempo_tick_per_ns( double * opt_sigma );
 long
 fd_tempo_observe_pair( long * opt_now,
                        long * opt_tic );
-
-#endif
 
 /* fd_tempo_lazy_default returns a target interval between housekeeping
    events in ns (laziness) for a producer / consumer that has a maximum

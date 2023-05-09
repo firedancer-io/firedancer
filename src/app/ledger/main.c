@@ -8,6 +8,7 @@
 #include <fcntl.h>
 #include <errno.h>
 #include <zstd.h>      // presumes zstd library is installed
+#include <bzlib.h>     // presumes bz2 library is installed
 #include "../../util/fd_util.h"
 #include "../../util/archive/fd_tar.h"
 #include "../../ballet/runtime/fd_banks_solana.h"
@@ -19,6 +20,9 @@
 static void usage(const char* progname) {
   fprintf(stderr, "USAGE: %s\n", progname);
   fprintf(stderr, " --cmd ingest --snapshotfile <file>               ingest snapshot file\n");
+  fprintf(stderr, " --wksp <name>                                    workspace name\n");
+  fprintf(stderr, " --indexmax <count>                               size of funky account map\n");
+  fprintf(stderr, " --txnmax <count>                                 size of funky transaction map\n");
 }
 
 struct SnapshotParser {
@@ -122,7 +126,7 @@ int SnapshotParser_moreData(void* arg, const void* data, size_t datalen) {
 }
 
 typedef int (*decompressCallback)(void* arg, const void* data, size_t datalen);
-static void decompressFile(const char* fname, decompressCallback cb, void* arg) {
+static void decompressZSTD(const char* fname, decompressCallback cb, void* arg) {
   int const fin = open(fname, O_RDONLY);
   if (fin == -1) {
     FD_LOG_ERR(( "unable to read file %s: %s", fname, strerror(errno) ));
@@ -144,7 +148,6 @@ static void decompressFile(const char* fname, decompressCallback cb, void* arg) 
    * and doesn't consume input after the frame.
    */
   ssize_t readRet;
-  size_t  lastRet = 0;
   while ( (readRet = read(fin, buffIn, buffInSize)) ) {
     if (readRet == -1) {
       FD_LOG_ERR(( "unable to read file %s: %s", fname, strerror(errno) ));
@@ -164,25 +167,72 @@ static void decompressFile(const char* fname, decompressCallback cb, void* arg) 
        * state, for instance if the last decompression call returned an
        * error.
        */
-      size_t const ret = ZSTD_decompressStream(dctx, &output , &input);
-      if ((*cb)(arg, buffOut, output.pos)) {
-        lastRet = 0;
-        break;
+      size_t const ret = ZSTD_decompressStream(dctx, &output, &input);
+      if (ZSTD_isError(ret)) {
+        FD_LOG_ERR(( "bz2 decompression failed: %s", ZSTD_getErrorName( ret ) ));
+        goto done;
       }
-      lastRet = ret;
+      if ((*cb)(arg, buffOut, output.pos))
+        goto done;
     }
   }
 
+  done:
+  ZSTD_freeDCtx(dctx);
+  close(fin);
+}
 
-  if (lastRet != 0) {
-    /* The last return value from ZSTD_decompressStream did not end on a
-     * frame, but we reached the end of the file! We assume this is an
-     * error, and the input was truncated.
-     */
-    FD_LOG_ERR(( "EOF before end of stream: %zu", lastRet ));
+static void decompressBZ2(const char* fname, decompressCallback cb, void* arg) {
+  int const fin = open(fname, O_RDONLY);
+  if (fin == -1) {
+    FD_LOG_ERR(( "unable to read file %s: %s", fname, strerror(errno) ));
+  }
+  
+  bz_stream bStream;
+  bStream.next_in = NULL;
+  bStream.avail_in = 0;
+  bStream.bzalloc = NULL;
+  bStream.bzfree = NULL;
+  bStream.opaque = NULL;
+  int bReturn = BZ2_bzDecompressInit(&bStream, 0, 0);
+  if (bReturn != BZ_OK)
+    FD_LOG_ERR(( "Error occurred during BZIP initialization.  BZIP error code: %d", bReturn ));
+
+  size_t const buffInMax = 128<<10;
+  void*        buffIn = alloca(buffInMax);
+  size_t       buffInSize = 0;
+  size_t const buffOutMax = 512<<10;
+  void*        buffOut = alloca(buffOutMax);
+
+  for (;;) {
+    ssize_t r = read(fin, (char*)buffIn + buffInSize, buffInMax - buffInSize);
+    if (r < 0) {
+      FD_LOG_ERR(( "unable to read file %s: %s", fname, strerror(errno) ));
+      break;
+    }
+    buffInSize += (size_t)r;
+
+    bStream.next_in = buffIn;
+    bStream.avail_in = (uint)buffInSize;
+    bStream.next_out = buffOut;
+    bStream.avail_out = (uint)buffOutMax;
+
+    bReturn = BZ2_bzDecompress(&bStream);
+    if (bReturn != BZ_OK && bReturn != BZ_STREAM_END) {
+      FD_LOG_ERR(( "Error occurred during BZIP decompression.  BZIP error code: %d", bReturn ));
+      break;
+    }
+    if ((*cb)(arg, buffOut, buffOutMax - bStream.avail_out))
+      break;
+    if (bReturn == BZ_STREAM_END && r == 0)
+      break;
+
+    if (bStream.avail_in)
+      memmove(buffIn, (char*)buffIn + buffInSize - bStream.avail_in, bStream.avail_in);
+    buffInSize = bStream.avail_in;
   }
 
-  ZSTD_freeDCtx(dctx);
+  BZ2_bzDecompressEnd(&bStream);
   close(fin);
 }
 
@@ -190,26 +240,15 @@ int main(int argc, char** argv) {
   fd_boot( &argc, &argv );
 
   const char* cmd = fd_env_strip_cmdline_cstr(&argc, &argv, "--cmd", NULL, NULL);
-  if (cmd == NULL) {
+  const char* wkspname = fd_env_strip_cmdline_cstr(&argc, &argv, "--wksp", NULL, NULL);
+  if (cmd == NULL || wkspname == NULL) {
     usage(argv[0]);
     return 1;
   }
 
-  fd_wksp_t* wksp = fd_wksp_new_anonymous( FD_SHMEM_GIGANTIC_PAGE_SZ, 45, 2, "wksp", 0UL );
-
-  void * alloc_shmem = fd_wksp_alloc_laddr( wksp, fd_alloc_align(), fd_alloc_footprint(), 1 );
-  void * allocf_arg = fd_alloc_join( fd_alloc_new ( alloc_shmem, 1 ), 0UL );
-
-  void *            global_raw = fd_alloc_malloc(allocf_arg, FD_GLOBAL_CTX_ALIGN, FD_GLOBAL_CTX_FOOTPRINT);
-  fd_global_ctx_t * global = fd_global_ctx_join(fd_global_ctx_new(global_raw));
-  global->wksp = wksp;
-  global->allocf = (fd_alloc_fun_t)fd_alloc_malloc;
-  global->freef = (fd_free_fun_t)fd_alloc_free;
-  global->allocf_arg = allocf_arg;
-  global->alloc = allocf_arg;
-
-  void* fd_acc_mgr_raw = global->allocf(global->allocf_arg, FD_ACC_MGR_ALIGN, FD_ACC_MGR_FOOTPRINT);
-  global->acc_mgr = fd_acc_mgr_join(fd_acc_mgr_new(fd_acc_mgr_raw, global, FD_ACC_MGR_FOOTPRINT));
+  fd_wksp_t* wksp = fd_wksp_attach(wkspname);
+  if (wksp == NULL)
+    FD_LOG_ERR(( "failed to attach to workspace %s", wkspname ));
 
   if (strcmp(cmd, "ingest") == 0) {
     const char* snapshotfile = fd_env_strip_cmdline_cstr(&argc, &argv, "--snapshotfile", NULL, NULL);
@@ -217,38 +256,49 @@ int main(int argc, char** argv) {
       usage(argv[0]);
       return 1;
     }
-    const char* funkfile = fd_env_strip_cmdline_cstr(&argc, &argv, "--funkfile", NULL, "funkdb");
+    ulong index_max = fd_env_strip_cmdline_ulong(&argc, &argv, "--indexmax", NULL, 350000000);
+    ulong xactions_max = fd_env_strip_cmdline_ulong(&argc, &argv, "--txnmax", NULL, 100);
 
-    unlink(funkfile);
-    ulong      index_max = 350000000; // Maximum size (count) of master index
-    ulong      xactions_max = 10; // Maximum size (count) of transaction index
-    ulong      cache_max = 10000; // Maximum number of cache entries
-    fd_funk_t* funk = fd_funk_new(funkfile, wksp, 2, index_max, xactions_max, cache_max);
+    void* shmem = fd_wksp_alloc_laddr( wksp, fd_funk_align(), fd_funk_footprint(), 1 );
+    if (shmem == NULL)
+      FD_LOG_ERR(( "failed to allocate a funky" ));
+    char hostname[64];
+    gethostname(hostname, sizeof(hostname));
+    ulong hashseed = fd_hash(0, hostname, strnlen(hostname, sizeof(hostname)));
+    fd_funk_t* funk = fd_funk_join(fd_funk_new(shmem, 1, hashseed, xactions_max, index_max));
+    if (funk == NULL) {
+      fd_wksp_free_laddr(shmem);
+      FD_LOG_ERR(( "failed to allocate a funky" ));
+    }
+
+    FD_LOG_WARNING(( "funky at global address 0x%016lx", fd_wksp_gaddr_fast( wksp, shmem ) ));
+
+    char global_mem[FD_GLOBAL_CTX_FOOTPRINT] __attribute__((aligned(FD_GLOBAL_CTX_ALIGN)));
+    memset(global_mem, 0, sizeof(global_mem));
+    fd_global_ctx_t * global = fd_global_ctx_join( fd_global_ctx_new( global_mem ) );
+  
+    global->wksp = wksp;
     global->funk = funk;
-    fd_funk_xactionid_t xid;
-    global->funk_txn = &xid;
-    xid = *fd_funk_root(global->funk);
+    global->allocf = (fd_alloc_fun_t)fd_alloc_malloc;
+    global->freef = (fd_free_fun_t)fd_alloc_free;
+    global->allocf_arg = fd_wksp_laddr_fast( wksp, funk->alloc_gaddr );
+
+    char acc_mgr_mem[FD_ACC_MGR_FOOTPRINT] __attribute__((aligned(FD_ACC_MGR_ALIGN)));
+    memset(acc_mgr_mem, 0, sizeof(acc_mgr_mem));
+    global->acc_mgr = fd_acc_mgr_join( fd_acc_mgr_new( acc_mgr_mem, global, FD_ACC_MGR_FOOTPRINT ) );
 
     struct SnapshotParser parser;
     SnapshotParser_init(&parser, global);
-    decompressFile(snapshotfile, SnapshotParser_moreData, &parser);
+    if (strcmp(snapshotfile + strlen(snapshotfile) - 4, ".zst") == 0)
+      decompressZSTD(snapshotfile, SnapshotParser_moreData, &parser);
+    else if (strcmp(snapshotfile + strlen(snapshotfile) - 4, ".bz2") == 0)
+      decompressBZ2(snapshotfile, SnapshotParser_moreData, &parser);
+    else
+      FD_LOG_ERR(( "unknown snapshot compression suffix" ));
     SnapshotParser_destroy(&parser);
 
-    FD_LOG_INFO(("imported %lu accounts", fd_funk_num_records(funk)));
-    
-    fd_funk_delete(funk);
+    fd_global_ctx_delete( fd_global_ctx_leave( global ) );
   }
-
-  fd_acc_mgr_delete( fd_acc_mgr_leave( global->acc_mgr ) );
-  global->freef(global->allocf_arg, fd_acc_mgr_raw);
-
-  fd_global_ctx_delete( fd_global_ctx_leave( global ) );
-  global->freef(global->allocf_arg, global_raw);
-
-  fd_alloc_delete( fd_alloc_leave( allocf_arg ) );
-  fd_wksp_free_laddr( alloc_shmem );
-
-  fd_wksp_delete_anonymous( wksp );
 
   fd_log_flush();
   fd_halt();

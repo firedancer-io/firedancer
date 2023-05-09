@@ -1,6 +1,11 @@
 #include "fd_sysvar_epoch_schedule.h"
 #include "../fd_types.h"
 #include "fd_sysvar.h"
+#include <math.h>
+
+/* Has to be larger than MAX_LOCKOUT_HISTORY
+   https://github.com/solana-labs/solana/blob/88aeaa82a856fc807234e7da0b31b89f2dc0e091/sdk/program/src/epoch_schedule.rs#L21 */
+#define MINIMUM_SLOTS_PER_EPOCH ( 32 )
 
 void write_epoch_schedule( fd_global_ctx_t* global, fd_epoch_schedule_t* epoch_schedule ) {
   ulong          sz = fd_epoch_schedule_size( epoch_schedule );
@@ -32,14 +37,124 @@ void fd_sysvar_epoch_schedule_read( fd_global_ctx_t* global, fd_epoch_schedule_t
 }
 
 void fd_sysvar_epoch_schedule_init( fd_global_ctx_t* global ) {
-  /* Defaults taken from https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/epoch_schedule.rs#L45 */
-  /* TODO: handle non-default case */
-  fd_epoch_schedule_t epoch_schedule = {
-    .slots_per_epoch = 432000,
-    .leader_schedule_slot_offset = 432000
-//    .first_normal_epoch = 14,
-//    .first_normal_slot = 524256,
-//    .warmup = 1
-  };
-  write_epoch_schedule( global, &epoch_schedule );
+  write_epoch_schedule( global, &global->genesis_block.epoch_schedule );
+}
+
+/* Returns the number of trailing zeroes in the binary representation of x */
+ulong trailing_zeroes( ulong x ) {
+  ulong bits = 0;
+  while ( ( x > 0 ) && ( ( x & 1 ) == 0 ) ) {
+    bits += 1;
+    x >>= 1;
+  }
+  return bits;
+}
+
+ulong saturating_pow( ulong x, ulong exp ) {
+  double res = pow( (double)x, (double)exp );
+  return fd_ulong_if( res == HUGE_VAL, ULONG_MAX, (ulong)res );
+}
+
+/* Get the number of slots in the given epoch
+   https://github.com/solana-labs/solana/blob/88aeaa82a856fc807234e7da0b31b89f2dc0e091/sdk/program/src/epoch_schedule.rs#L105 */
+ulong get_slots_in_epoch( fd_global_ctx_t* global, ulong epoch ) {
+  fd_epoch_schedule_t epoch_schedule;
+  fd_sysvar_epoch_schedule_read( global, &epoch_schedule );
+
+  if ( FD_UNLIKELY( epoch < epoch_schedule.first_normal_epoch ) ) {
+    return saturating_pow(
+      2,
+      fd_uint_sat_add( (uint)epoch, (uint)trailing_zeroes( MINIMUM_SLOTS_PER_EPOCH ) ) );
+  }
+  else {
+    return epoch_schedule.slots_per_epoch;
+  }
+}
+
+/* Returns the next power of 2 >= x */
+ulong next_power_of_2( ulong x ) {
+  ulong power = 1;
+  while ( power < x ) {
+    power <<= 1;
+  }
+  return power;
+}
+
+/* Get the epoch and offset into the epoch for the given slot
+   https://github.com/solana-labs/solana/blob/88aeaa82a856fc807234e7da0b31b89f2dc0e091/sdk/program/src/epoch_schedule.rs#L140 */
+void get_epoch_and_slot_idx( fd_global_ctx_t* global, ulong slot, ulong* res_epoch, ulong* res_idx ) {
+  fd_epoch_schedule_t epoch_schedule;
+  fd_sysvar_epoch_schedule_read( global, &epoch_schedule );
+
+  if ( FD_UNLIKELY( slot < epoch_schedule.first_normal_slot ) ) {
+    ulong epoch = fd_ulong_sat_sub(
+      fd_ulong_sat_sub(
+        trailing_zeroes(
+          next_power_of_2(
+            fd_ulong_sat_add(
+              fd_ulong_sat_add(
+                slot,
+                MINIMUM_SLOTS_PER_EPOCH ),
+              1 ) ) ),
+        trailing_zeroes( MINIMUM_SLOTS_PER_EPOCH ) ),
+      1 );
+
+    ulong epoch_len = saturating_pow(
+      2,
+      fd_ulong_sat_add(
+        epoch,
+        trailing_zeroes( MINIMUM_SLOTS_PER_EPOCH ) ) );
+
+    ulong idx = fd_ulong_sat_sub(
+      slot,
+      fd_ulong_sat_sub(
+        epoch_len,
+        MINIMUM_SLOTS_PER_EPOCH
+      )
+    );
+
+    *res_epoch = epoch;
+    *res_idx = idx;
+  } else {
+    ulong normal_slot_idx = fd_ulong_sat_sub( slot, epoch_schedule.first_normal_slot );
+    /* TODO: checked div */
+    ulong normal_epoch_idx = slot / epoch_schedule.slots_per_epoch;
+    ulong epoch = fd_ulong_sat_add( epoch_schedule.first_normal_epoch, normal_epoch_idx );
+    /* TODO: checked rem */
+    ulong slot_idx = normal_slot_idx % epoch_schedule.slots_per_epoch;
+
+    *res_epoch = epoch;
+    *res_idx = slot_idx;
+  }
+}
+
+/* https://github.com/solana-labs/solana/blob/88aeaa82a856fc807234e7da0b31b89f2dc0e091/sdk/program/src/epoch_schedule.rs#L170 */
+ulong get_first_slot_in_epoch( fd_global_ctx_t* global, ulong epoch ) {
+  fd_epoch_schedule_t epoch_schedule;
+  fd_sysvar_epoch_schedule_read( global, &epoch_schedule );
+
+  if ( FD_UNLIKELY( epoch < epoch_schedule.first_normal_epoch ) ) {
+    return fd_ulong_sat_mul(
+      fd_ulong_sat_sub(
+        saturating_pow(
+          2,
+          epoch ),
+        1 ),
+      MINIMUM_SLOTS_PER_EPOCH );
+  } else {
+    return fd_ulong_sat_add(
+      fd_ulong_sat_mul(
+        fd_ulong_sat_sub(
+          epoch,
+          epoch_schedule.first_normal_epoch ),
+        epoch_schedule.slots_per_epoch ),
+      epoch_schedule.first_normal_slot );
+  }
+}
+
+/* https://github.com/solana-labs/solana/blob/88aeaa82a856fc807234e7da0b31b89f2dc0e091/sdk/program/src/epoch_schedule.rs#L183 */
+ulong get_last_slot_in_epoch( fd_global_ctx_t* global, ulong epoch ) {
+  ulong first_slot_in_epoch = get_first_slot_in_epoch( global, epoch );
+  ulong slots_in_epoch = get_slots_in_epoch( global, epoch );
+  return fd_ulong_sat_sub( fd_ulong_sat_add( first_slot_in_epoch, slots_in_epoch ), 1 );
 }

@@ -4,6 +4,7 @@ struct pair {
   ulong mykey;
   ulong mynext;
   uint  val;
+  uint  tag;
 };
 
 typedef struct pair pair_t;
@@ -54,6 +55,7 @@ main( int     argc,
     ref[idx].mykey  = (1UL<<63) | (fd_rng_ulong( rng )<<9) | idx; /* Every map key is unique and non-zero */
     ref[idx].mynext = fd_rng_ulong( rng );
     ref[idx].val    = fd_rng_uint( rng );
+    ref[idx].tag    = 0U;
     tst[idx] = ref[idx];
   }
   sort_pair_inplace( ref, max );
@@ -95,6 +97,8 @@ main( int     argc,
 
   FD_TEST( !map_verify( map ) );
 
+  uint tag = 0U;
+
   for( ulong iter=0UL; iter<iter_max; iter++ ) {
     if( !(iter % 100UL) ) FD_LOG_NOTICE(( "Iter %lu", iter ));
     shuffle_pair( rng, tst, max ); /* Generate a randomized insertion order */
@@ -103,6 +107,21 @@ main( int     argc,
 
     for( ulong i=0UL; i<max; i++ ) {
       FD_TEST( !map_is_full( map ) );
+
+      /* Try iterating over map (incl empty case) */
+      tag++;
+      ulong cnt = 0UL;
+      for( map_iter_t iter = map_iter_init( map ); !map_iter_done( map, iter ); iter = map_iter_next( map, iter ) ) {
+        pair_t *       p0 = map_iter_ele(       map, iter );
+        pair_t const * p1 = map_iter_ele_const( map, iter );
+        FD_TEST( p0 );
+        FD_TEST( p1 );
+        FD_TEST( p1==(pair_t const *)p0 );
+        FD_TEST( p0->tag!=tag );
+        p0->tag = tag;
+        cnt++;
+      }
+      FD_TEST( cnt==i );
 
       ulong ki = tst[i].mykey;
       uint  vi = tst[i].val;
@@ -132,6 +151,22 @@ main( int     argc,
 
     /* Make sure map is full at this point */
     FD_TEST( map_is_full( map ) );
+
+    do {
+      tag++;
+      ulong cnt = 0UL;
+      for( map_iter_t iter = map_iter_init( map ); !map_iter_done( map, iter ); iter = map_iter_next( map, iter ) ) {
+        pair_t *       p0 = map_iter_ele(       map, iter );
+        pair_t const * p1 = map_iter_ele_const( map, iter );
+        FD_TEST( p0 );
+        FD_TEST( p1 );
+        FD_TEST( p1==(pair_t const *)p0 );
+        FD_TEST( p0->tag!=tag );
+        p0->tag = tag;
+        cnt++;
+      }
+      FD_TEST( cnt==max );
+    } while(0);
 
     /* Generate a different randomized deletion order */
     shuffle_pair( rng, tst, max );

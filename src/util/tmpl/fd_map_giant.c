@@ -453,7 +453,7 @@ MAP_(iter_done)( MAP_T const * join,
 FD_FN_PURE static inline MAP_(iter_t)
 MAP_(iter_next)( MAP_T const * join,
                  MAP_(iter_t)  ele_rem ) {
-  for( ; ele_rem; ele_rem-- ) if( !MAP_(private_unbox_tag)( join[ ele_rem-1UL ].MAP_NEXT ) ) break;
+  for( ele_rem--; ele_rem; ele_rem-- ) if( !MAP_(private_unbox_tag)( join[ ele_rem-1UL ].MAP_NEXT ) ) break;
   return ele_rem;
 }
 
@@ -840,6 +840,11 @@ MAP_(verify)( MAP_T const * join ) {
   }
 
   MAP_TEST( cnt==free_cnt );
+
+  for( ulong ele_idx=0UL; ele_idx<key_cnt; ele_idx++ ) {
+    if( MAP_(private_unbox_tag)( join[ele_idx].MAP_NEXT ) ) continue;
+    MAP_TEST( MAP_(query_const)( join, &join[ele_idx].MAP_KEY, NULL )==&join[ele_idx] );
+  }
 
 # undef MAP_TEST
 

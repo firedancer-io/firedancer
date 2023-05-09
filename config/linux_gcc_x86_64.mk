@@ -1,7 +1,6 @@
 BUILDDIR:=linux/gcc/x86_64
 
 include config/base.mk
-include config/with-hosted.mk
 include config/with-gcc.mk
 include config/with-debug.mk
 include config/with-brutality.mk
@@ -9,6 +8,7 @@ include config/with-optimization.mk
 include config/with-threads.mk
 include config/with-zstd.mk
 include config/with-rocksdb.mk
+# include config/with-asan.mk
 # include config/with-libbpf.mk
 
 CPPFLAGS+=-fomit-frame-pointer -falign-functions=32 -falign-jumps=32 -falign-labels=32 -falign-loops=32 \

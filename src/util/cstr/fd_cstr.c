@@ -24,26 +24,73 @@ double       fd_cstr_to_double( char const * cstr ) { return         strtod ( cs
 
 ulong fd_cstr_to_ulong_octal( char const * cstr ) { return (ulong)strtoul( cstr, NULL, 8 ); }
 
-#if FD_HAS_HOSTED
-/* TODO: Provide a non-hosted implementation */
 ulong
-fd_cstr_to_ip4_addr( char const * s ) {
-  int  n=0;
-  uint x[4];
+fd_cstr_to_ulong_seq( char const * cstr,
+                      ulong *      seq,
+                      ulong        seq_max ) {
+  ulong seq_cnt = 0UL;
 
-  int res = sscanf( s, "%u.%u.%u.%u%n", &x[0], &x[1], &x[2], &x[3], &n );
+  if( !cstr ) return seq_cnt;
 
-  if( FD_UNLIKELY( res!=4
-                || n<0 || s[n]!='\0'
-                || x[0]>UCHAR_MAX
-                || x[1]>UCHAR_MAX
-                || x[2]>UCHAR_MAX
-                || x[3]>UCHAR_MAX ) )
-    return ULONG_MAX;
+  char const * p = cstr;
+  for(;;) {
 
-  return ( x[0] | (x[1]<<8) | (x[2]<<16) | (x[3]<<24) );
+    char   c;
+    char * q;
+
+    c = *p; while( isspace( (int)c ) ) c = *(++p); /* Move and peek at next non-white-space character */
+    if( c=='\0' ) break; /* end of sequence */
+
+    ulong seq_ele_0 = strtoul( p, &q, 0 );
+    if( FD_UNLIKELY( p==(char const *)q ) ) return 0UL; /* Malformed sequence, seq_ele_0 is not a ulong */
+    p = (char const *)q;
+
+    ulong seq_ele_1  = seq_ele_0;
+    ulong seq_stride = 1UL;
+
+    c = *p; while( isspace( (int)c ) ) c = *(++p); /* Move and peek at next non-white-space character */
+    if( c=='-' ) {
+      p++;
+
+      seq_ele_1 = strtoul( p, &q, 0 );
+      if( FD_UNLIKELY( p==(char const *)q ) ) return 0UL; /* Malformed sequence, seq_ele_1 is not a ulong */
+      p = (char const *)q;
+
+      c = *p; while( isspace( (int)c ) ) c = *(++p); /* Move and peek at next non-white-space character */
+      if( c=='/' || c==':' ) {
+        p++;
+
+        seq_stride = strtoul( p, &q, 0 );
+        if( FD_UNLIKELY( p==(char const *)q ) ) return 0UL; /* Malformed sequence, seq_stride is not a ulong */
+        p = (char const *)q;
+      }
+    }
+
+    c = *p; while( isspace( (int)c ) ) c = *(++p); /* Move and peek at next non-white-space character */
+    if( !(c==',' || c=='\0' ) ) return 0UL; /* Malformed sequence, delimiter */
+    if( c==',' ) p++;
+
+    /* Append the range to sequence.  Written this slightly funny way to
+       be robust against overflow with seq_ele_1 and/or seq_stride being
+       near or equal to ULONG_MAX */
+
+    if( FD_UNLIKELY( (seq_ele_1<seq_ele_0) | (!seq_stride) )) return 0UL; /* Malformed sequence, bad range */
+
+
+    ulong seq_ele = seq_ele_0;
+    while( ((seq_ele_0<=seq_ele) & (seq_ele<seq_ele_1)) ) {
+      if( FD_LIKELY( seq_cnt<seq_max ) ) seq[ seq_cnt ] = seq_ele;
+      seq_cnt++;
+      seq_ele += seq_stride;
+    }
+    if( seq_ele==seq_ele_1 ) {
+      if( FD_LIKELY( seq_cnt<seq_max ) ) seq[ seq_cnt ] = seq_ele;
+      seq_cnt++;
+    }
+  }
+
+  return seq_cnt;
 }
-#endif /* FD_HAS_HOSTED */
 
 int
 fd_cstr_casecmp( char const * a,

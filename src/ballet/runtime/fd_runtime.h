@@ -28,7 +28,6 @@ struct __attribute__((aligned(FD_GLOBAL_CTX_ALIGN))) fd_global_ctx {
 
   fd_wksp_t *                wksp;
   fd_funk_t*                 funk;
-  fd_alloc_t *               alloc;
   fd_executor_t              executor;  // Amusingly, it is just a pointer to this...
   fd_rng_t*                  rng;
 
@@ -62,8 +61,8 @@ struct __attribute__((aligned(FD_GLOBAL_CTX_ALIGN))) fd_global_ctx {
   fd_firedancer_banks_t      bank;
 
   fd_poh_state_t             poh;
-  fd_funk_xactionid_t        funk_txn_tower[32];
-  fd_funk_xactionid_t*       funk_txn;
+  fd_funk_txn_t*             funk_txn_tower[32];
+  fd_funk_txn_t*             funk_txn;
   ushort                     funk_txn_index;
   uchar                      block_hash[FD_SHA256_HASH_SZ];
   fd_hash_t                  banks_hash;
@@ -73,12 +72,6 @@ struct __attribute__((aligned(FD_GLOBAL_CTX_ALIGN))) fd_global_ctx {
 
   fd_pubkey_t                collector_id;
   ulong                      collected;
-
-  fd_fee_rate_governor_t     fee_rate_governor;
-  fd_recent_block_hashes_t   recent_block_hashes;
-
-  // TODO: should we instead remember which slot the poh is valid for?
-  fd_clock_timestamp_votes_t timestamp_votes;
 
   uchar                      poh_booted;
   uchar                      collector_set;
@@ -105,6 +98,7 @@ int               fd_runtime_block_eval    ( fd_global_ctx_t *global, fd_slot_bl
 ulong             fd_runtime_calculate_fee ( fd_global_ctx_t *global, fd_txn_t * txn_descriptor, fd_rawtxn_b_t* txn_raw );
 void              fd_runtime_freeze        ( fd_global_ctx_t *global );
 
+void              fd_printer_walker        (void *arg, const char* name, int type, const char *type_name, int level);
 
 FD_PROTOTYPES_END
 

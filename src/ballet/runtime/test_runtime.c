@@ -2,7 +2,14 @@
 // sudo /home/jsiegel/repos/firedancer-private/build/linux/gcc/x86_64/bin/fd_shmem_cfg alloc 64 gigantic 0
 // sudo /home/jsiegel/repos/firedancer-private/build/linux/gcc/x86_64/bin/fd_shmem_cfg alloc 512 huge 0
 
+// /home/jsiegel/repos/firedancer-private/build/linux/gcc/x86_64/bin/fd_wksp_ctl new test_wksp 32 gigantic 0 0777
+// /home/jsiegel/repos/firedancer-private/build/linux/gcc/x86_64/bin/fd_wksp_ctl query test_wksp
+
 //  --ledger /dev/shm/mainnet-ledger --db /dev/shm/funk --cmd replay --start-slot 179138256 --end-slot 179138258  --txn-exe sim  --index-max 120000000 --pages 15
+
+// --ledger /home/jsiegel/multi-node-cluster-ledger --db /dev/shm/funk --cmd replay --start-slot 0 --end-slot 280   --index-max 120000000 --pages 15
+
+//  --ledger /dev/shm/mainnet-ledger --db /dev/shm/funk --cmd manifest --manifest /home/jsiegel/mainnet-ledger/snapshot/tmp-snapshot-archive-JfVTLu/snapshots/179248368/179248368
 
 //  --ledger /dev/shm/mainnet-ledger --db /dev/shm/funk --cmd replay --start-slot 179138205 --end-slot 279138205  --txn-exe sim  --index-max 120000000 --pages 15
 //  --ledger /dev/shm/mainnet-ledger --db /dev/shm/funk --cmd ingest --start-slot 179138205 --end-slot 279138205 --manifest /dev/shm/mainnet-ledger/snapshot/tmp-snapshot-archive-JfVTLu/snapshots/179248368/179248368
@@ -69,31 +76,6 @@ uchar do_valgrind = 0;
 
 int fd_alloc_fprintf( fd_alloc_t * join, FILE *       stream );
 
-char* local_allocf(void *arg, ulong align, ulong len) {
-  if (NULL == arg) {
-    FD_LOG_ERR(( "yo dawg.. you passed a NULL as a fd_alloc pool"));
-  }
-
-  if (do_valgrind) {
-    char * ptr = malloc(fd_ulong_align_up(sizeof(char *) + len, align));
-    char * ret = (char *) fd_ulong_align_up( (ulong) (ptr + sizeof(char *)), align );
-    *((char **)(ret - sizeof(char *))) = ptr;
-    return ret;
-  } else
-    return fd_alloc_malloc(arg, align, len);
-}
-
-void local_freef(void *arg, void *ptr) {
-  if (NULL == arg) {
-    FD_LOG_ERR(( "yo dawg.. you passed a NULL as a fd_alloc pool"));
-  }
-
-  if (do_valgrind)
-    free(*((char **)((char *) ptr - sizeof(char *))));
-  else
-    fd_alloc_free(arg, ptr);
-}
-
 struct global_state {
   fd_global_ctx_t*    global;
 
@@ -109,7 +91,7 @@ struct global_state {
 
   char const *        name;
   char const *        ledger;
-  char const *        db;
+  char const *        gaddr;
   char const *        start_slot_opt;
   char const *        end_slot_opt;
   char const *        start_id_opt;
@@ -118,7 +100,6 @@ struct global_state {
   char const *        accounts;
   char const *        cmd;
   char const *        txn_exe_opt;
-  char const *        pages_opt;
 
   fd_rocksdb_t        rocks_db;
 };
@@ -128,7 +109,7 @@ static void usage(const char* progname) {
   fprintf(stderr, "USAGE: %s\n", progname);
   fprintf(stderr, " --wksp        <name>       workspace name\n");
   fprintf(stderr, " --ledger      <dir>        ledger directory\n");
-  fprintf(stderr, " --db          <file>       firedancer db file\n");
+  fprintf(stderr, " --gaddr       <num>        global address of funky in the workspace\n");
   fprintf(stderr, " --end-slot    <num>        stop iterating at block...\n");
   fprintf(stderr, " --start-slot  <num>        start iterating at block...\n");
   fprintf(stderr, " --manifest    <file>       What manifest file should I pay attention to\n");
@@ -784,25 +765,17 @@ int manifest(global_state_t *state) {
   unsigned char *outend = &b[n];
   const void *   o = b;
 
-  FD_LOG_WARNING(("deserializing version bank"));
+  FD_LOG_WARNING(("deserializing solana manifest"));
 
-  struct fd_deserializable_versioned_bank a;
+  fd_solana_manifest_t a;
   memset(&a, 0, sizeof(a));
-  fd_deserializable_versioned_bank_decode(&a, &o, outend, state->global->allocf, state->global->allocf_arg);
+  fd_solana_manifest_decode(&a, &o, outend, state->global->allocf, state->global->allocf_arg);
 
-  for (ulong i = 0; i < a.ancestors_len; i++) {
-    FD_LOG_WARNING(("QQQ %lu %lu", a.ancestors[i].slot, a.ancestors[i].val ));
-  }
-
-  FD_LOG_WARNING(("deserializing accounts"));
-  struct fd_solana_accounts_db_fields db;
-  memset(&db, 0, sizeof(b));
-  fd_solana_accounts_db_fields_decode(&db, &o, outend, state->global->allocf, state->global->allocf_arg);
+  fd_deserializable_versioned_bank_walk(&a.bank, fd_printer_walker, "hi", 0);
 
   FD_LOG_WARNING(("cleaning up"));
 
-  fd_deserializable_versioned_bank_destroy(&a, state->global->freef, state->global->allocf_arg);
-  fd_solana_accounts_db_fields_destroy(&db, state->global->freef, state->global->allocf_arg);
+  fd_solana_manifest_destroy(&a, state->global->freef, state->global->allocf_arg);
   state->global->freef(state->global->allocf_arg, b);
 
   return 0;
@@ -810,7 +783,7 @@ int manifest(global_state_t *state) {
 
 #if 0
 void
-fd_sim_txn(global_state_t *state, FD_FN_UNUSED fd_executor_t* executor, fd_txn_t * txn, fd_rawtxn_b_t* txn_raw, struct fd_funk_xactionid const* funk_txn ) {
+fd_sim_txn(global_state_t *state, FD_FN_UNUSED fd_executor_t* executor, fd_txn_t * txn, fd_rawtxn_b_t* txn_raw, fd_funk_txn_t* funk_txn ) {
 
 /*      The order of these addresses is important, because it determines the
      "permission flags" for the account in this transaction.
@@ -848,7 +821,7 @@ fd_sim_txn(global_state_t *state, FD_FN_UNUSED fd_executor_t* executor, fd_txn_t
     }
     if ((what == 0) | (what == 2)) {
       metadata.info.lamports++;
-      int write_result = fd_acc_mgr_write_account_data( state->global->acc_mgr, funk_txn, addr, 0,  (uchar*)&metadata, sizeof(metadata) );
+      int write_result = fd_acc_mgr_write_account_data( state->global->acc_mgr, funk_txn, addr, (uchar*)&metadata, sizeof(metadata), NULL, 0 );
       if ( FD_UNLIKELY( write_result != FD_ACC_MGR_SUCCESS ) ) {
         FD_LOG_ERR(("wtf"));
       }
@@ -1099,12 +1072,20 @@ int main(int argc, char **argv) {
   global_state_t state;
   fd_memset(&state, 0, sizeof(state));
 
+  char global_mem[FD_GLOBAL_CTX_FOOTPRINT] __attribute__((aligned(FD_GLOBAL_CTX_ALIGN)));
+  memset(global_mem, 0, sizeof(global_mem));
+  state.global = fd_global_ctx_join( fd_global_ctx_new( global_mem ) );
+
+  char acc_mgr_mem[FD_ACC_MGR_FOOTPRINT] __attribute__((aligned(FD_ACC_MGR_ALIGN)));
+  memset(acc_mgr_mem, 0, sizeof(acc_mgr_mem));
+  state.global->acc_mgr = fd_acc_mgr_join( fd_acc_mgr_new( acc_mgr_mem, state.global, FD_ACC_MGR_FOOTPRINT ) );
+  
   state.argc = argc;
   state.argv = argv;
 
   state.name                = fd_env_strip_cmdline_cstr ( &argc, &argv, "--wksp",         NULL, NULL );
   state.ledger              = fd_env_strip_cmdline_cstr ( &argc, &argv, "--ledger",       NULL, NULL);
-  state.db                  = fd_env_strip_cmdline_cstr ( &argc, &argv, "--db",           NULL, NULL);
+  state.gaddr               = fd_env_strip_cmdline_cstr ( &argc, &argv, "--gaddr",        NULL, NULL);
   state.start_slot_opt      = fd_env_strip_cmdline_cstr ( &argc, &argv, "--start-slot",   NULL, NULL);
   state.end_slot_opt        = fd_env_strip_cmdline_cstr ( &argc, &argv, "--end-slot",     NULL, NULL);
   state.start_id_opt        = fd_env_strip_cmdline_cstr ( &argc, &argv, "--start-id",     NULL, NULL);
@@ -1113,7 +1094,6 @@ int main(int argc, char **argv) {
   state.accounts            = fd_env_strip_cmdline_cstr ( &argc, &argv, "--accounts",     NULL, NULL);
   state.cmd                 = fd_env_strip_cmdline_cstr ( &argc, &argv, "--cmd",          NULL, NULL);
   state.txn_exe_opt         = fd_env_strip_cmdline_cstr ( &argc, &argv, "--txn-exe",      NULL, NULL);
-  state.pages_opt           = fd_env_strip_cmdline_cstr ( &argc, &argv, "--pages",        NULL, NULL);
 
   const char *index_max_opt           = fd_env_strip_cmdline_cstr ( &argc, &argv, "--index-max",    NULL, NULL);
   const char *validate_db             = fd_env_strip_cmdline_cstr ( &argc, &argv, "--validate",     NULL, NULL);
@@ -1125,7 +1105,7 @@ int main(int argc, char **argv) {
   const char *confirm_signature       = fd_env_strip_cmdline_cstr ( &argc, &argv, "--confirm_signature",     NULL, NULL);
   const char *confirm_last_block      = fd_env_strip_cmdline_cstr ( &argc, &argv, "--confirm_last_block",    NULL, NULL);
 
-  if ((NULL == state.ledger) || (NULL == state.db)) {
+  if (NULL == state.ledger) {
     usage(argv[0]);
     exit(1);
   }
@@ -1135,65 +1115,62 @@ int main(int argc, char **argv) {
     state.txn_exe = (strcmp(state.txn_exe_opt, "sim") == 0) ? 2 : 0;
   }
 
-  if (state.pages_opt)
-    state.pages = (ulong) atoi(state.pages_opt);
-  else
-    state.pages = 2;
-
   fd_wksp_t *wksp = NULL;
-
-  if( state.name ) {
+  if ( state.name ) {
     FD_LOG_NOTICE(( "Attaching to --wksp %s", state.name ));
     wksp = fd_wksp_attach( state.name );
-    FD_LOG_NOTICE(("attach complete"));
   } else {
     FD_LOG_NOTICE(( "--wksp not specified, using an anonymous local workspace" ));
-    wksp = fd_wksp_new_anonymous( FD_SHMEM_GIGANTIC_PAGE_SZ, state.pages, 102, "wksp", 0UL );
-    FD_LOG_NOTICE(("attach complete"));
+    wksp = fd_wksp_new_anonymous( FD_SHMEM_GIGANTIC_PAGE_SZ, state.pages, 0, "wksp", 0UL );
   }
+  if ( FD_UNLIKELY( !wksp ) )
+    FD_LOG_ERR(( "Unable to attach to wksp" ));
 
-  if( FD_UNLIKELY( !wksp ) ) FD_LOG_ERR(( "Unable to attach to wksp" ));
+  if( !state.gaddr ) {
+    FD_LOG_NOTICE(("creating new funk db"));
+    void* shmem = fd_wksp_alloc_laddr( wksp, fd_funk_align(), fd_funk_footprint(), 1 );
+    if (shmem == NULL)
+      FD_LOG_ERR(( "failed to allocate a funky" ));
+    ulong index_max = 1000000;    // Maximum size (count) of master index
+    if (index_max_opt)
+      index_max = (ulong) atoi((char *) index_max_opt);
+    ulong xactions_max = 100;     // Maximum size (count) of transaction index
+    char hostname[64];
+    gethostname(hostname, sizeof(hostname));
+    ulong hashseed = fd_hash(0, hostname, strnlen(hostname, sizeof(hostname)));
+    state.global->funk = fd_funk_join(fd_funk_new(shmem, 1, hashseed, xactions_max, index_max));
+    if (state.global->funk == NULL) {
+      fd_wksp_free_laddr(shmem);
+      FD_LOG_ERR(( "failed to allocate a funky" ));
+    }
+    FD_LOG_WARNING(( "funky at global address %lu", fd_wksp_gaddr_fast( wksp, shmem ) ));
 
-  void * shmem = fd_wksp_alloc_laddr( wksp, fd_alloc_align(), fd_alloc_footprint(), 1 );
-
-  FD_LOG_NOTICE(("fd_wksp_alloc_laddr complete"));
-
-  if( FD_UNLIKELY( !shmem ) ) FD_LOG_ERR(( "Unable to allocate wksp memory for fd_alloc" ));
-
-  void * shalloc = fd_alloc_new ( shmem, 1 );
-  void * allocf_arg = fd_alloc_join( shalloc, 0UL );
-
-  state.global = (fd_global_ctx_t *) local_allocf(allocf_arg, FD_GLOBAL_CTX_ALIGN, FD_GLOBAL_CTX_FOOTPRINT);
-  fd_global_ctx_new(state.global);
+  } else {
+    void* shmem;
+    if (state.gaddr[0] == '0' && state.gaddr[1] == 'x')
+      shmem = fd_wksp_laddr_fast( wksp, (ulong)strtol(state.gaddr+2, NULL, 16) );
+    else
+      shmem = fd_wksp_laddr_fast( wksp, (ulong)strtol(state.gaddr, NULL, 10) );
+    state.global->funk = fd_funk_join(shmem);
+    if (state.global->funk == NULL) {
+      FD_LOG_ERR(( "failed to join a funky" ));
+    }
+  }
 
   if (NULL != log_level)
     state.global->log_level = (uchar) atoi(log_level);
 
   state.global->wksp = wksp;
-  state.global->allocf = local_allocf;
-  state.global->freef = local_freef;
-  state.global->allocf_arg = allocf_arg;
-  state.global->alloc = allocf_arg;
-
-  ulong index_max = 1000000;    // Maximum size (count) of master index
-
-  if (index_max_opt)
-    index_max = (ulong) atoi((char *) index_max_opt);
-
-  ulong xactions_max = 100;     // Maximum size (count) of transaction index
-  ulong cache_max = 10000;      // Maximum number of cache entries
-
-  FD_LOG_NOTICE(("opening fd_funk db"));
-
-  state.global->funk = fd_funk_new(state.db, state.global->wksp, 2, index_max, xactions_max, cache_max);
+  state.global->allocf = (fd_alloc_fun_t)fd_alloc_malloc;
+  state.global->freef = (fd_free_fun_t)fd_alloc_free;
+  state.global->allocf_arg = fd_wksp_laddr_fast( wksp, state.global->funk->alloc_gaddr );
 
   if ((validate_db != NULL) && (strcmp(validate_db, "true") == 0)) {
-    FD_LOG_WARNING(("starting validating %ld records", fd_funk_num_records(state.global->funk)));
-    fd_funk_validate(state.global->funk);
+    FD_LOG_WARNING(("starting validate"));
+    fd_funk_verify(state.global->funk);
     FD_LOG_WARNING(("finishing validate"));
-  } else
-    FD_LOG_WARNING(("found %ld records", fd_funk_num_records(state.global->funk)));
-
+  }
+  
   if (NULL != state.end_slot_opt)
     state.end_slot = (ulong) atoi(state.end_slot_opt);
   if (NULL != state.start_slot_opt)
@@ -1232,14 +1209,7 @@ int main(int argc, char **argv) {
     free(buf);
   }
 
-  state.global->funk_txn = &state.global->funk_txn_tower[state.global->funk_txn_index];
-  *state.global->funk_txn = *fd_funk_root(state.global->funk);
-
-  /* Initialize the account manager */
-  void *fd_acc_mgr_raw = state.global->allocf(state.global->allocf_arg, FD_ACC_MGR_ALIGN, FD_ACC_MGR_FOOTPRINT);
-  state.global->acc_mgr = fd_acc_mgr_join(fd_acc_mgr_new(fd_acc_mgr_raw, state.global, FD_ACC_MGR_FOOTPRINT));
-
-  fd_vec_fd_clock_timestamp_vote_t_new( &state.global->timestamp_votes.votes );
+  fd_vec_fd_clock_timestamp_vote_t_new( &state.global->bank.timestamp_votes.votes );
 
   if (strcmp(state.cmd, "accounts_hash") != 0) {
     FD_LOG_WARNING(("loading genesis account into funk db"));
@@ -1343,33 +1313,16 @@ int main(int argc, char **argv) {
   if (strcmp(state.cmd, "accounts") == 0)
     slot_dump(&state);
 
-  fd_acc_mgr_delete(fd_acc_mgr_leave(state.global->acc_mgr));
-  state.global->freef(state.global->allocf_arg, fd_acc_mgr_raw);
-
-  fd_genesis_solana_destroy(&state.global->genesis_block, state.global->freef, state.global->allocf_arg);
+  fd_global_ctx_delete(fd_global_ctx_leave(state.global));
 
   // The memory management model is odd...  how do I know how to destroy this
   fd_rocksdb_destroy(&state.rocks_db);
-
-//  fd_alloc_fprintf( state.alloc, stdout );
-
-//  fd_alloc_free(state.alloc, fd_funk_raw);
-
-  fd_funk_delete(state.global->funk);
-
-  // ??
-  // ulong       wksp_tag = 1UL;
-  //fd_wksp_tag_free(state.wksp, &wksp_tag, 1UL);
-
-  fd_wksp_free_laddr( shmem );
-
-  // dump wksp state
 
   if( state.name )
     fd_wksp_detach( state.global->wksp );
   else
     fd_wksp_delete_anonymous( state.global->wksp );
-
+  
   FD_LOG_NOTICE(( "pass" ));
 
   fd_halt();

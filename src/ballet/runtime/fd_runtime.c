@@ -4,10 +4,12 @@
 #include "sysvar/fd_sysvar.h"
 #include "../base58/fd_base58.h"
 
-#include "program/fd_stake_program_config.h"
+#include "program/fd_stake_program.h"
 
 #include "program/fd_system_program.h"
 #include "program/fd_vote_program.h"
+#include <stdio.h>
+#include <ctype.h>
 
 #ifdef _DISABLE_OPTIMIZATION
 #pragma GCC optimize ("O0")
@@ -23,7 +25,7 @@ void
 fd_runtime_boot_slot_zero( fd_global_ctx_t *global ) {
   fd_memcpy(global->poh.state, global->genesis_hash, sizeof(global->genesis_hash));
 
-  fd_memcpy(&global->fee_rate_governor, &global->genesis_block.fee_rate_governor, sizeof(global->genesis_block.fee_rate_governor));
+  fd_memcpy(&global->bank.solana_bank.fee_rate_governor, &global->genesis_block.fee_rate_governor, sizeof(global->genesis_block.fee_rate_governor));
   global->poh_booted = 1;
 
   fd_sysvar_recent_hashes_init(global );
@@ -132,7 +134,7 @@ fd_runtime_block_execute( fd_global_ctx_t *global, fd_slot_blocks_t *slot_data )
     global->signature_cnt = signature_cnt;
     fd_hash_bank( global, &global->banks_hash );
 
-    fd_dirty_dup_delete_all (global->acc_mgr->shmap);
+    fd_dirty_dup_clear(global->acc_mgr->dup);
     fd_pubkey_hash_vector_clear(&global->acc_mgr->keys);
   }
 
@@ -159,7 +161,11 @@ fd_runtime_block_verify( fd_global_ctx_t *global, fd_slot_blocks_t *slot_data ) 
         if (micro_block->hdr.hash_cnt > 0)
           fd_poh_append(&global->poh, micro_block->hdr.hash_cnt - 1);
         uchar outhash[32];
-        fd_microblock_batched_mixin(micro_block, outhash, global->alloc);
+#if 0
+        fd_microblock_batched_mixin(micro_block, outhash, global->allocf_arg);
+#else
+        fd_microblock_mixin(micro_block, outhash);
+#endif
         fd_poh_mixin(&global->poh, outhash);
       } else
         fd_poh_append(&global->poh, micro_block->hdr.hash_cnt);
@@ -197,24 +203,23 @@ fd_runtime_block_eval( fd_global_ctx_t *global, fd_slot_blocks_t *slot_data ) {
     return FD_RUNTIME_EXECUTE_GENERIC_ERR;
   }
 
-  // this makes my head hurt... need some sleep...
-  struct fd_funk_xactionid*  parent_txn = global->funk_txn;
+#if 1
+  fd_funk_txn_t* parent_txn = global->funk_txn;
+  fd_funk_txn_xid_t xid;
+  xid.ul[0] = fd_rng_ulong( global->rng );
+  xid.ul[1] = fd_rng_ulong( global->rng );
+  xid.ul[2] = fd_rng_ulong( global->rng );
+  xid.ul[3] = fd_rng_ulong( global->rng );
+  fd_funk_txn_t * txn = fd_funk_txn_prepare( global->funk, parent_txn, &xid, 0 );
+    
   global->funk_txn_index = (global->funk_txn_index + 1) & 31;
-  global->funk_txn = &global->funk_txn_tower[global->funk_txn_index];
-
-  // Reasonable to let the compiler figure this out?
-  if ( memcmp(global->funk_txn, fd_funk_root(global->funk), sizeof(fd_funk_xactionid_t) ) )
-    if (fd_funk_commit(global->funk, global->funk_txn) == 0)
-      FD_LOG_ERR(("fd_funk_commit failed"));
-
-  ulong *p = (ulong *) &global->funk_txn->id[0];
-  p[0] = fd_rng_ulong( global->rng );
-  p[1] = fd_rng_ulong( global->rng );
-  p[2] = fd_rng_ulong( global->rng );
-  p[3] = fd_rng_ulong( global->rng );
-
-  if (fd_funk_fork(global->funk, parent_txn, global->funk_txn) == 0)
-    FD_LOG_ERR(("fd_funk_fork failed"));
+  fd_funk_txn_t * old_txn = global->funk_txn_tower[global->funk_txn_index];
+  if (old_txn != NULL )
+    fd_funk_txn_publish( global->funk, old_txn, 0 );
+  global->funk_txn_tower[global->funk_txn_index] = global->funk_txn = txn;
+#else
+  global->funk_txn = NULL;
+#endif
 
   // This is simple now but really we need to execute block_verify in
   // its own thread/tile and IT needs to parallelize the
@@ -231,13 +236,28 @@ fd_runtime_block_eval( fd_global_ctx_t *global, fd_slot_blocks_t *slot_data ) {
   if (FD_RUNTIME_EXECUTE_SUCCESS != ret ) {
     // Not exactly sure what I am supposed to do if execute fails to
     // this point...  is this a "log and fall over?"
-    fd_funk_cancel(global->funk, global->funk_txn);
+    /*
+    fd_funk_cancel(global->funk, global->funk_txn, 0);
     *global->funk_txn = *fd_funk_root(global->funk);
     global->funk_txn_index = (global->funk_txn_index - 1) & 31;
     global->funk_txn = &global->funk_txn_tower[global->funk_txn_index];
+    */
+    FD_LOG_ERR(( "need to rollback" ));
   }
 
   return ret;
+}
+
+ulong
+fd_runtime_lamports_per_signature( fd_global_ctx_t *global ) {
+  // https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/fee_calculator.rs#L110
+  return global->bank.solana_bank.fee_rate_governor.target_lamports_per_signature / 2;
+}
+
+ulong
+fd_runtime_lamports_per_signature_for_blockhash( fd_global_ctx_t *global, FD_FN_UNUSED fd_hash_t *blockhash ) {
+  // https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/fee_calculator.rs#L110
+  return global->bank.solana_bank.fee_rate_governor.target_lamports_per_signature / 2;
 }
 
 ulong
@@ -259,7 +279,8 @@ fd_runtime_txn_lamports_per_signature( fd_global_ctx_t *global, FD_FN_UNUSED fd_
 //                                transaction.message().recent_blockhash(),
 //                            ),
 //                        }
-  return global->fee_rate_governor.target_lamports_per_signature / 2;
+
+  return fd_runtime_lamports_per_signature_for_blockhash( global, NULL );
 }
 
 ulong
@@ -267,51 +288,12 @@ fd_runtime_calculate_fee( fd_global_ctx_t *global, fd_txn_t * txn_descriptor, fd
 // https://github.com/firedancer-io/solana/blob/08a1ef5d785fe58af442b791df6c4e83fe2e7c74/runtime/src/bank.rs#L4443
 // TODO: implement fee distribution to the collector ... and then charge us the correct amount
 
-  fd_pubkey_t *tx_accs   = (fd_pubkey_t *)((uchar *)txn_raw->raw + txn_descriptor->acct_addr_off);
+  ulong lamports_per_signature = fd_runtime_txn_lamports_per_signature(global, txn_descriptor, txn_raw);
+  
+  double BASE_CONGESTION = 5000.0;
+  double current_congestion = (BASE_CONGESTION > lamports_per_signature) ? BASE_CONGESTION : (double)lamports_per_signature;
+  double congestion_multiplier = (lamports_per_signature == 0) ? 0.0 : (BASE_CONGESTION / current_congestion);
 
-  for ( ushort i = 0; i < txn_descriptor->instr_cnt; ++i ) {
-    fd_txn_instr_t *           instr = &txn_descriptor->instr[i];
-    execute_instruction_func_t exec_instr_func = fd_executor_lookup_native_program( global, &tx_accs[instr->program_id] );
-    if (exec_instr_func == fd_executor_system_program_execute_instruction)
-      return 5000;
-    else
-      return 10000;
-  }
-
-  return 10000;
-
-  // Pseudo code:
-  //   lamports_per_signature = (transaction has a DurableNonce, use the lamports_per_signature from that nonce instead of looking up the recent_block_hash and using the lamports_per_signature associated with that hash
-//                        let TransactionExecutionDetails {
-//                            status,
-//                            log_messages,
-//                            inner_instructions,
-//                            durable_nonce_fee,
-//                            ..
-//                        } = details;
-//                        let lamports_per_signature = match durable_nonce_fee {
-//                            Some(DurableNonceFee::Valid(lamports_per_signature)) => {
-//                                Some(lamports_per_signature)
-//                            }
-//                            Some(DurableNonceFee::Invalid) => None,
-//                            None => bank.get_lamports_per_signature_for_blockhash(
-//                                transaction.message().recent_blockhash(),
-//                            ),
-//                        }
-
-//    pub fn calculate_fee(
-//        lamports_per_signature: u64,
-//        fee_structure: &FeeStructure,
-//    ) -> u64 {
-//            // Fee based on compute units and signatures
-//            const BASE_CONGESTION: f64 = 5_000.0;
-//            let current_congestion = BASE_CONGESTION.max(lamports_per_signature as f64);
-//            let congestion_multiplier = if lamports_per_signature == 0 {
-//                0.0 // test only
-//            } else {
-//                BASE_CONGESTION / current_congestion
-//            };
-//
 //            let mut compute_budget = ComputeBudget::default();
 //            let prioritization_fee_details = compute_budget
 //                .process_instructions(
@@ -322,10 +304,18 @@ fd_runtime_calculate_fee( fd_global_ctx_t *global, fd_txn_t * txn_descriptor, fd
 //                )
 //                .unwrap_or_default();
 //            let prioritization_fee = prioritization_fee_details.get_fee();
-//            let signature_fee = Self::get_num_signatures_in_message(message)
-//                .saturating_mul(fee_structure.lamports_per_signature);
+  double prioritization_fee = 0;
+
+  double signature_fee = (double)lamports_per_signature * txn_descriptor->signature_cnt;
+
+// TODO: as far as I can tell, this is always 0
+//
 //            let write_lock_fee = Self::get_num_write_locks_in_message(message)
 //                .saturating_mul(fee_structure.lamports_per_write_lock);
+  double write_lock_fee = 0;
+
+// TODO: the fee_structure bin is static and default.. 
+//
 //            let compute_fee = fee_structure
 //                .compute_fee_bins
 //                .iter()
@@ -338,32 +328,13 @@ fd_runtime_calculate_fee( fd_global_ctx_t *global, fd_txn_t * txn_descriptor, fd
 //                        .map(|bin| bin.fee)
 //                        .unwrap_or_default()
 //                });
-//
-//            ((prioritization_fee
-//                .saturating_add(signature_fee)
-//                .saturating_add(write_lock_fee)
-//                .saturating_add(compute_fee) as f64)
-//                * congestion_multiplier)
-//                .round() as u64
-//
+  double compute_fee = 0;
 
-//calculate_fee lamports: 5000 tx_wide_compute_cap: true support_set_: true   bt:    0: solana_runtime::bank::Bank::calculate_fee
-//                 at /solana/runtime/src/bank.rs:4450:18
-//       1: solana_runtime::bank::Bank::get_fee_for_message_with_lamports_per_signature
-//                 at /solana/runtime/src/bank.rs:3390:9
-//       2: solana_rpc::transaction_status_service::TransactionStatusService::write_transaction_status_batch
-//                 at /solana/rpc/src/transaction_status_service.rs:114:35
-//
-//calculate_fee lamports: 5000 tx_wide_compute_cap: true support_set_: true   bt:    0: solana_runtime::bank::Bank::calculate_fee
-//                 at /solana/runtime/src/bank.rs:4450:18
-//       1: solana_runtime::bank::Bank::filter_program_errors_and_collect_fee::{{closure}}
-//                 at /solana/runtime/src/bank.rs:4533:27
-//
-//calculate_fee lamports: 5000 tx_wide_compute_cap: true support_set_: true   bt:    0: solana_runtime::bank::Bank::calculate_fee
-//                 at /solana/runtime/src/bank.rs:4450:18
-//       1: solana_runtime::accounts::Accounts::load_accounts::{{closure}}
-//                 at /solana/runtime/src/accounts.rs:570:25
-
+  double fee = (prioritization_fee + signature_fee + write_lock_fee + compute_fee) * congestion_multiplier;
+  if (fee >= ULONG_MAX)
+    return ULONG_MAX;
+  else
+    return (ulong) fee;
 }
 
 void
@@ -497,6 +468,10 @@ fd_global_ctx_delete     ( void * mem ) {
     return NULL;
   }
 
+  fd_acc_mgr_delete(fd_acc_mgr_leave(hdr->acc_mgr));
+  fd_genesis_solana_destroy(&hdr->genesis_block, hdr->freef, hdr->allocf_arg);
+  fd_firedancer_banks_destroy(&hdr->bank, hdr->freef, hdr->allocf_arg);
+
   FD_COMPILER_MFENCE();
   FD_VOLATILE( hdr->magic ) = 0UL;
   FD_COMPILER_MFENCE();
@@ -557,4 +532,58 @@ fd_global_process_genesis_config     ( fd_global_ctx_t *global  )
 //      genesis_config.rent,
 //    );
 
+}
+
+void fd_printer_walker(void *arg, const char* name, int type, const char *type_name, int level) {
+  if (NULL == arg)
+    return;
+  while (level-- > 0)
+    printf("  ");
+  switch (type) {
+    case 1:
+    case 9:
+      if (isprint(*((char *) arg)))
+        printf("\"%s\": \"%c\",  // %s\n", name, *((char *) arg), type_name);
+      else
+        printf("\"%s\": \"%d\",  // %s\n", name, *((char *) arg), type_name);
+      break;
+    case 2:
+    case 3:
+    case 4:
+      printf("\"%s\": \"%s\",  // %s\n", name, ((char *) arg), type_name);
+      break;
+    case 5:
+      printf("\"%s\": \"%f\",  // %s\n", name, *((double *) arg), type_name);
+      break;
+    case 6:
+      printf("\"%s\": \"%ld\",  // %s\n", name, *((long *) arg), type_name);
+      break;
+    case 7:
+      printf("\"%s\": \"%d\",  // %s\n", name, *((uint *) arg), type_name);
+      break;
+    case 8:
+      printf("\"%s\": \"%llx\",  // %s\n", name, (unsigned long long) *((uint128 *) arg), type_name);
+      break;
+    case 11:
+      printf("\"%s\": \"%ld\",  // %s\n", name, *((ulong *) arg), type_name);
+      break;
+    case 12:
+      printf("\"%s\": \"%d\",  // %s\n", name, *((ushort *) arg), type_name);
+      break;
+    case 32:
+      printf("\"%s\": {\n", name);
+      break;
+    case 33:
+      printf("},\n");
+      break;
+    case 35: {
+      char buf[50];
+      fd_base58_encode_32((uchar *) arg, NULL, buf);
+      printf("\"%s\": \"%s\",\n", name, buf);
+      break;
+    }
+  default: 
+    printf("arg: %ld  name: %s  type: %d   type_name: %s\n", (ulong) arg, name, type, type_name);
+    break;
+  }
 }

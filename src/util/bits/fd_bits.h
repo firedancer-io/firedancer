@@ -77,7 +77,93 @@ FD_PROTOTYPES_BEGIN
    integer such that, if the magnitude of the signed integer was small,
    the magnitude of the unsigned integer will be small too.
 
-   FIXME: mask_msb, clear_msb, set_msb, flip_msb, extract_msb,
+   Note that, though fd_ulong_if and friends look like a completely
+   superfluous wrapper for the trinary operator, they have subtly
+   different linguistic meanings.  This seemingly trivial difference can
+   have profound effects on code generation quality, especially on
+   modern architectures.  For example:
+
+     c ? x[i] : x[j];
+
+   linguistically means, if c is non-zero, load the i-th element of
+   x.  Otherwise, load the j-th element of x.  But:
+
+     fd_ulong_if( c, x[i], x[j] )
+
+   means load the i-th element of x _and_ load the j-th element of x
+   _and_ then select the first value if c is non-zero or the second
+   value otherwise.  Further, it explicitly says that c and the loads
+   can be evaluated in any order.
+
+   As such, in the trinary case, the compiler will be loathe to do
+   either load before computing c because the language explicitly says
+   "don't do that".  In the unlikely case it overcomes this barrier,
+   it then has the difficult job of proving that reordering c with the
+   loads is safe (e.g. evaluating c might affect the value that would be
+   loaded if c has side effects).  In the unlikely case it overcomes
+   that barrier, it then has the diffcult job of proving it is safe to
+   do the loads before evaluating c (e.g. c might be protecting against
+   a load that could seg-fault).
+
+   In the fd_ulong_if case though, the compiler has been explicitly told
+   up front that the loads are safe and c and the loads can be done in
+   any order.  Now the optimizer finds it a lot easier to optimize
+   because it isn't accidentally over-constrained and doesn't have to
+   prove anything.  E.g. it can use otherwise unused instruction slots
+   before the operation to hide load latency while computing c in
+   parallel via ILP.  Further, it can then ideally can use a conditional
+   move operation to eliminate unnecessary consumption of BTB resources.
+   And, if c is known at compile time, the compiler can prune
+   unnecessary code for the unseleted option (e.g. the compiler knows
+   that omitting an unused normal load has no observable effect in the
+   machine model).
+
+   Faster, more deterministic, less BTB resources consumed and good
+   compile time behavior.  Everything the trinary operator should have
+   been, rather than the giant pile of linguistic fail that it is.
+
+   Overall, compilers traditionally are much much better at pruning
+   unneeded operations than speculating execution (especially for code
+   paths that a language says not to do and doubly so for code paths
+   that are not obviously safe in general).  And most of this is because
+   languages are not designed correctly to help developers express their
+   intent and constraints to the compiler.
+
+   This dynamic has had multi-billion dollar commercial impacts though
+   the cause-and-effect has gone largely unrecognized.
+
+   At one extreme, a major reason why Itanium failed was languages
+   didn't have the right constructs and machine models for developers to
+   "do the right thing".  Even given such, most devs wouldn't know to
+   use them because they were erroreously taught to code to a machine
+   abstraction that hasn't applied to the real world since the early
+   1980s.  Compilers then were not able to utilize all the speculative
+   execution / ILP / ... features that were key to performance on that
+   architecture.  The developer community, not being able to see any
+   benefits (much less large enough benefits to justify short term
+   switching costs) and not wanting to write tons of hand-tuned
+   non-portable ASM kernels, shrugged and Itanium withered away.
+
+   At the other extreme, CUDA gave developers a good GPU abstraction and
+   extended languages and compilers to make it possible for developers
+   code to that abstraction (e.g. express locality explicitly instead of
+   the constant lying-by-omission about the importance of locality that
+   virtually everything else in tech does ... the speed of light isn't
+   infinite or even all that fast relative to modern CPUs ... stop
+   pretending that it is).  CUDA enabled GPUs have since thrived in
+   gaming, high performance computing, machine learning, crypto, etc.
+   Profits had by all (well, by Nvidia at least).
+
+   TL;DR
+
+   * It'd be laughable if it weren't so pathetic that CPU ISAs and
+     programming languages usually forget to expose one of the most
+     fundamental and important digital logic circuits to devs ... the
+     2:1 mux.
+
+   * Developers will usually do the right thing if languages let them.
+
+   TODO: mask_msb, clear_msb, set_msb, flip_msb, extract_msb,
    insert_msb, bitrev, sign, copysign, flipsign, rounding right shift,
    ... */
 
@@ -398,6 +484,20 @@ fd_double_eq( double x,
 }
 #endif
 
+/* fd_ptr_if is a generic version of the above for pointers.  This macro
+   is robust.
+
+   IMPORTANT SAFETY TIP!  The output type is the type of t.  Thus, if
+   the condition is false and t and f have different pointer types
+   (which is inherently gross and we might want to consider outright
+   rejecting in the future via, unfortunately non-standard, compiler
+   builtins), this would implicitly cast the pointer f to the type of t.
+   As such, strict aliasing rules in the language also imply mixed usage
+   cases need to be wrapped in a fd_type_pun.  In short, mixing pointer
+   types between t and f is strongly discouraged. */
+
+#define fd_ptr_if(c,t,f) ((__typeof__((t)))fd_ulong_if( (c), (ulong)(t), (ulong)(f) ))
+
 /* FD_ULONG_{MASK_LSB,MASK_MSB,ALIGN_UP} are the same as
    fd_ulong_{mask_lsb,mask_msb,align_up} but can be used at compile
    time.  The tradeoff is n/a must be safe against multiple evaluation
@@ -523,27 +623,37 @@ FD_FN_PURE static inline ulong  fd_ulong_load_7_fast ( void const * p ) { ulong 
 
 #elif FD_UNALIGNED_ACCESS_STYLE==1 /* direct access */
 
-#define FD_LOAD( T, src )       (*(T const *)(src))
-#define FD_STORE( T, dst, val ) (__extension__({ T * _fd_store_tmp = (T *)(dst); *_fd_store_tmp = (val); _fd_store_tmp; }))
+#define FD_LOAD( T, src ) (__extension__({      \
+    T const * _fd_store_tmp = (T const *)(src); \
+    FD_COMPILER_FORGET( _fd_store_tmp );        \
+    *_fd_store_tmp;                             \
+  }))
 
-FD_FN_PURE static inline uchar  fd_uchar_load_1      ( void const * p ) { return (        *(uchar  const *)p); }
+#define FD_STORE( T, dst, val ) (__extension__({           \
+    T * _fd_store_tmp = (T *)fd_type_pun( (void *)(dst) ); \
+    *_fd_store_tmp = (val);                                \
+    FD_COMPILER_MFENCE();                                  \
+    _fd_store_tmp;                                         \
+  }))
 
-FD_FN_PURE static inline ushort fd_ushort_load_1     ( void const * p ) { return ((ushort)*(uchar  const *)p); }
-FD_FN_PURE static inline ushort fd_ushort_load_2     ( void const * p ) { return (        *(ushort const *)p); }
+FD_FN_PURE static inline uchar  fd_uchar_load_1      ( void const * p ) { FD_COMPILER_FORGET( p ) ; return (        *(uchar  const *)p); }
 
-FD_FN_PURE static inline uint   fd_uint_load_1       ( void const * p ) { return ((uint  )*(uchar  const *)p); }
-FD_FN_PURE static inline uint   fd_uint_load_2       ( void const * p ) { return ((uint  )*(ushort const *)p); }
-FD_FN_PURE static inline uint   fd_uint_load_3       ( void const * p ) { return fd_uint_load_2 (p) | (fd_uint_load_1 (((uchar const *)p)+2UL)<<16); }
-FD_FN_PURE static inline uint   fd_uint_load_4       ( void const * p ) { return (        *(uint   const *)p); }
+FD_FN_PURE static inline ushort fd_ushort_load_1     ( void const * p ) { FD_COMPILER_FORGET( p ); return ((ushort)*(uchar  const *)p); }
+FD_FN_PURE static inline ushort fd_ushort_load_2     ( void const * p ) { FD_COMPILER_FORGET( p ); return (        *(ushort const *)p); }
 
-FD_FN_PURE static inline ulong  fd_ulong_load_1      ( void const * p ) { return ((ulong )*(uchar  const *)p); }
-FD_FN_PURE static inline ulong  fd_ulong_load_2      ( void const * p ) { return ((ulong )*(ushort const *)p); }
-FD_FN_PURE static inline ulong  fd_ulong_load_3      ( void const * p ) { return fd_ulong_load_2(p) | (fd_ulong_load_1(((uchar const *)p)+2UL)<<16); }
-FD_FN_PURE static inline ulong  fd_ulong_load_4      ( void const * p ) { return ((ulong )*(uint   const *)p); }
-FD_FN_PURE static inline ulong  fd_ulong_load_5      ( void const * p ) { return fd_ulong_load_4(p) | (fd_ulong_load_1(((uchar const *)p)+4UL)<<32); }
-FD_FN_PURE static inline ulong  fd_ulong_load_6      ( void const * p ) { return fd_ulong_load_4(p) | (fd_ulong_load_2(((uchar const *)p)+4UL)<<32); }
-FD_FN_PURE static inline ulong  fd_ulong_load_7      ( void const * p ) { return fd_ulong_load_6(p) | (fd_ulong_load_1(((uchar const *)p)+6UL)<<48); }
-FD_FN_PURE static inline ulong  fd_ulong_load_8      ( void const * p ) { return (        *(ulong  const *)p); }
+FD_FN_PURE static inline uint   fd_uint_load_1       ( void const * p ) { FD_COMPILER_FORGET( p ); return ((uint  )*(uchar  const *)p); }
+FD_FN_PURE static inline uint   fd_uint_load_2       ( void const * p ) { FD_COMPILER_FORGET( p ); return ((uint  )*(ushort const *)p); }
+FD_FN_PURE static inline uint   fd_uint_load_3       ( void const * p ) { FD_COMPILER_FORGET( p ); return fd_uint_load_2 (p) | (fd_uint_load_1 (((uchar const *)p)+2UL)<<16); }
+FD_FN_PURE static inline uint   fd_uint_load_4       ( void const * p ) { FD_COMPILER_FORGET( p ); return (        *(uint   const *)p); }
+
+FD_FN_PURE static inline ulong  fd_ulong_load_1      ( void const * p ) { FD_COMPILER_FORGET( p ); return ((ulong )*(uchar  const *)p); }
+FD_FN_PURE static inline ulong  fd_ulong_load_2      ( void const * p ) { FD_COMPILER_FORGET( p ); return ((ulong )*(ushort const *)p); }
+FD_FN_PURE static inline ulong  fd_ulong_load_3      ( void const * p ) { FD_COMPILER_FORGET( p ); return fd_ulong_load_2(p) | (fd_ulong_load_1(((uchar const *)p)+2UL)<<16); }
+FD_FN_PURE static inline ulong  fd_ulong_load_4      ( void const * p ) { FD_COMPILER_FORGET( p ); return ((ulong )*(uint   const *)p); }
+FD_FN_PURE static inline ulong  fd_ulong_load_5      ( void const * p ) { FD_COMPILER_FORGET( p ); return fd_ulong_load_4(p) | (fd_ulong_load_1(((uchar const *)p)+4UL)<<32); }
+FD_FN_PURE static inline ulong  fd_ulong_load_6      ( void const * p ) { FD_COMPILER_FORGET( p ); return fd_ulong_load_4(p) | (fd_ulong_load_2(((uchar const *)p)+4UL)<<32); }
+FD_FN_PURE static inline ulong  fd_ulong_load_7      ( void const * p ) { FD_COMPILER_FORGET( p ); return fd_ulong_load_6(p) | (fd_ulong_load_1(((uchar const *)p)+6UL)<<48); }
+FD_FN_PURE static inline ulong  fd_ulong_load_8      ( void const * p ) { FD_COMPILER_FORGET( p ); return (        *(ulong  const *)p); }
 
 #define                         fd_uchar_load_1_fast                    fd_uchar_load_1
 
@@ -552,18 +662,18 @@ FD_FN_PURE static inline ulong  fd_ulong_load_8      ( void const * p ) { return
 
 #define                         fd_uint_load_1_fast                     fd_uint_load_1
 #define                         fd_uint_load_2_fast                     fd_uint_load_2
-FD_FN_PURE static inline uint   fd_uint_load_3_fast  ( void const * p ) { return (       *(uint   const *)p) & 0x00ffffffU;          } /* Tail read 1B */
+FD_FN_PURE static inline uint   fd_uint_load_3_fast  ( void const * p ) { FD_COMPILER_FORGET( p ); return (       *(uint   const *)p) & 0x00ffffffU;          } /* Tail read 1B */
 #define                         fd_uint_load_4_fast                     fd_uint_load_4
 
 #define                         fd_ulong_load_1_fast                    fd_ulong_load_1
 #define                         fd_ulong_load_2_fast                    fd_ulong_load_2
-FD_FN_PURE static inline ulong  fd_ulong_load_3_fast ( void const * p ) { return ((ulong)*(uint   const *)p) & 0x0000000000ffffffUL; } /* Tail read 1B */
+FD_FN_PURE static inline ulong  fd_ulong_load_3_fast ( void const * p ) { FD_COMPILER_FORGET( p ); return ((ulong)*(uint   const *)p) & 0x0000000000ffffffUL; } /* Tail read 1B */
 #define                         fd_ulong_load_4_fast                    fd_ulong_load_4
-FD_FN_PURE static inline ulong  fd_ulong_load_5_fast ( void const * p ) { return (       *(ulong  const *)p) & 0x000000ffffffffffUL; } /* Tail read 3B */
-FD_FN_PURE static inline ulong  fd_ulong_load_6_fast ( void const * p ) { return (       *(ulong  const *)p) & 0x0000ffffffffffffUL; } /* Tail read 2B */
-FD_FN_PURE static inline ulong  fd_ulong_load_7_fast ( void const * p ) { return (       *(ulong  const *)p) & 0x00ffffffffffffffUL; } /* Tail read 1B */
+FD_FN_PURE static inline ulong  fd_ulong_load_5_fast ( void const * p ) { FD_COMPILER_FORGET( p ); return (       *(ulong  const *)p) & 0x000000ffffffffffUL; } /* Tail read 3B */
+FD_FN_PURE static inline ulong  fd_ulong_load_6_fast ( void const * p ) { FD_COMPILER_FORGET( p ); return (       *(ulong  const *)p) & 0x0000ffffffffffffUL; } /* Tail read 2B */
+FD_FN_PURE static inline ulong  fd_ulong_load_7_fast ( void const * p ) { FD_COMPILER_FORGET( p ); return (       *(ulong  const *)p) & 0x00ffffffffffffffUL; } /* Tail read 1B */
 #define                         fd_ulong_load_8_fast                    fd_ulong_load_8
-
+ 
 #else
 #error "Unsupported FD_UNALIGNED_ACCESS_STYLE"
 #endif

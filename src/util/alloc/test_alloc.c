@@ -1,11 +1,11 @@
 #include "../fd_util.h"
 
-#if FD_HAS_HOSTED && FD_HAS_X86
+#if FD_HAS_HOSTED
 
 FD_STATIC_ASSERT( FD_ALLOC_ALIGN               == 4096UL, unit_test );
 FD_STATIC_ASSERT( FD_ALLOC_FOOTPRINT           ==20480UL, unit_test );
 FD_STATIC_ASSERT( FD_ALLOC_MALLOC_ALIGN_DEFAULT==   16UL, unit_test );
-FD_STATIC_ASSERT( FD_ALLOC_JOIN_CGROUP_CNT     ==   16UL, unit_test );
+FD_STATIC_ASSERT( FD_ALLOC_JOIN_CGROUP_HINT_MAX==   15UL, unit_test );
 
 /* This is a torture test for same thread allocation */
 /* FIXME: IDEALLY SHOULD ADD TORTURE TEST FOR MALLOC / FREE PAIRS SPLIT
@@ -31,7 +31,10 @@ test_main( int     argc,
 
   fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, (uint)tile_idx, 0UL ) );
 
-  fd_alloc_t * alloc = fd_alloc_join( shalloc, tile_idx & (FD_ALLOC_JOIN_CGROUP_CNT-1UL) );
+  fd_alloc_t * alloc = fd_alloc_join( shalloc, tile_idx );
+
+  FD_TEST( fd_alloc_join_cgroup_hint( alloc )==(tile_idx & FD_ALLOC_JOIN_CGROUP_HINT_MAX) );
+  FD_TEST( fd_alloc_join_cgroup_hint( fd_alloc_join_cgroup_hint_set( alloc, 1UL ) )==1UL  );
 
 # define OUTSTANDING_MAX 128UL
   ulong   sz [ OUTSTANDING_MAX ];
@@ -68,7 +71,8 @@ test_main( int     argc,
 
       /* Allocate it */
 
-      mem[j] = (uchar *)fd_alloc_malloc( alloc, align, sz[j] );
+      ulong max;
+      mem[j] = (uchar *)fd_alloc_malloc_at_least( alloc, align, sz[j], &max );
 
       /* Check if the value is sane */
 
@@ -81,6 +85,8 @@ test_main( int     argc,
       if( !align ) align = FD_ALLOC_MALLOC_ALIGN_DEFAULT;
       if( !fd_ulong_is_aligned( (ulong)mem[j], align ) )
         FD_LOG_ERR(( "On tile %lu, alloc(%lu,%lu) failed, got %lx (misaligned)", tile_idx, align, sz[j], (ulong)mem[j] ));
+
+      FD_TEST( mem[j] ? (max>=sz[j]) : (!max) );
 
       /* Fill it with a bit pattern unique to this allocation */
 
@@ -266,7 +272,7 @@ int
 main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
-  FD_LOG_WARNING(( "skip: unit test requires FD_HAS_HOSTED and FD_HAS_X86 capabilities" ));
+  FD_LOG_WARNING(( "skip: unit test requires FD_HAS_HOSTED capabilities" ));
   fd_halt();
   return 0;
 }
