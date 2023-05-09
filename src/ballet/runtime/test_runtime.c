@@ -20,7 +20,7 @@
 
 // run --ledger /home/jsiegel/test-ledger --db /home/jsiegel/test-ledger/funk --cmd replay --start-slot 0 --end-slot 200 --index-max 120000000 --pages 15
 
-// --ledger /home/jsiegel/test-ledger --db /ho   me/jsiegel/funk --cmd validate --accounts /home/jsiegel/test-ledger/accounts/ --pages 15 --index-max 120000000 --manifest /home/jsiegel/test-ledger/200/snapshots/200/200 --start-slot 200
+// --ledger /home/jsiegel/test-ledger --db /home/jsiegel/funk --cmd validate --accounts /home/jsiegel/test-ledger/accounts/ --pages 15 --index-max 120000000 --manifest /home/jsiegel/test-ledger/200/snapshots/200/200 --start-slot 200
 // --ledger /home/jsiegel/repos/firedancer-testbins/test-ledger --db /home/jsiegel/funk --cmd validate --accounts /home/jsiegel/repos/firedancer-testbins/test-ledger/accounts/ --pages 15 --index-max 120000000 --manifest /home/jsiegel/repos/firedancer-testbins/test-ledger/200/snapshots/200/200 --start-slot 200
 
 // --ledger /home/jsiegel/test-ledger --db /home/jsiegel/funk --cmd validate --accounts /home/jsiegel/test-ledger/accounts/ --pages 15 --index-max 120000000 --manifest /home/jsiegel/test-ledger/100/snapshots/100/100 --start-slot 100
