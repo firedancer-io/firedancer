@@ -566,6 +566,16 @@ typedef struct fd_vote_prior_voter fd_vote_prior_voter_t;
 #define FD_VOTE_PRIOR_VOTER_FOOTPRINT sizeof(fd_vote_prior_voter_t)
 #define FD_VOTE_PRIOR_VOTER_ALIGN (8UL)
 
+struct fd_vote_prior_voter_0_23_5 {
+  fd_pubkey_t   pubkey;
+  unsigned long epoch_start;
+  unsigned long epoch_end;
+  unsigned long slot;
+};
+typedef struct fd_vote_prior_voter_0_23_5 fd_vote_prior_voter_0_23_5_t;
+#define FD_VOTE_PRIOR_VOTER_0_23_5_FOOTPRINT sizeof(fd_vote_prior_voter_0_23_5_t)
+#define FD_VOTE_PRIOR_VOTER_0_23_5_ALIGN (8UL)
+
 struct fd_vote_epoch_credits {
   unsigned long epoch;
   unsigned long credits;
@@ -603,6 +613,17 @@ typedef struct fd_vote_prior_voters fd_vote_prior_voters_t;
 #define FD_VOTE_PRIOR_VOTERS_FOOTPRINT sizeof(fd_vote_prior_voters_t)
 #define FD_VOTE_PRIOR_VOTERS_ALIGN (8UL)
 
+/* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L268 */
+struct fd_vote_prior_voters_0_23_5 {
+  ulong                         buf_len;
+  fd_vote_prior_voter_0_23_5_t* buf;
+  unsigned long                 idx;
+  unsigned char                 is_empty;
+};
+typedef struct fd_vote_prior_voters_0_23_5 fd_vote_prior_voters_0_23_5_t;
+#define FD_VOTE_PRIOR_VOTERS_0_23_5_FOOTPRINT sizeof(fd_vote_prior_voters_0_23_5_t)
+#define FD_VOTE_PRIOR_VOTERS_0_23_5_ALIGN (8UL)
+
 #define VECT_NAME fd_vec_fd_vote_lockout_t
 #define VECT_ELEMENT fd_vote_lockout_t
 #include "../../funk/fd_vector.h"
@@ -614,6 +635,23 @@ typedef struct fd_vote_prior_voters fd_vote_prior_voters_t;
 #include "../../funk/fd_vector.h"
 #undef VECT_NAME
 #undef VECT_ELEMENT
+
+/* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/vote_state_0_23_5.rs#L6 */
+struct fd_vote_state_0_23_5 {
+  fd_pubkey_t                      voting_node;
+  fd_pubkey_t                      authorized_voter;
+  unsigned long                    authorized_voter_epoch;
+  fd_vote_prior_voters_0_23_5_t    prior_voters;
+  fd_pubkey_t                      authorized_withdrawer;
+  unsigned char                    commission;
+  fd_vec_fd_vote_lockout_t_t       votes;
+  unsigned long*                   saved_root_slot;
+  fd_vec_fd_vote_epoch_credits_t_t epoch_credits;
+  fd_vote_block_timestamp_t        latest_timestamp;
+};
+typedef struct fd_vote_state_0_23_5 fd_vote_state_0_23_5_t;
+#define FD_VOTE_STATE_0_23_5_FOOTPRINT sizeof(fd_vote_state_0_23_5_t)
+#define FD_VOTE_STATE_0_23_5_ALIGN (8UL)
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L310 */
 struct fd_vote_state {
@@ -631,6 +669,21 @@ struct fd_vote_state {
 typedef struct fd_vote_state fd_vote_state_t;
 #define FD_VOTE_STATE_FOOTPRINT sizeof(fd_vote_state_t)
 #define FD_VOTE_STATE_ALIGN (8UL)
+
+union fd_vote_state_versioned_inner {
+  fd_vote_state_0_23_5_t v0_23_5;
+  fd_vote_state_t        current;
+};
+typedef union fd_vote_state_versioned_inner fd_vote_state_versioned_inner_t;
+
+/* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/vote_state_versions.rs#L4 */
+struct fd_vote_state_versioned {
+  uint                            discriminant;
+  fd_vote_state_versioned_inner_t inner;
+};
+typedef struct fd_vote_state_versioned fd_vote_state_versioned_t;
+#define FD_VOTE_STATE_VERSIONED_FOOTPRINT sizeof(fd_vote_state_versioned_t)
+#define FD_VOTE_STATE_VERSIONED_ALIGN (8UL)
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L185 */
 struct fd_vote_state_update {
@@ -814,6 +867,103 @@ struct fd_vote {
 typedef struct fd_vote fd_vote_t;
 #define FD_VOTE_FOOTPRINT sizeof(fd_vote_t)
 #define FD_VOTE_ALIGN (8UL)
+
+/* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L230 */
+struct fd_vote_init {
+  fd_pubkey_t   node_pubkey;
+  fd_pubkey_t   authorized_voter;
+  fd_pubkey_t   authorized_withdrawer;
+  unsigned char commission;
+};
+typedef struct fd_vote_init fd_vote_init_t;
+#define FD_VOTE_INIT_FOOTPRINT sizeof(fd_vote_init_t)
+#define FD_VOTE_INIT_ALIGN (8UL)
+
+union fd_vote_authorize_inner {
+  uchar nonempty; /* Hack to support enums with no inner structures */
+};
+typedef union fd_vote_authorize_inner fd_vote_authorize_inner_t;
+
+/* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L238 */
+struct fd_vote_authorize {
+  uint                      discriminant;
+  fd_vote_authorize_inner_t inner;
+};
+typedef struct fd_vote_authorize fd_vote_authorize_t;
+#define FD_VOTE_AUTHORIZE_FOOTPRINT sizeof(fd_vote_authorize_t)
+#define FD_VOTE_AUTHORIZE_ALIGN (8UL)
+
+/* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_instruction.rs#L37 */
+struct fd_vote_authorize_pubkey {
+  fd_pubkey_t         pubkey;
+  fd_vote_authorize_t vote_authorize;
+};
+typedef struct fd_vote_authorize_pubkey fd_vote_authorize_pubkey_t;
+#define FD_VOTE_AUTHORIZE_PUBKEY_FOOTPRINT sizeof(fd_vote_authorize_pubkey_t)
+#define FD_VOTE_AUTHORIZE_PUBKEY_ALIGN (8UL)
+
+/* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_instruction.rs#L78 */
+struct fd_vote_switch {
+  fd_vote_t vote;
+  fd_hash_t hash;
+};
+typedef struct fd_vote_switch fd_vote_switch_t;
+#define FD_VOTE_SWITCH_FOOTPRINT sizeof(fd_vote_switch_t)
+#define FD_VOTE_SWITCH_ALIGN (8UL)
+
+/* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_instruction.rs#L104 */
+struct fd_update_vote_state_switch {
+  fd_vote_state_update_t vote_state_update;
+  fd_hash_t              hash;
+};
+typedef struct fd_update_vote_state_switch fd_update_vote_state_switch_t;
+#define FD_UPDATE_VOTE_STATE_SWITCH_FOOTPRINT sizeof(fd_update_vote_state_switch_t)
+#define FD_UPDATE_VOTE_STATE_SWITCH_ALIGN (8UL)
+
+/* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L244 */
+struct fd_vote_authorize_with_seed_args {
+  fd_vote_authorize_t authorization_type;
+  fd_pubkey_t         current_authority_derived_key_owner;
+  char*               current_authority_derived_key_seed;
+  fd_pubkey_t         new_authority;
+};
+typedef struct fd_vote_authorize_with_seed_args fd_vote_authorize_with_seed_args_t;
+#define FD_VOTE_AUTHORIZE_WITH_SEED_ARGS_FOOTPRINT sizeof(fd_vote_authorize_with_seed_args_t)
+#define FD_VOTE_AUTHORIZE_WITH_SEED_ARGS_ALIGN (8UL)
+
+/* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L252 */
+struct fd_vote_authorize_checked_with_seed_args {
+  fd_vote_authorize_t authorization_type;
+  fd_pubkey_t         current_authority_derived_key_owner;
+  char*               current_authority_derived_key_seed;
+};
+typedef struct fd_vote_authorize_checked_with_seed_args fd_vote_authorize_checked_with_seed_args_t;
+#define FD_VOTE_AUTHORIZE_CHECKED_WITH_SEED_ARGS_FOOTPRINT sizeof(fd_vote_authorize_checked_with_seed_args_t)
+#define FD_VOTE_AUTHORIZE_CHECKED_WITH_SEED_ARGS_ALIGN (8UL)
+
+union fd_vote_instruction_inner {
+  fd_vote_init_t                             initialize_account;
+  fd_vote_authorize_pubkey_t                 authorize;
+  fd_vote_t                                  vote;
+  unsigned long                              withdraw;
+  unsigned char                              update_commission;
+  fd_vote_switch_t                           vote_switch;
+  fd_vote_authorize_t                        authorize_checked;
+  fd_vote_state_update_t                     update_vote_state;
+  fd_update_vote_state_switch_t              update_vote_state_switch;
+  fd_vote_authorize_with_seed_args_t         authorize_with_seed;
+  fd_vote_authorize_checked_with_seed_args_t authorize_checked_with_seed;
+};
+typedef union fd_vote_instruction_inner fd_vote_instruction_inner_t;
+
+/* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_instruction.rs#L21 */
+struct fd_vote_instruction {
+  uint                        discriminant;
+  fd_vote_instruction_inner_t inner;
+};
+typedef struct fd_vote_instruction fd_vote_instruction_t;
+#define FD_VOTE_INSTRUCTION_FOOTPRINT sizeof(fd_vote_instruction_t)
+#define FD_VOTE_INSTRUCTION_ALIGN (8UL)
 
 
 FD_PROTOTYPES_BEGIN
@@ -1100,6 +1250,12 @@ void fd_vote_prior_voter_destroy(fd_vote_prior_voter_t* self, fd_free_fun_t free
 void fd_vote_prior_voter_copy_to(fd_vote_prior_voter_t* to, fd_vote_prior_voter_t* from, fd_alloc_fun_t freef, void* allocf_arg);
 ulong fd_vote_prior_voter_size(fd_vote_prior_voter_t* self);
 
+void fd_vote_prior_voter_0_23_5_decode(fd_vote_prior_voter_0_23_5_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
+void fd_vote_prior_voter_0_23_5_encode(fd_vote_prior_voter_0_23_5_t* self, void const** data);
+void fd_vote_prior_voter_0_23_5_destroy(fd_vote_prior_voter_0_23_5_t* self, fd_free_fun_t freef, void* freef_arg);
+void fd_vote_prior_voter_0_23_5_copy_to(fd_vote_prior_voter_0_23_5_t* to, fd_vote_prior_voter_0_23_5_t* from, fd_alloc_fun_t freef, void* allocf_arg);
+ulong fd_vote_prior_voter_0_23_5_size(fd_vote_prior_voter_0_23_5_t* self);
+
 void fd_vote_epoch_credits_decode(fd_vote_epoch_credits_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
 void fd_vote_epoch_credits_encode(fd_vote_epoch_credits_t* self, void const** data);
 void fd_vote_epoch_credits_destroy(fd_vote_epoch_credits_t* self, fd_free_fun_t freef, void* freef_arg);
@@ -1124,11 +1280,32 @@ void fd_vote_prior_voters_destroy(fd_vote_prior_voters_t* self, fd_free_fun_t fr
 void fd_vote_prior_voters_copy_to(fd_vote_prior_voters_t* to, fd_vote_prior_voters_t* from, fd_alloc_fun_t freef, void* allocf_arg);
 ulong fd_vote_prior_voters_size(fd_vote_prior_voters_t* self);
 
+void fd_vote_prior_voters_0_23_5_decode(fd_vote_prior_voters_0_23_5_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
+void fd_vote_prior_voters_0_23_5_encode(fd_vote_prior_voters_0_23_5_t* self, void const** data);
+void fd_vote_prior_voters_0_23_5_destroy(fd_vote_prior_voters_0_23_5_t* self, fd_free_fun_t freef, void* freef_arg);
+void fd_vote_prior_voters_0_23_5_copy_to(fd_vote_prior_voters_0_23_5_t* to, fd_vote_prior_voters_0_23_5_t* from, fd_alloc_fun_t freef, void* allocf_arg);
+ulong fd_vote_prior_voters_0_23_5_size(fd_vote_prior_voters_0_23_5_t* self);
+
+void fd_vote_state_0_23_5_decode(fd_vote_state_0_23_5_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
+void fd_vote_state_0_23_5_encode(fd_vote_state_0_23_5_t* self, void const** data);
+void fd_vote_state_0_23_5_destroy(fd_vote_state_0_23_5_t* self, fd_free_fun_t freef, void* freef_arg);
+void fd_vote_state_0_23_5_copy_to(fd_vote_state_0_23_5_t* to, fd_vote_state_0_23_5_t* from, fd_alloc_fun_t freef, void* allocf_arg);
+ulong fd_vote_state_0_23_5_size(fd_vote_state_0_23_5_t* self);
+
 void fd_vote_state_decode(fd_vote_state_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
 void fd_vote_state_encode(fd_vote_state_t* self, void const** data);
 void fd_vote_state_destroy(fd_vote_state_t* self, fd_free_fun_t freef, void* freef_arg);
 void fd_vote_state_copy_to(fd_vote_state_t* to, fd_vote_state_t* from, fd_alloc_fun_t freef, void* allocf_arg);
 ulong fd_vote_state_size(fd_vote_state_t* self);
+
+void fd_vote_state_versioned_decode(fd_vote_state_versioned_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
+void fd_vote_state_versioned_encode(fd_vote_state_versioned_t* self, void const** data);
+void fd_vote_state_versioned_destroy(fd_vote_state_versioned_t* self, fd_free_fun_t freef, void* freef_arg);
+void fd_vote_state_versioned_copy_to(fd_vote_state_versioned_t* to, fd_vote_state_versioned_t* from, fd_alloc_fun_t freef, void* allocf_arg);
+ulong fd_vote_state_versioned_size(fd_vote_state_versioned_t* self);
+
+uchar fd_vote_state_versioned_is_v0_23_5(fd_vote_state_versioned_t* self);
+uchar fd_vote_state_versioned_is_current(fd_vote_state_versioned_t* self);
 
 void fd_vote_state_update_decode(fd_vote_state_update_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
 void fd_vote_state_update_encode(fd_vote_state_update_t* self, void const** data);
@@ -1231,6 +1408,70 @@ void fd_vote_encode(fd_vote_t* self, void const** data);
 void fd_vote_destroy(fd_vote_t* self, fd_free_fun_t freef, void* freef_arg);
 void fd_vote_copy_to(fd_vote_t* to, fd_vote_t* from, fd_alloc_fun_t freef, void* allocf_arg);
 ulong fd_vote_size(fd_vote_t* self);
+
+void fd_vote_init_decode(fd_vote_init_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
+void fd_vote_init_encode(fd_vote_init_t* self, void const** data);
+void fd_vote_init_destroy(fd_vote_init_t* self, fd_free_fun_t freef, void* freef_arg);
+void fd_vote_init_copy_to(fd_vote_init_t* to, fd_vote_init_t* from, fd_alloc_fun_t freef, void* allocf_arg);
+ulong fd_vote_init_size(fd_vote_init_t* self);
+
+void fd_vote_authorize_decode(fd_vote_authorize_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
+void fd_vote_authorize_encode(fd_vote_authorize_t* self, void const** data);
+void fd_vote_authorize_destroy(fd_vote_authorize_t* self, fd_free_fun_t freef, void* freef_arg);
+void fd_vote_authorize_copy_to(fd_vote_authorize_t* to, fd_vote_authorize_t* from, fd_alloc_fun_t freef, void* allocf_arg);
+ulong fd_vote_authorize_size(fd_vote_authorize_t* self);
+
+uchar fd_vote_authorize_is_voter(fd_vote_authorize_t* self);
+uchar fd_vote_authorize_is_withdrawer(fd_vote_authorize_t* self);
+
+void fd_vote_authorize_pubkey_decode(fd_vote_authorize_pubkey_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
+void fd_vote_authorize_pubkey_encode(fd_vote_authorize_pubkey_t* self, void const** data);
+void fd_vote_authorize_pubkey_destroy(fd_vote_authorize_pubkey_t* self, fd_free_fun_t freef, void* freef_arg);
+void fd_vote_authorize_pubkey_copy_to(fd_vote_authorize_pubkey_t* to, fd_vote_authorize_pubkey_t* from, fd_alloc_fun_t freef, void* allocf_arg);
+ulong fd_vote_authorize_pubkey_size(fd_vote_authorize_pubkey_t* self);
+
+void fd_vote_switch_decode(fd_vote_switch_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
+void fd_vote_switch_encode(fd_vote_switch_t* self, void const** data);
+void fd_vote_switch_destroy(fd_vote_switch_t* self, fd_free_fun_t freef, void* freef_arg);
+void fd_vote_switch_copy_to(fd_vote_switch_t* to, fd_vote_switch_t* from, fd_alloc_fun_t freef, void* allocf_arg);
+ulong fd_vote_switch_size(fd_vote_switch_t* self);
+
+void fd_update_vote_state_switch_decode(fd_update_vote_state_switch_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
+void fd_update_vote_state_switch_encode(fd_update_vote_state_switch_t* self, void const** data);
+void fd_update_vote_state_switch_destroy(fd_update_vote_state_switch_t* self, fd_free_fun_t freef, void* freef_arg);
+void fd_update_vote_state_switch_copy_to(fd_update_vote_state_switch_t* to, fd_update_vote_state_switch_t* from, fd_alloc_fun_t freef, void* allocf_arg);
+ulong fd_update_vote_state_switch_size(fd_update_vote_state_switch_t* self);
+
+void fd_vote_authorize_with_seed_args_decode(fd_vote_authorize_with_seed_args_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
+void fd_vote_authorize_with_seed_args_encode(fd_vote_authorize_with_seed_args_t* self, void const** data);
+void fd_vote_authorize_with_seed_args_destroy(fd_vote_authorize_with_seed_args_t* self, fd_free_fun_t freef, void* freef_arg);
+void fd_vote_authorize_with_seed_args_copy_to(fd_vote_authorize_with_seed_args_t* to, fd_vote_authorize_with_seed_args_t* from, fd_alloc_fun_t freef, void* allocf_arg);
+ulong fd_vote_authorize_with_seed_args_size(fd_vote_authorize_with_seed_args_t* self);
+
+void fd_vote_authorize_checked_with_seed_args_decode(fd_vote_authorize_checked_with_seed_args_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
+void fd_vote_authorize_checked_with_seed_args_encode(fd_vote_authorize_checked_with_seed_args_t* self, void const** data);
+void fd_vote_authorize_checked_with_seed_args_destroy(fd_vote_authorize_checked_with_seed_args_t* self, fd_free_fun_t freef, void* freef_arg);
+void fd_vote_authorize_checked_with_seed_args_copy_to(fd_vote_authorize_checked_with_seed_args_t* to, fd_vote_authorize_checked_with_seed_args_t* from, fd_alloc_fun_t freef, void* allocf_arg);
+ulong fd_vote_authorize_checked_with_seed_args_size(fd_vote_authorize_checked_with_seed_args_t* self);
+
+void fd_vote_instruction_decode(fd_vote_instruction_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
+void fd_vote_instruction_encode(fd_vote_instruction_t* self, void const** data);
+void fd_vote_instruction_destroy(fd_vote_instruction_t* self, fd_free_fun_t freef, void* freef_arg);
+void fd_vote_instruction_copy_to(fd_vote_instruction_t* to, fd_vote_instruction_t* from, fd_alloc_fun_t freef, void* allocf_arg);
+ulong fd_vote_instruction_size(fd_vote_instruction_t* self);
+
+uchar fd_vote_instruction_is_initialize_account(fd_vote_instruction_t* self);
+uchar fd_vote_instruction_is_authorize(fd_vote_instruction_t* self);
+uchar fd_vote_instruction_is_vote(fd_vote_instruction_t* self);
+uchar fd_vote_instruction_is_withdraw(fd_vote_instruction_t* self);
+uchar fd_vote_instruction_is_update_validator_identity(fd_vote_instruction_t* self);
+uchar fd_vote_instruction_is_update_commission(fd_vote_instruction_t* self);
+uchar fd_vote_instruction_is_vote_switch(fd_vote_instruction_t* self);
+uchar fd_vote_instruction_is_authorize_checked(fd_vote_instruction_t* self);
+uchar fd_vote_instruction_is_update_vote_state(fd_vote_instruction_t* self);
+uchar fd_vote_instruction_is_update_vote_state_switch(fd_vote_instruction_t* self);
+uchar fd_vote_instruction_is_authorize_with_seed(fd_vote_instruction_t* self);
+uchar fd_vote_instruction_is_authorize_checked_with_seed(fd_vote_instruction_t* self);
 
 FD_PROTOTYPES_END
 
