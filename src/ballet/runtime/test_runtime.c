@@ -149,23 +149,19 @@ int accounts_hash(global_state_t *state) {
       FD_LOG_NOTICE(( "PAIRS: %lu", num_pairs ));
     }
 
-    fd_account_meta_t metadata;
-    int read_result = fd_acc_mgr_get_metadata( state->global->acc_mgr, state->global->funk_txn, (fd_pubkey_t *) rec->pair.key, &metadata );
-    if ( FD_UNLIKELY( read_result != FD_ACC_MGR_SUCCESS ) ) {
-      FD_LOG_ERR(("bad read from acc mgr"));
-    }
-    if ((metadata.magic != FD_ACCOUNT_META_MAGIC) || (metadata.hlen != sizeof(metadata))) {
+    fd_account_meta_t * metadata = (fd_account_meta_t *) fd_funk_val_const( rec, wksp );
+    if ((metadata->magic != FD_ACCOUNT_META_MAGIC) || (metadata->hlen != sizeof(fd_account_meta_t))) {
       FD_LOG_ERR(("invalid magic on metadata"));
     }
     
-    if ((metadata.info.lamports == 0) | ((metadata.info.executable & ~1) != 0)) {
+    if ((metadata->info.lamports == 0) | ((metadata->info.executable & ~1) != 0)) {
       zero_accounts++;
       continue;
     }
     
     
     fd_memcpy(pairs[num_pairs].pubkey.key, rec->pair.key, 32);
-    fd_memcpy(pairs[num_pairs].hash.hash, metadata.hash, 32);
+    fd_memcpy(pairs[num_pairs].hash.hash, metadata->hash, 32);
     num_pairs++;
   }
   
