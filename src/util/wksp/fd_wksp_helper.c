@@ -233,11 +233,7 @@ fd_wksp_new_anon( char const *  name,
 
   /* Acquire the pages */
 
-  if( FD_UNLIKELY( sub_cnt!=1UL ) ) { /* TODO: add fd_shmem_acquire_multi support to shmem */
-    FD_LOG_WARNING(( "This API only supports 1 subregion anonymous wksp currently" ));
-    return NULL;
-  }
-  void * shmem = fd_shmem_acquire( page_sz, page_cnt, *sub_cpu_idx ); /* logs details */
+  void * shmem = fd_shmem_acquire_multi( page_sz, sub_cnt, sub_page_cnt, sub_cpu_idx ); /* logs details */
   if( FD_UNLIKELY( !shmem ) ) return NULL;
 
   /* Format the memory as wksp */
