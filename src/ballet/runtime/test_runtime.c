@@ -1020,7 +1020,11 @@ int main(int argc, char **argv) {
     FD_LOG_WARNING(( "funky at global address %lu", fd_wksp_gaddr_fast( wksp, shmem ) ));
 
   } else {
-    void* shmem = fd_wksp_laddr_fast( wksp, (ulong)strtol(state.gaddr, NULL, 10) );
+    void* shmem;
+    if (state.gaddr[0] == '0' && state.gaddr[1] == 'x')
+      shmem = fd_wksp_laddr_fast( wksp, (ulong)strtol(state.gaddr+2, NULL, 16) );
+    else
+      shmem = fd_wksp_laddr_fast( wksp, (ulong)strtol(state.gaddr, NULL, 10) );
     state.global->funk = fd_funk_join(shmem);
     if (state.global->funk == NULL) {
       FD_LOG_ERR(( "failed to join a funky" ));
