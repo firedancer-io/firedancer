@@ -718,7 +718,7 @@ main( int     argc,
         if ( !strcmp( "verify", tile_task_kind[ tile_idx ] ) ) {
           prv = &snap_prv[ tile_idx ];
           cur = &snap_cur[ tile_idx ];
-          printf( " %5s->%-5s", tile_name[ tile_idx ], tile_name[ 2 ] );
+          printf( " %5s->%-5s", tile_name[ tile_idx ], tile_name[ d0_idx ] );
           print_link( dt, cur, prv );
         }
       }
