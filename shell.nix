@@ -19,16 +19,14 @@ pkgs.mkShell {
     llvm_15
 
     # C dependencies
-    libbpf
-    numactl
     pkg-config
     quictls
     rocksdb
     xdp-tools
     zstd
 
-    # Utils
-    hwloc
+    # Dev Utils
+    git
   ];
 }
 

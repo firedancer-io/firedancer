@@ -1,10 +1,10 @@
-#if FD_HAS_HOSTED && FD_HAS_X86
+#if FD_HAS_HOSTED
 #define _GNU_SOURCE
 #endif
 
 #include "fd_shmem_private.h"
 
-#if FD_HAS_HOSTED && FD_HAS_X86
+#if FD_HAS_HOSTED
 
 #include <errno.h>
 #include <unistd.h>
@@ -181,8 +181,9 @@ fd_shmem_join( char const *               name,
      destroying the system with core files if a bunch of thread using
      this mapping seg fault concurrently. */
 
-  if( FD_UNLIKELY( fd_mlock( shmem, sz ) ) )
-    FD_LOG_WARNING(( "fd_mlock(\"%s\",%lu KiB) failed (%i-%s); attempting to continue", path, sz>>10, errno, strerror( errno ) ));
+  if( FD_UNLIKELY( fd_numa_mlock( shmem, sz ) ) )
+    FD_LOG_WARNING(( "fd_numa_mlock(\"%s\",%lu KiB) failed (%i-%s); attempting to continue",
+                     path, sz>>10, errno, strerror( errno ) ));
 
   if( FD_UNLIKELY( madvise( shmem, sz, MADV_DONTDUMP ) ) )
     FD_LOG_WARNING(( "madvise(\"%s\",%lu KiB) failed (%i-%s); attempting to continue", path, sz>>10, errno, strerror( errno ) ));

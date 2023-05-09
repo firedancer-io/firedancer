@@ -99,7 +99,7 @@ struct __attribute__((aligned(8))) fd_alloc_sizeclass_cfg {
   uint   superblock_footprint; /* Size of the allocation needed to make a superblock for this class */
   ushort block_footprint;      /* Footprint of blocks in this size class, block_cnt*block_footprint+16 <= superblock_footprint */
   uchar  block_cnt;            /* Number of blocks in this, in [1,64] */
-  uchar  cgroup_mask;          /* Number of cgroups for this sizeclass minus 1, a power of 2 minus 1, at most CGROUP_CNT-1 */
+  uchar  cgroup_mask;          /* Number of cgroups for this sizeclass minus 1, a power of 2 minus 1, at most CGROUP_HINT_MAX */
 };
 
 typedef struct fd_alloc_sizeclass_cfg fd_alloc_sizeclass_cfg_t;

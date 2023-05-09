@@ -121,8 +121,6 @@
 
 #include "../wksp/fd_wksp.h"
 
-#if FD_HAS_HOSTED && FD_HAS_X86 /* This limitation is inherited from wksp */
-
 /* FD_ALLOC_{ALIGN,FOOTPRINT} give the required alignment and footprint
    needed for a wksp allocation to be suitable as a fd_alloc.  ALIGN is
    an integer pointer of 2 and FOOTPRINT is an integer multiple of
@@ -141,11 +139,10 @@
 
 #define FD_ALLOC_MALLOC_ALIGN_DEFAULT (16UL)
 
-/* FD_ALLOC_JOIN_CGROUP_CNT is the number of concurrency groups
-   supported by the allocator.  This is an integer power of 2 of at most
-   FD_ALLOC_ALIGN. */
+/* FD_ALLOC_JOIN_CGROUP_HINT_MAX is maximum value for a cgroup hint.
+   This is an integer power of 2 minus 1 of at most FD_ALLOC_ALIGN. */
 
-#define FD_ALLOC_JOIN_CGROUP_CNT (16UL)
+#define FD_ALLOC_JOIN_CGROUP_HINT_MAX (15UL)
 
 /* A "fd_alloc_t *" is an opaque handle of an fd_alloc. */
 
@@ -183,31 +180,31 @@ fd_alloc_new( void * shmem,
    first byte of the memory region backing the alloc in the caller's
    address space.  Returns an opaque handle of the join on success
    (IMPORTANT! THIS IS NOT JUST A CAST OF SHALLOC) and NULL on failure
-   (NULL shalloc, misaligned shalloc, bad magic, cgroup_idx not in
-   [0,FD_ALLOC_JOIN_CGROUP_CNT) ... logs details).  Every successful
-   join should have a matching leave.  The lifetime of the join is until
-   the matching leave or the thread group is terminated (joins are local
-   to a thread group).
+   (NULL shalloc, misaligned shalloc, bad magic, ... logs details).
+   Every successful join should have a matching leave.  The lifetime of
+   the join is until the matching leave or the thread group is
+   terminated (joins are local to a thread group).
 
-   cgroup_idx is a concurrency hint used to optimize parallel and
+   cgroup_hint is a concurrency hint used to optimize parallel and
    persistent use cases. Ideally each thread (regardless of thread
-   group) should join the allocator with a different cgroup_idx system
+   group) should join the allocator with a different cgroup_hint system
    wide (note that joins are practically free).  And if using a fd_alloc
    in a persistent way, logical streams of execution would ideally
-   preserve the cgroup_idx address starts and stops of that stream for
+   preserve the cgroup_hint address starts and stops of that stream for
    the most optimal affinity behaviors.  0 is fine in single threaded
    use cases and 0 and/or collisions are fine in more general cases
    though concurrent performance might be reduced due to additional
-   contention between threads that share the same cgroup_idx.
+   contention between threads that share the same cgroup_hint.  If
+   cgroup_hint is not in [0,FD_ALLOC_JOIN_CGROUP_HINT_MAX], it will be
+   wrapped to be in that range.
 
-   TL;DR A cgroup_idx of 0 is often a practical choice single threaded.
-   A cgroup_idx of fd_tile_idx()%FD_ALLOC_JOIN_CGROUP_CNT or a uniform
-   random value in [0,FD_ALLOC_JOIN_CGROUP_CNT) is often a practical
+   TL;DR A cgroup_hint of 0 is often a practical choice single threaded.
+   A cgroup_hint of fd_tile_idx() or just uniform random 64-bit value
    choice in more general situations. */
 
 fd_alloc_t *
 fd_alloc_join( void * shalloc,
-               ulong  cgroup_idx );
+               ulong  cgroup_hint );
 
 /* fd_alloc_leave leaves an existing join.  Returns the underlying
    shalloc (IMPORTANT! THIS IS NOT A SIMPLE CAST OF JOIN) on success and
@@ -233,6 +230,27 @@ fd_alloc_leave( fd_alloc_t * join );
 void *
 fd_alloc_delete( void * shalloc );
 
+/* fd_alloc_join_cgroup_hint returns the cgroup_hint of the current
+   join.  Assumes join is a current local join.  The return will be in
+   [0,FD_ALLOC_JOIN_CGROUP_HINT_MAX].
+
+   fd_alloc_join_cgroup_hint_set returns join with the cgroup_hint
+   updated to provided cgroup_hint.  If cgroup hint is not in
+   [0,FD_ALLOC_JOIN_CGROUP_HINT_MAX], it will be wrapped into this
+   range.  Assumes join is a current local join.  The return value is
+   not a new join. */
+
+FD_FN_CONST static inline ulong
+fd_alloc_join_cgroup_hint( fd_alloc_t * join ) {
+  return ((ulong)join) & FD_ALLOC_JOIN_CGROUP_HINT_MAX;
+}
+
+FD_FN_CONST static inline fd_alloc_t *
+fd_alloc_join_cgroup_hint_set( fd_alloc_t * join,
+                               ulong        cgroup_hint ) {
+  return (fd_alloc_t *)((((ulong)join) & (~FD_ALLOC_JOIN_CGROUP_HINT_MAX)) | (cgroup_hint & FD_ALLOC_JOIN_CGROUP_HINT_MAX));
+}
+
 /* fd_alloc_wksp returns a pointer to a local wksp join of the wksp
    backing the fd_alloc with the current local join.  Caller should not
    call fd_alloc_leave on the returned value.  Lifetime of the returned
@@ -245,9 +263,10 @@ fd_alloc_delete( void * shalloc );
 FD_FN_PURE fd_wksp_t * fd_alloc_wksp( fd_alloc_t * join ); // NULL indicates NULL join
 FD_FN_PURE ulong       fd_alloc_tag ( fd_alloc_t * join ); // In [0,FD_WKSP_ALLOC_TAG_MAX].  0 indicates NULL join
 
-/* fd_alloc_malloc allocates sz bytes with alignment align from the wksp
-   backing the fd_alloc.  join is a current local join to the fd_alloc.
-   align should be an integer power of 2 or 0.
+/* fd_alloc_malloc_at_least allocates at least sz bytes with alignment
+   of at least align from the wksp backing the fd_alloc.  join is a
+   current local join to the fd_alloc.  align should be an integer power
+   of 2 or 0.
 
    An align of 0 indicates to use FD_ALLOC_MALLOC_DEFAULT_ALIGN for the
    request alignment.  This will be large enough such that
@@ -283,12 +302,30 @@ FD_FN_PURE ulong       fd_alloc_tag ( fd_alloc_t * join ); // In [0,FD_WKSP_ALLO
    Returns NULL on failure (silent to support HPC usage) or when sz is
    0.  Reasons for failure include NULL join, invalid align, sz overflow
    (sz+align>~2^64), no memory available for request (e.g. workspace has
-   insufficient room or is too fragmented). */
+   insufficient room or is too fragmented).
+
+   On return, *max will contain the number actual number of bytes
+   available at the returned gaddr.  On success, this will be at least
+   sz and it is not guaranteed to be a multiple of align.  On failure,
+   *max will be zero.
+
+   fd_alloc_malloc is a simple wrapper around fd_alloc_malloc_at_least
+   for use when applications do not care about the actual size of their
+   allocation. */
 
 void *
+fd_alloc_malloc_at_least( fd_alloc_t * join,
+                          ulong        align,
+                          ulong        sz,
+                          ulong *      max );
+
+static inline void *
 fd_alloc_malloc( fd_alloc_t * join,
                  ulong        align,
-                 ulong        sz );
+                 ulong        sz ) {
+  ulong max[1];
+  return fd_alloc_malloc_at_least( join, align, sz, max );
+}
 
 /* fd_alloc_free frees the outstanding allocation whose first byte is
    pointed to by laddr in the caller's local address space.  join is a
@@ -373,9 +410,212 @@ fd_alloc_compact( fd_alloc_t * join );
 int
 fd_alloc_is_empty( fd_alloc_t * join );
 
-FD_PROTOTYPES_END
+/* fd_alloc_max_expand computes a recommended value to use for max when
+   needing to dynamically resize structures.  The below is very subtle
+   and fixes a lot of pervasive errors with dynamic resizing
+   implementations (either explicit or implicitly done under the hood).
+   It doesn't fix the main error with dynamic resizing though.  The main
+   error being deciding to use anything with dynamic resizing (outside
+   of, maybe, initialization at program start).
 
-#endif
+   Consider an all too common case of an initially too small dynamically
+   sized array that is getting elements appended to it one at a time.
+   E.g. without proper error trapping, overflow handling and the like:
+
+     foo_t * foo       = NULL;
+     ulong   foo_max   = 0UL;
+     ulong   foo_cnt   = 0UL;
+     ulong   foo_delta = ... some reasonable increment ...;
+
+     while( ... still appending ... ) {
+
+       if( foo_cnt==foo_max ) { // Need to resize
+         foo_max += foo_delta;
+         foo = (foo_t *)realloc( foo, foo_max*sizeof(foo_t) );
+       }
+
+       foo[ foo_cnt++ ] = ... next val to append ...;
+     }
+
+   This is terrible theoretically and practically and yet it looks like
+   it does everything right.
+
+   The theoretical issue is that, if the realloc can't be done in-place
+   (which is more common than most realize ... depends on how the
+   underlying realloc implementation details), the memory will have to
+   be copied from the original location to the resized location with a
+   typical cost of final_foo_max/2 -> O(final_foo_cnt).  Because max is
+   increased by fixed absolute amount each resizing, there will be
+   final_foo_cnt/foo_delta -> O(final_foo_cnt) such resizes.
+
+   That is, we've accidentially written a method that has a slow
+   O(final_foo_cnt^2) worst case even though it superficially looks like
+   a fast O(final_foo_cnt) method.  Worse still, this behavior might
+   appear suddenly in previously fine code if realloc implementation
+   changes or, yet again worse, because a larger problem size was used
+   in the wild than used in testing.
+
+   The practical issue is realloc is painfully slow and it gets worse
+   for large sizes because large sizes are usually handled by operating
+   system calls (e.g. mmap or sbrk under the hood).  We've also now done
+   O(final_foo_cnt) slow operating system calls in our already
+   algorithmically slow O(final_foo_cnt^2) worst case algorithm that
+   still superficially looks like a fast O(final_foo_cnt).  (And throw
+   in the other issues with malloc described above about TLB and NUMA
+   inefficiency, the gaslighting the kernel does "clearly the crash had
+   nothing to do with the OOM killer shooting processes randomly in the
+   head, your program probably just had a bug ... yeah ... that's the
+   ticket" ... for good measure).
+
+   We can get an algorithmic improvement if we change the above to
+   increase max by a fixed relative amount each resize.  Since we are
+   dealing with integers though, we should make sure that we always
+   increase max by some minimal amount.  Instead of:
+
+     foo_max += foo_delta;
+
+   we can use something like:
+
+     foo_max = fd_ulong_max( foo_max*gamma, foo_max + foo_delta );
+
+   If gamma>1, asymptotically, we will only do O(lg cnt) resizes.
+   Theoretically, we've gone from an O(final_foo_cnt^2) worst case
+   method to an O(final_foo_cnt lg final_foo_cnt) worst case method.  It
+   is still irritating that it looks superficially like a fast
+   O(final_foo_cnt) method but this is amongst the many reasons why
+   dynamic resizing is gross and wrong and to be avoided when possible.
+
+   The larger gamma is, the smaller the leading coefficient is in the
+   O(final_foo_cnt lg final_foo_cnt) and thus the better this
+   approximates the fast O(final_foo_cnt) method that it superficially
+   seems to be.  But using a very large gamma is clearly absurd.  There
+   are obvious memory footprint limitations for large sizes and each
+   resize would trigger an ever larger amount of OS work.  This raises
+   the question:
+
+   What is the optimal gamma?
+
+   Suppose we have worst case realloc implementation (alloc new memory,
+   copy, free old memory and, when no free fragment large enough is
+   available, use sbrk like semantics to get memory from the O/S ...
+   not uncommon as it is trivial to implement and often works "good
+   enough" in lab settings).  It always works out-of-place and it always
+   just appends new memory at the end of the heap when the heap runs out
+   of space.  Then, while doing the above, asymptotically, we expect the
+   heap to look something like:
+
+     other allocs | M foo_t alloc | padding free | unmapped
+
+   On the next resize, we'd request space for M gamma foo_t.  Since
+   there are no free fragments large enough for this, realloc is going
+   to have to map some space from the operating system, copy our memory
+   into it and free up the original space for reuse.  Post resize, we
+   expect the heap to look like:
+
+     other allocs | M foo_t free | M gamma foo_t alloc | padding free | unmapped
+
+   On the next resize, we'd request space for M gamma^2 foo_t.  This
+   also can't fit within any free fragment above for gamma>1 (noting
+   that, in this worst case realloc, we have to allocate the memory
+   first and then copy and then free the old).  So we end up with:
+
+     other allocs | M (1+gamma) foo_t free | M gamma^2 foo_t alloc | padding free | unmapped
+
+   On the next resize, we'd request space for M gamma^3 foo_t.  If we
+   have:
+
+     gamma^3 < 1 + gamma
+
+   we can fit this request in the hole left by the two previous resizes.
+   This implies we need gamma<1.32471... where the magic number is the
+   positive real root of:
+
+     x^3 - x - 1  = 0
+
+   This is the "silver ratio" in the sense that the positive real root
+   of x^2 - x - 1 is the "golden ratio" of 1.61803...  (Note that the
+   golden ratio would apply if we had a more sophisticated realloc under
+   the hood that aliased the resized allocation over top the M foo_t
+   free and the existing M gamma foo_t alloc and then moved the aliased
+   memory.  Presumably such a sophisticated realloc would also just
+   append to the end of the heap without any move or copy at all but
+   that eventually leads to a question about how much overallocation and
+   operating system overhead is acceptable on resize discussed further
+   below).
+
+   After a resize with something near but smaller than the silver ratio,
+   we expect the heap to look like:
+
+     other allocs | M gamma^3 foo_t alloc | padding free | unmapped
+
+   which is back to where we started, except with a larger allocation.
+
+   We don't want to be doing floating point math in methods like this.
+   Noting that gamma = 1 + 1/4 + 1/16 = 1.3125 is very close to the
+   silver yields the very practical:
+
+     new_max = fd_ulong_max( max + (max>>2) + (max>>4), max + delta );
+
+   This is friendly with even the worst case realloc behaviors under the
+   hood.  It also works will in similar situations with linear storage
+   media (e.g. disk storage).  The limit also means that the worst case
+   overallocation for cases like the above at most ~32% and on average
+   ~16%.  This is a comparable level of overallocation that already
+   happens under the hood (e.g. on par with the level of waste that
+   naturally happens in allocators for metadata and padding and much
+   less waste than the golden ratio or larger growth rates if we
+   dubiously trust that the realloc method under the hood).
+
+   In cases where we might need to resize to even larger than this, we
+   just resize to the caller's requested amount and keep our fingers
+   crossed that the caller realized by this time dynamic resizing was a
+   mistake and is allocating the correct size this time.
+
+   Adding arithmetic overflow handling then yields the below.
+
+   TL;DR  Example usage (ignoring size calculation overflow handling and
+   allocation error trapping):
+
+     ulong   foo_cnt   = 0UL;
+     ulong   foo_max   = ... good estimate the actual amount needed;
+     ulong   foo_delta = ... reasonable minimum resizing increment;
+     foo_t * foo       = (foo_t *)malloc( foo_max*sizeof(foo_t) );
+
+     while( ... still appending ... ) {
+
+       if( FD_UNLIKELY( foo_cnt==foo_max ) ) {
+         foo_max = fd_alloc_max_expand( foo_max, foo_delta, foo_cnt + foo_delta );
+         foo     = (foo_t *)realloc( foo, foo_max*sizeof(foo_t) );
+       }
+
+       foo[ foo_cnt++ ] = ... next val to append ...;
+
+     }
+
+     ... at this point
+     ... - foo has foo_cnt elements initialized
+     ... - foo has room for foo_max elements total
+     ... - when the initial foo_max estimate was correct or oversized,
+     ...   no resizing was done
+     ... - when the initial foo_max was undersized, asymptotically,
+     ...   foo_max is at most ~32% larger worst case (~16% larger
+     ...   average case) than foo_cnt with at most O(lg foo_cnt)
+     ...   reallocs needed to initialize foo.
+     ... - the resizing test branch is highly predictable
+     ... - the underlying heap shouldn't be too fragmented or
+     ...   overallocated regardless of the allocator implementation
+     ...   details. */
+
+FD_FN_CONST static inline ulong       /* new_max, new_max>=max(needed,max), if max<ULONG_MAX, will be new_max>max */
+fd_alloc_max_expand( ulong max,
+                     ulong delta,     /* Assumed > 0 */
+                     ulong needed ) {
+  ulong t0 = max + delta;               t0 = fd_ulong_if( t0<max, ULONG_MAX, t0 ); /* Handle overflow */
+  ulong t1 = max + (max>>2) + (max>>4); t1 = fd_ulong_if( t1<max, ULONG_MAX, t1 ); /* Handle overflow */
+  return fd_ulong_max( fd_ulong_max( t0, t1 ), needed );
+}
+
+FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_util_alloc_fd_alloc_h */
 

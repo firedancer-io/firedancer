@@ -22,10 +22,10 @@
 
 #define vl_bcast(l0) _mm_set1_epi64x( (l0) ) /* [ l0 l0 ] */
 
-/* vl_permute returns [ l(imm_l0) l(imm_l1) ].  imm_l* should be compile
+/* vl_permute returns [ l(imm_i0) l(imm_i1) ].  imm_i* should be compile
    time constants in 0:1. */
 
-#define vl_permute( d, imm_l0, imm_l1 ) _mm_castpd_si128( _mm_permute_pd( _mm_castsi128_pd( (d) ), (imm_l0) + 2*(imm_l1) ) )
+#define vl_permute( v, imm_i0, imm_i1 ) _mm_castpd_si128( _mm_permute_pd( _mm_castsi128_pd( (v) ), (imm_i0) + 2*(imm_i1) ) )
 
 /* Predefined constants */
 
@@ -73,14 +73,14 @@ static inline void vl_stu( long * p, vl_t i ) { _mm_storeu_si128( (__m128i *)p, 
 #define vl_insert(a,imm,v) _mm_insert_epi64( (a), (v), (imm) )
 
 static inline long
-vl_extract_variable( vl_t a, long n ) {
+vl_extract_variable( vl_t a, int n ) {
   union { __m128i m[1]; long l[2]; } t[1];
   _mm_store_si128( t->m, a );
   return t->l[n];
 }
 
 static inline vl_t
-vl_insert_variable( vl_t a, long n, long v ) {
+vl_insert_variable( vl_t a, int n, long v ) {
   union { __m128i m[1]; long l[2]; } t[1];
   _mm_store_si128( t->m, a );
   t->l[n] = v;
@@ -135,6 +135,22 @@ vl_insert_variable( vl_t a, long n, long v ) {
 #define vl_or(a,b)     _mm_or_si128(     (a), (b) ) /* [   a0 |b0    a1 |b1 ] */
 #define vl_xor(a,b)    _mm_xor_si128(    (a), (b) ) /* [   a0 ^b0    a1 ^b1 ] */
 
+static inline vl_t vl_rol( vl_t a, int imm ) { return vl_or( vl_shl(  a, imm & 63 ), vl_shru( a, (-imm) & 63 ) ); }
+static inline vl_t vl_ror( vl_t a, int imm ) { return vl_or( vl_shru( a, imm & 63 ), vl_shl(  a, (-imm) & 63 ) ); }
+
+static inline vl_t vl_rol_variable( vl_t a, int n ) { return vl_or( vl_shl_variable(  a, n&63 ), vl_shru_variable( a, (-n)&63 ) ); }
+static inline vl_t vl_ror_variable( vl_t a, int n ) { return vl_or( vl_shru_variable( a, n&63 ), vl_shl_variable(  a, (-n)&63 ) ); }
+
+static inline vl_t vl_rol_vector( vl_t a, vl_t b ) {
+  vl_t m = vl_bcast( 63L );
+  return vl_or( vl_shl_vector(  a, vl_and( b, m ) ), vl_shru_vector( a, vl_and( vl_neg( b ), m ) ) );
+}
+
+static inline vl_t vl_ror_vector( vl_t a, vl_t b ) {
+  vl_t m = vl_bcast( 63L );
+  return vl_or( vl_shru_vector( a, vl_and( b, m ) ), vl_shl_vector(  a, vl_and( vl_neg( b ), m ) ) );
+}
+
 /* Logical operations */
 
 #define vl_lnot(a)    _mm_cmpeq_epi64( (a), _mm_setzero_si128() )                                          /* [  !a0  !a1 ] */
@@ -177,13 +193,18 @@ static inline vl_t vl_shr_vector( vl_t a, vl_t n ) {
 
    vl_to_vc(d)     returns [ !!l0 !!l0 !!l1 !!l1 ] 
 
-   vl_to_vf(l,i,0) returns [ (float)l0 (float)l1 l2 l3 ]
-   vl_to_vf(l,i,1) returns [ f0 f1 (float)l0 (float)l1 ]
+   vl_to_vf(l,f,0) returns [ (float)l0 (float)l1 f2 f3 ]
+   vl_to_vf(l,f,1) returns [ f0 f1 (float)l0 (float)l1 ]
 
    vl_to_vi(l,i,0) returns [ (int)l0 (int)l1 i2 i3 ]
    vl_to_vi(l,i,1) returns [ i0 i1 (int)l0 (int)l1 ]
 
+   vl_to_vu(l,u,0) returns [ (uint)l0 (uint)l1 u2 u3 ]
+   vl_to_vu(l,u,1) returns [ u0 u1 (uint)l0 (uint)l1 ]
+
    vl_to_vd(l)     returns [ (double)l0 (double)l1 ]
+
+   vl_to_vv(l)     returns [ (ulong)l0 (ulong)l1 ]
 
    The raw variants just treat the raw bits as the corresponding vector
    type.  For vl_to_vc_raw, the user promises vl contains a proper
@@ -207,14 +228,26 @@ static inline vl_t vl_to_vi( vl_t l, vi_t i, int imm_hi ) {
   return _mm_castps_si128( _l );
 }
 
+static inline vl_t vl_to_vu( vl_t l, vu_t u, int imm_hi ) {
+  vf_t _l = _mm_castsi128_ps( l ); /* [ x0l x0h x1l x1h ] */
+  vf_t _u = _mm_castsi128_ps( u );
+  if( imm_hi ) _l = _mm_shuffle_ps( _u, _l, _MM_SHUFFLE(2,0,1,0) ); /* Compile time */
+  else         _l = _mm_shuffle_ps( _l, _u, _MM_SHUFFLE(3,2,2,0) );
+  return _mm_castps_si128( _l );
+}
+
 static inline vd_t vl_to_vd( vl_t l ) {
   return _mm_setr_pd( (double)_mm_extract_epi64( l, 0 ), (double)_mm_extract_epi64( l, 1 ) );
 }
 
+#define vl_to_vv(a) (a)
+
 #define vl_to_vc_raw(a) (a)
 #define vl_to_vf_raw(a) _mm_castsi128_ps( (a) )
 #define vl_to_vi_raw(a) (a)
+#define vl_to_vu_raw(a) (a)
 #define vl_to_vd_raw(a) _mm_castsi128_pd( (a) )
+#define vl_to_vv_raw(a) (a)
 
 /* Reduction operations */
 
@@ -235,15 +268,27 @@ vl_max_all( vl_t x ) { /* Returns vl_bcast( max( x ) ) */
 
 /* Misc operations */
 
-/* vl_gather(b,i,imm_l0,imm_l1) returns [ b[i(imm_l0)] b[i(imm_l1)] ]
-   where b is a  "long const *" and i is a vi_t and imm_l0,imm_l1 are
-   compile time constants in 0:3.  The fd_type_pun is to workaround
-   various intrinsic and linguistic dubiousness (API takes a long long
-   const * but incoming type is a long const * and, though these are
-   nominally the same thing, from a linguistic POV, they are
-   incompatible ...  more Intel intrinsic hell ... and this also
-   degrades the optimizer near wherever this gets used as a result). */
+/* vl_gather(b,i,imm_i0,imm_i1) returns [ b[i(imm_i0)] b[i(imm_i1)] ]
+   where b is a  "long const *" and i is a vi_t and imm_i0,imm_i1 are
+   compile time constants in 0:3.  We use a static inline here instead
+   of a define to keep strict type checking while working around yet
+   another Intel intrinsic type mismatch issue.  And we use a define to
+   workaround clang sadness with passing a compile time constant into a
+   static inline. */
 
-#define vl_gather(b,i,imm_l0,imm_l1) \
-  _mm_i32gather_epi64( (long long const *)fd_type_pun( (b) ), _mm_shuffle_epi32( (i), _MM_SHUFFLE(3,2,(imm_l1),(imm_l0))), 8 )
+static inline vl_t _vl_gather( long const * b, vi_t i ) {
+  return _mm_i32gather_epi64( (long long const *)b, i, 8 );
+}
 
+#define vl_gather(b,i,imm_i0,imm_i1) _vl_gather( (b), _mm_shuffle_epi32( (i), _MM_SHUFFLE(3,2,(imm_i1),(imm_i0)) ) )
+
+/* vl_transpose_2x2 transposes the 2x2 matrix stored in vl_t r0,r1
+   and stores the result in 2x2 matrix vl_t c0,c1.  All c0,c1 should be
+   different for a well defined result.  Otherwise, in-place operation
+   and/or using the same vl_t to specify multiple rows of r is fine. */
+
+#define vl_transpose_2x2( r0,r1, c0,c1 ) do {                        \
+    vl_t _vl_transpose_r0 = (r0); vl_t _vl_transpose_r1 = (r1);      \
+    (c0) = _mm_unpacklo_epi64( _vl_transpose_r0, _vl_transpose_r1 ); \
+    (c1) = _mm_unpackhi_epi64( _vl_transpose_r0, _vl_transpose_r1 ); \
+  } while(0)

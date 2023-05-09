@@ -19,6 +19,25 @@ FD_STATIC_ASSERT( FD_IP4_OPT_EOL==(uchar)  0, unit_test );
 
 FD_STATIC_ASSERT( sizeof(fd_ip4_hdr_t)==20UL, unit_test );
 
+
+static void
+test_cstr_to_ip4_addr( void ) {
+  uint ip;
+  FD_TEST( fd_cstr_to_ip4_addr( "",                           &ip )==0  );
+  FD_TEST( fd_cstr_to_ip4_addr( "0",                          &ip )==0  );
+  FD_TEST( fd_cstr_to_ip4_addr( "0.0",                        &ip )==0  );
+  FD_TEST( fd_cstr_to_ip4_addr( "0.0.0",                      &ip )==0  );
+  FD_TEST( fd_cstr_to_ip4_addr( "0.0.0.0",                    &ip )==1  ); FD_TEST( ip==0x00000000 );
+  // FIXME FD_TEST( fd_cstr_to_ip4_addr( "0.0.0.0.",                   &ip )==0  );
+  FD_TEST( fd_cstr_to_ip4_addr( "127.0.0.1",                  &ip )==1  ); FD_TEST( ip==0x7f000001 );
+  FD_TEST( fd_cstr_to_ip4_addr( "255.255.255.255",            &ip )==1  ); FD_TEST( ip==0xffffffff );
+  FD_TEST( fd_cstr_to_ip4_addr( "256.255.255.255",            &ip )==0  );
+  FD_TEST( fd_cstr_to_ip4_addr( "255.256.255.255",            &ip )==0  );
+  FD_TEST( fd_cstr_to_ip4_addr( "255.255.256.255",            &ip )==0  );
+  FD_TEST( fd_cstr_to_ip4_addr( "255.255.255.256",            &ip )==0  );
+  FD_TEST( fd_cstr_to_ip4_addr( "36893488147419103232.0.0.0", &ip )==0  );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -45,9 +64,11 @@ main( int     argc,
   FD_TEST(  fd_ip4_addr_is_mcast( ip4_addr_mcast ) ); FD_TEST( !fd_ip4_addr_is_bcast( ip4_addr_mcast ) );
   FD_TEST( !fd_ip4_addr_is_mcast( ip4_addr_bcast ) ); FD_TEST(  fd_ip4_addr_is_bcast( ip4_addr_bcast ) );
 
-  /* FIXME: TEST FD_IP4_HDR_NET_FRAG_OFF_IS_UNFRAGMENTED */ 
+  /* FIXME: TEST FD_IP4_HDR_NET_FRAG_OFF_IS_UNFRAGMENTED */
   /* FIXME: TEST FD_IP4_HDR_CHECK */
   /* FIXME: TEST FD_IP4_HDR_CHECK_FAST */
+
+  test_cstr_to_ip4_addr();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

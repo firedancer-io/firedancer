@@ -1,11 +1,11 @@
 #include "../fd_util.h"
 
-#if FD_HAS_HOSTED && FD_HAS_X86
+#if FD_HAS_HOSTED
 
 FD_STATIC_ASSERT( FD_ALLOC_ALIGN               == 4096UL, unit_test );
 FD_STATIC_ASSERT( FD_ALLOC_FOOTPRINT           ==20480UL, unit_test );
 FD_STATIC_ASSERT( FD_ALLOC_MALLOC_ALIGN_DEFAULT==   16UL, unit_test );
-FD_STATIC_ASSERT( FD_ALLOC_JOIN_CGROUP_CNT     ==   16UL, unit_test );
+FD_STATIC_ASSERT( FD_ALLOC_JOIN_CGROUP_HINT_MAX==   15UL, unit_test );
 
 /* This is a torture test for same thread allocation */
 /* FIXME: IDEALLY SHOULD ADD TORTURE TEST FOR MALLOC / FREE PAIRS SPLIT
@@ -31,7 +31,10 @@ test_main( int     argc,
 
   fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, (uint)tile_idx, 0UL ) );
 
-  fd_alloc_t * alloc = fd_alloc_join( shalloc, tile_idx & (FD_ALLOC_JOIN_CGROUP_CNT-1UL) );
+  fd_alloc_t * alloc = fd_alloc_join( shalloc, tile_idx );
+
+  FD_TEST( fd_alloc_join_cgroup_hint( alloc )==(tile_idx & FD_ALLOC_JOIN_CGROUP_HINT_MAX) );
+  FD_TEST( fd_alloc_join_cgroup_hint( fd_alloc_join_cgroup_hint_set( alloc, 1UL ) )==1UL  );
 
 # define OUTSTANDING_MAX 128UL
   ulong   sz [ OUTSTANDING_MAX ];
@@ -68,7 +71,8 @@ test_main( int     argc,
 
       /* Allocate it */
 
-      mem[j] = (uchar *)fd_alloc_malloc( alloc, align, sz[j] );
+      ulong max;
+      mem[j] = (uchar *)fd_alloc_malloc_at_least( alloc, align, sz[j], &max );
 
       /* Check if the value is sane */
 
@@ -81,6 +85,8 @@ test_main( int     argc,
       if( !align ) align = FD_ALLOC_MALLOC_ALIGN_DEFAULT;
       if( !fd_ulong_is_aligned( (ulong)mem[j], align ) )
         FD_LOG_ERR(( "On tile %lu, alloc(%lu,%lu) failed, got %lx (misaligned)", tile_idx, align, sz[j], (ulong)mem[j] ));
+
+      FD_TEST( mem[j] ? (max>=sz[j]) : (!max) );
 
       /* Fill it with a bit pattern unique to this allocation */
 
@@ -140,6 +146,8 @@ main( int     argc,
   ulong        tag       = fd_env_strip_cmdline_ulong( &argc, &argv, "--tag",       NULL,          1234UL );
   ulong        tile_cnt  = fd_tile_cnt();
 
+  fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, (uint)tile_cnt, 0UL ) );
+
   fd_wksp_t * wksp;
   if( name ) {
     FD_LOG_NOTICE(( "Attaching to --wksp %s", name ));
@@ -192,6 +200,31 @@ main( int     argc,
     FD_TEST( fd_alloc_is_empty( alloc ) );
   } while(0);
 
+  FD_LOG_NOTICE(( "Testing max_expand" ));
+  do {
+
+    /* BIT_PATTERN uses the lower 13 bits of r (uniform random) to
+       generate uniform random length string of 0s or 1s bits starting a
+       uniform random offset and going for a uniform random length
+       cyclic and fillin the rest of the bits with a uniform bit
+       pattern.  (Stress stuff near 0 and ULONG_MAX and other tricky
+       edge cases preferentially.) */
+
+#   define BIT_PATTERN (fd_ulong_rotate_left( fd_rng_ulong( rng ) >> (int)(r&63UL), (int)((r>>6)&63UL) ) ^ (-((r>>12)&1UL)))
+    for( ulong iter=0UL; iter<1000000UL;  iter++ ) {
+      ulong r      = fd_rng_ulong( rng );
+      ulong max    = BIT_PATTERN; r >>= 13;
+      ulong delta  = BIT_PATTERN; r >>= 13;     if( delta  ) delta = 1UL;
+      ulong needed = BIT_PATTERN; r >>= 13;
+      ulong t0     = max + delta;               if( t0<max ) t0 = ULONG_MAX;
+      ulong t1     = max + (max>>2) + (max>>4); if( t1<max ) t1 = ULONG_MAX;
+      ulong new_max_exp = fd_ulong_max( fd_ulong_max( t0, t1 ), needed );
+      FD_TEST( fd_alloc_max_expand( max, delta, needed )==new_max_exp );
+    }
+#   undef BIT_PATTERN
+
+  } while(0);
+
   FD_LOG_NOTICE(( "Running torture test with --alloc-cnt %lu, --align-max %lu, --sz-max %lu on %lu tile(s)",
                   alloc_cnt, align_max, sz_max, tile_cnt ));
 
@@ -226,6 +259,8 @@ main( int     argc,
   if( name ) fd_wksp_detach( wksp );
   else       fd_wksp_delete_anonymous( wksp );
 
+  fd_rng_delete( fd_rng_leave( rng ) );
+
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
   return 0;
@@ -237,7 +272,7 @@ int
 main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
-  FD_LOG_WARNING(( "skip: unit test requires FD_HAS_HOSTED and FD_HAS_X86 capabilities" ));
+  FD_LOG_WARNING(( "skip: unit test requires FD_HAS_HOSTED capabilities" ));
   fd_halt();
   return 0;
 }

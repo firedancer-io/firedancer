@@ -49,10 +49,10 @@ wd_bcast_wide( double d0, double d1 ) {
   return _mm256_setr_pd( d0, d0, d1, d1 );
 }
 
-/* wd_permute returns [ d(imm_l0) d(imm_l1) d(imm_l2) d(imm_l3) ].
-   imm_l* should be compile time constants in 0:3. */
+/* wd_permute returns [ d(imm_i0) d(imm_i1) d(imm_i2) d(imm_i3) ].
+   imm_i* should be compile time constants in 0:3. */
 
-#define wd_permute(x,imm_l0,imm_l1,imm_l2,imm_l3) _mm256_permute4x64_pd( (x), (imm_l0)+4*(imm_l1)+16*(imm_l2)+64*(imm_l3) )
+#define wd_permute(x,imm_i0,imm_i1,imm_i2,imm_i3) _mm256_permute4x64_pd( (x), (imm_i0)+4*(imm_i1)+16*(imm_i2)+64*(imm_i3) )
 
 /* Predefined constants */
 
@@ -254,11 +254,21 @@ wd_insert_variable( wd_t a, int n, double v ) {
    wd_to_wi_fast(d,i,0) returns [ (int)rint(d0) (int)rint(d1) (int)rint(d2) (int)rint(d3) i4 i5 i6 i7 ]
    wd_to_wi_fast(d,i,1) returns [ i0 i1 i2 i3 (int)rint(d0) (int)rint(d1) (int)rint(d2) (int)rint(d3) ]
 
+   wd_to_wu(d,u,0)      returns [ (uint)d0 (uint)d1 (uint)d2 (uint)d3 u4 u5 u6 u7 ]
+   wd_to_wu(d,u,1)      returns [ u0 u1 u2 u3 (uint)d0 (uint)d1 (uint)d2 (uint)d3 ]
+
+   wd_to_wu_fast(d,u,0) returns [ (uint)rint(d0) (uint)rint(d1) (uint)rint(d2) (uint)rint(d3) u4 u5 u6 u7 ]
+   wd_to_wu_fast(d,u,1) returns [ u0 u1 u2 u3 (uint)rint(d0) (uint)rint(d1) (uint)rint(d2) (uint)rint(d3) ]
+
    wd_to_wl(d)          returns [ (long)d0 (long)d1 (long)d2 (long)d3 ]
+
+   wd_to_wv(d)          returns [ (ulong)d0 (ulong)d1 (ulong)d2 (ulong)d3 ]
 
    where rint is configured for round-to-nearest-even rounding (Intel
    architecture defaults to round-nearest-even here ... sigh, they still
    don't fully get it) and imm_hi should be a compile time constant.
+   That is, the fast variants assume that float point inputs are already
+   integral value in the appropriate range for the output type.
 
    Note that wd_to_{wf,wi,wi_fast} insert the converted values into
    lanes 0:3 (imm_hi==0) or 4:7 (imm_hi!=0) of the provided vector.
@@ -272,11 +282,11 @@ wd_insert_variable( wd_t a, int n, double v ) {
 
 #define wd_to_wf(d,f,imm_hi) _mm256_insertf128_ps( (f), _mm256_cvtpd_ps( (d) ), !!(imm_hi) )
 
-#define wd_to_wi(d,i,imm_hi) \
-  _mm256_insertf128_si256( (i), _mm256_cvtpd_epi32( _mm256_round_pd( (d), _MM_FROUND_TO_ZERO | _MM_FROUND_NO_EXC ) ), !!(imm_hi) )
-#define wd_to_wi_fast(d,i,imm_hi) _mm256_insertf128_si256( (i), _mm256_cvtpd_epi32( (d) ), !!(imm_hi) )
+#define wd_to_wi(d,i,imm_hi) wd_to_wi_fast( _mm256_round_pd( (d), _MM_FROUND_TO_ZERO | _MM_FROUND_NO_EXC ), (i), (imm_hi) )
+#define wd_to_wu(d,u,imm_hi) wd_to_wu_fast( _mm256_round_pd( (d), _MM_FROUND_TO_ZERO | _MM_FROUND_NO_EXC ), (u), (imm_hi) )
 
-/* FIXME: IS IT FASTER TO USE INSERT / EXTRACT HERE? */
+/* FIXME: IS IT FASTER TO USE INSERT / EXTRACT FOR THESE? */
+
 static inline __m256i wd_to_wl( wd_t d ) { /* FIXME: workaround wl_t isn't declared at this point */
   union { double d[4]; __m256d v[1]; } t[1];
   union { long   l[4]; __m256i v[1]; } u[1];
@@ -288,10 +298,50 @@ static inline __m256i wd_to_wl( wd_t d ) { /* FIXME: workaround wl_t isn't decla
   return _mm256_load_si256( u->v );
 }
 
+static inline __m256i wd_to_wv( wd_t d ) { /* FIXME: workaround wv_t isn't declared at this point */
+  union { double d[4]; __m256d v[1]; } t[1];
+  union { ulong  u[4]; __m256i v[1]; } u[1];
+  _mm256_store_pd( t->d, d );
+  u->u[0] = (ulong)t->d[0];
+  u->u[1] = (ulong)t->d[1];
+  u->u[2] = (ulong)t->d[2];
+  u->u[3] = (ulong)t->d[3];
+  return _mm256_load_si256( u->v );
+}
+
+#define wd_to_wi_fast(d,i,imm_hi) _mm256_insertf128_si256( (i), _mm256_cvtpd_epi32( (d) ), !!(imm_hi) )
+
+static inline wu_t wd_to_wu_fast( wd_t d, wu_t u, int imm_hi ) {
+
+  /* Note: Given that _mm256_cvtpd_epi32 exists, Intel clearly has the
+     hardware under the hood to support a _mm256_cvtpd_epu32 but didn't
+     bother to expose it pre-AVX512 ... sigh (all too typical
+     unfortunately).  We note that subtracting 2^31 from a double
+     storing an integer in [0,2^32) is exact and the result can be
+     exactly converted to a signed integer by _mm256_cvtpd_epi32.  We
+     then use twos complement hacks to add any shift. */
+
+  /**/                                                                                     // Assumes d is integer in [0,2^32)
+  wd_t    s  = wd_bcast( (double)(1UL<<31) );                                              // (double)2^31
+  wc_t    c  = wd_lt ( d, s );                                                             // -1L if d<2^31, 0L o.w.
+  wd_t    ds = wd_sub( d, s );                                                             // (double)(d-2^31)
+  __m128  b  = _mm_shuffle_ps( _mm_castsi128_ps( _mm256_extractf128_si256( c, 0 ) ),
+                               _mm_castsi128_ps( _mm256_extractf128_si256( c, 1 ) ),
+                               _MM_SHUFFLE(2,0,2,0) );                                     // -1 if d<2^31, 0 if o.w.
+  __m128i v0 = _mm256_cvtpd_epi32( wd_if( c, d, ds ) );                                    // (uint)(d      if d<2^31, d-2^31 o.w.)
+  __m128i v1 = _mm_add_epi32( v0, _mm_set1_epi32( (int)(1U<<31) ) );                       // (uint)(d+2^31 if d<2^31, d      o.w.)
+  __m128i v  = _mm_castps_si128( _mm_blendv_ps( _mm_castsi128_ps( v1 ),
+                                                _mm_castsi128_ps( v0 ), b ) );             // (uint)d
+  return imm_hi ? _mm256_insertf128_si256( u, v, 1 ) : _mm256_insertf128_si256( u, v, 0 ); // compile time
+
+}
+
 #define wd_to_wc_raw(a) _mm256_castpd_si256( (a) )
 #define wd_to_wf_raw(a) _mm256_castpd_ps(    (a) )
 #define wd_to_wi_raw(a) _mm256_castpd_si256( (a) )
+#define wd_to_wu_raw(a) _mm256_castpd_si256( (a) )
 #define wd_to_wl_raw(a) _mm256_castpd_si256( (a) )
+#define wd_to_wv_raw(a) _mm256_castpd_si256( (a) )
 
 /* Reduction operations */
 
@@ -323,3 +373,23 @@ wd_max_all( wd_t a ) { /* Returns wd_bcast( max( x ) ) */
 
 #define wd_gather(b,i,imm_hi) _mm256_i32gather_pd( (b), _mm256_extractf128_si256( (i), !!(imm_hi) ), 8 )
 
+/* wd_transpose_4x4 transposes the 4x4 matrix stored in wd_t r0,r1,r2,r3
+   and stores the result in 4x4 matrix wd_t c0,c1,c2,c3.  All
+   c0,c1,c2,c3 should be different for a well defined result.
+   Otherwise, in-place operation and/or using the same wd_t to specify
+   multiple rows of r is fine. */
+
+#define wd_transpose_4x4( r0,r1,r2,r3, c0,c1,c2,c3 ) do {                                                                      \
+    wd_t _wd_transpose_r0 = (r0); wd_t _wd_transpose_r1 = (r1); wd_t _wd_transpose_r2 = (r2); wd_t _wd_transpose_r3 = (r3);    \
+    wd_t _wd_transpose_t;                                                                                                      \
+    /* Transpose 2x2 blocks */                                                                                                 \
+    _wd_transpose_t = _wd_transpose_r0; _wd_transpose_r0 = _mm256_permute2f128_pd( _wd_transpose_t,  _wd_transpose_r2, 0x20 ); \
+    /**/                                _wd_transpose_r2 = _mm256_permute2f128_pd( _wd_transpose_t,  _wd_transpose_r2, 0x31 ); \
+    _wd_transpose_t = _wd_transpose_r1; _wd_transpose_r1 = _mm256_permute2f128_pd( _wd_transpose_t,  _wd_transpose_r3, 0x20 ); \
+    /**/                                _wd_transpose_r3 = _mm256_permute2f128_pd( _wd_transpose_t,  _wd_transpose_r3, 0x31 ); \
+    /* Transpose 1x1 blocks */                                                                                                 \
+    /**/                                (c0)             = _mm256_unpacklo_pd(     _wd_transpose_r0, _wd_transpose_r1 );       \
+    /**/                                (c1)             = _mm256_unpackhi_pd(     _wd_transpose_r0, _wd_transpose_r1 );       \
+    /**/                                (c2)             = _mm256_unpacklo_pd(     _wd_transpose_r2, _wd_transpose_r3 );       \
+    /**/                                (c3)             = _mm256_unpackhi_pd(     _wd_transpose_r2, _wd_transpose_r3 );       \
+  } while(0)
