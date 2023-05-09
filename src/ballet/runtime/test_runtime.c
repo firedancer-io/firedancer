@@ -1,4 +1,4 @@
-// sudo /home/jsiegel/repos/firedancer-private/bu   ild/linux/gcc/x86_64/bin/fd_shmem_cfg init 0777 jsiegel ""
+// sudo /home/jsiegel/repos/firedancer-private/build/linux/gcc/x86_64/bin/fd_shmem_cfg init 0777 jsiegel ""
 // sudo /home/jsiegel/repos/firedancer-private/build/linux/gcc/x86_64/bin/fd_shmem_cfg alloc 64 gigantic 0
 // sudo /home/jsiegel/repos/firedancer-private/build/linux/gcc/x86_64/bin/fd_shmem_cfg alloc 512 huge 0
 
