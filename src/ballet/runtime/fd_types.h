@@ -228,20 +228,26 @@ typedef struct fd_delegation fd_delegation_t;
 #define FD_DELEGATION_ALIGN (8UL)
 
 struct fd_delegation_pair {
-  fd_pubkey_t     key;
-  fd_delegation_t value;
+  fd_pubkey_t     account;
+  fd_delegation_t delegation;
 };
 typedef struct fd_delegation_pair fd_delegation_pair_t;
 #define FD_DELEGATION_PAIR_FOOTPRINT sizeof(fd_delegation_pair_t)
 #define FD_DELEGATION_PAIR_ALIGN (8UL)
 
+#define VECT_NAME fd_vec_fd_delegation_pair_t
+#define VECT_ELEMENT fd_delegation_pair_t
+#include "fd_vector.h"
+#undef VECT_NAME
+#undef VECT_ELEMENT
+
+/* https://github.com/solana-labs/solana/blob/88aeaa82a856fc807234e7da0b31b89f2dc0e091/runtime/src/stakes.rs#L147 */
 struct fd_stakes {
-  fd_vote_accounts_t    vote_accounts;
-  ulong                 stake_delegations_len;
-  fd_delegation_pair_t* stake_delegations;
-  unsigned long         unused;
-  unsigned long         epoch;
-  fd_stake_history_t    stake_history;
+  fd_vote_accounts_t            vote_accounts;
+  fd_vec_fd_delegation_pair_t_t stake_delegations;
+  unsigned long                 unused;
+  unsigned long                 epoch;
+  fd_stake_history_t            stake_history;
 };
 typedef struct fd_stakes fd_stakes_t;
 #define FD_STAKES_FOOTPRINT sizeof(fd_stakes_t)

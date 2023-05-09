@@ -1,7 +1,6 @@
 #ifndef HEADER_fd_src_ballet_runtime_fd_sysvar_fees_h
 #define HEADER_fd_src_ballet_runtime_fd_sysvar_fees_h
 
-#include "../../fd_ballet_base.h"
 #include "../fd_executor.h"
 
 /* The fees sysvar contains the fee calculator for the current slot. */

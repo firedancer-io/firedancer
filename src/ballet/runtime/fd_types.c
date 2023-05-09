@@ -788,18 +788,18 @@ void fd_delegation_encode(fd_delegation_t* self, void const** data) {
 }
 
 void fd_delegation_pair_decode(fd_delegation_pair_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
-  fd_pubkey_decode(&self->key, data, dataend, allocf, allocf_arg);
-  fd_delegation_decode(&self->value, data, dataend, allocf, allocf_arg);
+  fd_pubkey_decode(&self->account, data, dataend, allocf, allocf_arg);
+  fd_delegation_decode(&self->delegation, data, dataend, allocf, allocf_arg);
 }
 void fd_delegation_pair_destroy(fd_delegation_pair_t* self, fd_free_fun_t freef, void* freef_arg) {
-  fd_pubkey_destroy(&self->key, freef, freef_arg);
-  fd_delegation_destroy(&self->value, freef, freef_arg);
+  fd_pubkey_destroy(&self->account, freef, freef_arg);
+  fd_delegation_destroy(&self->delegation, freef, freef_arg);
 }
 
 void fd_delegation_pair_walk(fd_delegation_pair_t* self, fd_walk_fun_t fun, const char *name, int level) {
   fun(self, name, 32, "fd_delegation_pair", level++);
-  fd_pubkey_walk(&self->key, fun, "key", level + 1);
-  fd_delegation_walk(&self->value, fun, "value", level + 1);
+  fd_pubkey_walk(&self->account, fun, "account", level + 1);
+  fd_delegation_walk(&self->delegation, fun, "delegation", level + 1);
   fun(self, name, 33, "fd_delegation_pair", --level);
 }
 void fd_delegation_pair_copy_to(fd_delegation_pair_t* to, fd_delegation_pair_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
@@ -811,49 +811,43 @@ void fd_delegation_pair_copy_to(fd_delegation_pair_t* to, fd_delegation_pair_t* 
 }
 ulong fd_delegation_pair_size(fd_delegation_pair_t* self) {
   ulong size = 0;
-  size += fd_pubkey_size(&self->key);
-  size += fd_delegation_size(&self->value);
+  size += fd_pubkey_size(&self->account);
+  size += fd_delegation_size(&self->delegation);
   return size;
 }
 
 void fd_delegation_pair_encode(fd_delegation_pair_t* self, void const** data) {
-  fd_pubkey_encode(&self->key, data);
-  fd_delegation_encode(&self->value, data);
+  fd_pubkey_encode(&self->account, data);
+  fd_delegation_encode(&self->delegation, data);
 }
 
 void fd_stakes_decode(fd_stakes_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
   fd_vote_accounts_decode(&self->vote_accounts, data, dataend, allocf, allocf_arg);
-  fd_bincode_uint64_decode(&self->stake_delegations_len, data, dataend);
-  if (self->stake_delegations_len != 0) {
-    self->stake_delegations = (fd_delegation_pair_t*)(*allocf)(allocf_arg, FD_DELEGATION_PAIR_ALIGN, FD_DELEGATION_PAIR_FOOTPRINT*self->stake_delegations_len);
-    for (ulong i = 0; i < self->stake_delegations_len; ++i)
-      fd_delegation_pair_decode(self->stake_delegations + i, data, dataend, allocf, allocf_arg);
-  } else
-    self->stake_delegations = NULL;
+  fd_vec_fd_delegation_pair_t_new(&self->stake_delegations);
+  ulong stake_delegations_len;
+  fd_bincode_uint64_decode(&stake_delegations_len, data, dataend);
+  for (ulong i = 0; i < stake_delegations_len; ++i) {
+    fd_delegation_pair_t elem;
+    fd_delegation_pair_decode(&elem, data, dataend, allocf, allocf_arg);
+    fd_vec_fd_delegation_pair_t_push(&self->stake_delegations, elem);
+  }
   fd_bincode_uint64_decode(&self->unused, data, dataend);
   fd_bincode_uint64_decode(&self->epoch, data, dataend);
   fd_stake_history_decode(&self->stake_history, data, dataend, allocf, allocf_arg);
 }
 void fd_stakes_destroy(fd_stakes_t* self, fd_free_fun_t freef, void* freef_arg) {
   fd_vote_accounts_destroy(&self->vote_accounts, freef, freef_arg);
-  if (NULL != self->stake_delegations) {
-    for (ulong i = 0; i < self->stake_delegations_len; ++i)
-      fd_delegation_pair_destroy(self->stake_delegations + i, freef, freef_arg);
-    freef(freef_arg, self->stake_delegations);
-    self->stake_delegations = NULL;
-  }
+  fd_vec_fd_delegation_pair_t_destroy(&self->stake_delegations);
   fd_stake_history_destroy(&self->stake_history, freef, freef_arg);
 }
 
 void fd_stakes_walk(fd_stakes_t* self, fd_walk_fun_t fun, const char *name, int level) {
   fun(self, name, 32, "fd_stakes", level++);
   fd_vote_accounts_walk(&self->vote_accounts, fun, "vote_accounts", level + 1);
-  if (self->stake_delegations_len != 0) {
-    fun(NULL, NULL, 30, "stake_delegations", level++);
-    for (ulong i = 0; i < self->stake_delegations_len; ++i)
-      fd_delegation_pair_walk(self->stake_delegations + i, fun, "delegation_pair", level + 1);
-    fun(NULL, NULL, 31, "stake_delegations", --level);
-  }
+  fun(NULL, NULL, 30, "stake_delegations", level++);
+  for (ulong i = 0; i < self->stake_delegations.cnt; ++i)
+    fd_delegation_pair_walk(&self->stake_delegations.elems[i], fun, "stake_delegations", level + 1);
+  fun(NULL, NULL, 31, "stake_delegations", --level);
   fun(&self->unused, "unused", 11, "ulong", level + 1);
   fun(&self->epoch, "epoch", 11, "ulong", level + 1);
   fd_stake_history_walk(&self->stake_history, fun, "stake_history", level + 1);
@@ -870,8 +864,8 @@ ulong fd_stakes_size(fd_stakes_t* self) {
   ulong size = 0;
   size += fd_vote_accounts_size(&self->vote_accounts);
   size += sizeof(ulong);
-  for (ulong i = 0; i < self->stake_delegations_len; ++i)
-    size += fd_delegation_pair_size(self->stake_delegations + i);
+  for (ulong i = 0; i < self->stake_delegations.cnt; ++i)
+    size += fd_delegation_pair_size(&self->stake_delegations.elems[i]);
   size += sizeof(ulong);
   size += sizeof(ulong);
   size += fd_stake_history_size(&self->stake_history);
@@ -880,11 +874,9 @@ ulong fd_stakes_size(fd_stakes_t* self) {
 
 void fd_stakes_encode(fd_stakes_t* self, void const** data) {
   fd_vote_accounts_encode(&self->vote_accounts, data);
-  fd_bincode_uint64_encode(&self->stake_delegations_len, data);
-  if (self->stake_delegations_len != 0) {
-    for (ulong i = 0; i < self->stake_delegations_len; ++i)
-      fd_delegation_pair_encode(self->stake_delegations + i, data);
-  }
+  fd_bincode_uint64_encode(&self->stake_delegations.cnt, data);
+  for (ulong i = 0; i < self->stake_delegations.cnt; ++i)
+    fd_delegation_pair_encode(&self->stake_delegations.elems[i], data);
   fd_bincode_uint64_encode(&self->unused, data);
   fd_bincode_uint64_encode(&self->epoch, data);
   fd_stake_history_encode(&self->stake_history, data);

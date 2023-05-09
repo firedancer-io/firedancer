@@ -233,8 +233,8 @@
       "name": "delegation_pair",
       "type": "struct",
       "fields": [
-        { "name": "key", "type": "pubkey" },
-        { "name": "value", "type": "delegation" }
+        { "name": "account", "type": "pubkey" },
+        { "name": "delegation", "type": "delegation" }
       ]
     },
     {
@@ -242,11 +242,12 @@
       "type": "struct",
       "fields": [
         { "name": "vote_accounts", "type": "vote_accounts" },
-        { "name": "stake_delegations", "type": "vector", "element": "delegation_pair" },
+        { "name": "stake_delegations", "type": "vector_dynamic", "element": "delegation_pair" },
         { "name": "unused", "type": "ulong" },
         { "name": "epoch", "type": "ulong" },
         { "name": "stake_history", "type": "stake_history" }
-      ]
+      ],
+      "comment": "https://github.com/solana-labs/solana/blob/88aeaa82a856fc807234e7da0b31b89f2dc0e091/runtime/src/stakes.rs#L147"
     },
     {
       "name": "bank_incremental_snapshot_persistence",
