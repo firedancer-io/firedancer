@@ -45,15 +45,14 @@ main( int     argc,
   void * shmem = fd_wksp_alloc_laddr( wksp, align, footprint, wksp_tag );
   if( FD_UNLIKELY( !shmem ) ) FD_LOG_ERR(( "Unable to allocate shmem" ));
 
-  FD_TEST( !fd_funk_new( NULL,          wksp_tag,                  seed, txn_max, rec_max ) ); /* NULL shmem */
-  FD_TEST( !fd_funk_new( (void *)1UL,   wksp_tag,                  seed, txn_max, rec_max ) ); /* misaligned shmem */
-  FD_TEST( !fd_funk_new( (void *)align, wksp_tag,                  seed, txn_max, rec_max ) ); /* not a wksp addr */
-  FD_TEST( !fd_funk_new( shmem,         0UL,                       seed, txn_max, rec_max ) ); /* bad tag */
-  FD_TEST( !fd_funk_new( shmem,         FD_WKSP_ALLOC_TAG_MAX+1UL, seed, txn_max, rec_max ) ); /* bad tag */
+  FD_TEST( !fd_funk_new( NULL,          wksp_tag, seed, txn_max, rec_max ) ); /* NULL shmem */
+  FD_TEST( !fd_funk_new( (void *)1UL,   wksp_tag, seed, txn_max, rec_max ) ); /* misaligned shmem */
+  FD_TEST( !fd_funk_new( (void *)align, wksp_tag, seed, txn_max, rec_max ) ); /* not a wksp addr */
+  FD_TEST( !fd_funk_new( shmem,         0UL,      seed, txn_max, rec_max ) ); /* bad tag */
   /* seed is arbitrary */
-  FD_TEST( !fd_funk_new( shmem,         wksp_tag,                  seed, FD_FUNK_TXN_IDX_NULL+1UL,             rec_max ) ); /* idx compr limited */
-  FD_TEST( !fd_funk_new( shmem,         wksp_tag,                  seed, (page_cnt<<30)/sizeof(fd_funk_txn_t), rec_max ) ); /* wksp lim */
-  FD_TEST( !fd_funk_new( shmem,         wksp_tag,                  seed, txn_max, (page_cnt<<30)/sizeof(fd_funk_rec_t) ) );
+  FD_TEST( !fd_funk_new( shmem,         wksp_tag, seed, FD_FUNK_TXN_IDX_NULL+1UL,             rec_max ) ); /* idx compr limited */
+  FD_TEST( !fd_funk_new( shmem,         wksp_tag, seed, (page_cnt<<30)/sizeof(fd_funk_txn_t), rec_max ) ); /* wksp lim */
+  FD_TEST( !fd_funk_new( shmem,         wksp_tag, seed, txn_max, (page_cnt<<30)/sizeof(fd_funk_rec_t) ) );
   void * shfunk = fd_funk_new( shmem, wksp_tag, seed, txn_max, rec_max ); FD_TEST( shfunk==shmem );
 
   FD_TEST( !fd_funk_join( NULL          ) ); /* NULL shmem */
