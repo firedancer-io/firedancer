@@ -1,5 +1,6 @@
 use firedancer_sys::ballet::*;
 use std::ffi::c_void;
+use std::fmt::Debug;
 use solana_program_runtime::compute_budget::ComputeBudget;
 use solana_sdk::pubkey::Pubkey;
 
@@ -11,6 +12,20 @@ static LOADER_KEY: Pubkey = Pubkey::new_from_array([
 
 struct LoadedProgram {
     rodata: Vec<u8>,
+    entry_pc: u64,
+    text_off: i64,
+    text_sz: u64,
+}
+
+impl Debug for LoadedProgram {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::result::Result<(), std::fmt::Error> {
+        writeln!(f, "Rodata size: 0x{:x}", self.rodata.len())?;
+        writeln!(f, "Entrypoint: 0x{:x}", self.entry_pc)?;
+        writeln!(f, "Text offset: 0x{:x}", self.text_off)?;
+        writeln!(f, "Text size: 0x{:x}", self.text_sz)?;
+        writeln!(f, "{}", hexdump(&self.rodata))?;
+        Ok(())
+    }
 }
 
 fn load_program_firedancer(mut elf: Vec<u8>) -> Option<LoadedProgram> {
@@ -50,6 +65,9 @@ fn load_program_firedancer(mut elf: Vec<u8>) -> Option<LoadedProgram> {
                     (*info).rodata_sz as usize,
                 )
                 .to_vec(),
+                entry_pc: (*info).entry_pc,
+                text_off: ((*info).text as *const i8).offset_from((*info).rodata) as i64,
+                text_sz: (*info).text_cnt * 8,
             })
         } else {
             eprintln!(
@@ -85,37 +103,31 @@ fn load_program_labs(elf: Vec<u8>) -> Option<LoadedProgram> {
         /* debugging_features */ false,
     )
     .ok()?;
-    let ro_section = match result.program {
+    let program = match result.program {
         solana_program_runtime::loaded_programs::LoadedProgramType::LegacyV0(e) => e,
         solana_program_runtime::loaded_programs::LoadedProgramType::LegacyV1(e) => e,
         _ => return None,
-    }
-    .get_executable()
-    .get_ro_section()
-    .to_vec();
-    Some(LoadedProgram { rodata: ro_section })
-}
-
-fn hexdump(bytes: &[u8]) -> String {
-    let mut buffer = Vec::<u8>::new();
-    hxdmp::hexdump(bytes, &mut buffer).unwrap();
-    String::from_utf8_lossy(&buffer).to_string()
+    };
+    let executable = program.get_executable();
+    let ro_section = executable.get_ro_section().to_vec();
+    let (text_vaddr, text_section) = executable.get_text_bytes();
+    Some(LoadedProgram {
+        rodata: ro_section,
+        entry_pc: executable.get_entrypoint_instruction_offset() as u64,
+        text_off: (text_vaddr - 0x1_0000_0000) as i64,
+        text_sz: text_section.len() as u64,
+    })
 }
 
 fn main() {
     let elf_bytes = std::fs::read(std::env::args().nth(1).expect("Usage: sbpf-diff <prog>"))
         .expect("read failed");
 
-    let prog_labs = load_program_labs(elf_bytes.clone()).expect("Labs failed to load");
-    let prog_labs_hexdump = hexdump(&prog_labs.rodata);
-
-    let prog_firedancer = load_program_firedancer(elf_bytes).expect("Firedancer failed to load");
-    let prog_firedancer_hexdump = hexdump(&prog_firedancer.rodata);
-
-    //assert_eq!(prog_labs_hexdump.len(), prog_firedancer_hexdump.len(), "length mismatch labs ({}) vs firedancer ({})", prog_labs_hexdump.len(), prog_firedancer_hexdump.len());
+    let prog_sl = format!("{:?}", load_program_labs(elf_bytes.clone()).expect("Labs failed to load"));
+    let prog_fd = format!("{:?}", load_program_firedancer(elf_bytes).expect("Firedancer failed to load"));
 
     let mut matches = true;
-    for diff in diff::lines(&prog_labs_hexdump, &prog_firedancer_hexdump) {
+    for diff in diff::lines(&prog_sl, &prog_fd) {
         let prev_matches = matches;
         matches = false;
         match diff {
@@ -127,4 +139,10 @@ fn main() {
             println!("...");
         }
     }
+}
+
+fn hexdump(bytes: &[u8]) -> String {
+    let mut buffer = Vec::<u8>::new();
+    hxdmp::hexdump(bytes, &mut buffer).unwrap();
+    String::from_utf8_lossy(&buffer).to_string()
 }

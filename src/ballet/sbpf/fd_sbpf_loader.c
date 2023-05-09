@@ -919,8 +919,7 @@ fd_sbpf_make_rodata( fd_sbpf_elf_t *          elf,
   REQUIRE( shidx[ 0 ]!=INVALID_SECTION );
 
   /* Virtual address range of segment */
-  ulong segment_start = ULONG_MAX;
-  ulong segment_end   = 0UL;
+  ulong segment_end = 0UL;
 
   /* Derive segment VA range by spanning all sections */
   ulong tot_section_sz = 0UL;  /* Size of all sections */
@@ -990,7 +989,7 @@ fd_sbpf_make_rodata( fd_sbpf_elf_t *          elf,
   info->rodata    = rodata;
   info->rodata_sz = rodata_sz;
 
-  info->text     = (ulong const *)( rodata + elf->shdr_text->sh_offset - segment_start);
+  info->text     = (ulong const *)( rodata + elf->shdr_text->sh_offset );
   info->text_cnt = elf->shdr_text->sh_size / 8UL;
   info->entry_pc = entry_pc;
 
