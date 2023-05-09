@@ -29,7 +29,7 @@ pub use crate::generated::{
     fd_wksp_new,
 };
 pub use crate::generated::{
-    fd_wksp_alloc,
+    fd_wksp_alloc_at_least,
     fd_wksp_alloc_laddr,
     fd_wksp_free,
     fd_wksp_free_laddr,

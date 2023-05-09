@@ -523,7 +523,7 @@ main( int     argc,
 
   /* Setup TTY */
 
-  printf( TEXT_CUP_HOME );
+  // printf( TEXT_CUP_HOME );
 
   long stop = then + duration;
   for(;;) {
@@ -575,8 +575,8 @@ main( int     argc,
       printf( TEXT_NEWLINE );
     }
     printf( TEXT_NEWLINE );
-    printf( "         link |  tot TPS |  tot bps | uniq TPS | uniq bps |   ha tr%% | uniq bw%% | filt tr%% | filt bw%% |           ovrnp cnt |           ovrnr cnt |            slow cnt" TEXT_NEWLINE );
-    printf( "--------------+----------+----------+----------+----------+----------+----------+-----------+----------+---------------------+---------------------+---------------------"    TEXT_NEWLINE );
+    printf( "          link |  tot TPS |  tot bps | uniq TPS | uniq bps |   ha tr%% | uniq bw%% | filt tr%% | filt bw%% |           ovrnp cnt |           ovrnr cnt |            slow cnt" TEXT_NEWLINE );
+    printf( "---------------+----------+----------+----------+----------+----------+----------+----------+----------+---------------------+---------------------+---------------------"    TEXT_NEWLINE );
     long dt = now-then;
     ulong verifyin_link_cnt = fd_ulong_min( verify_cnt, quic_cnt );
     for( ulong i=0; i<verifyin_link_cnt; i++ ) {
@@ -591,9 +591,9 @@ main( int     argc,
     /* Switch to alternate screen and erase junk below
        TODO ideally we'd have the last iteration on the main buffer and only the rest on ALTBUF */
 
-    printf( TEXT_ALTBUF_ENABLE
-            TEXT_ED
-            TEXT_CUP_HOME );
+    // printf( TEXT_ALTBUF_ENABLE
+    //         TEXT_ED
+    //         TEXT_CUP_HOME );
 
     /* Stop once we've been monitoring for duration ns */
 

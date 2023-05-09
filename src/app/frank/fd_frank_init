@@ -20,7 +20,7 @@ CONF=tmp/$APP.cfg
 CONF_DIR=tmp/$APP
 
 WKSP=$APP.wksp
-WKSP_PAGE_CNT=32
+WKSP_PAGE_CNT=2
 WKSP_PAGE_SZ=gigantic
 WKSP_PERM=0600
 
@@ -147,6 +147,7 @@ for addr in "${LISTEN_ADDRS[@]}"; do
   "$BUILD"/bin/fd_xdp_ctl listen-udp-port $APP $addr $QUIC_LISTEN_PORT tpu-quic || exit $?
 done
 SRC_MAC_ADDR="$(ip address show dev veth_test_xdp_0 | grep "link/ether" | awk '{print $2}')" || exit $?
+echo "got mac addr $SRC_MAC_ADDR"
 
 # For now, let each QUIC publish to one verifyin
 # TODO manage XSK queue <-> QUIC tile core mapping
@@ -214,7 +215,9 @@ echo ""
 echo "Generating certs"
 (
   cd "$CONF_DIR"
-  ../../contrib/gen-pem-cert.sh
+  openssl req -x509 -newkey ed25519 -days 365 -nodes \
+    -keyout key.pem -out cert.pem -subj "/CN=localhost" \
+    -addext "subjectAltName=DNS:localhost,IP:127.0.0.1"
 )
 "$BUILD"/bin/fd_pod_ctl \
   insert "$POD" cstr   $APP.quic_cfg.cert_file       "$(realpath "$CONF_DIR/cert.pem" )" \

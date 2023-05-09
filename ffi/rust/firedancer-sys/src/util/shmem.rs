@@ -19,7 +19,7 @@ pub use crate::generated::{
     fd_shmem_acquire,
     fd_shmem_cpu_cnt,
     fd_shmem_cpu_idx,
-    fd_shmem_create,
+    fd_shmem_create_multi,
     fd_shmem_info,
     fd_shmem_name_len,
     fd_shmem_numa_cnt,

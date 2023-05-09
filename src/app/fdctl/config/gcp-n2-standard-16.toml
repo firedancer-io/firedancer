@@ -1,0 +1,75 @@
+# Name of this Firedancer instance. This name serves as a unique token so that multiple Firedancer
+# instances can run side by side without conflicting when they need to share a system or kernel
+# namespace. When starting a Firedancer instance, it will potentially load, reset, or overwrite
+# any state created by a prior, or currently running instance with the same name.
+name = "frank"
+
+# The user to permission data and run Firedancer as. If empty, will default to the terminal user
+# running the command. Note that if running as sudo, the user will not be root but the user which
+# invoked sudo.
+user = ""
+
+# Directory to place scratch files used during setup and operation.
+scratch_directory = "/home/{user}/.firedancer/{name}"
+
+# CPU cores to run Firedancer tiles on. Can be specified as a single core like "0", a range like
+# "0-10", or a range with stride like "0-10/2". Stride is useful when CPU cores should be skipped
+# due to NUMA layout or hyperthreading.
+affinity = "0-10"
+
+pod_size = 16384
+cnc_app_size = 4032
+
+[workspace]
+page_size = "gigantic"
+page_count = 2
+
+[shmem]
+path = "/mnt/.fd"
+gigantic_pages = 2
+huge_pages = 512
+
+[netns]
+enabled = true
+workspace = "test_xdp"
+interface0 = "veth_test_xdp_0"
+interface0_mac = "52:F1:7E:DA:2C:E0"
+interface0_addr = "198.18.0.1"
+interface1 = "veth_test_xdp_1"
+interface1_mac = "52:F1:7E:DA:2C:E1"
+interface1_addr = "198.18.0.2"
+
+[tiles]
+
+[tiles.quic]
+interface = "veth_test_xdp_0"
+listen_port = 9001
+connection_count = 32
+connection_id_count = 16
+stream_count = 64
+handshake_count = 64
+max_inflight_packets = 1024
+tx_buf_size = 2048
+rx_buf_size = 2048
+xdp_mode = "skb"
+xdp_frame_size = 2048
+xdp_rx_depth = 4096
+xdp_tx_depth = 4096
+xdp_aio_depth = 4096
+
+[tiles.verify]
+count = 4
+depth = 16384
+mtu = 4804
+
+[tiles.pack]
+bank_count = 4
+prq_size = 4096
+cu_est_table_size = 1024
+cu_est_history = 1000
+cu_est_default = 200000
+cu_limit = 12000001
+
+[tiles.dedup]
+tcache_depth = 4194302
+tcache_map_count = 0

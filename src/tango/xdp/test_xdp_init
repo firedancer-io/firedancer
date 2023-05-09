@@ -115,10 +115,10 @@ rm -rvf /sys/fs/bpf/"$WKSP"
 
 # Install XDP program
 
-"$BIN/fd_xdp_ctl" unhook-iface --netns "$NETNS0" "$WKSP" "$IFACE0" # Okay if this fails
-"$BIN/fd_xdp_ctl" unhook-iface --netns "$NETNS1" "$WKSP" "$IFACE1" # Okay if this fails
-#"$BIN/fd_xdp_ctl"   hook-iface --netns "$NETNS0" "$WKSP" "$IFACE0" drv || exit $?
-#"$BIN/fd_xdp_ctl"   hook-iface --netns "$NETNS1" "$WKSP" "$IFACE1" drv || exit $?
+# "$BIN/fd_xdp_ctl" unhook-iface --netns "$NETNS0" "$WKSP" "$IFACE0" # Okay if this fails
+# "$BIN/fd_xdp_ctl" unhook-iface --netns "$NETNS1" "$WKSP" "$IFACE1" # Okay if this fails
+# "$BIN/fd_xdp_ctl"   hook-iface --netns "$NETNS0" "$WKSP" "$IFACE0" drv || exit $?
+# "$BIN/fd_xdp_ctl"   hook-iface --netns "$NETNS1" "$WKSP" "$IFACE1" drv || exit $?
 
 # Show XDP program status (xdp-tools)
 
@@ -129,18 +129,18 @@ fi
 
 # Setup listener
 
-"$BIN/fd_xdp_ctl" listen-udp-port "$WKSP" "$IFACE0_ADDR" "$QUIC_PORT" tpu-quic-user || exit $?
+# "$BIN/fd_xdp_ctl" listen-udp-port "$WKSP" "$IFACE0_ADDR" "$QUIC_PORT" tpu-quic-user || exit $?
 
 # Setup XSK
 
-XSK0="$(    "$BIN/fd_xdp_ctl" new-xsk     "$WKSP" "$XSK_FRAME_SZ" "$XSK_RX_DEPTH" "$XSK_TX_DEPTH")" || exit $?
-XSK_AIO0="$("$BIN/fd_xdp_ctl" new-xsk-aio "$WKSP" "$XSK_TX_DEPTH" "$AIO_BATCH_CNT"               )" || exit $?
-
-XSK1="$(    "$BIN/fd_xdp_ctl" new-xsk     "$WKSP" "$XSK_FRAME_SZ" "$XSK_RX_DEPTH" "$XSK_TX_DEPTH")" || exit $?
-XSK_AIO1="$("$BIN/fd_xdp_ctl" new-xsk-aio "$WKSP" "$XSK_TX_DEPTH" "$AIO_BATCH_CNT"               )" || exit $?
-
-"$BIN/fd_xdp_ctl" --netns "$NETNS0" bind-xsk "$XSK0" "$WKSP" "$IFACE0" 0 || exit $?
-"$BIN/fd_xdp_ctl" --netns "$NETNS1" bind-xsk "$XSK1" "$WKSP" "$IFACE1" 0 || exit $?
+# XSK0="$(    "$BIN/fd_xdp_ctl" new-xsk     "$WKSP" "$XSK_FRAME_SZ" "$XSK_RX_DEPTH" "$XSK_TX_DEPTH")" || exit $?
+# XSK_AIO0="$("$BIN/fd_xdp_ctl" new-xsk-aio "$WKSP" "$XSK_TX_DEPTH" "$AIO_BATCH_CNT"               )" || exit $?
+# 
+# XSK1="$(    "$BIN/fd_xdp_ctl" new-xsk     "$WKSP" "$XSK_FRAME_SZ" "$XSK_RX_DEPTH" "$XSK_TX_DEPTH")" || exit $?
+# XSK_AIO1="$("$BIN/fd_xdp_ctl" new-xsk-aio "$WKSP" "$XSK_TX_DEPTH" "$AIO_BATCH_CNT"               )" || exit $?
+# 
+# "$BIN/fd_xdp_ctl" --netns "$NETNS0" bind-xsk "$XSK0" "$WKSP" "$IFACE0" 0 || exit $?
+# "$BIN/fd_xdp_ctl" --netns "$NETNS1" bind-xsk "$XSK1" "$WKSP" "$IFACE1" 0 || exit $?
 
 # Write out the details
 
