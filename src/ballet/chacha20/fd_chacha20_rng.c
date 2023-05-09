@@ -1,7 +1,7 @@
 #include <openssl/evp.h>
 #include "fd_chacha20_rng.h"
 
-static int fd_chacha20_rng_init(EVP_CIPHER_CTX *ctx, const unsigned char *key, const unsigned char *nonce)
+static int fd_chacha20_rng_init(EVP_CIPHER_CTX *ctx, const uchar *key, const uchar *nonce)
 {
   if (ctx == NULL)
   {
@@ -21,7 +21,7 @@ static int fd_chacha20_rng_init(EVP_CIPHER_CTX *ctx, const unsigned char *key, c
 
 static int fd_chacha20_rng_generate(EVP_CIPHER_CTX *ctx, fd_chacha20_rng_t *random_number)
 {
-  unsigned char buf[4]; // 4 bytes -> 32 bits
+  uchar buf[4]; // 4 bytes -> 32 bits
   int outlen;
 
   // Generate a random 32-bit number
@@ -36,7 +36,7 @@ static int fd_chacha20_rng_generate(EVP_CIPHER_CTX *ctx, fd_chacha20_rng_t *rand
   return 0;
 }
 
-int fd_chacha20_generate_random_number(const unsigned char *key, const unsigned char *nonce, fd_chacha20_rng_t *random_number)
+int fd_chacha20_generate_random_number(const uchar *key, const uchar *nonce, fd_chacha20_rng_t *random_number)
 {
   // Create the ChaCha20 context
   EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
