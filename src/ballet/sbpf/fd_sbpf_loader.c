@@ -802,18 +802,20 @@ fd_sbpf_hash_calls( fd_sbpf_elf_t * prog,
   uchar * ptr      = bin + shtext->sh_offset;
   ulong   insn_cnt = shtext->sh_type!=FD_ELF_SHT_NULL ? shtext->sh_size / 8UL : 0UL;
 
-  for( ulong i=0; i<insn_cnt; i++ ) {
+  for( ulong i=0; i<insn_cnt; i++, ptr+=8UL ) {
     ulong insn = FD_LOAD( ulong, ptr );
 
     /* Check for call instruction.  If immediate is UINT_MAX, assume
        that compiler generated a relocation instead. */
-    ulong opc  = insn & 0xFF;
-    ulong imm  = insn >> 32UL;
-    if( (opc!=0x85) | (imm==UINT_MAX) )
+    ulong opc = insn & 0xFF;
+    int   imm = (int)(insn >> 32UL);
+    if( (opc!=0x85) | (imm==-1) )
       continue;
 
     /* Mark function call destination */
-    ulong target_pc = i+1UL+imm;    /* cannot overflow */
+    long target_pc_s;
+    REQUIRE( 0==__builtin_saddl_overflow( (long)i+1UL, imm, &target_pc_s ) );
+    ulong target_pc = (ulong)target_pc_s;
     REQUIRE( target_pc<insn_cnt );  /* bounds check target */
 
     /* Derive hash and insert */
@@ -823,8 +825,6 @@ fd_sbpf_hash_calls( fd_sbpf_elf_t * prog,
 
     /* Replace immediate with hash */
     FD_STORE( uint, ptr+4UL, hash );
-
-    ptr += 8UL;
   }
 
   return 0;
@@ -945,8 +945,7 @@ fd_sbpf_make_rodata( fd_sbpf_elf_t *          elf,
     REQUIRE( paddr_end <= bin_sz          );
 
     /* Expand range to fit section */
-    segment_start = fd_ulong_min( segment_start, shdr->sh_addr );
-    segment_end   = fd_ulong_max( segment_end,   sh_end        );
+    segment_end = fd_ulong_max( segment_end, sh_end );
 
     /* Bounds check total section size */
     REQUIRE( tot_section_sz + sh_size >= tot_section_sz ); /* overflow check */
@@ -954,36 +953,28 @@ fd_sbpf_make_rodata( fd_sbpf_elf_t *          elf,
   }
 
   /* More coherence checks ... these should never fail */
-  REQUIRE( ro_section_cnt>0UL         );
-  REQUIRE( segment_start<=segment_end );
-  REQUIRE( segment_end  <=bin_sz      );
+  REQUIRE( ro_section_cnt>0UL    );
+  REQUIRE( segment_end  <=bin_sz );
 
   /* More overlap checks */
-  REQUIRE( segment_start+tot_section_sz >= segment_start ); /* overflow check */
-  REQUIRE( segment_start+tot_section_sz <= segment_end   ); /* overlap check  */
+  REQUIRE( tot_section_sz <= segment_end ); /* overlap check */
 
   /* Create segment */
-  uchar * rodata     = bin + segment_start;
-  ulong   rodata_off = segment_start;
-  ulong   rodata_sz  = segment_end-segment_start;
+  uchar * rodata    = bin;
+  ulong   rodata_sz = segment_end;
 
-  /* If section indices are a contiguous integer range, sections within
-     segment are already at the right offsets. */
-  int is_contiguous = (shidx[ ro_section_cnt-1UL ] - shidx[ 0 ] + 1) == ro_section_cnt;
-  if( !is_contiguous ) {
-    /* memset gaps between sections to zero.
-       Assume section sh_addrs are monotonically increasing.
-       Assume section virtual address ranges equal physical address ranges.
-       Assume ranges are not overflowing. */
-    /* FIXME match Solana more closely here */
+  /* memset gaps between sections to zero.
+      Assume section sh_addrs are monotonically increasing.
+      Assume section virtual address ranges equal physical address ranges.
+      Assume ranges are not overflowing. */
+  /* FIXME match Solana more closely here */
 
-    ulong cursor = rodata_off;
-    for( uint i=0; i<ro_section_cnt; i++ ) {
-      fd_elf64_shdr const * shdr = &shdrs[ shidx[ i ] ];
-      if( FD_UNLIKELY( shdr->sh_type == FD_ELF_SHT_NOBITS ) ) continue;
-      fd_memset( rodata+cursor, 0, shdr->sh_addr - cursor );
-      cursor = shdr->sh_addr + shdr->sh_size;
-    }
+  ulong cursor = 0UL;
+  for( uint i=0; i<ro_section_cnt; i++ ) {
+    fd_elf64_shdr const * shdr = &shdrs[ shidx[ i ] ];
+    if( FD_UNLIKELY( shdr->sh_type == FD_ELF_SHT_NOBITS ) ) continue;
+    fd_memset( rodata+cursor, 0, shdr->sh_addr - cursor );
+    cursor = shdr->sh_addr + shdr->sh_size;
   }
 
   /* Convert entrypoint offset to program counter */
@@ -996,9 +987,8 @@ fd_sbpf_make_rodata( fd_sbpf_elf_t *          elf,
 
   /* Write info */
 
-  info->rodata     = rodata;
-  info->rodata_off = rodata_off;
-  info->rodata_sz  = rodata_sz;
+  info->rodata    = rodata;
+  info->rodata_sz = rodata_sz;
 
   info->text     = (ulong const *)( rodata + elf->shdr_text->sh_offset - segment_start);
   info->text_cnt = elf->shdr_text->sh_size / 8UL;
@@ -1016,7 +1006,7 @@ fd_sbpf_program_load( fd_sbpf_program_t *  prog,
   int err;
   uchar * bin = (uchar *)_bin;
 
-  fd_sbpf_program_info_t * info = fd_sbpf_program_get_info( prog );
+  fd_sbpf_program_info_t * info = (fd_sbpf_program_info_t *)prog;
   fd_sbpf_elf_t elf = { .calldests=info->calldests,
                         .syscalls =syscalls };
 
