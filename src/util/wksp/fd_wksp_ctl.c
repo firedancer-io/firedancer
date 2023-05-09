@@ -3,6 +3,8 @@
 
 #if FD_HAS_HOSTED
 
+/* TODO: add owner query */
+
 #include <stdio.h>
 #include <sys/stat.h>
 
@@ -15,8 +17,6 @@ FD_IMPORT_CSTR( fd_wksp_ctl_help, "src/util/wksp/fd_wksp_ctl_help" );
 static int
 fprintf_wksp( FILE *      file,
               fd_wksp_t * wksp ) {
-  ulong cnt = 0UL;
-  int   ret = 0;
 
   if( FD_UNLIKELY( !file ) ) {
     FD_LOG_WARNING(( "NULL file" ));
@@ -28,66 +28,85 @@ fprintf_wksp( FILE *      file,
     return -1;
   }
 
-  fd_wksp_private_lock( wksp );
+  int ret = 0;
+# define TRAP(x) do { int _err = (x); if( _err<0 ) { fd_wksp_private_unlock( wksp ); return _err; } ret += _err; } while(0)
 
-  fd_wksp_private_part_t * part     = wksp->part;
-  ulong                    part_cnt = wksp->part_cnt;
-  ulong                    part_max = wksp->part_max;
-  ulong                    gaddr_lo = wksp->gaddr_lo;
-  ulong                    gaddr_hi = wksp->gaddr_hi;
+  ulong part_max = wksp->part_max;
+  ulong gaddr_lo = wksp->gaddr_lo;
+  ulong gaddr_hi = wksp->gaddr_hi;
 
-  int err;
-# define TRAP(x) do { err = (x); if( err<0 ) { fd_wksp_private_unlock( wksp ); return err; } ret += err; } while(0)
+  fd_wksp_private_pinfo_t * pinfo = fd_wksp_private_pinfo( wksp );
 
-  TRAP( fprintf( file, "wksp %s", wksp->name ) );
-  TRAP( fprintf( file, "\n\tpart_cnt %li part_max %li gaddr [0x%016lx,0x%016lx)", part_cnt, part_max, gaddr_lo, gaddr_hi ) );
-  if( ! (1UL<=part_max)                                         ) { cnt++; TRAP( fprintf( file, " max_err"     ) ); }
-  if( !((1UL<=part_cnt) & (part_cnt<=part_max))                 ) { cnt++; TRAP( fprintf( file, " cnt_err"     ) ); }
-  if( !fd_ulong_is_aligned( gaddr_hi, FD_WKSP_ALLOC_ALIGN_MIN ) ) { cnt++; TRAP( fprintf( file, " alignhi_err" ) ); }
-  TRAP( fprintf( file, "\n" ) );
+  TRAP( fprintf( file,
+                 "wksp %s\n"
+                 "\tmagic     0x%016lx\n"
+                 "\tseed      %u\n"
+                 "\tpart_max  %lu\n"
+                 "\tdata_max  %lu\n"
+                 "\tgaddr     [0x%016lx,0x%016lx)\n",
+                 wksp->name, wksp->magic, wksp->seed, part_max, wksp->data_max, gaddr_lo, gaddr_hi ) );
 
-  ulong active_cnt = 0UL; ulong inactive_cnt = 0UL;
-  ulong active_sz  = 0UL; ulong inactive_sz  = 0UL;
-  ulong active_max = 0UL; ulong inactive_max = 0UL;
+  /* TODO: considering running verify and/or doing extra metadata
+     integrity checks */
 
-  int last_active = 1;
-  for( ulong i=0UL; i<part_cnt; i++ ) {
-    ulong tag    = fd_wksp_private_part_tag  (  part[i    ] );
-    ulong lo     = fd_wksp_private_part_gaddr(  part[i    ] );
-    ulong hi     = fd_wksp_private_part_gaddr(  part[i+1UL] );
-
-    ulong sz = hi-lo;
-
-    int active = !!tag;
-    if( active ) {
-      active_cnt++;
-      active_sz += sz;
-      if( sz>active_max ) active_max = sz;
-    } else {
-      inactive_cnt++;
-      inactive_sz += sz;
-      if( sz>inactive_max ) inactive_max = sz;
+  ulong cnt = 0UL;
+ 
+  if( FD_UNLIKELY( fd_wksp_private_lock( wksp ) ) ) { cnt++; TRAP( fprintf( file, "\tlock err\n" ) ); }
+  else {
+    ulong used_cnt = 0UL; ulong free_cnt = 0UL;
+    ulong used_sz  = 0UL; ulong free_sz  = 0UL;
+    ulong used_max = 0UL; ulong free_max = 0UL;
+ 
+    ulong cycle_tag = wksp->cycle_tag++;
+ 
+    ulong last_i  = FD_WKSP_PRIVATE_PINFO_IDX_NULL;
+    ulong last_hi = gaddr_lo;
+    ulong i       = fd_wksp_private_pinfo_idx( wksp->part_head_cidx );
+    while( !fd_wksp_private_pinfo_idx_is_null( i ) ) {
+      if( FD_UNLIKELY( i>=part_max                     ) ) { cnt++; TRAP( fprintf( file, "\tindex err\n" ) ); break; }
+      if( FD_UNLIKELY( pinfo[ i ].cycle_tag==cycle_tag ) ) { cnt++; TRAP( fprintf( file, "\tcycle err\n" ) ); break; }
+      pinfo[ i ].cycle_tag = cycle_tag;
+ 
+      ulong lo  = pinfo[ i ].gaddr_lo;
+      ulong hi  = pinfo[ i ].gaddr_hi;
+      ulong tag = pinfo[ i ].tag;
+      ulong sz  = hi - lo;
+      ulong h   = fd_wksp_private_pinfo_idx( pinfo[ i ].prev_cidx );
+ 
+      int used = !!tag;
+      if( used ) {
+        used_cnt++;
+        used_sz += sz;
+        if( sz>used_max ) used_max = sz;
+      } else {
+        free_cnt++;
+        free_sz += sz;
+        if( sz>free_max ) free_max = sz;
+      }
+ 
+      TRAP( fprintf( file, "\tpartition [0x%016lx,0x%016lx) sz %20lu tag %20lu idx %lu", lo, hi, sz, tag, i ) );
+      if( FD_UNLIKELY( h !=last_i  ) ) { cnt++; TRAP( fprintf( file, ", link_err"     ) ); }
+      if( FD_UNLIKELY( lo!=last_hi ) ) { cnt++; TRAP( fprintf( file, ", adjacent_err" ) ); }
+      if( FD_UNLIKELY( lo>=hi      ) ) { cnt++; TRAP( fprintf( file, ", size_err"     ) ); }
+      TRAP( fprintf( file, "\n" ) );
+ 
+      last_i  = i;
+      last_hi = hi;
+      i       = fd_wksp_private_pinfo_idx( pinfo[ i ].next_cidx );
     }
+ 
+    ulong j = fd_wksp_private_pinfo_idx( wksp->part_tail_cidx );
+    if( FD_UNLIKELY(        j!=last_i  ) ) { cnt++; TRAP( fprintf( file, "\ttail err\n"       ) ); }
+    if( FD_UNLIKELY( gaddr_hi!=last_hi ) ) { cnt++; TRAP( fprintf( file, "\tincomplete err\n" ) ); }
+ 
+    TRAP( fprintf( file, "\t%20lu bytes used (%20lu alloc(s), largest %20lu bytes)\n", used_sz, used_cnt, used_max ) );
+    TRAP( fprintf( file, "\t%20lu bytes free (%20lu block(s), largest %20lu bytes)\n", free_sz, free_cnt, free_max ) );
 
-    TRAP( fprintf( file, "\tpartition %20li: [0x%016lx,0x%016lx) sz %20lu tag %4lu", i, lo, hi, sz, tag ) );
-
-    if( lo>=hi                                                            ) { cnt++; TRAP( fprintf( file, " part_err"      ) ); }
-    if( ((i==0UL)            & (lo!=gaddr_lo))                            ) { cnt++; TRAP( fprintf( file, " lo_err"        ) ); }
-    if( ((i==(part_cnt-1UL)) & (hi!=gaddr_hi))                            ) { cnt++; TRAP( fprintf( file, " hi_err"        ) ); }
-    if( i==(part_cnt-1UL) && fd_wksp_private_part_tag( part[i+1UL] )!=1UL ) { cnt++; TRAP( fprintf( file, " hi_active_err" ) ); }
-    if( !fd_ulong_is_aligned( lo, FD_WKSP_ALLOC_ALIGN_MIN )               ) { cnt++; TRAP( fprintf( file, " align_err"     ) ); }
-    if( ((!last_active) & (!active))                                      ) { cnt++; TRAP( fprintf( file, " merge_err"     ) ); }
-    TRAP( fprintf( file, "\n" ) );
-
-    last_active = active;
+    fd_wksp_private_unlock( wksp );
   }
 
-  TRAP( fprintf( file, "\t%20lu bytes used  (%20lu alloc(s), largest %20lu bytes)\n",   active_sz,   active_cnt,   active_max ) );
-  TRAP( fprintf( file, "\t%20lu bytes avail (%20lu block(s), largest %20lu bytes)\n", inactive_sz, inactive_cnt, inactive_max ) );
   TRAP( fprintf( file, "\t%20lu errors detected\n", cnt ) );
-
 # undef TRAP
-  fd_wksp_private_unlock( wksp );
 
   return ret;
 }
@@ -136,7 +155,7 @@ main( int     argc,
       char const * seq      =                           argv[3];
       ulong        mode     = fd_cstr_to_ulong_octal  ( argv[4] );
 
-      /* Create the shared memory region for the workspace */
+      /* Partition the pages over the seq */
 
       ulong sub_page_cnt[ 512 ];
       ulong sub_cpu_idx [ 512 ];
@@ -154,46 +173,14 @@ main( int     argc,
       ulong sub_page_rem = page_cnt % sub_cnt;
       for( ulong sub_idx=0UL; sub_idx<sub_cnt; sub_idx++ ) sub_page_cnt[ sub_idx ] = sub_page_min + (ulong)(sub_idx<sub_page_rem);
 
-      if( FD_UNLIKELY( fd_shmem_create_multi( name, page_sz, sub_cnt, sub_page_cnt, sub_cpu_idx, mode ) ) ) /* logs details */
-        FD_LOG_ERR(( "%i: %s %s %lu %s %s 0%03lo: fd_shmem_create_multi failed\n\t"
-                     "Do %s help for help", cnt, cmd, name, page_cnt, argv[2], seq, mode, bin ));
+      /* Create the workspace */
 
-      ulong sz = page_cnt*page_sz; /* Safe as create succeeded */
-      if( FD_UNLIKELY( !((fd_wksp_align()<=page_sz) & (fd_wksp_footprint( sz )==sz)) ) ) { /* paranoid checks */
-        fd_shmem_unlink( name, page_sz ); /* logs details */
-        FD_LOG_ERR(( "%i: %s %s %lu %s %s 0%03lo: internal error\n\t"
-                     "Do %s help for help", cnt, cmd, name, page_cnt, argv[2], seq, mode, bin ));
-      }
+      /* TODO: allow user to specify seed and/or part_max */
+      int err = fd_wksp_new_named( name, page_sz, sub_cnt, sub_page_cnt, sub_cpu_idx, mode, 0U, 0UL ); /* logs details */
+      if( FD_UNLIKELY( err ) )
+        FD_LOG_ERR(( "%i: %s %s %lu %s %s 0%03lo: fd_wksp_new_named failed (%i-%s)\n\t"
+                     "Do %s help for help", cnt, cmd, name, page_cnt, argv[2], seq, mode, err, fd_wksp_strerror( err ), bin ));
 
-      /* Join the region */
-
-      fd_shmem_join_info_t info[1];
-      void * shmem = fd_shmem_join( name, FD_SHMEM_JOIN_MODE_READ_WRITE, NULL, NULL, info );
-      if( FD_UNLIKELY( !shmem ) ) {
-        fd_shmem_unlink( name, page_sz ); /* logs details */
-        FD_LOG_ERR(( "%i: %s %s %lu %s %s 0%03lo: fd_shmem_join failed\n\t"
-                     "Do %s help for help", cnt, cmd, name, page_cnt, argv[2], seq, mode, bin ));
-      }
-
-      if( FD_UNLIKELY( ((info->page_sz!=page_sz) | (info->page_cnt!=page_cnt)) ) ) { /* paranoid checks */
-        fd_shmem_unlink( name, page_sz ); /* logs details */
-        fd_shmem_leave( shmem, NULL, NULL ); /* logs details */ /* after the unlink as per unix file semantics */
-        FD_LOG_ERR(( "%i: %s %s %lu %s %s 0%03lo: multiple regions with same name but different sizes detected\n\t"
-                     "Do %s help for help", cnt, cmd, name, page_cnt, argv[2], seq, mode, bin ));
-      }
-
-      /* Format the region as a workspace */
-
-      if( FD_UNLIKELY( !fd_wksp_new( shmem, name, sz, 0UL ) ) ) {
-        fd_shmem_unlink( name, page_sz ); /* logs details */
-        fd_shmem_leave( shmem, NULL, NULL ); /* logs details */ /* after the unlink as per unix file semantics */
-        FD_LOG_ERR(( "%i: %s %s %lu %s %s 0%03lo: fd_wksp_new failed\n\t"
-                     "Do %s help for help", cnt, cmd, name, page_cnt, argv[2], seq, mode, bin ));
-      }
-
-      /* Leave the region */
-
-      fd_shmem_leave( shmem, NULL, NULL ); /* logs details */
       FD_LOG_NOTICE(( "%i: %s %s %lu %s %s 0%03lo: success", cnt, cmd, name, page_cnt, argv[2], seq, mode ));
       SHIFT(5);
 
@@ -203,30 +190,11 @@ main( int     argc,
 
       char const * name = argv[0];
 
-      /* Join the region and get the page size */
+      int err = fd_wksp_delete_named( name );
+      if( FD_UNLIKELY( err ) )
+        FD_LOG_ERR(( "%i: %s %s: fd_wksp_delete_named failed (%i-%s)\n\t"
+                     "Do %s help for help", cnt, cmd, name, err, fd_wksp_strerror( err ), bin ));
 
-      fd_shmem_join_info_t info[1];
-      void * shmem = fd_shmem_join( name, FD_SHMEM_JOIN_MODE_READ_WRITE, NULL, NULL, info ); /* logs details */
-      if( FD_UNLIKELY( !shmem ) ) FD_LOG_ERR(( "%i: %s %s: fd_shmem_join failed\n\tDo %s help for help", cnt, cmd, name, bin ));
-      ulong page_sz = info->page_sz;
-
-      /* Unformat the region */
-
-      if( FD_UNLIKELY( !fd_wksp_delete( shmem ) ) ) {
-        fd_shmem_leave( shmem, NULL, NULL ); /* logs details */
-        FD_LOG_ERR(( "%i: %s %s: fd_shmem_delete failed\n\t"
-                     "Do %s help for help", cnt, cmd, name, bin ));
-      }
-
-      /* Unlink the region */
-
-      if( FD_UNLIKELY( fd_shmem_unlink( name, page_sz ) ) ) { /* logs details */
-        fd_shmem_leave( shmem, NULL, NULL ); /* logs details */
-        FD_LOG_ERR(( "%i: %s %s: fd_shmem_unlink failed\n\t"
-                     "Do %s help for help", cnt, cmd, name, bin ));
-      }
-
-      fd_shmem_leave( shmem, NULL, NULL ); /* logs details */ /* after the unlink as per unix file semantics */
       FD_LOG_NOTICE(( "%i: %s %s: success", cnt, cmd, name ));
       SHIFT(1);
 
@@ -303,12 +271,56 @@ main( int     argc,
       char const * name = argv[0];
 
       fd_wksp_t * wksp = fd_wksp_attach( name ); /* logs details */
-      if( FD_UNLIKELY( !wksp ) ) FD_LOG_ERR(( "%i: %s: wksp_attach failed", cnt, cmd ));
-      fd_wksp_check( wksp ); /* logs details */
+      if( FD_UNLIKELY( !wksp ) ) FD_LOG_ERR(( "%i: %s %s: wksp_attach failed", cnt, cmd, name ));
+
+      if( FD_UNLIKELY( fd_wksp_private_lock( wksp ) ) ) FD_LOG_ERR(( "%i: %s %s: failed", cnt, cmd, name )); /* logs details */
+      fd_wksp_private_unlock( wksp );
+
       fd_wksp_detach( wksp ); /* logs details */
 
       FD_LOG_NOTICE(( "%i: %s %s: success", cnt, cmd, name ));
       SHIFT(1);
+
+    } else if( !strcmp( cmd, "verify" ) ) {
+
+      if( FD_UNLIKELY( argc<1 ) ) FD_LOG_ERR(( "%i: %s: too few arguments\n\tDo %s help for help", cnt, cmd, bin ));
+
+      char const * name = argv[0];
+
+      fd_wksp_t * wksp = fd_wksp_attach( name ); /* logs details */
+      if( FD_UNLIKELY( !wksp ) ) FD_LOG_ERR(( "%i: %s %s: wksp_attach failed", cnt, cmd, name ));
+
+      if( FD_UNLIKELY( fd_wksp_private_lock( wksp ) ) || /* logs details */
+          FD_UNLIKELY( fd_wksp_verify( wksp )       ) )  /* logs details */
+        FD_LOG_ERR(( "%i: %s %s: failed", cnt, cmd, name ));
+      fd_wksp_private_unlock( wksp );
+
+      fd_wksp_detach( wksp ); /* logs details */
+
+      FD_LOG_NOTICE(( "%i: %s %s: success", cnt, cmd, name ));
+      SHIFT(1);
+
+    } else if( !strcmp( cmd, "rebuild" ) ) {
+
+      if( FD_UNLIKELY( argc<2 ) ) FD_LOG_ERR(( "%i: %s: too few arguments\n\tDo %s help for help", cnt, cmd, bin ));
+
+      char const * name  = argv[0];
+      char const * _seed = argv[1];
+
+      fd_wksp_t * wksp = fd_wksp_attach( name ); /* logs details */
+      if( FD_UNLIKELY( !wksp ) ) FD_LOG_ERR(( "%i: %s %s %s: wksp_attach failed", cnt, cmd, name, _seed ));
+
+      uint seed = strcmp( _seed, "-" ) ? fd_cstr_to_uint( _seed ) : fd_wksp_seed( wksp );
+
+      if( FD_UNLIKELY( fd_wksp_private_lock( wksp )  ) || /* logs details */
+          FD_UNLIKELY( fd_wksp_rebuild( wksp, seed ) ) )  /* logs details */
+        FD_LOG_ERR(( "%i: %s %s %u: failed", cnt, cmd, name, seed ));
+      fd_wksp_private_unlock( wksp );
+
+      fd_wksp_detach( wksp ); /* logs details */
+
+      FD_LOG_NOTICE(( "%i: %s %s %u: success", cnt, cmd, name, seed ));
+      SHIFT(2);
 
     } else if( !strcmp( cmd, "reset" ) ) {
 
@@ -318,7 +330,7 @@ main( int     argc,
 
       fd_wksp_t * wksp = fd_wksp_attach( name ); /* logs details */
       if( FD_UNLIKELY( !wksp ) ) FD_LOG_ERR(( "%i: %s: wksp_attach failed", cnt, cmd ));
-      fd_wksp_reset( wksp ); /* logs details */
+      fd_wksp_reset( wksp, fd_wksp_seed( wksp ) ); /* logs details */
       fd_wksp_detach( wksp ); /* logs details */
 
       FD_LOG_NOTICE(( "%i: %s %s: success", cnt, cmd, name ));
