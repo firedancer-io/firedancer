@@ -106,6 +106,21 @@ echo Testing check
 "$BIN"/fd_wksp_ctl check bad/name   && fail check $?
 "$BIN"/fd_wksp_ctl check "$WKSP"    || fail check $?
 
+echo Testing verify
+
+"$BIN"/fd_wksp_ctl verify            && fail verify $?
+"$BIN"/fd_wksp_ctl verify bad/name   && fail verify $?
+"$BIN"/fd_wksp_ctl verify "$WKSP"    || fail verify $?
+
+echo Testing rebuild
+
+"$BIN"/fd_wksp_ctl rebuild              && fail rebuild $?
+"$BIN"/fd_wksp_ctl rebuild "$WKSP"      && fail rebuild $?
+"$BIN"/fd_wksp_ctl rebuild bad/name -   && fail rebuild $?
+"$BIN"/fd_wksp_ctl rebuild "$WKSP"  -   \
+                   rebuild "$WKSP"  123 \
+|| fail rebuild $?
+
 echo Testing usage
 
 "$BIN"/fd_wksp_ctl usage               && fail usage $?
@@ -126,10 +141,10 @@ echo Testing tag-query
 
 "$BIN"/fd_wksp_ctl tag-query          && fail tag-query $?
 "$BIN"/fd_wksp_ctl tag-query bad/name \
-                 tag-query "$GADDR"   \
-                 tag-query "$GADDR1"  \
-                 tag-query "$GADDR2"  \
-                 tag-query "$GADDR3"  \
+                   tag-query "$GADDR"   \
+                   tag-query "$GADDR1"  \
+                   tag-query "$GADDR2"  \
+                   tag-query "$GADDR3"  \
 || fail tag-query $? # Yes ... a fail here is success from cmd exec POV (fail is logged)
 
 echo Testing tag-free

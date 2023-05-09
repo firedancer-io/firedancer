@@ -306,6 +306,17 @@ fd_log_private_user_set( char const * user ) {
     fd_cstr_fini( fd_cstr_append_cstr_safe( fd_cstr_init( fd_log_private_user ), user, FD_LOG_NAME_MAX-1UL ) );
 }
 
+int
+fd_log_group_id_query( ulong group_id ) {
+  if( group_id==fd_log_group_id() ) return FD_LOG_GROUP_ID_QUERY_LIVE; /* Avoid O/S call for self queries */
+  pid_t pid = (pid_t)group_id;
+  if( FD_UNLIKELY( ((group_id!=(ulong)pid) | (pid<=(pid_t)0)) ) ) return FD_LOG_GROUP_ID_QUERY_INVAL;
+  if( !kill( (pid_t)group_id, 0 ) ) return FD_LOG_GROUP_ID_QUERY_LIVE;
+  if( FD_LIKELY( errno==ESRCH ) ) return FD_LOG_GROUP_ID_QUERY_DEAD;
+  if( FD_LIKELY( errno==EPERM ) ) return FD_LOG_GROUP_ID_QUERY_PERM;
+  return FD_LOG_GROUP_ID_QUERY_FAIL;
+}
+
 /* WALLCLOCK APIS *****************************************************/
 
 long

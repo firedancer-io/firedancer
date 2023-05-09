@@ -169,8 +169,8 @@ fd_alloc_footprint( void );
    non-conflicting arenas (useful for logical grouping and improved
    concurrency).  To help with various diagnostics, garbage collection
    and what not, all allocations to the underlying wksp are tagged with
-   the given tag (in [1,FD_WKSP_ALLOC_TAG_MAX]).  Ideally, the tag used
-   here should be distinct from all other tags used by this workspace. */
+   the given tag, positive.  Ideally, the tag used here should be
+   distinct from all other tags used by this workspace. */
 
 void *
 fd_alloc_new( void * shmem,
@@ -261,7 +261,7 @@ fd_alloc_join_cgroup_hint_set( fd_alloc_t * join,
    this workspace. */
 
 FD_FN_PURE fd_wksp_t * fd_alloc_wksp( fd_alloc_t * join ); // NULL indicates NULL join
-FD_FN_PURE ulong       fd_alloc_tag ( fd_alloc_t * join ); // In [0,FD_WKSP_ALLOC_TAG_MAX].  0 indicates NULL join
+FD_FN_PURE ulong       fd_alloc_tag ( fd_alloc_t * join ); // Positive, 0 indicates NULL join
 
 /* fd_alloc_malloc_at_least allocates at least sz bytes with alignment
    of at least align from the wksp backing the fd_alloc.  join is a

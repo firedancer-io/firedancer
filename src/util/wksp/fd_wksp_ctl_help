@@ -46,9 +46,21 @@ memset wksp_gaddr c
   speaking, this always succeeds but logs any weirdness detected.
 
 check wksp
-- Check if any processes that died in middle of workspace operations
-  (clean up if so) or are stalling other processes from doing workspace
-  operations (log if so).
+- Check if any processes died in middle of a wksp operation.  If not,
+  succeed immediately.  If so, verify and rebuild the wksp as necessary
+  (logging details).  This can fail if the rebuild process detects
+  unresolvable memory corruption.
+
+verify wksp
+- Similar to check but always does a full verification.  This can fail
+  if the verify process finds errors (logs details).
+
+rebuild wksp seed
+- This will rebuild the wksp.  Rebuilding impact any current allocations
+  and can repair many forms of metadata corruption.  This can fail if
+  the rebuild process detects unresolvable memory corruption.  Seed is
+  an arbitrary 32-bit number.  A '-' indicates to rebuild using the
+  current seed.
 
 reset wksp
 - Free all allocations in a workspace.
