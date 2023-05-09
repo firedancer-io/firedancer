@@ -97,7 +97,7 @@ fd_sha256_delete( void * shsha ) {
 }
 
 #ifndef FD_SHA256_CORE_IMPL
-#if FD_HAS_AVX
+#if FD_HAS_SHANI
 #define FD_SHA256_CORE_IMPL 1
 #else
 #define FD_SHA256_CORE_IMPL 0
