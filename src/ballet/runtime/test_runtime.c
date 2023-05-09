@@ -130,29 +130,27 @@ static void usage(const char* progname) {
 #include "../../util/tmpl/fd_sort.c"
 
 int accounts_hash(global_state_t *state) {
-  if (NULL == state->accounts)  {
-    usage(state->argv[0]);
-    exit(1);
-  }
+  fd_funk_t * funk = state->global->funk;
+  fd_wksp_t * wksp = fd_funk_wksp( funk );
+  fd_funk_rec_t * rec_map  = fd_funk_rec_map( funk, wksp );
+  ulong num_iter_accounts = fd_funk_rec_map_key_cnt( rec_map );
 
-  fd_funk_index_iter_t* iter = (fd_funk_index_iter_t*)fd_alloca(fd_funk_iter_align, fd_funk_iter_footprint);
-  fd_funk_iter_init(state->global->funk, iter);
-
-  ulong zero_accounts = 0;
-
-  ulong num_iter_accounts = fd_funk_num_records(state->global->funk);
-  fd_funk_recordid_t const * record_id;
-  
   FD_LOG_NOTICE(( "NIA %lu", num_iter_accounts ));
+  
+  ulong zero_accounts = 0;
   ulong num_pairs = 0;
   fd_pubkey_hash_pair_t * pairs = (fd_pubkey_hash_pair_t *) state->global->allocf(state->global->allocf_arg , 8UL, num_iter_accounts*sizeof(fd_pubkey_hash_pair_t));
-  while ((record_id = fd_funk_iter_next(state->global->funk, iter)) != NULL) {
+  for( fd_funk_rec_map_iter_t iter = fd_funk_rec_map_iter_init( rec_map );
+       !fd_funk_rec_map_iter_done( rec_map, iter );
+       iter = fd_funk_rec_map_iter_next( rec_map, iter ) ) {
+    fd_funk_rec_t * rec = fd_funk_rec_map_iter_ele( rec_map, iter );
+
     if (num_pairs % 1000000 == 0) {
       FD_LOG_NOTICE(( "PAIRS: %lu", num_pairs ));
     }
 
     fd_account_meta_t metadata;
-    int read_result = fd_acc_mgr_get_metadata( state->global->acc_mgr, state->global->funk_txn, (fd_pubkey_t *) record_id, &metadata );
+    int read_result = fd_acc_mgr_get_metadata( state->global->acc_mgr, state->global->funk_txn, (fd_pubkey_t *) rec->pair.key, &metadata );
     if ( FD_UNLIKELY( read_result != FD_ACC_MGR_SUCCESS ) ) {
       FD_LOG_ERR(("bad read from acc mgr"));
     }
@@ -166,7 +164,7 @@ int accounts_hash(global_state_t *state) {
     }
     
     
-    fd_memcpy(pairs[num_pairs].pubkey.key, record_id, 32);
+    fd_memcpy(pairs[num_pairs].pubkey.key, rec->pair.key, 32);
     fd_memcpy(pairs[num_pairs].hash.hash, metadata.hash, 32);
     num_pairs++;
   }
@@ -185,6 +183,7 @@ int accounts_hash(global_state_t *state) {
   return 0;
 }
 
+/*
 int ingest(global_state_t *state) {
   if (NULL == state->accounts)  {
     usage(state->argv[0]);
@@ -403,6 +402,7 @@ int ingest(global_state_t *state) {
 
   return 0;
 }
+*/
 
 void print_file(global_state_t *state, const char *file) {
   char  buf[1000];
@@ -1167,7 +1167,8 @@ int main(int argc, char **argv) {
 
   if ((validate_db != NULL) && (strcmp(validate_db, "true") == 0)) {
     FD_LOG_WARNING(("starting validate"));
-    fd_funk_verify(state.global->funk);
+    if ( fd_funk_verify(state.global->funk) != FD_FUNK_SUCCESS )
+      FD_LOG_ERR(("valdation failed"));
     FD_LOG_WARNING(("finishing validate"));
   }
   
@@ -1304,8 +1305,8 @@ int main(int argc, char **argv) {
   }
   if (strcmp(state.cmd, "manifest") == 0)
     manifest(&state);
-  if (strcmp(state.cmd, "ingest") == 0)
-    ingest(&state);
+  // if (strcmp(state.cmd, "ingest") == 0)
+  //    ingest(&state);
   if (strcmp(state.cmd, "accounts_hash") == 0)
     accounts_hash(&state);
 //  if (strcmp(state.cmd, "validate") == 0)
