@@ -1,5 +1,15 @@
 #include "../fd_util.h"
 
+FD_STATIC_ASSERT( FD_LOG_NAME_MAX==40UL, unit_test );
+
+FD_STATIC_ASSERT( FD_LOG_WALLCLOCK_CSTR_BUF_SZ==37UL, unit_test );
+
+FD_STATIC_ASSERT( FD_LOG_GROUP_ID_QUERY_LIVE == 1, unit_test );
+FD_STATIC_ASSERT( FD_LOG_GROUP_ID_QUERY_DEAD == 0, unit_test );
+FD_STATIC_ASSERT( FD_LOG_GROUP_ID_QUERY_INVAL==-1, unit_test );
+FD_STATIC_ASSERT( FD_LOG_GROUP_ID_QUERY_PERM ==-2, unit_test );
+FD_STATIC_ASSERT( FD_LOG_GROUP_ID_QUERY_FAIL ==-3, unit_test );
+
 int volatile volatile_yes = 1;
 
 static void
@@ -49,6 +59,10 @@ main( int     argc,
     fd_log_colorize_set( cmode );
     FD_LOG_NOTICE(( "reenabled colorize" ));
   }
+
+  FD_TEST( fd_log_group_id_query( 0UL               )==FD_LOG_GROUP_ID_QUERY_INVAL );
+  FD_TEST( fd_log_group_id_query( ULONG_MAX         )==FD_LOG_GROUP_ID_QUERY_INVAL );
+  FD_TEST( fd_log_group_id_query( fd_log_group_id() )==FD_LOG_GROUP_ID_QUERY_LIVE  );
 
   FD_LOG_NOTICE( ( "Testing hexdump logging API: " ) );
 
