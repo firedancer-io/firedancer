@@ -124,6 +124,66 @@ static void usage(const char* progname) {
 // pub const INCREMENTAL_SNAPSHOT_ARCHIVE_FILENAME_REGEX: &str = r"^incremental-snapshot-(?P<base>[[:digit:]]+)-(?P<slot>[[:digit:]]+)-(?P<hash>[[:alnum:]]+)\.(?P<ext>tar|tar\.bz2|tar\.zst|tar\.gz|tar\.lz4)$";
 
 
+#define SORT_NAME sort_pubkey_hash_pair
+#define SORT_KEY_T fd_pubkey_hash_pair_t
+#define SORT_BEFORE(a,b) ((memcmp(&a, &b, 32) < 0))
+#include "../../util/tmpl/fd_sort.c"
+
+int accounts_hash(global_state_t *state) {
+  if (NULL == state->accounts)  {
+    usage(state->argv[0]);
+    exit(1);
+  }
+
+  fd_funk_index_iter_t* iter = (fd_funk_index_iter_t*)fd_alloca(fd_funk_iter_align, fd_funk_iter_footprint);
+  fd_funk_iter_init(state->global->funk, iter);
+
+  ulong zero_accounts = 0;
+
+  ulong num_iter_accounts = fd_funk_num_records(state->global->funk);
+  fd_funk_recordid_t const * record_id;
+  
+  FD_LOG_NOTICE(( "NIA %lu", num_iter_accounts ));
+  ulong num_pairs = 0;
+  fd_pubkey_hash_pair_t * pairs = (fd_pubkey_hash_pair_t *) state->global->allocf(state->global->allocf_arg , 8UL, num_iter_accounts*sizeof(fd_pubkey_hash_pair_t));
+  while ((record_id = fd_funk_iter_next(state->global->funk, iter)) != NULL) {
+    if (num_pairs % 1000000 == 0) {
+      FD_LOG_NOTICE(( "PAIRS: %lu", num_pairs ));
+    }
+
+    fd_account_meta_t metadata;
+    int read_result = fd_acc_mgr_get_metadata( state->global->acc_mgr, state->global->funk_txn, (fd_pubkey_t *) record_id, &metadata );
+    if ( FD_UNLIKELY( read_result != FD_ACC_MGR_SUCCESS ) ) {
+      FD_LOG_ERR(("bad read from acc mgr"));
+    }
+    if ((metadata.magic != FD_ACCOUNT_META_MAGIC) || (metadata.hlen != sizeof(metadata))) {
+      FD_LOG_ERR(("invalid magic on metadata"));
+    }
+    
+    if ((metadata.info.lamports == 0) | ((metadata.info.executable & ~1) != 0)) {
+      zero_accounts++;
+      continue;
+    }
+    
+    
+    fd_memcpy(pairs[num_pairs].pubkey.key, record_id, 32);
+    fd_memcpy(pairs[num_pairs].hash.hash, metadata.hash, 32);
+    num_pairs++;
+  }
+  
+  FD_LOG_WARNING(("num_iter_accounts %ld zero_accounts %lu", num_iter_accounts, zero_accounts));
+  FD_LOG_NOTICE(( "HASHING ACCOUNTS" ));
+  fd_hash_t accounts_hash;
+  fd_hash_account_deltas(state->global, pairs, num_pairs, &accounts_hash);
+    
+  char accounts_hash_58[FD_BASE58_ENCODED_32_SZ];
+  fd_base58_encode_32((uchar const *)accounts_hash.hash, NULL, accounts_hash_58);
+
+  FD_LOG_WARNING(("accounts_hash %s", accounts_hash_58));
+  FD_LOG_WARNING(("num_iter_accounts %ld", num_iter_accounts));
+
+  return 0;
+}
 
 int ingest(global_state_t *state) {
   if (NULL == state->accounts)  {
@@ -141,12 +201,12 @@ int ingest(global_state_t *state) {
 
   DIR *dir = opendir(state->accounts);
 
-  struct dirent * ent;
 
   ulong files = 0;
   ulong accounts = 0;
   ulong odd = 0;
-
+#if 1
+  struct dirent * ent;
   while ( NULL != (ent = readdir(dir)) ) {
     if ( regexec(&reg, ent->d_name, 0, NULL, 0) == 0 )  {
       struct stat s;
@@ -196,13 +256,14 @@ int ingest(global_state_t *state) {
           fd_account_meta_t metadata;
           int               read_result = fd_acc_mgr_get_metadata( state->global->acc_mgr, state->global->funk_txn, (fd_pubkey_t *) &hdr->meta.pubkey, &metadata );
           if ( FD_UNLIKELY( read_result == FD_ACC_MGR_SUCCESS ) ) {
-            if (metadata.slot > slot)
+            if (metadata.slot > slot) {
               break;
+            }
           }
 
-          if (fd_acc_mgr_write_append_vec_account( state->global->acc_mgr, state->global->funk_txn,  slot, hdr) != FD_ACC_MGR_SUCCESS) 
+          if (fd_acc_mgr_write_append_vec_account( state->global->acc_mgr, state->global->funk_txn,  slot, hdr) != FD_ACC_MGR_SUCCESS) {
             FD_LOG_ERR(("writing failed: accounts %ld", accounts));
-
+          }
 #if 0
           read_result = fd_acc_mgr_get_metadata( state->global->acc_mgr, state->global->funk_txn, (fd_pubkey_t *) &hdr->meta.pubkey, &metadata );
           if ( FD_UNLIKELY( read_result != FD_ACC_MGR_SUCCESS ) )
@@ -269,10 +330,75 @@ int ingest(global_state_t *state) {
       state->global->freef(state->global->allocf_arg, r);
     }
   }
+#endif
 
   closedir(dir);
   regfree(&reg);
 
+  if (fd_funk_commit(state->global->funk, state->global->funk_txn) == 0) {
+    FD_LOG_ERR(( "FAIL (db commit failed)" ));
+  }
+
+  fd_funk_index_iter_t* iter = (fd_funk_index_iter_t*)fd_alloca(fd_funk_iter_align, fd_funk_iter_footprint);
+  fd_funk_iter_init(state->global->funk, iter);
+
+  ulong num_iter_accounts = 0;
+  fd_funk_recordid_t const * record_id;
+  while ((record_id = fd_funk_iter_next(state->global->funk, iter)) != NULL) {
+    num_iter_accounts++;
+  }
+
+  uchar account_data[16*1024*1024];
+  FD_LOG_NOTICE(( "NIA %lu", num_iter_accounts ));
+  ulong num_pairs = 0;
+  fd_pubkey_hash_pair_t * pairs = (fd_pubkey_hash_pair_t *) state->global->allocf(state->global->allocf_arg , 8UL, num_iter_accounts*sizeof(fd_pubkey_hash_pair_t));
+  fd_funk_iter_init(state->global->funk, iter);
+  while ((record_id = fd_funk_iter_next(state->global->funk, iter)) != NULL) {
+    //char record_id_58[FD_BASE58_ENCODED_32_SZ];
+    //fd_base58_encode_32((uchar const *)record_id, NULL, record_id_58);
+
+    if (num_pairs % 1000000 == 0) {
+      FD_LOG_NOTICE(( "PAIRS: %lu", num_pairs ));
+    }
+
+    //FD_LOG_NOTICE(("RECORD ID: %s", record_id_58));
+          
+    fd_account_meta_t metadata;
+    int read_result = fd_acc_mgr_get_metadata( state->global->acc_mgr, state->global->funk_txn, (fd_pubkey_t *) record_id, &metadata );
+    if ( FD_UNLIKELY( read_result != FD_ACC_MGR_SUCCESS ) ) {
+      FD_LOG_ERR(("bad read from acc mgr"));
+    }
+    if ((metadata.magic != FD_ACCOUNT_META_MAGIC) || (metadata.hlen != sizeof(metadata))) {
+      FD_LOG_ERR(("invalid magic on metadata"));
+    }
+    
+    // char account_hash_58[FD_BASE58_ENCODED_32_SZ];
+    // fd_base58_encode_32((uchar const *) metadata.hash, NULL, account_hash_58);
+
+    // FD_LOG_NOTICE(("INFO: slot: %lu, lamports: %lu, hash: %s", metadata.slot, metadata.info.lamports, account_hash_58));
+    
+    //uchar * account_data = (uchar *) state->global->allocf(state->global->allocf_arg , 8UL, metadata.dlen);
+    read_result = fd_acc_mgr_get_account_data( state->global->acc_mgr, state->global->funk_txn, (fd_pubkey_t *) record_id, account_data, sizeof(fd_account_meta_t), metadata.dlen);
+    if ( FD_UNLIKELY( read_result != FD_ACC_MGR_SUCCESS ) ) {
+      FD_LOG_ERR(("wtf3"));
+    }
+    //state->global->freef(state->global->allocf_arg, account_data);
+
+    fd_memcpy(pairs[num_pairs].pubkey.key, record_id, 32);
+    fd_memcpy(pairs[num_pairs].hash.hash, metadata.hash, 32);
+    num_pairs++;
+  }
+ 
+  sort_pubkey_hash_pair_inplace( pairs, num_pairs );
+
+  fd_hash_t accounts_hash;
+  fd_hash_account_deltas(state->global, pairs, num_pairs, &accounts_hash);
+    
+  char accounts_hash_58[FD_BASE58_ENCODED_32_SZ];
+  fd_base58_encode_32((uchar const *)accounts_hash.hash, NULL, accounts_hash_58);
+
+  FD_LOG_WARNING(("accounts_hash %s", accounts_hash_58));
+  FD_LOG_WARNING(("num_iter_accounts %ld", num_iter_accounts));
   FD_LOG_WARNING(("files %ld  accounts %ld  odd %ld", files, accounts, odd));
 
   return 0;
@@ -995,7 +1121,7 @@ int main(int argc, char **argv) {
     wksp = fd_wksp_attach( state.name );
   } else {
     FD_LOG_NOTICE(( "--wksp not specified, using an anonymous local workspace" ));
-    wksp = fd_wksp_new_anonymous( FD_SHMEM_GIGANTIC_PAGE_SZ, 20, 0, "wksp", 0UL );
+    wksp = fd_wksp_new_anonymous( FD_SHMEM_GIGANTIC_PAGE_SZ, state.pages, 0, "wksp", 0UL );
   }
   if ( FD_UNLIKELY( !wksp ) )
     FD_LOG_ERR(( "Unable to attach to wksp" ));
@@ -1085,12 +1211,20 @@ int main(int argc, char **argv) {
 
   fd_vec_fd_clock_timestamp_vote_t_new( &state.global->bank.timestamp_votes.votes );
 
-  FD_LOG_WARNING(("loading genesis account into funk db"));
+  if (strcmp(state.cmd, "accounts_hash") != 0) {
+    FD_LOG_WARNING(("loading genesis account into funk db"));
 
-  for (ulong i = 0; i < state.global->genesis_block.accounts_len; i++) {
-    fd_pubkey_account_pair_t *a = &state.global->genesis_block.accounts[i];
+    for (ulong i = 0; i < state.global->genesis_block.accounts_len; i++) {
+      fd_pubkey_account_pair_t *a = &state.global->genesis_block.accounts[i];
 
-    fd_acc_mgr_write_structured_account(state.global->acc_mgr, state.global->funk_txn, 0, &a->key, &a->account);
+      char pubkey[50];
+
+      fd_base58_encode_32((uchar *) state.global->genesis_block.accounts[i].key.key, NULL, pubkey);
+
+      FD_LOG_NOTICE(( "GEN_KEY: %lu %s", i, pubkey));
+
+      fd_acc_mgr_write_structured_account(state.global->acc_mgr, state.global->funk_txn, 0, &a->key, &a->account);
+    }
   }
 
   for (ulong i = 0; i < state.global->genesis_block.native_instruction_processors_len; i++) {
@@ -1172,6 +1306,8 @@ int main(int argc, char **argv) {
     manifest(&state);
   if (strcmp(state.cmd, "ingest") == 0)
     ingest(&state);
+  if (strcmp(state.cmd, "accounts_hash") == 0)
+    accounts_hash(&state);
 //  if (strcmp(state.cmd, "validate") == 0)
 //    validate_bank_hashes(&state);
   if (strcmp(state.cmd, "accounts") == 0)
