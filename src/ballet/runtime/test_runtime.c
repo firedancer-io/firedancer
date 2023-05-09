@@ -2,6 +2,8 @@
 // sudo /home/jsiegel/repos/firedancer-private/build/linux/gcc/x86_64/bin/fd_shmem_cfg alloc 64 gigantic 0
 // sudo /home/jsiegel/repos/firedancer-private/build/linux/gcc/x86_64/bin/fd_shmem_cfg alloc 512 huge 0
 
+// build/linux/gcc/x86_64/bin/fd_wksp_ctl new giant_wksp 200 gigantic 0-127 0666
+
 // /home/jsiegel/repos/firedancer-private/build/linux/gcc/x86_64/bin/fd_wksp_ctl new test_wksp 32 gigantic 0 0777
 // /home/jsiegel/repos/firedancer-private/build/linux/gcc/x86_64/bin/fd_wksp_ctl query test_wksp
 
@@ -1091,6 +1093,8 @@ int main(int argc, char **argv) {
   state.cmd                 = fd_env_strip_cmdline_cstr ( &argc, &argv, "--cmd",          NULL, NULL);
   state.txn_exe_opt         = fd_env_strip_cmdline_cstr ( &argc, &argv, "--txn-exe",      NULL, NULL);
 
+  state.pages         = fd_env_strip_cmdline_ulong ( &argc, &argv, "--pages",      NULL, 0);
+
   const char *index_max_opt           = fd_env_strip_cmdline_cstr ( &argc, &argv, "--index-max",    NULL, NULL);
   const char *validate_db             = fd_env_strip_cmdline_cstr ( &argc, &argv, "--validate",     NULL, NULL);
   const char *log_level               = fd_env_strip_cmdline_cstr ( &argc, &argv, "--log_level",     NULL, NULL);
@@ -1217,8 +1221,6 @@ int main(int argc, char **argv) {
       char pubkey[50];
 
       fd_base58_encode_32((uchar *) state.global->genesis_block.accounts[i].key.key, NULL, pubkey);
-
-      FD_LOG_NOTICE(( "GEN_KEY: %lu %s", i, pubkey));
 
       fd_acc_mgr_write_structured_account(state.global->acc_mgr, state.global->funk_txn, 0, &a->key, &a->account);
     }
