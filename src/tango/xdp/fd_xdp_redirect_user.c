@@ -361,7 +361,7 @@ fd_xdp_hook_iface( char const * app_name,
     }
   };
   int prog_link_fd = (int)bpf( BPF_LINK_CREATE, &attr, sizeof(union bpf_attr) );
-  if( FD_UNLIKELY( !prog_link_fd ) ) {
+  if( FD_UNLIKELY( -1==prog_link_fd ) ) {
     FD_LOG_WARNING(( "BPF_LINK_CREATE failed (%d-%s)",
                      errno, strerror( errno ) ));
     return -1;

@@ -163,7 +163,7 @@ struct __attribute__((aligned(FD_FUNK_ALIGN))) fd_funk_private {
 
   ulong magic;      /* ==FD_FUNK_MAGIC */
   ulong funk_gaddr; /* wksp gaddr of this in the backing wksp, non-zero gaddr */
-  ulong wksp_tag;   /* Tag to use for wksp allocations, in [1,FD_WKSP_ALLOC_TAG_MAX] */
+  ulong wksp_tag;   /* Tag to use for wksp allocations, positive */
   ulong seed;       /* Seed for various hashing function used under the hood, arbitrary */
   ulong cycle_tag;  /* Next cycle_tag to use, used internally for various data integrity checks */
 
@@ -271,16 +271,15 @@ fd_funk_footprint( void );
 /* fd_wksp_new formats an unused wksp allocation with the appropriate
    alignment and footprint as a funk.  Caller is not joined on return.
    Returns shmem on success and NULL on failure (shmem NULL, shmem
-   misaligned, wksp_tag not in [1,FD_WKSP_ALLOC_TAG_MAX], shmem is not
-   backed by a wksp ...  logs details).  A workspace can be used by
-   multiple funk concurrently.  They will dynamically share the
-   underlying workspace (along with any other non-funk usage) but will
-   otherwise act as completely separate non-conflicting funks.  To help
-   with various diagnostics, garbage collection and what not, all
-   allocations to the underlying wksp are tagged with the given tag (in
-   [1,FD_WKSP_ALLOC_TAG_MAX]).  Ideally, the tag used here should be
-   distinct from all other tags used by this workspace but this is not
-   required. */
+   misaligned, zero wksp_tag, shmem is not backed by a wksp ...  logs
+   details).  A workspace can be used by multiple funk concurrently.
+   They will dynamically share the underlying workspace (along with any
+   other non-funk usage) but will otherwise act as completely separate
+   non-conflicting funks.  To help with various diagnostics, garbage
+   collection and what not, all allocations to the underlying wksp are
+   tagged with the given tag (positive).  Ideally, the tag used here
+   should be distinct from all other tags used by this workspace but
+   this is not required. */
 
 void *
 fd_funk_new( void * shmem,
@@ -329,8 +328,8 @@ fd_funk_delete( void * shfunk );
 FD_FN_PURE static inline fd_wksp_t * fd_funk_wksp( fd_funk_t * funk ) { return (fd_wksp_t *)(((ulong)funk) - funk->funk_gaddr); }
 
 /* fd_funk_wksp_tag returns the workspace allocation tag used by the
-   funk for its wksp allocations.  Will be in [1,FD_WKSP_ALLOC_TAG_MAX].
-   Assumes funk is a current local join. */
+   funk for its wksp allocations.  Will be positive.  Assumes funk is a
+   current local join. */
 
 FD_FN_PURE static inline ulong fd_funk_wksp_tag( fd_funk_t * funk ) { return funk->wksp_tag; }
 

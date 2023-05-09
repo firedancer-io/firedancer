@@ -839,6 +839,42 @@ fd_memset( void  * d,
 
 #endif
 
+/* fd_memeq(s0,s1,sz):  Compares two blocks of memory.  Returns 1 if
+   equal or sz is zero and 0 otherwise.  No memory accesses made if sz
+   is zero (pointers may be invalid).  On x86, uses repe cmpsb which is
+   preferable to __builtin_memcmp in some cases. */
+
+#ifndef FD_USE_ARCH_MEMEQ
+#define FD_USE_ARCH_MEMEQ 1
+#endif
+
+#if FD_HAS_X86 && FD_USE_ARCH_MEMEQ && defined(__GCC_ASM_FLAG_OUTPUTS__)
+
+FD_FN_PURE static inline int
+fd_memeq( void const * s0,
+          void const * s1,
+          ulong        sz ) {
+  /* ZF flag is set and exported in two cases:
+      a) size is zero (via test)
+      b) buffer is equal (via repe cmpsb) */
+  int r;
+  __asm__( "test %3, %3;"
+           "repe cmpsb"
+         : "=@cce" (r), "+S" (s0), "+D" (s1), "+c" (sz) :: );
+  return r;
+}
+
+#else
+
+FD_FN_PURE static inline int
+fd_memeq( void const * s1,
+          void const * s2,
+          ulong        sz ) {
+  return 0==memcmp( s1, s2, sz );
+}
+
+#endif
+
 /* fd_hash(seed,buf,sz), fd_hash_memcpy(seed,d,s,sz):  High quality
    (full avalanche) high speed variable length buffer -> 64-bit hash
    function (memcpy_hash is often as fast as plain memcpy).  Based on
