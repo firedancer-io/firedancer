@@ -1050,8 +1050,19 @@ fd_sbpf_program_load( fd_sbpf_program_t *  prog,
 #undef FAIL
 #undef REQUIRE
 
-/* Extern inlines */
+/* Declare extern symbol definitions for inlines */
 
-extern FD_FN_CONST inline fd_sbpf_program_info_t const *
+FD_FN_CONST extern inline fd_sbpf_program_info_t const *
 fd_sbpf_program_get_info( fd_sbpf_program_t const * program );
+
+#define EXPORT_STATIC_INLINE( name ) \
+  extern __typeof__(name) __attribute__((alias(#name))) \
+  name##_ext
+
+EXPORT_STATIC_INLINE( fd_sbpf_calldests_query     );
+EXPORT_STATIC_INLINE( fd_sbpf_syscalls_align      );
+EXPORT_STATIC_INLINE( fd_sbpf_syscalls_footprint  );
+EXPORT_STATIC_INLINE( fd_sbpf_syscalls_new        );
+EXPORT_STATIC_INLINE( fd_sbpf_syscalls_delete     );
+EXPORT_STATIC_INLINE( fd_sbpf_syscalls_insert     );
 
