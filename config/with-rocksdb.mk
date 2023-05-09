@@ -11,7 +11,7 @@ endif
 else
 
 CFLAGS += -DFD_HAS_ROCKSDB=1
-LDFLAGS += $(shell pkg-config --libs rocksdb)
+LDFLAGS += $(shell pkg-config --libs rocksdb) -lbz2
 FD_HAS_ROCKSDB:=1
 
 endif
