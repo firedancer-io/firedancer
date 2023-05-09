@@ -11,7 +11,7 @@ fd_wksp_private_used_treap_query( ulong                     gaddr,
 
   ulong i = fd_wksp_private_pinfo_idx( wksp->part_used_cidx );
   while( !fd_wksp_private_pinfo_idx_is_null( i ) ) {
-    if( FD_UNLIKELY( i>part_max                      ) ) return FD_WKSP_PRIVATE_PINFO_IDX_NULL; /* Bad index */
+    if( FD_UNLIKELY( i>=part_max                     ) ) return FD_WKSP_PRIVATE_PINFO_IDX_NULL; /* Bad index */
     if( FD_UNLIKELY( pinfo[ i ].cycle_tag==cycle_tag ) ) return FD_WKSP_PRIVATE_PINFO_IDX_NULL; /* Cycle detectd */
     pinfo[ i ].cycle_tag = cycle_tag;                                                           /* Mark i as visited */
 
