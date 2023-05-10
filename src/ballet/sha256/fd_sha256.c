@@ -398,7 +398,7 @@ fd_sha256_hash( void const * _data,
 
   ulong bit_cnt = sz << 3;
   fd_memset( buf + buf_used, 0, FD_SHA256_PRIVATE_BUF_MAX-8UL-buf_used );
-  *((ulong *)(buf+FD_SHA256_PRIVATE_BUF_MAX-8UL)) = fd_ulong_bswap( bit_cnt );
+  FD_STORE( ulong, buf+FD_SHA256_PRIVATE_BUF_MAX-8UL, fd_ulong_bswap( bit_cnt ) );
   fd_sha256_core( state, buf, 1UL );
 
   uint * hash = (uint *)_hash;
