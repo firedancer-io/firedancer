@@ -344,7 +344,7 @@ fd_sha256_fini( fd_sha256_t * sha,
      update the hash to finalize it. */
 
   fd_memset( buf + buf_used, 0, FD_SHA256_PRIVATE_BUF_MAX-8UL-buf_used );
-  FD_STORE( ulong, buf+FD_SHA256_PRIVATE_BUF_MAX-8UL, bit_cnt );
+  FD_STORE( ulong, buf+FD_SHA256_PRIVATE_BUF_MAX-8UL, fd_ulong_bswap( bit_cnt ) );
   fd_sha256_core( state, buf, 1UL );
 
   /* Unpack the result into md (annoying bswaps here) */
