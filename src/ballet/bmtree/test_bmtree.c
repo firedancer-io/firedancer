@@ -1,40 +1,27 @@
 #include "../fd_ballet.h"
 
-FD_STATIC_ASSERT( FD_BMTREE20_HASH_SZ         ==  20UL, unit_test );
-FD_STATIC_ASSERT( FD_BMTREE20_COMMIT_ALIGN    ==  32UL, unit_test );
-FD_STATIC_ASSERT( FD_BMTREE20_COMMIT_FOOTPRINT==2048UL, unit_test );
-
-FD_STATIC_ASSERT( FD_BMTREE32_HASH_SZ         ==  32UL, unit_test );
-FD_STATIC_ASSERT( FD_BMTREE32_COMMIT_ALIGN    ==  32UL, unit_test );
-FD_STATIC_ASSERT( FD_BMTREE32_COMMIT_FOOTPRINT==2048UL, unit_test );
-
-FD_STATIC_ASSERT( FD_BMTREE20_COMMIT_ALIGN    ==alignof(fd_bmtree20_commit_t), unit_test );
-FD_STATIC_ASSERT( FD_BMTREE20_COMMIT_FOOTPRINT==sizeof (fd_bmtree20_commit_t), unit_test );
-
-FD_STATIC_ASSERT( FD_BMTREE32_COMMIT_ALIGN    ==alignof(fd_bmtree32_commit_t), unit_test );
-FD_STATIC_ASSERT( FD_BMTREE32_COMMIT_FOOTPRINT==sizeof (fd_bmtree32_commit_t), unit_test );
 
 /* Test tree-20 construction */
 
 static void
 test_bmtree20_commit( ulong        leaf_cnt,
                       void const * expected_root ) {
-  fd_bmtree20_commit_t _tree[1];
-  fd_bmtree20_commit_t * tree = fd_bmtree20_commit_init( _tree ); FD_TEST( tree==_tree );
+  fd_bmtree_commit_t _tree[1];
+  fd_bmtree_commit_t * tree = fd_bmtree_commit_init( _tree, 20UL, 0UL ); FD_TEST( tree==_tree );
 
-  fd_bmtree20_node_t leaf[1];
+  fd_bmtree_node_t leaf[1];
   fd_memset( leaf->hash, 0, 20UL );
   for( ulong i=0UL; i<leaf_cnt; i++ ) {
-    FD_TEST( fd_bmtree20_commit_leaf_cnt( tree )==i );
+    FD_TEST( fd_bmtree_commit_leaf_cnt( tree )==i );
     FD_STORE( ulong, leaf->hash, i );
-    FD_TEST( fd_bmtree20_commit_append( tree, leaf, 1UL )==tree );
+    FD_TEST( fd_bmtree_commit_append( tree, leaf, 1UL )==tree );
   }
 
-  FD_TEST( fd_bmtree20_commit_leaf_cnt( tree )==leaf_cnt );
+  FD_TEST( fd_bmtree_commit_leaf_cnt( tree )==leaf_cnt );
 
-  uchar * root = fd_bmtree20_commit_fini( tree ); FD_TEST( !!root );
+  uchar * root = fd_bmtree_commit_fini( tree ); FD_TEST( !!root );
 
-  FD_TEST( fd_bmtree20_commit_leaf_cnt( tree )==leaf_cnt );
+  FD_TEST( fd_bmtree_commit_leaf_cnt( tree )==leaf_cnt );
 
   if( FD_UNLIKELY( memcmp( root, expected_root, 20UL ) ) )
     FD_LOG_ERR(( "FAIL (leaf_cnt %lu)"
@@ -46,9 +33,9 @@ test_bmtree20_commit( ulong        leaf_cnt,
 }
 
 static void
-hash_leaf( fd_bmtree32_node_t * leaf,
-           char const *         leaf_cstr ) {
-  FD_TEST( fd_bmtree32_hash_leaf( leaf, leaf_cstr, strlen( leaf_cstr ) )==leaf );
+hash_leaf( fd_bmtree_node_t * leaf,
+           char const *       leaf_cstr ) {
+  FD_TEST( fd_bmtree_hash_leaf( leaf, leaf_cstr, strlen( leaf_cstr ) )==leaf );
 }
 
 int
@@ -57,22 +44,21 @@ main( int     argc,
   fd_boot( &argc, &argv );
 
   /* Internal checks */
+  FD_TEST( fd_bmtree_commit_align()    ==FD_BMTREE_COMMIT_ALIGN        );
+  FD_TEST( fd_bmtree_commit_footprint()==FD_BMTREE_COMMIT_FOOTPRINT );
 
   /* Iterate test fd_bmtree_depth against naive division algorithm */
 
-  FD_TEST( fd_bmtree20_private_depth( 0UL )==0UL ); FD_TEST( fd_bmtree32_private_depth( 0UL )==0UL );
-  FD_TEST( fd_bmtree20_private_depth( 1UL )==1UL ); FD_TEST( fd_bmtree32_private_depth( 1UL )==1UL );
+  FD_TEST( fd_bmtree_depth( 0UL )==0UL );
+  FD_TEST( fd_bmtree_depth( 1UL )==1UL );
 
   for( ulong node_cnt=2UL; node_cnt<10000000UL; node_cnt++ ) {
     ulong depth = 1UL;
     for( ulong i=node_cnt; i>1UL; i=(i+1UL) >> 1 ) depth++;
-    FD_TEST( fd_bmtree20_private_depth( node_cnt )==depth ); FD_TEST( fd_bmtree32_private_depth( node_cnt )==depth );
+    FD_TEST( fd_bmtree_depth( node_cnt )==depth );
   }
 
   /* Test 20-byte tree */
-
-  FD_TEST( fd_bmtree20_commit_align()    ==FD_BMTREE20_COMMIT_ALIGN     );
-  FD_TEST( fd_bmtree20_commit_footprint()==FD_BMTREE20_COMMIT_FOOTPRINT );
 
   /* Construct trees of different sizes. */
   test_bmtree20_commit(       1UL, "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00" );
@@ -93,7 +79,7 @@ main( int     argc,
   // Source: https://github.com/solana-foundation/specs/blob/main/core/merkle-tree.md
 
   ulong leaf_cnt = 11UL;
-  fd_bmtree32_node_t leaf[ 11UL ];
+  fd_bmtree_node_t leaf[ 11UL ];
 
   hash_leaf( leaf +  0, "my"     );
   hash_leaf( leaf +  1, "very"   );
@@ -107,21 +93,18 @@ main( int     argc,
   hash_leaf( leaf +  9, "make"   );
   hash_leaf( leaf + 10, "prime"  );
 
-  FD_TEST( fd_bmtree32_commit_align()    ==FD_BMTREE32_COMMIT_ALIGN     );
-  FD_TEST( fd_bmtree32_commit_footprint()==FD_BMTREE32_COMMIT_FOOTPRINT );
+  fd_bmtree_commit_t _tree[1];
+  fd_bmtree_commit_t * tree = fd_bmtree_commit_init( _tree, 32UL, 0UL ); FD_TEST( tree==_tree );
 
-  fd_bmtree32_commit_t _tree[1];
-  fd_bmtree32_commit_t * tree = fd_bmtree32_commit_init( _tree ); FD_TEST( tree==_tree );
+  FD_TEST( fd_bmtree_commit_leaf_cnt( tree )==0UL );
 
-  FD_TEST( fd_bmtree32_commit_leaf_cnt( tree )==0UL );
+  FD_TEST( fd_bmtree_commit_append( tree, leaf, leaf_cnt )==tree );
 
-  FD_TEST( fd_bmtree32_commit_append( tree, leaf, leaf_cnt )==tree );
+  FD_TEST( fd_bmtree_commit_leaf_cnt( tree )==leaf_cnt );
 
-  FD_TEST( fd_bmtree32_commit_leaf_cnt( tree )==leaf_cnt );
+  uchar * root = fd_bmtree_commit_fini( tree );
 
-  uchar * root = fd_bmtree32_commit_fini( tree );
-
-  FD_TEST( fd_bmtree32_commit_leaf_cnt( tree )==leaf_cnt );
+  FD_TEST( fd_bmtree_commit_leaf_cnt( tree )==leaf_cnt );
 
 # define _(v) ((uchar)0x##v)
   uchar const expected[FD_SHA256_HASH_SZ] = {
