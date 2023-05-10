@@ -34,16 +34,10 @@ pub use crate::generated::{
     fd_wksp_free,
     fd_wksp_free_laddr,
 };
-pub use crate::generated::{
-    fd_wksp_check,
-    fd_wksp_delete_anonymous,
-    fd_wksp_memset,
-    fd_wksp_new_anonymous,
-    fd_wksp_reset,
-};
 
 #[inline]
 pub unsafe fn fd_wksp_alloc(wksp: *mut fd_wksp_t, align: u64, sz: u64, tag: u64) -> u64 {
-    let mut max = 0u64;
-    unsafe { fd_wksp_alloc_at_least(wksp, align, sz, tag, &mut max) }
+    let mut lo = 0u64;
+    let mut hi = 0u64;
+    unsafe { fd_wksp_alloc_at_least(wksp, align, sz, tag, &mut lo, &mut hi) }
 }
