@@ -7,13 +7,22 @@ fd_sha256_private_batch_avx( ulong          batch_cnt,
                              void const *   _batch_data,
                              ulong const *  batch_sz,
                              void * const * _batch_hash ) {
-
-  if( FD_UNLIKELY( batch_cnt<6UL ) ) { /* FIXME: should be ~6 if fd_sha256_hash is using SHA-NI extensions, ~2 o.w. */
+  /* If the batch is too small, it's faster to run each part of the
+     batch sequentially.  When we have SHA-NI instructions, the
+     sequential implementation is faster, so we need a larger batch size
+     to justify using the batched implementation. */
+#if FD_HAS_SHANI
+# define MIN_BATCH_CNT (6UL)
+#else
+# define MIN_BATCH_CNT (2UL)
+#endif
+  if( FD_UNLIKELY( batch_cnt<MIN_BATCH_CNT ) ) {
     void const * const * batch_data = (void const * const *)_batch_data;
     for( ulong batch_idx=0UL; batch_idx<batch_cnt; batch_idx++ )
       fd_sha256_hash( batch_data[ batch_idx ], batch_sz[ batch_idx ], _batch_hash[ batch_idx ] );
     return;
   }
+#undef MIN_BATCH_CNT
 
   /* SHA appends to the end of each message 9 bytes of additional data
      (a messaging terminator byte and the big endian ulong with the
