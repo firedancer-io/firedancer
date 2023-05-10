@@ -1,4 +1,5 @@
 #include "fd_sbpf_loader.h"
+#include "fd_sbpf_opcodes.h"
 #include "../../util/fd_util.h"
 #include "../../util/bits/fd_sat.h"
 #include "../murmur3/fd_murmur3.h"
@@ -795,8 +796,7 @@ fd_sbpf_hash_calls( fd_sbpf_elf_t * prog,
        that compiler generated a relocation instead. */
     ulong opc = insn & 0xFF;
     int   imm = (int)(insn >> 32UL);
-    /* FIXME Replace with FD_SBPF opcodes */
-    if( (opc!=0x85) | (imm==-1) )
+    if( (opc!=FD_SBPF_OP_CALL_IMM) | (imm==-1) )
       continue;
 
     /* Mark function call destination */

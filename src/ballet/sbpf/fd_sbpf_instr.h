@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_src_ballet_sbpf_fd_instr_h
-#define HEADER_fd_src_ballet_sbpf_fd_instr_h
+#ifndef HEADER_fd_src_ballet_sbpf_fd_sbpf_instr_h
+#define HEADER_fd_src_ballet_sbpf_fd_sbpf_instr_h
 
 #include "../util/fd_util.h"
 
@@ -40,4 +40,4 @@ struct fd_sbpf_instr {
 };
 typedef struct fd_sbpf_instr fd_sbpf_instr_t;
 
-#endif /* HEADER_fd_src_ballet_sbpf_fd_instr_h */
+#endif /* HEADER_fd_src_ballet_sbpf_fd_sbpf_instr_h */
