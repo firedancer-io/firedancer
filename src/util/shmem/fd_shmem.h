@@ -397,18 +397,34 @@ fd_shmem_info( char const *      name,
 
 /* Raw page allocation */
 
-/* fd_shmem_acquire allocates page_cnt page_sz pages of physical DRAM
-   near cpu_idx from the operating system and maps them contiguously in
-   the thread group's local address space for the private use of that
-   thread group.  The lifetime of a page in the allocation is until the
-   thread group terminates or the page is explicitly released.  Returns
-   a pointer to the location in the local address space of the mapped
-   pages on success and NULL on failure (logs details). */
+/* fd_shmem_acquire_multi acquires the page_sz pages to create a memory
+   region for the private use of the caller's thread group.  The region
+   will consist of sub_cnt subregions, indexed [0,sub_cnt).  Each
+   subregion will have page_cnt pages near cpu_idx and the region will
+   be the concatentation of these subregions in the order specified.
+   The lifetime of a page in the allocation is until the thread group
+   terminates or the page is explicitly released.  Returns a pointer to
+   the location in the local address space of the mapped pages on
+   success and NULL on failure (logs details).  Reasons for failure
+   include page_sz is invalid, page_cnt is zero, cnt*page_sz overflows
+   an off_t, etc.
+
+   fd_shmem_acquire is a simple wrapper around fd_shmem_acquire_multi
+   for applications that just want to a create a shared memory region
+   that contains only 1 subregion. */
 
 void *
+fd_shmem_acquire_multi( ulong         page_sz,       /* Should be a FD_SHMEM_{NORMAL,HUGE,GIGANTIC}_PAGE_SZ */
+                        ulong         sub_cnt,       /* Should be positive */
+                        ulong const * sub_page_cnt,  /* Indexed [0,sub_cnt), 0 < sum(page_cnt)*page_sz <= ULONG_MAX */
+                        ulong const * sub_cpu_idx ); /* Indexed [0,sub_cnt), each should be in [0,fd_shmem_cpu_cnt()) */
+
+static inline void *
 fd_shmem_acquire( ulong page_sz,
                   ulong page_cnt,
-                  ulong cpu_idx );
+                  ulong cpu_idx ) {
+  return fd_shmem_acquire_multi( page_sz, 1UL, &page_cnt, &cpu_idx );
+}
 
 /* fd_shmem_release releases page_cnt page_sz pages of memory allocated
    by fd_shmem_acquire.  This always succeeds from the caller's POV but
