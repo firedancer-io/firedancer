@@ -2,12 +2,15 @@ MAKEFLAGS += --no-builtin-rules
 MAKEFLAGS += --no-builtin-variables
 .SUFFIXES:
 .SUFFIXES: .h .hxx .c .cxx .o .a .d .S .i
-.PHONY: all bin include lib unit-test fuzz-test run-unit-test help clean distclean asm ppp show-deps
+.PHONY: all bin include lib unit-test fuzz-test run-unit-test help clean distclean asm ppp show-deps lint check-lint
 .SECONDARY:
 .SECONDEXPANSION:
 
 BASEDIR:=build
 OBJDIR:=$(BASEDIR)/$(BUILDDIR)
+
+# Auxiliarily rules that should not set up depenencies
+AUX_RULES:=clean distclean help show-deps lint check-lint
 
 all: bin include lib unit-test
 
@@ -38,6 +41,7 @@ help:
 	# Explicit goals are: all bin include lib unit-test help clean distclean asm ppp
 	# "make all" is equivalent to "make bin include lib unit-test"
 	# "make bin" makes all binaries for the current platform
+	# "make ebpf-bin" makes all eBPF binaries
 	# "make include" makes all include files for the current platform
 	# "make lib" makes all libraries for the current platform
 	# "make unit-test" makes all unit-tests for the current platform
@@ -50,6 +54,8 @@ help:
 	# "make ppp" run all source files through the preprocessor
 	# "make show-deps" shows all the dependencies
 	# "make cov-report" creates an LCOV coverage report from LLVM profdata. Requires make run-unit-test EXTRAS="llvm-cov"
+	# "make lint" runs the linter on all C source and header files. Creates backup files.
+	# "make check-lint" runs the linter in dry run mode.
 
 clean:
 	#######################################################################
@@ -64,6 +70,18 @@ distclean:
 	#######################################################################
 	$(RMDIR) $(BASEDIR) && \
 $(SCRUB)
+
+lint:
+	#######################################################################
+	# Linting src/
+	#######################################################################
+	$(FIND) src/ -iname "*.c" -or -iname "*.h" | uncrustify -c lint.cfg -F - --replace
+
+check-lint:
+	#######################################################################
+	# Checking lint in src/
+	#######################################################################
+	$(FIND) src/ -iname "*.c" -or -iname "*.h" | uncrustify -c lint.cfg -F - --check
 
 ##############################
 # Usage: $(call make-lib,name)
@@ -202,6 +220,28 @@ run-unit-test =
 endif
 
 ##############################
+# Usage: $(call make-ebpf-bin,obj)
+
+# TODO support depfiles
+
+EBPF_BINDIR:=$(BASEDIR)/ebpf/clang/bin
+
+define _make-ebpf-bin
+
+$(EBPF_BINDIR)/$(1).o: $(MKPATH)$(1).c
+	#######################################################################
+	# Creating ebpf-bin $$@ from $$^
+	#######################################################################
+	$(MKDIR) $$(dir $$@) && \
+$(EBPF_CC) $(EBPF_CPPFLAGS) $(EBPF_CFLAGS) -c $$< -o $$@
+
+ebpf-bin: $(EBPF_BINDIR)/$(1).o
+
+endef
+
+make-ebpf-bin = $(eval $(call _make-ebpf-bin,$(1)))
+
+##############################
 ## GENERIC RULES
 
 $(OBJDIR)/obj/%.d : src/%.c
@@ -305,9 +345,8 @@ $(OBJDIR)/example/% : src/%
 	$(MKDIR) $(dir $@) && \
 $(CP) $^ $@
 
-ifneq ($(MAKECMDGOALS),distclean)
-ifneq ($(MAKECMDGOALS),clean)
-ifneq ($(MAKECMDGOALS),help)
+ifeq ($(filter $(MAKECMDGOALS),$(AUX_RULES)),)
+# If we are not in an auxiliary rule (aka we need to actually build something/need dep tree)
 
 # Include all the make fragments
 
@@ -342,7 +381,5 @@ ppp: $(DEPFILES:.d=.i)
 dec: $(DEPFILES:.d=.o.d)
 
 
-endif
-endif
 endif
 

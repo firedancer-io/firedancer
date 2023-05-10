@@ -2,11 +2,8 @@
 #error "This target requires FD_HAS_HOSTED"
 #endif
 
-#define _GNU_SOURCE
-
 #include <stdio.h>
 #include <stdlib.h>
-#include <sys/mman.h>
 #include <unistd.h>
 
 #include "../fd_util.h"
@@ -28,17 +25,9 @@ LLVMFuzzerInitialize( int  *   argc,
 int
 LLVMFuzzerTestOneInput( uchar const * data,
                         ulong         size ) {
-  /* Write fuzz input to a memfd.
-   * The fd_pcap interface presently only takes input via FILEs.
-   * This setup can be simplified once/if fd_pcap accepts raw byte streams. */
-  int fd;
-  FD_TEST( (fd = memfd_create( "fuzz input", MFD_CLOEXEC )) != -1 );
-  FD_TEST( write( fd, data, size  ) != -1 );
-  FD_TEST( lseek( fd, SEEK_SET, 0 ) != -1 );
 
-  /* Promote to file handle. */
-  FILE * file = fdopen( fd, "r+b" );
-  FD_TEST( file != NULL );
+  FILE * file = fmemopen( (void *)data, size, "r+b" );
+  FD_TEST( file );
 
   /* Open "pcap". */
   fd_pcap_iter_t * pcap = fd_pcap_iter_new( file );
@@ -52,7 +41,6 @@ LLVMFuzzerTestOneInput( uchar const * data,
     FD_TEST( fd_pcap_iter_delete( pcap ) != NULL );
   }
 
-  /* Release memfd */
-  FD_TEST( fclose( file ) == 0 );
+  FD_TEST( 0==fclose( file ) );
   return 0;
 }

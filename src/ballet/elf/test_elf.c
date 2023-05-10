@@ -128,8 +128,6 @@ FD_STATIC_ASSERT( offsetof( fd_elf64_dyn, d_un.d_val )==offsetof( Elf64_Dyn, d_u
 FD_STATIC_ASSERT( offsetof( fd_elf64_dyn, d_un.d_ptr )==offsetof( Elf64_Dyn, d_un.d_ptr ), compat );
 FD_STATIC_ASSERT( sizeof  ( fd_elf64_dyn             )==sizeof  ( Elf64_Dyn             ), compat );
 
-#else /* defined(__linux__) */
-
 #endif /* defined(__linux__) */
 
 

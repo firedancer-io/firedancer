@@ -1,5 +1,7 @@
 #include "fd_sbpf_loader.h"
+#include "fd_sbpf_opcodes.h"
 #include "../../util/fd_util.h"
+#include "../../util/bits/fd_sat.h"
 #include "../murmur3/fd_murmur3.h"
 
 #include <stdio.h>
@@ -162,7 +164,9 @@ typedef struct fd_sbpf_elf fd_sbpf_elf_t;
 #define FD_SBPF_PHNDX_UNDEF (ULONG_MAX)
 
 /* FD_SBPF_MM_{...}_ADDR are hardcoded virtual addresses of segments
-   in the sBPF virtual machine. */
+   in the sBPF virtual machine.
+
+   FIXME: These should be defined elsewhere */
 
 #define FD_SBPF_MM_PROGRAM_ADDR (0x100000000UL) /* readonly program data */
 #define FD_SBPF_MM_STACK_ADDR   (0x200000000UL) /* stack (with gaps) */
@@ -232,18 +236,6 @@ fd_sbpf_check_ehdr( fd_elf64_ehdr const * ehdr,
   REQUIRE( (phoff>shoff_end) | (shoff>phoff_end) ); /* overlap shdrs<>phdrs */
 
   return 0;
-}
-
-static inline ulong
-fd_ulong_sat_add( ulong x, ulong y ) {
-  ulong z = x+y;
-  return z | ((ulong)(z>=x)-1UL);
-}
-
-static inline ulong
-fd_ulong_sat_sub( ulong x, ulong y ) {
-  ulong z = x-y;
-  return z & ((ulong)(z>x)-1UL);
 }
 
 /* fd_sbpf_load_shdrs parses the program header table.
@@ -431,7 +423,6 @@ static int
 fd_sbpf_load_dynamic( fd_sbpf_elf_t * prog,
                       uchar *         bin,
                       ulong           bin_sz ) {
-  (void)bin;
 
   ulong dyn_off;
   ulong dyn_sz;
@@ -439,13 +430,9 @@ fd_sbpf_load_dynamic( fd_sbpf_elf_t * prog,
   if( prog->phndx_dyn!=FD_SBPF_PHNDX_UNDEF ) {
     dyn_off = prog->phdrs[ prog->phndx_dyn ].p_offset;
     dyn_sz  = prog->phdrs[ prog->phndx_dyn ].p_filesz;  /* exceeds dynamic table, unaligned */
-    //FD_LOG_DEBUG(( "Using dynamic segment (phndx=%#lx off=%#lx sz=%#lx)",
-    //                prog->phndx_dyn, dyn_off, dyn_sz ));
   } else if( prog->shdr_dyn ) {
     dyn_off = prog->shdr_dyn->sh_offset;
     dyn_sz  = prog->shdr_dyn->sh_size;
-    //FD_LOG_DEBUG(( "Using dynamic section (deprecated behavior) (shndx=%ld off=%lu sz=%lu)",
-    //                prog->shdr_dyn - prog->shdrs, dyn_off, dyn_sz ));
     /* FIXME alignment check? */
   } else {
     /* No dynamic segment nor section
@@ -809,12 +796,12 @@ fd_sbpf_hash_calls( fd_sbpf_elf_t * prog,
        that compiler generated a relocation instead. */
     ulong opc = insn & 0xFF;
     int   imm = (int)(insn >> 32UL);
-    if( (opc!=0x85) | (imm==-1) )
+    if( (opc!=FD_SBPF_OP_CALL_IMM) | (imm==-1) )
       continue;
 
     /* Mark function call destination */
     long target_pc_s;
-    REQUIRE( 0==__builtin_saddl_overflow( (long)i+1UL, imm, &target_pc_s ) );
+    REQUIRE( 0==__builtin_saddl_overflow( (long)i+1L, imm, &target_pc_s ) );
     ulong target_pc = (ulong)target_pc_s;
     REQUIRE( target_pc<insn_cnt );  /* bounds check target */
 
@@ -1054,14 +1041,14 @@ fd_sbpf_program_load( fd_sbpf_program_t *  prog,
 FD_FN_CONST extern inline fd_sbpf_program_info_t const *
 fd_sbpf_program_get_info( fd_sbpf_program_t const * program );
 
-#define EXPORT_STATIC_INLINE( name ) \
-  extern __typeof__(name) __attribute__((alias(#name))) \
+#define EXPORT_STATIC_INLINE( name, ... ) \
+  extern __typeof__(name) __attribute__((alias(#name))) __VA_ARGS__ \
   name##_ext
 
-EXPORT_STATIC_INLINE( fd_sbpf_calldests_query     );
-EXPORT_STATIC_INLINE( fd_sbpf_syscalls_align      );
-EXPORT_STATIC_INLINE( fd_sbpf_syscalls_footprint  );
-EXPORT_STATIC_INLINE( fd_sbpf_syscalls_new        );
-EXPORT_STATIC_INLINE( fd_sbpf_syscalls_delete     );
-EXPORT_STATIC_INLINE( fd_sbpf_syscalls_insert     );
+EXPORT_STATIC_INLINE( fd_sbpf_calldests_query,    __attribute__((pure )) );
+EXPORT_STATIC_INLINE( fd_sbpf_syscalls_align,     __attribute__((const)) );
+EXPORT_STATIC_INLINE( fd_sbpf_syscalls_footprint, __attribute__((const)) );
+EXPORT_STATIC_INLINE( fd_sbpf_syscalls_new    );
+EXPORT_STATIC_INLINE( fd_sbpf_syscalls_delete );
+EXPORT_STATIC_INLINE( fd_sbpf_syscalls_insert );
 

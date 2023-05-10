@@ -406,54 +406,66 @@ fd_shmem_info( char const *      name,
 /* RAW PAGE ALLOCATION APIS *******************************************/
 
 void *
-fd_shmem_acquire( ulong page_sz,
-                  ulong page_cnt,
-                  ulong cpu_idx ) {
+fd_shmem_acquire_multi( ulong         page_sz,
+                        ulong         sub_cnt,
+                        ulong const * _sub_page_cnt,
+                        ulong const * _sub_cpu_idx ) {
 
-  if( FD_UNLIKELY( !fd_shmem_is_page_sz( page_sz ) ) ) {
-    FD_LOG_WARNING(( "bad page_sz (%lu)", page_sz ));
-    return NULL;
+  /* Check input args */
+
+  if( FD_UNLIKELY( !fd_shmem_is_page_sz( page_sz ) ) ) { FD_LOG_WARNING(( "bad page_sz (%lu)", page_sz )); return NULL; }
+
+  if( FD_UNLIKELY( !sub_cnt       ) ) { FD_LOG_WARNING(( "zero sub_cnt"      )); return NULL; }
+  if( FD_UNLIKELY( !_sub_page_cnt ) ) { FD_LOG_WARNING(( "NULL sub_page_cnt" )); return NULL; }
+  if( FD_UNLIKELY( !_sub_cpu_idx  ) ) { FD_LOG_WARNING(( "NULL sub_cpu_idx"  )); return NULL; }
+
+  ulong cpu_cnt = fd_shmem_cpu_cnt();
+
+  ulong page_cnt = 0UL;
+  for( ulong sub_idx=0UL; sub_idx<sub_cnt; sub_idx++ ) {
+    ulong sub_page_cnt = _sub_page_cnt[ sub_idx ];
+    if( FD_UNLIKELY( !sub_page_cnt ) ) continue; /* Skip over empty subregions */
+
+    page_cnt += sub_page_cnt;
+    if( FD_UNLIKELY( page_cnt<sub_page_cnt ) ) {
+      FD_LOG_WARNING(( "sub[%lu] sub page_cnt overflow (page_cnt %lu, sub_page_cnt %lu)",
+                       sub_idx, page_cnt-sub_page_cnt, sub_page_cnt ));
+      return NULL;
+    }
+
+    ulong sub_cpu_idx = _sub_cpu_idx[ sub_idx ];
+    if( FD_UNLIKELY( sub_cpu_idx>=cpu_cnt ) ) {
+      FD_LOG_WARNING(( "sub[%lu] bad cpu_idx (%lu)", sub_idx, sub_cpu_idx ));
+      return NULL;
+    }
   }
 
-  if( FD_UNLIKELY( !((1UL<=page_cnt) & (page_cnt<=(((ulong)LONG_MAX)/page_sz))) ) ) {
-    FD_LOG_WARNING(( "bad page_cnt (%lu)", page_cnt ));
+  if( FD_UNLIKELY( !((1UL<=page_cnt) & (page_cnt<=(((ulong)LONG_MAX)/page_sz))) ) ) { /* LONG_MAX from off_t */
+    FD_LOG_WARNING(( "bad total page_cnt (%lu)", page_cnt ));
     return NULL;
   }
-
-  if( FD_UNLIKELY( !(cpu_idx<fd_shmem_cpu_cnt()) ) ) {
-    FD_LOG_WARNING(( "bad cpu_idx (%lu)", cpu_idx ));
-    return NULL;
-  }
-
-  ulong sz       = page_cnt*page_sz;
-  ulong numa_idx = fd_shmem_numa_idx( cpu_idx );
 
   int flags = MAP_PRIVATE | MAP_ANONYMOUS;
   if( page_sz==FD_SHMEM_HUGE_PAGE_SZ     ) flags |= (int)MAP_HUGETLB | (int)MAP_HUGE_2MB;
   if( page_sz==FD_SHMEM_GIGANTIC_PAGE_SZ ) flags |= (int)MAP_HUGETLB | (int)MAP_HUGE_1GB;
 
-  /* See fd_shmem_create for details on the locking, mempolicy
+  /* See fd_shmem_create_multi for details on the locking, mempolicy
      and what not tricks */
 
   FD_SHMEM_LOCK;
 
   int err;
+
 # define ERROR( cleanup ) do { err = errno; goto cleanup; } while(0)
 
   int    orig_mempolicy;
   ulong  orig_nodemask[ (FD_SHMEM_NUMA_MAX+63UL)/64UL ];
-  ulong  nodemask[ (FD_SHMEM_NUMA_MAX+63UL)/64UL ];
   void * mem = NULL;
+
+  ulong  sz = page_cnt*page_sz;
 
   if( FD_UNLIKELY( fd_numa_get_mempolicy( &orig_mempolicy, orig_nodemask, FD_SHMEM_NUMA_MAX, NULL, 0UL ) ) ) {
     FD_LOG_WARNING(( "fd_numa_get_mempolicy failed (%i-%s)", errno, strerror( errno ) ));
-    ERROR( done );
-  }
-
-  fd_memset( nodemask, 0, 8UL*((FD_SHMEM_NUMA_MAX+63UL)/64UL) );
-  nodemask[ numa_idx >> 6 ] = 1UL << (numa_idx & 63UL);
-  if( FD_UNLIKELY( fd_numa_set_mempolicy( MPOL_BIND | MPOL_F_STATIC_NODES, nodemask, FD_SHMEM_NUMA_MAX ) ) ) {
-    FD_LOG_WARNING(( "fd_numa_set_mempolicy failed (%i-%s)", errno, strerror( errno ) ));
     ERROR( done );
   }
 
@@ -469,27 +481,51 @@ fd_shmem_acquire( ulong page_sz,
     ERROR( unmap );
   }
 
-  if( FD_UNLIKELY( fd_numa_mlock( mem, sz ) ) ) {
-    FD_LOG_WARNING(( "fd_numa_mlock(anon,%lu KiB) failed (%i-%s)", sz>>10, errno, strerror( errno ) ));
-    ERROR( unmap );
+  uchar * sub_mem = (uchar *)mem;
+  for( ulong sub_idx=0UL; sub_idx<sub_cnt; sub_idx++ ) {
+    ulong sub_page_cnt = _sub_page_cnt[ sub_idx ];
+    if( FD_UNLIKELY( !sub_page_cnt ) ) continue;
+
+    ulong sub_sz       = sub_page_cnt*page_sz;
+    ulong sub_cpu_idx  = _sub_cpu_idx[ sub_idx ];
+    ulong sub_numa_idx = fd_shmem_numa_idx( sub_cpu_idx );
+
+    ulong nodemask[ (FD_SHMEM_NUMA_MAX+63UL)/64UL ];
+
+    fd_memset( nodemask, 0, 8UL*((FD_SHMEM_NUMA_MAX+63UL)/64UL) );
+    nodemask[ sub_numa_idx >> 6 ] = 1UL << (sub_numa_idx & 63UL);
+
+    if( FD_UNLIKELY( fd_numa_set_mempolicy( MPOL_BIND | MPOL_F_STATIC_NODES, nodemask, FD_SHMEM_NUMA_MAX ) ) ) {
+      FD_LOG_WARNING(( "fd_numa_set_mempolicy failed (%i-%s)", errno, strerror( errno ) ));
+      ERROR( unmap );
+    }
+
+    if( FD_UNLIKELY( fd_numa_mlock( sub_mem, sub_sz ) ) ) {
+      FD_LOG_WARNING(( "sub[%lu]: fd_numa_mlock(anon,%lu KiB) failed (%i-%s)", sub_idx, sub_sz>>10, errno, strerror( errno ) ));
+      ERROR( unmap );
+    }
+
+    /* FIXME: NUMA TOUCH HERE (ALSO WOULD A LOCAL TOUCH WORK GIVEN THE
+       MEMPOLICY DONE ABOVE?) */
+
+    fd_memset( nodemask, 0, 8UL*((FD_SHMEM_NUMA_MAX+63UL)/64UL) );
+    nodemask[ sub_numa_idx >> 6 ] = 1UL << (sub_numa_idx & 63UL);
+
+    if( FD_UNLIKELY( fd_numa_mbind( sub_mem, sub_sz, MPOL_BIND, nodemask, FD_SHMEM_NUMA_MAX, MPOL_MF_MOVE|MPOL_MF_STRICT ) ) ) {
+      FD_LOG_WARNING(( "sub[%lu]: fd_numa_mbind(anon,%lu KiB,MPOL_BIND,1UL<<%lu,MPOL_MF_MOVE|MPOL_MF_STRICT) failed (%i-%s)",
+                       sub_idx, sub_sz>>10, sub_numa_idx, errno, strerror( errno ) ));
+      ERROR( unmap );
+    }
+
+    int warn = fd_shmem_numa_validate( sub_mem, page_sz, sub_page_cnt, sub_numa_idx ); /* logs details */
+    if( FD_UNLIKELY( warn ) )
+      FD_LOG_WARNING(( "sub[%lu]: mmap(NULL,%lu KiB,PROT_READ|PROT_WRITE,%x,-1,0) numa binding failed (%i-%s)",
+                       sub_idx, sub_sz>>10, flags, warn, strerror( warn ) ));
+
+    sub_mem += sub_sz;
   }
 
-  /* FIXME: NUMA TOUCH HERE (ALSO WOULD A LOCAL TOUCH WORK GIVEN THE
-     MEMPOLICY DONE ABOVE?) */
-
-  /* Just in case fd_numa_set_mempolicy clobbered it */
-  fd_memset( nodemask, 0, 8UL*((FD_SHMEM_NUMA_MAX+63UL)/64UL) );
-  nodemask[ numa_idx >> 6 ] = 1UL << (numa_idx & 63UL);
-  if( FD_UNLIKELY( fd_numa_mbind( mem, sz, MPOL_BIND, nodemask, FD_SHMEM_NUMA_MAX, MPOL_MF_MOVE | MPOL_MF_STRICT ) ) ) {
-    FD_LOG_WARNING(( "fd_numa_mbind(anon,%lu KiB,MPOL_BIND,1UL<<%lu,MPOL_MF_MOVE|MPOL_MF_STRICT) failed (%i-%s)",
-                     sz>>10, numa_idx, errno, strerror( errno ) ));
-    ERROR( unmap );
-  }
-
-  err = fd_shmem_numa_validate( mem, page_sz, page_cnt, numa_idx ); /* logs details */
-  if( FD_UNLIKELY( err ) )
-    FD_LOG_WARNING(( "mmap(NULL,%lu KiB,PROT_READ|PROT_WRITE,%x,-1,0) numa binding failed (%i-%s)",
-                     sz>>10, flags, err, strerror( err ) ));
+  err = 0;
 
 # undef ERROR
 
