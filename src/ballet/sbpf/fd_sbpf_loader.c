@@ -728,7 +728,7 @@ fd_sbpf_r_bpf_64_32( fd_sbpf_elf_t *      elf,
     uint hash = fd_murmur3_32( &target_pc, 8UL, 0U );
     REQUIRE( fd_sbpf_calldests_upsert( elf->calldests, hash, target_pc ) );
 
-    V = (uint)target_pc;
+    V = (uint)hash;
   } else {
     /* FIXME Should cache Murmur hashes.
              If max ELF size is 10MB, can fit about 640k relocs.
