@@ -16,6 +16,7 @@
 #include "../../funk/fd_funk.h"
 #include "../../ballet/runtime/fd_types.h"
 #include "../../ballet/runtime/fd_runtime.h"
+#include "../../ballet/base58/fd_base58.h"
 
 static void usage(const char* progname) {
   fprintf(stderr, "USAGE: %s\n", progname);
@@ -23,17 +24,18 @@ static void usage(const char* progname) {
   fprintf(stderr, " --wksp <name>                                    workspace name\n");
   fprintf(stderr, " --indexmax <count>                               size of funky account map\n");
   fprintf(stderr, " --txnmax <count>                                 size of funky transaction map\n");
+  fprintf(stderr, " --verifyhash <base58hash>                        verify that the accounts hash matches the given one\n");
 }
 
 struct SnapshotParser {
-  struct fd_tar_stream                      tarreader_;
-  char*                                     tmpstart_;
-  char*                                     tmpcur_;
-  char*                                     tmpend_;
+  struct fd_tar_stream  tarreader_;
+  char*                 tmpstart_;
+  char*                 tmpcur_;
+  char*                 tmpend_;
 
-  fd_global_ctx_t*                          global_;
+  fd_global_ctx_t*      global_;
 
-  fd_solana_manifest_t                     *manifest_;
+  fd_solana_manifest_t* manifest_;
 };
 
 void SnapshotParser_init(struct SnapshotParser* self, fd_global_ctx_t* global) {
@@ -48,6 +50,13 @@ void SnapshotParser_init(struct SnapshotParser* self, fd_global_ctx_t* global) {
 }
 
 void SnapshotParser_destroy(struct SnapshotParser* self) {
+  if (self->manifest_) {
+    fd_global_ctx_t* global = self->global_;
+    fd_solana_manifest_destroy(self->manifest_, global->freef, global->allocf_arg);
+    global->freef(global->allocf_arg, self->manifest_);
+    self->manifest_ = NULL;
+  }
+  
   fd_tar_stream_delete(&self->tarreader_);
   free(self->tmpstart_);
 }
@@ -250,43 +259,43 @@ int main(int argc, char** argv) {
   if (wksp == NULL)
     FD_LOG_ERR(( "failed to attach to workspace %s", wkspname ));
 
+  ulong index_max = fd_env_strip_cmdline_ulong(&argc, &argv, "--indexmax", NULL, 350000000);
+  ulong xactions_max = fd_env_strip_cmdline_ulong(&argc, &argv, "--txnmax", NULL, 100);
+  
+  void* shmem = fd_wksp_alloc_laddr( wksp, fd_funk_align(), fd_funk_footprint(), 1 );
+  if (shmem == NULL)
+    FD_LOG_ERR(( "failed to allocate a funky" ));
+  char hostname[64];
+  gethostname(hostname, sizeof(hostname));
+  ulong hashseed = fd_hash(0, hostname, strnlen(hostname, sizeof(hostname)));
+  fd_funk_t* funk = fd_funk_join(fd_funk_new(shmem, 1, hashseed, xactions_max, index_max));
+  if (funk == NULL) {
+    fd_wksp_free_laddr(shmem);
+    FD_LOG_ERR(( "failed to allocate a funky" ));
+  }
+  
+  FD_LOG_NOTICE(( "funky at global address 0x%016lx", fd_wksp_gaddr_fast( wksp, shmem ) ));
+
+  char global_mem[FD_GLOBAL_CTX_FOOTPRINT] __attribute__((aligned(FD_GLOBAL_CTX_ALIGN)));
+  memset(global_mem, 0, sizeof(global_mem));
+  fd_global_ctx_t * global = fd_global_ctx_join( fd_global_ctx_new( global_mem ) );
+  
+  global->wksp = wksp;
+  global->funk = funk;
+  global->allocf = (fd_alloc_fun_t)fd_alloc_malloc;
+  global->freef = (fd_free_fun_t)fd_alloc_free;
+  global->allocf_arg = fd_wksp_laddr_fast( wksp, funk->alloc_gaddr );
+
+  char acc_mgr_mem[FD_ACC_MGR_FOOTPRINT] __attribute__((aligned(FD_ACC_MGR_ALIGN)));
+  memset(acc_mgr_mem, 0, sizeof(acc_mgr_mem));
+  global->acc_mgr = fd_acc_mgr_join( fd_acc_mgr_new( acc_mgr_mem, global, FD_ACC_MGR_FOOTPRINT ) );
+  
   if (strcmp(cmd, "ingest") == 0) {
     const char* snapshotfile = fd_env_strip_cmdline_cstr(&argc, &argv, "--snapshotfile", NULL, NULL);
     if (snapshotfile == NULL) {
       usage(argv[0]);
       return 1;
     }
-    ulong index_max = fd_env_strip_cmdline_ulong(&argc, &argv, "--indexmax", NULL, 350000000);
-    ulong xactions_max = fd_env_strip_cmdline_ulong(&argc, &argv, "--txnmax", NULL, 100);
-
-    void* shmem = fd_wksp_alloc_laddr( wksp, fd_funk_align(), fd_funk_footprint(), 1 );
-    if (shmem == NULL)
-      FD_LOG_ERR(( "failed to allocate a funky" ));
-    char hostname[64];
-    gethostname(hostname, sizeof(hostname));
-    ulong hashseed = fd_hash(0, hostname, strnlen(hostname, sizeof(hostname)));
-    fd_funk_t* funk = fd_funk_join(fd_funk_new(shmem, 1, hashseed, xactions_max, index_max));
-    if (funk == NULL) {
-      fd_wksp_free_laddr(shmem);
-      FD_LOG_ERR(( "failed to allocate a funky" ));
-    }
-
-    FD_LOG_WARNING(( "funky at global address 0x%016lx", fd_wksp_gaddr_fast( wksp, shmem ) ));
-
-    char global_mem[FD_GLOBAL_CTX_FOOTPRINT] __attribute__((aligned(FD_GLOBAL_CTX_ALIGN)));
-    memset(global_mem, 0, sizeof(global_mem));
-    fd_global_ctx_t * global = fd_global_ctx_join( fd_global_ctx_new( global_mem ) );
-  
-    global->wksp = wksp;
-    global->funk = funk;
-    global->allocf = (fd_alloc_fun_t)fd_alloc_malloc;
-    global->freef = (fd_free_fun_t)fd_alloc_free;
-    global->allocf_arg = fd_wksp_laddr_fast( wksp, funk->alloc_gaddr );
-
-    char acc_mgr_mem[FD_ACC_MGR_FOOTPRINT] __attribute__((aligned(FD_ACC_MGR_ALIGN)));
-    memset(acc_mgr_mem, 0, sizeof(acc_mgr_mem));
-    global->acc_mgr = fd_acc_mgr_join( fd_acc_mgr_new( acc_mgr_mem, global, FD_ACC_MGR_FOOTPRINT ) );
-
     struct SnapshotParser parser;
     SnapshotParser_init(&parser, global);
     if (strcmp(snapshotfile + strlen(snapshotfile) - 4, ".zst") == 0)
@@ -296,9 +305,59 @@ int main(int argc, char** argv) {
     else
       FD_LOG_ERR(( "unknown snapshot compression suffix" ));
     SnapshotParser_destroy(&parser);
-
-    fd_global_ctx_delete( fd_global_ctx_leave( global ) );
   }
+
+  const char* verifyhash = fd_env_strip_cmdline_cstr(&argc, &argv, "--verifyhash", NULL, NULL);
+  if (verifyhash) {
+    fd_funk_rec_t * rec_map  = fd_funk_rec_map( funk, wksp );
+    ulong num_iter_accounts = fd_funk_rec_map_key_cnt( rec_map );
+
+    FD_LOG_NOTICE(( "verifying hash for %lu accounts", num_iter_accounts ));
+  
+    ulong zero_accounts = 0;
+    ulong num_pairs = 0;
+    fd_pubkey_hash_pair_t * pairs = (fd_pubkey_hash_pair_t *) global->allocf(global->allocf_arg , 8UL, num_iter_accounts*sizeof(fd_pubkey_hash_pair_t));
+    for( fd_funk_rec_map_iter_t iter = fd_funk_rec_map_iter_init( rec_map );
+         !fd_funk_rec_map_iter_done( rec_map, iter );
+         iter = fd_funk_rec_map_iter_next( rec_map, iter ) ) {
+      fd_funk_rec_t * rec = fd_funk_rec_map_iter_ele( rec_map, iter );
+
+      if (num_pairs % 1000000 == 0) {
+        FD_LOG_NOTICE(( "read %lu so far", num_pairs ));
+      }
+
+      fd_account_meta_t * metadata = (fd_account_meta_t *) fd_funk_val_const( rec, wksp );
+      if ((metadata->magic != FD_ACCOUNT_META_MAGIC) || (metadata->hlen != sizeof(fd_account_meta_t))) {
+        FD_LOG_ERR(("invalid magic on metadata"));
+      }
+    
+      if ((metadata->info.lamports == 0) | ((metadata->info.executable & ~1) != 0)) {
+        zero_accounts++;
+        continue;
+      }
+    
+    
+      fd_memcpy(pairs[num_pairs].pubkey.key, rec->pair.key, 32);
+      fd_memcpy(pairs[num_pairs].hash.hash, metadata->hash, 32);
+      num_pairs++;
+    }
+    FD_LOG_NOTICE(("num_iter_accounts: %ld  zero_accounts: %lu", num_iter_accounts, zero_accounts));
+    
+    fd_hash_t accounts_hash;
+    fd_hash_account_deltas(global, pairs, num_pairs, &accounts_hash);
+    
+    char accounts_hash_58[FD_BASE58_ENCODED_32_SZ];
+    fd_base58_encode_32((uchar const *)accounts_hash.hash, NULL, accounts_hash_58);
+
+    FD_LOG_NOTICE(("hash result %s", accounts_hash_58));
+    if (strcmp(verifyhash, accounts_hash_58) == 0)
+      FD_LOG_NOTICE(("hash verified!"));
+    else
+      FD_LOG_ERR(("hash does not match!"));
+  }
+  
+  fd_global_ctx_delete( fd_global_ctx_leave( global ) );
+  fd_funk_leave( funk );
 
   fd_log_flush();
   fd_halt();
