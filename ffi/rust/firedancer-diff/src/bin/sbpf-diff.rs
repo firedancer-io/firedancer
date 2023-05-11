@@ -28,7 +28,7 @@ impl Debug for LoadedProgram {
     }
 }
 
-fn load_program_firedancer(mut elf: Vec<u8>) -> Option<LoadedProgram> {
+fn load_program_firedancer(mut elf: Vec<u8>) -> Result<LoadedProgram, String> {
     unsafe {
         let syscalls_layout = std::alloc::Layout::from_size_align_unchecked(
             fd_sbpf_syscalls_footprint(),
@@ -59,7 +59,7 @@ fn load_program_firedancer(mut elf: Vec<u8>) -> Option<LoadedProgram> {
         );
         let res = if errcode == 0 {
             let info = fd_sbpf_program_get_info(prog);
-            Some(LoadedProgram {
+            Ok(LoadedProgram {
                 rodata: std::slice::from_raw_parts(
                     (*info).rodata as *const u8,
                     (*info).rodata_sz as usize,
@@ -70,11 +70,10 @@ fn load_program_firedancer(mut elf: Vec<u8>) -> Option<LoadedProgram> {
                 text_sz: (*info).text_cnt * 8,
             })
         } else {
-            eprintln!(
+            return Err(format!(
                 "Firedancer load err: {:?}",
                 std::ffi::CStr::from_ptr(fd_sbpf_strerror())
-            );
-            None
+            ));
         };
         std::alloc::dealloc(fd_sbpf_program_delete(prog) as *mut u8, prog_layout);
         std::alloc::dealloc(
@@ -85,7 +84,7 @@ fn load_program_firedancer(mut elf: Vec<u8>) -> Option<LoadedProgram> {
     }
 }
 
-fn load_program_labs(elf: Vec<u8>) -> Option<LoadedProgram> {
+fn load_program_labs(elf: Vec<u8>) -> Result<LoadedProgram, String> {
     let feature_set = solana_sdk::feature_set::FeatureSet::all_enabled();
     let mut load_program_metrics =
         solana_program_runtime::loaded_programs::LoadProgramMetrics::default();
@@ -102,16 +101,16 @@ fn load_program_labs(elf: Vec<u8>) -> Option<LoadedProgram> {
         /* reject_deployment_of_broken_elfs */ true,
         /* debugging_features */ false,
     )
-    .ok()?;
+    .map_err(|e| format!("{:?}", e))?;
     let program = match result.program {
         solana_program_runtime::loaded_programs::LoadedProgramType::LegacyV0(e) => e,
         solana_program_runtime::loaded_programs::LoadedProgramType::LegacyV1(e) => e,
-        _ => return None,
+        res => return Err(format!("load_program_from_bytes error: {:?}", res)),
     };
     let executable = program.get_executable();
     let ro_section = executable.get_ro_section().to_vec();
     let (text_vaddr, text_section) = executable.get_text_bytes();
-    Some(LoadedProgram {
+    Ok(LoadedProgram {
         rodata: ro_section,
         entry_pc: executable.get_entrypoint_instruction_offset() as u64,
         text_off: (text_vaddr - 0x1_0000_0000) as i64,
@@ -123,9 +122,23 @@ fn main() {
     let elf_bytes = std::fs::read(std::env::args().nth(1).expect("Usage: sbpf-diff <prog>"))
         .expect("read failed");
 
-    let prog_sl = format!("{:?}", load_program_labs(elf_bytes.clone()).expect("Labs failed to load"));
-    let prog_fd = format!("{:?}", load_program_firedancer(elf_bytes).expect("Firedancer failed to load"));
+    let prog_sl_res = load_program_labs(elf_bytes.clone());
+    let prog_fd_res = load_program_firedancer(elf_bytes);
 
+    let (prog_sl, prog_fd) = match (prog_sl_res, prog_fd_res) {
+        (Err(_), Err(_)) => return,
+        (Ok(_), Err(prog_fd_err)) => {
+            println!("SL loaded, FD didn't ({})", prog_fd_err);
+            std::process::exit(1);
+        }
+        (Err(prog_sl_err), Ok(_)) => {
+            println!("FD loaded, SL didn't ({})", prog_sl_err);
+            std::process::exit(1);
+        }
+        (Ok(sl), Ok(fd)) => (format!("{:?}", sl), format!("{:?}", fd)),
+    };
+
+    let mut all_matches = true;
     let mut matches = true;
     for diff in diff::lines(&prog_sl, &prog_fd) {
         let prev_matches = matches;
@@ -135,9 +148,14 @@ fn main() {
             diff::Result::Both(_, _) => matches = true,
             diff::Result::Right(r) => println!("FD {}", r),
         }
+        all_matches &= matches;
         if !prev_matches && matches {
             println!("...");
         }
+    }
+
+    if !all_matches {
+        std::process::exit(1);
     }
 }
 
