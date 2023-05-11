@@ -794,9 +794,9 @@ fd_sbpf_hash_calls( fd_sbpf_elf_t * prog,
 
     /* Check for call instruction.  If immediate is UINT_MAX, assume
        that compiler generated a relocation instead. */
-    ulong opc = insn & 0xFF;
-    int   imm = (int)(insn >> 32UL);
-    if( (opc!=FD_SBPF_OP_CALL_IMM) | (imm==-1) )
+    ulong opc  = insn & 0xFF;
+    int   imm  = (int)(insn >> 32UL);
+    if( (opc!=0x85) | (imm==-1) )
       continue;
 
     /* Mark function call destination */

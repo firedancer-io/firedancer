@@ -2,75 +2,74 @@
 
 #include "fd_sbpf_disasm.h"
 #include "../ballet/sbpf/fd_sbpf_maps.c"
-
-#include "fd_opcodes.h"
+#include "../ballet/sbpf/fd_sbpf_opcodes.h"
 
 # define OUT_PRINTF(...) \
   do { if( FD_UNLIKELY( fprintf(out, __VA_ARGS__)<0 ) ) return 0; } while(0)
 
 static ulong
-fd_sbpf_disassemble_instr_alu( fd_vm_sbpf_instr_t instr,
+fd_sbpf_disassemble_instr_alu( fd_sbpf_instr_t instr,
                                char const *       suffix,
                                FILE *             out ) {
 
   char * op_name;
   switch (instr.opcode.normal.op_mode) {
-    case FD_BPF_OPCODE_ALU_OP_MODE_ADD:
+    case FD_SBPF_OPCODE_ALU_OP_MODE_ADD:
       op_name = "add";
       break;
-    case FD_BPF_OPCODE_ALU_OP_MODE_SUB:
+    case FD_SBPF_OPCODE_ALU_OP_MODE_SUB:
       op_name = "sub";
       break;
-    case FD_BPF_OPCODE_ALU_OP_MODE_MUL:
+    case FD_SBPF_OPCODE_ALU_OP_MODE_MUL:
       op_name = "mul";
       break;
-    case FD_BPF_OPCODE_ALU_OP_MODE_DIV:
+    case FD_SBPF_OPCODE_ALU_OP_MODE_DIV:
       op_name = "div";
       break;
-    case FD_BPF_OPCODE_ALU_OP_MODE_OR:
+    case FD_SBPF_OPCODE_ALU_OP_MODE_OR:
       op_name = "or";
       break;
-    case FD_BPF_OPCODE_ALU_OP_MODE_AND:
+    case FD_SBPF_OPCODE_ALU_OP_MODE_AND:
       op_name = "and";
       break;
-    case FD_BPF_OPCODE_ALU_OP_MODE_LSH:
+    case FD_SBPF_OPCODE_ALU_OP_MODE_LSH:
       op_name = "lsh";
       break;
-    case FD_BPF_OPCODE_ALU_OP_MODE_RSH:
+    case FD_SBPF_OPCODE_ALU_OP_MODE_RSH:
       op_name = "rsh";
       break;
-    case FD_BPF_OPCODE_ALU_OP_MODE_NEG:
+    case FD_SBPF_OPCODE_ALU_OP_MODE_NEG:
       op_name = "neg";
       break;
-    case FD_BPF_OPCODE_ALU_OP_MODE_MOD:
+    case FD_SBPF_OPCODE_ALU_OP_MODE_MOD:
       op_name = "mod";
       break;
-    case FD_BPF_OPCODE_ALU_OP_MODE_XOR:
+    case FD_SBPF_OPCODE_ALU_OP_MODE_XOR:
       op_name = "xor";
       break;
-    case FD_BPF_OPCODE_ALU_OP_MODE_MOV:
+    case FD_SBPF_OPCODE_ALU_OP_MODE_MOV:
       op_name = "mov";
       break;
-    case FD_BPF_OPCODE_ALU_OP_MODE_ARSH:
+    case FD_SBPF_OPCODE_ALU_OP_MODE_ARSH:
       op_name = "arsh";
       break;
-    case FD_BPF_OPCODE_ALU_OP_MODE_END:
+    case FD_SBPF_OPCODE_ALU_OP_MODE_END:
       op_name = "end";
       break;
     default:
       return 1;
   }
 
-  if( FD_UNLIKELY( instr.opcode.normal.op_mode == FD_BPF_OPCODE_ALU_OP_MODE_NEG ) ) {
+  if( FD_UNLIKELY( instr.opcode.normal.op_mode == FD_SBPF_OPCODE_ALU_OP_MODE_NEG ) ) {
     OUT_PRINTF( "%s%s r%d", op_name, suffix, instr.dst_reg );
     return 1;
   }
 
   switch( instr.opcode.normal.op_src ) {
-    case FD_BPF_OPCODE_SOURCE_MODE_IMM:
+    case FD_SBPF_OPCODE_SOURCE_MODE_IMM:
       OUT_PRINTF( "%s%s r%d, %d",  op_name, suffix, instr.dst_reg, instr.imm     );
       break;
-    case FD_BPF_OPCODE_SOURCE_MODE_REG:
+    case FD_SBPF_OPCODE_SOURCE_MODE_REG:
       OUT_PRINTF( "%s%s r%d, r%d", op_name, suffix, instr.dst_reg, instr.src_reg );
       break;
   }
@@ -79,97 +78,101 @@ fd_sbpf_disassemble_instr_alu( fd_vm_sbpf_instr_t instr,
 }
 
 static int
-fd_sbpf_disassemble_instr_jmp( fd_vm_sbpf_instr_t   instr,
-                               ulong                pc,
-                               char const *         suffix,
-                               fd_sbpf_syscalls_t * syscalls,
-                               FILE *               out ) {
+fd_sbpf_disassemble_instr_jmp( fd_sbpf_instr_t     instr,
+                               ulong                  pc,
+                               char const *           suffix,
+                               fd_sbpf_syscalls_t *   syscalls,
+                               fd_sbpf_calldests_t *  calldests,
+                               FILE *                 out ) {
 
   char * op_name;
   switch(instr.opcode.normal.op_mode) {
-    case FD_BPF_OPCODE_JMP_OP_MODE_JA:
+    case FD_SBPF_OPCODE_JMP_OP_MODE_JA:
       op_name = "ja";
       break;
-    case FD_BPF_OPCODE_JMP_OP_MODE_JEQ:
+    case FD_SBPF_OPCODE_JMP_OP_MODE_JEQ:
       op_name = "jeq";
       break;
-    case FD_BPF_OPCODE_JMP_OP_MODE_JGT:
+    case FD_SBPF_OPCODE_JMP_OP_MODE_JGT:
       op_name = "jgt";
       break;
-    case FD_BPF_OPCODE_JMP_OP_MODE_JGE:
+    case FD_SBPF_OPCODE_JMP_OP_MODE_JGE:
       op_name = "jge";
       break;
-    case FD_BPF_OPCODE_JMP_OP_MODE_JSET:
+    case FD_SBPF_OPCODE_JMP_OP_MODE_JSET:
       op_name = "jset";
       break;
-    case FD_BPF_OPCODE_JMP_OP_MODE_JNE:
+    case FD_SBPF_OPCODE_JMP_OP_MODE_JNE:
       op_name = "jne";
       break;
-    case FD_BPF_OPCODE_JMP_OP_MODE_JSGT:
+    case FD_SBPF_OPCODE_JMP_OP_MODE_JSGT:
       op_name = "jsgt";
       break;
-    case FD_BPF_OPCODE_JMP_OP_MODE_JSGE:
+    case FD_SBPF_OPCODE_JMP_OP_MODE_JSGE:
       op_name = "jsge";
       break;
-    case FD_BPF_OPCODE_JMP_OP_MODE_CALL:
+    case FD_SBPF_OPCODE_JMP_OP_MODE_CALL:
       op_name = "call";
       break;
-    case FD_BPF_OPCODE_JMP_OP_MODE_EXIT:
+    case FD_SBPF_OPCODE_JMP_OP_MODE_EXIT:
       op_name = "exit";
       break;
-    case FD_BPF_OPCODE_JMP_OP_MODE_JLT:
+    case FD_SBPF_OPCODE_JMP_OP_MODE_JLT:
       op_name = "jlt";
       break;
-    case FD_BPF_OPCODE_JMP_OP_MODE_JLE:
+    case FD_SBPF_OPCODE_JMP_OP_MODE_JLE:
       op_name = "jle";
       break;
-    case FD_BPF_OPCODE_JMP_OP_MODE_JSLT:
+    case FD_SBPF_OPCODE_JMP_OP_MODE_JSLT:
       op_name = "jslt";
       break;
-    case FD_BPF_OPCODE_JMP_OP_MODE_JSLE:
+    case FD_SBPF_OPCODE_JMP_OP_MODE_JSLE:
       op_name = "jsle";
       break;
     default:
       return 1;
   }
 
-  if( FD_UNLIKELY( instr.opcode.normal.op_mode == FD_BPF_OPCODE_JMP_OP_MODE_CALL ) ) {
+  if( FD_UNLIKELY( instr.opcode.normal.op_mode == FD_SBPF_OPCODE_JMP_OP_MODE_CALL ) ) {
     switch ( instr.opcode.normal.op_src ) {
-      case FD_BPF_OPCODE_SOURCE_MODE_IMM: {
+      case FD_SBPF_OPCODE_SOURCE_MODE_IMM: {
         fd_sbpf_syscalls_t * syscall = fd_sbpf_syscalls_query( syscalls, instr.imm, NULL );
+        fd_sbpf_calldests_t * calldest = fd_sbpf_calldests_query( calldests, instr.imm, NULL );
         if( syscall ) {
           char const * name = syscall->name;
           if( name )
             OUT_PRINTF( "syscall%s %s",     suffix, name ? name : "???" );
           else
             OUT_PRINTF( "syscall%s 0x%08x", suffix, instr.imm );
+        } else if ( calldest ) {
+          OUT_PRINTF( "%s%s function_%ld", op_name, suffix, (long)((long)calldest->pc) );
         } else {
           OUT_PRINTF( "%s%s function_%ld", op_name, suffix, (long)((long)pc+(int)instr.imm+1L) );
         }
         break;
       }
-      case FD_BPF_OPCODE_SOURCE_MODE_REG:
+      case FD_SBPF_OPCODE_SOURCE_MODE_REG:
         OUT_PRINTF( "%sx%s r%d", op_name, suffix, instr.imm );
         break;
     }
     return 1;
   }
 
-  if( FD_UNLIKELY( instr.opcode.normal.op_mode == FD_BPF_OPCODE_JMP_OP_MODE_EXIT ) ) {
+  if( FD_UNLIKELY( instr.opcode.normal.op_mode == FD_SBPF_OPCODE_JMP_OP_MODE_EXIT ) ) {
     OUT_PRINTF( "%s%s", op_name, suffix );
     return 1;
   }
 
-  if( FD_UNLIKELY( instr.opcode.normal.op_mode == FD_BPF_OPCODE_JMP_OP_MODE_JA ) ) {
+  if( FD_UNLIKELY( instr.opcode.normal.op_mode == FD_SBPF_OPCODE_JMP_OP_MODE_JA ) ) {
     OUT_PRINTF( "%s%s lbb_%ld", op_name, suffix, pc+instr.offset+1 );
     return 1;
   }
 
   switch( instr.opcode.normal.op_src ) {
-    case FD_BPF_OPCODE_SOURCE_MODE_IMM:
+    case FD_SBPF_OPCODE_SOURCE_MODE_IMM:
       OUT_PRINTF( "%s%s r%d, %d, lbb_%ld",  op_name, suffix, instr.dst_reg, instr.imm,     pc+instr.offset+1 );
       break;
-    case FD_BPF_OPCODE_SOURCE_MODE_REG:
+    case FD_SBPF_OPCODE_SOURCE_MODE_REG:
       OUT_PRINTF( "%s%s r%d, r%d, lbb_%ld", op_name, suffix, instr.dst_reg, instr.src_reg, pc+instr.offset+1 );
       break;
   }
@@ -178,22 +181,22 @@ fd_sbpf_disassemble_instr_jmp( fd_vm_sbpf_instr_t   instr,
 }
 
 static ulong
-fd_sbpf_disassemble_instr_ldx( fd_vm_sbpf_instr_t instr,
+fd_sbpf_disassemble_instr_ldx( fd_sbpf_instr_t instr,
                                FILE *             out ) {
 
 
   char * op_name;
   switch (instr.opcode.mem.op_size) {
-    case FD_BPF_OPCODE_SIZE_MODE_WORD:
+    case FD_SBPF_OPCODE_SIZE_MODE_WORD:
       op_name = "ldxw";
       break;
-    case FD_BPF_OPCODE_SIZE_MODE_HALF:
+    case FD_SBPF_OPCODE_SIZE_MODE_HALF:
       op_name = "ldxh";
       break;
-    case FD_BPF_OPCODE_SIZE_MODE_BYTE:
+    case FD_SBPF_OPCODE_SIZE_MODE_BYTE:
       op_name = "ldxb";
       break;
-    case FD_BPF_OPCODE_SIZE_MODE_QUAD:
+    case FD_SBPF_OPCODE_SIZE_MODE_DOUB:
       op_name = "ldxdw";
       break;
   }
@@ -208,21 +211,21 @@ fd_sbpf_disassemble_instr_ldx( fd_vm_sbpf_instr_t instr,
 }
 
 static ulong
-fd_sbpf_disassemble_instr_stx( fd_vm_sbpf_instr_t instr,
+fd_sbpf_disassemble_instr_stx( fd_sbpf_instr_t instr,
                                FILE *             out ) {
 
   char * op_name;
   switch (instr.opcode.mem.op_size) {
-    case FD_BPF_OPCODE_SIZE_MODE_WORD:
+    case FD_SBPF_OPCODE_SIZE_MODE_WORD:
       op_name = "stxw";
       break;
-    case FD_BPF_OPCODE_SIZE_MODE_HALF:
+    case FD_SBPF_OPCODE_SIZE_MODE_HALF:
       op_name = "stxh";
       break;
-    case FD_BPF_OPCODE_SIZE_MODE_BYTE:
+    case FD_SBPF_OPCODE_SIZE_MODE_BYTE:
       op_name = "stxb";
       break;
-    case FD_BPF_OPCODE_SIZE_MODE_QUAD:
+    case FD_SBPF_OPCODE_SIZE_MODE_DOUB:
       op_name = "stxdw";
       break;
   }
@@ -236,38 +239,41 @@ fd_sbpf_disassemble_instr_stx( fd_vm_sbpf_instr_t instr,
   return 1;
 }
 
-static int
-fd_sbpf_disassemble_instr( fd_vm_sbpf_instr_t const * instr,
+int
+fd_sbpf_disassemble_instr( fd_sbpf_instr_t const * instr,
                            ulong                      pc,
                            fd_sbpf_syscalls_t *       syscalls,
-                           FILE *                     out ) {
+                           fd_sbpf_calldests_t *      calldests,
+                           void *                     _out ) {
+  FILE * out = (FILE *)_out;
 
   switch( instr->opcode.any.op_class ) {
-    case FD_BPF_OPCODE_CLASS_LD:
+    case FD_SBPF_OPCODE_CLASS_LD:
       OUT_PRINTF( "lddw r%d, 0x%lx", instr->dst_reg, (ulong)((ulong)instr[0].imm | (ulong)((ulong)instr[1].imm << 32UL)) );
       break;
-    case FD_BPF_OPCODE_CLASS_LDX:
+    case FD_SBPF_OPCODE_CLASS_LDX:
       return fd_sbpf_disassemble_instr_ldx( *instr, out );
-    case FD_BPF_OPCODE_CLASS_ST:
+    case FD_SBPF_OPCODE_CLASS_ST:
       break;
-    case FD_BPF_OPCODE_CLASS_STX:
+    case FD_SBPF_OPCODE_CLASS_STX:
       return fd_sbpf_disassemble_instr_stx( *instr, out );
-    case FD_BPF_OPCODE_CLASS_ALU:
+    case FD_SBPF_OPCODE_CLASS_ALU:
       return fd_sbpf_disassemble_instr_alu( *instr, "", out );
-    case FD_BPF_OPCODE_CLASS_JMP:
-      return fd_sbpf_disassemble_instr_jmp( *instr, pc, "", syscalls, out );
-    case FD_BPF_OPCODE_CLASS_JMP32:
-      return fd_sbpf_disassemble_instr_jmp( *instr, pc, "32", syscalls, out );
-    case FD_BPF_OPCODE_CLASS_ALU64:
+    case FD_SBPF_OPCODE_CLASS_JMP:
+      return fd_sbpf_disassemble_instr_jmp( *instr, pc, "", syscalls, calldests, out );
+    case FD_SBPF_OPCODE_CLASS_JMP32:
+      return fd_sbpf_disassemble_instr_jmp( *instr, pc, "32", syscalls, calldests, out );
+    case FD_SBPF_OPCODE_CLASS_ALU64:
       return fd_sbpf_disassemble_instr_alu( *instr, "64", out );
   }
   return 1;
 }
 
 int
-fd_sbpf_disassemble_program( fd_vm_sbpf_instr_t const * instrs,
+fd_sbpf_disassemble_program( fd_sbpf_instr_t const * instrs,
                              ulong                      instrs_cnt,
                              fd_sbpf_syscalls_t *       syscalls,
+                             fd_sbpf_calldests_t *      calldests,
                              void *                     _out ) {
   FILE * out = (FILE *)_out;
   OUT_PRINTF( "function_0:\n" );
@@ -281,18 +287,18 @@ fd_sbpf_disassemble_program( fd_vm_sbpf_instr_t const * instrs,
   /* FIXME missing bounds checks on label_pcs */
 
   for( ulong i = 0; i < instrs_cnt; i++ ) {
-    fd_vm_sbpf_instr_t instr = instrs[i];
+    fd_sbpf_instr_t instr = instrs[i];
 
-    if( instr.opcode.raw == FD_BPF_OP_CALL_IMM ) {
+    if( instr.opcode.raw == FD_SBPF_OP_CALL_IMM ) {
       func_pcs[num_func_pcs] = i+instr.imm+1;
       num_func_pcs++;
-    } else if( instr.opcode.raw == FD_BPF_OP_EXIT ) {
+    } else if( instr.opcode.raw == FD_SBPF_OP_EXIT ) {
       func_pcs[num_func_pcs] = i+instr.imm+1;
       num_func_pcs++;
-    } else if( instr.opcode.raw == FD_BPF_OP_CALL_REG ) {
+    } else if( instr.opcode.raw == FD_SBPF_OP_CALL_REG ) {
       continue;
-    } else if( instr.opcode.any.op_class == FD_BPF_OPCODE_CLASS_JMP
-               || instr.opcode.any.op_class == FD_BPF_OPCODE_CLASS_JMP32 ) {
+    } else if( instr.opcode.any.op_class == FD_SBPF_OPCODE_CLASS_JMP
+               || instr.opcode.any.op_class == FD_SBPF_OPCODE_CLASS_JMP32 ) {
       label_pcs[num_label_pcs] = i+instr.offset+1;
       num_label_pcs++;
     }
@@ -319,14 +325,14 @@ fd_sbpf_disassemble_program( fd_vm_sbpf_instr_t const * instrs,
 
     OUT_PRINTF( "    " );
 
-    fd_vm_sbpf_instr_t const * instr = &instrs[i];
+    fd_sbpf_instr_t const * instr = &instrs[i];
 
-    if( FD_UNLIKELY( !fd_sbpf_disassemble_instr( instr, i, syscalls, out ) ) )
+    if( FD_UNLIKELY( !fd_sbpf_disassemble_instr( instr, i, syscalls, calldests, out ) ) )
       return 0;
 
     OUT_PRINTF( "\n" );
 
-    if( instr->opcode.raw == FD_BPF_OP_LDQ ) {
+    if( instr->opcode.raw == FD_SBPF_OP_LDDW ) {
       i++;
     }
 
@@ -338,7 +344,7 @@ fd_sbpf_disassemble_program( fd_vm_sbpf_instr_t const * instrs,
       }
     }
 
-    if( !next_label_found && ( instr->opcode.raw == FD_BPF_OP_JA ) ) {
+    if( !next_label_found && ( instr->opcode.raw == FD_SBPF_OP_JA ) ) {
       OUT_PRINTF( "\nfunction_%lu:\n", i+1 );
     }
   }

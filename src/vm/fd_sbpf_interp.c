@@ -2,13 +2,6 @@
 #include "../ballet/murmur3/fd_murmur3.h"
 #include "../ballet/sbpf/fd_sbpf_maps.c"
 
-#define FD_MEM_MAP_PROGRAM_REGION_START   (0x100000000UL)
-#define FD_MEM_MAP_STACK_REGION_START     (0x200000000UL)
-#define FD_MEM_MAP_HEAP_REGION_START      (0x300000000UL)
-#define FD_MEM_MAP_INPUT_REGION_START     (0x400000000UL)
-#define FD_MEM_MAP_REGION_SZ              (0x0FFFFFFFFUL)
-#define FD_MEM_MAP_REGION_MASK            (~FD_MEM_MAP_REGION_SZ)
-#define FD_MEM_MAP_REGION_VIRT_ADDR_BITS  (32)
 
 ulong
 fd_vm_serialize_input_params( fd_vm_sbpf_exec_params_t * params,
@@ -93,7 +86,12 @@ fd_vm_sbpf_interp_translate_vm_to_host( fd_vm_sbpf_exec_context_t * ctx,
     case FD_MEM_MAP_STACK_REGION_START:
       /* Stack memory region */
       /* TODO: needs more of the runtime to actually implement */
-      return FD_VM_MEM_MAP_ERR_ACC_VIO;
+      if( end_addr >= (FD_VM_STACK_MAX_DEPTH * FD_VM_STACK_FRAME_SZ) ) {
+        return FD_VM_MEM_MAP_ERR_ACC_VIO;
+      }
+
+      *host_addr = &ctx->stack.data[start_addr];
+
       break;
     case FD_MEM_MAP_HEAP_REGION_START:
       /* Heap memory region */
@@ -122,14 +120,15 @@ fd_vm_sbpf_interp_translate_vm_to_host( fd_vm_sbpf_exec_context_t * ctx,
 static ulong
 fd_vm_mem_map_read_uchar( fd_vm_sbpf_exec_context_t * ctx,
                           ulong                       vm_addr,
-                          uchar *                     val ) {
+                          ulong *                     val ) {
   void * vm_mem;
   ulong translation_res = fd_vm_sbpf_interp_translate_vm_to_host(ctx, 0, vm_addr, sizeof(uchar), &vm_mem);
   if( translation_res != FD_VM_MEM_MAP_SUCCESS ) {
     return translation_res;
   }
 
-  *val = *(uchar *)vm_mem;
+
+  *val = (*(uchar *)vm_mem) & 0xFFUL;
 
   return FD_VM_MEM_MAP_SUCCESS;
 }
@@ -140,14 +139,14 @@ fd_vm_mem_map_read_uchar( fd_vm_sbpf_exec_context_t * ctx,
 static ulong
 fd_vm_mem_map_read_ushort( fd_vm_sbpf_exec_context_t *  ctx,
                            ulong                        vm_addr,
-                           ushort *                     val ) {
+                           ulong *                      val ) {
   void * vm_mem;
   ulong translation_res = fd_vm_sbpf_interp_translate_vm_to_host(ctx, 0, vm_addr, sizeof(ushort), &vm_mem);
   if( translation_res != FD_VM_MEM_MAP_SUCCESS ) {
     return translation_res;
   }
 
-  *val = *(ushort *)vm_mem;
+  *val = (*(ushort *)vm_mem) & 0xFFFFUL;
 
   return FD_VM_MEM_MAP_SUCCESS;
 }
@@ -158,14 +157,14 @@ fd_vm_mem_map_read_ushort( fd_vm_sbpf_exec_context_t *  ctx,
 static ulong
 fd_vm_mem_map_read_uint( fd_vm_sbpf_exec_context_t *  ctx,
                          ulong                        vm_addr,
-                         uint *                       val ) {
+                         ulong *                      val ) {
   void * vm_mem;
   ulong translation_res = fd_vm_sbpf_interp_translate_vm_to_host(ctx, 0, vm_addr, sizeof(uint), &vm_mem);
   if( translation_res != FD_VM_MEM_MAP_SUCCESS ) {
     return translation_res;
   }
 
-  *val = *(uint *)vm_mem;
+  *val = (*(uint *)vm_mem) & 0xFFFFFFFFUL;
 
   return FD_VM_MEM_MAP_SUCCESS;
 }
@@ -293,7 +292,7 @@ fd_vm_sbpf_interp_instrs( fd_vm_sbpf_exec_context_t * ctx ) {
   goto *(locs[instr.opcode.raw]);
 #include "fd_jump_tab.c"
 
-  fd_vm_sbpf_instr_t instr;
+  fd_sbpf_instr_t instr;
   ulong dst_reg;
   ulong src_reg;
   ulong imm;
@@ -340,20 +339,20 @@ fd_vm_sbpf_interp_instrs_trace( fd_vm_sbpf_exec_context_t * ctx,
 
 #define JMP_TAB_ID interp_trace
 #define JMP_TAB_PRE_CASE_CODE \
-  FD_LOG_NOTICE(( "TU1: %lu, OP: %x, PC %lu IC %lu IMM %x", *trace_used, instr.opcode.raw, pc, ic, instr.imm)); \
+  fd_memcpy( trace[*trace_used].register_file, register_file, 11*sizeof(ulong)); \
+  trace[*trace_used].pc = pc; \
+  trace[*trace_used].ic = ic; \
+  (*trace_used)++; \
   dst_reg = instr.dst_reg; \
   src_reg = instr.src_reg; \
   imm = instr.imm;
 #define JMP_TAB_POST_CASE_CODE \
-  fd_memcpy( trace[*trace_used].register_file, register_file, 11*sizeof(ulong)); \
-  trace[*trace_used].pc = pc; \
-  trace[*trace_used++].ic = ic; \
   ic++; \
   instr = ctx->instrs[++pc]; \
   goto *(locs[instr.opcode.raw]);
 #include "fd_jump_tab.c"
 
-  fd_vm_sbpf_instr_t instr;
+  fd_sbpf_instr_t instr;
   ulong dst_reg;
   ulong src_reg;
   ulong imm;
@@ -376,7 +375,6 @@ JT_END;
   ctx->program_counter = (ulong) pc;
   ctx->instruction_counter = ic;
 
-  FD_LOG_NOTICE(( "TU: %lu", *trace_used ));
 #include "fd_jump_tab_teardown.c"
 #undef JMP_TAB_ID
 
@@ -467,7 +465,7 @@ uchar const FD_OPCODE_VALIDATION_MAP[256] = {
 ulong
 fd_vm_sbpf_interp_validate( fd_vm_sbpf_exec_context_t * ctx ) {
   for( ulong i = 0; i < ctx->instrs_sz; ++i ) {
-    fd_vm_sbpf_instr_t instr = ctx->instrs[i];
+    fd_sbpf_instr_t instr = ctx->instrs[i];
     uchar validation_code = FD_OPCODE_VALIDATION_MAP[instr.opcode.raw];
 
     switch (validation_code) {
@@ -480,7 +478,7 @@ fd_vm_sbpf_interp_validate( fd_vm_sbpf_exec_context_t * ctx ) {
         long jmp_dst = (long)i + instr.offset + 1;
         if (jmp_dst < 0 || jmp_dst >= (long)ctx->instrs_sz) {
           return FD_VM_SBPF_VALIDATE_ERR_JMP_OUT_OF_BOUNDS;
-        } else if (ctx->instrs[jmp_dst].opcode.raw == FD_BPF_OP_ADDL_IMM) {
+        } else if (ctx->instrs[jmp_dst].opcode.raw == FD_SBPF_OP_ADDL_IMM) {
           return FD_VM_SBPF_VALIDATE_ERR_JMP_TO_ADDL_IMM;
         }
         break;
@@ -498,7 +496,7 @@ fd_vm_sbpf_interp_validate( fd_vm_sbpf_exec_context_t * ctx ) {
         if ((i+1) >= ctx->instrs_sz) {
           return FD_VM_SBPF_VALIDATE_ERR_INCOMPLETE_LDQ;
         }
-        if (ctx->instrs[i + 1].opcode.raw != FD_BPF_OP_ADDL_IMM) {
+        if (ctx->instrs[i + 1].opcode.raw != FD_SBPF_OP_ADDL_IMM) {
           return FD_VM_SBPF_VALIDATE_ERR_LDQ_NO_ADDL_IMM;
         }
         ++i;

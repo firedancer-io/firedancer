@@ -38,6 +38,6 @@ struct fd_vm_sbpf_instr {
   short offset;
   uint imm;
 };
-typedef struct fd_vm_sbpf_instr fd_vm_sbpf_instr_t;
+typedef struct fd_vm_sbpf_instr fd_sbpf_instr_t;
 
 #endif /* HEADER_fd_src_vm_fd_instr_h */

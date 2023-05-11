@@ -102,11 +102,11 @@ int cmd_disasm( char const * bin_path ) {
     .entrypoint          = 0,
     .program_counter     = 0,
     .instruction_counter = 0,
-    .instrs              = (fd_vm_sbpf_instr_t const *)fd_type_pun_const( tool_prog.info->text ),
+    .instrs              = (fd_sbpf_instr_t const *)fd_type_pun_const( tool_prog.info->text ),
     .instrs_sz           = tool_prog.info->text_cnt,
   };
 
-  int res = fd_sbpf_disassemble_program( ctx.instrs, ctx.instrs_sz, tool_prog.syscalls, stdout );
+  uint res = fd_sbpf_disassemble_program( ctx.instrs, ctx.instrs_sz, tool_prog.syscalls, tool_prog.info->calldests, stdout );
   printf( "\n" );
 
   fd_sbpf_tool_prog_free( &tool_prog );
@@ -114,11 +114,53 @@ int cmd_disasm( char const * bin_path ) {
   return res;
 }
 
-int cmd_trace( char const * bin_path ) {
+FD_FN_UNUSED static char *
+read_input_file( char const * input_path, ulong * _input_sz ) {
+  if( _input_sz==NULL ) {
+    FD_LOG_ERR(( "input_sz cannot be NULL" ));
+  }
+
+  /* Open file */
+
+  FILE * input_file = fopen( input_path, "r" );
+  if( FD_UNLIKELY( !input_file ) )
+    FD_LOG_ERR(( "fopen(\"%s\") failed: %s", input_path, strerror( errno ) ));
+
+  struct stat input_stat;
+  if( FD_UNLIKELY( 0!=fstat( fileno( input_file ), &input_stat ) ) )
+    FD_LOG_ERR(( "fstat() failed: %s", strerror( errno ) ));
+  if( FD_UNLIKELY( !S_ISREG( input_stat.st_mode ) ) )
+    FD_LOG_ERR(( "File \"%s\" not a regular file", input_path ));
+
+  /* Allocate file buffer */
+
+  ulong input_sz  = (ulong)input_stat.st_size;
+  void * input_buf = malloc( input_sz );
+  if( FD_UNLIKELY( !input_buf ) )
+    FD_LOG_ERR(( "malloc(%#lx) failed: %s", input_sz, strerror( errno ) ));
+
+  /* Read input */
+
+  if( FD_UNLIKELY( fread( input_buf, input_sz, 1UL, input_file )!=1UL ) )
+    FD_LOG_ERR(( "fread() failed: %s", strerror( errno ) ));
+  FD_TEST( 0==fclose( input_file ) );
+
+  *_input_sz = input_sz;
+
+  return input_buf;
+}
+
+// TODO:
+int cmd_trace( char const * bin_path, char const * input_path ) {
+
+  (void)input_path;
 
   fd_sbpf_tool_prog_t tool_prog;
   fd_sbpf_tool_prog_create( &tool_prog, bin_path );
   FD_LOG_NOTICE(( "Loading sBPF program: %s", bin_path ));
+
+  //ulong input_sz = 0;
+  //uchar * input = read_input_file( input_path, &input_sz );
 
   ulong trace_sz = 128 * 1024;
   ulong trace_used = 0;
@@ -128,9 +170,16 @@ int cmd_trace( char const * bin_path ) {
     .entrypoint          = (long)tool_prog.info->entry_pc,
     .program_counter     = 0,
     .instruction_counter = 0,
-    .instrs              = (fd_vm_sbpf_instr_t const *)fd_type_pun_const( tool_prog.info->text ),
+    .instrs              = (fd_sbpf_instr_t const *)fd_type_pun_const( tool_prog.info->text ),
     .instrs_sz           = tool_prog.info->text_cnt,
+    .syscall_map         = tool_prog.syscalls,
+    .local_call_map      = tool_prog.info->calldests,
+    //.input               = input,
+    //.input_sz            = input_sz
   };
+
+  ctx.register_file[1] = FD_MEM_MAP_INPUT_REGION_START;
+  ctx.register_file[10] = FD_MEM_MAP_STACK_REGION_START + 0x1000;
 
   ulong interp_res = fd_vm_sbpf_interp_instrs_trace( &ctx, trace, trace_sz, &trace_used );
   if( interp_res != 0 ) {
@@ -141,7 +190,7 @@ int cmd_trace( char const * bin_path ) {
 
   for( ulong i = 0; i < trace_used; i++ ) {
     fd_vm_sbpf_trace_entry_t trace_ent = trace[i];
-    printf( "%4lu [%016lX, %016lX, %016lX, %016lX, %016lX, %016lX, %016lX, %016lX, %016lX, %016lX, %016lX] %lu:\n",
+    fprintf(stdout, "%5lu [%016lX, %016lX, %016lX, %016lX, %016lX, %016lX, %016lX, %016lX, %016lX, %016lX, %016lX] %5lu: ",
         trace_ent.ic,
         trace_ent.register_file[0],
         trace_ent.register_file[1],
@@ -154,9 +203,14 @@ int cmd_trace( char const * bin_path ) {
         trace_ent.register_file[8],
         trace_ent.register_file[9],
         trace_ent.register_file[10],
-        trace_ent.pc
+        trace_ent.pc+29 /* FIXME: THIS OFFSET IS FOR TESTING ONLY */
       );
+    fd_sbpf_disassemble_instr(&ctx.instrs[trace[i].pc], trace[i].pc, ctx.syscall_map, ctx.local_call_map, stdout);
+
+    fprintf(stdout, "\n");
   }
+
+  free( trace );
 
   return 0;
 }
@@ -174,17 +228,34 @@ main( int     argc,
   }
 
   if( !strcmp( cmd, "disasm" ) ) {
-    char const * program_file = fd_env_strip_cmdline_cstr( &argc, &argv, "--program_file", NULL, NULL );
+    char const * program_file = fd_env_strip_cmdline_cstr( &argc, &argv, "--program-file", NULL, NULL );
 
-    if( FD_UNLIKELY( !cmd_disasm( program_file ) ) )
+    if( FD_UNLIKELY( program_file==NULL ) ) {
+      FD_LOG_ERR(( "Please specify a --program-file" ));
+    }
+
+    if( FD_UNLIKELY( !cmd_disasm( program_file ) ) ) {
       FD_LOG_ERR(( "error during disassembly" ));
+    }
   } else if( !strcmp( cmd, "trace" ) ) {
-    char const * program_file = fd_env_strip_cmdline_cstr( &argc, &argv, "--program_file", NULL, NULL );
-    if( FD_UNLIKELY( !cmd_trace( program_file ) ) )
+    char const * program_file = fd_env_strip_cmdline_cstr( &argc, &argv, "--program-file", NULL, NULL );
+    char const * input_file = fd_env_strip_cmdline_cstr( &argc, &argv, "--input-file", NULL, NULL );
+
+    if( FD_UNLIKELY( program_file==NULL ) ) {
+      FD_LOG_ERR(( "Please specify a --program-file" ));
+    }
+
+    if( FD_UNLIKELY( input_file==NULL ) ) {
+      FD_LOG_ERR(( "Please specify a --input-file" ));
+    }
+
+    if( FD_UNLIKELY( !cmd_trace( program_file, input_file ) ) ) {
       FD_LOG_ERR(( "error during trace" ));
+    }
   } else {
     FD_LOG_ERR(( "unknown command: %s", cmd ));
   }
+
   fd_halt();
   return 0;
 }
