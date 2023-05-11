@@ -8,7 +8,7 @@
 
    will declare in the current compile unit a header only library
    with the folling APIs:
-   
+
      // Public node API
 
      struct __attribute__((aligned(32))) bmt_node {
@@ -90,7 +90,7 @@
           ... and `L_n % 2 == 1`,
               the layer above contains (n+1)/2 nodes.
 
-   A simple algorithm to approach such a a tree is as follows:
+   A simple algorithm to approach such a tree is as follows:
    (Note that the code uses here uses an optimized approach)
 
     - Start with the smallest complete binary tree that has at least
