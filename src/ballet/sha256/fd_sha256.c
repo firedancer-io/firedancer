@@ -97,7 +97,7 @@ fd_sha256_delete( void * shsha ) {
 }
 
 #ifndef FD_SHA256_CORE_IMPL
-#if FD_HAS_AVX
+#if FD_HAS_SHANI
 #define FD_SHA256_CORE_IMPL 1
 #else
 #define FD_SHA256_CORE_IMPL 0
@@ -344,7 +344,7 @@ fd_sha256_fini( fd_sha256_t * sha,
      update the hash to finalize it. */
 
   fd_memset( buf + buf_used, 0, FD_SHA256_PRIVATE_BUF_MAX-8UL-buf_used );
-  *((ulong *)(buf+FD_SHA256_PRIVATE_BUF_MAX-8UL)) = fd_ulong_bswap( bit_cnt );
+  FD_STORE( ulong, buf+FD_SHA256_PRIVATE_BUF_MAX-8UL, fd_ulong_bswap( bit_cnt ) );
   fd_sha256_core( state, buf, 1UL );
 
   /* Unpack the result into md (annoying bswaps here) */
@@ -398,7 +398,7 @@ fd_sha256_hash( void const * _data,
 
   ulong bit_cnt = sz << 3;
   fd_memset( buf + buf_used, 0, FD_SHA256_PRIVATE_BUF_MAX-8UL-buf_used );
-  *((ulong *)(buf+FD_SHA256_PRIVATE_BUF_MAX-8UL)) = fd_ulong_bswap( bit_cnt );
+  FD_STORE( ulong, buf+FD_SHA256_PRIVATE_BUF_MAX-8UL, fd_ulong_bswap( bit_cnt ) );
   fd_sha256_core( state, buf, 1UL );
 
   uint * hash = (uint *)_hash;

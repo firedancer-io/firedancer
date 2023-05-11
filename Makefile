@@ -46,7 +46,7 @@
 
 ifndef MACHINE
 $(warning MACHINE not specified, using default, run make help for more info)
-MACHINE=linux_gcc_x86_64
+MACHINE=linux_gcc_icelake
 endif
 
 $(info Using MACHINE=$(MACHINE))

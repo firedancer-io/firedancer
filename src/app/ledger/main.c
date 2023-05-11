@@ -271,7 +271,7 @@ int main(int argc, char** argv) {
       FD_LOG_ERR(( "failed to allocate a funky" ));
     }
 
-    FD_LOG_WARNING(( "funky at global address %lu", fd_wksp_gaddr_fast( wksp, shmem ) ));
+    FD_LOG_WARNING(( "funky at global address 0x%016lx", fd_wksp_gaddr_fast( wksp, shmem ) ));
 
     char global_mem[FD_GLOBAL_CTX_FOOTPRINT] __attribute__((aligned(FD_GLOBAL_CTX_ALIGN)));
     memset(global_mem, 0, sizeof(global_mem));
