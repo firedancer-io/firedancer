@@ -716,7 +716,7 @@ fd_sbpf_r_bpf_64_32( fd_sbpf_elf_t *      elf,
     REQUIRE( elf->shdr_text );
     ulong sh_addr = elf->shdr_text->sh_addr;
     ulong sh_size = elf->shdr_text->sh_size;
-    REQUIRE( (S>=sh_addr) & (S<sh_size) );
+    REQUIRE( (S>=sh_addr) & (S<sh_addr+sh_size) );
 
     /* Register function call */
     ulong target_pc = (S-sh_addr) / 8UL;
