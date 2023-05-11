@@ -48,6 +48,8 @@ main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
 
+  fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
+
   for( fd_murmur3_32_test_vector_t const * vec = fd_murmur3_32_test_vector; vec->msg; vec++ ) {
     char const *  msg      = vec->msg;
     ulong         sz       = vec->sz;
@@ -62,6 +64,51 @@ main( int     argc,
                    "\n\t\t", sz, hash, expected ));
   }
 
+  FD_LOG_NOTICE(( "Benchmarking small inputs" ));
+
+  /* warmup */
+  uint hash = 42U;
+  for( ulong i=0UL; i<100000UL; i++ ) {
+    uint x[2] = { (uint)i, hash };
+    hash = fd_murmur3_32( &x, 8UL, 0 );
+  }
+
+  /* for real */
+  ulong bench_cnt = 100000000UL;
+  long dt = -fd_log_wallclock();
+  for( ulong i=0UL; i<bench_cnt; i++ ) {
+    uint x[2] = { (uint)i, hash };
+    hash = fd_murmur3_32( &x, 8UL, 0 );
+  }
+  FD_COMPILER_FORGET( hash );
+  dt += fd_log_wallclock();
+  FD_LOG_NOTICE(( "%.3f ns/hash (sz 8)", (double)((float)dt / (float)bench_cnt) ));
+
+  FD_LOG_NOTICE(( "Benchmarking hashrate" ));
+
+  uchar msg[ 1024UL ];
+  ulong sz = 1024UL;
+  for( ulong i=0UL; i<sz; i+=8UL )
+    FD_STORE( ulong, msg+i, fd_rng_ulong( rng ) );
+
+  /* warmup */
+  for( ulong i=0UL; i<10000UL; i++ ) {
+    uint hash = fd_murmur3_32( &msg, sz, 0U );
+    FD_COMPILER_FORGET( hash );
+  }
+
+  /* for real */
+  bench_cnt = 1000000UL;
+  dt = -fd_log_wallclock();
+  for( ulong i=0UL; i<bench_cnt; i++ ) {
+    uint hash = fd_murmur3_32( &msg, sz, 0U );
+    __asm__( "" : "=m" (*msg) : "r" (hash) : "cc" );
+  }
+  dt += fd_log_wallclock();
+  double gbps = ((double)(8*bench_cnt*sz)) / ((double)dt);
+  FD_LOG_NOTICE(( "~%6.3f GiB/s (sz %4lu)", gbps, sz ));
+
+  fd_rng_delete( fd_rng_leave( rng ) );
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
   return 0;
