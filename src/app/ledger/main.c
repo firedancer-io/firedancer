@@ -21,7 +21,9 @@
 static void usage(const char* progname) {
   fprintf(stderr, "USAGE: %s\n", progname);
   fprintf(stderr, " --cmd ingest --snapshotfile <file>               ingest snapshot file\n");
+  fprintf(stderr, "              --incremental <file>                also ingest incremental snapshot file\n");
   fprintf(stderr, " --wksp <name>                                    workspace name\n");
+  fprintf(stderr, " --reset true                                     reset workspace before ingesting\n");
   fprintf(stderr, " --gaddr <address>                                join funky at the address instead of making a new one\n");
   fprintf(stderr, " --indexmax <count>                               size of funky account map\n");
   fprintf(stderr, " --txnmax <count>                                 size of funky transaction map\n");
@@ -250,7 +252,6 @@ int main(int argc, char** argv) {
   fd_boot( &argc, &argv );
 
   const char* wkspname = fd_env_strip_cmdline_cstr(&argc, &argv, "--wksp", NULL, NULL);
-
   if (wkspname == NULL) {
     usage(argv[0]);
     return 1;
@@ -258,6 +259,15 @@ int main(int argc, char** argv) {
   fd_wksp_t* wksp = fd_wksp_attach(wkspname);
   if (wksp == NULL)
     FD_LOG_ERR(( "failed to attach to workspace %s", wkspname ));
+
+  char hostname[64];
+  gethostname(hostname, sizeof(hostname));
+  ulong hashseed = fd_hash(0, hostname, strnlen(hostname, sizeof(hostname)));
+  
+  const char* reset = fd_env_strip_cmdline_cstr(&argc, &argv, "--reset", NULL, "false");
+  if (strcmp(reset, "true") == 0) {
+    fd_wksp_reset( wksp, (uint)hashseed);
+  }
 
   fd_funk_t* funk;
   
@@ -269,9 +279,6 @@ int main(int argc, char** argv) {
     void* shmem = fd_wksp_alloc_laddr( wksp, fd_funk_align(), fd_funk_footprint(), 1 );
     if (shmem == NULL)
       FD_LOG_ERR(( "failed to allocate a funky" ));
-    char hostname[64];
-    gethostname(hostname, sizeof(hostname));
-    ulong hashseed = fd_hash(0, hostname, strnlen(hostname, sizeof(hostname)));
     funk = fd_funk_join(fd_funk_new(shmem, 1, hashseed, xactions_max, index_max));
     if (funk == NULL) {
       fd_wksp_free_laddr(shmem);
@@ -310,20 +317,38 @@ int main(int argc, char** argv) {
     // Do nothing
     
   } else if (strcmp(cmd, "ingest") == 0) {
-    const char* snapshotfile = fd_env_strip_cmdline_cstr(&argc, &argv, "--snapshotfile", NULL, NULL);
-    if (snapshotfile == NULL) {
-      usage(argv[0]);
-      return 1;
+    {
+      const char* snapshotfile = fd_env_strip_cmdline_cstr(&argc, &argv, "--snapshotfile", NULL, NULL);
+      if (snapshotfile == NULL) {
+        usage(argv[0]);
+        return 1;
+      }
+      struct SnapshotParser parser;
+      SnapshotParser_init(&parser, global);
+      FD_LOG_NOTICE(("reading %s", snapshotfile));
+      if (strcmp(snapshotfile + strlen(snapshotfile) - 4, ".zst") == 0)
+        decompressZSTD(snapshotfile, SnapshotParser_moreData, &parser);
+      else if (strcmp(snapshotfile + strlen(snapshotfile) - 4, ".bz2") == 0)
+        decompressBZ2(snapshotfile, SnapshotParser_moreData, &parser);
+      else
+        FD_LOG_ERR(( "unknown snapshot compression suffix" ));
+      SnapshotParser_destroy(&parser);
     }
-    struct SnapshotParser parser;
-    SnapshotParser_init(&parser, global);
-    if (strcmp(snapshotfile + strlen(snapshotfile) - 4, ".zst") == 0)
-      decompressZSTD(snapshotfile, SnapshotParser_moreData, &parser);
-    else if (strcmp(snapshotfile + strlen(snapshotfile) - 4, ".bz2") == 0)
-      decompressBZ2(snapshotfile, SnapshotParser_moreData, &parser);
-    else
-      FD_LOG_ERR(( "unknown snapshot compression suffix" ));
-    SnapshotParser_destroy(&parser);
+    {
+      const char* snapshotfile = fd_env_strip_cmdline_cstr(&argc, &argv, "--incremental", NULL, NULL);
+      if (snapshotfile != NULL) {
+        struct SnapshotParser parser;
+        SnapshotParser_init(&parser, global);
+        FD_LOG_NOTICE(("reading %s", snapshotfile));
+        if (strcmp(snapshotfile + strlen(snapshotfile) - 4, ".zst") == 0)
+          decompressZSTD(snapshotfile, SnapshotParser_moreData, &parser);
+        else if (strcmp(snapshotfile + strlen(snapshotfile) - 4, ".bz2") == 0)
+          decompressBZ2(snapshotfile, SnapshotParser_moreData, &parser);
+        else
+          FD_LOG_ERR(( "unknown snapshot compression suffix" ));
+        SnapshotParser_destroy(&parser);
+      }
+    }
   }
 
   const char* verifyhash = fd_env_strip_cmdline_cstr(&argc, &argv, "--verifyhash", NULL, NULL);
