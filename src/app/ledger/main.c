@@ -22,6 +22,7 @@ static void usage(const char* progname) {
   fprintf(stderr, "USAGE: %s\n", progname);
   fprintf(stderr, " --cmd ingest --snapshotfile <file>               ingest snapshot file\n");
   fprintf(stderr, " --wksp <name>                                    workspace name\n");
+  fprintf(stderr, " --gaddr <address>                                join funky at the address instead of making a new one\n");
   fprintf(stderr, " --indexmax <count>                               size of funky account map\n");
   fprintf(stderr, " --txnmax <count>                                 size of funky transaction map\n");
   fprintf(stderr, " --verifyhash <base58hash>                        verify that the accounts hash matches the given one\n");
@@ -248,33 +249,47 @@ static void decompressBZ2(const char* fname, decompressCallback cb, void* arg) {
 int main(int argc, char** argv) {
   fd_boot( &argc, &argv );
 
-  const char* cmd = fd_env_strip_cmdline_cstr(&argc, &argv, "--cmd", NULL, NULL);
   const char* wkspname = fd_env_strip_cmdline_cstr(&argc, &argv, "--wksp", NULL, NULL);
-  if (cmd == NULL || wkspname == NULL) {
+
+  if (wkspname == NULL) {
     usage(argv[0]);
     return 1;
   }
-
   fd_wksp_t* wksp = fd_wksp_attach(wkspname);
   if (wksp == NULL)
     FD_LOG_ERR(( "failed to attach to workspace %s", wkspname ));
 
-  ulong index_max = fd_env_strip_cmdline_ulong(&argc, &argv, "--indexmax", NULL, 350000000);
-  ulong xactions_max = fd_env_strip_cmdline_ulong(&argc, &argv, "--txnmax", NULL, 100);
+  fd_funk_t* funk;
   
-  void* shmem = fd_wksp_alloc_laddr( wksp, fd_funk_align(), fd_funk_footprint(), 1 );
-  if (shmem == NULL)
-    FD_LOG_ERR(( "failed to allocate a funky" ));
-  char hostname[64];
-  gethostname(hostname, sizeof(hostname));
-  ulong hashseed = fd_hash(0, hostname, strnlen(hostname, sizeof(hostname)));
-  fd_funk_t* funk = fd_funk_join(fd_funk_new(shmem, 1, hashseed, xactions_max, index_max));
-  if (funk == NULL) {
-    fd_wksp_free_laddr(shmem);
-    FD_LOG_ERR(( "failed to allocate a funky" ));
+  const char* gaddr = fd_env_strip_cmdline_cstr(&argc, &argv, "--gaddr", NULL, NULL);
+  if (gaddr == NULL) {
+    ulong index_max = fd_env_strip_cmdline_ulong(&argc, &argv, "--indexmax", NULL, 350000000);
+    ulong xactions_max = fd_env_strip_cmdline_ulong(&argc, &argv, "--txnmax", NULL, 100);
+    
+    void* shmem = fd_wksp_alloc_laddr( wksp, fd_funk_align(), fd_funk_footprint(), 1 );
+    if (shmem == NULL)
+      FD_LOG_ERR(( "failed to allocate a funky" ));
+    char hostname[64];
+    gethostname(hostname, sizeof(hostname));
+    ulong hashseed = fd_hash(0, hostname, strnlen(hostname, sizeof(hostname)));
+    funk = fd_funk_join(fd_funk_new(shmem, 1, hashseed, xactions_max, index_max));
+    if (funk == NULL) {
+      fd_wksp_free_laddr(shmem);
+      FD_LOG_ERR(( "failed to allocate a funky" ));
+    }
+    
+    FD_LOG_NOTICE(( "funky at global address 0x%016lx", fd_wksp_gaddr_fast( wksp, shmem ) ));
+
+  } else {
+    void* shmem;
+    if (gaddr[0] == '0' && gaddr[1] == 'x')
+      shmem = fd_wksp_laddr_fast( wksp, (ulong)strtol(gaddr+2, NULL, 16) );
+    else
+      shmem = fd_wksp_laddr_fast( wksp, (ulong)strtol(gaddr, NULL, 10) );
+    funk = fd_funk_join(shmem);
+    if (funk == NULL)
+      FD_LOG_ERR(( "failed to join a funky" ));
   }
-  
-  FD_LOG_NOTICE(( "funky at global address 0x%016lx", fd_wksp_gaddr_fast( wksp, shmem ) ));
 
   char global_mem[FD_GLOBAL_CTX_FOOTPRINT] __attribute__((aligned(FD_GLOBAL_CTX_ALIGN)));
   memset(global_mem, 0, sizeof(global_mem));
@@ -290,7 +305,11 @@ int main(int argc, char** argv) {
   memset(acc_mgr_mem, 0, sizeof(acc_mgr_mem));
   global->acc_mgr = fd_acc_mgr_join( fd_acc_mgr_new( acc_mgr_mem, global, FD_ACC_MGR_FOOTPRINT ) );
   
-  if (strcmp(cmd, "ingest") == 0) {
+  const char* cmd = fd_env_strip_cmdline_cstr(&argc, &argv, "--cmd", NULL, NULL);
+  if (cmd == NULL) {
+    // Do nothing
+    
+  } else if (strcmp(cmd, "ingest") == 0) {
     const char* snapshotfile = fd_env_strip_cmdline_cstr(&argc, &argv, "--snapshotfile", NULL, NULL);
     if (snapshotfile == NULL) {
       usage(argv[0]);
@@ -316,13 +335,13 @@ int main(int argc, char** argv) {
   
     ulong zero_accounts = 0;
     ulong num_pairs = 0;
-    fd_pubkey_hash_pair_t * pairs = (fd_pubkey_hash_pair_t *) global->allocf(global->allocf_arg , 8UL, num_iter_accounts*sizeof(fd_pubkey_hash_pair_t));
+    fd_pubkey_hash_pair_t * pairs = (fd_pubkey_hash_pair_t *) malloc(num_iter_accounts*sizeof(fd_pubkey_hash_pair_t));
     for( fd_funk_rec_map_iter_t iter = fd_funk_rec_map_iter_init( rec_map );
          !fd_funk_rec_map_iter_done( rec_map, iter );
          iter = fd_funk_rec_map_iter_next( rec_map, iter ) ) {
       fd_funk_rec_t * rec = fd_funk_rec_map_iter_ele( rec_map, iter );
 
-      if (num_pairs % 1000000 == 0) {
+      if (num_pairs % 10000000 == 0) {
         FD_LOG_NOTICE(( "read %lu so far", num_pairs ));
       }
 
@@ -345,6 +364,8 @@ int main(int argc, char** argv) {
     
     fd_hash_t accounts_hash;
     fd_hash_account_deltas(global, pairs, num_pairs, &accounts_hash);
+
+    free(pairs);
     
     char accounts_hash_58[FD_BASE58_ENCODED_32_SZ];
     fd_base58_encode_32((uchar const *)accounts_hash.hash, NULL, accounts_hash_58);

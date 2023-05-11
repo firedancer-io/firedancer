@@ -4,6 +4,8 @@
 
 // build/linux/gcc/x86_64/bin/fd_wksp_ctl new giant_wksp 200 gigantic 0-127 0666
 
+// build/linux/gcc/x86_64/bin/fd_frank_ledger --cmd ingest --snapshotfile /home/jsiegel/mainnet-ledger/snapshot-179244882-2DyMb1qN8JuTijCjsW8w4G2tg1hWuAw2AopH7Bj9Qstu.tar.zst --wksp giant_wksp --verifyhash 2DyMb1qN8JuTijCjsW8w4G2tg1hWuAw2AopH7Bj9Qstu
+
 // /home/jsiegel/repos/firedancer-private/build/linux/gcc/x86_64/bin/fd_wksp_ctl new test_wksp 32 gigantic 0 0777
 // /home/jsiegel/repos/firedancer-private/build/linux/gcc/x86_64/bin/fd_wksp_ctl query test_wksp
 
