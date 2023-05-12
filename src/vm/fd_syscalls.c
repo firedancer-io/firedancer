@@ -34,6 +34,8 @@ void fd_vm_syscall_register_all( fd_sbpf_syscalls_t * syscalls ) {
   fd_vm_sbpf_interp_register_syscall( syscalls, "sol_set_return_data", fd_vm_syscall_sol_set_return_data );
   fd_vm_sbpf_interp_register_syscall( syscalls, "sol_get_return_data", fd_vm_syscall_sol_get_return_data );
   fd_vm_sbpf_interp_register_syscall( syscalls, "sol_get_stack_height", fd_vm_syscall_sol_get_stack_height );
+
+  fd_vm_sbpf_interp_register_syscall( syscalls, "sol_get_rent_sysvar", fd_vm_syscall_sol_get_rent_sysvar );
 }
 
 ulong
@@ -546,5 +548,6 @@ fd_vm_syscall_sol_get_rent_sysvar(
     FD_FN_UNUSED ulong arg4,
     FD_FN_UNUSED ulong * ret
 ) {
-  return FD_VM_SYSCALL_ERR_UNIMPLEMENTED;
+  /* FIXME */
+  return FD_VM_SYSCALL_SUCCESS;
 }
