@@ -67,8 +67,8 @@ main( int     argc,
   FD_LOG_NOTICE(( "Benchmarking small inputs" ));
 
   /* warmup */
-  uint hash = 42;
-  for( ulong i=0; i<100000UL; i++ ) {
+  uint hash = 42U;
+  for( ulong i=0UL; i<100000UL; i++ ) {
     uint x[2] = { (uint)i, hash };
     hash = fd_murmur3_32( &x, 8UL, 0 );
   }
@@ -76,7 +76,7 @@ main( int     argc,
   /* for real */
   ulong bench_cnt = 100000000UL;
   long dt = -fd_log_wallclock();
-  for( ulong i=0; i<bench_cnt; i++ ) {
+  for( ulong i=0UL; i<bench_cnt; i++ ) {
     uint x[2] = { (uint)i, hash };
     hash = fd_murmur3_32( &x, 8UL, 0 );
   }
@@ -88,20 +88,20 @@ main( int     argc,
 
   uchar msg[ 1024UL ];
   ulong sz = 1024UL;
-  for( ulong i=0; i<sz; i+=8 )
+  for( ulong i=0UL; i<sz; i+=8UL )
     FD_STORE( ulong, msg+i, fd_rng_ulong( rng ) );
 
   /* warmup */
-  for( ulong i=0; i<10000UL; i++ ) {
-    uint hash = fd_murmur3_32( &msg, sz, 0 );
+  for( ulong i=0UL; i<10000UL; i++ ) {
+    uint hash = fd_murmur3_32( &msg, sz, 0U );
     FD_COMPILER_FORGET( hash );
   }
 
   /* for real */
   bench_cnt = 1000000UL;
   dt = -fd_log_wallclock();
-  for( ulong i=0; i<bench_cnt; i++ ) {
-    uint hash = fd_murmur3_32( &msg, sz, 0 );
+  for( ulong i=0UL; i<bench_cnt; i++ ) {
+    uint hash = fd_murmur3_32( &msg, sz, 0U );
     __asm__( "" : "=m" (*msg) : "r" (hash) : "cc" );
   }
   dt += fd_log_wallclock();
