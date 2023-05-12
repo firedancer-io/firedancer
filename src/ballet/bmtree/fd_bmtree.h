@@ -1,11 +1,15 @@
 #ifndef HEADER_fd_src_ballet_bmtree_fd_bmtree_h
 #define HEADER_fd_src_ballet_bmtree_fd_bmtree_h
 
-/* It is generally used as a vector commitment scheme wherein the root
-   node of the tree commits the vector of leaf nodes.
+/* fd_bmtree provides APIs for working with binary Merkle trees that use
+   the SHA256 hash function. */
 
-   All methods provided by this Merkle tree derive from these three
-   basic operations.
+#include "../../util/fd_util_base.h"
+/* Binary Merkle trees are generally used as a vector commitment scheme
+   wherein the root node of the tree commits the vector of leaf nodes.
+
+   All methods provided by this Merkle tree derive from the following
+   three basic operations:
 
      1. Construct leaf node:
 
@@ -40,19 +44,19 @@
 
     - All leaf nodes are in the bottom level
 
-    - If a given layer `L`
-      with number of nodes `L_n` ...
+    - If a given layer `l`
+      with number of nodes `N_l` ...
 
       ... has exactly one node,
           this one node is the root node
           and forms the uppermost layer.
 
       ... has more than one node
-          ... and `L_n % 2 == 0`,
-              the layer above contains n/2 nodes
+          ... and `N_l % 2 == 0`,
+              the layer above contains N_l/2 nodes
 
-          ... and `L_n % 2 == 1`,
-              the layer above contains (n+1)/2 nodes.
+          ... and `N_l % 2 == 1`,
+              the layer above contains (N_l+1)/2 nodes.
 
    A simple algorithm to approach such a a tree is as follows:
    (Note that the code uses here uses an optimized approach)
@@ -122,7 +126,6 @@
      - Range inclusion proofs (over a contiguous range of leaf nodes)
      - Sparse inclusion proofs (over an arbitrary subset of leaf nodes) */
 
-#include "../../util/fd_util_base.h"
 
 /* bmtree_node_t is the hash of a tree node (e.g. SHA256-160 / SHA256
    for a 20 / 32 byte node size).  We declare it this way to make the
@@ -189,7 +192,7 @@ struct fd_bmtree_commit_private {
 
    **Example**
 
-   Step-by-step walkthrough of the internal state in SSA notation:
+   Step-by-step walkthrough of the internal state:
 
    Initialize
    - leaf_cnt    <- 0
@@ -207,11 +210,55 @@ struct fd_bmtree_commit_private {
    - node_buf[0] <- l_2
    - leaf_cnt    <- 3
 
-   Insert leaf `l_3`
+   Insert leaf `l_3
    - b_0         <- hash_branch( node_buf[0], l_3 )
    - b_1         <- hash_branch( node_buf[1], b_0 )
    - node_buf[2] <- b_1
-   - leaf_cnt    <- 4  */
+   - leaf_cnt    <- 4
+
+   inclusion_proofs stores hashes of internal nodes from previous
+   computation.  If 0 <= i < inclusion_proof_sz, then
+   inclusion_proofs[i] stores the hash at node i of the tree numbered
+   in complete binary search tree order.  E.g.
+
+                  3
+                /   \
+              1       5
+             / \     //
+            0   2   4
+
+   This is a superset of what is stored in node_buf, but in order to not
+   lose the log(n) cache utilization features when we don't care about
+   inclusion proofs and are only trying to derive the root hash, we
+   store them separately.
+
+   In general, this binary search tree order is fairly friendly.  To
+   find the layer of a node, you count the number of trailing 1 bits in
+   its index.  To get the left/right child, you add/subtract 1<<layer.
+   This ordering makes sense for these trees, because they grow up and
+   to the right, the same way the numbers increase, so a node's index
+  never changes as more leaves are added to the tree.
+
+   The biggest subtlety comes when there are nodes with incomplete left
+   subtrees, e.g.
+
+                         7
+                      /     \
+                    /         \
+                   3          ??
+                 /   \        /
+                1     5      9
+               / \   / \    /
+              0   2  4  6  8
+
+   What number belongs in the ?? spot?  By binary search order, it
+   should be 10.  The natural index of that node is 7+4=11 though.  The
+   indexing gets very complicated and error-prone if we try to store it
+   in 10, so we prefer to store it in 11.  That means the size of our
+   storeage depends only on the maximum number of layers we expect in
+   the tree, which is somewhat convenient.  This does waste up to
+   O(leaf_cnt) space though. */
+
   ulong             leaf_cnt;         /* Number of leaves added so far */
   ulong             hash_sz;          /* <= 32 bytes */
   ulong             inclusion_proof_sz;
@@ -227,29 +274,40 @@ typedef struct fd_bmtree_commit_private fd_bmtree_commit_t;
 FD_PROTOTYPES_BEGIN
 
 /* bmtree_commit_{footprint,align} return the alignment and footprint
-   required for a memory region to be used as a bmtree_commit_t. */
+   required for a memory region to be used as a bmtree_commit_t.  If the
+   tree does not exceede inclusion_proof_layer_cnt layers, then all
+   inclusion proofs can be retrieved after finalization. */
 ulong          fd_bmtree_commit_align    ( void );
-ulong          fd_bmtree_commit_footprint( void );
+ulong          fd_bmtree_commit_footprint( ulong inclusion_proof_layer_cnt );
 
 /* bmtree_commit_init starts a vector commitment calculation
- Assumes mem unused with required alignment and footprint.
- Returns mem as a bmtree_commit_t *, commit will be in a calc */
-fd_bmtree_commit_t * fd_bmtree_commit_init     ( void * mem, ulong hash_sz, ulong inclusion_proof_sz );
+   Assumes mem unused with required alignment and footprint.  Returns
+   mem as a bmtree_commit_t *, commit will be in a calc.
+
+   The calculation can also save some inclusion proof information such
+   that if the final tree has no more than inclusion_proof_layer_cnt layers,
+   inclusion proofs will be available for all leaves.  If the tree grows
+   beyond inclusion_proof_layer_cnt layers, then inclusion proofs may
+   not be available for any leaves. */
+fd_bmtree_commit_t * fd_bmtree_commit_init     ( void * mem, ulong hash_sz, ulong inclusion_proof_layer_cnt );
 
 /* bmtree_commit_leaf_cnt returns the number of leafs appeneded thus
    far.  Assumes state is valid. */
 FD_FN_PURE static inline ulong fd_bmtree_commit_leaf_cnt ( fd_bmtree_commit_t const * bmt ) { return bmt->leaf_cnt; }
 
-/* bmtree_depth returns the number of layers in a binary Merkle tree. */
-FD_FN_CONST ulong fd_bmtree_depth( ulong leaf_cnt );
+/* fd_bmtree_depth and fd_bmtree_node_cnt respectively return the number
+   of layers and total number of nodes in a binary Merkle tree with
+   leaf_cnt leaves. */
+FD_FN_CONST ulong fd_bmtree_depth(    ulong leaf_cnt );
+FD_FN_CONST ulong fd_bmtree_node_cnt( ulong leaf_cnt );
 
 /* bmtree_commit_append appends a range of leaf nodes.  Assumes that
    leaf_cnt + new_leaf_cnt << 2^63 (which, unless planning on running
    for millenia, is always true). */
-fd_bmtree_commit_t *                                                     /* Returns state */
-fd_bmtree_commit_append( fd_bmtree_commit_t *                 state,           /* Assumed valid and in a calc */
-                   fd_bmtree_node_t const * FD_RESTRICT new_leaf,        /* Indexed [0,new_leaf_cnt) */
-                   ulong                          new_leaf_cnt );
+fd_bmtree_commit_t *                                                         /* Returns state */
+fd_bmtree_commit_append( fd_bmtree_commit_t *                 state,         /* Assumed valid and in a calc */
+                         fd_bmtree_node_t const * FD_RESTRICT new_leaf,      /* Indexed [0,new_leaf_cnt) */
+                         ulong                                new_leaf_cnt );
 
 /* bmtree_commit_fini seals the commitment calculation by deriving the
    root node.  Assumes state is valid, in calc on entry with at least
@@ -259,8 +317,47 @@ fd_bmtree_commit_append( fd_bmtree_commit_t *                 state,           /
    hash on success.  The lifetime of the returned pointer is that of the
    state or until the memory used for state gets initialized for a new
    calc. */
-uchar *        fd_bmtree_commit_fini     ( fd_bmtree_commit_t * bmt );
+uchar * fd_bmtree_commit_fini( fd_bmtree_commit_t * state );
 
 
+/* bmtree_get_inclusion_proof writes an inclusion proof for the leaf with
+   index leaf_idx to the memory at dest.  state must be a valid
+   finalized bmtree with at least leaf_idx+1 leaves.  state must have
+   been initialized with inclusion_proof_layers_cnt >= the height of the
+   tree, which you can get from
+   fd_bmtree_depth( fd_bmtree_commit_leaf_cnt( state ) ).
+
+   If these conditions are met, upon return, dest[ i ] for
+   0<=i<hash_sz*(tree depth-1) will contain the inclusion proof, and the
+   function will return the number of hashes written.  If
+   inclusion_proof_layers_cnt was initialized to too small of a value,
+   this function will return -1 and the memory pointed to by dest will
+   not be modified.
+
+   The inclusion proof is ordered from leaf to root but excludes the
+   actual root of the tree. */
+/* FIXME: Returning -1 is pretty bad here, but 0 is the legitimate
+   proof size of a 1 node tree.  Is that case worth distinguishing? */
+/* FIXME: A better name? fd_bmtree_commit_proof? */
+int
+fd_bmtree_get_inclusion_proof( fd_bmtree_commit_t * state,
+                               uchar *              dest,
+                               ulong                leaf_idx );
+
+/* fd_bmtree_validate_inclusion_proof validates a Merkle proof that the
+   element with hash `leaf` is the leaf_idx^th leaf of the tree with
+   root hash `root`.  The proof consists of proof_depth hashes, each
+   hash_sz bytes concatenated with no padding odered from leaf to root,
+   excluding the root.
+
+   Returns 1 if the proof is valid and 0 otherwise. */
+/* TODO: Write the caching version of this */
+int
+fd_bmtree_validate_inclusion_proof( fd_bmtree_node_t const * leaf,
+                                    ulong                    leaf_idx,
+                                    uchar const *            root,
+                                    uchar const *            proof,
+                                    ulong                    proof_depth,
+                                    ulong                    hash_sz );
 FD_PROTOTYPES_END
 #endif /* HEADER_fd_src_ballet_bmtree_fd_bmtree_h */
