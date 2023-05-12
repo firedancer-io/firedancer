@@ -1,6 +1,12 @@
 #include "../fd_ballet.h"
 
 
+
+#define REFERENCE_PROOF_SZ  (80UL)
+#define REFERENCE_PROOF_CNT (11UL)
+
+FD_IMPORT_BINARY( reference_proofs,         "src/ballet/bmtree/reference_proofs.bin"         );
+
 /* Test tree-20 construction */
 
 static void
@@ -38,25 +44,81 @@ hash_leaf( fd_bmtree_node_t * leaf,
   FD_TEST( fd_bmtree_hash_leaf( leaf, leaf_cstr, strlen( leaf_cstr ) )==leaf );
 }
 
+uchar memory[ 128*1024 ] __attribute__((aligned(FD_BMTREE_COMMIT_ALIGN)));
+uchar inc_proof[ 63*32 ];
+
+static void
+test_inclusion( ulong leaf_cnt ) {
+  fd_bmtree_commit_t * tree = fd_bmtree_commit_init( memory, 20UL, 9UL );
+
+  fd_bmtree_node_t leaf[1];
+  fd_memset( leaf->hash, 0, 20UL );
+  for( ulong i=0UL; i<leaf_cnt; i++ ) {
+    FD_TEST( fd_bmtree_commit_leaf_cnt( tree )==i );
+    FD_STORE( ulong, leaf->hash, i );
+    FD_TEST( fd_bmtree_commit_append( tree, leaf, 1UL )==tree );
+  }
+  uchar * root = fd_bmtree_commit_fini( tree );
+
+  fd_bmtree_node_t proof_root[1];
+
+  ulong depth = fd_bmtree_depth( leaf_cnt );
+  for( ulong i=0UL; i<leaf_cnt; i++ ) {
+    FD_STORE( ulong, leaf->hash, i );
+    FD_TEST( (int)depth-1==fd_bmtree_get_inclusion_proof( tree, inc_proof, i ) );
+    FD_TEST( proof_root==fd_bmtree_validate_inclusion_proof( leaf, i, proof_root, inc_proof, depth-1UL, 20UL ) );
+    FD_TEST( fd_memeq( root, proof_root, 32UL ) );
+
+    if( FD_LIKELY( leaf_cnt>1UL ) ) {
+      inc_proof[ 1 ]++; /* Corrupt the proof */
+      FD_TEST( proof_root==fd_bmtree_validate_inclusion_proof( leaf, i, proof_root, inc_proof, depth-1UL, 20UL ) );
+      FD_TEST( !fd_memeq( root, proof_root, 32UL ) );
+      inc_proof[ 1 ]--;
+    } /* Otherwise the proof is empty, so there's nothing to corrupt */
+
+    root[ 1 ]++; /* Corrupt the root */
+    FD_TEST( proof_root==fd_bmtree_validate_inclusion_proof( leaf, i, proof_root, inc_proof, depth-1UL, 20UL ) );
+    FD_TEST( !fd_memeq( root, proof_root, 32UL ) );
+    root[ 1 ]--;
+
+    leaf->hash[ 1 ]++; /* Corrupt the leaf */
+    FD_TEST( proof_root==fd_bmtree_validate_inclusion_proof( leaf, i, proof_root, inc_proof, depth-1UL, 20UL ) );
+    FD_TEST( !fd_memeq( root, proof_root, 32UL ) );
+    leaf->hash[ 1 ]--;
+  }
+  FD_TEST( !fd_bmtree_validate_inclusion_proof( leaf, 1234567UL, proof_root, inc_proof, depth-1UL, 20UL ) );
+
+}
+
+
+
 int
 main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
 
   /* Internal checks */
-  FD_TEST( fd_bmtree_commit_align()    ==FD_BMTREE_COMMIT_ALIGN        );
-  FD_TEST( fd_bmtree_commit_footprint()==FD_BMTREE_COMMIT_FOOTPRINT );
+  FD_TEST( fd_bmtree_commit_align()         ==FD_BMTREE_COMMIT_ALIGN            );
+  FD_TEST( fd_bmtree_commit_footprint( 0UL )==FD_BMTREE_COMMIT_FOOTPRINT( 0UL ) );
 
-  /* Iterate test fd_bmtree_depth against naive division algorithm */
+  /* Iterate test fd_bmtree_depth, fd_bmtree_node_cnt against naive
+     division algorithm */
 
-  FD_TEST( fd_bmtree_depth( 0UL )==0UL );
-  FD_TEST( fd_bmtree_depth( 1UL )==1UL );
+  FD_TEST( fd_bmtree_depth(    0UL )==0UL );
+  FD_TEST( fd_bmtree_depth(    1UL )==1UL );
+  FD_TEST( fd_bmtree_node_cnt( 0UL )==0UL );
+  FD_TEST( fd_bmtree_node_cnt( 1UL )==1UL );
 
-  for( ulong node_cnt=2UL; node_cnt<10000000UL; node_cnt++ ) {
+  for( ulong leaf_cnt=1UL; leaf_cnt<=256UL; leaf_cnt++ ) test_inclusion( leaf_cnt );
+
+  for( ulong leaf_cnt=2UL; leaf_cnt<10000000UL; leaf_cnt++ ) {
     ulong depth = 1UL;
-    for( ulong i=node_cnt; i>1UL; i=(i+1UL) >> 1 ) depth++;
-    FD_TEST( fd_bmtree_depth( node_cnt )==depth );
+    ulong nodes = 1UL;
+    for( ulong i=leaf_cnt; i>1UL; i=(i+1UL) >> 1 ) { depth++; nodes += i; }
+    FD_TEST( fd_bmtree_depth(    leaf_cnt )==depth );
+    FD_TEST( fd_bmtree_node_cnt( leaf_cnt )==nodes );
   }
+
 
   /* Test 20-byte tree */
 
@@ -121,6 +183,18 @@ main( int     argc,
                  "\n\t\t" FD_LOG_HEX16_FMT "  " FD_LOG_HEX16_FMT,
                  FD_LOG_HEX16_FMT_ARGS(     root ), FD_LOG_HEX16_FMT_ARGS(     root+16 ),
                  FD_LOG_HEX16_FMT_ARGS( expected ), FD_LOG_HEX16_FMT_ARGS( expected+16 ) ));
+
+
+  tree = fd_bmtree_commit_init( memory, 20UL, 5UL );
+  FD_TEST( fd_bmtree_commit_append( tree, leaf, leaf_cnt )==tree );
+  fd_bmtree_commit_fini( tree );
+
+  for( ulong i=0UL; i<leaf_cnt; i++ ) {
+    uchar proof[REFERENCE_PROOF_SZ];
+    FD_TEST( 4UL==fd_bmtree_get_inclusion_proof( tree, proof, i ) );
+
+    FD_TEST( 0==memcmp( proof, reference_proofs + REFERENCE_PROOF_SZ*i, REFERENCE_PROOF_SZ ) );
+  }
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
