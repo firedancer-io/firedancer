@@ -88,7 +88,7 @@ fd_quic_hkdf_expand_label( uchar *       output,  ulong output_sz,
   }
 
   /* expand */
-  uchar HKDF_PREFIX[6] = "tls13 ";
+  uchar HKDF_PREFIX[6] = "tls13 ";  // FIXME make this generic
   ulong HKDF_PREFIX_SZ = sizeof( HKDF_PREFIX );
 
   /* format label */
@@ -810,4 +810,228 @@ fd_quic_crypto_rand( uchar * buf,
   /* openssl error getting random bytes - bail */
   ulong err = ERR_get_error();
   FD_LOG_ERR(( "openssl RAND_bytes failed. Error: %lu", err ));
+}
+
+int fd_quic_retry_token_encrypt(ulong orig_dst_conn_id,
+                                ulong retry_src_conn_id,
+                                uint ip_addr,
+                                ushort udp_port,
+                                uchar *retry_token)
+{
+  /* Generate pseudorandom bytes to use as the key for the AEAD HKDF. Note these bytes form the
+     beginning of the retry token. */
+  uchar *hkdf_key = retry_token;
+  int rc = fd_quic_crypto_rand(retry_token, FD_QUIC_RETRY_TOKEN_HKDF_KEY_SZ);
+  if (FD_UNLIKELY(rc == FD_QUIC_FAILED))
+  {
+    return FD_QUIC_FAILED;
+  }
+
+  /* The `extract` step of HKDF is unnecessary because what's being passed in to `expand` are
+   pseudorandom bytes. */
+  uchar aead_key[FD_QUIC_RETRY_TOKEN_AEAD_KEY_SZ];
+  fd_quic_hkdf_expand_label(aead_key, FD_QUIC_RETRY_TOKEN_AEAD_KEY_SZ,
+                            hkdf_key, FD_QUIC_RETRY_TOKEN_HKDF_KEY_SZ,
+                            FD_QUIC_RETRY_TOKEN_AEAD_INFO, FD_QUIC_RETRY_TOKEN_AEAD_INFO_SZ,
+                            fd_hmac_sha256, FD_QUIC_RETRY_TOKEN_AEAD_KEY_SZ);
+
+  /* Since the key is derived from random bytes and only used once, we use a zero IV (nonce).
+     Note the IV length is by default 12 bytes (which is the recommended length for AES-GCM). */
+  uchar iv[FD_QUIC_NONCE_SZ] = {0};
+
+  /* The AAD is the client IPv4 address, UDP port, and retry source connection id. */
+  uchar aad[FD_QUIC_RETRY_TOKEN_AAD_SZ];
+  fd_memcpy(aad, &ip_addr, sizeof(uint));
+  fd_memcpy(aad + sizeof(uint), &udp_port, sizeof(ushort));
+  fd_memcpy(aad + sizeof(uint) + sizeof(ushort), &retry_src_conn_id, sizeof(ulong));
+
+  uchar plaintext[FD_QUIC_RETRY_TOKEN_PLAINTEXT_SZ];
+  fd_memcpy(plaintext, &orig_dst_conn_id, sizeof(ulong));
+  long now = fd_log_wallclock();
+  fd_memcpy(plaintext + sizeof(ulong), &now, sizeof(long));
+
+  /* Append the ciphertext after random bytes in the retry_token. */
+  uchar *ciphertext = hkdf_key + FD_QUIC_RETRY_TOKEN_HKDF_KEY_SZ;
+
+  /* Append the authentication tag after ciphertext in the retry_token. */
+  uchar *tag = ciphertext + FD_QUIC_RETRY_TOKEN_PLAINTEXT_SZ;
+
+  int ciphertext_len = gcm_encrypt(EVP_aes_256_gcm(),
+                                   plaintext, FD_QUIC_RETRY_TOKEN_PLAINTEXT_SZ,
+                                   aad, FD_QUIC_RETRY_TOKEN_AAD_SZ,
+                                   aead_key,
+                                   iv,
+                                   ciphertext,
+                                   tag);
+  if (FD_QUIC_RETRY_TOKEN_CIPHERTEXT_SZ != ciphertext_len)
+  {
+    FD_LOG_WARNING(("Expected ciphertext length to equal plaintext length. Instead got: %d", ciphertext_len));
+    return FD_QUIC_FAILED;
+  }
+
+  return FD_QUIC_SUCCESS;
+}
+
+/* Decrypts a retry token, and checks it for validity (see `fd_quic_retry_token_encrypt`). */
+int fd_quic_retry_token_decrypt(ulong retry_src_conn_id,
+                                uint ip_addr,
+                                ushort udp_port,
+                                uchar *retry_token,
+                                ulong *orig_dst_conn_id,
+                                long *ts_nanos)
+{
+  if (FD_UNLIKELY(retry_token != FD_QUIC_RETRY_TOKEN_SZ)) {
+    return FD_QUIC_FAILED;
+  }
+
+  /* Regenerate the AEAD key (the HKDF key is the first 32 bytes of the token). */
+  uchar *hkdf_key = retry_token;
+  uchar aead_key[FD_QUIC_RETRY_TOKEN_AEAD_KEY_SZ];
+  fd_quic_hkdf_expand_label(aead_key, FD_QUIC_RETRY_TOKEN_AEAD_KEY_SZ,
+                            hkdf_key, FD_QUIC_RETRY_TOKEN_HKDF_KEY_SZ,
+                            FD_QUIC_RETRY_TOKEN_AEAD_INFO, FD_QUIC_RETRY_TOKEN_AEAD_INFO_SZ,
+                            fd_hmac_sha256, FD_QUIC_RETRY_TOKEN_AEAD_KEY_SZ);
+
+  uchar *ciphertext = hkdf_key + FD_QUIC_RETRY_TOKEN_HKDF_KEY_SZ;
+  uchar aad[FD_QUIC_RETRY_TOKEN_AAD_SZ];
+  fd_memcpy(aad, &ip_addr, sizeof(uint));
+  fd_memcpy(aad + sizeof(uint), &udp_port, sizeof(ushort));
+  fd_memcpy(aad + sizeof(uint) + sizeof(ushort), &retry_src_conn_id, sizeof(ulong));
+  uchar iv[FD_QUIC_NONCE_SZ] = {0};
+  uchar *tag = ciphertext + FD_QUIC_RETRY_TOKEN_CIPHERTEXT_SZ;
+
+  uchar plaintext[FD_QUIC_RETRY_TOKEN_PLAINTEXT_SZ];
+  if (FD_UNLIKELY(gcm_decrypt(EVP_aes_256_gcm(),
+                              ciphertext, FD_QUIC_RETRY_TOKEN_CIPHERTEXT_SZ,
+                              aad, FD_QUIC_RETRY_TOKEN_AAD_SZ,
+                              tag,
+                              aead_key,
+                              iv,
+                              plaintext) == -1))
+  {
+    return FD_QUIC_FAILED;
+  };
+
+  // TODO zero-copy without violating strict aliasing?
+  fd_memcpy(orig_dst_conn_id, plaintext, sizeof(ulong));
+  fd_memcpy(ts_nanos, plaintext + sizeof(ulong), sizeof(long));
+  return FD_QUIC_SUCCESS;
+}
+
+int gcm_encrypt(const EVP_CIPHER *cipher,
+                uchar *plaintext, int plaintext_len,
+                uchar *aad, int aad_len,
+                uchar *key,
+                uchar *iv,
+                uchar *ciphertext,
+                uchar *tag)
+{
+  EVP_CIPHER_CTX *ctx;
+  ctx = EVP_CIPHER_CTX_new();
+  if ((FD_UNLIKELY(!ctx)))
+  {
+    ulong err = ERR_get_error();
+    FD_LOG_ERR(("EVP_CIPHER_CTX_new failed. Error: %lu", err));
+  }
+
+  if (FD_UNLIKELY(1 != EVP_EncryptInit_ex(ctx, cipher, NULL, key, iv)))
+  {
+    ulong err = ERR_get_error();
+    FD_LOG_ERR(("EVP_EncryptInit_ex failed. Error: %lu", err));
+  }
+
+  int len;
+  /* The associated data ("AD" in AEAD). */
+  if (FD_UNLIKELY(1 != EVP_EncryptUpdate(ctx, NULL, &len, aad, aad_len)))
+  {
+    ulong err = ERR_get_error();
+    FD_LOG_ERR(("EVP_EncryptUpdate (AAD) failed. Error: %lu", err));
+  }
+
+  /* The encryption of plaintext ("E" in AEAD). */
+  int ciphertext_len;
+  if (FD_UNLIKELY(1 != EVP_EncryptUpdate(ctx,
+                                         ciphertext,
+                                         &len,
+                                         plaintext,
+                                         plaintext_len)))
+  {
+    ulong err = ERR_get_error();
+    FD_LOG_ERR(("EVP_EncryptUpdate (plaintext) failed. Error: %lu", err));
+  }
+  ciphertext_len = len;
+  if (FD_UNLIKELY(1 != EVP_EncryptFinal_ex(ctx, ciphertext + len, &len)))
+  {
+    ulong err = ERR_get_error();
+    FD_LOG_ERR(("EVP_EncryptFinal_ex failed. Error: %lu", err));
+  }
+  ciphertext_len += len;
+
+  /* The authentication tag ("A" in AEAD). */
+  if (FD_UNLIKELY(1 != EVP_CIPHER_CTX_ctrl(
+                           ctx,
+                           EVP_CTRL_GCM_GET_TAG,
+                           16,
+                           tag)))
+  {
+    ulong err = ERR_get_error();
+    FD_LOG_ERR(("EVP_CIPHER_CTX_ctrl (get tag) failed. Error: %lu", err));
+  }
+
+  EVP_CIPHER_CTX_free(ctx);
+  return ciphertext_len;
+}
+
+int gcm_decrypt(const EVP_CIPHER *cipher,
+                uchar *ciphertext, int ciphertext_len,
+                uchar *aad, int aad_len,
+                uchar *tag,
+                uchar *key,
+                uchar *iv,
+                uchar *plaintext)
+{
+  EVP_CIPHER_CTX *ctx;
+
+  if (FD_UNLIKELY(!(ctx = EVP_CIPHER_CTX_new())))
+  {
+    ulong err = ERR_get_error();
+    FD_LOG_ERR(("EVP_CIPHER_CTX_new failed. Error: %lu", err));
+  }
+
+  if (FD_UNLIKELY(!EVP_DecryptInit_ex(ctx, cipher, NULL, key, iv)))
+  {
+    ulong err = ERR_get_error();
+    FD_LOG_ERR(("EVP_EncryptInit_ex failed. Error: %lu", err));
+  }
+
+  int len;
+  if (FD_UNLIKELY(!EVP_DecryptUpdate(ctx, NULL, &len, aad, aad_len)))
+  {
+    ulong err = ERR_get_error();
+    FD_LOG_ERR(("EVP_EncryptUpdate (AAD) failed. Error: %lu", err));
+  }
+
+  if (FD_UNLIKELY(!EVP_DecryptUpdate(ctx, plaintext, &len, ciphertext, ciphertext_len)))
+  {
+    ulong err = ERR_get_error();
+    FD_LOG_ERR(("EVP_EncryptUpdate (plaintext) failed. Error: %lu", err));
+  }
+
+  int plaintext_len = len;
+  if (!EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_TAG, FD_QUIC_CRYPTO_TAG_SZ, tag))
+  {
+    ulong err = ERR_get_error();
+    FD_LOG_ERR(("EVP_CIPHER_CTX_ctrl (get tag) failed. Error: %lu", err));
+  }
+
+  if (EVP_DecryptFinal_ex(ctx, plaintext + len, &len) <= 0)
+  {
+    ulong err = ERR_get_error();
+    FD_LOG_ERR(("EVP_DecryptFinal_ex failed. Error: %lu", err));
+    return -1;
+  }
+  plaintext_len += len;
+
+  EVP_CIPHER_CTX_free(ctx);
+  return plaintext_len;
 }
