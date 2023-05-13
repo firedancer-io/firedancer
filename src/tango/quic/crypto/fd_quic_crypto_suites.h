@@ -167,6 +167,22 @@ extern uchar FD_QUIC_CRYPTO_V1_INITIAL_SALT[ 20UL ];
 #define FD_QUIC_CRYPTO_LABEL_QUIC_IV_SZ   ( sizeof( FD_QUIC_CRYPTO_LABEL_QUIC_IV ) - 1 )
 #define FD_QUIC_CRYPTO_LABEL_QUIC_HP_SZ   ( sizeof( FD_QUIC_CRYPTO_LABEL_QUIC_HP ) - 1 )
 
+/* retry token plaintext: orig dst conn id + fd_log_wallclock (long) */
+#define FD_QUIC_RETRY_TOKEN_PLAINTEXT_SZ (8 + 8)
+/* ciphertext length should equal plaintext in chosen AEAD scheme */
+#define FD_QUIC_RETRY_TOKEN_CIPHERTEXT_SZ FD_QUIC_RETRY_TOKEN_PLAINTEXT_SZ
+/* retry token authenticated associated data (AAD): ipv4 + port + retry src conn id */
+#define FD_QUIC_RETRY_TOKEN_AAD_SZ (4 + 2 + 8)
+/* 256-bit key */
+#define FD_QUIC_RETRY_TOKEN_HKDF_KEY_SZ 32
+/* retry token = prepended random bytes + encrypted ciphertext + appended authentication tag */
+#define FD_QUIC_RETRY_TOKEN_SZ (FD_QUIC_RETRY_TOKEN_HKDF_KEY_SZ + FD_QUIC_RETRY_TOKEN_PLAINTEXT_SZ + FD_QUIC_CRYPTO_TAG_SZ)
+/* 256-bit output from HKDF */
+#define FD_QUIC_RETRY_TOKEN_AEAD_KEY_SZ 32
+/* HKFD application-specific context (similar to a salt) */
+#define FD_QUIC_RETRY_TOKEN_AEAD_INFO ((const uchar *)"fd quic retry token")
+#define FD_QUIC_RETRY_TOKEN_AEAD_INFO_SZ (sizeof("fd quic retry token") - 1)
+
 /* bound the max size of the above labels */
 #define FD_QUIC_CRYPTO_LABEL_BOUND 64
 
@@ -219,13 +235,12 @@ fd_quic_crypto_ctx_init( fd_quic_crypto_ctx_t * ctx );
 void
 fd_quic_crypto_ctx_fini( fd_quic_crypto_ctx_t * ctx );
 
-/* HKDF extract and expand-label are defined here:
-     https://www.rfc-editor.org/rfc/rfc9001.html#name-packet-protection
-     https://www.rfc-editor.org/rfc/rfc5869.html
-
-   they are used for used for generating secrets */
+/* HKDF extract and expand-label are used for generating secrets. */
 
 /* fd_quic_hkdf_extract
+
+   HKDF extract is specified in RFC 5869, Section 2.2:
+   https://www.rfc-editor.org/rfc/rfc5869.html#section-2.2
 
    TODO how to ensure no buffer overrun occurs here
 
@@ -249,6 +264,9 @@ fd_quic_hkdf_extract( void *       output,
 
 /* fd_quic_hkdf_expand_label
 
+   HKDF expand is specified in RFC 5869, Section 2.3:
+   https://www.rfc-editor.org/rfc/rfc5869.html#section-2.3
+
    returns
      FD_QUIC_SUCCESS   if the operation succeeded
      FD_QUIC_FAILED    otherwise
@@ -257,8 +275,9 @@ fd_quic_hkdf_extract( void *       output,
      output        a pointer to a buffer to receive the output data
      output_sz     the capacity of the output buffer in bytes
      label         a pointer to the label used - see rfc
-     label_sz      the size of the label used */
-
+     label_sz      the size of the label used
+     hmac          a pointer to an EVP_MD initialized for the purpose
+     hash_sz       the size of the hash output */
 void *
 fd_quic_hkdf_expand_label( uchar *       output,  ulong output_sz,
                            uchar const * secret,  ulong secret_sz,
@@ -491,5 +510,50 @@ fd_quic_crypto_lookup_suite( uchar major,
   }
 }
 
-#endif /* HEADER_fd_src_tango_quic_crypto_fd_quic_crypto_suites_h */
+/* Create a retry token (RFC 9000, Section 17.2.5). Note the RFC does not specify how to generate
+   the token, only specifying that it is "an opaque token that the server can use to validate the
+   client's address."
 
+   Hence, the token is formed via the following scheme:
+     1. Generate a sequence of 32 cryptographically-secure random bytes (256 bits).
+     2. HKDF-expand these random bytes to form a key for the subsequent AEAD function.
+          See RFC 5869, Section 3.3 for why it's ok to skip the HKDF-extract step.
+     3. Run AES-128-GCM.
+          The input plaintext is the original destination connection id and the current timestamp.
+          The associated data is the server's retry source connection id and IPv4 info.
+     4. Token = prepended random bytes + encrypted ciphertext + appended authentication tag.
+
+   Note this is _not_ the Retry Integrity Tag scheme specified in RFC 9001, Section 5.8.
+   
+   Returns the ciphertext's length, -1 on error.  */
+int fd_quic_retry_token_encrypt(ulong orig_dst_conn_id,
+                                ulong retry_src_conn_id,
+                                uint ip_addr,
+                                ushort udp_port,
+                                uchar *retry_token); // must be >FD_QUIC_RETRY_TOKEN_SZ bytes
+
+/* Decrypt a retry token, and checks it for validity (see `fd_quic_retry_token_encrypt`). */
+int fd_quic_retry_token_decrypt(ulong retry_src_conn_id,
+                                uint ip_addr,
+                                ushort udp_port,
+                                uchar *retry_token,
+                                ulong *orig_dst_conn_id,
+                                long *ts_nanos);
+
+int gcm_encrypt(const EVP_CIPHER *cipher,
+                uchar *plaintext, int plaintext_len,
+                uchar *aad, int aad_len,
+                uchar *key,
+                uchar *iv,
+                uchar *ciphertext,
+                uchar *tag);
+
+int gcm_decrypt(const EVP_CIPHER *cipher,
+                uchar *ciphertext, int ciphertext_len,
+                uchar *aad, int aad_len,
+                uchar *tag,
+                uchar *key,
+                uchar *iv,
+                uchar *plaintext);
+
+#endif /* HEADER_fd_src_tango_quic_crypto_fd_quic_crypto_suites_h */
