@@ -514,18 +514,25 @@ fd_quic_crypto_lookup_suite( uchar major,
    the token, only specifying that it is "an opaque token that the server can use to validate the
    client's address."
 
-   Hence, the token is formed via the following scheme:
-     1. Generate a sequence of 32 cryptographically-secure random bytes (256 bits).
-     2. HKDF-expand these random bytes to form a key for the subsequent AEAD function.
+   Hence, in this particular QUIC implementation, the token is generated via the following scheme:
+     1. Generate a sequence of 32 cryptographically-secure pseudorandom bytes (256 bits).
+     2. HKDF-expand these bytes to form a key for the subsequent AEAD function.
           See RFC 5869, Section 3.3 for why it's ok to skip the HKDF-extract step.
-     3. Run AES-128-GCM.
-          The input plaintext is the original destination connection id and the current timestamp.
-          The associated data is the server's retry source connection id and IPv4 info.
-     4. Token = prepended random bytes + encrypted ciphertext + appended authentication tag.
+     3. Run AES-256-GCM.
+          The input plaintext is the client's original destination connection id and the current
+          timestamp. The associated data is the server's retry source connection id and client's
+          IPv4 address and UDP port.
+     4. The token is the concatenation of random bytes, encrypted ciphertext, and authentication
+        tag, in that order.
 
-   Note this is _not_ the Retry Integrity Tag scheme specified in RFC 9001, Section 5.8.
-   
-   Returns the ciphertext's length, -1 on error.  */
+  Returns the ciphertext's length, -1 on error.
+
+  Footnotes
+  - This is _not_ the Retry Integrity Tag scheme specified in RFC 9001, Section 5.8.
+  - This scheme is based on what's done in quinn (which is the QUIC implementation used by the
+    original Solana validator client), though a similar HKDF + AEAD scheme is used in other
+    implementations as well (quic-go, msquic). The differences are mainly what metadata is passed
+    to AEAD as plaintext vs. as associated data. */
 int fd_quic_retry_token_encrypt(ulong orig_dst_conn_id,
                                 ulong retry_src_conn_id,
                                 uint ip_addr,
