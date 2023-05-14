@@ -19,7 +19,7 @@ void test_fd_chacha20_generate_random_number()
   // Expected test vector result value
   fd_chacha20_rng_t expected_value = 2194474613;
 
-  FD_TEST(fd_chacha20_generate_random_number(key, nonce, &result) != 0);
+  FD_TEST(fd_chacha20_generate_random_number(key, nonce, &result) == 0);
 
   /* Print random number */
   FD_LOG_NOTICE("Random number generated: %u\n", result);
