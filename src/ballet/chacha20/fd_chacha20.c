@@ -1,5 +1,5 @@
 #include <openssl/evp.h>
-#include "fd_chacha20_rng.h"
+#include "fd_chacha20.h"
 
 static int fd_chacha20_rng_init(EVP_CIPHER_CTX *ctx, const uchar *key, const uchar *nonce)
 {
