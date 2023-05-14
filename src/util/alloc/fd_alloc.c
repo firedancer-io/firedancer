@@ -165,7 +165,7 @@ typedef struct fd_alloc_superblock fd_alloc_superblock_t;
 struct __attribute__((aligned(FD_ALLOC_ALIGN))) fd_alloc {
   ulong magic;    /* ==FD_ALLOC_MAGIC */
   ulong wksp_off; /* Offset of the first byte of this structure from the start of the wksp */
-  ulong tag;      /* tag that will be used by this allocator.  In [1,FD_WKSP_ALLOC_TAG_MAX]. */
+  ulong tag;      /* tag that will be used by this allocator.  Positive. */
 
   /* Padding to 128 byte alignment here */
 
@@ -476,7 +476,7 @@ fd_alloc_new( void * shmem,
     return NULL;
   }
 
-  if( FD_UNLIKELY( !(1UL<=tag && tag<=FD_WKSP_ALLOC_TAG_MAX) ) ) {
+  if( FD_UNLIKELY( !tag ) ) {
     FD_LOG_WARNING(( "bad tag" ));
     return NULL;
   }
@@ -631,15 +631,16 @@ fd_alloc_malloc_at_least( fd_alloc_t * join,
 
   if( FD_UNLIKELY( footprint > FD_ALLOC_FOOTPRINT_SMALL_THRESH ) ) {
 
-    ulong wksp_max;
-    ulong wksp_gaddr = fd_wksp_alloc_at_least( wksp, 1UL, footprint, alloc->tag, &wksp_max );
+    ulong glo;
+    ulong ghi;
+    ulong wksp_gaddr = fd_wksp_alloc_at_least( wksp, 1UL, footprint, alloc->tag, &glo, &ghi );
     if( FD_UNLIKELY( !wksp_gaddr ) ) {
       *max = 0UL;
       return NULL;
     }
 
     ulong alloc_gaddr = fd_ulong_align_up( wksp_gaddr + sizeof(fd_alloc_hdr_t), align );
-    *max = wksp_max - (alloc_gaddr - wksp_gaddr);
+    *max = (ghi - glo) - (alloc_gaddr - wksp_gaddr);
     return fd_alloc_hdr_store_large( fd_wksp_laddr_fast( wksp, alloc_gaddr ), 0 /* !sb */ );
   }
 
@@ -1114,43 +1115,38 @@ fd_alloc_compact( fd_alloc_t * join ) {
 int
 fd_alloc_is_empty( fd_alloc_t * join ) {
   fd_alloc_t * alloc = fd_alloc_private_join_alloc( join );
-  if( !alloc ) return 0;
+  if( FD_UNLIKELY( !alloc ) ) return 0;
 
   fd_alloc_compact( join );
 
   /* At this point (assuming no concurrent operations on this alloc),
-     all remaining large allocations contain at least exactly one user
+     all remaining large allocations contain at least one user
      allocation.  Thus if there are any large allocs remaining for this
      alloc, we know the alloc is not empty.  Since the wksp alloc that
      holds the alloc itself might use the tag the used for large
-     allocations, we handle that as well.  We lock the wksp while
-     scanning them so that concurrent operations on the wksp do not
-     shuffle partitions behind our back and corrupt this calculation. */
+     allocations, we handle that as well.  We do this in a brute force
+     way to avoid taking a lock (note that this calculation should
+     really only be done as non-performance critical diagnostic and then
+     on a quiescent system). */
 
   fd_wksp_t * wksp = fd_alloc_private_wksp( alloc );
-  ulong       tag  = alloc->tag;
-  ulong       lo   = fd_wksp_gaddr_fast( wksp, alloc );
-  ulong       hi   = lo + FD_ALLOC_FOOTPRINT;
 
-  ulong part_idx;
-  ulong part_cnt;
+  ulong alloc_lo  = fd_wksp_gaddr_fast( wksp, alloc );
+  ulong alloc_hi  = alloc_lo + FD_ALLOC_FOOTPRINT;
+  ulong alloc_tag = alloc->tag;
 
-  fd_wksp_private_lock( wksp );
+  ulong                     part_max = wksp->part_max;
+  fd_wksp_private_pinfo_t * pinfo    = fd_wksp_private_pinfo( wksp );
 
-  fd_wksp_private_part_t * part     = wksp->part;
-  /**/                     part_cnt = wksp->part_cnt;
-  for( part_idx=0UL; part_idx<part_cnt; part_idx++ ) {
-    ulong p = part[ part_idx ];
-    if( FD_UNLIKELY( fd_wksp_private_part_tag( p )==tag ) ) { /* optimize for leak detection case */
-      ulong plo = fd_wksp_private_part_gaddr( p );
-      ulong phi = fd_wksp_private_part_gaddr( part[ part_idx+1UL ] );
-      if( FD_UNLIKELY( !((plo<=lo) & (hi<=phi)) ) ) break; /* optimize for leak detection case, note lo<hi guaranteed */
-    }
+  ulong i;
+  for( i=0UL; i<part_max; i++ ) {
+    if( FD_LIKELY( pinfo[ i ].tag!=alloc_tag ) ) continue; /* optimize for no leak case */
+    ulong gaddr_lo = pinfo[ i ].gaddr_lo;
+    ulong gaddr_hi = pinfo[ i ].gaddr_hi;
+    if( FD_UNLIKELY( !((gaddr_lo<=alloc_lo) & (alloc_hi<=gaddr_hi)) ) ) break; /* optimize for no leak case */
   }
 
-  fd_wksp_private_unlock( wksp );
-
-  return part_idx==part_cnt;
+  return i==part_max;
 }
 
 /**********************************************************************/
@@ -1355,26 +1351,35 @@ fd_alloc_fprintf( fd_alloc_t * join,
     }
 
     /* Scan the wksp partition table for partitions that match this
-       allocation tag */
+       allocation tag.  Like the is_empty diagnostic, we do this in a
+       brute force way that is not algo efficient to avoid taking a
+       lock. */
 
-    ulong tag = alloc->tag;
+    ulong wksp_lo   = wksp->gaddr_lo;
+    ulong wksp_hi   = wksp->gaddr_hi;
 
-    fd_wksp_private_part_t * part     = wksp->part;
-    ulong                    part_cnt = wksp->part_cnt;
-    for( ulong part_idx=0UL; part_idx<part_cnt; part_idx++ ) {
-      ulong p = part[ part_idx ];
-      if( fd_wksp_private_part_tag( p )!=tag ) continue;
-      ulong gaddr_lo = fd_wksp_private_part_gaddr( p );
+    ulong alloc_lo  = fd_wksp_gaddr_fast( wksp, alloc );
+    ulong alloc_hi  = alloc_lo + FD_ALLOC_FOOTPRINT;
+    ulong alloc_tag = alloc->tag;
+
+    ulong                     part_max = wksp->part_max;
+    fd_wksp_private_pinfo_t * pinfo    = fd_wksp_private_pinfo( wksp );
+
+    ulong i;
+    for( i=0UL; i<part_max; i++ ) {
+      if( pinfo[ i ].tag!=alloc_tag ) continue; /* skip ones that don't match */
+      ulong gaddr_lo = pinfo[ i ].gaddr_lo;
+      ulong gaddr_hi = pinfo[ i ].gaddr_hi;
+      if( FD_UNLIKELY( (wksp_lo<=gaddr_lo) & (gaddr_lo<gaddr_hi) & (gaddr_hi<=wksp_hi) ) ) break; /* malformed */
 
       /* If the user used the same tag for both the alloc metadata and the
          alloc allocations, skip the metadata partition */
 
-      if( gaddr_lo==fd_wksp_gaddr_fast( wksp, alloc ) ) continue;
+      if( FD_UNLIKELY( (gaddr_lo<=alloc_lo) & (alloc_hi<=gaddr_lo) ) ) continue; /* skip partition containing metadata */
 
-      ulong gaddr_hi       = fd_wksp_private_part_gaddr( part[ part_idx+1UL ] );
       ulong part_footprint = gaddr_hi - gaddr_lo;
 
-      if( FD_UNLIKELY( part_footprint<=sizeof(fd_alloc_hdr_t) ) ) continue; /* Skip over holes (FIXME: log?) */
+      if( FD_UNLIKELY( part_footprint<=sizeof(fd_alloc_hdr_t) ) ) continue; /* skip obviously not an allocation */
 
       /* Search the partition for a plausible fd_alloc_hdr_t.  There
          will be at least one if the partition isn't bad.  We scan

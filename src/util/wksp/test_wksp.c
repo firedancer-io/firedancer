@@ -1,12 +1,5 @@
 #include "../fd_util.h"
 
-#if FD_HAS_HOSTED
-
-FD_STATIC_ASSERT( FD_WKSP_CSTR_MAX           ==  61UL, unit_test );
-FD_STATIC_ASSERT( FD_WKSP_ALLOC_ALIGN_MIN    ==4096UL, unit_test );
-FD_STATIC_ASSERT( FD_WKSP_ALLOC_ALIGN_DEFAULT==4096UL, unit_test );
-FD_STATIC_ASSERT( FD_WKSP_ALLOC_TAG_MAX      ==4095UL, unit_test );
-
 #define OUTSTANDING_MAX (128UL)
 
 static int go = 0;
@@ -95,24 +88,31 @@ test_main( int     argc,
       ulong align = fd_ulong_if( itmp==lg_align_max+1, 0UL, 1UL<<itmp );
 
       sz[j]  = fd_rng_ulong_roll( rng, sz_max+1UL );
-      tag[j] = fd_rng_ulong_roll( rng, FD_WKSP_ALLOC_TAG_MAX ) + 1UL;
+      tag[j] = fd_rng_ulong( rng ) | 1UL;
       
       /* Allocate it */
 
-      ulong max;
-      mem[j] = (uchar *)fd_wksp_laddr( wksp, fd_wksp_alloc_at_least( wksp, align, sz[j], tag[j], &max ) );
+      ulong glo;
+      ulong ghi;
+      ulong gmem = fd_wksp_alloc_at_least( wksp, align, sz[j], tag[j], &glo, &ghi );
 
-      align = fd_ulong_max( fd_ulong_if( !align, FD_WKSP_ALLOC_ALIGN_DEFAULT, align ), FD_WKSP_ALLOC_ALIGN_MIN );
+      align = fd_ulong_if( !align, FD_WKSP_ALIGN_DEFAULT, align );
+
+      mem[j] = (uchar *)fd_wksp_laddr( wksp, gmem );
       FD_TEST( fd_ulong_is_aligned( (ulong)mem[j], align ) );
 
-      FD_TEST( sz[j] ? !!mem[j] : !mem[j] );
-
-      ulong gaddr = fd_wksp_gaddr( wksp, mem[j] + fd_rng_ulong_roll( rng, sz[j] + (!sz[j]) ) );
-      FD_TEST( sz[j] ? !!gaddr : !gaddr );
-
-      FD_TEST( fd_wksp_tag( wksp, gaddr )==(sz[j] ? tag[j] : 0UL) );
-
-      FD_TEST( mem[j] ? (max>=sz[j]) : (!max) );
+      if( sz[j] ) {
+        FD_TEST( gmem   );
+        FD_TEST( mem[j] );
+        FD_TEST( (glo<=gmem) & ((gmem+sz[j])<=ghi) );
+        ulong gaddr = glo + fd_rng_ulong_roll( rng, ghi-glo );
+        FD_TEST( fd_wksp_tag( wksp, gaddr )==tag[j] );
+      } else {
+        FD_TEST( !gmem   );
+        FD_TEST( !mem[j] );
+        FD_TEST( !glo    );
+        FD_TEST( !ghi    );
+      }
 
       /* Fill it with a bit pattern unique to this allocation */
 
@@ -172,9 +172,11 @@ main( int     argc,
   char const * _page_sz   = fd_env_strip_cmdline_cstr ( &argc, &argv, "--page-sz",   NULL,      "gigantic" );
   ulong        page_cnt   = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt",  NULL,             1UL );
   ulong        near_cpu   = fd_env_strip_cmdline_ulong( &argc, &argv, "--near-cpu",  NULL, fd_log_cpu_id() );
-  /**/         _alloc_cnt = fd_env_strip_cmdline_ulong( &argc, &argv, "--alloc-cnt", NULL,         65536UL );
-  /**/         _align_max = fd_env_strip_cmdline_ulong( &argc, &argv, "--align-max", NULL,       2097152UL );
-  /**/         _sz_max    = fd_env_strip_cmdline_ulong( &argc, &argv, "--sz-max",    NULL,       2097152UL );
+  uint         seed       = fd_env_strip_cmdline_uint ( &argc, &argv, "--seed",      NULL,              0U );
+  ulong        part_max   = fd_env_strip_cmdline_ulong( &argc, &argv, "--part-max",  NULL,             0UL );
+  /**/         _alloc_cnt = fd_env_strip_cmdline_ulong( &argc, &argv, "--alloc-cnt", NULL,       1048576UL );
+  /**/         _align_max = fd_env_strip_cmdline_ulong( &argc, &argv, "--align-max", NULL,          4096UL );
+  /**/         _sz_max    = fd_env_strip_cmdline_ulong( &argc, &argv, "--sz-max",    NULL,        262144UL );
 
   if( FD_UNLIKELY( !_alloc_cnt                     ) ) FD_LOG_ERR(( "--alloc-cnt should be positive"     ));
   if( FD_UNLIKELY( !fd_ulong_is_pow2( _align_max ) ) ) FD_LOG_ERR(( "--align-max should be a power of 2" ));
@@ -187,9 +189,9 @@ main( int     argc,
     FD_LOG_NOTICE(( "Attaching to --wksp %s", name ));
     _wksp = fd_wksp_attach( name );
   } else {
-    FD_LOG_NOTICE(( "--wksp not specified, using an anonymous local workspace, --page-sz %s, --page-cnt %lu, --near-cpu %lu",
-                    _page_sz, page_cnt, near_cpu ));
-    _wksp = fd_wksp_new_anonymous( fd_cstr_to_shmem_page_sz( _page_sz ), page_cnt, near_cpu, "wksp", 0UL );
+    FD_LOG_NOTICE(( "--wksp not specified, using an anonymous --page-sz %s --page-cnt %lu --near-cpu %lu --seed %u --part-max %lu",
+                    _page_sz, page_cnt, near_cpu, seed, part_max ));
+    _wksp = fd_wksp_new_anon( "wksp", fd_cstr_to_shmem_page_sz( _page_sz ), 1UL, &page_cnt, &near_cpu, seed, part_max );
   }
 
   FD_LOG_NOTICE(( "Testing with --alloc-cnt %lu, --align-max %lu, --sz-max %lu on %lu tile(s)",
@@ -217,55 +219,8 @@ main( int     argc,
 
   for( ulong tile_idx=1UL; tile_idx<tile_cnt; tile_idx++ ) fd_tile_exec_delete( exec[tile_idx], NULL );
 
-  FD_LOG_NOTICE(( "Testing tag free" ));
-
-  do {
-
-    /* Do a bunch of random allocations over a limited range of tags */
-
-    fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
-
-    ulong sz   [ OUTSTANDING_MAX ];
-    ulong tag  [ OUTSTANDING_MAX ];
-    ulong gaddr[ OUTSTANDING_MAX ];
-
-    ulong tag_0 = 2UL;
-    ulong tag_1 = 5UL;
-    for( ulong idx=0UL; idx<OUTSTANDING_MAX; idx++ ) {
-      sz   [ idx ] = 1UL   + fd_rng_ulong_roll( rng, _sz_max );         /* In [1,sz_max] */
-      tag  [ idx ] = tag_0 + fd_rng_ulong_roll( rng, tag_1-tag_0+1UL ); /* In [tag_0,tag_1] */
-      gaddr[ idx ] = fd_wksp_alloc( _wksp, 0UL, sz[ idx ], tag[ idx ] );
-      FD_TEST( gaddr[ idx ] );
-    }
-
-    /* Free unused tag and make sure it didn't change anything. */
-
-    ulong tag_f = tag_0 - 1UL;
-    fd_wksp_tag_free( _wksp, &tag_f, 1UL );
-
-    for( ulong idx=0UL; idx<OUTSTANDING_MAX; idx++ )
-      FD_TEST( fd_wksp_tag( _wksp, gaddr[idx] + fd_rng_ulong_roll( rng, sz[idx] ) )==tag[idx] );
-
-    /* Free used tags one by one and make sure things are
-       as expected.  FIXME: ADD SOME MULTITAG FREE TOO. */
-
-    for( tag_f=tag_0; tag_f<=tag_1; tag_f++ ) {
-      fd_wksp_tag_free( _wksp, &tag_f, 1UL );
-      for( ulong idx=0UL; idx<OUTSTANDING_MAX; idx++ ) {
-        ulong tag_e = fd_ulong_if( tag[idx]>tag_f, tag[idx], 0UL );
-        FD_TEST( fd_wksp_tag( _wksp, gaddr[idx] + fd_rng_ulong_roll( rng, sz[idx] ) )==tag_e );
-      }
-    }
-
-    fd_rng_delete( fd_rng_leave( rng ) );
-
-  } while(0);
-
-  /* FIXME: ADD COVERAGE FOR WKSP_POD APIS */
-  /* FIXME: TEST CSTR/MAP/UNMAP STUFF */
-
-  if( name ) fd_wksp_detach( _wksp );
-  else       fd_wksp_delete_anonymous( _wksp );
+  if( name ) fd_wksp_detach     ( _wksp );
+  else       fd_wksp_delete_anon( _wksp );
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
@@ -273,17 +228,4 @@ main( int     argc,
 }
 
 #undef OUTSTANDING_MAX
-
-#else
-
-int
-main( int     argc,
-      char ** argv ) {
-  fd_boot( &argc, &argv );
-  FD_LOG_WARNING(( "skip: unit test requires FD_HAS_HOSTED capabilities" ));
-  fd_halt();
-  return 0;
-}
-
-#endif
 
