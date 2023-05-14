@@ -142,7 +142,6 @@ struct fd_sbpf_elf {
   fd_elf64_shdr const * shdr_eh_frame;
   /* Dynamic loading section headers */
   fd_elf64_shdr const * shdr_dyn;
-  fd_elf64_shdr const * shdr_dynsym;
   fd_elf64_shdr const * shdr_dynstr;
   /* FIXME replace shdr pointers with ushort indices */
 
@@ -190,7 +189,6 @@ fd_sbpf_check_ehdr( fd_elf64_ehdr const * ehdr,
   REQUIRE( ehdr->e_ident[ FD_ELF_EI_DATA       ]==FD_ELF_DATA_LE    );
   REQUIRE( ehdr->e_ident[ FD_ELF_EI_VERSION    ]==1                 );
   REQUIRE( ehdr->e_ident[ FD_ELF_EI_OSABI      ]==FD_ELF_OSABI_NONE );
-  REQUIRE( ehdr->e_ident[ FD_ELF_EI_ABIVERSION ]==0                 );
 
   /* Validate ... */
   REQUIRE( ehdr->e_type     ==FD_ELF_ET_DYN         );
@@ -384,7 +382,6 @@ fd_sbpf_load_shdrs( fd_sbpf_elf_t * prog,
     else if( 0==strcmp ( name, ".rodata"        ) ) prog->shdr_rodata      = &shdr[ i ];
     else if( 0==strcmp ( name, ".data.rel.ro"   ) ) prog->shdr_data_rel_ro = &shdr[ i ];
     else if( 0==strcmp ( name, ".eh_frame"      ) ) prog->shdr_eh_frame    = &shdr[ i ];
-    else if( 0==strcmp ( name, ".dynsym"        ) ) prog->shdr_dynsym      = &shdr[ i ];
     else if( 0==strcmp ( name, ".dynstr"        ) ) prog->shdr_dynstr      = &shdr[ i ];
     else if( 0==strncmp( name, ".bss",      4UL ) ) FAIL();
     else if( 0==strncmp( name, ".data.rel", 9UL ) ) {} /* ignore */
@@ -397,15 +394,6 @@ fd_sbpf_load_shdrs( fd_sbpf_elf_t * prog,
   REQUIRE( (!!prog->shdr_text) && (prog->shdr_text->sh_type != FD_ELF_SHT_NULL) ); /* check for missing text section */
   REQUIRE( (prog->shdr_text->sh_addr <= prog->ehdr.e_entry) & /* check that entrypoint is in text VM range */
            (prog->ehdr.e_entry       <  fd_ulong_sat_add( prog->shdr_text->sh_addr, prog->shdr_text->sh_size ) ) );
-
-  if( prog->shdr_dynsym ) {
-    ulong sh_offset = prog->shdr_dynsym->sh_offset;
-    ulong sh_size   = prog->shdr_dynsym->sh_size;
-    REQUIRE( (sh_offset+sh_size>=sh_offset) & (sh_offset+sh_size<=bin_sz) );
-    prog->dynsym = (fd_elf64_sym *)( bin+sh_offset );
-    /* FIXME alignment check? */
-    prog->dynsym_cnt = sh_size/sizeof(fd_elf64_sym);
-  }
 
   if( prog->shdr_dynstr ) {
     ulong sh_offset = prog->shdr_dynstr->sh_offset;
@@ -461,6 +449,43 @@ fd_sbpf_load_dynamic( fd_sbpf_elf_t * prog,
     case FD_ELF_DT_RELSZ:  prog->dt_relsz =d_val; break;
     case FD_ELF_DT_SYMTAB: prog->dt_symtab=d_val; break;
     }
+  }
+
+  /* Load dynamic symbol table */
+
+  if( prog->dt_symtab ) {
+    /* Search for dynamic symbol table
+       FIXME unfortunate bounded O(n^2) -- could convert to binary search */
+
+    /* FIXME this could be clobbered by relocations, causing strict
+             aliasing violations */
+
+    fd_elf64_shdr const * shdr_dynsym = NULL;
+
+    for( ulong i=0; i<prog->ehdr.e_shnum; i++ ) {
+      if( prog->shdrs[ i ].sh_addr == prog->dt_symtab ) {
+        shdr_dynsym = &prog->shdrs[ i ];
+        break;
+      }
+    }
+    REQUIRE( shdr_dynsym );
+
+    /* Check section type */
+
+    uint sh_type = shdr_dynsym->sh_type;
+    REQUIRE( (sh_type==FD_ELF_SHT_SYMTAB) | (sh_type==FD_ELF_SHT_DYNSYM) );
+
+    /* Check if out of bounds or misaligned */
+
+    ulong sh_offset = shdr_dynsym->sh_offset;
+    ulong sh_size   = shdr_dynsym->sh_size;
+
+    REQUIRE( ( sh_offset+sh_size>=sh_offset )
+           & ( sh_offset+sh_size<=bin_sz    )
+           & fd_ulong_is_aligned( sh_offset, alignof(fd_elf64_sym) ) );
+
+    prog->dynsym = (fd_elf64_sym const *)( bin+sh_offset );
+    prog->dynsym_cnt = sh_size/sizeof(fd_elf64_sym);
   }
 
   return 0;
