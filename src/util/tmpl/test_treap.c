@@ -146,11 +146,6 @@ main( int     argc,
   treap_t * treap = treap_join( shtreap );
   FD_TEST( treap );
 
-  /* Test accessors */
-
-  FD_TEST( treap_ele_max( treap )==ele_max );
-  FD_TEST( treap_ele_cnt( treap )==0UL     );
-
   /* Do a bunch of operations, testing integrity as we go */
 
   ulong val_pmap = 0UL;
@@ -166,6 +161,8 @@ main( int     argc,
     switch( op ) {
 
     case 0: { /* Test query */
+      FD_TEST( treap_ele_max( treap )==ele_max  );
+      FD_TEST( treap_ele_cnt( treap )==node_cnt );
       int q = ((int)fd_rng_uint_roll( rng, 2U+(uint)ele_max ))-1; /* q in [-1,ele_max] */
       ulong idx = treap_idx_query( treap, (schar)q, pool );
       if( (q<0) | (q>=(int)ele_max) ) FD_TEST( treap_idx_is_null( idx ) );
@@ -183,8 +180,8 @@ main( int     argc,
 
       ulong idx = pool_idx_acquire( pool );
       pool[ idx ].val = (schar)val;
-      if( (r & 1U) ) treap_idx_insert( treap, idx,          pool );
-      else           treap_ele_insert( treap, &pool[ idx ], pool );
+      if( (r & 1U) ) FD_TEST( treap_idx_insert( treap, idx,          pool )==treap );
+      else           FD_TEST( treap_ele_insert( treap, &pool[ idx ], pool )==treap );
 
       val_pmap |= (1UL << val);
       node_idx[ node_cnt++ ] = idx;
@@ -197,8 +194,8 @@ main( int     argc,
       ulong j   = (ulong)fd_rng_uint_roll( rng, (uint)node_cnt );
       ulong idx = node_idx[ j ];
 
-      if( (r & 1U) ) treap_idx_remove( treap, idx,          pool );
-      else           treap_ele_remove( treap, &pool[ idx ], pool );
+      if( (r & 1U) ) FD_TEST( treap_idx_remove( treap, idx,          pool )==treap );
+      else           FD_TEST( treap_ele_remove( treap, &pool[ idx ], pool )==treap );
       int val = (int)pool[ idx ].val;
       pool_idx_release( pool, idx );
 
