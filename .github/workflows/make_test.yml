@@ -21,4 +21,4 @@ jobs:
         run: make -j
 
       - name: Run unit tests
-        run: make -kj --output-sync=target run-unit-test
+        run: make -k -j4 --output-sync=target run-unit-test
