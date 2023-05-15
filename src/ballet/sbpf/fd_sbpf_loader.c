@@ -145,7 +145,11 @@ struct fd_sbpf_elf {
   fd_elf64_shdr const * shdr_dynstr;
   /* FIXME replace shdr pointers with ushort indices */
 
-  /* Dynamic */
+  /* Dynamic table */
+  fd_elf64_dyn const * dyn;
+  ulong                dyn_cnt;
+
+  /* Dynamic table entries */
   ulong dt_rel;
   ulong dt_relent;
   ulong dt_relsz;
@@ -266,7 +270,6 @@ fd_sbpf_load_phdrs( fd_sbpf_elf_t * prog,
     switch( phdr[i].p_type ) {
     case FD_ELF_PT_DYNAMIC:
       /* Remember first PT_DYNAMIC segment */
-      /* TODO: Fail on duplicate? */
       if( FD_LIKELY( prog->phndx_dyn==FD_SBPF_PHNDX_UNDEF ) )
         prog->phndx_dyn = i;
       break;
@@ -301,6 +304,10 @@ fd_sbpf_load_shdrs( fd_sbpf_elf_t * prog,
                     uchar *         bin,
                     ulong           bin_sz ) {
 
+  /* File Header */
+  ulong const eh_offset = 0UL;
+  ulong const eh_offend = sizeof(fd_elf64_ehdr);
+
   /* Section Header Table */
   ulong const sht_offset = prog->ehdr.e_shoff;
   ulong const sht_cnt    = prog->ehdr.e_shnum;
@@ -332,7 +339,7 @@ fd_sbpf_load_shdrs( fd_sbpf_elf_t * prog,
 
   ulong min_sh_offset = 0UL;  /* lowest permitted section offset */
 
-  for( ulong i=1; i<sht_cnt; i++ ) {
+  for( ulong i=0UL; i<sht_cnt; i++ ) {
     uint  sh_type   = shdr[ i ].sh_type;
     uint  sh_name   = shdr[ i ].sh_name;
     ulong sh_offset = shdr[ i ].sh_offset;
@@ -345,7 +352,7 @@ fd_sbpf_load_shdrs( fd_sbpf_elf_t * prog,
 
     if( sh_type!=FD_ELF_SHT_NOBITS ) {
       /* Overlap checks */
-      REQUIRE( sh_offset >= sizeof(fd_elf64_ehdr)                ); /* overlaps ELF file header */
+      REQUIRE( (sh_offset>=eh_offend ) | (sh_offend<=eh_offset ) ); /* overlaps ELF file header */
       REQUIRE( (sh_offset>=pht_offend) | (sh_offend<=pht_offset) ); /* overlaps program header table */
       REQUIRE( (sh_offset>=sht_offend) | (sh_offend<=sht_offset) ); /* overlaps section header table */
       /* Ordering and overlap check */
@@ -355,12 +362,9 @@ fd_sbpf_load_shdrs( fd_sbpf_elf_t * prog,
 
     if( sh_type==FD_ELF_SHT_DYNAMIC ) {
       /* Remember first SHT_DYNAMIC segment */
-      /* TODO: Fail on duplicate? */
       if( FD_LIKELY( !prog->shdr_dyn ) )
         prog->shdr_dyn = &shdr[ i ];
     }
-
-    /* TODO check section offset order */
 
     ulong name_off = shstr_off + (ulong)sh_name;
     REQUIRE( name_off<=bin_sz ); /* out of bounds */
@@ -408,42 +412,72 @@ fd_sbpf_load_shdrs( fd_sbpf_elf_t * prog,
 }
 
 static int
-fd_sbpf_load_dynamic( fd_sbpf_elf_t * prog,
-                      uchar *         bin,
+fd_sbpf_find_dynamic( fd_sbpf_elf_t * prog,
+                      uchar const *   bin,
                       ulong           bin_sz ) {
 
-  ulong dyn_off;
-  ulong dyn_sz;
+  /* Try first PT_DYNAMIC in program header table */
 
   if( prog->phndx_dyn!=FD_SBPF_PHNDX_UNDEF ) {
-    dyn_off = prog->phdrs[ prog->phndx_dyn ].p_offset;
-    dyn_sz  = prog->phdrs[ prog->phndx_dyn ].p_filesz;  /* exceeds dynamic table, unaligned */
-  } else if( prog->shdr_dyn ) {
-    dyn_off = prog->shdr_dyn->sh_offset;
-    dyn_sz  = prog->shdr_dyn->sh_size;
-    /* FIXME alignment check? */
-  } else {
-    /* No dynamic segment nor section
-       FIXME really fail here? */
-    FAIL();
+    ulong dyn_off = prog->phdrs[ prog->phndx_dyn ].p_offset;
+    ulong dyn_sz  = prog->phdrs[ prog->phndx_dyn ].p_filesz;
+    ulong dyn_end = dyn_off+dyn_sz;
+
+    /* Fall through to SHT_DYNAMIC if invalid */
+
+    if( FD_LIKELY(   ( dyn_end>=dyn_off )                /* overflow      */
+                   & ( dyn_end<=bin_sz  )                /* out of bounds */
+                   & fd_ulong_is_aligned( dyn_off, 8UL ) /* misaligned    */
+                   & fd_ulong_is_aligned( dyn_sz,  8UL ) /* misaligned sz */ ) ) {
+
+      prog->dyn     = (fd_elf64_dyn const *)(bin+dyn_off);
+      prog->dyn_cnt = dyn_sz / sizeof(fd_elf64_dyn);
+      return 0;
+    }
   }
 
-  ulong const dyn_end = dyn_off+dyn_sz;
+  /* Try first SHT_DYNAMIC in section header table */
 
-  REQUIRE( dyn_end>=dyn_off ); /* overflow */
-  REQUIRE( dyn_off< bin_sz  ); /* out of bounds */
-  REQUIRE( dyn_end<=bin_sz  ); /* out of bounds */
+  if( prog->shdr_dyn ) {
+    ulong dyn_off = prog->shdr_dyn->sh_offset;
+    ulong dyn_sz  = prog->shdr_dyn->sh_size;
+    ulong dyn_end = dyn_off+dyn_sz;
+
+    /* This time, don't tolerate errors */
+
+    REQUIRE( ( dyn_end>=dyn_off )                /* overflow      */
+           & ( dyn_end<=bin_sz  )                /* out of bounds */
+           & fd_ulong_is_aligned( dyn_off, 8UL ) /* misaligned    */
+           & fd_ulong_is_aligned( dyn_sz,  8UL ) /* misaligned sz */ );
+
+    prog->dyn     = (fd_elf64_dyn const *)(bin+dyn_off);
+    prog->dyn_cnt = dyn_sz / sizeof(fd_elf64_dyn);
+    return 0;
+  }
+
+  /* Missing or invalid PT_DYNAMIC and missing SHT_DYNAMIC, skip. */
+  return 0;
+}
+
+static int
+fd_sbpf_load_dynamic( fd_sbpf_elf_t * prog,
+                      uchar const *   bin,
+                      ulong           bin_sz ) {
+
+  /* Skip if no dynamic table was fonud */
+
+  if( !prog->dyn_cnt ) return 0;
 
   /* Walk dynamic table */
 
-  fd_elf64_dyn * dyns    = (fd_elf64_dyn *)(bin+dyn_off);
-  ulong const    dyn_cnt = dyn_sz/sizeof(fd_elf64_dyn);
+  fd_elf64_dyn const * dyn     = prog->dyn;
+  ulong const          dyn_cnt = prog->dyn_cnt;
 
   for( ulong i=0; i<dyn_cnt; i++ ) {
-    if( FD_UNLIKELY( dyns[i].d_tag==FD_ELF_DT_NULL ) ) break;
+    if( FD_UNLIKELY( dyn[i].d_tag==FD_ELF_DT_NULL ) ) break;
 
-    ulong d_val = dyns[i].d_un.d_val;
-    switch( dyns[i].d_tag ) {
+    ulong d_val = dyn[i].d_un.d_val;
+    switch( dyn[i].d_tag ) {
     case FD_ELF_DT_REL:    prog->dt_rel   =d_val; break;
     case FD_ELF_DT_RELENT: prog->dt_relent=d_val; break;
     case FD_ELF_DT_RELSZ:  prog->dt_relsz =d_val; break;
@@ -1037,7 +1071,11 @@ fd_sbpf_program_load( fd_sbpf_program_t *  prog,
   if( FD_UNLIKELY( (err=fd_sbpf_load_shdrs  ( &elf, bin, bin_sz ))!=0 ) )
     return err;
 
-  /* Dynamic section */
+  /* Find dynamic section */
+  if( FD_UNLIKELY( (err=fd_sbpf_find_dynamic( &elf, bin, bin_sz ))!=0 ) )
+    return err;
+
+  /* Load dynamic section */
   if( FD_UNLIKELY( (err=fd_sbpf_load_dynamic( &elf, bin, bin_sz ))!=0 ) )
     return err;
 
