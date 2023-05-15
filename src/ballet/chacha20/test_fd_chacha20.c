@@ -1,6 +1,7 @@
+#include <stdint.h>
+#include <stdio.h>
 #include <string.h>
 #include <assert.h>
-#include <openssl/evp.h>
 #include "fd_chacha20.h"
 
 #define TEST_KEY_SIZE FD_CHACHA20_KEY_SIZE
