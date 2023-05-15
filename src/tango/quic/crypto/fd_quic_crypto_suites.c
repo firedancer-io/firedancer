@@ -880,10 +880,6 @@ int fd_quic_retry_token_decrypt(ulong retry_src_conn_id,
                                 ulong *orig_dst_conn_id,
                                 long *ts_nanos)
 {
-  if (FD_UNLIKELY(retry_token != FD_QUIC_RETRY_TOKEN_SZ)) {
-    return FD_QUIC_FAILED;
-  }
-
   /* Regenerate the AEAD key (the HKDF key is the first 32 bytes of the token). */
   uchar *hkdf_key = retry_token;
   uchar aead_key[FD_QUIC_RETRY_TOKEN_AEAD_KEY_SZ];
