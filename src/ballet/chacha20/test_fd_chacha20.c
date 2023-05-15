@@ -23,14 +23,14 @@ void test_fd_chacha20_generate_random_number()
   /* Print random number */
   printf("Random number generated: %u\n", result);
 
-  assert(result == expected_value);
+  FD_TEST(result == expected_value);
 }
 
 int main()
 {
   test_fd_chacha20_generate_random_number();
 
-  printf("All fd_chacha20_rng tests passed!\n");
+  FD_LOG_NOTICE(("All fd_chacha20 tests passed!\n"));
 
   return 0;
 }
