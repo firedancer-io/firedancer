@@ -10,8 +10,8 @@
    support adaptive queries like a splay tree, etc).  Additionally,
    there are a bunch of tricks in the below to optimize this much
    further than textbook implementations (those tend to miss a lot of
-   practical opportunities including eliminating the cost of eliminating
-   random number generation during operations).
+   practical opportunities including eliminating the cost of random
+   number generation during operations).
 
    This API is designed for ultra tight coupling with pools, maps, other
    treaps, etc.  Likewise, a treap can be persisted beyond the lifetime
@@ -205,12 +205,13 @@
      myele_t const * mytreap_ele_query_const( mytreap_t const * treap, char const * q, myele_t const * ele );
 
      // mytreap_idx_{insert,remove} inserts / removes element n/d into
-     // the treap.  Assumes treap is a current local join, ele points in
-     // the caller's address space to the ele_max element storage used
-     // for treap elements, n/d are in [0,ele_max), n/d are currently
-     // out of / in the treap.  Insert further assumes that n's queries
-     // are not in the treap (n's queries are the set of queries that
-     // are covered by n).  Given these assumptions, these cannot fail.
+     // the treap and returns treap.  Assumes treap is a current local
+     // join, ele points in the caller's address space to the ele_max
+     // element storage used for treap elements, n/d are in [0,ele_max),
+     // n/d are currently out of / in the treap.  Insert further assumes
+     // that n's queries are not in the treap (n's queries are the set
+     // of queries that are covered by n).  Given these assumptions,
+     // these cannot fail.
      //
      // For insert, n's query and prio fields should already be
      // populated (i.e. MYTREAP_LT( ele+n, ele+i ) should return valid
@@ -234,11 +235,11 @@
      // average with an ultra high probability of having a small
      // coefficient (i.e. close to algorithmically optimal trees).
 
-     void mytreap_idx_insert( mytreap_t * treap, ulong     n, myele_t * ele );
-     void mytreap_idx_remove( mytreap_t * treap, ulong     d, myele_t * ele );
+     mytreap_t * mytreap_idx_insert( mytreap_t * treap, ulong     n, myele_t * ele );
+     mytreap_t * mytreap_idx_remove( mytreap_t * treap, ulong     d, myele_t * ele );
 
-     void mytreap_ele_insert( mytreap_t * treap, myele_t * n, myele_t * ele );
-     void mytreap_ele_remove( mytreap_t * treap, myele_t * d, myele_t * ele );
+     mytreap_t * mytreap_ele_insert( mytreap_t * treap, myele_t * n, myele_t * ele );
+     mytreap_t * mytreap_ele_remove( mytreap_t * treap, myele_t * d, myele_t * ele );
 
      // mytreap_fwd_iter_{init,done,next,idx,ele,ele_const} provide an
      // in-order iterator from smallest to largest value.  Typical
@@ -423,8 +424,8 @@ TREAP_STATIC /**/        void *      TREAP_(delete)   ( void *      shtreap     
 
 TREAP_STATIC FD_FN_PURE ulong TREAP_(idx_query)( TREAP_(t) const * treap, TREAP_QUERY_T q, TREAP_T const * ele );
 
-TREAP_STATIC void TREAP_(idx_insert)( TREAP_(t) * treap, ulong n, TREAP_T * ele );
-TREAP_STATIC void TREAP_(idx_remove)( TREAP_(t) * treap, ulong d, TREAP_T * ele );
+TREAP_STATIC TREAP_(t) * TREAP_(idx_insert)( TREAP_(t) * treap, ulong n, TREAP_T * ele );
+TREAP_STATIC TREAP_(t) * TREAP_(idx_remove)( TREAP_(t) * treap, ulong d, TREAP_T * ele );
 
 TREAP_STATIC FD_FN_PURE TREAP_(fwd_iter_t) TREAP_(fwd_iter_init)( TREAP_(t) const * treap, TREAP_T const * ele ); 
 TREAP_STATIC FD_FN_PURE TREAP_(rev_iter_t) TREAP_(rev_iter_init)( TREAP_(t) const * treap, TREAP_T const * ele );
@@ -492,18 +493,20 @@ TREAP_(ele_query_const)( TREAP_(t) const * treap,
   return fd_ptr_if( !TREAP_IDX_IS_NULL( i ), ele + i, NULL );
 }
 
-static inline void
+static inline TREAP_(t) *
 TREAP_(ele_insert)( TREAP_(t) * treap,
                     TREAP_T *   e,
                     TREAP_T *   ele ) {
   TREAP_(idx_insert)( treap, (ulong)(e-ele), ele );
+  return treap;
 }
 
-static inline void
+static inline TREAP_(t) *
 TREAP_(ele_remove)( TREAP_(t) * treap,
                     TREAP_T *   e,
                     TREAP_T *   ele ) {
   TREAP_(idx_remove)( treap, (ulong)(e-ele), ele );
+  return treap;
 }
 
 FD_FN_CONST static inline int             TREAP_(fwd_iter_done)     ( TREAP_(fwd_iter_t) i ) { return TREAP_IDX_IS_NULL( i ); }
@@ -625,7 +628,7 @@ TREAP_(idx_query)( TREAP_(t) const * treap,
   return i;
 }
 
-TREAP_STATIC void
+TREAP_STATIC TREAP_(t) *
 TREAP_(idx_insert)( TREAP_(t) * treap,
                     ulong       n,
                     TREAP_T *   ele ) {
@@ -693,9 +696,10 @@ TREAP_(idx_insert)( TREAP_(t) * treap,
   }
 
   treap->ele_cnt++;
+  return treap;
 }
 
-void
+TREAP_(t) *
 TREAP_(idx_remove)( TREAP_(t) * treap,
                     ulong       d,
                     TREAP_T *   ele ) {
@@ -758,6 +762,7 @@ TREAP_(idx_remove)( TREAP_(t) * treap,
   }
 
   treap->ele_cnt--;
+  return treap;
 }
 
 TREAP_STATIC TREAP_(fwd_iter_t)
@@ -924,7 +929,6 @@ TREAP_(verify)( TREAP_(t) const * treap,
 
   return 0;
 }
-
 
 #endif
 
