@@ -31,6 +31,10 @@
 #define FD_ELF_DATA_LE    1
 #define FD_ELF_DATA_BE    2
 
+/* FD_ELF_OSABI */
+
+#define FD_ELF_OSABI_NONE 0
+
 /* FD_ELF_ET: ELF file type */
 
 #define FD_ELF_ET_NONE 0
@@ -44,6 +48,12 @@
 #define FD_ELF_EM_NONE   0
 #define FD_ELF_EM_BPF  247
 
+/* FD_ELF_PT: Program header type */
+
+#define FD_ELF_PT_NULL    0
+#define FD_ELF_PT_LOAD    1
+#define FD_ELF_PT_DYNAMIC 2
+
 /* FD_ELF_SHT: Section header type */
 
 #define FD_ELF_SHT_NULL      0
@@ -53,18 +63,44 @@
 #define FD_ELF_SHT_RELA      4
 #define FD_ELF_SHT_HASH      5
 #define FD_ELF_SHT_DYNAMIC   6
+#define FD_ELF_SHT_NOBITS    8
 #define FD_ELF_SHT_REL       9
 #define FD_ELF_SHT_DYNSYM   11
+
+/* FD_ELF_SHF: Section header flags */
+
+#define FD_ELF_SHF_WRITE     0x1
+#define FD_ELF_SHF_ALLOC     0x2
+#define FD_ELF_SHF_EXECINSTR 0x4
+
+/* FD_ELF_DT: Dynamic entry type */
+
+#define FD_ELF_DT_NULL     0
+#define FD_ELF_DT_SYMTAB   6
+#define FD_ELF_DT_REL     17
+#define FD_ELF_DT_RELSZ   18
+#define FD_ELF_DT_RELENT  19
+
+/* FD_ELF64_ST_TYPE extracts the symbol type from symbol st_info */
+
+#define FD_ELF64_ST_TYPE(i) ((i)&0xF)
+
+/* FD_ELF_STT: Symbol type */
+
+#define FD_ELF_STT_NOTYPE  0
+#define FD_ELF_STT_FUNC    2
 
 /* FD_ELF64_R_SYM extracts the symbol index from reloc r_info.
    FD_ELF64_R_TYPE extracts the relocation type from reloc r_info. */
 
-#define FD_ELF64_R_SYM(i)  ((ulong)(i) >> 32)
-#define FD_ELF64_R_TYPE(i) ((ulong)(i) & 0xFFFFFFFF)
+#define FD_ELF64_R_SYM(i)  ((uint)((ulong)(i) >> 32))
+#define FD_ELF64_R_TYPE(i) ((uint)((ulong)(i) & 0xFFFFFFFF))
 
 /* FD_ELF_R_BPF: BPF relocation types */
 
-#define FD_ELF_R_BPF_64_64 1 /* 64-bit immediate (lddw form) */
+#define FD_ELF_R_BPF_64_64        1 /* 64-bit immediate (lddw form) */
+#define FD_ELF_R_BPF_64_RELATIVE  8
+#define FD_ELF_R_BPF_64_32       10
 
 FD_PROTOTYPES_BEGIN
 

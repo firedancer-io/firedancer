@@ -144,15 +144,29 @@
    (basically do the 256-bit wide parts of "x86intrin.h" work).
    Recommend using the simd/fd_avx.h APIs instead of raw Intel
    intrinsics for readability and to facilitate portability to non-x86
-   platforms.  Implies FD_HAS_SSE.
-
-   Note that the introduction of AVX2 circa 2013 was also around the
-   time SHA extensions were added.  Currently FD_HAS_AVX thus also
-   implies the availability of SHA extensions but we might be more
-   precise in the future. */
+   platforms.  Implies FD_HAS_SSE. */
 
 #ifndef FD_HAS_AVX
 #define FD_HAS_AVX 0
+#endif
+
+/* FD_HAS_SHANI indicates that the target supports Intel SHA extensions
+   which accelerate SHA-1 and SHA-256 computation.  This extension is
+   also called SHA-NI or SHA_NI (Secure Hash Algorithm New
+   Instructiosn).  Although proposed in 2013, they're only supported on
+   Intel Ice Lake and AMD Zen CPUs and newer.  Implies FD_HAS_AVX. */
+
+#ifndef FD_HAS_SHANI
+#define FD_HAS_SHANI 0
+#endif
+
+/* FD_HAS_GFNI indicates that the target supports Intel Galois Field
+ * extensions, which accelerate operations over binary extension fields,
+ * especially GF(2^8).  These instructions are supported on Intel Ice
+ * Lake and newer and AMD Zen4 and newer CPUs.  Implies FD_HAS_AVX. */
+
+#ifndef FD_HAS_GFNI
+#define FD_HAS_GFNI 0
 #endif
 
 /* Base development environment ***************************************/
@@ -835,6 +849,44 @@ fd_memset( void  * d,
            ulong   sz ) {
 //if( FD_UNLIKELY( !sz ) ) return d; /* See fd_memcpy note */
   return memset( d, c, sz );
+}
+
+#endif
+
+/* fd_memeq(s0,s1,sz):  Compares two blocks of memory.  Returns 1 if
+   equal or sz is zero and 0 otherwise.  No memory accesses made if sz
+   is zero (pointers may be invalid).  On x86, uses repe cmpsb which is
+   preferable to __builtin_memcmp in some cases. */
+
+#ifndef FD_USE_ARCH_MEMEQ
+#define FD_USE_ARCH_MEMEQ 1
+#endif
+
+#if FD_HAS_X86 && FD_USE_ARCH_MEMEQ && defined(__GCC_ASM_FLAG_OUTPUTS__) && __STDC_VERSION__>=199901L
+
+FD_FN_PURE static inline int
+fd_memeq( void const * s0,
+          void const * s1,
+          ulong        sz ) {
+  /* ZF flag is set and exported in two cases:
+      a) size is zero (via test)
+      b) buffer is equal (via repe cmpsb) */
+  int r;
+  __asm__( "test %3, %3;"
+           "repe cmpsb"
+         : "=@cce" (r), "+S" (s0), "+D" (s1), "+c" (sz)
+         : "m" (*(char const (*)[sz]) s0), "m" (*(char const (*)[sz]) s1)
+         : "cc" );
+  return r;
+}
+
+#else
+
+FD_FN_PURE static inline int
+fd_memeq( void const * s1,
+          void const * s2,
+          ulong        sz ) {
+  return 0==memcmp( s1, s2, sz );
 }
 
 #endif

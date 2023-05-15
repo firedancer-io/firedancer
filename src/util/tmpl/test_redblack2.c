@@ -44,31 +44,31 @@ long rb_compare(rbnode* left, rbnode* right) {
   return (long)(left->key - right->key);
 }
 
-static rbtree *tree_create();
+static rbtree *tree_create( void );
 static void tree_destroy(rbtree *rbt);
 static rbnode *tree_find(rbtree *rbt, int key);
 static int tree_check(rbtree *rbt);
 static rbnode *tree_insert(rbtree **rbt, int key);
 static int tree_delete(rbtree **rbt, int key);
 
-static rbtree *make_black_tree();
+static rbtree *make_black_tree( void );
 
 static void swap(char *x, char *y);
 static void permute(char *a, size_t start, size_t end, void func(char *));
 static void permutation_insert(char *a);
 static void permutation_delete(char *a);
 
-static int unit_test_create();
-static int unit_test_find();
-static int unit_test_successor();
-static int unit_test_atomic_insertion();
-static int unit_test_chain_insertion();
-static int unit_test_atomic_deletion();
-static int unit_test_chain_deletion();
-static int unit_test_permutation_insertion();
-static int unit_test_permutation_deletion();
-static int unit_test_random_insertion_deletion();
-static int unit_test_min();
+static int unit_test_create( void );
+static int unit_test_find( void );
+static int unit_test_successor( void );
+static int unit_test_atomic_insertion( void );
+static int unit_test_chain_insertion( void );
+static int unit_test_atomic_deletion( void );
+static int unit_test_chain_deletion( void );
+static int unit_test_permutation_insertion( void );
+static int unit_test_permutation_deletion( void );
+static int unit_test_random_insertion_deletion( void );
+static int unit_test_min( void );
 
 #define mu_test(_s, _c)                               \
   do {                                                \
@@ -84,10 +84,10 @@ static int unit_test_min();
     correct_free = rb_free(pool);                     \
   } while (0)
 
-void all_tests()
+void all_tests( void )
 {
   ulong correct_free = rb_free(pool);
-  
+
   mu_test("unit_test_create", unit_test_create());
 
   mu_test("unit_test_find", unit_test_find());
@@ -137,7 +137,7 @@ int main(int argc, char **argv)
   fd_halt();
 }
 
-rbtree *tree_create()
+rbtree *tree_create( void )
 {
   return NULL;
 }
@@ -230,7 +230,7 @@ void permutation_insert(char *a)
   rbtree *rbt;
   rbnode *node;
   size_t i;
-	
+
   rbt = tree_create();
 
   for (i = 0; i < strlen(a); i++) {
@@ -249,7 +249,7 @@ void permutation_delete(char *a)
   rbtree *rbt;
   rbnode *node;
   size_t i;
-	
+
   rbt = tree_create();
 
   char b[] = CHARS;
@@ -274,7 +274,7 @@ void permutation_delete(char *a)
 }
 
 
-rbtree *make_black_tree()
+rbtree *make_black_tree( void )
 {
   rbtree *rbt;
   rbnode *node;
@@ -324,7 +324,7 @@ rbtree *make_black_tree()
   return NULL;
 }
 
-int unit_test_create()
+int unit_test_create( void )
 {
   rbtree *rbt;
 
@@ -334,11 +334,11 @@ int unit_test_create()
   return 1;
 }
 
-int unit_test_find()
+int unit_test_find( void )
 {
   rbtree *rbt;
   rbnode *r, *e, *d, *s, *o, *x, *c, *u, *b, *t;
-	
+
   rbt = tree_create();
 
   if ((r = tree_insert(&rbt, 'R')) == NULL || \
@@ -378,11 +378,11 @@ int unit_test_find()
   return 0;
 }
 
-int unit_test_successor()
+int unit_test_successor( void )
 {
   rbtree *rbt;
   rbnode *r, *e, *d, *s, *o, *x, *c, *u, *b, *t;
-	
+
   rbt = tree_create();
 
   if ((r = tree_insert(&rbt, 'R')) == NULL || \
@@ -422,7 +422,7 @@ int unit_test_successor()
   return 0;
 }
 
-int unit_test_atomic_insertion()
+int unit_test_atomic_insertion( void )
 {
   rbtree *rbt;
   size_t i, j;
@@ -465,7 +465,7 @@ int unit_test_atomic_insertion()
     "4-children node splits: insert e",
     "4-children node splits: insert g",
   };
-	
+
   for (i = 0; i < sizeof(cs) / sizeof(cs[0]); i++) {
     rbt = tree_create();
 
@@ -478,7 +478,7 @@ int unit_test_atomic_insertion()
 
     tree_destroy(rbt);
   }
-	
+
   return 1;
 
   err:
@@ -486,14 +486,14 @@ int unit_test_atomic_insertion()
   return 0;
 }
 
-int unit_test_chain_insertion()
+int unit_test_chain_insertion( void )
 {
   rbtree *rbt;
   size_t i, j;
 
   int a1[] = {1, 3, 5, 7, 9, 11, 13, 15, 17, 19, 21, 23, 27, 29, 39, 41};
   int a2[] = {16, 8, 24, 4, 12, 20, 32, 2, 6, 10, 14, 18, 22, 28, 40};
-	
+
   for (i = 0; i < sizeof(a1) / sizeof(a1[0]); i++) {
     rbt = tree_create();
 
@@ -511,7 +511,7 @@ int unit_test_chain_insertion()
 
     tree_destroy(rbt);
   }
-	
+
   return 1;
 
   err:
@@ -519,7 +519,7 @@ int unit_test_chain_insertion()
   return 0;
 }
 
-int unit_test_atomic_deletion()
+int unit_test_atomic_deletion( void )
 {
   rbtree *rbt;
   size_t i, j;
@@ -593,7 +593,7 @@ int unit_test_atomic_deletion()
 
     tree_destroy(rbt);
   }
-	
+
   return 1;
 
   err:
@@ -601,7 +601,7 @@ int unit_test_atomic_deletion()
   return 0;
 }
 
-int unit_test_chain_deletion()
+int unit_test_chain_deletion( void )
 {
   rbtree *rbt;
   char a[] = "BEGI";
@@ -621,7 +621,7 @@ int unit_test_chain_deletion()
 
     tree_destroy(rbt);
   }
-	
+
   return 1;
 
   err:
@@ -630,32 +630,32 @@ int unit_test_chain_deletion()
   return 0;
 }
 
-int unit_test_permutation_insertion()
+int unit_test_permutation_insertion( void )
 {
   char a[] = CHARS;
-	
+
   permutation_error = 0;
   permute(a, 0, strlen(a) - 1, permutation_insert);
   return (permutation_error == 0);
 }
 
-int unit_test_permutation_deletion()
+int unit_test_permutation_deletion( void )
 {
   char a[] = CHARS;
-	
+
   permutation_error = 0;
   permute(a, 0, strlen(a) - 1, permutation_delete);
   return (permutation_error == 0);
 }
 
-int unit_test_random_insertion_deletion()
+int unit_test_random_insertion_deletion( void )
 {
   rbtree *rbt;
   int ninsert, ndelete;
   int i, key, max;
-	
+
   rbt = tree_create();
-	
+
   ninsert = 0;
   ndelete = 0;
   max = 9999;
@@ -694,7 +694,7 @@ int unit_test_random_insertion_deletion()
   return 0;
 }
 
-int unit_test_min()
+int unit_test_min( void )
 {
   rbtree *rbt;
 

@@ -9,8 +9,10 @@
 FD_STATIC_ASSERT( !(FD_HAS_THREADS && !FD_HAS_ATOMIC), devenv );
 FD_STATIC_ASSERT( !(FD_HAS_THREADS && !FD_HAS_HOSTED), devenv );
 
-FD_STATIC_ASSERT( !(FD_HAS_SSE && !FD_HAS_X86), devenv );
-FD_STATIC_ASSERT( !(FD_HAS_AVX && !FD_HAS_SSE), devenv );
+FD_STATIC_ASSERT( !(FD_HAS_SSE   && !FD_HAS_X86), devenv );
+FD_STATIC_ASSERT( !(FD_HAS_AVX   && !FD_HAS_SSE), devenv );
+FD_STATIC_ASSERT( !(FD_HAS_SHANI && !FD_HAS_AVX), devenv );
+FD_STATIC_ASSERT( !(FD_HAS_GFNI  && !FD_HAS_AVX), devenv );
 
 /* Test size_t <> ulong, uintptr_t <> ulong, intptr_t <> long (which
    then further imply sizeof and alignof return a ulong and that
@@ -357,6 +359,8 @@ main( int     argc,
     FD_TEST( fd_hash( 1UL, buf, sz )==0x9d33e5e77b3544ceUL );
   } while(0);
 
+  FD_TEST( fd_memeq( NULL, NULL, 0UL ) );
+
   do {
     uchar src[2048]; memset( src, 0, 2048UL );
     uchar dst[2048]; memset( dst, 0, 2048UL );
@@ -377,14 +381,16 @@ main( int     argc,
       int c = (int)fd_rng_uchar( rng );
       memset( src+s0, c, sz );
       FD_TEST( fd_memset( dst+d0, c, sz )==(dst+d0) );
-      FD_TEST( !memcmp( dst+d0, src+s0, sz ) );
+      FD_TEST( !memcmp ( dst+d0, src+s0, sz ) );
+      FD_TEST( fd_memeq( dst+d0, src+s0, sz ) );
       FD_TEST( fd_hash( 0UL, src, s0 )==hs0 ); FD_TEST( fd_hash( 0UL, src+s1, 2048UL-s1 )==hs1 );
       FD_TEST( fd_hash( 0UL, dst, d0 )==hd0 ); FD_TEST( fd_hash( 0UL, dst+d1, 2048UL-d1 )==hd1 );
 
       for( ulong b=s0; b<s1; b++ ) src[b] = fd_rng_uchar( rng );
 
       FD_TEST( fd_memcpy( dst+d0, src+s0, sz )==(dst+d0) );
-      FD_TEST( !memcmp( dst+d0, src+s0, sz ) );
+      FD_TEST( !memcmp ( dst+d0, src+s0, sz ) );
+      FD_TEST( fd_memeq( dst+d0, src+s0, sz ) );
       FD_TEST( fd_hash( 0UL, src, s0 )==hs0 ); FD_TEST( fd_hash( 0UL, src+s1, 2048UL-s1 )==hs1 );
       FD_TEST( fd_hash( 0UL, dst, d0 )==hd0 ); FD_TEST( fd_hash( 0UL, dst+d1, 2048UL-d1 )==hd1 );
 
@@ -393,7 +399,17 @@ main( int     argc,
       ulong seed = fd_rng_ulong( rng );
       ulong hash = fd_hash( seed, src+s0, sz );
       FD_TEST( fd_hash_memcpy( seed, dst+d0, src+s0, sz )==hash );
-      FD_TEST( !memcmp( dst+d0, src+s0, sz ) );
+      FD_TEST( !memcmp ( dst+d0, src+s0, sz ) );
+      FD_TEST( fd_memeq( dst+d0, src+s0, sz ) );
+
+      /* Flip some bits */
+
+      if( sz>0UL ) {
+        ulong dflip = d0 + (ulong)fd_rng_uint_roll( rng, (uint)sz );
+        int c2 = (int)fd_rng_uchar( rng );
+        dst[ dflip ] = (uchar)(dst[ dflip ] ^ (uchar)c2);
+        FD_TEST( fd_memeq( dst+d0, src+s0, sz )==(!c2) );
+      }
     }
   } while(0);
 
@@ -411,9 +427,10 @@ main( int     argc,
   FD_TEST( (strlen( quine_cstr )+1UL)==quine_cstr_sz              );
   FD_TEST( !strncmp( quine_cstr, "#include \"fd_util.h\"", 20UL ) );
 
-  FD_TEST( (quine_binary_sz+1UL     )==quine_cstr_sz            );
-  FD_TEST( fd_ulong_is_aligned( (ulong)quine_binary, 128UL )    );
-  FD_TEST( !memcmp( quine_binary, quine_cstr, quine_binary_sz ) );
+  FD_TEST( (quine_binary_sz+1UL     )==quine_cstr_sz             );
+  FD_TEST( fd_ulong_is_aligned( (ulong)quine_binary, 128UL )     );
+  FD_TEST( !memcmp ( quine_binary, quine_cstr, quine_binary_sz ) );
+  FD_TEST( fd_memeq( quine_binary, quine_cstr, quine_binary_sz ) );
 
   /* FIXME: ADD HASH QUALITY CHECKER HERE */
 
