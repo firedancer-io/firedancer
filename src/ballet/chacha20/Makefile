@@ -10,7 +10,7 @@ RUST_LIB = -L./rust-lib/target/release
 FILES_TO_INCLUDE = test_fd_chacha20.c
 OUTPUT_BINARY = test_fd_chacha20
 
-default: clean test_fd_chacha20
+default: test_fd_chacha20
 
 test_fd_chacha20: $(FILES_TO_INCLUDE)
 	$(CARGO_BIN) build --release --manifest-path=./rust-lib/Cargo.toml
