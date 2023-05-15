@@ -253,6 +253,12 @@ struct __attribute__((aligned(FD_FUNK_ALIGN))) fd_funk_private {
 
   ulong alloc_gaddr; /* Non-zero wksp gaddr with tag wksp tag */
 
+  /* File descriptor of the persistence file, -1 if one isn't open */
+  int persist_fd;
+  ulong persist_size;        /* Logical size of persistence file */
+  ulong persist_frees_gaddr; /* Address of free list tree */
+  long persist_frees_root;   /* Index of root of free list tree */
+
   /* Padding to FD_FUNK_ALIGN here */
 };
 
@@ -318,6 +324,16 @@ fd_funk_leave( fd_funk_t * funk );
 
 void *
 fd_funk_delete( void * shfunk );
+
+/* Open a persistent store file and recover database content. Future
+   updates are persisted back to this file. An error code may be returned. */
+
+int
+fd_funk_persist_open( fd_funk_t * funk, const char * filename );
+
+/* Close the persistent store file. */
+void
+fd_funk_persist_close( fd_funk_t * funk );
 
 /* Accessors */
 
@@ -414,6 +430,16 @@ FD_FN_PURE static inline fd_funk_rec_t * /* Lifetime is that of the local join *
 fd_funk_rec_map( fd_funk_t * funk,       /* Assumes current local join */
                  fd_wksp_t * wksp ) {    /* Assumes wksp == fd_funk_wksp( funk ) */
   return (fd_funk_rec_t *)fd_wksp_laddr_fast( wksp, funk->rec_map_gaddr );
+}
+
+/* fd_funk_rec_size returns current number of records that are held
+   in the funk.  This includes both records of the last published
+   transaction and records for transactions that are in-flight. */
+FD_FN_PURE static inline ulong
+fd_funk_rec_size( fd_funk_t * funk,       /* Assumes current local join */
+                  fd_wksp_t * wksp ) {    /* Assumes wksp == fd_funk_wksp( funk ) */
+  fd_funk_rec_t * map = (fd_funk_rec_t *)fd_wksp_laddr_fast( wksp, funk->rec_map_gaddr );
+  return fd_funk_rec_map_key_cnt( map );
 }
 
 /* fd_funk_last_publish_rec_{head,tail} returns a pointer in the
