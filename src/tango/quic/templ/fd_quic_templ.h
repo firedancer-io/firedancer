@@ -33,7 +33,8 @@ FD_TEMPL_DEF_STRUCT_BEGIN(long_hdr)
 FD_TEMPL_DEF_STRUCT_END(long_hdr)
 
 
-/* Version Negotiation Packet {
+/* 17.2.2 Version Negotiation Packet
+   Version Negotiation Packet {
      Header Form (1) = 1,
      Unused (7),
      Version (32) = 0,
@@ -59,27 +60,28 @@ FD_TEMPL_DEF_STRUCT_BEGIN(version_neg)
 FD_TEMPL_DEF_STRUCT_END(version_neg)
 
 
-// Initial Packet {
-//   Header Form (1) = 1,
-//   Fixed Bit (1) = 1,
-//   Long Packet Type (2) = 0,
-//   Reserved Bits (2),
-//   Packet Number Length (2),
-//   Version (32),
-//   Destination Connection ID Length (8),
-//   Destination Connection ID (0..160),
-//   Source Connection ID Length (8),
-//   Source Connection ID (0..160),
+/* 17.2.2 Initial Packet
+   Initial Packet {
+     Header Form (1) = 1,
+     Fixed Bit (1) = 1,
+     Long Packet Type (2) = 0,
+     Reserved Bits (2),
+     Packet Number Length (2),
+     Version (32),
+     Destination Connection ID Length (8),
+     Destination Connection ID (0..160),
+     Source Connection ID Length (8),
+     Source Connection ID (0..160),
 
-//   Token Length (i),
-//   Token (..),
-//   Length (i),
-//   Packet Number (8..32),
-//   Packet Payload (8..),
-// }
-// Figure 15: Initial Packet
-//
-// The first CRYPTO frame sent always begins at an offset of 0
+     Token Length (i),
+     Token (..),
+     Length (i),
+     Packet Number (8..32),
+     Packet Payload (8..),
+   }
+   Figure 15: Initial Packet
+ 
+   The first CRYPTO frame sent always begins at an offset of 0 */
 
 FD_TEMPL_DEF_STRUCT_BEGIN(initial)
   FD_TEMPL_MBR_ELEM_BITS     ( hdr_form,         uchar,  1               )
@@ -102,22 +104,23 @@ FD_TEMPL_DEF_STRUCT_BEGIN(initial)
 FD_TEMPL_DEF_STRUCT_END(initial)
 
 
-// 0-RTT Packet {
-//   Header Form (1) = 1,
-//   Fixed Bit (1) = 1,
-//   Long Packet Type (2) = 1,
-//   Reserved Bits (2),
-//   Packet Number Length (2),
-//   Version (32),
-//   Destination Connection ID Length (8),
-//   Destination Connection ID (0..160),
-//   Source Connection ID Length (8),
-//   Source Connection ID (0..160),
-//   Length (i),
-//   Packet Number (8..32),
-//   Packet Payload (8..),
-// }
-// Figure 16: 0-RTT Packet
+/* 17.2.3 0-RTT
+   0-RTT Packet {
+     Header Form (1) = 1,
+     Fixed Bit (1) = 1,
+     Long Packet Type (2) = 1,
+     Reserved Bits (2),
+     Packet Number Length (2),
+     Version (32),
+     Destination Connection ID Length (8),
+     Destination Connection ID (0..160),
+     Source Connection ID Length (8),
+     Source Connection ID (0..160),
+     Length (i),
+     Packet Number (8..32),
+     Packet Payload (8..),
+   }
+   Figure 16: 0-RTT Packet */
 FD_TEMPL_DEF_STRUCT_BEGIN(zero_rtt)
   FD_TEMPL_MBR_ELEM_BITS     ( hdr_form,         uchar, 1               )
   FD_TEMPL_MBR_ELEM_BITS     ( fixed_bit,        uchar, 1               )
@@ -138,22 +141,23 @@ FD_TEMPL_DEF_STRUCT_BEGIN(zero_rtt)
 FD_TEMPL_DEF_STRUCT_END(zero_rtt)
 
 
-// Handshake Packet {
-//   Header Form (1) = 1,
-//   Fixed Bit (1) = 1,
-//   Long Packet Type (2) = 2,
-//   Reserved Bits (2),
-//   Packet Number Length (2),
-//   Version (32),
-//   Destination Connection ID Length (8),
-//   Destination Connection ID (0..160),
-//   Source Connection ID Length (8),
-//   Source Connection ID (0..160),
-//   Length (i),
-//   Packet Number (8..32),
-//   Packet Payload (8..),
-// }
-// Figure 17: Handshake Protected Packet
+/* 17.2.4 Handshake Packet
+   Handshake Packet {
+     Header Form (1) = 1,
+     Fixed Bit (1) = 1,
+     Long Packet Type (2) = 2,
+     Reserved Bits (2),
+     Packet Number Length (2),
+     Version (32),
+     Destination Connection ID Length (8),
+     Destination Connection ID (0..160),
+     Source Connection ID Length (8),
+     Source Connection ID (0..160),
+     Length (i),
+     Packet Number (8..32),
+     Packet Payload (8..),
+   }
+   Figure 17: Handshake Protected Packet */
 
 FD_TEMPL_DEF_STRUCT_BEGIN(handshake)
   FD_TEMPL_MBR_ELEM_BITS     ( hdr_form,         uchar, 1               )
@@ -175,20 +179,21 @@ FD_TEMPL_DEF_STRUCT_BEGIN(handshake)
 FD_TEMPL_DEF_STRUCT_END(handshake)
 
 
-// Retry Packet {
-//   Header Form (1) = 1,
-//   Fixed Bit (1) = 1,
-//   Long Packet Type (2) = 3,
-//   Unused (4),
-//   Version (32),
-//   Destination Connection ID Length (8),
-//   Destination Connection ID (0..160),
-//   Source Connection ID Length (8),
-//   Source Connection ID (0..160),
-//   Retry Token (..),
-//   Retry Integrity Tag (128),
-// }
-// Figure 18: Retry Packet
+/* 17.2.5 Retry Packet
+   Retry Packet {
+     Header Form (1) = 1,
+     Fixed Bit (1) = 1,
+     Long Packet Type (2) = 3,
+     Unused (4),
+     Version (32),
+     Destination Connection ID Length (8),
+     Destination Connection ID (0..160),
+     Source Connection ID Length (8),
+     Source Connection ID (0..160),
+     Retry Token (..),
+     Retry Integrity Tag (128),
+   }
+ Figure 18: Retry Packet */
 FD_TEMPL_DEF_STRUCT_BEGIN(retry)
   FD_TEMPL_MBR_ELEM_BITS     ( hdr_form,         uchar, 1               )
   FD_TEMPL_MBR_ELEM_BITS     ( fixed_bit,        uchar, 1               )
@@ -201,7 +206,7 @@ FD_TEMPL_DEF_STRUCT_BEGIN(retry)
   FD_TEMPL_MBR_ELEM          ( src_conn_id_len,  uchar                  )
   FD_TEMPL_MBR_ELEM_VAR      ( src_conn_id,      0,160, src_conn_id_len )
 
-  // how do we know the length?
+  // the retry token is 64 = 32 + 16 + 16 bytes (see `fd_quic_retry_token_encrypt`)
   // retry token (..)
   // retry integrity tag (128)
 
@@ -211,21 +216,22 @@ FD_TEMPL_DEF_STRUCT_BEGIN(retry)
 FD_TEMPL_DEF_STRUCT_END(retry)
 
 
-// Retry Pseudo-Packet {
-//   ODCID Length (8),
-//   Original Destination Connection ID (0..160),
-//   Header Form (1) = 1,
-//   Fixed Bit (1) = 1,
-//   Long Packet Type (2) = 3,
-//   Unused (4),
-//   Version (32),
-//   DCID Len (8),
-//   Destination Connection ID (0..160),
-//   SCID Len (8),
-//   Source Connection ID (0..160),
-//   Retry Token (..),
-// }
-// Figure 8: Retry Pseudo-Packet
+/* 5.8 (RFC 9001) Retry Packet Integrity
+    Retry Pseudo-Packet {
+     ODCID Length (8),
+     Original Destination Connection ID (0..160),
+     Header Form (1) = 1,
+     Fixed Bit (1) = 1,
+     Long Packet Type (2) = 3,
+     Unused (4),
+     Version (32),
+     DCID Len (8),
+     Destination Connection ID (0..160),
+     SCID Len (8),
+     Source Connection ID (0..160),
+     Retry Token (..),
+   }
+   Figure 8: Retry Pseudo-Packet */
 FD_TEMPL_DEF_STRUCT_BEGIN(retry_pseudo)
   FD_TEMPL_MBR_ELEM          ( odcid_length,     uchar                  )
   FD_TEMPL_MBR_ELEM_VAR      ( odcid,            0,160, odcid_length    )
@@ -246,19 +252,19 @@ FD_TEMPL_DEF_STRUCT_END(retry_pseudo)
 
 
 
-// Has a short header
-// 1-RTT Packet {
-//   Header Form (1) = 0,
-//   Fixed Bit (1) = 1,
-//   Spin Bit (1),
-//   Reserved Bits (2),
-//   Key Phase (1),
-//   Packet Number Length (2),
-//   Destination Connection ID (0..160),
-//   Packet Number (8..32),
-//   Packet Payload (8..),
-// }
-// Figure 19: 1-RTT Packet
+/* 17.2. Short Header Packets
+   1-RTT Packet {
+     Header Form (1) = 0,
+     Fixed Bit (1) = 1,
+     Spin Bit (1),
+     Reserved Bits (2),
+     Key Phase (1),
+     Packet Number Length (2),
+     Destination Connection ID (0..160),
+     Packet Number (8..32),
+     Packet Payload (8..),
+   }
+   Figure 19: 1-RTT Packet */
 FD_TEMPL_DEF_STRUCT_BEGIN(one_rtt)
   FD_TEMPL_MBR_ELEM_BITS  ( hdr_form,        uchar, 1               )
   FD_TEMPL_MBR_ELEM_BITS  ( fixed_bit,       uchar, 1               )
@@ -277,18 +283,19 @@ FD_TEMPL_DEF_STRUCT_END(one_rtt)
 
 
 
-// Transport Parameters {
-//   Transport Parameter (..) ...,
-// }
-// Figure 20: Sequence of Transport Parameters
-// Each transport parameter is encoded as an (identifier, length, value) tuple, as shown in Figure 21:
-//
-// Transport Parameter {
-//   Transport Parameter ID (i),
-//   Transport Parameter Length (i),
-//   Transport Parameter Value (..),
-// }
-// Figure 21: Transport Parameter Encoding
+/* 18. Transport Parameter Encoding
+   Transport Parameters {
+     Transport Parameter (..) ...,
+   }
+   Figure 20: Sequence of Transport Parameters
+   Each transport parameter is encoded as an (identifier, length, value) tuple, as shown in Figure 21:
+
+   Transport Parameter {
+     Transport Parameter ID (i),
+     Transport Parameter Length (i),
+     Transport Parameter Value (..),
+   }
+   Figure 21: Transport Parameter Encoding */
 
 // one transport entry - repeats
 FD_TEMPL_DEF_STRUCT_BEGIN(transport_param_entry)
@@ -296,4 +303,3 @@ FD_TEMPL_DEF_STRUCT_BEGIN(transport_param_entry)
   FD_TEMPL_MBR_ELEM_VARINT ( param_len, ulong             )
   FD_TEMPL_MBR_ELEM_VAR_RAW( param_val, 0,8192, param_len )
 FD_TEMPL_DEF_STRUCT_END(transport_param_entry)
-

@@ -812,11 +812,12 @@ fd_quic_crypto_rand( uchar * buf,
   FD_LOG_ERR(( "openssl RAND_bytes failed. Error: %lu", err ));
 }
 
-int fd_quic_retry_token_encrypt(ulong orig_dst_conn_id,
-                                ulong retry_src_conn_id,
-                                uint ip_addr,
-                                ushort udp_port,
-                                uchar *retry_token)
+int fd_quic_retry_token_encrypt(
+    uchar orig_dst_conn_id[static FD_QUIC_MAX_CONN_ID_SZ],
+    ulong retry_src_conn_id,
+    uint ip_addr,
+    ushort udp_port,
+    uchar retry_token[static FD_QUIC_RETRY_TOKEN_CIPHERTEXT_SZ])
 {
   /* Generate pseudorandom bytes to use as the key for the AEAD HKDF. Note these bytes form the
      beginning of the retry token. */
@@ -873,12 +874,13 @@ int fd_quic_retry_token_encrypt(ulong orig_dst_conn_id,
 }
 
 /* Decrypts a retry token, and checks it for validity (see `fd_quic_retry_token_encrypt`). */
-int fd_quic_retry_token_decrypt(ulong retry_src_conn_id,
-                                uint ip_addr,
-                                ushort udp_port,
-                                uchar *retry_token,
-                                ulong *orig_dst_conn_id,
-                                long *ts_nanos)
+int fd_quic_retry_token_decrypt(
+    uchar retry_token[static FD_QUIC_RETRY_TOKEN_CIPHERTEXT_SZ],
+    ulong retry_src_conn_id,
+    uint ip_addr,
+    ushort udp_port,
+    uchar orig_dst_conn_id[static FD_QUIC_MAX_CONN_ID_SZ],
+    long *now)
 {
   /* Regenerate the AEAD key (the HKDF key is the first 32 bytes of the token). */
   uchar *hkdf_key = retry_token;
@@ -908,8 +910,8 @@ int fd_quic_retry_token_decrypt(ulong retry_src_conn_id,
     return FD_QUIC_FAILED;
   };
 
-  *orig_dst_conn_id = *((ulong *) fd_type_pun(plaintext));
-  *ts_nanos = *((long *) fd_type_pun(ts_nanos));
+  *orig_dst_conn_id = *plaintext;
+  *now = *((long *) fd_type_pun(plaintext + FD_QUIC_MAX_CONN_ID_SZ));
   return FD_QUIC_SUCCESS;
 }
 

@@ -3,6 +3,7 @@
 
 #include <openssl/ssl.h>
 #include "../fd_quic_common.h"
+#include "../fd_quic_conn_id.h"
 #include "../../../ballet/hmac/fd_hmac.h"
 
 /* Defines the crypto suites used by QUIC v1.
@@ -167,11 +168,11 @@ extern uchar FD_QUIC_CRYPTO_V1_INITIAL_SALT[ 20UL ];
 #define FD_QUIC_CRYPTO_LABEL_QUIC_IV_SZ   ( sizeof( FD_QUIC_CRYPTO_LABEL_QUIC_IV ) - 1 )
 #define FD_QUIC_CRYPTO_LABEL_QUIC_HP_SZ   ( sizeof( FD_QUIC_CRYPTO_LABEL_QUIC_HP ) - 1 )
 
-/* retry token plaintext: orig dst conn id + fd_log_wallclock (long) */
-#define FD_QUIC_RETRY_TOKEN_PLAINTEXT_SZ (8 + 8)
+/* retry token plaintext: orig dst conn id (padded to 20 bytes) + fd_log_wallclock (long) */
+#define FD_QUIC_RETRY_TOKEN_PLAINTEXT_SZ (FD_QUIC_MAX_CONN_ID_SZ + sizeof(long))
 /* ciphertext length should equal plaintext in chosen AEAD scheme */
 #define FD_QUIC_RETRY_TOKEN_CIPHERTEXT_SZ FD_QUIC_RETRY_TOKEN_PLAINTEXT_SZ
-/* retry token authenticated associated data (AAD): ipv4 + port + retry src conn id */
+/* retry token authenticated associated data (AAD): ipv4 + port + our 8-byte retry src conn id */
 #define FD_QUIC_RETRY_TOKEN_AAD_SZ (4 + 2 + 8)
 /* 256-bit key */
 #define FD_QUIC_RETRY_TOKEN_HKDF_KEY_SZ 32
@@ -533,19 +534,27 @@ fd_quic_crypto_lookup_suite( uchar major,
     original Solana validator client), though a similar HKDF + AEAD scheme is used in other
     implementations as well (quic-go, msquic). The differences are mainly what metadata is passed
     to AEAD as plaintext vs. as associated data. */
-int fd_quic_retry_token_encrypt(ulong orig_dst_conn_id,
-                                ulong retry_src_conn_id,
-                                uint ip_addr,
-                                ushort udp_port,
-                                uchar *retry_token); // must be >FD_QUIC_RETRY_TOKEN_SZ bytes
+int fd_quic_retry_token_encrypt(
+    /* plaintext (timestamp calculated in function) */
+    uchar orig_dst_conn_id[static FD_QUIC_MAX_CONN_ID_SZ],
+    /* aad */
+    ulong retry_src_conn_id,
+    uint ip_addr,
+    ushort udp_port,
+    /* ciphertext */
+    uchar retry_token[static FD_QUIC_RETRY_TOKEN_CIPHERTEXT_SZ]);
 
 /* Decrypt a retry token, and checks it for validity (see `fd_quic_retry_token_encrypt`). */
-int fd_quic_retry_token_decrypt(ulong retry_src_conn_id,
-                                uint ip_addr,
-                                ushort udp_port,
-                                uchar *retry_token,
-                                ulong *orig_dst_conn_id,
-                                long *ts_nanos);
+int fd_quic_retry_token_decrypt(
+    /* ciphertext */
+    uchar retry_token[static FD_QUIC_RETRY_TOKEN_CIPHERTEXT_SZ],
+    /* aad */
+    ulong retry_src_conn_id,
+    uint ip_addr,
+    ushort udp_port,
+    /* plaintext */
+    uchar orig_dst_conn_id[static FD_QUIC_MAX_CONN_ID_SZ],
+    long *now);
 
 int gcm_encrypt(const EVP_CIPHER *cipher,
                 uchar *plaintext, int plaintext_len,
