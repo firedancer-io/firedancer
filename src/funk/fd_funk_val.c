@@ -262,8 +262,8 @@ fd_funk_val_truncate( fd_funk_rec_t * rec,
 }
 
 int
-fd_funk_val_uncache( fd_funk_t *     funk,
-                     fd_funk_rec_t * rec ) {
+fd_funk_val_uncache( fd_funk_t *           funk,
+                     fd_funk_rec_t const * rec ) {
 
   if( FD_UNLIKELY( !funk ) ) return FD_FUNK_ERR_INVAL;
 
@@ -285,8 +285,8 @@ fd_funk_val_uncache( fd_funk_t *     funk,
     return FD_FUNK_ERR_INVAL; /* Not persisted */
 
   fd_alloc_free( fd_funk_alloc( funk, wksp ), fd_wksp_laddr_fast( wksp, rec->val_gaddr ) );
-  rec->val_max   = 0U;
-  rec->val_gaddr = 0UL;
+  ((fd_funk_rec_t *) rec)->val_max   = 0U;
+  ((fd_funk_rec_t *) rec)->val_gaddr = 0UL;
 
   /* Note that rec->val_sz remains correct */
 
@@ -295,9 +295,9 @@ fd_funk_val_uncache( fd_funk_t *     funk,
 
 
 void *
-fd_funk_val_cache( fd_funk_t *     funk,
-                   fd_funk_rec_t * rec,
-                   int *           opt_err ) {
+fd_funk_val_cache( fd_funk_t *           funk,
+                   fd_funk_rec_t const * rec,
+                   int *                 opt_err ) {
   fd_wksp_t * wksp = fd_funk_wksp( funk );
   ulong val_gaddr = rec->val_gaddr;
   if ( FD_LIKELY( val_gaddr ) )
@@ -317,8 +317,8 @@ fd_funk_val_cache( fd_funk_t *     funk,
     return NULL;
   }
     
-  rec->val_max   = (uint)new_val_max;
-  rec->val_gaddr = fd_wksp_gaddr_fast( wksp, new_val );
+  ((fd_funk_rec_t *) rec)->val_max   = (uint)new_val_max;
+  ((fd_funk_rec_t *) rec)->val_gaddr = fd_wksp_gaddr_fast( wksp, new_val );
   return new_val;
 }
 
@@ -349,7 +349,8 @@ fd_funk_val_verify( fd_funk_t * funk ) {
     ulong val_max   = (ulong)rec->val_max;
     ulong val_gaddr = rec->val_gaddr;
 
-    TEST( val_sz<=val_max );
+    if( val_gaddr || rec->persist_pos == FD_FUNK_REC_IDX_NULL )
+      TEST( val_sz<=val_max );
 
     if( rec->flags & FD_FUNK_REC_FLAG_ERASE ) {
       TEST( !val_max   );

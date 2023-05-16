@@ -243,17 +243,17 @@ fd_funk_val_truncate( fd_funk_rec_t * rec,        /* Assumed in caller's address
    FD_FUNK_ERR_INVAL is returned if the record was never persisted. */
 
 int
-fd_funk_val_uncache( fd_funk_t *     funk,
-                     fd_funk_rec_t * rec );
+fd_funk_val_uncache( fd_funk_t *           funk,
+                     fd_funk_rec_t const * rec );
 
 
 /* fd_funk_val_cache operates like fd_funk_val except that the data is
    loaded from the persistence file and cached in memory if it is not
    already there. A NULL is returned on error, and *opt_err is set. */
 void *
-fd_funk_val_cache( fd_funk_t *     funk,
-                   fd_funk_rec_t * rec,
-                   int *           opt_err );  /* If non-NULL, *opt_err returns operation error code */
+fd_funk_val_cache( fd_funk_t *           funk,
+                   fd_funk_rec_t const * rec,
+                   int *                 opt_err );  /* If non-NULL, *opt_err returns operation error code */
    
 /* Misc */
 

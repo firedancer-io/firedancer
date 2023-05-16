@@ -701,10 +701,10 @@ fd_funk_rec_persist_erase_unsafe( fd_funk_t *     funk,
 }
 
 int
-fd_funk_persist_load( fd_funk_t *     funk,
-                      fd_funk_rec_t * rec,
-                      ulong           val_sz,
-                      uchar *         val ) {
+fd_funk_persist_load( fd_funk_t *           funk,
+                      fd_funk_rec_t const * rec,
+                      ulong                 val_sz,
+                      uchar *               val ) {
   if ( rec->persist_pos == FD_FUNK_REC_IDX_NULL || funk->persist_fd == -1 )
     return FD_FUNK_ERR_INVAL; /* Not persisted */
 
