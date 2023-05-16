@@ -53,6 +53,12 @@ struct fd_quic_tpu_ctx {
 
   ulong   chunk;       /* current dcache chunk idx */
 
+  /* mcache */
+  ulong            inflight_streams;
+  fd_frag_meta_t * mcache;
+  ulong          * seq;
+  ulong            depth;
+
   /* publish stack */
 
   fd_quic_tpu_msg_ctx_t ** pubq;
@@ -125,10 +131,8 @@ fd_tpu_stream_create( fd_quic_stream_t * stream,
   ulong   const chunk0     = ctx->chunk0;
   ulong   const wmark      = ctx->wmark;
   ulong         chunk      = ctx->chunk;
-
+  
   /* Allocate new dcache entry */
-
-  /* TODO How can we prevent override of not yet received metas? */
 
   chunk = fd_dcache_compact_next( chunk, FD_TPU_DCACHE_MTU, chunk0, wmark );
 
@@ -138,6 +142,28 @@ fd_tpu_stream_create( fd_quic_stream_t * stream,
   msg_ctx->data      = fd_chunk_to_laddr( base, chunk );
   msg_ctx->sz        = 0U;
   msg_ctx->tsorig    = (uint)fd_frag_meta_ts_comp( fd_tickcount() );
+
+  /* By default the dcache only has headroom for one in-flight fragment, but
+     QUIC might have many. If we exceed the headroom, we publish a dummy
+     mcache entry to evict the reader from this fragment we want to use so we
+     can start using it.
+     
+     This is not ideal because if the reader is already done with the fragment
+     we are writing a useless mcache entry, so we try and do it only when
+     needed.
+     
+     The QUIC receive path might typically execute stream_create,
+     stream_receive, and stream_notice serially, so it is often the case that
+     even if we are handling multiple new connections in one receive batch,
+     the in-flight count remains zero or one. */
+  if( ctx->inflight_streams > 0 ) {
+    ulong ctl   = fd_frag_meta_ctl( 0, 1 /* som */, 1 /* eom */, 0 /* err */ );
+    ulong tsnow = fd_frag_meta_ts_comp( fd_tickcount() );
+    fd_mcache_publish( ctx->mcache, ctx->depth, *ctx->seq, 1, 0, 0, ctl, tsnow, tsnow );
+    *ctx->seq = fd_seq_inc( *ctx->seq, 1UL );
+  }
+
+  ctx->inflight_streams += 1;
 
   /* Wind up for next callback */
 
@@ -192,15 +218,17 @@ static void
 fd_tpu_stream_notify( fd_quic_stream_t * stream,
                       void *             stream_ctx,
                       int                type ) {
-
-  if( FD_UNLIKELY( type!=FD_QUIC_NOTIFY_END ) )
-    return;  /* not a successful stream close */
-
   /* Load QUIC state */
 
   fd_quic_tpu_msg_ctx_t * msg_ctx = (fd_quic_tpu_msg_ctx_t *)stream_ctx;
   fd_quic_conn_t *        conn    = stream->conn;
   fd_quic_t *             quic    = conn->quic;
+  fd_quic_tpu_ctx_t *     ctx = quic->cb.quic_ctx; /* TODO ugly */
+
+  if( FD_UNLIKELY( type!=FD_QUIC_NOTIFY_END ) ) {
+    ctx->inflight_streams -= 1;
+    return;  /* not a successful stream close */
+  }
 
   ulong conn_id   = stream->conn->local_conn_id;
   ulong stream_id = stream->stream_id;
@@ -213,7 +241,6 @@ fd_tpu_stream_notify( fd_quic_stream_t * stream,
 
   /* Add to local publish queue */
 
-  fd_quic_tpu_ctx_t * ctx = quic->cb.quic_ctx; /* TODO ugly */
   if( FD_UNLIKELY( pubq_full( ctx->pubq ) ) ) {
     FD_LOG_WARNING(( "pubq full, dropping" ));
     return;
@@ -363,6 +390,10 @@ fd_quic_tile( fd_cnc_t *         cnc,
     quic_ctx.chunk      = chunk;
     quic_ctx.pubq       = msg_pubq;
     quic_ctx.cnc_diag_tpu_conn_live_cnt = 0UL;
+    quic_ctx.seq        = &seq;
+    quic_ctx.mcache     = mcache;
+    quic_ctx.depth      = depth;
+    quic_ctx.inflight_streams = 0UL;
 
     quic_cb->quic_ctx = &quic_ctx;
 
@@ -477,12 +508,13 @@ fd_quic_tile( fd_cnc_t *         cnc,
 
       ulong chunk  = fd_laddr_to_chunk( base, msg->data );
       ulong sz     = (ulong)msg_end - (ulong)msg->data;
-      ulong sig    = 42UL; /* TODO */
+      ulong sig    = 0; /* A non-dummy entry representing a finished transaction */
       ulong ctl    = fd_frag_meta_ctl( tx_idx, 1 /* som */, 1 /* eom */, 0 /* err */ );
       ulong tsorig = msg->tsorig;
       ulong tspub  = fd_frag_meta_ts_comp( fd_tickcount() );
 
       fd_mcache_publish( mcache, depth, seq, sig, chunk, sz, ctl, tsorig, tspub );
+      quic_ctx.inflight_streams -= 1;
 
       /* Windup for the next iteration and accumulate diagnostics */
 
