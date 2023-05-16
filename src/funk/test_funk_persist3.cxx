@@ -205,7 +205,7 @@ void grinder(int argc, char** argv, bool firsttime) {
   void * shmem = fd_wksp_alloc_laddr( wksp, align, footprint, wksp_tag );
   void * shfunk = fd_funk_new( shmem, wksp_tag, seed, txn_max, rec_max );
   fd_funk_t * funk = fd_funk_join( shfunk );
-  assert(fd_funk_persist_open(funk, BACKFILE) == FD_FUNK_SUCCESS);
+  assert(fd_funk_persist_open(funk, BACKFILE, 1) == FD_FUNK_SUCCESS);
 
   assert(fd_funk_verify(funk) == FD_FUNK_SUCCESS);
 

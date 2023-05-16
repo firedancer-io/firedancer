@@ -209,7 +209,7 @@ fd_funk_persist_free( fd_funk_t * funk, ulong pos, ulong alloc_sz ) {
 static void
 fd_funk_persist_recover_record( fd_funk_t * funk, ulong pos,
                                 struct fd_funk_persist_record_head * head,
-                                const uchar * value ) {
+                                const uchar * value, int cache_all ) {
   /* See if we already saw the key */
   int err = 0;
   fd_funk_rec_key_t key;
@@ -238,12 +238,19 @@ fd_funk_persist_recover_record( fd_funk_t * funk, ulong pos,
     FD_LOG_ERR(( "failed to recover record, code %s", fd_funk_strerror( FD_FUNK_ERR_FROZEN ) ));
     return;
   }
-  fd_wksp_t * wksp = fd_funk_wksp( funk );
-  fd_alloc_t * alloc = fd_funk_alloc( funk, wksp );
-  rec = fd_funk_val_copy( rec, value, head->val_sz, head->val_sz, alloc, wksp, &err);
-  if ( !rec ) {
-    FD_LOG_ERR(( "failed to recover record, code %s", fd_funk_strerror( err ) ));
-    return;
+  if ( cache_all ) {
+    fd_wksp_t * wksp = fd_funk_wksp( funk );
+    fd_alloc_t * alloc = fd_funk_alloc( funk, wksp );
+    rec = fd_funk_val_copy( rec, value, head->val_sz, head->val_sz, alloc, wksp, &err);
+    if ( !rec ) {
+      FD_LOG_ERR(( "failed to recover record, code %s", fd_funk_strerror( err ) ));
+      return;
+    }
+  } else {
+    /* Just set the size */
+    rec->val_sz    = head->val_sz;
+    rec->val_max   = 0U;
+    rec->val_gaddr = 0UL;
   }
   /* Remember where we found the data */
   rec->persist_alloc_sz = head->alloc_sz;
@@ -358,7 +365,7 @@ fd_funk_persist_recover_walog( fd_funk_t * funk, struct fd_funk_persist_walog_he
    file. The database typically is empty to start with. Future updates
    are written back to the file. */
 int
-fd_funk_persist_open( fd_funk_t * funk, const char * filename ) {
+fd_funk_persist_open( fd_funk_t * funk, const char * filename, int cache_all ) {
   /* Open the file */
   funk->persist_fd = open(filename, O_CREAT|O_RDWR, 0600);
   if ( funk->persist_fd == -1 ) {
@@ -437,7 +444,8 @@ fd_funk_persist_open( fd_funk_t * funk, const char * filename ) {
         struct fd_funk_persist_record_head * head = (struct fd_funk_persist_record_head *)tmpptr;
         if ( tmpptr + sizeof(struct fd_funk_persist_record_head) + head->val_sz <= tmpend ) {
           fd_funk_persist_recover_record( funk, pos + (ulong)(tmpptr - tmp), head,
-                                          tmpptr + sizeof(struct fd_funk_persist_record_head) );
+                                          tmpptr + sizeof(struct fd_funk_persist_record_head),
+                                          cache_all );
           tmpptr += head->alloc_sz;
         } else {
           /* Incomplete record */
@@ -688,6 +696,35 @@ fd_funk_rec_persist_erase_unsafe( fd_funk_t *     funk,
   fd_funk_persist_free( funk, rec->persist_pos, rec->persist_alloc_sz );
   rec->persist_pos = FD_FUNK_REC_IDX_NULL;
   rec->persist_alloc_sz = FD_FUNK_REC_IDX_NULL;
+
+  return FD_FUNK_SUCCESS;
+}
+
+int
+fd_funk_persist_load( fd_funk_t *     funk,
+                      fd_funk_rec_t * rec,
+                      ulong           val_sz,
+                      uchar *         val ) {
+  if ( rec->persist_pos == FD_FUNK_REC_IDX_NULL || funk->persist_fd == -1 )
+    return FD_FUNK_ERR_INVAL; /* Not persisted */
+
+  struct fd_funk_persist_record_head head;
+  struct iovec iov[2];
+  iov[0].iov_base = &head;
+  iov[0].iov_len = sizeof(head);
+  iov[1].iov_base = val;
+  iov[1].iov_len = val_sz;
+  if ( preadv( funk->persist_fd, iov, 2, (long)rec->persist_pos ) != (long)(iov[0].iov_len + iov[1].iov_len) ) {
+    FD_LOG_WARNING(( "failed to read persistence file: %s", strerror(errno) ));
+    return FD_FUNK_ERR_SYS;
+  }
+
+  if ( head.type != FD_FUNK_PERSIST_RECORD_TYPE ||
+       memcmp( head.key, &rec->pair.key, sizeof(head.key) ) != 0 ||
+       head.val_sz != rec->val_sz ) {
+    FD_LOG_WARNING(( "did not find expected record header in file" ));
+    return FD_FUNK_ERR_INVAL;
+  }
 
   return FD_FUNK_SUCCESS;
 }

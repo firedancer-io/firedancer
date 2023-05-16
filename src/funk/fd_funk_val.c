@@ -1,4 +1,5 @@
 #include "fd_funk.h"
+#include "fd_funk_persist.h"
 
 fd_funk_rec_t *
 fd_funk_val_copy( fd_funk_rec_t * rec,
@@ -258,6 +259,67 @@ fd_funk_val_truncate( fd_funk_rec_t * rec,
 
   fd_int_store_if( !!opt_err, opt_err, FD_FUNK_SUCCESS );
   return rec;
+}
+
+int
+fd_funk_val_uncache( fd_funk_t *     funk,
+                     fd_funk_rec_t * rec ) {
+
+  if( FD_UNLIKELY( !funk ) ) return FD_FUNK_ERR_INVAL;
+
+  fd_wksp_t * wksp = fd_funk_wksp( funk );
+
+  fd_funk_rec_t * rec_map = fd_funk_rec_map( funk, wksp );
+
+  ulong rec_max = funk->rec_max;
+
+  ulong rec_idx = (ulong)(rec - rec_map);
+
+  if( FD_UNLIKELY( (rec_idx>=rec_max) /* Out of map (incl NULL) */ | (rec!=(rec_map+rec_idx)) /* Bad alignment */ ) )
+    return FD_FUNK_ERR_INVAL;
+
+  if ( rec->val_gaddr == 0UL )
+    return FD_FUNK_SUCCESS; /* Already uncached */
+
+  if ( rec->persist_pos == FD_FUNK_REC_IDX_NULL )
+    return FD_FUNK_ERR_INVAL; /* Not persisted */
+
+  fd_alloc_free( fd_funk_alloc( funk, wksp ), fd_wksp_laddr_fast( wksp, rec->val_gaddr ) );
+  rec->val_max   = 0U;
+  rec->val_gaddr = 0UL;
+
+  /* Note that rec->val_sz remains correct */
+
+  return FD_FUNK_SUCCESS;
+}
+
+
+void *
+fd_funk_val_cache( fd_funk_t *     funk,
+                   fd_funk_rec_t * rec,
+                   int *           opt_err ) {
+  fd_wksp_t * wksp = fd_funk_wksp( funk );
+  ulong val_gaddr = rec->val_gaddr;
+  if ( FD_LIKELY( val_gaddr ) )
+    return fd_wksp_laddr_fast( wksp, val_gaddr );
+
+  ulong   new_val_max;
+  uchar * new_val = (uchar *)fd_alloc_malloc_at_least( fd_funk_alloc( funk, wksp ), 1UL, rec->val_sz, &new_val_max );
+  if( FD_UNLIKELY( !new_val || new_val_max < rec->val_sz ) ) {
+    fd_int_store_if( !!opt_err, opt_err, FD_FUNK_ERR_MEM );
+    return NULL;
+  }
+
+  int err = fd_funk_persist_load( funk, rec, rec->val_sz, new_val );
+  if( FD_UNLIKELY( err ) ) {
+    fd_alloc_free( fd_funk_alloc( funk, wksp ), new_val );
+    fd_int_store_if( !!opt_err, opt_err, err );
+    return NULL;
+  }
+    
+  rec->val_max   = (uint)new_val_max;
+  rec->val_gaddr = fd_wksp_gaddr_fast( wksp, new_val );
+  return new_val;
 }
 
 int

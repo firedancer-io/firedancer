@@ -326,10 +326,12 @@ void *
 fd_funk_delete( void * shfunk );
 
 /* Open a persistent store file and recover database content. Future
-   updates are persisted back to this file. An error code may be returned. */
+   updates are persisted back to this file. An error code may be
+   returned. If cache_all is true, all records are loaded into
+   memory. If not, fd_funk_val_cache must be used to safely access values. */
 
 int
-fd_funk_persist_open( fd_funk_t * funk, const char * filename );
+fd_funk_persist_open( fd_funk_t * funk, const char * filename, int cache_all );
 
 /* Close the persistent store file. */
 void

@@ -165,7 +165,7 @@ int main(int argc, char **argv) {
     shmem = fd_wksp_alloc_laddr( wksp, align, footprint, wksp_tag );
     void * shfunk = fd_funk_new( shmem, wksp_tag, seed, txn_max, rec_max );
     harness.funk_ = fd_funk_join( shfunk );
-    assert(fd_funk_persist_open( harness.funk_, backfile) == FD_FUNK_SUCCESS);
+    assert(fd_funk_persist_open( harness.funk_, backfile, 1 ) == FD_FUNK_SUCCESS);
   };
   unlink(backfile);
   buildup();

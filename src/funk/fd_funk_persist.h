@@ -14,6 +14,13 @@ fd_funk_persist_leave( fd_funk_t * funk );
 void
 fd_funk_persist_delete( fd_funk_t * funk );
 
+/* Read a record from the persistence file into the given buffer */
+int
+fd_funk_persist_load( fd_funk_t *     funk,
+                      fd_funk_rec_t * rec,
+                      ulong           val_sz,
+                      uchar *         val );
+
 /* Private version of fd_funk_rec_persist that skips argument checks */
 int
 fd_funk_rec_persist_unsafe( fd_funk_t *     funk,
