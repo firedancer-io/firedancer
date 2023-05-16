@@ -1,17 +1,26 @@
 #include "fd_shredder.h"
 
+
+/* An entry batch of 64 entries with 20 transactions per entry takes up
+   about 256 kB, for about 200B/txn, which seems reasonable.  We'll do a
+   10 MB entry batch, which is about 50k transactions. */
+#define PERF_TEST_SZ (10UL*1024UL*1024UL)
+uchar perf_test_entry_batch[ PERF_TEST_SZ ];
+
+uchar fec_set_memory_1[ 2048UL * FD_REEDSOL_DATA_SHREDS_MAX   ];
+uchar fec_set_memory_2[ 2048UL * FD_REEDSOL_PARITY_SHREDS_MAX ];
+
+/* First 32B of what Solana calls the private key is what we call the
+   private key, second 23B are what we call the public key. */
+FD_IMPORT_BINARY( test_private_key, "src/ballet/shred/fixtures/demo-shreds.key"  );
+
 #if FD_HAS_HOSTED
 #include "../../util/net/fd_pcap.h"
 #include <stdio.h>
 
 FD_IMPORT_BINARY( test_pcap,        "src/ballet/shred/fixtures/demo-shreds.pcap" );
 FD_IMPORT_BINARY( test_bin,         "src/ballet/shred/fixtures/demo-shreds.bin"  );
-/* First 32B of what Solana calls the private key is what we call the
-   private key, second 23B are what we call the public key. */
-FD_IMPORT_BINARY( test_private_key, "src/ballet/shred/fixtures/demo-shreds.key"  );
 
-uchar fec_set_memory_1[ 2048UL * FD_REEDSOL_DATA_SHREDS_MAX   ];
-uchar fec_set_memory_2[ 2048UL * FD_REEDSOL_PARITY_SHREDS_MAX ];
 
 static void
 test_shredder_pcap( void ) {
@@ -93,6 +102,8 @@ test_shredder_pcap( void ) {
 
 #endif /* FD_HAS_HOSTED */
 
+
+
 static void
 test_shredder_count( void ) {
   FD_TEST( fd_shredder_count_data_shreds(   0UL ) ==  1UL );
@@ -129,6 +140,34 @@ test_shredder_count( void ) {
   }
 }
 
+static void
+perf_test( void ) {
+  for( ulong i=0UL; i<PERF_TEST_SZ; i++ )  perf_test_entry_batch[ i ] = (uchar)i;
+
+  fd_shredder_t _shredder[ 1 ];
+  FD_TEST( _shredder==fd_shredder_new( _shredder ) );
+  fd_shredder_t * shredder = fd_shredder_join( _shredder );           FD_TEST( shredder );
+
+  fd_fec_set_t _set[ 1 ];
+  for( ulong j=0UL; j<FD_REEDSOL_DATA_SHREDS_MAX;   j++ ) _set->data_shreds[   j ] = fec_set_memory_1 + 2048UL*j;
+  for( ulong j=0UL; j<FD_REEDSOL_PARITY_SHREDS_MAX; j++ ) _set->parity_shreds[ j ] = fec_set_memory_2 + 2048UL*j;
+
+  ulong iterations = 400UL;
+  long dt = -fd_log_wallclock();
+  for( ulong iter=0UL; iter<iterations; iter++ ) {
+    fd_shredder_init_batch( shredder, perf_test_entry_batch, PERF_TEST_SZ, 0UL, 0UL, 0UL, (ushort)0, (ushort)0, (uchar)0, 1 );
+
+    ulong sets_cnt = fd_shredder_count_fec_sets( PERF_TEST_SZ );
+    for( ulong j=0UL; j<sets_cnt; j++ ) {
+      fd_shredder_next_fec_set( shredder, test_private_key, test_private_key+32UL, _set );
+    }
+    fd_shredder_fini_batch( shredder );
+  }
+  dt += fd_log_wallclock();
+  FD_LOG_NOTICE(( "%li ns/10 MB entry batch = %.3f Gbps", dt/(long)iterations, (double)(8UL * iterations * PERF_TEST_SZ)/(double)dt ));
+
+}
+
 
 int
 main( int     argc,
@@ -142,6 +181,7 @@ main( int     argc,
 
 
   test_shredder_count();
+  perf_test();
 
 #if FD_HAS_HOSTED
   test_shredder_pcap();
