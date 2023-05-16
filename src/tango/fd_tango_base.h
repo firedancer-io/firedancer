@@ -275,6 +275,21 @@ fd_frag_meta_seq_query( fd_frag_meta_t const * meta ) { /* Assumed non-NULL */
   return seq;
 }
 
+#if FD_HAS_SSE
+
+/* fd_frag_met_seq_sig_query returns the sequence number and signature
+   pointed to by meta in one atomic read, same semantics as
+   fd_frag_meta_seq_query. */
+FD_STATIC_INLINE __m128i
+fd_frag_meta_seq_sig_query( fd_frag_meta_t const * meta ) { /* Assumed non-NULL */
+  FD_COMPILER_MFENCE();
+  __m128i sse0 = _mm_load_si128( &meta->sse0 );
+  FD_COMPILER_MFENCE();
+  return sse0;
+}
+
+#endif
+
 /* fd_frag_meta_ctl, fd_frag_meta_ctl_{som,eom,err} pack and unpack the
    fd_frag message reassembly control bits. */
 
