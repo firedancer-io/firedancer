@@ -304,7 +304,8 @@ fd_funk_val_cache( fd_funk_t *           funk,
     return fd_wksp_laddr_fast( wksp, val_gaddr );
 
   ulong   new_val_max;
-  uchar * new_val = (uchar *)fd_alloc_malloc_at_least( fd_funk_alloc( funk, wksp ), 1UL, rec->val_sz, &new_val_max );
+  uchar * new_val = (uchar *)fd_alloc_malloc_at_least( fd_funk_alloc( funk, wksp ), 1UL,
+                                                       fd_ulong_max( rec->val_sz, 1UL ), &new_val_max );
   if( FD_UNLIKELY( !new_val || new_val_max < rec->val_sz ) ) {
     fd_int_store_if( !!opt_err, opt_err, FD_FUNK_ERR_MEM );
     return NULL;
