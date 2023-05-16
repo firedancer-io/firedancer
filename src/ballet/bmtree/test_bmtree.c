@@ -107,8 +107,8 @@ main( int     argc,
   fd_boot( &argc, &argv );
 
   /* Internal checks */
-  FD_TEST( fd_bmtree_commit_align()         ==FD_BMTREE_COMMIT_ALIGN     );
-  FD_TEST( fd_bmtree_commit_footprint( 0UL )==FD_BMTREE_COMMIT_FOOTPRINT );
+  FD_TEST( fd_bmtree_commit_align()         ==FD_BMTREE_COMMIT_ALIGN            );
+  FD_TEST( fd_bmtree_commit_footprint( 0UL )==FD_BMTREE_COMMIT_FOOTPRINT( 0UL ) );
 
   /* Iterate test fd_bmtree_depth, fd_bmtree_node_cnt against naive
      division algorithm */
