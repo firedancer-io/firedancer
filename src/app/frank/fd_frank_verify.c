@@ -303,7 +303,8 @@ fd_frank_verify_task( int     argc,
     }
 
     /* See if there are any transactions waiting to be packed */
-    ulong vin_seq_found = fd_frag_meta_seq_query( vin_mline );
+    __m128i vin_seq_sig = fd_frag_meta_seq_sig_query( vin_mline );
+    ulong vin_seq_found = fd_frag_meta_sse0_seq( vin_seq_sig );
     long  vin_diff      = fd_seq_diff( vin_seq_found, vin_mcache_seq );
     if( FD_UNLIKELY( vin_diff ) ) { /* caught up or overrun, optimize for expected sequence number ready */
       if( FD_LIKELY( vin_diff < 0L ) ) {
@@ -315,6 +316,14 @@ fd_frank_verify_task( int     argc,
       vin_mcache_seq = vin_seq_found;
       /* can keep processing from the new seq */
     }
+
+    ulong vin_sig_found = fd_frag_meta_sse0_sig( vin_seq_sig );
+    if( FD_UNLIKELY( vin_sig_found ) ) { /* This is a dummy mcache entry to keep frags from getting overrun, do not process */
+      vin_mcache_seq   = fd_seq_inc( vin_mcache_seq, 1UL );
+      vin_mline = vin_mcache + fd_mcache_line_idx( vin_mcache_seq, vin_mcache_depth );
+      continue;
+    }
+
     now = fd_tickcount();
 
 #if DETAILED_LOGGING
