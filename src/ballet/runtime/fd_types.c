@@ -11,13 +11,6 @@ void fd_fee_calculator_walk(fd_fee_calculator_t* self, fd_walk_fun_t fun, const 
   fun(&self->lamports_per_signature, "lamports_per_signature", 11, "ulong", level + 1);
   fun(self, name, 33, "fd_fee_calculator", --level);
 }
-void fd_fee_calculator_copy_to(fd_fee_calculator_t* to, fd_fee_calculator_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
-  unsigned char *enc = fd_alloca( 1, fd_fee_calculator_size(from) );
-  void const *   ptr = (void const *) enc;
-  fd_fee_calculator_encode( from, &ptr );
-  void *input = (void *) enc;
-  fd_fee_calculator_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
-}
 ulong fd_fee_calculator_size(fd_fee_calculator_t* self) {
   ulong size = 0;
   size += sizeof(ulong);
@@ -43,13 +36,6 @@ void fd_hash_age_walk(fd_hash_age_t* self, fd_walk_fun_t fun, const char *name, 
   fun(&self->hash_index, "hash_index", 11, "ulong", level + 1);
   fun(&self->timestamp, "timestamp", 11, "ulong", level + 1);
   fun(self, name, 33, "fd_hash_age", --level);
-}
-void fd_hash_age_copy_to(fd_hash_age_t* to, fd_hash_age_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
-  unsigned char *enc = fd_alloca( 1, fd_hash_age_size(from) );
-  void const *   ptr = (void const *) enc;
-  fd_hash_age_encode( from, &ptr );
-  void *input = (void *) enc;
-  fd_hash_age_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
 }
 ulong fd_hash_age_size(fd_hash_age_t* self) {
   ulong size = 0;
@@ -79,13 +65,6 @@ void fd_hash_hash_age_pair_walk(fd_hash_hash_age_pair_t* self, fd_walk_fun_t fun
   fd_hash_walk(&self->key, fun, "key", level + 1);
   fd_hash_age_walk(&self->val, fun, "val", level + 1);
   fun(self, name, 33, "fd_hash_hash_age_pair", --level);
-}
-void fd_hash_hash_age_pair_copy_to(fd_hash_hash_age_pair_t* to, fd_hash_hash_age_pair_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
-  unsigned char *enc = fd_alloca( 1, fd_hash_hash_age_pair_size(from) );
-  void const *   ptr = (void const *) enc;
-  fd_hash_hash_age_pair_encode( from, &ptr );
-  void *input = (void *) enc;
-  fd_hash_hash_age_pair_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
 }
 ulong fd_hash_hash_age_pair_size(fd_hash_hash_age_pair_t* self) {
   ulong size = 0;
@@ -142,13 +121,6 @@ void fd_block_hash_queue_walk(fd_block_hash_queue_t* self, fd_walk_fun_t fun, co
   fun(&self->max_age, "max_age", 11, "ulong", level + 1);
   fun(self, name, 33, "fd_block_hash_queue", --level);
 }
-void fd_block_hash_queue_copy_to(fd_block_hash_queue_t* to, fd_block_hash_queue_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
-  unsigned char *enc = fd_alloca( 1, fd_block_hash_queue_size(from) );
-  void const *   ptr = (void const *) enc;
-  fd_block_hash_queue_encode( from, &ptr );
-  void *input = (void *) enc;
-  fd_block_hash_queue_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
-}
 ulong fd_block_hash_queue_size(fd_block_hash_queue_t* self) {
   ulong size = 0;
   size += sizeof(ulong);
@@ -197,13 +169,6 @@ void fd_epoch_schedule_walk(fd_epoch_schedule_t* self, fd_walk_fun_t fun, const 
   fun(&self->first_normal_slot, "first_normal_slot", 11, "ulong", level + 1);
   fun(self, name, 33, "fd_epoch_schedule", --level);
 }
-void fd_epoch_schedule_copy_to(fd_epoch_schedule_t* to, fd_epoch_schedule_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
-  unsigned char *enc = fd_alloca( 1, fd_epoch_schedule_size(from) );
-  void const *   ptr = (void const *) enc;
-  fd_epoch_schedule_encode( from, &ptr );
-  void *input = (void *) enc;
-  fd_epoch_schedule_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
-}
 ulong fd_epoch_schedule_size(fd_epoch_schedule_t* self) {
   ulong size = 0;
   size += sizeof(ulong);
@@ -241,13 +206,6 @@ void fd_fee_rate_governor_walk(fd_fee_rate_governor_t* self, fd_walk_fun_t fun, 
   fun(&self->burn_percent, "burn_percent", 9, "uchar", level + 1);
   fun(self, name, 33, "fd_fee_rate_governor", --level);
 }
-void fd_fee_rate_governor_copy_to(fd_fee_rate_governor_t* to, fd_fee_rate_governor_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
-  unsigned char *enc = fd_alloca( 1, fd_fee_rate_governor_size(from) );
-  void const *   ptr = (void const *) enc;
-  fd_fee_rate_governor_encode( from, &ptr );
-  void *input = (void *) enc;
-  fd_fee_rate_governor_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
-}
 ulong fd_fee_rate_governor_size(fd_fee_rate_governor_t* self) {
   ulong size = 0;
   size += sizeof(ulong);
@@ -278,13 +236,6 @@ void fd_slot_pair_walk(fd_slot_pair_t* self, fd_walk_fun_t fun, const char *name
   fun(&self->slot, "slot", 11, "ulong", level + 1);
   fun(&self->val, "val", 11, "ulong", level + 1);
   fun(self, name, 33, "fd_slot_pair", --level);
-}
-void fd_slot_pair_copy_to(fd_slot_pair_t* to, fd_slot_pair_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
-  unsigned char *enc = fd_alloca( 1, fd_slot_pair_size(from) );
-  void const *   ptr = (void const *) enc;
-  fd_slot_pair_encode( from, &ptr );
-  void *input = (void *) enc;
-  fd_slot_pair_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
 }
 ulong fd_slot_pair_size(fd_slot_pair_t* self) {
   ulong size = 0;
@@ -326,13 +277,6 @@ void fd_hard_forks_walk(fd_hard_forks_t* self, fd_walk_fun_t fun, const char *na
   }
   fun(self, name, 33, "fd_hard_forks", --level);
 }
-void fd_hard_forks_copy_to(fd_hard_forks_t* to, fd_hard_forks_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
-  unsigned char *enc = fd_alloca( 1, fd_hard_forks_size(from) );
-  void const *   ptr = (void const *) enc;
-  fd_hard_forks_encode( from, &ptr );
-  void *input = (void *) enc;
-  fd_hard_forks_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
-}
 ulong fd_hard_forks_size(fd_hard_forks_t* self) {
   ulong size = 0;
   size += sizeof(ulong);
@@ -370,13 +314,6 @@ void fd_inflation_walk(fd_inflation_t* self, fd_walk_fun_t fun, const char *name
   fun(&self->__unused, "__unused", 5, "double", level + 1);
   fun(self, name, 33, "fd_inflation", --level);
 }
-void fd_inflation_copy_to(fd_inflation_t* to, fd_inflation_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
-  unsigned char *enc = fd_alloca( 1, fd_inflation_size(from) );
-  void const *   ptr = (void const *) enc;
-  fd_inflation_encode( from, &ptr );
-  void *input = (void *) enc;
-  fd_inflation_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
-}
 ulong fd_inflation_size(fd_inflation_t* self) {
   ulong size = 0;
   size += sizeof(double);
@@ -412,13 +349,6 @@ void fd_rent_walk(fd_rent_t* self, fd_walk_fun_t fun, const char *name, int leve
   fun(&self->burn_percent, "burn_percent", 9, "uchar", level + 1);
   fun(self, name, 33, "fd_rent", --level);
 }
-void fd_rent_copy_to(fd_rent_t* to, fd_rent_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
-  unsigned char *enc = fd_alloca( 1, fd_rent_size(from) );
-  void const *   ptr = (void const *) enc;
-  fd_rent_encode( from, &ptr );
-  void *input = (void *) enc;
-  fd_rent_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
-}
 ulong fd_rent_size(fd_rent_t* self) {
   ulong size = 0;
   size += sizeof(ulong);
@@ -452,13 +382,6 @@ void fd_rent_collector_walk(fd_rent_collector_t* self, fd_walk_fun_t fun, const 
   fd_rent_walk(&self->rent, fun, "rent", level + 1);
   fun(self, name, 33, "fd_rent_collector", --level);
 }
-void fd_rent_collector_copy_to(fd_rent_collector_t* to, fd_rent_collector_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
-  unsigned char *enc = fd_alloca( 1, fd_rent_collector_size(from) );
-  void const *   ptr = (void const *) enc;
-  fd_rent_collector_encode( from, &ptr );
-  void *input = (void *) enc;
-  fd_rent_collector_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
-}
 ulong fd_rent_collector_size(fd_rent_collector_t* self) {
   ulong size = 0;
   size += sizeof(ulong);
@@ -490,13 +413,6 @@ void fd_stake_history_entry_walk(fd_stake_history_entry_t* self, fd_walk_fun_t f
   fun(&self->deactivating, "deactivating", 11, "ulong", level + 1);
   fun(self, name, 33, "fd_stake_history_entry", --level);
 }
-void fd_stake_history_entry_copy_to(fd_stake_history_entry_t* to, fd_stake_history_entry_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
-  unsigned char *enc = fd_alloca( 1, fd_stake_history_entry_size(from) );
-  void const *   ptr = (void const *) enc;
-  fd_stake_history_entry_encode( from, &ptr );
-  void *input = (void *) enc;
-  fd_stake_history_entry_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
-}
 ulong fd_stake_history_entry_size(fd_stake_history_entry_t* self) {
   ulong size = 0;
   size += sizeof(ulong);
@@ -524,13 +440,6 @@ void fd_stake_history_epochentry_pair_walk(fd_stake_history_epochentry_pair_t* s
   fun(&self->epoch, "epoch", 11, "ulong", level + 1);
   fd_stake_history_entry_walk(&self->entry, fun, "entry", level + 1);
   fun(self, name, 33, "fd_stake_history_epochentry_pair", --level);
-}
-void fd_stake_history_epochentry_pair_copy_to(fd_stake_history_epochentry_pair_t* to, fd_stake_history_epochentry_pair_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
-  unsigned char *enc = fd_alloca( 1, fd_stake_history_epochentry_pair_size(from) );
-  void const *   ptr = (void const *) enc;
-  fd_stake_history_epochentry_pair_encode( from, &ptr );
-  void *input = (void *) enc;
-  fd_stake_history_epochentry_pair_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
 }
 ulong fd_stake_history_epochentry_pair_size(fd_stake_history_epochentry_pair_t* self) {
   ulong size = 0;
@@ -571,13 +480,6 @@ void fd_stake_history_walk(fd_stake_history_t* self, fd_walk_fun_t fun, const ch
     fun(NULL, NULL, 31, "entries", --level);
   }
   fun(self, name, 33, "fd_stake_history", --level);
-}
-void fd_stake_history_copy_to(fd_stake_history_t* to, fd_stake_history_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
-  unsigned char *enc = fd_alloca( 1, fd_stake_history_size(from) );
-  void const *   ptr = (void const *) enc;
-  fd_stake_history_encode( from, &ptr );
-  void *input = (void *) enc;
-  fd_stake_history_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
 }
 ulong fd_stake_history_size(fd_stake_history_t* self) {
   ulong size = 0;
@@ -624,13 +526,6 @@ void fd_solana_account_walk(fd_solana_account_t* self, fd_walk_fun_t fun, const 
   fun(&self->rent_epoch, "rent_epoch", 11, "ulong", level + 1);
   fun(self, name, 33, "fd_solana_account", --level);
 }
-void fd_solana_account_copy_to(fd_solana_account_t* to, fd_solana_account_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
-  unsigned char *enc = fd_alloca( 1, fd_solana_account_size(from) );
-  void const *   ptr = (void const *) enc;
-  fd_solana_account_encode( from, &ptr );
-  void *input = (void *) enc;
-  fd_solana_account_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
-}
 ulong fd_solana_account_size(fd_solana_account_t* self) {
   ulong size = 0;
   size += sizeof(ulong);
@@ -669,13 +564,6 @@ void fd_vote_accounts_pair_walk(fd_vote_accounts_pair_t* self, fd_walk_fun_t fun
   fun(&self->stake, "stake", 11, "ulong", level + 1);
   fd_solana_account_walk(&self->value, fun, "value", level + 1);
   fun(self, name, 33, "fd_vote_accounts_pair", --level);
-}
-void fd_vote_accounts_pair_copy_to(fd_vote_accounts_pair_t* to, fd_vote_accounts_pair_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
-  unsigned char *enc = fd_alloca( 1, fd_vote_accounts_pair_size(from) );
-  void const *   ptr = (void const *) enc;
-  fd_vote_accounts_pair_encode( from, &ptr );
-  void *input = (void *) enc;
-  fd_vote_accounts_pair_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
 }
 ulong fd_vote_accounts_pair_size(fd_vote_accounts_pair_t* self) {
   ulong size = 0;
@@ -719,13 +607,6 @@ void fd_vote_accounts_walk(fd_vote_accounts_t* self, fd_walk_fun_t fun, const ch
   }
   fun(self, name, 33, "fd_vote_accounts", --level);
 }
-void fd_vote_accounts_copy_to(fd_vote_accounts_t* to, fd_vote_accounts_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
-  unsigned char *enc = fd_alloca( 1, fd_vote_accounts_size(from) );
-  void const *   ptr = (void const *) enc;
-  fd_vote_accounts_encode( from, &ptr );
-  void *input = (void *) enc;
-  fd_vote_accounts_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
-}
 ulong fd_vote_accounts_size(fd_vote_accounts_t* self) {
   ulong size = 0;
   size += sizeof(ulong);
@@ -762,13 +643,6 @@ void fd_delegation_walk(fd_delegation_t* self, fd_walk_fun_t fun, const char *na
   fun(&self->warmup_cooldown_rate, "warmup_cooldown_rate", 5, "double", level + 1);
   fun(self, name, 33, "fd_delegation", --level);
 }
-void fd_delegation_copy_to(fd_delegation_t* to, fd_delegation_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
-  unsigned char *enc = fd_alloca( 1, fd_delegation_size(from) );
-  void const *   ptr = (void const *) enc;
-  fd_delegation_encode( from, &ptr );
-  void *input = (void *) enc;
-  fd_delegation_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
-}
 ulong fd_delegation_size(fd_delegation_t* self) {
   ulong size = 0;
   size += fd_pubkey_size(&self->voter_pubkey);
@@ -801,13 +675,6 @@ void fd_delegation_pair_walk(fd_delegation_pair_t* self, fd_walk_fun_t fun, cons
   fd_pubkey_walk(&self->account, fun, "account", level + 1);
   fd_delegation_walk(&self->delegation, fun, "delegation", level + 1);
   fun(self, name, 33, "fd_delegation_pair", --level);
-}
-void fd_delegation_pair_copy_to(fd_delegation_pair_t* to, fd_delegation_pair_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
-  unsigned char *enc = fd_alloca( 1, fd_delegation_pair_size(from) );
-  void const *   ptr = (void const *) enc;
-  fd_delegation_pair_encode( from, &ptr );
-  void *input = (void *) enc;
-  fd_delegation_pair_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
 }
 ulong fd_delegation_pair_size(fd_delegation_pair_t* self) {
   ulong size = 0;
@@ -853,13 +720,6 @@ void fd_stakes_walk(fd_stakes_t* self, fd_walk_fun_t fun, const char *name, int 
   fd_stake_history_walk(&self->stake_history, fun, "stake_history", level + 1);
   fun(self, name, 33, "fd_stakes", --level);
 }
-void fd_stakes_copy_to(fd_stakes_t* to, fd_stakes_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
-  unsigned char *enc = fd_alloca( 1, fd_stakes_size(from) );
-  void const *   ptr = (void const *) enc;
-  fd_stakes_encode( from, &ptr );
-  void *input = (void *) enc;
-  fd_stakes_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
-}
 ulong fd_stakes_size(fd_stakes_t* self) {
   ulong size = 0;
   size += fd_vote_accounts_size(&self->vote_accounts);
@@ -902,13 +762,6 @@ void fd_bank_incremental_snapshot_persistence_walk(fd_bank_incremental_snapshot_
   fd_hash_walk(&self->incremental_hash, fun, "incremental_hash", level + 1);
   fun(&self->incremental_capitalization, "incremental_capitalization", 11, "ulong", level + 1);
   fun(self, name, 33, "fd_bank_incremental_snapshot_persistence", --level);
-}
-void fd_bank_incremental_snapshot_persistence_copy_to(fd_bank_incremental_snapshot_persistence_t* to, fd_bank_incremental_snapshot_persistence_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
-  unsigned char *enc = fd_alloca( 1, fd_bank_incremental_snapshot_persistence_size(from) );
-  void const *   ptr = (void const *) enc;
-  fd_bank_incremental_snapshot_persistence_encode( from, &ptr );
-  void *input = (void *) enc;
-  fd_bank_incremental_snapshot_persistence_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
 }
 ulong fd_bank_incremental_snapshot_persistence_size(fd_bank_incremental_snapshot_persistence_t* self) {
   ulong size = 0;
@@ -958,13 +811,6 @@ void fd_node_vote_accounts_walk(fd_node_vote_accounts_t* self, fd_walk_fun_t fun
   fun(&self->total_stake, "total_stake", 11, "ulong", level + 1);
   fun(self, name, 33, "fd_node_vote_accounts", --level);
 }
-void fd_node_vote_accounts_copy_to(fd_node_vote_accounts_t* to, fd_node_vote_accounts_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
-  unsigned char *enc = fd_alloca( 1, fd_node_vote_accounts_size(from) );
-  void const *   ptr = (void const *) enc;
-  fd_node_vote_accounts_encode( from, &ptr );
-  void *input = (void *) enc;
-  fd_node_vote_accounts_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
-}
 ulong fd_node_vote_accounts_size(fd_node_vote_accounts_t* self) {
   ulong size = 0;
   size += sizeof(ulong);
@@ -998,13 +844,6 @@ void fd_pubkey_node_vote_accounts_pair_walk(fd_pubkey_node_vote_accounts_pair_t*
   fd_node_vote_accounts_walk(&self->value, fun, "value", level + 1);
   fun(self, name, 33, "fd_pubkey_node_vote_accounts_pair", --level);
 }
-void fd_pubkey_node_vote_accounts_pair_copy_to(fd_pubkey_node_vote_accounts_pair_t* to, fd_pubkey_node_vote_accounts_pair_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
-  unsigned char *enc = fd_alloca( 1, fd_pubkey_node_vote_accounts_pair_size(from) );
-  void const *   ptr = (void const *) enc;
-  fd_pubkey_node_vote_accounts_pair_encode( from, &ptr );
-  void *input = (void *) enc;
-  fd_pubkey_node_vote_accounts_pair_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
-}
 ulong fd_pubkey_node_vote_accounts_pair_size(fd_pubkey_node_vote_accounts_pair_t* self) {
   ulong size = 0;
   size += fd_pubkey_size(&self->key);
@@ -1031,13 +870,6 @@ void fd_pubkey_pubkey_pair_walk(fd_pubkey_pubkey_pair_t* self, fd_walk_fun_t fun
   fd_pubkey_walk(&self->key, fun, "key", level + 1);
   fd_pubkey_walk(&self->value, fun, "value", level + 1);
   fun(self, name, 33, "fd_pubkey_pubkey_pair", --level);
-}
-void fd_pubkey_pubkey_pair_copy_to(fd_pubkey_pubkey_pair_t* to, fd_pubkey_pubkey_pair_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
-  unsigned char *enc = fd_alloca( 1, fd_pubkey_pubkey_pair_size(from) );
-  void const *   ptr = (void const *) enc;
-  fd_pubkey_pubkey_pair_encode( from, &ptr );
-  void *input = (void *) enc;
-  fd_pubkey_pubkey_pair_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
 }
 ulong fd_pubkey_pubkey_pair_size(fd_pubkey_pubkey_pair_t* self) {
   ulong size = 0;
@@ -1103,13 +935,6 @@ void fd_epoch_stakes_walk(fd_epoch_stakes_t* self, fd_walk_fun_t fun, const char
   }
   fun(self, name, 33, "fd_epoch_stakes", --level);
 }
-void fd_epoch_stakes_copy_to(fd_epoch_stakes_t* to, fd_epoch_stakes_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
-  unsigned char *enc = fd_alloca( 1, fd_epoch_stakes_size(from) );
-  void const *   ptr = (void const *) enc;
-  fd_epoch_stakes_encode( from, &ptr );
-  void *input = (void *) enc;
-  fd_epoch_stakes_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
-}
 ulong fd_epoch_stakes_size(fd_epoch_stakes_t* self) {
   ulong size = 0;
   size += fd_stakes_size(&self->stakes);
@@ -1152,13 +977,6 @@ void fd_epoch_epoch_stakes_pair_walk(fd_epoch_epoch_stakes_pair_t* self, fd_walk
   fd_epoch_stakes_walk(&self->value, fun, "value", level + 1);
   fun(self, name, 33, "fd_epoch_epoch_stakes_pair", --level);
 }
-void fd_epoch_epoch_stakes_pair_copy_to(fd_epoch_epoch_stakes_pair_t* to, fd_epoch_epoch_stakes_pair_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
-  unsigned char *enc = fd_alloca( 1, fd_epoch_epoch_stakes_pair_size(from) );
-  void const *   ptr = (void const *) enc;
-  fd_epoch_epoch_stakes_pair_encode( from, &ptr );
-  void *input = (void *) enc;
-  fd_epoch_epoch_stakes_pair_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
-}
 ulong fd_epoch_epoch_stakes_pair_size(fd_epoch_epoch_stakes_pair_t* self) {
   ulong size = 0;
   size += sizeof(ulong);
@@ -1184,13 +1002,6 @@ void fd_pubkey_u64_pair_walk(fd_pubkey_u64_pair_t* self, fd_walk_fun_t fun, cons
   fd_pubkey_walk(&self->_0, fun, "_0", level + 1);
   fun(&self->_1, "_1", 11, "ulong", level + 1);
   fun(self, name, 33, "fd_pubkey_u64_pair", --level);
-}
-void fd_pubkey_u64_pair_copy_to(fd_pubkey_u64_pair_t* to, fd_pubkey_u64_pair_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
-  unsigned char *enc = fd_alloca( 1, fd_pubkey_u64_pair_size(from) );
-  void const *   ptr = (void const *) enc;
-  fd_pubkey_u64_pair_encode( from, &ptr );
-  void *input = (void *) enc;
-  fd_pubkey_u64_pair_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
 }
 ulong fd_pubkey_u64_pair_size(fd_pubkey_u64_pair_t* self) {
   ulong size = 0;
@@ -1269,13 +1080,6 @@ void fd_unused_accounts_walk(fd_unused_accounts_t* self, fd_walk_fun_t fun, cons
     fun(NULL, NULL, 31, "unused3", --level);
   }
   fun(self, name, 33, "fd_unused_accounts", --level);
-}
-void fd_unused_accounts_copy_to(fd_unused_accounts_t* to, fd_unused_accounts_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
-  unsigned char *enc = fd_alloca( 1, fd_unused_accounts_size(from) );
-  void const *   ptr = (void const *) enc;
-  fd_unused_accounts_encode( from, &ptr );
-  void *input = (void *) enc;
-  fd_unused_accounts_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
 }
 ulong fd_unused_accounts_size(fd_unused_accounts_t* self) {
   ulong size = 0;
@@ -1436,13 +1240,6 @@ void fd_deserializable_versioned_bank_walk(fd_deserializable_versioned_bank_t* s
   fun(&self->is_delta, "is_delta", 1, "char", level + 1);
   fun(self, name, 33, "fd_deserializable_versioned_bank", --level);
 }
-void fd_deserializable_versioned_bank_copy_to(fd_deserializable_versioned_bank_t* to, fd_deserializable_versioned_bank_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
-  unsigned char *enc = fd_alloca( 1, fd_deserializable_versioned_bank_size(from) );
-  void const *   ptr = (void const *) enc;
-  fd_deserializable_versioned_bank_encode( from, &ptr );
-  void *input = (void *) enc;
-  fd_deserializable_versioned_bank_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
-}
 ulong fd_deserializable_versioned_bank_size(fd_deserializable_versioned_bank_t* self) {
   ulong size = 0;
   size += fd_block_hash_queue_size(&self->blockhash_queue);
@@ -1547,13 +1344,6 @@ void fd_serializable_account_storage_entry_walk(fd_serializable_account_storage_
   fun(&self->accounts_current_len, "accounts_current_len", 11, "ulong", level + 1);
   fun(self, name, 33, "fd_serializable_account_storage_entry", --level);
 }
-void fd_serializable_account_storage_entry_copy_to(fd_serializable_account_storage_entry_t* to, fd_serializable_account_storage_entry_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
-  unsigned char *enc = fd_alloca( 1, fd_serializable_account_storage_entry_size(from) );
-  void const *   ptr = (void const *) enc;
-  fd_serializable_account_storage_entry_encode( from, &ptr );
-  void *input = (void *) enc;
-  fd_serializable_account_storage_entry_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
-}
 ulong fd_serializable_account_storage_entry_size(fd_serializable_account_storage_entry_t* self) {
   ulong size = 0;
   size += sizeof(ulong);
@@ -1584,13 +1374,6 @@ void fd_bank_hash_stats_walk(fd_bank_hash_stats_t* self, fd_walk_fun_t fun, cons
   fun(&self->total_data_len, "total_data_len", 11, "ulong", level + 1);
   fun(&self->num_executable_accounts, "num_executable_accounts", 11, "ulong", level + 1);
   fun(self, name, 33, "fd_bank_hash_stats", --level);
-}
-void fd_bank_hash_stats_copy_to(fd_bank_hash_stats_t* to, fd_bank_hash_stats_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
-  unsigned char *enc = fd_alloca( 1, fd_bank_hash_stats_size(from) );
-  void const *   ptr = (void const *) enc;
-  fd_bank_hash_stats_encode( from, &ptr );
-  void *input = (void *) enc;
-  fd_bank_hash_stats_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
 }
 ulong fd_bank_hash_stats_size(fd_bank_hash_stats_t* self) {
   ulong size = 0;
@@ -1627,13 +1410,6 @@ void fd_bank_hash_info_walk(fd_bank_hash_info_t* self, fd_walk_fun_t fun, const 
   fd_hash_walk(&self->snapshot_hash, fun, "snapshot_hash", level + 1);
   fd_bank_hash_stats_walk(&self->stats, fun, "stats", level + 1);
   fun(self, name, 33, "fd_bank_hash_info", --level);
-}
-void fd_bank_hash_info_copy_to(fd_bank_hash_info_t* to, fd_bank_hash_info_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
-  unsigned char *enc = fd_alloca( 1, fd_bank_hash_info_size(from) );
-  void const *   ptr = (void const *) enc;
-  fd_bank_hash_info_encode( from, &ptr );
-  void *input = (void *) enc;
-  fd_bank_hash_info_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
 }
 ulong fd_bank_hash_info_size(fd_bank_hash_info_t* self) {
   ulong size = 0;
@@ -1677,13 +1453,6 @@ void fd_slot_account_pair_walk(fd_slot_account_pair_t* self, fd_walk_fun_t fun, 
   //fun(&self->accounts, "accounts", 17, "map");
   fun(self, name, 33, "fd_slot_account_pair", --level);
 }
-void fd_slot_account_pair_copy_to(fd_slot_account_pair_t* to, fd_slot_account_pair_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
-  unsigned char *enc = fd_alloca( 1, fd_slot_account_pair_size(from) );
-  void const *   ptr = (void const *) enc;
-  fd_slot_account_pair_encode( from, &ptr );
-  void *input = (void *) enc;
-  fd_slot_account_pair_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
-}
 ulong fd_slot_account_pair_size(fd_slot_account_pair_t* self) {
   ulong size = 0;
   size += sizeof(ulong);
@@ -1716,13 +1485,6 @@ void fd_slot_map_pair_walk(fd_slot_map_pair_t* self, fd_walk_fun_t fun, const ch
   fun(&self->slot, "slot", 11, "ulong", level + 1);
   fd_hash_walk(&self->hash, fun, "hash", level + 1);
   fun(self, name, 33, "fd_slot_map_pair", --level);
-}
-void fd_slot_map_pair_copy_to(fd_slot_map_pair_t* to, fd_slot_map_pair_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
-  unsigned char *enc = fd_alloca( 1, fd_slot_map_pair_size(from) );
-  void const *   ptr = (void const *) enc;
-  fd_slot_map_pair_encode( from, &ptr );
-  void *input = (void *) enc;
-  fd_slot_map_pair_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
 }
 ulong fd_slot_map_pair_size(fd_slot_map_pair_t* self) {
   ulong size = 0;
@@ -1805,13 +1567,6 @@ void fd_solana_accounts_db_fields_walk(fd_solana_accounts_db_fields_t* self, fd_
   }
   fun(self, name, 33, "fd_solana_accounts_db_fields", --level);
 }
-void fd_solana_accounts_db_fields_copy_to(fd_solana_accounts_db_fields_t* to, fd_solana_accounts_db_fields_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
-  unsigned char *enc = fd_alloca( 1, fd_solana_accounts_db_fields_size(from) );
-  void const *   ptr = (void const *) enc;
-  fd_solana_accounts_db_fields_encode( from, &ptr );
-  void *input = (void *) enc;
-  fd_solana_accounts_db_fields_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
-}
 ulong fd_solana_accounts_db_fields_size(fd_solana_accounts_db_fields_t* self) {
   ulong size = 0;
   size += sizeof(ulong);
@@ -1867,13 +1622,6 @@ void fd_solana_manifest_walk(fd_solana_manifest_t* self, fd_walk_fun_t fun, cons
   fun(&self->lamports_per_signature, "lamports_per_signature", 11, "ulong", level + 1);
   fun(self, name, 33, "fd_solana_manifest", --level);
 }
-void fd_solana_manifest_copy_to(fd_solana_manifest_t* to, fd_solana_manifest_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
-  unsigned char *enc = fd_alloca( 1, fd_solana_manifest_size(from) );
-  void const *   ptr = (void const *) enc;
-  fd_solana_manifest_encode( from, &ptr );
-  void *input = (void *) enc;
-  fd_solana_manifest_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
-}
 ulong fd_solana_manifest_size(fd_solana_manifest_t* self) {
   ulong size = 0;
   size += fd_deserializable_versioned_bank_size(&self->bank);
@@ -1900,13 +1648,6 @@ void fd_rust_duration_walk(fd_rust_duration_t* self, fd_walk_fun_t fun, const ch
   fun(&self->seconds, "seconds", 11, "ulong", level + 1);
   fun(&self->nanoseconds, "nanoseconds", 7, "uint", level + 1);
   fun(self, name, 33, "fd_rust_duration", --level);
-}
-void fd_rust_duration_copy_to(fd_rust_duration_t* to, fd_rust_duration_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
-  unsigned char *enc = fd_alloca( 1, fd_rust_duration_size(from) );
-  void const *   ptr = (void const *) enc;
-  fd_rust_duration_encode( from, &ptr );
-  void *input = (void *) enc;
-  fd_rust_duration_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
 }
 ulong fd_rust_duration_size(fd_rust_duration_t* self) {
   ulong size = 0;
@@ -1951,13 +1692,6 @@ void fd_poh_config_walk(fd_poh_config_t* self, fd_walk_fun_t fun, const char *na
   fun(self->target_tick_count, "target_tick_count", 11, "ulong", level + 1);
   fun(self->hashes_per_tick, "hashes_per_tick", 11, "ulong", level + 1);
   fun(self, name, 33, "fd_poh_config", --level);
-}
-void fd_poh_config_copy_to(fd_poh_config_t* to, fd_poh_config_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
-  unsigned char *enc = fd_alloca( 1, fd_poh_config_size(from) );
-  void const *   ptr = (void const *) enc;
-  fd_poh_config_encode( from, &ptr );
-  void *input = (void *) enc;
-  fd_poh_config_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
 }
 ulong fd_poh_config_size(fd_poh_config_t* self) {
   ulong size = 0;
@@ -2009,13 +1743,6 @@ void fd_string_pubkey_pair_walk(fd_string_pubkey_pair_t* self, fd_walk_fun_t fun
   fd_pubkey_walk(&self->pubkey, fun, "pubkey", level + 1);
   fun(self, name, 33, "fd_string_pubkey_pair", --level);
 }
-void fd_string_pubkey_pair_copy_to(fd_string_pubkey_pair_t* to, fd_string_pubkey_pair_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
-  unsigned char *enc = fd_alloca( 1, fd_string_pubkey_pair_size(from) );
-  void const *   ptr = (void const *) enc;
-  fd_string_pubkey_pair_encode( from, &ptr );
-  void *input = (void *) enc;
-  fd_string_pubkey_pair_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
-}
 ulong fd_string_pubkey_pair_size(fd_string_pubkey_pair_t* self) {
   ulong size = 0;
   size += sizeof(ulong) + strlen(self->string);
@@ -2044,13 +1771,6 @@ void fd_pubkey_account_pair_walk(fd_pubkey_account_pair_t* self, fd_walk_fun_t f
   fd_pubkey_walk(&self->key, fun, "key", level + 1);
   fd_solana_account_walk(&self->account, fun, "account", level + 1);
   fun(self, name, 33, "fd_pubkey_account_pair", --level);
-}
-void fd_pubkey_account_pair_copy_to(fd_pubkey_account_pair_t* to, fd_pubkey_account_pair_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
-  unsigned char *enc = fd_alloca( 1, fd_pubkey_account_pair_size(from) );
-  void const *   ptr = (void const *) enc;
-  fd_pubkey_account_pair_encode( from, &ptr );
-  void *input = (void *) enc;
-  fd_pubkey_account_pair_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
 }
 ulong fd_pubkey_account_pair_size(fd_pubkey_account_pair_t* self) {
   ulong size = 0;
@@ -2155,13 +1875,6 @@ void fd_genesis_solana_walk(fd_genesis_solana_t* self, fd_walk_fun_t fun, const 
   fun(&self->cluster_type, "cluster_type", 7, "uint", level + 1);
   fun(self, name, 33, "fd_genesis_solana", --level);
 }
-void fd_genesis_solana_copy_to(fd_genesis_solana_t* to, fd_genesis_solana_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
-  unsigned char *enc = fd_alloca( 1, fd_genesis_solana_size(from) );
-  void const *   ptr = (void const *) enc;
-  fd_genesis_solana_encode( from, &ptr );
-  void *input = (void *) enc;
-  fd_genesis_solana_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
-}
 ulong fd_genesis_solana_size(fd_genesis_solana_t* self) {
   ulong size = 0;
   size += sizeof(ulong);
@@ -2237,13 +1950,6 @@ void fd_secp256k1_signature_offsets_walk(fd_secp256k1_signature_offsets_t* self,
   fun(&self->message_instruction_index, "message_instruction_index", 9, "uchar", level + 1);
   fun(self, name, 33, "fd_secp256k1_signature_offsets", --level);
 }
-void fd_secp256k1_signature_offsets_copy_to(fd_secp256k1_signature_offsets_t* to, fd_secp256k1_signature_offsets_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
-  unsigned char *enc = fd_alloca( 1, fd_secp256k1_signature_offsets_size(from) );
-  void const *   ptr = (void const *) enc;
-  fd_secp256k1_signature_offsets_encode( from, &ptr );
-  void *input = (void *) enc;
-  fd_secp256k1_signature_offsets_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
-}
 ulong fd_secp256k1_signature_offsets_size(fd_secp256k1_signature_offsets_t* self) {
   ulong size = 0;
   size += sizeof(ushort);
@@ -2285,13 +1991,6 @@ void fd_sol_sysvar_clock_walk(fd_sol_sysvar_clock_t* self, fd_walk_fun_t fun, co
   fun(&self->unix_timestamp, "unix_timestamp", 6, "long", level + 1);
   fun(self, name, 33, "fd_sol_sysvar_clock", --level);
 }
-void fd_sol_sysvar_clock_copy_to(fd_sol_sysvar_clock_t* to, fd_sol_sysvar_clock_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
-  unsigned char *enc = fd_alloca( 1, fd_sol_sysvar_clock_size(from) );
-  void const *   ptr = (void const *) enc;
-  fd_sol_sysvar_clock_encode( from, &ptr );
-  void *input = (void *) enc;
-  fd_sol_sysvar_clock_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
-}
 ulong fd_sol_sysvar_clock_size(fd_sol_sysvar_clock_t* self) {
   ulong size = 0;
   size += sizeof(ulong);
@@ -2323,13 +2022,6 @@ void fd_vote_lockout_walk(fd_vote_lockout_t* self, fd_walk_fun_t fun, const char
   fun(&self->confirmation_count, "confirmation_count", 7, "uint", level + 1);
   fun(self, name, 33, "fd_vote_lockout", --level);
 }
-void fd_vote_lockout_copy_to(fd_vote_lockout_t* to, fd_vote_lockout_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
-  unsigned char *enc = fd_alloca( 1, fd_vote_lockout_size(from) );
-  void const *   ptr = (void const *) enc;
-  fd_vote_lockout_encode( from, &ptr );
-  void *input = (void *) enc;
-  fd_vote_lockout_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
-}
 ulong fd_vote_lockout_size(fd_vote_lockout_t* self) {
   ulong size = 0;
   size += sizeof(ulong);
@@ -2354,13 +2046,6 @@ void fd_compact_vote_lockout_walk(fd_compact_vote_lockout_t* self, fd_walk_fun_t
   fun(&self->slot, "slot", 11, "ulong", level + 1);
   fun(&self->confirmation_count, "confirmation_count", 9, "uchar", level + 1);
   fun(self, name, 33, "fd_compact_vote_lockout", --level);
-}
-void fd_compact_vote_lockout_copy_to(fd_compact_vote_lockout_t* to, fd_compact_vote_lockout_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
-  unsigned char *enc = fd_alloca( 1, fd_compact_vote_lockout_size(from) );
-  void const *   ptr = (void const *) enc;
-  fd_compact_vote_lockout_encode( from, &ptr );
-  void *input = (void *) enc;
-  fd_compact_vote_lockout_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
 }
 ulong fd_compact_vote_lockout_size(fd_compact_vote_lockout_t* self) {
   ulong size = 0;
@@ -2387,13 +2072,6 @@ void fd_vote_authorized_voter_walk(fd_vote_authorized_voter_t* self, fd_walk_fun
   fun(&self->epoch, "epoch", 11, "ulong", level + 1);
   fd_pubkey_walk(&self->pubkey, fun, "pubkey", level + 1);
   fun(self, name, 33, "fd_vote_authorized_voter", --level);
-}
-void fd_vote_authorized_voter_copy_to(fd_vote_authorized_voter_t* to, fd_vote_authorized_voter_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
-  unsigned char *enc = fd_alloca( 1, fd_vote_authorized_voter_size(from) );
-  void const *   ptr = (void const *) enc;
-  fd_vote_authorized_voter_encode( from, &ptr );
-  void *input = (void *) enc;
-  fd_vote_authorized_voter_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
 }
 ulong fd_vote_authorized_voter_size(fd_vote_authorized_voter_t* self) {
   ulong size = 0;
@@ -2422,13 +2100,6 @@ void fd_vote_prior_voter_walk(fd_vote_prior_voter_t* self, fd_walk_fun_t fun, co
   fun(&self->epoch_start, "epoch_start", 11, "ulong", level + 1);
   fun(&self->epoch_end, "epoch_end", 11, "ulong", level + 1);
   fun(self, name, 33, "fd_vote_prior_voter", --level);
-}
-void fd_vote_prior_voter_copy_to(fd_vote_prior_voter_t* to, fd_vote_prior_voter_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
-  unsigned char *enc = fd_alloca( 1, fd_vote_prior_voter_size(from) );
-  void const *   ptr = (void const *) enc;
-  fd_vote_prior_voter_encode( from, &ptr );
-  void *input = (void *) enc;
-  fd_vote_prior_voter_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
 }
 ulong fd_vote_prior_voter_size(fd_vote_prior_voter_t* self) {
   ulong size = 0;
@@ -2462,13 +2133,6 @@ void fd_vote_prior_voter_0_23_5_walk(fd_vote_prior_voter_0_23_5_t* self, fd_walk
   fun(&self->slot, "slot", 11, "ulong", level + 1);
   fun(self, name, 33, "fd_vote_prior_voter_0_23_5", --level);
 }
-void fd_vote_prior_voter_0_23_5_copy_to(fd_vote_prior_voter_0_23_5_t* to, fd_vote_prior_voter_0_23_5_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
-  unsigned char *enc = fd_alloca( 1, fd_vote_prior_voter_0_23_5_size(from) );
-  void const *   ptr = (void const *) enc;
-  fd_vote_prior_voter_0_23_5_encode( from, &ptr );
-  void *input = (void *) enc;
-  fd_vote_prior_voter_0_23_5_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
-}
 ulong fd_vote_prior_voter_0_23_5_size(fd_vote_prior_voter_0_23_5_t* self) {
   ulong size = 0;
   size += fd_pubkey_size(&self->pubkey);
@@ -2500,13 +2164,6 @@ void fd_vote_epoch_credits_walk(fd_vote_epoch_credits_t* self, fd_walk_fun_t fun
   fun(&self->prev_credits, "prev_credits", 11, "ulong", level + 1);
   fun(self, name, 33, "fd_vote_epoch_credits", --level);
 }
-void fd_vote_epoch_credits_copy_to(fd_vote_epoch_credits_t* to, fd_vote_epoch_credits_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
-  unsigned char *enc = fd_alloca( 1, fd_vote_epoch_credits_size(from) );
-  void const *   ptr = (void const *) enc;
-  fd_vote_epoch_credits_encode( from, &ptr );
-  void *input = (void *) enc;
-  fd_vote_epoch_credits_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
-}
 ulong fd_vote_epoch_credits_size(fd_vote_epoch_credits_t* self) {
   ulong size = 0;
   size += sizeof(ulong);
@@ -2535,13 +2192,6 @@ void fd_vote_historical_authorized_voter_walk(fd_vote_historical_authorized_vote
   fd_pubkey_walk(&self->pubkey, fun, "pubkey", level + 1);
   fun(self, name, 33, "fd_vote_historical_authorized_voter", --level);
 }
-void fd_vote_historical_authorized_voter_copy_to(fd_vote_historical_authorized_voter_t* to, fd_vote_historical_authorized_voter_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
-  unsigned char *enc = fd_alloca( 1, fd_vote_historical_authorized_voter_size(from) );
-  void const *   ptr = (void const *) enc;
-  fd_vote_historical_authorized_voter_encode( from, &ptr );
-  void *input = (void *) enc;
-  fd_vote_historical_authorized_voter_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
-}
 ulong fd_vote_historical_authorized_voter_size(fd_vote_historical_authorized_voter_t* self) {
   ulong size = 0;
   size += sizeof(ulong);
@@ -2566,13 +2216,6 @@ void fd_vote_block_timestamp_walk(fd_vote_block_timestamp_t* self, fd_walk_fun_t
   fun(&self->slot, "slot", 11, "ulong", level + 1);
   fun(&self->timestamp, "timestamp", 11, "ulong", level + 1);
   fun(self, name, 33, "fd_vote_block_timestamp", --level);
-}
-void fd_vote_block_timestamp_copy_to(fd_vote_block_timestamp_t* to, fd_vote_block_timestamp_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
-  unsigned char *enc = fd_alloca( 1, fd_vote_block_timestamp_size(from) );
-  void const *   ptr = (void const *) enc;
-  fd_vote_block_timestamp_encode( from, &ptr );
-  void *input = (void *) enc;
-  fd_vote_block_timestamp_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
 }
 ulong fd_vote_block_timestamp_size(fd_vote_block_timestamp_t* self) {
   ulong size = 0;
@@ -2608,13 +2251,6 @@ void fd_vote_prior_voters_walk(fd_vote_prior_voters_t* self, fd_walk_fun_t fun, 
   fun(&self->idx, "idx", 11, "ulong", level + 1);
   fun(&self->is_empty, "is_empty", 9, "uchar", level + 1);
   fun(self, name, 33, "fd_vote_prior_voters", --level);
-}
-void fd_vote_prior_voters_copy_to(fd_vote_prior_voters_t* to, fd_vote_prior_voters_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
-  unsigned char *enc = fd_alloca( 1, fd_vote_prior_voters_size(from) );
-  void const *   ptr = (void const *) enc;
-  fd_vote_prior_voters_encode( from, &ptr );
-  void *input = (void *) enc;
-  fd_vote_prior_voters_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
 }
 ulong fd_vote_prior_voters_size(fd_vote_prior_voters_t* self) {
   ulong size = 0;
@@ -2654,13 +2290,6 @@ void fd_vote_prior_voters_0_23_5_walk(fd_vote_prior_voters_0_23_5_t* self, fd_wa
   fun(&self->idx, "idx", 11, "ulong", level + 1);
   fun(&self->is_empty, "is_empty", 9, "uchar", level + 1);
   fun(self, name, 33, "fd_vote_prior_voters_0_23_5", --level);
-}
-void fd_vote_prior_voters_0_23_5_copy_to(fd_vote_prior_voters_0_23_5_t* to, fd_vote_prior_voters_0_23_5_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
-  unsigned char *enc = fd_alloca( 1, fd_vote_prior_voters_0_23_5_size(from) );
-  void const *   ptr = (void const *) enc;
-  fd_vote_prior_voters_0_23_5_encode( from, &ptr );
-  void *input = (void *) enc;
-  fd_vote_prior_voters_0_23_5_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
 }
 ulong fd_vote_prior_voters_0_23_5_size(fd_vote_prior_voters_0_23_5_t* self) {
   ulong size = 0;
@@ -2741,13 +2370,6 @@ void fd_vote_state_0_23_5_walk(fd_vote_state_0_23_5_t* self, fd_walk_fun_t fun, 
   fun(NULL, NULL, 31, "epoch_credits", --level);
   fd_vote_block_timestamp_walk(&self->latest_timestamp, fun, "latest_timestamp", level + 1);
   fun(self, name, 33, "fd_vote_state_0_23_5", --level);
-}
-void fd_vote_state_0_23_5_copy_to(fd_vote_state_0_23_5_t* to, fd_vote_state_0_23_5_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
-  unsigned char *enc = fd_alloca( 1, fd_vote_state_0_23_5_size(from) );
-  void const *   ptr = (void const *) enc;
-  fd_vote_state_0_23_5_encode( from, &ptr );
-  void *input = (void *) enc;
-  fd_vote_state_0_23_5_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
 }
 ulong fd_vote_state_0_23_5_size(fd_vote_state_0_23_5_t* self) {
   ulong size = 0;
@@ -2864,13 +2486,6 @@ void fd_vote_state_walk(fd_vote_state_t* self, fd_walk_fun_t fun, const char *na
   fd_vote_block_timestamp_walk(&self->latest_timestamp, fun, "latest_timestamp", level + 1);
   fun(self, name, 33, "fd_vote_state", --level);
 }
-void fd_vote_state_copy_to(fd_vote_state_t* to, fd_vote_state_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
-  unsigned char *enc = fd_alloca( 1, fd_vote_state_size(from) );
-  void const *   ptr = (void const *) enc;
-  fd_vote_state_encode( from, &ptr );
-  void *input = (void *) enc;
-  fd_vote_state_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
-}
 ulong fd_vote_state_size(fd_vote_state_t* self) {
   ulong size = 0;
   size += fd_pubkey_size(&self->voting_node);
@@ -2961,13 +2576,6 @@ void fd_vote_state_versioned_walk(fd_vote_state_versioned_t* self, fd_walk_fun_t
   // enum fd_vote_block_timestamp_walk(&self->latest_timestamp, fun, "latest_timestamp", level + 1);
   fun(self, name, 33, "fd_vote_state_versioned", --level);
 }
-void fd_vote_state_versioned_copy_to(fd_vote_state_versioned_t* to, fd_vote_state_versioned_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
-  unsigned char *enc = fd_alloca( 1, fd_vote_state_versioned_size(from) );
-  void const *   ptr = (void const *) enc;
-  fd_vote_state_versioned_encode( from, &ptr );
-  void *input = (void *) enc;
-  fd_vote_state_versioned_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
-}
 ulong fd_vote_state_versioned_size(fd_vote_state_versioned_t* self) {
   ulong size = 0;
   size += sizeof(uint);
@@ -3052,13 +2660,6 @@ void fd_vote_state_update_walk(fd_vote_state_update_t* self, fd_walk_fun_t fun, 
   fun(self->timestamp, "timestamp", 11, "ulong", level + 1);
   fun(self, name, 33, "fd_vote_state_update", --level);
 }
-void fd_vote_state_update_copy_to(fd_vote_state_update_t* to, fd_vote_state_update_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
-  unsigned char *enc = fd_alloca( 1, fd_vote_state_update_size(from) );
-  void const *   ptr = (void const *) enc;
-  fd_vote_state_update_encode( from, &ptr );
-  void *input = (void *) enc;
-  fd_vote_state_update_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
-}
 ulong fd_vote_state_update_size(fd_vote_state_update_t* self) {
   ulong size = 0;
   size += sizeof(ulong);
@@ -3138,13 +2739,6 @@ void fd_compact_vote_state_update_walk(fd_compact_vote_state_update_t* self, fd_
   fun(self->timestamp, "timestamp", 11, "ulong", level + 1);
   fun(self, name, 33, "fd_compact_vote_state_update", --level);
 }
-void fd_compact_vote_state_update_copy_to(fd_compact_vote_state_update_t* to, fd_compact_vote_state_update_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
-  unsigned char *enc = fd_alloca( 1, fd_compact_vote_state_update_size(from) );
-  void const *   ptr = (void const *) enc;
-  fd_compact_vote_state_update_encode( from, &ptr );
-  void *input = (void *) enc;
-  fd_compact_vote_state_update_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
-}
 ulong fd_compact_vote_state_update_size(fd_compact_vote_state_update_t* self) {
   ulong size = 0;
   size += sizeof(ulong);
@@ -3200,13 +2794,6 @@ void fd_slot_history_inner_walk(fd_slot_history_inner_t* self, fd_walk_fun_t fun
   }
   fun(self, name, 33, "fd_slot_history_inner", --level);
 }
-void fd_slot_history_inner_copy_to(fd_slot_history_inner_t* to, fd_slot_history_inner_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
-  unsigned char *enc = fd_alloca( 1, fd_slot_history_inner_size(from) );
-  void const *   ptr = (void const *) enc;
-  fd_slot_history_inner_encode( from, &ptr );
-  void *input = (void *) enc;
-  fd_slot_history_inner_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
-}
 ulong fd_slot_history_inner_size(fd_slot_history_inner_t* self) {
   ulong size = 0;
   size += sizeof(ulong);
@@ -3244,13 +2831,6 @@ void fd_slot_history_bitvec_walk(fd_slot_history_bitvec_t* self, fd_walk_fun_t f
   fun(&self->len, "len", 11, "ulong", level + 1);
   fun(self, name, 33, "fd_slot_history_bitvec", --level);
 }
-void fd_slot_history_bitvec_copy_to(fd_slot_history_bitvec_t* to, fd_slot_history_bitvec_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
-  unsigned char *enc = fd_alloca( 1, fd_slot_history_bitvec_size(from) );
-  void const *   ptr = (void const *) enc;
-  fd_slot_history_bitvec_encode( from, &ptr );
-  void *input = (void *) enc;
-  fd_slot_history_bitvec_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
-}
 ulong fd_slot_history_bitvec_size(fd_slot_history_bitvec_t* self) {
   ulong size = 0;
   size += sizeof(char);
@@ -3284,13 +2864,6 @@ void fd_slot_history_walk(fd_slot_history_t* self, fd_walk_fun_t fun, const char
   fun(&self->next_slot, "next_slot", 11, "ulong", level + 1);
   fun(self, name, 33, "fd_slot_history", --level);
 }
-void fd_slot_history_copy_to(fd_slot_history_t* to, fd_slot_history_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
-  unsigned char *enc = fd_alloca( 1, fd_slot_history_size(from) );
-  void const *   ptr = (void const *) enc;
-  fd_slot_history_encode( from, &ptr );
-  void *input = (void *) enc;
-  fd_slot_history_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
-}
 ulong fd_slot_history_size(fd_slot_history_t* self) {
   ulong size = 0;
   size += fd_slot_history_bitvec_size(&self->bits);
@@ -3316,13 +2889,6 @@ void fd_slot_hash_walk(fd_slot_hash_t* self, fd_walk_fun_t fun, const char *name
   fun(&self->slot, "slot", 11, "ulong", level + 1);
   fd_hash_walk(&self->hash, fun, "hash", level + 1);
   fun(self, name, 33, "fd_slot_hash", --level);
-}
-void fd_slot_hash_copy_to(fd_slot_hash_t* to, fd_slot_hash_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
-  unsigned char *enc = fd_alloca( 1, fd_slot_hash_size(from) );
-  void const *   ptr = (void const *) enc;
-  fd_slot_hash_encode( from, &ptr );
-  void *input = (void *) enc;
-  fd_slot_hash_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
 }
 ulong fd_slot_hash_size(fd_slot_hash_t* self) {
   ulong size = 0;
@@ -3358,13 +2924,6 @@ void fd_slot_hashes_walk(fd_slot_hashes_t* self, fd_walk_fun_t fun, const char *
   fun(NULL, NULL, 31, "hashes", --level);
   fun(self, name, 33, "fd_slot_hashes", --level);
 }
-void fd_slot_hashes_copy_to(fd_slot_hashes_t* to, fd_slot_hashes_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
-  unsigned char *enc = fd_alloca( 1, fd_slot_hashes_size(from) );
-  void const *   ptr = (void const *) enc;
-  fd_slot_hashes_encode( from, &ptr );
-  void *input = (void *) enc;
-  fd_slot_hashes_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
-}
 ulong fd_slot_hashes_size(fd_slot_hashes_t* self) {
   ulong size = 0;
   size += sizeof(ulong);
@@ -3393,13 +2952,6 @@ void fd_block_block_hash_entry_walk(fd_block_block_hash_entry_t* self, fd_walk_f
   fd_hash_walk(&self->blockhash, fun, "blockhash", level + 1);
   fd_fee_calculator_walk(&self->fee_calculator, fun, "fee_calculator", level + 1);
   fun(self, name, 33, "fd_block_block_hash_entry", --level);
-}
-void fd_block_block_hash_entry_copy_to(fd_block_block_hash_entry_t* to, fd_block_block_hash_entry_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
-  unsigned char *enc = fd_alloca( 1, fd_block_block_hash_entry_size(from) );
-  void const *   ptr = (void const *) enc;
-  fd_block_block_hash_entry_encode( from, &ptr );
-  void *input = (void *) enc;
-  fd_block_block_hash_entry_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
 }
 ulong fd_block_block_hash_entry_size(fd_block_block_hash_entry_t* self) {
   ulong size = 0;
@@ -3434,13 +2986,6 @@ void fd_recent_block_hashes_walk(fd_recent_block_hashes_t* self, fd_walk_fun_t f
     fd_block_block_hash_entry_walk(&self->hashes.elems[i], fun, "hashes", level + 1);
   fun(NULL, NULL, 31, "hashes", --level);
   fun(self, name, 33, "fd_recent_block_hashes", --level);
-}
-void fd_recent_block_hashes_copy_to(fd_recent_block_hashes_t* to, fd_recent_block_hashes_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
-  unsigned char *enc = fd_alloca( 1, fd_recent_block_hashes_size(from) );
-  void const *   ptr = (void const *) enc;
-  fd_recent_block_hashes_encode( from, &ptr );
-  void *input = (void *) enc;
-  fd_recent_block_hashes_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
 }
 ulong fd_recent_block_hashes_size(fd_recent_block_hashes_t* self) {
   ulong size = 0;
@@ -3513,13 +3058,6 @@ void fd_slot_meta_walk(fd_slot_meta_t* self, fd_walk_fun_t fun, const char *name
   }
   fun(self, name, 33, "fd_slot_meta", --level);
 }
-void fd_slot_meta_copy_to(fd_slot_meta_t* to, fd_slot_meta_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
-  unsigned char *enc = fd_alloca( 1, fd_slot_meta_size(from) );
-  void const *   ptr = (void const *) enc;
-  fd_slot_meta_encode( from, &ptr );
-  void *input = (void *) enc;
-  fd_slot_meta_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
-}
 ulong fd_slot_meta_size(fd_slot_meta_t* self) {
   ulong size = 0;
   size += sizeof(ulong);
@@ -3572,13 +3110,6 @@ void fd_clock_timestamp_vote_walk(fd_clock_timestamp_vote_t* self, fd_walk_fun_t
   fun(&self->slot, "slot", 11, "ulong", level + 1);
   fun(self, name, 33, "fd_clock_timestamp_vote", --level);
 }
-void fd_clock_timestamp_vote_copy_to(fd_clock_timestamp_vote_t* to, fd_clock_timestamp_vote_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
-  unsigned char *enc = fd_alloca( 1, fd_clock_timestamp_vote_size(from) );
-  void const *   ptr = (void const *) enc;
-  fd_clock_timestamp_vote_encode( from, &ptr );
-  void *input = (void *) enc;
-  fd_clock_timestamp_vote_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
-}
 ulong fd_clock_timestamp_vote_size(fd_clock_timestamp_vote_t* self) {
   ulong size = 0;
   size += fd_pubkey_size(&self->pubkey);
@@ -3615,13 +3146,6 @@ void fd_clock_timestamp_votes_walk(fd_clock_timestamp_votes_t* self, fd_walk_fun
   fun(NULL, NULL, 31, "votes", --level);
   fun(self, name, 33, "fd_clock_timestamp_votes", --level);
 }
-void fd_clock_timestamp_votes_copy_to(fd_clock_timestamp_votes_t* to, fd_clock_timestamp_votes_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
-  unsigned char *enc = fd_alloca( 1, fd_clock_timestamp_votes_size(from) );
-  void const *   ptr = (void const *) enc;
-  fd_clock_timestamp_votes_encode( from, &ptr );
-  void *input = (void *) enc;
-  fd_clock_timestamp_votes_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
-}
 ulong fd_clock_timestamp_votes_size(fd_clock_timestamp_votes_t* self) {
   ulong size = 0;
   size += sizeof(ulong);
@@ -3648,13 +3172,6 @@ void fd_sysvar_fees_walk(fd_sysvar_fees_t* self, fd_walk_fun_t fun, const char *
   fd_fee_calculator_walk(&self->fee_calculator, fun, "fee_calculator", level + 1);
   fun(self, name, 33, "fd_sysvar_fees", --level);
 }
-void fd_sysvar_fees_copy_to(fd_sysvar_fees_t* to, fd_sysvar_fees_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
-  unsigned char *enc = fd_alloca( 1, fd_sysvar_fees_size(from) );
-  void const *   ptr = (void const *) enc;
-  fd_sysvar_fees_encode( from, &ptr );
-  void *input = (void *) enc;
-  fd_sysvar_fees_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
-}
 ulong fd_sysvar_fees_size(fd_sysvar_fees_t* self) {
   ulong size = 0;
   size += fd_fee_calculator_size(&self->fee_calculator);
@@ -3678,13 +3195,6 @@ void fd_config_keys_pair_walk(fd_config_keys_pair_t* self, fd_walk_fun_t fun, co
   fd_pubkey_walk(&self->key, fun, "key", level + 1);
   fun(&self->value, "value", 9, "uchar", level + 1);
   fun(self, name, 33, "fd_config_keys_pair", --level);
-}
-void fd_config_keys_pair_copy_to(fd_config_keys_pair_t* to, fd_config_keys_pair_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
-  unsigned char *enc = fd_alloca( 1, fd_config_keys_pair_size(from) );
-  void const *   ptr = (void const *) enc;
-  fd_config_keys_pair_encode( from, &ptr );
-  void *input = (void *) enc;
-  fd_config_keys_pair_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
 }
 ulong fd_config_keys_pair_size(fd_config_keys_pair_t* self) {
   ulong size = 0;
@@ -3730,13 +3240,6 @@ void fd_stake_config_walk(fd_stake_config_t* self, fd_walk_fun_t fun, const char
   fun(&self->slash_penalty, "slash_penalty", 9, "uchar", level + 1);
   fun(self, name, 33, "fd_stake_config", --level);
 }
-void fd_stake_config_copy_to(fd_stake_config_t* to, fd_stake_config_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
-  unsigned char *enc = fd_alloca( 1, fd_stake_config_size(from) );
-  void const *   ptr = (void const *) enc;
-  fd_stake_config_encode( from, &ptr );
-  void *input = (void *) enc;
-  fd_stake_config_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
-}
 ulong fd_stake_config_size(fd_stake_config_t* self) {
   ulong size = 0;
   size += sizeof(ulong);
@@ -3777,13 +3280,6 @@ void fd_firedancer_banks_walk(fd_firedancer_banks_t* self, fd_walk_fun_t fun, co
   fd_recent_block_hashes_walk(&self->recent_block_hashes, fun, "recent_block_hashes", level + 1);
   fd_clock_timestamp_votes_walk(&self->timestamp_votes, fun, "timestamp_votes", level + 1);
   fun(self, name, 33, "fd_firedancer_banks", --level);
-}
-void fd_firedancer_banks_copy_to(fd_firedancer_banks_t* to, fd_firedancer_banks_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
-  unsigned char *enc = fd_alloca( 1, fd_firedancer_banks_size(from) );
-  void const *   ptr = (void const *) enc;
-  fd_firedancer_banks_encode( from, &ptr );
-  void *input = (void *) enc;
-  fd_firedancer_banks_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
 }
 ulong fd_firedancer_banks_size(fd_firedancer_banks_t* self) {
   ulong size = 0;
@@ -3836,13 +3332,6 @@ void fd_vote_walk(fd_vote_t* self, fd_walk_fun_t fun, const char *name, int leve
   fun(self->timestamp, "timestamp", 11, "ulong", level + 1);
   fun(self, name, 33, "fd_vote", --level);
 }
-void fd_vote_copy_to(fd_vote_t* to, fd_vote_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
-  unsigned char *enc = fd_alloca( 1, fd_vote_size(from) );
-  void const *   ptr = (void const *) enc;
-  fd_vote_encode( from, &ptr );
-  void *input = (void *) enc;
-  fd_vote_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
-}
 ulong fd_vote_size(fd_vote_t* self) {
   ulong size = 0;
   size += sizeof(ulong);
@@ -3886,13 +3375,6 @@ void fd_vote_init_walk(fd_vote_init_t* self, fd_walk_fun_t fun, const char *name
   fd_pubkey_walk(&self->authorized_withdrawer, fun, "authorized_withdrawer", level + 1);
   fun(&self->commission, "commission", 9, "uchar", level + 1);
   fun(self, name, 33, "fd_vote_init", --level);
-}
-void fd_vote_init_copy_to(fd_vote_init_t* to, fd_vote_init_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
-  unsigned char *enc = fd_alloca( 1, fd_vote_init_size(from) );
-  void const *   ptr = (void const *) enc;
-  fd_vote_init_encode( from, &ptr );
-  void *input = (void *) enc;
-  fd_vote_init_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
 }
 ulong fd_vote_init_size(fd_vote_init_t* self) {
   ulong size = 0;
@@ -3951,13 +3433,6 @@ void fd_vote_authorize_walk(fd_vote_authorize_t* self, fd_walk_fun_t fun, const 
   // enum fd_unsigned char_walk(&self->commission, fun, "commission", level + 1);
   fun(self, name, 33, "fd_vote_authorize", --level);
 }
-void fd_vote_authorize_copy_to(fd_vote_authorize_t* to, fd_vote_authorize_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
-  unsigned char *enc = fd_alloca( 1, fd_vote_authorize_size(from) );
-  void const *   ptr = (void const *) enc;
-  fd_vote_authorize_encode( from, &ptr );
-  void *input = (void *) enc;
-  fd_vote_authorize_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
-}
 ulong fd_vote_authorize_size(fd_vote_authorize_t* self) {
   ulong size = 0;
   size += sizeof(uint);
@@ -3990,13 +3465,6 @@ void fd_vote_authorize_pubkey_walk(fd_vote_authorize_pubkey_t* self, fd_walk_fun
   fd_vote_authorize_walk(&self->vote_authorize, fun, "vote_authorize", level + 1);
   fun(self, name, 33, "fd_vote_authorize_pubkey", --level);
 }
-void fd_vote_authorize_pubkey_copy_to(fd_vote_authorize_pubkey_t* to, fd_vote_authorize_pubkey_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
-  unsigned char *enc = fd_alloca( 1, fd_vote_authorize_pubkey_size(from) );
-  void const *   ptr = (void const *) enc;
-  fd_vote_authorize_pubkey_encode( from, &ptr );
-  void *input = (void *) enc;
-  fd_vote_authorize_pubkey_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
-}
 ulong fd_vote_authorize_pubkey_size(fd_vote_authorize_pubkey_t* self) {
   ulong size = 0;
   size += fd_pubkey_size(&self->pubkey);
@@ -4024,13 +3492,6 @@ void fd_vote_switch_walk(fd_vote_switch_t* self, fd_walk_fun_t fun, const char *
   fd_hash_walk(&self->hash, fun, "hash", level + 1);
   fun(self, name, 33, "fd_vote_switch", --level);
 }
-void fd_vote_switch_copy_to(fd_vote_switch_t* to, fd_vote_switch_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
-  unsigned char *enc = fd_alloca( 1, fd_vote_switch_size(from) );
-  void const *   ptr = (void const *) enc;
-  fd_vote_switch_encode( from, &ptr );
-  void *input = (void *) enc;
-  fd_vote_switch_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
-}
 ulong fd_vote_switch_size(fd_vote_switch_t* self) {
   ulong size = 0;
   size += fd_vote_size(&self->vote);
@@ -4057,13 +3518,6 @@ void fd_update_vote_state_switch_walk(fd_update_vote_state_switch_t* self, fd_wa
   fd_vote_state_update_walk(&self->vote_state_update, fun, "vote_state_update", level + 1);
   fd_hash_walk(&self->hash, fun, "hash", level + 1);
   fun(self, name, 33, "fd_update_vote_state_switch", --level);
-}
-void fd_update_vote_state_switch_copy_to(fd_update_vote_state_switch_t* to, fd_update_vote_state_switch_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
-  unsigned char *enc = fd_alloca( 1, fd_update_vote_state_switch_size(from) );
-  void const *   ptr = (void const *) enc;
-  fd_update_vote_state_switch_encode( from, &ptr );
-  void *input = (void *) enc;
-  fd_update_vote_state_switch_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
 }
 ulong fd_update_vote_state_switch_size(fd_update_vote_state_switch_t* self) {
   ulong size = 0;
@@ -4104,13 +3558,6 @@ void fd_vote_authorize_with_seed_args_walk(fd_vote_authorize_with_seed_args_t* s
   fun(self->current_authority_derived_key_seed, "current_authority_derived_key_seed", 2, "char*", level + 1);
   fd_pubkey_walk(&self->new_authority, fun, "new_authority", level + 1);
   fun(self, name, 33, "fd_vote_authorize_with_seed_args", --level);
-}
-void fd_vote_authorize_with_seed_args_copy_to(fd_vote_authorize_with_seed_args_t* to, fd_vote_authorize_with_seed_args_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
-  unsigned char *enc = fd_alloca( 1, fd_vote_authorize_with_seed_args_size(from) );
-  void const *   ptr = (void const *) enc;
-  fd_vote_authorize_with_seed_args_encode( from, &ptr );
-  void *input = (void *) enc;
-  fd_vote_authorize_with_seed_args_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
 }
 ulong fd_vote_authorize_with_seed_args_size(fd_vote_authorize_with_seed_args_t* self) {
   ulong size = 0;
@@ -4154,13 +3601,6 @@ void fd_vote_authorize_checked_with_seed_args_walk(fd_vote_authorize_checked_wit
   fd_pubkey_walk(&self->current_authority_derived_key_owner, fun, "current_authority_derived_key_owner", level + 1);
   fun(self->current_authority_derived_key_seed, "current_authority_derived_key_seed", 2, "char*", level + 1);
   fun(self, name, 33, "fd_vote_authorize_checked_with_seed_args", --level);
-}
-void fd_vote_authorize_checked_with_seed_args_copy_to(fd_vote_authorize_checked_with_seed_args_t* to, fd_vote_authorize_checked_with_seed_args_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
-  unsigned char *enc = fd_alloca( 1, fd_vote_authorize_checked_with_seed_args_size(from) );
-  void const *   ptr = (void const *) enc;
-  fd_vote_authorize_checked_with_seed_args_encode( from, &ptr );
-  void *input = (void *) enc;
-  fd_vote_authorize_checked_with_seed_args_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
 }
 ulong fd_vote_authorize_checked_with_seed_args_size(fd_vote_authorize_checked_with_seed_args_t* self) {
   ulong size = 0;
@@ -4329,13 +3769,6 @@ void fd_vote_instruction_walk(fd_vote_instruction_t* self, fd_walk_fun_t fun, co
   // enum fd_char*_walk(&self->current_authority_derived_key_seed, fun, "current_authority_derived_key_seed", level + 1);
   fun(self, name, 33, "fd_vote_instruction", --level);
 }
-void fd_vote_instruction_copy_to(fd_vote_instruction_t* to, fd_vote_instruction_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
-  unsigned char *enc = fd_alloca( 1, fd_vote_instruction_size(from) );
-  void const *   ptr = (void const *) enc;
-  fd_vote_instruction_encode( from, &ptr );
-  void *input = (void *) enc;
-  fd_vote_instruction_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
-}
 ulong fd_vote_instruction_size(fd_vote_instruction_t* self) {
   ulong size = 0;
   size += sizeof(uint);
@@ -4457,13 +3890,6 @@ void fd_system_program_instruction_create_account_walk(fd_system_program_instruc
   fd_pubkey_walk(&self->owner, fun, "owner", level + 1);
   fun(self, name, 33, "fd_system_program_instruction_create_account", --level);
 }
-void fd_system_program_instruction_create_account_copy_to(fd_system_program_instruction_create_account_t* to, fd_system_program_instruction_create_account_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
-  unsigned char *enc = fd_alloca( 1, fd_system_program_instruction_create_account_size(from) );
-  void const *   ptr = (void const *) enc;
-  fd_system_program_instruction_create_account_encode( from, &ptr );
-  void *input = (void *) enc;
-  fd_system_program_instruction_create_account_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
-}
 ulong fd_system_program_instruction_create_account_size(fd_system_program_instruction_create_account_t* self) {
   ulong size = 0;
   size += sizeof(ulong);
@@ -4506,13 +3932,6 @@ void fd_system_program_instruction_create_account_with_seed_walk(fd_system_progr
   fun(&self->space, "space", 11, "ulong", level + 1);
   fd_pubkey_walk(&self->owner, fun, "owner", level + 1);
   fun(self, name, 33, "fd_system_program_instruction_create_account_with_seed", --level);
-}
-void fd_system_program_instruction_create_account_with_seed_copy_to(fd_system_program_instruction_create_account_with_seed_t* to, fd_system_program_instruction_create_account_with_seed_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
-  unsigned char *enc = fd_alloca( 1, fd_system_program_instruction_create_account_with_seed_size(from) );
-  void const *   ptr = (void const *) enc;
-  fd_system_program_instruction_create_account_with_seed_encode( from, &ptr );
-  void *input = (void *) enc;
-  fd_system_program_instruction_create_account_with_seed_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
 }
 ulong fd_system_program_instruction_create_account_with_seed_size(fd_system_program_instruction_create_account_with_seed_t* self) {
   ulong size = 0;
@@ -4561,13 +3980,6 @@ void fd_system_program_instruction_allocate_with_seed_walk(fd_system_program_ins
   fd_pubkey_walk(&self->owner, fun, "owner", level + 1);
   fun(self, name, 33, "fd_system_program_instruction_allocate_with_seed", --level);
 }
-void fd_system_program_instruction_allocate_with_seed_copy_to(fd_system_program_instruction_allocate_with_seed_t* to, fd_system_program_instruction_allocate_with_seed_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
-  unsigned char *enc = fd_alloca( 1, fd_system_program_instruction_allocate_with_seed_size(from) );
-  void const *   ptr = (void const *) enc;
-  fd_system_program_instruction_allocate_with_seed_encode( from, &ptr );
-  void *input = (void *) enc;
-  fd_system_program_instruction_allocate_with_seed_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
-}
 ulong fd_system_program_instruction_allocate_with_seed_size(fd_system_program_instruction_allocate_with_seed_t* self) {
   ulong size = 0;
   size += fd_pubkey_size(&self->base);
@@ -4611,13 +4023,6 @@ void fd_system_program_instruction_assign_with_seed_walk(fd_system_program_instr
   fd_pubkey_walk(&self->owner, fun, "owner", level + 1);
   fun(self, name, 33, "fd_system_program_instruction_assign_with_seed", --level);
 }
-void fd_system_program_instruction_assign_with_seed_copy_to(fd_system_program_instruction_assign_with_seed_t* to, fd_system_program_instruction_assign_with_seed_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
-  unsigned char *enc = fd_alloca( 1, fd_system_program_instruction_assign_with_seed_size(from) );
-  void const *   ptr = (void const *) enc;
-  fd_system_program_instruction_assign_with_seed_encode( from, &ptr );
-  void *input = (void *) enc;
-  fd_system_program_instruction_assign_with_seed_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
-}
 ulong fd_system_program_instruction_assign_with_seed_size(fd_system_program_instruction_assign_with_seed_t* self) {
   ulong size = 0;
   size += fd_pubkey_size(&self->base);
@@ -4657,13 +4062,6 @@ void fd_system_program_instruction_transfer_with_seed_walk(fd_system_program_ins
   fun(self->from_seed, "from_seed", 2, "char*", level + 1);
   fd_pubkey_walk(&self->from_owner, fun, "from_owner", level + 1);
   fun(self, name, 33, "fd_system_program_instruction_transfer_with_seed", --level);
-}
-void fd_system_program_instruction_transfer_with_seed_copy_to(fd_system_program_instruction_transfer_with_seed_t* to, fd_system_program_instruction_transfer_with_seed_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
-  unsigned char *enc = fd_alloca( 1, fd_system_program_instruction_transfer_with_seed_size(from) );
-  void const *   ptr = (void const *) enc;
-  fd_system_program_instruction_transfer_with_seed_encode( from, &ptr );
-  void *input = (void *) enc;
-  fd_system_program_instruction_transfer_with_seed_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
 }
 ulong fd_system_program_instruction_transfer_with_seed_size(fd_system_program_instruction_transfer_with_seed_t* self) {
   ulong size = 0;
@@ -4839,13 +4237,6 @@ void fd_system_program_instruction_walk(fd_system_program_instruction_t* self, f
   fun(self, name, 32, "fd_system_program_instruction", level++);
   // enum fd_pubkey_walk(&self->from_owner, fun, "from_owner", level + 1);
   fun(self, name, 33, "fd_system_program_instruction", --level);
-}
-void fd_system_program_instruction_copy_to(fd_system_program_instruction_t* to, fd_system_program_instruction_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
-  unsigned char *enc = fd_alloca( 1, fd_system_program_instruction_size(from) );
-  void const *   ptr = (void const *) enc;
-  fd_system_program_instruction_encode( from, &ptr );
-  void *input = (void *) enc;
-  fd_system_program_instruction_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
 }
 ulong fd_system_program_instruction_size(fd_system_program_instruction_t* self) {
   ulong size = 0;
@@ -5056,13 +4447,6 @@ void fd_system_error_walk(fd_system_error_t* self, fd_walk_fun_t fun, const char
   // enum fd_pubkey_walk(&self->from_owner, fun, "from_owner", level + 1);
   fun(self, name, 33, "fd_system_error", --level);
 }
-void fd_system_error_copy_to(fd_system_error_t* to, fd_system_error_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
-  unsigned char *enc = fd_alloca( 1, fd_system_error_size(from) );
-  void const *   ptr = (void const *) enc;
-  fd_system_error_encode( from, &ptr );
-  void *input = (void *) enc;
-  fd_system_error_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
-}
 ulong fd_system_error_size(fd_system_error_t* self) {
   ulong size = 0;
   size += sizeof(uint);
@@ -5095,13 +4479,6 @@ void fd_stake_authorized_walk(fd_stake_authorized_t* self, fd_walk_fun_t fun, co
   fd_pubkey_walk(&self->withdrawer, fun, "withdrawer", level + 1);
   fun(self, name, 33, "fd_stake_authorized", --level);
 }
-void fd_stake_authorized_copy_to(fd_stake_authorized_t* to, fd_stake_authorized_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
-  unsigned char *enc = fd_alloca( 1, fd_stake_authorized_size(from) );
-  void const *   ptr = (void const *) enc;
-  fd_stake_authorized_encode( from, &ptr );
-  void *input = (void *) enc;
-  fd_stake_authorized_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
-}
 ulong fd_stake_authorized_size(fd_stake_authorized_t* self) {
   ulong size = 0;
   size += fd_pubkey_size(&self->staker);
@@ -5129,13 +4506,6 @@ void fd_stake_lockup_walk(fd_stake_lockup_t* self, fd_walk_fun_t fun, const char
   fun(&self->epoch, "epoch", 11, "ulong", level + 1);
   fd_pubkey_walk(&self->custodian, fun, "custodian", level + 1);
   fun(self, name, 33, "fd_stake_lockup", --level);
-}
-void fd_stake_lockup_copy_to(fd_stake_lockup_t* to, fd_stake_lockup_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
-  unsigned char *enc = fd_alloca( 1, fd_stake_lockup_size(from) );
-  void const *   ptr = (void const *) enc;
-  fd_stake_lockup_encode( from, &ptr );
-  void *input = (void *) enc;
-  fd_stake_lockup_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
 }
 ulong fd_stake_lockup_size(fd_stake_lockup_t* self) {
   ulong size = 0;
@@ -5165,13 +4535,6 @@ void fd_stake_instruction_initialize_walk(fd_stake_instruction_initialize_t* sel
   fd_stake_authorized_walk(&self->authorized, fun, "authorized", level + 1);
   fd_pubkey_walk(&self->lockup, fun, "lockup", level + 1);
   fun(self, name, 33, "fd_stake_instruction_initialize", --level);
-}
-void fd_stake_instruction_initialize_copy_to(fd_stake_instruction_initialize_t* to, fd_stake_instruction_initialize_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
-  unsigned char *enc = fd_alloca( 1, fd_stake_instruction_initialize_size(from) );
-  void const *   ptr = (void const *) enc;
-  fd_stake_instruction_initialize_encode( from, &ptr );
-  void *input = (void *) enc;
-  fd_stake_instruction_initialize_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
 }
 ulong fd_stake_instruction_initialize_size(fd_stake_instruction_initialize_t* self) {
   ulong size = 0;
@@ -5226,13 +4589,6 @@ void fd_stake_authorize_walk(fd_stake_authorize_t* self, fd_walk_fun_t fun, cons
   // enum fd_pubkey_walk(&self->lockup, fun, "lockup", level + 1);
   fun(self, name, 33, "fd_stake_authorize", --level);
 }
-void fd_stake_authorize_copy_to(fd_stake_authorize_t* to, fd_stake_authorize_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
-  unsigned char *enc = fd_alloca( 1, fd_stake_authorize_size(from) );
-  void const *   ptr = (void const *) enc;
-  fd_stake_authorize_encode( from, &ptr );
-  void *input = (void *) enc;
-  fd_stake_authorize_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
-}
 ulong fd_stake_authorize_size(fd_stake_authorize_t* self) {
   ulong size = 0;
   size += sizeof(uint);
@@ -5264,13 +4620,6 @@ void fd_stake_instruction_authorize_walk(fd_stake_instruction_authorize_t* self,
   fd_pubkey_walk(&self->pubkey, fun, "pubkey", level + 1);
   fd_stake_authorize_walk(&self->stake_authorize, fun, "stake_authorize", level + 1);
   fun(self, name, 33, "fd_stake_instruction_authorize", --level);
-}
-void fd_stake_instruction_authorize_copy_to(fd_stake_instruction_authorize_t* to, fd_stake_instruction_authorize_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
-  unsigned char *enc = fd_alloca( 1, fd_stake_instruction_authorize_size(from) );
-  void const *   ptr = (void const *) enc;
-  fd_stake_instruction_authorize_encode( from, &ptr );
-  void *input = (void *) enc;
-  fd_stake_instruction_authorize_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
 }
 ulong fd_stake_instruction_authorize_size(fd_stake_instruction_authorize_t* self) {
   ulong size = 0;
@@ -5323,13 +4672,6 @@ void fd_lockup_args_walk(fd_lockup_args_t* self, fd_walk_fun_t fun, const char *
   fun(self->epoch, "epoch", 11, "ulong", level + 1);
   // fun(&self->custodian, "custodian", 16, "option", level + 1);
   fun(self, name, 33, "fd_lockup_args", --level);
-}
-void fd_lockup_args_copy_to(fd_lockup_args_t* to, fd_lockup_args_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
-  unsigned char *enc = fd_alloca( 1, fd_lockup_args_size(from) );
-  void const *   ptr = (void const *) enc;
-  fd_lockup_args_encode( from, &ptr );
-  void *input = (void *) enc;
-  fd_lockup_args_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
 }
 ulong fd_lockup_args_size(fd_lockup_args_t* self) {
   ulong size = 0;
@@ -5394,13 +4736,6 @@ void fd_authorize_with_seed_args_walk(fd_authorize_with_seed_args_t* self, fd_wa
   fd_pubkey_walk(&self->authority_owner, fun, "authority_owner", level + 1);
   fun(self, name, 33, "fd_authorize_with_seed_args", --level);
 }
-void fd_authorize_with_seed_args_copy_to(fd_authorize_with_seed_args_t* to, fd_authorize_with_seed_args_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
-  unsigned char *enc = fd_alloca( 1, fd_authorize_with_seed_args_size(from) );
-  void const *   ptr = (void const *) enc;
-  fd_authorize_with_seed_args_encode( from, &ptr );
-  void *input = (void *) enc;
-  fd_authorize_with_seed_args_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
-}
 ulong fd_authorize_with_seed_args_size(fd_authorize_with_seed_args_t* self) {
   ulong size = 0;
   size += fd_pubkey_size(&self->new_authorized_pubkey);
@@ -5443,13 +4778,6 @@ void fd_authorize_checked_with_seed_args_walk(fd_authorize_checked_with_seed_arg
   fun(self->authority_seed, "authority_seed", 2, "char*", level + 1);
   fd_pubkey_walk(&self->authority_owner, fun, "authority_owner", level + 1);
   fun(self, name, 33, "fd_authorize_checked_with_seed_args", --level);
-}
-void fd_authorize_checked_with_seed_args_copy_to(fd_authorize_checked_with_seed_args_t* to, fd_authorize_checked_with_seed_args_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
-  unsigned char *enc = fd_alloca( 1, fd_authorize_checked_with_seed_args_size(from) );
-  void const *   ptr = (void const *) enc;
-  fd_authorize_checked_with_seed_args_encode( from, &ptr );
-  void *input = (void *) enc;
-  fd_authorize_checked_with_seed_args_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
 }
 ulong fd_authorize_checked_with_seed_args_size(fd_authorize_checked_with_seed_args_t* self) {
   ulong size = 0;
@@ -5495,13 +4823,6 @@ void fd_lockup_checked_args_walk(fd_lockup_checked_args_t* self, fd_walk_fun_t f
   fun(self->unix_timestamp, "unix_timestamp", 11, "ulong", level + 1);
   fun(self->epoch, "epoch", 11, "ulong", level + 1);
   fun(self, name, 33, "fd_lockup_checked_args", --level);
-}
-void fd_lockup_checked_args_copy_to(fd_lockup_checked_args_t* to, fd_lockup_checked_args_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
-  unsigned char *enc = fd_alloca( 1, fd_lockup_checked_args_size(from) );
-  void const *   ptr = (void const *) enc;
-  fd_lockup_checked_args_encode( from, &ptr );
-  void *input = (void *) enc;
-  fd_lockup_checked_args_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
 }
 ulong fd_lockup_checked_args_size(fd_lockup_checked_args_t* self) {
   ulong size = 0;
@@ -5683,13 +5004,6 @@ void fd_stake_instruction_walk(fd_stake_instruction_t* self, fd_walk_fun_t fun, 
   // enum fd_option_walk(&self->epoch, fun, "epoch", level + 1);
   fun(self, name, 33, "fd_stake_instruction", --level);
 }
-void fd_stake_instruction_copy_to(fd_stake_instruction_t* to, fd_stake_instruction_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
-  unsigned char *enc = fd_alloca( 1, fd_stake_instruction_size(from) );
-  void const *   ptr = (void const *) enc;
-  fd_stake_instruction_encode( from, &ptr );
-  void *input = (void *) enc;
-  fd_stake_instruction_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
-}
 ulong fd_stake_instruction_size(fd_stake_instruction_t* self) {
   ulong size = 0;
   size += sizeof(uint);
@@ -5788,13 +5102,6 @@ void fd_stake_state_meta_walk(fd_stake_state_meta_t* self, fd_walk_fun_t fun, co
   fd_stake_lockup_walk(&self->lockup, fun, "lockup", level + 1);
   fun(self, name, 33, "fd_stake_state_meta", --level);
 }
-void fd_stake_state_meta_copy_to(fd_stake_state_meta_t* to, fd_stake_state_meta_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
-  unsigned char *enc = fd_alloca( 1, fd_stake_state_meta_size(from) );
-  void const *   ptr = (void const *) enc;
-  fd_stake_state_meta_encode( from, &ptr );
-  void *input = (void *) enc;
-  fd_stake_state_meta_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
-}
 ulong fd_stake_state_meta_size(fd_stake_state_meta_t* self) {
   ulong size = 0;
   size += sizeof(ulong);
@@ -5823,13 +5130,6 @@ void fd_stake_walk(fd_stake_t* self, fd_walk_fun_t fun, const char *name, int le
   fun(&self->credits_observed, "credits_observed", 11, "ulong", level + 1);
   fun(self, name, 33, "fd_stake", --level);
 }
-void fd_stake_copy_to(fd_stake_t* to, fd_stake_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
-  unsigned char *enc = fd_alloca( 1, fd_stake_size(from) );
-  void const *   ptr = (void const *) enc;
-  fd_stake_encode( from, &ptr );
-  void *input = (void *) enc;
-  fd_stake_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
-}
 ulong fd_stake_size(fd_stake_t* self) {
   ulong size = 0;
   size += fd_delegation_size(&self->delegation);
@@ -5856,13 +5156,6 @@ void fd_stake_state_stake_walk(fd_stake_state_stake_t* self, fd_walk_fun_t fun, 
   fd_stake_state_meta_walk(&self->meta, fun, "meta", level + 1);
   fd_stake_walk(&self->stake, fun, "stake", level + 1);
   fun(self, name, 33, "fd_stake_state_stake", --level);
-}
-void fd_stake_state_stake_copy_to(fd_stake_state_stake_t* to, fd_stake_state_stake_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
-  unsigned char *enc = fd_alloca( 1, fd_stake_state_stake_size(from) );
-  void const *   ptr = (void const *) enc;
-  fd_stake_state_stake_encode( from, &ptr );
-  void *input = (void *) enc;
-  fd_stake_state_stake_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
 }
 ulong fd_stake_state_stake_size(fd_stake_state_stake_t* self) {
   ulong size = 0;
@@ -5939,13 +5232,6 @@ void fd_stake_state_walk(fd_stake_state_t* self, fd_walk_fun_t fun, const char *
   // enum fd_stake_walk(&self->stake, fun, "stake", level + 1);
   fun(self, name, 33, "fd_stake_state", --level);
 }
-void fd_stake_state_copy_to(fd_stake_state_t* to, fd_stake_state_t* from, fd_alloc_fun_t allocf, void* allocf_arg) {
-  unsigned char *enc = fd_alloca( 1, fd_stake_state_size(from) );
-  void const *   ptr = (void const *) enc;
-  fd_stake_state_encode( from, &ptr );
-  void *input = (void *) enc;
-  fd_stake_state_decode( to, (const void **) &input, ptr, allocf, allocf_arg );
-}
 ulong fd_stake_state_size(fd_stake_state_t* self) {
   ulong size = 0;
   size += sizeof(uint);
@@ -5977,6 +5263,184 @@ void fd_stake_state_inner_encode(fd_stake_state_inner_t* self, uint discriminant
 void fd_stake_state_encode(fd_stake_state_t* self, void const** data) {
   fd_bincode_uint32_encode(&self->discriminant, data);
   fd_stake_state_inner_encode(&self->inner, self->discriminant, data);
+}
+
+void fd_nonce_data_decode(fd_nonce_data_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
+  fd_pubkey_decode(&self->authority, data, dataend, allocf, allocf_arg);
+  fd_hash_decode(&self->durable_nonce, data, dataend, allocf, allocf_arg);
+  fd_fee_calculator_decode(&self->fee_calculator, data, dataend, allocf, allocf_arg);
+}
+void fd_nonce_data_destroy(fd_nonce_data_t* self, fd_free_fun_t freef, void* freef_arg) {
+  fd_pubkey_destroy(&self->authority, freef, freef_arg);
+  fd_hash_destroy(&self->durable_nonce, freef, freef_arg);
+  fd_fee_calculator_destroy(&self->fee_calculator, freef, freef_arg);
+}
+
+void fd_nonce_data_walk(fd_nonce_data_t* self, fd_walk_fun_t fun, const char *name, int level) {
+  fun(self, name, 32, "fd_nonce_data", level++);
+  fd_pubkey_walk(&self->authority, fun, "authority", level + 1);
+  fd_hash_walk(&self->durable_nonce, fun, "durable_nonce", level + 1);
+  fd_fee_calculator_walk(&self->fee_calculator, fun, "fee_calculator", level + 1);
+  fun(self, name, 33, "fd_nonce_data", --level);
+}
+ulong fd_nonce_data_size(fd_nonce_data_t* self) {
+  ulong size = 0;
+  size += fd_pubkey_size(&self->authority);
+  size += fd_hash_size(&self->durable_nonce);
+  size += fd_fee_calculator_size(&self->fee_calculator);
+  return size;
+}
+
+void fd_nonce_data_encode(fd_nonce_data_t* self, void const** data) {
+  fd_pubkey_encode(&self->authority, data);
+  fd_hash_encode(&self->durable_nonce, data);
+  fd_fee_calculator_encode(&self->fee_calculator, data);
+}
+
+uchar fd_nonce_state_is_uninitialized(fd_nonce_state_t* self) {
+  return self->discriminant == 0;
+}
+uchar fd_nonce_state_is_initialized(fd_nonce_state_t* self) {
+  return self->discriminant == 1;
+}
+void fd_nonce_state_inner_decode(fd_nonce_state_inner_t* self, uint discriminant, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
+  switch (discriminant) {
+  case 0: {
+    break;
+  }
+  case 1: {
+    fd_nonce_data_decode(&self->initialized, data, dataend, allocf, allocf_arg);
+    break;
+  }
+  default: FD_LOG_ERR(( "unhandled type"));
+  }
+}
+void fd_nonce_state_decode(fd_nonce_state_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
+  fd_bincode_uint32_decode(&self->discriminant, data, dataend);
+  fd_nonce_state_inner_decode(&self->inner, self->discriminant, data, dataend, allocf, allocf_arg);
+}
+void fd_nonce_state_inner_destroy(fd_nonce_state_inner_t* self, uint discriminant, fd_free_fun_t freef, void* freef_arg) {
+  switch (discriminant) {
+  case 0: {
+    break;
+  }
+  case 1: {
+    fd_nonce_data_destroy(&self->initialized, freef, freef_arg);
+    break;
+  }
+  default: break; // FD_LOG_ERR(( "unhandled type"));
+  }
+}
+void fd_nonce_state_destroy(fd_nonce_state_t* self, fd_free_fun_t freef, void* freef_arg) {
+  fd_nonce_state_inner_destroy(&self->inner, self->discriminant, freef, freef_arg);
+}
+
+void fd_nonce_state_walk(fd_nonce_state_t* self, fd_walk_fun_t fun, const char *name, int level) {
+  fun(self, name, 32, "fd_nonce_state", level++);
+  // enum fd_fee_calculator_walk(&self->fee_calculator, fun, "fee_calculator", level + 1);
+  fun(self, name, 33, "fd_nonce_state", --level);
+}
+ulong fd_nonce_state_size(fd_nonce_state_t* self) {
+  ulong size = 0;
+  size += sizeof(uint);
+  switch (self->discriminant) {
+  case 1: {
+    size += fd_nonce_data_size(&self->inner.initialized);
+    break;
+  }
+  }
+  return size;
+}
+
+void fd_nonce_state_inner_encode(fd_nonce_state_inner_t* self, uint discriminant, void const** data) {
+  switch (discriminant) {
+  case 1: {
+    fd_nonce_data_encode(&self->initialized, data);
+    break;
+  }
+  }
+}
+void fd_nonce_state_encode(fd_nonce_state_t* self, void const** data) {
+  fd_bincode_uint32_encode(&self->discriminant, data);
+  fd_nonce_state_inner_encode(&self->inner, self->discriminant, data);
+}
+
+uchar fd_nonce_state_versions_is_legacy(fd_nonce_state_versions_t* self) {
+  return self->discriminant == 0;
+}
+uchar fd_nonce_state_versions_is_current(fd_nonce_state_versions_t* self) {
+  return self->discriminant == 1;
+}
+void fd_nonce_state_versions_inner_decode(fd_nonce_state_versions_inner_t* self, uint discriminant, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
+  switch (discriminant) {
+  case 0: {
+    fd_nonce_state_decode(&self->legacy, data, dataend, allocf, allocf_arg);
+    break;
+  }
+  case 1: {
+    fd_nonce_state_decode(&self->current, data, dataend, allocf, allocf_arg);
+    break;
+  }
+  default: FD_LOG_ERR(( "unhandled type"));
+  }
+}
+void fd_nonce_state_versions_decode(fd_nonce_state_versions_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
+  fd_bincode_uint32_decode(&self->discriminant, data, dataend);
+  fd_nonce_state_versions_inner_decode(&self->inner, self->discriminant, data, dataend, allocf, allocf_arg);
+}
+void fd_nonce_state_versions_inner_destroy(fd_nonce_state_versions_inner_t* self, uint discriminant, fd_free_fun_t freef, void* freef_arg) {
+  switch (discriminant) {
+  case 0: {
+    fd_nonce_state_destroy(&self->legacy, freef, freef_arg);
+    break;
+  }
+  case 1: {
+    fd_nonce_state_destroy(&self->current, freef, freef_arg);
+    break;
+  }
+  default: break; // FD_LOG_ERR(( "unhandled type"));
+  }
+}
+void fd_nonce_state_versions_destroy(fd_nonce_state_versions_t* self, fd_free_fun_t freef, void* freef_arg) {
+  fd_nonce_state_versions_inner_destroy(&self->inner, self->discriminant, freef, freef_arg);
+}
+
+void fd_nonce_state_versions_walk(fd_nonce_state_versions_t* self, fd_walk_fun_t fun, const char *name, int level) {
+  fun(self, name, 32, "fd_nonce_state_versions", level++);
+  // enum fd_fee_calculator_walk(&self->fee_calculator, fun, "fee_calculator", level + 1);
+  fun(self, name, 33, "fd_nonce_state_versions", --level);
+}
+ulong fd_nonce_state_versions_size(fd_nonce_state_versions_t* self) {
+  ulong size = 0;
+  size += sizeof(uint);
+  switch (self->discriminant) {
+  case 0: {
+    size += fd_nonce_state_size(&self->inner.legacy);
+    break;
+  }
+  case 1: {
+    size += fd_nonce_state_size(&self->inner.current);
+    break;
+  }
+  }
+  return size;
+}
+
+void fd_nonce_state_versions_inner_encode(fd_nonce_state_versions_inner_t* self, uint discriminant, void const** data) {
+  switch (discriminant) {
+  case 0: {
+    fd_nonce_state_encode(&self->legacy, data);
+    break;
+  }
+  case 1: {
+    fd_nonce_state_encode(&self->current, data);
+    break;
+  }
+  }
+}
+void fd_nonce_state_versions_encode(fd_nonce_state_versions_t* self, void const** data) {
+  fd_bincode_uint32_encode(&self->discriminant, data);
+  fd_nonce_state_versions_inner_encode(&self->inner, self->discriminant, data);
 }
 
 #define REDBLK_T fd_serializable_account_storage_entry_t_mapnode_t

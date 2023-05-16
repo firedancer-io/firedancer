@@ -177,6 +177,12 @@ int fd_acc_mgr_set_lamports( fd_acc_mgr_t* acc_mgr, fd_funk_txn_t* txn, ulong sl
     return read_result;
   }
 
+  if (FD_UNLIKELY(acc_mgr->global->log_level > 2)) {
+    char encoded_pubkey[50];
+    fd_base58_encode_32((uchar *) pubkey, 0, encoded_pubkey);
+    FD_LOG_WARNING(( "set_lamports: %ld:%s: %ld->%ld (%ld)", slot, encoded_pubkey, metadata.info.lamports, lamports, lamports-metadata.info.lamports ));
+  }
+
   /* Overwrite the lamports value and write back */
   metadata.info.lamports = lamports;
 
@@ -191,8 +197,58 @@ int fd_acc_mgr_set_lamports( fd_acc_mgr_t* acc_mgr, fd_funk_txn_t* txn, ulong sl
   return FD_ACC_MGR_SUCCESS;
 }
 
+int fd_acc_mgr_set_metadata( fd_acc_mgr_t* acc_mgr, fd_funk_txn_t* txn, ulong slot, fd_pubkey_t * pubkey, fd_account_meta_t *metadata) {
+  /* Bet we have to update the hash of the account.. and track the dirty pubkeys.. */
+  int write_result = fd_acc_mgr_write_account_data( acc_mgr, txn, pubkey, metadata, sizeof(*metadata), NULL, 0 );
+  if ( FD_UNLIKELY( write_result != FD_ACC_MGR_SUCCESS ) ) {
+    FD_LOG_WARNING(( "failed to write account metadata" ));
+    return write_result;
+  }
+
+  fd_acc_mgr_update_hash( acc_mgr, metadata, txn,  slot, pubkey, NULL, 0);
+
+  return FD_ACC_MGR_SUCCESS;
+}
+
+int fd_acc_mgr_update_data( fd_acc_mgr_t* acc_mgr, fd_funk_txn_t* txn, ulong slot, fd_pubkey_t* pubkey, uchar *data, ulong dlen) {
+  fd_account_meta_t m;
+  int result = fd_acc_mgr_get_metadata(acc_mgr, txn, pubkey, &m);
+  if (FD_ACC_MGR_SUCCESS != result)
+    return result;
+
+  m.slot = slot;
+  m.dlen = dlen;
+
+  fd_hash_meta( &m, slot, (fd_pubkey_t const *)  pubkey, data, (fd_hash_t *) m.hash);
+
+  fd_acc_mgr_dirty_pubkey ( acc_mgr, (fd_pubkey_t *) pubkey, (fd_hash_t *) m.hash );
+
+  if (FD_UNLIKELY(acc_mgr->global->log_level > 2)) {
+    char encoded_hash[50];
+    fd_base58_encode_32((uchar *) m.hash, 0, encoded_hash);
+    char encoded_pubkey[50];
+    fd_base58_encode_32((uchar *) pubkey, 0, encoded_pubkey);
+
+//    if (!strcmp(encoded_pubkey, "4FJcefopk4Ci5cFabY3N1w9EwB5NdHTPrDQsEdx6MRjx")) {
+//      FD_LOG_WARNING(( "XXX"));
+//    }
+
+    if (FD_UNLIKELY(acc_mgr->global->log_level > 3))  {
+      char encoded_owner[50];
+      fd_base58_encode_32((uchar *) m.info.owner, 0, encoded_owner);
+      
+      FD_LOG_WARNING(( "fd_acc_mgr_update_data: %s slot: %ld lamports: %ld  owner: %s  executable: %s,  rent_epoch: %ld, data_len: %ld, data: %s = %s",
+          encoded_pubkey, slot, m.info.lamports, encoded_owner, m.info.executable ? "true" : "false", m.info.rent_epoch, m.dlen, "xx", encoded_hash));
+    }  else
+      FD_LOG_WARNING(( "fd_acc_mgr_update_data: slot=%ld, pubkey=%s  hash=%s   dlen=%ld", slot, encoded_pubkey, encoded_hash, m.dlen ));
+  }
+
+  return fd_acc_mgr_write_account_data(acc_mgr, txn, pubkey, &m, sizeof(m), data, dlen);
+}
+
 int fd_acc_mgr_write_structured_account( fd_acc_mgr_t* acc_mgr, fd_funk_txn_t* txn, ulong slot, fd_pubkey_t* pubkey, fd_solana_account_t * account) {
   fd_account_meta_t m;
+
   fd_account_meta_init(&m);
   m.dlen = account->data_len;
 
@@ -214,7 +270,18 @@ int fd_acc_mgr_write_structured_account( fd_acc_mgr_t* acc_mgr, fd_funk_txn_t* t
     char encoded_pubkey[50];
     fd_base58_encode_32((uchar *) pubkey, 0, encoded_pubkey);
 
-    FD_LOG_WARNING(( "fd_acc_mgr_write_structured_account: slot=%ld, pubkey=%s  hash=%s   dlen=%ld", slot, encoded_pubkey, encoded_hash, m.dlen ));
+//    if (!strcmp(encoded_pubkey, "4FJcefopk4Ci5cFabY3N1w9EwB5NdHTPrDQsEdx6MRjx")) {
+//      FD_LOG_WARNING(( "hi mom"));
+//    }
+
+    if (FD_UNLIKELY(acc_mgr->global->log_level > 3))  {
+      char encoded_owner[50];
+      fd_base58_encode_32((uchar *) m.info.owner, 0, encoded_owner);
+      
+      FD_LOG_WARNING(( "fd_acc_mgr_write_structured_account: %s slot: %ld lamports: %ld  owner: %s  executable: %s,  rent_epoch: %ld, data_len: %ld, data: %s = %s",
+          encoded_pubkey, slot, account->lamports, encoded_owner, m.info.executable ? "true" : "false", m.info.rent_epoch, m.dlen, "xx", encoded_hash));
+    }  else
+      FD_LOG_WARNING(( "fd_acc_mgr_write_structured_account: slot=%ld, pubkey=%s  hash=%s   dlen=%ld", slot, encoded_pubkey, encoded_hash, m.dlen ));
   }
 
   return fd_acc_mgr_write_account_data(acc_mgr, txn, pubkey, &m, sizeof(m), account->data, account->data_len);
@@ -254,6 +321,10 @@ void fd_acc_mgr_dirty_pubkey ( fd_acc_mgr_t* acc_mgr, fd_pubkey_t* pubkey, fd_ha
       fd_base58_encode_32((uchar *) pubkey, NULL, buf);
       char buf2[50];
       fd_base58_encode_32((uchar *) e.hash.hash, NULL, buf2);
+
+//      if (!strcmp(buf2, "HzEGLdrzvVgWEJW8YpV8jYjj68S9THH5c2jNL4LXCMo7")) {
+//        FD_LOG_WARNING(( "hi YYY"));
+//      }
 
       FD_LOG_WARNING(( "new dirty entry for pubkey %s, hash set to %s, index %ld", buf, buf2, idx ));
     }
@@ -303,6 +374,17 @@ int fd_acc_mgr_update_hash ( fd_acc_mgr_t* acc_mgr, fd_account_meta_t * m, fd_fu
     int write_result = fd_acc_mgr_write_account_data( acc_mgr, txn, pubkey, m, sizeof(metadata), NULL, 0 );
     if ( FD_UNLIKELY( write_result != FD_ACC_MGR_SUCCESS ) )
       return write_result;
+
+  if (FD_UNLIKELY(acc_mgr->global->log_level > 2)) {
+    char encoded_pubkey[50];
+    fd_base58_encode_32((uchar *) pubkey, 0, encoded_pubkey);
+    char encoded_owner[50];
+    fd_base58_encode_32((uchar *) m->info.owner, 0, encoded_owner);
+
+    FD_LOG_WARNING(( "fd_acc_mgr_update_hash: %s slot: %ld lamports: %ld  owner: %s  executable: %s,  rent_epoch: %ld, data_len: %ld, data: %s = %s",
+        encoded_pubkey, slot, m->info.lamports, encoded_owner, m->info.executable ? "true" : "false", m->info.rent_epoch, m->dlen, "xx", buf));
+  }
+
 
     fd_acc_mgr_dirty_pubkey( acc_mgr, pubkey, &hash);
   }

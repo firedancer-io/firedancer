@@ -89,6 +89,8 @@ fd_global_ctx_t * fd_global_ctx_join       ( void * );
 void *            fd_global_ctx_leave      ( fd_global_ctx_t *  );
 void *            fd_global_ctx_delete     ( void *  );
 
+ulong             fd_runtime_lamports_per_signature( fd_global_ctx_t *global );
+
 ulong             fd_runtime_txn_lamports_per_signature( fd_global_ctx_t *global, fd_txn_t * txn_descriptor, fd_rawtxn_b_t* txn_raw );
 void              fd_runtime_boot_slot_zero( fd_global_ctx_t *global );
 int               fd_runtime_block_execute ( fd_global_ctx_t *global, fd_slot_blocks_t *slot_data );
@@ -99,6 +101,8 @@ ulong             fd_runtime_calculate_fee ( fd_global_ctx_t *global, fd_txn_t *
 void              fd_runtime_freeze        ( fd_global_ctx_t *global );
 
 void              fd_printer_walker        (void *arg, const char* name, int type, const char *type_name, int level);
+
+ulong             fd_runtime_lamports_per_signature_for_blockhash( fd_global_ctx_t *global, FD_FN_UNUSED fd_hash_t *blockhash );
 
 FD_PROTOTYPES_END
 

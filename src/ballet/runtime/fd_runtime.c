@@ -89,7 +89,6 @@ fd_runtime_block_execute( fd_global_ctx_t *global, fd_slot_blocks_t *slot_data )
 
   // TODO: move all these out to a fd_sysvar_update() call...
   fd_sysvar_clock_update( global);
-  fd_sysvar_recent_hashes_update ( global );
   // It has to go into the current txn previous info but is not in slot 0
   if (global->bank.solana_bank.slot != 0)
     fd_sysvar_slot_hashes_update( global );
@@ -261,7 +260,13 @@ fd_runtime_lamports_per_signature_for_blockhash( fd_global_ctx_t *global, FD_FN_
 }
 
 ulong
-fd_runtime_txn_lamports_per_signature( fd_global_ctx_t *global, FD_FN_UNUSED fd_txn_t * txn_descriptor, FD_FN_UNUSED fd_rawtxn_b_t* txn_raw ) {
+fd_runtime_txn_lamports_per_signature( fd_global_ctx_t *global, fd_txn_t * txn_descriptor, fd_rawtxn_b_t* txn_raw ) {
+  fd_nonce_state_versions_t state;
+  if ((NULL != txn_descriptor) && fd_load_nonce_account(global, txn_descriptor, txn_raw, &state)) {
+    if (state.inner.current.discriminant == fd_nonce_state_enum_initialized)
+      return state.inner.current.inner.initialized.fee_calculator.lamports_per_signature;
+  }
+
   //   lamports_per_signature = (transaction has a DurableNonce, use the lamports_per_signature from that nonce instead of looking up the recent_block_hash and using the lamports_per_signature associated with that hash
 //                        let TransactionExecutionDetails {
 //                            status,
@@ -306,7 +311,8 @@ fd_runtime_calculate_fee( fd_global_ctx_t *global, fd_txn_t * txn_descriptor, fd
 //            let prioritization_fee = prioritization_fee_details.get_fee();
   double prioritization_fee = 0;
 
-  double signature_fee = (double)lamports_per_signature * txn_descriptor->signature_cnt;
+  // let signature_fee = Self::get_num_signatures_in_message(message) .saturating_mul(fee_structure.lamports_per_signature);
+  double signature_fee = (double)fd_runtime_lamports_per_signature(global) * txn_descriptor->signature_cnt;
 
 // TODO: as far as I can tell, this is always 0
 //
@@ -331,6 +337,12 @@ fd_runtime_calculate_fee( fd_global_ctx_t *global, fd_txn_t * txn_descriptor, fd
   double compute_fee = 0;
 
   double fee = (prioritization_fee + signature_fee + write_lock_fee + compute_fee) * congestion_multiplier;
+
+  if (FD_UNLIKELY(global->log_level > 2)) {
+    if (global->bank.solana_bank.slot == 82)
+      FD_LOG_WARNING(( "fd_runtime_calculate_fee: slot:%ld %lf = (%f + %f + %f + %f) * %f", global->bank.solana_bank.slot, fee, prioritization_fee, signature_fee, write_lock_fee, compute_fee, congestion_multiplier));
+  }
+
   if (fee >= ULONG_MAX)
     return ULONG_MAX;
   else
@@ -343,8 +355,15 @@ fd_runtime_freeze( fd_global_ctx_t *global ) {
   //self.collect_rent_eagerly();
   //self.collect_fees();
 
+  fd_sysvar_recent_hashes_update ( global );
+
   // Look at collect_fees... I think this was where I saw the fee payout..
   if (global->collector_set && global->collected) {
+
+    if (FD_UNLIKELY(global->log_level > 2)) {
+      FD_LOG_WARNING(( "fd_runtime_freeze: slot:%ld global->collected: %ld", global->bank.solana_bank.slot, global->collected ));
+    }
+
     fd_acc_lamports_t lamps;
     int               ret = fd_acc_mgr_get_lamports ( global->acc_mgr, global->funk_txn, &global->collector_id, &lamps);
     if (ret != FD_ACC_MGR_SUCCESS)
