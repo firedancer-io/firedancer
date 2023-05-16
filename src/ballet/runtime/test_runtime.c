@@ -1,3 +1,8 @@
+
+//- sed -r "s/\x1B\[(([0-9]+)(;[0-9]+)*)?[m,K,H,f,J]//g" ~/repos/solana/nonce-ledger/validator.log | grep 'bank frozen:' | grep 'solana_runtime::bank' | sed -e 's/.*bank frozen://g' > q
+
+// sed -r "s/\x1B\[(([0-9]+)(;[0-9]+)*)?[m,K,H,f,J]//g" ~/repos/solana/nonce-ledger/validator.log > q2
+
 // sudo /home/jsiegel/repos/firedancer-private/build/linux/gcc/x86_64/bin/fd_shmem_cfg init 0777 jsiegel ""
 // sudo /home/jsiegel/repos/firedancer-private/build/linux/gcc/x86_64/bin/fd_shmem_cfg alloc 64 gigantic 0
 // sudo /home/jsiegel/repos/firedancer-private/build/linux/gcc/x86_64/bin/fd_shmem_cfg alloc 512 huge 0
@@ -10,6 +15,8 @@
 
 // /home/jsiegel/repos/firedancer-private/build/linux/gcc/x86_64/bin/fd_wksp_ctl new test_wksp 32 gigantic 0 0777
 // /home/jsiegel/repos/firedancer-private/build/linux/gcc/x86_64/bin/fd_wksp_ctl query test_wksp
+
+// --ledger /home/jsiegel/repos/solana/nonce-ledger --db /home/jsiegel/funk --cmd replay --accounts /home/jsiegel/repos/solana/nonce-ledger/accounts/ --pages 15 --index-max 12000000 --start-slot 0 --end-slot 100
 
 //  --ledger /dev/shm/mainnet-ledger --db /dev/shm/funk --cmd replay --start-slot 179138256 --end-slot 179138258  --txn-exe sim  --index-max 120000000 --pages 15
 

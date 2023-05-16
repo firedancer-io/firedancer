@@ -104,6 +104,11 @@ fd_execute_txn( fd_executor_t* executor, fd_txn_t * txn_descriptor, fd_rawtxn_b_
     global->collector_set = 1;
   }
 
+  if (FD_UNLIKELY(global->log_level > 2)) {
+    FD_LOG_WARNING(( "fd_execute_txn: global->collected: %ld->%ld (%ld)", global->collected, global->collected + fee, fee));
+    FD_LOG_WARNING(( "calling set_lamports to charge the fee"));
+  }
+
   // TODO: I BELIEVE we charge for the fee BEFORE we create the funk_txn fork
   // since we collect reguardless of the success of the txn execution...
   ret = fd_acc_mgr_set_lamports ( global->acc_mgr, global->funk_txn, global->bank.solana_bank.slot, &tx_accs[0], lamps - fee);
@@ -136,16 +141,17 @@ fd_execute_txn( fd_executor_t* executor, fd_txn_t * txn_descriptor, fd_rawtxn_b_
   for ( ushort i = 0; i < txn_descriptor->instr_cnt; ++i ) {
     fd_txn_instr_t * instr = &txn_descriptor->instr[i];
     instruction_ctx_t ctx = {
-      .global         = executor->global,
-      .instr          = instr,
-      .txn_descriptor = txn_descriptor,
-      .txn_raw        = txn_raw,
+      .global                 = executor->global,
+      .instr                  = instr,
+      .txn_descriptor         = txn_descriptor,
+      .txn_raw                = txn_raw,
     };
 
     /* TODO: allow instructions to be failed, and the transaction to be reverted */
     execute_instruction_func_t exec_instr_func = fd_executor_lookup_native_program( executor->global, &tx_accs[instr->program_id] );
     int exec_result = exec_instr_func( ctx );
     if ( FD_UNLIKELY( exec_result != FD_EXECUTOR_INSTR_SUCCESS ) ) {
+      exec_result = exec_instr_func( ctx );
       FD_LOG_ERR(( "instruction executed unsuccessfully: error code %d", exec_result ));
       /* TODO: revert transaction context */
     }

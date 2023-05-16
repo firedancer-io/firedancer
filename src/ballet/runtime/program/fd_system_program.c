@@ -2,6 +2,13 @@
 #include "fd_system_program.h"
 #include "../fd_acc_mgr.h"
 #include "../fd_runtime.h"
+#include "../sysvar/fd_sysvar_rent.h"
+#include "../sysvar/fd_sysvar.h"
+#include "../../base58/fd_base58.h"
+
+#ifdef _DISABLE_OPTIMIZATION
+#pragma GCC optimize ("O0")
+#endif
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/system_instruction.rs#L139 */
 #define MAX_PERMITTED_DATA_LENGTH ( 10 * 1024 * 1024 )
@@ -90,20 +97,59 @@ static int transfer(
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/runtime/src/system_instruction_processor.rs#L277 */
 static int create_account(
   instruction_ctx_t ctx,
-  ulong             lamports,
-  ulong             space,
-  fd_pubkey_t*      owner
-  ) {
+  fd_system_program_instruction_create_account_t* params
+) {
+  ulong             lamports = params->lamports;
+  ulong             space = params->space;
+  fd_pubkey_t*      owner = &params->owner;
+
   /* Account 0: funding account
      Account 1: new account
    */
   uchar *       instr_acc_idxs = ((uchar *)ctx.txn_raw->raw + ctx.instr->acct_off);
   fd_pubkey_t * txn_accs = (fd_pubkey_t *)((uchar *)ctx.txn_raw->raw + ctx.txn_descriptor->acct_addr_off);
+  fd_pubkey_t * from     = &txn_accs[instr_acc_idxs[0]];
   fd_pubkey_t * new      = &txn_accs[instr_acc_idxs[1]];
+
+  /* Check from has signed the transaction */
+  uchar from_is_signer = 0;
+  for ( ulong i = 0; i < ctx.instr->acct_cnt; i++ ) {
+    if ( instr_acc_idxs[i] < ctx.txn_descriptor->signature_cnt ) {
+      fd_pubkey_t * signer = &txn_accs[instr_acc_idxs[i]];
+      if ( memcmp( signer, from, sizeof(fd_pubkey_t) ) == 0 ) {
+        from_is_signer = 1;
+        break;
+      }
+    }
+  }
+  if ( !from_is_signer ) {
+    FD_LOG_WARNING( ( " from has not authorized transfer " ) );
+    return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
+  }
+
+  /* Check sender account has enough balance to execute this transaction */
+  fd_acc_lamports_t sender_lamports = 0;
+  int               read_result = fd_acc_mgr_get_lamports( ctx.global->acc_mgr, ctx.global->funk_txn, from, &sender_lamports );
+  if ( FD_UNLIKELY( read_result != FD_ACC_MGR_SUCCESS ) ) {
+    FD_LOG_WARNING(( "failed to get lamports" ));
+    /* TODO: correct error messages */
+    return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
+  }
+  if ( FD_UNLIKELY( sender_lamports < lamports ) ) {
+    FD_LOG_WARNING(( "sender only has %lu lamports, needs %lu", sender_lamports, lamports ));
+    return FD_EXECUTOR_INSTR_ERR_INSUFFICIENT_FUNDS;
+  }
+
+  /* Execute the transfer */
+  int write_result = fd_acc_mgr_set_lamports( ctx.global->acc_mgr, ctx.global->funk_txn, ctx.global->bank.solana_bank.slot , from, sender_lamports - lamports );
+  if ( FD_UNLIKELY( write_result != FD_ACC_MGR_SUCCESS ) ) {
+    FD_LOG_WARNING(( "failed to set sender lamports" ));
+    return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
+  }
 
   /* Check to see if the account is already in use */
   fd_account_meta_t metadata;
-  long              read_result = fd_acc_mgr_get_metadata( ctx.global->acc_mgr, ctx.global->funk_txn, new, &metadata );
+  read_result = fd_acc_mgr_get_metadata( ctx.global->acc_mgr, ctx.global->funk_txn, new, &metadata );
   if ( read_result != FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) {
     FD_LOG_WARNING(( "account already exists" ));
     /* TODO: propagate SystemError::AccountAlreadyInUse enum variant */
@@ -144,7 +190,7 @@ static int create_account(
     .executable = 0,
     .rent_epoch = 0,   /* TODO */
   };
-  int                 write_result = fd_acc_mgr_write_structured_account(ctx.global->acc_mgr, ctx.global->funk_txn, 0, new, &account);
+  write_result = fd_acc_mgr_write_structured_account(ctx.global->acc_mgr, ctx.global->funk_txn, 0, new, &account);
   if ( write_result != FD_ACC_MGR_SUCCESS ) {
     FD_LOG_NOTICE(( "failed to create account: %d", write_result ));
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
@@ -152,38 +198,6 @@ static int create_account(
 
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
-
-static int advance_nonce_account(
-  FD_FN_UNUSED  instruction_ctx_t ctx
-  ) {
-  FD_LOG_ERR(( "unsupported discrimant: advance_none_account" ));
-  return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
-}
-
-static int withdraw_nonce_account(
-  FD_FN_UNUSED instruction_ctx_t  ctx,
-  FD_FN_UNUSED unsigned long      withdraw_nonce_account
-  ) {
-  FD_LOG_ERR(( "unsupported discrimant: withdraw_none_account" ));
-  return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
-}
-
-static int initialize_nonce_account(
-  FD_FN_UNUSED instruction_ctx_t   ctx,
-  FD_FN_UNUSED fd_pubkey_t        *initialize_nonce_account
-  ) {
-  FD_LOG_ERR(( "unsupported discrimant: initialize_none_account" ));
-  return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
-}
-
-static int authorize_nonce_account(
-  FD_FN_UNUSED instruction_ctx_t   ctx,
-  FD_FN_UNUSED fd_pubkey_t        *authorize_nonce_account
-  ) {
-  FD_LOG_ERR(( "unsupported discrimant: authorize_none_account" ));
-  return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
-}
-
 
 int fd_executor_system_program_execute_instruction(
   instruction_ctx_t ctx
@@ -201,29 +215,27 @@ int fd_executor_system_program_execute_instruction(
 
   switch (instruction.discriminant) {
   case fd_system_program_instruction_enum_transfer: {
-    ulong requested_lamports = instruction.inner.transfer;
-    result = transfer( ctx, requested_lamports );
+    result = transfer( ctx, instruction.inner.transfer );
     break;
   }
   case fd_system_program_instruction_enum_create_account: {
-    fd_system_program_instruction_create_account_t* params = &instruction.inner.create_account;
-    result = create_account( ctx, params->lamports, params->space, &params->owner );
+    result = create_account( ctx, &instruction.inner.create_account );
     break;
   }
   case fd_system_program_instruction_enum_advance_nonce_account: {
-    result = advance_nonce_account( ctx );
+    result = fd_advance_nonce_account( ctx );
     break;
   }
   case fd_system_program_instruction_enum_withdraw_nonce_account: {
-    result = withdraw_nonce_account( ctx, instruction.inner.withdraw_nonce_account );
+    result = fd_withdraw_nonce_account( ctx, instruction.inner.withdraw_nonce_account );
     break;
   }
   case fd_system_program_instruction_enum_initialize_nonce_account: {
-    result = initialize_nonce_account( ctx, &instruction.inner.initialize_nonce_account );
+    result = fd_initialize_nonce_account( ctx, &instruction.inner.initialize_nonce_account );
     break;
   }
   case fd_system_program_instruction_enum_authorize_nonce_account: {
-    result = authorize_nonce_account( ctx, &instruction.inner.authorize_nonce_account );
+    result = fd_authorize_nonce_account( ctx, &instruction.inner.authorize_nonce_account );
     break;
   }
   default: {

@@ -1108,6 +1108,34 @@
         { "name": "rewards_pool" }
       ],
       "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/state.rs#L22"
+    },
+    {
+      "name": "nonce_data",
+      "type": "struct",
+      "fields": [
+        { "name": "authority", "type": "pubkey" },
+        { "name": "durable_nonce", "type": "hash" },
+        { "name": "fee_calculator", "type": "fee_calculator" }
+      ],
+      "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/nonce/state/current.rs#L17"
+    },
+    {
+      "name": "nonce_state",
+      "type": "enum",
+      "variants": [
+        { "name": "uninitialized" },
+        { "name": "initialized", "type": "nonce_data" }
+      ],
+      "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/nonce/state/current.rs#L65"
+    },
+    {
+      "name": "nonce_state_versions",
+      "type": "enum",
+      "variants": [
+        { "name": "legacy", "type": "nonce_state" },
+        { "name": "current", "type": "nonce_state" }
+      ],
+      "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/nonce/state/mod.rs#L9"
     }
   ]
 }

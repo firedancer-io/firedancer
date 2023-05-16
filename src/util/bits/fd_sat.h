@@ -52,6 +52,24 @@ fd_uint_sat_sub( uint x, uint y ) {
   return fd_uint_if( res > x, 0, res );
 }
 
+FD_FN_CONST static inline double
+fd_double_sat_add( double x, double y ) {
+  // What does rust do here?
+  return x + y;
+}
+
+FD_FN_CONST static inline double
+fd_double_sat_mul( double x, double y ) {
+  // What does rust do here?
+  return x * y;
+}
+
+FD_FN_CONST static inline double
+fd_double_sat_sub( double x, double y ) {
+  // What does rust do here?
+  return x - y;
+}
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_util_bits_fd_sat_h */
