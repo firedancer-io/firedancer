@@ -211,13 +211,13 @@ fd_microblock_mixin( fd_microblock_t const * block,
 
   ulong txn_cnt = block->hdr.txn_cnt;
 
-  fd_bmtree32_commit_t * commit =
-    fd_alloca( FD_BMTREE32_COMMIT_ALIGN, fd_bmtree32_commit_footprint( ) );
+  fd_bmtree_commit_t * commit =
+    fd_alloca( FD_BMTREE_COMMIT_ALIGN, fd_bmtree_commit_footprint( 0UL ) );
 
   if( FD_UNLIKELY( !commit ) )
     FD_LOG_ERR(( "fd_microblock_mixin: fd_alloca for microblock failed"));
 
-  fd_bmtree32_commit_t * tree = fd_bmtree32_commit_init( commit );
+  fd_bmtree_commit_t * tree = fd_bmtree_commit_init( commit, 20UL, 0UL );
 
   for( ulong i=0; i<txn_cnt; i++ ) {
     void     const * raw =                    raw_tbl[ i ].raw;
@@ -226,14 +226,14 @@ fd_microblock_mixin( fd_microblock_t const * block,
     fd_ed25519_sig_t const * sigs = fd_txn_get_signatures( txn, raw );
 
     for ( ulong j = 0; j < txn->signature_cnt; j++ ) {
-      fd_bmtree32_node_t leaf;
-      fd_bmtree32_hash_leaf( &leaf, &sigs[j], sizeof(fd_ed25519_sig_t) );
-      fd_bmtree32_commit_append( commit, (fd_bmtree32_node_t const *)&leaf, 1 );
+      fd_bmtree_node_t leaf;
+      fd_bmtree_hash_leaf( &leaf, &sigs[j], sizeof(fd_ed25519_sig_t) );
+      fd_bmtree_commit_append( commit, (fd_bmtree_node_t const *)&leaf, 1 );
     }
   }
 
-  uchar * root = fd_bmtree32_commit_fini( tree );
-  memcpy( out_hash, root, sizeof(fd_bmtree32_node_t) );
+  uchar * root = fd_bmtree_commit_fini( tree );
+  memcpy( out_hash, root, sizeof(fd_bmtree_node_t) );
 }
 
 void

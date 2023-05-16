@@ -29,7 +29,7 @@ main( int     argc,
   fd_ar_meta_t hdr;
   int ar_err;
   while( (ar_err = fd_ar_read_next( file, &hdr ))==0 ) {
-    uchar shred_buf[ FD_SHRED_SZ ];
+    uchar shred_buf[ FD_SHRED_MAX_SZ ];
 
     /* Read next file from archive */
     FD_TEST(( hdr.filesz>=0 && hdr.filesz < (long)sizeof(shred_buf) ));

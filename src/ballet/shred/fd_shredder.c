@@ -132,7 +132,7 @@ fd_shredder_next_fec_set( fd_shredder_t * shredder,
 
 
   /* Write headers and copy the data shred payload */
-  ulong flags_for_last = (shredder->block_complete<<7) | (last_in_batch<<6);
+  ulong flags_for_last = ((last_in_batch & shredder->block_complete)<<7) | (last_in_batch<<6);
   for( ulong i=0UL; i<data_shred_cnt; i++ ) {
     fd_shred_t * shred = (fd_shred_t *)data_shreds[ i ];
     /* Size in bytes of the payload section of this data shred,

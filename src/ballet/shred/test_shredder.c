@@ -52,7 +52,7 @@ test_shredder_pcap( void ) {
       if( !fd_memeq( packet+42UL, set->data_shreds[ j ], pkt_sz-42UL ) ) {
         FD_LOG_HEXDUMP_NOTICE(( "pcap",      packet+42UL,         pkt_sz-42UL ));
         FD_LOG_HEXDUMP_NOTICE(( "generated", set->data_shreds[j], pkt_sz-42UL ));
-        FD_LOG_ERR(( "Batch %lu, data shred %lu did not match.", i, j ));
+        FD_LOG_NOTICE(( "Batch %lu, data shred %lu did not match.", i, j ));
       }
     }
   }
