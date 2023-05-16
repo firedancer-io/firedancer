@@ -908,9 +908,8 @@ int fd_quic_retry_token_decrypt(ulong retry_src_conn_id,
     return FD_QUIC_FAILED;
   };
 
-  // TODO zero-copy without violating strict aliasing?
-  fd_memcpy(orig_dst_conn_id, plaintext, sizeof(ulong));
-  fd_memcpy(ts_nanos, plaintext + sizeof(ulong), sizeof(long));
+  *orig_dst_conn_id = *((ulong *) fd_type_pun(plaintext));
+  *ts_nanos = *((long *) fd_type_pun(ts_nanos));
   return FD_QUIC_SUCCESS;
 }
 
