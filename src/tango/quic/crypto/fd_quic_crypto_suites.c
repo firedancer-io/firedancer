@@ -842,14 +842,14 @@ int fd_quic_retry_token_encrypt(
 
   /* The AAD is the client IPv4 address, UDP port, and retry source connection id. */
   uchar aad[FD_QUIC_RETRY_TOKEN_AAD_SZ];
-  fd_memcpy(aad, &ip_addr, sizeof(uint));
-  fd_memcpy(aad + sizeof(uint), &udp_port, sizeof(ushort));
-  fd_memcpy(aad + sizeof(uint) + sizeof(ushort), &retry_src_conn_id, sizeof(ulong));
+  memcpy(aad, &ip_addr, sizeof(uint));
+  memcpy(aad + sizeof(uint), &udp_port, sizeof(ushort));
+  memcpy(aad + sizeof(uint) + sizeof(ushort), &retry_src_conn_id, sizeof(ulong));
 
   uchar plaintext[FD_QUIC_RETRY_TOKEN_PLAINTEXT_SZ];
-  fd_memcpy(plaintext, &orig_dst_conn_id, sizeof(ulong));
+  memcpy(plaintext, orig_dst_conn_id, FD_QUIC_MAX_CONN_ID_SZ);
   long now = fd_log_wallclock();
-  fd_memcpy(plaintext + sizeof(ulong), &now, sizeof(long));
+  memcpy(plaintext + FD_QUIC_MAX_CONN_ID_SZ, &now, sizeof(long));
 
   /* Append the ciphertext after random bytes in the retry_token. */
   uchar *ciphertext = hkdf_key + FD_QUIC_RETRY_TOKEN_HKDF_KEY_SZ;
@@ -873,13 +873,12 @@ int fd_quic_retry_token_encrypt(
   return FD_QUIC_SUCCESS;
 }
 
-/* Decrypts a retry token, and checks it for validity (see `fd_quic_retry_token_encrypt`). */
 int fd_quic_retry_token_decrypt(
     uchar retry_token[static FD_QUIC_RETRY_TOKEN_CIPHERTEXT_SZ],
     ulong retry_src_conn_id,
     uint ip_addr,
     ushort udp_port,
-    uchar orig_dst_conn_id[static FD_QUIC_MAX_CONN_ID_SZ],
+    uchar **orig_dst_conn_id,
     long *now)
 {
   /* Regenerate the AEAD key (the HKDF key is the first 32 bytes of the token). */
@@ -892,9 +891,9 @@ int fd_quic_retry_token_decrypt(
 
   uchar *ciphertext = hkdf_key + FD_QUIC_RETRY_TOKEN_HKDF_KEY_SZ;
   uchar aad[FD_QUIC_RETRY_TOKEN_AAD_SZ];
-  fd_memcpy(aad, &ip_addr, sizeof(uint));
-  fd_memcpy(aad + sizeof(uint), &udp_port, sizeof(ushort));
-  fd_memcpy(aad + sizeof(uint) + sizeof(ushort), &retry_src_conn_id, sizeof(ulong));
+  memcpy(aad, &ip_addr, sizeof(uint));
+  memcpy(aad + sizeof(uint), &udp_port, sizeof(ushort));
+  memcpy(aad + sizeof(uint) + sizeof(ushort), &retry_src_conn_id, sizeof(ulong));
   uchar iv[FD_QUIC_NONCE_SZ] = {0};
   uchar *tag = ciphertext + FD_QUIC_RETRY_TOKEN_CIPHERTEXT_SZ;
 
@@ -910,7 +909,7 @@ int fd_quic_retry_token_decrypt(
     return FD_QUIC_FAILED;
   };
 
-  *orig_dst_conn_id = *plaintext;
+  *orig_dst_conn_id = plaintext;
   *now = *((long *) fd_type_pun(plaintext + FD_QUIC_MAX_CONN_ID_SZ));
   return FD_QUIC_SUCCESS;
 }
