@@ -531,6 +531,22 @@ fd_funk_persist_open( fd_funk_t * funk, const char * filename, int cache_all ) {
   return FD_FUNK_SUCCESS;
 }
 
+/* Open a persistent store file but don't bother recovering
+   records. This API assumes that the shared memory version of the
+   database matches the persistence file, and everything was
+   previously shutdown in good order. This is the typical,
+   nothing-on-fire case. */
+
+int
+fd_funk_persist_open_fast( fd_funk_t * funk, const char * filename ) {
+  funk->persist_fd = open(filename, O_CREAT|O_RDWR, 0600);
+  if ( funk->persist_fd == -1 ) {
+    FD_LOG_ERR(( "failed to open %s: %s", filename, strerror(errno) ));
+    return FD_FUNK_ERR_SYS;
+  }
+  return FD_FUNK_SUCCESS;
+}
+
 /* Close the persistence file */
 void
 fd_funk_persist_close( fd_funk_t * funk ) {
