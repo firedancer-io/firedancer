@@ -64,7 +64,6 @@ fd_funk_rec_key_t funk_id( fd_pubkey_t* pubkey ) {
 int fd_acc_mgr_get_account_data( fd_acc_mgr_t* acc_mgr, fd_funk_txn_t* txn, fd_pubkey_t* pubkey, uchar* result, ulong offset, ulong bytes ) {
   fd_funk_rec_key_t     id = funk_id(pubkey);
   fd_funk_t *           funk = acc_mgr->global->funk;
-  fd_wksp_t *           wksp = fd_funk_wksp( funk );
   fd_funk_rec_t const * rec = fd_funk_rec_query_global(funk, txn, &id);
   if ( FD_UNLIKELY( rec == NULL ) ) {
     /*
@@ -79,7 +78,13 @@ int fd_acc_mgr_get_account_data( fd_acc_mgr_t* acc_mgr, fd_funk_txn_t* txn, fd_p
     FD_LOG_WARNING(( "not enough account data" ));
     return FD_ACC_MGR_ERR_READ_FAILED;
   }
-  fd_memcpy(result, ((const char*) fd_funk_val_const( rec, wksp )) + offset, fd_ulong_min ( bytes, sz - offset ) );
+  int err;
+  void * val = fd_funk_val_cache( funk, rec, &err );
+  if (val == NULL ) {
+    FD_LOG_WARNING(( "failed to load account data, code %d", err ));
+    return FD_ACC_MGR_ERR_READ_FAILED;
+  }
+  fd_memcpy(result, ((const char*) val) + offset, fd_ulong_min ( bytes, sz - offset ) );
   return FD_ACC_MGR_SUCCESS;
 }
 
@@ -103,7 +108,7 @@ int fd_acc_mgr_get_metadata( fd_acc_mgr_t* acc_mgr, fd_funk_txn_t* txn, fd_pubke
 
 
 int fd_acc_mgr_write_account_data( fd_acc_mgr_t* acc_mgr, fd_funk_txn_t* txn, fd_pubkey_t* pubkey,
-                                   const void* data, ulong sz, const void* data2, ulong sz2 ) {
+                                   const void* data, ulong sz, const void* data2, ulong sz2, int uncache ) {
 #ifdef _VWRITE
   char buf[50];
   fd_base58_encode_32((uchar *) pubkey, NULL, buf);
@@ -129,6 +134,10 @@ int fd_acc_mgr_write_account_data( fd_acc_mgr_t* acc_mgr, fd_funk_txn_t* txn, fd
     FD_LOG_WARNING(( "failed to write account data" ));
     return FD_ACC_MGR_ERR_WRITE_FAILED;
   }
+
+  fd_funk_rec_persist(funk, rec);
+  if ( uncache )
+    fd_funk_val_uncache(funk, rec);
 
   return FD_ACC_MGR_SUCCESS;
 }
@@ -187,7 +196,7 @@ int fd_acc_mgr_set_lamports( fd_acc_mgr_t* acc_mgr, fd_funk_txn_t* txn, ulong sl
   metadata.info.lamports = lamports;
 
   /* Bet we have to update the hash of the account.. and track the dirty pubkeys.. */
-  int write_result = fd_acc_mgr_write_account_data( acc_mgr, txn, pubkey, &metadata, sizeof(metadata), NULL, 0 );
+  int write_result = fd_acc_mgr_write_account_data( acc_mgr, txn, pubkey, &metadata, sizeof(metadata), NULL, 0, 0 );
   if ( FD_UNLIKELY( write_result != FD_ACC_MGR_SUCCESS ) ) {
     FD_LOG_WARNING(( "failed to write account metadata" ));
     return write_result;
@@ -199,7 +208,7 @@ int fd_acc_mgr_set_lamports( fd_acc_mgr_t* acc_mgr, fd_funk_txn_t* txn, ulong sl
 
 int fd_acc_mgr_set_metadata( fd_acc_mgr_t* acc_mgr, fd_funk_txn_t* txn, ulong slot, fd_pubkey_t * pubkey, fd_account_meta_t *metadata) {
   /* Bet we have to update the hash of the account.. and track the dirty pubkeys.. */
-  int write_result = fd_acc_mgr_write_account_data( acc_mgr, txn, pubkey, metadata, sizeof(*metadata), NULL, 0 );
+  int write_result = fd_acc_mgr_write_account_data( acc_mgr, txn, pubkey, metadata, sizeof(*metadata), NULL, 0, 0 );
   if ( FD_UNLIKELY( write_result != FD_ACC_MGR_SUCCESS ) ) {
     FD_LOG_WARNING(( "failed to write account metadata" ));
     return write_result;
@@ -243,7 +252,7 @@ int fd_acc_mgr_update_data( fd_acc_mgr_t* acc_mgr, fd_funk_txn_t* txn, ulong slo
       FD_LOG_WARNING(( "fd_acc_mgr_update_data: slot=%ld, pubkey=%s  hash=%s   dlen=%ld", slot, encoded_pubkey, encoded_hash, m.dlen ));
   }
 
-  return fd_acc_mgr_write_account_data(acc_mgr, txn, pubkey, &m, sizeof(m), data, dlen);
+  return fd_acc_mgr_write_account_data(acc_mgr, txn, pubkey, &m, sizeof(m), data, dlen, 0);
 }
 
 int fd_acc_mgr_write_structured_account( fd_acc_mgr_t* acc_mgr, fd_funk_txn_t* txn, ulong slot, fd_pubkey_t* pubkey, fd_solana_account_t * account) {
@@ -284,10 +293,10 @@ int fd_acc_mgr_write_structured_account( fd_acc_mgr_t* acc_mgr, fd_funk_txn_t* t
       FD_LOG_WARNING(( "fd_acc_mgr_write_structured_account: slot=%ld, pubkey=%s  hash=%s   dlen=%ld", slot, encoded_pubkey, encoded_hash, m.dlen ));
   }
 
-  return fd_acc_mgr_write_account_data(acc_mgr, txn, pubkey, &m, sizeof(m), account->data, account->data_len);
+  return fd_acc_mgr_write_account_data(acc_mgr, txn, pubkey, &m, sizeof(m), account->data, account->data_len, 0);
 }
 
-int fd_acc_mgr_write_append_vec_account( fd_acc_mgr_t* acc_mgr, fd_funk_txn_t* txn, ulong slot, fd_solana_account_hdr_t * hdr) {
+int fd_acc_mgr_write_append_vec_account( fd_acc_mgr_t* acc_mgr, fd_funk_txn_t* txn, ulong slot, fd_solana_account_hdr_t * hdr, int uncache) {
   fd_account_meta_t m;
   fd_account_meta_init(&m);
   m.dlen = hdr->meta.data_len;
@@ -298,7 +307,7 @@ int fd_acc_mgr_write_append_vec_account( fd_acc_mgr_t* acc_mgr, fd_funk_txn_t* t
 
   fd_memcpy( m.hash, hdr->hash.value, sizeof(m.hash));
 
-  int ret = fd_acc_mgr_write_account_data(acc_mgr, txn, (fd_pubkey_t *) &hdr->meta.pubkey, &m, sizeof(m), &hdr[1], hdr->meta.data_len);
+  int ret = fd_acc_mgr_write_account_data(acc_mgr, txn, (fd_pubkey_t *) &hdr->meta.pubkey, &m, sizeof(m), &hdr[1], hdr->meta.data_len, uncache);
   return ret;
 }
 
@@ -371,7 +380,7 @@ int fd_acc_mgr_update_hash ( fd_acc_mgr_t* acc_mgr, fd_account_meta_t * m, fd_fu
   fd_base58_encode_32((uchar *) &hash, NULL, buf);
 
   if (memcmp(&hash, m->hash, sizeof(hash))) {
-    int write_result = fd_acc_mgr_write_account_data( acc_mgr, txn, pubkey, m, sizeof(metadata), NULL, 0 );
+    int write_result = fd_acc_mgr_write_account_data( acc_mgr, txn, pubkey, m, sizeof(metadata), NULL, 0, 0 );
     if ( FD_UNLIKELY( write_result != FD_ACC_MGR_SUCCESS ) )
       return write_result;
 

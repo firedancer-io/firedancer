@@ -71,7 +71,7 @@ typedef ulong fd_acc_lamports_t;
 /* Writes account data to the database, starting at the given offset.
  */
 int fd_acc_mgr_write_account_data( fd_acc_mgr_t* acc_mgr, fd_funk_txn_t* txn, fd_pubkey_t* pubkey,
-                                   const void* data, ulong sz, const void* data2, ulong sz2 );
+                                   const void* data, ulong sz, const void* data2, ulong sz2, int uncache );
 
 /* Fetches the account data for the account with the given public key.
 
@@ -96,7 +96,7 @@ int fd_acc_mgr_set_lamports( fd_acc_mgr_t* acc_mgr, fd_funk_txn_t*, ulong slot, 
 
 int fd_acc_mgr_write_structured_account( fd_acc_mgr_t* acc_mgr, fd_funk_txn_t* txn, ulong slot, fd_pubkey_t*, fd_solana_account_t *);
 
-int fd_acc_mgr_write_append_vec_account( fd_acc_mgr_t* acc_mgr, fd_funk_txn_t* txn, ulong slot, fd_solana_account_hdr_t *);
+int fd_acc_mgr_write_append_vec_account( fd_acc_mgr_t* acc_mgr, fd_funk_txn_t* txn, ulong slot, fd_solana_account_hdr_t *, int uncache);
 
 void fd_acc_mgr_dirty_pubkey ( fd_acc_mgr_t* acc_mgr, fd_pubkey_t* pubkey, fd_hash_t *hash);
 

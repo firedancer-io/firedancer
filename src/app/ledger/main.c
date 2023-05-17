@@ -24,6 +24,7 @@ static void usage(const char* progname) {
   fprintf(stderr, "              --incremental <file>                also ingest incremental snapshot file\n");
   fprintf(stderr, " --wksp <name>                                    workspace name\n");
   fprintf(stderr, " --reset true                                     reset workspace before ingesting\n");
+  fprintf(stderr, " --persist <file>                                 write to persistence file (and uncache all accounts)\n");
   fprintf(stderr, " --gaddr <address>                                join funky at the address instead of making a new one\n");
   fprintf(stderr, " --indexmax <count>                               size of funky account map\n");
   fprintf(stderr, " --txnmax <count>                                 size of funky transaction map\n");
@@ -39,9 +40,11 @@ struct SnapshotParser {
   fd_global_ctx_t*      global_;
 
   fd_solana_manifest_t* manifest_;
+
+  int uncache_;
 };
 
-void SnapshotParser_init(struct SnapshotParser* self, fd_global_ctx_t* global) {
+void SnapshotParser_init(struct SnapshotParser* self, fd_global_ctx_t* global, int uncache) {
   fd_tar_stream_init(&self->tarreader_, global->allocf, global->allocf_arg, global->freef);
   size_t tmpsize = 1<<30;
   self->tmpstart_ = self->tmpcur_ = (char*)malloc(tmpsize);
@@ -50,6 +53,8 @@ void SnapshotParser_init(struct SnapshotParser* self, fd_global_ctx_t* global) {
   self->global_ = global;
 
   self->manifest_ = NULL;
+
+  self->uncache_ = uncache;
 }
 
 void SnapshotParser_destroy(struct SnapshotParser* self) {
@@ -99,7 +104,7 @@ void SnapshotParser_parsefd_solana_accounts(struct SnapshotParser* self, const c
         if (metadata.slot > slot)
           break;
       }
-      if (fd_acc_mgr_write_append_vec_account( self->global_->acc_mgr, self->global_->funk_txn, slot, hdr) != FD_ACC_MGR_SUCCESS)
+      if (fd_acc_mgr_write_append_vec_account( self->global_->acc_mgr, self->global_->funk_txn, slot, hdr, self->uncache_) != FD_ACC_MGR_SUCCESS)
         FD_LOG_ERR(("writing failed account"));
     } while (0);
 
@@ -298,6 +303,13 @@ int main(int argc, char** argv) {
       FD_LOG_ERR(( "failed to join a funky" ));
   }
 
+  const char* persist = fd_env_strip_cmdline_cstr(&argc, &argv, "--persist", NULL, NULL);
+  if (persist != NULL) {
+    unlink(persist);
+    if (fd_funk_persist_open(funk, persist, 0) != FD_FUNK_SUCCESS)
+      FD_LOG_ERR(( "failed to read file %s", persist ));
+  }
+
   char global_mem[FD_GLOBAL_CTX_FOOTPRINT] __attribute__((aligned(FD_GLOBAL_CTX_ALIGN)));
   memset(global_mem, 0, sizeof(global_mem));
   fd_global_ctx_t * global = fd_global_ctx_join( fd_global_ctx_new( global_mem ) );
@@ -324,7 +336,7 @@ int main(int argc, char** argv) {
         return 1;
       }
       struct SnapshotParser parser;
-      SnapshotParser_init(&parser, global);
+      SnapshotParser_init(&parser, global, persist != NULL);
       FD_LOG_NOTICE(("reading %s", snapshotfile));
       if (strcmp(snapshotfile + strlen(snapshotfile) - 4, ".zst") == 0)
         decompressZSTD(snapshotfile, SnapshotParser_moreData, &parser);
@@ -338,7 +350,7 @@ int main(int argc, char** argv) {
       const char* snapshotfile = fd_env_strip_cmdline_cstr(&argc, &argv, "--incremental", NULL, NULL);
       if (snapshotfile != NULL) {
         struct SnapshotParser parser;
-        SnapshotParser_init(&parser, global);
+        SnapshotParser_init(&parser, global, persist != NULL);
         FD_LOG_NOTICE(("reading %s", snapshotfile));
         if (strcmp(snapshotfile + strlen(snapshotfile) - 4, ".zst") == 0)
           decompressZSTD(snapshotfile, SnapshotParser_moreData, &parser);
