@@ -183,6 +183,10 @@ extern uchar FD_QUIC_CRYPTO_V1_INITIAL_SALT[ 20UL ];
 /* HKFD application-specific context (similar to a salt) */
 #define FD_QUIC_RETRY_TOKEN_AEAD_INFO ((const uchar *)"fd quic retry token")
 #define FD_QUIC_RETRY_TOKEN_AEAD_INFO_SZ (sizeof("fd quic retry token") - 1)
+/* The retry integrity tag is the 16-byte tag output of AES-128-GCM */
+#define FD_QUIC_RETRY_INTEGRITY_TAG_SZ 16
+#define FD_QUIC_RETRY_INTEGRITY_TAG_KEY ((uchar *)"0xbe0c690b9f66575a1d766b54e368c84e")
+#define FD_QUIC_RETRY_INTEGRITY_TAG_NONCE ((uchar *)"0x461599d35d632bf2239825bb")
 
 /* bound the max size of the above labels */
 #define FD_QUIC_CRYPTO_LABEL_BOUND 64
@@ -553,23 +557,30 @@ int fd_quic_retry_token_decrypt(
     uint ip_addr,
     ushort udp_port,
     /* plaintext */
-    uchar orig_dst_conn_id[static FD_QUIC_MAX_CONN_ID_SZ],
+    uchar **orig_dst_conn_id,
     long *now);
 
-int gcm_encrypt(const EVP_CIPHER *cipher,
-                uchar *plaintext, int plaintext_len,
-                uchar *aad, int aad_len,
-                uchar *key,
-                uchar *iv,
-                uchar *ciphertext,
-                uchar *tag);
+int fd_quic_retry_integrity_tag_encrypt(
+    uchar *retry_pseudo_pkt,
+    int retry_pseudo_pkt_len,
+    uchar retry_integrity_tag[static FD_QUIC_CRYPTO_TAG_SZ]);
 
-int gcm_decrypt(const EVP_CIPHER *cipher,
-                uchar *ciphertext, int ciphertext_len,
-                uchar *aad, int aad_len,
-                uchar *tag,
-                uchar *key,
-                uchar *iv,
-                uchar *plaintext);
+int gcm_encrypt(
+    const EVP_CIPHER *cipher,
+    uchar *plaintext, int plaintext_len,
+    uchar *aad, int aad_len,
+    uchar *key,
+    uchar *iv,
+    uchar *ciphertext,
+    uchar *tag);
+
+int gcm_decrypt(
+    const EVP_CIPHER *cipher,
+    uchar *ciphertext, int ciphertext_len,
+    uchar *aad, int aad_len,
+    uchar *tag,
+    uchar *key,
+    uchar *iv,
+    uchar *plaintext);
 
 #endif /* HEADER_fd_src_tango_quic_crypto_fd_quic_crypto_suites_h */

@@ -195,24 +195,20 @@ FD_TEMPL_DEF_STRUCT_END(handshake)
    }
  Figure 18: Retry Packet */
 FD_TEMPL_DEF_STRUCT_BEGIN(retry)
-  FD_TEMPL_MBR_ELEM_BITS     ( hdr_form,         uchar, 1               )
-  FD_TEMPL_MBR_ELEM_BITS     ( fixed_bit,        uchar, 1               )
-  FD_TEMPL_MBR_ELEM_BITS_TYPE( long_packet_type, uchar, 2, 0x03         )
-  FD_TEMPL_MBR_ELEM_BITS     ( unused0,          uchar, 4               )
+  FD_TEMPL_MBR_ELEM_BITS     ( hdr_form,            uchar, 1               )
+  FD_TEMPL_MBR_ELEM_BITS     ( fixed_bit,           uchar, 1               )
+  FD_TEMPL_MBR_ELEM_BITS_TYPE( long_packet_type,    uchar, 2, 0x03         )
+  FD_TEMPL_MBR_ELEM_BITS     ( unused0,             uchar, 4               )
 
-  FD_TEMPL_MBR_ELEM          ( version,          uint                   )
-  FD_TEMPL_MBR_ELEM          ( dst_conn_id_len,  uchar                  )
-  FD_TEMPL_MBR_ELEM_VAR      ( dst_conn_id,      0,160, dst_conn_id_len )
-  FD_TEMPL_MBR_ELEM          ( src_conn_id_len,  uchar                  )
-  FD_TEMPL_MBR_ELEM_VAR      ( src_conn_id,      0,160, src_conn_id_len )
+  FD_TEMPL_MBR_ELEM          ( version,             uint                   )
+  FD_TEMPL_MBR_ELEM          ( dst_conn_id_len,     uchar                  )
+  FD_TEMPL_MBR_ELEM_VAR      ( dst_conn_id,         0,160, dst_conn_id_len )
+  FD_TEMPL_MBR_ELEM          ( src_conn_id_len,     uchar                  )
+  FD_TEMPL_MBR_ELEM_VAR      ( src_conn_id,         0,160, src_conn_id_len )
 
-  // the retry token is 64 = 32 + 16 + 16 bytes (see `fd_quic_retry_token_encrypt`)
-  // retry token (..)
-  // retry integrity tag (128)
-
-  // use remain minus 128bits
-  // put these two fields in a single array
-  FD_TEMPL_MBR_ELEM_ARRAY( retry_data, uchar, 16,1200 ) // TODO determine proper range here
+  // FD_QUIC_MTU - 72 bytes = 1428 bytes
+  FD_TEMPL_MBR_ELEM_ARRAY    ( retry_token,         uchar, 0, 1428         )
+  FD_TEMPL_MBR_ELEM_BITS     ( retry_integrity_tag, uchar, 128             )
 FD_TEMPL_DEF_STRUCT_END(retry)
 
 
@@ -230,24 +226,26 @@ FD_TEMPL_DEF_STRUCT_END(retry)
      SCID Len (8),
      Source Connection ID (0..160),
      Retry Token (..),
+     Retry Integrity Tag (128),
    }
    Figure 8: Retry Pseudo-Packet */
 FD_TEMPL_DEF_STRUCT_BEGIN(retry_pseudo)
-  FD_TEMPL_MBR_ELEM          ( odcid_length,     uchar                  )
-  FD_TEMPL_MBR_ELEM_VAR      ( odcid,            0,160, odcid_length    )
+  FD_TEMPL_MBR_ELEM          ( odcid_length,        uchar                  )
+  FD_TEMPL_MBR_ELEM_VAR      ( odcid,               0,160, odcid_length    )
 
-  FD_TEMPL_MBR_ELEM_BITS     ( hdr_form,         uchar, 1               )
-  FD_TEMPL_MBR_ELEM_BITS     ( fixed_bit,        uchar, 1               )
-  FD_TEMPL_MBR_ELEM_BITS_TYPE( long_packet_type, uchar, 2, 0x03         )
-  FD_TEMPL_MBR_ELEM_BITS     ( unused0,          uchar, 4               )
+  FD_TEMPL_MBR_ELEM_BITS     ( hdr_form,            uchar, 1               )
+  FD_TEMPL_MBR_ELEM_BITS     ( fixed_bit,           uchar, 1               )
+  FD_TEMPL_MBR_ELEM_BITS_TYPE( long_packet_type,    uchar, 2, 0x03         )
+  FD_TEMPL_MBR_ELEM_BITS     ( unused0,             uchar, 4               )
 
-  FD_TEMPL_MBR_ELEM          ( version,          uint                   )
-  FD_TEMPL_MBR_ELEM          ( dst_conn_id_len,  uchar                  )
-  FD_TEMPL_MBR_ELEM_VAR      ( dst_conn_id,      0,160, dst_conn_id_len )
-  FD_TEMPL_MBR_ELEM          ( src_conn_id_len,  uchar                  )
-  FD_TEMPL_MBR_ELEM_VAR      ( src_conn_id,      0,160, src_conn_id_len )
+  FD_TEMPL_MBR_ELEM          ( version,             uint                   )
+  FD_TEMPL_MBR_ELEM          ( dst_conn_id_len,     uchar                  )
+  FD_TEMPL_MBR_ELEM_VAR      ( dst_conn_id,         0,160, dst_conn_id_len )
+  FD_TEMPL_MBR_ELEM          ( src_conn_id_len,     uchar                  )
+  FD_TEMPL_MBR_ELEM_VAR      ( src_conn_id,         0,160, src_conn_id_len )
 
-  // remain is retry token
+  FD_TEMPL_MBR_ELEM_ARRAY    ( retry_token,         uchar, 0, 1428         )
+  FD_TEMPL_MBR_ELEM_BITS     ( retry_integrity_tag, uchar, 128             )
 FD_TEMPL_DEF_STRUCT_END(retry_pseudo)
 
 
