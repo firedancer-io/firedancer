@@ -60,6 +60,14 @@ int
 fd_frank_quic_task( int     argc,
                     char ** argv );
 
+int
+fd_frank_shredder_task( int     argc,
+                        char ** argv );
+
+int
+fd_frank_retransmit_task( int     argc,
+                          char ** argv );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_app_frank_fd_frank_h */

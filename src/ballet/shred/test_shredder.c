@@ -38,10 +38,14 @@ test_shredder_pcap( void ) {
 
   fd_pcap_iter_t * pcap = fd_pcap_iter_new( file );                   FD_TEST( pcap );
 
+  fd_entry_batch_meta_t meta[1];
+  fd_memset( meta, 0, sizeof(fd_entry_batch_meta_t) );
+  meta->block_complete = 1;
+
   /* The pcap has all the data shreds before the parity shreds, so we'll
      make two passes over the data, one to check the data shreds, and
      the other to check the parity shreds. */
-  FD_TEST( fd_shredder_init_batch( shredder, test_bin, test_bin_sz, 0UL, 0UL, 0UL, (ushort)0, (ushort)0, (uchar)0, 1 ) );
+  FD_TEST( fd_shredder_init_batch( shredder, test_bin, test_bin_sz, meta ) );
   for( ulong i=0UL; i<7UL; i++ ) {
     fd_fec_set_t _set[ 1 ];
 
@@ -68,7 +72,7 @@ test_shredder_pcap( void ) {
   FD_TEST( fd_shredder_fini_batch( shredder ) );
 
 
-  FD_TEST( fd_shredder_init_batch( shredder, test_bin, test_bin_sz, 0UL, 0UL, 0UL, (ushort)0, (ushort)0, (uchar)0, 1 ) );
+  FD_TEST( fd_shredder_init_batch( shredder, test_bin, test_bin_sz, meta ) );
   for( ulong i=0UL; i<7UL; i++ ) {
     fd_fec_set_t _set[ 1 ];
 
@@ -148,6 +152,10 @@ static void
 perf_test( void ) {
   for( ulong i=0UL; i<PERF_TEST_SZ; i++ )  perf_test_entry_batch[ i ] = (uchar)i;
 
+  fd_entry_batch_meta_t meta[1];
+  fd_memset( meta, 0, sizeof(fd_entry_batch_meta_t) );
+  meta->block_complete = 1;
+
   fd_shredder_t _shredder[ 1 ];
   FD_TEST( _shredder==fd_shredder_new( _shredder ) );
   fd_shredder_t * shredder = fd_shredder_join( _shredder );           FD_TEST( shredder );
@@ -159,7 +167,7 @@ perf_test( void ) {
   ulong iterations = 100UL;
   long dt = -fd_log_wallclock();
   for( ulong iter=0UL; iter<iterations; iter++ ) {
-    fd_shredder_init_batch( shredder, perf_test_entry_batch, PERF_TEST_SZ, 0UL, 0UL, 0UL, (ushort)0, (ushort)0, (uchar)0, 1 );
+    fd_shredder_init_batch( shredder, perf_test_entry_batch, PERF_TEST_SZ, meta );
 
     ulong sets_cnt = fd_shredder_count_fec_sets( PERF_TEST_SZ );
     for( ulong j=0UL; j<sets_cnt; j++ ) {

@@ -24,6 +24,17 @@ struct fd_fec_set {
 typedef struct fd_fec_set fd_fec_set_t;
 
 
+struct fd_entry_batch_meta {
+  ulong slot;
+  ulong data_idx_offset;
+  ulong parity_idx_offset;
+  ushort version;
+  ushort parent_offset;
+  uchar reference_tick;
+  int block_complete;
+};
+typedef struct fd_entry_batch_meta fd_entry_batch_meta_t;
+
 static ulong const fd_shredder_data_to_parity_cnt[ 33UL ] = {
    0UL, 17UL, 18UL, 19UL, 19UL, 20UL, 21UL, 21UL,
   22UL, 23UL, 23UL, 24UL, 24UL, 25UL, 25UL, 26UL,
@@ -46,14 +57,7 @@ struct __attribute__((aligned(FD_SHREDDER_ALIGN))) fd_shredder_private {
   ulong        sz;
   ulong        offset;
 
-  /* FIXME: should these all be ulongs or the natural type? */
-  ulong slot;
-  ulong data_idx_offset;
-  ulong parity_idx_offset;
-  ulong version;
-  ulong parent_offset;
-  ulong reference_tick;
-  ulong block_complete;
+  fd_entry_batch_meta_t meta;
 };
 
 typedef struct fd_shredder_private fd_shredder_t;
@@ -136,9 +140,7 @@ fd_shredder_count_parity_shreds( ulong sz_bytes ) {
 }
 #undef NORMAL_FEC_SET_PAYLOAD_SZ
 
-fd_shredder_t * fd_shredder_init_batch( fd_shredder_t * shredder, void const * entry_batch, ulong entry_batch_sz,
-    ulong slot, ulong data_idx_offset, ulong parity_idx_offset, ushort version,
-    ushort parent_offset, uchar reference_tick, int block_complete );
+fd_shredder_t * fd_shredder_init_batch( fd_shredder_t * shredder, void const * entry_batch, ulong entry_batch_sz, fd_entry_batch_meta_t const * meta );
 
 fd_fec_set_t * fd_shredder_next_fec_set( fd_shredder_t * shredder, void const * signing_private_key, void const * signing_public_key, fd_fec_set_t * result );
 

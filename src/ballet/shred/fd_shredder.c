@@ -78,8 +78,7 @@ fd_shredder_delete( void *          mem      ) {
 fd_shredder_t *
 fd_shredder_init_batch( fd_shredder_t * shredder,
     void const * entry_batch, ulong entry_batch_sz,
-    ulong slot, ulong data_idx_offset, ulong parity_idx_offset, ushort version,
-    ushort parent_offset, uchar reference_tick, int block_complete ) {
+    fd_entry_batch_meta_t const * metadata ) {
 
   if( FD_UNLIKELY( entry_batch_sz==0UL ) ) return NULL; /* FIXME: should this warn? Silently expand it to 1 byte? */
 
@@ -87,13 +86,7 @@ fd_shredder_init_batch( fd_shredder_t * shredder,
   shredder->sz          = entry_batch_sz;
   shredder->offset      = 0UL;
 
-  shredder->slot               = slot;
-  shredder->data_idx_offset    = data_idx_offset;
-  shredder->parity_idx_offset  = parity_idx_offset;
-  shredder->version            = (ulong)version;
-  shredder->parent_offset      = (ulong)parent_offset;
-  shredder->reference_tick     = (ulong)reference_tick;
-  shredder->block_complete     = block_complete ? 1UL : 0UL;
+  shredder->meta = *metadata;
 
   return shredder;
 }
@@ -134,7 +127,7 @@ fd_shredder_next_fec_set( fd_shredder_t * shredder,
 
 
   /* Write headers and copy the data shred payload */
-  ulong flags_for_last = ((last_in_batch & shredder->block_complete)<<7) | (last_in_batch<<6);
+  ulong flags_for_last = ((last_in_batch & (ulong)!!shredder->meta.block_complete)<<7) | (last_in_batch<<6);
   for( ulong i=0UL; i<data_shred_cnt; i++ ) {
     fd_shred_t * shred = (fd_shred_t *)data_shreds[ i ];
     /* Size in bytes of the payload section of this data shred,
@@ -142,12 +135,12 @@ fd_shredder_next_fec_set( fd_shredder_t * shredder,
     ulong shred_payload_sz = fd_ulong_min( entry_sz-offset, data_shred_payload_sz );
 
     shred->variant            = fd_shred_variant( FD_SHRED_TYPE_MERKLE_DATA, (uchar)tree_depth );
-    shred->slot               = shredder->slot;
-    shred->idx                = (uint  )(shredder->data_idx_offset + i);
-    shred->version            = (ushort)(shredder->version);
-    shred->fec_set_idx        = (uint  )(shredder->data_idx_offset);
-    shred->data.parent_off    = (ushort)(shredder->parent_offset);
-    shred->data.flags         = (uchar )(fd_ulong_if( i==data_shred_cnt-1UL, flags_for_last, 0UL ) | (shredder->reference_tick & 0x3FUL));
+    shred->slot               = shredder->meta.slot;
+    shred->idx                = (uint  )(shredder->meta.data_idx_offset + i);
+    shred->version            = (ushort)(shredder->meta.version);
+    shred->fec_set_idx        = (uint  )(shredder->meta.data_idx_offset);
+    shred->data.parent_off    = (ushort)(shredder->meta.parent_offset);
+    shred->data.flags         = (uchar )(fd_ulong_if( i==data_shred_cnt-1UL, flags_for_last, 0UL ) | (shredder->meta.reference_tick & 0x3FUL));
     shred->data.size          = (ushort)(FD_SHRED_DATA_HEADER_SZ + shred_payload_sz);
 
     uchar * payload = fd_memcpy( data_shreds[ i ] + FD_SHRED_DATA_HEADER_SZ , entry_batch+offset, shred_payload_sz );
@@ -169,10 +162,10 @@ fd_shredder_next_fec_set( fd_shredder_t * shredder,
     fd_shred_t * shred = (fd_shred_t *)parity_shreds[ j ];
 
     shred->variant            = fd_shred_variant( FD_SHRED_TYPE_MERKLE_CODE, (uchar)tree_depth );
-    shred->slot               = shredder->slot;
-    shred->idx                = (uint  )(shredder->parity_idx_offset + j);
-    shred->version            = (ushort)(shredder->version);
-    shred->fec_set_idx        = (uint  )(shredder->data_idx_offset);
+    shred->slot               = shredder->meta.slot;
+    shred->idx                = (uint  )(shredder->meta.parity_idx_offset + j);
+    shred->version            = (ushort)(shredder->meta.version);
+    shred->fec_set_idx        = (uint  )(shredder->meta.data_idx_offset);
     shred->code.data_cnt      = (ushort)(data_shred_cnt);
     shred->code.code_cnt      = (ushort)(parity_shred_cnt);
     shred->code.idx           = (ushort)(j);
@@ -226,9 +219,9 @@ fd_shredder_next_fec_set( fd_shredder_t * shredder,
     fd_bmtree_get_inclusion_proof( bmtree, merkle, data_shred_cnt+j );
   }
 
-  shredder->offset             = offset;
-  shredder->data_idx_offset   += data_shred_cnt;
-  shredder->parity_idx_offset += parity_shred_cnt;
+  shredder->offset                  = offset;
+  shredder->meta.data_idx_offset   += data_shred_cnt;
+  shredder->meta.parity_idx_offset += parity_shred_cnt;
 
   result->data_shred_cnt   = data_shred_cnt;
   result->parity_shred_cnt = parity_shred_cnt;
