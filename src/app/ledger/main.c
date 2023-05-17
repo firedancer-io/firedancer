@@ -23,6 +23,7 @@ static void usage(const char* progname) {
   fprintf(stderr, " --cmd ingest --snapshotfile <file>               ingest solana snapshot file\n");
   fprintf(stderr, "              --incremental <file>                also ingest incremental snapshot file\n");
   fprintf(stderr, " --cmd recover                                    recover in-memory database from persistence file\n");
+  fprintf(stderr, " --cmd repersist                                  persist in-memory database to persistence file\n");
   fprintf(stderr, " --wksp <name>                                    workspace name\n");
   fprintf(stderr, " --reset true                                     reset workspace before ingesting\n");
   fprintf(stderr, " --persist <file>                                 read/write to persistence file\n");
@@ -276,9 +277,14 @@ int main(int argc, char** argv) {
   }
 
   fd_funk_t* funk;
-  
+
+  const char* cmd = fd_env_strip_cmdline_cstr(&argc, &argv, "--cmd", NULL, NULL);
+
   const char* gaddr = fd_env_strip_cmdline_cstr(&argc, &argv, "--gaddr", NULL, NULL);
   if (gaddr == NULL) {
+    if (strcmp(cmd, "repersist") == 0)
+      FD_LOG_ERR(( "repersist requires --gaddr flag" ));
+
     ulong index_max = fd_env_strip_cmdline_ulong(&argc, &argv, "--indexmax", NULL, 350000000);
     ulong xactions_max = fd_env_strip_cmdline_ulong(&argc, &argv, "--txnmax", NULL, 100);
     
@@ -304,8 +310,6 @@ int main(int argc, char** argv) {
       FD_LOG_ERR(( "failed to join a funky" ));
   }
 
-  const char* persist = fd_env_strip_cmdline_cstr(&argc, &argv, "--persist", NULL, NULL);
-
   char global_mem[FD_GLOBAL_CTX_FOOTPRINT] __attribute__((aligned(FD_GLOBAL_CTX_ALIGN)));
   memset(global_mem, 0, sizeof(global_mem));
   fd_global_ctx_t * global = fd_global_ctx_join( fd_global_ctx_new( global_mem ) );
@@ -320,7 +324,7 @@ int main(int argc, char** argv) {
   memset(acc_mgr_mem, 0, sizeof(acc_mgr_mem));
   global->acc_mgr = fd_acc_mgr_join( fd_acc_mgr_new( acc_mgr_mem, global, FD_ACC_MGR_FOOTPRINT ) );
   
-  const char* cmd = fd_env_strip_cmdline_cstr(&argc, &argv, "--cmd", NULL, NULL);
+  const char* persist = fd_env_strip_cmdline_cstr(&argc, &argv, "--persist", NULL, NULL);
   if (cmd == NULL) {
     // Do nothing
     
@@ -370,6 +374,20 @@ int main(int argc, char** argv) {
         FD_LOG_ERR(( "failed to read file %s", persist ));
     } else
       FD_LOG_ERR(( "recover requires --persist flag" ));
+
+  } else if (strcmp(cmd, "repersist") == 0) {
+    if (persist != NULL) {
+      if (fd_funk_persist_open(funk, persist, 0) != FD_FUNK_SUCCESS)
+        FD_LOG_ERR(( "failed to read file %s", persist ));
+    } else
+      FD_LOG_ERR(( "repersist requires --persist flag" ));
+    fd_funk_rec_t * rec_map  = fd_funk_rec_map( funk, wksp );
+    for( fd_funk_rec_map_iter_t iter = fd_funk_rec_map_iter_init( rec_map );
+         !fd_funk_rec_map_iter_done( rec_map, iter );
+         iter = fd_funk_rec_map_iter_next( rec_map, iter ) ) {
+      fd_funk_rec_t * rec = fd_funk_rec_map_iter_ele( rec_map, iter );
+      fd_funk_rec_persist( funk, rec );
+    }
   }
 
   const char* verifyhash = fd_env_strip_cmdline_cstr(&argc, &argv, "--verifyhash", NULL, NULL);

@@ -595,7 +595,8 @@ fd_funk_rec_persist_unsafe( fd_funk_t *     funk,
                             fd_funk_rec_t * rec ) {
 
   if ( funk->persist_fd == -1 ||
-       !fd_funk_txn_idx_is_null( fd_funk_txn_idx( rec->txn_cidx ) ) ) {
+       !fd_funk_txn_idx_is_null( fd_funk_txn_idx( rec->txn_cidx ) ) ||
+       rec->val_gaddr == 0UL ) {
     /* Not useful in this case. We only save published records. */
     return FD_FUNK_SUCCESS;
   }
