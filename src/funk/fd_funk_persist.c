@@ -223,6 +223,11 @@ fd_funk_persist_recover_record( fd_funk_t * funk, ulong pos,
       return;
     }
   } else if ( rec_con->persist_pos != FD_FUNK_REC_IDX_NULL ) {
+    if ( rec_con->persist_alloc_sz == head->alloc_sz &&
+         rec_con->persist_pos == pos ) {
+      /* We are recovering an already known record */
+      return;
+    }
     /* We have duplicate record keys, indicating we crashed during an
        update. The larger allocation must be more recent. */
     if ( rec_con->persist_alloc_sz >= head->alloc_sz ) {

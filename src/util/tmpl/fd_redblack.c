@@ -1038,6 +1038,9 @@ int REDBLK_(verify)(REDBLK_T * pool, REDBLK_T * root) {
     return 0; // Trivially correct
   REDBLK_TEST(root->REDBLK_COLOR == REDBLK_BLACK);
 
+  ulong sz = REDBLK_(size)(pool, root);
+  REDBLK_TEST(sz + 1 == REDBLK_POOL_(used)(pool));
+
   // Compute the correct number of black nodes on a path
   ulong blkcnt = 0;
   REDBLK_T * node = root;
