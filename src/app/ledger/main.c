@@ -20,11 +20,12 @@
 
 static void usage(const char* progname) {
   fprintf(stderr, "USAGE: %s\n", progname);
-  fprintf(stderr, " --cmd ingest --snapshotfile <file>               ingest snapshot file\n");
+  fprintf(stderr, " --cmd ingest --snapshotfile <file>               ingest solana snapshot file\n");
   fprintf(stderr, "              --incremental <file>                also ingest incremental snapshot file\n");
+  fprintf(stderr, " --cmd recover                                    recover in-memory database from persistence file\n");
   fprintf(stderr, " --wksp <name>                                    workspace name\n");
   fprintf(stderr, " --reset true                                     reset workspace before ingesting\n");
-  fprintf(stderr, " --persist <file>                                 write to persistence file (and uncache all accounts)\n");
+  fprintf(stderr, " --persist <file>                                 read/write to persistence file\n");
   fprintf(stderr, " --gaddr <address>                                join funky at the address instead of making a new one\n");
   fprintf(stderr, " --indexmax <count>                               size of funky account map\n");
   fprintf(stderr, " --txnmax <count>                                 size of funky transaction map\n");
@@ -304,11 +305,6 @@ int main(int argc, char** argv) {
   }
 
   const char* persist = fd_env_strip_cmdline_cstr(&argc, &argv, "--persist", NULL, NULL);
-  if (persist != NULL) {
-    unlink(persist);
-    if (fd_funk_persist_open(funk, persist, 0) != FD_FUNK_SUCCESS)
-      FD_LOG_ERR(( "failed to read file %s", persist ));
-  }
 
   char global_mem[FD_GLOBAL_CTX_FOOTPRINT] __attribute__((aligned(FD_GLOBAL_CTX_ALIGN)));
   memset(global_mem, 0, sizeof(global_mem));
@@ -329,6 +325,12 @@ int main(int argc, char** argv) {
     // Do nothing
     
   } else if (strcmp(cmd, "ingest") == 0) {
+    if (persist != NULL) {
+      unlink(persist);
+      if (fd_funk_persist_open(funk, persist, 0) != FD_FUNK_SUCCESS)
+        FD_LOG_ERR(( "failed to read file %s", persist ));
+    }
+    
     {
       const char* snapshotfile = fd_env_strip_cmdline_cstr(&argc, &argv, "--snapshotfile", NULL, NULL);
       if (snapshotfile == NULL) {
@@ -361,6 +363,13 @@ int main(int argc, char** argv) {
         SnapshotParser_destroy(&parser);
       }
     }
+
+  } else if (strcmp(cmd, "recover") == 0) {
+    if (persist != NULL) {
+      if (fd_funk_persist_open(funk, persist, 0) != FD_FUNK_SUCCESS)
+        FD_LOG_ERR(( "failed to read file %s", persist ));
+    } else
+      FD_LOG_ERR(( "recover requires --persist flag" ));
   }
 
   const char* verifyhash = fd_env_strip_cmdline_cstr(&argc, &argv, "--verifyhash", NULL, NULL);

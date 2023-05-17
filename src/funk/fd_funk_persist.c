@@ -222,7 +222,7 @@ fd_funk_persist_recover_record( fd_funk_t * funk, ulong pos,
       FD_LOG_ERR(( "failed to recover record, code %s", fd_funk_strerror( err ) ));
       return;
     }
-  } else {
+  } else if ( rec_con->persist_pos != FD_FUNK_REC_IDX_NULL ) {
     /* We have duplicate record keys, indicating we crashed during an
        update. The larger allocation must be more recent. */
     if ( rec_con->persist_alloc_sz >= head->alloc_sz ) {
@@ -238,9 +238,9 @@ fd_funk_persist_recover_record( fd_funk_t * funk, ulong pos,
     FD_LOG_ERR(( "failed to recover record, code %s", fd_funk_strerror( FD_FUNK_ERR_FROZEN ) ));
     return;
   }
+  fd_wksp_t * wksp = fd_funk_wksp( funk );
+  fd_alloc_t * alloc = fd_funk_alloc( funk, wksp );
   if ( cache_all ) {
-    fd_wksp_t * wksp = fd_funk_wksp( funk );
-    fd_alloc_t * alloc = fd_funk_alloc( funk, wksp );
     rec = fd_funk_val_copy( rec, value, head->val_sz, head->val_sz, alloc, wksp, &err);
     if ( !rec ) {
       FD_LOG_ERR(( "failed to recover record, code %s", fd_funk_strerror( err ) ));
@@ -248,6 +248,7 @@ fd_funk_persist_recover_record( fd_funk_t * funk, ulong pos,
     }
   } else {
     /* Just set the size */
+    fd_funk_val_flush( rec, alloc, wksp );
     rec->val_sz    = head->val_sz;
     rec->val_max   = 0U;
     rec->val_gaddr = 0UL;
