@@ -18,7 +18,7 @@ shift 4
 CONF=tmp/$APP.cfg
 
 WKSP=$APP.wksp
-WKSP_PAGE_CNT=2
+WKSP_PAGE_CNT=4
 WKSP_PAGE_SZ=gigantic
 WKSP_PERM=0600
 
@@ -33,6 +33,15 @@ DEDUP_TCACHE_DEPTH=4194302
 DEDUP_TCACHE_MAP_CNT=0
 DEDUP_DEPTH=$VERIFY_DEPTH
 
+_ETH_IP_UDP_HEADER=$(( 12 + 2 + 20 + 8 ))
+_SHRED_SZ=1228
+TURB_SLOT_CNT=4 # leads has 4 consecutive slots 
+TURB_BUFF_CNT=2 # 0: data   1: code
+TURB_DEPTH=$((128*1024)) # 128*1024 *4T/shred /0.4ms => support 1.3 MTPS
+TURB_DEPTH_4SLOTS=$(( TURB_DEPTH*4 ))
+TURB_MTU=$(( _SHRED_SZ + _ETH_IP_UDP_HEADER + 256 )) # with additional 256B margin fpr merkle shreds which have upto 6-levels 20B HASH
+# ^ this brings the total size of dcache = (1270 + 256) * (128*1024) * 4 * 2 (for data+code)= 1.6GB
+#  => that's why using WKSP_PAGE_CNT=4 for total 4GB available workspace space
 #######################################################################
 
 FD_LOG_PATH=""
@@ -77,6 +86,35 @@ for((verify_idx=0;verify_idx<VERIFY_CNT;verify_idx++)); do
     insert "$POD" cstr "$APP".verify.v$verify_idx.fseq   "$FSEQ"   \
     || exit $?
 done
+
+# CNC=`$BUILD/bin/fd_tango_ctl new-cnc $WKSP 3 tic $CNC_APP_SZ` || exit $?
+# $BUILD/bin/fd_pod_ctl                     \
+#   insert $POD cstr $APP.turb.cnc    $CNC  \
+#   || exit $?
+# for((slot_idx=0;slot_idx<TURB_SLOT_CNT;slot_idx++)); do
+#   for((buff_idx=0;buff_idx<TURB_BUFF_CNT;buff_idx++)); do
+#     MCACHE=`$BUILD/bin/fd_tango_ctl new-mcache $WKSP $TURB_DEPTH 0 0` || exit $?
+#     DCACHE=`$BUILD/bin/fd_tango_ctl new-dcache $WKSP $TURB_MTU $TURB_DEPTH 1 1 0` || exit $?
+#     FSEQ=`$BUILD/bin/fd_tango_ctl new-fseq $WKSP 0` || exit $?
+#     $BUILD/bin/fd_pod_ctl                                     \
+#       insert $POD cstr $APP.turb.s${slot_idx}b${buff_idx}.mcache $MCACHE \
+#       insert $POD cstr $APP.turb.s${slot_idx}b${buff_idx}.dcache $DCACHE \
+#       insert $POD cstr $APP.turb.s${slot_idx}b${buff_idx}.fseq   $FSEQ   \
+#       || exit $?
+#   done
+# done
+CNC=`$BUILD/bin/fd_tango_ctl new-cnc $WKSP 3 tic $CNC_APP_SZ` || exit $?
+$BUILD/bin/fd_pod_ctl                     \
+  insert $POD cstr $APP.turb.cnc    $CNC  \
+  || exit $?
+MCACHE=`$BUILD/bin/fd_tango_ctl new-mcache $WKSP $TURB_DEPTH_4SLOTS 0 0` || exit $?
+DCACHE=`$BUILD/bin/fd_tango_ctl new-dcache $WKSP $TURB_MTU $TURB_DEPTH_4SLOTS 1 1 0` || exit $?
+FSEQ=`$BUILD/bin/fd_tango_ctl new-fseq $WKSP 0` || exit $?
+$BUILD/bin/fd_pod_ctl                       \
+  insert $POD cstr $APP.turb.mcache $MCACHE \
+  insert $POD cstr $APP.turb.dcache $DCACHE \
+  insert $POD cstr $APP.turb.fseq   $FSEQ   \
+  || exit $?
 
 BASE_ARGS="--pod $POD --cfg $APP"
 RUN_ARGS="$BASE_ARGS --log-app $APP --log-thread main"

@@ -63,7 +63,7 @@ main( int     argc,
   ulong verify_cnt = fd_pod_cnt_subpod( verify_pods );
   FD_LOG_NOTICE(( "%lu verify found", verify_cnt ));
 
-  ulong tile_cnt = 3UL + verify_cnt;
+  ulong tile_cnt = 4UL + verify_cnt; /* main + dedup + pack + turb + verifiers */
   if( FD_UNLIKELY( fd_tile_cnt()<tile_cnt ) ) FD_LOG_ERR(( "at least %lu tiles required for this config", tile_cnt ));
   if( FD_UNLIKELY( fd_tile_cnt()>tile_cnt ) ) FD_LOG_WARNING(( "only %lu tiles required for this config", tile_cnt ));
 
@@ -99,6 +99,13 @@ main( int     argc,
     if( FD_UNLIKELY( fd_cnc_app_sz( tile_cnc[ tile_idx ] )<64UL ) ) FD_LOG_ERR(( "cnc app sz should be at least 64 bytes" ));
     tile_idx++;
 
+    FD_LOG_NOTICE(( "joining %s.turb.cnc", cfg_path ));
+    tile_name[ tile_idx ] = "turb";
+    tile_cnc [ tile_idx ] = fd_cnc_join( fd_wksp_pod_map( cfg_pod, "turb.cnc" ) );
+    if( FD_UNLIKELY( !tile_cnc[ tile_idx ] ) ) FD_LOG_ERR(( "fd_cnc_join failed" ));
+    if( FD_UNLIKELY( fd_cnc_app_sz( tile_cnc[ tile_idx ] )<64UL ) ) FD_LOG_ERR(( "cnc app sz should be at least 64 bytes" ));
+    tile_idx++;
+
     for( fd_pod_iter_t iter = fd_pod_iter_init( verify_pods ); !fd_pod_iter_done( iter ); iter = fd_pod_iter_next( iter ) ) {
       fd_pod_info_t info = fd_pod_iter_info( iter );
       if( FD_UNLIKELY( info.val_type!=FD_POD_VAL_TYPE_SUBPOD ) ) continue;
@@ -128,6 +135,7 @@ main( int     argc,
     case 0UL: task = main;                 break;
     case 1UL: task = fd_frank_pack_task;   break;
     case 2UL: task = fd_frank_dedup_task;  break;
+    case 3UL: task = fd_frank_turb_task;   break;
     default:  task = fd_frank_verify_task; break;
     }
 

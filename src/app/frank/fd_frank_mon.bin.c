@@ -345,7 +345,8 @@ main( int     argc,
   uchar const * verify_pods = fd_pod_query_subpod( cfg_pod, "verify" );
   ulong verify_cnt = fd_pod_cnt_subpod( verify_pods );
   FD_LOG_INFO(( "%lu verify found", verify_cnt ));
-  ulong tile_cnt = 3UL + verify_cnt;
+
+  ulong tile_cnt = 4UL + verify_cnt; /* main + pack + dedup + turb + verify */
 
   /* Join all IPC objects for this frank instance */
 
@@ -408,6 +409,19 @@ main( int     argc,
       if( FD_UNLIKELY( !tile_fseq[ tile_idx ] ) ) FD_LOG_ERR(( "fd_fseq_join failed" ));
       tile_idx++;
     }
+  
+    tile_name[ tile_idx ] = "turb";
+    FD_LOG_INFO(( "joining %s.turb.cnc", cfg_path ));
+    tile_cnc[ tile_idx ] = fd_cnc_join( fd_wksp_pod_map( cfg_pod, "turb.cnc" ) );
+    if( FD_UNLIKELY( !tile_cnc[ tile_idx ] ) ) FD_LOG_ERR(( "fd_cnc_join failed" ));
+    if( FD_UNLIKELY( fd_cnc_app_sz( tile_cnc[ tile_idx ] )<64UL ) ) FD_LOG_ERR(( "cnc app sz should be at least 64 bytes" ));
+    FD_LOG_INFO(( "joining %s.turb.mcache", cfg_path ));
+    tile_mcache[ tile_idx ] = fd_mcache_join( fd_wksp_pod_map( cfg_pod, "turb.mcache" ) );
+    if( FD_UNLIKELY( !tile_mcache[ tile_idx ] ) ) FD_LOG_ERR(( "fd_mcache_join failed" ));
+    FD_LOG_INFO(( "joining %s.turb.fseq", cfg_path ));
+    tile_fseq[ tile_idx ] = fd_fseq_join( fd_wksp_pod_map( cfg_pod, "turb.fseq" ) );
+    if( FD_UNLIKELY( !tile_fseq[ tile_idx ] ) ) FD_LOG_ERR(( "fd_fseq_join failed" ));
+    tile_idx++;  
   } while(0);
   
   /* Setup local objects used by this app */
@@ -482,7 +496,7 @@ main( int     argc,
     printf( "\n" );
     printf( "         link |  tot TPS |  tot bps | uniq TPS | uniq bps |   ha tr%% | uniq bw%% | filt tr%% | filt bw%% |           ovrnp cnt |           ovrnr cnt |            slow cnt\n" );
     printf( "--------------+----------+----------+---------+----------+----------+----------+-----------+----------+---------------------+---------------------+---------------------\n" );
-    for( ulong tile_idx=2UL; tile_idx<tile_cnt; tile_idx++ ) {
+    for( ulong tile_idx=2UL; tile_idx<tile_cnt-1; tile_idx++ ) { /* "tile_idx<tile_cnt-1" so not display the last one, ie turb */
       snap_t * prv = &snap_prv[ tile_idx ];
       snap_t * cur = &snap_cur[ tile_idx ];
       if( tile_idx==2UL ) printf( " %5s->%-5s", tile_name[ 2        ], tile_name[ 1 ] );

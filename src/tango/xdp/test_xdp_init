@@ -25,7 +25,8 @@ NETNS1=/var/run/netns/"$IFACE1"
 : "${XSK_TX_DEPTH:=64}"
 : "${AIO_BATCH_CNT:=32}"
 
-: "${XDP_PROGRAM:=src/ballet/ebpf/ebpf_xdp_flow.o}"
+: "${XDP_PROGRAM:=build/ebpf/clang/bin/fd_xdp_redirect_prog.o}"
+##WW^ORG : "${XDP_PROGRAM:=build/ebpf/clang/bin/ebpf_xdp_flow.o}"
 
 if [[ -z "$WKSP" ]]; then
   echo 'Missing $WKSP' >2
@@ -57,11 +58,21 @@ if [ $# -ne 1 ]; then
   echo "                sudo [BUILD_DIRECTORY]/bin/fd_shmem_cfg init 0700 $USER \"\""
   echo "        once."
   echo ""
-  exit 1
+  ##WW exit 1
+  BLDDIR=$(dirname  $(cd $(dirname $0); pwd))
+else
+  BLDDIR=$1
 fi
 
-BIN=$1/bin
-UNIT_TEST=$1/unit-test
+if [[ ! -d $BLDDIR ]]; then
+  printf "\n\n     Invalid build dir: $BLDDIR\n\n"
+  exit 1
+else
+  printf "\n\n     Using build dir: $BLDDIR\n\n"
+fi
+
+BIN=$BLDDIR/bin
+UNIT_TEST=$BLDDIR/unit-test
 
 # Disable permanant log for all the controls we are going to run in here
 
@@ -75,75 +86,141 @@ export FD_LOG_PATH
 #sudo $BIN/fd_shmem_cfg init 0700 $USER ""
 #sudo $BIN/fd_shmem_cfg alloc 1 gigantic 0
 #sudo $BIN/fd_shmem_cfg alloc 256 huge 0
+if [[ -d "/mnt/.fd/.huge" ]]; then
+  printf "\n\n##     Running:   ${BIN}/fd_shmem_cfg query\n        "
+  ${BIN}/fd_shmem_cfg query
+fi
+printf "\n\n"
+read -n 1 -p "     Run shmem page allocation? (y|n:default)" userresponse
+if [ "$userresponse" == "y" ]; then
+  printf "\n\n##     Running:  sudo rm -rf /mnt/.fd ## for 'fd_shmem_cfg init  0700 ${USER}' will fail if /mnt/.fd exists\n        "
+  sudo rm -rf /mnt/.fd
+  printf "\n\n##     Running:  sudo ${BIN}/fd_shmem_cfg   init 0700 ${USER}\n        "
+  sudo ${BIN}/fd_shmem_cfg   init 0700 ${USER} ""
+
+  printf "\n\n##     Running:  sudo ${BIN}/fd_shmem_cfg   alloc ${WKSP_CNT} ${WKSP_PAGE} ${NUMA_IDX}\n        "
+  sudo ${BIN}/fd_shmem_cfg   alloc ${WKSP_CNT} ${WKSP_PAGE} ${NUMA_IDX}
+fi
 
 # Create the wksp
-
+printf "\n\n##     Deleting workspace $WKSP if exist\n        " 
+"$BIN/fd_wksp_ctl" delete $WKSP # Okay if fails ... might not exist already
+printf "\n\n##     Creating workspace $WKSP with $WKSP_CNT $WKSP_PAGE pages on NUMA $NUMA_IDX with permission 0600\n        " 
 "$BIN/fd_wksp_ctl" new $WKSP $WKSP_CNT $WKSP_PAGE $NUMA_IDX 0600 || exit $?
 
-CNC="$( "$BIN/fd_tango_ctl" new-cnc "$WKSP" 0 tic 4032 )" || exit $?
+CNC_APP_SZ=4032
+printf "\n\n##     Creating new CNC for $WKSP with size $CNC_APP_SZ\n        " 
+CNC="$( "$BIN/fd_tango_ctl" new-cnc "$WKSP" 0 tic "$CNC_APP_SZ" )" || exit $?
+printf "\n\n##     CNC for $WKSP with size $CNC_APP_SZ has been created successfully with CNC=$CNC\n\n"
 
 # (Re-)create veth virtual network devices
 
-ip netns delete "$IFACE0"
-ip netns delete "$IFACE1"
-ip netns add "$IFACE0" || exit $?
-ip netns add "$IFACE1" || exit $?
+sudo ip netns delete "$IFACE0"
+sudo ip netns delete "$IFACE1"
+sudo ip netns add "$IFACE0" || exit $?
+sudo ip netns add "$IFACE1" || exit $?
 
-ip link del dev "$IFACE0" # Destroys IFACE1 too. Okay if this fails
-ip link add dev "$IFACE0"       \
-            netns "$IFACE0"     \
-            type veth           \
-            peer name "$IFACE1" netns "$IFACE1" \
-            numrxqueues 1       \
-            numtxqueues 1       \
+printf "\n\n##     Created netnamespace:\n"
+ip netns
+
+#sudo ip link del dev "$IFACE0" # Destroys IFACE1 too. Okay if this fails
+#^ incorrect, should be done in proper namespace 
+sudo ip netns exec "$IFACE0" ip link del dev "$IFACE0" # replace ^
+sudo ip link add dev "$IFACE0"       \
+                 netns "$IFACE0"     \
+                 type veth           \
+                 peer name "$IFACE1" netns "$IFACE1" \
+                 numrxqueues 1       \
+                 numtxqueues 1       \
   || exit $?
 
-ip netns exec "$IFACE0" ip link set dev "$IFACE0" arp off address "$IFACE0_MAC" || exit $?
-ip netns exec "$IFACE1" ip link set dev "$IFACE1" arp off address "$IFACE1_MAC" || exit $?
+sudo ip netns exec "$IFACE0" ip link set dev "$IFACE0" arp off address "$IFACE0_MAC" || exit $?
+sudo ip netns exec "$IFACE1" ip link set dev "$IFACE1" arp off address "$IFACE1_MAC" || exit $?
 
-ip netns exec "$IFACE0" arp -v -i "$IFACE0" -Ds "$IFACE0_ADDR" "$IFACE0" || exit $?
-ip netns exec "$IFACE1" arp -v -i "$IFACE1" -Ds "$IFACE1_ADDR" "$IFACE1" || exit $?
+sudo ip netns exec "$IFACE0" arp -v -i "$IFACE0" -Ds "$IFACE0_ADDR" "$IFACE0" || exit $?
+sudo ip netns exec "$IFACE1" arp -v -i "$IFACE1" -Ds "$IFACE1_ADDR" "$IFACE1" || exit $?
 
-ip netns exec "$IFACE0" ip address add "$IFACE0_ADDR"/30 dev "$IFACE0" scope link || exit $?
-ip netns exec "$IFACE1" ip address add "$IFACE1_ADDR"/30 dev "$IFACE1" scope link || exit $?
+sudo ip netns exec "$IFACE0" ip address add "$IFACE0_ADDR"/30 dev "$IFACE0" scope link || exit $?
+sudo ip netns exec "$IFACE1" ip address add "$IFACE1_ADDR"/30 dev "$IFACE1" scope link || exit $?
 
-ip netns exec "$IFACE0" ip link set dev "$IFACE0" up || exit $?
-ip netns exec "$IFACE1" ip link set dev "$IFACE1" up || exit $?
+sudo ip netns exec "$IFACE0" ip link set dev "$IFACE0" up || exit $?
+sudo ip netns exec "$IFACE1" ip link set dev "$IFACE1" up || exit $?
+
+printf "\n\n##     Created link:\n"
+sudo ip netns exec "$IFACE0" ip link
+sudo ip netns exec "$IFACE1" ip link
 
 # Create XDP env
 
-rm -rvf /sys/fs/bpf/"$WKSP"
-rm -rvf /sys/fs/bpf/"$WKSP"
-"$BIN/fd_xdp_ctl" init "$WKSP" 0755 "$USER" "" || exit $?
+sudo rm -rvf /sys/fs/bpf/"$WKSP"
+sudo rm -rvf /sys/fs/bpf/"$WKSP"
+sudo "$BIN/fd_xdp_ctl" init "$WKSP" 0755 "$USER" "" || exit $?
 
 # Install XDP program
 
-"$BIN/fd_xdp_ctl" unhook-iface --netns "$NETNS0" "$WKSP" "$IFACE0" # Okay if this fails
-"$BIN/fd_xdp_ctl" unhook-iface --netns "$NETNS1" "$WKSP" "$IFACE1" # Okay if this fails
-"$BIN/fd_xdp_ctl"   hook-iface --netns "$NETNS0" "$WKSP" "$IFACE0" drv || exit $?
-"$BIN/fd_xdp_ctl"   hook-iface --netns "$NETNS1" "$WKSP" "$IFACE1" drv || exit $?
+##WW>ORG "$BIN/fd_xdp_ctl" unhook-iface --netns "$NETNS0" "$WKSP" "$IFACE0" # Okay if this fails
+##WW>ORG "$BIN/fd_xdp_ctl" unhook-iface --netns "$NETNS1" "$WKSP" "$IFACE1" # Okay if this fails
+##WW>ORG "$BIN/fd_xdp_ctl"   hook-iface --netns "$NETNS0" "$WKSP" "$IFACE0" drv || exit $?
+##WW>ORG "$BIN/fd_xdp_ctl"   hook-iface --netns "$NETNS1" "$WKSP" "$IFACE1" drv || exit $?
+sudo "$BIN/fd_xdp_ctl" unhook-iface --netns "$NETNS0" "$WKSP" "$IFACE0" # Okay if this fails
+sudo "$BIN/fd_xdp_ctl" unhook-iface --netns "$NETNS1" "$WKSP" "$IFACE1" # Okay if this fails
+sudo "$BIN/fd_xdp_ctl"   hook-iface --netns "$NETNS0" "$WKSP" "$IFACE0" drv || exit $?
+sudo "$BIN/fd_xdp_ctl"   hook-iface --netns "$NETNS1" "$WKSP" "$IFACE1" drv || exit $?
 
 # Show XDP program status (xdp-tools)
 
 if command -v xdp-loader; then
   nsenter --net="$NETNS0" xdp-loader status "$IFACE0" || exit $?
   nsenter --net="$NETNS1" xdp-loader status "$IFACE1" || exit $?
+elif [[ $(command -v bpftool) ]]; then
+  # [[ $(command -v bpftool) ]] && echo exist || echo absent 
+  printf "\n\n#*> network namespace $IFACE0 status:\n"
+  sudo ip netns exec                $IFACE0 ip      link list
+  sudo ip netns exec                $IFACE0 ip      addr list
+  sudo ip netns exec                $IFACE0 bpftool prog list
+  sudo ip netns exec                $IFACE0 bpftool net  list
+  printf "\n\n"
+
+  printf "\n\n#*> network namespace $IFACE1 status:\n"
+  sudo ip netns exec                $IFACE1 ip      link list
+  sudo ip netns exec                $IFACE1 ip      addr list
+  sudo ip netns exec                $IFACE1 bpftool prog list
+  sudo ip netns exec                $IFACE1 bpftool net  list
+  printf "\n\n"
+
+  printf "\n\n#*> turn on arp to allow ping go through:\n"
+  sudo ip netns exec $IFACE0  ip link set dev $IFACE0 arp on
+  sudo ip netns exec $IFACE1  ip link set dev $IFACE1 arp on
+
+  printf "\n\n#*> test pinging from network namespace $IFACE0 to $IFACE1:\n"
+  sudo ip netns exec                $IFACE0 ping $IFACE1_ADDR
+  printf "\n\n"
+
+  printf "\n\n#*> test pinging from network namespace $IFACE1 to $IFACE0:\n"
+  sudo ip netns exec                $IFACE1 ping $IFACE0_ADDR
+  printf "\n\n"
+
+  # printf "\n\n#*> turn off arp to restore status:\n"
+  # sudo ip netns exec $IFACE0  ip link set dev $IFACE0 arp off
+  # sudo ip netns exec $IFACE1  ip link set dev $IFACE1 arp off
 fi
 
 # Setup listener
 
-"$BIN/fd_xdp_ctl" listen-udp-port "$WKSP" "$IFACE0_ADDR" "$QUIC_PORT" tpu-quic-user || exit $?
+sudo "$BIN/fd_xdp_ctl" listen-udp-port "$WKSP" "$IFACE0_ADDR" "$QUIC_PORT" tpu-quic-user || exit $?
 
 # Setup XSK
 
-XSK0="$(    "$BIN/fd_xdp_ctl" new-xsk     "$WKSP" "$XSK_FRAME_SZ" "$XSK_RX_DEPTH" "$XSK_TX_DEPTH")" || exit $?
-XSK_AIO0="$("$BIN/fd_xdp_ctl" new-xsk-aio "$WKSP" "$XSK_TX_DEPTH" "$AIO_BATCH_CNT"               )" || exit $?
+XSK0="$(    "$BIN/fd_xdp_ctl" new-xsk     "$WKSP" "$XSK_FRAME_SZ" "$XSK_RX_DEPTH" "$XSK_TX_DEPTH")" && echo "XSK0=$XSK0"         || exit 1
+XSK_AIO0="$("$BIN/fd_xdp_ctl" new-xsk-aio "$WKSP" "$XSK_TX_DEPTH" "$AIO_BATCH_CNT"               )" && echo "XSK_AIO0=$XSK_AIO0" || exit 1
 
-XSK1="$(    "$BIN/fd_xdp_ctl" new-xsk     "$WKSP" "$XSK_FRAME_SZ" "$XSK_RX_DEPTH" "$XSK_TX_DEPTH")" || exit $?
-XSK_AIO1="$("$BIN/fd_xdp_ctl" new-xsk-aio "$WKSP" "$XSK_TX_DEPTH" "$AIO_BATCH_CNT"               )" || exit $?
+XSK1="$(    "$BIN/fd_xdp_ctl" new-xsk     "$WKSP" "$XSK_FRAME_SZ" "$XSK_RX_DEPTH" "$XSK_TX_DEPTH")" && echo "XSK1=$XSK1"         || exit $?
+XSK_AIO1="$("$BIN/fd_xdp_ctl" new-xsk-aio "$WKSP" "$XSK_TX_DEPTH" "$AIO_BATCH_CNT"               )" && echo "XSK_AIO1=$XSK_AIO1" || exit $?
 
-"$BIN/fd_xdp_ctl" --netns "$NETNS0" bind-xsk "$XSK0" "$WKSP" "$IFACE0" 0 || exit $?
-"$BIN/fd_xdp_ctl" --netns "$NETNS1" bind-xsk "$XSK1" "$WKSP" "$IFACE1" 0 || exit $?
+# sudo "$BIN/fd_xdp_ctl" --netns "$NETNS0" bind-xsk "$XSK0" "$WKSP" "$IFACE0" 0 || echo "Failed bind-xsk $XSK0 on $IFACE0" && exit 1
+# sudo "$BIN/fd_xdp_ctl" --netns "$NETNS1" bind-xsk "$XSK1" "$WKSP" "$IFACE1" 0 || echo "Failed bind-xsk $XSK1 on $IFACE1" && exit 1
+sudo "$BIN/fd_xdp_ctl" --netns "$NETNS0" bind-xsk "$XSK0" "$WKSP" "$IFACE0" 0 || exit 1
+sudo "$BIN/fd_xdp_ctl" --netns "$NETNS1" bind-xsk "$XSK1" "$WKSP" "$IFACE1" 0 || exit 1
 
 # Write out the details
 
