@@ -31,6 +31,7 @@ static void usage(const char* progname) {
   fprintf(stderr, " --indexmax <count>                               size of funky account map\n");
   fprintf(stderr, " --txnmax <count>                                 size of funky transaction map\n");
   fprintf(stderr, " --verifyhash <base58hash>                        verify that the accounts hash matches the given one\n");
+  fprintf(stderr, " --verify true                                    verify database integrity\n");
 }
 
 struct SnapshotParser {
@@ -279,6 +280,7 @@ int main(int argc, char** argv) {
   fd_funk_t* funk;
 
   const char* cmd = fd_env_strip_cmdline_cstr(&argc, &argv, "--cmd", NULL, NULL);
+  const char* verify = fd_env_strip_cmdline_cstr(&argc, &argv, "--verify", NULL, "false");
 
   const char* gaddr = fd_env_strip_cmdline_cstr(&argc, &argv, "--gaddr", NULL, NULL);
   if (gaddr == NULL) {
@@ -308,6 +310,9 @@ int main(int argc, char** argv) {
     funk = fd_funk_join(shmem);
     if (funk == NULL)
       FD_LOG_ERR(( "failed to join a funky" ));
+    if (strcmp(verify, "true") == 0)
+      if (fd_funk_verify(funk))
+        FD_LOG_ERR(( "verification failed" ));
   }
 
   char global_mem[FD_GLOBAL_CTX_FOOTPRINT] __attribute__((aligned(FD_GLOBAL_CTX_ALIGN)));
@@ -389,6 +394,10 @@ int main(int argc, char** argv) {
       fd_funk_rec_persist( funk, rec );
     }
   }
+
+  if (strcmp(verify, "true") == 0)
+    if (fd_funk_verify(funk))
+      FD_LOG_ERR(( "verification failed" ));
 
   const char* verifyhash = fd_env_strip_cmdline_cstr(&argc, &argv, "--verifyhash", NULL, NULL);
   if (verifyhash) {

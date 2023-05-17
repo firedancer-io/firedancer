@@ -384,21 +384,25 @@ fd_funk_persist_open( fd_funk_t * funk, const char * filename, int cache_all ) {
 
   /* Allocate the map of free disk space */
   fd_wksp_t * wksp = fd_funk_wksp( funk );
-  if ( funk->persist_frees_gaddr == 0 ) {
-    /* Pessimisticaly estimate the maximum number of free spaces. If
-       the pool runs out, we will be forced to throw away spaces and
-       leak disk space. */
-    ulong max = fd_ulong_min ( funk->rec_max, 1000000 );
-    void * mem = fd_wksp_alloc_laddr(wksp, fd_funk_persist_free_map_align(),
-                                     fd_funk_persist_free_map_footprint(max), funk->wksp_tag );
-    if ( mem == NULL ) {
-      FD_LOG_ERR(( "failed to allocate free list" ));
-      return FD_FUNK_ERR_MEM;
-    }
-    fd_funk_persist_free_entry_t * pool = fd_funk_persist_free_map_join( fd_funk_persist_free_map_new( mem, max ) );
-    funk->persist_frees_gaddr = fd_wksp_gaddr_fast( wksp, pool );
-    funk->persist_frees_root = -1;
+  if ( funk->persist_frees_gaddr != 0 ) {
+    /* Free the previous incarnation of the free pool */
+    fd_funk_persist_free_entry_t * pool = (fd_funk_persist_free_entry_t *)
+      fd_wksp_laddr_fast( wksp, funk->persist_frees_gaddr );
+    fd_wksp_free_laddr( fd_funk_persist_free_map_delete( fd_funk_persist_free_map_leave( pool ) ) );
   }
+  /* Pessimisticaly estimate the maximum number of free spaces. If
+     the pool runs out, we will be forced to throw away spaces and
+     leak disk space. */
+  ulong max = fd_ulong_min ( funk->rec_max, 1000000 );
+  void * mem = fd_wksp_alloc_laddr(wksp, fd_funk_persist_free_map_align(),
+                                   fd_funk_persist_free_map_footprint(max), funk->wksp_tag );
+  if ( mem == NULL ) {
+    FD_LOG_ERR(( "failed to allocate free list" ));
+    return FD_FUNK_ERR_MEM;
+  }
+  fd_funk_persist_free_entry_t * pool = fd_funk_persist_free_map_join( fd_funk_persist_free_map_new( mem, max ) );
+  funk->persist_frees_gaddr = fd_wksp_gaddr_fast( wksp, pool );
+  funk->persist_frees_root = -1;
 
   /* Allocate a 10MB temp buffer */
   fd_alloc_t * alloc = fd_funk_alloc( funk, wksp );
