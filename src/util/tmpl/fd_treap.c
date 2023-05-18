@@ -10,8 +10,8 @@
    support adaptive queries like a splay tree, etc).  Additionally,
    there are a bunch of tricks in the below to optimize this much
    further than textbook implementations (those tend to miss a lot of
-   practical opportunities including eliminating the cost of eliminating
-   random number generation during operations).
+   practical opportunities including eliminating the cost of random
+   number generation during operations).
 
    This API is designed for ultra tight coupling with pools, maps, other
    treaps, etc.  Likewise, a treap can be persisted beyond the lifetime
@@ -77,11 +77,11 @@
 
      typedef struct myele myele_t;
 
-     #define   TREAP_NAME      mytreap
-     #define   TREAP_T         myele_t
-     #define   TREAP_QUERY_T   char const *
-     #define   TREAP_CMP(q,e)  strcmp( q, e->key )
-     #define   TREAP_LT(e0,e1) (strcmp( e0->key, e1->key )<0)
+     #define TREAP_NAME      mytreap
+     #define TREAP_T         myele_t
+     #define TREAP_QUERY_T   char const *
+     #define TREAP_CMP(q,e)  strcmp( q, e->key )
+     #define TREAP_LT(e0,e1) (strcmp( e0->key, e1->key )<0)
      #include "fd_treap.c"
 
    will declare the following APIs as a header-only style library in the
@@ -104,54 +104,62 @@
      int mytreap_idx_is_null( ulong           i );
      int mytreap_ele_is_null( myele_t const * e );
 
-     // mytreap_idx returns e's index.  Assumes e in ele or is NULL.
+     // mytreap_idx returns e's index.  Assumes e is a pointer in the
+     // caller's local address space to a pool element or is NULL.
      // Return will be in [0,ele_max) or mytreap_idx_null().  Lifetime
      // is the element storage lifetime.  mytreap_idx_fast is the same
-     // but assumes e is not NULL.  mytreap_ele returns a pointer in the
-     // caller's address space to element idx.  Assumes idx is in
-     // [0,ele_max) or is mytreap_idx_null().  Return pointer lifetime
-     // is ele's local lifetime.  mytreap_ele_fast is the same but
-     // assumes idx is not mytreap_idx_null().  mytreap_ele[_fast]_const
-     // is a const correct version.
+     // assumes e is not NULL.  pool is a pointer in the caller's
+     // address space to the ele_max linearly addressable storage region
+     // backing the treap.
 
-     ulong           mytreap_idx           ( myele_t const * e, myele_t const * ele );
-     ulong           mytreap_idx_fast      ( myele_t const * e, myele_t const * ele );
-     myele_t *       mytreap_ele           ( ulong           i, myele_t *       ele );
-     myele_t *       mytreap_ele_fast      ( ulong           i, myele_t *       ele );
-     myele_t const * mytreap_ele_const     ( ulong           i, myele_t const * ele );
-     myele_t const * mytreap_ele_fast_const( ulong           i, myele_t const * ele );
+     ulong mytreap_idx     ( myele_t const * e, myele_t const * pool );
+     ulong mytreap_idx_fast( myele_t const * e, myele_t const * pool );
 
-     // mytreap_seed is a helper that sets ele[i].prio for i in
+     // mytreap_ele returns a pointer in the caller's address space to
+     // element idx.  Assumes idx is in [0,ele_max) or is
+     // mytreap_idx_null().  Return pointer lifetime is ele's local
+     // lifetime.  mytreap_ele_fast is the same but assumes idx is not
+     // mytreap_idx_null().  mytreap_ele[_fast]_const is a const correct
+     // version.  pool is a pointer in the caller's address space to the
+     // ele_max linearly addressable storage region backing the treap.
+
+     myele_t * mytreap_ele     ( ulong i, myele_t * pool );
+     myele_t * mytreap_ele_fast( ulong i, myele_t * pool );
+
+     myele_t const * mytreap_ele_const     ( ulong i, myele_t const * pool );
+     myele_t const * mytreap_ele_fast_const( ulong i, myele_t const * pool );
+
+     // mytreap_seed is a helper that sets pool[i].prio for i in
      // [0,ele_max) to a random value in [0,PRIO_MAX) (yes half-open)
      // where PRIO_MAX is the largest possible value representable in
      // the prio field.  Uses seed (arbitrary) to select a simple hash
      // based random number of sequence for prio.
      //
      // If an application wants to set this as optimally and securely as
-     // possible, it should seed ele[i].prio with a cryptographic secure
-     // uniform random permutation of [0,ele_max) and/or dynamically
-     // manage the prio field as described above.
+     // possible, it should seed pool[i].prio with a cryptographic
+     // secure uniform random permutation of [0,ele_max) and/or
+     // dynamically manage the prio field as described above.
 
-     void mytreap_seed( myele_t * ele, ulong ele_max, ulong seed );
+     void mytreap_seed( myele_t * pool, ulong ele_max, ulong seed );
 
      // mytreap_{align,footprint} returns the alignment and footprint
      // needed for a memory region to hold the state of a mytreap of
-     // elements from an ele_max element storage.  align will be an
-     // integer power-of-two and footprint will be a multiple of align.
-     // footprint will non-zero on a success and 0 on failure (silent)
-     // (e.g. ele_max too large for the specified TREAP_IDX_T).
-     // mytreap_t is stack declaration, data segment declaration, heap
-     // allocation and stack allocation friendly.  Even though footprint
-     // is passed ele_max, the footprint is a small O(1) spatial
-     // overhead.
+     // elements from a linearly addressable ele_max element storage.
+     // align will be an integer power-of-two and footprint will be a
+     // multiple of align.  footprint will non-zero on a success and 0
+     // on failure (silent) (e.g. ele_max too large for the specified
+     // TREAP_IDX_T).  mytreap_t is stack declaration, data segment
+     // declaration, heap allocation and stack allocation friendly.
+     // Even though footprint is passed ele_max, the footprint is a
+     // small O(1) spatial overhead.
      //
      // mytreap_new formats a memory region with the appropriate
      // alignment and footprint whose first byte in the caller's address
-     // space is pointed to by shmem as a mytreap for elements from an
-     // ele_max element storage.  Returns shmem on success and NULL on
-     // failure (log details, e.g. ele_max is too large for the width of
-     // the TREAP_IDX_T specified).  Caller is not joined on return.
-     // The treap will be empty.
+     // space is pointed to by shmem as a mytreap for elements from a
+     // linearly addressable ele_max element storage.  Returns shmem on
+     // success and NULL on failure (log details, e.g. ele_max is too
+     // large for the width of the TREAP_IDX_T specified).  Caller is
+     // not joined on return.  The treap will be empty.
      //
      // mytreap_join joins a mytreap.  Assumes shtreap points at a
      // memory region formatted as a mytreap in the caller's address
@@ -185,7 +193,7 @@
      ulong mytreap_ele_cnt( mytreap_t const * treap );
 
      // mytreap_idx_query finds where q is stored in the treap.  Assumes
-     // treap is a current local join and ele points in the caller's
+     // treap is a current local join and pool points in the caller's
      // address space to the ele_max element storage containing the
      // treap elements.  Returns [0,ele_max) on success and
      // mytreap_idx_null() on failure.  Lifetime of the returned idx is
@@ -200,17 +208,18 @@
      // average with an ultra high probability of having a small
      // coefficient (i.e. close to algorithmically optimal trees).
 
-     ulong           mytreap_idx_query      ( mytreap_t const * treap, char const * q, myele_t const * ele );
-     myele_t *       mytreap_ele_query      ( mytreap_t *       treap, char const * q, myele_t *       ele );
-     myele_t const * mytreap_ele_query_const( mytreap_t const * treap, char const * q, myele_t const * ele );
+     ulong           mytreap_idx_query      ( mytreap_t const * treap, char const * q, myele_t const * pool );
+     myele_t *       mytreap_ele_query      ( mytreap_t *       treap, char const * q, myele_t *       pool );
+     myele_t const * mytreap_ele_query_const( mytreap_t const * treap, char const * q, myele_t const * pool );
 
      // mytreap_idx_{insert,remove} inserts / removes element n/d into
-     // the treap.  Assumes treap is a current local join, ele points in
-     // the caller's address space to the ele_max element storage used
-     // for treap elements, n/d are in [0,ele_max), n/d are currently
-     // out of / in the treap.  Insert further assumes that n's queries
-     // are not in the treap (n's queries are the set of queries that
-     // are covered by n).  Given these assumptions, these cannot fail.
+     // the treap and returns treap.  Assumes treap is a current local
+     // join, pool points in the caller's address space to the ele_max
+     // element storage used for treap elements, n/d are in [0,ele_max),
+     // n/d are currently out of / in the treap.  Insert further assumes
+     // that n's queries are not in the treap (n's queries are the set
+     // of queries that are covered by n).  Given these assumptions,
+     // these cannot fail.
      //
      // For insert, n's query and prio fields should already be
      // populated (i.e. MYTREAP_LT( ele+n, ele+i ) should return valid
@@ -234,22 +243,22 @@
      // average with an ultra high probability of having a small
      // coefficient (i.e. close to algorithmically optimal trees).
 
-     void mytreap_idx_insert( mytreap_t * treap, ulong     n, myele_t * ele );
-     void mytreap_idx_remove( mytreap_t * treap, ulong     d, myele_t * ele );
+     mytreap_t * mytreap_idx_insert( mytreap_t * treap, ulong     n, myele_t * pool );
+     mytreap_t * mytreap_idx_remove( mytreap_t * treap, ulong     d, myele_t * pool );
 
-     void mytreap_ele_insert( mytreap_t * treap, myele_t * n, myele_t * ele );
-     void mytreap_ele_remove( mytreap_t * treap, myele_t * d, myele_t * ele );
+     mytreap_t * mytreap_ele_insert( mytreap_t * treap, myele_t * n, myele_t * pool );
+     mytreap_t * mytreap_ele_remove( mytreap_t * treap, myele_t * d, myele_t * pool );
 
      // mytreap_fwd_iter_{init,done,next,idx,ele,ele_const} provide an
      // in-order iterator from smallest to largest value.  Typical
      // usage:
      //
-     //  for( mytreap_fwd_iter_t iter = mytreap_fwd_iter_init( treap, ele );
+     //  for( mytreap_fwd_iter_t iter = mytreap_fwd_iter_init( treap, pool );
      //       !mytreap_fwd_iter_done( iter );
-     //       iter = mytreap_fwd_iter_next( iter, ele ) ) {
+     //       iter = mytreap_fwd_iter_next( iter, pool ) ) {
      //     ulong i = mytreap_fwd_iter_idx( iter );
-     //     ... or myele_t *       e = mytreap_fwd_iter_ele      ( iter, ele );
-     //     ... or myele_t const * e = mytreap_fwd_iter_ele_const( iter, ele );
+     //     ... or myele_t *       e = mytreap_fwd_iter_ele      ( iter, pool );
+     //     ... or myele_t const * e = mytreap_fwd_iter_ele_const( iter, pool );
      //
      //     ... process i (or e) here
      //
@@ -260,33 +269,38 @@
      //     ... modify (from the treap's POV, the application manages
      //     ... concurrency for other fields).
      //  }
+     //
+     // pool is a pointer in the caller's address space to the ele_max
+     // linearly addressable storage region backing the treap.
 
      typedef ... mytreap_fwd_iter_t;
 
-     mytreap_fwd_iter_t mytreap_fwd_iter_init     ( mytreap_t const * treap, myele_t const * ele );
-     int                mytreap_fwd_iter_done     ( mytreap_fwd_iter_t iter                      );
-     mytreap_fwd_iter_t mytreap_fwd_iter_next     ( mytreap_fwd_iter_t iter, myele_t const * ele );
-     ulong              mytreap_fwd_iter_idx      ( mytreap_fwd_iter_t iter                      );
-     myele_t *          mytreap_fwd_iter_ele      ( mytreap_fwd_iter_t iter, myele_t *       ele );
-     myele_t const *    mytreap_fwd_iter_ele_const( mytreap_fwd_iter_t iter, myele_t const * ele );
+     mytreap_fwd_iter_t mytreap_fwd_iter_init     ( mytreap_t const * treap, myele_t const * pool );
+     int                mytreap_fwd_iter_done     ( mytreap_fwd_iter_t iter                       );
+     mytreap_fwd_iter_t mytreap_fwd_iter_next     ( mytreap_fwd_iter_t iter, myele_t const * pool );
+     ulong              mytreap_fwd_iter_idx      ( mytreap_fwd_iter_t iter                       );
+     myele_t *          mytreap_fwd_iter_ele      ( mytreap_fwd_iter_t iter, myele_t *       pool );
+     myele_t const *    mytreap_fwd_iter_ele_const( mytreap_fwd_iter_t iter, myele_t const * pool );
 
      // mytreap_rev_iter_{init,done,next,idx,ele,ele_const} is the same
      // but used when interating from largest to smallest.
 
      typedef ... mytreap_rev_iter_t;
 
-     mytreap_rev_iter_t mytreap_rev_iter_init     ( mytreap_t const * treap, myele_t const * ele );
-     int                mytreap_rev_iter_done     ( mytreap_rev_iter_t iter                      );
-     mytreap_rev_iter_t mytreap_rev_iter_next     ( mytreap_rev_iter_t iter, myele_t const * ele );
-     ulong              mytreap_rev_iter_idx      ( mytreap_rev_iter_t iter                      );
-     myele_t *          mytreap_rev_iter_ele      ( mytreap_rev_iter_t iter, myele_t *       ele );
-     myele_t const *    mytreap_rev_iter_ele_const( mytreap_rev_iter_t iter, myele_t const * ele );
+     mytreap_rev_iter_t mytreap_rev_iter_init     ( mytreap_t const * treap, myele_t const * pool );
+     int                mytreap_rev_iter_done     ( mytreap_rev_iter_t iter                       );
+     mytreap_rev_iter_t mytreap_rev_iter_next     ( mytreap_rev_iter_t iter, myele_t const * pool );
+     ulong              mytreap_rev_iter_idx      ( mytreap_rev_iter_t iter                       );
+     myele_t *          mytreap_rev_iter_ele      ( mytreap_rev_iter_t iter, myele_t *       pool );
+     myele_t const *    mytreap_rev_iter_ele_const( mytreap_rev_iter_t iter, myele_t const * pool );
 
      // mytreap_verify returns 0 if the mytreap is not obviously corrupt
      // or a -1 (i.e. ERR_INVAL) if it is (logs details).  treap is
-     // current local join to a mytreap.
+     // current local join to a mytreap.  pool is a pointer in the
+     // caller's address space to the ele_max linearly addressable
+     // storage region backing the treap.
 
-     int mytreap_verify( mytreap_t const * treap, myele_t const * ele );
+     int mytreap_verify( mytreap_t const * treap, myele_t const * pool );
 
      // IMPORTANT SAFETY TIP!  queries and iteration can be done
      // concurrently by multiple threads distributed arbitrarily over
@@ -412,7 +426,7 @@ FD_PROTOTYPES_BEGIN
 
 /* prototypes */
 
-TREAP_STATIC void TREAP_(seed)( TREAP_T * ele, ulong ele_max, ulong seed );
+TREAP_STATIC void TREAP_(seed)( TREAP_T * pool, ulong ele_max, ulong seed );
 
 TREAP_STATIC FD_FN_CONST ulong       TREAP_(align)    ( void                              );
 TREAP_STATIC FD_FN_CONST ulong       TREAP_(footprint)( ulong       ele_max               );
@@ -421,18 +435,18 @@ TREAP_STATIC /**/        TREAP_(t) * TREAP_(join)     ( void *      shtreap     
 TREAP_STATIC /**/        void *      TREAP_(leave)    ( TREAP_(t) * treap                 );
 TREAP_STATIC /**/        void *      TREAP_(delete)   ( void *      shtreap               );
 
-TREAP_STATIC FD_FN_PURE ulong TREAP_(idx_query)( TREAP_(t) const * treap, TREAP_QUERY_T q, TREAP_T const * ele );
+TREAP_STATIC FD_FN_PURE ulong TREAP_(idx_query)( TREAP_(t) const * treap, TREAP_QUERY_T q, TREAP_T const * pool );
 
-TREAP_STATIC void TREAP_(idx_insert)( TREAP_(t) * treap, ulong n, TREAP_T * ele );
-TREAP_STATIC void TREAP_(idx_remove)( TREAP_(t) * treap, ulong d, TREAP_T * ele );
+TREAP_STATIC TREAP_(t) * TREAP_(idx_insert)( TREAP_(t) * treap, ulong n, TREAP_T * pool );
+TREAP_STATIC TREAP_(t) * TREAP_(idx_remove)( TREAP_(t) * treap, ulong d, TREAP_T * pool );
 
-TREAP_STATIC FD_FN_PURE TREAP_(fwd_iter_t) TREAP_(fwd_iter_init)( TREAP_(t) const * treap, TREAP_T const * ele ); 
-TREAP_STATIC FD_FN_PURE TREAP_(rev_iter_t) TREAP_(rev_iter_init)( TREAP_(t) const * treap, TREAP_T const * ele );
+TREAP_STATIC FD_FN_PURE TREAP_(fwd_iter_t) TREAP_(fwd_iter_init)( TREAP_(t) const * treap, TREAP_T const * pool ); 
+TREAP_STATIC FD_FN_PURE TREAP_(rev_iter_t) TREAP_(rev_iter_init)( TREAP_(t) const * treap, TREAP_T const * pool );
 
-TREAP_STATIC FD_FN_PURE TREAP_(fwd_iter_t) TREAP_(fwd_iter_next)( TREAP_(fwd_iter_t) i, TREAP_T const * ele );
-TREAP_STATIC FD_FN_PURE TREAP_(rev_iter_t) TREAP_(rev_iter_next)( TREAP_(rev_iter_t) i, TREAP_T const * ele );
+TREAP_STATIC FD_FN_PURE TREAP_(fwd_iter_t) TREAP_(fwd_iter_next)( TREAP_(fwd_iter_t) i, TREAP_T const * pool );
+TREAP_STATIC FD_FN_PURE TREAP_(rev_iter_t) TREAP_(rev_iter_next)( TREAP_(rev_iter_t) i, TREAP_T const * pool );
 
-TREAP_STATIC FD_FN_PURE int TREAP_(verify)( TREAP_(t) const * treap, TREAP_T const * ele );
+TREAP_STATIC FD_FN_PURE int TREAP_(verify)( TREAP_(t) const * treap, TREAP_T const * pool );
 
 /* inlines */
 
@@ -448,30 +462,30 @@ FD_FN_CONST static inline int TREAP_(ele_is_null)( TREAP_T const * e ) { return 
 
 FD_FN_CONST static inline ulong
 TREAP_(idx)( TREAP_T const * e,
-             TREAP_T const * ele ) {
-  return fd_ulong_if( !!e, (ulong)(e-ele), TREAP_IDX_NULL );
+             TREAP_T const * pool ) {
+  return fd_ulong_if( !!e, (ulong)(e - pool), TREAP_IDX_NULL );
 }
 
 FD_FN_CONST static inline TREAP_T *
 TREAP_(ele)( ulong     i,
-             TREAP_T * ele ) {
-  return fd_ptr_if( !TREAP_IDX_IS_NULL( i ), ele+i, NULL );
+             TREAP_T * pool ) {
+  return fd_ptr_if( !TREAP_IDX_IS_NULL( i ), pool + i, NULL );
 }
 
 FD_FN_CONST static inline TREAP_T const *
 TREAP_(ele_const)( ulong           i,
-                   TREAP_T const * ele ) {
-  return fd_ptr_if( !TREAP_IDX_IS_NULL( i ), ele+i, NULL );
+                   TREAP_T const * pool ) {
+  return fd_ptr_if( !TREAP_IDX_IS_NULL( i ), pool + i, NULL );
 }
 
 FD_FN_CONST static inline ulong
 TREAP_(idx_fast)( TREAP_T const * e,
-                  TREAP_T const * ele ) {
-  return (ulong)(e-ele);
+                  TREAP_T const * pool ) {
+  return (ulong)(e - pool);
 }
 
-FD_FN_CONST static inline TREAP_T *       TREAP_(ele_fast)      ( ulong i, TREAP_T *       ele ) { return ele+i; }
-FD_FN_CONST static inline TREAP_T const * TREAP_(ele_fast_const)( ulong i, TREAP_T const * ele ) { return ele+i; }
+FD_FN_CONST static inline TREAP_T *       TREAP_(ele_fast)      ( ulong i, TREAP_T *       pool ) { return pool + i; }
+FD_FN_CONST static inline TREAP_T const * TREAP_(ele_fast_const)( ulong i, TREAP_T const * pool ) { return pool + i; }
 
 FD_FN_PURE static inline ulong TREAP_(ele_max)( TREAP_(t) const * treap ) { return treap->ele_max; }
 FD_FN_PURE static inline ulong TREAP_(ele_cnt)( TREAP_(t) const * treap ) { return treap->ele_cnt; }
@@ -479,42 +493,42 @@ FD_FN_PURE static inline ulong TREAP_(ele_cnt)( TREAP_(t) const * treap ) { retu
 FD_FN_PURE static inline TREAP_T *
 TREAP_(ele_query)( TREAP_(t) const * treap,
                    TREAP_QUERY_T     q,
-                   TREAP_T *         ele ) {
-  ulong i = TREAP_(idx_query)( treap, q, ele );
-  return fd_ptr_if( !TREAP_IDX_IS_NULL( i ), ele + i, NULL );
+                   TREAP_T *         pool ) {
+  ulong i = TREAP_(idx_query)( treap, q, pool );
+  return fd_ptr_if( !TREAP_IDX_IS_NULL( i ), pool + i, NULL );
 }
 
 FD_FN_PURE static inline TREAP_T const *
 TREAP_(ele_query_const)( TREAP_(t) const * treap,
                          TREAP_QUERY_T     q,
-                         TREAP_T const *   ele ) {
-  ulong i = TREAP_(idx_query)( treap, q, ele );
-  return fd_ptr_if( !TREAP_IDX_IS_NULL( i ), ele + i, NULL );
+                         TREAP_T const *   pool ) {
+  ulong i = TREAP_(idx_query)( treap, q, pool );
+  return fd_ptr_if( !TREAP_IDX_IS_NULL( i ), pool + i, NULL );
 }
 
-static inline void
+static inline TREAP_(t) *
 TREAP_(ele_insert)( TREAP_(t) * treap,
                     TREAP_T *   e,
-                    TREAP_T *   ele ) {
-  TREAP_(idx_insert)( treap, (ulong)(e-ele), ele );
+                    TREAP_T *   pool ) {
+  return TREAP_(idx_insert)( treap, (ulong)(e - pool), pool );
 }
 
-static inline void
+static inline TREAP_(t) *
 TREAP_(ele_remove)( TREAP_(t) * treap,
                     TREAP_T *   e,
-                    TREAP_T *   ele ) {
-  TREAP_(idx_remove)( treap, (ulong)(e-ele), ele );
+                    TREAP_T *   pool ) {
+  return TREAP_(idx_remove)( treap, (ulong)(e - pool), pool );
 }
 
 FD_FN_CONST static inline int             TREAP_(fwd_iter_done)     ( TREAP_(fwd_iter_t) i ) { return TREAP_IDX_IS_NULL( i ); }
-FD_FN_CONST static inline ulong           TREAP_(fwd_iter_idx)      ( TREAP_(fwd_iter_t) i                      ) { return i;     }
-FD_FN_CONST static inline TREAP_T *       TREAP_(fwd_iter_ele)      ( TREAP_(fwd_iter_t) i, TREAP_T *       ele ) { return ele+i; }
-FD_FN_CONST static inline TREAP_T const * TREAP_(fwd_iter_ele_const)( TREAP_(fwd_iter_t) i, TREAP_T const * ele ) { return ele+i; }
+FD_FN_CONST static inline ulong           TREAP_(fwd_iter_idx)      ( TREAP_(fwd_iter_t) i                       ) { return i;        }
+FD_FN_CONST static inline TREAP_T *       TREAP_(fwd_iter_ele)      ( TREAP_(fwd_iter_t) i, TREAP_T *       pool ) { return pool + i; }
+FD_FN_CONST static inline TREAP_T const * TREAP_(fwd_iter_ele_const)( TREAP_(fwd_iter_t) i, TREAP_T const * pool ) { return pool + i; }
 
 FD_FN_CONST static inline int             TREAP_(rev_iter_done)     ( TREAP_(rev_iter_t) i ) { return TREAP_IDX_IS_NULL( i ); }
-FD_FN_CONST static inline ulong           TREAP_(rev_iter_idx)      ( TREAP_(rev_iter_t) i                      ) { return i;     }
-FD_FN_CONST static inline TREAP_T *       TREAP_(rev_iter_ele)      ( TREAP_(rev_iter_t) i, TREAP_T *       ele ) { return ele+i; }
-FD_FN_CONST static inline TREAP_T const * TREAP_(rev_iter_ele_const)( TREAP_(rev_iter_t) i, TREAP_T const * ele ) { return ele+i; }
+FD_FN_CONST static inline ulong           TREAP_(rev_iter_idx)      ( TREAP_(rev_iter_t) i                       ) { return i;        }
+FD_FN_CONST static inline TREAP_T *       TREAP_(rev_iter_ele)      ( TREAP_(rev_iter_t) i, TREAP_T *       pool ) { return pool + i; }
+FD_FN_CONST static inline TREAP_T const * TREAP_(rev_iter_ele_const)( TREAP_(rev_iter_t) i, TREAP_T const * pool ) { return pool + i; }
 
 FD_PROTOTYPES_END
 
@@ -523,12 +537,12 @@ FD_PROTOTYPES_END
 #if TREAP_IMPL_STYLE!=1 /* need implementations */
 
 TREAP_STATIC void
-TREAP_(seed)( TREAP_T * ele,
+TREAP_(seed)( TREAP_T * pool,
               ulong     ele_max,
               ulong     seed ) {
   for( ulong ele_idx=0UL; ele_idx<ele_max; ele_idx++ ) {
     ulong r = fd_ulong_hash( ele_idx ^ seed ) & TREAP_IDX_NULL;
-    ele[ ele_idx ].TREAP_PRIO = (TREAP_IDX_T)(r - (ulong)(r==TREAP_IDX_NULL));
+    pool[ ele_idx ].TREAP_PRIO = (TREAP_IDX_T)(r - (ulong)(r==TREAP_IDX_NULL));
   }
 }
 
@@ -613,22 +627,22 @@ TREAP_(delete)( void * shtreap ) {
 TREAP_STATIC ulong
 TREAP_(idx_query)( TREAP_(t) const * treap,
                    TREAP_QUERY_T     q,
-                   TREAP_T const *   ele ) {
+                   TREAP_T const *   pool ) {
   ulong i = (ulong)treap->root;
   while( FD_LIKELY( !TREAP_IDX_IS_NULL( i ) ) ) { /* Optimize for found */
-    ulong l = (ulong)ele[ i ].TREAP_LEFT;
-    ulong r = (ulong)ele[ i ].TREAP_RIGHT;
-    int   c = TREAP_(cmp)( q, ele + i );
+    ulong l = (ulong)pool[ i ].TREAP_LEFT;
+    ulong r = (ulong)pool[ i ].TREAP_RIGHT;
+    int   c = TREAP_(cmp)( q, pool + i );
     if( FD_UNLIKELY( !c ) ) break; /* Optimize for larger treaps */
     i = fd_ulong_if( c<0, l, r );
   }
   return i;
 }
 
-TREAP_STATIC void
+TREAP_STATIC TREAP_(t) *
 TREAP_(idx_insert)( TREAP_(t) * treap,
                     ulong       n,
-                    TREAP_T *   ele ) {
+                    TREAP_T *   pool ) {
 
   /* Find leaf where to insert n */
 
@@ -639,53 +653,53 @@ TREAP_(idx_insert)( TREAP_(t) * treap,
     ulong j = (ulong)*_p_child;
     if( FD_UNLIKELY( TREAP_IDX_IS_NULL( j ) ) ) break; /* Optimize for large treap */
     i = j;
-    _p_child = fd_ptr_if( TREAP_(lt)( ele + n, ele + i ), &ele[ i ].TREAP_LEFT, &ele[ i ].TREAP_RIGHT );
+    _p_child = fd_ptr_if( TREAP_(lt)( pool + n, pool + i ), &pool[ i ].TREAP_LEFT, &pool[ i ].TREAP_RIGHT );
   }
 
   /* Insert n.  This might momentarily break the heap property. */
 
-  ele[ n ].TREAP_PARENT = (TREAP_IDX_T)i;
-  ele[ n ].TREAP_LEFT   = (TREAP_IDX_T)TREAP_IDX_NULL;
-  ele[ n ].TREAP_RIGHT  = (TREAP_IDX_T)TREAP_IDX_NULL;
+  pool[ n ].TREAP_PARENT = (TREAP_IDX_T)i;
+  pool[ n ].TREAP_LEFT   = (TREAP_IDX_T)TREAP_IDX_NULL;
+  pool[ n ].TREAP_RIGHT  = (TREAP_IDX_T)TREAP_IDX_NULL;
   *_p_child = (TREAP_IDX_T)n;
 
   /* Bubble n up until the heap property is restored. */
 
-  ulong n_prio = (ulong)ele[ n ].TREAP_PRIO;
+  ulong n_prio = (ulong)pool[ n ].TREAP_PRIO;
   while( !TREAP_IDX_IS_NULL( i ) ) {
-    ulong i_prio = (ulong)ele[ i ].TREAP_PRIO;
+    ulong i_prio = (ulong)pool[ i ].TREAP_PRIO;
 
     int heap_intact = (n_prio<i_prio) | ((n_prio==i_prio) & (!((n ^ i) & 1UL))); /* Flip coin on equal priority */
     if( heap_intact ) break;
 
     /* Get i's parent (if any) and parent's link to i (tree root link if no parent) */
 
-    ulong p = (ulong)ele[ i ].TREAP_PARENT;
+    ulong p = (ulong)pool[ i ].TREAP_PARENT;
 
-    TREAP_IDX_T * _t0      = fd_ptr_if( TREAP_IDX_IS_NULL( p ), &treap->root, &ele[ p ].TREAP_LEFT  );
-    /**/          _p_child = fd_ptr_if( i==(ulong)*_t0,         _t0,          &ele[ p ].TREAP_RIGHT );
+    TREAP_IDX_T * _t0      = fd_ptr_if( TREAP_IDX_IS_NULL( p ), &treap->root, &pool[ p ].TREAP_LEFT  );
+    /**/          _p_child = fd_ptr_if( i==(ulong)*_t0,         _t0,          &pool[ p ].TREAP_RIGHT );
 
     /* Get n's child (if any) that will become i's child */
 
-    int           n_is_left_child = (n==(ulong)ele[ i ].TREAP_LEFT);
-    TREAP_IDX_T * _n_child        = fd_ptr_if( n_is_left_child, &ele[ n ].TREAP_RIGHT, &ele[ n ].TREAP_LEFT );
+    int           n_is_left_child = (n==(ulong)pool[ i ].TREAP_LEFT);
+    TREAP_IDX_T * _n_child        = fd_ptr_if( n_is_left_child, &pool[ n ].TREAP_RIGHT, &pool[ n ].TREAP_LEFT );
     ulong         j               = (ulong)*_n_child;
 
     /* Make n child of p (or the root if no parent) */
 
-    *_p_child             = (TREAP_IDX_T)n;
-    ele[ n ].TREAP_PARENT = (TREAP_IDX_T)p;
+    *_p_child              = (TREAP_IDX_T)n;
+    pool[ n ].TREAP_PARENT = (TREAP_IDX_T)p;
 
     /* Make i child of n */
 
-    *_n_child             = (TREAP_IDX_T)i;
-    ele[ i ].TREAP_PARENT = (TREAP_IDX_T)n;
+    *_n_child              = (TREAP_IDX_T)i;
+    pool[ i ].TREAP_PARENT = (TREAP_IDX_T)n;
 
     /* Make j (if present) child of i */
 
     TREAP_IDX_T dummy;
-    *fd_ptr_if( n_is_left_child,        &ele[ i ].TREAP_LEFT, &ele[ i ].TREAP_RIGHT  ) = (TREAP_IDX_T)j;
-    *fd_ptr_if( TREAP_IDX_IS_NULL( j ), &dummy,               &ele[ j ].TREAP_PARENT ) = (TREAP_IDX_T)i;
+    *fd_ptr_if( n_is_left_child,        &pool[ i ].TREAP_LEFT, &pool[ i ].TREAP_RIGHT  ) = (TREAP_IDX_T)j;
+    *fd_ptr_if( TREAP_IDX_IS_NULL( j ), &dummy,                &pool[ j ].TREAP_PARENT ) = (TREAP_IDX_T)i;
 
     /* Keep bubbling up */
 
@@ -693,21 +707,22 @@ TREAP_(idx_insert)( TREAP_(t) * treap,
   }
 
   treap->ele_cnt++;
+  return treap;
 }
 
-void
+TREAP_(t) *
 TREAP_(idx_remove)( TREAP_(t) * treap,
                     ulong       d,
-                    TREAP_T *   ele ) {
+                    TREAP_T *   pool ) {
 
   /* Make a hole at d */
 
-  ulong p = (ulong)ele[ d ].TREAP_PARENT;
-  ulong l = (ulong)ele[ d ].TREAP_LEFT;
-  ulong r = (ulong)ele[ d ].TREAP_RIGHT;
+  ulong p = (ulong)pool[ d ].TREAP_PARENT;
+  ulong l = (ulong)pool[ d ].TREAP_LEFT;
+  ulong r = (ulong)pool[ d ].TREAP_RIGHT;
 
-  TREAP_IDX_T * _t0      = fd_ptr_if( TREAP_IDX_IS_NULL( p ), &treap->root, &ele[ p ].TREAP_LEFT  );
-  TREAP_IDX_T * _p_child = fd_ptr_if( d==(ulong)*_t0,         _t0,          &ele[ p ].TREAP_RIGHT );
+  TREAP_IDX_T * _t0      = fd_ptr_if( TREAP_IDX_IS_NULL( p ), &treap->root, &pool[ p ].TREAP_LEFT  );
+  TREAP_IDX_T * _p_child = fd_ptr_if( d==(ulong)*_t0,         _t0,          &pool[ p ].TREAP_RIGHT );
 
   for(;;) {
 
@@ -729,8 +744,8 @@ TREAP_(idx_remove)( TREAP_(t) * treap,
     if( FD_LIKELY( is_null_left | is_null_right ) ) { /* Most nodes near bottom */
       TREAP_IDX_T dummy;
       *_p_child = (TREAP_IDX_T)fd_ulong_if( !is_null_left, l, r );
-      *( fd_ptr_if( !is_null_left,  &ele[ l ].TREAP_PARENT,
-         fd_ptr_if( !is_null_right, &ele[ r ].TREAP_PARENT, &dummy ) ) ) = (TREAP_IDX_T)p;
+      *( fd_ptr_if( !is_null_left,  &pool[ l ].TREAP_PARENT,
+         fd_ptr_if( !is_null_right, &pool[ r ].TREAP_PARENT, &dummy ) ) ) = (TREAP_IDX_T)p;
       break;
     }
 
@@ -740,62 +755,63 @@ TREAP_(idx_remove)( TREAP_(t) * treap,
        need to update any links to/from d as we will be getting rid of
        all links / from d. */
 
-    ulong l_prio = (ulong)ele[ l ].TREAP_PRIO;
-    ulong r_prio = (ulong)ele[ r ].TREAP_PRIO;
+    ulong l_prio = (ulong)pool[ l ].TREAP_PRIO;
+    ulong r_prio = (ulong)pool[ r ].TREAP_PRIO;
 
     int promote_left = (l_prio>r_prio) | ((l_prio==r_prio) & (!((p ^ d) & 1UL)));
 
     ulong c = fd_ulong_if( promote_left, l, r );
 
     *_p_child = (TREAP_IDX_T)c;
-    ele[ c ].TREAP_PARENT = (TREAP_IDX_T)p;
+    pool[ c ].TREAP_PARENT = (TREAP_IDX_T)p;
 
-    _p_child = fd_ptr_if  ( promote_left, &ele[ l ].TREAP_RIGHT, &ele[ r ].TREAP_LEFT  );
+    _p_child = fd_ptr_if  ( promote_left, &pool[ l ].TREAP_RIGHT, &pool[ r ].TREAP_LEFT  );
     p        = c;
-    l        = fd_ulong_if( promote_left,  ele[ l ].TREAP_RIGHT,  l                    );
-    r        = fd_ulong_if( promote_left,  r,                     ele[ r ].TREAP_LEFT  );
+    l        = fd_ulong_if( promote_left,  pool[ l ].TREAP_RIGHT,        l               );
+    r        = fd_ulong_if( promote_left,        r,                pool[ r ].TREAP_LEFT  );
 
   }
 
   treap->ele_cnt--;
+  return treap;
 }
 
 TREAP_STATIC TREAP_(fwd_iter_t)
 TREAP_(fwd_iter_init)( TREAP_(t) const * treap,
-                       TREAP_T const *   ele ) {
+                       TREAP_T const *   pool ) {
   ulong i = TREAP_IDX_NULL;
   ulong j = (ulong)treap->root;
-  while( FD_LIKELY( !TREAP_IDX_IS_NULL( j ) ) ) { i = j; j = (ulong)ele[ j ].TREAP_LEFT; }
+  while( FD_LIKELY( !TREAP_IDX_IS_NULL( j ) ) ) { i = j; j = (ulong)pool[ j ].TREAP_LEFT; }
   return i;
 }
 
 TREAP_STATIC TREAP_(rev_iter_t)
 TREAP_(rev_iter_init)( TREAP_(t) const * treap,
-                       TREAP_T const *   ele ) {
+                       TREAP_T const *   pool ) {
   ulong i = TREAP_IDX_NULL;
   ulong j = (ulong)treap->root;
-  while( FD_LIKELY( !TREAP_IDX_IS_NULL( j ) ) ) { i = j; j = (ulong)ele[ j ].TREAP_RIGHT; }
+  while( FD_LIKELY( !TREAP_IDX_IS_NULL( j ) ) ) { i = j; j = (ulong)pool[ j ].TREAP_RIGHT; }
   return i;
 }
 
 TREAP_STATIC TREAP_(fwd_iter_t)
 TREAP_(fwd_iter_next)( TREAP_(fwd_iter_t) i,
-                       TREAP_T const *    ele ) {
-  ulong r = (ulong)ele[ i ].TREAP_RIGHT;
+                       TREAP_T const *    pool ) {
+  ulong r = (ulong)pool[ i ].TREAP_RIGHT;
 
   if( TREAP_IDX_IS_NULL( r ) ) {
-    ulong p = (ulong)ele[ i ].TREAP_PARENT;
+    ulong p = (ulong)pool[ i ].TREAP_PARENT;
     while( !TREAP_IDX_IS_NULL( p ) ) {
-      if( i==(ulong)ele[ p ].TREAP_LEFT ) break;
+      if( i==(ulong)pool[ p ].TREAP_LEFT ) break;
       i = p;
-      p = (ulong)ele[ p ].TREAP_PARENT;
+      p = (ulong)pool[ p ].TREAP_PARENT;
     }
     return p;
   }
 
   i = r;
   for(;;) {
-    ulong l = (ulong)ele[ i ].TREAP_LEFT;
+    ulong l = (ulong)pool[ i ].TREAP_LEFT;
     if( TREAP_IDX_IS_NULL( l ) ) break;
     i = l;
   }
@@ -805,22 +821,22 @@ TREAP_(fwd_iter_next)( TREAP_(fwd_iter_t) i,
 
 TREAP_STATIC TREAP_(rev_iter_t)
 TREAP_(rev_iter_next)( TREAP_(rev_iter_t) i,
-                       TREAP_T const *    ele ) {
-  ulong l = (ulong)ele[ i ].TREAP_LEFT;
+                       TREAP_T const *    pool ) {
+  ulong l = (ulong)pool[ i ].TREAP_LEFT;
 
   if( TREAP_IDX_IS_NULL( l ) ) {
-    ulong p = (ulong)ele[ i ].TREAP_PARENT;
+    ulong p = (ulong)pool[ i ].TREAP_PARENT;
     while( !TREAP_IDX_IS_NULL( p ) ) {
-      if( i==(ulong)ele[ p ].TREAP_RIGHT ) break;
+      if( i==(ulong)pool[ p ].TREAP_RIGHT ) break;
       i = p;
-      p = (ulong)ele[ p ].TREAP_PARENT;
+      p = (ulong)pool[ p ].TREAP_PARENT;
     }
     return p;
   }
 
   i = l;
   for(;;) {
-    ulong r = (ulong)ele[ i ].TREAP_RIGHT; 
+    ulong r = (ulong)pool[ i ].TREAP_RIGHT; 
     if( TREAP_IDX_IS_NULL( r ) ) break;
     i = r;
   }
@@ -830,7 +846,7 @@ TREAP_(rev_iter_next)( TREAP_(rev_iter_t) i,
 
 TREAP_STATIC int
 TREAP_(verify)( TREAP_(t) const * treap,
-                TREAP_T const *   ele ) {
+                TREAP_T const *   pool ) {
 
 # define TREAP_TEST( c ) do { if( FD_UNLIKELY( !(c) ) ) { FD_LOG_WARNING(( "FAIL: " #c )); return -1; } } while(0)
 
@@ -838,7 +854,7 @@ TREAP_(verify)( TREAP_(t) const * treap,
 
   ulong ele_max = treap->ele_max; TREAP_TEST( ele_max<=TREAP_IDX_NULL ); /* Validate ele_max */
   ulong ele_cnt = treap->ele_cnt; TREAP_TEST( ele_cnt<=ele_max        ); /* Validate ele_cnt */
-  if( ele_max ) TREAP_TEST( ele );                                       /* Validate ele storage */
+  if( ele_max ) TREAP_TEST( pool );                                      /* Validate ele storage */
 
   /* Find leftmost */
 
@@ -850,7 +866,7 @@ TREAP_(verify)( TREAP_(t) const * treap,
     TREAP_TEST( loop_cnt<ele_cnt ); /* Make sure no cycles */
     TREAP_TEST( l       <ele_max ); /* Make sure valid index */
     i = l;
-    l = (ulong)ele[ l ].TREAP_LEFT;
+    l = (ulong)pool[ l ].TREAP_LEFT;
     loop_cnt++;
   }
 
@@ -864,12 +880,12 @@ TREAP_(verify)( TREAP_(t) const * treap,
        all elements less than i and l is the last element we visited (or
        NULL if i is the first element we are visiting. */
 
-    if( FD_LIKELY( !TREAP_IDX_IS_NULL( l ) ) ) TREAP_TEST( TREAP_(lt)( ele + l, ele + i ) ); /* Make sure ordering valid */
+    if( FD_LIKELY( !TREAP_IDX_IS_NULL( l ) ) ) TREAP_TEST( TREAP_(lt)( pool + l, pool + i ) ); /* Make sure ordering valid */
 
-    ulong p = (ulong)ele[ i ].TREAP_PARENT;
+    ulong p = (ulong)pool[ i ].TREAP_PARENT;
     if( FD_LIKELY( !TREAP_IDX_IS_NULL( p ) ) ) {
-      TREAP_TEST( p < ele_max );                                              /* Make sure valid index */
-      TREAP_TEST( (ulong)ele[ p ].TREAP_PRIO >= (ulong)ele[ i ].TREAP_PRIO ); /* Make sure heap property valid */
+      TREAP_TEST( p < ele_max );                                                /* Make sure valid index */
+      TREAP_TEST( (ulong)pool[ p ].TREAP_PRIO >= (ulong)pool[ i ].TREAP_PRIO ); /* Make sure heap property valid */
     }
 
     /* Done visiting i, advance to i's successor */
@@ -878,7 +894,7 @@ TREAP_(verify)( TREAP_(t) const * treap,
 
     l = i;
 
-    ulong r = (ulong)ele[ i ].TREAP_RIGHT;
+    ulong r = (ulong)pool[ i ].TREAP_RIGHT;
     if( TREAP_IDX_IS_NULL( r ) ) {
 
       /* i has no right subtree.  Look for first ancestor of i that we
@@ -890,9 +906,9 @@ TREAP_(verify)( TREAP_(t) const * treap,
       while( !TREAP_IDX_IS_NULL( p ) ) {
         TREAP_TEST( loop_cnt<ele_cnt ); /* Make sure no cycles */
         TREAP_TEST( p       <ele_max ); /* Make sure valid index */
-        if( i==(ulong)ele[ p ].TREAP_LEFT ) break;
+        if( i==(ulong)pool[ p ].TREAP_LEFT ) break;
         i = p;
-        p = (ulong)ele[ p ].TREAP_PARENT;
+        p = (ulong)pool[ p ].TREAP_PARENT;
         loop_cnt++;
       }
 
@@ -908,7 +924,7 @@ TREAP_(verify)( TREAP_(t) const * treap,
       for(;;) {
         TREAP_TEST( loop_cnt<ele_cnt ); /* Make sure no cycles */
         TREAP_TEST( i       <ele_max ); /* Make sure valid index */
-        l = (ulong)ele[ i ].TREAP_LEFT;
+        l = (ulong)pool[ i ].TREAP_LEFT;
         if( TREAP_IDX_IS_NULL( l ) ) break;
         i = l;
         loop_cnt++;
@@ -924,7 +940,6 @@ TREAP_(verify)( TREAP_(t) const * treap,
 
   return 0;
 }
-
 
 #endif
 
