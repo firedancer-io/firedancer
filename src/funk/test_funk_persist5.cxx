@@ -40,7 +40,6 @@ struct recordkeyhash {
 
 struct recordvalue {
     std::vector<uchar> data_;
-    fd_funk_rec_t * rec_ = NULL;
 
     void random_data(fd_rng_t * rng) {
       auto len = fd_rng_ulong( rng ) % 10000UL;
@@ -67,40 +66,47 @@ struct recordvalue {
       }
     }
 
-    void write_data(fd_funk_t * funk, const recordkey& key) {
+    void write_data(fd_funk_t * funk, fd_funk_txn_t * txn, const recordkey& key) {
       int err;
       auto sz = data_.size();
-      rec_ = fd_funk_rec_write_prepare(funk, NULL, &key.id_, sz, &err);
-      assert(rec_ != NULL);
+      assert(txn != NULL);
+      auto* rec = fd_funk_rec_write_prepare(funk, txn, &key.id_, sz, &err);
+      assert(rec != NULL);
       auto* wksp = fd_funk_wksp(funk);
-      auto* rec2 = fd_funk_val_copy(rec_, data_.data(), sz, sz, fd_funk_alloc(funk, wksp), wksp, &err);
-      assert(rec2 != NULL);
-      assert(fd_funk_rec_persist(funk, rec_) == FD_FUNK_SUCCESS);
+      auto* rec2 = fd_funk_val_copy(rec, data_.data(), sz, sz, fd_funk_alloc(funk, wksp), wksp, &err);
+      assert(rec2 == rec);
     }
 
-    void erase_data(fd_funk_t * funk) {
-      assert(fd_funk_rec_persist_erase(funk, rec_) == FD_FUNK_SUCCESS);
-      assert(fd_funk_rec_remove(funk, rec_, 1) == FD_FUNK_SUCCESS);
-      rec_ = NULL;
+    void erase_data(fd_funk_t * funk, fd_funk_txn_t * txn, const recordkey& key) {
+      int err;
+      assert(txn != NULL);
+      auto* rec = fd_funk_rec_write_prepare(funk, txn, &key.id_, 0, &err);
+      assert(rec != NULL);
+      assert(fd_funk_rec_remove(funk, rec, 1) == FD_FUNK_SUCCESS);
+    }
+
+    void uncache(fd_funk_t * funk, const recordkey& key) {
+      auto* rec = fd_funk_rec_query(funk, NULL, &key.id_);
+      assert(rec != NULL);
+      fd_funk_val_uncache(funk, rec);
+      assert(fd_funk_val_sz(rec) == data_.size());
     }
 
     void verify(fd_funk_t * funk, const recordkey& key) {
       auto* rec = fd_funk_rec_query_const(funk, NULL, &key.id_);
-      if (rec_ == NULL) // After rebuild
-        rec_ = fd_funk_rec_modify(funk, rec);
-      else
-        assert(rec == rec_);
-      assert(fd_funk_val_sz(rec_) == data_.size());
-      assert(memcmp(fd_funk_val(rec_, fd_funk_wksp(funk)), data_.data(), data_.size()) == 0);
+      assert(rec != NULL);
+      assert(fd_funk_val_sz(rec) == data_.size());
+      assert(memcmp(fd_funk_val_cache(funk, rec, NULL), data_.data(), data_.size()) == 0);
     }
 };
 
 struct TestHarness {
     fd_rng_t * rng_;
     fd_funk_t * funk_;
+    fd_funk_txn_t * txn_;
     std::unordered_map<recordkey,recordvalue,recordkeyhash> map_;
 
-    TestHarness(fd_rng_t * rng) : rng_(rng), funk_(NULL) { }
+    TestHarness(fd_rng_t * rng) : rng_(rng), funk_(NULL), txn_(NULL) { }
     ~TestHarness() { }
 
     void random_insert() {
@@ -108,7 +114,7 @@ struct TestHarness {
       key.set_unique();
       auto& val = map_[key];
       val.random_data(rng_);
-      val.write_data(funk_, key);
+      val.write_data(funk_, txn_, key);
     }
 
     void random_modify() {
@@ -118,7 +124,7 @@ struct TestHarness {
         ++it;
       auto& val = it->second;
       val.random_data(rng_);
-      val.write_data(funk_, it->first);
+      val.write_data(funk_, txn_, it->first);
     }
 
     void random_erase() {
@@ -126,8 +132,13 @@ struct TestHarness {
       auto n = fd_rng_ulong_roll(rng_, map_.size());
       for (size_t i = 0; i < n; ++i)
         ++it;
-      it->second.erase_data(funk_);
+      it->second.erase_data(funk_, txn_, it->first);
       map_.erase(it);
+    }
+
+    void uncache_all() {
+      for ( auto& [key,val] : map_)
+        val.uncache(funk_, key);
     }
 
     void verify() {
@@ -135,11 +146,6 @@ struct TestHarness {
       assert(fd_funk_rec_size(funk_, fd_funk_wksp(funk_)) == map_.size());
       for ( auto& [key,val] : map_)
         val.verify(funk_, key);
-    }
-
-    void teardown() {
-      for ( auto& [_,val] : map_)
-        val.rec_ = NULL;
     }
 };
 
@@ -165,14 +171,34 @@ int main(int argc, char **argv) {
     shmem = fd_wksp_alloc_laddr( wksp, align, footprint, wksp_tag );
     void * shfunk = fd_funk_new( shmem, wksp_tag, seed, txn_max, rec_max );
     harness.funk_ = fd_funk_join( shfunk );
-    assert(fd_funk_persist_open( harness.funk_, backfile, 1 ) == FD_FUNK_SUCCESS);
+    assert(fd_funk_persist_open( harness.funk_, backfile, 0 ) == FD_FUNK_SUCCESS);
   };
   unlink(backfile);
   buildup();
   harness.verify();
 
+  auto start_txn = [&](){
+    fd_funk_txn_xid_t xid;
+    xid.ul[0] = fd_log_app_id();
+    xid.ul[1] = fd_log_thread_id();
+    xid.ul[2] = ++unique_tag;
+# if FD_HAS_X86
+    xid.ul[3] = (ulong)fd_tickcount();
+# else
+    xid.ul[3] = 0UL;
+# endif
+    harness.txn_ = fd_funk_txn_prepare( harness.funk_, NULL, &xid, 1 );
+  };
+  auto end_txn = [&](){
+    fd_funk_txn_publish( harness.funk_, harness.txn_, 1 );
+    harness.txn_ = NULL;
+    harness.uncache_all();
+  };
+
+  start_txn();
   for (int i = 0; i < 100; ++i)
     harness.random_insert();
+  end_txn();
   harness.verify();
   
   auto teardown = [&](){
@@ -181,43 +207,74 @@ int main(int argc, char **argv) {
     fd_wksp_free_laddr( shmem );
     fd_wksp_detach(wksp);
     wksp = NULL;
-    harness.teardown();
   };
   teardown();
   buildup();
   harness.verify();
 
+  start_txn();
   for (int i = 0; i < 50; ++i)
     harness.random_erase();
+  end_txn();
   harness.verify();
   teardown();
   buildup();
   harness.verify();
 
-  for (int i = 0; i < 10000; ++i)
+  start_txn();
+  for (int i = 0; i < 10000; ++i) {
     harness.random_insert();
+    if (i%3 == 2)
+      harness.random_erase();
+    if (i%191 == 190) {
+      end_txn();
+      start_txn();
+    }
+  }
+  end_txn();
   harness.verify();
   teardown();
   buildup();
   harness.verify();
 
   for (int j = 0; j < 20; ++j) {
-    for (int i = 0; i < 5000; ++i)
+    start_txn();
+    for (int i = 0; i < 5000; ++i) {
       harness.random_erase();
+      if (i%191 == 190) {
+        end_txn();
+        start_txn();
+      }
+    }
+    end_txn();
     harness.verify();
     teardown();
     buildup();
     harness.verify();
     
-    for (int i = 0; i < 1000; ++i)
+    start_txn();
+    for (int i = 0; i < 1000; ++i) {
       harness.random_modify();
+      if (i%191 == 190) {
+        end_txn();
+        start_txn();
+      }
+    }
+    end_txn();
     harness.verify();
     teardown();
     buildup();
     harness.verify();
     
-    for (int i = 0; i < 5000; ++i)
+    start_txn();
+    for (int i = 0; i < 5000; ++i) {
       harness.random_insert();
+      if (i%191 == 190) {
+        end_txn();
+        start_txn();
+      }
+    }
+    end_txn();
     harness.verify();
     teardown();
     buildup();

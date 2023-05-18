@@ -209,7 +209,7 @@ fd_funk_persist_free( fd_funk_t * funk, ulong pos, ulong alloc_sz ) {
 static void
 fd_funk_persist_recover_record( fd_funk_t * funk, ulong pos,
                                 struct fd_funk_persist_record_head * head,
-                                const uchar * value ) {
+                                const uchar * value, int cache_all ) {
   /* See if we already saw the key */
   int err = 0;
   fd_funk_rec_key_t key;
@@ -222,7 +222,12 @@ fd_funk_persist_recover_record( fd_funk_t * funk, ulong pos,
       FD_LOG_ERR(( "failed to recover record, code %s", fd_funk_strerror( err ) ));
       return;
     }
-  } else {
+  } else if ( rec_con->persist_pos != FD_FUNK_REC_IDX_NULL ) {
+    if ( rec_con->persist_alloc_sz == head->alloc_sz &&
+         rec_con->persist_pos == pos ) {
+      /* We are recovering an already known record */
+      return;
+    }
     /* We have duplicate record keys, indicating we crashed during an
        update. The larger allocation must be more recent. */
     if ( rec_con->persist_alloc_sz >= head->alloc_sz ) {
@@ -240,10 +245,18 @@ fd_funk_persist_recover_record( fd_funk_t * funk, ulong pos,
   }
   fd_wksp_t * wksp = fd_funk_wksp( funk );
   fd_alloc_t * alloc = fd_funk_alloc( funk, wksp );
-  rec = fd_funk_val_copy( rec, value, head->val_sz, head->val_sz, alloc, wksp, &err);
-  if ( !rec ) {
-    FD_LOG_ERR(( "failed to recover record, code %s", fd_funk_strerror( err ) ));
-    return;
+  if ( cache_all ) {
+    rec = fd_funk_val_copy( rec, value, head->val_sz, head->val_sz, alloc, wksp, &err);
+    if ( !rec ) {
+      FD_LOG_ERR(( "failed to recover record, code %s", fd_funk_strerror( err ) ));
+      return;
+    }
+  } else {
+    /* Just set the size */
+    fd_funk_val_flush( rec, alloc, wksp );
+    rec->val_sz    = head->val_sz;
+    rec->val_max   = 0U;
+    rec->val_gaddr = 0UL;
   }
   /* Remember where we found the data */
   rec->persist_alloc_sz = head->alloc_sz;
@@ -358,7 +371,7 @@ fd_funk_persist_recover_walog( fd_funk_t * funk, struct fd_funk_persist_walog_he
    file. The database typically is empty to start with. Future updates
    are written back to the file. */
 int
-fd_funk_persist_open( fd_funk_t * funk, const char * filename ) {
+fd_funk_persist_open( fd_funk_t * funk, const char * filename, int cache_all ) {
   /* Open the file */
   funk->persist_fd = open(filename, O_CREAT|O_RDWR, 0600);
   if ( funk->persist_fd == -1 ) {
@@ -376,21 +389,25 @@ fd_funk_persist_open( fd_funk_t * funk, const char * filename ) {
 
   /* Allocate the map of free disk space */
   fd_wksp_t * wksp = fd_funk_wksp( funk );
-  if ( funk->persist_frees_gaddr == 0 ) {
-    /* Pessimisticaly estimate the maximum number of free spaces. If
-       the pool runs out, we will be forced to throw away spaces and
-       leak disk space. */
-    ulong max = fd_ulong_min ( funk->rec_max, 1000000 );
-    void * mem = fd_wksp_alloc_laddr(wksp, fd_funk_persist_free_map_align(),
-                                     fd_funk_persist_free_map_footprint(max), funk->wksp_tag );
-    if ( mem == NULL ) {
-      FD_LOG_ERR(( "failed to allocate free list" ));
-      return FD_FUNK_ERR_MEM;
-    }
-    fd_funk_persist_free_entry_t * pool = fd_funk_persist_free_map_join( fd_funk_persist_free_map_new( mem, max ) );
-    funk->persist_frees_gaddr = fd_wksp_gaddr_fast( wksp, pool );
-    funk->persist_frees_root = -1;
+  if ( funk->persist_frees_gaddr != 0 ) {
+    /* Free the previous incarnation of the free pool */
+    fd_funk_persist_free_entry_t * pool = (fd_funk_persist_free_entry_t *)
+      fd_wksp_laddr_fast( wksp, funk->persist_frees_gaddr );
+    fd_wksp_free_laddr( fd_funk_persist_free_map_delete( fd_funk_persist_free_map_leave( pool ) ) );
   }
+  /* Pessimisticaly estimate the maximum number of free spaces. If
+     the pool runs out, we will be forced to throw away spaces and
+     leak disk space. */
+  ulong max = fd_ulong_min ( funk->rec_max, 1000000 );
+  void * mem = fd_wksp_alloc_laddr(wksp, fd_funk_persist_free_map_align(),
+                                   fd_funk_persist_free_map_footprint(max), funk->wksp_tag );
+  if ( mem == NULL ) {
+    FD_LOG_ERR(( "failed to allocate free list" ));
+    return FD_FUNK_ERR_MEM;
+  }
+  fd_funk_persist_free_entry_t * pool = fd_funk_persist_free_map_join( fd_funk_persist_free_map_new( mem, max ) );
+  funk->persist_frees_gaddr = fd_wksp_gaddr_fast( wksp, pool );
+  funk->persist_frees_root = -1;
 
   /* Allocate a 10MB temp buffer */
   fd_alloc_t * alloc = fd_funk_alloc( funk, wksp );
@@ -437,7 +454,8 @@ fd_funk_persist_open( fd_funk_t * funk, const char * filename ) {
         struct fd_funk_persist_record_head * head = (struct fd_funk_persist_record_head *)tmpptr;
         if ( tmpptr + sizeof(struct fd_funk_persist_record_head) + head->val_sz <= tmpend ) {
           fd_funk_persist_recover_record( funk, pos + (ulong)(tmpptr - tmp), head,
-                                          tmpptr + sizeof(struct fd_funk_persist_record_head) );
+                                          tmpptr + sizeof(struct fd_funk_persist_record_head),
+                                          cache_all );
           tmpptr += head->alloc_sz;
         } else {
           /* Incomplete record */
@@ -510,6 +528,22 @@ fd_funk_persist_open( fd_funk_t * funk, const char * filename ) {
   /* The logical size might be bigger than the actual size if the last
      record had some padding that was never actually used. */
   funk->persist_size = pos;
+  return FD_FUNK_SUCCESS;
+}
+
+/* Open a persistent store file but don't bother recovering
+   records. This API assumes that the shared memory version of the
+   database matches the persistence file, and everything was
+   previously shutdown in good order. This is the typical,
+   nothing-on-fire case. */
+
+int
+fd_funk_persist_open_fast( fd_funk_t * funk, const char * filename ) {
+  funk->persist_fd = open(filename, O_CREAT|O_RDWR, 0600);
+  if ( funk->persist_fd == -1 ) {
+    FD_LOG_ERR(( "failed to open %s: %s", filename, strerror(errno) ));
+    return FD_FUNK_ERR_SYS;
+  }
   return FD_FUNK_SUCCESS;
 }
 
@@ -586,7 +620,8 @@ fd_funk_rec_persist_unsafe( fd_funk_t *     funk,
                             fd_funk_rec_t * rec ) {
 
   if ( funk->persist_fd == -1 ||
-       !fd_funk_txn_idx_is_null( fd_funk_txn_idx( rec->txn_cidx ) ) ) {
+       !fd_funk_txn_idx_is_null( fd_funk_txn_idx( rec->txn_cidx ) ) ||
+       rec->val_gaddr == 0UL ) {
     /* Not useful in this case. We only save published records. */
     return FD_FUNK_SUCCESS;
   }
@@ -688,6 +723,35 @@ fd_funk_rec_persist_erase_unsafe( fd_funk_t *     funk,
   fd_funk_persist_free( funk, rec->persist_pos, rec->persist_alloc_sz );
   rec->persist_pos = FD_FUNK_REC_IDX_NULL;
   rec->persist_alloc_sz = FD_FUNK_REC_IDX_NULL;
+
+  return FD_FUNK_SUCCESS;
+}
+
+int
+fd_funk_persist_load( fd_funk_t *           funk,
+                      fd_funk_rec_t const * rec,
+                      ulong                 val_sz,
+                      uchar *               val ) {
+  if ( rec->persist_pos == FD_FUNK_REC_IDX_NULL || funk->persist_fd == -1 )
+    return FD_FUNK_ERR_INVAL; /* Not persisted */
+
+  struct fd_funk_persist_record_head head;
+  struct iovec iov[2];
+  iov[0].iov_base = &head;
+  iov[0].iov_len = sizeof(head);
+  iov[1].iov_base = val;
+  iov[1].iov_len = val_sz;
+  if ( preadv( funk->persist_fd, iov, 2, (long)rec->persist_pos ) != (long)(iov[0].iov_len + iov[1].iov_len) ) {
+    FD_LOG_WARNING(( "failed to read persistence file: %s", strerror(errno) ));
+    return FD_FUNK_ERR_SYS;
+  }
+
+  if ( head.type != FD_FUNK_PERSIST_RECORD_TYPE ||
+       memcmp( head.key, &rec->pair.key, sizeof(head.key) ) != 0 ||
+       head.val_sz != rec->val_sz ) {
+    FD_LOG_WARNING(( "did not find expected record header in file" ));
+    return FD_FUNK_ERR_INVAL;
+  }
 
   return FD_FUNK_SUCCESS;
 }
