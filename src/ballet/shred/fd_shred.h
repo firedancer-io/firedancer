@@ -249,7 +249,7 @@ fd_shred_merkle_cnt( uchar variant ) {
    Returns zero if the given shred is not a merkle variant.  */
 FD_FN_CONST static inline ulong
 fd_shred_merkle_sz( uchar variant ) {
-  return fd_shred_merkle_cnt( variant ) * FD_SHRED_MERKLE_NODE_SZ;
+  return (fd_shred_merkle_cnt( variant ) - 1) * FD_SHRED_MERKLE_NODE_SZ;
 }
 
 /* fd_shred_payload_sz: Returns the payload size of a shred.
