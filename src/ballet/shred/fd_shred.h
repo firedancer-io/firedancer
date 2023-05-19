@@ -232,7 +232,7 @@ fd_shred_merkle_cnt( uchar variant ) {
   uchar type = fd_shred_type( variant );
   if( FD_UNLIKELY( type & FD_SHRED_TYPEMASK_LEGACY ) )
     return 0;
-  return (variant&0xfU)+1U;
+  return (variant&0xfU);
 }
 
 /* fd_shred_merkle_sz: Returns the size in bytes of the merkle inclusion proof.
