@@ -143,6 +143,16 @@ SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
 =======================================================================
 
+The UTF-8 validator in src/ballet/fd_utf8.c is derived from the Rust
+standard library taken ca 2023-May.
+
+Source: https://github.com/rust-lang/rust/blob/master/library/core/src/str/validations.rs
+
+See https://github.com/rust-lang/rust/blob/master/LICENSE-APACHE for
+license information.  SPDX-License-Identifier: MIT or Apache-2.0
+
+=======================================================================
+
 fd_chacha20 implements the 20 round variant of ChaCha, a stream cipher
 by Daniel J. Bernstein.
 
