@@ -36,13 +36,16 @@ static int fd_chacha20_rng_generate(EVP_CIPHER_CTX *ctx, fd_chacha20_rng_t *rand
   return 0;
 }
 
-int fd_chacha20_generate_random_number(const uchar *key, const uchar *nonce, fd_chacha20_rng_t *random_number)
+int fd_chacha20_generate_random_number(const uchar *key, fd_chacha20_rng_t *random_number)
 {
   // Create the ChaCha20 context
   EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
 
-  // Set chacha20 cipher context using key and nonce
-  if (fd_chacha20_rng_init(ctx, key, nonce) != 0)
+  /*
+    Set chacha20 cipher context using key and nonce
+    Set nonce as zero, in order to match rust crate implementation
+   */
+  if (fd_chacha20_rng_init(ctx, key, 0) != 0)
   {
     fprintf(stderr, "Error: fd_chacha20_rng_init()\n");
     EVP_CIPHER_CTX_free(ctx);
