@@ -4,7 +4,7 @@ This module depends directly on [rand_chacha::ChaCha20Rng](https://docs.rs/rand_
 
 Therefore, `rust-lib` implements a local rust library that consumes `rand_chacha::ChaCha20Rng` to generate cryptographically secure random numbers using chacha20 cipher.
 
-This implementation is intended to be the same as other parts of the Solana protocol (Gossip, Turbine, leader schedule), as it uses the same rust crate.
+This C implementation is intended to be the same as other parts of the Solana protocol (Gossip, Turbine, leader schedule). Therefore, the C implementation deterministically generates the same random numbers as the cited rust crate.
 
 ## Testing Rust implementation
 
