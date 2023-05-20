@@ -41,49 +41,109 @@ struct __attribute__((aligned(16UL))) fd_sbpf_syscalls {
 };
 typedef struct fd_sbpf_syscalls fd_sbpf_syscalls_t;
 
-struct __attribute__((aligned(32UL))) fd_sbpf_program_info {
+/* fd_sbpf_elf_info_t contains basic information extracted from an ELF
+   binary. Indicates how much scratch memory and buffer size is required
+   to fully load the program. */
+
+struct fd_sbpf_elf_info {
+  uint text_off;    /* File offset of .text section (overlaps rodata segment) */
+  uint text_cnt;    /* Instruction count */
+  uint dynstr_off;  /* File offset of .dynstr section (0=missing) */
+  uint dynstr_sz;   /* Dynstr char count */
+
+  uint rodata_sz;         /* size of rodata segment */
+  uint rodata_footprint;  /* rodata_sz + FD_SBPF_RODATA_GUARD */
+
+  /* Known section indices
+     In [-1,USHORT_MAX) where -1 means "not found" */
+  int shndx_text;
+  int shndx_symtab;
+  int shndx_strtab;
+  int shndx_dyn;
+  int shndx_dynstr;
+
+  /* Known program header indices (like shndx_*) */
+  int phndx_dyn;
+
+  uint entry_pc;  /* Program counter of entry point */
+
+  /* Bitmap of sections to be loaded (LSB => MSB) */
+  ulong loaded_sections[ 1024UL ];
+};
+typedef struct fd_sbpf_elf_info fd_sbpf_elf_info_t;
+
+/* fd_sbpf_program_t describes a loaded program in memory.
+
+   [rodata,rodata+rodata_sz) is an externally allocated buffer holding
+   the read-only segment to be loaded into the VM.  WARNING: The rodata
+   area required doing load (rodata_footprint) is slightly larger than
+   the area mapped into the VM (rodata_sz).  See FD_SBPF_RODATA_GUARD.
+
+   [text,text+8*text_cnt) is a sub-region of the read-only segment
+   containing executable code. */
+
+struct __attribute__((aligned(32UL))) fd_sbpf_program {
+  fd_sbpf_elf_info_t info;
+
   /* rodata segment to be mapped into VM memory */
-  uchar const *  rodata;     /* rodata segment data */
-  ulong          rodata_sz;  /* size of data */
+  void * rodata;     /* rodata segment data */
+  ulong  rodata_sz;  /* size of data */
 
   /* text section within rodata segment */
-  ulong const * text;
-  ulong         text_cnt;  /* instruction count */
-  ulong         entry_pc;  /* entrypoint PC (at text[ entry_pc - start_pc ]) */
+  ulong * text;
+  ulong   text_cnt;  /* instruction count */
+  ulong   entry_pc;  /* entrypoint PC (at text[ entry_pc - start_pc ]) */
 
   /* Map of valid call destinations */
   fd_sbpf_calldests_t * calldests;
 };
-typedef struct fd_sbpf_program_info fd_sbpf_program_info_t;
-
-struct fd_sbpf_program_private;
-typedef struct fd_sbpf_program_private fd_sbpf_program_t;
+typedef struct fd_sbpf_program fd_sbpf_program_t;
 
 /* Prototypes *********************************************************/
 
 FD_PROTOTYPES_BEGIN
 
-ulong
+/* fd_sbpf_elf_peek partially parses the given ELF file in memory region
+   [bin,bin+bin_sz)  Populates `info`.  Returns `info` on success.  On
+   failure, returns NULL. */
+
+fd_sbpf_elf_info_t *
+fd_sbpf_elf_peek( fd_sbpf_elf_info_t * info,
+                  void const *         bin,
+                  ulong                bin_sz );
+
+/* fd_sbpf_program_{align,footprint} return the alignment and size
+   requirements of the memory region backing thecool fd_sbpf_program_t
+   object. */
+
+FD_FN_CONST ulong
 fd_sbpf_program_align( void );
 
-ulong
-fd_sbpf_program_footprint( void );
+FD_FN_PURE ulong
+fd_sbpf_program_footprint( fd_sbpf_elf_info_t const * info );
+
+/* fd_sbpf_program_new formats prog_mem to hold an fd_sbpf_program_t.
+   prog_mem must match footprint requirements of the given elf_info.
+   elf_info may be deallocated on return.
+
+   rodata is the read-only segment buffer that the program is configured
+   against and must be valid for the lifetime of the program object. */
 
 fd_sbpf_program_t *
-fd_sbpf_program_new( void * mem );
+fd_sbpf_program_new( void *                     prog_mem,
+                     fd_sbpf_elf_info_t const * elf_info,
+                     void *                     rodata );
 
-/* fd_sbpf_program_load loads an eBPF program for execution.  bin points
-   to the first byte of an ELF shared object of bin_sz bytes.
+/* fd_sbpf_program_load loads an eBPF program for execution.
 
-   IMPORTANT: bin is modified in-place.  The caller must ensure that
-   8 bytes past the end of bin are writable as scratch space.
+   prog is a program object allocated with fd_sbpf_program_new and must
+   match the footprint requirements of this ELF file.
 
    Initializes and populates the program struct with information about
-   the program, including pointer prog->{rodata,text} into the memory
-   region at bin.
+   the program and prepares the read-only segment provided in
+   fd_sbpf_program_new.
 
-   Arbitrarily mangles bin such that it no longer holds a valid ELF
-   (this function thus is not idempotent).
+   Memory region [bin,bin+bin_sz) contains the ELF file to be loaded.
 
    On success, returns 0.
    On error, returns FD_SBPF_ERR_* and leaves prog in an undefined
@@ -104,14 +164,12 @@ fd_sbpf_program_new( void * mem );
 
 int
 fd_sbpf_program_load( fd_sbpf_program_t *  prog,
-                      void *               _bin,
+                      void const *         bin,
                       ulong                bin_sz,
                       fd_sbpf_syscalls_t * syscalls );
 
-FD_FN_CONST inline fd_sbpf_program_info_t const *
-fd_sbpf_program_get_info( fd_sbpf_program_t const * program ) {
-  return (fd_sbpf_program_info_t const *) program;
-}
+/* fd_sbpf_program_delete destroys the program object and unformats the
+   memory regions holding it. */
 
 void *
 fd_sbpf_program_delete( fd_sbpf_program_t * program );
