@@ -561,6 +561,13 @@ fd_log_private_boot( int *    pargc,
 void
 fd_log_private_halt( void );
 
+ulong fd_log_private_main_stack_sz( void ); /* Returns ulimit -s (if reasonable) on success, 0 on failure (logs details) */
+
+void
+fd_log_private_stack_discover( ulong   stack_sz,  /* Size the stack is expected to be */
+                               ulong * _stack0,   /* [*_stack0,*_stack1) is the caller's stack region (will have stack_sz */
+                               ulong * _stack1 ); /* bytes) on success.  Both set to 0UL on failure (logs details). */
+
 /* These are exposed to allow the user to override the values set at
    boot/halt time.  If these are used, they are usually a sign of
    working around a higher level architectural or operational issue. */
