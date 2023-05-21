@@ -62,6 +62,7 @@
 #include "fd_avx_wd.h" /* Vector double support */
 #include "fd_avx_wl.h" /* Vector long support */
 #include "fd_avx_wv.h" /* Vector ulong support */
+#include "fd_avx_wb.h" /* Vector uchar (byte) support */
 
 #else
 #error "Build target does not support AVX wrappers"
