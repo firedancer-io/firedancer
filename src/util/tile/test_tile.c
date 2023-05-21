@@ -10,25 +10,25 @@ test_stack( void ) {
   if( !stack0 ) {
     FD_TEST( !fd_tile_stack1        () );
     FD_TEST( !fd_tile_stack_sz      () );
-    FD_TEST( !fd_tile_stack_free_est() );
-    FD_TEST( !fd_tile_stack_used_est() );
+    FD_TEST( !fd_tile_stack_est_free() );
+    FD_TEST( !fd_tile_stack_est_used() );
   } else {
     ulong stack1         = (ulong)fd_tile_stack1();  FD_TEST( stack1>stack0             );
     ulong stack_sz       = fd_tile_stack_sz();       FD_TEST( stack_sz==(stack1-stack0) );
-    ulong stack_free_est = fd_tile_stack_free_est(); FD_TEST( stack_free_est<=stack_sz  );
-    ulong stack_used_est = fd_tile_stack_used_est(); FD_TEST( stack_used_est<=stack_sz  );
+    ulong stack_est_free = fd_tile_stack_est_free(); FD_TEST( stack_est_free<=stack_sz  );
+    ulong stack_est_used = fd_tile_stack_est_used(); FD_TEST( stack_est_used<=stack_sz  );
 
     /* We should have more free than used for this test so this really
        just checks if the grows from high to low assumption is correct */
 
-    FD_TEST( stack_free_est > stack_used_est );
+    FD_TEST( stack_est_free > stack_est_used );
 
     /* Paranoia ... since free and used est aren't measured at the same
        point in time above, we only test for approximate equality (they
        are probably the same at this point unless the compiler is being
        insanely weird). */
 
-    ulong stack_est = stack_free_est + stack_used_est;
+    ulong stack_est = stack_est_free + stack_est_used;
     FD_TEST( (stack_sz-64UL)<=stack_est && stack_est<=(stack_sz+64UL) );
 
     ulong stack_mem[1];

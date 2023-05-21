@@ -273,7 +273,7 @@ fd_tile_private_manager( void * _args ) {
   fd_tile_private_id  = id;
   fd_tile_private_idx = idx;
 
-  if( stack ) { /* User provided stack */
+  if( FD_LIKELY( stack ) ) { /* User provided stack */
     fd_tile_private_stack0 = (ulong)stack;
     fd_tile_private_stack1 = (ulong)stack + stack_sz;
   } else { /* Pthread provided stack */
@@ -650,9 +650,8 @@ fd_tile_private_boot( int *    pargc,
     /* Tile is running, args is safe to reuse */
 
     err = pthread_attr_destroy( attr );
-    if( FD_UNLIKELY( err ) )
-      FD_LOG_WARNING(( "fd_tile: pthread_attr_destroy failed (%i-%s) for tile %lu on cpu %lu; attempting to continue",
-                       err, strerror( err ), tile_idx, cpu_idx ));
+    if( FD_UNLIKELY( err ) ) FD_LOG_WARNING(( "fd_tile: pthread_attr_destroy failed (%i-%s) for tile %lu; attempting to continue",
+                                              err, strerror( err ), tile_idx ));
   }
 
   /* And now we "boot" tile 0 */
