@@ -44,14 +44,12 @@
 #endif
 
 
-/* bmtree_hash_leaf computes `SHA-256([0x00]|data).  This is the first
-   step in the creation of a Merkle tree.  Returns node.  U.B. if `node`
-   and `data` overlap. */
 
 fd_bmtree_node_t *
 fd_bmtree_hash_leaf( fd_bmtree_node_t * node,
                     void const *       data,
-                    ulong              data_sz ) {
+                    ulong              data_sz,
+                    ulong              prefix_sz ) {
 
   /* FIXME: Ideally we'd use the streamlined SHA-256 variant here but it
      is pretty wonky from a usability perspective to require users to
@@ -61,21 +59,24 @@ fd_bmtree_hash_leaf( fd_bmtree_node_t * node,
      the implementation requirements did not take into any consideration
      how real world computers and hardware actually work). */
 
-  static uchar const leaf[1] = { (uchar)0 };
   fd_sha256_t sha[1];
-  fd_sha256_fini( fd_sha256_append( fd_sha256_append( fd_sha256_init( sha ), leaf, 1UL ), data, data_sz ), node->hash );
+  fd_sha256_fini( fd_sha256_append( fd_sha256_append( fd_sha256_init( sha ), fd_bmtree_leaf_prefix, prefix_sz ), data, data_sz ), node->hash );
   return node;
 }
 
-/* bmtree_merge computes `SHA-256([0x01]|a->hash|b->hash)` and writes
-   the (truncated as necessary) result into node->hash.  In-place
-   operation fine.  Returns node. */
+/* bmtree_merge computes `SHA-256(prefix|a->hash|b->hash)` and writes
+   the full hash into node->hash (which can then be truncated as
+   necessary).  prefix is the first prefix_sz bytes of
+   fd_bmtree_node_prefix and is typically FD_BMTREE_LONG_PREFIX_SZ or
+   FD_BMTREE_SHORT_PREFIX_SZ.  In-place operation fine.  Returns node.
+   */
 
 static inline fd_bmtree_node_t *
 fd_bmtree_private_merge( fd_bmtree_node_t       * node,
                          fd_bmtree_node_t const * a,
                          fd_bmtree_node_t const * b,
-                         ulong                    hash_sz ) {
+                         ulong                    hash_sz,
+                         ulong                    prefix_sz ) {
 
   /* FIXME: As can be seen from the below, if we actually wanted to be
      fast, we'd not bother with 20 byte variant as we actually have to
@@ -112,25 +113,25 @@ fd_bmtree_private_merge( fd_bmtree_node_t       * node,
 
 # if FD_HAS_AVX
 
-  __m256i avx_a = _mm256_load_si256( (__m256i const *)a );
-  __m256i avx_b = _mm256_load_si256( (__m256i const *)b );
+  __m256i avx_pre = _mm256_load_si256( (__m256i const *)fd_bmtree_node_prefix );
+  __m256i avx_a   = _mm256_load_si256( (__m256i const *)a           );
+  __m256i avx_b   = _mm256_load_si256( (__m256i const *)b           );
 
   uchar mem[96] __attribute__((aligned(32)));
 
-  mem[31] = (uchar)1;
-  _mm256_store_si256(  (__m256i *)(mem+32UL),         avx_a );
-  _mm256_storeu_si256( (__m256i *)(mem+32UL+hash_sz), avx_b );
+  _mm256_store_si256(  (__m256i *)(mem),                     avx_pre );
+  _mm256_storeu_si256( (__m256i *)(mem+prefix_sz),           avx_a   );
+  _mm256_storeu_si256( (__m256i *)(mem+prefix_sz+hash_sz),   avx_b   );
 
-  fd_sha256_hash( mem+31UL, 1UL+2UL*hash_sz, node );
+  fd_sha256_hash( mem, prefix_sz+2UL*hash_sz, node );
 
   /* Consider FD_HAS_SSE only variant? */
 
 # else
 
-  static uchar const branch[1] = { (uchar)1 };
   fd_sha256_t sha[1];
   fd_sha256_fini( fd_sha256_append( fd_sha256_append( fd_sha256_append( fd_sha256_init( sha ),
-                  branch, 1UL ), a->hash, hash_sz ), b->hash, hash_sz ), node->hash );
+                  fd_bmtree_node_prefix, prefix_sz ), a->hash, hash_sz ), b->hash, hash_sz ), node->hash );
 
 # endif
 
@@ -184,10 +185,12 @@ fd_bmtree_commit_footprint( ulong inclusion_proof_layer_cnt ) {
 fd_bmtree_commit_t *    /* Returns mem as a bmtree_commit_t *, commit will be in a calc */
 fd_bmtree_commit_init( void * mem,     /* Assumed unused with required alignment and footprint */
                        ulong hash_sz,
+                       ulong prefix_sz,
                        ulong inclusion_proof_layer_cnt ) {
   fd_bmtree_commit_t * state = (fd_bmtree_commit_t *) mem;
-  state->leaf_cnt = 0UL;
-  state->hash_sz = hash_sz;
+  state->leaf_cnt           = 0UL;
+  state->hash_sz            = hash_sz;
+  state->prefix_sz          = prefix_sz;
   state->inclusion_proof_sz = (1UL<<inclusion_proof_layer_cnt) - 1UL;
   return state;
 }
@@ -232,7 +235,7 @@ fd_bmtree_commit_append( fd_bmtree_commit_t *                 state,           /
     ulong cursor  = ++leaf_cnt;    /* `cursor` is the number of known nodes in the current layer. */
     while( !(cursor & 1UL) ) {     /* Continue while the right node in the last pair is available. */
       state->inclusion_proofs[ fd_ulong_min( inc_idx, state->inclusion_proof_sz ) ] = *tmp;
-      fd_bmtree_private_merge( tmp, node_buf + layer, tmp, state->hash_sz );
+      fd_bmtree_private_merge( tmp, node_buf + layer, tmp, state->hash_sz, state->prefix_sz );
       inc_idx -= 1UL<<layer; layer++; cursor>>=1;      /* Move up one layer. */
     }
 
@@ -287,7 +290,7 @@ fd_bmtree_commit_fini( fd_bmtree_commit_t * state ) {
        merge and unnecessary branch elimination by cmov. */
     while( layer_cnt>1UL ) {
       fd_bmtree_node_t const * tmp2 = fd_ptr_if( layer_cnt & 1UL, &tmp[0] /* 1 child */, node_buf+layer /* 2 children */ ); /* cmov */
-      fd_bmtree_private_merge( tmp, tmp2, tmp, state->hash_sz );
+      fd_bmtree_private_merge( tmp, tmp2, tmp, state->hash_sz, state->prefix_sz );
 
       layer++; layer_cnt = (layer_cnt+1UL) >> 1;
 
@@ -337,7 +340,8 @@ fd_bmtree_validate_inclusion_proof( fd_bmtree_node_t const * leaf,
                                     fd_bmtree_node_t *       root,
                                     uchar const *            proof,
                                     ulong                    proof_depth,
-                                    ulong                    hash_sz ) {
+                                    ulong                    hash_sz,
+                                    ulong                    prefix_sz ) {
   fd_bmtree_node_t tmp[2]; /* 0 stores the generated node, 1 stores the node from the proof */
   fd_bmtree_node_t * tmp_l;
   fd_bmtree_node_t * tmp_r;
@@ -353,7 +357,7 @@ fd_bmtree_validate_inclusion_proof( fd_bmtree_node_t const * leaf,
     tmp_l = fd_ptr_if( 0UL==(inc_idx & (1UL<<(layer+1UL))), tmp+0, tmp+1 );
     tmp_r = fd_ptr_if( 0UL==(inc_idx & (1UL<<(layer+1UL))), tmp+1, tmp+0 );
 
-    fd_bmtree_private_merge( tmp, tmp_l, tmp_r, hash_sz );
+    fd_bmtree_private_merge( tmp, tmp_l, tmp_r, hash_sz, prefix_sz );
 
     inc_idx = fd_ulong_insert_lsb( inc_idx, (int)layer+2, (2UL<<layer)-1UL );
   }

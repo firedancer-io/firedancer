@@ -127,6 +127,19 @@
      - Sparse inclusion proofs (over an arbitrary subset of leaf nodes) */
 
 
+/* As of https://github.com/solana-labs/solana/pull/29339, Solana
+   changed the second preimage resistance strategy to depend on whether
+   it's the 20B shred tree or the 32B runtime tree.  In the 20B case,
+   they prepend the full leaf_prefix (excluding the nul terminator).  In
+   the 32B case, they just prepend a single 0x00 byte.  Similarly for
+   internal nodes.  These prefixes are aligned and padded to facilitate
+   use with AVX. */
+#define FD_BMTREE_LONG_PREFIX_SZ  26UL
+#define FD_BMTREE_SHORT_PREFIX_SZ 1UL
+static uchar const fd_bmtree_leaf_prefix[32UL] __attribute__((aligned(32))) = "\x00SOLANA_MERKLE_SHREDS_LEAF";
+static uchar const fd_bmtree_node_prefix[32UL] __attribute__((aligned(32))) = "\x01SOLANA_MERKLE_SHREDS_NODE";
+
+
 /* bmtree_node_t is the hash of a tree node (e.g. SHA256-160 / SHA256
    for a 20 / 32 byte node size).  We declare it this way to make the
    structure very AVX friendly and to allow SHA256 to write directly
@@ -137,10 +150,12 @@ struct __attribute__((aligned(32))) fd_bmtree_node {
 
 typedef struct fd_bmtree_node fd_bmtree_node_t;
 
-/* bmtree_hash_leaf computes `SHA-256([0x00]|data).  This is the first
-   step in the creation of a Merkle tree.  Returns node.  U.B. if `node`
-   and `data` overlap. */
-fd_bmtree_node_t * fd_bmtree_hash_leaf( fd_bmtree_node_t * node, void const * data, ulong data_sz );
+/* bmtree_hash_leaf computes `SHA-256(prefix|data), where prefix is the
+   first prefix_sz bytes of fd_bmtre_leaf_prefix.  prefix_sz is
+   typically FD_BMTREE_LONG_PREFIX_SZ or FD_BMTREE_SHORT_PREFIX_SZ.
+   This is the first step in the creation of a Merkle tree.  Returns
+   node.  U.B. if `node` and `data` overlap. */
+fd_bmtree_node_t * fd_bmtree_hash_leaf( fd_bmtree_node_t * node, void const * data, ulong data_sz, ulong prefix_sz );
 
 /* A fd_bmtree_commit_t stores intermediate state used to compute the
    root of a binary Merkle tree built incrementally.
@@ -261,6 +276,7 @@ struct fd_bmtree_commit_private {
 
   ulong             leaf_cnt;         /* Number of leaves added so far */
   ulong             hash_sz;          /* <= 32 bytes */
+  ulong             prefix_sz;        /* <= 26 bytes */
   ulong             inclusion_proof_sz;
   fd_bmtree_node_t  node_buf[ 63UL ];
   fd_bmtree_node_t  inclusion_proofs[ 1 ]; /* Indexed [0, inclusion_proof_sz) */
@@ -283,14 +299,17 @@ ulong          fd_bmtree_commit_footprint( ulong inclusion_proof_layer_cnt );
 
 /* bmtree_commit_init starts a vector commitment calculation
    Assumes mem unused with required alignment and footprint.  Returns
-   mem as a bmtree_commit_t *, commit will be in a calc.
+   mem as a bmtree_commit_t *, commit will be in a calc. prefix_sz is
+   the size (in bytes) of the second-preimage resistance prefix used.
+   It's typically FD_BMTREE_LONG_PREFIX_SZ or FD_BMTREE_SHORT_PREFIX_SZ
+   and must not be greater than FD_BMTREE_LONG_PREFIX_SZ.
 
    The calculation can also save some inclusion proof information such
    that if the final tree has no more than inclusion_proof_layer_cnt layers,
    inclusion proofs will be available for all leaves.  If the tree grows
    beyond inclusion_proof_layer_cnt layers, then inclusion proofs may
    not be available for any leaves. */
-fd_bmtree_commit_t * fd_bmtree_commit_init     ( void * mem, ulong hash_sz, ulong inclusion_proof_layer_cnt );
+fd_bmtree_commit_t * fd_bmtree_commit_init     ( void * mem, ulong hash_sz, ulong prefix_sz, ulong inclusion_proof_layer_cnt );
 
 /* bmtree_commit_leaf_cnt returns the number of leafs appeneded thus
    far.  Assumes state is valid. */
@@ -373,6 +392,7 @@ fd_bmtree_validate_inclusion_proof( fd_bmtree_node_t const * leaf,
                                     fd_bmtree_node_t *       root,
                                     uchar const *            proof,
                                     ulong                    proof_depth,
-                                    ulong                    hash_sz );
+                                    ulong                    hash_sz,
+                                    ulong                    prefix_sz );
 FD_PROTOTYPES_END
 #endif /* HEADER_fd_src_ballet_bmtree_fd_bmtree_h */
