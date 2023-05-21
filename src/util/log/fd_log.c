@@ -1285,15 +1285,15 @@ fd_log_private_main_stack_sz( void ) {
    linking is complete and then it is not simply exposed to the
    application).
 
-   Similar applies to the first thread's stack.  We can learn how large
-   the stack is and get a pointer into the stack via a stack variable
-   but we have no simple way to get the extents.  And, in this case, on
-   recent Linux typically, things like command line strings and
-   environment strings are allowed to consume up to 1/4 of main's thread
-   stack and these are only known at application load time.  (There is
-   additional caveat that the main stack might be dynamically allocated
-   such that the memory reserved for it might not be backed by pages
-   yet.)
+   Similar uncertainty applies to the first thread's stack.  We can
+   learn how large the stack is and get a pointer into the stack via a
+   stack variable but we have no simple way to get the extents.  And, in
+   this case on recent Linux, things like command line strings and
+   environment strings are typically allowed to consume up to 1/4 of
+   main's thread stack ... these are only known at application load
+   time.  (There is the additional caveat that the main stack might be
+   dynamically allocated such that the address space reserved for it
+   might not be backed by memory yet.)
 
    But, if we want to do useful run-time stack diagnostics (e.g. alloca
    bounds checking / stack overflow prevention / etc), having explicit
@@ -1307,6 +1307,13 @@ void
 fd_log_private_stack_discover( ulong   stack_sz,
                                ulong * _stack0,
                                ulong * _stack1 ) {
+
+  if( FD_UNLIKELY( !stack_sz ) ) {
+    *_stack0 = 0UL;
+    *_stack1 = 0UL;
+    return;
+  }
+
   ulong stack0 = 0UL;
   ulong stack1 = 0UL;
 
@@ -1315,7 +1322,7 @@ fd_log_private_stack_discover( ulong   stack_sz,
      be the caller's stack. */
 
   uchar stack_mem[1];
-  FD_VOLATILE( stack_mem[0] ) = (uchar)0; /* Paranoia to make sure compiler puts this in stack */
+  FD_VOLATILE( stack_mem[0] ) = (uchar)1; /* Paranoia to make sure compiler puts this in stack */
   ulong stack_addr = (ulong)stack_mem;
 
   FILE * file = fopen( "/proc/self/maps", "r" );
@@ -1358,7 +1365,8 @@ fd_log_private_stack_discover( ulong   stack_sz,
 
     }
 
-    if( fclose( file ) ) FD_LOG_WARNING(( "fclose( \"/proc/self/maps\" ) failed (%i-%s)", errno, strerror( errno ) ));
+    if( FD_UNLIKELY( fclose( file ) ) )
+      FD_LOG_WARNING(( "fclose( \"/proc/self/maps\" ) failed (%i-%s)", errno, strerror( errno ) ));
 
   }
 

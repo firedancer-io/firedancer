@@ -56,12 +56,12 @@ FD_FN_PURE ulong fd_tile_cpu_id( ulong tile_idx );
 
    [fd_tile_stack0(),fd_tile_stack1()) gives the location in caller's
    local address space the caller's stack.  The size of this region is
-   fd_tile_stack_sz().  fd_tile_stack_used_est() and
-   fd_tile_stack_free_est() are estimates of the number of bytes in the
+   fd_tile_stack_sz().  fd_tile_stack_est_used() and
+   fd_tile_stack_est_free() are estimates of the number of bytes in the
    stack currently used and currently free.
 
    If the tile stack parameters could not be determined at tile startup,
-   details will be logged and stack0/stack1/stack_sz/used_est/free_est
+   details will be logged and stack0/stack1/stack_sz/est_used/est_free
    will be NULL/NULL/0/0/0. */
 
 extern FD_TLS ulong fd_tile_private_stack0;
@@ -72,14 +72,14 @@ static inline void const * fd_tile_stack1  ( void ) { return (void const *)fd_ti
 static inline ulong        fd_tile_stack_sz( void ) { return fd_tile_private_stack1 - fd_tile_private_stack0; }
 
 static inline ulong
-fd_tile_stack_used_est( void ) {
+fd_tile_stack_est_used( void ) {
   uchar stack_mem[1];
   FD_VOLATILE( stack_mem[0] ) = (uchar)1; /* Paranoia to guarantee stack_mem is on the stack and backed by memory */
   return fd_ulong_if( !fd_tile_private_stack1, 0UL, fd_tile_private_stack1 - (ulong)stack_mem );
 }
 
 static inline ulong
-fd_tile_stack_free_est( void ) {
+fd_tile_stack_est_free( void ) {
   uchar stack_mem[1];
   FD_VOLATILE( stack_mem[0] ) = (uchar)1; /* Paranoia to guarantee stack_mem is on the stack and backed by memory */
   return fd_ulong_if( !fd_tile_private_stack0, 0UL, (ulong)stack_mem - fd_tile_private_stack0 );
