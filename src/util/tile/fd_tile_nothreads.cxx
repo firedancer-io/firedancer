@@ -1,15 +1,17 @@
 #include "fd_tile.h"
 
 static ulong fd_tile_private_id0; /* 0 outside boot/halt, init on boot */
-static ulong fd_tile_private_id1; /* 0 outside boot/halt, init on boot */
-static ulong fd_tile_private_cnt; /* 0 outside boot/halt, init on boot */
+static ulong fd_tile_private_id1; /* " */
+static ulong fd_tile_private_cnt; /* " */
 
 ulong fd_tile_id0( void ) { return fd_tile_private_id0; }
 ulong fd_tile_id1( void ) { return fd_tile_private_id1; }
 ulong fd_tile_cnt( void ) { return fd_tile_private_cnt; }
 
-static ulong fd_tile_private_id;  /* 0 outside boot/halt, init on boot */
-static ulong fd_tile_private_idx; /* 0 outside boot/halt, init on boot */
+static ulong fd_tile_private_id;     /* 0 outside boot/halt, init on boot */
+static ulong fd_tile_private_idx;    /* " */
+/**/   ulong fd_tile_private_stack0; /* " */
+/**/   ulong fd_tile_private_stack1; /* " */
 
 ulong fd_tile_id ( void ) { return fd_tile_private_id;  }
 ulong fd_tile_idx( void ) { return fd_tile_private_idx; }
@@ -83,6 +85,11 @@ fd_tile_private_boot( int *    pargc,
   fd_tile_private_id  = fd_tile_private_id0;
   fd_tile_private_idx = 0UL;
 
+  fd_log_private_stack_discover( fd_log_private_main_stack_sz(),
+                                 &fd_tile_private_stack0, &fd_tile_private_stack1 ); /* logs details */
+  if( FD_UNLIKELY( !fd_tile_private_stack0 ) )
+    FD_LOG_WARNING(( "stack diagnostics not available on this tile; attempting to continue" ));
+
   FD_LOG_INFO(( "fd_tile: boot tile %lu success (thread %lu:%lu in thread group %lu:%lu/%lu)",
                 fd_tile_private_idx, app_id, fd_tile_private_id, app_id, fd_tile_private_id0, fd_tile_private_cnt ));
 
@@ -95,8 +102,10 @@ fd_tile_private_halt( void ) {
 
   FD_LOG_INFO(( "fd_tile: halting tile 0" ));
 
-  fd_tile_private_idx = 0UL;
-  fd_tile_private_id  = 0UL;
+  fd_tile_private_stack1 = 0UL;
+  fd_tile_private_stack0 = 0UL;
+  fd_tile_private_idx    = 0UL;
+  fd_tile_private_id     = 0UL;
 
   FD_LOG_INFO(( "fd tile: halt tile 0 success" ));
 
