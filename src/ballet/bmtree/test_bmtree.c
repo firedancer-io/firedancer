@@ -13,7 +13,7 @@ static void
 test_bmtree20_commit( ulong        leaf_cnt,
                       void const * expected_root ) {
   fd_bmtree_commit_t _tree[1];
-  fd_bmtree_commit_t * tree = fd_bmtree_commit_init( _tree, 20UL, 0UL ); FD_TEST( tree==_tree );
+  fd_bmtree_commit_t * tree = fd_bmtree_commit_init( _tree, 20UL, 1UL, 0UL ); FD_TEST( tree==_tree );
 
   fd_bmtree_node_t leaf[1];
   fd_memset( leaf->hash, 0, 20UL );
@@ -41,7 +41,7 @@ test_bmtree20_commit( ulong        leaf_cnt,
 static void
 hash_leaf( fd_bmtree_node_t * leaf,
            char const *       leaf_cstr ) {
-  FD_TEST( fd_bmtree_hash_leaf( leaf, leaf_cstr, strlen( leaf_cstr ) )==leaf );
+  FD_TEST( fd_bmtree_hash_leaf( leaf, leaf_cstr, strlen( leaf_cstr ), 1UL )==leaf );
 }
 
 uchar memory[ 128*1024 ] __attribute__((aligned(FD_BMTREE_COMMIT_ALIGN)));
@@ -49,7 +49,8 @@ uchar inc_proof[ 63*32 ];
 
 static void
 test_inclusion( ulong leaf_cnt ) {
-  fd_bmtree_commit_t * tree = fd_bmtree_commit_init( memory, 20UL, 9UL );
+  ulong const prefix_sz = FD_BMTREE_LONG_PREFIX_SZ;
+  fd_bmtree_commit_t * tree = fd_bmtree_commit_init( memory, 20UL, prefix_sz, 9UL );
 
   fd_bmtree_node_t leaf[1];
   fd_memset( leaf->hash, 0, 20UL );
@@ -66,27 +67,27 @@ test_inclusion( ulong leaf_cnt ) {
   for( ulong i=0UL; i<leaf_cnt; i++ ) {
     FD_STORE( ulong, leaf->hash, i );
     FD_TEST( (int)depth-1==fd_bmtree_get_inclusion_proof( tree, inc_proof, i ) );
-    FD_TEST( proof_root==fd_bmtree_validate_inclusion_proof( leaf, i, proof_root, inc_proof, depth-1UL, 20UL ) );
+    FD_TEST( proof_root==fd_bmtree_validate_inclusion_proof( leaf, i, proof_root, inc_proof, depth-1UL, 20UL, prefix_sz ) );
     FD_TEST( fd_memeq( root, proof_root, 32UL ) );
 
     if( FD_LIKELY( leaf_cnt>1UL ) ) {
       inc_proof[ 1 ]++; /* Corrupt the proof */
-      FD_TEST( proof_root==fd_bmtree_validate_inclusion_proof( leaf, i, proof_root, inc_proof, depth-1UL, 20UL ) );
+      FD_TEST( proof_root==fd_bmtree_validate_inclusion_proof( leaf, i, proof_root, inc_proof, depth-1UL, 20UL, prefix_sz ) );
       FD_TEST( !fd_memeq( root, proof_root, 32UL ) );
       inc_proof[ 1 ]--;
     } /* Otherwise the proof is empty, so there's nothing to corrupt */
 
     root[ 1 ]++; /* Corrupt the root */
-    FD_TEST( proof_root==fd_bmtree_validate_inclusion_proof( leaf, i, proof_root, inc_proof, depth-1UL, 20UL ) );
+    FD_TEST( proof_root==fd_bmtree_validate_inclusion_proof( leaf, i, proof_root, inc_proof, depth-1UL, 20UL, prefix_sz ) );
     FD_TEST( !fd_memeq( root, proof_root, 32UL ) );
     root[ 1 ]--;
 
     leaf->hash[ 1 ]++; /* Corrupt the leaf */
-    FD_TEST( proof_root==fd_bmtree_validate_inclusion_proof( leaf, i, proof_root, inc_proof, depth-1UL, 20UL ) );
+    FD_TEST( proof_root==fd_bmtree_validate_inclusion_proof( leaf, i, proof_root, inc_proof, depth-1UL, 20UL, prefix_sz ) );
     FD_TEST( !fd_memeq( root, proof_root, 32UL ) );
     leaf->hash[ 1 ]--;
   }
-  FD_TEST( !fd_bmtree_validate_inclusion_proof( leaf, 1234567UL, proof_root, inc_proof, depth-1UL, 20UL ) );
+  FD_TEST( !fd_bmtree_validate_inclusion_proof( leaf, 1234567UL, proof_root, inc_proof, depth-1UL, 20UL, prefix_sz ) );
 
 }
 
@@ -156,7 +157,7 @@ main( int     argc,
   hash_leaf( leaf + 10, "prime"  );
 
   fd_bmtree_commit_t _tree[1];
-  fd_bmtree_commit_t * tree = fd_bmtree_commit_init( _tree, 32UL, 0UL ); FD_TEST( tree==_tree );
+  fd_bmtree_commit_t * tree = fd_bmtree_commit_init( _tree, 32UL, 1UL, 0UL ); FD_TEST( tree==_tree );
 
   FD_TEST( fd_bmtree_commit_leaf_cnt( tree )==0UL );
 
@@ -185,7 +186,7 @@ main( int     argc,
                  FD_LOG_HEX16_FMT_ARGS( expected ), FD_LOG_HEX16_FMT_ARGS( expected+16 ) ));
 
 
-  tree = fd_bmtree_commit_init( memory, 20UL, 5UL );
+  tree = fd_bmtree_commit_init( memory, 20UL, 1UL, 5UL );
   FD_TEST( fd_bmtree_commit_append( tree, leaf, leaf_cnt )==tree );
   fd_bmtree_commit_fini( tree );
 
