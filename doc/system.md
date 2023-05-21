@@ -1,14 +1,19 @@
-Getting started
-===============
+Preparing the system
+====================
+
+Prerequisites
+-------------
+
+This guide assumes the steps in [build.md](./build.md) have been completed.
 
 Host setup
 ----------
 
-The below describes building Firedancer from scratch and running it
-optimized on a stock GCP `n2-standard-80` instance with a stock GCP
-RHEL8.5 image.  For reference, this instance is a dual socket 20
-physical core Intel Cascade Lake at 2.8 GHz with hyperthreading enabled
--> 2 NUMA nodes total, 80 logical cores total).
+The below describes running Firedancer optimized on a stock GCP
+`n2-standard-80` instance with a stock GCP RHEL8.5 image.  For reference,
+this instance is a dual socket 20 physical core Intel Cascade Lake at 2.8
+GHz with hyperthreading enabled -> 2 NUMA nodes total, 80 logical cores
+total).
 
 Setup for other reasonably modern x86_64 architecture hosts (reasonable
 modern here AVX2 support, this includes most Intel architectures since
@@ -23,28 +28,6 @@ administrative operations (should not be any more than the existing
 validator).  Though it is possible to run Firedancer without any of
 these tunings, it is not recommended and the below assumes the user has
 the necessary `sudo` access.
-
-- Log into the host and configure user environment to taste (e.g.
-  install favorite editors / code development environment, etc).  This
-  is not specific to Firedancer but note hosts like this have very
-  minimal installs on first login.
-
-- Install standard development tools.
-    ```
-    $ sudo dnf groupinstall development
-    ```
-  As mentioned above, the minimal installs are missing even basic
-  development tools.  The `development` group includes such things as
-  the stock `gcc` compiler, build tools like `make`, version control
-  systems like `git`, etc.  Firedancer likely can use other tool chains
-  / compilers (e.g. `clang`) but this is not routinely tested currently.
-
-- Install additional dependencies.  To simplify install and improve
-  auditability, Firedancer tries to have minimal external dependencies
-  and then only use external dependencies that are trivially installable
-  on recent stock Linux distributions.  Current packages used include:
-    - pkg-config
-    - xdp-tools
 
 - Configure the host for high performance by allowing users to lock
   pages in memory and increase the scheduler priority of performance
@@ -71,27 +54,6 @@ the necessary `sudo` access.
     real-time priority              (-r) unlimited
     ... snip ...
     ```
-
-- Get Firedancer.  E.g.:
-    ```
-    $ git clone https://github.com/firedancer-io/firedancer.git firedancer
-    ```
-  will make a directory in the current directory called firedancer and
-  copy of the current head-of-tree code base into that directory.
-
-- Build Firedancer. E.g. From the directory where firedancer was
-  checked out:
-    ```
-    make -j
-    ```
-  This will do a parallel incremental build using all non-isolated cores
-  and should be reasonably quick even when done from scratch (less than
-  a minute).  The default machine target will be
-  `MACHINE=linux_gcc_x86_64` (details of this machine can be found in
-  `config/linux_gcc_x86_64.mk`).  The build results will be in the
-  relative directory `build/linux/gcc/x86_64`.  `make` has many powers;
-  run `make help` for more info.  If building on a system with lots of
-  isolated cores, see `contrib/make-j`.
 
 - Reserve host resources for application usage.  E.g.:
     ```
@@ -122,8 +84,12 @@ the necessary `sudo` access.
   coexist simultaneously (the `""` will be use default group of
   `[USER]`).
 
-Running
--------
+Next Steps
+----------
 
-TODO
+At this point, your system is configured for the non-privileged operation
+of Firedancer with optimized access to the host's CPUs and main memory.
 
+Firedancer's applications can now be run, such as the demo explained in
+[frankendancer.md](./frankendancer.md): a hybrid between the Solana Labs
+and Firedancer validators.

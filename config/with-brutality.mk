@@ -14,7 +14,7 @@ CPPFLAGS+=-Wimplicit-fallthrough
 
 # Extra brutality
 #CPPFLAGS+=-Winline
-#CPPFLAGS+=-Wproperty-attribute-mismatch
+CPPFLAGS+=-Wproperty-attribute-mismatch
 
 endif
 

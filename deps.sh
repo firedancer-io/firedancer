@@ -4,6 +4,7 @@ set -euo pipefail
 
 # Change into Firedancer root directory
 cd "$(dirname "${BASH_SOURCE[0]}")"
+REPO_ROOT="$(pwd)"
 
 # Fix pkg-config path and environment
 # shellcheck source=./activate-opt

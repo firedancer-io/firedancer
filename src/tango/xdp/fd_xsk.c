@@ -749,17 +749,17 @@ fd_xsk_tx_enqueue( fd_xsk_t *            xsk,
 
   tx->cached_prod = prod;
 
-    /* update producer */
-    FD_VOLATILE( *tx->prod ) = prod;
+  /* update producer */
+  FD_VOLATILE( *tx->prod ) = prod;
 
-    /* XDP tells us whether we need to specifically wake up the driver/hw */
-    if( fd_xsk_tx_need_wakeup( xsk ) ) {
-      if( FD_UNLIKELY( -1==sendto( xsk->xsk_fd, NULL, 0, MSG_DONTWAIT, NULL, 0 ) ) ) {
-        if( FD_UNLIKELY( errno!=EAGAIN ) ) {
-          FD_LOG_WARNING(( "xsk sendto failed (%d-%s)", errno, strerror( errno ) ));
-        }
+  /* XDP tells us whether we need to specifically wake up the driver/hw */
+  if( fd_xsk_tx_need_wakeup( xsk ) ) {
+    if( FD_UNLIKELY( -1==sendto( xsk->xsk_fd, NULL, 0, MSG_DONTWAIT, NULL, 0 ) ) ) {
+      if( FD_UNLIKELY( errno!=EAGAIN ) ) {
+        FD_LOG_WARNING(( "xsk sendto failed (%d-%s)", errno, strerror( errno ) ));
       }
     }
+  }
 
   return sz;
 }

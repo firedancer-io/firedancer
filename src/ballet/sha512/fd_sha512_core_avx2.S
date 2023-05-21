@@ -4,11 +4,17 @@
 # to extract only the version needed and named appropriately for
 # interfacing the existing API and exposing for library use.
 
+#if defined(__ELF__)
 .text	
 .globl	fd_sha512_core_avx2
 .type	fd_sha512_core_avx2,@function
 .align	64
 fd_sha512_core_avx2:
+#elif defined(__MACH__)
+.globl	_fd_sha512_core_avx2
+.align  6, 0x00
+_fd_sha512_core_avx2:
+#endif
 .cfi_startproc	
 	movq	%rsp,%rax
 .cfi_def_cfa_register	%rax
@@ -1383,11 +1389,17 @@ fd_sha512_core_avx2:
 .cfi_def_cfa_register	%rsp
 .Lepilogue_avx2:
 	.byte	0xf3,0xc3
-.cfi_endproc	
+.cfi_endproc
+#if defined(__ELF__)
 .size	fd_sha512_core_avx2,.-fd_sha512_core_avx2
+#endif
 
+#if defined(__ELF__)
 .align	128
 .type	fd_sha512_core_avx2_k,@object
+#elif defined(__MACH__)
+.align  7, 0x00
+#endif
 fd_sha512_core_avx2_k:
 .quad	0x428a2f98d728ae22,0x7137449123ef65cd
 .quad	0x428a2f98d728ae22,0x7137449123ef65cd

@@ -774,7 +774,7 @@ fd_pod_insert_int128( uchar      * FD_RESTRICT pod,
    failure.  The return pointer's lifetime is the pod's local join
    lifetime or an invalidating operation is done on the pod. */
 
-FD_FN_UNUSED static uchar const * /* Work around -Winline */
+FD_STATIC_INLINE_COMPLEX uchar const * /* Work around -Winline */
 fd_pod_query_subpod( uchar const * FD_RESTRICT pod,
                      char const  * FD_RESTRICT path ) {
   fd_pod_info_t info[1];

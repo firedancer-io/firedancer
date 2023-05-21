@@ -10,7 +10,11 @@
 
 /* FIXME: SANITIZE VARIOUS USER SET STRINGS */
 
+#if defined(__linux__)
 #define _GNU_SOURCE
+#elif defined(__APPLE__)
+#define _DARWIN_C_SOURCE
+#endif
 
 #include "fd_log.h"
 
@@ -24,8 +28,16 @@
 #include <signal.h>
 #include <sched.h>
 #include <time.h>
-#include <syscall.h>
 #include <execinfo.h>
+
+#if defined(__linux__)
+#include <syscall.h>
+#elif defined(__APPLE__)
+#include <sys/signal.h>
+#include <sys/syscall.h>
+#include <pthread.h>
+#include "../tile/fd_tile_thread_utils_mac.h"
+#endif
 
 /* TEXT_* are quick-and-dirty color terminal hacks.  Probably should
    do something more robust longer term. */
@@ -272,11 +284,21 @@ fd_log_private_group_set( char const * group ) {
 
 /* System TID or ULONG_MAX on failure */
 
+#ifdef __APPLE__
+static ulong
+fd_log_private_tid_default( void )
+{
+  uint64_t tid64;
+  pthread_threadid_np( NULL, &tid64 );
+  return (ulong)tid64;
+}
+#else
 static ulong
 fd_log_private_tid_default( void ) {
   long tid = syscall( SYS_gettid );
   return fd_ulong_if( tid>0L, (ulong)tid, ULONG_MAX );
 }
+#endif
 
 static FD_TLS ulong fd_log_private_tid;      /* 0 at thread start */
 static FD_TLS int   fd_log_private_tid_init; /* 0 at thread start */
@@ -517,7 +539,7 @@ fd_log_private_0( char const * fmt, ... ) {
   return fd_log_private_log_msg;
 }
 
-char const * 
+char const *
 fd_log_private_hexdump_msg ( char const * descr,
                              void const * mem,
                              ulong        sz ) {
@@ -1013,7 +1035,9 @@ fd_log_private_boot( int  *   pargc,
   fd_log_private_group_id_set( fd_ulong_if( pid>(pid_t)0, (ulong)pid, ULONG_MAX ) );
 
   char const * group = fd_env_strip_cmdline_cstr( pargc, pargv, "--log-group", "FD_LOG_GROUP", NULL );
+#ifndef __APPLE__
   if( !group ) group = program_invocation_short_name;
+#endif
   if( !group ) group = (pargc && pargv && (*pargc)>0) ? (*pargv)[0] : NULL;
   fd_log_private_group_set( group );
 
@@ -1088,13 +1112,17 @@ fd_log_private_boot( int  *   pargc,
     fd_log_private_sig_trap( SIGUSR1   );
     fd_log_private_sig_trap( SIGUSR2   );
     fd_log_private_sig_trap( SIGBUS    );
-    fd_log_private_sig_trap( SIGPOLL   );
     fd_log_private_sig_trap( SIGPROF   );
     fd_log_private_sig_trap( SIGSYS    );
     fd_log_private_sig_trap( SIGTRAP   );
     fd_log_private_sig_trap( SIGVTALRM );
     fd_log_private_sig_trap( SIGXCPU   );
     fd_log_private_sig_trap( SIGXFSZ   );
+#   if defined(__linux__)
+    fd_log_private_sig_trap( SIGPOLL   );
+#   elif defined(__APPLE__)
+    fd_log_private_sig_trap( SIGIOT    );
+#   endif
   }
 
   /* Hook up the permanent log */

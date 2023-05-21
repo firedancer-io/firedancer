@@ -1,24 +1,26 @@
 #!/bin/bash
 
-if [ $# -ne 4 ]; then
+if [ $# -ne 5 ]; then
   echo ""
-  echo "        Usage: $0 [APP_NAME] [APP_CORE_TARGET] [VERIFY_CNT] [BUILD]"
+  echo "        Usage: $0 [APP_NAME] [APP_CORE_TARGET] [IFACE] [VERIFY_CNT] [BUILD]"
   echo ""
   exit 1
 fi
 
 APP=$1
 AFFINITY=$2
-VERIFY_CNT=$3
-BUILD=$4
-shift 4
+IFACE=$3
+VERIFY_CNT=$4
+BUILD=$5
+shift 5
 
 #######################################################################
 
 CONF=tmp/$APP.cfg
+CONF_DIR=tmp/$APP
 
 WKSP=$APP.wksp
-WKSP_PAGE_CNT=2
+WKSP_PAGE_CNT=32
 WKSP_PAGE_SZ=gigantic
 WKSP_PERM=0600
 
@@ -26,84 +28,202 @@ POD_SZ=16384
 
 CNC_APP_SZ=4032
 
-VERIFY_DEPTH=8192
-VERIFY_MTU=1542   # FIXME: recalibrate (probably smaller for today, larger for later)
+VERIFY_DEPTH=2097152
+VERIFY_MTU=4804
+QUIC_DCACHE_APP_SZ=$(( $VERIFY_DEPTH * 32 ))
+
+XDP_MODE=skb
+XDP_FRAME_SZ=2048
+XDP_RX_DEPTH=4096
+XDP_TX_DEPTH=4096
+XDP_AIO_DEPTH=4096
 
 DEDUP_TCACHE_DEPTH=4194302
 DEDUP_TCACHE_MAP_CNT=0
 DEDUP_DEPTH=$VERIFY_DEPTH
+
+PACK_BANK_CNT=4
+PACK_PRQ_SZ=4096
+PACK_CU_EST_TBL_SZ=1024
+PACK_CU_EST_HISTORY=1000
+PACK_CU_EST_DEFAULT=200000
+PACK_CU_LIMIT=12000001
+
+QUIC_LISTEN_PORT=9001
+QUIC_CONN_CNT=128
+QUIC_CONN_ID_CNT=16
+QUIC_STREAM_CNT=64
+QUIC_HANDSHAKE_CNT=256
+QUIC_MAX_INFLIGHT_PKTS=1024
+QUIC_TX_BUF_SZ=4096
+QUIC_RX_BUF_SZ=8192
+
+export QUIC_CONN_CNT
+export QUIC_CONN_ID_CNT
+export QUIC_STREAM_CNT
+export QUIC_HANDSHAKE_CNT
+export QUIC_MAX_INFLIGHT_PKTS
+export QUIC_TX_BUF_SZ
+export QUIC_RX_BUF_SZ
 
 #######################################################################
 
 FD_LOG_PATH=""
 export FD_LOG_PATH
 
-"$BUILD"/bin/fd_wksp_ctl delete "$WKSP" # Okay if fails ... might not exist already
-"$BUILD"/bin/fd_wksp_ctl new "$WKSP" "$WKSP_PAGE_CNT" "$WKSP_PAGE_SZ" "$AFFINITY" "$WKSP_PERM" || exit $?
+"$BUILD"/bin/fd_wksp_ctl delete $WKSP # Okay if fails ... might not exist already
+"$BUILD"/bin/fd_wksp_ctl new $WKSP $WKSP_PAGE_CNT $WKSP_PAGE_SZ $AFFINITY $WKSP_PERM || exit $?
 
-POD=$("$BUILD"/bin/fd_pod_ctl new "$WKSP" "$POD_SZ") || exit $?
+POD="$("$BUILD"/bin/fd_pod_ctl new $WKSP $POD_SZ)" || exit $?
 
-MAIN_CNC=$("$BUILD"/bin/fd_tango_ctl new-cnc "$WKSP" 0 tic "$CNC_APP_SZ") || exit $?
-"$BUILD"/bin/fd_pod_ctl                      \
-  insert "$POD" cstr "$APP".main.cnc "$MAIN_CNC" \
+MAIN_CNC="$("$BUILD"/bin/fd_tango_ctl new-cnc $WKSP 0 tic $CNC_APP_SZ)" || exit $?
+"$BUILD"/bin/fd_pod_ctl                        \
+  insert "$POD" cstr $APP.main.cnc "$MAIN_CNC" \
   || exit $?
 
-CNC=$("$BUILD"/bin/fd_tango_ctl new-cnc "$WKSP" 0 tic "$CNC_APP_SZ") || exit $?
-"$BUILD"/bin/fd_pod_ctl                 \
-  insert "$POD" cstr "$APP".pack.cnc "$CNC" \
+CNC="$("$BUILD"/bin/fd_tango_ctl new-cnc $WKSP 0 tic $CNC_APP_SZ)" || exit $?
+MCACHE="$("$BUILD"/bin/fd_tango_ctl new-mcache $WKSP $PACK_PRQ_SZ 0 0)" || exit $?
+DCACHE="$("$BUILD"/bin/fd_tango_ctl new-dcache $WKSP 4808 $PACK_PRQ_SZ 1 1 0)" || exit $?
+PACK_SCRATCH="$("$BUILD"/bin/fd_pack_ctl new-scratch $WKSP $PACK_BANK_CNT $PACK_PRQ_SZ)" || exit $?
+CU_EST_TBL="$("$BUILD"/bin/fd_pack_ctl new-cu-est-tbl $WKSP $PACK_CU_EST_TBL_SZ $PACK_CU_EST_HISTORY $PACK_CU_EST_DEFAULT)" || exit $?
+RETURN_FSEQ="$("$BUILD"/bin/fd_tango_ctl new-fseq $WKSP 0)" || exit $?
+"$BUILD"/bin/fd_pod_ctl                                           \
+  insert "$POD" cstr  $APP.pack.cnc           $CNC                \
+  insert "$POD" cstr  $APP.pack.out-mcache    $MCACHE             \
+  insert "$POD" cstr  $APP.pack.out-dcache    $DCACHE             \
+  insert "$POD" cstr  $APP.pack.scratch       $PACK_SCRATCH       \
+  insert "$POD" cstr  $APP.pack.cu-est-tbl    $CU_EST_TBL         \
+  insert "$POD" cstr  $APP.pack.return-fseq   $RETURN_FSEQ        \
+  insert "$POD" ulong $APP.pack.bank-cnt      $PACK_BANK_CNT      \
+  insert "$POD" ulong $APP.pack.txnq-sz       $PACK_PRQ_SZ        \
+  insert "$POD" ulong $APP.pack.cu-est-tbl-sz $PACK_CU_EST_TBL_SZ \
+  insert "$POD" uint  $APP.pack.cu-limit      $PACK_CU_LIMIT      \
   || exit $?
 
-CNC=$("$BUILD"/bin/fd_tango_ctl new-cnc "$WKSP" 1 tic "$CNC_APP_SZ") || exit $?
-TCACHE=$("$BUILD"/bin/fd_tango_ctl new-tcache "$WKSP" "$DEDUP_TCACHE_DEPTH" "$DEDUP_TCACHE_MAP_CNT") || exit $?
-MCACHE=$("$BUILD"/bin/fd_tango_ctl new-mcache "$WKSP" "$DEDUP_DEPTH" 0 0) || exit $?
-FSEQ=$("$BUILD"/bin/fd_tango_ctl new-fseq "$WKSP" 0) || exit $?
+CNC="$("$BUILD"/bin/fd_tango_ctl new-cnc $WKSP 1 tic $CNC_APP_SZ)" || exit $?
+TCACHE="$("$BUILD"/bin/fd_tango_ctl new-tcache $WKSP $DEDUP_TCACHE_DEPTH $DEDUP_TCACHE_MAP_CNT)" || exit $?
+MCACHE="$("$BUILD"/bin/fd_tango_ctl new-mcache $WKSP $DEDUP_DEPTH 0 0)" || exit $?
+FSEQ="$("$BUILD"/bin/fd_tango_ctl new-fseq $WKSP 0)" || exit $?
 # Use defaults for cr_max, lazy, seed
 "$BUILD"/bin/fd_pod_ctl                        \
-  insert "$POD" cstr "$APP".dedup.cnc    "$CNC"    \
-  insert "$POD" cstr "$APP".dedup.tcache "$TCACHE" \
-  insert "$POD" cstr "$APP".dedup.mcache "$MCACHE" \
-  insert "$POD" cstr "$APP".dedup.fseq   "$FSEQ"   \
+  insert "$POD" cstr $APP.dedup.cnc    $CNC    \
+  insert "$POD" cstr $APP.dedup.tcache $TCACHE \
+  insert "$POD" cstr $APP.dedup.mcache $MCACHE \
+  insert "$POD" cstr $APP.dedup.fseq   $FSEQ   \
   || exit $?
 
 for((verify_idx=0;verify_idx<VERIFY_CNT;verify_idx++)); do
-  CNC=$("$BUILD"/bin/fd_tango_ctl new-cnc "$WKSP" 2 tic "$CNC_APP_SZ") || exit $?
-  MCACHE=$("$BUILD"/bin/fd_tango_ctl new-mcache "$WKSP" "$VERIFY_DEPTH" 0 0) || exit $?
-  DCACHE=$("$BUILD"/bin/fd_tango_ctl new-dcache "$WKSP" "$VERIFY_MTU" "$VERIFY_DEPTH" 1 1 0) || exit $?
-  FSEQ=$("$BUILD"/bin/fd_tango_ctl new-fseq "$WKSP" 0) || exit $?
+  IN_MCACHE="$("$BUILD"/bin/fd_tango_ctl new-mcache $WKSP $VERIFY_DEPTH 0 0)" || exit $?
+  IN_DCACHE="$("$BUILD"/bin/fd_tango_ctl new-dcache $WKSP $VERIFY_MTU $VERIFY_DEPTH 1 1 $QUIC_DCACHE_APP_SZ)" || exit $?
+  IN_FSEQ="$("$BUILD"/bin/fd_tango_ctl new-fseq $WKSP 0)" || exit $?
   "$BUILD"/bin/fd_pod_ctl                                      \
-    insert "$POD" cstr "$APP".verify.v$verify_idx.cnc    "$CNC"    \
-    insert "$POD" cstr "$APP".verify.v$verify_idx.mcache "$MCACHE" \
-    insert "$POD" cstr "$APP".verify.v$verify_idx.dcache "$DCACHE" \
-    insert "$POD" cstr "$APP".verify.v$verify_idx.fseq   "$FSEQ"   \
+    insert "$POD" cstr $APP.verifyin.v${verify_idx}in.mcache $IN_MCACHE \
+    insert "$POD" cstr $APP.verifyin.v${verify_idx}in.dcache $IN_DCACHE \
+    insert "$POD" cstr $APP.verifyin.v${verify_idx}in.fseq   $IN_FSEQ   \
+    || exit $?
+
+  CNC="$("$BUILD"/bin/fd_tango_ctl new-cnc $WKSP 2 tic $CNC_APP_SZ)" || exit $?
+  MCACHE="$("$BUILD"/bin/fd_tango_ctl new-mcache $WKSP $VERIFY_DEPTH 0 0)" || exit $?
+  DCACHE="$("$BUILD"/bin/fd_tango_ctl new-dcache $WKSP $VERIFY_MTU $VERIFY_DEPTH 1 1 0)" || exit $?
+  FSEQ="$("$BUILD"/bin/fd_tango_ctl new-fseq $WKSP 0)" || exit $?
+  "$BUILD"/bin/fd_pod_ctl                                      \
+    insert "$POD" cstr $APP.verify.v$verify_idx.cnc    $CNC    \
+    insert "$POD" cstr $APP.verify.v$verify_idx.mcache $MCACHE \
+    insert "$POD" cstr $APP.verify.v$verify_idx.dcache $DCACHE \
+    insert "$POD" cstr $APP.verify.v$verify_idx.fseq   $FSEQ   \
     || exit $?
 done
 
-BASE_ARGS="--pod $POD --cfg $APP"
+# Initialize XDP
+
+"$BUILD"/bin/fd_xdp_ctl unhook-iface $APP $IFACE # okay if this fails
+sleep 1  # work around race condition -- ugly hack
+"$BUILD"/bin/fd_xdp_ctl hook-iface $APP $IFACE $XDP_MODE || exit $?
+LISTEN_ADDRS=( $( ip address show dev $IFACE scope global up | sed -n -E 's/\s+inet ([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+)\/.*/\1/p' ) ) || exit $?
+if ! (( ${#LISTEN_ADDRS[@]} )); then
+  echo "Found no IP addresses on $IFACE" >&2; exit 1
+fi
+for addr in "${LISTEN_ADDRS[@]}"; do
+  "$BUILD"/bin/fd_xdp_ctl listen-udp-port $APP $addr $QUIC_LISTEN_PORT tpu-quic || exit $?
+done
+SRC_MAC_ADDR="$(cat /sys/class/net/$IFACE/address)" || exit $?
+
+# For now, let each QUIC publish to one verifyin
+# TODO manage XSK queue <-> QUIC tile core mapping
+
+for((quic_idx=0;quic_idx<VERIFY_CNT;quic_idx++)); do
+  CNC="$("$BUILD"/bin/fd_tango_ctl new-cnc $WKSP 2 tic $CNC_APP_SZ)" || exit $?
+  MCACHE="$("$BUILD"/bin/fd_pod_ctl query val "$POD" $APP.verifyin.v${quic_idx}in.mcache | tr -d '"')" || exit $?
+  DCACHE="$("$BUILD"/bin/fd_pod_ctl query val "$POD" $APP.verifyin.v${quic_idx}in.dcache | tr -d '"')" || exit $?
+  FSEQ="$("$BUILD"/bin/fd_pod_ctl query val "$POD" $APP.verifyin.v${quic_idx}in.fseq | tr -d '"')" || exit $?
+  QUIC="$("$BUILD"/bin/fd_quic_ctl new-quic $WKSP)" || exit $?
+  XSK="$("$BUILD"/bin/fd_xdp_ctl new-xsk $WKSP $XDP_FRAME_SZ $XDP_RX_DEPTH $XDP_TX_DEPTH)" || exit $?
+  "$BUILD"/bin/fd_xdp_ctl bind-xsk "$XSK" $APP $IFACE ${quic_idx} || exit $?
+  XSK_AIO="$("$BUILD"/bin/fd_xdp_ctl new-xsk-aio $WKSP $XDP_TX_DEPTH $XDP_AIO_DEPTH)" || exit $?
+  "$BUILD"/bin/fd_pod_ctl \
+    insert "$POD" cstr $APP.quic.quic${quic_idx}.cnc     $CNC     \
+    insert "$POD" cstr $APP.quic.quic${quic_idx}.mcache  $MCACHE  \
+    insert "$POD" cstr $APP.quic.quic${quic_idx}.dcache  $DCACHE  \
+    insert "$POD" cstr $APP.quic.quic${quic_idx}.fseq    $FSEQ    \
+    insert "$POD" cstr $APP.quic.quic${quic_idx}.quic    $QUIC    \
+    insert "$POD" cstr $APP.quic.quic${quic_idx}.xsk     $XSK     \
+    insert "$POD" cstr $APP.quic.quic${quic_idx}.xsk_aio $XSK_AIO \
+    || exit $?
+done
+
+BASE_ARGS="--pod "$POD" --cfg $APP"
 RUN_ARGS="$BASE_ARGS --log-app $APP --log-thread main"
 MON_ARGS="$BASE_ARGS --log-app $APP --log-thread mon"
 
 #######################################################################
 
+dumpvar () { printf "$1=%q\n" "${!1}"; }
+
 mkdir -pv "$(dirname "$CONF")" || exit $?
-echo "#!/bin/bash"             >  "$CONF"
-{
+mkdir -pv "$CONF_DIR" || exit $?
+( echo "#!/bin/bash"
   echo "# AUTOGENERATED"
-  echo "BUILD=$BUILD"
-  echo "WKSP=$WKSP"
-  echo "AFFINITY=$AFFINITY"
-  echo "APP=$APP"
-  echo "POD=$POD"
-  echo "RUN_ARGS=\"$RUN_ARGS\""
-  echo "MON_ARGS=\"$MON_ARGS\""
-  echo "MAIN_CNC=$MAIN_CNC"
-} >> "$CONF"
+  dumpvar BUILD
+  dumpvar WKSP
+  dumpvar AFFINITY
+  dumpvar APP
+  dumpvar POD
+  dumpvar RUN_ARGS
+  dumpvar MON_ARGS
+  dumpvar MAIN_CNC
+  dumpvar IFACE
+  dumpvar LISTEN_ADDRS
+  dumpvar SRC_MAC_ADDR
+  dumpvar QUIC_LISTEN_PORT
+  dumpvar QUIC_CONN_CNT
+  dumpvar QUIC_CONN_ID_CNT
+  dumpvar QUIC_STREAM_CNT
+  dumpvar QUIC_HANDSHAKE_CNT
+  dumpvar QUIC_MAX_INFLIGHT_PKTS
+  dumpvar QUIC_TX_BUF_SZ
+  dumpvar QUIC_RX_BUF_SZ
+) > "$CONF" || exit $?
 
 #######################################################################
 
-echo Autogenerated configuration at "$CONF"
+echo "Autogenerated configuration at $CONF"
 echo ""
 cat "$CONF"
 echo ""
+
+echo "Generating certs"
+(
+  cd "$CONF_DIR"
+  ../../contrib/gen-pem-cert.sh
+)
+"$BUILD"/bin/fd_pod_ctl \
+  insert "$POD" cstr   $APP.quic_cfg.cert_file       "$(realpath "$CONF_DIR/cert.pem" )" \
+  insert "$POD" cstr   $APP.quic_cfg.key_file        "$(realpath "$CONF_DIR/key.pem"  )" \
+  insert "$POD" cstr   $APP.quic_cfg.ip_addr         "${LISTEN_ADDRS[0]}"                \
+  insert "$POD" ushort $APP.quic_cfg.listen_port     $QUIC_LISTEN_PORT                   \
+  insert "$POD" cstr   $APP.quic_cfg.src_mac_addr    "$SRC_MAC_ADDR"                     \
+  insert "$POD" ulong  $APP.quic_cfg.idle_timeout_ms "1000"                              \
+  || exit $?
 
 echo Configuration details
 echo ""
@@ -112,4 +232,3 @@ echo ""
 
 echo success
 exit 0
-

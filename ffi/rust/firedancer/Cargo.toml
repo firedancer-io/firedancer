@@ -1,0 +1,17 @@
+[package]
+name = "firedancer"
+version = "0.1.0"
+edition = "2021"
+authors = ["Firedancer Contributors <firedancer-devs@jumptrading.com>"]
+description = "Safe user-facing wrappers for interacting with Firedancer components"
+license = "Apache-2.0"
+
+[features]
+frankendancer = ["anyhow", "minstant", "rand"]
+
+[dependencies]
+anyhow = { version = "1.0.58", optional = true }
+firedancer-sys = { path = "../firedancer-sys", version = "=0.1.0" }
+libc = { version = "0.2.131", optional = true }
+minstant = { version = "0.1.2", optional = true }
+rand = { version = "0.7.0", optional = true }

@@ -1,27 +1,11 @@
 #include "../fd_ballet.h"
 
-
-/* Convenience macros for pretty-printing hex strings of 20 chars. */
-#define FD_LOG_HEX20_FMT "%02x%02x%02x%02x %02x%02x%02x%02x %02x%02x%02x%02x %02x%02x%02x%02x %02x%02x%02x%02x"
-#define FD_LOG_HEX20_FMT_ARGS(b)                                      \
-  (uint)(((uchar const *)(b))[ 0]), (uint)(((uchar const *)(b))[ 1]), \
-  (uint)(((uchar const *)(b))[ 2]), (uint)(((uchar const *)(b))[ 3]), \
-  (uint)(((uchar const *)(b))[ 4]), (uint)(((uchar const *)(b))[ 5]), \
-  (uint)(((uchar const *)(b))[ 6]), (uint)(((uchar const *)(b))[ 7]), \
-  (uint)(((uchar const *)(b))[ 8]), (uint)(((uchar const *)(b))[ 9]), \
-  (uint)(((uchar const *)(b))[10]), (uint)(((uchar const *)(b))[11]), \
-  (uint)(((uchar const *)(b))[12]), (uint)(((uchar const *)(b))[13]), \
-  (uint)(((uchar const *)(b))[14]), (uint)(((uchar const *)(b))[15]), \
-  (uint)(((uchar const *)(b))[16]), (uint)(((uchar const *)(b))[17]), \
-  (uint)(((uchar const *)(b))[18]), (uint)(((uchar const *)(b))[19])
-
 #define REFERENCE_PROOF_SZ  (80UL)
 #define REFERENCE_PROOF_CNT (11UL)
 
 FD_IMPORT_BINARY( reference_proofs,         "src/ballet/bmtree/reference_proofs.bin"         );
 
 /* Test tree-20 construction */
-
 static void
 test_bmtree20_commit( ulong        leaf_cnt,
                       void const * expected_root ) {
