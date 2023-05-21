@@ -83,7 +83,7 @@ main( int     argc,
     if( FD_LIKELY( is_data   ) ) header_sz = 0x58;
     if( FD_LIKELY( is_code   ) ) header_sz = 0x59;
     ulong merkle_sz = 0;
-    if( FD_LIKELY( is_merkle ) ) merkle_sz = ((i&0x0f)+1)*FD_SHRED_MERKLE_NODE_SZ;
+    if( FD_LIKELY( is_merkle ) ) merkle_sz = (i&0x0f)*FD_SHRED_MERKLE_NODE_SZ;
     ulong payload_sz = sizeof(buf) - header_sz - merkle_sz;
 
     if( is_data )
@@ -96,7 +96,7 @@ main( int     argc,
       FD_TEST( (is_merkle || merkle_cnt==0) && merkle_cnt<=16 );
 
       FD_TEST( header_sz > 0 );
-      FD_TEST( !!merkle_sz==is_merkle );
+      FD_TEST( !merkle_sz || is_merkle ); /* !is_merkle implies merkle_sz == 0 */
 
       FD_LOG_NOTICE(( "shred variant 0x%02x: type=%s header_sz=0x%lx merkle_sz=0x%lx payload_sz=0x%lx",
                       i, is_data ? "data" : "code", header_sz, merkle_sz, payload_sz ));

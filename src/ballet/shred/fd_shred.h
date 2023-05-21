@@ -203,7 +203,6 @@ fd_shred_type( uchar variant ) {
 FD_FN_CONST static inline uchar
 fd_shred_variant( uchar type,
                   uchar merkle_cnt ) {
-  merkle_cnt--;
   if( FD_LIKELY( type==FD_SHRED_TYPE_LEGACY_DATA ) )
     merkle_cnt = 0x05;
   if( FD_LIKELY( type==FD_SHRED_TYPE_LEGACY_CODE ) )
@@ -225,8 +224,9 @@ fd_shred_header_sz( uchar variant ) {
   return 0;
 }
 
-/* fd_shred_merkle_cnt: Returns number of nodes in the merkle inclusion proof.
-   Returns zero if the given shred is not a merkle variant. */
+/* fd_shred_merkle_cnt: Returns number of nodes in the merkle inclusion
+   proof.  Note that this excludes the root.  Returns zero if the given
+   shred is not a merkle variant. */
 FD_FN_CONST static inline uint
 fd_shred_merkle_cnt( uchar variant ) {
   uchar type = fd_shred_type( variant );
