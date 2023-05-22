@@ -3,9 +3,9 @@
 
 // sed -r "s/\x1B\[(([0-9]+)(;[0-9]+)*)?[m,K,H,f,J]//g" ~/repos/solana/nonce-ledger/validator.log > q2
 
-// sudo /home/jsiegel/repos/firedancer-private/build/linux/gcc/x86_64/bin/fd_shmem_cfg init 0777 jsiegel ""
-// sudo /home/jsiegel/repos/firedancer-private/build/linux/gcc/x86_64/bin/fd_shmem_cfg alloc 64 gigantic 0
-// sudo /home/jsiegel/repos/firedancer-private/build/linux/gcc/x86_64/bin/fd_shmem_cfg alloc 512 huge 0
+// sudo /home/jsiegel/repos/firedancer/build/linux/gcc/x86_64/bin/fd_shmem_cfg init 0777 jsiegel ""
+// sudo /home/jsiegel/repos/firedancer/build/linux/gcc/x86_64/bin/fd_shmem_cfg alloc 64 gigantic 0
+// sudo /home/jsiegel/repos/firedancer/build/linux/gcc/x86_64/bin/fd_shmem_cfg alloc 512 huge 0
 
 // build/linux/gcc/x86_64/bin/fd_wksp_ctl new giant_wksp 200 gigantic 0-127 0666
 
