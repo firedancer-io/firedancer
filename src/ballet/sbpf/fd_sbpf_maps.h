@@ -36,7 +36,6 @@ fd_sbpf_calldests_upsert( fd_sbpf_calldests_t * calldests,
 /* fd_sbpf_syscalls_t maps syscall IDs => local function pointers. */
 
 /* FIXME */
-typedef void * fd_sbpf_syscall_func_t;
 
 #define MAP_NAME              fd_sbpf_syscalls
 #define MAP_T                 fd_sbpf_syscalls_t

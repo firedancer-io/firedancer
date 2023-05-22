@@ -33,11 +33,11 @@ struct __attribute__((aligned(16UL))) fd_sbpf_calldests {
 typedef struct fd_sbpf_calldests fd_sbpf_calldests_t;
 
 /* fd_sbpf_syscalls_t maps syscall IDs => local function pointers. */
-
+typedef ulong (*fd_sbpf_syscall_fn_ptr_t)(void * ctx, ulong arg0, ulong arg1, ulong arg2, ulong arg3, ulong arg4, ulong * ret);
 struct __attribute__((aligned(16UL))) fd_sbpf_syscalls {
-  uint         key;       /* Murmur3-32 hash of function name */
-  ulong        func_ptr;  /* Function pointer */
-  char const * name;
+  uint                     key;       /* Murmur3-32 hash of function name */
+  fd_sbpf_syscall_fn_ptr_t func_ptr;  /* Function pointer */
+  char const *             name;
 };
 typedef struct fd_sbpf_syscalls fd_sbpf_syscalls_t;
 

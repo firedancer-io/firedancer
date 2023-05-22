@@ -22,3 +22,11 @@
 #undef __JT_LABEL
 
 #undef __JT_ID
+
+#if defined(__GNUC__)
+#pragma GCC diagnostic pop
+#endif
+
+#if defined(__clang__)
+#pragma clang diagnostic pop
+#endif

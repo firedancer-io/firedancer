@@ -11,7 +11,7 @@
 #define FD_VM_SYSCALL_ERR_UNIMPLEMENTED (0xFFFFUL) /* TODO: remove when unused */
 
 #define FD_VM_SYSCALL_DECL(name) ulong fd_vm_syscall_##name ( \
-    fd_vm_exec_context_t *  ctx, \
+    void * _ctx, \
     ulong arg0, ulong arg1, ulong arg2, ulong arg3, ulong arg4, \
     ulong * ret_val )
 
@@ -23,6 +23,10 @@ typedef struct fd_vm_syscall_bytes_slice fd_vm_syscall_bytes_slice_t;
 
 FD_PROTOTYPES_BEGIN
 
+/* Registers a syscall by name to an execution context. */
+void fd_vm_register_syscall( fd_sbpf_syscalls_t * syscalls, char const * name, fd_sbpf_syscall_fn_ptr_t fn_ptr );
+
+/* Registers all standard syscalls with the VM */
 void fd_vm_syscall_register_all( fd_sbpf_syscalls_t * syscalls );
 
 /* Syscall function declarations */
