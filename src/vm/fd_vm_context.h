@@ -1,6 +1,9 @@
 #ifndef HEADER_fd_src_vm_fd_vm_context_h
 #define HEADER_fd_src_vm_fd_vm_context_h
 
+#include "fd_vm_log_collector.h"
+#include "fd_vm_stack.h"
+
 #include "../util/fd_util.h"
 #include "../ballet/sbpf/fd_sbpf_instr.h"
 #include "../ballet/sbpf/fd_sbpf_maps.h"
@@ -27,10 +30,12 @@
 #define FD_VM_MEM_MAP_HEAP_REGION_START      (0x300000000UL)
 #define FD_VM_MEM_MAP_INPUT_REGION_START     (0x400000000UL)
 #define FD_VM_MEM_MAP_REGION_SZ              (0x0FFFFFFFFUL)
-#define FD_VM_MEM_MAP_REGION_MASK            (~FD_MEM_MAP_REGION_SZ)
+#define FD_VM_MEM_MAP_REGION_MASK            (~FD_VM_MEM_MAP_REGION_SZ)
 #define FD_VM_MEM_MAP_REGION_VIRT_ADDR_BITS  (32)
 #define FD_VM_HEAP_SZ (64*1024)
 
+#define FD_VM_MEM_MAP_SUCCESS       (0)
+#define FD_VM_MEM_MAP_ERR_ACC_VIO   (1)
 
 /* Foward definition of fd_vm_sbpf_exec_context_t. */
 struct fd_vm_exec_context;
@@ -79,6 +84,17 @@ void fd_vm_register_syscall( fd_sbpf_syscalls_t * syscalls, char const * name, f
 
 /* Validates the sBPF program from the given context. Returns success or an error code. */
 ulong fd_vm_context_validate( fd_vm_exec_context_t * ctx );
+
+// FIXME: crossing region boundaries is probably bad
+/* Translates an address from the VM address space to the host address space. Takes an execution
+   context, whether this is a read or write (0 for read, 1 for write), the VM addresss, the size of
+   the access, and the location for storing the host address on success. Returns success or
+   an error code (a fault). On success, the host_addr is set to the actual host_addr. */
+ulong fd_vm_translate_vm_to_host( fd_vm_exec_context_t *  ctx,
+                                  uint                    write,
+                                  ulong                   vm_addr,
+                                  ulong                   sz,
+                                  void * *                host_addr );
 
 FD_PROTOTYPES_END
 
