@@ -5,6 +5,9 @@
 #include "../ballet/sbpf/fd_sbpf_instr.h"
 #include "../ballet/sbpf/fd_sbpf_maps.h"
 
+#include "fd_vm_log_collector.h"
+#include "fd_vm_stack.h"
+
 /* sBPF instruction validation error codes */
 #define FD_VM_SBPF_VALIDATE_SUCCESS               (0UL)  /* Program is valid. */
 #define FD_VM_SBPF_VALIDATE_ERR_INVALID_OPCODE    (1UL)  /* An invalid opcode was used. */
