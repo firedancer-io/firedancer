@@ -4,6 +4,43 @@
 
 char const * _argv[] = { "Hey", "You", NULL };
 
+static void
+test_stack( void ) {
+  ulong stack0 = (ulong)fd_tile_stack0();
+  if( !stack0 ) {
+    FD_TEST( !fd_tile_stack1        () );
+    FD_TEST( !fd_tile_stack_sz      () );
+    FD_TEST( !fd_tile_stack_est_free() );
+    FD_TEST( !fd_tile_stack_est_used() );
+  } else {
+    ulong stack1         = (ulong)fd_tile_stack1();  FD_TEST( stack1>stack0             );
+    ulong stack_sz       = fd_tile_stack_sz();       FD_TEST( stack_sz==(stack1-stack0) );
+    ulong stack_est_free = fd_tile_stack_est_free(); FD_TEST( stack_est_free<=stack_sz  );
+    ulong stack_est_used = fd_tile_stack_est_used(); FD_TEST( stack_est_used<=stack_sz  );
+
+    /* We should have more free than used for this test so this really
+       just checks if the grows from high to low assumption is correct */
+
+    FD_TEST( stack_est_free > stack_est_used );
+
+    /* Paranoia ... since free and used est aren't measured at the same
+       point in time above, we only test for approximate equality (they
+       are probably the same at this point unless the compiler is being
+       insanely weird). */
+
+    ulong stack_est = stack_est_free + stack_est_used;
+    FD_TEST( (stack_sz-64UL)<=stack_est && stack_est<=(stack_sz+64UL) );
+
+    ulong stack_mem[1];
+    FD_VOLATILE( stack_mem[0] ) = (uchar)1; /* Paranoia */
+    ulong stack_addr = (ulong)stack_mem;
+    FD_TEST( (stack0<=stack_addr) & (stack_addr<stack1) );
+
+    FD_LOG_NOTICE(( "testing stack" ));
+    for( ulong stack=stack0; stack<stack1; stack++ ) FD_VOLATILE_CONST( *(uchar const *)stack );
+  }
+}
+
 int
 tile_main( int     argc,
            char ** argv ) {
@@ -13,6 +50,8 @@ tile_main( int     argc,
   FD_LOG_NOTICE(( "id  %lu", fd_tile_id () )); FD_TEST( fd_tile_id()==fd_tile_id0()+fd_tile_idx() );
   FD_LOG_NOTICE(( "idx %lu", fd_tile_idx() )); FD_TEST( fd_tile_idx()<fd_tile_cnt() );
   fd_log_flush();
+
+  test_stack();
 
   FD_TEST( fd_tile_id()==fd_log_thread_id() );
 
@@ -60,6 +99,9 @@ main( int     argc,
   FD_LOG_NOTICE(( "id1 %lu", fd_tile_id1() )); FD_TEST( tile_cnt==(fd_tile_id1()-fd_tile_id0()) );
   FD_LOG_NOTICE(( "id  %lu", fd_tile_id () )); FD_TEST( fd_tile_id()==fd_tile_id0() );
   FD_LOG_NOTICE(( "idx %lu", fd_tile_idx() )); FD_TEST( fd_tile_idx()==0UL );
+  fd_log_flush();
+
+  test_stack();
 
 # if FD_HAS_HOSTED
   ulong cpu_cnt = fd_shmem_cpu_cnt();

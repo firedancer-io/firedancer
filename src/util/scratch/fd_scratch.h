@@ -9,7 +9,7 @@
    It is meant for use in situations that have very complex and large
    temporary memory usage. */
 
-#include "../log/fd_log.h"
+#include "../tile/fd_tile.h"
 
 /* FD_SCRATCH_USE_HANDHOLDING:  Define this to non-zero at compile time
    to turn on additional run-time checks. */
@@ -604,6 +604,45 @@ fd_scratch_trim_is_safe( void * _end ) {
 
 #define fd_alloca(align,sz) __builtin_alloca_with_align( fd_ulong_max( (sz), 1UL ), \
                                                          8UL*FD_SCRATCH_PRIVATE_TRUE_ALIGN( (align) ) /*bits*/ )
+
+/* fd_alloca_check does fd_alloca but it will FD_LOG_CRIT with a
+   detailed message if the request would cause a stack overflow or leave
+   so little available free stack that subsequent normal thread
+   operations would be at risk.
+
+   Note that returning NULL on failure is not an option as this would no
+   longer be a drop-in instrumented replacement for fd_alloca (this
+   would also require even more linguistic hacks to keep the fd_alloca
+   at the appropriate scope).  Likewise, testing the allocated region is
+   within the stack post allocation is not an option as the FD_LOG_CRIT
+   invocation would then try to use stack with the already overflowed
+   allocation in it (there is no easy portable way to guarantee an
+   alloca has been freed short of returning from the function in which
+   the alloca was performed).  Using FD_LOG_ERR instead of FD_LOG_CRIT
+   is a potentially viable alternative error handling behavior though.
+
+   This has to be implemented as a macro for linguistic reasons.  It is
+   recommended this only be used for development / debugging / testing
+   purposes (e.g. if you are doing alloca in production that are large
+   enough you are worried about stack overflow, you probably should be
+   using fd_scratch, fd_alloc or fd_wksp depending on performance and
+   persistence needs or, better still, architecting to not need any
+   temporary memory allocations at all).  If the caller's stack
+   diagnostics could not be successfully initialized (this is logged),
+   this will always FD_LOG_CRIT. */
+
+extern FD_TLS ulong fd_alloca_check_private_sz;
+
+#define fd_alloca_check( align, sz )                                                                             \
+   ( fd_alloca_check_private_sz = (sz),                                                                          \
+     (__extension__({                                                                                            \
+       ulong _fd_alloca_check_private_pad_max   = FD_SCRATCH_PRIVATE_TRUE_ALIGN( (align) ) - 1UL;                \
+       ulong _fd_alloca_check_private_footprint = fd_alloca_check_private_sz + _fd_alloca_check_private_pad_max; \
+       if( FD_UNLIKELY( (_fd_alloca_check_private_footprint < _fd_alloca_check_private_pad_max      ) |          \
+                        (_fd_alloca_check_private_footprint > (31UL*(fd_tile_stack_est_free() >> 5))) ) )        \
+         FD_LOG_CRIT(( "fd_alloca_check( " #align ", " #sz " ) stack overflow" ));                               \
+     })),                                                                                                        \
+     fd_alloca( (align), fd_alloca_check_private_sz ) )
 
 #endif
 
