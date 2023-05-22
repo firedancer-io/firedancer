@@ -9,10 +9,7 @@
 #include <sched.h>
 #include <syscall.h>
 #include <sys/resource.h>
-
-#if FD_HAS_X86
 #include <sys/mman.h>
-#endif
 
 #include "fd_tile.h"
 
@@ -80,54 +77,87 @@ fd_tile_private_cpu_restore( fd_tile_private_cpu_config_t * save ) {
     FD_LOG_WARNING(( "fd_tile: setpriority failed (%i-%s); attempting to continue", errno, strerror( errno ) ));
 }
 
-#if FD_HAS_X86 /* TODO: Make stacks for non-x86 that support pthread set stack and huge page like structures */
-
-#define FD_TILE_PRIVATE_STACK_PAGE_SZ  FD_SHMEM_HUGE_PAGE_SZ
-#define FD_TILE_PRIVATE_STACK_PAGE_CNT (4UL)
-#define FD_TILE_PRIVATE_STACK_SZ       (FD_TILE_PRIVATE_STACK_PAGE_SZ*FD_TILE_PRIVATE_STACK_PAGE_CNT)
+/* TODO: Allow this to be run-time configured (e.g. match ulimit -s)? */
+#define FD_TILE_PRIVATE_STACK_SZ (8UL<<20) /* Should be a multiple of HUGE (and NORMAL) page sizes */
 
 static void *
-fd_tile_private_stack_new( ulong cpu_idx ) {
+fd_tile_private_stack_new( int   optimize,
+                           ulong cpu_idx ) { /* Ignored if optimize is not requested */
 
-  void * base = fd_shmem_acquire( FD_TILE_PRIVATE_STACK_PAGE_SZ, FD_TILE_PRIVATE_STACK_PAGE_CNT+2UL, cpu_idx ); /* logs details */
-  if( FD_UNLIKELY( !base ) ) {
-    ulong numa_idx = fd_shmem_numa_idx( cpu_idx );
-    static ulong warn = 0UL;
-    if( FD_LIKELY( !(warn & (1UL<<numa_idx) ) ) ) {
-      FD_LOG_WARNING(( "fd_tile: fd_shmem_acquire failed\n\t"
-                       "There are probably not enough huge pages allocated by the OS on numa\n\t"
-                       "node %lu.  Falling back on normal page backed stack for tile on cpu %lu\n\t"
-                       "and attempting to continue.  Run:\n\t"
-                       "\techo [CNT] > /sys/devices/system/node/node%lu/hugepages/hugepages-2048kB/nr_hugepages\n\t"
-                       "(probably as superuser) or equivalent where [CNT] is a sufficient number\n\t"
-                       "huge pages to reserve on this numa node system wide and/or adjust\n\t"
-                       "/etc/security/limits.conf to permit this user to lock a sufficient\n\t"
-                       "amount of memory to eliminate this warning.",
-                       numa_idx, cpu_idx, numa_idx ));
-      warn |= 1UL<<numa_idx;
+  uchar * stack = NULL;
+
+  if( optimize ) { /* Create a NUMA and TLB optimized stack for a tile running on cpu cpu_idx */
+
+    stack = (uchar *)
+      fd_shmem_acquire( FD_SHMEM_HUGE_PAGE_SZ, (FD_TILE_PRIVATE_STACK_SZ/FD_SHMEM_HUGE_PAGE_SZ)+2UL, cpu_idx ); /* logs details */
+
+    if( FD_LIKELY( stack ) ) { /* Make space for guard lo and guard hi */
+
+      fd_shmem_release( stack, FD_SHMEM_HUGE_PAGE_SZ, 1UL );
+
+      stack += FD_SHMEM_HUGE_PAGE_SZ;
+
+      fd_shmem_release( stack + FD_TILE_PRIVATE_STACK_SZ, FD_SHMEM_HUGE_PAGE_SZ, 1UL );
+
+    } else {
+
+      ulong numa_idx = fd_shmem_numa_idx( cpu_idx );
+      static ulong warn = 0UL;
+      if( FD_LIKELY( !(warn & (1UL<<numa_idx) ) ) ) {
+        FD_LOG_WARNING(( "fd_tile: fd_shmem_acquire failed\n\t"
+                         "There are probably not enough huge pages allocated by the OS on numa\n\t"
+                         "node %lu.  Falling back on normal page backed stack for tile on cpu %lu\n\t"
+                         "and attempting to continue.  Run:\n\t"
+                         "\techo [CNT] > /sys/devices/system/node/node%lu/hugepages/hugepages-2048kB/nr_hugepages\n\t"
+                         "(probably as superuser) or equivalent where [CNT] is a sufficient number\n\t"
+                         "huge pages to reserve on this numa node system wide and/or adjust\n\t"
+                         "/etc/security/limits.conf to permit this user to lock a sufficient\n\t"
+                         "amount of memory to eliminate this warning.",
+                         numa_idx, cpu_idx, numa_idx ));
+        warn |= 1UL<<numa_idx;
+      }
+
     }
-    return NULL;
+
   }
 
-  uchar * stack = (uchar *)base + FD_TILE_PRIVATE_STACK_PAGE_SZ;
+  if( !stack ) { /* Request for a non-optimized stack (or optimized stack creation failed above and we are falling back) */
+
+    ulong mmap_sz = FD_TILE_PRIVATE_STACK_SZ + 2UL*FD_SHMEM_NORMAL_PAGE_SZ;
+    stack = (uchar *)mmap( NULL, mmap_sz, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, (off_t)0 );
+
+    if( FD_LIKELY( ((void *)stack)!=MAP_FAILED ) ) { /* Make space for guard lo and guard hi */
+
+      if( FD_UNLIKELY( munmap( stack, FD_SHMEM_NORMAL_PAGE_SZ ) ) )
+        FD_LOG_WARNING(( "fd_tile: munmap failed (%i-%s); attempting to continue", errno, strerror( errno ) ));
+
+      stack += FD_SHMEM_NORMAL_PAGE_SZ;
+
+      if( FD_UNLIKELY( munmap( stack + FD_TILE_PRIVATE_STACK_SZ, FD_SHMEM_NORMAL_PAGE_SZ ) ) )
+        FD_LOG_WARNING(( "fd_tile: munmap failed (%i-%s); attempting to continue", errno, strerror( errno ) ));
+
+    } else {
+
+      FD_LOG_WARNING(( "fd_tile: mmap(NULL,%lu KiB,PROT_READ|PROT_WRITE,MAP_PRIVATE|MAP_ANONYMOUS,-1,0) failed (%i-%s)\n\t"
+                       "Falling back on pthreads created stack and attempting to continue.",
+                       mmap_sz >> 10, errno, strerror( errno ) ));
+      return NULL;
+
+    }
+
+  }
 
   /* Create the guard regions in the extra space */
 
-  void * guard_lo = (void *)(stack - FD_SHMEM_NORMAL_PAGE_SZ);
-  fd_shmem_release( base, FD_TILE_PRIVATE_STACK_PAGE_SZ, 1UL );
+  void * guard_lo = (void *)(stack - FD_SHMEM_NORMAL_PAGE_SZ );
   if( FD_UNLIKELY( mmap( guard_lo, FD_SHMEM_NORMAL_PAGE_SZ, PROT_NONE,
                          MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, -1, (off_t)0 )!=guard_lo ) )
-    FD_LOG_WARNING(( "fd_tile: mmap failed (%i-%s)\n\t"
-                     "Attempting to continue without lo stack guard for tile on cpu %lu.",
-                     errno, strerror( errno ), cpu_idx ));
+    FD_LOG_WARNING(( "fd_tile: mmap failed (%i-%s)\n\tAttempting to continue without stack guard lo.", errno, strerror( errno ) ));
 
   void * guard_hi = (void *)(stack + FD_TILE_PRIVATE_STACK_SZ);
-  fd_shmem_release( guard_hi, FD_TILE_PRIVATE_STACK_PAGE_SZ, 1UL );
   if( FD_UNLIKELY( mmap( guard_hi, FD_SHMEM_NORMAL_PAGE_SZ, PROT_NONE,
                          MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, -1, (off_t)0 )!=guard_hi ) )
-    FD_LOG_WARNING(( "fd_tile: mmap failed (%i-%s)\n\t"
-                     "Attempting to continue without hi stack guard for tile on cpu %lu.",
-                     errno, strerror( errno ), cpu_idx ));
+    FD_LOG_WARNING(( "fd_tile: mmap failed (%i-%s)\n\tAttempting to continue without stack guard hi.", errno, strerror( errno ) ));
 
   return stack;
 }
@@ -146,32 +176,27 @@ fd_tile_private_stack_delete( void * _stack ) {
   if( FD_UNLIKELY( munmap( guard_lo, FD_SHMEM_NORMAL_PAGE_SZ ) ) )
     FD_LOG_WARNING(( "fd_tile: munmap failed (%i-%s); attempting to continue", errno, strerror( errno ) ));
 
-  fd_shmem_release( stack, FD_TILE_PRIVATE_STACK_PAGE_SZ, FD_TILE_PRIVATE_STACK_PAGE_CNT );
+  /* Note that fd_shmem_release is just a wrapper around munmap such
+     that this covers both the optimized and non-optimized cases */
+
+  if( FD_UNLIKELY( munmap( stack, FD_TILE_PRIVATE_STACK_SZ ) ) )
+    FD_LOG_WARNING(( "fd_tile: munmap failed (%i-%s); attempting to continue", errno, strerror( errno ) ));
 }
-
-#else
-
-#define FD_TILE_PRIVATE_STACK_PAGE_SZ  (0UL) /* Irrelevant */
-#define FD_TILE_PRIVATE_STACK_PAGE_CNT (0UL) /* Irrelevant */
-#define FD_TILE_PRIVATE_STACK_SZ       (0UL) /* Irrelevant */
-
-static void * fd_tile_private_stack_new   ( ulong cpu_idx ) { (void)cpu_idx; return NULL; }
-static void   fd_tile_private_stack_delete( void * stack  ) { (void)stack; }
-
-#endif
 
 /* Tile side APIs ****************************************************/
 
-static ulong fd_tile_private_id0; /* Zeroed at app/thread start, initialized by the boot / tile manager */
-static ulong fd_tile_private_id1; /* Zeroed at app/thread start, initialized by the boot / tile manager */
-static ulong fd_tile_private_cnt; /* Zeroed at app/thread start, initialized by the boot / tile manager */
+static ulong fd_tile_private_id0; /* Zeroed at app start, initialized by the boot manager */
+static ulong fd_tile_private_id1; /* " */
+static ulong fd_tile_private_cnt; /* " */
 
 ulong fd_tile_id0( void ) { return fd_tile_private_id0; }
 ulong fd_tile_id1( void ) { return fd_tile_private_id1; }
 ulong fd_tile_cnt( void ) { return fd_tile_private_cnt; }
 
-static FD_TLS ulong fd_tile_private_id;  /* Zeroed at app/thread start, initialized by the boot / tile manager */
-static FD_TLS ulong fd_tile_private_idx; /* Zeroed at app/thread start, initialized by the boot / tile manager */
+static FD_TLS ulong fd_tile_private_id;     /* Zeroed at app/thread start, initialized by the boot / tile manager */
+static FD_TLS ulong fd_tile_private_idx;    /* " */
+/**/   FD_TLS ulong fd_tile_private_stack0; /* " */
+/**/   FD_TLS ulong fd_tile_private_stack1; /* " */
 
 ulong fd_tile_id ( void ) { return fd_tile_private_id;  }
 ulong fd_tile_idx( void ) { return fd_tile_private_idx; }
@@ -210,7 +235,8 @@ struct fd_tile_private_manager_args {
   ulong               id;
   ulong               idx;
   ulong               cpu_idx;
-  void *              stack;
+  void *              stack;    /* NULL if pthread created, non-NULL if user created */
+  ulong               stack_sz;
   fd_tile_private_t * tile;
 };
 
@@ -220,9 +246,10 @@ static void *
 fd_tile_private_manager( void * _args ) {
   fd_tile_private_manager_args_t * args = (fd_tile_private_manager_args_t *)_args;
 
-  ulong  id    = args->id;
-  ulong  idx   = args->idx;
-  void * stack = args->stack;
+  ulong  id       = args->id;
+  ulong  idx      = args->idx;
+  void * stack    = args->stack;
+  ulong  stack_sz = args->stack_sz;
 
   if( FD_UNLIKELY( !( (id ==fd_log_thread_id()                                       ) &
                       (idx==(id-fd_tile_private_id0)                                 ) &
@@ -245,6 +272,15 @@ fd_tile_private_manager( void * _args ) {
 
   fd_tile_private_id  = id;
   fd_tile_private_idx = idx;
+
+  if( FD_LIKELY( stack ) ) { /* User provided stack */
+    fd_tile_private_stack0 = (ulong)stack;
+    fd_tile_private_stack1 = (ulong)stack + stack_sz;
+  } else { /* Pthread provided stack */
+    fd_log_private_stack_discover( stack_sz, &fd_tile_private_stack0, &fd_tile_private_stack1 ); /* logs details */
+    if( FD_UNLIKELY( !fd_tile_private_stack0 ) )
+      FD_LOG_WARNING(( "stack diagnostics not available on this tile; attempting to continue" ));
+  }
 
   fd_tile_private_cpu_config_t dummy[1];
   fd_tile_private_cpu_config( dummy, args->cpu_idx );
@@ -509,78 +545,93 @@ fd_tile_private_boot( int *    pargc,
   for( ulong tile_idx=1UL; tile_idx<tile_cnt; tile_idx++ ) {
 
     ulong cpu_idx = (ulong)tile_to_cpu[ tile_idx ];
-    if( cpu_idx<65535UL ) FD_LOG_INFO(( "fd tile: booting tile %lu on cpu %lu:%lu",   tile_idx, host_id, cpu_idx ));
-    else                  FD_LOG_INFO(( "fd tile: booting tile %lu on cpu %lu:float", tile_idx, host_id ));
+    int   fixed   = (cpu_idx<65535UL);
 
-    pthread_attr_t * attr  = NULL;
-    void *           stack = NULL;
+    if( fixed ) FD_LOG_INFO(( "fd tile: booting tile %lu on cpu %lu:%lu",   tile_idx, host_id, cpu_idx ));
+    else        FD_LOG_INFO(( "fd tile: booting tile %lu on cpu %lu:float", tile_idx, host_id ));
 
-    pthread_attr_t _attr[1];
+    pthread_attr_t attr[1];
+    int err = pthread_attr_init( attr );
+    if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_tile: pthread_attr_init failed (%i-%s) for tile %lu.\n\t",
+                                          err, strerror( err ), tile_idx ));
 
-    if( cpu_idx<65535UL ) {
-      int err = pthread_attr_init( _attr );
+    if( fixed ) {
+      cpu_set_t cpu_set[1];
+      CPU_ZERO( cpu_set );
+      CPU_SET( cpu_idx, cpu_set );
+      err = pthread_attr_setaffinity_np( attr, sizeof(cpu_set_t), cpu_set );
+      if( FD_UNLIKELY( err ) ) FD_LOG_WARNING(( "fd_tile: pthread_attr_setaffinity_failed (%i-%s)\n\t"
+                                                "Unable to set the thread affinity for tile %lu on cpu %lu.  Attempting to\n\t"
+                                                "continue without explicitly specifying this cpu's thread affinity but it\n\t"
+                                                "is likely this thread group's performance and stability are compromised\n\t"
+                                                "(possibly catastrophically so).  Update --tile-cpus to specify a set of\n\t"
+                                                "allowed cpus that have been reserved for this thread group on this host\n\t"
+                                                "to eliminate this warning.",
+                                                err, strerror( err ), tile_idx, cpu_idx ));
+    }
+
+    /* Create an optimized stack with guard regions if the build target
+       is x86 (e.g. supports huge pages necessary to optimize TLB usage)
+       and the tile is assigned to a particular CPU (e.g. bind the stack
+       memory to the NUMA node closest to the cpu).
+
+       Otherwise (or if an optimized stack could not be created), create
+       vanilla pthread-style stack with guard regions.  We DIY here
+       because pthreads seems to be missing an API to determine the
+       extents of the stacks it creates and we need to know the stack
+       extents for run-time stack diagnostics.  Though we can use
+       fd_log_private_stack_discover to determine stack extents after
+       the thread is started, it is faster, more flexible, more reliable
+       and more portable to use a user specified stack when possible.
+
+       If neither can be done, we will let pthreads create the tile's
+       stack and try to discover the stack extents after the thread is
+       started. */
+
+    int optimize = FD_HAS_X86 & fixed;
+
+    void * stack = fd_tile_private_stack_new( optimize, cpu_idx );
+    if( FD_LIKELY( stack ) ) {
+      err = pthread_attr_setstack( attr, stack, FD_TILE_PRIVATE_STACK_SZ );
       if( FD_UNLIKELY( err ) ) {
-        FD_LOG_WARNING(( "fd_tile: pthread_attr_init failed (%i-%s)\n\t"
-                         "Unable to optimize affinity or stack for tile %lu on cpu %lu.\n\t"
-                         "Attempting to continue with default thread attributes but it is\n\t"
-                         "likely this thread group's performance and stability are compromised\n\t"
-                         "(possibly catastrophically so).",
-                         err, strerror( err ), tile_idx, cpu_idx ));
-      } else {
-
-        attr = _attr;
-
-        cpu_set_t cpu_set[1];
-        CPU_ZERO( cpu_set );
-        CPU_SET( cpu_idx, cpu_set );
-        err = pthread_attr_setaffinity_np( attr, sizeof(cpu_set_t), cpu_set );
-        if( FD_UNLIKELY( err ) ) FD_LOG_WARNING(( "fd_tile: pthread_attr_setaffinity_failed (%i-%s)\n\t"
-                                                  "Unable to set the thread affinity for tile %lu on cpu %lu.  Attempting to\n\t"
-                                                  "continue without explicitly specifying this cpu's thread affinity but it\n\t"
-                                                  "is likely this thread group's performance and stability are compromised\n\t"
-                                                  "(possibly catastrophically so).  Update --tile-cpus to specify a set of\n\t"
-                                                  "allowed cpus that have been reserved for this thread group on this host\n\t"
-                                                  "to eliminate this warning.",
-                                                  err, strerror( err ), tile_idx, cpu_idx ));
-
-        stack = fd_tile_private_stack_new( cpu_idx );
-        if( FD_LIKELY( stack ) ) {
-          err = pthread_attr_setstack( attr, stack, FD_TILE_PRIVATE_STACK_SZ );
-          if( FD_UNLIKELY( err ) ) {
-            FD_LOG_WARNING(( "fd_tile: pthread_attr_setstack failed (%i-%s)\n\t"
-                             "Unable to configure an optimized stack for tile %lu on cpu %lu.\n\t"
-                             "Attempting to continue with the default stack but it is likely this\n\t"
-                             "thread group's performance and stability are compromised (possibly\n\t"
-                             "catastrophically so).",
-                             err, strerror( err ), tile_idx, cpu_idx ));
-            fd_tile_private_stack_delete( stack );
-            stack = NULL;
-          }
-        } 
+        FD_LOG_WARNING(( "fd_tile: pthread_attr_setstack failed (%i-%s)\n\t", err, strerror( err ) ));
+        fd_tile_private_stack_delete( stack );
+        stack = NULL;
       }
     }
+
+    if( FD_UNLIKELY( !stack ) ) FD_LOG_WARNING(( "fd_tile: Unable to create a stack for tile %lu.\n\t"
+                                                 "Attempting to continue with the default stack but it is likely this\n\t"
+                                                 "thread group's performance and stability is compromised (possibly\n\t"
+                                                 "catastrophically so).",
+                                                 tile_idx ));
+
+    ulong stack_sz;
+    err = pthread_attr_getstacksize( attr, &stack_sz );
+    if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_tile: pthread_attr_getstacksize failed (%i-%s) for tile %lu.\n\t",
+                                          err, strerror( err ), tile_idx ));
 
     FD_VOLATILE( fd_tile_private[ tile_idx ].lock ) = NULL;
 
     fd_tile_private_manager_args_t args[1];
 
-    FD_VOLATILE( args->id      ) = fd_tile_private_id0 + tile_idx;
-    FD_VOLATILE( args->idx     ) = tile_idx;
-    FD_VOLATILE( args->cpu_idx ) = cpu_idx;
-    FD_VOLATILE( args->stack   ) = stack;
-    FD_VOLATILE( args->tile    ) = NULL;
+    FD_VOLATILE( args->id       ) = fd_tile_private_id0 + tile_idx;
+    FD_VOLATILE( args->idx      ) = tile_idx;
+    FD_VOLATILE( args->cpu_idx  ) = cpu_idx;
+    FD_VOLATILE( args->stack    ) = stack;
+    FD_VOLATILE( args->stack_sz ) = stack_sz;
+    FD_VOLATILE( args->tile     ) = NULL;
 
     FD_COMPILER_MFENCE();
 
-    int err = pthread_create( &fd_tile_private[tile_idx].pthread, attr, fd_tile_private_manager, args );
+    err = pthread_create( &fd_tile_private[tile_idx].pthread, attr, fd_tile_private_manager, args );
     if( FD_UNLIKELY( err ) ) {
-      if( cpu_idx<65535UL )
-        FD_LOG_ERR(( "fd_tile: pthread_create failed (%i-%s)\n\t"
-                     "Unable to start up the tile %lu on cpu %lu.  Likely causes for this include\n\t"
-                     "this cpu is restricted from the user or does not exist on this host.\n\t"
-                     "Update --tile-cpus to specify a set of allowed cpus that have been reserved\n\t"
-                     "for this thread group on this host.",
-                     err, strerror( err ), tile_idx, cpu_idx ));
+      if( fixed ) FD_LOG_ERR(( "fd_tile: pthread_create failed (%i-%s)\n\t"
+                               "Unable to start up the tile %lu on cpu %lu.  Likely causes for this include\n\t"
+                               "this cpu is restricted from the user or does not exist on this host.\n\t"
+                               "Update --tile-cpus to specify a set of allowed cpus that have been reserved\n\t"
+                               "for this thread group on this host.",
+                               err, strerror( err ), tile_idx, cpu_idx ));
       FD_LOG_ERR(( "fd_tile: pthread_create failed (%i-%s)\n\tUnable to start up the tile %lu (floating).",
                    err, strerror( err ), tile_idx ));
     }
@@ -598,21 +649,19 @@ fd_tile_private_boot( int *    pargc,
 
     /* Tile is running, args is safe to reuse */
 
-    if( FD_LIKELY( attr ) ) { /* Note: only non-NULL if cpu_idx < 65535UL */
-      err = pthread_attr_destroy( attr );
-      if( FD_UNLIKELY( err ) )
-        FD_LOG_WARNING(( "fd_tile: pthread_attr_destroy failed (%i-%s) for tile %lu on cpu %lu; attempting to continue",
-                         err, strerror( err ), tile_idx, cpu_idx ));
-    }
+    err = pthread_attr_destroy( attr );
+    if( FD_UNLIKELY( err ) ) FD_LOG_WARNING(( "fd_tile: pthread_attr_destroy failed (%i-%s) for tile %lu; attempting to continue",
+                                              err, strerror( err ), tile_idx ));
   }
 
   /* And now we "boot" tile 0 */
 
   ulong cpu_idx = (ulong)tile_to_cpu[ 0UL ];
-  if( cpu_idx<65535UL ) FD_LOG_INFO(( "fd tile: booting tile %lu on cpu %lu:%lu",   0UL, host_id, cpu_idx ));
-  else                  FD_LOG_INFO(( "fd tile: booting tile %lu on cpu %lu:float", 0UL, host_id ));
+  int   fixed   = (cpu_idx<65535UL);
+  if( fixed ) FD_LOG_INFO(( "fd tile: booting tile %lu on cpu %lu:%lu",   0UL, host_id, cpu_idx ));
+  else        FD_LOG_INFO(( "fd tile: booting tile %lu on cpu %lu:float", 0UL, host_id ));
 
-  if( cpu_idx<65535UL ) {
+  if( fixed ) {
 
     int good_taskset;
     cpu_set_t cpu_set[1];
@@ -655,6 +704,12 @@ fd_tile_private_boot( int *    pargc,
   /* Tile 0 "thread manager init" */
   fd_tile_private_id  = fd_tile_private_id0;
   fd_tile_private_idx = 0UL;
+
+  fd_log_private_stack_discover( fd_log_private_main_stack_sz(),
+                                 &fd_tile_private_stack0, &fd_tile_private_stack1 ); /* logs details */
+  if( FD_UNLIKELY( !fd_tile_private_stack0 ) )
+    FD_LOG_WARNING(( "stack diagnostics not available on this tile; attempting to continue" ));
+
   fd_tile_private_cpu_config( fd_tile_private_cpu_config_save, cpu_idx );
   fd_tile_private[0].lock = NULL; /* Can't dispatch to tile 0 */
   fd_tile_private[0].tile = NULL; /* " */
@@ -711,8 +766,10 @@ fd_tile_private_halt( void ) {
 
   fd_memset( fd_tile_private_cpu_config_save, 0, sizeof(fd_tile_private_cpu_config_t) );
 
-  fd_tile_private_idx = 0UL;
-  fd_tile_private_id  = 0UL;
+  fd_tile_private_stack1 = 0UL;
+  fd_tile_private_stack0 = 0UL;
+  fd_tile_private_idx    = 0UL;
+  fd_tile_private_id     = 0UL;
 
   fd_tile_private_cnt = 0UL;
   fd_tile_private_id1 = 0UL;
