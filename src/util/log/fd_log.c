@@ -1,5 +1,5 @@
 #ifndef FD_LOG_STYLE
-#ifdef FD_HAS_HOSTED
+#if FD_HAS_HOSTED
 #define FD_LOG_STYLE 0
 #else
 #error "Define FD_LOG_STYLE for this platform"
@@ -1232,6 +1232,146 @@ fd_log_private_halt( void ) {
   fd_log_private_app_id         = 0UL;
 
 //FD_LOG_INFO(( "fd_log: halt success" )); /* Log not online anymore */
+}
+
+#include <sys/resource.h>
+
+ulong
+fd_log_private_main_stack_sz( void ) {
+
+  /* We are extra paranoid about what rlimit returns and we don't trust
+     environments that claim an unlimited stack size (because it just
+     isn't unlimited ... even if rlimit says otherwise ... which it will
+     if a user tries to be clever with a "ulimit -s unlimited" ... e.g.
+     tile0's stack highest address is at 128 TiB-4KiB typically on
+     modern Linux and grows down while the text / data / heap grow up
+     from 0B ... so stack size is practically always going to be << 128
+     TiB irrespective of any getrlimit claim).  TODO: It looks like
+     pthead_attr_getstack might be getrlimit based under the hood, so
+     maybe just use pthread_attr_getstack here too? */
+
+  struct rlimit rlim[1];
+  int err = getrlimit( RLIMIT_STACK, rlim );
+  if( FD_UNLIKELY( err ) ) {
+    FD_LOG_WARNING(( "fd_log: getrlimit failed (%i-%s)", errno, strerror( errno ) ));
+    return 0UL;
+  }
+
+  ulong stack_sz = (ulong)rlim->rlim_cur;
+  if( FD_UNLIKELY( (rlim->rlim_cur>rlim->rlim_max) | (rlim->rlim_max>RLIM_INFINITY    ) |
+                   (rlim->rlim_cur==RLIM_INFINITY) | (rlim->rlim_cur!=(rlim_t)stack_sz) ) ) {
+    FD_LOG_WARNING(( "fd_log: unexpected stack limits (rlim_cur %lu, rlim_max %lu)",
+                     (ulong)rlim->rlim_cur, (ulong)rlim->rlim_max ));
+    return 0UL;
+  }
+
+  return stack_sz;
+}
+
+/* When pthread_setstack is not used to explicitly set the memory region
+   for a new thread's stack, pthread_create will create a memory region
+   (using either the requested size or a default size).  And, while
+   pthread allows us to set and get the size of the stack region it
+   creates and we can get a pointer into a thread's stack by just
+   declaring a stack variable in that thread and we obviously know where
+   a thread's stack is when we explicitly specify it to pthread create,
+   pthreads does not seem to provide a simple way to get the extents of
+   the stacks it creates.
+
+   But the relationship between a pointer in the stack and the stack
+   extents is non-trival because pthreads will use some of the stack for
+   things like thread local storage (and it will not tell us how much
+   stack was used by that and this is practically only known after
+   linking is complete and then it is not simply exposed to the
+   application).
+
+   Similar uncertainty applies to the first thread's stack.  We can
+   learn how large the stack is and get a pointer into the stack via a
+   stack variable but we have no simple way to get the extents.  And, in
+   this case on recent Linux, things like command line strings and
+   environment strings are typically allowed to consume up to 1/4 of
+   main's thread stack ... these are only known at application load
+   time.  (There is the additional caveat that the main stack might be
+   dynamically allocated such that the address space reserved for it
+   might not be backed by memory yet.)
+
+   But, if we want to do useful run-time stack diagnostics (e.g. alloca
+   bounds checking / stack overflow prevention / etc), having explicit
+   knowledge of a thread's stack extents is very useful.  Hence the
+   below.  It would be nice if there was portable and non-horrific way
+   to do this (an even more horrific way is trigger seg faults by
+   scanning for the guard pages and then recover from the seg fault via
+   a longjmp ... shivers). */
+
+void
+fd_log_private_stack_discover( ulong   stack_sz,
+                               ulong * _stack0,
+                               ulong * _stack1 ) {
+
+  if( FD_UNLIKELY( !stack_sz ) ) {
+    *_stack0 = 0UL;
+    *_stack1 = 0UL;
+    return;
+  }
+
+  ulong stack0 = 0UL;
+  ulong stack1 = 0UL;
+
+  /* Create a variable on the caller's stack and scan the thread group's
+     memory map for the memory region holding the variable.  That should
+     be the caller's stack. */
+
+  uchar stack_mem[1];
+  FD_VOLATILE( stack_mem[0] ) = (uchar)1; /* Paranoia to make sure compiler puts this in stack */
+  ulong stack_addr = (ulong)stack_mem;
+
+  FILE * file = fopen( "/proc/self/maps", "r" );
+  if( FD_UNLIKELY( !file ) ) FD_LOG_WARNING(( "fopen( \"/proc/self/maps\", \"r\" ) failed (%i-%s)", errno, strerror( errno ) ));
+  else {
+
+    while( FD_LIKELY( !feof( file ) ) ) {
+
+      /* Get the next memory region */
+
+      char buf[ 1024 ];
+      if( FD_UNLIKELY( !fgets( buf, 1024UL, file ) ) ) break;
+      ulong m0;
+      ulong m1;
+      if( FD_UNLIKELY( sscanf( buf, "%lx-%lx", &m0, &m1 )!=2 ) ) continue;
+
+      /* Test if the stack allocation is in the discovered region */
+
+      if( FD_UNLIKELY( (m0<=stack_addr) & (stack_addr<m1) ) ) {
+        ulong msz = m1 - m0;
+        if( msz==stack_sz ) { /* Memory region matches expectations */
+          stack0 = m0;
+          stack1 = m1;
+        } else if( ((fd_log_group_id()==fd_log_tid()) & (msz<stack_sz)) ) {
+          /* This is the main thread, which, on recent Linux, seems to
+             just reserve address space for main's stack at program
+             start up to the application stack size limits then uses
+             page faults to dynamically back the stack with DRAM as the
+             stack grows (which is awful for performance, jitter and
+             reliability ... sigh).  This assumes stack grows down such
+             that m1 is the fixed value in this process. */
+          stack0 = m1 - stack_sz;
+          stack1 = m1;
+        } else {
+          FD_LOG_WARNING(( "unexpected caller stack memory region size (got %lu bytes, expected %lu bytes)", msz, stack_sz ));
+          /* don't trust the discovered region */
+        }
+        break;
+      }
+
+    }
+
+    if( FD_UNLIKELY( fclose( file ) ) )
+      FD_LOG_WARNING(( "fclose( \"/proc/self/maps\" ) failed (%i-%s)", errno, strerror( errno ) ));
+
+  }
+
+  *_stack0 = stack0;
+  *_stack1 = stack1;
 }
 
 #else
