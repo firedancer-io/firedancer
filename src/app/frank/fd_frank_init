@@ -1,8 +1,8 @@
 #!/bin/bash
 
-if [ $# -ne 5 ]; then
+if [ $# -ne 8 ]; then
   echo ""
-  echo "        Usage: $0 [APP_NAME] [APP_CORE_TARGET] [IFACE] [VERIFY_CNT] [BUILD]"
+  echo "        Usage: $0 [APP_NAME] [APP_CORE_TARGET] [IFACE] [VERIFY_CNT] [SHRED_DST] [SHREDDER_CNT] [RETRANSMIT_CNT] [BUILD]"
   echo ""
   exit 1
 fi
@@ -11,16 +11,20 @@ APP=$1
 AFFINITY=$2
 IFACE=$3
 VERIFY_CNT=$4
-BUILD=$5
-shift 5
+SHRED_DST=$5
+SHREDDER_CNT=$6
+RETRANSMIT_CNT=$7
+BUILD=$8
+shift 8
 
 #######################################################################
+FD_XDP_CTL=${FD_XDP_CTL:=$BUILD/bin/fd_xdp_ctl}
 
 CONF=tmp/$APP.cfg
 CONF_DIR=tmp/$APP
 
 WKSP=$APP.wksp
-WKSP_PAGE_CNT=32
+WKSP_PAGE_CNT=4
 WKSP_PAGE_SZ=gigantic
 WKSP_PERM=0600
 
@@ -28,7 +32,7 @@ POD_SZ=16384
 
 CNC_APP_SZ=4032
 
-VERIFY_DEPTH=2097152
+VERIFY_DEPTH=8192
 VERIFY_MTU=4804
 QUIC_DCACHE_APP_SZ=$(( $VERIFY_DEPTH * 32 ))
 
@@ -65,6 +69,11 @@ export QUIC_HANDSHAKE_CNT
 export QUIC_MAX_INFLIGHT_PKTS
 export QUIC_TX_BUF_SZ
 export QUIC_RX_BUF_SZ
+
+TURBINE_PORT=9002
+TURBINE_CORRUPT_FRACTION=0.1
+SHREDDER_DEPTH=8192
+SHREDDER_MTU=65536
 
 #######################################################################
 
@@ -135,18 +144,21 @@ for((verify_idx=0;verify_idx<VERIFY_CNT;verify_idx++)); do
 done
 
 # Initialize XDP
-
-"$BUILD"/bin/fd_xdp_ctl unhook-iface $APP $IFACE # okay if this fails
+echo "Setting to $((VERIFY_CNT+SHREDDER_CNT+RETRANSMIT_CNT)) queues"
+ethtool -L $IFACE combined $((VERIFY_CNT+SHREDDER_CNT+RETRANSMIT_CNT)) || \
+  ethtool -L $IFACE rx $((VERIFY_CNT+SHREDDER_CNT+RETRANSMIT_CNT)) tx $((VERIFY_CNT+SHREDDER_CNT+RETRANSMIT_CNT)) || \
+  exit $?
+$FD_XDP_CTL unhook-iface $APP $IFACE # okay if this fails
 sleep 1  # work around race condition -- ugly hack
-"$BUILD"/bin/fd_xdp_ctl hook-iface $APP $IFACE $XDP_MODE || exit $?
-LISTEN_ADDRS=( $( ip address show dev $IFACE scope global up | sed -n -E 's/\s+inet ([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+)\/.*/\1/p' ) ) || exit $?
+$FD_XDP_CTL hook-iface $APP $IFACE $XDP_MODE || exit $?
+LISTEN_ADDRS=( $( ip address show dev $IFACE up | sed -n -E 's/\s+inet ([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+)\/.*/\1/p' ) ) || exit $?
 if ! (( ${#LISTEN_ADDRS[@]} )); then
   echo "Found no IP addresses on $IFACE" >&2; exit 1
 fi
 for addr in "${LISTEN_ADDRS[@]}"; do
-  "$BUILD"/bin/fd_xdp_ctl listen-udp-port $APP $addr $QUIC_LISTEN_PORT tpu-quic || exit $?
+  $FD_XDP_CTL listen-udp-port $APP $addr $QUIC_LISTEN_PORT tpu-quic || exit $?
 done
-SRC_MAC_ADDR="$(cat /sys/class/net/$IFACE/address)" || exit $?
+SRC_MAC_ADDR=( $( ip address show dev $IFACE up | sed -n -E 's/\s+link\/ether ([0-9a-f:]{17}).*/\1/p'  ) ) || exit $?
 
 # For now, let each QUIC publish to one verifyin
 # TODO manage XSK queue <-> QUIC tile core mapping
@@ -157,9 +169,9 @@ for((quic_idx=0;quic_idx<VERIFY_CNT;quic_idx++)); do
   DCACHE="$("$BUILD"/bin/fd_pod_ctl query val "$POD" $APP.verifyin.v${quic_idx}in.dcache | tr -d '"')" || exit $?
   FSEQ="$("$BUILD"/bin/fd_pod_ctl query val "$POD" $APP.verifyin.v${quic_idx}in.fseq | tr -d '"')" || exit $?
   QUIC="$("$BUILD"/bin/fd_quic_ctl new-quic $WKSP)" || exit $?
-  XSK="$("$BUILD"/bin/fd_xdp_ctl new-xsk $WKSP $XDP_FRAME_SZ $XDP_RX_DEPTH $XDP_TX_DEPTH)" || exit $?
-  "$BUILD"/bin/fd_xdp_ctl bind-xsk "$XSK" $APP $IFACE ${quic_idx} || exit $?
-  XSK_AIO="$("$BUILD"/bin/fd_xdp_ctl new-xsk-aio $WKSP $XDP_TX_DEPTH $XDP_AIO_DEPTH)" || exit $?
+  XSK="$($FD_XDP_CTL new-xsk $WKSP $XDP_FRAME_SZ $XDP_RX_DEPTH $XDP_TX_DEPTH)" || exit $?
+  $FD_XDP_CTL bind-xsk "$XSK" $APP $IFACE ${quic_idx} || exit $?
+  XSK_AIO="$($FD_XDP_CTL new-xsk-aio $WKSP $XDP_TX_DEPTH $XDP_AIO_DEPTH)" || exit $?
   "$BUILD"/bin/fd_pod_ctl \
     insert "$POD" cstr $APP.quic.quic${quic_idx}.cnc     $CNC     \
     insert "$POD" cstr $APP.quic.quic${quic_idx}.mcache  $MCACHE  \
@@ -170,6 +182,65 @@ for((quic_idx=0;quic_idx<VERIFY_CNT;quic_idx++)); do
     insert "$POD" cstr $APP.quic.quic${quic_idx}.xsk_aio $XSK_AIO \
     || exit $?
 done
+
+SHRED_DST_MAC=$(ip neigh get $SHRED_DST dev $IFACE | grep -o -e "[0-9a-f:]\{17\}")
+if [ -z $SHRED_DST_MAC ]; then
+  echo "Could not resolve ip $SHRED_DST. Using broadcast MAC"
+  SHRED_DST_MAC="ff:ff:ff:ff:ff:ff"
+fi
+echo "Resolved destination ip $SHRED_DST to $SHRED_DST_MAC via arp"
+
+
+# Create config for shredder
+for((shredder_idx=0;shredder_idx<SHREDDER_CNT;shredder_idx++)); do
+  CNC="$("$BUILD"/bin/fd_tango_ctl new-cnc $WKSP 3 tic $CNC_APP_SZ)" || exit $?
+  IN_MCACHE="$("$BUILD"/bin/fd_tango_ctl new-mcache $WKSP $SHREDDER_DEPTH 0 0)" || exit $?
+  IN_DCACHE="$("$BUILD"/bin/fd_tango_ctl new-dcache $WKSP $SHREDDER_MTU $SHREDDER_DEPTH 1 1 0)" || exit $?
+  IN_FSEQ="$("$BUILD"/bin/fd_tango_ctl new-fseq $WKSP 0)" || exit $?
+  XSK="$($FD_XDP_CTL new-xsk $WKSP $XDP_FRAME_SZ $XDP_RX_DEPTH $XDP_TX_DEPTH)" || exit $?
+  $FD_XDP_CTL bind-xsk "$XSK" $APP $IFACE $((shredder_idx+VERIFY_CNT)) || exit $?
+  XSK_AIO="$($FD_XDP_CTL new-xsk-aio $WKSP $XDP_TX_DEPTH $XDP_AIO_DEPTH)" || exit $?
+  SCRATCH="$("$BUILD"/bin/fd_wksp_ctl alloc $WKSP 128 1048576)" || exit $?
+  "$BUILD"/bin/fd_pod_ctl                                      \
+    insert "$POD" cstr $APP.shredder.s${shredder_idx}.cnc     $CNC       \
+    insert "$POD" cstr $APP.shredder.s${shredder_idx}.mcache  $IN_MCACHE \
+    insert "$POD" cstr $APP.shredder.s${shredder_idx}.dcache  $IN_DCACHE \
+    insert "$POD" cstr $APP.shredder.s${shredder_idx}.fseq    $IN_FSEQ   \
+    insert "$POD" cstr $APP.shredder.s${shredder_idx}.xsk     $XSK       \
+    insert "$POD" cstr $APP.shredder.s${shredder_idx}.xsk_aio $XSK_AIO   \
+    insert "$POD" cstr $APP.shredder.s${shredder_idx}.src_net_endpoint.mac  $SRC_MAC_ADDR        \
+    insert "$POD" cstr $APP.shredder.s${shredder_idx}.src_net_endpoint.ip  "${LISTEN_ADDRS[0]}" \
+    insert "$POD" ushort $APP.shredder.s${shredder_idx}.src_net_endpoint.port $TURBINE_PORT        \
+    insert "$POD" cstr $APP.shredder.s${shredder_idx}.dst_net_endpoint.mac  $SHRED_DST_MAC       \
+    insert "$POD" cstr $APP.shredder.s${shredder_idx}.dst_net_endpoint.ip  "$SHRED_DST" \
+    insert "$POD" ushort $APP.shredder.s${shredder_idx}.dst_net_endpoint.port $TURBINE_PORT        \
+    insert "$POD" cstr $APP.shredder.s${shredder_idx}.scratch $SCRATCH \
+    || exit $?
+done
+
+$FD_XDP_CTL listen-udp-port $APP ${LISTEN_ADDRS[0]} $TURBINE_PORT tvu || exit $?
+for((retransmit_idx=0;retransmit_idx<RETRANSMIT_CNT;retransmit_idx++)); do
+  CNC="$("$BUILD"/bin/fd_tango_ctl new-cnc $WKSP 3 tic $CNC_APP_SZ)" || exit $?
+  IN_FSEQ="$("$BUILD"/bin/fd_tango_ctl new-fseq $WKSP 0)" || exit $?
+  XSK="$($FD_XDP_CTL new-xsk $WKSP $XDP_FRAME_SZ $XDP_RX_DEPTH $XDP_TX_DEPTH)" || exit $?
+  $FD_XDP_CTL bind-xsk "$XSK" $APP $IFACE $((retransmit_idx+VERIFY_CNT+SHREDDER_CNT)) || exit $?
+  XSK_AIO="$($FD_XDP_CTL new-xsk-aio $WKSP $XDP_TX_DEPTH $XDP_AIO_DEPTH)" || exit $?
+  SCRATCH="$("$BUILD"/bin/fd_wksp_ctl alloc $WKSP 128 1048576)" || exit $?
+  "$BUILD"/bin/fd_pod_ctl                                      \
+    insert "$POD" cstr $APP.retransmit.r${retransmit_idx}.cnc     $CNC       \
+    insert "$POD" cstr $APP.retransmit.r${retransmit_idx}.fseq    $IN_FSEQ   \
+    insert "$POD" cstr $APP.retransmit.r${retransmit_idx}.xsk     $XSK       \
+    insert "$POD" cstr $APP.retransmit.r${retransmit_idx}.xsk_aio $XSK_AIO   \
+    insert "$POD" cstr $APP.retransmit.r${retransmit_idx}.src_net_endpoint.mac  $SRC_MAC_ADDR        \
+    insert "$POD" cstr $APP.retransmit.r${retransmit_idx}.src_net_endpoint.ip  "${LISTEN_ADDRS[0]}" \
+    insert "$POD" ushort $APP.retransmit.r${retransmit_idx}.src_net_endpoint.port $TURBINE_PORT        \
+    insert "$POD" cstr $APP.retransmit.r${retransmit_idx}.dst_net_endpoint.mac  $SHRED_DST_MAC       \
+    insert "$POD" cstr $APP.retransmit.r${retransmit_idx}.dst_net_endpoint.ip  "$SHRED_DST" \
+    insert "$POD" ushort $APP.retransmit.r${retransmit_idx}.dst_net_endpoint.port $TURBINE_PORT        \
+    insert "$POD" cstr $APP.retransmit.r${retransmit_idx}.scratch $SCRATCH \
+    || exit $?
+done
+
 
 BASE_ARGS="--pod "$POD" --cfg $APP"
 RUN_ARGS="$BASE_ARGS --log-app $APP --log-thread main"

@@ -66,7 +66,7 @@ fd_net_endpoint_load( uchar const * pod, fd_net_endpoint_t * out ) {
   }
 
   out->ip4  = fd_uint_bswap(   out->ip4 );
-  out->port = fd_ushort_bswap( out->port );
+  out->port = fd_ushort_bswap( _port );
   return out;
 }
 
@@ -212,6 +212,8 @@ fd_frank_retransmit_task( int     argc,
       /* Reload housekeeping timer */
       then = now + (long)fd_tempo_async_reload( rng, async_min );
     }
+
+    now = fd_tickcount();
 
     fd_xsk_aio_service( xsk_aio );
 

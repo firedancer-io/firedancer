@@ -68,7 +68,15 @@ main( int     argc,
   ulong quic_cnt = fd_pod_cnt_subpod( quic_pods );
   FD_LOG_NOTICE(( "%lu quic found", quic_cnt ));
 
-  ulong tile_cnt = 3UL + verify_cnt + quic_cnt;
+  uchar const * shredder_pods = fd_pod_query_subpod( cfg_pod, "shredder" );
+  ulong shredder_cnt = fd_pod_cnt_subpod( shredder_pods );
+  FD_LOG_NOTICE(( "%lu shredder found", shredder_cnt ));
+
+  uchar const * retransmit_pods = fd_pod_query_subpod( cfg_pod, "retransmit" );
+  ulong retransmit_cnt = fd_pod_cnt_subpod( retransmit_pods );
+  FD_LOG_NOTICE(( "%lu retransmit found", retransmit_cnt ));
+
+  ulong tile_cnt = 3UL + verify_cnt + quic_cnt + shredder_cnt + retransmit_cnt;
   if( FD_UNLIKELY( fd_tile_cnt()<tile_cnt ) ) FD_LOG_ERR(( "at least %lu tiles required for this config", tile_cnt ));
   if( FD_UNLIKELY( fd_tile_cnt()>tile_cnt ) ) FD_LOG_WARNING(( "only %lu tiles required for this config", tile_cnt ));
 
@@ -132,18 +140,50 @@ main( int     argc,
       tile_idx++;
     }
 
+    for( fd_pod_iter_t iter = fd_pod_iter_init( shredder_pods ); !fd_pod_iter_done( iter ); iter = fd_pod_iter_next( iter ) ) {
+      fd_pod_info_t info = fd_pod_iter_info( iter );
+      if( FD_UNLIKELY( info.val_type!=FD_POD_VAL_TYPE_SUBPOD ) ) continue;
+      char const  * shredder_name =                info.key;
+      uchar const * shredder_pod  = (uchar const *)info.val;
+
+      FD_LOG_NOTICE(( "joining %s.shredder.%s.cnc", cfg_path, shredder_name ));
+      tile_name[ tile_idx ] = shredder_name;
+      tile_cnc [ tile_idx ] = fd_cnc_join( fd_wksp_pod_map( shredder_pod, "cnc" ) );
+      if( FD_UNLIKELY( !tile_cnc[tile_idx] ) ) FD_LOG_ERR(( "fd_cnc_join failed" ));
+      if( FD_UNLIKELY( fd_cnc_app_sz( tile_cnc[ tile_idx ] )<64UL ) ) FD_LOG_ERR(( "cnc app sz should be at least 64 bytes" ));
+      tile_idx++;
+    }
+
+    for( fd_pod_iter_t iter = fd_pod_iter_init( retransmit_pods ); !fd_pod_iter_done( iter ); iter = fd_pod_iter_next( iter ) ) {
+      fd_pod_info_t info = fd_pod_iter_info( iter );
+      if( FD_UNLIKELY( info.val_type!=FD_POD_VAL_TYPE_SUBPOD ) ) continue;
+      char const  * retransmit_name =                info.key;
+      uchar const * retransmit_pod  = (uchar const *)info.val;
+
+      FD_LOG_NOTICE(( "joining %s.retransmit.%s.cnc", cfg_path, retransmit_name ));
+      tile_name[ tile_idx ] = retransmit_name;
+      tile_cnc [ tile_idx ] = fd_cnc_join( fd_wksp_pod_map( retransmit_pod, "cnc" ) );
+      if( FD_UNLIKELY( !tile_cnc[tile_idx] ) ) FD_LOG_ERR(( "fd_cnc_join failed" ));
+      if( FD_UNLIKELY( fd_cnc_app_sz( tile_cnc[ tile_idx ] )<64UL ) ) FD_LOG_ERR(( "cnc app sz should be at least 64 bytes" ));
+      tile_idx++;
+    }
+
     FD_TEST( tile_idx==tile_cnt );
   } while(0);
 
   /* Boot all the tiles that main controls */
 
-  ulong tile_main_idx    = 0UL;
-  ulong tile_pack_idx    = tile_main_idx +1UL;
-  ulong tile_dedup_idx   = tile_pack_idx +1UL;
-  ulong tile_verify_idx0 = tile_dedup_idx+1UL;
-  ulong tile_verify_idx1 = tile_verify_idx0 + verify_cnt;
-  ulong tile_quic_idx0   = tile_verify_idx1;
-  //ulong tile_quic_idx1   = tile_quic_idx0 + quic_cnt;
+  ulong tile_main_idx        = 0UL;
+  ulong tile_pack_idx        = tile_main_idx +1UL;
+  ulong tile_dedup_idx       = tile_pack_idx +1UL;
+  ulong tile_verify_idx0     = tile_dedup_idx+1UL;
+  ulong tile_verify_idx1     = tile_verify_idx0     + verify_cnt;
+  ulong tile_quic_idx0       = tile_verify_idx1;
+  ulong tile_quic_idx1       = tile_quic_idx0       + quic_cnt;
+  ulong tile_shredder_idx0   = tile_quic_idx1;
+  ulong tile_shredder_idx1   = tile_shredder_idx0   + shredder_cnt;
+  ulong tile_retransmit_idx0 = tile_shredder_idx1;
+  ulong tile_retransmit_idx1 = tile_retransmit_idx0 + retransmit_cnt;
 
   for( ulong tile_idx=1UL; tile_idx<tile_cnt; tile_idx++ ) {
     FD_LOG_NOTICE(( "booting tile %s", tile_name[ tile_idx ] ));
@@ -152,16 +192,14 @@ main( int     argc,
        boot logging easier to read and easier to pass args */
 
     fd_tile_task_t task;
-    switch( tile_idx ) {
-    case 0UL: task = main;                 break;
-    case 1UL: task = fd_frank_pack_task;   break;
-    case 2UL: task = fd_frank_dedup_task;  break;
-    default:
-      if( tile_idx<tile_quic_idx0 )
-              task = fd_frank_verify_task;
-      else    task = fd_frank_quic_task;
-      break;
-    }
+    if(      tile_idx==0UL ) task = main;
+    else if( tile_idx==1UL ) task = fd_frank_pack_task;
+    else if( tile_idx==2UL ) task = fd_frank_dedup_task;
+    else if( (tile_verify_idx0    <=tile_idx) & (tile_idx<tile_verify_idx1)    ) task = fd_frank_verify_task;
+    else if( (tile_quic_idx0      <=tile_idx) & (tile_idx<tile_quic_idx1)      ) task = fd_frank_quic_task;
+    else if( (tile_shredder_idx0  <=tile_idx) & (tile_idx<tile_shredder_idx1)  ) task = fd_frank_shredder_task;
+    else if( (tile_retransmit_idx0<=tile_idx) & (tile_idx<tile_retransmit_idx1)) task = fd_frank_retransmit_task;
+    else FD_LOG_ERR(( "Tile %lu not assigned a task", tile_idx ));
 
     char * task_argv[3];
     task_argv[0] = (char *)tile_name[ tile_idx ];

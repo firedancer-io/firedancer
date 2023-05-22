@@ -68,7 +68,7 @@ fd_net_endpoint_load( uchar const * pod, fd_net_endpoint_t * out ) {
   }
 
   out->ip4  = fd_uint_bswap(   out->ip4 );
-  out->port = fd_ushort_bswap( out->port );
+  out->port = fd_ushort_bswap( _port );
   return out;
 }
 
@@ -358,29 +358,33 @@ fd_frank_shredder_task( int     argc,
 
 
 
-    /* See if there are any entry batches to shred */
+    ///* See if there are any entry batches to shred */
     ulong seq_found = fd_frag_meta_seq_query( mline );
-    long  diff      = fd_seq_diff( seq_found, seq );
-    if( FD_UNLIKELY( diff ) ) { /* caught up or overrun, optimize for expected sequence number ready */
-      if( FD_LIKELY( diff<0L ) ) { /* caught up */
-        FD_SPIN_PAUSE();
-        now = fd_tickcount();
-        continue;
-      }
-      /* overrun ... recover */
-      accum_ovrnp_cnt++;
-      seq = seq_found;
-      /* can keep processing from the new seq */
-    }
+    //long  diff      = fd_seq_diff( seq_found, seq );
+    //if( FD_UNLIKELY( diff ) ) { /* caught up or overrun, optimize for expected sequence number ready */
+    //  if( FD_LIKELY( diff<0L ) ) { /* caught up */
+    //    FD_SPIN_PAUSE();
+    //    now = fd_tickcount();
+    //    continue;
+    //  }
+    //  /* overrun ... recover */
+    //  accum_ovrnp_cnt++;
+    //  seq = seq_found;
+    //  /* can keep processing from the new seq */
+    //}
 
     now = fd_tickcount();
 
-    ulong         sz           = (ulong)mline->sz;
-    uchar const * dcache_entry = fd_chunk_to_laddr_const( wksp, mline->chunk );
-    /* FIXME: refactor to allow entry batches greater than USHORT_MAX */
-    fd_entry_batch_meta_t const * entry_batch_meta = (fd_entry_batch_meta_t const *)dcache_entry;
-    uchar const *               entry_batch      = dcache_entry + sizeof(fd_entry_batch_meta_t);
-    ulong                       entry_batch_sz   = sz           - sizeof(fd_entry_batch_meta_t);
+    //ulong         sz           = (ulong)mline->sz;
+    //uchar const * dcache_entry = fd_chunk_to_laddr_const( wksp, mline->chunk );
+    ///* FIXME: refactor to allow entry batches greater than USHORT_MAX */
+    //fd_entry_batch_meta_t const * entry_batch_meta = (fd_entry_batch_meta_t const *)dcache_entry;
+    //uchar const *                 entry_batch      = dcache_entry + sizeof(fd_entry_batch_meta_t);
+    //ulong                         entry_batch_sz   = sz           - sizeof(fd_entry_batch_meta_t);
+
+    fd_entry_batch_meta_t entry_batch_meta[1];
+    uchar const * entry_batch = test_bin;
+    ulong entry_batch_sz = test_bin_sz;
 
     ulong fec_sets = fd_shredder_count_fec_sets( entry_batch_sz );
     fd_shredder_init_batch( shredder, entry_batch, entry_batch_sz, entry_batch_meta );
