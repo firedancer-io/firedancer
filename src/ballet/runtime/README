@@ -54,22 +54,6 @@ If you hate the colorization and also want to use less..
 
 Starting from:  https://docs.solana.com/offline-signing/durable-nonce
 
-patch solana (or use the debug branch)
-
-  diff --git a/runtime/src/nonce_keyed_account.rs b/runtime/src/nonce_keyed_account.rs
-  index ab0cd21cdf..93828b0dbd 100644
-  --- a/runtime/src/nonce_keyed_account.rs
-  +++ b/runtime/src/nonce_keyed_account.rs
-  @@ -258,7 +258,7 @@ impl<'a> NonceKeyedAccount for KeyedAccount<'a> {
-                   let data = nonce::state::Data::new(
-                       *nonce_authority,
-                       durable_nonce,
-  -                    invoke_context.lamports_per_signature,
-  +                    invoke_context.lamports_per_signature * 10,
-                   );
-                   self.set_state(&Versions::new(State::Initialized(data), separate_domains))
-               }
-  
 If you have not created these account files, you have to only do this once.
 
   % solana-keygen new -o alice.json
@@ -78,7 +62,7 @@ If you have not created these account files, you have to only do this once.
 
 Then, create yourself an non-account
 
-  % solana create-nonce-account nonce-keypair.json 1
+  % solana create-nonce-account nonce-keypair.json 5
 
 Air drop yourself some money
 
@@ -104,6 +88,10 @@ Then, transfer from alice to bob..  Putting the nonce blockhash above into the r
 
   % solana transfer -k alice.json --blockhash Fqp4kNe6bdMXsV1fzFzetxxgjJ7LKwdkQ22nqe3Lwmqe --nonce nonce-keypair.json bob.json 0.01 --allow-unfunded-recipient
 
+solana withdraw-from-nonce-account -k alice.json nonce-keypair.json ~/.config/solana/id.json 0.5
+
+
+
 
 --
 
@@ -126,7 +114,7 @@ Reproducing nonce issue:
 
   5) go to firedancer, check out jsiegel/fee branch, build, and run
 
-     % test_runtime    --ledger /home/jsiegel/repos/solana/nonce-ledger --db /home/jsiegel/funk --cmd replay --accounts /home/jsiegel/repos/solana/nonce-ledger/accounts/ --pages 15 --index-max 120000000 --start-slot 0 --end-slot 100 |& grep from_blockhash
+     % test_runtime    --ledger /home/jsiegel/repos/solana/nonce-ledger --db /home/jsiegel/funk --cmd replay --accounts /home/jsiegel/repos/solana/nonce-ledger/accounts/ --pages 15 --index-max 12000000 --start-slot 0 --end-slot 100 |& grep from_blockhash
 
    NOTICE  05-09 10:50:50.934466 3035311 f0   0    src/ballet/runtime/program/fd_system_program.c(295): from_blockhash: 5sR423vw2YmpVzGBPNiQNGMrj6SfengprcVQiC2AaeiP from_blockhash: 5sR423vw2YmpVzGBPNiQNGMrj6SfengprcVQiC2AaeiP
   NOTICE  05-09 10:50:50.934475 3035311 f0   0    src/ballet/runtime/program/fd_system_program.c(295): from_blockhash: 5sR423vw2YmpVzGBPNiQNGMrj6SfengprcVQiC2AaeiP from_blockhash: 5sR423vw2YmpVzGBPNiQNGMrj6SfengprcVQiC2AaeiP

@@ -299,16 +299,20 @@ fd_runtime_calculate_fee( fd_global_ctx_t *global, fd_txn_t * txn_descriptor, fd
   double current_congestion = (BASE_CONGESTION > lamports_per_signature) ? BASE_CONGESTION : (double)lamports_per_signature;
   double congestion_multiplier = (lamports_per_signature == 0) ? 0.0 : (BASE_CONGESTION / current_congestion);
 
-//            let mut compute_budget = ComputeBudget::default();
-//            let prioritization_fee_details = compute_budget
-//                .process_instructions(
-//                    message.program_instructions_iter(),
-//                    false,
-//                    false,
-//                    true
-//                )
-//                .unwrap_or_default();
-//            let prioritization_fee = prioritization_fee_details.get_fee();
+//  bool support_set_compute_unit_price_ix = false;
+//  bool use_default_units_per_instruction = false;
+//  bool enable_request_heap_frame_ix = true;
+
+//        let mut compute_budget = ComputeBudget::default();
+//        let prioritization_fee_details = compute_budget
+//            .process_instructions(
+//                message.program_instructions_iter(),
+//                use_default_units_per_instruction,
+//                support_set_compute_unit_price_ix,
+//                enable_request_heap_frame_ix,
+//            )
+//            .unwrap_or_default();
+//        let prioritization_fee = prioritization_fee_details.get_fee();
   double prioritization_fee = 0;
 
   // let signature_fee = Self::get_num_signatures_in_message(message) .saturating_mul(fee_structure.lamports_per_signature);

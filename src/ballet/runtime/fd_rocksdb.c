@@ -180,6 +180,8 @@ fd_slot_blocks_t * fd_rocksdb_get_microblocks(fd_rocksdb_t *db, fd_slot_meta_t *
     // actual data without a memory copy
     fd_shred_t const * shred = fd_shred_parse( data, (ulong) dlen );
 
+//     FD_LOG_HEXDUMP_WARNING(( "shred", data, dlen ));
+
     /* Refill deshredder with shred.
 
        We could have created a single shred list with all the shreds

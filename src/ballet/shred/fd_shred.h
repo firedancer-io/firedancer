@@ -62,15 +62,10 @@
 #include "../fd_ballet_base.h"
 #include "../block/fd_microblock.h"
 
-/* FD_SHRED_MAX_SZ: The max byte size of a shred.
-   This limit derives from the IPv6 MTU of 1280 bytes, minus 48 bytes
-   for the UDP/IPv6 headers and another 4 bytes for good measure.  Most
-   shreds are this size, but Merkle data shreds may be smaller. */
-#define FD_SHRED_MAX_SZ (1228UL)
-/* FD_SHRED_MIN_SZ: The minimum byte size of a shred.
-   A code shred of the max size covers a data shred of the minimum size
-   with no padding. */
-#define FD_SHRED_MIN_SZ (1203UL)
+/* FD_SHRED_SZ: The byte size of a shred.
+   This limit derives from the IPv6 MTU of 1280 bytes,
+   minus 48 bytes for the UDP/IPv6 headers and another 4 bytes for good measure. */
+#define FD_SHRED_SZ (1228UL)
 /* FD_SHRED_DATA_HEADER_SZ: size of all headers for data type shreds. */
 #define FD_SHRED_DATA_HEADER_SZ (0x58UL)
 /* FD_SHRED_CODE_HEADER_SZ: size of all headers for coding type shreds. */
@@ -189,7 +184,7 @@ typedef struct fd_shred fd_shred_t;
 FD_PROTOTYPES_BEGIN
 
 /* fd_shred_parse: Parses and validates an untrusted shred header.
-   The provided buffer must be at least FD_SHRED_MIN_SZ bytes long.
+   The provided buffer must be at least FD_SHRED_SZ bytes long.
 
    The returned pointer either equals the input pointer
    or is NULL if the given shred is malformed. */
@@ -216,11 +211,6 @@ fd_shred_variant( uchar type,
   return (uchar)(type | merkle_cnt);
 }
 
-FD_FN_CONST static inline ulong
-fd_shred_sz( uchar variant ) {
-  return fd_ulong_if( fd_shred_type( variant )==FD_SHRED_TYPE_MERKLE_DATA, FD_SHRED_MIN_SZ, FD_SHRED_MAX_SZ );
-}
-
 /* fd_shred_header_sz: Returns the header size of a shred.
    Returns zero if the shred has an invalid variant.
 
@@ -242,14 +232,14 @@ fd_shred_merkle_cnt( uchar variant ) {
   uchar type = fd_shred_type( variant );
   if( FD_UNLIKELY( type & FD_SHRED_TYPEMASK_LEGACY ) )
     return 0;
-  return (variant&0xfU)+1U;
+  return (variant&0xfU);
 }
 
 /* fd_shred_merkle_sz: Returns the size in bytes of the merkle inclusion proof.
    Returns zero if the given shred is not a merkle variant.  */
 FD_FN_CONST static inline ulong
 fd_shred_merkle_sz( uchar variant ) {
-  return (fd_shred_merkle_cnt( variant ) - 1) * FD_SHRED_MERKLE_NODE_SZ;
+  return fd_shred_merkle_cnt( variant ) * FD_SHRED_MERKLE_NODE_SZ;
 }
 
 /* fd_shred_payload_sz: Returns the payload size of a shred.
@@ -259,7 +249,7 @@ fd_shred_payload_sz( fd_shred_t const * shred ) {
   if( FD_LIKELY( fd_shred_type( shred->variant ) & FD_SHRED_TYPEMASK_DATA ) )
     return shred->data.size - FD_SHRED_DATA_HEADER_SZ;
   else
-    return fd_shred_sz( shred->variant ) - FD_SHRED_CODE_HEADER_SZ - fd_shred_merkle_sz( shred->variant );
+    return FD_SHRED_SZ -      FD_SHRED_CODE_HEADER_SZ - fd_shred_merkle_sz( shred->variant );
 }
 
 /* fd_shred_merkle_off: Returns the byte offset of the merkle inclusion proof of a shred.
@@ -267,7 +257,7 @@ fd_shred_payload_sz( fd_shred_t const * shred ) {
    The provided shred must have passed validation in fd_shred_parse(). */
 FD_FN_CONST static inline ulong
 fd_shred_merkle_off( uchar variant ) {
-  return fd_shred_sz( variant ) - fd_shred_merkle_sz( variant );
+  return FD_SHRED_SZ - fd_shred_merkle_sz( variant );
 }
 
 /* fd_shred_merkle_nodes: Returns a pointer to the shred's merkle proof data.

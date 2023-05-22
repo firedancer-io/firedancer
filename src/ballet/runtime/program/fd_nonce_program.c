@@ -58,7 +58,7 @@ int fd_load_nonce_account(
 
   ulong acct_addr_cnt = txn_descriptor->acct_addr_cnt;
   if ((instr_acc_idxs[0] >= acct_addr_cnt) | (instr_acc_idxs[1] >= acct_addr_cnt))
-    return 0;
+    return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
 
   fd_pubkey_t * me   = &tx_accs[instr_acc_idxs[0]];
 
@@ -201,9 +201,10 @@ int fd_advance_nonce_account(
 
 // https://github.com/firedancer-io/solana/blob/8fb537409eb901444e064f50ea8dd7dcafb12a00/runtime/src/system_instruction_processor.rs#L366
 int fd_withdraw_nonce_account(
-  FD_FN_UNUSED instruction_ctx_t  ctx,
-  FD_FN_UNUSED unsigned long      withdraw_nonce_account
-  ) {
+  instruction_ctx_t  ctx,
+    FD_FN_UNUSED unsigned long      withdraw_nonce_account
+  ) 
+{
   FD_LOG_ERR(( "unsupported discrimant: withdraw_none_account" ));
 
 //        {pubkey: params.noncePubkey, isSigner: false, isWritable: true},
@@ -214,7 +215,136 @@ int fd_withdraw_nonce_account(
 
   // https://github.com/firedancer-io/solana/blob/ffd63324f988e1b2151dab34983c71d6ff4087f6/runtime/src/nonce_keyed_account.rs#L138
 
-  return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+//        if invoke_context
+//            .feature_set
+//            .is_active(&nonce_must_be_writable::id())
+//            && !self.is_writable()
+//        {
+//            ic_msg!(
+//                invoke_context,
+//                "Withdraw nonce account: Account {} must be writeable",
+//                self.unsigned_key()
+//            );
+//            return Err(InstructionError::InvalidArgument);
+//        }
+
+
+  if (ctx.instr->acct_cnt != 5)
+    return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+
+  uchar *       instr_acc_idxs = ((uchar *)ctx.txn_raw->raw + ctx.instr->acct_off);
+  fd_pubkey_t * txn_accs = (fd_pubkey_t *)((uchar *)ctx.txn_raw->raw + ctx.txn_descriptor->acct_addr_off);
+
+  ulong acct_addr_cnt = ctx.txn_descriptor->acct_addr_cnt;
+
+
+  if ((instr_acc_idxs[0] >= acct_addr_cnt) 
+    | (instr_acc_idxs[1] >= acct_addr_cnt)
+    | (instr_acc_idxs[2] >= acct_addr_cnt)
+    | (instr_acc_idxs[3] >= acct_addr_cnt)
+    | (instr_acc_idxs[4] >= acct_addr_cnt))
+    return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+
+  fd_pubkey_t * me   = &txn_accs[instr_acc_idxs[0]];
+
+  uchar new_signed = 0;
+  for ( ulong i = 0; i < ctx.instr->acct_cnt; i++ ) {
+    if ( instr_acc_idxs[i] < ctx.txn_descriptor->signature_cnt ) {
+      if ( !memcmp( &txn_accs[instr_acc_idxs[i]], me, sizeof(fd_pubkey_t) ) ) {
+        new_signed = 1;
+        break;
+      }
+    }
+  }
+  if ( !new_signed )  {
+    FD_LOG_WARNING(( "account not signed" ));
+    return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+  }
+
+  fd_account_meta_t metadata;
+  long              read_result = fd_acc_mgr_get_metadata( ctx.global->acc_mgr, ctx.global->funk_txn, me, &metadata );
+  if ( read_result == FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) 
+    return 0;
+
+  unsigned char *raw_acc_data = fd_alloca( 1, metadata.dlen );
+  read_result = fd_acc_mgr_get_account_data( ctx.global->acc_mgr, ctx.global->funk_txn, (fd_pubkey_t *) me, raw_acc_data, metadata.hlen, metadata.dlen );
+  if ( read_result != FD_ACC_MGR_SUCCESS ) {
+    FD_LOG_NOTICE(( "failed to read account data: %ld", read_result ));
+    // TODO: What is the correct error?!
+    return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
+  }
+
+  void* input = (void *)raw_acc_data;
+  fd_nonce_state_versions_t state;
+  fd_nonce_state_versions_decode( &state, (const void **) &input, raw_acc_data + metadata.dlen, ctx.global->allocf, ctx.global->allocf_arg );
+
+  switch (state.inner.current.discriminant) {
+  case fd_nonce_state_enum_uninitialized: {
+//                if lamports > self.lamports()? {
+//                    ic_msg!(
+//                        invoke_context,
+//                        "Withdraw nonce account: insufficient lamports {}, need {}",
+//                        self.lamports()?,
+//                        lamports,
+//                    );
+//                    return Err(InstructionError::InsufficientFunds);
+//                }
+//                *self.unsigned_key()
+
+  }
+  case fd_nonce_state_enum_initialized: {
+//                if lamports == self.lamports()? {
+//                    let (durable_nonce, separate_domains) = get_durable_nonce(invoke_context);
+//                    if data.durable_nonce == durable_nonce {
+//                        ic_msg!(
+//                            invoke_context,
+//                            "Withdraw nonce account: nonce can only advance once per slot"
+//                        );
+//                        return Err(nonce_to_instruction_error(
+//                            NonceError::NotExpired,
+//                            merge_nonce_error_into_system_error,
+//                        ));
+//                    }
+//                    self.set_state(&Versions::new(State::Uninitialized, separate_domains))?;
+//                } else {
+//                    let min_balance = rent.minimum_balance(self.data_len()?);
+//                    let amount = checked_add(lamports, min_balance)?;
+//                    if amount > self.lamports()? {
+//                        ic_msg!(
+//                            invoke_context,
+//                            "Withdraw nonce account: insufficient lamports {}, need {}",
+//                            self.lamports()?,
+//                            amount,
+//                        );
+//                        return Err(InstructionError::InsufficientFunds);
+//                    }
+//                }
+//                data.authority
+//            }
+
+  }
+  default: {
+    FD_LOG_NOTICE(( "garbage nonce state" ));
+    // TODO: What is the correct error?!
+    return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
+  }
+  }
+
+
+//        let nonce_balance = self.try_account_ref_mut()?.lamports();
+//        self.try_account_ref_mut()?.set_lamports(
+//            nonce_balance
+//                .checked_sub(lamports)
+//                .ok_or(InstructionError::ArithmeticOverflow)?,
+//        );
+//        let to_balance = to.try_account_ref_mut()?.lamports();
+//        to.try_account_ref_mut()?.set_lamports(
+//            to_balance
+//                .checked_add(lamports)
+//                .ok_or(InstructionError::ArithmeticOverflow)?,
+//        );
+
+  return FD_EXECUTOR_INSTR_SUCCESS;
 }
 
 // https://github.com/firedancer-io/solana/blob/8fb537409eb901444e064f50ea8dd7dcafb12a00/runtime/src/system_instruction_processor.rs#L380
@@ -351,9 +481,7 @@ int fd_initialize_nonce_account(
 
     state.inner.current.inner.initialized.authority = *initialize_nonce_account;
     fd_memcpy(state.inner.current.inner.initialized.durable_nonce.hash, durable_nonce.hash, sizeof(state.inner.current.inner.initialized.durable_nonce.hash));
-    state.inner.current.inner.initialized.fee_calculator.lamports_per_signature = fd_runtime_lamports_per_signature_for_blockhash(ctx.global, &re->blockhash) 
-      // TODO: hacky test... will remove this later
-      * 10;
+    state.inner.current.inner.initialized.fee_calculator.lamports_per_signature = fd_runtime_lamports_per_signature_for_blockhash(ctx.global, &re->blockhash);
 
     ulong sz = fd_nonce_state_versions_size(&state);
     unsigned char *enc = fd_alloca(1, sz);
