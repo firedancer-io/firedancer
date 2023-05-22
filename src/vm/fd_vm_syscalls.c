@@ -4,9 +4,22 @@
 #include "../ballet/keccak256/fd_keccak256.h"
 #include "../ballet/blake3/fd_blake3.h"
 #include "../ballet/base58/fd_base58.h"
+#include "../ballet/murmur3/fd_murmur3.h"
 
 #include <stdio.h>
 
+
+void
+fd_vm_register_syscall( fd_sbpf_syscalls_t *    syscalls,
+                        char const *            name,
+                        fd_sbpf_syscall_fn_ptr_t  fn_ptr) {
+
+  ulong name_len     = strlen(name);
+  uint  syscall_hash = fd_murmur3_32( name, name_len, 0U );
+
+  fd_sbpf_syscalls_t * syscall_entry = fd_sbpf_syscalls_insert( syscalls, syscall_hash );
+  syscall_entry->func_ptr            = fn_ptr;
+}
 
 void fd_vm_syscall_register_all( fd_sbpf_syscalls_t * syscalls ) {
   fd_vm_register_syscall( syscalls, "abort", fd_vm_syscall_abort );
@@ -47,7 +60,7 @@ void fd_vm_syscall_register_all( fd_sbpf_syscalls_t * syscalls ) {
 
 ulong
 fd_vm_syscall_abort(
-    FD_FN_UNUSED fd_vm_exec_context_t * ctx,
+    FD_FN_UNUSED void * _ctx,
     FD_FN_UNUSED ulong arg0,
     FD_FN_UNUSED ulong arg1,
     FD_FN_UNUSED ulong arg2,
@@ -60,7 +73,7 @@ fd_vm_syscall_abort(
 
 ulong
 fd_vm_syscall_sol_panic(
-    FD_FN_UNUSED fd_vm_exec_context_t * ctx,
+    FD_FN_UNUSED void * _ctx,
     FD_FN_UNUSED ulong arg0,
     FD_FN_UNUSED ulong arg1,
     FD_FN_UNUSED ulong arg2,
@@ -74,7 +87,7 @@ fd_vm_syscall_sol_panic(
 
 ulong
 fd_vm_syscall_sol_sha256(
-    fd_vm_exec_context_t * ctx,
+    void * _ctx,
     ulong slices_addr,
     ulong slices_len,
     ulong res_addr,
@@ -82,6 +95,8 @@ fd_vm_syscall_sol_sha256(
     FD_FN_UNUSED ulong arg4,
     FD_FN_UNUSED ulong * ret
 ) {
+  fd_vm_exec_context_t * ctx = (fd_vm_exec_context_t *) _ctx;
+  
   void * slices_raw;
   ulong translation_res = fd_vm_translate_vm_to_host( ctx, 0, slices_addr, slices_len * sizeof(fd_vm_syscall_bytes_slice_t), &slices_raw );
   if( translation_res != FD_VM_MEM_MAP_SUCCESS ) {
@@ -116,7 +131,7 @@ fd_vm_syscall_sol_sha256(
 
 ulong
 fd_vm_syscall_sol_keccak256(
-    fd_vm_exec_context_t * ctx,
+    void * _ctx,
     ulong slices_addr,
     ulong slices_len,
     ulong res_addr,
@@ -124,6 +139,8 @@ fd_vm_syscall_sol_keccak256(
     FD_FN_UNUSED ulong arg4,
     FD_FN_UNUSED ulong * ret
 ) {
+  fd_vm_exec_context_t * ctx = (fd_vm_exec_context_t *) _ctx;
+  
   void * slices_raw;
   ulong translation_res = fd_vm_translate_vm_to_host(ctx, 0, slices_addr, slices_len * sizeof(fd_vm_syscall_bytes_slice_t), &slices_raw);
   if (translation_res != FD_VM_MEM_MAP_SUCCESS) {
@@ -158,7 +175,7 @@ fd_vm_syscall_sol_keccak256(
 
 ulong
 fd_vm_syscall_sol_blake3(
-    fd_vm_exec_context_t * ctx,
+    FD_FN_UNUSED void * _ctx,
     ulong slices_addr,
     ulong slices_len,
     ulong res_addr,
@@ -166,6 +183,8 @@ fd_vm_syscall_sol_blake3(
     FD_FN_UNUSED ulong arg4,
     FD_FN_UNUSED ulong * ret
 ) {
+  fd_vm_exec_context_t * ctx = (fd_vm_exec_context_t *) _ctx;
+  
   void * slices_raw;
   ulong translation_res = fd_vm_translate_vm_to_host(ctx, 0, slices_addr, slices_len * sizeof(fd_vm_syscall_bytes_slice_t), &slices_raw);
   if (translation_res != FD_VM_MEM_MAP_SUCCESS) {
@@ -200,7 +219,7 @@ fd_vm_syscall_sol_blake3(
 
 ulong
 fd_vm_syscall_sol_secp256k1_recover(
-    FD_FN_UNUSED fd_vm_exec_context_t * ctx,
+    FD_FN_UNUSED void * _ctx,
     FD_FN_UNUSED ulong arg0,
     FD_FN_UNUSED ulong arg1,
     FD_FN_UNUSED ulong arg2,
@@ -214,7 +233,7 @@ fd_vm_syscall_sol_secp256k1_recover(
 
 ulong
 fd_vm_syscall_sol_log(
-    fd_vm_exec_context_t * ctx,
+    void  * _ctx,
     ulong msg_vm_addr,
     ulong msg_len,
     FD_FN_UNUSED ulong arg2,
@@ -222,6 +241,7 @@ fd_vm_syscall_sol_log(
     FD_FN_UNUSED ulong arg4,
     ulong * ret
 ) {
+  fd_vm_exec_context_t * ctx = (fd_vm_exec_context_t *) _ctx;
   void * msg_host_addr;
 
   ulong translation_res = fd_vm_translate_vm_to_host(ctx, 0, msg_vm_addr, msg_len, &msg_host_addr);
@@ -237,7 +257,7 @@ fd_vm_syscall_sol_log(
 
 ulong
 fd_vm_syscall_sol_log_64(
-    fd_vm_exec_context_t * ctx,
+    void * _ctx,
     ulong arg0,
     ulong arg1,
     ulong arg2,
@@ -245,6 +265,8 @@ fd_vm_syscall_sol_log_64(
     ulong arg4,
     FD_FN_UNUSED ulong * ret
 ) {
+  fd_vm_exec_context_t * ctx = (fd_vm_exec_context_t *) _ctx;
+
   char msg[1024];
 
   int msg_len = sprintf(msg, "Program log: %lx %lx %lx %lx %lx", arg0, arg1, arg2, arg3, arg4);
@@ -256,7 +278,7 @@ fd_vm_syscall_sol_log_64(
 
 ulong
 fd_vm_syscall_sol_log_pubkey(
-    fd_vm_exec_context_t * ctx,
+    void * _ctx,
     ulong pubkey_vm_addr,
     FD_FN_UNUSED ulong arg1,
     FD_FN_UNUSED ulong arg2,
@@ -264,6 +286,7 @@ fd_vm_syscall_sol_log_pubkey(
     FD_FN_UNUSED ulong arg4,
     FD_FN_UNUSED ulong * ret
 ) {
+  fd_vm_exec_context_t * ctx = (fd_vm_exec_context_t *) _ctx;
   void * pubkey_host_addr;
 
   char msg[128];
@@ -285,7 +308,7 @@ fd_vm_syscall_sol_log_pubkey(
 
 ulong
 fd_vm_syscall_sol_log_compute_units(
-    FD_FN_UNUSED fd_vm_exec_context_t * ctx,
+    FD_FN_UNUSED void * _ctx,
     FD_FN_UNUSED ulong arg0,
     FD_FN_UNUSED ulong arg1,
     FD_FN_UNUSED ulong arg2,
@@ -298,7 +321,7 @@ fd_vm_syscall_sol_log_compute_units(
 
 ulong
 fd_vm_syscall_sol_log_data(
-    FD_FN_UNUSED fd_vm_exec_context_t * ctx,
+    FD_FN_UNUSED void * _ctx,
     FD_FN_UNUSED ulong arg0,
     FD_FN_UNUSED ulong arg1,
     FD_FN_UNUSED ulong arg2,
@@ -311,7 +334,7 @@ fd_vm_syscall_sol_log_data(
 
 ulong
 fd_vm_syscall_sol_memcpy(
-    fd_vm_exec_context_t * ctx,
+    void * _ctx,
     ulong dst_vm_addr,
     ulong src_vm_addr,
     ulong n,
@@ -319,6 +342,7 @@ fd_vm_syscall_sol_memcpy(
     FD_FN_UNUSED ulong arg4,
     ulong * ret
 ) {
+  fd_vm_exec_context_t * ctx = (fd_vm_exec_context_t *) _ctx;
 
   /* Check for overlap */
   /*
@@ -349,7 +373,7 @@ fd_vm_syscall_sol_memcpy(
 
 ulong
 fd_vm_syscall_sol_memcmp(
-    fd_vm_exec_context_t * ctx,
+    void * _ctx,
     ulong vm_addr1,
     ulong vm_addr2,
     ulong n,
@@ -357,6 +381,8 @@ fd_vm_syscall_sol_memcmp(
     FD_FN_UNUSED ulong arg4,
     ulong * ret
 ) {
+  fd_vm_exec_context_t * ctx = (fd_vm_exec_context_t *) _ctx;
+  
   void * host_addr1;
   void * host_addr2;
 
@@ -377,7 +403,7 @@ fd_vm_syscall_sol_memcmp(
 
 ulong
 fd_vm_syscall_sol_memset(
-    fd_vm_exec_context_t * ctx,
+    void * _ctx,
     ulong dst_vm_addr,
     ulong c,
     ulong n,
@@ -385,6 +411,8 @@ fd_vm_syscall_sol_memset(
     FD_FN_UNUSED ulong arg4,
     ulong * ret
 ) {
+  fd_vm_exec_context_t * ctx = (fd_vm_exec_context_t *) _ctx;
+  
   void * dst_host_addr;
 
   ulong translation_res = fd_vm_translate_vm_to_host( ctx, 1, dst_vm_addr, n, &dst_host_addr );
@@ -401,7 +429,7 @@ fd_vm_syscall_sol_memset(
 
 ulong
 fd_vm_syscall_sol_memmove(
-    fd_vm_exec_context_t * ctx,
+    void * _ctx,
     ulong dst_vm_addr,
     ulong src_vm_addr,
     ulong n,
@@ -409,6 +437,8 @@ fd_vm_syscall_sol_memmove(
     FD_FN_UNUSED ulong arg4,
     ulong * ret
 ) {
+  fd_vm_exec_context_t * ctx = (fd_vm_exec_context_t *) _ctx;
+  
   void * dst_host_addr;
   void * src_host_addr;
 
@@ -431,7 +461,7 @@ fd_vm_syscall_sol_memmove(
 
 ulong
 fd_vm_syscall_sol_invoke_signed_c(
-    FD_FN_UNUSED fd_vm_exec_context_t * ctx,
+    FD_FN_UNUSED void * _ctx,
     FD_FN_UNUSED ulong arg0,
     FD_FN_UNUSED ulong arg1,
     FD_FN_UNUSED ulong arg2,
@@ -444,7 +474,7 @@ fd_vm_syscall_sol_invoke_signed_c(
 
 ulong
 fd_vm_syscall_sol_invoke_signed_rust(
-    FD_FN_UNUSED fd_vm_exec_context_t * ctx,
+    FD_FN_UNUSED void * _ctx,
     FD_FN_UNUSED ulong arg0,
     FD_FN_UNUSED ulong arg1,
     FD_FN_UNUSED ulong arg2,
@@ -457,7 +487,7 @@ fd_vm_syscall_sol_invoke_signed_rust(
 
 ulong
 fd_vm_syscall_sol_alloc_free(
-    FD_FN_UNUSED fd_vm_exec_context_t * ctx,
+    FD_FN_UNUSED void * _ctx,
     FD_FN_UNUSED ulong arg0,
     FD_FN_UNUSED ulong arg1,
     FD_FN_UNUSED ulong arg2,
@@ -470,7 +500,7 @@ fd_vm_syscall_sol_alloc_free(
 
 ulong
 fd_vm_syscall_sol_get_return_data(
-    FD_FN_UNUSED fd_vm_exec_context_t * ctx,
+    FD_FN_UNUSED void * _ctx,
     FD_FN_UNUSED ulong arg0,
     FD_FN_UNUSED ulong arg1,
     FD_FN_UNUSED ulong arg2,
@@ -483,7 +513,7 @@ fd_vm_syscall_sol_get_return_data(
 
 ulong
 fd_vm_syscall_sol_set_return_data(
-    FD_FN_UNUSED fd_vm_exec_context_t * ctx,
+    FD_FN_UNUSED void * _ctx,
     FD_FN_UNUSED ulong arg0,
     FD_FN_UNUSED ulong arg1,
     FD_FN_UNUSED ulong arg2,
@@ -496,7 +526,7 @@ fd_vm_syscall_sol_set_return_data(
 
 ulong
 fd_vm_syscall_sol_get_stack_height(
-    fd_vm_exec_context_t * ctx,
+    void * _ctx,
     FD_FN_UNUSED ulong arg0,
     FD_FN_UNUSED ulong arg1,
     FD_FN_UNUSED ulong arg2,
@@ -504,6 +534,7 @@ fd_vm_syscall_sol_get_stack_height(
     FD_FN_UNUSED ulong arg4,
     ulong * ret
 ) {
+  fd_vm_exec_context_t * ctx = (fd_vm_exec_context_t *) _ctx;
   *ret = ctx->stack.frames_used;
 
   return FD_VM_SYSCALL_SUCCESS;
@@ -511,7 +542,7 @@ fd_vm_syscall_sol_get_stack_height(
 
 ulong
 fd_vm_syscall_sol_get_clock_sysvar(
-    FD_FN_UNUSED fd_vm_exec_context_t * ctx,
+    FD_FN_UNUSED void * _ctx,
     FD_FN_UNUSED ulong arg0,
     FD_FN_UNUSED ulong arg1,
     FD_FN_UNUSED ulong arg2,
@@ -524,7 +555,7 @@ fd_vm_syscall_sol_get_clock_sysvar(
 
 ulong
 fd_vm_syscall_sol_get_epoch_schedule_sysvar(
-    FD_FN_UNUSED fd_vm_exec_context_t * ctx,
+    FD_FN_UNUSED void * _ctx,
     FD_FN_UNUSED ulong arg0,
     FD_FN_UNUSED ulong arg1,
     FD_FN_UNUSED ulong arg2,
@@ -537,7 +568,7 @@ fd_vm_syscall_sol_get_epoch_schedule_sysvar(
 
 ulong
 fd_vm_syscall_sol_get_fees_sysvar(
-    FD_FN_UNUSED fd_vm_exec_context_t * ctx,
+    FD_FN_UNUSED void * _ctx,
     FD_FN_UNUSED ulong arg0,
     FD_FN_UNUSED ulong arg1,
     FD_FN_UNUSED ulong arg2,
@@ -550,7 +581,7 @@ fd_vm_syscall_sol_get_fees_sysvar(
 
 ulong
 fd_vm_syscall_sol_get_rent_sysvar(
-    FD_FN_UNUSED fd_vm_exec_context_t * ctx,
+    FD_FN_UNUSED void * _ctx,
     FD_FN_UNUSED ulong arg0,
     FD_FN_UNUSED ulong arg1,
     FD_FN_UNUSED ulong arg2,
@@ -563,7 +594,7 @@ fd_vm_syscall_sol_get_rent_sysvar(
 
 ulong
 fd_vm_syscall_sol_create_program_address(
-    FD_FN_UNUSED fd_vm_exec_context_t * ctx,
+    FD_FN_UNUSED void * _ctx,
     FD_FN_UNUSED ulong arg0,
     FD_FN_UNUSED ulong arg1,
     FD_FN_UNUSED ulong arg2,
@@ -576,7 +607,7 @@ fd_vm_syscall_sol_create_program_address(
 
 ulong
 fd_vm_syscall_sol_try_find_program_address(
-    FD_FN_UNUSED fd_vm_exec_context_t * ctx,
+    FD_FN_UNUSED void * _ctx,
     FD_FN_UNUSED ulong arg0,
     FD_FN_UNUSED ulong arg1,
     FD_FN_UNUSED ulong arg2,
@@ -589,7 +620,7 @@ fd_vm_syscall_sol_try_find_program_address(
 
 ulong
 fd_vm_syscall_sol_get_processed_sibling_instruction(
-    FD_FN_UNUSED fd_vm_exec_context_t * ctx,
+    FD_FN_UNUSED void * _ctx,
     FD_FN_UNUSED ulong arg0,
     FD_FN_UNUSED ulong arg1,
     FD_FN_UNUSED ulong arg2,

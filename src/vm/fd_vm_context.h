@@ -6,6 +6,7 @@
 
 #include "../util/fd_util.h"
 #include "../ballet/sbpf/fd_sbpf_instr.h"
+#include "../ballet/sbpf/fd_sbpf_loader.h"
 #include "../ballet/sbpf/fd_sbpf_maps.h"
 
 #include "fd_vm_log_collector.h"
@@ -76,11 +77,16 @@ struct fd_vm_exec_context {
 };
 typedef struct fd_vm_exec_context fd_vm_exec_context_t;
 
+struct fd_vm_trace_entry {
+  ulong pc;
+  ulong ic;
+  ulong register_file[11];
+};
+typedef struct fd_vm_trace_entry fd_vm_trace_entry_t;
+
 
 FD_PROTOTYPES_BEGIN
 
-/* Registers a syscall by name to an execution context. */
-void fd_vm_register_syscall( fd_sbpf_syscalls_t * syscalls, char const * name, fd_vm_syscall_fn_ptr_t fn_ptr );
 
 /* Validates the sBPF program from the given context. Returns success or an error code. */
 FD_FN_PURE ulong fd_vm_context_validate( fd_vm_exec_context_t const * ctx );

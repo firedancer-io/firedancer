@@ -9,6 +9,17 @@
  * After your jump table you should include "fd_jump_tab_teardown.c"
  */
 
+#if defined(__GNUC__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wpedantic"
+#endif
+
+#if defined(__clang__)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wpedantic"
+#pragma clang diagnostic ignored "-Wgnu-label-as-value"
+#endif
+
 #ifndef JMP_TAB_ID
 #error "Define JMP_TAB_ID"
 #endif
