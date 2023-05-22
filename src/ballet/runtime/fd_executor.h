@@ -39,43 +39,51 @@ void* fd_executor_delete( void* mem );
 #define FD_EXECUTOR_INSTR_ERR_ACC_DATA_TOO_SMALL                 ( -5 ) /* An account's data was too small */
 #define FD_EXECUTOR_INSTR_ERR_INSUFFICIENT_FUNDS                 ( -6 ) /* An account's balance was too small to complete the instruction */
 #define FD_EXECUTOR_INSTR_ERR_INCORRECT_PROGRAM_ID               ( -7 ) /* The account did not have the expected program id */
-#define FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE         ( -9 ) /* A signature was required but not found */
-#define FD_EXECUTOR_INSTR_ERR_ACC_ALREADY_INITIALIZED            ( -10 ) /* An initialize instruction was sent to an account that has already been initialized. */
-#define FD_EXECUTOR_INSTR_ERR_UNINITIALIZED_ACCOUNT              ( -11 ) /* An attempt to operate on an account that hasn't been initialized. */
-#define FD_EXECUTOR_INSTR_ERR_UNBALANCED_INSTR                   ( -12 ) /* Program's instruction lamport balance does not equal the balance after the instruction */
-#define FD_EXECUTOR_INSTR_ERR_MODIFIED_PROGRAM_ID                ( -13 ) /* Program illegally modified an account's program id */
-#define FD_EXECUTOR_INSTR_ERR_EXTERNAL_ACCOUNT_LAMPORT_SPEND     ( -14 ) /* Program spent the lamports of an account that doesn't belong to it */
-#define FD_EXECUTOR_INSTR_ERR_EXTERNAL_DATA_MODIFIED             ( -15 ) /* Program modified the data of an account that doesn't belong to it */
-#define FD_EXECUTOR_INSTR_ERR_READONLY_LAMPORT_CHANGE            ( -16 ) /* Read-only account's lamports modified */
-#define FD_EXECUTOR_INSTR_ERR_READONLY_DATA_MODIFIED             ( -17 ) /* Read-only account's data was modified */
-#define FD_EXECUTOR_INSTR_ERR_DUPLICATE_ACCOUNT_IDX              ( -18 ) /* An account was referenced more than once in a single instruction. Deprecated. */
-#define FD_EXECUTOR_INSTR_ERR_EXECUTABLE_MODIFIED                ( -19 ) /* Executable bit on account changed, but shouldn't have */
-#define FD_EXECUTOR_INSTR_ERR_RENT_EPOCH_MODIFIED                ( -20 ) /* Rent_epoch account changed, but shouldn't have */
-#define FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS                ( -21 ) /* The instruction expected additional account keys */
-#define FD_EXECUTOR_INSTR_ERR_ACC_DATA_SIZE_CHANGED              ( -22 ) /* Program other than the account's owner changed the size of the account data */
-#define FD_EXECUTOR_INSTR_ERR_ACC_NOT_EXECUTABLE                 ( -23 ) /* The instruction expected an executable account */
-#define FD_EXECUTOR_INSTR_ERR_ACC_BORROW_FAILED                  ( -24 ) /* Failed to borrow a reference to account data, already borrowed */
-#define FD_EXECUTOR_INSTR_ERR_ACC_BORROW_OUTSTANDING             ( -25 ) /* Account data has an outstanding reference after a program's execution */
-#define FD_EXECUTOR_INSTR_ERR_DUPLICATE_ACCOUNT_OUT_OF_SYNC      ( -26 ) /* The same account was multiply passed to an on-chain program's entrypoint, but the program modified them differently. */
-#define FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR                         ( -27 ) /* Allows on-chain programs to implement program-specific error types and see them returned by the runtime. */
-#define FD_EXECUTOR_INSTR_ERR_INVALID_ERR                        ( -28 ) /* The return value from the program was invalid.  */
-#define FD_EXECUTOR_INSTR_ERR_EXECUTABLE_DATA_MOTIFIED           ( -29 ) /* Executable account's data was modified */
-#define FD_EXECUTOR_INSTR_ERR_EXECUTABLE_LAMPORT_CHANGE          ( -30 ) /* Executable account's lamports modified */
-#define FD_EXECUTOR_INSTR_ERR_EXECUTABLE_ACCOUNT_NOT_RENT_EXEMPT ( -31 ) /* Executable accounts must be rent exempt */
-#define FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID             ( -32 ) /* Unsupported program id */
-#define FD_EXECUTOR_INSTR_ERR_CALL_DEPTH                         ( -33 ) /* Cross-program invocation call depth too deep */
-#define FD_EXECUTOR_INSTR_ERR_MISSING_ACC                        ( -34 ) /* An account required by the instruction is missing */
-#define FD_EXECUTOR_INSTR_ERR_REENTRANCY_NOT_ALLOWED             ( -35 ) /* Cross-program invocation reentrancy not allowed for this instruction */
-#define FD_EXECUTOR_INSTR_ERR_MAX_SEED_LENGTH_EXCEEDED           ( -36 ) /* Length of the seed is too long for address generation */
-#define FD_EXECUTOR_INSTR_ERR_INVALID_SEEDS                      ( -37 ) /* Provided seeds do not result in a valid address */
-#define FD_EXECUTOR_INSTR_ERR_INVALID_REALLOC                    ( -38 ) /* Failed to reallocate account data of this length */
-#define FD_EXECUTOR_INSTR_ERR_COMPUTE_BUDGET_EXCEEDED            ( -39 ) /* Computational budget exceeded */
-#define FD_EXECUTOR_INSTR_ERR_PRIVILEGE_ESCALATION               ( -40 ) /* Cross-program invocation with unauthorized signer or writable account */
-#define FD_EXECUTOR_INSTR_ERR_PROGRAM_ENVIRONMENT_SETUP_FAILURE  ( -41 ) /* Failed to create program execution environment */
-#define FD_EXECUTOR_INSTR_ERR_PROGRAM_FAILED_TO_COMPLETE         ( -42 ) /* Program failed to complete */
-#define FD_EXECUTOR_INSTR_ERR_PROGRAM_FAILED_TO_COMPILE          ( -43 ) /* Program failed to compile */
-#define FD_EXECUTOR_INSTR_ERR_ACC_IMMUTABLE                      ( -44 ) /* Account is immutable */
-#define FD_EXECUTOR_INSTR_ERR_INCORRECT_AUTHORITY                ( -45 ) /* Incorrect authority provided */
+#define FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE         ( -8 ) /* A signature was required but not found */
+#define FD_EXECUTOR_INSTR_ERR_ACC_ALREADY_INITIALIZED            ( -9  ) /* An initialize instruction was sent to an account that has already been initialized. */
+#define FD_EXECUTOR_INSTR_ERR_UNINITIALIZED_ACCOUNT              ( -10 ) /* An attempt to operate on an account that hasn't been initialized. */
+#define FD_EXECUTOR_INSTR_ERR_UNBALANCED_INSTR                   ( -11 ) /* Program's instruction lamport balance does not equal the balance after the instruction */
+#define FD_EXECUTOR_INSTR_ERR_MODIFIED_PROGRAM_ID                ( -12 ) /* Program illegally modified an account's program id */
+#define FD_EXECUTOR_INSTR_ERR_EXTERNAL_ACCOUNT_LAMPORT_SPEND     ( -13 ) /* Program spent the lamports of an account that doesn't belong to it */
+#define FD_EXECUTOR_INSTR_ERR_EXTERNAL_DATA_MODIFIED             ( -14 ) /* Program modified the data of an account that doesn't belong to it */
+#define FD_EXECUTOR_INSTR_ERR_READONLY_LAMPORT_CHANGE            ( -15 ) /* Read-only account's lamports modified */
+#define FD_EXECUTOR_INSTR_ERR_READONLY_DATA_MODIFIED             ( -16 ) /* Read-only account's data was modified */
+#define FD_EXECUTOR_INSTR_ERR_DUPLICATE_ACCOUNT_IDX              ( -17 ) /* An account was referenced more than once in a single instruction. Deprecated. */
+#define FD_EXECUTOR_INSTR_ERR_EXECUTABLE_MODIFIED                ( -18 ) /* Executable bit on account changed, but shouldn't have */
+#define FD_EXECUTOR_INSTR_ERR_RENT_EPOCH_MODIFIED                ( -19 ) /* Rent_epoch account changed, but shouldn't have */
+#define FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS                ( -20 ) /* The instruction expected additional account keys */
+#define FD_EXECUTOR_INSTR_ERR_ACC_DATA_SIZE_CHANGED              ( -21 ) /* Program other than the account's owner changed the size of the account data */
+#define FD_EXECUTOR_INSTR_ERR_ACC_NOT_EXECUTABLE                 ( -22 ) /* The instruction expected an executable account */
+#define FD_EXECUTOR_INSTR_ERR_ACC_BORROW_FAILED                  ( -23 ) /* Failed to borrow a reference to account data, already borrowed */
+#define FD_EXECUTOR_INSTR_ERR_ACC_BORROW_OUTSTANDING             ( -24 ) /* Account data has an outstanding reference after a program's execution */
+#define FD_EXECUTOR_INSTR_ERR_DUPLICATE_ACCOUNT_OUT_OF_SYNC      ( -25 ) /* The same account was multiply passed to an on-chain program's entrypoint, but the program modified them differently. */
+#define FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR                         ( -26 ) /* Allows on-chain programs to implement program-specific error types and see them returned by the runtime. */
+#define FD_EXECUTOR_INSTR_ERR_INVALID_ERR                        ( -27 ) /* The return value from the program was invalid.  */
+#define FD_EXECUTOR_INSTR_ERR_EXECUTABLE_DATA_MOTIFIED           ( -28 ) /* Executable account's data was modified */
+#define FD_EXECUTOR_INSTR_ERR_EXECUTABLE_LAMPORT_CHANGE          ( -29 ) /* Executable account's lamports modified */
+#define FD_EXECUTOR_INSTR_ERR_EXECUTABLE_ACCOUNT_NOT_RENT_EXEMPT ( -30 ) /* Executable accounts must be rent exempt */
+#define FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID             ( -31 ) /* Unsupported program id */
+#define FD_EXECUTOR_INSTR_ERR_CALL_DEPTH                         ( -32 ) /* Cross-program invocation call depth too deep */
+#define FD_EXECUTOR_INSTR_ERR_MISSING_ACC                        ( -33 ) /* An account required by the instruction is missing */
+#define FD_EXECUTOR_INSTR_ERR_REENTRANCY_NOT_ALLOWED             ( -34 ) /* Cross-program invocation reentrancy not allowed for this instruction */
+#define FD_EXECUTOR_INSTR_ERR_MAX_SEED_LENGTH_EXCEEDED           ( -35 ) /* Length of the seed is too long for address generation */
+#define FD_EXECUTOR_INSTR_ERR_INVALID_SEEDS                      ( -36 ) /* Provided seeds do not result in a valid address */
+#define FD_EXECUTOR_INSTR_ERR_INVALID_REALLOC                    ( -37 ) /* Failed to reallocate account data of this length */
+#define FD_EXECUTOR_INSTR_ERR_COMPUTE_BUDGET_EXCEEDED            ( -38 ) /* Computational budget exceeded */
+#define FD_EXECUTOR_INSTR_ERR_PRIVILEGE_ESCALATION               ( -39 ) /* Cross-program invocation with unauthorized signer or writable account */
+#define FD_EXECUTOR_INSTR_ERR_PROGRAM_ENVIRONMENT_SETUP_FAILURE  ( -40 ) /* Failed to create program execution environment */
+#define FD_EXECUTOR_INSTR_ERR_PROGRAM_FAILED_TO_COMPLETE         ( -41 ) /* Program failed to complete */
+#define FD_EXECUTOR_INSTR_ERR_PROGRAM_FAILED_TO_COMPILE          ( -42 ) /* Program failed to compile */
+#define FD_EXECUTOR_INSTR_ERR_ACC_IMMUTABLE                      ( -43 ) /* Account is immutable */
+#define FD_EXECUTOR_INSTR_ERR_INCORRECT_AUTHORITY                ( -44 ) /* Incorrect authority provided */
+#define FD_EXECUTOR_INSTR_ERR_BORSH_IO_ERROR                     ( -45 ) /* Failed to serialize or deserialize account data */
+#define FD_EXECUTOR_INSTR_ERR_ACC_NOT_RENT_EXEMPT                ( -46 ) /* An account does not have enough lamports to be rent-exempt */
+#define FD_EXECUTOR_INSTR_ERR_INVALID_ACC_OWNER                  ( -47 ) /* Invalid account owner */
+#define FD_EXECUTOR_INSTR_ERR_ARITHMETIC_OVERFLOW                ( -48 ) /* Program arithmetic overflowed */
+#define FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR                 ( -49 ) /* Unsupported sysvar */
+#define FD_EXECUTOR_INSTR_ERR_ILLEGAL_OWNER                      ( -50 ) /* Provided owner is not allowed */
+#define FD_EXECUTOR_INSTR_ERR_MAX_ACCS_DATA_SIZE_EXCEEDED        ( -51 ) /* Account data allocation exceeded the maximum accounts data size limit */
+#define FD_EXECUTOR_INSTR_ERR_ACTIVE_VOTE_ACC_CLOSE              ( -52 ) /* Active vote account close */
 
 #define FD_EXECUTOR_SYSTEM_ERR_ACCOUNT_ALREADY_IN_USE            ( -1 ) /* an account with the same address already exists */
 #define FD_EXECUTOR_SYSTEM_ERR_RESULTS_WITH_NEGATIVE_LAMPORTS    ( -2 ) /* account does not have enough SOL to perform the operation */
