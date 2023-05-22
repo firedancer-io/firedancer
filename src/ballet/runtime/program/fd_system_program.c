@@ -41,6 +41,8 @@ static int transfer(
     return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
   }
 
+  // TODO: check sender has empty data https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/runtime/src/system_instruction_processor.rs#LL177C20-L177C20
+
   /* Check sender account has enough balance to execute this transaction */
   fd_acc_lamports_t sender_lamports = 0;
   int               read_result = fd_acc_mgr_get_lamports( ctx.global->acc_mgr, ctx.global->funk_txn, sender, &sender_lamports );
@@ -76,6 +78,8 @@ static int transfer(
   }
   FD_LOG_DEBUG(("transfer: sender balance before transfer: %lu", sender_lamports));
   FD_LOG_DEBUG(("transfer: receiver balance before transfer: %lu", receiver_lamports));
+
+  /* TODO: check for underflow https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/runtime/src/system_instruction_processor.rs#L191 */
 
   /* Execute the transfer */
   int write_result = fd_acc_mgr_set_lamports( ctx.global->acc_mgr, ctx.global->funk_txn, ctx.global->bank.solana_bank.slot , sender, sender_lamports - requested_lamports );
