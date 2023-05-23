@@ -64,6 +64,11 @@ void txn1_correctness( void ) {
   FD_TEST( ix[ 6 ].data_sz    == 12UL );
   FD_TEST( transaction1[ ix[ 6 ].acct_off ] ==  14UL );
   FD_TEST( transaction1[ ix[ 6 ].data_off ] == 211UL );
+
+  fd_txn_xray_result_t xray;
+  FD_TEST( fd_txn_xray( transaction1, transaction1_sz, &xray ) == parsed_sz );
+  FD_TEST( xray.signature_cnt == parsed->signature_cnt );
+  FD_TEST( xray.signature_off == parsed->signature_off );
 }
 void txn2_correctness( void ) {
   fd_txn_parse_counters_t counters = {0};
@@ -125,6 +130,10 @@ void txn2_correctness( void ) {
   FD_TEST( transaction2[ luts[ 2 ].writable_off ] == 91UL );
   FD_TEST( transaction2[ luts[ 2 ].readonly_off ] == 97UL );
 
+  fd_txn_xray_result_t xray;
+  FD_TEST( fd_txn_xray( transaction2, transaction2_sz, &xray ) == parsed_sz );
+  FD_TEST( xray.signature_cnt == parsed->signature_cnt );
+  FD_TEST( xray.signature_off == parsed->signature_off );
 }
 
 void
@@ -223,6 +232,14 @@ test_performance( uchar const * payload,
   }
   long end = fd_log_wallclock( );
   FD_LOG_NOTICE(( "Average time per parse: %f ns", (double)(end-start)/(double)test_count ));
+
+  start = fd_log_wallclock( );
+  for( ulong i = 0; i < test_count; i++ ) {
+    fd_txn_xray_result_t xray;
+    FD_TEST( fd_txn_xray( payload, sz, &xray ) );
+  }
+  end = fd_log_wallclock( );
+  FD_LOG_NOTICE(( "Average time per xray: %f ns", (double)(end-start)/(double)test_count ));
 }
 
 void

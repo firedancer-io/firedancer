@@ -255,7 +255,7 @@ fd_txn_xray( uchar const             * payload,
   result->signature_off = (ushort)signature_off;
 
   if ( FD_UNLIKELY( i >= payload_sz ) ) return 0UL;
-  uchar header_b0      = payload[ i ];     i++;
+  uchar header_b0      = payload[ i ]; i++;
   uchar transaction_version;
   if( FD_LIKELY( (ulong)header_b0 & 0x80UL ) ) {
     /* This is a versioned transaction */
@@ -286,7 +286,7 @@ fd_txn_xray( uchar const             * payload,
   }
 
   if( FD_LIKELY( transaction_version==FD_TXN_V0 ) ) {
-    ushort addr_table_cnt               = 0;
+    ushort addr_table_cnt = 0;
     READ_COMPACT_U16( addr_table_cnt, i );
     for( ulong j=0; j<addr_table_cnt; j++ ) {
       i += FD_TXN_ACCT_ADDR_SZ;
