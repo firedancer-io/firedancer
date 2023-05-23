@@ -5,6 +5,7 @@
 #include "../ballet/blake3/fd_blake3.h"
 #include "../ballet/base58/fd_base58.h"
 #include "../ballet/murmur3/fd_murmur3.h"
+#include "../ballet/sbpf/fd_sbpf_maps.c"
 
 #include <stdio.h>
 
