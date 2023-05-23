@@ -7,7 +7,6 @@
 #include "../util/fd_util.h"
 #include "../ballet/sbpf/fd_sbpf_instr.h"
 #include "../ballet/sbpf/fd_sbpf_loader.h"
-#include "../ballet/sbpf/fd_sbpf_maps.h"
 
 #include "fd_vm_log_collector.h"
 #include "fd_vm_stack.h"
