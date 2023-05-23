@@ -9,6 +9,7 @@
 #include "../../util/net/fd_ip4.h"
 #include "../../util/net/fd_udp.h"
 #include "../../ballet/shred/fd_shred.h"
+#include "../../ballet/shred/fd_fec_set.h"
 
 /* FD_IMPORT_BINARY( test_private_key, "src/ballet/shred/fixtures/demo-shreds.key"  ); */
 
@@ -70,7 +71,7 @@ fd_net_endpoint_load( uchar const * pod, fd_net_endpoint_t * out ) {
   }
 
   out->ip4  = fd_uint_bswap(   out->ip4 );
-  out->port = fd_ushort_bswap( _port );
+  out->port = fd_ushort_bswap( _port    );
   return out;
 }
 
@@ -78,6 +79,12 @@ struct forwarding_ctx {
   fd_aio_t const * tx_aio;
   fd_net_endpoint_t src;
   fd_net_endpoint_t dst;
+
+  fd_aio_pkt_info_t * * data_batches;
+  fd_aio_pkt_info_t * * parity_batches;
+  fd_fec_resolver_t * resolver;
+
+  fd_fec_set_t * set;
 };
 typedef struct forwarding_ctx forwarding_ctx_t;
 
@@ -91,7 +98,7 @@ handle_rx_shred( void *                    _ctx,
 
   fd_fec_set_t * to_send = fd_fec_resolver_add_shred( ctx->resolver, shred, shred_sz );
   if( FD_UNLIKELY( to_send ) ) {
-    ulong idx = to_send - ctx->set;
+    long idx = to_send - ctx->set;
     /* TODO: Do I want to bother changing the identification field? */
     int send_rc = send_loop_helper( ctx->tx_aio, ctx->data_batches[ idx ], to_send->data_shred_cnt );
     if( FD_UNLIKELY( send_rc<0 ) )  FD_LOG_WARNING(( "AIO send err for data shreds. Error: %s", fd_aio_strerror( send_rc ) ));
@@ -109,6 +116,20 @@ handle_rx_shred( void *                    _ctx,
     pkt->udp->net_sport = ctx->src.port;
     pkt->udp->net_dport = ctx->dst.port;
     */
+}
+
+int
+handle_rx( void *                    ctx,
+           fd_aio_pkt_info_t const * batch,
+           ulong                     batch_cnt,
+           ulong *                   opt_batch_idx ) {
+  (void)opt_batch_idx;
+  for( ulong i=0UL; i<batch_cnt; i++ ) {
+    fd_shred_t const * shred = fd_shred_parse( batch[i].buf, batch[i].buf_sz );
+    if( FD_LIKELY( shred ) ) handle_rx_shred( ctx, shred, batch[i].buf_sz );
+    else {  /* Increment a counter */ }
+  }
+  return FD_AIO_SUCCESS;
 }
 
 int
@@ -178,7 +199,7 @@ fd_frank_retransmit_task( int     argc,
 
 
   fd_aio_t _aio[1];
-  fd_aio_t * aio = fd_aio_join( fd_aio_new( _aio, ctx, forward_pkt ) );
+  fd_aio_t * aio = fd_aio_join( fd_aio_new( _aio, ctx, handle_rx ) );
   if( FD_UNLIKELY( !aio ) ) FD_LOG_ERR(( "join aio failed" ));
 
   fd_xsk_aio_set_rx( xsk_aio, aio );

@@ -1,3 +1,7 @@
+#if 1
+#pragma GCC optimize ("O0")
+#endif
+
 /* This file declares a family of functions for different widths of
    binary Merkle trees based on the SHA-256 hash function.  It can be
    included multiple times to get different widths.  Example:
@@ -180,8 +184,8 @@ fd_bmtree_commit_footprint( ulong inclusion_proof_layer_cnt ) {
      extra bmtree_node_t (included in sizeof(fd_bmtree_commit_t)) to
      avoid branches when appending commits. */
   return sizeof(fd_bmtree_commit_t) +
-    ((1UL<<inclusion_proof_layer_cnt)-1UL      )*sizeof(fd_bmtree_node_t) +
-    ((1UL<<inclusion_proof_layer_cnt+63UL)/64UL)*sizeof(ulong);
+    ( (1UL<<inclusion_proof_layer_cnt)-1UL       )*sizeof(fd_bmtree_node_t) +
+    (((1UL<<inclusion_proof_layer_cnt)+63UL)/64UL)*sizeof(ulong);
 }
 
 
@@ -314,9 +318,9 @@ fd_bmtree_commit_fini( fd_bmtree_commit_t * state ) {
 }
 
 int
-fd_bmtree_get_inclusion_proof( fd_bmtree_commit_t * state,
-                               uchar *              dest,
-                               ulong                leaf_idx ) {
+fd_bmtree_get_proof( fd_bmtree_commit_t * state,
+                     uchar *              dest,
+                     ulong                leaf_idx ) {
 
   ulong leaf_cnt = state->leaf_cnt;
   ulong hash_sz  = state->hash_sz;
@@ -343,7 +347,7 @@ fd_bmtree_get_inclusion_proof( fd_bmtree_commit_t * state,
 }
 
 fd_bmtree_node_t *
-fd_bmtree_validate_inclusion_proof( fd_bmtree_node_t const * leaf,
+fd_bmtree_from_proof( fd_bmtree_node_t const * leaf,
                                     ulong                    leaf_idx,
                                     fd_bmtree_node_t *       root,
                                     uchar const *            proof,
@@ -377,11 +381,12 @@ fd_bmtree_validate_inclusion_proof( fd_bmtree_node_t const * leaf,
 #define HAS(inc_idx) (ipfset_test( state->inclusion_proofs_valid[(inc_idx)/64UL], (inc_idx)%64UL ) )
 
 int
-fd_bmtree_commitp_insert_with_proof( fd_bmtree_commit_t *     commit,
+fd_bmtree_commitp_insert_with_proof( fd_bmtree_commit_t *     state,
                                      ulong                    idx,
                                      fd_bmtree_node_t const * new_leaf,
                                      uchar            const * proof,
-                                     ulong                    proof_depth ) {
+                                     ulong                    proof_depth,
+                                     fd_bmtree_node_t       * opt_root ) {
   ulong inc_idx = 2UL * idx;
   ulong inclusion_proof_sz = state->inclusion_proof_sz;
   ulong hash_sz = state->hash_sz;
@@ -391,7 +396,7 @@ fd_bmtree_commitp_insert_with_proof( fd_bmtree_commit_t *     commit,
   state->node_buf[ 0 ] = *new_leaf;
 
   ulong layer=0UL;
-  for( layer; layer<proof_depth; layer++ ) {
+  for( ; layer<proof_depth; layer++ ) {
     ulong sibling_idx = inc_idx ^ (2UL<<layer);
     if( FD_UNLIKELY( HAS(sibling_idx) && !fd_memeq( proof+hash_sz*layer, state->inclusion_proofs[sibling_idx].hash, hash_sz ) ) )
       return 0;
@@ -402,11 +407,11 @@ fd_bmtree_commitp_insert_with_proof( fd_bmtree_commit_t *     commit,
 
     if( HAS(sibling_idx) & HAS(inc_idx) ) state->node_buf[ layer+1UL ] = state->inclusion_proofs[ parent_idx ];
     else {
-      fd_bmtree_node_t sibling[1];
-      fd_memcpy( sibling->hash, proof+hash_sz*layer, hash_sz );
+      fd_bmtree_node_t sibling;
+      fd_memcpy( sibling.hash, proof+hash_sz*layer, hash_sz );
 
-      fd_bmtree_node_t * tmp_l = fd_ptr_if( 0UL==(inc_idx & (2UL<<layer)), state->node_buf+layer, sibling );
-      fd_bmtree_node_t * tmp_r = fd_ptr_if( 0UL==(inc_idx & (2UL<<layer)), sibling, state->node_buf+layer );
+      fd_bmtree_node_t * tmp_l = fd_ptr_if( 0UL==(inc_idx & (2UL<<layer)), state->node_buf+layer, &sibling );
+      fd_bmtree_node_t * tmp_r = fd_ptr_if( 0UL==(inc_idx & (2UL<<layer)), &sibling, state->node_buf+layer );
 
       fd_bmtree_private_merge( state->node_buf+layer+1UL, tmp_l, tmp_r, state->hash_sz, state->prefix_sz );
     }
@@ -414,7 +419,7 @@ fd_bmtree_commitp_insert_with_proof( fd_bmtree_commit_t *     commit,
     inc_idx = parent_idx;
   }
 
-  for( layer; layer<63UL; layer++ ) {
+  for( ; layer<63UL; layer++ ) {
     if( (inc_idx|(2UL<<layer)) >= inclusion_proof_sz    ) break; /* Sibling out of bounds => At root */
     if( HAS( inc_idx ) | !HAS( inc_idx ^ (2UL<<layer) ) ) break; /* Not able to derive any more */
 
@@ -427,33 +432,36 @@ fd_bmtree_commitp_insert_with_proof( fd_bmtree_commit_t *     commit,
   }
   /* TODO: Prove inc_idx < inclusion_proof_sz at this point */
   if( FD_UNLIKELY( HAS(inc_idx) &&
-        !fd_mem_eq( state->node_buf[layer+1UL].hash, state->inclusion_proofs[ inc_idx ].hash, state->hash_sz ) ) )
+        !fd_memeq( state->node_buf[layer].hash, state->inclusion_proofs[ inc_idx ].hash, state->hash_sz ) ) )
     return 0;
 
   /* Cache the nodes from the main branch */
   inc_idx = 2UL * idx;
-  for( ulong i=0UL; i<layer; i++ ) {
+  for( ulong i=0UL; i<=layer; i++ ) {
     state->inclusion_proofs[ inc_idx ] = state->node_buf[ i ];
     state->inclusion_proofs_valid[inc_idx/64UL] |= ipfset_ele( inc_idx%64UL );
-    inc_idx = fd_ulong_insert_lsb( inc_idx, (int)layer+2, (2UL<<layer)-1UL );
+    inc_idx = fd_ulong_insert_lsb( inc_idx, (int)i+2, (2UL<<i)-1UL );
   }
 
   /* Cache the inclusion proof */
   inc_idx = 2UL * idx;
   for( ulong i=0UL; i<proof_depth; i++ ) {
-    ulong sibling_idx = inc_idx ^ (2UL<<layer);
-    fd_memcpy( state->inclusion_proofs[ sibling_idx ].hash, proof+hash_sz*layer, hash_sz );
+    ulong sibling_idx = inc_idx ^ (2UL<<i);
+    fd_memcpy( state->inclusion_proofs[ sibling_idx ].hash, proof+hash_sz*i, hash_sz );
     state->inclusion_proofs_valid[sibling_idx/64UL] |= ipfset_ele( sibling_idx%64UL );
-    inc_idx = fd_ulong_insert_lsb( inc_idx, (int)layer+2, (2UL<<layer)-1UL );
+    inc_idx = fd_ulong_insert_lsb( inc_idx, (int)i+2, (2UL<<i)-1UL );
   }
+
+  if( FD_UNLIKELY( opt_root != NULL ) ) *opt_root = state->node_buf[ layer ];
 
   return 1;
 }
 
 uchar *
-fd_bmtree_commitp_fini( fd_bmtree_commit_t * commit, ulong leaf_cnt ) {
+fd_bmtree_commitp_fini( fd_bmtree_commit_t * state, ulong leaf_cnt ) {
   ulong inclusion_proof_sz = state->inclusion_proof_sz;
   ulong hash_sz = state->hash_sz;
+  fd_bmtree_node_t * node_buf = state->node_buf;
 
   if( FD_UNLIKELY( leaf_cnt==0UL ) ) return NULL;
 
@@ -474,7 +482,7 @@ fd_bmtree_commitp_fini( fd_bmtree_commit_t * commit, ulong leaf_cnt ) {
        beyond the current one.  Since inclusion_proof_sz is a power of
        2, that means it suffices to check this once and not every time
        we go up the tree. */
-    /* TODO: Make this more formal */
+    /* TODO: Make this argument more formal */
     if( FD_UNLIKELY( inc_idx >= inclusion_proof_sz ) ) return 0;
 
     if( FD_UNLIKELY( !HAS(inc_idx) ) ) return NULL;
@@ -504,11 +512,11 @@ fd_bmtree_commitp_fini( fd_bmtree_commit_t * commit, ulong leaf_cnt ) {
     layer_cnt = leaf_cnt >> layer; /* number of nodes in this layer */
     inc_idx   = (layer_cnt<<(layer+1UL)) - (1UL<<layer) - 1UL;
     while( layer_cnt>1UL ) {
-      state->inclusion_proofs[inc_idx] = node_buf[layer];
-      state->inclusion_proofs_valid[inc_idx/64UL] |= ipfset_ele( inc_idx%64UL );
-
       layer++; layer_cnt = (layer_cnt+1UL) >> 1;
       inc_idx   = (layer_cnt<<(layer+1UL)) - (1UL<<layer) - 1UL;
+
+      state->inclusion_proofs[inc_idx] = node_buf[layer];
+      state->inclusion_proofs_valid[inc_idx/64UL] |= ipfset_ele( inc_idx%64UL );
     }
   }
 
@@ -516,7 +524,7 @@ fd_bmtree_commitp_fini( fd_bmtree_commit_t * commit, ulong leaf_cnt ) {
   ulong root_idx = fd_ulong_pow2_up( leaf_cnt ) - 1UL;
   /* We should definitely have all nodes <= root_idx */
   ulong i=0UL;
-  for( i; i<(root_idx+1UL)/64UL; i++ ) if( FD_UNLIKELY( !ipfset_is_full( state->inclusion_proofs_valid[i] ) ) ) return NULL;
+  for( ; i<(root_idx+1UL)/64UL; i++ ) if( FD_UNLIKELY( !ipfset_is_full( state->inclusion_proofs_valid[i] ) ) ) return NULL;
 
   for( ulong layer=0UL; (1UL<<layer)-1UL < root_idx; layer++ ) {
     /* Loop over indices s.t. 64*( (root_idx+1)/64 ) <= index <=  that match the bit
@@ -524,7 +532,7 @@ fd_bmtree_commitp_fini( fd_bmtree_commit_t * commit, ulong leaf_cnt ) {
     ulong min_idx_for_layer = fd_ulong_insert_lsb( 64UL*((root_idx+1UL)/64UL), 1+(int)layer, (1UL<<layer)-1UL );
     ulong max_idx_for_layer = fd_ulong_insert_lsb( (leaf_cnt - 1UL)<<1,        1+(int)layer, (1UL<<layer)-1UL );
     for( ulong inc_idx=min_idx_for_layer; inc_idx<=max_idx_for_layer; inc_idx += 2UL<<layer ) {
-      if( FD_UNLIKLEY( !HAS(inc_idx) ) ) return NULL;
+      if( FD_UNLIKELY( !HAS(inc_idx) ) ) return NULL;
     }
   }
   /* If the root idx is less than 63, the previous loop doesn't check

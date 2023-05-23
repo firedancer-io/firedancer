@@ -3,6 +3,16 @@
 
 #include "../reedsol/fd_reedsol.h"
 
+#define SET_NAME d_present
+#define SET_MAX  (FD_REEDSOL_DATA_SHREDS_MAX)
+#include "../../util/tmpl/fd_set.c"
+#define SET_NAME p_present
+#define SET_MAX  (FD_REEDSOL_PARITY_SHREDS_MAX)
+#include "../../util/tmpl/fd_set.c"
+
+struct fd_shred;
+typedef struct fd_shred fd_shred_t;
+
 /* When using Merkle shreds, an FEC set is essentially the transmission
    granularity.  Each FEC set has likely dozens of packets, but you have
    to construct the entire FEC set before you can send the first byte.
@@ -12,6 +22,9 @@
 struct fd_fec_set {
   ulong data_shred_cnt;
   ulong parity_shred_cnt;
+
+  d_present_t data_shred_present[   d_present_word_cnt ];
+  p_present_t parity_shred_present[ p_present_word_cnt ];
 
   uchar * data_shreds[ FD_REEDSOL_DATA_SHREDS_MAX     ];
   uchar * parity_shreds[ FD_REEDSOL_PARITY_SHREDS_MAX ];
@@ -34,9 +47,9 @@ ulong fd_fec_resolver_new( void * shmem, ulong depth, fd_fec_set_t * sets );
 
 fd_fec_resolver_t * fd_fec_resolver_join( void * shmem );
 
-fd_fec_set_t * fd_fec_resolver_add_shred( fd_fec_resolver_t * resolver, fd_shred_t * shred, ulong shred_sz );
+fd_fec_set_t * fd_fec_resolver_add_shred( fd_fec_resolver_t * resolver, fd_shred_t const * shred, ulong shred_sz );
 
-void * fd_fec_resolver_leave( fd_fec_resolver * resolver );
+void * fd_fec_resolver_leave( fd_fec_resolver_t * resolver );
 void * fd_fec_resolver_delete( void * shmem );
 
 #endif /* HEADER_fd_src_ballet_shred_fd_fec_set_h */

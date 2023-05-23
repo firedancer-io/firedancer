@@ -207,7 +207,7 @@ fd_shredder_next_fec_set( fd_shredder_t * shredder,
     fd_memcpy( shred->signature, root_signature, FD_ED25519_SIG_SZ );
 
     uchar * merkle = data_shreds[ i ] + fd_shred_merkle_off( shred->variant );
-    fd_bmtree_get_inclusion_proof( bmtree, merkle, i );
+    fd_bmtree_get_proof( bmtree, merkle, i );
   }
 
   for( ulong j=0UL; j<parity_shred_cnt; j++ ) {
@@ -216,7 +216,7 @@ fd_shredder_next_fec_set( fd_shredder_t * shredder,
     fd_memcpy( shred->signature, root_signature, FD_ED25519_SIG_SZ );
 
     uchar * merkle = parity_shreds[ j ] + fd_shred_merkle_off( shred->variant );
-    fd_bmtree_get_inclusion_proof( bmtree, merkle, data_shred_cnt+j );
+    fd_bmtree_get_proof( bmtree, merkle, data_shred_cnt+j );
   }
 
   shredder->offset                  = offset;

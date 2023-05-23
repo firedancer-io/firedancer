@@ -415,7 +415,7 @@ fd_bmtree_from_proof( fd_bmtree_node_t const * leaf,
 
 
 /* fd_bmtree_commitp_insert_with_proof inserts a leaf at index idx in
- * the proof-based calc, optionally with some proof.  Returns 1 if
+   the proof-based calc, optionally with some proof.  Returns 1 if
    the leaf and proof are consistent with everything previously added to
    this calc, or 0 if not.
 
@@ -430,6 +430,16 @@ fd_bmtree_from_proof( fd_bmtree_node_t const * leaf,
    leaf.  In particular, a proof_depth of 0 is fine, in which case
    proof==NULL is fine.
 
+   If this returns success and opt_root is not NULL, the highest node
+   (closest to the root) in the branch containing idx that is known will
+   be written to the memory pointed to by opt_root.  In the case that
+   the inclusion proof is full (contains all the nodes except the root),
+   the node that is stored is the root of the tree; however, in general
+   the tree can grow beyond this, so it isn't possible to garauntee that
+   it is the root in other cases.  If the function returns failure (0)
+   or opt_root==NULL, then the memory pointed to by opt_root will not be
+   accessed.
+
    If this returns 0, the commitment state will not be modified.  If it
    returns 1, then the information provided will be cached to speed up
    other validations in this calc.
@@ -440,16 +450,18 @@ fd_bmtree_from_proof( fd_bmtree_node_t const * leaf,
    will return 0. */
 
 int
-fd_bmtree_commitp_insert_with_proof( fd_bmtree_commit_t *     commit,
+fd_bmtree_commitp_insert_with_proof( fd_bmtree_commit_t *     state,
                                      ulong                    idx,
                                      fd_bmtree_node_t const * new_leaf,
                                      uchar            const * proof,
-                                     ulong                    proof_depth );
+                                     ulong                    proof_depth,
+                                     fd_bmtree_node_t       * opt_root );
 
 /* fd_bmtree_commitp_fini finalizes a proof-based calc.  Returns the
    root of the tree if it can conclusively determine that the entire
-   tree is correct and NULL otherwise. */
-uchar * fd_bmtree_commitp_fini( fd_bmtree_commit_t * commit );
+   tree is correct for a commitment of leaf_cnt leaf nodes and NULL
+   otherwise. */
+uchar * fd_bmtree_commitp_fini( fd_bmtree_commit_t * state, ulong leaf_cnt );
 
 FD_PROTOTYPES_END
 #endif /* HEADER_fd_src_ballet_bmtree_fd_bmtree_h */

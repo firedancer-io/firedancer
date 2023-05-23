@@ -5,6 +5,7 @@
 #include "../ed25519/fd_ed25519.h"
 #include "../reedsol/fd_reedsol.h"
 #include "../bmtree/fd_bmtree.h"
+#include "fd_fec_set.h"
 
 #define FD_FEC_SET_MAX_BMTREE_DEPTH (9UL)
 
