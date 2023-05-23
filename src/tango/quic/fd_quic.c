@@ -709,12 +709,12 @@ struct fd_quic_frame_context {
 /* handle single v1 frames */
 /* returns bytes consumed */
 ulong
-fd_quic_handle_v1_frame( fd_quic_t *      quic,
-                         fd_quic_conn_t * conn,
-                         fd_quic_pkt_t *  pkt,
-                         uchar const *    buf,
-                         ulong            buf_sz,
-                         void *           scratch ) {
+fd_quic_handle_v1_frame( fd_quic_t *       quic,
+                         fd_quic_conn_t *  conn,
+                         fd_quic_pkt_t *   pkt,
+                         uchar const *     buf,
+                         ulong             buf_sz,
+                         fd_quic_frame_u * frame_union ) {
   fd_quic_frame_context_t frame_context[1] = {{ quic, conn, pkt }};
 
   uchar const * p     = buf;
@@ -1646,7 +1646,7 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
   uchar const * frame_ptr   = crypt_scratch + payload_off;
   ulong         frame_sz    = body_sz - pkt_number_sz - FD_QUIC_CRYPTO_TAG_SZ; /* total size of all frames in packet */
   while( frame_sz > 0 ) {
-    rc = fd_quic_handle_v1_frame( quic, conn, pkt, frame_ptr, frame_sz, conn->frame_scratch );
+    rc = fd_quic_handle_v1_frame( quic, conn, pkt, frame_ptr, frame_sz, &conn->frame_union );
     if( rc == FD_QUIC_PARSE_FAIL ) {
       return FD_QUIC_PARSE_FAIL;
     }
@@ -1840,7 +1840,7 @@ fd_quic_handle_v1_handshake(
   uchar const * frame_ptr   = crypt_scratch + payload_off;
   ulong         frame_sz    = body_sz - pkt_number_sz - FD_QUIC_CRYPTO_TAG_SZ; /* total size of all frames in packet */
   while( frame_sz > 0 ) {
-    rc = fd_quic_handle_v1_frame( quic, conn, pkt, frame_ptr, frame_sz, conn->frame_scratch );
+    rc = fd_quic_handle_v1_frame( quic, conn, pkt, frame_ptr, frame_sz, &conn->frame_union );
     if( rc == FD_QUIC_PARSE_FAIL ) {
       return FD_QUIC_PARSE_FAIL;
     }
@@ -2176,7 +2176,7 @@ fd_quic_handle_v1_one_rtt( fd_quic_t * quic, fd_quic_conn_t * conn, fd_quic_pkt_
   uchar const * frame_ptr   = crypt_scratch + payload_off;
   ulong         frame_sz    = cur_sz - pn_offset - pkt_number_sz - FD_QUIC_CRYPTO_TAG_SZ; /* total size of all frames in packet */
   while( frame_sz > 0 ) {
-    rc = fd_quic_handle_v1_frame( quic, conn, pkt, frame_ptr, frame_sz, conn->frame_scratch );
+    rc = fd_quic_handle_v1_frame( quic, conn, pkt, frame_ptr, frame_sz, &conn->frame_union );
     if( rc == FD_QUIC_PARSE_FAIL ) {
       return FD_QUIC_PARSE_FAIL;
     }
@@ -2278,12 +2278,15 @@ fd_quic_reschedule_conn( fd_quic_conn_t * conn,
          quickly than remove, insert */
     }
 
+    conn->next_service_time = timeout;
     fd_quic_schedule_conn( conn );
 
     return;
   }
 
-  conn->next_service_time = timeout;
+  if( timeout < conn->next_service_time ) {
+    conn->next_service_time = timeout;
+  }
 }
 
 
@@ -2453,6 +2456,20 @@ fd_quic_ack_pkt( fd_quic_t * quic, fd_quic_conn_t * conn, fd_quic_pkt_t * pkt ) 
     ack->next            = NULL;
     (*acks_tx_end)->next = ack;
     *acks_tx_end         = ack;
+
+    /* if mandatory, check for prior acks with lower priority */
+    if( ack_mandatory ) {
+      fd_quic_ack_t * cur_ack = *acks_tx;
+      while( cur_ack ) {
+        cur_ack->flags |= FD_QUIC_ACK_FLAGS_MANDATORY;
+        cur_ack->tx_time = fd_ulong_min( cur_ack->tx_time, ack_time );
+
+        /* pretend we haven't sent */
+        cur_ack->tx_pkt_number        = FD_QUIC_PKT_NUM_UNUSED;
+
+        cur_ack = cur_ack->next;
+      }
+    }
   }
 
   fd_quic_reschedule_conn( conn, ack_time );
@@ -3089,7 +3106,9 @@ fd_quic_service( fd_quic_t * quic ) {
     conn = event->conn;
 
     ulong service_time = event->timeout;
-    if( now < service_time ) break;
+    if( now < service_time ) {
+      break;
+    }
 
     /* set an initial next_service_time */
     conn->next_service_time = now + quic->config.service_interval;
@@ -3312,7 +3331,8 @@ fd_quic_pkt_hdr_populate( fd_quic_pkt_hdr_t * pkt_hdr,
                           uint                enc_level,
                           ulong               pkt_number,
                           fd_quic_conn_t *    conn,
-                          uchar               key_phase ) {
+                          uchar               key_phase,
+                          uint                initial ) {
   pkt_hdr->enc_level = enc_level;
 
   /* current peer endpoint */
@@ -3501,6 +3521,12 @@ fd_quic_conn_tx( fd_quic_t * quic, fd_quic_conn_t * conn ) {
 
   fd_quic_pkt_meta_t * pkt_meta = NULL;
 
+  if( conn->tx_ptr != conn->tx_buf ) {
+    fd_quic_tx_buffered( quic, conn, 0 );
+    fd_quic_reschedule_conn( conn, 0 );
+    return;
+  }
+
   /* temporary usage
      data is populated, then encoded into a buffer
      so only one member in use */
@@ -3658,8 +3684,12 @@ fd_quic_conn_tx( fd_quic_t * quic, fd_quic_conn_t * conn ) {
        each quic packet gets encrypted into tx_buf, and the space in
        crypt_scratch is reused */
 
+    /* are we the client initial packet? */
+    ulong hs_data_offset = conn->hs_sent_bytes[enc_level];
+    initial_pkt = (uint)( hs_data_offset == 0 ) & (uint)( !conn->server ) & (uint)( enc_level == fd_quic_enc_level_initial_id );
+
     /* populate the quic packet header */
-    fd_quic_pkt_hdr_populate( &pkt_hdr, enc_level, pkt_number, conn, (uchar)key_phase_tx );
+    fd_quic_pkt_hdr_populate( &pkt_hdr, enc_level, pkt_number, conn, (uchar)key_phase_tx, initial_pkt );
 
     ulong initial_hdr_sz = fd_quic_pkt_hdr_footprint( &pkt_hdr, enc_level );
 
@@ -3835,8 +3865,9 @@ fd_quic_conn_tx( fd_quic_t * quic, fd_quic_conn_t * conn ) {
         /* offset within stream */
         ulong offset = conn->hs_sent_bytes[enc_level];
 
-        /* are we the client initial packet? */
-        initial_pkt = (uint)( offset == 0 ) & (uint)( !conn->server ) & (uint)( enc_level == fd_quic_enc_level_initial_id );
+        /* track pkt_meta values */
+        ulong offset_lo = offset;
+        ulong offset_hi = offset;
 
         data_sz = 0;
         (void)data;
@@ -3894,11 +3925,8 @@ fd_quic_conn_tx( fd_quic_t * quic, fd_quic_conn_t * conn ) {
             payload_ptr  += frame_sz;
             tot_frame_sz += frame_sz;
 
-            /* update packet meta */
-            pkt_meta->flags          |= FD_QUIC_PKT_META_FLAGS_HS_DATA;
-            pkt_meta->range.offset_lo = frame.crypto.offset;
-            pkt_meta->range.offset_hi = frame.crypto.offset + data_sz;
-            pkt_meta->expiry          = fd_ulong_min( pkt_meta->expiry, now + 3u * conn->rtt );
+            /* update pkt_meta values */
+            offset_hi += cur_data_sz;
 
             /* move to next hs_data */
             offset           += cur_data_sz;
@@ -3911,6 +3939,15 @@ fd_quic_conn_tx( fd_quic_t * quic, fd_quic_conn_t * conn ) {
             hs_data = fd_quic_tls_get_next_hs_data( conn->tls_hs, hs_data );
           }
         }
+
+        /* update packet meta */
+        if( offset_hi > offset_lo ) {
+          pkt_meta->flags          |= FD_QUIC_PKT_META_FLAGS_HS_DATA;
+          pkt_meta->range.offset_lo = offset_lo;
+          pkt_meta->range.offset_hi = offset_hi;
+          pkt_meta->expiry          = fd_ulong_min( pkt_meta->expiry, now + 3u * conn->rtt );
+        }
+
       }
 
       /* are we at application level of encryption? */
@@ -4375,6 +4412,13 @@ fd_quic_conn_tx( fd_quic_t * quic, fd_quic_conn_t * conn ) {
         continue;
       }
 
+      /* drop packet */
+      /* this is a workaround for leaving a short=header-packet in the buffer
+         for the next tx_conn call. Next time around the tx_conn call will
+         not be aware that the buffer cannot be added to */
+      conn->tx_ptr = conn->tx_buf;
+      conn->tx_sz  = sizeof( conn->tx_buf );
+
       break;
     }
 
@@ -4502,6 +4546,16 @@ fd_quic_conn_free( fd_quic_t *      quic,
     }
   }
 
+  /* remove from orig_dst_conn_id */
+  {
+    fd_quic_conn_entry_t * entry = fd_quic_conn_map_query( state->conn_map, &conn->orig_dst_conn_id );
+    if( entry ) {
+      entry->conn = NULL;
+
+      fd_quic_conn_map_remove( state->conn_map, entry );
+    }
+  }
+
   /* find conn in events, then remove */
   /* FIXME O(n) scales badly with number of conns (#266) */
   ulong             event_idx = 0;
@@ -4565,6 +4619,26 @@ fd_quic_conn_free( fd_quic_t *      quic,
   }
 
   quic->metrics.conn_active_cnt--;
+
+  /* clear keys */
+  for( ulong j = 0U; j < 4U; ++j ) {
+    for( ulong k = 0U; k < 2U; ++k ) {
+      fd_memset( conn->keys[j][k].pkt_key, 0x42, sizeof( conn->keys[0][0].pkt_key ) );
+      fd_memset( conn->keys[j][k].hp_key,  0x43, sizeof( conn->keys[0][0].hp_key  ) );
+      fd_memset( conn->keys[j][k].iv,      0x45, sizeof( conn->keys[0][0].iv      ) );
+      conn->keys[j][k].pkt_key_sz = 0;
+      conn->keys[j][k].hp_key_sz  = 0;
+      conn->keys[j][k].iv_sz      = 0;
+    }
+  }
+  for( ulong k = 0U; k < 2U; ++k ) {
+    fd_memset( conn->new_keys[k].pkt_key, 0x42, sizeof( conn->new_keys[0].pkt_key ) );
+    fd_memset( conn->new_keys[k].hp_key,  0x43, sizeof( conn->new_keys[0].hp_key  ) );
+    fd_memset( conn->new_keys[k].iv,      0x45, sizeof( conn->new_keys[0].iv      ) );
+    conn->new_keys[k].pkt_key_sz = 0;
+    conn->new_keys[k].hp_key_sz  = 0;
+    conn->new_keys[k].iv_sz      = 0;
+  }
 }
 
 fd_quic_conn_id_t
@@ -4626,6 +4700,11 @@ fd_quic_connect( fd_quic_t *  quic,
   state->next_ephem_udp_port = next_ephem;
 
   conn->host.udp_port = src_port;
+
+  /* save original destination connection id */
+
+  fd_memcpy( conn->orig_dst_conn_id.conn_id, &peer_conn_id.conn_id, peer_conn_id.sz );
+  conn->orig_dst_conn_id.sz = peer_conn_id.sz;
 
   /* Prepare QUIC-TLS transport params object (sent as a TLS extension).
       Take template from state and mutate certain params in-place.
@@ -5044,8 +5123,9 @@ fd_quic_pkt_meta_retry( fd_quic_t *          quic,
 
   while(1) {
     /* find earliest sent pkt_meta over all of the enc_levels */
-    uint  enc_level = ~0u;
-    ulong expiry    = ~0u;
+    uint  enc_level      = ~0u;
+    uint  peer_enc_level = conn->peer_enc_level;
+    ulong expiry         = ~0ul;
     for( uint j = 0u; j < 4u; ++j ) {
       /* TODO this only checks the head of each enc_level
          assuming that pkt_meta is in time order. It IS
@@ -5065,6 +5145,7 @@ fd_quic_pkt_meta_retry( fd_quic_t *          quic,
           enc_level = j;
           expiry    = pkt_meta->expiry;
         }
+        if( enc_level < peer_enc_level ) break;
         pkt_meta = pkt_meta->next;
       }
       if( enc_level != ~0u ) break;
@@ -5083,11 +5164,24 @@ fd_quic_pkt_meta_retry( fd_quic_t *          quic,
       }
     }
 
-    FD_LOG_DEBUG(( "retrying tx" ));
-
     fd_quic_pkt_meta_list_t * sent     = &pool->sent[enc_level];
     fd_quic_pkt_meta_t *      pkt_meta = sent->head;
     fd_quic_pkt_meta_t *      prior    = NULL; /* prior is always null, since we always look at head */
+
+    /* already moved to another enc_level */
+    if( enc_level < peer_enc_level ) {
+      /* free pkt_meta */
+
+      /* remove from list */
+      fd_quic_pkt_meta_remove( sent, prior, pkt_meta );
+
+      /* put pkt_meta back in free list */
+      fd_quic_pkt_meta_deallocate( pool, pkt_meta );
+
+      cnt_freed++;
+
+      continue;
+    }
 
     uint  pn_space        = fd_quic_enc_level_to_pn_space( enc_level );
     ulong pkt_number      = pkt_meta->pkt_number;
@@ -5286,9 +5380,8 @@ fd_quic_reclaim_pkt_meta( fd_quic_conn_t *     conn,
   }
 
   if( flags & FD_QUIC_PKT_META_FLAGS_HS_DATA ) {
-    /* hs_data is being acked
-       TODO we should free data here
-       it eventually gets "freed", so this isn't critical */
+    /* actually, it is assumed the offsets are from the beginning of this
+       data... so we can't free any here */
   }
 
   if( flags & FD_QUIC_PKT_META_FLAGS_HS_DONE ) {
@@ -5652,6 +5745,8 @@ fd_quic_frame_handle_reset_stream_frame(
   (void)data;
   (void)p;
   (void)p_sz;
+  /* ack-eliciting */
+  /* TODO implement */
   return FD_QUIC_PARSE_FAIL;
 }
 
@@ -5665,6 +5760,8 @@ fd_quic_frame_handle_stop_sending_frame(
   (void)data;
   (void)p;
   (void)p_sz;
+  /* ack-eliciting */
+  /* TODO implement */
   return FD_QUIC_PARSE_FAIL;
 }
 
@@ -5678,6 +5775,7 @@ fd_quic_frame_handle_new_token_frame(
   (void)data;
   (void)p;
   (void)p_sz;
+  /* ack-eliciting */
   return FD_QUIC_PARSE_FAIL;
 }
 
@@ -5969,6 +6067,9 @@ fd_quic_frame_handle_max_data_frame(
 
   fd_quic_frame_context_t context = *(fd_quic_frame_context_t*)vp_context;
 
+  /* ack-eliciting */
+  context.pkt->ack_flag |= ACK_FLAG_RQD;
+
   ulong tx_max_data  = context.conn->tx_max_data;
   ulong new_max_data = data->max_data;
 
@@ -5988,6 +6089,9 @@ fd_quic_frame_handle_max_stream_data(
   (void)p;
   (void)p_sz;
   fd_quic_frame_context_t context = *(fd_quic_frame_context_t*)vp_context;
+
+  /* ack-eliciting */
+  context.pkt->ack_flag |= ACK_FLAG_RQD;
 
   ulong stream_id  = data->stream_id;
 
@@ -6018,6 +6122,9 @@ fd_quic_frame_handle_max_streams_frame(
 
   fd_quic_frame_context_t context = *(fd_quic_frame_context_t*)vp_context;
 
+  /* ack-eliciting */
+  context.pkt->ack_flag |= ACK_FLAG_RQD;
+
   /* stream type */
   ulong type = (ulong)context.conn->server | (ulong)( data->stream_type << 1u );
 
@@ -6030,14 +6137,19 @@ fd_quic_frame_handle_max_streams_frame(
 
 static ulong
 fd_quic_frame_handle_data_blocked_frame(
-    void * context,
-    fd_quic_data_blocked_frame_t * data,
-    uchar const * p,
-    ulong p_sz) {
-  (void)context;
+      void *                         vp_context,
+      fd_quic_data_blocked_frame_t * data,
+      uchar const *                  p,
+      ulong                          p_sz ) {
   (void)data;
   (void)p;
   (void)p_sz;
+
+  fd_quic_frame_context_t context = *(fd_quic_frame_context_t*)vp_context;
+
+  /* ack-eliciting */
+  context.pkt->ack_flag |= ACK_FLAG_RQD;
+
   /* Since we do not do runtime allocations, we will not attempt
      to find more memory in the case of DATA_BLOCKED
      We return 0 (bytes consumed), since this frame does not
@@ -6047,14 +6159,19 @@ fd_quic_frame_handle_data_blocked_frame(
 
 static ulong
 fd_quic_frame_handle_stream_data_blocked_frame(
-    void * context,
-    fd_quic_stream_data_blocked_frame_t * data,
-    uchar const * p,
-    ulong p_sz) {
-  (void)context;
+      void *                                vp_context,
+      fd_quic_stream_data_blocked_frame_t * data,
+      uchar const *                         p,
+      ulong                                 p_sz ) {
   (void)data;
   (void)p;
   (void)p_sz;
+
+  fd_quic_frame_context_t context = *(fd_quic_frame_context_t*)vp_context;
+
+  /* ack-eliciting */
+  context.pkt->ack_flag |= ACK_FLAG_RQD;
+
   /* Since we do not do runtime allocations, we will not attempt
      to find more memory in the case of STREAM_DATA_BLOCKED
      We return 0 (bytes consumed), since this frame does not
@@ -6064,14 +6181,19 @@ fd_quic_frame_handle_stream_data_blocked_frame(
 
 static ulong
 fd_quic_frame_handle_streams_blocked_frame(
-    void * context,
+    void *                            vp_context,
     fd_quic_streams_blocked_frame_t * data,
-    uchar const * p,
-    ulong p_sz) {
-  (void)context;
+    uchar const *                     p,
+    ulong                             p_sz ) {
   (void)data;
   (void)p;
   (void)p_sz;
+
+  fd_quic_frame_context_t context = *(fd_quic_frame_context_t*)vp_context;
+
+  /* ack-eliciting */
+  context.pkt->ack_flag |= ACK_FLAG_RQD;
+
   /* TODO STREAMS_BLOCKED should be sent by client when it wants
      to use a new stream, but is unable to due to the max_streams
      value
@@ -6082,32 +6204,43 @@ fd_quic_frame_handle_streams_blocked_frame(
 
 static ulong
 fd_quic_frame_handle_new_conn_id_frame(
-    void * context,
+    void *                        vp_context,
     fd_quic_new_conn_id_frame_t * data,
-    uchar const * p,
-    ulong p_sz) {
-  (void)context;
+    uchar const *                 p,
+    ulong                         p_sz ) {
   (void)data;
   (void)p;
   (void)p_sz;
 
-  FD_DEBUG( FD_LOG_DEBUG(( "new_conn_id requested" )) );
+  fd_quic_frame_context_t context = *(fd_quic_frame_context_t*)vp_context;
+
+  /* ack-eliciting */
+  context.pkt->ack_flag |= ACK_FLAG_RQD;
+
+
+  DEBUG( FD_LOG_DEBUG(( "new_conn_id requested" )); )
   return 0;
 }
 
 static ulong
 fd_quic_frame_handle_retire_conn_id_frame(
-    void * context,
-    fd_quic_retire_conn_id_frame_t * data,
-    uchar const * p,
-    ulong p_sz) {
-  (void)context;
+      void *                           vp_context,
+      fd_quic_retire_conn_id_frame_t * data,
+      uchar const *                    p,
+      ulong                            p_sz ) {
+  (void)vp_context;
   (void)data;
   (void)p;
   (void)p_sz;
   FD_DEBUG(
     printf( "%s:%d  retire_conn_id requested\n", __func__, (int)(__LINE__) ); fflush( stdout );
     )
+
+  // fd_quic_frame_context_t context = *(fd_quic_frame_context_t*)vp_context;
+
+  // /* ack-eliciting */
+  // context.pkt->ack_flag |= ACK_FLAG_RQD;
+
   return FD_QUIC_PARSE_FAIL;
 }
 
@@ -6206,15 +6339,31 @@ fd_quic_frame_handle_handshake_done_frame(
   fd_quic_frame_context_t context = *(fd_quic_frame_context_t*)vp_context;
   fd_quic_conn_t *        conn    = context.conn;
 
+  /* ack-eliciting */
+  context.pkt->ack_flag |= ACK_FLAG_RQD;
+
   /* servers must treat receipt of HANDSHAKE_DONE as a protocol violation */
   if( FD_UNLIKELY( conn->server ) ) {
     fd_quic_conn_error( conn, FD_QUIC_CONN_REASON_PROTOCOL_VIOLATION );
     return FD_QUIC_PARSE_FAIL;
   }
 
-  /* either we treat this as a fatal error, or just warn
-     if we don't tear down the connection we must move to ACTIVE */
   if( FD_UNLIKELY( conn->state != FD_QUIC_CONN_STATE_HANDSHAKE_COMPLETE ) ) {
+    switch( conn->state ) {
+      case FD_QUIC_CONN_STATE_PEER_CLOSE:
+      case FD_QUIC_CONN_STATE_ABORT:
+      case FD_QUIC_CONN_STATE_CLOSE_PENDING:
+      case FD_QUIC_CONN_STATE_DEAD:
+        /* connection closing... nothing to do */
+        return 0;
+
+      case FD_QUIC_CONN_STATE_ACTIVE:
+        /* already active - probably received out of order */
+        return 0;
+    }
+
+    /* either we treat this as a fatal error, or just warn
+       if we don't tear down the connection we must move to ACTIVE */
     FD_LOG_WARNING(( "%s : handshake done frame received, but not in handshake complete state", __func__ ));
   }
 
