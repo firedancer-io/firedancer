@@ -147,6 +147,7 @@ done
 echo "Setting to $((VERIFY_CNT+SHREDDER_CNT+RETRANSMIT_CNT)) queues"
 ethtool -L $IFACE combined $((VERIFY_CNT+SHREDDER_CNT+RETRANSMIT_CNT)) || \
   ethtool -L $IFACE rx $((VERIFY_CNT+SHREDDER_CNT+RETRANSMIT_CNT)) tx $((VERIFY_CNT+SHREDDER_CNT+RETRANSMIT_CNT)) || \
+  sudo ethtool -L $IFACE combined $((VERIFY_CNT+SHREDDER_CNT+RETRANSMIT_CNT)) ||
   exit $?
 $FD_XDP_CTL unhook-iface $APP $IFACE # okay if this fails
 sleep 1  # work around race condition -- ugly hack
@@ -183,7 +184,9 @@ for((quic_idx=0;quic_idx<VERIFY_CNT;quic_idx++)); do
     || exit $?
 done
 
-SHRED_DST_MAC=$(ip neigh get $SHRED_DST dev $IFACE | grep -o -e "[0-9a-f:]\{17\}")
+# Try to force an ARP
+ping -c 1 -w 1 $SHRED_DST
+SHRED_DST_MAC=$(arp $SHRED_DST | grep -o -e "[0-9a-f:]\{17\}")
 if [ -z $SHRED_DST_MAC ]; then
   echo "Could not resolve ip $SHRED_DST. Using broadcast MAC"
   SHRED_DST_MAC="ff:ff:ff:ff:ff:ff"

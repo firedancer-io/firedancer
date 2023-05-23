@@ -22,6 +22,10 @@ struct __attribute__((packed)) fd_shred_pkt {
 typedef struct fd_shred_pkt fd_shred_pkt_t;
 
 
+// footprint of fd_fec_resolver
+// backing storage for packets. depth*(67+67)*(sizeof(fd_shred_pkt_t))
+
+
 static inline int
 send_loop_helper( fd_aio_t const * tx_aio,
                   fd_aio_pkt_info_t const * data,
@@ -78,20 +82,24 @@ struct forwarding_ctx {
 typedef struct forwarding_ctx forwarding_ctx_t;
 
 
-int
-forward_pkt( void *                    _ctx,
-               fd_aio_pkt_info_t const * batch,
-               ulong                     batch_cnt,
-               ulong *                   opt_batch_idx ) {
-  (void)opt_batch_idx;
 
+void
+handle_rx_shred( void *                    _ctx,
+                 fd_shred_t const * shred,
+                 ulong              shred_sz ) {
   forwarding_ctx_t * ctx = (forwarding_ctx_t *)_ctx;
-  /*
-    */
-  FD_LOG_NOTICE(( "got %lu packets", batch_cnt ));
-  for( ulong i=0; i<batch_cnt; i++ ) {
-    fd_shred_pkt_t * pkt = (fd_shred_pkt_t *)batch[i].buf;
 
+  fd_fec_set_t * to_send = fd_fec_resolver_add_shred( ctx->resolver, shred, shred_sz );
+  if( FD_UNLIKELY( to_send ) ) {
+    ulong idx = to_send - ctx->set;
+    /* TODO: Do I want to bother changing the identification field? */
+    int send_rc = send_loop_helper( ctx->tx_aio, ctx->data_batches[ idx ], to_send->data_shred_cnt );
+    if( FD_UNLIKELY( send_rc<0 ) )  FD_LOG_WARNING(( "AIO send err for data shreds. Error: %s", fd_aio_strerror( send_rc ) ));
+    send_rc = send_loop_helper( ctx->tx_aio, ctx->parity_batches[ idx ], to_send->parity_shred_cnt );
+    if( FD_UNLIKELY( send_rc<0 ) )  FD_LOG_WARNING(( "AIO send err for data shreds. Error: %s", fd_aio_strerror( send_rc ) ));
+  }
+
+  /*
     fd_memcpy( pkt->eth->dst, ctx->dst.mac, 6UL );
     fd_memcpy( pkt->eth->src, ctx->src.mac , 6UL );
     pkt->ip4->saddr     = ctx->src.ip4;
@@ -100,11 +108,7 @@ forward_pkt( void *                    _ctx,
     pkt->ip4->check  = fd_ip4_hdr_check( pkt->ip4 );
     pkt->udp->net_sport = ctx->src.port;
     pkt->udp->net_dport = ctx->dst.port;
-  }
-  int send_rc = send_loop_helper( ctx->tx_aio, batch, batch_cnt );
-  if( FD_UNLIKELY( send_rc<0 ) )  FD_LOG_WARNING(( "AIO send err for data shreds. Error: %s", fd_aio_strerror( send_rc ) ));
-
-  return FD_AIO_SUCCESS;
+    */
 }
 
 int

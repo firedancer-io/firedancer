@@ -14,14 +14,6 @@
 
 #define FD_SHREDDER_MAGIC (0xF17EDA2547EDDE70UL) /* FIREDAN SHREDDER V0 */
 
-struct fd_fec_set {
-  ulong data_shred_cnt;
-  ulong parity_shred_cnt;
-
-  uchar * data_shreds[ FD_REEDSOL_DATA_SHREDS_MAX     ];
-  uchar * parity_shreds[ FD_REEDSOL_PARITY_SHREDS_MAX ];
-};
-typedef struct fd_fec_set fd_fec_set_t;
 
 
 struct fd_entry_batch_meta {
