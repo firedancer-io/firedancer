@@ -32,7 +32,7 @@
 #define FD_TEMPL_MBR_ELEM_PKTNUM(NAME,TYPE)                              \
     buf += (cur_bit != 0);                                               \
     cur_bit = 0;                                                         \
-    buf += (ulong)frame->NAME##_bits >> (ulong)3u;
+    buf += (ulong)(frame->NAME##_bits+7u) >> (ulong)3u;
 
 
 /* determines the encoding footprint of the VARINT */
