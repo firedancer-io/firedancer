@@ -119,6 +119,83 @@ int fd_rocksdb_get_meta(fd_rocksdb_t *db, ulong slot, fd_slot_meta_t *m, fd_allo
   return 0;
 }
 
+void* fd_rocksdb_get_block(fd_rocksdb_t* db, fd_slot_meta_t* m, fd_alloc_fun_t allocf, void* allocf_arg, ulong* result_sz) {
+  ulong slot = m->slot;
+  ulong start_idx = 0;
+  ulong end_idx = m->received;
+
+  rocksdb_iterator_t* iter = rocksdb_create_iterator_cf(db->db, db->ro, db->column_family_handles[3]);
+
+  char k[16];
+  *((ulong *) &k[0]) = fd_ulong_bswap(slot);
+  *((ulong *) &k[8]) = fd_ulong_bswap(start_idx);
+
+  rocksdb_iter_seek(iter, (const char *) k, sizeof(k));
+
+  ulong bufsize = m->consumed * 1500;
+  void* buf = allocf(allocf_arg, 1, bufsize);
+
+  fd_deshredder_t deshred;
+  fd_deshredder_init(&deshred, buf, bufsize, NULL, 0);
+
+  for (ulong i = start_idx; i < end_idx; i++) {
+    ulong cur_slot, index;
+    uchar valid = rocksdb_iter_valid(iter);
+
+    if (valid) {
+      size_t klen = 0;
+      const char* key = rocksdb_iter_key(iter, &klen); // There is no need to free key
+      if (klen != 16)  // invalid key
+        continue;
+      cur_slot = fd_ulong_bswap(*((ulong *) &key[0]));
+      index = fd_ulong_bswap(*((ulong *) &key[8]));
+    }
+
+    if (!valid || cur_slot != slot) {
+      FD_LOG_WARNING(("missing shreds for slot %ld", slot));
+      rocksdb_iter_destroy(iter);
+      return NULL;
+    }
+
+    if (index != i) {
+      FD_LOG_WARNING(("missing shred %ld at index %ld for slot %ld", i, index, slot));
+      rocksdb_iter_destroy(iter);
+      return NULL;
+    }
+
+    size_t dlen = 0;
+    // Data was first copied from disk into memory to make it available to this API
+    const unsigned char *data = (const unsigned char *) rocksdb_iter_value(iter, &dlen);
+    if (data == NULL) {
+      FD_LOG_WARNING(("failed to read shred %ld/%ld", slot, i));
+      rocksdb_iter_destroy(iter);
+      return NULL;
+    }
+
+    // This just correctly selects from inside the data pointer to the
+    // actual data without a memory copy
+    fd_shred_t const * shred = fd_shred_parse( data, (ulong) dlen );
+
+    fd_shred_t const * const shred_list[1] = { shred };
+    deshred.shreds    = shred_list;
+    deshred.shred_cnt = 1U;
+
+    /* Copy o the buffer */
+    long written = fd_deshredder_next( &deshred );
+
+    if ( FD_UNLIKELY ( (written < 0) & (written != -FD_SHRED_EPIPE ) )  ) {
+      FD_LOG_ERR(("fd_deshredder_next returned %ld", written));
+    }
+
+    rocksdb_iter_next(iter);
+  }
+
+  rocksdb_iter_destroy(iter);
+
+  *result_sz = (ulong)((uchar*)deshred.buf - (uchar*)buf);
+  return buf;
+}
+
 fd_slot_blocks_t * fd_rocksdb_get_microblocks(fd_rocksdb_t *db, fd_slot_meta_t *m, fd_alloc_fun_t allocf,  void* allocf_arg) {
   ulong slot = m->slot;
   ulong start_idx = 0;
@@ -302,14 +379,14 @@ void fd_slot_blocks_new(fd_slot_blocks_t *b) {
   fd_memset(b, 0, sizeof(*b));
 }
 
-void fd_slot_blocks_destroy(fd_slot_blocks_t *b, fd_free_fun_t freef,  void* freef_arg) {
-  uchar *blob = b->first_blob;
+void fd_slot_blocks_destroy(fd_slot_blocks_t* batch, fd_free_fun_t freef,  void* freef_arg) {
+  uchar *blob = batch->first_blob;
   while (NULL != blob) {
     uchar *n = *((uchar **) blob);
     freef(freef_arg, blob);
     blob = n;
   }
-  fd_memset(b, 0, sizeof(*b));
+  freef(freef_arg, batch);
 }
 
 void * 

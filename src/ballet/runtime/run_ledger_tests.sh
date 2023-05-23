@@ -16,16 +16,25 @@ fi
 
 # we could ALWAYS run it with logging except when I run this from the command line, I want less noise...
 
+# sudo build/linux/gcc/x86_64/bin/fd_shmem_cfg init 0777 jsiegel ""
+# sudo build/linux/gcc/x86_64/bin/fd_shmem_cfg alloc 64 gigantic 0
+# sudo build/linux/gcc/x86_64/bin/fd_shmem_cfg alloc 512 huge 0
+
+
 set -x
 
-build/linux/gcc/x86_64/unit-test/test_runtime --ledger test-ledger-4 --db /tmp/funk$$ --cmd replay --accounts test-ledger-4/accounts/ --pages 15 --start-slot 0 --end-slot 25  --confirm_hash AsHedZaZkabNtB8XBiKWQkKwaeLy2y4Hrqm6MkQALT5h --confirm_parent CvgPeR54qpVRZGBuiQztGXecxSXREPfTF8wALujK4WdE --confirm_account_delta 7PL6JZgcNy5vkPSc6JsMHET9dvpvsFMWR734VtCG29xN  --confirm_signature 2  --confirm_last_block G4YL2SieHDGNZGjiwBsJESK7jMDfazg33ievuCwbkjrv
+if [ -e /mnt/.fd/.gigantic/test_ledger_wksp ]; then
+    build/linux/gcc/x86_64/bin/fd_wksp_ctl delete test_ledger_wksp
+fi
+build/linux/gcc/x86_64/bin/fd_wksp_ctl new test_ledger_wksp 5 gigantic 0 0666
+
+build/linux/gcc/x86_64/bin/fd_frank_ledger --wksp test_ledger_wksp --reset true --persist testfunk --rocksdb test-ledger-4/rocksdb --cmd ingest --gaddrout testgaddr --indexmax 10000 --txnmax 100
+
+build/linux/gcc/x86_64/unit-test/test_runtime --ledger test-ledger-4 --wksp test_ledger_wksp --gaddr `cat testgaddr` --cmd replay --start-slot 0 --end-slot 25  --confirm_hash AsHedZaZkabNtB8XBiKWQkKwaeLy2y4Hrqm6MkQALT5h --confirm_parent CvgPeR54qpVRZGBuiQztGXecxSXREPfTF8wALujK4WdE --confirm_account_delta 7PL6JZgcNy5vkPSc6JsMHET9dvpvsFMWR734VtCG29xN  --confirm_signature 2  --confirm_last_block G4YL2SieHDGNZGjiwBsJESK7jMDfazg33ievuCwbkjrv --validate true --persist testfunk
 
 status=$?
 
-if [ $status -ne 0 ]; then
-  /bin/rm -f /tmp/funk$$
-  build/linux/gcc/x86_64/unit-test/test_runtime --ledger test-ledger-4 --db /tmp/funk$$ --cmd replay --accounts test-ledger-4/accounts/ --pages 15 --start-slot 0 --end-slot 25  --confirm_hash AsHedZaZkabNtB8XBiKWQkKwaeLy2y4Hrqm6MkQALT5h --confirm_parent CvgPeR54qpVRZGBuiQztGXecxSXREPfTF8wALujK4WdE --confirm_account_delta 7PL6JZgcNy5vkPSc6JsMHET9dvpvsFMWR734VtCG29xN  --confirm_signature 2  --confirm_last_block G4YL2SieHDGNZGjiwBsJESK7jMDfazg33ievuCwbkjrv  --log_level 5
-fi
+build/linux/gcc/x86_64/bin/fd_wksp_ctl delete test_ledger_wksp
+rm -f testfunk testgaddr
 
-/bin/rm -f /tmp/funk$$
 exit $status

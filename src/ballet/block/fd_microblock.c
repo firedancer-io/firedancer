@@ -81,11 +81,6 @@ fd_microblock_join( void * shblock ) {
     return NULL;
   }
 
-  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)shblock, fd_microblock_align() ) ) ) {
-    FD_LOG_WARNING(( "misaligned shblock" ));
-    return NULL;
-  }
-
   fd_microblock_t * hdr = (fd_microblock_t *)shblock;
   if( FD_UNLIKELY( hdr->magic!=FD_MICROBLOCK_MAGIC ) ) {
     FD_LOG_WARNING(( "bad magic" ));

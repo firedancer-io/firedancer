@@ -180,6 +180,12 @@ fd_slot_blocks_t * fd_rocksdb_get_microblocks(fd_rocksdb_t *db,
   void* allocf_arg
 );
 
+void* fd_rocksdb_get_block(fd_rocksdb_t* db,
+                           fd_slot_meta_t* m,
+                           fd_alloc_fun_t allocf,
+                           void* allocf_arg,
+                           ulong* result_sz);
+
 FD_PROTOTYPES_END
 
 #endif

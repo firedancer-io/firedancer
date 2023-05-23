@@ -16,22 +16,25 @@
 #include "../../funk/fd_funk.h"
 #include "../../ballet/runtime/fd_types.h"
 #include "../../ballet/runtime/fd_runtime.h"
+#include "../../ballet/runtime/fd_rocksdb.h"
 #include "../../ballet/base58/fd_base58.h"
 
 static void usage(const char* progname) {
   fprintf(stderr, "USAGE: %s\n", progname);
   fprintf(stderr, " --cmd ingest --snapshotfile <file>               ingest solana snapshot file\n");
   fprintf(stderr, "              --incremental <file>                also ingest incremental snapshot file\n");
+  fprintf(stderr, "              --rocksdb <file>                    also ingest a rocks database file\n");
   fprintf(stderr, " --cmd recover                                    recover in-memory database from persistence file\n");
   fprintf(stderr, " --cmd repersist                                  persist in-memory database to persistence file\n");
   fprintf(stderr, " --wksp <name>                                    workspace name\n");
   fprintf(stderr, " --reset true                                     reset workspace before ingesting\n");
   fprintf(stderr, " --persist <file>                                 read/write to persistence file\n");
   fprintf(stderr, " --gaddr <address>                                join funky at the address instead of making a new one\n");
+  fprintf(stderr, " --gaddrout <file>                                write the funky address to the given file\n");
   fprintf(stderr, " --indexmax <count>                               size of funky account map\n");
   fprintf(stderr, " --txnmax <count>                                 size of funky transaction map\n");
   fprintf(stderr, " --verifyhash <base58hash>                        verify that the accounts hash matches the given one\n");
-  fprintf(stderr, " --verify true                                    verify database integrity\n");
+  fprintf(stderr, " --verifyfunky true                               verify database integrity\n");
 }
 
 struct SnapshotParser {
@@ -256,6 +259,99 @@ static void decompressBZ2(const char* fname, decompressCallback cb, void* arg) {
   close(fin);
 }
 
+void ingest_rocksdb( fd_global_ctx_t * global, const char* file, ulong start_slot, ulong end_slot ) {
+  fd_rocksdb_t        rocks_db;
+  char *err = fd_rocksdb_init(&rocks_db, file);
+  if (err != NULL) {
+    FD_LOG_ERR(("fd_rocksdb_init returned %s", err));
+  }
+
+  ulong last_slot = fd_rocksdb_last_slot(&rocks_db, &err);
+  if (err != NULL) {
+    FD_LOG_ERR(("fd_rocksdb_last_slot returned %s", err));
+  }
+  if (end_slot > last_slot)
+    end_slot = last_slot;
+
+  ulong first_slot = fd_rocksdb_first_slot(&rocks_db, &err);
+  if (err != NULL) {
+    FD_LOG_ERR(("fd_rocksdb_first_slot returned %s", err));
+  }
+  if (start_slot < first_slot)
+    start_slot = first_slot;
+
+  fd_slot_meta_meta_t mm;
+  mm.start_slot = start_slot;
+  mm.end_slot = end_slot;
+  fd_funk_rec_key_t key = fd_runtime_block_meta_key(ULONG_MAX);
+  int ret;
+  fd_funk_rec_t * rec = fd_funk_rec_modify( global->funk, fd_funk_rec_insert( global->funk, NULL, &key, &ret ) );
+  if (rec == NULL)
+    FD_LOG_ERR(("funky insert failed with code %d", ret));
+  rec = fd_funk_val_truncate( rec, fd_slot_meta_meta_size(&mm), global->allocf_arg, global->wksp, &ret );
+  if (rec == NULL)
+    FD_LOG_ERR(("funky insert failed with code %d", ret));
+  const void * val = fd_funk_val( rec, global->wksp );
+  fd_slot_meta_meta_encode( &mm, &val );
+  fd_funk_rec_persist( global->funk, rec );
+    
+  fd_rocksdb_root_iter_t iter;
+  fd_rocksdb_root_iter_new ( &iter );
+
+  fd_slot_meta_t m;
+  fd_memset(&m, 0, sizeof(m));
+
+  ret = fd_rocksdb_root_iter_seek ( &iter, &rocks_db, start_slot, &m, global->allocf, global->allocf_arg);
+  if (ret < 0)
+    FD_LOG_ERR(("fd_rocksdb_root_iter_seek returned %d", ret));
+
+  do {
+    ulong slot = m.slot;
+    if (slot < start_slot)
+      continue;
+    if (slot >= end_slot)
+      break;
+
+    key = fd_runtime_block_meta_key(slot);
+    rec = fd_funk_rec_modify( global->funk, fd_funk_rec_insert( global->funk, NULL, &key, &ret ) );
+    if (rec == NULL)
+      FD_LOG_ERR(("funky insert failed with code %d", ret));
+    rec = fd_funk_val_truncate( rec, fd_slot_meta_size(&m), global->allocf_arg, global->wksp, &ret );
+    if (rec == NULL)
+      FD_LOG_ERR(("funky insert failed with code %d", ret));
+    val = fd_funk_val( rec, global->wksp );
+    fd_slot_meta_encode( &m, &val );
+    fd_funk_rec_persist( global->funk, rec );
+
+    ulong block_sz;
+    void* block = fd_rocksdb_get_block(&rocks_db, &m, global->allocf, global->allocf_arg, &block_sz);
+    if (block == NULL)
+      FD_LOG_ERR(("failed to get block data"));
+
+    key = fd_runtime_block_key(slot);
+    rec = fd_funk_rec_modify( global->funk, fd_funk_rec_insert( global->funk, NULL, &key, &ret ) );
+    if (rec == NULL)
+      FD_LOG_ERR(("funky insert failed with code %d", ret));
+    rec = fd_funk_val_truncate( rec, block_sz, global->allocf_arg, global->wksp, &ret );
+    if (rec == NULL)
+      FD_LOG_ERR(("funky insert failed with code %d", ret));
+    fd_memcpy( fd_funk_val( rec, global->wksp ), block, block_sz );
+    fd_funk_rec_persist( global->funk, rec );
+    fd_funk_val_uncache( global->funk, rec );
+
+    FD_LOG_NOTICE(("slot %lu: block size %lu", slot, block_sz));
+
+    global->freef(global->allocf_arg, block);
+    fd_slot_meta_destroy(&m, global->freef, global->allocf_arg);
+
+    ret = fd_rocksdb_root_iter_next ( &iter, &m, global->allocf, global->allocf_arg);
+    if (ret < 0)
+      FD_LOG_ERR(("fd_rocksdb_root_iter_seek returned %d", ret));
+  } while (1);
+
+  fd_rocksdb_destroy(&rocks_db);
+}
+
 int main(int argc, char** argv) {
   fd_boot( &argc, &argv );
 
@@ -280,9 +376,10 @@ int main(int argc, char** argv) {
   fd_funk_t* funk;
 
   const char* cmd = fd_env_strip_cmdline_cstr(&argc, &argv, "--cmd", NULL, NULL);
-  const char* verify = fd_env_strip_cmdline_cstr(&argc, &argv, "--verify", NULL, "false");
+  const char* verifyfunky = fd_env_strip_cmdline_cstr(&argc, &argv, "--verifyfunky", NULL, "false");
 
   const char* gaddr = fd_env_strip_cmdline_cstr(&argc, &argv, "--gaddr", NULL, NULL);
+  void* shmem;
   if (gaddr == NULL) {
     if (strcmp(cmd, "repersist") == 0)
       FD_LOG_ERR(( "repersist requires --gaddr flag" ));
@@ -290,7 +387,7 @@ int main(int argc, char** argv) {
     ulong index_max = fd_env_strip_cmdline_ulong(&argc, &argv, "--indexmax", NULL, 350000000);
     ulong xactions_max = fd_env_strip_cmdline_ulong(&argc, &argv, "--txnmax", NULL, 100);
     
-    void* shmem = fd_wksp_alloc_laddr( wksp, fd_funk_align(), fd_funk_footprint(), 1 );
+    shmem = fd_wksp_alloc_laddr( wksp, fd_funk_align(), fd_funk_footprint(), 1 );
     if (shmem == NULL)
       FD_LOG_ERR(( "failed to allocate a funky" ));
     funk = fd_funk_join(fd_funk_new(shmem, 1, hashseed, xactions_max, index_max));
@@ -299,10 +396,7 @@ int main(int argc, char** argv) {
       FD_LOG_ERR(( "failed to allocate a funky" ));
     }
     
-    FD_LOG_NOTICE(( "funky at global address 0x%016lx", fd_wksp_gaddr_fast( wksp, shmem ) ));
-
   } else {
-    void* shmem;
     if (gaddr[0] == '0' && gaddr[1] == 'x')
       shmem = fd_wksp_laddr_fast( wksp, (ulong)strtol(gaddr+2, NULL, 16) );
     else
@@ -310,9 +404,19 @@ int main(int argc, char** argv) {
     funk = fd_funk_join(shmem);
     if (funk == NULL)
       FD_LOG_ERR(( "failed to join a funky" ));
-    if (strcmp(verify, "true") == 0)
+    if (strcmp(verifyfunky, "true") == 0)
       if (fd_funk_verify(funk))
         FD_LOG_ERR(( "verification failed" ));
+  }
+
+  FD_LOG_NOTICE(( "funky at global address 0x%016lx", fd_wksp_gaddr_fast( wksp, shmem ) ));
+  const char* gaddrout = fd_env_strip_cmdline_cstr(&argc, &argv, "--gaddrout", NULL, NULL);
+  if (gaddrout != NULL) {
+    FILE* f = fopen(gaddrout, "w");
+    if (f == NULL)
+      FD_LOG_ERR(( "unable to write to %s: %s", gaddrout, strerror(errno) ));
+    fprintf(f, "0x%016lx", fd_wksp_gaddr_fast( wksp, shmem ));
+    fclose(f);
   }
 
   char global_mem[FD_GLOBAL_CTX_FOOTPRINT] __attribute__((aligned(FD_GLOBAL_CTX_ALIGN)));
@@ -340,39 +444,41 @@ int main(int argc, char** argv) {
         FD_LOG_ERR(( "failed to read file %s", persist ));
     }
     
-    {
-      const char* snapshotfile = fd_env_strip_cmdline_cstr(&argc, &argv, "--snapshotfile", NULL, NULL);
-      if (snapshotfile == NULL) {
-        usage(argv[0]);
-        return 1;
-      }
+    const char* file = fd_env_strip_cmdline_cstr(&argc, &argv, "--snapshotfile", NULL, NULL);
+    if (file != NULL) {
       struct SnapshotParser parser;
       SnapshotParser_init(&parser, global, persist != NULL);
-      FD_LOG_NOTICE(("reading %s", snapshotfile));
-      if (strcmp(snapshotfile + strlen(snapshotfile) - 4, ".zst") == 0)
-        decompressZSTD(snapshotfile, SnapshotParser_moreData, &parser);
-      else if (strcmp(snapshotfile + strlen(snapshotfile) - 4, ".bz2") == 0)
-        decompressBZ2(snapshotfile, SnapshotParser_moreData, &parser);
+      FD_LOG_NOTICE(("reading %s", file));
+      if (strcmp(file + strlen(file) - 4, ".zst") == 0)
+        decompressZSTD(file, SnapshotParser_moreData, &parser);
+      else if (strcmp(file + strlen(file) - 4, ".bz2") == 0)
+        decompressBZ2(file, SnapshotParser_moreData, &parser);
       else
         FD_LOG_ERR(( "unknown snapshot compression suffix" ));
       SnapshotParser_destroy(&parser);
     }
-    {
-      const char* snapshotfile = fd_env_strip_cmdline_cstr(&argc, &argv, "--incremental", NULL, NULL);
-      if (snapshotfile != NULL) {
-        struct SnapshotParser parser;
-        SnapshotParser_init(&parser, global, persist != NULL);
-        FD_LOG_NOTICE(("reading %s", snapshotfile));
-        if (strcmp(snapshotfile + strlen(snapshotfile) - 4, ".zst") == 0)
-          decompressZSTD(snapshotfile, SnapshotParser_moreData, &parser);
-        else if (strcmp(snapshotfile + strlen(snapshotfile) - 4, ".bz2") == 0)
-          decompressBZ2(snapshotfile, SnapshotParser_moreData, &parser);
-        else
-          FD_LOG_ERR(( "unknown snapshot compression suffix" ));
-        SnapshotParser_destroy(&parser);
-      }
+
+    file = fd_env_strip_cmdline_cstr(&argc, &argv, "--incremental", NULL, NULL);
+    if (file != NULL) {
+      struct SnapshotParser parser;
+      SnapshotParser_init(&parser, global, persist != NULL);
+      FD_LOG_NOTICE(("reading %s", file));
+      if (strcmp(file + strlen(file) - 4, ".zst") == 0)
+        decompressZSTD(file, SnapshotParser_moreData, &parser);
+      else if (strcmp(file + strlen(file) - 4, ".bz2") == 0)
+        decompressBZ2(file, SnapshotParser_moreData, &parser);
+      else
+        FD_LOG_ERR(( "unknown snapshot compression suffix" ));
+      SnapshotParser_destroy(&parser);
     }
 
+    file = fd_env_strip_cmdline_cstr(&argc, &argv, "--rocksdb", NULL, NULL);
+    if (file != NULL) {
+      ulong start_slot = fd_env_strip_cmdline_ulong(&argc, &argv, "--startslot", NULL, 0);
+      ulong end_slot = fd_env_strip_cmdline_ulong(&argc, &argv, "--endslot", NULL, ULONG_MAX);
+      ingest_rocksdb(global, file, start_slot, end_slot);
+    }
+    
   } else if (strcmp(cmd, "recover") == 0) {
     if (persist != NULL) {
       if (fd_funk_persist_open(funk, persist, 0) != FD_FUNK_SUCCESS)
@@ -395,7 +501,7 @@ int main(int argc, char** argv) {
     }
   }
 
-  if (strcmp(verify, "true") == 0)
+  if (strcmp(verifyfunky, "true") == 0)
     if (fd_funk_verify(funk))
       FD_LOG_ERR(( "verification failed" ));
 
@@ -413,6 +519,8 @@ int main(int argc, char** argv) {
          !fd_funk_rec_map_iter_done( rec_map, iter );
          iter = fd_funk_rec_map_iter_next( rec_map, iter ) ) {
       fd_funk_rec_t * rec = fd_funk_rec_map_iter_ele( rec_map, iter );
+      if ( !fd_acc_mgr_is_key( rec->pair.key ) )
+        continue;
 
       if (num_pairs % 10000000 == 0) {
         FD_LOG_NOTICE(( "read %lu so far", num_pairs ));

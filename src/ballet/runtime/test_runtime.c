@@ -14,6 +14,8 @@
 // build/linux/gcc/x86_64/bin/fd_frank_ledger --gaddr 0x000000000c7ce180 --wksp giant_wksp --verifyhash 2DyMb1qN8JuTijCjsW8w4G2tg1hWuAw2AopH7Bj9Qstu
 // build/linux/gcc/x86_64/bin/fd_frank_ledger --wksp giant_wksp  --cmd ingest --snapshotfile /home/jsiegel/mainnet-ledger/snapshot-179244882-2DyMb1qN8JuTijCjsW8w4G2tg1hWuAw2AopH7Bj9Qstu.tar.zst --incremental /home/jsiegel/mainnet-ledger/incremental-snapshot-179244882-179248368-6TprbHABozQQLjjc1HBeQ2p4AigMC7rhHJS2Q5WLcbyw.tar.zst --reset true --persist /home/asiegel/funktest
 
+// fpid-devworkl187 asiegel/firedancer-private $ build/linux/gcc/x86_64/bin/fd_frank_ledger --wksp giant_wksp --reset true --persist ~/testfunk --rocksdb ~/firedancer-private/test-ledger-4/rocksdb --cmd ingest --gaddrout gaddr
+
 // /home/jsiegel/repos/firedancer-private/build/linux/gcc/x86_64/bin/fd_wksp_ctl new test_wksp 32 gigantic 0 0777
 // /home/jsiegel/repos/firedancer-private/build/linux/gcc/x86_64/bin/fd_wksp_ctl query test_wksp
 
@@ -106,16 +108,14 @@ struct global_state {
   char const *        name;
   char const *        ledger;
   char const *        gaddr;
+  char const *        persist;
   char const *        start_slot_opt;
   char const *        end_slot_opt;
   char const *        start_id_opt;
   char const *        end_id_opt;
-  char const *        manifest;
   char const *        accounts;
   char const *        cmd;
   char const *        txn_exe_opt;
-
-  fd_rocksdb_t        rocks_db;
 };
 typedef struct global_state global_state_t;
 
@@ -124,9 +124,9 @@ static void usage(const char* progname) {
   fprintf(stderr, " --wksp        <name>       workspace name\n");
   fprintf(stderr, " --ledger      <dir>        ledger directory\n");
   fprintf(stderr, " --gaddr       <num>        global address of funky in the workspace\n");
+  fprintf(stderr, " --persist     <file>       funky persistence file\n");
   fprintf(stderr, " --end-slot    <num>        stop iterating at block...\n");
   fprintf(stderr, " --start-slot  <num>        start iterating at block...\n");
-  fprintf(stderr, " --manifest    <file>       What manifest file should I pay attention to\n");
   fprintf(stderr, " --accounts    <dir>        What accounts should I slurp in\n");
   fprintf(stderr, " --cmd         <operation>  What operation should we test\n");
   fprintf(stderr, " --skip-exe    [skip,sim]   Should we skip executing transactions\n");
@@ -158,6 +158,8 @@ int accounts_hash(global_state_t *state) {
        !fd_funk_rec_map_iter_done( rec_map, iter );
        iter = fd_funk_rec_map_iter_next( rec_map, iter ) ) {
     fd_funk_rec_t * rec = fd_funk_rec_map_iter_ele( rec_map, iter );
+    if ( !fd_acc_mgr_is_key( rec->pair.key ) )
+      continue;
 
     if (num_pairs % 1000000 == 0) {
       FD_LOG_NOTICE(( "PAIRS: %lu", num_pairs ));
@@ -344,123 +346,55 @@ int slot_dump(global_state_t *state) {
   return 0;
 }
 
-int manifest(global_state_t *state) {
-  struct stat s;
-  stat(state->manifest,  &s);
-
-  FD_LOG_WARNING(("reading manifest: %s", state->manifest));
-
-  unsigned char *b = (unsigned char *)state->global->allocf(state->global->allocf_arg, 1, (unsigned long) (unsigned long) s.st_size);
-  int            fd = open(state->manifest, O_RDONLY);
-  ssize_t        n = read(fd, b, (unsigned long) s.st_size);
-  close(fd);
-
-  FD_TEST(n == s.st_size);
-  unsigned char *outend = &b[n];
-  const void *   o = b;
-
-  FD_LOG_WARNING(("deserializing solana manifest"));
-
-  fd_solana_manifest_t a;
-  memset(&a, 0, sizeof(a));
-  fd_solana_manifest_decode(&a, &o, outend, state->global->allocf, state->global->allocf_arg);
-
-  fd_deserializable_versioned_bank_walk(&a.bank, fd_printer_walker, "hi", 0);
-
-  FD_LOG_WARNING(("cleaning up"));
-
-  fd_solana_manifest_destroy(&a, state->global->freef, state->global->allocf_arg);
-  state->global->freef(state->global->allocf_arg, b);
-
-  return 0;
-}
-
-#if 0
-void
-fd_sim_txn(global_state_t *state, FD_FN_UNUSED fd_executor_t* executor, fd_txn_t * txn, fd_rawtxn_b_t* txn_raw, fd_funk_txn_t* funk_txn ) {
-
-/*      The order of these addresses is important, because it determines the
-     "permission flags" for the account in this transaction.
-     Accounts ordered:
-                                          Index Range                                 |   Signer?    |  Writeable?
-     ---------------------------------------------------------------------------------|--------------|-------------
-      [0,                                     signature_cnt - readonly_signed_cnt)    |  signer      |   writable
-      [signature_cnt - readonly_signed_cnt,   signature_cnt)                          |  signer      |   readonly
-      [signature_cnt,                         acct_addr_cnt - readonly_unsigned_cnt)  |  not signer  |   writable
-      [acct_addr_cnt - readonly_unsigned_cnt, acct_addr_cnt)                          |  not signer  |   readonly
-*/
-
-  fd_pubkey_t *tx_accs   = (fd_pubkey_t *)((uchar *)txn_raw->raw + txn->acct_addr_off);
-  for (ushort i = 0; i < txn->acct_addr_cnt; i++) {
-    fd_pubkey_t *addr = &tx_accs[i];
-
-    long what = -1;
-    if (i < (txn->signature_cnt - txn->readonly_signed_cnt))
-      what = 0;
-    else if ((i >= (txn->signature_cnt - txn->readonly_signed_cnt)))
-      what = 1;
-    else if ((i >= txn->signature_cnt) && (i < (txn->acct_addr_cnt - txn->readonly_unsigned_cnt)))
-      what = 2;
-    else
-      what = 3;
-
-    fd_account_meta_t metadata;
-    if ( fd_acc_mgr_get_metadata( state->global->acc_mgr, state->global->funk_txn, addr, &metadata ) != FD_ACC_MGR_SUCCESS) {
-      if (what > 1) {
-        char pubkey[33];
-        fd_base58_encode_32((uchar *) addr, NULL, pubkey);
-        FD_LOG_WARNING(("missing account: %ld %s", what, pubkey));
-      }
-      continue;
-    }
-    if ((what == 0) | (what == 2)) {
-      metadata.info.lamports++;
-      int write_result = fd_acc_mgr_write_account_data( state->global->acc_mgr, funk_txn, addr, (uchar*)&metadata, sizeof(metadata), NULL, 0, 0 );
-      if ( FD_UNLIKELY( write_result != FD_ACC_MGR_SUCCESS ) ) {
-        FD_LOG_ERR(("wtf"));
-      }
-    }
-  }
-}
-#endif
-
 int replay(global_state_t *state) {
   if (0 == state->start_slot)
     fd_runtime_boot_slot_zero(state->global);
 
-  fd_rocksdb_root_iter_t iter;
-  fd_rocksdb_root_iter_new ( &iter );
+  fd_funk_rec_key_t key = fd_runtime_block_meta_key(ULONG_MAX);
+  fd_funk_rec_t const * rec = fd_funk_rec_query( state->global->funk, NULL, &key );
+  if (rec == NULL)
+    FD_LOG_ERR(("missing meta record"));
+  fd_slot_meta_meta_t mm;
+  int err;
+  const void * val = fd_funk_val_cache( state->global->funk, rec, &err );
+  if (val == NULL)
+    FD_LOG_ERR(("corrupt meta record"));
+  fd_slot_meta_meta_decode( &mm, &val, (uchar*)val + fd_funk_val_sz(rec), state->global->allocf, state->global->allocf_arg );
 
-  fd_slot_meta_t m;
-  fd_memset(&m, 0, sizeof(m));
-
-  int ret = fd_rocksdb_root_iter_seek ( &iter, &state->rocks_db, state->start_slot, &m, state->global->allocf, state->global->allocf_arg);
-  if (ret < 0) {
-    FD_LOG_ERR(("fd_rocksdb_root_iter_seek returned %d", ret));
-  }
-
-  do {
-    ulong slot = m.slot;
-
-    if (slot >= state->end_slot)
-      break;
+  if (mm.start_slot > state->start_slot)
+    state->start_slot = mm.start_slot;
+  if (mm.end_slot < state->end_slot)
+    state->end_slot = mm.end_slot;
+  
+  for ( ulong slot = state->start_slot; slot < state->end_slot; ++slot ) {
+    state->global->bank.solana_bank.slot = slot;
 
     if ((state->end_slot < 10) || ((slot % 10) == 0))
       FD_LOG_WARNING(("reading slot %ld", slot));
+    
+    fd_slot_meta_t m;
+    fd_memset(&m, 0, sizeof(m));
+    key = fd_runtime_block_meta_key(slot);
+    rec = fd_funk_rec_query( state->global->funk, NULL, &key );
+    if (rec == NULL)
+      continue;
+    val = fd_funk_val_cache( state->global->funk, rec, &err );
+    if (val == NULL)
+      FD_LOG_ERR(("corrupt meta record"));
+    fd_slot_meta_decode( &m, &val, (uchar*)val + fd_funk_val_sz(rec), state->global->allocf, state->global->allocf_arg );
 
-    fd_slot_blocks_t *slot_data = fd_rocksdb_get_microblocks(&state->rocks_db, &m, state->global->allocf, state->global->allocf_arg);
+    key = fd_runtime_block_key(slot);
+    rec = fd_funk_rec_query( state->global->funk, NULL, &key );
+    if (rec == NULL)
+      FD_LOG_ERR(("missing block record"));
+    val = fd_funk_val_cache( state->global->funk, rec, &err );
+    if (val == NULL)
+      FD_LOG_ERR(("missing block record"));
 
-    state->global->bank.solana_bank.slot = slot;
+    FD_TEST (fd_runtime_block_eval( state->global, &m, val, fd_funk_val_sz(rec) ) == FD_RUNTIME_EXECUTE_SUCCESS);
 
-    FD_TEST (fd_runtime_block_eval( state->global, slot_data) == FD_RUNTIME_EXECUTE_SUCCESS);
-
-    // free
     fd_slot_meta_destroy(&m, state->global->freef, state->global->allocf_arg);
-
-    ret = fd_rocksdb_root_iter_next ( &iter, &m, state->global->allocf, state->global->allocf_arg);
-    if (ret < 0)
-      FD_LOG_ERR(("fd_rocksdb_root_iter_seek returned %d", ret));
-  } while (1);
+  }
 
   return 0;
 }
@@ -485,11 +419,11 @@ int main(int argc, char **argv) {
   state.name                = fd_env_strip_cmdline_cstr ( &argc, &argv, "--wksp",         NULL, NULL );
   state.ledger              = fd_env_strip_cmdline_cstr ( &argc, &argv, "--ledger",       NULL, NULL);
   state.gaddr               = fd_env_strip_cmdline_cstr ( &argc, &argv, "--gaddr",        NULL, NULL);
+  state.persist             = fd_env_strip_cmdline_cstr ( &argc, &argv, "--persist",      NULL, NULL);
   state.start_slot_opt      = fd_env_strip_cmdline_cstr ( &argc, &argv, "--start-slot",   NULL, NULL);
   state.end_slot_opt        = fd_env_strip_cmdline_cstr ( &argc, &argv, "--end-slot",     NULL, NULL);
   state.start_id_opt        = fd_env_strip_cmdline_cstr ( &argc, &argv, "--start-id",     NULL, NULL);
   state.end_id_opt          = fd_env_strip_cmdline_cstr ( &argc, &argv, "--end-id",       NULL, NULL);
-  state.manifest            = fd_env_strip_cmdline_cstr ( &argc, &argv, "--manifest",     NULL, NULL);
   state.accounts            = fd_env_strip_cmdline_cstr ( &argc, &argv, "--accounts",     NULL, NULL);
   state.cmd                 = fd_env_strip_cmdline_cstr ( &argc, &argv, "--cmd",          NULL, NULL);
   state.txn_exe_opt         = fd_env_strip_cmdline_cstr ( &argc, &argv, "--txn-exe",      NULL, NULL);
@@ -566,6 +500,11 @@ int main(int argc, char **argv) {
   state.global->freef = (fd_free_fun_t)fd_alloc_free;
   state.global->allocf_arg = fd_wksp_laddr_fast( wksp, state.global->funk->alloc_gaddr );
 
+  if (NULL != state.persist) {
+    if ( fd_funk_persist_open_fast( state.global->funk, state.persist ) != FD_FUNK_SUCCESS )
+      FD_LOG_ERR(("failed to open persistence file"));
+  }
+
   if ((validate_db != NULL) && (strcmp(validate_db, "true") == 0)) {
     FD_LOG_WARNING(("starting validate"));
     if ( fd_funk_verify(state.global->funk) != FD_FUNK_SUCCESS )
@@ -575,8 +514,12 @@ int main(int argc, char **argv) {
   
   if (NULL != state.end_slot_opt)
     state.end_slot = (ulong) atoi(state.end_slot_opt);
+  else
+    state.end_slot = ULONG_MAX;
   if (NULL != state.start_slot_opt)
     state.start_slot = (ulong) atoi(state.start_slot_opt);
+  else
+    state.start_slot = 0;
   if (NULL != state.end_id_opt)
     state.end_id = (ulong) atoi(state.end_id_opt);
   if (NULL != state.start_id_opt)
@@ -637,40 +580,6 @@ int main(int argc, char **argv) {
     FD_LOG_WARNING(("native program:  %s <= %s", ins->string, pubkey));
   }
 
-  //  we good?
-//  FD_LOG_WARNING(("validating funk db"));
-//  fd_funk_validate(state.funk);
-
-  // Initialize the rocksdb
-  char db_name[128];
-  sprintf(db_name, "%s/rocksdb", state.ledger);
-
-  char *err = fd_rocksdb_init(&state.rocks_db, db_name);
-
-  if (err != NULL) {
-    FD_LOG_ERR(("fd_rocksdb_init returned %s", err));
-  }
-
-  ulong last_slot = fd_rocksdb_last_slot(&state.rocks_db, &err);
-  if (err != NULL) {
-    FD_LOG_ERR(("fd_rocksdb_last_slot returned %s", err));
-  }
-
-  if (state.end_slot > last_slot) {
-    state.end_slot = last_slot;
-    FD_LOG_WARNING(("setting the end_slot to %ld since that is the last slot we see in the rocksdb", state.end_slot));
-  }
-
-  ulong first_slot = fd_rocksdb_first_slot(&state.rocks_db, &err);
-  if (err != NULL) {
-    FD_LOG_ERR(("fd_rocksdb_first_slot returned %s", err));
-  }
-
-  if (state.start_slot < first_slot) {
-    state.start_slot = first_slot;
-    FD_LOG_WARNING(("setting the start_slot to %ld since that is the first slot we see in the rocksdb", state.start_slot));
-  }
-
   if (strcmp(state.cmd, "replay") == 0) {
     replay(&state);
 
@@ -702,21 +611,12 @@ int main(int argc, char **argv) {
     }
 
   }
-  if (strcmp(state.cmd, "manifest") == 0)
-    manifest(&state);
-  // if (strcmp(state.cmd, "ingest") == 0)
-  //    ingest(&state);
   if (strcmp(state.cmd, "accounts_hash") == 0)
     accounts_hash(&state);
-//  if (strcmp(state.cmd, "validate") == 0)
-//    validate_bank_hashes(&state);
   if (strcmp(state.cmd, "accounts") == 0)
     slot_dump(&state);
 
   fd_global_ctx_delete(fd_global_ctx_leave(state.global));
-
-  // The memory management model is odd...  how do I know how to destroy this
-  fd_rocksdb_destroy(&state.rocks_db);
 
   if( state.name )
     fd_wksp_detach( state.global->wksp );

@@ -813,6 +813,14 @@ typedef struct fd_slot_meta fd_slot_meta_t;
 #define FD_SLOT_META_FOOTPRINT sizeof(fd_slot_meta_t)
 #define FD_SLOT_META_ALIGN (8UL)
 
+struct fd_slot_meta_meta {
+  unsigned long start_slot;
+  unsigned long end_slot;
+};
+typedef struct fd_slot_meta_meta fd_slot_meta_meta_t;
+#define FD_SLOT_META_META_FOOTPRINT sizeof(fd_slot_meta_meta_t)
+#define FD_SLOT_META_META_ALIGN (8UL)
+
 /* A validator timestamp oracle vote received from a voting node */
 struct fd_clock_timestamp_vote {
   fd_pubkey_t   pubkey;
@@ -1675,6 +1683,12 @@ void fd_slot_meta_encode(fd_slot_meta_t* self, void const** data);
 void fd_slot_meta_destroy(fd_slot_meta_t* self, fd_free_fun_t freef, void* freef_arg);
 void fd_slot_meta_walk(fd_slot_meta_t* self, fd_walk_fun_t fun, const char *name, int level);
 ulong fd_slot_meta_size(fd_slot_meta_t* self);
+
+void fd_slot_meta_meta_decode(fd_slot_meta_meta_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
+void fd_slot_meta_meta_encode(fd_slot_meta_meta_t* self, void const** data);
+void fd_slot_meta_meta_destroy(fd_slot_meta_meta_t* self, fd_free_fun_t freef, void* freef_arg);
+void fd_slot_meta_meta_walk(fd_slot_meta_meta_t* self, fd_walk_fun_t fun, const char *name, int level);
+ulong fd_slot_meta_meta_size(fd_slot_meta_meta_t* self);
 
 void fd_clock_timestamp_vote_decode(fd_clock_timestamp_vote_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
 void fd_clock_timestamp_vote_encode(fd_clock_timestamp_vote_t* self, void const** data);

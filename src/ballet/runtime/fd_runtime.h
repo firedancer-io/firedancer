@@ -93,9 +93,9 @@ ulong             fd_runtime_lamports_per_signature( fd_global_ctx_t *global );
 
 ulong             fd_runtime_txn_lamports_per_signature( fd_global_ctx_t *global, fd_txn_t * txn_descriptor, fd_rawtxn_b_t* txn_raw );
 void              fd_runtime_boot_slot_zero( fd_global_ctx_t *global );
-int               fd_runtime_block_execute ( fd_global_ctx_t *global, fd_slot_blocks_t *slot_data );
-int               fd_runtime_block_verify  ( fd_global_ctx_t *global, fd_slot_blocks_t *slot_data );
-int               fd_runtime_block_eval    ( fd_global_ctx_t *global, fd_slot_blocks_t *slot_data );
+int               fd_runtime_block_execute ( fd_global_ctx_t *global, fd_slot_meta_t *m, const void* block, ulong blocklen );
+int               fd_runtime_block_verify  ( fd_global_ctx_t *global, fd_slot_meta_t *m, const void* block, ulong blocklen );
+int               fd_runtime_block_eval    ( fd_global_ctx_t *global, fd_slot_meta_t *m, const void* block, ulong blocklen );
 
 ulong             fd_runtime_calculate_fee ( fd_global_ctx_t *global, fd_txn_t * txn_descriptor, fd_rawtxn_b_t* txn_raw );
 void              fd_runtime_freeze        ( fd_global_ctx_t *global );
@@ -104,6 +104,13 @@ void              fd_printer_walker        (void *arg, const char* name, int typ
 
 ulong             fd_runtime_lamports_per_signature_for_blockhash( fd_global_ctx_t *global, FD_FN_UNUSED fd_hash_t *blockhash );
 
+fd_funk_rec_key_t fd_runtime_block_key     (ulong slot);
+fd_funk_rec_key_t fd_runtime_block_meta_key(ulong slot);
+
 FD_PROTOTYPES_END
+
+#define FD_ACC_MGR_KEY_TYPE ((uchar)0)
+#define FD_BLOCK_KEY_TYPE ((uchar)1)
+#define FD_BLOCK_META_KEY_TYPE ((uchar)2)
 
 #endif /* HEADER_fd_src_ballet_runtime_fd_runtime_h */
