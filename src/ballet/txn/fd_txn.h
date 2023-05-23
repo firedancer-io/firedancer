@@ -396,6 +396,17 @@ fd_txn_parse( uchar const             * payload,
               fd_txn_parse_counters_t * counters_opt,
               ulong *                   payload_sz_opt );
 
+struct fd_txn_xray_result {
+  uchar       signature_cnt;
+  ushort      signature_off;
+};
+typedef struct fd_txn_xray_result fd_txn_xray_result_t;
+
+ulong
+fd_txn_xray( uchar const             * payload,
+             ulong                     payload_sz,
+             fd_txn_xray_result_t    * result );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_ballet_txn_fd_txn_h */

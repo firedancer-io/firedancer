@@ -85,12 +85,11 @@ fd_runtime_block_execute( fd_global_ctx_t *global, fd_slot_meta_t* m, const void
 
       /* Loop across transactions */
       for ( ulong txn_idx = 0; txn_idx < hdr->txn_cnt; txn_idx++ ) {
-        uchar txn_out[FD_TXN_MAX_SZ];
-        ulong pay_sz = 0;
+        fd_txn_xray_result_t xray;
         const uchar* raw = (const uchar *)block + blockoff;
-        ulong txn_sz = fd_txn_parse(raw, blocklen - blockoff, txn_out, NULL, &pay_sz);
-        if ( txn_sz == 0 || txn_sz > FD_TXN_MAX_SZ )
-          FD_LOG_ERR(("failed to parse transaction"));
+        ulong pay_sz = fd_txn_xray(raw, blocklen - blockoff, &xray);
+        if ( pay_sz == 0UL )
+          FD_LOG_ERR(("failed to parse transaction %lu in microblock %lu in slot %lu", txn_idx, mblk, m->slot));
         blockoff += pay_sz;
       }
     }
@@ -199,17 +198,15 @@ fd_runtime_block_verify( fd_global_ctx_t *global, fd_slot_meta_t* m, const void*
       
         /* Loop across transactions */
         for ( ulong txn_idx = 0; txn_idx < hdr->txn_cnt; txn_idx++ ) {
-          uchar txn_out[FD_TXN_MAX_SZ];
-          ulong pay_sz = 0;
+          fd_txn_xray_result_t xray;
           const uchar* raw = (const uchar *)block + blockoff;
-          ulong txn_sz = fd_txn_parse(raw, blocklen - blockoff, txn_out, &counters, &pay_sz);
-          if ( txn_sz == 0 || txn_sz > FD_TXN_MAX_SZ )
-            FD_LOG_ERR(("failed to parse transaction"));
+          ulong pay_sz = fd_txn_xray(raw, blocklen - blockoff, &xray);
+          if ( pay_sz == 0UL )
+            FD_LOG_ERR(("failed to parse transaction %lu in microblock %lu in slot %lu", txn_idx, mblk, m->slot));
 
           /* Loop across signatures */
-          fd_txn_t const * txn = (fd_txn_t const *)txn_out;
-          fd_ed25519_sig_t const * sigs = fd_txn_get_signatures( txn, raw );
-          for ( ulong j = 0; j < txn->signature_cnt; j++ ) {
+          fd_ed25519_sig_t const * sigs = (fd_ed25519_sig_t const *)((ulong)raw + (ulong)xray.signature_off);
+          for ( ulong j = 0; j < xray.signature_cnt; j++ ) {
             fd_bmtree32_node_t leaf;
             fd_bmtree32_hash_leaf( &leaf, &sigs[j], sizeof(fd_ed25519_sig_t) );
             fd_bmtree32_commit_append( commit, (fd_bmtree32_node_t const *)&leaf, 1 );
