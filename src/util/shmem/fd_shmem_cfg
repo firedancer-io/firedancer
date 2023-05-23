@@ -110,9 +110,14 @@ init() {
         exit 1
       fi
     else
-      msz=`free -b | grep Mem | awk '{ print $2 }'` # FIXME: Ugly
+      msz=`awk '/^MemTotal:/ {print $2}' /proc/meminfo` # In KiB
       psz=`get_page_size $t`
-      msz=$((psz*(msz/psz))) # Round down to whole pages to be on safe side
+      msz=$((psz*((1024*msz)/psz))) # Round down to whole pages to be on safe side
+      if [ $msz -le 0 ]; then
+        echo "init $1 $2 $3: fail, msz calculation failed"
+        echo "Do $0 help for help"
+        exit 1
+      fi
       mount -v -t hugetlbfs -o pagesize=$psz,size=$msz none $MNT_PATH
       if [ "$?" != "0" ]; then
         echo "init $1 $2 $3: fail, mount failed"
