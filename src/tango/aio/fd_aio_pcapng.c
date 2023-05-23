@@ -23,7 +23,12 @@ fd_aio_pcapng_send( void *                    ctx,
     }
   }
 
-  return fd_aio_send( mitm->dst, batch, batch_cnt, opt_batch_idx, flush );
+  /* pcaping doesn't require any additional destination */
+  if( mitm->dst ) {
+    return fd_aio_send( mitm->dst, batch, batch_cnt, opt_batch_idx, flush );
+  }
+
+  return FD_AIO_SUCCESS;
 }
 
 FD_FN_CONST fd_aio_t const *

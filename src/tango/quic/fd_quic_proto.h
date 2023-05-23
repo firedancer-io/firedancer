@@ -1,6 +1,8 @@
 #ifndef HEADER_fd_src_tango_quic_fd_quic_proto_h
 #define HEADER_fd_src_tango_quic_fd_quic_proto_h
 
+#include "fd_quic_proto_structs.h"
+
 #include "fd_quic_common.h"
 #include "fd_quic_types.h"
 
