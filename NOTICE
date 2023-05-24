@@ -140,3 +140,10 @@ LLVM project mirror: https://github.com/llvm/llvm-project
 
 See https://llvm.org/LICENSE.txt for license information.
 SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+=======================================================================
+
+fd_chacha20 implements the 20 round variant of ChaCha, a stream cipher
+by Daniel J. Bernstein.
+
+From https://cr.yp.to/chacha.html and https://datatracker.ietf.org/doc/html/rfc7539
