@@ -93,6 +93,7 @@ int fd_acc_mgr_get_owner( fd_acc_mgr_t* acc_mgr, fd_funk_txn_t* txn, fd_pubkey_t
 
 /* Sets the lamport balance for the account with the given public key. */
 int fd_acc_mgr_set_lamports( fd_acc_mgr_t* acc_mgr, fd_funk_txn_t*, ulong slot, fd_pubkey_t* pubkey, fd_acc_lamports_t lamports );
+int fd_acc_mgr_set_owner( fd_acc_mgr_t* acc_mgr, fd_funk_txn_t* txn, ulong slot, fd_pubkey_t * pubkey, fd_pubkey_t new_owner );
 
 int fd_acc_mgr_write_structured_account( fd_acc_mgr_t* acc_mgr, fd_funk_txn_t* txn, ulong slot, fd_pubkey_t*, fd_solana_account_t *);
 

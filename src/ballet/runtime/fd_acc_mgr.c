@@ -206,6 +206,35 @@ int fd_acc_mgr_set_lamports( fd_acc_mgr_t* acc_mgr, fd_funk_txn_t* txn, ulong sl
   return FD_ACC_MGR_SUCCESS;
 }
 
+int fd_acc_mgr_set_owner( fd_acc_mgr_t* acc_mgr, fd_funk_txn_t* txn, ulong slot, fd_pubkey_t * pubkey, fd_pubkey_t new_owner ) {
+  /* Read the current metadata from Funk */
+  fd_account_meta_t metadata;
+  int               read_result = fd_acc_mgr_get_metadata( acc_mgr, txn, pubkey, &metadata );
+  if ( FD_UNLIKELY( read_result != FD_ACC_MGR_SUCCESS ) ) {
+    FD_LOG_WARNING(( "failed to read account metadata" ));
+    return read_result;
+  }
+
+  if (FD_UNLIKELY(acc_mgr->global->log_level > 2)) {
+    char encoded_pubkey[50];
+    fd_base58_encode_32((uchar *) pubkey, 0, encoded_pubkey);
+    FD_LOG_WARNING(( "set_owner: %ld:%s: %s->%s", slot, encoded_pubkey, metadata.info.owner, (char*)&new_owner ));
+  }
+
+  /* Overwrite the owner of the account */
+  memcpy(metadata.info.owner, &new_owner, sizeof(new_owner));
+
+  /* Bet we have to update the hash of the account.. and track the dirty pubkeys.. */
+  int write_result = fd_acc_mgr_write_account_data( acc_mgr, txn, pubkey, &metadata, sizeof(metadata), NULL, 0, 0 );
+  if ( FD_UNLIKELY( write_result != FD_ACC_MGR_SUCCESS ) ) {
+    FD_LOG_WARNING(( "failed to write account metadata" ));
+    return write_result;
+  }
+
+  fd_acc_mgr_update_hash( acc_mgr, &metadata, txn,  slot, pubkey, NULL, 0);
+  return FD_ACC_MGR_SUCCESS;
+}
+
 int fd_acc_mgr_set_metadata( fd_acc_mgr_t* acc_mgr, fd_funk_txn_t* txn, ulong slot, fd_pubkey_t * pubkey, fd_account_meta_t *metadata) {
   /* Bet we have to update the hash of the account.. and track the dirty pubkeys.. */
   int write_result = fd_acc_mgr_write_account_data( acc_mgr, txn, pubkey, metadata, sizeof(*metadata), NULL, 0, 0 );
