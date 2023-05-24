@@ -2,7 +2,7 @@
 
 // time build/linux/gcc/x86_64/bin/fd_frank_ledger --wksp giant_wksp --cmd ingest --snapshotfile /home/jsiegel/mainnet-ledger/snapshot-179244882-2DyMb1qN8JuTijCjsW8w4G2tg1hWuAw2AopH7Bj9Qstu.tar.zst --incremental /home/jsiegel/mainnet-ledger/incremental-snapshot-179244882-179248368-6TprbHABozQQLjjc1HBeQ2p4AigMC7rhHJS2Q5WLcbyw.tar.zst --reset true --persist /home/asiegel/funkmainnet --gaddrout /home/asiegel/funkaddr
 
-// time build/linux/gcc/x86_64/bin/fd_frank_ledger --wksp giant_wksp --cmd ingest --rocksdb /home/jsiegel/mainnet-ledger/rocksdb --reset true --persist /home/asiegel/funkmainnet --gaddrout /home/asiegel/funkaddr --verifypoh true
+// time build/linux/gcc/x86_64/bin/fd_frank_ledger --wksp giant_wksp --cmd ingest --rocksdb /home/jsiegel/mainnet-ledger/rocksdb --reset true --persist /home/asiegel/funkmainnet --gaddrout /home/asiegel/funkaddr --verifypoh true --startslot 179138205 --endslot 179140205
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -312,6 +312,7 @@ void ingest_rocksdb( fd_global_ctx_t * global, const char* file, ulong start_slo
   if (ret < 0)
     FD_LOG_ERR(("fd_rocksdb_root_iter_seek returned %d", ret));
 
+  ulong blk_cnt = 0;
   do {
     ulong slot = m.slot;
     if (slot < start_slot)
@@ -346,7 +347,8 @@ void ingest_rocksdb( fd_global_ctx_t * global, const char* file, ulong start_slo
     fd_funk_rec_persist( global->funk, rec );
     fd_funk_val_uncache( global->funk, rec );
 
-    FD_LOG_NOTICE(("slot %lu: block size %lu", slot, block_sz));
+    // FD_LOG_NOTICE(("slot %lu: block size %lu", slot, block_sz));
+    ++blk_cnt;
 
     if ( strcmp(verifypoh, "true") == 0 )
       fd_runtime_block_verify( global, &m, block, block_sz );
@@ -360,6 +362,8 @@ void ingest_rocksdb( fd_global_ctx_t * global, const char* file, ulong start_slo
   } while (1);
 
   fd_rocksdb_destroy(&rocks_db);
+
+  FD_LOG_NOTICE(("ingested %lu blocks", blk_cnt));
 }
 
 int main(int argc, char** argv) {
