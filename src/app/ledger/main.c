@@ -1,3 +1,9 @@
+// build/linux/gcc/x86_64/bin/fd_wksp_ctl new giant_wksp 100 gigantic 0-127 0666
+
+// time build/linux/gcc/x86_64/bin/fd_frank_ledger --wksp giant_wksp --cmd ingest --snapshotfile /home/jsiegel/mainnet-ledger/snapshot-179244882-2DyMb1qN8JuTijCjsW8w4G2tg1hWuAw2AopH7Bj9Qstu.tar.zst --incremental /home/jsiegel/mainnet-ledger/incremental-snapshot-179244882-179248368-6TprbHABozQQLjjc1HBeQ2p4AigMC7rhHJS2Q5WLcbyw.tar.zst --reset true --persist /home/asiegel/funkmainnet --gaddrout /home/asiegel/funkaddr
+
+// time build/linux/gcc/x86_64/bin/fd_frank_ledger --wksp giant_wksp --cmd ingest --rocksdb /home/jsiegel/mainnet-ledger/rocksdb --reset true --persist /home/asiegel/funkmainnet --gaddrout /home/asiegel/funkaddr --verifypoh true
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <stddef.h>
@@ -35,6 +41,7 @@ static void usage(const char* progname) {
   fprintf(stderr, " --txnmax <count>                                 size of funky transaction map\n");
   fprintf(stderr, " --verifyhash <base58hash>                        verify that the accounts hash matches the given one\n");
   fprintf(stderr, " --verifyfunky true                               verify database integrity\n");
+  fprintf(stderr, " --verifypoh true                                 verify proof-of-history while importing blocks\n");
 }
 
 struct SnapshotParser {
@@ -259,7 +266,7 @@ static void decompressBZ2(const char* fname, decompressCallback cb, void* arg) {
   close(fin);
 }
 
-void ingest_rocksdb( fd_global_ctx_t * global, const char* file, ulong start_slot, ulong end_slot ) {
+void ingest_rocksdb( fd_global_ctx_t * global, const char* file, ulong start_slot, ulong end_slot, const char* verifypoh ) {
   fd_rocksdb_t        rocks_db;
   char *err = fd_rocksdb_init(&rocks_db, file);
   if (err != NULL) {
@@ -341,6 +348,9 @@ void ingest_rocksdb( fd_global_ctx_t * global, const char* file, ulong start_slo
 
     FD_LOG_NOTICE(("slot %lu: block size %lu", slot, block_sz));
 
+    if ( strcmp(verifypoh, "true") == 0 )
+      fd_runtime_block_verify( global, &m, block, block_sz );
+    
     global->freef(global->allocf_arg, block);
     fd_slot_meta_destroy(&m, global->freef, global->allocf_arg);
 
@@ -476,7 +486,8 @@ int main(int argc, char** argv) {
     if (file != NULL) {
       ulong start_slot = fd_env_strip_cmdline_ulong(&argc, &argv, "--startslot", NULL, 0);
       ulong end_slot = fd_env_strip_cmdline_ulong(&argc, &argv, "--endslot", NULL, ULONG_MAX);
-      ingest_rocksdb(global, file, start_slot, end_slot);
+      const char* verifypoh = fd_env_strip_cmdline_cstr(&argc, &argv, "--verifypoh", NULL, "false");
+      ingest_rocksdb(global, file, start_slot, end_slot, verifypoh);
     }
     
   } else if (strcmp(cmd, "recover") == 0) {
