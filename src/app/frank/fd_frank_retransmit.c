@@ -80,11 +80,12 @@ struct forwarding_ctx {
   fd_net_endpoint_t src;
   fd_net_endpoint_t dst;
 
-  fd_aio_pkt_info_t * * data_batches;
-  fd_aio_pkt_info_t * * parity_batches;
+  fd_aio_pkt_info_t * * data_batches; /* indexed [i][j], where i in [0, depth), j in [0, FD_REEDSOL_DATA_SHREDS_MAX) */
+  fd_aio_pkt_info_t * * parity_batches;/* indexed [i][j], where i in [0, depth), j in [0, FD_REEDSOL_PARITY_SHREDS_MAX) */
+
   fd_fec_resolver_t * resolver;
 
-  fd_fec_set_t * set;
+  fd_fec_set_t * sets;/* indexed i in [0, depth), sets[i] corresponds to data_batches[i] and parity_batches[i] */
 };
 typedef struct forwarding_ctx forwarding_ctx_t;
 
@@ -98,7 +99,7 @@ handle_rx_shred( void *                    _ctx,
 
   fd_fec_set_t * to_send = fd_fec_resolver_add_shred( ctx->resolver, shred, shred_sz );
   if( FD_UNLIKELY( to_send ) ) {
-    long idx = to_send - ctx->set;
+    long idx = to_send - ctx->sets;
     /* TODO: Do I want to bother changing the identification field? */
     int send_rc = send_loop_helper( ctx->tx_aio, ctx->data_batches[ idx ], to_send->data_shred_cnt );
     if( FD_UNLIKELY( send_rc<0 ) )  FD_LOG_WARNING(( "AIO send err for data shreds. Error: %s", fd_aio_strerror( send_rc ) ));
@@ -198,14 +199,129 @@ fd_frank_retransmit_task( int     argc,
   if( FD_UNLIKELY( !rng ) ) FD_LOG_ERR(( "fd_rng_join failed" ));
 
 
+  ulong depth = fd_pod_query_ulong( retransmit_pod, "depth", 16UL );
+  ulong done_depth = 1024UL * 1024UL;
+
+  ulong scratch_footprint = fd_fec_resolver_footprint( depth, done_depth );
+  scratch_footprint += depth*sizeof(fd_fec_set_t);
+  scratch_footprint += depth*(FD_REEDSOL_DATA_SHREDS_MAX + FD_REEDSOL_PARITY_SHREDS_MAX)*sizeof(fd_shred_pkt_t);
+  scratch_footprint += depth*(FD_REEDSOL_DATA_SHREDS_MAX + FD_REEDSOL_PARITY_SHREDS_MAX)*sizeof(fd_aio_pkt_info_t);
+  scratch_footprint += 2UL*depth*sizeof(fd_aio_pkt_info_t *);
+
+  FD_LOG_NOTICE(( "Tile requires %lu bytes of scratch", scratch_footprint ));
+  FD_LOG_INFO(( "mapping %s.retransmit.%s.scratch", cfg_path, retransmit_name ));
+  void * retransmit_scratch = fd_wksp_pod_map( retransmit_pod, "scratch" );
+  if( FD_UNLIKELY( !retransmit_scratch ) ) FD_LOG_ERR(( "%s.retransmit.%s.scratch path not found", cfg_path, retransmit_name ));
+
+  /* FIXME: Allocate these properly */
+  ulong scratch_top = (ulong)retransmit_scratch;
+  void * _resolver = (void *)scratch_top;
+  scratch_top += fd_fec_resolver_footprint( depth, done_depth );
+
+  scratch_top = fd_ulong_align_up( scratch_top, alignof(fd_fec_set_t) );
+  fd_fec_set_t * sets = (fd_fec_set_t *)scratch_top;
+  scratch_top += depth*sizeof(fd_fec_set_t);
+
+  scratch_top = fd_ulong_align_up( scratch_top, alignof(fd_shred_pkt_t) );
+  fd_shred_pkt_t * all_pkts = (fd_shred_pkt_t *)scratch_top;
+  scratch_top += depth*(FD_REEDSOL_DATA_SHREDS_MAX + FD_REEDSOL_PARITY_SHREDS_MAX)*sizeof(fd_shred_pkt_t);
+
+  scratch_top = fd_ulong_align_up( scratch_top, alignof(fd_aio_pkt_info_t) );
+  fd_aio_pkt_info_t * all_pkt_infos = (fd_aio_pkt_info_t *)scratch_top;
+  scratch_top += depth*(FD_REEDSOL_DATA_SHREDS_MAX + FD_REEDSOL_PARITY_SHREDS_MAX)*sizeof(fd_aio_pkt_info_t);
+
+  scratch_top = fd_ulong_align_up( scratch_top, alignof(fd_aio_pkt_info_t *) );
+  fd_aio_pkt_info_t * * data_batches = (fd_aio_pkt_info_t * *)scratch_top;
+  scratch_top += depth*sizeof(fd_aio_pkt_info_t *);
+  fd_aio_pkt_info_t * * parity_batches = (fd_aio_pkt_info_t * *)scratch_top;
+  scratch_top += depth*sizeof(fd_aio_pkt_info_t *);
+
+
+  ulong pkt_idx = 0UL;
+  for( ulong i=0UL; i<depth; i++ ) {
+    data_batches[i]   = all_pkt_infos + pkt_idx;
+    for(ulong j=0UL; j<FD_REEDSOL_DATA_SHREDS_MAX; j++ ) {
+      fd_shred_pkt_t * pkt = all_pkts + pkt_idx;
+      data_batches[i][j].buf = pkt;
+      data_batches[i][j].buf_sz = 1203UL + sizeof(fd_eth_hdr_t) + sizeof(fd_ip4_hdr_t) + sizeof(fd_udp_hdr_t);
+
+      /* Populate headers */
+      fd_memcpy( pkt->eth->dst, ctx->dst.mac, 6UL );
+      fd_memcpy( pkt->eth->src, ctx->src.mac, 6UL );
+      pkt->eth->net_type  = fd_ushort_bswap( FD_ETH_HDR_TYPE_IP );
+
+      pkt->ip4->ihl       = 5U;
+      pkt->ip4->version   = 4U;
+      pkt->ip4->tos       = (uchar)0;
+      pkt->ip4->net_tot_len = fd_ushort_bswap( 1203UL + sizeof(fd_ip4_hdr_t)+sizeof(fd_udp_hdr_t) );
+      pkt->ip4->net_frag_off  = fd_ushort_bswap( FD_IP4_HDR_FRAG_OFF_DF );
+      pkt->ip4->ttl       = (uchar)64;
+      pkt->ip4->protocol  = FD_IP4_HDR_PROTOCOL_UDP;
+      pkt->ip4->check     = 0U;
+      pkt->ip4->saddr     = ctx->src.ip4;
+      pkt->ip4->daddr     = ctx->dst.ip4;
+
+      pkt->udp->net_sport = ctx->src.port;
+      pkt->udp->net_dport = ctx->dst.port;
+      pkt->udp->net_len   = fd_ushort_bswap( (ushort)(1203UL + sizeof(fd_udp_hdr_t)) );
+      pkt->udp->check     = (ushort)0;
+
+      sets[i].data_shreds[j] = pkt->payload;
+
+      pkt_idx++;
+    }
+
+    parity_batches[i] = all_pkt_infos + pkt_idx;
+    for(ulong j=0UL; j<FD_REEDSOL_PARITY_SHREDS_MAX; j++ ) {
+      fd_shred_pkt_t * pkt = all_pkts + pkt_idx;
+      data_batches[i][j].buf = pkt;
+      data_batches[i][j].buf_sz = 1228UL + sizeof(fd_eth_hdr_t) + sizeof(fd_ip4_hdr_t) + sizeof(fd_udp_hdr_t);
+
+      /* Populate headers */
+      fd_memcpy( pkt->eth->dst, ctx->dst.mac, 6UL );
+      fd_memcpy( pkt->eth->src, ctx->src.mac, 6UL );
+      pkt->eth->net_type  = fd_ushort_bswap( FD_ETH_HDR_TYPE_IP );
+
+      pkt->ip4->ihl       = 5U;
+      pkt->ip4->version   = 4U;
+      pkt->ip4->tos       = (uchar)0;
+      pkt->ip4->net_tot_len = fd_ushort_bswap( 1228UL + sizeof(fd_ip4_hdr_t)+sizeof(fd_udp_hdr_t) );
+      pkt->ip4->net_frag_off  = fd_ushort_bswap( FD_IP4_HDR_FRAG_OFF_DF );
+      pkt->ip4->ttl       = (uchar)64;
+      pkt->ip4->protocol  = FD_IP4_HDR_PROTOCOL_UDP;
+      pkt->ip4->check     = 0U;
+      pkt->ip4->saddr     = ctx->src.ip4;
+      pkt->ip4->daddr     = ctx->dst.ip4;
+
+      pkt->udp->net_sport = ctx->src.port;
+      pkt->udp->net_dport = ctx->dst.port;
+      pkt->udp->net_len   = fd_ushort_bswap( (ushort)(1228UL + sizeof(fd_udp_hdr_t)) );
+      pkt->udp->check     = (ushort)0;
+
+      sets[i].parity_shreds[j] = pkt->payload;
+
+      pkt_idx++;
+    }
+  }
+
+  fd_fec_resolver_t * resolver = fd_fec_resolver_join( fd_fec_resolver_new( _resolver, depth, done_depth, sets ) );
+  if( FD_UNLIKELY( !resolver ) ) FD_LOG_ERR(( "fd_fec_resolver_join failed" ));
+
+
   fd_aio_t _aio[1];
   fd_aio_t * aio = fd_aio_join( fd_aio_new( _aio, ctx, handle_rx ) );
   if( FD_UNLIKELY( !aio ) ) FD_LOG_ERR(( "join aio failed" ));
 
-  fd_xsk_aio_set_rx( xsk_aio, aio );
 
   fd_aio_t const * tx_aio = fd_xsk_aio_get_tx( xsk_aio );
-  ctx->tx_aio = tx_aio;
+
+  ctx->tx_aio         = tx_aio;
+  ctx->data_batches   = data_batches;
+  ctx->parity_batches = parity_batches;
+  ctx->resolver       = resolver;
+  ctx->sets           = sets;
+
+  fd_xsk_aio_set_rx( xsk_aio, aio );
 
   FD_LOG_NOTICE(( "Listening on interface %s queue %d", fd_xsk_ifname( xsk ), fd_xsk_ifqueue( xsk ) ));
 

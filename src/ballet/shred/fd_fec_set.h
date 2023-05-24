@@ -40,10 +40,10 @@ typedef struct fd_fec_resolver fd_fec_resolver_t;
 /* fd_fec_resolver_{footprint, align} return the footprint and
    alignment (in bytes as always) required to create an FEC set resolver
    that can keep track of depth simultaneous FEC sets. */
-ulong fd_fec_resolver_footprint( ulong depth );
+ulong fd_fec_resolver_footprint( ulong depth, ulong done_depth );
 ulong fd_fec_resolver_align    ( void        );
 
-ulong fd_fec_resolver_new( void * shmem, ulong depth, fd_fec_set_t * sets );
+void * fd_fec_resolver_new( void * shmem, ulong depth, ulong done_depth, fd_fec_set_t * sets );
 
 fd_fec_resolver_t * fd_fec_resolver_join( void * shmem );
 
