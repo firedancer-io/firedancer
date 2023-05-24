@@ -48,12 +48,46 @@ test_chacha20_block( void ) {
                  FD_LOG_HEX16_FMT_ARGS( expected+32 ), FD_LOG_HEX16_FMT_ARGS( expected+48 ) ));
 }
 
+void
+bench_chacha20_block( void ) {
+
+  uchar key[ 32UL ] __attribute__((aligned(64))) = {
+    0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f,
+    0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f
+  };
+  uchar const nonce[ 24UL ] __attribute__((aligned(4))) = {
+    0x00, 0x00, 0x00, 0x09, 0x00, 0x00, 0x00, 0x4a, 0x00, 0x00, 0x00, 0x00
+  };
+  uint block_idx = 1U;
+  uchar block[ 64UL ];
+
+  for( ulong idx=0U; idx<2UL; idx++ ) {
+    FD_LOG_NOTICE(( "Benchmarking fd_chacha20_block, run %lu", idx ));
+    key[ 0 ]++;
+
+    /* warmup */
+    for( ulong rem=100000UL; rem; rem-- ) fd_chacha20_block( &block, &key, block_idx++, &nonce );
+
+    /* for real */
+    ulong iter = 1000000UL;
+    long  dt   = -fd_log_wallclock();
+    for( ulong rem=iter; rem; rem-- ) fd_chacha20_block( &block, &key, block_idx++, &nonce );
+    dt += fd_log_wallclock();
+    double gbps    = ((double)(8UL*FD_CHACHA20_BLOCK_SZ*iter)) / ((double)dt);
+    double ns      = (double)dt / ((double)iter * (double)FD_CHACHA20_BLOCK_SZ);
+    FD_LOG_NOTICE(( "  ~%6.3f Gbps  / core", gbps ));
+    FD_LOG_NOTICE(( "  ~%6.3f ns / byte",    ns   ));
+  }
+}
+
+
 int
 main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
 
   test_chacha20_block();
+  bench_chacha20_block();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
