@@ -10,10 +10,7 @@ jobs:
     runs-on: [self-hosted, Linux, X64]
     defaults:
       run:
-        shell: sudo bash --noprofile --norc -eo pipefail -c "set -ex; source /home/runner/firedancer-opts/activate-opt && chmod +x {0} && {0}"
-    env:
-      MACHINE: linux_clang_x86_64
-      EXTRAS: llvm-cov
+        shell: sudo bash --noprofile --norc -eo pipefail -c "export MACHINE=linux_clang_x86_64; export EXTRAS=llvm-cov; set -ex; source /home/runner/firedancer-opts/activate-opt && chmod +x {0} && {0}"
     steps:
       - uses: actions/checkout@v3
 
