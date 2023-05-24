@@ -83,7 +83,7 @@ FD_PROTOTYPES_BEGIN
 void fd_vm_register_syscall( fd_sbpf_syscalls_t * syscalls, char const * name, fd_vm_syscall_fn_ptr_t fn_ptr );
 
 /* Validates the sBPF program from the given context. Returns success or an error code. */
-ulong fd_vm_context_validate( fd_vm_exec_context_t * ctx );
+FD_FN_PURE ulong fd_vm_context_validate( fd_vm_exec_context_t const * ctx );
 
 // FIXME: crossing region boundaries is probably bad
 /* Translates an address from the VM address space to the host address space. Takes an execution

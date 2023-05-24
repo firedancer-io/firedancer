@@ -81,8 +81,8 @@ uchar const FD_OPCODE_VALIDATION_MAP[256] = {
 // FIXME: add a pedantic version of this validation that does things like:
 //  - only 0 imms when the instruction does not use an imm
 //  - same as above but for src/dst reg, offset
-ulong
-fd_vm_context_validate( fd_vm_exec_context_t * ctx ) {
+FD_FN_PURE ulong
+fd_vm_context_validate( fd_vm_exec_context_t const * ctx ) {
   for( ulong i = 0; i < ctx->instrs_sz; ++i ) {
     fd_sbpf_instr_t instr = ctx->instrs[i];
     uchar validation_code = FD_OPCODE_VALIDATION_MAP[instr.opcode.raw];
@@ -172,7 +172,7 @@ fd_vm_translate_vm_to_host( fd_vm_exec_context_t *  ctx,
       if( end_addr >= (FD_VM_STACK_MAX_DEPTH * FD_VM_STACK_FRAME_WITH_GUARD_SZ) ) {
         return FD_VM_MEM_MAP_ERR_ACC_VIO;
       }
-    
+
       *host_addr = &ctx->stack.data[start_addr];
 
       break;

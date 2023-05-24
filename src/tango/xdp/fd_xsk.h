@@ -344,7 +344,7 @@ fd_xsk_fd( fd_xsk_t * const xsk );
    register itself to.  fd_xsk_activate will register XSK at
    "/sys/fs/bpf/{bpf_app_name}/{ifname}/xsks" on queue index ifidx. */
 
-FD_FN_PURE char const *
+FD_FN_CONST char const *
 fd_xsk_app_name( fd_xsk_t * const xsk );
 
 /* fd_xsk_ifname: Returns the network interface name of that the
@@ -380,7 +380,7 @@ fd_xsk_umem_laddr( fd_xsk_t * xsk );
    memory region in the caller's local address space.  The returned
    params struct is valid during the lifetime of the xsk. */
 
-fd_xsk_params_t const *
+FD_FN_CONST fd_xsk_params_t const *
 fd_xsk_get_params( fd_xsk_t const * xsk );
 
 FD_PROTOTYPES_END
