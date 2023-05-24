@@ -320,7 +320,7 @@ install_zstd () {
   cd ./opt/git/zstd/lib
 
   echo "[+] Installing zstd to $PREFIX"
-  "${MAKE[@]}" DESTDIR="$PREFIX" PREFIX="" install-pc install-static install-includes
+  "${MAKE[@]}" DESTDIR="$PREFIX" PREFIX="" install-pc install-static install-includes install-shared
   echo "[+] Successfully installed zstd"
 }
 
@@ -358,10 +358,10 @@ install_rocksdb () {
     -DCMAKE_INSTALL_PREFIX:PATH="$PREFIX" \
     -DCMAKE_INSTALL_LIBDIR="lib" \
     -DCMAKE_BUILD_TYPE=Release \
-    -DROCKSDB_BUILD_SHARED=OFF \
+    -DROCKSDB_BUILD_SHARED=ON \
     -DWITH_GFLAGS=OFF \
     -DWITH_LIBURING=OFF \
-    -DWITH_BZ2=ON \
+    -DWITH_BZ2=OFF \
     -DWITH_SNAPPY=OFF \
     -DWITH_ZLIB=ON \
     -DWITH_ZSTD=ON \
@@ -373,8 +373,7 @@ install_rocksdb () {
     -DWITH_TOOLS=OFF \
     -DWITH_TRACE_TOOLS=OFF \
     -DZLIB_ROOT="$PREFIX" \
-    -DBZIP2_LIBRARIES="$PREFIX/lib/libbz2.a" \
-    -DBZIP2_INCLUDE_DIR="$PREFIX/include" \
+    -DZSTD_INCLUDE_DIR="$PREFIX/include" \
     -Dzstd_ROOT_DIR="$PREFIX"
 
   local NJOBS
