@@ -3094,6 +3094,31 @@ void fd_slot_meta_encode(fd_slot_meta_t* self, void const** data) {
   }
 }
 
+void fd_slot_meta_meta_decode(fd_slot_meta_meta_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
+  fd_bincode_uint64_decode(&self->start_slot, data, dataend);
+  fd_bincode_uint64_decode(&self->end_slot, data, dataend);
+}
+void fd_slot_meta_meta_destroy(fd_slot_meta_meta_t* self, fd_free_fun_t freef, void* freef_arg) {
+}
+
+void fd_slot_meta_meta_walk(fd_slot_meta_meta_t* self, fd_walk_fun_t fun, const char *name, int level) {
+  fun(self, name, 32, "fd_slot_meta_meta", level++);
+  fun(&self->start_slot, "start_slot", 11, "ulong", level + 1);
+  fun(&self->end_slot, "end_slot", 11, "ulong", level + 1);
+  fun(self, name, 33, "fd_slot_meta_meta", --level);
+}
+ulong fd_slot_meta_meta_size(fd_slot_meta_meta_t* self) {
+  ulong size = 0;
+  size += sizeof(ulong);
+  size += sizeof(ulong);
+  return size;
+}
+
+void fd_slot_meta_meta_encode(fd_slot_meta_meta_t* self, void const** data) {
+  fd_bincode_uint64_encode(&self->start_slot, data);
+  fd_bincode_uint64_encode(&self->end_slot, data);
+}
+
 void fd_clock_timestamp_vote_decode(fd_clock_timestamp_vote_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
   fd_pubkey_decode(&self->pubkey, data, dataend, allocf, allocf_arg);
   fd_bincode_uint64_decode((unsigned long *) &self->timestamp, data, dataend);

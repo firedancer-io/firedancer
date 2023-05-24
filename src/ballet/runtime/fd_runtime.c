@@ -3,6 +3,8 @@
 #include "sysvar/fd_sysvar_clock.h"
 #include "sysvar/fd_sysvar.h"
 #include "../base58/fd_base58.h"
+#include "../txn/fd_txn.h"
+#include "../bmtree/fd_bmtree.h"
 
 #include "program/fd_stake_program.h"
 
@@ -58,35 +60,43 @@ fd_runtime_boot_slot_zero( fd_global_ctx_t *global ) {
 // they hashed (which slot?)?
 
 int
-fd_runtime_block_execute( fd_global_ctx_t *global, fd_slot_blocks_t *slot_data ) {
-  uchar *blob = slot_data->last_blob;
-
-  if (NULL == blob)  // empty slot
-    return FD_RUNTIME_EXECUTE_SUCCESS;
-
-  uchar *blob_ptr = blob + FD_BLOB_DATA_START;
-  uint   cnt = *((uint *) (blob + 8));
-
-  if (0 == cnt)  {
-    // can you have an empty last tick?
-    return FD_RUNTIME_EXECUTE_SUCCESS;
-  }
-
+fd_runtime_block_execute( fd_global_ctx_t *global, fd_slot_meta_t* m, const void* block, ulong blocklen ) {
+  (void)m;
   // It sucks that we need to know the current block hash which is
   // stored at the END of the block.  Lets have a fever dream another
   // time and optimize this...
-  while (cnt > 0) {
-    fd_microblock_t * micro_block = fd_microblock_join( blob_ptr );
+  /* Loop across batches */
+  ulong blockoff = 0;
+  while (blockoff < blocklen) {
+    if ( blockoff + sizeof(ulong) > blocklen )
+      FD_LOG_ERR(("premature end of block"));
+    ulong mcount = *(const ulong *)((const uchar *)block + blockoff);
+    blockoff += sizeof(ulong);
 
-    blob_ptr = (uchar *) fd_ulong_align_up((ulong)blob_ptr + fd_microblock_footprint( micro_block->hdr.txn_cnt ), FD_MICROBLOCK_ALIGN);
+    /* Loop across microblocks */
+    for (ulong mblk = 0; mblk < mcount; ++mblk) {
+      if ( blockoff + sizeof(fd_microblock_hdr_t) > blocklen )
+        FD_LOG_ERR(("premature end of block"));
+      fd_microblock_hdr_t * hdr = (fd_microblock_hdr_t *)((const uchar *)block + blockoff);
+      blockoff += sizeof(fd_microblock_hdr_t);
 
-    if (1 == cnt)
-      fd_memcpy(global->block_hash, micro_block->hdr.hash, sizeof(micro_block->hdr.hash));
-    fd_microblock_leave(micro_block);
+      /* Keep track of the last header hash */
+      fd_memcpy(global->block_hash, hdr->hash, sizeof(hdr->hash));
 
-    cnt--;
-  } // while (cnt > 0)
-
+      /* Loop across transactions */
+      for ( ulong txn_idx = 0; txn_idx < hdr->txn_cnt; txn_idx++ ) {
+        fd_txn_xray_result_t xray;
+        const uchar* raw = (const uchar *)block + blockoff;
+        ulong pay_sz = fd_txn_xray(raw, blocklen - blockoff, &xray);
+        if ( pay_sz == 0UL )
+          FD_LOG_ERR(("failed to parse transaction %lu in microblock %lu in slot %lu", txn_idx, mblk, m->slot));
+        blockoff += pay_sz;
+      }
+    }
+  }
+  if ( blockoff != blocklen )
+    FD_LOG_ERR(("garbage at end of block"));
+  
   // TODO: move all these out to a fd_sysvar_update() call...
   fd_sysvar_clock_update( global);
   // It has to go into the current txn previous info but is not in slot 0
@@ -94,30 +104,42 @@ fd_runtime_block_execute( fd_global_ctx_t *global, fd_slot_blocks_t *slot_data )
     fd_sysvar_slot_hashes_update( global );
 
   ulong signature_cnt = 0;
+  blockoff = 0;
+  while (blockoff < blocklen) {
+    if ( blockoff + sizeof(ulong) > blocklen )
+      FD_LOG_ERR(("premature end of block"));
+    ulong mcount = *(const ulong *)((const uchar *)block + blockoff);
+    blockoff += sizeof(ulong);
 
-  blob = slot_data->first_blob;
-  while (NULL != blob) {
-    uchar *blob_ptr = blob + FD_BLOB_DATA_START;
-    uint   cnt = *((uint *) (blob + 8));
-    while (cnt > 0) {
-      fd_microblock_t * micro_block = fd_microblock_join( blob_ptr );
-      for ( ulong txn_idx = 0; txn_idx < micro_block->txn_max_cnt; txn_idx++ ) {
-        fd_txn_t*      txn_descriptor = (fd_txn_t *)&micro_block->txn_tbl[ txn_idx ];
-        fd_rawtxn_b_t* txn_raw   = (fd_rawtxn_b_t *)&micro_block->raw_tbl[ txn_idx ];
+    /* Loop across microblocks */
+    for (ulong mblk = 0; mblk < mcount; ++mblk) {
+      if ( blockoff + sizeof(fd_microblock_hdr_t) > blocklen )
+        FD_LOG_ERR(("premature end of block"));
+      fd_microblock_hdr_t * hdr = (fd_microblock_hdr_t *)((const uchar *)block + blockoff);
+      blockoff += sizeof(fd_microblock_hdr_t);
 
-        // needed for block hashes
-        signature_cnt += txn_descriptor->signature_cnt;
+      /* Loop across transactions */
+      for ( ulong txn_idx = 0; txn_idx < hdr->txn_cnt; txn_idx++ ) {
+        uchar txn_out[FD_TXN_MAX_SZ];
+        ulong pay_sz = 0;
+        const uchar* raw = (const uchar *)block + blockoff;
+        ulong txn_sz = fd_txn_parse(raw, blocklen - blockoff, txn_out, NULL, &pay_sz);
+        if ( txn_sz == 0 || txn_sz > FD_TXN_MAX_SZ )
+          FD_LOG_ERR(("failed to parse transaction"));
+        
+        fd_txn_t* txn = (fd_txn_t *)txn_out;
+        fd_rawtxn_b_t rawtxn;
+        rawtxn.raw = (void*)raw;
+        rawtxn.txn_sz = (ushort)txn_sz;
+        signature_cnt += txn->signature_cnt;
+        fd_execute_txn( &global->executor, txn, &rawtxn );
 
-        fd_execute_txn( &global->executor, txn_descriptor, txn_raw );
+        blockoff += pay_sz;
       }
-      fd_microblock_leave(micro_block);
-
-      blob_ptr = (uchar *) fd_ulong_align_up((ulong)blob_ptr + fd_microblock_footprint( micro_block->hdr.txn_cnt ), FD_MICROBLOCK_ALIGN);
-
-      cnt--;
-    } // while (cnt > 0)
-    blob = *((uchar **) blob);
-  } // while (NULL != blob)
+    }
+  }
+  if ( blockoff != blocklen )
+    FD_LOG_ERR(("garbage at end of block"));
 
   fd_sysvar_slot_history_update( global );
 
@@ -143,66 +165,82 @@ fd_runtime_block_execute( fd_global_ctx_t *global, fd_slot_blocks_t *slot_data )
 // TODO: add solana txn verify to this as well since, again, it can be
 // done in parallel...
 int
-fd_runtime_block_verify( fd_global_ctx_t *global, fd_slot_blocks_t *slot_data ) {
-  if (NULL == slot_data) {
-    FD_LOG_WARNING(("NULL slot passed to fd_runtime_block_execute at slot %ld", global->bank.solana_bank.slot));
-    return FD_RUNTIME_EXECUTE_GENERIC_ERR;
-  }
+fd_runtime_block_verify( fd_global_ctx_t *global, fd_slot_meta_t* m, const void* block, ulong blocklen ) {
+  fd_txn_parse_counters_t counters;
+  fd_memset(&counters, 0, sizeof(counters));
 
-  uchar *blob = slot_data->first_blob;
+  fd_bmtree32_commit_t * commit =
+    fd_alloca( FD_BMTREE32_COMMIT_ALIGN, fd_bmtree32_commit_footprint( ) );
 
-  while (NULL != blob) {
-    uchar *blob_ptr = blob + FD_BLOB_DATA_START;
-    uint   cnt = *((uint *) (blob + 8));
-    while (cnt > 0) {
-      fd_microblock_t * micro_block = fd_microblock_join( blob_ptr );
-      if (micro_block->txn_max_cnt > 0) {
-        if (micro_block->hdr.hash_cnt > 0)
-          fd_poh_append(&global->poh, micro_block->hdr.hash_cnt - 1);
-        uchar outhash[32];
-#if 0
-        fd_microblock_batched_mixin(micro_block, outhash, global->allocf_arg);
-#else
-        fd_microblock_mixin(micro_block, outhash);
-#endif
-        fd_poh_mixin(&global->poh, outhash);
-      } else
-        fd_poh_append(&global->poh, micro_block->hdr.hash_cnt);
-      if (memcmp(micro_block->hdr.hash, global->poh.state, sizeof(global->poh.state))) {
+  /* Loop across batches */
+  ulong blockoff = 0;
+  while (blockoff < blocklen) {
+    if ( blockoff + sizeof(ulong) > blocklen )
+      FD_LOG_ERR(("premature end of block"));
+    ulong mcount = *(const ulong *)((const uchar *)block + blockoff);
+    blockoff += sizeof(ulong);
+
+    /* Loop across microblocks */
+    for (ulong mblk = 0; mblk < mcount; ++mblk) {
+      if ( blockoff + sizeof(fd_microblock_hdr_t) > blocklen )
+        FD_LOG_ERR(("premature end of block"));
+      fd_microblock_hdr_t * hdr = (fd_microblock_hdr_t *)((const uchar *)block + blockoff);
+      blockoff += sizeof(fd_microblock_hdr_t);
+
+      if (hdr->txn_cnt == 0) {
+        fd_poh_append(&global->poh, hdr->hash_cnt);
+
+      } else {
+        if (hdr->hash_cnt > 0)
+          fd_poh_append(&global->poh, hdr->hash_cnt - 1);
+
+        fd_bmtree32_commit_t * tree = fd_bmtree32_commit_init( commit );
+      
+        /* Loop across transactions */
+        for ( ulong txn_idx = 0; txn_idx < hdr->txn_cnt; txn_idx++ ) {
+          fd_txn_xray_result_t xray;
+          const uchar* raw = (const uchar *)block + blockoff;
+          ulong pay_sz = fd_txn_xray(raw, blocklen - blockoff, &xray);
+          if ( pay_sz == 0UL )
+            FD_LOG_ERR(("failed to parse transaction %lu in microblock %lu in slot %lu", txn_idx, mblk, m->slot));
+
+          /* Loop across signatures */
+          fd_ed25519_sig_t const * sigs = (fd_ed25519_sig_t const *)((ulong)raw + (ulong)xray.signature_off);
+          for ( ulong j = 0; j < xray.signature_cnt; j++ ) {
+            fd_bmtree32_node_t leaf;
+            fd_bmtree32_hash_leaf( &leaf, &sigs[j], sizeof(fd_ed25519_sig_t) );
+            fd_bmtree32_commit_append( commit, (fd_bmtree32_node_t const *)&leaf, 1 );
+          }
+
+          blockoff += pay_sz;
+        }
+
+        uchar * root = fd_bmtree32_commit_fini( tree );
+        fd_poh_mixin(&global->poh, root);
+      }
+      
+      if (memcmp(hdr->hash, global->poh.state, sizeof(global->poh.state))) {
         if (global->poh_booted) {
           // TODO should this log and return?  instead of knocking the
           // whole system over via a _ERR?
-          FD_LOG_ERR(( "poh missmatch at slot: %ld", global->bank.solana_bank.slot));
+          FD_LOG_ERR(( "poh missmatch at slot: %ld", m->slot));
         } else {
-          fd_memcpy(global->poh.state, micro_block->hdr.hash, sizeof(global->poh.state));
+          fd_memcpy(global->poh.state, hdr->hash, sizeof(global->poh.state));
           global->poh_booted = 1;
         }
       }
-      fd_microblock_leave(micro_block);
+    }
+  }
 
-      blob_ptr = (uchar *) fd_ulong_align_up((ulong)blob_ptr + fd_microblock_footprint( micro_block->hdr.txn_cnt ), FD_MICROBLOCK_ALIGN);
-
-      cnt--;
-    } // while (cnt > 0)
-    blob = *((uchar **) blob);
-  } // while (NULL != blob)
+  if (blockoff != blocklen)
+    FD_LOG_ERR(("garbage at end of block"));
 
   return FD_RUNTIME_EXECUTE_SUCCESS;
 }
 
 int
-fd_runtime_block_eval( fd_global_ctx_t *global, fd_slot_blocks_t *slot_data ) {
-  if (NULL == slot_data) {
-    FD_LOG_WARNING(("NULL slot passed to fd_runtime_block_execute at slot %ld", global->bank.solana_bank.slot));
-    return FD_RUNTIME_EXECUTE_GENERIC_ERR;
-  }
-  uchar *blob = slot_data->last_blob;
-  if (NULL == blob) {
-    FD_LOG_WARNING(("empty slot passed to fd_runtime_block_execute at slot %ld", global->bank.solana_bank.slot));
-    return FD_RUNTIME_EXECUTE_GENERIC_ERR;
-  }
-
-#if 1
+fd_runtime_block_eval( fd_global_ctx_t *global, fd_slot_meta_t *m, const void* block, ulong blocklen ) {
+  /*
   fd_funk_txn_t* parent_txn = global->funk_txn;
   fd_funk_txn_xid_t xid;
   xid.ul[0] = fd_rng_ulong( global->rng );
@@ -216,9 +254,7 @@ fd_runtime_block_eval( fd_global_ctx_t *global, fd_slot_blocks_t *slot_data ) {
   if (old_txn != NULL )
     fd_funk_txn_publish( global->funk, old_txn, 0 );
   global->funk_txn_tower[global->funk_txn_index] = global->funk_txn = txn;
-#else
-  global->funk_txn = NULL;
-#endif
+  */
 
   // This is simple now but really we need to execute block_verify in
   // its own thread/tile and IT needs to parallelize the
@@ -228,9 +264,9 @@ fd_runtime_block_eval( fd_global_ctx_t *global, fd_slot_blocks_t *slot_data ) {
   // block_verify to complete, and only return successful when the
   // verify threads complete successfully..
 
-  int ret = fd_runtime_block_verify( global, slot_data );
+  int ret = fd_runtime_block_verify( global, m, block, blocklen );
   if ( FD_RUNTIME_EXECUTE_SUCCESS == ret )
-    ret = fd_runtime_block_execute( global, slot_data );
+    ret = fd_runtime_block_execute( global, m, block, blocklen );
 
   if (FD_RUNTIME_EXECUTE_SUCCESS != ret ) {
     // Not exactly sure what I am supposed to do if execute fails to
@@ -609,4 +645,22 @@ void fd_printer_walker(void *arg, const char* name, int type, const char *type_n
     printf("arg: %ld  name: %s  type: %d   type_name: %s\n", (ulong) arg, name, type, type_name);
     break;
   }
+}
+
+fd_funk_rec_key_t fd_runtime_block_key(ulong slot) {
+  fd_funk_rec_key_t id;
+  fd_memset( &id, 0, sizeof(id) );
+  id.ul[ 0 ] = slot;
+  id.c[ FD_FUNK_REC_KEY_FOOTPRINT - 1 ] = FD_BLOCK_KEY_TYPE;
+
+  return id;
+}
+
+fd_funk_rec_key_t fd_runtime_block_meta_key(ulong slot) {
+  fd_funk_rec_key_t id;
+  fd_memset( &id, 0, sizeof(id) );
+  id.ul[ 0 ] = slot;
+  id.c[ FD_FUNK_REC_KEY_FOOTPRINT - 1 ] = FD_BLOCK_META_KEY_TYPE;
+
+  return id;
 }
