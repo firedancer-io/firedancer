@@ -61,6 +61,7 @@
 
 #include "../fd_ballet_base.h"
 #include "../block/fd_microblock.h"
+#include "../ed25519/fd_ed25519.h"
 
 /* FD_SHRED_SZ: The byte size of a shred.
    This limit derives from the IPv6 MTU of 1280 bytes,

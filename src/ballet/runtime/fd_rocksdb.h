@@ -9,21 +9,6 @@
 #include <rocksdb/c.h>
 
 /* Solana rocksdb client */
-
-/* all the micro blocks found in a slot */
-struct fd_slot_blocks {
-  uint block_cnt;
-  uchar *first_blob;
-  uchar *last_blob;
-  uchar buffer[];
-};
-typedef struct fd_slot_blocks fd_slot_blocks_t;
-#define FD_SLOT_BLOCKS_FOOTPRINT(x) (sizeof(fd_slot_blocks_t) + (x))
-#define FD_SLOT_BLOCKS_ALIGN (8UL)
-
-#define FD_BLOB_DATA_START (fd_ulong_align_up( 12UL, FD_MICROBLOCK_ALIGN ))
-
-/* rocksdb client */
 struct fd_rocksdb {
   rocksdb_t *                     db;
   const char *                    db_name;
@@ -85,18 +70,6 @@ fd_rocksdb_root_iter_slot  ( fd_rocksdb_root_iter_t * self , ulong *slot);
 void 
 fd_rocksdb_root_iter_destroy ( fd_rocksdb_root_iter_t * );
 
-/* fd_slot_blocks_new
-
-   Initialize the block
-*/
-void fd_slot_blocks_new(fd_slot_blocks_t *);
-
-/* fd_slot_blocks_destroy
-
-   free the internal data structures
-*/
-void fd_slot_blocks_destroy(fd_slot_blocks_t *, fd_free_fun_t freef,  void* freef_arg);
-
 /* fd_rocksdb_init: Returns a pointer to a description of the error on failure
 
   The provided db_name needs to point at the actual rocksdb directory
@@ -151,33 +124,6 @@ int fd_rocksdb_get_meta(
     fd_slot_meta_t *m,
     fd_alloc_fun_t allocf, 
     void* allocf_arg
-);
-
-/* fd_slot_meta_decode
-
-   Internal function normally only used by fd_rocksdb_get_meta to
-   decode raw data into a fd_slot_meta_t structure
-*/
-void fd_slot_meta_decode(
-    fd_slot_meta_t* self,
-    void const** data, 
-    void const* dataend,
-    fd_alloc_fun_t allocf, 
-    void* allocf_arg
-);
-
-void fd_slot_meta_destroy(
-    fd_slot_meta_t* self,
-    fd_free_fun_t freef, 
-    void* freef_arg
-);
-
-/* fd_rocksdb_get_microblocks
-*/
-fd_slot_blocks_t * fd_rocksdb_get_microblocks(fd_rocksdb_t *db, 
-  fd_slot_meta_t *m,
-  fd_alloc_fun_t allocf, 
-  void* allocf_arg
 );
 
 void* fd_rocksdb_get_block(fd_rocksdb_t* db,
