@@ -25,10 +25,6 @@ use std::sync::atomic::{
     Ordering,
 };
 
-pub unsafe fn fd_fseq_app_laddr(fseq: *mut u64) -> *mut c_void {
-    fseq.add(2) as *mut c_void
-}
-
 pub unsafe fn fd_fseq_app_laddr_const(fseq: *const u64) -> *const c_void {
     fseq.add(2) as *const c_void
 }

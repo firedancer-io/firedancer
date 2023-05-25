@@ -25,7 +25,7 @@ FD_PROTOTYPES_BEGIN
 FD_FN_CONST ulong
 fd_xsk_aio_align( void );
 
-FD_FN_PURE ulong
+FD_FN_CONST ulong
 fd_xsk_aio_footprint( ulong tx_depth,
                       ulong pkt_cnt );
 

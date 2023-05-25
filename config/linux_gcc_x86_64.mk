@@ -6,8 +6,8 @@ include config/with-debug.mk
 include config/with-brutality.mk
 include config/with-optimization.mk
 include config/with-threads.mk
-include config/with-zstd.mk
 include config/with-rocksdb.mk
+include config/with-zstd.mk
 # include config/with-asan.mk
 # include config/with-libbpf.mk
 
