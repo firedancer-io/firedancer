@@ -1,6 +1,7 @@
 #if !FD_HAS_HOSTED
 #error "retransmit tile requires FD_HAS_HOSTED"
 #endif
+#include <stddef.h>
 
 #include "../../tango/xdp/fd_xdp.h"
 #include "../../tango/fd_tango.h"
@@ -106,17 +107,6 @@ handle_rx_shred( void *                    _ctx,
     send_rc = send_loop_helper( ctx->tx_aio, ctx->parity_batches[ idx ], to_send->parity_shred_cnt );
     if( FD_UNLIKELY( send_rc<0 ) )  FD_LOG_WARNING(( "AIO send err for data shreds. Error: %s", fd_aio_strerror( send_rc ) ));
   }
-
-  /*
-    fd_memcpy( pkt->eth->dst, ctx->dst.mac, 6UL );
-    fd_memcpy( pkt->eth->src, ctx->src.mac , 6UL );
-    pkt->ip4->saddr     = ctx->src.ip4;
-    pkt->ip4->daddr     = ctx->dst.ip4;
-    pkt->ip4->check  = 0U;
-    pkt->ip4->check  = fd_ip4_hdr_check( pkt->ip4 );
-    pkt->udp->net_sport = ctx->src.port;
-    pkt->udp->net_dport = ctx->dst.port;
-    */
 }
 
 int
@@ -199,8 +189,8 @@ fd_frank_retransmit_task( int     argc,
   if( FD_UNLIKELY( !rng ) ) FD_LOG_ERR(( "fd_rng_join failed" ));
 
 
-  ulong depth = fd_pod_query_ulong( retransmit_pod, "depth", 16UL );
-  ulong done_depth = 1024UL * 1024UL;
+  ulong depth = fd_pod_query_ulong( retransmit_pod, "depth", 64UL );
+  ulong done_depth = 2UL;
 
   ulong scratch_footprint = fd_fec_resolver_footprint( depth, done_depth );
   scratch_footprint += depth*sizeof(fd_fec_set_t);

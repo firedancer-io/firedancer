@@ -272,7 +272,7 @@ fd_frank_shredder_task( int     argc,
     data_batch[ j ].buf_sz = 1203UL + sizeof(fd_eth_hdr_t) + sizeof(fd_ip4_hdr_t) + sizeof(fd_udp_hdr_t);
 
     fd_memcpy( data_shred_pkt[j].eth->dst, dst->mac, 6UL );
-    fd_memcpy( data_shred_pkt[j].eth->src, src->mac , 6UL );
+    fd_memcpy( data_shred_pkt[j].eth->src, src->mac, 6UL );
     data_shred_pkt[j].eth->net_type  = fd_ushort_bswap( FD_ETH_HDR_TYPE_IP );
 
     data_shred_pkt[j].ip4->ihl       = 5U;
@@ -297,7 +297,7 @@ fd_frank_shredder_task( int     argc,
     parity_batch[ j ].buf_sz = 1228UL + sizeof(fd_eth_hdr_t) + sizeof(fd_ip4_hdr_t) + sizeof(fd_udp_hdr_t);
 
     fd_memcpy( parity_shred_pkt[j].eth->dst, dst->mac, 6UL );
-    fd_memcpy( parity_shred_pkt[j].eth->src, src->mac , 6UL );
+    fd_memcpy( parity_shred_pkt[j].eth->src, src->mac, 6UL );
     parity_shred_pkt[j].eth->net_type  = fd_ushort_bswap( FD_ETH_HDR_TYPE_IP );
 
     parity_shred_pkt[j].ip4->ihl       = 5U;
@@ -383,6 +383,8 @@ fd_frank_shredder_task( int     argc,
     //ulong                         entry_batch_sz   = sz           - sizeof(fd_entry_batch_meta_t);
 
     fd_entry_batch_meta_t entry_batch_meta[1];
+    fd_memset( entry_batch_meta, 0, sizeof(fd_entry_batch_meta_t) );
+    entry_batch_meta->block_complete = 1;
     uchar const * entry_batch = test_bin;
     ulong entry_batch_sz = test_bin_sz;
 
