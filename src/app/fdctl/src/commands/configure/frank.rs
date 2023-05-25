@@ -4,7 +4,7 @@ use super::*;
 use crate::security::*;
 use crate::utility::*;
 
-const NAME: &'static str = "frank";
+const NAME: &str = "frank";
 const CNC_APP_SIZE: u32 = 4032;
 const POD_SIZE: u32 = 16384;
 
@@ -18,7 +18,7 @@ pub(super) const STAGE: Stage = Stage {
     explain_fini_permissions: None,
     init: Some(step),
     fini: Some(undo),
-    check: check,
+    check,
 };
 
 #[rustfmt::skip]
@@ -149,10 +149,10 @@ fn step(config: &mut Config) {
     }
 
     let src_mac_address = output.lines().find(|x| x.contains("link/ether"))
-        .unwrap().trim().split_whitespace().nth(1).unwrap();
+        .unwrap().split_whitespace().nth(1).unwrap();
 
     // QUIC tiles
-    for i in 0..config.layout.verify_tile_count as usize {
+    for (i, (verify_mcache, verify_dcache, verify_fseq)) in verify_info.into_iter().enumerate() {
         let cnc = run!("{bin}/fd_tango_ctl new-cnc {workspace} 2 tic {CNC_APP_SIZE}");
         let quic = if Path::new(&format!("{bin}/fd_quic_ctl")).exists() {
             // TODO: Always enable this when merged with QUIC changes in 1.1
@@ -172,9 +172,9 @@ fn step(config: &mut Config) {
             insert {pod} cstr {name}.quic.quic{i}.quic {quic} \
             insert {pod} cstr {name}.quic.quic{i}.xsk {xsk} \
             insert {pod} cstr {name}.quic.quic{i}.xsk_aio {xsk_aio}",
-            mcache=verify_info[i].0,
-            dcache=verify_info[i].1,
-            fseq=verify_info[i].2);
+            mcache=verify_mcache,
+            dcache=verify_dcache,
+            fseq=verify_fseq);
     }
 
     run!("{bin}/fd_pod_ctl \
@@ -189,8 +189,8 @@ fn step(config: &mut Config) {
         ip_addr=&listen_addresses[0],
         listen_port=config.tiles.quic.listen_port);
 
-    config.frank.pod = pod.split(":").collect::<Vec<&str>>()[1].parse().unwrap();
-    config.frank.main_cnc = main_cnc.split(":").collect::<Vec<&str>>()[1]
+    config.frank.pod = pod.split(':').collect::<Vec<&str>>()[1].parse().unwrap();
+    config.frank.main_cnc = main_cnc.split(':').collect::<Vec<&str>>()[1]
             .parse()
             .unwrap();
     config.frank.src_mac_address = src_mac_address.to_string();

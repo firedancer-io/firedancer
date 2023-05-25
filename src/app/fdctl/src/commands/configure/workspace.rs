@@ -1,8 +1,7 @@
-use crate::utility::*;
+use std::path::Path;
 
 use super::*;
-
-use std::path::Path;
+use crate::utility::*;
 
 pub(super) const STAGE: Stage = Stage {
     name: "workspace",
@@ -14,7 +13,7 @@ pub(super) const STAGE: Stage = Stage {
     explain_fini_permissions: None,
     init: Some(step),
     fini: Some(undo),
-    check: check,
+    check,
 };
 
 fn step(config: &mut Config) {

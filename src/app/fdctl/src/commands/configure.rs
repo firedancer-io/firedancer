@@ -8,15 +8,22 @@ mod workspace;
 mod xdp;
 mod xdp_leftover;
 
-use crate::Config;
-
 use std::fs::metadata;
 use std::io::ErrorKind;
-use std::os::unix::fs::MetadataExt;
-use std::os::unix::fs::PermissionsExt;
+use std::os::unix::fs::{
+    MetadataExt,
+    PermissionsExt,
+};
 
-use clap::{Args, Subcommand};
+use clap::{
+    Args,
+    Subcommand,
+};
 use log::*;
+
+use crate::Config;
+
+type ExplainPermissionType = Option<fn(&Config) -> Vec<Option<String>>>;
 
 struct Stage {
     /// Name of the command
@@ -31,11 +38,11 @@ struct Stage {
 
     /// Get a human readable list of permissions required to init the stage that we do not
     /// currently have.
-    explain_init_permissions: Option<fn(&Config) -> Vec<Option<String>>>,
+    explain_init_permissions: ExplainPermissionType,
 
     /// Get a human readable list of permissions required to fini the stage that we do not
     /// currently have.
-    explain_fini_permissions: Option<fn(&Config) -> Vec<Option<String>>>,
+    explain_fini_permissions: ExplainPermissionType,
 
     /// Perform the step, assuming that it has not been done before.
     init: Option<fn(config: &mut Config)>,
@@ -64,8 +71,7 @@ impl Stage {
                         if (self.check)(config).is_err() {
                             return explain_init_permissions_function(config)
                                 .into_iter()
-                                .filter(|x| x.is_some())
-                                .map(|x| x.unwrap())
+                                .flatten()
                                 .collect();
                         }
                     }
@@ -79,8 +85,7 @@ impl Stage {
                         Ok(()) | Err(CheckError::PartiallyConfigured(_)) => {
                             return explain_fini_permissions_function(config)
                                 .into_iter()
-                                .filter(|x| x.is_some())
-                                .map(|x| x.unwrap())
+                                .flatten()
                                 .collect()
                         }
                         Err(CheckError::NotConfigured(_)) => (),
@@ -115,8 +120,7 @@ impl ConfigureCli {
         match self.stage {
             StageCli::All(group) => STAGES
                 .iter()
-                .map(|command| command.explain_permissions(group.command, config))
-                .flatten()
+                .flat_map(|command| command.explain_permissions(group.command, config))
                 .collect(),
             other => other
                 .stage()
@@ -227,8 +231,10 @@ macro_rules! partially_configured {
     };
 }
 
-pub(crate) use not_configured;
-pub(crate) use partially_configured;
+pub(crate) use {
+    not_configured,
+    partially_configured,
+};
 
 fn path_exists(
     path: &str,
@@ -270,7 +276,6 @@ fn path_exists(
     CheckResult::Ok(())
 }
 
-#[must_use]
 fn check_directory(
     path: &str,
     expected_uid: u32,
@@ -280,7 +285,6 @@ fn check_directory(
     path_exists(path, expected_uid, expected_gid, expected_mode, true)
 }
 
-#[must_use]
 fn check_file(path: &str, expected_uid: u32, expected_gid: u32, expected_mode: u32) -> CheckResult {
     path_exists(path, expected_uid, expected_gid, expected_mode, false)
 }
@@ -301,7 +305,10 @@ fn configure_stage(stage: &Stage, command: StageCommand, config: &mut Config) ->
                 }
                 CheckResult::Err(CheckError::PartiallyConfigured(reason)) => {
                     match stage.fini {
-                        None => panic!("[Configure] {name} ... does not support undo but was not valid ... {reason}"),
+                        None => panic!(
+                            "[Configure] {name} ... does not support undo but was not valid ... \
+                             {reason}"
+                        ),
                         Some(undo) => {
                             info!("[Configure] {name} ... undoing ... {reason}");
                             undo(config);
@@ -312,7 +319,10 @@ fn configure_stage(stage: &Stage, command: StageCommand, config: &mut Config) ->
                         CheckResult::Ok(()) | CheckResult::Err(CheckError::NotConfigured(_)) => (),
                         CheckResult::Err(CheckError::PartiallyConfigured(reason)) => {
                             if !stage.always_recreate {
-                                panic!("[Configure] {name} ... clean was unable to get back to an unconfigured state ... {reason}");
+                                panic!(
+                                    "[Configure] {name} ... clean was unable to get back to an \
+                                     unconfigured state ... {reason}"
+                                );
                             }
                         }
                     };
@@ -328,10 +338,16 @@ fn configure_stage(stage: &Stage, command: StageCommand, config: &mut Config) ->
                 step(config);
             }
             match (stage.check)(config) {
-                CheckResult::Err(CheckError::NotConfigured(reason)) => panic!("[Configure] {name} ... tried to initialize but didn't do anything ... {reason}"),
+                CheckResult::Err(CheckError::NotConfigured(reason)) => panic!(
+                    "[Configure] {name} ... tried to initialize but didn't do anything ... \
+                     {reason}"
+                ),
                 CheckResult::Err(CheckError::PartiallyConfigured(reason)) => {
                     if !stage.always_recreate {
-                        panic!("[Configure] {name} ... tried to initialize but was still unconfigured ... {reason}");
+                        panic!(
+                            "[Configure] {name} ... tried to initialize but was still \
+                             unconfigured ... {reason}"
+                        );
                     }
                 }
                 CheckResult::Ok(()) => (),
@@ -373,7 +389,8 @@ fn configure_stage(stage: &Stage, command: StageCommand, config: &mut Config) ->
             match (stage.check)(config) {
                 CheckResult::Ok(()) => {
                     if stage.init.is_some() && stage.fini.is_some() {
-                        // If the step does nothing, it's fine if it's fully configured after being undone.
+                        // If the step does nothing, it's fine if it's fully configured after being
+                        // undone.
                         panic!("[Configure] {name} ... not undone")
                     }
                 }

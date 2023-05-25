@@ -1,12 +1,10 @@
-pub use crate::generated::{
-    FD_MCACHE_ALIGN,
-    FD_MCACHE_BLOCK,
-    FD_MCACHE_LG_BLOCK,
-    FD_MCACHE_LG_INTERLEAVE,
-    FD_MCACHE_SEQ_CNT,
+use std::sync::atomic::{
+    compiler_fence,
+    Ordering,
 };
-pub use crate::generated::fd_frag_meta_t;
+
 pub use crate::generated::{
+    fd_frag_meta_t,
     fd_mcache_align,
     fd_mcache_app_laddr,
     fd_mcache_app_laddr_const,
@@ -20,10 +18,11 @@ pub use crate::generated::{
     fd_mcache_seq0,
     fd_mcache_seq_laddr,
     fd_mcache_seq_laddr_const,
-};
-use std::sync::atomic::{
-    compiler_fence,
-    Ordering,
+    FD_MCACHE_ALIGN,
+    FD_MCACHE_BLOCK,
+    FD_MCACHE_LG_BLOCK,
+    FD_MCACHE_LG_INTERLEAVE,
+    FD_MCACHE_SEQ_CNT,
 };
 
 #[inline(always)]

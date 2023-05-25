@@ -1,11 +1,11 @@
+use std::fs;
+
 use super::*;
 use crate::security::*;
 use crate::utility::*;
 use crate::Config;
 
-use std::fs;
-
-const NAME: &'static str = "large_pages";
+const NAME: &str = "large_pages";
 
 pub(super) const STAGE: Stage = Stage {
     name: NAME,
@@ -15,7 +15,7 @@ pub(super) const STAGE: Stage = Stage {
     explain_fini_permissions: None,
     init: Some(step),
     fini: None,
-    check: check,
+    check,
 };
 
 fn explain_init_permissions(_: &Config) -> Vec<Option<String>> {

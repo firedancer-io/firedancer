@@ -1,7 +1,7 @@
+use std::fs;
+
 use super::*;
 use crate::Config;
-
-use std::fs;
 
 pub(super) const STAGE: Stage = Stage {
     name: "xdp_leftover",
@@ -11,7 +11,7 @@ pub(super) const STAGE: Stage = Stage {
     explain_fini_permissions: None,
     init: None,
     fini: None,
-    check: check,
+    check,
 };
 
 fn check(config: &Config) -> CheckResult {

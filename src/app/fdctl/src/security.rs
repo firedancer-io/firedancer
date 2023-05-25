@@ -1,10 +1,19 @@
-use paste::paste;
-use std::{
-    ffi::{c_char, CString},
-    os::fd::RawFd,
+use std::ffi::{
+    c_char,
+    CString,
 };
+use std::os::fd::RawFd;
 
-use libc::{c_uint, open, pid_t, setns, size_t, O_CLOEXEC, O_RDONLY};
+use libc::{
+    c_uint,
+    open,
+    pid_t,
+    setns,
+    size_t,
+    O_CLOEXEC,
+    O_RDONLY,
+};
+use paste::paste;
 
 use crate::utility::*;
 
@@ -17,6 +26,7 @@ macro_rules! capabilities {
         }
 
         #[derive(Debug, Copy, Clone)]
+        #[allow(clippy::enum_variant_names)]
         pub(crate) enum Capability {
             $($name),*
         }

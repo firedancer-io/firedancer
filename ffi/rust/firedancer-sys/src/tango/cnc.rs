@@ -1,5 +1,22 @@
-pub use crate::generated::fd_cnc_t;
+use std::os::raw::c_void;
+use std::sync::atomic::{
+    compiler_fence,
+    Ordering,
+};
+
 pub use crate::generated::{
+    fd_cnc_align,
+    fd_cnc_delete,
+    fd_cnc_footprint,
+    fd_cnc_join,
+    fd_cnc_leave,
+    fd_cnc_new,
+    fd_cnc_open,
+    fd_cnc_signal_cstr,
+    fd_cnc_strerror,
+    fd_cnc_t,
+    fd_cnc_wait,
+    fd_cstr_to_cnc_signal,
     FD_CNC_ALIGN,
     FD_CNC_APP_ALIGN,
     FD_CNC_DIAG_BACKP_CNT,
@@ -15,26 +32,6 @@ pub use crate::generated::{
     FD_CNC_SIGNAL_HALT,
     FD_CNC_SIGNAL_RUN,
     FD_CNC_SUCCESS,
-};
-pub use crate::generated::{
-    fd_cnc_align,
-    fd_cnc_delete,
-    fd_cnc_footprint,
-    fd_cnc_join,
-    fd_cnc_leave,
-    fd_cnc_new,
-    fd_cnc_open,
-    fd_cnc_signal_cstr,
-    fd_cnc_strerror,
-    fd_cnc_wait,
-    fd_cstr_to_cnc_signal,
-};
-use std::{
-    os::raw::c_void,
-    sync::atomic::{
-        compiler_fence,
-        Ordering,
-    },
 };
 
 #[inline(always)]
