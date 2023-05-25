@@ -9,7 +9,7 @@
 #define INCLUSION_PROOF_LAYERS 10UL
 #define SHRED_CNT_NOT_SET      (UINT_MAX/2U)
 
-extern uchar test_private_key[];
+extern uchar const test_private_key[] __attribute__((aligned(128)));
 
 struct __attribute__((aligned(32UL))) set_ctx {
   ulong                 sig_tag;
@@ -30,7 +30,6 @@ typedef struct set_ctx set_ctx_t;
 #define MAP_T       set_ctx_t
 #include "../../util/tmpl/fd_map_dynamic.c"
 
-#define FD_FEC_RESOLVER_ALIGN (128UL)
 
 struct __attribute__((aligned(FD_FEC_RESOLVER_ALIGN))) fd_fec_resolver {
   /* depth stores the number of FEC sets this resolver can track
@@ -115,8 +114,8 @@ fd_fec_resolver_new( void * shmem, ulong depth, ulong done_depth, fd_fec_set_t *
 
   set_ctx_t * freelist = freelist_join( _freelist );
   for( ulong i=0UL; i<depth; i++ ) {
-    set_ctx_t * ctx = freelist_insert_tail( freelist );
-    ctx->sig_tag            = 0UL;
+    set_ctx_t * ctx = freelist_peek_tail( freelist_insert_tail( freelist ) );
+    ctx->sig_tag            = 0xAAAA0000UL + i;
     ctx->set                = sets+i;
     ctx->tree               = (fd_bmtree_commit_t *)( (uchar *)trees + i*fd_bmtree_commit_footprint( INCLUSION_PROOF_LAYERS ) );
     ctx->total_rx_shred_cnt = 0U;
@@ -127,7 +126,7 @@ fd_fec_resolver_new( void * shmem, ulong depth, ulong done_depth, fd_fec_set_t *
 
   resolver->depth      = depth;
   resolver->done_depth = done_depth;
-  return self;
+  return shmem;
 }
 
 fd_fec_resolver_t *
@@ -143,8 +142,8 @@ fd_fec_resolver_join( void * shmem ) {
 
   ulong scratch_top = (ulong)shmem;
   /*     self    */ SCRATCH_ALLOC( FD_FEC_RESOLVER_ALIGN,  sizeof(fd_fec_resolver_t)                       );
-  void * done     = SCRATCH_ALLOC( FD_TCACHE_ALIGN,        fd_tcache_footprint( done_depth, map_cnt      ) );
-  void * curr_tc  = SCRATCH_ALLOC( FD_TCACHE_ALIGN,        fd_tcache_footprint( depth,      done_map_cnt ) );
+  void * done     = SCRATCH_ALLOC( FD_TCACHE_ALIGN,        fd_tcache_footprint( done_depth, done_map_cnt ) );
+  void * curr_tc  = SCRATCH_ALLOC( FD_TCACHE_ALIGN,        fd_tcache_footprint( depth,      map_cnt      ) );
   void * curr_map = SCRATCH_ALLOC( ctx_map_align(),        ctx_map_footprint( lg_depth+1 )                 );
   void * freelist = SCRATCH_ALLOC( freelist_align(),       freelist_footprint( depth )                     );
 
@@ -204,7 +203,7 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t * resolver, fd_shred_t const * shre
   uchar shred_type = fd_shred_type( variant );
 
   ulong tree_depth           = fd_shred_merkle_cnt( variant );
-  ulong reedsol_protected_sz = 1115UL - 20UL*tree_depth + 0x58UL - 0x40UL;;
+  ulong reedsol_protected_sz = 1115UL - 20UL*tree_depth + 0x58UL - 0x40UL;
   ulong merkle_protected_sz  = reedsol_protected_sz + fd_ulong_if( shred_type==FD_SHRED_TYPE_MERKLE_DATA, 0UL, 0x59UL - 0x40UL );
 
   fd_bmtree_hash_leaf( _leaf, (uchar const *)shred + sizeof(fd_ed25519_sig_t), merkle_protected_sz, FD_BMTREE_LONG_PREFIX_SZ );
@@ -252,7 +251,7 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t * resolver, fd_shred_t const * shre
       return NULL;
     }
 
-    if( FD_UNLIKELY( !fd_ed25519_verify( _root->hash, 32UL, shred->signature, test_private_key+32UL, resolver->sha512 ) ) ) {
+    if( FD_UNLIKELY( FD_ED25519_SUCCESS != fd_ed25519_verify( _root->hash, 32UL, shred->signature, test_private_key+32UL, resolver->sha512 ) ) ) {
       freelist_push_head( freelist, *ctx );
       return NULL;
     }

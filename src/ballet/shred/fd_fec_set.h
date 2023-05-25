@@ -34,6 +34,7 @@ typedef struct fd_fec_set fd_fec_set_t;
 
 /* Forward declare opaque handle.  It has a lot of types we don't
    necessarily want to bring into the includer */
+#define FD_FEC_RESOLVER_ALIGN (128UL)
 struct fd_fec_resolver;
 typedef struct fd_fec_resolver fd_fec_resolver_t;
 
