@@ -8,7 +8,6 @@
 
 : "${QUIC_PORT:=9000}"
 
-: "${IFACE:=ens4}"
 : "${IFACE_ADDR:=10.0.0.2}"
 
 : "${XSK_FRAME_SZ:=2048}"
@@ -20,8 +19,33 @@
 
 ########################################################################
 
+if [ "$#" -lt 2 ]; then
+  echo ""
+  echo "        build directory and network interface must be specified"
+  echo ""
+  echo "        If you have a bonded network interface, additionally specify the underlying ifaces."
+  echo ""
+  echo "        Usage: $0 [BUILD_DIRECTORY] iface [iface1 ... ]"
+  echo ""
+  echo "        This is meant to be run from the firedancer base directory.  It"
+  echo "        assumes that there is a firedancer shared memory sandbox setup"
+  echo "        on the host in the default location, the user has permissions to"
+  echo "        use this sandbox and the host has $WKSP_CNT $WKSP_PAGE unused page(s) on"
+  echo "        numa node $NUMA_IDX (and ideally a large number unused huge pages there"
+  echo "        too for tile stack usage).  This will recreate from scratch any"
+  echo "        pre-existing wksp named $WKSP in the sandbox."
+  echo ""
+  echo "        A suitable shared memory sandbox can usually be setup by running:"
+  echo "                sudo [BUILD_DIRECTORY]/bin/fd_shmem_cfg init 0700 $USER \"\""
+  echo "        once."
+  echo ""
+  exit 1
+fi
+
 BIN=$1/bin
 UNIT_TEST=$1/unit-test
+: "${IFACE:=$2}"
+echo "Configuring $IFACE for XDP"
 
 # Disable permanant log for all the controls we are going to run in here
 
@@ -61,6 +85,11 @@ if command -v xdp-loader; then
   xdp-loader status "$IFACE" || exit $?
 fi
 
+# set the underlying channels if there are any left
+for iface in "${@:3}"
+do
+    ethtool --set-channels $iface combined 1
+done
 ethtool --set-channels "$IFACE" combined 1
 ethtool --show-channels "$IFACE"
 
