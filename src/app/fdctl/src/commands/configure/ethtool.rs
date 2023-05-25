@@ -3,7 +3,7 @@ use crate::security::*;
 use crate::utility::*;
 use crate::Config;
 
-const NAME: &'static str = "ethtool";
+const NAME: &str = "ethtool";
 
 pub(super) const STAGE: Stage = Stage {
     name: NAME,
@@ -13,7 +13,7 @@ pub(super) const STAGE: Stage = Stage {
     explain_fini_permissions: None,
     init: Some(step),
     fini: None,
-    check: check,
+    check,
 };
 
 fn enabled(config: &Config) -> bool {
@@ -30,8 +30,8 @@ fn explain_init_permissions(_: &Config) -> Vec<Option<String>> {
 }
 
 fn step(config: &mut Config) {
-    // We need one channel for both TX and RX on the NIC for each QUIC tile, but the interface probably
-    // defaults to one channel total.
+    // We need one channel for both TX and RX on the NIC for each QUIC tile, but the interface
+    // probably defaults to one channel total.
     let interface = &config.tiles.quic.interface;
     let verify_tile_count = config.layout.verify_tile_count;
     run!("ethtool --set-channels {interface} combined {verify_tile_count}");
@@ -60,5 +60,5 @@ fn check(config: &Config) -> CheckResult {
         }
     }
 
-    return not_configured!("couldn't parse combined channels from device in ethtool");
+    not_configured!("couldn't parse combined channels from device in ethtool")
 }

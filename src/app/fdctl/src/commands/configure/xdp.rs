@@ -1,11 +1,11 @@
+use std::path::Path;
+
 use super::*;
 use crate::security::*;
 use crate::utility::*;
 use crate::Config;
 
-use std::path::Path;
-
-const NAME: &'static str = "xdp";
+const NAME: &str = "xdp";
 
 pub(super) const STAGE: Stage = Stage {
     name: NAME,
@@ -15,7 +15,7 @@ pub(super) const STAGE: Stage = Stage {
     explain_fini_permissions: None,
     init: Some(step),
     fini: Some(undo),
-    check: check,
+    check,
 };
 
 #[rustfmt::skip]

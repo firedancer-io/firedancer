@@ -1,6 +1,10 @@
-use std::{collections::HashMap, process::Stdio};
+use std::collections::HashMap;
+use std::process::Stdio;
 
-use clap::{arg, Args};
+use clap::{
+    arg,
+    Args,
+};
 
 use crate::security::*;
 use crate::utility::*;
@@ -26,13 +30,13 @@ impl RunCli {
             check_file_cap("run", &run_binary, CAP_SYS_NICE, "set a high scheduler priority for threads"),
             check_file_cap("run", &run_binary, CAP_NET_RAW, "bind to a socket with SOCK_RAW"),
             check_file_cap("run", &run_binary, CAP_SYS_ADMIN, "initialize XDP by calling `bpf_obj_get`"),
-        ].into_iter().filter(|x| x.is_some()).map(|x| x.unwrap()).collect()
+        ].into_iter().flatten().collect()
     }
 }
 
 fn config_vars(config: &Config) -> HashMap<String, String> {
     let vars_file =
-        std::fs::read_to_string(&format!("{}/config.cfg", config.scratch_directory)).unwrap();
+        std::fs::read_to_string(format!("{}/config.cfg", config.scratch_directory)).unwrap();
     HashMap::from_iter(
         vars_file
             .trim()
@@ -50,8 +54,8 @@ pub(crate) fn monitor(config: &Config) {
 
     let status = run!(
         status,
-        "{bin}/fd_frank_mon.bin --pod {pod} --cfg {name} \
-        --log-app {name} --log-thread mon --duration 31536000000000000"
+        "{bin}/fd_frank_mon.bin --pod {pod} --cfg {name} --log-app {name} --log-thread mon \
+         --duration 31536000000000000"
     );
     assert!(status.success());
 }
@@ -66,7 +70,7 @@ pub(crate) fn run(args: RunCli, config: &mut Config) {
     let netns_arg = if config.development.netns.enabled {
         format!("--netns /var/run/netns/{}", config.tiles.quic.interface)
     } else {
-        format!("")
+        "".to_owned()
     };
 
     let pod = &config_vars(config)["POD"];
@@ -88,8 +92,8 @@ pub(crate) fn run(args: RunCli, config: &mut Config) {
     let mut run = run_builder!(
         cwd = None,
         env = Some(&env),
-        cmd = "{prefix_gdb} {netns_arg} --pod {pod} --cfg {name} \
-        --log-app {name} --log-thread main --tile-cpus {affinity}",
+        cmd = "{prefix_gdb} {netns_arg} --pod {pod} --cfg {name} --log-app {name} --log-thread \
+               main --tile-cpus {affinity}",
     );
 
     set_affinity_zero();

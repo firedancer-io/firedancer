@@ -1,11 +1,3 @@
-pub use crate::generated::fd_sha512_t;
-pub use crate::generated::{
-    FD_SHA512_ALIGN,
-    FD_SHA512_FOOTPRINT,
-    FD_SHA512_HASH_SZ,
-    FD_SHA512_LG_HASH_SZ,
-    FD_SHA512_MAGIC,
-};
 pub use crate::generated::{
     fd_sha512_align,
     fd_sha512_append,
@@ -16,4 +8,10 @@ pub use crate::generated::{
     fd_sha512_join,
     fd_sha512_leave,
     fd_sha512_new,
+    fd_sha512_t,
+    FD_SHA512_ALIGN,
+    FD_SHA512_FOOTPRINT,
+    FD_SHA512_HASH_SZ,
+    FD_SHA512_LG_HASH_SZ,
+    FD_SHA512_MAGIC,
 };

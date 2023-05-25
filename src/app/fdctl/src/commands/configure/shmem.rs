@@ -1,11 +1,11 @@
+use std::path::Path;
+
 use super::*;
 use crate::security::*;
 use crate::utility::*;
 use crate::Config;
 
-use std::path::Path;
-
-const NAME: &'static str = "shmem";
+const NAME: &str = "shmem";
 
 pub(super) const STAGE: Stage = Stage {
     name: NAME,
@@ -15,7 +15,7 @@ pub(super) const STAGE: Stage = Stage {
     explain_fini_permissions: Some(explain_fini_permissions),
     init: Some(step),
     fini: Some(undo),
-    check: check,
+    check,
 };
 
 fn explain_init_permissions(_: &Config) -> Vec<Option<String>> {
@@ -66,12 +66,7 @@ fn undo(config: &Config) {
         &config.shmem.huge_page_mount_path,
     ] {
         let mounts = std::fs::read_to_string("/proc/mounts").unwrap();
-        let is_mounted = mounts
-            .trim()
-            .lines()
-            .find(|x| x.contains(mount_path))
-            .is_some();
-        if is_mounted {
+        if mounts.trim().lines().any(|x| x.contains(mount_path)) {
             run!("umount -v {mount_path}");
         }
 
@@ -107,7 +102,7 @@ fn check(config: &Config) -> CheckResult {
         match mount_line {
             None => return partially_configured!("{path} is not a hugetlbfs mount"),
             Some(mount_line) => {
-                let parts: Vec<&str> = mount_line.trim().split_whitespace().collect();
+                let parts: Vec<&str> = mount_line.split_whitespace().collect();
                 // parts is (device, mount_point, fs_type, options, _dump, _fsck_order)
                 if parts[0] != "none" {
                     return partially_configured!(
@@ -134,5 +129,5 @@ fn check(config: &Config) -> CheckResult {
         }
     }
 
-    return CheckResult::Ok(());
+    CheckResult::Ok(())
 }

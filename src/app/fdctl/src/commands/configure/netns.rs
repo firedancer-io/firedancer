@@ -3,7 +3,7 @@ use crate::security::check_root;
 use crate::utility::*;
 use crate::Config;
 
-const NAME: &'static str = "netns";
+const NAME: &str = "netns";
 
 pub(super) const STAGE: Stage = Stage {
     name: NAME,
@@ -13,7 +13,7 @@ pub(super) const STAGE: Stage = Stage {
     explain_fini_permissions: Some(explain_fini_permissions),
     init: Some(step),
     fini: Some(undo),
-    check: check,
+    check,
 };
 
 fn enabled(config: &Config) -> bool {

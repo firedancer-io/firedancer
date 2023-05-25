@@ -11,7 +11,7 @@ pub(super) const STAGE: Stage = Stage {
     explain_fini_permissions: None,
     init: Some(step),
     fini: Some(undo),
-    check: check,
+    check,
 };
 
 fn step(config: &mut Config) {
@@ -21,8 +21,8 @@ fn step(config: &mut Config) {
     repermission(scratch, config.uid, config.uid, 0o700);
     run!(
         cwd = scratch,
-        "openssl req -x509 -newkey ed25519 -days 365 -nodes -keyout key.pem -out cert.pem \
-        -subj /CN=localhost -addext subjectAltName=DNS:localhost,IP:127.0.0.1"
+        "openssl req -x509 -newkey ed25519 -days 365 -nodes -keyout key.pem -out cert.pem -subj \
+         /CN=localhost -addext subjectAltName=DNS:localhost,IP:127.0.0.1"
     );
     repermission(format!("{scratch}/key.pem"), config.uid, config.uid, 0o600);
     repermission(format!("{scratch}/cert.pem"), config.uid, config.uid, 0o664);

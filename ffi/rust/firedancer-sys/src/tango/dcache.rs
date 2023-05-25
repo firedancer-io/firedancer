@@ -1,7 +1,6 @@
-pub use crate::generated::{
-    FD_DCACHE_ALIGN,
-    FD_DCACHE_GUARD_FOOTPRINT,
-};
+use std::os::raw::c_void;
+
+use crate::generated::FD_CHUNK_LG_SZ;
 pub use crate::generated::{
     fd_dcache_align,
     fd_dcache_app_laddr,
@@ -15,9 +14,9 @@ pub use crate::generated::{
     fd_dcache_leave,
     fd_dcache_new,
     fd_dcache_req_data_sz,
+    FD_DCACHE_ALIGN,
+    FD_DCACHE_GUARD_FOOTPRINT,
 };
-use std::os::raw::c_void;
-use crate::generated::FD_CHUNK_LG_SZ;
 
 #[inline(always)]
 pub fn fd_dcache_compact_chunk0(base: *const c_void, dcache: *const c_void) -> usize {
