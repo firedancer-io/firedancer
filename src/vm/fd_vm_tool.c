@@ -143,10 +143,13 @@ read_input_file( char const * input_path, ulong * _input_sz ) {
     FD_LOG_ERR(( "malloc(%#lx) failed: %s", input_sz, strerror( errno ) ));
 
   /* Read input */
-
-  if( FD_UNLIKELY( fread( input_buf, input_sz, 1UL, input_file )!=1UL ) )
-    FD_LOG_ERR(( "fread() failed: %s", strerror( errno ) ));
-  FD_TEST( 0==fclose( input_file ) );
+  if( input_sz > 0 ) {
+    if( FD_UNLIKELY( fread( input_buf, input_sz, 1UL, input_file )!=1UL ) )
+      FD_LOG_ERR(( "fread() failed: %s", strerror( errno ) ));
+    FD_TEST( 0==fclose( input_file ) );
+  } else {
+    FD_LOG_WARNING(( "input file is 0 size" ));
+  }
 
   *_input_sz = input_sz;
 
