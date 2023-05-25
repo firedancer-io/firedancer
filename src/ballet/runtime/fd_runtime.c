@@ -169,8 +169,7 @@ fd_runtime_block_verify( fd_global_ctx_t *global, fd_slot_meta_t* m, const void*
   fd_txn_parse_counters_t counters;
   fd_memset(&counters, 0, sizeof(counters));
 
-  fd_bmtree32_commit_t * commit =
-    fd_alloca( FD_BMTREE32_COMMIT_ALIGN, fd_bmtree32_commit_footprint( ) );
+  uchar commit_mem[FD_BMTREE32_COMMIT_FOOTPRINT] __attribute__((aligned(FD_BMTREE32_COMMIT_ALIGN)));
 
   /* Loop across batches */
   ulong blockoff = 0;
@@ -194,7 +193,7 @@ fd_runtime_block_verify( fd_global_ctx_t *global, fd_slot_meta_t* m, const void*
         if (hdr->hash_cnt > 0)
           fd_poh_append(&global->poh, hdr->hash_cnt - 1);
 
-        fd_bmtree32_commit_t * tree = fd_bmtree32_commit_init( commit );
+        fd_bmtree32_commit_t * tree = fd_bmtree32_commit_init( commit_mem );
       
         /* Loop across transactions */
         for ( ulong txn_idx = 0; txn_idx < hdr->txn_cnt; txn_idx++ ) {
@@ -209,7 +208,7 @@ fd_runtime_block_verify( fd_global_ctx_t *global, fd_slot_meta_t* m, const void*
           for ( ulong j = 0; j < xray.signature_cnt; j++ ) {
             fd_bmtree32_node_t leaf;
             fd_bmtree32_hash_leaf( &leaf, &sigs[j], sizeof(fd_ed25519_sig_t) );
-            fd_bmtree32_commit_append( commit, (fd_bmtree32_node_t const *)&leaf, 1 );
+            fd_bmtree32_commit_append( tree, (fd_bmtree32_node_t const *)&leaf, 1 );
           }
 
           blockoff += pay_sz;
@@ -234,6 +233,141 @@ fd_runtime_block_verify( fd_global_ctx_t *global, fd_slot_meta_t* m, const void*
 
   if (blockoff != blocklen)
     FD_LOG_ERR(("garbage at end of block"));
+
+  return FD_RUNTIME_EXECUTE_SUCCESS;
+}
+
+struct fd_runtime_block_micro {
+    fd_microblock_hdr_t * hdr;
+    uchar hash[ FD_BMTREE32_HASH_SZ ] __attribute__((aligned(FD_BMTREE32_COMMIT_ALIGN)));
+};
+
+static void fd_runtime_block_verify_task( void * tpool,
+                                          ulong  t0,     ulong t1,
+                                          void * args,
+                                          void * reduce, ulong stride,
+                                          ulong  l0,     ulong l1,
+                                          ulong  m0,     ulong m1,
+                                          ulong  n0,     ulong n1 ) {
+  struct fd_runtime_block_micro * micro = (struct fd_runtime_block_micro *)tpool;
+  (void)t0;
+  (void)t1;
+  (void)args;
+  (void)reduce;
+  (void)stride;
+  (void)l0;
+  (void)l1;
+  (void)m0;
+  (void)m1;
+  (void)n0;
+  (void)n1;
+
+  fd_microblock_hdr_t * hdr = micro->hdr;
+  ulong blockoff = sizeof(fd_microblock_hdr_t);
+  if (hdr->txn_cnt > 0) {
+    uchar commit_mem[FD_BMTREE32_COMMIT_FOOTPRINT] __attribute__((aligned(FD_BMTREE32_COMMIT_ALIGN)));
+    fd_bmtree32_commit_t * tree = fd_bmtree32_commit_init( commit_mem );
+      
+    /* Loop across transactions */
+    for ( ulong txn_idx = 0; txn_idx < hdr->txn_cnt; txn_idx++ ) {
+      fd_txn_xray_result_t xray;
+      const uchar* raw = (const uchar *)hdr + blockoff;
+      ulong pay_sz = fd_txn_xray(raw, ULONG_MAX, &xray); /* Length has been previously checked */
+      if ( pay_sz == 0UL )
+        FD_LOG_ERR(("failed to parse transaction %lu in microblock", txn_idx));
+
+      /* Loop across signatures */
+      fd_ed25519_sig_t const * sigs = (fd_ed25519_sig_t const *)((ulong)raw + (ulong)xray.signature_off);
+      for ( ulong j = 0; j < xray.signature_cnt; j++ ) {
+        fd_bmtree32_node_t leaf;
+        fd_bmtree32_hash_leaf( &leaf, &sigs[j], sizeof(fd_ed25519_sig_t) );
+        fd_bmtree32_commit_append( tree, (fd_bmtree32_node_t const *)&leaf, 1 );
+      }
+
+      blockoff += pay_sz;
+    }
+
+    uchar * root = fd_bmtree32_commit_fini( tree );
+    fd_memcpy( micro->hash, root, sizeof(micro->hash) );
+  }
+}
+
+int fd_runtime_block_verify_tpool( fd_global_ctx_t *global, fd_slot_meta_t *m, const void* block, ulong blocklen, fd_tpool_t * tpool, ulong max_workers ) {
+  /* Find all the microblock headers */
+  static const ulong MAX_MICROS = 1000;
+  struct fd_runtime_block_micro micros[MAX_MICROS];
+  ulong num_micros = 0;
+
+  /* Loop across batches */
+  ulong blockoff = 0;
+  while (blockoff < blocklen) {
+    if ( blockoff + sizeof(ulong) > blocklen )
+      FD_LOG_ERR(("premature end of block"));
+    ulong mcount = *(const ulong *)((const uchar *)block + blockoff);
+    blockoff += sizeof(ulong);
+
+    /* Loop across microblocks */
+    for (ulong mblk = 0; mblk < mcount; ++mblk) {
+      if ( blockoff + sizeof(fd_microblock_hdr_t) > blocklen )
+        FD_LOG_ERR(("premature end of block"));
+      fd_microblock_hdr_t * hdr = (fd_microblock_hdr_t *)((const uchar *)block + blockoff);
+      blockoff += sizeof(fd_microblock_hdr_t);
+
+      if ( num_micros == MAX_MICROS )
+        FD_LOG_ERR(("too many microblocks in slot %lu", m->slot));
+      micros[num_micros++].hdr = hdr;
+
+      if (hdr->txn_cnt > 0) {
+        /* Loop across transactions */
+        for ( ulong txn_idx = 0; txn_idx < hdr->txn_cnt; txn_idx++ ) {
+          fd_txn_xray_result_t xray;
+          const uchar* raw = (const uchar *)block + blockoff;
+          ulong pay_sz = fd_txn_xray(raw, blocklen - blockoff, &xray);
+          if ( pay_sz == 0UL )
+            FD_LOG_ERR(("failed to parse transaction %lu in microblock %lu in slot %lu", txn_idx, mblk, m->slot));
+          blockoff += pay_sz;
+        }
+      }
+    }
+  }
+  if (blockoff != blocklen)
+    FD_LOG_ERR(("garbage at end of block"));
+
+  /* Spawn jobs to thread pool */
+  for (ulong mblk = 0; mblk < num_micros; ++mblk) {
+    ulong i = mblk%(max_workers-1UL) + 1UL; /* Do not use thread 0 */
+    if ( i != mblk+1UL ) {
+      /* Wrapped around. Wait for the previous job to finish */
+      fd_tpool_wait( tpool, i );
+    }
+    fd_tpool_exec( tpool, i, fd_runtime_block_verify_task, micros + mblk,
+                   0, 0, NULL, NULL, 0, 0, 0, 0, 0, 0, 0 );
+  }
+  /* Wait for everything to finish */
+  for (ulong i = 1; i < max_workers; ++i)
+    fd_tpool_wait( tpool, i );
+  
+  /* Loop across microblocks, perform final hashing */
+  for (ulong mblk = 0; mblk < num_micros; ++mblk) {
+    fd_microblock_hdr_t * hdr = micros[mblk].hdr;
+    if (hdr->txn_cnt == 0) {
+      fd_poh_append(&global->poh, hdr->hash_cnt);
+    } else {
+      if (hdr->hash_cnt > 0)
+        fd_poh_append(&global->poh, hdr->hash_cnt - 1);
+      fd_poh_mixin(&global->poh, micros[mblk].hash);
+    }
+    if (memcmp(hdr->hash, global->poh.state, sizeof(global->poh.state))) {
+      if (global->poh_booted) {
+        // TODO should this log and return?  instead of knocking the
+        // whole system over via a _ERR?
+        FD_LOG_ERR(( "poh missmatch at slot: %ld", m->slot));
+      } else {
+        fd_memcpy(global->poh.state, hdr->hash, sizeof(global->poh.state));
+        global->poh_booted = 1;
+      }
+    }
+  }
 
   return FD_RUNTIME_EXECUTE_SUCCESS;
 }
