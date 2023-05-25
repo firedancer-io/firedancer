@@ -3,17 +3,14 @@
 #include "fd_txn.h"
 #include "fd_compact_u16.h"
 
-#ifdef _DISABLE_OPTIMIZATION
-#pragma GCC optimize ("O0")
-#endif
+
 
 ulong
-fd_txn_parse_core( uchar const             * payload,
-                   ulong                     payload_sz,
-                   void                    * out_buf,
-                   fd_txn_parse_counters_t * counters_opt,
-                   ulong *                   payload_sz_opt,
-                   uchar                     dont_check_signed ) {
+fd_txn_parse( uchar const             * payload,
+              ulong                     payload_sz,
+              void                    * out_buf,
+              fd_txn_parse_counters_t * counters_opt,
+              ulong *                   payload_sz_opt ) {
   ulong i = 0UL;
   /* This code does non-trivial parsing of untrusted user input, which is a potentially dangerous thing.
      The main invariants we need to ensure are
@@ -84,7 +81,7 @@ fd_txn_parse_core( uchar const             * payload,
      u8 are represented the same way. */
   CHECK_LEFT( 1UL                               );   uchar signature_cnt  = payload[ i ];     i++;
   /* Must have at least one signer for the fee payer */
-  CHECK( dont_check_signed | ( (1UL<=signature_cnt) & (signature_cnt<=FD_TXN_SIG_MAX) ) );
+  CHECK( (1UL<=signature_cnt) & (signature_cnt<=FD_TXN_SIG_MAX) );
   CHECK_LEFT( FD_TXN_SIGNATURE_SZ*signature_cnt );   ulong signature_off  =          i  ;     i+=FD_TXN_SIGNATURE_SZ*signature_cnt;
 
   /* Not actually parsing anything, just store. */   ulong message_off    =          i  ;
@@ -103,7 +100,7 @@ fd_txn_parse_core( uchar const             * payload,
   }
   CHECK_LEFT( 1UL                               );   uchar ro_signed_cnt  = payload[ i ];     i++;
   /* Must have at least one writable signer for the fee payer */
-  CHECK( dont_check_signed | (ro_signed_cnt<signature_cnt) );
+  CHECK( ro_signed_cnt<signature_cnt );
 
   CHECK_LEFT( 1UL                               );   uchar ro_unsigned_cnt= payload[ i ];     i++;
 
@@ -208,16 +205,14 @@ fd_txn_parse_core( uchar const             * payload,
 
   if (NULL != parsed) {
     /* Final validation that all the account address indices are in range */
-    if (!dont_check_signed) {
-      for( ulong j=0; j<instr_cnt; j++ ) {
-        /* Account 0 is the fee payer and the program can't be the fee payer.
-           The fee payer account must be owned by the system program, but the
-           program must be an executable account and the system program is not
-           permitted to own any executable account. */
-        CHECK( (0 < parsed->instr[ j ].program_id) & (parsed->instr[ j ].program_id < acct_addr_cnt + addr_table_adtl_cnt) );
-        for( ulong k=0; k<parsed->instr[ j ].acct_cnt; k++ ) {
-          CHECK( payload[ parsed->instr[ j ].acct_off + k ] < acct_addr_cnt + addr_table_adtl_cnt );
-        }
+    for( ulong j=0; j<instr_cnt; j++ ) {
+      /* Account 0 is the fee payer and the program can't be the fee payer.
+         The fee payer account must be owned by the system program, but the
+         program must be an executable account and the system program is not
+         permitted to own any executable account. */
+      CHECK( (0 < parsed->instr[ j ].program_id) & (parsed->instr[ j ].program_id < acct_addr_cnt + addr_table_adtl_cnt) );
+      for( ulong k=0; k<parsed->instr[ j ].acct_cnt; k++ ) {
+        CHECK( payload[ parsed->instr[ j ].acct_off + k ] < acct_addr_cnt + addr_table_adtl_cnt );
       }
     }
 
