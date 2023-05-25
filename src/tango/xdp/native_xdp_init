@@ -1,0 +1,107 @@
+#!/bin/bash
+
+: "${NUMA_IDX:=0}"
+
+: "${WKSP:=test_xdp}"
+: "${WKSP_CNT:=256}"
+: "${WKSP_PAGE:=huge}"
+
+: "${QUIC_PORT:=9000}"
+
+: "${IFACE_ADDR:=10.0.0.2}"
+
+: "${XSK_FRAME_SZ:=2048}"
+: "${XSK_RX_DEPTH:=64}"
+: "${XSK_TX_DEPTH:=64}"
+: "${AIO_BATCH_CNT:=32}"
+
+: "${XDP_PROGRAM:=src/ballet/ebpf/ebpf_xdp_flow.o}"
+
+########################################################################
+
+if [ "$#" -lt 2 ]; then
+  echo ""
+  echo "        build directory and network interface must be specified"
+  echo ""
+  echo "        If you have a bonded network interface, additionally specify the underlying ifaces."
+  echo ""
+  echo "        Usage: $0 [BUILD_DIRECTORY] iface [iface1 ... ]"
+  echo ""
+  echo "        This is meant to be run from the firedancer base directory.  It"
+  echo "        assumes that there is a firedancer shared memory sandbox setup"
+  echo "        on the host in the default location, the user has permissions to"
+  echo "        use this sandbox and the host has $WKSP_CNT $WKSP_PAGE unused page(s) on"
+  echo "        numa node $NUMA_IDX (and ideally a large number unused huge pages there"
+  echo "        too for tile stack usage).  This will recreate from scratch any"
+  echo "        pre-existing wksp named $WKSP in the sandbox."
+  echo ""
+  echo "        A suitable shared memory sandbox can usually be setup by running:"
+  echo "                sudo [BUILD_DIRECTORY]/bin/fd_shmem_cfg init 0700 $USER \"\""
+  echo "        once."
+  echo ""
+  exit 1
+fi
+
+BIN=$1/bin
+UNIT_TEST=$1/unit-test
+: "${IFACE:=$2}"
+echo "Configuring $IFACE for XDP"
+
+# Disable permanant log for all the controls we are going to run in here
+
+FD_LOG_PATH=""
+export FD_LOG_PATH
+
+# Do basic box config (if not done already)
+
+"$BIN/fd_wksp_ctl" delete $WKSP # Okay if this fails
+
+sudo $BIN/fd_shmem_cfg init 0700 $USER ""
+sudo $BIN/fd_shmem_cfg alloc 1 gigantic 0
+sudo $BIN/fd_shmem_cfg alloc 256 huge 0
+sudo $BIN/fd_shmem_cfg query
+
+# Create the wksp
+
+"$BIN/fd_wksp_ctl" new $WKSP $WKSP_CNT $WKSP_PAGE $NUMA_IDX 0600 || exit $?
+
+CNC="$( "$BIN/fd_tango_ctl" new-cnc "$WKSP" 0 tic 4032 )" || exit $?
+
+# Create XDP env
+
+rm -rvf /sys/fs/bpf/"$WKSP"
+rm -rvf /sys/fs/bpf/"$WKSP"
+"$BIN/fd_xdp_ctl" init "$WKSP" 0755 "$USER" "" || exit $?
+
+# Install XDP program
+
+"$BIN/fd_xdp_ctl" unhook-iface "$WKSP" "$IFACE"|| exit $? # Okay if this fails
+sleep 1  # Give the kernel some time to unload the XDP program
+"$BIN/fd_xdp_ctl"   hook-iface "$WKSP" "$IFACE" skb || exit $?
+
+# Show XDP program status (xdp-tools)
+
+if command -v xdp-loader; then
+  xdp-loader status "$IFACE" || exit $?
+fi
+
+# set the underlying channels if there are any left
+for iface in "${@:3}"
+do
+    ethtool --set-channels $iface combined 1
+done
+ethtool --set-channels "$IFACE" combined 1
+ethtool --show-channels "$IFACE"
+
+# Setup listener
+
+"$BIN/fd_xdp_ctl" listen-udp-port "$WKSP" "$IFACE_ADDR" "$QUIC_PORT" tpu-quic-user || exit $?
+
+# Setup XSK
+
+XSK="$(    "$BIN/fd_xdp_ctl" new-xsk     "$WKSP" "$XSK_FRAME_SZ" "$XSK_RX_DEPTH" "$XSK_TX_DEPTH")" || exit $?
+XSK_AIO="$("$BIN/fd_xdp_ctl" new-xsk-aio "$WKSP" "$XSK_TX_DEPTH" "$AIO_BATCH_CNT"               )" || exit $?
+
+"$BIN/fd_xdp_ctl" bind-xsk "$XSK" "$WKSP" "$IFACE" 0 || exit $?
+
+exit 0
