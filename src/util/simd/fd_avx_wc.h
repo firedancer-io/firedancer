@@ -2,6 +2,10 @@
 #error "Do not include this directly; use fd_avx.h"
 #endif
 
+/* TODO: the below is much very designed for a 32-bit SIMD lane world
+   (with 64-bit SIMD lane support hacked on afterward).  Revamp these to
+   be more general for 8, 16, 32 and 64 bit lanes. */
+
 /* Vector conditional API *********************************************/
 
 /* A wc_t is a vector conditional.  This is, it is a vector of integers
