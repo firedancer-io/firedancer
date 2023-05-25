@@ -201,7 +201,7 @@ JT_CASE_END
 /* 0x77 */ JT_CASE(0x77) // FD_BPF_OP_RSH64_IMM
   register_file[instr.dst_reg] >>= instr.imm;
 JT_CASE_END
-/* 0x79 */ JT_CASE(0x79) // FD_BPF_OP_LDXQ
+/* 0x79 */ JT_CASE(0x79) // FD_BPF_OP_LDXDW
   cond_fault = fd_vm_mem_map_read_ulong( ctx, (ulong)((long)register_file[instr.src_reg] + instr.offset), (ulong *)&register_file[instr.dst_reg] );
   goto *((cond_fault == 0) ? &&fallthrough_0x79 : &&JT_RET_LOC);
 fallthrough_0x79:
@@ -211,7 +211,7 @@ JT_CASE_END
   goto *((cond_fault == 0) ? &&fallthrough_0x7a : &&JT_RET_LOC);
 fallthrough_0x7a:
 JT_CASE_END
-/* 0x7b */ JT_CASE(0x7b) // FD_BPF_OP_STXQ
+/* 0x7b */ JT_CASE(0x7b) // FD_BPF_OP_STXDW
   cond_fault = fd_vm_mem_map_write_ulong( ctx, (ulong)((long)register_file[instr.dst_reg] + instr.offset), (ulong)register_file[instr.src_reg] );
   goto *((cond_fault == 0) ? &&fallthrough_0x7b : &&JT_RET_LOC);
 fallthrough_0x7b:
@@ -349,7 +349,7 @@ JT_CASE_END
   pc += (register_file[instr.dst_reg] <= instr.imm) ? instr.offset : 0;
 JT_CASE_END
 /* 0xb7 */ JT_CASE(0xb7) // FD_BPF_OP_MOV64_IMM
-  register_file[instr.dst_reg] = instr.imm;
+  *(long *)&register_file[instr.dst_reg] = (int)instr.imm;
 JT_CASE_END
 /* 0xbc */ JT_CASE(0xbc) // FD_BPF_OP_MOV_REG
   register_file[instr.dst_reg] = (uint)register_file[instr.src_reg];

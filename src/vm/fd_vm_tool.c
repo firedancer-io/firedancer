@@ -175,7 +175,7 @@ int cmd_trace( char const * bin_path, char const * input_path ) {
     .instruction_counter = 0,
     .instrs              = (fd_sbpf_instr_t const *)fd_type_pun_const( tool_prog.prog->text ),
     .instrs_sz           = tool_prog.prog->text_cnt,
-    .instrs_offset       = (ulong)tool_prog.prog->text - (ulong)tool_prog.prog->rodata,
+    .instrs_offset       = tool_prog.prog->text_off,
     .syscall_map         = tool_prog.syscalls,
     .local_call_map      = tool_prog.prog->calldests,
     .input               = input,

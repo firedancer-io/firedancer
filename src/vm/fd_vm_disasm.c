@@ -65,6 +65,16 @@ fd_vm_disassemble_instr_alu( fd_sbpf_instr_t  instr,
     OUT_PRINTF( "%s%s r%d", op_name, suffix, instr.dst_reg );
     return 1;
   }
+  
+  if( FD_UNLIKELY( instr.opcode.raw == FD_SBPF_OP_END_BE ) ) {
+    OUT_PRINTF( "be%d r%d", instr.imm, instr.dst_reg );
+    return 1;
+  }
+
+  if( FD_UNLIKELY( instr.opcode.raw == FD_SBPF_OP_END_LE ) ) {
+    OUT_PRINTF( "le%d r%d", instr.imm, instr.dst_reg );
+    return 1;
+  }
 
   switch( instr.opcode.normal.op_src ) {
     case FD_SBPF_OPCODE_SOURCE_MODE_IMM:
