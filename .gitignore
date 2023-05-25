@@ -13,6 +13,9 @@ fd_ffi.rs
 
 # Core Dumps
 core.*.*
+# Rust
+**/Cargo.lock
+
 # Dependencies
 opt/
 
