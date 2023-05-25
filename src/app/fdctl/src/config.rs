@@ -67,6 +67,14 @@ impl UserConfig {
             self.user
         };
 
+        if self.development.netns.enabled {
+            assert_eq!(
+                self.tiles.quic.interface, self.development.netns.interface0,
+                "if using [netns] expect [quic.interface] to be the same as \
+                 [development.netns.interface0]"
+            );
+        }
+
         Config {
             name: self.name.clone(),
             user: user.clone(),
@@ -78,7 +86,7 @@ impl UserConfig {
                 pod: 0,
                 main_cnc: 0,
                 src_mac_address: "".to_string(),
-                listen_addresses: vec![],
+                listen_address: "".to_string(),
             },
 
             binary_dir: load_binary_dir(cli),
@@ -113,7 +121,7 @@ pub(crate) struct FrankConfig {
     pub(crate) pod: u32,
     pub(crate) main_cnc: u32,
     pub(crate) src_mac_address: String,
-    pub(crate) listen_addresses: Vec<String>,
+    pub(crate) listen_address: String,
 }
 
 macro_rules! config_struct {
@@ -307,7 +315,7 @@ impl Config {
         let quic_max_inflight_quic_packets = &self.tiles.quic.max_inflight_quic_packets;
         let quic_tx_buf_size = &self.tiles.quic.tx_buf_size;
         let quic_rx_buf_size = &self.tiles.quic.rx_buf_size;
-        let listen_addresses = self.frank.listen_addresses.join(",");
+        let listen_address = &self.frank.listen_address;
 
         let path = format!("{}/config.cfg", self.scratch_directory);
         #[rustfmt::skip]
@@ -322,7 +330,7 @@ impl Config {
             MON_ARGS=--pod\\ {name}.wksp:{pod}\\ --cfg\\ {name}\\ --log-app\\ {name}\\ --log-thread\\ mon \n\
             MAIN_CNC={name}.wksp:{main_cnc} \n\
             IFACE={interface} \n\
-            LISTEN_ADDRS={listen_addresses} \n\
+            LISTEN_ADDRS={listen_address} \n\
             SRC_MAC_ADDR={src_mac_address} \n\
             QUIC_LISTEN_PORT={quic_listen_port} \n\
             QUIC_CONN_CNT={quic_max_concurrent_connections} \n\

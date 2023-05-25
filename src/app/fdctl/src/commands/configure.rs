@@ -100,9 +100,9 @@ impl Stage {
 const STAGES: &[Stage] = &[
     large_pages::STAGE,
     shmem::STAGE,
+    netns::STAGE,
     xdp::STAGE,
     xdp_leftover::STAGE,
-    netns::STAGE,
     ethtool::STAGE,
     certs::STAGE,
     workspace::STAGE,
@@ -140,14 +140,14 @@ pub(crate) enum StageCli {
     /// Mounts hugetlbfs gigantic and huge filesystems onto the system large pages
     Shmem(StageCommandCli),
 
+    /// Set up virtual network namespaces for use during development
+    Netns(StageCommandCli),
+
     /// Install the Firedancer XDP driver
     Xdp(StageCommandCli),
 
     /// Check that there are no other XDP drivers on the same interface on the system
     XdpLeftover(StageCommandCli),
-
-    /// Set up virtual network namespaces for use during development
-    Netns(StageCommandCli),
 
     /// Ensures the network device is configured with enough tx / rx queues
     Ethtool(StageCommandCli),
@@ -305,10 +305,14 @@ fn configure_stage(stage: &Stage, command: StageCommand, config: &mut Config) ->
                 }
                 CheckResult::Err(CheckError::PartiallyConfigured(reason)) => {
                     match stage.fini {
-                        None => panic!(
-                            "[Configure] {name} ... does not support undo but was not valid ... \
-                             {reason}"
-                        ),
+                        None => {
+                            if !stage.always_recreate {
+                                panic!(
+                                    "[Configure] {name} ... does not support undo but was not \
+                                     valid ... {reason}"
+                                );
+                            }
+                        }
                         Some(undo) => {
                             info!("[Configure] {name} ... undoing ... {reason}");
                             undo(config);
@@ -375,7 +379,7 @@ fn configure_stage(stage: &Stage, command: StageCommand, config: &mut Config) ->
                     return false;
                 }
                 CheckResult::Err(CheckError::PartiallyConfigured(reason)) => {
-                    if stage.fini.is_none() {
+                    if !stage.always_recreate && stage.fini.is_none() {
                         panic!("[Configure] {name} ... not valid ... {reason:?}");
                     }
                 }
