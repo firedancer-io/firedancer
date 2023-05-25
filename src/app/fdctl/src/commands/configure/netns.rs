@@ -29,6 +29,32 @@ fn explain_fini_permissions(_: &Config) -> Vec<Option<String>> {
 }
 
 #[rustfmt::skip]
+pub(crate) fn listen_address(config: &Config) -> String {
+    let interface = &config.tiles.quic.interface;
+
+    if config.development.netns.enabled {
+        config.development.netns.interface0_addr.to_string()
+    } else {
+        let output = run!("ip address show dev {interface}");
+        output.lines().find(|x| x.contains("inet "))
+            .unwrap().trim().split(&['/', ' ']).nth(1).unwrap().into()
+    }
+}
+
+#[rustfmt::skip]
+pub(crate) fn src_mac_address(config: &Config) -> String {
+    let interface = &config.tiles.quic.interface;
+
+    if config.development.netns.enabled {
+        config.development.netns.interface0_mac.to_string()
+    } else {
+        let output = run!("ip address show dev {interface}");
+        output.lines().find(|x| x.contains("link/ether "))
+            .unwrap().split_whitespace().nth(1).unwrap().into()
+    }
+}
+
+#[rustfmt::skip]
 fn step(config: &mut Config) {
     let cfg = &config.development.netns;
 

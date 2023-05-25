@@ -143,7 +143,7 @@ scratch_directory = "/home/{user}/.firedancer/{name}"
     # forwarding well formed (but not necessarily valid) transactions to verify tiles.
     [tiles.quic]
         # Which interface to bind to. If developing under a network namespace with [netns] enabled,
-        # this should be one of the two virtual namespaces that was created.
+        # this should be the same as [development.netns.interface0].
         interface = "ens4"
 
         # Which port to listen on.
@@ -340,8 +340,8 @@ scratch_directory = "/home/{user}/.firedancer/{name}"
     # use due to performance overhead.
     [development.netns]
         # If enabled, `fdctl configure` will ensure the network namespaces are configured properly,
-        # can route to each other, and that running Firedancer will run it inside one of the
-        # namespaces.
+        # can route to each other, and that running Firedancer will run it inside the namespace for
+        # interface0
         enabled = false
 
         # Name of the first network namespace.
