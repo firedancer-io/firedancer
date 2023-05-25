@@ -183,9 +183,10 @@ fd_bmtree_commit_footprint( ulong inclusion_proof_layer_cnt ) {
   /* A complete binary tree with n layers has (2^n)-1 nodes.  We keep 1
      extra bmtree_node_t (included in sizeof(fd_bmtree_commit_t)) to
      avoid branches when appending commits. */
-  return sizeof(fd_bmtree_commit_t) +
+  return fd_ulong_align_up( sizeof(fd_bmtree_commit_t) +
     ( (1UL<<inclusion_proof_layer_cnt)-1UL       )*sizeof(fd_bmtree_node_t) +
-    (((1UL<<inclusion_proof_layer_cnt)+63UL)/64UL)*sizeof(ulong);
+    (((1UL<<inclusion_proof_layer_cnt)+63UL)/64UL)*sizeof(ulong),
+    fd_bmtree_commit_align() );
 }
 
 
@@ -483,7 +484,7 @@ fd_bmtree_commitp_fini( fd_bmtree_commit_t * state, ulong leaf_cnt ) {
        2, that means it suffices to check this once and not every time
        we go up the tree. */
     /* TODO: Make this argument more formal */
-    if( FD_UNLIKELY( inc_idx >= inclusion_proof_sz ) ) return 0;
+    if( FD_UNLIKELY( inc_idx >= inclusion_proof_sz ) ) return NULL;
 
     if( FD_UNLIKELY( !HAS(inc_idx) ) ) return NULL;
     node_buf[layer] = state->inclusion_proofs[inc_idx];
@@ -503,7 +504,7 @@ fd_bmtree_commitp_fini( fd_bmtree_commit_t * state, ulong leaf_cnt ) {
 
       inc_idx   = (layer_cnt<<(layer+1UL)) - (1UL<<layer) - 1UL;
 
-      if( FD_UNLIKELY( HAS( inc_idx ) && !fd_memeq( node_buf[layer+1UL].hash, state->inclusion_proofs[inc_idx].hash, hash_sz ) ) )
+      if( FD_UNLIKELY( HAS( inc_idx ) && !fd_memeq( node_buf[layer].hash, state->inclusion_proofs[inc_idx].hash, hash_sz ) ) )
         return NULL;
     }
 
@@ -539,6 +540,7 @@ fd_bmtree_commitp_fini( fd_bmtree_commit_t * state, ulong leaf_cnt ) {
      it. */
   if( !HAS( root_idx ) ) return NULL;
 
+  state->leaf_cnt = leaf_cnt;
   return state->inclusion_proofs[root_idx].hash;
 }
 

@@ -122,6 +122,9 @@ test_inclusion( ulong leaf_cnt ) {
     FD_TEST( !fd_bmtree_commitp_insert_with_proof( ptree, i, leaf, inc_proof, depth-1, NULL ) );
     leaf->hash[ 1 ]--;
   }
+  uchar * root3 = fd_bmtree_commitp_fini( ptree, leaf_cnt );
+  FD_TEST( root3 );
+  FD_TEST( fd_memeq( root, root3, 32UL ) );
   FD_TEST( !fd_bmtree_from_proof( leaf, 1234567UL, proof_root, inc_proof, depth-1UL, 20UL, prefix_sz ) );
 
 }

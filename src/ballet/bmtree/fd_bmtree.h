@@ -299,9 +299,9 @@ struct fd_bmtree_commit_private {
 
 typedef struct fd_bmtree_commit_private fd_bmtree_commit_t;
 
-#define FD_BMTREE_COMMIT_FOOTPRINT( inclusion_proof_layer_cnt ) (sizeof(fd_bmtree_commit_t) + \
+#define FD_BMTREE_COMMIT_FOOTPRINT( inclusion_proof_layer_cnt ) ((((sizeof(fd_bmtree_commit_t) + \
                                                                  ((1UL<<(inclusion_proof_layer_cnt))-1UL)*sizeof(fd_bmtree_node_t)+\
-                                                                 ((1UL<<(inclusion_proof_layer_cnt))+63UL)/64UL*sizeof(ulong))
+                                                                 ((1UL<<(inclusion_proof_layer_cnt))+63UL)/64UL*sizeof(ulong))+31UL)/32UL) * 32UL)
 #define FD_BMTREE_COMMIT_ALIGN                         (32UL)
 
 FD_PROTOTYPES_BEGIN
