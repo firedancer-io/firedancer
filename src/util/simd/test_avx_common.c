@@ -418,5 +418,106 @@ int wv_test( wv_t v, ulong v0, ulong v1, ulong v2, ulong v3 ) {
   return 1;
 }
 
+int wb_test( wb_t b, uchar const * bi ) {
+  int volatile _[1];
+  uchar        m[295] W_ATTR;
+  wb_t         g;
+
+  if( wb_extract( b,  0 ) !=bi[ 0] ) return 0;
+  if( wb_extract( b,  1 ) !=bi[ 1] ) return 0;
+  if( wb_extract( b,  2 ) !=bi[ 2] ) return 0;
+  if( wb_extract( b,  3 ) !=bi[ 3] ) return 0;
+  if( wb_extract( b,  4 ) !=bi[ 4] ) return 0;
+  if( wb_extract( b,  5 ) !=bi[ 5] ) return 0;
+  if( wb_extract( b,  6 ) !=bi[ 6] ) return 0;
+  if( wb_extract( b,  7 ) !=bi[ 7] ) return 0;
+  if( wb_extract( b,  8 ) !=bi[ 8] ) return 0;
+  if( wb_extract( b,  9 ) !=bi[ 9] ) return 0;
+  if( wb_extract( b, 10 ) !=bi[10] ) return 0;
+  if( wb_extract( b, 11 ) !=bi[11] ) return 0;
+  if( wb_extract( b, 12 ) !=bi[12] ) return 0;
+  if( wb_extract( b, 13 ) !=bi[13] ) return 0;
+  if( wb_extract( b, 14 ) !=bi[14] ) return 0;
+  if( wb_extract( b, 15 ) !=bi[15] ) return 0;
+  if( wb_extract( b, 16 ) !=bi[16] ) return 0;
+  if( wb_extract( b, 17 ) !=bi[17] ) return 0;
+  if( wb_extract( b, 18 ) !=bi[18] ) return 0;
+  if( wb_extract( b, 19 ) !=bi[19] ) return 0;
+  if( wb_extract( b, 20 ) !=bi[20] ) return 0;
+  if( wb_extract( b, 21 ) !=bi[21] ) return 0;
+  if( wb_extract( b, 22 ) !=bi[22] ) return 0;
+  if( wb_extract( b, 23 ) !=bi[23] ) return 0;
+  if( wb_extract( b, 24 ) !=bi[24] ) return 0;
+  if( wb_extract( b, 25 ) !=bi[25] ) return 0;
+  if( wb_extract( b, 26 ) !=bi[26] ) return 0;
+  if( wb_extract( b, 27 ) !=bi[27] ) return 0;
+  if( wb_extract( b, 28 ) !=bi[28] ) return 0;
+  if( wb_extract( b, 29 ) !=bi[29] ) return 0;
+  if( wb_extract( b, 30 ) !=bi[30] ) return 0;
+  if( wb_extract( b, 31 ) !=bi[31] ) return 0;
+
+  for( int j=0; j<32; j++ ) { _[0]=j; if( wb_extract_variable( b, _[0] )!=bi[j] ) return 0; }
+
+  wb_st(  m,     b ); /*   Aligned store to aligned   */
+  wb_stu( m+32,  b ); /* Unaligned store to aligned   */
+  wb_stu( m+65,  b ); /* Unaligned store to aligned+1 */
+  wb_stu( m+98,  b ); /* Unaligned store to aligned+2 */
+  wb_stu( m+131, b ); /* Unaligned store to aligned+3 */
+  wb_stu( m+164, b ); /* Unaligned store to aligned+4 */
+  wb_stu( m+197, b ); /* Unaligned store to aligned+5 */
+  wb_stu( m+230, b ); /* Unaligned store to aligned+6 */
+  wb_stu( m+263, b ); /* Unaligned store to aligned+7 */
+
+  g = wb_ld ( m     ); if( !wb_all( wb_eq( b, g ) ) ) return 0;
+  g = wb_ldu( m+32  ); if( !wb_all( wb_eq( b, g ) ) ) return 0;
+  g = wb_ldu( m+65  ); if( !wb_all( wb_eq( b, g ) ) ) return 0;
+  g = wb_ldu( m+98  ); if( !wb_all( wb_eq( b, g ) ) ) return 0;
+  g = wb_ldu( m+131 ); if( !wb_all( wb_eq( b, g ) ) ) return 0;
+  g = wb_ldu( m+164 ); if( !wb_all( wb_eq( b, g ) ) ) return 0;
+  g = wb_ldu( m+197 ); if( !wb_all( wb_eq( b, g ) ) ) return 0;
+  g = wb_ldu( m+230 ); if( !wb_all( wb_eq( b, g ) ) ) return 0;
+  g = wb_ldu( m+263 ); if( !wb_all( wb_eq( b, g ) ) ) return 0;
+
+  g = wb_zero();
+  g = wb_insert( g,  0, bi[ 0] );
+  g = wb_insert( g,  1, bi[ 1] );
+  g = wb_insert( g,  2, bi[ 2] );
+  g = wb_insert( g,  3, bi[ 3] );
+  g = wb_insert( g,  4, bi[ 4] );
+  g = wb_insert( g,  5, bi[ 5] );
+  g = wb_insert( g,  6, bi[ 6] );
+  g = wb_insert( g,  7, bi[ 7] );
+  g = wb_insert( g,  8, bi[ 8] );
+  g = wb_insert( g,  9, bi[ 9] );
+  g = wb_insert( g, 10, bi[10] );
+  g = wb_insert( g, 11, bi[11] );
+  g = wb_insert( g, 12, bi[12] );
+  g = wb_insert( g, 13, bi[13] );
+  g = wb_insert( g, 14, bi[14] );
+  g = wb_insert( g, 15, bi[15] );
+  g = wb_insert( g, 16, bi[16] );
+  g = wb_insert( g, 17, bi[17] );
+  g = wb_insert( g, 18, bi[18] );
+  g = wb_insert( g, 19, bi[19] );
+  g = wb_insert( g, 20, bi[20] );
+  g = wb_insert( g, 21, bi[21] );
+  g = wb_insert( g, 22, bi[22] );
+  g = wb_insert( g, 23, bi[23] );
+  g = wb_insert( g, 24, bi[24] );
+  g = wb_insert( g, 25, bi[25] );
+  g = wb_insert( g, 26, bi[26] );
+  g = wb_insert( g, 27, bi[27] );
+  g = wb_insert( g, 28, bi[28] );
+  g = wb_insert( g, 29, bi[29] );
+  g = wb_insert( g, 30, bi[30] );
+  g = wb_insert( g, 31, bi[31] ); if( wb_any( wb_ne( b, g ) ) ) return 0;
+
+  g = wb_zero();
+  for( int j=0; j<32; j++ ) { _[0]=j; g=wb_insert_variable( g, _[0], bi[j] ); }
+  if( wb_any( wb_ne( b, g ) ) ) return 0;
+
+  return 1;
+}
+
 #endif
 

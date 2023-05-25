@@ -288,4 +288,73 @@ int vv_test( vv_t v, ulong v0, ulong v1 ) {
   return 1;
 }
 
+int vb_test( vb_t b, uchar const * bi ) {
+  int volatile _[1];
+  uchar        m[151] V_ATTR;
+  vb_t         g;
+
+  if( vb_extract( b,  0 ) !=bi[ 0] ) return 0;
+  if( vb_extract( b,  1 ) !=bi[ 1] ) return 0;
+  if( vb_extract( b,  2 ) !=bi[ 2] ) return 0;
+  if( vb_extract( b,  3 ) !=bi[ 3] ) return 0;
+  if( vb_extract( b,  4 ) !=bi[ 4] ) return 0;
+  if( vb_extract( b,  5 ) !=bi[ 5] ) return 0;
+  if( vb_extract( b,  6 ) !=bi[ 6] ) return 0;
+  if( vb_extract( b,  7 ) !=bi[ 7] ) return 0;
+  if( vb_extract( b,  8 ) !=bi[ 8] ) return 0;
+  if( vb_extract( b,  9 ) !=bi[ 9] ) return 0;
+  if( vb_extract( b, 10 ) !=bi[10] ) return 0;
+  if( vb_extract( b, 11 ) !=bi[11] ) return 0;
+  if( vb_extract( b, 12 ) !=bi[12] ) return 0;
+  if( vb_extract( b, 13 ) !=bi[13] ) return 0;
+  if( vb_extract( b, 14 ) !=bi[14] ) return 0;
+  if( vb_extract( b, 15 ) !=bi[15] ) return 0;
+
+  for( int j=0; j<16; j++ ) { _[0]=j; if( vb_extract_variable( b, _[0] )!=bi[j] ) return 0; }
+
+  vb_st(  m,     b ); /*   Aligned store to aligned   */
+  vb_stu( m+16,  b ); /* Unaligned store to aligned   */
+  vb_stu( m+33,  b ); /* Unaligned store to aligned+1 */
+  vb_stu( m+50,  b ); /* Unaligned store to aligned+2 */
+  vb_stu( m+67,  b ); /* Unaligned store to aligned+3 */
+  vb_stu( m+84,  b ); /* Unaligned store to aligned+4 */
+  vb_stu( m+101, b ); /* Unaligned store to aligned+5 */
+  vb_stu( m+118, b ); /* Unaligned store to aligned+6 */
+  vb_stu( m+135, b ); /* Unaligned store to aligned+7 */
+
+  g = vb_ld ( m     ); if( !vb_all( vb_eq( b, g ) ) ) return 0;
+  g = vb_ldu( m+16  ); if( !vb_all( vb_eq( b, g ) ) ) return 0;
+  g = vb_ldu( m+33  ); if( !vb_all( vb_eq( b, g ) ) ) return 0;
+  g = vb_ldu( m+50  ); if( !vb_all( vb_eq( b, g ) ) ) return 0;
+  g = vb_ldu( m+67  ); if( !vb_all( vb_eq( b, g ) ) ) return 0;
+  g = vb_ldu( m+84  ); if( !vb_all( vb_eq( b, g ) ) ) return 0;
+  g = vb_ldu( m+101 ); if( !vb_all( vb_eq( b, g ) ) ) return 0;
+  g = vb_ldu( m+118 ); if( !vb_all( vb_eq( b, g ) ) ) return 0;
+  g = vb_ldu( m+135 ); if( !vb_all( vb_eq( b, g ) ) ) return 0;
+
+  g = vb_zero();
+  g = vb_insert( g,  0, bi[ 0] );
+  g = vb_insert( g,  1, bi[ 1] );
+  g = vb_insert( g,  2, bi[ 2] );
+  g = vb_insert( g,  3, bi[ 3] );
+  g = vb_insert( g,  4, bi[ 4] );
+  g = vb_insert( g,  5, bi[ 5] );
+  g = vb_insert( g,  6, bi[ 6] );
+  g = vb_insert( g,  7, bi[ 7] );
+  g = vb_insert( g,  8, bi[ 8] );
+  g = vb_insert( g,  9, bi[ 9] );
+  g = vb_insert( g, 10, bi[10] );
+  g = vb_insert( g, 11, bi[11] );
+  g = vb_insert( g, 12, bi[12] );
+  g = vb_insert( g, 13, bi[13] );
+  g = vb_insert( g, 14, bi[14] );
+  g = vb_insert( g, 15, bi[15] ); if( vb_any( vb_ne( b, g ) ) ) return 0;
+
+  g = vb_zero();
+  for( int j=0; j<16; j++ ) { _[0]=j; g=vb_insert_variable( g, _[0], bi[j] ); }
+  if( vb_any( vb_ne( b, g ) ) ) return 0;
+
+  return 1;
+}
+
 #endif

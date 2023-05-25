@@ -17,7 +17,7 @@ fd_xsk_aio_align( void ) {
   return FD_XSK_AIO_ALIGN;
 }
 
-ulong
+FD_FN_CONST ulong
 fd_xsk_aio_footprint( ulong tx_depth,
                       ulong pkt_cnt ) {
   if( FD_UNLIKELY( tx_depth==0UL ) ) return 0UL;

@@ -21,8 +21,8 @@ fn main() {
         )
     } else {
         (
-            "linux_clang_x86_64_pic",
-            firedancer_dir.join("build/linux/clang/x86_64_pic"),
+            "linux_clang_x86_64_ffi",
+            firedancer_dir.join("build/linux/clang/x86_64_ffi"),
         )
     };
 
@@ -50,7 +50,6 @@ fn main() {
             .to_str()
             .expect("failed to convert path to string")
     );
-    println!("cargo:rerun-if-changed=wrapper.h");
     println!("cargo:rustc-link-lib=static=fd_util");
     println!("cargo:rustc-link-lib=static=fd_tango");
     println!("cargo:rustc-link-lib=static=fd_disco");
