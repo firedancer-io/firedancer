@@ -935,6 +935,25 @@ int fd_quic_retry_integrity_tag_encrypt(
   return FD_QUIC_SUCCESS;
 }
 
+int fd_quic_retry_integrity_tag_decrypt(
+    uchar *retry_pseudo_pkt,
+    int retry_pseudo_pkt_len,
+    uchar retry_integrity_tag[static FD_QUIC_CRYPTO_TAG_SZ])
+{
+  int plaintext_len = gcm_decrypt(EVP_aes_128_gcm(),
+                                  NULL, 0,
+                                  retry_pseudo_pkt, retry_pseudo_pkt_len,
+                                  retry_integrity_tag,
+                                  FD_QUIC_RETRY_INTEGRITY_TAG_KEY,
+                                  FD_QUIC_RETRY_INTEGRITY_TAG_NONCE,
+                                  NULL);
+  if (FD_UNLIKELY(plaintext_len != 0))
+  {
+    return FD_QUIC_FAILED;
+  }
+  return FD_QUIC_SUCCESS;
+}
+
 int gcm_encrypt(const EVP_CIPHER *cipher,
                 uchar *plaintext, int plaintext_len,
                 uchar *aad, int aad_len,

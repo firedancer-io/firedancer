@@ -565,6 +565,11 @@ int fd_quic_retry_integrity_tag_encrypt(
     int retry_pseudo_pkt_len,
     uchar retry_integrity_tag[static FD_QUIC_CRYPTO_TAG_SZ]);
 
+int fd_quic_retry_integrity_tag_decrypt(
+    uchar *retry_pseudo_pkt,
+    int retry_pseudo_pkt_len,
+    uchar retry_integrity_tag[static FD_QUIC_CRYPTO_TAG_SZ]);
+
 int gcm_encrypt(
     const EVP_CIPHER *cipher,
     uchar *plaintext, int plaintext_len,

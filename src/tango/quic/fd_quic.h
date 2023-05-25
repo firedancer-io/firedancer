@@ -683,8 +683,6 @@ fd_quic_stream_set_rx_max_stream_data( fd_quic_stream_t * stream, ulong rx_max_s
 FD_PROTOTYPES_END
 
 /* Convenience exports for consumers of API */
-int test_retry_integrity_tag();
-
 #include "fd_quic_conn.h"
 #include "fd_quic_stream.h"
 

@@ -5996,35 +5996,3 @@ fd_quic_conn_get_pkt_meta_free_count( fd_quic_conn_t * conn ) {
   }
   return cnt;
 }
-
-// FIXME move to test once fix template
-int test_retry_integrity_tag()
-{
-  fd_quic_retry_pseudo_t retry_pseudo_pkt = {
-    .odcid_length = 1,
-    .odcid = {42},
-    .hdr_form = 1,
-    .fixed_bit = 1,
-    .long_packet_type = 3,
-    .version = 42,
-    .dst_conn_id_len = 1,
-    .dst_conn_id = {42},
-    .src_conn_id_len = 1,
-    .src_conn_id = {42},
-    .retry_token = {42}
-  };
-  uchar retry_integrity_tag[16];
-  FD_LOG_HEXDUMP_NOTICE(("tag", retry_integrity_tag, FD_QUIC_RETRY_INTEGRITY_TAG_SZ));
-  fd_quic_retry_integrity_tag_encrypt((uchar *) &retry_pseudo_pkt, sizeof(fd_quic_retry_pseudo_t), retry_integrity_tag);
-  FD_LOG_HEXDUMP_NOTICE(("tag", retry_integrity_tag, FD_QUIC_RETRY_INTEGRITY_TAG_SZ));
-  int rc = gcm_decrypt(EVP_aes_128_gcm(),
-                       NULL, 0,
-                       (uchar *)&retry_pseudo_pkt, sizeof(fd_quic_retry_pseudo_t),
-                       retry_integrity_tag,
-                       FD_QUIC_RETRY_INTEGRITY_TAG_KEY,
-                       FD_QUIC_RETRY_INTEGRITY_TAG_NONCE,
-                       NULL);
-  FD_LOG_NOTICE(("rc %d", rc));
-  FD_LOG_HEXDUMP_NOTICE(("tag", retry_integrity_tag, FD_QUIC_RETRY_INTEGRITY_TAG_SZ));
-  return 0;
-}
