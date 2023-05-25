@@ -1,8 +1,16 @@
-# docker run -v .:/tests --security-opt label=disable python3.8 python3 /tests/gen_c_tests.py -j /tests/system_program_tests.json
+# without podman
+#   sudo dnf install -y python38-devel
+#   /bin/python3.8 -m pip install solana solders base58 --user
+#   python3.8 gen_c_tests.py -j system_program_tests.json
+
+# with podman
+#   podman run -v .:/tests --security-opt label=disable python3.8 python3 /tests/gen_c_tests.py -j /tests/system_program_tests.json
 
 import argparse
+import base58
 import json
 import os
+import sys
 from solders.instruction import AccountMeta, Instruction
 from solders.pubkey import Pubkey
 from solders.transaction import Transaction
@@ -47,6 +55,8 @@ def read_test_cases(path):
     return json.load(f)
 
 def serializeInstructionError(err):
+  if isinstance(err, dict):
+      return err["Custom"]
   if err == "GenericError":
     return -1
   if err == "InvalidArgument":
@@ -165,27 +175,60 @@ def main():
 
   json_test_cases = read_test_cases(args.json)
 
-  for json_test_case in json_test_cases:
+  print("#include <stdlib.h>")
+  print("#include <stdio.h>")
+  print("#include \"fd_tests.h\"")
+  print("#include \"../../base58/fd_base58.h\"")
 
-    print("-------------- TEST CASE --------------")
+  print("")
+  print("#ifdef _DISABLE_OPTIMIZATION")
+  print("#pragma GCC optimize (\"O0\")")
+  print("#endif")
+  print("")
+
+  test_case = 0;
+
+  for json_test_case in json_test_cases:
+    print("int test_{}(fd_executor_test_suite_t *suite) {}".format(test_case, "{"))
+    test_case = test_case + 1
+
+    print ("ulong test_accs_len = {};".format(len(json_test_case["transaction_accounts"])))
+
+    print("fd_executor_test_acc_t* test_accs = fd_alloca( 1UL, FD_EXECUTOR_TEST_ACC_FOOTPRINT * test_accs_len );")
+    print("fd_memset( test_accs, 0, FD_EXECUTOR_TEST_ACC_FOOTPRINT * test_accs_len );")
+
+    if len(json_test_case["transaction_accounts"]) > 0:
+        print("fd_executor_test_acc_t* test_acc = test_accs;")
 
     # Serialize the accounts needed for this test case
-    for [txn_acc_pubkey, txn_acc_shared_data] in json_test_case["transaction_accounts"]:
-      print({
-        "pubkey": txn_acc_pubkey,
-        "lamports": txn_acc_shared_data["lamports"],
-        "data": txn_acc_shared_data["data"],
-        "owner": txn_acc_shared_data["owner"],
-        "executable": txn_acc_shared_data["executable"],
-        "rent_epoch": txn_acc_shared_data["rentEpoch"],
-      })
-
+    idx = 0
+    for e in json_test_case["transaction_accounts"]:
+        txn_acc_shared_data = e["shared_data"]
+        print("fd_base58_decode_32( \"{}\",  (unsigned char *) &test_acc->pubkey);".format(e["pubkey"]))
+        print("fd_base58_decode_32( \"{}\",  (unsigned char *) &test_acc->owner);".format(base58.b58encode(bytes(txn_acc_shared_data["owner"])).decode('utf-8')))
+        print("test_acc->lamports = {};".format(txn_acc_shared_data["lamports"]))
+        if txn_acc_shared_data["executable"]:
+            print("test_acc->executable = 1;");
+        else:
+            print("test_acc->executable = 0;");
+        print("test_acc->rent_epoch = {};".format(txn_acc_shared_data["rentEpoch"]))
+        data = bytes(txn_acc_shared_data["data"])
+        print("test_acc->data_len = {};".format(len(data)))
+        if len(data) == 0:
+            print("uchar test_acc_{}_data[] = {}0{};".format(idx, '{', '}'))
+        else:
+            d = str(list(data)).replace('[', '{').replace(']', '}')
+            print("uchar test_acc_{}_data[] = {};".format(idx, d))
+        print("test_acc->data = test_acc_{}_data;".format(idx))
+        print("test_acc++;")
+        idx = idx+1
+            
     # Serialize the transaction this test case executes
     accounts = []
     for account in json_test_case["instruction_accounts"]:
       accounts.append(
         AccountMeta(
-          pubkey=Pubkey.from_bytes(bytes(account["pubkey"])),
+          pubkey=Pubkey.from_bytes(base58.b58decode(account["pubkey"])),
           is_signer=bool(account["is_signer"]),
           is_writable=bool(account["is_writable"])
         )
@@ -208,14 +251,64 @@ def main():
 
     components = signatures 
     components.append(message)
+#    print(components)
     serialized = [ b for bs in components for b in bs ]
     serialized.insert(0, num_signers)
-    print(serialized)
+#    print(serialized)
 
     # Serialize the expected result
-    print(serializeResult(json_test_case["expected_result"]))
-  
-#   print(json_test_cases)
-  
+
+    print("  fd_executor_test_t test;")
+    print("  fd_memset( &test, 0, FD_EXECUTOR_TEST_FOOTPRINT );")
+    print("  test.test_name = \"{}\";".format(json_test_case["name"]))
+
+    print("  fd_base58_decode_32( \"{}\",  (unsigned char *) &test.program_id);".format(json_test_case["program_id"]))
+    d = str(list(serialized)).replace('[', '{').replace(']', '}')
+    print("  uchar raw_tx[] = {};".format(d))
+    print("  test.raw_tx = raw_tx;")
+    print("  test.raw_tx_len = {};".format(len(serialized)))
+    print("  test.expected_result = {};".format(serializeResult(json_test_case["expected_result"])))
+    print("")
+    print("  test.accs_len = test_accs_len;")
+    print("  test.accs = test_accs;")
+    print("")
+    print("  return fd_executor_run_test( &test, suite );")
+    print("}")
+#    sys.exit(0)
+
+  print("")
+  print("int run_test(int idx, fd_executor_test_suite_t *suite) {")
+  print("switch(idx) {")
+  for n in range(test_case):
+    print("case {}: return test_{}(suite);".format(n, n))
+  print("default: return 0;")
+  print("}")
+  print("}")
+
+  print("int main(int argc, char **argv) {")
+  print("  fd_boot( &argc, &argv );")
+  print("")
+  print("  long test_start = fd_env_strip_cmdline_long(&argc, &argv, \"--start\", NULL, 0);")
+  print("  long test_end = fd_env_strip_cmdline_long(&argc, &argv, \"--end\", NULL, {});".format(test_case))
+  print("")
+  print("  /* Initialize the test suite */")
+  print("  fd_executor_test_suite_t suite;")
+  print("  fd_executor_test_suite_new( &suite );")
+  print("")
+  print("  int ret = 0;")
+  print("  for (long i = test_start; i < test_end; i++)  {")
+  print("    int r = run_test((int)i, &suite);")
+  print("    FD_LOG_NOTICE( (\"test %ld returned %d\", i, r)) ;" )
+  print("    if (r != 0)")
+  print("      ret = r;")
+  print("  }")
+  print("")
+  print("  fd_log_flush();")
+  print("  fd_halt();")
+  print("")
+  print("  return ret;")
+  print("}")
+      
+
 if __name__ == "__main__":
   main()

@@ -205,7 +205,7 @@ int fd_withdraw_nonce_account(
     FD_FN_UNUSED unsigned long      withdraw_nonce_account
   ) 
 {
-  FD_LOG_ERR(( "unsupported discrimant: withdraw_none_account" ));
+  FD_LOG_ERR(( "unsupported discriminant: withdraw_none_account" ));
 
 //        {pubkey: params.noncePubkey, isSigner: false, isWritable: true},
 //        {pubkey: params.toPubkey, isSigner: false, isWritable: true},

@@ -305,7 +305,7 @@ int fd_executor_system_program_execute_instruction(
   }
   default: {
     /* TODO: support other instruction types */
-    FD_LOG_WARNING(( "unsupported system program instruction: discrimant: %d", instruction.discriminant ));
+    FD_LOG_WARNING(( "unsupported system program instruction: discriminant: %d", instruction.discriminant ));
   }
   }
 

@@ -322,6 +322,22 @@ install_zstd () {
   echo "[+] Installing zstd to $PREFIX"
   "${MAKE[@]}" DESTDIR="$PREFIX" PREFIX="" install-pc install-static install-includes install-shared
   echo "[+] Successfully installed zstd"
+
+cat <<EOF > "$PREFIX/lib/pkgconfig/libzstd.pc"
+prefix=
+exec_prefix=\${prefix}
+includedir=$PREFIX/include
+libdir=$PREFIX/lib
+
+Name: zstd
+Description: fast lossless compression algorithm library
+URL: https://facebook.github.io/zstd/
+Version: 1.5.4
+Libs: \${libdir}/libzstd.a
+Libs.private: -pthread
+Cflags: -I\${includedir}
+EOF
+
 }
 
 install_openssl () {
@@ -373,7 +389,8 @@ install_rocksdb () {
     -DWITH_TOOLS=OFF \
     -DWITH_TRACE_TOOLS=OFF \
     -DZLIB_ROOT="$PREFIX" \
-    -DZSTD_INCLUDE_DIR="$PREFIX/include" \
+    -DBZIP2_LIBRARIES="$PREFIX/lib/libbz2.a" \
+    -DBZIP2_INCLUDE_DIR="$PREFIX/include" \
     -Dzstd_ROOT_DIR="$PREFIX"
 
   local NJOBS
@@ -384,6 +401,8 @@ install_rocksdb () {
 }
 
 install () {
+  export CC=`which gcc` 
+  export cc=`which gcc` 
   ( install_zlib    )
   ( install_bzip2   )
   ( install_zstd    )

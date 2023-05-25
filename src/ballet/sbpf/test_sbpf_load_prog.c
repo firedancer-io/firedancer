@@ -1,3 +1,7 @@
+/* FIXME: This duplicates fd_sbpf_tool.
+   Should probably remove this file entirely as it is completely
+   redundant. */
+
 #include "fd_sbpf_loader.h"
 #include "../../util/fd_util.h"
 
@@ -40,7 +44,7 @@ main( int     argc,
   if( FD_UNLIKELY( !bin_file ) )
     FD_LOG_ERR(( "Failed to open \"%s\": %s", bin_path, strerror( errno ) ));
 
-  /* Check file content */
+  /* Check file type */
 
   struct stat bin_stat;
   if( FD_UNLIKELY( 0!=fstat( fileno( bin_file ), &bin_stat ) ) )
@@ -50,33 +54,44 @@ main( int     argc,
   if( FD_UNLIKELY( bin_stat.st_size<0L ) )
     FD_LOG_ERR(( "File \"%s\" has invalid size %ld", bin_path, bin_stat.st_size ));
 
-  /* Allocate objects */
+  /* Read file into memory */
+
+  FD_LOG_NOTICE(( "Loading sBPF program: %s", bin_path ));
 
   ulong  bin_sz  = (ulong)bin_stat.st_size;
   void * bin_buf = malloc( bin_sz+8UL );
   if( FD_UNLIKELY( !bin_buf ) )
     FD_LOG_ERR(( "malloc(%#lx) failed: %s", bin_sz, strerror( errno ) ));
 
+  if( FD_UNLIKELY( fread( bin_buf, bin_sz, 1UL, bin_file )!=1UL ) )
+    FD_LOG_ERR(( "fread() failed: %s", strerror( errno ) ));
+
+  /* Extract ELF info */
+
+  fd_sbpf_elf_info_t elf_info;
+  if( FD_UNLIKELY( !fd_sbpf_elf_peek( &elf_info, bin_buf, bin_sz ) ) )
+    FD_LOG_ERR(( "FAIL: %s", fd_sbpf_strerror() ));
+
+  /* Allocate rodata segment */
+
+  void * rodata = malloc( elf_info.rodata_footprint );
+  FD_TEST( rodata );
+
+  /* Allocate objects */
+
   ulong  prog_align     = fd_sbpf_program_align();
-  ulong  prog_footprint = fd_sbpf_program_footprint();
+  ulong  prog_footprint = fd_sbpf_program_footprint( &elf_info );
   void * prog_buf       = aligned_alloc( prog_align, prog_footprint );
   if( FD_UNLIKELY( !prog_buf ) )
     FD_LOG_ERR(( "aligned_alloc(%#lx, %#lx) failed: %s",
                  prog_align, prog_footprint, strerror( errno ) ));
 
-  fd_sbpf_program_t * prog = fd_sbpf_program_new( prog_buf );
+  fd_sbpf_program_t * prog = fd_sbpf_program_new( prog_buf, &elf_info, rodata );
   FD_TEST( prog );
 
   fd_sbpf_syscalls_t * syscalls = fd_sbpf_syscalls_new(
       aligned_alloc( fd_sbpf_syscalls_align(), fd_sbpf_syscalls_footprint() ) );
   FD_TEST( syscalls );
-
-  /* Read file into memory */
-
-  FD_LOG_NOTICE(( "Loading sBPF program: %s", bin_path ));
-
-  if( FD_UNLIKELY( fread( bin_buf, bin_sz, 1UL, bin_file )!=1UL ) )
-    FD_LOG_ERR(( "fread() failed: %s", strerror( errno ) ));
 
   /* Load and reloc program */
 
@@ -88,6 +103,7 @@ main( int     argc,
   /* Clean up */
 
   fd_sbpf_program_delete( prog );
+  free( rodata   );
   free( bin_buf  );
   free( prog_buf );
   free( fd_sbpf_syscalls_delete( syscalls ) );

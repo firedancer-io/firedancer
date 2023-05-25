@@ -81,8 +81,8 @@ uchar const FD_OPCODE_VALIDATION_MAP[256] = {
 // FIXME: add a pedantic version of this validation that does things like:
 //  - only 0 imms when the instruction does not use an imm
 //  - same as above but for src/dst reg, offset
-ulong
-fd_vm_context_validate( fd_vm_exec_context_t * ctx ) {
+FD_FN_PURE ulong
+fd_vm_context_validate( fd_vm_exec_context_t const * ctx ) {
   for( ulong i = 0; i < ctx->instrs_sz; ++i ) {
     fd_sbpf_instr_t instr = ctx->instrs[i];
     uchar validation_code = FD_OPCODE_VALIDATION_MAP[instr.opcode.raw];
@@ -142,4 +142,57 @@ fd_vm_context_validate( fd_vm_exec_context_t * ctx ) {
     }
   }
   return FD_VM_SBPF_VALIDATE_SUCCESS;
+}
+
+ulong
+fd_vm_translate_vm_to_host( fd_vm_exec_context_t *  ctx,
+                            uint                    write,
+                            ulong                   vm_addr,
+                            ulong                   sz,
+                            void * *                host_addr ) {
+  ulong mem_region = vm_addr & FD_VM_MEM_MAP_REGION_MASK;
+  ulong start_addr = vm_addr & FD_VM_MEM_MAP_REGION_SZ;
+  ulong end_addr = start_addr + sz;
+
+  switch( mem_region ) {
+    case FD_VM_MEM_MAP_PROGRAM_REGION_START:
+      /* Read-only program binary blob memory region */
+      if( write ) {
+        return FD_VM_MEM_MAP_ERR_ACC_VIO;
+      }
+      if( end_addr >= ctx->read_only_sz ) {
+        return FD_VM_MEM_MAP_ERR_ACC_VIO;
+      }
+      *host_addr = &ctx->read_only[start_addr];
+      break;
+    case FD_VM_MEM_MAP_STACK_REGION_START:
+      /* Stack memory region */
+      /* TODO: needs more of the runtime to actually implement */
+      /* FIXME: check that we are in the current or previous stack frame! */
+      if( end_addr >= (FD_VM_STACK_MAX_DEPTH * FD_VM_STACK_FRAME_WITH_GUARD_SZ) ) {
+        return FD_VM_MEM_MAP_ERR_ACC_VIO;
+      }
+
+      *host_addr = &ctx->stack.data[start_addr];
+
+      break;
+    case FD_VM_MEM_MAP_HEAP_REGION_START:
+      /* Heap memory region */
+      if( end_addr >= FD_VM_HEAP_SZ ) {
+        return FD_VM_MEM_MAP_ERR_ACC_VIO;
+      }
+      *host_addr = &ctx->heap[start_addr];
+      break;
+    case FD_VM_MEM_MAP_INPUT_REGION_START:
+      /* Program input memory region */
+      if( end_addr >= ctx->input_sz ) {
+        return FD_VM_MEM_MAP_ERR_ACC_VIO;
+      }
+      *host_addr = &ctx->input[start_addr];
+      break;
+    default:
+      return FD_VM_MEM_MAP_ERR_ACC_VIO;
+  }
+
+  return FD_VM_MEM_MAP_SUCCESS;
 }

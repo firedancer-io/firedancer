@@ -140,3 +140,38 @@ LLVM project mirror: https://github.com/llvm/llvm-project
 
 See https://llvm.org/LICENSE.txt for license information.
 SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+=======================================================================
+
+The UTF-8 validator in src/ballet/fd_utf8.c is derived from the Rust
+standard library taken ca 2023-May.
+
+Source: https://github.com/rust-lang/rust/blob/master/library/core/src/str/validations.rs
+
+See https://github.com/rust-lang/rust/blob/master/LICENSE-APACHE for
+license information.  SPDX-License-Identifier: MIT or Apache-2.0
+
+=======================================================================
+
+fd_chacha20 implements the 20 round variant of ChaCha, a stream cipher
+by Daniel J. Bernstein.
+
+From https://cr.yp.to/chacha.html and https://datatracker.ietf.org/doc/html/rfc7539
+
+=======================================================================
+
+The BLAKE3 implementation in src/ballet/blake3 is currently a modified
+implementation of the BLAKE3 project implementation circa 2023-May.
+From
+https://github.com/BLAKE3-team/BLAKE3/tree/master/c
+
+OpenSSL licensing details can be found at:
+
+  https://github.com/BLAKE3-team/BLAKE3/blob/master/LICENSE
+
+# Copyright 2019 Jack O'Connor and Samuel Neves
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+# http://www.apache.org/licenses/LICENSE-2.0

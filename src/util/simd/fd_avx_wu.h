@@ -100,7 +100,7 @@ static inline void wu_stu( uint * p, wu_t i ) { _mm256_storeu_si256( (__m256i *)
 
 /* Element operations */
 
-/* wu_extract extracts the uint in lane imm from the vector uint as an uint.
+/* wu_extract extracts the uint in lane imm from the vector uint.
    wu_insert returns the vector uint formed by replacing the value in
    lane imm of a with the provided uint.  imm should be a compile time
    constant in 0:7.  wu_extract_variable and wu_insert_variable are the
@@ -143,10 +143,10 @@ wu_insert_variable( wu_t a, int n, uint v ) {
 
 /* Binary operations */
 
-/* Note: wu_shl/wu_shr/wu_shru is a left/signed right/unsigned right
-   shift by imm bits; imm must be a compile time constant in 0:63.  The
-   variable variants are slower but do not require the shift amount to
-   be known at compile time (should still be in 0:63). */
+/* Note: wu_shl/wu_shr is an unsigned left/right shift by imm bits; imm
+   must be a compile time constant in 0:63.  The variable variants are
+   slower but do not require the shift amount to be known at compile
+   time (should still be in 0:63). */
 
 #define wu_not(a) _mm256_xor_si256( _mm256_set1_epi32( -1 ), (a) ) /* [ ~a0 ~a1 ... ~a7 ] */
 
