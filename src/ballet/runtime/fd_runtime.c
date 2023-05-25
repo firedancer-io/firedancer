@@ -335,7 +335,7 @@ int fd_runtime_block_verify_tpool( fd_global_ctx_t *global, fd_slot_meta_t *m, c
 
   /* Spawn jobs to thread pool */
   for (ulong mblk = 0; mblk < num_micros; ++mblk) {
-    ulong i = mblk%(max_workers-1UL) + 1UL; /* Do not use thread 0 */
+    ulong i = mblk%max_workers + 1UL; /* Do not use thread 0 */
     if ( i != mblk+1UL ) {
       /* Wrapped around. Wait for the previous job to finish */
       fd_tpool_wait( tpool, i );
