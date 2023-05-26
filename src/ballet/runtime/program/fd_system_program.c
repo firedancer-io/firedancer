@@ -25,6 +25,15 @@ static int transfer(
   fd_pubkey_t * sender   = &txn_accs[instr_acc_idxs[0]];
   fd_pubkey_t * receiver = &txn_accs[instr_acc_idxs[1]];
 
+
+  char encoded_sender[50];
+  fd_base58_encode_32((uchar *) sender, 0, encoded_sender);
+
+  char encoded_receiver[50];
+  fd_base58_encode_32((uchar *) receiver, 0, encoded_receiver);
+
+  FD_LOG_NOTICE(( "transferring slot=%lu amount=%lu from %s to %s", ctx.global->bank.solana_bank.slot, requested_lamports, encoded_sender, encoded_receiver ));
+
   /* Check sender has signed the transaction */
   uchar sender_is_signer = 0;
   for ( ulong i = 0; i < ctx.instr->acct_cnt; i++ ) {

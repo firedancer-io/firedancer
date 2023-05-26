@@ -513,8 +513,7 @@ fd_runtime_calculate_fee( fd_global_ctx_t *global, fd_txn_t * txn_descriptor, fd
   double fee = (prioritization_fee + signature_fee + write_lock_fee + compute_fee) * congestion_multiplier;
 
   if (FD_UNLIKELY(global->log_level > 2)) {
-    if (global->bank.solana_bank.slot == 82)
-      FD_LOG_WARNING(( "fd_runtime_calculate_fee: slot:%ld %lf = (%f + %f + %f + %f) * %f", global->bank.solana_bank.slot, fee, prioritization_fee, signature_fee, write_lock_fee, compute_fee, congestion_multiplier));
+      FD_LOG_WARNING(( "fd_runtime_calculate_fee_compare: slot=%ld fee(%lf) = (prioritization_fee(%f) + signature_fee(%f) + write_lock_fee(%f) + compute_fee(%f)) * congestion_multiplier(%f)", global->bank.solana_bank.slot, fee, prioritization_fee, signature_fee, write_lock_fee, compute_fee, congestion_multiplier));
   }
 
   if (fee >= ULONG_MAX)
