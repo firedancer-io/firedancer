@@ -108,6 +108,8 @@ ulong             fd_runtime_lamports_per_signature_for_blockhash( fd_global_ctx
 fd_funk_rec_key_t fd_runtime_block_key     (ulong slot);
 fd_funk_rec_key_t fd_runtime_block_meta_key(ulong slot);
 
+void              fd_pubkey_create_with_seed(fd_pubkey_t *base, char *seed, fd_pubkey_t *owner, fd_pubkey_t *out );
+
 FD_PROTOTYPES_END
 
 #define FD_ACC_MGR_KEY_TYPE ((uchar)0)

@@ -798,3 +798,32 @@ fd_funk_rec_key_t fd_runtime_block_meta_key(ulong slot) {
 
   return id;
 }
+
+/// Number of bytes in a pubkey
+//pub const PUBKEY_BYTES: usize = 32;
+/// maximum length of derived `Pubkey` seed
+//pub const MAX_SEED_LEN: usize = 32;
+/// Maximum number of seeds
+//pub const MAX_SEEDS: usize = 16;
+/// Maximum string length of a base58 encoded pubkey
+// const MAX_BASE58_LEN: usize = 44;
+//
+// const PDA_MARKER: &[u8; 21] = b"ProgramDerivedAddress";
+
+void fd_pubkey_create_with_seed(FD_FN_UNUSED fd_pubkey_t *base, FD_FN_UNUSED char *seed, FD_FN_UNUSED fd_pubkey_t *owner, FD_FN_UNUSED fd_pubkey_t *out ) {
+//  if seed.len() > MAX_SEED_LEN {
+//      return Err(PubkeyError::MaxSeedLengthExceeded);
+//    }
+//
+//  let owner = owner.as_ref();
+//  if owner.len() >= PDA_MARKER.len() {
+//      let slice = &owner[owner.len() - PDA_MARKER.len()..];
+//      if slice == PDA_MARKER {
+//          return Err(PubkeyError::IllegalOwner);
+//        }
+//    }
+//
+//  Ok(Pubkey::new(
+//      hashv(&[base.as_ref(), seed.as_ref(), owner]).as_ref(),
+//      ))
+}

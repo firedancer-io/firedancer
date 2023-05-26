@@ -98,14 +98,12 @@ static int transfer(
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
 
-/* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/runtime/src/system_instruction_processor.rs#L277 */
 static int create_account(
   instruction_ctx_t ctx,
-  fd_system_program_instruction_create_account_t* params
+    fd_system_program_instruction_t *instruction
 ) {
-  ulong             lamports = params->lamports;
-  ulong             space = params->space;
-  fd_pubkey_t*      owner = &params->owner;
+  if (2 != ctx.instr->acct_cnt) 
+    return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
 
   /* Account 0: funding account
      Account 1: new account
@@ -113,10 +111,41 @@ static int create_account(
   uchar *       instr_acc_idxs = ((uchar *)ctx.txn_raw->raw + ctx.instr->acct_off);
   fd_pubkey_t * txn_accs = (fd_pubkey_t *)((uchar *)ctx.txn_raw->raw + ctx.txn_descriptor->acct_addr_off);
   fd_pubkey_t * from     = &txn_accs[instr_acc_idxs[0]];
-  fd_pubkey_t * new      = &txn_accs[instr_acc_idxs[1]];
+  fd_pubkey_t * to       = &txn_accs[instr_acc_idxs[1]];
+
+  ulong             lamports = 0;
+  ulong             space = 0;
+  fd_pubkey_t*      owner = NULL;
+  fd_pubkey_t*      base = NULL;
+  char*             seed = NULL;
+
+  uchar from_is_signer = 0;
+
+  if (instruction->discriminant == fd_system_program_instruction_enum_create_account) {
+    // https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/runtime/src/system_instruction_processor.rs#L277
+    fd_system_program_instruction_create_account_t* params = &instruction->inner.create_account;
+    lamports = params->lamports;
+    space = params->space;
+    owner = &params->owner;
+  } else {
+    // https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/runtime/src/system_instruction_processor.rs#L296
+    fd_system_program_instruction_create_account_with_seed_t* params = &instruction->inner.create_account_with_seed;
+    lamports = params->lamports;
+    space = params->space;
+    owner = &params->owner;
+    base = &params->base;
+    seed = params->seed;
+
+    fd_pubkey_t      address_with_seed;
+
+    fd_pubkey_create_with_seed(base, seed, owner, &address_with_seed);
+    if (memcmp(address_with_seed.hash, to->hash, sizeof(to->hash))) 
+      return fd_system_error_enum_address_with_seed_mismatch;
+  }
+
+  // https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/runtime/src/system_instruction_processor.rs#L33
 
   /* Check from has signed the transaction */
-  uchar from_is_signer = 0;
   for ( ulong i = 0; i < ctx.instr->acct_cnt; i++ ) {
     if ( instr_acc_idxs[i] < ctx.txn_descriptor->signature_cnt ) {
       fd_pubkey_t * signer = &txn_accs[instr_acc_idxs[i]];
@@ -131,18 +160,21 @@ static int create_account(
     return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
   }
 
-  /* Check sender account has enough balance to execute this transaction */
-  fd_acc_lamports_t sender_lamports = 0;
-  int               read_result = fd_acc_mgr_get_lamports( ctx.global->acc_mgr, ctx.global->funk_txn, from, &sender_lamports );
-  if ( FD_UNLIKELY( read_result != FD_ACC_MGR_SUCCESS ) ) {
-    FD_LOG_WARNING(( "failed to get lamports" ));
-    /* TODO: correct error messages */
-    return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
+  fd_account_meta_t metadata;
+  int read_result = fd_acc_mgr_get_metadata( ctx.global->acc_mgr, ctx.global->funk_txn, from, &metadata );
+  if ( read_result == FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) {
+    FD_LOG_WARNING(( "account does not exist" ));
+    /* TODO: propagate SystemError::AccountAlreadyInUse enum variant */
+    return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
+
+  fd_acc_lamports_t sender_lamports = metadata.info.lamports;
+
   if ( FD_UNLIKELY( sender_lamports < lamports ) ) {
     FD_LOG_WARNING(( "sender only has %lu lamports, needs %lu", sender_lamports, lamports ));
     return FD_EXECUTOR_INSTR_ERR_INSUFFICIENT_FUNDS;
   }
+
 
   /* Execute the transfer */
   int write_result = fd_acc_mgr_set_lamports( ctx.global->acc_mgr, ctx.global->funk_txn, ctx.global->bank.solana_bank.slot , from, sender_lamports - lamports );
@@ -152,26 +184,25 @@ static int create_account(
   }
 
   /* Check to see if the account is already in use */
-  fd_account_meta_t metadata;
-  read_result = fd_acc_mgr_get_metadata( ctx.global->acc_mgr, ctx.global->funk_txn, new, &metadata );
+  read_result = fd_acc_mgr_get_metadata( ctx.global->acc_mgr, ctx.global->funk_txn, to, &metadata );
   if ( read_result != FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) {
     FD_LOG_WARNING(( "account already exists" ));
     /* TODO: propagate SystemError::AccountAlreadyInUse enum variant */
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
 
-  /* Check to see if the new account pubkey has signed */
-  uchar new_signed = 0;
+  /* Check to see if the to account pubkey has signed */
+  uchar to_signed = 0;
   for ( ulong i = 0; i < ctx.instr->acct_cnt; i++ ) {
     if ( instr_acc_idxs[i] < ctx.txn_descriptor->signature_cnt ) {
       fd_pubkey_t * signer = &txn_accs[instr_acc_idxs[i]];
-      if ( !memcmp( signer, new, sizeof(fd_pubkey_t) ) ) {
-        new_signed = 1;
+      if ( !memcmp( signer, to, sizeof(fd_pubkey_t) ) ) {
+        to_signed = 1;
         break;
       }
     }
   }
-  if ( !new_signed ) {
+  if ( !to_signed ) {
     return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
   }
 
@@ -194,7 +225,7 @@ static int create_account(
     .executable = 0,
     .rent_epoch = 0,   /* TODO */
   };
-  write_result = fd_acc_mgr_write_structured_account(ctx.global->acc_mgr, ctx.global->funk_txn, 0, new, &account);
+  write_result = fd_acc_mgr_write_structured_account(ctx.global->acc_mgr, ctx.global->funk_txn, 0, to, &account);
   if ( write_result != FD_ACC_MGR_SUCCESS ) {
     FD_LOG_NOTICE(( "failed to create account: %d", write_result ));
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
@@ -223,7 +254,11 @@ int fd_executor_system_program_execute_instruction(
     break;
   }
   case fd_system_program_instruction_enum_create_account: {
-    result = create_account( ctx, &instruction.inner.create_account );
+    result = create_account( ctx, &instruction );
+    break;
+  }
+  case fd_system_program_instruction_enum_create_account_with_seed: {
+    result = create_account( ctx, &instruction );
     break;
   }
   case fd_system_program_instruction_enum_advance_nonce_account: {

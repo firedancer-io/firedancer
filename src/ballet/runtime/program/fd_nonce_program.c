@@ -50,7 +50,6 @@ int fd_load_nonce_account(
   if (fd_system_program_instruction_enum_advance_nonce_account != instruction.discriminant)
     return 0;
 
-
   if (instr->acct_cnt != 3)
     return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
 
