@@ -813,7 +813,8 @@ fd_quic_crypto_rand( uchar * buf,
 }
 
 int fd_quic_retry_token_encrypt(
-    uchar orig_dst_conn_id[static FD_QUIC_MAX_CONN_ID_SZ],
+    fd_quic_conn_id_t *orig_dst_conn_id,
+    long *now,
     ulong retry_src_conn_id,
     uint ip_addr,
     ushort udp_port,
@@ -847,9 +848,9 @@ int fd_quic_retry_token_encrypt(
   memcpy(aad + sizeof(uint) + sizeof(ushort), &retry_src_conn_id, sizeof(ulong));
 
   uchar plaintext[FD_QUIC_RETRY_TOKEN_PLAINTEXT_SZ];
-  memcpy(plaintext, orig_dst_conn_id, FD_QUIC_MAX_CONN_ID_SZ);
-  long now = fd_log_wallclock();
-  memcpy(plaintext + FD_QUIC_MAX_CONN_ID_SZ, &now, sizeof(long));
+  memcpy(plaintext, &orig_dst_conn_id->sz, 1);
+  memcpy(plaintext + 1, orig_dst_conn_id->conn_id, orig_dst_conn_id->sz);
+  memcpy(plaintext + 1 + FD_QUIC_MAX_CONN_ID_SZ, &now, sizeof(long));
 
   /* Append the ciphertext after random bytes in the retry_token. */
   uchar *ciphertext = hkdf_key + FD_QUIC_RETRY_TOKEN_HKDF_KEY_SZ;
@@ -874,10 +875,11 @@ int fd_quic_retry_token_encrypt(
 }
 
 int fd_quic_retry_token_decrypt(
-    uchar retry_token[static FD_QUIC_RETRY_TOKEN_CIPHERTEXT_SZ], ulong retry_src_conn_id,
+    uchar retry_token[static FD_QUIC_RETRY_TOKEN_CIPHERTEXT_SZ],
+    ulong retry_src_conn_id,
     uint ip_addr,
     ushort udp_port,
-    uchar **orig_dst_conn_id,
+    fd_quic_conn_id_t *orig_dst_conn_id,
     long *now)
 {
   /* Regenerate the AEAD key (the HKDF key is the first 32 bytes of the token). */
@@ -908,8 +910,10 @@ int fd_quic_retry_token_decrypt(
     return FD_QUIC_FAILED;
   };
 
-  *orig_dst_conn_id = plaintext;
-  *now = *((long *)fd_type_pun(plaintext + FD_QUIC_MAX_CONN_ID_SZ));
+  orig_dst_conn_id->sz = *plaintext;
+  uchar *orig_dst_conn_id_ptr = (uchar *)orig_dst_conn_id->conn_id;
+  *orig_dst_conn_id_ptr = *(plaintext + 1);
+  *now = *((long *)fd_type_pun(plaintext + 1 + orig_dst_conn_id->sz));
   return FD_QUIC_SUCCESS;
 }
 
@@ -919,7 +923,6 @@ int fd_quic_retry_integrity_tag_encrypt(
     int retry_pseudo_pkt_len,
     uchar retry_integrity_tag[static FD_QUIC_CRYPTO_TAG_SZ])
 {
-  // FD_LOG_HEXDUMP_NOTICE(("retry pseudo packet", retry_pseudo_pkt, (ulong) retry_pseudo_pkt_len));
   int ciphertext_len = gcm_encrypt(
       EVP_aes_128_gcm(),
       NULL, 0,
