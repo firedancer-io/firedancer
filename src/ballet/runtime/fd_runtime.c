@@ -239,7 +239,8 @@ fd_runtime_block_verify( fd_global_ctx_t *global, fd_slot_meta_t* m, const void*
 
 struct fd_runtime_block_micro {
     fd_microblock_hdr_t * hdr;
-    uchar hash[ FD_BMTREE32_HASH_SZ ] __attribute__((aligned(FD_BMTREE32_COMMIT_ALIGN)));
+    fd_poh_state_t poh;
+    int failed;
 };
 
 static void fd_runtime_block_verify_task( void * tpool,
@@ -264,7 +265,13 @@ static void fd_runtime_block_verify_task( void * tpool,
 
   fd_microblock_hdr_t * hdr = micro->hdr;
   ulong blockoff = sizeof(fd_microblock_hdr_t);
-  if (hdr->txn_cnt > 0) {
+  if (hdr->txn_cnt == 0) {
+    fd_poh_append(&micro->poh, hdr->hash_cnt);
+
+  } else {
+    if (hdr->hash_cnt > 0)
+      fd_poh_append(&micro->poh, hdr->hash_cnt - 1);
+
     uchar commit_mem[FD_BMTREE32_COMMIT_FOOTPRINT] __attribute__((aligned(FD_BMTREE32_COMMIT_ALIGN)));
     fd_bmtree32_commit_t * tree = fd_bmtree32_commit_init( commit_mem );
       
@@ -272,9 +279,9 @@ static void fd_runtime_block_verify_task( void * tpool,
     for ( ulong txn_idx = 0; txn_idx < hdr->txn_cnt; txn_idx++ ) {
       fd_txn_xray_result_t xray;
       const uchar* raw = (const uchar *)hdr + blockoff;
-      ulong pay_sz = fd_txn_xray(raw, ULONG_MAX, &xray); /* Length has been previously checked */
+      ulong pay_sz = fd_txn_xray(raw, ULONG_MAX /* no need to check here */, &xray);
       if ( pay_sz == 0UL )
-        FD_LOG_ERR(("failed to parse transaction %lu in microblock", txn_idx));
+        FD_LOG_ERR(("failed to parse transaction %lu", txn_idx));
 
       /* Loop across signatures */
       fd_ed25519_sig_t const * sigs = (fd_ed25519_sig_t const *)((ulong)raw + (ulong)xray.signature_off);
@@ -288,8 +295,10 @@ static void fd_runtime_block_verify_task( void * tpool,
     }
 
     uchar * root = fd_bmtree32_commit_fini( tree );
-    fd_memcpy( micro->hash, root, sizeof(micro->hash) );
+    fd_poh_mixin(&micro->poh, root);
   }
+      
+  micro->failed = (memcmp(hdr->hash, micro->poh.state, sizeof(micro->poh.state)) ? 1 : 0);
 }
 
 int fd_runtime_block_verify_tpool( fd_global_ctx_t *global, fd_slot_meta_t *m, const void* block, ulong blocklen, fd_tpool_t * tpool, ulong max_workers ) {
@@ -313,20 +322,26 @@ int fd_runtime_block_verify_tpool( fd_global_ctx_t *global, fd_slot_meta_t *m, c
       fd_microblock_hdr_t * hdr = (fd_microblock_hdr_t *)((const uchar *)block + blockoff);
       blockoff += sizeof(fd_microblock_hdr_t);
 
-      if ( num_micros == MAX_MICROS )
-        FD_LOG_ERR(("too many microblocks in slot %lu", m->slot));
-      micros[num_micros++].hdr = hdr;
+      if (global->poh_booted) {
+        /* Setup a task using the previous poh as the input state */
+        if ( num_micros == MAX_MICROS )
+          FD_LOG_ERR(("too many microblocks in slot %lu", m->slot));
+        struct fd_runtime_block_micro * micro = &(micros[num_micros++]);
+        micro->hdr = hdr;
+        fd_memcpy(micro->poh.state, global->poh.state, sizeof(global->poh.state));
+      }
+      /* Remember the new poh state */
+      fd_memcpy(global->poh.state, hdr->hash, sizeof(global->poh.state));
+      global->poh_booted = 1;
 
-      if (hdr->txn_cnt > 0) {
-        /* Loop across transactions */
-        for ( ulong txn_idx = 0; txn_idx < hdr->txn_cnt; txn_idx++ ) {
-          fd_txn_xray_result_t xray;
-          const uchar* raw = (const uchar *)block + blockoff;
-          ulong pay_sz = fd_txn_xray(raw, blocklen - blockoff, &xray);
-          if ( pay_sz == 0UL )
-            FD_LOG_ERR(("failed to parse transaction %lu in microblock %lu in slot %lu", txn_idx, mblk, m->slot));
-          blockoff += pay_sz;
-        }
+      /* Loop across transactions */
+      for ( ulong txn_idx = 0; txn_idx < hdr->txn_cnt; txn_idx++ ) {
+        fd_txn_xray_result_t xray;
+        const uchar* raw = (const uchar *)block + blockoff;
+        ulong pay_sz = fd_txn_xray(raw, blocklen - blockoff, &xray);
+        if ( pay_sz == 0UL )
+          FD_LOG_ERR(("failed to parse transaction %lu in microblock %lu in slot %lu", txn_idx, mblk, m->slot));
+        blockoff += pay_sz;
       }
     }
   }
@@ -349,24 +364,8 @@ int fd_runtime_block_verify_tpool( fd_global_ctx_t *global, fd_slot_meta_t *m, c
   
   /* Loop across microblocks, perform final hashing */
   for (ulong mblk = 0; mblk < num_micros; ++mblk) {
-    fd_microblock_hdr_t * hdr = micros[mblk].hdr;
-    if (hdr->txn_cnt == 0) {
-      fd_poh_append(&global->poh, hdr->hash_cnt);
-    } else {
-      if (hdr->hash_cnt > 0)
-        fd_poh_append(&global->poh, hdr->hash_cnt - 1);
-      fd_poh_mixin(&global->poh, micros[mblk].hash);
-    }
-    if (memcmp(hdr->hash, global->poh.state, sizeof(global->poh.state))) {
-      if (global->poh_booted) {
-        // TODO should this log and return?  instead of knocking the
-        // whole system over via a _ERR?
-        FD_LOG_ERR(( "poh missmatch at slot: %ld", m->slot));
-      } else {
-        fd_memcpy(global->poh.state, hdr->hash, sizeof(global->poh.state));
-        global->poh_booted = 1;
-      }
-    }
+    if ( micros[mblk].failed )
+      FD_LOG_ERR(( "poh missmatch at slot %ld, microblock %lu", m->slot, mblk));
   }
 
   return FD_RUNTIME_EXECUTE_SUCCESS;
@@ -374,7 +373,6 @@ int fd_runtime_block_verify_tpool( fd_global_ctx_t *global, fd_slot_meta_t *m, c
 
 int
 fd_runtime_block_eval( fd_global_ctx_t *global, fd_slot_meta_t *m, const void* block, ulong blocklen ) {
-  /*
   fd_funk_txn_t* parent_txn = global->funk_txn;
   fd_funk_txn_xid_t xid;
   xid.ul[0] = fd_rng_ulong( global->rng );
@@ -388,7 +386,6 @@ fd_runtime_block_eval( fd_global_ctx_t *global, fd_slot_meta_t *m, const void* b
   if (old_txn != NULL )
     fd_funk_txn_publish( global->funk, old_txn, 0 );
   global->funk_txn_tower[global->funk_txn_index] = global->funk_txn = txn;
-  */
 
   // This is simple now but really we need to execute block_verify in
   // its own thread/tile and IT needs to parallelize the
