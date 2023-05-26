@@ -81,6 +81,8 @@ int fd_executor_run_test(
 
   /* Insert all the accounts into the database */
   for ( ulong i = 0; i < test->accs_len; i++ ) {
+    if (test->accs[ i ].lamports == 0)
+      continue;
     fd_solana_account_t acc = {
       .data = test->accs[ i ].data,
       .data_len = test->accs[ i ].data_len,
@@ -95,7 +97,7 @@ int fd_executor_run_test(
   /* Parse the raw transaction */
 
   uchar txn_parse_out_buf[FD_TXN_MAX_SZ];
-  ulong txn_sz = fd_txn_parse_core( test->raw_tx, test->raw_tx_len, txn_parse_out_buf, NULL, NULL, 1 );
+  ulong txn_sz = fd_txn_parse( test->raw_tx, test->raw_tx_len, txn_parse_out_buf, NULL, NULL );
   if ( txn_sz == 0 || txn_sz > FD_TXN_MAX_SZ ) {
     FD_LOG_WARNING(("Failed test %s: failed to parse transaction", test->test_name));
     fd_funk_txn_cancel( suite->funk, global->funk_txn, 0 );
@@ -119,7 +121,7 @@ int fd_executor_run_test(
   execute_instruction_func_t exec_instr_func = fd_executor_lookup_native_program( global, &test->program_id );
   int exec_result = exec_instr_func( ctx );
   if ( exec_result != test->expected_result ) {
-    FD_LOG_WARNING(( "Failed test %s: expected transaction result %d, got %d", test->test_name, exec_result, test->expected_result ));
+    FD_LOG_WARNING(( "Failed test %s: expected transaction result %d, got %d", test->test_name, test->expected_result , exec_result));
     return -1;
   }
 
@@ -131,4 +133,44 @@ int fd_executor_run_test(
   return 0;
 }
 
+extern int run_test(int idx, fd_executor_test_suite_t *suite);
 
+int main(int argc, char **argv) {
+  fd_boot( &argc, &argv );
+
+  long test_start = fd_env_strip_cmdline_long(&argc, &argv, "--start", NULL, 0);
+  long test_end = fd_env_strip_cmdline_long(&argc, &argv, "--end", NULL, 373);
+  const char * filter = fd_env_strip_cmdline_cstr(&argc, &argv, "--filter", NULL, NULL);
+
+  /* Initialize the test suite */
+  fd_executor_test_suite_t suite;
+  fd_executor_test_suite_new( &suite );
+
+  if (NULL != filter) {
+    suite.filter = filter;
+    if (regcomp(&suite.filter_ex, filter, REG_EXTENDED | REG_ICASE) !=0 ) {
+      FD_LOG_ERR(("regular expression failed to compile"));
+    }
+  }
+
+  int ret = 0;
+  for (long i = test_start; i <= test_end; i++)  {
+    int r = run_test((int)i, &suite);
+    if ((r != 0) && (r != -9999)) {
+      FD_LOG_NOTICE( ("test %ld returned %d", i, r)) ;
+      ret = r;
+    }
+  }
+
+  fd_log_flush();
+  fd_halt();
+
+  return ret;
+}
+
+int 
+fd_executor_test_suite_check_filter(fd_executor_test_suite_t *suite, fd_executor_test_t *test) {
+  if (NULL != suite->filter)
+    return regexec(&suite->filter_ex, test->test_name, 0, NULL, 0);
+  return 0;
+}

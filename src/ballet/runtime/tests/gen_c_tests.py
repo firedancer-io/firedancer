@@ -5,6 +5,9 @@
 
 # with podman
 #   podman run -v .:/tests --security-opt label=disable python3.8 python3 /tests/gen_c_tests.py -j /tests/system_program_tests.json
+#
+# to generate data
+#   ./cargo nightly test --package solana-runtime --lib -- system_instruction_processor::tests --nocapture
 
 import argparse
 import base58
@@ -185,12 +188,20 @@ def main():
   print("#pragma GCC optimize (\"O0\")")
   print("#endif")
   print("")
+  print("extern int fd_executor_test_suite_check_filter(fd_executor_test_suite_t *suite, fd_executor_test_t *test);")
+  print("")
 
   test_case = 0;
 
   for json_test_case in json_test_cases:
     print("int test_{}(fd_executor_test_suite_t *suite) {}".format(test_case, "{"))
     test_case = test_case + 1
+
+    print("  fd_executor_test_t test;")
+    print("  fd_memset( &test, 0, FD_EXECUTOR_TEST_FOOTPRINT );")
+    print("  test.test_name = \"{}\";".format(json_test_case["name"]))
+
+    print("  if (fd_executor_test_suite_check_filter(suite, &test)) return -9999;")
 
     print ("ulong test_accs_len = {};".format(len(json_test_case["transaction_accounts"])))
 
@@ -225,14 +236,29 @@ def main():
             
     # Serialize the transaction this test case executes
     accounts = []
+    first = True
+    num_signers = 0
     for account in json_test_case["instruction_accounts"]:
-      accounts.append(
-        AccountMeta(
-          pubkey=Pubkey.from_bytes(base58.b58decode(account["pubkey"])),
-          is_signer=bool(account["is_signer"]),
-          is_writable=bool(account["is_writable"])
-        )
-      )
+        if first:
+            accounts.append(
+                AccountMeta(
+                    pubkey=Pubkey.from_bytes(base58.b58decode(account["pubkey"])),
+                    is_signer=True,
+                    is_writable=True
+                )
+            )
+            first = False
+            num_signers += 1
+        else:
+            if bool(account["is_signer"]):
+                num_signers += 1
+            accounts.append(
+                AccountMeta(
+                    pubkey=Pubkey.from_bytes(base58.b58decode(account["pubkey"])),
+                    is_signer=bool(account["is_signer"]),
+                    is_writable=bool(account["is_writable"])
+                )
+            )
 
     instruction = Instruction(
       accounts=accounts,
@@ -240,10 +266,6 @@ def main():
       data=bytes(json_test_case["instruction_data"])
     )
 
-    num_signers = 0
-    for account in json_test_case["instruction_accounts"]:
-      if bool(account["is_writable"]):
-        num_signers += 1
     signatures = [ os.urandom(64) for _ in range(num_signers) ]
     
     tx = Transaction().add(instruction)
@@ -258,9 +280,6 @@ def main():
 
     # Serialize the expected result
 
-    print("  fd_executor_test_t test;")
-    print("  fd_memset( &test, 0, FD_EXECUTOR_TEST_FOOTPRINT );")
-    print("  test.test_name = \"{}\";".format(json_test_case["name"]))
 
     print("  fd_base58_decode_32( \"{}\",  (unsigned char *) &test.program_id);".format(json_test_case["program_id"]))
     d = str(list(serialized)).replace('[', '{').replace(']', '}')
@@ -283,30 +302,6 @@ def main():
     print("case {}: return test_{}(suite);".format(n, n))
   print("default: return 0;")
   print("}")
-  print("}")
-
-  print("int main(int argc, char **argv) {")
-  print("  fd_boot( &argc, &argv );")
-  print("")
-  print("  long test_start = fd_env_strip_cmdline_long(&argc, &argv, \"--start\", NULL, 0);")
-  print("  long test_end = fd_env_strip_cmdline_long(&argc, &argv, \"--end\", NULL, {});".format(test_case))
-  print("")
-  print("  /* Initialize the test suite */")
-  print("  fd_executor_test_suite_t suite;")
-  print("  fd_executor_test_suite_new( &suite );")
-  print("")
-  print("  int ret = 0;")
-  print("  for (long i = test_start; i < test_end; i++)  {")
-  print("    int r = run_test((int)i, &suite);")
-  print("    FD_LOG_NOTICE( (\"test %ld returned %d\", i, r)) ;" )
-  print("    if (r != 0)")
-  print("      ret = r;")
-  print("  }")
-  print("")
-  print("  fd_log_flush();")
-  print("  fd_halt();")
-  print("")
-  print("  return ret;")
   print("}")
       
 

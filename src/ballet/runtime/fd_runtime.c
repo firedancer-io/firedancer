@@ -169,8 +169,7 @@ fd_runtime_block_verify( fd_global_ctx_t *global, fd_slot_meta_t* m, const void*
   fd_txn_parse_counters_t counters;
   fd_memset(&counters, 0, sizeof(counters));
 
-  fd_bmtree32_commit_t * commit =
-    fd_alloca( FD_BMTREE32_COMMIT_ALIGN, fd_bmtree32_commit_footprint( ) );
+  uchar commit_mem[FD_BMTREE32_COMMIT_FOOTPRINT] __attribute__((aligned(FD_BMTREE32_COMMIT_ALIGN)));
 
   /* Loop across batches */
   ulong blockoff = 0;
@@ -194,7 +193,7 @@ fd_runtime_block_verify( fd_global_ctx_t *global, fd_slot_meta_t* m, const void*
         if (hdr->hash_cnt > 0)
           fd_poh_append(&global->poh, hdr->hash_cnt - 1);
 
-        fd_bmtree32_commit_t * tree = fd_bmtree32_commit_init( commit );
+        fd_bmtree32_commit_t * tree = fd_bmtree32_commit_init( commit_mem );
       
         /* Loop across transactions */
         for ( ulong txn_idx = 0; txn_idx < hdr->txn_cnt; txn_idx++ ) {
@@ -209,7 +208,7 @@ fd_runtime_block_verify( fd_global_ctx_t *global, fd_slot_meta_t* m, const void*
           for ( ulong j = 0; j < xray.signature_cnt; j++ ) {
             fd_bmtree32_node_t leaf;
             fd_bmtree32_hash_leaf( &leaf, &sigs[j], sizeof(fd_ed25519_sig_t) );
-            fd_bmtree32_commit_append( commit, (fd_bmtree32_node_t const *)&leaf, 1 );
+            fd_bmtree32_commit_append( tree, (fd_bmtree32_node_t const *)&leaf, 1 );
           }
 
           blockoff += pay_sz;
@@ -238,9 +237,145 @@ fd_runtime_block_verify( fd_global_ctx_t *global, fd_slot_meta_t* m, const void*
   return FD_RUNTIME_EXECUTE_SUCCESS;
 }
 
+struct __attribute__((aligned(64))) fd_runtime_block_micro {
+    fd_microblock_hdr_t * hdr;
+    fd_poh_state_t poh;
+    int failed;
+};
+
+static void fd_runtime_block_verify_task( void * tpool,
+                                          ulong  t0,     ulong t1,
+                                          void * args,
+                                          void * reduce, ulong stride,
+                                          ulong  l0,     ulong l1,
+                                          ulong  m0,     ulong m1,
+                                          ulong  n0,     ulong n1 ) {
+  struct fd_runtime_block_micro * micro = (struct fd_runtime_block_micro *)tpool;
+  (void)t0;
+  (void)t1;
+  (void)args;
+  (void)reduce;
+  (void)stride;
+  (void)l0;
+  (void)l1;
+  (void)m0;
+  (void)m1;
+  (void)n0;
+  (void)n1;
+
+  fd_microblock_hdr_t * hdr = micro->hdr;
+  ulong blockoff = sizeof(fd_microblock_hdr_t);
+  if (hdr->txn_cnt == 0) {
+    fd_poh_append(&micro->poh, hdr->hash_cnt);
+
+  } else {
+    if (hdr->hash_cnt > 0)
+      fd_poh_append(&micro->poh, hdr->hash_cnt - 1);
+
+    uchar commit_mem[FD_BMTREE32_COMMIT_FOOTPRINT] __attribute__((aligned(FD_BMTREE32_COMMIT_ALIGN)));
+    fd_bmtree32_commit_t * tree = fd_bmtree32_commit_init( commit_mem );
+      
+    /* Loop across transactions */
+    for ( ulong txn_idx = 0; txn_idx < hdr->txn_cnt; txn_idx++ ) {
+      fd_txn_xray_result_t xray;
+      const uchar* raw = (const uchar *)hdr + blockoff;
+      ulong pay_sz = fd_txn_xray(raw, ULONG_MAX /* no need to check here */, &xray);
+      if ( pay_sz == 0UL ) {
+        micro->failed = 1;
+        return;
+      }
+
+      /* Loop across signatures */
+      fd_ed25519_sig_t const * sigs = (fd_ed25519_sig_t const *)((ulong)raw + (ulong)xray.signature_off);
+      for ( ulong j = 0; j < xray.signature_cnt; j++ ) {
+        fd_bmtree32_node_t leaf;
+        fd_bmtree32_hash_leaf( &leaf, &sigs[j], sizeof(fd_ed25519_sig_t) );
+        fd_bmtree32_commit_append( tree, (fd_bmtree32_node_t const *)&leaf, 1 );
+      }
+
+      blockoff += pay_sz;
+    }
+
+    uchar * root = fd_bmtree32_commit_fini( tree );
+    fd_poh_mixin(&micro->poh, root);
+  }
+      
+  micro->failed = (memcmp(hdr->hash, micro->poh.state, sizeof(micro->poh.state)) ? 1 : 0);
+}
+
+int fd_runtime_block_verify_tpool( fd_global_ctx_t *global, fd_slot_meta_t *m, const void* block, ulong blocklen, fd_tpool_t * tpool, ulong max_workers ) {
+  /* Find all the microblock headers */
+  static const ulong MAX_MICROS = 1000;
+  struct fd_runtime_block_micro micros[MAX_MICROS];
+  ulong num_micros = 0;
+
+  /* Loop across batches */
+  ulong blockoff = 0;
+  while (blockoff < blocklen) {
+    if ( blockoff + sizeof(ulong) > blocklen )
+      FD_LOG_ERR(("premature end of block"));
+    ulong mcount = *(const ulong *)((const uchar *)block + blockoff);
+    blockoff += sizeof(ulong);
+
+    /* Loop across microblocks */
+    for (ulong mblk = 0; mblk < mcount; ++mblk) {
+      if ( blockoff + sizeof(fd_microblock_hdr_t) > blocklen )
+        FD_LOG_ERR(("premature end of block"));
+      fd_microblock_hdr_t * hdr = (fd_microblock_hdr_t *)((const uchar *)block + blockoff);
+      blockoff += sizeof(fd_microblock_hdr_t);
+
+      if (global->poh_booted) {
+        /* Setup a task using the previous poh as the input state */
+        if ( num_micros == MAX_MICROS )
+          FD_LOG_ERR(("too many microblocks in slot %lu", m->slot));
+        struct fd_runtime_block_micro * micro = &(micros[num_micros++]);
+        micro->hdr = hdr;
+        fd_memcpy(micro->poh.state, global->poh.state, sizeof(global->poh.state));
+        micro->failed = 0;
+      }
+      /* Remember the new poh state */
+      fd_memcpy(global->poh.state, hdr->hash, sizeof(global->poh.state));
+      global->poh_booted = 1;
+
+      /* Loop across transactions */
+      for ( ulong txn_idx = 0; txn_idx < hdr->txn_cnt; txn_idx++ ) {
+        fd_txn_xray_result_t xray;
+        const uchar* raw = (const uchar *)block + blockoff;
+        ulong pay_sz = fd_txn_xray(raw, blocklen - blockoff, &xray);
+        if ( pay_sz == 0UL )
+          FD_LOG_ERR(("failed to parse transaction %lu in microblock %lu in slot %lu", txn_idx, mblk, m->slot));
+        blockoff += pay_sz;
+      }
+    }
+  }
+  if (blockoff != blocklen)
+    FD_LOG_ERR(("garbage at end of block"));
+
+  /* Spawn jobs to thread pool */
+  for (ulong mblk = 0; mblk < num_micros; ++mblk) {
+    ulong i = mblk%max_workers + 1UL; /* Do not use thread 0 */
+    if ( i != mblk+1UL ) {
+      /* Wrapped around. Wait for the previous job to finish */
+      fd_tpool_wait( tpool, i );
+    }
+    fd_tpool_exec( tpool, i, fd_runtime_block_verify_task, micros + mblk,
+                   0, 0, NULL, NULL, 0, 0, 0, 0, 0, 0, 0 );
+  }
+  /* Wait for everything to finish */
+  for (ulong i = 1; i < max_workers; ++i)
+    fd_tpool_wait( tpool, i );
+  
+  /* Loop across microblocks, perform final hashing */
+  for (ulong mblk = 0; mblk < num_micros; ++mblk) {
+    if ( micros[mblk].failed )
+      FD_LOG_ERR(( "poh missmatch at slot %ld, microblock %lu", m->slot, mblk));
+  }
+
+  return FD_RUNTIME_EXECUTE_SUCCESS;
+}
+
 int
 fd_runtime_block_eval( fd_global_ctx_t *global, fd_slot_meta_t *m, const void* block, ulong blocklen ) {
-  /*
   fd_funk_txn_t* parent_txn = global->funk_txn;
   fd_funk_txn_xid_t xid;
   xid.ul[0] = fd_rng_ulong( global->rng );
@@ -254,7 +389,6 @@ fd_runtime_block_eval( fd_global_ctx_t *global, fd_slot_meta_t *m, const void* b
   if (old_txn != NULL )
     fd_funk_txn_publish( global->funk, old_txn, 0 );
   global->funk_txn_tower[global->funk_txn_index] = global->funk_txn = txn;
-  */
 
   // This is simple now but really we need to execute block_verify in
   // its own thread/tile and IT needs to parallelize the
@@ -663,4 +797,33 @@ fd_funk_rec_key_t fd_runtime_block_meta_key(ulong slot) {
   id.c[ FD_FUNK_REC_KEY_FOOTPRINT - 1 ] = FD_BLOCK_META_KEY_TYPE;
 
   return id;
+}
+
+/// Number of bytes in a pubkey
+//pub const PUBKEY_BYTES: usize = 32;
+/// maximum length of derived `Pubkey` seed
+//pub const MAX_SEED_LEN: usize = 32;
+/// Maximum number of seeds
+//pub const MAX_SEEDS: usize = 16;
+/// Maximum string length of a base58 encoded pubkey
+// const MAX_BASE58_LEN: usize = 44;
+//
+// const PDA_MARKER: &[u8; 21] = b"ProgramDerivedAddress";
+
+void fd_pubkey_create_with_seed(FD_FN_UNUSED fd_pubkey_t *base, FD_FN_UNUSED char *seed, FD_FN_UNUSED fd_pubkey_t *owner, FD_FN_UNUSED fd_pubkey_t *out ) {
+//  if seed.len() > MAX_SEED_LEN {
+//      return Err(PubkeyError::MaxSeedLengthExceeded);
+//    }
+//
+//  let owner = owner.as_ref();
+//  if owner.len() >= PDA_MARKER.len() {
+//      let slice = &owner[owner.len() - PDA_MARKER.len()..];
+//      if slice == PDA_MARKER {
+//          return Err(PubkeyError::IllegalOwner);
+//        }
+//    }
+//
+//  Ok(Pubkey::new(
+//      hashv(&[base.as_ref(), seed.as_ref(), owner]).as_ref(),
+//      ))
 }

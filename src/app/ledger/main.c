@@ -2,7 +2,7 @@
 
 // time build/linux/gcc/x86_64/bin/fd_frank_ledger --wksp giant_wksp --cmd ingest --snapshotfile /home/jsiegel/mainnet-ledger/snapshot-179244882-2DyMb1qN8JuTijCjsW8w4G2tg1hWuAw2AopH7Bj9Qstu.tar.zst --incremental /home/jsiegel/mainnet-ledger/incremental-snapshot-179244882-179248368-6TprbHABozQQLjjc1HBeQ2p4AigMC7rhHJS2Q5WLcbyw.tar.zst --reset true --persist /home/asiegel/funkmainnet --gaddrout /home/asiegel/funkaddr
 
-// time build/linux/gcc/x86_64/bin/fd_frank_ledger --wksp giant_wksp --cmd ingest --rocksdb /home/jsiegel/mainnet-ledger/rocksdb --reset true --persist /home/asiegel/funkmainnet --gaddrout /home/asiegel/funkaddr --verifypoh true --startslot 179138205 --endslot 179140205
+// time build/linux/gcc/x86_64/bin/fd_frank_ledger --wksp giant_wksp --cmd ingest --rocksdb /home/jsiegel/mainnet-ledger/rocksdb --reset true --persist /home/asiegel/funkmainnet --gaddrout /home/asiegel/funkaddr --verifypoh true --startslot 179138205 --endslot 179140205 --tile-cpus 32-127
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -266,7 +266,8 @@ static void decompressBZ2(const char* fname, decompressCallback cb, void* arg) {
   close(fin);
 }
 
-void ingest_rocksdb( fd_global_ctx_t * global, const char* file, ulong start_slot, ulong end_slot, const char* verifypoh ) {
+void ingest_rocksdb( fd_global_ctx_t * global, const char* file, ulong start_slot, ulong end_slot, const char* verifypoh,
+                     fd_tpool_t * tpool, ulong max_workers ) {
   fd_rocksdb_t        rocks_db;
   char *err = fd_rocksdb_init(&rocks_db, file);
   if (err != NULL) {
@@ -350,8 +351,12 @@ void ingest_rocksdb( fd_global_ctx_t * global, const char* file, ulong start_slo
     // FD_LOG_NOTICE(("slot %lu: block size %lu", slot, block_sz));
     ++blk_cnt;
 
-    if ( strcmp(verifypoh, "true") == 0 )
-      fd_runtime_block_verify( global, &m, block, block_sz );
+    if ( strcmp(verifypoh, "true") == 0 ) {
+      if ( tpool )
+        fd_runtime_block_verify_tpool( global, &m, block, block_sz, tpool, max_workers );
+      else
+        fd_runtime_block_verify( global, &m, block, block_sz );
+    }
     
     global->freef(global->allocf_arg, block);
     fd_slot_meta_destroy(&m, global->freef, global->allocf_arg);
@@ -446,6 +451,19 @@ int main(int argc, char** argv) {
   char acc_mgr_mem[FD_ACC_MGR_FOOTPRINT] __attribute__((aligned(FD_ACC_MGR_ALIGN)));
   memset(acc_mgr_mem, 0, sizeof(acc_mgr_mem));
   global->acc_mgr = fd_acc_mgr_join( fd_acc_mgr_new( acc_mgr_mem, global, FD_ACC_MGR_FOOTPRINT ) );
+
+  ulong tcnt = fd_tile_cnt();
+  uchar tpool_mem[ FD_TPOOL_FOOTPRINT(FD_TILE_MAX) ] __attribute__((aligned(FD_TPOOL_ALIGN)));
+  fd_tpool_t * tpool = NULL;
+  if ( tcnt > 1) {
+    tpool = fd_tpool_init(tpool_mem, tcnt);
+    if ( tpool == NULL )
+      FD_LOG_ERR(("failed to create thread pool"));
+    for ( ulong i = 1; i <= tcnt-1; ++i ) {
+      if ( fd_tpool_worker_push( tpool, i, NULL, 0UL ) == NULL )
+        FD_LOG_ERR(("failed to launch worker"));
+    }
+  }
   
   const char* persist = fd_env_strip_cmdline_cstr(&argc, &argv, "--persist", NULL, NULL);
   if (cmd == NULL) {
@@ -491,7 +509,7 @@ int main(int argc, char** argv) {
       ulong start_slot = fd_env_strip_cmdline_ulong(&argc, &argv, "--startslot", NULL, 0);
       ulong end_slot = fd_env_strip_cmdline_ulong(&argc, &argv, "--endslot", NULL, ULONG_MAX);
       const char* verifypoh = fd_env_strip_cmdline_cstr(&argc, &argv, "--verifypoh", NULL, "false");
-      ingest_rocksdb(global, file, start_slot, end_slot, verifypoh);
+      ingest_rocksdb(global, file, start_slot, end_slot, verifypoh, tpool, tcnt-1);
     }
     
   } else if (strcmp(cmd, "recover") == 0) {
@@ -572,6 +590,9 @@ int main(int argc, char** argv) {
     else
       FD_LOG_ERR(("hash does not match!"));
   }
+
+  if ( tpool )
+    fd_tpool_fini( tpool );
   
   fd_global_ctx_delete( fd_global_ctx_leave( global ) );
   fd_funk_leave( funk );

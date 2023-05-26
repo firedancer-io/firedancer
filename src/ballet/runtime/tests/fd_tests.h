@@ -1,4 +1,5 @@
 #include "../fd_runtime.h"
+#include <regex.h>
 
 /* Framework for running Solana's native program tests in our runtime */
 
@@ -32,6 +33,8 @@ struct fd_executor_test_suite {
   fd_alloc_fun_t             allocf;
   void *                     allocf_arg;
   fd_free_fun_t              freef;
+  regex_t                    filter_ex;
+  const char *               filter;
 };
 typedef struct fd_executor_test_suite fd_executor_test_suite_t;
 #define FD_EXECUTOR_TEST_SUITE_FOOTPRINT ( sizeof(fd_executor_test_suite_t) )

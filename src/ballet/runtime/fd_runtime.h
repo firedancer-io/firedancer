@@ -95,6 +95,7 @@ ulong             fd_runtime_txn_lamports_per_signature( fd_global_ctx_t *global
 void              fd_runtime_boot_slot_zero( fd_global_ctx_t *global );
 int               fd_runtime_block_execute ( fd_global_ctx_t *global, fd_slot_meta_t *m, const void* block, ulong blocklen );
 int               fd_runtime_block_verify  ( fd_global_ctx_t *global, fd_slot_meta_t *m, const void* block, ulong blocklen );
+int               fd_runtime_block_verify_tpool( fd_global_ctx_t *global, fd_slot_meta_t *m, const void* block, ulong blocklen, fd_tpool_t * tpool, ulong max_workers );
 int               fd_runtime_block_eval    ( fd_global_ctx_t *global, fd_slot_meta_t *m, const void* block, ulong blocklen );
 
 ulong             fd_runtime_calculate_fee ( fd_global_ctx_t *global, fd_txn_t * txn_descriptor, fd_rawtxn_b_t* txn_raw );
@@ -106,6 +107,8 @@ ulong             fd_runtime_lamports_per_signature_for_blockhash( fd_global_ctx
 
 fd_funk_rec_key_t fd_runtime_block_key     (ulong slot);
 fd_funk_rec_key_t fd_runtime_block_meta_key(ulong slot);
+
+void              fd_pubkey_create_with_seed(fd_pubkey_t *base, char *seed, fd_pubkey_t *owner, fd_pubkey_t *out );
 
 FD_PROTOTYPES_END
 
