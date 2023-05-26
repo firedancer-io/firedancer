@@ -3,7 +3,6 @@ mod dcache;
 mod fctl;
 mod fseq;
 mod mcache;
-pub mod quic;
 mod tcache;
 mod tempo;
 mod xdp;

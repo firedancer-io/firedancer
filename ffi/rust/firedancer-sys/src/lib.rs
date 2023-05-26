@@ -18,6 +18,5 @@ mod generated {
 }
 
 pub mod ballet;
-pub mod disco;
 pub mod tango;
 pub mod util;

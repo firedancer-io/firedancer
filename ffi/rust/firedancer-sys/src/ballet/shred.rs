@@ -2,7 +2,6 @@ pub use crate::generated::fd_shred_t;
 pub use crate::generated::{
     FD_SHRED_CODE_HEADER_SZ,
     FD_SHRED_DATA_HEADER_SZ,
-    FD_SHRED_SZ,
 };
 pub use crate::generated::fd_shred_parse;
 

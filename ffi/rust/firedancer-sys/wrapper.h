@@ -11,7 +11,6 @@
 #include "firedancer/src/ballet/shred/fd_shred.h"
 #include "firedancer/src/ballet/txn/fd_txn.h"
 #include "firedancer/src/disco/fd_disco.h"
-#include "firedancer/src/disco/quic/fd_quic.h"
 #include "firedancer/src/tango/xdp/fd_xdp.h"
 
 #if FD_MCACHE_LG_INTERLEAVE
