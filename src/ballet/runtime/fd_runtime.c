@@ -280,8 +280,10 @@ static void fd_runtime_block_verify_task( void * tpool,
       fd_txn_xray_result_t xray;
       const uchar* raw = (const uchar *)hdr + blockoff;
       ulong pay_sz = fd_txn_xray(raw, ULONG_MAX /* no need to check here */, &xray);
-      if ( pay_sz == 0UL )
-        FD_LOG_ERR(("failed to parse transaction %lu", txn_idx));
+      if ( pay_sz == 0UL ) {
+        micro->failed = 1;
+        return;
+      }
 
       /* Loop across signatures */
       fd_ed25519_sig_t const * sigs = (fd_ed25519_sig_t const *)((ulong)raw + (ulong)xray.signature_off);
@@ -329,6 +331,7 @@ int fd_runtime_block_verify_tpool( fd_global_ctx_t *global, fd_slot_meta_t *m, c
         struct fd_runtime_block_micro * micro = &(micros[num_micros++]);
         micro->hdr = hdr;
         fd_memcpy(micro->poh.state, global->poh.state, sizeof(global->poh.state));
+        micro->failed = 0;
       }
       /* Remember the new poh state */
       fd_memcpy(global->poh.state, hdr->hash, sizeof(global->poh.state));
