@@ -122,8 +122,8 @@ fd_fibre_start( void * mem, ulong stack_sz, fd_fibre_fn_t fn, void * arg ) {
    this frees up the resources of a fibre */
 void
 fd_fibre_free( fd_fibre_t * fibre ) {
-  free( fibre->stack );
-  free( fibre );
+  /* nothing to do, as caller owns memory */
+  (void)fibre;
 }
 
 /* switch execution to a fibre
@@ -291,5 +291,161 @@ fd_fibre_schedule_run() {
   return -1;
 }
 
+ulong
+fd_fibre_pipe_align( void ) {
+  return alignof( fd_fibre_pipe_t );
+}
 
+ulong
+fd_fibre_pipe_footprint( ulong entries ) {
+  return sizeof( fd_fibre_pipe_t ) + entries * sizeof( ulong );
+}
+
+fd_fibre_pipe_t *
+fd_fibre_pipe_new( void * mem, ulong entries ) {
+  fd_fibre_pipe_t * pipe = (fd_fibre_pipe_t*)mem;
+
+  ulong * entries_array = (ulong*)&pipe[1];
+
+  pipe->cap     = entries;
+  pipe->head    = 0UL;
+  pipe->tail    = 0UL;
+  pipe->reader  = NULL;
+  pipe->writer  = NULL;
+  pipe->entries = entries_array;
+
+  return pipe;
+}
+
+int
+fd_fibre_pipe_write( fd_fibre_pipe_t * pipe, ulong value, long timeout ) {
+  fd_fibre_t * prev_writer = pipe->writer;
+
+  ulong used = 0;
+  ulong free = 0;
+
+  long timeout_ts = fd_fibre_clock() + timeout;
+
+  /* loop until either there is space for a new value to be
+     written, or until we time out */
+  while(1) {
+    used = pipe->head - pipe->tail;
+    free = pipe->cap - used;
+
+    /* if we have free space, break out of loop */
+    if( free ) break;
+
+    /* we have no free space within which to write, so wait */
+
+    /* update the writer to ourself */
+    pipe->writer = fd_fibre_current;
+
+    /* did we time out? */
+    if( fd_fibre_clock() >= timeout_ts ) {
+      /* restore writer before returning */
+      pipe->writer = prev_writer;
+
+      /* return timeout */
+      return 1;
+    }
+
+    /* wait */
+
+    /* set current fibre as the writer */
+    pipe->writer = fd_fibre_current;
+
+    /* set wakeup time */
+    fd_fibre_current->sched_time = timeout_ts;
+    fd_fibre_schedule( fd_fibre_current );
+
+    /* switch to the scheduler */
+    fd_fibre_swap( fd_fibre_scheduler );
+  }
+
+  /* we have free space, so store the value */
+  pipe->entries[pipe->head % pipe->cap] = value;
+
+  /* increment the head */
+  pipe->head++;
+
+  /* wake up one waiting reader, if any */
+  if( pipe->reader ) {
+    /* ensure we are scheduled */
+    fd_fibre_current->sched_time = fd_fibre_clock();;
+    fd_fibre_schedule( fd_fibre_current );
+
+    fd_fibre_swap( pipe->reader );
+  }
+
+  /* restore writer */
+  pipe->writer = prev_writer;
+
+  /* return successful write */
+  return 0;
+}
+
+
+int
+fd_fibre_pipe_read( fd_fibre_pipe_t * pipe, ulong *value, long timeout ) {
+  fd_fibre_t * prev_reader = pipe->reader;
+
+  ulong used = 0;
+
+  long timeout_ts = fd_fibre_clock() + timeout;
+
+  /* loop until we have a value to be read, or until we time out */
+  while(1) {
+    used = pipe->head - pipe->tail;
+    
+    /* is data available? */
+    if( used ) break;
+
+    /* no data available, so wait */
+
+    /* update the reader */
+    pipe->reader = fd_fibre_current;
+
+    /* did we time out? */
+    if( fd_fibre_clock() >= timeout_ts ) {
+      /* restore the reader before returning */
+      pipe->reader = prev_reader;
+
+      /* return timeout */
+      return 1;
+    }
+
+    /* wait */
+
+    /* set current fibre as the reader */
+    pipe->reader = fd_fibre_current;
+
+    /* set wakeup time */
+    fd_fibre_current->sched_time = timeout_ts;
+    fd_fibre_schedule( fd_fibre_current );
+
+    /* switch to the scheduler */
+    fd_fibre_swap( fd_fibre_scheduler );
+  }
+
+  /* we have data to provide, so retrive it */
+  *value = pipe->entries[pipe->tail % pipe->cap];
+
+  /* increment the tail */
+  pipe->tail++;
+
+  /* wake up one waiting writer, if any */
+  if( pipe->writer ) {
+    /* ensure we are scheduled */
+    fd_fibre_current->sched_time = fd_fibre_clock();;
+    fd_fibre_schedule( fd_fibre_current );
+
+    fd_fibre_swap( pipe->writer );
+  }
+
+  /* restore reader */
+  pipe->reader = prev_reader;
+
+  /* return success */
+  return 0;
+}
 
