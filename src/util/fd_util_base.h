@@ -958,7 +958,7 @@ fd_hash_memcpy( ulong                    seed,
 
 #elif FD_TICKCOUNT_STYLE==1 /* RTDSC (fast) */
 
-#if FD_HAS_AVX
+#if FD_HAS_X86
 /* fd_tickcount:  Reads the hardware invariant tickcounter ("RDTSC").
    This monotonically increases at an approximately constant rate
    relative to the system wallclock and is synchronous across all CPUs
