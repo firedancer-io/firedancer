@@ -237,7 +237,7 @@ fd_runtime_block_verify( fd_global_ctx_t *global, fd_slot_meta_t* m, const void*
   return FD_RUNTIME_EXECUTE_SUCCESS;
 }
 
-struct fd_runtime_block_micro {
+struct __attribute__((aligned(64))) fd_runtime_block_micro {
     fd_microblock_hdr_t * hdr;
     fd_poh_state_t poh;
     int failed;
