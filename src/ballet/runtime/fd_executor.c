@@ -106,7 +106,7 @@ fd_execute_txn( fd_executor_t* executor, fd_txn_t * txn_descriptor, fd_rawtxn_b_
 
   if (FD_UNLIKELY(global->log_level > 2)) {
     FD_LOG_WARNING(( "fd_execute_txn: global->collected: %ld->%ld (%ld)", global->collected, global->collected + fee, fee));
-    FD_LOG_WARNING(( "calling set_lamports to charge the fee"));
+    FD_LOG_WARNING(( "calling set_lamports to charge the fee %lu", fee));
   }
 
   // TODO: I BELIEVE we charge for the fee BEFORE we create the funk_txn fork

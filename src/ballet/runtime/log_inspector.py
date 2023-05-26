@@ -56,7 +56,15 @@ def main():
       solana_identifier=lambda log_line: re.findall(r"bank frozen: (\d+)", log_line),
       firedancer_identifier=lambda log_line: re.findall(r"slot: (\d+)", log_line),
       solana_display=lambda log_line: re.findall(r"bank frozen: (\d+) hash: (\w+)", log_line),
-      firedancer_display=lambda log_line: re.findall(r" slot: (\d+) hash: (\w+)", log_line),
+      firedancer_display=lambda log_line: re.findall(r"slot: (\d+),  hash: (\w+)", log_line),
+    ),
+    "accounts_delta_hash": Breadcrumb( 
+      solana_filter=lambda log_line: "hash_account_data_compare" in log_line,
+      firedancer_filter=lambda log_line: "account_delta_hash_compare" in log_line,
+      solana_identifier=lambda log_line: re.findall(r"pubkey: \((\w+)\) slot: \((\d+)\)", log_line),
+      firedancer_identifier=lambda log_line: re.findall(r"pubkey: \((\w+)\) slot: \((\d+)\)", log_line),
+      solana_display=lambda log_line: re.findall(r"pubkey: \((\w+)\) slot: \((\d+)\) lamports: \((\d+)\) owner: \((\w+)\) executable: \((\d+)\) rent_epoch: \((\d+)\) data_len: \((\d+)\) hash: \((\w+)\)", log_line),
+      firedancer_display=lambda log_line: re.findall(r"pubkey: \((\w+)\) slot: \((\d+)\) lamports: \((\d+)\), owner: \((\w+)\), executable: \((\d+)\), rent_epoch: \((\d+)\), data_len: \((\d+)\), hash: \((\w+)\)", log_line),
     )
   }
 
@@ -67,7 +75,8 @@ def main():
   
   # Read in Solana log file
   solana_results = {}
-  with open(args.solana, 'r') as solana_log_file:
+
+  with open(args.solana, 'r', ) as solana_log_file:
     for line in solana_log_file:
       for breadcrumb in breadcrumbs.values():
         if breadcrumb.solana_filter(line):
@@ -87,6 +96,9 @@ def main():
       results.append(Result(solana_results[k], firedancer_results[k]))
 
   for result in results:
+    match = result.solana_log_line == result.firedancer_log_line
+    if match:
+      continue
     print("##############################################################################################################################")
     print("")
     print("Solana:")
@@ -95,6 +107,7 @@ def main():
     print("Firedancer:")
     print(result.firedancer_log_line)
     print("")
+
 
 if __name__ == "__main__":
   main()

@@ -48,7 +48,30 @@ fd_hash_account_deltas(fd_global_ctx_t *global, fd_pubkey_hash_pair_t * pairs, u
 
       char encoded_hash[50];
       fd_base58_encode_32((uchar *) pairs[i].hash.hash, 0, encoded_hash);
-      FD_LOG_NOTICE(( "X { \"key\":%ld, \"pubkey\":\"%s\", \"hash\":\"%s\" },", i, encoded_pubkey, encoded_hash));
+      FD_LOG_NOTICE(( "account delta hash X { \"key\":%ld, \"pubkey\":\"%s\", \"hash\":\"%s\" },", i, encoded_pubkey, encoded_hash));
+
+
+      /*
+      pubkey
+      slot 
+      lamports
+      owner
+      executable
+      rent_epoch
+      data_len
+      data
+      hash
+      */
+      fd_pubkey_t current_owner;
+      fd_acc_mgr_get_owner( global->acc_mgr, global->funk_txn, &pairs[i].pubkey, &current_owner );
+      char encoded_owner[50];
+      fd_base58_encode_32((uchar *) &current_owner, 0, encoded_owner);
+
+      fd_account_meta_t metadata;
+      fd_acc_mgr_get_metadata( global->acc_mgr, global->funk_txn, &pairs[i].pubkey, &metadata);
+      FD_LOG_NOTICE(( "account_delta_hash_compare pubkey: (%s) slot: (%lu) lamports: (%lu), owner: (%s), executable: (%d), rent_epoch: (%lu), data_len: (%ld), hash: (%s) ",  encoded_pubkey, global->bank.solana_bank.slot, metadata.info.lamports, encoded_owner, metadata.info.executable, metadata.info.rent_epoch, metadata.dlen, encoded_hash ));
+      // TODO: print out hex
+      // FD_LOG_HEXDUMP_NOTICE((  ))
     }
 
     fd_sha256_append( &shas[0] , (uchar const *) pairs[i].hash.hash, sizeof( fd_hash_t ) );
