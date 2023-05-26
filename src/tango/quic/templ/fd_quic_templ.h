@@ -206,8 +206,8 @@ FD_TEMPL_DEF_STRUCT_BEGIN(retry)
   FD_TEMPL_MBR_ELEM          ( src_conn_id_len,     uchar                  )
   FD_TEMPL_MBR_ELEM_VAR      ( src_conn_id,         0,160, src_conn_id_len )
 
-  // FD_QUIC_MTU - 72 bytes = 1428 bytes
-  FD_TEMPL_MBR_ELEM_ARRAY    ( retry_token,         uchar, 0, 1428         )
+  // both our and quinn's retry tokens are exactly 100 bytes
+  FD_TEMPL_MBR_ELEM_FIXED    ( retry_token,         uchar, 100             )
   FD_TEMPL_MBR_ELEM_BITS     ( retry_integrity_tag, uchar, 128             )
 FD_TEMPL_DEF_STRUCT_END(retry)
 
@@ -226,7 +226,6 @@ FD_TEMPL_DEF_STRUCT_END(retry)
      SCID Len (8),
      Source Connection ID (0..160),
      Retry Token (..),
-     Retry Integrity Tag (128),
    }
    Figure 8: Retry Pseudo-Packet */
 FD_TEMPL_DEF_STRUCT_BEGIN(retry_pseudo)
@@ -244,8 +243,8 @@ FD_TEMPL_DEF_STRUCT_BEGIN(retry_pseudo)
   FD_TEMPL_MBR_ELEM          ( src_conn_id_len,     uchar                  )
   FD_TEMPL_MBR_ELEM_VAR      ( src_conn_id,         0,160, src_conn_id_len )
 
-  FD_TEMPL_MBR_ELEM_ARRAY    ( retry_token,         uchar, 0, 1428         )
-  FD_TEMPL_MBR_ELEM_BITS     ( retry_integrity_tag, uchar, 128             )
+  // both our and quinn's retry tokens are exactly 100 bytes
+  FD_TEMPL_MBR_ELEM_FIXED    ( retry_token,         uchar, 100             )
 FD_TEMPL_DEF_STRUCT_END(retry_pseudo)
 
 
