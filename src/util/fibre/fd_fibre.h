@@ -26,6 +26,19 @@ struct fd_fibre {
 typedef struct fd_fibre fd_fibre_t;
 
 
+struct fd_fibre_pipe {
+  ulong cap;  /* capacity */
+  ulong head; /* head index */
+  ulong tail; /* tail index */
+
+  fd_fibre_t * writer; /* fibre that's currently waiting for a write, if any */
+  fd_fibre_t * reader; /* fibre that's currently waiting for a read, if any */
+
+  ulong * entries;
+};
+typedef struct fd_fibre_pipe fd_fibre_pipe_t;
+
+
 /* TODO make thread local */
 extern fd_fibre_t * fd_fibre_current;
 
@@ -144,6 +157,62 @@ fd_fibre_schedule( fd_fibre_t * fibre );
      -1 if there are no fibres in the schedule */
 long
 fd_fibre_schedule_run( void );
+
+
+/* fibre data structures */
+
+/* pipe
+
+   send data from one fibre to another
+   wakes receiving fibre on write */
+
+/* pipe footprint and alignment */
+
+ulong
+fd_fibre_pipe_align( void );
+
+ulong
+fd_fibre_pipe_footprint( ulong entries );
+
+
+/* create a new pipe */
+
+fd_fibre_pipe_t *
+fd_fibre_pipe_new( void * mem, ulong entries );
+
+
+/* write a value into the pipe
+
+   can block if there isn't any free space
+   timeout allows the blocking to terminate after a period of time
+
+   pipe        the pipe to write to
+   value       the value to write
+   timeout     the amount of time to wait for the write to complete
+
+   returns     0 successful
+               1 there was no space for the write operation */
+
+int
+fd_fibre_pipe_write( fd_fibre_pipe_t * pipe, ulong value, long timeout );
+
+
+/* read a value from the pipe
+
+   read can block if there isn't any data in the pipe
+
+   timeout allows the read to terminate without a result after
+     a period of time
+
+   pipe        the pipe to write to
+   value       a pointer to the ulong to receive the value
+   timeout     number of nanoseconds to wait for a value
+               
+   returns     0 successfully read a value from the pipe
+               1 timed out without receiving data */
+int
+fd_fibre_pipe_read( fd_fibre_pipe_t * pipe, ulong *value, long timeout );
+
 
 FD_PROTOTYPES_END
 
