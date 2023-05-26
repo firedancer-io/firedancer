@@ -25,6 +25,7 @@ fd_xsk_aio_footprint( ulong tx_depth,
 
   ulong sz =      1UL*sizeof( fd_xsk_aio_t        )
            +  pkt_cnt*sizeof( fd_xsk_frame_meta_t )
+           +  pkt_cnt*sizeof( fd_xsk_frame_meta_t )
            +  pkt_cnt*sizeof( fd_aio_pkt_info_t   )
            + tx_depth*sizeof( ulong               );
 
@@ -64,13 +65,15 @@ fd_xsk_aio_new( void * mem,
   /* Assumes alignment of `fd_xsk_aio_t` matches alignment of
      `fd_xsk_frame_meta_t` and `fd_aio_pkt_info_t`. */
 
-  ulong meta_off     =                    sizeof(fd_xsk_aio_t       );
-  ulong pkt_off      = meta_off + pkt_cnt*sizeof(fd_xsk_frame_meta_t);
-  ulong tx_stack_off = pkt_off  + pkt_cnt*sizeof(fd_aio_pkt_info_t  );
+  ulong tx_meta_off  =                       sizeof(fd_xsk_aio_t       );
+  ulong rx_meta_off  = tx_meta_off + pkt_cnt*sizeof(fd_xsk_frame_meta_t);
+  ulong pkt_off      = rx_meta_off + pkt_cnt*sizeof(fd_xsk_frame_meta_t);
+  ulong tx_stack_off = pkt_off     + pkt_cnt*sizeof(fd_aio_pkt_info_t  );
 
   xsk_aio->pkt_depth    = pkt_cnt;
   xsk_aio->tx_depth     = tx_depth;
-  xsk_aio->meta_off     = meta_off;
+  xsk_aio->tx_meta_off  = tx_meta_off;
+  xsk_aio->rx_meta_off  = rx_meta_off;
   xsk_aio->pkt_off      = pkt_off;
   xsk_aio->tx_stack_off = tx_stack_off;
 
@@ -242,7 +245,7 @@ void
 fd_xsk_aio_service( fd_xsk_aio_t * xsk_aio ) {
   fd_xsk_t *            xsk         = xsk_aio->xsk;
   fd_aio_t *            ingress     = &xsk_aio->rx;
-  fd_xsk_frame_meta_t * meta        = fd_xsk_aio_meta( xsk_aio );
+  fd_xsk_frame_meta_t * meta        = fd_xsk_aio_rx_meta( xsk_aio );
   fd_aio_pkt_info_t *   pkt         = fd_xsk_aio_pkts( xsk_aio );
   ulong                 pkt_depth   = xsk_aio->pkt_depth;
   ulong                 frame_laddr = (ulong)fd_xsk_umem_laddr( xsk_aio->xsk );
@@ -324,7 +327,7 @@ fd_xsk_aio_send( void *                    ctx,
   /* Find UMEM and meta params */
   uchar *               frame_mem  = xsk_aio->frame_mem;          /* UMEM region     */
   ulong                 frame_sz   = xsk_aio->frame_sz;           /* UMEM frame sz   */
-  fd_xsk_frame_meta_t * meta       = fd_xsk_aio_meta( xsk_aio );  /* frame meta heap */
+  fd_xsk_frame_meta_t * meta       = fd_xsk_aio_tx_meta( xsk_aio );  /* frame meta heap */
 
   /* Number of packets pending fd_xsk_tx_enqueue */
   ulong pending_cnt=0;

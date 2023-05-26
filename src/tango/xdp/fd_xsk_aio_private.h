@@ -14,7 +14,8 @@ struct __attribute__((aligned(FD_XSK_AIO_ALIGN))) fd_xsk_aio_private {
   ulong magic;          /* ==FD_XSK_AIO_MAGIC                         */
   ulong pkt_depth;      /* depth of fd_aio_pkt_info_t buffer          */
   ulong tx_depth;       /* depth of the fd_xsk_t tx_depth/cr_depth    */
-  ulong meta_off;       /* offset of fd_xsk_frame_meta_t[ batch_cnt ] */
+  ulong tx_meta_off;    /* offset of fd_xsk_frame_meta_t[ batch_cnt ] */
+  ulong rx_meta_off;    /* offset of fd_xsk_frame_meta_t[ batch_cnt ] */
   ulong pkt_off;        /* offset of fd_aio_pkt_info_t  [ batch_cnt ] */
   ulong tx_stack_off;   /* offset of ulong              [ tx_depth  ] */
 
@@ -45,8 +46,13 @@ struct __attribute__((aligned(FD_XSK_AIO_ALIGN))) fd_xsk_aio_private {
 };
 
 FD_FN_PURE static inline fd_xsk_frame_meta_t *
-fd_xsk_aio_meta( fd_xsk_aio_t * xsk_aio ) {
-  return (fd_xsk_frame_meta_t *)( (ulong)xsk_aio + xsk_aio->meta_off );
+fd_xsk_aio_tx_meta( fd_xsk_aio_t * xsk_aio ) {
+  return (fd_xsk_frame_meta_t *)( (ulong)xsk_aio + xsk_aio->tx_meta_off );
+}
+
+FD_FN_PURE static inline fd_xsk_frame_meta_t *
+fd_xsk_aio_rx_meta( fd_xsk_aio_t * xsk_aio ) {
+  return (fd_xsk_frame_meta_t *)( (ulong)xsk_aio + xsk_aio->rx_meta_off );
 }
 
 FD_FN_PURE static inline fd_aio_pkt_info_t *

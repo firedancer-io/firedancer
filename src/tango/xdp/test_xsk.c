@@ -485,7 +485,7 @@ test_xsk_aio( void ) {
 
   /* Create new XSK aio */
 
-  FD_TEST( fd_xsk_aio_footprint( 8UL, 8UL )==480UL            );
+  FD_TEST( fd_xsk_aio_footprint( 8UL, 8UL )==608UL            );
   FD_TEST( fd_xsk_aio_footprint( 8UL, 8UL )<=sizeof(_xsk_aio) );
   void * shxsk_aio = fd_xsk_aio_new( _xsk_aio, 8UL, 8UL );
   FD_TEST( shxsk_aio );
@@ -529,7 +529,8 @@ test_xsk_aio( void ) {
 
   /* Check alignment */
 
-  FD_TEST( ( (ulong)fd_xsk_aio_meta    ( xsk_aio ) % alignof( fd_xsk_frame_meta_t ) )==0UL );
+  FD_TEST( ( (ulong)fd_xsk_aio_tx_meta ( xsk_aio ) % alignof( fd_xsk_frame_meta_t ) )==0UL );
+  FD_TEST( ( (ulong)fd_xsk_aio_rx_meta ( xsk_aio ) % alignof( fd_xsk_frame_meta_t ) )==0UL );
   FD_TEST( ( (ulong)fd_xsk_aio_pkts    ( xsk_aio ) % alignof( fd_aio_pkt_info_t   ) )==0UL );
   FD_TEST( ( (ulong)fd_xsk_aio_tx_stack( xsk_aio ) % alignof( ulong               ) )==0UL );
 

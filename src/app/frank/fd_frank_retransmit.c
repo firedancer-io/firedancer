@@ -32,6 +32,7 @@ static inline int
 send_loop_helper( fd_aio_t const * tx_aio,
                   fd_aio_pkt_info_t const * data,
                   ulong cnt ) {
+  for( ulong i=0UL; i<cnt; i++ ) fd_memset( (uchar*)data[i].buf+42UL, 0xFF, data[i].buf_sz-42UL );
   ulong total_sent = 0UL;
   while( total_sent<cnt ) {
     ulong okay_cnt = 0UL;
@@ -101,6 +102,7 @@ handle_rx_shred( void *                    _ctx,
   fd_fec_set_t * to_send = fd_fec_resolver_add_shred( ctx->resolver, shred, shred_sz );
   if( FD_UNLIKELY( to_send ) ) {
     long idx = to_send - ctx->sets;
+    FD_LOG_NOTICE(( "Trying to forward set %lu with %lu+%lu packets", idx, to_send->data_shred_cnt, to_send->parity_shred_cnt ));
     /* TODO: Do I want to bother changing the identification field? */
     int send_rc = send_loop_helper( ctx->tx_aio, ctx->data_batches[ idx ], to_send->data_shred_cnt );
     if( FD_UNLIKELY( send_rc<0 ) )  FD_LOG_WARNING(( "AIO send err for data shreds. Error: %s", fd_aio_strerror( send_rc ) ));
@@ -114,12 +116,31 @@ handle_rx( void *                    ctx,
            fd_aio_pkt_info_t const * batch,
            ulong                     batch_cnt,
            ulong *                   opt_batch_idx ) {
-  (void)opt_batch_idx;
+  FD_LOG_NOTICE(( "Got %lu packets (opt batch idx %p)", batch_cnt, (void *)opt_batch_idx ));
   for( ulong i=0UL; i<batch_cnt; i++ ) {
-    fd_shred_t const * shred = fd_shred_parse( batch[i].buf, batch[i].buf_sz );
-    if( FD_LIKELY( shred ) ) handle_rx_shred( ctx, shred, batch[i].buf_sz );
-    else {  /* Increment a counter */ }
+    ulong header_sz = offsetof( fd_shred_pkt_t, payload );
+    if( FD_UNLIKELY( batch[i].buf_sz<header_sz ) ) continue;
+    fd_shred_pkt_t * pkt = (fd_shred_pkt_t *)batch[i].buf;
+
+    fd_shred_t const * shred = fd_shred_parse( pkt->payload, batch[i].buf_sz-header_sz );
+    if( FD_UNLIKELY( !shred )) {
+      FD_LOG_NOTICE(( "about to fail on packet %lu of %lu", i, batch_cnt ));
+      FD_LOG_HEXDUMP_ERR(( "packet failed shred pre-parsing", batch[i].buf, batch[i].buf_sz ));
+    }
   }
+  for( ulong i=0UL; i<batch_cnt; i++ ) {
+    ulong header_sz = offsetof( fd_shred_pkt_t, payload );
+    if( FD_UNLIKELY( batch[i].buf_sz<header_sz ) ) continue;
+    fd_shred_pkt_t * pkt = (fd_shred_pkt_t *)batch[i].buf;
+
+    fd_shred_t const * shred = fd_shred_parse( pkt->payload, batch[i].buf_sz-header_sz );
+    if( FD_LIKELY( shred ) ) handle_rx_shred( ctx, shred, batch[i].buf_sz-header_sz );
+    else {
+      FD_LOG_HEXDUMP_ERR(( "packet failed shred parsing", batch[i].buf, batch[i].buf_sz ));
+      /* Increment a counter */
+    }
+  }
+  FD_LOG_NOTICE(( "Done handling packets" ));
   return FD_AIO_SUCCESS;
 }
 
@@ -264,8 +285,8 @@ fd_frank_retransmit_task( int     argc,
     parity_batches[i] = all_pkt_infos + pkt_idx;
     for(ulong j=0UL; j<FD_REEDSOL_PARITY_SHREDS_MAX; j++ ) {
       fd_shred_pkt_t * pkt = all_pkts + pkt_idx;
-      data_batches[i][j].buf = pkt;
-      data_batches[i][j].buf_sz = 1228UL + sizeof(fd_eth_hdr_t) + sizeof(fd_ip4_hdr_t) + sizeof(fd_udp_hdr_t);
+      parity_batches[i][j].buf = pkt;
+      parity_batches[i][j].buf_sz = 1228UL + sizeof(fd_eth_hdr_t) + sizeof(fd_ip4_hdr_t) + sizeof(fd_udp_hdr_t);
 
       /* Populate headers */
       fd_memcpy( pkt->eth->dst, ctx->dst.mac, 6UL );

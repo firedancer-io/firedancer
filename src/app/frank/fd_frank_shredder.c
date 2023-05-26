@@ -404,6 +404,7 @@ fd_frank_shredder_task( int     argc,
         parity_shred_pkt[j].ip4->check  = 0U;
         parity_shred_pkt[j].ip4->check  = fd_ip4_hdr_check( parity_shred_pkt[j].ip4 );
       }
+      FD_LOG_NOTICE(( "Sending %lu + %lu packets", set->data_shred_cnt, set->parity_shred_cnt ));
 
       /* Check to make sure we haven't been overrun.  We can't un-send
          the packets we've already sent on the network, but it doesn't

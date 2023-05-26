@@ -221,14 +221,13 @@ for((shredder_idx=0;shredder_idx<SHREDDER_CNT;shredder_idx++)); do
     || exit $?
 done
 
-$FD_XDP_CTL listen-udp-port $APP ${LISTEN_ADDRS[0]} $TURBINE_PORT tvu || exit $?
 for((retransmit_idx=0;retransmit_idx<RETRANSMIT_CNT;retransmit_idx++)); do
   CNC="$("$BUILD"/bin/fd_tango_ctl new-cnc $WKSP 3 tic $CNC_APP_SZ)" || exit $?
   IN_FSEQ="$("$BUILD"/bin/fd_tango_ctl new-fseq $WKSP 0)" || exit $?
   XSK="$($FD_XDP_CTL new-xsk $WKSP $XDP_FRAME_SZ $XDP_RX_DEPTH $XDP_TX_DEPTH)" || exit $?
   $FD_XDP_CTL bind-xsk "$XSK" $APP $IFACE $((retransmit_idx+VERIFY_CNT+SHREDDER_CNT)) || exit $?
   XSK_AIO="$($FD_XDP_CTL new-xsk-aio $WKSP $XDP_TX_DEPTH $XDP_AIO_DEPTH)" || exit $?
-  SCRATCH="$("$BUILD"/bin/fd_wksp_ctl alloc $WKSP 128 1048576)" || exit $?
+  SCRATCH="$("$BUILD"/bin/fd_wksp_ctl alloc $WKSP 128 58720256)" || exit $?
   "$BUILD"/bin/fd_pod_ctl                                      \
     insert "$POD" cstr $APP.retransmit.r${retransmit_idx}.cnc     $CNC       \
     insert "$POD" cstr $APP.retransmit.r${retransmit_idx}.fseq    $IN_FSEQ   \
@@ -240,10 +239,13 @@ for((retransmit_idx=0;retransmit_idx<RETRANSMIT_CNT;retransmit_idx++)); do
     insert "$POD" cstr $APP.retransmit.r${retransmit_idx}.dst_net_endpoint.mac  $SHRED_DST_MAC       \
     insert "$POD" cstr $APP.retransmit.r${retransmit_idx}.dst_net_endpoint.ip  "$SHRED_DST" \
     insert "$POD" ushort $APP.retransmit.r${retransmit_idx}.dst_net_endpoint.port $TURBINE_PORT        \
+    insert "$POD" ulong  $APP.retransmit.r${retransmit_idx}.depth 64 \
     insert "$POD" cstr $APP.retransmit.r${retransmit_idx}.scratch $SCRATCH \
     || exit $?
 done
 
+echo "Listen addrs ${LISTEN_ADDRS[@]}"
+$FD_XDP_CTL listen-udp-port $APP ${LISTEN_ADDRS[0]} $TURBINE_PORT tvu || exit $?
 
 BASE_ARGS="--pod "$POD" --cfg $APP"
 RUN_ARGS="$BASE_ARGS --log-app $APP --log-thread main"
