@@ -389,24 +389,12 @@ fd_txn_footprint( ulong instr_cnt,
    number of bytes read from payload is written to payload_sz_opt. If
    payload_sz_opt is NULL and the payload_sz is larger than the amount of bytes
    read, returns 0 (failure). */
-
-ulong
-fd_txn_parse_core( uchar const             * payload,
-                   ulong                     payload_sz,
-                   void                    * out_buf,
-                   fd_txn_parse_counters_t * counters_opt,
-                   ulong *                   payload_sz_opt,
-                   uchar                     dont_check_signed );
-
-static inline
 ulong
 fd_txn_parse( uchar const             * payload,
               ulong                     payload_sz,
               void                    * out_buf,
               fd_txn_parse_counters_t * counters_opt,
-              ulong *                   payload_sz_opt ) {
-  return fd_txn_parse_core(payload, payload_sz, out_buf, counters_opt, payload_sz_opt, 0);
-}
+              ulong *                   payload_sz_opt );
 
 struct fd_txn_xray_result {
   uchar       signature_cnt;

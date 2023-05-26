@@ -95,7 +95,7 @@ int fd_executor_run_test(
   /* Parse the raw transaction */
 
   uchar txn_parse_out_buf[FD_TXN_MAX_SZ];
-  ulong txn_sz = fd_txn_parse_core( test->raw_tx, test->raw_tx_len, txn_parse_out_buf, NULL, NULL, 1 );
+  ulong txn_sz = fd_txn_parse( test->raw_tx, test->raw_tx_len, txn_parse_out_buf, NULL, NULL );
   if ( txn_sz == 0 || txn_sz > FD_TXN_MAX_SZ ) {
     FD_LOG_WARNING(("Failed test %s: failed to parse transaction", test->test_name));
     fd_funk_txn_cancel( suite->funk, global->funk_txn, 0 );
