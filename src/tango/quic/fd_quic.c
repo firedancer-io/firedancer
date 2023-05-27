@@ -154,12 +154,12 @@ fd_quic_new( void * mem,
     return NULL;
   }
 
-  if( FD_UNLIKELY( limits->conn_cnt        ==0UL ) ) return 0UL;
-  if( FD_UNLIKELY( limits->stream_cnt      ==0UL ) ) return 0UL;
-  if( FD_UNLIKELY( limits->handshake_cnt   ==0UL ) ) return 0UL;
-  if( FD_UNLIKELY( limits->inflight_pkt_cnt==0UL ) ) return 0UL;
-  if( FD_UNLIKELY( limits->tx_buf_sz       ==0UL ) ) return 0UL;
-  if( FD_UNLIKELY( limits->rx_buf_sz       ==0UL ) ) return 0UL;
+  if( FD_UNLIKELY( ( limits->conn_cnt        ==0UL )
+                 | ( limits->handshake_cnt   ==0UL )
+                 | ( limits->inflight_pkt_cnt==0UL )
+                 | ( limits->tx_buf_sz       ==0UL )
+                 | ( limits->rx_buf_sz       ==0UL ) ) )
+    return 0UL;
 
   ulong footprint = fd_quic_footprint( limits );
   if( FD_UNLIKELY( !footprint ) ) {
@@ -323,10 +323,8 @@ fd_quic_init( fd_quic_t * quic ) {
   fd_quic_limits_t const * limits = &quic->limits;
   fd_quic_config_t       * config = &quic->config;
 
-  if( FD_UNLIKELY( !config->role                ) ) { FD_LOG_WARNING(( "cfg.role not set"           )); return NULL; }
-  if( FD_UNLIKELY( !config->net.ip_addr         ) ) { FD_LOG_WARNING(( "no cfg.net.ip_addr"         )); return NULL; }
-  if( FD_UNLIKELY( fd_ulong_load_6( config->link.src_mac_addr )==0 ) ) { FD_LOG_WARNING(( "no cfg.link.src_mac_addr" )); return NULL; }
-  if( FD_UNLIKELY( !config->idle_timeout        ) ) { FD_LOG_WARNING(( "zero cfg.idle_timeout"      )); return NULL; }
+  if( FD_UNLIKELY( !config->role         ) ) { FD_LOG_WARNING(( "cfg.role not set"      )); return NULL; }
+  if( FD_UNLIKELY( !config->idle_timeout ) ) { FD_LOG_WARNING(( "zero cfg.idle_timeout" )); return NULL; }
 
   switch( config->role ) {
   case FD_QUIC_ROLE_SERVER:
@@ -2886,6 +2884,8 @@ fd_quic_tx_buffered( fd_quic_t *      quic,
   pkt.ipv4->ttl      = 64; /* TODO make configurable */
   pkt.ipv4->protocol = FD_IP4_HDR_PROTOCOL_UDP;
   pkt.ipv4->check    = 0;
+  /* TODO saddr could be zero -- should use the kernel routing table to
+     determine an appropriate source address */
   pkt.ipv4->saddr    = config->net.ip_addr;
   pkt.ipv4->daddr    = peer  ->net.ip_addr;
 
