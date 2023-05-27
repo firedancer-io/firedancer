@@ -67,6 +67,10 @@ fd_frank_shredder_task( int     argc,
 int
 fd_frank_retransmit_task( int     argc,
                           char ** argv );
+int
+fd_frank_sload_task( int     argc,
+                     char ** argv );
+
 
 FD_PROTOTYPES_END
 

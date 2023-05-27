@@ -12,8 +12,7 @@
 #include "../../ballet/shred/fd_shredder.h"
 #include "../../ballet/shred/fd_shred.h"
 
-FD_IMPORT_BINARY( test_private_key, "src/ballet/shred/fixtures/demo-shreds.key"  );
-FD_IMPORT_BINARY( test_bin,         "src/ballet/shred/fixtures/demo-shreds.bin"  );
+extern char test_private_key[];
 
 struct __attribute__((packed)) fd_shred_pkt {
   fd_eth_hdr_t eth[1];
@@ -124,7 +123,7 @@ fd_frank_shredder_task( int     argc,
   // int in_backp = 1;
 
   FD_COMPILER_MFENCE();
-  FD_VOLATILE( cnc_diag[ FD_FRANK_CNC_DIAG_IN_BACKP    ] ) = 1UL;
+  FD_VOLATILE( cnc_diag[ FD_FRANK_CNC_DIAG_IN_BACKP    ] ) = 0UL;
   FD_VOLATILE( cnc_diag[ FD_FRANK_CNC_DIAG_BACKP_CNT   ] ) = 0UL;
   FD_VOLATILE( cnc_diag[ FD_FRANK_CNC_DIAG_HA_FILT_CNT ] ) = 0UL;
   FD_VOLATILE( cnc_diag[ FD_FRANK_CNC_DIAG_HA_FILT_SZ  ] ) = 0UL;
@@ -343,6 +342,8 @@ fd_frank_shredder_task( int     argc,
       accum_ovrnp_cnt = 0UL;
       accum_ovrnr_cnt = 0UL;
 
+      FD_VOLATILE( fseq[0] ) = seq;
+
       /* Receive command-and-control signals */
       ulong s = fd_cnc_signal_query( cnc );
       if( FD_UNLIKELY( s!=FD_CNC_SIGNAL_RUN ) ) {
@@ -358,35 +359,37 @@ fd_frank_shredder_task( int     argc,
 
 
 
-    ///* See if there are any entry batches to shred */
+    /* See if there are any entry batches to shred */
     ulong seq_found = fd_frag_meta_seq_query( mline );
-    //long  diff      = fd_seq_diff( seq_found, seq );
-    //if( FD_UNLIKELY( diff ) ) { /* caught up or overrun, optimize for expected sequence number ready */
-    //  if( FD_LIKELY( diff<0L ) ) { /* caught up */
-    //    FD_SPIN_PAUSE();
-    //    now = fd_tickcount();
-    //    continue;
-    //  }
-    //  /* overrun ... recover */
-    //  accum_ovrnp_cnt++;
-    //  seq = seq_found;
-    //  /* can keep processing from the new seq */
-    //}
+    long  diff      = fd_seq_diff( seq_found, seq );
+    if( FD_UNLIKELY( diff ) ) { /* caught up or overrun, optimize for expected sequence number ready */
+      if( FD_LIKELY( diff<0L ) ) { /* caught up */
+        FD_SPIN_PAUSE();
+        now = fd_tickcount();
+        continue;
+      }
+      /* overrun ... recover */
+      accum_ovrnp_cnt++;
+      seq = seq_found;
+      /* can keep processing from the new seq */
+    }
 
     now = fd_tickcount();
 
-    //ulong         sz           = (ulong)mline->sz;
-    //uchar const * dcache_entry = fd_chunk_to_laddr_const( wksp, mline->chunk );
-    ///* FIXME: refactor to allow entry batches greater than USHORT_MAX */
-    //fd_entry_batch_meta_t const * entry_batch_meta = (fd_entry_batch_meta_t const *)dcache_entry;
-    //uchar const *                 entry_batch      = dcache_entry + sizeof(fd_entry_batch_meta_t);
-    //ulong                         entry_batch_sz   = sz           - sizeof(fd_entry_batch_meta_t);
+    ulong         sz           = mline->sig;
+    uchar const * dcache_entry = fd_chunk_to_laddr_const( wksp, mline->chunk );
+    /* FIXME: refactor to allow entry batches greater than USHORT_MAX */
+    fd_entry_batch_meta_t const * entry_batch_meta = (fd_entry_batch_meta_t const *)dcache_entry;
+    uchar const *                 entry_batch      = dcache_entry + sizeof(fd_entry_batch_meta_t);
+    ulong                         entry_batch_sz   = sz           - sizeof(fd_entry_batch_meta_t);
 
+    /*
     fd_entry_batch_meta_t entry_batch_meta[1];
     fd_memset( entry_batch_meta, 0, sizeof(fd_entry_batch_meta_t) );
     entry_batch_meta->block_complete = 1;
     uchar const * entry_batch = test_bin;
     ulong entry_batch_sz = test_bin_sz;
+    */
 
     ulong fec_sets = fd_shredder_count_fec_sets( entry_batch_sz );
     fd_shredder_init_batch( shredder, entry_batch, entry_batch_sz, entry_batch_meta );
@@ -404,7 +407,7 @@ fd_frank_shredder_task( int     argc,
         parity_shred_pkt[j].ip4->check  = 0U;
         parity_shred_pkt[j].ip4->check  = fd_ip4_hdr_check( parity_shred_pkt[j].ip4 );
       }
-      FD_LOG_NOTICE(( "Sending %lu + %lu packets", set->data_shred_cnt, set->parity_shred_cnt ));
+      // FD_LOG_NOTICE(( "Sending %lu + %lu packets", set->data_shred_cnt, set->parity_shred_cnt ));
 
       /* Check to make sure we haven't been overrun.  We can't un-send
          the packets we've already sent on the network, but it doesn't
@@ -432,10 +435,13 @@ fd_frank_shredder_task( int     argc,
 
       fd_xsk_aio_service( xsk_aio );
 
+
     }
     fd_shredder_fini_batch( shredder );
 
     fd_xsk_aio_service( xsk_aio );
+    seq   = fd_seq_inc( seq, 1UL );
+    mline = mcache + fd_mcache_line_idx( seq, depth );
   }
 
   FD_LOG_NOTICE(( "Cleaning up" ));

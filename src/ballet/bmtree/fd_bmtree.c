@@ -1,6 +1,3 @@
-#if 1
-#pragma GCC optimize ("O0")
-#endif
 
 /* This file declares a family of functions for different widths of
    binary Merkle trees based on the SHA-256 hash function.  It can be

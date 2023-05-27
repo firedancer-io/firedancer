@@ -76,7 +76,7 @@ main( int     argc,
   ulong retransmit_cnt = fd_pod_cnt_subpod( retransmit_pods );
   FD_LOG_NOTICE(( "%lu retransmit found", retransmit_cnt ));
 
-  ulong tile_cnt = 3UL + verify_cnt + quic_cnt + shredder_cnt + retransmit_cnt;
+  ulong tile_cnt = 4UL + verify_cnt + quic_cnt + shredder_cnt + retransmit_cnt;
   if( FD_UNLIKELY( fd_tile_cnt()<tile_cnt ) ) FD_LOG_ERR(( "at least %lu tiles required for this config", tile_cnt ));
   if( FD_UNLIKELY( fd_tile_cnt()>tile_cnt ) ) FD_LOG_WARNING(( "only %lu tiles required for this config", tile_cnt ));
 
@@ -108,6 +108,13 @@ main( int     argc,
     FD_LOG_NOTICE(( "joining %s.dedup.cnc", cfg_path ));
     tile_name[ tile_idx ] = "dedup";
     tile_cnc [ tile_idx ] = fd_cnc_join( fd_wksp_pod_map( cfg_pod, "dedup.cnc" ) );
+    if( FD_UNLIKELY( !tile_cnc[ tile_idx ] ) ) FD_LOG_ERR(( "fd_cnc_join failed" ));
+    if( FD_UNLIKELY( fd_cnc_app_sz( tile_cnc[ tile_idx ] )<64UL ) ) FD_LOG_ERR(( "cnc app sz should be at least 64 bytes" ));
+    tile_idx++;
+
+    FD_LOG_NOTICE(( "joining %s.sload.cnc", cfg_path ));
+    tile_name[ tile_idx ] = "sload";
+    tile_cnc [ tile_idx ] = fd_cnc_join( fd_wksp_pod_map( cfg_pod, "sload.cnc" ) );
     if( FD_UNLIKELY( !tile_cnc[ tile_idx ] ) ) FD_LOG_ERR(( "fd_cnc_join failed" ));
     if( FD_UNLIKELY( fd_cnc_app_sz( tile_cnc[ tile_idx ] )<64UL ) ) FD_LOG_ERR(( "cnc app sz should be at least 64 bytes" ));
     tile_idx++;
@@ -176,7 +183,8 @@ main( int     argc,
   ulong tile_main_idx        = 0UL;
   ulong tile_pack_idx        = tile_main_idx +1UL;
   ulong tile_dedup_idx       = tile_pack_idx +1UL;
-  ulong tile_verify_idx0     = tile_dedup_idx+1UL;
+  ulong tile_sload_idx       = tile_dedup_idx+1UL;
+  ulong tile_verify_idx0     = tile_sload_idx+1UL;
   ulong tile_verify_idx1     = tile_verify_idx0     + verify_cnt;
   ulong tile_quic_idx0       = tile_verify_idx1;
   ulong tile_quic_idx1       = tile_quic_idx0       + quic_cnt;
@@ -195,6 +203,7 @@ main( int     argc,
     if(      tile_idx==0UL ) task = main;
     else if( tile_idx==1UL ) task = fd_frank_pack_task;
     else if( tile_idx==2UL ) task = fd_frank_dedup_task;
+    else if( tile_idx==3UL ) task = fd_frank_sload_task;
     else if( (tile_verify_idx0    <=tile_idx) & (tile_idx<tile_verify_idx1)    ) task = fd_frank_verify_task;
     else if( (tile_quic_idx0      <=tile_idx) & (tile_idx<tile_quic_idx1)      ) task = fd_frank_quic_task;
     else if( (tile_shredder_idx0  <=tile_idx) & (tile_idx<tile_shredder_idx1)  ) task = fd_frank_shredder_task;

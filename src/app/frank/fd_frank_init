@@ -26,7 +26,7 @@ CONF_DIR=tmp/$APP
 WKSP=$APP.wksp
 WKSP_PAGE_CNT=4
 WKSP_PAGE_SZ=gigantic
-WKSP_PERM=0600
+WKSP_PERM=0666
 
 POD_SZ=16384
 
@@ -72,9 +72,9 @@ export QUIC_RX_BUF_SZ
 
 TURBINE_PORT=9002
 TURBINE_CORRUPT_FRACTION=0.1
-SHREDDER_DEPTH=8192
-SHREDDER_MTU=65536
-
+SHREDDER_DEPTH=128
+SHREDDER_MTU=1048576
+SHRED_LOAD_TX_RATE=1000000000 # 1 Gbps
 #######################################################################
 
 FD_LOG_PATH=""
@@ -243,6 +243,13 @@ for((retransmit_idx=0;retransmit_idx<RETRANSMIT_CNT;retransmit_idx++)); do
     insert "$POD" cstr $APP.retransmit.r${retransmit_idx}.scratch $SCRATCH \
     || exit $?
 done
+
+
+CNC="$("$BUILD"/bin/fd_tango_ctl new-cnc $WKSP 3 tic $CNC_APP_SZ)" || exit $?
+  "$BUILD"/bin/fd_pod_ctl                                      \
+    insert "$POD" cstr $APP.sload.cnc          $CNC                      \
+    insert "$POD" ulong $APP.sload.tx_rate     $SHRED_LOAD_TX_RATE       \
+    || exit $?
 
 echo "Listen addrs ${LISTEN_ADDRS[@]}"
 $FD_XDP_CTL listen-udp-port $APP ${LISTEN_ADDRS[0]} $TURBINE_PORT tvu || exit $?

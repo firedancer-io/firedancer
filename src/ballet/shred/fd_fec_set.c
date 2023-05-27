@@ -354,7 +354,7 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t * resolver, fd_shred_t const * shre
       p_shred->code.code_cnt = (ushort)set->parity_shred_cnt;
       p_shred->code.idx      = (ushort)i;
 
-      fd_bmtree_hash_leaf( _leaf, set->data_shreds[i]+ sizeof(fd_ed25519_sig_t), reedsol_protected_sz+0x19UL, FD_BMTREE_LONG_PREFIX_SZ );
+      fd_bmtree_hash_leaf( _leaf, set->parity_shreds[i]+ sizeof(fd_ed25519_sig_t), reedsol_protected_sz+0x19UL, FD_BMTREE_LONG_PREFIX_SZ );
       if( FD_UNLIKELY( !fd_bmtree_commitp_insert_with_proof( ctx->tree, set->data_shred_cnt + i, _leaf, NULL, 0, NULL ) ) ) return NULL;
     }
   }

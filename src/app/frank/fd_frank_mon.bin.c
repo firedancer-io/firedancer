@@ -401,17 +401,31 @@ main( int     argc,
   uchar const * verify_pods = fd_pod_query_subpod( cfg_pod, "verify" );
   ulong verify_cnt = fd_pod_cnt_subpod( verify_pods );
   FD_LOG_INFO(( "%lu verify found", verify_cnt ));
-  ulong tile_cnt = 3UL + verify_cnt + verifyin_cnt;
+
+  uchar const * shredder_pods = fd_pod_query_subpod( cfg_pod, "shredder" );
+  ulong shredder_cnt = fd_pod_cnt_subpod( shredder_pods );
+  FD_LOG_NOTICE(( "%lu shredder found", shredder_cnt ));
+
+  uchar const * retransmit_pods = fd_pod_query_subpod( cfg_pod, "retransmit" );
+  ulong retransmit_cnt = fd_pod_cnt_subpod( retransmit_pods );
+  FD_LOG_NOTICE(( "%lu retransmit found", retransmit_cnt ));
+
+  ulong tile_cnt = 4UL + verify_cnt + quic_cnt + shredder_cnt + retransmit_cnt;
 
   /* Tile indices */
-
-  ulong tile_main_idx    = 0UL;
-  ulong tile_pack_idx    = tile_main_idx +1UL;
-  ulong tile_dedup_idx   = tile_pack_idx +1UL;
-  ulong tile_verify_idx0 = tile_dedup_idx+1UL;
-  ulong tile_verify_idx1 = tile_verify_idx0 + verify_cnt;
-  ulong tile_quic_idx0   = tile_verify_idx1;
-  //ulong tile_quic_idx1   = tile_quic_idx0 + quic_cnt;
+  ulong tile_main_idx        = 0UL;
+  ulong tile_pack_idx        = tile_main_idx +1UL;
+  ulong tile_dedup_idx       = tile_pack_idx +1UL;
+  ulong tile_sload_idx       = tile_dedup_idx+1UL;
+  ulong tile_verify_idx0     = tile_sload_idx+1UL;
+  ulong tile_verify_idx1     = tile_verify_idx0     + verify_cnt;
+  ulong tile_quic_idx0       = tile_verify_idx1;
+  ulong tile_quic_idx1       = tile_quic_idx0       + quic_cnt;
+  ulong tile_shredder_idx0   = tile_quic_idx1;
+  ulong tile_shredder_idx1   = tile_shredder_idx0   + shredder_cnt;
+  ulong tile_retransmit_idx0 = tile_shredder_idx1;
+  ulong tile_retransmit_idx1 = tile_retransmit_idx0 + retransmit_cnt;
+  (void)tile_retransmit_idx1;
 
   /* Join all IPC objects for this frank instance */
 
@@ -459,6 +473,19 @@ main( int     argc,
     if( FD_UNLIKELY( !tile_fseq[ tile_idx ] ) ) FD_LOG_ERR(( "fd_fseq_join failed" ));
     tile_idx++;
 
+    tile_name[ tile_idx ] = "sload";
+    FD_LOG_INFO(( "joining %s.sload.cnc", cfg_path ));
+    tile_cnc[ tile_idx ] = fd_cnc_join( fd_wksp_pod_map( cfg_pod, "sload.cnc" ) );
+    if( FD_UNLIKELY( !tile_cnc[ tile_idx ] ) ) FD_LOG_ERR(( "fd_cnc_join failed" ));
+    if( FD_UNLIKELY( fd_cnc_app_sz( tile_cnc[ tile_idx ] )<64UL ) ) FD_LOG_ERR(( "cnc app sz should be at least 64 bytes" ));
+    FD_LOG_INFO(( "joining %s.shredder.s0.mcache", cfg_path ));
+    tile_mcache[ tile_idx ] = fd_mcache_join( fd_wksp_pod_map( cfg_pod, "shredder.s0.mcache" ) );
+    if( FD_UNLIKELY( !tile_mcache[ tile_idx ] ) ) FD_LOG_ERR(( "fd_mcache_join failed" ));
+    FD_LOG_INFO(( "joining %s.shredder.s0.fseq", cfg_path ));
+    tile_fseq[ tile_idx ] = fd_fseq_join( fd_wksp_pod_map( cfg_pod, "shredder.s0.fseq" ) );
+    if( FD_UNLIKELY( !tile_fseq[ tile_idx ] ) ) FD_LOG_ERR(( "fd_fseq_join failed" ));
+    tile_idx++;
+
     for( fd_pod_iter_t iter = fd_pod_iter_init( verify_pods ); !fd_pod_iter_done( iter ); iter = fd_pod_iter_next( iter ) ) {
       fd_pod_info_t info = fd_pod_iter_info( iter );
       if( FD_UNLIKELY( info.val_type!=FD_POD_VAL_TYPE_SUBPOD ) ) continue;
@@ -496,6 +523,43 @@ main( int     argc,
       FD_LOG_INFO(( "joining %s.quic.%s.fseq", cfg_path, quic_name ));
       tile_fseq[ tile_idx ] = fd_fseq_join( fd_wksp_pod_map( quic_pod, "fseq" ) );
       if( FD_UNLIKELY( !tile_fseq[ tile_idx ] ) ) FD_LOG_ERR(( "fd_fseq_join failed" ));
+      tile_idx++;
+    }
+
+
+    for( fd_pod_iter_t iter = fd_pod_iter_init( shredder_pods ); !fd_pod_iter_done( iter ); iter = fd_pod_iter_next( iter ) ) {
+      fd_pod_info_t info = fd_pod_iter_info( iter );
+      if( FD_UNLIKELY( info.val_type!=FD_POD_VAL_TYPE_SUBPOD ) ) continue;
+      char const  * shredder_name =                info.key;
+      uchar const * shredder_pod  = (uchar const *)info.val;
+
+      FD_LOG_NOTICE(( "joining %s.shredder.%s.cnc", cfg_path, shredder_name ));
+      tile_name[ tile_idx ] = shredder_name;
+      tile_cnc [ tile_idx ] = fd_cnc_join( fd_wksp_pod_map( shredder_pod, "cnc" ) );
+      if( FD_UNLIKELY( !tile_cnc[tile_idx] ) ) FD_LOG_ERR(( "fd_cnc_join failed" ));
+      if( FD_UNLIKELY( fd_cnc_app_sz( tile_cnc[ tile_idx ] )<64UL ) ) FD_LOG_ERR(( "cnc app sz should be at least 64 bytes" ));
+      FD_LOG_INFO(( "joining %s.shredder.%s.mcache", cfg_path, shredder_name ));
+      tile_mcache[ tile_idx ] = fd_mcache_join( fd_wksp_pod_map( shredder_pod, "mcache" ) );
+      if( FD_UNLIKELY( !tile_mcache[ tile_idx ] ) ) FD_LOG_ERR(( "fd_mcache_join failed" ));
+      FD_LOG_INFO(( "joining %s.shredder.%s.fseq", cfg_path, shredder_name ));
+      tile_fseq[ tile_idx ] = fd_fseq_join( fd_wksp_pod_map( shredder_pod, "fseq" ) );
+      if( FD_UNLIKELY( !tile_fseq[ tile_idx ] ) ) FD_LOG_ERR(( "fd_fseq_join failed" ));
+      tile_idx++;
+    }
+
+    for( fd_pod_iter_t iter = fd_pod_iter_init( retransmit_pods ); !fd_pod_iter_done( iter ); iter = fd_pod_iter_next( iter ) ) {
+      fd_pod_info_t info = fd_pod_iter_info( iter );
+      if( FD_UNLIKELY( info.val_type!=FD_POD_VAL_TYPE_SUBPOD ) ) continue;
+      char const  * retransmit_name =                info.key;
+      uchar const * retransmit_pod  = (uchar const *)info.val;
+
+      FD_LOG_NOTICE(( "joining %s.retransmit.%s.cnc", cfg_path, retransmit_name ));
+      tile_name[ tile_idx ] = retransmit_name;
+      tile_cnc [ tile_idx ] = fd_cnc_join( fd_wksp_pod_map( retransmit_pod, "cnc" ) );
+      if( FD_UNLIKELY( !tile_cnc[tile_idx] ) ) FD_LOG_ERR(( "fd_cnc_join failed" ));
+      if( FD_UNLIKELY( fd_cnc_app_sz( tile_cnc[ tile_idx ] )<64UL ) ) FD_LOG_ERR(( "cnc app sz should be at least 64 bytes" ));
+      tile_mcache[ tile_idx ] = NULL;
+      tile_fseq[   tile_idx ] = NULL;
       tile_idx++;
     }
   } while(0);
@@ -586,6 +650,9 @@ main( int     argc,
       printf_link( snap_prv, snap_cur, tile_name, tile_idx, tile_dedup_idx, dt );
     }
     printf_link( snap_prv, snap_cur, tile_name, tile_dedup_idx, tile_pack_idx, dt );
+    for( ulong tile_idx=tile_shredder_idx0; tile_idx<tile_shredder_idx1; tile_idx++ ) {
+      printf_link( snap_prv, snap_cur, tile_name, tile_idx, tile_sload_idx, dt );
+    }
     printf( TEXT_NEWLINE );
 
     /* Switch to alternate screen and erase junk below
