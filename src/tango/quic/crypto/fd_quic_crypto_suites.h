@@ -185,8 +185,8 @@ extern uchar FD_QUIC_CRYPTO_V1_INITIAL_SALT[ 20UL ];
 #define FD_QUIC_RETRY_TOKEN_AEAD_INFO_SZ (sizeof("fd quic retry token") - 1)
 /* The retry integrity tag is the 16-byte tag output of AES-128-GCM */
 #define FD_QUIC_RETRY_INTEGRITY_TAG_SZ 16
-#define FD_QUIC_RETRY_INTEGRITY_TAG_KEY ((uchar *)"0xbe0c690b9f66575a1d766b54e368c84e")
-#define FD_QUIC_RETRY_INTEGRITY_TAG_NONCE ((uchar *)"0x461599d35d632bf2239825bb")
+#define FD_QUIC_RETRY_INTEGRITY_TAG_KEY ((uchar *)"\xbe\x0c\x69\x0b\x9f\x66\x57\x5a\x1d\x76\x6b\x54\xe3\x68\xc8\x4e")
+#define FD_QUIC_RETRY_INTEGRITY_TAG_NONCE ((uchar *)"\x46\x15\x99\xd3\x5d\x63\x2b\xf2\x23\x98\x25\xbb")
 
 /* bound the max size of the above labels */
 #define FD_QUIC_CRYPTO_LABEL_BOUND 64
