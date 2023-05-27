@@ -3,6 +3,8 @@
 
 #include "../fd_quic.h"
 #include "../../aio/fd_aio_pcapng.h"
+#include "../../xdp/fd_xdp.h"
+#include "../../udpsock/fd_udpsock.h"
 
 /* Common helpers for QUIC tests.  The tests using these gain the
    following command-line options:
@@ -72,6 +74,51 @@ fd_quic_virtual_pair_fini( fd_quic_virtual_pair_t * pair );
 void
 fd_quic_test_keylog( fd_quic_virtual_pair_t const * pair,
                      char const *                   line );
+
+FD_PROTOTYPES_END
+
+/* fd_quic_udpsock is a command-line helper for creating an UDP channel
+   over AF_XDP or UDP sockets. */
+
+struct fd_quic_udpsock {
+  int type;
+# define FD_QUIC_UDPSOCK_TYPE_XSK     1
+# define FD_QUIC_UDPSOCK_TYPE_UDPSOCK 2
+
+  uchar  self_mac[6];
+  uint   listen_ip;
+  ushort listen_port;
+
+  fd_wksp_t * wksp;  /* Handle to the workspace owning the objects */
+  union {
+    struct {
+      fd_xsk_t *     xsk;
+      fd_xsk_aio_t * xsk_aio;
+    } xsk;
+    struct {
+      fd_udpsock_t * sock;
+      int            sock_fd;
+    } udpsock;
+  };
+
+  fd_aio_t const * aio;
+};
+typedef struct fd_quic_udpsock fd_quic_udpsock_t;
+
+FD_PROTOTYPES_BEGIN
+
+fd_quic_udpsock_t *
+fd_quic_udpsock_create( void *           _sock,
+                        int *            argc,
+                        char ***         argv,
+                        fd_wksp_t *      wksp,
+                        fd_aio_t const * rx_aio );
+
+void *
+fd_quic_udpsock_destroy( fd_quic_udpsock_t * udpsock );
+
+void
+fd_quic_udpsock_service( fd_quic_udpsock_t const * udpsock );
 
 FD_PROTOTYPES_END
 
