@@ -8,7 +8,7 @@
 
 /* returns bytes to be encoded */
 #define FD_TEMPL_DEF_STRUCT_BEGIN(NAME)                                    \
-  ulong fd_quic_encode_footprint_##NAME( fd_quic_##NAME##_t * frame ) {   \
+  FD_FN_PURE ulong fd_quic_encode_footprint_##NAME( fd_quic_##NAME##_t const * frame ) {   \
     (void)frame;                                                           \
     ulong   buf      = 0;                                                 \
     ulong   cur_bit  = 0;          (void)cur_bit;                         \
@@ -98,4 +98,3 @@
   }
 
 #include "fd_quic_dft.h"
-
