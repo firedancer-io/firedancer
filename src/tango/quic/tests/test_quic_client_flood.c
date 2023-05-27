@@ -1,4 +1,5 @@
 #include "../fd_quic.h"
+#include "fd_quic_test_helpers.h"
 
 #include <stdlib.h>
 
@@ -70,11 +71,11 @@ test_clock( void * ctx ) {
 
 void
 run_quic_client(
-  fd_quic_t *    quic,
-  fd_xsk_aio_t * xsk_aio,
-  uint           dst_ip,
-  ushort         dst_port,
-  uint           batch_sz ) {
+  fd_quic_t *               quic,
+  fd_quic_udpsock_t const * udpsock,
+  uint                      dst_ip,
+  ushort                    dst_port,
+  uint                      batch_sz ) {
 
 # define MSG_SZ_MIN (1UL)
 # define MSG_SZ_MAX (1232UL-64UL-32UL)
@@ -94,8 +95,7 @@ run_quic_client(
     quic->cb.now_ctx          = NULL;
 
     /* use XSK XDP AIO for QUIC ingress/egress */
-    fd_xsk_aio_set_rx     ( xsk_aio, fd_quic_get_aio_net_rx( quic    ) );
-    fd_quic_set_aio_net_tx( quic,    fd_xsk_aio_get_tx     ( xsk_aio ) );
+    fd_quic_set_aio_net_tx( quic, udpsock->aio );
 
     FD_TEST( fd_quic_init( quic ) );
 
@@ -107,7 +107,7 @@ run_quic_client(
     /* do general processing */
     while ( !client_complete ) {
       fd_quic_service( quic );
-      fd_xsk_aio_service( xsk_aio );
+      fd_quic_udpsock_service( udpsock );
     }
 
     if( !client_conn ) {
@@ -185,7 +185,7 @@ run_quic_client(
     }
 
     fd_quic_service( quic );
-    fd_xsk_aio_service( xsk_aio );
+    fd_quic_udpsock_service( udpsock );
 
     /* obtain a free stream */
     for( ulong j = 0; j < batch_sz; ++j ) {
@@ -252,39 +252,22 @@ main( int argc, char ** argv ) {
   char const * _page_sz  = fd_env_strip_cmdline_cstr  ( &argc, &argv, "--page-sz",        NULL, "gigantic"                   );
   ulong        page_cnt  = fd_env_strip_cmdline_ulong ( &argc, &argv, "--page-cnt",       NULL, 1UL                          );
   ulong        numa_idx  = fd_env_strip_cmdline_ulong ( &argc, &argv, "--numa-idx",       NULL, fd_shmem_numa_idx(cpu_idx)   );
-  ulong        xdp_mtu   = fd_env_strip_cmdline_ulong ( &argc, &argv, "--xdp-mtu",        NULL, 2048UL                       );
-  ulong        xdp_depth = fd_env_strip_cmdline_ulong ( &argc, &argv, "--xdp-depth",      NULL, 1024UL                       );
-  char const * iface     = fd_env_strip_cmdline_cstr  ( &argc, &argv, "--iface",          NULL, NULL                         );
-  uint         ifqueue   = fd_env_strip_cmdline_uint  ( &argc, &argv, "--ifqueue",        NULL, 0U                           );
-  char const * _src_ip   = fd_env_strip_cmdline_cstr  ( &argc, &argv, "--src-ip",         NULL, NULL                         );
   char const * _dst_ip   = fd_env_strip_cmdline_cstr  ( &argc, &argv, "--dst-ip",         NULL, NULL                         );
-  uint         src_port  = fd_env_strip_cmdline_uint  ( &argc, &argv, "--src-port",       NULL, 8080U                        );
   uint         dst_port  = fd_env_strip_cmdline_uint  ( &argc, &argv, "--dst-port",       NULL, 9001U                        );
-  char const * _hwaddr   = fd_env_strip_cmdline_cstr  ( &argc, &argv, "--hwaddr",         NULL, NULL                         );
-  char const * _gateway  = fd_env_strip_cmdline_cstr  ( &argc, &argv, "--gateway",        NULL, NULL                         );
-  char const * bpf_dir   = fd_env_strip_cmdline_cstr  ( &argc, &argv, "--bpf-dir",        NULL, "test_quic"                  );
+  char const * _gateway  = fd_env_strip_cmdline_cstr  ( &argc, &argv, "--gateway",        NULL, "00:00:00:00:00:00"          );
   uint         batch     = fd_env_strip_cmdline_uint  ( &argc, &argv, "--batch",          NULL, 16U                          );
 
   ulong page_sz = fd_cstr_to_shmem_page_sz( _page_sz );
   if( FD_UNLIKELY( !page_sz ) ) FD_LOG_ERR(( "unsupported --page-sz" ));
 
-  if( FD_UNLIKELY( !_src_ip  ) ) FD_LOG_ERR(( "missing --src-ip"   ));
-  if( FD_UNLIKELY( !src_port ) ) FD_LOG_ERR(( "missing --src-port" ));
   if( FD_UNLIKELY( !_dst_ip  ) ) FD_LOG_ERR(( "missing --dst-ip"   ));
   if( FD_UNLIKELY( !dst_port ) ) FD_LOG_ERR(( "missing --dst-port" ));
-
-  if( FD_UNLIKELY( !_hwaddr  ) ) FD_LOG_ERR(( "missing --hwaddr" ));
-  uchar hwaddr[ 6 ]={0};
-  if( FD_UNLIKELY( !fd_cstr_to_mac_addr( _hwaddr,  hwaddr  ) ) )
-    FD_LOG_ERR(( "invalid hwaddr \"%s\"",  _hwaddr  ));
 
   if( FD_UNLIKELY( !_gateway ) ) FD_LOG_ERR(( "missing --gateway" ));
   uchar gateway[ 6 ]={0};
   if( FD_UNLIKELY( !fd_cstr_to_mac_addr( _gateway, gateway ) ) )
     FD_LOG_ERR(( "invalid gateway \"%s\"", _gateway ));
 
-  uint src_ip;
-  if( FD_UNLIKELY( !fd_cstr_to_ip4_addr( _src_ip, &src_ip  ) ) ) FD_LOG_ERR(( "invalid --src-ip" ));
   uint dst_ip;
   if( FD_UNLIKELY( !fd_cstr_to_ip4_addr( _dst_ip, &dst_ip  ) ) ) FD_LOG_ERR(( "invalid --dst-ip" ));
 
@@ -306,55 +289,29 @@ main( int argc, char ** argv ) {
       &quic_limits );
   FD_TEST( quic );
 
+  fd_quic_udpsock_t _udpsock[1];
+  fd_quic_udpsock_t * udpsock = fd_quic_udpsock_create( _udpsock, &argc, &argv, wksp, fd_quic_get_aio_net_rx( quic ) );
+  FD_TEST( udpsock );
+
   fd_quic_config_t * client_cfg = &quic->config;
-
   client_cfg->role = FD_QUIC_ROLE_CLIENT;
-
   FD_TEST( fd_quic_config_from_env( &argc, &argv, client_cfg ) );
-
   memcpy( client_cfg->link.dst_mac_addr, gateway, 6UL );
-  memcpy( client_cfg->link.src_mac_addr, hwaddr,  6UL );
-
-  client_cfg->net.ip_addr           = src_ip;
-  client_cfg->net.ephem_udp_port.lo = (ushort)src_port;
-  client_cfg->net.ephem_udp_port.hi = (ushort)(src_port + 1);
+  client_cfg->net.ip_addr         = udpsock->listen_ip;
+  client_cfg->net.ephem_udp_port.lo = (ushort)udpsock->listen_port;
+  client_cfg->net.ephem_udp_port.hi = (ushort)(udpsock->listen_port + 1);
 
   if( FD_UNLIKELY( argc>1 ) ) FD_LOG_ERR(( "unrecognized argument: %s", argv[ 1 ] ));
 
-  /* create a new XSK instance */
-  ulong xsk_sz   = fd_xsk_footprint( xdp_mtu, xdp_depth, xdp_depth, xdp_depth, xdp_depth );
-
-  FD_LOG_NOTICE(( "Creating XSK" ));
-  void * xsk_mem = fd_wksp_alloc_laddr( wksp, fd_xsk_align(), xsk_sz, 1UL );
-  FD_TEST( fd_xsk_new( xsk_mem, xdp_mtu, xdp_depth, xdp_depth, xdp_depth, xdp_depth ) );
-
-  FD_LOG_NOTICE(( "Binding XSK (--iface %s, --ifqueue %u)", iface, ifqueue ));
-  FD_TEST( fd_xsk_bind( xsk_mem, bpf_dir, iface, ifqueue ) );
-
-  FD_LOG_NOTICE(( "Joining XSK" ));
-  fd_xsk_t * xsk = fd_xsk_join( xsk_mem );
-  FD_TEST( xsk );
-
-  FD_LOG_NOTICE(( "Creating fd_xsk_aio" ));
-  fd_xsk_aio_t * xsk_aio = fd_xsk_aio_join( fd_xsk_aio_new(
-        fd_wksp_alloc_laddr( wksp,fd_xsk_aio_align(), fd_xsk_aio_footprint( xdp_depth, xdp_depth ), 1UL ),
-        xdp_depth, xdp_depth ),
-      xsk );
-  FD_TEST( xsk_aio );
-
-  /* add udp port to xdp map */
-  uint proto = 1;
-  FD_TEST( 0==fd_xdp_listen_udp_port( bpf_dir, src_ip, src_port, proto ) );
-
   /* loop continually, so that if the connection dies we try again */
   while (1) {
-    run_quic_client( quic, xsk_aio, dst_ip, (ushort)dst_port, batch );
+    run_quic_client( quic, udpsock, dst_ip, (ushort)dst_port, batch );
   }
 
-  fd_wksp_free_laddr( fd_quic_delete   ( fd_quic_leave   ( quic    ) ) );
-  fd_wksp_free_laddr( fd_xsk_aio_delete( fd_xsk_aio_leave( xsk_aio ) ) );
-  fd_wksp_free_laddr( fd_xsk_delete    ( fd_xsk_leave    ( xsk     ) ) );
+  FD_TEST( fd_quic_fini( quic ) );
 
+  fd_wksp_free_laddr( fd_quic_delete( fd_quic_leave( quic ) ) );
+  fd_quic_udpsock_destroy( udpsock );
   fd_wksp_delete_anonymous( wksp );
 
   FD_LOG_NOTICE(( "pass" ));
