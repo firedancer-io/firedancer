@@ -1,12 +1,12 @@
-#ifndef HEADER_fd_src_vm_fd_vm_context_h
-#define HEADER_fd_src_vm_fd_vm_context_h
+#ifndef HEADER_fd_src_flamenco_vm_fd_vm_context_h
+#define HEADER_fd_src_flamenco_vm_fd_vm_context_h
 
+#include "../fd_flamenco_base.h"
 #include "fd_vm_log_collector.h"
 #include "fd_vm_stack.h"
 
-#include "../util/fd_util.h"
-#include "../ballet/sbpf/fd_sbpf_instr.h"
-#include "../ballet/sbpf/fd_sbpf_loader.h"
+#include "../../ballet/sbpf/fd_sbpf_instr.h"
+#include "../../ballet/sbpf/fd_sbpf_loader.h"
 
 #include "fd_vm_log_collector.h"
 #include "fd_vm_stack.h"
@@ -103,4 +103,4 @@ ulong fd_vm_translate_vm_to_host( fd_vm_exec_context_t *  ctx,
 
 FD_PROTOTYPES_END
 
-#endif /* HEADER_fd_src_vm_fd_vm_context_h */
+#endif /* HEADER_fd_src_flamenco_vm_fd_vm_context_h */

@@ -1,7 +1,7 @@
 #include "fd_vm_interp.h"
 
-#include "../ballet/murmur3/fd_murmur3.h"
-#include "../ballet/sbpf/fd_sbpf_maps.c"
+#include "../../ballet/murmur3/fd_murmur3.h"
+#include "../../ballet/sbpf/fd_sbpf_maps.c"
 
 /* Helper function for reading a uchar from VM memory. Returns success or a fault for the memory
  * access. Sets the value pointed to by `val` on success.
@@ -16,7 +16,7 @@ fd_vm_mem_map_read_uchar( fd_vm_exec_context_t * ctx,
     return translation_res;
   }
 
-  
+
   *val = (*(uchar *)vm_mem) & 0xFFUL;
 
   return FD_VM_MEM_MAP_SUCCESS;

@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_src_vm_fd_vm_interp_h
-#define HEADER_fd_src_vm_fd_vm_interp_h
+#ifndef HEADER_fd_src_flamenco_vm_fd_vm_interp_h
+#define HEADER_fd_src_flamenco_vm_fd_vm_interp_h
 
 #include "fd_vm_context.h"
 
@@ -17,4 +17,4 @@ ulong fd_vm_interp_instrs_trace( fd_vm_exec_context_t * ctx, fd_vm_trace_entry_t
 
 FD_PROTOTYPES_END
 
-#endif /* HEADER_fd_src_vm_fd_vm_interp_h */
+#endif /* HEADER_fd_src_flamenco_vm_fd_vm_interp_h */
