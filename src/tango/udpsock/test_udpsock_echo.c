@@ -75,7 +75,7 @@ main( int     argc,
   FD_TEST( sock );
 
   fd_aio_t _aio[1];
-  fd_aio_t * aio = fd_aio_join( fd_aio_new( _aio, (void *)fd_udpsock_get_rx( sock ), echo_aio_recv ) );
+  fd_aio_t * aio = fd_aio_join( fd_aio_new( _aio, (void *)fd_udpsock_get_tx( sock ), echo_aio_recv ) );
   if( FD_UNLIKELY( !aio ) ) FD_LOG_ERR(( "join aio failed" ));
 
   fd_udpsock_set_rx( sock, aio );

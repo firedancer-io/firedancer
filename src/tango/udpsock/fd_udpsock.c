@@ -12,7 +12,7 @@
 /* FD_UDPSOCK_FRAME_ALIGN is the alignment of a packet frame */
 
 #define FD_UDPSOCK_FRAME_ALIGN (16UL)
-#define FD_UDPSOCK_HEADROOM    (18UL+20UL+8UL)  /* Ethernet, IPv4, UDP */
+#define FD_UDPSOCK_HEADROOM    (14UL+20UL+8UL)  /* Ethernet, IPv4, UDP */
 
 struct fd_udpsock {
   fd_aio_t         aio_self;  /* aio provided by udpsock */
@@ -236,7 +236,7 @@ fd_udpsock_set_rx( fd_udpsock_t *   sock,
 }
 
 FD_FN_CONST fd_aio_t const *
-fd_udpsock_get_rx( fd_udpsock_t * sock ) {
+fd_udpsock_get_tx( fd_udpsock_t * sock ) {
   return &sock->aio_self;
 }
 
@@ -327,8 +327,9 @@ fd_udpsock_send( void *                    ctx,
       fd_udp_hdr_t const * udp = (fd_udp_hdr_t const *)( (ulong)ip4 + (ulong)ip4->ihl*4 );
       dport = udp->net_dport;
 
-      sock->tx_iov[i].iov_base = (void *)( (ulong)batch[i].buf + FD_UDPSOCK_HEADROOM );
-      sock->tx_iov[i].iov_len  = batch[i].buf_sz - FD_UDPSOCK_HEADROOM;
+      void * payload = (void *)( (ulong)udp + sizeof(fd_udp_hdr_t) );
+      sock->tx_iov[i].iov_base = payload;
+      sock->tx_iov[i].iov_len  = batch[i].buf_sz - (ulong)( (ulong)payload - (ulong)batch[i].buf );
       struct sockaddr_in * addr = (struct sockaddr_in *)sock->tx_msg[i].msg_hdr.msg_name;
       addr->sin_addr = (struct in_addr) { .s_addr = daddr };
       addr->sin_port = dport;
@@ -354,5 +355,15 @@ fd_udpsock_send( void *                    ctx,
     return FD_AIO_ERR_AGAIN;
   }
   return FD_AIO_SUCCESS;
+}
+
+uint
+fd_udpsock_get_ip4_address( fd_udpsock_t const * sock ) {
+  return sock->ip_self_addr;
+}
+
+uint
+fd_udpsock_get_listen_port( fd_udpsock_t const * sock ) {
+  return sock->udp_self_port;
 }
 

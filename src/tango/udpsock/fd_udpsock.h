@@ -63,13 +63,19 @@ fd_udpsock_set_rx( fd_udpsock_t *   sock,
                    fd_aio_t const * aio );
 
 FD_FN_CONST fd_aio_t const *
-fd_udpsock_get_rx( fd_udpsock_t * sock );
+fd_udpsock_get_tx( fd_udpsock_t * sock );
 
 /* fd_udpsock_service services aio callbacks for incoming packets and
    handles completions for tx requests. */
 
 void
 fd_udpsock_service( fd_udpsock_t * sock );
+
+uint
+fd_udpsock_get_ip4_address( fd_udpsock_t const * sock );
+
+uint
+fd_udpsock_get_listen_port( fd_udpsock_t const * sock );
 
 FD_PROTOTYPES_END
 
