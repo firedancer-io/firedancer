@@ -9,8 +9,6 @@
 #include "tls/fd_quic_tls.h"
 
 #include "../util/fd_net_util.h"
-#include "../../util/net/fd_eth.h"
-#include "../../util/net/fd_ip4.h"
 
 #include <errno.h>
 #include <execinfo.h>
@@ -1002,9 +1000,9 @@ fd_quic_stream_fin( fd_quic_stream_t * stream ) {
 /* packet processing */
 
 struct fd_quic_pkt {
-  fd_quic_eth_t      eth[1];
-  fd_quic_ipv4_t     ipv4[1];
-  fd_quic_udp_t      udp[1];
+  fd_eth_hdr_t       eth[1];
+  fd_ip4_hdr_t       ip4[1];
+  fd_udp_hdr_t       udp[1];
 
   /* the following are the "current" values only. There may be more QUIC packets
      in a UDP datagram */
@@ -1151,9 +1149,9 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
       /* FIXME: For now, just directly replying back to the source MAC
                 address. Works for all symmetric setups, which is the
                 case for most Solana validator deployments. */
-      ulong  dst_mac_addr = fd_ulong_load_6( pkt->eth->src_addr );
-      uint   dst_ip_addr  = pkt->ipv4->saddr;
-      ushort dst_udp_port = pkt->udp->srcport;
+      ulong  dst_mac_addr = fd_ulong_load_6( pkt->eth->src );
+      uint   dst_ip_addr  = pkt->ip4->saddr;
+      ushort dst_udp_port = pkt->udp->net_sport;
 
       /* For now, only supporting QUIC v1.
          QUIC v2 is an active IETF draft as of 2023-Mar:
@@ -2303,7 +2301,7 @@ fd_quic_process_packet( fd_quic_t *   quic,
 
   /* TODO support for vlan? */
 
-  if( pkt.eth->eth_type != FD_ETH_HDR_TYPE_IP ) {
+  if( pkt.eth->net_type != FD_ETH_HDR_TYPE_IP ) {
     DEBUG( FD_LOG_DEBUG(( "Invalid ethertype: %4.4x", pkt.eth->eth_type )); )
     return;
   }
@@ -2312,14 +2310,14 @@ fd_quic_process_packet( fd_quic_t *   quic,
   cur_ptr += rc;
   cur_sz  -= rc;
 
-  rc = fd_quic_decode_ipv4( pkt.ipv4, cur_ptr, cur_sz );
+  rc = fd_quic_decode_ip4( pkt.ip4, cur_ptr, cur_sz );
   if( rc == FD_QUIC_PARSE_FAIL ) {
     /* TODO count failure, log-debug failure */
     return;
   }
 
   /* check version, tot_len, protocol, checksum? */
-  if( ( pkt.ipv4->version != 4 ) | ( pkt.ipv4->protocol != FD_IP4_HDR_PROTOCOL_UDP ) ) {
+  if( ( pkt.ip4->version != 4 ) | ( pkt.ip4->protocol != FD_IP4_HDR_PROTOCOL_UDP ) ) {
     return;
   }
 
@@ -2870,28 +2868,27 @@ fd_quic_tx_buffered( fd_quic_t *      quic,
   /* TODO much of this may be prepared ahead of time */
   fd_quic_pkt_t pkt;
 
-  memcpy( pkt.eth->dst_addr, peer->mac_addr,                 6 );
-  memcpy( pkt.eth->src_addr, quic->config.link.src_mac_addr, 6 );
-  pkt.eth->eth_type = 0x0800;
+  memcpy( pkt.eth->dst, peer->mac_addr,                 6 );
+  memcpy( pkt.eth->src, quic->config.link.src_mac_addr, 6 );
+  pkt.eth->net_type = 0x0800;
 
-  pkt.ipv4->version  = 4;
-  pkt.ipv4->ihl      = 5;
-  pkt.ipv4->dscp     = config->net.dscp; /* could make this per-connection or per-stream */
-  pkt.ipv4->ecn      = 0;                /* explicit congestion notification */
-  pkt.ipv4->tot_len  = (ushort)( 20 + 8 + payload_sz );
-  pkt.ipv4->id       = conn->ipv4_id++;
-  pkt.ipv4->frag_off = 0x4000u; /* don't fragment */
-  pkt.ipv4->ttl      = 64; /* TODO make configurable */
-  pkt.ipv4->protocol = FD_IP4_HDR_PROTOCOL_UDP;
-  pkt.ipv4->check    = 0;
+  pkt.ip4->version      = 4;
+  pkt.ip4->ihl          = 5;
+  pkt.ip4->tos          = (uchar)(config->net.dscp << 2); /* could make this per-connection or per-stream */
+  pkt.ip4->net_tot_len  = (ushort)( 20 + 8 + payload_sz );
+  pkt.ip4->net_id       = conn->ipv4_id++;
+  pkt.ip4->net_frag_off = 0x4000u; /* don't fragment */
+  pkt.ip4->ttl          = 64; /* TODO make configurable */
+  pkt.ip4->protocol     = FD_IP4_HDR_PROTOCOL_UDP;
+  pkt.ip4->check        = 0;
   /* TODO saddr could be zero -- should use the kernel routing table to
      determine an appropriate source address */
-  pkt.ipv4->saddr    = config->net.ip_addr;
-  pkt.ipv4->daddr    = peer  ->net.ip_addr;
+  pkt.ip4->saddr    = config->net.ip_addr;
+  pkt.ip4->daddr    = peer  ->net.ip_addr;
 
-  pkt.udp->srcport   = conn  ->host.udp_port;
-  pkt.udp->dstport   = peer  ->net.udp_port;
-  pkt.udp->length    = (ushort)( 8 + payload_sz );
+  pkt.udp->net_sport = conn  ->host.udp_port;
+  pkt.udp->net_dport = peer  ->net.udp_port;
+  pkt.udp->net_len   = (ushort)( 8 + payload_sz );
   pkt.udp->check     = 0x0000;
 
   /* todo use fd_util Ethernet / IPv4 impl */
@@ -2903,9 +2900,9 @@ fd_quic_tx_buffered( fd_quic_t *      quic,
   cur_ptr += rc;
   cur_sz  -= rc;
 
-  rc = fd_quic_encode_ipv4( cur_ptr, cur_sz, pkt.ipv4 );
+  rc = fd_quic_encode_ip4( cur_ptr, cur_sz, pkt.ip4 );
   if( FD_UNLIKELY( rc == FD_QUIC_PARSE_FAIL ) )
-    FD_LOG_ERR(( "fd_quic_encode_ipv4 failed with buffer overrun" ));
+    FD_LOG_ERR(( "fd_quic_encode_ip4 failed with buffer overrun" ));
 
   /* calc checksum */
   fd_quic_net_ipv4_checksum( cur_ptr );
