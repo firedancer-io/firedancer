@@ -147,7 +147,7 @@ done
 echo "Setting to $((VERIFY_CNT+SHREDDER_CNT+RETRANSMIT_CNT)) queues"
 ethtool -L $IFACE combined $((VERIFY_CNT+SHREDDER_CNT+RETRANSMIT_CNT)) || \
   ethtool -L $IFACE rx $((VERIFY_CNT+SHREDDER_CNT+RETRANSMIT_CNT)) tx $((VERIFY_CNT+SHREDDER_CNT+RETRANSMIT_CNT)) || \
-  sudo ethtool -L $IFACE combined $((VERIFY_CNT+SHREDDER_CNT+RETRANSMIT_CNT)) ||
+  sudo ethtool -L $IFACE combined $((VERIFY_CNT+SHREDDER_CNT+RETRANSMIT_CNT)) || \
   exit $?
 $FD_XDP_CTL unhook-iface $APP $IFACE # okay if this fails
 sleep 1  # work around race condition -- ugly hack
