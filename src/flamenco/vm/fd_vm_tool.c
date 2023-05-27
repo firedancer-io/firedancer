@@ -1,15 +1,15 @@
-#include "../ballet/sbpf/fd_sbpf_loader.h"
+#include "../fd_flamenco_base.h"
+#include "../../ballet/sbpf/fd_sbpf_loader.h"
 #include "fd_vm_interp.h"
 #include "fd_vm_disasm.h"
 #include "fd_vm_syscalls.h"
-#include "../util/fd_util.h"
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <errno.h>
 #include <sys/stat.h>
 
-#include "../ballet/sbpf/fd_sbpf_maps.c"
+#include "../../ballet/sbpf/fd_sbpf_maps.c"
 
 
 struct fd_vm_tool_prog {
