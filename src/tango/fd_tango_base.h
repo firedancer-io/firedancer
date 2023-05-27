@@ -231,7 +231,7 @@ FD_FN_CONST static inline int fd_seq_ne( ulong a, ulong b ) { return a!=b;      
 FD_FN_CONST static inline int fd_seq_ge( ulong a, ulong b ) { return ((long)(a-b))>=0L; }
 FD_FN_CONST static inline int fd_seq_gt( ulong a, ulong b ) { return ((long)(a-b))> 0L; }
 
-FD_FN_CONST static inline ulong fd_seq_inc( ulong a, ulong delta ) { return a+delta; }
+FD_FN_CONST FD_STATIC_INLINE ulong fd_seq_inc( ulong a, ulong delta ) { return a+delta; }
 FD_FN_CONST static inline ulong fd_seq_dec( ulong a, ulong delta ) { return a-delta; }
 
 FD_FN_CONST static inline long fd_seq_diff( ulong a, ulong b ) { return (long)(a-b); }
@@ -244,7 +244,7 @@ FD_FN_CONST static inline long fd_seq_diff( ulong a, ulong b ) { return (long)(a
 
    fd_laddr_to_chunk: vica versa. */
 
-FD_FN_CONST static inline void *    /* Will be aligned FD_CHUNK_ALIGN and in [ chunk0, chunk0 + FD_CHUNK_SZ*(UINT_MAX+1) ) */
+FD_FN_CONST FD_STATIC_INLINE void *    /* Will be aligned FD_CHUNK_ALIGN and in [ chunk0, chunk0 + FD_CHUNK_SZ*(UINT_MAX+1) ) */
 fd_chunk_to_laddr( void * chunk0,   /* Assumed aligned FD_CHUNK_ALIGN */
                    ulong  chunk ) { /* Assumed in [0,UINT_MAX] */
   return (void *)(((ulong)chunk0) + (chunk << FD_CHUNK_LG_SZ));
@@ -293,7 +293,7 @@ fd_frag_meta_seq_sig_query( fd_frag_meta_t const * meta ) { /* Assumed non-NULL 
 /* fd_frag_meta_ctl, fd_frag_meta_ctl_{som,eom,err} pack and unpack the
    fd_frag message reassembly control bits. */
 
-FD_FN_CONST static inline ulong  /* In [0,2^16) */
+FD_FN_CONST FD_STATIC_INLINE ulong  /* In [0,2^16) */
 fd_frag_meta_ctl( ulong orig,    /* Assumed in [0,FD_FRAG_META_ORIG_MAX) */
                   int   som,     /* 0 for false, non-zero for true */
                   int   eom,     /* 0 for false, non-zero for true */

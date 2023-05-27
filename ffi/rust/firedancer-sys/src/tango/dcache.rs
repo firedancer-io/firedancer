@@ -15,6 +15,8 @@ pub use crate::generated::{
     fd_dcache_leave,
     fd_dcache_new,
     fd_dcache_req_data_sz,
+    fd_dcache_compact_wmark,
+    fd_dcache_compact_next,
 };
 use std::os::raw::c_void;
 use crate::generated::FD_CHUNK_LG_SZ;

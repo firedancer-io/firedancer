@@ -195,19 +195,19 @@ fd_dcache_compact_is_safe( void const * base,
    local join and the base / dcache pass fd_dcache_is_compact_safe
    above. */
 
-FD_FN_CONST static inline ulong
+FD_FN_CONST FD_STATIC_INLINE ulong
 fd_dcache_compact_chunk0( void const * base,
                           void const * dcache ) {
   return ((ulong)dcache - (ulong)base) >> FD_CHUNK_LG_SZ;
 }
 
-FD_FN_PURE static inline ulong
+FD_FN_PURE FD_STATIC_INLINE ulong
 fd_dcache_compact_chunk1( void const * base,
                           void const * dcache ) {
   return ((ulong)dcache + fd_dcache_data_sz( (uchar const *)dcache ) - (ulong)base) >> FD_CHUNK_LG_SZ;
 }
 
-FD_FN_PURE static inline ulong
+FD_FN_PURE FD_STATIC_INLINE ulong
 fd_dcache_compact_wmark( void const * base,
                          void const * dcache,
                          ulong        mtu ) {
@@ -259,7 +259,7 @@ fd_dcache_compact_wmark( void const * base,
    enough to cover the worst case frag and the dcache has room at least
    for chunk_mtu*(depth+2)-1 chunks. */
 
-FD_FN_CONST static inline ulong         /* Will be in [chunk0,wmark] */
+FD_FN_CONST FD_STATIC_INLINE ulong         /* Will be in [chunk0,wmark] */
 fd_dcache_compact_next( ulong chunk,    /* Assumed in [chunk0,wmark] */
                         ulong sz,       /* Assumed in [0,mtu] */
                         ulong chunk0,   /* From fd_dcache_compact_chunk0 */

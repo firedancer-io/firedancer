@@ -7,6 +7,7 @@ description = "Safe user-facing wrappers for interacting with Firedancer compone
 license = "Apache-2.0"
 
 [features]
+default = ["frankendancer"]
 frankendancer = ["anyhow", "minstant", "rand"]
 
 [dependencies]

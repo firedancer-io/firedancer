@@ -155,7 +155,6 @@ fd_quic_new( void * mem,
   }
 
   if( FD_UNLIKELY( limits->conn_cnt        ==0UL ) ) return 0UL;
-  if( FD_UNLIKELY( limits->stream_cnt      ==0UL ) ) return 0UL;
   if( FD_UNLIKELY( limits->handshake_cnt   ==0UL ) ) return 0UL;
   if( FD_UNLIKELY( limits->inflight_pkt_cnt==0UL ) ) return 0UL;
   if( FD_UNLIKELY( limits->tx_buf_sz       ==0UL ) ) return 0UL;

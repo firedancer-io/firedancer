@@ -13,6 +13,10 @@
 #include "firedancer/src/disco/fd_disco.h"
 #include "firedancer/src/tango/xdp/fd_xdp.h"
 
+#define FD_HAS_AVX  1
+#define FD_HAS_GFNI 1
+#include "firedancer/src/ballet/reedsol/fd_reedsol_internal.h"
+
 #if FD_MCACHE_LG_INTERLEAVE
 #error "FD_MCACHE_LG_INTERLEAVE unsupported"
 #endif

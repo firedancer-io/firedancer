@@ -1,8 +1,9 @@
 use std::{
-    ptr,
     ffi::CString,
     hint::spin_loop,
     mem::transmute,
+    os::raw::c_void,
+    ptr,
     sync::atomic::{
         compiler_fence,
         Ordering,
@@ -13,18 +14,19 @@ use anyhow::anyhow;
 pub use anyhow::Result;
 use firedancer_sys::{
     tango::{
-        fd_chunk_to_laddr_const,
+        fd_dcache_compact_chunk0,
+        fd_dcache_compact_is_safe,
         fd_dcache_join,
         fd_dcache_leave,
-        fd_frag_meta_seq_query,
         fd_frag_meta_t,
         fd_mcache_depth,
         fd_mcache_join,
         fd_mcache_leave,
-        fd_mcache_line_idx,
-        fd_mcache_seq_laddr_const,
+        fd_mcache_publish,
+        fd_mcache_seq_laddr,
         fd_mcache_seq_query,
-        fd_tempo_lazy_default,
+        fd_mcache_seq_update,
+        fd_tempo_lazy_default, fd_dcache_compact_wmark, fd_chunk_to_laddr, fd_frag_meta_ctl, fd_dcache_compact_next, fd_seq_inc,
     },
     util::{
         fd_pod_query_subpod,
@@ -33,35 +35,40 @@ use firedancer_sys::{
         fd_wksp_pod_map,
     },
 };
-use minstant::Instant;
+use minstant::{Instant, Anchor};
 use rand::prelude::*;
 
 /// TangoTx exposes a simple API for publishing data to a Tango mcache/dcache message queue.
 /// This producer does not respect flow control.
 pub struct TangoTx {
-
     // config
     mcache: *mut fd_frag_meta_t,
     dcache: *mut u8,
-    max_payload_size: usize,
-
-    // pack.out-mcache
-    // 
-
-    receiver: crossbeam_channel::Receiver<Vec<u8>>,
+    max_payload_size: u64,
+    depth: u64,
+    wmark: u64,
+    chunk0: u64,
+    sync: *mut u64,
+    seq: u64,
+    chunk: u64,
+    base: *const c_void,
+    housekeeping_interval_ns: i64,
+    next_housekeeping: Instant, // pack.out-mcache
+                                //
 }
 
+unsafe impl Send for TangoTx {}
+unsafe impl Sync for TangoTx {}
+
 impl TangoTx {
-    pub fn new(
+    pub unsafe fn new(
         pod_gaddr: &str,
-        cfg_path: &str,
-        mcache_path: &str,
-        dcache_path: &str,
-        receiver: crossbeam_channel::Receiver<Vec<u8>>) -> Result<Self> {
+        cfg_path: &str
+    ) -> Result<Self> {
         let pod_gaddr_cstr = CString::new(pod_gaddr).unwrap();
         let cfg_path_cstr = CString::new(cfg_path).unwrap();
 
-        let max_payload_size = 500; // TODO
+        let max_payload_size = 1024 * 1024; // TODO
 
         let mcache: *mut fd_frag_meta_t;
         let dcache: *mut u8;
@@ -72,14 +79,14 @@ impl TangoTx {
 
             mcache = fd_mcache_join(fd_wksp_pod_map(
                 cfg_pod,
-                mcache_path.as_bytes().as_ptr() as *const i8,
+                CString::new("mcache")?.as_ptr() as *const i8,
             ));
             if mcache.is_null() {
                 return Err(anyhow!("fd_mcache_join failed"));
             }
             dcache = fd_dcache_join(fd_wksp_pod_map(
                 cfg_pod,
-                dcache_path.as_bytes().as_ptr() as *const i8,
+                CString::new("dcache")?.as_ptr() as *const i8,
             ));
             if dcache.is_null() {
                 fd_mcache_leave(mcache);
@@ -87,76 +94,91 @@ impl TangoTx {
             }
         }
 
-        Ok(Self {
-            mcache,
-            dcache,
-            max_payload_size,
-            receiver,
-        })
-    }
-
-    pub unsafe fn run(&mut self) -> Result<()> {
         // mcache setup
-        let mcache = self.mcache;
+        let mcache = mcache;
         let depth = fd_mcache_depth(mcache);
-        let sync = fd_mcache_seq_laddr_const(mcache);
-        let mut seq = fd_mcache_seq_query(sync);
+        let sync = fd_mcache_seq_laddr(mcache);
+        let seq = fd_mcache_seq_query(sync);
 
         // Find the base address of the dcache
-        let base = fd_wksp_containing( self.dcache );
+        let base = fd_wksp_containing(dcache as *const c_void) as *const c_void;
         if base.is_null() {
             return Err(anyhow!("fd_wksp_containing failed"));
         }
-
-        let max_pkt_size = 200000; // TODO: choose better number
+        println!("base: {:?}. seq{}", base, seq);
 
         // Check to see if the dcache base address is safe
-        if !fd_dcache_compact_is_safe( base, dcache, pkt_max, depth ) {
+        if 0 == fd_dcache_compact_is_safe(base, dcache as *const c_void, max_payload_size, depth) {
             return Err(anyhow!("dcache not compatible with wksp base, pkt-framing, pkt-payload-max and mcache depth"));
         }
 
         // Initialize the chunk location
-        let chunk = fd_dcache_compact_chunk0( base, dcache );
-        ulong wmark  = fd_dcache_compact_wmark ( base, dcache, pkt_max );
+        let chunk0: u64 =
+            fd_dcache_compact_chunk0(base as *const c_void, dcache as *const c_void) as u64;
+        let wmark: u64 = fd_dcache_compact_wmark(base, dcache as *const c_void, max_payload_size);
+        let chunk = chunk0;
 
-        // Set frequency of houskeeping operations
-        let mut next_housekeeping = Instant::now();
         let housekeeping_interval_ns = fd_tempo_lazy_default(depth);
+        Ok(Self {
+            mcache,
+            dcache,
+            max_payload_size,
+            depth,
+            wmark,
+            chunk0,
+            sync,
+            seq,
+            chunk,
+            base,
+            housekeeping_interval_ns,
+            next_housekeeping: Instant::now(),
+        })
+    }
+
+    pub unsafe fn publish(&mut self, data: &[u8])  {
+        // Set frequency of houskeeping operations
+
         let mut rng = rand::thread_rng();
 
-        // Continually publish data to the queue
-        loop {
-            // Do housekeeping at intervals
-            let now = Instant::now();
-            if now >= next_housekeeping {
-                // Send synchronization info
-                fd_mcache_seq_update( sync, seq );
+        // Actually publish the data
+        // Pull the latest bytes out of the crossbeam channel
+        let sz = data.len() as u64;
+        // Send the data
+        let p = fd_chunk_to_laddr(transmute(self.base), self.chunk) as *mut u8;
 
-                next_housekeeping = now
-                    + Duration::from_nanos(
-                        rng.gen_range(housekeeping_interval_ns, 2 * housekeeping_interval_ns)
-                            as u64,
-                    );
-            }
+        ptr::copy_nonoverlapping(data.as_ptr(), p, data.len());
 
-            // Actually publish the data
-            // Pull the latest bytes out of the crossbeam channel
-            if ( let Ok(bs) = self.receiver.try_recv() ) {
-                // Send the data
-                let p = fd_chunk_to_laddr_const(
-                    transmute(base),
-                    chunk
-                ) as *const u8;
-                let mut bytes = Vec::with_capacity(size.into());
-                ptr::copy_nonoverlapping(bytes.as_mut_ptr(), chunk, size.into());
+        let now = Instant::now();
+        let nowv = now.as_unix_nanos(&Anchor::new());
+        let ctl = fd_frag_meta_ctl(0, 1, 1, 0);
+        fd_mcache_publish(
+            self.mcache,
+            self.depth,
+            self.seq,
+            sz,
+            self.chunk,
+            sz,
+            ctl,
+            nowv,
+            nowv,
+        );
 
-                let ctl = fd_frag_meta_ctl( 0, 1, 1, 0 );
-                fd_mcache_publish( mcache, depth, seq, seq, chunk, size.into(), ctl, now, now );
-            }
+        self.chunk = fd_dcache_compact_next(self.chunk, sz, self.chunk0, self.wmark);
+        self.seq = fd_seq_inc(self.seq, 1);
 
-            chunk = fd_dcache_compact_next( chunk, sz, chunk0, wmark );
-            seq   = fd_seq_inc( seq, 1 );
+        // Do housekeeping at intervals
+
+        if now >= self.next_housekeeping {
+            // Send synchronization info
+            fd_mcache_seq_update(self.sync, self.seq);
+
+            self.next_housekeeping = now
+                + Duration::from_nanos(rng.gen_range(
+                    self.housekeeping_interval_ns,
+                    2 * self.housekeeping_interval_ns,
+                ) as u64);
         }
+        // Ok(())
     }
 }
 

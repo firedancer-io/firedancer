@@ -17,5 +17,8 @@ pub use tempo::*;
 pub use xdp::*;
 pub use crate::generated::{
     fd_chunk_to_laddr_const,
+    fd_chunk_to_laddr,
+    fd_frag_meta_ctl,
     fd_frag_meta_seq_query,
+    fd_seq_inc
 };

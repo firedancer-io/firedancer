@@ -5,6 +5,8 @@ pub mod log;
 pub mod pack_rx;
 pub mod pod;
 pub mod wksp;
+#[cfg(feature = "frankendancer")]
+pub mod tango_tx;
 
 use firedancer_sys::util;
 use std::ffi::c_int;
