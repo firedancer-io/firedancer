@@ -15,6 +15,8 @@ struct __attribute__((aligned(32UL))) set_ctx {
   ulong                 sig_tag;
   fd_fec_set_t *        set;
   fd_bmtree_commit_t  * tree;
+  ulong                 next_tag;
+  ulong                 prev_tag;
   uint                  total_rx_shred_cnt;
   uint                  parity_fec_set_idx;
 };
@@ -43,18 +45,19 @@ struct __attribute__((aligned(FD_FEC_RESOLVER_ALIGN))) fd_fec_resolver {
      ignored.  This tcache has depth done_depth. */
   fd_tcache_t * done;
 
-  /* curr_tc: stores tags of signatures of FEC sets that are
-     currently in progress.  If a tag is in curr_tc, it must also be in
-     curr_ctx.  This tcache is used mostly for it's LRU properties, not
-     for searching.  It tells us which element to remove from the map
-     when we need to remove one.  The depth of this tcache is `depth` */
-  fd_tcache_t * curr_tc;
-
   /* curr_map: A map (using fd_map_dynamic) from tags of signatures to
      the context object with its relavant data.  This map contains at
      most `depth` elements at any time, but to improve query performace,
      we size it at 2*depth. */
   set_ctx_t   * curr_map;
+
+  /* curr_{head,tail}_tag: The elements of curr_map also make
+     essentially a doubly linked list using the next_tag and prev_tag
+     fields.  Each contains the sig_tag field of the element that's one
+     older/newer than it, respectively.  Head gives the sig_tag of the
+     newest, and tail gives the sig_tag of the oldest. */
+  ulong curr_head_tag;
+  ulong curr_tail_tag;
 
   /* freelist: A deque (using fd_deque_dynamic) that stores the other
      set_ctx_t objects that are not in curr_ctx.  The max size of this
@@ -79,7 +82,6 @@ fd_fec_resolver_footprint( ulong depth, ulong done_depth ) {
   ulong scratch_top = 0UL;
   SCRATCH_ALLOC( FD_FEC_RESOLVER_ALIGN,   sizeof(fd_fec_resolver_t)                                                  );
   SCRATCH_ALLOC( FD_TCACHE_ALIGN,         fd_tcache_footprint( done_depth, fd_tcache_map_cnt_default( done_depth ) ) );
-  SCRATCH_ALLOC( FD_TCACHE_ALIGN,         fd_tcache_footprint( depth,      fd_tcache_map_cnt_default( depth      ) ) );
   SCRATCH_ALLOC( ctx_map_align(),         ctx_map_footprint( lg_depth+1 )                                            );
   SCRATCH_ALLOC( freelist_align(),        freelist_footprint( depth )                                                );
   SCRATCH_ALLOC( FD_BMTREE_COMMIT_ALIGN,  depth*fd_bmtree_commit_footprint( INCLUSION_PROOF_LAYERS )                 );
@@ -90,16 +92,15 @@ ulong fd_fec_resolver_align    ( void        ) { return FD_FEC_RESOLVER_ALIGN; }
 
 void *
 fd_fec_resolver_new( void * shmem, ulong depth, ulong done_depth, fd_fec_set_t * sets ) {
+  if( FD_UNLIKELY( depth==0 ) ) return 0UL;
   if( FD_UNLIKELY( !fd_ulong_is_pow2( depth ) ) ) return 0UL;
   int lg_depth = fd_ulong_find_msb( depth );
 
-  ulong map_cnt      = fd_tcache_map_cnt_default( depth      );
   ulong done_map_cnt = fd_tcache_map_cnt_default( done_depth );
 
   ulong scratch_top = (ulong)shmem;
   void * self      = SCRATCH_ALLOC( FD_FEC_RESOLVER_ALIGN,  sizeof(fd_fec_resolver_t)                                  );
   void * done      = SCRATCH_ALLOC( FD_TCACHE_ALIGN,        fd_tcache_footprint( done_depth, done_map_cnt            ) );
-  void * curr_tc   = SCRATCH_ALLOC( FD_TCACHE_ALIGN,        fd_tcache_footprint( depth,      map_cnt                 ) );
   void * curr_map  = SCRATCH_ALLOC( ctx_map_align(),        ctx_map_footprint( lg_depth+1 )                            );
   void * _freelist = SCRATCH_ALLOC( freelist_align(),       freelist_footprint( depth )                                );
   void * trees     = SCRATCH_ALLOC( FD_BMTREE_COMMIT_ALIGN, depth*fd_bmtree_commit_footprint( INCLUSION_PROOF_LAYERS ) );
@@ -107,8 +108,7 @@ fd_fec_resolver_new( void * shmem, ulong depth, ulong done_depth, fd_fec_set_t *
   fd_fec_resolver_t * resolver = (fd_fec_resolver_t *)self;
 
   if( FD_UNLIKELY( !fd_tcache_new( done,     done_depth, done_map_cnt )) ) { FD_LOG_WARNING(("tcache_new failed"  )); return NULL; }
-  if( FD_UNLIKELY( !fd_tcache_new( curr_tc,  depth,      map_cnt      )) ) { FD_LOG_WARNING(("tcache_new failed"  )); return NULL; }
-  if( FD_UNLIKELY( !ctx_map_new(   curr_map, lg_depth                 )) ) { FD_LOG_WARNING(("ctx_map_new failed" )); return NULL; }
+  if( FD_UNLIKELY( !ctx_map_new(   curr_map, lg_depth+1               )) ) { FD_LOG_WARNING(("ctx_map_new failed" )); return NULL; }
   if( FD_UNLIKELY( !freelist_new( _freelist, depth                    )) ) { FD_LOG_WARNING(("freelist_new failed")); return NULL; }
   if( FD_UNLIKELY( !fd_sha512_new( (void *)resolver->sha512           )) ) { FD_LOG_WARNING(("sha512_new failed"  )); return NULL; }
 
@@ -120,9 +120,14 @@ fd_fec_resolver_new( void * shmem, ulong depth, ulong done_depth, fd_fec_set_t *
     ctx->tree               = (fd_bmtree_commit_t *)( (uchar *)trees + i*fd_bmtree_commit_footprint( INCLUSION_PROOF_LAYERS ) );
     ctx->total_rx_shred_cnt = 0U;
     ctx->parity_fec_set_idx = 0U;
+    ctx->next_tag           = 0UL;
+    ctx->prev_tag           = 0UL;
   }
 
   freelist_leave( freelist );
+
+  resolver->curr_head_tag = 0UL;
+  resolver->curr_tail_tag = 0UL;
 
   resolver->depth      = depth;
   resolver->done_depth = done_depth;
@@ -137,18 +142,15 @@ fd_fec_resolver_join( void * shmem ) {
 
   int lg_depth = fd_ulong_find_msb( depth );
 
-  ulong map_cnt      = fd_tcache_map_cnt_default( depth      );
   ulong done_map_cnt = fd_tcache_map_cnt_default( done_depth );
 
   ulong scratch_top = (ulong)shmem;
   /*     self    */ SCRATCH_ALLOC( FD_FEC_RESOLVER_ALIGN,  sizeof(fd_fec_resolver_t)                       );
   void * done     = SCRATCH_ALLOC( FD_TCACHE_ALIGN,        fd_tcache_footprint( done_depth, done_map_cnt ) );
-  void * curr_tc  = SCRATCH_ALLOC( FD_TCACHE_ALIGN,        fd_tcache_footprint( depth,      map_cnt      ) );
   void * curr_map = SCRATCH_ALLOC( ctx_map_align(),        ctx_map_footprint( lg_depth+1 )                 );
   void * freelist = SCRATCH_ALLOC( freelist_align(),       freelist_footprint( depth )                     );
 
   resolver->done     = fd_tcache_join( done );
-  resolver->curr_tc  = fd_tcache_join( curr_tc );
   resolver->curr_map = ctx_map_join( curr_map );
   resolver->freelist = freelist_join( freelist );
   fd_sha512_join( resolver->sha512 );
@@ -166,17 +168,16 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t * resolver, fd_shred_t const * shre
   ulong        * done_ring     = fd_tcache_ring_laddr(   done );
   ulong        * done_map      = fd_tcache_map_laddr(    done );
 
-  fd_tcache_t  * curr_tc       = resolver->curr_tc;
-  ulong          curt_depth    = fd_tcache_depth(        curr_tc );
-  ulong          curt_map_cnt  = fd_tcache_map_cnt(      curr_tc );
-  ulong        * curt_oldest   = fd_tcache_oldest_laddr( curr_tc );
-  ulong        * curt_ring     = fd_tcache_ring_laddr(   curr_tc );
-  ulong        * curt_map      = fd_tcache_map_laddr(    curr_tc );
-
   set_ctx_t    * freelist      = resolver->freelist;
   set_ctx_t    * curr_map      = resolver->curr_map;
 
   fd_reedsol_t * reedsol       = resolver->reedsol;
+
+  /* Invariants:
+      * no key is in both the done tcache and the current tcache
+      * each set pointer provided to the new function is in exactly one
+          of curr_map and freelist
+   */
 
   int dup = 0;
   /* Note: we identify FEC sets by the first 64 bits of their signature.
@@ -226,8 +227,11 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t * resolver, fd_shred_t const * shre
     } else {
       /* Packet loss is really high and we have a lot of in-progress FEC
          sets that we haven't been able to finish.  Take the oldest. */
-      ctx = ctx_map_query( curr_map, *curt_oldest, NULL );
-      if( FD_UNLIKELY( !ctx ) ) FD_LOG_ERR(( "data structures not in sync" ));
+      ulong oldest_key = resolver->curr_tail_tag;
+      ctx = ctx_map_query( curr_map, oldest_key, NULL );
+      if( FD_UNLIKELY( !ctx ) ) FD_LOG_ERR(( "data structures not in sync. Couldn't find %lx in the map", oldest_key ));
+      resolver->curr_tail_tag = ctx->prev_tag;
+
       /* Add this one that we're sacrificing to the done tcache to
          prevent the possibility of thrashing. */
       FD_TCACHE_INSERT( dup, *done_oldest, done_ring, done_depth, done_map, done_map_cnt, ctx->sig_tag );
@@ -258,18 +262,25 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t * resolver, fd_shred_t const * shre
 
     /* This seems like a legitimate FEC set, so we can reserve some
        resources for it. */
-
-    FD_TCACHE_INSERT( dup, *curt_oldest, curt_ring, curt_depth, curt_map, curt_map_cnt, signature );
     set_ctx_t * e = ctx_map_insert( curr_map, signature );
     e->set  = ctx->set;
     e->tree = ctx->tree;
     e->total_rx_shred_cnt = 0UL;
 
+    e->next_tag = resolver->curr_head_tag;
+    e->prev_tag = 0UL;
+    /* If the list is not empty, update the prev pointer of the old
+     * head.  Otherwise, assign the tail to this too. */
+    if( FD_LIKELY( resolver->curr_head_tag ) ) ctx_map_query( curr_map, resolver->curr_head_tag, NULL )->prev_tag = signature;
+    else                                                                                  resolver->curr_tail_tag = signature;
+
+    resolver->curr_head_tag = signature;
+
     /* Reset the FEC set */
     e->set->data_shred_cnt   = SHRED_CNT_NOT_SET;
     e->set->parity_shred_cnt = SHRED_CNT_NOT_SET;
-    d_present_join( d_present_new( d_present_delete( d_present_join( e->set->data_shred_present   ) ) ) );
-    p_present_join( p_present_new( p_present_delete( p_present_join( e->set->parity_shred_present ) ) ) );
+    d_present_join( d_present_new( d_present_delete( d_present_leave( e->set->data_shred_present   ) ) ) );
+    p_present_join( p_present_new( p_present_delete( p_present_leave( e->set->parity_shred_present ) ) ) );
 
     ctx = e;
   } else {
@@ -306,6 +317,14 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t * resolver, fd_shred_t const * shre
   /* At this point, the FEC set is either valid or permanently invalid,
      so we can consider it done either way. */
   freelist_push_tail( freelist, *ctx );
+
+  /* Is this one first? */
+  if( FD_UNLIKELY( signature==resolver->curr_head_tag ) ) resolver->curr_head_tag                                  = ctx->next_tag;
+  else                                                    ctx_map_query( curr_map, ctx->prev_tag, NULL )->next_tag = ctx->next_tag;
+  /* Is this one last? If it's the only one, it's both first and last. */
+  if( FD_UNLIKELY( signature==resolver->curr_tail_tag ) ) resolver->curr_tail_tag                                  = ctx->prev_tag;
+  else                                                    ctx_map_query( curr_map, ctx->next_tag, NULL )->prev_tag = ctx->prev_tag;
+
   ctx_map_remove( curr_map, ctx );
   FD_TCACHE_INSERT( dup, *done_oldest, done_ring, done_depth, done_map, done_map_cnt, signature );
 
@@ -376,7 +395,6 @@ void * fd_fec_resolver_leave( fd_fec_resolver_t * resolver ) {
   fd_sha512_leave( resolver->sha512   );
   freelist_leave(  resolver->freelist );
   ctx_map_leave(   resolver->curr_map );
-  fd_tcache_leave( resolver->curr_tc  );
   fd_tcache_leave( resolver->done     );
 
   return (void *)resolver;

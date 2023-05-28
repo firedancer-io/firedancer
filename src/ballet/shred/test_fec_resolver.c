@@ -42,6 +42,13 @@ sets_eq( fd_fec_set_t * a, fd_fec_set_t * b ) {
   return 1;
 }
 
+static inline uchar *
+allocate_fec_set( fd_fec_set_t * set, uchar * ptr ) {
+  for( ulong j=0UL; j<FD_REEDSOL_DATA_SHREDS_MAX;   j++ ) { set->data_shreds[   j ] = ptr;     ptr += 2048UL; }
+  for( ulong j=0UL; j<FD_REEDSOL_PARITY_SHREDS_MAX; j++ ) { set->parity_shreds[ j ] = ptr;     ptr += 2048UL; }
+  return ptr;
+}
+
 static void
 test_one_batch( void ) {
   fd_shredder_t _shredder[ 1 ];
@@ -56,15 +63,11 @@ test_one_batch( void ) {
   FD_TEST( fd_shredder_init_batch( shredder, test_bin, test_bin_sz, meta ) );
 
   fd_fec_set_t _set[ 1 ];
-  uchar * ptr = fec_set_memory;
-  for( ulong j=0UL; j<FD_REEDSOL_DATA_SHREDS_MAX;   j++ ) { _set->data_shreds[   j ] = ptr;     ptr += 2048UL; }
-  for( ulong j=0UL; j<FD_REEDSOL_PARITY_SHREDS_MAX; j++ ) { _set->parity_shreds[ j ] = ptr;     ptr += 2048UL; }
-
   fd_fec_set_t out_sets[ 4UL ];
-  for( ulong i=0UL; i<4UL; i++ ) {
-    for( ulong j=0UL; j<FD_REEDSOL_DATA_SHREDS_MAX;   j++ ) { out_sets[i].data_shreds[   j ] = ptr;   ptr += 2048UL; }
-    for( ulong j=0UL; j<FD_REEDSOL_PARITY_SHREDS_MAX; j++ ) { out_sets[i].parity_shreds[ j ] = ptr;   ptr += 2048UL; }
-  }
+  uchar * ptr = fec_set_memory;
+  ptr = allocate_fec_set( _set, ptr );
+
+  for( ulong i=0UL; i<4UL; i++ )  ptr = allocate_fec_set( out_sets+i, ptr );
 
   for( ulong i=0UL; i<7UL; i++ ) {
     fd_fec_set_t * set = fd_shredder_next_fec_set( shredder, test_private_key, test_private_key+32UL, _set );
@@ -102,16 +105,11 @@ test_interleaved( void ) {
 
   fd_fec_set_t _set[ 2 ];
   uchar * ptr = fec_set_memory;
-  for( ulong j=0UL; j<FD_REEDSOL_DATA_SHREDS_MAX;   j++ ) { _set[0].data_shreds[   j ] = ptr;     ptr += 2048UL; }
-  for( ulong j=0UL; j<FD_REEDSOL_PARITY_SHREDS_MAX; j++ ) { _set[0].parity_shreds[ j ] = ptr;     ptr += 2048UL; }
-  for( ulong j=0UL; j<FD_REEDSOL_DATA_SHREDS_MAX;   j++ ) { _set[1].data_shreds[   j ] = ptr;     ptr += 2048UL; }
-  for( ulong j=0UL; j<FD_REEDSOL_PARITY_SHREDS_MAX; j++ ) { _set[1].parity_shreds[ j ] = ptr;     ptr += 2048UL; }
+  ptr = allocate_fec_set( _set+0, ptr );
+  ptr = allocate_fec_set( _set+1, ptr );
 
   fd_fec_set_t out_sets[ 4UL ];
-  for( ulong i=0UL; i<4UL; i++ ) {
-    for( ulong j=0UL; j<FD_REEDSOL_DATA_SHREDS_MAX;   j++ ) { out_sets[i].data_shreds[   j ] = ptr;   ptr += 2048UL; }
-    for( ulong j=0UL; j<FD_REEDSOL_PARITY_SHREDS_MAX; j++ ) { out_sets[i].parity_shreds[ j ] = ptr;   ptr += 2048UL; }
-  }
+  for( ulong i=0UL; i<4UL; i++ ) ptr = allocate_fec_set( out_sets+i, ptr );
 
 
   fd_fec_set_t * set0 = fd_shredder_next_fec_set( shredder, test_private_key, test_private_key+32UL, _set     );
@@ -140,6 +138,53 @@ test_interleaved( void ) {
 }
 
 
+static void
+test_rolloff( void ) {
+  fd_shredder_t _shredder[ 1 ];
+  FD_TEST( _shredder==fd_shredder_new( _shredder ) );
+  fd_shredder_t * shredder = fd_shredder_join( _shredder );           FD_TEST( shredder );
+
+
+  fd_entry_batch_meta_t meta[1];
+  fd_memset( meta, 0, sizeof(fd_entry_batch_meta_t) );
+  meta->block_complete = 1;
+
+  FD_TEST( fd_shredder_init_batch( shredder, test_bin, test_bin_sz, meta ) );
+
+  fd_fec_set_t _set[ 3 ];
+  uchar * ptr = fec_set_memory;
+  ptr = allocate_fec_set( _set+0, ptr );
+  ptr = allocate_fec_set( _set+1, ptr );
+  ptr = allocate_fec_set( _set+2, ptr );
+
+  fd_fec_set_t out_sets[ 2UL ];
+  for( ulong i=0UL; i<2UL; i++ ) ptr = allocate_fec_set( out_sets+i, ptr );
+
+
+  fd_fec_set_t * set0 = fd_shredder_next_fec_set( shredder, test_private_key, test_private_key+32UL, _set     );
+  fd_fec_set_t * set1 = fd_shredder_next_fec_set( shredder, test_private_key, test_private_key+32UL, _set+1UL );
+  fd_fec_set_t * set2 = fd_shredder_next_fec_set( shredder, test_private_key, test_private_key+32UL, _set+2UL );
+  FD_TEST( fd_shredder_fini_batch( shredder ) );
+
+  fd_fec_resolver_t * resolver;
+  resolver = fd_fec_resolver_join( fd_fec_resolver_new( resolver_mem, 2UL, 1UL, out_sets ) );
+  for( ulong j=0UL; j<set0->data_shred_cnt; j++ ) {
+    FD_TEST( !fd_fec_resolver_add_shred( resolver, fd_shred_parse( set0->data_shreds[ j ], 2048UL ), 2048UL ) );
+  }
+  for( ulong j=0UL; j<set1->data_shred_cnt; j++ ) {
+    FD_TEST( !fd_fec_resolver_add_shred( resolver, fd_shred_parse( set1->data_shreds[ j ], 2048UL ), 2048UL ) );
+  }
+  /* At this point we have set0, set1 */
+  for( ulong j=0UL; j<set2->data_shred_cnt; j++ ) {
+    FD_TEST( !fd_fec_resolver_add_shred( resolver, fd_shred_parse( set2->data_shreds[ j ], 2048UL ), 2048UL ) );
+  }
+  /* Now, set0 kicked out and added to done so it'll be ignored. set1
+     and set2 are in progress. */
+  FD_TEST( !fd_fec_resolver_add_shred( resolver, fd_shred_parse( set0->parity_shreds[ 0UL ], 2048UL ), 2048UL ) );
+  FD_TEST( sets_eq( set1, fd_fec_resolver_add_shred( resolver, fd_shred_parse( set1->parity_shreds[ 0UL ], 2048UL ), 2048UL ) ) );
+  FD_TEST( sets_eq( set2, fd_fec_resolver_add_shred( resolver, fd_shred_parse( set2->parity_shreds[ 0UL ], 2048UL ), 2048UL ) ) );
+
+}
 
 static void
 perf_test( void ) {
@@ -184,6 +229,7 @@ main( int     argc,
 
   test_interleaved();
   test_one_batch();
+  test_rolloff();
 
 
   FD_LOG_NOTICE(( "pass" ));
