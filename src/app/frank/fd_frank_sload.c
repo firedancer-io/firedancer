@@ -211,7 +211,7 @@ fd_frank_sload_task( int     argc,
     out_state_t * state = out_state + poll_idx;
 
     double bytes_ready = (double)(now-start)*tx_rate - (double)state->pace_credits;
-    if( FD_LIKELY( bytes_ready >= 0 ) ) {
+    if( FD_LIKELY( bytes_ready > 0 ) ) {
       if( FD_UNLIKELY( state->cr_avail==0UL ) ) {
         now = fd_tickcount();
         backp_cnt++;

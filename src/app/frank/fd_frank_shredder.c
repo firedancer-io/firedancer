@@ -12,7 +12,7 @@
 #include "../../ballet/shred/fd_shredder.h"
 #include "../../ballet/shred/fd_shred.h"
 
-extern char test_private_key[];
+#include <stdio.h> /* Needed for I/O on private key */
 
 struct __attribute__((packed)) fd_shred_pkt {
   fd_eth_hdr_t eth[1];
@@ -68,6 +68,12 @@ fd_net_endpoint_load( uchar const * pod, fd_net_endpoint_t * out ) {
 
   out->ip4  = fd_uint_bswap(   out->ip4 );
   out->port = fd_ushort_bswap( _port );
+
+  if( FD_UNLIKELY( fd_ip4_addr_is_mcast( out->ip4 ) ) ) {
+    fd_eth_mac_ip4_mcast( out->mac, out->ip4 );
+    FD_LOG_NOTICE(( "Multicast address " FD_IP4_ADDR_FMT " detected.  Rewriting mac to " FD_ETH_MAC_FMT, FD_IP4_ADDR_FMT_ARGS( out->ip4 ), FD_ETH_MAC_FMT_ARGS( out->mac ) ));
+  }
+
   return out;
 }
 
@@ -190,6 +196,17 @@ fd_frank_shredder_task( int     argc,
   fd_net_endpoint_t dst[1];
   if( FD_UNLIKELY( !fd_net_endpoint_load( dst_endpt_pod, dst ) ) )
     FD_LOG_ERR(( "parsing network endpoint from %s.shredder.%s.dst_net_endpoint failed", cfg_path, shredder_name ));
+
+  char const * key_path = fd_pod_query_cstr( shredder_pod, "key_path", NULL );
+  if( FD_UNLIKELY( !key_path ) ) FD_LOG_ERR(( "%s.shredder.%s.key_path not found", cfg_path, shredder_name ));
+
+  FILE * key_file = fopen( key_path, "r" );
+  if( FD_UNLIKELY( !key_file ) ) FD_LOG_ERR(( "Opening key file (%s) failed", key_path ));
+
+  uchar shred_key[64];
+  if( FD_UNLIKELY( 1!=fscanf( key_file, "[%hhu", &shred_key[0] ) ) ) FD_LOG_ERR(( "parsing key file failed at pos=0" ));
+  for( ulong i=1UL; i<64UL; i++ ) if( FD_UNLIKELY( 1!=fscanf( key_file, ",%hhu", &shred_key[i] ) ) ) FD_LOG_ERR(( "parsing key file failed at pos=%lu", i ));
+  fclose( key_file );
 
   /* Setup local objects used by this tile */
 
@@ -396,16 +413,16 @@ fd_frank_shredder_task( int     argc,
     /* Make a packet */
     for( ulong i=0UL; i<fec_sets; i++ ) {
 
-      fd_fec_set_t * set = fd_shredder_next_fec_set( shredder, test_private_key, test_private_key+32UL, _set );
+      fd_fec_set_t * set = fd_shredder_next_fec_set( shredder, shred_key, shred_key+32UL, _set );
       for( ulong j=0UL; j<set->data_shred_cnt;   j++ ) {
         data_shred_pkt[j].ip4->net_id = fd_ushort_bswap( net_id++ );
         data_shred_pkt[j].ip4->check  = 0U;
-        data_shred_pkt[j].ip4->check  = fd_ip4_hdr_check( data_shred_pkt[j].ip4 );
+        data_shred_pkt[j].ip4->check  = fd_ip4_hdr_check( ( fd_ip4_hdr_t const *) FD_ADDRESS_OF_PACKED_MEMBER( data_shred_pkt[j].ip4 ) );
       }
       for( ulong j=0UL; j<set->parity_shred_cnt; j++ ) {
         parity_shred_pkt[j].ip4->net_id = fd_ushort_bswap( net_id++ );
         parity_shred_pkt[j].ip4->check  = 0U;
-        parity_shred_pkt[j].ip4->check  = fd_ip4_hdr_check( parity_shred_pkt[j].ip4 );
+        parity_shred_pkt[j].ip4->check  = fd_ip4_hdr_check( ( fd_ip4_hdr_t const *) FD_ADDRESS_OF_PACKED_MEMBER( parity_shred_pkt[j].ip4 ) );
       }
       // FD_LOG_NOTICE(( "Sending %lu + %lu packets", set->data_shred_cnt, set->parity_shred_cnt ));
 

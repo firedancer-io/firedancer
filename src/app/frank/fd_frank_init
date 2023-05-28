@@ -1,8 +1,8 @@
 #!/bin/bash
 
-if [ $# -ne 8 ]; then
+if [ $# -ne 9 ]; then
   echo ""
-  echo "        Usage: $0 [APP_NAME] [APP_CORE_TARGET] [IFACE] [VERIFY_CNT] [SHRED_DST] [SHREDDER_CNT] [RETRANSMIT_CNT] [BUILD]"
+  echo "        Usage: $0 [APP_NAME] [APP_CORE_TARGET] [IFACE] [VERIFY_CNT] [SHRED_DST] [SHREDDER_CNT] [SHRED_KEY_PATH] [RETRANSMIT_CNT] [BUILD]"
   echo ""
   exit 1
 fi
@@ -13,9 +13,10 @@ IFACE=$3
 VERIFY_CNT=$4
 SHRED_DST=$5
 SHREDDER_CNT=$6
-RETRANSMIT_CNT=$7
-BUILD=$8
-shift 8
+SHRED_KEY_PATH=$7
+RETRANSMIT_CNT=$8
+BUILD=$9
+shift 9
 
 #######################################################################
 FD_XDP_CTL=${FD_XDP_CTL:=$BUILD/bin/fd_xdp_ctl}
@@ -70,7 +71,7 @@ export QUIC_MAX_INFLIGHT_PKTS
 export QUIC_TX_BUF_SZ
 export QUIC_RX_BUF_SZ
 
-TURBINE_PORT=9002
+TURBINE_PORT=16016
 TURBINE_CORRUPT_FRACTION=0.1
 SHREDDER_DEPTH=128
 SHREDDER_MTU=1048576
@@ -211,6 +212,7 @@ for((shredder_idx=0;shredder_idx<SHREDDER_CNT;shredder_idx++)); do
     insert "$POD" cstr $APP.shredder.s${shredder_idx}.fseq    $IN_FSEQ   \
     insert "$POD" cstr $APP.shredder.s${shredder_idx}.xsk     $XSK       \
     insert "$POD" cstr $APP.shredder.s${shredder_idx}.xsk_aio $XSK_AIO   \
+    insert "$POD" cstr $APP.shredder.s${shredder_idx}.key_path $SHRED_KEY_PATH   \
     insert "$POD" cstr $APP.shredder.s${shredder_idx}.src_net_endpoint.mac  $SRC_MAC_ADDR        \
     insert "$POD" cstr $APP.shredder.s${shredder_idx}.src_net_endpoint.ip  "${LISTEN_ADDRS[0]}" \
     insert "$POD" ushort $APP.shredder.s${shredder_idx}.src_net_endpoint.port $TURBINE_PORT        \
@@ -233,6 +235,7 @@ for((retransmit_idx=0;retransmit_idx<RETRANSMIT_CNT;retransmit_idx++)); do
     insert "$POD" cstr $APP.retransmit.r${retransmit_idx}.fseq    $IN_FSEQ   \
     insert "$POD" cstr $APP.retransmit.r${retransmit_idx}.xsk     $XSK       \
     insert "$POD" cstr $APP.retransmit.r${retransmit_idx}.xsk_aio $XSK_AIO   \
+    insert "$POD" cstr $APP.retransmit.r${retransmit_idx}.key_path $SHRED_KEY_PATH        \
     insert "$POD" cstr $APP.retransmit.r${retransmit_idx}.src_net_endpoint.mac  $SRC_MAC_ADDR        \
     insert "$POD" cstr $APP.retransmit.r${retransmit_idx}.src_net_endpoint.ip  "${LISTEN_ADDRS[0]}" \
     insert "$POD" ushort $APP.retransmit.r${retransmit_idx}.src_net_endpoint.port $TURBINE_PORT        \
