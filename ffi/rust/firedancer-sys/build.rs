@@ -14,11 +14,11 @@ fn main() {
     let dir = Path::new(&dir_env);
     let firedancer_dir = dir.join("firedancer");
     let machine = "linux_clang_x86_64_ffi_rust".to_string();
-    let build_dir = firedancer_dir.join("build/linux/clang/icelake");
+    let build_dir = firedancer_dir.join("build/linux/clang/x86_64");
 
     // Build the Firedancer sources
     Command::new("make")
-        .arg("-jjjj")
+        .arg("-j")
         .arg("lib")
         .arg("include")
         .current_dir(&firedancer_dir)

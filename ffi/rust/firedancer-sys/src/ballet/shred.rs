@@ -4,6 +4,9 @@ pub use crate::generated::{
     FD_SHRED_DATA_HEADER_SZ,
 };
 pub use crate::generated::fd_shred_parse;
+pub use crate::generated::fd_shredder_count_data_shreds;
+pub use crate::generated::fd_shredder_count_parity_shreds;
+pub use crate::generated::fd_shredder_count_fec_sets;
 
 pub const FD_SHRED_TYPE_LEGACY_CODE: u8 = 0x5;
 pub const FD_SHRED_TYPE_LEGACY_DATA: u8 = 0xA;

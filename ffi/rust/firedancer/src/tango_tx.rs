@@ -1,13 +1,8 @@
 use std::{
     ffi::CString,
-    hint::spin_loop,
     mem::transmute,
     os::raw::c_void,
     ptr,
-    sync::atomic::{
-        compiler_fence,
-        Ordering,
-    },
     time::Duration,
 };
 use anyhow::anyhow;

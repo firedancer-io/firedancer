@@ -101,7 +101,7 @@ void *          fd_shredder_delete( void *          mem      );
    There are two legitimate ways to send certain payload sizes.  We
    always pick the larger value of payload_bytes_per_shred. */
 #define NORMAL_FEC_SET_PAYLOAD_SZ (31840UL)
-FD_FN_CONST static inline ulong
+FD_FN_CONST FD_STATIC_INLINE ulong
 fd_shredder_count_fec_sets(      ulong sz_bytes ) {
   /* if sz_bytes < 2*31840, we make 1 FEC set.  If sz_bytes is a
      multiple of 31840, we make exactly sz_bytes/31840 sets.  Otherwise,
@@ -109,7 +109,7 @@ fd_shredder_count_fec_sets(      ulong sz_bytes ) {
      These cases can be simplified to make it branchless: */
   return fd_ulong_max( sz_bytes, 2UL*NORMAL_FEC_SET_PAYLOAD_SZ - 1UL ) / NORMAL_FEC_SET_PAYLOAD_SZ;
 }
-FD_FN_CONST static inline ulong
+FD_FN_CONST FD_STATIC_INLINE ulong
 fd_shredder_count_data_shreds(   ulong sz_bytes ) {
   ulong normal_sets = fd_shredder_count_fec_sets( sz_bytes ) - 1UL;
   ulong remaining_bytes = sz_bytes - normal_sets * NORMAL_FEC_SET_PAYLOAD_SZ;
@@ -120,7 +120,7 @@ fd_shredder_count_data_shreds(   ulong sz_bytes ) {
   else                                                 shreds +=                    (remaining_bytes +  954UL)/ 955UL;
   return shreds;
 }
-FD_FN_CONST static inline ulong
+FD_FN_CONST FD_STATIC_INLINE ulong
 fd_shredder_count_parity_shreds( ulong sz_bytes ) {
   ulong normal_sets = fd_shredder_count_fec_sets( sz_bytes ) - 1UL;
   ulong remaining_bytes = sz_bytes - normal_sets * NORMAL_FEC_SET_PAYLOAD_SZ;
