@@ -478,12 +478,17 @@ main( int     argc,
     tile_cnc[ tile_idx ] = fd_cnc_join( fd_wksp_pod_map( cfg_pod, "sload.cnc" ) );
     if( FD_UNLIKELY( !tile_cnc[ tile_idx ] ) ) FD_LOG_ERR(( "fd_cnc_join failed" ));
     if( FD_UNLIKELY( fd_cnc_app_sz( tile_cnc[ tile_idx ] )<64UL ) ) FD_LOG_ERR(( "cnc app sz should be at least 64 bytes" ));
-    FD_LOG_INFO(( "joining %s.shredder.s0.mcache", cfg_path ));
-    tile_mcache[ tile_idx ] = fd_mcache_join( fd_wksp_pod_map( cfg_pod, "shredder.s0.mcache" ) );
-    if( FD_UNLIKELY( !tile_mcache[ tile_idx ] ) ) FD_LOG_ERR(( "fd_mcache_join failed" ));
-    FD_LOG_INFO(( "joining %s.shredder.s0.fseq", cfg_path ));
-    tile_fseq[ tile_idx ] = fd_fseq_join( fd_wksp_pod_map( cfg_pod, "shredder.s0.fseq" ) );
-    if( FD_UNLIKELY( !tile_fseq[ tile_idx ] ) ) FD_LOG_ERR(( "fd_fseq_join failed" ));
+    if( shredder_cnt ) {
+      FD_LOG_INFO(( "joining %s.shredder.s0.mcache", cfg_path ));
+      tile_mcache[ tile_idx ] = fd_mcache_join( fd_wksp_pod_map( cfg_pod, "shredder.s0.mcache" ) );
+      if( FD_UNLIKELY( !tile_mcache[ tile_idx ] ) ) FD_LOG_ERR(( "fd_mcache_join failed" ));
+      FD_LOG_INFO(( "joining %s.shredder.s0.fseq", cfg_path ));
+      tile_fseq[ tile_idx ] = fd_fseq_join( fd_wksp_pod_map( cfg_pod, "shredder.s0.fseq" ) );
+      if( FD_UNLIKELY( !tile_fseq[ tile_idx ] ) ) FD_LOG_ERR(( "fd_fseq_join failed" ));
+    } else {
+      tile_mcache[ tile_idx ] = NULL;
+      tile_fseq[   tile_idx ] = NULL;
+    }
     tile_idx++;
 
     for( fd_pod_iter_t iter = fd_pod_iter_init( verify_pods ); !fd_pod_iter_done( iter ); iter = fd_pod_iter_next( iter ) ) {
@@ -558,8 +563,10 @@ main( int     argc,
       tile_cnc [ tile_idx ] = fd_cnc_join( fd_wksp_pod_map( retransmit_pod, "cnc" ) );
       if( FD_UNLIKELY( !tile_cnc[tile_idx] ) ) FD_LOG_ERR(( "fd_cnc_join failed" ));
       if( FD_UNLIKELY( fd_cnc_app_sz( tile_cnc[ tile_idx ] )<64UL ) ) FD_LOG_ERR(( "cnc app sz should be at least 64 bytes" ));
+      FD_LOG_INFO(( "joining %s.retransmit.%s.fseq", cfg_path, retransmit_name ));
+      tile_fseq[ tile_idx ] = fd_fseq_join( fd_wksp_pod_map( retransmit_pod, "fseq" ) );
+      if( FD_UNLIKELY( !tile_fseq[ tile_idx ] ) ) FD_LOG_ERR(( "fd_fseq_join failed" ));
       tile_mcache[ tile_idx ] = NULL;
-      tile_fseq[   tile_idx ] = NULL;
       tile_idx++;
     }
   } while(0);
@@ -652,6 +659,9 @@ main( int     argc,
     printf_link( snap_prv, snap_cur, tile_name, tile_dedup_idx, tile_pack_idx, dt );
     for( ulong tile_idx=tile_shredder_idx0; tile_idx<tile_shredder_idx1; tile_idx++ ) {
       printf_link( snap_prv, snap_cur, tile_name, tile_idx, tile_sload_idx, dt );
+    }
+    for( ulong tile_idx=tile_retransmit_idx0; tile_idx<tile_retransmit_idx1; tile_idx++ ) {
+      printf_link( snap_prv, snap_cur, tile_name, tile_idx, tile_idx, dt );
     }
     printf( TEXT_NEWLINE );
 

@@ -82,6 +82,9 @@ struct forwarding_ctx {
   fd_net_endpoint_t src;
   fd_net_endpoint_t dst;
 
+  ulong accum_pub_cnt;
+  ulong accum_pub_sz;
+
   fd_aio_pkt_info_t * * data_batches; /* indexed [i][j], where i in [0, depth), j in [0, FD_REEDSOL_DATA_SHREDS_MAX) */
   fd_aio_pkt_info_t * * parity_batches;/* indexed [i][j], where i in [0, depth), j in [0, FD_REEDSOL_PARITY_SHREDS_MAX) */
 
@@ -102,7 +105,9 @@ handle_rx_shred( void *                    _ctx,
   fd_fec_set_t * to_send = fd_fec_resolver_add_shred( ctx->resolver, shred, shred_sz );
   if( FD_UNLIKELY( to_send ) ) {
     long idx = to_send - ctx->sets;
-    FD_LOG_NOTICE(( "Trying to forward set %lu with %lu+%lu packets", idx, to_send->data_shred_cnt, to_send->parity_shred_cnt ));
+    ctx->accum_pub_cnt +=          to_send->data_shred_cnt +          to_send->parity_shred_cnt;
+    ctx->accum_pub_sz  += 1245UL * to_send->data_shred_cnt + 1270UL * to_send->parity_shred_cnt;
+
     /* TODO: Do I want to bother changing the identification field? */
     int send_rc = send_loop_helper( ctx->tx_aio, ctx->data_batches[ idx ], to_send->data_shred_cnt );
     if( FD_UNLIKELY( send_rc<0 ) )  FD_LOG_WARNING(( "AIO send err for data shreds. Error: %s", fd_aio_strerror( send_rc ) ));
@@ -116,18 +121,8 @@ handle_rx( void *                    ctx,
            fd_aio_pkt_info_t const * batch,
            ulong                     batch_cnt,
            ulong *                   opt_batch_idx ) {
-  FD_LOG_NOTICE(( "Got %lu packets (opt batch idx %p)", batch_cnt, (void *)opt_batch_idx ));
-  for( ulong i=0UL; i<batch_cnt; i++ ) {
-    ulong header_sz = offsetof( fd_shred_pkt_t, payload );
-    if( FD_UNLIKELY( batch[i].buf_sz<header_sz ) ) continue;
-    fd_shred_pkt_t * pkt = (fd_shred_pkt_t *)batch[i].buf;
-
-    fd_shred_t const * shred = fd_shred_parse( pkt->payload, batch[i].buf_sz-header_sz );
-    if( FD_UNLIKELY( !shred )) {
-      FD_LOG_NOTICE(( "about to fail on packet %lu of %lu", i, batch_cnt ));
-      FD_LOG_HEXDUMP_ERR(( "packet failed shred pre-parsing", batch[i].buf, batch[i].buf_sz ));
-    }
-  }
+  (void)opt_batch_idx;
+  //FD_LOG_NOTICE(( "Got %lu packets (opt batch idx %p)", batch_cnt, (void *)opt_batch_idx ));
   for( ulong i=0UL; i<batch_cnt; i++ ) {
     ulong header_sz = offsetof( fd_shred_pkt_t, payload );
     if( FD_UNLIKELY( batch[i].buf_sz<header_sz ) ) continue;
@@ -140,7 +135,7 @@ handle_rx( void *                    ctx,
       /* Increment a counter */
     }
   }
-  FD_LOG_NOTICE(( "Done handling packets" ));
+  //FD_LOG_NOTICE(( "Done handling packets" ));
   return FD_AIO_SUCCESS;
 }
 
@@ -182,6 +177,23 @@ fd_frank_retransmit_task( int     argc,
   FD_LOG_INFO(( "loading %s.retransmit.%s.xsk_aio", cfg_path, retransmit_name ));
   fd_xsk_aio_t * xsk_aio = fd_xsk_aio_join( fd_wksp_pod_map( retransmit_pod, "xsk_aio" ), xsk );
   if( FD_UNLIKELY( !xsk_aio ) ) FD_LOG_ERR(( "fd_xsk_aio_join failed" ));
+
+  FD_LOG_INFO(( "joining %s.retransmit.%s.fseq", cfg_path, retransmit_name ));
+  ulong * fseq = fd_fseq_join( fd_wksp_pod_map( retransmit_pod, "fseq" ) );
+  if( FD_UNLIKELY( !fseq ) ) FD_LOG_ERR(( "fd_fseq_join failed" ));
+  ulong * fseq_diag = (ulong *)fd_fseq_app_laddr( fseq );
+  if( FD_UNLIKELY( !fseq_diag ) ) FD_LOG_ERR(( "fd_fseq_app_laddr failed" ));
+  FD_VOLATILE( fseq_diag[ FD_FSEQ_DIAG_SLOW_CNT ] ) = 0UL;
+
+  FD_COMPILER_MFENCE();
+  fseq_diag[ FD_FSEQ_DIAG_PUB_CNT   ] = 0UL;
+  fseq_diag[ FD_FSEQ_DIAG_PUB_SZ    ] = 0UL;
+  fseq_diag[ FD_FSEQ_DIAG_FILT_CNT  ] = 0UL;
+  fseq_diag[ FD_FSEQ_DIAG_FILT_SZ   ] = 0UL;
+  fseq_diag[ FD_FSEQ_DIAG_OVRNP_CNT ] = 0UL;
+  fseq_diag[ FD_FSEQ_DIAG_OVRNR_CNT ] = 0UL;
+  fseq_diag[ FD_FSEQ_DIAG_SLOW_CNT  ] = 0UL;
+  FD_COMPILER_MFENCE();
 
   forwarding_ctx_t ctx[1];
 
@@ -331,6 +343,8 @@ fd_frank_retransmit_task( int     argc,
   ctx->parity_batches = parity_batches;
   ctx->resolver       = resolver;
   ctx->sets           = sets;
+  ctx->accum_pub_cnt   = 0UL;
+  ctx->accum_pub_sz    = 0UL;
 
   fd_xsk_aio_set_rx( xsk_aio, aio );
 
@@ -351,6 +365,13 @@ fd_frank_retransmit_task( int     argc,
 
       /* Send diagnostic info */
       fd_cnc_heartbeat( cnc, now );
+
+      FD_COMPILER_MFENCE();
+      fseq_diag[ FD_FSEQ_DIAG_PUB_CNT   ] += ctx->accum_pub_cnt;
+      fseq_diag[ FD_FSEQ_DIAG_PUB_SZ    ] += ctx->accum_pub_sz;
+      FD_COMPILER_MFENCE();
+      ctx->accum_pub_cnt   = 0UL;
+      ctx->accum_pub_sz    = 0UL;
 
       /* Receive command-and-control signals */
       ulong s = fd_cnc_signal_query( cnc );
