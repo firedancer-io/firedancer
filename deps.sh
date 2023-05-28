@@ -1,7 +1,5 @@
 #!/usr/bin/env bash
 
-set -euo pipefail
-
 # Change into Firedancer root directory
 cd "$(dirname "${BASH_SOURCE[0]}")"
 REPO_ROOT="$(pwd)"
@@ -9,6 +7,8 @@ REPO_ROOT="$(pwd)"
 # Fix pkg-config path and environment
 # shellcheck source=./activate-opt
 source activate-opt
+
+set -euo pipefail
 
 # Load OS information
 OS="$(uname -s)"
@@ -401,8 +401,8 @@ install_rocksdb () {
 }
 
 install () {
-  export CC=`which gcc` 
-  export cc=`which gcc` 
+  export CC=`which gcc`
+  export cc=`which gcc`
   ( install_zlib    )
   ( install_bzip2   )
   ( install_zstd    )
