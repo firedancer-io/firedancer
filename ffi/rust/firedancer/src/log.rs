@@ -1,5 +1,6 @@
-use firedancer_sys::util;
 use std::time::SystemTime;
+
+use firedancer_sys::util;
 
 pub fn fd_log_wallclock() -> i64 {
     let now = SystemTime::now();

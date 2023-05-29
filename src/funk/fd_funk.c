@@ -1,7 +1,5 @@
 #include "fd_funk.h"
 
-#if FD_HAS_HOSTED && FD_HAS_X86
-
 ulong
 fd_funk_align( void ) {
   return alignof(fd_funk_t);
@@ -34,7 +32,7 @@ fd_funk_new( void * shmem,
     return NULL;
   }
 
-  if( FD_UNLIKELY( !((0UL<wksp_tag) & (wksp_tag<=FD_WKSP_ALLOC_TAG_MAX) ) ) ) {
+  if( FD_UNLIKELY( !wksp_tag ) ) {
     FD_LOG_WARNING(( "bad wksp_tag" ));
     return NULL;
   }
@@ -124,6 +122,7 @@ fd_funk_new( void * shmem,
   funk->funk_gaddr = fd_wksp_gaddr_fast( wksp, funk );
   funk->wksp_tag   = wksp_tag;
   funk->seed       = seed;
+  funk->cycle_tag  = 3UL; /* various verify functions use tags 0-2 */
 
   funk->txn_max         = txn_max;
   funk->txn_map_gaddr   = fd_wksp_gaddr_fast( wksp, txn_map ); /* Note that this persists the join until delete */
@@ -245,9 +244,11 @@ fd_funk_verify( fd_funk_t * funk ) {
   TEST( fd_wksp_gaddr_fast( wksp, funk       )==funk_gaddr   );
 
   ulong wksp_tag = fd_funk_wksp_tag( funk );
-  TEST( (0UL<wksp_tag) && (wksp_tag<=FD_WKSP_ALLOC_TAG_MAX) );
+  TEST( !!wksp_tag );
 
   ulong seed = funk->seed; /* seed can be anything */
+
+  TEST( funk->cycle_tag>2UL );
 
   /* Test transaction map */
 
@@ -256,7 +257,7 @@ fd_funk_verify( fd_funk_t * funk ) {
 
   ulong txn_map_gaddr = funk->txn_map_gaddr;
   TEST( txn_map_gaddr );
-  TEST( fd_wksp_tag( wksp, txn_map_gaddr )==wksp_tag );
+  TEST( fd_wksp_tag( wksp, txn_map_gaddr-1UL )==wksp_tag ); /* When txn_max is 0, txn_map_gaddr can be first byte after alloc */
   fd_funk_txn_t * txn_map = fd_funk_txn_map( funk, wksp );
   TEST( txn_map );
   TEST( txn_max==fd_funk_txn_map_key_max( txn_map ) );
@@ -298,7 +299,7 @@ fd_funk_verify( fd_funk_t * funk ) {
 
   ulong rec_map_gaddr = funk->rec_map_gaddr;
   TEST( rec_map_gaddr );
-  TEST( fd_wksp_tag( wksp, rec_map_gaddr )==wksp_tag );
+  TEST( fd_wksp_tag( wksp, rec_map_gaddr-1UL )==wksp_tag ); /* When rec_max is zero, rec_map_gaddr can be first byte after alloc */
   fd_funk_rec_t * rec_map = fd_funk_rec_map( funk, wksp );
   TEST( rec_map );
   TEST( rec_max==fd_funk_rec_map_key_max( rec_map ) );
@@ -338,4 +339,3 @@ fd_funk_verify( fd_funk_t * funk ) {
   return FD_FUNK_SUCCESS;
 }
 
-#endif /* FD_HAS_HOSTED && FD_HAS_X86 */

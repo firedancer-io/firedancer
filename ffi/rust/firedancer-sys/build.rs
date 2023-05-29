@@ -1,11 +1,9 @@
-use std::{
-    env,
-    path::{
-        Path,
-        PathBuf,
-    },
-    process::Command,
+use std::env;
+use std::path::{
+    Path,
+    PathBuf,
 };
+use std::process::Command;
 
 extern crate bindgen;
 
@@ -13,8 +11,18 @@ fn main() {
     let dir_env = env::var("CARGO_MANIFEST_DIR").unwrap();
     let dir = Path::new(&dir_env);
     let firedancer_dir = dir.join("firedancer");
-    let machine = "linux_clang_x86_64_ffi_rust".to_string();
-    let build_dir = firedancer_dir.join("build/linux/clang/x86_64");
+
+    let (machine, build_dir) = if cfg!(feature = "fuzz-asan") {
+        (
+            "linux_clang_fuzz_asan",
+            firedancer_dir.join("build/linux/clang/fuzz_asan"),
+        )
+    } else {
+        (
+            "linux_clang_x86_64_ffi",
+            firedancer_dir.join("build/linux/clang/x86_64_ffi"),
+        )
+    };
 
     // Build the Firedancer sources
     Command::new("make")

@@ -12,7 +12,7 @@
 
 /* fd_xdp_redirect_prog is eBPF ELF object containing the XDP program.
    It is embedded into this program. Build with `make ebpf-bin`. */
-FD_IMPORT_BINARY( fd_xdp_redirect_prog, "build/ebpf/clang/bin/fd_xdp_redirect_prog.o" );
+FD_IMPORT_BINARY( fd_xdp_redirect_prog, "src/tango/xdp/fd_xdp_redirect_prog.o" );
 
 FD_IMPORT_CSTR( fd_xdp_ctl_help, "src/tango/xdp/fd_xdp_ctl_help" );
 

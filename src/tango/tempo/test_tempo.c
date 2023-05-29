@@ -22,8 +22,6 @@ main( int     argc,
     FD_LOG_NOTICE(( "wallclock:   min %8.3f ns   tau %8.2e ns", t0, tau ));
   }
 
-# if FD_HAS_X86
-
   for( ulong iter=0; iter<10; iter++ ) {
     double tau;
     double t0 = fd_tempo_tickcount_model( &tau );
@@ -52,9 +50,6 @@ main( int     argc,
   }
 
 # endif
-# endif
-
-# if FD_HAS_X86
 
   long now;
   long toc;
@@ -85,23 +80,17 @@ main( int     argc,
                     then, tic, jit, now, toc, jot, now-then, toc-tic, jot-jit ));
   }
 
-# endif
-
   for( ulong cr_max=0UL; cr_max<10UL; cr_max++ ) FD_TEST( fd_tempo_lazy_default( cr_max )==(long)(1UL+((9UL*cr_max)/4UL)) );
   FD_TEST( fd_tempo_lazy_default( 954437175UL )==2147483644L );
   FD_TEST( fd_tempo_lazy_default( 954437176UL )==2147483647L );
   FD_TEST( fd_tempo_lazy_default( 954437177UL )==2147483647L );
   FD_TEST( fd_tempo_lazy_default( ULONG_MAX   )==2147483647L );
 
-# if FD_HAS_X86 && FD_HAS_DOUBLE
-
 //FD_TEST( !fd_tempo_async_min(   0L,     1UL, 1.f ) );
 //FD_TEST( !fd_tempo_async_min(   1L,     0UL, 1.f ) );
 //FD_TEST( !fd_tempo_async_min(   1L,     1UL, 0.f ) );
 //FD_TEST( !fd_tempo_async_min( 100L, 10000UL, 1.f ) );
   FD_TEST( fd_ulong_is_pow2( fd_tempo_async_min( 100000L, 1UL, 1.f ) ) );
-
-# endif
 
   for( ulong iter=0UL; iter<1000000UL; iter++ ) {
     ulong async_min = 1UL << (int)(fd_rng_uint( rng ) & 31U );

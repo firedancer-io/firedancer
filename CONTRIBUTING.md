@@ -98,3 +98,7 @@ static inline uint
 fd_rng_seq_set( fd_rng_t * rng,
                 uint       seq );
 ```
+
+### Code Documentation
+
+Some elaborations re code documentation are within https://github.com/firedancer-io/firedancer/pull/302#issuecomment-1530810227

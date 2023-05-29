@@ -438,6 +438,18 @@ ulong fd_log_tid( void );
 
 FD_FN_CONST char const * fd_log_user( void ); /* ptr is CONST, cstr pointed at is PURE */
 
+/* fd_log_group_id_query() returns the status of group_id.  Will be a
+   FD_LOG_GROUP_ID_QUERY_* code.  Positive indicates live, zero
+   indicates dead, negative indicates failure reason. */
+
+#define FD_LOG_GROUP_ID_QUERY_LIVE  (1)  /* group_id is live */
+#define FD_LOG_GROUP_ID_QUERY_DEAD  (0)  /* group_id is not live */
+#define FD_LOG_GROUP_ID_QUERY_INVAL (-1) /* query failed because invalid group_id (e.g. group_id does to map to a host pid) */
+#define FD_LOG_GROUP_ID_QUERY_PERM  (-2) /* query failed because caller lacks permissions */
+#define FD_LOG_GROUP_ID_QUERY_FAIL  (-3) /* query failed for unknown reason (should not happen) */
+
+int fd_log_group_id_query( ulong group_id );
+
 /* FIXME: TID DESC? UID? UID_SET? */
 
 /* Logging helper APIs ************************************************/
@@ -554,6 +566,13 @@ fd_log_private_boot( int *    pargc,
 
 void
 fd_log_private_halt( void );
+
+ulong fd_log_private_main_stack_sz( void ); /* Returns ulimit -s (if reasonable) on success, 0 on failure (logs details) */
+
+void
+fd_log_private_stack_discover( ulong   stack_sz,  /* Size the stack is expected to be */
+                               ulong * _stack0,   /* [*_stack0,*_stack1) is the caller's stack region (will have stack_sz */
+                               ulong * _stack1 ); /* bytes) on success.  Both set to 0UL on failure (logs details). */
 
 /* These are exposed to allow the user to override the values set at
    boot/halt time.  If these are used, they are usually a sign of

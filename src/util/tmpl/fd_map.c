@@ -106,6 +106,10 @@
 
     void mymap_remove( mymap_t * map, mymap_t * entry );
 
+    // Remove all entries from the map. O(map size).
+
+    void mymap_clear( mymap_t * map );
+
     // Query map for key, fast O(1).  Returns a pointer to the map slot
     // holding key or null if key not in map.  The returned pointer
     // lifetime is until the next map remove or map leave.  The caller
@@ -300,6 +304,7 @@ MAP_(new)( void *  shmem ) {
   for( ulong slot_idx=0UL; slot_idx<MAP_SLOT_CNT; slot_idx++ ) map[ slot_idx ].MAP_KEY = (MAP_KEY_NULL);
   return map;
 }
+
 static inline MAP_T * MAP_(join)  ( void *  shmap ) { return (MAP_T *)shmap; }
 static inline void *  MAP_(leave) ( MAP_T * map   ) { return map; }
 static inline void *  MAP_(delete)( void *  shmap ) { return shmap; }
@@ -388,6 +393,11 @@ MAP_(remove)( MAP_T * map,
     MAP_MOVE( map[hole], map[slot] );
   }
   /* never get here */
+}
+
+static inline void
+MAP_(clear)( MAP_T * map ) {
+  for( ulong slot_idx=0UL; slot_idx<MAP_SLOT_CNT; slot_idx++ ) map[ slot_idx ].MAP_KEY = (MAP_KEY_NULL);
 }
 
 FD_FN_PURE FD_FN_UNUSED static MAP_T * /* Work around -Winline */

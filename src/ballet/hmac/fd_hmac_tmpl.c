@@ -1,3 +1,16 @@
+/* Defines a family of functions implementing HMAC over a single hash
+   function.  See fd_hmac.c for example usage.
+
+     #define HASH_ALG       sha256
+     #define HASH_SZ        32UL
+     #define HASH_BLOCK_SZ  64UL
+
+   HASH_ALG is used to resolve names of the hash algorithm functions
+   following fd_sha256 conventions (fd_{HASH_ALG}_{init,append,fini}).
+   HASH_SZ is the byte count of the hash function's output value, and
+   HASH_BLOCK_SZ is the hash function's internal block size (used by
+   HMAC for key expansion). */
+
 #ifndef HASH_ALG
 #error "Define HASH_ALG"
 #endif

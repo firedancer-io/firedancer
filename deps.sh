@@ -78,24 +78,26 @@ nuke () {
   exit 0
 }
 
-fetch_repo () {
+checkout_repo () {
   # Skip if dir already exists
   if [[ -d ./opt/git/"$1" ]]; then
     echo "[~] Skipping $1 fetch as \"$(pwd)/opt/git/$1\" already exists"
+  else
+    echo "[+] Cloning $1 from $2"
+    git -c advice.detachedHead=false clone "$2" "./opt/git/$1" --branch "$3" --depth=1
     echo
-    return 0
   fi
 
-  echo "[+] Cloning $1 from $2"
-  git clone "$2" "./opt/git/$1"
-  echo
-}
+  # Skip if tag already correct
+  if [[ "$(git -C ./opt/git/"$1" describe --tags --abbrev=0)" == "$3" ]]; then
+    return
+  fi
 
-checkout_repo () {
-  echo "[~] Checking out $1 $2"
+  echo "[~] Checking out $1 $3"
   (
     cd ./opt/git/"$1"
-    git -c advice.detachedHead=false checkout "$2"
+    git fetch origin "$3" --depth=1
+    git -c advice.detachedHead=false checkout "$3"
   )
   echo
 }
@@ -103,13 +105,11 @@ checkout_repo () {
 fetch () {
   mkdir -pv ./opt/git
 
-  fetch_repo zlib https://github.com/madler/zlib
-  fetch_repo zstd https://github.com/facebook/zstd
-  fetch_repo openssl https://github.com/quictls/openssl
-
-  checkout_repo zlib "v1.2.13"
-  checkout_repo zstd "v1.5.4"
-  checkout_repo openssl "OpenSSL_1_1_1t-quic1"
+  checkout_repo zlib    https://github.com/madler/zlib       "v1.2.13"
+  checkout_repo bzip2   https://sourceware.org/git/bzip2.git "bzip2-1.0.8"
+  checkout_repo zstd    https://github.com/facebook/zstd     "v1.5.4"
+  checkout_repo openssl https://github.com/quictls/openssl   "OpenSSL_1_1_1t-quic1"
+  checkout_repo rocksdb https://github.com/facebook/rocksdb  "v7.10.2"
 }
 
 check_fedora_pkgs () {
@@ -287,6 +287,30 @@ install_zlib () {
   echo "[+] Successfully installed zlib"
 }
 
+install_bzip2 () {
+  if pkg-config --exists bzip2; then
+    echo "[~] bzip2 already installed at $(pkg-config --path bzip2), skipping installation"
+    return 0
+  fi
+
+  cd ./opt/git/bzip2
+
+  echo "[+] Installing bzip2 to $PREFIX"
+  "${MAKE[@]}" PREFIX="$PREFIX" install
+cat <<EOF > "$PREFIX/lib/pkgconfig/bzip2.pc"
+prefix=$PREFIX
+libdir=$PREFIX/lib
+includedir=$PREFIX/include
+
+Name: bzip2
+Description: bzip2
+Version: $(git describe --tags --abbrev=0)
+Libs: -L\${libdir} -lbz2
+Cflags: -I\${includedir}
+EOF
+  echo "[+] Successfully installed bzip2"
+}
+
 install_zstd () {
   if pkg-config --exists libzstd; then
     echo "[~] zstd already installed at $(pkg-config --path libzstd), skipping installation"
@@ -298,6 +322,22 @@ install_zstd () {
   echo "[+] Installing zstd to $PREFIX"
   "${MAKE[@]}" DESTDIR="$PREFIX" PREFIX="" install-pc install-static install-includes
   echo "[+] Successfully installed zstd"
+
+cat <<EOF > "$PREFIX/lib/pkgconfig/libzstd.pc"
+prefix=
+exec_prefix=\${prefix}
+includedir=$PREFIX/include
+libdir=$PREFIX/lib
+
+Name: zstd
+Description: fast lossless compression algorithm library
+URL: https://facebook.github.io/zstd/
+Version: 1.5.4
+Libs: \${libdir}/libzstd.a
+Libs.private: -pthread
+Cflags: -I\${includedir}
+EOF
+
 }
 
 install_openssl () {
@@ -325,9 +365,48 @@ install_openssl () {
   echo "[~] Installed all dependencies"
 }
 
+install_rocksdb () {
+  cd ./opt/git/rocksdb
+  mkdir -p build
+  cd build
+  cmake .. \
+    -G"Unix Makefiles" \
+    -DCMAKE_INSTALL_PREFIX:PATH="$PREFIX" \
+    -DCMAKE_INSTALL_LIBDIR="lib" \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DROCKSDB_BUILD_SHARED=OFF \
+    -DWITH_GFLAGS=OFF \
+    -DWITH_LIBURING=OFF \
+    -DWITH_BZ2=ON \
+    -DWITH_SNAPPY=OFF \
+    -DWITH_ZLIB=ON \
+    -DWITH_ZSTD=ON \
+    -DWITH_ALL_TESTS=OFF \
+    -DWITH_BENCHMARK_TOOLS=OFF \
+    -DWITH_CORE_TOOLS=OFF \
+    -DWITH_RUNTIME_DEBUG=OFF \
+    -DWITH_TESTS=OFF \
+    -DWITH_TOOLS=OFF \
+    -DWITH_TRACE_TOOLS=OFF \
+    -DZLIB_ROOT="$PREFIX" \
+    -DBZIP2_LIBRARIES="$PREFIX/lib/libbz2.a" \
+    -DBZIP2_INCLUDE_DIR="$PREFIX/include" \
+    -Dzstd_ROOT_DIR="$PREFIX"
+
+  local NJOBS
+  NJOBS=$(( $(nproc) / 2 ))
+  NJOBS=$((NJOBS>0 ? NJOBS : 1))
+  make -j $NJOBS
+  make install
+}
+
 install () {
+  export CC=`which gcc`
+  export cc=`which gcc`
   ( install_zlib    )
+  ( install_bzip2   )
   ( install_zstd    )
+  ( install_rocksdb )
   ( install_openssl )
 
   echo "[~] Done! To wire up $(pwd)/opt with make, run:"

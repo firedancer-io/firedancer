@@ -144,19 +144,29 @@
    (basically do the 256-bit wide parts of "x86intrin.h" work).
    Recommend using the simd/fd_avx.h APIs instead of raw Intel
    intrinsics for readability and to facilitate portability to non-x86
-   platforms.  Implies FD_HAS_SSE.
-
-   Note that the introduction of AVX2 circa 2013 was also around the
-   time SHA extensions were added.  Currently FD_HAS_AVX thus also
-   implies the availability of SHA extensions but we might be more
-   precise in the future. */
+   platforms.  Implies FD_HAS_SSE. */
 
 #ifndef FD_HAS_AVX
 #define FD_HAS_AVX 0
 #endif
 
-#ifndef FD_USE_ATTR_WEAK
-#define FD_USE_ATTR_WEAK 0
+/* FD_HAS_SHANI indicates that the target supports Intel SHA extensions
+   which accelerate SHA-1 and SHA-256 computation.  This extension is
+   also called SHA-NI or SHA_NI (Secure Hash Algorithm New
+   Instructiosn).  Although proposed in 2013, they're only supported on
+   Intel Ice Lake and AMD Zen CPUs and newer.  Implies FD_HAS_AVX. */
+
+#ifndef FD_HAS_SHANI
+#define FD_HAS_SHANI 0
+#endif
+
+/* FD_HAS_GFNI indicates that the target supports Intel Galois Field
+ * extensions, which accelerate operations over binary extension fields,
+ * especially GF(2^8).  These instructions are supported on Intel Ice
+ * Lake and newer and AMD Zen4 and newer CPUs.  Implies FD_HAS_AVX. */
+
+#ifndef FD_HAS_GFNI
+#define FD_HAS_GFNI 0
 #endif
 
 /* Base development environment ***************************************/
@@ -401,7 +411,6 @@ __extension__ typedef unsigned __int128 uint128;
    "pseudo-include".)  Another reminder that make clean and fast builds
    are our friend. */
 
-#if defined(__ELF__)
 #define FD_IMPORT( name, path, type, align, footer )         \
   __asm__( ".section .rodata,\"a\",@progbits\n"              \
            ".type " #name ",@object\n"                       \
@@ -421,24 +430,6 @@ __extension__ typedef unsigned __int128 uint128;
            ".previous\n" );                                  \
   extern type  const name[] __attribute__((aligned(align))); \
   extern ulong const name##_sz
-#elif defined(__MACH__)
-/* TODO support proper alignment – mach as takes 2^n */
-#define FD_IMPORT( name, path, type, align, footer ) \
-  __asm__( ".section __DATA,__const\n"                       \
-           ".globl _" #name "\n"                              \
-           ".align 8, 0x00\n"                                \
-           "_" #name ":\n"                                       \
-           ".incbin \"" path "\"\n"                          \
-           footer "\n"                                       \
-           "_fd_import_" #name "_sz = . - _" #name "\n"       \
-           ".globl _" #name "_sz\n"                           \
-           ".align 8\n"                                      \
-           "_" #name "_sz:\n"                                \
-           ".quad _fd_import_" #name "_sz\n"                 \
-           ".previous\n" );                                  \
-  extern type  const name[] __attribute__((aligned(align))); \
-  extern ulong const name##_sz
-#endif
 
 /* FD_IMPORT_{BINARY,CSTR} are common cases for FD_IMPORT.
 
@@ -522,18 +513,6 @@ fd_type_pun_const( void const * p ) {
    own portability issues.) */
 
 #define FD_FN_UNUSED __attribute__((unused))
-
-#if FD_USE_ATTR_WEAK
-#define FD_STATIC_INLINE __attribute__((weak))
-#else
-#define FD_STATIC_INLINE static inline
-#endif
-
-#if FD_USE_ATTR_WEAK
-#define FD_STATIC_INLINE_COMPLEX __attribute__((weak))
-#else
-#define FD_STATIC_INLINE_COMPLEX FD_FN_UNUSED static
-#endif
 
 /* FD_COMPILER_FORGET(var):  Tells the compiler that it shouldn't use
    any knowledge it has about the provided register-compatible variable
@@ -874,6 +853,44 @@ fd_memset( void  * d,
 
 #endif
 
+/* fd_memeq(s0,s1,sz):  Compares two blocks of memory.  Returns 1 if
+   equal or sz is zero and 0 otherwise.  No memory accesses made if sz
+   is zero (pointers may be invalid).  On x86, uses repe cmpsb which is
+   preferable to __builtin_memcmp in some cases. */
+
+#ifndef FD_USE_ARCH_MEMEQ
+#define FD_USE_ARCH_MEMEQ 1
+#endif
+
+#if FD_HAS_X86 && FD_USE_ARCH_MEMEQ && defined(__GCC_ASM_FLAG_OUTPUTS__) && __STDC_VERSION__>=199901L
+
+FD_FN_PURE static inline int
+fd_memeq( void const * s0,
+          void const * s1,
+          ulong        sz ) {
+  /* ZF flag is set and exported in two cases:
+      a) size is zero (via test)
+      b) buffer is equal (via repe cmpsb) */
+  int r;
+  __asm__( "test %3, %3;"
+           "repe cmpsb"
+         : "=@cce" (r), "+S" (s0), "+D" (s1), "+c" (sz)
+         : "m" (*(char const (*)[sz]) s0), "m" (*(char const (*)[sz]) s1)
+         : "cc" );
+  return r;
+}
+
+#else
+
+FD_FN_PURE static inline int
+fd_memeq( void const * s1,
+          void const * s2,
+          ulong        sz ) {
+  return 0==memcmp( s1, s2, sz );
+}
+
+#endif
+
 /* fd_hash(seed,buf,sz), fd_hash_memcpy(seed,d,s,sz):  High quality
    (full avalanche) high speed variable length buffer -> 64-bit hash
    function (memcpy_hash is often as fast as plain memcpy).  Based on
@@ -893,7 +910,19 @@ fd_hash_memcpy( ulong                    seed,
                 void const * FD_RESTRICT s,
                 ulong                    sz );
 
-#if FD_HAS_X86
+#ifndef FD_TICKCOUNT_STYLE
+#if FD_HAS_X86 /* Use RTDSC */
+#define FD_TICKCOUNT_STYLE 1
+#else /* Use portable fallback */
+#define FD_TICKCOUNT_STYLE 0
+#endif
+#endif
+
+#if FD_TICKCOUNT_STYLE==0 /* Portable fallback (slow).  Ticks at 1 ns / tick */
+
+#define fd_tickcount() fd_log_wallclock() /* TODO: fix ugly pre-log usage */
+
+#elif FD_TICKCOUNT_STYLE==1 /* RTDSC (fast) */
 
 /* fd_tickcount:  Reads the hardware invariant tickcounter ("RDTSC").
    This monotonically increases at an approximately constant rate
@@ -929,15 +958,8 @@ fd_hash_memcpy( ulong                    seed,
 
 #define fd_tickcount() ((long)__builtin_ia32_rdtsc())
 
-#elif FD_HAS_ARM
-
-static inline long
-fd_tickcount( void ) {
-  ulong val;
-  __asm__ volatile("mrs %0, cntvct_el0" : "=r" (val));
-  return (long)val;
-}
-
+#else
+#error "Unknown FD_TICKCOUNT_STYLE"
 #endif
 
 #if FD_HAS_HOSTED

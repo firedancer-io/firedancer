@@ -1,6 +1,6 @@
 #include "../fd_disco.h"
 
-#if FD_HAS_HOSTED && FD_HAS_X86
+#if FD_HAS_HOSTED
 
 FD_STATIC_ASSERT( FD_REPLAY_TILE_SCRATCH_ALIGN<=FD_SHMEM_HUGE_PAGE_SZ, alignment );
 

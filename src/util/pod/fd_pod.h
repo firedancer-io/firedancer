@@ -467,7 +467,7 @@ fd_pod_resize( uchar * pod,
    is done such that the pod_max is reduced to be equal to pod_used and
    the pod header is accordingly compacted (otherwise, the pod_max will
    be unchanged on return).
-   
+
    Regardless of full, all subpods will be recursively fully compacted
    and all cstrs in the pod will have had their padding removed (they
    will be still be '\0' terminated if originally correctly '\0'
@@ -508,7 +508,7 @@ fd_pod_val_type_to_cstr( int    val_type,
    bytes), 0 on failure.  Failure reasons include NULL pod, NULL path,
    one of the path prefixes resolved to a non-subpod, path is already in
    the pod, invalid val_type or no room in pod for val_sz.
-   
+
    If subpods along the path do not exist, they will be created in the
    process.
 
@@ -774,7 +774,7 @@ fd_pod_insert_int128( uchar      * FD_RESTRICT pod,
    failure.  The return pointer's lifetime is the pod's local join
    lifetime or an invalidating operation is done on the pod. */
 
-FD_STATIC_INLINE_COMPLEX uchar const * /* Work around -Winline */
+FD_FN_UNUSED static uchar const * /* Work around -Winline */
 fd_pod_query_subpod( uchar const * FD_RESTRICT pod,
                      char const  * FD_RESTRICT path ) {
   fd_pod_info_t info[1];

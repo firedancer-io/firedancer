@@ -50,7 +50,7 @@
      diagnostic purposes, they are stored in a temporally and/or
      precision compressed representation to free up room for other
      metadata.
-     
+
   -  tsorig is measured on the origin's wallclock and the tspub is
      measured on the consumer facing publisher's wallclock (these are
      often the same wallclock).  As such, tsorig from the same origin
@@ -180,7 +180,7 @@ union __attribute__((aligned(FD_FRAG_META_ALIGN))) fd_frag_meta {
 
        (Note that these instructions require the linear addresses of
        their memory operands to be 16-byte aligned.)
-       
+
      That is accesses to "sse0" and "sse1" below are atomic when AVX
      support is available given the overall structure alignment,
      appropriate intrinsics and what not.  Accesses to avx are likely
@@ -212,7 +212,7 @@ FD_PROTOTYPES_BEGIN
    sequence number reuse is not an issue practically in a real world
    application but sequence number wrapping is if we want to support
    things like initial sequence number randomization for security.
-   
+
    fd_seq_{inc,dec} returns the result of incrementing/decrementing
    sequence number a delta times.
 
@@ -250,7 +250,7 @@ fd_chunk_to_laddr( void * chunk0,   /* Assumed aligned FD_CHUNK_ALIGN */
   return (void *)(((ulong)chunk0) + (chunk << FD_CHUNK_LG_SZ));
 }
 
-FD_FN_CONST FD_STATIC_INLINE void const *
+FD_FN_CONST static inline void const *
 fd_chunk_to_laddr_const( void const * chunk0,
                          ulong        chunk ) {
   return (void const *)(((ulong)chunk0) + (chunk << FD_CHUNK_LG_SZ));
@@ -267,7 +267,7 @@ fd_laddr_to_chunk( void const * chunk0,   /* Assumed aligned FD_CHUNK_ALIGN */
    was made and the call returns.  Assumes meta is valid.  This acts as
    a compiler memory fence. */
 
-FD_STATIC_INLINE ulong
+static inline ulong
 fd_frag_meta_seq_query( fd_frag_meta_t const * meta ) { /* Assumed non-NULL */
   FD_COMPILER_MFENCE();
   ulong seq = FD_VOLATILE_CONST( meta->seq );
@@ -280,7 +280,7 @@ fd_frag_meta_seq_query( fd_frag_meta_t const * meta ) { /* Assumed non-NULL */
 /* fd_frag_met_seq_sig_query returns the sequence number and signature
    pointed to by meta in one atomic read, same semantics as
    fd_frag_meta_seq_query. */
-FD_STATIC_INLINE __m128i
+static inline __m128i
 fd_frag_meta_seq_sig_query( fd_frag_meta_t const * meta ) { /* Assumed non-NULL */
   FD_COMPILER_MFENCE();
   __m128i sse0 = _mm_load_si128( &meta->sse0 );

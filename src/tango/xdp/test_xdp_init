@@ -25,7 +25,7 @@ NETNS1=/var/run/netns/"$IFACE1"
 : "${XSK_TX_DEPTH:=64}"
 : "${AIO_BATCH_CNT:=32}"
 
-: "${XDP_PROGRAM:=build/ebpf/clang/bin/ebpf_xdp_flow.o}"
+: "${XDP_PROGRAM:=src/ballet/ebpf/ebpf_xdp_flow.o}"
 
 if [[ -z "$WKSP" ]]; then
   echo 'Missing $WKSP' >2

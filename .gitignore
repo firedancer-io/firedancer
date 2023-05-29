@@ -9,6 +9,9 @@ target/
 *.lcov
 *.profraw
 
+# Rust
+**/Cargo.lock
+
 # Dependencies
 opt/
 

@@ -1,6 +1,31 @@
-#if !FD_HAS_HOSTED
-#error "Implement logging support for this build target"
+#ifndef FD_LOG_STYLE
+#if FD_HAS_HOSTED
+#define FD_LOG_STYLE 0
+#else
+#error "Define FD_LOG_STYLE for this platform"
 #endif
+#endif
+
+#if FD_LOG_STYLE==0 /* POSIX style */
+
+/* FIXME: SANITIZE VARIOUS USER SET STRINGS */
+
+#define _GNU_SOURCE
+
+#include "fd_log.h"
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <stdarg.h>
+#include <ctype.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <signal.h>
+#include <sched.h>
+#include <time.h>
+#include <syscall.h>
+#include <execinfo.h>
 
 /* TEXT_* are quick-and-dirty color terminal hacks.  Probably should
    do something more robust longer term. */
@@ -48,37 +73,6 @@
 
 #ifndef FD_LOG_FFLUSH_LOG_FILE
 #define FD_LOG_FFLUSH_LOG_FILE 0
-#endif
-
-/* FIXME: SANITIZE VARIOUS USER SET STRINGS */
-
-#if defined(__linux__)
-#define _GNU_SOURCE
-#elif defined(__APPLE__)
-#define _DARWIN_C_SOURCE
-#endif
-
-#include "fd_log.h"
-
-#include <stdio.h>
-#include <stdlib.h>
-#include <stdarg.h>
-#include <ctype.h>
-#include <errno.h>
-#include <fcntl.h>
-#include <unistd.h>
-#include <signal.h>
-#include <sched.h>
-#include <time.h>
-#include <execinfo.h>
-
-#if defined(__linux__)
-#include <syscall.h>
-#elif defined(__APPLE__)
-#include <sys/signal.h>
-#include <sys/syscall.h>
-#include <pthread.h>
-#include "../tile/fd_tile_thread_utils_mac.h"
 #endif
 
 /* APPLICATION LOGICAL ID APIS ****************************************/
@@ -278,21 +272,11 @@ fd_log_private_group_set( char const * group ) {
 
 /* System TID or ULONG_MAX on failure */
 
-#ifdef __APPLE__
-static ulong
-fd_log_private_tid_default( void )
-{
-  uint64_t tid64;
-  pthread_threadid_np( NULL, &tid64 );
-  return (ulong)tid64;
-}
-#else
 static ulong
 fd_log_private_tid_default( void ) {
   long tid = syscall( SYS_gettid );
   return fd_ulong_if( tid>0L, (ulong)tid, ULONG_MAX );
 }
-#endif
 
 static FD_TLS ulong fd_log_private_tid;      /* 0 at thread start */
 static FD_TLS int   fd_log_private_tid_init; /* 0 at thread start */
@@ -320,6 +304,17 @@ fd_log_private_user_set( char const * user ) {
   if( FD_UNLIKELY( !user ) || FD_UNLIKELY( user[0]=='\0') ) user = "[user]";
   if( FD_LIKELY( user!=fd_log_private_user ) )
     fd_cstr_fini( fd_cstr_append_cstr_safe( fd_cstr_init( fd_log_private_user ), user, FD_LOG_NAME_MAX-1UL ) );
+}
+
+int
+fd_log_group_id_query( ulong group_id ) {
+  if( group_id==fd_log_group_id() ) return FD_LOG_GROUP_ID_QUERY_LIVE; /* Avoid O/S call for self queries */
+  pid_t pid = (pid_t)group_id;
+  if( FD_UNLIKELY( ((group_id!=(ulong)pid) | (pid<=(pid_t)0)) ) ) return FD_LOG_GROUP_ID_QUERY_INVAL;
+  if( !kill( (pid_t)group_id, 0 ) ) return FD_LOG_GROUP_ID_QUERY_LIVE;
+  if( FD_LIKELY( errno==ESRCH ) ) return FD_LOG_GROUP_ID_QUERY_DEAD;
+  if( FD_LIKELY( errno==EPERM ) ) return FD_LOG_GROUP_ID_QUERY_PERM;
+  return FD_LOG_GROUP_ID_QUERY_FAIL;
 }
 
 /* WALLCLOCK APIS *****************************************************/
@@ -522,7 +517,7 @@ fd_log_private_0( char const * fmt, ... ) {
   return fd_log_private_log_msg;
 }
 
-char const *
+char const * 
 fd_log_private_hexdump_msg ( char const * descr,
                              void const * mem,
                              ulong        sz ) {
@@ -1018,9 +1013,7 @@ fd_log_private_boot( int  *   pargc,
   fd_log_private_group_id_set( fd_ulong_if( pid>(pid_t)0, (ulong)pid, ULONG_MAX ) );
 
   char const * group = fd_env_strip_cmdline_cstr( pargc, pargv, "--log-group", "FD_LOG_GROUP", NULL );
-#ifndef __APPLE__
   if( !group ) group = program_invocation_short_name;
-#endif
   if( !group ) group = (pargc && pargv && (*pargc)>0) ? (*pargv)[0] : NULL;
   fd_log_private_group_set( group );
 
@@ -1095,17 +1088,13 @@ fd_log_private_boot( int  *   pargc,
     fd_log_private_sig_trap( SIGUSR1   );
     fd_log_private_sig_trap( SIGUSR2   );
     fd_log_private_sig_trap( SIGBUS    );
+    fd_log_private_sig_trap( SIGPOLL   );
     fd_log_private_sig_trap( SIGPROF   );
     fd_log_private_sig_trap( SIGSYS    );
     fd_log_private_sig_trap( SIGTRAP   );
     fd_log_private_sig_trap( SIGVTALRM );
     fd_log_private_sig_trap( SIGXCPU   );
     fd_log_private_sig_trap( SIGXFSZ   );
-#   if defined(__linux__)
-    fd_log_private_sig_trap( SIGPOLL   );
-#   elif defined(__APPLE__)
-    fd_log_private_sig_trap( SIGIOT    );
-#   endif
   }
 
   /* Hook up the permanent log */
@@ -1171,7 +1160,8 @@ fd_log_private_boot( int  *   pargc,
 
   FD_LOG_INFO(( "fd_log: --log-path          %s",  fd_log_private_path    ));
   FD_LOG_INFO(( "fd_log: --log-dedup         %i",  fd_log_private_dedup   ));
-  FD_LOG_INFO(( "fd_log: --log-backtrace     %i",  log_backtrace          ));
+  FD_LOG_INFO(( "fd_log: --log-colorize      %i",  fd_log_colorize()      ));
+  FD_LOG_INFO(( "fd_log: --log-level-logfile %i",  fd_log_level_logfile() ));
   FD_LOG_INFO(( "fd_log: --log-level-logfile %i",  fd_log_level_logfile() ));
   FD_LOG_INFO(( "fd_log: --log-level-stderr  %i",  fd_log_level_stderr()  ));
   FD_LOG_INFO(( "fd_log: --log-level-flush   %i",  fd_log_level_flush()   ));
@@ -1244,3 +1234,146 @@ fd_log_private_halt( void ) {
 //FD_LOG_INFO(( "fd_log: halt success" )); /* Log not online anymore */
 }
 
+#include <sys/resource.h>
+
+ulong
+fd_log_private_main_stack_sz( void ) {
+
+  /* We are extra paranoid about what rlimit returns and we don't trust
+     environments that claim an unlimited stack size (because it just
+     isn't unlimited ... even if rlimit says otherwise ... which it will
+     if a user tries to be clever with a "ulimit -s unlimited" ... e.g.
+     tile0's stack highest address is at 128 TiB-4KiB typically on
+     modern Linux and grows down while the text / data / heap grow up
+     from 0B ... so stack size is practically always going to be << 128
+     TiB irrespective of any getrlimit claim).  TODO: It looks like
+     pthead_attr_getstack might be getrlimit based under the hood, so
+     maybe just use pthread_attr_getstack here too? */
+
+  struct rlimit rlim[1];
+  int err = getrlimit( RLIMIT_STACK, rlim );
+  if( FD_UNLIKELY( err ) ) {
+    FD_LOG_WARNING(( "fd_log: getrlimit failed (%i-%s)", errno, strerror( errno ) ));
+    return 0UL;
+  }
+
+  ulong stack_sz = (ulong)rlim->rlim_cur;
+  if( FD_UNLIKELY( (rlim->rlim_cur>rlim->rlim_max) | (rlim->rlim_max>RLIM_INFINITY    ) |
+                   (rlim->rlim_cur==RLIM_INFINITY) | (rlim->rlim_cur!=(rlim_t)stack_sz) ) ) {
+    FD_LOG_WARNING(( "fd_log: unexpected stack limits (rlim_cur %lu, rlim_max %lu)",
+                     (ulong)rlim->rlim_cur, (ulong)rlim->rlim_max ));
+    return 0UL;
+  }
+
+  return stack_sz;
+}
+
+/* When pthread_setstack is not used to explicitly set the memory region
+   for a new thread's stack, pthread_create will create a memory region
+   (using either the requested size or a default size).  And, while
+   pthread allows us to set and get the size of the stack region it
+   creates and we can get a pointer into a thread's stack by just
+   declaring a stack variable in that thread and we obviously know where
+   a thread's stack is when we explicitly specify it to pthread create,
+   pthreads does not seem to provide a simple way to get the extents of
+   the stacks it creates.
+
+   But the relationship between a pointer in the stack and the stack
+   extents is non-trival because pthreads will use some of the stack for
+   things like thread local storage (and it will not tell us how much
+   stack was used by that and this is practically only known after
+   linking is complete and then it is not simply exposed to the
+   application).
+
+   Similar uncertainty applies to the first thread's stack.  We can
+   learn how large the stack is and get a pointer into the stack via a
+   stack variable but we have no simple way to get the extents.  And, in
+   this case on recent Linux, things like command line strings and
+   environment strings are typically allowed to consume up to 1/4 of
+   main's thread stack ... these are only known at application load
+   time.  (There is the additional caveat that the main stack might be
+   dynamically allocated such that the address space reserved for it
+   might not be backed by memory yet.)
+
+   But, if we want to do useful run-time stack diagnostics (e.g. alloca
+   bounds checking / stack overflow prevention / etc), having explicit
+   knowledge of a thread's stack extents is very useful.  Hence the
+   below.  It would be nice if there was portable and non-horrific way
+   to do this (an even more horrific way is trigger seg faults by
+   scanning for the guard pages and then recover from the seg fault via
+   a longjmp ... shivers). */
+
+void
+fd_log_private_stack_discover( ulong   stack_sz,
+                               ulong * _stack0,
+                               ulong * _stack1 ) {
+
+  if( FD_UNLIKELY( !stack_sz ) ) {
+    *_stack0 = 0UL;
+    *_stack1 = 0UL;
+    return;
+  }
+
+  ulong stack0 = 0UL;
+  ulong stack1 = 0UL;
+
+  /* Create a variable on the caller's stack and scan the thread group's
+     memory map for the memory region holding the variable.  That should
+     be the caller's stack. */
+
+  uchar stack_mem[1];
+  FD_VOLATILE( stack_mem[0] ) = (uchar)1; /* Paranoia to make sure compiler puts this in stack */
+  ulong stack_addr = (ulong)stack_mem;
+
+  FILE * file = fopen( "/proc/self/maps", "r" );
+  if( FD_UNLIKELY( !file ) ) FD_LOG_WARNING(( "fopen( \"/proc/self/maps\", \"r\" ) failed (%i-%s)", errno, strerror( errno ) ));
+  else {
+
+    while( FD_LIKELY( !feof( file ) ) ) {
+
+      /* Get the next memory region */
+
+      char buf[ 1024 ];
+      if( FD_UNLIKELY( !fgets( buf, 1024UL, file ) ) ) break;
+      ulong m0;
+      ulong m1;
+      if( FD_UNLIKELY( sscanf( buf, "%lx-%lx", &m0, &m1 )!=2 ) ) continue;
+
+      /* Test if the stack allocation is in the discovered region */
+
+      if( FD_UNLIKELY( (m0<=stack_addr) & (stack_addr<m1) ) ) {
+        ulong msz = m1 - m0;
+        if( msz==stack_sz ) { /* Memory region matches expectations */
+          stack0 = m0;
+          stack1 = m1;
+        } else if( ((fd_log_group_id()==fd_log_tid()) & (msz<stack_sz)) ) {
+          /* This is the main thread, which, on recent Linux, seems to
+             just reserve address space for main's stack at program
+             start up to the application stack size limits then uses
+             page faults to dynamically back the stack with DRAM as the
+             stack grows (which is awful for performance, jitter and
+             reliability ... sigh).  This assumes stack grows down such
+             that m1 is the fixed value in this process. */
+          stack0 = m1 - stack_sz;
+          stack1 = m1;
+        } else {
+          FD_LOG_WARNING(( "unexpected caller stack memory region size (got %lu bytes, expected %lu bytes)", msz, stack_sz ));
+          /* don't trust the discovered region */
+        }
+        break;
+      }
+
+    }
+
+    if( FD_UNLIKELY( fclose( file ) ) )
+      FD_LOG_WARNING(( "fclose( \"/proc/self/maps\" ) failed (%i-%s)", errno, strerror( errno ) ));
+
+  }
+
+  *_stack0 = stack0;
+  *_stack1 = stack1;
+}
+
+#else
+#error "Unknown FD_LOG_STYLE"
+#endif

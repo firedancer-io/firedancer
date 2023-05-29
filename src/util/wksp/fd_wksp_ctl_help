@@ -9,10 +9,11 @@ help
 tag val
 - Sets the tag for subsequent wksp allocations to val.  Default is 1.
 
-new wksp page_cnt page_sz cpu_idx mode
-- Create a workspace named wksp from page_cnt page_sz pages near logical
-  cpu_idx.  The region will have the unix permissions specified by mode
-  (assumed octal).
+new wksp page_cnt page_sz cpu_idx_seq mode
+- Create a workspace named wksp from page_cnt page_sz pages distributed
+  over numa nodes near cpu_idx_seq.  The region will have the unix
+  permissions specified by mode (assumed octal).  See fd_shmem_ctl help
+  for more details how the pages will be distributed over numa nodes.
 
 delete wksp
 - Delete a workspace named wksp.  If multiple shmem regions exist with
@@ -45,9 +46,21 @@ memset wksp_gaddr c
   speaking, this always succeeds but logs any weirdness detected.
 
 check wksp
-- Check if any processes that died in middle of workspace operations
-  (clean up if so) or are stalling other processes from doing workspace
-  operations (log if so).
+- Check if any processes died in middle of a wksp operation.  If not,
+  succeed immediately.  If so, verify and rebuild the wksp as necessary
+  (logging details).  This can fail if the rebuild process detects
+  unresolvable memory corruption.
+
+verify wksp
+- Similar to check but always does a full verification.  This can fail
+  if the verify process finds errors (logs details).
+
+rebuild wksp seed
+- This will rebuild the wksp.  Rebuilding impact any current allocations
+  and can repair many forms of metadata corruption.  This can fail if
+  the rebuild process detects unresolvable memory corruption.  Seed is
+  an arbitrary 32-bit number.  A '-' indicates to rebuild using the
+  current seed.
 
 reset wksp
 - Free all allocations in a workspace.

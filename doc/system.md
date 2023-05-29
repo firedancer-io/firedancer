@@ -29,6 +29,28 @@ validator).  Though it is possible to run Firedancer without any of
 these tunings, it is not recommended and the below assumes the user has
 the necessary `sudo` access.
 
+- Log into the host and configure user environment to taste (e.g.
+  install favorite editors / code development environment, etc).  This
+  is not specific to Firedancer but note hosts like this have very
+  minimal installs on first login.
+
+- Install standard development tools.
+    ```
+    $ sudo dnf groupinstall development
+    ```
+  As mentioned above, the minimal installs are missing even basic
+  development tools.  The `development` group includes such things as
+  the stock `gcc` compiler, build tools like `make`, version control
+  systems like `git`, etc.  Firedancer likely can use other tool chains
+  / compilers (e.g. `clang`) but this is not routinely tested currently.
+
+- Install additional dependencies.  To simplify install and improve
+  auditability, Firedancer tries to have minimal external dependencies
+  and then only use external dependencies that are trivially installable
+  on recent stock Linux distributions.  Current packages used include:
+    - pkg-config
+    - xdp-tools
+
 - Configure the host for high performance by allowing users to lock
   pages in memory and increase the scheduler priority of performance
   critical user threads.  As superuser (e.g. `sudo su -`), add the

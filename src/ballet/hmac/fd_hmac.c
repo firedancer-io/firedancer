@@ -17,3 +17,4 @@
 #define HASH_BLOCK_SZ FD_SHA512_BLOCK_SZ
 #define HASH_SZ       FD_SHA512_HASH_SZ
 #include "fd_hmac_tmpl.c"
+

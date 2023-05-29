@@ -62,6 +62,7 @@
 #include "fd_sse_vd.h" /* Vector double support */
 #include "fd_sse_vl.h" /* Vector long support */
 #include "fd_sse_vv.h" /* Vector ulong support */
+#include "fd_sse_vb.h" /* Vector uchar (byte) support */
 
 #else
 #error "Build target does not support SSE wrappers"

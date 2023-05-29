@@ -2,12 +2,15 @@ MAKEFLAGS += --no-builtin-rules
 MAKEFLAGS += --no-builtin-variables
 .SUFFIXES:
 .SUFFIXES: .h .hxx .c .cxx .o .a .d .S .i
-.PHONY: all bin include lib unit-test fuzz-test run-unit-test help clean distclean asm ppp show-deps
+.PHONY: all bin include lib unit-test fuzz-test run-unit-test help clean distclean asm ppp show-deps lint check-lint
 .SECONDARY:
 .SECONDEXPANSION:
 
 BASEDIR:=build
 OBJDIR:=$(BASEDIR)/$(BUILDDIR)
+
+# Auxiliarily rules that should not set up depenencies
+AUX_RULES:=clean distclean help show-deps lint check-lint
 
 all: bin include lib unit-test
 
@@ -51,6 +54,8 @@ help:
 	# "make ppp" run all source files through the preprocessor
 	# "make show-deps" shows all the dependencies
 	# "make cov-report" creates an LCOV coverage report from LLVM profdata. Requires make run-unit-test EXTRAS="llvm-cov"
+	# "make lint" runs the linter on all C source and header files. Creates backup files.
+	# "make check-lint" runs the linter in dry run mode.
 
 clean:
 	#######################################################################
@@ -65,6 +70,18 @@ distclean:
 	#######################################################################
 	$(RMDIR) $(BASEDIR) && \
 $(SCRUB)
+
+lint:
+	#######################################################################
+	# Linting src/
+	#######################################################################
+	$(FIND) src/ -iname "*.c" -or -iname "*.h" | uncrustify -c lint.cfg -F - --replace
+
+check-lint:
+	#######################################################################
+	# Checking lint in src/
+	#######################################################################
+	$(FIND) src/ -iname "*.c" -or -iname "*.h" | uncrustify -c lint.cfg -F - --check
 
 ##############################
 # Usage: $(call make-lib,name)
@@ -327,9 +344,8 @@ $(OBJDIR)/example/% : src/%
 	$(MKDIR) $(dir $@) && \
 $(CP) $^ $@
 
-ifneq ($(MAKECMDGOALS),distclean)
-ifneq ($(MAKECMDGOALS),clean)
-ifneq ($(MAKECMDGOALS),help)
+ifeq ($(filter $(MAKECMDGOALS),$(AUX_RULES)),)
+# If we are not in an auxiliary rule (aka we need to actually build something/need dep tree)
 
 # Include all the make fragments
 
@@ -361,7 +377,5 @@ asm: $(DEPFILES:.d=.S)
 
 ppp: $(DEPFILES:.d=.i)
 
-endif
-endif
 endif
 

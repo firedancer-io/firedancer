@@ -2,7 +2,7 @@
 #include "mcache/fd_mcache_private.h"
 #include "dcache/fd_dcache_private.h"
 
-#if FD_HAS_HOSTED && FD_HAS_X86
+#if FD_HAS_HOSTED
 
 #include <stdio.h>
 

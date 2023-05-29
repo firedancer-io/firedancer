@@ -237,6 +237,31 @@ main( int     argc,
     }
   }
 
+  /* Test large hash input
+
+     $ head --bytes 4294967311 /dev/zero | openssl dgst -sha512
+     441ae9ca417cc3114e5dde106fc1a91fb6e6090a1c356434a6939b6759b1a39ecc2045e455f0047246534857fac020e8a7e825c55ee3b287d84d3b38ea31e33a */
+
+# define INPUT_SZ (4294967311UL) /* prime larger than 2^32 */
+# define CHUNK_SZ (4096UL)
+  uchar chunk[ CHUNK_SZ ] __attribute__((aligned(64)));
+  fd_memset( chunk, 0, CHUNK_SZ );
+
+  fd_sha512_init( sha );
+  ulong left_sz;
+  for( left_sz=INPUT_SZ; left_sz>=CHUNK_SZ; left_sz-=CHUNK_SZ )
+    fd_sha512_append( sha, chunk, CHUNK_SZ );
+  fd_sha512_append( sha, chunk, left_sz );
+  fd_sha512_fini( sha, hash );
+  FD_TEST( 0==memcmp( hash,
+                      "\x44\x1a\xe9\xca\x41\x7c\xc3\x11\x4e\x5d\xde\x10\x6f\xc1\xa9\x1f"
+                      "\xb6\xe6\x09\x0a\x1c\x35\x64\x34\xa6\x93\x9b\x67\x59\xb1\xa3\x9e"
+                      "\xcc\x20\x45\xe4\x55\xf0\x04\x72\x46\x53\x48\x57\xfa\xc0\x20\xe8"
+                      "\xa7\xe8\x25\xc5\x5e\xe3\xb2\x87\xd8\x4d\x3b\x38\xea\x31\xe3\x3a",
+                      64UL ) );
+# undef CHUNK_SZ
+# undef INPUT_SZ
+
   /* clean up */
 
   FD_TEST( fd_sha512_leave( NULL )==NULL ); /* null sha */

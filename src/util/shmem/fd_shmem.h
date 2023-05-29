@@ -9,8 +9,6 @@
 
 #include "../log/fd_log.h"
 
-#if FD_HAS_HOSTED && FD_HAS_X86
-
 /* FD_SHMEM_JOIN_MAX gives the maximum number of unique fd shmem regions
    that can be in mapped concurrently into the thread group's local
    address space.  Should be positive.  Powers of two minus 1 have good
@@ -312,11 +310,13 @@ fd_shmem_numa_validate( void const * mem,
 
 /* Creation/destruction APIs */
 
-/* fd_shmem_create creates a shared memory region whose name is given
-   by the cstr pointed to by name backed by page_sz pages.  The region
-   will consist of page_cnt pages near cpu_idx.  mode specifies the
-   permissions for this region (the usual POSIX open umask caveats
-   apply).
+/* fd_shmem_create_multi creates a shared memory region whose name is
+   given by the cstr pointed to by name backed by page_sz pages.  The
+   region will consist of sub_cnt subregions, indexed [0,sub_cnt).  Each
+   subregion will have page_cnt pages near cpu_idx and the region will
+   be the concatentation of these subregions in the order specified.
+   mode specifies the permissions for this region (the usual POSIX open
+   umask caveats apply).
 
    Returns 0 on success and an strerror friendly error code on failure
    (also logs extensive details on error).  Reasons for failure include
@@ -331,14 +331,28 @@ fd_shmem_numa_validate( void const * mem,
    can be reused between two different page_sz (and such will correspond
    to two unrelated mappings).  Generally, it is a good idea to have
    unique names over all page_sz but this is not strcitly required (the
-   APIs may not work particularly well in this case though). */
+   APIs may not work particularly well in this case though).
 
-int                                     /* 0 on success, strerror compatible error code on failure */
-fd_shmem_create( char const * name,     /* Should point to cstr with a valid name for a shared memory region */
-                 ulong        page_sz,  /* Should be a FD_SHMEM_{NORMAL,HUGE,GIGANTIC}_PAGE_SZ */
-                 ulong        page_cnt, /* Should be positive, page_cnt*page_sz <= ULONG_MAX */
-                 ulong        cpu_idx,  /* Should be in [0,fd_shmem_cpu_cnt()) */
-                 ulong        mode );   /* E.g. 0660 for user rw, group rw, world none */
+   fd_shmem_create is a simple wrapper around fd_shmem_create_multi for
+   applications that just want to a create a shared memory region that
+   contains only 1 subregion. */
+
+int                                                /* 0 on success, strerror compatible error code on failure */
+fd_shmem_create_multi( char const *  name,         /* Should point to cstr with a valid name for a shared memory region */
+                       ulong         page_sz,      /* Should be a FD_SHMEM_{NORMAL,HUGE,GIGANTIC}_PAGE_SZ */
+                       ulong         sub_cnt,      /* Should be positive */
+                       ulong const * sub_page_cnt, /* Indexed [0,sub_cnt), 0 < sum(page_cnt)*page_sz <= ULONG_MAX */
+                       ulong const * sub_cpu_idx,  /* Indexed [0,sub_cnt), each should be in [0,fd_shmem_cpu_cnt()) */
+                       ulong         mode );       /* E.g. 0660 for user rw, group rw, world none */
+
+static inline int
+fd_shmem_create( char const * name,
+                 ulong        page_sz,
+                 ulong        page_cnt,
+                 ulong        cpu_idx,
+                 ulong        mode ) {
+  return fd_shmem_create_multi( name, page_sz, 1UL, &page_cnt, &cpu_idx, mode );
+}
 
 /* fd_shmem_unlink removes the name of the page_sz backed shared memory
    region in the thread group's shared memory domain such that it can no
@@ -383,18 +397,34 @@ fd_shmem_info( char const *      name,
 
 /* Raw page allocation */
 
-/* fd_shmem_acquire allocates page_cnt page_sz pages of physical DRAM
-   near cpu_idx from the operating system and maps them contiguously in
-   the thread group's local address space for the private use of that
-   thread group.  The lifetime of a page in the allocation is until the
-   thread group terminates or the page is explicitly released.  Returns
-   a pointer to the location in the local address space of the mapped
-   pages on success and NULL on failure (logs details). */
+/* fd_shmem_acquire_multi acquires the page_sz pages to create a memory
+   region for the private use of the caller's thread group.  The region
+   will consist of sub_cnt subregions, indexed [0,sub_cnt).  Each
+   subregion will have page_cnt pages near cpu_idx and the region will
+   be the concatentation of these subregions in the order specified.
+   The lifetime of a page in the allocation is until the thread group
+   terminates or the page is explicitly released.  Returns a pointer to
+   the location in the local address space of the mapped pages on
+   success and NULL on failure (logs details).  Reasons for failure
+   include page_sz is invalid, page_cnt is zero, cnt*page_sz overflows
+   an off_t, etc.
+
+   fd_shmem_acquire is a simple wrapper around fd_shmem_acquire_multi
+   for applications that just want to a create a shared memory region
+   that contains only 1 subregion. */
 
 void *
+fd_shmem_acquire_multi( ulong         page_sz,       /* Should be a FD_SHMEM_{NORMAL,HUGE,GIGANTIC}_PAGE_SZ */
+                        ulong         sub_cnt,       /* Should be positive */
+                        ulong const * sub_page_cnt,  /* Indexed [0,sub_cnt), 0 < sum(page_cnt)*page_sz <= ULONG_MAX */
+                        ulong const * sub_cpu_idx ); /* Indexed [0,sub_cnt), each should be in [0,fd_shmem_cpu_cnt()) */
+
+static inline void *
 fd_shmem_acquire( ulong page_sz,
                   ulong page_cnt,
-                  ulong cpu_idx );
+                  ulong cpu_idx ) {
+  return fd_shmem_acquire_multi( page_sz, 1UL, &page_cnt, &cpu_idx );
+}
 
 /* fd_shmem_release releases page_cnt page_sz pages of memory allocated
    by fd_shmem_acquire.  This always succeeds from the caller's POV but
@@ -467,13 +497,7 @@ fd_cstr_to_shmem_page_sz( char const * cstr );
 FD_FN_CONST char const *
 fd_shmem_page_sz_to_cstr( ulong page_sz );
 
-FD_PROTOTYPES_END
-
-#endif /* FD_HAS_HOSTED && FD_HAS_X86 */
-
 /* These functions are for fd_shmem internal use only. */
-
-FD_PROTOTYPES_BEGIN
 
 void
 fd_shmem_private_boot( int *    pargc,
