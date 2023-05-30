@@ -642,7 +642,7 @@ int fd_executor_vote_program_execute_instruction(
       fd_vote_state_versioned_destroy( &vote_state_versioned, ctx.global->freef, ctx.global->allocf_arg );
     } else {
       /* TODO: support other vote program instructions */
-      FD_LOG_ERR(( "unsupported vote program instruction: discriminant: %d", instruction.discriminant ));
+      FD_LOG_WARNING(( "unsupported vote program instruction: discriminant: %d", instruction.discriminant ));
       return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
     }
 
