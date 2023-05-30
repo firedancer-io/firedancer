@@ -16,6 +16,7 @@ struct out_state {
 
   ulong seq;
   ulong cr_avail;
+  int backp;
 
   ulong depth;
   ulong chunk;
@@ -107,8 +108,10 @@ fd_frank_sload_task( int     argc,
 
     state->fctl = fd_fctl_cfg_done( fd_fctl_cfg_rx_add(
           fd_fctl_join( fd_fctl_new( fd_alloca( FD_FCTL_ALIGN, fd_fctl_footprint( 1UL ) ), 1UL ) ),
-          depth, state->fseq, &fseq_diag[ FD_FSEQ_DIAG_SLOW_CNT ] ),
+          state->depth, state->fseq, &fseq_diag[ FD_FSEQ_DIAG_SLOW_CNT ] ),
           1UL /*cr_burst*/, cr_max, cr_resume, cr_refill );
+    FD_LOG_INFO(( "using cr_burst %lu, cr_max %lu, cr_resume %lu, cr_refill %lu",
+          fd_fctl_cr_burst( state->fctl ), fd_fctl_cr_max( state->fctl ), fd_fctl_cr_resume( state->fctl ), fd_fctl_cr_refill( state->fctl ) ));
 
     state->pace_credits = 0UL;
     state->cr_avail     = 0UL;
@@ -214,9 +217,15 @@ fd_frank_sload_task( int     argc,
     if( FD_LIKELY( bytes_ready > 0 ) ) {
       if( FD_UNLIKELY( state->cr_avail==0UL ) ) {
         now = fd_tickcount();
-        backp_cnt++;
+        if( FD_UNLIKELY( !state->backp ) ) {
+          backp_cnt++;
+          state->backp = 1;
+        }
         continue;
+      } else {
+        state->backp = 0;
       }
+
       ulong sz = message_sz;
       ulong tsorig = fd_frag_meta_ts_comp( fd_tickcount() );
 

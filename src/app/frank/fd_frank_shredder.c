@@ -325,20 +325,13 @@ fd_frank_shredder_task( int     argc,
 
     now = fd_tickcount();
 
+    /* FIXME: passing the size as the signature is a hack */
     ulong         sz           = mline->sig;
     uchar const * dcache_entry = fd_chunk_to_laddr_const( wksp, mline->chunk );
-    /* FIXME: refactor to allow entry batches greater than USHORT_MAX */
     fd_entry_batch_meta_t const * entry_batch_meta = (fd_entry_batch_meta_t const *)dcache_entry;
     uchar const *                 entry_batch      = dcache_entry + sizeof(fd_entry_batch_meta_t);
     ulong                         entry_batch_sz   = sz           - sizeof(fd_entry_batch_meta_t);
 
-    /*
-    fd_entry_batch_meta_t entry_batch_meta[1];
-    fd_memset( entry_batch_meta, 0, sizeof(fd_entry_batch_meta_t) );
-    entry_batch_meta->block_complete = 1;
-    uchar const * entry_batch = test_bin;
-    ulong entry_batch_sz = test_bin_sz;
-    */
     static uchar const BADFOOD[4] = {0x0B, 0xAD, 0xF0, 0x0D };
 
     ulong fec_sets = fd_shredder_count_fec_sets( entry_batch_sz );

@@ -260,7 +260,7 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t * resolver, fd_shred_t const * shre
       return NULL;
     }
 
-    if( FD_UNLIKELY( FD_ED25519_SUCCESS != fd_ed25519_verify( _root->hash, 32UL, shred->signature, test_private_key+32UL, resolver->sha512 ) ) ) {
+    if( FD_UNLIKELY( FD_ED25519_SUCCESS != fd_ed25519_verify( _root->hash, 32UL, shred->signature, resolver->public_key, resolver->sha512 ) ) ) {
       freelist_push_head( freelist, *ctx );
       return NULL;
     }
