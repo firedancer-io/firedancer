@@ -219,7 +219,7 @@ def main():
         txn_acc_shared_data = e["shared_data"]
         print("fd_base58_decode_32( \"{}\",  (unsigned char *) &test_acc->pubkey);".format(e["pubkey"]))
         print("fd_base58_decode_32( \"{}\",  (unsigned char *) &test_acc->owner);".format(base58.b58encode(bytes(txn_acc_shared_data["owner"])).decode('utf-8')))
-        print("test_acc->lamports = {};".format(txn_acc_shared_data["lamports"]))
+        print("test_acc->lamports = {}UL;".format(txn_acc_shared_data["lamports"]))
         if txn_acc_shared_data["executable"]:
             print("test_acc->executable = 1;");
         else:
