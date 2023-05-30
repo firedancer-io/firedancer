@@ -66,6 +66,18 @@ int fd_acc_mgr_is_key( fd_funk_rec_key_t const* id ) {
   return id->c[ FD_FUNK_REC_KEY_FOOTPRINT - 1 ] == FD_ACC_MGR_KEY_TYPE;
 }
 
+void * fd_acc_mgr_view_data( fd_acc_mgr_t* acc_mgr, fd_funk_txn_t* txn, fd_pubkey_t* pubkey, ulong *sz, int *err ) {
+  fd_funk_rec_key_t     id = fd_acc_mgr_key(pubkey);
+  fd_funk_t *           funk = acc_mgr->global->funk;
+  fd_funk_rec_t const * rec = fd_funk_rec_query_global(funk, txn, &id);
+  if ( FD_UNLIKELY( NULL == rec ) )  {
+    *err = FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
+    return NULL;
+  }
+  *sz = fd_funk_val_sz( rec );
+  return fd_funk_val_cache( funk, rec, err );
+}
+
 int fd_acc_mgr_get_account_data( fd_acc_mgr_t* acc_mgr, fd_funk_txn_t* txn, fd_pubkey_t* pubkey, uchar* result, ulong offset, ulong bytes ) {
   fd_funk_rec_key_t     id = fd_acc_mgr_key(pubkey);
   fd_funk_t *           funk = acc_mgr->global->funk;

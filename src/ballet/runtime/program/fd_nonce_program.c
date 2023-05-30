@@ -470,10 +470,20 @@ int fd_initialize_nonce_account(
     if ( metadata.info.lamports < minimum_rent_exempt_balance ) 
       return FD_EXECUTOR_INSTR_ERR_INSUFFICIENT_FUNDS;
 
-    fd_block_block_hash_entry_t *re = &ctx.global->bank.recent_block_hashes.hashes.elems[0];
+
+    ulong sz;
+    int err;
+    char * raw_acc_data = (char*) fd_acc_mgr_view_data(ctx.global->acc_mgr, ctx.global->funk_txn, (fd_pubkey_t *) ctx.global->sysvar_recent_block_hashes, &sz, &err);
+    void* input = (void *)(raw_acc_data + ((fd_account_meta_t *) raw_acc_data)->hlen);
+    fd_recent_block_hashes_t result;
+    fd_recent_block_hashes_decode( &result, (const void **)&input, raw_acc_data + ((fd_account_meta_t *) raw_acc_data)->dlen, ctx.global->allocf, ctx.global->allocf_arg );
+
+    fd_block_block_hash_entry_t *re = &result.hashes.elems[0];
 
     fd_hash_t durable_nonce;
     fd_durable_nonce_from_blockhash(&re->blockhash, &durable_nonce);
+
+    fd_recent_block_hashes_destroy( &result, ctx.global->freef, ctx.global->allocf_arg );
 
     state.inner.current.discriminant = fd_nonce_state_enum_initialized;
     state.discriminant = fd_nonce_state_versions_enum_current;
@@ -482,7 +492,7 @@ int fd_initialize_nonce_account(
     fd_memcpy(state.inner.current.inner.initialized.durable_nonce.hash, durable_nonce.hash, sizeof(state.inner.current.inner.initialized.durable_nonce.hash));
     state.inner.current.inner.initialized.fee_calculator.lamports_per_signature = fd_runtime_lamports_per_signature_for_blockhash(ctx.global, &re->blockhash);
 
-    ulong sz = fd_nonce_state_versions_size(&state);
+    sz = fd_nonce_state_versions_size(&state);
     unsigned char *enc = fd_alloca(1, sz);
     memset(enc, 0, sz);
     void const *ptr = (void const *) enc;
