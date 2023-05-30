@@ -568,7 +568,7 @@ fd_xsk_umem_laddr( fd_xsk_t * xsk ) {
 }
 
 
-FD_FN_PURE char const *
+FD_FN_CONST char const *
 fd_xsk_app_name( fd_xsk_t * const xsk ) {
   return xsk->app_name_cstr;
 }
@@ -892,7 +892,7 @@ fd_xsk_tx_complete2( fd_xsk_t *            xsk,
   return sz;
 }
 
-fd_xsk_params_t const *
+FD_FN_CONST fd_xsk_params_t const *
 fd_xsk_get_params( fd_xsk_t const * xsk ) {
   return &xsk->params;
 }

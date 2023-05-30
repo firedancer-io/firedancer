@@ -1,7 +1,7 @@
 #ifndef HEADER_fd_src_ballet_sbpf_fd_sbpf_instr_h
 #define HEADER_fd_src_ballet_sbpf_fd_sbpf_instr_h
 
-#include "../util/fd_util.h"
+#include "../../util/fd_util.h"
 
 struct fd_sbpf_opcode_any {
   uchar op_class  : 3;

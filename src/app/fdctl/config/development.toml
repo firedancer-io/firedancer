@@ -1,0 +1,6 @@
+[development]
+    sudo = true
+    [development.netns]
+        enabled = true
+[tiles.quic]
+    interface = "veth_test_xdp_0"

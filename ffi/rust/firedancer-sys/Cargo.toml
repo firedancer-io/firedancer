@@ -10,7 +10,11 @@ include = [
     "src",
 ]
 
+[features]
+default = []
+fuzz-asan = []
+
 [dependencies]
 
 [build-dependencies]
-bindgen = "0.63.0"
+bindgen = "0.64.0"
