@@ -6,6 +6,8 @@
 
 typedef ulong gf_t; /* One byte stored in a ulong */
 #define GF_WIDTH 1UL
+#define W_ATTR 
+
 static inline gf_t gf_ldu( uchar const * addr ) { return (ulong)(*addr); }
 static inline void gf_stu( uchar * addr, gf_t v ) { *addr = (uchar)v; }
 #define gf_zero() (0UL)
@@ -16,8 +18,8 @@ FD_IMPORT_BINARY( fd_reedsol_arith_consts_generic_mul, "src/ballet/reedsol/const
 #else
 extern uchar const fd_reedsol_arith_consts_generic_mul[]  __attribute__((aligned(128)));
 #endif
-static short const * gf_arith_log_tbl     = (short const *)fd_reedsol_arith_consts_generic_mul; /* Indexed [0, 256) */
-static uchar const * gf_arith_invlog_tbl  = fd_reedsol_arith_consts_generic_mul + 256UL*sizeof(short) + 512UL*sizeof(uchar); /* Indexed [-512, 512) */
+static FD_FN_UNUSED short const * gf_arith_log_tbl     = (short const *)fd_reedsol_arith_consts_generic_mul; /* Indexed [0, 256) */
+static FD_FN_UNUSED uchar const * gf_arith_invlog_tbl  = fd_reedsol_arith_consts_generic_mul + 256UL*sizeof(short) + 512UL*sizeof(uchar); /* Indexed [-512, 512) */
 
 #define GF_ADD( a, b ) ((a)^(b))
 #define GF_OR(  a, b ) ((a)|(b))
