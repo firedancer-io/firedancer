@@ -10,7 +10,7 @@
 
 void write_stake_config( fd_global_ctx_t* global, fd_stake_config_t* stake_config) {
   ulong          sz = fd_stake_config_size( stake_config );
-  unsigned char *enc = fd_alloca( 1, sz );
+  unsigned char *enc = fd_alloca_check( 1, sz );
   memset( enc, 0, sz );
   void const *ptr = (void const *) enc;
   fd_stake_config_encode( stake_config, &ptr );
@@ -34,7 +34,7 @@ void read_stake_config( fd_global_ctx_t* global, fd_stake_config_t* result ) {
     return;
   }
 
-  unsigned char *raw_acc_data = fd_alloca( 1, metadata.dlen );
+  unsigned char *raw_acc_data = fd_alloca_check( 1, metadata.dlen );
   read_result = fd_acc_mgr_get_account_data( global->acc_mgr, global->funk_txn, (fd_pubkey_t *) global->solana_stake_program_config, raw_acc_data, metadata.hlen, metadata.dlen );
   if ( read_result != FD_ACC_MGR_SUCCESS ) {
     FD_LOG_NOTICE(( "failed to read account data: %d", read_result ));
@@ -63,7 +63,7 @@ void read_stake_state( fd_global_ctx_t* global, fd_pubkey_t* stake_acc, fd_stake
     return;
   }
 
-  unsigned char *raw_acc_data = fd_alloca( 1, metadata.dlen );
+  unsigned char *raw_acc_data = fd_alloca_check( 1, metadata.dlen );
   read_result = fd_acc_mgr_get_account_data( global->acc_mgr, global->funk_txn, stake_acc, raw_acc_data, metadata.hlen, metadata.dlen );
   if ( read_result != FD_ACC_MGR_SUCCESS ) {
     FD_LOG_NOTICE(( "failed to read account data: %d", read_result ));

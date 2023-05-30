@@ -68,7 +68,7 @@ int fd_load_nonce_account(
   if ( read_result == FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) 
     return 0;
 
-  unsigned char *raw_acc_data = fd_alloca( 1, metadata.dlen );
+  unsigned char *raw_acc_data = fd_alloca_check( 1, metadata.dlen );
   read_result = fd_acc_mgr_get_account_data( global->acc_mgr, global->funk_txn, (fd_pubkey_t *) me, raw_acc_data, metadata.hlen, metadata.dlen );
   if ( read_result != FD_ACC_MGR_SUCCESS ) 
     return 0;
@@ -111,7 +111,7 @@ int fd_advance_nonce_account(
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
 
-  unsigned char *raw_acc_data = fd_alloca( 1, metadata.dlen );
+  unsigned char *raw_acc_data = fd_alloca_check( 1, metadata.dlen );
   read_result = fd_acc_mgr_get_account_data( ctx.global->acc_mgr, ctx.global->funk_txn, (fd_pubkey_t *) me, raw_acc_data, metadata.hlen, metadata.dlen );
   if ( read_result != FD_ACC_MGR_SUCCESS ) {
     FD_LOG_NOTICE(( "failed to read account data: %ld", read_result ));
@@ -187,7 +187,7 @@ int fd_advance_nonce_account(
 //                ))
 
   ulong sz = fd_nonce_state_versions_size(&state);
-  unsigned char *enc = fd_alloca(1, sz);
+  unsigned char *enc = fd_alloca_check(1, sz);
   memset(enc, 0, sz);
   void const *ptr = (void const *) enc;
   fd_nonce_state_versions_encode(&state, &ptr);
@@ -204,7 +204,9 @@ int fd_withdraw_nonce_account(
     FD_FN_UNUSED unsigned long      withdraw_nonce_account
   ) 
 {
-  FD_LOG_ERR(( "unsupported discriminant: withdraw_none_account" ));
+  FD_LOG_WARNING(( "unsupported discriminant: withdraw_none_account" ));
+
+  return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
 
 //        {pubkey: params.noncePubkey, isSigner: false, isWritable: true},
 //        {pubkey: params.toPubkey, isSigner: false, isWritable: true},
@@ -265,7 +267,7 @@ int fd_withdraw_nonce_account(
   if ( read_result == FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) 
     return 0;
 
-  unsigned char *raw_acc_data = fd_alloca( 1, metadata.dlen );
+  unsigned char *raw_acc_data = fd_alloca_check( 1, metadata.dlen );
   read_result = fd_acc_mgr_get_account_data( ctx.global->acc_mgr, ctx.global->funk_txn, (fd_pubkey_t *) me, raw_acc_data, metadata.hlen, metadata.dlen );
   if ( read_result != FD_ACC_MGR_SUCCESS ) {
     FD_LOG_NOTICE(( "failed to read account data: %ld", read_result ));
@@ -452,7 +454,7 @@ int fd_initialize_nonce_account(
     return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
   }
 
-  unsigned char *raw_acc_data = fd_alloca( 1, metadata.dlen );
+  unsigned char *raw_acc_data = fd_alloca_check( 1, metadata.dlen );
   read_result = fd_acc_mgr_get_account_data( ctx.global->acc_mgr, ctx.global->funk_txn, (fd_pubkey_t *) me, raw_acc_data, metadata.hlen, metadata.dlen );
   if ( read_result != FD_ACC_MGR_SUCCESS ) {
     FD_LOG_NOTICE(( "failed to read account data: %ld", read_result ));
@@ -471,12 +473,15 @@ int fd_initialize_nonce_account(
       return FD_EXECUTOR_INSTR_ERR_INSUFFICIENT_FUNDS;
 
 
-    ulong sz;
-    int err;
+    ulong sz = 0;
+    int err = 0;
     char * raw_acc_data = (char*) fd_acc_mgr_view_data(ctx.global->acc_mgr, ctx.global->funk_txn, (fd_pubkey_t *) ctx.global->sysvar_recent_block_hashes, &sz, &err);
-    void* input = (void *)(raw_acc_data + ((fd_account_meta_t *) raw_acc_data)->hlen);
+    if (NULL == raw_acc_data)
+      return err;
+    fd_account_meta_t *m = (fd_account_meta_t *) raw_acc_data;
+    void* input = (void *)(raw_acc_data + m->hlen);
     fd_recent_block_hashes_t result;
-    fd_recent_block_hashes_decode( &result, (const void **)&input, raw_acc_data + ((fd_account_meta_t *) raw_acc_data)->dlen, ctx.global->allocf, ctx.global->allocf_arg );
+    fd_recent_block_hashes_decode( &result, (const void **)&input, ((char *)input) + m->dlen, ctx.global->allocf, ctx.global->allocf_arg );
 
     fd_block_block_hash_entry_t *re = &result.hashes.elems[0];
 
@@ -493,7 +498,7 @@ int fd_initialize_nonce_account(
     state.inner.current.inner.initialized.fee_calculator.lamports_per_signature = fd_runtime_lamports_per_signature_for_blockhash(ctx.global, &re->blockhash);
 
     sz = fd_nonce_state_versions_size(&state);
-    unsigned char *enc = fd_alloca(1, sz);
+    unsigned char *enc = fd_alloca_check(1, sz);
     memset(enc, 0, sz);
     void const *ptr = (void const *) enc;
     fd_nonce_state_versions_encode(&state, &ptr);
@@ -551,7 +556,7 @@ int fd_authorize_nonce_account(
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
 
-  unsigned char *raw_acc_data = fd_alloca( 1, metadata.dlen );
+  unsigned char *raw_acc_data = fd_alloca_check( 1, metadata.dlen );
   read_result = fd_acc_mgr_get_account_data( ctx.global->acc_mgr, ctx.global->funk_txn, (fd_pubkey_t *) me, raw_acc_data, metadata.hlen, metadata.dlen );
   if ( read_result != FD_ACC_MGR_SUCCESS ) {
     FD_LOG_NOTICE(( "failed to read account data: %ld", read_result ));
@@ -581,7 +586,7 @@ int fd_authorize_nonce_account(
   state.inner.current.inner.initialized.authority = *authorize_nonce_account;
 
   ulong sz = fd_nonce_state_versions_size(&state);
-  unsigned char *enc = fd_alloca(1, sz);
+  unsigned char *enc = fd_alloca_check(1, sz);
   memset(enc, 0, sz);
   void const *ptr = (void const *) enc;
   fd_nonce_state_versions_encode(&state, &ptr);

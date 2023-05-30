@@ -298,7 +298,7 @@ int fd_executor_vote_program_execute_instruction(
 
       /* Create a new vote account state structure */
       /* TODO: create constructors in fd_types */
-      fd_vote_state_versioned_t* vote_state_versioned = (fd_vote_state_versioned_t*) fd_alloca( 1UL, sizeof(fd_vote_state_versioned_t) );
+      fd_vote_state_versioned_t* vote_state_versioned = (fd_vote_state_versioned_t*) fd_alloca_check( 1UL, sizeof(fd_vote_state_versioned_t) );
       memset( vote_state_versioned, 0, sizeof(fd_vote_state_versioned_t) );
       vote_state_versioned->discriminant = 1;
       fd_vote_state_t* vote_state = &vote_state_versioned->inner.current;
@@ -487,7 +487,7 @@ int fd_executor_vote_program_execute_instruction(
         if ( vote_state->votes.cnt == MAX_LOCKOUT_HISTORY ) {
 
           /* Update the root slot to be the oldest lockout. */
-          vote_state->saved_root_slot = fd_alloca( 1UL, sizeof(ulong) );
+          vote_state->saved_root_slot = fd_alloca_check( 1UL, sizeof(ulong) );
           *vote_state->saved_root_slot = vote_state->votes.elems[0].slot;
 
           /* Give this validator a credit for committing to a slot. */

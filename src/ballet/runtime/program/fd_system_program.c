@@ -224,7 +224,7 @@ static int create_account(
 
   /* Initialize the account with all zeroed data and the correct owner */
 
-  unsigned char *data = fd_alloca( 1, space );
+  unsigned char *data =  (unsigned char *) (*ctx.global->allocf)(ctx.global->allocf_arg, 1, space);
   memset( data, 0, space );
   fd_solana_account_t account = {
     .lamports = lamports,
@@ -235,6 +235,7 @@ static int create_account(
     .rent_epoch = 0,   /* TODO */
   };
   write_result = fd_acc_mgr_write_structured_account(ctx.global->acc_mgr, ctx.global->funk_txn, 0, to, &account);
+  ctx.global->freef(ctx.global->allocf_arg, data);
   if ( write_result != FD_ACC_MGR_SUCCESS ) {
     FD_LOG_NOTICE(( "failed to create account: %d", write_result ));
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
