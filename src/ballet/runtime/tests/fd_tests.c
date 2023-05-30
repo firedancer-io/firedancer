@@ -139,7 +139,7 @@ int main(int argc, char **argv) {
   fd_boot( &argc, &argv );
 
   long test_start = fd_env_strip_cmdline_long(&argc, &argv, "--start", NULL, 0);
-  long test_end = fd_env_strip_cmdline_long(&argc, &argv, "--end", NULL, 373);
+  long test_end = fd_env_strip_cmdline_long(&argc, &argv, "--end", NULL, 889);
   long do_test = fd_env_strip_cmdline_long(&argc, &argv, "--test", NULL, -1);
   const char * filter = fd_env_strip_cmdline_cstr(&argc, &argv, "--filter", NULL, NULL);
 
