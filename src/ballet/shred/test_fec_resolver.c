@@ -20,7 +20,7 @@ FD_IMPORT_BINARY( test_private_key, "src/ballet/shred/fixtures/demo-shreds.key" 
 FD_IMPORT_BINARY( test_bin,         "src/ballet/shred/fixtures/demo-shreds.bin"  );
 
 static int
-sets_eq( fd_fec_set_t * a, fd_fec_set_t * b ) {
+sets_eq( fd_fec_set_t const * a, fd_fec_set_t const * b ) {
   if( (a==NULL) ^ (b==NULL) ) return 0;
 
   if( a->data_shred_cnt   != b->data_shred_cnt   ) return 0;
@@ -73,16 +73,16 @@ test_one_batch( void ) {
     fd_fec_set_t * set = fd_shredder_next_fec_set( shredder, test_private_key, test_private_key+32UL, _set );
 
     fd_fec_resolver_t * resolver;
-    resolver = fd_fec_resolver_join( fd_fec_resolver_new( resolver_mem, 4UL, 1UL, out_sets ) );
+    resolver = fd_fec_resolver_join( fd_fec_resolver_new( resolver_mem, 4UL, 1UL, out_sets, test_private_key+32UL ) );
     for( ulong j=0UL; j<set->data_shred_cnt; j++ ) FD_TEST( !fd_fec_resolver_add_shred( resolver, fd_shred_parse( set->data_shreds[ j ], 2048UL ), 2048UL ) );
     FD_TEST( sets_eq( set, fd_fec_resolver_add_shred( resolver, fd_shred_parse( set->parity_shreds[ 0UL ], 2048UL ), 2048UL ) ) );
 
-    resolver = fd_fec_resolver_join( fd_fec_resolver_new( resolver_mem, 4UL, 1UL, out_sets ) );
+    resolver = fd_fec_resolver_join( fd_fec_resolver_new( resolver_mem, 4UL, 1UL, out_sets, test_private_key+32UL ) );
     for( ulong j=0UL; j<set->parity_shred_cnt-1UL; j++ ) FD_TEST( !fd_fec_resolver_add_shred( resolver, fd_shred_parse( set->parity_shreds[ j ], 2048UL ), 2048UL ) );
     for( ulong j=0UL; j<10UL;                      j++ ) FD_TEST( !fd_fec_resolver_add_shred( resolver, fd_shred_parse( set->parity_shreds[ 0 ], 2048UL ), 2048UL ) );
     FD_TEST( sets_eq( set, fd_fec_resolver_add_shred( resolver, fd_shred_parse( set->data_shreds[ 0UL ], 2048UL ), 2048UL ) ) );
 
-    resolver = fd_fec_resolver_join( fd_fec_resolver_new( resolver_mem, 4UL, 1UL, out_sets ) );
+    resolver = fd_fec_resolver_join( fd_fec_resolver_new( resolver_mem, 4UL, 1UL, out_sets, test_private_key+32UL ) );
     for( ulong j=1UL; j<set->parity_shred_cnt; j++ ) FD_TEST( !fd_fec_resolver_add_shred( resolver, fd_shred_parse( set->parity_shreds[ j ], 2048UL ), 2048UL ) );
     FD_TEST( sets_eq( set, fd_fec_resolver_add_shred( resolver, fd_shred_parse( set->parity_shreds[ 0UL ], 2048UL ), 2048UL ) ) );
   }
@@ -117,7 +117,7 @@ test_interleaved( void ) {
   FD_TEST( fd_shredder_fini_batch( shredder ) );
 
   fd_fec_resolver_t * resolver;
-  resolver = fd_fec_resolver_join( fd_fec_resolver_new( resolver_mem, 4UL, 1UL, out_sets ) );
+  resolver = fd_fec_resolver_join( fd_fec_resolver_new( resolver_mem, 4UL, 1UL, out_sets, test_private_key+32UL ) );
   for( ulong j=0UL; j<set0->data_shred_cnt; j++ ) {
     FD_TEST( !fd_fec_resolver_add_shred( resolver, fd_shred_parse( set0->data_shreds[ j ], 2048UL ), 2048UL ) );
     FD_TEST( !fd_fec_resolver_add_shred( resolver, fd_shred_parse( set1->data_shreds[ j ], 2048UL ), 2048UL ) );
@@ -126,12 +126,12 @@ test_interleaved( void ) {
   FD_TEST( sets_eq( set1, fd_fec_resolver_add_shred( resolver, fd_shred_parse( set1->parity_shreds[ 0UL ], 2048UL ), 2048UL ) ) );
 
   /*
-  resolver = fd_fec_resolver_join( fd_fec_resolver_new( resolver_mem, 4UL, 1UL, out_sets ) );
+  resolver = fd_fec_resolver_join( fd_fec_resolver_new( resolver_mem, 4UL, 1UL, out_sets, test_private_key+32UL ) );
   for( ulong j=0UL; j<set->parity_shred_cnt-1UL; j++ ) FD_TEST( !fd_fec_resolver_add_shred( resolver, fd_shred_parse( set->parity_shreds[ j ], 2048UL ), 2048UL ) );
   for( ulong j=0UL; j<10UL;                      j++ ) FD_TEST( !fd_fec_resolver_add_shred( resolver, fd_shred_parse( set->parity_shreds[ 0 ], 2048UL ), 2048UL ) );
   FD_TEST( sets_eq( set, fd_fec_resolver_add_shred( resolver, fd_shred_parse( set->data_shreds[ 0UL ], 2048UL ), 2048UL ) ) );
 
-  resolver = fd_fec_resolver_join( fd_fec_resolver_new( resolver_mem, 4UL, 1UL, out_sets ) );
+  resolver = fd_fec_resolver_join( fd_fec_resolver_new( resolver_mem, 4UL, 1UL, out_sets, test_private_key+32UL ) );
   for( ulong j=1UL; j<set->parity_shred_cnt; j++ ) FD_TEST( !fd_fec_resolver_add_shred( resolver, fd_shred_parse( set->parity_shreds[ j ], 2048UL ), 2048UL ) );
   FD_TEST( sets_eq( set, fd_fec_resolver_add_shred( resolver, fd_shred_parse( set->parity_shreds[ 0UL ], 2048UL ), 2048UL ) ) );
   */
@@ -167,7 +167,7 @@ test_rolloff( void ) {
   FD_TEST( fd_shredder_fini_batch( shredder ) );
 
   fd_fec_resolver_t * resolver;
-  resolver = fd_fec_resolver_join( fd_fec_resolver_new( resolver_mem, 2UL, 1UL, out_sets ) );
+  resolver = fd_fec_resolver_join( fd_fec_resolver_new( resolver_mem, 2UL, 1UL, out_sets, test_private_key+32UL ) );
   for( ulong j=0UL; j<set0->data_shred_cnt; j++ ) {
     FD_TEST( !fd_fec_resolver_add_shred( resolver, fd_shred_parse( set0->data_shreds[ j ], 2048UL ), 2048UL ) );
   }

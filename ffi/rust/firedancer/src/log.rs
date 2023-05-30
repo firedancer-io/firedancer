@@ -39,55 +39,55 @@ macro_rules! function_name {
 #[macro_export]
 macro_rules! fd_log_debug {
     ($($arg:tt)*) => {
-        firedancer::log::fd_log_private_1(0, firedancer::log::fd_log_wallclock(), std::file!(), std::line!(), firedancer::function_name!(), &format!($($arg)*));
+        $crate::log::fd_log_private_1(0, $crate::log::fd_log_wallclock(), std::file!(), std::line!(), $crate::function_name!(), &format!($($arg)*));
     };
 }
 
 #[macro_export]
 macro_rules! fd_log_info {
     ($($arg:tt)*) => {
-        firedancer::log::fd_log_private_1(1, firedancer::log::fd_log_wallclock(), std::file!(), std::line!(), firedancer::function_name!(), &format!($($arg)*));
+        $crate::log::fd_log_private_1(1, $crate::log::fd_log_wallclock(), std::file!(), std::line!(), $crate::function_name!(), &format!($($arg)*));
     };
 }
 
 #[macro_export]
 macro_rules! fd_log_notice {
     ($($arg:tt)*) => {
-        firedancer::log::fd_log_private_1(2, firedancer::log::fd_log_wallclock(), std::file!(), std::line!(), firedancer::function_name!(), &format!($($arg)*));
+        $crate::log::fd_log_private_1(2, $crate::log::fd_log_wallclock(), std::file!(), std::line!(), $crate::function_name!(), &format!($($arg)*));
     };
 }
 
 #[macro_export]
 macro_rules! fd_log_warning {
     ($($arg:tt)*) => {
-        firedancer::log::fd_log_private_1(3, firedancer::log::fd_log_wallclock(), std::file!(), std::line!(), firedancer::function_name!(), &format!($($arg)*));
+        $crate::log::fd_log_private_1(3, $crate::log::fd_log_wallclock(), std::file!(), std::line!(), $crate::function_name!(), &format!($($arg)*));
     };
 }
 
 #[macro_export]
 macro_rules! fd_log_err {
     ($($arg:tt)*) => {
-        fd_log_private_2(4, firedancer::log::fd_log_wallclock(), std::file!(), std::line!(), firedancer::function_name!(), &format!($($arg)*));
+        fd_log_private_2(4, $crate::log::fd_log_wallclock(), std::file!(), std::line!(), $crate::function_name!(), &format!($($arg)*));
     };
 }
 
 #[macro_export]
 macro_rules! fd_log_crit {
     ($($arg:tt)*) => {
-        fd_log_private_2(5, firedancer::log::fd_log_wallclock(), std::file!(), std::line!(), firedancer::function_name!(), &format!($($arg)*));
+        fd_log_private_2(5, $crate::log::fd_log_wallclock(), std::file!(), std::line!(), $crate::function_name!(), &format!($($arg)*));
     };
 }
 
 #[macro_export]
 macro_rules! fd_log_alert {
     ($($arg:tt)*) => {
-        fd_log_private_2(6, firedancer::log::fd_log_wallclock(), std::file!(), std::line!(), firedancer::function_name!(), &format!($($arg)*));
+        fd_log_private_2(6, $crate::log::fd_log_wallclock(), std::file!(), std::line!(), $crate::function_name!(), &format!($($arg)*));
     };
 }
 
 #[macro_export]
 macro_rules! fd_log_emerg {
     ($($arg:tt)*) => {
-        fd_log_private_2(7, firedancer::log::fd_log_wallclock(), std::file!(), std::line!(), firedancer::function_name!(), &format!($($arg)*));
+        fd_log_private_2(7, $crate::log::fd_log_wallclock(), std::file!(), std::line!(), $crate::function_name!(), &format!($($arg)*));
     };
 }

@@ -222,6 +222,8 @@ fd_frank_verify_task( int     argc,
 
   ulong sigvfy_pass_cnt =0UL;
   ulong sigvfy_fail_cnt =0UL;
+  (void)sigvfy_pass_cnt;
+  (void)sigvfy_fail_cnt;
   for(;;) {
 
     /* Do housekeeping at a low rate in the background */

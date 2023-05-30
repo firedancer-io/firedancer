@@ -44,11 +44,11 @@ typedef struct fd_fec_resolver fd_fec_resolver_t;
 ulong fd_fec_resolver_footprint( ulong depth, ulong done_depth );
 ulong fd_fec_resolver_align    ( void        );
 
-void * fd_fec_resolver_new( void * shmem, ulong depth, ulong done_depth, fd_fec_set_t * sets );
+void * fd_fec_resolver_new( void * shmem, ulong depth, ulong done_depth, fd_fec_set_t * sets, uchar const * public_key );
 
 fd_fec_resolver_t * fd_fec_resolver_join( void * shmem );
 
-fd_fec_set_t * fd_fec_resolver_add_shred( fd_fec_resolver_t * resolver, fd_shred_t const * shred, ulong shred_sz );
+fd_fec_set_t const * fd_fec_resolver_add_shred( fd_fec_resolver_t * resolver, fd_shred_t const * shred, ulong shred_sz );
 
 void * fd_fec_resolver_leave( fd_fec_resolver_t * resolver );
 void * fd_fec_resolver_delete( void * shmem );

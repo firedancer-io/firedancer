@@ -11,76 +11,22 @@
 #include "../../util/net/fd_udp.h"
 #include "../../ballet/shred/fd_shred.h"
 #include "../../ballet/shred/fd_fec_set.h"
-
-/* FD_IMPORT_BINARY( test_private_key, "src/ballet/shred/fixtures/demo-shreds.key"  ); */
-
-struct __attribute__((packed)) fd_shred_pkt {
-  fd_eth_hdr_t eth[1];
-  fd_ip4_hdr_t ip4[1];
-  fd_udp_hdr_t udp[1];
-
-  uchar payload[FD_SHRED_MAX_SZ];
-};
-typedef struct fd_shred_pkt fd_shred_pkt_t;
+#include "fd_frank_turbine_common.h"
+#include "../../util/sanitize/fd_asan.h"
 
 
 // footprint of fd_fec_resolver
 // backing storage for packets. depth*(67+67)*(sizeof(fd_shred_pkt_t))
 
 
-static inline int
-send_loop_helper( fd_aio_t const * tx_aio,
-                  fd_aio_pkt_info_t const * data,
-                  ulong cnt ) {
-  for( ulong i=0UL; i<cnt; i++ ) fd_memset( (uchar*)data[i].buf+42UL, 0xFF, data[i].buf_sz-42UL );
-  ulong total_sent = 0UL;
-  while( total_sent<cnt ) {
-    ulong okay_cnt = 0UL;
-    int send_rc = fd_aio_send( tx_aio, data+total_sent, cnt-total_sent, &okay_cnt );
-    if( FD_LIKELY( send_rc>=0 ) ) return send_rc;
-    if( FD_UNLIKELY( send_rc!=FD_AIO_ERR_AGAIN ) ) return send_rc;
-    total_sent += okay_cnt;
-  }
-  return 0;
-
-}
-
-struct fd_net_endpoint {
-  uchar  mac[6];
-  /* Both of these are stored in network byte order */
-  ushort port;
-  uint   ip4;
-};
-typedef struct fd_net_endpoint fd_net_endpoint_t;
-
-static inline fd_net_endpoint_t *
-fd_net_endpoint_load( uchar const * pod, fd_net_endpoint_t * out ) {
-  char const * _mac  = fd_pod_query_cstr(   pod, "mac",       NULL );
-  char const * _ip   = fd_pod_query_cstr(   pod, "ip",        NULL );
-  ushort        _port = fd_pod_query_ushort( pod, "port", (ushort)0 );
-
-  if( FD_UNLIKELY( !_mac  ) ) { FD_LOG_WARNING(( "mac not found"  )); return NULL; }
-  if( FD_UNLIKELY( !_ip   ) ) { FD_LOG_WARNING(( "ip not found"   )); return NULL; }
-  if( FD_UNLIKELY( !_port ) ) { FD_LOG_WARNING(( "port not found" )); return NULL; }
-
-  if( FD_UNLIKELY( !fd_cstr_to_mac_addr( _mac, out->mac ) ) ) {
-    FD_LOG_WARNING(( "Parsing %s as mac failed", _mac ));
-    return NULL;
-  }
-  if( FD_UNLIKELY( !fd_cstr_to_ip4_addr( _ip, &out->ip4 ) ) ) {
-    FD_LOG_WARNING(( "Parsing %s as ip4 failed", _ip ));
-    return NULL;
-  }
-
-  out->ip4  = fd_uint_bswap(   out->ip4 );
-  out->port = fd_ushort_bswap( _port    );
-  return out;
-}
 
 struct forwarding_ctx {
   fd_aio_t const * tx_aio;
   fd_net_endpoint_t src;
   fd_net_endpoint_t dst;
+
+  fd_rng_t * rng;
+  float corruption_rate;
 
   ulong accum_pub_cnt;
   ulong accum_pub_sz;
@@ -95,6 +41,7 @@ struct forwarding_ctx {
 typedef struct forwarding_ctx forwarding_ctx_t;
 
 
+static uchar const BADFOOD[4] = {0x0B, 0xAD, 0xF0, 0x0D };
 
 void
 handle_rx_shred( void *                    _ctx,
@@ -102,17 +49,32 @@ handle_rx_shred( void *                    _ctx,
                  ulong              shred_sz ) {
   forwarding_ctx_t * ctx = (forwarding_ctx_t *)_ctx;
 
-  fd_fec_set_t * to_send = fd_fec_resolver_add_shred( ctx->resolver, shred, shred_sz );
+  fd_fec_set_t const * to_send = fd_fec_resolver_add_shred( ctx->resolver, shred, shred_sz );
   if( FD_UNLIKELY( to_send ) ) {
     long idx = to_send - ctx->sets;
-    ctx->accum_pub_cnt +=          to_send->data_shred_cnt +          to_send->parity_shred_cnt;
-    ctx->accum_pub_sz  += 1245UL * to_send->data_shred_cnt + 1270UL * to_send->parity_shred_cnt;
+    // FD_LOG_NOTICE(( "sending FEC set %li (%lu+%lu)", idx, to_send->data_shred_cnt, to_send->parity_shred_cnt ));
 
-    /* TODO: Do I want to bother changing the identification field? */
+    ushort src_port = fd_ushort_bswap( (ushort)0xC0000 | fd_ushort_load_2( to_send->data_shreds[0] ) );
+    for( ulong j=0UL; j<to_send->data_shred_cnt; j++ ) { 
+      fd_shred_pkt_t * pkt = (fd_shred_pkt_t *)ctx->data_batches[ idx ][j].buf;
+      pkt->udp->net_sport = src_port;
+      if( FD_UNLIKELY( fd_rng_float_c0( ctx->rng ) < ctx->corruption_rate ) ) fd_memcpy( pkt->payload+188UL, BADFOOD, 4UL );
+    }
+
     int send_rc = send_loop_helper( ctx->tx_aio, ctx->data_batches[ idx ], to_send->data_shred_cnt );
     if( FD_UNLIKELY( send_rc<0 ) )  FD_LOG_WARNING(( "AIO send err for data shreds. Error: %s", fd_aio_strerror( send_rc ) ));
+
+    for( ulong j=0UL; j<to_send->parity_shred_cnt; j++ ) {
+      fd_shred_pkt_t * pkt = (fd_shred_pkt_t *)ctx->parity_batches[ idx ][j].buf;
+      pkt->udp->net_sport = src_port;
+      if( FD_UNLIKELY( fd_rng_float_c0( ctx->rng ) < ctx->corruption_rate ) ) fd_memcpy( pkt->payload+188UL, BADFOOD, 4UL );
+    }
+
     send_rc = send_loop_helper( ctx->tx_aio, ctx->parity_batches[ idx ], to_send->parity_shred_cnt );
     if( FD_UNLIKELY( send_rc<0 ) )  FD_LOG_WARNING(( "AIO send err for data shreds. Error: %s", fd_aio_strerror( send_rc ) ));
+
+    ctx->accum_pub_cnt +=          to_send->data_shred_cnt +          to_send->parity_shred_cnt;
+    ctx->accum_pub_sz  += 1245UL * to_send->data_shred_cnt + 1270UL * to_send->parity_shred_cnt;
   }
 }
 
@@ -206,8 +168,14 @@ fd_frank_retransmit_task( int     argc,
   uchar const * dst_endpt_pod = fd_pod_query_subpod( retransmit_pod, "dst_net_endpoint" );
   if( FD_UNLIKELY( !dst_endpt_pod ) ) FD_LOG_ERR(( "%s.retransmit.%s.dst_net_endpoint path not found", cfg_path, retransmit_name ));
 
-  if( FD_UNLIKELY( !fd_net_endpoint_load( dst_endpt_pod, &(ctx->src) ) ) )
+  if( FD_UNLIKELY( !fd_net_endpoint_load( dst_endpt_pod, &(ctx->dst) ) ) )
     FD_LOG_ERR(( "parsing network endpoint from %s.retransmit.%s.dst_net_endpoint failed", cfg_path, retransmit_name ));
+
+  char const * key_path = fd_pod_query_cstr( retransmit_pod, "key_path", NULL );
+  if( FD_UNLIKELY( !key_path ) ) FD_LOG_ERR(( "%s.retransmit.%s.key_path not found", cfg_path, retransmit_name ));
+
+  uchar shred_key[64];
+  read_key( key_path, shred_key );
 
   long  lazy      = fd_pod_query_long ( retransmit_pod, "lazy",      0L  );
   if( lazy<=0L ) lazy = fd_tempo_lazy_default( 1024UL );
@@ -221,6 +189,7 @@ fd_frank_retransmit_task( int     argc,
   fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, seed, 0UL ) );
   if( FD_UNLIKELY( !rng ) ) FD_LOG_ERR(( "fd_rng_join failed" ));
 
+  float corruption_rate = (float)fd_pod_query_ulong( retransmit_pod, "corrupt_pct", 0UL )/100.0f;
 
   ulong depth = fd_pod_query_ulong( retransmit_pod, "depth", 64UL );
   ulong done_depth = 2UL;
@@ -231,7 +200,6 @@ fd_frank_retransmit_task( int     argc,
   scratch_footprint += depth*(FD_REEDSOL_DATA_SHREDS_MAX + FD_REEDSOL_PARITY_SHREDS_MAX)*sizeof(fd_aio_pkt_info_t);
   scratch_footprint += 2UL*depth*sizeof(fd_aio_pkt_info_t *);
 
-  FD_LOG_NOTICE(( "Tile requires %lu bytes of scratch", scratch_footprint ));
   FD_LOG_INFO(( "mapping %s.retransmit.%s.scratch", cfg_path, retransmit_name ));
   void * retransmit_scratch = fd_wksp_pod_map( retransmit_pod, "scratch" );
   if( FD_UNLIKELY( !retransmit_scratch ) ) FD_LOG_ERR(( "%s.retransmit.%s.scratch path not found", cfg_path, retransmit_name ));
@@ -259,6 +227,10 @@ fd_frank_retransmit_task( int     argc,
   fd_aio_pkt_info_t * * parity_batches = (fd_aio_pkt_info_t * *)scratch_top;
   scratch_top += depth*sizeof(fd_aio_pkt_info_t *);
 
+  ulong footprint_used = scratch_top - (ulong)retransmit_scratch;
+  ulong provided_footprint = 58720256;
+  if( footprint_used > provided_footprint )
+    FD_LOG_ERR(( "Tile requires %lu bytes of scratch", scratch_footprint ));
 
   ulong pkt_idx = 0UL;
   for( ulong i=0UL; i<depth; i++ ) {
@@ -283,6 +255,7 @@ fd_frank_retransmit_task( int     argc,
       pkt->ip4->check     = 0U;
       pkt->ip4->saddr     = ctx->src.ip4;
       pkt->ip4->daddr     = ctx->dst.ip4;
+      pkt->ip4->check     = fd_ip4_hdr_check( ( fd_ip4_hdr_t const *) FD_ADDRESS_OF_PACKED_MEMBER( pkt->ip4 ) );
 
       pkt->udp->net_sport = ctx->src.port;
       pkt->udp->net_dport = ctx->dst.port;
@@ -315,6 +288,7 @@ fd_frank_retransmit_task( int     argc,
       pkt->ip4->check     = 0U;
       pkt->ip4->saddr     = ctx->src.ip4;
       pkt->ip4->daddr     = ctx->dst.ip4;
+      pkt->ip4->check     = fd_ip4_hdr_check( ( fd_ip4_hdr_t const *) FD_ADDRESS_OF_PACKED_MEMBER( pkt->ip4 ) );
 
       pkt->udp->net_sport = ctx->src.port;
       pkt->udp->net_dport = ctx->dst.port;
@@ -327,7 +301,7 @@ fd_frank_retransmit_task( int     argc,
     }
   }
 
-  fd_fec_resolver_t * resolver = fd_fec_resolver_join( fd_fec_resolver_new( _resolver, depth, done_depth, sets ) );
+  fd_fec_resolver_t * resolver = fd_fec_resolver_join( fd_fec_resolver_new( _resolver, depth, done_depth, sets, shred_key+32UL ) );
   if( FD_UNLIKELY( !resolver ) ) FD_LOG_ERR(( "fd_fec_resolver_join failed" ));
 
 
@@ -338,17 +312,19 @@ fd_frank_retransmit_task( int     argc,
 
   fd_aio_t const * tx_aio = fd_xsk_aio_get_tx( xsk_aio );
 
-  ctx->tx_aio         = tx_aio;
-  ctx->data_batches   = data_batches;
-  ctx->parity_batches = parity_batches;
-  ctx->resolver       = resolver;
-  ctx->sets           = sets;
+  ctx->tx_aio          = tx_aio;
+  ctx->data_batches    = data_batches;
+  ctx->parity_batches  = parity_batches;
+  ctx->resolver        = resolver;
+  ctx->sets            = sets;
   ctx->accum_pub_cnt   = 0UL;
   ctx->accum_pub_sz    = 0UL;
+  ctx->rng             = rng;
+  ctx->corruption_rate = corruption_rate;
 
   fd_xsk_aio_set_rx( xsk_aio, aio );
 
-  FD_LOG_NOTICE(( "Listening on interface %s queue %d", fd_xsk_ifname( xsk ), fd_xsk_ifqueue( xsk ) ));
+  FD_LOG_NOTICE(( "Listening on interface %s queue %d. Artificially corrupting %.2f%% of packets", fd_xsk_ifname( xsk ), fd_xsk_ifqueue( xsk ), 100.0*(double)corruption_rate ));
 
 
 

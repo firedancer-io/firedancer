@@ -33,6 +33,8 @@ use firedancer_sys::{
 use minstant::{Instant, Anchor};
 use rand::prelude::*;
 
+use crate::fd_log_info;
+
 /// TangoTx exposes a simple API for publishing data to a Tango mcache/dcache message queue.
 /// This producer does not respect flow control.
 pub struct TangoTx {
@@ -100,7 +102,6 @@ impl TangoTx {
         if base.is_null() {
             return Err(anyhow!("fd_wksp_containing failed"));
         }
-        println!("base: {:?}. seq{}", base, seq);
 
         // Check to see if the dcache base address is safe
         if 0 == fd_dcache_compact_is_safe(base, dcache as *const c_void, max_payload_size, depth) {
@@ -112,6 +113,8 @@ impl TangoTx {
             fd_dcache_compact_chunk0(base as *const c_void, dcache as *const c_void) as u64;
         let wmark: u64 = fd_dcache_compact_wmark(base, dcache as *const c_void, max_payload_size);
         let chunk = chunk0;
+
+        println!("Successfully connected to firedancer to send entry batches");
 
         let housekeeping_interval_ns = fd_tempo_lazy_default(depth);
         Ok(Self {

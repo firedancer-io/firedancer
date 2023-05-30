@@ -72,7 +72,7 @@ export QUIC_TX_BUF_SZ
 export QUIC_RX_BUF_SZ
 
 TURBINE_PORT=16016
-TURBINE_CORRUPT_FRACTION=0.1
+TURBINE_CORRUPT_PERCENT=1
 SHREDDER_DEPTH=128
 SHREDDER_MTU=1048576
 SHRED_LOAD_TX_RATE=1000000000 # 1 Gbps
@@ -220,6 +220,7 @@ for((shredder_idx=0;shredder_idx<SHREDDER_CNT;shredder_idx++)); do
     insert "$POD" cstr $APP.shredder.s${shredder_idx}.dst_net_endpoint.ip  "$SHRED_DST" \
     insert "$POD" ushort $APP.shredder.s${shredder_idx}.dst_net_endpoint.port $TURBINE_PORT        \
     insert "$POD" cstr $APP.shredder.s${shredder_idx}.scratch $SCRATCH \
+    insert "$POD" ulong $APP.shredder.s${shredder_idx}.corrupt_pct $TURBINE_CORRUPT_PERCENT \
     || exit $?
 done
 
@@ -244,6 +245,7 @@ for((retransmit_idx=0;retransmit_idx<RETRANSMIT_CNT;retransmit_idx++)); do
     insert "$POD" ushort $APP.retransmit.r${retransmit_idx}.dst_net_endpoint.port $TURBINE_PORT        \
     insert "$POD" ulong  $APP.retransmit.r${retransmit_idx}.depth 64 \
     insert "$POD" cstr $APP.retransmit.r${retransmit_idx}.scratch $SCRATCH \
+    insert "$POD" ulong $APP.retransmit.r${retransmit_idx}.corrupt_pct $TURBINE_CORRUPT_PERCENT \
     || exit $?
 done
 
