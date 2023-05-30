@@ -428,7 +428,21 @@ fd_runtime_lamports_per_signature_for_blockhash( fd_global_ctx_t *global, FD_FN_
   // https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/fee_calculator.rs#L110
 
   // https://github.com/firedancer-io/solana/blob/53a4e5d6c58b2ffe89b09304e4437f8ca198dadd/runtime/src/blockhash_queue.rs#L55
-  return global->bank.solana_bank.fee_rate_governor.target_lamports_per_signature / 2;
+  FD_LOG_NOTICE(("made it here!"));
+  ulong default_fee = global->bank.solana_bank.fee_rate_governor.target_lamports_per_signature / 2;
+
+  if (blockhash == 0) {
+    return default_fee;
+  }
+
+  for (ulong i = 0; i < global->bank.recent_block_hashes.hashes.cnt; ++i) {
+    fd_block_block_hash_entry_t * curr_elem = &(global->bank.recent_block_hashes.hashes.elems[i]);
+    if (memcmp(&curr_elem->blockhash, blockhash, sizeof(fd_hash_t)) == 0) {
+      return curr_elem->fee_calculator.lamports_per_signature;
+    }
+  }
+
+  return default_fee;
 }
 
 ulong
@@ -439,7 +453,7 @@ fd_runtime_txn_lamports_per_signature( fd_global_ctx_t *global, fd_txn_t * txn_d
       return state.inner.current.inner.initialized.fee_calculator.lamports_per_signature;
   }
 
-  //   lamports_per_signature = (transaction has a DurableNonce, use the lamports_per_signature from that nonce instead of looking up the recent_block_hash and using the lamports_per_signature associated with that hash
+//   lamports_per_signature = (transaction has a DurableNonce, use the lamports_per_signature from that nonce instead of looking up the recent_block_hash and using the lamports_per_signature associated with that hash
 //                        let TransactionExecutionDetails {
 //                            status,
 //                            log_messages,
@@ -457,7 +471,10 @@ fd_runtime_txn_lamports_per_signature( fd_global_ctx_t *global, fd_txn_t * txn_d
 //                            ),
 //                        }
 
-  return fd_runtime_lamports_per_signature_for_blockhash( global, NULL );
+  return (txn_raw == 0) ?
+    fd_runtime_lamports_per_signature_for_blockhash( global, NULL ) :
+    fd_runtime_lamports_per_signature_for_blockhash( global, (fd_hash_t *)((uchar *)txn_raw->raw + txn_descriptor->recent_blockhash_off) );
+
 }
 
 ulong
