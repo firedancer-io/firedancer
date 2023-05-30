@@ -250,7 +250,6 @@ static int assign(
   instruction_ctx_t ctx,
   fd_pubkey_t owner
 ) {
-  FD_LOG_NOTICE(("Start of Assign function. Slot: %lu", ctx.global->bank.solana_bank.slot));
   /* Pull out the account to be assigned an owner (acc idx 0) */
   uchar *       instr_acc_idxs = ((uchar *)ctx.txn_raw->raw + ctx.instr->acct_off);
   fd_pubkey_t * txn_accs = (fd_pubkey_t *)((uchar *)ctx.txn_raw->raw + ctx.txn_descriptor->acct_addr_off);
@@ -261,7 +260,6 @@ static int assign(
   int read_result = fd_acc_mgr_get_owner( ctx.global->acc_mgr, ctx.global->funk_txn, keyed_account, &current_owner );
 
   if ( FD_UNLIKELY( read_result != FD_ACC_MGR_SUCCESS ) ) {
-    FD_LOG_WARNING(( "failed to retrieve account owner" ));
     return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
   }
 
@@ -284,19 +282,14 @@ static int assign(
     }
   }
   if ( !sender_is_signer ) {
-    FD_LOG_WARNING( ( "Assign: account must sign" ) );
     return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
   }
 
   // Set the owner of the account
   int execute_result = fd_acc_mgr_set_owner( ctx.global->acc_mgr, ctx.global->funk_txn, ctx.global->bank.solana_bank.slot , keyed_account, owner );
   if ( FD_UNLIKELY( execute_result != FD_ACC_MGR_SUCCESS ) ) {
-    FD_LOG_WARNING(( "failed to set account owner" ));
     return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
   }
-
-  FD_LOG_INFO(( "successfully set the owner for account" ));
-  FD_LOG_NOTICE(("End of Assign function"));
 
   return FD_EXECUTOR_INSTR_SUCCESS;
 }

@@ -97,9 +97,9 @@ int fd_executor_run_test(
   /* Parse the raw transaction */
 
   uchar txn_parse_out_buf[FD_TXN_MAX_SZ];
-  ulong txn_sz = fd_txn_parse( test->raw_tx, test->raw_tx_len, txn_parse_out_buf, NULL, NULL );
+  ulong txn_sz = fd_txn_parse_core( test->raw_tx, test->raw_tx_len, txn_parse_out_buf, NULL, NULL, 1 );
   if ( txn_sz == 0 || txn_sz > FD_TXN_MAX_SZ ) {
-    FD_LOG_WARNING(("Failed test %s: failed to parse transaction", test->test_name));
+    FD_LOG_WARNING(("Failed test %d: %s: failed to parse transaction", test->test_number,test->test_name));
     fd_funk_txn_cancel( suite->funk, global->funk_txn, 0 );
     return -1;
   }
@@ -121,14 +121,14 @@ int fd_executor_run_test(
   execute_instruction_func_t exec_instr_func = fd_executor_lookup_native_program( global, &test->program_id );
   int exec_result = exec_instr_func( ctx );
   if ( exec_result != test->expected_result ) {
-    FD_LOG_WARNING(( "Failed test %s: expected transaction result %d, got %d", test->test_name, test->expected_result , exec_result));
+    FD_LOG_WARNING(( "Failed test %d: %s: expected transaction result %d, got %d", test->test_number, test->test_name, test->expected_result , exec_result));
     return -1;
   }
 
   /* Revert the Funk transaction */
   fd_funk_txn_cancel( suite->funk, global->funk_txn, 0 );
 
-  FD_LOG_WARNING(("Passed test %s", test->test_name));
+  FD_LOG_WARNING(("Passed test %d: %s", test->test_number, test->test_name));
 
   return 0;
 }
@@ -140,7 +140,11 @@ int main(int argc, char **argv) {
 
   long test_start = fd_env_strip_cmdline_long(&argc, &argv, "--start", NULL, 0);
   long test_end = fd_env_strip_cmdline_long(&argc, &argv, "--end", NULL, 373);
+  long do_test = fd_env_strip_cmdline_long(&argc, &argv, "--test", NULL, -1);
   const char * filter = fd_env_strip_cmdline_cstr(&argc, &argv, "--filter", NULL, NULL);
+
+  if (-1 != do_test) 
+    test_start = test_end = do_test;
 
   /* Initialize the test suite */
   fd_executor_test_suite_t suite;
@@ -151,7 +155,8 @@ int main(int argc, char **argv) {
     if (regcomp(&suite.filter_ex, filter, REG_EXTENDED | REG_ICASE) !=0 ) {
       FD_LOG_ERR(("regular expression failed to compile"));
     }
-  }
+  } else
+    suite.filter = NULL;
 
   int ret = 0;
   for (long i = test_start; i <= test_end; i++)  {
@@ -164,6 +169,8 @@ int main(int argc, char **argv) {
 
   fd_log_flush();
   fd_halt();
+
+  FD_LOG_NOTICE( ("all done" ));
 
   return ret;
 }

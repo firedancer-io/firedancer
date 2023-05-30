@@ -195,11 +195,13 @@ def main():
 
   for json_test_case in json_test_cases:
     print("int test_{}(fd_executor_test_suite_t *suite) {}".format(test_case, "{"))
-    test_case = test_case + 1
 
     print("  fd_executor_test_t test;")
     print("  fd_memset( &test, 0, FD_EXECUTOR_TEST_FOOTPRINT );")
     print("  test.test_name = \"{}\";".format(json_test_case["name"]))
+    print("  test.test_number ={};".format(test_case))
+
+    test_case = test_case + 1
 
     print("  if (fd_executor_test_suite_check_filter(suite, &test)) return -9999;")
 
@@ -236,29 +238,17 @@ def main():
             
     # Serialize the transaction this test case executes
     accounts = []
-    first = True
     num_signers = 0
     for account in json_test_case["instruction_accounts"]:
-        if first:
-            accounts.append(
-                AccountMeta(
-                    pubkey=Pubkey.from_bytes(base58.b58decode(account["pubkey"])),
-                    is_signer=True,
-                    is_writable=True
-                )
-            )
-            first = False
+        if bool(account["is_signer"]):
             num_signers += 1
-        else:
-            if bool(account["is_signer"]):
-                num_signers += 1
-            accounts.append(
-                AccountMeta(
-                    pubkey=Pubkey.from_bytes(base58.b58decode(account["pubkey"])),
-                    is_signer=bool(account["is_signer"]),
-                    is_writable=bool(account["is_writable"])
-                )
+        accounts.append(
+            AccountMeta(
+                pubkey=Pubkey.from_bytes(base58.b58decode(account["pubkey"])),
+                is_signer=bool(account["is_signer"]),
+                is_writable=bool(account["is_writable"])
             )
+        )
 
     instruction = Instruction(
       accounts=accounts,

@@ -220,7 +220,7 @@ test_txn( uchar * payload,
           ulong   payload_sz,
           ulong   expected_max_cu,
           ulong   expected_fee_lamports ) { /* Excludes per-signature fee */
-  FD_TEST( fd_txn_parse( payload, payload_sz, parsed, NULL, NULL ) );
+  FD_TEST( fd_txn_parse( payload, payload_sz, parsed, NULL ) );
   fd_txn_t * txn = (fd_txn_t*)parsed;
   fd_compute_budget_program_state_t state;
   fd_compute_budget_program_init( &state );

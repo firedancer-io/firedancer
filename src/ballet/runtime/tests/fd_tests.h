@@ -17,6 +17,7 @@ typedef struct fd_executor_test_acc fd_executor_test_acc_t;
 
 struct fd_executor_test {
   char*                   test_name;
+  int                     test_number;
   fd_pubkey_t             program_id;
   fd_executor_test_acc_t* accs;
   ulong                   accs_len;
