@@ -273,6 +273,16 @@ config_struct!(ShmemConfig {
     }
 });
 
+impl ShmemConfig {
+    pub(crate) fn workspace_size(&self) -> u64 {
+        match self.workspace_page_size.as_ref() {
+            "gigantic" => self.workspace_page_count as u64 * 1024 * 1024 * 1024,
+            "huge" => self.workspace_page_count as u64 * 2 * 1024 * 1024,
+            _ => unreachable!(),
+        }
+    }
+}
+
 config_struct!(QuicConfig {
     {
         interface: String,
