@@ -1,6 +1,6 @@
 import argparse
-from typing import Callable, Tuple
 import re
+from typing import Callable, List, Tuple
 
 class Breadcrumb:
   identifiers: tuple
@@ -37,15 +37,32 @@ class Breadcrumb:
     self.solana_display = solana_display
     self.firedancer_display = firedancer_display
 
-class Result:
-  solana_log_line: str
-  firedancer_log_line: str
+  def _filter(self, line: str, fd_flag: bool) -> bool:
+    return (self.firedancer_filter(line) and fd_flag) or (self.solana_filter(line) and (not fd_flag))
 
-  def __init__(self,
-               solana_log_line: str,
-               firedancer_log_line: str):
-    self.solana_log_line = solana_log_line
-    self.firedancer_log_line = firedancer_log_line
+  def _extract_values(self, line: str, fd_flag: bool):
+    val = tuple(self.firedancer_display(line)) if fd_flag else tuple(self.solana_display(line))
+    if len(val) == 0:
+      return None
+    return val[0] if type(val[0]) == tuple else val
+
+  def _extract_identifier(self, line: str, fd_flag: bool) -> str:
+    return tuple(self.firedancer_identifier(line)) if fd_flag else tuple(self.solana_identifier(line))
+
+  @staticmethod
+  def extract_log_line(file_location: str, breadcrumbs: List[str], bakery: dict, fd_flag: bool) -> dict:
+    results = dict()
+    with open(file_location, 'r', ) as log_file:
+      for line in log_file:
+        for breadcrumb_name in breadcrumbs:
+          breadcrumb = bakery[breadcrumb_name]
+          if breadcrumb._filter(line, fd_flag):
+            key = breadcrumb._extract_identifier(line, fd_flag)
+            val = breadcrumb._extract_values(line, fd_flag)
+            if val is None:
+              continue
+            results.setdefault(breadcrumb_name, dict()).setdefault(key, set()).add(val)
+    return results
 
 def main():
   argParser = argparse.ArgumentParser()
@@ -55,7 +72,7 @@ def main():
   args = argParser.parse_args()
 
   # Define all breadcrumbs
-  all_breadcrumbs = {
+  BAKERY = {
     "bank_hash": Breadcrumb(
       identifiers=("slot"),
       display_values=("hash"),
@@ -88,62 +105,27 @@ def main():
     )
   }
 
-  # Filter only the breadcrumbs we are interested in
-  breadcrumbs = {
-    breadcrumb_name: breadcrumb for breadcrumb_name, breadcrumb in all_breadcrumbs.items() if breadcrumb_name in args.breadcrumbs
-  }
-  
   # Read in Solana log file
-  solana_results = {}
+  solana_results = Breadcrumb.extract_log_line(file_location=args.solana, breadcrumbs=args.breadcrumbs, bakery=BAKERY, fd_flag=0)
+  firedancer_results = Breadcrumb.extract_log_line(file_location=args.firedancer, breadcrumbs=args.breadcrumbs, bakery=BAKERY, fd_flag=1)
 
-  with open(args.solana, 'r', ) as solana_log_file:
-    for line in solana_log_file:
-      for breadcrumb in breadcrumbs.values():
-        if breadcrumb.solana_filter(line):
-          key = tuple(breadcrumb.solana_identifier(line))
-          val = tuple(breadcrumb.solana_display(line))
-          if len(val) == 0: continue
-          val = val[0] if type(val[0]) == tuple else val
-
-          if key in solana_results:
-            solana_results[key].add(val)
-          else:
-            solana_results[key] = {val}
-
-
-  # Read in Firedancer log file
-  firedancer_results = {}
-  with open(args.firedancer, 'r') as firedancer_log_file:
-    for line in firedancer_log_file:
-      for breadcrumb in breadcrumbs.values():
-        if breadcrumb.firedancer_filter(line):
-          key = tuple(breadcrumb.firedancer_identifier(line))
-          val = tuple(breadcrumb.firedancer_display(line))
-          if len(val) == 0: continue
-          val = val[0] if type(val[0]) == tuple else val
-          if key in firedancer_results:
-            firedancer_results[key].add(val)
-          else:
-            firedancer_results[key] = {val}
-
-  for k in solana_results.keys():
-    if k in firedancer_results:
-      diff = solana_results[k] - firedancer_results[k]
-      if len(diff) == 0:
+  for breadcrumb_name in args.breadcrumbs:
+    print("##############################################################################################################################")
+    print("results for " + breadcrumb_name)
+    for key in solana_results[breadcrumb_name]:
+      truth = solana_results[breadcrumb_name][key]
+      reality = firedancer_results[breadcrumb_name].get(key, set())
+      if len(reality) == 0 or len(truth - reality) == 0:
         continue
-      print("##############################################################################################################################")
-      print(breadcrumb.identifiers)
-      print(breadcrumb.display_values)
-      print("")
+      print("----------------------------------------------------------------------------------------------------------------------------")
+      print("identifier:", BAKERY[breadcrumb_name].identifiers)
+      print("values:", BAKERY[breadcrumb_name].display_values)
       print("Solana:")
-      for result in solana_results[k]:
+      for result in truth:
         print(result)
-      print("")
       print("Firedancer:")
-      for result in firedancer_results[k]:
+      for result in reality:
         print(result)
-      print("")
-
 
 if __name__ == "__main__":
   main()
