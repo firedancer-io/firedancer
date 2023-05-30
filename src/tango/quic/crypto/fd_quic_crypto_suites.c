@@ -921,7 +921,6 @@ int fd_quic_retry_token_decrypt(
 }
 
 int fd_quic_retry_integrity_tag_encrypt(
-    // FIXME change once fix templ
     uchar *retry_pseudo_pkt,
     int retry_pseudo_pkt_len,
     uchar retry_integrity_tag[static FD_QUIC_CRYPTO_TAG_SZ])
@@ -942,7 +941,6 @@ int fd_quic_retry_integrity_tag_encrypt(
 }
 
 int fd_quic_retry_integrity_tag_decrypt(
-    // FIXME templates use actual struct
     uchar *retry_pseudo_pkt,
     int retry_pseudo_pkt_len,
     uchar retry_integrity_tag[static FD_QUIC_CRYPTO_TAG_SZ])
