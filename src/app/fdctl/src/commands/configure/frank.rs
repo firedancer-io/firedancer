@@ -14,12 +14,23 @@ pub(super) const STAGE: Stage = Stage {
     // We can't really verify if a frank workspace has been set up correctly, so if we are
     // running it we just recreate it every time.
     always_recreate: true,
-    explain_init_permissions: None,
+    explain_init_permissions: Some(explain_init_permissions),
     explain_fini_permissions: None,
     init: Some(step),
     fini: None,
     check,
 };
+
+#[rustfmt::skip]
+fn explain_init_permissions(config: &Config) -> Vec<Option<String>> {
+    if config.development.netns.enabled {
+        vec![
+            check_process_cap(NAME, CAP_SYS_ADMIN, "enter a network namespace"),
+        ]
+    } else {
+        vec![]
+    }
+}
 
 #[rustfmt::skip]
 fn step(config: &mut Config) {
@@ -29,7 +40,8 @@ fn step(config: &mut Config) {
     let interface = &config.tiles.quic.interface;
 
     if config.development.netns.enabled {
-        // Enter network namespace here so that network setup commands work correctly.
+        // Enter network namespace for bind. This is only needed for a check that the interface
+        // exists.. we can probably skip that.
         set_network_namespace(&format!("/var/run/netns/{}", interface));
     }
 
