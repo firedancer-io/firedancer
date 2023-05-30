@@ -1,0 +1,5 @@
+AlignConsecutiveAssignments: true
+AlignConsecutiveDeclarations: true
+AlignConsecutiveMacros: true
+PointerAlignment: PAS_Middle
+SpacesInConditionalStatement: true
