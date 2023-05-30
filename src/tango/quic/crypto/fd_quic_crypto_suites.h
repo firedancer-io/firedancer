@@ -172,8 +172,8 @@ extern uchar FD_QUIC_CRYPTO_V1_INITIAL_SALT[ 20UL ];
 #define FD_QUIC_RETRY_TOKEN_PLAINTEXT_SZ (1 + FD_QUIC_MAX_CONN_ID_SZ + sizeof(long))
 /* ciphertext length should equal plaintext in chosen AEAD scheme */
 #define FD_QUIC_RETRY_TOKEN_CIPHERTEXT_SZ FD_QUIC_RETRY_TOKEN_PLAINTEXT_SZ
-/* retry token authenticated associated data (AAD): ipv4 + port + our 8-byte retry src conn id */
-#define FD_QUIC_RETRY_TOKEN_AAD_SZ (4 + 2 + 8)
+/* retry token authenticated associated data (AAD): ipv4 + port + retry src conn id */
+#define FD_QUIC_RETRY_TOKEN_AAD_SZ (4 + 2 + 1)
 /* 256-bit key */
 #define FD_QUIC_RETRY_TOKEN_HKDF_KEY_SZ 32
 /* retry token = prepended random bytes + encrypted ciphertext + appended authentication tag */
@@ -541,9 +541,9 @@ fd_quic_crypto_lookup_suite( uchar major,
 int fd_quic_retry_token_encrypt(
     /* plaintext (timestamp calculated in function) */
     fd_quic_conn_id_t *orig_dst_conn_id,
-    long *now,
+    ulong *now,
     /* aad */
-    ulong retry_src_conn_id,
+    fd_quic_conn_id_t *retry_src_conn_id,
     uint ip_addr,
     ushort udp_port,
     /* ciphertext */
@@ -554,12 +554,12 @@ int fd_quic_retry_token_decrypt(
     /* ciphertext */
     uchar retry_token[static FD_QUIC_RETRY_TOKEN_CIPHERTEXT_SZ],
     /* aad */
-    ulong retry_src_conn_id,
+    fd_quic_conn_id_t *retry_src_conn_id,
     uint ip_addr,
     ushort udp_port,
     /* plaintext */
     fd_quic_conn_id_t *orig_dst_conn_id,
-    long *now);
+    ulong *now);
 
 int fd_quic_retry_integrity_tag_encrypt(
     uchar *retry_pseudo_pkt,

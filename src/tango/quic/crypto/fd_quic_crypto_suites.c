@@ -814,8 +814,8 @@ fd_quic_crypto_rand( uchar * buf,
 
 int fd_quic_retry_token_encrypt(
     fd_quic_conn_id_t *orig_dst_conn_id,
-    long *now,
-    ulong retry_src_conn_id,
+    ulong *now,
+    fd_quic_conn_id_t *retry_src_conn_id,
     uint ip_addr,
     ushort udp_port,
     uchar retry_token[static FD_QUIC_RETRY_TOKEN_CIPHERTEXT_SZ])
@@ -842,15 +842,17 @@ int fd_quic_retry_token_encrypt(
   uchar iv[FD_QUIC_NONCE_SZ] = {0};
 
   /* The AAD is the client IPv4 address, UDP port, and retry source connection id. */
-  uchar aad[FD_QUIC_RETRY_TOKEN_AAD_SZ];
+  ulong aad_sz = (ulong) FD_QUIC_RETRY_TOKEN_AAD_SZ + retry_src_conn_id->sz;
+  uchar aad[aad_sz];
   memcpy(aad, &ip_addr, sizeof(uint));
   memcpy(aad + sizeof(uint), &udp_port, sizeof(ushort));
-  memcpy(aad + sizeof(uint) + sizeof(ushort), &retry_src_conn_id, sizeof(ulong));
+  memcpy(aad + sizeof(uint) + sizeof(ushort), &retry_src_conn_id->sz, sizeof(uchar));
+  memcpy(aad + sizeof(uint) + sizeof(ushort) + sizeof(uchar), &retry_src_conn_id->conn_id, retry_src_conn_id->sz);
 
   uchar plaintext[FD_QUIC_RETRY_TOKEN_PLAINTEXT_SZ];
-  memcpy(plaintext, &orig_dst_conn_id->sz, 1);
+  memcpy(plaintext, &orig_dst_conn_id->sz, sizeof(uchar));
   memcpy(plaintext + 1, orig_dst_conn_id->conn_id, orig_dst_conn_id->sz);
-  memcpy(plaintext + 1 + FD_QUIC_MAX_CONN_ID_SZ, &now, sizeof(long));
+  memcpy(plaintext + 1 + orig_dst_conn_id->sz, &now, sizeof(ulong));
 
   /* Append the ciphertext after random bytes in the retry_token. */
   uchar *ciphertext = hkdf_key + FD_QUIC_RETRY_TOKEN_HKDF_KEY_SZ;
@@ -860,7 +862,7 @@ int fd_quic_retry_token_encrypt(
 
   int ciphertext_len = gcm_encrypt(EVP_aes_256_gcm(),
                                    plaintext, FD_QUIC_RETRY_TOKEN_PLAINTEXT_SZ,
-                                   aad, FD_QUIC_RETRY_TOKEN_AAD_SZ,
+                                   aad, (int) aad_sz,
                                    aead_key,
                                    iv,
                                    ciphertext,
@@ -870,17 +872,16 @@ int fd_quic_retry_token_encrypt(
     FD_LOG_WARNING(("Expected ciphertext length to equal plaintext length. Instead got: %d", ciphertext_len));
     return FD_QUIC_FAILED;
   }
-
   return FD_QUIC_SUCCESS;
 }
 
 int fd_quic_retry_token_decrypt(
     uchar retry_token[static FD_QUIC_RETRY_TOKEN_CIPHERTEXT_SZ],
-    ulong retry_src_conn_id,
+    fd_quic_conn_id_t *retry_src_conn_id,
     uint ip_addr,
     ushort udp_port,
     fd_quic_conn_id_t *orig_dst_conn_id,
-    long *now)
+    ulong *now)
 {
   /* Regenerate the AEAD key (the HKDF key is the first 32 bytes of the token). */
   uchar *hkdf_key = retry_token;
@@ -891,17 +892,20 @@ int fd_quic_retry_token_decrypt(
                             fd_hmac_sha256, FD_QUIC_RETRY_TOKEN_AEAD_KEY_SZ);
 
   uchar *ciphertext = hkdf_key + FD_QUIC_RETRY_TOKEN_HKDF_KEY_SZ;
-  uchar aad[FD_QUIC_RETRY_TOKEN_AAD_SZ];
+  ulong aad_sz = (ulong) FD_QUIC_RETRY_TOKEN_AAD_SZ + retry_src_conn_id->sz;
+  uchar aad[aad_sz];
   memcpy(aad, &ip_addr, sizeof(uint));
   memcpy(aad + sizeof(uint), &udp_port, sizeof(ushort));
-  memcpy(aad + sizeof(uint) + sizeof(ushort), &retry_src_conn_id, sizeof(ulong));
+  memcpy(aad + sizeof(uint) + sizeof(ushort), &retry_src_conn_id->sz, sizeof(uchar));
+  if (FD_LIKELY(retry_src_conn_id->sz)) {
+    fd_memcpy(aad + sizeof(uint) + sizeof(ushort) + sizeof(uchar), &retry_src_conn_id->conn_id, retry_src_conn_id->sz);
+  }
   uchar iv[FD_QUIC_NONCE_SZ] = {0};
   uchar *tag = ciphertext + FD_QUIC_RETRY_TOKEN_CIPHERTEXT_SZ;
-
   uchar plaintext[FD_QUIC_RETRY_TOKEN_PLAINTEXT_SZ];
   if (FD_UNLIKELY(gcm_decrypt(EVP_aes_256_gcm(),
                               ciphertext, FD_QUIC_RETRY_TOKEN_CIPHERTEXT_SZ,
-                              aad, FD_QUIC_RETRY_TOKEN_AAD_SZ,
+                              aad, (int) aad_sz,
                               tag,
                               aead_key,
                               iv,
@@ -911,9 +915,8 @@ int fd_quic_retry_token_decrypt(
   };
 
   orig_dst_conn_id->sz = *plaintext;
-  uchar *orig_dst_conn_id_ptr = (uchar *)orig_dst_conn_id->conn_id;
-  *orig_dst_conn_id_ptr = *(plaintext + 1);
-  *now = *((long *)fd_type_pun(plaintext + 1 + orig_dst_conn_id->sz));
+  memcpy(orig_dst_conn_id->conn_id, plaintext + sizeof(uchar), orig_dst_conn_id->sz);
+  *now = *((ulong *)fd_type_pun(plaintext + sizeof(uchar) + orig_dst_conn_id->sz));
   return FD_QUIC_SUCCESS;
 }
 
