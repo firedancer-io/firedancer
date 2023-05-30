@@ -5,6 +5,10 @@ use clap::{
     arg,
     Args,
 };
+use libc::{
+    RLIMIT_MEMLOCK,
+    RLIMIT_NICE,
+};
 
 use crate::security::*;
 use crate::utility::*;
@@ -26,9 +30,12 @@ impl RunCli {
     #[rustfmt::skip]
     pub(crate) fn explain_permissions(&self, config: &Config) -> Vec<String> {
         let run_binary = format!("{}/fd_frank_run.bin", config.binary_dir);
+
+        let mlock_limit = config.shmem.workspace_size();
         vec![
-            check_file_cap("run", &run_binary, CAP_SYS_NICE, "set a high scheduler priority for threads"),
-            check_file_cap("run", &run_binary, CAP_NET_RAW, "bind to a socket with SOCK_RAW"),
+            check_resource("run", &run_binary, RLIMIT_MEMLOCK, mlock_limit, "increase `RLIMIT_MEMLOCK` to lock the workspace in memory with `mlock(2)`"),
+            check_resource("run", &run_binary, RLIMIT_NICE, 40, "call `setpriority(2)` to increase thread priorities"),
+            check_file_cap("run", &run_binary, CAP_NET_RAW, "call `bind(2)` to bind to a socket with `SOCK_RAW`"),
             check_file_cap("run", &run_binary, CAP_SYS_ADMIN, "initialize XDP by calling `bpf_obj_get`"),
         ].into_iter().flatten().collect()
     }

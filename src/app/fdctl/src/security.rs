@@ -6,12 +6,16 @@ use std::os::fd::RawFd;
 
 use libc::{
     c_uint,
+    getrlimit,
     open,
     pid_t,
+    rlimit,
     setns,
+    setrlimit,
     size_t,
     O_CLOEXEC,
     O_RDONLY,
+    RLIMIT_NICE,
 };
 use paste::paste;
 
@@ -44,10 +48,11 @@ macro_rules! capabilities {
 }
 
 capabilities!(
+    CapNetAdmin(12),
+    CapNetRaw(13),
     CapSysAdmin(21),
     CapSysNice(23),
-    CapNetRaw(13),
-    CapNetAdmin(12)
+    CapSysResource(24)
 );
 
 pub(crate) enum Permission {
@@ -154,6 +159,62 @@ pub(crate) fn check_root(name: &'static str, reason: &str) -> Option<String> {
         reason: reason.into(),
         permission: Permission::Root,
     })
+}
+
+pub(crate) fn check_resource(
+    name: &'static str,
+    path: &str,
+    resource: u32,
+    expected: u64,
+    reason: &str,
+) -> Option<String> {
+    let mut rlimit = rlimit {
+        rlim_cur: 0,
+        rlim_max: 0,
+    };
+    assert_ne!(-1, unsafe { getrlimit(resource, &mut rlimit) });
+
+    let value = rlimit.rlim_max;
+    if value < expected {
+        if check_process_cap("", CAP_SYS_RESOURCE, "").is_some() {
+            // Current process can't raise limit. Check if the binary we are about to call can do
+            // it.
+            if check_file_cap("", path, CAP_SYS_RESOURCE, "").is_some() {
+                if resource == RLIMIT_NICE {
+                    if check_file_cap("", path, CAP_SYS_NICE, "").is_none() {
+                        // Special case, if we have CAP_SYS_NICE we can set any nice value without
+                        // raising the limit with CAP_SYS_RESOURCE.
+                        None
+                    } else {
+                        Some(format!(
+                            "[Security] {name} ... {path} requires `CAP_SYS_RESOURCE` or \
+                             `CAP_SYS_NICE` to {reason}"
+                        ))
+                    }
+                } else {
+                    // Binary we are calling can't raise it either.
+                    Some(format!(
+                        "[Security] {name} ... {path} requires `CAP_SYS_RESOURCE` to {reason}"
+                    ))
+                }
+            } else {
+                None
+            }
+        } else {
+            // The current process can raise the limit. Just do that, and then let it pass to the
+            // child.
+            let rlimit = rlimit {
+                rlim_cur: expected,
+                rlim_max: expected,
+            };
+            assert_ne!(-1, unsafe { setrlimit(resource, &rlimit) });
+            None
+        }
+    } else {
+        // The current process has a high enough limit, so no need to do anything, it will
+        // get passed to the child.
+        None
+    }
 }
 
 pub(crate) fn check_file_cap(

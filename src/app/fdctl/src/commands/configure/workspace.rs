@@ -1,20 +1,39 @@
 use std::path::Path;
 
+use libc::RLIMIT_MEMLOCK;
+
 use super::*;
+use crate::security::*;
 use crate::utility::*;
 
+const NAME: &str = "workspace";
+
 pub(super) const STAGE: Stage = Stage {
-    name: "workspace",
+    name: NAME,
     enabled: None,
     // We can't really verify if a frank workspace is valid to be reused, so it just gets blown
     // away and recreated every time.
     always_recreate: true,
-    explain_init_permissions: None,
+    explain_init_permissions: Some(explain_init_permissions),
     explain_fini_permissions: None,
     init: Some(step),
     fini: Some(undo),
     check,
 };
+
+fn explain_init_permissions(config: &Config) -> Vec<Option<String>> {
+    let path = format!("{}/fd_wksp_ctl", config.binary_dir);
+
+    // We need to be able to `mlock` the entire workspace
+    let mlock_limit = config.shmem.workspace_size();
+    vec![check_resource(
+        NAME,
+        &path,
+        RLIMIT_MEMLOCK,
+        mlock_limit,
+        "increase `RLIMIT_MEMLOCK` to lock the workspace in memory",
+    )]
+}
 
 fn step(config: &mut Config) {
     let prefix = if uid() == 0 {
