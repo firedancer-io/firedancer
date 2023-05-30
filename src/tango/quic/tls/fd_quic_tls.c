@@ -360,6 +360,7 @@ fd_quic_tls_process( fd_quic_tls_hs_t * self ) {
   SSL * ssl    = self->ssl;
   if( !self->is_hs_complete ) {
     uint cnt = 0;
+    (void)cnt;
     while(1) {
       cnt++;
       ssl_rc = SSL_do_handshake( self->ssl );

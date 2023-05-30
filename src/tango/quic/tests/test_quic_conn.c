@@ -130,7 +130,7 @@ populate_streams( ulong sz, fd_quic_conn_t * conn ) {
 /* obtain all free stream meta, clear the stream, and
    deallocate */
 void
-free_all_streams() {
+free_all_streams( void ) {
   my_stream_meta_t * prev = NULL;
 
   meta_mem = (my_stream_meta_t*)malloc( meta_sz * sizeof( my_stream_meta_t ) );

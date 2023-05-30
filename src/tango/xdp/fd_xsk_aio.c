@@ -335,8 +335,12 @@ fd_xsk_aio_send( void *                    ctx,
   /* XSK send prepare loop.  Terminates when the largest possible tx
      batch has been formed.  meta[0..pkt_idx] is populated with frames
      to be handed off to fd_xsk_tx_enqueue. */
+  ulong skip_cnt = 0UL;
   ulong pkt_idx;
   for( pkt_idx=0; pkt_idx<batch_cnt; ++pkt_idx ) {
+    /* Philip's demo hack: Skip packets with 0 dest mac */
+    if( FD_UNLIKELY( pkt[ pkt_idx ].buf_sz >= 6UL && fd_ulong_load_6( pkt[ pkt_idx ].buf )==0UL ) ) { skip_cnt++; continue; }
+
     /* Pop a TX frame from our stack */
     if( FD_UNLIKELY( !xsk_aio->tx_top ) )
       break;
@@ -367,7 +371,7 @@ fd_xsk_aio_send( void *                    ctx,
   }
 
   /* Enqueue send */
-  ulong sent_cnt = fd_xsk_tx_enqueue( xsk, meta, pending_cnt );
+  ulong sent_cnt = fd_xsk_tx_enqueue( xsk, meta, pending_cnt ) + skip_cnt;
 
   /* Sent less than user requested? */
   if( FD_UNLIKELY( sent_cnt<pkt_cnt ) ) {
