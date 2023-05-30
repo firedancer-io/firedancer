@@ -52,7 +52,6 @@ class Breadcrumb:
   @staticmethod
   def extract_log_line(file_location: str, breadcrumbs: List[str], bakery: dict, fd_flag: bool) -> dict:
     results = dict()
-    # results = {"bank_hash": {"key": set(val1, val2)}}
     with open(file_location, 'r', ) as log_file:
       for line in log_file:
         for breadcrumb_name in breadcrumbs:
