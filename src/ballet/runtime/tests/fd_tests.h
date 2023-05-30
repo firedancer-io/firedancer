@@ -5,12 +5,15 @@
 
 struct fd_executor_test_acc {
   fd_pubkey_t pubkey;
-  ulong       lamports;
-  ulong       data_len;
-  uchar*      data;
-  uchar       executable;
-  ulong       rent_epoch;
-  fd_pubkey_t owner;
+  ulong         lamports;
+  ulong         result_lamports;
+  ulong         data_len;
+  ulong         result_data_len;
+  const uchar*  data;
+  const uchar*  result_data;
+  uchar         executable;
+  ulong         rent_epoch;
+  fd_pubkey_t   owner;
 };
 typedef struct fd_executor_test_acc fd_executor_test_acc_t;
 #define FD_EXECUTOR_TEST_ACC_FOOTPRINT ( sizeof(fd_executor_test_acc_t) )
@@ -21,7 +24,7 @@ struct fd_executor_test {
   fd_pubkey_t             program_id;
   fd_executor_test_acc_t* accs;
   ulong                   accs_len;
-  uchar*                  raw_tx;
+  const uchar*            raw_tx;
   ulong                   raw_tx_len;
   int                     expected_result;
 };

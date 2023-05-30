@@ -111,7 +111,7 @@ static int create_account(
   instruction_ctx_t ctx,
     fd_system_program_instruction_t *instruction
 ) {
-  if (2 != ctx.instr->acct_cnt) 
+  if (ctx.instr->acct_cnt < 2) 
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
 
   /* Account 0: funding account
@@ -119,6 +119,7 @@ static int create_account(
    */
   uchar *       instr_acc_idxs = ((uchar *)ctx.txn_raw->raw + ctx.instr->acct_off);
   fd_pubkey_t * txn_accs = (fd_pubkey_t *)((uchar *)ctx.txn_raw->raw + ctx.txn_descriptor->acct_addr_off);
+
   fd_pubkey_t * from     = &txn_accs[instr_acc_idxs[0]];
   fd_pubkey_t * to       = &txn_accs[instr_acc_idxs[1]];
 
@@ -128,7 +129,6 @@ static int create_account(
   fd_pubkey_t*      base = NULL;
   char*             seed = NULL;
 
-  uchar from_is_signer = 0;
 
   if (instruction->discriminant == fd_system_program_instruction_enum_create_account) {
     // https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/runtime/src/system_instruction_processor.rs#L277
@@ -136,6 +136,7 @@ static int create_account(
     lamports = params->lamports;
     space = params->space;
     owner = &params->owner;
+    base = to;
   } else {
     // https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/runtime/src/system_instruction_processor.rs#L296
     fd_system_program_instruction_create_account_with_seed_t* params = &instruction->inner.create_account_with_seed;
@@ -154,20 +155,21 @@ static int create_account(
 
   // https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/runtime/src/system_instruction_processor.rs#L33
 
-  /* Check from has signed the transaction */
+  /* Check from/to has signed the transaction */
+  uchar from_is_signer = 0;
+  uchar to_signed = 0;
+
   for ( ulong i = 0; i < ctx.instr->acct_cnt; i++ ) {
     if ( instr_acc_idxs[i] < ctx.txn_descriptor->signature_cnt ) {
       fd_pubkey_t * signer = &txn_accs[instr_acc_idxs[i]];
-      if ( memcmp( signer, from, sizeof(fd_pubkey_t) ) == 0 ) {
+      if ( memcmp( signer, from, sizeof(fd_pubkey_t) ) == 0 )
         from_is_signer = 1;
-        break;
-      }
+      if ( !memcmp( signer, base, sizeof(fd_pubkey_t) ) )
+        to_signed = 1;
     }
   }
-  if ( !from_is_signer ) {
-    FD_LOG_WARNING( ( " from has not authorized transfer " ) );
+  if ( !from_is_signer | !to_signed )
     return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
-  }
 
   fd_account_meta_t metadata;
   int read_result = fd_acc_mgr_get_metadata( ctx.global->acc_mgr, ctx.global->funk_txn, from, &metadata );
@@ -184,7 +186,6 @@ static int create_account(
     return FD_EXECUTOR_INSTR_ERR_INSUFFICIENT_FUNDS;
   }
 
-
   /* Execute the transfer */
   int write_result = fd_acc_mgr_set_lamports( ctx.global->acc_mgr, ctx.global->funk_txn, ctx.global->bank.solana_bank.slot , from, sender_lamports - lamports );
   if ( FD_UNLIKELY( write_result != FD_ACC_MGR_SUCCESS ) ) {
@@ -198,21 +199,6 @@ static int create_account(
     FD_LOG_WARNING(( "account already exists" ));
     /* TODO: propagate SystemError::AccountAlreadyInUse enum variant */
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
-  }
-
-  /* Check to see if the to account pubkey has signed */
-  uchar to_signed = 0;
-  for ( ulong i = 0; i < ctx.instr->acct_cnt; i++ ) {
-    if ( instr_acc_idxs[i] < ctx.txn_descriptor->signature_cnt ) {
-      fd_pubkey_t * signer = &txn_accs[instr_acc_idxs[i]];
-      if ( !memcmp( signer, to, sizeof(fd_pubkey_t) ) ) {
-        to_signed = 1;
-        break;
-      }
-    }
-  }
-  if ( !to_signed ) {
-    return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
   }
 
   /* Check that we are not exceeding the MAX_PERMITTED_DATA_LENGTH account size */

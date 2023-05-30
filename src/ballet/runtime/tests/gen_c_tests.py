@@ -59,7 +59,8 @@ def read_test_cases(path):
 
 def serializeInstructionError(err):
   if isinstance(err, dict):
-      return err["Custom"]
+    return -26
+#      return err["Custom"]
   if err == "GenericError":
     return -1
   if err == "InvalidArgument":
@@ -217,22 +218,34 @@ def main():
     idx = 0
     for e in json_test_case["transaction_accounts"]:
         txn_acc_shared_data = e["shared_data"]
+        txn_acc_result = json_test_case["resulting_accounts"][idx]
         print("fd_base58_decode_32( \"{}\",  (unsigned char *) &test_acc->pubkey);".format(e["pubkey"]))
-        print("fd_base58_decode_32( \"{}\",  (unsigned char *) &test_acc->owner);".format(base58.b58encode(bytes(txn_acc_shared_data["owner"])).decode('utf-8')))
+        print("fd_base58_decode_32( \"{}\",  (unsigned char *) &test_acc->owner);".format(txn_acc_shared_data["owner"]))
         print("test_acc->lamports = {}UL;".format(txn_acc_shared_data["lamports"]))
+        print("test_acc->result_lamports = {}UL;".format(txn_acc_result["lamports"]))
         if txn_acc_shared_data["executable"]:
             print("test_acc->executable = 1;");
         else:
             print("test_acc->executable = 0;");
-        print("test_acc->rent_epoch = {};".format(txn_acc_shared_data["rentEpoch"]))
-        data = bytes(txn_acc_shared_data["data"])
+        print("test_acc->rent_epoch = {};".format(txn_acc_shared_data["rent_epoch"]))
+        data = bytes.fromhex(txn_acc_shared_data["data"])
+        result_data = bytes.fromhex(txn_acc_result["data"])
+
         print("test_acc->data_len = {};".format(len(data)))
         if len(data) == 0:
-            print("uchar test_acc_{}_data[] = {}0{};".format(idx, '{', '}'))
+            print("static const uchar test_acc_{}_data[] = {}0{};".format(idx, '{', '}'))
         else:
             d = str(list(data)).replace('[', '{').replace(']', '}')
-            print("uchar test_acc_{}_data[] = {};".format(idx, d))
+            print("static const uchar test_acc_{}_data[] = {};".format(idx, d))
         print("test_acc->data = test_acc_{}_data;".format(idx))
+
+        print("test_acc->result_data_len = {};".format(len(result_data)))
+        if len(result_data) == 0:
+            print("static const uchar test_acc_{}_result_data[] = {}0{};".format(idx, '{', '}'))
+        else:
+            d = str(list(result_data)).replace('[', '{').replace(']', '}')
+            print("static const uchar test_acc_{}_result_data[] = {};".format(idx, d))
+        print("test_acc->result_data = test_acc_{}_result_data;".format(idx))
         print("test_acc++;")
         idx = idx+1
             
@@ -253,7 +266,7 @@ def main():
     instruction = Instruction(
       accounts=accounts,
       program_id=Pubkey.from_string(json_test_case["program_id"]),
-      data=bytes(json_test_case["instruction_data"])
+      data=bytes.fromhex(json_test_case["instruction_data"])
     )
 
     signatures = [ os.urandom(64) for _ in range(num_signers) ]
@@ -273,7 +286,7 @@ def main():
 
     print("  fd_base58_decode_32( \"{}\",  (unsigned char *) &test.program_id);".format(json_test_case["program_id"]))
     d = str(list(serialized)).replace('[', '{').replace(']', '}')
-    print("  uchar raw_tx[] = {};".format(d))
+    print("  static const uchar raw_tx[] = {};".format(d))
     print("  test.raw_tx = raw_tx;")
     print("  test.raw_tx_len = {};".format(len(serialized)))
     print("  test.expected_result = {};".format(serializeResult(json_test_case["expected_result"])))
