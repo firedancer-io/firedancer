@@ -84,7 +84,7 @@ int fd_executor_run_test(
     if (test->accs[ i ].lamports == 0)
       continue;
     fd_solana_account_t acc = {
-      .data = test->accs[ i ].data,
+      .data = (uchar*) test->accs[ i ].data,
       .data_len = test->accs[ i ].data_len,
       .executable = test->accs[ i ].executable,
       .lamports = test->accs[ i ].lamports,
@@ -123,6 +123,30 @@ int fd_executor_run_test(
   if ( exec_result != test->expected_result ) {
     FD_LOG_WARNING(( "Failed test %d: %s: expected transaction result %d, got %d", test->test_number, test->test_name, test->expected_result , exec_result));
     return -1;
+  }
+
+  /* Insert all the accounts into the database */
+  for ( ulong i = 0; i < test->accs_len; i++ ) {
+    ulong sz = 0;
+    int err = 0;
+    char * raw_acc_data = (char*) fd_acc_mgr_view_data(ctx.global->acc_mgr, ctx.global->funk_txn, (fd_pubkey_t *) &test->accs[i].pubkey, &sz, &err);
+    if (NULL == raw_acc_data)
+      return err;
+    fd_account_meta_t *m = (fd_account_meta_t *) raw_acc_data;
+    void* d = (void *)(raw_acc_data + m->hlen);
+
+    if (m->info.lamports != test->accs[i].result_lamports) {
+      FD_LOG_WARNING(( "Failed test %d: %s: expected lamports %ld, got %ld", test->test_number, test->test_name, test->accs[i].result_lamports, m->info.lamports));
+      return -1;
+    }
+    if (m->dlen != test->accs[i].result_data_len) {
+      FD_LOG_WARNING(( "Failed test %d: %s: size missmatch", test->test_number, test->test_name));
+      return -1;
+    }
+    if (memcmp(d, test->accs[i].result_data, test->accs[i].result_data_len)) {
+      FD_LOG_WARNING(( "Failed test %d: %s: account missmatch", test->test_number, test->test_name));
+      return -1;
+    }
   }
 
   /* Revert the Funk transaction */

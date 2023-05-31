@@ -816,22 +816,23 @@ fd_funk_rec_key_t fd_runtime_block_meta_key(ulong slot) {
   return id;
 }
 
-/// Number of bytes in a pubkey
-//pub const PUBKEY_BYTES: usize = 32;
-/// maximum length of derived `Pubkey` seed
-//pub const MAX_SEED_LEN: usize = 32;
-/// Maximum number of seeds
-//pub const MAX_SEEDS: usize = 16;
-/// Maximum string length of a base58 encoded pubkey
-// const MAX_BASE58_LEN: usize = 44;
-//
-// const PDA_MARKER: &[u8; 21] = b"ProgramDerivedAddress";
 
-void fd_pubkey_create_with_seed(FD_FN_UNUSED fd_pubkey_t *base, FD_FN_UNUSED char *seed, FD_FN_UNUSED fd_pubkey_t *owner, FD_FN_UNUSED fd_pubkey_t *out ) {
+const size_t MAX_SEED_LEN = 32;
+//
+const char PDA_MARKER[] = {"ProgramDerivedAddress"};
+
+int fd_pubkey_create_with_seed(fd_pubkey_t *base, char *seed, fd_pubkey_t *owner, fd_pubkey_t *out ) {
 //  if seed.len() > MAX_SEED_LEN {
 //      return Err(PubkeyError::MaxSeedLengthExceeded);
 //    }
-//
+
+  size_t slen = strlen(seed);
+
+  if (slen > MAX_SEED_LEN) 
+    return FD_EXECUTOR_SYSTEM_ERR_MAX_SEED_LENGTH_EXCEEDED;
+
+  if (memcmp(&owner->hash[sizeof(owner->hash) - sizeof(PDA_MARKER) - 1], PDA_MARKER, sizeof(PDA_MARKER) - 1) == 0)
+    return FD_EXECUTOR_INSTR_ERR_ILLEGAL_OWNER;
 //  let owner = owner.as_ref();
 //  if owner.len() >= PDA_MARKER.len() {
 //      let slice = &owner[owner.len() - PDA_MARKER.len()..];
@@ -839,8 +840,19 @@ void fd_pubkey_create_with_seed(FD_FN_UNUSED fd_pubkey_t *base, FD_FN_UNUSED cha
 //          return Err(PubkeyError::IllegalOwner);
 //        }
 //    }
-//
+
+  fd_sha256_t sha;
+  fd_sha256_init( &sha );
+
+  fd_sha256_append( &sha, (uchar const *) base->hash, sizeof( fd_hash_t ) );
+  fd_sha256_append( &sha, (uchar const *) seed, slen );
+  fd_sha256_append( &sha, (uchar const *) owner->hash, sizeof( fd_hash_t ) );
+
+  fd_sha256_fini( &sha, out->hash );
+
 //  Ok(Pubkey::new(
 //      hashv(&[base.as_ref(), seed.as_ref(), owner]).as_ref(),
 //      ))
+
+  return FD_RUNTIME_EXECUTE_SUCCESS;
 }
