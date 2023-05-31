@@ -125,27 +125,33 @@ int fd_executor_run_test(
     return -1;
   }
 
-  /* Insert all the accounts into the database */
-  for ( ulong i = 0; i < test->accs_len; i++ ) {
-    ulong sz = 0;
-    int err = 0;
-    char * raw_acc_data = (char*) fd_acc_mgr_view_data(ctx.global->acc_mgr, ctx.global->funk_txn, (fd_pubkey_t *) &test->accs[i].pubkey, &sz, &err);
-    if (NULL == raw_acc_data)
-      return err;
-    fd_account_meta_t *m = (fd_account_meta_t *) raw_acc_data;
-    void* d = (void *)(raw_acc_data + m->hlen);
+  if (FD_EXECUTOR_INSTR_SUCCESS == exec_result) {
+    /* Confirm account updates */
+    for ( ulong i = 0; i < test->accs_len; i++ ) {
+      ulong sz = 0;
+      int err = 0;
+      char * raw_acc_data = (char*) fd_acc_mgr_view_data(ctx.global->acc_mgr, ctx.global->funk_txn, (fd_pubkey_t *) &test->accs[i].pubkey, &sz, &err);
+      if (NULL == raw_acc_data) {
+        if (test->accs[i].result_lamports == 0)
+          continue;
+        FD_LOG_WARNING(( "bad dog.. no donut..  Ask josh to take a look at this"));
+        return err;
+      }
+      fd_account_meta_t *m = (fd_account_meta_t *) raw_acc_data;
+      void* d = (void *)(raw_acc_data + m->hlen);
 
-    if (m->info.lamports != test->accs[i].result_lamports) {
-      FD_LOG_WARNING(( "Failed test %d: %s: expected lamports %ld, got %ld", test->test_number, test->test_name, test->accs[i].result_lamports, m->info.lamports));
-      return -1;
-    }
-    if (m->dlen != test->accs[i].result_data_len) {
-      FD_LOG_WARNING(( "Failed test %d: %s: size missmatch", test->test_number, test->test_name));
-      return -1;
-    }
-    if (memcmp(d, test->accs[i].result_data, test->accs[i].result_data_len)) {
-      FD_LOG_WARNING(( "Failed test %d: %s: account missmatch", test->test_number, test->test_name));
-      return -1;
+      if (m->info.lamports != test->accs[i].result_lamports) {
+        FD_LOG_WARNING(( "Failed test %d: %s: expected lamports %ld, got %ld", test->test_number, test->test_name, test->accs[i].result_lamports, m->info.lamports));
+        return -666;
+      }
+      if (m->dlen != test->accs[i].result_data_len) {
+        FD_LOG_WARNING(( "Failed test %d: %s: size missmatch", test->test_number, test->test_name));
+        return -777;
+      }
+      if (memcmp(d, test->accs[i].result_data, test->accs[i].result_data_len)) {
+        FD_LOG_WARNING(( "Failed test %d: %s: account missmatch", test->test_number, test->test_name));
+        return -888;
+      }
     }
   }
 
