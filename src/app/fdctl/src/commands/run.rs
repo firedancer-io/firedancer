@@ -61,8 +61,8 @@ pub(crate) fn monitor(config: &Config) {
 
     let status = run!(
         status,
-        "{bin}/fd_frank_mon.bin --pod {pod} --cfg {name} --log-app {name} --log-thread mon \
-         --duration 31536000000000000"
+        "{bin}/fd_frank_mon.bin --pod {pod} --log-app {name} --log-thread mon --duration \
+         31536000000000000"
     );
     assert!(status.success());
 }
@@ -99,8 +99,8 @@ pub(crate) fn run(args: RunCli, config: &mut Config) {
     let mut run = run_builder!(
         cwd = None,
         env = Some(&env),
-        cmd = "{prefix_gdb} {netns_arg} --pod {pod} --cfg {name} --log-app {name} --log-thread \
-               main --tile-cpus {affinity}",
+        cmd = "{prefix_gdb} {netns_arg} --pod {pod} --log-app {name} --log-thread main \
+               --tile-cpus {affinity}",
     );
 
     set_affinity_zero();

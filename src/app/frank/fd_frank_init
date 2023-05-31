@@ -45,12 +45,12 @@ POD=$("$BUILD"/bin/fd_pod_ctl new "$WKSP" "$POD_SZ") || exit $?
 
 MAIN_CNC=$("$BUILD"/bin/fd_tango_ctl new-cnc "$WKSP" 0 tic "$CNC_APP_SZ") || exit $?
 "$BUILD"/bin/fd_pod_ctl                      \
-  insert "$POD" cstr "$APP".main.cnc "$MAIN_CNC" \
+  insert "$POD" cstr firedancer.main.cnc "$MAIN_CNC" \
   || exit $?
 
 CNC=$("$BUILD"/bin/fd_tango_ctl new-cnc "$WKSP" 0 tic "$CNC_APP_SZ") || exit $?
 "$BUILD"/bin/fd_pod_ctl                 \
-  insert "$POD" cstr "$APP".pack.cnc "$CNC" \
+  insert "$POD" cstr firedancer.pack.cnc "$CNC" \
   || exit $?
 
 CNC=$("$BUILD"/bin/fd_tango_ctl new-cnc "$WKSP" 1 tic "$CNC_APP_SZ") || exit $?
@@ -59,10 +59,10 @@ MCACHE=$("$BUILD"/bin/fd_tango_ctl new-mcache "$WKSP" "$DEDUP_DEPTH" 0 0) || exi
 FSEQ=$("$BUILD"/bin/fd_tango_ctl new-fseq "$WKSP" 0) || exit $?
 # Use defaults for cr_max, lazy, seed
 "$BUILD"/bin/fd_pod_ctl                        \
-  insert "$POD" cstr "$APP".dedup.cnc    "$CNC"    \
-  insert "$POD" cstr "$APP".dedup.tcache "$TCACHE" \
-  insert "$POD" cstr "$APP".dedup.mcache "$MCACHE" \
-  insert "$POD" cstr "$APP".dedup.fseq   "$FSEQ"   \
+  insert "$POD" cstr firedancer.dedup.cnc    "$CNC"    \
+  insert "$POD" cstr firedancer.dedup.tcache "$TCACHE" \
+  insert "$POD" cstr firedancer.dedup.mcache "$MCACHE" \
+  insert "$POD" cstr firedancer.dedup.fseq   "$FSEQ"   \
   || exit $?
 
 for((verify_idx=0;verify_idx<VERIFY_CNT;verify_idx++)); do
@@ -71,14 +71,14 @@ for((verify_idx=0;verify_idx<VERIFY_CNT;verify_idx++)); do
   DCACHE=$("$BUILD"/bin/fd_tango_ctl new-dcache "$WKSP" "$VERIFY_MTU" "$VERIFY_DEPTH" 1 1 0) || exit $?
   FSEQ=$("$BUILD"/bin/fd_tango_ctl new-fseq "$WKSP" 0) || exit $?
   "$BUILD"/bin/fd_pod_ctl                                      \
-    insert "$POD" cstr "$APP".verify.v$verify_idx.cnc    "$CNC"    \
-    insert "$POD" cstr "$APP".verify.v$verify_idx.mcache "$MCACHE" \
-    insert "$POD" cstr "$APP".verify.v$verify_idx.dcache "$DCACHE" \
-    insert "$POD" cstr "$APP".verify.v$verify_idx.fseq   "$FSEQ"   \
+    insert "$POD" cstr firedancer.verify.v$verify_idx.cnc    "$CNC"    \
+    insert "$POD" cstr firedancer.verify.v$verify_idx.mcache "$MCACHE" \
+    insert "$POD" cstr firedancer.verify.v$verify_idx.dcache "$DCACHE" \
+    insert "$POD" cstr firedancer.verify.v$verify_idx.fseq   "$FSEQ"   \
     || exit $?
 done
 
-BASE_ARGS="--pod $POD --cfg $APP"
+BASE_ARGS="--pod $POD"
 RUN_ARGS="$BASE_ARGS --log-app $APP --log-thread main"
 MON_ARGS="$BASE_ARGS --log-app $APP --log-thread mon"
 
