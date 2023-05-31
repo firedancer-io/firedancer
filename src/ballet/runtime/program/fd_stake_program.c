@@ -115,7 +115,7 @@ int fd_executor_stake_program_execute_instruction(
   FD_FN_UNUSED instruction_ctx_t ctx
 ) {
   /* Deserialize the Stake instruction */
-  uchar *data            = (uchar *)ctx.txn_raw->raw + ctx.instr->data_off; 
+  uchar *data            = (uchar *)ctx.txn_ctx->txn_raw->raw + ctx.instr->data_off; 
   void* input            = (void *)data;
   const void** input_ptr = (const void **)&input;
   void* dataend          = (void*)&data[ctx.instr->data_sz];
@@ -134,8 +134,8 @@ int fd_executor_stake_program_execute_instruction(
 
     /* Check that Instruction Account 1 is the Rent account
        https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/stake/src/stake_instruction.rs#L44-L47 */
-    uchar * instr_acc_idxs = ((uchar *)ctx.txn_raw->raw + ctx.instr->acct_off);
-    fd_pubkey_t * txn_accs = (fd_pubkey_t *)((uchar *)ctx.txn_raw->raw + ctx.txn_descriptor->acct_addr_off);
+    uchar * instr_acc_idxs = ((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.instr->acct_off);
+    fd_pubkey_t * txn_accs = (fd_pubkey_t *)((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.txn_ctx->txn_descriptor->acct_addr_off);
     if ( memcmp( &txn_accs[instr_acc_idxs[1]], ctx.global->sysvar_rent, sizeof(fd_pubkey_t) ) != 0 ) {
       return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
     }
@@ -209,8 +209,8 @@ int fd_executor_stake_program_execute_instruction(
 
     /* Check that the instruction accounts are correct
       https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/stake/src/stake_instruction.rs#L127-L142 */
-    uchar* instr_acc_idxs = ((uchar *)ctx.txn_raw->raw + ctx.instr->acct_off);
-    fd_pubkey_t* txn_accs = (fd_pubkey_t *)((uchar *)ctx.txn_raw->raw + ctx.txn_descriptor->acct_addr_off);
+    uchar* instr_acc_idxs = ((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.instr->acct_off);
+    fd_pubkey_t* txn_accs = (fd_pubkey_t *)((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.txn_ctx->txn_descriptor->acct_addr_off);
     fd_pubkey_t* stake_acc         = &txn_accs[instr_acc_idxs[0]];
 
     /* Check that the Instruction Account 2 is the Clock Sysvar account */
@@ -262,7 +262,7 @@ int fd_executor_stake_program_execute_instruction(
        https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/stake/src/stake_state.rs#L546 */
     uchar authorized_staker_signed = 0;
     for ( ulong i = 0; i < ctx.instr->acct_cnt; i++ ) {
-      if ( instr_acc_idxs[i] < ctx.txn_descriptor->signature_cnt ) {
+      if ( instr_acc_idxs[i] < ctx.txn_ctx->txn_descriptor->signature_cnt ) {
         fd_pubkey_t * signer = &txn_accs[instr_acc_idxs[i]];
         if ( !memcmp( signer, &meta->authorized.staker, sizeof(fd_pubkey_t) ) ) {
           authorized_staker_signed = 1;

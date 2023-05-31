@@ -90,10 +90,10 @@ int fd_advance_nonce_account(
   if (ctx.instr->acct_cnt != 3)
     return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
 
-  uchar *       instr_acc_idxs = ((uchar *)ctx.txn_raw->raw + ctx.instr->acct_off);
-  fd_pubkey_t * txn_accs = (fd_pubkey_t *)((uchar *)ctx.txn_raw->raw + ctx.txn_descriptor->acct_addr_off);
+  uchar *       instr_acc_idxs = ((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.instr->acct_off);
+  fd_pubkey_t * txn_accs = (fd_pubkey_t *)((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.txn_ctx->txn_descriptor->acct_addr_off);
 
-  ulong acct_addr_cnt = ctx.txn_descriptor->acct_addr_cnt;
+  ulong acct_addr_cnt = ctx.txn_ctx->txn_descriptor->acct_addr_cnt;
   if ((instr_acc_idxs[0] >= acct_addr_cnt) | (instr_acc_idxs[1] >= acct_addr_cnt))
     // TODO: confirm what this would look like in solana
     return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
@@ -136,7 +136,7 @@ int fd_advance_nonce_account(
 //                }
 
   uchar authorized = 0;
-  for ( ulong i = 0; i < ctx.txn_descriptor->signature_cnt; i++ ) {
+  for ( ulong i = 0; i < ctx.txn_ctx->txn_descriptor->signature_cnt; i++ ) {
     if ( !memcmp( &txn_accs[i], state.inner.current.inner.initialized.authority.hash, sizeof(fd_pubkey_t) ) ) {
       authorized = 1;
       break;
@@ -231,10 +231,10 @@ int fd_withdraw_nonce_account(
   if (ctx.instr->acct_cnt != 5)
     return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
 
-  uchar *       instr_acc_idxs = ((uchar *)ctx.txn_raw->raw + ctx.instr->acct_off);
-  fd_pubkey_t * txn_accs = (fd_pubkey_t *)((uchar *)ctx.txn_raw->raw + ctx.txn_descriptor->acct_addr_off);
+  uchar *       instr_acc_idxs = ((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.instr->acct_off);
+  fd_pubkey_t * txn_accs = (fd_pubkey_t *)((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.txn_ctx->txn_descriptor->acct_addr_off);
 
-  ulong acct_addr_cnt = ctx.txn_descriptor->acct_addr_cnt;
+  ulong acct_addr_cnt = ctx.txn_ctx->txn_descriptor->acct_addr_cnt;
 
 
   if ((instr_acc_idxs[0] >= acct_addr_cnt) 
@@ -248,7 +248,7 @@ int fd_withdraw_nonce_account(
 
   uchar new_signed = 0;
   for ( ulong i = 0; i < ctx.instr->acct_cnt; i++ ) {
-    if ( instr_acc_idxs[i] < ctx.txn_descriptor->signature_cnt ) {
+    if ( instr_acc_idxs[i] < ctx.txn_ctx->txn_descriptor->signature_cnt ) {
       if ( !memcmp( &txn_accs[instr_acc_idxs[i]], me, sizeof(fd_pubkey_t) ) ) {
         new_signed = 1;
         break;
@@ -377,15 +377,15 @@ int fd_initialize_nonce_account(
   if (ctx.instr->acct_cnt != 3)
     return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
 
-  uchar *       instr_acc_idxs = ((uchar *)ctx.txn_raw->raw + ctx.instr->acct_off);
+  uchar *       instr_acc_idxs = ((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.instr->acct_off);
 
-  ulong acct_addr_cnt = ctx.txn_descriptor->acct_addr_cnt;
+  ulong acct_addr_cnt = ctx.txn_ctx->txn_descriptor->acct_addr_cnt;
 
   // TODO: Is this implicately elsewhere in solana?  confirm the error code
   if ((instr_acc_idxs[0] >= acct_addr_cnt) | (instr_acc_idxs[1] >= acct_addr_cnt) | (instr_acc_idxs[2] >= acct_addr_cnt))
     return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
 
-  fd_pubkey_t * txn_accs = (fd_pubkey_t *)((uchar *)ctx.txn_raw->raw + ctx.txn_descriptor->acct_addr_off);
+  fd_pubkey_t * txn_accs = (fd_pubkey_t *)((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.txn_ctx->txn_descriptor->acct_addr_off);
 
   fd_pubkey_t * me   = &txn_accs[instr_acc_idxs[0]];
 
@@ -422,7 +422,7 @@ int fd_initialize_nonce_account(
 
   // Are we authorized to be messing with this account?
   uchar authorized = 0;
-  for ( ulong i = 0; i < ctx.txn_descriptor->signature_cnt; i++ ) {
+  for ( ulong i = 0; i < ctx.txn_ctx->txn_descriptor->signature_cnt; i++ ) {
     if ( !memcmp( &txn_accs[i], metadata.info.owner, sizeof(fd_pubkey_t) ) ) {
       authorized = 1;
       break;
@@ -440,7 +440,7 @@ int fd_initialize_nonce_account(
   // this account?   find this check in the code and at it into the comments...
   uchar new_signed = 0;
   for ( ulong i = 0; i < ctx.instr->acct_cnt; i++ ) {
-    if ( instr_acc_idxs[i] < ctx.txn_descriptor->signature_cnt ) {
+    if ( instr_acc_idxs[i] < ctx.txn_ctx->txn_descriptor->signature_cnt ) {
       if ( !memcmp( &txn_accs[instr_acc_idxs[i]], me, sizeof(fd_pubkey_t) ) ) {
         new_signed = 1;
         break;
@@ -524,10 +524,10 @@ int fd_authorize_nonce_account(
   if (ctx.instr->acct_cnt != 2)
     return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
 
-  uchar *       instr_acc_idxs = ((uchar *)ctx.txn_raw->raw + ctx.instr->acct_off);
-  fd_pubkey_t * txn_accs = (fd_pubkey_t *)((uchar *)ctx.txn_raw->raw + ctx.txn_descriptor->acct_addr_off);
+  uchar *       instr_acc_idxs = ((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.instr->acct_off);
+  fd_pubkey_t * txn_accs = (fd_pubkey_t *)((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.txn_ctx->txn_descriptor->acct_addr_off);
 
-  ulong acct_addr_cnt = ctx.txn_descriptor->acct_addr_cnt;
+  ulong acct_addr_cnt = ctx.txn_ctx->txn_descriptor->acct_addr_cnt;
   if ((instr_acc_idxs[0] >= acct_addr_cnt) | (instr_acc_idxs[1] >= acct_addr_cnt))
     // TODO: confirm what this would look like in solana
     return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
@@ -557,7 +557,7 @@ int fd_authorize_nonce_account(
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
 
   uchar authorized = 0;
-  for ( ulong i = 0; i < ctx.txn_descriptor->signature_cnt; i++ ) {
+  for ( ulong i = 0; i < ctx.txn_ctx->txn_descriptor->signature_cnt; i++ ) {
     if ( !memcmp( &txn_accs[i], state.inner.current.inner.initialized.authority.hash, sizeof(fd_pubkey_t) ) ) {
       authorized = 1;
       break;
