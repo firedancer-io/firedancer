@@ -1,5 +1,6 @@
 #include "fd_types.h"
 #pragma GCC diagnostic ignored "-Wunused-parameter"
+#pragma GCC diagnostic ignored "-Wunused-variable"
 int fd_fee_calculator_decode(fd_fee_calculator_t* self, fd_bincode_decode_ctx_t * ctx) {
   int err;
   err = fd_bincode_uint64_decode(&self->lamports_per_signature, ctx);
@@ -3170,7 +3171,6 @@ int fd_vote_block_timestamp_encode(fd_vote_block_timestamp_t* self, fd_bincode_e
 
 int fd_vote_prior_voters_decode(fd_vote_prior_voters_t* self, fd_bincode_decode_ctx_t * ctx) {
   int err;
-  self->buf = (fd_vote_prior_voter_t*)(*ctx->allocf)(ctx->allocf_arg, FD_VOTE_PRIOR_VOTER_ALIGN, FD_VOTE_PRIOR_VOTER_FOOTPRINT*32);
   for (ulong i = 0; i < 32; ++i) {
     err = fd_vote_prior_voter_decode(self->buf + i, ctx);
     if ( FD_UNLIKELY(err) ) return err;
@@ -3182,15 +3182,12 @@ int fd_vote_prior_voters_decode(fd_vote_prior_voters_t* self, fd_bincode_decode_
   return FD_BINCODE_SUCCESS;
 }
 void fd_vote_prior_voters_new(fd_vote_prior_voters_t* self) {
-  self->buf = NULL;
+  for (ulong i = 0; i < 32; ++i)
+    fd_vote_prior_voter_new(self->buf + i);
 }
 void fd_vote_prior_voters_destroy(fd_vote_prior_voters_t* self, fd_bincode_destroy_ctx_t * ctx) {
-  if (NULL != self->buf) {
-    for (ulong i = 0; i < 32; ++i)
-      fd_vote_prior_voter_destroy(self->buf + i, ctx);
-    (*ctx->freef)(ctx->freef_arg, self->buf);
-    self->buf = NULL;
-  }
+  for (ulong i = 0; i < 32; ++i)
+    fd_vote_prior_voter_destroy(self->buf + i, ctx);
 }
 
 void fd_vote_prior_voters_walk(fd_vote_prior_voters_t* self, fd_walk_fun_t fun, const char *name, int level) {
@@ -3224,7 +3221,6 @@ int fd_vote_prior_voters_encode(fd_vote_prior_voters_t* self, fd_bincode_encode_
 
 int fd_vote_prior_voters_0_23_5_decode(fd_vote_prior_voters_0_23_5_t* self, fd_bincode_decode_ctx_t * ctx) {
   int err;
-  self->buf = (fd_vote_prior_voter_0_23_5_t*)(*ctx->allocf)(ctx->allocf_arg, FD_VOTE_PRIOR_VOTER_0_23_5_ALIGN, FD_VOTE_PRIOR_VOTER_0_23_5_FOOTPRINT*32);
   for (ulong i = 0; i < 32; ++i) {
     err = fd_vote_prior_voter_0_23_5_decode(self->buf + i, ctx);
     if ( FD_UNLIKELY(err) ) return err;
@@ -3236,15 +3232,12 @@ int fd_vote_prior_voters_0_23_5_decode(fd_vote_prior_voters_0_23_5_t* self, fd_b
   return FD_BINCODE_SUCCESS;
 }
 void fd_vote_prior_voters_0_23_5_new(fd_vote_prior_voters_0_23_5_t* self) {
-  self->buf = NULL;
+  for (ulong i = 0; i < 32; ++i)
+    fd_vote_prior_voter_0_23_5_new(self->buf + i);
 }
 void fd_vote_prior_voters_0_23_5_destroy(fd_vote_prior_voters_0_23_5_t* self, fd_bincode_destroy_ctx_t * ctx) {
-  if (NULL != self->buf) {
-    for (ulong i = 0; i < 32; ++i)
-      fd_vote_prior_voter_0_23_5_destroy(self->buf + i, ctx);
-    (*ctx->freef)(ctx->freef_arg, self->buf);
-    self->buf = NULL;
-  }
+  for (ulong i = 0; i < 32; ++i)
+    fd_vote_prior_voter_0_23_5_destroy(self->buf + i, ctx);
 }
 
 void fd_vote_prior_voters_0_23_5_walk(fd_vote_prior_voters_0_23_5_t* self, fd_walk_fun_t fun, const char *name, int level) {
@@ -3608,16 +3601,16 @@ uchar fd_vote_state_versioned_is_v0_23_5(fd_vote_state_versioned_t* self) {
 uchar fd_vote_state_versioned_is_current(fd_vote_state_versioned_t* self) {
   return self->discriminant == 1;
 }
+void fd_vote_state_versioned_inner_new(fd_vote_state_versioned_inner_t* self, uint discriminant);
 int fd_vote_state_versioned_inner_decode(fd_vote_state_versioned_inner_t* self, uint discriminant, fd_bincode_decode_ctx_t * ctx) {
+  fd_vote_state_versioned_inner_new(self, discriminant);
   int err;
   switch (discriminant) {
   case 0: {
-    err = fd_vote_state_0_23_5_decode(&self->v0_23_5, ctx);
-    return err;
+    return fd_vote_state_0_23_5_decode(&self->v0_23_5, ctx);
   }
   case 1: {
-    err = fd_vote_state_decode(&self->current, ctx);
-    return err;
+    return fd_vote_state_decode(&self->current, ctx);
   }
   default: return FD_BINCODE_ERR_ENCODING;
   }
@@ -4892,16 +4885,16 @@ uchar fd_vote_authorize_is_voter(fd_vote_authorize_t* self) {
 uchar fd_vote_authorize_is_withdrawer(fd_vote_authorize_t* self) {
   return self->discriminant == 1;
 }
+void fd_vote_authorize_inner_new(fd_vote_authorize_inner_t* self, uint discriminant);
 int fd_vote_authorize_inner_decode(fd_vote_authorize_inner_t* self, uint discriminant, fd_bincode_decode_ctx_t * ctx) {
+  fd_vote_authorize_inner_new(self, discriminant);
   int err;
   switch (discriminant) {
   case 0: {
-    err = FD_BINCODE_SUCCESS;
-    return err;
+    return FD_BINCODE_SUCCESS;
   }
   case 1: {
-    err = FD_BINCODE_SUCCESS;
-    return err;
+    return FD_BINCODE_SUCCESS;
   }
   default: return FD_BINCODE_ERR_ENCODING;
   }
@@ -5247,66 +5240,56 @@ uchar fd_vote_instruction_is_compact_update_vote_state(fd_vote_instruction_t* se
 uchar fd_vote_instruction_is_compact_update_vote_state_switch(fd_vote_instruction_t* self) {
   return self->discriminant == 13;
 }
+void fd_vote_instruction_inner_new(fd_vote_instruction_inner_t* self, uint discriminant);
 int fd_vote_instruction_inner_decode(fd_vote_instruction_inner_t* self, uint discriminant, fd_bincode_decode_ctx_t * ctx) {
+  fd_vote_instruction_inner_new(self, discriminant);
   int err;
   switch (discriminant) {
   case 0: {
-    err = fd_vote_init_decode(&self->initialize_account, ctx);
-    return err;
+    return fd_vote_init_decode(&self->initialize_account, ctx);
   }
   case 1: {
-    err = fd_vote_authorize_pubkey_decode(&self->authorize, ctx);
-    return err;
+    return fd_vote_authorize_pubkey_decode(&self->authorize, ctx);
   }
   case 2: {
-    err = fd_vote_decode(&self->vote, ctx);
-    return err;
+    return fd_vote_decode(&self->vote, ctx);
   }
   case 3: {
     err = fd_bincode_uint64_decode(&self->withdraw, ctx);
     if ( FD_UNLIKELY(err) ) return err;
-    return err;
+    return FD_BINCODE_SUCCESS;
   }
   case 4: {
-    err = FD_BINCODE_SUCCESS;
-    return err;
+    return FD_BINCODE_SUCCESS;
   }
   case 5: {
     err = fd_bincode_uint8_decode(&self->update_commission, ctx);
     if ( FD_UNLIKELY(err) ) return err;
-    return err;
+    return FD_BINCODE_SUCCESS;
   }
   case 6: {
-    err = fd_vote_switch_decode(&self->vote_switch, ctx);
-    return err;
+    return fd_vote_switch_decode(&self->vote_switch, ctx);
   }
   case 7: {
-    err = fd_vote_authorize_decode(&self->authorize_checked, ctx);
-    return err;
+    return fd_vote_authorize_decode(&self->authorize_checked, ctx);
   }
   case 8: {
-    err = fd_vote_state_update_decode(&self->update_vote_state, ctx);
-    return err;
+    return fd_vote_state_update_decode(&self->update_vote_state, ctx);
   }
   case 9: {
-    err = fd_update_vote_state_switch_decode(&self->update_vote_state_switch, ctx);
-    return err;
+    return fd_update_vote_state_switch_decode(&self->update_vote_state_switch, ctx);
   }
   case 10: {
-    err = fd_vote_authorize_with_seed_args_decode(&self->authorize_with_seed, ctx);
-    return err;
+    return fd_vote_authorize_with_seed_args_decode(&self->authorize_with_seed, ctx);
   }
   case 11: {
-    err = fd_vote_authorize_checked_with_seed_args_decode(&self->authorize_checked_with_seed, ctx);
-    return err;
+    return fd_vote_authorize_checked_with_seed_args_decode(&self->authorize_checked_with_seed, ctx);
   }
   case 12: {
-    err = fd_compact_vote_state_update_decode(&self->compact_update_vote_state, ctx);
-    return err;
+    return fd_compact_vote_state_update_decode(&self->compact_update_vote_state, ctx);
   }
   case 13: {
-    err = fd_compact_vote_state_update_switch_decode(&self->compact_update_vote_state_switch, ctx);
-    return err;
+    return fd_compact_vote_state_update_switch_decode(&self->compact_update_vote_state_switch, ctx);
   }
   default: return FD_BINCODE_ERR_ENCODING;
   }
@@ -5913,63 +5896,55 @@ uchar fd_system_program_instruction_is_transfer_with_seed(fd_system_program_inst
 uchar fd_system_program_instruction_is_upgrade_nonce_account(fd_system_program_instruction_t* self) {
   return self->discriminant == 12;
 }
+void fd_system_program_instruction_inner_new(fd_system_program_instruction_inner_t* self, uint discriminant);
 int fd_system_program_instruction_inner_decode(fd_system_program_instruction_inner_t* self, uint discriminant, fd_bincode_decode_ctx_t * ctx) {
+  fd_system_program_instruction_inner_new(self, discriminant);
   int err;
   switch (discriminant) {
   case 0: {
-    err = fd_system_program_instruction_create_account_decode(&self->create_account, ctx);
-    return err;
+    return fd_system_program_instruction_create_account_decode(&self->create_account, ctx);
   }
   case 1: {
-    err = fd_pubkey_decode(&self->assign, ctx);
-    return err;
+    return fd_pubkey_decode(&self->assign, ctx);
   }
   case 2: {
     err = fd_bincode_uint64_decode(&self->transfer, ctx);
     if ( FD_UNLIKELY(err) ) return err;
-    return err;
+    return FD_BINCODE_SUCCESS;
   }
   case 3: {
-    err = fd_system_program_instruction_create_account_with_seed_decode(&self->create_account_with_seed, ctx);
-    return err;
+    return fd_system_program_instruction_create_account_with_seed_decode(&self->create_account_with_seed, ctx);
   }
   case 4: {
-    err = FD_BINCODE_SUCCESS;
-    return err;
+    return FD_BINCODE_SUCCESS;
   }
   case 5: {
     err = fd_bincode_uint64_decode(&self->withdraw_nonce_account, ctx);
     if ( FD_UNLIKELY(err) ) return err;
-    return err;
+    return FD_BINCODE_SUCCESS;
   }
   case 6: {
-    err = fd_pubkey_decode(&self->initialize_nonce_account, ctx);
-    return err;
+    return fd_pubkey_decode(&self->initialize_nonce_account, ctx);
   }
   case 7: {
-    err = fd_pubkey_decode(&self->authorize_nonce_account, ctx);
-    return err;
+    return fd_pubkey_decode(&self->authorize_nonce_account, ctx);
   }
   case 8: {
     err = fd_bincode_uint64_decode(&self->allocate, ctx);
     if ( FD_UNLIKELY(err) ) return err;
-    return err;
+    return FD_BINCODE_SUCCESS;
   }
   case 9: {
-    err = fd_system_program_instruction_allocate_with_seed_decode(&self->allocate_with_seed, ctx);
-    return err;
+    return fd_system_program_instruction_allocate_with_seed_decode(&self->allocate_with_seed, ctx);
   }
   case 10: {
-    err = fd_system_program_instruction_assign_with_seed_decode(&self->assign_with_seed, ctx);
-    return err;
+    return fd_system_program_instruction_assign_with_seed_decode(&self->assign_with_seed, ctx);
   }
   case 11: {
-    err = fd_system_program_instruction_transfer_with_seed_decode(&self->transfer_with_seed, ctx);
-    return err;
+    return fd_system_program_instruction_transfer_with_seed_decode(&self->transfer_with_seed, ctx);
   }
   case 12: {
-    err = FD_BINCODE_SUCCESS;
-    return err;
+    return FD_BINCODE_SUCCESS;
   }
   default: return FD_BINCODE_ERR_ENCODING;
   }
@@ -6243,44 +6218,37 @@ uchar fd_system_error_is_nonce_blockhash_not_expired(fd_system_error_t* self) {
 uchar fd_system_error_is_nonce_unexpected_blockhash_value(fd_system_error_t* self) {
   return self->discriminant == 8;
 }
+void fd_system_error_inner_new(fd_system_error_inner_t* self, uint discriminant);
 int fd_system_error_inner_decode(fd_system_error_inner_t* self, uint discriminant, fd_bincode_decode_ctx_t * ctx) {
+  fd_system_error_inner_new(self, discriminant);
   int err;
   switch (discriminant) {
   case 0: {
-    err = FD_BINCODE_SUCCESS;
-    return err;
+    return FD_BINCODE_SUCCESS;
   }
   case 1: {
-    err = FD_BINCODE_SUCCESS;
-    return err;
+    return FD_BINCODE_SUCCESS;
   }
   case 2: {
-    err = FD_BINCODE_SUCCESS;
-    return err;
+    return FD_BINCODE_SUCCESS;
   }
   case 3: {
-    err = FD_BINCODE_SUCCESS;
-    return err;
+    return FD_BINCODE_SUCCESS;
   }
   case 4: {
-    err = FD_BINCODE_SUCCESS;
-    return err;
+    return FD_BINCODE_SUCCESS;
   }
   case 5: {
-    err = FD_BINCODE_SUCCESS;
-    return err;
+    return FD_BINCODE_SUCCESS;
   }
   case 6: {
-    err = FD_BINCODE_SUCCESS;
-    return err;
+    return FD_BINCODE_SUCCESS;
   }
   case 7: {
-    err = FD_BINCODE_SUCCESS;
-    return err;
+    return FD_BINCODE_SUCCESS;
   }
   case 8: {
-    err = FD_BINCODE_SUCCESS;
-    return err;
+    return FD_BINCODE_SUCCESS;
   }
   default: return FD_BINCODE_ERR_ENCODING;
   }
@@ -6512,16 +6480,16 @@ uchar fd_stake_authorize_is_staker(fd_stake_authorize_t* self) {
 uchar fd_stake_authorize_is_withdrawer(fd_stake_authorize_t* self) {
   return self->discriminant == 1;
 }
+void fd_stake_authorize_inner_new(fd_stake_authorize_inner_t* self, uint discriminant);
 int fd_stake_authorize_inner_decode(fd_stake_authorize_inner_t* self, uint discriminant, fd_bincode_decode_ctx_t * ctx) {
+  fd_stake_authorize_inner_new(self, discriminant);
   int err;
   switch (discriminant) {
   case 0: {
-    err = FD_BINCODE_SUCCESS;
-    return err;
+    return FD_BINCODE_SUCCESS;
   }
   case 1: {
-    err = FD_BINCODE_SUCCESS;
-    return err;
+    return FD_BINCODE_SUCCESS;
   }
   default: return FD_BINCODE_ERR_ENCODING;
   }
@@ -6984,62 +6952,53 @@ uchar fd_stake_instruction_is_authorize_checked_with_seed(fd_stake_instruction_t
 uchar fd_stake_instruction_is_set_lockup_checked(fd_stake_instruction_t* self) {
   return self->discriminant == 12;
 }
+void fd_stake_instruction_inner_new(fd_stake_instruction_inner_t* self, uint discriminant);
 int fd_stake_instruction_inner_decode(fd_stake_instruction_inner_t* self, uint discriminant, fd_bincode_decode_ctx_t * ctx) {
+  fd_stake_instruction_inner_new(self, discriminant);
   int err;
   switch (discriminant) {
   case 0: {
-    err = fd_stake_instruction_initialize_decode(&self->initialize, ctx);
-    return err;
+    return fd_stake_instruction_initialize_decode(&self->initialize, ctx);
   }
   case 1: {
-    err = fd_stake_instruction_authorize_decode(&self->authorize, ctx);
-    return err;
+    return fd_stake_instruction_authorize_decode(&self->authorize, ctx);
   }
   case 2: {
-    err = FD_BINCODE_SUCCESS;
-    return err;
+    return FD_BINCODE_SUCCESS;
   }
   case 3: {
     err = fd_bincode_uint64_decode(&self->split, ctx);
     if ( FD_UNLIKELY(err) ) return err;
-    return err;
+    return FD_BINCODE_SUCCESS;
   }
   case 4: {
     err = fd_bincode_uint64_decode(&self->withdraw, ctx);
     if ( FD_UNLIKELY(err) ) return err;
-    return err;
+    return FD_BINCODE_SUCCESS;
   }
   case 5: {
-    err = FD_BINCODE_SUCCESS;
-    return err;
+    return FD_BINCODE_SUCCESS;
   }
   case 6: {
-    err = FD_BINCODE_SUCCESS;
-    return err;
+    return FD_BINCODE_SUCCESS;
   }
   case 7: {
-    err = FD_BINCODE_SUCCESS;
-    return err;
+    return FD_BINCODE_SUCCESS;
   }
   case 8: {
-    err = fd_authorize_with_seed_args_decode(&self->authorize_with_seed, ctx);
-    return err;
+    return fd_authorize_with_seed_args_decode(&self->authorize_with_seed, ctx);
   }
   case 9: {
-    err = FD_BINCODE_SUCCESS;
-    return err;
+    return FD_BINCODE_SUCCESS;
   }
   case 10: {
-    err = fd_stake_authorize_decode(&self->authorize_checked, ctx);
-    return err;
+    return fd_stake_authorize_decode(&self->authorize_checked, ctx);
   }
   case 11: {
-    err = fd_authorize_checked_with_seed_args_decode(&self->authorize_checked_with_seed, ctx);
-    return err;
+    return fd_authorize_checked_with_seed_args_decode(&self->authorize_checked_with_seed, ctx);
   }
   case 12: {
-    err = fd_lockup_checked_args_decode(&self->set_lockup_checked, ctx);
-    return err;
+    return fd_lockup_checked_args_decode(&self->set_lockup_checked, ctx);
   }
   default: return FD_BINCODE_ERR_ENCODING;
   }
@@ -7388,24 +7347,22 @@ uchar fd_stake_state_is_stake(fd_stake_state_t* self) {
 uchar fd_stake_state_is_rewards_pool(fd_stake_state_t* self) {
   return self->discriminant == 3;
 }
+void fd_stake_state_inner_new(fd_stake_state_inner_t* self, uint discriminant);
 int fd_stake_state_inner_decode(fd_stake_state_inner_t* self, uint discriminant, fd_bincode_decode_ctx_t * ctx) {
+  fd_stake_state_inner_new(self, discriminant);
   int err;
   switch (discriminant) {
   case 0: {
-    err = FD_BINCODE_SUCCESS;
-    return err;
+    return FD_BINCODE_SUCCESS;
   }
   case 1: {
-    err = fd_stake_state_meta_decode(&self->initialized, ctx);
-    return err;
+    return fd_stake_state_meta_decode(&self->initialized, ctx);
   }
   case 2: {
-    err = fd_stake_state_stake_decode(&self->stake, ctx);
-    return err;
+    return fd_stake_state_stake_decode(&self->stake, ctx);
   }
   case 3: {
-    err = FD_BINCODE_SUCCESS;
-    return err;
+    return FD_BINCODE_SUCCESS;
   }
   default: return FD_BINCODE_ERR_ENCODING;
   }
@@ -7558,16 +7515,16 @@ uchar fd_nonce_state_is_uninitialized(fd_nonce_state_t* self) {
 uchar fd_nonce_state_is_initialized(fd_nonce_state_t* self) {
   return self->discriminant == 1;
 }
+void fd_nonce_state_inner_new(fd_nonce_state_inner_t* self, uint discriminant);
 int fd_nonce_state_inner_decode(fd_nonce_state_inner_t* self, uint discriminant, fd_bincode_decode_ctx_t * ctx) {
+  fd_nonce_state_inner_new(self, discriminant);
   int err;
   switch (discriminant) {
   case 0: {
-    err = FD_BINCODE_SUCCESS;
-    return err;
+    return FD_BINCODE_SUCCESS;
   }
   case 1: {
-    err = fd_nonce_data_decode(&self->initialized, ctx);
-    return err;
+    return fd_nonce_data_decode(&self->initialized, ctx);
   }
   default: return FD_BINCODE_ERR_ENCODING;
   }
@@ -7650,16 +7607,16 @@ uchar fd_nonce_state_versions_is_legacy(fd_nonce_state_versions_t* self) {
 uchar fd_nonce_state_versions_is_current(fd_nonce_state_versions_t* self) {
   return self->discriminant == 1;
 }
+void fd_nonce_state_versions_inner_new(fd_nonce_state_versions_inner_t* self, uint discriminant);
 int fd_nonce_state_versions_inner_decode(fd_nonce_state_versions_inner_t* self, uint discriminant, fd_bincode_decode_ctx_t * ctx) {
+  fd_nonce_state_versions_inner_new(self, discriminant);
   int err;
   switch (discriminant) {
   case 0: {
-    err = fd_nonce_state_decode(&self->legacy, ctx);
-    return err;
+    return fd_nonce_state_decode(&self->legacy, ctx);
   }
   case 1: {
-    err = fd_nonce_state_decode(&self->current, ctx);
-    return err;
+    return fd_nonce_state_decode(&self->current, ctx);
   }
   default: return FD_BINCODE_ERR_ENCODING;
   }
@@ -7794,27 +7751,28 @@ uchar fd_compute_budget_program_instruction_is_set_compute_unit_limit(fd_compute
 uchar fd_compute_budget_program_instruction_is_set_compute_unit_price(fd_compute_budget_program_instruction_t* self) {
   return self->discriminant == 3;
 }
+void fd_compute_budget_program_instruction_inner_new(fd_compute_budget_program_instruction_inner_t* self, uint discriminant);
 int fd_compute_budget_program_instruction_inner_decode(fd_compute_budget_program_instruction_inner_t* self, uint discriminant, fd_bincode_decode_ctx_t * ctx) {
+  fd_compute_budget_program_instruction_inner_new(self, discriminant);
   int err;
   switch (discriminant) {
   case 0: {
-    err = fd_compute_budget_program_instruction_request_units_deprecated_decode(&self->request_units_deprecated, ctx);
-    return err;
+    return fd_compute_budget_program_instruction_request_units_deprecated_decode(&self->request_units_deprecated, ctx);
   }
   case 1: {
     err = fd_bincode_uint32_decode(&self->request_heap_frame, ctx);
     if ( FD_UNLIKELY(err) ) return err;
-    return err;
+    return FD_BINCODE_SUCCESS;
   }
   case 2: {
     err = fd_bincode_uint32_decode(&self->set_compute_unit_limit, ctx);
     if ( FD_UNLIKELY(err) ) return err;
-    return err;
+    return FD_BINCODE_SUCCESS;
   }
   case 3: {
     err = fd_bincode_uint64_decode(&self->set_compute_unit_price, ctx);
     if ( FD_UNLIKELY(err) ) return err;
-    return err;
+    return FD_BINCODE_SUCCESS;
   }
   default: return FD_BINCODE_ERR_ENCODING;
   }

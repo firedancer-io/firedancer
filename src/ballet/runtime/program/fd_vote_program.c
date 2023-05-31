@@ -322,10 +322,7 @@ int fd_executor_vote_program_execute_instruction(
       memset( vote_state_versioned, 0, sizeof(fd_vote_state_versioned_t) );
       vote_state_versioned->discriminant = 1;
       fd_vote_state_t* vote_state = &vote_state_versioned->inner.current;
-      fd_vote_prior_voter_t* prior_voters_buf = (fd_vote_prior_voter_t*)(*ctx.global->allocf)(ctx.global->allocf_arg, FD_VOTE_PRIOR_VOTER_ALIGN, FD_VOTE_PRIOR_VOTER_FOOTPRINT*32);
       fd_vote_prior_voters_t prior_voters = {
-        .buf = prior_voters_buf,
-        .buf_len = 0,
         .idx = 31,
         .is_empty = 1,
       };

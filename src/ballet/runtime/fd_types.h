@@ -618,10 +618,9 @@ typedef struct fd_vote_block_timestamp fd_vote_block_timestamp_t;
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L268 */
 struct fd_vote_prior_voters {
-  ulong                  buf_len;
-  fd_vote_prior_voter_t* buf;
-  unsigned long          idx;
-  unsigned char          is_empty;
+  fd_vote_prior_voter_t buf[32];
+  unsigned long         idx;
+  unsigned char         is_empty;
 };
 typedef struct fd_vote_prior_voters fd_vote_prior_voters_t;
 #define FD_VOTE_PRIOR_VOTERS_FOOTPRINT sizeof(fd_vote_prior_voters_t)
@@ -629,10 +628,9 @@ typedef struct fd_vote_prior_voters fd_vote_prior_voters_t;
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L268 */
 struct fd_vote_prior_voters_0_23_5 {
-  ulong                         buf_len;
-  fd_vote_prior_voter_0_23_5_t* buf;
-  unsigned long                 idx;
-  unsigned char                 is_empty;
+  fd_vote_prior_voter_0_23_5_t buf[32];
+  unsigned long                idx;
+  unsigned char                is_empty;
 };
 typedef struct fd_vote_prior_voters_0_23_5 fd_vote_prior_voters_0_23_5_t;
 #define FD_VOTE_PRIOR_VOTERS_0_23_5_FOOTPRINT sizeof(fd_vote_prior_voters_0_23_5_t)

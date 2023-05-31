@@ -22,6 +22,7 @@ print("", file=header)
 print("#include \"" + sys.argv[1] + "\"", file=body)
 
 print("#pragma GCC diagnostic ignored \"-Wunused-parameter\"", file=body)
+print("#pragma GCC diagnostic ignored \"-Wunused-variable\"", file=body)
 
 type_map = {
     "int64_t": "long",
@@ -76,16 +77,16 @@ def do_option_header(n, f):
           print("  " + n + "_" + f["element"] + "_t* " + f["name"] + ";", file=header)
 
 def do_array_header(n, f):
-    print("  ulong " + f["name"] + "_len;", file=header)
+    length = f["length"]
 
     if f["element"] == "unsigned char" or f["element"] == "uchar":
-        print("  " + f["element"] + "* " + f["name"] + ";", file=header)
+        print("  " + f["element"] + " " + f["name"] + "[" + str(length) + "];", file=header)
     elif f["element"] == "ulong" or f["element"] == "unsigned long":
-        print("  " + f["element"] + "* " + f["name"] + ";", file=header)
+        print("  " + f["element"] + " " + f["name"] + "[" + str(length) + "];", file=header)
     elif f["element"] == "uint" or f["element"] == "unsigned int":
-        print("  " + f["element"] + "* " + f["name"] + ";", file=header)
+        print("  " + f["element"] + " " + f["name"] + "[" + str(length) + "];", file=header)
     else:
-        print("  " + n + "_" + f["element"] + "_t* " + f["name"] + ";", file=header)
+        print("  " + n + "_" + f["element"] + "_t " + f["name"] + "[" + str(length) + "];", file=header)
     
 fields_header = {
     "char" :              lambda n, f: print("  char " + f["name"] + ";",              file=header),
@@ -209,17 +210,9 @@ def do_array_body_decode(n, f):
     length = f["length"]
 
     if f["element"] == "unsigned char" or f["element"] == "uchar":
-        print("    self->" + f["name"] + " = (unsigned char*)(*ctx->allocf)(ctx->allocf_arg, 8, " + length + ");", file=body)
         print("    err = fd_bincode_bytes_decode(self->" + f["name"] + ", " + length + ", ctx);", file=body)
         print("    if ( FD_UNLIKELY(err) ) return err;", file=body)
         return;
-
-    if f["element"] == "ulong" or f["element"] == "unsigned long":
-        print("    self->" + f["name"] + " = (ulong*)(*ctx->allocf)(ctx->allocf_arg, 8UL, sizeof(ulong)*" + length + ");", file=body)
-    elif f["element"] == "uint" or f["element"] == "unsigned int":
-        print("    self->" + f["name"] + " = (uint*)(*ctx->allocf)(ctx->allocf_arg, 8UL, sizeof(uint)*" + length + ");", file=body)
-    else:
-        print("    self->" + f["name"] + " = (" + n + "_" + f["element"] + "_t*)(*ctx->allocf)(ctx->allocf_arg, " + el + "_ALIGN, " + el + "_FOOTPRINT*" + length + ");", file=body)
 
     print("    for (ulong i = 0; i < " + length + "; ++i) {", file=body)
 
@@ -480,14 +473,14 @@ def do_array_body_size(n, f):
     length = f["length"]
 
     if f["element"] == "unsigned char" or f["element"] == "uchar":
-        print("    size += " + length + ";", file=body)
+        print("  size += " + length + ";", file=body)
     elif f["element"] == "ulong" or f["element"] == "unsigned long":
-        print("    size += " + length + " * sizeof(ulong);", file=body)
+        print("  size += " + length + " * sizeof(ulong);", file=body)
     elif f["element"] == "uint" or f["element"] == "unsigned int":
-        print("    size += " + length + " * sizeof(uint);", file=body)
+        print("  size += " + length + " * sizeof(uint);", file=body)
     else:
-        print("    for (ulong i = 0; i < " + length + "; ++i)", file=body)
-        print("      size += " + n + "_" + f["element"] + "_size(self->" + f["name"] + " + i);", file=body)
+        print("  for (ulong i = 0; i < " + length + "; ++i)", file=body)
+        print("    size += " + n + "_" + f["element"] + "_size(self->" + f["name"] + " + i);", file=body)
 
 def do_option_body_size(n, f):
     print("  size += sizeof(char);", file=body)
@@ -542,7 +535,15 @@ def do_map_body_new(n, f):
 def do_array_body_new(n, f):
     length = f["length"]
 
-    print("  self->" + f["name"] + " = NULL;", file=body)
+    if f["element"] == "unsigned char" or f["element"] == "uchar":
+        pass
+    elif f["element"] == "ulong" or f["element"] == "unsigned long":
+        pass
+    elif f["element"] == "uint" or f["element"] == "unsigned int":
+        pass
+    else:
+        print("  for (ulong i = 0; i < " + length + "; ++i)", file=body)
+        print("    " + n + "_" + f["element"] + "_new(self->" + f["name"] + " + i);", file=body)
 
 def do_option_body_new(n, f):
     print("  self->" + f["name"] + " = NULL;", file=body)
@@ -606,7 +607,6 @@ def do_map_body_destroy(n, f):
 def do_array_body_destroy(n, f):
     length = f["length"]
 
-    print("  if (NULL != self->" + f["name"] + ") {", file=body)
     if f["element"] == "unsigned char" or f["element"] == "uchar":
         pass
     elif f["element"] == "ulong" or f["element"] == "unsigned long":
@@ -614,11 +614,8 @@ def do_array_body_destroy(n, f):
     elif f["element"] == "uint" or f["element"] == "unsigned int":
         pass
     else:
-        print("    for (ulong i = 0; i < " + length + "; ++i)", file=body)
-        print("      " + n + "_" + f["element"] + "_destroy(self->" + f["name"] + " + i, ctx);", file=body)
-    print("    (*ctx->freef)(ctx->freef_arg, self->" + f["name"] + ");", file=body)
-    print("    self->" + f["name"] + " = NULL;", file=body)
-    print("  }", file=body)
+        print("  for (ulong i = 0; i < " + length + "; ++i)", file=body)
+        print("    " + n + "_" + f["element"] + "_destroy(self->" + f["name"] + " + i, ctx);", file=body)
 
 def do_option_body_destroy(n, f):
     print("if (NULL != self->" + f["name"] + ") {", file=body)
@@ -917,7 +914,9 @@ for entry in entries:
         print("}; ", file=header)
 
     if entry["type"] == "enum":
+        print("void " + n + "_inner_new(" + n + "_inner_t* self, uint discriminant);", file=body)
         print("int " + n + "_inner_decode(" + n + "_inner_t* self, uint discriminant, fd_bincode_decode_ctx_t * ctx) {", file=body)
+        print("  " + n + "_inner_new(self, discriminant);", file=body)
         print("  int err;", file=body)
         print("  switch (discriminant) {", file=body)
         
@@ -926,11 +925,11 @@ for entry in entries:
             if "type" in v:
                 if v["type"] in fields_body_decode:
                     fields_body_decode[v["type"]](namespace, v)
+                    print("    return FD_BINCODE_SUCCESS;", file=body)
                 else:
-                    print("    err = " + namespace + "_" + v["type"] + "_decode(&self->" + v["name"] + ", ctx);", file=body)
+                    print("    return " + namespace + "_" + v["type"] + "_decode(&self->" + v["name"] + ", ctx);", file=body)
             else:
-                print("    err = FD_BINCODE_SUCCESS;", file=body)
-            print("    return err;", file=body)
+                print("    return FD_BINCODE_SUCCESS;", file=body)
             print("  }", file=body)
 
         print("default: return FD_BINCODE_ERR_ENCODING;", file=body);
