@@ -336,8 +336,8 @@ impl Config {
             AFFINITY={affinity} \n\
             APP={name} \n\
             POD={name}.wksp:{pod} \n\
-            RUN_ARGS=--pod\\ {name}.wksp:{pod}\\ --cfg\\ {name}\\ --log-app\\ {name}\\ --log-thread\\ main \n\
-            MON_ARGS=--pod\\ {name}.wksp:{pod}\\ --cfg\\ {name}\\ --log-app\\ {name}\\ --log-thread\\ mon \n\
+            RUN_ARGS=--pod\\ {name}.wksp:{pod}\\ --log-app\\ {name}\\ --log-thread\\ main \n\
+            MON_ARGS=--pod\\ {name}.wksp:{pod}\\ --log-app\\ {name}\\ --log-thread\\ mon \n\
             MAIN_CNC={name}.wksp:{main_cnc} \n\
             IFACE={interface} \n\
             LISTEN_ADDRS={listen_address} \n\

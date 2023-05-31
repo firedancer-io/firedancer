@@ -322,24 +322,22 @@ main( int     argc,
   /* Parse command line arguments */
 
   char const * pod_gaddr =       fd_env_strip_cmdline_cstr  ( &argc, &argv, "--pod",      NULL, NULL                 );
-  char const * cfg_path  =       fd_env_strip_cmdline_cstr  ( &argc, &argv, "--cfg",      NULL, NULL                 );
   long         dt_min    = (long)fd_env_strip_cmdline_double( &argc, &argv, "--dt-min",   NULL,   66666667.          );
   long         dt_max    = (long)fd_env_strip_cmdline_double( &argc, &argv, "--dt-max",   NULL, 1333333333.          );
   long         duration  = (long)fd_env_strip_cmdline_double( &argc, &argv, "--duration", NULL,          0.          );
   uint         seed      =       fd_env_strip_cmdline_uint  ( &argc, &argv, "--seed",     NULL, (uint)fd_tickcount() );
 
   if( FD_UNLIKELY( !pod_gaddr   ) ) FD_LOG_ERR(( "--pod not specified"                  ));
-  if( FD_UNLIKELY( !cfg_path    ) ) FD_LOG_ERR(( "--cfg not specified"                  ));
   if( FD_UNLIKELY( dt_min<0L    ) ) FD_LOG_ERR(( "--dt-min should be positive"          ));
   if( FD_UNLIKELY( dt_max<dt_min) ) FD_LOG_ERR(( "--dt-max should be at least --dt-min" ));
   if( FD_UNLIKELY( duration<0L  ) ) FD_LOG_ERR(( "--duration should be non-negative"    ));
 
   /* Load up the configuration for this frank instance */
 
-  FD_LOG_INFO(( "using configuration in pod --pod %s at path --cfg %s", pod_gaddr, cfg_path ));
+  FD_LOG_INFO(( "using configuration in pod --pod %s at path firedancer", pod_gaddr ));
 
   uchar const * pod     = fd_wksp_pod_attach( pod_gaddr );
-  uchar const * cfg_pod = fd_pod_query_subpod( pod, cfg_path );
+  uchar const * cfg_pod = fd_pod_query_subpod( pod, "firedancer" );
   if( FD_UNLIKELY( !cfg_pod ) ) FD_LOG_ERR(( "path not found" ));
 
   uchar const * verify_pods = fd_pod_query_subpod( cfg_pod, "verify" );
@@ -359,7 +357,7 @@ main( int     argc,
     ulong tile_idx = 0UL;
 
     tile_name[ tile_idx ] = "main";
-    FD_LOG_INFO(( "joining %s.main.cnc", cfg_path ));
+    FD_LOG_INFO(( "joining firedancer.main.cnc" ));
     tile_cnc[ tile_idx ] = fd_cnc_join( fd_wksp_pod_map( cfg_pod, "main.cnc" ) );
     if( FD_UNLIKELY( !tile_cnc[ tile_idx ] ) ) FD_LOG_ERR(( "fd_cnc_join failed" ));
     if( FD_UNLIKELY( fd_cnc_app_sz( tile_cnc[ tile_idx ] )<64UL ) ) FD_LOG_ERR(( "cnc app sz should be at least 64 bytes" ));
@@ -368,7 +366,7 @@ main( int     argc,
     tile_idx++;
 
     tile_name[ tile_idx ] = "pack";
-    FD_LOG_INFO(( "joining %s.pack.cnc", cfg_path ));
+    FD_LOG_INFO(( "joining firedancer.pack.cnc" ));
     tile_cnc[ tile_idx ] = fd_cnc_join( fd_wksp_pod_map( cfg_pod, "pack.cnc" ) );
     if( FD_UNLIKELY( !tile_cnc[ tile_idx ] ) ) FD_LOG_ERR(( "fd_cnc_join failed" ));
     if( FD_UNLIKELY( fd_cnc_app_sz( tile_cnc[ tile_idx ] )<64UL ) ) FD_LOG_ERR(( "cnc app sz should be at least 64 bytes" ));
@@ -377,14 +375,14 @@ main( int     argc,
     tile_idx++;
 
     tile_name[ tile_idx ] = "dedup";
-    FD_LOG_INFO(( "joining %s.dedup.cnc", cfg_path ));
+    FD_LOG_INFO(( "joining firedancer.dedup.cnc" ));
     tile_cnc[ tile_idx ] = fd_cnc_join( fd_wksp_pod_map( cfg_pod, "dedup.cnc" ) );
     if( FD_UNLIKELY( !tile_cnc[ tile_idx ] ) ) FD_LOG_ERR(( "fd_cnc_join failed" ));
     if( FD_UNLIKELY( fd_cnc_app_sz( tile_cnc[ tile_idx ] )<64UL ) ) FD_LOG_ERR(( "cnc app sz should be at least 64 bytes" ));
-    FD_LOG_INFO(( "joining %s.dedup.mcache", cfg_path ));
+    FD_LOG_INFO(( "joining firedancer.dedup.mcache" ));
     tile_mcache[ tile_idx ] = fd_mcache_join( fd_wksp_pod_map( cfg_pod, "dedup.mcache" ) );
     if( FD_UNLIKELY( !tile_mcache[ tile_idx ] ) ) FD_LOG_ERR(( "fd_mcache_join failed" ));
-    FD_LOG_INFO(( "joining %s.dedup.fseq", cfg_path ));
+    FD_LOG_INFO(( "joining firedancer.dedup.fseq" ));
     tile_fseq[ tile_idx ] = fd_fseq_join( fd_wksp_pod_map( cfg_pod, "dedup.fseq" ) );
     if( FD_UNLIKELY( !tile_fseq[ tile_idx ] ) ) FD_LOG_ERR(( "fd_fseq_join failed" ));
     tile_idx++;
@@ -395,15 +393,15 @@ main( int     argc,
       char const  * verify_name =                info.key;
       uchar const * verify_pod  = (uchar const *)info.val;
 
-      FD_LOG_INFO(( "joining %s.verify.%s.cnc", cfg_path, verify_name ));
+      FD_LOG_INFO(( "joining firedancer.verify.%s.cnc", verify_name ));
       tile_name[ tile_idx ] = verify_name;
       tile_cnc [ tile_idx ] = fd_cnc_join( fd_wksp_pod_map( verify_pod, "cnc" ) );
       if( FD_UNLIKELY( !tile_cnc[tile_idx] ) ) FD_LOG_ERR(( "fd_cnc_join failed" ));
       if( FD_UNLIKELY( fd_cnc_app_sz( tile_cnc[ tile_idx ] )<64UL ) ) FD_LOG_ERR(( "cnc app sz should be at least 64 bytes" ));
-      FD_LOG_INFO(( "joining %s.verify.%s.mcache", cfg_path, verify_name ));
+      FD_LOG_INFO(( "joining firedancer.verify.%s.mcache", verify_name ));
       tile_mcache[ tile_idx ] = fd_mcache_join( fd_wksp_pod_map( verify_pod, "mcache" ) );
       if( FD_UNLIKELY( !tile_mcache[ tile_idx ] ) ) FD_LOG_ERR(( "fd_mcache_join failed" ));
-      FD_LOG_INFO(( "joining %s.verify.%s.fseq", cfg_path, verify_name ));
+      FD_LOG_INFO(( "joining firedancer.verify.%s.fseq", verify_name ));
       tile_fseq[ tile_idx ] = fd_fseq_join( fd_wksp_pod_map( verify_pod, "fseq" ) );
       if( FD_UNLIKELY( !tile_fseq[ tile_idx ] ) ) FD_LOG_ERR(( "fd_fseq_join failed" ));
       tile_idx++;
