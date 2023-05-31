@@ -727,6 +727,15 @@ typedef struct fd_compact_vote_state_update fd_compact_vote_state_update_t;
 #define FD_COMPACT_VOTE_STATE_UPDATE_FOOTPRINT sizeof(fd_compact_vote_state_update_t)
 #define FD_COMPACT_VOTE_STATE_UPDATE_ALIGN (8UL)
 
+/* https://github.com/solana-labs/solana/blob/252438e28fbfb2c695fe1215171b83456e4b761c/programs/vote/src/vote_instruction.rs#L143 */
+struct fd_compact_vote_state_update_switch {
+  fd_compact_vote_state_update_t compact_vote_state_update;
+  fd_hash_t                      hash;
+};
+typedef struct fd_compact_vote_state_update_switch fd_compact_vote_state_update_switch_t;
+#define FD_COMPACT_VOTE_STATE_UPDATE_SWITCH_FOOTPRINT sizeof(fd_compact_vote_state_update_switch_t)
+#define FD_COMPACT_VOTE_STATE_UPDATE_SWITCH_ALIGN (8UL)
+
 struct fd_slot_history_inner {
   ulong          blocks_len;
   unsigned long* blocks;
@@ -983,10 +992,12 @@ union fd_vote_instruction_inner {
   fd_update_vote_state_switch_t              update_vote_state_switch;
   fd_vote_authorize_with_seed_args_t         authorize_with_seed;
   fd_vote_authorize_checked_with_seed_args_t authorize_checked_with_seed;
+  fd_compact_vote_state_update_t             compact_update_vote_state;
+  fd_compact_vote_state_update_switch_t      compact_update_vote_state_switch;
 };
 typedef union fd_vote_instruction_inner fd_vote_instruction_inner_t;
 
-/* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_instruction.rs#L21 */
+/* https://github.com/firedancer-io/solana/blob/53a4e5d6c58b2ffe89b09304e4437f8ca198dadd/programs/vote/src/vote_instruction.rs#L21 */
 struct fd_vote_instruction {
   uint                        discriminant;
   fd_vote_instruction_inner_t inner;
@@ -1636,6 +1647,12 @@ void fd_compact_vote_state_update_destroy(fd_compact_vote_state_update_t* self, 
 void fd_compact_vote_state_update_walk(fd_compact_vote_state_update_t* self, fd_walk_fun_t fun, const char *name, int level);
 ulong fd_compact_vote_state_update_size(fd_compact_vote_state_update_t* self);
 
+void fd_compact_vote_state_update_switch_decode(fd_compact_vote_state_update_switch_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
+void fd_compact_vote_state_update_switch_encode(fd_compact_vote_state_update_switch_t* self, void const** data);
+void fd_compact_vote_state_update_switch_destroy(fd_compact_vote_state_update_switch_t* self, fd_free_fun_t freef, void* freef_arg);
+void fd_compact_vote_state_update_switch_walk(fd_compact_vote_state_update_switch_t* self, fd_walk_fun_t fun, const char *name, int level);
+ulong fd_compact_vote_state_update_switch_size(fd_compact_vote_state_update_switch_t* self);
+
 void fd_slot_history_inner_decode(fd_slot_history_inner_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
 void fd_slot_history_inner_encode(fd_slot_history_inner_t* self, void const** data);
 void fd_slot_history_inner_destroy(fd_slot_history_inner_t* self, fd_free_fun_t freef, void* freef_arg);
@@ -1798,6 +1815,8 @@ uchar fd_vote_instruction_is_update_vote_state(fd_vote_instruction_t* self);
 uchar fd_vote_instruction_is_update_vote_state_switch(fd_vote_instruction_t* self);
 uchar fd_vote_instruction_is_authorize_with_seed(fd_vote_instruction_t* self);
 uchar fd_vote_instruction_is_authorize_checked_with_seed(fd_vote_instruction_t* self);
+uchar fd_vote_instruction_is_compact_update_vote_state(fd_vote_instruction_t* self);
+uchar fd_vote_instruction_is_compact_update_vote_state_switch(fd_vote_instruction_t* self);
 enum {
   fd_vote_instruction_enum_initialize_account = 0,
   fd_vote_instruction_enum_authorize = 1,
@@ -1811,6 +1830,8 @@ enum {
   fd_vote_instruction_enum_update_vote_state_switch = 9,
   fd_vote_instruction_enum_authorize_with_seed = 10,
   fd_vote_instruction_enum_authorize_checked_with_seed = 11,
+  fd_vote_instruction_enum_compact_update_vote_state = 12,
+  fd_vote_instruction_enum_compact_update_vote_state_switch = 13,
 };
 void fd_system_program_instruction_create_account_decode(fd_system_program_instruction_create_account_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg);
 void fd_system_program_instruction_create_account_encode(fd_system_program_instruction_create_account_t* self, void const** data);

@@ -52,7 +52,7 @@ class Breadcrumb:
   @staticmethod
   def extract_log_line(file_location: str, breadcrumbs: List[str], bakery: dict, fd_flag: bool) -> dict:
     results = dict()
-    with open(file_location, 'r', ) as log_file:
+    with open(file_location, 'r') as log_file:
       for line in log_file:
         for breadcrumb_name in breadcrumbs:
           breadcrumb = bakery[breadcrumb_name]
@@ -100,7 +100,7 @@ def main():
       firedancer_filter=lambda log_line: "fd_runtime_calculate_fee_compare" in log_line,
       solana_identifier=lambda log_line: re.findall(r"slot\((\d+)\)", log_line),
       firedancer_identifier=lambda log_line: re.findall(r"slot=(\d+)", log_line),
-      solana_display=lambda log_line: re.findall(r"slot\((\d+)\) invoked from\(\w+\) fee\((\d+)\) lamports_per_signature\(\d+\) tx_wide_compute_cap\(\d+\) support_set_\(\d+\) prioritization_fee\((\d+)\) signature_fee\((\d+)\) write_lock_fee\((\d+)\) compute_fee\((\d+)\) congestion_multiplier\((\d+)\)", log_line),
+      solana_display=lambda log_line: re.findall(r"slot\((\d+)\) invoked from\(\w+\) fee\((\d+)\) lamports_per_signature\(\d+\) support_set_\(\d+\) prioritization_fee\((\d+)\) signature_fee\((\d+)\) write_lock_fee\((\d+)\) compute_fee\((\d+)\) congestion_multiplier\((\d+)\)", log_line),
       firedancer_display=lambda log_line: re.findall(r"slot=(\d+) fee\((\d+).\d+\) = \(prioritization_fee\((\d+).\d+\) \+ signature_fee\((\d+).\d+\) \+ write_lock_fee\((\d+).\d+\) \+ compute_fee\((\d+).\d+\)\) \* congestion_multiplier\((\d+).\d+\)", log_line),
     )
   }
@@ -108,10 +108,11 @@ def main():
   # Read in Solana log file
   solana_results = Breadcrumb.extract_log_line(file_location=args.solana, breadcrumbs=args.breadcrumbs, bakery=BAKERY, fd_flag=0)
   firedancer_results = Breadcrumb.extract_log_line(file_location=args.firedancer, breadcrumbs=args.breadcrumbs, bakery=BAKERY, fd_flag=1)
-
   for breadcrumb_name in args.breadcrumbs:
     print("##############################################################################################################################")
     print("results for " + breadcrumb_name)
+    if breadcrumb_name not in solana_results:
+      continue
     for key in solana_results[breadcrumb_name]:
       truth = solana_results[breadcrumb_name][key]
       reality = firedancer_results[breadcrumb_name].get(key, set())

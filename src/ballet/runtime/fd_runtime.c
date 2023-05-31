@@ -428,7 +428,6 @@ fd_runtime_lamports_per_signature_for_blockhash( fd_global_ctx_t *global, FD_FN_
   // https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/fee_calculator.rs#L110
 
   // https://github.com/firedancer-io/solana/blob/53a4e5d6c58b2ffe89b09304e4437f8ca198dadd/runtime/src/blockhash_queue.rs#L55
-  FD_LOG_NOTICE(("made it here!"));
   ulong default_fee = global->bank.solana_bank.fee_rate_governor.target_lamports_per_signature / 2;
 
   if (blockhash == 0) {

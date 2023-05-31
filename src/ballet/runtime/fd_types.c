@@ -2768,6 +2768,33 @@ void fd_compact_vote_state_update_encode(fd_compact_vote_state_update_t* self, v
     fd_bincode_option_encode(0, data);
 }
 
+void fd_compact_vote_state_update_switch_decode(fd_compact_vote_state_update_switch_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
+  fd_compact_vote_state_update_decode(&self->compact_vote_state_update, data, dataend, allocf, allocf_arg);
+  fd_hash_decode(&self->hash, data, dataend, allocf, allocf_arg);
+}
+void fd_compact_vote_state_update_switch_destroy(fd_compact_vote_state_update_switch_t* self, fd_free_fun_t freef, void* freef_arg) {
+  fd_compact_vote_state_update_destroy(&self->compact_vote_state_update, freef, freef_arg);
+  fd_hash_destroy(&self->hash, freef, freef_arg);
+}
+
+void fd_compact_vote_state_update_switch_walk(fd_compact_vote_state_update_switch_t* self, fd_walk_fun_t fun, const char *name, int level) {
+  fun(self, name, 32, "fd_compact_vote_state_update_switch", level++);
+  fd_compact_vote_state_update_walk(&self->compact_vote_state_update, fun, "compact_vote_state_update", level + 1);
+  fd_hash_walk(&self->hash, fun, "hash", level + 1);
+  fun(self, name, 33, "fd_compact_vote_state_update_switch", --level);
+}
+ulong fd_compact_vote_state_update_switch_size(fd_compact_vote_state_update_switch_t* self) {
+  ulong size = 0;
+  size += fd_compact_vote_state_update_size(&self->compact_vote_state_update);
+  size += fd_hash_size(&self->hash);
+  return size;
+}
+
+void fd_compact_vote_state_update_switch_encode(fd_compact_vote_state_update_switch_t* self, void const** data) {
+  fd_compact_vote_state_update_encode(&self->compact_vote_state_update, data);
+  fd_hash_encode(&self->hash, data);
+}
+
 void fd_slot_history_inner_decode(fd_slot_history_inner_t* self, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
   fd_bincode_uint64_decode(&self->blocks_len, data, dataend);
   if (self->blocks_len != 0) {
@@ -3679,6 +3706,12 @@ uchar fd_vote_instruction_is_authorize_with_seed(fd_vote_instruction_t* self) {
 uchar fd_vote_instruction_is_authorize_checked_with_seed(fd_vote_instruction_t* self) {
   return self->discriminant == 11;
 }
+uchar fd_vote_instruction_is_compact_update_vote_state(fd_vote_instruction_t* self) {
+  return self->discriminant == 12;
+}
+uchar fd_vote_instruction_is_compact_update_vote_state_switch(fd_vote_instruction_t* self) {
+  return self->discriminant == 13;
+}
 void fd_vote_instruction_inner_decode(fd_vote_instruction_inner_t* self, uint discriminant, void const** data, void const* dataend, fd_alloc_fun_t allocf, void* allocf_arg) {
   switch (discriminant) {
   case 0: {
@@ -3726,6 +3759,14 @@ void fd_vote_instruction_inner_decode(fd_vote_instruction_inner_t* self, uint di
   }
   case 11: {
     fd_vote_authorize_checked_with_seed_args_decode(&self->authorize_checked_with_seed, data, dataend, allocf, allocf_arg);
+    break;
+  }
+  case 12: {
+    fd_compact_vote_state_update_decode(&self->compact_update_vote_state, data, dataend, allocf, allocf_arg);
+    break;
+  }
+  case 13: {
+    fd_compact_vote_state_update_switch_decode(&self->compact_update_vote_state_switch, data, dataend, allocf, allocf_arg);
     break;
   }
   default: FD_LOG_ERR(( "unhandled type"));
@@ -3780,6 +3821,14 @@ void fd_vote_instruction_inner_destroy(fd_vote_instruction_inner_t* self, uint d
   }
   case 11: {
     fd_vote_authorize_checked_with_seed_args_destroy(&self->authorize_checked_with_seed, freef, freef_arg);
+    break;
+  }
+  case 12: {
+    fd_compact_vote_state_update_destroy(&self->compact_update_vote_state, freef, freef_arg);
+    break;
+  }
+  case 13: {
+    fd_compact_vote_state_update_switch_destroy(&self->compact_update_vote_state_switch, freef, freef_arg);
     break;
   }
   default: break; // FD_LOG_ERR(( "unhandled type"));
@@ -3842,6 +3891,14 @@ ulong fd_vote_instruction_size(fd_vote_instruction_t* self) {
     size += fd_vote_authorize_checked_with_seed_args_size(&self->inner.authorize_checked_with_seed);
     break;
   }
+  case 12: {
+    size += fd_compact_vote_state_update_size(&self->inner.compact_update_vote_state);
+    break;
+  }
+  case 13: {
+    size += fd_compact_vote_state_update_switch_size(&self->inner.compact_update_vote_state_switch);
+    break;
+  }
   }
   return size;
 }
@@ -3890,6 +3947,14 @@ void fd_vote_instruction_inner_encode(fd_vote_instruction_inner_t* self, uint di
   }
   case 11: {
     fd_vote_authorize_checked_with_seed_args_encode(&self->authorize_checked_with_seed, data);
+    break;
+  }
+  case 12: {
+    fd_compact_vote_state_update_encode(&self->compact_update_vote_state, data);
+    break;
+  }
+  case 13: {
+    fd_compact_vote_state_update_switch_encode(&self->compact_update_vote_state_switch, data);
     break;
   }
   }
