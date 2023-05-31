@@ -20,8 +20,8 @@ static int transfer(
   /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/runtime/src/system_instruction_processor.rs#L327 */
 
   /* Pull out sender (acc idx 0) and recipient (acc idx 1) */
-  uchar *       instr_acc_idxs = ((uchar *)ctx.txn_raw->raw + ctx.instr->acct_off);
-  fd_pubkey_t * txn_accs = (fd_pubkey_t *)((uchar *)ctx.txn_raw->raw + ctx.txn_descriptor->acct_addr_off);
+  uchar *       instr_acc_idxs = ((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.instr->acct_off);
+  fd_pubkey_t * txn_accs = (fd_pubkey_t *)((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.txn_ctx->txn_descriptor->acct_addr_off);
   fd_pubkey_t * sender   = &txn_accs[instr_acc_idxs[0]];
   fd_pubkey_t * receiver = &txn_accs[instr_acc_idxs[1]];
 
@@ -37,7 +37,7 @@ static int transfer(
   /* Check sender has signed the transaction */
   uchar sender_is_signer = 0;
   for ( ulong i = 0; i < ctx.instr->acct_cnt; i++ ) {
-    if ( instr_acc_idxs[i] < ctx.txn_descriptor->signature_cnt ) {
+    if ( instr_acc_idxs[i] < ctx.txn_ctx->txn_descriptor->signature_cnt ) {
       fd_pubkey_t * signer = &txn_accs[instr_acc_idxs[i]];
       if ( memcmp( signer, sender, sizeof(fd_pubkey_t) ) == 0 ) {
         sender_is_signer = 1;
@@ -117,9 +117,8 @@ static int create_account(
   /* Account 0: funding account
      Account 1: new account
    */
-  uchar *       instr_acc_idxs = ((uchar *)ctx.txn_raw->raw + ctx.instr->acct_off);
-  fd_pubkey_t * txn_accs = (fd_pubkey_t *)((uchar *)ctx.txn_raw->raw + ctx.txn_descriptor->acct_addr_off);
-
+  uchar *       instr_acc_idxs = ((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.instr->acct_off);
+  fd_pubkey_t * txn_accs = (fd_pubkey_t *)((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.txn_ctx->txn_descriptor->acct_addr_off);
   fd_pubkey_t * from     = &txn_accs[instr_acc_idxs[0]];
   fd_pubkey_t * to       = &txn_accs[instr_acc_idxs[1]];
 
@@ -160,7 +159,7 @@ static int create_account(
   uchar to_signed = 0;
 
   for ( ulong i = 0; i < ctx.instr->acct_cnt; i++ ) {
-    if ( instr_acc_idxs[i] < ctx.txn_descriptor->signature_cnt ) {
+    if ( instr_acc_idxs[i] < ctx.txn_ctx->txn_descriptor->signature_cnt ) {
       fd_pubkey_t * signer = &txn_accs[instr_acc_idxs[i]];
       if ( memcmp( signer, from, sizeof(fd_pubkey_t) ) == 0 )
         from_is_signer = 1;
@@ -237,8 +236,8 @@ static int assign(
   fd_pubkey_t owner
 ) {
   /* Pull out the account to be assigned an owner (acc idx 0) */
-  uchar *       instr_acc_idxs = ((uchar *)ctx.txn_raw->raw + ctx.instr->acct_off);
-  fd_pubkey_t * txn_accs = (fd_pubkey_t *)((uchar *)ctx.txn_raw->raw + ctx.txn_descriptor->acct_addr_off);
+  uchar *       instr_acc_idxs = ((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.instr->acct_off);
+  fd_pubkey_t * txn_accs = (fd_pubkey_t *)((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.txn_ctx->txn_descriptor->acct_addr_off);
   fd_pubkey_t * keyed_account   = &txn_accs[instr_acc_idxs[0]];
 
   // get owner
@@ -259,7 +258,7 @@ static int assign(
   /* Check sender has signed the transaction */
   uchar sender_is_signer = 0;
   for ( ulong i = 0; i < ctx.instr->acct_cnt; i++ ) {
-    if ( instr_acc_idxs[i] < ctx.txn_descriptor->signature_cnt ) {
+    if ( instr_acc_idxs[i] < ctx.txn_ctx->txn_descriptor->signature_cnt ) {
       fd_pubkey_t * signer = &txn_accs[instr_acc_idxs[i]];
       if ( memcmp( signer, keyed_account, sizeof(fd_pubkey_t) ) == 0 ) {
         sender_is_signer = 1;
@@ -284,7 +283,7 @@ int fd_executor_system_program_execute_instruction(
   instruction_ctx_t ctx
   ) {
   /* Deserialize the SystemInstruction enum */
-  uchar *      data            = (uchar *)ctx.txn_raw->raw + ctx.instr->data_off;
+  uchar *      data            = (uchar *)ctx.txn_ctx->txn_raw->raw + ctx.instr->data_off;
   void*        input            = (void *)data;
   const void** input_ptr = (const void **)&input;
   void*        dataend          = (void*)&data[ctx.instr->data_sz];

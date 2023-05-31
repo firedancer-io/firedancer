@@ -112,11 +112,16 @@ int fd_executor_run_test(
     .raw    = (void*)test->raw_tx,
     .txn_sz = (ushort)test->raw_tx_len,
   };
+  transaction_ctx_t          txn_ctx = {
+    .global         = global,
+    .txn_descriptor = txn_descriptor,
+    .txn_raw        = &raw_txn_b,
+  };
+
   instruction_ctx_t          ctx = {
     .global         = global,
     .instr          = instr,
-    .txn_descriptor = txn_descriptor,
-    .txn_raw        = &raw_txn_b,
+    .txn_ctx        = &txn_ctx,
   };
   execute_instruction_func_t exec_instr_func = fd_executor_lookup_native_program( global, &test->program_id );
   int exec_result = exec_instr_func( ctx );
