@@ -203,8 +203,8 @@ int fd_executor_stake_program_execute_instruction(
       FD_LOG_WARNING(( "failed to write stake account state: %d", result ));
       return result;
     }
-
-  } else if ( fd_stake_instruction_is_delegate_stake( &instruction ) ) {
+  } // end of fd_stake_instruction_is_initialize 
+  else if ( fd_stake_instruction_is_delegate_stake( &instruction ) ) {
     /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/stake/src/stake_instruction.rs#L126 */
 
     /* Check that the instruction accounts are correct
@@ -310,7 +310,173 @@ int fd_executor_stake_program_execute_instruction(
       FD_LOG_WARNING(( "failed to write stake account state: %d", result ));
       return result;
     }
-  } else {
+  } // end of fd_stake_instruction_is_delegate_stake 
+  else if ( fd_stake_instruction_is_authorize( &instruction )) { // discriminant 1
+    // https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/stake/src/stake_instruction.rs#L50
+
+  } else if ( fd_stake_instruction_is_split( &instruction )) { // discriminant 3
+  // https://github.com/firedancer-io/solana/blob/56bd357f0dfdb841b27c4a346a58134428173f42/programs/stake/src/stake_instruction.rs#L192
+
+    // instruction_context.check_number_of_instruction_accounts(2)?;
+    if (ctx.txn_descriptor->acct_addr_cnt < 2) {
+      return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
+    }
+    uchar* instr_acc_idxs = ((uchar *)ctx.txn_raw->raw + ctx.instr->acct_off);
+    fd_pubkey_t* txn_accs = (fd_pubkey_t *)((uchar *)ctx.txn_raw->raw + ctx.txn_descriptor->acct_addr_off);
+    fd_pubkey_t* stake_acc         = &txn_accs[instr_acc_idxs[0]];
+    fd_account_meta_t metadata_stake;
+    int read_result = fd_acc_mgr_get_metadata( ctx.global->acc_mgr, ctx.global->funk_txn, stake_acc, &metadata_stake );
+    if ( FD_UNLIKELY( read_result != FD_ACC_MGR_SUCCESS ) ) {
+      FD_LOG_WARNING(( "failed to read stake account metadata" ));
+      return read_result;
+    }
+    // split(
+    //     invoke_context,
+    //     transaction_context,
+    //     instruction_context,
+    //     0,
+    //     lamports,
+    //     1,
+    //     &signers,
+    // )
+    // https://github.com/firedancer-io/solana/blob/56bd357f0dfdb841b27c4a346a58134428173f42/programs/stake/src/stake_state.rs#L666
+    
+    fd_pubkey_t* split_acc = &txn_accs[instr_acc_idxs[1]];
+    fd_pubkey_t split_acc_owner;
+    fd_acc_mgr_get_owner( ctx.global->acc_mgr, ctx.global->funk_txn, split_acc, &split_acc_owner ); 
+    if ( memcmp( &split_acc_owner, ctx.global->solana_vote_program, sizeof(fd_pubkey_t) ) != 0 ) {
+      return FD_EXECUTOR_INSTR_ERR_INCORRECT_PROGRAM_ID;
+    }
+
+    fd_account_meta_t metadata_split;
+    read_result = fd_acc_mgr_get_metadata( ctx.global->acc_mgr, ctx.global->funk_txn, split_acc, &metadata_split );
+    if ( FD_UNLIKELY( read_result != FD_ACC_MGR_SUCCESS ) ) {
+      FD_LOG_WARNING(( "failed to read split account metadata" ));
+      return read_result;
+    }
+    if ( metadata_split.dlen != STAKE_ACCOUNT_SIZE ) {
+      FD_LOG_WARNING(( "Split account size incorrect. expected %d got %lu", STAKE_ACCOUNT_SIZE, metadata_split.dlen ));
+      return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
+    }
+
+    fd_stake_state_t split_state;
+    read_stake_state( ctx.global, split_acc, &split_state ); 
+    if ( !fd_stake_state_is_uninitialized( &split_state ) ) {
+      return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
+    }
+
+    // fd_acc_lamports_t split_lamports_balance = metadata_split.info.lamports;
+    fd_acc_lamports_t lamports = instruction.inner.split;
+
+    if ( lamports > metadata_stake.info.lamports ) {
+      return FD_EXECUTOR_INSTR_ERR_INSUFFICIENT_FUNDS;
+    }
+    
+    /* Read the current State State from the Stake account */
+    fd_stake_state_t stake_state;
+    read_stake_state( ctx.global, stake_acc, &stake_state );
+
+    if ( fd_stake_state_is_stake( &stake_state ) ) {
+      // validate split amount, etc
+      // https://github.com/firedancer-io/solana/blob/56bd357f0dfdb841b27c4a346a58134428173f42/programs/stake/src/stake_state.rs#L698-L771
+
+    } else if ( fd_stake_state_is_initialized( &stake_state ) ) {
+      // fd_acc_lamports_t additional_required_lamports = 0;
+      
+
+      // meta.authorized.check(signers, StakeAuthorize::Staker)?;
+      // let additional_required_lamports = if invoke_context
+      //     .feature_set
+      //     .is_active(&stake_allow_zero_undelegated_amount::id())
+      // {
+      //     0
+      // } else {
+      //     crate::get_minimum_delegation(&invoke_context.feature_set)
+      // };
+      // let validated_split_info = validate_split_amount(
+      //     invoke_context,
+      //     transaction_context,
+      //     instruction_context,
+      //     stake_account_index,
+      //     split_index,
+      //     lamports,
+      //     &meta,
+      //     None,
+      //     additional_required_lamports,
+      // )?;
+      // let mut split_meta = meta;
+      // split_meta.rent_exempt_reserve = validated_split_info.destination_rent_exempt_reserve;
+      // let mut split = instruction_context
+      //     .try_borrow_instruction_account(transaction_context, split_index)?;
+      // split.set_state(&StakeState::Initialized(split_meta))?;
+
+    } else if ( fd_stake_state_is_uninitialized( &stake_state ) ) {
+
+      uchar authorized_staker_signed = 0;
+      for ( ulong i = 0; i < ctx.instr->acct_cnt; i++ ) {
+        if ( instr_acc_idxs[i] < ctx.txn_descriptor->signature_cnt ) {
+          fd_pubkey_t * signer = &txn_accs[instr_acc_idxs[i]];
+          if ( !memcmp( signer, stake_acc, sizeof(fd_pubkey_t) ) ) {
+            authorized_staker_signed = 1;
+            break;
+          }
+        }
+      }
+      
+      if ( !authorized_staker_signed ) {
+          return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
+      }
+
+    } else {
+      return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
+    }
+
+    // Deinitialize state upon zero balance
+    if (lamports == metadata_stake.info.lamports) {
+      stake_state.discriminant = 0; // de-initialize
+      int result = write_stake_state( ctx.global, stake_acc, &stake_state );
+      if ( result != FD_EXECUTOR_INSTR_SUCCESS ) {
+        FD_LOG_WARNING(( "failed to write stake account state: %d", result ));
+        return result;
+      } 
+    }
+
+    // check add lamports
+    fd_acc_mgr_set_lamports( ctx.global->acc_mgr, ctx.global->funk_txn, ctx.global->bank.solana_bank.slot, split_acc, metadata_split.info.lamports + lamports); 
+
+    // check sub lamports
+    fd_acc_mgr_set_lamports( ctx.global->acc_mgr, ctx.global->funk_txn, ctx.global->bank.solana_bank.slot, stake_acc, metadata_stake.info.lamports - lamports);     
+    
+
+  } // end of split, discriminant 3
+  else if ( fd_stake_instruction_is_deactivate( &instruction )) { // discriminant 5
+
+    //   if let StakeState::Stake(meta, mut stake) = stake_account.get_state()? {
+    //     meta.authorized.check(signers, StakeAuthorize::Staker)?;
+    //     stake.deactivate(clock.epoch)?;
+
+    //     stake_account.set_state(&StakeState::Stake(meta, stake))
+    // } else {
+    //     Err(InstructionError::InvalidAccountData)
+    // }
+
+    /* Read the current State State from the Stake account */
+    uchar* instr_acc_idxs = ((uchar *)ctx.txn_raw->raw + ctx.instr->acct_off);
+    fd_pubkey_t* txn_accs = (fd_pubkey_t *)((uchar *)ctx.txn_raw->raw + ctx.txn_descriptor->acct_addr_off);
+    fd_pubkey_t* stake_acc         = &txn_accs[instr_acc_idxs[0]]; 
+    fd_stake_state_t stake_state;
+    read_stake_state( ctx.global, stake_acc, &stake_state ); 
+
+    if ( !fd_stake_state_is_stake ( &stake_state) ) {
+      return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
+    }
+    //     meta.authorized.check(signers, StakeAuthorize::Staker)?;
+    //     stake.deactivate(clock.epoch)?;
+
+    //     stake_account.set_state(&StakeState::Stake(meta, stake))    
+    
+  }
+  else {
     FD_LOG_NOTICE(( "unsupported StakeInstruction instruction: discriminant %d", instruction.discriminant ));
     return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
   }
