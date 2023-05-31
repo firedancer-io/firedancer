@@ -3869,7 +3869,6 @@ size += sizeof(char);
   case 11: {
   size += fd_vote_authorize_checked_with_seed_args_size(&self->inner.authorize_checked_with_seed);
   break; }
-  }
   case 12: {
     size += fd_compact_vote_state_update_size(&self->inner.compact_update_vote_state);
     break;
