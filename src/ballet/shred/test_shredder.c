@@ -1,10 +1,12 @@
 #include "fd_shredder.h"
+#include "fd_shred.h"
 
 
 /* An entry batch of 64 entries with 20 transactions per entry takes up
    about 256 kB, for about 200B/txn, which seems reasonable.  We'll do a
    10 MB entry batch, which is about 50k transactions. */
 #define PERF_TEST_SZ (10UL*1024UL*1024UL)
+#define PERF_TEST2_SZ (1UL*1024UL*1024UL)
 uchar perf_test_entry_batch[ PERF_TEST_SZ ];
 
 uchar fec_set_memory_1[ 2048UL * FD_REEDSOL_DATA_SHREDS_MAX   ];
@@ -179,6 +181,46 @@ perf_test( void ) {
   FD_LOG_NOTICE(( "%li ns/10 MB entry batch = %.3f Gbps", dt/(long)iterations, (double)(8UL * iterations * PERF_TEST_SZ)/(double)dt ));
 
 }
+static void
+perf_test2( void ) {
+  fd_wksp_t * wksp = fd_wksp_new_anonymous( fd_cstr_to_shmem_page_sz( "huge" ), 1UL, 0UL, "perf_test2", 0UL );
+  uchar * entry_batch = fd_wksp_laddr_fast( wksp, fd_wksp_alloc( wksp, 128UL, PERF_TEST2_SZ, 2UL ) );
+  uchar * fec_memory  = fd_wksp_laddr_fast( wksp, fd_wksp_alloc( wksp, 128UL, (FD_REEDSOL_DATA_SHREDS_MAX + FD_REEDSOL_PARITY_SHREDS_MAX)*1800UL, 3UL ) );
+
+  for( ulong i=0UL; i<PERF_TEST2_SZ; i++ )  entry_batch[ i ] = (uchar)i;
+
+  fd_entry_batch_meta_t meta[1];
+  fd_memset( meta, 0, sizeof(fd_entry_batch_meta_t) );
+  meta->block_complete = 1;
+
+  fd_shredder_t _shredder[ 1 ];
+  FD_TEST( _shredder==fd_shredder_new( _shredder ) );
+  fd_shredder_t * shredder = fd_shredder_join( _shredder );           FD_TEST( shredder );
+
+  fd_fec_set_t _set[ 1 ];
+  for( ulong j=0UL; j<FD_REEDSOL_DATA_SHREDS_MAX;   j++ ) _set->data_shreds[   j ] = fec_memory + 1800UL*j;
+  for( ulong j=0UL; j<FD_REEDSOL_PARITY_SHREDS_MAX; j++ ) _set->parity_shreds[ j ] = fec_memory + 1800UL*j + 1800*FD_REEDSOL_DATA_SHREDS_MAX;
+
+  ulong iterations = 10000UL;
+  ulong bytes_produced = 0UL;
+  long dt = -fd_log_wallclock();
+  for( ulong iter=0UL; iter<iterations; iter++ ) {
+    fd_shredder_init_batch( shredder, entry_batch, PERF_TEST2_SZ, meta );
+
+    ulong sets_cnt = fd_shredder_count_fec_sets( PERF_TEST2_SZ );
+    for( ulong j=0UL; j<sets_cnt; j++ ) {
+      fd_shredder_next_fec_set( shredder, test_private_key, test_private_key+32UL, _set );
+      bytes_produced += _set->data_shred_cnt * FD_SHRED_MIN_SZ + _set->parity_shred_cnt * FD_SHRED_MAX_SZ;
+    }
+    fd_shredder_fini_batch( shredder );
+  }
+  dt += fd_log_wallclock();
+
+  fd_wksp_delete_anonymous( wksp );
+
+  FD_LOG_NOTICE(( "%li ns/1 MB entry batch = consuming %.3f Gbps and producing %.3f Gbps", dt/(long)iterations, (double)(8UL * iterations * PERF_TEST2_SZ)/(double)dt, (double)(8UL*bytes_produced)/(double)dt ));
+
+}
 
 
 int
@@ -193,6 +235,7 @@ main( int     argc,
 
   test_shredder_count();
   perf_test();
+  perf_test2();
 
 #if FD_HAS_HOSTED
   test_shredder_pcap();
