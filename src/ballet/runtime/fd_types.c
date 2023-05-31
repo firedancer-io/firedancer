@@ -3192,7 +3192,8 @@ void fd_vote_prior_voters_destroy(fd_vote_prior_voters_t* self, fd_bincode_destr
 
 void fd_vote_prior_voters_walk(fd_vote_prior_voters_t* self, fd_walk_fun_t fun, const char *name, int level) {
   fun(self, name, 32, "fd_vote_prior_voters", level++);
-  //  fun(&self->buf, "buf", 15, "array");
+  for (ulong i = 0; i < 32; ++i)
+    fd_vote_prior_voter_walk(self->buf + i, fun, "vote_prior_voter", level + 1);
   fun(&self->idx, "idx", 11, "ulong", level + 1);
   fun(&self->is_empty, "is_empty", 9, "uchar", level + 1);
   fun(self, name, 33, "fd_vote_prior_voters", --level);
@@ -3242,7 +3243,8 @@ void fd_vote_prior_voters_0_23_5_destroy(fd_vote_prior_voters_0_23_5_t* self, fd
 
 void fd_vote_prior_voters_0_23_5_walk(fd_vote_prior_voters_0_23_5_t* self, fd_walk_fun_t fun, const char *name, int level) {
   fun(self, name, 32, "fd_vote_prior_voters_0_23_5", level++);
-  //  fun(&self->buf, "buf", 15, "array");
+  for (ulong i = 0; i < 32; ++i)
+    fd_vote_prior_voter_0_23_5_walk(self->buf + i, fun, "vote_prior_voter_0_23_5", level + 1);
   fun(&self->idx, "idx", 11, "ulong", level + 1);
   fun(&self->is_empty, "is_empty", 9, "uchar", level + 1);
   fun(self, name, 33, "fd_vote_prior_voters_0_23_5", --level);

@@ -711,26 +711,18 @@ def do_map_body_walk(n, f):
 #    print("  }", file=body)
         
 def do_array_body_walk(n, f):
-    print(" //  fun(&self->" + f["name"] + ", \"" + f["name"] + "\", 15, \"array\");", file=body),
-#    length = f["length"]
-#
-#    if f["element"] == "unsigned char" or f["element"] == "uchar":
-#        pass
-#    elif f["element"] == "ulong" or f["element"] == "unsigned long":
-#        print("    for (ulong i = 0; i < " + length + "; ++i)", file=body)
-#    elif f["element"] == "uint" or f["element"] == "unsigned int":
-#        print("    for (ulong i = 0; i < " + length + "; ++i)", file=body)
-#    else:
-#        print("    for (ulong i = 0; i < " + length + "; ++i)", file=body)
-#
-#    if f["element"] == "unsigned char" or f["element"] == "uchar":
-#        print("fd_bincode_bytes_walk(self->" + f["name"] + ", " + length + ", ctx);", file=body)
-#    elif f["element"] == "ulong" or f["element"] == "unsigned long":
-#        print("fd_bincode_uint64_walk(self->" + f["name"] + " + i, ctx);", file=body)
-#    elif f["element"] == "uint" or f["element"] == "unsigned int":
-#        print("fd_bincode_uint32_walk(self->" + f["name"] + " + i, ctx);", file=body)
-#    else:
-#        print("      " + n + "_" + f["element"] + "_walk(self->" + f["name"] + " + i, ctx);", file=body)
+    length = f["length"]
+
+    if f["element"] == "unsigned char" or f["element"] == "uchar":
+        print("fd_bincode_bytes_walk(self->" + f["name"] + ", " + length + ", ctx);", file=body)
+        return
+
+    print("  for (ulong i = 0; i < " + length + "; ++i)", file=body)
+
+    if f["element"] in fields_body_vector_walk:
+        fields_body_vector_walk[f["element"]](namespace, f)
+    else:
+        print("    " + n + "_" + f["element"] + "_walk(self->" + f["name"] + " + i, fun, \"" + f["element"] + "\", level + 1);", file=body)
 
 fields_body_option_walk = {
     "char" :              lambda n, f: print("  //fun(&self->" + f["name"] + ", \"" + f["name"] + "\", 1, \"char\", level + 1);", file=body),
