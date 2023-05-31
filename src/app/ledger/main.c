@@ -73,7 +73,10 @@ void SnapshotParser_init(struct SnapshotParser* self, fd_global_ctx_t* global, i
 void SnapshotParser_destroy(struct SnapshotParser* self) {
   if (self->manifest_) {
     fd_global_ctx_t* global = self->global_;
-    fd_solana_manifest_destroy(self->manifest_, global->freef, global->allocf_arg);
+    fd_bincode_destroy_ctx_t ctx;
+    ctx.freef = global->freef;
+    ctx.freef_arg = global->allocf_arg;
+    fd_solana_manifest_destroy(self->manifest_, &ctx);
     global->freef(global->allocf_arg, self->manifest_);
     self->manifest_ = NULL;
   }
@@ -130,13 +133,18 @@ void SnapshotParser_parsefd_solana_accounts(struct SnapshotParser* self, const c
 }
 
 void SnapshotParser_parseSnapshots(struct SnapshotParser* self, const void* data, size_t datalen) {
-  const void *     dataend = (const char*)data + datalen;
   fd_global_ctx_t* global = self->global_;
 
   self->manifest_ = (fd_solana_manifest_t*)
-                    global->allocf(global->allocf_arg, FD_SOLANA_MANIFEST_ALIGN, FD_SOLANA_MANIFEST_FOOTPRINT);
-  fd_solana_manifest_decode(self->manifest_, &data, dataend, global->allocf, global->allocf_arg);
-//  FD_LOG_WARNING(( "manifest account entries", self->manifest_.accounts_db.));
+    global->allocf(global->allocf_arg, FD_SOLANA_MANIFEST_ALIGN, FD_SOLANA_MANIFEST_FOOTPRINT);
+  fd_solana_manifest_new(self->manifest_);
+  fd_bincode_decode_ctx_t ctx;
+  ctx.data = data;
+  ctx.dataend = (const char*)data + datalen;
+  ctx.allocf = global->allocf;
+  ctx.allocf_arg = global->allocf_arg;
+  if ( fd_solana_manifest_decode(self->manifest_, &ctx) )
+    FD_LOG_ERR(("fd_solana_manifest_decode failed"));
 }
 
 void SnapshotParser_tarEntry(void* arg, const char* name, const void* data, size_t datalen) {
@@ -296,11 +304,16 @@ void ingest_rocksdb( fd_global_ctx_t * global, const char* file, ulong start_slo
   fd_funk_rec_t * rec = fd_funk_rec_modify( global->funk, fd_funk_rec_insert( global->funk, NULL, &key, &ret ) );
   if (rec == NULL)
     FD_LOG_ERR(("funky insert failed with code %d", ret));
-  rec = fd_funk_val_truncate( rec, fd_slot_meta_meta_size(&mm), global->allocf_arg, global->wksp, &ret );
+  ulong sz = fd_slot_meta_meta_size(&mm);
+  rec = fd_funk_val_truncate( rec, sz, global->allocf_arg, global->wksp, &ret );
   if (rec == NULL)
     FD_LOG_ERR(("funky insert failed with code %d", ret));
-  const void * val = fd_funk_val( rec, global->wksp );
-  fd_slot_meta_meta_encode( &mm, &val );
+  void * val = fd_funk_val( rec, global->wksp );
+  fd_bincode_encode_ctx_t ctx;
+  ctx.data = val;
+  ctx.dataend = (uchar *)val + sz;
+  if ( fd_slot_meta_meta_encode( &mm, &ctx ) )
+    FD_LOG_ERR(("fd_slot_meta_meta_encode failed"));
   fd_funk_rec_persist( global->funk, rec );
     
   fd_rocksdb_root_iter_t iter;
@@ -325,11 +338,16 @@ void ingest_rocksdb( fd_global_ctx_t * global, const char* file, ulong start_slo
     rec = fd_funk_rec_modify( global->funk, fd_funk_rec_insert( global->funk, NULL, &key, &ret ) );
     if (rec == NULL)
       FD_LOG_ERR(("funky insert failed with code %d", ret));
-    rec = fd_funk_val_truncate( rec, fd_slot_meta_size(&m), global->allocf_arg, global->wksp, &ret );
+    sz = fd_slot_meta_size(&m);
+    rec = fd_funk_val_truncate( rec, sz, global->allocf_arg, global->wksp, &ret );
     if (rec == NULL)
       FD_LOG_ERR(("funky insert failed with code %d", ret));
     val = fd_funk_val( rec, global->wksp );
-    fd_slot_meta_encode( &m, &val );
+    fd_bincode_encode_ctx_t ctx2;
+    ctx2.data = val;
+    ctx2.dataend = (uchar *)val + sz;
+    if ( fd_slot_meta_encode( &m, &ctx2 ) )
+      FD_LOG_ERR(("fd_slot_meta_encode failed"));
     fd_funk_rec_persist( global->funk, rec );
 
     ulong block_sz;
@@ -359,7 +377,10 @@ void ingest_rocksdb( fd_global_ctx_t * global, const char* file, ulong start_slo
     }
     
     global->freef(global->allocf_arg, block);
-    fd_slot_meta_destroy(&m, global->freef, global->allocf_arg);
+    fd_bincode_destroy_ctx_t ctx;
+    ctx.freef = global->freef;
+    ctx.freef_arg = global->allocf_arg;
+    fd_slot_meta_destroy(&m, &ctx);
 
     ret = fd_rocksdb_root_iter_next ( &iter, &m, global->allocf, global->allocf_arg);
     if (ret < 0)

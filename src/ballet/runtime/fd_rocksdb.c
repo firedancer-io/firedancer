@@ -109,10 +109,12 @@ int fd_rocksdb_get_meta(fd_rocksdb_t *db, ulong slot, fd_slot_meta_t *m, fd_allo
   if (0 == vallen) 
     return -1;
 
-  unsigned char *outend = (unsigned char *) &meta[vallen];
-  const void * o = meta;
-
-  fd_slot_meta_decode(m, &o, outend, allocf, allocf_arg);
+  fd_bincode_decode_ctx_t ctx;
+  ctx.data = meta;
+  ctx.dataend = &meta[vallen];
+  ctx.allocf = allocf;
+  ctx.allocf_arg = allocf_arg;
+  fd_slot_meta_decode(m, &ctx);
 
   free(meta);
 

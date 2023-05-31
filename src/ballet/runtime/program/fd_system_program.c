@@ -284,12 +284,16 @@ int fd_executor_system_program_execute_instruction(
   ) {
   /* Deserialize the SystemInstruction enum */
   uchar *      data            = (uchar *)ctx.txn_ctx->txn_raw->raw + ctx.instr->data_off;
-  void*        input            = (void *)data;
-  const void** input_ptr = (const void **)&input;
-  void*        dataend          = (void*)&data[ctx.instr->data_sz];
 
   fd_system_program_instruction_t instruction;
-  fd_system_program_instruction_decode( &instruction, input_ptr, dataend, ctx.global->allocf, ctx.global->allocf_arg );
+  fd_system_program_instruction_new( &instruction );
+  fd_bincode_decode_ctx_t ctx2;
+  ctx2.data = data;
+  ctx2.dataend = &data[ctx.instr->data_sz];
+  ctx2.allocf = ctx.global->allocf;
+  ctx2.allocf_arg = ctx.global->allocf_arg;
+  if ( fd_system_program_instruction_decode( &instruction, &ctx2 ) )
+    FD_LOG_ERR(("fd_system_program_instruction_decode failed"));
 
   int   result = FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
 
@@ -332,7 +336,10 @@ int fd_executor_system_program_execute_instruction(
   }
   }
 
-  fd_system_program_instruction_destroy( &instruction, ctx.global->freef, ctx.global->allocf_arg );
+  fd_bincode_destroy_ctx_t ctx3;
+  ctx3.freef = ctx.global->freef;
+  ctx3.freef_arg = ctx.global->allocf_arg;
+  fd_system_program_instruction_destroy( &instruction, &ctx3 );
   return result;
 }
 

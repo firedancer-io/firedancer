@@ -14,8 +14,11 @@ void write_slot_hashes( fd_global_ctx_t* global, fd_slot_hashes_t* slot_hashes )
     sz = slot_hashes_min_account_size;
   unsigned char *enc = fd_alloca( 1, sz );
   memset( enc, 0, sz );
-  void const *ptr = (void const *) enc;
-  fd_slot_hashes_encode( slot_hashes, &ptr );
+  fd_bincode_encode_ctx_t ctx;
+  ctx.data = enc;
+  ctx.dataend = enc + sz;
+  if ( fd_slot_hashes_encode( slot_hashes, &ctx ) )
+    FD_LOG_ERR(("fd_slot_hashes_encode failed"));
 
   fd_sysvar_set( global, global->sysvar_owner, global->sysvar_slot_hashes, enc, sz, global->bank.solana_bank.slot );
 }
@@ -59,7 +62,10 @@ void fd_sysvar_slot_hashes_update( fd_global_ctx_t* global ) {
   }
 
   write_slot_hashes( global, &slot_hashes );
-  fd_slot_hashes_destroy( &slot_hashes, global->freef, global->allocf_arg );
+  fd_bincode_destroy_ctx_t ctx;
+  ctx.freef = global->freef;
+  ctx.freef_arg = global->allocf_arg;
+  fd_slot_hashes_destroy( &slot_hashes, &ctx );
 }
 
 void fd_sysvar_slot_hashes_read( fd_global_ctx_t* global, fd_slot_hashes_t* result ) {
@@ -81,6 +87,11 @@ void fd_sysvar_slot_hashes_read( fd_global_ctx_t* global, fd_slot_hashes_t* resu
     FD_LOG_ERR(( "failed to read account data: %d", read_result ));
   }
 
-  void* input = (void *)raw_acc_data;
-  fd_slot_hashes_decode( result, (const void **)&input, raw_acc_data + metadata.dlen, global->allocf, global->allocf_arg );
+  fd_bincode_decode_ctx_t ctx;
+  ctx.data = raw_acc_data;
+  ctx.dataend = raw_acc_data + metadata.dlen;
+  ctx.allocf = global->allocf;
+  ctx.allocf_arg = global->allocf_arg;
+  if ( fd_slot_hashes_decode( result, &ctx ) )
+    FD_LOG_ERR(("fd_slot_hashes_decode failed"));
 }

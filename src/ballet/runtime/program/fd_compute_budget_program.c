@@ -27,12 +27,20 @@ int fd_executor_compute_budget_program_execute_instructions( transaction_ctx_t *
     }
     /* Deserialize the ComputeBudgetInstruction enum */
     uchar *      data             = (uchar *)ctx->txn_raw->raw + instr->data_off;
-    void*        input            = (void *)data;
-    const void** input_ptr = (const void **)&input;
-    void*        dataend          = (void*)&data[instr->data_sz];
 
     fd_compute_budget_program_instruction_t instruction;
-    fd_compute_budget_program_instruction_decode( &instruction, input_ptr, dataend, ctx->global->allocf, ctx->global->allocf_arg );
+    fd_compute_budget_program_instruction_new( &instruction );
+    fd_bincode_decode_ctx_t ctx2 = {
+      .data = data,
+      .dataend = &data[instr->data_sz],
+      .allocf = ctx->global->allocf,
+      .allocf_arg = ctx->global->allocf_arg
+    };
+    int ret = fd_compute_budget_program_instruction_decode( &instruction, &ctx2 );
+    if ( ret ) {
+      FD_LOG_WARNING(("fd_compute_budget_program_instruction_decode failed"));
+      return ret;
+    }
 
     switch (instruction.discriminant) {
       case fd_compute_budget_program_instruction_enum_request_units_deprecated: {

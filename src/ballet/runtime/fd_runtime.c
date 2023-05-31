@@ -594,6 +594,9 @@ fd_global_ctx_new        ( void * mem ) {
   // Yeah, maybe we should get rid of this?
   fd_executor_new ( &self->executor, self, FD_EXECUTOR_FOOTPRINT );
 
+  fd_genesis_solana_new(&self->genesis_block);
+  fd_firedancer_banks_new(&self->bank);
+
   fd_base58_decode_32( "Sysvar1111111111111111111111111111111111111",  (unsigned char *) self->sysvar_owner);
   fd_base58_decode_32( "SysvarRecentB1ockHashes11111111111111111111",  (unsigned char *) self->sysvar_recent_block_hashes);
   fd_base58_decode_32( "SysvarC1ock11111111111111111111111111111111",  (unsigned char *) self->sysvar_clock);
@@ -679,8 +682,11 @@ fd_global_ctx_delete     ( void * mem ) {
   }
 
   fd_acc_mgr_delete(fd_acc_mgr_leave(hdr->acc_mgr));
-  fd_genesis_solana_destroy(&hdr->genesis_block, hdr->freef, hdr->allocf_arg);
-  fd_firedancer_banks_destroy(&hdr->bank, hdr->freef, hdr->allocf_arg);
+  fd_bincode_destroy_ctx_t ctx;
+  ctx.freef = hdr->freef;
+  ctx.freef_arg = hdr->allocf_arg;
+  fd_genesis_solana_destroy(&hdr->genesis_block, &ctx);
+  fd_firedancer_banks_destroy(&hdr->bank, &ctx);
 
   FD_COMPILER_MFENCE();
   FD_VOLATILE( hdr->magic ) = 0UL;

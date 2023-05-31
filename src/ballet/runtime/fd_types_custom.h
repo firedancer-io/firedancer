@@ -1,8 +1,6 @@
 #ifndef HEADER_FD_RUNTIME_TYPES_CUSTOM
 #define HEADER_FD_RUNTIME_TYPES_CUSTOM
 
-typedef char* (*fd_alloc_fun_t)(void *arg, ulong align, ulong len);
-typedef void  (*fd_free_fun_t) (void *arg, void *ptr);
 typedef void (*fd_walk_fun_t)(void *arg, const char* name, int type, const char *type_name, int level);
 
 #define FD_HASH_FOOTPRINT (32UL)
@@ -25,12 +23,16 @@ typedef union fd_hash fd_pubkey_t;
 FD_PROTOTYPES_BEGIN
 
 static inline
-void fd_hash_decode(fd_hash_t* self, void const** data, void const* dataend, FD_FN_UNUSED fd_alloc_fun_t allocf, FD_FN_UNUSED void* allocf_arg) {
-  fd_bincode_bytes_decode(&self->hash[0], sizeof(self->hash), data, dataend);
+void fd_hash_new(FD_FN_UNUSED fd_hash_t* self) {
 }
 
 static inline
-void fd_hash_destroy(FD_FN_UNUSED fd_hash_t* self, FD_FN_UNUSED fd_free_fun_t freef, FD_FN_UNUSED void* freef_arg) {
+int fd_hash_decode(fd_hash_t* self, fd_bincode_decode_ctx_t * ctx) {
+  return fd_bincode_bytes_decode(&self->hash[0], sizeof(self->hash), ctx);
+}
+
+static inline
+void fd_hash_destroy(FD_FN_UNUSED fd_hash_t* self, FD_FN_UNUSED fd_bincode_destroy_ctx_t * ctx) {
 }
 
 static inline
@@ -39,8 +41,8 @@ ulong fd_hash_size(FD_FN_UNUSED fd_hash_t* self) {
 }
 
 static inline
-void fd_hash_encode(fd_hash_t* self, void const** data) {
-  fd_bincode_bytes_encode(&self->hash[0], sizeof(self->hash), data);
+int fd_hash_encode(fd_hash_t* self, fd_bincode_encode_ctx_t * ctx) {
+  return fd_bincode_bytes_encode(&self->hash[0], sizeof(self->hash), ctx);
 }
 
 static inline
@@ -51,9 +53,10 @@ void fd_hash_walk(FD_FN_UNUSED fd_hash_t* self, FD_FN_UNUSED fd_walk_fun_t fun, 
 #define fd_hash_check_zero(_x)           (!((_x)->ul[0] | (_x)->ul[1] | (_x)->ul[2] | (_x)->ul[3]))
 #define fd_hash_set_zero(_x)             {((_x)->ul[0] = 0); ((_x)->ul[1] = 0); ((_x)->ul[2] = 0); ((_x)->ul[3] = 0);}
 
-#define fd_pubkey_decode(_x,_y,_z,_a,_b) fd_hash_decode(_x, _y, _z, _a, _b)
+#define fd_pubkey_new(_x)                fd_hash_new(_x)
+#define fd_pubkey_decode(_x,_y)          fd_hash_decode(_x, _y)
 #define fd_pubkey_encode(_x, _y)         fd_hash_encode(_x, _y)
-#define fd_pubkey_destroy(_x, _y, _z)    fd_hash_destroy(_x, _y, _z)
+#define fd_pubkey_destroy(_x, _y)        fd_hash_destroy(_x, _y)
 #define fd_pubkey_size(_x)               fd_hash_size(_x)
 #define fd_pubkey_check_zero(_x)         fd_hash_check_zero(_x)
 #define fd_pubkey_set_zero(_x)           fd_hash_set_zero(_x)

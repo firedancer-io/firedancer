@@ -40,12 +40,16 @@ int fd_load_nonce_account(
 
   /* Deserialize the SystemInstruction enum */
   uchar *      data            = (uchar *)txn_raw->raw + instr->data_off;
-  void*        input            = (void *)data;
-  const void** input_ptr = (const void **)&input;
-  void*        dataend          = (void*)&data[instr->data_sz];
 
   fd_system_program_instruction_t instruction;
-  fd_system_program_instruction_decode( &instruction, input_ptr, dataend, global->allocf, global->allocf_arg );
+  fd_system_program_instruction_new( &instruction );
+  fd_bincode_decode_ctx_t ctx2;
+  ctx2.data = data;
+  ctx2.dataend = &data[instr->data_sz];
+  ctx2.allocf = global->allocf;
+  ctx2.allocf_arg = global->allocf_arg;
+  if ( fd_system_program_instruction_decode( &instruction, &ctx2 ) )
+    FD_LOG_ERR(("fd_system_program_instruction_decode failed"));
 
   if (fd_system_program_instruction_enum_advance_nonce_account != instruction.discriminant)
     return 0;
@@ -73,8 +77,13 @@ int fd_load_nonce_account(
   if ( read_result != FD_ACC_MGR_SUCCESS ) 
     return 0;
 
-  input = (void *)raw_acc_data;
-  fd_nonce_state_versions_decode( state, (const void **) &input, raw_acc_data + metadata.dlen, global->allocf, global->allocf_arg );
+  fd_bincode_decode_ctx_t ctx;
+  ctx.data = raw_acc_data;
+  ctx.dataend = raw_acc_data + metadata.dlen;
+  ctx.allocf = global->allocf;
+  ctx.allocf_arg = global->allocf_arg;
+  if ( fd_nonce_state_versions_decode( state, &ctx ) )
+    FD_LOG_ERR(("fd_nonce_state_versions_decode failed"));
 
   return 1;
 }
@@ -119,9 +128,15 @@ int fd_advance_nonce_account(
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
 
-  void* input = (void *)raw_acc_data;
   fd_nonce_state_versions_t state;
-  fd_nonce_state_versions_decode( &state, (const void **) &input, raw_acc_data + metadata.dlen, ctx.global->allocf, ctx.global->allocf_arg );
+  fd_nonce_state_versions_new( &state );
+  fd_bincode_decode_ctx_t ctx2;
+  ctx2.data = raw_acc_data;
+  ctx2.dataend = raw_acc_data + metadata.dlen;
+  ctx2.allocf = ctx.global->allocf;
+  ctx2.allocf_arg = ctx.global->allocf_arg;
+  if ( fd_nonce_state_versions_decode( &state, &ctx2 ) )
+    FD_LOG_ERR(("fd_nonce_state_versions_decode failed"));
 
   if (state.inner.current.discriminant != fd_nonce_state_enum_initialized)
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
@@ -189,8 +204,11 @@ int fd_advance_nonce_account(
   ulong sz = fd_nonce_state_versions_size(&state);
   unsigned char *enc = fd_alloca_check(1, sz);
   memset(enc, 0, sz);
-  void const *ptr = (void const *) enc;
-  fd_nonce_state_versions_encode(&state, &ptr);
+  fd_bincode_encode_ctx_t ctx3;
+  ctx3.data = enc;
+  ctx3.dataend = enc + sz;
+  if ( fd_nonce_state_versions_encode(&state, &ctx3) )
+    FD_LOG_ERR(("fd_nonce_state_versions_encode failed"));
 
   fd_acc_mgr_update_data ( ctx.global->acc_mgr, ctx.global->funk_txn, ctx.global->bank.solana_bank.slot, me, enc, sz);
 
@@ -275,9 +293,15 @@ int fd_withdraw_nonce_account(
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
 
-  void* input = (void *)raw_acc_data;
   fd_nonce_state_versions_t state;
-  fd_nonce_state_versions_decode( &state, (const void **) &input, raw_acc_data + metadata.dlen, ctx.global->allocf, ctx.global->allocf_arg );
+  fd_nonce_state_versions_new( &state );
+  fd_bincode_decode_ctx_t ctx2;
+  ctx2.data = raw_acc_data;
+  ctx2.dataend = raw_acc_data + metadata.dlen;
+  ctx2.allocf = ctx.global->allocf;
+  ctx2.allocf_arg = ctx.global->allocf_arg;
+  if ( fd_nonce_state_versions_decode( &state, &ctx2 ) )
+    FD_LOG_ERR(("fd_nonce_state_versions_decode failed"));
 
   switch (state.inner.current.discriminant) {
   case fd_nonce_state_enum_uninitialized: {
@@ -462,9 +486,15 @@ int fd_initialize_nonce_account(
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
 
-  void* input = (void *)raw_acc_data;
   fd_nonce_state_versions_t state;
-  fd_nonce_state_versions_decode( &state, (const void **) &input, raw_acc_data + metadata.dlen, ctx.global->allocf, ctx.global->allocf_arg );
+  fd_nonce_state_versions_new( &state );
+  fd_bincode_decode_ctx_t ctx2;
+  ctx2.data = raw_acc_data;
+  ctx2.dataend = raw_acc_data + metadata.dlen;
+  ctx2.allocf = ctx.global->allocf;
+  ctx2.allocf_arg = ctx.global->allocf_arg;
+  if ( fd_nonce_state_versions_decode( &state, &ctx2 ) )
+    FD_LOG_ERR(("fd_nonce_state_versions_decode failed"));
 
   switch (state.inner.current.discriminant) {
   case fd_nonce_state_enum_uninitialized: {
@@ -479,16 +509,25 @@ int fd_initialize_nonce_account(
     if (NULL == raw_acc_data)
       return err;
     fd_account_meta_t *m = (fd_account_meta_t *) raw_acc_data;
-    void* input = (void *)(raw_acc_data + m->hlen);
     fd_recent_block_hashes_t result;
-    fd_recent_block_hashes_decode( &result, (const void **)&input, ((char *)input) + m->dlen, ctx.global->allocf, ctx.global->allocf_arg );
+    fd_recent_block_hashes_new( &result );
+    fd_bincode_decode_ctx_t ctx2;
+    ctx2.data = raw_acc_data + m->hlen;
+    ctx2.dataend = raw_acc_data + m->hlen + m->dlen;
+    ctx2.allocf = ctx.global->allocf;
+    ctx2.allocf_arg = ctx.global->allocf_arg;
+    if ( fd_recent_block_hashes_decode( &result, &ctx2 ) )
+      FD_LOG_ERR(("fd_recent_block_hashes_decode failed"));
 
     fd_block_block_hash_entry_t *re = &result.hashes.elems[0];
 
     fd_hash_t durable_nonce;
     fd_durable_nonce_from_blockhash(&re->blockhash, &durable_nonce);
 
-    fd_recent_block_hashes_destroy( &result, ctx.global->freef, ctx.global->allocf_arg );
+    fd_bincode_destroy_ctx_t ctx3;
+    ctx3.freef = ctx.global->freef;
+    ctx3.freef_arg = ctx.global->allocf_arg;
+    fd_recent_block_hashes_destroy( &result, &ctx3 );
 
     state.inner.current.discriminant = fd_nonce_state_enum_initialized;
     state.discriminant = fd_nonce_state_versions_enum_current;
@@ -500,8 +539,11 @@ int fd_initialize_nonce_account(
     sz = fd_nonce_state_versions_size(&state);
     unsigned char *enc = fd_alloca_check(1, sz);
     memset(enc, 0, sz);
-    void const *ptr = (void const *) enc;
-    fd_nonce_state_versions_encode(&state, &ptr);
+    fd_bincode_encode_ctx_t ctx4;
+    ctx4.data = enc;
+    ctx4.dataend = enc + sz;
+    if ( fd_nonce_state_versions_encode(&state, &ctx4) )
+      FD_LOG_ERR(("fd_nonce_state_versions_encode failed"));
 
 //    char buf2[50];
 //    fd_base58_encode_32((uchar *) state.inner.current.inner.initialized.authority.hash, NULL, buf2);
@@ -564,9 +606,15 @@ int fd_authorize_nonce_account(
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
 
-  void* input = (void *)raw_acc_data;
   fd_nonce_state_versions_t state;
-  fd_nonce_state_versions_decode( &state, (const void **) &input, raw_acc_data + metadata.dlen, ctx.global->allocf, ctx.global->allocf_arg );
+  fd_nonce_state_versions_new( &state );
+  fd_bincode_decode_ctx_t ctx2;
+  ctx2.data = raw_acc_data;
+  ctx2.dataend = raw_acc_data + metadata.dlen;
+  ctx2.allocf = ctx.global->allocf;
+  ctx2.allocf_arg = ctx.global->allocf_arg;
+  if ( fd_nonce_state_versions_decode( &state, &ctx2 ) )
+    FD_LOG_ERR(("fd_nonce_state_versions_decode failed"));
 
   if (state.inner.current.discriminant != fd_nonce_state_enum_initialized)
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
@@ -588,8 +636,11 @@ int fd_authorize_nonce_account(
   ulong sz = fd_nonce_state_versions_size(&state);
   unsigned char *enc = fd_alloca_check(1, sz);
   memset(enc, 0, sz);
-  void const *ptr = (void const *) enc;
-  fd_nonce_state_versions_encode(&state, &ptr);
+  fd_bincode_encode_ctx_t ctx3;
+  ctx3.data = enc;
+  ctx3.dataend = enc + sz;
+  if ( fd_nonce_state_versions_encode(&state, &ctx3) )
+    FD_LOG_ERR(("fd_nonce_state_versions_encode failed"));
 
   fd_acc_mgr_update_data ( ctx.global->acc_mgr, ctx.global->funk_txn, ctx.global->bank.solana_bank.slot, me, enc, sz);
 

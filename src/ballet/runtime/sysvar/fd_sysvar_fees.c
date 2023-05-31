@@ -6,8 +6,11 @@ void write_fees( fd_global_ctx_t* global, fd_sysvar_fees_t* fees ) {
   ulong          sz = fd_sysvar_fees_size( fees );
   unsigned char *enc = fd_alloca( 1, sz );
   memset( enc, 0, sz );
-  void const *ptr = (void const *) enc;
-  fd_sysvar_fees_encode( fees, &ptr );
+  fd_bincode_encode_ctx_t ctx;
+  ctx.data = enc;
+  ctx.dataend = enc + sz;
+  if ( fd_sysvar_fees_encode( fees, &ctx ) )
+    FD_LOG_ERR(("fd_sysvar_fees_encode failed"));
 
   fd_sysvar_set( global, global->sysvar_owner, global->sysvar_fees, enc, sz, global->bank.solana_bank.slot );
 }
@@ -27,8 +30,13 @@ void fd_sysvar_fees_read( fd_global_ctx_t* global, fd_sysvar_fees_t* result ) {
     return;
   }
 
-  void* input = (void *)raw_acc_data;
-  fd_sysvar_fees_decode( result, (const void **)&input, raw_acc_data + metadata.dlen, global->allocf, global->allocf_arg );
+  fd_bincode_decode_ctx_t ctx;
+  ctx.data = raw_acc_data;
+  ctx.dataend = raw_acc_data + metadata.dlen;
+  ctx.allocf = global->allocf;
+  ctx.allocf_arg = global->allocf_arg;
+  if ( fd_sysvar_fees_decode( result, &ctx ) )
+    FD_LOG_ERR(("fd_sysvar_fees_decode failed"));
 }
 
 void fd_sysvar_fees_init( fd_global_ctx_t* global ) {

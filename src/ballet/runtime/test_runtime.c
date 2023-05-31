@@ -264,22 +264,31 @@ void print_file(global_state_t *state, const char *file) {
 //      printf("Hmm.. bad dog\n");
 //    }
 
-    const void *   o = &b[sizeof(*hdr)];
-    unsigned char *outend = &(((unsigned char *) o)[hdr->meta.data_len]);
+    fd_bincode_decode_ctx_t ctx2;
+    ctx2.data = &b[sizeof(*hdr)];
+    ctx2.dataend = (uchar *)ctx2.data + hdr->meta.data_len;
+    ctx2.allocf = state->global->allocf;
+    ctx2.allocf_arg = state->global->allocf_arg;
 
     if (strcmp(pubkey, "SysvarC1ock11111111111111111111111111111111") == 0) {
       fd_sol_sysvar_clock_t a;
       memset(&a, 0, sizeof(a));
-
-      fd_sol_sysvar_clock_decode(&a, &o, outend, state->global->allocf, state->global->allocf_arg);
+      fd_sol_sysvar_clock_new(&a);
+      if ( fd_sol_sysvar_clock_decode(&a, &ctx2) )
+        FD_LOG_ERR(("fd_sol_sysvar_clock_decode failed"));
       printf("  {slot = %ld, epoch_start_timestamp = %ld, epoch = %ld, leader_schedule_epoch = %ld, unix_timestamp = %ld}\n",
         a.slot, a.epoch_start_timestamp, a.epoch, a.leader_schedule_epoch, a.unix_timestamp);
-      fd_sol_sysvar_clock_destroy(&a, state->global->freef, state->global->allocf_arg);
+      fd_bincode_destroy_ctx_t ctx;
+      ctx.freef = state->global->freef;
+      ctx.freef_arg = state->global->allocf_arg;
+      fd_sol_sysvar_clock_destroy(&a, &ctx);
+      
     } else if (strcmp(pubkey, "SysvarRecentB1ockHashes11111111111111111111") == 0) {
       fd_recent_block_hashes_t a;
       memset(&a, 0, sizeof(a));
-
-      fd_recent_block_hashes_decode(&a, &o, outend, state->global->allocf, state->global->allocf_arg);
+      fd_recent_block_hashes_new(&a);
+      if ( fd_recent_block_hashes_decode(&a, &ctx2) )
+        FD_LOG_ERR(("fd_recent_block_hashes_decode failed"));
       for (ulong i = 0; i < a.hashes.cnt; i++) {
         fd_block_block_hash_entry_t *e = &a.hashes.elems[i];
         char encoded_hash[50];
@@ -287,7 +296,10 @@ void print_file(global_state_t *state, const char *file) {
 
         printf("  {blockhash = %s,  fee_calculator={lamports_per_signature = %ld}}\n", encoded_hash, e->fee_calculator.lamports_per_signature);
       }
-      fd_recent_block_hashes_destroy(&a, state->global->freef, state->global->allocf_arg);
+      fd_bincode_destroy_ctx_t ctx;
+      ctx.freef = state->global->freef;
+      ctx.freef_arg = state->global->allocf_arg;
+      fd_recent_block_hashes_destroy(&a, &ctx);
     }
 
     b += fd_ulong_align_up(hdr->meta.data_len + sizeof(*hdr), 8);
@@ -359,7 +371,13 @@ int replay(global_state_t *state) {
   const void * val = fd_funk_val_cache( state->global->funk, rec, &err );
   if (val == NULL)
     FD_LOG_ERR(("corrupt meta record"));
-  fd_slot_meta_meta_decode( &mm, &val, (uchar*)val + fd_funk_val_sz(rec), state->global->allocf, state->global->allocf_arg );
+  fd_bincode_decode_ctx_t ctx2;
+  ctx2.data = val;
+  ctx2.dataend = (uchar*)val + fd_funk_val_sz(rec);
+  ctx2.allocf = state->global->allocf;
+  ctx2.allocf_arg = state->global->allocf_arg;
+  if ( fd_slot_meta_meta_decode( &mm, &ctx2 ) )
+    FD_LOG_ERR(("fd_slot_meta_meta_decode failed"));
 
   if (mm.start_slot > state->start_slot)
     state->start_slot = mm.start_slot;
@@ -374,6 +392,8 @@ int replay(global_state_t *state) {
     
     fd_slot_meta_t m;
     fd_memset(&m, 0, sizeof(m));
+    fd_slot_meta_new(&m);
+
     key = fd_runtime_block_meta_key(slot);
     rec = fd_funk_rec_query( state->global->funk, NULL, &key );
     if (rec == NULL)
@@ -381,7 +401,13 @@ int replay(global_state_t *state) {
     val = fd_funk_val_cache( state->global->funk, rec, &err );
     if (val == NULL)
       FD_LOG_ERR(("corrupt meta record"));
-    fd_slot_meta_decode( &m, &val, (uchar*)val + fd_funk_val_sz(rec), state->global->allocf, state->global->allocf_arg );
+    fd_bincode_decode_ctx_t ctx3;
+    ctx3.data = val;
+    ctx3.dataend = (uchar*)val + fd_funk_val_sz(rec);
+    ctx3.allocf = state->global->allocf;
+    ctx3.allocf_arg = state->global->allocf_arg;
+    if ( fd_slot_meta_decode( &m, &ctx3 ) )
+      FD_LOG_ERR(("fd_slot_meta_decode failed"));
 
     key = fd_runtime_block_key(slot);
     rec = fd_funk_rec_query( state->global->funk, NULL, &key );
@@ -393,7 +419,10 @@ int replay(global_state_t *state) {
 
     FD_TEST (fd_runtime_block_eval( state->global, &m, val, fd_funk_val_sz(rec) ) == FD_RUNTIME_EXECUTE_SUCCESS);
 
-    fd_slot_meta_destroy(&m, state->global->freef, state->global->allocf_arg);
+    fd_bincode_destroy_ctx_t ctx;
+    ctx.freef = state->global->freef;
+    ctx.freef_arg = state->global->allocf_arg;
+    fd_slot_meta_destroy(&m, &ctx);
   }
 
   return 0;
@@ -540,10 +569,14 @@ int main(int argc, char **argv) {
     ssize_t n = read(fd, buf, (ulong) sbuf.st_size);
     close(fd);
 
-    void *data = buf;
-    void *dataend = &buf[n];
-    fd_memset(&state.global->genesis_block, 0, sizeof(state.global->genesis_block));
-    fd_genesis_solana_decode(&state.global->genesis_block, ( void const** )&data, dataend, state.global->allocf, state.global->allocf_arg);
+    fd_genesis_solana_new(&state.global->genesis_block);
+    fd_bincode_decode_ctx_t ctx;
+    ctx.data = buf;
+    ctx.dataend = &buf[n];
+    ctx.allocf = state.global->allocf;
+    ctx.allocf_arg = state.global->allocf_arg;
+    if ( fd_genesis_solana_decode(&state.global->genesis_block, &ctx) )
+      FD_LOG_ERR(("fd_genesis_solana_decode failed"));
 
     // The hash is generated from the raw data... don't mess with this..
     fd_sha256_t sha;

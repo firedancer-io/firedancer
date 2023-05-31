@@ -12,13 +12,16 @@ void write_stake_config( fd_global_ctx_t* global, fd_stake_config_t* stake_confi
   ulong          sz = fd_stake_config_size( stake_config );
   unsigned char *enc = fd_alloca_check( 1, sz );
   memset( enc, 0, sz );
-  void const *ptr = (void const *) enc;
-  fd_stake_config_encode( stake_config, &ptr );
+  fd_bincode_encode_ctx_t ctx3;
+  ctx3.data = enc;
+  ctx3.dataend = enc + sz;
+  if ( fd_stake_config_encode( stake_config, &ctx3 ) )
+    FD_LOG_ERR(("fd_stake_config_encode failed"));
 
   fd_solana_account_t account = {
     .lamports = 960480,
     .rent_epoch = 0,
-    .data_len = (ulong) ((uchar *) ptr- (uchar *) enc),
+    .data_len = (ulong) ((uchar *) ctx3.data - (uchar *) enc),
     .data = enc,
     .executable = (uchar) 0
   };
@@ -41,8 +44,13 @@ void read_stake_config( fd_global_ctx_t* global, fd_stake_config_t* result ) {
     return;
   }
 
-  void* input = (void *)raw_acc_data;
-  fd_stake_config_decode( result, (const void **)&input, raw_acc_data + metadata.dlen, global->allocf, global->allocf_arg );
+  fd_bincode_decode_ctx_t ctx;
+  ctx.data = raw_acc_data;
+  ctx.dataend = raw_acc_data + metadata.dlen;
+  ctx.allocf = global->allocf;
+  ctx.allocf_arg = global->allocf_arg;
+  if ( fd_stake_config_decode( result, &ctx ) )
+    FD_LOG_ERR(("fd_stake_config_decode failed"));
 }
 
 void fd_stake_program_config_init( fd_global_ctx_t* global ) {
@@ -70,8 +78,13 @@ void read_stake_state( fd_global_ctx_t* global, fd_pubkey_t* stake_acc, fd_stake
     return;
   }
 
-  void* input = (void *)raw_acc_data;
-  fd_stake_state_decode( result, (const void **)&input, raw_acc_data + metadata.dlen, global->allocf, global->allocf_arg );
+  fd_bincode_decode_ctx_t ctx;
+  ctx.data = raw_acc_data;
+  ctx.dataend = raw_acc_data + metadata.dlen;
+  ctx.allocf = global->allocf;
+  ctx.allocf_arg = global->allocf_arg;
+  if ( fd_stake_state_decode( result, &ctx ) )
+    FD_LOG_ERR(("fd_stake_state_decode failed"));
 }
 
 int write_stake_state(
@@ -90,9 +103,11 @@ int write_stake_state(
     uchar* encoded_stake_state = (uchar *)(global->allocf)( global->allocf_arg, 8UL, encoded_stake_state_size );
     fd_memset( encoded_stake_state, 0, encoded_stake_state_size );
 
-    void* encoded_stake_state_vp = (void*)encoded_stake_state;
-    const void ** encode_stake_state_dest = (const void **)(&encoded_stake_state_vp);
-    fd_stake_state_encode( stake_state, encode_stake_state_dest );
+    fd_bincode_encode_ctx_t ctx3;
+    ctx3.data = encoded_stake_state;
+    ctx3.dataend = encoded_stake_state + encoded_stake_state_size;
+    if ( fd_stake_state_encode( stake_state, &ctx3 ) )
+      FD_LOG_ERR(("fd_stake_state_encode failed"));
 
     fd_solana_account_t structured_account;
     structured_account.data = encoded_stake_state;
@@ -116,12 +131,16 @@ int fd_executor_stake_program_execute_instruction(
 ) {
   /* Deserialize the Stake instruction */
   uchar *data            = (uchar *)ctx.txn_ctx->txn_raw->raw + ctx.instr->data_off; 
-  void* input            = (void *)data;
-  const void** input_ptr = (const void **)&input;
-  void* dataend          = (void*)&data[ctx.instr->data_sz];
 
   fd_stake_instruction_t instruction;
-  fd_stake_instruction_decode( &instruction, input_ptr, dataend, ctx.global->allocf, ctx.global->allocf_arg );
+  fd_stake_instruction_new( &instruction );
+  fd_bincode_decode_ctx_t ctx2;
+  ctx2.data = data;
+  ctx2.dataend = &data[ctx.instr->data_sz];
+  ctx2.allocf = ctx.global->allocf;
+  ctx2.allocf_arg = ctx.global->allocf_arg;
+  if ( fd_stake_instruction_decode( &instruction, &ctx2 ) )
+    FD_LOG_ERR(("fd_stake_instruction_decode failed"));
 
   /* TODO: check that the instruction account 0 owner is the stake program ID
      https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/stake/src/stake_instruction.rs#L37 */
@@ -162,12 +181,15 @@ int fd_executor_stake_program_execute_instruction(
       return read_result;
     }
 
-    void* input            = (void *)stake_acc_data;
-    const void** input_ptr = (const void **)&input;
-    void* dataend          = (void*)&stake_acc_data[metadata.dlen];
-
     fd_stake_state_t stake_state;
-    fd_stake_state_decode( &stake_state, input_ptr, dataend, ctx.global->allocf, ctx.global->allocf_arg );
+    fd_stake_state_new( &stake_state );
+    fd_bincode_decode_ctx_t ctx3;
+    ctx3.data = stake_acc_data;
+    ctx3.dataend = &stake_acc_data[metadata.dlen];
+    ctx3.allocf = ctx.global->allocf;
+    ctx3.allocf_arg = ctx.global->allocf_arg;
+    if ( fd_stake_state_decode( &stake_state, &ctx3 ) )
+      FD_LOG_ERR(("fd_stake_state_decode failed"));
 
     /* Check that the Stake account is Uninitialized */
     if ( !fd_stake_state_is_uninitialized( &stake_state ) ) {
@@ -315,7 +337,10 @@ int fd_executor_stake_program_execute_instruction(
     return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
   }
 
-  fd_stake_instruction_destroy( &instruction, ctx.global->freef, ctx.global->allocf_arg );
+  fd_bincode_destroy_ctx_t ctx3;
+  ctx3.freef = ctx.global->freef;
+  ctx3.freef_arg = ctx.global->allocf_arg;
+  fd_stake_instruction_destroy( &instruction, &ctx3 );
 
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
