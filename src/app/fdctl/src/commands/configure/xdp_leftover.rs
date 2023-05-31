@@ -4,7 +4,7 @@ use super::*;
 use crate::Config;
 
 pub(super) const STAGE: Stage = Stage {
-    name: "xdp_leftover",
+    name: "xdp-leftover",
     enabled: None,
     always_recreate: false,
     explain_init_permissions: None,
