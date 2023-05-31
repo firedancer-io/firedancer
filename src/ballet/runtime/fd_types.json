@@ -653,6 +653,15 @@
       ]
     },
     {
+      "name": "compact_vote_state_update_switch",
+      "type": "struct",
+      "fields": [
+        { "name": "compact_vote_state_update", "type": "compact_vote_state_update"},
+        { "name": "hash", "type": "hash"}
+      ],
+      "comment": "https://github.com/solana-labs/solana/blob/252438e28fbfb2c695fe1215171b83456e4b761c/programs/vote/src/vote_instruction.rs#L143"
+    },
+    {
       "name": "slot_history_inner",
       "type": "struct",
       "fields": [
@@ -879,9 +888,11 @@
         { "name": "update_vote_state", "type": "vote_state_update" },
         { "name": "update_vote_state_switch", "type": "update_vote_state_switch" },
         { "name": "authorize_with_seed", "type": "vote_authorize_with_seed_args" },
-        { "name": "authorize_checked_with_seed", "type": "vote_authorize_checked_with_seed_args" }
+        { "name": "authorize_checked_with_seed", "type": "vote_authorize_checked_with_seed_args" },
+        { "name": "compact_update_vote_state", "type": "compact_vote_state_update"},
+        { "name": "compact_update_vote_state_switch", "type": "compact_vote_state_update_switch"}
       ],
-      "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_instruction.rs#L21"
+      "comment": "https://github.com/firedancer-io/solana/blob/53a4e5d6c58b2ffe89b09304e4437f8ca198dadd/programs/vote/src/vote_instruction.rs#L21"
     },
     {
       "name": "system_program_instruction_create_account",
