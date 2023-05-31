@@ -16,6 +16,10 @@ use crate::Config;
 
 #[derive(Debug, Args)]
 pub(crate) struct RunCli {
+    /// If needed, configure the environment to make sure Firedancer will run
+    #[arg(long)]
+    configure: bool,
+
     /// Launch the Firedancer binary under `gdb` and break immediately
     #[arg(long)]
     debug: bool,
@@ -26,17 +30,38 @@ pub(crate) struct RunCli {
     monitor: bool,
 }
 
+const CONFIGURE_STAGE: crate::commands::configure::StageCli =
+    crate::commands::configure::StageCli::All(crate::commands::configure::StageCommandCli {
+        command: crate::commands::configure::StageCommand::Init,
+    });
+
+const CONFIGURE_COMMAND: crate::CliCommand =
+    crate::CliCommand::Configure(crate::commands::ConfigureCli {
+        stage: CONFIGURE_STAGE,
+    });
+
 impl RunCli {
     #[rustfmt::skip]
     pub(crate) fn explain_permissions(&self, config: &Config) -> Vec<String> {
         let run_binary = format!("{}/fd_frank_run.bin", config.binary_dir);
 
+        // If we want to configure before, we also need all the permissions that would be
+        // needed to configure.
+        let configure = if self.configure {
+            CONFIGURE_COMMAND.explain_capabilities(config)
+        } else {
+            vec![]
+        };
+
         let mlock_limit = config.shmem.workspace_size();
         vec![
-            check_resource("run", &run_binary, RLIMIT_MEMLOCK, mlock_limit, "increase `RLIMIT_MEMLOCK` to lock the workspace in memory with `mlock(2)`"),
-            check_resource("run", &run_binary, RLIMIT_NICE, 40, "call `setpriority(2)` to increase thread priorities"),
-            check_file_cap("run", &run_binary, CAP_NET_RAW, "call `bind(2)` to bind to a socket with `SOCK_RAW`"),
-            check_file_cap("run", &run_binary, CAP_SYS_ADMIN, "initialize XDP by calling `bpf_obj_get`"),
+            configure,
+            vec![
+                check_resource("run", &run_binary, RLIMIT_MEMLOCK, mlock_limit, "increase `RLIMIT_MEMLOCK` to lock the workspace in memory with `mlock(2)`"),
+                check_resource("run", &run_binary, RLIMIT_NICE, 40, "call `setpriority(2)` to increase thread priorities"),
+                check_file_cap("run", &run_binary, CAP_NET_RAW, "call `bind(2)` to bind to a socket with `SOCK_RAW`"),
+                check_file_cap("run", &run_binary, CAP_SYS_ADMIN, "initialize XDP by calling `bpf_obj_get`"),
+            ].into_iter().flatten().collect()
         ].into_iter().flatten().collect()
     }
 }
@@ -68,6 +93,10 @@ pub(crate) fn monitor(config: &Config) {
 }
 
 pub(crate) fn run(args: RunCli, config: &mut Config) {
+    if args.configure {
+        crate::commands::configure(CONFIGURE_STAGE, config)
+    }
+
     let prefix_gdb = if args.debug {
         format!("gdb {}/fd_frank_run.bin --args", config.binary_dir)
     } else {

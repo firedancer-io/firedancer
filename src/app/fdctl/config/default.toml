@@ -144,7 +144,7 @@ scratch_directory = "/home/{user}/.firedancer/{name}"
     [tiles.quic]
         # Which interface to bind to. If developing under a network namespace with [netns] enabled,
         # this should be the same as [development.netns.interface0].
-        interface = "ens4"
+        interface = ""
 
         # Which port to listen on.
         listen_port = 9001

@@ -9,6 +9,7 @@ use libc::{
     c_char,
     cpu_set_t,
     getpwnam_r,
+    if_nametoindex,
     sched_setaffinity,
     CPU_SET,
     CPU_SETSIZE,
@@ -51,7 +52,8 @@ macro_rules! run_inner {
             if $err {
                 if !output.status.success() {
                     let stderr = String::from_utf8(output.stderr).unwrap();
-                    panic!("{}", stderr);
+                    let command_string = format!($cmd, $($args)*);
+                    panic!("{}\n{}", command_string, stderr);
                 }
             }
             String::from_utf8(output.stdout).unwrap().trim().to_string()
@@ -173,5 +175,19 @@ pub(crate) fn get_uid_by_username(username: &str) -> Option<u32> {
         Some(unsafe { (*result).pw_uid })
     } else {
         None
+    }
+}
+
+pub(crate) fn interface_exists(interface: &str) -> bool {
+    let interface = CString::new(interface).unwrap();
+    let result = unsafe { if_nametoindex(interface.as_ptr() as *const c_char) };
+    if result == 0 {
+        let errno = unsafe { *libc::__errno_location() };
+        if errno != libc::ENODEV {
+            panic!("if_nametoindex failed");
+        }
+        false
+    } else {
+        true
     }
 }

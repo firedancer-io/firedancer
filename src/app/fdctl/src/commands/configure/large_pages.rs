@@ -5,7 +5,7 @@ use crate::security::*;
 use crate::utility::*;
 use crate::Config;
 
-const NAME: &str = "large_pages";
+const NAME: &str = "large-pages";
 
 pub(super) const STAGE: Stage = Stage {
     name: NAME,

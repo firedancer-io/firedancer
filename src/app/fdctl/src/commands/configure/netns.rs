@@ -36,8 +36,11 @@ pub(crate) fn listen_address(config: &Config) -> String {
         config.development.netns.interface0_addr.to_string()
     } else {
         let output = run!("ip address show dev {interface}");
-        output.lines().find(|x| x.contains("inet "))
-            .unwrap().trim().split(&['/', ' ']).nth(1).unwrap().into()
+        let line = match output.lines().find(|x| x.contains("inet ")) {
+            None => panic!("Couldn't get IP address for interface `{interface}`"),
+            Some(line) => line,
+        };
+        line.trim().split(&['/', ' ']).nth(1).unwrap().into()
     }
 }
 
@@ -49,8 +52,11 @@ pub(crate) fn src_mac_address(config: &Config) -> String {
         config.development.netns.interface0_mac.to_string()
     } else {
         let output = run!("ip address show dev {interface}");
-        output.lines().find(|x| x.contains("link/ether "))
-            .unwrap().split_whitespace().nth(1).unwrap().into()
+        let line = match output.lines().find(|x| x.contains("link/ether ")) {
+            None => panic!("Couldn't get mac address for interface `{interface}`"),
+            Some(line) => line,
+        };
+        line.split_whitespace().nth(1).unwrap().into()
     }
 }
 
