@@ -128,7 +128,7 @@ int get_and_verify_versioned_vote_state(
     */
     uchar authorized_voter_signed = 0;
     for ( ulong i = 0; i < ctx.instr->acct_cnt; i++ ) {
-      if ( instr_acc_idxs[i] < ctx.txn_descriptor->signature_cnt ) {
+      if ( instr_acc_idxs[i] < ctx.txn_ctx->txn_descriptor->signature_cnt ) {
         fd_pubkey_t * signer = &txn_accs[instr_acc_idxs[i]];
         if ( !memcmp( signer, &authorized_voter, sizeof(fd_pubkey_t) ) ) {
           authorized_voter_signed = 1;
@@ -189,7 +189,7 @@ int fd_executor_vote_program_execute_instruction(
     instruction_ctx_t ctx
 ) {
     /* Deserialize the Vote instruction */
-    uchar *data            = (uchar *)ctx.txn_raw->raw + ctx.instr->data_off;
+    uchar *data            = (uchar *)ctx.txn_ctx->txn_raw->raw + ctx.instr->data_off;
     void* input            = (void *)data;
     const void** input_ptr = (const void **)&input;
     void* dataend          = (void*)&data[ctx.instr->data_sz];
@@ -207,8 +207,8 @@ int fd_executor_vote_program_execute_instruction(
 
       /* Check that the accounts are correct
          https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_processor.rs#L72-L81 */
-      uchar * instr_acc_idxs = ((uchar *)ctx.txn_raw->raw + ctx.instr->acct_off);
-      fd_pubkey_t * txn_accs = (fd_pubkey_t *)((uchar *)ctx.txn_raw->raw + ctx.txn_descriptor->acct_addr_off);
+      uchar * instr_acc_idxs = ((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.instr->acct_off);
+      fd_pubkey_t * txn_accs = (fd_pubkey_t *)((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.txn_ctx->txn_descriptor->acct_addr_off);
       fd_pubkey_t * vote_acc = &txn_accs[instr_acc_idxs[0]];
 
       /* Check that account at index 1 is the rent sysvar */
@@ -284,7 +284,7 @@ int fd_executor_vote_program_execute_instruction(
       /* TODO: factor signature check out */
       uchar node_pubkey_signed = 0;
       for ( ulong i = 0; i < ctx.instr->acct_cnt; i++ ) {
-        if ( instr_acc_idxs[i] < ctx.txn_descriptor->signature_cnt ) {
+        if ( instr_acc_idxs[i] < ctx.txn_ctx->txn_descriptor->signature_cnt ) {
           fd_pubkey_t * signer = &txn_accs[instr_acc_idxs[i]];
           if ( !memcmp( signer, &init_account_params->node_pubkey, sizeof(fd_pubkey_t) ) ) {
             node_pubkey_signed = 1;
@@ -339,8 +339,8 @@ int fd_executor_vote_program_execute_instruction(
       fd_vote_t * vote = &instruction.inner.vote;
 
       /* Check that the accounts are correct */
-      uchar * instr_acc_idxs = ((uchar *)ctx.txn_raw->raw + ctx.instr->acct_off);
-      fd_pubkey_t * txn_accs = (fd_pubkey_t *)((uchar *)ctx.txn_raw->raw + ctx.txn_descriptor->acct_addr_off);
+      uchar * instr_acc_idxs = ((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.instr->acct_off);
+      fd_pubkey_t * txn_accs = (fd_pubkey_t *)((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.txn_ctx->txn_descriptor->acct_addr_off);
       fd_pubkey_t * vote_acc = &txn_accs[instr_acc_idxs[0]];
 
       /* Ensure that keyed account 1 is the slot hashes sysvar */
@@ -578,8 +578,8 @@ int fd_executor_vote_program_execute_instruction(
       fd_vote_state_update_t * vote_state_update = &instruction.inner.update_vote_state;
 
       /* Read vote account state stored in the vote account data */
-      uchar * instr_acc_idxs = ((uchar *)ctx.txn_raw->raw + ctx.instr->acct_off);
-      fd_pubkey_t * txn_accs = (fd_pubkey_t *)((uchar *)ctx.txn_raw->raw + ctx.txn_descriptor->acct_addr_off);
+      uchar * instr_acc_idxs = ((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.instr->acct_off);
+      fd_pubkey_t * txn_accs = (fd_pubkey_t *)((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.txn_ctx->txn_descriptor->acct_addr_off);
       fd_pubkey_t * vote_acc = &txn_accs[instr_acc_idxs[0]];
 
       /* Read the vote state */

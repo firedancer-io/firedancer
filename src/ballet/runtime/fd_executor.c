@@ -137,14 +137,20 @@ fd_execute_txn( fd_executor_t* executor, fd_txn_t * txn_descriptor, fd_rawtxn_b_
 //
 //  if (fd_funk_fork(global->funk, ptxn, global->funk_txn) == 0)
 //    FD_LOG_ERR(("fd_funk_fork failed"));
+  transaction_ctx_t txn_ctx = {
+    .global             = executor->global,
+    .compute_unit_limit = 200000,
+    .compute_unit_price = 1,
+    .txn_descriptor     = txn_descriptor,
+    .txn_raw            = txn_raw,
+  };
 
   for ( ushort i = 0; i < txn_descriptor->instr_cnt; ++i ) {
     fd_txn_instr_t * instr = &txn_descriptor->instr[i];
     instruction_ctx_t ctx = {
       .global                 = executor->global,
       .instr                  = instr,
-      .txn_descriptor         = txn_descriptor,
-      .txn_raw                = txn_raw,
+      .txn_ctx                = &txn_ctx,
     };
 
     /* TODO: allow instructions to be failed, and the transaction to be reverted */

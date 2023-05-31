@@ -111,12 +111,27 @@ typedef struct fd_rawtxn_b fd_rawtxn_b_t;
 void
 fd_execute_txn( fd_executor_t* executor, fd_txn_t * txn_descriptor, fd_rawtxn_b_t* txn_raw ) ;
 
+
+#define FD_COMPUTE_BUDGET_PRIORITIZATION_FEE_TYPE_COMPUTE_UNIT_PRICE (0)
+#define FD_COMPUTE_BUDGET_PRIORITIZATION_FEE_TYPE_DEPRECATED         (1)
+
+/* Context needed to execute a single transaction. */
+struct transaction_ctx {
+  fd_global_ctx_t * global;
+  ulong             compute_unit_limit;       /* Compute unit limit for this transaction. */
+  ulong             compute_unit_price;       /* Compute unit price for this transaction. */
+  ulong             heap_size;                /* Heap size for VM */
+  uint              prioritization_fee_type;  /* The type of prioritization fee to use. */
+  fd_txn_t*         txn_descriptor;           /* Descriptor of the transaction. */
+  fd_rawtxn_b_t*    txn_raw;                  /* Raw bytes of the transaction. */
+};
+typedef struct transaction_ctx transaction_ctx_t;
+
 /* Context needed to execute a single instruction. TODO: split into a hierarchy of layered contexts.  */
 struct instruction_ctx {
-  fd_global_ctx_t*   global;
-  fd_txn_instr_t* instr;                      /* The instruction */
-  fd_txn_t*       txn_descriptor;             /* Descriptor of the transaction this instruction was part of */
-  fd_rawtxn_b_t*  txn_raw;                    /* Raw bytes of the transaction this instruction was part of */
+  fd_global_ctx_t *   global;
+  fd_txn_instr_t *    instr;    /* The instruction */
+  transaction_ctx_t * txn_ctx;  /* The transaction context for this instruction */                 
 };
 typedef struct instruction_ctx instruction_ctx_t;
 
