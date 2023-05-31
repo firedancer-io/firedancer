@@ -29,7 +29,7 @@ void record_timestamp_vote(
         global->bank.timestamp_votes.votes.elems[i].timestamp = (long)timestamp;
         found = 1;
       }
-    } 
+    }
     if ( !found ) {
       fd_clock_timestamp_vote_t timestamp_vote = {
         .pubkey    = *vote_acc,
@@ -193,6 +193,148 @@ int write_vote_state(
     return FD_EXECUTOR_INSTR_SUCCESS;
 }
 
+static int
+vote_authorize( instruction_ctx_t ctx,
+                fd_vote_state_versioned_t * vote_state_versioned,
+                fd_vote_authorize_pubkey_t * authorize,
+                uchar * instr_acc_idxs,
+                fd_pubkey_t * txn_accs,
+                fd_sol_sysvar_clock_t const * clock ) {
+
+  /* Upgrade older vote state versions */
+  if( FD_UNLIKELY( fd_vote_state_versioned_is_v0_23_5( vote_state_versioned ) ) ) {
+    /* TODO: support legacy V0_23_5 vote state layout */
+    FD_LOG_ERR(( "unsupported vote account state version V0_23_5" ));
+    return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+  }
+
+  fd_vote_state_t * vote_state = &vote_state_versioned->inner.current;
+
+  /* Check whether authorized withdrawer has signed
+      Matching solana_vote_program::vote_state::verify_authorized_signer(&vote_state.authorized_withdrawer) */
+  int authorized_withdrawer_signer = 0;
+  for( ulong i=0; i<ctx.instr->acct_cnt; i++ ) {
+    if( instr_acc_idxs[i] < ctx.txn_ctx->txn_descriptor->signature_cnt ) {
+      fd_pubkey_t const * signer = &txn_accs[instr_acc_idxs[i]];
+      if( 0==memcmp( signer, &vote_state->authorized_withdrawer, sizeof(fd_pubkey_t) ) ) {
+        authorized_withdrawer_signer = 1;
+        break;
+      }
+    }
+  }
+
+  switch( authorize->vote_authorize.discriminant ) {
+  case 0: {
+    /* Simplified logic by merging together the following functions:
+
+        - solana_vote_program::vote_state::VoteState::set_new_authorized_voter
+        - solana_vote_program::vote_state::VoteState::get_and_update_authorized_voter
+        - solana_vote_program::AuthorizedVoters::get_and_cache_authorized_voter_for_epoch
+        - solana_vote_program::AuthorizedVoters::get_or_calculate_authorized_voter_for_epoch
+        - solana_vote_program::AuthorizedVoters::purge_authorized_voters */
+
+    ulong target_epoch = clock->leader_schedule_epoch + 1UL;
+
+    /* Get authorized voter for at and/or before this epoch */
+    fd_vec_fd_vote_historical_authorized_voter_t_t * authorized_voters_vec =
+        &vote_state->authorized_voters;
+    ulong authorized_voter_idx = ULONG_MAX;
+    for( ulong i=0UL; i < authorized_voters_vec->cnt; i++ ) {
+      if( authorized_voters_vec->elems[i].epoch <= clock->epoch ) {
+        authorized_voter_idx = i;
+      }
+      /* Excerpt from solana_vote_program::vote_state::VoteState::set_new_authorized_voter */
+      if( authorized_voters_vec->elems[i].epoch == target_epoch ) {
+        return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR /* FD_VOTE_TOO_SOON_TO_REAUTHORIZE */;
+      }
+    }
+    if( FD_UNLIKELY( authorized_voter_idx==ULONG_MAX ) )
+      return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
+
+    /* Update epoch number */
+    authorized_voters_vec->elems[ authorized_voter_idx ].epoch = clock->epoch;
+
+    /* Drop preceding entries */
+    /* FIXME could use skip field instead of memmove here */
+    memmove( &authorized_voters_vec->elems[0],
+              &authorized_voters_vec->elems[authorized_voter_idx],
+              (authorized_voters_vec->cnt - authorized_voter_idx)*sizeof(fd_vote_historical_authorized_voter_t) );
+    authorized_voters_vec->cnt -= authorized_voter_idx;
+    authorized_voter_idx = 0UL;
+
+    /* If not already authorized by withdrawer, check for authorized voter signature */
+    if( !authorized_withdrawer_signer ) {
+      /* Check whether authorized voter has signed
+          Matching solana_vote_program::vote_state::verify_authorized_signer(&authorized_voters_vec->elems[0].pubkey) */
+      int authorized_voter_signer = 0;
+      for( ulong i=0; i<ctx.instr->acct_cnt; i++ ) {
+        if( instr_acc_idxs[i] < ctx.txn_ctx->txn_descriptor->signature_cnt ) {
+          fd_pubkey_t const * signer = &txn_accs[instr_acc_idxs[i]];
+          if( 0==memcmp( signer, &authorized_voters_vec->elems[0].pubkey, sizeof(fd_pubkey_t) ) ) {
+            authorized_voter_signer = 1;
+            break;
+          }
+        }
+      }
+      if( FD_UNLIKELY( !authorized_voter_signer ) )
+        return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
+    }
+
+    /* If authorized voter changes, add to prior voters */
+    if( 0!=memcmp( &authorized_voters_vec->elems[ authorized_voters_vec->cnt-1UL ].pubkey,
+                    &authorize->pubkey,
+                    sizeof(fd_pubkey_t) ) ) {
+      fd_vote_prior_voters_t * prior_voters = &vote_state->prior_voters;
+      ulong epoch_of_last_authorized_switch = 0UL;
+      /* FIXME: is is_empty untrusted input? */
+      if( !prior_voters->is_empty )
+        epoch_of_last_authorized_switch = prior_voters->buf[ prior_voters->idx ].epoch_end;
+      /* Solana Labs asserts that target_epoch > latest_epoch here */
+      prior_voters->idx +=  1UL;  /* FIXME bounds check */
+      prior_voters->idx %= 32UL;
+      prior_voters->buf[ prior_voters->idx ] = (fd_vote_prior_voter_t) {
+        .pubkey      = authorized_voters_vec->elems[ authorized_voters_vec->cnt-1UL ].pubkey,
+        .epoch_start = epoch_of_last_authorized_switch,
+        .epoch_end   = target_epoch
+      };
+      prior_voters->is_empty = 0;
+    }
+
+    /* Insert new authorized voter
+        Given
+        - index 0 contains current_epoch
+        - target_epoch==current_epoch+1UL
+        - and target_epoch > index 1
+        target_epoch will have to be inserted at index 1
+        Move all successors one slot to the right */
+    FD_TEST( authorized_voters_vec->cnt < authorized_voters_vec->max );
+    authorized_voters_vec->cnt += 1UL;
+    memmove( &authorized_voters_vec->elems[2],
+              &authorized_voters_vec->elems[1],
+              (authorized_voters_vec->cnt - 1UL)*sizeof(fd_vote_historical_authorized_voter_t) );
+    authorized_voters_vec->elems[1] = (fd_vote_historical_authorized_voter_t) {
+      .epoch  = target_epoch,
+      .pubkey = authorize->pubkey
+    };
+
+    break;
+  }
+  case 1:
+    if( FD_UNLIKELY( !authorized_withdrawer_signer ) ) {
+      return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
+    }
+    /* Updating authorized withdrawer */
+    memcpy( &vote_state->authorized_withdrawer,
+            &authorize->pubkey,
+            sizeof(fd_pubkey_t) );
+    break;
+  default:
+    return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
+  }
+
+  return FD_EXECUTOR_INSTR_SUCCESS;
+}
+
 int fd_executor_vote_program_execute_instruction(
     instruction_ctx_t ctx
 ) {
@@ -235,11 +377,11 @@ int fd_executor_vote_program_execute_instruction(
         return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
       }
       fd_sol_sysvar_clock_t clock;
-      fd_sysvar_clock_read( ctx.global, &clock ); 
+      fd_sysvar_clock_read( ctx.global, &clock );
 
       /* Initialize the account
          https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L1334 */
-      
+
       /* Check that the vote account is the correct size
          https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L1340-L1342 */
       fd_account_meta_t metadata;
@@ -385,9 +527,9 @@ int fd_executor_vote_program_execute_instruction(
       /* Process the vote
          https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L902
        */
-      
+
       /* Check that the vote slots aren't empty */
-      if ( vote->slots.cnt == 0 ) {        
+      if ( vote->slots.cnt == 0 ) {
         /* TODO: propagate custom error code FD_VOTE_EMPTY_SLOTS */
         return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
       }
@@ -409,7 +551,7 @@ int fd_executor_vote_program_execute_instruction(
         if ( vote->slots.elems[i] >= earliest_slot_in_history ) {
           fd_vec_ulong_push( &vote_slots, vote->slots.elems[i] );
         }
-      } 
+      }
 
       if ( vote_slots.cnt == 0 ) {
         /* TODO: propagate custom error code FD_VOTE_VOTES_TOO_OLD_ALL_FILTERED */
@@ -449,7 +591,7 @@ int fd_executor_vote_program_execute_instruction(
         ulong previously_voted_on = vote_state->votes.elems[ vote_state->votes.cnt - 1 ].slot;
         ulong most_recent_proposed_vote_slot = vote->slots.elems[ vote->slots.cnt - 1 ];
         FD_LOG_INFO(( "vote instruction too old (%lu <= %lu): discarding", most_recent_proposed_vote_slot, previously_voted_on ));
-        
+
         /* TODO: propagate custom error code FD_VOTE_VOTE_TOO_OLD */
         /* TODO: return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR and properly handle failed transactions */
         return FD_EXECUTOR_INSTR_SUCCESS;
@@ -542,7 +684,7 @@ int fd_executor_vote_program_execute_instruction(
           if ( vote_state->votes.cnt > confirmations ) {
             /* Increment the confirmation count, implicitly doubling the lockout. */
             vote_state->votes.elems[ j ].confirmation_count += 1;
-          } 
+          }
         }
       }
 
@@ -666,6 +808,56 @@ int fd_executor_vote_program_execute_instruction(
       ctx3.freef = ctx.global->freef;
       ctx3.freef_arg = ctx.global->allocf_arg;
       fd_vote_state_versioned_destroy( &vote_state_versioned, &ctx3 );
+    } else if ( fd_vote_instruction_is_authorize( &instruction ) ) {
+      FD_LOG_INFO(( "executing VoteInstruction::Authorize instruction" ));
+      fd_vote_authorize_pubkey_t * authorize = &instruction.inner.authorize;
+
+      uchar * instr_acc_idxs = ((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.instr->acct_off);
+      fd_pubkey_t * txn_accs = (fd_pubkey_t *)((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.txn_ctx->txn_descriptor->acct_addr_off);
+
+      /* Require at least two accounts */
+      if( FD_UNLIKELY( ctx.instr->acct_cnt < 2 ) )
+        return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+
+      /* Instruction accounts (untrusted user inputs) */
+      fd_pubkey_t * vote_acc_addr  = &txn_accs[instr_acc_idxs[0]];
+      fd_pubkey_t * clock_acc_addr = &txn_accs[instr_acc_idxs[1]];
+
+      /* Check that account at index 1 is the clock sysvar */
+      if( FD_UNLIKELY( 0!=memcmp( clock_acc_addr, ctx.global->sysvar_clock, sizeof(fd_pubkey_t) ) ) )
+        return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+      fd_sol_sysvar_clock_t clock;
+      fd_sysvar_clock_read( ctx.global, &clock );
+
+      /* Context: solana_vote_program::vote_state::authorize */
+
+      /* Read vote state */
+      fd_vote_state_versioned_t vote_state_versioned;
+      int result = read_vote_state( ctx.global, vote_acc_addr, &vote_state_versioned );
+      if( FD_UNLIKELY( 0!=result ) )
+        return result;
+
+      int const authorize_result =
+          vote_authorize( ctx, &vote_state_versioned, authorize,
+                          instr_acc_idxs, txn_accs, &clock );
+
+      if( authorize_result == FD_EXECUTOR_INSTR_SUCCESS ) {
+        /* Write back the new vote state */
+
+        result = write_vote_state( ctx, vote_acc_addr, &vote_state_versioned );
+        if( FD_UNLIKELY( result != FD_EXECUTOR_INSTR_SUCCESS ) ) {
+          FD_LOG_WARNING(( "failed to write versioned vote state: %d", result ));
+          return result;
+        }
+      }
+
+      fd_bincode_destroy_ctx_t ctx3;
+      ctx3.freef = ctx.global->freef;
+      ctx3.freef_arg = ctx.global->allocf_arg;
+      fd_vote_state_versioned_destroy( &vote_state_versioned, &ctx3 );
+
+      /* TODO leaks on error */
+      return authorize_result;
     } else {
       /* TODO: support other vote program instructions */
       FD_LOG_WARNING(( "unsupported vote program instruction: discriminant: %d", instruction.discriminant ));
