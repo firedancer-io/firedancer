@@ -67,11 +67,22 @@ impl UserConfig {
             self.user
         };
 
+        let interface = &self.tiles.quic.interface;
+        assert!(
+            !interface.is_empty(),
+            "Configuration must specify an interface to listen to with [tiles.quic.interface]"
+        );
+
         if self.development.netns.enabled {
             assert_eq!(
-                self.tiles.quic.interface, self.development.netns.interface0,
-                "if using [netns] expect [quic.interface] to be the same as \
+                interface, &self.development.netns.interface0,
+                "if using [netns] expect [tiles.quic.interface] to be the same as \
                  [development.netns.interface0]"
+            );
+        } else {
+            assert!(
+                interface_exists(interface),
+                "Configuration specifies a network interface \"{interface}\" which does not exist"
             );
         }
 
