@@ -6,7 +6,7 @@ MAKEFLAGS += --no-builtin-variables
 .SECONDARY:
 .SECONDEXPANSION:
 
-BASEDIR:=build
+BASEDIR?=build
 OBJDIR:=$(BASEDIR)/$(BUILDDIR)
 
 # Auxiliarily rules that should not set up depenencies

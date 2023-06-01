@@ -1,38 +1,45 @@
 use std::env;
-use std::path::{
-    Path,
-    PathBuf,
-};
+use std::path::Path;
 use std::process::Command;
 
 extern crate bindgen;
 
 fn main() {
     let dir_env = env::var("CARGO_MANIFEST_DIR").unwrap();
+    let out_dir_env = env::var("OUT_DIR").unwrap();
     let dir = Path::new(&dir_env);
+    let out_dir = Path::new(&out_dir_env);
+
     let firedancer_dir = dir.join("firedancer");
 
     let (machine, build_dir) = if cfg!(feature = "fuzz-asan") {
         (
             "linux_clang_fuzz_asan",
-            firedancer_dir.join("build/linux/clang/fuzz_asan"),
+            out_dir.join("build/linux/clang/fuzz_asan"),
         )
     } else {
         (
             "linux_clang_x86_64_ffi",
-            firedancer_dir.join("build/linux/clang/x86_64_ffi"),
+            out_dir.join("build/linux/clang/x86_64_ffi"),
         )
     };
 
     // Build the Firedancer sources
-    Command::new("make")
+    let output = Command::new("make")
         .arg("-j")
         .arg("lib")
         .arg("include")
         .current_dir(&firedancer_dir)
         .env("MACHINE", machine)
+        .env("BASEDIR", out_dir.join("build"))
         .output()
-        .expect("failed to build firedancer sources");
+        .expect(&format!(
+            "failed to execute `make`, does it exist? PATH {:#?}",
+            std::env::var("PATH")
+        ));
+    if !output.status.success() {
+        panic!("{}", String::from_utf8(output.stderr).unwrap());
+    }
 
     // Link against the Firedancer sources
     println!(
@@ -55,12 +62,11 @@ fn main() {
     println!("cargo:rustc-link-lib=stdc++");
 
     // Generate bindings to the header files
-    let out_path = PathBuf::from(env::var("OUT_DIR").unwrap());
     bindgen::Builder::default()
         .header("wrapper.h")
         .blocklist_type("schar|uchar|ushort|uint|ulong")
         .generate()
         .expect("Unable to generate bindings")
-        .write_to_file(out_path.join("bindings.rs"))
+        .write_to_file(out_dir.join("bindings.rs"))
         .expect("Failed to write bindings to file");
 }
