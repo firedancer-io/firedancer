@@ -153,11 +153,11 @@ def do_vector_body_decode(n, f):
 def do_vector_dynamic_body_decode(n, f):
     print(vector_dynamic_prefix(n, f) + "_new(&self->" + f["name"] + ");", file=body)
 
-    print("ulong " + f["name"] + "_len;", file=body)
-
     if "modifier" in f and f["modifier"] == "compact":
+        print("ushort " + f["name"] + "_len;", file=body)
         print("  err = fd_bincode_compact_u16_decode(&" + f["name"] + "_len, ctx);", file=body)
     else:
+        print("ulong " + f["name"] + "_len;", file=body)
         print("  err = fd_bincode_uint64_decode(&" + f["name"] + "_len, ctx);", file=body)
     print("  if ( FD_UNLIKELY(err) ) return err;", file=body)
     el = n + "_" + f["element"]
@@ -317,7 +317,9 @@ def do_vector_body_encode(n, f):
 
 def do_vector_dynamic_body_encode(n, f):
     if "modifier" in f and f["modifier"] == "compact":
-        print("  err = fd_bincode_compact_u16_encode(&self->" + f["name"] + ".cnt, ctx);", file=body)
+        print("  ushort len = 0;", file=body)
+        print("  err = fd_bincode_compact_u16_encode(&len, ctx);", file=body)
+        print("  self->" + f["name"] + ".cnt = (ulong)len;", file=body)
     else:
         print("  err = fd_bincode_uint64_encode(&self->" + f["name"] + ".cnt, ctx);", file=body)
     print("  if ( FD_UNLIKELY(err) ) return err;", file=body)
