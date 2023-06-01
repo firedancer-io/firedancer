@@ -332,28 +332,32 @@ int fd_executor_system_program_execute_instruction(
     break;
   }
   case fd_system_program_instruction_enum_allocate: {
+    // https://github.com/solana-labs/solana/blob/b00d18cec4011bb452e3fe87a3412a3f0146942e/runtime/src/system_instruction_processor.rs#L507
     FD_LOG_WARNING(( "unsupported fd_system_program_instruction_enum_allocate %d", instruction.discriminant ));
     result = -1;
     break;
   }
   case fd_system_program_instruction_enum_allocate_with_seed: {
+    // https://github.com/solana-labs/solana/blob/b00d18cec4011bb452e3fe87a3412a3f0146942e/runtime/src/system_instruction_processor.rs#L525
     FD_LOG_WARNING(( "unsupported fd_system_program_instruction_enum_allocate_with_seed %d", instruction.discriminant ));
     result = -1;
     break;
   }
   case fd_system_program_instruction_enum_assign_with_seed: {
+    // https://github.com/solana-labs/solana/blob/b00d18cec4011bb452e3fe87a3412a3f0146942e/runtime/src/system_instruction_processor.rs#L545
     FD_LOG_WARNING(( "unsupported fd_system_program_instruction_enum_assign_with_seed %d", instruction.discriminant ));
     result = -1;
     break;
   }
   case fd_system_program_instruction_enum_transfer_with_seed: {
+    // https://github.com/solana-labs/solana/blob/b00d18cec4011bb452e3fe87a3412a3f0146942e/runtime/src/system_instruction_processor.rs#L412
     FD_LOG_WARNING(( "unsupported fd_system_program_instruction_enum_transfer_with_seed  %d", instruction.discriminant ));
     result = -1;
     break;
   }
   case fd_system_program_instruction_enum_upgrade_nonce_account: {
-    FD_LOG_WARNING(( "unsupported fd_system_program_instruction_enum_upgrade_nonce_account %d", instruction.discriminant ));
-    result = -1;
+    // https://github.com/solana-labs/solana/blob/b00d18cec4011bb452e3fe87a3412a3f0146942e/runtime/src/system_instruction_processor.rs#L491
+    result = fd_upgrade_nonce_account( ctx );
     break;
   }
   default: {

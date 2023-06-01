@@ -418,6 +418,16 @@ fd_txn_xray( uchar const             * payload,
              ulong                     payload_sz,
              fd_txn_xray_result_t    * result );
 
+static inline int
+fd_txn_is_writable( fd_txn_t const * txn, int idx) 
+{
+  if (idx < (txn->signature_cnt - txn->readonly_signed_cnt))
+    return 1;
+  if ((idx >= txn->signature_cnt) & (idx < (txn->acct_addr_cnt - txn->readonly_unsigned_cnt)))
+    return 1;
+  return 0;
+}
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_ballet_txn_fd_txn_h */

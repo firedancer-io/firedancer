@@ -662,3 +662,105 @@ int fd_authorize_nonce_account(
 
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
+
+int fd_upgrade_nonce_account(
+  instruction_ctx_t   ctx
+  ) {
+//            instruction_context.check_number_of_instruction_accounts(1)?;
+//            let mut nonce_account =
+//                instruction_context.try_borrow_instruction_account(transaction_context, 0)?;
+//            if !system_program::check_id(nonce_account.get_owner()) {
+//                return Err(InstructionError::InvalidAccountOwner);
+//            }
+//            if !nonce_account.is_writable() {
+//                return Err(InstructionError::InvalidArgument);
+//            }
+//            let nonce_versions: nonce::state::Versions = nonce_account.get_state()?;
+//            match nonce_versions.upgrade() {
+//                None => Err(InstructionError::InvalidArgument),
+//                Some(nonce_versions) => nonce_account.set_state(&nonce_versions),
+//            }
+
+// https://github.com/solana-labs/solana/blob/b00d18cec4011bb452e3fe87a3412a3f0146942e/runtime/src/system_instruction_processor.rs#L491
+
+  if (ctx.instr->acct_cnt != 1)
+    return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+
+  uchar *       instr_acc_idxs = ((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.instr->acct_off);
+
+  if (!fd_txn_is_writable(ctx.txn_ctx->txn_descriptor, instr_acc_idxs[0]))
+    return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+
+  fd_pubkey_t * txn_accs = (fd_pubkey_t *)((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.txn_ctx->txn_descriptor->acct_addr_off);
+
+  ulong acct_addr_cnt = ctx.txn_ctx->txn_descriptor->acct_addr_cnt;
+  if (instr_acc_idxs[0] >= acct_addr_cnt)
+    // TODO: confirm what this would look like in solana
+    return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+
+  fd_pubkey_t * me   = &txn_accs[instr_acc_idxs[0]];
+
+  ulong sz = 0;
+  int err = 0;
+  char * raw_acc_data = (char*) fd_acc_mgr_view_data(ctx.global->acc_mgr, ctx.global->funk_txn, (fd_pubkey_t *) me, &sz, &err);
+  if (NULL == raw_acc_data)
+    return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
+  fd_account_meta_t *m = (fd_account_meta_t *) raw_acc_data;
+
+  if (memcmp(m->info.owner, ctx.global->solana_system_program, sizeof(m->info.owner)) != 0) 
+    return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_OWNER;
+
+  fd_nonce_state_versions_t state;
+  fd_nonce_state_versions_new( &state );
+  fd_bincode_decode_ctx_t ctx2;
+  ctx2.data = raw_acc_data + m->hlen;
+  ctx2.dataend = raw_acc_data + m->hlen + m->dlen;
+  ctx2.allocf = ctx.global->allocf;
+  ctx2.allocf_arg = ctx.global->allocf_arg;
+
+  if ( fd_nonce_state_versions_decode( &state, &ctx2 ) ) {
+    FD_LOG_WARNING(("fd_nonce_state_versions_decode failed"));
+    return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
+  }
+
+  int ret = 0;
+  do {
+    if (state.discriminant != fd_nonce_state_versions_enum_legacy) {
+      ret = FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+      break;
+    }
+
+    if (state.inner.legacy.discriminant != fd_nonce_state_enum_initialized) {
+      ret = FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+      break;
+    }
+
+    fd_hash_t durable_nonce;
+    fd_durable_nonce_from_blockhash(&state.inner.legacy.inner.initialized.durable_nonce, &durable_nonce);
+
+    state.discriminant = fd_nonce_state_versions_enum_current;
+    memcpy(&state.inner.current.inner.initialized.durable_nonce, &durable_nonce, sizeof(durable_nonce));
+
+    sz = fd_nonce_state_versions_size(&state);
+    unsigned char *enc = fd_alloca_check(1, sz);
+    memset(enc, 0, sz);
+    fd_bincode_encode_ctx_t ctx3;
+    ctx3.data = enc;
+    ctx3.dataend = enc + sz;
+    if ( fd_nonce_state_versions_encode(&state, &ctx3) ) {
+      FD_LOG_WARNING(("fd_nonce_state_versions_encode failed"));
+      ret = -1;
+      break;
+    }
+
+    fd_acc_mgr_update_data ( ctx.global->acc_mgr, ctx.global->funk_txn, ctx.global->bank.solana_bank.slot, me, enc, sz);
+    ret = FD_EXECUTOR_INSTR_SUCCESS;
+  } while (false);
+
+  fd_bincode_destroy_ctx_t ctx3;
+  ctx3.freef = ctx.global->freef;
+  ctx3.freef_arg = ctx.global->allocf_arg;
+  fd_nonce_state_versions_destroy( &state, &ctx3 );
+
+  return ret;
+}
