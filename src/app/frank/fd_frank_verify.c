@@ -13,7 +13,7 @@ fd_frank_verify_task( int     argc,
   /* Parse "command line" arguments */
 
   char const * pod_gaddr = argv[1];
-  char const * cfg_path  = argv[2];
+  char const * cfg_path  = FD_FRANK_CONFIGURATION_PREFIX;
 
   /* Load up the configuration for this frank instance */
 

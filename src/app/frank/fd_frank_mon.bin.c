@@ -334,10 +334,10 @@ main( int     argc,
 
   /* Load up the configuration for this frank instance */
 
-  FD_LOG_INFO(( "using configuration in pod --pod %s at path firedancer", pod_gaddr ));
+  FD_LOG_INFO(( "using configuration in pod --pod %s at path %s", pod_gaddr, FD_FRANK_CONFIGURATION_PREFIX ));
 
   uchar const * pod     = fd_wksp_pod_attach( pod_gaddr );
-  uchar const * cfg_pod = fd_pod_query_subpod( pod, "firedancer" );
+  uchar const * cfg_pod = fd_pod_query_subpod( pod, FD_FRANK_CONFIGURATION_PREFIX );
   if( FD_UNLIKELY( !cfg_pod ) ) FD_LOG_ERR(( "path not found" ));
 
   uchar const * verify_pods = fd_pod_query_subpod( cfg_pod, "verify" );
@@ -357,7 +357,7 @@ main( int     argc,
     ulong tile_idx = 0UL;
 
     tile_name[ tile_idx ] = "main";
-    FD_LOG_INFO(( "joining firedancer.main.cnc" ));
+    FD_LOG_INFO(( "joining %s.main.cnc", FD_FRANK_CONFIGURATION_PREFIX ));
     tile_cnc[ tile_idx ] = fd_cnc_join( fd_wksp_pod_map( cfg_pod, "main.cnc" ) );
     if( FD_UNLIKELY( !tile_cnc[ tile_idx ] ) ) FD_LOG_ERR(( "fd_cnc_join failed" ));
     if( FD_UNLIKELY( fd_cnc_app_sz( tile_cnc[ tile_idx ] )<64UL ) ) FD_LOG_ERR(( "cnc app sz should be at least 64 bytes" ));
@@ -366,7 +366,7 @@ main( int     argc,
     tile_idx++;
 
     tile_name[ tile_idx ] = "pack";
-    FD_LOG_INFO(( "joining firedancer.pack.cnc" ));
+    FD_LOG_INFO(( "joining %s.pack.cnc", FD_FRANK_CONFIGURATION_PREFIX ));
     tile_cnc[ tile_idx ] = fd_cnc_join( fd_wksp_pod_map( cfg_pod, "pack.cnc" ) );
     if( FD_UNLIKELY( !tile_cnc[ tile_idx ] ) ) FD_LOG_ERR(( "fd_cnc_join failed" ));
     if( FD_UNLIKELY( fd_cnc_app_sz( tile_cnc[ tile_idx ] )<64UL ) ) FD_LOG_ERR(( "cnc app sz should be at least 64 bytes" ));
@@ -375,14 +375,14 @@ main( int     argc,
     tile_idx++;
 
     tile_name[ tile_idx ] = "dedup";
-    FD_LOG_INFO(( "joining firedancer.dedup.cnc" ));
+    FD_LOG_INFO(( "joining %s.dedup.cnc", FD_FRANK_CONFIGURATION_PREFIX ));
     tile_cnc[ tile_idx ] = fd_cnc_join( fd_wksp_pod_map( cfg_pod, "dedup.cnc" ) );
     if( FD_UNLIKELY( !tile_cnc[ tile_idx ] ) ) FD_LOG_ERR(( "fd_cnc_join failed" ));
     if( FD_UNLIKELY( fd_cnc_app_sz( tile_cnc[ tile_idx ] )<64UL ) ) FD_LOG_ERR(( "cnc app sz should be at least 64 bytes" ));
-    FD_LOG_INFO(( "joining firedancer.dedup.mcache" ));
+    FD_LOG_INFO(( "joining %s.dedup.mcache", FD_FRANK_CONFIGURATION_PREFIX ));
     tile_mcache[ tile_idx ] = fd_mcache_join( fd_wksp_pod_map( cfg_pod, "dedup.mcache" ) );
     if( FD_UNLIKELY( !tile_mcache[ tile_idx ] ) ) FD_LOG_ERR(( "fd_mcache_join failed" ));
-    FD_LOG_INFO(( "joining firedancer.dedup.fseq" ));
+    FD_LOG_INFO(( "joining %s.dedup.fseq", FD_FRANK_CONFIGURATION_PREFIX ));
     tile_fseq[ tile_idx ] = fd_fseq_join( fd_wksp_pod_map( cfg_pod, "dedup.fseq" ) );
     if( FD_UNLIKELY( !tile_fseq[ tile_idx ] ) ) FD_LOG_ERR(( "fd_fseq_join failed" ));
     tile_idx++;
@@ -393,15 +393,15 @@ main( int     argc,
       char const  * verify_name =                info.key;
       uchar const * verify_pod  = (uchar const *)info.val;
 
-      FD_LOG_INFO(( "joining firedancer.verify.%s.cnc", verify_name ));
+      FD_LOG_INFO(( "joining %s.verify.%s.cnc", FD_FRANK_CONFIGURATION_PREFIX, verify_name ));
       tile_name[ tile_idx ] = verify_name;
       tile_cnc [ tile_idx ] = fd_cnc_join( fd_wksp_pod_map( verify_pod, "cnc" ) );
       if( FD_UNLIKELY( !tile_cnc[tile_idx] ) ) FD_LOG_ERR(( "fd_cnc_join failed" ));
       if( FD_UNLIKELY( fd_cnc_app_sz( tile_cnc[ tile_idx ] )<64UL ) ) FD_LOG_ERR(( "cnc app sz should be at least 64 bytes" ));
-      FD_LOG_INFO(( "joining firedancer.verify.%s.mcache", verify_name ));
+      FD_LOG_INFO(( "joining %s.verify.%s.mcache", FD_FRANK_CONFIGURATION_PREFIX, verify_name ));
       tile_mcache[ tile_idx ] = fd_mcache_join( fd_wksp_pod_map( verify_pod, "mcache" ) );
       if( FD_UNLIKELY( !tile_mcache[ tile_idx ] ) ) FD_LOG_ERR(( "fd_mcache_join failed" ));
-      FD_LOG_INFO(( "joining firedancer.verify.%s.fseq", verify_name ));
+      FD_LOG_INFO(( "joining %s.verify.%s.fseq", FD_FRANK_CONFIGURATION_PREFIX, verify_name ));
       tile_fseq[ tile_idx ] = fd_fseq_join( fd_wksp_pod_map( verify_pod, "fseq" ) );
       if( FD_UNLIKELY( !tile_fseq[ tile_idx ] ) ) FD_LOG_ERR(( "fd_fseq_join failed" ));
       tile_idx++;
