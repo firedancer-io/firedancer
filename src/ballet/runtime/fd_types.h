@@ -1709,8 +1709,8 @@ void fd_vote_state_versioned_destroy(fd_vote_state_versioned_t* self, fd_bincode
 void fd_vote_state_versioned_walk(fd_vote_state_versioned_t* self, fd_walk_fun_t fun, const char *name, int level);
 ulong fd_vote_state_versioned_size(fd_vote_state_versioned_t* self);
 
-uchar fd_vote_state_versioned_is_v0_23_5(fd_vote_state_versioned_t* self);
-uchar fd_vote_state_versioned_is_current(fd_vote_state_versioned_t* self);
+FD_FN_PURE uchar fd_vote_state_versioned_is_v0_23_5(fd_vote_state_versioned_t const * self);
+FD_FN_PURE uchar fd_vote_state_versioned_is_current(fd_vote_state_versioned_t const * self);
 enum {
   fd_vote_state_versioned_enum_v0_23_5 = 0,
   fd_vote_state_versioned_enum_current = 1,
@@ -1862,8 +1862,8 @@ void fd_vote_authorize_destroy(fd_vote_authorize_t* self, fd_bincode_destroy_ctx
 void fd_vote_authorize_walk(fd_vote_authorize_t* self, fd_walk_fun_t fun, const char *name, int level);
 ulong fd_vote_authorize_size(fd_vote_authorize_t* self);
 
-uchar fd_vote_authorize_is_voter(fd_vote_authorize_t* self);
-uchar fd_vote_authorize_is_withdrawer(fd_vote_authorize_t* self);
+FD_FN_PURE uchar fd_vote_authorize_is_voter(fd_vote_authorize_t const * self);
+FD_FN_PURE uchar fd_vote_authorize_is_withdrawer(fd_vote_authorize_t const * self);
 enum {
   fd_vote_authorize_enum_voter = 0,
   fd_vote_authorize_enum_withdrawer = 1,
@@ -1910,20 +1910,20 @@ void fd_vote_instruction_destroy(fd_vote_instruction_t* self, fd_bincode_destroy
 void fd_vote_instruction_walk(fd_vote_instruction_t* self, fd_walk_fun_t fun, const char *name, int level);
 ulong fd_vote_instruction_size(fd_vote_instruction_t* self);
 
-uchar fd_vote_instruction_is_initialize_account(fd_vote_instruction_t* self);
-uchar fd_vote_instruction_is_authorize(fd_vote_instruction_t* self);
-uchar fd_vote_instruction_is_vote(fd_vote_instruction_t* self);
-uchar fd_vote_instruction_is_withdraw(fd_vote_instruction_t* self);
-uchar fd_vote_instruction_is_update_validator_identity(fd_vote_instruction_t* self);
-uchar fd_vote_instruction_is_update_commission(fd_vote_instruction_t* self);
-uchar fd_vote_instruction_is_vote_switch(fd_vote_instruction_t* self);
-uchar fd_vote_instruction_is_authorize_checked(fd_vote_instruction_t* self);
-uchar fd_vote_instruction_is_update_vote_state(fd_vote_instruction_t* self);
-uchar fd_vote_instruction_is_update_vote_state_switch(fd_vote_instruction_t* self);
-uchar fd_vote_instruction_is_authorize_with_seed(fd_vote_instruction_t* self);
-uchar fd_vote_instruction_is_authorize_checked_with_seed(fd_vote_instruction_t* self);
-uchar fd_vote_instruction_is_compact_update_vote_state(fd_vote_instruction_t* self);
-uchar fd_vote_instruction_is_compact_update_vote_state_switch(fd_vote_instruction_t* self);
+FD_FN_PURE uchar fd_vote_instruction_is_initialize_account(fd_vote_instruction_t const * self);
+FD_FN_PURE uchar fd_vote_instruction_is_authorize(fd_vote_instruction_t const * self);
+FD_FN_PURE uchar fd_vote_instruction_is_vote(fd_vote_instruction_t const * self);
+FD_FN_PURE uchar fd_vote_instruction_is_withdraw(fd_vote_instruction_t const * self);
+FD_FN_PURE uchar fd_vote_instruction_is_update_validator_identity(fd_vote_instruction_t const * self);
+FD_FN_PURE uchar fd_vote_instruction_is_update_commission(fd_vote_instruction_t const * self);
+FD_FN_PURE uchar fd_vote_instruction_is_vote_switch(fd_vote_instruction_t const * self);
+FD_FN_PURE uchar fd_vote_instruction_is_authorize_checked(fd_vote_instruction_t const * self);
+FD_FN_PURE uchar fd_vote_instruction_is_update_vote_state(fd_vote_instruction_t const * self);
+FD_FN_PURE uchar fd_vote_instruction_is_update_vote_state_switch(fd_vote_instruction_t const * self);
+FD_FN_PURE uchar fd_vote_instruction_is_authorize_with_seed(fd_vote_instruction_t const * self);
+FD_FN_PURE uchar fd_vote_instruction_is_authorize_checked_with_seed(fd_vote_instruction_t const * self);
+FD_FN_PURE uchar fd_vote_instruction_is_compact_update_vote_state(fd_vote_instruction_t const * self);
+FD_FN_PURE uchar fd_vote_instruction_is_compact_update_vote_state_switch(fd_vote_instruction_t const * self);
 enum {
   fd_vote_instruction_enum_initialize_account = 0,
   fd_vote_instruction_enum_authorize = 1,
@@ -1982,19 +1982,19 @@ void fd_system_program_instruction_destroy(fd_system_program_instruction_t* self
 void fd_system_program_instruction_walk(fd_system_program_instruction_t* self, fd_walk_fun_t fun, const char *name, int level);
 ulong fd_system_program_instruction_size(fd_system_program_instruction_t* self);
 
-uchar fd_system_program_instruction_is_create_account(fd_system_program_instruction_t* self);
-uchar fd_system_program_instruction_is_assign(fd_system_program_instruction_t* self);
-uchar fd_system_program_instruction_is_transfer(fd_system_program_instruction_t* self);
-uchar fd_system_program_instruction_is_create_account_with_seed(fd_system_program_instruction_t* self);
-uchar fd_system_program_instruction_is_advance_nonce_account(fd_system_program_instruction_t* self);
-uchar fd_system_program_instruction_is_withdraw_nonce_account(fd_system_program_instruction_t* self);
-uchar fd_system_program_instruction_is_initialize_nonce_account(fd_system_program_instruction_t* self);
-uchar fd_system_program_instruction_is_authorize_nonce_account(fd_system_program_instruction_t* self);
-uchar fd_system_program_instruction_is_allocate(fd_system_program_instruction_t* self);
-uchar fd_system_program_instruction_is_allocate_with_seed(fd_system_program_instruction_t* self);
-uchar fd_system_program_instruction_is_assign_with_seed(fd_system_program_instruction_t* self);
-uchar fd_system_program_instruction_is_transfer_with_seed(fd_system_program_instruction_t* self);
-uchar fd_system_program_instruction_is_upgrade_nonce_account(fd_system_program_instruction_t* self);
+FD_FN_PURE uchar fd_system_program_instruction_is_create_account(fd_system_program_instruction_t const * self);
+FD_FN_PURE uchar fd_system_program_instruction_is_assign(fd_system_program_instruction_t const * self);
+FD_FN_PURE uchar fd_system_program_instruction_is_transfer(fd_system_program_instruction_t const * self);
+FD_FN_PURE uchar fd_system_program_instruction_is_create_account_with_seed(fd_system_program_instruction_t const * self);
+FD_FN_PURE uchar fd_system_program_instruction_is_advance_nonce_account(fd_system_program_instruction_t const * self);
+FD_FN_PURE uchar fd_system_program_instruction_is_withdraw_nonce_account(fd_system_program_instruction_t const * self);
+FD_FN_PURE uchar fd_system_program_instruction_is_initialize_nonce_account(fd_system_program_instruction_t const * self);
+FD_FN_PURE uchar fd_system_program_instruction_is_authorize_nonce_account(fd_system_program_instruction_t const * self);
+FD_FN_PURE uchar fd_system_program_instruction_is_allocate(fd_system_program_instruction_t const * self);
+FD_FN_PURE uchar fd_system_program_instruction_is_allocate_with_seed(fd_system_program_instruction_t const * self);
+FD_FN_PURE uchar fd_system_program_instruction_is_assign_with_seed(fd_system_program_instruction_t const * self);
+FD_FN_PURE uchar fd_system_program_instruction_is_transfer_with_seed(fd_system_program_instruction_t const * self);
+FD_FN_PURE uchar fd_system_program_instruction_is_upgrade_nonce_account(fd_system_program_instruction_t const * self);
 enum {
   fd_system_program_instruction_enum_create_account = 0,
   fd_system_program_instruction_enum_assign = 1,
@@ -2017,15 +2017,15 @@ void fd_system_error_destroy(fd_system_error_t* self, fd_bincode_destroy_ctx_t *
 void fd_system_error_walk(fd_system_error_t* self, fd_walk_fun_t fun, const char *name, int level);
 ulong fd_system_error_size(fd_system_error_t* self);
 
-uchar fd_system_error_is_account_already_in_use(fd_system_error_t* self);
-uchar fd_system_error_is_result_with_negative_lamports(fd_system_error_t* self);
-uchar fd_system_error_is_invalid_program_id(fd_system_error_t* self);
-uchar fd_system_error_is_invalid_account_data_length(fd_system_error_t* self);
-uchar fd_system_error_is_max_seed_length_exceeded(fd_system_error_t* self);
-uchar fd_system_error_is_address_with_seed_mismatch(fd_system_error_t* self);
-uchar fd_system_error_is_nonce_no_recent_blockhashes(fd_system_error_t* self);
-uchar fd_system_error_is_nonce_blockhash_not_expired(fd_system_error_t* self);
-uchar fd_system_error_is_nonce_unexpected_blockhash_value(fd_system_error_t* self);
+FD_FN_PURE uchar fd_system_error_is_account_already_in_use(fd_system_error_t const * self);
+FD_FN_PURE uchar fd_system_error_is_result_with_negative_lamports(fd_system_error_t const * self);
+FD_FN_PURE uchar fd_system_error_is_invalid_program_id(fd_system_error_t const * self);
+FD_FN_PURE uchar fd_system_error_is_invalid_account_data_length(fd_system_error_t const * self);
+FD_FN_PURE uchar fd_system_error_is_max_seed_length_exceeded(fd_system_error_t const * self);
+FD_FN_PURE uchar fd_system_error_is_address_with_seed_mismatch(fd_system_error_t const * self);
+FD_FN_PURE uchar fd_system_error_is_nonce_no_recent_blockhashes(fd_system_error_t const * self);
+FD_FN_PURE uchar fd_system_error_is_nonce_blockhash_not_expired(fd_system_error_t const * self);
+FD_FN_PURE uchar fd_system_error_is_nonce_unexpected_blockhash_value(fd_system_error_t const * self);
 enum {
   fd_system_error_enum_account_already_in_use = 0,
   fd_system_error_enum_result_with_negative_lamports = 1,
@@ -2065,8 +2065,8 @@ void fd_stake_authorize_destroy(fd_stake_authorize_t* self, fd_bincode_destroy_c
 void fd_stake_authorize_walk(fd_stake_authorize_t* self, fd_walk_fun_t fun, const char *name, int level);
 ulong fd_stake_authorize_size(fd_stake_authorize_t* self);
 
-uchar fd_stake_authorize_is_staker(fd_stake_authorize_t* self);
-uchar fd_stake_authorize_is_withdrawer(fd_stake_authorize_t* self);
+FD_FN_PURE uchar fd_stake_authorize_is_staker(fd_stake_authorize_t const * self);
+FD_FN_PURE uchar fd_stake_authorize_is_withdrawer(fd_stake_authorize_t const * self);
 enum {
   fd_stake_authorize_enum_staker = 0,
   fd_stake_authorize_enum_withdrawer = 1,
@@ -2113,19 +2113,19 @@ void fd_stake_instruction_destroy(fd_stake_instruction_t* self, fd_bincode_destr
 void fd_stake_instruction_walk(fd_stake_instruction_t* self, fd_walk_fun_t fun, const char *name, int level);
 ulong fd_stake_instruction_size(fd_stake_instruction_t* self);
 
-uchar fd_stake_instruction_is_initialize(fd_stake_instruction_t* self);
-uchar fd_stake_instruction_is_authorize(fd_stake_instruction_t* self);
-uchar fd_stake_instruction_is_delegate_stake(fd_stake_instruction_t* self);
-uchar fd_stake_instruction_is_split(fd_stake_instruction_t* self);
-uchar fd_stake_instruction_is_withdraw(fd_stake_instruction_t* self);
-uchar fd_stake_instruction_is_deactivate(fd_stake_instruction_t* self);
-uchar fd_stake_instruction_is_set_lockup(fd_stake_instruction_t* self);
-uchar fd_stake_instruction_is_merge(fd_stake_instruction_t* self);
-uchar fd_stake_instruction_is_authorize_with_seed(fd_stake_instruction_t* self);
-uchar fd_stake_instruction_is_initialize_checked(fd_stake_instruction_t* self);
-uchar fd_stake_instruction_is_authorize_checked(fd_stake_instruction_t* self);
-uchar fd_stake_instruction_is_authorize_checked_with_seed(fd_stake_instruction_t* self);
-uchar fd_stake_instruction_is_set_lockup_checked(fd_stake_instruction_t* self);
+FD_FN_PURE uchar fd_stake_instruction_is_initialize(fd_stake_instruction_t const * self);
+FD_FN_PURE uchar fd_stake_instruction_is_authorize(fd_stake_instruction_t const * self);
+FD_FN_PURE uchar fd_stake_instruction_is_delegate_stake(fd_stake_instruction_t const * self);
+FD_FN_PURE uchar fd_stake_instruction_is_split(fd_stake_instruction_t const * self);
+FD_FN_PURE uchar fd_stake_instruction_is_withdraw(fd_stake_instruction_t const * self);
+FD_FN_PURE uchar fd_stake_instruction_is_deactivate(fd_stake_instruction_t const * self);
+FD_FN_PURE uchar fd_stake_instruction_is_set_lockup(fd_stake_instruction_t const * self);
+FD_FN_PURE uchar fd_stake_instruction_is_merge(fd_stake_instruction_t const * self);
+FD_FN_PURE uchar fd_stake_instruction_is_authorize_with_seed(fd_stake_instruction_t const * self);
+FD_FN_PURE uchar fd_stake_instruction_is_initialize_checked(fd_stake_instruction_t const * self);
+FD_FN_PURE uchar fd_stake_instruction_is_authorize_checked(fd_stake_instruction_t const * self);
+FD_FN_PURE uchar fd_stake_instruction_is_authorize_checked_with_seed(fd_stake_instruction_t const * self);
+FD_FN_PURE uchar fd_stake_instruction_is_set_lockup_checked(fd_stake_instruction_t const * self);
 enum {
   fd_stake_instruction_enum_initialize = 0,
   fd_stake_instruction_enum_authorize = 1,
@@ -2169,10 +2169,10 @@ void fd_stake_state_destroy(fd_stake_state_t* self, fd_bincode_destroy_ctx_t * c
 void fd_stake_state_walk(fd_stake_state_t* self, fd_walk_fun_t fun, const char *name, int level);
 ulong fd_stake_state_size(fd_stake_state_t* self);
 
-uchar fd_stake_state_is_uninitialized(fd_stake_state_t* self);
-uchar fd_stake_state_is_initialized(fd_stake_state_t* self);
-uchar fd_stake_state_is_stake(fd_stake_state_t* self);
-uchar fd_stake_state_is_rewards_pool(fd_stake_state_t* self);
+FD_FN_PURE uchar fd_stake_state_is_uninitialized(fd_stake_state_t const * self);
+FD_FN_PURE uchar fd_stake_state_is_initialized(fd_stake_state_t const * self);
+FD_FN_PURE uchar fd_stake_state_is_stake(fd_stake_state_t const * self);
+FD_FN_PURE uchar fd_stake_state_is_rewards_pool(fd_stake_state_t const * self);
 enum {
   fd_stake_state_enum_uninitialized = 0,
   fd_stake_state_enum_initialized = 1,
@@ -2193,8 +2193,8 @@ void fd_nonce_state_destroy(fd_nonce_state_t* self, fd_bincode_destroy_ctx_t * c
 void fd_nonce_state_walk(fd_nonce_state_t* self, fd_walk_fun_t fun, const char *name, int level);
 ulong fd_nonce_state_size(fd_nonce_state_t* self);
 
-uchar fd_nonce_state_is_uninitialized(fd_nonce_state_t* self);
-uchar fd_nonce_state_is_initialized(fd_nonce_state_t* self);
+FD_FN_PURE uchar fd_nonce_state_is_uninitialized(fd_nonce_state_t const * self);
+FD_FN_PURE uchar fd_nonce_state_is_initialized(fd_nonce_state_t const * self);
 enum {
   fd_nonce_state_enum_uninitialized = 0,
   fd_nonce_state_enum_initialized = 1,
@@ -2206,8 +2206,8 @@ void fd_nonce_state_versions_destroy(fd_nonce_state_versions_t* self, fd_bincode
 void fd_nonce_state_versions_walk(fd_nonce_state_versions_t* self, fd_walk_fun_t fun, const char *name, int level);
 ulong fd_nonce_state_versions_size(fd_nonce_state_versions_t* self);
 
-uchar fd_nonce_state_versions_is_legacy(fd_nonce_state_versions_t* self);
-uchar fd_nonce_state_versions_is_current(fd_nonce_state_versions_t* self);
+FD_FN_PURE uchar fd_nonce_state_versions_is_legacy(fd_nonce_state_versions_t const * self);
+FD_FN_PURE uchar fd_nonce_state_versions_is_current(fd_nonce_state_versions_t const * self);
 enum {
   fd_nonce_state_versions_enum_legacy = 0,
   fd_nonce_state_versions_enum_current = 1,
@@ -2226,10 +2226,10 @@ void fd_compute_budget_program_instruction_destroy(fd_compute_budget_program_ins
 void fd_compute_budget_program_instruction_walk(fd_compute_budget_program_instruction_t* self, fd_walk_fun_t fun, const char *name, int level);
 ulong fd_compute_budget_program_instruction_size(fd_compute_budget_program_instruction_t* self);
 
-uchar fd_compute_budget_program_instruction_is_request_units_deprecated(fd_compute_budget_program_instruction_t* self);
-uchar fd_compute_budget_program_instruction_is_request_heap_frame(fd_compute_budget_program_instruction_t* self);
-uchar fd_compute_budget_program_instruction_is_set_compute_unit_limit(fd_compute_budget_program_instruction_t* self);
-uchar fd_compute_budget_program_instruction_is_set_compute_unit_price(fd_compute_budget_program_instruction_t* self);
+FD_FN_PURE uchar fd_compute_budget_program_instruction_is_request_units_deprecated(fd_compute_budget_program_instruction_t const * self);
+FD_FN_PURE uchar fd_compute_budget_program_instruction_is_request_heap_frame(fd_compute_budget_program_instruction_t const * self);
+FD_FN_PURE uchar fd_compute_budget_program_instruction_is_set_compute_unit_limit(fd_compute_budget_program_instruction_t const * self);
+FD_FN_PURE uchar fd_compute_budget_program_instruction_is_set_compute_unit_price(fd_compute_budget_program_instruction_t const * self);
 enum {
   fd_compute_budget_program_instruction_enum_request_units_deprecated = 0,
   fd_compute_budget_program_instruction_enum_request_heap_frame = 1,

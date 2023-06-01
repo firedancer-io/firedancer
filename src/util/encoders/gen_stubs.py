@@ -1,4 +1,4 @@
-# This stub generator is horrible...  the resulting code is horrible...  please... rewrite 
+# This stub generator is horrible...  the resulting code is horrible...  please... rewrite
 
 import json
 import sys
@@ -55,7 +55,7 @@ def vector_dynamic_elem_type(n, f):
       return "uint"
   else:
       return n + "_" + f["element"] + "_t"
-  
+
 def vector_dynamic_prefix(n, f):
     return n + "_vec_" + vector_dynamic_elem_type(n, f)
 
@@ -67,7 +67,7 @@ def do_map_header(n, f):
     nodename = element_type + "_mapnode_t"
     print("  " + nodename + "* " + f["name"] + "_pool;", file=header)
     print("  " + nodename + "* " + f["name"] + "_root;", file=header)
-  
+
 def do_option_header(n, f):
       if f["element"] == "ulong" or f["element"] == "unsigned long":
           print("  " + f["element"] + "* " + f["name"] + ";", file=header)
@@ -87,7 +87,7 @@ def do_array_header(n, f):
         print("  " + f["element"] + " " + f["name"] + "[" + str(length) + "];", file=header)
     else:
         print("  " + n + "_" + f["element"] + "_t " + f["name"] + "[" + str(length) + "];", file=header)
-    
+
 fields_header = {
     "char" :              lambda n, f: print("  char " + f["name"] + ";",              file=header),
     "char*" :             lambda n, f: print("  char* " + f["name"] + ";",             file=header),
@@ -130,7 +130,7 @@ def do_vector_body_decode(n, f):
             print("    self->" + f["name"] + " = (uint*)(*ctx->allocf)(ctx->allocf_arg, 8UL, sizeof(uint)*self->" + f["name"] + "_len);", file=body)
         else:
             print("    self->" + f["name"] + " = (" + n + "_" + f["element"] + "_t*)(*ctx->allocf)(ctx->allocf_arg, " + el + "_ALIGN, " + el + "_FOOTPRINT*self->" + f["name"] + "_len);", file=body)
-            
+
         print("    for (ulong i = 0; i < self->" + f["name"] + "_len; ++i) {", file=body)
 
         if f["element"] == "ulong" or f["element"] == "unsigned long":
@@ -142,10 +142,10 @@ def do_vector_body_decode(n, f):
             print("    }", file=body)
             print("    for (ulong i = 0; i < self->" + f["name"] + "_len; ++i) {", file=body)
             print("      err = " + n + "_" + f["element"] + "_decode(self->" + f["name"] + " + i, ctx);", file=body)
-            
+
         print("      if ( FD_UNLIKELY(err) ) return err;", file=body)
         print("    }", file=body)
-        
+
     print("  } else", file=body)
     print("    self->" + f["name"] + " = NULL;", file=body)
 
@@ -164,7 +164,7 @@ def do_vector_dynamic_body_decode(n, f):
     el = el.upper()
 
     print("  for (ulong i = 0; i < " + f["name"] + "_len; ++i) {", file=body)
-    print("    " + vector_dynamic_elem_type(n, f) + " elem;", file=body); 
+    print("    " + vector_dynamic_elem_type(n, f) + " elem;", file=body);
 
     if f["element"] == "ulong" or f["element"] == "unsigned long":
         print("    err = fd_bincode_uint64_decode(&elem, ctx);", file=body)
@@ -182,7 +182,7 @@ def do_map_body_decode(n, f):
     element_type = vector_dynamic_elem_type(n, f)
     mapname = element_type + "_map"
     nodename = element_type + "_mapnode_t"
-    
+
     if "modifier" in f and f["modifier"] == "compact":
         print("  ushort " + f["name"] + "_len;", file=body)
         print("  err = fd_bincode_compact_u16_decode(&" + f["name"] + "_len, ctx);", file=body)
@@ -195,7 +195,7 @@ def do_map_body_decode(n, f):
     print("  self->" + f["name"] + "_pool = " + mapname + "_join(" + mapname + "_new(" + f["name"] + "_mem, " + f["name"] + "_len));", file=body)
     print("  self->" + f["name"] + "_root = NULL;", file=body)
     print("  for (ulong i = 0; i < " + f["name"] + "_len; ++i) {", file=body)
-    print("    " + nodename + "* node = " + mapname + "_acquire(self->" + f["name"] + "_pool);", file=body); 
+    print("    " + nodename + "* node = " + mapname + "_acquire(self->" + f["name"] + "_pool);", file=body);
     print("    " + n + "_" + f["element"] + "_new(&node->elem);", file=body)
     print("    err = " + n + "_" + f["element"] + "_decode(&node->elem, ctx);", file=body)
     print("    if ( FD_UNLIKELY(err) ) return err;", file=body)
@@ -223,7 +223,7 @@ def do_array_body_decode(n, f):
     else:
         print("      err = " + n + "_" + f["element"] + "_decode(self->" + f["name"] + " + i, ctx);", file=body)
     print("      if ( FD_UNLIKELY(err) ) return err;", file=body)
-    
+
     print("    }", file=body)
 
 def do_option_body_decode(n, f):
@@ -249,7 +249,7 @@ def do_option_body_decode(n, f):
     print("      self->" + f["name"] + " = NULL;", file=body)
     print("  }", file=body)
 
-def do_string_decode(n, f):    
+def do_string_decode(n, f):
     print("  ulong slen;", file=body)
     print("  err = fd_bincode_uint64_decode(&slen, ctx);", file=body)
     print("  if ( FD_UNLIKELY(err) ) return err;", file=body)
@@ -258,7 +258,7 @@ def do_string_decode(n, f):
     print("  if ( FD_UNLIKELY(err) ) return err;", file=body)
     print("  self->" + f["name"] + "[slen] = '\\0';", file=body)
 
-def do_ulong_decode(n, f):    
+def do_ulong_decode(n, f):
     if "modifier" in f and f["modifier"] == "varint":
         print("  err = fd_bincode_varint_decode(&self->" + f["name"] + ", ctx);", file=body),
     else:
@@ -309,9 +309,9 @@ def do_vector_body_encode(n, f):
         else:
             print("      err = " + n + "_" + f["element"] + "_encode(self->" + f["name"] + " + i, ctx);", file=body)
             print("      if ( FD_UNLIKELY(err) ) return err;", file=body)
-    
+
         print("    }", file=body)
-        
+
     print("  }", file=body)
 
 
@@ -330,7 +330,7 @@ def do_vector_dynamic_body_encode(n, f):
 
     else:
         print("   for (ulong i = 0; i < self->" + f["name"] + ".cnt; ++i) {", file=body)
-        
+
         if f["element"] == "ulong" or f["element"] == "unsigned long":
             print("   err = fd_bincode_uint64_encode(&self->" + f["name"] + ".elems[i], ctx);", file=body)
         elif f["element"] == "uint" or f["element"] == "unsigned int":
@@ -338,14 +338,14 @@ def do_vector_dynamic_body_encode(n, f):
         else:
             print("   err = " + n + "_" + f["element"] + "_encode(&self->" + f["name"] + ".elems[i], ctx);", file=body)
         print("     if ( FD_UNLIKELY(err) ) return err;", file=body)
-        
+
         print("   }", file=body)
 
 def do_map_body_encode(n, f):
     element_type = vector_dynamic_elem_type(n, f)
     mapname = element_type + "_map"
     nodename = element_type + "_mapnode_t"
-    
+
     if "modifier" in f and f["modifier"] == "compact":
         print("  ushort " + f["name"] + "_len = (ushort)" + mapname + "_size(self->" + f["name"] + "_pool, self->" + f["name"] + "_root);", file=body)
         print("  err = fd_bincode_compact_u16_encode(&" + f["name"] + "_len, ctx);", file=body)
@@ -353,12 +353,12 @@ def do_map_body_encode(n, f):
         print("  ulong " + f["name"] + "_len = " + mapname + "_size(self->" + f["name"] + "_pool, self->" + f["name"] + "_root);", file=body)
         print("  err = fd_bincode_uint64_encode(&" + f["name"] + "_len, ctx);", file=body)
     print("  if ( FD_UNLIKELY(err) ) return err;", file=body)
-    
+
     print("  for ( " + nodename + "* n = " + mapname + "_minimum(self->" + f["name"] + "_pool, self->" + f["name"] + "_root); n; n = " + mapname + "_successor(self->" + f["name"] + "_pool, n) ) {", file=body);
     print("    err = " + n + "_" + f["element"] + "_encode(&n->elem, ctx);", file=body)
     print("    if ( FD_UNLIKELY(err) ) return err;", file=body)
     print("  }", file=body)
-        
+
 def do_array_body_encode(n, f):
     length = f["length"]
 
@@ -368,7 +368,7 @@ def do_array_body_encode(n, f):
 
     else:
         print("  for (ulong i = 0; i < " + length + "; ++i) {", file=body)
-        
+
         if f["element"] == "ulong" or f["element"] == "unsigned long":
             print("    err = fd_bincode_uint64_encode(self->" + f["name"] + " + i, ctx);", file=body)
         elif f["element"] == "uint" or f["element"] == "unsigned int":
@@ -396,7 +396,7 @@ def do_option_body_encode(n, f):
     print("    if ( FD_UNLIKELY(err) ) return err;", file=body)
     print("  }", file=body)
 
-def do_string_encode(n, f):    
+def do_string_encode(n, f):
     print("  ulong slen = strlen((char *) self->" + f["name"]+");", file=body)
     print("  err = fd_bincode_uint64_encode(&slen, ctx);", file=body)
     print("  if ( FD_UNLIKELY(err) ) return err;", file=body)
@@ -460,7 +460,7 @@ def do_map_body_size(n, f):
     element_type = vector_dynamic_elem_type(n, f)
     mapname = element_type + "_map"
     nodename = element_type + "_mapnode_t"
-    
+
     if "modifier" in f and f["modifier"] == "compact":
         print("  size += sizeof(ushort);", file=body)
     else:
@@ -468,7 +468,7 @@ def do_map_body_size(n, f):
     print("  for ( " + nodename + "* n = " + mapname + "_minimum(self->" + f["name"] + "_pool, self->" + f["name"] + "_root); n; n = " + mapname + "_successor(self->" + f["name"] + "_pool, n) ) {", file=body);
     print("      size += " + n + "_" + f["element"] + "_size(&n->elem);", file=body)
     print("  }", file=body)
-        
+
 def do_array_body_size(n, f):
     length = f["length"]
 
@@ -496,7 +496,7 @@ def do_option_body_size(n, f):
         print("    size += " + n + "_" + f["element"] + "_size(self->" + f["name"] + ");", file=body)
     print("  }", file=body)
 
-def do_string_size(n, f):    
+def do_string_size(n, f):
     print("  size += sizeof(ulong) + strlen(self->" + f["name"] + ");", file=body)
 
 fields_body_size = {
@@ -531,7 +531,7 @@ def do_vector_dynamic_body_new(n, f):
 def do_map_body_new(n, f):
     print("  self->" + f["name"] + "_pool = NULL;", file=body)
     print("  self->" + f["name"] + "_root = NULL;", file=body)
-        
+
 def do_array_body_new(n, f):
     length = f["length"]
 
@@ -596,14 +596,14 @@ def do_map_body_destroy(n, f):
     element_type = vector_dynamic_elem_type(n, f)
     mapname = element_type + "_map"
     nodename = element_type + "_mapnode_t"
-    
+
     print("  for ( " + nodename + "* n = " + mapname + "_minimum(self->" + f["name"] + "_pool, self->" + f["name"] + "_root); n; n = " + mapname + "_successor(self->" + f["name"] + "_pool, n) ) {", file=body);
     print("    " + n + "_" + f["element"] + "_destroy(&n->elem, ctx);", file=body)
     print("  }", file=body)
     print("  (*ctx->freef)(ctx->freef_arg, " + mapname + "_delete(" + mapname + "_leave(self->" + f["name"] + "_pool)));", file=body)
     print("  self->" + f["name"] + "_pool = NULL;", file=body)
     print("  self->" + f["name"] + "_root = NULL;", file=body)
-        
+
 def do_array_body_destroy(n, f):
     length = f["length"]
 
@@ -699,7 +699,7 @@ def do_map_body_walk(n, f):
 #    element_type = vector_dynamic_elem_type(n, f)
 #    mapname = element_type + "_map"
 #    nodename = element_type + "_mapnode_t"
-#    
+#
 #    if "modifier" in f and f["modifier"] == "compact":
 #        print("  ushort " + f["name"] + "_len = (ushort)" + mapname + "_size(self->" + f["name"] + ", self->" + f["name"] + "_root);", file=body)
 #        print("  fd_walk_short_u16(&" + f["name"] + "_len, ctx);", file=body)
@@ -709,7 +709,7 @@ def do_map_body_walk(n, f):
 #    print("  for ( " + nodename + "* n = " + mapname + "_minimum(self->" + f["name"] + ", self->" + f["name"] + "_root); n; n = " + mapname + "_successor(self->" + f["name"] + ", n) ) {", file=body);
 #    print("      " + n + "_" + f["element"] + "_walk(&n->elem, ctx);", file=body)
 #    print("  }", file=body)
-        
+
 def do_array_body_walk(n, f):
     length = f["length"]
 
@@ -805,7 +805,7 @@ for entry in entries:
             element_type = vector_dynamic_elem_type(namespace, f)
             if element_type in map_element_types:
                 continue
-            
+
             mapname = element_type + "_map"
             nodename = element_type + "_mapnode"
             print(f"typedef struct {nodename} {nodename}_t;", file=header)
@@ -829,7 +829,7 @@ for entry in entries:
       print("/* " + entry["comment"] + " */", file=header)
 
     n = namespace + "_" + entry["name"]
-    
+
     if "attribute" in entry:
         a = "__attribute__" + entry["attribute"] + " "
     else:
@@ -848,7 +848,7 @@ for entry in entries:
 
     elif "type" in entry and entry["type"] == "enum":
       print("union "+ a + n + "_inner {", file=header)
-      
+
       empty = True
       for v in entry["variants"]:
           if "type" in v:
@@ -895,8 +895,8 @@ for entry in entries:
 
     if entry["type"] == "enum":
         for i, v in enumerate(entry["variants"]):
-            print("uchar " + n + "_is_"+ v["name"] + "(" + n + "_t* self);", file=header)
-            print("uchar " + n + "_is_"+ v["name"] + "(" + n + "_t* self) {", file=body)
+            print("FD_FN_PURE uchar " + n + "_is_"+ v["name"] + "(" + n + "_t const * self);", file=header)
+            print("FD_FN_PURE uchar " + n + "_is_"+ v["name"] + "(" + n + "_t const * self) {", file=body)
             print("  return self->discriminant == " + str(i) + ";", file=body)
             print("}", file=body)
         print("enum {", file=header)
@@ -911,7 +911,7 @@ for entry in entries:
         print("  " + n + "_inner_new(self, discriminant);", file=body)
         print("  int err;", file=body)
         print("  switch (discriminant) {", file=body)
-        
+
         for i, v in enumerate(entry["variants"]):
             print("  case "+ str(i) +": {", file=body)
             if "type" in v:
@@ -945,7 +945,7 @@ for entry in entries:
               print("  if ( FD_UNLIKELY(err) ) return err;", file=body)
       print("  return FD_BINCODE_SUCCESS;", file=body)
       print("}", file=body)
-      
+
     if entry["type"] == "enum":
       print("void " + n + "_inner_new(" + n + "_inner_t* self, uint discriminant) {", file=body)
       print("  switch (discriminant) {", file=body)
@@ -1018,7 +1018,7 @@ for entry in entries:
     print("}", file=body)
 
     print("ulong " + n + "_size(" + n + "_t* self) {", file=body)
-    
+
     if entry["type"] == "enum":
       print("  ulong size = 0;", file=body)
       print("  size += sizeof(uint);", file=body)
@@ -1097,7 +1097,7 @@ for (element_type,key) in map_element_types.items():
     print(f"long {mapname}_compare({nodename} * left, {nodename} * right) {{", file=body)
     print(f"  return (long)(left->elem.{key} - right->elem.{key});", file=body)
     print(f"}}", file=body)
-    
+
 print("FD_PROTOTYPES_END", file=header)
 print("", file=header)
 print("#endif // HEADER_" + json_object["name"].upper(), file=header)

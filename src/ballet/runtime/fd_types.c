@@ -3597,10 +3597,10 @@ int fd_vote_state_encode(fd_vote_state_t* self, fd_bincode_encode_ctx_t * ctx) {
   return FD_BINCODE_SUCCESS;
 }
 
-uchar fd_vote_state_versioned_is_v0_23_5(fd_vote_state_versioned_t* self) {
+FD_FN_PURE uchar fd_vote_state_versioned_is_v0_23_5(fd_vote_state_versioned_t const * self) {
   return self->discriminant == 0;
 }
-uchar fd_vote_state_versioned_is_current(fd_vote_state_versioned_t* self) {
+FD_FN_PURE uchar fd_vote_state_versioned_is_current(fd_vote_state_versioned_t const * self) {
   return self->discriminant == 1;
 }
 void fd_vote_state_versioned_inner_new(fd_vote_state_versioned_inner_t* self, uint discriminant);
@@ -4881,10 +4881,10 @@ int fd_vote_init_encode(fd_vote_init_t* self, fd_bincode_encode_ctx_t * ctx) {
   return FD_BINCODE_SUCCESS;
 }
 
-uchar fd_vote_authorize_is_voter(fd_vote_authorize_t* self) {
+FD_FN_PURE uchar fd_vote_authorize_is_voter(fd_vote_authorize_t const * self) {
   return self->discriminant == 0;
 }
-uchar fd_vote_authorize_is_withdrawer(fd_vote_authorize_t* self) {
+FD_FN_PURE uchar fd_vote_authorize_is_withdrawer(fd_vote_authorize_t const * self) {
   return self->discriminant == 1;
 }
 void fd_vote_authorize_inner_new(fd_vote_authorize_inner_t* self, uint discriminant);
@@ -5200,46 +5200,46 @@ int fd_vote_authorize_checked_with_seed_args_encode(fd_vote_authorize_checked_wi
   return FD_BINCODE_SUCCESS;
 }
 
-uchar fd_vote_instruction_is_initialize_account(fd_vote_instruction_t* self) {
+FD_FN_PURE uchar fd_vote_instruction_is_initialize_account(fd_vote_instruction_t const * self) {
   return self->discriminant == 0;
 }
-uchar fd_vote_instruction_is_authorize(fd_vote_instruction_t* self) {
+FD_FN_PURE uchar fd_vote_instruction_is_authorize(fd_vote_instruction_t const * self) {
   return self->discriminant == 1;
 }
-uchar fd_vote_instruction_is_vote(fd_vote_instruction_t* self) {
+FD_FN_PURE uchar fd_vote_instruction_is_vote(fd_vote_instruction_t const * self) {
   return self->discriminant == 2;
 }
-uchar fd_vote_instruction_is_withdraw(fd_vote_instruction_t* self) {
+FD_FN_PURE uchar fd_vote_instruction_is_withdraw(fd_vote_instruction_t const * self) {
   return self->discriminant == 3;
 }
-uchar fd_vote_instruction_is_update_validator_identity(fd_vote_instruction_t* self) {
+FD_FN_PURE uchar fd_vote_instruction_is_update_validator_identity(fd_vote_instruction_t const * self) {
   return self->discriminant == 4;
 }
-uchar fd_vote_instruction_is_update_commission(fd_vote_instruction_t* self) {
+FD_FN_PURE uchar fd_vote_instruction_is_update_commission(fd_vote_instruction_t const * self) {
   return self->discriminant == 5;
 }
-uchar fd_vote_instruction_is_vote_switch(fd_vote_instruction_t* self) {
+FD_FN_PURE uchar fd_vote_instruction_is_vote_switch(fd_vote_instruction_t const * self) {
   return self->discriminant == 6;
 }
-uchar fd_vote_instruction_is_authorize_checked(fd_vote_instruction_t* self) {
+FD_FN_PURE uchar fd_vote_instruction_is_authorize_checked(fd_vote_instruction_t const * self) {
   return self->discriminant == 7;
 }
-uchar fd_vote_instruction_is_update_vote_state(fd_vote_instruction_t* self) {
+FD_FN_PURE uchar fd_vote_instruction_is_update_vote_state(fd_vote_instruction_t const * self) {
   return self->discriminant == 8;
 }
-uchar fd_vote_instruction_is_update_vote_state_switch(fd_vote_instruction_t* self) {
+FD_FN_PURE uchar fd_vote_instruction_is_update_vote_state_switch(fd_vote_instruction_t const * self) {
   return self->discriminant == 9;
 }
-uchar fd_vote_instruction_is_authorize_with_seed(fd_vote_instruction_t* self) {
+FD_FN_PURE uchar fd_vote_instruction_is_authorize_with_seed(fd_vote_instruction_t const * self) {
   return self->discriminant == 10;
 }
-uchar fd_vote_instruction_is_authorize_checked_with_seed(fd_vote_instruction_t* self) {
+FD_FN_PURE uchar fd_vote_instruction_is_authorize_checked_with_seed(fd_vote_instruction_t const * self) {
   return self->discriminant == 11;
 }
-uchar fd_vote_instruction_is_compact_update_vote_state(fd_vote_instruction_t* self) {
+FD_FN_PURE uchar fd_vote_instruction_is_compact_update_vote_state(fd_vote_instruction_t const * self) {
   return self->discriminant == 12;
 }
-uchar fd_vote_instruction_is_compact_update_vote_state_switch(fd_vote_instruction_t* self) {
+FD_FN_PURE uchar fd_vote_instruction_is_compact_update_vote_state_switch(fd_vote_instruction_t const * self) {
   return self->discriminant == 13;
 }
 void fd_vote_instruction_inner_new(fd_vote_instruction_inner_t* self, uint discriminant);
@@ -5859,43 +5859,43 @@ int fd_system_program_instruction_transfer_with_seed_encode(fd_system_program_in
   return FD_BINCODE_SUCCESS;
 }
 
-uchar fd_system_program_instruction_is_create_account(fd_system_program_instruction_t* self) {
+FD_FN_PURE uchar fd_system_program_instruction_is_create_account(fd_system_program_instruction_t const * self) {
   return self->discriminant == 0;
 }
-uchar fd_system_program_instruction_is_assign(fd_system_program_instruction_t* self) {
+FD_FN_PURE uchar fd_system_program_instruction_is_assign(fd_system_program_instruction_t const * self) {
   return self->discriminant == 1;
 }
-uchar fd_system_program_instruction_is_transfer(fd_system_program_instruction_t* self) {
+FD_FN_PURE uchar fd_system_program_instruction_is_transfer(fd_system_program_instruction_t const * self) {
   return self->discriminant == 2;
 }
-uchar fd_system_program_instruction_is_create_account_with_seed(fd_system_program_instruction_t* self) {
+FD_FN_PURE uchar fd_system_program_instruction_is_create_account_with_seed(fd_system_program_instruction_t const * self) {
   return self->discriminant == 3;
 }
-uchar fd_system_program_instruction_is_advance_nonce_account(fd_system_program_instruction_t* self) {
+FD_FN_PURE uchar fd_system_program_instruction_is_advance_nonce_account(fd_system_program_instruction_t const * self) {
   return self->discriminant == 4;
 }
-uchar fd_system_program_instruction_is_withdraw_nonce_account(fd_system_program_instruction_t* self) {
+FD_FN_PURE uchar fd_system_program_instruction_is_withdraw_nonce_account(fd_system_program_instruction_t const * self) {
   return self->discriminant == 5;
 }
-uchar fd_system_program_instruction_is_initialize_nonce_account(fd_system_program_instruction_t* self) {
+FD_FN_PURE uchar fd_system_program_instruction_is_initialize_nonce_account(fd_system_program_instruction_t const * self) {
   return self->discriminant == 6;
 }
-uchar fd_system_program_instruction_is_authorize_nonce_account(fd_system_program_instruction_t* self) {
+FD_FN_PURE uchar fd_system_program_instruction_is_authorize_nonce_account(fd_system_program_instruction_t const * self) {
   return self->discriminant == 7;
 }
-uchar fd_system_program_instruction_is_allocate(fd_system_program_instruction_t* self) {
+FD_FN_PURE uchar fd_system_program_instruction_is_allocate(fd_system_program_instruction_t const * self) {
   return self->discriminant == 8;
 }
-uchar fd_system_program_instruction_is_allocate_with_seed(fd_system_program_instruction_t* self) {
+FD_FN_PURE uchar fd_system_program_instruction_is_allocate_with_seed(fd_system_program_instruction_t const * self) {
   return self->discriminant == 9;
 }
-uchar fd_system_program_instruction_is_assign_with_seed(fd_system_program_instruction_t* self) {
+FD_FN_PURE uchar fd_system_program_instruction_is_assign_with_seed(fd_system_program_instruction_t const * self) {
   return self->discriminant == 10;
 }
-uchar fd_system_program_instruction_is_transfer_with_seed(fd_system_program_instruction_t* self) {
+FD_FN_PURE uchar fd_system_program_instruction_is_transfer_with_seed(fd_system_program_instruction_t const * self) {
   return self->discriminant == 11;
 }
-uchar fd_system_program_instruction_is_upgrade_nonce_account(fd_system_program_instruction_t* self) {
+FD_FN_PURE uchar fd_system_program_instruction_is_upgrade_nonce_account(fd_system_program_instruction_t const * self) {
   return self->discriminant == 12;
 }
 void fd_system_program_instruction_inner_new(fd_system_program_instruction_inner_t* self, uint discriminant);
@@ -6193,31 +6193,31 @@ int fd_system_program_instruction_encode(fd_system_program_instruction_t* self, 
   return fd_system_program_instruction_inner_encode(&self->inner, self->discriminant, ctx);
 }
 
-uchar fd_system_error_is_account_already_in_use(fd_system_error_t* self) {
+FD_FN_PURE uchar fd_system_error_is_account_already_in_use(fd_system_error_t const * self) {
   return self->discriminant == 0;
 }
-uchar fd_system_error_is_result_with_negative_lamports(fd_system_error_t* self) {
+FD_FN_PURE uchar fd_system_error_is_result_with_negative_lamports(fd_system_error_t const * self) {
   return self->discriminant == 1;
 }
-uchar fd_system_error_is_invalid_program_id(fd_system_error_t* self) {
+FD_FN_PURE uchar fd_system_error_is_invalid_program_id(fd_system_error_t const * self) {
   return self->discriminant == 2;
 }
-uchar fd_system_error_is_invalid_account_data_length(fd_system_error_t* self) {
+FD_FN_PURE uchar fd_system_error_is_invalid_account_data_length(fd_system_error_t const * self) {
   return self->discriminant == 3;
 }
-uchar fd_system_error_is_max_seed_length_exceeded(fd_system_error_t* self) {
+FD_FN_PURE uchar fd_system_error_is_max_seed_length_exceeded(fd_system_error_t const * self) {
   return self->discriminant == 4;
 }
-uchar fd_system_error_is_address_with_seed_mismatch(fd_system_error_t* self) {
+FD_FN_PURE uchar fd_system_error_is_address_with_seed_mismatch(fd_system_error_t const * self) {
   return self->discriminant == 5;
 }
-uchar fd_system_error_is_nonce_no_recent_blockhashes(fd_system_error_t* self) {
+FD_FN_PURE uchar fd_system_error_is_nonce_no_recent_blockhashes(fd_system_error_t const * self) {
   return self->discriminant == 6;
 }
-uchar fd_system_error_is_nonce_blockhash_not_expired(fd_system_error_t* self) {
+FD_FN_PURE uchar fd_system_error_is_nonce_blockhash_not_expired(fd_system_error_t const * self) {
   return self->discriminant == 7;
 }
-uchar fd_system_error_is_nonce_unexpected_blockhash_value(fd_system_error_t* self) {
+FD_FN_PURE uchar fd_system_error_is_nonce_unexpected_blockhash_value(fd_system_error_t const * self) {
   return self->discriminant == 8;
 }
 void fd_system_error_inner_new(fd_system_error_inner_t* self, uint discriminant);
@@ -6476,10 +6476,10 @@ int fd_stake_instruction_initialize_encode(fd_stake_instruction_initialize_t* se
   return FD_BINCODE_SUCCESS;
 }
 
-uchar fd_stake_authorize_is_staker(fd_stake_authorize_t* self) {
+FD_FN_PURE uchar fd_stake_authorize_is_staker(fd_stake_authorize_t const * self) {
   return self->discriminant == 0;
 }
-uchar fd_stake_authorize_is_withdrawer(fd_stake_authorize_t* self) {
+FD_FN_PURE uchar fd_stake_authorize_is_withdrawer(fd_stake_authorize_t const * self) {
   return self->discriminant == 1;
 }
 void fd_stake_authorize_inner_new(fd_stake_authorize_inner_t* self, uint discriminant);
@@ -6915,43 +6915,43 @@ int fd_lockup_checked_args_encode(fd_lockup_checked_args_t* self, fd_bincode_enc
   return FD_BINCODE_SUCCESS;
 }
 
-uchar fd_stake_instruction_is_initialize(fd_stake_instruction_t* self) {
+FD_FN_PURE uchar fd_stake_instruction_is_initialize(fd_stake_instruction_t const * self) {
   return self->discriminant == 0;
 }
-uchar fd_stake_instruction_is_authorize(fd_stake_instruction_t* self) {
+FD_FN_PURE uchar fd_stake_instruction_is_authorize(fd_stake_instruction_t const * self) {
   return self->discriminant == 1;
 }
-uchar fd_stake_instruction_is_delegate_stake(fd_stake_instruction_t* self) {
+FD_FN_PURE uchar fd_stake_instruction_is_delegate_stake(fd_stake_instruction_t const * self) {
   return self->discriminant == 2;
 }
-uchar fd_stake_instruction_is_split(fd_stake_instruction_t* self) {
+FD_FN_PURE uchar fd_stake_instruction_is_split(fd_stake_instruction_t const * self) {
   return self->discriminant == 3;
 }
-uchar fd_stake_instruction_is_withdraw(fd_stake_instruction_t* self) {
+FD_FN_PURE uchar fd_stake_instruction_is_withdraw(fd_stake_instruction_t const * self) {
   return self->discriminant == 4;
 }
-uchar fd_stake_instruction_is_deactivate(fd_stake_instruction_t* self) {
+FD_FN_PURE uchar fd_stake_instruction_is_deactivate(fd_stake_instruction_t const * self) {
   return self->discriminant == 5;
 }
-uchar fd_stake_instruction_is_set_lockup(fd_stake_instruction_t* self) {
+FD_FN_PURE uchar fd_stake_instruction_is_set_lockup(fd_stake_instruction_t const * self) {
   return self->discriminant == 6;
 }
-uchar fd_stake_instruction_is_merge(fd_stake_instruction_t* self) {
+FD_FN_PURE uchar fd_stake_instruction_is_merge(fd_stake_instruction_t const * self) {
   return self->discriminant == 7;
 }
-uchar fd_stake_instruction_is_authorize_with_seed(fd_stake_instruction_t* self) {
+FD_FN_PURE uchar fd_stake_instruction_is_authorize_with_seed(fd_stake_instruction_t const * self) {
   return self->discriminant == 8;
 }
-uchar fd_stake_instruction_is_initialize_checked(fd_stake_instruction_t* self) {
+FD_FN_PURE uchar fd_stake_instruction_is_initialize_checked(fd_stake_instruction_t const * self) {
   return self->discriminant == 9;
 }
-uchar fd_stake_instruction_is_authorize_checked(fd_stake_instruction_t* self) {
+FD_FN_PURE uchar fd_stake_instruction_is_authorize_checked(fd_stake_instruction_t const * self) {
   return self->discriminant == 10;
 }
-uchar fd_stake_instruction_is_authorize_checked_with_seed(fd_stake_instruction_t* self) {
+FD_FN_PURE uchar fd_stake_instruction_is_authorize_checked_with_seed(fd_stake_instruction_t const * self) {
   return self->discriminant == 11;
 }
-uchar fd_stake_instruction_is_set_lockup_checked(fd_stake_instruction_t* self) {
+FD_FN_PURE uchar fd_stake_instruction_is_set_lockup_checked(fd_stake_instruction_t const * self) {
   return self->discriminant == 12;
 }
 void fd_stake_instruction_inner_new(fd_stake_instruction_inner_t* self, uint discriminant);
@@ -7337,16 +7337,16 @@ int fd_stake_state_stake_encode(fd_stake_state_stake_t* self, fd_bincode_encode_
   return FD_BINCODE_SUCCESS;
 }
 
-uchar fd_stake_state_is_uninitialized(fd_stake_state_t* self) {
+FD_FN_PURE uchar fd_stake_state_is_uninitialized(fd_stake_state_t const * self) {
   return self->discriminant == 0;
 }
-uchar fd_stake_state_is_initialized(fd_stake_state_t* self) {
+FD_FN_PURE uchar fd_stake_state_is_initialized(fd_stake_state_t const * self) {
   return self->discriminant == 1;
 }
-uchar fd_stake_state_is_stake(fd_stake_state_t* self) {
+FD_FN_PURE uchar fd_stake_state_is_stake(fd_stake_state_t const * self) {
   return self->discriminant == 2;
 }
-uchar fd_stake_state_is_rewards_pool(fd_stake_state_t* self) {
+FD_FN_PURE uchar fd_stake_state_is_rewards_pool(fd_stake_state_t const * self) {
   return self->discriminant == 3;
 }
 void fd_stake_state_inner_new(fd_stake_state_inner_t* self, uint discriminant);
@@ -7511,10 +7511,10 @@ int fd_nonce_data_encode(fd_nonce_data_t* self, fd_bincode_encode_ctx_t * ctx) {
   return FD_BINCODE_SUCCESS;
 }
 
-uchar fd_nonce_state_is_uninitialized(fd_nonce_state_t* self) {
+FD_FN_PURE uchar fd_nonce_state_is_uninitialized(fd_nonce_state_t const * self) {
   return self->discriminant == 0;
 }
-uchar fd_nonce_state_is_initialized(fd_nonce_state_t* self) {
+FD_FN_PURE uchar fd_nonce_state_is_initialized(fd_nonce_state_t const * self) {
   return self->discriminant == 1;
 }
 void fd_nonce_state_inner_new(fd_nonce_state_inner_t* self, uint discriminant);
@@ -7603,10 +7603,10 @@ int fd_nonce_state_encode(fd_nonce_state_t* self, fd_bincode_encode_ctx_t * ctx)
   return fd_nonce_state_inner_encode(&self->inner, self->discriminant, ctx);
 }
 
-uchar fd_nonce_state_versions_is_legacy(fd_nonce_state_versions_t* self) {
+FD_FN_PURE uchar fd_nonce_state_versions_is_legacy(fd_nonce_state_versions_t const * self) {
   return self->discriminant == 0;
 }
-uchar fd_nonce_state_versions_is_current(fd_nonce_state_versions_t* self) {
+FD_FN_PURE uchar fd_nonce_state_versions_is_current(fd_nonce_state_versions_t const * self) {
   return self->discriminant == 1;
 }
 void fd_nonce_state_versions_inner_new(fd_nonce_state_versions_inner_t* self, uint discriminant);
@@ -7741,16 +7741,16 @@ int fd_compute_budget_program_instruction_request_units_deprecated_encode(fd_com
   return FD_BINCODE_SUCCESS;
 }
 
-uchar fd_compute_budget_program_instruction_is_request_units_deprecated(fd_compute_budget_program_instruction_t* self) {
+FD_FN_PURE uchar fd_compute_budget_program_instruction_is_request_units_deprecated(fd_compute_budget_program_instruction_t const * self) {
   return self->discriminant == 0;
 }
-uchar fd_compute_budget_program_instruction_is_request_heap_frame(fd_compute_budget_program_instruction_t* self) {
+FD_FN_PURE uchar fd_compute_budget_program_instruction_is_request_heap_frame(fd_compute_budget_program_instruction_t const * self) {
   return self->discriminant == 1;
 }
-uchar fd_compute_budget_program_instruction_is_set_compute_unit_limit(fd_compute_budget_program_instruction_t* self) {
+FD_FN_PURE uchar fd_compute_budget_program_instruction_is_set_compute_unit_limit(fd_compute_budget_program_instruction_t const * self) {
   return self->discriminant == 2;
 }
-uchar fd_compute_budget_program_instruction_is_set_compute_unit_price(fd_compute_budget_program_instruction_t* self) {
+FD_FN_PURE uchar fd_compute_budget_program_instruction_is_set_compute_unit_price(fd_compute_budget_program_instruction_t const * self) {
   return self->discriminant == 3;
 }
 void fd_compute_budget_program_instruction_inner_new(fd_compute_budget_program_instruction_inner_t* self, uint discriminant);
