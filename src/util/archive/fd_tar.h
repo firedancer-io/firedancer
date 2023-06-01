@@ -18,7 +18,7 @@ struct fd_tar_stream {
     size_t bufmax_;
 };
 
-inline size_t fd_tar_stream_footprint() { return sizeof(struct fd_tar_stream); }
+inline size_t fd_tar_stream_footprint( void ) { return sizeof(struct fd_tar_stream); }
 
 /*
   Initialize a fd_tar_stream data structure
