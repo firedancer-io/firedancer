@@ -9,7 +9,7 @@ The changes made to the TPU (transaction processing unit) enable a Solana Labs v
 This stage is part of a node’s block production duties and serves to filter incoming traffic down to a manageable rate, and authenticate packets. Firedancer adds a pre-packing stage which sorts transactions by estimated validator reward and filters throughput per state hotspot.
 It also applies heuristics to predict execution cost to schedule transactions in a way that banking stage throughput is optimized.
 
-The message passing frameworks used in Firedancer and the Labs validator (tango and crossbeam) are incompatible and require a language-agnostic compatibility layer. A simple shared-memory based ring buffer with C and Rust bindings was created for this purpose, called “shim”. “cshim” and “rshim” are the C and Rust libraries respectively.
+The message passing frameworks used in Firedancer and the Labs validator (tango and crossbeam) are incompatible and require a language-agnostic compatibility layer.
 
 The **feeder** shim inputs ingested packets into the Firedancer sigverify/dedup/pack pipeline, and the *return* shim returns the output back to the Labs validator.
 
@@ -47,17 +47,6 @@ graph TD
   return-cshim --shim --> return-rshim
   end
 ```
-
-### Shim
-
-The `shim` library provides streaming IPC between Firedancer (Tango messaging) and the Solana Labs validator (Crossbeam messaging).
-
-Currently, it consists of a simple channel interface for reliably transferring messages with single-producer single-consumer semantics.
-
-`shim` was designed to simplify integration between the two clients.
-It is less performant than Firedancer Tango but tests have shown it can operate at line rate.
-
-In the long term, `shim` will be replaced as other milestones get completed (e.g. Milestone 1.1 TPU/QUIC).
 
 ## Usage
 
