@@ -81,7 +81,7 @@ int fd_executor_run_test(
 
   /* Insert all the accounts into the database */
   for ( ulong i = 0; i < test->accs_len; i++ ) {
-    if ((test->accs[ i ].lamports == 0) && (test->accs[ i ].data_len == 0))
+    if ((test->accs[ i ].lamports == 0) && (test->accs[ i ].data_len == 0) && memcmp(global->solana_system_program, test->accs[i].owner.hash, 32 ) == 0)
       continue;
     fd_solana_account_t acc = {
       .data = (uchar*) test->accs[ i ].data,
