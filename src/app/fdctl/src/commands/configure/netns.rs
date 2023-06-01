@@ -3,7 +3,7 @@ use crate::security::check_root;
 use crate::utility::*;
 use crate::Config;
 
-const NAME: &'static str = "netns";
+const NAME: &str = "netns";
 
 pub(super) const STAGE: Stage = Stage {
     name: NAME,
@@ -13,7 +13,7 @@ pub(super) const STAGE: Stage = Stage {
     explain_fini_permissions: Some(explain_fini_permissions),
     init: Some(step),
     fini: Some(undo),
-    check: check,
+    check,
 };
 
 fn enabled(config: &Config) -> bool {
@@ -26,6 +26,38 @@ fn explain_init_permissions(_: &Config) -> Vec<Option<String>> {
 
 fn explain_fini_permissions(_: &Config) -> Vec<Option<String>> {
     vec![check_root(NAME, "remove network namespaces")]
+}
+
+#[rustfmt::skip]
+pub(crate) fn listen_address(config: &Config) -> String {
+    let interface = &config.tiles.quic.interface;
+
+    if config.development.netns.enabled {
+        config.development.netns.interface0_addr.to_string()
+    } else {
+        let output = run!("ip address show dev {interface}");
+        let line = match output.lines().find(|x| x.contains("inet ")) {
+            None => panic!("Couldn't get IP address for interface `{interface}`"),
+            Some(line) => line,
+        };
+        line.trim().split(&['/', ' ']).nth(1).unwrap().into()
+    }
+}
+
+#[rustfmt::skip]
+pub(crate) fn src_mac_address(config: &Config) -> String {
+    let interface = &config.tiles.quic.interface;
+
+    if config.development.netns.enabled {
+        config.development.netns.interface0_mac.to_string()
+    } else {
+        let output = run!("ip address show dev {interface}");
+        let line = match output.lines().find(|x| x.contains("link/ether ")) {
+            None => panic!("Couldn't get mac address for interface `{interface}`"),
+            Some(line) => line,
+        };
+        line.split_whitespace().nth(1).unwrap().into()
+    }
 }
 
 #[rustfmt::skip]

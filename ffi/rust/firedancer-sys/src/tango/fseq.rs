@@ -1,4 +1,16 @@
+use std::ffi::c_void;
+use std::sync::atomic::{
+    compiler_fence,
+    Ordering,
+};
+
 pub use crate::generated::{
+    fd_fseq_align,
+    fd_fseq_delete,
+    fd_fseq_footprint,
+    fd_fseq_join,
+    fd_fseq_leave,
+    fd_fseq_new,
     FD_FSEQ_ALIGN,
     FD_FSEQ_APP_ALIGN,
     FD_FSEQ_APP_FOOTPRINT,
@@ -10,19 +22,6 @@ pub use crate::generated::{
     FD_FSEQ_DIAG_PUB_SZ,
     FD_FSEQ_DIAG_SLOW_CNT,
     FD_FSEQ_FOOTPRINT,
-};
-pub use crate::generated::{
-    fd_fseq_align,
-    fd_fseq_delete,
-    fd_fseq_footprint,
-    fd_fseq_join,
-    fd_fseq_leave,
-    fd_fseq_new,
-};
-use std::ffi::c_void;
-use std::sync::atomic::{
-    compiler_fence,
-    Ordering,
 };
 
 pub unsafe fn fd_fseq_app_laddr_const(fseq: *const u64) -> *const c_void {

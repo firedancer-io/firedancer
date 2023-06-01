@@ -1,9 +1,10 @@
-use firedancer_sys::ballet::*;
 use std::alloc::Layout;
 use std::ffi::c_void;
-use solana_sdk::pubkey::Pubkey;
-use solana_program_runtime::compute_budget::ComputeBudget;
 use std::fmt::Debug;
+
+use firedancer_sys::ballet::*;
+use solana_program_runtime::compute_budget::ComputeBudget;
+use solana_sdk::pubkey::Pubkey;
 
 pub struct HeapObject {
     layout: Layout,
@@ -26,7 +27,7 @@ impl Drop for HeapObject {
     }
 }
 
-/* BPF loader 2 */
+// BPF loader 2
 pub static LOADER_KEY: Pubkey = Pubkey::new_from_array([
     0x02, 0xa8, 0xf6, 0x91, 0x4e, 0x88, 0xa1, 0x6e, 0x39, 0x5a, 0xe1, 0x28, 0x94, 0x8f, 0xfa, 0x69,
     0x56, 0x93, 0x37, 0x68, 0x18, 0xdd, 0x47, 0x43, 0x52, 0x21, 0xf3, 0xc6, 0x00, 0x00, 0x00, 0x00,
@@ -125,9 +126,12 @@ pub fn load_program_labs(elf: &[u8]) -> Result<LoadedProgram, String> {
     let loader = solana_bpf_loader_program::syscalls::create_loader(
         &feature_set,
         &compute_budget,
-        /* reject_deployment_of_broken_elfs */ true,
-        /* disable_deploy_of_alloc_free_syscall */ false,
-        /* debugging_features */ false,
+        // reject_deployment_of_broken_elfs
+        true,
+        // disable_deploy_of_alloc_free_syscall
+        false,
+        // debugging_features
+        false,
     )
     .map_err(|e| format!("{:?}", e))?;
 
@@ -140,14 +144,14 @@ pub fn load_program_labs(elf: &[u8]) -> Result<LoadedProgram, String> {
         rodata: ro_section,
         entry_pc: executable.get_entrypoint_instruction_offset() as u64,
         text_off: (text_vaddr - 0x1_0000_0000) as i64,
-        text_sz: (text_section.len() as u64) & (!7u64),  /* not necessarily multiple of 8 */
+        text_sz: (text_section.len() as u64) & (!7u64), // not necessarily multiple of 8
     })
 }
 
 fn hexdump(buffer: &[u8]) -> String {
-    /* Hexdump routine imported from https://github.com/rustyhorde/hxdmp/
-    ca May 2023.  MIT License.
-    Copyright (c) 2016 The Rust Project Developers, Jason Ozias */
+    // Hexdump routine imported from https://github.com/rustyhorde/hxdmp/
+    // ca May 2023.  MIT License.
+    // Copyright (c) 2016 The Rust Project Developers, Jason Ozias
 
     let mut out = String::new();
     let sixteen_iter = buffer.chunks(16).enumerate();

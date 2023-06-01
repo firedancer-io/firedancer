@@ -1,9 +1,9 @@
-#ifndef HEADER_fd_src_vm_fd_vm_disasm_h
-#define HEADER_fd_src_vm_fd_vm_disasm_h
+#ifndef HEADER_fd_src_flamenco_vm_fd_vm_disasm_h
+#define HEADER_fd_src_flamenco_vm_fd_vm_disasm_h
 
-#include "../util/fd_util.h"
-#include "../ballet/sbpf/fd_sbpf_instr.h"
-#include "../ballet/sbpf/fd_sbpf_loader.h"
+#include "../fd_flamenco_base.h"
+#include "../../ballet/sbpf/fd_sbpf_instr.h"
+#include "../../ballet/sbpf/fd_sbpf_loader.h"
 
 FD_PROTOTYPES_BEGIN
 
@@ -23,4 +23,4 @@ fd_vm_disassemble_program( fd_sbpf_instr_t const * instrs,
 
 FD_PROTOTYPES_END
 
-#endif /* HEADER_fd_src_vm_fd_vm_disasm_h */
+#endif /* HEADER_fd_src_flamenco_vm_fd_vm_disasm_h */

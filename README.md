@@ -53,7 +53,6 @@ the necessary `sudo` access.
     ```
     * - memlock unlimited
     * - nice -20
-    * - rtprio unlimited
     ```
   (The user might only opt to be more restrictiv if desired, e.g. only
   allow Firedancer users to do this.)  Recommend logging out and then
@@ -67,8 +66,6 @@ the necessary `sudo` access.
     scheduling priority             (-e) 40
     ... snip ...
     max locked memory       (kbytes, -l) unlimited
-    ... snip ...
-    real-time priority              (-r) unlimited
     ... snip ...
     ```
 

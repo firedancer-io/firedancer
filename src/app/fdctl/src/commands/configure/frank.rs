@@ -4,7 +4,7 @@ use super::*;
 use crate::security::*;
 use crate::utility::*;
 
-const NAME: &'static str = "frank";
+const NAME: &str = "frank";
 const CNC_APP_SIZE: u32 = 4032;
 const POD_SIZE: u32 = 16384;
 
@@ -17,24 +17,18 @@ pub(super) const STAGE: Stage = Stage {
     explain_init_permissions: Some(explain_init_permissions),
     explain_fini_permissions: None,
     init: Some(step),
-    fini: Some(undo),
-    check: check,
+    fini: None,
+    check,
 };
 
 #[rustfmt::skip]
 fn explain_init_permissions(config: &Config) -> Vec<Option<String>> {
-    let fd_xdp_ctl = format!("{}/fd_xdp_ctl", config.binary_dir);
-
     if config.development.netns.enabled {
         vec![
             check_process_cap(NAME, CAP_SYS_ADMIN, "enter a network namespace"),
-            check_file_cap(NAME, &fd_xdp_ctl, CAP_SYS_ADMIN, "create a BPF map with `bpf_map_create`"),
         ]
     } else {
-        vec![
-            check_file_cap(NAME, &fd_xdp_ctl, CAP_SYS_ADMIN, "create a BPF map with `bpf_map_create`"),
-            check_file_cap(NAME, &fd_xdp_ctl, CAP_NET_ADMIN, "create a BPF map with `bpf_map_create`"),
-        ]
+        vec![]
     }
 }
 
@@ -46,7 +40,8 @@ fn step(config: &mut Config) {
     let interface = &config.tiles.quic.interface;
 
     if config.development.netns.enabled {
-        // Enter network namespace here so that network setup commands work correctly.
+        // Enter network namespace for bind. This is only needed for a check that the interface
+        // exists.. we can probably skip that.
         set_network_namespace(&format!("/var/run/netns/{}", interface));
     }
 
@@ -127,32 +122,8 @@ fn step(config: &mut Config) {
         verify_info.push((in_mcache, in_dcache, in_fseq));
     }
 
-    // Initialize XDP
-    run!(no_error, "{bin}/fd_xdp_ctl unhook-iface {name} {interface}"); // Ok if this fails
-    std::thread::sleep(std::time::Duration::from_millis(1_000)); // Work around race condition, ugly hack
-    run!("{bin}/fd_xdp_ctl hook-iface {name} {interface} {}", config.tiles.quic.xdp_mode);
-
-    let output = run!("ip address show dev {interface}");
-    let regex =
-        regex::Regex::new("^\\s+inet ([0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+)\\/.*$").unwrap();
-    let listen_addresses = output
-        .lines()
-        .map(|x| regex.captures(x))
-        .filter(|x| x.is_some())
-        .map(|x| x.unwrap().get(1).unwrap().as_str().to_string())
-        .collect::<Vec<String>>();
-    if listen_addresses.is_empty() {
-        panic!("Found no IP addresses on interface {interface}");
-    }
-    for addr in &listen_addresses {
-        run!("{bin}/fd_xdp_ctl listen-udp-port {name} {addr} {} tpu-quic", config.tiles.quic.listen_port);
-    }
-
-    let src_mac_address = output.lines().find(|x| x.contains("link/ether"))
-        .unwrap().trim().split_whitespace().nth(1).unwrap();
-
     // QUIC tiles
-    for i in 0..config.layout.verify_tile_count as usize {
+    for (i, (verify_mcache, verify_dcache, verify_fseq)) in verify_info.into_iter().enumerate() {
         let cnc = run!("{bin}/fd_tango_ctl new-cnc {workspace} 2 tic {CNC_APP_SIZE}");
         let quic = if Path::new(&format!("{bin}/fd_quic_ctl")).exists() {
             // TODO: Always enable this when merged with QUIC changes in 1.1
@@ -172,10 +143,13 @@ fn step(config: &mut Config) {
             insert {pod} cstr {name}.quic.quic{i}.quic {quic} \
             insert {pod} cstr {name}.quic.quic{i}.xsk {xsk} \
             insert {pod} cstr {name}.quic.quic{i}.xsk_aio {xsk_aio}",
-            mcache=verify_info[i].0,
-            dcache=verify_info[i].1,
-            fseq=verify_info[i].2);
+            mcache=verify_mcache,
+            dcache=verify_dcache,
+            fseq=verify_fseq);
     }
+
+    let listen_address = super::netns::listen_address(config);
+    let src_mac_address = super::netns::src_mac_address(config);
 
     run!("{bin}/fd_pod_ctl \
         insert {pod} cstr {name}.quic_cfg.cert_file {cert_file} \
@@ -186,26 +160,17 @@ fn step(config: &mut Config) {
         insert {pod} ulong {name}.quic_cfg.idle_timeout_ms 1000",
         cert_file=format!("{}/cert.pem", &config.scratch_directory),
         key_file=format!("{}/key.pem", &config.scratch_directory),
-        ip_addr=&listen_addresses[0],
+        ip_addr=listen_address,
         listen_port=config.tiles.quic.listen_port);
 
-    config.frank.pod = pod.split(":").collect::<Vec<&str>>()[1].parse().unwrap();
-    config.frank.main_cnc = main_cnc.split(":").collect::<Vec<&str>>()[1]
+    config.frank.pod = pod.split(':').collect::<Vec<&str>>()[1].parse().unwrap();
+    config.frank.main_cnc = main_cnc.split(':').collect::<Vec<&str>>()[1]
             .parse()
             .unwrap();
-    config.frank.src_mac_address = src_mac_address.to_string();
-    config.frank.listen_addresses = listen_addresses;
+    config.frank.src_mac_address = src_mac_address;
+    config.frank.listen_address = listen_address;
 
     config.dump_to_bash();
-}
-
-fn undo(config: &Config) {
-    let bin = &config.binary_dir;
-    run!(
-        "{bin}/fd_xdp_ctl unhook-iface {} {}",
-        &config.name,
-        config.tiles.quic.interface
-    );
 }
 
 fn check(_: &Config) -> CheckResult {

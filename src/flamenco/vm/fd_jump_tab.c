@@ -1,7 +1,7 @@
-#include "../util/fd_util_base.h"
+#include "../fd_flamenco_base.h"
 
 /* Jump table template
- * 
+ *
  * This template implements a manual jump table. As opposed to using a switch/case idiom you can
  * use this to manually control the structure of a jump table. This is particularly advantageous in
  * the Firedancer VM where it is used to make a tail-recursive sBPF interpreter.
