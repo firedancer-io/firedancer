@@ -180,7 +180,8 @@ static int create_account(
   fd_acc_lamports_t sender_lamports = metadata.info.lamports;
 
   if ( FD_UNLIKELY( sender_lamports < lamports ) ) {
-    return FD_EXECUTOR_INSTR_ERR_INSUFFICIENT_FUNDS;
+    ctx.txn_ctx->custom_err = 1;
+    return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
 
   /* Execute the transfer */
