@@ -1,10 +1,20 @@
-use std::{
-    ffi::{CStr, CString},
-    io::ErrorKind,
-    path::Path,
+use std::ffi::{
+    CStr,
+    CString,
 };
+use std::io::ErrorKind;
+use std::path::Path;
 
-use libc::{c_char, cpu_set_t, getpwnam_r, sched_setaffinity, CPU_SET, CPU_SETSIZE, CPU_ZERO};
+use libc::{
+    c_char,
+    cpu_set_t,
+    getpwnam_r,
+    if_nametoindex,
+    sched_setaffinity,
+    CPU_SET,
+    CPU_SETSIZE,
+    CPU_ZERO,
+};
 
 macro_rules! run_builder {
     ($cmd:literal) => {
@@ -19,7 +29,7 @@ macro_rules! run_builder {
             let env: Option<&[(&str, String)]> = $env;
             let command_string = format!($cmd, $($args)*);
             log::trace!("{}", command_string);
-            let parts: Vec<&str> = command_string.trim().split_whitespace().collect();
+            let parts: Vec<&str> = command_string.split_whitespace().collect();
             let mut command = std::process::Command::new(parts[0]);
             command.args(&parts[1..]);
             if let Some(cwd) = cwd {
@@ -42,7 +52,8 @@ macro_rules! run_inner {
             if $err {
                 if !output.status.success() {
                     let stderr = String::from_utf8(output.stderr).unwrap();
-                    panic!("{}", stderr);
+                    let command_string = format!($cmd, $($args)*);
+                    panic!("{}\n{}", command_string, stderr);
                 }
             }
             String::from_utf8(output.stdout).unwrap().trim().to_string()
@@ -77,9 +88,11 @@ macro_rules! run {
     };
 }
 
-pub(crate) use run;
-pub(crate) use run_builder;
-pub(crate) use run_inner;
+pub(crate) use {
+    run,
+    run_builder,
+    run_inner,
+};
 
 pub(crate) fn repermission<T: AsRef<str>>(path: T, uid: u32, gid: u32, perm: u32) {
     let path = CString::new(path.as_ref()).unwrap();
@@ -162,5 +175,19 @@ pub(crate) fn get_uid_by_username(username: &str) -> Option<u32> {
         Some(unsafe { (*result).pw_uid })
     } else {
         None
+    }
+}
+
+pub(crate) fn interface_exists(interface: &str) -> bool {
+    let interface = CString::new(interface).unwrap();
+    let result = unsafe { if_nametoindex(interface.as_ptr() as *const c_char) };
+    if result == 0 {
+        let errno = unsafe { *libc::__errno_location() };
+        if errno != libc::ENODEV {
+            panic!("if_nametoindex failed");
+        }
+        false
+    } else {
+        true
     }
 }

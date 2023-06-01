@@ -1,11 +1,11 @@
 #include "fd_vm_syscalls.h"
 
-#include "../ballet/sha256/fd_sha256.h"
-#include "../ballet/keccak256/fd_keccak256.h"
-#include "../ballet/blake3/fd_blake3.h"
-#include "../ballet/base58/fd_base58.h"
-#include "../ballet/murmur3/fd_murmur3.h"
-#include "../ballet/sbpf/fd_sbpf_maps.c"
+#include "../../ballet/sha256/fd_sha256.h"
+#include "../../ballet/keccak256/fd_keccak256.h"
+#include "../../ballet/blake3/fd_blake3.h"
+#include "../../ballet/base58/fd_base58.h"
+#include "../../ballet/murmur3/fd_murmur3.h"
+#include "../../ballet/sbpf/fd_sbpf_maps.c"
 
 #include <stdio.h>
 
@@ -53,7 +53,7 @@ void fd_vm_syscall_register_all( fd_sbpf_syscalls_t * syscalls ) {
   fd_vm_register_syscall( syscalls, "sol_get_epoch_schedule_sysvar", fd_vm_syscall_sol_get_epoch_schedule_sysvar );
   fd_vm_register_syscall( syscalls, "sol_get_fees_sysvar", fd_vm_syscall_sol_get_fees_sysvar );
   fd_vm_register_syscall( syscalls, "sol_get_rent_sysvar", fd_vm_syscall_sol_get_rent_sysvar );
-  
+
   fd_vm_register_syscall( syscalls, "sol_create_program_address", fd_vm_syscall_sol_create_program_address );
   fd_vm_register_syscall( syscalls, "sol_try_find_program_address", fd_vm_syscall_sol_try_find_program_address );
   fd_vm_register_syscall( syscalls, "sol_get_processed_sibling_instruction", fd_vm_syscall_sol_get_processed_sibling_instruction );
@@ -97,7 +97,7 @@ fd_vm_syscall_sol_sha256(
     FD_FN_UNUSED ulong * ret
 ) {
   fd_vm_exec_context_t * ctx = (fd_vm_exec_context_t *) _ctx;
-  
+
   void * slices_raw;
   ulong translation_res = fd_vm_translate_vm_to_host( ctx, 0, slices_addr, slices_len * sizeof(fd_vm_syscall_bytes_slice_t), &slices_raw );
   if( translation_res != FD_VM_MEM_MAP_SUCCESS ) {
@@ -141,7 +141,7 @@ fd_vm_syscall_sol_keccak256(
     FD_FN_UNUSED ulong * ret
 ) {
   fd_vm_exec_context_t * ctx = (fd_vm_exec_context_t *) _ctx;
-  
+
   void * slices_raw;
   ulong translation_res = fd_vm_translate_vm_to_host(ctx, 0, slices_addr, slices_len * sizeof(fd_vm_syscall_bytes_slice_t), &slices_raw);
   if (translation_res != FD_VM_MEM_MAP_SUCCESS) {
@@ -185,7 +185,7 @@ fd_vm_syscall_sol_blake3(
     FD_FN_UNUSED ulong * ret
 ) {
   fd_vm_exec_context_t * ctx = (fd_vm_exec_context_t *) _ctx;
-  
+
   void * slices_raw;
   ulong translation_res = fd_vm_translate_vm_to_host(ctx, 0, slices_addr, slices_len * sizeof(fd_vm_syscall_bytes_slice_t), &slices_raw);
   if (translation_res != FD_VM_MEM_MAP_SUCCESS) {
@@ -383,7 +383,7 @@ fd_vm_syscall_sol_memcmp(
     ulong * ret
 ) {
   fd_vm_exec_context_t * ctx = (fd_vm_exec_context_t *) _ctx;
-  
+
   void * host_addr1;
   void * host_addr2;
 
@@ -413,7 +413,7 @@ fd_vm_syscall_sol_memset(
     ulong * ret
 ) {
   fd_vm_exec_context_t * ctx = (fd_vm_exec_context_t *) _ctx;
-  
+
   void * dst_host_addr;
 
   ulong translation_res = fd_vm_translate_vm_to_host( ctx, 1, dst_vm_addr, n, &dst_host_addr );
@@ -439,7 +439,7 @@ fd_vm_syscall_sol_memmove(
     ulong * ret
 ) {
   fd_vm_exec_context_t * ctx = (fd_vm_exec_context_t *) _ctx;
-  
+
   void * dst_host_addr;
   void * src_host_addr;
 

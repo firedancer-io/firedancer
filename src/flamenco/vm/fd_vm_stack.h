@@ -1,7 +1,7 @@
-#ifndef HEADER_fd_src_vm_fd_vm_stack_h
-#define HEADER_fd_src_vm_fd_vm_stack_h
+#ifndef HEADER_fd_src_flamenco_vm_fd_vm_stack_h
+#define HEADER_fd_src_flamenco_vm_fd_vm_stack_h
 
-#include "../util/fd_util.h"
+#include "../fd_flamenco_base.h"
 
 /* FIXME: The max depth of the stack is configurable by the compute budget */
 #define FD_VM_STACK_MAX_DEPTH           (64)
@@ -23,7 +23,7 @@ typedef struct fd_vm_shadow_stack_frame fd_vm_shadow_stack_frame_t;
 /* The VM stack holds scratch space for each function call in a VM execution. */
 struct fd_vm_stack {
   ulong                       stack_pointer;
-  ulong                       frames_used; 
+  ulong                       frames_used;
   fd_vm_shadow_stack_frame_t  frames[FD_VM_STACK_MAX_DEPTH];
   uchar                       data[FD_VM_STACK_MAX_DEPTH * FD_VM_STACK_FRAME_WITH_GUARD_SZ];
 };
@@ -45,4 +45,4 @@ ulong fd_vm_stack_pop( fd_vm_stack_t * stack, ulong * ret_instr_ptr, ulong saved
 
 FD_PROTOTYPES_END
 
-#endif // HEADER_fd_src_vm_fd_vm_stack_h
+#endif /* HEADER_fd_src_flamenco_vm_fd_vm_stack_h */

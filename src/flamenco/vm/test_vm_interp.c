@@ -1,8 +1,8 @@
+#include "../fd_flamenco_base.h"
 #include "fd_vm_interp.h"
 #include "fd_vm_syscalls.h"
-#include "../util/fd_util.h"
-#include "../ballet/base58/fd_base58.h"
-#include "../ballet/sbpf/fd_sbpf_opcodes.h"
+#include "../../ballet/base58/fd_base58.h"
+#include "../../ballet/sbpf/fd_sbpf_opcodes.h"
 
 #include <stdlib.h>
 

@@ -2,8 +2,8 @@
 
 #include "fd_vm_disasm.h"
 
-#include "../ballet/sbpf/fd_sbpf_opcodes.h"
-#include "../ballet/sbpf/fd_sbpf_maps.c"
+#include "../../ballet/sbpf/fd_sbpf_opcodes.h"
+#include "../../ballet/sbpf/fd_sbpf_maps.c"
 
 # define OUT_PRINTF(...) \
   do { if( FD_UNLIKELY( fprintf(out, __VA_ARGS__)<0 ) ) return 0; } while(0)
