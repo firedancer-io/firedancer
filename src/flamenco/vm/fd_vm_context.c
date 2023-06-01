@@ -1,7 +1,7 @@
 #include "fd_vm_context.h"
 
-#include "../ballet/sbpf/fd_sbpf_opcodes.h"
-#include "../ballet/sbpf/fd_sbpf_maps.c"
+#include "../../ballet/sbpf/fd_sbpf_opcodes.h"
+#include "../../ballet/sbpf/fd_sbpf_maps.c"
 
 // Opcode validation success/error codes.
 #define FD_VALID        (0) /* Valid opcode */

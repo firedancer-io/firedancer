@@ -1,7 +1,7 @@
-#ifndef HEADER_fd_src_vm_fd_vm_syscalls_h
-#define HEADER_fd_src_vm_fd_vm_syscalls_h
+#ifndef HEADER_fd_src_flamenco_vm_fd_vm_syscalls_h
+#define HEADER_fd_src_flamenco_vm_fd_vm_syscalls_h
 
-#include "../util/fd_util.h"
+#include "../fd_flamenco_base.h"
 #include "fd_vm_context.h"
 
 #define FD_VM_SYSCALL_SUCCESS           (0UL)
@@ -80,4 +80,4 @@ FD_VM_SYSCALL_DECL(sol_get_rent_sysvar);
 
 FD_PROTOTYPES_END
 
-#endif /* HEADER_fd_src_vm_fd_vm_syscalls_h */
+#endif /* HEADER_fd_src_flamenco_vm_fd_vm_syscalls_h */

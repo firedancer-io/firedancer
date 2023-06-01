@@ -1,11 +1,9 @@
-use std::{
-    env,
-    path::{
-        Path,
-        PathBuf,
-    },
-    process::Command,
+use std::env;
+use std::path::{
+    Path,
+    PathBuf,
 };
+use std::process::Command;
 
 extern crate bindgen;
 

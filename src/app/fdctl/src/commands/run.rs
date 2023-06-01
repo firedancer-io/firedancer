@@ -1,6 +1,14 @@
-use std::{collections::HashMap, process::Stdio};
+use std::collections::HashMap;
+use std::process::Stdio;
 
-use clap::{arg, Args};
+use clap::{
+    arg,
+    Args,
+};
+use libc::{
+    RLIMIT_MEMLOCK,
+    RLIMIT_NICE,
+};
 
 use crate::security::*;
 use crate::utility::*;
@@ -8,6 +16,10 @@ use crate::Config;
 
 #[derive(Debug, Args)]
 pub(crate) struct RunCli {
+    /// If needed, configure the environment to make sure Firedancer will run
+    #[arg(long)]
+    configure: bool,
+
     /// Launch the Firedancer binary under `gdb` and break immediately
     #[arg(long)]
     debug: bool,
@@ -18,21 +30,45 @@ pub(crate) struct RunCli {
     monitor: bool,
 }
 
+const CONFIGURE_STAGE: crate::commands::configure::StageCli =
+    crate::commands::configure::StageCli::All(crate::commands::configure::StageCommandCli {
+        command: crate::commands::configure::StageCommand::Init,
+    });
+
+const CONFIGURE_COMMAND: crate::CliCommand =
+    crate::CliCommand::Configure(crate::commands::ConfigureCli {
+        stage: CONFIGURE_STAGE,
+    });
+
 impl RunCli {
     #[rustfmt::skip]
     pub(crate) fn explain_permissions(&self, config: &Config) -> Vec<String> {
         let run_binary = format!("{}/fd_frank_run.bin", config.binary_dir);
+
+        // If we want to configure before, we also need all the permissions that would be
+        // needed to configure.
+        let configure = if self.configure {
+            CONFIGURE_COMMAND.explain_capabilities(config)
+        } else {
+            vec![]
+        };
+
+        let mlock_limit = config.shmem.workspace_size();
         vec![
-            check_file_cap("run", &run_binary, CAP_SYS_NICE, "set a high scheduler priority for threads"),
-            check_file_cap("run", &run_binary, CAP_NET_RAW, "bind to a socket with SOCK_RAW"),
-            check_file_cap("run", &run_binary, CAP_SYS_ADMIN, "initialize XDP by calling `bpf_obj_get`"),
-        ].into_iter().filter(|x| x.is_some()).map(|x| x.unwrap()).collect()
+            configure,
+            vec![
+                check_resource("run", &run_binary, RLIMIT_MEMLOCK, mlock_limit, "increase `RLIMIT_MEMLOCK` to lock the workspace in memory with `mlock(2)`"),
+                check_resource("run", &run_binary, RLIMIT_NICE, 40, "call `setpriority(2)` to increase thread priorities"),
+                check_file_cap("run", &run_binary, CAP_NET_RAW, "call `bind(2)` to bind to a socket with `SOCK_RAW`"),
+                check_file_cap("run", &run_binary, CAP_SYS_ADMIN, "initialize XDP by calling `bpf_obj_get`"),
+            ].into_iter().flatten().collect()
+        ].into_iter().flatten().collect()
     }
 }
 
 fn config_vars(config: &Config) -> HashMap<String, String> {
     let vars_file =
-        std::fs::read_to_string(&format!("{}/config.cfg", config.scratch_directory)).unwrap();
+        std::fs::read_to_string(format!("{}/config.cfg", config.scratch_directory)).unwrap();
     HashMap::from_iter(
         vars_file
             .trim()
@@ -50,13 +86,17 @@ pub(crate) fn monitor(config: &Config) {
 
     let status = run!(
         status,
-        "{bin}/fd_frank_mon.bin --pod {pod} --cfg {name} \
-        --log-app {name} --log-thread mon --duration 31536000000000000"
+        "{bin}/fd_frank_mon.bin --pod {pod} --log-app {name} --log-thread mon --duration \
+         31536000000000000"
     );
     assert!(status.success());
 }
 
 pub(crate) fn run(args: RunCli, config: &mut Config) {
+    if args.configure {
+        crate::commands::configure(CONFIGURE_STAGE, config)
+    }
+
     let prefix_gdb = if args.debug {
         format!("gdb {}/fd_frank_run.bin --args", config.binary_dir)
     } else {
@@ -66,7 +106,7 @@ pub(crate) fn run(args: RunCli, config: &mut Config) {
     let netns_arg = if config.development.netns.enabled {
         format!("--netns /var/run/netns/{}", config.tiles.quic.interface)
     } else {
-        format!("")
+        "".to_owned()
     };
 
     let pod = &config_vars(config)["POD"];
@@ -88,8 +128,8 @@ pub(crate) fn run(args: RunCli, config: &mut Config) {
     let mut run = run_builder!(
         cwd = None,
         env = Some(&env),
-        cmd = "{prefix_gdb} {netns_arg} --pod {pod} --cfg {name} \
-        --log-app {name} --log-thread main --tile-cpus {affinity}",
+        cmd = "{prefix_gdb} {netns_arg} --pod {pod} --log-app {name} --log-thread main \
+               --tile-cpus {affinity}",
     );
 
     set_affinity_zero();
