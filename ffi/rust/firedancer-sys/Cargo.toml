@@ -1,6 +1,6 @@
 [package]
 name = "firedancer-sys"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 authors = ["Firedancer Contributors <firedancer-devs@jumptrading.com>"]
 description = "Low-level Rust bindings for Firedancer"
@@ -8,6 +8,9 @@ license = "Apache-2.0"
 
 include = [
     "src",
+    "firedancer",
+    "build.rs",
+    "wrapper.h",
 ]
 
 [features]
