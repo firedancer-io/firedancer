@@ -291,8 +291,10 @@ int fd_executor_system_program_execute_instruction(
   ctx2.dataend = &data[ctx.instr->data_sz];
   ctx2.allocf = ctx.global->allocf;
   ctx2.allocf_arg = ctx.global->allocf_arg;
-  if ( fd_system_program_instruction_decode( &instruction, &ctx2 ) )
-    FD_LOG_ERR(("fd_system_program_instruction_decode failed"));
+  if ( fd_system_program_instruction_decode( &instruction, &ctx2 ) ) {
+    FD_LOG_WARNING(("fd_system_program_instruction_decode failed"));
+    return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
+  }
 
   int   result = FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
 

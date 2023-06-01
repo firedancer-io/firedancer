@@ -39,7 +39,7 @@ int fd_executor_compute_budget_program_execute_instructions( transaction_ctx_t *
     int ret = fd_compute_budget_program_instruction_decode( &instruction, &ctx2 );
     if ( ret ) {
       FD_LOG_WARNING(("fd_compute_budget_program_instruction_decode failed"));
-      return ret;
+      return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
     }
 
     switch (instruction.discriminant) {

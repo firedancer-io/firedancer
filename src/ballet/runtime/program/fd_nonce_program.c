@@ -48,8 +48,10 @@ int fd_load_nonce_account(
   ctx2.dataend = &data[instr->data_sz];
   ctx2.allocf = global->allocf;
   ctx2.allocf_arg = global->allocf_arg;
-  if ( fd_system_program_instruction_decode( &instruction, &ctx2 ) )
-    FD_LOG_ERR(("fd_system_program_instruction_decode failed"));
+  if ( fd_system_program_instruction_decode( &instruction, &ctx2 ) ) {
+    FD_LOG_WARNING(("fd_system_program_instruction_decode failed"));
+    return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
+  }
 
   if (fd_system_program_instruction_enum_advance_nonce_account != instruction.discriminant)
     return 0;
@@ -82,8 +84,10 @@ int fd_load_nonce_account(
   ctx.dataend = raw_acc_data + metadata.dlen;
   ctx.allocf = global->allocf;
   ctx.allocf_arg = global->allocf_arg;
-  if ( fd_nonce_state_versions_decode( state, &ctx ) )
-    FD_LOG_ERR(("fd_nonce_state_versions_decode failed"));
+  if ( fd_nonce_state_versions_decode( state, &ctx ) ) {
+    FD_LOG_WARNING(("fd_nonce_state_versions_decode failed"));
+    return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
+  }
 
   return 1;
 }
@@ -137,7 +141,7 @@ int fd_advance_nonce_account(
   ctx2.allocf_arg = ctx.global->allocf_arg;
   if ( fd_nonce_state_versions_decode( &state, &ctx2 ) ) {
     FD_LOG_WARNING(("fd_nonce_state_versions_decode failed"));
-    return -1;
+    return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
   }
 
   if (state.inner.current.discriminant != fd_nonce_state_enum_initialized)
@@ -302,8 +306,10 @@ int fd_withdraw_nonce_account(
   ctx2.dataend = raw_acc_data + metadata.dlen;
   ctx2.allocf = ctx.global->allocf;
   ctx2.allocf_arg = ctx.global->allocf_arg;
-  if ( fd_nonce_state_versions_decode( &state, &ctx2 ) )
-    FD_LOG_ERR(("fd_nonce_state_versions_decode failed"));
+  if ( fd_nonce_state_versions_decode( &state, &ctx2 ) ) {
+    FD_LOG_WARNING(("fd_nonce_state_versions_decode failed"));
+    return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
+  }
 
   switch (state.inner.current.discriminant) {
   case fd_nonce_state_enum_uninitialized: {
@@ -495,8 +501,10 @@ int fd_initialize_nonce_account(
   ctx2.dataend = raw_acc_data + metadata.dlen;
   ctx2.allocf = ctx.global->allocf;
   ctx2.allocf_arg = ctx.global->allocf_arg;
-  if ( fd_nonce_state_versions_decode( &state, &ctx2 ) )
-    FD_LOG_ERR(("fd_nonce_state_versions_decode failed"));
+  if ( fd_nonce_state_versions_decode( &state, &ctx2 ) ) {
+    FD_LOG_WARNING(("fd_nonce_state_versions_decode failed"));
+    return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
+  }
 
   switch (state.inner.current.discriminant) {
   case fd_nonce_state_enum_uninitialized: {
@@ -518,8 +526,10 @@ int fd_initialize_nonce_account(
     ctx2.dataend = raw_acc_data + m->hlen + m->dlen;
     ctx2.allocf = ctx.global->allocf;
     ctx2.allocf_arg = ctx.global->allocf_arg;
-    if ( fd_recent_block_hashes_decode( &result, &ctx2 ) )
-      FD_LOG_ERR(("fd_recent_block_hashes_decode failed"));
+    if ( fd_recent_block_hashes_decode( &result, &ctx2 ) ) {
+      FD_LOG_WARNING(("fd_recent_block_hashes_decode failed"));
+      return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
+    }
 
     fd_block_block_hash_entry_t *re = &result.hashes.elems[0];
 
@@ -617,7 +627,7 @@ int fd_authorize_nonce_account(
   ctx2.allocf_arg = ctx.global->allocf_arg;
   if ( fd_nonce_state_versions_decode( &state, &ctx2 ) ) {
     FD_LOG_WARNING(("fd_nonce_state_versions_decode failed"));
-    return -1;
+    return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
   }
 
   if (state.inner.current.discriminant != fd_nonce_state_enum_initialized)

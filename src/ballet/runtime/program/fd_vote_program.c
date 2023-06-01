@@ -68,8 +68,10 @@ int read_vote_state(
     ctx2.dataend = &vota_acc_data[metadata.dlen];
     ctx2.allocf = global->allocf;
     ctx2.allocf_arg = global->allocf_arg;
-    if ( fd_vote_state_versioned_decode( result, &ctx2 ) )
-      FD_LOG_ERR(("fd_vote_state_versioned_decode failed"));
+    if ( fd_vote_state_versioned_decode( result, &ctx2 ) ) {
+      FD_LOG_WARNING(("fd_vote_state_versioned_decode failed"));
+      return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
+    }
 
     return FD_ACC_MGR_SUCCESS;
 }
@@ -110,12 +112,14 @@ int get_and_verify_versioned_vote_state(
     ctx2.dataend = &vota_acc_data[metadata.dlen];
     ctx2.allocf = ctx.global->allocf;
     ctx2.allocf_arg = ctx.global->allocf_arg;
-    if ( fd_vote_state_versioned_decode( result, &ctx2 ) )
-      FD_LOG_ERR(("fd_vote_state_versioned_decode failed"));
+    if ( fd_vote_state_versioned_decode( result, &ctx2 ) ) {
+      FD_LOG_WARNING(("fd_vote_state_versioned_decode failed"));
+      return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
+    }
 
     if ( fd_vote_state_versioned_is_v0_23_5( result ) ) {
       /* TODO: support legacy V0_23_5 vote state layout */
-      FD_LOG_ERR(( "unsupported vote account state version V0_23_5" ));
+      FD_LOG_WARNING(( "unsupported vote account state version V0_23_5" ));
       return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
     }
     fd_vote_state_t* vote_state = &result->inner.current;
@@ -349,8 +353,10 @@ int fd_executor_vote_program_execute_instruction(
     ctx2.dataend = &data[ctx.instr->data_sz];
     ctx2.allocf = ctx.global->allocf;
     ctx2.allocf_arg = ctx.global->allocf_arg;
-    if ( fd_vote_instruction_decode( &instruction, &ctx2 ) )
-      FD_LOG_ERR(("fd_vote_instruction_decode failed"));
+    if ( fd_vote_instruction_decode( &instruction, &ctx2 ) ) {
+      FD_LOG_WARNING(("fd_vote_instruction_decode failed"));
+      return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
+    }
 
     if ( fd_vote_instruction_is_initialize_account( &instruction ) ) {
       /* VoteInstruction::InitializeAccount instruction
@@ -414,8 +420,10 @@ int fd_executor_vote_program_execute_instruction(
       ctx2.dataend = &vota_acc_data[metadata.dlen];
       ctx2.allocf = ctx.global->allocf;
       ctx2.allocf_arg = ctx.global->allocf_arg;
-      if ( fd_vote_state_versioned_decode( &stored_vote_state_versioned, &ctx2 ) )
-        FD_LOG_ERR(("fd_vote_state_versioned_decode failed"));
+      if ( fd_vote_state_versioned_decode( &stored_vote_state_versioned, &ctx2 ) ) {
+        FD_LOG_WARNING(("fd_vote_state_versioned_decode failed"));
+        return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
+      }
 
       uchar uninitialized_vote_state = 0;
       if ( fd_vote_state_versioned_is_v0_23_5( &stored_vote_state_versioned ) ) {
