@@ -53,12 +53,12 @@ struct recordvalue {
           len -= sizeof(ulong);
         } else {
           switch (len) {
-          case 7: p[6] = ((uchar*)&r)[6]; // Fallthrough
-          case 6: p[5] = ((uchar*)&r)[5]; // Fallthrough
-          case 5: p[4] = ((uchar*)&r)[4]; // Fallthrough
-          case 4: p[3] = ((uchar*)&r)[3]; // Fallthrough
-          case 3: p[2] = ((uchar*)&r)[2]; // Fallthrough
-          case 2: p[1] = ((uchar*)&r)[1]; // Fallthrough
+          case 7: p[6] = ((uchar*)&r)[6]; __attribute__((fallthrough));
+          case 6: p[5] = ((uchar*)&r)[5]; __attribute__((fallthrough));
+          case 5: p[4] = ((uchar*)&r)[4]; __attribute__((fallthrough));
+          case 4: p[3] = ((uchar*)&r)[3]; __attribute__((fallthrough));
+          case 3: p[2] = ((uchar*)&r)[2]; __attribute__((fallthrough));
+          case 2: p[1] = ((uchar*)&r)[1]; __attribute__((fallthrough));
           case 1: p[0] = ((uchar*)&r)[0];
           }
           break;
@@ -200,7 +200,7 @@ int main(int argc, char **argv) {
     harness.random_insert();
   end_txn();
   harness.verify();
-  
+
   auto teardown = [&](){
     fd_funk_delete( fd_funk_leave( harness.funk_ ) );
     harness.funk_ = NULL;
@@ -251,7 +251,7 @@ int main(int argc, char **argv) {
     teardown();
     buildup();
     harness.verify();
-    
+
     start_txn();
     for (int i = 0; i < 1000; ++i) {
       harness.random_modify();
@@ -265,7 +265,7 @@ int main(int argc, char **argv) {
     teardown();
     buildup();
     harness.verify();
-    
+
     start_txn();
     for (int i = 0; i < 5000; ++i) {
       harness.random_insert();
