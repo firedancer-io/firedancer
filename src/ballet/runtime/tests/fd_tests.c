@@ -81,7 +81,7 @@ int fd_executor_run_test(
 
   /* Insert all the accounts into the database */
   for ( ulong i = 0; i < test->accs_len; i++ ) {
-    if (test->accs[ i ].lamports == 0)
+    if ((test->accs[ i ].lamports == 0) && (test->accs[ i ].data_len == 0))
       continue;
     fd_solana_account_t acc = {
       .data = (uchar*) test->accs[ i ].data,
@@ -144,7 +144,7 @@ int fd_executor_run_test(
       int err = 0;
       char * raw_acc_data = (char*) fd_acc_mgr_view_data(ctx.global->acc_mgr, ctx.global->funk_txn, (fd_pubkey_t *) &test->accs[i].pubkey, &sz, &err);
       if (NULL == raw_acc_data) {
-        if (test->accs[i].result_lamports == 0)
+        if ((test->accs[ i ].lamports == 0) && (test->accs[ i ].data_len == 0))
           continue;
         FD_LOG_WARNING(( "bad dog.. no donut..  Ask josh to take a look at this"));
         return err;

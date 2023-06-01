@@ -173,7 +173,6 @@ static int create_account(
   fd_account_meta_t metadata;
   int read_result = fd_acc_mgr_get_metadata( ctx.global->acc_mgr, ctx.global->funk_txn, from, &metadata );
   if ( read_result == FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) {
-    FD_LOG_WARNING(( "account does not exist" ));
     /* TODO: propagate SystemError::AccountAlreadyInUse enum variant */
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
@@ -181,28 +180,24 @@ static int create_account(
   fd_acc_lamports_t sender_lamports = metadata.info.lamports;
 
   if ( FD_UNLIKELY( sender_lamports < lamports ) ) {
-    FD_LOG_WARNING(( "sender only has %lu lamports, needs %lu", sender_lamports, lamports ));
     return FD_EXECUTOR_INSTR_ERR_INSUFFICIENT_FUNDS;
   }
 
   /* Execute the transfer */
   int write_result = fd_acc_mgr_set_lamports( ctx.global->acc_mgr, ctx.global->funk_txn, ctx.global->bank.solana_bank.slot , from, sender_lamports - lamports );
   if ( FD_UNLIKELY( write_result != FD_ACC_MGR_SUCCESS ) ) {
-    FD_LOG_WARNING(( "failed to set sender lamports" ));
     return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
   }
 
   /* Check to see if the account is already in use */
   read_result = fd_acc_mgr_get_metadata( ctx.global->acc_mgr, ctx.global->funk_txn, to, &metadata );
   if ( read_result != FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) {
-    FD_LOG_WARNING(( "account already exists" ));
     /* TODO: propagate SystemError::AccountAlreadyInUse enum variant */
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
 
   /* Check that we are not exceeding the MAX_PERMITTED_DATA_LENGTH account size */
   if ( space > MAX_PERMITTED_DATA_LENGTH ) {
-    FD_LOG_WARNING(( "MAX_PERMITTED_DATA_LENGTH exceeded" ));
     /* TODO: propagate SystemError::InvalidAccountDataLength enum variant */
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
