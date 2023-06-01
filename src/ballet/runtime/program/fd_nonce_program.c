@@ -224,7 +224,7 @@ int fd_withdraw_nonce_account(
     FD_FN_UNUSED unsigned long      withdraw_nonce_account
   )
 {
-  FD_LOG_WARNING(( "unsupported discriminant: withdraw_none_account" ));
+  FD_LOG_WARNING(( "unsupported discriminant: withdraw_nonce_account" ));
 
   return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
 

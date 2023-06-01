@@ -329,6 +329,31 @@ int fd_executor_system_program_execute_instruction(
     result = fd_authorize_nonce_account( ctx, &instruction.inner.authorize_nonce_account );
     break;
   }
+  case fd_system_program_instruction_enum_allocate: {
+    FD_LOG_WARNING(( "unsupported fd_system_program_instruction_enum_allocate %d", instruction.discriminant ));
+    result = -1;
+    break;
+  }
+  case fd_system_program_instruction_enum_allocate_with_seed: {
+    FD_LOG_WARNING(( "unsupported fd_system_program_instruction_enum_allocate_with_seed %d", instruction.discriminant ));
+    result = -1;
+    break;
+  }
+  case fd_system_program_instruction_enum_assign_with_seed: {
+    FD_LOG_WARNING(( "unsupported fd_system_program_instruction_enum_assign_with_seed %d", instruction.discriminant ));
+    result = -1;
+    break;
+  }
+  case fd_system_program_instruction_enum_transfer_with_seed: {
+    FD_LOG_WARNING(( "unsupported fd_system_program_instruction_enum_transfer_with_seed  %d", instruction.discriminant ));
+    result = -1;
+    break;
+  }
+  case fd_system_program_instruction_enum_upgrade_nonce_account: {
+    FD_LOG_WARNING(( "unsupported fd_system_program_instruction_enum_upgrade_nonce_account %d", instruction.discriminant ));
+    result = -1;
+    break;
+  }
   default: {
     /* TODO: support other instruction types */
     FD_LOG_WARNING(( "unsupported system program instruction: discriminant: %d", instruction.discriminant ));
