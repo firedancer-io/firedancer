@@ -151,7 +151,7 @@ int get_and_verify_versioned_vote_state(
 
 int write_vote_state(
     instruction_ctx_t ctx,
-    fd_pubkey_t* vote_acc,
+    fd_pubkey_t const * vote_acc,
     fd_vote_state_versioned_t* vote_state_versioned
 ) {
     ulong encoded_vote_state_versioned_size = fd_vote_state_versioned_size( vote_state_versioned );
@@ -194,12 +194,12 @@ int write_vote_state(
 }
 
 static int
-vote_authorize( instruction_ctx_t ctx,
-                fd_vote_state_versioned_t * vote_state_versioned,
-                fd_vote_authorize_pubkey_t * authorize,
-                uchar * instr_acc_idxs,
-                fd_pubkey_t * txn_accs,
-                fd_sol_sysvar_clock_t const * clock ) {
+vote_authorize( instruction_ctx_t                  ctx,
+                fd_vote_state_versioned_t *        vote_state_versioned,
+                fd_vote_authorize_pubkey_t const * authorize,
+                uchar const *                      instr_acc_idxs,
+                fd_pubkey_t const *                txn_accs,
+                fd_sol_sysvar_clock_t const *      clock ) {
 
   /* Upgrade older vote state versions */
   if( FD_UNLIKELY( fd_vote_state_versioned_is_v0_23_5( vote_state_versioned ) ) ) {
@@ -361,9 +361,9 @@ int fd_executor_vote_program_execute_instruction(
 
       /* Check that the accounts are correct
          https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_processor.rs#L72-L81 */
-      uchar * instr_acc_idxs = ((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.instr->acct_off);
-      fd_pubkey_t * txn_accs = (fd_pubkey_t *)((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.txn_ctx->txn_descriptor->acct_addr_off);
-      fd_pubkey_t * vote_acc = &txn_accs[instr_acc_idxs[0]];
+      uchar const * instr_acc_idxs = ((uchar const *)ctx.txn_ctx->txn_raw->raw + ctx.instr->acct_off);
+      fd_pubkey_t const * txn_accs = (fd_pubkey_t const *)((uchar const *)ctx.txn_ctx->txn_raw->raw + ctx.txn_ctx->txn_descriptor->acct_addr_off);
+      fd_pubkey_t const * vote_acc = &txn_accs[instr_acc_idxs[0]];
 
       /* Check that account at index 1 is the rent sysvar */
       if ( memcmp( &txn_accs[instr_acc_idxs[1]], ctx.global->sysvar_rent, sizeof(fd_pubkey_t) ) != 0 ) {
@@ -447,7 +447,7 @@ int fd_executor_vote_program_execute_instruction(
       uchar node_pubkey_signed = 0;
       for ( ulong i = 0; i < ctx.instr->acct_cnt; i++ ) {
         if ( instr_acc_idxs[i] < ctx.txn_ctx->txn_descriptor->signature_cnt ) {
-          fd_pubkey_t * signer = &txn_accs[instr_acc_idxs[i]];
+          fd_pubkey_t const * signer = &txn_accs[instr_acc_idxs[i]];
           if ( !memcmp( signer, &init_account_params->node_pubkey, sizeof(fd_pubkey_t) ) ) {
             node_pubkey_signed = 1;
             break;
@@ -810,7 +810,7 @@ int fd_executor_vote_program_execute_instruction(
       fd_vote_state_versioned_destroy( &vote_state_versioned, &ctx3 );
     } else if ( fd_vote_instruction_is_authorize( &instruction ) ) {
       FD_LOG_INFO(( "executing VoteInstruction::Authorize instruction" ));
-      fd_vote_authorize_pubkey_t * authorize = &instruction.inner.authorize;
+      fd_vote_authorize_pubkey_t const * authorize = &instruction.inner.authorize;
 
       uchar * instr_acc_idxs = ((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.instr->acct_off);
       fd_pubkey_t * txn_accs = (fd_pubkey_t *)((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.txn_ctx->txn_descriptor->acct_addr_off);

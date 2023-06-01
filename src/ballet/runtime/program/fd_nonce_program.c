@@ -35,7 +35,7 @@ int fd_load_nonce_account(
   fd_pubkey_t *tx_accs   = (fd_pubkey_t *)((uchar *)txn_raw->raw + txn_descriptor->acct_addr_off);
   fd_pubkey_t *pubkey = &tx_accs[instr->program_id];
 
-  if ( memcmp( pubkey, global->solana_system_program, sizeof( fd_pubkey_t ) ) ) 
+  if ( memcmp( pubkey, global->solana_system_program, sizeof( fd_pubkey_t ) ) )
     return 0;
 
   /* Deserialize the SystemInstruction enum */
@@ -69,12 +69,12 @@ int fd_load_nonce_account(
 
   fd_account_meta_t metadata;
   long              read_result = fd_acc_mgr_get_metadata( global->acc_mgr, global->funk_txn, me, &metadata );
-  if ( read_result == FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) 
+  if ( read_result == FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT )
     return 0;
 
   unsigned char *raw_acc_data = fd_alloca_check( 1, metadata.dlen );
   read_result = fd_acc_mgr_get_account_data( global->acc_mgr, global->funk_txn, (fd_pubkey_t *) me, raw_acc_data, metadata.hlen, metadata.dlen );
-  if ( read_result != FD_ACC_MGR_SUCCESS ) 
+  if ( read_result != FD_ACC_MGR_SUCCESS )
     return 0;
 
   fd_bincode_decode_ctx_t ctx;
@@ -182,7 +182,7 @@ int fd_advance_nonce_account(
 //                    ));
 //                }
 
-  if (!memcmp(state.inner.current.inner.initialized.durable_nonce.hash, durable_nonce.hash, sizeof(state.inner.current.inner.initialized.durable_nonce.hash))) 
+  if (!memcmp(state.inner.current.inner.initialized.durable_nonce.hash, durable_nonce.hash, sizeof(state.inner.current.inner.initialized.durable_nonce.hash)))
     return FD_EXECUTOR_SYSTEM_ERR_NONCE_BLOCKHASH_NOT_EXPIRED;
 
 
@@ -220,7 +220,7 @@ int fd_advance_nonce_account(
 int fd_withdraw_nonce_account(
   instruction_ctx_t  ctx,
     FD_FN_UNUSED unsigned long      withdraw_nonce_account
-  ) 
+  )
 {
   FD_LOG_WARNING(( "unsupported discriminant: withdraw_none_account" ));
 
@@ -257,7 +257,7 @@ int fd_withdraw_nonce_account(
   ulong acct_addr_cnt = ctx.txn_ctx->txn_descriptor->acct_addr_cnt;
 
 
-  if ((instr_acc_idxs[0] >= acct_addr_cnt) 
+  if ((instr_acc_idxs[0] >= acct_addr_cnt)
     | (instr_acc_idxs[1] >= acct_addr_cnt)
     | (instr_acc_idxs[2] >= acct_addr_cnt)
     | (instr_acc_idxs[3] >= acct_addr_cnt)
@@ -282,7 +282,7 @@ int fd_withdraw_nonce_account(
 
   fd_account_meta_t metadata;
   long              read_result = fd_acc_mgr_get_metadata( ctx.global->acc_mgr, ctx.global->funk_txn, me, &metadata );
-  if ( read_result == FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) 
+  if ( read_result == FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT )
     return 0;
 
   unsigned char *raw_acc_data = fd_alloca_check( 1, metadata.dlen );
@@ -315,7 +315,7 @@ int fd_withdraw_nonce_account(
 //                    return Err(InstructionError::InsufficientFunds);
 //                }
 //                *self.unsigned_key()
-
+    break;
   }
   case fd_nonce_state_enum_initialized: {
 //                if lamports == self.lamports()? {
@@ -346,7 +346,7 @@ int fd_withdraw_nonce_account(
 //                }
 //                data.authority
 //            }
-
+    break;
   }
   default: {
     FD_LOG_NOTICE(( "garbage nonce state" ));
@@ -426,7 +426,7 @@ int fd_initialize_nonce_account(
   fd_pubkey_t * blockhashes = &txn_accs[instr_acc_idxs[1]];
   fd_pubkey_t * rent = &txn_accs[instr_acc_idxs[2]];
 
-  if ((NULL == me) | (NULL == blockhashes) | (NULL == rent)) 
+  if ((NULL == me) | (NULL == blockhashes) | (NULL == rent))
     return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
 
   /* Check to see if the account is already in use */
@@ -462,7 +462,7 @@ int fd_initialize_nonce_account(
   }
 #endif
 
-  // Do I really have to sign for the specific account?  Can't I just be authorized to mess with 
+  // Do I really have to sign for the specific account?  Can't I just be authorized to mess with
   // this account?   find this check in the code and at it into the comments...
   uchar new_signed = 0;
   for ( ulong i = 0; i < ctx.instr->acct_cnt; i++ ) {
@@ -499,7 +499,7 @@ int fd_initialize_nonce_account(
   switch (state.inner.current.discriminant) {
   case fd_nonce_state_enum_uninitialized: {
     ulong minimum_rent_exempt_balance = fd_rent_exempt_minimum_balance( ctx.global, metadata.dlen );
-    if ( metadata.info.lamports < minimum_rent_exempt_balance ) 
+    if ( metadata.info.lamports < minimum_rent_exempt_balance )
       return FD_EXECUTOR_INSTR_ERR_INSUFFICIENT_FUNDS;
 
 
