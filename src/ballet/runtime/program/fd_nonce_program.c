@@ -135,8 +135,10 @@ int fd_advance_nonce_account(
   ctx2.dataend = raw_acc_data + metadata.dlen;
   ctx2.allocf = ctx.global->allocf;
   ctx2.allocf_arg = ctx.global->allocf_arg;
-  if ( fd_nonce_state_versions_decode( &state, &ctx2 ) )
-    FD_LOG_ERR(("fd_nonce_state_versions_decode failed"));
+  if ( fd_nonce_state_versions_decode( &state, &ctx2 ) ) {
+    FD_LOG_WARNING(("fd_nonce_state_versions_decode failed"));
+    return -1;
+  }
 
   if (state.inner.current.discriminant != fd_nonce_state_enum_initialized)
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
@@ -613,8 +615,10 @@ int fd_authorize_nonce_account(
   ctx2.dataend = raw_acc_data + metadata.dlen;
   ctx2.allocf = ctx.global->allocf;
   ctx2.allocf_arg = ctx.global->allocf_arg;
-  if ( fd_nonce_state_versions_decode( &state, &ctx2 ) )
-    FD_LOG_ERR(("fd_nonce_state_versions_decode failed"));
+  if ( fd_nonce_state_versions_decode( &state, &ctx2 ) ) {
+    FD_LOG_WARNING(("fd_nonce_state_versions_decode failed"));
+    return -1;
+  }
 
   if (state.inner.current.discriminant != fd_nonce_state_enum_initialized)
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
@@ -639,8 +643,10 @@ int fd_authorize_nonce_account(
   fd_bincode_encode_ctx_t ctx3;
   ctx3.data = enc;
   ctx3.dataend = enc + sz;
-  if ( fd_nonce_state_versions_encode(&state, &ctx3) )
-    FD_LOG_ERR(("fd_nonce_state_versions_encode failed"));
+  if ( fd_nonce_state_versions_encode(&state, &ctx3) ) {
+    FD_LOG_WARNING(("fd_nonce_state_versions_encode failed"));
+    return -1;
+  }
 
   fd_acc_mgr_update_data ( ctx.global->acc_mgr, ctx.global->funk_txn, ctx.global->bank.solana_bank.slot, me, enc, sz);
 

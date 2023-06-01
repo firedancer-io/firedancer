@@ -177,6 +177,9 @@ static int create_account(
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
 
+  if (metadata.dlen > 0) 
+    return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+
   fd_acc_lamports_t sender_lamports = metadata.info.lamports;
 
   if ( FD_UNLIKELY( sender_lamports < lamports ) ) {
