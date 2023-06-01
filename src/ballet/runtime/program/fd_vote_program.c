@@ -245,6 +245,7 @@ vote_authorize( instruction_ctx_t                  ctx,
       }
       /* Excerpt from solana_vote_program::vote_state::VoteState::set_new_authorized_voter */
       if( authorized_voters_vec->elems[i].epoch == target_epoch ) {
+        ctx.txn_ctx->custom_err = 5;
         return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR /* FD_VOTE_TOO_SOON_TO_REAUTHORIZE */;
       }
     }

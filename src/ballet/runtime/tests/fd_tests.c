@@ -126,8 +126,15 @@ int fd_executor_run_test(
   execute_instruction_func_t exec_instr_func = fd_executor_lookup_native_program( global, &test->program_id );
   int exec_result = exec_instr_func( ctx );
   if ( exec_result != test->expected_result ) {
-    FD_LOG_WARNING(( "Failed test %d: %s: expected transaction result %d, got %d", test->test_number, test->test_name, test->expected_result , exec_result));
+    FD_LOG_WARNING(( "Failed test %d: %s (nonce: %d): expected transaction result %d, got %d", test->test_number, test->test_name, test->test_nonce, test->expected_result , exec_result));
     return -1;
+  }
+
+  if ( exec_result == FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR ) {
+    if ( ctx.txn_ctx->custom_err != test->custom_err) {
+      FD_LOG_WARNING(( "Failed test %d: %s (nonce: %d): expected custom error inner value of %d, got %d", test->test_number, test->test_name, test->test_nonce, test->custom_err, ctx.txn_ctx->custom_err ));
+      return -1;
+    }
   }
 
   if (FD_EXECUTOR_INSTR_SUCCESS == exec_result) {
@@ -146,15 +153,15 @@ int fd_executor_run_test(
       void* d = (void *)(raw_acc_data + m->hlen);
 
       if (m->info.lamports != test->accs[i].result_lamports) {
-        FD_LOG_WARNING(( "Failed test %d: %s: expected lamports %ld, got %ld", test->test_number, test->test_name, test->accs[i].result_lamports, m->info.lamports));
+        FD_LOG_WARNING(( "Failed test %d: %s (nonce: %d): expected lamports %ld, got %ld", test->test_number, test->test_name, test->test_nonce, test->accs[i].result_lamports, m->info.lamports));
         return -666;
       }
       if (m->dlen != test->accs[i].result_data_len) {
-        FD_LOG_WARNING(( "Failed test %d: %s: size missmatch", test->test_number, test->test_name));
+        FD_LOG_WARNING(( "Failed test %d: %s (nonce: %d): size missmatch", test->test_number, test->test_name, test->test_nonce));
         return -777;
       }
       if (memcmp(d, test->accs[i].result_data, test->accs[i].result_data_len)) {
-        FD_LOG_WARNING(( "Failed test %d: %s: account missmatch", test->test_number, test->test_name));
+        FD_LOG_WARNING(( "Failed test %d: %s (nonce: %d): account missmatch", test->test_number, test->test_name, test->test_nonce));
         return -888;
       }
     }
@@ -163,7 +170,7 @@ int fd_executor_run_test(
   /* Revert the Funk transaction */
   fd_funk_txn_cancel( suite->funk, global->funk_txn, 0 );
 
-  FD_LOG_WARNING(("Passed test %d: %s", test->test_number, test->test_name));
+  FD_LOG_WARNING(("Passed test %d: %s (nonce: %d)", test->test_number, test->test_name, test->test_nonce));
 
   return 0;
 }

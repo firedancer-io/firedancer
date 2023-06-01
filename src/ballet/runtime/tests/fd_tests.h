@@ -28,6 +28,7 @@ struct fd_executor_test {
   const uchar*            raw_tx;
   ulong                   raw_tx_len;
   int                     expected_result;
+  uint                    custom_err;
   ulong                   nonce;
 };
 typedef struct fd_executor_test fd_executor_test_t;

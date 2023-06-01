@@ -49,10 +49,11 @@ static const uchar test_acc_2_result_data[] = {152, 13, 0, 0, 0, 0, 0, 0, 0, 0, 
 test_acc->result_data = test_acc_2_result_data;
 test_acc++;
   fd_base58_decode_32( "Stake11111111111111111111111111111111111111",  (unsigned char *) &test.program_id);
-  static const uchar raw_tx[] = {1, 190, 23, 247, 105, 210, 182, 212, 64, 24, 191, 121, 78, 234, 3, 252, 127, 94, 68, 186, 239, 237, 248, 94, 76, 220, 206, 157, 146, 216, 97, 30, 112, 166, 232, 81, 4, 67, 241, 86, 199, 234, 105, 229, 193, 89, 83, 136, 168, 17, 15, 121, 243, 81, 137, 206, 91, 241, 248, 124, 67, 81, 227, 153, 203, 1, 0, 1, 3, 0, 0, 0, 0, 0, 0, 0, 76, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 77, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 6, 161, 216, 23, 145, 55, 84, 42, 152, 52, 55, 189, 254, 42, 122, 178, 85, 127, 83, 92, 138, 120, 114, 43, 104, 164, 157, 192, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 2, 2, 0, 1, 12, 3, 0, 0, 0, 128, 213, 34, 0, 0, 0, 0, 0};
+  static const uchar raw_tx[] = {1, 146, 218, 3, 204, 178, 53, 237, 219, 67, 200, 4, 180, 235, 13, 162, 3, 243, 122, 201, 72, 235, 120, 100, 51, 44, 25, 80, 6, 120, 224, 205, 255, 73, 21, 219, 138, 238, 69, 17, 48, 30, 99, 22, 34, 65, 163, 155, 50, 140, 66, 251, 119, 153, 191, 77, 186, 189, 100, 75, 12, 98, 34, 144, 240, 1, 0, 1, 3, 0, 0, 0, 0, 0, 0, 0, 76, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 77, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 6, 161, 216, 23, 145, 55, 84, 42, 152, 52, 55, 189, 254, 42, 122, 178, 85, 127, 83, 92, 138, 120, 114, 43, 104, 164, 157, 192, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 2, 2, 0, 1, 12, 3, 0, 0, 0, 128, 213, 34, 0, 0, 0, 0, 0};
   test.raw_tx = raw_tx;
   test.raw_tx_len = 215;
   test.expected_result = -6;
+  test.custom_err = 0;
 
   test.accs_len = test_accs_len;
   test.accs = test_accs;
@@ -110,10 +111,11 @@ static const uchar test_acc_2_result_data[] = {152, 13, 0, 0, 0, 0, 0, 0, 0, 0, 
 test_acc->result_data = test_acc_2_result_data;
 test_acc++;
   fd_base58_decode_32( "Stake11111111111111111111111111111111111111",  (unsigned char *) &test.program_id);
-  static const uchar raw_tx[] = {1, 169, 131, 147, 176, 109, 252, 241, 53, 16, 57, 137, 7, 30, 51, 24, 100, 64, 173, 194, 196, 172, 158, 243, 145, 83, 163, 132, 82, 60, 107, 43, 125, 117, 18, 255, 100, 1, 23, 143, 177, 94, 55, 115, 147, 136, 117, 80, 206, 124, 27, 53, 211, 117, 121, 143, 240, 43, 100, 39, 161, 174, 109, 70, 5, 1, 0, 1, 3, 0, 0, 0, 0, 0, 0, 0, 76, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 77, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 6, 161, 216, 23, 145, 55, 84, 42, 152, 52, 55, 189, 254, 42, 122, 178, 85, 127, 83, 92, 138, 120, 114, 43, 104, 164, 157, 192, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 2, 2, 0, 1, 12, 3, 0, 0, 0, 129, 213, 34, 0, 0, 0, 0, 0};
+  static const uchar raw_tx[] = {1, 167, 21, 81, 113, 100, 79, 109, 189, 56, 90, 20, 183, 157, 51, 207, 229, 41, 114, 160, 183, 118, 10, 38, 38, 2, 33, 129, 195, 10, 54, 6, 69, 226, 139, 16, 96, 234, 207, 138, 179, 191, 245, 116, 90, 179, 187, 233, 232, 129, 13, 203, 3, 218, 189, 207, 250, 189, 34, 66, 227, 194, 122, 89, 164, 1, 0, 1, 3, 0, 0, 0, 0, 0, 0, 0, 76, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 77, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 6, 161, 216, 23, 145, 55, 84, 42, 152, 52, 55, 189, 254, 42, 122, 178, 85, 127, 83, 92, 138, 120, 114, 43, 104, 164, 157, 192, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 2, 2, 0, 1, 12, 3, 0, 0, 0, 129, 213, 34, 0, 0, 0, 0, 0};
   test.raw_tx = raw_tx;
   test.raw_tx_len = 215;
   test.expected_result = 0;
+  test.custom_err = 0;
 
   test.accs_len = test_accs_len;
   test.accs = test_accs;
@@ -149,6 +151,7 @@ test_acc++;
   test.raw_tx = raw_tx;
   test.raw_tx_len = 110;
   test.expected_result = 0;
+  test.custom_err = 0;
 
   test.accs_len = test_accs_len;
   test.accs = test_accs;
@@ -184,6 +187,7 @@ test_acc++;
   test.raw_tx = raw_tx;
   test.raw_tx_len = 110;
   test.expected_result = 0;
+  test.custom_err = 0;
 
   test.accs_len = test_accs_len;
   test.accs = test_accs;
@@ -232,6 +236,7 @@ test_acc++;
   test.raw_tx = raw_tx;
   test.raw_tx_len = 255;
   test.expected_result = 0;
+  test.custom_err = 0;
 
   test.accs_len = test_accs_len;
   test.accs = test_accs;
@@ -280,6 +285,7 @@ test_acc++;
   test.raw_tx = raw_tx;
   test.raw_tx_len = 255;
   test.expected_result = -4;
+  test.custom_err = 0;
 
   test.accs_len = test_accs_len;
   test.accs = test_accs;
@@ -328,6 +334,7 @@ test_acc++;
   test.raw_tx = raw_tx;
   test.raw_tx_len = 255;
   test.expected_result = -6;
+  test.custom_err = 0;
 
   test.accs_len = test_accs_len;
   test.accs = test_accs;
@@ -376,6 +383,7 @@ test_acc++;
   test.raw_tx = raw_tx;
   test.raw_tx_len = 255;
   test.expected_result = -4;
+  test.custom_err = 0;
 
   test.accs_len = test_accs_len;
   test.accs = test_accs;
@@ -424,6 +432,7 @@ test_acc++;
   test.raw_tx = raw_tx;
   test.raw_tx_len = 255;
   test.expected_result = -4;
+  test.custom_err = 0;
 
   test.accs_len = test_accs_len;
   test.accs = test_accs;
@@ -472,6 +481,7 @@ test_acc++;
   test.raw_tx = raw_tx;
   test.raw_tx_len = 255;
   test.expected_result = 0;
+  test.custom_err = 0;
 
   test.accs_len = test_accs_len;
   test.accs = test_accs;
@@ -520,6 +530,7 @@ test_acc++;
   test.raw_tx = raw_tx;
   test.raw_tx_len = 255;
   test.expected_result = -4;
+  test.custom_err = 0;
 
   test.accs_len = test_accs_len;
   test.accs = test_accs;
@@ -568,6 +579,7 @@ test_acc++;
   test.raw_tx = raw_tx;
   test.raw_tx_len = 255;
   test.expected_result = -6;
+  test.custom_err = 0;
 
   test.accs_len = test_accs_len;
   test.accs = test_accs;
@@ -616,6 +628,7 @@ test_acc++;
   test.raw_tx = raw_tx;
   test.raw_tx_len = 255;
   test.expected_result = -4;
+  test.custom_err = 0;
 
   test.accs_len = test_accs_len;
   test.accs = test_accs;
@@ -664,6 +677,7 @@ test_acc++;
   test.raw_tx = raw_tx;
   test.raw_tx_len = 255;
   test.expected_result = -4;
+  test.custom_err = 0;
 
   test.accs_len = test_accs_len;
   test.accs = test_accs;
@@ -685,6 +699,7 @@ fd_memset( test_accs, 0, FD_EXECUTOR_TEST_ACC_FOOTPRINT * test_accs_len );
   test.raw_tx = raw_tx;
   test.raw_tx_len = 189;
   test.expected_result = -20;
+  test.custom_err = 0;
 
   test.accs_len = test_accs_len;
   test.accs = test_accs;
@@ -720,6 +735,7 @@ test_acc++;
   test.raw_tx = raw_tx;
   test.raw_tx_len = 222;
   test.expected_result = -20;
+  test.custom_err = 0;
 
   test.accs_len = test_accs_len;
   test.accs = test_accs;
@@ -768,6 +784,7 @@ test_acc++;
   test.raw_tx = raw_tx;
   test.raw_tx_len = 255;
   test.expected_result = -4;
+  test.custom_err = 0;
 
   test.accs_len = test_accs_len;
   test.accs = test_accs;
@@ -803,6 +820,7 @@ test_acc++;
   test.raw_tx = raw_tx;
   test.raw_tx_len = 110;
   test.expected_result = -20;
+  test.custom_err = 0;
 
   test.accs_len = test_accs_len;
   test.accs = test_accs;
@@ -838,6 +856,7 @@ test_acc++;
   test.raw_tx = raw_tx;
   test.raw_tx_len = 110;
   test.expected_result = -20;
+  test.custom_err = 0;
 
   test.accs_len = test_accs_len;
   test.accs = test_accs;
@@ -921,10 +940,11 @@ static const uchar test_acc_4_result_data[] = {0, 0, 0, 0, 0, 0, 0, 208, 63, 12}
 test_acc->result_data = test_acc_4_result_data;
 test_acc++;
   fd_base58_decode_32( "Stake11111111111111111111111111111111111111",  (unsigned char *) &test.program_id);
-  static const uchar raw_tx[] = {1, 126, 229, 158, 145, 201, 249, 110, 234, 138, 250, 28, 83, 29, 186, 130, 192, 221, 50, 30, 251, 98, 174, 120, 53, 25, 76, 219, 52, 86, 137, 59, 135, 111, 130, 113, 29, 145, 115, 144, 87, 128, 75, 109, 76, 37, 61, 127, 184, 99, 238, 109, 130, 229, 31, 229, 41, 111, 250, 149, 23, 16, 84, 218, 160, 1, 0, 5, 6, 0, 0, 0, 0, 0, 0, 0, 56, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 57, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 6, 161, 216, 23, 145, 55, 84, 42, 152, 52, 55, 189, 254, 42, 122, 178, 85, 127, 83, 92, 138, 120, 114, 43, 104, 164, 157, 192, 0, 0, 0, 0, 6, 161, 216, 23, 165, 2, 5, 11, 104, 7, 145, 230, 206, 109, 184, 142, 30, 91, 113, 80, 246, 31, 198, 121, 10, 78, 180, 209, 0, 0, 0, 0, 6, 167, 213, 23, 24, 199, 116, 201, 40, 86, 99, 152, 105, 29, 94, 182, 139, 94, 184, 163, 155, 75, 109, 92, 115, 85, 91, 33, 0, 0, 0, 0, 6, 167, 213, 23, 25, 53, 132, 208, 254, 237, 155, 179, 67, 29, 19, 32, 107, 229, 68, 40, 27, 87, 184, 86, 108, 197, 55, 95, 244, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 2, 5, 0, 1, 4, 5, 3, 4, 2, 0, 0, 0};
+  static const uchar raw_tx[] = {1, 103, 209, 132, 73, 139, 191, 71, 208, 154, 121, 82, 22, 0, 194, 229, 175, 220, 32, 39, 126, 93, 238, 171, 241, 139, 44, 6, 87, 253, 15, 218, 177, 88, 184, 67, 167, 29, 90, 71, 184, 220, 58, 185, 228, 219, 33, 100, 125, 177, 130, 0, 254, 19, 34, 78, 130, 247, 203, 178, 206, 60, 242, 241, 122, 1, 0, 5, 6, 0, 0, 0, 0, 0, 0, 0, 56, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 57, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 6, 161, 216, 23, 145, 55, 84, 42, 152, 52, 55, 189, 254, 42, 122, 178, 85, 127, 83, 92, 138, 120, 114, 43, 104, 164, 157, 192, 0, 0, 0, 0, 6, 161, 216, 23, 165, 2, 5, 11, 104, 7, 145, 230, 206, 109, 184, 142, 30, 91, 113, 80, 246, 31, 198, 121, 10, 78, 180, 209, 0, 0, 0, 0, 6, 167, 213, 23, 24, 199, 116, 201, 40, 86, 99, 152, 105, 29, 94, 182, 139, 94, 184, 163, 155, 75, 109, 92, 115, 85, 91, 33, 0, 0, 0, 0, 6, 167, 213, 23, 25, 53, 132, 208, 254, 237, 155, 179, 67, 29, 19, 32, 107, 229, 68, 40, 27, 87, 184, 86, 108, 197, 55, 95, 244, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 2, 5, 0, 1, 4, 5, 3, 4, 2, 0, 0, 0};
   test.raw_tx = raw_tx;
   test.raw_tx_len = 306;
   test.expected_result = -4;
+  test.custom_err = 0;
 
   test.accs_len = test_accs_len;
   test.accs = test_accs;
@@ -999,6 +1019,7 @@ test_acc++;
   test.raw_tx = raw_tx;
   test.raw_tx_len = 217;
   test.expected_result = -2;
+  test.custom_err = 0;
 
   test.accs_len = test_accs_len;
   test.accs = test_accs;
@@ -1034,6 +1055,7 @@ test_acc++;
   test.raw_tx = raw_tx;
   test.raw_tx_len = 118;
   test.expected_result = -20;
+  test.custom_err = 0;
 
   test.accs_len = test_accs_len;
   test.accs = test_accs;
@@ -1082,6 +1104,7 @@ test_acc++;
   test.raw_tx = raw_tx;
   test.raw_tx_len = 143;
   test.expected_result = -2;
+  test.custom_err = 0;
 
   test.accs_len = test_accs_len;
   test.accs = test_accs;
@@ -1103,6 +1126,7 @@ fd_memset( test_accs, 0, FD_EXECUTOR_TEST_ACC_FOOTPRINT * test_accs_len );
   test.raw_tx = raw_tx;
   test.raw_tx_len = 77;
   test.expected_result = -20;
+  test.custom_err = 0;
 
   test.accs_len = test_accs_len;
   test.accs = test_accs;
@@ -1124,6 +1148,7 @@ fd_memset( test_accs, 0, FD_EXECUTOR_TEST_ACC_FOOTPRINT * test_accs_len );
   test.raw_tx = raw_tx;
   test.raw_tx_len = 77;
   test.expected_result = -20;
+  test.custom_err = 0;
 
   test.accs_len = test_accs_len;
   test.accs = test_accs;

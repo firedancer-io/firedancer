@@ -299,7 +299,12 @@ def main():
     print("  static const uchar raw_tx[] = {};".format(d), file = f)
     print("  test.raw_tx = raw_tx;", file = f)
     print("  test.raw_tx_len = {};".format(len(serialized)), file = f)
-    print("  test.expected_result = {};".format(serializeResult(json_test_case["expected_result"])), file = f)
+    res = json_test_case["expected_result"]
+    print("  test.expected_result = {};".format(serializeResult(res)), file = f)
+    if "Err" in res and isinstance(res["Err"], dict):
+        print("  test.custom_err = {};".format(res["Err"]["Custom"]), file = f)
+    else:
+        print("  test.custom_err = 0;", file = f)
     print("", file = f)
     print("  test.accs_len = test_accs_len;", file = f)
     print("  test.accs = test_accs;", file = f)
