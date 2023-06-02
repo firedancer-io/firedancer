@@ -24,6 +24,10 @@ print("#include \"" + sys.argv[1] + "\"", file=body)
 print("#pragma GCC diagnostic ignored \"-Wunused-parameter\"", file=body)
 print("#pragma GCC diagnostic ignored \"-Wunused-variable\"", file=body)
 
+print("#ifdef _DISABLE_OPTIMIZATION", file=body)
+print("#pragma GCC optimize (\"O0\")", file=body)
+print("#endif", file=body)
+
 type_map = {
     "int64_t": "long",
     "uint64_t": "unsigned long",
