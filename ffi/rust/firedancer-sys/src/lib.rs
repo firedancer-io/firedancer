@@ -14,7 +14,13 @@ mod generated {
     type uint = u32;
     type ulong = u64;
 
-    include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
+    type __m128i = [::std::os::raw::c_longlong; 2usize];
+    type __m256i = [::std::os::raw::c_longlong; 4usize];
+
+    include!(concat!(env!("OUT_DIR"), "/bindings_util.rs"));
+    include!(concat!(env!("OUT_DIR"), "/bindings_ballet.rs"));
+    include!(concat!(env!("OUT_DIR"), "/bindings_disco.rs"));
+    include!(concat!(env!("OUT_DIR"), "/bindings_tango.rs"));
 }
 
 pub mod ballet;
