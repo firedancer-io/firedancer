@@ -40,8 +40,11 @@ void fd_sysvar_recent_hashes_init( fd_global_ctx_t* global ) {
     sz = 6008;
   unsigned char *enc = fd_alloca(1, sz);
   memset(enc, 0, sz);
-  void const *ptr = (void const *) enc;
-  fd_recent_block_hashes_encode(&global->bank.recent_block_hashes, &ptr);
+  fd_bincode_encode_ctx_t ctx;
+  ctx.data = enc;
+  ctx.dataend = enc + sz;
+  if ( fd_recent_block_hashes_encode(&global->bank.recent_block_hashes, &ctx) )
+    FD_LOG_ERR(("fd_recent_block_hashes_encode failed"));
 
   fd_sysvar_set(global, global->sysvar_owner, global->sysvar_recent_block_hashes, enc, sz, global->bank.solana_bank.slot );
 }
@@ -66,8 +69,11 @@ void fd_sysvar_recent_hashes_update(fd_global_ctx_t* global ) {
     sz = 6008;
   unsigned char *enc = fd_alloca(1, sz);
   memset(enc, 0, sz);
-  void const *ptr = (void const *) enc;
-  fd_recent_block_hashes_encode(&global->bank.recent_block_hashes, &ptr);
+  fd_bincode_encode_ctx_t ctx;
+  ctx.data = enc;
+  ctx.dataend = enc + sz;
+  if ( fd_recent_block_hashes_encode(&global->bank.recent_block_hashes, &ctx) )
+    FD_LOG_ERR(("fd_recent_block_hashes_encode failed"));
 
   fd_sysvar_set(global, global->sysvar_owner, global->sysvar_recent_block_hashes, enc, sz, global->bank.solana_bank.slot);
 }

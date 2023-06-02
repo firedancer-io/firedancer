@@ -81,7 +81,7 @@ int fd_executor_run_test(
 
   /* Insert all the accounts into the database */
   for ( ulong i = 0; i < test->accs_len; i++ ) {
-    if (test->accs[ i ].lamports == 0)
+    if ((test->accs[ i ].lamports == 0) && (test->accs[ i ].data_len == 0) && memcmp(global->solana_system_program, test->accs[i].owner.hash, 32 ) == 0)
       continue;
     fd_solana_account_t acc = {
       .data = (uchar*) test->accs[ i ].data,
@@ -92,6 +92,19 @@ int fd_executor_run_test(
       .rent_epoch = test->accs[ i ].rent_epoch,
     };
     fd_acc_mgr_write_structured_account( global->acc_mgr, global->funk_txn, global->bank.solana_bank.slot, &test->accs[i].pubkey, &acc);
+
+    if (memcmp(&global->sysvar_recent_block_hashes, &test->accs[i].pubkey, sizeof(test->accs[i].pubkey)) == 0) {
+      fd_recent_block_hashes_new( &global->bank.recent_block_hashes );
+      fd_bincode_decode_ctx_t ctx2;
+      ctx2.data = acc.data,
+      ctx2.dataend = acc.data + acc.data_len;
+      ctx2.allocf = global->allocf;
+      ctx2.allocf_arg = global->allocf_arg;
+      if ( fd_recent_block_hashes_decode( &global->bank.recent_block_hashes, &ctx2 ) ) {
+        FD_LOG_WARNING(("fd_recent_block_hashes_decode failed"));
+        return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
+      }
+    }
   }
 
   /* Parse the raw transaction */
@@ -112,47 +125,65 @@ int fd_executor_run_test(
     .raw    = (void*)test->raw_tx,
     .txn_sz = (ushort)test->raw_tx_len,
   };
+  transaction_ctx_t          txn_ctx = {
+    .global         = global,
+    .txn_descriptor = txn_descriptor,
+    .txn_raw        = &raw_txn_b,
+  };
+
   instruction_ctx_t          ctx = {
     .global         = global,
     .instr          = instr,
-    .txn_descriptor = txn_descriptor,
-    .txn_raw        = &raw_txn_b,
+    .txn_ctx        = &txn_ctx,
   };
   execute_instruction_func_t exec_instr_func = fd_executor_lookup_native_program( global, &test->program_id );
   int exec_result = exec_instr_func( ctx );
   if ( exec_result != test->expected_result ) {
-    FD_LOG_WARNING(( "Failed test %d: %s: expected transaction result %d, got %d", test->test_number, test->test_name, test->expected_result , exec_result));
+    FD_LOG_WARNING(( "Failed test %d: %s (nonce: %d): expected transaction result %d, got %d", test->test_number, test->test_name, test->test_nonce, test->expected_result , exec_result));
     return -1;
   }
 
-  /* Insert all the accounts into the database */
-  for ( ulong i = 0; i < test->accs_len; i++ ) {
-    ulong sz = 0;
-    int err = 0;
-    char * raw_acc_data = (char*) fd_acc_mgr_view_data(ctx.global->acc_mgr, ctx.global->funk_txn, (fd_pubkey_t *) &test->accs[i].pubkey, &sz, &err);
-    if (NULL == raw_acc_data)
-      return err;
-    fd_account_meta_t *m = (fd_account_meta_t *) raw_acc_data;
-    void* d = (void *)(raw_acc_data + m->hlen);
+  if ( exec_result == FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR ) {
+    if ( ctx.txn_ctx->custom_err != test->custom_err) {
+      FD_LOG_WARNING(( "Failed test %d: %s (nonce: %d): expected custom error inner value of %d, got %d", test->test_number, test->test_name, test->test_nonce, test->custom_err, ctx.txn_ctx->custom_err ));
+      return -1;
+    }
+  }
 
-    if (m->info.lamports != test->accs[i].result_lamports) {
-      FD_LOG_WARNING(( "Failed test %d: %s: expected lamports %ld, got %ld", test->test_number, test->test_name, test->accs[i].result_lamports, m->info.lamports));
-      return -1;
-    }
-    if (m->dlen != test->accs[i].result_data_len) {
-      FD_LOG_WARNING(( "Failed test %d: %s: size missmatch", test->test_number, test->test_name));
-      return -1;
-    }
-    if (memcmp(d, test->accs[i].result_data, test->accs[i].result_data_len)) {
-      FD_LOG_WARNING(( "Failed test %d: %s: account missmatch", test->test_number, test->test_name));
-      return -1;
+  if (FD_EXECUTOR_INSTR_SUCCESS == exec_result) {
+    /* Confirm account updates */
+    for ( ulong i = 0; i < test->accs_len; i++ ) {
+      ulong sz = 0;
+      int err = 0;
+      char * raw_acc_data = (char*) fd_acc_mgr_view_data(ctx.global->acc_mgr, ctx.global->funk_txn, (fd_pubkey_t *) &test->accs[i].pubkey, &sz, &err);
+      if (NULL == raw_acc_data) {
+        if ((test->accs[ i ].lamports == 0) && (test->accs[ i ].data_len == 0))
+          continue;
+        FD_LOG_WARNING(( "bad dog.. no donut..  Ask josh to take a look at this"));
+        return err;
+      }
+      fd_account_meta_t *m = (fd_account_meta_t *) raw_acc_data;
+      void* d = (void *)(raw_acc_data + m->hlen);
+
+      if (m->info.lamports != test->accs[i].result_lamports) {
+        FD_LOG_WARNING(( "Failed test %d: %s (nonce: %d): expected lamports %ld, got %ld", test->test_number, test->test_name, test->test_nonce, test->accs[i].result_lamports, m->info.lamports));
+        return -666;
+      }
+      if (m->dlen != test->accs[i].result_data_len) {
+        FD_LOG_WARNING(( "Failed test %d: %s (nonce: %d): size missmatch", test->test_number, test->test_name, test->test_nonce));
+        return -777;
+      }
+      if (memcmp(d, test->accs[i].result_data, test->accs[i].result_data_len)) {
+        FD_LOG_WARNING(( "Failed test %d: %s (nonce: %d): account missmatch", test->test_number, test->test_name, test->test_nonce));
+        return -888;
+      }
     }
   }
 
   /* Revert the Funk transaction */
   fd_funk_txn_cancel( suite->funk, global->funk_txn, 0 );
 
-  FD_LOG_WARNING(("Passed test %d: %s", test->test_number, test->test_name));
+  FD_LOG_WARNING(("Passed test %d: %s (nonce: %d)", test->test_number, test->test_name, test->test_nonce));
 
   return 0;
 }
@@ -193,8 +224,6 @@ int main(int argc, char **argv) {
 
   fd_log_flush();
   fd_halt();
-
-  FD_LOG_NOTICE( ("all done" ));
 
   return ret;
 }

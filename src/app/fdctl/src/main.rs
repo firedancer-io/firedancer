@@ -4,11 +4,18 @@ mod config;
 mod security;
 mod utility;
 
-use std::{env, path::PathBuf, process::Command};
+use std::env;
+use std::path::PathBuf;
+use std::process::Command;
 
-use config::{Config, UserConfig};
-
-use clap::{Parser, Subcommand};
+use clap::{
+    Parser,
+    Subcommand,
+};
+use config::{
+    Config,
+    UserConfig,
+};
 use log::*;
 
 #[derive(Parser, Debug)]
@@ -21,7 +28,8 @@ struct Cli {
     #[arg(long)]
     config: Option<PathBuf>,
 
-    /// Location of the Firedancer build binary directory. For example `/home/user/firedancer/build/linux/gcc/x86_65/bin/`
+    /// Location of the Firedancer build binary directory. For example
+    /// `/home/user/firedancer/build/linux/gcc/x86_65/bin/`
     #[arg(long)]
     binary_dir: Option<PathBuf>,
 }
@@ -85,7 +93,10 @@ fn main() {
     if !permission_errors.is_empty() {
         if config.development.sudo {
             permission_errors.iter().for_each(|x| info!("{}", x));
-            info!("Need additional permissions. Config has [development.sudo] enabled so rerunning as root");
+            info!(
+                "Need additional permissions. Config has [development.sudo] enabled so rerunning \
+                 as root"
+            );
             escalate_root();
         } else {
             permission_errors.iter().for_each(|x| error!("{}", x));

@@ -15,6 +15,7 @@ default = []
 fuzz-asan = []
 
 [dependencies]
+paste = "1.0.12"
 
 [build-dependencies]
 bindgen = "0.64.0"

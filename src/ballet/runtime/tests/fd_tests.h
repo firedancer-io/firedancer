@@ -4,7 +4,7 @@
 /* Framework for running Solana's native program tests in our runtime */
 
 struct fd_executor_test_acc {
-  fd_pubkey_t pubkey;
+  fd_pubkey_t   pubkey;
   ulong         lamports;
   ulong         result_lamports;
   ulong         data_len;
@@ -21,12 +21,15 @@ typedef struct fd_executor_test_acc fd_executor_test_acc_t;
 struct fd_executor_test {
   char*                   test_name;
   int                     test_number;
+  int                     test_nonce;
   fd_pubkey_t             program_id;
   fd_executor_test_acc_t* accs;
   ulong                   accs_len;
   const uchar*            raw_tx;
   ulong                   raw_tx_len;
   int                     expected_result;
+  uint                    custom_err;
+  ulong                   nonce;
 };
 typedef struct fd_executor_test fd_executor_test_t;
 #define FD_EXECUTOR_TEST_FOOTPRINT ( sizeof(fd_executor_test_t) )

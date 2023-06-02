@@ -43,8 +43,11 @@ void write_clock( fd_global_ctx_t* global, fd_sol_sysvar_clock_t* clock ) {
   ulong          sz = fd_sol_sysvar_clock_size( clock );
   unsigned char *enc = fd_alloca( 1, sz );
   memset( enc, 0, sz );
-  void const *ptr = (void const *) enc;
-  fd_sol_sysvar_clock_encode( clock, &ptr );
+  fd_bincode_encode_ctx_t ctx;
+  ctx.data = enc;
+  ctx.dataend = enc + sz;
+  if ( fd_sol_sysvar_clock_encode( clock, &ctx ) )
+    FD_LOG_ERR(("fd_sol_sysvar_clock_encode failed"));
 
   fd_sysvar_set( global, global->sysvar_owner, global->sysvar_clock, enc, sz, global->bank.solana_bank.slot );
 }
@@ -65,8 +68,13 @@ void fd_sysvar_clock_read( fd_global_ctx_t* global, fd_sol_sysvar_clock_t* resul
     return;
   }
 
-  void* input = (void *)raw_acc_data;
-  fd_sol_sysvar_clock_decode( result, (const void **)&input, raw_acc_data + metadata.dlen, global->allocf, global->allocf_arg );
+  fd_bincode_decode_ctx_t ctx;
+  ctx.data = raw_acc_data;
+  ctx.dataend = raw_acc_data + metadata.dlen;
+  ctx.allocf = global->allocf;
+  ctx.allocf_arg = global->allocf_arg;
+  if ( fd_sol_sysvar_clock_decode( result, &ctx ) )
+    FD_LOG_ERR(("fd_sol_sysvar_clock_decode failed"));
 }
 
 void fd_sysvar_clock_init( fd_global_ctx_t* global ) {

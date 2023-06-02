@@ -11,8 +11,11 @@ void write_epoch_schedule( fd_global_ctx_t* global, fd_epoch_schedule_t* epoch_s
   ulong          sz = fd_epoch_schedule_size( epoch_schedule );
   unsigned char *enc = fd_alloca( 1, sz );
   memset( enc, 0, sz );
-  void const *ptr = (void const *) enc;
-  fd_epoch_schedule_encode( epoch_schedule, &ptr );
+  fd_bincode_encode_ctx_t ctx;
+  ctx.data = enc;
+  ctx.dataend = enc + sz;
+  if ( fd_epoch_schedule_encode( epoch_schedule, &ctx ) )
+    FD_LOG_ERR(("fd_epoch_schedule_encode failed"));
 
   fd_sysvar_set( global, global->sysvar_owner, global->sysvar_epoch_schedule, enc, sz, global->bank.solana_bank.slot );
 }
@@ -32,8 +35,13 @@ void fd_sysvar_epoch_schedule_read( fd_global_ctx_t* global, fd_epoch_schedule_t
     return;
   }
 
-  void* input = (void *)raw_acc_data;
-  fd_epoch_schedule_decode( result, (const void **)&input, raw_acc_data + metadata.dlen, global->allocf, global->allocf_arg );
+  fd_bincode_decode_ctx_t ctx;
+  ctx.data = raw_acc_data;
+  ctx.dataend = raw_acc_data + metadata.dlen;
+  ctx.allocf = global->allocf;
+  ctx.allocf_arg = global->allocf_arg;
+  if ( fd_epoch_schedule_decode( result, &ctx ) )
+    FD_LOG_ERR(("fd_epoch_schedule_decode failed"));
 }
 
 void fd_sysvar_epoch_schedule_init( fd_global_ctx_t* global ) {

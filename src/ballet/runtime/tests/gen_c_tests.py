@@ -193,60 +193,70 @@ def main():
   print("")
 
   test_case = 0;
+  fidx = 1;
+
+  f = None
 
   for json_test_case in json_test_cases:
-    print("int test_{}(fd_executor_test_suite_t *suite) {}".format(test_case, "{"))
+    if (test_case % 25) == 0:
+          fname = "testcases_" + str(fidx) + ".h"
+          f = open(fname, "w")
+          print("#include \"{}\"".format(fname))
+          fidx = fidx + 1
+          
+    print("int test_{}(fd_executor_test_suite_t *suite) {}".format(test_case, "{"), file = f)
 
-    print("  fd_executor_test_t test;")
-    print("  fd_memset( &test, 0, FD_EXECUTOR_TEST_FOOTPRINT );")
-    print("  test.test_name = \"{}\";".format(json_test_case["name"]))
-    print("  test.test_number ={};".format(test_case))
+    print("  fd_executor_test_t test;", file = f)
+    print("  fd_memset( &test, 0, FD_EXECUTOR_TEST_FOOTPRINT );", file = f)
+    print("  test.test_name = \"{}\";".format(json_test_case["name"]), file = f)
+    print("  test.test_nonce = {};".format(json_test_case["nonce"]), file = f)
+    print("  test.test_number ={};".format(test_case), file = f)
 
     test_case = test_case + 1
 
-    print("  if (fd_executor_test_suite_check_filter(suite, &test)) return -9999;")
+    print("  if (fd_executor_test_suite_check_filter(suite, &test)) return -9999;", file = f)
 
-    print ("ulong test_accs_len = {};".format(len(json_test_case["transaction_accounts"])))
+    print ("ulong test_accs_len = {};".format(len(json_test_case["transaction_accounts"])), file = f)
 
-    print("fd_executor_test_acc_t* test_accs = fd_alloca( 1UL, FD_EXECUTOR_TEST_ACC_FOOTPRINT * test_accs_len );")
-    print("fd_memset( test_accs, 0, FD_EXECUTOR_TEST_ACC_FOOTPRINT * test_accs_len );")
+    print("fd_executor_test_acc_t* test_accs = fd_alloca( 1UL, FD_EXECUTOR_TEST_ACC_FOOTPRINT * test_accs_len );", file = f)
+    print("fd_memset( test_accs, 0, FD_EXECUTOR_TEST_ACC_FOOTPRINT * test_accs_len );", file = f)
 
     if len(json_test_case["transaction_accounts"]) > 0:
-        print("fd_executor_test_acc_t* test_acc = test_accs;")
+        print("fd_executor_test_acc_t* test_acc = test_accs;", file = f)
 
     # Serialize the accounts needed for this test case
     idx = 0
     for e in json_test_case["transaction_accounts"]:
         txn_acc_shared_data = e["shared_data"]
         txn_acc_result = json_test_case["resulting_accounts"][idx]
-        print("fd_base58_decode_32( \"{}\",  (unsigned char *) &test_acc->pubkey);".format(e["pubkey"]))
-        print("fd_base58_decode_32( \"{}\",  (unsigned char *) &test_acc->owner);".format(txn_acc_shared_data["owner"]))
-        print("test_acc->lamports = {}UL;".format(txn_acc_shared_data["lamports"]))
-        print("test_acc->result_lamports = {}UL;".format(txn_acc_result["lamports"]))
+        print("fd_base58_decode_32( \"{}\",  (unsigned char *) &test_acc->pubkey);".format(e["pubkey"]), file = f)
+        print("fd_base58_decode_32( \"{}\",  (unsigned char *) &test_acc->owner);".format(txn_acc_shared_data["owner"]), file = f)
+        print("test_acc->lamports = {}UL;".format(txn_acc_shared_data["lamports"]), file = f)
+        print("test_acc->result_lamports = {}UL;".format(txn_acc_result["lamports"]), file = f)
         if txn_acc_shared_data["executable"]:
-            print("test_acc->executable = 1;");
+            print("test_acc->executable = 1;", file = f);
         else:
-            print("test_acc->executable = 0;");
-        print("test_acc->rent_epoch = {};".format(txn_acc_shared_data["rent_epoch"]))
+            print("test_acc->executable = 0;", file = f);
+        print("test_acc->rent_epoch = {};".format(txn_acc_shared_data["rent_epoch"]), file = f)
         data = bytes.fromhex(txn_acc_shared_data["data"])
         result_data = bytes.fromhex(txn_acc_result["data"])
 
-        print("test_acc->data_len = {};".format(len(data)))
+        print("test_acc->data_len = {};".format(len(data)), file = f)
         if len(data) == 0:
-            print("static const uchar test_acc_{}_data[] = {}0{};".format(idx, '{', '}'))
+            print("static const uchar test_acc_{}_data[] = {}0{};".format(idx, '{', '}'), file = f)
         else:
             d = str(list(data)).replace('[', '{').replace(']', '}')
-            print("static const uchar test_acc_{}_data[] = {};".format(idx, d))
-        print("test_acc->data = test_acc_{}_data;".format(idx))
+            print("static const uchar test_acc_{}_data[] = {};".format(idx, d), file = f)
+        print("test_acc->data = test_acc_{}_data;".format(idx), file = f)
 
-        print("test_acc->result_data_len = {};".format(len(result_data)))
+        print("test_acc->result_data_len = {};".format(len(result_data)), file = f)
         if len(result_data) == 0:
-            print("static const uchar test_acc_{}_result_data[] = {}0{};".format(idx, '{', '}'))
+            print("static const uchar test_acc_{}_result_data[] = {}0{};".format(idx, '{', '}'), file = f)
         else:
             d = str(list(result_data)).replace('[', '{').replace(']', '}')
-            print("static const uchar test_acc_{}_result_data[] = {};".format(idx, d))
-        print("test_acc->result_data = test_acc_{}_result_data;".format(idx))
-        print("test_acc++;")
+            print("static const uchar test_acc_{}_result_data[] = {};".format(idx, d), file = f)
+        print("test_acc->result_data = test_acc_{}_result_data;".format(idx), file = f)
+        print("test_acc++;", file = f)
         idx = idx+1
             
     # Serialize the transaction this test case executes
@@ -284,18 +294,23 @@ def main():
     # Serialize the expected result
 
 
-    print("  fd_base58_decode_32( \"{}\",  (unsigned char *) &test.program_id);".format(json_test_case["program_id"]))
+    print("  fd_base58_decode_32( \"{}\",  (unsigned char *) &test.program_id);".format(json_test_case["program_id"]), file = f)
     d = str(list(serialized)).replace('[', '{').replace(']', '}')
-    print("  static const uchar raw_tx[] = {};".format(d))
-    print("  test.raw_tx = raw_tx;")
-    print("  test.raw_tx_len = {};".format(len(serialized)))
-    print("  test.expected_result = {};".format(serializeResult(json_test_case["expected_result"])))
-    print("")
-    print("  test.accs_len = test_accs_len;")
-    print("  test.accs = test_accs;")
-    print("")
-    print("  return fd_executor_run_test( &test, suite );")
-    print("}")
+    print("  static const uchar raw_tx[] = {};".format(d), file = f)
+    print("  test.raw_tx = raw_tx;", file = f)
+    print("  test.raw_tx_len = {};".format(len(serialized)), file = f)
+    res = json_test_case["expected_result"]
+    print("  test.expected_result = {};".format(serializeResult(res)), file = f)
+    if "Err" in res and isinstance(res["Err"], dict):
+        print("  test.custom_err = {};".format(res["Err"]["Custom"]), file = f)
+    else:
+        print("  test.custom_err = 0;", file = f)
+    print("", file = f)
+    print("  test.accs_len = test_accs_len;", file = f)
+    print("  test.accs = test_accs;", file = f)
+    print("", file = f)
+    print("  return fd_executor_run_test( &test, suite );", file = f)
+    print("}", file = f)
 #    sys.exit(0)
 
   print("")

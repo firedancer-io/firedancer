@@ -4,6 +4,7 @@
 #include "program/fd_system_program.h"
 #include "program/fd_vote_program.h"
 #include "program/fd_stake_program.h"
+#include "program/fd_config_program.h"
 
 #include "../base58/fd_base58.h"
 
@@ -48,7 +49,7 @@ fd_executor_lookup_native_program( fd_global_ctx_t* global,  fd_pubkey_t *pubkey
   } else if ( !memcmp( pubkey, global->solana_system_program, sizeof( fd_pubkey_t ) ) ) {
     return fd_executor_system_program_execute_instruction;
   } else if ( !memcmp( pubkey, global->solana_config_program, sizeof( fd_pubkey_t ) ) ) {
-    FD_LOG_ERR(( "config program not implemented yet" ));
+    return fd_executor_config_program_execute_instruction;
   } else if ( !memcmp( pubkey, global->solana_stake_program, sizeof( fd_pubkey_t ) ) ) {
     return fd_executor_stake_program_execute_instruction;
   } else {
@@ -137,14 +138,20 @@ fd_execute_txn( fd_executor_t* executor, fd_txn_t * txn_descriptor, fd_rawtxn_b_
 //
 //  if (fd_funk_fork(global->funk, ptxn, global->funk_txn) == 0)
 //    FD_LOG_ERR(("fd_funk_fork failed"));
+  transaction_ctx_t txn_ctx = {
+    .global             = executor->global,
+    .compute_unit_limit = 200000,
+    .compute_unit_price = 1,
+    .txn_descriptor     = txn_descriptor,
+    .txn_raw            = txn_raw,
+  };
 
   for ( ushort i = 0; i < txn_descriptor->instr_cnt; ++i ) {
     fd_txn_instr_t * instr = &txn_descriptor->instr[i];
     instruction_ctx_t ctx = {
       .global                 = executor->global,
       .instr                  = instr,
-      .txn_descriptor         = txn_descriptor,
-      .txn_raw                = txn_raw,
+      .txn_ctx                = &txn_ctx,
     };
 
     /* TODO: allow instructions to be failed, and the transaction to be reverted */

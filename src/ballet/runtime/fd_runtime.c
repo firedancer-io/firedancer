@@ -96,7 +96,7 @@ fd_runtime_block_execute( fd_global_ctx_t *global, fd_slot_meta_t* m, const void
   }
   if ( blockoff != blocklen )
     FD_LOG_ERR(("garbage at end of block"));
-  
+
   // TODO: move all these out to a fd_sysvar_update() call...
   fd_sysvar_clock_update( global);
   // It has to go into the current txn previous info but is not in slot 0
@@ -126,7 +126,7 @@ fd_runtime_block_execute( fd_global_ctx_t *global, fd_slot_meta_t* m, const void
         ulong txn_sz = fd_txn_parse_core(raw, blocklen - blockoff, txn_out, NULL, &pay_sz, 0);
         if ( txn_sz == 0 || txn_sz > FD_TXN_MAX_SZ )
           FD_LOG_ERR(("failed to parse transaction"));
-        
+
         fd_txn_t* txn = (fd_txn_t *)txn_out;
         fd_rawtxn_b_t rawtxn;
         rawtxn.raw = (void*)raw;
@@ -194,7 +194,7 @@ fd_runtime_block_verify( fd_global_ctx_t *global, fd_slot_meta_t* m, const void*
           fd_poh_append(&global->poh, hdr->hash_cnt - 1);
 
         fd_bmtree32_commit_t * tree = fd_bmtree32_commit_init( commit_mem );
-      
+
         /* Loop across transactions */
         for ( ulong txn_idx = 0; txn_idx < hdr->txn_cnt; txn_idx++ ) {
           fd_txn_xray_result_t xray;
@@ -217,7 +217,7 @@ fd_runtime_block_verify( fd_global_ctx_t *global, fd_slot_meta_t* m, const void*
         uchar * root = fd_bmtree32_commit_fini( tree );
         fd_poh_mixin(&global->poh, root);
       }
-      
+
       if (memcmp(hdr->hash, global->poh.state, sizeof(global->poh.state))) {
         if (global->poh_booted) {
           // TODO should this log and return?  instead of knocking the
@@ -274,7 +274,7 @@ static void fd_runtime_block_verify_task( void * tpool,
 
     uchar commit_mem[FD_BMTREE32_COMMIT_FOOTPRINT] __attribute__((aligned(FD_BMTREE32_COMMIT_ALIGN)));
     fd_bmtree32_commit_t * tree = fd_bmtree32_commit_init( commit_mem );
-      
+
     /* Loop across transactions */
     for ( ulong txn_idx = 0; txn_idx < hdr->txn_cnt; txn_idx++ ) {
       fd_txn_xray_result_t xray;
@@ -299,7 +299,7 @@ static void fd_runtime_block_verify_task( void * tpool,
     uchar * root = fd_bmtree32_commit_fini( tree );
     fd_poh_mixin(&micro->poh, root);
   }
-      
+
   micro->failed = (memcmp(hdr->hash, micro->poh.state, sizeof(micro->poh.state)) ? 1 : 0);
 }
 
@@ -364,7 +364,7 @@ int fd_runtime_block_verify_tpool( fd_global_ctx_t *global, fd_slot_meta_t *m, c
   /* Wait for everything to finish */
   for (ulong i = 1; i < max_workers; ++i)
     fd_tpool_wait( tpool, i );
-  
+
   /* Loop across microblocks, perform final hashing */
   for (ulong mblk = 0; mblk < num_micros; ++mblk) {
     if ( micros[mblk].failed )
@@ -383,7 +383,7 @@ fd_runtime_block_eval( fd_global_ctx_t *global, fd_slot_meta_t *m, const void* b
   xid.ul[2] = fd_rng_ulong( global->rng );
   xid.ul[3] = fd_rng_ulong( global->rng );
   fd_funk_txn_t * txn = fd_funk_txn_prepare( global->funk, parent_txn, &xid, 0 );
-    
+
   global->funk_txn_index = (global->funk_txn_index + 1) & 31;
   fd_funk_txn_t * old_txn = global->funk_txn_tower[global->funk_txn_index];
   if (old_txn != NULL )
@@ -482,9 +482,9 @@ fd_runtime_calculate_fee( fd_global_ctx_t *global, fd_txn_t * txn_descriptor, fd
 // TODO: implement fee distribution to the collector ... and then charge us the correct amount
 
   ulong lamports_per_signature = fd_runtime_txn_lamports_per_signature(global, txn_descriptor, txn_raw);
-  
+
   double BASE_CONGESTION = 5000.0;
-  double current_congestion = (BASE_CONGESTION > lamports_per_signature) ? BASE_CONGESTION : (double)lamports_per_signature;
+  double current_congestion = (BASE_CONGESTION > (double)lamports_per_signature) ? BASE_CONGESTION : (double)lamports_per_signature;
   double congestion_multiplier = (lamports_per_signature == 0) ? 0.0 : (BASE_CONGESTION / current_congestion);
 
 //  bool support_set_compute_unit_price_ix = false;
@@ -512,7 +512,7 @@ fd_runtime_calculate_fee( fd_global_ctx_t *global, fd_txn_t * txn_descriptor, fd
 //                .saturating_mul(fee_structure.lamports_per_write_lock);
   double write_lock_fee = 0;
 
-// TODO: the fee_structure bin is static and default.. 
+// TODO: the fee_structure bin is static and default..
 //
 //            let compute_fee = fee_structure
 //                .compute_fee_bins
@@ -534,7 +534,7 @@ fd_runtime_calculate_fee( fd_global_ctx_t *global, fd_txn_t * txn_descriptor, fd
       FD_LOG_WARNING(( "fd_runtime_calculate_fee_compare: slot=%ld fee(%lf) = (prioritization_fee(%f) + signature_fee(%f) + write_lock_fee(%f) + compute_fee(%f)) * congestion_multiplier(%f)", global->bank.solana_bank.slot, fee, prioritization_fee, signature_fee, write_lock_fee, compute_fee, congestion_multiplier));
   }
 
-  if (fee >= ULONG_MAX)
+  if (fee >= (double)ULONG_MAX)
     return ULONG_MAX;
   else
     return (ulong) fee;
@@ -593,6 +593,9 @@ fd_global_ctx_new        ( void * mem ) {
 
   // Yeah, maybe we should get rid of this?
   fd_executor_new ( &self->executor, self, FD_EXECUTOR_FOOTPRINT );
+
+  fd_genesis_solana_new(&self->genesis_block);
+  fd_firedancer_banks_new(&self->bank);
 
   fd_base58_decode_32( "Sysvar1111111111111111111111111111111111111",  (unsigned char *) self->sysvar_owner);
   fd_base58_decode_32( "SysvarRecentB1ockHashes11111111111111111111",  (unsigned char *) self->sysvar_recent_block_hashes);
@@ -679,8 +682,11 @@ fd_global_ctx_delete     ( void * mem ) {
   }
 
   fd_acc_mgr_delete(fd_acc_mgr_leave(hdr->acc_mgr));
-  fd_genesis_solana_destroy(&hdr->genesis_block, hdr->freef, hdr->allocf_arg);
-  fd_firedancer_banks_destroy(&hdr->bank, hdr->freef, hdr->allocf_arg);
+  fd_bincode_destroy_ctx_t ctx;
+  ctx.freef = hdr->freef;
+  ctx.freef_arg = hdr->allocf_arg;
+  fd_genesis_solana_destroy(&hdr->genesis_block, &ctx);
+  fd_firedancer_banks_destroy(&hdr->bank, &ctx);
 
   FD_COMPILER_MFENCE();
   FD_VOLATILE( hdr->magic ) = 0UL;
@@ -690,7 +696,7 @@ fd_global_ctx_delete     ( void * mem ) {
 }
 
 void
-fd_global_process_genesis_config     ( fd_global_ctx_t *global  ) 
+fd_global_process_genesis_config     ( fd_global_ctx_t *global  )
 {
   // Bootstrap validator collects fees until `new_from_parent` is called.
 
@@ -792,7 +798,7 @@ void fd_printer_walker(void *arg, const char* name, int type, const char *type_n
       printf("\"%s\": \"%s\",\n", name, buf);
       break;
     }
-  default: 
+  default:
     printf("arg: %ld  name: %s  type: %d   type_name: %s\n", (ulong) arg, name, type, type_name);
     break;
   }
@@ -828,7 +834,7 @@ int fd_pubkey_create_with_seed(fd_pubkey_t *base, char *seed, fd_pubkey_t *owner
 
   size_t slen = strlen(seed);
 
-  if (slen > MAX_SEED_LEN) 
+  if (slen > MAX_SEED_LEN)
     return FD_EXECUTOR_SYSTEM_ERR_MAX_SEED_LENGTH_EXCEEDED;
 
   if (memcmp(&owner->hash[sizeof(owner->hash) - sizeof(PDA_MARKER) - 1], PDA_MARKER, sizeof(PDA_MARKER) - 1) == 0)
