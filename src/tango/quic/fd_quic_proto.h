@@ -6,11 +6,6 @@
 #include "fd_quic_common.h"
 #include "fd_quic_types.h"
 
-#include "templ/fd_quic_defs.h"
-#include "templ/fd_quic_templ.h"
-#include "templ/fd_quic_frames_templ.h"
-#include "templ/fd_quic_undefs.h"
-
 #include "templ/fd_quic_parsers_decl.h"
 #include "templ/fd_quic_templ.h"
 #include "templ/fd_quic_frames_templ.h"
