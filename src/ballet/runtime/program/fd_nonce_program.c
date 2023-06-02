@@ -58,8 +58,8 @@ int fd_load_nonce_account(
   if (fd_system_program_instruction_enum_advance_nonce_account != instruction.discriminant)
     return 0;
 
-  if (instr->acct_cnt != 3)
-    return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+  if (instr->acct_cnt < 3)
+    return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
 
   uchar *       instr_acc_idxs = ((uchar *)txn_raw->raw + instr->acct_off);
 
@@ -100,7 +100,7 @@ int fd_advance_nonce_account(
 //        {pubkey: params.authorizedPubkey, isSigner: true, isWritable: false},
 
   if (ctx.instr->acct_cnt < 2)
-    return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+    return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
 
   uchar *       instr_acc_idxs = ((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.instr->acct_off);
 
@@ -244,8 +244,8 @@ int fd_withdraw_nonce_account(
 //            return Err(InstructionError::InvalidArgument);
 //        }
 
-  if (ctx.instr->acct_cnt != 5)
-    return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+  if (ctx.instr->acct_cnt < 5)
+    return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
 
   uchar *       instr_acc_idxs = ((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.instr->acct_off);
 
@@ -396,8 +396,8 @@ int fd_initialize_nonce_account(
 //        {pubkey: SYSVAR_RECENT_BLOCKHASHES_PUBKEY, isSigner: false, isWritable: false,},
 //        {pubkey: SYSVAR_RENT_PUBKEY, isSigner: false, isWritable: false},
 
-  if (ctx.instr->acct_cnt != 3)
-    return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+  if (ctx.instr->acct_cnt < 3)
+    return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
 
   uchar *       instr_acc_idxs = ((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.instr->acct_off);
 
@@ -516,7 +516,7 @@ int fd_authorize_nonce_account(
 //        {pubkey: params.authorizedPubkey, isSigner: true, isWritable: false},
 
   if (ctx.instr->acct_cnt < 1)
-    return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+    return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
 
   uchar *       instr_acc_idxs = ((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.instr->acct_off);
   fd_pubkey_t * txn_accs = (fd_pubkey_t *)((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.txn_ctx->txn_descriptor->acct_addr_off);
@@ -617,8 +617,8 @@ int fd_upgrade_nonce_account(
 
 // https://github.com/solana-labs/solana/blob/b00d18cec4011bb452e3fe87a3412a3f0146942e/runtime/src/system_instruction_processor.rs#L491
 
-  if (ctx.instr->acct_cnt != 1)
-    return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+  if (ctx.instr->acct_cnt < 1)
+    return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
 
   uchar *       instr_acc_idxs = ((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.instr->acct_off);
 

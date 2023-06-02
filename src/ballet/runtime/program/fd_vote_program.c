@@ -907,7 +907,7 @@ int fd_executor_vote_program_execute_instruction(
 
       /* Require at least two accounts */
       if( FD_UNLIKELY( ctx.instr->acct_cnt < 2 ) )
-        return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+        return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
 
       /* Instruction accounts (untrusted user inputs) */
       fd_pubkey_t const * vote_acc_addr  = &txn_accs[instr_acc_idxs[0]];
@@ -962,7 +962,7 @@ int fd_executor_vote_program_execute_instruction(
 
       /* Require at least four accounts */
       if( FD_UNLIKELY( ctx.instr->acct_cnt < 4 ) )
-        return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+        return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
 
       /* Instruction accounts (untrusted user inputs) */
       fd_pubkey_t const * vote_acc_addr  = &txn_accs[instr_acc_idxs[0]];
@@ -1019,7 +1019,7 @@ int fd_executor_vote_program_execute_instruction(
 
       /* Require at least two accounts */
       if( FD_UNLIKELY( ctx.instr->acct_cnt < 1 ) )
-        return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+        return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
 
       /* Read vote state */
       fd_vote_state_versioned_t vote_state_versioned;
@@ -1058,7 +1058,7 @@ int fd_executor_vote_program_execute_instruction(
 
       /* Require at least one accounts */
       if( FD_UNLIKELY( ctx.instr->acct_cnt < 1 ) )
-        return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+        return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
 
       /* Read vote account state stored in the vote account data */
       fd_pubkey_t const * vote_acc_addr = &txn_accs[instr_acc_idxs[0]];

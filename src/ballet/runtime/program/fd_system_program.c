@@ -17,6 +17,9 @@ static int transfer(
   instruction_ctx_t ctx,
   ulong             requested_lamports
   ) {
+  if (ctx.instr->acct_cnt < 2) 
+    return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
+
   /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/runtime/src/system_instruction_processor.rs#L327 */
 
   /* Pull out sender (acc idx 0) and recipient (acc idx 1) */
@@ -25,7 +28,7 @@ static int transfer(
   fd_pubkey_t * sender   = &txn_accs[instr_acc_idxs[0]];
   fd_pubkey_t * receiver = &txn_accs[instr_acc_idxs[1]];
 
-
+#if 0
   char encoded_sender[50];
   fd_base58_encode_32((uchar *) sender, 0, encoded_sender);
 
@@ -33,6 +36,7 @@ static int transfer(
   fd_base58_encode_32((uchar *) receiver, 0, encoded_receiver);
 
   FD_LOG_NOTICE(( "transferring slot=%lu amount=%lu from %s to %s", ctx.global->bank.solana_bank.slot, requested_lamports, encoded_sender, encoded_receiver ));
+#endif
 
   /* Check sender has signed the transaction */
   uchar sender_is_signer = 0;
@@ -45,25 +49,18 @@ static int transfer(
       }
     }
   }
-  if ( !sender_is_signer ) {
-    FD_LOG_WARNING( ( " sender has not authorized transfer " ) );
+  if ( !sender_is_signer ) 
     return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
-  }
 
   // TODO: check sender has empty data https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/runtime/src/system_instruction_processor.rs#LL177C20-L177C20
 
   /* Check sender account has enough balance to execute this transaction */
   fd_acc_lamports_t sender_lamports = 0;
   int               read_result = fd_acc_mgr_get_lamports( ctx.global->acc_mgr, ctx.global->funk_txn, sender, &sender_lamports );
-  if ( FD_UNLIKELY( read_result != FD_ACC_MGR_SUCCESS ) ) {
-    FD_LOG_WARNING(( "failed to get lamports" ));
-    /* TODO: correct error messages */
+  if ( FD_UNLIKELY( read_result != FD_ACC_MGR_SUCCESS ) ) 
     return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
-  }
-  if ( FD_UNLIKELY( sender_lamports < requested_lamports ) ) {
-    FD_LOG_WARNING(( "sender only has %lu lamports, needs %lu", sender_lamports, requested_lamports ));
+  if ( FD_UNLIKELY( sender_lamports < requested_lamports ) ) 
     return FD_EXECUTOR_INSTR_ERR_INSUFFICIENT_FUNDS;
-  }
 
   /* Determine the receiver's current balance, creating the account if it does not exist */
   fd_acc_lamports_t receiver_lamports = 0;
@@ -112,7 +109,7 @@ static int create_account(
     fd_system_program_instruction_t *instruction
 ) {
   if (ctx.instr->acct_cnt < 2) 
-    return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
+    return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
 
   /* Account 0: funding account
      Account 1: new account
@@ -234,6 +231,9 @@ static int assign(
   instruction_ctx_t ctx,
   fd_pubkey_t owner
 ) {
+  if (ctx.instr->acct_cnt < 1)
+    return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
+
   /* Pull out the account to be assigned an owner (acc idx 0) */
   uchar *       instr_acc_idxs = ((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.instr->acct_off);
   fd_pubkey_t * txn_accs = (fd_pubkey_t *)((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.txn_ctx->txn_descriptor->acct_addr_off);
