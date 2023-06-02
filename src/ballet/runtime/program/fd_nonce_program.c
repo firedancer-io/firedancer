@@ -220,7 +220,7 @@ int fd_advance_nonce_account(
 // https://github.com/firedancer-io/solana/blob/8fb537409eb901444e064f50ea8dd7dcafb12a00/runtime/src/system_instruction_processor.rs#L366
 int fd_withdraw_nonce_account(
   instruction_ctx_t               ctx,
-  FD_FN_UNUSED unsigned long      withdraw_nonce_account
+  unsigned long                   requested_lamports
   )
 {
 //        {pubkey: params.noncePubkey, isSigner: false, isWritable: true},
@@ -244,7 +244,7 @@ int fd_withdraw_nonce_account(
 //            return Err(InstructionError::InvalidArgument);
 //        }
 
-  if (ctx.instr->acct_cnt < 5)
+  if (ctx.instr->acct_cnt < 4)
     return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
 
   uchar *       instr_acc_idxs = ((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.instr->acct_off);
@@ -252,37 +252,25 @@ int fd_withdraw_nonce_account(
   if (!fd_txn_is_writable(ctx.txn_ctx->txn_descriptor, instr_acc_idxs[0]))
     return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
 
+  if (!fd_txn_is_writable(ctx.txn_ctx->txn_descriptor, instr_acc_idxs[1]))
+    return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+
   fd_pubkey_t * txn_accs = (fd_pubkey_t *)((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.txn_ctx->txn_descriptor->acct_addr_off);
 
   ulong acct_addr_cnt = ctx.txn_ctx->txn_descriptor->acct_addr_cnt;
 
-
   if ((instr_acc_idxs[0] >= acct_addr_cnt)
       | (instr_acc_idxs[1] >= acct_addr_cnt)
       | (instr_acc_idxs[2] >= acct_addr_cnt)
-      | (instr_acc_idxs[3] >= acct_addr_cnt)
-      | (instr_acc_idxs[4] >= acct_addr_cnt))
+      | (instr_acc_idxs[3] >= acct_addr_cnt))
     return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
 
-  fd_pubkey_t * me   = &txn_accs[instr_acc_idxs[0]];
-
-  uchar new_signed = 0;
-  for ( ulong i = 0; i < ctx.instr->acct_cnt; i++ ) {
-    if ( instr_acc_idxs[i] < ctx.txn_ctx->txn_descriptor->signature_cnt ) {
-      if ( !memcmp( &txn_accs[instr_acc_idxs[i]], me, sizeof(fd_pubkey_t) ) ) {
-        new_signed = 1;
-        break;
-      }
-    }
-  }
-  if ( !new_signed )  {
-    FD_LOG_WARNING(( "account not signed" ));
-    return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
-  }
+  fd_pubkey_t * from   = &txn_accs[instr_acc_idxs[0]];
+//  fd_pubkey_t * to  = &txn_accs[instr_acc_idxs[1]];
 
   ulong  sz = 0;
   int    err = 0;
-  char * raw_acc_data = (char*) fd_acc_mgr_view_data(ctx.global->acc_mgr, ctx.global->funk_txn, (fd_pubkey_t *) me, &sz, &err);
+  char * raw_acc_data = (char*) fd_acc_mgr_view_data(ctx.global->acc_mgr, ctx.global->funk_txn, (fd_pubkey_t *) from, &sz, &err);
   if (NULL == raw_acc_data)
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   fd_account_meta_t *m = (fd_account_meta_t *) raw_acc_data;
@@ -294,13 +282,14 @@ int fd_withdraw_nonce_account(
   ctx2.dataend = (char*)ctx2.data + m->dlen;
   ctx2.allocf = ctx.global->allocf;
   ctx2.allocf_arg = ctx.global->allocf_arg;
-  if ( fd_nonce_state_versions_decode( &state, &ctx2 ) ) {
-    FD_LOG_WARNING(("fd_nonce_state_versions_decode failed"));
+  if ( fd_nonce_state_versions_decode( &state, &ctx2 ) ) 
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
-  }
 
   switch (state.inner.current.discriminant) {
   case fd_nonce_state_enum_uninitialized: {
+    if ( FD_UNLIKELY( m->lamports < requested_lamports ) ) 
+      return FD_EXECUTOR_INSTR_ERR_INSUFFICIENT_FUNDS;
+
 //                if lamports > self.lamports()? {
 //                    ic_msg!(
 //                        invoke_context,
@@ -351,6 +340,17 @@ int fd_withdraw_nonce_account(
   }
   }
 
+  uchar new_signed = 0;
+  for ( ulong i = 0; i < ctx.instr->acct_cnt; i++ ) {
+    if ( instr_acc_idxs[i] < ctx.txn_ctx->txn_descriptor->signature_cnt ) {
+      if ( !memcmp( &txn_accs[instr_acc_idxs[i]], from, sizeof(fd_pubkey_t) ) ) {
+        new_signed = 1;
+        break;
+      }
+    }
+  }
+  if ( !new_signed )  
+    return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
 
 //        let nonce_balance = self.try_account_ref_mut()?.lamports();
 //        self.try_account_ref_mut()?.set_lamports(
