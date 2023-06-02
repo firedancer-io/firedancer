@@ -108,6 +108,24 @@ endef
 add-objs = $(eval $(call _add-objs,$(1),$(2)))
 
 ##############################
+# Usage: $(call maybe-add-env-obj,env,lib)
+
+define _maybe-add-env-obj
+
+ifdef $(1)
+OBJ_FILE = $(patsubst %.c,%.o,$($(1)))
+
+$(OBJDIR)/lib/lib$(2).a: $(OBJ_FILE)
+
+$(OBJ_FILE): $($(1))
+	$(CC) -I.. $(CPPFLAGS) $(CFLAGS) -c $$< -o $$@
+endif
+
+endef
+
+maybe-add-env-obj = $(eval $(call _maybe-add-env-obj,$(1),$(2)))
+
+##############################
 # Usage: $(call add-asms,asms,lib)
 
 define _add-asms

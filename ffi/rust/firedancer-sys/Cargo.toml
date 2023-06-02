@@ -1,6 +1,6 @@
 [package]
 name = "firedancer-sys"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 authors = ["Firedancer Contributors <firedancer-devs@jumptrading.com>"]
 description = "Low-level Rust bindings for Firedancer"
@@ -10,7 +10,10 @@ include = [
     "src",
     "firedancer",
     "build.rs",
-    "wrapper.h",
+    "wrapper_ballet.h",
+    "wrapper_disco.h",
+    "wrapper_tango.h",
+    "wrapper_util.h",
 ]
 
 [features]
@@ -21,4 +24,4 @@ fuzz-asan = []
 paste = "1.0.12"
 
 [build-dependencies]
-bindgen = "0.65.1"
+bindgen = { version = "0.65.1", features = ["experimental"] }

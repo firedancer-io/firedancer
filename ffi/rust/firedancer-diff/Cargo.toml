@@ -13,7 +13,7 @@ fuzz-asan = ["firedancer-sys/fuzz-asan"]
 [dependencies]
 diff = "0.1.13"
 hxdmp = "0.2.1"
-firedancer-sys = { path = "../firedancer-sys", version = "0.2.0" }
+firedancer-sys = { path = "../firedancer-sys", version = "0.3.0" }
 solana_rbpf = "0.3.0"
 solana-bpf-loader-program = { git = "https://github.com/solana-labs/solana", rev = "a674ffc9bda0c4535812a1c5e37398db9ba7be53", version = "1.16.0" }
 solana-logger = { git = "https://github.com/solana-labs/solana", rev = "a674ffc9bda0c4535812a1c5e37398db9ba7be53", version = "1.16.0" }
