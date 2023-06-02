@@ -1314,6 +1314,20 @@ typedef struct fd_compute_budget_program_instruction fd_compute_budget_program_i
 #define FD_COMPUTE_BUDGET_PROGRAM_INSTRUCTION_FOOTPRINT sizeof(fd_compute_budget_program_instruction_t)
 #define FD_COMPUTE_BUDGET_PROGRAM_INSTRUCTION_ALIGN (8UL)
 
+#define VECT_NAME fd_vec_fd_config_keys_pair_t
+#define VECT_ELEMENT fd_config_keys_pair_t
+#include "fd_vector.h"
+#undef VECT_NAME
+#undef VECT_ELEMENT
+
+/* https://github.com/solana-labs/solana/blob/a03ae63daff987912c48ee286eb8ee7e8a84bf01/programs/config/src/lib.rs#L32 */
+struct fd_config_keys {
+  fd_vec_fd_config_keys_pair_t_t keys;
+};
+typedef struct fd_config_keys fd_config_keys_t;
+#define FD_CONFIG_KEYS_FOOTPRINT sizeof(fd_config_keys_t)
+#define FD_CONFIG_KEYS_ALIGN (8UL)
+
 
 FD_PROTOTYPES_BEGIN
 
@@ -2236,6 +2250,13 @@ enum {
   fd_compute_budget_program_instruction_enum_set_compute_unit_limit = 2,
   fd_compute_budget_program_instruction_enum_set_compute_unit_price = 3,
 };
+void fd_config_keys_new(fd_config_keys_t* self);
+int fd_config_keys_decode(fd_config_keys_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_config_keys_encode(fd_config_keys_t* self, fd_bincode_encode_ctx_t * ctx);
+void fd_config_keys_destroy(fd_config_keys_t* self, fd_bincode_destroy_ctx_t * ctx);
+void fd_config_keys_walk(fd_config_keys_t* self, fd_walk_fun_t fun, const char *name, int level);
+ulong fd_config_keys_size(fd_config_keys_t* self);
+
 FD_PROTOTYPES_END
 
 #endif // HEADER_FD_RUNTIME_TYPES

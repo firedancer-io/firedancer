@@ -7890,6 +7890,57 @@ int fd_compute_budget_program_instruction_encode(fd_compute_budget_program_instr
   return fd_compute_budget_program_instruction_inner_encode(&self->inner, self->discriminant, ctx);
 }
 
+int fd_config_keys_decode(fd_config_keys_t* self, fd_bincode_decode_ctx_t * ctx) {
+  int err;
+  fd_vec_fd_config_keys_pair_t_new(&self->keys);
+  ushort keys_len;
+  err = fd_bincode_compact_u16_decode(&keys_len, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  for (ulong i = 0; i < keys_len; ++i) {
+    fd_config_keys_pair_t elem;
+    fd_config_keys_pair_new(&elem);
+    err = fd_config_keys_pair_decode(&elem, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+    fd_vec_fd_config_keys_pair_t_push(&self->keys, elem);
+  }
+  return FD_BINCODE_SUCCESS;
+}
+void fd_config_keys_new(fd_config_keys_t* self) {
+  fd_vec_fd_config_keys_pair_t_new(&self->keys);
+}
+void fd_config_keys_destroy(fd_config_keys_t* self, fd_bincode_destroy_ctx_t * ctx) {
+  fd_vec_fd_config_keys_pair_t_destroy(&self->keys);
+}
+
+void fd_config_keys_walk(fd_config_keys_t* self, fd_walk_fun_t fun, const char *name, int level) {
+  fun(self, name, 32, "fd_config_keys", level++);
+  fun(NULL, NULL, 30, "keys", level++);
+  for (ulong i = 0; i < self->keys.cnt; ++i)
+    fd_config_keys_pair_walk(&self->keys.elems[i], fun, "keys", level + 1);
+  fun(NULL, NULL, 31, "keys", --level);
+  fun(self, name, 33, "fd_config_keys", --level);
+}
+ulong fd_config_keys_size(fd_config_keys_t* self) {
+  ulong size = 0;
+  size += sizeof(ulong);
+  for (ulong i = 0; i < self->keys.cnt; ++i)
+    size += fd_config_keys_pair_size(&self->keys.elems[i]);
+  return size;
+}
+
+int fd_config_keys_encode(fd_config_keys_t* self, fd_bincode_encode_ctx_t * ctx) {
+  int    err;
+  ushort len = 0;
+  err = fd_bincode_compact_u16_encode(&len, ctx);
+  self->keys.cnt = (ulong)len;
+  if ( FD_UNLIKELY(err) ) return err;
+  for (ulong i = 0; i < self->keys.cnt; ++i) {
+    err = fd_config_keys_pair_encode(&self->keys.elems[i], ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+  }
+  return FD_BINCODE_SUCCESS;
+}
+
 #define REDBLK_T fd_serializable_account_storage_entry_t_mapnode_t
 #define REDBLK_NAME fd_serializable_account_storage_entry_t_map
 #define REDBLK_IMPL_STYLE 2
