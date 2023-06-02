@@ -92,6 +92,19 @@ int fd_executor_run_test(
       .rent_epoch = test->accs[ i ].rent_epoch,
     };
     fd_acc_mgr_write_structured_account( global->acc_mgr, global->funk_txn, global->bank.solana_bank.slot, &test->accs[i].pubkey, &acc);
+
+    if (memcmp(&global->sysvar_recent_block_hashes, &test->accs[i].pubkey, sizeof(test->accs[i].pubkey)) == 0) {
+      fd_recent_block_hashes_new( &global->bank.recent_block_hashes );
+      fd_bincode_decode_ctx_t ctx2;
+      ctx2.data = acc.data,
+      ctx2.dataend = acc.data + acc.data_len;
+      ctx2.allocf = global->allocf;
+      ctx2.allocf_arg = global->allocf_arg;
+      if ( fd_recent_block_hashes_decode( &global->bank.recent_block_hashes, &ctx2 ) ) {
+        FD_LOG_WARNING(("fd_recent_block_hashes_decode failed"));
+        return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
+      }
+    }
   }
 
   /* Parse the raw transaction */
@@ -211,8 +224,6 @@ int main(int argc, char **argv) {
 
   fd_log_flush();
   fd_halt();
-
-  FD_LOG_NOTICE( ("all done" ));
 
   return ret;
 }

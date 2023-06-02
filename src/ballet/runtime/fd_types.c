@@ -1,6 +1,11 @@
 #include "fd_types.h"
 #pragma GCC diagnostic ignored "-Wunused-parameter"
 #pragma GCC diagnostic ignored "-Wunused-variable"
+
+#ifdef _DISABLE_OPTIMIZATION
+#pragma GCC optimize ("O0")
+#endif
+
 int fd_fee_calculator_decode(fd_fee_calculator_t* self, fd_bincode_decode_ctx_t * ctx) {
   int err;
   err = fd_bincode_uint64_decode(&self->lamports_per_signature, ctx);
