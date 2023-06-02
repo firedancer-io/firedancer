@@ -30,8 +30,62 @@ rng_t rnd() {
   return (rng_t)l * (rng_t)0x1p-64;
 }
 
+/* fibres for client and server */
+
 fd_fibre_t * client_fibre = NULL;
 fd_fibre_t * server_fibre = NULL;
+
+/* "net" fibre for dropping and pcapping */
+
+fd_fibre_t * net_fibre = NULL;
+
+struct net_fibre_args {
+  fd_fibre_pipe_t * input;
+  fd_fibre_pipe_t * release;
+  float             thresh;
+};
+typedef struct net_fibre_args net_fibre_args_t;
+
+void
+net_fibre_main( void * vp_args ) {
+  /* get args */
+  net_fibre_args_t * args = (net_fibre_args_t*)vp_args;
+
+  /* input pipe, and destination aios */
+  fd_fibre_pipe_t * input   = args->input;
+  fd_fibre_pipe_t * release = args->release;
+
+  float thresh = args->thresh;
+
+  int rtn = 0;
+  ulong idx = 0;
+
+  while( !(client_done && server_done) ) {
+    /* wait for data on pipe */
+    rtn = fd_fibre_pipe_read( input, &idx, (long)60e9 );
+    if( !rtn ) {
+      printf( "net_fibre_main: no data in 60s\n" );
+      exit(1);
+    }
+
+    /* we have a message */
+
+    /* drop? */
+    if( rnd() < thresh ) {
+      /* free slot */
+      rtn = fd_fibre_pipe_write( release, idx, (long)1e6 );
+      if( rtn ) {
+        printf( "net_fibre_main: timeout trying to return idx\n" );
+        exit(1);
+      }
+
+      continue;
+    }
+
+    /* could insert into a reorder buffer here */
+  }
+}
+
 
 /* man-in-the-middle for testing drops */
 

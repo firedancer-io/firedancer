@@ -186,6 +186,223 @@ run_pipe_test( void ) {
 }
 
 
+struct pipe_producer_args {
+  fd_fibre_pipe_t * output;
+  long              expire;
+  long              period;
+};
+typedef struct pipe_producer_args pipe_producer_args_t;
+
+
+void
+pipe_producer_main( void * vp_args ) {
+  /* obtain args */
+  pipe_producer_args_t * args = (pipe_producer_args_t*)vp_args;
+
+  /* send periodically - every 1ms (synthetic clock) */
+  fd_fibre_pipe_t * output = args->output;
+  long              expire = args->expire;
+  long              period = args->period;
+
+  /* first send time */
+  long send_time = now + period;
+
+  /* producer runs until time limit exceeded */
+  long expire_time = now + expire;
+
+  /* msg is just a counter */
+  ulong msg = 1;
+
+  /* for return values */
+  int rtn;
+
+  while( now < expire_time ) {
+    /* wait until next "send" */
+    fd_fibre_wait_until( send_time );
+
+    /* set timeout to be the same as period */
+    long timeout = period;
+
+    /* log write call */
+    printf( "pipe_producer_main: writing %lu\n", msg ); fflush( stdout );
+
+    /* try sending */
+    rtn = fd_fibre_pipe_write( output, msg, timeout );
+
+    if( rtn ) {
+      printf( "fd_fibre_pipe_write failed\n" );
+      exit(1);
+    }
+
+    /* update send time for next iteration */
+    send_time += period;
+
+    /* increment message */
+    msg++;
+  }
+
+  printf( "pipe_producer_main: finished\n" );
+
+}
+
+
+struct pipe_filter_args {
+  fd_fibre_pipe_t * input;
+  fd_fibre_pipe_t * out1;
+  fd_fibre_pipe_t * out2;
+  long              period;
+};
+typedef struct pipe_filter_args pipe_filter_args_t;
+
+
+void
+pipe_filter_main( void * vp_args ) {
+  pipe_filter_args_t * args = (pipe_filter_args_t*)vp_args;
+
+  /* receive messages on one pipe, distribute them to two pipes
+     alternately */
+
+  fd_fibre_pipe_t * input   = args->input;
+  fd_fibre_pipe_t * out1    = args->out1;
+  fd_fibre_pipe_t * out2    = args->out2;
+  long              period  = args->period;
+  long              timeout = period;
+
+  /* loop until read fails */
+  while(1) {
+    ulong msg = 0;
+    int rtn = fd_fibre_pipe_read( input, &msg, timeout );
+    if( rtn ) break;
+
+    /* we have a message - choose the out pipe(s) */
+    if( msg % 2 == 0 ) {
+      rtn = fd_fibre_pipe_write( out1, msg, timeout );
+      if( rtn ) {
+        printf( "pipe_filter_main: write failed\n" );
+        exit(1);
+      }
+    }
+
+    if( msg % 3 == 0 ) {
+      rtn = fd_fibre_pipe_write( out2, msg, timeout );
+      if( rtn ) {
+        printf( "pipe_filter_main: write failed\n" );
+        exit(1);
+      }
+    }
+  }
+
+  printf( "pipe_filter_main complete\n" );
+}
+
+
+struct pipe_consumer_args {
+  char const *      name;
+  fd_fibre_pipe_t * input;
+  long              expire;
+};
+typedef struct pipe_consumer_args pipe_consumer_args_t;
+
+
+void
+pipe_consumer_main( void * vp_args ) {
+  /* obtain args */
+
+  pipe_consumer_args_t *args = (pipe_consumer_args_t*)vp_args;
+
+  fd_fibre_pipe_t * input   = args->input;
+  long              expire  = args->expire;
+
+  long expire_time = now + expire;
+
+  /* loop until read fails */
+  while( expire_time > now ) {
+    ulong msg = 0;
+    int rtn = fd_fibre_pipe_read( input, &msg, expire_time - now );
+    if( rtn ) break;
+
+    /* we have a message - output it */
+    printf( "pipe_consumer_main: %s received msg %lu\n", args->name, msg );
+  }
+
+  printf( "pipe_consumer_main: finished\n" );
+}
+
+
+void
+run_test_pipe_filter( void ) {
+  ulong             pipe_entries = 16;
+  ulong             stack_sz     = 1<<20;
+
+  /* create three pipes */
+  void *            pipe_1_mem   = aligned_alloc( fd_fibre_start_align(), fd_fibre_start_footprint( stack_sz ) );
+  fd_fibre_pipe_t * pipe_1       = fd_fibre_pipe_new( pipe_1_mem, pipe_entries );
+
+  void *            pipe_2_mem   = aligned_alloc( fd_fibre_start_align(), fd_fibre_start_footprint( stack_sz ) );
+  fd_fibre_pipe_t * pipe_2       = fd_fibre_pipe_new( pipe_2_mem, pipe_entries );
+
+  void *            pipe_3_mem   = aligned_alloc( fd_fibre_start_align(), fd_fibre_start_footprint( stack_sz ) );
+  fd_fibre_pipe_t * pipe_3       = fd_fibre_pipe_new( pipe_3_mem, pipe_entries );
+
+  /* period set to 1 ms */
+  long period = (long)1e6;
+  long expire = (long)2e7;
+
+  /* start 1 producer, 1 filter and 2 consumer fibres */
+  pipe_producer_args_t   producer_args        = { .output = pipe_1, .expire = expire, period };
+  pipe_filter_args_t     filter_args          = { .input  = pipe_1, .out1 = pipe_2, .out2 = pipe_3, .period = period };
+  pipe_consumer_args_t   consumer_main_1_args = { .name = "main_1", .input = pipe_2, .expire = expire };
+  pipe_consumer_args_t   consumer_main_2_args = { .name = "main_2", .input = pipe_3, .expire = expire };
+
+  /* create fibre for pipe_producer_main */
+  void *       producer_fibre_mem = aligned_alloc( fd_fibre_start_align(), fd_fibre_start_footprint( stack_sz ) );
+  fd_fibre_t * producer_fibre     = fd_fibre_start( producer_fibre_mem, stack_sz, pipe_producer_main, &producer_args );
+
+  /* create fibre for pipe_filter_main */
+  void *       filter_fibre_mem = aligned_alloc( fd_fibre_start_align(), fd_fibre_start_footprint( stack_sz ) );
+  fd_fibre_t * filter_fibre     = fd_fibre_start( filter_fibre_mem, stack_sz, pipe_filter_main, &filter_args );
+
+  /* create fibre for pipe_consumer_1_main */
+  void *       consumer_1_fibre_mem = aligned_alloc( fd_fibre_start_align(), fd_fibre_start_footprint( stack_sz ) );
+  fd_fibre_t * consumer_1_fibre     = fd_fibre_start( consumer_1_fibre_mem, stack_sz, pipe_consumer_main, &consumer_main_1_args );
+
+  /* create fibre for pipe_consumer_2_main */
+  void *       consumer_2_fibre_mem = aligned_alloc( fd_fibre_start_align(), fd_fibre_start_footprint( stack_sz ) );
+  fd_fibre_t * consumer_2_fibre     = fd_fibre_start( consumer_2_fibre_mem, stack_sz, pipe_consumer_main, &consumer_main_2_args );
+
+  /* add to schedule */
+  fd_fibre_schedule( producer_fibre );
+  fd_fibre_schedule( filter_fibre );
+  fd_fibre_schedule( consumer_1_fibre );
+  fd_fibre_schedule( consumer_2_fibre );
+
+
+  /* run schedule until done */
+  while( 1 ) {
+    long timeout = fd_fibre_schedule_run();
+    if( timeout == -1 ) {
+      /* -1 indicates no fibres scheduled */
+      break;
+    }
+
+    /* advance time to next event */
+    now = timeout;
+  }
+
+  /* free fibres */
+  fd_fibre_free( producer_fibre );
+  fd_fibre_free( filter_fibre );
+  fd_fibre_free( consumer_1_fibre );
+  fd_fibre_free( consumer_2_fibre );
+
+  /* free fibre mem */
+  free( producer_fibre_mem );
+  free( filter_fibre_mem );
+  free( consumer_1_fibre_mem );
+  free( consumer_2_fibre_mem );
+}
+
+
 int
 main( int argc, char ** argv ) {
   (void)argc;
@@ -269,6 +486,8 @@ main( int argc, char ** argv ) {
   free( t3_mem );
 
   run_pipe_test();
+
+  run_test_pipe_filter();
 
   fd_fibre_free( main_fibre );
   free( main_fibre_mem );
