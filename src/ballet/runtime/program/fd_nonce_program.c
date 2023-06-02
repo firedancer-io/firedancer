@@ -220,7 +220,7 @@ int fd_advance_nonce_account(
 // https://github.com/firedancer-io/solana/blob/8fb537409eb901444e064f50ea8dd7dcafb12a00/runtime/src/system_instruction_processor.rs#L366
 int fd_withdraw_nonce_account(
   instruction_ctx_t               ctx,
-  unsigned long                   requested_lamports
+FD_FN_UNUSED  unsigned long                   requested_lamports
   )
 {
 //        {pubkey: params.noncePubkey, isSigner: false, isWritable: true},
@@ -287,8 +287,8 @@ int fd_withdraw_nonce_account(
 
   switch (state.inner.current.discriminant) {
   case fd_nonce_state_enum_uninitialized: {
-    if ( FD_UNLIKELY( m->lamports < requested_lamports ) ) 
-      return FD_EXECUTOR_INSTR_ERR_INSUFFICIENT_FUNDS;
+//    if ( FD_UNLIKELY( m->lamports < requested_lamports ) ) 
+//      return FD_EXECUTOR_INSTR_ERR_INSUFFICIENT_FUNDS;
 
 //                if lamports > self.lamports()? {
 //                    ic_msg!(
