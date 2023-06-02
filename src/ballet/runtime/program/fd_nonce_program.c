@@ -211,11 +211,11 @@ int fd_advance_nonce_account(
   if ( fd_nonce_state_versions_encode(&state, &ctx3) )
     FD_LOG_ERR(("fd_nonce_state_versions_encode failed"));
 
-  fd_acc_mgr_update_data ( ctx.global->acc_mgr, ctx.global->funk_txn, ctx.global->bank.solana_bank.slot, me, enc, sz);
-
-
-  return FD_EXECUTOR_INSTR_SUCCESS;
-}
+  if (fd_acc_mgr_update_data ( ctx.global->acc_mgr, ctx.global->funk_txn, ctx.global->bank.solana_bank.slot, me, enc, sz) != FD_ACC_MGR_SUCCESS)
+    return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
+  else
+    return FD_EXECUTOR_INSTR_SUCCESS;
+ }
 
 // https://github.com/firedancer-io/solana/blob/8fb537409eb901444e064f50ea8dd7dcafb12a00/runtime/src/system_instruction_processor.rs#L366
 int fd_withdraw_nonce_account(
@@ -467,41 +467,12 @@ int fd_initialize_nonce_account(
     if ( m->info.lamports < minimum_rent_exempt_balance )
       return FD_EXECUTOR_INSTR_ERR_INSUFFICIENT_FUNDS;
 
-#if 0
-    ulong  sz = 0;
-    int    err = 0;
-    char * raw_acc_data = (char*) fd_acc_mgr_view_data(ctx.global->acc_mgr, ctx.global->funk_txn, (fd_pubkey_t *) ctx.global->sysvar_recent_block_hashes, &sz, &err);
-    if (NULL == raw_acc_data)
-      return err;
-    fd_account_meta_t *      m = (fd_account_meta_t *) raw_acc_data;
-    fd_recent_block_hashes_t result;
-    fd_recent_block_hashes_new( &result );
-    fd_bincode_decode_ctx_t ctx2;
-    ctx2.data = raw_acc_data + m->hlen;
-    ctx2.dataend = raw_acc_data + m->hlen + m->dlen;
-    ctx2.allocf = ctx.global->allocf;
-    ctx2.allocf_arg = ctx.global->allocf_arg;
-    if ( fd_recent_block_hashes_decode( &result, &ctx2 ) ) {
-      FD_LOG_WARNING(("fd_recent_block_hashes_decode failed"));
-      return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
-    }
-
-    fd_block_block_hash_entry_t *re = &result.hashes.elems[0];
-#else
     if (ctx.global->bank.recent_block_hashes.hashes.cnt == 0)
       return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
     fd_block_block_hash_entry_t *re = &ctx.global->bank.recent_block_hashes.hashes.elems[0];
-#endif
 
     fd_hash_t durable_nonce;
     fd_durable_nonce_from_blockhash(&re->blockhash, &durable_nonce);
-
-#if 0
-    fd_bincode_destroy_ctx_t ctx3;
-    ctx3.freef = ctx.global->freef;
-    ctx3.freef_arg = ctx.global->allocf_arg;
-    fd_recent_block_hashes_destroy( &result, &ctx3 );
-#endif
 
     state.inner.current.discriminant = fd_nonce_state_enum_initialized;
     state.discriminant = fd_nonce_state_versions_enum_current;
@@ -518,14 +489,6 @@ int fd_initialize_nonce_account(
     ctx4.dataend = enc + sz;
     if ( fd_nonce_state_versions_encode(&state, &ctx4) )
       FD_LOG_ERR(("fd_nonce_state_versions_encode failed"));
-
-//    char buf2[50];
-//    fd_base58_encode_32((uchar *) state.inner.current.inner.initialized.authority.hash, NULL, buf2);
-//    FD_LOG_NOTICE(("authority: %s", buf2));
-//    fd_base58_encode_32((uchar *) state.inner.current.inner.initialized.durable_nonce.hash, NULL, buf2);
-//    FD_LOG_NOTICE(("durable_nonce: %s %ld", buf2, state.inner.current.inner.initialized.fee_calculator.lamports_per_signature));
-
-    // TODO: why!? Why do I have to cast here?    should we be using fd_sysvar_set here...
 
     fd_acc_mgr_update_data ( ctx.global->acc_mgr, ctx.global->funk_txn, ctx.global->bank.solana_bank.slot, me, enc, sz);
 
@@ -552,14 +515,14 @@ int fd_authorize_nonce_account(
 //        {pubkey: params.noncePubkey, isSigner: false, isWritable: true},
 //        {pubkey: params.authorizedPubkey, isSigner: true, isWritable: false},
 
-  if (ctx.instr->acct_cnt != 2)
+  if (ctx.instr->acct_cnt < 1)
     return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
 
   uchar *       instr_acc_idxs = ((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.instr->acct_off);
   fd_pubkey_t * txn_accs = (fd_pubkey_t *)((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.txn_ctx->txn_descriptor->acct_addr_off);
 
   ulong acct_addr_cnt = ctx.txn_ctx->txn_descriptor->acct_addr_cnt;
-  if ((instr_acc_idxs[0] >= acct_addr_cnt) | (instr_acc_idxs[1] >= acct_addr_cnt))
+  if (instr_acc_idxs[0] >= acct_addr_cnt)
     // TODO: confirm what this would look like in solana
     return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
 
@@ -575,6 +538,8 @@ int fd_authorize_nonce_account(
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   fd_account_meta_t *m = (fd_account_meta_t *) raw_acc_data;
 
+  int ret = -1;
+
   fd_nonce_state_versions_t state;
   fd_nonce_state_versions_new( &state );
   fd_bincode_decode_ctx_t ctx2;
@@ -585,37 +550,51 @@ int fd_authorize_nonce_account(
   if ( fd_nonce_state_versions_decode( &state, &ctx2 ) ) 
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
 
-  if (state.inner.current.discriminant != fd_nonce_state_enum_initialized)
-    return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
-
-  uchar authorized = 0;
-  for ( ulong i = 0; i < ctx.txn_ctx->txn_descriptor->signature_cnt; i++ ) {
-    if ( !memcmp( &txn_accs[i], state.inner.current.inner.initialized.authority.hash, sizeof(fd_pubkey_t) ) ) {
-      authorized = 1;
+  do {
+    if (state.inner.current.discriminant != fd_nonce_state_enum_initialized) {
+      ret = FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
       break;
     }
-  }
 
-  if (!authorized)
-    return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
+    uchar authorized = 0;
+    for ( ulong i = 0; i < ctx.txn_ctx->txn_descriptor->signature_cnt; i++ ) {
+      if ( !memcmp( &txn_accs[i], state.inner.current.inner.initialized.authority.hash, sizeof(fd_pubkey_t) ) ) {
+        authorized = 1;
+        break;
+      }
+    }
 
-  state.discriminant = fd_nonce_state_versions_enum_current;
-  state.inner.current.inner.initialized.authority = *authorize_nonce_account;
+    if (!authorized) {
+      ret = FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
+      break;
+    }
 
-  sz = fd_nonce_state_versions_size(&state);
-  unsigned char *enc = fd_alloca_check(1, sz);
-  memset(enc, 0, sz);
-  fd_bincode_encode_ctx_t ctx3;
-  ctx3.data = enc;
-  ctx3.dataend = enc + sz;
-  if ( fd_nonce_state_versions_encode(&state, &ctx3) ) {
-    FD_LOG_WARNING(("fd_nonce_state_versions_encode failed"));
-    return -1;
-  }
+    state.discriminant = fd_nonce_state_versions_enum_current;
+    state.inner.current.inner.initialized.authority = *authorize_nonce_account;
 
-  fd_acc_mgr_update_data ( ctx.global->acc_mgr, ctx.global->funk_txn, ctx.global->bank.solana_bank.slot, me, enc, sz);
+    sz = fd_nonce_state_versions_size(&state);
+    unsigned char *enc = fd_alloca_check(1, sz);
+    memset(enc, 0, sz);
+    fd_bincode_encode_ctx_t ctx3;
+    ctx3.data = enc;
+    ctx3.dataend = enc + sz;
+    if ( fd_nonce_state_versions_encode(&state, &ctx3) ) {
+      ret = FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
+      break;
+    }
 
-  return FD_EXECUTOR_INSTR_SUCCESS;
+    if (fd_acc_mgr_update_data ( ctx.global->acc_mgr, ctx.global->funk_txn, ctx.global->bank.solana_bank.slot, me, enc, sz) != FD_ACC_MGR_SUCCESS)
+      ret = FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
+    else
+      ret = FD_EXECUTOR_INSTR_SUCCESS;
+  } while (false);
+
+  fd_bincode_destroy_ctx_t ctx3;
+  ctx3.freef = ctx.global->freef;
+  ctx3.freef_arg = ctx.global->allocf_arg;
+  fd_nonce_state_versions_destroy( &state, &ctx3 );
+
+  return ret;
 }
 
 int fd_upgrade_nonce_account(
@@ -708,8 +687,10 @@ int fd_upgrade_nonce_account(
       break;
     }
 
-    fd_acc_mgr_update_data ( ctx.global->acc_mgr, ctx.global->funk_txn, ctx.global->bank.solana_bank.slot, me, enc, sz);
-    ret = FD_EXECUTOR_INSTR_SUCCESS;
+    if (fd_acc_mgr_update_data ( ctx.global->acc_mgr, ctx.global->funk_txn, ctx.global->bank.solana_bank.slot, me, enc, sz) != FD_ACC_MGR_SUCCESS)
+      ret = FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
+    else
+      ret = FD_EXECUTOR_INSTR_SUCCESS;
   } while (false);
 
   fd_bincode_destroy_ctx_t ctx3;
