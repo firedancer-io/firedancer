@@ -827,7 +827,11 @@ const size_t MAX_SEED_LEN = 32;
 //
 const char PDA_MARKER[] = {"ProgramDerivedAddress"};
 
-int fd_pubkey_create_with_seed(fd_pubkey_t *base, char *seed, fd_pubkey_t *owner, fd_pubkey_t *out ) {
+int
+fd_pubkey_create_with_seed( fd_pubkey_t const * base,
+                            char const *        seed,  /* FIXME add sz param */
+                            fd_pubkey_t const * owner,
+                            fd_pubkey_t *       out ) {
 //  if seed.len() > MAX_SEED_LEN {
 //      return Err(PubkeyError::MaxSeedLengthExceeded);
 //    }

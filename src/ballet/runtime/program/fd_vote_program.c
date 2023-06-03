@@ -1011,6 +1011,143 @@ int fd_executor_vote_program_execute_instruction(
         return authorize_result;
       break;
     }
+    case fd_vote_instruction_enum_authorize_with_seed: {
+      FD_LOG_INFO(( "executing VoteInstruction::AuthorizeWithSeed instruction" ));
+      fd_vote_authorize_with_seed_args_t const * args = &instruction.inner.authorize_with_seed;
+
+      uchar const * instr_acc_idxs = ((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.instr->acct_off);
+      fd_pubkey_t const * txn_accs = (fd_pubkey_t *)((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.txn_ctx->txn_descriptor->acct_addr_off);
+
+      /* Require at least three accounts */
+      if( FD_UNLIKELY( ctx.instr->acct_cnt < 3 ) )
+        return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
+
+      /* Instruction accounts (untrusted user inputs) */
+      fd_pubkey_t const * vote_acc_addr  = &txn_accs[instr_acc_idxs[0]];
+      fd_pubkey_t const * clock_acc_addr = &txn_accs[instr_acc_idxs[1]];
+      fd_pubkey_t const * authority_addr = &txn_accs[instr_acc_idxs[2]];
+
+      /* Check that account at index 1 is the clock sysvar */
+      if( FD_UNLIKELY( 0!=memcmp( clock_acc_addr, ctx.global->sysvar_clock, sizeof(fd_pubkey_t) ) ) )
+        return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+      fd_sol_sysvar_clock_t clock;
+      fd_sysvar_clock_read( ctx.global, &clock );
+
+      /* Context: solana_vote_program::vote_processor::process_authorize_with_seed_instruction */
+
+      fd_pubkey_t new_authority_addr;
+      int derive_result = fd_pubkey_create_with_seed(
+          authority_addr,
+          args->current_authority_derived_key_seed,
+          &args->current_authority_derived_key_owner,
+          &new_authority_addr );
+      if( FD_UNLIKELY( derive_result != FD_RUNTIME_EXECUTE_SUCCESS ) )
+        return derive_result;  /* FIXME mem leak */
+
+      /* Context: solana_vote_program::vote_state::authorize */
+
+      /* Read vote state */
+      fd_vote_state_versioned_t vote_state_versioned;
+      int result = read_vote_state( ctx.global, vote_acc_addr, &vote_state_versioned );
+      if( FD_UNLIKELY( 0!=result ) )
+        return result;
+
+      int const authorize_result =
+          vote_authorize( ctx, &vote_state_versioned,
+                          &args->authorization_type, &new_authority_addr,
+                          instr_acc_idxs, txn_accs, &clock );
+
+      if( authorize_result == FD_EXECUTOR_INSTR_SUCCESS ) {
+        /* Write back the new vote state */
+
+        result = write_vote_state( ctx, vote_acc_addr, &vote_state_versioned );
+        if( FD_UNLIKELY( result != FD_EXECUTOR_INSTR_SUCCESS ) ) {
+          FD_LOG_WARNING(( "failed to write versioned vote state: %d", result ));
+          return result;
+        }
+      }
+
+      fd_bincode_destroy_ctx_t ctx3;
+      ctx3.freef = ctx.global->freef;
+      ctx3.freef_arg = ctx.global->allocf_arg;
+      fd_vote_state_versioned_destroy( &vote_state_versioned, &ctx3 );
+
+      /* TODO leaks on error */
+      if( FD_UNLIKELY( 0!=authorize_result ) )
+        return authorize_result;
+      break;
+    }
+    case fd_vote_instruction_enum_authorize_checked_with_seed: {
+      FD_LOG_INFO(( "executing VoteInstruction::AuthorizeCheckedWithSeed instruction" ));
+      fd_vote_authorize_checked_with_seed_args_t const * args = &instruction.inner.authorize_checked_with_seed;
+
+      uchar const * instr_acc_idxs = ((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.instr->acct_off);
+      fd_pubkey_t const * txn_accs = (fd_pubkey_t *)((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.txn_ctx->txn_descriptor->acct_addr_off);
+
+      /* Require at least one accounts */
+      if( FD_UNLIKELY( ctx.instr->acct_cnt < 4 ) )
+        return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
+
+      /* Read vote account state stored in the vote account data */
+      fd_pubkey_t const * vote_acc_addr  = &txn_accs[instr_acc_idxs[0]];
+      fd_pubkey_t const * clock_acc_addr = &txn_accs[instr_acc_idxs[1]];
+      fd_pubkey_t const * authority_addr = &txn_accs[instr_acc_idxs[2]];
+      //fd_pubkey_t const * voter_pubkey   = &txn_accs[instr_acc_idxs[3]];
+
+      /* Voter pubkey must be a signer */
+      if( FD_UNLIKELY( instr_acc_idxs[3] >= ctx.txn_ctx->txn_descriptor->signature_cnt ) )
+        return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
+
+      /* Check that account at index 1 is the clock sysvar */
+      if( FD_UNLIKELY( 0!=memcmp( clock_acc_addr, ctx.global->sysvar_clock, sizeof(fd_pubkey_t) ) ) )
+        return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+      fd_sol_sysvar_clock_t clock;
+      fd_sysvar_clock_read( ctx.global, &clock );
+
+      /* Context: solana_vote_program::vote_processor::process_authorize_with_seed_instruction */
+
+      fd_pubkey_t new_authority_addr;
+      int derive_result = fd_pubkey_create_with_seed(
+          authority_addr,
+          args->current_authority_derived_key_seed,
+          &args->current_authority_derived_key_owner,
+          &new_authority_addr );
+      if( FD_UNLIKELY( derive_result != FD_RUNTIME_EXECUTE_SUCCESS ) )
+        return derive_result;  /* FIXME mem leak */
+
+      /* Context: solana_vote_program::vote_state::authorize */
+
+      /* Read vote state */
+      fd_vote_state_versioned_t vote_state_versioned;
+      int result = read_vote_state( ctx.global, vote_acc_addr, &vote_state_versioned );
+      if( FD_UNLIKELY( 0!=result ) )
+        return result;
+
+      int const authorize_result =
+          vote_authorize( ctx, &vote_state_versioned,
+                          &args->authorization_type, &new_authority_addr,
+                          instr_acc_idxs, txn_accs, &clock );
+
+      if( authorize_result == FD_EXECUTOR_INSTR_SUCCESS ) {
+        /* Write back the new vote state */
+
+        result = write_vote_state( ctx, vote_acc_addr, &vote_state_versioned );
+        if( FD_UNLIKELY( result != FD_EXECUTOR_INSTR_SUCCESS ) ) {
+          FD_LOG_WARNING(( "failed to write versioned vote state: %d", result ));
+          return result;
+        }
+      }
+
+      fd_bincode_destroy_ctx_t ctx3;
+      ctx3.freef = ctx.global->freef;
+      ctx3.freef_arg = ctx.global->allocf_arg;
+      fd_vote_state_versioned_destroy( &vote_state_versioned, &ctx3 );
+
+      /* TODO leaks on error */
+      if( FD_UNLIKELY( 0!=authorize_result ) )
+        return authorize_result;
+      break;
+    }
     case fd_vote_instruction_enum_update_validator_identity: {
       FD_LOG_INFO(( "executing VoteInstruction::UpdateValidatorIdentity instruction" ));
 
