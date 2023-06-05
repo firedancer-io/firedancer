@@ -30,7 +30,9 @@ int
 echo_aio_recv( void *                    ctx,
                fd_aio_pkt_info_t const * batch,
                ulong                     batch_cnt,
-               ulong *                   opt_batch_idx ) {
+               ulong *                   opt_batch_idx,
+               int                       flush ) {
+  (void)flush;
   (void)opt_batch_idx;
 
   fd_xsk_aio_t * xsk_aio = (fd_xsk_aio_t *)ctx;
