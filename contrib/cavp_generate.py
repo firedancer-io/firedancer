@@ -24,8 +24,6 @@ def bin2cstr(data: bytes) -> str:
     for i, b in enumerate(data):
         if i == 0:
             pass
-        elif i % 32 == 0:
-            out += '\n"'
         elif i % 8 == 0:
             out += ' "'
         out += "\\x%02x" % (b)
@@ -43,8 +41,6 @@ def bin2carr(data: bytes) -> str:
     for i, b in enumerate(data):
         if i == 0:
             pass
-        elif i % 16 == 0:
-            out += ",\n"
         elif i % 8 == 0:
             out += ", "
         else:
