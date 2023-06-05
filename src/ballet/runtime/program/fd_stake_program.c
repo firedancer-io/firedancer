@@ -448,17 +448,12 @@ int fd_executor_stake_program_execute_instruction(
     }
     uchar * instr_acc_idxs = ((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.instr->acct_off);
     fd_pubkey_t * txn_accs = (fd_pubkey_t *)((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.txn_ctx->txn_descriptor->acct_addr_off);
-    fd_pubkey_t* stake_acc         = &txn_accs[instr_acc_idxs[0]];
-    fd_account_meta_t metadata_stake;
-    int read_result = fd_acc_mgr_get_metadata( ctx.global->acc_mgr, ctx.global->funk_txn, stake_acc, &metadata_stake );
-    if ( FD_UNLIKELY( read_result != FD_ACC_MGR_SUCCESS ) ) {
-      FD_LOG_WARNING(( "failed to read stake account metadata" ));
-      return read_result;
-    }
+    fd_pubkey_t* stake_acc = &txn_accs[instr_acc_idxs[0]];
+    fd_pubkey_t* split_acc = &txn_accs[instr_acc_idxs[1]];
+
 
     // https://github.com/firedancer-io/solana/blob/56bd357f0dfdb841b27c4a346a58134428173f42/programs/stake/src/stake_state.rs#L666
     
-    fd_pubkey_t* split_acc = &txn_accs[instr_acc_idxs[1]];
     fd_pubkey_t split_acc_owner;
     fd_acc_mgr_get_owner( ctx.global->acc_mgr, ctx.global->funk_txn, split_acc, &split_acc_owner ); 
     if ( memcmp( &split_acc_owner, ctx.global->solana_stake_program, sizeof(fd_pubkey_t) ) != 0 ) {
@@ -466,11 +461,12 @@ int fd_executor_stake_program_execute_instruction(
     }
 
     fd_account_meta_t metadata_split;
-    read_result = fd_acc_mgr_get_metadata( ctx.global->acc_mgr, ctx.global->funk_txn, split_acc, &metadata_split );
+    int read_result = fd_acc_mgr_get_metadata( ctx.global->acc_mgr, ctx.global->funk_txn, split_acc, &metadata_split );
     if ( FD_UNLIKELY( read_result != FD_ACC_MGR_SUCCESS ) ) {
       FD_LOG_WARNING(( "failed to read split account metadata" ));
       return read_result;
     }
+
     if ( metadata_split.dlen != STAKE_ACCOUNT_SIZE ) {
       FD_LOG_WARNING(( "Split account size incorrect. expected %d got %lu", STAKE_ACCOUNT_SIZE, metadata_split.dlen ));
       return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
@@ -482,8 +478,16 @@ int fd_executor_stake_program_execute_instruction(
       return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
     }
 
+    fd_account_meta_t metadata_stake;
+    read_result = fd_acc_mgr_get_metadata( ctx.global->acc_mgr, ctx.global->funk_txn, stake_acc, &metadata_stake );
+    if ( FD_UNLIKELY( read_result != FD_ACC_MGR_SUCCESS ) ) {
+      FD_LOG_WARNING(( "failed to read stake account metadata" ));
+      return read_result;
+    }
+
     // fd_acc_lamports_t split_lamports_balance = metadata_split.info.lamports;
     fd_acc_lamports_t lamports = instruction.inner.split; // split amount
+    FD_LOG_NOTICE(( "LAMPORTS LOG lamports = %lu source = %lu dest = %lu split_discriminant = %d", lamports,  metadata_stake.info.lamports, metadata_split.info.lamports, split_state.discriminant ));
 
     if ( lamports > metadata_stake.info.lamports ) {
       return FD_EXECUTOR_INSTR_ERR_INSUFFICIENT_FUNDS;
@@ -590,7 +594,7 @@ int fd_executor_stake_program_execute_instruction(
 
     // check sub lamports
     fd_acc_mgr_set_lamports( ctx.global->acc_mgr, ctx.global->funk_txn, ctx.global->bank.solana_bank.slot, stake_acc, metadata_stake.info.lamports - lamports); 
-
+    FD_LOG_NOTICE(( "LAMPORTS LOG lamports = %lu source = %lu dest = %lu  split_discriminant = %d", lamports,  metadata_stake.info.lamports, metadata_split.info.lamports, split_state.discriminant ));
   } // end of split, discriminant 3
   else if ( fd_stake_instruction_is_deactivate( &instruction )) { // discriminant 5
 
