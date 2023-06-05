@@ -179,6 +179,14 @@ def main():
 
   json_test_cases = read_test_cases(args.json)
 
+  with open('../feature_map.json', 'r') as json_file:
+    feature_map = json.load(json_file)
+
+  rmap = {}
+  fm = feature_map["feature_map"]
+  for x in fm:
+      rmap[fm[x]] = x
+
   print("#include <stdlib.h>")
   print("#include <stdio.h>")
   print("#include \"fd_tests.h\"")
@@ -208,6 +216,17 @@ def main():
 
     print("  fd_executor_test_t test;", file = f)
     print("  fd_memset( &test, 0, FD_EXECUTOR_TEST_FOOTPRINT );", file = f)
+    fs = json.loads(json_test_case["feature_set"])
+    print("  test.disable_cnt = {};".format(len(fs)), file = f)
+    if len(fs) > 0:
+        print("  test.disable_feature = fd_alloca(1U, {});".format(len(fs)), file = f)
+        idx = 0
+        for x in fs:
+            disabled_feature = base58.b58encode(bytearray(x)).decode('utf-8');
+            if disabled_feature not in rmap:
+                print("Bad dog")
+            print("  test.disable_feature[{}] = fd_feature_offset({});".format(idx, rmap[disabled_feature]), file = f)
+            idx = idx+1
     print("  test.test_name = \"{}\";".format(json_test_case["name"]), file = f)
     print("  test.test_nonce = {};".format(json_test_case["nonce"]), file = f)
     print("  test.test_number ={};".format(test_case), file = f)

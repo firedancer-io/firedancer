@@ -124,3 +124,5 @@ Idiot check...
 
 [2023-05-09T10:44:36.590749043Z INFO  solana_runtime::accounts_db] get_accounts_delta_hash: 12 hash: ntbiK1iNz9JreBund5qDCwwsMtNJXiGxc8VitN34yt6 hashes.len: 6
 [2023-05-09T10:44:36.590824961Z INFO  solana_runtime::bank] bank frozen: 12 hash: 7U8ZtVcopqkomckvn4DkT3anGhGFx33PQ8CTxQDBc1QQ parent_hash: BS4WUCX6ktyyodRXtRsg3FcGXwKJPxynDn7jGNmgXqiQ  accounts_delta: ntbiK1iNz9JreBund5qDCwwsMtNJXiGxc8VitN34yt6 signature_count: 2 last_blockhash: 95DaH5VNBmJdWLXgWqJY96vuEm8fRbsEYd9V3TCAR4H4 capitalization: 503000502312141656
+
+% solana feature status -u mainnet-beta --output json --display-all | jq '.features | .[] | "\( .id ) \( .status )"' -r > features.txt

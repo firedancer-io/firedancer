@@ -47,6 +47,8 @@ void fd_executor_test_suite_new( fd_executor_test_suite_t* suite ) {
   suite->allocf = allocf;
   suite->allocf_arg = allocf_args;
   suite->freef = freef;
+
+  memset(&suite->features, 1, sizeof(suite->features));
 }
 
 int fd_executor_run_test(
@@ -66,6 +68,12 @@ int fd_executor_run_test(
   global->freef = suite->freef;
   global->funk = suite->funk;
   global->wksp = suite->wksp;
+
+  memcpy(&global->features, &suite->features, sizeof(suite->features));
+  if (test->disable_cnt > 0) {
+    for (uint i = 0; i < test->disable_cnt; i++)
+      ((uchar *) &global->features)[test->disable_feature[i]] = 0;
+  }
 
   char *acc_mgr_mem = fd_alloca_check(FD_ACC_MGR_ALIGN, FD_ACC_MGR_FOOTPRINT);
   memset(acc_mgr_mem, 0, sizeof(FD_ACC_MGR_FOOTPRINT));
@@ -198,12 +206,24 @@ int main(int argc, char **argv) {
   long do_test = fd_env_strip_cmdline_long(&argc, &argv, "--test", NULL, -1);
   const char * filter = fd_env_strip_cmdline_cstr(&argc, &argv, "--filter", NULL, NULL);
 
+  const char * net = fd_env_strip_cmdline_cstr(&argc, &argv, "--net", NULL, NULL);
+
   if (-1 != do_test) 
     test_start = test_end = do_test;
 
   /* Initialize the test suite */
   fd_executor_test_suite_t suite;
   fd_executor_test_suite_new( &suite );
+
+  if (NULL != net)  {
+    if (!strncmp(net, "main", 4))
+      enable_mainnet(&suite.features);
+    else if (!strncmp(net, "test", 4))
+      enable_testnet(&suite.features);
+    else if (!strncmp(net, "dev", 3))
+      enable_devnet(&suite.features);
+  } else
+    memset(&suite.features, 1, sizeof(suite.features));
 
   if (NULL != filter) {
     suite.filter = filter;

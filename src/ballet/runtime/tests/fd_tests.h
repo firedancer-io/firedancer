@@ -1,7 +1,12 @@
 #include "../fd_runtime.h"
 #include <regex.h>
+#include "../fd_features.h"
 
 /* Framework for running Solana's native program tests in our runtime */
+
+#pragma GCC diagnostic ignored "-Wpointer-to-int-cast"
+
+#define fd_feature_offset(x) ((uchar)&((fd_features_t *) 0)->x)
 
 struct fd_executor_test_acc {
   fd_pubkey_t   pubkey;
@@ -22,6 +27,8 @@ struct fd_executor_test {
   char*                   test_name;
   int                     test_number;
   int                     test_nonce;
+  uint                    disable_cnt;
+  uchar                  *disable_feature;
   fd_pubkey_t             program_id;
   fd_executor_test_acc_t* accs;
   ulong                   accs_len;
@@ -42,6 +49,7 @@ struct fd_executor_test_suite {
   fd_free_fun_t              freef;
   regex_t                    filter_ex;
   const char *               filter;
+  fd_features_t              features;
 };
 typedef struct fd_executor_test_suite fd_executor_test_suite_t;
 #define FD_EXECUTOR_TEST_SUITE_FOOTPRINT ( sizeof(fd_executor_test_suite_t) )
