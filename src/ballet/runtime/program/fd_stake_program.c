@@ -7,6 +7,11 @@
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/mod.rs#L12 */
 #define MINIMUM_STAKE_DELEGATION ( 1 )
+#define MINIMUM_DELEGATION_SOL ( 1 )
+#define LAMPORTS_PER_SOL (1000000000)
+#define FEATURE_ACTIVE_STAKE_SPLIT_USES_RENT_SYSVAR ( 1 )
+#define FEATURE_STAKE_ALLOW_ZERO_UNDELEGATED_AMOUNT ( 1 )
+#define ACCOUNT_STORAGE_OVERHEAD ( 128 )
 
 void write_stake_config( fd_global_ctx_t* global, fd_stake_config_t* stake_config) {
   ulong          sz = fd_stake_config_size( stake_config );
@@ -67,6 +72,7 @@ void fd_stake_program_config_init( fd_global_ctx_t* global ) {
 }
 
 int read_stake_state( fd_global_ctx_t* global, fd_pubkey_t* stake_acc, fd_stake_state_t* result ) {
+  fd_memset( result, 0, STAKE_ACCOUNT_SIZE );
   fd_account_meta_t metadata;
   int               read_result = fd_acc_mgr_get_metadata( global->acc_mgr, global->funk_txn, stake_acc, &metadata );
   if ( read_result != FD_ACC_MGR_SUCCESS ) {
@@ -105,7 +111,7 @@ int write_stake_state(
       return read_result;
     }
 
-    ulong encoded_stake_state_size = fd_stake_state_size( stake_state );
+    ulong encoded_stake_state_size = STAKE_ACCOUNT_SIZE;
     uchar* encoded_stake_state = (uchar *)(global->allocf)( global->allocf_arg, 8UL, encoded_stake_state_size );
     fd_memset( encoded_stake_state, 0, encoded_stake_state_size );
 
@@ -131,6 +137,96 @@ int write_stake_state(
 
     return FD_EXECUTOR_INSTR_SUCCESS;
 }
+
+int validate_split_amount(
+    instruction_ctx_t ctx,
+    ushort source_account_index,
+    ushort destination_account_index,
+    fd_acc_lamports_t lamports,
+    fd_acc_lamports_t additional_lamports,
+    fd_acc_lamports_t * source_remaining_balance,
+    fd_acc_lamports_t * destination_rent_exempt_reserve) {
+    /// Ensure the split amount is valid.  This checks the source and destination accounts meet the
+    /// minimum balance requirements, which is the rent exempt reserve plus the minimum stake
+    /// delegation, and that the source account has enough lamports for the request split amount.  If
+    /// not, return an error.
+    // Split amount has to be something
+    if (lamports == 0) {
+      FD_LOG_WARNING(( "Split amount has to be something"));
+      return FD_EXECUTOR_INSTR_ERR_INSUFFICIENT_FUNDS;
+    }
+
+    uchar * instr_acc_idxs = ((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.instr->acct_off);
+    fd_pubkey_t * txn_accs = (fd_pubkey_t *)((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.txn_ctx->txn_descriptor->acct_addr_off);
+
+    // getting all source data
+    fd_pubkey_t* source_acc         = &txn_accs[instr_acc_idxs[source_account_index]];
+    fd_account_meta_t metadata_source;
+    fd_acc_mgr_get_metadata( ctx.global->acc_mgr, ctx.global->funk_txn, source_acc, &metadata_source );
+    fd_acc_lamports_t source_lamports = metadata_source.info.lamports;
+
+    // Obviously cannot split more than what the source account has
+    if (lamports > source_lamports) {
+      FD_LOG_WARNING(( "Obviously cannot split more than what the source account has"));
+      return FD_EXECUTOR_INSTR_ERR_INSUFFICIENT_FUNDS;
+    }
+
+    ulong source_data_len = metadata_source.dlen;
+
+    // getting all dest data
+    fd_pubkey_t* dest_acc = &txn_accs[instr_acc_idxs[destination_account_index]];
+    fd_account_meta_t metadata_dest;
+    fd_acc_mgr_get_metadata( ctx.global->acc_mgr, ctx.global->funk_txn, dest_acc, &metadata_dest );
+
+    fd_acc_lamports_t destination_lamports = metadata_dest.info.lamports;
+    ulong destination_data_len = metadata_dest.dlen;
+
+    // Verify that the source account still has enough lamports left after splitting:
+    // EITHER at least the minimum balance, OR zero (in this case the source
+    // account is transferring all lamports to new destination account, and the source
+    // account will be closed)
+    
+    fd_stake_state_t source_state;
+    read_stake_state( ctx.global, source_acc, &source_state ); 
+
+    fd_acc_lamports_t source_minimum_balance = source_state.inner.initialized.rent_exempt_reserve + additional_lamports;
+    *source_remaining_balance = source_lamports - lamports;
+    if (source_remaining_balance == 0) {
+      // full amount is a withdrawal
+      // nothing to do here
+    } else if (*source_remaining_balance < source_minimum_balance) {
+      FD_LOG_WARNING(( "source remaining is less than source minimum balance" ));
+      return FD_EXECUTOR_INSTR_ERR_INSUFFICIENT_FUNDS;
+    } else {
+      // all clear! nothing to do here
+    }
+
+    // Verify the destination account meets the minimum balance requirements
+    // This must handle:
+    // 1. The destination account having a different rent exempt reserve due to data size changes
+    // 2. The destination account being prefunded, which would lower the minimum split amount
+    // https://github.com/firedancer-io/solana/blob/56bd357f0dfdb841b27c4a346a58134428173f42/programs/stake/src/stake_state.rs#L1277-L1289
+    // Note stake_split_uses_rent_sysvar is inactive this time
+    if (FEATURE_ACTIVE_STAKE_SPLIT_USES_RENT_SYSVAR) {
+      *destination_rent_exempt_reserve = fd_rent_exempt_minimum_balance(ctx.global, destination_data_len);
+    } else {
+      *destination_rent_exempt_reserve = source_state.inner.initialized.rent_exempt_reserve / (source_data_len + ACCOUNT_STORAGE_OVERHEAD) * (destination_data_len + ACCOUNT_STORAGE_OVERHEAD); 
+    }
+    fd_acc_lamports_t dest_minimum_balance = *destination_rent_exempt_reserve + additional_lamports;
+    fd_acc_lamports_t dest_balance_deficit = dest_minimum_balance - destination_lamports;
+
+    if (lamports < dest_balance_deficit) {
+      FD_LOG_WARNING(( "lamports are less than dest_balance_deficit lamports=%lu,\n dest_balance_deficit=%lu destination_rent_exempt_reserve=%lu, \n additional_lamports=%lu \n destination_lamports=%lu", lamports, dest_balance_deficit, *destination_rent_exempt_reserve, additional_lamports, destination_lamports ));
+      return FD_EXECUTOR_INSTR_ERR_INSUFFICIENT_FUNDS;
+    }
+
+
+    // source_remaining_balance
+    // destination_rent_exempt_reserve
+
+    return FD_EXECUTOR_INSTR_SUCCESS;
+}
+
 
 int fd_executor_stake_program_execute_instruction(
   FD_FN_UNUSED instruction_ctx_t ctx
@@ -203,7 +299,6 @@ int fd_executor_stake_program_execute_instruction(
 
     /* Check that the Stake account is Uninitialized */
     if ( !fd_stake_state_is_uninitialized( &stake_state ) ) {
-      FD_LOG_NOTICE(( "Stake account already initialized" ));
       return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
     }
 
@@ -348,8 +443,6 @@ int fd_executor_stake_program_execute_instruction(
 
   } else if ( fd_stake_instruction_is_split( &instruction )) { // discriminant 3
   // https://github.com/firedancer-io/solana/blob/56bd357f0dfdb841b27c4a346a58134428173f42/programs/stake/src/stake_instruction.rs#L192
-
-    // instruction_context.check_number_of_instruction_accounts(2)?;
     if (ctx.txn_ctx->txn_descriptor->acct_addr_cnt < 2) {
       return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
     }
@@ -362,15 +455,7 @@ int fd_executor_stake_program_execute_instruction(
       FD_LOG_WARNING(( "failed to read stake account metadata" ));
       return read_result;
     }
-    // split(
-    //     invoke_context,
-    //     transaction_context,
-    //     instruction_context,
-    //     0,
-    //     lamports,
-    //     1,
-    //     &signers,
-    // )
+
     // https://github.com/firedancer-io/solana/blob/56bd357f0dfdb841b27c4a346a58134428173f42/programs/stake/src/stake_state.rs#L666
     
     fd_pubkey_t* split_acc = &txn_accs[instr_acc_idxs[1]];
@@ -398,7 +483,7 @@ int fd_executor_stake_program_execute_instruction(
     }
 
     // fd_acc_lamports_t split_lamports_balance = metadata_split.info.lamports;
-    fd_acc_lamports_t lamports = instruction.inner.split;
+    fd_acc_lamports_t lamports = instruction.inner.split; // split amount
 
     if ( lamports > metadata_stake.info.lamports ) {
       return FD_EXECUTOR_INSTR_ERR_INSUFFICIENT_FUNDS;
@@ -412,38 +497,65 @@ int fd_executor_stake_program_execute_instruction(
       // validate split amount, etc
       // https://github.com/firedancer-io/solana/blob/56bd357f0dfdb841b27c4a346a58134428173f42/programs/stake/src/stake_state.rs#L698-L771
 
-    } else if ( fd_stake_state_is_initialized( &stake_state ) ) {
-      // fd_acc_lamports_t additional_required_lamports = 0;
+      uchar authorized_staker_signed = 0;
+
+      for ( ulong i = 0; i < ctx.instr->acct_cnt; i++ ) {
+        if ( instr_acc_idxs[i] < ctx.txn_ctx->txn_descriptor->signature_cnt ) {
+          fd_pubkey_t * signer = &txn_accs[instr_acc_idxs[i]];
+          if ( !memcmp( signer, stake_acc, sizeof(fd_pubkey_t) ) ) {
+            authorized_staker_signed = 1;
+            break;
+          }
+        }
+      }
       
+      if ( !authorized_staker_signed ) {
+          return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
+      }
+
+
+    } else if ( fd_stake_state_is_initialized( &stake_state ) ) {
 
       // meta.authorized.check(signers, StakeAuthorize::Staker)?;
-      // let additional_required_lamports = if invoke_context
-      //     .feature_set
-      //     .is_active(&stake_allow_zero_undelegated_amount::id())
-      // {
-      //     0
-      // } else {
-      //     crate::get_minimum_delegation(&invoke_context.feature_set)
-      // };
-      // let validated_split_info = validate_split_amount(
-      //     invoke_context,
-      //     transaction_context,
-      //     instruction_context,
-      //     stake_account_index,
-      //     split_index,
-      //     lamports,
-      //     &meta,
-      //     None,
-      //     additional_required_lamports,
-      // )?;
-      // let mut split_meta = meta;
-      // split_meta.rent_exempt_reserve = validated_split_info.destination_rent_exempt_reserve;
-      // let mut split = instruction_context
-      //     .try_borrow_instruction_account(transaction_context, split_index)?;
-      // split.set_state(&StakeState::Initialized(split_meta))?;
+      uchar authorized_staker_signed = 0;
+      for ( ulong i = 0; i < ctx.instr->acct_cnt; i++ ) {
+        if ( instr_acc_idxs[i] < ctx.txn_ctx->txn_descriptor->signature_cnt ) {
+          fd_pubkey_t * signer = &txn_accs[instr_acc_idxs[i]];
+          if ( !memcmp( signer, stake_acc, sizeof(fd_pubkey_t) ) ) {
+            authorized_staker_signed = 1;
+            break;
+          }
+        }
+      }
+
+      if ( !authorized_staker_signed ) {
+          return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
+      }
+
+      // ./target/debug/solana feature status sTKz343FM8mqtyGvYWvbLpTThw3ixRM4Xk8QvZ985mw
+      // inactive
+      fd_acc_lamports_t additional_required_lamports = (FEATURE_STAKE_ALLOW_ZERO_UNDELEGATED_AMOUNT) ? 0 : MINIMUM_DELEGATION_SOL * LAMPORTS_PER_SOL; 
+      
+      fd_acc_lamports_t source_remaining_balance, destination_rent_exempt_reserve;
+      int validate_result = validate_split_amount(ctx, 0, 1, lamports, additional_required_lamports, &source_remaining_balance, &destination_rent_exempt_reserve);
+      if (validate_result != FD_EXECUTOR_INSTR_SUCCESS) {
+        return validate_result;
+      }
+
+      memcpy(&split_state, &stake_state, STAKE_ACCOUNT_SIZE);
+      split_state.discriminant = 1; // initialized
+      split_state.inner.initialized.rent_exempt_reserve = destination_rent_exempt_reserve;
+
+      /* Write the initialized Stake account to the database */
+      int result = write_stake_state( ctx.global, split_acc, &split_state );
+      if ( result != FD_EXECUTOR_INSTR_SUCCESS ) {
+        FD_LOG_WARNING(( "failed to write split account state: %d", result ));
+        return result;
+      }
 
     } else if ( fd_stake_state_is_uninitialized( &stake_state ) ) {
 
+      FD_LOG_NOTICE(( "we made it to UNINITIALIZED here! "));
       uchar authorized_staker_signed = 0;
       for ( ulong i = 0; i < ctx.instr->acct_cnt; i++ ) {
         if ( instr_acc_idxs[i] < ctx.txn_ctx->txn_descriptor->signature_cnt ) {
@@ -470,15 +582,14 @@ int fd_executor_stake_program_execute_instruction(
       if ( result != FD_EXECUTOR_INSTR_SUCCESS ) {
         FD_LOG_WARNING(( "failed to write stake account state: %d", result ));
         return result;
-      } 
+      }
     }
 
     // check add lamports
     fd_acc_mgr_set_lamports( ctx.global->acc_mgr, ctx.global->funk_txn, ctx.global->bank.solana_bank.slot, split_acc, metadata_split.info.lamports + lamports); 
 
     // check sub lamports
-    fd_acc_mgr_set_lamports( ctx.global->acc_mgr, ctx.global->funk_txn, ctx.global->bank.solana_bank.slot, stake_acc, metadata_stake.info.lamports - lamports);     
-    
+    fd_acc_mgr_set_lamports( ctx.global->acc_mgr, ctx.global->funk_txn, ctx.global->bank.solana_bank.slot, stake_acc, metadata_stake.info.lamports - lamports); 
 
   } // end of split, discriminant 3
   else if ( fd_stake_instruction_is_deactivate( &instruction )) { // discriminant 5
