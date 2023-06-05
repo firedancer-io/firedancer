@@ -23,14 +23,16 @@ int fd_executor_config_program_execute_instruction( instruction_ctx_t ctx ) {
 
    /* The config account is instruction account 0
       https://github.com/solana-labs/solana/blob/a03ae63daff987912c48ee286eb8ee7e8a84bf01/programs/config/src/config_processor.rs#L26-L27 */
+   if ( ctx.instr->acct_cnt == 0 ) {
+      return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
+   }
+   
    uchar * instr_acc_idxs = ((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.instr->acct_off);
    fd_pubkey_t * txn_accs = (fd_pubkey_t *)((uchar *)ctx.txn_ctx->txn_raw->raw + ctx.txn_ctx->txn_descriptor->acct_addr_off);
    fd_pubkey_t * config_acc = &txn_accs[instr_acc_idxs[0]];
 
    /* Deserialize the config account data, which must already be a valid ConfigKeys map (zeroed accounts pass this check)
       https://github.com/solana-labs/solana/blob/a03ae63daff987912c48ee286eb8ee7e8a84bf01/programs/config/src/config_processor.rs#L28-L42 */
-   ulong config_account_data_len = 0;
-
    /* Read the data from the config account */
    fd_account_meta_t metadata;
    int read_result = fd_acc_mgr_get_metadata( ctx.global->acc_mgr, ctx.global->funk_txn, config_acc, &metadata );
@@ -45,6 +47,11 @@ int fd_executor_config_program_execute_instruction( instruction_ctx_t ctx ) {
       return read_result;
    }
 
+   /* Check that the account owner is correct */
+   if ( memcmp( &metadata.info.owner, &ctx.global->solana_config_program, sizeof(fd_pubkey_t) ) != 0 ) {
+      return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_OWNER;
+   }
+
    /* Decode the config state into the ConfigKeys struct */
    fd_bincode_decode_ctx_t config_acc_state_decode_context = {
       .allocf = ctx.global->allocf,
@@ -56,7 +63,7 @@ int fd_executor_config_program_execute_instruction( instruction_ctx_t ctx ) {
    decode_result = fd_config_keys_decode( &config_account_state, &config_acc_state_decode_context );
    if ( decode_result != FD_BINCODE_SUCCESS ) {
       FD_LOG_WARNING(("fd_config_keys_decode failed: %d", decode_result));
-      return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
+      return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
    }
 
    /* If we have no keys in the account, require the config account to have signed the transaction
@@ -80,7 +87,6 @@ int fd_executor_config_program_execute_instruction( instruction_ctx_t ctx ) {
    /* Check that all accounts in the instruction ConfigKeys map have signed
       https://github.com/solana-labs/solana/blob/a03ae63daff987912c48ee286eb8ee7e8a84bf01/programs/config/src/config_processor.rs#L58-L103 */
    ulong new_signer_count = 0;
-   ulong current_signer_count = 0;
    for (  ulong i = 0; i < instruction.keys.cnt; i++ ) {
       /* Skip account if it is not a signer */
       if ( instruction.keys.elems[i].value == 0 ) {
@@ -103,24 +109,23 @@ int fd_executor_config_program_execute_instruction( instruction_ctx_t ctx ) {
       }
 
       /* Check that the account has signed */
-      if ( instruction.keys.cnt == 0 ) {
-         uchar acc_signed = 0;
-         for ( ulong i = 0; i < ctx.instr->acct_cnt; i++ ) {
-            if ( instr_acc_idxs[i] < ctx.txn_ctx->txn_descriptor->signature_cnt ) {
-               fd_pubkey_t * signer = &txn_accs[instr_acc_idxs[i]];
-               if ( !memcmp( signer, &instruction.keys.elems[i].key, sizeof(fd_pubkey_t) ) ) {
-                  acc_signed = 1;
-                  break;
-               }
+      uchar acc_signed = 0;
+      for ( ulong i = 0; i < ctx.instr->acct_cnt; i++ ) {
+         if ( instr_acc_idxs[i] < ctx.txn_ctx->txn_descriptor->signature_cnt ) {
+            fd_pubkey_t * signer = &txn_accs[instr_acc_idxs[i]];
+            if ( !memcmp( signer, &instruction.keys.elems[i].key, sizeof(fd_pubkey_t) ) ) {
+               acc_signed = 1;
+               break;
             }
          }
-         if ( !acc_signed ) {
-            return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
-         }
+      }
+      if ( !acc_signed ) {
+         return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
       }
 
       /* Check that the order of the signer keys are preserved */
-      if ( memcmp( &txn_accs[instr_acc_idxs[new_signer_count]], &instruction.keys.elems[i].key, sizeof(fd_pubkey_t) ) == 0 ) {
+      if ( memcmp( &txn_accs[instr_acc_idxs[new_signer_count]], &instruction.keys.elems[i].key, sizeof(fd_pubkey_t) ) != 0 ) {
+         FD_LOG_NOTICE(( "missing required signature E" ));
          return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
       }
 
@@ -159,13 +164,19 @@ int fd_executor_config_program_execute_instruction( instruction_ctx_t ctx ) {
 
    /* Check that all the new signer accounts, as well as all of the existing signer accounts, have signed
       https://github.com/solana-labs/solana/blob/a03ae63daff987912c48ee286eb8ee7e8a84bf01/programs/config/src/config_processor.rs#L117-L126 */
+   ulong current_signer_count = 0;
+   for ( ulong i = 0; i < config_account_state.keys.cnt; i++ ) {
+      if ( config_account_state.keys.elems[i].value == 1 ) {
+         current_signer_count += 1;
+      }
+   }
    if ( current_signer_count > new_signer_count ) {
       return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
    }
 
    /* Check that the config account can fit the new ConfigKeys map
       https://github.com/solana-labs/solana/blob/a03ae63daff987912c48ee286eb8ee7e8a84bf01/programs/config/src/config_processor.rs#L128-L131 */
-   if ( ctx.instr->data_sz > config_account_data_len ) {
+   if ( ctx.instr->data_sz > metadata.dlen ) {
       return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
    }
 
