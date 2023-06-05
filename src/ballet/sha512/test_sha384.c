@@ -8,7 +8,6 @@ FD_STATIC_ASSERT( FD_SHA384_FOOTPRINT==sizeof (fd_sha384_t), unit_test );
 
 FD_STATIC_ASSERT( FD_SHA384_HASH_SZ==48UL, unit_test );
 
-#ifdef HAS_CAVP_TEST_VECTORS
 struct fd_sha384_test_vector {
   char const * msg;
   ulong        sz;
@@ -141,15 +140,3 @@ main( int     argc,
   return 0;
 }
 
-#else /* HAS_CAVP_TEST_VECTORS */
-
-int
-main( int     argc,
-      char ** argv ) {
-  fd_boot( &argc, &argv );
-  FD_LOG_WARNING(( "skip: unit test requires HAS_CAVP_TEST_VECTORS" ));
-  fd_halt();
-  return 0;
-}
-
-#endif /* HAS_CAVP_TEST_VECTORS */

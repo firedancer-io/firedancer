@@ -1,10 +1,8 @@
 #include "../fd_ballet.h"
 #include "fd_sha512_test_vector.c"
 
-#ifdef HAS_CAVP_TEST_VECTORS
 #include "cavp/sha512_short.inc"
 #include "cavp/sha512_long.inc"
-#endif
 
 FD_STATIC_ASSERT( FD_SHA512_ALIGN    ==128UL, unit_test );
 FD_STATIC_ASSERT( FD_SHA512_FOOTPRINT==256UL, unit_test );
@@ -162,13 +160,11 @@ main( int     argc,
 # undef DATA_MAX
 # undef BATCH_MAX
 
-# ifdef HAS_CAVP_TEST_VECTORS
   /* Test NIST CAVP message fixtures */
   test_sha512_vectors( cavp_sha512_short, sha, rng );
   FD_LOG_NOTICE(( "OK: CAVP SHA512ShortMsg.rsp" ));
   test_sha512_vectors( cavp_sha512_long,  sha, rng );
   FD_LOG_NOTICE(( "OK: CAVP SHA512LongMsg.rsp" ));
-# endif
 
   /* do a quick benchmark of sha-512 on small and large UDP payloads
      packets from UDP/IP4/VLAN/Ethernet */
