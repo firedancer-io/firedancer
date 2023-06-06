@@ -58,6 +58,7 @@ void fd_sysvar_recent_hashes_update(fd_global_ctx_t* global ) {
   while (deq_fd_block_block_hash_entry_t_cnt(hashes) >= 150)
     fd_block_block_hash_entry_destroy( deq_fd_block_block_hash_entry_t_pop_tail_nocopy( hashes ), &ctx2 );
 
+  FD_TEST( !deq_fd_block_block_hash_entry_t_full(hashes) );
   fd_block_block_hash_entry_t * elem = deq_fd_block_block_hash_entry_t_push_head_nocopy(hashes);
   fd_block_block_hash_entry_new(elem);
   fd_memcpy(elem->blockhash.hash, global->block_hash, sizeof(global->block_hash));
