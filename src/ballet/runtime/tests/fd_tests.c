@@ -215,12 +215,12 @@ int main(int argc, char **argv) {
   fd_boot( &argc, &argv );
 
   long test_start = fd_env_strip_cmdline_long(&argc, &argv, "--start", NULL, 0);
-  long test_end = fd_env_strip_cmdline_long(&argc, &argv, "--end", NULL, 889);
+  long test_end = fd_env_strip_cmdline_long(&argc, &argv, "--end", NULL, 1777);
   long do_test = fd_env_strip_cmdline_long(&argc, &argv, "--test", NULL, -1);
   const char * filter = fd_env_strip_cmdline_cstr(&argc, &argv, "--filter", NULL, NULL);
   const char * net = fd_env_strip_cmdline_cstr(&argc, &argv, "--net", NULL, NULL);
 
-  if (-1 != do_test) 
+  if (-1 != do_test)
     test_start = test_end = do_test;
 
   /* Initialize the test suite */
