@@ -287,36 +287,23 @@ FD_FN_UNUSED  unsigned long                   requested_lamports
 
   switch (state.inner.current.discriminant) {
   case fd_nonce_state_enum_uninitialized: {
-//    if ( FD_UNLIKELY( m->lamports < requested_lamports ) ) 
-//      return FD_EXECUTOR_INSTR_ERR_INSUFFICIENT_FUNDS;
-
-//                if lamports > self.lamports()? {
-//                    ic_msg!(
-//                        invoke_context,
-//                        "Withdraw nonce account: insufficient lamports {}, need {}",
-//                        self.lamports()?,
-//                        lamports,
-//                    );
-//                    return Err(InstructionError::InsufficientFunds);
-//                }
-//                *self.unsigned_key()
+    if ( FD_UNLIKELY( m->info.lamports < requested_lamports ) ) 
+      return FD_EXECUTOR_INSTR_ERR_INSUFFICIENT_FUNDS;
     break;
   }
   case fd_nonce_state_enum_initialized: {
-//                if lamports == self.lamports()? {
-//                    let (durable_nonce, separate_domains) = get_durable_nonce(invoke_context);
-//                    if data.durable_nonce == durable_nonce {
-//                        ic_msg!(
-//                            invoke_context,
-//                            "Withdraw nonce account: nonce can only advance once per slot"
-//                        );
-//                        return Err(nonce_to_instruction_error(
-//                            NonceError::NotExpired,
-//                            merge_nonce_error_into_system_error,
-//                        ));
-//                    }
-//                    self.set_state(&Versions::new(State::Uninitialized, separate_domains))?;
-//                } else {
+    if (  m->info.lamports == requested_lamports ) {
+      if (ctx.global->bank.recent_block_hashes.hashes.cnt == 0)
+        return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
+      fd_block_block_hash_entry_t *re = &ctx.global->bank.recent_block_hashes.hashes.elems[0];
+      fd_hash_t durable_nonce;
+      fd_durable_nonce_from_blockhash(&re->blockhash, &durable_nonce);
+      if (!memcmp(state.inner.current.inner.initialized.durable_nonce.hash, durable_nonce.hash, sizeof(state.inner.current.inner.initialized.durable_nonce.hash)))
+        return FD_EXECUTOR_SYSTEM_ERR_NONCE_BLOCKHASH_NOT_EXPIRED;
+
+      state.inner.current.discriminant = fd_nonce_state_enum_uninitialized;
+    } else {
+      
 //                    let min_balance = rent.minimum_balance(self.data_len()?);
 //                    let amount = checked_add(lamports, min_balance)?;
 //                    if amount > self.lamports()? {
@@ -330,7 +317,7 @@ FD_FN_UNUSED  unsigned long                   requested_lamports
 //                    }
 //                }
 //                data.authority
-//            }
+    }
     break;
   }
   default: {

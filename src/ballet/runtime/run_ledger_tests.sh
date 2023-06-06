@@ -16,10 +16,11 @@ fi
 
 # we could ALWAYS run it with logging except when I run this from the command line, I want less noise...
 
+# sudo build/linux/gcc/x86_64/bin/fd_shmem_cfg fini
+
 # sudo build/linux/gcc/x86_64/bin/fd_shmem_cfg init 0777 jsiegel ""
 # sudo build/linux/gcc/x86_64/bin/fd_shmem_cfg alloc 64 gigantic 0
 # sudo build/linux/gcc/x86_64/bin/fd_shmem_cfg alloc 512 huge 0
-
 
 set -x
 
