@@ -99,9 +99,9 @@ int fd_acc_mgr_write_structured_account( fd_acc_mgr_t* acc_mgr, fd_funk_txn_t* t
 
 int fd_acc_mgr_write_append_vec_account( fd_acc_mgr_t* acc_mgr, fd_funk_txn_t* txn, ulong slot, fd_solana_account_hdr_t *, int uncache);
 
-void fd_acc_mgr_dirty_pubkey ( fd_acc_mgr_t* acc_mgr, fd_pubkey_t const * pubkey, fd_hash_t *hash);
+void fd_acc_mgr_dirty_pubkey ( fd_acc_mgr_t* acc_mgr, fd_pubkey_t const * pubkey, fd_hash_t const * hash);
 
-int fd_acc_mgr_update_hash ( fd_acc_mgr_t* acc_mgr, fd_account_meta_t * m, fd_funk_txn_t* txn, ulong slot, fd_pubkey_t const * pubkey, uchar *data, ulong dlen );
+int fd_acc_mgr_update_hash ( fd_acc_mgr_t* acc_mgr, fd_account_meta_t * m, fd_funk_txn_t* txn, ulong slot, fd_pubkey_t const * pubkey, uchar const *data, ulong dlen );
 int fd_acc_mgr_update_data( fd_acc_mgr_t* acc_mgr, fd_funk_txn_t* txn, ulong slot, fd_pubkey_t* pubkey, uchar *data, ulong dlen);
 
 int fd_acc_mgr_is_key( fd_funk_rec_key_t const* id );
