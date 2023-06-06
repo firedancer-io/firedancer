@@ -487,7 +487,6 @@ int fd_executor_stake_program_execute_instruction(
 
     // fd_acc_lamports_t split_lamports_balance = metadata_split.info.lamports;
     fd_acc_lamports_t lamports = instruction.inner.split; // split amount
-    FD_LOG_NOTICE(( "LAMPORTS LOG lamports = %lu source = %lu dest = %lu split_discriminant = %d", lamports,  metadata_stake.info.lamports, metadata_split.info.lamports, split_state.discriminant ));
 
     if ( lamports > metadata_stake.info.lamports ) {
       return FD_EXECUTOR_INSTR_ERR_INSUFFICIENT_FUNDS;
@@ -537,7 +536,6 @@ int fd_executor_stake_program_execute_instruction(
       }
 
       // ./target/debug/solana feature status sTKz343FM8mqtyGvYWvbLpTThw3ixRM4Xk8QvZ985mw
-      // inactive
       fd_acc_lamports_t additional_required_lamports = (FEATURE_STAKE_ALLOW_ZERO_UNDELEGATED_AMOUNT) ? 0 : MINIMUM_DELEGATION_SOL * LAMPORTS_PER_SOL; 
       
       fd_acc_lamports_t source_remaining_balance, destination_rent_exempt_reserve;
@@ -558,8 +556,6 @@ int fd_executor_stake_program_execute_instruction(
       }
 
     } else if ( fd_stake_state_is_uninitialized( &stake_state ) ) {
-
-      FD_LOG_NOTICE(( "we made it to UNINITIALIZED here! "));
       uchar authorized_staker_signed = 0;
       for ( ulong i = 0; i < ctx.instr->acct_cnt; i++ ) {
         if ( instr_acc_idxs[i] < ctx.txn_ctx->txn_descriptor->signature_cnt ) {
@@ -592,9 +588,13 @@ int fd_executor_stake_program_execute_instruction(
     // check add lamports
     fd_acc_mgr_set_lamports( ctx.global->acc_mgr, ctx.global->funk_txn, ctx.global->bank.solana_bank.slot, split_acc, metadata_split.info.lamports + lamports); 
 
+    // update metadata after change, needed if source = destination
+    if (instr_acc_idxs[0] == instr_acc_idxs[1]) {
+      fd_acc_mgr_get_metadata( ctx.global->acc_mgr, ctx.global->funk_txn, stake_acc, &metadata_stake );
+    }
+
     // check sub lamports
     fd_acc_mgr_set_lamports( ctx.global->acc_mgr, ctx.global->funk_txn, ctx.global->bank.solana_bank.slot, stake_acc, metadata_stake.info.lamports - lamports); 
-    FD_LOG_NOTICE(( "LAMPORTS LOG lamports = %lu source = %lu dest = %lu  split_discriminant = %d", lamports,  metadata_stake.info.lamports, metadata_split.info.lamports, split_state.discriminant ));
   } // end of split, discriminant 3
   else if ( fd_stake_instruction_is_deactivate( &instruction )) { // discriminant 5
 
