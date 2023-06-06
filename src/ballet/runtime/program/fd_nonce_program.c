@@ -293,9 +293,10 @@ FD_FN_UNUSED  unsigned long                   requested_lamports
   }
   case fd_nonce_state_enum_initialized: {
     if (  m->info.lamports == requested_lamports ) {
-      if (ctx.global->bank.recent_block_hashes.hashes.cnt == 0)
+      if (deq_fd_block_block_hash_entry_t_cnt(ctx.global->bank.recent_block_hashes.hashes) == 0)
         return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
-      fd_block_block_hash_entry_t *re = &ctx.global->bank.recent_block_hashes.hashes.elems[0];
+      
+      fd_block_block_hash_entry_t *re = deq_fd_block_block_hash_entry_t_peek_head(ctx.global->bank.recent_block_hashes.hashes);
       fd_hash_t durable_nonce;
       fd_durable_nonce_from_blockhash(&re->blockhash, &durable_nonce);
       if (!memcmp(state.inner.current.inner.initialized.durable_nonce.hash, durable_nonce.hash, sizeof(state.inner.current.inner.initialized.durable_nonce.hash)))
