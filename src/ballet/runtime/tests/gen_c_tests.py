@@ -261,10 +261,12 @@ def main():
             
     # Serialize the transaction this test case executes
     accounts = []
+    signer_pubkeys = set()
     num_signers = 0
     for account in json_test_case["instruction_accounts"]:
-        if bool(account["is_signer"]):
+        if bool(account["is_signer"]) and (account["pubkey"] not in signer_pubkeys):
             num_signers += 1
+            signer_pubkeys.add(account["pubkey"])
         accounts.append(
             AccountMeta(
                 pubkey=Pubkey.from_bytes(base58.b58decode(account["pubkey"])),

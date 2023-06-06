@@ -198,6 +198,7 @@ int fd_executor_config_program_execute_instruction( instruction_ctx_t ctx ) {
    fd_memcpy( new_data, data, ctx.instr->data_sz );
 
    fd_solana_account_t structured_account;
+   structured_account.lamports = metadata.info.lamports;
    structured_account.data = new_data;
    structured_account.data_len = new_data_size;
    structured_account.executable = 0;
