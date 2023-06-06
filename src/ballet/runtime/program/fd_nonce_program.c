@@ -79,8 +79,8 @@ int fd_load_nonce_account(
   fd_account_meta_t *m = (fd_account_meta_t *) raw_acc_data;
 
   fd_bincode_decode_ctx_t ctx;
-  ctx.data = raw_acc_data;
-  ctx.dataend = (char*)ctx.data + m->dlen;
+  ctx.data = raw_acc_data + m->hlen;
+  ctx.dataend = (char *) ctx2.data + m->dlen;
   ctx.allocf = global->allocf;
   ctx.allocf_arg = global->allocf_arg;
   if ( fd_nonce_state_versions_decode( state, &ctx ) ) {
@@ -128,7 +128,7 @@ int fd_advance_nonce_account(
   fd_nonce_state_versions_new( &state );
   fd_bincode_decode_ctx_t ctx2;
   ctx2.data = raw_acc_data + m->hlen;
-  ctx2.dataend = (char *) ctx2.data + m->hlen;
+  ctx2.dataend = (char *) ctx2.data + m->dlen;
   ctx2.allocf = ctx.global->allocf;
   ctx2.allocf_arg = ctx.global->allocf_arg;
   if ( fd_nonce_state_versions_decode( &state, &ctx2 ) ) {
