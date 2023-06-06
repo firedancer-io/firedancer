@@ -164,10 +164,10 @@ int fd_advance_nonce_account(
 
 //                let (next_durable_nonce, separate_domains) = get_durable_nonce(invoke_context);
 
-  if (ctx.global->bank.recent_block_hashes.hashes.cnt == 0)
+  fd_block_block_hash_entry_t * hashes = ctx.global->bank.recent_block_hashes.hashes;
+  if ( deq_fd_block_block_hash_entry_t_cnt( hashes ) == 0)
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
-
-  fd_block_block_hash_entry_t *re = &ctx.global->bank.recent_block_hashes.hashes.elems[0];
+  fd_block_block_hash_entry_t *re = deq_fd_block_block_hash_entry_t_peek_head( hashes );
 
   fd_hash_t durable_nonce;
   fd_durable_nonce_from_blockhash(&re->blockhash, &durable_nonce);
@@ -467,9 +467,10 @@ int fd_initialize_nonce_account(
     if ( m->info.lamports < minimum_rent_exempt_balance )
       return FD_EXECUTOR_INSTR_ERR_INSUFFICIENT_FUNDS;
 
-    if (ctx.global->bank.recent_block_hashes.hashes.cnt == 0)
+    fd_block_block_hash_entry_t * hashes = ctx.global->bank.recent_block_hashes.hashes;
+    if ( deq_fd_block_block_hash_entry_t_cnt( hashes ) == 0)
       return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
-    fd_block_block_hash_entry_t *re = &ctx.global->bank.recent_block_hashes.hashes.elems[0];
+    fd_block_block_hash_entry_t *re = deq_fd_block_block_hash_entry_t_peek_head( hashes );
 
     fd_hash_t durable_nonce;
     fd_durable_nonce_from_blockhash(&re->blockhash, &durable_nonce);

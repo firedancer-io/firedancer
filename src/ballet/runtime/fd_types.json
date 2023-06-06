@@ -242,7 +242,7 @@
       "type": "struct",
       "fields": [
         { "name": "vote_accounts", "type": "vote_accounts" },
-        { "name": "stake_delegations", "type": "vector_dynamic", "element": "delegation_pair" },
+        { "name": "stake_delegations", "type": "deque", "element": "delegation_pair", "max":35 },
         { "name": "unused", "type": "ulong" },
         { "name": "epoch", "type": "ulong" },
         { "name": "stake_history", "type": "stake_history" }
@@ -599,9 +599,9 @@
           { "name": "prior_voters", "type": "vote_prior_voters_0_23_5" },
           { "name": "authorized_withdrawer", "type": "pubkey" },
           { "name": "commission", "type": "uchar" },
-          { "name": "votes", "type": "vector_dynamic", "element": "vote_lockout" },
+          { "name": "votes", "type": "deque", "element": "vote_lockout", "max":35 },
           { "name": "saved_root_slot", "type": "option", "element": "ulong" },
-          { "name": "epoch_credits", "type": "vector_dynamic", "element": "vote_epoch_credits" },          
+          { "name": "epoch_credits", "type": "deque", "element": "vote_epoch_credits", "max":35 },          
           { "name": "latest_timestamp", "type": "vote_block_timestamp" }
       ],
       "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/vote_state_0_23_5.rs#L6"
@@ -613,11 +613,11 @@
           { "name": "voting_node", "type": "pubkey" },
           { "name": "authorized_withdrawer", "type": "pubkey" },
           { "name": "commission", "type": "uchar" },
-          { "name": "votes", "type": "vector_dynamic", "element": "vote_lockout" },
+          { "name": "votes", "type": "deque", "element": "vote_lockout", "max":35 },
           { "name": "saved_root_slot", "type": "option", "element": "ulong" },
-          { "name": "authorized_voters", "type": "vector_dynamic", "element": "vote_historical_authorized_voter" },
+          { "name": "authorized_voters", "type": "deque", "element": "vote_historical_authorized_voter", "max":35 },
           { "name": "prior_voters", "type": "vote_prior_voters" },
-          { "name": "epoch_credits", "type": "vector_dynamic", "element": "vote_epoch_credits" },
+          { "name": "epoch_credits", "type": "deque", "element": "vote_epoch_credits", "max":35 },
           { "name": "latest_timestamp", "type": "vote_block_timestamp" }
       ],
       "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L310"
@@ -698,7 +698,7 @@
       "name": "slot_hashes",
       "type": "struct",
       "fields": [
-          { "name": "hashes", "type": "vector_dynamic", "element": "slot_hash" }
+          { "name": "hashes", "type": "deque", "element": "slot_hash", "max":35 }
       ],
       "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/slot_hashes.rs#L31"
     },
@@ -714,7 +714,7 @@
       "name": "recent_block_hashes",
       "type": "struct",
       "fields": [
-          { "name": "hashes", "type": "vector_dynamic", "element": "block_block_hash_entry" }
+          { "name": "hashes", "type": "deque", "element": "block_block_hash_entry", "max":150 }
       ]
     },
     {
@@ -754,7 +754,7 @@
       "name": "clock_timestamp_votes",
       "type": "struct",
       "fields": [
-        { "name": "votes", "type": "vector_dynamic", "element": "clock_timestamp_vote" }
+          { "name": "votes", "type": "deque", "element": "clock_timestamp_vote", "max":35 }
       ],
       "comment": "Validator timestamp oracle votes received from voting nodes. TODO: make this a map"
     },
@@ -799,7 +799,7 @@
       "name": "vote",
       "type": "struct",
       "fields": [
-        { "name": "slots", "type": "vector_dynamic", "element": "ulong" },
+        { "name": "slots", "type": "deque", "element": "ulong", "max":35 },
         { "name": "hash", "type": "hash" },
         { "name": "timestamp", "type": "option", "element": "ulong" }
       ],
@@ -1180,7 +1180,7 @@
       "name": "config_keys",
       "type": "struct",
       "fields": [
-        { "name": "keys", "type": "vector_dynamic", "element": "config_keys_pair", "modifier": "compact" }
+        { "name": "keys", "type": "deque", "element": "config_keys_pair", "modifier": "compact", "max":35 }
       ],
       "comment": "https://github.com/solana-labs/solana/blob/a03ae63daff987912c48ee286eb8ee7e8a84bf01/programs/config/src/lib.rs#L32"
     }

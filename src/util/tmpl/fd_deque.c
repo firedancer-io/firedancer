@@ -1,3 +1,4 @@
+
 /* Declares a family of functions implementing a single-threaded
    compile-time fixed-capacity double-ended queue (deque) designed for
    high performance contexts.  The deque is implemented with a circular
@@ -40,6 +41,7 @@
 
      my_ele_t * my_deque_peek_head  ( my_ele_t * deque ); // peeks at head, returned ptr lifetime is until next op on deque
      my_ele_t * my_deque_peek_tail  ( my_ele_t * deque ); // peeks at tail, returned ptr lifetime is until next op on deque
+     my_ele_t * my_deque_peek_index ( my_ele_t * deque, ulong idx ); // peeks at index, returned ptr lifetime is until next op on deque
      my_ele_t * my_deque_insert_head( my_ele_t * deque ); // inserts uninitialized element at head, returns deque
      my_ele_t * my_deque_insert_tail( my_ele_t * deque ); // inserts uninitiaiized element at tail, returns deque
      my_ele_t * my_deque_remove_head( my_ele_t * deque ); // removes head, returns deque
@@ -51,8 +53,9 @@
      my_ele_t * my_deque_pop_head_nocopy ( my_ele_t * deque ); // pops the head, returns the deleted element
      my_ele_t * my_deque_pop_tail_nocopy ( my_ele_t * deque ); // pops the tail, returns the deleted element
 
-     my_ele_t const * my_deque_peek_head_const( my_ele_t const * deque ); // const version of peek_head
-     my_ele_t const * my_deque_peek_tail_const( my_ele_t const * deque ); // const version of peek_tail
+     my_ele_t const * my_deque_peek_head_const ( my_ele_t const * deque ); // const version of peek_head
+     my_ele_t const * my_deque_peek_tail_const ( my_ele_t const * deque ); // const version of peek_tail
+     my_ele_t const * my_deque_peek_index_const( my_ele_t const * deque, ulong idx ); // const version of peek_index
 
      // my_deque_iter_* allow for iteration over all the elements in
      // a my_deque.  The iteration will be in order from head to tail.
@@ -63,13 +66,13 @@
      //
      //     ... process ele here
      //   }
- 
+
      my_deque_iter_t  my_deque_iter_init     ( my_deque_t const * deque );
      int              my_deque_iter_done     ( my_deque_t const * deque, my_deque_iter_t iter ); // returns 1 if no more iterations, 0 o.w.
      my_deque_iter_t  my_deque_iter_next     ( my_deque_t const * deque, my_deque_iter_t iter ); // returns next iter value iter
      my_ele_t *       my_deque_iter_ele      ( my_deque_t *       deque, my_deque_iter_t iter ); // assumes not done, return non-NULL ele
      my_ele_t const * my_deque_iter_ele_const( my_deque_t const * deque, my_deque_iter_t iter ); // assumes not done, return non-NULL ele
-     
+
    For performance, none of the functions do any error checking.
    Specifically, the caller promises that MAX is such that footprint
    will not overflow 2^64 (e.g. MAX << (2^64)/sizeof(my_ele_t)), cnt<max
@@ -172,7 +175,7 @@ static inline DEQUE_T *
 DEQUE_(join)( void * shdeque ) {
   DEQUE_(private_t) * hdr = (DEQUE_(private_t) *)shdeque;
   return hdr->deque;
-} 
+}
 
 static inline void * DEQUE_(leave) ( DEQUE_T * deque   ) { return (void *)DEQUE_(private_hdr_from_deque)( deque ); }
 static inline void * DEQUE_(delete)( void *    shdeque ) { return shdeque; }
@@ -248,6 +251,12 @@ DEQUE_(peek_tail)( DEQUE_T * deque ) {
   return hdr->deque + DEQUE_(private_slot)( hdr->end-1UL );
 }
 
+FD_FN_PURE static inline DEQUE_T *
+DEQUE_(peek_index)( DEQUE_T * deque, ulong idx ) {
+  DEQUE_(private_t) * hdr = DEQUE_(private_hdr_from_deque)( deque );
+  return hdr->deque + DEQUE_(private_slot)( hdr->start + idx );
+}
+
 FD_FN_PURE static inline DEQUE_T const *
 DEQUE_(peek_head_const)( DEQUE_T const * deque ) {
   DEQUE_(private_t) const * hdr = DEQUE_(private_const_hdr_from_deque)( deque );
@@ -255,9 +264,15 @@ DEQUE_(peek_head_const)( DEQUE_T const * deque ) {
 }
 
 FD_FN_PURE static inline DEQUE_T const *
-DEQUE_(peek_tail_const)( DEQUE_T * deque ) {
+DEQUE_(peek_tail_const)( DEQUE_T const * deque ) {
   DEQUE_(private_t) const * hdr = DEQUE_(private_const_hdr_from_deque)( deque );
   return hdr->deque + DEQUE_(private_slot)( hdr->end-1UL );
+}
+
+FD_FN_PURE static inline DEQUE_T const *
+DEQUE_(peek_index_const)( DEQUE_T const * deque, ulong idx ) {
+  DEQUE_(private_t) const * hdr = DEQUE_(private_const_hdr_from_deque)( deque );
+  return hdr->deque + DEQUE_(private_slot)( hdr->start + idx );
 }
 
 static inline DEQUE_T * DEQUE_(insert_head)( DEQUE_T * deque ) { DEQUE_(private_hdr_from_deque)( deque )->start--; return deque; }

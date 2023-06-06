@@ -78,7 +78,7 @@ int fd_executor_config_program_execute_instruction( instruction_ctx_t ctx ) {
          }
       }
    }
-   if ( config_account_state.keys.cnt == 0 ) {
+   if ( deq_fd_config_keys_pair_t_cnt( config_account_state.keys ) == 0 ) {
       if ( !config_acc_signed ) {
          return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
       }
@@ -87,16 +87,20 @@ int fd_executor_config_program_execute_instruction( instruction_ctx_t ctx ) {
    /* Check that all accounts in the instruction ConfigKeys map have signed
       https://github.com/solana-labs/solana/blob/a03ae63daff987912c48ee286eb8ee7e8a84bf01/programs/config/src/config_processor.rs#L58-L103 */
    ulong new_signer_count = 0;
-   for (  ulong i = 0; i < instruction.keys.cnt; i++ ) {
+   fd_config_keys_pair_t * keys = instruction.keys;
+   for ( deq_fd_config_keys_pair_t_iter_t iter = deq_fd_config_keys_pair_t_iter_init( keys );
+         !deq_fd_config_keys_pair_t_iter_done( keys, iter );
+         iter = deq_fd_config_keys_pair_t_iter_next( keys, iter ) ) {
+      fd_config_keys_pair_t * elem = deq_fd_config_keys_pair_t_iter_ele( keys, iter );
       /* Skip account if it is not a signer */
-      if ( instruction.keys.elems[i].value == 0 ) {
+      if ( elem->value == 0 ) {
          continue;
       }
 
       new_signer_count += 1;
 
       /* If the account is the config account, we just need to check that the config account has signed */
-      if ( memcmp( &instruction.keys.elems[i].key, config_acc, sizeof(fd_pubkey_t) ) == 0 ) {
+      if ( memcmp( &elem->key, config_acc, sizeof(fd_pubkey_t) ) == 0 ) {
          if ( !config_acc_signed ) {
             return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
          }
@@ -111,35 +115,38 @@ int fd_executor_config_program_execute_instruction( instruction_ctx_t ctx ) {
       /* Check that the account has signed */
       uchar acc_signed = 0;
       for ( ulong i = 0; i < ctx.instr->acct_cnt; i++ ) {
-         if ( instr_acc_idxs[i] < ctx.txn_ctx->txn_descriptor->signature_cnt ) {
-            fd_pubkey_t * signer = &txn_accs[instr_acc_idxs[i]];
-            if ( !memcmp( signer, &instruction.keys.elems[i].key, sizeof(fd_pubkey_t) ) ) {
-               acc_signed = 1;
-               break;
-            }
-         }
+        if ( instr_acc_idxs[i] < ctx.txn_ctx->txn_descriptor->signature_cnt ) {
+          fd_pubkey_t * signer = &txn_accs[instr_acc_idxs[i]];
+          if ( !memcmp( signer, &elem->key, sizeof(fd_pubkey_t) ) ) {
+            acc_signed = 1;
+            break;
+          }
+        }
       }
       if ( !acc_signed ) {
-         return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
+        return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
       }
 
       /* Check that the order of the signer keys are preserved */
-      if ( memcmp( &txn_accs[instr_acc_idxs[new_signer_count]], &instruction.keys.elems[i].key, sizeof(fd_pubkey_t) ) != 0 ) {
-         FD_LOG_NOTICE(( "missing required signature E" ));
+      if ( memcmp( &txn_accs[instr_acc_idxs[new_signer_count]], &elem->key, sizeof(fd_pubkey_t) ) != 0 ) {
          return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
       }
 
       /* Check that the new signer key list is a superset of the current one */
-      if ( config_account_state.keys.cnt > 0 ) {
+      if ( deq_fd_config_keys_pair_t_cnt( config_account_state.keys ) > 0 ) {
 
          uchar key_present_in_stored_signers = 0;
-         for ( ulong j = 0; j < config_account_state.keys.cnt; j++ ) {
+         fd_config_keys_pair_t * keys2 = config_account_state.keys;
+         for ( deq_fd_config_keys_pair_t_iter_t iter2 = deq_fd_config_keys_pair_t_iter_init( keys2 );
+               !deq_fd_config_keys_pair_t_iter_done( keys2, iter2 );
+               iter2 = deq_fd_config_keys_pair_t_iter_next( keys2, iter2 ) ) {
+           fd_config_keys_pair_t * elem2 = deq_fd_config_keys_pair_t_iter_ele( keys2, iter2 );
             /* Skip the account if it is not a signer */
-            if ( config_account_state.keys.elems[j].value == 0 ) {
+            if ( elem2->value == 0 ) {
                continue;
             }
 
-            if ( memcmp( &config_account_state.keys.elems[j].key, &instruction.keys.elems[i].key, sizeof(fd_pubkey_t) ) == 0 ) {
+            if ( memcmp( &elem2->key, &elem->key, sizeof(fd_pubkey_t) ) == 0 ) {
                key_present_in_stored_signers = 1;
                break;
             }
@@ -154,21 +161,31 @@ int fd_executor_config_program_execute_instruction( instruction_ctx_t ctx ) {
 
    /* Disallow duplicate keys
       https://github.com/solana-labs/solana/blob/a03ae63daff987912c48ee286eb8ee7e8a84bf01/programs/config/src/config_processor.rs#L105-L115 */
-   for ( ulong i = 0; i < instruction.keys.cnt; i++ ) {
-      for ( ulong j = 0; j < instruction.keys.cnt; j++ ) {
-         if ( ( j != i ) && ( memcmp( &instruction.keys.elems[i].key, &instruction.keys.elems[j].key, sizeof(fd_pubkey_t) ) == 0 ) ) {
-            return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
-         }
+   for ( deq_fd_config_keys_pair_t_iter_t iter = deq_fd_config_keys_pair_t_iter_init( keys );
+         !deq_fd_config_keys_pair_t_iter_done( keys, iter );
+         iter = deq_fd_config_keys_pair_t_iter_next( keys, iter ) ) {
+     fd_config_keys_pair_t * elem = deq_fd_config_keys_pair_t_iter_ele( keys, iter );
+     for ( deq_fd_config_keys_pair_t_iter_t iter2 = deq_fd_config_keys_pair_t_iter_next( keys, iter );
+           !deq_fd_config_keys_pair_t_iter_done( keys, iter2 );
+           iter2 = deq_fd_config_keys_pair_t_iter_next( keys, iter2 ) ) {
+       fd_config_keys_pair_t * elem2 = deq_fd_config_keys_pair_t_iter_ele( keys, iter2 );
+       if ( memcmp( &elem->key, &elem2->key, sizeof(fd_pubkey_t) ) == 0 ) {
+         return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+       }
       }
    }
 
    /* Check that all the new signer accounts, as well as all of the existing signer accounts, have signed
       https://github.com/solana-labs/solana/blob/a03ae63daff987912c48ee286eb8ee7e8a84bf01/programs/config/src/config_processor.rs#L117-L126 */
    ulong current_signer_count = 0;
-   for ( ulong i = 0; i < config_account_state.keys.cnt; i++ ) {
-      if ( config_account_state.keys.elems[i].value == 1 ) {
-         current_signer_count += 1;
-      }
+   fd_config_keys_pair_t * keys2 = config_account_state.keys;
+   for ( deq_fd_config_keys_pair_t_iter_t iter2 = deq_fd_config_keys_pair_t_iter_init( keys2 );
+         !deq_fd_config_keys_pair_t_iter_done( keys2, iter2 );
+         iter2 = deq_fd_config_keys_pair_t_iter_next( keys2, iter2 ) ) {
+     fd_config_keys_pair_t * elem2 = deq_fd_config_keys_pair_t_iter_ele( keys2, iter2 );
+     if ( elem2->value == 1 ) {
+       current_signer_count += 1;
+     }
    }
    if ( current_signer_count > new_signer_count ) {
       return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
@@ -183,12 +200,12 @@ int fd_executor_config_program_execute_instruction( instruction_ctx_t ctx ) {
    /* Write the ConfigKeys map in the instruction into the config account.
 
       If the new config account state is smaller than the existing one, then we overwrite the new data
-      https://github.com/solana-labs/solana/blob/252438e28fbfb2c695fe1215171b83456e4b761c/programs/config/src/config_processor.rs#L135 
+      https://github.com/solana-labs/solana/blob/252438e28fbfb2c695fe1215171b83456e4b761c/programs/config/src/config_processor.rs#L135
 
       Encode and write the new account data
       - create a new allocated area for the data, with a size that is max(old, new)
       - memcpy the old data in
-      - memcpy the new data in 
+      - memcpy the new data in
       This mimics the semantics of Solana's config_account.get_data_mut()?[..data.len()].copy_from_slice(data)
       (although this can obviously be optimised)
    */

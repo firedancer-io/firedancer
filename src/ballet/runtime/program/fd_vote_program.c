@@ -23,10 +23,14 @@ void record_timestamp_vote(
   ulong               timestamp
 ) {
     uchar found = 0;
-    for ( ulong i = 0; i < global->bank.timestamp_votes.votes.cnt; i++ ) {
-      if ( memcmp( &global->bank.timestamp_votes.votes.elems[i].pubkey, vote_acc, sizeof(fd_pubkey_t) ) == 0 ) {
-        global->bank.timestamp_votes.votes.elems[i].slot      = global->bank.solana_bank.slot;
-        global->bank.timestamp_votes.votes.elems[i].timestamp = (long)timestamp;
+    fd_clock_timestamp_vote_t * votes = global->bank.timestamp_votes.votes;
+    for ( deq_fd_clock_timestamp_vote_t_iter_t iter = deq_fd_clock_timestamp_vote_t_iter_init( votes );
+          !deq_fd_clock_timestamp_vote_t_iter_done( votes, iter );
+          iter = deq_fd_clock_timestamp_vote_t_iter_next( votes, iter ) ) {
+      fd_clock_timestamp_vote_t * ele = deq_fd_clock_timestamp_vote_t_iter_ele( votes, iter );
+      if ( memcmp( &ele->pubkey, vote_acc, sizeof(fd_pubkey_t) ) == 0 ) {
+        ele->slot      = global->bank.solana_bank.slot;
+        ele->timestamp = (long)timestamp;
         found = 1;
       }
     }
@@ -36,7 +40,8 @@ void record_timestamp_vote(
         .timestamp = (long)timestamp,
         .slot      = global->bank.solana_bank.slot,
       };
-      fd_vec_fd_clock_timestamp_vote_t_push( &global->bank.timestamp_votes.votes, timestamp_vote );
+      FD_TEST( !deq_fd_clock_timestamp_vote_t_full( votes ) );
+      deq_fd_clock_timestamp_vote_t_push_tail( votes, timestamp_vote );
     }
 }
 
@@ -126,13 +131,14 @@ get_and_verify_versioned_vote_state(
     fd_vote_state_t* vote_state = &result->inner.current;
 
     /* Check that the vote state account is initialized */
-    if ( vote_state->authorized_voters.cnt == 0 ) {
+    fd_vote_historical_authorized_voter_t * authorized_voters = vote_state->authorized_voters;
+    if ( deq_fd_vote_historical_authorized_voter_t_cnt( authorized_voters ) == 0 ) {
       return FD_EXECUTOR_INSTR_ERR_UNINITIALIZED_ACCOUNT;
     }
 
     /* Get the current authorized voter for the current epoch */
     /* TODO: handle epoch rollover */
-    fd_pubkey_t authorized_voter = vote_state->authorized_voters.elems[0].pubkey;
+    fd_pubkey_t authorized_voter = deq_fd_vote_historical_authorized_voter_t_peek_head( authorized_voters )->pubkey;
 
     /* Check that the authorized voter for this epoch has signed the vote transaction
         https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L1265
@@ -242,32 +248,36 @@ vote_authorize( instruction_ctx_t             ctx,
     ulong target_epoch = clock->leader_schedule_epoch + 1UL;
 
     /* Get authorized voter for at and/or before this epoch */
-    fd_vec_fd_vote_historical_authorized_voter_t_t * authorized_voters_vec =
-        &vote_state->authorized_voters;
-    ulong authorized_voter_idx = ULONG_MAX;
-    for( ulong i=0UL; i < authorized_voters_vec->cnt; i++ ) {
-      if( authorized_voters_vec->elems[i].epoch <= clock->epoch ) {
-        authorized_voter_idx = i;
+    fd_vote_historical_authorized_voter_t * authorized_voters = vote_state->authorized_voters;
+    fd_vote_historical_authorized_voter_t * authorized_voter = NULL;
+    for ( deq_fd_vote_historical_authorized_voter_t_iter_t iter = deq_fd_vote_historical_authorized_voter_t_iter_init( authorized_voters );
+          !deq_fd_vote_historical_authorized_voter_t_iter_done( authorized_voters, iter );
+          iter = deq_fd_vote_historical_authorized_voter_t_iter_next( authorized_voters, iter ) ) {
+      fd_vote_historical_authorized_voter_t * ele = deq_fd_vote_historical_authorized_voter_t_iter_ele( authorized_voters, iter );
+      if( ele->epoch <= clock->epoch ) {
+        authorized_voter = ele;
       }
       /* Excerpt from solana_vote_program::vote_state::VoteState::set_new_authorized_voter */
-      if( authorized_voters_vec->elems[i].epoch == target_epoch ) {
+      if( ele->epoch == target_epoch ) {
         ctx.txn_ctx->custom_err = 5;
         return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR /* FD_VOTE_TOO_SOON_TO_REAUTHORIZE */;
       }
     }
-    if( FD_UNLIKELY( authorized_voter_idx==ULONG_MAX ) )
+    if( FD_UNLIKELY( !authorized_voter ) )
       return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
 
     /* Update epoch number */
-    authorized_voters_vec->elems[ authorized_voter_idx ].epoch = clock->epoch;
+    authorized_voter->epoch = clock->epoch;
 
     /* Drop preceding entries */
-    /* FIXME could use skip field instead of memmove here */
-    memmove( &authorized_voters_vec->elems[0],
-              &authorized_voters_vec->elems[authorized_voter_idx],
-              (authorized_voters_vec->cnt - authorized_voter_idx)*sizeof(fd_vote_historical_authorized_voter_t) );
-    authorized_voters_vec->cnt -= authorized_voter_idx;
-    authorized_voter_idx = 0UL;
+    fd_bincode_destroy_ctx_t ctx3;
+    ctx3.freef = ctx.global->freef;
+    ctx3.freef_arg = ctx.global->allocf_arg;
+    while ( deq_fd_vote_historical_authorized_voter_t_peek_head( authorized_voters ) != authorized_voter) {
+      FD_TEST( !deq_fd_vote_historical_authorized_voter_t_empty( authorized_voters ) );
+      fd_vote_historical_authorized_voter_destroy(
+        deq_fd_vote_historical_authorized_voter_t_pop_head_nocopy( authorized_voters ), &ctx3 );
+    }
 
     /* If not already authorized by withdrawer, check for authorized voter signature */
     if( !authorized_withdrawer_signer ) {
@@ -277,7 +287,7 @@ vote_authorize( instruction_ctx_t             ctx,
       for( ulong i=0; i<ctx.instr->acct_cnt; i++ ) {
         if( instr_acc_idxs[i] < ctx.txn_ctx->txn_descriptor->signature_cnt ) {
           fd_pubkey_t const * signer = &txn_accs[instr_acc_idxs[i]];
-          if( 0==memcmp( signer, &authorized_voters_vec->elems[0].pubkey, sizeof(fd_pubkey_t) ) ) {
+          if( 0==memcmp( signer, &authorized_voter->pubkey, sizeof(fd_pubkey_t) ) ) {
             authorized_voter_signer = 1;
             break;
           }
@@ -288,9 +298,8 @@ vote_authorize( instruction_ctx_t             ctx,
     }
 
     /* If authorized voter changes, add to prior voters */
-    if( 0!=memcmp( &authorized_voters_vec->elems[ authorized_voters_vec->cnt-1UL ].pubkey,
-                    authorize_pubkey,
-                    sizeof(fd_pubkey_t) ) ) {
+    fd_vote_historical_authorized_voter_t * tail_voter = deq_fd_vote_historical_authorized_voter_t_peek_tail( authorized_voters );
+    if( 0!=memcmp( &tail_voter->pubkey, authorize_pubkey, sizeof(fd_pubkey_t) ) ) {
       fd_vote_prior_voters_t * prior_voters = &vote_state->prior_voters;
       ulong epoch_of_last_authorized_switch = 0UL;
       /* FIXME: is is_empty untrusted input? */
@@ -300,29 +309,36 @@ vote_authorize( instruction_ctx_t             ctx,
       prior_voters->idx +=  1UL;  /* FIXME bounds check */
       prior_voters->idx %= 32UL;
       prior_voters->buf[ prior_voters->idx ] = (fd_vote_prior_voter_t) {
-        .pubkey      = authorized_voters_vec->elems[ authorized_voters_vec->cnt-1UL ].pubkey,
+        .pubkey      = tail_voter->pubkey,
         .epoch_start = epoch_of_last_authorized_switch,
         .epoch_end   = target_epoch
       };
       prior_voters->is_empty = 0;
     }
 
-    /* Insert new authorized voter
+    /* Insert new authorized voter at index 1
         Given
         - index 0 contains current_epoch
         - target_epoch==current_epoch+1UL
         - and target_epoch > index 1
         target_epoch will have to be inserted at index 1
         Move all successors one slot to the right */
-    FD_TEST( authorized_voters_vec->cnt < authorized_voters_vec->max );
-    authorized_voters_vec->cnt += 1UL;
-    memmove( &authorized_voters_vec->elems[2],
-              &authorized_voters_vec->elems[1],
-              (authorized_voters_vec->cnt - 1UL)*sizeof(fd_vote_historical_authorized_voter_t) );
-    authorized_voters_vec->elems[1] = (fd_vote_historical_authorized_voter_t) {
-      .epoch  = target_epoch,
-      .pubkey = *authorize_pubkey
-    };
+    {
+      /* Pop and copy index 0 */
+      fd_vote_historical_authorized_voter_t voter0;
+      FD_TEST( !deq_fd_vote_historical_authorized_voter_t_empty( authorized_voters ) );
+      voter0 = *deq_fd_vote_historical_authorized_voter_t_pop_head_nocopy( authorized_voters );
+      /* Push index 1 */
+      fd_vote_historical_authorized_voter_t voter1 = {
+        .epoch  = target_epoch,
+        .pubkey = *authorize_pubkey
+      };
+      FD_TEST( !deq_fd_vote_historical_authorized_voter_t_full( authorized_voters ) );
+      deq_fd_vote_historical_authorized_voter_t_push_head( authorized_voters, voter1 );
+      /* Push index 0 */
+      FD_TEST( !deq_fd_vote_historical_authorized_voter_t_full( authorized_voters ) );
+      deq_fd_vote_historical_authorized_voter_t_push_head( authorized_voters, voter0 );
+    }
 
     break;
   }
@@ -518,7 +534,7 @@ int fd_executor_vote_program_execute_instruction(
       } else if ( fd_vote_state_versioned_is_current( &stored_vote_state_versioned ) ) {
         fd_vote_state_t* vote_state = &stored_vote_state_versioned.inner.current;
 
-        if ( vote_state->authorized_voters.cnt == 0 ) {
+        if( deq_fd_vote_historical_authorized_voter_t_empty( vote_state->authorized_voters ) ) {
           uninitialized_vote_state = 1;
         }
       }
@@ -566,8 +582,10 @@ int fd_executor_vote_program_execute_instruction(
         .epoch  = clock.epoch,
         .pubkey = init_account_params->authorized_voter,
       };
-      fd_vec_fd_vote_historical_authorized_voter_t_new( &vote_state->authorized_voters );
-      fd_vec_fd_vote_historical_authorized_voter_t_push( &vote_state->authorized_voters, authorized_voter );
+      void * authorized_voters_buf = fd_alloca_check( alignof( deq_fd_vote_historical_authorized_voter_t_private_t), deq_fd_vote_historical_authorized_voter_t_footprint() );
+      vote_state->authorized_voters = deq_fd_vote_historical_authorized_voter_t_join( deq_fd_vote_historical_authorized_voter_t_new( authorized_voters_buf ) );
+      FD_TEST( !deq_fd_vote_historical_authorized_voter_t_full( vote_state->authorized_voters ) );
+      deq_fd_vote_historical_authorized_voter_t_push_head( vote_state->authorized_voters, authorized_voter );
       vote_state->authorized_withdrawer = init_account_params->authorized_withdrawer;
       vote_state->commission = init_account_params->commission;
 
@@ -618,7 +636,7 @@ int fd_executor_vote_program_execute_instruction(
        */
 
       /* Check that the vote slots aren't empty */
-      if ( vote->slots.cnt == 0 ) {
+      if( FD_UNLIKELY( deq_ulong_empty( vote->slots ) ) ) {
         /* TODO: propagate custom error code FD_VOTE_EMPTY_SLOTS */
         return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
       }
@@ -630,19 +648,22 @@ int fd_executor_vote_program_execute_instruction(
       fd_sysvar_slot_hashes_read( ctx.global, &slot_hashes );
 
       ulong earliest_slot_in_history = 0;
-      if ( slot_hashes.hashes.cnt > 0 ) {
-        earliest_slot_in_history = slot_hashes.hashes.elems[ slot_hashes.hashes.cnt - 1 ].slot;
+      if( FD_UNLIKELY( !deq_fd_slot_hash_t_empty( slot_hashes.hashes ) ) ) {
+        earliest_slot_in_history = deq_fd_slot_hash_t_peek_tail_const( slot_hashes.hashes )->slot;
       }
 
-      fd_vec_ulong_t vote_slots;
-      fd_vec_ulong_new( &vote_slots );
-      for ( ulong i = 0; i < vote->slots.cnt; i++ ) {
-        if ( vote->slots.elems[i] >= earliest_slot_in_history ) {
-          fd_vec_ulong_push( &vote_slots, vote->slots.elems[i] );
-        }
+      ulong   vote_slots_cnt = deq_ulong_cnt( vote->slots );
+      ulong * vote_slots     = (ulong *)fd_alloca_check( alignof(ulong), sizeof(ulong) * vote_slots_cnt );
+      ulong   vote_slots_new_cnt = 0UL;
+      for( deq_ulong_iter_t iter = deq_ulong_iter_init( vote->slots );
+           !deq_ulong_iter_done( vote->slots, iter );
+           iter = deq_ulong_iter_next( vote->slots, iter ) ) {
+        ulong slot = *deq_ulong_iter_ele_const( vote->slots, iter );
+        if( slot >= earliest_slot_in_history )
+          vote_slots[ vote_slots_new_cnt++ ] = slot;
       }
 
-      if ( vote_slots.cnt == 0 ) {
+      if( vote_slots_new_cnt == 0 ) {
         /* TODO: propagate custom error code FD_VOTE_VOTES_TOO_OLD_ALL_FILTERED */
         return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
       }
@@ -653,17 +674,18 @@ int fd_executor_vote_program_execute_instruction(
          https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L658
        */
       ulong vote_idx = 0;
-      ulong slot_hash_idx = slot_hashes.hashes.cnt;
-      while ( vote_idx < vote_slots.cnt && slot_hash_idx > 0 ) {
+      ulong slot_hash_idx = deq_fd_slot_hash_t_cnt( slot_hashes.hashes );
+      while ( vote_idx < vote_slots_new_cnt && slot_hash_idx > 0 ) {
 
         /* Skip to the smallest vote slot that is newer than the last slot we previously voted on.  */
-        if ( ( vote_state->votes.cnt > 0 ) && ( vote_slots.elems[ vote_idx ] <= vote_state->votes.elems[ vote_state->votes.cnt - 1 ].slot ) ) {
+        if(    ( !deq_fd_vote_lockout_t_empty( vote_state->votes ) )
+            && ( vote_slots[ vote_idx ] <= deq_fd_vote_lockout_t_peek_tail_const( vote_state->votes )->slot ) ) {
           vote_idx += 1;
           continue;
         }
 
         /* Find the corresponding slot hash entry for that slot. */
-        if ( vote_slots.elems[ vote_idx ] != slot_hashes.hashes.elems[ slot_hash_idx - 1 ].slot ) {
+        if( vote_slots[ vote_idx ] != deq_fd_slot_hash_t_peek_tail_const( slot_hashes.hashes )->slot ) {
           slot_hash_idx -= 1;
           continue;
         }
@@ -671,14 +693,13 @@ int fd_executor_vote_program_execute_instruction(
         /* When we have found a hash for that slot, move on to the next proposed slot. */
         vote_idx      += 1;
         slot_hash_idx -= 1;
-
       }
 
       /* Check that there does exist a proposed vote slot newer than the last slot we previously voted on:
          if so, we would have made some progress through the slot hashes. */
-      if ( slot_hash_idx == slot_hashes.hashes.cnt ) {
-        ulong previously_voted_on = vote_state->votes.elems[ vote_state->votes.cnt - 1 ].slot;
-        ulong most_recent_proposed_vote_slot = vote->slots.elems[ vote->slots.cnt - 1 ];
+      if( slot_hash_idx == deq_fd_slot_hash_t_cnt( slot_hashes.hashes ) ) {
+        ulong previously_voted_on = deq_fd_vote_lockout_t_peek_tail_const( vote_state->votes )->slot;
+        ulong most_recent_proposed_vote_slot = *deq_ulong_peek_tail_const( vote->slots );
         FD_LOG_INFO(( "vote instruction too old (%lu <= %lu): discarding", most_recent_proposed_vote_slot, previously_voted_on ));
 
         /* TODO: propagate custom error code FD_VOTE_VOTE_TOO_OLD */
@@ -688,19 +709,20 @@ int fd_executor_vote_program_execute_instruction(
 
       /* Check that for each slot in the vote tower, we found a slot in the slot hashes:
          if so, we would have got to the end of the vote tower. */
-      if ( vote_idx != vote_slots.cnt ) {
+      if ( vote_idx != deq_ulong_cnt( vote_slots ) ) {
         /* TODO: propagate custom error code FD_VOTE_SLOTS_MISMATCH */
         return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
       }
 
       /* Check that the vote hash, which is the hash for the slot at the top of the vote tower,
          matches the slot hashes hash for that slot. */
-      if ( memcmp( &slot_hashes.hashes.elems[ slot_hash_idx ].hash, &vote->hash, sizeof(fd_hash_t) ) != 0 ) {
+      fd_slot_hash_t const * hash = deq_fd_slot_hash_t_peek_index_const( slot_hashes.hashes, slot_hash_idx );
+      if ( memcmp( &hash->hash, &vote->hash, sizeof(fd_hash_t) ) != 0 ) {
         char slot_hash_hash[50];
-        fd_base58_encode_32((uchar *) &slot_hashes.hashes.elems[ slot_hash_idx ].hash, 0, slot_hash_hash);
+        fd_base58_encode_32((uchar const *) &hash->hash, 0, slot_hash_hash);
 
         char vote_hash_hash[50];
-        fd_base58_encode_32((uchar *) &vote->hash, 0, vote_hash_hash);
+        fd_base58_encode_32((uchar const *) &vote->hash, 0, vote_hash_hash);
 
         FD_LOG_INFO(( "hash mismatch: slot_hash: %s vote_hash: %s", slot_hash_hash, vote_hash_hash ));
         /* TODO: propagate custom error code FD_VOTE_SLOT_HASH_MISMATCH */
@@ -711,11 +733,12 @@ int fd_executor_vote_program_execute_instruction(
       /* Process each vote slot, pushing any new slots in the vote onto our lockout tower.
          https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L941
        */
-      for ( ulong i = 0; i < vote_slots.cnt; i++ ) {
-        ulong vote_slot = vote_slots.elems[i];
+      for ( ulong i = 0; i < vote_slots_new_cnt; i++ ) {
+        ulong vote_slot = vote_slots[i];
 
         /* Skip the slot if it is older than the the last slot we previously voted on. */
-        if ( ( vote_state->votes.cnt > 0 ) && ( vote_slot <= vote_state->votes.elems[ vote_state->votes.cnt - 1 ].slot ) ) {
+        if(    ( !deq_fd_vote_lockout_t_empty( vote_state->votes ) )
+            && ( vote_slot <= deq_fd_vote_lockout_t_peek_tail_const( vote_state->votes )->slot ) ) {
           continue;
         }
 
@@ -725,36 +748,37 @@ int fd_executor_vote_program_execute_instruction(
 
            https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L1135
         */
-        while ( vote_state->votes.cnt > 0 ) {
-          fd_vote_lockout_t lockout = vote_state->votes.elems[ vote_state->votes.cnt - 1 ];
-          if ( ( ( lockout.slot + (ulong)pow( INITIAL_LOCKOUT, lockout.confirmation_count ) ) < vote_slot ) ) {
-            fd_vec_fd_vote_lockout_t_pop_unsafe( &vote_state->votes );
+        while( !deq_fd_vote_lockout_t_empty( vote_state->votes ) ) {
+          fd_vote_lockout_t const * lockout = deq_fd_vote_lockout_t_peek_tail_const( vote_state->votes );
+          if ( ( ( lockout->slot + (ulong)pow( INITIAL_LOCKOUT, lockout->confirmation_count ) ) < vote_slot ) ) {
+            deq_fd_vote_lockout_t_pop_head( vote_state->votes );
           } else {
             break;
           }
         }
 
         /* Check if the lockout stack is full: we have committed to a fork. */
-        if ( vote_state->votes.cnt == MAX_LOCKOUT_HISTORY ) {
+        if( deq_fd_vote_lockout_t_cnt( vote_state->votes ) == MAX_LOCKOUT_HISTORY ) {
 
           /* Update the root slot to be the oldest lockout. */
-          vote_state->saved_root_slot = fd_alloca_check( 1UL, sizeof(ulong) );
-          *vote_state->saved_root_slot = vote_state->votes.elems[0].slot;
+          vote_state->saved_root_slot = fd_alloca_check( alignof(ulong), sizeof(ulong) );
+          *vote_state->saved_root_slot = deq_fd_vote_lockout_t_peek_head_const( vote_state->votes )->slot;
 
           /* Give this validator a credit for committing to a slot. */
-          if ( vote_state->epoch_credits.cnt == 0 ) {
+          if( deq_fd_vote_epoch_credits_t_empty( vote_state->epoch_credits ) ) {
             fd_vote_epoch_credits_t epoch_credits = {
               .epoch = 0,
               .credits = 0,
               .prev_credits = 0,
             };
-            fd_vec_fd_vote_epoch_credits_t_push( &vote_state->epoch_credits, epoch_credits );
+            FD_TEST( !deq_fd_vote_epoch_credits_t_full( vote_state->epoch_credits ) );
+            deq_fd_vote_epoch_credits_t_push_tail( vote_state->epoch_credits, epoch_credits );
           }
-          vote_state->epoch_credits.elems[0].credits += 1;
+          deq_fd_vote_epoch_credits_t_peek_head( vote_state->epoch_credits )->credits += 1UL;
 
           /* Pop the oldest slot from the lockout tower. */
-          fd_vec_fd_vote_lockout_t_remove_at( &vote_state->votes, 0 );
-
+          FD_TEST( !deq_fd_vote_lockout_t_empty( vote_state->votes ) );
+          deq_fd_vote_lockout_t_pop_tail( vote_state->votes );
         }
 
         /* Push the current vote onto the lockouts stack. */
@@ -762,23 +786,32 @@ int fd_executor_vote_program_execute_instruction(
           .slot = vote_slot,
           .confirmation_count = 1,
         };
-        fd_vec_fd_vote_lockout_t_push( &vote_state->votes, vote_lockout );
+        FD_TEST( !deq_fd_vote_lockout_t_full( vote_state->votes ) );
+        deq_fd_vote_lockout_t_push_tail( vote_state->votes, vote_lockout );
 
         /* Because we add a new vote to the tower, double the lockouts of existing votes in the tower.
            https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L1145
         */
-        for ( ulong j = 0; j < vote_state->votes.cnt; j++ ) {
-          /* Double the lockout for this vote slot if our lockout stack is now deeper than the largest number of confirmations this vote slot has seen. */
-          ulong confirmations = j + vote_state->votes.elems[ j ].confirmation_count;
-          if ( vote_state->votes.cnt > confirmations ) {
-            /* Increment the confirmation count, implicitly doubling the lockout. */
-            vote_state->votes.elems[ j ].confirmation_count += 1;
+        {
+          ulong j = 0UL;
+          for( deq_fd_vote_lockout_t_iter_t iter = deq_fd_vote_lockout_t_iter_init( vote_state->votes );
+              !deq_fd_vote_lockout_t_iter_done( vote_state->votes, iter );
+              iter = deq_fd_vote_lockout_t_iter_next( vote_state->votes, iter ),
+              j++ ) {
+            fd_vote_lockout_t * vote = deq_fd_vote_lockout_t_iter_ele( vote_state->votes, iter );
+            /* Double the lockout for this vote slot if our lockout stack is now deeper than the largest number of confirmations this vote slot has seen. */
+            ulong confirmations = j + vote->confirmation_count;
+            /* cache the lockount cnt thing? */
+            if( deq_fd_vote_lockout_t_cnt( vote_state->votes ) > confirmations ) {
+              /* Increment the confirmation count, implicitly doubling the lockout. */
+              vote->confirmation_count += 1;
+            }
           }
         }
       }
 
       /* Check that the vote tower is now non-empty. */
-      if ( vote_state->votes.cnt == 0 ) {
+      if( FD_UNLIKELY( deq_fd_vote_lockout_t_empty( vote_state->votes ) ) ) {
         /* TODO: propagate custom error code FD_VOTE_EMPTY_SLOTS */
         return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
       }
@@ -788,9 +821,9 @@ int fd_executor_vote_program_execute_instruction(
       */
       if ( vote->timestamp != NULL ) {
         ulong highest_vote_slot = 0;
-        for ( ulong i = 0; i < vote->slots.cnt; i++ ) {
+        for ( ulong i = 0; i < vote_slots_new_cnt; i++ ) {
           /* TODO: can maybe just use vote at top of tower? Seems safer to use same logic as Solana though. */
-          highest_vote_slot = fd_ulong_max( highest_vote_slot, vote->slots.elems[i] );
+          highest_vote_slot = fd_ulong_max( highest_vote_slot, vote->slots[i] );
         }
 
         if ( highest_vote_slot < vote_state->latest_timestamp.slot || *vote->timestamp < vote_state->latest_timestamp.timestamp ) {
@@ -856,15 +889,16 @@ int fd_executor_vote_program_execute_instruction(
       /* If the root has changed, give this validator a credit for doing work */
       /* In mininal slice proposed_root will always be present */
       if ( vote_state->saved_root_slot == NULL || ( *vote_state_update->proposed_root != *vote_state->saved_root_slot ) ) {
-        if ( vote_state->epoch_credits.cnt == 0 ) {
+        if( deq_fd_vote_epoch_credits_t_empty( vote_state->epoch_credits ) ) {
           fd_vote_epoch_credits_t epoch_credits = {
             .epoch = 0,
             .credits = 0,
             .prev_credits = 0,
           };
-          fd_vec_fd_vote_epoch_credits_t_push( &vote_state->epoch_credits, epoch_credits );
+          FD_TEST( !deq_fd_vote_epoch_credits_t_full( vote_state->epoch_credits ) );
+          deq_fd_vote_epoch_credits_t_push_tail( vote_state->epoch_credits, epoch_credits );
         }
-        vote_state->epoch_credits.elems[0].credits += 1;
+        deq_fd_vote_epoch_credits_t_peek_head( vote_state->epoch_credits )->credits += 1UL;
       }
 
       /* Update the new root slot, timestamp and votes */
@@ -877,9 +911,10 @@ int fd_executor_vote_program_execute_instruction(
         vote_state->saved_root_slot = (ulong *)(ctx.global->allocf)( ctx.global->allocf_arg, 8UL, sizeof(ulong) );
       }
       *vote_state->saved_root_slot = *vote_state_update->proposed_root;
-      fd_vec_fd_vote_lockout_t_clear( &vote_state->votes );
+      deq_fd_vote_lockout_t_remove_all( vote_state->votes );
       for ( ulong i = 0; i < vote_state_update->lockouts_len; i++ ) {
-        fd_vec_fd_vote_lockout_t_push( &vote_state->votes, vote_state_update->lockouts[i] );
+        FD_TEST( !deq_fd_vote_lockout_t_full( vote_state->votes ) );
+        deq_fd_vote_lockout_t_push_tail( vote_state->votes, vote_state_update->lockouts[i] );
       }
 
       /* Write the new state back to the database */
@@ -1306,8 +1341,8 @@ int fd_executor_vote_program_execute_instruction(
       ulong post_balance = pre_balance - withdraw_amount;
       if( post_balance == 0UL ) {
         /* Reject close of active vote cacounts */
-        if( vote_state->epoch_credits.cnt > 0 ) {
-          ulong last_epoch_with_credits = vote_state->epoch_credits.elems[ vote_state->epoch_credits.cnt - 1UL ].epoch;
+        if( !deq_fd_vote_epoch_credits_t_empty( vote_state->epoch_credits ) ) {
+          ulong last_epoch_with_credits = deq_fd_vote_epoch_credits_t_peek_tail_const( vote_state->epoch_credits )->epoch;
           ulong current_epoch = clock.epoch;
           /* FIXME this can be written without saturating sub */
           ulong epochs_since_last_credit = fd_ulong_sat_sub( current_epoch, last_epoch_with_credits );
@@ -1379,10 +1414,10 @@ void fd_vote_acc_credits( fd_global_ctx_t* global, fd_pubkey_t * vote_acc, ulong
 
   if ( fd_vote_state_versioned_is_current( &versioned ) ) {
     fd_vote_state_t* state = &versioned.inner.current;
-    if ( state->epoch_credits.cnt == 0 ) {
+    if ( deq_fd_vote_epoch_credits_t_empty( state->epoch_credits ) ) {
       *result = 0;
     } else {
-      *result = state->epoch_credits.elems[ state->epoch_credits.cnt - 1 ].credits;
+      *result = deq_fd_vote_epoch_credits_t_peek_tail_const( state->epoch_credits )->credits;
     }
   } else {
     /* TODO: conversion function from old vote state to current */

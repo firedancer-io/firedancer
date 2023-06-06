@@ -434,8 +434,9 @@ fd_runtime_lamports_per_signature_for_blockhash( fd_global_ctx_t *global, FD_FN_
     return default_fee;
   }
 
-  for (ulong i = 0; i < global->bank.recent_block_hashes.hashes.cnt; ++i) {
-    fd_block_block_hash_entry_t * curr_elem = &(global->bank.recent_block_hashes.hashes.elems[i]);
+  fd_block_block_hash_entry_t * hashes = global->bank.recent_block_hashes.hashes;
+  for ( deq_fd_block_block_hash_entry_t_iter_t iter = deq_fd_block_block_hash_entry_t_iter_init( hashes ); !deq_fd_block_block_hash_entry_t_iter_done( hashes, iter ); iter = deq_fd_block_block_hash_entry_t_iter_next( hashes, iter ) ) {
+    fd_block_block_hash_entry_t * curr_elem = deq_fd_block_block_hash_entry_t_iter_ele( hashes, iter );
     if (memcmp(&curr_elem->blockhash, blockhash, sizeof(fd_hash_t)) == 0) {
       return curr_elem->fee_calculator.lamports_per_signature;
     }

@@ -50,7 +50,7 @@ def do_vector_header(n, f):
     else:
         print("  " + n + "_" + f["element"] + "_t* " + f["name"] + ";", file=header)
 
-def vector_dynamic_elem_type(n, f):
+def deque_elem_type(n, f):
   if f["element"] == "unsigned char" or f["element"] == "uchar":
     return "uchar"
   elif f["element"] == "ulong" or f["element"] == "unsigned long":
@@ -60,14 +60,14 @@ def vector_dynamic_elem_type(n, f):
   else:
       return n + "_" + f["element"] + "_t"
 
-def vector_dynamic_prefix(n, f):
-    return n + "_vec_" + vector_dynamic_elem_type(n, f)
+def deque_prefix(n, f):
+    return "deq_" + deque_elem_type(n, f)
 
-def do_vector_dynamic_header(n, f):
-    print("  " + vector_dynamic_prefix(n, f) + "_t " + f["name"] + ";", file=header)
+def do_deque_header(n, f):
+    print("  " + deque_elem_type(n, f) + " * " + f["name"] + ";", file=header)
 
 def do_map_header(n, f):
-    element_type = vector_dynamic_elem_type(n, f)
+    element_type = deque_elem_type(n, f)
     nodename = element_type + "_mapnode_t"
     print("  " + nodename + "* " + f["name"] + "_pool;", file=header)
     print("  " + nodename + "* " + f["name"] + "_root;", file=header)
@@ -106,7 +106,7 @@ fields_header = {
     "unsigned long" :     lambda n, f: print("  unsigned long " + f["name"] + ";",     file=header),
     "ushort" :            lambda n, f: print("  ushort " + f["name"] + ";",            file=header),
     "vector" :            lambda n, f: do_vector_header(n, f),
-    "vector_dynamic":     lambda n, f: do_vector_dynamic_header(n, f),
+    "deque":              lambda n, f: do_deque_header(n, f),
     "array":              lambda n, f: do_array_header(n, f),
     "option" :            lambda n, f: do_option_header(n, f),
     "map" :               lambda n, f: do_map_header(n, f),
@@ -154,36 +154,34 @@ def do_vector_body_decode(n, f):
     print("    self->" + f["name"] + " = NULL;", file=body)
 
 
-def do_vector_dynamic_body_decode(n, f):
-    print(vector_dynamic_prefix(n, f) + "_new(&self->" + f["name"] + ");", file=body)
+def do_deque_body_decode(n, f):
+    print("    self->" + f["name"] + " = " + deque_prefix(n, f) + "_alloc( ctx->allocf, ctx->allocf_arg );", file=body)
 
     if "modifier" in f and f["modifier"] == "compact":
-        print("ushort " + f["name"] + "_len;", file=body)
+        print("  ushort " + f["name"] + "_len;", file=body)
         print("  err = fd_bincode_compact_u16_decode(&" + f["name"] + "_len, ctx);", file=body)
     else:
-        print("ulong " + f["name"] + "_len;", file=body)
+        print("  ulong " + f["name"] + "_len;", file=body)
         print("  err = fd_bincode_uint64_decode(&" + f["name"] + "_len, ctx);", file=body)
     print("  if ( FD_UNLIKELY(err) ) return err;", file=body)
-    el = n + "_" + f["element"]
-    el = el.upper()
+    print("  if ( " + f["name"] + "_len > " + deque_prefix(n, f) + "_max(self->" + f["name"] + ") ) return FD_BINCODE_ERR_SMALL_DEQUE;", file=body)
 
     print("  for (ulong i = 0; i < " + f["name"] + "_len; ++i) {", file=body)
-    print("    " + vector_dynamic_elem_type(n, f) + " elem;", file=body);
+    print("    " + deque_elem_type(n, f) + " * elem = " + deque_prefix(n, f) + "_push_tail_nocopy(self->" + f["name"] + ");", file=body);
 
     if f["element"] == "ulong" or f["element"] == "unsigned long":
-        print("    err = fd_bincode_uint64_decode(&elem, ctx);", file=body)
+        print("    err = fd_bincode_uint64_decode(elem, ctx);", file=body)
     elif f["element"] == "uint" or f["element"] == "unsigned int":
-        print("    err = fd_bincode_uint32_decode(&elem, ctx);", file=body)
+        print("    err = fd_bincode_uint32_decode(elem, ctx);", file=body)
     else:
-        print("    " + n + "_" + f["element"] + "_new(&elem);", file=body)
-        print("    err = " + n + "_" + f["element"] + "_decode(&elem, ctx);", file=body)
+        print("    " + n + "_" + f["element"] + "_new(elem);", file=body)
+        print("    err = " + n + "_" + f["element"] + "_decode(elem, ctx);", file=body)
     print("    if ( FD_UNLIKELY(err) ) return err;", file=body)
-    print("    " + vector_dynamic_prefix(n, f) + "_push(&self->" + f["name"] + ", elem);", file=body)
 
     print("  }", file=body)
 
 def do_map_body_decode(n, f):
-    element_type = vector_dynamic_elem_type(n, f)
+    element_type = deque_elem_type(n, f)
     mapname = element_type + "_map"
     nodename = element_type + "_mapnode_t"
 
@@ -195,8 +193,7 @@ def do_map_body_decode(n, f):
         print("  err = fd_bincode_uint64_decode(&" + f["name"] + "_len, ctx);", file=body)
     print("  if ( FD_UNLIKELY(err) ) return err;", file=body)
 
-    print("  void* " + f["name"] + "_mem = (*ctx->allocf)(ctx->allocf_arg, " + mapname + "_align(), " + mapname + "_footprint(" + f["name"] + "_len));", file=body)
-    print("  self->" + f["name"] + "_pool = " + mapname + "_join(" + mapname + "_new(" + f["name"] + "_mem, " + f["name"] + "_len));", file=body)
+    print("  self->" + f["name"] + "_pool = " + mapname + "_alloc(ctx->allocf, ctx->allocf_arg, " + f["name"] + "_len);", file=body)
     print("  self->" + f["name"] + "_root = NULL;", file=body)
     print("  for (ulong i = 0; i < " + f["name"] + "_len; ++i) {", file=body)
     print("    " + nodename + "* node = " + mapname + "_acquire(self->" + f["name"] + "_pool);", file=body);
@@ -283,7 +280,7 @@ fields_body_decode = {
     "unsigned long" :     lambda n, f: do_ulong_decode(n, f),
     "ushort" :            lambda n, f: print("  err = fd_bincode_uint16_decode(&self->" + f["name"] + ", ctx);\n  if ( FD_UNLIKELY(err) ) return err;", file=body),
     "vector" :            lambda n, f: do_vector_body_decode(n, f),
-    "vector_dynamic":     lambda n, f: do_vector_dynamic_body_decode(n, f),
+    "deque":              lambda n, f: do_deque_body_decode(n, f),
     "array":              lambda n, f: do_array_body_decode(n, f),
     "option" :            lambda n, f: do_option_body_decode(n, f),
     "map" :               lambda n, f: do_map_body_decode(n, f),
@@ -319,36 +316,44 @@ def do_vector_body_encode(n, f):
     print("  }", file=body)
 
 
-def do_vector_dynamic_body_encode(n, f):
+def do_deque_body_encode(n, f):
+    print("  if ( self->" + f["name"] + " ) {", file=body)
+    
     if "modifier" in f and f["modifier"] == "compact":
-        print("  ushort len = 0;", file=body)
-        print("  err = fd_bincode_compact_u16_encode(&len, ctx);", file=body)
-        print("  self->" + f["name"] + ".cnt = (ulong)len;", file=body)
+        print("    ushort " + f["name"] + "_len = (ushort)" + deque_prefix(n, f) + "_cnt(self->" + f["name"] + ");", file=body)
+        print("    err = fd_bincode_compact_u16_encode(&" + f["name"] + "_len, ctx);", file=body)
     else:
-        print("  err = fd_bincode_uint64_encode(&self->" + f["name"] + ".cnt, ctx);", file=body)
-    print("  if ( FD_UNLIKELY(err) ) return err;", file=body)
+        print("    ulong " + f["name"] + "_len = " + deque_prefix(n, f) + "_cnt(self->" + f["name"] + ");", file=body)
+        print("    err = fd_bincode_uint64_encode(&" + f["name"] + "_len, ctx);", file=body)
+    print("    if ( FD_UNLIKELY(err) ) return err;", file=body)
 
-    if f["element"] == "unsigned char" or f["element"] == "uchar":
-        print("   if ( self->" + f["name"] + ".cnt) {", file=body)
-        print("     err = fd_bincode_bytes_encode(self->" + f["name"] + ".elems, self->" + f["name"] + ".cnt, ctx);", file=body)
-        print("     if ( FD_UNLIKELY(err) ) return err;", file=body)
-        print("   }", file=body)
-
+    print("    for ( " + deque_prefix(n, f) + "_iter_t iter = " + deque_prefix(n, f) + "_iter_init( self->" + f["name"] + " ); !" + deque_prefix(n, f) + "_iter_done( self->" + f["name"] + ", iter ); iter = " + deque_prefix(n, f) + "_iter_next( self->" + f["name"] + ", iter ) ) {", file=body)
+    print("      " + deque_elem_type(n, f) + " * ele = " + deque_prefix(n, f) + "_iter_ele( self->" + f["name"] + ", iter );", file=body)
+    
+    if f["element"] == "uchar" or f["element"] == "unsigned char":
+        print("     err = fd_bincode_uint8_encode(ele, ctx);", file=body)
+    elif f["element"] == "ulong" or f["element"] == "unsigned long":
+        print("     err = fd_bincode_uint64_encode(ele, ctx);", file=body)
+    elif f["element"] == "uint" or f["element"] == "unsigned int":
+        print("     err = fd_bincode_uint32_encode(ele, ctx);", file=body)
     else:
-        print("   for (ulong i = 0; i < self->" + f["name"] + ".cnt; ++i) {", file=body)
-
-        if f["element"] == "ulong" or f["element"] == "unsigned long":
-            print("   err = fd_bincode_uint64_encode(&self->" + f["name"] + ".elems[i], ctx);", file=body)
-        elif f["element"] == "uint" or f["element"] == "unsigned int":
-            print("   err = fd_bincode_uint32_encode(&self->" + f["name"] + ".elems[i], ctx);", file=body)
-        else:
-            print("   err = " + n + "_" + f["element"] + "_encode(&self->" + f["name"] + ".elems[i], ctx);", file=body)
+        print("     err = " + n + "_" + f["element"] + "_encode(ele, ctx);", file=body)
         print("     if ( FD_UNLIKELY(err) ) return err;", file=body)
+        
+    print("   }", file=body)
 
-        print("   }", file=body)
+    print(" } else {", file=body)
+    if "modifier" in f and f["modifier"] == "compact":
+        print("    ushort " + f["name"] + "_len = 0;", file=body)
+        print("    err = fd_bincode_compact_u16_encode(&" + f["name"] + "_len, ctx);", file=body)
+    else:
+        print("    ulong " + f["name"] + "_len = 0;", file=body)
+        print("    err = fd_bincode_uint64_encode(&" + f["name"] + "_len, ctx);", file=body)
+    print("    if ( FD_UNLIKELY(err) ) return err;", file=body)
+    print(" }", file=body)
 
 def do_map_body_encode(n, f):
-    element_type = vector_dynamic_elem_type(n, f)
+    element_type = deque_elem_type(n, f)
     mapname = element_type + "_map"
     nodename = element_type + "_mapnode_t"
 
@@ -430,7 +435,7 @@ fields_body_encode = {
     "unsigned long" :     lambda n, f: do_ulong_encode(n, f),
     "ushort" :            lambda n, f: print("  err = fd_bincode_uint16_encode(&self->" + f["name"] + ", ctx);\n  if ( FD_UNLIKELY(err) ) return err;", file=body),
     "vector" :            lambda n, f: do_vector_body_encode(n, f),
-    "vector_dynamic" :    lambda n, f: do_vector_dynamic_body_encode(n, f),
+    "deque" :             lambda n, f: do_deque_body_encode(n, f),
     "array" :             lambda n, f: do_array_body_encode(n, f),
     "option" :            lambda n, f: do_option_body_encode(n, f),
     "map" :               lambda n, f: do_map_body_encode(n, f),
@@ -450,20 +455,24 @@ def do_vector_body_size(n, f):
         print("    for (ulong i = 0; i < self->" + f["name"] + "_len; ++i)", file=body)
         print("      size += " + n + "_" + f["element"] + "_size(self->" + f["name"] + " + i);", file=body)
 
-def do_vector_dynamic_body_size(n, f):
-    print("  size += sizeof(ulong);", file=body)
+def do_deque_body_size(n, f):
+    print("  if ( self->" + f["name"] + " ) {", file=body)
+    print("    size += sizeof(ulong);", file=body)
     if f["element"] == "unsigned char" or f["element"] == "uchar":
-        print("    size += self->" + f["name"] + ".cnt;", file=body)
+        print("    size += " + deque_prefix(n, f) + "_cnt(self->" + f["name"] + ");", file=body)
     elif f["element"] == "ulong" or f["element"] == "unsigned long":
-        print("    size += self->" + f["name"] + ".cnt * sizeof(ulong);", file=body)
+        print("    size += " + deque_prefix(n, f) + "_cnt(self->" + f["name"] + ") * sizeof(ulong);", file=body)
     elif f["element"] == "uint" or f["element"] == "unsigned int":
-        print("    size += self->" + f["name"] + ".cnt * sizeof(uint);", file=body)
+        print("    size += " + deque_prefix(n, f) + "_cnt(self->" + f["name"] + ") * sizeof(uint);", file=body)
     else:
-        print("    for (ulong i = 0; i < self->" + f["name"] + ".cnt; ++i)", file=body)
-        print("      size += " + n + "_" + f["element"] + "_size(&self->" + f["name"] + ".elems[i]);", file=body)
+        print("    for ( " + deque_prefix(n, f) + "_iter_t iter = " + deque_prefix(n, f) + "_iter_init( self->" + f["name"] + " ); !" + deque_prefix(n, f) + "_iter_done( self->" + f["name"] + ", iter ); iter = " + deque_prefix(n, f) + "_iter_next( self->" + f["name"] + ", iter ) ) {", file=body)
+        print("    " + deque_elem_type(n, f) + " * ele = " + deque_prefix(n, f) + "_iter_ele( self->" + f["name"] + ", iter );", file=body)
+        print("      size += " + n + "_" + f["element"] + "_size(ele);", file=body)
+        print("    }", file=body)
+    print("  }", file=body)
 
 def do_map_body_size(n, f):
-    element_type = vector_dynamic_elem_type(n, f)
+    element_type = deque_elem_type(n, f)
     mapname = element_type + "_map"
     nodename = element_type + "_mapnode_t"
 
@@ -519,7 +528,7 @@ fields_body_size = {
     "unsigned long" :     lambda n, f: print("  size += sizeof(ulong);", file=body),
     "ushort" :            lambda n, f: print("  size += sizeof(ushort);", file=body),
     "vector" :            lambda n, f: do_vector_body_size(n, f),
-    "vector_dynamic" :    lambda n, f: do_vector_dynamic_body_size(n, f),
+    "deque" :             lambda n, f: do_deque_body_size(n, f),
     "array" :             lambda n, f: do_array_body_size(n, f),
     "option" :            lambda n, f: do_option_body_size(n, f),
     "map" :               lambda n, f: do_map_body_size(n, f),
@@ -531,8 +540,8 @@ def do_vector_body_new(n, f):
     print("  self->" + f["name"] + " = NULL;", file=body)
 
 
-def do_vector_dynamic_body_new(n, f):
-    print(vector_dynamic_prefix(n, f) + "_new(&self->" + f["name"] + ");", file=body)
+def do_deque_body_new(n, f):
+    print("  self->" + f["name"] + " = NULL;", file=body)
 
 def do_map_body_new(n, f):
     print("  self->" + f["name"] + "_pool = NULL;", file=body)
@@ -571,7 +580,7 @@ fields_body_new = {
     "unsigned long" :     lambda n, f: do_pass(),
     "ushort" :            lambda n, f: do_pass(),
     "vector" :            lambda n, f: do_vector_body_new(n, f),
-    "vector_dynamic" :    lambda n, f: do_vector_dynamic_body_new(n, f),
+    "deque" :             lambda n, f: do_deque_body_new(n, f),
     "array" :             lambda n, f: do_array_body_new(n, f),
     "option" :            lambda n, f: do_option_body_new(n, f),
     "map" :               lambda n, f: do_map_body_new(n, f),
@@ -595,11 +604,25 @@ def do_vector_body_destroy(n, f):
     print("  }", file=body)
 
 
-def do_vector_dynamic_body_destroy(n, f):
-    print(vector_dynamic_prefix(n, f) + "_destroy(&self->" + f["name"] + ");", file=body)
+def do_deque_body_destroy(n, f):
+    print("  if ( self->" + f["name"] + " ) {", file=body)
+    if f["element"] == "unsigned char" or f["element"] == "uchar":
+        pass
+    elif f["element"] == "ulong" or f["element"] == "unsigned long":
+        pass
+    elif f["element"] == "uint" or f["element"] == "unsigned int":
+        pass
+    else:
+        print("    for ( " + deque_prefix(n, f) + "_iter_t iter = " + deque_prefix(n, f) + "_iter_init( self->" + f["name"] + " ); !" + deque_prefix(n, f) + "_iter_done( self->" + f["name"] + ", iter ); iter = " + deque_prefix(n, f) + "_iter_next( self->" + f["name"] + ", iter ) ) {", file=body)
+        print("    " + deque_elem_type(n, f) + " * ele = " + deque_prefix(n, f) + "_iter_ele( self->" + f["name"] + ", iter );", file=body)
+        print("      " + n + "_" + f["element"] + "_destroy(ele, ctx);", file=body)
+        print("    }", file=body)
+    print("    (*ctx->freef)(ctx->freef_arg, self->" + f["name"] + ");", file=body)
+    print("    self->" + f["name"] + " = NULL;", file=body)
+    print("  }", file=body)
 
 def do_map_body_destroy(n, f):
-    element_type = vector_dynamic_elem_type(n, f)
+    element_type = deque_elem_type(n, f)
     mapname = element_type + "_map"
     nodename = element_type + "_mapnode_t"
 
@@ -650,7 +673,7 @@ fields_body_destroy = {
     "unsigned long" :     lambda n, f: do_pass(),
     "ushort" :            lambda n, f: do_pass(),
     "vector" :            lambda n, f: do_vector_body_destroy(n, f),
-    "vector_dynamic" :    lambda n, f: do_vector_dynamic_body_destroy(n, f),
+    "deque" :             lambda n, f: do_deque_body_destroy(n, f),
     "array" :             lambda n, f: do_array_body_destroy(n, f),
     "option" :            lambda n, f: do_option_body_destroy(n, f),
     "map" :               lambda n, f: do_map_body_destroy(n, f),
@@ -685,24 +708,27 @@ def do_vector_body_walk(n, f):
     print("  fun(NULL, NULL, 31, \""+f["name"]+"\", --level);", file=body)
     print("  }", file=body)
 
-def do_vector_dynamic_body_walk(n, f):
-    print("  fun(NULL, NULL, 30, \""+f["name"]+"\", level++);", file=body)
-    print("    for (ulong i = 0; i < self->" + f["name"] + ".cnt; ++i)", file=body)
+def do_deque_body_walk(n, f):
+    print("  if ( self->" + f["name"] + " ) {", file=body)
+    print("    for ( " + deque_prefix(n, f) + "_iter_t iter = " + deque_prefix(n, f) + "_iter_init( self->" + f["name"] + " ); !" + deque_prefix(n, f) + "_iter_done( self->" + f["name"] + ", iter ); iter = " + deque_prefix(n, f) + "_iter_next( self->" + f["name"] + ", iter ) ) {", file=body)
+    print("    " + deque_elem_type(n, f) + " * ele = " + deque_prefix(n, f) + "_iter_ele( self->" + f["name"] + ", iter );", file=body)
 
     if f["element"] == "unsigned char" or f["element"] == "uchar":
-        print("; //fd_bincode_bytes_walk(&self->" + f["name"] + ".elems[i], 1, ctx);", file=body)
+        print("; //fd_bincode_bytes_walk(ele, 1, ctx);", file=body)
     elif f["element"] == "ulong" or f["element"] == "unsigned long":
-        print("; //fd_bincode_uint64_walk(&self->" + f["name"] + ".elems[i], ctx);", file=body)
+        print("; //fd_bincode_uint64_walk(ele, ctx);", file=body)
     elif f["element"] == "uint" or f["element"] == "unsigned int":
-        print("; //fd_bincode_uint32_walk(&self->" + f["name"] + ".elems[i], ctx);", file=body)
+        print("; //fd_bincode_uint32_walk(ele, ctx);", file=body)
     else:
-        print("      " + n + "_" + f["element"] + "_walk(&self->" + f["name"] + ".elems[i], fun, \"" + f["name"] + "\", level + 1);", file=body)
-    print("  fun(NULL, NULL, 31, \""+f["name"]+"\", --level);", file=body)
+        print("      " + n + "_" + f["element"] + "_walk(ele, fun, \"" + f["name"] + "\", level + 1);", file=body)
+
+    print("    }", file=body)
+    print("  }", file=body)
 
 def do_map_body_walk(n, f):
     print("  //fun(&self->" + f["name"] + ", \"" + f["name"] + "\", 17, \"map\");", file=body),
 
-#    element_type = vector_dynamic_elem_type(n, f)
+#    element_type = deque_elem_type(n, f)
 #    mapname = element_type + "_map"
 #    nodename = element_type + "_mapnode_t"
 #
@@ -765,7 +791,7 @@ fields_body_walk = {
     "unsigned long" :     lambda n, f: print("  fun(&self->" + f["name"] + ", \"" + f["name"] + "\", 11, \"ulong\", level + 1);", file=body),
     "ushort" :            lambda n, f: print("  fun(&self->" + f["name"] + ", \"" + f["name"] + "\", 12, \"ushort\", level + 1);", file=body),
     "vector" :            lambda n, f: do_vector_body_walk(n, f),
-    "vector_dynamic" :    lambda n, f: do_vector_dynamic_body_walk(n, f),
+    "deque" :             lambda n, f: do_deque_body_walk(n, f),
     "array" :             lambda n, f: do_array_body_walk(n, f),
     "option" :            lambda n, f: do_option_body_walk(n, f),
     "map" :               lambda n, f: do_map_body_walk(n, f),
@@ -785,8 +811,8 @@ for entry in entries:
           if "type" in v and v["type"] in type_map:
               v["type"] = type_map[v["type"]]
 
-# Generate one instance of the fd_vector.h template for each unique element type.
-vector_dynamic_element_types = set()
+# Generate one instance of the fd_deque.c template for each unique element type.
+deque_element_types = set()
 
 map_element_types = dict()
 
@@ -794,21 +820,29 @@ for entry in entries:
     # Create the dynamic vector types needed for this entry
     if "fields" in entry:
       for f in entry["fields"]:
-          if f["type"] == "vector_dynamic":
-              element_type = vector_dynamic_elem_type(namespace, f)
-              if element_type in vector_dynamic_element_types:
+          if f["type"] == "deque":
+              element_type = deque_elem_type(namespace, f)
+              if element_type in deque_element_types:
                   continue
 
-              print("#define VECT_NAME " + vector_dynamic_prefix(namespace, f), file=header)
-              print("#define VECT_ELEMENT " + element_type, file=header)
-              print("#include \"fd_vector.h\"", file=header)
-              print("#undef VECT_NAME", file=header)
-              print("#undef VECT_ELEMENT\n", file=header)
+              dp = deque_prefix(namespace, f)
+              print("#define DEQUE_NAME " + dp, file=header)
+              print("#define DEQUE_T " + element_type, file=header)
+              print("#define DEQUE_MAX " + str(f["max"]), file=header)
+              print("#include \"../../util/tmpl/fd_deque.c\"", file=header)
+              print("#undef DEQUE_NAME", file=header)
+              print("#undef DEQUE_T\n", file=header)
+              print("#undef DEQUE_MAX\n", file=header)
+              print("static inline " + element_type + " *", file=header)
+              print(dp + "_alloc(fd_alloc_fun_t allocf, void * allocf_arg) {", file=header)
+              print("  void* mem = (*allocf)(allocf_arg, " + dp + "_align(), " + dp + "_footprint());", file=header)
+              print("  return " + dp + "_join( " + dp + "_new( mem ) );", file=header)
+              print("}", file=header)
 
-              vector_dynamic_element_types.add(element_type)
+              deque_element_types.add(element_type)
 
           if f["type"] == "map":
-            element_type = vector_dynamic_elem_type(namespace, f)
+            element_type = deque_elem_type(namespace, f)
             if element_type in map_element_types:
                 continue
 
@@ -828,6 +862,11 @@ for entry in entries:
             print(f"    ulong redblack_right;", file=header)
             print(f"    int redblack_color;", file=header)
             print(f"}};", file=header)
+            print("static inline " + nodename + "_t *", file=header)
+            print(mapname + "_alloc(fd_alloc_fun_t allocf, void * allocf_arg, ulong len) {", file=header)
+            print("  void* mem = (*allocf)(allocf_arg, " + mapname + "_align(), " + mapname + "_footprint(len));", file=header)
+            print("  return " + mapname + "_join(" + mapname + "_new(mem, len));", file=header)
+            print("}", file=header)
 
             map_element_types[element_type] = f["key"]
 

@@ -150,7 +150,7 @@ int accounts_hash(global_state_t *state) {
   ulong num_iter_accounts = fd_funk_rec_map_key_cnt( rec_map );
 
   FD_LOG_NOTICE(( "NIA %lu", num_iter_accounts ));
-  
+
   ulong zero_accounts = 0;
   ulong num_pairs = 0;
   fd_pubkey_hash_pair_t * pairs = (fd_pubkey_hash_pair_t *) state->global->allocf(state->global->allocf_arg , 8UL, num_iter_accounts*sizeof(fd_pubkey_hash_pair_t));
@@ -169,23 +169,23 @@ int accounts_hash(global_state_t *state) {
     if ((metadata->magic != FD_ACCOUNT_META_MAGIC) || (metadata->hlen != sizeof(fd_account_meta_t))) {
       FD_LOG_ERR(("invalid magic on metadata"));
     }
-    
+
     if ((metadata->info.lamports == 0) | ((metadata->info.executable & ~1) != 0)) {
       zero_accounts++;
       continue;
     }
-    
-    
+
+
     fd_memcpy(pairs[num_pairs].pubkey.key, rec->pair.key, 32);
     fd_memcpy(pairs[num_pairs].hash.hash, metadata->hash, 32);
     num_pairs++;
   }
-  
+
   FD_LOG_WARNING(("num_iter_accounts %ld zero_accounts %lu", num_iter_accounts, zero_accounts));
   FD_LOG_NOTICE(( "HASHING ACCOUNTS" ));
   fd_hash_t accounts_hash;
   fd_hash_account_deltas(state->global, pairs, num_pairs, &accounts_hash);
-    
+
   char accounts_hash_58[FD_BASE58_ENCODED_32_SZ];
   fd_base58_encode_32((uchar const *)accounts_hash.hash, NULL, accounts_hash_58);
 
@@ -282,15 +282,18 @@ void print_file(global_state_t *state, const char *file) {
       ctx.freef = state->global->freef;
       ctx.freef_arg = state->global->allocf_arg;
       fd_sol_sysvar_clock_destroy(&a, &ctx);
-      
+
     } else if (strcmp(pubkey, "SysvarRecentB1ockHashes11111111111111111111") == 0) {
       fd_recent_block_hashes_t a;
       memset(&a, 0, sizeof(a));
       fd_recent_block_hashes_new(&a);
       if ( fd_recent_block_hashes_decode(&a, &ctx2) )
         FD_LOG_ERR(("fd_recent_block_hashes_decode failed"));
-      for (ulong i = 0; i < a.hashes.cnt; i++) {
-        fd_block_block_hash_entry_t *e = &a.hashes.elems[i];
+      fd_block_block_hash_entry_t * hashes = a.hashes;
+      for ( deq_fd_block_block_hash_entry_t_iter_t iter = deq_fd_block_block_hash_entry_t_iter_init( hashes );
+            !deq_fd_block_block_hash_entry_t_iter_done( hashes, iter );
+            iter = deq_fd_block_block_hash_entry_t_iter_next( hashes, iter ) ) {
+        fd_block_block_hash_entry_t * e = deq_fd_block_block_hash_entry_t_iter_ele( hashes, iter );
         char encoded_hash[50];
         fd_base58_encode_32((uchar *) e->blockhash.hash, 0, encoded_hash);
 
@@ -383,13 +386,13 @@ int replay(global_state_t *state) {
     state->start_slot = mm.start_slot;
   if (mm.end_slot < state->end_slot)
     state->end_slot = mm.end_slot;
-  
+
   for ( ulong slot = state->start_slot; slot < state->end_slot; ++slot ) {
     state->global->bank.solana_bank.slot = slot;
 
     if ((state->end_slot < 10) || ((slot % 10) == 0))
       FD_LOG_WARNING(("reading slot %ld", slot));
-    
+
     fd_slot_meta_t m;
     fd_memset(&m, 0, sizeof(m));
     fd_slot_meta_new(&m);
@@ -441,7 +444,7 @@ int main(int argc, char **argv) {
   char acc_mgr_mem[FD_ACC_MGR_FOOTPRINT] __attribute__((aligned(FD_ACC_MGR_ALIGN)));
   memset(acc_mgr_mem, 0, sizeof(acc_mgr_mem));
   state.global->acc_mgr = fd_acc_mgr_join( fd_acc_mgr_new( acc_mgr_mem, state.global, FD_ACC_MGR_FOOTPRINT ) );
-  
+
   state.argc = argc;
   state.argv = argv;
 
@@ -540,7 +543,7 @@ int main(int argc, char **argv) {
       FD_LOG_ERR(("valdation failed"));
     FD_LOG_WARNING(("finishing validate"));
   }
-  
+
   if (NULL != state.end_slot_opt)
     state.end_slot = (ulong) atoi(state.end_slot_opt);
   else
@@ -587,8 +590,6 @@ int main(int argc, char **argv) {
     free(buf);
   }
 
-  fd_vec_fd_clock_timestamp_vote_t_new( &state.global->bank.timestamp_votes.votes );
-
   if (strcmp(state.cmd, "accounts_hash") != 0) {
     FD_LOG_WARNING(("loading genesis account into funk db"));
 
@@ -634,7 +635,7 @@ int main(int argc, char **argv) {
       FD_TEST(memcmp(h, state.global->account_delta_hash.uc, sizeof(h)) == 0);
     }
 
-    if (NULL != confirm_signature) 
+    if (NULL != confirm_signature)
       FD_TEST((ulong) atoi(confirm_signature) == state.global->signature_cnt);
 
     if (NULL != confirm_last_block) {
@@ -655,7 +656,7 @@ int main(int argc, char **argv) {
     fd_wksp_detach( state.global->wksp );
   else
     fd_wksp_delete_anonymous( state.global->wksp );
-  
+
   FD_LOG_NOTICE(( "pass" ));
 
   fd_halt();

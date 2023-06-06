@@ -1,4 +1,5 @@
 #include "fd_tests.h"
+#include <stdio.h>
 #include <unistd.h>
 
 #ifdef _DISABLE_OPTIMIZATION
@@ -178,11 +179,23 @@ int fd_executor_run_test(
         return -666;
       }
       if (m->dlen != test->accs[i].result_data_len) {
-        FD_LOG_WARNING(( "Failed test %d: %s (nonce: %d): size missmatch", test->test_number, test->test_name, test->test_nonce));
+        FD_LOG_WARNING(( "Failed test %d: %s (nonce: %d): size mismatch (expected %lu, got %lu)",
+                         test->test_number, test->test_name, test->test_nonce,
+                         test->accs[i].result_data_len, m->dlen ));
         return -777;
       }
       if (memcmp(d, test->accs[i].result_data, test->accs[i].result_data_len)) {
-        FD_LOG_WARNING(( "Failed test %d: %s (nonce: %d): account missmatch", test->test_number, test->test_name, test->test_nonce));
+        FD_LOG_WARNING(( "Failed test %d: %s: account missmatch", test->test_number, test->test_name));
+      {
+        FILE * fd = fopen("actual.bin", "wb");
+        fwrite(d, 1, m->dlen, fd);
+        fclose(fd);
+      }
+      {
+        FILE * fd = fopen("expected.bin", "wb");
+        fwrite(test->accs[i].result_data, 1, test->accs[i].result_data_len, fd);
+        fclose(fd);
+      }
         return -888;
       }
     }
@@ -191,7 +204,7 @@ int fd_executor_run_test(
   /* Revert the Funk transaction */
   fd_funk_txn_cancel( suite->funk, global->funk_txn, 0 );
 
-  FD_LOG_WARNING(("Passed test %d: %s (nonce: %d)", test->test_number, test->test_name, test->test_nonce));
+  FD_LOG_NOTICE(("Passed test %d: %s (nonce: %d)", test->test_number, test->test_name, test->test_nonce));
 
   return 0;
 }
@@ -205,7 +218,6 @@ int main(int argc, char **argv) {
   long test_end = fd_env_strip_cmdline_long(&argc, &argv, "--end", NULL, 889);
   long do_test = fd_env_strip_cmdline_long(&argc, &argv, "--test", NULL, -1);
   const char * filter = fd_env_strip_cmdline_cstr(&argc, &argv, "--filter", NULL, NULL);
-
   const char * net = fd_env_strip_cmdline_cstr(&argc, &argv, "--net", NULL, NULL);
 
   if (-1 != do_test) 
@@ -248,7 +260,7 @@ int main(int argc, char **argv) {
   return ret;
 }
 
-int 
+int
 fd_executor_test_suite_check_filter(fd_executor_test_suite_t *suite, fd_executor_test_t *test) {
   if (NULL != suite->filter)
     return regexec(&suite->filter_ex, test->test_name, 0, NULL, 0);

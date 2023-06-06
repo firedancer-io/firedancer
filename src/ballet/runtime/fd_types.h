@@ -235,19 +235,27 @@ typedef struct fd_delegation_pair fd_delegation_pair_t;
 #define FD_DELEGATION_PAIR_FOOTPRINT sizeof(fd_delegation_pair_t)
 #define FD_DELEGATION_PAIR_ALIGN (8UL)
 
-#define VECT_NAME fd_vec_fd_delegation_pair_t
-#define VECT_ELEMENT fd_delegation_pair_t
-#include "fd_vector.h"
-#undef VECT_NAME
-#undef VECT_ELEMENT
+#define DEQUE_NAME deq_fd_delegation_pair_t
+#define DEQUE_T fd_delegation_pair_t
+#define DEQUE_MAX 35
+#include "../../util/tmpl/fd_deque.c"
+#undef DEQUE_NAME
+#undef DEQUE_T
 
+#undef DEQUE_MAX
+
+static inline fd_delegation_pair_t *
+deq_fd_delegation_pair_t_alloc(fd_alloc_fun_t allocf, void * allocf_arg) {
+  void* mem = (*allocf)(allocf_arg, deq_fd_delegation_pair_t_align(), deq_fd_delegation_pair_t_footprint());
+  return deq_fd_delegation_pair_t_join( deq_fd_delegation_pair_t_new( mem ) );
+}
 /* https://github.com/solana-labs/solana/blob/88aeaa82a856fc807234e7da0b31b89f2dc0e091/runtime/src/stakes.rs#L147 */
 struct fd_stakes {
-  fd_vote_accounts_t            vote_accounts;
-  fd_vec_fd_delegation_pair_t_t stake_delegations;
-  unsigned long                 unused;
-  unsigned long                 epoch;
-  fd_stake_history_t            stake_history;
+  fd_vote_accounts_t     vote_accounts;
+  fd_delegation_pair_t * stake_delegations;
+  unsigned long          unused;
+  unsigned long          epoch;
+  fd_stake_history_t     stake_history;
 };
 typedef struct fd_stakes fd_stakes_t;
 #define FD_STAKES_FOOTPRINT sizeof(fd_stakes_t)
@@ -412,6 +420,11 @@ struct fd_serializable_account_storage_entry_t_mapnode {
   ulong                                   redblack_right;
   int                                     redblack_color;
 };
+static inline fd_serializable_account_storage_entry_t_mapnode_t *
+fd_serializable_account_storage_entry_t_map_alloc(fd_alloc_fun_t allocf, void * allocf_arg, ulong len) {
+  void* mem = (*allocf)(allocf_arg, fd_serializable_account_storage_entry_t_map_align(), fd_serializable_account_storage_entry_t_map_footprint(len));
+  return fd_serializable_account_storage_entry_t_map_join(fd_serializable_account_storage_entry_t_map_new(mem, len));
+}
 struct fd_slot_account_pair {
   unsigned long                                      slot;
   fd_serializable_account_storage_entry_t_mapnode_t* accounts_pool;
@@ -443,6 +456,11 @@ struct fd_slot_account_pair_t_mapnode {
   ulong                  redblack_right;
   int                    redblack_color;
 };
+static inline fd_slot_account_pair_t_mapnode_t *
+fd_slot_account_pair_t_map_alloc(fd_alloc_fun_t allocf, void * allocf_arg, ulong len) {
+  void* mem = (*allocf)(allocf_arg, fd_slot_account_pair_t_map_align(), fd_slot_account_pair_t_map_footprint(len));
+  return fd_slot_account_pair_t_map_join(fd_slot_account_pair_t_map_new(mem, len));
+}
 struct fd_solana_accounts_db_fields {
   fd_slot_account_pair_t_mapnode_t* storages_pool;
   fd_slot_account_pair_t_mapnode_t* storages_root;
@@ -636,52 +654,76 @@ typedef struct fd_vote_prior_voters_0_23_5 fd_vote_prior_voters_0_23_5_t;
 #define FD_VOTE_PRIOR_VOTERS_0_23_5_FOOTPRINT sizeof(fd_vote_prior_voters_0_23_5_t)
 #define FD_VOTE_PRIOR_VOTERS_0_23_5_ALIGN (8UL)
 
-#define VECT_NAME fd_vec_fd_vote_lockout_t
-#define VECT_ELEMENT fd_vote_lockout_t
-#include "fd_vector.h"
-#undef VECT_NAME
-#undef VECT_ELEMENT
+#define DEQUE_NAME deq_fd_vote_lockout_t
+#define DEQUE_T fd_vote_lockout_t
+#define DEQUE_MAX 35
+#include "../../util/tmpl/fd_deque.c"
+#undef DEQUE_NAME
+#undef DEQUE_T
 
-#define VECT_NAME fd_vec_fd_vote_epoch_credits_t
-#define VECT_ELEMENT fd_vote_epoch_credits_t
-#include "fd_vector.h"
-#undef VECT_NAME
-#undef VECT_ELEMENT
+#undef DEQUE_MAX
 
+static inline fd_vote_lockout_t *
+deq_fd_vote_lockout_t_alloc(fd_alloc_fun_t allocf, void * allocf_arg) {
+  void* mem = (*allocf)(allocf_arg, deq_fd_vote_lockout_t_align(), deq_fd_vote_lockout_t_footprint());
+  return deq_fd_vote_lockout_t_join( deq_fd_vote_lockout_t_new( mem ) );
+}
+#define DEQUE_NAME deq_fd_vote_epoch_credits_t
+#define DEQUE_T fd_vote_epoch_credits_t
+#define DEQUE_MAX 35
+#include "../../util/tmpl/fd_deque.c"
+#undef DEQUE_NAME
+#undef DEQUE_T
+
+#undef DEQUE_MAX
+
+static inline fd_vote_epoch_credits_t *
+deq_fd_vote_epoch_credits_t_alloc(fd_alloc_fun_t allocf, void * allocf_arg) {
+  void* mem = (*allocf)(allocf_arg, deq_fd_vote_epoch_credits_t_align(), deq_fd_vote_epoch_credits_t_footprint());
+  return deq_fd_vote_epoch_credits_t_join( deq_fd_vote_epoch_credits_t_new( mem ) );
+}
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/vote_state_0_23_5.rs#L6 */
 struct fd_vote_state_0_23_5 {
-  fd_pubkey_t                      voting_node;
-  fd_pubkey_t                      authorized_voter;
-  unsigned long                    authorized_voter_epoch;
-  fd_vote_prior_voters_0_23_5_t    prior_voters;
-  fd_pubkey_t                      authorized_withdrawer;
-  unsigned char                    commission;
-  fd_vec_fd_vote_lockout_t_t       votes;
-  unsigned long*                   saved_root_slot;
-  fd_vec_fd_vote_epoch_credits_t_t epoch_credits;
-  fd_vote_block_timestamp_t        latest_timestamp;
+  fd_pubkey_t                   voting_node;
+  fd_pubkey_t                   authorized_voter;
+  unsigned long                 authorized_voter_epoch;
+  fd_vote_prior_voters_0_23_5_t prior_voters;
+  fd_pubkey_t                   authorized_withdrawer;
+  unsigned char                 commission;
+  fd_vote_lockout_t *           votes;
+  unsigned long*                saved_root_slot;
+  fd_vote_epoch_credits_t *     epoch_credits;
+  fd_vote_block_timestamp_t     latest_timestamp;
 };
 typedef struct fd_vote_state_0_23_5 fd_vote_state_0_23_5_t;
 #define FD_VOTE_STATE_0_23_5_FOOTPRINT sizeof(fd_vote_state_0_23_5_t)
 #define FD_VOTE_STATE_0_23_5_ALIGN (8UL)
 
-#define VECT_NAME fd_vec_fd_vote_historical_authorized_voter_t
-#define VECT_ELEMENT fd_vote_historical_authorized_voter_t
-#include "fd_vector.h"
-#undef VECT_NAME
-#undef VECT_ELEMENT
+#define DEQUE_NAME deq_fd_vote_historical_authorized_voter_t
+#define DEQUE_T fd_vote_historical_authorized_voter_t
+#define DEQUE_MAX 35
+#include "../../util/tmpl/fd_deque.c"
+#undef DEQUE_NAME
+#undef DEQUE_T
 
+#undef DEQUE_MAX
+
+static inline fd_vote_historical_authorized_voter_t *
+deq_fd_vote_historical_authorized_voter_t_alloc(fd_alloc_fun_t allocf, void * allocf_arg) {
+  void* mem = (*allocf)(allocf_arg, deq_fd_vote_historical_authorized_voter_t_align(), deq_fd_vote_historical_authorized_voter_t_footprint());
+  return deq_fd_vote_historical_authorized_voter_t_join( deq_fd_vote_historical_authorized_voter_t_new( mem ) );
+}
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L310 */
 struct fd_vote_state {
-  fd_pubkey_t                                    voting_node;
-  fd_pubkey_t                                    authorized_withdrawer;
-  unsigned char                                  commission;
-  fd_vec_fd_vote_lockout_t_t                     votes;
-  unsigned long*                                 saved_root_slot;
-  fd_vec_fd_vote_historical_authorized_voter_t_t authorized_voters;
-  fd_vote_prior_voters_t                         prior_voters;
-  fd_vec_fd_vote_epoch_credits_t_t               epoch_credits;
-  fd_vote_block_timestamp_t                      latest_timestamp;
+  fd_pubkey_t                             voting_node;
+  fd_pubkey_t                             authorized_withdrawer;
+  unsigned char                           commission;
+  fd_vote_lockout_t *                     votes;
+  unsigned long*                          saved_root_slot;
+  fd_vote_historical_authorized_voter_t * authorized_voters;
+  fd_vote_prior_voters_t                  prior_voters;
+  fd_vote_epoch_credits_t *               epoch_credits;
+  fd_vote_block_timestamp_t               latest_timestamp;
 };
 typedef struct fd_vote_state fd_vote_state_t;
 #define FD_VOTE_STATE_FOOTPRINT sizeof(fd_vote_state_t)
@@ -768,15 +810,23 @@ typedef struct fd_slot_hash fd_slot_hash_t;
 #define FD_SLOT_HASH_FOOTPRINT sizeof(fd_slot_hash_t)
 #define FD_SLOT_HASH_ALIGN (8UL)
 
-#define VECT_NAME fd_vec_fd_slot_hash_t
-#define VECT_ELEMENT fd_slot_hash_t
-#include "fd_vector.h"
-#undef VECT_NAME
-#undef VECT_ELEMENT
+#define DEQUE_NAME deq_fd_slot_hash_t
+#define DEQUE_T fd_slot_hash_t
+#define DEQUE_MAX 35
+#include "../../util/tmpl/fd_deque.c"
+#undef DEQUE_NAME
+#undef DEQUE_T
 
+#undef DEQUE_MAX
+
+static inline fd_slot_hash_t *
+deq_fd_slot_hash_t_alloc(fd_alloc_fun_t allocf, void * allocf_arg) {
+  void* mem = (*allocf)(allocf_arg, deq_fd_slot_hash_t_align(), deq_fd_slot_hash_t_footprint());
+  return deq_fd_slot_hash_t_join( deq_fd_slot_hash_t_new( mem ) );
+}
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/slot_hashes.rs#L31 */
 struct fd_slot_hashes {
-  fd_vec_fd_slot_hash_t_t hashes;
+  fd_slot_hash_t * hashes;
 };
 typedef struct fd_slot_hashes fd_slot_hashes_t;
 #define FD_SLOT_HASHES_FOOTPRINT sizeof(fd_slot_hashes_t)
@@ -790,14 +840,22 @@ typedef struct fd_block_block_hash_entry fd_block_block_hash_entry_t;
 #define FD_BLOCK_BLOCK_HASH_ENTRY_FOOTPRINT sizeof(fd_block_block_hash_entry_t)
 #define FD_BLOCK_BLOCK_HASH_ENTRY_ALIGN (8UL)
 
-#define VECT_NAME fd_vec_fd_block_block_hash_entry_t
-#define VECT_ELEMENT fd_block_block_hash_entry_t
-#include "fd_vector.h"
-#undef VECT_NAME
-#undef VECT_ELEMENT
+#define DEQUE_NAME deq_fd_block_block_hash_entry_t
+#define DEQUE_T fd_block_block_hash_entry_t
+#define DEQUE_MAX 150
+#include "../../util/tmpl/fd_deque.c"
+#undef DEQUE_NAME
+#undef DEQUE_T
 
+#undef DEQUE_MAX
+
+static inline fd_block_block_hash_entry_t *
+deq_fd_block_block_hash_entry_t_alloc(fd_alloc_fun_t allocf, void * allocf_arg) {
+  void* mem = (*allocf)(allocf_arg, deq_fd_block_block_hash_entry_t_align(), deq_fd_block_block_hash_entry_t_footprint());
+  return deq_fd_block_block_hash_entry_t_join( deq_fd_block_block_hash_entry_t_new( mem ) );
+}
 struct fd_recent_block_hashes {
-  fd_vec_fd_block_block_hash_entry_t_t hashes;
+  fd_block_block_hash_entry_t * hashes;
 };
 typedef struct fd_recent_block_hashes fd_recent_block_hashes_t;
 #define FD_RECENT_BLOCK_HASHES_FOOTPRINT sizeof(fd_recent_block_hashes_t)
@@ -838,15 +896,23 @@ typedef struct fd_clock_timestamp_vote fd_clock_timestamp_vote_t;
 #define FD_CLOCK_TIMESTAMP_VOTE_FOOTPRINT sizeof(fd_clock_timestamp_vote_t)
 #define FD_CLOCK_TIMESTAMP_VOTE_ALIGN (8UL)
 
-#define VECT_NAME fd_vec_fd_clock_timestamp_vote_t
-#define VECT_ELEMENT fd_clock_timestamp_vote_t
-#include "fd_vector.h"
-#undef VECT_NAME
-#undef VECT_ELEMENT
+#define DEQUE_NAME deq_fd_clock_timestamp_vote_t
+#define DEQUE_T fd_clock_timestamp_vote_t
+#define DEQUE_MAX 35
+#include "../../util/tmpl/fd_deque.c"
+#undef DEQUE_NAME
+#undef DEQUE_T
 
+#undef DEQUE_MAX
+
+static inline fd_clock_timestamp_vote_t *
+deq_fd_clock_timestamp_vote_t_alloc(fd_alloc_fun_t allocf, void * allocf_arg) {
+  void* mem = (*allocf)(allocf_arg, deq_fd_clock_timestamp_vote_t_align(), deq_fd_clock_timestamp_vote_t_footprint());
+  return deq_fd_clock_timestamp_vote_t_join( deq_fd_clock_timestamp_vote_t_new( mem ) );
+}
 /* Validator timestamp oracle votes received from voting nodes. TODO: make this a map */
 struct fd_clock_timestamp_votes {
-  fd_vec_fd_clock_timestamp_vote_t_t votes;
+  fd_clock_timestamp_vote_t * votes;
 };
 typedef struct fd_clock_timestamp_votes fd_clock_timestamp_votes_t;
 #define FD_CLOCK_TIMESTAMP_VOTES_FOOTPRINT sizeof(fd_clock_timestamp_votes_t)
@@ -889,15 +955,23 @@ typedef struct fd_firedancer_banks fd_firedancer_banks_t;
 #define FD_FIREDANCER_BANKS_FOOTPRINT sizeof(fd_firedancer_banks_t)
 #define FD_FIREDANCER_BANKS_ALIGN (8UL)
 
-#define VECT_NAME fd_vec_ulong
-#define VECT_ELEMENT ulong
-#include "fd_vector.h"
-#undef VECT_NAME
-#undef VECT_ELEMENT
+#define DEQUE_NAME deq_ulong
+#define DEQUE_T ulong
+#define DEQUE_MAX 35
+#include "../../util/tmpl/fd_deque.c"
+#undef DEQUE_NAME
+#undef DEQUE_T
 
+#undef DEQUE_MAX
+
+static inline ulong *
+deq_ulong_alloc(fd_alloc_fun_t allocf, void * allocf_arg) {
+  void* mem = (*allocf)(allocf_arg, deq_ulong_align(), deq_ulong_footprint());
+  return deq_ulong_join( deq_ulong_new( mem ) );
+}
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L133 */
 struct fd_vote {
-  fd_vec_ulong_t slots;
+  ulong *        slots;
   fd_hash_t      hash;
   unsigned long* timestamp;
 };
@@ -1314,15 +1388,23 @@ typedef struct fd_compute_budget_program_instruction fd_compute_budget_program_i
 #define FD_COMPUTE_BUDGET_PROGRAM_INSTRUCTION_FOOTPRINT sizeof(fd_compute_budget_program_instruction_t)
 #define FD_COMPUTE_BUDGET_PROGRAM_INSTRUCTION_ALIGN (8UL)
 
-#define VECT_NAME fd_vec_fd_config_keys_pair_t
-#define VECT_ELEMENT fd_config_keys_pair_t
-#include "fd_vector.h"
-#undef VECT_NAME
-#undef VECT_ELEMENT
+#define DEQUE_NAME deq_fd_config_keys_pair_t
+#define DEQUE_T fd_config_keys_pair_t
+#define DEQUE_MAX 35
+#include "../../util/tmpl/fd_deque.c"
+#undef DEQUE_NAME
+#undef DEQUE_T
 
+#undef DEQUE_MAX
+
+static inline fd_config_keys_pair_t *
+deq_fd_config_keys_pair_t_alloc(fd_alloc_fun_t allocf, void * allocf_arg) {
+  void* mem = (*allocf)(allocf_arg, deq_fd_config_keys_pair_t_align(), deq_fd_config_keys_pair_t_footprint());
+  return deq_fd_config_keys_pair_t_join( deq_fd_config_keys_pair_t_new( mem ) );
+}
 /* https://github.com/solana-labs/solana/blob/a03ae63daff987912c48ee286eb8ee7e8a84bf01/programs/config/src/lib.rs#L32 */
 struct fd_config_keys {
-  fd_vec_fd_config_keys_pair_t_t keys;
+  fd_config_keys_pair_t * keys;
 };
 typedef struct fd_config_keys fd_config_keys_t;
 #define FD_CONFIG_KEYS_FOOTPRINT sizeof(fd_config_keys_t)
