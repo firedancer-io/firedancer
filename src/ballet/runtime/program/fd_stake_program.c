@@ -11,6 +11,7 @@
 #define LAMPORTS_PER_SOL (1000000000)
 #define FEATURE_ACTIVE_STAKE_SPLIT_USES_RENT_SYSVAR ( 1 )
 #define FEATURE_STAKE_ALLOW_ZERO_UNDELEGATED_AMOUNT ( 1 )
+#define FEATURE_CLEAN_UP_DELEGATION_ERRORS ( 1 )
 #define ACCOUNT_STORAGE_OVERHEAD ( 128 )
 
 void write_stake_config( fd_global_ctx_t* global, fd_stake_config_t* stake_config) {
@@ -102,7 +103,8 @@ int read_stake_state( fd_global_ctx_t* global, fd_pubkey_t* stake_acc, fd_stake_
 int write_stake_state(
     fd_global_ctx_t* global,
     fd_pubkey_t* stake_acc,
-    fd_stake_state_t* stake_state
+    fd_stake_state_t* stake_state,
+    ushort is_new_account
 ) {
     fd_account_meta_t metadata;
     int read_result = fd_acc_mgr_get_metadata( global->acc_mgr, global->funk_txn, stake_acc, &metadata );
@@ -111,9 +113,11 @@ int write_stake_state(
       return read_result;
     }
 
-    ulong encoded_stake_state_size = STAKE_ACCOUNT_SIZE;
+    ulong encoded_stake_state_size = (is_new_account) ? STAKE_ACCOUNT_SIZE : fd_stake_state_size(stake_state);
     uchar* encoded_stake_state = (uchar *)(global->allocf)( global->allocf_arg, 8UL, encoded_stake_state_size );
-    fd_memset( encoded_stake_state, 0, encoded_stake_state_size );
+    if (is_new_account) {
+      fd_memset( encoded_stake_state, 0, encoded_stake_state_size );
+    }    
 
     fd_bincode_encode_ctx_t ctx3;
     ctx3.data = encoded_stake_state;
@@ -133,7 +137,7 @@ int write_stake_state(
       FD_LOG_WARNING(( "failed to write account data" ));
       return write_result;
     }
-    fd_acc_mgr_update_hash ( global->acc_mgr, &metadata, global->funk_txn, global->bank.solana_bank.slot, stake_acc, (uchar*)encoded_stake_state, encoded_stake_state_size);
+    fd_acc_mgr_update_hash ( global->acc_mgr, &metadata, global->funk_txn, global->bank.solana_bank.slot, stake_acc, (uchar*)encoded_stake_state, STAKE_ACCOUNT_SIZE);
 
     return FD_EXECUTOR_INSTR_SUCCESS;
 }
@@ -191,11 +195,11 @@ int validate_split_amount(
 
     fd_acc_lamports_t source_minimum_balance = source_state.inner.initialized.rent_exempt_reserve + additional_lamports;
     *source_remaining_balance = source_lamports - lamports;
-    if (source_remaining_balance == 0) {
+    if (*source_remaining_balance == 0) {
       // full amount is a withdrawal
       // nothing to do here
     } else if (*source_remaining_balance < source_minimum_balance) {
-      FD_LOG_WARNING(( "source remaining is less than source minimum balance" ));
+      FD_LOG_WARNING(( "remaining balance is too low to do the split" ));
       return FD_EXECUTOR_INSTR_ERR_INSUFFICIENT_FUNDS;
     } else {
       // all clear! nothing to do here
@@ -325,7 +329,7 @@ int fd_executor_stake_program_execute_instruction(
     fd_memcpy( &stake_state_meta->lockup, &initialize_instruction->lockup, sizeof(fd_pubkey_t) );
 
     /* Write the initialized Stake account to the database */
-    int result = write_stake_state( ctx.global, stake_acc, &stake_state );
+    int result = write_stake_state( ctx.global, stake_acc, &stake_state, 1 );
     if ( result != FD_EXECUTOR_INSTR_SUCCESS ) {
       FD_LOG_WARNING(( "failed to write stake account state: %d", result ));
       return result;
@@ -432,7 +436,7 @@ int fd_executor_stake_program_execute_instruction(
     }
 
     /* Write the stake state back to the database */
-    int result = write_stake_state( ctx.global, stake_acc, &stake_state );
+    int result = write_stake_state( ctx.global, stake_acc, &stake_state, 0 );
     if ( result != FD_EXECUTOR_INSTR_SUCCESS ) {
       FD_LOG_WARNING(( "failed to write stake account state: %d", result ));
       return result;
@@ -460,15 +464,15 @@ int fd_executor_stake_program_execute_instruction(
       return FD_EXECUTOR_INSTR_ERR_INCORRECT_PROGRAM_ID;
     }
 
-    fd_account_meta_t metadata_split;
-    int read_result = fd_acc_mgr_get_metadata( ctx.global->acc_mgr, ctx.global->funk_txn, split_acc, &metadata_split );
+    fd_account_meta_t split_metadata;
+    int read_result = fd_acc_mgr_get_metadata( ctx.global->acc_mgr, ctx.global->funk_txn, split_acc, &split_metadata );
     if ( FD_UNLIKELY( read_result != FD_ACC_MGR_SUCCESS ) ) {
       FD_LOG_WARNING(( "failed to read split account metadata" ));
       return read_result;
     }
 
-    if ( metadata_split.dlen != STAKE_ACCOUNT_SIZE ) {
-      FD_LOG_WARNING(( "Split account size incorrect. expected %d got %lu", STAKE_ACCOUNT_SIZE, metadata_split.dlen ));
+    if ( split_metadata.dlen != STAKE_ACCOUNT_SIZE ) {
+      FD_LOG_WARNING(( "Split account size incorrect. expected %d got %lu", STAKE_ACCOUNT_SIZE, split_metadata.dlen ));
       return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
     }
 
@@ -478,17 +482,17 @@ int fd_executor_stake_program_execute_instruction(
       return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
     }
 
-    fd_account_meta_t metadata_stake;
-    read_result = fd_acc_mgr_get_metadata( ctx.global->acc_mgr, ctx.global->funk_txn, stake_acc, &metadata_stake );
+    fd_account_meta_t stake_metadata;
+    read_result = fd_acc_mgr_get_metadata( ctx.global->acc_mgr, ctx.global->funk_txn, stake_acc, &stake_metadata );
     if ( FD_UNLIKELY( read_result != FD_ACC_MGR_SUCCESS ) ) {
       FD_LOG_WARNING(( "failed to read stake account metadata" ));
       return read_result;
     }
 
-    // fd_acc_lamports_t split_lamports_balance = metadata_split.info.lamports;
+    fd_acc_lamports_t split_lamports_balance = split_metadata.info.lamports;
     fd_acc_lamports_t lamports = instruction.inner.split; // split amount
 
-    if ( lamports > metadata_stake.info.lamports ) {
+    if ( lamports > stake_metadata.info.lamports ) {
       return FD_EXECUTOR_INSTR_ERR_INSUFFICIENT_FUNDS;
     }
     
@@ -516,6 +520,44 @@ int fd_executor_stake_program_execute_instruction(
           return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
       }
 
+
+      fd_acc_lamports_t minimum_delegation = MINIMUM_DELEGATION_SOL * LAMPORTS_PER_SOL;
+      fd_acc_lamports_t source_remaining_balance, destination_rent_exempt_reserve;
+      // todo: implement source_stake = Some(&stake)
+      int validate_result = validate_split_amount(ctx, 0, 1, lamports, minimum_delegation, &source_remaining_balance, &destination_rent_exempt_reserve);
+      if (validate_result != FD_EXECUTOR_INSTR_SUCCESS) {
+        return validate_result;
+      }
+      fd_acc_lamports_t remaining_stake_delta, split_stake_amount;
+      if (source_remaining_balance == 0) {
+        remaining_stake_delta = lamports - stake_state.inner.initialized.rent_exempt_reserve;
+        split_stake_amount = remaining_stake_delta;
+      } else {
+        if (FEATURE_CLEAN_UP_DELEGATION_ERRORS && stake_state.inner.stake.stake.delegation.stake - lamports < minimum_delegation) {
+          return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR; // (StakeError::InsufficientDelegation.into());
+        }
+        remaining_stake_delta = lamports;
+        split_stake_amount = lamports - (destination_rent_exempt_reserve - split_lamports_balance);
+      }
+
+      if (FEATURE_CLEAN_UP_DELEGATION_ERRORS && split_stake_amount < minimum_delegation) {
+        return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR; // (StakeError::InsufficientDelegation.into());
+      }
+
+      if (remaining_stake_delta > stake_state.inner.stake.stake.delegation.stake) {
+        return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR; // (StakeError::InsufficientDelegation.into()); 
+      }
+
+      stake_state.inner.stake.stake.delegation.stake -= remaining_stake_delta;
+
+      memcpy(&split_state, &stake_state, STAKE_ACCOUNT_SIZE);
+      split_state.discriminant = 2;
+      split_state.inner.stake.stake.delegation.stake = split_stake_amount; 
+      split_state.inner.stake.meta.rent_exempt_reserve = destination_rent_exempt_reserve;
+
+      /* Write the split and stake account to the database */
+      write_stake_state( ctx.global, split_acc, &split_state, 1 );
+      write_stake_state( ctx.global, stake_acc, &stake_state, 0 );
 
     } else if ( fd_stake_state_is_initialized( &stake_state ) ) {
 
@@ -548,8 +590,8 @@ int fd_executor_stake_program_execute_instruction(
       split_state.discriminant = 1; // initialized
       split_state.inner.initialized.rent_exempt_reserve = destination_rent_exempt_reserve;
 
-      /* Write the initialized Stake account to the database */
-      int result = write_stake_state( ctx.global, split_acc, &split_state );
+      /* Write the initialized split account to the database */
+      int result = write_stake_state( ctx.global, split_acc, &split_state, 1 );
       if ( result != FD_EXECUTOR_INSTR_SUCCESS ) {
         FD_LOG_WARNING(( "failed to write split account state: %d", result ));
         return result;
@@ -575,10 +617,18 @@ int fd_executor_stake_program_execute_instruction(
       return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
     }
 
+    // ulong sz = 0;
+    // int err = 0;
+    // char * raw_acc_data = (char*) fd_acc_mgr_view_data(ctx.global->acc_mgr, ctx.global->funk_txn, (fd_pubkey_t *) stake_acc, &sz, &err);   
+    // void* d = (void *)(raw_acc_data + stake_metadata.hlen);
+    // for (int idx = 0; idx < 200; ++idx) {
+    //   FD_LOG_NOTICE(( "idx %d char %d", idx, ((uchar*)d)[idx] ));
+    // }
+
     // Deinitialize state upon zero balance
-    if (lamports == metadata_stake.info.lamports) {
+    if (lamports == stake_metadata.info.lamports) {
       stake_state.discriminant = 0; // de-initialize
-      int result = write_stake_state( ctx.global, stake_acc, &stake_state );
+      int result = write_stake_state( ctx.global, stake_acc, &stake_state, 0 );
       if ( result != FD_EXECUTOR_INSTR_SUCCESS ) {
         FD_LOG_WARNING(( "failed to write stake account state: %d", result ));
         return result;
@@ -586,15 +636,18 @@ int fd_executor_stake_program_execute_instruction(
     }
 
     // check add lamports
-    fd_acc_mgr_set_lamports( ctx.global->acc_mgr, ctx.global->funk_txn, ctx.global->bank.solana_bank.slot, split_acc, metadata_split.info.lamports + lamports); 
+    // FD_LOG_NOTICE(( "split account lamports = %lu lamports to add = %lu", split_metadata.info.lamports, lamports ));
+
+    fd_acc_mgr_set_lamports( ctx.global->acc_mgr, ctx.global->funk_txn, ctx.global->bank.solana_bank.slot, split_acc, split_metadata.info.lamports + lamports); 
 
     // update metadata after change, needed if source = destination
     if (instr_acc_idxs[0] == instr_acc_idxs[1]) {
-      fd_acc_mgr_get_metadata( ctx.global->acc_mgr, ctx.global->funk_txn, stake_acc, &metadata_stake );
+      fd_acc_mgr_get_metadata( ctx.global->acc_mgr, ctx.global->funk_txn, stake_acc, &stake_metadata );
     }
 
+    // FD_LOG_NOTICE(( "stake account lamports = %lu lamports to sub = %lu", stake_metadata.info.lamports, lamports ));
     // check sub lamports
-    fd_acc_mgr_set_lamports( ctx.global->acc_mgr, ctx.global->funk_txn, ctx.global->bank.solana_bank.slot, stake_acc, metadata_stake.info.lamports - lamports); 
+    fd_acc_mgr_set_lamports( ctx.global->acc_mgr, ctx.global->funk_txn, ctx.global->bank.solana_bank.slot, stake_acc, stake_metadata.info.lamports - lamports); 
   } // end of split, discriminant 3
   else if ( fd_stake_instruction_is_deactivate( &instruction )) { // discriminant 5
 
