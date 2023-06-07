@@ -61,9 +61,14 @@ Test framework:
 
 
 def read_test_cases(path):
-    with open(path, "r") as f:
-        return json.load(f)
-
+    tests = []
+    files = os.listdir(path)
+    files = [f for f in files if os.path.isfile(path+'/'+f)] #Filtering only the files.
+    for file in files:
+        with open(path+'/'+file, "r") as f:
+            data = json.loads('[' + f.read()[:-2] + ']')
+            tests = tests + data
+    return tests
 
 def serializeInstructionError(err):
     if isinstance(err, dict):
@@ -236,6 +241,8 @@ extern int fd_executor_test_suite_check_filter(fd_executor_test_suite_t *suite, 
                 )
                 feature_idxs.append(str(feature_idx))
 
+        bt = "".join(test_case["backtrace"].split("\n")[4:8])
+
         print(
             f"""int test_{test_case_idx}(fd_executor_test_suite_t *suite) {{
   fd_executor_test_t test;
@@ -243,6 +250,7 @@ extern int fd_executor_test_suite_check_filter(fd_executor_test_suite_t *suite, 
   test.disable_cnt = {len(fs)};
   uchar disabled_features[] = {{ {",".join(feature_idxs)} }};
   test.disable_feature = disabled_features;
+  test.bt = "{bt}";
   test.test_name = "{test_case["name"]}";
   test.test_nonce  = {test_case["nonce"]};
   test.test_number = {test_case_idx};
@@ -302,7 +310,7 @@ extern int fd_executor_test_suite_check_filter(fd_executor_test_suite_t *suite, 
             data=bytes.fromhex(test_case["instruction_data"]),
         )
 
-        signatures = [os.urandom(64) for _ in range(num_signers)]
+        signatures = [[0] * 64 for _ in range(num_signers)]
 
         tx = Transaction().add(instruction)
         message = tx.serialize_message()

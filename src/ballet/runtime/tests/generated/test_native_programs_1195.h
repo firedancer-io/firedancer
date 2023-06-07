@@ -5,8 +5,9 @@ int test_1195(fd_executor_test_suite_t *suite) {
   test.disable_cnt = 0;
   uchar disabled_features[] = { 77 };
   test.disable_feature = disabled_features;
+  test.bt = "   2: solana_stake_program::stake_instruction::tests::test_stake_process_instruction_error_ordering::new_behavior             at ./src/stake_instruction.rs:6511:5   3: solana_stake_program::stake_instruction::tests::test_stake_process_instruction_error_ordering::new_behavior::{{closure}}             at ./src/stake_instruction.rs:6511:5";
   test.test_name = "stake_instruction::tests::test_stake_process_instruction_error_ordering::new_behavior";
-  test.test_nonce  = 231;
+  test.test_nonce  = 275;
   test.test_number = 1195;
   if (fd_executor_test_suite_check_filter(suite, &test)) return -9999;
   ulong test_accs_len = 0;

@@ -32,6 +32,7 @@ struct fd_executor_test {
   int                     test_nonce;
   uint                    disable_cnt;
   uchar                  *disable_feature;
+  const char             *bt;
   fd_pubkey_t             program_id;
   fd_executor_test_acc_t* accs;
   ulong                   accs_len;

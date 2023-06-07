@@ -3,10 +3,11 @@ int test_1641(fd_executor_test_suite_t *suite) {
   fd_executor_test_t test;
   fd_memset( &test, 0, FD_EXECUTOR_TEST_FOOTPRINT );
   test.disable_cnt = 0;
-  uchar disabled_features[] = { 92,15,110,75,106,61,27,80,123,29,24,103,78,118,33,98,26,56,82,126,62,105,117,2,121,76,128,122,127,77,30,55,111,89,109,83,116,113,90,114,124,108,125,120,79,87,112 };
+  uchar disabled_features[] = { 110,98,121,80,116,76,75,89,127,24,77,78,87,83,105,29,2,79,112,109,122,90,26,92,15,114,125,118,128,62,56,120,61,33,126,108,123,27,30,124,111,82,117,103,113,55,106 };
   test.disable_feature = disabled_features;
+  test.bt = "   2: solana_vote_program::vote_processor::tests::test_vote_process_instruction_decode_bail             at ./src/vote_processor.rs:511:9   3: solana_vote_program::vote_processor::tests::test_vote_process_instruction_decode_bail::{{closure}}             at ./src/vote_processor.rs:510:5";
   test.test_name = "vote_processor::tests::test_vote_process_instruction_decode_bail";
-  test.test_nonce  = 1;
+  test.test_nonce  = 14;
   test.test_number = 1641;
   if (fd_executor_test_suite_check_filter(suite, &test)) return -9999;
   ulong test_accs_len = 0;

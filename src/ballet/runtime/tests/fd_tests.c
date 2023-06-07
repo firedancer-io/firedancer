@@ -6,6 +6,8 @@
 #pragma GCC optimize ("O0")
 #endif
 
+const char *verbose = NULL;
+
 /* copied from test_funk_txn.c */
 static fd_funk_txn_xid_t *
 fd_funk_txn_xid_set_unique( fd_funk_txn_xid_t * xid ) {
@@ -148,13 +150,14 @@ int fd_executor_run_test(
   execute_instruction_func_t exec_instr_func = fd_executor_lookup_native_program( global, &test->program_id );
   int exec_result = exec_instr_func( ctx );
   if ( exec_result != test->expected_result ) {
-    FD_LOG_WARNING(( "Failed test %d: %s (nonce: %d): expected transaction result %d, got %d", test->test_number, test->test_name, test->test_nonce, test->expected_result , exec_result));
+    FD_LOG_WARNING(( "Failed test %d: %s (nonce: %d): expected transaction result %d, got %d: %s", test->test_number, test->test_name, test->test_nonce, test->expected_result , exec_result
+        , (NULL != verbose) ? test->bt : ""));
     return -1;
   }
 
   if ( exec_result == FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR ) {
     if ( ctx.txn_ctx->custom_err != test->custom_err) {
-      FD_LOG_WARNING(( "Failed test %d: %s (nonce: %d): expected custom error inner value of %d, got %d", test->test_number, test->test_name, test->test_nonce, test->custom_err, ctx.txn_ctx->custom_err ));
+      FD_LOG_WARNING(( "Failed test %d: %s (nonce: %d): expected custom error inner value of %d, got %d: %s", test->test_number, test->test_name, test->test_nonce, test->custom_err, ctx.txn_ctx->custom_err , (NULL != verbose) ? test->bt : ""));
       return -1;
     }
   }
@@ -175,17 +178,17 @@ int fd_executor_run_test(
       void* d = (void *)(raw_acc_data + m->hlen);
 
       if (m->info.lamports != test->accs[i].result_lamports) {
-        FD_LOG_WARNING(( "Failed test %d: %s (nonce: %d): expected lamports %ld, got %ld", test->test_number, test->test_name, test->test_nonce, test->accs[i].result_lamports, m->info.lamports));
+        FD_LOG_WARNING(( "Failed test %d: %s (nonce: %d): expected lamports %ld, got %ld: %s", test->test_number, test->test_name, test->test_nonce, test->accs[i].result_lamports, m->info.lamports, (NULL != verbose) ? test->bt : ""));
         return -666;
       }
       if (m->dlen != test->accs[i].result_data_len) {
-        FD_LOG_WARNING(( "Failed test %d: %s (nonce: %d): size mismatch (expected %lu, got %lu)",
+        FD_LOG_WARNING(( "Failed test %d: %s (nonce: %d): size mismatch (expected %lu, got %lu): %s",
                          test->test_number, test->test_name, test->test_nonce,
-                         test->accs[i].result_data_len, m->dlen ));
+                         test->accs[i].result_data_len, m->dlen, (NULL != verbose) ? test->bt : "" ));
         return -777;
       }
       if (memcmp(d, test->accs[i].result_data, test->accs[i].result_data_len)) {
-        FD_LOG_WARNING(( "Failed test %d: %s: account missmatch", test->test_number, test->test_name));
+        FD_LOG_WARNING(( "Failed test %d: %s: account missmatch: %s", test->test_number, test->test_name, (NULL != verbose) ? test->bt : ""));
       {
         FILE * fd = fopen("actual.bin", "wb");
         fwrite(d, 1, m->dlen, fd);
@@ -216,7 +219,7 @@ int main(int argc, char **argv) {
   ulong test_end = fd_env_strip_cmdline_ulong(&argc, &argv, "--end", NULL, ULONG_MAX);
   long do_test = fd_env_strip_cmdline_long(&argc, &argv, "--test", NULL, -1);
   const char * filter = fd_env_strip_cmdline_cstr(&argc, &argv, "--filter", NULL, NULL);
-  const char * net = fd_env_strip_cmdline_cstr(&argc, &argv, "--net", NULL, NULL);
+  verbose = fd_env_strip_cmdline_cstr(&argc, &argv, "--verbose", NULL, NULL);
 
   if (-1 != do_test)
     test_start = test_end = (ulong)do_test;
@@ -225,15 +228,7 @@ int main(int argc, char **argv) {
   fd_executor_test_suite_t suite;
   fd_executor_test_suite_new( &suite );
 
-  if (NULL != net)  {
-    if (!strncmp(net, "main", 4))
-      enable_mainnet(&suite.features);
-    else if (!strncmp(net, "test", 4))
-      enable_testnet(&suite.features);
-    else if (!strncmp(net, "dev", 3))
-      enable_devnet(&suite.features);
-  } else
-    memset(&suite.features, 1, sizeof(suite.features));
+  memset(&suite.features, 1, sizeof(suite.features));
 
   if (NULL != filter) {
     suite.filter = filter;

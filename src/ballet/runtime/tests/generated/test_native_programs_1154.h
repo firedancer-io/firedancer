@@ -2,11 +2,12 @@
 int test_1154(fd_executor_test_suite_t *suite) {
   fd_executor_test_t test;
   fd_memset( &test, 0, FD_EXECUTOR_TEST_FOOTPRINT );
-  test.disable_cnt = 1;
-  uchar disabled_features[] = { 89 };
+  test.disable_cnt = 47;
+  uchar disabled_features[] = { 112,98,76,111,122,78,33,83,126,30,2,124,79,89,80,90,106,123,109,113,56,61,87,92,110,27,114,75,127,118,103,108,121,105,62,116,120,26,117,128,24,55,77,29,125,82,15 };
   test.disable_feature = disabled_features;
+  test.bt = "   2: solana_stake_program::stake_instruction::tests::process_instruction             at ./src/stake_instruction.rs:578:9   3: solana_stake_program::stake_instruction::tests::test_stake_process_instruction_decode_bail             at ./src/stake_instruction.rs:945:9";
   test.test_name = "stake_instruction::tests::test_stake_process_instruction_decode_bail::old_behavior";
-  test.test_nonce  = 197;
+  test.test_nonce  = 273;
   test.test_number = 1154;
   if (fd_executor_test_suite_check_filter(suite, &test)) return -9999;
   ulong test_accs_len = 0;

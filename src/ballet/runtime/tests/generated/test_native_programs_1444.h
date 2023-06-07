@@ -3,10 +3,11 @@ int test_1444(fd_executor_test_suite_t *suite) {
   fd_executor_test_t test;
   fd_memset( &test, 0, FD_EXECUTOR_TEST_FOOTPRINT );
   test.disable_cnt = 47;
-  uchar disabled_features[] = { 121,103,113,105,110,122,77,83,114,26,61,98,79,62,127,80,108,123,124,24,87,89,116,111,120,76,78,29,75,112,92,117,90,2,109,27,15,55,126,106,128,82,125,118,30,33,56 };
+  uchar disabled_features[] = { 127,76,24,56,112,116,103,61,110,80,82,98,89,75,15,108,121,126,29,26,27,30,105,77,120,83,55,118,87,117,90,106,92,128,109,78,62,111,123,122,114,125,124,33,113,79,2 };
   test.disable_feature = disabled_features;
+  test.bt = "   2: solana_runtime::system_instruction_processor::tests::test_process_withdraw_ix_no_keyed_accs_fail             at ./src/system_instruction_processor.rs:1891:9   3: solana_runtime::system_instruction_processor::tests::test_process_withdraw_ix_no_keyed_accs_fail::{{closure}}             at ./src/system_instruction_processor.rs:1890:5";
   test.test_name = "system_instruction_processor::tests::test_process_withdraw_ix_no_keyed_accs_fail";
-  test.test_nonce  = 33;
+  test.test_nonce  = 40;
   test.test_number = 1444;
   if (fd_executor_test_suite_check_filter(suite, &test)) return -9999;
   ulong test_accs_len = 0;

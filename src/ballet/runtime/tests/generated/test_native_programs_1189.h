@@ -3,10 +3,11 @@ int test_1189(fd_executor_test_suite_t *suite) {
   fd_executor_test_t test;
   fd_memset( &test, 0, FD_EXECUTOR_TEST_FOOTPRINT );
   test.disable_cnt = 47;
-  uchar disabled_features[] = { 118,121,80,30,33,111,128,55,113,117,90,15,127,110,124,61,24,103,92,122,109,62,105,108,89,98,2,116,56,27,120,87,77,106,78,126,29,26,79,76,83,82,125,112,114,75,123 };
+  uchar disabled_features[] = { 105,110,55,77,121,116,106,103,112,30,27,113,122,123,124,2,24,120,80,128,111,126,109,82,61,114,125,76,56,26,79,62,89,75,117,90,83,118,33,78,98,92,108,15,87,29,127 };
   test.disable_feature = disabled_features;
+  test.bt = "   2: solana_stake_program::stake_instruction::tests::test_stake_process_instruction_error_ordering::new_behavior             at ./src/stake_instruction.rs:6511:5   3: solana_stake_program::stake_instruction::tests::test_stake_process_instruction_error_ordering::new_behavior::{{closure}}             at ./src/stake_instruction.rs:6511:5";
   test.test_name = "stake_instruction::tests::test_stake_process_instruction_error_ordering::new_behavior";
-  test.test_nonce  = 321;
+  test.test_nonce  = 361;
   test.test_number = 1189;
   if (fd_executor_test_suite_check_filter(suite, &test)) return -9999;
   ulong test_accs_len = 0;

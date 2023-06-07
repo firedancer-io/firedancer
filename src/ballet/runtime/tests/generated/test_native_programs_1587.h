@@ -3,10 +3,11 @@ int test_1587(fd_executor_test_suite_t *suite) {
   fd_executor_test_t test;
   fd_memset( &test, 0, FD_EXECUTOR_TEST_FOOTPRINT );
   test.disable_cnt = 47;
-  uchar disabled_features[] = { 128,127,56,111,55,103,33,27,61,121,116,112,15,2,124,120,125,117,87,30,83,118,24,26,80,92,110,76,98,105,78,90,109,126,82,123,89,122,108,62,113,79,75,77,114,29,106 };
+  uchar disabled_features[] = { 110,114,111,112,76,121,109,126,108,82,33,55,92,89,125,2,127,75,77,118,62,79,78,56,120,123,26,29,116,83,61,128,90,98,24,80,124,30,27,106,117,15,122,103,87,105,113 };
   test.disable_feature = disabled_features;
+  test.bt = "   2: solana_bpf_loader_program::tests::test_bpf_loader_write             at ./src/lib.rs:1575:9   3: solana_bpf_loader_program::tests::test_bpf_loader_write::{{closure}}             at ./src/lib.rs:1564:5";
   test.test_name = "tests::test_bpf_loader_write";
-  test.test_nonce  = 6;
+  test.test_nonce  = 9;
   test.test_number = 1587;
   if (fd_executor_test_suite_check_filter(suite, &test)) return -9999;
   ulong test_accs_len = 0;
