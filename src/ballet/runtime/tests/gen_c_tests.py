@@ -217,10 +217,9 @@ extern int fd_executor_test_suite_check_filter(fd_executor_test_suite_t *suite, 
 
     file_idx = -1
     for test_case_idx, test_case in enumerate(json_test_cases):
-        if (test_case_idx % 25) == 0:
-            file_idx += 1
-            set_stdout(generated_dir / f"test_native_programs_{file_idx:02d}.h")
-            print('#include "../fd_tests.h"')
+        file_idx += 1
+        set_stdout(generated_dir / f"test_native_programs_{file_idx:03d}.h")
+        print('#include "../fd_tests.h"')
 
         fs = json.loads(test_case["feature_set"])
         if len(fs) > 0:
@@ -339,7 +338,7 @@ extern int fd_executor_test_suite_check_filter(fd_executor_test_suite_t *suite, 
 
     set_stdout("test_native_programs.c", append=True)
     for idx in range(file_idx + 1):
-        print(f'#include "generated/test_native_programs_{idx:02d}.h"')
+        print(f'#include "generated/test_native_programs_{idx:03d}.h"')
     print(
         f"""
 ulong               test_cnt = {test_case_idx};

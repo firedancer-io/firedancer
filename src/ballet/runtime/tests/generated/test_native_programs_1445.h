@@ -1,0 +1,27 @@
+#include "../fd_tests.h"
+int test_1445(fd_executor_test_suite_t *suite) {
+  fd_executor_test_t test;
+  fd_memset( &test, 0, FD_EXECUTOR_TEST_FOOTPRINT );
+  test.disable_cnt = 0;
+  uchar disabled_features[] = { 121,103,113,105,110,122,77,83,114,26,61,98,79,62,127,80,108,123,124,24,87,89,116,111,120,76,78,29,75,112,92,117,90,2,109,27,15,55,126,106,128,82,125,118,30,33,56 };
+  test.disable_feature = disabled_features;
+  test.test_name = "system_instruction_processor::tests::test_process_withdraw_ix_no_keyed_accs_fail";
+  test.test_nonce  = 42;
+  test.test_number = 1445;
+  if (fd_executor_test_suite_check_filter(suite, &test)) return -9999;
+  ulong test_accs_len = 0;
+  fd_executor_test_acc_t* test_accs = fd_alloca( 1UL, FD_EXECUTOR_TEST_ACC_FOOTPRINT * test_accs_len );
+  fd_memset( test_accs, 0, FD_EXECUTOR_TEST_ACC_FOOTPRINT * test_accs_len );
+
+  fd_base58_decode_32( "11111111111111111111111111111111",  (unsigned char *) &test.program_id);
+  static uchar const fd_flamenco_native_prog_test_1445_raw[] = { 0x00,0x00,0x00,0x01,0x01,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x01,0x00,0x00,0x0c,0x05,0x00,0x00,0x00,0x2a,0x00,0x00,0x00,0x00,0x00,0x00,0x00 };
+  test.raw_tx = fd_flamenco_native_prog_test_1445_raw;
+  test.raw_tx_len = 85UL;
+  test.expected_result = -20;
+  test.custom_err = 0;
+
+  test.accs_len = test_accs_len;
+  test.accs = test_accs;
+
+  return fd_executor_run_test( &test, suite );
+}
