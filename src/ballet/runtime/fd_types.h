@@ -1388,23 +1388,10 @@ typedef struct fd_compute_budget_program_instruction fd_compute_budget_program_i
 #define FD_COMPUTE_BUDGET_PROGRAM_INSTRUCTION_FOOTPRINT sizeof(fd_compute_budget_program_instruction_t)
 #define FD_COMPUTE_BUDGET_PROGRAM_INSTRUCTION_ALIGN (8UL)
 
-#define DEQUE_NAME deq_fd_config_keys_pair_t
-#define DEQUE_T fd_config_keys_pair_t
-#define DEQUE_MAX 35
-#include "../../util/tmpl/fd_deque.c"
-#undef DEQUE_NAME
-#undef DEQUE_T
-
-#undef DEQUE_MAX
-
-static inline fd_config_keys_pair_t *
-deq_fd_config_keys_pair_t_alloc(fd_alloc_fun_t allocf, void * allocf_arg) {
-  void* mem = (*allocf)(allocf_arg, deq_fd_config_keys_pair_t_align(), deq_fd_config_keys_pair_t_footprint());
-  return deq_fd_config_keys_pair_t_join( deq_fd_config_keys_pair_t_new( mem ) );
-}
 /* https://github.com/solana-labs/solana/blob/a03ae63daff987912c48ee286eb8ee7e8a84bf01/programs/config/src/lib.rs#L32 */
 struct fd_config_keys {
-  fd_config_keys_pair_t * keys;
+  ushort                 keys_len;
+  fd_config_keys_pair_t* keys;
 };
 typedef struct fd_config_keys fd_config_keys_t;
 #define FD_CONFIG_KEYS_FOOTPRINT sizeof(fd_config_keys_t)
