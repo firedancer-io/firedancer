@@ -8,3 +8,5 @@ endif
 $(call make-unit-test,test_sha512,test_sha512,fd_ballet fd_util)
 $(call run-unit-test,test_sha512,)
 
+$(call make-unit-test,test_sha384,test_sha384,fd_ballet fd_util)
+$(call run-unit-test,test_sha384)

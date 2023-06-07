@@ -30,3 +30,15 @@ opt/
 *.swo
 
 test-ledger*
+# Certificates
+*.csr
+*.crt
+*.key
+*.pem
+
+# Packet Captures
+*.pcap
+*.pcapng
+
+# Logs
+*.log

@@ -140,8 +140,10 @@ fd_replay_tile( fd_cnc_t *       cnc,
     chunk0 = fd_dcache_compact_chunk0( base, dcache );
     wmark  = fd_dcache_compact_wmark ( base, dcache, pkt_max );
     chunk  = FD_VOLATILE_CONST( cnc_diag[ FD_REPLAY_CNC_DIAG_CHUNK_IDX ] );
-    if( FD_UNLIKELY( !((chunk0<=chunk) & (chunk<=wmark)) ) ) chunk = chunk0;
+    if( FD_UNLIKELY( !((chunk0<=chunk) & (chunk<=wmark)) ) ) {
+      chunk = chunk0;
       FD_LOG_INFO(( "out of bounds cnc chunk index; overriding initial chunk to chunk0" ));
+    }
     FD_LOG_INFO(( "chunk %lu", chunk ));
 
     /* out flow control init */
