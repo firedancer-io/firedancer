@@ -155,7 +155,7 @@ def do_vector_body_decode(n, f):
 
 
 def do_deque_body_decode(n, f):
-    print("    self->" + f["name"] + " = " + deque_prefix(n, f) + "_alloc( ctx->allocf, ctx->allocf_arg );", file=body)
+    print("  self->" + f["name"] + " = " + deque_prefix(n, f) + "_alloc( ctx->allocf, ctx->allocf_arg );", file=body)
 
     if "modifier" in f and f["modifier"] == "compact":
         print("  ushort " + f["name"] + "_len;", file=body)
@@ -211,21 +211,21 @@ def do_array_body_decode(n, f):
     length = f["length"]
 
     if f["element"] == "unsigned char" or f["element"] == "uchar":
-        print("    err = fd_bincode_bytes_decode(self->" + f["name"] + ", " + length + ", ctx);", file=body)
-        print("    if ( FD_UNLIKELY(err) ) return err;", file=body)
+        print("  err = fd_bincode_bytes_decode(self->" + f["name"] + ", " + length + ", ctx);", file=body)
+        print("  if ( FD_UNLIKELY(err) ) return err;", file=body)
         return;
 
-    print("    for (ulong i = 0; i < " + length + "; ++i) {", file=body)
+    print("  for (ulong i = 0; i < " + length + "; ++i) {", file=body)
 
     if f["element"] == "ulong" or f["element"] == "unsigned long":
-        print("      err = fd_bincode_uint64_decode(self->" + f["name"] + " + i, ctx);", file=body)
+        print("    err = fd_bincode_uint64_decode(self->" + f["name"] + " + i, ctx);", file=body)
     elif f["element"] == "uint" or f["element"] == "unsigned int":
-        print("      err = fd_bincode_uint32_decode(self->" + f["name"] + " + i, ctx);", file=body)
+        print("    err = fd_bincode_uint32_decode(self->" + f["name"] + " + i, ctx);", file=body)
     else:
-        print("      err = " + n + "_" + f["element"] + "_decode(self->" + f["name"] + " + i, ctx);", file=body)
-    print("      if ( FD_UNLIKELY(err) ) return err;", file=body)
+        print("    err = " + n + "_" + f["element"] + "_decode(self->" + f["name"] + " + i, ctx);", file=body)
+    print("    if ( FD_UNLIKELY(err) ) return err;", file=body)
 
-    print("    }", file=body)
+    print("  }", file=body)
 
 def do_option_body_decode(n, f):
     print("  {", file=body)
@@ -331,18 +331,18 @@ def do_deque_body_encode(n, f):
     print("      " + deque_elem_type(n, f) + " * ele = " + deque_prefix(n, f) + "_iter_ele( self->" + f["name"] + ", iter );", file=body)
     
     if f["element"] == "uchar" or f["element"] == "unsigned char":
-        print("     err = fd_bincode_uint8_encode(ele, ctx);", file=body)
+        print("      err = fd_bincode_uint8_encode(ele, ctx);", file=body)
     elif f["element"] == "ulong" or f["element"] == "unsigned long":
-        print("     err = fd_bincode_uint64_encode(ele, ctx);", file=body)
+        print("      err = fd_bincode_uint64_encode(ele, ctx);", file=body)
     elif f["element"] == "uint" or f["element"] == "unsigned int":
-        print("     err = fd_bincode_uint32_encode(ele, ctx);", file=body)
+        print("      err = fd_bincode_uint32_encode(ele, ctx);", file=body)
     else:
-        print("     err = " + n + "_" + f["element"] + "_encode(ele, ctx);", file=body)
-        print("     if ( FD_UNLIKELY(err) ) return err;", file=body)
+        print("      err = " + n + "_" + f["element"] + "_encode(ele, ctx);", file=body)
+        print("      if ( FD_UNLIKELY(err) ) return err;", file=body)
         
-    print("   }", file=body)
+    print("    }", file=body)
 
-    print(" } else {", file=body)
+    print("  } else {", file=body)
     if "modifier" in f and f["modifier"] == "compact":
         print("    ushort " + f["name"] + "_len = 0;", file=body)
         print("    err = fd_bincode_compact_u16_encode(&" + f["name"] + "_len, ctx);", file=body)
@@ -350,7 +350,7 @@ def do_deque_body_encode(n, f):
         print("    ulong " + f["name"] + "_len = 0;", file=body)
         print("    err = fd_bincode_uint64_encode(&" + f["name"] + "_len, ctx);", file=body)
     print("    if ( FD_UNLIKELY(err) ) return err;", file=body)
-    print(" }", file=body)
+    print("  }", file=body)
 
 def do_map_body_encode(n, f):
     element_type = deque_elem_type(n, f)
@@ -446,14 +446,14 @@ fields_body_encode = {
 def do_vector_body_size(n, f):
     print("  size += sizeof(ulong);", file=body)
     if f["element"] == "unsigned char" or f["element"] == "uchar":
-        print("    size += self->" + f["name"] + "_len;", file=body)
+        print("  size += self->" + f["name"] + "_len;", file=body)
     elif f["element"] == "ulong" or f["element"] == "unsigned long":
-        print("    size += self->" + f["name"] + "_len * sizeof(ulong);", file=body)
+        print("  size += self->" + f["name"] + "_len * sizeof(ulong);", file=body)
     elif f["element"] == "uint" or f["element"] == "unsigned int":
-        print("    size += self->" + f["name"] + "_len * sizeof(uint);", file=body)
+        print("  size += self->" + f["name"] + "_len * sizeof(uint);", file=body)
     else:
-        print("    for (ulong i = 0; i < self->" + f["name"] + "_len; ++i)", file=body)
-        print("      size += " + n + "_" + f["element"] + "_size(self->" + f["name"] + " + i);", file=body)
+        print("  for (ulong i = 0; i < self->" + f["name"] + "_len; ++i)", file=body)
+        print("    size += " + n + "_" + f["element"] + "_size(self->" + f["name"] + " + i);", file=body)
 
 def do_deque_body_size(n, f):
     print("  if ( self->" + f["name"] + " ) {", file=body)
@@ -466,7 +466,7 @@ def do_deque_body_size(n, f):
         print("    size += " + deque_prefix(n, f) + "_cnt(self->" + f["name"] + ") * sizeof(uint);", file=body)
     else:
         print("    for ( " + deque_prefix(n, f) + "_iter_t iter = " + deque_prefix(n, f) + "_iter_init( self->" + f["name"] + " ); !" + deque_prefix(n, f) + "_iter_done( self->" + f["name"] + ", iter ); iter = " + deque_prefix(n, f) + "_iter_next( self->" + f["name"] + ", iter ) ) {", file=body)
-        print("    " + deque_elem_type(n, f) + " * ele = " + deque_prefix(n, f) + "_iter_ele( self->" + f["name"] + ", iter );", file=body)
+        print("      " + deque_elem_type(n, f) + " * ele = " + deque_prefix(n, f) + "_iter_ele( self->" + f["name"] + ", iter );", file=body)
         print("      size += " + n + "_" + f["element"] + "_size(ele);", file=body)
         print("    }", file=body)
     print("  }", file=body)
@@ -481,7 +481,7 @@ def do_map_body_size(n, f):
     else:
         print("  size += sizeof(ulong);", file=body)
     print("  for ( " + nodename + "* n = " + mapname + "_minimum(self->" + f["name"] + "_pool, self->" + f["name"] + "_root); n; n = " + mapname + "_successor(self->" + f["name"] + "_pool, n) ) {", file=body);
-    print("      size += " + n + "_" + f["element"] + "_size(&n->elem);", file=body)
+    print("    size += " + n + "_" + f["element"] + "_size(&n->elem);", file=body)
     print("  }", file=body)
 
 def do_array_body_size(n, f):
@@ -499,7 +499,7 @@ def do_array_body_size(n, f):
 
 def do_option_body_size(n, f):
     print("  size += sizeof(char);", file=body)
-    print("   if (NULL !=  self->" + f["name"] + ") {", file=body)
+    print("  if (NULL !=  self->" + f["name"] + ") {", file=body)
 
     if f["element"] == "ulong" or f["element"] == "unsigned long":
         print("    size += sizeof(ulong);", file=body)
@@ -614,7 +614,7 @@ def do_deque_body_destroy(n, f):
         pass
     else:
         print("    for ( " + deque_prefix(n, f) + "_iter_t iter = " + deque_prefix(n, f) + "_iter_init( self->" + f["name"] + " ); !" + deque_prefix(n, f) + "_iter_done( self->" + f["name"] + ", iter ); iter = " + deque_prefix(n, f) + "_iter_next( self->" + f["name"] + ", iter ) ) {", file=body)
-        print("    " + deque_elem_type(n, f) + " * ele = " + deque_prefix(n, f) + "_iter_ele( self->" + f["name"] + ", iter );", file=body)
+        print("      " + deque_elem_type(n, f) + " * ele = " + deque_prefix(n, f) + "_iter_ele( self->" + f["name"] + ", iter );", file=body)
         print("      " + n + "_" + f["element"] + "_destroy(ele, ctx);", file=body)
         print("    }", file=body)
     print("    (*ctx->freef)(ctx->freef_arg, self->" + f["name"] + ");", file=body)
@@ -647,7 +647,7 @@ def do_array_body_destroy(n, f):
         print("    " + n + "_" + f["element"] + "_destroy(self->" + f["name"] + " + i, ctx);", file=body)
 
 def do_option_body_destroy(n, f):
-    print("if (NULL != self->" + f["name"] + ") {", file=body)
+    print("  if (NULL != self->" + f["name"] + ") {", file=body)
     if f["element"] == "ulong" or f["element"] == "unsigned long":
         pass
     elif f["element"] == "uint" or f["element"] == "unsigned int":
@@ -661,7 +661,7 @@ def do_option_body_destroy(n, f):
 
 fields_body_destroy = {
     "char" :              lambda n, f: do_pass(),
-    "char*" :             lambda n, f: print("  if (NULL != self->" + f["name"] + ") {\n(*ctx->freef)(ctx->freef_arg, self->" + f["name"] + ");\nself->" + f["name"] + " = NULL;}", file=body),
+    "char*" :             lambda n, f: print("  if (NULL != self->" + f["name"] + ") {\n    (*ctx->freef)(ctx->freef_arg, self->" + f["name"] + ");\n    self->" + f["name"] + " = NULL;\n  }", file=body),
     "char[32]" :          lambda n, f: do_pass(),
     "char[7]" :           lambda n, f: do_pass(),
     "double" :            lambda n, f: do_pass(),
@@ -693,32 +693,33 @@ fields_body_vector_walk = {
 def do_vector_body_walk(n, f):
 
     if f["element"] == "unsigned char" or f["element"] == "uchar":
-        print("      fun(self->" + f["name"] + ", \"" + f["name"] + "\", 2, \"" + f["element"] + "\", level + 1);", file=body),
+        print("  fun(self->" + f["name"] + ", \"" + f["name"] + "\", 2, \"" + f["element"] + "\", level + 1);", file=body),
         return
     else:
         print("  if (self->" + f["name"] + "_len != 0) {", file=body)
-        print("  fun(NULL, NULL, 30, \""+f["name"]+"\", level++);", file=body)
+        print("    fun(NULL, NULL, 30, \""+f["name"]+"\", level++);", file=body)
         print("    for (ulong i = 0; i < self->" + f["name"] + "_len; ++i)", file=body)
 
     if f["element"] in fields_body_vector_walk:
+        body.write("    ")
         fields_body_vector_walk[f["element"]](namespace, f)
     else:
         print("      " + n + "_" + f["element"] + "_walk(self->" + f["name"] + " + i, fun, \"" + f["element"] + "\", level + 1);", file=body)
 
-    print("  fun(NULL, NULL, 31, \""+f["name"]+"\", --level);", file=body)
+    print("    fun(NULL, NULL, 31, \""+f["name"]+"\", --level);", file=body)
     print("  }", file=body)
 
 def do_deque_body_walk(n, f):
     print("  if ( self->" + f["name"] + " ) {", file=body)
     print("    for ( " + deque_prefix(n, f) + "_iter_t iter = " + deque_prefix(n, f) + "_iter_init( self->" + f["name"] + " ); !" + deque_prefix(n, f) + "_iter_done( self->" + f["name"] + ", iter ); iter = " + deque_prefix(n, f) + "_iter_next( self->" + f["name"] + ", iter ) ) {", file=body)
-    print("    " + deque_elem_type(n, f) + " * ele = " + deque_prefix(n, f) + "_iter_ele( self->" + f["name"] + ", iter );", file=body)
+    print("      " + deque_elem_type(n, f) + " * ele = " + deque_prefix(n, f) + "_iter_ele( self->" + f["name"] + ", iter );", file=body)
 
     if f["element"] == "unsigned char" or f["element"] == "uchar":
-        print("; //fd_bincode_bytes_walk(ele, 1, ctx);", file=body)
+        print("      //fd_bincode_bytes_walk(ele, 1, ctx);", file=body)
     elif f["element"] == "ulong" or f["element"] == "unsigned long":
-        print("; //fd_bincode_uint64_walk(ele, ctx);", file=body)
+        print("      //fd_bincode_uint64_walk(ele, ctx);", file=body)
     elif f["element"] == "uint" or f["element"] == "unsigned int":
-        print("; //fd_bincode_uint32_walk(ele, ctx);", file=body)
+        print("      //fd_bincode_uint32_walk(ele, ctx);", file=body)
     else:
         print("      " + n + "_" + f["element"] + "_walk(ele, fun, \"" + f["name"] + "\", level + 1);", file=body)
 
@@ -752,6 +753,7 @@ def do_array_body_walk(n, f):
     print("  for (ulong i = 0; i < " + length + "; ++i)", file=body)
 
     if f["element"] in fields_body_vector_walk:
+        body.write("  ")
         fields_body_vector_walk[f["element"]](namespace, f)
     else:
         print("    " + n + "_" + f["element"] + "_walk(self->" + f["name"] + " + i, fun, \"" + f["element"] + "\", level + 1);", file=body)
@@ -775,7 +777,7 @@ def do_option_body_walk(n, f):
     if f["element"] in fields_body_option_walk:
         fields_body_option_walk[f["element"]](namespace, f)
     else:
-        print(" // fun(&self->" + f["name"] + ", \"" + f["name"] + "\", 16, \"option\", level + 1);", file=body),
+        print("  // fun(&self->" + f["name"] + ", \"" + f["name"] + "\", 16, \"option\", level + 1);", file=body),
 
 fields_body_walk = {
     "char" :              lambda n, f: print("  fun(&self->" + f["name"] + ", \"" + f["name"] + "\", 1, \"char\", level + 1);", file=body),
@@ -961,6 +963,7 @@ for entry in entries:
             print("  case "+ str(i) +": {", file=body)
             if "type" in v:
                 if v["type"] in fields_body_decode:
+                    body.write("  ")
                     fields_body_decode[v["type"]](namespace, v)
                     print("    return FD_BINCODE_SUCCESS;", file=body)
                 else:
@@ -969,7 +972,7 @@ for entry in entries:
                 print("    return FD_BINCODE_SUCCESS;", file=body)
             print("  }", file=body)
 
-        print("default: return FD_BINCODE_ERR_ENCODING;", file=body);
+        print("  default: return FD_BINCODE_ERR_ENCODING;", file=body);
 
         print("  }", file=body)
         print("}", file=body)
@@ -1000,11 +1003,12 @@ for entry in entries:
             if v["type"] in fields_body_new:
                 fields_body_new[v["type"]](namespace, v)
             else:
-                print("  " + namespace + "_" + v["type"] + "_new(&self->" + v["name"] + ");", file=body)
-        print("   break;", file=body)
-        print("   }", file=body)
-      print("default: break; // FD_LOG_ERR(( \"unhandled type\"));", file=body)
-      print("}}", file=body)
+                print("    " + namespace + "_" + v["type"] + "_new(&self->" + v["name"] + ");", file=body)
+        print("    break;", file=body)
+        print("  }", file=body)
+      print("  default: break; // FD_LOG_ERR(( \"unhandled type\"));", file=body)
+      print("  }", file=body)
+      print("}", file=body)
 
       print("void " + n + "_new(" + n + "_t* self) {", file=body)
       print("  self->discriminant = 0;", file=body)
@@ -1026,13 +1030,14 @@ for entry in entries:
         print("  case "+ str(i) +": {", file=body)
         if "type" in v:
             if v["type"] in fields_body_destroy:
-                 fields_body_destroy[v["type"]](namespace, v)
+                fields_body_destroy[v["type"]](namespace, v)
             else:
-                print("  " + namespace + "_" + v["type"] + "_destroy(&self->" + v["name"] + ", ctx);", file=body)
-        print("   break;", file=body)
-        print("   }", file=body)
-      print("default: break; // FD_LOG_ERR(( \"unhandled type\"));", file=body)
-      print("}}", file=body)
+                print("    " + namespace + "_" + v["type"] + "_destroy(&self->" + v["name"] + ", ctx);", file=body)
+        print("    break;", file=body)
+        print("  }", file=body)
+      print("  default: break; // FD_LOG_ERR(( \"unhandled type\"));", file=body)
+      print("  }", file=body)
+      print("}", file=body)
 
       print("void " + n + "_destroy(" + n + "_t* self, fd_bincode_destroy_ctx_t * ctx) {", file=body)
       print("  " + namespace + "_" + entry["name"] + "_inner_destroy(&self->inner" + ", self->discriminant, ctx);", file=body)
@@ -1051,7 +1056,7 @@ for entry in entries:
     print("  fun(self, name, 32, \""+n+"\", level++);", file=body)
 
     if entry["type"] == "enum":
-        print(" // enum " + namespace + "_" + f["type"] + "_walk(&self->" + f["name"] + ", fun, \"" + f["name"] + "\", level + 1);", file=body)
+        print("  // enum " + namespace + "_" + f["type"] + "_walk(&self->" + f["name"] + ", fun, \"" + f["name"] + "\", level + 1);", file=body)
     else:
         for f in entry["fields"]:
             if f["type"] in fields_body_walk:
@@ -1072,10 +1077,12 @@ for entry in entries:
           if "type" in v:
             print("  case "+ str(i) +": {", file=body)
             if v["type"] in fields_body_size:
-                 fields_body_size[v["type"]](namespace, v)
+                body.write("  ")
+                fields_body_size[v["type"]](namespace, v)
             else:
-                print("  size += " + namespace + "_" + v["type"] + "_size(&self->inner." + v["name"] + ");", file=body)
-            print("  break; }", file=body)
+                print("    size += " + namespace + "_" + v["type"] + "_size(&self->inner." + v["name"] + ");", file=body)
+            print("    break;", file=body)
+            print("  }", file=body)
       print("  }", file=body)
 
     else:
@@ -1100,11 +1107,13 @@ for entry in entries:
                   first = False
               print("  case "+ str(i) +": {", file=body)
               if v["type"] in fields_body_encode:
+                  body.write("  ")
                   fields_body_encode[v["type"]](namespace, v)
               else:
-                  print("  err = " + namespace + "_" + v["type"] + "_encode(&self->" + v["name"] + ", ctx);", file=body)
-                  print("  if ( FD_UNLIKELY(err) ) return err;", file=body)
-              print("  break; }", file=body)
+                  print("    err = " + namespace + "_" + v["type"] + "_encode(&self->" + v["name"] + ", ctx);", file=body)
+                  print("    if ( FD_UNLIKELY(err) ) return err;", file=body)
+              print("    break;", file=body)
+              print("  }", file=body)
         if not first:
             print("  }", file=body)
         print("  return FD_BINCODE_SUCCESS;", file=body)
