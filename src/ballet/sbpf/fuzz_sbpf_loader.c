@@ -30,18 +30,21 @@ LLVMFuzzerInitialize( int  *   argc,
 }
 
 int
-LLVMFuzzerTestOneInput( uchar const * _data,
+LLVMFuzzerTestOneInput( uchar const * data,
                         ulong         size ) {
 
-  /* Copy buffer to permit writes */
-  uchar * data = malloc( size+8UL );
-  FD_TEST( data );
-  fd_memset( data+size, 0, 8UL ); /* zero pad */
-  fd_memcpy( data, _data, size );
+  fd_sbpf_elf_info_t info;
+  if( FD_UNLIKELY( !fd_sbpf_elf_peek( &info, data, size ) ) )
+    return 0;
 
   /* Allocate objects */
-  fd_sbpf_program_t * prog = fd_sbpf_program_new( aligned_alloc( fd_sbpf_program_align(), fd_sbpf_program_footprint() ) );
+
+  void * rodata = malloc( info.rodata_footprint );
+  FD_TEST( rodata );
+
+  fd_sbpf_program_t * prog = fd_sbpf_program_new( aligned_alloc( fd_sbpf_program_align(), fd_sbpf_program_footprint( &info ) ), &info, rodata );
   FD_TEST( prog );
+
   fd_sbpf_syscalls_t * syscalls = fd_sbpf_syscalls_new( aligned_alloc( fd_sbpf_syscalls_align(), fd_sbpf_syscalls_footprint() ) );
   FD_TEST( syscalls );
 
@@ -53,7 +56,7 @@ LLVMFuzzerTestOneInput( uchar const * _data,
   FD_COMPILER_FORGET( res );
 
   /* Clean up */
-  free( data );
+  free( rodata );
   free( fd_sbpf_syscalls_delete( syscalls ) );
   free( fd_sbpf_program_delete( prog ) );
   return 0;
