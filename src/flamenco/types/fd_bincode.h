@@ -53,7 +53,7 @@ int fd_bincode_uint128_decode(uint128 * self, fd_bincode_decode_ctx_t * ctx) {
 #if FD_HAS_INT128 && FD_HAS_SSE
   *(__m128i_u*)self = _mm_loadu_si128((void const *) ptr);
 #else
-  fd_memcpy(self, ptr, sizeof(uint128));
+  memcpy(self, ptr, sizeof(uint128));
 #endif
   ctx->data = ptr + 1;
   
@@ -69,7 +69,7 @@ int fd_bincode_uint128_encode(uint128 * self, fd_bincode_encode_ctx_t * ctx) {
 #if FD_HAS_INT128 && FD_HAS_SSE
   _mm_storeu_si128((__m128i *) ptr, (__m128i) *self);
 #else
-  fd_memcpy(ptr, *self, sizeof(uint128));
+  memcpy(ptr, *self, sizeof(uint128));
 #endif
   ctx->data = ptr + 1;
   
