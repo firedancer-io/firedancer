@@ -19,7 +19,7 @@ Introduction to `XDP` and `AF_XDP`
 **What sysadmins should know:**
 
 `XDP` and `AF_XDP` are Linux kernel technologies for fast userspace
-networking.  They present an alternative to send/recv sockets-based
+networking.  They present an alternative to `send`/`recv` sockets-based
 networking that are generally more efficient and expose lower-level
 properties of your hardware to the Firedancer application.
 
