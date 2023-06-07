@@ -6,13 +6,14 @@
 #define STAKE_ACCOUNT_SIZE ( 200 )
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/mod.rs#L12 */
+#define ACCOUNT_STORAGE_OVERHEAD ( 128 )
 #define MINIMUM_STAKE_DELEGATION ( 1 )
 #define MINIMUM_DELEGATION_SOL ( 1 )
 #define LAMPORTS_PER_SOL (1000000000)
 #define FEATURE_ACTIVE_STAKE_SPLIT_USES_RENT_SYSVAR ( 1 )
 #define FEATURE_STAKE_ALLOW_ZERO_UNDELEGATED_AMOUNT ( 1 )
 #define FEATURE_CLEAN_UP_DELEGATION_ERRORS ( 1 )
-#define ACCOUNT_STORAGE_OVERHEAD ( 128 )
+#define FEATURE_STAKE_RAISE_MINIMUM_DELEGATION_TO_1_SOL ( 0 )
 
 void write_stake_config( fd_global_ctx_t* global, fd_stake_config_t* stake_config) {
   ulong          sz = fd_stake_config_size( stake_config );
@@ -137,7 +138,8 @@ int write_stake_state(
       FD_LOG_WARNING(( "failed to write account data" ));
       return write_result;
     }
-    fd_acc_mgr_update_hash ( global->acc_mgr, &metadata, global->funk_txn, global->bank.solana_bank.slot, stake_acc, (uchar*)encoded_stake_state, STAKE_ACCOUNT_SIZE);
+    ulong dlen = (is_new_account) ? STAKE_ACCOUNT_SIZE : metadata.dlen;
+    fd_acc_mgr_update_hash ( global->acc_mgr, &metadata, global->funk_txn, global->bank.solana_bank.slot, stake_acc, (uchar*)encoded_stake_state, dlen);
 
     return FD_EXECUTOR_INSTR_SUCCESS;
 }
@@ -223,7 +225,6 @@ int validate_split_amount(
       FD_LOG_WARNING(( "lamports are less than dest_balance_deficit lamports=%lu,\n dest_balance_deficit=%lu destination_rent_exempt_reserve=%lu, \n additional_lamports=%lu \n destination_lamports=%lu", lamports, dest_balance_deficit, *destination_rent_exempt_reserve, additional_lamports, destination_lamports ));
       return FD_EXECUTOR_INSTR_ERR_INSUFFICIENT_FUNDS;
     }
-
 
     // source_remaining_balance
     // destination_rent_exempt_reserve
@@ -521,7 +522,7 @@ int fd_executor_stake_program_execute_instruction(
       }
 
 
-      fd_acc_lamports_t minimum_delegation = MINIMUM_DELEGATION_SOL * LAMPORTS_PER_SOL;
+      fd_acc_lamports_t minimum_delegation = (FEATURE_STAKE_RAISE_MINIMUM_DELEGATION_TO_1_SOL) ? MINIMUM_DELEGATION_SOL * LAMPORTS_PER_SOL: MINIMUM_STAKE_DELEGATION;
       fd_acc_lamports_t source_remaining_balance, destination_rent_exempt_reserve;
       // todo: implement source_stake = Some(&stake)
       int validate_result = validate_split_amount(ctx, 0, 1, lamports, minimum_delegation, &source_remaining_balance, &destination_rent_exempt_reserve);
@@ -578,7 +579,7 @@ int fd_executor_stake_program_execute_instruction(
       }
 
       // ./target/debug/solana feature status sTKz343FM8mqtyGvYWvbLpTThw3ixRM4Xk8QvZ985mw
-      fd_acc_lamports_t additional_required_lamports = (FEATURE_STAKE_ALLOW_ZERO_UNDELEGATED_AMOUNT) ? 0 : MINIMUM_DELEGATION_SOL * LAMPORTS_PER_SOL; 
+      fd_acc_lamports_t additional_required_lamports = FEATURE_STAKE_ALLOW_ZERO_UNDELEGATED_AMOUNT ? 0 : (FEATURE_STAKE_RAISE_MINIMUM_DELEGATION_TO_1_SOL ? MINIMUM_DELEGATION_SOL * LAMPORTS_PER_SOL : MINIMUM_STAKE_DELEGATION);
       
       fd_acc_lamports_t source_remaining_balance, destination_rent_exempt_reserve;
       int validate_result = validate_split_amount(ctx, 0, 1, lamports, additional_required_lamports, &source_remaining_balance, &destination_rent_exempt_reserve);
