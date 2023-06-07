@@ -1185,14 +1185,3 @@ fd_sbpf_program_load( fd_sbpf_program_t *  prog,
 #undef ERR
 #undef FAIL
 #undef REQUIRE
-
-/* Declare extern symbol definitions for static inlines */
-
-__attribute__((alias("fd_sbpf_syscalls_align"    ),const)) extern __typeof__(fd_sbpf_syscalls_align    ) fd_sbpf_syscalls_align_ext;
-__attribute__((alias("fd_sbpf_syscalls_footprint"),const)) extern __typeof__(fd_sbpf_syscalls_footprint) fd_sbpf_syscalls_footprint_ext;
-__attribute__((alias("fd_sbpf_syscalls_new"      )      )) extern __typeof__(fd_sbpf_syscalls_new      ) fd_sbpf_syscalls_new_ext;
-__attribute__((alias("fd_sbpf_syscalls_insert"   )      )) extern __typeof__(fd_sbpf_syscalls_insert   ) fd_sbpf_syscalls_insert_ext;
-__attribute__((alias("fd_sbpf_syscalls_delete"   )      )) extern __typeof__(fd_sbpf_syscalls_delete   ) fd_sbpf_syscalls_delete_ext;
-__attribute__((alias("fd_sbpf_program_align"     ),const)) extern __typeof__(fd_sbpf_program_align     ) fd_sbpf_program_align_ext;
-__attribute__((alias("fd_sbpf_program_footprint" ),pure )) extern __typeof__(fd_sbpf_program_footprint ) fd_sbpf_program_footprint_ext;
-

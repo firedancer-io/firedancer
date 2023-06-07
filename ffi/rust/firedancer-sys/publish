@@ -17,5 +17,4 @@ if [ -z "$( git tag --list "$GIT_TAG" )" ]; then
   exit 1
 fi
 
-# Bug in Cargo refuses publishing because src/generate.rs is gitignored
-cargo publish --allow-dirty
+cargo publish

@@ -36,6 +36,7 @@ fn explain_init_permissions(config: &Config) -> Vec<Option<String>> {
 fn step(config: &mut Config) {
     let bin = &config.binary_dir;
     let name = &config.name;
+    let prefix = "firedancer";
     let workspace = format!("{}.wksp", &config.name);
     let interface = &config.tiles.quic.interface;
 
@@ -48,7 +49,7 @@ fn step(config: &mut Config) {
     // Main pod and CNC
     let pod = run!("{bin}/fd_pod_ctl new {workspace} {POD_SIZE}");
     let main_cnc = run!("{bin}/fd_tango_ctl new-cnc {workspace} 0 tic {CNC_APP_SIZE}");
-    run!("{bin}/fd_pod_ctl insert {pod} cstr {name}.main.cnc {main_cnc}");
+    run!("{bin}/fd_pod_ctl insert {pod} cstr {prefix}.main.cnc {main_cnc}");
 
     // Pack tiles
     let cnc = run!("{bin}/fd_tango_ctl new-cnc {workspace} 0 tic {CNC_APP_SIZE}");
@@ -66,16 +67,16 @@ fn step(config: &mut Config) {
 
     let return_fseq = run!("{bin}/fd_tango_ctl new-fseq {workspace} 0");
     run!("{bin}/fd_pod_ctl \
-        insert {pod} cstr {name}.pack.cnc {cnc} \
-        insert {pod} cstr {name}.pack.out-mcache {mcache} \
-        insert {pod} cstr {name}.pack.out-dcache {dcache} \
-        insert {pod} cstr {name}.pack.scratch {pack_scratch} \
-        insert {pod} cstr {name}.pack.cu-est-tbl {cu_est_table} \
-        insert {pod} cstr {name}.pack.return-fseq {return_fseq} \
-        insert {pod} ulong {name}.pack.bank-cnt {solana_labs_bank_thread_count} \
-        insert {pod} ulong {name}.pack.txnq-sz {max_pending_transactions} \
-        insert {pod} ulong {name}.pack.cu-est-tbl-sz {compute_unit_estimator_table_size} \
-        insert {pod} uint {name}.pack.cu-limit {solana_labs_bank_thread_compute_units_executed_per_second}",
+        insert {pod} cstr {prefix}.pack.cnc {cnc} \
+        insert {pod} cstr {prefix}.pack.out-mcache {mcache} \
+        insert {pod} cstr {prefix}.pack.out-dcache {dcache} \
+        insert {pod} cstr {prefix}.pack.scratch {pack_scratch} \
+        insert {pod} cstr {prefix}.pack.cu-est-tbl {cu_est_table} \
+        insert {pod} cstr {prefix}.pack.return-fseq {return_fseq} \
+        insert {pod} ulong {prefix}.pack.bank-cnt {solana_labs_bank_thread_count} \
+        insert {pod} ulong {prefix}.pack.txnq-sz {max_pending_transactions} \
+        insert {pod} ulong {prefix}.pack.cu-est-tbl-sz {compute_unit_estimator_table_size} \
+        insert {pod} uint {prefix}.pack.cu-limit {solana_labs_bank_thread_compute_units_executed_per_second}",
         solana_labs_bank_thread_count=config.tiles.pack.solana_labs_bank_thread_count,
         max_pending_transactions=config.tiles.pack.max_pending_transactions,
         compute_unit_estimator_table_size=config.tiles.pack.compute_unit_estimator_table_size,
@@ -87,10 +88,10 @@ fn step(config: &mut Config) {
     let mcache = run!("{bin}/fd_tango_ctl new-mcache {workspace} {} 0 0", config.tiles.verify.receive_buffer_size); // Same as verify tile depth
     let fseq = run!("{bin}/fd_tango_ctl new-fseq {workspace} 0");
     run!("{bin}/fd_pod_ctl \
-        insert {pod} cstr {name}.dedup.cnc {cnc} \
-        insert {pod} cstr {name}.dedup.tcache {tcache} \
-        insert {pod} cstr {name}.dedup.mcache {mcache} \
-        insert {pod} cstr {name}.dedup.fseq {fseq}");
+        insert {pod} cstr {prefix}.dedup.cnc {cnc} \
+        insert {pod} cstr {prefix}.dedup.tcache {tcache} \
+        insert {pod} cstr {prefix}.dedup.mcache {mcache} \
+        insert {pod} cstr {prefix}.dedup.fseq {fseq}");
 
     let mut verify_info = vec![];
 
@@ -103,9 +104,9 @@ fn step(config: &mut Config) {
             app_size=config.tiles.verify.receive_buffer_size * 32);
         let in_fseq = run!("{bin}/fd_tango_ctl new-fseq {workspace} 0");
         run!("{bin}/fd_pod_ctl \
-            insert {pod} cstr {name}.verifyin.v{i}in.mcache {in_mcache} \
-            insert {pod} cstr {name}.verifyin.v{i}in.dcache {in_dcache} \
-            insert {pod} cstr {name}.verifyin.v{i}in.fseq {in_fseq}");
+            insert {pod} cstr {prefix}.verifyin.v{i}in.mcache {in_mcache} \
+            insert {pod} cstr {prefix}.verifyin.v{i}in.dcache {in_dcache} \
+            insert {pod} cstr {prefix}.verifyin.v{i}in.fseq {in_fseq}");
 
         let cnc = run!("{bin}/fd_tango_ctl new-cnc {workspace} 2 tic {CNC_APP_SIZE}");
         let mcache = run!("{bin}/fd_tango_ctl new-mcache {workspace} {} 0 0", config.tiles.verify.receive_buffer_size);
@@ -114,10 +115,10 @@ fn step(config: &mut Config) {
             receive_buffer_size=config.tiles.verify.receive_buffer_size);
         let fseq = run!("{bin}/fd_tango_ctl new-fseq {workspace} 0");
         run!("{bin}/fd_pod_ctl \
-            insert {pod} cstr {name}.verify.v{i}.cnc {cnc} \
-            insert {pod} cstr {name}.verify.v{i}.mcache {mcache} \
-            insert {pod} cstr {name}.verify.v{i}.dcache {dcache} \
-            insert {pod} cstr {name}.verify.v{i}.fseq {fseq}");
+            insert {pod} cstr {prefix}.verify.v{i}.cnc {cnc} \
+            insert {pod} cstr {prefix}.verify.v{i}.mcache {mcache} \
+            insert {pod} cstr {prefix}.verify.v{i}.dcache {dcache} \
+            insert {pod} cstr {prefix}.verify.v{i}.fseq {fseq}");
 
         verify_info.push((in_mcache, in_dcache, in_fseq));
     }
@@ -136,13 +137,13 @@ fn step(config: &mut Config) {
         let xsk_aio = run!("{bin}/fd_xdp_ctl new-xsk-aio {workspace} {} {}", config.tiles.quic.xdp_tx_queue_size, config.tiles.quic.xdp_aio_depth);
 
         run!("{bin}/fd_pod_ctl
-            insert {pod} cstr {name}.quic.quic{i}.cnc {cnc} \
-            insert {pod} cstr {name}.quic.quic{i}.mcache {mcache} \
-            insert {pod} cstr {name}.quic.quic{i}.dcache {dcache} \
-            insert {pod} cstr {name}.quic.quic{i}.fseq {fseq} \
-            insert {pod} cstr {name}.quic.quic{i}.quic {quic} \
-            insert {pod} cstr {name}.quic.quic{i}.xsk {xsk} \
-            insert {pod} cstr {name}.quic.quic{i}.xsk_aio {xsk_aio}",
+            insert {pod} cstr {prefix}.quic.quic{i}.cnc {cnc} \
+            insert {pod} cstr {prefix}.quic.quic{i}.mcache {mcache} \
+            insert {pod} cstr {prefix}.quic.quic{i}.dcache {dcache} \
+            insert {pod} cstr {prefix}.quic.quic{i}.fseq {fseq} \
+            insert {pod} cstr {prefix}.quic.quic{i}.quic {quic} \
+            insert {pod} cstr {prefix}.quic.quic{i}.xsk {xsk} \
+            insert {pod} cstr {prefix}.quic.quic{i}.xsk_aio {xsk_aio}",
             mcache=verify_mcache,
             dcache=verify_dcache,
             fseq=verify_fseq);
@@ -152,12 +153,12 @@ fn step(config: &mut Config) {
     let src_mac_address = super::netns::src_mac_address(config);
 
     run!("{bin}/fd_pod_ctl \
-        insert {pod} cstr {name}.quic_cfg.cert_file {cert_file} \
-        insert {pod} cstr {name}.quic_cfg.key_file {key_file} \
-        insert {pod} cstr {name}.quic_cfg.ip_addr {ip_addr} \
-        insert {pod} ushort {name}.quic_cfg.listen_port {listen_port} \
-        insert {pod} cstr {name}.quic_cfg.src_mac_addr {src_mac_address} \
-        insert {pod} ulong {name}.quic_cfg.idle_timeout_ms 1000",
+        insert {pod} cstr {prefix}.quic_cfg.cert_file {cert_file} \
+        insert {pod} cstr {prefix}.quic_cfg.key_file {key_file} \
+        insert {pod} cstr {prefix}.quic_cfg.ip_addr {ip_addr} \
+        insert {pod} ushort {prefix}.quic_cfg.listen_port {listen_port} \
+        insert {pod} cstr {prefix}.quic_cfg.src_mac_addr {src_mac_address} \
+        insert {pod} ulong {prefix}.quic_cfg.idle_timeout_ms 1000",
         cert_file=format!("{}/cert.pem", &config.scratch_directory),
         key_file=format!("{}/key.pem", &config.scratch_directory),
         ip_addr=listen_address,

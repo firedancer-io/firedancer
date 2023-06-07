@@ -8,7 +8,7 @@
 
 #define FD_MCACHE_MAGIC (0xF17EDA2C373CA540UL) /* F17E=FIRE,DA2C/37=DANCER,3C/A54=MCASH,0=V0 / FIRE DANCER MCASH V0 */
 
-/* fd_mcache_private_hdr specfies the detailed layout of the shared
+/* fd_mcache_private_hdr specifies the detailed layout of the shared
    memory region.  */
 
 struct __attribute__((aligned(FD_MCACHE_ALIGN))) fd_mcache_private_hdr {

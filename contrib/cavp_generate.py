@@ -128,7 +128,7 @@ Result is written to stdout.""",
     )
     parser.add_argument("--rsp", type=Path, help="Path to response file")
     parser.add_argument(
-        "--alg", type=str, choices=["sha256", "sha512"], required=True, help="Algorithm"
+        "--alg", type=str, choices=["sha256", "sha384", "sha512"], required=True, help="Algorithm"
     )
     parser.add_argument("--name", type=str, required=True, help="Test name")
     parser.add_argument("--out", type=Path, help="Output to file (default stdout)")
