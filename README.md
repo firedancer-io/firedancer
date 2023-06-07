@@ -1,126 +1,83 @@
-Getting started
-===============
+# [Firedancer](https://jumpcrypto.com/firedancer/) 🔥💃
 
-Host setup
-----------
+Firedancer is a new validator client for Solana.
 
-The below describes building Firedancer from scratch and running it
-optimized on a stock GCP `n2-standard-80` instance with a stock GCP
-RHEL8.5 image.  For reference, this instance is a dual socket 20
-physical core Intel Cascade Lake at 2.8 GHz with hyperthreading enabled
--> 2 NUMA nodes total, 80 logical cores total).
+* **Fast** Designed from the ground up to be *fast*. The concurrency
+model is borrowed from the low latency trading space, and the code
+contains many novel high performance reimplementations of core Solana
+primitives.
+* **Secure** The architecture of the validator allows it to run almost
+completely in user space with a highly restrictive sandbox.
+* **Independent** Firedancer is a new implementation of a Solana
+validator client, written from scratch. This brings client diversity to
+the Solana network and helps it stay resilient to supply chain attacks
+in build tooling or dependencies.
 
-Setup for other reasonably modern x86_64 architecture hosts (reasonable
-modern here AVX2 support, this includes most Intel architectures since
-~mid-2013 and AMD architectures since ~mid-2015) running reasonable
-modern Linux-ish distributions is expected to be very similar.  Though
-it is possible to run Firedancer to run on older hosts, it is not
-supported and the below assumes a reasonably modern host.
+## Installation
 
-While the Firedancer applications are meant to run from a normal user
-account, tuning a host to run Firedancer optimally requires a some
-administrative operations (should not be any more than the existing
-validator).  Though it is possible to run Firedancer without any of
-these tunings, it is not recommended and the below assumes the user has
-the necessary `sudo` access.
+Firedancer is currently under heavy development and is not ready for
+production use. There are no releases avaialble.
 
-- Log into the host and configure user environment to taste (e.g.
-  install favorite editors / code development environment, etc).  This
-  is not specific to Firedancer but note hosts like this have very
-  minimal installs on first login.
+## Developing
 
-- Install standard development tools.
-    ```
-    $ sudo dnf groupinstall development
-    ```
-  As mentioned above, the minimal installs are missing even basic
-  development tools.  The `development` group includes such things as
-  the stock `gcc` compiler, build tools like `make`, version control
-  systems like `git`, etc.  Firedancer likely can use other tool chains
-  / compilers (e.g. `clang`) but this is not routinely tested currently.
+The [getting started](doc/getting-started.md) guide has detailed system
+setup instructions.
 
-- Install additional dependencies.  To simplify install and improve
-  auditability, Firedancer tries to have minimal external dependencies
-  and then only use external dependencies that are trivially installable
-  on recent stock Linux distributions.  Current packages used include:
-    - pkg-config
-    - xdp-tools
+```bash
+$ git clone https://github.com/firedancer-io/firedancer.git
+$ cd firedancer
+$ ./deps.sh
+$ make -j
+```
 
-- Configure the host for high performance by allowing users to lock
-  pages in memory and increase the scheduler priority of performance
-  critical user threads.  As superuser (e.g. `sudo su -`), add the
-  following lines to `/etc/security/limits.conf`:
-    ```
-    * - memlock unlimited
-    * - nice -20
-    ```
-  (The user might only opt to be more restrictiv if desired, e.g. only
-  allow Firedancer users to do this.)  Recommend logging out and then
-  logging back in again after making these changes.  `ulimit -a` can be
-  used to tell if the new user limits have taken effect.  E.g., as a
-  regular user, the following would indicate that the changes are in
-  effect:
-    ```
-    $ ulimit -a
-    ... snip ...
-    scheduling priority             (-e) 40
-    ... snip ...
-    max locked memory       (kbytes, -l) unlimited
-    ... snip ...
-    ```
+## Running
 
-- Get Firedancer.  E.g.:
-    ```
-    $ git clone https://github.com/firedancer-io/firedancer.git firedancer
-    ```
-  will make a directory in the current directory called firedancer and
-  copy of the current head-of-tree code base into that directory.
+Firedancer uses several privileged operating system features to improve
+performance and security. These can be configured manually in your
+environment, but we also have a command line utility `fdctl` that lets a
+user set up and tear down the environment easily.
 
-- Build Firedancer. E.g. From the directory where firedancer was
-  checked out:
-    ```
-    make -j
-    ```
-  This will do a parallel incremental build using all non-isolated cores
-  and should be reasonably quick even when done from scratch (less than
-  a minute).  The default machine target will be
-  `MACHINE=linux_gcc_x86_64` (details of this machine can be found in
-  `config/linux_gcc_x86_64.mk`).  The build results will be in the
-  relative directory `build/linux/gcc/x86_64`.  `make` has many powers;
-  run `make help` for more info.  If building on a system with lots of
-  isolated cores, see `contrib/make-j`.
+```bash
+$ cargo run configure all init # Configure required system knobs
+$ cargo run run # Run the Firedancer program
+```
 
-- Reserve host resources for application usage.  E.g.:
-    ```
-    $ sudo build/linux/gcc/x86_64/bin/fd_shmem_cfg \
-      alloc 8 gigantic 0                           \
-      alloc 8 gigantic 1                           \
-      alloc 512 huge 0                             \
-      alloc 512 huge 1
-    ```
-  will reserve
-      8 1GiB pages on numa node 0,
-      8 1GiB pages on numa node 1,
-    512 2MiB pages on numa node 0, and
-    512 2MiB pages on numa node 1
-  on the host for application use (assuming the host in fact has enough
-  free contiguous physical DRAM availability).  Adjust this as necessary
-  for the number of cores, system DRAM availabiity, application mix,
-  application configurations, etc.  `fd_shmem_cfg` has many powers.  Run
-  `fd_shmem_cfg help` for more info.
+When done, the environment can be returned to normal.
 
-- Create an appropriately permissioned sandbox for managing shared
-  memory data structures.  E.g.:
-    ```
-    $ sudo build/linux/gcc/x86_64/bin/fd_shmem_cfg init 0700 [USER] ""
-    ```
-  where `[USER]` is the user that will run Firedancer applications.
-  Multiple sandboxes with different permissions, users, groups can /
-  coexist simultaneously (the `""` will be use default group of
-  `[USER]`).
+```bash
+$ cargo run configure all check # Check if the system is configured correctly
+$ cargo run configure all fini # Remove any special configuration we installed
+```
 
-Running
--------
+`fdctl` reads from a  `FIREDANCER_CONFIG_TOML` environment variable to
+determine all options needed in configuring and running the program. A
+complete list of configuration options is provided in
+[default.toml](src/app/fdctl/config/default.toml)
 
-TODO
+Some of the privileged system configuration steps performed by `fdctl`
+are,
 
+* **Huge pages** Memory needed for Firedancer must be pre-allocated
+before launching it. Firedancer uses `huge` and `gigantic` memory pages,
+which are mounted in a local directory. Enabling huge pages and mounting
+them to a pseudo filesystem requires root privileges.
+* **XDP** Kernel bypass is used for networking, via the eXpress Data
+Path. Installing the packet filtering code into the driver requires a
+privileged process, and must be done before running Firedancer. You may
+also need to configure the network driver to support multiple channels,
+which requires root.
+* **Sandboxing** Firedancer installs a BPF program to restrict itself
+from making certain system calls, and in certain development
+environemnts `fdctl` installs network namespaces to simplify network
+debugging when using XDP. Performing these initial restrictions can
+require additional capabilities.
+
+A good way to see what privileges are needed to configure the
+environment is to run `fdctl configure` as a non-privileged user, which
+will display information about the operations it wishes to perform.
+
+## License
+Firedancer is available under the [Apache 2
+license](https://www.apache.org/licenses/LICENSE-2.0). Firedancer also
+includes external libraries that are available under a variety of
+licenses. See [LICENSE](LICENSE) for the full license text.
