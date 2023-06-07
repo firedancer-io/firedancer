@@ -217,5 +217,12 @@ int fd_executor_config_program_execute_instruction( instruction_ctx_t ctx ) {
    }
    fd_acc_mgr_update_hash ( ctx.global->acc_mgr, &metadata, ctx.global->funk_txn, ctx.global->bank.solana_bank.slot, config_acc, new_data, new_data_size);
 
+   fd_bincode_destroy_ctx_t destroy_ctx = {
+      .freef = ctx.global->freef,
+      .freef_arg = ctx.global->allocf_arg,
+   };
+   fd_config_keys_destroy( &instruction, &destroy_ctx );
+   fd_config_keys_destroy( &config_account_state, &destroy_ctx );
+
    return FD_EXECUTOR_INSTR_SUCCESS;
 }
