@@ -1,11 +1,8 @@
 #ifndef HEADER_fd_src_util_encoders_fd_bincode_h
 #define HEADER_fd_src_util_encoders_fd_bincode_h
 
-#include "../../util/bits/fd_bits.h"
 #include "../../util/fd_util.h"
-#include "../../ballet/txn/fd_compact_u16.h"
-
-#include <immintrin.h>
+#include "../../util/simd/fd_sse.h"
 
 /* Context argument used for encoding */
 struct fd_bincode_encode_ctx {
