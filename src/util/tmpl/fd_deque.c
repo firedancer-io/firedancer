@@ -1,4 +1,3 @@
-
 /* Declares a family of functions implementing a single-threaded
    compile-time fixed-capacity double-ended queue (deque) designed for
    high performance contexts.  The deque is implemented with a circular
