@@ -72,7 +72,7 @@
 #include "fd_banks_solana.h"
 #include "fd_hashes.h"
 #include "fd_executor.h"
-#include "fd_types.h"
+#include "../../flamenco/types/fd_types.h"
 #include "../../funk/fd_funk.h"
 #include "../../util/alloc/fd_alloc.h"
 #include "../base58/fd_base58.h"

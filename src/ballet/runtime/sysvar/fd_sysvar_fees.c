@@ -1,5 +1,5 @@
 #include "fd_sysvar_fees.h"
-#include "../fd_types.h"
+#include "../../../flamenco/types/fd_types.h"
 #include "fd_sysvar.h"
 
 void write_fees( fd_global_ctx_t* global, fd_sysvar_fees_t* fees ) {

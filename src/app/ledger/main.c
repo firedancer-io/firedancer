@@ -20,7 +20,7 @@
 #include "../../ballet/runtime/fd_banks_solana.h"
 #include "../../ballet/runtime/fd_hashes.h"
 #include "../../funk/fd_funk.h"
-#include "../../ballet/runtime/fd_types.h"
+#include "../../flamenco/types//fd_types.h"
 #include "../../ballet/runtime/fd_runtime.h"
 #include "../../ballet/runtime/fd_rocksdb.h"
 #include "../../ballet/base58/fd_base58.h"

@@ -1,5 +1,5 @@
 #include "fd_sysvar_clock.h"
-#include "../fd_types.h"
+#include "../../../flamenco/types/fd_types.h"
 #include "fd_sysvar.h"
 
 #ifdef _DISABLE_OPTIMIZATION

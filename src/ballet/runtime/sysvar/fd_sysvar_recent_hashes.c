@@ -1,5 +1,4 @@
 #include <stdio.h>
-#include "../fd_types.h"
 #include "../fd_banks_solana.h"
 #include "../fd_acc_mgr.h"
 #include "../fd_hashes.h"
