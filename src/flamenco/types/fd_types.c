@@ -20,13 +20,13 @@ void fd_fee_calculator_walk(fd_fee_calculator_t* self, fd_walk_fun_t fun, const 
   fun(&self->lamports_per_signature, "lamports_per_signature", 11, "ulong", level + 1);
   fun(self, name, 33, "fd_fee_calculator", --level);
 }
-ulong fd_fee_calculator_size(fd_fee_calculator_t* self) {
+ulong fd_fee_calculator_size(fd_fee_calculator_t const * self) {
   ulong size = 0;
   size += sizeof(ulong);
   return size;
 }
 
-int fd_fee_calculator_encode(fd_fee_calculator_t* self, fd_bincode_encode_ctx_t * ctx) {
+int fd_fee_calculator_encode(fd_fee_calculator_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
   err = fd_bincode_uint64_encode(&self->lamports_per_signature, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -57,7 +57,7 @@ void fd_hash_age_walk(fd_hash_age_t* self, fd_walk_fun_t fun, const char *name, 
   fun(&self->timestamp, "timestamp", 11, "ulong", level + 1);
   fun(self, name, 33, "fd_hash_age", --level);
 }
-ulong fd_hash_age_size(fd_hash_age_t* self) {
+ulong fd_hash_age_size(fd_hash_age_t const * self) {
   ulong size = 0;
   size += fd_fee_calculator_size(&self->fee_calculator);
   size += sizeof(ulong);
@@ -65,7 +65,7 @@ ulong fd_hash_age_size(fd_hash_age_t* self) {
   return size;
 }
 
-int fd_hash_age_encode(fd_hash_age_t* self, fd_bincode_encode_ctx_t * ctx) {
+int fd_hash_age_encode(fd_hash_age_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
   err = fd_fee_calculator_encode(&self->fee_calculator, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -99,14 +99,14 @@ void fd_hash_hash_age_pair_walk(fd_hash_hash_age_pair_t* self, fd_walk_fun_t fun
   fd_hash_age_walk(&self->val, fun, "val", level + 1);
   fun(self, name, 33, "fd_hash_hash_age_pair", --level);
 }
-ulong fd_hash_hash_age_pair_size(fd_hash_hash_age_pair_t* self) {
+ulong fd_hash_hash_age_pair_size(fd_hash_hash_age_pair_t const * self) {
   ulong size = 0;
   size += fd_hash_size(&self->key);
   size += fd_hash_age_size(&self->val);
   return size;
 }
 
-int fd_hash_hash_age_pair_encode(fd_hash_hash_age_pair_t* self, fd_bincode_encode_ctx_t * ctx) {
+int fd_hash_hash_age_pair_encode(fd_hash_hash_age_pair_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
   err = fd_hash_encode(&self->key, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -179,7 +179,7 @@ void fd_block_hash_queue_walk(fd_block_hash_queue_t* self, fd_walk_fun_t fun, co
   fun(&self->max_age, "max_age", 11, "ulong", level + 1);
   fun(self, name, 33, "fd_block_hash_queue", --level);
 }
-ulong fd_block_hash_queue_size(fd_block_hash_queue_t* self) {
+ulong fd_block_hash_queue_size(fd_block_hash_queue_t const * self) {
   ulong size = 0;
   size += sizeof(ulong);
   size += sizeof(char);
@@ -193,7 +193,7 @@ ulong fd_block_hash_queue_size(fd_block_hash_queue_t* self) {
   return size;
 }
 
-int fd_block_hash_queue_encode(fd_block_hash_queue_t* self, fd_bincode_encode_ctx_t * ctx) {
+int fd_block_hash_queue_encode(fd_block_hash_queue_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
   err = fd_bincode_uint64_encode(&self->last_hash_index, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -247,7 +247,7 @@ void fd_epoch_schedule_walk(fd_epoch_schedule_t* self, fd_walk_fun_t fun, const 
   fun(&self->first_normal_slot, "first_normal_slot", 11, "ulong", level + 1);
   fun(self, name, 33, "fd_epoch_schedule", --level);
 }
-ulong fd_epoch_schedule_size(fd_epoch_schedule_t* self) {
+ulong fd_epoch_schedule_size(fd_epoch_schedule_t const * self) {
   ulong size = 0;
   size += sizeof(ulong);
   size += sizeof(ulong);
@@ -257,7 +257,7 @@ ulong fd_epoch_schedule_size(fd_epoch_schedule_t* self) {
   return size;
 }
 
-int fd_epoch_schedule_encode(fd_epoch_schedule_t* self, fd_bincode_encode_ctx_t * ctx) {
+int fd_epoch_schedule_encode(fd_epoch_schedule_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
   err = fd_bincode_uint64_encode(&self->slots_per_epoch, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -300,7 +300,7 @@ void fd_fee_rate_governor_walk(fd_fee_rate_governor_t* self, fd_walk_fun_t fun, 
   fun(&self->burn_percent, "burn_percent", 9, "uchar", level + 1);
   fun(self, name, 33, "fd_fee_rate_governor", --level);
 }
-ulong fd_fee_rate_governor_size(fd_fee_rate_governor_t* self) {
+ulong fd_fee_rate_governor_size(fd_fee_rate_governor_t const * self) {
   ulong size = 0;
   size += sizeof(ulong);
   size += sizeof(ulong);
@@ -310,7 +310,7 @@ ulong fd_fee_rate_governor_size(fd_fee_rate_governor_t* self) {
   return size;
 }
 
-int fd_fee_rate_governor_encode(fd_fee_rate_governor_t* self, fd_bincode_encode_ctx_t * ctx) {
+int fd_fee_rate_governor_encode(fd_fee_rate_governor_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
   err = fd_bincode_uint64_encode(&self->target_lamports_per_signature, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -344,14 +344,14 @@ void fd_slot_pair_walk(fd_slot_pair_t* self, fd_walk_fun_t fun, const char *name
   fun(&self->val, "val", 11, "ulong", level + 1);
   fun(self, name, 33, "fd_slot_pair", --level);
 }
-ulong fd_slot_pair_size(fd_slot_pair_t* self) {
+ulong fd_slot_pair_size(fd_slot_pair_t const * self) {
   ulong size = 0;
   size += sizeof(ulong);
   size += sizeof(ulong);
   return size;
 }
 
-int fd_slot_pair_encode(fd_slot_pair_t* self, fd_bincode_encode_ctx_t * ctx) {
+int fd_slot_pair_encode(fd_slot_pair_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
   err = fd_bincode_uint64_encode(&self->slot, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -399,7 +399,7 @@ void fd_hard_forks_walk(fd_hard_forks_t* self, fd_walk_fun_t fun, const char *na
   }
   fun(self, name, 33, "fd_hard_forks", --level);
 }
-ulong fd_hard_forks_size(fd_hard_forks_t* self) {
+ulong fd_hard_forks_size(fd_hard_forks_t const * self) {
   ulong size = 0;
   size += sizeof(ulong);
   for (ulong i = 0; i < self->hard_forks_len; ++i)
@@ -407,7 +407,7 @@ ulong fd_hard_forks_size(fd_hard_forks_t* self) {
   return size;
 }
 
-int fd_hard_forks_encode(fd_hard_forks_t* self, fd_bincode_encode_ctx_t * ctx) {
+int fd_hard_forks_encode(fd_hard_forks_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
   err = fd_bincode_uint64_encode(&self->hard_forks_len, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -451,7 +451,7 @@ void fd_inflation_walk(fd_inflation_t* self, fd_walk_fun_t fun, const char *name
   fun(&self->__unused, "__unused", 5, "double", level + 1);
   fun(self, name, 33, "fd_inflation", --level);
 }
-ulong fd_inflation_size(fd_inflation_t* self) {
+ulong fd_inflation_size(fd_inflation_t const * self) {
   ulong size = 0;
   size += sizeof(double);
   size += sizeof(double);
@@ -462,7 +462,7 @@ ulong fd_inflation_size(fd_inflation_t* self) {
   return size;
 }
 
-int fd_inflation_encode(fd_inflation_t* self, fd_bincode_encode_ctx_t * ctx) {
+int fd_inflation_encode(fd_inflation_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
   err = fd_bincode_double_encode(&self->initial, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -501,7 +501,7 @@ void fd_rent_walk(fd_rent_t* self, fd_walk_fun_t fun, const char *name, int leve
   fun(&self->burn_percent, "burn_percent", 9, "uchar", level + 1);
   fun(self, name, 33, "fd_rent", --level);
 }
-ulong fd_rent_size(fd_rent_t* self) {
+ulong fd_rent_size(fd_rent_t const * self) {
   ulong size = 0;
   size += sizeof(ulong);
   size += sizeof(double);
@@ -509,7 +509,7 @@ ulong fd_rent_size(fd_rent_t* self) {
   return size;
 }
 
-int fd_rent_encode(fd_rent_t* self, fd_bincode_encode_ctx_t * ctx) {
+int fd_rent_encode(fd_rent_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
   err = fd_bincode_uint64_encode(&self->lamports_per_uint8_year, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -549,7 +549,7 @@ void fd_rent_collector_walk(fd_rent_collector_t* self, fd_walk_fun_t fun, const 
   fd_rent_walk(&self->rent, fun, "rent", level + 1);
   fun(self, name, 33, "fd_rent_collector", --level);
 }
-ulong fd_rent_collector_size(fd_rent_collector_t* self) {
+ulong fd_rent_collector_size(fd_rent_collector_t const * self) {
   ulong size = 0;
   size += sizeof(ulong);
   size += fd_epoch_schedule_size(&self->epoch_schedule);
@@ -558,7 +558,7 @@ ulong fd_rent_collector_size(fd_rent_collector_t* self) {
   return size;
 }
 
-int fd_rent_collector_encode(fd_rent_collector_t* self, fd_bincode_encode_ctx_t * ctx) {
+int fd_rent_collector_encode(fd_rent_collector_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
   err = fd_bincode_uint64_encode(&self->epoch, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -593,7 +593,7 @@ void fd_stake_history_entry_walk(fd_stake_history_entry_t* self, fd_walk_fun_t f
   fun(&self->deactivating, "deactivating", 11, "ulong", level + 1);
   fun(self, name, 33, "fd_stake_history_entry", --level);
 }
-ulong fd_stake_history_entry_size(fd_stake_history_entry_t* self) {
+ulong fd_stake_history_entry_size(fd_stake_history_entry_t const * self) {
   ulong size = 0;
   size += sizeof(ulong);
   size += sizeof(ulong);
@@ -601,7 +601,7 @@ ulong fd_stake_history_entry_size(fd_stake_history_entry_t* self) {
   return size;
 }
 
-int fd_stake_history_entry_encode(fd_stake_history_entry_t* self, fd_bincode_encode_ctx_t * ctx) {
+int fd_stake_history_entry_encode(fd_stake_history_entry_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
   err = fd_bincode_uint64_encode(&self->effective, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -633,14 +633,14 @@ void fd_stake_history_epochentry_pair_walk(fd_stake_history_epochentry_pair_t* s
   fd_stake_history_entry_walk(&self->entry, fun, "entry", level + 1);
   fun(self, name, 33, "fd_stake_history_epochentry_pair", --level);
 }
-ulong fd_stake_history_epochentry_pair_size(fd_stake_history_epochentry_pair_t* self) {
+ulong fd_stake_history_epochentry_pair_size(fd_stake_history_epochentry_pair_t const * self) {
   ulong size = 0;
   size += sizeof(ulong);
   size += fd_stake_history_entry_size(&self->entry);
   return size;
 }
 
-int fd_stake_history_epochentry_pair_encode(fd_stake_history_epochentry_pair_t* self, fd_bincode_encode_ctx_t * ctx) {
+int fd_stake_history_epochentry_pair_encode(fd_stake_history_epochentry_pair_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
   err = fd_bincode_uint64_encode(&self->epoch, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -688,7 +688,7 @@ void fd_stake_history_walk(fd_stake_history_t* self, fd_walk_fun_t fun, const ch
   }
   fun(self, name, 33, "fd_stake_history", --level);
 }
-ulong fd_stake_history_size(fd_stake_history_t* self) {
+ulong fd_stake_history_size(fd_stake_history_t const * self) {
   ulong size = 0;
   size += sizeof(ulong);
   for (ulong i = 0; i < self->entries_len; ++i)
@@ -696,7 +696,7 @@ ulong fd_stake_history_size(fd_stake_history_t* self) {
   return size;
 }
 
-int fd_stake_history_encode(fd_stake_history_t* self, fd_bincode_encode_ctx_t * ctx) {
+int fd_stake_history_encode(fd_stake_history_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
   err = fd_bincode_uint64_encode(&self->entries_len, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -750,7 +750,7 @@ void fd_solana_account_walk(fd_solana_account_t* self, fd_walk_fun_t fun, const 
   fun(&self->rent_epoch, "rent_epoch", 11, "ulong", level + 1);
   fun(self, name, 33, "fd_solana_account", --level);
 }
-ulong fd_solana_account_size(fd_solana_account_t* self) {
+ulong fd_solana_account_size(fd_solana_account_t const * self) {
   ulong size = 0;
   size += sizeof(ulong);
   size += sizeof(ulong);
@@ -761,7 +761,7 @@ ulong fd_solana_account_size(fd_solana_account_t* self) {
   return size;
 }
 
-int fd_solana_account_encode(fd_solana_account_t* self, fd_bincode_encode_ctx_t * ctx) {
+int fd_solana_account_encode(fd_solana_account_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
   err = fd_bincode_uint64_encode(&self->lamports, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -806,7 +806,7 @@ void fd_vote_accounts_pair_walk(fd_vote_accounts_pair_t* self, fd_walk_fun_t fun
   fd_solana_account_walk(&self->value, fun, "value", level + 1);
   fun(self, name, 33, "fd_vote_accounts_pair", --level);
 }
-ulong fd_vote_accounts_pair_size(fd_vote_accounts_pair_t* self) {
+ulong fd_vote_accounts_pair_size(fd_vote_accounts_pair_t const * self) {
   ulong size = 0;
   size += fd_pubkey_size(&self->key);
   size += sizeof(ulong);
@@ -814,7 +814,7 @@ ulong fd_vote_accounts_pair_size(fd_vote_accounts_pair_t* self) {
   return size;
 }
 
-int fd_vote_accounts_pair_encode(fd_vote_accounts_pair_t* self, fd_bincode_encode_ctx_t * ctx) {
+int fd_vote_accounts_pair_encode(fd_vote_accounts_pair_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
   err = fd_pubkey_encode(&self->key, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -864,7 +864,7 @@ void fd_vote_accounts_walk(fd_vote_accounts_t* self, fd_walk_fun_t fun, const ch
   }
   fun(self, name, 33, "fd_vote_accounts", --level);
 }
-ulong fd_vote_accounts_size(fd_vote_accounts_t* self) {
+ulong fd_vote_accounts_size(fd_vote_accounts_t const * self) {
   ulong size = 0;
   size += sizeof(ulong);
   for (ulong i = 0; i < self->vote_accounts_len; ++i)
@@ -872,7 +872,7 @@ ulong fd_vote_accounts_size(fd_vote_accounts_t* self) {
   return size;
 }
 
-int fd_vote_accounts_encode(fd_vote_accounts_t* self, fd_bincode_encode_ctx_t * ctx) {
+int fd_vote_accounts_encode(fd_vote_accounts_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
   err = fd_bincode_uint64_encode(&self->vote_accounts_len, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -915,7 +915,7 @@ void fd_delegation_walk(fd_delegation_t* self, fd_walk_fun_t fun, const char *na
   fun(&self->warmup_cooldown_rate, "warmup_cooldown_rate", 5, "double", level + 1);
   fun(self, name, 33, "fd_delegation", --level);
 }
-ulong fd_delegation_size(fd_delegation_t* self) {
+ulong fd_delegation_size(fd_delegation_t const * self) {
   ulong size = 0;
   size += fd_pubkey_size(&self->voter_pubkey);
   size += sizeof(ulong);
@@ -925,7 +925,7 @@ ulong fd_delegation_size(fd_delegation_t* self) {
   return size;
 }
 
-int fd_delegation_encode(fd_delegation_t* self, fd_bincode_encode_ctx_t * ctx) {
+int fd_delegation_encode(fd_delegation_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
   err = fd_pubkey_encode(&self->voter_pubkey, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -963,14 +963,14 @@ void fd_delegation_pair_walk(fd_delegation_pair_t* self, fd_walk_fun_t fun, cons
   fd_delegation_walk(&self->delegation, fun, "delegation", level + 1);
   fun(self, name, 33, "fd_delegation_pair", --level);
 }
-ulong fd_delegation_pair_size(fd_delegation_pair_t* self) {
+ulong fd_delegation_pair_size(fd_delegation_pair_t const * self) {
   ulong size = 0;
   size += fd_pubkey_size(&self->account);
   size += fd_delegation_size(&self->delegation);
   return size;
 }
 
-int fd_delegation_pair_encode(fd_delegation_pair_t* self, fd_bincode_encode_ctx_t * ctx) {
+int fd_delegation_pair_encode(fd_delegation_pair_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
   err = fd_pubkey_encode(&self->account, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -1034,7 +1034,7 @@ void fd_stakes_walk(fd_stakes_t* self, fd_walk_fun_t fun, const char *name, int 
   fd_stake_history_walk(&self->stake_history, fun, "stake_history", level + 1);
   fun(self, name, 33, "fd_stakes", --level);
 }
-ulong fd_stakes_size(fd_stakes_t* self) {
+ulong fd_stakes_size(fd_stakes_t const * self) {
   ulong size = 0;
   size += fd_vote_accounts_size(&self->vote_accounts);
   if ( self->stake_delegations ) {
@@ -1050,7 +1050,7 @@ ulong fd_stakes_size(fd_stakes_t* self) {
   return size;
 }
 
-int fd_stakes_encode(fd_stakes_t* self, fd_bincode_encode_ctx_t * ctx) {
+int fd_stakes_encode(fd_stakes_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
   err = fd_vote_accounts_encode(&self->vote_accounts, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -1109,7 +1109,7 @@ void fd_bank_incremental_snapshot_persistence_walk(fd_bank_incremental_snapshot_
   fun(&self->incremental_capitalization, "incremental_capitalization", 11, "ulong", level + 1);
   fun(self, name, 33, "fd_bank_incremental_snapshot_persistence", --level);
 }
-ulong fd_bank_incremental_snapshot_persistence_size(fd_bank_incremental_snapshot_persistence_t* self) {
+ulong fd_bank_incremental_snapshot_persistence_size(fd_bank_incremental_snapshot_persistence_t const * self) {
   ulong size = 0;
   size += sizeof(ulong);
   size += fd_hash_size(&self->full_hash);
@@ -1119,7 +1119,7 @@ ulong fd_bank_incremental_snapshot_persistence_size(fd_bank_incremental_snapshot
   return size;
 }
 
-int fd_bank_incremental_snapshot_persistence_encode(fd_bank_incremental_snapshot_persistence_t* self, fd_bincode_encode_ctx_t * ctx) {
+int fd_bank_incremental_snapshot_persistence_encode(fd_bank_incremental_snapshot_persistence_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
   err = fd_bincode_uint64_encode(&self->full_slot, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -1176,7 +1176,7 @@ void fd_node_vote_accounts_walk(fd_node_vote_accounts_t* self, fd_walk_fun_t fun
   fun(&self->total_stake, "total_stake", 11, "ulong", level + 1);
   fun(self, name, 33, "fd_node_vote_accounts", --level);
 }
-ulong fd_node_vote_accounts_size(fd_node_vote_accounts_t* self) {
+ulong fd_node_vote_accounts_size(fd_node_vote_accounts_t const * self) {
   ulong size = 0;
   size += sizeof(ulong);
   for (ulong i = 0; i < self->vote_accounts_len; ++i)
@@ -1185,7 +1185,7 @@ ulong fd_node_vote_accounts_size(fd_node_vote_accounts_t* self) {
   return size;
 }
 
-int fd_node_vote_accounts_encode(fd_node_vote_accounts_t* self, fd_bincode_encode_ctx_t * ctx) {
+int fd_node_vote_accounts_encode(fd_node_vote_accounts_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
   err = fd_bincode_uint64_encode(&self->vote_accounts_len, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -1223,14 +1223,14 @@ void fd_pubkey_node_vote_accounts_pair_walk(fd_pubkey_node_vote_accounts_pair_t*
   fd_node_vote_accounts_walk(&self->value, fun, "value", level + 1);
   fun(self, name, 33, "fd_pubkey_node_vote_accounts_pair", --level);
 }
-ulong fd_pubkey_node_vote_accounts_pair_size(fd_pubkey_node_vote_accounts_pair_t* self) {
+ulong fd_pubkey_node_vote_accounts_pair_size(fd_pubkey_node_vote_accounts_pair_t const * self) {
   ulong size = 0;
   size += fd_pubkey_size(&self->key);
   size += fd_node_vote_accounts_size(&self->value);
   return size;
 }
 
-int fd_pubkey_node_vote_accounts_pair_encode(fd_pubkey_node_vote_accounts_pair_t* self, fd_bincode_encode_ctx_t * ctx) {
+int fd_pubkey_node_vote_accounts_pair_encode(fd_pubkey_node_vote_accounts_pair_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
   err = fd_pubkey_encode(&self->key, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -1262,14 +1262,14 @@ void fd_pubkey_pubkey_pair_walk(fd_pubkey_pubkey_pair_t* self, fd_walk_fun_t fun
   fd_pubkey_walk(&self->value, fun, "value", level + 1);
   fun(self, name, 33, "fd_pubkey_pubkey_pair", --level);
 }
-ulong fd_pubkey_pubkey_pair_size(fd_pubkey_pubkey_pair_t* self) {
+ulong fd_pubkey_pubkey_pair_size(fd_pubkey_pubkey_pair_t const * self) {
   ulong size = 0;
   size += fd_pubkey_size(&self->key);
   size += fd_pubkey_size(&self->value);
   return size;
 }
 
-int fd_pubkey_pubkey_pair_encode(fd_pubkey_pubkey_pair_t* self, fd_bincode_encode_ctx_t * ctx) {
+int fd_pubkey_pubkey_pair_encode(fd_pubkey_pubkey_pair_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
   err = fd_pubkey_encode(&self->key, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -1351,7 +1351,7 @@ void fd_epoch_stakes_walk(fd_epoch_stakes_t* self, fd_walk_fun_t fun, const char
   }
   fun(self, name, 33, "fd_epoch_stakes", --level);
 }
-ulong fd_epoch_stakes_size(fd_epoch_stakes_t* self) {
+ulong fd_epoch_stakes_size(fd_epoch_stakes_t const * self) {
   ulong size = 0;
   size += fd_stakes_size(&self->stakes);
   size += sizeof(ulong);
@@ -1364,7 +1364,7 @@ ulong fd_epoch_stakes_size(fd_epoch_stakes_t* self) {
   return size;
 }
 
-int fd_epoch_stakes_encode(fd_epoch_stakes_t* self, fd_bincode_encode_ctx_t * ctx) {
+int fd_epoch_stakes_encode(fd_epoch_stakes_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
   err = fd_stakes_encode(&self->stakes, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -1410,14 +1410,14 @@ void fd_epoch_epoch_stakes_pair_walk(fd_epoch_epoch_stakes_pair_t* self, fd_walk
   fd_epoch_stakes_walk(&self->value, fun, "value", level + 1);
   fun(self, name, 33, "fd_epoch_epoch_stakes_pair", --level);
 }
-ulong fd_epoch_epoch_stakes_pair_size(fd_epoch_epoch_stakes_pair_t* self) {
+ulong fd_epoch_epoch_stakes_pair_size(fd_epoch_epoch_stakes_pair_t const * self) {
   ulong size = 0;
   size += sizeof(ulong);
   size += fd_epoch_stakes_size(&self->value);
   return size;
 }
 
-int fd_epoch_epoch_stakes_pair_encode(fd_epoch_epoch_stakes_pair_t* self, fd_bincode_encode_ctx_t * ctx) {
+int fd_epoch_epoch_stakes_pair_encode(fd_epoch_epoch_stakes_pair_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
   err = fd_bincode_uint64_encode(&self->key, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -1447,14 +1447,14 @@ void fd_pubkey_u64_pair_walk(fd_pubkey_u64_pair_t* self, fd_walk_fun_t fun, cons
   fun(&self->_1, "_1", 11, "ulong", level + 1);
   fun(self, name, 33, "fd_pubkey_u64_pair", --level);
 }
-ulong fd_pubkey_u64_pair_size(fd_pubkey_u64_pair_t* self) {
+ulong fd_pubkey_u64_pair_size(fd_pubkey_u64_pair_t const * self) {
   ulong size = 0;
   size += fd_pubkey_size(&self->_0);
   size += sizeof(ulong);
   return size;
 }
 
-int fd_pubkey_u64_pair_encode(fd_pubkey_u64_pair_t* self, fd_bincode_encode_ctx_t * ctx) {
+int fd_pubkey_u64_pair_encode(fd_pubkey_u64_pair_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
   err = fd_pubkey_encode(&self->_0, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -1554,7 +1554,7 @@ void fd_unused_accounts_walk(fd_unused_accounts_t* self, fd_walk_fun_t fun, cons
   }
   fun(self, name, 33, "fd_unused_accounts", --level);
 }
-ulong fd_unused_accounts_size(fd_unused_accounts_t* self) {
+ulong fd_unused_accounts_size(fd_unused_accounts_t const * self) {
   ulong size = 0;
   size += sizeof(ulong);
   for (ulong i = 0; i < self->unused1_len; ++i)
@@ -1568,7 +1568,7 @@ ulong fd_unused_accounts_size(fd_unused_accounts_t* self) {
   return size;
 }
 
-int fd_unused_accounts_encode(fd_unused_accounts_t* self, fd_bincode_encode_ctx_t * ctx) {
+int fd_unused_accounts_encode(fd_unused_accounts_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
   err = fd_bincode_uint64_encode(&self->unused1_len, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -1790,7 +1790,7 @@ void fd_deserializable_versioned_bank_walk(fd_deserializable_versioned_bank_t* s
   fun(&self->is_delta, "is_delta", 1, "char", level + 1);
   fun(self, name, 33, "fd_deserializable_versioned_bank", --level);
 }
-ulong fd_deserializable_versioned_bank_size(fd_deserializable_versioned_bank_t* self) {
+ulong fd_deserializable_versioned_bank_size(fd_deserializable_versioned_bank_t const * self) {
   ulong size = 0;
   size += fd_block_hash_queue_size(&self->blockhash_queue);
   size += sizeof(ulong);
@@ -1834,7 +1834,7 @@ ulong fd_deserializable_versioned_bank_size(fd_deserializable_versioned_bank_t* 
   return size;
 }
 
-int fd_deserializable_versioned_bank_encode(fd_deserializable_versioned_bank_t* self, fd_bincode_encode_ctx_t * ctx) {
+int fd_deserializable_versioned_bank_encode(fd_deserializable_versioned_bank_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
   err = fd_block_hash_queue_encode(&self->blockhash_queue, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -1941,14 +1941,14 @@ void fd_serializable_account_storage_entry_walk(fd_serializable_account_storage_
   fun(&self->accounts_current_len, "accounts_current_len", 11, "ulong", level + 1);
   fun(self, name, 33, "fd_serializable_account_storage_entry", --level);
 }
-ulong fd_serializable_account_storage_entry_size(fd_serializable_account_storage_entry_t* self) {
+ulong fd_serializable_account_storage_entry_size(fd_serializable_account_storage_entry_t const * self) {
   ulong size = 0;
   size += sizeof(ulong);
   size += sizeof(ulong);
   return size;
 }
 
-int fd_serializable_account_storage_entry_encode(fd_serializable_account_storage_entry_t* self, fd_bincode_encode_ctx_t * ctx) {
+int fd_serializable_account_storage_entry_encode(fd_serializable_account_storage_entry_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
   err = fd_bincode_uint64_encode(&self->id, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -1985,7 +1985,7 @@ void fd_bank_hash_stats_walk(fd_bank_hash_stats_t* self, fd_walk_fun_t fun, cons
   fun(&self->num_executable_accounts, "num_executable_accounts", 11, "ulong", level + 1);
   fun(self, name, 33, "fd_bank_hash_stats", --level);
 }
-ulong fd_bank_hash_stats_size(fd_bank_hash_stats_t* self) {
+ulong fd_bank_hash_stats_size(fd_bank_hash_stats_t const * self) {
   ulong size = 0;
   size += sizeof(ulong);
   size += sizeof(ulong);
@@ -1995,7 +1995,7 @@ ulong fd_bank_hash_stats_size(fd_bank_hash_stats_t* self) {
   return size;
 }
 
-int fd_bank_hash_stats_encode(fd_bank_hash_stats_t* self, fd_bincode_encode_ctx_t * ctx) {
+int fd_bank_hash_stats_encode(fd_bank_hash_stats_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
   err = fd_bincode_uint64_encode(&self->num_updated_accounts, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -2038,7 +2038,7 @@ void fd_bank_hash_info_walk(fd_bank_hash_info_t* self, fd_walk_fun_t fun, const 
   fd_bank_hash_stats_walk(&self->stats, fun, "stats", level + 1);
   fun(self, name, 33, "fd_bank_hash_info", --level);
 }
-ulong fd_bank_hash_info_size(fd_bank_hash_info_t* self) {
+ulong fd_bank_hash_info_size(fd_bank_hash_info_t const * self) {
   ulong size = 0;
   size += fd_hash_size(&self->hash);
   size += fd_hash_size(&self->snapshot_hash);
@@ -2046,7 +2046,7 @@ ulong fd_bank_hash_info_size(fd_bank_hash_info_t* self) {
   return size;
 }
 
-int fd_bank_hash_info_encode(fd_bank_hash_info_t* self, fd_bincode_encode_ctx_t * ctx) {
+int fd_bank_hash_info_encode(fd_bank_hash_info_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
   err = fd_hash_encode(&self->hash, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -2094,7 +2094,7 @@ void fd_slot_account_pair_walk(fd_slot_account_pair_t* self, fd_walk_fun_t fun, 
   //fun(&self->accounts, "accounts", 17, "map");
   fun(self, name, 33, "fd_slot_account_pair", --level);
 }
-ulong fd_slot_account_pair_size(fd_slot_account_pair_t* self) {
+ulong fd_slot_account_pair_size(fd_slot_account_pair_t const * self) {
   ulong size = 0;
   size += sizeof(ulong);
   size += sizeof(ulong);
@@ -2104,7 +2104,7 @@ ulong fd_slot_account_pair_size(fd_slot_account_pair_t* self) {
   return size;
 }
 
-int fd_slot_account_pair_encode(fd_slot_account_pair_t* self, fd_bincode_encode_ctx_t * ctx) {
+int fd_slot_account_pair_encode(fd_slot_account_pair_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
   err = fd_bincode_uint64_encode(&self->slot, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -2139,14 +2139,14 @@ void fd_slot_map_pair_walk(fd_slot_map_pair_t* self, fd_walk_fun_t fun, const ch
   fd_hash_walk(&self->hash, fun, "hash", level + 1);
   fun(self, name, 33, "fd_slot_map_pair", --level);
 }
-ulong fd_slot_map_pair_size(fd_slot_map_pair_t* self) {
+ulong fd_slot_map_pair_size(fd_slot_map_pair_t const * self) {
   ulong size = 0;
   size += sizeof(ulong);
   size += fd_hash_size(&self->hash);
   return size;
 }
 
-int fd_slot_map_pair_encode(fd_slot_map_pair_t* self, fd_bincode_encode_ctx_t * ctx) {
+int fd_slot_map_pair_encode(fd_slot_map_pair_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
   err = fd_bincode_uint64_encode(&self->slot, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -2247,7 +2247,7 @@ void fd_solana_accounts_db_fields_walk(fd_solana_accounts_db_fields_t* self, fd_
   }
   fun(self, name, 33, "fd_solana_accounts_db_fields", --level);
 }
-ulong fd_solana_accounts_db_fields_size(fd_solana_accounts_db_fields_t* self) {
+ulong fd_solana_accounts_db_fields_size(fd_solana_accounts_db_fields_t const * self) {
   ulong size = 0;
   size += sizeof(ulong);
   for ( fd_slot_account_pair_t_mapnode_t* n = fd_slot_account_pair_t_map_minimum(self->storages_pool, self->storages_root); n; n = fd_slot_account_pair_t_map_successor(self->storages_pool, n) ) {
@@ -2264,7 +2264,7 @@ ulong fd_solana_accounts_db_fields_size(fd_solana_accounts_db_fields_t* self) {
   return size;
 }
 
-int fd_solana_accounts_db_fields_encode(fd_solana_accounts_db_fields_t* self, fd_bincode_encode_ctx_t * ctx) {
+int fd_solana_accounts_db_fields_encode(fd_solana_accounts_db_fields_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
   ulong storages_len = fd_slot_account_pair_t_map_size(self->storages_pool, self->storages_root);
   err = fd_bincode_uint64_encode(&storages_len, ctx);
@@ -2323,7 +2323,7 @@ void fd_solana_manifest_walk(fd_solana_manifest_t* self, fd_walk_fun_t fun, cons
   fun(&self->lamports_per_signature, "lamports_per_signature", 11, "ulong", level + 1);
   fun(self, name, 33, "fd_solana_manifest", --level);
 }
-ulong fd_solana_manifest_size(fd_solana_manifest_t* self) {
+ulong fd_solana_manifest_size(fd_solana_manifest_t const * self) {
   ulong size = 0;
   size += fd_deserializable_versioned_bank_size(&self->bank);
   size += fd_solana_accounts_db_fields_size(&self->accounts_db);
@@ -2331,7 +2331,7 @@ ulong fd_solana_manifest_size(fd_solana_manifest_t* self) {
   return size;
 }
 
-int fd_solana_manifest_encode(fd_solana_manifest_t* self, fd_bincode_encode_ctx_t * ctx) {
+int fd_solana_manifest_encode(fd_solana_manifest_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
   err = fd_deserializable_versioned_bank_encode(&self->bank, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -2361,14 +2361,14 @@ void fd_rust_duration_walk(fd_rust_duration_t* self, fd_walk_fun_t fun, const ch
   fun(&self->nanoseconds, "nanoseconds", 7, "uint", level + 1);
   fun(self, name, 33, "fd_rust_duration", --level);
 }
-ulong fd_rust_duration_size(fd_rust_duration_t* self) {
+ulong fd_rust_duration_size(fd_rust_duration_t const * self) {
   ulong size = 0;
   size += sizeof(ulong);
   size += sizeof(uint);
   return size;
 }
 
-int fd_rust_duration_encode(fd_rust_duration_t* self, fd_bincode_encode_ctx_t * ctx) {
+int fd_rust_duration_encode(fd_rust_duration_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
   err = fd_bincode_uint64_encode(&self->seconds, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -2429,7 +2429,7 @@ void fd_poh_config_walk(fd_poh_config_t* self, fd_walk_fun_t fun, const char *na
   fun(self->hashes_per_tick, "hashes_per_tick", 11, "ulong", level + 1);
   fun(self, name, 33, "fd_poh_config", --level);
 }
-ulong fd_poh_config_size(fd_poh_config_t* self) {
+ulong fd_poh_config_size(fd_poh_config_t const * self) {
   ulong size = 0;
   size += fd_rust_duration_size(&self->target_tick_duration);
   size += sizeof(char);
@@ -2443,7 +2443,7 @@ ulong fd_poh_config_size(fd_poh_config_t* self) {
   return size;
 }
 
-int fd_poh_config_encode(fd_poh_config_t* self, fd_bincode_encode_ctx_t * ctx) {
+int fd_poh_config_encode(fd_poh_config_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
   err = fd_rust_duration_encode(&self->target_tick_duration, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -2499,14 +2499,14 @@ void fd_string_pubkey_pair_walk(fd_string_pubkey_pair_t* self, fd_walk_fun_t fun
   fd_pubkey_walk(&self->pubkey, fun, "pubkey", level + 1);
   fun(self, name, 33, "fd_string_pubkey_pair", --level);
 }
-ulong fd_string_pubkey_pair_size(fd_string_pubkey_pair_t* self) {
+ulong fd_string_pubkey_pair_size(fd_string_pubkey_pair_t const * self) {
   ulong size = 0;
   size += sizeof(ulong) + strlen(self->string);
   size += fd_pubkey_size(&self->pubkey);
   return size;
 }
 
-int fd_string_pubkey_pair_encode(fd_string_pubkey_pair_t* self, fd_bincode_encode_ctx_t * ctx) {
+int fd_string_pubkey_pair_encode(fd_string_pubkey_pair_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
   ulong slen = strlen((char *) self->string);
   err = fd_bincode_uint64_encode(&slen, ctx);
@@ -2541,14 +2541,14 @@ void fd_pubkey_account_pair_walk(fd_pubkey_account_pair_t* self, fd_walk_fun_t f
   fd_solana_account_walk(&self->account, fun, "account", level + 1);
   fun(self, name, 33, "fd_pubkey_account_pair", --level);
 }
-ulong fd_pubkey_account_pair_size(fd_pubkey_account_pair_t* self) {
+ulong fd_pubkey_account_pair_size(fd_pubkey_account_pair_t const * self) {
   ulong size = 0;
   size += fd_pubkey_size(&self->key);
   size += fd_solana_account_size(&self->account);
   return size;
 }
 
-int fd_pubkey_account_pair_encode(fd_pubkey_account_pair_t* self, fd_bincode_encode_ctx_t * ctx) {
+int fd_pubkey_account_pair_encode(fd_pubkey_account_pair_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
   err = fd_pubkey_encode(&self->key, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -2688,7 +2688,7 @@ void fd_genesis_solana_walk(fd_genesis_solana_t* self, fd_walk_fun_t fun, const 
   fun(&self->cluster_type, "cluster_type", 7, "uint", level + 1);
   fun(self, name, 33, "fd_genesis_solana", --level);
 }
-ulong fd_genesis_solana_size(fd_genesis_solana_t* self) {
+ulong fd_genesis_solana_size(fd_genesis_solana_t const * self) {
   ulong size = 0;
   size += sizeof(ulong);
   size += sizeof(ulong);
@@ -2712,7 +2712,7 @@ ulong fd_genesis_solana_size(fd_genesis_solana_t* self) {
   return size;
 }
 
-int fd_genesis_solana_encode(fd_genesis_solana_t* self, fd_bincode_encode_ctx_t * ctx) {
+int fd_genesis_solana_encode(fd_genesis_solana_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
   err = fd_bincode_uint64_encode(&self->creation_time, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -2795,7 +2795,7 @@ void fd_secp256k1_signature_offsets_walk(fd_secp256k1_signature_offsets_t* self,
   fun(&self->message_instruction_index, "message_instruction_index", 9, "uchar", level + 1);
   fun(self, name, 33, "fd_secp256k1_signature_offsets", --level);
 }
-ulong fd_secp256k1_signature_offsets_size(fd_secp256k1_signature_offsets_t* self) {
+ulong fd_secp256k1_signature_offsets_size(fd_secp256k1_signature_offsets_t const * self) {
   ulong size = 0;
   size += sizeof(ushort);
   size += sizeof(char);
@@ -2807,7 +2807,7 @@ ulong fd_secp256k1_signature_offsets_size(fd_secp256k1_signature_offsets_t* self
   return size;
 }
 
-int fd_secp256k1_signature_offsets_encode(fd_secp256k1_signature_offsets_t* self, fd_bincode_encode_ctx_t * ctx) {
+int fd_secp256k1_signature_offsets_encode(fd_secp256k1_signature_offsets_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
   err = fd_bincode_uint16_encode(&self->signature_offset, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -2854,7 +2854,7 @@ void fd_sol_sysvar_clock_walk(fd_sol_sysvar_clock_t* self, fd_walk_fun_t fun, co
   fun(&self->unix_timestamp, "unix_timestamp", 6, "long", level + 1);
   fun(self, name, 33, "fd_sol_sysvar_clock", --level);
 }
-ulong fd_sol_sysvar_clock_size(fd_sol_sysvar_clock_t* self) {
+ulong fd_sol_sysvar_clock_size(fd_sol_sysvar_clock_t const * self) {
   ulong size = 0;
   size += sizeof(ulong);
   size += sizeof(long);
@@ -2864,7 +2864,7 @@ ulong fd_sol_sysvar_clock_size(fd_sol_sysvar_clock_t* self) {
   return size;
 }
 
-int fd_sol_sysvar_clock_encode(fd_sol_sysvar_clock_t* self, fd_bincode_encode_ctx_t * ctx) {
+int fd_sol_sysvar_clock_encode(fd_sol_sysvar_clock_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
   err = fd_bincode_uint64_encode(&self->slot, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -2898,14 +2898,14 @@ void fd_vote_lockout_walk(fd_vote_lockout_t* self, fd_walk_fun_t fun, const char
   fun(&self->confirmation_count, "confirmation_count", 7, "uint", level + 1);
   fun(self, name, 33, "fd_vote_lockout", --level);
 }
-ulong fd_vote_lockout_size(fd_vote_lockout_t* self) {
+ulong fd_vote_lockout_size(fd_vote_lockout_t const * self) {
   ulong size = 0;
   size += sizeof(ulong);
   size += sizeof(uint);
   return size;
 }
 
-int fd_vote_lockout_encode(fd_vote_lockout_t* self, fd_bincode_encode_ctx_t * ctx) {
+int fd_vote_lockout_encode(fd_vote_lockout_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
   err = fd_bincode_uint64_encode(&self->slot, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -2933,14 +2933,14 @@ void fd_compact_vote_lockout_walk(fd_compact_vote_lockout_t* self, fd_walk_fun_t
   fun(&self->confirmation_count, "confirmation_count", 9, "uchar", level + 1);
   fun(self, name, 33, "fd_compact_vote_lockout", --level);
 }
-ulong fd_compact_vote_lockout_size(fd_compact_vote_lockout_t* self) {
+ulong fd_compact_vote_lockout_size(fd_compact_vote_lockout_t const * self) {
   ulong size = 0;
   size += sizeof(ulong);
   size += sizeof(char);
   return size;
 }
 
-int fd_compact_vote_lockout_encode(fd_compact_vote_lockout_t* self, fd_bincode_encode_ctx_t * ctx) {
+int fd_compact_vote_lockout_encode(fd_compact_vote_lockout_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
   err = fd_bincode_varint_encode(self->slot, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -2970,14 +2970,14 @@ void fd_vote_authorized_voter_walk(fd_vote_authorized_voter_t* self, fd_walk_fun
   fd_pubkey_walk(&self->pubkey, fun, "pubkey", level + 1);
   fun(self, name, 33, "fd_vote_authorized_voter", --level);
 }
-ulong fd_vote_authorized_voter_size(fd_vote_authorized_voter_t* self) {
+ulong fd_vote_authorized_voter_size(fd_vote_authorized_voter_t const * self) {
   ulong size = 0;
   size += sizeof(ulong);
   size += fd_pubkey_size(&self->pubkey);
   return size;
 }
 
-int fd_vote_authorized_voter_encode(fd_vote_authorized_voter_t* self, fd_bincode_encode_ctx_t * ctx) {
+int fd_vote_authorized_voter_encode(fd_vote_authorized_voter_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
   err = fd_bincode_uint64_encode(&self->epoch, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -3010,7 +3010,7 @@ void fd_vote_prior_voter_walk(fd_vote_prior_voter_t* self, fd_walk_fun_t fun, co
   fun(&self->epoch_end, "epoch_end", 11, "ulong", level + 1);
   fun(self, name, 33, "fd_vote_prior_voter", --level);
 }
-ulong fd_vote_prior_voter_size(fd_vote_prior_voter_t* self) {
+ulong fd_vote_prior_voter_size(fd_vote_prior_voter_t const * self) {
   ulong size = 0;
   size += fd_pubkey_size(&self->pubkey);
   size += sizeof(ulong);
@@ -3018,7 +3018,7 @@ ulong fd_vote_prior_voter_size(fd_vote_prior_voter_t* self) {
   return size;
 }
 
-int fd_vote_prior_voter_encode(fd_vote_prior_voter_t* self, fd_bincode_encode_ctx_t * ctx) {
+int fd_vote_prior_voter_encode(fd_vote_prior_voter_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
   err = fd_pubkey_encode(&self->pubkey, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -3056,7 +3056,7 @@ void fd_vote_prior_voter_0_23_5_walk(fd_vote_prior_voter_0_23_5_t* self, fd_walk
   fun(&self->slot, "slot", 11, "ulong", level + 1);
   fun(self, name, 33, "fd_vote_prior_voter_0_23_5", --level);
 }
-ulong fd_vote_prior_voter_0_23_5_size(fd_vote_prior_voter_0_23_5_t* self) {
+ulong fd_vote_prior_voter_0_23_5_size(fd_vote_prior_voter_0_23_5_t const * self) {
   ulong size = 0;
   size += fd_pubkey_size(&self->pubkey);
   size += sizeof(ulong);
@@ -3065,7 +3065,7 @@ ulong fd_vote_prior_voter_0_23_5_size(fd_vote_prior_voter_0_23_5_t* self) {
   return size;
 }
 
-int fd_vote_prior_voter_0_23_5_encode(fd_vote_prior_voter_0_23_5_t* self, fd_bincode_encode_ctx_t * ctx) {
+int fd_vote_prior_voter_0_23_5_encode(fd_vote_prior_voter_0_23_5_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
   err = fd_pubkey_encode(&self->pubkey, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -3100,7 +3100,7 @@ void fd_vote_epoch_credits_walk(fd_vote_epoch_credits_t* self, fd_walk_fun_t fun
   fun(&self->prev_credits, "prev_credits", 11, "ulong", level + 1);
   fun(self, name, 33, "fd_vote_epoch_credits", --level);
 }
-ulong fd_vote_epoch_credits_size(fd_vote_epoch_credits_t* self) {
+ulong fd_vote_epoch_credits_size(fd_vote_epoch_credits_t const * self) {
   ulong size = 0;
   size += sizeof(ulong);
   size += sizeof(ulong);
@@ -3108,7 +3108,7 @@ ulong fd_vote_epoch_credits_size(fd_vote_epoch_credits_t* self) {
   return size;
 }
 
-int fd_vote_epoch_credits_encode(fd_vote_epoch_credits_t* self, fd_bincode_encode_ctx_t * ctx) {
+int fd_vote_epoch_credits_encode(fd_vote_epoch_credits_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
   err = fd_bincode_uint64_encode(&self->epoch, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -3140,14 +3140,14 @@ void fd_vote_historical_authorized_voter_walk(fd_vote_historical_authorized_vote
   fd_pubkey_walk(&self->pubkey, fun, "pubkey", level + 1);
   fun(self, name, 33, "fd_vote_historical_authorized_voter", --level);
 }
-ulong fd_vote_historical_authorized_voter_size(fd_vote_historical_authorized_voter_t* self) {
+ulong fd_vote_historical_authorized_voter_size(fd_vote_historical_authorized_voter_t const * self) {
   ulong size = 0;
   size += sizeof(ulong);
   size += fd_pubkey_size(&self->pubkey);
   return size;
 }
 
-int fd_vote_historical_authorized_voter_encode(fd_vote_historical_authorized_voter_t* self, fd_bincode_encode_ctx_t * ctx) {
+int fd_vote_historical_authorized_voter_encode(fd_vote_historical_authorized_voter_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
   err = fd_bincode_uint64_encode(&self->epoch, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -3175,14 +3175,14 @@ void fd_vote_block_timestamp_walk(fd_vote_block_timestamp_t* self, fd_walk_fun_t
   fun(&self->timestamp, "timestamp", 11, "ulong", level + 1);
   fun(self, name, 33, "fd_vote_block_timestamp", --level);
 }
-ulong fd_vote_block_timestamp_size(fd_vote_block_timestamp_t* self) {
+ulong fd_vote_block_timestamp_size(fd_vote_block_timestamp_t const * self) {
   ulong size = 0;
   size += sizeof(ulong);
   size += sizeof(ulong);
   return size;
 }
 
-int fd_vote_block_timestamp_encode(fd_vote_block_timestamp_t* self, fd_bincode_encode_ctx_t * ctx) {
+int fd_vote_block_timestamp_encode(fd_vote_block_timestamp_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
   err = fd_bincode_uint64_encode(&self->slot, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -3220,7 +3220,7 @@ void fd_vote_prior_voters_walk(fd_vote_prior_voters_t* self, fd_walk_fun_t fun, 
   fun(&self->is_empty, "is_empty", 9, "uchar", level + 1);
   fun(self, name, 33, "fd_vote_prior_voters", --level);
 }
-ulong fd_vote_prior_voters_size(fd_vote_prior_voters_t* self) {
+ulong fd_vote_prior_voters_size(fd_vote_prior_voters_t const * self) {
   ulong size = 0;
   for (ulong i = 0; i < 32; ++i)
     size += fd_vote_prior_voter_size(self->buf + i);
@@ -3229,7 +3229,7 @@ ulong fd_vote_prior_voters_size(fd_vote_prior_voters_t* self) {
   return size;
 }
 
-int fd_vote_prior_voters_encode(fd_vote_prior_voters_t* self, fd_bincode_encode_ctx_t * ctx) {
+int fd_vote_prior_voters_encode(fd_vote_prior_voters_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
   for (ulong i = 0; i < 32; ++i) {
     err = fd_vote_prior_voter_encode(self->buf + i, ctx);
@@ -3271,7 +3271,7 @@ void fd_vote_prior_voters_0_23_5_walk(fd_vote_prior_voters_0_23_5_t* self, fd_wa
   fun(&self->is_empty, "is_empty", 9, "uchar", level + 1);
   fun(self, name, 33, "fd_vote_prior_voters_0_23_5", --level);
 }
-ulong fd_vote_prior_voters_0_23_5_size(fd_vote_prior_voters_0_23_5_t* self) {
+ulong fd_vote_prior_voters_0_23_5_size(fd_vote_prior_voters_0_23_5_t const * self) {
   ulong size = 0;
   for (ulong i = 0; i < 32; ++i)
     size += fd_vote_prior_voter_0_23_5_size(self->buf + i);
@@ -3280,7 +3280,7 @@ ulong fd_vote_prior_voters_0_23_5_size(fd_vote_prior_voters_0_23_5_t* self) {
   return size;
 }
 
-int fd_vote_prior_voters_0_23_5_encode(fd_vote_prior_voters_0_23_5_t* self, fd_bincode_encode_ctx_t * ctx) {
+int fd_vote_prior_voters_0_23_5_encode(fd_vote_prior_voters_0_23_5_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
   for (ulong i = 0; i < 32; ++i) {
     err = fd_vote_prior_voter_0_23_5_encode(self->buf + i, ctx);
@@ -3406,7 +3406,7 @@ void fd_vote_state_0_23_5_walk(fd_vote_state_0_23_5_t* self, fd_walk_fun_t fun, 
   fd_vote_block_timestamp_walk(&self->latest_timestamp, fun, "latest_timestamp", level + 1);
   fun(self, name, 33, "fd_vote_state_0_23_5", --level);
 }
-ulong fd_vote_state_0_23_5_size(fd_vote_state_0_23_5_t* self) {
+ulong fd_vote_state_0_23_5_size(fd_vote_state_0_23_5_t const * self) {
   ulong size = 0;
   size += fd_pubkey_size(&self->voting_node);
   size += fd_pubkey_size(&self->authorized_voter);
@@ -3436,7 +3436,7 @@ ulong fd_vote_state_0_23_5_size(fd_vote_state_0_23_5_t* self) {
   return size;
 }
 
-int fd_vote_state_0_23_5_encode(fd_vote_state_0_23_5_t* self, fd_bincode_encode_ctx_t * ctx) {
+int fd_vote_state_0_23_5_encode(fd_vote_state_0_23_5_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
   err = fd_pubkey_encode(&self->voting_node, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -3623,7 +3623,7 @@ void fd_vote_state_walk(fd_vote_state_t* self, fd_walk_fun_t fun, const char *na
   fd_vote_block_timestamp_walk(&self->latest_timestamp, fun, "latest_timestamp", level + 1);
   fun(self, name, 33, "fd_vote_state", --level);
 }
-ulong fd_vote_state_size(fd_vote_state_t* self) {
+ulong fd_vote_state_size(fd_vote_state_t const * self) {
   ulong size = 0;
   size += fd_pubkey_size(&self->voting_node);
   size += fd_pubkey_size(&self->authorized_withdrawer);
@@ -3658,7 +3658,7 @@ ulong fd_vote_state_size(fd_vote_state_t* self) {
   return size;
 }
 
-int fd_vote_state_encode(fd_vote_state_t* self, fd_bincode_encode_ctx_t * ctx) {
+int fd_vote_state_encode(fd_vote_state_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
   err = fd_pubkey_encode(&self->voting_node, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -3788,7 +3788,7 @@ void fd_vote_state_versioned_walk(fd_vote_state_versioned_t* self, fd_walk_fun_t
   // enum fd_vote_block_timestamp_walk(&self->latest_timestamp, fun, "latest_timestamp", level + 1);
   fun(self, name, 33, "fd_vote_state_versioned", --level);
 }
-ulong fd_vote_state_versioned_size(fd_vote_state_versioned_t* self) {
+ulong fd_vote_state_versioned_size(fd_vote_state_versioned_t const * self) {
   ulong size = 0;
   size += sizeof(uint);
   switch (self->discriminant) {
@@ -3804,7 +3804,7 @@ ulong fd_vote_state_versioned_size(fd_vote_state_versioned_t* self) {
   return size;
 }
 
-int fd_vote_state_versioned_inner_encode(fd_vote_state_versioned_inner_t* self, uint discriminant, fd_bincode_encode_ctx_t * ctx) {
+int fd_vote_state_versioned_inner_encode(fd_vote_state_versioned_inner_t const * self, uint discriminant, fd_bincode_encode_ctx_t * ctx) {
   int err;
   switch (discriminant) {
   case 0: {
@@ -3820,7 +3820,7 @@ int fd_vote_state_versioned_inner_encode(fd_vote_state_versioned_inner_t* self, 
   }
   return FD_BINCODE_SUCCESS;
 }
-int fd_vote_state_versioned_encode(fd_vote_state_versioned_t* self, fd_bincode_encode_ctx_t * ctx) {
+int fd_vote_state_versioned_encode(fd_vote_state_versioned_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
   err = fd_bincode_uint32_encode(&self->discriminant, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -3905,7 +3905,7 @@ void fd_vote_state_update_walk(fd_vote_state_update_t* self, fd_walk_fun_t fun, 
   fun(self->timestamp, "timestamp", 11, "ulong", level + 1);
   fun(self, name, 33, "fd_vote_state_update", --level);
 }
-ulong fd_vote_state_update_size(fd_vote_state_update_t* self) {
+ulong fd_vote_state_update_size(fd_vote_state_update_t const * self) {
   ulong size = 0;
   size += sizeof(ulong);
   for (ulong i = 0; i < self->lockouts_len; ++i)
@@ -3922,7 +3922,7 @@ ulong fd_vote_state_update_size(fd_vote_state_update_t* self) {
   return size;
 }
 
-int fd_vote_state_update_encode(fd_vote_state_update_t* self, fd_bincode_encode_ctx_t * ctx) {
+int fd_vote_state_update_encode(fd_vote_state_update_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
   err = fd_bincode_uint64_encode(&self->lockouts_len, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -4019,7 +4019,7 @@ void fd_compact_vote_state_update_walk(fd_compact_vote_state_update_t* self, fd_
   fun(self->timestamp, "timestamp", 11, "ulong", level + 1);
   fun(self, name, 33, "fd_compact_vote_state_update", --level);
 }
-ulong fd_compact_vote_state_update_size(fd_compact_vote_state_update_t* self) {
+ulong fd_compact_vote_state_update_size(fd_compact_vote_state_update_t const * self) {
   ulong size = 0;
   size += sizeof(ulong);
   size += sizeof(ulong);
@@ -4033,7 +4033,7 @@ ulong fd_compact_vote_state_update_size(fd_compact_vote_state_update_t* self) {
   return size;
 }
 
-int fd_compact_vote_state_update_encode(fd_compact_vote_state_update_t* self, fd_bincode_encode_ctx_t * ctx) {
+int fd_compact_vote_state_update_encode(fd_compact_vote_state_update_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
   err = fd_bincode_uint64_encode(&self->proposed_root, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -4082,14 +4082,14 @@ void fd_compact_vote_state_update_switch_walk(fd_compact_vote_state_update_switc
   fd_hash_walk(&self->hash, fun, "hash", level + 1);
   fun(self, name, 33, "fd_compact_vote_state_update_switch", --level);
 }
-ulong fd_compact_vote_state_update_switch_size(fd_compact_vote_state_update_switch_t* self) {
+ulong fd_compact_vote_state_update_switch_size(fd_compact_vote_state_update_switch_t const * self) {
   ulong size = 0;
   size += fd_compact_vote_state_update_size(&self->compact_vote_state_update);
   size += fd_hash_size(&self->hash);
   return size;
 }
 
-int fd_compact_vote_state_update_switch_encode(fd_compact_vote_state_update_switch_t* self, fd_bincode_encode_ctx_t * ctx) {
+int fd_compact_vote_state_update_switch_encode(fd_compact_vote_state_update_switch_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
   err = fd_compact_vote_state_update_encode(&self->compact_vote_state_update, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -4132,14 +4132,14 @@ void fd_slot_history_inner_walk(fd_slot_history_inner_t* self, fd_walk_fun_t fun
   }
   fun(self, name, 33, "fd_slot_history_inner", --level);
 }
-ulong fd_slot_history_inner_size(fd_slot_history_inner_t* self) {
+ulong fd_slot_history_inner_size(fd_slot_history_inner_t const * self) {
   ulong size = 0;
   size += sizeof(ulong);
   size += self->blocks_len * sizeof(ulong);
   return size;
 }
 
-int fd_slot_history_inner_encode(fd_slot_history_inner_t* self, fd_bincode_encode_ctx_t * ctx) {
+int fd_slot_history_inner_encode(fd_slot_history_inner_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
   err = fd_bincode_uint64_encode(&self->blocks_len, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -4186,7 +4186,7 @@ void fd_slot_history_bitvec_walk(fd_slot_history_bitvec_t* self, fd_walk_fun_t f
   fun(&self->len, "len", 11, "ulong", level + 1);
   fun(self, name, 33, "fd_slot_history_bitvec", --level);
 }
-ulong fd_slot_history_bitvec_size(fd_slot_history_bitvec_t* self) {
+ulong fd_slot_history_bitvec_size(fd_slot_history_bitvec_t const * self) {
   ulong size = 0;
   size += sizeof(char);
   if (NULL !=  self->bits) {
@@ -4196,7 +4196,7 @@ ulong fd_slot_history_bitvec_size(fd_slot_history_bitvec_t* self) {
   return size;
 }
 
-int fd_slot_history_bitvec_encode(fd_slot_history_bitvec_t* self, fd_bincode_encode_ctx_t * ctx) {
+int fd_slot_history_bitvec_encode(fd_slot_history_bitvec_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
   if (self->bits != NULL) {
     err = fd_bincode_option_encode(1, ctx);
@@ -4233,14 +4233,14 @@ void fd_slot_history_walk(fd_slot_history_t* self, fd_walk_fun_t fun, const char
   fun(&self->next_slot, "next_slot", 11, "ulong", level + 1);
   fun(self, name, 33, "fd_slot_history", --level);
 }
-ulong fd_slot_history_size(fd_slot_history_t* self) {
+ulong fd_slot_history_size(fd_slot_history_t const * self) {
   ulong size = 0;
   size += fd_slot_history_bitvec_size(&self->bits);
   size += sizeof(ulong);
   return size;
 }
 
-int fd_slot_history_encode(fd_slot_history_t* self, fd_bincode_encode_ctx_t * ctx) {
+int fd_slot_history_encode(fd_slot_history_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
   err = fd_slot_history_bitvec_encode(&self->bits, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -4270,14 +4270,14 @@ void fd_slot_hash_walk(fd_slot_hash_t* self, fd_walk_fun_t fun, const char *name
   fd_hash_walk(&self->hash, fun, "hash", level + 1);
   fun(self, name, 33, "fd_slot_hash", --level);
 }
-ulong fd_slot_hash_size(fd_slot_hash_t* self) {
+ulong fd_slot_hash_size(fd_slot_hash_t const * self) {
   ulong size = 0;
   size += sizeof(ulong);
   size += fd_hash_size(&self->hash);
   return size;
 }
 
-int fd_slot_hash_encode(fd_slot_hash_t* self, fd_bincode_encode_ctx_t * ctx) {
+int fd_slot_hash_encode(fd_slot_hash_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
   err = fd_bincode_uint64_encode(&self->slot, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -4325,7 +4325,7 @@ void fd_slot_hashes_walk(fd_slot_hashes_t* self, fd_walk_fun_t fun, const char *
   }
   fun(self, name, 33, "fd_slot_hashes", --level);
 }
-ulong fd_slot_hashes_size(fd_slot_hashes_t* self) {
+ulong fd_slot_hashes_size(fd_slot_hashes_t const * self) {
   ulong size = 0;
   if ( self->hashes ) {
     size += sizeof(ulong);
@@ -4337,7 +4337,7 @@ ulong fd_slot_hashes_size(fd_slot_hashes_t* self) {
   return size;
 }
 
-int fd_slot_hashes_encode(fd_slot_hashes_t* self, fd_bincode_encode_ctx_t * ctx) {
+int fd_slot_hashes_encode(fd_slot_hashes_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
   if ( self->hashes ) {
     ulong hashes_len = deq_fd_slot_hash_t_cnt(self->hashes);
@@ -4379,14 +4379,14 @@ void fd_block_block_hash_entry_walk(fd_block_block_hash_entry_t* self, fd_walk_f
   fd_fee_calculator_walk(&self->fee_calculator, fun, "fee_calculator", level + 1);
   fun(self, name, 33, "fd_block_block_hash_entry", --level);
 }
-ulong fd_block_block_hash_entry_size(fd_block_block_hash_entry_t* self) {
+ulong fd_block_block_hash_entry_size(fd_block_block_hash_entry_t const * self) {
   ulong size = 0;
   size += fd_hash_size(&self->blockhash);
   size += fd_fee_calculator_size(&self->fee_calculator);
   return size;
 }
 
-int fd_block_block_hash_entry_encode(fd_block_block_hash_entry_t* self, fd_bincode_encode_ctx_t * ctx) {
+int fd_block_block_hash_entry_encode(fd_block_block_hash_entry_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
   err = fd_hash_encode(&self->blockhash, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -4434,7 +4434,7 @@ void fd_recent_block_hashes_walk(fd_recent_block_hashes_t* self, fd_walk_fun_t f
   }
   fun(self, name, 33, "fd_recent_block_hashes", --level);
 }
-ulong fd_recent_block_hashes_size(fd_recent_block_hashes_t* self) {
+ulong fd_recent_block_hashes_size(fd_recent_block_hashes_t const * self) {
   ulong size = 0;
   if ( self->hashes ) {
     size += sizeof(ulong);
@@ -4446,7 +4446,7 @@ ulong fd_recent_block_hashes_size(fd_recent_block_hashes_t* self) {
   return size;
 }
 
-int fd_recent_block_hashes_encode(fd_recent_block_hashes_t* self, fd_bincode_encode_ctx_t * ctx) {
+int fd_recent_block_hashes_encode(fd_recent_block_hashes_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
   if ( self->hashes ) {
     ulong hashes_len = deq_fd_block_block_hash_entry_t_cnt(self->hashes);
@@ -4541,7 +4541,7 @@ void fd_slot_meta_walk(fd_slot_meta_t* self, fd_walk_fun_t fun, const char *name
   }
   fun(self, name, 33, "fd_slot_meta", --level);
 }
-ulong fd_slot_meta_size(fd_slot_meta_t* self) {
+ulong fd_slot_meta_size(fd_slot_meta_t const * self) {
   ulong size = 0;
   size += sizeof(ulong);
   size += sizeof(ulong);
@@ -4557,7 +4557,7 @@ ulong fd_slot_meta_size(fd_slot_meta_t* self) {
   return size;
 }
 
-int fd_slot_meta_encode(fd_slot_meta_t* self, fd_bincode_encode_ctx_t * ctx) {
+int fd_slot_meta_encode(fd_slot_meta_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
   err = fd_bincode_uint64_encode(&self->slot, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -4609,14 +4609,14 @@ void fd_slot_meta_meta_walk(fd_slot_meta_meta_t* self, fd_walk_fun_t fun, const 
   fun(&self->end_slot, "end_slot", 11, "ulong", level + 1);
   fun(self, name, 33, "fd_slot_meta_meta", --level);
 }
-ulong fd_slot_meta_meta_size(fd_slot_meta_meta_t* self) {
+ulong fd_slot_meta_meta_size(fd_slot_meta_meta_t const * self) {
   ulong size = 0;
   size += sizeof(ulong);
   size += sizeof(ulong);
   return size;
 }
 
-int fd_slot_meta_meta_encode(fd_slot_meta_meta_t* self, fd_bincode_encode_ctx_t * ctx) {
+int fd_slot_meta_meta_encode(fd_slot_meta_meta_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
   err = fd_bincode_uint64_encode(&self->start_slot, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -4649,7 +4649,7 @@ void fd_clock_timestamp_vote_walk(fd_clock_timestamp_vote_t* self, fd_walk_fun_t
   fun(&self->slot, "slot", 11, "ulong", level + 1);
   fun(self, name, 33, "fd_clock_timestamp_vote", --level);
 }
-ulong fd_clock_timestamp_vote_size(fd_clock_timestamp_vote_t* self) {
+ulong fd_clock_timestamp_vote_size(fd_clock_timestamp_vote_t const * self) {
   ulong size = 0;
   size += fd_pubkey_size(&self->pubkey);
   size += sizeof(long);
@@ -4657,7 +4657,7 @@ ulong fd_clock_timestamp_vote_size(fd_clock_timestamp_vote_t* self) {
   return size;
 }
 
-int fd_clock_timestamp_vote_encode(fd_clock_timestamp_vote_t* self, fd_bincode_encode_ctx_t * ctx) {
+int fd_clock_timestamp_vote_encode(fd_clock_timestamp_vote_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
   err = fd_pubkey_encode(&self->pubkey, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -4707,7 +4707,7 @@ void fd_clock_timestamp_votes_walk(fd_clock_timestamp_votes_t* self, fd_walk_fun
   }
   fun(self, name, 33, "fd_clock_timestamp_votes", --level);
 }
-ulong fd_clock_timestamp_votes_size(fd_clock_timestamp_votes_t* self) {
+ulong fd_clock_timestamp_votes_size(fd_clock_timestamp_votes_t const * self) {
   ulong size = 0;
   if ( self->votes ) {
     size += sizeof(ulong);
@@ -4719,7 +4719,7 @@ ulong fd_clock_timestamp_votes_size(fd_clock_timestamp_votes_t* self) {
   return size;
 }
 
-int fd_clock_timestamp_votes_encode(fd_clock_timestamp_votes_t* self, fd_bincode_encode_ctx_t * ctx) {
+int fd_clock_timestamp_votes_encode(fd_clock_timestamp_votes_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
   if ( self->votes ) {
     ulong votes_len = deq_fd_clock_timestamp_vote_t_cnt(self->votes);
@@ -4756,13 +4756,13 @@ void fd_sysvar_fees_walk(fd_sysvar_fees_t* self, fd_walk_fun_t fun, const char *
   fd_fee_calculator_walk(&self->fee_calculator, fun, "fee_calculator", level + 1);
   fun(self, name, 33, "fd_sysvar_fees", --level);
 }
-ulong fd_sysvar_fees_size(fd_sysvar_fees_t* self) {
+ulong fd_sysvar_fees_size(fd_sysvar_fees_t const * self) {
   ulong size = 0;
   size += fd_fee_calculator_size(&self->fee_calculator);
   return size;
 }
 
-int fd_sysvar_fees_encode(fd_sysvar_fees_t* self, fd_bincode_encode_ctx_t * ctx) {
+int fd_sysvar_fees_encode(fd_sysvar_fees_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
   err = fd_fee_calculator_encode(&self->fee_calculator, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -4773,7 +4773,7 @@ int fd_config_keys_pair_decode(fd_config_keys_pair_t* self, fd_bincode_decode_ct
   int err;
   err = fd_pubkey_decode(&self->key, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint8_decode(&self->value, ctx);
+  err = fd_bincode_uint8_decode(&self->signer, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   return FD_BINCODE_SUCCESS;
 }
@@ -4787,21 +4787,21 @@ void fd_config_keys_pair_destroy(fd_config_keys_pair_t* self, fd_bincode_destroy
 void fd_config_keys_pair_walk(fd_config_keys_pair_t* self, fd_walk_fun_t fun, const char *name, int level) {
   fun(self, name, 32, "fd_config_keys_pair", level++);
   fd_pubkey_walk(&self->key, fun, "key", level + 1);
-  fun(&self->value, "value", 9, "uchar", level + 1);
+  fun(&self->signer, "signer", 9, "uchar", level + 1);
   fun(self, name, 33, "fd_config_keys_pair", --level);
 }
-ulong fd_config_keys_pair_size(fd_config_keys_pair_t* self) {
+ulong fd_config_keys_pair_size(fd_config_keys_pair_t const * self) {
   ulong size = 0;
   size += fd_pubkey_size(&self->key);
   size += sizeof(char);
   return size;
 }
 
-int fd_config_keys_pair_encode(fd_config_keys_pair_t* self, fd_bincode_encode_ctx_t * ctx) {
+int fd_config_keys_pair_encode(fd_config_keys_pair_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
   err = fd_pubkey_encode(&self->key, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint8_encode(&self->value, ctx);
+  err = fd_bincode_uint8_encode(&self->signer, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   return FD_BINCODE_SUCCESS;
 }
@@ -4851,7 +4851,7 @@ void fd_stake_config_walk(fd_stake_config_t* self, fd_walk_fun_t fun, const char
   fun(&self->slash_penalty, "slash_penalty", 9, "uchar", level + 1);
   fun(self, name, 33, "fd_stake_config", --level);
 }
-ulong fd_stake_config_size(fd_stake_config_t* self) {
+ulong fd_stake_config_size(fd_stake_config_t const * self) {
   ulong size = 0;
   size += sizeof(ulong);
   for (ulong i = 0; i < self->config_keys_len; ++i)
@@ -4861,7 +4861,7 @@ ulong fd_stake_config_size(fd_stake_config_t* self) {
   return size;
 }
 
-int fd_stake_config_encode(fd_stake_config_t* self, fd_bincode_encode_ctx_t * ctx) {
+int fd_stake_config_encode(fd_stake_config_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
   err = fd_bincode_compact_u16_encode(&self->config_keys_len, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -4911,7 +4911,7 @@ void fd_firedancer_banks_walk(fd_firedancer_banks_t* self, fd_walk_fun_t fun, co
   fd_clock_timestamp_votes_walk(&self->timestamp_votes, fun, "timestamp_votes", level + 1);
   fun(self, name, 33, "fd_firedancer_banks", --level);
 }
-ulong fd_firedancer_banks_size(fd_firedancer_banks_t* self) {
+ulong fd_firedancer_banks_size(fd_firedancer_banks_t const * self) {
   ulong size = 0;
   size += fd_deserializable_versioned_bank_size(&self->solana_bank);
   size += fd_stakes_size(&self->stakes);
@@ -4920,7 +4920,7 @@ ulong fd_firedancer_banks_size(fd_firedancer_banks_t* self) {
   return size;
 }
 
-int fd_firedancer_banks_encode(fd_firedancer_banks_t* self, fd_bincode_encode_ctx_t * ctx) {
+int fd_firedancer_banks_encode(fd_firedancer_banks_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
   err = fd_deserializable_versioned_bank_encode(&self->solana_bank, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -4989,7 +4989,7 @@ void fd_vote_walk(fd_vote_t* self, fd_walk_fun_t fun, const char *name, int leve
   fun(self->timestamp, "timestamp", 11, "ulong", level + 1);
   fun(self, name, 33, "fd_vote", --level);
 }
-ulong fd_vote_size(fd_vote_t* self) {
+ulong fd_vote_size(fd_vote_t const * self) {
   ulong size = 0;
   if ( self->slots ) {
     size += sizeof(ulong);
@@ -5003,7 +5003,7 @@ ulong fd_vote_size(fd_vote_t* self) {
   return size;
 }
 
-int fd_vote_encode(fd_vote_t* self, fd_bincode_encode_ctx_t * ctx) {
+int fd_vote_encode(fd_vote_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
   if ( self->slots ) {
     ulong slots_len = deq_ulong_cnt(self->slots);
@@ -5063,7 +5063,7 @@ void fd_vote_init_walk(fd_vote_init_t* self, fd_walk_fun_t fun, const char *name
   fun(&self->commission, "commission", 9, "uchar", level + 1);
   fun(self, name, 33, "fd_vote_init", --level);
 }
-ulong fd_vote_init_size(fd_vote_init_t* self) {
+ulong fd_vote_init_size(fd_vote_init_t const * self) {
   ulong size = 0;
   size += fd_pubkey_size(&self->node_pubkey);
   size += fd_pubkey_size(&self->authorized_voter);
@@ -5072,7 +5072,7 @@ ulong fd_vote_init_size(fd_vote_init_t* self) {
   return size;
 }
 
-int fd_vote_init_encode(fd_vote_init_t* self, fd_bincode_encode_ctx_t * ctx) {
+int fd_vote_init_encode(fd_vote_init_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
   err = fd_pubkey_encode(&self->node_pubkey, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -5145,7 +5145,7 @@ void fd_vote_authorize_walk(fd_vote_authorize_t* self, fd_walk_fun_t fun, const 
   // enum fd_unsigned char_walk(&self->commission, fun, "commission", level + 1);
   fun(self, name, 33, "fd_vote_authorize", --level);
 }
-ulong fd_vote_authorize_size(fd_vote_authorize_t* self) {
+ulong fd_vote_authorize_size(fd_vote_authorize_t const * self) {
   ulong size = 0;
   size += sizeof(uint);
   switch (self->discriminant) {
@@ -5153,10 +5153,10 @@ ulong fd_vote_authorize_size(fd_vote_authorize_t* self) {
   return size;
 }
 
-int fd_vote_authorize_inner_encode(fd_vote_authorize_inner_t* self, uint discriminant, fd_bincode_encode_ctx_t * ctx) {
+int fd_vote_authorize_inner_encode(fd_vote_authorize_inner_t const * self, uint discriminant, fd_bincode_encode_ctx_t * ctx) {
   return FD_BINCODE_SUCCESS;
 }
-int fd_vote_authorize_encode(fd_vote_authorize_t* self, fd_bincode_encode_ctx_t * ctx) {
+int fd_vote_authorize_encode(fd_vote_authorize_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
   err = fd_bincode_uint32_encode(&self->discriminant, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -5186,14 +5186,14 @@ void fd_vote_authorize_pubkey_walk(fd_vote_authorize_pubkey_t* self, fd_walk_fun
   fd_vote_authorize_walk(&self->vote_authorize, fun, "vote_authorize", level + 1);
   fun(self, name, 33, "fd_vote_authorize_pubkey", --level);
 }
-ulong fd_vote_authorize_pubkey_size(fd_vote_authorize_pubkey_t* self) {
+ulong fd_vote_authorize_pubkey_size(fd_vote_authorize_pubkey_t const * self) {
   ulong size = 0;
   size += fd_pubkey_size(&self->pubkey);
   size += fd_vote_authorize_size(&self->vote_authorize);
   return size;
 }
 
-int fd_vote_authorize_pubkey_encode(fd_vote_authorize_pubkey_t* self, fd_bincode_encode_ctx_t * ctx) {
+int fd_vote_authorize_pubkey_encode(fd_vote_authorize_pubkey_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
   err = fd_pubkey_encode(&self->pubkey, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -5225,14 +5225,14 @@ void fd_vote_switch_walk(fd_vote_switch_t* self, fd_walk_fun_t fun, const char *
   fd_hash_walk(&self->hash, fun, "hash", level + 1);
   fun(self, name, 33, "fd_vote_switch", --level);
 }
-ulong fd_vote_switch_size(fd_vote_switch_t* self) {
+ulong fd_vote_switch_size(fd_vote_switch_t const * self) {
   ulong size = 0;
   size += fd_vote_size(&self->vote);
   size += fd_hash_size(&self->hash);
   return size;
 }
 
-int fd_vote_switch_encode(fd_vote_switch_t* self, fd_bincode_encode_ctx_t * ctx) {
+int fd_vote_switch_encode(fd_vote_switch_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
   err = fd_vote_encode(&self->vote, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -5264,14 +5264,14 @@ void fd_update_vote_state_switch_walk(fd_update_vote_state_switch_t* self, fd_wa
   fd_hash_walk(&self->hash, fun, "hash", level + 1);
   fun(self, name, 33, "fd_update_vote_state_switch", --level);
 }
-ulong fd_update_vote_state_switch_size(fd_update_vote_state_switch_t* self) {
+ulong fd_update_vote_state_switch_size(fd_update_vote_state_switch_t const * self) {
   ulong size = 0;
   size += fd_vote_state_update_size(&self->vote_state_update);
   size += fd_hash_size(&self->hash);
   return size;
 }
 
-int fd_update_vote_state_switch_encode(fd_update_vote_state_switch_t* self, fd_bincode_encode_ctx_t * ctx) {
+int fd_update_vote_state_switch_encode(fd_update_vote_state_switch_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
   err = fd_vote_state_update_encode(&self->vote_state_update, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -5321,7 +5321,7 @@ void fd_vote_authorize_with_seed_args_walk(fd_vote_authorize_with_seed_args_t* s
   fd_pubkey_walk(&self->new_authority, fun, "new_authority", level + 1);
   fun(self, name, 33, "fd_vote_authorize_with_seed_args", --level);
 }
-ulong fd_vote_authorize_with_seed_args_size(fd_vote_authorize_with_seed_args_t* self) {
+ulong fd_vote_authorize_with_seed_args_size(fd_vote_authorize_with_seed_args_t const * self) {
   ulong size = 0;
   size += fd_vote_authorize_size(&self->authorization_type);
   size += fd_pubkey_size(&self->current_authority_derived_key_owner);
@@ -5330,7 +5330,7 @@ ulong fd_vote_authorize_with_seed_args_size(fd_vote_authorize_with_seed_args_t* 
   return size;
 }
 
-int fd_vote_authorize_with_seed_args_encode(fd_vote_authorize_with_seed_args_t* self, fd_bincode_encode_ctx_t * ctx) {
+int fd_vote_authorize_with_seed_args_encode(fd_vote_authorize_with_seed_args_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
   err = fd_vote_authorize_encode(&self->authorization_type, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -5382,7 +5382,7 @@ void fd_vote_authorize_checked_with_seed_args_walk(fd_vote_authorize_checked_wit
   fun(self->current_authority_derived_key_seed, "current_authority_derived_key_seed", 2, "char*", level + 1);
   fun(self, name, 33, "fd_vote_authorize_checked_with_seed_args", --level);
 }
-ulong fd_vote_authorize_checked_with_seed_args_size(fd_vote_authorize_checked_with_seed_args_t* self) {
+ulong fd_vote_authorize_checked_with_seed_args_size(fd_vote_authorize_checked_with_seed_args_t const * self) {
   ulong size = 0;
   size += fd_vote_authorize_size(&self->authorization_type);
   size += fd_pubkey_size(&self->current_authority_derived_key_owner);
@@ -5390,7 +5390,7 @@ ulong fd_vote_authorize_checked_with_seed_args_size(fd_vote_authorize_checked_wi
   return size;
 }
 
-int fd_vote_authorize_checked_with_seed_args_encode(fd_vote_authorize_checked_with_seed_args_t* self, fd_bincode_encode_ctx_t * ctx) {
+int fd_vote_authorize_checked_with_seed_args_encode(fd_vote_authorize_checked_with_seed_args_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
   err = fd_vote_authorize_encode(&self->authorization_type, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -5634,7 +5634,7 @@ void fd_vote_instruction_walk(fd_vote_instruction_t* self, fd_walk_fun_t fun, co
   // enum fd_char*_walk(&self->current_authority_derived_key_seed, fun, "current_authority_derived_key_seed", level + 1);
   fun(self, name, 33, "fd_vote_instruction", --level);
 }
-ulong fd_vote_instruction_size(fd_vote_instruction_t* self) {
+ulong fd_vote_instruction_size(fd_vote_instruction_t const * self) {
   ulong size = 0;
   size += sizeof(uint);
   switch (self->discriminant) {
@@ -5694,7 +5694,7 @@ ulong fd_vote_instruction_size(fd_vote_instruction_t* self) {
   return size;
 }
 
-int fd_vote_instruction_inner_encode(fd_vote_instruction_inner_t* self, uint discriminant, fd_bincode_encode_ctx_t * ctx) {
+int fd_vote_instruction_inner_encode(fd_vote_instruction_inner_t const * self, uint discriminant, fd_bincode_encode_ctx_t * ctx) {
   int err;
   switch (discriminant) {
   case 0: {
@@ -5765,7 +5765,7 @@ int fd_vote_instruction_inner_encode(fd_vote_instruction_inner_t* self, uint dis
   }
   return FD_BINCODE_SUCCESS;
 }
-int fd_vote_instruction_encode(fd_vote_instruction_t* self, fd_bincode_encode_ctx_t * ctx) {
+int fd_vote_instruction_encode(fd_vote_instruction_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
   err = fd_bincode_uint32_encode(&self->discriminant, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -5796,7 +5796,7 @@ void fd_system_program_instruction_create_account_walk(fd_system_program_instruc
   fd_pubkey_walk(&self->owner, fun, "owner", level + 1);
   fun(self, name, 33, "fd_system_program_instruction_create_account", --level);
 }
-ulong fd_system_program_instruction_create_account_size(fd_system_program_instruction_create_account_t* self) {
+ulong fd_system_program_instruction_create_account_size(fd_system_program_instruction_create_account_t const * self) {
   ulong size = 0;
   size += sizeof(ulong);
   size += sizeof(ulong);
@@ -5804,7 +5804,7 @@ ulong fd_system_program_instruction_create_account_size(fd_system_program_instru
   return size;
 }
 
-int fd_system_program_instruction_create_account_encode(fd_system_program_instruction_create_account_t* self, fd_bincode_encode_ctx_t * ctx) {
+int fd_system_program_instruction_create_account_encode(fd_system_program_instruction_create_account_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
   err = fd_bincode_uint64_encode(&self->lamports, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -5857,7 +5857,7 @@ void fd_system_program_instruction_create_account_with_seed_walk(fd_system_progr
   fd_pubkey_walk(&self->owner, fun, "owner", level + 1);
   fun(self, name, 33, "fd_system_program_instruction_create_account_with_seed", --level);
 }
-ulong fd_system_program_instruction_create_account_with_seed_size(fd_system_program_instruction_create_account_with_seed_t* self) {
+ulong fd_system_program_instruction_create_account_with_seed_size(fd_system_program_instruction_create_account_with_seed_t const * self) {
   ulong size = 0;
   size += fd_pubkey_size(&self->base);
   size += sizeof(ulong) + strlen(self->seed);
@@ -5867,7 +5867,7 @@ ulong fd_system_program_instruction_create_account_with_seed_size(fd_system_prog
   return size;
 }
 
-int fd_system_program_instruction_create_account_with_seed_encode(fd_system_program_instruction_create_account_with_seed_t* self, fd_bincode_encode_ctx_t * ctx) {
+int fd_system_program_instruction_create_account_with_seed_encode(fd_system_program_instruction_create_account_with_seed_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
   err = fd_pubkey_encode(&self->base, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -5924,7 +5924,7 @@ void fd_system_program_instruction_allocate_with_seed_walk(fd_system_program_ins
   fd_pubkey_walk(&self->owner, fun, "owner", level + 1);
   fun(self, name, 33, "fd_system_program_instruction_allocate_with_seed", --level);
 }
-ulong fd_system_program_instruction_allocate_with_seed_size(fd_system_program_instruction_allocate_with_seed_t* self) {
+ulong fd_system_program_instruction_allocate_with_seed_size(fd_system_program_instruction_allocate_with_seed_t const * self) {
   ulong size = 0;
   size += fd_pubkey_size(&self->base);
   size += sizeof(ulong) + strlen(self->seed);
@@ -5933,7 +5933,7 @@ ulong fd_system_program_instruction_allocate_with_seed_size(fd_system_program_in
   return size;
 }
 
-int fd_system_program_instruction_allocate_with_seed_encode(fd_system_program_instruction_allocate_with_seed_t* self, fd_bincode_encode_ctx_t * ctx) {
+int fd_system_program_instruction_allocate_with_seed_encode(fd_system_program_instruction_allocate_with_seed_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
   err = fd_pubkey_encode(&self->base, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -5985,7 +5985,7 @@ void fd_system_program_instruction_assign_with_seed_walk(fd_system_program_instr
   fd_pubkey_walk(&self->owner, fun, "owner", level + 1);
   fun(self, name, 33, "fd_system_program_instruction_assign_with_seed", --level);
 }
-ulong fd_system_program_instruction_assign_with_seed_size(fd_system_program_instruction_assign_with_seed_t* self) {
+ulong fd_system_program_instruction_assign_with_seed_size(fd_system_program_instruction_assign_with_seed_t const * self) {
   ulong size = 0;
   size += fd_pubkey_size(&self->base);
   size += sizeof(ulong) + strlen(self->seed);
@@ -5993,7 +5993,7 @@ ulong fd_system_program_instruction_assign_with_seed_size(fd_system_program_inst
   return size;
 }
 
-int fd_system_program_instruction_assign_with_seed_encode(fd_system_program_instruction_assign_with_seed_t* self, fd_bincode_encode_ctx_t * ctx) {
+int fd_system_program_instruction_assign_with_seed_encode(fd_system_program_instruction_assign_with_seed_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
   err = fd_pubkey_encode(&self->base, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -6041,7 +6041,7 @@ void fd_system_program_instruction_transfer_with_seed_walk(fd_system_program_ins
   fd_pubkey_walk(&self->from_owner, fun, "from_owner", level + 1);
   fun(self, name, 33, "fd_system_program_instruction_transfer_with_seed", --level);
 }
-ulong fd_system_program_instruction_transfer_with_seed_size(fd_system_program_instruction_transfer_with_seed_t* self) {
+ulong fd_system_program_instruction_transfer_with_seed_size(fd_system_program_instruction_transfer_with_seed_t const * self) {
   ulong size = 0;
   size += sizeof(ulong);
   size += sizeof(ulong) + strlen(self->from_seed);
@@ -6049,7 +6049,7 @@ ulong fd_system_program_instruction_transfer_with_seed_size(fd_system_program_in
   return size;
 }
 
-int fd_system_program_instruction_transfer_with_seed_encode(fd_system_program_instruction_transfer_with_seed_t* self, fd_bincode_encode_ctx_t * ctx) {
+int fd_system_program_instruction_transfer_with_seed_encode(fd_system_program_instruction_transfer_with_seed_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
   err = fd_bincode_uint64_encode(&self->lamports, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -6277,7 +6277,7 @@ void fd_system_program_instruction_walk(fd_system_program_instruction_t* self, f
   // enum fd_pubkey_walk(&self->from_owner, fun, "from_owner", level + 1);
   fun(self, name, 33, "fd_system_program_instruction", --level);
 }
-ulong fd_system_program_instruction_size(fd_system_program_instruction_t* self) {
+ulong fd_system_program_instruction_size(fd_system_program_instruction_t const * self) {
   ulong size = 0;
   size += sizeof(uint);
   switch (self->discriminant) {
@@ -6329,7 +6329,7 @@ ulong fd_system_program_instruction_size(fd_system_program_instruction_t* self) 
   return size;
 }
 
-int fd_system_program_instruction_inner_encode(fd_system_program_instruction_inner_t* self, uint discriminant, fd_bincode_encode_ctx_t * ctx) {
+int fd_system_program_instruction_inner_encode(fd_system_program_instruction_inner_t const * self, uint discriminant, fd_bincode_encode_ctx_t * ctx) {
   int err;
   switch (discriminant) {
   case 0: {
@@ -6390,7 +6390,7 @@ int fd_system_program_instruction_inner_encode(fd_system_program_instruction_inn
   }
   return FD_BINCODE_SUCCESS;
 }
-int fd_system_program_instruction_encode(fd_system_program_instruction_t* self, fd_bincode_encode_ctx_t * ctx) {
+int fd_system_program_instruction_encode(fd_system_program_instruction_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
   err = fd_bincode_uint32_encode(&self->discriminant, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -6541,7 +6541,7 @@ void fd_system_error_walk(fd_system_error_t* self, fd_walk_fun_t fun, const char
   // enum fd_pubkey_walk(&self->from_owner, fun, "from_owner", level + 1);
   fun(self, name, 33, "fd_system_error", --level);
 }
-ulong fd_system_error_size(fd_system_error_t* self) {
+ulong fd_system_error_size(fd_system_error_t const * self) {
   ulong size = 0;
   size += sizeof(uint);
   switch (self->discriminant) {
@@ -6549,10 +6549,10 @@ ulong fd_system_error_size(fd_system_error_t* self) {
   return size;
 }
 
-int fd_system_error_inner_encode(fd_system_error_inner_t* self, uint discriminant, fd_bincode_encode_ctx_t * ctx) {
+int fd_system_error_inner_encode(fd_system_error_inner_t const * self, uint discriminant, fd_bincode_encode_ctx_t * ctx) {
   return FD_BINCODE_SUCCESS;
 }
-int fd_system_error_encode(fd_system_error_t* self, fd_bincode_encode_ctx_t * ctx) {
+int fd_system_error_encode(fd_system_error_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
   err = fd_bincode_uint32_encode(&self->discriminant, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -6582,14 +6582,14 @@ void fd_stake_authorized_walk(fd_stake_authorized_t* self, fd_walk_fun_t fun, co
   fd_pubkey_walk(&self->withdrawer, fun, "withdrawer", level + 1);
   fun(self, name, 33, "fd_stake_authorized", --level);
 }
-ulong fd_stake_authorized_size(fd_stake_authorized_t* self) {
+ulong fd_stake_authorized_size(fd_stake_authorized_t const * self) {
   ulong size = 0;
   size += fd_pubkey_size(&self->staker);
   size += fd_pubkey_size(&self->withdrawer);
   return size;
 }
 
-int fd_stake_authorized_encode(fd_stake_authorized_t* self, fd_bincode_encode_ctx_t * ctx) {
+int fd_stake_authorized_encode(fd_stake_authorized_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
   err = fd_pubkey_encode(&self->staker, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -6622,7 +6622,7 @@ void fd_stake_lockup_walk(fd_stake_lockup_t* self, fd_walk_fun_t fun, const char
   fd_pubkey_walk(&self->custodian, fun, "custodian", level + 1);
   fun(self, name, 33, "fd_stake_lockup", --level);
 }
-ulong fd_stake_lockup_size(fd_stake_lockup_t* self) {
+ulong fd_stake_lockup_size(fd_stake_lockup_t const * self) {
   ulong size = 0;
   size += sizeof(ulong);
   size += sizeof(ulong);
@@ -6630,7 +6630,7 @@ ulong fd_stake_lockup_size(fd_stake_lockup_t* self) {
   return size;
 }
 
-int fd_stake_lockup_encode(fd_stake_lockup_t* self, fd_bincode_encode_ctx_t * ctx) {
+int fd_stake_lockup_encode(fd_stake_lockup_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
   err = fd_bincode_uint64_encode(&self->unix_timestamp, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -6664,14 +6664,14 @@ void fd_stake_instruction_initialize_walk(fd_stake_instruction_initialize_t* sel
   fd_pubkey_walk(&self->lockup, fun, "lockup", level + 1);
   fun(self, name, 33, "fd_stake_instruction_initialize", --level);
 }
-ulong fd_stake_instruction_initialize_size(fd_stake_instruction_initialize_t* self) {
+ulong fd_stake_instruction_initialize_size(fd_stake_instruction_initialize_t const * self) {
   ulong size = 0;
   size += fd_stake_authorized_size(&self->authorized);
   size += fd_pubkey_size(&self->lockup);
   return size;
 }
 
-int fd_stake_instruction_initialize_encode(fd_stake_instruction_initialize_t* self, fd_bincode_encode_ctx_t * ctx) {
+int fd_stake_instruction_initialize_encode(fd_stake_instruction_initialize_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
   err = fd_stake_authorized_encode(&self->authorized, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -6740,7 +6740,7 @@ void fd_stake_authorize_walk(fd_stake_authorize_t* self, fd_walk_fun_t fun, cons
   // enum fd_pubkey_walk(&self->lockup, fun, "lockup", level + 1);
   fun(self, name, 33, "fd_stake_authorize", --level);
 }
-ulong fd_stake_authorize_size(fd_stake_authorize_t* self) {
+ulong fd_stake_authorize_size(fd_stake_authorize_t const * self) {
   ulong size = 0;
   size += sizeof(uint);
   switch (self->discriminant) {
@@ -6748,10 +6748,10 @@ ulong fd_stake_authorize_size(fd_stake_authorize_t* self) {
   return size;
 }
 
-int fd_stake_authorize_inner_encode(fd_stake_authorize_inner_t* self, uint discriminant, fd_bincode_encode_ctx_t * ctx) {
+int fd_stake_authorize_inner_encode(fd_stake_authorize_inner_t const * self, uint discriminant, fd_bincode_encode_ctx_t * ctx) {
   return FD_BINCODE_SUCCESS;
 }
-int fd_stake_authorize_encode(fd_stake_authorize_t* self, fd_bincode_encode_ctx_t * ctx) {
+int fd_stake_authorize_encode(fd_stake_authorize_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
   err = fd_bincode_uint32_encode(&self->discriminant, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -6781,14 +6781,14 @@ void fd_stake_instruction_authorize_walk(fd_stake_instruction_authorize_t* self,
   fd_stake_authorize_walk(&self->stake_authorize, fun, "stake_authorize", level + 1);
   fun(self, name, 33, "fd_stake_instruction_authorize", --level);
 }
-ulong fd_stake_instruction_authorize_size(fd_stake_instruction_authorize_t* self) {
+ulong fd_stake_instruction_authorize_size(fd_stake_instruction_authorize_t const * self) {
   ulong size = 0;
   size += fd_pubkey_size(&self->pubkey);
   size += fd_stake_authorize_size(&self->stake_authorize);
   return size;
 }
 
-int fd_stake_instruction_authorize_encode(fd_stake_instruction_authorize_t* self, fd_bincode_encode_ctx_t * ctx) {
+int fd_stake_instruction_authorize_encode(fd_stake_instruction_authorize_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
   err = fd_pubkey_encode(&self->pubkey, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -6863,7 +6863,7 @@ void fd_lockup_args_walk(fd_lockup_args_t* self, fd_walk_fun_t fun, const char *
   // fun(&self->custodian, "custodian", 16, "option", level + 1);
   fun(self, name, 33, "fd_lockup_args", --level);
 }
-ulong fd_lockup_args_size(fd_lockup_args_t* self) {
+ulong fd_lockup_args_size(fd_lockup_args_t const * self) {
   ulong size = 0;
   size += sizeof(char);
   if (NULL !=  self->unix_timestamp) {
@@ -6880,7 +6880,7 @@ ulong fd_lockup_args_size(fd_lockup_args_t* self) {
   return size;
 }
 
-int fd_lockup_args_encode(fd_lockup_args_t* self, fd_bincode_encode_ctx_t * ctx) {
+int fd_lockup_args_encode(fd_lockup_args_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
   if (self->unix_timestamp != NULL) {
     err = fd_bincode_option_encode(1, ctx);
@@ -6953,7 +6953,7 @@ void fd_authorize_with_seed_args_walk(fd_authorize_with_seed_args_t* self, fd_wa
   fd_pubkey_walk(&self->authority_owner, fun, "authority_owner", level + 1);
   fun(self, name, 33, "fd_authorize_with_seed_args", --level);
 }
-ulong fd_authorize_with_seed_args_size(fd_authorize_with_seed_args_t* self) {
+ulong fd_authorize_with_seed_args_size(fd_authorize_with_seed_args_t const * self) {
   ulong size = 0;
   size += fd_pubkey_size(&self->new_authorized_pubkey);
   size += fd_stake_authorize_size(&self->stake_authorize);
@@ -6962,7 +6962,7 @@ ulong fd_authorize_with_seed_args_size(fd_authorize_with_seed_args_t* self) {
   return size;
 }
 
-int fd_authorize_with_seed_args_encode(fd_authorize_with_seed_args_t* self, fd_bincode_encode_ctx_t * ctx) {
+int fd_authorize_with_seed_args_encode(fd_authorize_with_seed_args_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
   err = fd_pubkey_encode(&self->new_authorized_pubkey, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -7014,7 +7014,7 @@ void fd_authorize_checked_with_seed_args_walk(fd_authorize_checked_with_seed_arg
   fd_pubkey_walk(&self->authority_owner, fun, "authority_owner", level + 1);
   fun(self, name, 33, "fd_authorize_checked_with_seed_args", --level);
 }
-ulong fd_authorize_checked_with_seed_args_size(fd_authorize_checked_with_seed_args_t* self) {
+ulong fd_authorize_checked_with_seed_args_size(fd_authorize_checked_with_seed_args_t const * self) {
   ulong size = 0;
   size += fd_stake_authorize_size(&self->stake_authorize);
   size += sizeof(ulong) + strlen(self->authority_seed);
@@ -7022,7 +7022,7 @@ ulong fd_authorize_checked_with_seed_args_size(fd_authorize_checked_with_seed_ar
   return size;
 }
 
-int fd_authorize_checked_with_seed_args_encode(fd_authorize_checked_with_seed_args_t* self, fd_bincode_encode_ctx_t * ctx) {
+int fd_authorize_checked_with_seed_args_encode(fd_authorize_checked_with_seed_args_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
   err = fd_stake_authorize_encode(&self->stake_authorize, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -7083,7 +7083,7 @@ void fd_lockup_checked_args_walk(fd_lockup_checked_args_t* self, fd_walk_fun_t f
   fun(self->epoch, "epoch", 11, "ulong", level + 1);
   fun(self, name, 33, "fd_lockup_checked_args", --level);
 }
-ulong fd_lockup_checked_args_size(fd_lockup_checked_args_t* self) {
+ulong fd_lockup_checked_args_size(fd_lockup_checked_args_t const * self) {
   ulong size = 0;
   size += sizeof(char);
   if (NULL !=  self->unix_timestamp) {
@@ -7096,7 +7096,7 @@ ulong fd_lockup_checked_args_size(fd_lockup_checked_args_t* self) {
   return size;
 }
 
-int fd_lockup_checked_args_encode(fd_lockup_checked_args_t* self, fd_bincode_encode_ctx_t * ctx) {
+int fd_lockup_checked_args_encode(fd_lockup_checked_args_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
   if (self->unix_timestamp != NULL) {
     err = fd_bincode_option_encode(1, ctx);
@@ -7327,7 +7327,7 @@ void fd_stake_instruction_walk(fd_stake_instruction_t* self, fd_walk_fun_t fun, 
   // enum fd_option_walk(&self->epoch, fun, "epoch", level + 1);
   fun(self, name, 33, "fd_stake_instruction", --level);
 }
-ulong fd_stake_instruction_size(fd_stake_instruction_t* self) {
+ulong fd_stake_instruction_size(fd_stake_instruction_t const * self) {
   ulong size = 0;
   size += sizeof(uint);
   switch (self->discriminant) {
@@ -7367,7 +7367,7 @@ ulong fd_stake_instruction_size(fd_stake_instruction_t* self) {
   return size;
 }
 
-int fd_stake_instruction_inner_encode(fd_stake_instruction_inner_t* self, uint discriminant, fd_bincode_encode_ctx_t * ctx) {
+int fd_stake_instruction_inner_encode(fd_stake_instruction_inner_t const * self, uint discriminant, fd_bincode_encode_ctx_t * ctx) {
   int err;
   switch (discriminant) {
   case 0: {
@@ -7413,7 +7413,7 @@ int fd_stake_instruction_inner_encode(fd_stake_instruction_inner_t* self, uint d
   }
   return FD_BINCODE_SUCCESS;
 }
-int fd_stake_instruction_encode(fd_stake_instruction_t* self, fd_bincode_encode_ctx_t * ctx) {
+int fd_stake_instruction_encode(fd_stake_instruction_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
   err = fd_bincode_uint32_encode(&self->discriminant, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -7446,7 +7446,7 @@ void fd_stake_state_meta_walk(fd_stake_state_meta_t* self, fd_walk_fun_t fun, co
   fd_stake_lockup_walk(&self->lockup, fun, "lockup", level + 1);
   fun(self, name, 33, "fd_stake_state_meta", --level);
 }
-ulong fd_stake_state_meta_size(fd_stake_state_meta_t* self) {
+ulong fd_stake_state_meta_size(fd_stake_state_meta_t const * self) {
   ulong size = 0;
   size += sizeof(ulong);
   size += fd_stake_authorized_size(&self->authorized);
@@ -7454,7 +7454,7 @@ ulong fd_stake_state_meta_size(fd_stake_state_meta_t* self) {
   return size;
 }
 
-int fd_stake_state_meta_encode(fd_stake_state_meta_t* self, fd_bincode_encode_ctx_t * ctx) {
+int fd_stake_state_meta_encode(fd_stake_state_meta_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
   err = fd_bincode_uint64_encode(&self->rent_exempt_reserve, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -7486,14 +7486,14 @@ void fd_stake_walk(fd_stake_t* self, fd_walk_fun_t fun, const char *name, int le
   fun(&self->credits_observed, "credits_observed", 11, "ulong", level + 1);
   fun(self, name, 33, "fd_stake", --level);
 }
-ulong fd_stake_size(fd_stake_t* self) {
+ulong fd_stake_size(fd_stake_t const * self) {
   ulong size = 0;
   size += fd_delegation_size(&self->delegation);
   size += sizeof(ulong);
   return size;
 }
 
-int fd_stake_encode(fd_stake_t* self, fd_bincode_encode_ctx_t * ctx) {
+int fd_stake_encode(fd_stake_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
   err = fd_delegation_encode(&self->delegation, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -7525,14 +7525,14 @@ void fd_stake_state_stake_walk(fd_stake_state_stake_t* self, fd_walk_fun_t fun, 
   fd_stake_walk(&self->stake, fun, "stake", level + 1);
   fun(self, name, 33, "fd_stake_state_stake", --level);
 }
-ulong fd_stake_state_stake_size(fd_stake_state_stake_t* self) {
+ulong fd_stake_state_stake_size(fd_stake_state_stake_t const * self) {
   ulong size = 0;
   size += fd_stake_state_meta_size(&self->meta);
   size += fd_stake_size(&self->stake);
   return size;
 }
 
-int fd_stake_state_stake_encode(fd_stake_state_stake_t* self, fd_bincode_encode_ctx_t * ctx) {
+int fd_stake_state_stake_encode(fd_stake_state_stake_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
   err = fd_stake_state_meta_encode(&self->meta, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -7629,7 +7629,7 @@ void fd_stake_state_walk(fd_stake_state_t* self, fd_walk_fun_t fun, const char *
   // enum fd_stake_walk(&self->stake, fun, "stake", level + 1);
   fun(self, name, 33, "fd_stake_state", --level);
 }
-ulong fd_stake_state_size(fd_stake_state_t* self) {
+ulong fd_stake_state_size(fd_stake_state_t const * self) {
   ulong size = 0;
   size += sizeof(uint);
   switch (self->discriminant) {
@@ -7645,7 +7645,7 @@ ulong fd_stake_state_size(fd_stake_state_t* self) {
   return size;
 }
 
-int fd_stake_state_inner_encode(fd_stake_state_inner_t* self, uint discriminant, fd_bincode_encode_ctx_t * ctx) {
+int fd_stake_state_inner_encode(fd_stake_state_inner_t const * self, uint discriminant, fd_bincode_encode_ctx_t * ctx) {
   int err;
   switch (discriminant) {
   case 1: {
@@ -7661,7 +7661,7 @@ int fd_stake_state_inner_encode(fd_stake_state_inner_t* self, uint discriminant,
   }
   return FD_BINCODE_SUCCESS;
 }
-int fd_stake_state_encode(fd_stake_state_t* self, fd_bincode_encode_ctx_t * ctx) {
+int fd_stake_state_encode(fd_stake_state_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
   err = fd_bincode_uint32_encode(&self->discriminant, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -7696,7 +7696,7 @@ void fd_nonce_data_walk(fd_nonce_data_t* self, fd_walk_fun_t fun, const char *na
   fd_fee_calculator_walk(&self->fee_calculator, fun, "fee_calculator", level + 1);
   fun(self, name, 33, "fd_nonce_data", --level);
 }
-ulong fd_nonce_data_size(fd_nonce_data_t* self) {
+ulong fd_nonce_data_size(fd_nonce_data_t const * self) {
   ulong size = 0;
   size += fd_pubkey_size(&self->authority);
   size += fd_hash_size(&self->durable_nonce);
@@ -7704,7 +7704,7 @@ ulong fd_nonce_data_size(fd_nonce_data_t* self) {
   return size;
 }
 
-int fd_nonce_data_encode(fd_nonce_data_t* self, fd_bincode_encode_ctx_t * ctx) {
+int fd_nonce_data_encode(fd_nonce_data_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
   err = fd_pubkey_encode(&self->authority, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -7777,7 +7777,7 @@ void fd_nonce_state_walk(fd_nonce_state_t* self, fd_walk_fun_t fun, const char *
   // enum fd_fee_calculator_walk(&self->fee_calculator, fun, "fee_calculator", level + 1);
   fun(self, name, 33, "fd_nonce_state", --level);
 }
-ulong fd_nonce_state_size(fd_nonce_state_t* self) {
+ulong fd_nonce_state_size(fd_nonce_state_t const * self) {
   ulong size = 0;
   size += sizeof(uint);
   switch (self->discriminant) {
@@ -7789,7 +7789,7 @@ ulong fd_nonce_state_size(fd_nonce_state_t* self) {
   return size;
 }
 
-int fd_nonce_state_inner_encode(fd_nonce_state_inner_t* self, uint discriminant, fd_bincode_encode_ctx_t * ctx) {
+int fd_nonce_state_inner_encode(fd_nonce_state_inner_t const * self, uint discriminant, fd_bincode_encode_ctx_t * ctx) {
   int err;
   switch (discriminant) {
   case 1: {
@@ -7800,7 +7800,7 @@ int fd_nonce_state_inner_encode(fd_nonce_state_inner_t* self, uint discriminant,
   }
   return FD_BINCODE_SUCCESS;
 }
-int fd_nonce_state_encode(fd_nonce_state_t* self, fd_bincode_encode_ctx_t * ctx) {
+int fd_nonce_state_encode(fd_nonce_state_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
   err = fd_bincode_uint32_encode(&self->discriminant, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -7871,7 +7871,7 @@ void fd_nonce_state_versions_walk(fd_nonce_state_versions_t* self, fd_walk_fun_t
   // enum fd_fee_calculator_walk(&self->fee_calculator, fun, "fee_calculator", level + 1);
   fun(self, name, 33, "fd_nonce_state_versions", --level);
 }
-ulong fd_nonce_state_versions_size(fd_nonce_state_versions_t* self) {
+ulong fd_nonce_state_versions_size(fd_nonce_state_versions_t const * self) {
   ulong size = 0;
   size += sizeof(uint);
   switch (self->discriminant) {
@@ -7887,7 +7887,7 @@ ulong fd_nonce_state_versions_size(fd_nonce_state_versions_t* self) {
   return size;
 }
 
-int fd_nonce_state_versions_inner_encode(fd_nonce_state_versions_inner_t* self, uint discriminant, fd_bincode_encode_ctx_t * ctx) {
+int fd_nonce_state_versions_inner_encode(fd_nonce_state_versions_inner_t const * self, uint discriminant, fd_bincode_encode_ctx_t * ctx) {
   int err;
   switch (discriminant) {
   case 0: {
@@ -7903,7 +7903,7 @@ int fd_nonce_state_versions_inner_encode(fd_nonce_state_versions_inner_t* self, 
   }
   return FD_BINCODE_SUCCESS;
 }
-int fd_nonce_state_versions_encode(fd_nonce_state_versions_t* self, fd_bincode_encode_ctx_t * ctx) {
+int fd_nonce_state_versions_encode(fd_nonce_state_versions_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
   err = fd_bincode_uint32_encode(&self->discriminant, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -7929,14 +7929,14 @@ void fd_compute_budget_program_instruction_request_units_deprecated_walk(fd_comp
   fun(&self->additional_fee, "additional_fee", 7, "uint", level + 1);
   fun(self, name, 33, "fd_compute_budget_program_instruction_request_units_deprecated", --level);
 }
-ulong fd_compute_budget_program_instruction_request_units_deprecated_size(fd_compute_budget_program_instruction_request_units_deprecated_t* self) {
+ulong fd_compute_budget_program_instruction_request_units_deprecated_size(fd_compute_budget_program_instruction_request_units_deprecated_t const * self) {
   ulong size = 0;
   size += sizeof(uint);
   size += sizeof(uint);
   return size;
 }
 
-int fd_compute_budget_program_instruction_request_units_deprecated_encode(fd_compute_budget_program_instruction_request_units_deprecated_t* self, fd_bincode_encode_ctx_t * ctx) {
+int fd_compute_budget_program_instruction_request_units_deprecated_encode(fd_compute_budget_program_instruction_request_units_deprecated_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
   err = fd_bincode_uint32_encode(&self->units, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -8037,7 +8037,7 @@ void fd_compute_budget_program_instruction_walk(fd_compute_budget_program_instru
   // enum fd_uint_walk(&self->additional_fee, fun, "additional_fee", level + 1);
   fun(self, name, 33, "fd_compute_budget_program_instruction", --level);
 }
-ulong fd_compute_budget_program_instruction_size(fd_compute_budget_program_instruction_t* self) {
+ulong fd_compute_budget_program_instruction_size(fd_compute_budget_program_instruction_t const * self) {
   ulong size = 0;
   size += sizeof(uint);
   switch (self->discriminant) {
@@ -8061,7 +8061,7 @@ ulong fd_compute_budget_program_instruction_size(fd_compute_budget_program_instr
   return size;
 }
 
-int fd_compute_budget_program_instruction_inner_encode(fd_compute_budget_program_instruction_inner_t* self, uint discriminant, fd_bincode_encode_ctx_t * ctx) {
+int fd_compute_budget_program_instruction_inner_encode(fd_compute_budget_program_instruction_inner_t const * self, uint discriminant, fd_bincode_encode_ctx_t * ctx) {
   int err;
   switch (discriminant) {
   case 0: {
@@ -8087,7 +8087,7 @@ int fd_compute_budget_program_instruction_inner_encode(fd_compute_budget_program
   }
   return FD_BINCODE_SUCCESS;
 }
-int fd_compute_budget_program_instruction_encode(fd_compute_budget_program_instruction_t* self, fd_bincode_encode_ctx_t * ctx) {
+int fd_compute_budget_program_instruction_encode(fd_compute_budget_program_instruction_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
   err = fd_bincode_uint32_encode(&self->discriminant, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -8096,28 +8096,28 @@ int fd_compute_budget_program_instruction_encode(fd_compute_budget_program_instr
 
 int fd_config_keys_decode(fd_config_keys_t* self, fd_bincode_decode_ctx_t * ctx) {
   int err;
-  self->keys = deq_fd_config_keys_pair_t_alloc( ctx->allocf, ctx->allocf_arg );
-  ushort keys_len;
-  err = fd_bincode_compact_u16_decode(&keys_len, ctx);
+  err = fd_bincode_compact_u16_decode(&self->keys_len, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  if ( keys_len > deq_fd_config_keys_pair_t_max(self->keys) ) return FD_BINCODE_ERR_SMALL_DEQUE;
-  for (ulong i = 0; i < keys_len; ++i) {
-    fd_config_keys_pair_t * elem = deq_fd_config_keys_pair_t_push_tail_nocopy(self->keys);
-    fd_config_keys_pair_new(elem);
-    err = fd_config_keys_pair_decode(elem, ctx);
-    if ( FD_UNLIKELY(err) ) return err;
-  }
+  if (self->keys_len != 0) {
+    self->keys = (fd_config_keys_pair_t*)(*ctx->allocf)(ctx->allocf_arg, FD_CONFIG_KEYS_PAIR_ALIGN, FD_CONFIG_KEYS_PAIR_FOOTPRINT*self->keys_len);
+    for (ulong i = 0; i < self->keys_len; ++i) {
+      fd_config_keys_pair_new(self->keys + i);
+    }
+    for (ulong i = 0; i < self->keys_len; ++i) {
+      err = fd_config_keys_pair_decode(self->keys + i, ctx);
+      if ( FD_UNLIKELY(err) ) return err;
+    }
+  } else
+    self->keys = NULL;
   return FD_BINCODE_SUCCESS;
 }
 void fd_config_keys_new(fd_config_keys_t* self) {
   self->keys = NULL;
 }
 void fd_config_keys_destroy(fd_config_keys_t* self, fd_bincode_destroy_ctx_t * ctx) {
-  if ( self->keys ) {
-    for ( deq_fd_config_keys_pair_t_iter_t iter = deq_fd_config_keys_pair_t_iter_init( self->keys ); !deq_fd_config_keys_pair_t_iter_done( self->keys, iter ); iter = deq_fd_config_keys_pair_t_iter_next( self->keys, iter ) ) {
-      fd_config_keys_pair_t * ele = deq_fd_config_keys_pair_t_iter_ele( self->keys, iter );
-      fd_config_keys_pair_destroy(ele, ctx);
-    }
+  if (NULL != self->keys) {
+    for (ulong i = 0; i < self->keys_len; ++i)
+      fd_config_keys_pair_destroy(self->keys + i, ctx);
     (*ctx->freef)(ctx->freef_arg, self->keys);
     self->keys = NULL;
   }
@@ -8125,41 +8125,31 @@ void fd_config_keys_destroy(fd_config_keys_t* self, fd_bincode_destroy_ctx_t * c
 
 void fd_config_keys_walk(fd_config_keys_t* self, fd_walk_fun_t fun, const char *name, int level) {
   fun(self, name, 32, "fd_config_keys", level++);
-  if ( self->keys ) {
-    for ( deq_fd_config_keys_pair_t_iter_t iter = deq_fd_config_keys_pair_t_iter_init( self->keys ); !deq_fd_config_keys_pair_t_iter_done( self->keys, iter ); iter = deq_fd_config_keys_pair_t_iter_next( self->keys, iter ) ) {
-      fd_config_keys_pair_t * ele = deq_fd_config_keys_pair_t_iter_ele( self->keys, iter );
-      fd_config_keys_pair_walk(ele, fun, "keys", level + 1);
-    }
+  if (self->keys_len != 0) {
+    fun(NULL, NULL, 30, "keys", level++);
+    for (ulong i = 0; i < self->keys_len; ++i)
+      fd_config_keys_pair_walk(self->keys + i, fun, "config_keys_pair", level + 1);
+    fun(NULL, NULL, 31, "keys", --level);
   }
   fun(self, name, 33, "fd_config_keys", --level);
 }
-ulong fd_config_keys_size(fd_config_keys_t* self) {
+ulong fd_config_keys_size(fd_config_keys_t const * self) {
   ulong size = 0;
-  if ( self->keys ) {
-    size += sizeof(ulong);
-    for ( deq_fd_config_keys_pair_t_iter_t iter = deq_fd_config_keys_pair_t_iter_init( self->keys ); !deq_fd_config_keys_pair_t_iter_done( self->keys, iter ); iter = deq_fd_config_keys_pair_t_iter_next( self->keys, iter ) ) {
-      fd_config_keys_pair_t * ele = deq_fd_config_keys_pair_t_iter_ele( self->keys, iter );
-      size += fd_config_keys_pair_size(ele);
-    }
-  }
+  size += sizeof(ulong);
+  for (ulong i = 0; i < self->keys_len; ++i)
+    size += fd_config_keys_pair_size(self->keys + i);
   return size;
 }
 
-int fd_config_keys_encode(fd_config_keys_t* self, fd_bincode_encode_ctx_t * ctx) {
+int fd_config_keys_encode(fd_config_keys_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
-  if ( self->keys ) {
-    ushort keys_len = (ushort)deq_fd_config_keys_pair_t_cnt(self->keys);
-    err = fd_bincode_compact_u16_encode(&keys_len, ctx);
-    if ( FD_UNLIKELY(err) ) return err;
-    for ( deq_fd_config_keys_pair_t_iter_t iter = deq_fd_config_keys_pair_t_iter_init( self->keys ); !deq_fd_config_keys_pair_t_iter_done( self->keys, iter ); iter = deq_fd_config_keys_pair_t_iter_next( self->keys, iter ) ) {
-      fd_config_keys_pair_t * ele = deq_fd_config_keys_pair_t_iter_ele( self->keys, iter );
-      err = fd_config_keys_pair_encode(ele, ctx);
+  err = fd_bincode_compact_u16_encode(&self->keys_len, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  if (self->keys_len != 0) {
+    for (ulong i = 0; i < self->keys_len; ++i) {
+      err = fd_config_keys_pair_encode(self->keys + i, ctx);
       if ( FD_UNLIKELY(err) ) return err;
     }
-  } else {
-    ushort keys_len = 0;
-    err = fd_bincode_compact_u16_encode(&keys_len, ctx);
-    if ( FD_UNLIKELY(err) ) return err;
   }
   return FD_BINCODE_SUCCESS;
 }

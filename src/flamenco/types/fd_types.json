@@ -771,7 +771,7 @@
       "type": "struct",
       "fields": [
         { "name": "key", "type": "pubkey" },
-        { "name": "value", "type": "unsigned char" }
+        { "name": "signer", "type": "unsigned char" }
       ]
     },
     {
@@ -1180,7 +1180,7 @@
       "name": "config_keys",
       "type": "struct",
       "fields": [
-        { "name": "keys", "type": "deque", "element": "config_keys_pair", "modifier": "compact", "max":35 }
+        { "name": "keys", "type": "vector", "element": "config_keys_pair", "modifier": "compact", "max":35 }
       ],
       "comment": "https://github.com/solana-labs/solana/blob/a03ae63daff987912c48ee286eb8ee7e8a84bf01/programs/config/src/lib.rs#L32"
     }
