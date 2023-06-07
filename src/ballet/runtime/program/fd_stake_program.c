@@ -13,7 +13,7 @@
 #define FEATURE_ACTIVE_STAKE_SPLIT_USES_RENT_SYSVAR ( 1 )
 #define FEATURE_STAKE_ALLOW_ZERO_UNDELEGATED_AMOUNT ( 1 )
 #define FEATURE_CLEAN_UP_DELEGATION_ERRORS ( 1 )
-#define FEATURE_STAKE_RAISE_MINIMUM_DELEGATION_TO_1_SOL ( 0 )
+#define FEATURE_STAKE_RAISE_MINIMUM_DELEGATION_TO_1_SOL ( 0 ) // old behavior
 
 void write_stake_config( fd_global_ctx_t* global, fd_stake_config_t* stake_config) {
   ulong          sz = fd_stake_config_size( stake_config );
@@ -148,6 +148,7 @@ int validate_split_amount(
     instruction_ctx_t ctx,
     ushort source_account_index,
     ushort destination_account_index,
+    ushort source_stake_is_some,
     fd_acc_lamports_t lamports,
     fd_acc_lamports_t additional_lamports,
     fd_acc_lamports_t * source_remaining_balance,
@@ -218,11 +219,17 @@ int validate_split_amount(
     } else {
       *destination_rent_exempt_reserve = source_state.inner.initialized.rent_exempt_reserve / (source_data_len + ACCOUNT_STORAGE_OVERHEAD) * (destination_data_len + ACCOUNT_STORAGE_OVERHEAD); 
     }
-    fd_acc_lamports_t dest_minimum_balance = *destination_rent_exempt_reserve + additional_lamports;
-    fd_acc_lamports_t dest_balance_deficit = dest_minimum_balance - destination_lamports;
+    fd_acc_lamports_t dest_minimum_balance = fd_ulong_sat_add(*destination_rent_exempt_reserve, additional_lamports);
 
-    if (lamports < dest_balance_deficit) {
-      FD_LOG_WARNING(( "lamports are less than dest_balance_deficit lamports=%lu,\n dest_balance_deficit=%lu destination_rent_exempt_reserve=%lu, \n additional_lamports=%lu \n destination_lamports=%lu", lamports, dest_balance_deficit, *destination_rent_exempt_reserve, additional_lamports, destination_lamports ));
+    if (fd_ulong_sat_add(lamports, destination_lamports) < dest_minimum_balance) {
+      // FD_LOG_WARNING(( "lamports are less than dest_balance_deficit\n lamports=%lu,\n dest_balance_deficit=%lu destination_rent_exempt_reserve=%lu, \n additional_lamports=%lu \n destination_lamports=%lu", lamports, dest_balance_deficit, *destination_rent_exempt_reserve, additional_lamports, destination_lamports ));
+      return FD_EXECUTOR_INSTR_ERR_INSUFFICIENT_FUNDS;
+    }
+
+    if (
+      !FEATURE_CLEAN_UP_DELEGATION_ERRORS &&
+      source_stake_is_some &&
+      lamports < additional_lamports) {
       return FD_EXECUTOR_INSTR_ERR_INSUFFICIENT_FUNDS;
     }
 
@@ -525,27 +532,29 @@ int fd_executor_stake_program_execute_instruction(
       fd_acc_lamports_t minimum_delegation = (FEATURE_STAKE_RAISE_MINIMUM_DELEGATION_TO_1_SOL) ? MINIMUM_DELEGATION_SOL * LAMPORTS_PER_SOL: MINIMUM_STAKE_DELEGATION;
       fd_acc_lamports_t source_remaining_balance, destination_rent_exempt_reserve;
       // todo: implement source_stake = Some(&stake)
-      int validate_result = validate_split_amount(ctx, 0, 1, lamports, minimum_delegation, &source_remaining_balance, &destination_rent_exempt_reserve);
+      int validate_result = validate_split_amount(ctx, 0, 1, 1, lamports, minimum_delegation, &source_remaining_balance, &destination_rent_exempt_reserve);
       if (validate_result != FD_EXECUTOR_INSTR_SUCCESS) {
         return validate_result;
       }
       fd_acc_lamports_t remaining_stake_delta, split_stake_amount;
       if (source_remaining_balance == 0) {
-        remaining_stake_delta = lamports - stake_state.inner.initialized.rent_exempt_reserve;
+        remaining_stake_delta = fd_ulong_sat_sub(lamports, stake_state.inner.initialized.rent_exempt_reserve);
         split_stake_amount = remaining_stake_delta;
       } else {
-        if (FEATURE_CLEAN_UP_DELEGATION_ERRORS && stake_state.inner.stake.stake.delegation.stake - lamports < minimum_delegation) {
+        if (FEATURE_CLEAN_UP_DELEGATION_ERRORS && stake_state.inner.stake.stake.delegation.stake < fd_ulong_sat_add(minimum_delegation, lamports)) {
+          ctx.txn_ctx->custom_err = 12;
           return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR; // (StakeError::InsufficientDelegation.into());
         }
         remaining_stake_delta = lamports;
-        split_stake_amount = lamports - (destination_rent_exempt_reserve - split_lamports_balance);
+        split_stake_amount = fd_ulong_sat_sub(lamports, fd_ulong_sat_sub(destination_rent_exempt_reserve, split_lamports_balance));
       }
-
       if (FEATURE_CLEAN_UP_DELEGATION_ERRORS && split_stake_amount < minimum_delegation) {
+        ctx.txn_ctx->custom_err = 12; 
         return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR; // (StakeError::InsufficientDelegation.into());
       }
 
       if (remaining_stake_delta > stake_state.inner.stake.stake.delegation.stake) {
+        ctx.txn_ctx->custom_err = 12;
         return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR; // (StakeError::InsufficientDelegation.into()); 
       }
 
@@ -582,7 +591,7 @@ int fd_executor_stake_program_execute_instruction(
       fd_acc_lamports_t additional_required_lamports = FEATURE_STAKE_ALLOW_ZERO_UNDELEGATED_AMOUNT ? 0 : (FEATURE_STAKE_RAISE_MINIMUM_DELEGATION_TO_1_SOL ? MINIMUM_DELEGATION_SOL * LAMPORTS_PER_SOL : MINIMUM_STAKE_DELEGATION);
       
       fd_acc_lamports_t source_remaining_balance, destination_rent_exempt_reserve;
-      int validate_result = validate_split_amount(ctx, 0, 1, lamports, additional_required_lamports, &source_remaining_balance, &destination_rent_exempt_reserve);
+      int validate_result = validate_split_amount(ctx, 0, 1, 0, lamports, additional_required_lamports, &source_remaining_balance, &destination_rent_exempt_reserve);
       if (validate_result != FD_EXECUTOR_INSTR_SUCCESS) {
         return validate_result;
       }
@@ -626,8 +635,8 @@ int fd_executor_stake_program_execute_instruction(
     //   FD_LOG_NOTICE(( "idx %d char %d", idx, ((uchar*)d)[idx] ));
     // }
 
-    // Deinitialize state upon zero balance
-    if (lamports == stake_metadata.info.lamports) {
+    // Deinitialize state of stake acc (only if it has been initialized) upon zero balance
+    if (lamports == stake_metadata.info.lamports && !fd_stake_state_is_uninitialized( &stake_state ) ) {
       stake_state.discriminant = 0; // de-initialize
       int result = write_stake_state( ctx.global, stake_acc, &stake_state, 0 );
       if ( result != FD_EXECUTOR_INSTR_SUCCESS ) {
@@ -636,19 +645,12 @@ int fd_executor_stake_program_execute_instruction(
       }
     }
 
-    // check add lamports
-    // FD_LOG_NOTICE(( "split account lamports = %lu lamports to add = %lu", split_metadata.info.lamports, lamports ));
-
-    fd_acc_mgr_set_lamports( ctx.global->acc_mgr, ctx.global->funk_txn, ctx.global->bank.solana_bank.slot, split_acc, split_metadata.info.lamports + lamports); 
-
-    // update metadata after change, needed if source = destination
-    if (instr_acc_idxs[0] == instr_acc_idxs[1]) {
-      fd_acc_mgr_get_metadata( ctx.global->acc_mgr, ctx.global->funk_txn, stake_acc, &stake_metadata );
+    if (instr_acc_idxs[0] != instr_acc_idxs[1]) {
+      // add to destination
+      fd_acc_mgr_set_lamports( ctx.global->acc_mgr, ctx.global->funk_txn, ctx.global->bank.solana_bank.slot, split_acc, split_metadata.info.lamports + lamports);
+      // sub from source
+      fd_acc_mgr_set_lamports( ctx.global->acc_mgr, ctx.global->funk_txn, ctx.global->bank.solana_bank.slot, stake_acc, stake_metadata.info.lamports - lamports);
     }
-
-    // FD_LOG_NOTICE(( "stake account lamports = %lu lamports to sub = %lu", stake_metadata.info.lamports, lamports ));
-    // check sub lamports
-    fd_acc_mgr_set_lamports( ctx.global->acc_mgr, ctx.global->funk_txn, ctx.global->bank.solana_bank.slot, stake_acc, stake_metadata.info.lamports - lamports); 
   } // end of split, discriminant 3
   else if ( fd_stake_instruction_is_deactivate( &instruction )) { // discriminant 5
 
