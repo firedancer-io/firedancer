@@ -4766,7 +4766,7 @@ int fd_config_keys_pair_decode(fd_config_keys_pair_t* self, fd_bincode_decode_ct
   int err;
   err = fd_pubkey_decode(&self->key, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint8_decode(&self->value, ctx);
+  err = fd_bincode_uint8_decode(&self->signer, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   return FD_BINCODE_SUCCESS;
 }
@@ -4780,7 +4780,7 @@ void fd_config_keys_pair_destroy(fd_config_keys_pair_t* self, fd_bincode_destroy
 void fd_config_keys_pair_walk(fd_config_keys_pair_t* self, fd_walk_fun_t fun, const char *name, int level) {
   fun(self, name, 32, "fd_config_keys_pair", level++);
   fd_pubkey_walk(&self->key, fun, "key", level + 1);
-  fun(&self->value, "value", 9, "uchar", level + 1);
+  fun(&self->signer, "signer", 9, "uchar", level + 1);
   fun(self, name, 33, "fd_config_keys_pair", --level);
 }
 ulong fd_config_keys_pair_size(fd_config_keys_pair_t const * self) {
@@ -4794,7 +4794,7 @@ int fd_config_keys_pair_encode(fd_config_keys_pair_t const * self, fd_bincode_en
   int err;
   err = fd_pubkey_encode(&self->key, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint8_encode(&self->value, ctx);
+  err = fd_bincode_uint8_encode(&self->signer, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   return FD_BINCODE_SUCCESS;
 }
@@ -7979,28 +7979,28 @@ int fd_compute_budget_program_instruction_encode(fd_compute_budget_program_instr
 
 int fd_config_keys_decode(fd_config_keys_t* self, fd_bincode_decode_ctx_t * ctx) {
   int err;
-    self->keys = deq_fd_config_keys_pair_t_alloc( ctx->allocf, ctx->allocf_arg );
-  ushort keys_len;
-  err = fd_bincode_compact_u16_decode(&keys_len, ctx);
+  err = fd_bincode_compact_u16_decode(&self->keys_len, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  if ( keys_len > deq_fd_config_keys_pair_t_max(self->keys) ) return FD_BINCODE_ERR_SMALL_DEQUE;
-  for (ulong i = 0; i < keys_len; ++i) {
-    fd_config_keys_pair_t * elem = deq_fd_config_keys_pair_t_push_tail_nocopy(self->keys);
-    fd_config_keys_pair_new(elem);
-    err = fd_config_keys_pair_decode(elem, ctx);
-    if ( FD_UNLIKELY(err) ) return err;
-  }
+  if (self->keys_len != 0) {
+    self->keys = (fd_config_keys_pair_t*)(*ctx->allocf)(ctx->allocf_arg, FD_CONFIG_KEYS_PAIR_ALIGN, FD_CONFIG_KEYS_PAIR_FOOTPRINT*self->keys_len);
+    for (ulong i = 0; i < self->keys_len; ++i) {
+      fd_config_keys_pair_new(self->keys + i);
+    }
+    for (ulong i = 0; i < self->keys_len; ++i) {
+      err = fd_config_keys_pair_decode(self->keys + i, ctx);
+      if ( FD_UNLIKELY(err) ) return err;
+    }
+  } else
+    self->keys = NULL;
   return FD_BINCODE_SUCCESS;
 }
 void fd_config_keys_new(fd_config_keys_t* self) {
   self->keys = NULL;
 }
 void fd_config_keys_destroy(fd_config_keys_t* self, fd_bincode_destroy_ctx_t * ctx) {
-  if ( self->keys ) {
-    for ( deq_fd_config_keys_pair_t_iter_t iter = deq_fd_config_keys_pair_t_iter_init( self->keys ); !deq_fd_config_keys_pair_t_iter_done( self->keys, iter ); iter = deq_fd_config_keys_pair_t_iter_next( self->keys, iter ) ) {
-    fd_config_keys_pair_t * ele = deq_fd_config_keys_pair_t_iter_ele( self->keys, iter );
-      fd_config_keys_pair_destroy(ele, ctx);
-    }
+  if (NULL != self->keys) {
+    for (ulong i = 0; i < self->keys_len; ++i)
+      fd_config_keys_pair_destroy(self->keys + i, ctx);
     (*ctx->freef)(ctx->freef_arg, self->keys);
     self->keys = NULL;
   }
@@ -8008,42 +8008,32 @@ void fd_config_keys_destroy(fd_config_keys_t* self, fd_bincode_destroy_ctx_t * c
 
 void fd_config_keys_walk(fd_config_keys_t* self, fd_walk_fun_t fun, const char *name, int level) {
   fun(self, name, 32, "fd_config_keys", level++);
-  if ( self->keys ) {
-    for ( deq_fd_config_keys_pair_t_iter_t iter = deq_fd_config_keys_pair_t_iter_init( self->keys ); !deq_fd_config_keys_pair_t_iter_done( self->keys, iter ); iter = deq_fd_config_keys_pair_t_iter_next( self->keys, iter ) ) {
-    fd_config_keys_pair_t * ele = deq_fd_config_keys_pair_t_iter_ele( self->keys, iter );
-      fd_config_keys_pair_walk(ele, fun, "keys", level + 1);
-    }
+  if (self->keys_len != 0) {
+  fun(NULL, NULL, 30, "keys", level++);
+    for (ulong i = 0; i < self->keys_len; ++i)
+      fd_config_keys_pair_walk(self->keys + i, fun, "config_keys_pair", level + 1);
+  fun(NULL, NULL, 31, "keys", --level);
   }
   fun(self, name, 33, "fd_config_keys", --level);
 }
 ulong fd_config_keys_size(fd_config_keys_t const * self) {
   ulong size = 0;
-  if ( self->keys ) {
-    size += sizeof(ulong);
-    for ( deq_fd_config_keys_pair_t_iter_t iter = deq_fd_config_keys_pair_t_iter_init( self->keys ); !deq_fd_config_keys_pair_t_iter_done( self->keys, iter ); iter = deq_fd_config_keys_pair_t_iter_next( self->keys, iter ) ) {
-    fd_config_keys_pair_t * ele = deq_fd_config_keys_pair_t_iter_ele( self->keys, iter );
-      size += fd_config_keys_pair_size(ele);
-    }
-  }
+  size += sizeof(ulong);
+    for (ulong i = 0; i < self->keys_len; ++i)
+      size += fd_config_keys_pair_size(self->keys + i);
   return size;
 }
 
 int fd_config_keys_encode(fd_config_keys_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
-  if ( self->keys ) {
-    ushort keys_len = (ushort)deq_fd_config_keys_pair_t_cnt(self->keys);
-    err = fd_bincode_compact_u16_encode(&keys_len, ctx);
-    if ( FD_UNLIKELY(err) ) return err;
-    for ( deq_fd_config_keys_pair_t_iter_t iter = deq_fd_config_keys_pair_t_iter_init( self->keys ); !deq_fd_config_keys_pair_t_iter_done( self->keys, iter ); iter = deq_fd_config_keys_pair_t_iter_next( self->keys, iter ) ) {
-      fd_config_keys_pair_t * ele = deq_fd_config_keys_pair_t_iter_ele( self->keys, iter );
-     err = fd_config_keys_pair_encode(ele, ctx);
-     if ( FD_UNLIKELY(err) ) return err;
-   }
- } else {
-    ushort keys_len = 0;
-    err = fd_bincode_compact_u16_encode(&keys_len, ctx);
-    if ( FD_UNLIKELY(err) ) return err;
- }
+  err = fd_bincode_compact_u16_encode(&self->keys_len, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  if (self->keys_len != 0) {
+    for (ulong i = 0; i < self->keys_len; ++i) {
+      err = fd_config_keys_pair_encode(self->keys + i, ctx);
+      if ( FD_UNLIKELY(err) ) return err;
+    }
+  }
   return FD_BINCODE_SUCCESS;
 }
 
