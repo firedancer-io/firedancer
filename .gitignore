@@ -30,3 +30,7 @@ opt/
 *.swo
 
 test-ledger*
+
+# Temp ... remove this
+actual.bin
+expected.bin
