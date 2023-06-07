@@ -143,12 +143,28 @@ fd_vote_save_account( fd_vote_state_versioned_t const * account,
                       instruction_ctx_t                 ctx ) {
 
   /* Derive size of vote account */
-  ulong raw_acc_sz = fd_vote_state_versioned_size( account );
+  ulong serialized_sz = fd_vote_state_versioned_size( account );
+  ulong raw_acc_sz = serialized_sz;
   if( raw_acc_sz < VOTE_ACCOUNT_SIZE ) raw_acc_sz = VOTE_ACCOUNT_SIZE;
+  meta->dlen = raw_acc_sz;
 
   /* Alloc temporary buffer for storing serialized vote account */
   void * raw_acc = fd_alloca_check( 1UL, raw_acc_sz );
   fd_memset( raw_acc, 0, raw_acc_sz );
+
+  /* Restore original content if serialized content shrinks
+     TODO Skip this by serializing in-place */
+  if( serialized_sz < meta->dlen ) {
+    ulong _sz;
+    int   _err = 0;
+    void * orig = fd_acc_mgr_view_data( ctx.global->acc_mgr, ctx.global->funk_txn, address, &_sz, &_err );
+    if( FD_UNLIKELY( (_err!=0) | (!orig) ) ) {
+      FD_LOG_ERR(( "fd_acc_mgr_view_data failed: %d", _err ));
+    }
+    fd_memcpy( (void       *)( (ulong)raw_acc + serialized_sz ),
+               (void const *)( (ulong)orig    + sizeof(fd_account_meta_t) + serialized_sz ),
+               meta->dlen - serialized_sz );
+  }
 
   /* Encode account data */
   fd_bincode_encode_ctx_t encode = {
@@ -473,6 +489,11 @@ int fd_executor_vote_program_execute_instruction(
       /* TODO free */
       return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
     }
+
+    fd_bincode_destroy_ctx_t destroy = {
+      .freef     = ctx.global->freef,
+      .freef_arg = ctx.global->allocf_arg
+    };
 
     /* Accounts */
     uchar const * instr_acc_idxs = ((uchar const *)ctx.txn_ctx->txn_raw->raw + ctx.instr->acct_off);
@@ -1342,43 +1363,24 @@ int fd_executor_vote_program_execute_instruction(
         }
 
         /* Deinitialize */
-        FD_LOG_WARNING(( "TODO deinit" ));
+        fd_vote_state_destroy( vote_state, &destroy );
+        memset( vote_state, 0, sizeof(fd_vote_state_t) );
+        fd_vote_prior_voters_t prior_voters = {
+          .idx = 31,
+          .is_empty = 1,
+        };
+        vote_state->prior_voters = prior_voters;
       }
 
       metadata.info.lamports = post_balance;
 
       /* Write back the new vote state */
 
-      ulong encoded_vote_state_versioned_size = fd_vote_state_versioned_size( &vote_state_versioned );
-      uchar* encoded_vote_state_versioned = (uchar *)(ctx.global->allocf)( ctx.global->allocf_arg, 8UL, encoded_vote_state_versioned_size );
-      fd_memset(encoded_vote_state_versioned, 0, encoded_vote_state_versioned_size);
+      int save_result = fd_vote_save_account( &vote_state_versioned, &metadata, vote_acc_addr, ctx );
+      if( FD_UNLIKELY( save_result != FD_EXECUTOR_INSTR_SUCCESS ) )
+        return save_result;
 
-      fd_bincode_encode_ctx_t ctx3;
-      ctx3.data = encoded_vote_state_versioned;
-      ctx3.dataend = encoded_vote_state_versioned + encoded_vote_state_versioned_size;
-      if ( fd_vote_state_versioned_encode( &vote_state_versioned, &ctx3 ) )
-        FD_LOG_ERR(("fd_vote_state_versioned_encode failed"));
-
-      fd_solana_account_t structured_account;
-      structured_account.data = encoded_vote_state_versioned;
-      structured_account.data_len = encoded_vote_state_versioned_size;
-      structured_account.executable = 0;
-      structured_account.rent_epoch = 0;
-      /* FIXME uninitialized fields?? */
-      memcpy( &structured_account.owner, ctx.global->solana_vote_program, sizeof(fd_pubkey_t) );
-
-      int write_result = fd_acc_mgr_write_structured_account( ctx.global->acc_mgr, ctx.global->funk_txn, ctx.global->bank.solana_bank.slot, vote_acc_addr, &structured_account );
-      if ( write_result != FD_ACC_MGR_SUCCESS ) {
-        FD_LOG_WARNING(( "failed to write account data" ));
-        return write_result;
-      }
-      fd_acc_mgr_update_hash ( ctx.global->acc_mgr, &metadata, ctx.global->funk_txn, ctx.global->bank.solana_bank.slot, vote_acc_addr, (uchar*)encoded_vote_state_versioned, encoded_vote_state_versioned_size);
-
-      fd_bincode_destroy_ctx_t ctx4;
-      ctx4.freef = ctx.global->freef;
-      ctx4.freef_arg = ctx.global->allocf_arg;
-      fd_vote_state_versioned_destroy( &vote_state_versioned, &ctx4 );
-
+      fd_vote_state_versioned_destroy( &vote_state_versioned, &destroy );
       break;
     }
     default:
