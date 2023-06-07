@@ -161,17 +161,19 @@ int fd_executor_config_program_execute_instruction( instruction_ctx_t ctx ) {
 
    /* Disallow duplicate keys
       https://github.com/solana-labs/solana/blob/a03ae63daff987912c48ee286eb8ee7e8a84bf01/programs/config/src/config_processor.rs#L105-L115 */
-   for ( deq_fd_config_keys_pair_t_iter_t iter = deq_fd_config_keys_pair_t_iter_init( keys );
-         !deq_fd_config_keys_pair_t_iter_done( keys, iter );
-         iter = deq_fd_config_keys_pair_t_iter_next( keys, iter ) ) {
-     fd_config_keys_pair_t * elem = deq_fd_config_keys_pair_t_iter_ele( keys, iter );
-     for ( deq_fd_config_keys_pair_t_iter_t iter2 = deq_fd_config_keys_pair_t_iter_next( keys, iter );
-           !deq_fd_config_keys_pair_t_iter_done( keys, iter2 );
-           iter2 = deq_fd_config_keys_pair_t_iter_next( keys, iter2 ) ) {
-       fd_config_keys_pair_t * elem2 = deq_fd_config_keys_pair_t_iter_ele( keys, iter2 );
-       if ( memcmp( &elem->key, &elem2->key, sizeof(fd_pubkey_t) ) == 0 ) {
-         return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
-       }
+   if ( ctx.global->features.dedupe_config_program_signers == 1 ) {
+      for ( deq_fd_config_keys_pair_t_iter_t iter = deq_fd_config_keys_pair_t_iter_init( keys );
+            !deq_fd_config_keys_pair_t_iter_done( keys, iter );
+            iter = deq_fd_config_keys_pair_t_iter_next( keys, iter ) ) {
+      fd_config_keys_pair_t * elem = deq_fd_config_keys_pair_t_iter_ele( keys, iter );
+      for ( deq_fd_config_keys_pair_t_iter_t iter2 = deq_fd_config_keys_pair_t_iter_next( keys, iter );
+            !deq_fd_config_keys_pair_t_iter_done( keys, iter2 );
+            iter2 = deq_fd_config_keys_pair_t_iter_next( keys, iter2 ) ) {
+         fd_config_keys_pair_t * elem2 = deq_fd_config_keys_pair_t_iter_ele( keys, iter2 );
+         if ( memcmp( &elem->key, &elem2->key, sizeof(fd_pubkey_t) ) == 0 ) {
+            return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+         }
+         }
       }
    }
 
