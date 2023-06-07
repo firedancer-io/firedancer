@@ -928,7 +928,7 @@ typedef struct fd_sysvar_fees fd_sysvar_fees_t;
 
 struct fd_config_keys_pair {
   fd_pubkey_t   key;
-  unsigned char value;
+  unsigned char signer;
 };
 typedef struct fd_config_keys_pair fd_config_keys_pair_t;
 #define FD_CONFIG_KEYS_PAIR_FOOTPRINT sizeof(fd_config_keys_pair_t)

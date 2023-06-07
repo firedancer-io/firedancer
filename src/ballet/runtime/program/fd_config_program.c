@@ -90,7 +90,7 @@ int fd_executor_config_program_execute_instruction( instruction_ctx_t ctx ) {
    for ( ulong i = 0; i < instruction.keys_len; i++ ) {
       fd_config_keys_pair_t* elem = &instruction.keys[i];
       /* Skip account if it is not a signer */
-      if ( elem->value == 0 ) {
+      if ( elem->signer == 0 ) {
          continue;
       }
 
@@ -134,7 +134,7 @@ int fd_executor_config_program_execute_instruction( instruction_ctx_t ctx ) {
          uchar key_present_in_stored_signers = 0;
          for ( ulong i = 0; i < config_account_state.keys_len; i++ ) {
             /* Skip the account if it is not a signer */
-            if ( config_account_state.keys[i].value == 0 ) {
+            if ( config_account_state.keys[i].signer == 0 ) {
                continue;
             }
 
@@ -171,7 +171,7 @@ int fd_executor_config_program_execute_instruction( instruction_ctx_t ctx ) {
       https://github.com/solana-labs/solana/blob/a03ae63daff987912c48ee286eb8ee7e8a84bf01/programs/config/src/config_processor.rs#L117-L126 */
    ulong current_signer_count = 0;
    for ( ulong i = 0; i < config_account_state.keys_len; i++ ) {
-     if ( config_account_state.keys[i].value == 1 ) {
+     if ( config_account_state.keys[i].signer == 1 ) {
        current_signer_count += 1;
      }
    }

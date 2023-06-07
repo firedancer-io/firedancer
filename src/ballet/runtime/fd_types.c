@@ -4773,7 +4773,7 @@ int fd_config_keys_pair_decode(fd_config_keys_pair_t* self, fd_bincode_decode_ct
   int err;
   err = fd_pubkey_decode(&self->key, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint8_decode(&self->value, ctx);
+  err = fd_bincode_uint8_decode(&self->signer, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   return FD_BINCODE_SUCCESS;
 }
@@ -4787,7 +4787,7 @@ void fd_config_keys_pair_destroy(fd_config_keys_pair_t* self, fd_bincode_destroy
 void fd_config_keys_pair_walk(fd_config_keys_pair_t* self, fd_walk_fun_t fun, const char *name, int level) {
   fun(self, name, 32, "fd_config_keys_pair", level++);
   fd_pubkey_walk(&self->key, fun, "key", level + 1);
-  fun(&self->value, "value", 9, "uchar", level + 1);
+  fun(&self->signer, "signer", 9, "uchar", level + 1);
   fun(self, name, 33, "fd_config_keys_pair", --level);
 }
 ulong fd_config_keys_pair_size(fd_config_keys_pair_t const * self) {
@@ -4801,7 +4801,7 @@ int fd_config_keys_pair_encode(fd_config_keys_pair_t const * self, fd_bincode_en
   int err;
   err = fd_pubkey_encode(&self->key, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint8_encode(&self->value, ctx);
+  err = fd_bincode_uint8_encode(&self->signer, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   return FD_BINCODE_SUCCESS;
 }

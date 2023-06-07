@@ -771,7 +771,7 @@
       "type": "struct",
       "fields": [
         { "name": "key", "type": "pubkey" },
-        { "name": "value", "type": "unsigned char" }
+        { "name": "signer", "type": "unsigned char" }
       ]
     },
     {
