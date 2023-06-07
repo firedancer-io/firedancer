@@ -2156,7 +2156,7 @@ int fd_slot_map_pair_encode(fd_slot_map_pair_t* self, fd_bincode_encode_ctx_t * 
 }
 
 int fd_solana_accounts_db_fields_decode(fd_solana_accounts_db_fields_t* self, fd_bincode_decode_ctx_t * ctx) {
-  int   err;
+  int err;
   ulong storages_len;
   err = fd_bincode_uint64_decode(&storages_len, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -2265,7 +2265,7 @@ ulong fd_solana_accounts_db_fields_size(fd_solana_accounts_db_fields_t* self) {
 }
 
 int fd_solana_accounts_db_fields_encode(fd_solana_accounts_db_fields_t* self, fd_bincode_encode_ctx_t * ctx) {
-  int   err;
+  int err;
   ulong storages_len = fd_slot_account_pair_t_map_size(self->storages_pool, self->storages_root);
   err = fd_bincode_uint64_encode(&storages_len, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -2469,7 +2469,7 @@ int fd_poh_config_encode(fd_poh_config_t* self, fd_bincode_encode_ctx_t * ctx) {
 }
 
 int fd_string_pubkey_pair_decode(fd_string_pubkey_pair_t* self, fd_bincode_decode_ctx_t * ctx) {
-  int   err;
+  int err;
   ulong slen;
   err = fd_bincode_uint64_decode(&slen, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -2507,7 +2507,7 @@ ulong fd_string_pubkey_pair_size(fd_string_pubkey_pair_t* self) {
 }
 
 int fd_string_pubkey_pair_encode(fd_string_pubkey_pair_t* self, fd_bincode_encode_ctx_t * ctx) {
-  int   err;
+  int err;
   ulong slen = strlen((char *) self->string);
   err = fd_bincode_uint64_encode(&slen, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -5462,7 +5462,7 @@ int fd_vote_instruction_inner_decode(fd_vote_instruction_inner_t* self, uint dis
   }
   case 3: {
     err = fd_bincode_uint64_decode(&self->withdraw, ctx);
-    if ( FD_UNLIKELY(err) ) return err;
+  if ( FD_UNLIKELY(err) ) return err;
     return FD_BINCODE_SUCCESS;
   }
   case 4: {
@@ -5470,7 +5470,7 @@ int fd_vote_instruction_inner_decode(fd_vote_instruction_inner_t* self, uint dis
   }
   case 5: {
     err = fd_bincode_uint8_decode(&self->update_commission, ctx);
-    if ( FD_UNLIKELY(err) ) return err;
+  if ( FD_UNLIKELY(err) ) return err;
     return FD_BINCODE_SUCCESS;
   }
   case 6: {
@@ -5714,12 +5714,12 @@ int fd_vote_instruction_inner_encode(fd_vote_instruction_inner_t* self, uint dis
   }
   case 3: {
     err = fd_bincode_uint64_encode(&self->withdraw, ctx);
-    if ( FD_UNLIKELY(err) ) return err;
+  if ( FD_UNLIKELY(err) ) return err;
     break;
   }
   case 5: {
     err = fd_bincode_uint8_encode(&self->update_commission, ctx);
-    if ( FD_UNLIKELY(err) ) return err;
+  if ( FD_UNLIKELY(err) ) return err;
     break;
   }
   case 6: {
@@ -6115,7 +6115,7 @@ int fd_system_program_instruction_inner_decode(fd_system_program_instruction_inn
   }
   case 2: {
     err = fd_bincode_uint64_decode(&self->transfer, ctx);
-    if ( FD_UNLIKELY(err) ) return err;
+  if ( FD_UNLIKELY(err) ) return err;
     return FD_BINCODE_SUCCESS;
   }
   case 3: {
@@ -6126,7 +6126,7 @@ int fd_system_program_instruction_inner_decode(fd_system_program_instruction_inn
   }
   case 5: {
     err = fd_bincode_uint64_decode(&self->withdraw_nonce_account, ctx);
-    if ( FD_UNLIKELY(err) ) return err;
+  if ( FD_UNLIKELY(err) ) return err;
     return FD_BINCODE_SUCCESS;
   }
   case 6: {
@@ -6137,7 +6137,7 @@ int fd_system_program_instruction_inner_decode(fd_system_program_instruction_inn
   }
   case 8: {
     err = fd_bincode_uint64_decode(&self->allocate, ctx);
-    if ( FD_UNLIKELY(err) ) return err;
+  if ( FD_UNLIKELY(err) ) return err;
     return FD_BINCODE_SUCCESS;
   }
   case 9: {
@@ -6344,7 +6344,7 @@ int fd_system_program_instruction_inner_encode(fd_system_program_instruction_inn
   }
   case 2: {
     err = fd_bincode_uint64_encode(&self->transfer, ctx);
-    if ( FD_UNLIKELY(err) ) return err;
+  if ( FD_UNLIKELY(err) ) return err;
     break;
   }
   case 3: {
@@ -6354,7 +6354,7 @@ int fd_system_program_instruction_inner_encode(fd_system_program_instruction_inn
   }
   case 5: {
     err = fd_bincode_uint64_encode(&self->withdraw_nonce_account, ctx);
-    if ( FD_UNLIKELY(err) ) return err;
+  if ( FD_UNLIKELY(err) ) return err;
     break;
   }
   case 6: {
@@ -6369,7 +6369,7 @@ int fd_system_program_instruction_inner_encode(fd_system_program_instruction_inn
   }
   case 8: {
     err = fd_bincode_uint64_encode(&self->allocate, ctx);
-    if ( FD_UNLIKELY(err) ) return err;
+  if ( FD_UNLIKELY(err) ) return err;
     break;
   }
   case 9: {
@@ -7174,12 +7174,12 @@ int fd_stake_instruction_inner_decode(fd_stake_instruction_inner_t* self, uint d
   }
   case 3: {
     err = fd_bincode_uint64_decode(&self->split, ctx);
-    if ( FD_UNLIKELY(err) ) return err;
+  if ( FD_UNLIKELY(err) ) return err;
     return FD_BINCODE_SUCCESS;
   }
   case 4: {
     err = fd_bincode_uint64_decode(&self->withdraw, ctx);
-    if ( FD_UNLIKELY(err) ) return err;
+  if ( FD_UNLIKELY(err) ) return err;
     return FD_BINCODE_SUCCESS;
   }
   case 5: {
@@ -7382,12 +7382,12 @@ int fd_stake_instruction_inner_encode(fd_stake_instruction_inner_t* self, uint d
   }
   case 3: {
     err = fd_bincode_uint64_encode(&self->split, ctx);
-    if ( FD_UNLIKELY(err) ) return err;
+  if ( FD_UNLIKELY(err) ) return err;
     break;
   }
   case 4: {
     err = fd_bincode_uint64_encode(&self->withdraw, ctx);
-    if ( FD_UNLIKELY(err) ) return err;
+  if ( FD_UNLIKELY(err) ) return err;
     break;
   }
   case 8: {
@@ -7967,17 +7967,17 @@ int fd_compute_budget_program_instruction_inner_decode(fd_compute_budget_program
   }
   case 1: {
     err = fd_bincode_uint32_decode(&self->request_heap_frame, ctx);
-    if ( FD_UNLIKELY(err) ) return err;
+  if ( FD_UNLIKELY(err) ) return err;
     return FD_BINCODE_SUCCESS;
   }
   case 2: {
     err = fd_bincode_uint32_decode(&self->set_compute_unit_limit, ctx);
-    if ( FD_UNLIKELY(err) ) return err;
+  if ( FD_UNLIKELY(err) ) return err;
     return FD_BINCODE_SUCCESS;
   }
   case 3: {
     err = fd_bincode_uint64_decode(&self->set_compute_unit_price, ctx);
-    if ( FD_UNLIKELY(err) ) return err;
+  if ( FD_UNLIKELY(err) ) return err;
     return FD_BINCODE_SUCCESS;
   }
   default: return FD_BINCODE_ERR_ENCODING;
@@ -8071,17 +8071,17 @@ int fd_compute_budget_program_instruction_inner_encode(fd_compute_budget_program
   }
   case 1: {
     err = fd_bincode_uint32_encode(&self->request_heap_frame, ctx);
-    if ( FD_UNLIKELY(err) ) return err;
+  if ( FD_UNLIKELY(err) ) return err;
     break;
   }
   case 2: {
     err = fd_bincode_uint32_encode(&self->set_compute_unit_limit, ctx);
-    if ( FD_UNLIKELY(err) ) return err;
+  if ( FD_UNLIKELY(err) ) return err;
     break;
   }
   case 3: {
     err = fd_bincode_uint64_encode(&self->set_compute_unit_price, ctx);
-    if ( FD_UNLIKELY(err) ) return err;
+  if ( FD_UNLIKELY(err) ) return err;
     break;
   }
   }
