@@ -42,3 +42,8 @@ test-ledger*
 
 # Logs
 *.log
+
+# Temp ... remove this
+actual.bin
+expected.bin
+
