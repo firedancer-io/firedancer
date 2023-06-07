@@ -6,10 +6,10 @@
 
 /* Context argument used for encoding */
 struct fd_bincode_encode_ctx {
-    /* Current position in data buffer */
-    void * data;
-    /* End of buffer */
-    void * dataend;
+  /* Current position in data buffer */
+  void * data;
+  /* End of buffer */
+  void * dataend;
 };
 typedef struct fd_bincode_encode_ctx fd_bincode_encode_ctx_t;
 
@@ -20,21 +20,21 @@ typedef void   (*fd_free_fun_t) (void * arg, void * ptr);
 
 /* Context argument used for decoding */
 struct fd_bincode_decode_ctx {
-    /* Current position in data buffer */
-    void const *   data;
-    /* End of buffer */
-    void const *   dataend;
-    /* Allocator for dynamic memory */
-    fd_alloc_fun_t allocf;
-    void *         allocf_arg;
+  /* Current position in data buffer */
+  void const *   data;
+  /* End of buffer */
+  void const *   dataend;
+  /* Allocator for dynamic memory */
+  fd_alloc_fun_t allocf;
+  void *         allocf_arg;
 };
 typedef struct fd_bincode_decode_ctx fd_bincode_decode_ctx_t;
 
 /* Context argument used for calling "destroy" on a structure */
 struct fd_bincode_destroy_ctx {
-    /* Allocator for dynamic memory */
-    fd_free_fun_t freef;
-    void *        freef_arg;
+  /* Allocator for dynamic memory */
+  fd_free_fun_t freef;
+  void *        freef_arg;
 };
 typedef struct fd_bincode_destroy_ctx fd_bincode_destroy_ctx_t;
 
@@ -44,8 +44,10 @@ typedef struct fd_bincode_destroy_ctx fd_bincode_destroy_ctx_t;
 #define FD_BINCODE_ERR_ENCODING -3  /* Invalid encoding */
 #define FD_BINCODE_ERR_SMALL_DEQUE -4 /* deque max size is too small */
 
-static inline
-int fd_bincode_uint128_decode(uint128 * self, fd_bincode_decode_ctx_t * ctx) {
+#if FD_HAS_INT128
+
+static inline int
+fd_bincode_uint128_decode(uint128 * self, fd_bincode_decode_ctx_t * ctx) {
   const uint128 * ptr = (const uint128 *) ctx->data;
   if ( FD_UNLIKELY((void const *) (ptr + 1) > ctx->dataend ) )
     return FD_BINCODE_ERR_UNDERFLOW;
@@ -56,12 +58,12 @@ int fd_bincode_uint128_decode(uint128 * self, fd_bincode_decode_ctx_t * ctx) {
   memcpy(self, ptr, sizeof(uint128));
 #endif
   ctx->data = ptr + 1;
-  
+
   return FD_BINCODE_SUCCESS;
 }
 
-static inline
-int fd_bincode_uint128_encode(uint128 * self, fd_bincode_encode_ctx_t * ctx) {
+static inline int
+fd_bincode_uint128_encode(uint128 const * self, fd_bincode_encode_ctx_t * ctx) {
   uint128 * ptr = (uint128 *) ctx->data;
   if ( FD_UNLIKELY((void const *) (ptr + 1) > ctx->dataend ) )
     return FD_BINCODE_ERR_OVERFLOW;
@@ -72,182 +74,201 @@ int fd_bincode_uint128_encode(uint128 * self, fd_bincode_encode_ctx_t * ctx) {
   memcpy(ptr, *self, sizeof(uint128));
 #endif
   ctx->data = ptr + 1;
-  
+
   return FD_BINCODE_SUCCESS;
 }
 
-static inline
-int fd_bincode_uint64_decode(ulong * self, fd_bincode_decode_ctx_t * ctx) {
+#endif /* FD_HAS_INT128 */
+
+static inline int
+fd_bincode_uint64_decode( ulong *                   self,
+                          fd_bincode_decode_ctx_t * ctx ) {
   const ulong *ptr = (const ulong *) ctx->data;
   if ( FD_UNLIKELY((void const *) (ptr + 1) > ctx->dataend ) )
     return FD_BINCODE_ERR_UNDERFLOW;
 
   *self = *ptr;
   ctx->data = ptr + 1;
-  
+
   return FD_BINCODE_SUCCESS;
 }
 
-static inline
-int fd_bincode_uint64_encode(ulong * self, fd_bincode_encode_ctx_t * ctx) {
+static inline int
+fd_bincode_uint64_encode( ulong const *             self,
+                          fd_bincode_encode_ctx_t * ctx ) {
   ulong * ptr = (ulong *) ctx->data;
   if ( FD_UNLIKELY((void const *) (ptr + 1) > ctx->dataend ) )
     return FD_BINCODE_ERR_OVERFLOW;
 
   *ptr = *self;
   ctx->data = ptr + 1;
-  
+
   return FD_BINCODE_SUCCESS;
 }
 
-static inline
-int fd_bincode_double_decode(double * self, fd_bincode_decode_ctx_t * ctx) {
+static inline int
+fd_bincode_double_decode( double *                  self,
+                          fd_bincode_decode_ctx_t * ctx ) {
   const double * ptr = (const double *) ctx->data;
   if ( FD_UNLIKELY((void const *) (ptr + 1) > ctx->dataend ) )
     return FD_BINCODE_ERR_UNDERFLOW;
 
   *self = *ptr;
   ctx->data = ptr + 1;
-  
+
   return FD_BINCODE_SUCCESS;
 }
 
-static inline
-int fd_bincode_double_encode(double * self, fd_bincode_encode_ctx_t * ctx) {
+static inline int
+fd_bincode_double_encode( double const *            self,
+                          fd_bincode_encode_ctx_t * ctx ) {
   double * ptr = (double *) ctx->data;
   if ( FD_UNLIKELY((void const *) (ptr + 1) > ctx->dataend ) )
     return FD_BINCODE_ERR_OVERFLOW;
 
   *ptr = *self;
   ctx->data = ptr + 1;
-  
+
   return FD_BINCODE_SUCCESS;
 }
 
-static inline
-int fd_bincode_uint32_decode(unsigned int * self, fd_bincode_decode_ctx_t * ctx) {
-  const unsigned int * ptr = (const unsigned int *) ctx->data;
+static inline int
+fd_bincode_uint32_decode( uint *                    self,
+                          fd_bincode_decode_ctx_t * ctx ) {
+  uint const * ptr = (uint const *) ctx->data;
   if ( FD_UNLIKELY((void const *) (ptr + 1) > ctx->dataend ) )
     return FD_BINCODE_ERR_UNDERFLOW;
 
   *self = *ptr;
   ctx->data = ptr + 1;
-  
+
   return FD_BINCODE_SUCCESS;
 }
 
-static inline
-int fd_bincode_uint32_encode(unsigned int * self, fd_bincode_encode_ctx_t * ctx) {
+static inline int
+fd_bincode_uint32_encode( uint const *              self,
+                          fd_bincode_encode_ctx_t * ctx ) {
   unsigned int * ptr = (unsigned int *) ctx->data;
   if ( FD_UNLIKELY((void const *) (ptr + 1) > ctx->dataend ) )
     return FD_BINCODE_ERR_OVERFLOW;
 
   *ptr = *self;
   ctx->data = ptr + 1;
-  
+
   return FD_BINCODE_SUCCESS;
 }
 
-static inline
-int fd_bincode_uint16_decode(ushort * self, fd_bincode_decode_ctx_t * ctx) {
+static inline int
+fd_bincode_uint16_decode( ushort *                  self,
+                          fd_bincode_decode_ctx_t * ctx ) {
   const ushort * ptr = (const ushort *) ctx->data;
   if ( FD_UNLIKELY((void const *) (ptr + 1) > ctx->dataend ) )
     return FD_BINCODE_ERR_UNDERFLOW;
 
   *self = *ptr;
   ctx->data = ptr + 1;
-  
+
   return FD_BINCODE_SUCCESS;
 }
 
-static inline
-int fd_bincode_uint16_encode(ushort* self, fd_bincode_encode_ctx_t * ctx) {
+static inline int
+fd_bincode_uint16_encode( ushort const *            self,
+                          fd_bincode_encode_ctx_t * ctx ) {
   ushort * ptr = (ushort *) ctx->data;
   if ( FD_UNLIKELY((void const *) (ptr + 1) > ctx->dataend ) )
     return FD_BINCODE_ERR_OVERFLOW;
 
   *ptr = *self;
   ctx->data = ptr + 1;
-  
+
   return FD_BINCODE_SUCCESS;
 }
 
-static inline
-int fd_bincode_uint8_decode(unsigned char* self, fd_bincode_decode_ctx_t * ctx) {
-  const unsigned char * ptr = (const unsigned char *) ctx->data;
+static inline int
+fd_bincode_uint8_decode( uchar *                   self,
+                         fd_bincode_decode_ctx_t * ctx ) {
+  uchar const * ptr = (uchar const *) ctx->data;
   if ( FD_UNLIKELY((void const *) (ptr + 1) > ctx->dataend ) )
     return FD_BINCODE_ERR_UNDERFLOW;
 
   *self = *ptr;
   ctx->data = ptr + 1;
-  
+
   return FD_BINCODE_SUCCESS;
 }
 
-static inline
-int fd_bincode_uint8_encode(unsigned char * self, fd_bincode_encode_ctx_t * ctx) {
-  unsigned char * ptr = (unsigned char *) ctx->data;
+static inline int
+fd_bincode_uint8_encode( uchar const *             self,
+                         fd_bincode_encode_ctx_t * ctx ) {
+  uchar * ptr = (uchar *) ctx->data;
   if ( FD_UNLIKELY((void const *) (ptr + 1) > ctx->dataend ) )
     return FD_BINCODE_ERR_OVERFLOW;
 
   *ptr = *self;
   ctx->data = ptr + 1;
-  
+
   return FD_BINCODE_SUCCESS;
 }
 
-static inline
-int fd_bincode_bytes_decode(unsigned char * self, ulong len, fd_bincode_decode_ctx_t * ctx) {
-  unsigned char * ptr = (unsigned char *) ctx->data;
+static inline int
+fd_bincode_bytes_decode( uchar *                   self,
+                         ulong                     len,
+                         fd_bincode_decode_ctx_t * ctx ) {
+  uchar * ptr = (uchar *) ctx->data;
   if ( FD_UNLIKELY((void *) (ptr + len) > ctx->dataend ) )
     return FD_BINCODE_ERR_UNDERFLOW;
 
   fd_memcpy(self, ptr, len);
   ctx->data = ptr + len;
-  
+
   return FD_BINCODE_SUCCESS;
 }
 
-static inline
-int fd_bincode_bytes_encode(unsigned char * self, ulong len, fd_bincode_encode_ctx_t* ctx) {
-  unsigned char *ptr = (unsigned char *) ctx->data;
+static inline int
+fd_bincode_bytes_encode( uchar const *             self,
+                         ulong                     len,
+                         fd_bincode_encode_ctx_t * ctx ) {
+  uchar *ptr = (uchar *) ctx->data;
   if ( FD_UNLIKELY((void *) (ptr + len) > ctx->dataend ) )
     return FD_BINCODE_ERR_OVERFLOW;
 
   fd_memcpy(ptr, self, len);
   ctx->data = ptr + len;
-  
+
   return FD_BINCODE_SUCCESS;
 }
 
-static inline
-int fd_bincode_option_decode(unsigned char * self, fd_bincode_decode_ctx_t * ctx) {
-  unsigned char * ptr = (unsigned char *) ctx->data;
+static inline int
+fd_bincode_option_decode( uchar *                   self,
+                          fd_bincode_decode_ctx_t * ctx ) {
+  uchar * ptr = (uchar *) ctx->data;
   if ( FD_UNLIKELY((void *) (ptr + 1) > ctx->dataend ) )
     return FD_BINCODE_ERR_UNDERFLOW;
 
   *self = *ptr;
   ctx->data = ptr + 1;
-  
+
   return FD_BINCODE_SUCCESS;
 }
 
-static inline
-int fd_bincode_option_encode(unsigned char self, fd_bincode_encode_ctx_t * ctx) {
-  unsigned char * ptr = (unsigned char *) ctx->data;
+static inline int
+fd_bincode_option_encode( uchar                     self,
+                          fd_bincode_encode_ctx_t * ctx ) {
+  uchar * ptr = (uchar *) ctx->data;
   if ( FD_UNLIKELY((void *) (ptr + 1) > ctx->dataend ) )
     return FD_BINCODE_ERR_OVERFLOW;
 
   *ptr = self;
   ctx->data = ptr + 1;
-  
+
   return FD_BINCODE_SUCCESS;
 }
 
 /* Alternate versions of fd_cu16_dec to make the function signature more consistent with the
    other fd_bincode_decode functions.  */
-static inline
-int fd_bincode_compact_u16_decode( ushort * self, fd_bincode_decode_ctx_t * ctx) {
+static inline int
+fd_bincode_compact_u16_decode( ushort *                  self,
+                               fd_bincode_decode_ctx_t * ctx ) {
   const uchar * ptr = (const uchar*) ctx->data;
 
   if( FD_LIKELY( (void *) (ptr + 1) <= ctx->dataend && !(0x80U & ptr[0]) ) ) {
@@ -255,7 +276,7 @@ int fd_bincode_compact_u16_decode( ushort * self, fd_bincode_decode_ctx_t * ctx)
     ctx->data = ptr + 1;
     return FD_BINCODE_SUCCESS;
   }
-  
+
   if( FD_LIKELY( (void *) (ptr + 2) <= ctx->dataend && !(0x80U & ptr[1]) ) ) {
     if( FD_UNLIKELY( !ptr[1] ) ) /* Detect non-minimal encoding */
       return FD_BINCODE_ERR_ENCODING;
@@ -263,7 +284,7 @@ int fd_bincode_compact_u16_decode( ushort * self, fd_bincode_decode_ctx_t * ctx)
     ctx->data = ptr + 2;
     return FD_BINCODE_SUCCESS;
   }
-  
+
   if( FD_LIKELY( (void *) (ptr + 3) <= ctx->dataend && !(0xFCU & ptr[2]) ) ) {
     if( FD_UNLIKELY( !ptr[2] ) ) /* Detect non-minimal encoding */
       return FD_BINCODE_ERR_ENCODING;
@@ -275,8 +296,9 @@ int fd_bincode_compact_u16_decode( ushort * self, fd_bincode_decode_ctx_t * ctx)
   return FD_BINCODE_ERR_UNDERFLOW;
 }
 
-static inline
-int fd_bincode_compact_u16_encode( ushort * self, fd_bincode_encode_ctx_t * ctx) {
+static inline int
+fd_bincode_compact_u16_encode( ushort const *            self,
+                               fd_bincode_encode_ctx_t * ctx ) {
   uchar * ptr = (uchar*) ctx->data;
   ulong val = *self;
 
@@ -309,14 +331,15 @@ int fd_bincode_compact_u16_encode( ushort * self, fd_bincode_encode_ctx_t * ctx)
 }
 
 /* Decodes an integer encoded using the serde_varint algorithm:
-   https://github.com/solana-labs/solana/blob/master/sdk/program/src/serde_varint.rs 
-   
+   https://github.com/solana-labs/solana/blob/master/sdk/program/src/serde_varint.rs
+
    A variable number of bytes could have been used to encode the integer.
    The most significant bit of each byte indicates if more bytes have been used, so we keep consuming until
    we reach a byte where the most significant bit is 0.
 */
-static inline
-int fd_bincode_varint_decode( ulong * self, fd_bincode_decode_ctx_t * ctx ) {
+static inline int
+fd_bincode_varint_decode( ulong *                   self,
+                          fd_bincode_decode_ctx_t * ctx ) {
   const uchar * ptr = (const uchar*) ctx->data;
   ulong val = 0;
   ulong shift = 0;
@@ -334,8 +357,9 @@ int fd_bincode_varint_decode( ulong * self, fd_bincode_decode_ctx_t * ctx ) {
   }
 }
 
-static inline
-int fd_bincode_varint_encode( ulong val, fd_bincode_encode_ctx_t * ctx ) {
+static inline int
+fd_bincode_varint_encode( ulong                     val,
+                          fd_bincode_encode_ctx_t * ctx ) {
   uchar * ptr = (uchar *) ctx->data;
   while (1) {
     if ( FD_UNLIKELY((void *) (ptr + 1) > ctx->dataend ) )

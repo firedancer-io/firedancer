@@ -318,7 +318,7 @@ def do_vector_body_encode(n, f):
 
 def do_deque_body_encode(n, f):
     print("  if ( self->" + f["name"] + " ) {", file=body)
-    
+
     if "modifier" in f and f["modifier"] == "compact":
         print("    ushort " + f["name"] + "_len = (ushort)" + deque_prefix(n, f) + "_cnt(self->" + f["name"] + ");", file=body)
         print("    err = fd_bincode_compact_u16_encode(&" + f["name"] + "_len, ctx);", file=body)
@@ -329,7 +329,7 @@ def do_deque_body_encode(n, f):
 
     print("    for ( " + deque_prefix(n, f) + "_iter_t iter = " + deque_prefix(n, f) + "_iter_init( self->" + f["name"] + " ); !" + deque_prefix(n, f) + "_iter_done( self->" + f["name"] + ", iter ); iter = " + deque_prefix(n, f) + "_iter_next( self->" + f["name"] + ", iter ) ) {", file=body)
     print("      " + deque_elem_type(n, f) + " * ele = " + deque_prefix(n, f) + "_iter_ele( self->" + f["name"] + ", iter );", file=body)
-    
+
     if f["element"] == "uchar" or f["element"] == "unsigned char":
         print("      err = fd_bincode_uint8_encode(ele, ctx);", file=body)
     elif f["element"] == "ulong" or f["element"] == "unsigned long":
@@ -934,10 +934,10 @@ for entry in entries:
 
     print("void " + n + "_new(" + n + "_t* self);", file=header)
     print("int " + n + "_decode(" + n + "_t* self, fd_bincode_decode_ctx_t * ctx);", file=header)
-    print("int " + n + "_encode(" + n + "_t* self, fd_bincode_encode_ctx_t * ctx);", file=header)
+    print("int " + n + "_encode(" + n + "_t const * self, fd_bincode_encode_ctx_t * ctx);", file=header)
     print("void " + n + "_destroy(" + n + "_t* self, fd_bincode_destroy_ctx_t * ctx);", file=header)
     print("void " + n + "_walk(" + n + "_t* self, fd_walk_fun_t fun, const char *name, int level);", file=header)
-    print("ulong " + n + "_size(" + n + "_t* self);", file=header)
+    print("ulong " + n + "_size(" + n + "_t const * self);", file=header)
     print("", file=header)
 
     if entry["type"] == "enum":
@@ -1067,7 +1067,7 @@ for entry in entries:
     print("  fun(self, name, 33, \""+n+"\", --level);", file=body)
     print("}", file=body)
 
-    print("ulong " + n + "_size(" + n + "_t* self) {", file=body)
+    print("ulong " + n + "_size(" + n + "_t const * self) {", file=body)
 
     if entry["type"] == "enum":
       print("  ulong size = 0;", file=body)
@@ -1097,7 +1097,7 @@ for entry in entries:
     print("}", file=body)
     print("", file=body)
     if entry["type"] == "enum":
-        print("int " + n + "_inner_encode(" + n + "_inner_t* self, uint discriminant, fd_bincode_encode_ctx_t * ctx) {", file=body)
+        print("int " + n + "_inner_encode(" + n + "_inner_t const * self, uint discriminant, fd_bincode_encode_ctx_t * ctx) {", file=body)
         first = True
         for i, v in enumerate(entry["variants"]):
             if "type" in v:
@@ -1119,14 +1119,14 @@ for entry in entries:
         print("  return FD_BINCODE_SUCCESS;", file=body)
         print("}", file=body)
 
-        print("int " + n + "_encode(" + n + "_t* self, fd_bincode_encode_ctx_t * ctx) {", file=body)
+        print("int " + n + "_encode(" + n + "_t const * self, fd_bincode_encode_ctx_t * ctx) {", file=body)
         print("  int err;", file=body)
         print("  err = fd_bincode_uint32_encode(&self->discriminant, ctx);", file=body)
         print("  if ( FD_UNLIKELY(err) ) return err;", file=body)
         print("  return " + namespace + "_" + entry["name"] + "_inner_encode(&self->inner" + ", self->discriminant, ctx);", file=body)
         print("}", file=body)
     else:
-      print("int " + n + "_encode(" + n + "_t* self, fd_bincode_encode_ctx_t * ctx) {", file=body)
+      print("int " + n + "_encode(" + n + "_t const * self, fd_bincode_encode_ctx_t * ctx) {", file=body)
       print("  int err;", file=body)
       if "fields" in entry:
         for f in entry["fields"]:
