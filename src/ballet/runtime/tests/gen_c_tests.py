@@ -198,45 +198,8 @@ def main():
 
     feature_list = json.load(open("../feature_map.json", "r"))
 
-    fidx = 1
-
-    fixtures_dir = Path(__file__).parent / "fixtures"
-    fixtures_dir.mkdir(parents=True, exist_ok=True)
     generated_dir = Path(__file__).parent / "generated"
     generated_dir.mkdir(exist_ok=True)
-
-    ############################################################################
-    # Generate blob files containing tests
-    set_stdout(generated_dir / "test_native_programs_imports.h")
-    for test_case_idx, test_case in enumerate(json_test_cases):
-        open(
-            fixtures_dir / f"{test_case_idx}_instr.bin",
-            "wb",
-        ).write(bytes.fromhex(test_case["instruction_data"]))
-        print(
-            f'FD_IMPORT_BINARY( fd_flamenco_native_prog_test_{test_case_idx}_instr, "src/ballet/runtime/tests/fixtures/{test_case_idx}_instr.bin" );'
-        )
-        print(
-            f'FD_IMPORT_BINARY( fd_flamenco_native_prog_test_{test_case_idx}_raw, "src/ballet/runtime/tests/fixtures/{test_case_idx}_raw.bin" );'
-        )
-        for acc_idx, acc in enumerate(test_case["transaction_accounts"]):
-            acc_data = bytes.fromhex(acc["shared_data"]["data"])
-            open(
-                fixtures_dir / f"{test_case_idx}_acc_{acc_idx}_data.bin",
-                "wb",
-            ).write(acc_data)
-            print(
-                f'FD_IMPORT_BINARY( fd_flamenco_native_prog_test_{test_case_idx}_acc_{acc_idx}_data, "src/ballet/runtime/tests/fixtures/{test_case_idx}_acc_{acc_idx}_data.bin" );'
-            )
-        for acc_idx, acc in enumerate(test_case["resulting_accounts"]):
-            acc_data = bytes.fromhex(acc["data"])
-            open(
-                fixtures_dir / f"{test_case_idx}_acc_{acc_idx}_post_data.bin",
-                "wb",
-            ).write(acc_data)
-            print(
-                f'FD_IMPORT_BINARY( fd_flamenco_native_prog_test_{test_case_idx}_acc_{acc_idx}_post_data, "src/ballet/runtime/tests/fixtures/{test_case_idx}_acc_{acc_idx}_post_data.bin" );'
-            )
 
     set_stdout("test_native_programs.c")
     print(
@@ -244,8 +207,6 @@ def main():
 #include <stdio.h>
 #include "fd_tests.h"
 #include "../../base58/fd_base58.h"
-
-#include "generated/test_native_programs_imports.h"
 
 #ifdef _DISABLE_OPTIMIZATION
 #pragma GCC optimize (\"O0\")
@@ -309,14 +270,16 @@ extern int fd_executor_test_suite_check_filter(fd_executor_test_suite_t *suite, 
   test_acc->lamports        = {txn_acc_shared_data["lamports"]}UL;
   test_acc->result_lamports = {format(txn_acc_result["lamports"])}UL;
   test_acc->executable      = {1 if txn_acc_shared_data["executable"] else 0};
-  test_acc->rent_epoch      = {txn_acc_shared_data["rent_epoch"]};
+  test_acc->rent_epoch      = {txn_acc_shared_data["rent_epoch"]};""")
+            if len(data) > 0:
+                print(f"""  static uchar const fd_flamenco_native_prog_test_{test_case_idx}_acc_{acc_idx}_data[] = {{ {",".join([f"0x{b:02x}" for b in data])} }};
   test_acc->data            = fd_flamenco_native_prog_test_{test_case_idx}_acc_{acc_idx}_data;
-  test_acc->data_len        = fd_flamenco_native_prog_test_{test_case_idx}_acc_{acc_idx}_data_sz;
+  test_acc->data_len        = {len(data)}UL;""")
+            if len(result_data) > 0:
+                print(f"""  static uchar const fd_flamenco_native_prog_test_{test_case_idx}_acc_{acc_idx}_post_data[] = {{ {",".join([f"0x{b:02x}" for b in result_data])} }};
   test_acc->result_data     = fd_flamenco_native_prog_test_{test_case_idx}_acc_{acc_idx}_post_data;
-  test_acc->result_data_len = fd_flamenco_native_prog_test_{test_case_idx}_acc_{acc_idx}_post_data_sz;
-  test_acc++;
-"""
-            )
+  test_acc->result_data_len = {len(result_data)}UL;""")
+            print("""  test_acc++;""")
 
         # Serialize the transaction this test case executes
         accounts = []
@@ -357,9 +320,9 @@ extern int fd_executor_test_suite_check_filter(fd_executor_test_suite_t *suite, 
         print(
             f'  fd_base58_decode_32( "{test_case["program_id"]}",  (unsigned char *) &test.program_id);'
         )
-        open(fixtures_dir / f"{test_case_idx}_raw.bin", "wb").write(bytes(serialized))
-        print(f"  test.raw_tx = fd_flamenco_native_prog_test_{test_case_idx}_raw;")
-        print(f"  test.raw_tx_len = fd_flamenco_native_prog_test_{test_case_idx}_raw_sz;")
+        print(f"""  static uchar const fd_flamenco_native_prog_test_{test_case_idx}_raw[] = {{ {",".join([f"0x{b:02x}" for b in serialized])} }};
+  test.raw_tx = fd_flamenco_native_prog_test_{test_case_idx}_raw;
+  test.raw_tx_len = {len(serialized)}UL;""")
         res = test_case["expected_result"]
         print("  test.expected_result = {};".format(serializeResult(res)))
         if "Err" in res and isinstance(res["Err"], dict):
