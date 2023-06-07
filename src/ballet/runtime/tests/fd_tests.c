@@ -209,19 +209,17 @@ int fd_executor_run_test(
   return 0;
 }
 
-extern int run_test(int idx, fd_executor_test_suite_t *suite);
-
 int main(int argc, char **argv) {
   fd_boot( &argc, &argv );
 
-  long test_start = fd_env_strip_cmdline_long(&argc, &argv, "--start", NULL, 0);
-  long test_end = fd_env_strip_cmdline_long(&argc, &argv, "--end", NULL, 1777);
+  ulong test_start = fd_env_strip_cmdline_ulong(&argc, &argv, "--start", NULL, 0UL);
+  ulong test_end = fd_env_strip_cmdline_ulong(&argc, &argv, "--end", NULL, ULONG_MAX);
   long do_test = fd_env_strip_cmdline_long(&argc, &argv, "--test", NULL, -1);
   const char * filter = fd_env_strip_cmdline_cstr(&argc, &argv, "--filter", NULL, NULL);
   const char * net = fd_env_strip_cmdline_cstr(&argc, &argv, "--net", NULL, NULL);
 
   if (-1 != do_test)
-    test_start = test_end = do_test;
+    test_start = test_end = (ulong)do_test;
 
   /* Initialize the test suite */
   fd_executor_test_suite_t suite;
@@ -246,10 +244,14 @@ int main(int argc, char **argv) {
     suite.filter = NULL;
 
   int ret = 0;
-  for (long i = test_start; i <= test_end; i++)  {
-    int r = run_test((int)i, &suite);
+
+  /* Loop through tests */
+  for( ulong idx = test_start; idx <= test_end; idx++ ) {
+    if( FD_UNLIKELY( idx >= test_cnt ) )
+      break;
+    int r = tests[ idx ]( &suite );
     if ((r != 0) && (r != -9999)) {
-      FD_LOG_NOTICE( ("test %ld returned %d", i, r)) ;
+      FD_LOG_NOTICE( ("test %lu returned %d", idx, r)) ;
       ret = r;
     }
   }
