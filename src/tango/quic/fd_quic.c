@@ -2299,8 +2299,8 @@ fd_quic_process_packet( fd_quic_t *   quic,
 
   /* TODO support for vlan? */
 
-  if( pkt.eth->net_type != FD_ETH_HDR_TYPE_IP ) {
-    DEBUG( FD_LOG_DEBUG(( "Invalid ethertype: %4.4x", pkt.eth->eth_type )); )
+  if ( pkt.eth->net_type != fd_ushort_bswap( FD_ETH_HDR_TYPE_IP ) ) {
+    DEBUG( FD_LOG_DEBUG(( "Invalid ethertype: %4.4x", pkt.eth->net_type )); )
     return;
   }
 
@@ -2868,7 +2868,7 @@ fd_quic_tx_buffered( fd_quic_t *      quic,
 
   memcpy( pkt.eth->dst, peer->mac_addr,                 6 );
   memcpy( pkt.eth->src, quic->config.link.src_mac_addr, 6 );
-  pkt.eth->net_type = 0x0800;
+  pkt.eth->net_type = 0x0008;
 
   pkt.ip4->version      = 4;
   pkt.ip4->ihl          = 5;
@@ -5970,4 +5970,3 @@ fd_quic_conn_get_pkt_meta_free_count( fd_quic_conn_t * conn ) {
   }
   return cnt;
 }
-
