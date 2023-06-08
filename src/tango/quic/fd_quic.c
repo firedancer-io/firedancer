@@ -8,8 +8,6 @@
 #include "templ/fd_quic_parse_util.h"
 #include "tls/fd_quic_tls.h"
 
-#include "../util/fd_net_util.h"
-
 #include <errno.h>
 #include <execinfo.h>
 #include <string.h>
@@ -2885,6 +2883,7 @@ fd_quic_tx_buffered( fd_quic_t *      quic,
      determine an appropriate source address */
   pkt.ip4->saddr    = config->net.ip_addr;
   pkt.ip4->daddr    = peer  ->net.ip_addr;
+  pkt.ip4->check    = (ushort)fd_ip4_hdr_check_fast( pkt.ip4 );
 
   pkt.udp->net_sport = conn  ->host.udp_port;
   pkt.udp->net_dport = peer  ->net.udp_port;
@@ -2903,9 +2902,6 @@ fd_quic_tx_buffered( fd_quic_t *      quic,
   rc = fd_quic_encode_ip4( cur_ptr, cur_sz, pkt.ip4 );
   if( FD_UNLIKELY( rc == FD_QUIC_PARSE_FAIL ) )
     FD_LOG_ERR(( "fd_quic_encode_ip4 failed with buffer overrun" ));
-
-  /* calc checksum */
-  fd_quic_net_ipv4_checksum( cur_ptr );
 
   cur_ptr += rc;
   cur_sz  -= rc;
