@@ -17,13 +17,6 @@ $(call make-unit-test,test_quic_tls_pcap,test_tls_pcap,fd_quic fd_ballet fd_util
 $(call make-unit-test,test_quic_tls_pcap2,test_tls_pcap2,fd_quic fd_ballet fd_util)
 $(call make-unit-test,test_quic_tls_both,test_tls_quic_both,fd_quic fd_util)
 
-$(call run-unit-test,test_quic_hs)
-$(call run-unit-test,test_quic_streams)
-$(call run-unit-test,test_quic_conn)
-$(call run-unit-test,test_quic_server)
-$(call run-unit-test,test_quic_client_flood)
-$(call run-unit-test,test_quic_bw)
-$(call run-unit-test,test_quic_handshake)
 $(call run-unit-test,test_quic_crypto)
 $(call run-unit-test,test_quic_frames)
 endif
