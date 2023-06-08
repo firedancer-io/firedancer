@@ -110,6 +110,7 @@ fetch () {
   checkout_repo zstd    https://github.com/facebook/zstd     "v1.5.4"
   checkout_repo openssl https://github.com/quictls/openssl   "OpenSSL_1_1_1t-quic1"
   checkout_repo rocksdb https://github.com/facebook/rocksdb  "v7.10.2"
+  checkout_repo cocotb  https://github.com/cocotb/cocotb.git "v1.7.2"
 }
 
 check_fedora_pkgs () {
@@ -400,6 +401,10 @@ install_rocksdb () {
   make install
 }
 
+install_cocotb () {
+  ${SUDO}python3 -m pip install cocotb==1.7.2
+}
+
 install () {
   export CC=`which gcc`
   export cc=`which gcc`
@@ -408,6 +413,7 @@ install () {
   ( install_zstd    )
   ( install_rocksdb )
   ( install_openssl )
+  ( install_cocotb  )
 
   echo "[~] Done! To wire up $(pwd)/opt with make, run:"
   echo "    source activate-opt"
