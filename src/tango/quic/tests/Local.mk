@@ -11,7 +11,6 @@ $(call make-unit-test,test_quic_bw,test_quic_bw,fd_aio fd_quic fd_ballet fd_tang
 $(call make-unit-test,test_quic_handshake,test_handshake,fd_aio fd_quic fd_util)
 $(call make-unit-test,test_quic_crypto,test_crypto,fd_quic fd_ballet fd_util)
 $(call make-unit-test,test_quic_frames,test_frames,fd_quic fd_util)
-$(call make-unit-test,test_quic_checksum,test_checksum,fd_util)
 $(call make-unit-test,test_quic_layout,test_quic_layout,fd_util)
 $(call make-unit-test,test_quic_tls_decrypt,test_tls_decrypt,fd_quic fd_ballet fd_util)
 $(call make-unit-test,test_quic_tls_pcap,test_tls_pcap,fd_quic fd_ballet fd_util)
